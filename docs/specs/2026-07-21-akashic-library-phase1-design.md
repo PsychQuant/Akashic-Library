@@ -32,6 +32,7 @@ Akashic 是比 Zotero 更全面的資料庫——差異化在衍生知識層（�
 | 8 | 歸屬與結構 | **PsychQuant + umbrella meta-repo（submodules）** | 首發布走 PsychQuant 安全稽核 gate |
 | 9 | 推進路線 | **A：地基先行**（store → MCP → App） | 見第 4 節分期 |
 | 10 | `.bib` 地位 | **降級為編譯產物**（從 store 匯出） | 資料庫本體是 per-entry YAML |
+| 11 | 查詢與圖形 | **查詢 API 一級公民**；關係查詢（同作者/同期刊/引用/相關）＋圖形輸出（Mermaid/DOT） | 互動式視覺化留給 App（Phase 3） |
 
 ## 3. 總體架構
 
@@ -109,6 +110,9 @@ provenance:                       # Zotero namespace——pull 管理、pull 可
 akashic:                          # Akashic 自有 namespace——pull 絕不觸碰
   tags: [identifiability, polychoric]
   status: published
+  relations:                      # 需要「存」的關係（可選）；同作者/同期刊由 metadata 推導、不存
+    cites: [olsson1979maximum]    # 引用（citekey 或 UUID）；Phase 1 手動、Phase 2 OpenAlex 自動補
+    related: [foldnes2019bivariate]  # 人工標記的相關文章
 ```
 
 要點：
@@ -153,11 +157,19 @@ note: 中研院統計所        # 可選
 | `AkashicZoteroImport` | read-only 讀 `zotero.sqlite` → diff → 寫 entries |
 | `AkashicExport` | 經 biblatex-apa-swift 出 `.bib`；CSL-JSON 輸出 |
 | `AkashicIndex` | `.akashic/` SQLite index 重建（全文；embeddings 之後掛） |
+| `AkashicQuery` | 結構化查詢 API（index 之上）：欄位篩選（作者 key/期刊/年份/tag/type）、關係查詢（同作者、同期刊、cites/cited-by、related）、組合條件 |
+| `AkashicGraph` | 關係圖模型（節點＝entry/person/venue；邊＝authored-by / published-in / cites / related）、鄰域展開（某篇文章的 N 度關係圈）、匯出 Mermaid / DOT / GraphML |
 
-- 依賴方向單向往下：`Export/Import/Index → StoreIO → Core`。
+- 依賴方向單向往下：`Export/Import/Index → StoreIO → Core`；`Query/Graph → Index`。
+- **同作者/同期刊等關係由 metadata 推導**（index 建好即得，不另存）；只有引用（cites）
+  與人工標記（related）是儲存的資料（entry 的 `akashic.relations`）。
+- 圖形輸出走文字格式（Mermaid/DOT）：CLI 直接可用（`mmdc`/`dot` render），
+  且 Claude artifact 原生渲染 Mermaid——Phase 2 MCP 接上後「畫出這篇的引用鄰域」零額外成本。
+  互動式視覺化是 Phase 3 App 的事。
 - `biblatex-apa-swift` 只被 `AkashicExport` 依賴——store 本體不綁任何 bib 格式。
 - CLI `akashic` 是 AkashicKit 上的薄殼：`import-zotero` / `validate` / `export-bib` /
-  `resolve-people` / `doctor`（檢查 index 一致性）。
+  `resolve-people` / `doctor`（檢查 index 一致性）/ `query`（結構化查詢，表格或 JSON 輸出）/
+  `graph`（`--focus <citekey> --depth N`，輸出 Mermaid/DOT）。
 
 ## 6. 資料流
 
@@ -179,7 +191,17 @@ entries 變動 → import 尾端或 `akashic doctor` 重建 index → `export-bi
 `.bib`（整庫或 per-manuscript 子集）。所有衍生物可全刪重建；git 只追蹤
 entries / people / notes。
 
-### 6.3 人物解析流（漸進）
+### 6.3 查詢與圖形流
+
+```
+akashic query --author chen-chun-houh --year 2020..2026     → index 查詢 → 表格/JSON
+akashic query --same-journal-as cheng2025identifiability     → 推導關係查詢
+akashic graph --focus cheng2025identifiability --depth 2     → 鄰域展開 → Mermaid/DOT
+```
+
+查詢一律走 index（毫秒級）；圖形＝查詢結果的另一種輸出形態，同一套 `AkashicQuery` 底層。
+
+### 6.4 人物解析流（漸進）
 
 import 時 author 一律先進 `literal`；`akashic resolve-people` 列出高信心候選
 （同 ORCID、alias 完全命中）→ 人工確認 → literal 升格為 key 引用。
@@ -201,14 +223,16 @@ TDD、80% 覆蓋紀律：
 - `AkashicZoteroImport`：fixture sqlite 測四情境——新增 / 更新 / orphan / idempotency
   （連跑兩次 import，第二次零變更）。
 - `AkashicExport`：golden `.bib` 檔比對（借力 biblatex-apa-swift 既有 APA 驗證）。
+- `AkashicQuery` / `AkashicGraph`：fixture library 測欄位篩選、同作者/同期刊推導、
+  cites 雙向（cites/cited-by 對稱）、鄰域深度截斷；Mermaid/DOT 輸出 golden 檔比對。
 - CLI：integration test（temp library 全流程）。
 
 ## 9. Phase 1 交付物
 
 1. Umbrella repo scaffold（`mcps/`、`repos/` submodules、gitignore、README）。
 2. Store 格式規格書（本 spec §4 的正式版，放 `docs/`）。
-3. AkashicKit 六模組 + 測試。
-4. `akashic` CLI（import-zotero / validate / export-bib / resolve-people / doctor）。
+3. AkashicKit 八模組 + 測試。
+4. `akashic` CLI（import-zotero / validate / export-bib / resolve-people / doctor / query / graph）。
 5. 實際跑通：鄭澈的 Zotero 全庫 pull 進 `library/`，git 首 commit。
 
 ## 10. 不在 Phase 1 scope
@@ -217,3 +241,7 @@ TDD、80% 覆蓋紀律：
 - macdoc `bib-apa-swift` 血脈收斂（後續獨立工作）。
 - 雙向 sync、Zotero 斷奶、embeddings/語意搜尋（`AkashicIndex` 只留掛載點）。
 - 引用圖譜遷移（che-zotero-mcp 的 graph_* 資料之後再接）。
+- **OpenAlex 自動補 cites**（Phase 2，經 MCP 的 `academic_get_citations` 管道）；Phase 1 的 cites 靠手動標記。
+- **Venue 實體層**（`venues/`，比照 people 的 alias 正規化）：Phase 1 同期刊查詢用
+  journaltitle 字串比對，venue 升格實體是後續擴充（schema 已預留 literal→key 同構模式）。
+- 互動式圖形視覺化（Phase 3 App）；Phase 1 只出 Mermaid/DOT/GraphML 文字格式。

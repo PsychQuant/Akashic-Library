@@ -15,6 +15,10 @@ public struct ImportReport: Equatable {
     public var droppedFields: [String: Int] = [:]
     /// 寫入目的檔是 quarantined 檔而被拒寫的 citekeys（損壞 store，人工處理）。
     public var quarantineConflicts: [String] = []
+    /// date 無法正規化、保留原字串的 citekeys（#2）。
+    public var unnormalizedDates: [String] = []
+    /// 被略過的 linked / URL 附件數（#3，不靜默）。
+    public var skippedLinkedAttachments: Int = 0
 
     public init() {}
 }
@@ -33,17 +37,25 @@ public struct ZoteroImporter {
         self.store = store
     }
 
-    public func run(zoteroDB: URL, now: Date = Date()) throws -> ImportReport {
-        let items = try ZoteroReader.readItems(dbPath: zoteroDB.path)
+    public func run(zoteroDB: URL, libraryID: Int? = nil, now: Date = Date()) throws -> ImportReport {
+        let readResult = try ZoteroReader.readItems(dbPath: zoteroDB.path, libraryID: libraryID)
+        let items = readResult.items
         let load = try store.load()
 
         var report = ImportReport()
-        var byZoteroKey: [String: Entry] = [:]
+        report.skippedLinkedAttachments = readResult.skippedLinkedAttachments
+        // 身分＝(libraryID, zoteroKey) 複合鍵（#3）；legacy 檔（library_id 缺）另建裸 key 索引，
+        // 首次匹配時 backfill libraryID。
+        var byCompositeKey: [String: Entry] = [:]
+        var legacyByBareKey: [String: Entry] = [:]
         var existingCitekeys = Set<String>()
         for entry in load.entries {
             existingCitekeys.insert(entry.citekey)
-            if let key = entry.provenance?.zoteroKey {
-                byZoteroKey[key] = entry
+            guard let prov = entry.provenance else { continue }
+            if let lid = prov.libraryID {
+                byCompositeKey["\(lid):\(prov.zoteroKey)"] = entry
+            } else {
+                legacyByBareKey[prov.zoteroKey] = entry
             }
         }
         // quarantined 檔的 basename 佔住 citekey——否則新 entry 生成同名 key
@@ -74,13 +86,21 @@ public struct ZoteroImporter {
             return true
         }
 
-        let zoteroKeys = Set(items.map(\.key))
+        let importedComposite = Set(items.map { "\($0.libraryID):\($0.key)" })
+        let importedBare = Set(items.map(\.key))
+        var legacyMatched = Set<String>()   // 已被 item 認領的 legacy 裸 key
 
         for item in items {
             for dropped in ZoteroMapping.unmappedFields(of: item) {
                 report.droppedFields[dropped, default: 0] += 1
             }
-            if var existing = byZoteroKey[item.key] {
+            let itemHash = ZoteroMapping.mappingHash(of: item)
+            var matched = byCompositeKey["\(item.libraryID):\(item.key)"]
+            if matched == nil, let legacy = legacyByBareKey[item.key], !legacyMatched.contains(item.key) {
+                matched = legacy
+                legacyMatched.insert(item.key)
+            }
+            if var existing = matched {
                 guard let prov = existing.provenance else { continue }
                 // Zotero 端存在＝非 orphan：不論版本，先清 orphan 標記（存在性獨立於版本比較）
                 var orphanWasCleared = false
@@ -96,7 +116,9 @@ public struct ZoteroImporter {
                         restoreWasBlocked = true   // 需要變更但被擋 ≠ 無需變更
                     }
                 }
-                if item.version > prov.zoteroVersion {
+                // update 條件（Phase 2）：version 較新 OR mapping hash 不同
+                // （hash 缺席＝pre-Phase-2 舊檔 → 視為不同、補建一次）
+                if item.version > prov.zoteroVersion || prov.zoteroHash != itemHash {
                     let hadResolvedAuthors = existing.authors.contains {
                         if case .key = $0 { return true } else { return false }
                     }
@@ -109,9 +131,13 @@ public struct ZoteroImporter {
                     }
                     existing.provenance = Provenance(
                         zoteroKey: item.key, zoteroVersion: item.version,
+                        libraryID: item.libraryID, zoteroHash: itemHash,
                         importedAt: now, orphanedAt: nil)
                     if try guardedWrite(existing, report: &report) {
                         report.updated.append(existing.citekey)
+                        if let raw = item.fields["date"], DateNormalizer.normalize(raw) == nil {
+                            report.unnormalizedDates.append(existing.citekey)
+                        }
                     }
                 } else if !orphanWasCleared && !restoreWasBlocked {
                     report.unchanged += 1
@@ -127,18 +153,30 @@ public struct ZoteroImporter {
                 ZoteroMapping.applyBiblatexFields(from: item, to: &entry)
                 entry.authors = item.authors.map { .literal($0.display) }
                 entry.provenance = Provenance(
-                    zoteroKey: item.key, zoteroVersion: item.version, importedAt: now)
+                    zoteroKey: item.key, zoteroVersion: item.version,
+                    libraryID: item.libraryID, zoteroHash: itemHash, importedAt: now)
                 entry.akashic.tags = item.tags   // 只在建檔時 seed；後續 pull 不動
                 if try guardedWrite(entry, report: &report) {
                     report.created.append(citekey)
+                    if let raw = item.fields["date"], DateNormalizer.normalize(raw) == nil {
+                        report.unnormalizedDates.append(citekey)
+                    }
                 }
             }
         }
 
-        // Orphan 偵測：store 有 provenance 但 Zotero 已無此 key
+        // Orphan 偵測（library-scoped，#3）：只在「本次 import 的視野涵蓋該 entry 的 library」
+        // 時才可判 orphan——部分 import（指定 libraryID）絕不動其他 library 的 entries；
+        // legacy 檔（library_id 缺）只在全庫 import（libraryID=nil）時以裸 key 判定。
         for entry in load.entries {
-            guard var prov = entry.provenance, !zoteroKeys.contains(prov.zoteroKey),
-                  prov.orphanedAt == nil else { continue }
+            guard var prov = entry.provenance, prov.orphanedAt == nil else { continue }
+            if let lid = prov.libraryID {
+                if let wanted = libraryID, lid != wanted { continue }   // 視野外，不動
+                if importedComposite.contains("\(lid):\(prov.zoteroKey)") { continue }
+            } else {
+                if libraryID != nil { continue }   // 部分 import 不裁決 legacy 檔
+                if importedBare.contains(prov.zoteroKey) { continue }
+            }
             var orphan = entry
             prov.orphanedAt = now
             orphan.provenance = prov
@@ -153,6 +191,7 @@ public struct ZoteroImporter {
         report.orphanCleared.sort()
         report.authorsPreserved.sort()
         report.quarantineConflicts.sort()
+        report.unnormalizedDates.sort()
         return report
     }
 }

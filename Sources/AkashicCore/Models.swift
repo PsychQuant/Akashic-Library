@@ -69,14 +69,22 @@ public struct AttachmentRef: Equatable {
 public struct Provenance: Equatable {
     public var zoteroKey: String
     public var zoteroVersion: Int
+    /// Zotero libraryID（personal=1；缺欄位＝pre-Phase-2 舊檔，合法）。
+    public var libraryID: Int?
+    /// mapping 產出的 biblatex 面向 SHA-256——update 條件之一
+    /// （version 較新 OR hash 不同），同時涵蓋本機未同步修改與 mapping 演進。
+    public var zoteroHash: String?
     public var importedAt: Date?
     /// Zotero 端已刪除的標記時間；不自動刪 entry，人工裁決。
     public var orphanedAt: Date?
 
     public init(zoteroKey: String, zoteroVersion: Int,
+                libraryID: Int? = nil, zoteroHash: String? = nil,
                 importedAt: Date? = nil, orphanedAt: Date? = nil) {
         self.zoteroKey = zoteroKey
         self.zoteroVersion = zoteroVersion
+        self.libraryID = libraryID
+        self.zoteroHash = zoteroHash
         self.importedAt = importedAt
         self.orphanedAt = orphanedAt
     }

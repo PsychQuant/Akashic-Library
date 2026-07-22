@@ -76,6 +76,9 @@ struct ImportZotero: ParsableCommand {
     @Option(name: .long, help: "zotero.sqlite 路徑（預設 ~/Zotero/zotero.sqlite）")
     var zoteroDb: String = "~/Zotero/zotero.sqlite"
 
+    @Option(name: .long, help: "Zotero libraryID（預設 1＝personal library）")
+    var libraryId: Int = 1
+
     func run() throws {
         let root = try options.resolveRoot()
         let store = LibraryStore(root: root)
@@ -84,7 +87,7 @@ struct ImportZotero: ParsableCommand {
         guard FileManager.default.fileExists(atPath: dbURL.path) else {
             throw ValidationError("找不到 zotero.sqlite：\(dbURL.path)")
         }
-        let report = try ZoteroImporter(store: store).run(zoteroDB: dbURL)
+        let report = try ZoteroImporter(store: store).run(zoteroDB: dbURL, libraryID: libraryId)
         print("created: \(report.created.count)")
         print("updated: \(report.updated.count)\(report.updated.isEmpty ? "" : "（" + report.updated.joined(separator: ", ") + "）")")
         print("orphaned: \(report.orphaned.count)\(report.orphaned.isEmpty ? "" : "（" + report.orphaned.joined(separator: ", ") + "）")")
@@ -99,6 +102,12 @@ struct ImportZotero: ParsableCommand {
             let summary = report.droppedFields.keys.sorted()
                 .map { "\($0)×\(report.droppedFields[$0]!)" }.joined(separator: ", ")
             print("dropped fields（未映射的 Zotero 欄位，未入庫）: \(summary)")
+        }
+        if !report.unnormalizedDates.isEmpty {
+            print("unnormalized dates（date 保留原字串）: \(report.unnormalizedDates.count)（\(report.unnormalizedDates.prefix(8).joined(separator: ", "))\(report.unnormalizedDates.count > 8 ? ", …" : "")）")
+        }
+        if report.skippedLinkedAttachments > 0 {
+            print("skipped linked attachments（非 storage 附件，未入庫）: \(report.skippedLinkedAttachments)")
         }
         let stats = try LibraryIndex(store: store).rebuild()
         print("index rebuilt: \(stats.entries) entries")

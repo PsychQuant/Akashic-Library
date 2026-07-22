@@ -60,6 +60,12 @@ public enum EntryYAML {
                 (Node("zotero_key"), Node(prov.zoteroKey)),
                 (Node("zotero_version"), Node(String(prov.zoteroVersion))),
             ]
+            if let lid = prov.libraryID {
+                p.append((Node("library_id"), Node(String(lid))))
+            }
+            if let hash = prov.zoteroHash {
+                p.append((Node("zotero_hash"), Node(hash)))
+            }
             if let at = prov.importedAt {
                 p.append((Node("imported_at"), Node(isoFormatter.string(from: at))))
             }
@@ -98,7 +104,8 @@ public enum EntryYAML {
     static let knownAkashicKeys: Set<String> = ["tags", "status", "relations"]
     static let knownRelationsKeys: Set<String> = ["cites", "related"]
     static let knownProvenanceKeys: Set<String> = [
-        "zotero_key", "zotero_version", "imported_at", "orphaned_at",
+        "zotero_key", "zotero_version", "library_id", "zotero_hash",
+        "imported_at", "orphaned_at",
     ]
 
     /// store-format §5 strict 策略：未知欄位＝decode 錯誤。
@@ -181,6 +188,10 @@ public enum EntryYAML {
                 throw StoreYAMLError.invalidField("provenance", "缺 zotero_version")
             }
             var prov = Provenance(zoteroKey: zKey, zoteroVersion: zVer)
+            if let s = provMap["library_id"]?.string ?? provMap["library_id"]?.scalar?.string {
+                prov.libraryID = Int(s)
+            }
+            prov.zoteroHash = provMap["zotero_hash"]?.string
             if let s = provMap["imported_at"]?.string {
                 prov.importedAt = isoFormatter.date(from: s)
             }

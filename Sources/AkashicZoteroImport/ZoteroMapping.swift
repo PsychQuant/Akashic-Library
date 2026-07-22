@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import AkashicCore
 
@@ -56,11 +57,32 @@ public enum ZoteroMapping {
         item.fields.keys.filter { $0 != "title" && $0 != "date" && fieldMap[$0] == nil }.sorted()
     }
 
+    /// mapping 產出的 biblatex 面向 canonical hash（SHA-256）。
+    /// update 條件之一：hash 不同 → re-apply（涵蓋本機未同步修改與 mapping 邏輯演進）。
+    /// 涵蓋範圍＝pull 管的一切：type/title/normalized date/mapped fields/authors/attachments。
+    public static func mappingHash(of item: ZoteroItem) -> String {
+        var probe = Entry(id: UUID(), citekey: "probe", type: "misc", title: "")
+        applyBiblatexFields(from: item, to: &probe)
+        var canonical = "type:\(probe.type)\ntitle:\(probe.title)\ndate:\(probe.date ?? "")\n"
+        for key in probe.fields.keys.sorted() {
+            canonical += "field:\(key)=\(probe.fields[key]!)\n"
+        }
+        for author in item.authors {
+            canonical += "author:\(author.display)\n"
+        }
+        for path in item.attachmentPaths {
+            canonical += "attachment:\(path)\n"
+        }
+        let digest = SHA256.hash(data: Data(canonical.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
     /// 把 ZoteroItem 的 biblatex 面向填進 Entry（不動 id/citekey/akashic）。
+    /// date 經 DateNormalizer；解析不了保留原字串（importer 另行 report）。
     public static func applyBiblatexFields(from item: ZoteroItem, to entry: inout Entry) {
         entry.type = biblatexType(for: item.typeName)
         entry.title = item.fields["title"] ?? ""
-        entry.date = item.fields["date"]
+        entry.date = item.fields["date"].map { DateNormalizer.normalize($0) ?? $0 }
         var fields: [String: String] = [:]
         for (zField, value) in item.fields {
             if zField == "title" || zField == "date" { continue }

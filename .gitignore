@@ -1,0 +1,18 @@
+# IDD tree-lock (idd-tree-lock.sh #183) — per-machine session state, not tracked
+.claude/.idd/tree-lock
+
+# IDD 附件快取（diagnose 產物，per-clone）
+.claude/.idd/attachments/
+
+# Swift build artifacts
+.build/
+.swiftpm/
+*.xcodeproj
+DerivedData/
+
+# macOS
+.DS_Store
+
+# 使用者資料（獨立 private repo / 外部 pool，不進 umbrella git 歷史）
+library/
+attachments/

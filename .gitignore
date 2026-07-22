@@ -19,3 +19,6 @@ attachments/
 mcpb/server/
 mcpb/*.mcpb
 mcpb/*.sha256
+
+# Xcode
+AkashicApp/DerivedData/

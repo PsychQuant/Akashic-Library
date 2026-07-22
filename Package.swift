@@ -9,6 +9,7 @@ let package = Package(
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
         ]),
+        .library(name: "AkashicAppKit", targets: ["AkashicAppKit"]),
         .executable(name: "akashic", targets: ["akashic"]),
     ],
     dependencies: [

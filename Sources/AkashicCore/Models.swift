@@ -1,0 +1,160 @@
+import Foundation
+
+/// 文獻條目——store 的基本單位（entries/<citekey>.yaml 的記憶體形）。
+public struct Entry: Equatable {
+    /// 不可變機器身分；citekey 改名不斷鏈。
+    public var id: UUID
+    /// 人類可讀、可改名的引用鍵。
+    public var citekey: String
+    /// biblatex entry type（article / book / incollection / …）。
+    public var type: String
+    public var title: String
+    public var authors: [Author]
+    public var date: String?
+    /// 其餘 biblatex 欄位（journaltitle / volume / doi / …）。
+    public var fields: [String: String]
+    public var attachments: [AttachmentRef]
+    /// Zotero namespace——pull 管理、pull 可覆寫。
+    public var provenance: Provenance?
+    /// Akashic 自有 namespace——pull 絕不觸碰。
+    public var akashic: AkashicMeta
+
+    public init(id: UUID, citekey: String, type: String, title: String,
+                authors: [Author] = [], date: String? = nil,
+                fields: [String: String] = [:], attachments: [AttachmentRef] = [],
+                provenance: Provenance? = nil, akashic: AkashicMeta = AkashicMeta()) {
+        self.id = id
+        self.citekey = citekey
+        self.type = type
+        self.title = title
+        self.authors = authors
+        self.date = date
+        self.fields = fields
+        self.attachments = attachments
+        self.provenance = provenance
+        self.akashic = akashic
+    }
+}
+
+/// 作者二態：已解析（引用 people/ 的 person key）或未解析裸字串。
+public enum Author: Equatable {
+    case key(String)
+    case literal(String)
+
+    public var displayName: String {
+        switch self {
+        case .key(let k): return k
+        case .literal(let s): return s
+        }
+    }
+}
+
+public struct AttachmentRef: Equatable {
+    public enum Kind: String, Equatable {
+        /// 相對 Zotero 資料目錄的 reference（storage/<KEY>/<file>）。
+        case zotero
+        /// 相對 attachment pool 的路徑。
+        case pool
+    }
+
+    public var kind: Kind
+    public var path: String
+
+    public init(kind: Kind, path: String) {
+        self.kind = kind
+        self.path = path
+    }
+}
+
+public struct Provenance: Equatable {
+    public var zoteroKey: String
+    public var zoteroVersion: Int
+    public var importedAt: Date?
+    /// Zotero 端已刪除的標記時間；不自動刪 entry，人工裁決。
+    public var orphanedAt: Date?
+
+    public init(zoteroKey: String, zoteroVersion: Int,
+                importedAt: Date? = nil, orphanedAt: Date? = nil) {
+        self.zoteroKey = zoteroKey
+        self.zoteroVersion = zoteroVersion
+        self.importedAt = importedAt
+        self.orphanedAt = orphanedAt
+    }
+}
+
+public struct AkashicMeta: Equatable {
+    public var tags: [String]
+    public var status: String?
+    public var relations: Relations
+
+    public init(tags: [String] = [], status: String? = nil, relations: Relations = Relations()) {
+        self.tags = tags
+        self.status = status
+        self.relations = relations
+    }
+
+    public var isEmpty: Bool { tags.isEmpty && status == nil && relations.isEmpty }
+}
+
+/// 需要「存」的關係；同作者/同期刊由 metadata 推導、不存。
+public struct Relations: Equatable {
+    public var cites: [String]
+    public var related: [String]
+
+    public init(cites: [String] = [], related: [String] = []) {
+        self.cites = cites
+        self.related = related
+    }
+
+    public var isEmpty: Bool { cites.isEmpty && related.isEmpty }
+}
+
+/// 人物實體（people/<person-key>.yaml）。
+public struct Person: Equatable {
+    public var key: String
+    public var names: [String]
+    public var orcid: String?
+    public var openalex: String?
+    public var note: String?
+
+    public init(key: String, names: [String] = [], orcid: String? = nil,
+                openalex: String? = nil, note: String? = nil) {
+        self.key = key
+        self.names = names
+        self.orcid = orcid
+        self.openalex = openalex
+        self.note = note
+    }
+}
+
+public struct ValidationIssue: Equatable {
+    public enum Severity: Equatable { case error, warning }
+
+    public var severity: Severity
+    public var message: String
+
+    public init(severity: Severity, message: String) {
+        self.severity = severity
+        self.message = message
+    }
+}
+
+extension Entry {
+    private static let citekeyPattern = "^[a-z0-9][a-z0-9-]*$"
+
+    public func validate() -> [ValidationIssue] {
+        var issues: [ValidationIssue] = []
+        if citekey.range(of: Self.citekeyPattern, options: .regularExpression) == nil {
+            issues.append(ValidationIssue(
+                severity: .error,
+                message: "citekey '\(citekey)' 不符合 ^[a-z0-9][a-z0-9-]*$"))
+        }
+        if type.trimmingCharacters(in: .whitespaces).isEmpty {
+            issues.append(ValidationIssue(severity: .error, message: "type 不可為空"))
+        }
+        if title.trimmingCharacters(in: .whitespaces).isEmpty {
+            issues.append(ValidationIssue(severity: .warning, message: "title 為空"))
+        }
+        return issues
+    }
+}

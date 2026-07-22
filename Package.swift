@@ -40,9 +40,13 @@ let package = Package(
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
         ]),
-        .executableTarget(name: "akashic-mcp", dependencies: [
+        .target(name: "AkashicMCPKit", dependencies: [
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
+            .product(name: "Yams", package: "Yams"),
+        ]),
+        .executableTarget(name: "akashic-mcp", dependencies: [
+            "AkashicMCPKit",
             .product(name: "MCP", package: "swift-sdk"),
         ]),
         .testTarget(name: "AkashicKitTests", dependencies: [
@@ -50,6 +54,6 @@ let package = Package(
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph", "AkashicSQLite",
         ]),
         .testTarget(name: "AkashicCLITests", dependencies: ["akashic"]),
-        .testTarget(name: "AkashicMCPTests", dependencies: ["akashic-mcp"]),
+        .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp"]),
     ]
 )

@@ -154,3 +154,16 @@ final class CLIIntegrationTests: XCTestCase {
         XCTAssertNotEqual(result.status, 0)
     }
 }
+
+extension CLIIntegrationTests {
+    func testRenameCommandMigratesReferences() throws {
+        // cheng2025identifiability 被 olsson… 引用？fixture 反向：cheng cites olsson
+        let result = try runCLI(["rename", "olsson1979maximum", "olsson1979bmaximum"] + lib)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let citing = try String(contentsOf: libraryRoot
+            .appendingPathComponent("entries/cheng2025identifiability.yaml"), encoding: .utf8)
+        XCTAssertTrue(citing.contains("olsson1979bmaximum"))   // cites 引用跟改
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: libraryRoot.appendingPathComponent("entries/olsson1979maximum.yaml").path))
+    }
+}

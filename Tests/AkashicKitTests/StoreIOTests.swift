@@ -144,3 +144,56 @@ final class LibraryLocatorTests: XCTestCase {
             configURL: tmp.appendingPathComponent("none.yaml")))
     }
 }
+
+final class RenameTests: XCTestCase {
+    var root: URL!
+    var store: LibraryStore!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-rename-\(UUID().uuidString)")
+        store = LibraryStore(root: root)
+        try store.ensureLayout()
+        var e1 = Entry(id: UUID(), citekey: "old2020key", type: "article", title: "T1",
+                       authors: [.literal("A")], date: "2020")
+        e1.akashic.relations.cites = ["other2019ref"]
+        try store.writeEntry(e1)
+        var e2 = Entry(id: UUID(), citekey: "citing2021paper", type: "article", title: "T2")
+        e2.akashic.relations.cites = ["old2020key"]          // 引用即將被 rename 的 entry
+        e2.akashic.relations.related = ["old2020key"]
+        try store.writeEntry(e2)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testRenameMovesFileMigratesRelationsKeepsUUID() throws {
+        let before = try store.load().entries.first { $0.citekey == "old2020key" }!
+        let report = try store.renameEntry(from: "old2020key", to: "new2020key")
+        XCTAssertEqual(report.relationsRewritten, ["citing2021paper"])
+
+        let load = try store.load()
+        XCTAssertNil(load.entries.first { $0.citekey == "old2020key" })
+        let renamed = load.entries.first { $0.citekey == "new2020key" }!
+        XCTAssertEqual(renamed.id, before.id)                                   // UUID 不變
+        XCTAssertEqual(renamed.akashic.relations.cites, ["other2019ref"])       // 自身 relations 不動
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: store.entryURL(citekey: "old2020key").path))                // 舊檔已刪
+        let citing = load.entries.first { $0.citekey == "citing2021paper" }!
+        XCTAssertEqual(citing.akashic.relations.cites, ["new2020key"])          // 引用端跟改
+        XCTAssertEqual(citing.akashic.relations.related, ["new2020key"])
+    }
+
+    func testRenameRejectsBadOrTakenTarget() throws {
+        XCTAssertThrowsError(try store.renameEntry(from: "old2020key", to: "Bad/Key"))
+        XCTAssertThrowsError(try store.renameEntry(from: "old2020key", to: "citing2021paper"))
+        XCTAssertThrowsError(try store.renameEntry(from: "nope", to: "x2020y"))
+    }
+
+    func testRenameRejectsQuarantinedTarget() throws {
+        try "broken: [yaml\n".write(to: store.entriesDir.appendingPathComponent("qtarget.yaml"),
+                                    atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try store.renameEntry(from: "old2020key", to: "qtarget"))
+    }
+}

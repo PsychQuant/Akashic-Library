@@ -189,3 +189,23 @@ struct ResolvePeople: ParsableCommand {
         }
     }
 }
+
+struct Rename: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "rename", abstract: "citekey 改名：搬檔 + 全庫 relations 遷移（UUID 不變）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Argument(help: "現有 citekey") var from: String
+    @Argument(help: "新 citekey") var to: String
+
+    func run() throws {
+        let store = try options.openStore()
+        let report = try store.renameEntry(from: from, to: to)
+        _ = try LibraryIndex(store: store).rebuild()
+        print("✓ \(from) → \(to)")
+        if !report.relationsRewritten.isEmpty {
+            print("relations 已遷移：\(report.relationsRewritten.joined(separator: ", "))")
+        }
+    }
+}

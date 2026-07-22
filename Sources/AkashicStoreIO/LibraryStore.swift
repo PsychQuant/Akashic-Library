@@ -150,3 +150,59 @@ public final class LibraryStore {
         }
     }
 }
+
+public struct RenameReport: Equatable {
+    /// relations 有引用被改寫的 citekeys。
+    public var relationsRewritten: [String]
+
+    public init(relationsRewritten: [String] = []) {
+        self.relationsRewritten = relationsRewritten
+    }
+}
+
+extension LibraryStore {
+    /// citekey rename（#4）：驗證 → 搬檔 → 全庫 relations 遷移 → 舊檔刪除。
+    /// UUID 不變（雙 ID 的 rename 承諾至此真正成立）。呼叫端負責 reindex。
+    @discardableResult
+    public func renameEntry(from oldKey: String, to newKey: String) throws -> RenameReport {
+        guard StoreKey.isValid(newKey) else {
+            throw StoreIOError.invalidKey("citekey", newKey)
+        }
+        // 目的檔不可存在——含 quarantined 檔與 case-insensitive 別名
+        guard !FileManager.default.fileExists(atPath: entryURL(citekey: newKey).path) else {
+            throw StoreIOError.invalidKey("citekey（目的檔已存在）", newKey)
+        }
+        let load = try store_loadForRename()
+        guard var entry = load.entries.first(where: { $0.citekey == oldKey }) else {
+            throw StoreIOError.invalidKey("citekey（來源不存在）", oldKey)
+        }
+
+        // 1. 寫新檔（先寫後刪，中斷時頂多多一份檔案，不丟資料）
+        entry.citekey = newKey
+        try writeEntry(entry)
+        // 2. 全庫 relations 遷移（cites/related 引用舊 citekey → 新；UUID 引用不動）
+        var rewritten: [String] = []
+        for var other in load.entries where other.citekey != oldKey {
+            var changed = false
+            if let i = other.akashic.relations.cites.firstIndex(of: oldKey) {
+                other.akashic.relations.cites[i] = newKey
+                changed = true
+            }
+            if let i = other.akashic.relations.related.firstIndex(of: oldKey) {
+                other.akashic.relations.related[i] = newKey
+                changed = true
+            }
+            if changed {
+                try writeEntry(other)
+                rewritten.append(other.citekey)
+            }
+        }
+        // 3. 刪舊檔
+        try FileManager.default.removeItem(at: entryURL(citekey: oldKey))
+        return RenameReport(relationsRewritten: rewritten.sorted())
+    }
+
+    private func store_loadForRename() throws -> LibraryLoad {
+        try load()
+    }
+}

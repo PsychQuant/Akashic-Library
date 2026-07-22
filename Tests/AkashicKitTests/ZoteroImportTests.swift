@@ -15,7 +15,7 @@ struct ZoteroFixture {
         db = try SQLiteDB(path: dbURL.path, readOnly: false)
         for sql in [
             "CREATE TABLE itemTypes(itemTypeID INTEGER PRIMARY KEY, typeName TEXT)",
-            "CREATE TABLE items(itemID INTEGER PRIMARY KEY, itemTypeID INT, key TEXT, version INT)",
+            "CREATE TABLE items(itemID INTEGER PRIMARY KEY, itemTypeID INT, key TEXT, version INT, libraryID INT)",
             "CREATE TABLE fields(fieldID INTEGER PRIMARY KEY, fieldName TEXT)",
             "CREATE TABLE itemDataValues(valueID INTEGER PRIMARY KEY, value TEXT)",
             "CREATE TABLE itemData(itemID INT, fieldID INT, valueID INT)",
@@ -41,7 +41,7 @@ struct ZoteroFixture {
 
     /// 標準 fixture：一篇 article（雙作者、tag、storage 附件）+ 一本 book。
     func seedStandard() throws {
-        try db.execute("INSERT INTO items VALUES (10,1,'KEYART01',5)")
+        try db.execute("INSERT INTO items VALUES (10,1,'KEYART01',5,1)")
         try addField(item: 10, field: 1, value: "Identifiability of polychoric models", valueID: 100)
         try addField(item: 10, field: 2, value: "2025-04-01", valueID: 101)
         try addField(item: 10, field: 3, value: "Psychometrika", valueID: 102)
@@ -53,10 +53,10 @@ struct ZoteroFixture {
         try db.execute("INSERT INTO tags VALUES (1,'identifiability')")
         try db.execute("INSERT INTO itemTags VALUES (10,1,0)")
         // storage 附件（child item 20）
-        try db.execute("INSERT INTO items VALUES (20,3,'KEYATT01',5)")
+        try db.execute("INSERT INTO items VALUES (20,3,'KEYATT01',5,1)")
         try db.execute("INSERT INTO itemAttachments VALUES (20,10,'storage:paper.pdf','application/pdf')")
         // book（單作者 fieldMode 1）
-        try db.execute("INSERT INTO items VALUES (11,2,'KEYBOOK1',7)")
+        try db.execute("INSERT INTO items VALUES (11,2,'KEYBOOK1',7,1)")
         try addField(item: 11, field: 1, value: "Matrix Visualization", valueID: 110)
         try addField(item: 11, field: 2, value: "2004", valueID: 111)
         try db.execute("INSERT INTO creators VALUES (3,'','Chun-Houh Chen',1)")
@@ -283,5 +283,180 @@ extension ZoteroImportTests {
         let report = try runImport()   // 同版本；restore 會被 quarantine 擋
         XCTAssertEqual(report.quarantineConflicts, ["qtarget"])
         XCTAssertEqual(report.unchanged, 1)   // 只有 item 11；被擋的不是「無需變更」
+    }
+}
+
+// ── Phase 2 schema 前置（#9）──
+
+final class DateNormalizerTests: XCTestCase {
+    func testZeroMonthDayTruncatesToYear() {
+        XCTAssertEqual(DateNormalizer.normalize("1989-00-00 1989"), "1989")
+    }
+    func testFullISOKept() {
+        XCTAssertEqual(DateNormalizer.normalize("2025-04-01"), "2025-04-01")
+    }
+    func testZeroDayTruncatesToYearMonth() {
+        XCTAssertEqual(DateNormalizer.normalize("2020-05-00"), "2020-05")
+    }
+    func testYearOnlyKept() {
+        XCTAssertEqual(DateNormalizer.normalize("2004"), "2004")
+    }
+    func testUnparseableReturnsNil() {
+        XCTAssertNil(DateNormalizer.normalize("April 2020"))
+        XCTAssertNil(DateNormalizer.normalize("circa 1990?"))
+    }
+}
+
+extension ZoteroImportTests {
+    func testImportNormalizesDatesAndReportsUnparseable() throws {
+        try fixture.db.execute("UPDATE itemDataValues SET value='1989-00-00 1989' WHERE valueID=101")
+        try fixture.db.execute("INSERT INTO items VALUES (12,1,'KEYWEIRD',3,1)")
+        try fixture.addField(item: 12, field: 1, value: "Weird dated paper", valueID: 120)
+        try fixture.addField(item: 12, field: 2, value: "April 2020", valueID: 121)
+
+        let report = try runImport()
+        let article = try store.load().entries.first { $0.provenance?.zoteroKey == "KEYART01" }!
+        XCTAssertEqual(article.date, "1989")                       // 正規化
+        let weird = try store.load().entries.first { $0.provenance?.zoteroKey == "KEYWEIRD" }!
+        XCTAssertEqual(weird.date, "April 2020")                   // 解析不了保留原字串
+        XCTAssertEqual(report.unnormalizedDates, [weird.citekey])  // 且列入 report
+    }
+
+    func testHashBackfillUpdatesOnceThenIdempotent() throws {
+        _ = try runImport()
+        // 模擬 pre-Phase-2 store：抹掉 hash
+        for entry in try store.load().entries {
+            var e = entry
+            e.provenance?.zoteroHash = nil
+            try store.writeEntry(e)
+        }
+        let backfill = try runImport()
+        XCTAssertEqual(backfill.updated.count, 2)     // hash 缺 → 全量補建
+        let again = try runImport()
+        XCTAssertEqual(again.updated, [])
+        XCTAssertEqual(again.unchanged, 2)
+    }
+
+    func testContentChangeWithoutVersionBumpIsCaught() throws {
+        _ = try runImport()
+        // Zotero 本機改 title 但 version 沒動（未同步）
+        try fixture.db.execute("UPDATE itemDataValues SET value='Locally edited title' WHERE valueID=100")
+        let report = try runImport()
+        XCTAssertEqual(report.updated.count, 1)
+        XCTAssertEqual(try store.load().entries.first { $0.provenance?.zoteroKey == "KEYART01" }?.title,
+                       "Locally edited title")
+    }
+
+    // #3 修訂（實庫反證 personal-only 預設）：預設拉全部 libraries，指定時才限縮
+    func testAllLibrariesImportedByDefault() throws {
+        try fixture.db.execute("INSERT INTO items VALUES (30,1,'KEYGROUP',2,5)")   // libraryID=5（group）
+        try fixture.addField(item: 30, field: 1, value: "Group library paper", valueID: 130)
+        let report = try runImport()
+        XCTAssertEqual(report.created.count, 3)   // personal 兩筆 + group 一筆
+        let group = try store.load().entries.first { $0.provenance?.zoteroKey == "KEYGROUP" }
+        XCTAssertEqual(group?.provenance?.libraryID, 5)
+    }
+
+    func testExplicitLibraryIDRestricts() throws {
+        try fixture.db.execute("INSERT INTO items VALUES (30,1,'KEYGROUP',2,5)")
+        try fixture.addField(item: 30, field: 1, value: "Group library paper", valueID: 130)
+        let report = try ZoteroImporter(store: store).run(
+            zoteroDB: fixture.dbURL, libraryID: 1, now: Date(timeIntervalSince1970: 1_753_000_000))
+        XCTAssertEqual(report.created.count, 2)   // 只有 personal
+        XCTAssertNil(try store.load().entries.first { $0.provenance?.zoteroKey == "KEYGROUP" })
+    }
+
+    // 部分 import 的 orphan scoping：其他 library 的 entries 絕不被誤標
+    func testPartialImportDoesNotOrphanOtherLibraries() throws {
+        try fixture.db.execute("INSERT INTO items VALUES (30,1,'KEYGROUP',2,5)")
+        try fixture.addField(item: 30, field: 1, value: "Group library paper", valueID: 130)
+        _ = try runImport()   // 全庫：3 entries 入庫（含 group）
+        // 只 import personal → group entry 不在視野內，不得 orphan
+        let partial = try ZoteroImporter(store: store).run(
+            zoteroDB: fixture.dbURL, libraryID: 1, now: Date(timeIntervalSince1970: 1_753_100_000))
+        XCTAssertEqual(partial.orphaned, [])
+        let group = try store.load().entries.first { $0.provenance?.zoteroKey == "KEYGROUP" }
+        XCTAssertNil(group?.provenance?.orphanedAt)
+    }
+
+    // 同 bare key 跨 library：複合身分不互撞
+    func testSameKeyAcrossLibrariesCoexists() throws {
+        try fixture.db.execute("INSERT INTO items VALUES (31,1,'KEYART01',9,5)")   // group 撞 personal 的 key
+        try fixture.addField(item: 31, field: 1, value: "Different paper same key", valueID: 131)
+        let report = try runImport()
+        XCTAssertEqual(report.created.count, 3)
+        let both = try store.load().entries.filter { $0.provenance?.zoteroKey == "KEYART01" }
+        XCTAssertEqual(both.count, 2)
+        XCTAssertEqual(Set(both.compactMap { $0.provenance?.libraryID }), [1, 5])
+    }
+
+    func testProvenanceRecordsLibraryID() throws {
+        _ = try runImport()
+        let article = try store.load().entries.first { $0.provenance?.zoteroKey == "KEYART01" }!
+        XCTAssertEqual(article.provenance?.libraryID, 1)
+        XCTAssertNotNil(article.provenance?.zoteroHash)
+    }
+
+    func testLinkedAttachmentsAreCountedNotSilent() throws {
+        try fixture.db.execute("INSERT INTO items VALUES (21,3,'KEYATT02',5,1)")
+        try fixture.db.execute("INSERT INTO itemAttachments VALUES (21,10,'attachments:linked.pdf','application/pdf')")
+        let report = try runImport()
+        XCTAssertEqual(report.skippedLinkedAttachments, 1)
+    }
+}
+
+extension ZoteroImportTests {
+    // Logic/DA CONFIRMED：scoped import 不得認領「已知屬於其他 library」的裸 key entry
+    func testScopedImportDoesNotClaimAmbiguousLegacyKey() throws {
+        // group library 有同 bare key 的 item，且已 backfill（composite 已知屬 lib 5）
+        try fixture.db.execute("INSERT INTO items VALUES (31,1,'KEYART01',9,5)")
+        try fixture.addField(item: 31, field: 1, value: "Group paper same key", valueID: 131)
+        _ = try runImport()   // 全量：兩個 KEYART01（lib1、lib5）各自入庫
+
+        // 模擬 legacy：把 lib1 的那筆抹掉 library_id/hash（回到裸 key 狀態）
+        let store2 = LibraryStore(root: store.root)
+        var legacy = try store2.load().entries.first {
+            $0.provenance?.zoteroKey == "KEYART01" && $0.provenance?.libraryID == 1
+        }!
+        legacy.provenance?.libraryID = nil
+        legacy.provenance?.zoteroHash = nil
+        try store2.writeEntry(legacy)
+
+        // scoped import lib 5：bare key KEYART01 對 store 是歧義（lib5 composite 已存在）
+        // → legacy 檔絕不能被 lib5 的 item 認領改寫
+        let report = try ZoteroImporter(store: store).run(
+            zoteroDB: fixture.dbURL, libraryID: 5, now: Date(timeIntervalSince1970: 1_753_200_000))
+        XCTAssertEqual(report.created, [])
+        let after = try store.load().entries.first { $0.id == legacy.id }!
+        XCTAssertNil(after.provenance?.libraryID)   // legacy 檔原封不動
+    }
+}
+
+final class DateNormalizerBoundaryTests: XCTestCase {
+    // Logic MEDIUM：非 dash 分隔（1989/05/15）不得靜默截成年份——應回 nil 進 report
+    func testSlashSeparatedDateIsUnparseable() {
+        XCTAssertNil(DateNormalizer.normalize("1989/05/15"))
+    }
+    // Codex MEDIUM：超界月/日不得保留（2025-99 非法）
+    func testOutOfRangeMonthDayUnparseable() {
+        XCTAssertNil(DateNormalizer.normalize("2025-99-01"))
+        XCTAssertNil(DateNormalizer.normalize("2025-04-99"))
+    }
+    func testTrailingTextAfterISOStillAccepted() {
+        XCTAssertEqual(DateNormalizer.normalize("1989-00-00 1989"), "1989")   // 空白邊界 OK
+    }
+}
+
+final class HashCanonicalTests: XCTestCase {
+    // DA CONFIRMED（LOW-MEDIUM）：canonical 序列化不得有結構碰撞
+    func testConstructedFieldCollisionResolved() {
+        var a = ZoteroItem(key: "K1", version: 1, libraryID: 1, typeName: "journalArticle",
+                           fields: ["title": "T", "volume": "1\nfield:number=2"],
+                           authors: [], tags: [], attachmentPaths: [])
+        var b = ZoteroItem(key: "K1", version: 1, libraryID: 1, typeName: "journalArticle",
+                           fields: ["title": "T", "volume": "1", "issue": "2"],
+                           authors: [], tags: [], attachmentPaths: [])
+        _ = a; _ = b
+        XCTAssertNotEqual(ZoteroMapping.mappingHash(of: a), ZoteroMapping.mappingHash(of: b))
     }
 }

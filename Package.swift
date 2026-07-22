@@ -14,6 +14,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/jpsim/Yams.git", "5.0.0"..<"7.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
+        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", .upToNextMinor(from: "0.11.0")),
         .package(path: "repos/biblatex-apa-swift"),
     ],
     targets: [
@@ -39,10 +40,20 @@ let package = Package(
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
         ]),
+        .target(name: "AkashicMCPKit", dependencies: [
+            "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
+            "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
+            .product(name: "Yams", package: "Yams"),
+        ]),
+        .executableTarget(name: "akashic-mcp", dependencies: [
+            "AkashicMCPKit",
+            .product(name: "MCP", package: "swift-sdk"),
+        ]),
         .testTarget(name: "AkashicKitTests", dependencies: [
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph", "AkashicSQLite",
         ]),
         .testTarget(name: "AkashicCLITests", dependencies: ["akashic"]),
+        .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp"]),
     ]
 )

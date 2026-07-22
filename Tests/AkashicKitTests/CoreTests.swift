@@ -298,3 +298,49 @@ extension StrictSchemaTests {
         XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [123]\n"))
     }
 }
+
+extension StrictSchemaTests {
+    // Phase 2（#9）：provenance 新欄位 round-trip；strict set 同步擴充
+    func testProvenanceLibraryIDAndHashRoundTrip() throws {
+        var entry = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        entry.provenance = Provenance(zoteroKey: "K", zoteroVersion: 1,
+                                      libraryID: 1, zoteroHash: "abc123")
+        let decoded = try EntryYAML.decode(try EntryYAML.encode(entry))
+        XCTAssertEqual(decoded.provenance?.libraryID, 1)
+        XCTAssertEqual(decoded.provenance?.zoteroHash, "abc123")
+        XCTAssertEqual(decoded, entry)
+    }
+
+    func testProvenanceWithoutNewFieldsStillValid() throws {
+        // pre-Phase-2 舊檔（缺 library_id/zotero_hash）合法，不 quarantine
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        provenance:
+          zotero_key: K
+          zotero_version: 1
+        """
+        let entry = try EntryYAML.decode(yaml)
+        XCTAssertNil(entry.provenance?.libraryID)
+        XCTAssertNil(entry.provenance?.zoteroHash)
+    }
+}
+
+extension StrictSchemaTests {
+    // Codex MEDIUM：provenance library_id malformed 值不得靜默吞成 nil
+    func testMalformedLibraryIDRejected() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        provenance:
+          zotero_key: K
+          zotero_version: 1
+          library_id: abc
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml))
+    }
+}

@@ -16,3 +16,6 @@ DerivedData/
 # 使用者資料（獨立 private repo / 外部 pool，不進 umbrella git 歷史）
 library/
 attachments/
+mcpb/server/
+mcpb/*.mcpb
+mcpb/*.sha256

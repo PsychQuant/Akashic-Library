@@ -1,0 +1,35 @@
+{
+  "manifest_version": "0.3",
+  "name": "akashic-mcp",
+  "version": "0.1.0",
+  "description": "Akashic-Library MCP server — file-based canonical literature store: search, relations, graph, derived-layer writes (tags/status/links), person resolution, Zotero one-way pull",
+  "author": {
+    "name": "Che Cheng"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/PsychQuant/Akashic-Library",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PsychQuant/Akashic-Library"
+  },
+  "server": {
+    "type": "binary",
+    "entry_point": "server/akashic-mcp",
+    "mcp_config": {
+      "command": "$DIRNAME/server/akashic-mcp",
+      "args": [],
+      "env": {
+        "AKASHIC_LIBRARY": "${user_config.library_path}"
+      }
+    }
+  },
+  "user_config": {
+    "library_path": {
+      "type": "string",
+      "title": "Akashic library root",
+      "description": "library root 路徑（省略則用 $AKASHIC_LIBRARY 或 ~/.akashic/config.yaml）",
+      "required": false
+    }
+  },
+  "keywords": ["akashic", "literature", "bibliography", "zotero", "biblatex", "citations", "graph"]
+}

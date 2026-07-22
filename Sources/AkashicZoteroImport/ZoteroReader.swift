@@ -5,6 +5,7 @@ import AkashicSQLite
 public struct ZoteroItem: Equatable {
     public var key: String
     public var version: Int
+    public var libraryID: Int
     public var typeName: String
     public var fields: [String: String]
     /// (顯示名, 姓)；fieldMode 1 時姓＝完整顯示名。
@@ -14,10 +15,22 @@ public struct ZoteroItem: Equatable {
     public var attachmentPaths: [String]
 
     public static func == (lhs: ZoteroItem, rhs: ZoteroItem) -> Bool {
-        lhs.key == rhs.key && lhs.version == rhs.version && lhs.typeName == rhs.typeName
+        lhs.key == rhs.key && lhs.version == rhs.version && lhs.libraryID == rhs.libraryID
+            && lhs.typeName == rhs.typeName
             && lhs.fields == rhs.fields && lhs.tags == rhs.tags
             && lhs.attachmentPaths == rhs.attachmentPaths
             && lhs.authors.map(\.display) == rhs.authors.map(\.display)
+    }
+}
+
+/// readItems 的結果：items + 被略過的 linked attachments 計數（不靜默）。
+public struct ZoteroReadResult {
+    public var items: [ZoteroItem]
+    public var skippedLinkedAttachments: Int
+
+    public init(items: [ZoteroItem] = [], skippedLinkedAttachments: Int = 0) {
+        self.items = items
+        self.skippedLinkedAttachments = skippedLinkedAttachments
     }
 }
 
@@ -26,23 +39,26 @@ public enum ZoteroReader {
     /// 排除的 item types（附件/筆記/註記掛在母 item 上處理）。
     static let excludedTypes: Set<String> = ["attachment", "note", "annotation"]
 
-    public static func readItems(dbPath: String) throws -> [ZoteroItem] {
+    /// libraryID=nil（預設）拉全部 libraries（personal + groups；實庫驗證 group 文獻是真實使用）；
+    /// 指定則只拉該 library。跨 library 身分由 (libraryID, key) 複合鍵處理（#3）。
+    public static func readItems(dbPath: String, libraryID: Int? = nil) throws -> ZoteroReadResult {
         let db = try SQLiteDB(path: dbPath, readOnly: true)
 
         let deleted = Set(try db.query("SELECT itemID FROM deletedItems")
             .compactMap { $0["itemID"] as? Int })
 
-        // itemID → (key, version, typeName)；一次撈全表在記憶體組裝（個人庫規模）
-        var meta: [Int: (key: String, version: Int, type: String)] = [:]
+        // itemID → (key, version, typeName, libraryID)；一次撈全表在記憶體組裝（個人庫規模）
+        var meta: [Int: (key: String, version: Int, type: String, libraryID: Int)] = [:]
         for row in try db.query("""
-            SELECT i.itemID AS itemID, i.key AS key, i.version AS version, t.typeName AS typeName
+            SELECT i.itemID AS itemID, i.key AS key, i.version AS version,
+                   i.libraryID AS libraryID, t.typeName AS typeName
             FROM items i JOIN itemTypes t ON i.itemTypeID = t.itemTypeID
             """) {
             guard let itemID = row["itemID"] as? Int, let key = row["key"] as? String,
                   let version = row["version"] as? Int, let type = row["typeName"] as? String else {
                 continue
             }
-            meta[itemID] = (key, version, type)
+            meta[itemID] = (key, version, type, row["libraryID"] as? Int ?? 1)
         }
 
         var fieldsByItem: [Int: [String: String]] = [:]
@@ -95,6 +111,7 @@ public enum ZoteroReader {
         }
 
         var attachmentsByParent: [Int: [String]] = [:]
+        var skippedLinked = 0
         for row in try db.query("""
             SELECT a.parentItemID AS parentItemID, a.path AS path, i.key AS childKey
             FROM itemAttachments a JOIN items i ON a.itemID = i.itemID
@@ -103,8 +120,14 @@ public enum ZoteroReader {
             """) {
             guard let parent = row["parentItemID"] as? Int,
                   let path = row["path"] as? String,
-                  let childKey = row["childKey"] as? String,
-                  path.hasPrefix("storage:") else { continue }
+                  let childKey = row["childKey"] as? String else { continue }
+            guard path.hasPrefix("storage:") else {
+                // linked / URL 附件：Phase 2 仍不入庫，但計數不靜默（#3）
+                if meta[parent].map({ libraryID == nil || $0.libraryID == libraryID }) ?? false {
+                    skippedLinked += 1
+                }
+                continue
+            }
             let filename = String(path.dropFirst("storage:".count))
             attachmentsByParent[parent, default: []].append("storage/\(childKey)/\(filename)")
         }
@@ -113,16 +136,18 @@ public enum ZoteroReader {
         for (itemID, m) in meta {
             if deleted.contains(itemID) { continue }
             if excludedTypes.contains(m.type) { continue }
+            if let wanted = libraryID, m.libraryID != wanted { continue }
             let authors = (authorsByItem[itemID] ?? [])
                 .sorted { $0.0 < $1.0 }
                 .map { (display: $0.1, family: $0.2) }
             items.append(ZoteroItem(
-                key: m.key, version: m.version, typeName: m.type,
+                key: m.key, version: m.version, libraryID: m.libraryID, typeName: m.type,
                 fields: fieldsByItem[itemID] ?? [:],
                 authors: authors,
                 tags: (tagsByItem[itemID] ?? []).sorted(),
                 attachmentPaths: (attachmentsByParent[itemID] ?? []).sorted()))
         }
-        return items.sorted { $0.key < $1.key }
+        return ZoteroReadResult(items: items.sorted { $0.key < $1.key },
+                                skippedLinkedAttachments: skippedLinked)
     }
 }

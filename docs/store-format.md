@@ -1,4 +1,4 @@
-# Akashic Store 格式規格書（v1，Phase 1）
+# Akashic Store 格式規格書（v1.1，Phase 2 修訂）
 
 Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版；
 實作＝`AkashicCore`（型別/YAML/citekey）＋ `AkashicStoreIO`（讀寫）。
@@ -43,6 +43,8 @@ attachments:
 provenance:                      # Zotero namespace——pull 管理、可覆寫
   zotero_key: ABCD1234
   zotero_version: 123
+  library_id: 1                    # v1.1：Zotero libraryID（personal=1、group=2+）
+  zotero_hash: a1b2c3…             # v1.1：mapping 產出 biblatex 面向的 SHA-256
   imported_at: 2026-07-22T00:00:00Z
   orphaned_at: 2026-08-01T00:00:00Z        # 僅 Zotero 端已刪時出現
 akashic:                         # Akashic namespace——pull 絕不觸碰
@@ -92,6 +94,17 @@ Zotero 欄位只保留 `ZoteroMapping.fieldMap` 允許清單內的項目（title
 未映射欄位（如 `extra`）**不入庫但不靜默**——import report 的 `dropped fields` 列名列數。
 quarantined 檔（decode 失敗）**永不被 import 覆寫**：其 basename 佔住 citekey，
 新 entry 一律讓位取衝突後綴。
+
+### 2.5.1 v1.1 update 條件與身分（Phase 2）
+
+- **身分**＝`(library_id, zotero_key)` 複合鍵；**預設 pull 全部 libraries**（personal + groups；
+  實庫驗證 group 文獻是真實使用）。`--library-id` 限縮時，orphan 判定只作用於該 library
+  視野內（其他 library 與 legacy 檔絕不誤標）。
+- **update 條件**＝`version 較新 OR mapping hash 不同`。hash（SHA-256）涵蓋 pull 管的整個
+  biblatex 面向——同時抓到本機未同步修改、date 正規化生效、mapping 邏輯演進（自動 re-apply，
+  無需 migration 指令）。缺 hash（pre-v1.1 舊檔）＝視為不同、補建一次。
+- **date 正規化**：ISO-ish 前綴（`YYYY[-MM[-DD]]`）、`00` 月/日截斷（`1989-00-00 1989` → `1989`）；
+  解析不了保留原字串並列入 report `unnormalized dates`。
 
 ### 2.6 Orphan 語意
 

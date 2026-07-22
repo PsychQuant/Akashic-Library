@@ -7,7 +7,7 @@ import AkashicStoreIO
 struct AkashicCLI: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "akashic",
-        abstract: "Akashic-Library — 檔案為本的文獻整合系統（Phase 1）",
+        abstract: "Akashic-Library — 檔案為本的文獻整合系統",
         subcommands: [
             ImportZotero.self, Validate.self, ExportBib.self,
             ResolvePeople.self, Doctor.self, Query.self, Graph.self,
@@ -21,29 +21,11 @@ struct LibraryOptions: ParsableArguments {
     var library: String?
 
     func resolveRoot() throws -> URL {
-        if let explicit = library {
-            return URL(fileURLWithPath: (explicit as NSString).expandingTildeInPath)
+        do {
+            return try LibraryLocator.resolve(explicit: library)
+        } catch {
+            throw ValidationError((error as? LocalizedError)?.errorDescription ?? "\(error)")
         }
-        if let env = ProcessInfo.processInfo.environment["AKASHIC_LIBRARY"], !env.isEmpty {
-            return URL(fileURLWithPath: (env as NSString).expandingTildeInPath)
-        }
-        let configURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".akashic/config.yaml")
-        if let content = try? String(contentsOf: configURL, encoding: .utf8) {
-            for line in content.split(separator: "\n") {
-                let parts = line.split(separator: ":", maxSplits: 1)
-                if parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces) == "library" {
-                    let path = parts[1].trimmingCharacters(in: .whitespaces)
-                    return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-                }
-            }
-        }
-        throw ValidationError("""
-        找不到 library root。三選一：
-          1) --library <path>
-          2) export AKASHIC_LIBRARY=<path>
-          3) ~/.akashic/config.yaml 寫入「library: <path>」
-        """)
     }
 
     /// 開既有 library（entries/ 必須存在）；不自動建立。

@@ -76,8 +76,8 @@ struct ImportZotero: ParsableCommand {
     @Option(name: .long, help: "zotero.sqlite 路徑（預設 ~/Zotero/zotero.sqlite）")
     var zoteroDb: String = "~/Zotero/zotero.sqlite"
 
-    @Option(name: .long, help: "Zotero libraryID（預設 1＝personal library）")
-    var libraryId: Int = 1
+    @Option(name: .long, help: "Zotero libraryID（預設全部 libraries；指定則只拉該 library，如 1＝personal）")
+    var libraryId: Int?
 
     func run() throws {
         let root = try options.resolveRoot()

@@ -29,6 +29,7 @@ public struct LibraryIndex {
         let load = try store.load()
 
         // 全刪重建：舊 index 直接移除，避免 schema 演化殘留
+        try FileManager.default.createDirectory(at: store.akashicDir, withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: store.indexURL)
         let db = try SQLiteDB(path: store.indexURL.path, readOnly: false)
 

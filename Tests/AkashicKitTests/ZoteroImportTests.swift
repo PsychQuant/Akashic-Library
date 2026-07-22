@@ -210,3 +210,47 @@ extension ZoteroImportTests {
         XCTAssertTrue(article.attachments.isEmpty)
     }
 }
+
+extension ZoteroImportTests {
+    // R2：update 寫入目的檔若是 quarantined 檔（filename↔citekey 失衡的損壞 store）→ 拒寫、報告
+    func testUpdateToQuarantinedDestinationIsRefused() throws {
+        _ = try runImport()
+        let entries = store.entriesDir
+        // 損壞 store：qtarget.yaml 壞掉（quarantined）；合法 entry 內部 citekey 指向 qtarget
+        try "broken: [yaml\n".write(to: entries.appendingPathComponent("qtarget.yaml"),
+                                    atomically: true, encoding: .utf8)
+        var article = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
+        article.citekey = "qtarget"
+        let mismatched = entries.appendingPathComponent("mismatch.yaml")
+        try EntryYAML.encode(article).write(to: mismatched, atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(
+            at: entries.appendingPathComponent("cheng2025identifiability.yaml"))
+        try fixture.db.execute("UPDATE items SET version=99 WHERE itemID=10")
+
+        let report = try runImport()
+        XCTAssertEqual(report.quarantineConflicts, ["qtarget"])
+        XCTAssertEqual(try String(contentsOf: entries.appendingPathComponent("qtarget.yaml"),
+                                  encoding: .utf8), "broken: [yaml\n")   // 隔離檔一 byte 不動
+    }
+
+    // R2：大小寫不敏感檔案系統上，大寫 quarantined basename 也要佔住 lowercase citekey
+    func testQuarantineGuardIsCaseInsensitive() throws {
+        let brokenURL = store.entriesDir.appendingPathComponent("Cheng2025identifiability.yaml")
+        let broken = "this is: [not valid\n"
+        try broken.write(to: brokenURL, atomically: true, encoding: .utf8)
+        let report = try runImport()
+        XCTAssertTrue(report.created.contains("cheng2025bidentifiability"), "\(report.created)")
+        XCTAssertEqual(try String(contentsOf: brokenURL, encoding: .utf8), broken)
+    }
+
+    // R2：orphanCleared 不得同時計入 unchanged（報表語意）
+    func testOrphanClearedNotCountedAsUnchanged() throws {
+        _ = try runImport()
+        try fixture.db.execute("INSERT INTO deletedItems VALUES (11)")
+        _ = try runImport()
+        try fixture.db.execute("DELETE FROM deletedItems WHERE itemID = 11")
+        let report = try runImport()
+        XCTAssertEqual(report.orphanCleared, ["chen2004matrix"])
+        XCTAssertEqual(report.unchanged, 1)   // 只有 item 10
+    }
+}

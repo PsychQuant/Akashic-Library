@@ -13,6 +13,8 @@ public struct ImportReport: Equatable {
     public var authorsPreserved: [String] = []
     /// 未映射而被捨棄的 Zotero 欄位（欄位名 → 出現次數）。不靜默流失。
     public var droppedFields: [String: Int] = [:]
+    /// 寫入目的檔是 quarantined 檔而被拒寫的 citekeys（損壞 store，人工處理）。
+    public var quarantineConflicts: [String] = []
 
     public init() {}
 }
@@ -44,13 +46,30 @@ public struct ZoteroImporter {
                 byZoteroKey[key] = entry
             }
         }
-        // quarantined 檔的 basename 也要佔住 citekey——否則新 entry 生成同名 key
+        // quarantined 檔的 basename 佔住 citekey——否則新 entry 生成同名 key
         // 時會覆寫使用者的（暫時損壞的）檔案。這是 canonical data-loss 防線。
+        // lowercase 比對：macOS 檔案系統常見 case-insensitive，大寫 basename
+        // 與 lowercase citekey 仍指向同一檔案。
+        var quarantinedBasenames = Set<String>()
         for q in load.quarantined where q.file.hasPrefix("entries/") {
             let basename = String(q.file.dropFirst("entries/".count))
             if basename.hasSuffix(".yaml") {
-                existingCitekeys.insert(String(basename.dropLast(".yaml".count)))
+                let stem = String(basename.dropLast(".yaml".count))
+                quarantinedBasenames.insert(stem.lowercased())
+                existingCitekeys.insert(stem.lowercased())
             }
+        }
+        // 每一次寫入前的 destination guard：目的檔屬 quarantined 集合 → 拒寫、報告。
+        // 不能只靠 citekey allocator——update/orphan 路徑不經 allocator。
+        func guardedWrite(_ entry: Entry, report: inout ImportReport) throws -> Bool {
+            if quarantinedBasenames.contains(entry.citekey.lowercased()) {
+                if !report.quarantineConflicts.contains(entry.citekey) {
+                    report.quarantineConflicts.append(entry.citekey)
+                }
+                return false
+            }
+            try store.writeEntry(entry)
+            return true
         }
 
         let zoteroKeys = Set(items.map(\.key))
@@ -62,12 +81,15 @@ public struct ZoteroImporter {
             if var existing = byZoteroKey[item.key] {
                 guard let prov = existing.provenance else { continue }
                 // Zotero 端存在＝非 orphan：不論版本，先清 orphan 標記（存在性獨立於版本比較）
+                var orphanWasCleared = false
                 if prov.orphanedAt != nil {
                     var restored = existing
                     restored.provenance?.orphanedAt = nil
-                    try store.writeEntry(restored)
-                    existing = restored
-                    report.orphanCleared.append(existing.citekey)
+                    if try guardedWrite(restored, report: &report) {
+                        existing = restored
+                        report.orphanCleared.append(existing.citekey)
+                        orphanWasCleared = true
+                    }
                 }
                 if item.version > prov.zoteroVersion {
                     let hadResolvedAuthors = existing.authors.contains {
@@ -83,9 +105,10 @@ public struct ZoteroImporter {
                     existing.provenance = Provenance(
                         zoteroKey: item.key, zoteroVersion: item.version,
                         importedAt: now, orphanedAt: nil)
-                    try store.writeEntry(existing)
-                    report.updated.append(existing.citekey)
-                } else {
+                    if try guardedWrite(existing, report: &report) {
+                        report.updated.append(existing.citekey)
+                    }
+                } else if !orphanWasCleared {
                     report.unchanged += 1
                 }
             } else {
@@ -101,8 +124,9 @@ public struct ZoteroImporter {
                 entry.provenance = Provenance(
                     zoteroKey: item.key, zoteroVersion: item.version, importedAt: now)
                 entry.akashic.tags = item.tags   // 只在建檔時 seed；後續 pull 不動
-                try store.writeEntry(entry)
-                report.created.append(citekey)
+                if try guardedWrite(entry, report: &report) {
+                    report.created.append(citekey)
+                }
             }
         }
 
@@ -113,8 +137,9 @@ public struct ZoteroImporter {
             var orphan = entry
             prov.orphanedAt = now
             orphan.provenance = prov
-            try store.writeEntry(orphan)
-            report.orphaned.append(orphan.citekey)
+            if try guardedWrite(orphan, report: &report) {
+                report.orphaned.append(orphan.citekey)
+            }
         }
 
         report.created.sort()
@@ -122,6 +147,7 @@ public struct ZoteroImporter {
         report.orphaned.sort()
         report.orphanCleared.sort()
         report.authorsPreserved.sort()
+        report.quarantineConflicts.sort()
         return report
     }
 }

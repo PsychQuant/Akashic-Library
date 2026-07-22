@@ -4,13 +4,31 @@ import Foundation
 /// DOT（graphviz）、GraphML（yEd / Gephi）。輸出經確定性排序，可 golden 比對。
 public enum GraphRenderer {
     public static func mermaid(_ n: Neighborhood) -> String {
+        // 單次 render 的 id 配發表：sanitize 撞名時掛序號，保證 raw id ↔ mermaid id 一對一。
+        // （條件式 hash 後綴可被構造碰撞——R2 verify 實證，改為配發表。）
+        var allocation: [String: String] = [:]
+        var used = Set<String>()
+        for node in n.nodes {
+            var candidate = mermaidID(node.id)
+            var counter = 2
+            while used.contains(candidate) {
+                candidate = "\(mermaidID(node.id))_\(counter)"
+                counter += 1
+            }
+            allocation[node.id] = candidate
+            used.insert(candidate)
+        }
+        func idOf(_ raw: String) -> String { allocation[raw] ?? mermaidID(raw) }
+
         var lines = ["graph LR"]
         for node in n.nodes {
-            let id = mermaidID(node.id)
+            let id = idOf(node.id)
             let label = node.label
                 .replacingOccurrences(of: "\\", with: "/")
                 .replacingOccurrences(of: "\"", with: "'")
+                .replacingOccurrences(of: "\r\n", with: " ")
                 .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\r", with: " ")
             switch node.kind {
             case .entry: lines.append("    \(id)[\"\(label)\"]")
             case .person: lines.append("    \(id)((\"\(label)\"))")
@@ -19,7 +37,7 @@ public enum GraphRenderer {
             }
         }
         for edge in n.edges {
-            lines.append("    \(mermaidID(edge.from)) -->|\(edge.kind)| \(mermaidID(edge.to))")
+            lines.append("    \(idOf(edge.from)) -->|\(edge.kind)| \(idOf(edge.to))")
         }
         return lines.joined(separator: "\n") + "\n"
     }
@@ -27,24 +45,29 @@ public enum GraphRenderer {
     public static func dot(_ n: Neighborhood) -> String {
         var lines = ["digraph akashic {", "    rankdir=LR;"]
         for node in n.nodes {
-            // 順序關鍵：先 escape 反斜線再 escape 引號，否則尾端 \ 可逃出 quoted label
-            let label = node.label
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-                .replacingOccurrences(of: "\n", with: "\\n")
             let shape: String
             switch node.kind {
             case .entry: shape = "box"
             case .person, .literal: shape = "ellipse"
             case .venue: shape = "hexagon"
             }
-            lines.append("    \"\(node.id)\" [label=\"\(label)\", shape=\(shape)];")
+            lines.append("    \"\(dotEscape(node.id))\" [label=\"\(dotEscape(node.label))\", shape=\(shape)];")
         }
         for edge in n.edges {
-            lines.append("    \"\(edge.from)\" -> \"\(edge.to)\" [label=\"\(edge.kind)\"];")
+            lines.append("    \"\(dotEscape(edge.from))\" -> \"\(dotEscape(edge.to))\" [label=\"\(dotEscape(edge.kind))\"];")
         }
         lines.append("}")
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// DOT quoted string escape——label 與 id 一視同仁。
+    /// 順序關鍵：先 escape 反斜線再 escape 引號，否則尾端 \ 可逃出 quoted string。
+    static func dotEscape(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\r\n", with: "\\n")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\n")
     }
 
     public static func graphml(_ n: Neighborhood) -> String {

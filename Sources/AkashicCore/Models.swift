@@ -142,7 +142,8 @@ public struct ValidationIssue: Equatable {
 /// 檔名安全的 key 格式（citekey 與 person key 共用）。
 /// write-time 強制——不合格式的 key 絕不進 appendingPathComponent（path traversal 防護）。
 public enum StoreKey {
-    public static let pattern = "^[a-z0-9][a-z0-9-]*$"
+    /// \A/\z 錨點：ICU 的 `$` 會在尾端換行前匹配，`\z` 才是嚴格字串結尾
+    public static let pattern = "\\A[a-z0-9][a-z0-9-]*\\z"
 
     public static func isValid(_ key: String) -> Bool {
         key.range(of: pattern, options: .regularExpression) != nil

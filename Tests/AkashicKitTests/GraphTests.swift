@@ -96,3 +96,26 @@ extension GraphTests {
         XCTAssertTrue(dot.contains(#"weird\\\"title"#), dot)
     }
 }
+
+extension GraphTests {
+    // R2：mermaid id 配發表——可構造碰撞（a-b vs a_b）也必須分配到不同 id
+    func testMermaidAllocationResolvesConstructedCollisions() throws {
+        var n = Neighborhood(focus: "literal:a-b")
+        n.nodes = [GraphNode(id: "literal:a-b", kind: .literal, label: "x"),
+                   GraphNode(id: "literal:a_b", kind: .literal, label: "y")]
+        let out = GraphRenderer.mermaid(n)
+        let ids = out.split(separator: "\n").dropFirst().compactMap {
+            $0.trimmingCharacters(in: .whitespaces).split(separator: "(").first?
+                .split(separator: "[").first
+        }.map(String.init)
+        XCTAssertEqual(Set(ids).count, ids.count, "node ids 必須唯一：\(ids)")
+    }
+
+    // R2：DOT 的 quoted id 也要 escape
+    func testDotEscapesQuotedIDs() throws {
+        var n = Neighborhood(focus: "entry:x")
+        n.nodes = [GraphNode(id: #"literal:A"Smith"#, kind: .literal, label: "A")]
+        let dot = GraphRenderer.dot(n)
+        XCTAssertTrue(dot.contains(#""literal:A\"Smith""#), dot)
+    }
+}

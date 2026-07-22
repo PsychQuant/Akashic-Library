@@ -141,6 +141,7 @@ public enum EntryYAML {
                 guard let m = node.mapping else {
                     throw StoreYAMLError.invalidField("authors", "元素不是 mapping")
                 }
+                try rejectUnknownKeys(m, known: ["key", "literal"], context: "authors")
                 let key = m["key"]?.string
                 let literal = m["literal"]?.string
                 switch (key, literal) {
@@ -191,20 +192,30 @@ public enum EntryYAML {
         if let akMap = map["akashic"]?.mapping {
             try rejectUnknownKeys(akMap, known: knownAkashicKeys, context: "akashic")
             if let tagSeq = akMap["tags"]?.sequence {
-                entry.akashic.tags = tagSeq.compactMap(\.string)
+                entry.akashic.tags = try stringList(tagSeq, context: "akashic.tags")
             }
             entry.akashic.status = akMap["status"]?.string
             if let relMap = akMap["relations"]?.mapping {
                 try rejectUnknownKeys(relMap, known: knownRelationsKeys, context: "akashic.relations")
                 if let seq = relMap["cites"]?.sequence {
-                    entry.akashic.relations.cites = seq.compactMap(\.string)
+                    entry.akashic.relations.cites = try stringList(seq, context: "akashic.relations.cites")
                 }
                 if let seq = relMap["related"]?.sequence {
-                    entry.akashic.relations.related = seq.compactMap(\.string)
+                    entry.akashic.relations.related = try stringList(seq, context: "akashic.relations.related")
                 }
             }
         }
         return entry
+    }
+
+    /// 序列元素必須全是字串——非字串元素 throw，不靜默略過（strict §5）。
+    static func stringList(_ seq: Yams.Node.Sequence, context: String) throws -> [String] {
+        try seq.map { node in
+            guard let s = node.string else {
+                throw StoreYAMLError.invalidField(context, "元素必須是字串")
+            }
+            return s
+        }
     }
 }
 
@@ -232,7 +243,7 @@ public enum PersonYAML {
         }
         var person = Person(key: key)
         if let seq = map["names"]?.sequence {
-            person.names = seq.compactMap(\.string)
+            person.names = try EntryYAML.stringList(seq, context: "person.names")
         }
         person.orcid = map["orcid"]?.string
         person.openalex = map["openalex"]?.string

@@ -221,3 +221,37 @@ final class StrictSchemaTests: XCTestCase {
         XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [A]\nemail: x@y.z\n"))
     }
 }
+
+extension StrictSchemaTests {
+    func testUnknownAuthorKeyRejected() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        authors:
+          - literal: Ada Lovelace
+            role: editor
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml))
+    }
+
+    func testNonStringTagElementRejected() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        akashic:
+          tags:
+            - ok
+            - {nested: map}
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml))
+    }
+
+    func testTrailingNewlineCitekeyInvalid() {
+        XCTAssertFalse(StoreKey.isValid("abc\n"))
+        XCTAssertFalse(StoreKey.isValid("abc\r"))
+    }
+}

@@ -404,3 +404,59 @@ extension ZoteroImportTests {
         XCTAssertEqual(report.skippedLinkedAttachments, 1)
     }
 }
+
+extension ZoteroImportTests {
+    // Logic/DA CONFIRMED：scoped import 不得認領「已知屬於其他 library」的裸 key entry
+    func testScopedImportDoesNotClaimAmbiguousLegacyKey() throws {
+        // group library 有同 bare key 的 item，且已 backfill（composite 已知屬 lib 5）
+        try fixture.db.execute("INSERT INTO items VALUES (31,1,'KEYART01',9,5)")
+        try fixture.addField(item: 31, field: 1, value: "Group paper same key", valueID: 131)
+        _ = try runImport()   // 全量：兩個 KEYART01（lib1、lib5）各自入庫
+
+        // 模擬 legacy：把 lib1 的那筆抹掉 library_id/hash（回到裸 key 狀態）
+        let store2 = LibraryStore(root: store.root)
+        var legacy = try store2.load().entries.first {
+            $0.provenance?.zoteroKey == "KEYART01" && $0.provenance?.libraryID == 1
+        }!
+        legacy.provenance?.libraryID = nil
+        legacy.provenance?.zoteroHash = nil
+        try store2.writeEntry(legacy)
+
+        // scoped import lib 5：bare key KEYART01 對 store 是歧義（lib5 composite 已存在）
+        // → legacy 檔絕不能被 lib5 的 item 認領改寫
+        let report = try ZoteroImporter(store: store).run(
+            zoteroDB: fixture.dbURL, libraryID: 5, now: Date(timeIntervalSince1970: 1_753_200_000))
+        XCTAssertEqual(report.created, [])
+        let after = try store.load().entries.first { $0.id == legacy.id }!
+        XCTAssertNil(after.provenance?.libraryID)   // legacy 檔原封不動
+    }
+}
+
+final class DateNormalizerBoundaryTests: XCTestCase {
+    // Logic MEDIUM：非 dash 分隔（1989/05/15）不得靜默截成年份——應回 nil 進 report
+    func testSlashSeparatedDateIsUnparseable() {
+        XCTAssertNil(DateNormalizer.normalize("1989/05/15"))
+    }
+    // Codex MEDIUM：超界月/日不得保留（2025-99 非法）
+    func testOutOfRangeMonthDayUnparseable() {
+        XCTAssertNil(DateNormalizer.normalize("2025-99-01"))
+        XCTAssertNil(DateNormalizer.normalize("2025-04-99"))
+    }
+    func testTrailingTextAfterISOStillAccepted() {
+        XCTAssertEqual(DateNormalizer.normalize("1989-00-00 1989"), "1989")   // 空白邊界 OK
+    }
+}
+
+final class HashCanonicalTests: XCTestCase {
+    // DA CONFIRMED（LOW-MEDIUM）：canonical 序列化不得有結構碰撞
+    func testConstructedFieldCollisionResolved() {
+        var a = ZoteroItem(key: "K1", version: 1, libraryID: 1, typeName: "journalArticle",
+                           fields: ["title": "T", "volume": "1\nfield:number=2"],
+                           authors: [], tags: [], attachmentPaths: [])
+        var b = ZoteroItem(key: "K1", version: 1, libraryID: 1, typeName: "journalArticle",
+                           fields: ["title": "T", "volume": "1", "issue": "2"],
+                           authors: [], tags: [], attachmentPaths: [])
+        _ = a; _ = b
+        XCTAssertNotEqual(ZoteroMapping.mappingHash(of: a), ZoteroMapping.mappingHash(of: b))
+    }
+}

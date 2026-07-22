@@ -13,6 +13,12 @@ TAG="akashic-mcp-v${VERSION}"
 
 cd "$REPO_ROOT"
 
+MANIFEST_VERSION=$(python3 -c "import json;print(json.load(open('$MCPB_DIR/manifest.json'))['version'])")
+[ "$MANIFEST_VERSION" = "$VERSION" ] || {
+  echo "✗ VERSION（$VERSION）與 mcpb/manifest.json（$MANIFEST_VERSION）不一致——先同步再 release"
+  exit 1
+}
+
 echo "→ [1/6] Universal release build"
 swift build -c release --arch arm64 --arch x86_64
 BUILT="$REPO_ROOT/.build/apple/Products/Release/$BINARY"
@@ -48,6 +54,7 @@ gh release create "$TAG" --title "akashic-mcp v${VERSION}" \
   "$MCPB_DIR/server/$BINARY.sha256" \
   "$MCPB_FILE" "$MCPB_FILE.sha256" 2>/dev/null \
   || gh release upload "$TAG" --clobber \
+       "$MCPB_DIR/server/$BINARY" \
        "$MCPB_DIR/server/$BINARY.sha256" "$MCPB_FILE" "$MCPB_FILE.sha256"
 
 echo "✓ release 完成：$TAG"

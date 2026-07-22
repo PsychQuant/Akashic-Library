@@ -189,7 +189,10 @@ public enum EntryYAML {
             }
             var prov = Provenance(zoteroKey: zKey, zoteroVersion: zVer)
             if let s = provMap["library_id"]?.string ?? provMap["library_id"]?.scalar?.string {
-                prov.libraryID = Int(s)
+                guard let lid = Int(s) else {
+                    throw StoreYAMLError.invalidField("provenance", "library_id「\(s)」不是整數")
+                }
+                prov.libraryID = lid
             }
             prov.zoteroHash = provMap["zotero_hash"]?.string
             if let s = provMap["imported_at"]?.string {

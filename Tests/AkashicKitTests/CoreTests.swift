@@ -327,3 +327,20 @@ extension StrictSchemaTests {
         XCTAssertNil(entry.provenance?.zoteroHash)
     }
 }
+
+extension StrictSchemaTests {
+    // Codex MEDIUM：provenance library_id malformed 值不得靜默吞成 nil
+    func testMalformedLibraryIDRejected() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        provenance:
+          zotero_key: K
+          zotero_version: 1
+          library_id: abc
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml))
+    }
+}

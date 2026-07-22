@@ -18,7 +18,9 @@
     "mcp_config": {
       "command": "$DIRNAME/server/akashic-mcp",
       "args": [],
-      "env": {}
+      "env": {
+        "AKASHIC_LIBRARY": "${user_config.library_path}"
+      }
     }
   },
   "user_config": {

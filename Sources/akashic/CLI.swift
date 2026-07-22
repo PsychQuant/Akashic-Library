@@ -7,7 +7,7 @@ import AkashicStoreIO
 struct AkashicCLI: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "akashic",
-        abstract: "Akashic-Library — 檔案為本的文獻整合系統（Phase 1）",
+        abstract: "Akashic-Library — 檔案為本的文獻整合系統",
         subcommands: [
             ImportZotero.self, Validate.self, ExportBib.self,
             ResolvePeople.self, Doctor.self, Query.self, Graph.self,

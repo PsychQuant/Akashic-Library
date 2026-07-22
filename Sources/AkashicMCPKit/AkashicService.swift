@@ -198,7 +198,7 @@ public final class AkashicService {
                 ]
             })
         }
-        let byID = Dictionary(uniqueKeysWithValues: withIDs.map { ($0.id, $0.candidate) })
+        let byID = Dictionary(withIDs.map { ($0.id, $0.candidate) }, uniquingKeysWith: { first, _ in first })
         let chosen = try selected.map { id -> ResolutionCandidate in
             guard let c = byID[id] else {
                 throw ServiceError.notFound("候選 id「\(id)」（先不帶 apply 列出候選）")
@@ -222,10 +222,21 @@ public final class AkashicService {
             throw ServiceError.invalid("type 與 title 不可為空")
         }
         let load = try store.load()
+        // quarantined 檔 basename 佔住 citekey（Phase 1 合約：quarantined 檔永不被自動覆寫）
+        var existing = Set(load.entries.map(\.citekey))
+        for q in load.quarantined where q.file.hasPrefix("entries/") {
+            let basename = String(q.file.dropFirst("entries/".count)).lowercased()
+            if basename.hasSuffix(".yaml") {
+                existing.insert(String(basename.dropLast(".yaml".count)))
+            }
+        }
         let family = authors.first.flatMap { $0.split(separator: " ").last.map(String.init) }
         let citekey = Citekey.generate(
-            familyName: family, year: date, title: title,
-            existing: Set(load.entries.map(\.citekey)))
+            familyName: family, year: date, title: title, existing: existing)
+        // 最後防線：目的檔已存在（含 quarantined/大小寫別名）→ 拒寫
+        guard !FileManager.default.fileExists(atPath: store.entryURL(citekey: citekey).path) else {
+            throw ServiceError.invalid("目的檔已存在：entries/\(citekey).yaml（可能是 quarantined 檔）")
+        }
         var entry = Entry(id: UUID(), citekey: citekey, type: type, title: title,
                           authors: authors.map { .literal($0) }, date: date)
         entry.fields = fields
@@ -237,6 +248,10 @@ public final class AkashicService {
         let load = try store.load()
         guard !load.people.contains(where: { $0.key == key }) else {
             throw ServiceError.invalid("person key「\(key)」已存在")
+        }
+        // quarantined people 檔同樣受保護：目的檔存在即拒寫
+        guard !FileManager.default.fileExists(atPath: store.personURL(key: key).path) else {
+            throw ServiceError.invalid("people/\(key).yaml 已存在（可能是 quarantined 檔），不覆寫")
         }
         let person = Person(key: key, names: names, orcid: orcid, openalex: openalex)
         try store.writePerson(person)
@@ -291,6 +306,11 @@ public final class AkashicService {
         }
         var newest = Date.distantPast
         for dir in [store.entriesDir, store.peopleDir] {
+            // 目錄自身 mtime 在檔案增刪時更新——外部刪檔靠這個偵測
+            if let dirM = (try? fm.attributesOfItem(atPath: dir.path)[.modificationDate]) as? Date,
+               dirM > newest {
+                newest = dirM
+            }
             guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { continue }
             for f in files {
                 if let m = (try? f.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
@@ -340,7 +360,12 @@ public final class AkashicService {
             var p: [String: Any] = ["zotero_key": prov.zoteroKey, "zotero_version": prov.zoteroVersion]
             if let lid = prov.libraryID { p["library_id"] = lid }
             if let hash = prov.zoteroHash { p["zotero_hash"] = hash }
-            if prov.orphanedAt != nil { p["orphaned"] = true }
+            let iso = ISO8601DateFormatter()
+            if let at = prov.importedAt { p["imported_at"] = iso.string(from: at) }
+            if let at = prov.orphanedAt {
+                p["orphaned"] = true
+                p["orphaned_at"] = iso.string(from: at)
+            }
             d["provenance"] = p
         }
         var akashic: [String: Any] = [:]

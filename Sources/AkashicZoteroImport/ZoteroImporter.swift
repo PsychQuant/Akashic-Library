@@ -97,8 +97,15 @@ public struct ZoteroImporter {
             let itemHash = ZoteroMapping.mappingHash(of: item)
             var matched = byCompositeKey["\(item.libraryID):\(item.key)"]
             if matched == nil, let legacy = legacyByBareKey[item.key], !legacyMatched.contains(item.key) {
-                matched = legacy
-                legacyMatched.insert(item.key)
+                // 歧義防線：同 bare key 已被「其他 library」的 composite entry 持有
+                // → legacy 檔歸屬不明，scoped/全量都不認領（留待人工或全量 backfill 釐清）
+                let claimedByOtherLibrary = byCompositeKey.keys.contains {
+                    $0.hasSuffix(":\(item.key)") && $0 != "\(item.libraryID):\(item.key)"
+                }
+                if !claimedByOtherLibrary {
+                    matched = legacy
+                    legacyMatched.insert(item.key)
+                }
             }
             if var existing = matched {
                 guard let prov = existing.provenance else { continue }

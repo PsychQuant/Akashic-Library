@@ -123,7 +123,8 @@ actor AkashicMCPServer {
                 "date": str("日期（YYYY[-MM[-DD]]）"),
                 "fields": .object([
                     "type": .string("object"),
-                    "description": .string("其餘 biblatex 欄位（journaltitle/doi/…）"),
+                    "additionalProperties": .object(["type": .string("string")]),
+                    "description": .string("其餘 biblatex 欄位（journaltitle/doi/…；值必須是字串）"),
                 ]),
              ], required: ["type", "title"])),
         Tool(name: "akashic_add_person",
@@ -199,8 +200,10 @@ actor AkashicMCPServer {
                 output = try service.link(citekey: arg("citekey") ?? "", kind: arg("kind") ?? "",
                                           add: argList("add"), remove: argList("remove"))
             case "akashic_resolve_people":
+                // 「有給 apply 但空陣列」＝套用零筆（no-op），與「未給」（列候選）語意分開
+                let applyProvided = params.arguments?["apply"] != nil
                 let apply = argList("apply")
-                output = try service.resolvePeople(apply: apply.isEmpty ? nil : apply)
+                output = try service.resolvePeople(apply: applyProvided ? apply : nil)
             case "akashic_create_entry":
                 output = try service.createEntry(
                     type: arg("type") ?? "", title: arg("title") ?? "",

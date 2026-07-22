@@ -63,17 +63,17 @@ public enum ZoteroMapping {
     public static func mappingHash(of item: ZoteroItem) -> String {
         var probe = Entry(id: UUID(), citekey: "probe", type: "misc", title: "")
         applyBiblatexFields(from: item, to: &probe)
-        var canonical = "type:\(probe.type)\ntitle:\(probe.title)\ndate:\(probe.date ?? "")\n"
-        for key in probe.fields.keys.sorted() {
-            canonical += "field:\(key)=\(probe.fields[key]!)\n"
-        }
-        for author in item.authors {
-            canonical += "author:\(author.display)\n"
-        }
-        for path in item.attachmentPaths {
-            canonical += "attachment:\(path)\n"
-        }
-        let digest = SHA256.hash(data: Data(canonical.utf8))
+        // JSON 序列化（sortedKeys）保證結構性——串接式 canonical 曾被構造出碰撞（verify R1）
+        let canonical: [String: Any] = [
+            "type": probe.type,
+            "title": probe.title,
+            "date": probe.date ?? "",
+            "fields": probe.fields,
+            "authors": item.authors.map(\.display),
+            "attachments": item.attachmentPaths,
+        ]
+        let data = (try? JSONSerialization.data(withJSONObject: canonical, options: [.sortedKeys])) ?? Data()
+        let digest = SHA256.hash(data: data)
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 

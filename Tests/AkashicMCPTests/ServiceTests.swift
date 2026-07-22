@@ -153,3 +153,60 @@ final class ServiceTests: XCTestCase {
         XCTAssertThrowsError(try service.importZotero(zoteroDb: "/nonexistent/z.sqlite", libraryID: nil))
     }
 }
+
+// ── Verify R1 修復（#9）──
+
+extension ServiceTests {
+    // DA CONFIRMED HIGH：createEntry 不得覆寫 quarantined 檔
+    func testCreateEntryNeverOverwritesQuarantinedFile() throws {
+        let store = LibraryStore(root: root)
+        let broken = "broken: [yaml\n"
+        // 會與 createEntry 生成的 citekey（author2024manual）同名
+        try broken.write(to: store.entriesDir.appendingPathComponent("author2024manual.yaml"),
+                         atomically: true, encoding: .utf8)
+        let out = try service.createEntry(type: "article", title: "Manual reference entry",
+                                          authors: ["Some Author"], date: "2024", fields: [:])
+        let citekey = (try JSONSerialization.jsonObject(with: Data(out.utf8)) as! [String: Any])["citekey"] as! String
+        XCTAssertEqual(citekey, "author2024bmanual")   // 讓位取衝突後綴
+        XCTAssertEqual(try String(contentsOf: store.entriesDir.appendingPathComponent("author2024manual.yaml"),
+                                  encoding: .utf8), broken)
+    }
+
+    // DA CONFIRMED HIGH：addPerson 不得覆寫 quarantined people 檔
+    func testAddPersonNeverOverwritesQuarantinedFile() throws {
+        let store = LibraryStore(root: root)
+        let broken = "not: [valid person\n"
+        try broken.write(to: store.peopleDir.appendingPathComponent("yang-hau-hung.yaml"),
+                         atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try service.addPerson(key: "yang-hau-hung", names: ["Hau-Hung Yang"],
+                                                   orcid: nil, openalex: nil))
+        XCTAssertEqual(try String(contentsOf: store.peopleDir.appendingPathComponent("yang-hau-hung.yaml"),
+                                  encoding: .utf8), broken)
+    }
+
+    // Codex/Logic CONFIRMED：外部刪檔後 freshness 要偵測到（目錄 mtime）
+    func testFreshnessDetectsExternalDeletion() throws {
+        _ = try service.search(journal: "Psychometrika")   // 建 index（2 筆）
+        Thread.sleep(forTimeInterval: 1.1)                  // 目錄 mtime 秒級粒度
+        try FileManager.default.removeItem(
+            at: LibraryStore(root: root).entriesDir.appendingPathComponent("olsson1979maximum.yaml"))
+        let out = try service.search(journal: "Psychometrika")
+        let arr = try JSONSerialization.jsonObject(with: Data(out.utf8)) as! [[String: Any]]
+        XCTAssertEqual(arr.count, 1)
+    }
+
+    // get_entry 完整性：provenance 時間欄位入 JSON
+    func testGetEntryIncludesProvenanceTimestamps() throws {
+        let store = LibraryStore(root: root)
+        var e = try store.load().entries.first { $0.citekey == "olsson1979maximum" }!
+        e.provenance = Provenance(zoteroKey: "K", zoteroVersion: 1,
+                                  importedAt: Date(timeIntervalSince1970: 1_753_000_000),
+                                  orphanedAt: Date(timeIntervalSince1970: 1_753_100_000))
+        try store.writeEntry(e)
+        let obj = try JSONSerialization.jsonObject(
+            with: Data(try service.getEntry(citekey: "olsson1979maximum").utf8)) as! [String: Any]
+        let prov = obj["provenance"] as! [String: Any]
+        XCTAssertNotNil(prov["imported_at"])
+        XCTAssertNotNil(prov["orphaned_at"])
+    }
+}

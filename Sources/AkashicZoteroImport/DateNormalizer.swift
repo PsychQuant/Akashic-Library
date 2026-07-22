@@ -5,8 +5,9 @@ import Foundation
 public enum DateNormalizer {
     public static func normalize(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        // 邊界：ISO 前綴後必須是字串尾或空白（1989/05/15 不得截成 1989）
         guard let match = trimmed.range(
-            of: #"\A(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?"#,
+            of: #"\A(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?(?=\s|$)"#,
             options: .regularExpression) else {
             return nil
         }
@@ -15,6 +16,9 @@ public enum DateNormalizer {
         let year = parts[0]
         let month = parts.count > 1 && parts[1] != "00" ? parts[1] : nil
         let day = parts.count > 2 && parts[2] != "00" && month != nil ? parts[2] : nil
+        // 範圍驗證：超界月/日（2025-99）＝malformed，整串交回 report
+        if let m = month, !(1...12).contains(Int(m) ?? 0) { return nil }
+        if let d = day, !(1...31).contains(Int(d) ?? 0) { return nil }
 
         var result = year
         if let month { result += "-\(month)" }

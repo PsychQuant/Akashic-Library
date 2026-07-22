@@ -4,3 +4,6 @@
 [submodule "mcps/che-zotero-mcp"]
 	path = mcps/che-zotero-mcp
 	url = https://github.com/kiki830621/che-zotero-mcp
+[submodule "mcps/che-biblatex-mcp"]
+	path = mcps/che-biblatex-mcp
+	url = https://github.com/kiki830621/che-biblatex-mcp

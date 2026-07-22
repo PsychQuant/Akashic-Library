@@ -91,10 +91,35 @@ public enum EntryYAML {
         return try Yams.serialize(node: Node(pairs), allowUnicode: true)
     }
 
+    static let knownTopLevelKeys: Set<String> = [
+        "id", "citekey", "type", "title", "authors", "date",
+        "fields", "attachments", "provenance", "akashic",
+    ]
+    static let knownAkashicKeys: Set<String> = ["tags", "status", "relations"]
+    static let knownRelationsKeys: Set<String> = ["cites", "related"]
+    static let knownProvenanceKeys: Set<String> = [
+        "zotero_key", "zotero_version", "imported_at", "orphaned_at",
+    ]
+
+    /// store-format §5 strict 策略：未知欄位＝decode 錯誤。
+    /// 沒有這層，未知欄位會在 re-encode（如 pull update）時被靜默刪除——資料毀損路徑。
+    static func rejectUnknownKeys(_ map: Yams.Node.Mapping, known: Set<String>,
+                                  context: String) throws {
+        for (key, _) in map {
+            guard let k = key.string else {
+                throw StoreYAMLError.invalidField(context, "非字串鍵")
+            }
+            if !known.contains(k) {
+                throw StoreYAMLError.invalidField(context, "未知欄位「\(k)」（strict schema；見 docs/store-format.md §5）")
+            }
+        }
+    }
+
     public static func decode(_ yaml: String) throws -> Entry {
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
+        try rejectUnknownKeys(map, known: knownTopLevelKeys, context: "entry")
         guard let idString = map["id"]?.string, let id = UUID(uuidString: idString) else {
             throw StoreYAMLError.missingField("id")
         }
@@ -146,6 +171,7 @@ public enum EntryYAML {
             }
         }
         if let provMap = map["provenance"]?.mapping {
+            try rejectUnknownKeys(provMap, known: knownProvenanceKeys, context: "provenance")
             guard let zKey = provMap["zotero_key"]?.string else {
                 throw StoreYAMLError.invalidField("provenance", "缺 zotero_key")
             }
@@ -163,11 +189,13 @@ public enum EntryYAML {
             entry.provenance = prov
         }
         if let akMap = map["akashic"]?.mapping {
+            try rejectUnknownKeys(akMap, known: knownAkashicKeys, context: "akashic")
             if let tagSeq = akMap["tags"]?.sequence {
                 entry.akashic.tags = tagSeq.compactMap(\.string)
             }
             entry.akashic.status = akMap["status"]?.string
             if let relMap = akMap["relations"]?.mapping {
+                try rejectUnknownKeys(relMap, known: knownRelationsKeys, context: "akashic.relations")
                 if let seq = relMap["cites"]?.sequence {
                     entry.akashic.relations.cites = seq.compactMap(\.string)
                 }
@@ -192,10 +220,13 @@ public enum PersonYAML {
         return try Yams.serialize(node: Node(pairs), allowUnicode: true)
     }
 
+    static let knownPersonKeys: Set<String> = ["key", "names", "orcid", "openalex", "note"]
+
     public static func decode(_ yaml: String) throws -> Person {
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
+        try EntryYAML.rejectUnknownKeys(map, known: knownPersonKeys, context: "person")
         guard let key = map["key"]?.string else {
             throw StoreYAMLError.missingField("key")
         }

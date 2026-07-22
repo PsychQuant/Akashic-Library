@@ -162,3 +162,62 @@ final class PersonYAMLTests: XCTestCase {
         XCTAssertThrowsError(try PersonYAML.decode("names:\n  - Foo Bar\n"))
     }
 }
+
+final class StrictSchemaTests: XCTestCase {
+    // store-format §5：未知欄位＝decode 錯誤（防 re-encode 靜默資料流失）
+    func testUnknownTopLevelKeyRejected() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        rating: 5
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml))
+    }
+
+    func testUnknownAkashicKeyRejected() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        akashic:
+          tags: [x]
+          reading_progress: 60
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml))
+    }
+
+    func testUnknownProvenanceKeyRejected() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        provenance:
+          zotero_key: K
+          zotero_version: 1
+          sync_source: foo
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml))
+    }
+
+    func testUnknownRelationsKeyRejected() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        akashic:
+          relations:
+            cites: [x2020y]
+            blocks: [z2020w]
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml))
+    }
+
+    func testUnknownPersonKeyRejected() {
+        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [A]\nemail: x@y.z\n"))
+    }
+}

@@ -47,7 +47,8 @@ public enum PersonResolver {
 
     /// 把已確認的候選套用到 entries（回傳新副本，不動原陣列）。
     public static func apply(_ candidates: [ResolutionCandidate], to entries: [Entry]) -> [Entry] {
-        var byCitekey = Dictionary(uniqueKeysWithValues: entries.map { ($0.citekey, $0) })
+        // uniquingKeysWith：損壞 store 出現重複 citekey 時不 trap（後者勝，validate 另行報告）
+        var byCitekey = Dictionary(entries.map { ($0.citekey, $0) }, uniquingKeysWith: { _, last in last })
         for candidate in candidates {
             guard var entry = byCitekey[candidate.citekey],
                   entry.authors.indices.contains(candidate.authorIndex),

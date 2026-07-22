@@ -59,7 +59,9 @@ akashic:                         # Akashic namespace——pull 絕不觸碰
 
 ### 2.3 雙 ID 與 citekey 規則
 
-- `id`：UUID，配發後永不變。citekey 改名不斷鏈（index/graph 內部以 UUID 對齊）。
+- `id`：UUID，配發後永不變——為 citekey 改名保留的機器身分。
+  **Phase 1 尚未提供 rename 流程**（改 citekey 需同步搬檔、更新他檔 relations；
+  手改會斷鏈，rename API 是既定 follow-up）。
 - `citekey`：`^[a-z0-9][a-z0-9-]*$`。自動生成規則（2026-07-22 定案）：
   **小寫第一作者姓 + 年份 + 標題首個實詞**（如 `cheng2025identifiability`）。
   - 姓：ASCII 摺疊（Müller→muller）；單欄姓名取最後一個 token；CJK 無 ASCII → `anon`。
@@ -85,6 +87,11 @@ Phase 1 的 Zotero pull 只記 `zotero:` reference、不搬檔。
 特例：**已解析的作者**（`key:` 形式）是使用者確認過的衍生知識——pull 更新時
 若 entry 含任何 `key:` 作者，整個 authors 欄保持不動（import report 列於
 `authors preserved`）。`akashic.tags` 只在**建檔**時從 Zotero seed 一次。
+
+Zotero 欄位只保留 `ZoteroMapping.fieldMap` 允許清單內的項目（title/date 為一級欄位）；
+未映射欄位（如 `extra`）**不入庫但不靜默**——import report 的 `dropped fields` 列名列數。
+quarantined 檔（decode 失敗）**永不被 import 覆寫**：其 basename 佔住 citekey，
+新 entry 一律讓位取衝突後綴。
 
 ### 2.6 Orphan 語意
 

@@ -170,3 +170,43 @@ final class ZoteroImportTests: XCTestCase {
         XCTAssertEqual(after.authors.first, .key("cheng-che"))   // 解析成果不被 pull 摧毀
     }
 }
+
+extension ZoteroImportTests {
+    // DA/Codex 確認的 data-loss 路徑：quarantined 檔絕不可被 import 覆寫
+    func testQuarantinedFileIsNeverOverwritten() throws {
+        let brokenURL = store.entriesDir.appendingPathComponent("cheng2025identifiability.yaml")
+        let brokenContent = "this is: [not a valid entry\n"
+        try brokenContent.write(to: brokenURL, atomically: true, encoding: .utf8)
+
+        let report = try runImport()
+        // 原檔一個 byte 都不能動
+        XCTAssertEqual(try String(contentsOf: brokenURL, encoding: .utf8), brokenContent)
+        // 新 entry 讓位：拿衝突後綴 key
+        XCTAssertTrue(report.created.contains("cheng2025bidentifiability"), "\(report.created)")
+    }
+
+    func testOrphanClearedWhenItemReturnsAtSameVersion() throws {
+        _ = try runImport()
+        try fixture.db.execute("INSERT INTO deletedItems VALUES (11)")
+        _ = try runImport()
+        try fixture.db.execute("DELETE FROM deletedItems WHERE itemID = 11")
+        let report = try runImport()
+        XCTAssertEqual(report.orphanCleared, ["chen2004matrix"])
+        let book = try store.load().entries.first { $0.citekey == "chen2004matrix" }!
+        XCTAssertNil(book.provenance?.orphanedAt)
+    }
+
+    func testUnmappedZoteroFieldsAreReportedNotSilentlyDropped() throws {
+        try fixture.db.execute("INSERT INTO fields VALUES (8,'extra')")
+        try fixture.addField(item: 10, field: 8, value: "PMID: 12345", valueID: 199)
+        let report = try runImport()
+        XCTAssertEqual(report.droppedFields["extra"], 1)
+    }
+
+    func testDeletedAttachmentChildIsExcluded() throws {
+        try fixture.db.execute("INSERT INTO deletedItems VALUES (20)")
+        _ = try runImport()
+        let article = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
+        XCTAssertTrue(article.attachments.isEmpty)
+    }
+}

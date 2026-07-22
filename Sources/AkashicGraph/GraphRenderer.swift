@@ -7,7 +7,10 @@ public enum GraphRenderer {
         var lines = ["graph LR"]
         for node in n.nodes {
             let id = mermaidID(node.id)
-            let label = node.label.replacingOccurrences(of: "\"", with: "'")
+            let label = node.label
+                .replacingOccurrences(of: "\\", with: "/")
+                .replacingOccurrences(of: "\"", with: "'")
+                .replacingOccurrences(of: "\n", with: " ")
             switch node.kind {
             case .entry: lines.append("    \(id)[\"\(label)\"]")
             case .person: lines.append("    \(id)((\"\(label)\"))")
@@ -24,7 +27,11 @@ public enum GraphRenderer {
     public static func dot(_ n: Neighborhood) -> String {
         var lines = ["digraph akashic {", "    rankdir=LR;"]
         for node in n.nodes {
-            let label = node.label.replacingOccurrences(of: "\"", with: "\\\"")
+            // 順序關鍵：先 escape 反斜線再 escape 引號，否則尾端 \ 可逃出 quoted label
+            let label = node.label
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: "\\n")
             let shape: String
             switch node.kind {
             case .entry: shape = "box"
@@ -65,10 +72,24 @@ public enum GraphRenderer {
     }
 
     static func mermaidID(_ raw: String) -> String {
-        raw.unicodeScalars.map { scalar -> String in
+        let sanitized = raw.unicodeScalars.map { scalar -> String in
             if CharacterSet.alphanumerics.contains(scalar) { return String(scalar) }
             return "_"
         }.joined()
+        // 只差標點的 raw id 淨化後會撞同一 sanitized 字串（J.Smith / J-Smith）。
+        // 附掛原字串的確定性短 hash（FNV-1a）保證不同 raw → 不同 Mermaid id。
+        if sanitized == raw { return sanitized }
+        return "\(sanitized)_\(fnv1a(raw))"
+    }
+
+    /// 確定性短 hash（Swift 的 hashValue 跨執行不穩定，不可用於輸出）。
+    static func fnv1a(_ s: String) -> String {
+        var hash: UInt32 = 2_166_136_261
+        for byte in s.utf8 {
+            hash ^= UInt32(byte)
+            hash = hash &* 16_777_619
+        }
+        return String(format: "%08x", hash)
     }
 
     static func xmlEscape(_ s: String) -> String {

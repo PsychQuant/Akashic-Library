@@ -89,8 +89,16 @@ struct ImportZotero: ParsableCommand {
         print("updated: \(report.updated.count)\(report.updated.isEmpty ? "" : "（" + report.updated.joined(separator: ", ") + "）")")
         print("orphaned: \(report.orphaned.count)\(report.orphaned.isEmpty ? "" : "（" + report.orphaned.joined(separator: ", ") + "）")")
         print("unchanged: \(report.unchanged)")
+        if !report.orphanCleared.isEmpty {
+            print("orphan cleared（Zotero 端復原）: \(report.orphanCleared.joined(separator: ", "))")
+        }
         if !report.authorsPreserved.isEmpty {
             print("authors preserved（已解析、未同步 Zotero 作者欄）: \(report.authorsPreserved.joined(separator: ", "))")
+        }
+        if !report.droppedFields.isEmpty {
+            let summary = report.droppedFields.keys.sorted()
+                .map { "\($0)×\(report.droppedFields[$0]!)" }.joined(separator: ", ")
+            print("dropped fields（未映射的 Zotero 欄位，未入庫）: \(summary)")
         }
         let stats = try LibraryIndex(store: store).rebuild()
         print("index rebuilt: \(stats.entries) entries")

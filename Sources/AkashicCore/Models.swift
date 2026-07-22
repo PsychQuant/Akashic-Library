@@ -139,8 +139,18 @@ public struct ValidationIssue: Equatable {
     }
 }
 
+/// 檔名安全的 key 格式（citekey 與 person key 共用）。
+/// write-time 強制——不合格式的 key 絕不進 appendingPathComponent（path traversal 防護）。
+public enum StoreKey {
+    public static let pattern = "^[a-z0-9][a-z0-9-]*$"
+
+    public static func isValid(_ key: String) -> Bool {
+        key.range(of: pattern, options: .regularExpression) != nil
+    }
+}
+
 extension Entry {
-    private static let citekeyPattern = "^[a-z0-9][a-z0-9-]*$"
+    private static let citekeyPattern = StoreKey.pattern
 
     public func validate() -> [ValidationIssue] {
         var issues: [ValidationIssue] = []

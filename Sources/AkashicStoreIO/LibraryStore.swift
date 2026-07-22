@@ -1,6 +1,17 @@
 import Foundation
 import AkashicCore
 
+public enum StoreIOError: Error, LocalizedError, Equatable {
+    case invalidKey(String, String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidKey(let kind, let value):
+            return "\(kind)「\(value)」不符合 \(StoreKey.pattern)，拒絕寫入"
+        }
+    }
+}
+
 public struct QuarantinedFile: Equatable {
     public var file: String
     public var reason: String
@@ -55,6 +66,10 @@ public final class LibraryStore {
 
     @discardableResult
     public func writeEntry(_ entry: Entry) throws -> URL {
+        // write-time key 驗證：不合格式的 citekey 絕不進檔名（path traversal 防護）
+        guard StoreKey.isValid(entry.citekey) else {
+            throw StoreIOError.invalidKey("citekey", entry.citekey)
+        }
         let yaml = try EntryYAML.encode(entry)
         let dest = entryURL(citekey: entry.citekey)
         try atomicWrite(yaml, to: dest)
@@ -63,6 +78,9 @@ public final class LibraryStore {
 
     @discardableResult
     public func writePerson(_ person: Person) throws -> URL {
+        guard StoreKey.isValid(person.key) else {
+            throw StoreIOError.invalidKey("person key", person.key)
+        }
         let yaml = try PersonYAML.encode(person)
         let dest = personURL(key: person.key)
         try atomicWrite(yaml, to: dest)
@@ -111,13 +129,19 @@ public final class LibraryStore {
     }
 
     /// temp 檔寫在同一目錄 + rename 取代——中斷不留半寫檔。
+    /// dest 不存在時 `replaceItemAt` 的行為在 Apple docs 未保證（實測可行），
+    /// 防禦性改走 moveItem——兩條路徑都是同目錄 rename、同等原子性。
     private func atomicWrite(_ content: String, to dest: URL) throws {
         let fm = FileManager.default
         let tmp = dest.deletingLastPathComponent()
             .appendingPathComponent(".\(dest.lastPathComponent).tmp-\(UUID().uuidString)")
         try content.write(to: tmp, atomically: false, encoding: .utf8)
         do {
-            _ = try fm.replaceItemAt(dest, withItemAt: tmp)
+            if fm.fileExists(atPath: dest.path) {
+                _ = try fm.replaceItemAt(dest, withItemAt: tmp)
+            } else {
+                try fm.moveItem(at: tmp, to: dest)
+            }
         } catch {
             try? fm.removeItem(at: tmp)
             throw error

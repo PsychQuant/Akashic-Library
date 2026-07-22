@@ -79,3 +79,15 @@ final class StoreIOTests: XCTestCase {
         XCTAssertTrue(load.quarantined.isEmpty)
     }
 }
+
+extension StoreIOTests {
+    // path traversal 防護：write-time 強制 key 格式（security lens HIGH）
+    func testWriteEntryRejectsTraversalCitekey() {
+        let entry = Entry(id: UUID(), citekey: "../../evil", type: "article", title: "T")
+        XCTAssertThrowsError(try store.writeEntry(entry))
+    }
+
+    func testWritePersonRejectsBadKey() {
+        XCTAssertThrowsError(try store.writePerson(Person(key: "Bad/Key", names: ["X"])))
+    }
+}

@@ -62,10 +62,11 @@ public struct QueryEngine {
         if let author = filter.author {
             conditions.append("""
                 uuid IN (SELECT entry_uuid FROM authors
-                         WHERE person_key = ? OR lower(literal) LIKE '%' || lower(?) || '%')
+                         WHERE person_key = ?
+                            OR lower(literal) LIKE '%' || lower(?) || '%' ESCAPE '\\')
                 """)
             bind.append(author)
-            bind.append(author)
+            bind.append(Self.escapeLike(author))
         }
         if let from = filter.yearFrom {
             conditions.append("year >= ?")
@@ -111,8 +112,8 @@ public struct QueryEngine {
                 (a.person_key IS NOT NULL AND a.person_key IN
                     (SELECT person_key FROM authors WHERE entry_uuid = ? AND person_key IS NOT NULL))
                 OR
-                (a.literal IS NOT NULL AND a.literal IN
-                    (SELECT literal FROM authors WHERE entry_uuid = ? AND literal IS NOT NULL))
+                (a.literal IS NOT NULL AND lower(a.literal) IN
+                    (SELECT lower(literal) FROM authors WHERE entry_uuid = ? AND literal IS NOT NULL))
             )
             ORDER BY e.citekey
             """, bind: [uuid, uuid, uuid])
@@ -124,7 +125,7 @@ public struct QueryEngine {
         let entry = try requireEntry(citekey)
         let uuid = entry["uuid"] as? String ?? ""
         return try summaries("""
-            SELECT e.* FROM entries e
+            SELECT DISTINCT e.* FROM entries e
             JOIN relations r ON (r.target = e.citekey OR r.target = e.uuid)
             WHERE r.from_uuid = ? AND r.kind = 'cites'
             ORDER BY e.citekey
@@ -135,7 +136,7 @@ public struct QueryEngine {
         let entry = try requireEntry(citekey)
         let uuid = entry["uuid"] as? String ?? ""
         return try summaries("""
-            SELECT e.* FROM entries e
+            SELECT DISTINCT e.* FROM entries e
             JOIN relations r ON r.from_uuid = e.uuid
             WHERE r.kind = 'cites' AND (r.target = ? OR r.target = ?)
             ORDER BY e.citekey
@@ -158,6 +159,13 @@ public struct QueryEngine {
     }
 
     // MARK: - Internals
+
+    /// LIKE 萬用字元 escape：使用者輸入的 % _ \ 一律當字面字元。
+    static func escapeLike(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
+    }
 
     func requireEntry(_ citekey: String) throws -> [String: Any] {
         guard let row = try db.query("SELECT * FROM entries WHERE citekey = ?",

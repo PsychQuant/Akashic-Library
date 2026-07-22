@@ -47,6 +47,7 @@ public struct LibraryIndex {
             "CREATE INDEX idx_authors_key ON authors(person_key)",
             "CREATE INDEX idx_tags_entry ON tags(entry_uuid)",
             "CREATE INDEX idx_relations_from ON relations(from_uuid)",
+            "CREATE INDEX idx_relations_target ON relations(target)",
         ] {
             try db.execute(sql)
         }

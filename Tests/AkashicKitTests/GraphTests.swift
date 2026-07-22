@@ -80,3 +80,19 @@ final class GraphTests: XCTestCase {
         XCTAssertTrue(xml.contains("entry:cheng2025identifiability"))
     }
 }
+
+extension GraphTests {
+    func testMermaidIDsDoNotCollideForPunctuationVariants() throws {
+        // 只差標點的兩個 literal 不可映射到同一 Mermaid 節點 id
+        let a = GraphRenderer.mermaidID("literal:J.Smith")
+        let b = GraphRenderer.mermaidID("literal:J-Smith")
+        XCTAssertNotEqual(a, b)
+    }
+
+    func testDotEscapesBackslashBeforeQuote() throws {
+        var n = Neighborhood(focus: "entry:x")
+        n.nodes = [GraphNode(id: "entry:x", kind: .entry, label: #"weird\"title"#)]
+        let dot = GraphRenderer.dot(n)
+        XCTAssertTrue(dot.contains(#"weird\\\"title"#), dot)
+    }
+}

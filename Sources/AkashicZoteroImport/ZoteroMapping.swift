@@ -50,6 +50,12 @@ public enum ZoteroMapping {
         typeMap[zoteroType] ?? "misc"
     }
 
+    /// 不在 fieldMap 的 Zotero 欄位（title/date 除外）——會被捨棄，
+    /// importer 記進 report.droppedFields，不靜默流失。
+    public static func unmappedFields(of item: ZoteroItem) -> [String] {
+        item.fields.keys.filter { $0 != "title" && $0 != "date" && fieldMap[$0] == nil }.sorted()
+    }
+
     /// 把 ZoteroItem 的 biblatex 面向填進 Entry（不動 id/citekey/akashic）。
     public static func applyBiblatexFields(from item: ZoteroItem, to entry: inout Entry) {
         entry.type = biblatexType(for: item.typeName)

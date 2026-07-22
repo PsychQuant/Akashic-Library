@@ -6,9 +6,13 @@ public struct ImportReport: Equatable {
     public var created: [String] = []
     public var updated: [String] = []
     public var orphaned: [String] = []
+    /// Zotero 端復原、orphan 標記被清除的 entries。
+    public var orphanCleared: [String] = []
     public var unchanged: Int = 0
     /// 解析過的作者被保留、未跟 Zotero 同步的 entries（資訊性）。
     public var authorsPreserved: [String] = []
+    /// 未映射而被捨棄的 Zotero 欄位（欄位名 → 出現次數）。不靜默流失。
+    public var droppedFields: [String: Int] = [:]
 
     public init() {}
 }
@@ -40,12 +44,31 @@ public struct ZoteroImporter {
                 byZoteroKey[key] = entry
             }
         }
+        // quarantined 檔的 basename 也要佔住 citekey——否則新 entry 生成同名 key
+        // 時會覆寫使用者的（暫時損壞的）檔案。這是 canonical data-loss 防線。
+        for q in load.quarantined where q.file.hasPrefix("entries/") {
+            let basename = String(q.file.dropFirst("entries/".count))
+            if basename.hasSuffix(".yaml") {
+                existingCitekeys.insert(String(basename.dropLast(".yaml".count)))
+            }
+        }
 
         let zoteroKeys = Set(items.map(\.key))
 
         for item in items {
+            for dropped in ZoteroMapping.unmappedFields(of: item) {
+                report.droppedFields[dropped, default: 0] += 1
+            }
             if var existing = byZoteroKey[item.key] {
                 guard let prov = existing.provenance else { continue }
+                // Zotero 端存在＝非 orphan：不論版本，先清 orphan 標記（存在性獨立於版本比較）
+                if prov.orphanedAt != nil {
+                    var restored = existing
+                    restored.provenance?.orphanedAt = nil
+                    try store.writeEntry(restored)
+                    existing = restored
+                    report.orphanCleared.append(existing.citekey)
+                }
                 if item.version > prov.zoteroVersion {
                     let hadResolvedAuthors = existing.authors.contains {
                         if case .key = $0 { return true } else { return false }
@@ -97,6 +120,7 @@ public struct ZoteroImporter {
         report.created.sort()
         report.updated.sort()
         report.orphaned.sort()
+        report.orphanCleared.sort()
         report.authorsPreserved.sort()
         return report
     }

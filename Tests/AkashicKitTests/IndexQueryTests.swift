@@ -134,3 +134,27 @@ final class IndexQueryTests: XCTestCase {
         XCTAssertEqual(try again.find(filter).count, 2)
     }
 }
+
+extension IndexQueryTests {
+    func testSameAuthorLiteralIsCaseInsensitive() throws {
+        var e6 = Entry(id: UUID(), citekey: "olsson1985more", type: "article",
+                       title: "More on polychorics", authors: [.literal("ULF OLSSON")], date: "1985")
+        e6.fields["journaltitle"] = "Applied Psych Measurement"
+        try store.writeEntry(e6)
+        _ = try LibraryIndex(store: store).rebuild()
+        let engine2 = try QueryEngine(indexPath: store.indexURL)
+        XCTAssertEqual(engine2.citekeysOf(try engine2.sameAuthor(as: "olsson1979maximum")),
+                       ["olsson1985more"])
+    }
+
+    func testAuthorFilterEscapesLikeWildcards() throws {
+        var filter = QueryFilter()
+        filter.author = "u_f"
+        // 未 escape 時 `_` 是萬用字元會誤中 "Ulf Olsson"；escape 後應為空
+        XCTAssertTrue(try engine.find(filter).isEmpty)
+    }
+}
+
+extension QueryEngine {
+    func citekeysOf(_ result: [EntrySummary]) -> [String] { result.map(\.citekey) }
+}

@@ -99,6 +99,7 @@ public enum ZoteroReader {
             SELECT a.parentItemID AS parentItemID, a.path AS path, i.key AS childKey
             FROM itemAttachments a JOIN items i ON a.itemID = i.itemID
             WHERE a.parentItemID IS NOT NULL
+              AND a.itemID NOT IN (SELECT itemID FROM deletedItems)
             """) {
             guard let parent = row["parentItemID"] as? Int,
                   let path = row["path"] as? String,

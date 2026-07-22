@@ -103,3 +103,44 @@ extension StoreIOTests {
         XCTAssertTrue(load.quarantined.first?.file.hasSuffix("Broken.YAML") ?? false)
     }
 }
+
+final class LibraryLocatorTests: XCTestCase {
+    var tmp: URL!
+
+    override func setUpWithError() throws {
+        tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-locator-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: tmp)
+    }
+
+    func testExplicitPathWins() throws {
+        let url = try LibraryLocator.resolve(explicit: "/some/lib",
+                                             environment: ["AKASHIC_LIBRARY": "/env/lib"],
+                                             configURL: tmp.appendingPathComponent("none.yaml"))
+        XCTAssertEqual(url.path, "/some/lib")
+    }
+
+    func testEnvironmentFallback() throws {
+        let url = try LibraryLocator.resolve(explicit: nil,
+                                             environment: ["AKASHIC_LIBRARY": "/env/lib"],
+                                             configURL: tmp.appendingPathComponent("none.yaml"))
+        XCTAssertEqual(url.path, "/env/lib")
+    }
+
+    func testConfigFileFallback() throws {
+        let config = tmp.appendingPathComponent("config.yaml")
+        try "library: /cfg/lib\n".write(to: config, atomically: true, encoding: .utf8)
+        let url = try LibraryLocator.resolve(explicit: nil, environment: [:], configURL: config)
+        XCTAssertEqual(url.path, "/cfg/lib")
+    }
+
+    func testUnconfiguredThrows() {
+        XCTAssertThrowsError(try LibraryLocator.resolve(
+            explicit: nil, environment: [:],
+            configURL: tmp.appendingPathComponent("none.yaml")))
+    }
+}

@@ -28,8 +28,8 @@ let package = Package(
         .target(name: "AkashicSQLite"),
         .target(name: "AkashicZoteroImport", dependencies: ["AkashicStoreIO", "AkashicSQLite"]),
         .target(name: "AkashicIndex", dependencies: ["AkashicStoreIO", "AkashicSQLite"]),
-        .target(name: "AkashicQuery", dependencies: ["AkashicIndex"]),
-        .target(name: "AkashicGraph", dependencies: ["AkashicIndex"]),
+        .target(name: "AkashicQuery", dependencies: ["AkashicIndex", "AkashicSQLite"]),
+        .target(name: "AkashicGraph", dependencies: ["AkashicIndex", "AkashicSQLite"]),
         .target(name: "AkashicExport", dependencies: [
             "AkashicStoreIO",
             .product(name: "BiblatexAPA", package: "biblatex-apa-swift"),

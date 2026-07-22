@@ -40,6 +40,11 @@ let package = Package(
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
         ]),
+        .target(name: "AkashicAppKit", dependencies: [
+            "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
+            "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
+            .product(name: "Yams", package: "Yams"),
+        ]),
         .target(name: "AkashicMCPKit", dependencies: [
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
@@ -55,5 +60,6 @@ let package = Package(
         ]),
         .testTarget(name: "AkashicCLITests", dependencies: ["akashic"]),
         .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp"]),
+        .testTarget(name: "AkashicAppKitTests", dependencies: ["AkashicAppKit"]),
     ]
 )

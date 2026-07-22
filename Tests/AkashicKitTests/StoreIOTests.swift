@@ -91,3 +91,15 @@ extension StoreIOTests {
         XCTAssertThrowsError(try store.writePerson(Person(key: "Bad/Key", names: ["X"])))
     }
 }
+
+extension StoreIOTests {
+    // R3：大小寫變體副檔名（.YAML）也要被枚舉——否則 case-insensitive FS 上
+    // 它是寫入目的檔的別名，卻連 quarantine 名單都進不了
+    func testUppercaseExtensionIsEnumeratedAndQuarantined() throws {
+        let f = root.appendingPathComponent("entries/Broken.YAML")
+        try "not: [valid\n".write(to: f, atomically: true, encoding: .utf8)
+        let load = try store.load()
+        XCTAssertEqual(load.quarantined.count, 1)
+        XCTAssertTrue(load.quarantined.first?.file.hasSuffix("Broken.YAML") ?? false)
+    }
+}

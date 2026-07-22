@@ -142,8 +142,8 @@ public enum EntryYAML {
                     throw StoreYAMLError.invalidField("authors", "元素不是 mapping")
                 }
                 try rejectUnknownKeys(m, known: ["key", "literal"], context: "authors")
-                let key = m["key"]?.string
-                let literal = m["literal"]?.string
+                let key = try m["key"].map { try strictString($0, context: "authors.key") }
+                let literal = try m["literal"].map { try strictString($0, context: "authors.literal") }
                 switch (key, literal) {
                 case (let k?, nil): return .key(k)
                 case (nil, let s?): return .literal(s)
@@ -210,12 +210,27 @@ public enum EntryYAML {
 
     /// 序列元素必須全是字串——非字串元素 throw，不靜默略過（strict §5）。
     static func stringList(_ seq: Yams.Node.Sequence, context: String) throws -> [String] {
-        try seq.map { node in
-            guard let s = node.string else {
-                throw StoreYAMLError.invalidField(context, "元素必須是字串")
-            }
-            return s
+        try seq.map { try strictString($0, context: context) }
+    }
+
+    /// YAML 語意上的字串 scalar。plain-style 且可解析為 bool/int/double/null 的
+    /// scalar（`123`、`true`、`~`）不是字串——`Node.string` 會回它的字面內容，
+    /// 直接採納等於靜默型別轉換；quoted（`"123"`）才是字串。
+    static func strictString(_ node: Yams.Node, context: String) throws -> String {
+        guard let scalar = node.scalar else {
+            throw StoreYAMLError.invalidField(context, "元素必須是字串")
         }
+        if scalar.style == .plain {
+            let raw = scalar.string
+            let isNullish = raw.isEmpty || raw == "~"
+                || ["null", "nan"].contains(raw.lowercased())
+            if isNullish || Bool.construct(from: scalar) != nil
+                || Int.construct(from: scalar) != nil
+                || Double.construct(from: scalar) != nil {
+                throw StoreYAMLError.invalidField(context, "「\(raw)」是非字串 scalar（int/bool/null）；要當字串請加引號")
+            }
+        }
+        return scalar.string
     }
 }
 

@@ -52,11 +52,13 @@ public struct ZoteroImporter {
         // 與 lowercase citekey 仍指向同一檔案。
         var quarantinedBasenames = Set<String>()
         for q in load.quarantined where q.file.hasPrefix("entries/") {
-            let basename = String(q.file.dropFirst("entries/".count))
+            // 整個檔名先 lowercase 再判斷副檔名——`.YAML`/`.YaMl` 變體同樣是
+            // 寫入目的檔在 case-insensitive FS 上的別名
+            let basename = String(q.file.dropFirst("entries/".count)).lowercased()
             if basename.hasSuffix(".yaml") {
                 let stem = String(basename.dropLast(".yaml".count))
-                quarantinedBasenames.insert(stem.lowercased())
-                existingCitekeys.insert(stem.lowercased())
+                quarantinedBasenames.insert(stem)
+                existingCitekeys.insert(stem)
             }
         }
         // 每一次寫入前的 destination guard：目的檔屬 quarantined 集合 → 拒寫、報告。
@@ -82,6 +84,7 @@ public struct ZoteroImporter {
                 guard let prov = existing.provenance else { continue }
                 // Zotero 端存在＝非 orphan：不論版本，先清 orphan 標記（存在性獨立於版本比較）
                 var orphanWasCleared = false
+                var restoreWasBlocked = false
                 if prov.orphanedAt != nil {
                     var restored = existing
                     restored.provenance?.orphanedAt = nil
@@ -89,6 +92,8 @@ public struct ZoteroImporter {
                         existing = restored
                         report.orphanCleared.append(existing.citekey)
                         orphanWasCleared = true
+                    } else {
+                        restoreWasBlocked = true   // 需要變更但被擋 ≠ 無需變更
                     }
                 }
                 if item.version > prov.zoteroVersion {
@@ -108,7 +113,7 @@ public struct ZoteroImporter {
                     if try guardedWrite(existing, report: &report) {
                         report.updated.append(existing.citekey)
                     }
-                } else if !orphanWasCleared {
+                } else if !orphanWasCleared && !restoreWasBlocked {
                     report.unchanged += 1
                 }
             } else {

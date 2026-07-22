@@ -254,3 +254,34 @@ extension ZoteroImportTests {
         XCTAssertEqual(report.unchanged, 1)   // 只有 item 10
     }
 }
+
+extension ZoteroImportTests {
+    // R3：大小寫變體副檔名的 quarantined 檔同樣佔住 citekey
+    func testQuarantineGuardCoversUppercaseExtension() throws {
+        let brokenURL = store.entriesDir.appendingPathComponent("cheng2025identifiability.YAML")
+        let broken = "still: [broken\n"
+        try broken.write(to: brokenURL, atomically: true, encoding: .utf8)
+        let report = try runImport()
+        XCTAssertTrue(report.created.contains("cheng2025bidentifiability"), "\(report.created)")
+        XCTAssertEqual(try String(contentsOf: brokenURL, encoding: .utf8), broken)
+    }
+
+    // R3：被 quarantine 擋掉的 orphan restore 不得計入 unchanged
+    func testQuarantineBlockedRestoreNotCountedUnchanged() throws {
+        _ = try runImport()
+        let entries = store.entriesDir
+        try "broken: [yaml\n".write(to: entries.appendingPathComponent("qtarget.yaml"),
+                                    atomically: true, encoding: .utf8)
+        var article = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
+        article.citekey = "qtarget"
+        article.provenance?.orphanedAt = Date(timeIntervalSince1970: 1_752_000_000)
+        try EntryYAML.encode(article).write(
+            to: entries.appendingPathComponent("mismatch.yaml"), atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(
+            at: entries.appendingPathComponent("cheng2025identifiability.yaml"))
+
+        let report = try runImport()   // 同版本；restore 會被 quarantine 擋
+        XCTAssertEqual(report.quarantineConflicts, ["qtarget"])
+        XCTAssertEqual(report.unchanged, 1)   // 只有 item 11；被擋的不是「無需變更」
+    }
+}

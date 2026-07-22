@@ -119,3 +119,18 @@ extension GraphTests {
         XCTAssertTrue(dot.contains(#""literal:A\"Smith""#), dot)
     }
 }
+
+extension GraphTests {
+    // R3：edge-only endpoint 也要進配發表，不得繞過碰撞解決
+    func testEdgeOnlyEndpointGetsCollisionSafeID() throws {
+        var n = Neighborhood(focus: "literal:a-b")
+        n.nodes = [GraphNode(id: "literal:a-b", kind: .literal, label: "x")]
+        n.edges = [GraphEdge(from: "literal:a-b", to: "literal:a_b", kind: "related")]
+        let out = GraphRenderer.mermaid(n)
+        let line = out.split(separator: "\n").last.map(String.init) ?? ""
+        let parts = line.trimmingCharacters(in: .whitespaces)
+            .components(separatedBy: " -->|related| ")
+        XCTAssertEqual(parts.count, 2, line)
+        XCTAssertNotEqual(parts[0], parts[1], "edge 兩端不可撞同一 id：\(line)")
+    }
+}

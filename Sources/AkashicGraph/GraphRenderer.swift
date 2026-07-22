@@ -6,16 +6,23 @@ public enum GraphRenderer {
     public static func mermaid(_ n: Neighborhood) -> String {
         // 單次 render 的 id 配發表：sanitize 撞名時掛序號，保證 raw id ↔ mermaid id 一對一。
         // （條件式 hash 後綴可被構造碰撞——R2 verify 實證，改為配發表。）
+        // 配發範圍是 node ids ∪ edge endpoints——dangling endpoint 走 fallback 會繞過碰撞表。
+        var rawIDs: [String] = []
+        var seen = Set<String>()
+        for raw in n.nodes.map(\.id) + n.edges.flatMap({ [$0.from, $0.to] }) where !seen.contains(raw) {
+            seen.insert(raw)
+            rawIDs.append(raw)
+        }
         var allocation: [String: String] = [:]
         var used = Set<String>()
-        for node in n.nodes {
-            var candidate = mermaidID(node.id)
+        for raw in rawIDs {
+            var candidate = mermaidID(raw)
             var counter = 2
             while used.contains(candidate) {
-                candidate = "\(mermaidID(node.id))_\(counter)"
+                candidate = "\(mermaidID(raw))_\(counter)"
                 counter += 1
             }
-            allocation[node.id] = candidate
+            allocation[raw] = candidate
             used.insert(candidate)
         }
         func idOf(_ raw: String) -> String { allocation[raw] ?? mermaidID(raw) }

@@ -119,8 +119,10 @@ public final class LibraryStore {
     private func yamlFiles(in dir: URL) throws -> [URL] {
         let fm = FileManager.default
         guard fm.fileExists(atPath: dir.path) else { return [] }
+        // 副檔名比對大小寫不敏感：macOS 檔案系統多為 case-insensitive，
+        // `.YAML` 檔是寫入目的檔的別名，必須被枚舉（否則連 quarantine 都進不了）
         return try fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "yaml" && !$0.lastPathComponent.hasPrefix(".") }
+            .filter { $0.pathExtension.lowercased() == "yaml" && !$0.lastPathComponent.hasPrefix(".") }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 

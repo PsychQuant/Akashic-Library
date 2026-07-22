@@ -255,3 +255,46 @@ extension StrictSchemaTests {
         XCTAssertFalse(StoreKey.isValid("abc\r"))
     }
 }
+
+extension StrictSchemaTests {
+    // R3：plain-style 非字串 scalar（int/bool/null）在清單與作者鍵位必須拒絕
+    func testNonStringScalarInTagsRejected() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        akashic:
+          tags: [ok, 123, true]
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml))
+    }
+
+    func testQuotedNumericStringTagAccepted() throws {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        akashic:
+          tags: ["123"]
+        """
+        XCTAssertEqual(try EntryYAML.decode(yaml).akashic.tags, ["123"])
+    }
+
+    func testNonStringAuthorKeyRejected() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        authors:
+          - key: 123
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml))
+    }
+
+    func testNonStringPersonNameRejected() {
+        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [123]\n"))
+    }
+}

@@ -28,9 +28,20 @@ attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox�
 
 ## 狀態
 
-- **Phase 1（本 repo 現階段）**：store 地基 — 格式規格、AkashicKit、Zotero 單向 pull、CLI。
+- **Phase 1（完結）**：store 地基 — 格式規格、AkashicKit、Zotero 單向 pull、CLI。
   Spec：[docs/specs/2026-07-21-akashic-library-phase1-design.md](docs/specs/2026-07-21-akashic-library-phase1-design.md)
-- Phase 2：MCP 整合。Phase 3：原生 App。各自另開 spec。
+- **Phase 2（本階段）**：MCP 整合 — schema hash 機制、`akashic-mcp`（14 tools）、發布統一。
+  Spec：[docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md](docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md)
+- Phase 3：原生 App（另開 spec）。
+
+## MCP（akashic-mcp）
+
+marketplace 安裝：`claude plugin install akashic-mcp@psychquant-claude-plugins`。
+Library 解析：`$AKASHIC_LIBRARY` → `~/.akashic/config.yaml`（`library: <path>`）。
+工具面：7 讀（search/get_entry/relations/graph/export/people/doctor）+
+7 寫（**只碰衍生層**：set_status/tag/link/resolve_people 逐候選/create_entry 庫外/add_person/import_zotero）。
+biblatex 面向唯讀——過渡期歸 Zotero pull 管。並發（MCP 與 CLI 並用）：per-file atomic
+write、last-wins、index 冪等重建（單人場景設計）。
 
 ## Build & Test
 

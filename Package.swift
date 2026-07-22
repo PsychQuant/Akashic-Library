@@ -25,8 +25,9 @@ let package = Package(
             .product(name: "Yams", package: "Yams"),
         ]),
         .target(name: "AkashicEntity", dependencies: ["AkashicCore"]),
-        .target(name: "AkashicZoteroImport", dependencies: ["AkashicStoreIO"]),
-        .target(name: "AkashicIndex", dependencies: ["AkashicStoreIO"]),
+        .target(name: "AkashicSQLite"),
+        .target(name: "AkashicZoteroImport", dependencies: ["AkashicStoreIO", "AkashicSQLite"]),
+        .target(name: "AkashicIndex", dependencies: ["AkashicStoreIO", "AkashicSQLite"]),
         .target(name: "AkashicQuery", dependencies: ["AkashicIndex"]),
         .target(name: "AkashicGraph", dependencies: ["AkashicIndex"]),
         .target(name: "AkashicExport", dependencies: [
@@ -40,7 +41,7 @@ let package = Package(
         ]),
         .testTarget(name: "AkashicKitTests", dependencies: [
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
-            "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
+            "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph", "AkashicSQLite",
         ]),
         .testTarget(name: "AkashicCLITests", dependencies: ["akashic"]),
     ]

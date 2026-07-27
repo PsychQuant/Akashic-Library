@@ -16,6 +16,10 @@ public final class AppState {
     /// 每次 load() 遞增。App 層 model（People/Quarantine/Graph）以此為
     /// re-create 訊號，外部變更（FileWatcher reload）才會反映到快取清單。
     public private(set) var reloadCount: Int = 0
+    /// 最近一次外部變更同步的時間（FileWatcher 觸發）。UI 以此顯示
+    /// 「外部變更已同步」提示——App 是 write-through 模型（沒有草稿緩衝），
+    /// 外部覆蓋不會遺失使用者輸入，但要讓使用者知道畫面剛被外部更新。
+    public private(set) var lastExternalSyncAt: Date?
 
     public var searchText: String = ""
     public var filterType: String?
@@ -36,6 +40,12 @@ public final class AppState {
         people = loaded.people
         quarantined = loaded.quarantined
         reloadCount += 1
+    }
+
+    /// FileWatcher 的 reload 入口：同 load()，另外蓋上外部同步時戳。
+    public func externalReload() throws {
+        try load()
+        lastExternalSyncAt = Date()
     }
 
     public var unresolvedLiteralCount: Int {

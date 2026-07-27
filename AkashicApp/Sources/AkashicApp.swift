@@ -47,9 +47,11 @@ final class LaunchState {
             try state.load()
             let store = LibraryStore(root: root)
             let watcher = FileWatcher(directories: [store.entriesDir, store.peopleDir]) {
-                // 外部（CLI/MCP/git）變更 → 主執行緒 reload
+                // 外部（CLI/MCP/git）變更 → 主執行緒 reload + 同步時戳
+                //（sidebar 顯示「外部變更已同步」；App 為 write-through 模型，
+                //  詳見 AppState.lastExternalSyncAt 的邊界說明）
                 Task { @MainActor in
-                    try? state.load()
+                    try? state.externalReload()
                 }
             }
             try watcher.start()

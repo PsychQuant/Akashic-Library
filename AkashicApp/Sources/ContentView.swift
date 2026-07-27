@@ -69,6 +69,16 @@ struct SidebarView: View {
                 LabeledContent("Orphans", value: "\(state.orphanedEntries.count)")
                 LabeledContent("Quarantined", value: "\(state.quarantined.count)")
             }
+            // 外部變更同步提示（spec §6 的 write-through 落地：沒有草稿緩衝可遺失，
+            // 但外部剛更新畫面時要讓使用者知道）
+            if let syncedAt = state.lastExternalSyncAt {
+                Section {
+                    Label("外部變更已同步 \(syncedAt.formatted(date: .omitted, time: .shortened))",
+                          systemImage: "arrow.triangle.2.circlepath")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             Section("工作台") {
                 ForEach(SidebarSection.allCases) { item in
                     Label(item.rawValue, systemImage: item.systemImage)

@@ -41,7 +41,6 @@ struct EntryDetailView: View {
     @Binding var selectedCitekey: String?
 
     @State private var newTag = ""
-    @State private var newRelation = ""
     @State private var renameTarget = ""
     @State private var showRename = false
     @State private var errorMessage: String?
@@ -79,10 +78,14 @@ struct EntryDetailView: View {
                         }
                     }
                     tagEditor(entry)
-                    relationEditor(entry, kind: .cites, title: "Cites",
-                                   values: entry.akashic.relations.cites)
-                    relationEditor(entry, kind: .related, title: "Related",
-                                   values: entry.akashic.relations.related)
+                    RelationEditorView(citekey: entry.citekey, kind: .cites, title: "Cites",
+                                       values: entry.akashic.relations.cites,
+                                       selectedCitekey: $selectedCitekey,
+                                       errorMessage: $errorMessage)
+                    RelationEditorView(citekey: entry.citekey, kind: .related, title: "Related",
+                                       values: entry.akashic.relations.related,
+                                       selectedCitekey: $selectedCitekey,
+                                       errorMessage: $errorMessage)
                 }
             }
             .formStyle(.grouped)
@@ -95,7 +98,9 @@ struct EntryDetailView: View {
             } message: {
                 Text("UUID 不變；引用此 citekey 的 relations 會一併改寫。")
             }
-            .alert("操作失敗", isPresented: .constant(errorMessage != nil)) {
+            .alert("操作失敗", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } })) {
                 Button("好") { errorMessage = nil }
             } message: {
                 Text(errorMessage ?? "")
@@ -142,9 +147,36 @@ struct EntryDetailView: View {
         }
     }
 
-    @ViewBuilder
-    private func relationEditor(_ entry: Entry, kind: AppState.RelationKind,
-                                title: String, values: [String]) -> some View {
+    private func performRename(from oldKey: String) {
+        attempt {
+            try state.rename(from: oldKey, to: renameTarget)
+            selectedCitekey = renameTarget
+        }
+    }
+
+    private func attempt(_ action: () throws -> Void) {
+        do {
+            try action()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+        }
+    }
+}
+
+/// Relation 編輯列。獨立 View 讓 Cites／Related 各自持有輸入框狀態——
+/// 共用同一個 @State 會讓兩欄輸入互相鏡射。
+struct RelationEditorView: View {
+    @Environment(AppState.self) private var state
+    let citekey: String
+    let kind: AppState.RelationKind
+    let title: String
+    let values: [String]
+    @Binding var selectedCitekey: String?
+    @Binding var errorMessage: String?
+
+    @State private var newRelation = ""
+
+    var body: some View {
         VStack(alignment: .leading) {
             Text(title).font(.headline)
             ForEach(values, id: \.self) { target in
@@ -153,7 +185,7 @@ struct EntryDetailView: View {
                         .buttonStyle(.link)
                         .font(.body.monospaced())
                     Button {
-                        attempt { try state.removeRelation(citekey: entry.citekey, kind: kind, target: target) }
+                        attempt { try state.removeRelation(citekey: citekey, kind: kind, target: target) }
                     } label: {
                         Image(systemName: "minus.circle")
                     }
@@ -165,17 +197,10 @@ struct EntryDetailView: View {
                     .font(.body.monospaced())
                 Button("加入 \(title)") {
                     guard !newRelation.isEmpty else { return }
-                    attempt { try state.addRelation(citekey: entry.citekey, kind: kind, target: newRelation) }
+                    attempt { try state.addRelation(citekey: citekey, kind: kind, target: newRelation) }
                     newRelation = ""
                 }
             }
-        }
-    }
-
-    private func performRename(from oldKey: String) {
-        attempt {
-            try state.rename(from: oldKey, to: renameTarget)
-            selectedCitekey = renameTarget
         }
     }
 

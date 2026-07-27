@@ -55,6 +55,14 @@ final class AppStateTests: XCTestCase {
                        "reloadCount 供 App 層 model 對外部變更重建之用")
     }
 
+    func testExternalReloadStampsSyncTime() throws {
+        XCTAssertNil(state.lastExternalSyncAt)
+        let before = state.reloadCount
+        try state.externalReload()
+        XCTAssertNotNil(state.lastExternalSyncAt, "FileWatcher reload 要留下可顯示的同步時戳")
+        XCTAssertEqual(state.reloadCount, before + 1)
+    }
+
     func testLoadCountsMatchDoctorSemantics() {
         XCTAssertEqual(state.entries.count, 2)
         XCTAssertEqual(state.people.count, 1)

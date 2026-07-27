@@ -25,7 +25,7 @@ struct PeopleResolveView: View {
                             Spacer()
                             Button("Accept") {
                                 do { try model.accept(candidate) } catch {
-                                    errorMessage = "\(error)"
+                                    errorMessage = (error as? LocalizedError)?.errorDescription ?? "\(error)"
                                 }
                             }
                             .buttonStyle(.borderedProminent)
@@ -37,8 +37,12 @@ struct PeopleResolveView: View {
             }
         }
         .navigationTitle("人物解析（\(model?.candidates.count ?? 0)）")
-        .task { model = PeopleResolveModel(state: state) }
-        .alert("操作失敗", isPresented: .constant(errorMessage != nil)) {
+        // 綁 reloadCount：外部變更（FileWatcher reload）後重算候選，
+        // 不讓 stale 候選被 accept 到已變更的 entry 上
+        .task(id: state.reloadCount) { model = PeopleResolveModel(state: state) }
+        .alert("操作失敗", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } })) {
             Button("好") { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
     }
@@ -77,24 +81,32 @@ struct OrphanView: View {
             }
         }
         .navigationTitle("Orphans（\(model?.orphans.count ?? 0)）")
-        .task { model = OrphanModel(state: state) }
+        .task(id: state.reloadCount) { model = OrphanModel(state: state) }
         .confirmationDialog("刪除這筆 entry？檔案會移到垃圾桶（可救回）。",
-                            isPresented: .constant(pendingTrash != nil), titleVisibility: .visible) {
+                            isPresented: Binding(
+                                get: { pendingTrash != nil },
+                                set: { if !$0 { pendingTrash = nil } }),
+                            titleVisibility: .visible) {
             Button("移到垃圾桶", role: .destructive) {
                 if let citekey = pendingTrash, let model {
+                    // resolve 動作當下會重新讀盤驗證 orphan 狀態（TOCTOU 守衛在 kit 層）
                     attempt { try model.resolve(citekey: citekey, action: .moveToTrash) }
                 }
                 pendingTrash = nil
             }
             Button("取消", role: .cancel) { pendingTrash = nil }
         }
-        .alert("操作失敗", isPresented: .constant(errorMessage != nil)) {
+        .alert("操作失敗", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } })) {
             Button("好") { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
     }
 
     private func attempt(_ action: () throws -> Void) {
-        do { try action() } catch { errorMessage = "\(error)" }
+        do { try action() } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+        }
     }
 }
 
@@ -102,6 +114,7 @@ struct OrphanView: View {
 struct QuarantineView: View {
     @Environment(AppState.self) private var state
     @State private var model: QuarantineModel?
+    @State private var errorMessage: String?
 
     var body: some View {
         Group {
@@ -129,12 +142,23 @@ struct QuarantineView: View {
         }
         .navigationTitle("Quarantine（\(model?.items.count ?? 0)）")
         .toolbar {
-            Button("重新驗證") { try? model?.refresh() }
+            Button("重新驗證") { refresh() }
         }
-        .task {
+        .task(id: state.reloadCount) {
             let m = QuarantineModel(state: state)
-            try? m.refresh()
             model = m
+        }
+        .alert("重新驗證失敗", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } })) {
+            Button("好") { errorMessage = nil }
+        } message: { Text(errorMessage ?? "") }
+    }
+
+    private func refresh() {
+        do { try model?.refresh() } catch {
+            // 驗證失敗不得被 try? 吞掉——使用者要知道 library 現在讀不動
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "\(error)"
         }
     }
 }

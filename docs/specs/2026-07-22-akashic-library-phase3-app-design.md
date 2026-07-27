@@ -65,7 +65,8 @@ CLI 同步：`akashic rename <old> <new>`（#4 原 scope 完整兌現）。App �
 ## 6. 錯誤與併發
 
 - 沿用生態契約：atomic write、last-wins、quarantined 檔永不被 App 覆寫；App 寫後即時 reindex。
-- **FileWatcher**（DispatchSource 監看 `entries/`、`people/`）：外部變更（CLI/MCP/git）→ debounce 重載刷新；編輯中偵測同檔外部變更 → 衝突提示，不靜默覆蓋。
+- **FileWatcher**（DispatchSource 監看 `entries/`、`people/`）：外部變更（CLI/MCP/git）→ debounce 重載刷新。
+- **外部變更與編輯的併發**（#11 verify 後修訂——原「編輯中偵測同檔外部變更 → 衝突提示」）：App 是 **write-through 編輯模型**（status/tag/relation 每個動作立即落檔，無草稿緩衝區），不存在「編輯到一半被外部覆蓋而遺失」的字面情境，故完整 merge-conflict UI 無對象。實際保證改為兩件事：(1) 衍生層寫入一律**讀盤後 patch**（`AppState.mutate` 從磁碟重讀最新 entry 再套變更），外部剛更新的書目層不會被記憶體舊快照蓋回；(2) FileWatcher 觸發的 reload 蓋**同步時戳**，sidebar 顯示「外部變更已同步」提示，外部更新不靜默。
 - 危險動作（rename／orphan 刪檔）確認對話框。
 
 ## 7. 測試
@@ -94,4 +95,4 @@ CLI 同步：`akashic rename <old> <new>`（#4 原 scope 完整兌現）。App �
 - [ ] Quarantine：放一個壞檔 → 顯示原因；修好後重新驗證消失
 - [ ] Graph：拖拉/縮放/雙擊展開流暢；點擊節點詳情同步
 - [ ] CLI 在 App 開著時 import → file watcher 自動刷新
-- [ ] 外部改 App 正在編輯的檔 → 衝突提示出現
+- [ ] 外部改檔後在 App 內做一次衍生層編輯 → 外部的書目層變更保留（讀盤後 patch）、sidebar 出現「外部變更已同步」提示（§6 修訂：write-through 模型無草稿緩衝，原「衝突提示」重新框定）

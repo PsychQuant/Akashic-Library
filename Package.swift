@@ -44,7 +44,6 @@ let package = Package(
         .target(name: "AkashicAppKit", dependencies: [
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
-            .product(name: "Yams", package: "Yams"),
         ]),
         .target(name: "AkashicMCPKit", dependencies: [
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",

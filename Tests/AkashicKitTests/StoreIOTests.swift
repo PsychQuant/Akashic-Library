@@ -23,6 +23,14 @@ final class StoreIOTests: XCTestCase {
               authors: [.literal("Che Cheng")], date: "2025")
     }
 
+    func testWriteEntryExclusiveRefusesExistingDestination() throws {
+        try store.writeEntry(makeEntry("taken2020key"))
+        XCTAssertThrowsError(try store.writeEntryExclusive(makeEntry("taken2020key")),
+                             "exclusive-create 對既存目的檔必須擲錯而非覆蓋")
+        // 一般 writeEntry 仍是 upsert 語意
+        XCTAssertNoThrow(try store.writeEntry(makeEntry("taken2020key")))
+    }
+
     func testEnsureLayoutCreatesDirectories() {
         for sub in ["entries", "people", "notes", ".akashic"] {
             var isDir: ObjCBool = false
@@ -195,5 +203,99 @@ final class RenameTests: XCTestCase {
         try "broken: [yaml\n".write(to: store.entriesDir.appendingPathComponent("qtarget.yaml"),
                                     atomically: true, encoding: .utf8)
         XCTAssertThrowsError(try store.renameEntry(from: "old2020key", to: "qtarget"))
+    }
+
+    func testRenameMigratesSelfReferenceAndDuplicates() throws {
+        var selfRef = Entry(id: UUID(), citekey: "loop2020self", type: "article", title: "S")
+        selfRef.akashic.relations.cites = ["loop2020self", "other2019ref"]
+        selfRef.akashic.relations.related = ["loop2020self"]
+        try store.writeEntry(selfRef)
+        var dup = Entry(id: UUID(), citekey: "dup2021refs", type: "article", title: "D")
+        dup.akashic.relations.cites = ["loop2020self", "x2000y", "loop2020self"]   // 重複引用
+        try store.writeEntry(dup)
+
+        _ = try store.renameEntry(from: "loop2020self", to: "ring2020self")
+
+        let load = try store.load()
+        let renamed = load.entries.first { $0.citekey == "ring2020self" }!
+        XCTAssertEqual(renamed.akashic.relations.cites, ["ring2020self", "other2019ref"],
+                       "self-reference 必須跟著 rename")
+        XCTAssertEqual(renamed.akashic.relations.related, ["ring2020self"])
+        let dupAfter = load.entries.first { $0.citekey == "dup2021refs" }!
+        XCTAssertEqual(dupAfter.akashic.relations.cites, ["ring2020self", "x2000y", "ring2020self"],
+                       "同一陣列的所有出現都必須遷移，不只第一個")
+    }
+
+    func testRenameRefusesMalformedOldKeyFromDisk() throws {
+        // 磁碟上偽造 citekey=../outside 的 entry；rename 絕不可刪 entriesDir 之外的檔案
+        let outside = root.appendingPathComponent("outside.yaml")
+        try "sentinel".write(to: outside, atomically: true, encoding: .utf8)
+        let seedURL = try store.writeEntry(
+            Entry(id: UUID(), citekey: "victim2020x", type: "article", title: "V"))
+        let evil = try String(contentsOf: seedURL, encoding: .utf8)
+            .replacingOccurrences(of: "citekey: victim2020x", with: "citekey: ../outside")
+        try evil.write(to: store.entriesDir.appendingPathComponent("evil.yaml"),
+                       atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(at: seedURL)
+
+        XCTAssertThrowsError(try store.renameEntry(from: "../outside", to: "fixed2020key"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outside.path),
+                      "庫外檔案不可被 rename 的刪除路徑觸及")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: store.entryURL(citekey: "fixed2020key").path))
+    }
+}
+
+/// load() 的語意完整性：成功 decode 但 key 不合法／檔名不符的 entry 必須 quarantine，
+/// 不得帶著畸形 citekey 進入 library（rename 刪除路徑、entryURL 組合的共同前提）。
+final class LoadIntegrityTests: XCTestCase {
+    var root: URL!
+    var store: LibraryStore!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-integrity-\(UUID().uuidString)")
+        store = LibraryStore(root: root)
+        try store.ensureLayout()
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testLoadQuarantinesMalformedCitekey() throws {
+        let seedURL = try store.writeEntry(
+            Entry(id: UUID(), citekey: "victim2020x", type: "article", title: "V"))
+        let evil = try String(contentsOf: seedURL, encoding: .utf8)
+            .replacingOccurrences(of: "citekey: victim2020x", with: "citekey: ../victim")
+        try evil.write(to: store.entriesDir.appendingPathComponent("evil.yaml"),
+                       atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(at: seedURL)
+
+        let load = try store.load()
+        XCTAssertTrue(load.entries.isEmpty, "畸形 citekey 不得進入 entries")
+        XCTAssertEqual(load.quarantined.map(\.file), ["entries/evil.yaml"])
+    }
+
+    func testLoadQuarantinesFilenameStemMismatch() throws {
+        let url = try store.writeEntry(
+            Entry(id: UUID(), citekey: "other2020key", type: "article", title: "O"))
+        try FileManager.default.copyItem(
+            at: url, to: store.entriesDir.appendingPathComponent("alias2020copy.yaml"))
+
+        let load = try store.load()
+        XCTAssertEqual(load.entries.map(\.citekey), ["other2020key"],
+                       "檔名與 citekey 不符的複本不得載入（避免重複 entry 與錯位刪除）")
+        XCTAssertEqual(load.quarantined.map(\.file), ["entries/alias2020copy.yaml"])
+    }
+
+    func testLoadQuarantinesPersonStemMismatch() throws {
+        let url = try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng"]))
+        try FileManager.default.copyItem(
+            at: url, to: store.peopleDir.appendingPathComponent("wrong-stem.yaml"))
+
+        let load = try store.load()
+        XCTAssertEqual(load.people.map(\.key), ["cheng-che"])
+        XCTAssertEqual(load.quarantined.map(\.file), ["people/wrong-stem.yaml"])
     }
 }

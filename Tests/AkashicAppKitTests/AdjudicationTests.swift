@@ -44,6 +44,34 @@ final class AdjudicationTests: XCTestCase {
         XCTAssertEqual(entry.authors, [.literal("Che Cheng")])   // 檔案未動
     }
 
+    func testOrphanResolveRefusesNonOrphanAndMissing() throws {
+        let model = OrphanModel(state: state)
+        // a2020paper 不是 orphan——兩種動作都必須拒絕（確認對話框開啟期間
+        // entry 可能已被 Zotero pull 恢復正常，動作當下要重新驗證）
+        XCTAssertThrowsError(try model.resolve(citekey: "a2020paper", action: .detachFromZotero))
+        XCTAssertThrowsError(try model.resolve(citekey: "a2020paper", action: .moveToTrash))
+        // 找不到的 citekey 也要擲錯，不得靜默成功
+        XCTAssertThrowsError(try model.resolve(citekey: "ghost2000x", action: .moveToTrash))
+        // 檔案毫髮無傷
+        let store = LibraryStore(root: root)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: store.entryURL(citekey: "a2020paper").path))
+        XCTAssertNotNil(try store.load().entries.first { $0.citekey == "a2020paper" })
+    }
+
+    func testOrphanResolveRevalidatesFromDiskAtActionTime() throws {
+        let model = OrphanModel(state: state)
+        // 確認對話框開啟期間：外部把 b2019gone 恢復為正常（清掉 orphanedAt）
+        let store = LibraryStore(root: root)
+        var restored = try store.load().entries.first { $0.citekey == "b2019gone" }!
+        restored.provenance?.orphanedAt = nil
+        try store.writeEntry(restored)
+        // App 記憶體仍認為它是 orphan；動作當下必須以磁碟真相拒絕
+        XCTAssertThrowsError(try model.resolve(citekey: "b2019gone", action: .moveToTrash))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: store.entryURL(citekey: "b2019gone").path))
+    }
+
     func testOrphanDetachClearsProvenance() throws {
         let model = OrphanModel(state: state)
         XCTAssertEqual(model.orphans.map(\.citekey), ["b2019gone"])

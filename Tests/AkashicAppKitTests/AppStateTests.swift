@@ -33,6 +33,28 @@ final class AppStateTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    func testMutatePatchesFreshDiskStateNotStaleSnapshot() throws {
+        // 模擬外部工具（CLI/MCP/Zotero pull）在 App 尚未 reload 時改了 biblatex face
+        let store = LibraryStore(root: root)
+        var external = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
+        external.title = "Updated externally"
+        try store.writeEntry(external)
+        // App 記憶體仍是舊 title；此時做一次衍生層編輯
+        try state.addTag(citekey: "cheng2025identifiability", tag: "keeper")
+        // 外部的 title 更新不得被舊快照蓋回去，衍生層編輯也要到位
+        let after = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
+        XCTAssertEqual(after.title, "Updated externally",
+                       "衍生層編輯不可用記憶體舊快照覆寫外部剛寫入的書目層")
+        XCTAssertTrue(after.akashic.tags.contains("keeper"))
+    }
+
+    func testLoadBumpsReloadCount() throws {
+        let before = state.reloadCount
+        try state.load()
+        XCTAssertEqual(state.reloadCount, before + 1,
+                       "reloadCount 供 App 層 model 對外部變更重建之用")
+    }
+
     func testLoadCountsMatchDoctorSemantics() {
         XCTAssertEqual(state.entries.count, 2)
         XCTAssertEqual(state.people.count, 1)

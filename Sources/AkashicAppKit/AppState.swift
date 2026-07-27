@@ -13,6 +13,9 @@ public final class AppState {
     public private(set) var entries: [Entry] = []
     public private(set) var people: [Person] = []
     public private(set) var quarantined: [QuarantinedFile] = []
+    /// 每次 load() 遞增。App 層 model（People/Quarantine/Graph）以此為
+    /// re-create 訊號，外部變更（FileWatcher reload）才會反映到快取清單。
+    public private(set) var reloadCount: Int = 0
 
     public var searchText: String = ""
     public var filterType: String?
@@ -32,6 +35,7 @@ public final class AppState {
         entries = loaded.entries
         people = loaded.people
         quarantined = loaded.quarantined
+        reloadCount += 1
     }
 
     public var unresolvedLiteralCount: Int {
@@ -108,7 +112,10 @@ public final class AppState {
     // MARK: - Internals
 
     func mutate(_ citekey: String, _ change: (inout Entry) -> Void) throws {
-        guard var entry = entries.first(where: { $0.citekey == citekey }) else {
+        // 從磁碟重讀最新版本再 patch——記憶體快照可能落後外部工具（CLI/MCP/
+        // Zotero pull）最多一個 FileWatcher debounce 視窗；用舊快照整筆寫回
+        // 會把外部剛更新的書目層（title/authors/fields）蓋回舊值（lost update）。
+        guard var entry = try store.load().entries.first(where: { $0.citekey == citekey }) else {
             throw StoreIOError.invalidKey("citekey（不存在）", citekey)
         }
         change(&entry)

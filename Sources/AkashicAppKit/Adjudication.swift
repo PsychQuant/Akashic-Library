@@ -41,6 +41,20 @@ public final class PeopleResolveModel {
     private func id(of c: ResolutionCandidate) -> String { "\(c.citekey):\(c.authorIndex)" }
 }
 
+public enum AdjudicationError: Error, LocalizedError, Equatable {
+    case entryNotFound(String)
+    case notAnOrphan(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .entryNotFound(let key):
+            return "找不到 entry「\(key)」——外部變更可能已移除，請重新整理"
+        case .notAnOrphan(let key):
+            return "「\(key)」不是 orphan——外部同步可能已恢復連結，已拒絕破壞性動作"
+        }
+    }
+}
+
 /// 裁決台②Orphans：等待（預設）／刪檔（垃圾桶可救回）／轉純 Akashic entry。
 @Observable
 public final class OrphanModel {
@@ -60,7 +74,15 @@ public final class OrphanModel {
     }
 
     public func resolve(citekey: String, action: Action) throws {
-        guard let entry = state.entries.first(where: { $0.citekey == citekey }) else { return }
+        // 破壞性動作當下重新讀盤驗證——確認對話框開啟期間 Zotero pull 可能
+        // 已把 entry 恢復正常（TOCTOU）；記憶體清單不可作為安全邊界。
+        guard let entry = try state.store.load().entries
+            .first(where: { $0.citekey == citekey }) else {
+            throw AdjudicationError.entryNotFound(citekey)
+        }
+        guard entry.provenance?.orphanedAt != nil else {
+            throw AdjudicationError.notAnOrphan(citekey)
+        }
         switch action {
         case .moveToTrash:
             var trashed: NSURL?

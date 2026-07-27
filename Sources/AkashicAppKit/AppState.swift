@@ -25,6 +25,10 @@ public final class AppState {
     public var filterType: String?
     public var filterTag: String?
     public var filterJournal: String?
+    /// People 裁決台 session 內 skip 的候選 id（`citekey:authorIndex`）。
+    /// 放這裡（session 生命週期）而非 PeopleResolveModel——model 會被
+    /// `.task(id: reloadCount)` 重建，集合放 model 內會在每次 reload 後歸零。
+    public var skippedPeopleCandidates = Set<String>()
 
     public init(root: URL) {
         self.root = root

@@ -6,12 +6,14 @@ import AkashicEntity
 import AkashicIndex
 
 /// 裁決台①People：resolve 候選逐一 accept／skip（絕不批次自動套用）。
+///
+/// skip 集合存在 AppState（session 生命週期）而非本 model——view 以
+/// `.task(id: reloadCount)` 在每次 reload 後重建 model，若集合放 model 內，
+/// accept 觸發的 reload 會讓先前 skip 過的候選全部重新出現（R2 驗證抓到的回歸）。
 @Observable
 public final class PeopleResolveModel {
     let state: AppState
     public private(set) var candidates: [ResolutionCandidate] = []
-    /// session 內 skip 的候選（不落檔）。
-    private var skipped = Set<String>()
 
     public init(state: AppState) {
         self.state = state
@@ -20,7 +22,7 @@ public final class PeopleResolveModel {
 
     public func refresh() {
         candidates = PersonResolver.candidates(entries: state.entries, people: state.people)
-            .filter { !skipped.contains(id(of: $0)) }
+            .filter { !state.skippedPeopleCandidates.contains(id(of: $0)) }
     }
 
     public func accept(_ candidate: ResolutionCandidate) throws {
@@ -34,7 +36,7 @@ public final class PeopleResolveModel {
 
     /// skip 只影響本 session 的清單，不寫任何檔案。
     public func skip(_ candidate: ResolutionCandidate) {
-        skipped.insert(id(of: candidate))
+        state.skippedPeopleCandidates.insert(id(of: candidate))
         refresh()
     }
 

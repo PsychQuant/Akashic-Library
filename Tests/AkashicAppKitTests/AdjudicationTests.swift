@@ -44,6 +44,17 @@ final class AdjudicationTests: XCTestCase {
         XCTAssertEqual(entry.authors, [.literal("Che Cheng")])   // 檔案未動
     }
 
+    func testPeopleResolveSkipSurvivesModelRecreation() throws {
+        // R2 抓到的回歸：view 以 .task(id: reloadCount) 重建 model，
+        // skip 集合若存在 model 內，每次 accept 觸發 reload 後就歸零
+        let model = PeopleResolveModel(state: state)
+        model.skip(model.candidates[0])
+        try state.load()                                   // 模擬 reload
+        let recreated = PeopleResolveModel(state: state)   // 模擬 view 重建
+        XCTAssertTrue(recreated.candidates.isEmpty,
+                      "session 內 skip 過的候選在 model 重建後不得重新出現")
+    }
+
     func testOrphanResolveRefusesNonOrphanAndMissing() throws {
         let model = OrphanModel(state: state)
         // a2020paper 不是 orphan——兩種動作都必須拒絕（確認對話框開啟期間

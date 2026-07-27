@@ -21,6 +21,10 @@ public struct ForceLayout {
     let springStiffness: CGFloat = 0.08
     let centering: CGFloat = 0.01
     let damping: CGFloat = 0.85
+    // 數值穩定護欄（star-graph 測試校準）：高 degree hub 的彈簧力線性累加，
+    // 無界積分會在數十步內發散至 NaN；力與速度都要 clamp。
+    let maxForce: CGFloat = 500
+    let maxVelocity: CGFloat = 60
 
     public init(nodeIDs: [String], edges: [(String, String)], seed: UInt64) {
         var rng = SplitMix64(seed: seed)
@@ -49,8 +53,15 @@ public struct ForceLayout {
         // 反平方斥力（全對；個人庫規模 n 小，O(n²) 可負擔）
         for i in 0..<nodes.count {
             for j in (i + 1)..<nodes.count {
-                let dx = nodes[i].position.x - nodes[j].position.x
-                let dy = nodes[i].position.y - nodes[j].position.y
+                var dx = nodes[i].position.x - nodes[j].position.x
+                var dy = nodes[i].position.y - nodes[j].position.y
+                if dx == 0 && dy == 0 {
+                    // 完全重合：方向向量退化為零，斥力永遠推不開（黏死）。
+                    // 以 index pair 導出決定論 jitter 方向（不引入隨機性，保 seed 決定論）。
+                    let angle = CGFloat((i &* 31 &+ j) % 360) * .pi / 180
+                    dx = cos(angle) * 0.01
+                    dy = sin(angle) * 0.01
+                }
                 let d2 = max(dx * dx + dy * dy, 1)
                 let d = sqrt(d2)
                 let f = repulsion / d2
@@ -71,16 +82,32 @@ public struct ForceLayout {
             forces[b].x -= f * dx / d
             forces[b].y -= f * dy / d
         }
-        // 中心引力 + 積分
+        // 中心引力 + clamp + 積分 + isFinite 恢復
         var movement = 0.0
         for i in 0..<nodes.count {
             guard !nodes[i].pinned else { continue }
             forces[i].x -= centering * nodes[i].position.x
             forces[i].y -= centering * nodes[i].position.y
+            let fmag = hypot(forces[i].x, forces[i].y)
+            if fmag > maxForce {
+                forces[i].x *= maxForce / fmag
+                forces[i].y *= maxForce / fmag
+            }
             nodes[i].velocity.x = (nodes[i].velocity.x + forces[i].x) * damping
             nodes[i].velocity.y = (nodes[i].velocity.y + forces[i].y) * damping
+            let vmag = hypot(nodes[i].velocity.x, nodes[i].velocity.y)
+            if vmag > maxVelocity {
+                nodes[i].velocity.x *= maxVelocity / vmag
+                nodes[i].velocity.y *= maxVelocity / vmag
+            }
             nodes[i].position.x += nodes[i].velocity.x
             nodes[i].position.y += nodes[i].velocity.y
+            if !nodes[i].position.x.isFinite || !nodes[i].position.y.isFinite {
+                // NaN/Inf 不可傳染整個佈局：決定論網格 reset（index 導出）
+                nodes[i].position = CGPoint(x: CGFloat(i % 20) * 30 - 300,
+                                            y: CGFloat(i / 20) * 30 - 300)
+                nodes[i].velocity = .zero
+            }
             movement += Double(hypot(nodes[i].velocity.x, nodes[i].velocity.y))
         }
         return movement

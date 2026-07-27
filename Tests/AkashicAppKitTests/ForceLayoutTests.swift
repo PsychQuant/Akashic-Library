@@ -41,6 +41,34 @@ final class ForceLayoutTests: XCTestCase {
         XCTAssertLessThan(dist("a", "b"), dist("a", "d"))   // 有邊的比孤立點近
     }
 
+    /// 高 degree hub（star graph）數值穩定：300 步後所有座標必須 finite 且有界。
+    func testStarGraphStaysFiniteAndBounded() {
+        let leaves = (0..<200).map { "leaf\($0)" }
+        var layout = ForceLayout(nodeIDs: ["hub"] + leaves,
+                                 edges: leaves.map { ("hub", $0) },
+                                 seed: 7)
+        for _ in 0..<300 { _ = layout.step() }
+        for node in layout.nodes {
+            XCTAssertTrue(node.position.x.isFinite && node.position.y.isFinite,
+                          "\(node.id) 座標發散：\(node.position)")
+            XCTAssertLessThan(abs(node.position.x), 10_000, "\(node.id) x 超界")
+            XCTAssertLessThan(abs(node.position.y), 10_000, "\(node.id) y 超界")
+        }
+    }
+
+    /// 完全重合的節點必須被決定論 jitter 分離，不得永遠黏住。
+    func testCoincidentNodesSeparate() {
+        var layout = ForceLayout(nodeIDs: ["a", "b"], edges: [], seed: 3)
+        // 用 pin/unpin 把 b 疊到 a 的位置上（模擬拖曳重合）
+        let aPos = layout.nodes.first { $0.id == "a" }!.position
+        layout.pin(id: "b", at: aPos)
+        layout.unpin(id: "b")
+        for _ in 0..<50 { _ = layout.step() }
+        let pos = Dictionary(uniqueKeysWithValues: layout.nodes.map { ($0.id, $0.position) })
+        let d = hypot(pos["a"]!.x - pos["b"]!.x, pos["a"]!.y - pos["b"]!.y)
+        XCTAssertGreaterThan(d, 1.0, "重合節點 50 步後必須分離（dx=dy=0 時斥力零向量會永遠卡住）")
+    }
+
     func testPinnedNodeStaysPut() {
         var layout = makeLayout()
         layout.pin(id: "a", at: CGPoint(x: 100, y: 100))

@@ -76,6 +76,20 @@ public final class LibraryStore {
         return dest
     }
 
+    /// exclusive-create 版 writeEntry：目的檔已存在（含檢查後才出現的並發寫入）
+    /// 一律擲錯，絕不靜默覆蓋。rename 的目的檔寫入走這條，關掉 check-then-write
+    /// 之間的 TOCTOU 覆寫視窗（moveItem 對既存目的檔是原子性拒絕）。
+    @discardableResult
+    public func writeEntryExclusive(_ entry: Entry) throws -> URL {
+        guard StoreKey.isValid(entry.citekey) else {
+            throw StoreIOError.invalidKey("citekey", entry.citekey)
+        }
+        let yaml = try EntryYAML.encode(entry)
+        let dest = entryURL(citekey: entry.citekey)
+        try atomicWrite(yaml, to: dest, mustCreate: true)
+        return dest
+    }
+
     @discardableResult
     public func writePerson(_ person: Person) throws -> URL {
         guard StoreKey.isValid(person.key) else {
@@ -93,7 +107,24 @@ public final class LibraryStore {
         var result = LibraryLoad()
         for url in try yamlFiles(in: entriesDir) {
             do {
-                result.entries.append(try EntryYAML.decode(try readUTF8(url)))
+                let entry = try EntryYAML.decode(try readUTF8(url))
+                // 語意驗證：decode 成功但 key 不合法／與檔名不符 → quarantine。
+                // 畸形 citekey 一旦進入 library，之後任何 entryURL 組合（rename 刪除、
+                // orphan trash）都是 path traversal 面；檔名不符則造成重複 entry 與錯位刪除。
+                let stem = url.deletingPathExtension().lastPathComponent
+                guard StoreKey.isValid(entry.citekey) else {
+                    result.quarantined.append(QuarantinedFile(
+                        file: "entries/\(url.lastPathComponent)",
+                        reason: "citekey「\(entry.citekey)」不符合 \(StoreKey.pattern)"))
+                    continue
+                }
+                guard stem == entry.citekey else {
+                    result.quarantined.append(QuarantinedFile(
+                        file: "entries/\(url.lastPathComponent)",
+                        reason: "檔名 stem「\(stem)」與 citekey「\(entry.citekey)」不符"))
+                    continue
+                }
+                result.entries.append(entry)
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: "entries/\(url.lastPathComponent)",
@@ -102,7 +133,21 @@ public final class LibraryStore {
         }
         for url in try yamlFiles(in: peopleDir) {
             do {
-                result.people.append(try PersonYAML.decode(try readUTF8(url)))
+                let person = try PersonYAML.decode(try readUTF8(url))
+                let stem = url.deletingPathExtension().lastPathComponent
+                guard StoreKey.isValid(person.key) else {
+                    result.quarantined.append(QuarantinedFile(
+                        file: "people/\(url.lastPathComponent)",
+                        reason: "person key「\(person.key)」不符合 \(StoreKey.pattern)"))
+                    continue
+                }
+                guard stem == person.key else {
+                    result.quarantined.append(QuarantinedFile(
+                        file: "people/\(url.lastPathComponent)",
+                        reason: "檔名 stem「\(stem)」與 person key「\(person.key)」不符"))
+                    continue
+                }
+                result.people.append(person)
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: "people/\(url.lastPathComponent)",
@@ -133,13 +178,15 @@ public final class LibraryStore {
     /// temp 檔寫在同一目錄 + rename 取代——中斷不留半寫檔。
     /// dest 不存在時 `replaceItemAt` 的行為在 Apple docs 未保證（實測可行），
     /// 防禦性改走 moveItem——兩條路徑都是同目錄 rename、同等原子性。
-    private func atomicWrite(_ content: String, to dest: URL) throws {
+    /// mustCreate = true 時強制走 moveItem——目的檔已存在會原子性擲錯，
+    /// 不進 replaceItemAt 的覆蓋分支（exclusive-create 語意）。
+    private func atomicWrite(_ content: String, to dest: URL, mustCreate: Bool = false) throws {
         let fm = FileManager.default
         let tmp = dest.deletingLastPathComponent()
             .appendingPathComponent(".\(dest.lastPathComponent).tmp-\(UUID().uuidString)")
         try content.write(to: tmp, atomically: false, encoding: .utf8)
         do {
-            if fm.fileExists(atPath: dest.path) {
+            if !mustCreate && fm.fileExists(atPath: dest.path) {
                 _ = try fm.replaceItemAt(dest, withItemAt: tmp)
             } else {
                 try fm.moveItem(at: tmp, to: dest)
@@ -148,5 +195,69 @@ public final class LibraryStore {
             try? fm.removeItem(at: tmp)
             throw error
         }
+    }
+}
+
+public struct RenameReport: Equatable {
+    /// relations 有引用被改寫的 citekeys。
+    public var relationsRewritten: [String]
+
+    public init(relationsRewritten: [String] = []) {
+        self.relationsRewritten = relationsRewritten
+    }
+}
+
+extension LibraryStore {
+    /// citekey rename（#4）：驗證 → 搬檔 → 全庫 relations 遷移 → 舊檔刪除。
+    /// UUID 不變（雙 ID 的 rename 承諾至此真正成立）。呼叫端負責 reindex。
+    @discardableResult
+    public func renameEntry(from oldKey: String, to newKey: String) throws -> RenameReport {
+        // oldKey 與 newKey 對稱驗證：oldKey 之後會進 entryURL 組刪除路徑，
+        // 磁碟上若有畸形 citekey（load() 已 quarantine，此處縱深防禦）絕不可放行
+        guard StoreKey.isValid(oldKey) else {
+            throw StoreIOError.invalidKey("citekey", oldKey)
+        }
+        guard StoreKey.isValid(newKey) else {
+            throw StoreIOError.invalidKey("citekey", newKey)
+        }
+        // 目的檔不可存在——含 quarantined 檔與 case-insensitive 別名
+        guard !FileManager.default.fileExists(atPath: entryURL(citekey: newKey).path) else {
+            throw StoreIOError.invalidKey("citekey（目的檔已存在）", newKey)
+        }
+        let load = try store_loadForRename()
+        guard var entry = load.entries.first(where: { $0.citekey == oldKey }) else {
+            throw StoreIOError.invalidKey("citekey（來源不存在）", oldKey)
+        }
+
+        // 1. 寫新檔（先寫後刪，中斷時頂多多一份檔案，不丟資料）。
+        //    exclusive-create：檢查後才出現的並發目的檔會在此擲錯，不被靜默覆蓋。
+        //    自身 relations 的 self-reference 也在此一併遷移。
+        entry.citekey = newKey
+        entry.akashic.relations.cites =
+            entry.akashic.relations.cites.map { $0 == oldKey ? newKey : $0 }
+        entry.akashic.relations.related =
+            entry.akashic.relations.related.map { $0 == oldKey ? newKey : $0 }
+        try writeEntryExclusive(entry)
+        // 2. 全庫 relations 遷移（cites/related 引用舊 citekey → 新，
+        //    同一陣列的所有出現全部替換；UUID 引用不動）
+        var rewritten: [String] = []
+        for var other in load.entries where other.citekey != oldKey {
+            let cites = other.akashic.relations.cites.map { $0 == oldKey ? newKey : $0 }
+            let related = other.akashic.relations.related.map { $0 == oldKey ? newKey : $0 }
+            if cites != other.akashic.relations.cites
+                || related != other.akashic.relations.related {
+                other.akashic.relations.cites = cites
+                other.akashic.relations.related = related
+                try writeEntry(other)
+                rewritten.append(other.citekey)
+            }
+        }
+        // 3. 刪舊檔
+        try FileManager.default.removeItem(at: entryURL(citekey: oldKey))
+        return RenameReport(relationsRewritten: rewritten.sorted())
+    }
+
+    private func store_loadForRename() throws -> LibraryLoad {
+        try load()
     }
 }

@@ -1,0 +1,144 @@
+import Foundation
+import Observation
+import AkashicCore
+import AkashicStoreIO
+import AkashicIndex
+
+/// App 的中心狀態：載入/篩選/衍生層編輯/rename。
+/// 寫入邊界與 MCP 相同（衍生層 + rename + orphan 裁決）；寫後 reload + reindex。
+@Observable
+public final class AppState {
+    public let root: URL
+
+    public private(set) var entries: [Entry] = []
+    public private(set) var people: [Person] = []
+    public private(set) var quarantined: [QuarantinedFile] = []
+    /// 每次 load() 遞增。App 層 model（People/Quarantine/Graph）以此為
+    /// re-create 訊號，外部變更（FileWatcher reload）才會反映到快取清單。
+    public private(set) var reloadCount: Int = 0
+    /// 最近一次外部變更同步的時間（FileWatcher 觸發）。UI 以此顯示
+    /// 「外部變更已同步」提示——App 是 write-through 模型（沒有草稿緩衝），
+    /// 外部覆蓋不會遺失使用者輸入，但要讓使用者知道畫面剛被外部更新。
+    public private(set) var lastExternalSyncAt: Date?
+
+    public var searchText: String = ""
+    public var filterType: String?
+    public var filterTag: String?
+    public var filterJournal: String?
+    /// People 裁決台 session 內 skip 的候選 id（`citekey:authorIndex`）。
+    /// 放這裡（session 生命週期）而非 PeopleResolveModel——model 會被
+    /// `.task(id: reloadCount)` 重建，集合放 model 內會在每次 reload 後歸零。
+    public var skippedPeopleCandidates = Set<String>()
+
+    public init(root: URL) {
+        self.root = root
+    }
+
+    var store: LibraryStore { LibraryStore(root: root) }
+
+    // MARK: - 載入與統計
+
+    public func load() throws {
+        let loaded = try store.load()
+        entries = loaded.entries
+        people = loaded.people
+        quarantined = loaded.quarantined
+        reloadCount += 1
+    }
+
+    /// FileWatcher 的 reload 入口：同 load()，另外蓋上外部同步時戳。
+    public func externalReload() throws {
+        try load()
+        lastExternalSyncAt = Date()
+    }
+
+    public var unresolvedLiteralCount: Int {
+        entries.reduce(0) { count, entry in
+            count + entry.authors.filter { if case .literal = $0 { return true } else { return false } }.count
+        }
+    }
+
+    public var orphanedEntries: [Entry] {
+        entries.filter { $0.provenance?.orphanedAt != nil }
+    }
+
+    public var filteredEntries: [Entry] {
+        entries.filter { entry in
+            if let type = filterType, entry.type != type { return false }
+            if let tag = filterTag, !entry.akashic.tags.contains(tag) { return false }
+            if let journal = filterJournal,
+               entry.fields["journaltitle"]?.lowercased() != journal.lowercased() { return false }
+            let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+            if !query.isEmpty {
+                let haystack = ([entry.citekey, entry.title]
+                    + entry.authors.map(\.displayName)).joined(separator: "\n").lowercased()
+                if !haystack.contains(query) { return false }
+            }
+            return true
+        }
+    }
+
+    // MARK: - 衍生層編輯（寫檔 + reload + reindex）
+
+    public func setStatus(citekey: String, status: String?) throws {
+        try mutate(citekey) { $0.akashic.status = status }
+    }
+
+    public func addTag(citekey: String, tag: String) throws {
+        try mutate(citekey) {
+            if !$0.akashic.tags.contains(tag) { $0.akashic.tags.append(tag) }
+        }
+    }
+
+    public func removeTag(citekey: String, tag: String) throws {
+        try mutate(citekey) { $0.akashic.tags.removeAll { $0 == tag } }
+    }
+
+    public func addRelation(citekey: String, kind: RelationKind, target: String) throws {
+        try mutate(citekey) {
+            switch kind {
+            case .cites:
+                if !$0.akashic.relations.cites.contains(target) { $0.akashic.relations.cites.append(target) }
+            case .related:
+                if !$0.akashic.relations.related.contains(target) { $0.akashic.relations.related.append(target) }
+            }
+        }
+    }
+
+    public func removeRelation(citekey: String, kind: RelationKind, target: String) throws {
+        try mutate(citekey) {
+            switch kind {
+            case .cites: $0.akashic.relations.cites.removeAll { $0 == target }
+            case .related: $0.akashic.relations.related.removeAll { $0 == target }
+            }
+        }
+    }
+
+    public func rename(from oldKey: String, to newKey: String) throws {
+        _ = try store.renameEntry(from: oldKey, to: newKey)
+        try reindexAndReload()
+    }
+
+    public enum RelationKind {
+        case cites, related
+    }
+
+    // MARK: - Internals
+
+    func mutate(_ citekey: String, _ change: (inout Entry) -> Void) throws {
+        // 從磁碟重讀最新版本再 patch——記憶體快照可能落後外部工具（CLI/MCP/
+        // Zotero pull）最多一個 FileWatcher debounce 視窗；用舊快照整筆寫回
+        // 會把外部剛更新的書目層（title/authors/fields）蓋回舊值（lost update）。
+        guard var entry = try store.load().entries.first(where: { $0.citekey == citekey }) else {
+            throw StoreIOError.invalidKey("citekey（不存在）", citekey)
+        }
+        change(&entry)
+        try store.writeEntry(entry)
+        try reindexAndReload()
+    }
+
+    func reindexAndReload() throws {
+        _ = try LibraryIndex(store: store).rebuild()
+        try load()
+    }
+}

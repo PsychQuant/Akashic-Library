@@ -212,25 +212,34 @@ extension ZoteroImportTests {
 }
 
 extension ZoteroImportTests {
-    // R2：update 寫入目的檔若是 quarantined 檔（filename↔citekey 失衡的損壞 store）→ 拒寫、報告
-    func testUpdateToQuarantinedDestinationIsRefused() throws {
+    // R2→#11 修訂：filename↔citekey 失衡的損壞 store 現在在 load() 就被 quarantine
+    // （stem-mismatch 語意驗證），錯位 entry 不再進入 library。importer 視該 item 為
+    // 缺席並重建 canonical 檔；兩個隔離檔（語法壞檔 + 錯位檔）一 byte 不動。
+    func testMismatchedStemIsQuarantinedAtLoadAndReimportRebuildsCanonical() throws {
         _ = try runImport()
         let entries = store.entriesDir
-        // 損壞 store：qtarget.yaml 壞掉（quarantined）；合法 entry 內部 citekey 指向 qtarget
         try "broken: [yaml\n".write(to: entries.appendingPathComponent("qtarget.yaml"),
                                     atomically: true, encoding: .utf8)
         var article = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
         article.citekey = "qtarget"
         let mismatched = entries.appendingPathComponent("mismatch.yaml")
-        try EntryYAML.encode(article).write(to: mismatched, atomically: true, encoding: .utf8)
+        let mismatchedText = try EntryYAML.encode(article)
+        try mismatchedText.write(to: mismatched, atomically: true, encoding: .utf8)
         try FileManager.default.removeItem(
             at: entries.appendingPathComponent("cheng2025identifiability.yaml"))
         try fixture.db.execute("UPDATE items SET version=99 WHERE itemID=10")
 
+        let load = try store.load()
+        XCTAssertEqual(load.quarantined.map(\.file).sorted(),
+                       ["entries/mismatch.yaml", "entries/qtarget.yaml"],
+                       "語法壞檔與 stem 錯位檔都必須 quarantine")
+
         let report = try runImport()
-        XCTAssertEqual(report.quarantineConflicts, ["qtarget"])
+        XCTAssertTrue(report.created.contains("cheng2025identifiability"),
+                      "被 quarantine 的 item 視為缺席，重建 canonical 檔：\(report.created)")
         XCTAssertEqual(try String(contentsOf: entries.appendingPathComponent("qtarget.yaml"),
                                   encoding: .utf8), "broken: [yaml\n")   // 隔離檔一 byte 不動
+        XCTAssertEqual(try String(contentsOf: mismatched, encoding: .utf8), mismatchedText)
     }
 
     // R2：大小寫不敏感檔案系統上，大寫 quarantined basename 也要佔住 lowercase citekey
@@ -266,8 +275,9 @@ extension ZoteroImportTests {
         XCTAssertEqual(try String(contentsOf: brokenURL, encoding: .utf8), broken)
     }
 
-    // R3：被 quarantine 擋掉的 orphan restore 不得計入 unchanged
-    func testQuarantineBlockedRestoreNotCountedUnchanged() throws {
+    // R3→#11 修訂：orphaned 錯位檔同樣在 load() 就 quarantine，不進 restore 路徑；
+    // report 語意上該 item 是重建（created），不是 unchanged，也沒有寫入衝突。
+    func testQuarantinedOrphanMismatchIsRebuiltNotUnchanged() throws {
         _ = try runImport()
         let entries = store.entriesDir
         try "broken: [yaml\n".write(to: entries.appendingPathComponent("qtarget.yaml"),
@@ -280,9 +290,9 @@ extension ZoteroImportTests {
         try FileManager.default.removeItem(
             at: entries.appendingPathComponent("cheng2025identifiability.yaml"))
 
-        let report = try runImport()   // 同版本；restore 會被 quarantine 擋
-        XCTAssertEqual(report.quarantineConflicts, ["qtarget"])
-        XCTAssertEqual(report.unchanged, 1)   // 只有 item 11；被擋的不是「無需變更」
+        let report = try runImport()   // 錯位檔已 quarantine → item 10 重建
+        XCTAssertTrue(report.created.contains("cheng2025identifiability"), "\(report.created)")
+        XCTAssertEqual(report.unchanged, 1)   // 只有 item 11；重建的不是「無需變更」
     }
 }
 

@@ -1,0 +1,26 @@
+name: AkashicApp
+options:
+  bundleIdPrefix: com.psychquant
+  deploymentTarget:
+    macOS: "14.0"
+packages:
+  AkashicKit:
+    path: ..
+targets:
+  AkashicApp:
+    type: application
+    platform: macOS
+    sources:
+      - Sources
+    dependencies:
+      - package: AkashicKit
+        product: AkashicAppKit
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.psychquant.AkashicApp
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_IDENTITY: "-"
+        INFOPLIST_KEY_NSHumanReadableCopyright: "© Che Cheng"

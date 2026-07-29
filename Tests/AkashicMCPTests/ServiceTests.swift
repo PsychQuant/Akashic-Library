@@ -210,3 +210,42 @@ extension ServiceTests {
         XCTAssertNotNil(prov["orphaned_at"])
     }
 }
+
+/// #13 多 library：akashic_libraries service handler + search 的 library 篩選。
+extension ServiceTests {
+    func testLibrariesLifecycleViaService() throws {
+        _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
+                                  description: nil, citekey: nil)
+        let list = try json(service.libraries(action: "list", key: nil, name: nil,
+                                              description: nil, citekey: nil)) as! [[String: Any]]
+        XCTAssertEqual(list.count, 1)
+        XCTAssertEqual(list[0]["key"] as? String, "sinica")
+        XCTAssertEqual(list[0]["members"] as? Int, 0)
+
+        _ = try service.libraries(action: "add", key: "sinica", name: nil,
+                                  description: nil, citekey: "cheng2025identifiability")
+        let hits = try json(service.search(library: "sinica")) as! [[String: Any]]
+        XCTAssertEqual(hits.map { $0["citekey"] as! String }, ["cheng2025identifiability"])
+        XCTAssertTrue((try json(service.search(library: "ghost")) as! [Any]).isEmpty)
+
+        _ = try service.libraries(action: "remove", key: "sinica", name: nil,
+                                  description: nil, citekey: "cheng2025identifiability")
+        XCTAssertTrue((try json(service.search(library: "sinica")) as! [Any]).isEmpty)
+    }
+
+    func testLibrariesActionValidation() throws {
+        XCTAssertThrowsError(try service.libraries(action: "bogus", key: nil, name: nil,
+                                                   description: nil, citekey: nil))
+        XCTAssertThrowsError(try service.libraries(action: "create", key: nil, name: "X",
+                                                   description: nil, citekey: nil),
+                             "create 缺 key 要拒")
+        _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
+                                  description: nil, citekey: nil)
+        XCTAssertThrowsError(try service.libraries(action: "create", key: "sinica", name: "重複",
+                                                   description: nil, citekey: nil),
+                             "重複 create 要拒")
+        XCTAssertThrowsError(try service.libraries(action: "add", key: "ghostlib", name: nil,
+                                                   description: nil, citekey: "cheng2025identifiability"),
+                             "未知 library 要拒")
+    }
+}

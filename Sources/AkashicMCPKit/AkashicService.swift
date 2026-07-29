@@ -34,7 +34,8 @@ public final class AkashicService {
     // MARK: - 讀
 
     public func search(author: String? = nil, journal: String? = nil, tag: String? = nil,
-                       type: String? = nil, yearFrom: Int? = nil, yearTo: Int? = nil) throws -> String {
+                       type: String? = nil, yearFrom: Int? = nil, yearTo: Int? = nil,
+                       library: String? = nil) throws -> String {
         let engine = try freshEngine()
         var filter = QueryFilter()
         filter.author = author
@@ -43,6 +44,7 @@ public final class AkashicService {
         filter.type = type
         filter.yearFrom = yearFrom
         filter.yearTo = yearTo
+        filter.library = library
         return try jsonString(try engine.find(filter).map(summaryDict))
     }
 
@@ -138,6 +140,54 @@ public final class AkashicService {
     }
 
     // MARK: - 寫（衍生層 only）
+
+    /// #13 多 library：registry 管理 + 成員操作（衍生層寫入邊界內）。
+    public func libraries(action: String, key: String?, name: String?,
+                          description: String?, citekey: String?) throws -> String {
+        switch action {
+        case "list":
+            let load = try store.load()
+            var counts: [String: Int] = [:]
+            for entry in load.entries {
+                for k in entry.akashic.libraries { counts[k, default: 0] += 1 }
+            }
+            return try jsonString(load.libraries.map { lib -> [String: Any] in
+                var d: [String: Any] = ["key": lib.key, "name": lib.name,
+                                        "members": counts[lib.key] ?? 0]
+                if let desc = lib.description { d["description"] = desc }
+                return d
+            })
+        case "create":
+            guard let key, let name else {
+                throw ServiceError.invalid("create 需要 key 與 name")
+            }
+            guard !FileManager.default.fileExists(atPath: store.libraryURL(key: key).path) else {
+                throw ServiceError.invalid("library「\(key)」已存在")
+            }
+            _ = try store.writeLibrary(Library(key: key, name: name, description: description))
+            return try jsonString(["created": key])
+        case "add", "remove":
+            guard let key, let citekey else {
+                throw ServiceError.invalid("\(action) 需要 key 與 citekey")
+            }
+            let load = try store.load()
+            guard load.libraries.contains(where: { $0.key == key }) else {
+                throw ServiceError.notFound("library「\(key)」")
+            }
+            guard var entry = load.entries.first(where: { $0.citekey == citekey }) else {
+                throw ServiceError.notFound("citekey「\(citekey)」")
+            }
+            if action == "add" {
+                if !entry.akashic.libraries.contains(key) { entry.akashic.libraries.append(key) }
+            } else {
+                entry.akashic.libraries.removeAll { $0 == key }
+            }
+            try writeAndReindex(entry)
+            return try jsonString(["citekey": citekey, "libraries": entry.akashic.libraries])
+        default:
+            throw ServiceError.invalid("未知 action「\(action)」（list/create/add/remove）")
+        }
+    }
 
     public func setStatus(citekey: String, status: String?) throws -> String {
         var entry = try requireEntry(citekey)

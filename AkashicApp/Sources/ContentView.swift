@@ -79,6 +79,26 @@ struct SidebarView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            // #13 多 library：具名成員集合視角切換（store 是全集，view 只過濾）
+            Section("Libraries") {
+                Button {
+                    state.filterLibrary = nil
+                } label: {
+                    Label("全部（\(state.entries.count)）", systemImage: "infinity")
+                        .fontWeight(state.filterLibrary == nil ? .semibold : .regular)
+                }
+                .buttonStyle(.plain)
+                ForEach(state.libraries, id: \.key) { library in
+                    Button {
+                        state.filterLibrary = library.key
+                    } label: {
+                        Label("\(library.name)（\(memberCount(library.key))）",
+                              systemImage: "books.vertical.circle")
+                            .fontWeight(state.filterLibrary == library.key ? .semibold : .regular)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
             Section("工作台") {
                 ForEach(SidebarSection.allCases) { item in
                     Label(item.rawValue, systemImage: item.systemImage)
@@ -87,5 +107,9 @@ struct SidebarView: View {
             }
         }
         .navigationTitle("Akashic")
+    }
+
+    private func memberCount(_ key: String) -> Int {
+        state.entries.filter { $0.akashic.libraries.contains(key) }.count
     }
 }

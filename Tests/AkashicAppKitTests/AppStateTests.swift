@@ -94,3 +94,22 @@ final class AppStateTests: XCTestCase {
         XCTAssertNil(state.entries.first { $0.citekey == "olsson1979maximum" })
     }
 }
+
+/// #13 多 library：AppState 的 libraries 載入與 filterLibrary 篩選。
+extension AppStateTests {
+    func testFilterLibraryScopesEntries() throws {
+        let store = LibraryStore(root: root)
+        try store.writeLibrary(Library(key: "sinica", name: "中研院"))
+        var e = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
+        e.akashic.libraries = ["sinica"]
+        try store.writeEntry(e)
+        try state.load()
+
+        XCTAssertEqual(state.libraries.map(\.key), ["sinica"], "registry 要載入 AppState")
+        XCTAssertEqual(state.filteredEntries.count, 2, "未選 library＝全集")
+        state.filterLibrary = "sinica"
+        XCTAssertEqual(state.filteredEntries.map(\.citekey), ["cheng2025identifiability"])
+        state.filterLibrary = nil
+        XCTAssertEqual(state.filteredEntries.count, 2)
+    }
+}

@@ -192,13 +192,19 @@ public final class AkashicService {
             var keyPubCount: [String: Int] = [:]
             var literalCounts: [String: Int] = [:]
             for entry in load.entries {
+                // per-entry 去重：publications 是「篇數」不是「掛名次數」
+                //（同篇重複 author identity 只計一次，與 DISTINCT 語意對齊）
+                var seenKeys = Set<String>()
+                var seenLiterals = Set<String>()
                 for author in entry.authors {
                     switch author {
-                    case .key(let k): keyPubCount[k, default: 0] += 1
+                    case .key(let k): seenKeys.insert(k)
                     case .literal(let s):
-                        if s.lowercased().contains(needle) { literalCounts[s, default: 0] += 1 }
+                        if s.lowercased().contains(needle) { seenLiterals.insert(s) }
                     }
                 }
+                for k in seenKeys { keyPubCount[k, default: 0] += 1 }
+                for s in seenLiterals { literalCounts[s, default: 0] += 1 }
             }
             var candidates: [[String: Any]] = []
             for p in load.people where p.names.contains(where: { $0.lowercased().contains(needle) })

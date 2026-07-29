@@ -402,3 +402,27 @@ extension ServiceTests {
                        "resolved 合著者的 name 給人讀的名字，不是 key")
     }
 }
+
+/// #14 R2：篇數語意（per-entry 去重）+ truncated 標記。
+extension ServiceTests {
+    func testFuzzyCountsPublicationsNotOccurrences() throws {
+        let store = LibraryStore(root: root)
+        var e = try store.load().entries.first { $0.citekey == "olsson1979maximum" }!
+        e.authors = [.literal("Dup Person"), .literal("Dup Person")]   // 同篇重複掛名
+        try store.writeEntry(e)
+        let out = try json(service.person(key: nil, name: "dup person", library: nil)) as! [String: Any]
+        let c = (out["candidates"] as! [[String: Any]]).first!
+        XCTAssertEqual(c["publications"] as? Int, 1, "同篇重複掛名只計一篇")
+    }
+
+    func testFuzzyTruncationFlag() throws {
+        let store = LibraryStore(root: root)
+        for i in 0..<55 {
+            try store.writePerson(Person(key: String(format: "zz-person-%02d", i),
+                                         names: ["Zz Common \(i)"]))
+        }
+        let out = try json(service.person(key: nil, name: "zz", library: nil)) as! [String: Any]
+        XCTAssertEqual((out["candidates"] as! [Any]).count, 50)
+        XCTAssertEqual(out["truncated"] as? Bool, true)
+    }
+}

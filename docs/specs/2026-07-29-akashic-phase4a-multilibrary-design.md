@@ -52,7 +52,7 @@ membership 跟著 entry 走：citekey rename 免第三處遷移（rename 的 rel
 
 | 面 | 新增 |
 |----|------|
-| CLI | `akashic library list` / `create <key> --name <名> [--description]` / `add <key> <citekey>` / `remove <key> <citekey>`；`akashic query --library <key>` |
+| CLI | `akashic library list` / `create <key> --name <名> [--description]` / `add <key> <citekey>` / `remove <key> <citekey>`；`akashic query --in-library <key>`（`--library` 已是 root 路徑 flag） |
 | MCP | `akashic_libraries` tool（action: list/create/add/remove——衍生層寫入邊界內）；`akashic_search` 加選填 `library` 參數 |
 | App | Sidebar「Libraries」區：全部＋各 library 切換（AppState.filterLibrary）；detail 唯讀顯示所屬 libraries。**App 端 membership 編輯留 follow-up**（本輪 view/filter only） |
 

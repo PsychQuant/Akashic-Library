@@ -106,9 +106,7 @@ struct Graph: ParsableCommand {
 
     func run() throws {
         let store = try options.openStore()
-        guard FileManager.default.fileExists(atPath: store.indexURL.path) else {
-            throw ValidationError("index 不存在。先跑 akashic doctor 重建。")
-        }
+        _ = try LibraryIndex(store: store).ensureCurrent()   // 與 Query 對齊（DA 漏網之魚#1）
         let builder = try GraphBuilder(indexPath: store.indexURL)
         let neighborhood = try builder.neighborhood(focus: focus, depth: depth)
         let content: String

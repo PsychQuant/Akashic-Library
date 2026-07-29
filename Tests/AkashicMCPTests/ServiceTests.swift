@@ -2,6 +2,7 @@ import XCTest
 @testable import AkashicCore
 @testable import AkashicStoreIO
 @testable import AkashicMCPKit
+@testable import AkashicSQLite
 
 final class ServiceTests: XCTestCase {
     var root: URL!
@@ -291,5 +292,29 @@ extension ServiceTests {
             XCTAssertTrue(msg.contains("不符合"),
                           "錯誤必須是 key 格式拒絕，不是洩漏路徑存在性的「已存在」：\(msg)")
         }
+    }
+}
+
+/// DA must-fix #1/#7：MCP 側 stale-schema 自我修復 + getEntry 零 libraries case。
+extension ServiceTests {
+    func testServiceRecoversFromStaleSchemaIndex() throws {
+        _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
+                                  description: nil, citekey: nil)
+        _ = try service.libraries(action: "add", key: "sinica", name: nil,
+                                  description: nil, citekey: "cheng2025identifiability")
+        // 模擬舊 binary 建的 index：砍新表 + 版本歸零
+        let store = LibraryStore(root: root)
+        let db = try SQLiteDB(path: store.indexURL.path, readOnly: false)
+        try db.execute("DROP TABLE entry_libraries")
+        try db.execute("PRAGMA user_version = 0")
+        let hits = try json(service.search(library: "sinica")) as! [[String: Any]]
+        XCTAssertEqual(hits.map { $0["citekey"] as! String }, ["cheng2025identifiability"],
+                       "MCP freshness 必須偵測 schema 過舊並重建，不得 no such table")
+    }
+
+    func testGetEntryOmitsLibrariesWhenEmpty() throws {
+        let entry = try json(service.getEntry(citekey: "olsson1979maximum")) as! [String: Any]
+        let akashic = (entry["akashic"] as? [String: Any]) ?? [:]
+        XCTAssertNil(akashic["libraries"], "零 membership 時 key 省略（與 tags 慣例一致）")
     }
 }

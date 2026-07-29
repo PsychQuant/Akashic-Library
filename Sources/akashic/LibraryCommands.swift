@@ -9,7 +9,7 @@ import AkashicIndex
 struct LibraryCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "library",
-        abstract: "具名 library（成員集合視角）管理：list / create / add / remove",
+        abstract: "具名 library（成員集合視角）管理：list / create / add / remove。注意：同一 store 的並發 add/remove/create（如 CLI 與 MCP 同時操作）不保證安全——見 README",
         subcommands: [LibraryList.self, LibraryCreate.self, LibraryAdd.self, LibraryRemove.self])
 }
 

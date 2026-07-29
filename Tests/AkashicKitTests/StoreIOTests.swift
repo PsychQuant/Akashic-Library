@@ -392,10 +392,15 @@ extension LibraryRegistryStoreTests {
                           atomically: true, encoding: .utf8)
 
         let load = try store.load()
-        XCTAssertEqual(load.entries.map(\.citekey), ["seed2020a"],
-                       "畸形/重複 membership 的 entry 不得載入")
-        XCTAssertEqual(Set(load.quarantined.map(\.file)),
-                       ["entries/badmember2020x.yaml", "entries/dupmember2020x.yaml"])
+        // 畸形 key → quarantine；純重複 → auto-dedupe 保序載入（DA 裁決）
+        XCTAssertEqual(load.entries.map(\.citekey), ["dupmember2020x", "seed2020a"])
+        XCTAssertEqual(load.quarantined.map(\.file), ["entries/badmember2020x.yaml"])
+        let dup = load.entries.first { $0.citekey == "dupmember2020x" }!
+        XCTAssertEqual(dup.akashic.libraries, ["sinica"], "重複 key 去重保序（load 靜默正規化）")
+        // validate() 的重複警告針對未正規化的原始構造（寫前 lint 用）
+        var raw = dup
+        raw.akashic.libraries = ["sinica", "sinica"]
+        XCTAssertTrue(raw.validate().contains { $0.message.contains("重複") })
     }
 
     func testLoadSafeWhenLibrariesDirAbsent() throws {

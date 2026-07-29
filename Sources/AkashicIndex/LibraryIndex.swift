@@ -102,7 +102,7 @@ public struct LibraryIndex {
             for tag in entry.akashic.tags {
                 try db.execute("INSERT INTO tags VALUES (?,?)", bind: [entry.id.uuidString, tag])
             }
-            for libraryKey in entry.akashic.libraries {
+            for libraryKey in Set(entry.akashic.libraries) {   // 防禦性去重（上游已保證，fragile invariant 加固）
                 try db.execute("INSERT INTO entry_libraries VALUES (?,?)",
                                bind: [entry.id.uuidString, libraryKey])
             }

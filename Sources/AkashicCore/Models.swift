@@ -195,6 +195,10 @@ extension Entry {
         if title.trimmingCharacters(in: .whitespaces).isEmpty {
             issues.append(ValidationIssue(severity: .warning, message: "title 為空"))
         }
+        if Set(akashic.libraries).count != akashic.libraries.count {
+            issues.append(ValidationIssue(severity: .warning,
+                                          message: "akashic.libraries 含重複 key（load 已去重）"))
+        }
         return issues
     }
 }

@@ -166,13 +166,12 @@ public final class LibraryStore {
                         reason: "akashic.libraries key「\(bad)」不符合 \(StoreKey.pattern)"))
                     continue
                 }
-                if Set(entry.akashic.libraries).count != entry.akashic.libraries.count {
-                    result.quarantined.append(QuarantinedFile(
-                        file: "entries/\(url.lastPathComponent)",
-                        reason: "akashic.libraries 含重複 key"))
-                    continue
-                }
-                result.entries.append(entry)
+                // 純重複（格式合法）→ auto-dedupe 保序（DA 裁決：quarantine 對可用性
+                // 過重；集合語意有唯一無歧義修法）。警告經 Entry.validate → doctor 浮出。
+                var entry2 = entry
+                var seen = Set<String>()
+                entry2.akashic.libraries = entry.akashic.libraries.filter { seen.insert($0).inserted }
+                result.entries.append(entry2)
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: "entries/\(url.lastPathComponent)",

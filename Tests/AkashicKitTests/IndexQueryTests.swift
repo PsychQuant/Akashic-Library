@@ -3,6 +3,7 @@ import XCTest
 @testable import AkashicStoreIO
 @testable import AkashicIndex
 @testable import AkashicQuery
+@testable import AkashicSQLite
 
 /// Index/Query/Graph 共用 fixture：5 entries + 2 people，涵蓋
 /// key/literal 作者、同期刊、cites/related、orphan。
@@ -217,5 +218,36 @@ final class LibraryQueryTests: XCTestCase {
 
     func testNoLibraryFilterReturnsAll() throws {
         XCTAssertEqual(try query().find(QueryFilter()).count, 3, "未指定 library＝全集（零行為變化）")
+    }
+}
+
+/// #13 verify fix round：index schema 版本——舊 index 撞新查詢不得炸 no such table。
+final class IndexSchemaVersionTests: XCTestCase {
+    func testStaleIndexIsDetectedAndRebuildRestoresQuery() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-schema-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LibraryStore(root: root)
+        try store.ensureLayout()
+        try store.writeLibrary(Library(key: "sinica", name: "中研院"))
+        var e = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article", title: "T")
+        e.akashic.libraries = ["sinica"]
+        try store.writeEntry(e)
+        _ = try LibraryIndex(store: store).rebuild()
+        XCTAssertTrue(try LibraryIndex.isCurrent(indexPath: store.indexURL))
+
+        // 模擬 v1.1 舊 index：砍掉新表 + 歸零版本
+        let db = try SQLiteDB(path: store.indexURL.path, readOnly: false)
+        try db.execute("DROP TABLE entry_libraries")
+        try db.execute("PRAGMA user_version = 0")
+        XCTAssertFalse(try LibraryIndex.isCurrent(indexPath: store.indexURL),
+                       "舊 schema 必須被偵測為 stale")
+
+        // ensureCurrent：stale → rebuild → 查詢可用
+        _ = try LibraryIndex(store: store).ensureCurrent()
+        var f = QueryFilter()
+        f.library = "sinica"
+        let hits = try QueryEngine(indexPath: store.indexURL).find(f)
+        XCTAssertEqual(hits.map(\.citekey), ["cheng2025identifiability"])
     }
 }

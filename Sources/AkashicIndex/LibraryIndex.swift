@@ -18,10 +18,32 @@ public struct IndexStats: Equatable {
 /// `.akashic/index.sqlite` 重建器。index 是可全刪重建的衍生物——
 /// canonical 永遠是 entries/ 與 people/ 的 YAML。
 public struct LibraryIndex {
+    /// index schema 版本（#13 verify）：加表/改欄位時遞增。
+    /// 舊 binary 建的 index 撞新查詢（如 entry_libraries）會 no such table——
+    /// 讀端先 isCurrent 檢查、stale 就 rebuild，不靠 mtime。
+    public static let schemaVersion: Int32 = 2
+
     let store: LibraryStore
 
     public init(store: LibraryStore) {
         self.store = store
+    }
+
+    /// index 是否為當前 schema 版本（檔案不存在＝false）。
+    public static func isCurrent(indexPath: URL) throws -> Bool {
+        guard FileManager.default.fileExists(atPath: indexPath.path) else { return false }
+        let db = try SQLiteDB(path: indexPath.path, readOnly: true)
+        let rows = try db.query("PRAGMA user_version")
+        let version = (rows.first?["user_version"] as? Int).map(Int32.init) ?? 0
+        return version == schemaVersion
+    }
+
+    /// stale（版本不符）就 rebuild；current 則 no-op。回傳是否 rebuild 過。
+    @discardableResult
+    public func ensureCurrent() throws -> Bool {
+        if try Self.isCurrent(indexPath: store.indexURL) { return false }
+        _ = try rebuild()
+        return true
     }
 
     @discardableResult
@@ -50,6 +72,7 @@ public struct LibraryIndex {
             "CREATE INDEX idx_entry_libraries_key ON entry_libraries(library_key)",
             "CREATE INDEX idx_relations_from ON relations(from_uuid)",
             "CREATE INDEX idx_relations_target ON relations(target)",
+            "PRAGMA user_version = 2",   // = schemaVersion；同步遞增
         ] {
             try db.execute(sql)
         }

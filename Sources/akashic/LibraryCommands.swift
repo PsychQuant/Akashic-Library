@@ -28,7 +28,7 @@ struct LibraryList: ParsableCommand {
         }
         var counts: [String: Int] = [:]
         for entry in load.entries {
-            for key in entry.akashic.libraries { counts[key, default: 0] += 1 }
+            for key in Set(entry.akashic.libraries) { counts[key, default: 0] += 1 }
         }
         for library in load.libraries {
             let desc = library.description.map { "　\($0)" } ?? ""
@@ -48,6 +48,10 @@ struct LibraryCreate: ParsableCommand {
 
     func run() throws {
         let store = try options.openStore()
+        // 驗證先行：未驗證 key 不得進任何路徑組合（存在性 oracle 防護）
+        guard StoreKey.isValid(key) else {
+            throw ValidationError("library key「\(key)」不符合 \(StoreKey.pattern)，拒絕寫入")
+        }
         guard !FileManager.default.fileExists(atPath: store.libraryURL(key: key).path) else {
             throw ValidationError("library「\(key)」已存在")
         }
@@ -62,9 +66,11 @@ struct LibraryCreate: ParsableCommand {
 
 /// add/remove 共用：讀盤後 patch（沿 #11 mutate 慣例——不用記憶體舊快照）+ reindex。
 private func mutateMembership(store: LibraryStore, libraryKey: String, citekey: String,
-                              change: (inout [String]) -> Void) throws {
+                              requireRegistry: Bool, change: (inout [String]) -> Void) throws {
     let load = try store.load()
-    guard load.libraries.contains(where: { $0.key == libraryKey }) else {
+    // add 要求 registry 存在；remove 不要求——dangling membership（spec 允許存在）
+    // 必須能用正式介面清理
+    if requireRegistry, !load.libraries.contains(where: { $0.key == libraryKey }) {
         throw ValidationError("library「\(libraryKey)」不存在（先 akashic library create）")
     }
     guard var entry = load.entries.first(where: { $0.citekey == citekey }) else {
@@ -85,7 +91,8 @@ struct LibraryAdd: ParsableCommand {
 
     func run() throws {
         let store = try options.openStore()
-        try mutateMembership(store: store, libraryKey: libraryKey, citekey: citekey) {
+        try mutateMembership(store: store, libraryKey: libraryKey, citekey: citekey,
+                             requireRegistry: true) {
             if !$0.contains(libraryKey) { $0.append(libraryKey) }
         }
         print("added: \(citekey) → \(libraryKey)")
@@ -102,7 +109,8 @@ struct LibraryRemove: ParsableCommand {
 
     func run() throws {
         let store = try options.openStore()
-        try mutateMembership(store: store, libraryKey: libraryKey, citekey: citekey) {
+        try mutateMembership(store: store, libraryKey: libraryKey, citekey: citekey,
+                             requireRegistry: false) {
             $0.removeAll { $0 == libraryKey }
         }
         print("removed: \(citekey) ✕ \(libraryKey)")

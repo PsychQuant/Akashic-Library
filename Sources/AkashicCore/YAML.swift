@@ -211,7 +211,10 @@ public enum EntryYAML {
             if let tagSeq = akMap["tags"]?.sequence {
                 entry.akashic.tags = try stringList(tagSeq, context: "akashic.tags")
             }
-            if let libSeq = akMap["libraries"]?.sequence {
+            if let libNode = akMap["libraries"] {
+                guard let libSeq = libNode.sequence else {
+                    throw StoreYAMLError.invalidField("akashic.libraries", "必須是 sequence")
+                }
                 entry.akashic.libraries = try stringList(libSeq, context: "akashic.libraries")
             }
             entry.akashic.status = akMap["status"]?.string
@@ -281,7 +284,12 @@ public enum LibraryYAML {
             throw StoreYAMLError.missingField("name")
         }
         var library = Library(key: key, name: name)
-        library.description = map["description"]?.string
+        if let descNode = map["description"] {
+            guard let desc = descNode.string else {
+                throw StoreYAMLError.invalidField("library.description", "必須是 string")
+            }
+            library.description = desc
+        }
         return library
     }
 }

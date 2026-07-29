@@ -373,3 +373,29 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertThrowsError(try LibraryYAML.decode("name: 沒有 key\n"))
     }
 }
+
+/// #13 verify fix round：present-but-wrong-type 必須擲錯（strict 哲學）。
+extension LibraryModelTests {
+    func testScalarLibrariesFieldRejected() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-00000000CCCC
+        citekey: scalar2020x
+        type: article
+        title: T
+        akashic:
+          libraries: sinica
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml),
+                             "libraries 存在但非 sequence → 必須擲錯，不得靜默當空")
+    }
+
+    func testLibraryDescriptionWrongTypeRejected() {
+        let yaml = """
+        key: sinica
+        name: 中研院
+        description:
+          nested: nope
+        """
+        XCTAssertThrowsError(try LibraryYAML.decode(yaml))
+    }
+}

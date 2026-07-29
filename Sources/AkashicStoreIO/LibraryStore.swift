@@ -84,7 +84,8 @@ public final class LibraryStore {
         try FileManager.default.createDirectory(at: librariesDir, withIntermediateDirectories: true)
         let yaml = try LibraryYAML.encode(library)
         let dest = libraryURL(key: library.key)
-        try atomicWrite(yaml, to: dest)
+        // exclusive-create：registry 無 update 路徑，並發 create 不得靜默互吃
+        try atomicWrite(yaml, to: dest, mustCreate: true)
         return dest
     }
 
@@ -97,6 +98,11 @@ public final class LibraryStore {
         // membership keys（#13）同樣 write-time 驗證——不進路徑，但保 index/query 語意乾淨
         for key in entry.akashic.libraries where !StoreKey.isValid(key) {
             throw StoreIOError.invalidKey("akashic.libraries key", key)
+        }
+        // membership 是集合語意：重複 key 拒寫（list 計數/index 去重的上游保證）
+        guard Set(entry.akashic.libraries).count == entry.akashic.libraries.count else {
+            throw StoreIOError.invalidKey("akashic.libraries（重複）",
+                                          entry.akashic.libraries.joined(separator: ","))
         }
         let yaml = try EntryYAML.encode(entry)
         let dest = entryURL(citekey: entry.citekey)
@@ -150,6 +156,20 @@ public final class LibraryStore {
                     result.quarantined.append(QuarantinedFile(
                         file: "entries/\(url.lastPathComponent)",
                         reason: "檔名 stem「\(stem)」與 citekey「\(entry.citekey)」不符"))
+                    continue
+                }
+                // membership 語意驗證（#13 verify）：畸形 key 的 entry 之後任何衍生層
+                // 寫入都會被 writeEntry 拒絕（看似可讀、實則鎖死）；重複 key 使計數失真
+                if let bad = entry.akashic.libraries.first(where: { !StoreKey.isValid($0) }) {
+                    result.quarantined.append(QuarantinedFile(
+                        file: "entries/\(url.lastPathComponent)",
+                        reason: "akashic.libraries key「\(bad)」不符合 \(StoreKey.pattern)"))
+                    continue
+                }
+                if Set(entry.akashic.libraries).count != entry.akashic.libraries.count {
+                    result.quarantined.append(QuarantinedFile(
+                        file: "entries/\(url.lastPathComponent)",
+                        reason: "akashic.libraries 含重複 key"))
                     continue
                 }
                 result.entries.append(entry)

@@ -55,7 +55,7 @@ Library 解析：`$AKASHIC_LIBRARY` → `~/.akashic/config.yaml`（`library: <pa
 成員集合（如 `sinica`、`psychology`），`akashic query --in-library <key>` 篩選；MCP 有
 `akashic_libraries` tool 與 `akashic_search` 的 `library` 參數；App sidebar 可切換 view。
 store 永遠是全集——library 只是視角，成員關係存在 entry 的 `akashic.libraries`（與 Zotero 脫鉤）。
-工具面：7 讀（search/get_entry/relations/graph/export/people/doctor）+
+工具面：15 tools——7 讀（search/get_entry/relations/graph/export/people/doctor）+ akashic_libraries（list/create/add/remove）+
 7 寫（**只碰衍生層**：set_status/tag/link/resolve_people 逐候選/create_entry 庫外/add_person/import_zotero）。
 biblatex 面向唯讀——過渡期歸 Zotero pull 管。並發（MCP 與 CLI 並用）：per-file atomic
 write、last-wins、index 冪等重建（單人場景設計）。

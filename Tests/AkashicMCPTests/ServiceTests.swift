@@ -249,3 +249,47 @@ extension ServiceTests {
                              "未知 library 要拒")
     }
 }
+
+/// #13 verify fix round：getEntry 含 libraries、dangling remove、create 驗證順序。
+extension ServiceTests {
+    func testGetEntryIncludesLibraries() throws {
+        _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
+                                  description: nil, citekey: nil)
+        _ = try service.libraries(action: "add", key: "sinica", name: nil,
+                                  description: nil, citekey: "cheng2025identifiability")
+        let entry = try json(service.getEntry(citekey: "cheng2025identifiability")) as! [String: Any]
+        let akashic = entry["akashic"] as! [String: Any]
+        XCTAssertEqual(akashic["libraries"] as? [String], ["sinica"],
+                       "getEntry 必須回傳 membership（MCP 完整 entry 契約）")
+    }
+
+    func testRemoveWorksOnDanglingMembership() throws {
+        _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
+                                  description: nil, citekey: nil)
+        _ = try service.libraries(action: "add", key: "sinica", name: nil,
+                                  description: nil, citekey: "cheng2025identifiability")
+        // registry 檔被手動刪除 → dangling membership；remove 仍須可清理
+        try FileManager.default.removeItem(
+            at: LibraryStore(root: root).libraryURL(key: "sinica"))
+        _ = try service.libraries(action: "remove", key: "sinica", name: nil,
+                                  description: nil, citekey: "cheng2025identifiability")
+        let entry = try json(service.getEntry(citekey: "cheng2025identifiability")) as! [String: Any]
+        let akashic = entry["akashic"] as! [String: Any]
+        XCTAssertNil(akashic["libraries"], "dangling membership 清掉後不應殘留")
+    }
+
+    func testCreateValidatesKeyBeforePathProbe() throws {
+        // librariesDir/../oracle.yaml = root/oracle.yaml——存在性 oracle 的目標
+        try "x".write(to: root.appendingPathComponent("oracle.yaml"),
+                      atomically: true, encoding: .utf8)
+        do {
+            _ = try service.libraries(action: "create", key: "../oracle", name: "X",
+                                      description: nil, citekey: nil)
+            XCTFail("畸形 key 必須擲錯")
+        } catch {
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(msg.contains("不符合"),
+                          "錯誤必須是 key 格式拒絕，不是洩漏路徑存在性的「已存在」：\(msg)")
+        }
+    }
+}

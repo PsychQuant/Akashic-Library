@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import AkashicStoreIO
+import AkashicIndex
 import AkashicQuery
 import AkashicGraph
 
@@ -26,9 +27,8 @@ struct Query: ParsableCommand {
 
     func run() throws {
         let store = try options.openStore()
-        guard FileManager.default.fileExists(atPath: store.indexURL.path) else {
-            throw ValidationError("index 不存在。先跑 akashic doctor 重建。")
-        }
+        // index 缺席或 schema 過舊（如 v1.1 index 撞 --in-library）→ 自動重建（#13 verify）
+        _ = try LibraryIndex(store: store).ensureCurrent()
         let engine = try QueryEngine(indexPath: store.indexURL)
 
         let relationFlags = [sameJournalAs, sameAuthorAs, citesOf, citedBy, relatedTo]

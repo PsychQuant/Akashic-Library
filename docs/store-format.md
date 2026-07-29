@@ -1,4 +1,4 @@
-# Akashic Store 格式規格書（v1.1，Phase 2 修訂）
+# Akashic Store 格式規格書（v1.2，#13 多 library 修訂）
 
 Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版；
 實作＝`AkashicCore`（型別/YAML/citekey）＋ `AkashicStoreIO`（讀寫）。
@@ -49,6 +49,7 @@ provenance:                      # Zotero namespace——pull 管理、可覆寫
   orphaned_at: 2026-08-01T00:00:00Z        # 僅 Zotero 端已刪時出現
 akashic:                         # Akashic namespace——pull 絕不觸碰
   tags: [identifiability, polychoric]
+  libraries: [sinica]            # v1.2（#13）：所屬 library keys；空＝只屬全集 view
   status: published
   relations:
     cites: [olsson1979maximum]   # citekey 或 UUID；庫外引用允許
@@ -110,6 +111,22 @@ quarantined 檔（decode 失敗）**永不被 import 覆寫**：其 basename 佔
 
 Zotero 端刪除 ≠ Akashic 刪除。pull 只在 `provenance.orphaned_at` 蓋時間戳，
 檔案保留，人工裁決（刪檔或抹掉 provenance 轉為純 Akashic entry）。
+
+## 2.9 Library registry（`libraries/<key>.yaml`，v1.2 新增）
+
+具名 library＝**成員集合視角**（阿卡夏理念：store 是全集、不分割；「加入 library」只是標記）。
+registry 檔只存 metadata，成員關係在各 entry 的 `akashic.libraries`（per-entry membership——
+citekey rename 免遷移、與 tags 同寫入邊界、與 Zotero 天然脫鉤）：
+
+```yaml
+key: sinica          # 必要；＝檔名 stem；StoreKey 格式
+name: 中研院          # 必要；顯示名稱
+description: 選填
+```
+
+load 語意驗證同 entries/people：key 格式不符或與 stem 不符 → quarantine。
+membership 與 Zotero 完全脫鉤（pull 永不讀寫）。刪 registry 檔後殘留在 entry 上的
+key 成 dangling reference——不視為錯誤（同 relations 可指庫外的慣例）。
 
 ## 3. 人物檔（`people/<person-key>.yaml`）
 

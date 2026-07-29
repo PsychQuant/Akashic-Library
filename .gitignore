@@ -22,3 +22,6 @@ mcpb/*.sha256
 
 # Xcode
 AkashicApp/DerivedData/
+
+# IDD runtime state（unattended-state lib，不入版控）
+.claude/.idd/state/

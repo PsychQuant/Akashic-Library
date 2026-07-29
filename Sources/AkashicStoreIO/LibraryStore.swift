@@ -167,7 +167,8 @@ public final class LibraryStore {
                     continue
                 }
                 // 純重複（格式合法）→ auto-dedupe 保序（DA 裁決：quarantine 對可用性
-                // 過重；集合語意有唯一無歧義修法）。警告經 Entry.validate → doctor 浮出。
+                // 過重；集合語意有唯一無歧義修法）。注意：去重在 load 即完成、屬靜默
+                // 正規化——validate() 的重複警告只對未正規化的記憶體物件（寫前 lint）有效。
                 var entry2 = entry
                 var seen = Set<String>()
                 entry2.akashic.libraries = entry.akashic.libraries.filter { seen.insert($0).inserted }

@@ -174,6 +174,9 @@ public final class AkashicService {
             guard let key, let citekey else {
                 throw ServiceError.invalid("\(action) 需要 key 與 citekey")
             }
+            guard StoreKey.isValid(key) else {
+                throw ServiceError.invalid("library key「\(key)」不符合 \(StoreKey.pattern)")
+            }
             let load = try store.load()
             // add 要求 registry 存在；remove 不要求——dangling membership（spec 允許）
             // 必須能用正式介面清理

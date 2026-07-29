@@ -67,6 +67,10 @@ struct LibraryCreate: ParsableCommand {
 /// add/remove 共用：讀盤後 patch（沿 #11 mutate 慣例——不用記憶體舊快照）+ reindex。
 private func mutateMembership(store: LibraryStore, libraryKey: String, citekey: String,
                               requireRegistry: Bool, change: (inout [String]) -> Void) throws {
+    // 邊界先驗 key 格式：畸形 key 不得靜默 no-op（StoreKey 契約一致性，R2 follow-up）
+    guard StoreKey.isValid(libraryKey) else {
+        throw ValidationError("library key「\(libraryKey)」不符合 \(StoreKey.pattern)")
+    }
     let load = try store.load()
     // add 要求 registry 存在；remove 不要求——dangling membership（spec 允許存在）
     // 必須能用正式介面清理

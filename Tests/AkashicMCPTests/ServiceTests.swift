@@ -318,3 +318,39 @@ extension ServiceTests {
         XCTAssertNil(akashic["libraries"], "零 membership 時 key 省略（與 tags 慣例一致）")
     }
 }
+
+/// #14 人物檢索：person 聚合 handler。
+extension ServiceTests {
+    func testPersonByKeyAggregates() throws {
+        let out = try json(service.person(key: "cheng-che", name: nil, library: nil)) as! [String: Any]
+        XCTAssertEqual((out["person"] as? [String: Any])?["key"] as? String, "cheng-che")
+        XCTAssertEqual((out["publications"] as? [[String: Any]])?.map { $0["citekey"] as! String },
+                       ["cheng2025identifiability"])
+        let co = out["co_authors"] as! [[String: Any]]
+        XCTAssertEqual(co.first?["name"] as? String, "Hau-Hung Yang")
+        XCTAssertEqual(co.first?["count"] as? Int, 1)
+    }
+
+    func testPersonByFuzzyNameReturnsCandidatesNeverAutoSelects() throws {
+        let out = try json(service.person(key: nil, name: "cheng", library: nil)) as! [String: Any]
+        let candidates = out["candidates"] as! [[String: Any]]
+        XCTAssertTrue(candidates.contains { ($0["person_key"] as? String) == "cheng-che" })
+        XCTAssertNil(out["publications"], "模糊名只回候選，絕不自動選定聚合")
+    }
+
+    func testPersonScopedByLibrary() throws {
+        _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
+                                  description: nil, citekey: nil)
+        let none = try json(service.person(key: "cheng-che", name: nil, library: "sinica")) as! [String: Any]
+        XCTAssertTrue((none["publications"] as! [Any]).isEmpty, "未加入 library 前 scoped 應為空")
+        _ = try service.libraries(action: "add", key: "sinica", name: nil,
+                                  description: nil, citekey: "cheng2025identifiability")
+        let some = try json(service.person(key: "cheng-che", name: nil, library: "sinica")) as! [String: Any]
+        XCTAssertEqual((some["publications"] as! [[String: Any]]).count, 1)
+    }
+
+    func testPersonValidation() throws {
+        XCTAssertThrowsError(try service.person(key: nil, name: nil, library: nil), "key/name 至少其一")
+        XCTAssertThrowsError(try service.person(key: "ghost-person", name: nil, library: nil), "未知 person 擲錯")
+    }
+}

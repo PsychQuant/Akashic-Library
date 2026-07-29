@@ -141,6 +141,60 @@ public final class AkashicService {
 
     // MARK: - 寫（衍生層 only）
 
+    /// #14 人物檢索：person 聚合視圖。key 直查；模糊名回候選（絕不自動選）。
+    public func person(key: String?, name: String?, library: String?) throws -> String {
+        if let key {
+            let load = try store.load()
+            let record = load.people.first { $0.key == key }
+            let engine = try freshEngine()
+            let pubs = try engine.personPublications(key: key, library: library)
+            guard record != nil || !pubs.isEmpty else {
+                throw ServiceError.notFound("person「\(key)」")
+            }
+            let co = try engine.coAuthors(of: key)
+            var personDict: [String: Any] = ["key": key]
+            if let record {
+                personDict["names"] = record.names
+                if let orcid = record.orcid { personDict["orcid"] = orcid }
+            }
+            return try jsonString([
+                "person": personDict,
+                "publications": pubs.map(summaryDict),
+                "co_authors": co.map { c -> [String: Any] in
+                    var d: [String: Any] = ["name": c.name, "count": c.count]
+                    if let pk = c.personKey { d["person_key"] = pk }
+                    return d
+                },
+            ] as [String: Any])
+        }
+        if let name {
+            // 模糊名 → 候選清單：people.names 子字串 + literal authors 子字串（case-insensitive）
+            let load = try store.load()
+            let needle = name.lowercased()
+            var candidates: [[String: Any]] = []
+            for p in load.people where p.names.contains(where: { $0.lowercased().contains(needle) })
+                || p.key.contains(needle) {
+                let pubCount = load.entries.filter {
+                    $0.authors.contains { if case .key(let k) = $0 { return k == p.key } else { return false } }
+                }.count
+                candidates.append(["person_key": p.key, "names": p.names, "publications": pubCount])
+            }
+            var literalCounts: [String: Int] = [:]
+            for entry in load.entries {
+                for author in entry.authors {
+                    if case .literal(let s) = author, s.lowercased().contains(needle) {
+                        literalCounts[s, default: 0] += 1
+                    }
+                }
+            }
+            for (literal, count) in literalCounts.sorted(by: { $0.key < $1.key }) {
+                candidates.append(["literal": literal, "publications": count])
+            }
+            return try jsonString(["candidates": candidates] as [String: Any])
+        }
+        throw ServiceError.invalid("person 需要 key 或 name 至少其一")
+    }
+
     /// #13 多 library：registry 管理 + 成員操作（衍生層寫入邊界內）。
     public func libraries(action: String, key: String?, name: String?,
                           description: String?, citekey: String?) throws -> String {

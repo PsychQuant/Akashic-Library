@@ -251,3 +251,47 @@ final class IndexSchemaVersionTests: XCTestCase {
         XCTAssertEqual(hits.map(\.citekey), ["cheng2025identifiability"])
     }
 }
+
+/// #14 人物檢索：person 聚合查詢（著作 + 合著者統計 + library 過濾疊加）。
+final class PersonQueryTests: XCTestCase {
+    var root: URL!
+    var store: LibraryStore!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-person-\(UUID().uuidString)")
+        store = LibraryStore(root: root)
+        try store.ensureLayout()
+        try QueryFixture.populate(store)   // 5 entries + 2 people（chen-chun-houh 有 2 篇）
+        try store.writeLibrary(Library(key: "sinica", name: "中研院"))
+        var e = try store.load().entries.first { $0.citekey == "chen2004matrix" }!
+        e.akashic.libraries = ["sinica"]
+        try store.writeEntry(e)
+        _ = try LibraryIndex(store: store).rebuild()
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testPersonPublicationsAndLibraryFilter() throws {
+        let engine = try QueryEngine(indexPath: store.indexURL)
+        let all = try engine.personPublications(key: "chen-chun-houh", library: nil)
+        XCTAssertEqual(all.map(\.citekey).sorted(), ["chen2004matrix", "chen2010gap"])
+        let scoped = try engine.personPublications(key: "chen-chun-houh", library: "sinica")
+        XCTAssertEqual(scoped.map(\.citekey), ["chen2004matrix"], "library 過濾疊加")
+        XCTAssertTrue(try engine.personPublications(key: "ghost-person", library: nil).isEmpty)
+    }
+
+    func testCoAuthorsAggregation() throws {
+        let engine = try QueryEngine(indexPath: store.indexURL)
+        // cheng-che 只有 e1（合著 literal "Hau-Hung Yang"）
+        let co = try engine.coAuthors(of: "cheng-che")
+        XCTAssertEqual(co.count, 1)
+        XCTAssertEqual(co.first?.name, "Hau-Hung Yang")
+        XCTAssertEqual(co.first?.count, 1)
+        XCTAssertNil(co.first?.personKey, "literal 合著者無 person key")
+        // chen-chun-houh 兩篇皆單獨掛名 → 無合著者
+        XCTAssertTrue(try engine.coAuthors(of: "chen-chun-houh").isEmpty)
+    }
+}

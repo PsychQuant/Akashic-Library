@@ -142,16 +142,29 @@ public final class AkashicService {
     // MARK: - 寫（衍生層 only）
 
     /// #14 人物檢索：person 聚合視圖。key 直查；模糊名回候選（絕不自動選）。
-    public func person(key: String?, name: String?, library: String?) throws -> String {
+    /// key 與 name 互斥（同給擲錯）；空白輸入拒絕；候選上限 50。
+    public func person(key rawKey: String?, name rawName: String?, library: String?) throws -> String {
+        let key = rawKey?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = rawName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let key, key.isEmpty { throw ServiceError.invalid("key 不可為空白") }
+        if let name, name.isEmpty { throw ServiceError.invalid("name 不可為空白") }
+        if key != nil && name != nil {
+            throw ServiceError.invalid("key 與 name 互斥——擇一使用")
+        }
         if let key {
             let load = try store.load()
             let record = load.people.first { $0.key == key }
             let engine = try freshEngine()
-            let pubs = try engine.personPublications(key: key, library: library)
-            guard record != nil || !pubs.isEmpty else {
+            // 存在性判準用全集（scoped 過濾不可誤報 notFound——person 可能只是不在該 library）
+            let allPubs = try engine.personPublications(key: key, library: nil)
+            guard record != nil || !allPubs.isEmpty else {
                 throw ServiceError.notFound("person「\(key)」")
             }
-            let co = try engine.coAuthors(of: key)
+            let pubs = library == nil ? allPubs
+                : try engine.personPublications(key: key, library: library)
+            let co = try engine.coAuthors(of: key, library: library)
+            // resolved 合著者的 name 給人讀的名字（people.names 首項），key 另放 person_key
+            let nameByKey = Dictionary(uniqueKeysWithValues: load.people.map { ($0.key, $0.names.first ?? $0.key) })
             var personDict: [String: Any] = ["key": key]
             if let record {
                 personDict["names"] = record.names
@@ -161,36 +174,45 @@ public final class AkashicService {
                 "person": personDict,
                 "publications": pubs.map(summaryDict),
                 "co_authors": co.map { c -> [String: Any] in
-                    var d: [String: Any] = ["name": c.name, "count": c.count]
-                    if let pk = c.personKey { d["person_key"] = pk }
+                    var d: [String: Any] = ["count": c.count]
+                    if let pk = c.personKey {
+                        d["person_key"] = pk
+                        d["name"] = nameByKey[pk] ?? pk
+                    } else {
+                        d["name"] = c.name
+                    }
                     return d
                 },
             ] as [String: Any])
         }
         if let name {
-            // 模糊名 → 候選清單：people.names 子字串 + literal authors 子字串（case-insensitive）
+            // 模糊名 → 候選清單（case-insensitive 子字串；單趟預算 pub counts；上限 50）
             let load = try store.load()
             let needle = name.lowercased()
-            var candidates: [[String: Any]] = []
-            for p in load.people where p.names.contains(where: { $0.lowercased().contains(needle) })
-                || p.key.contains(needle) {
-                let pubCount = load.entries.filter {
-                    $0.authors.contains { if case .key(let k) = $0 { return k == p.key } else { return false } }
-                }.count
-                candidates.append(["person_key": p.key, "names": p.names, "publications": pubCount])
-            }
+            var keyPubCount: [String: Int] = [:]
             var literalCounts: [String: Int] = [:]
             for entry in load.entries {
                 for author in entry.authors {
-                    if case .literal(let s) = author, s.lowercased().contains(needle) {
-                        literalCounts[s, default: 0] += 1
+                    switch author {
+                    case .key(let k): keyPubCount[k, default: 0] += 1
+                    case .literal(let s):
+                        if s.lowercased().contains(needle) { literalCounts[s, default: 0] += 1 }
                     }
                 }
+            }
+            var candidates: [[String: Any]] = []
+            for p in load.people where p.names.contains(where: { $0.lowercased().contains(needle) })
+                || p.key.lowercased().contains(needle) {
+                candidates.append(["person_key": p.key, "names": p.names,
+                                   "publications": keyPubCount[p.key] ?? 0])
             }
             for (literal, count) in literalCounts.sorted(by: { $0.key < $1.key }) {
                 candidates.append(["literal": literal, "publications": count])
             }
-            return try jsonString(["candidates": candidates] as [String: Any])
+            let capped = Array(candidates.prefix(50))
+            var out: [String: Any] = ["candidates": capped]
+            if candidates.count > 50 { out["truncated"] = true }
+            return try jsonString(out)
         }
         throw ServiceError.invalid("person 需要 key 或 name 至少其一")
     }

@@ -131,15 +131,23 @@ public struct QueryEngine {
     }
 
     /// #14：合著者統計——與該 person 同 entry 掛名的其他作者（key 或 literal）＋合作次數。
-    public func coAuthors(of key: String) throws -> [CoAuthor] {
+    /// library 過濾與 personPublications 對齊（聚合回應內部一致，R1 Codex 中#2）。
+    public func coAuthors(of key: String, library: String? = nil) throws -> [CoAuthor] {
+        var scope = "SELECT entry_uuid FROM authors WHERE person_key = ?"
+        var bind: [Any?] = [key]
+        if let library {
+            scope += " AND entry_uuid IN (SELECT entry_uuid FROM entry_libraries WHERE library_key = ?)"
+            bind.append(library)
+        }
+        bind.append(key)
         let rows = try db.query("""
             SELECT a.person_key AS pk, a.literal AS lit, COUNT(DISTINCT a.entry_uuid) AS n
             FROM authors a
-            WHERE a.entry_uuid IN (SELECT entry_uuid FROM authors WHERE person_key = ?)
+            WHERE a.entry_uuid IN (\(scope))
               AND (a.person_key IS NULL OR a.person_key != ?)
             GROUP BY a.person_key, a.literal
             ORDER BY n DESC, COALESCE(a.person_key, a.literal)
-            """, bind: [key, key])
+            """, bind: bind)
         return rows.map { row in
             let pk = row["pk"] as? String
             let lit = row["lit"] as? String

@@ -354,3 +354,51 @@ extension ServiceTests {
         XCTAssertThrowsError(try service.person(key: "ghost-person", name: nil, library: nil), "未知 person 擲錯")
     }
 }
+
+/// #14 verify fix round：R1 findings 釘住。
+extension ServiceTests {
+    func testPersonRejectsEmptyAndBothInputs() throws {
+        XCTAssertThrowsError(try service.person(key: nil, name: "", library: nil), "空白 name 拒絕")
+        XCTAssertThrowsError(try service.person(key: "  ", name: nil, library: nil), "空白 key 拒絕")
+        XCTAssertThrowsError(try service.person(key: "cheng-che", name: "cheng", library: nil),
+                             "key 與 name 互斥")
+    }
+
+    func testPersonScopedCoAuthorsConsistentWithLibrary() throws {
+        _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
+                                  description: nil, citekey: nil)
+        // 未加入 library：scoped 聚合的 publications 與 co_authors 都必須為空（內部一致）
+        let none = try json(service.person(key: "cheng-che", name: nil, library: "sinica")) as! [String: Any]
+        XCTAssertTrue((none["publications"] as! [Any]).isEmpty)
+        XCTAssertTrue((none["co_authors"] as! [Any]).isEmpty,
+                      "co_authors 必須吃 library 過濾（聚合內部一致性）")
+        // 存在性不受 scope 影響：record 存在 → 不 notFound（上面沒 throw 即證）
+    }
+
+    func testPersonExistenceUsesUnscopedPublications() throws {
+        // 無 people record、只有 literal→無 key。改用有 record 的：刪 record 後靠全集 pubs 存在
+        // 構造：person key 出現在 entry 但 people/ 無記錄
+        var e = try LibraryStore(root: root).load().entries.first { $0.citekey == "olsson1979maximum" }!
+        e.authors = [.key("olsson-ulf")]
+        try LibraryStore(root: root).writeEntry(e)
+        _ = try service.libraries(action: "create", key: "empty-lib", name: "空庫",
+                                  description: nil, citekey: nil)
+        // scoped 查詢：全集有著作 → 不得 notFound；scoped publications 空
+        let out = try json(service.person(key: "olsson-ulf", name: nil, library: "empty-lib")) as! [String: Any]
+        XCTAssertTrue((out["publications"] as! [Any]).isEmpty)
+    }
+
+    func testPersonResolvedCoAuthorNameIsHumanReadable() throws {
+        // 讓 cheng-che 與另一個 resolved person 合著
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "yang-hau-hung", names: ["Hau-Hung Yang"]))
+        var e = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
+        e.authors = [.key("cheng-che"), .key("yang-hau-hung")]
+        try store.writeEntry(e)
+        let out = try json(service.person(key: "cheng-che", name: nil, library: nil)) as! [String: Any]
+        let co = out["co_authors"] as! [[String: Any]]
+        XCTAssertEqual(co.first?["person_key"] as? String, "yang-hau-hung")
+        XCTAssertEqual(co.first?["name"] as? String, "Hau-Hung Yang",
+                       "resolved 合著者的 name 給人讀的名字，不是 key")
+    }
+}

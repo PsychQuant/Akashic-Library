@@ -153,5 +153,8 @@ note: 中研院統計所            # 可選
 
 ## 5. 版本與相容
 
-本格式為 v1。未來欄位新增採「未知欄位＝decode 錯誤」的嚴格策略（Phase 1）；
-放寬為 tolerant-preserve 屬 Phase 2 議題（涉及 round-trip 保真）。
+本格式為 v1.2（v1.1 增 provenance hash 欄位；v1.2 增 `akashic.libraries` 與
+`libraries/` registry，#13）。欄位新增維持「未知欄位＝decode 錯誤」的嚴格策略——
+**注意**：含 `libraries` 欄位的新檔在 v1.2 以前的 binaries 下會因 strict decode 被
+quarantine（單機單使用者、三面同 repo 同版釋出可接受；混版部署前先全面升級）。
+放寬為 tolerant-preserve 屬未來議題（涉及 round-trip 保真）。

@@ -12,6 +12,8 @@ public final class AppState {
 
     public private(set) var entries: [Entry] = []
     public private(set) var people: [Person] = []
+    /// Library registry（#13 membership views）
+    public private(set) var libraries: [Library] = []
     public private(set) var quarantined: [QuarantinedFile] = []
     /// 每次 load() 遞增。App 層 model（People/Quarantine/Graph）以此為
     /// re-create 訊號，外部變更（FileWatcher reload）才會反映到快取清單。
@@ -25,6 +27,8 @@ public final class AppState {
     public var filterType: String?
     public var filterTag: String?
     public var filterJournal: String?
+    /// 選定的 library view（#13）；nil＝全集
+    public var filterLibrary: String?
     /// People 裁決台 session 內 skip 的候選 id（`citekey:authorIndex`）。
     /// 放這裡（session 生命週期）而非 PeopleResolveModel——model 會被
     /// `.task(id: reloadCount)` 重建，集合放 model 內會在每次 reload 後歸零。
@@ -42,6 +46,7 @@ public final class AppState {
         let loaded = try store.load()
         entries = loaded.entries
         people = loaded.people
+        libraries = loaded.libraries
         quarantined = loaded.quarantined
         reloadCount += 1
     }
@@ -68,6 +73,8 @@ public final class AppState {
             if let tag = filterTag, !entry.akashic.tags.contains(tag) { return false }
             if let journal = filterJournal,
                entry.fields["journaltitle"]?.lowercased() != journal.lowercased() { return false }
+            if let library = filterLibrary,
+               !entry.akashic.libraries.contains(library) { return false }
             let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
             if !query.isEmpty {
                 let haystack = ([entry.citekey, entry.title]

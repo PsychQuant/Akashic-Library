@@ -25,11 +25,15 @@ public struct QuarantinedFile: Equatable {
 public struct LibraryLoad {
     public var entries: [Entry]
     public var people: [Person]
+    /// Library registry（#13 membership views）；成員關係在各 entry 的 akashic.libraries
+    public var libraries: [Library]
     public var quarantined: [QuarantinedFile]
 
-    public init(entries: [Entry] = [], people: [Person] = [], quarantined: [QuarantinedFile] = []) {
+    public init(entries: [Entry] = [], people: [Person] = [],
+                libraries: [Library] = [], quarantined: [QuarantinedFile] = []) {
         self.entries = entries
         self.people = people
+        self.libraries = libraries
         self.quarantined = quarantined
     }
 }
@@ -41,6 +45,7 @@ public final class LibraryStore {
 
     public var entriesDir: URL { root.appendingPathComponent("entries") }
     public var peopleDir: URL { root.appendingPathComponent("people") }
+    public var librariesDir: URL { root.appendingPathComponent("libraries") }
     public var notesDir: URL { root.appendingPathComponent("notes") }
     public var akashicDir: URL { root.appendingPathComponent(".akashic") }
     public var indexURL: URL { akashicDir.appendingPathComponent("index.sqlite") }
@@ -51,7 +56,7 @@ public final class LibraryStore {
 
     public func ensureLayout() throws {
         let fm = FileManager.default
-        for dir in [root, entriesDir, peopleDir, notesDir, akashicDir] {
+        for dir in [root, entriesDir, peopleDir, librariesDir, notesDir, akashicDir] {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
     }
@@ -64,11 +69,40 @@ public final class LibraryStore {
         peopleDir.appendingPathComponent("\(key).yaml")
     }
 
+    public func libraryURL(key: String) -> URL {
+        librariesDir.appendingPathComponent("\(key).yaml")
+    }
+
+    /// Library registry 寫入（#13）：metadata-only；key 走 StoreKey write-time 驗證。
+    /// entry 的 membership（akashic.libraries）由 writeEntry 一併驗證。
+    @discardableResult
+    public func writeLibrary(_ library: Library) throws -> URL {
+        guard StoreKey.isValid(library.key) else {
+            throw StoreIOError.invalidKey("library key", library.key)
+        }
+        // pre-v1.2 store（無 libraries/）也能直接建 library——目錄缺就補
+        try FileManager.default.createDirectory(at: librariesDir, withIntermediateDirectories: true)
+        let yaml = try LibraryYAML.encode(library)
+        let dest = libraryURL(key: library.key)
+        // exclusive-create：registry 無 update 路徑，並發 create 不得靜默互吃
+        try atomicWrite(yaml, to: dest, mustCreate: true)
+        return dest
+    }
+
     @discardableResult
     public func writeEntry(_ entry: Entry) throws -> URL {
         // write-time key 驗證：不合格式的 citekey 絕不進檔名（path traversal 防護）
         guard StoreKey.isValid(entry.citekey) else {
             throw StoreIOError.invalidKey("citekey", entry.citekey)
+        }
+        // membership keys（#13）同樣 write-time 驗證——不進路徑，但保 index/query 語意乾淨
+        for key in entry.akashic.libraries where !StoreKey.isValid(key) {
+            throw StoreIOError.invalidKey("akashic.libraries key", key)
+        }
+        // membership 是集合語意：重複 key 拒寫（list 計數/index 去重的上游保證）
+        guard Set(entry.akashic.libraries).count == entry.akashic.libraries.count else {
+            throw StoreIOError.invalidKey("akashic.libraries（重複）",
+                                          entry.akashic.libraries.joined(separator: ","))
         }
         let yaml = try EntryYAML.encode(entry)
         let dest = entryURL(citekey: entry.citekey)
@@ -124,7 +158,21 @@ public final class LibraryStore {
                         reason: "檔名 stem「\(stem)」與 citekey「\(entry.citekey)」不符"))
                     continue
                 }
-                result.entries.append(entry)
+                // membership 語意驗證（#13 verify）：畸形 key 的 entry 之後任何衍生層
+                // 寫入都會被 writeEntry 拒絕（看似可讀、實則鎖死）；重複 key 使計數失真
+                if let bad = entry.akashic.libraries.first(where: { !StoreKey.isValid($0) }) {
+                    result.quarantined.append(QuarantinedFile(
+                        file: "entries/\(url.lastPathComponent)",
+                        reason: "akashic.libraries key「\(bad)」不符合 \(StoreKey.pattern)"))
+                    continue
+                }
+                // 純重複（格式合法）→ auto-dedupe 保序（DA 裁決：quarantine 對可用性
+                // 過重；集合語意有唯一無歧義修法）。注意：去重在 load 即完成、屬靜默
+                // 正規化——validate() 的重複警告只對未正規化的記憶體物件（寫前 lint）有效。
+                var entry2 = entry
+                var seen = Set<String>()
+                entry2.akashic.libraries = entry.akashic.libraries.filter { seen.insert($0).inserted }
+                result.entries.append(entry2)
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: "entries/\(url.lastPathComponent)",
@@ -154,8 +202,32 @@ public final class LibraryStore {
                     reason: String(describing: error)))
             }
         }
+        for url in try yamlFiles(in: librariesDir) {
+            do {
+                let library = try LibraryYAML.decode(try readUTF8(url))
+                let stem = url.deletingPathExtension().lastPathComponent
+                guard StoreKey.isValid(library.key) else {
+                    result.quarantined.append(QuarantinedFile(
+                        file: "libraries/\(url.lastPathComponent)",
+                        reason: "library key「\(library.key)」不符合 \(StoreKey.pattern)"))
+                    continue
+                }
+                guard stem == library.key else {
+                    result.quarantined.append(QuarantinedFile(
+                        file: "libraries/\(url.lastPathComponent)",
+                        reason: "檔名 stem「\(stem)」與 library key「\(library.key)」不符"))
+                    continue
+                }
+                result.libraries.append(library)
+            } catch {
+                result.quarantined.append(QuarantinedFile(
+                    file: "libraries/\(url.lastPathComponent)",
+                    reason: String(describing: error)))
+            }
+        }
         result.entries.sort { $0.citekey < $1.citekey }
         result.people.sort { $0.key < $1.key }
+        result.libraries.sort { $0.key < $1.key }
         return result
     }
 

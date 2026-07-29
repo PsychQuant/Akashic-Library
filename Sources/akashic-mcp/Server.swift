@@ -64,6 +64,7 @@ actor AkashicMCPServer {
                 "type": str("biblatex entry type（article/book/…）"),
                 "year_from": int("起始年"),
                 "year_to": int("結束年"),
+                "library": str("library key 篩選（#13 membership views；省略＝全集）"),
              ])),
         Tool(name: "akashic_get_entry",
              description: "以 citekey 取完整 entry（含 akashic namespace 與 provenance）。",
@@ -93,6 +94,15 @@ actor AkashicMCPServer {
         Tool(name: "akashic_doctor",
              description: "library 健康報告：entries/people/relations 統計、index 重建、quarantine、未解析作者數、orphans。",
              inputSchema: obj([:])),
+        Tool(name: "akashic_libraries",
+             description: "具名 library（成員集合視角，#13）：list 列表含成員數；create 建 registry；add/remove 改 entry 的 akashic.libraries（衍生層）。store 是全集，library 不分割資料。",
+             inputSchema: obj([
+                "action": str("list | create | add | remove"),
+                "key": str("library key（create/add/remove 必填；StoreKey 格式）"),
+                "name": str("顯示名稱（create 必填）"),
+                "description": str("描述（create 選填）"),
+                "citekey": str("目標 entry（add/remove 必填）"),
+             ], required: ["action"])),
         Tool(name: "akashic_set_status",
              description: "設定 entry 的 akashic.status（衍生層；如 reading / read / to-read）。不給 status 則清除。",
              inputSchema: obj([
@@ -174,7 +184,8 @@ actor AkashicMCPServer {
             case "akashic_search":
                 output = try service.search(
                     author: arg("author"), journal: arg("journal"), tag: arg("tag"),
-                    type: arg("type"), yearFrom: argInt("year_from"), yearTo: argInt("year_to"))
+                    type: arg("type"), yearFrom: argInt("year_from"), yearTo: argInt("year_to"),
+                    library: arg("library"))
             case "akashic_get_entry":
                 output = try service.getEntry(citekey: arg("citekey") ?? "")
             case "akashic_relations":
@@ -191,6 +202,10 @@ actor AkashicMCPServer {
                 output = try service.people(query: arg("query"))
             case "akashic_doctor":
                 output = try service.doctor()
+            case "akashic_libraries":
+                output = try service.libraries(
+                    action: arg("action") ?? "", key: arg("key"), name: arg("name"),
+                    description: arg("description"), citekey: arg("citekey"))
             case "akashic_set_status":
                 output = try service.setStatus(citekey: arg("citekey") ?? "", status: arg("status"))
             case "akashic_tag":

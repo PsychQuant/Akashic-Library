@@ -470,3 +470,17 @@ final class HashCanonicalTests: XCTestCase {
         XCTAssertNotEqual(ZoteroMapping.mappingHash(of: a), ZoteroMapping.mappingHash(of: b))
     }
 }
+
+// #13：Zotero 脫鉤的核心約束——pull update 不得動 akashic.libraries
+extension ZoteroImportTests {
+    func testPullUpdatePreservesLibraries() throws {
+        _ = try runImport()
+        var e = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
+        e.akashic.libraries = ["sinica"]
+        try store.writeEntry(e)
+        try fixture.db.execute("UPDATE items SET version=99 WHERE itemID=10")
+        _ = try runImport()   // update wave
+        let after = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
+        XCTAssertEqual(after.akashic.libraries, ["sinica"], "pull update 不得清掉 membership")
+    }
+}

@@ -2,6 +2,7 @@ import XCTest
 @testable import AkashicCore
 @testable import AkashicStoreIO
 @testable import AkashicMCPKit
+@testable import AkashicSQLite
 
 final class ServiceTests: XCTestCase {
     var root: URL!
@@ -208,5 +209,112 @@ extension ServiceTests {
         let prov = obj["provenance"] as! [String: Any]
         XCTAssertNotNil(prov["imported_at"])
         XCTAssertNotNil(prov["orphaned_at"])
+    }
+}
+
+/// #13 多 library：akashic_libraries service handler + search 的 library 篩選。
+extension ServiceTests {
+    func testLibrariesLifecycleViaService() throws {
+        _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
+                                  description: nil, citekey: nil)
+        let list = try json(service.libraries(action: "list", key: nil, name: nil,
+                                              description: nil, citekey: nil)) as! [[String: Any]]
+        XCTAssertEqual(list.count, 1)
+        XCTAssertEqual(list[0]["key"] as? String, "sinica")
+        XCTAssertEqual(list[0]["members"] as? Int, 0)
+
+        _ = try service.libraries(action: "add", key: "sinica", name: nil,
+                                  description: nil, citekey: "cheng2025identifiability")
+        let hits = try json(service.search(library: "sinica")) as! [[String: Any]]
+        XCTAssertEqual(hits.map { $0["citekey"] as! String }, ["cheng2025identifiability"])
+        XCTAssertTrue((try json(service.search(library: "ghost")) as! [Any]).isEmpty)
+
+        _ = try service.libraries(action: "remove", key: "sinica", name: nil,
+                                  description: nil, citekey: "cheng2025identifiability")
+        XCTAssertTrue((try json(service.search(library: "sinica")) as! [Any]).isEmpty)
+    }
+
+    func testLibrariesActionValidation() throws {
+        XCTAssertThrowsError(try service.libraries(action: "bogus", key: nil, name: nil,
+                                                   description: nil, citekey: nil))
+        XCTAssertThrowsError(try service.libraries(action: "create", key: nil, name: "X",
+                                                   description: nil, citekey: nil),
+                             "create 缺 key 要拒")
+        _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
+                                  description: nil, citekey: nil)
+        XCTAssertThrowsError(try service.libraries(action: "create", key: "sinica", name: "重複",
+                                                   description: nil, citekey: nil),
+                             "重複 create 要拒")
+        XCTAssertThrowsError(try service.libraries(action: "add", key: "ghostlib", name: nil,
+                                                   description: nil, citekey: "cheng2025identifiability"),
+                             "未知 library 要拒")
+    }
+}
+
+/// #13 verify fix round：getEntry 含 libraries、dangling remove、create 驗證順序。
+extension ServiceTests {
+    func testGetEntryIncludesLibraries() throws {
+        _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
+                                  description: nil, citekey: nil)
+        _ = try service.libraries(action: "add", key: "sinica", name: nil,
+                                  description: nil, citekey: "cheng2025identifiability")
+        let entry = try json(service.getEntry(citekey: "cheng2025identifiability")) as! [String: Any]
+        let akashic = entry["akashic"] as! [String: Any]
+        XCTAssertEqual(akashic["libraries"] as? [String], ["sinica"],
+                       "getEntry 必須回傳 membership（MCP 完整 entry 契約）")
+    }
+
+    func testRemoveWorksOnDanglingMembership() throws {
+        _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
+                                  description: nil, citekey: nil)
+        _ = try service.libraries(action: "add", key: "sinica", name: nil,
+                                  description: nil, citekey: "cheng2025identifiability")
+        // registry 檔被手動刪除 → dangling membership；remove 仍須可清理
+        try FileManager.default.removeItem(
+            at: LibraryStore(root: root).libraryURL(key: "sinica"))
+        _ = try service.libraries(action: "remove", key: "sinica", name: nil,
+                                  description: nil, citekey: "cheng2025identifiability")
+        let entry = try json(service.getEntry(citekey: "cheng2025identifiability")) as! [String: Any]
+        let akashic = entry["akashic"] as! [String: Any]
+        XCTAssertNil(akashic["libraries"], "dangling membership 清掉後不應殘留")
+    }
+
+    func testCreateValidatesKeyBeforePathProbe() throws {
+        // librariesDir/../oracle.yaml = root/oracle.yaml——存在性 oracle 的目標
+        try "x".write(to: root.appendingPathComponent("oracle.yaml"),
+                      atomically: true, encoding: .utf8)
+        do {
+            _ = try service.libraries(action: "create", key: "../oracle", name: "X",
+                                      description: nil, citekey: nil)
+            XCTFail("畸形 key 必須擲錯")
+        } catch {
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(msg.contains("不符合"),
+                          "錯誤必須是 key 格式拒絕，不是洩漏路徑存在性的「已存在」：\(msg)")
+        }
+    }
+}
+
+/// DA must-fix #1/#7：MCP 側 stale-schema 自我修復 + getEntry 零 libraries case。
+extension ServiceTests {
+    func testServiceRecoversFromStaleSchemaIndex() throws {
+        _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
+                                  description: nil, citekey: nil)
+        _ = try service.libraries(action: "add", key: "sinica", name: nil,
+                                  description: nil, citekey: "cheng2025identifiability")
+        // 模擬舊 binary 建的 index：砍新表 + 版本歸零
+        let store = LibraryStore(root: root)
+        let db = try SQLiteDB(path: store.indexURL.path, readOnly: false)
+        try db.execute("DROP TABLE entry_libraries")
+        try db.execute("PRAGMA user_version = 0")
+        let hits = try json(service.search(library: "sinica")) as! [[String: Any]]
+        XCTAssertEqual(hits.map { $0["citekey"] as! String }, ["cheng2025identifiability"],
+                       "MCP freshness 必須偵測 schema 過舊並重建，不得 no such table")
+    }
+
+    func testGetEntryOmitsLibrariesWhenEmpty() throws {
+        let entry = try json(service.getEntry(citekey: "olsson1979maximum")) as! [String: Any]
+        let akashic = (entry["akashic"] as? [String: Any]) ?? [:]
+        XCTAssertNil(akashic["libraries"], "零 membership 時 key 省略（與 tags 慣例一致）")
     }
 }

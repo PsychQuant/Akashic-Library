@@ -167,3 +167,41 @@ extension CLIIntegrationTests {
             atPath: libraryRoot.appendingPathComponent("entries/olsson1979maximum.yaml").path))
     }
 }
+
+/// #13 多 library：CLI library 子指令 + query --library。
+extension CLIIntegrationTests {
+    func testLibraryLifecycleAndQueryFilter() throws {
+        // create + list
+        var r = try runCLI(["library", "create", "sinica", "--name", "中研院"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        r = try runCLI(["library", "list"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        XCTAssertTrue(r.stdout.contains("sinica"), r.stdout)
+        XCTAssertTrue(r.stdout.contains("中研院"), r.stdout)
+
+        // add membership + query filter
+        r = try runCLI(["library", "add", "sinica", "cheng2025identifiability"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        r = try runCLI(["query", "--in-library", "sinica"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        XCTAssertTrue(r.stdout.contains("cheng2025identifiability"), r.stdout)
+        XCTAssertFalse(r.stdout.contains("olsson1979maximum"), "非成員不得出現：\(r.stdout)")
+
+        // remove membership → query 空
+        r = try runCLI(["library", "remove", "sinica", "cheng2025identifiability"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        r = try runCLI(["query", "--in-library", "sinica"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        XCTAssertFalse(r.stdout.contains("cheng2025identifiability"), r.stdout)
+    }
+
+    func testLibraryCreateRejectsBadKeyAndAddRejectsUnknown() throws {
+        var r = try runCLI(["library", "create", "Bad Key", "--name", "X"] + lib)
+        XCTAssertNotEqual(r.status, 0, "不合 StoreKey 的 key 要失敗")
+        _ = try runCLI(["library", "create", "sinica", "--name", "中研院"] + lib)
+        r = try runCLI(["library", "add", "sinica", "ghost2000x"] + lib)
+        XCTAssertNotEqual(r.status, 0, "未知 citekey 要失敗")
+        r = try runCLI(["library", "add", "ghostlib", "cheng2025identifiability"] + lib)
+        XCTAssertNotEqual(r.status, 0, "未知 library 要失敗")
+    }
+}

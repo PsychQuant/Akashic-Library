@@ -34,7 +34,8 @@ public final class AkashicService {
     // MARK: - 讀
 
     public func search(author: String? = nil, journal: String? = nil, tag: String? = nil,
-                       type: String? = nil, yearFrom: Int? = nil, yearTo: Int? = nil) throws -> String {
+                       type: String? = nil, yearFrom: Int? = nil, yearTo: Int? = nil,
+                       library: String? = nil) throws -> String {
         let engine = try freshEngine()
         var filter = QueryFilter()
         filter.author = author
@@ -43,6 +44,7 @@ public final class AkashicService {
         filter.type = type
         filter.yearFrom = yearFrom
         filter.yearTo = yearTo
+        filter.library = library
         return try jsonString(try engine.find(filter).map(summaryDict))
     }
 
@@ -138,6 +140,63 @@ public final class AkashicService {
     }
 
     // MARK: - 寫（衍生層 only）
+
+    /// #13 多 library：registry 管理 + 成員操作（衍生層寫入邊界內）。
+    public func libraries(action: String, key: String?, name: String?,
+                          description: String?, citekey: String?) throws -> String {
+        switch action {
+        case "list":
+            let load = try store.load()
+            var counts: [String: Int] = [:]
+            for entry in load.entries {
+                for k in Set(entry.akashic.libraries) { counts[k, default: 0] += 1 }
+            }
+            return try jsonString(load.libraries.map { lib -> [String: Any] in
+                var d: [String: Any] = ["key": lib.key, "name": lib.name,
+                                        "members": counts[lib.key] ?? 0]
+                if let desc = lib.description { d["description"] = desc }
+                return d
+            })
+        case "create":
+            guard let key, let name else {
+                throw ServiceError.invalid("create 需要 key 與 name")
+            }
+            // 驗證先行：未驗證 key 不得進任何路徑組合（存在性 oracle 防護）
+            guard StoreKey.isValid(key) else {
+                throw ServiceError.invalid("library key「\(key)」不符合 \(StoreKey.pattern)，拒絕寫入")
+            }
+            guard !FileManager.default.fileExists(atPath: store.libraryURL(key: key).path) else {
+                throw ServiceError.invalid("library「\(key)」已存在")
+            }
+            _ = try store.writeLibrary(Library(key: key, name: name, description: description))
+            return try jsonString(["created": key])
+        case "add", "remove":
+            guard let key, let citekey else {
+                throw ServiceError.invalid("\(action) 需要 key 與 citekey")
+            }
+            guard StoreKey.isValid(key) else {
+                throw ServiceError.invalid("library key「\(key)」不符合 \(StoreKey.pattern)")
+            }
+            let load = try store.load()
+            // add 要求 registry 存在；remove 不要求——dangling membership（spec 允許）
+            // 必須能用正式介面清理
+            if action == "add", !load.libraries.contains(where: { $0.key == key }) {
+                throw ServiceError.notFound("library「\(key)」")
+            }
+            guard var entry = load.entries.first(where: { $0.citekey == citekey }) else {
+                throw ServiceError.notFound("citekey「\(citekey)」")
+            }
+            if action == "add" {
+                if !entry.akashic.libraries.contains(key) { entry.akashic.libraries.append(key) }
+            } else {
+                entry.akashic.libraries.removeAll { $0 == key }
+            }
+            try writeAndReindex(entry)
+            return try jsonString(["citekey": citekey, "libraries": entry.akashic.libraries])
+        default:
+            throw ServiceError.invalid("未知 action「\(action)」（list/create/add/remove）")
+        }
+    }
 
     public func setStatus(citekey: String, status: String?) throws -> String {
         var entry = try requireEntry(citekey)
@@ -297,6 +356,11 @@ public final class AkashicService {
 
     /// index stale（entries/people 有更新 mtime 或 index 缺）→ 重建，再開 QueryEngine。
     func ensureFreshIndex() throws {
+        // schema 版本先於 mtime：舊 binary 建的 index 撞新查詢會 no such table（#13 verify）
+        if try !LibraryIndex.isCurrent(indexPath: store.indexURL) {
+            try LibraryIndex(store: store).rebuild()
+            return
+        }
         let fm = FileManager.default
         let indexPath = store.indexURL.path
         let indexMtime = (try? fm.attributesOfItem(atPath: indexPath)[.modificationDate] as? Date) ?? nil
@@ -370,6 +434,7 @@ public final class AkashicService {
         }
         var akashic: [String: Any] = [:]
         if !entry.akashic.tags.isEmpty { akashic["tags"] = entry.akashic.tags }
+        if !entry.akashic.libraries.isEmpty { akashic["libraries"] = entry.akashic.libraries }
         if let status = entry.akashic.status { akashic["status"] = status }
         if !entry.akashic.relations.cites.isEmpty { akashic["cites"] = entry.akashic.relations.cites }
         if !entry.akashic.relations.related.isEmpty { akashic["related"] = entry.akashic.relations.related }

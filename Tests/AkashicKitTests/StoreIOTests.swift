@@ -299,3 +299,134 @@ final class LoadIntegrityTests: XCTestCase {
         XCTAssertEqual(load.quarantined.map(\.file), ["people/wrong-stem.yaml"])
     }
 }
+
+/// #13 多 library：libraries/ registry 的寫入驗證與 load 語意驗證。
+final class LibraryRegistryStoreTests: XCTestCase {
+    var root: URL!
+    var store: LibraryStore!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-lib-\(UUID().uuidString)")
+        store = LibraryStore(root: root)
+        try store.ensureLayout()
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testWriteLibraryValidatesKeyAndRoundTrips() throws {
+        XCTAssertThrowsError(try store.writeLibrary(Library(key: "Bad Key", name: "X")),
+                             "不合 StoreKey 的 library key 拒寫")
+        let url = try store.writeLibrary(Library(key: "sinica", name: "中研院"))
+        XCTAssertEqual(url.lastPathComponent, "sinica.yaml")
+        let load = try store.load()
+        XCTAssertEqual(load.libraries.map(\.key), ["sinica"])
+    }
+
+    func testLoadQuarantinesBadLibraryFiles() throws {
+        let good = try store.writeLibrary(Library(key: "psychology", name: "心理學"))
+        // stem 不符的複本 → quarantine
+        try FileManager.default.copyItem(
+            at: good, to: store.librariesDir.appendingPathComponent("alias.yaml"))
+        // 語法壞檔 → quarantine
+        try "broken: [yaml\n".write(
+            to: store.librariesDir.appendingPathComponent("broken.yaml"),
+            atomically: true, encoding: .utf8)
+
+        let load = try store.load()
+        XCTAssertEqual(load.libraries.map(\.key), ["psychology"])
+        XCTAssertEqual(load.quarantined.map(\.file).sorted(),
+                       ["libraries/alias.yaml", "libraries/broken.yaml"])
+    }
+
+    func testEntryLibrariesMembershipPersists() throws {
+        var e = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article", title: "T")
+        e.akashic.libraries = ["sinica"]
+        try store.writeEntry(e)
+        let load = try store.load()
+        XCTAssertEqual(load.entries.first?.akashic.libraries, ["sinica"])
+    }
+}
+
+/// #13 verify fix round：registry exclusive-create、membership 語意驗證。
+extension LibraryRegistryStoreTests {
+    func testWriteLibraryIsExclusiveCreate() throws {
+        _ = try store.writeLibrary(Library(key: "sinica", name: "中研院"))
+        XCTAssertThrowsError(try store.writeLibrary(Library(key: "sinica", name: "覆寫")),
+                             "registry 寫入必須 exclusive-create（並發 create 不得靜默互吃）")
+    }
+
+    func testWriteEntryRejectsDuplicateMembership() {
+        var e = Entry(id: UUID(), citekey: "dup2020test", type: "article", title: "T")
+        e.akashic.libraries = ["sinica", "sinica"]
+        XCTAssertThrowsError(try store.writeEntry(e), "重複 membership 拒寫")
+    }
+
+    func testLoadQuarantinesEntriesWithBadOrDuplicateMembership() throws {
+        _ = try store.writeEntry(
+            Entry(id: UUID(), citekey: "seed2020a", type: "article", title: "A"))
+        let badYAML = """
+        id: 7C1F6C2E-0000-0000-0000-00000000AAAA
+        citekey: badmember2020x
+        type: article
+        title: Bad member
+        akashic:
+          libraries:
+            - Bad Key
+        """
+        try badYAML.write(to: store.entriesDir.appendingPathComponent("badmember2020x.yaml"),
+                          atomically: true, encoding: .utf8)
+        let dupYAML = """
+        id: 7C1F6C2E-0000-0000-0000-00000000BBBB
+        citekey: dupmember2020x
+        type: article
+        title: Dup member
+        akashic:
+          libraries:
+            - sinica
+            - sinica
+        """
+        try dupYAML.write(to: store.entriesDir.appendingPathComponent("dupmember2020x.yaml"),
+                          atomically: true, encoding: .utf8)
+
+        let load = try store.load()
+        // 畸形 key → quarantine；純重複 → auto-dedupe 保序載入（DA 裁決）
+        XCTAssertEqual(load.entries.map(\.citekey), ["dupmember2020x", "seed2020a"])
+        XCTAssertEqual(load.quarantined.map(\.file), ["entries/badmember2020x.yaml"])
+        let dup = load.entries.first { $0.citekey == "dupmember2020x" }!
+        XCTAssertEqual(dup.akashic.libraries, ["sinica"], "重複 key 去重保序（load 靜默正規化）")
+        // validate() 的重複警告針對未正規化的原始構造（寫前 lint 用）
+        var raw = dup
+        raw.akashic.libraries = ["sinica", "sinica"]
+        XCTAssertTrue(raw.validate().contains { $0.message.contains("重複") })
+    }
+
+    func testLoadSafeWhenLibrariesDirAbsent() throws {
+        // v1.1 root（無 libraries/）——load 必須安全、libraries 為空
+        let v11root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-v11-\(UUID().uuidString)")
+        let s = LibraryStore(root: v11root)
+        try FileManager.default.createDirectory(
+            at: v11root.appendingPathComponent("entries"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: v11root.appendingPathComponent("people"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: v11root) }
+        let load = try s.load()
+        XCTAssertTrue(load.libraries.isEmpty)
+        XCTAssertTrue(load.quarantined.isEmpty)
+    }
+}
+
+/// #13：rename 保留 membership（per-entry 設計的結構保證，回歸測試釘住）。
+extension RenameTests {
+    func testRenamePreservesLibraries() throws {
+        var e = try store.load().entries.first { $0.citekey == "old2020key" }!
+        e.akashic.libraries = ["sinica"]
+        try store.writeEntry(e)
+        _ = try store.renameEntry(from: "old2020key", to: "kept2020key")
+        let renamed = try store.load().entries.first { $0.citekey == "kept2020key" }!
+        XCTAssertEqual(renamed.akashic.libraries, ["sinica"])
+    }
+}

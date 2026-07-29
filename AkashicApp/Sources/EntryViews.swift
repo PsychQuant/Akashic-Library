@@ -71,6 +71,11 @@ struct EntryDetailView: View {
                     }
                 }
                 Section("衍生層（可編輯）") {
+                    if !entry.akashic.libraries.isEmpty {
+                        // #13：membership 唯讀顯示；編輯走 CLI/MCP（App 編輯面留 follow-up）
+                        LabeledContent("Libraries",
+                                       value: entry.akashic.libraries.joined(separator: "、"))
+                    }
                     Picker("Status", selection: statusBinding(entry)) {
                         Text("（無）").tag(String?.none)
                         ForEach(["to-read", "reading", "read", "published"], id: \.self) {

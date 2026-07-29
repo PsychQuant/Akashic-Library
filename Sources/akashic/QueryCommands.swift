@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import AkashicStoreIO
+import AkashicIndex
 import AkashicQuery
 import AkashicGraph
 
@@ -13,6 +14,7 @@ struct Query: ParsableCommand {
     @Option(name: .long, help: "作者（person key 完全命中或 literal 子字串）") var author: String?
     @Option(name: .long, help: "期刊（case-insensitive 完全命中）") var journal: String?
     @Option(name: .long, help: "tag") var tag: String?
+    @Option(name: .customLong("in-library"), help: "library key 篩選（#13 membership views；--library 是 root 路徑）") var inLibrary: String?
     @Option(name: .long, help: "entry type") var type: String?
     @Option(name: .long, help: "起始年") var yearFrom: Int?
     @Option(name: .long, help: "結束年") var yearTo: Int?
@@ -25,9 +27,8 @@ struct Query: ParsableCommand {
 
     func run() throws {
         let store = try options.openStore()
-        guard FileManager.default.fileExists(atPath: store.indexURL.path) else {
-            throw ValidationError("index 不存在。先跑 akashic doctor 重建。")
-        }
+        // index 缺席或 schema 過舊（如 v1.1 index 撞 --in-library）→ 自動重建（#13 verify）
+        _ = try LibraryIndex(store: store).ensureCurrent()
         let engine = try QueryEngine(indexPath: store.indexURL)
 
         let relationFlags = [sameJournalAs, sameAuthorAs, citesOf, citedBy, relatedTo]
@@ -53,6 +54,7 @@ struct Query: ParsableCommand {
             filter.journal = journal
             filter.tag = tag
             filter.type = type
+            filter.library = inLibrary
             filter.yearFrom = yearFrom
             filter.yearTo = yearTo
             results = try engine.find(filter)
@@ -104,9 +106,7 @@ struct Graph: ParsableCommand {
 
     func run() throws {
         let store = try options.openStore()
-        guard FileManager.default.fileExists(atPath: store.indexURL.path) else {
-            throw ValidationError("index 不存在。先跑 akashic doctor 重建。")
-        }
+        _ = try LibraryIndex(store: store).ensureCurrent()   // 與 Query 對齊（DA 漏網之魚#1）
         let builder = try GraphBuilder(indexPath: store.indexURL)
         let neighborhood = try builder.neighborhood(focus: focus, depth: depth)
         let content: String

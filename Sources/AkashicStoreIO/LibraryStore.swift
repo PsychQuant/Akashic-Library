@@ -25,11 +25,15 @@ public struct QuarantinedFile: Equatable {
 public struct LibraryLoad {
     public var entries: [Entry]
     public var people: [Person]
+    /// Library registry（#13 membership views）；成員關係在各 entry 的 akashic.libraries
+    public var libraries: [Library]
     public var quarantined: [QuarantinedFile]
 
-    public init(entries: [Entry] = [], people: [Person] = [], quarantined: [QuarantinedFile] = []) {
+    public init(entries: [Entry] = [], people: [Person] = [],
+                libraries: [Library] = [], quarantined: [QuarantinedFile] = []) {
         self.entries = entries
         self.people = people
+        self.libraries = libraries
         self.quarantined = quarantined
     }
 }
@@ -41,6 +45,7 @@ public final class LibraryStore {
 
     public var entriesDir: URL { root.appendingPathComponent("entries") }
     public var peopleDir: URL { root.appendingPathComponent("people") }
+    public var librariesDir: URL { root.appendingPathComponent("libraries") }
     public var notesDir: URL { root.appendingPathComponent("notes") }
     public var akashicDir: URL { root.appendingPathComponent(".akashic") }
     public var indexURL: URL { akashicDir.appendingPathComponent("index.sqlite") }
@@ -51,7 +56,7 @@ public final class LibraryStore {
 
     public func ensureLayout() throws {
         let fm = FileManager.default
-        for dir in [root, entriesDir, peopleDir, notesDir, akashicDir] {
+        for dir in [root, entriesDir, peopleDir, librariesDir, notesDir, akashicDir] {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
     }
@@ -64,11 +69,32 @@ public final class LibraryStore {
         peopleDir.appendingPathComponent("\(key).yaml")
     }
 
+    public func libraryURL(key: String) -> URL {
+        librariesDir.appendingPathComponent("\(key).yaml")
+    }
+
+    /// Library registry 寫入（#13）：metadata-only；key 走 StoreKey write-time 驗證。
+    /// entry 的 membership（akashic.libraries）由 writeEntry 一併驗證。
+    @discardableResult
+    public func writeLibrary(_ library: Library) throws -> URL {
+        guard StoreKey.isValid(library.key) else {
+            throw StoreIOError.invalidKey("library key", library.key)
+        }
+        let yaml = try LibraryYAML.encode(library)
+        let dest = libraryURL(key: library.key)
+        try atomicWrite(yaml, to: dest)
+        return dest
+    }
+
     @discardableResult
     public func writeEntry(_ entry: Entry) throws -> URL {
         // write-time key 驗證：不合格式的 citekey 絕不進檔名（path traversal 防護）
         guard StoreKey.isValid(entry.citekey) else {
             throw StoreIOError.invalidKey("citekey", entry.citekey)
+        }
+        // membership keys（#13）同樣 write-time 驗證——不進路徑，但保 index/query 語意乾淨
+        for key in entry.akashic.libraries where !StoreKey.isValid(key) {
+            throw StoreIOError.invalidKey("akashic.libraries key", key)
         }
         let yaml = try EntryYAML.encode(entry)
         let dest = entryURL(citekey: entry.citekey)
@@ -154,8 +180,32 @@ public final class LibraryStore {
                     reason: String(describing: error)))
             }
         }
+        for url in try yamlFiles(in: librariesDir) {
+            do {
+                let library = try LibraryYAML.decode(try readUTF8(url))
+                let stem = url.deletingPathExtension().lastPathComponent
+                guard StoreKey.isValid(library.key) else {
+                    result.quarantined.append(QuarantinedFile(
+                        file: "libraries/\(url.lastPathComponent)",
+                        reason: "library key「\(library.key)」不符合 \(StoreKey.pattern)"))
+                    continue
+                }
+                guard stem == library.key else {
+                    result.quarantined.append(QuarantinedFile(
+                        file: "libraries/\(url.lastPathComponent)",
+                        reason: "檔名 stem「\(stem)」與 library key「\(library.key)」不符"))
+                    continue
+                }
+                result.libraries.append(library)
+            } catch {
+                result.quarantined.append(QuarantinedFile(
+                    file: "libraries/\(url.lastPathComponent)",
+                    reason: String(describing: error)))
+            }
+        }
         result.entries.sort { $0.citekey < $1.citekey }
         result.people.sort { $0.key < $1.key }
+        result.libraries.sort { $0.key < $1.key }
         return result
     }
 

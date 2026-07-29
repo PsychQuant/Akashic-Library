@@ -79,6 +79,9 @@ public enum EntryYAML {
             if !entry.akashic.tags.isEmpty {
                 a.append((Node("tags"), Node(entry.akashic.tags.map { Node($0) })))
             }
+            if !entry.akashic.libraries.isEmpty {
+                a.append((Node("libraries"), Node(entry.akashic.libraries.map { Node($0) })))
+            }
             if let status = entry.akashic.status {
                 a.append((Node("status"), Node(status)))
             }
@@ -101,7 +104,7 @@ public enum EntryYAML {
         "id", "citekey", "type", "title", "authors", "date",
         "fields", "attachments", "provenance", "akashic",
     ]
-    static let knownAkashicKeys: Set<String> = ["tags", "status", "relations"]
+    static let knownAkashicKeys: Set<String> = ["tags", "libraries", "status", "relations"]
     static let knownRelationsKeys: Set<String> = ["cites", "related"]
     static let knownProvenanceKeys: Set<String> = [
         "zotero_key", "zotero_version", "library_id", "zotero_hash",
@@ -208,6 +211,9 @@ public enum EntryYAML {
             if let tagSeq = akMap["tags"]?.sequence {
                 entry.akashic.tags = try stringList(tagSeq, context: "akashic.tags")
             }
+            if let libSeq = akMap["libraries"]?.sequence {
+                entry.akashic.libraries = try stringList(libSeq, context: "akashic.libraries")
+            }
             entry.akashic.status = akMap["status"]?.string
             if let relMap = akMap["relations"]?.mapping {
                 try rejectUnknownKeys(relMap, known: knownRelationsKeys, context: "akashic.relations")
@@ -245,6 +251,38 @@ public enum EntryYAML {
             }
         }
         return scalar.string
+    }
+}
+
+/// Library registry YAML（#13）：metadata-only，strict decode。
+public enum LibraryYAML {
+    public static func encode(_ library: Library) throws -> String {
+        var pairs: [(Node, Node)] = [
+            (Node("key"), Node(library.key)),
+            (Node("name"), Node(library.name)),
+        ]
+        if let description = library.description {
+            pairs.append((Node("description"), Node(description)))
+        }
+        return try Yams.serialize(node: Node(pairs), allowUnicode: true)
+    }
+
+    static let knownLibraryKeys: Set<String> = ["key", "name", "description"]
+
+    public static func decode(_ yaml: String) throws -> Library {
+        guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
+            throw StoreYAMLError.notAMapping
+        }
+        try EntryYAML.rejectUnknownKeys(map, known: knownLibraryKeys, context: "library")
+        guard let key = map["key"]?.string else {
+            throw StoreYAMLError.missingField("key")
+        }
+        guard let name = map["name"]?.string else {
+            throw StoreYAMLError.missingField("name")
+        }
+        var library = Library(key: key, name: name)
+        library.description = map["description"]?.string
+        return library
     }
 }
 

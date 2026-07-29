@@ -344,3 +344,32 @@ extension StrictSchemaTests {
         XCTAssertThrowsError(try EntryYAML.decode(yaml))
     }
 }
+
+/// #13 多 library：akashic.libraries 衍生層欄位 + Library registry model 的 strict YAML。
+final class LibraryModelTests: XCTestCase {
+    func testAkashicLibrariesRoundTrip() throws {
+        var e = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article", title: "T")
+        e.akashic.libraries = ["sinica", "psychology"]
+        let yaml = try EntryYAML.encode(e)
+        XCTAssertTrue(yaml.contains("libraries"), "非空 libraries 要序列化")
+        let decoded = try EntryYAML.decode(yaml)
+        XCTAssertEqual(decoded.akashic.libraries, ["sinica", "psychology"])
+        XCTAssertEqual(decoded, e)
+    }
+
+    func testEmptyLibrariesNotSerialized() throws {
+        let e = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article", title: "T")
+        let yaml = try EntryYAML.encode(e)
+        XCTAssertFalse(yaml.contains("libraries"), "空 libraries 不序列化（與 tags 同慣例）")
+    }
+
+    func testLibraryYAMLRoundTripAndStrict() throws {
+        let lib = Library(key: "sinica", name: "中研院", description: "統計所 lab context")
+        let yaml = try LibraryYAML.encode(lib)
+        XCTAssertEqual(try LibraryYAML.decode(yaml), lib)
+        // 未知欄位 → strict 拒絕
+        XCTAssertThrowsError(try LibraryYAML.decode(yaml + "\nextra: nope\n"))
+        // 缺 key → 拒絕
+        XCTAssertThrowsError(try LibraryYAML.decode("name: 沒有 key\n"))
+    }
+}

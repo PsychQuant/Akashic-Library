@@ -92,16 +92,37 @@ public struct Provenance: Equatable {
 
 public struct AkashicMeta: Equatable {
     public var tags: [String]
+    /// 所屬 library keys（#13 membership views）——store 是全集，library 只是成員集合；
+    /// 空陣列＝只屬全集 view。元素須符合 StoreKey 格式（write 時驗證）。
+    public var libraries: [String]
     public var status: String?
     public var relations: Relations
 
-    public init(tags: [String] = [], status: String? = nil, relations: Relations = Relations()) {
+    public init(tags: [String] = [], libraries: [String] = [],
+                status: String? = nil, relations: Relations = Relations()) {
         self.tags = tags
+        self.libraries = libraries
         self.status = status
         self.relations = relations
     }
 
-    public var isEmpty: Bool { tags.isEmpty && status == nil && relations.isEmpty }
+    public var isEmpty: Bool {
+        tags.isEmpty && libraries.isEmpty && status == nil && relations.isEmpty
+    }
+}
+
+/// Library registry（#13）：具名成員集合視角的 metadata。
+/// 成員關係存在各 entry 的 `akashic.libraries`，不在此檔（per-entry membership）。
+public struct Library: Equatable {
+    public var key: String
+    public var name: String
+    public var description: String?
+
+    public init(key: String, name: String, description: String? = nil) {
+        self.key = key
+        self.name = name
+        self.description = description
+    }
 }
 
 /// 需要「存」的關係；同作者/同期刊由 metadata 推導、不存。

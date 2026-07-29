@@ -299,3 +299,53 @@ final class LoadIntegrityTests: XCTestCase {
         XCTAssertEqual(load.quarantined.map(\.file), ["people/wrong-stem.yaml"])
     }
 }
+
+/// #13 多 library：libraries/ registry 的寫入驗證與 load 語意驗證。
+final class LibraryRegistryStoreTests: XCTestCase {
+    var root: URL!
+    var store: LibraryStore!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-lib-\(UUID().uuidString)")
+        store = LibraryStore(root: root)
+        try store.ensureLayout()
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testWriteLibraryValidatesKeyAndRoundTrips() throws {
+        XCTAssertThrowsError(try store.writeLibrary(Library(key: "Bad Key", name: "X")),
+                             "不合 StoreKey 的 library key 拒寫")
+        let url = try store.writeLibrary(Library(key: "sinica", name: "中研院"))
+        XCTAssertEqual(url.lastPathComponent, "sinica.yaml")
+        let load = try store.load()
+        XCTAssertEqual(load.libraries.map(\.key), ["sinica"])
+    }
+
+    func testLoadQuarantinesBadLibraryFiles() throws {
+        let good = try store.writeLibrary(Library(key: "psychology", name: "心理學"))
+        // stem 不符的複本 → quarantine
+        try FileManager.default.copyItem(
+            at: good, to: store.librariesDir.appendingPathComponent("alias.yaml"))
+        // 語法壞檔 → quarantine
+        try "broken: [yaml\n".write(
+            to: store.librariesDir.appendingPathComponent("broken.yaml"),
+            atomically: true, encoding: .utf8)
+
+        let load = try store.load()
+        XCTAssertEqual(load.libraries.map(\.key), ["psychology"])
+        XCTAssertEqual(load.quarantined.map(\.file).sorted(),
+                       ["libraries/alias.yaml", "libraries/broken.yaml"])
+    }
+
+    func testEntryLibrariesMembershipPersists() throws {
+        var e = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article", title: "T")
+        e.akashic.libraries = ["sinica"]
+        try store.writeEntry(e)
+        let load = try store.load()
+        XCTAssertEqual(load.entries.first?.akashic.libraries, ["sinica"])
+    }
+}

@@ -91,9 +91,10 @@ final class StdioE2ETests: XCTestCase {
         try send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
         let listResponse = try readResponse()
         let tools = ((listResponse["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
-        XCTAssertEqual(tools.count, 15)   // #13: + akashic_libraries
+        XCTAssertEqual(tools.count, 16)   // #13: + akashic_libraries；#14: + akashic_person
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_search" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_libraries" })
+        XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_person" })
 
         try send([
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",

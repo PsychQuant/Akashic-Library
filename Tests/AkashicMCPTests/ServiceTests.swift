@@ -318,3 +318,111 @@ extension ServiceTests {
         XCTAssertNil(akashic["libraries"], "零 membership 時 key 省略（與 tags 慣例一致）")
     }
 }
+
+/// #14 人物檢索：person 聚合 handler。
+extension ServiceTests {
+    func testPersonByKeyAggregates() throws {
+        let out = try json(service.person(key: "cheng-che", name: nil, library: nil)) as! [String: Any]
+        XCTAssertEqual((out["person"] as? [String: Any])?["key"] as? String, "cheng-che")
+        XCTAssertEqual((out["publications"] as? [[String: Any]])?.map { $0["citekey"] as! String },
+                       ["cheng2025identifiability"])
+        let co = out["co_authors"] as! [[String: Any]]
+        XCTAssertEqual(co.first?["name"] as? String, "Hau-Hung Yang")
+        XCTAssertEqual(co.first?["count"] as? Int, 1)
+    }
+
+    func testPersonByFuzzyNameReturnsCandidatesNeverAutoSelects() throws {
+        let out = try json(service.person(key: nil, name: "cheng", library: nil)) as! [String: Any]
+        let candidates = out["candidates"] as! [[String: Any]]
+        XCTAssertTrue(candidates.contains { ($0["person_key"] as? String) == "cheng-che" })
+        XCTAssertNil(out["publications"], "模糊名只回候選，絕不自動選定聚合")
+    }
+
+    func testPersonScopedByLibrary() throws {
+        _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
+                                  description: nil, citekey: nil)
+        let none = try json(service.person(key: "cheng-che", name: nil, library: "sinica")) as! [String: Any]
+        XCTAssertTrue((none["publications"] as! [Any]).isEmpty, "未加入 library 前 scoped 應為空")
+        _ = try service.libraries(action: "add", key: "sinica", name: nil,
+                                  description: nil, citekey: "cheng2025identifiability")
+        let some = try json(service.person(key: "cheng-che", name: nil, library: "sinica")) as! [String: Any]
+        XCTAssertEqual((some["publications"] as! [[String: Any]]).count, 1)
+    }
+
+    func testPersonValidation() throws {
+        XCTAssertThrowsError(try service.person(key: nil, name: nil, library: nil), "key/name 至少其一")
+        XCTAssertThrowsError(try service.person(key: "ghost-person", name: nil, library: nil), "未知 person 擲錯")
+    }
+}
+
+/// #14 verify fix round：R1 findings 釘住。
+extension ServiceTests {
+    func testPersonRejectsEmptyAndBothInputs() throws {
+        XCTAssertThrowsError(try service.person(key: nil, name: "", library: nil), "空白 name 拒絕")
+        XCTAssertThrowsError(try service.person(key: "  ", name: nil, library: nil), "空白 key 拒絕")
+        XCTAssertThrowsError(try service.person(key: "cheng-che", name: "cheng", library: nil),
+                             "key 與 name 互斥")
+    }
+
+    func testPersonScopedCoAuthorsConsistentWithLibrary() throws {
+        _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
+                                  description: nil, citekey: nil)
+        // 未加入 library：scoped 聚合的 publications 與 co_authors 都必須為空（內部一致）
+        let none = try json(service.person(key: "cheng-che", name: nil, library: "sinica")) as! [String: Any]
+        XCTAssertTrue((none["publications"] as! [Any]).isEmpty)
+        XCTAssertTrue((none["co_authors"] as! [Any]).isEmpty,
+                      "co_authors 必須吃 library 過濾（聚合內部一致性）")
+        // 存在性不受 scope 影響：record 存在 → 不 notFound（上面沒 throw 即證）
+    }
+
+    func testPersonExistenceUsesUnscopedPublications() throws {
+        // 無 people record、只有 literal→無 key。改用有 record 的：刪 record 後靠全集 pubs 存在
+        // 構造：person key 出現在 entry 但 people/ 無記錄
+        var e = try LibraryStore(root: root).load().entries.first { $0.citekey == "olsson1979maximum" }!
+        e.authors = [.key("olsson-ulf")]
+        try LibraryStore(root: root).writeEntry(e)
+        _ = try service.libraries(action: "create", key: "empty-lib", name: "空庫",
+                                  description: nil, citekey: nil)
+        // scoped 查詢：全集有著作 → 不得 notFound；scoped publications 空
+        let out = try json(service.person(key: "olsson-ulf", name: nil, library: "empty-lib")) as! [String: Any]
+        XCTAssertTrue((out["publications"] as! [Any]).isEmpty)
+    }
+
+    func testPersonResolvedCoAuthorNameIsHumanReadable() throws {
+        // 讓 cheng-che 與另一個 resolved person 合著
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "yang-hau-hung", names: ["Hau-Hung Yang"]))
+        var e = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
+        e.authors = [.key("cheng-che"), .key("yang-hau-hung")]
+        try store.writeEntry(e)
+        let out = try json(service.person(key: "cheng-che", name: nil, library: nil)) as! [String: Any]
+        let co = out["co_authors"] as! [[String: Any]]
+        XCTAssertEqual(co.first?["person_key"] as? String, "yang-hau-hung")
+        XCTAssertEqual(co.first?["name"] as? String, "Hau-Hung Yang",
+                       "resolved 合著者的 name 給人讀的名字，不是 key")
+    }
+}
+
+/// #14 R2：篇數語意（per-entry 去重）+ truncated 標記。
+extension ServiceTests {
+    func testFuzzyCountsPublicationsNotOccurrences() throws {
+        let store = LibraryStore(root: root)
+        var e = try store.load().entries.first { $0.citekey == "olsson1979maximum" }!
+        e.authors = [.literal("Dup Person"), .literal("Dup Person")]   // 同篇重複掛名
+        try store.writeEntry(e)
+        let out = try json(service.person(key: nil, name: "dup person", library: nil)) as! [String: Any]
+        let c = (out["candidates"] as! [[String: Any]]).first!
+        XCTAssertEqual(c["publications"] as? Int, 1, "同篇重複掛名只計一篇")
+    }
+
+    func testFuzzyTruncationFlag() throws {
+        let store = LibraryStore(root: root)
+        for i in 0..<55 {
+            try store.writePerson(Person(key: String(format: "zz-person-%02d", i),
+                                         names: ["Zz Common \(i)"]))
+        }
+        let out = try json(service.person(key: nil, name: "zz", library: nil)) as! [String: Any]
+        XCTAssertEqual((out["candidates"] as! [Any]).count, 50)
+        XCTAssertEqual(out["truncated"] as? Bool, true)
+    }
+}

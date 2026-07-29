@@ -94,6 +94,13 @@ actor AkashicMCPServer {
         Tool(name: "akashic_doctor",
              description: "library 健康報告：entries/people/relations 統計、index 重建、quarantine、未解析作者數、orphans。",
              inputSchema: obj([:])),
+        Tool(name: "akashic_person",
+             description: "人物檢索（#14）：person key 直查聚合（人物資料＋著作＋合著者統計，可選 library 過濾）；模糊姓名回候選清單（絕不自動選定——消歧交給 caller）。",
+             inputSchema: obj([
+                "key": str("person key（與 name 互斥；直查聚合）"),
+                "name": str("模糊姓名（與 key 互斥；回候選，上限 50）"),
+                "library": str("library key 過濾（選填，僅 key 直查時生效）"),
+             ])),
         Tool(name: "akashic_libraries",
              description: "具名 library（成員集合視角，#13）：list 列表含成員數；create 建 registry；add/remove 改 entry 的 akashic.libraries（衍生層）。store 是全集，library 不分割資料。",
              inputSchema: obj([
@@ -202,6 +209,9 @@ actor AkashicMCPServer {
                 output = try service.people(query: arg("query"))
             case "akashic_doctor":
                 output = try service.doctor()
+            case "akashic_person":
+                output = try service.person(key: arg("key"), name: arg("name"),
+                                            library: arg("library"))
             case "akashic_libraries":
                 output = try service.libraries(
                     action: arg("action") ?? "", key: arg("key"), name: arg("name"),

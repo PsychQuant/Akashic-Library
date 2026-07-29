@@ -108,6 +108,54 @@ public struct QueryEngine {
             bind: [journal, citekey])
     }
 
+    /// #14 人物檢索：某 person 的著作（可選 library 過濾疊加）。
+    public func personPublications(key: String, library: String?) throws -> [EntrySummary] {
+        var sql = """
+            SELECT DISTINCT e.* FROM entries e
+            JOIN authors a ON a.entry_uuid = e.uuid
+            WHERE a.person_key = ?
+            """
+        var bind: [Any?] = [key]
+        if let library {
+            sql += " AND e.uuid IN (SELECT entry_uuid FROM entry_libraries WHERE library_key = ?)"
+            bind.append(library)
+        }
+        sql += " ORDER BY e.citekey"
+        return try summaries(sql, bind: bind)
+    }
+
+    public struct CoAuthor: Equatable {
+        public var personKey: String?
+        public var name: String
+        public var count: Int
+    }
+
+    /// #14：合著者統計——與該 person 同 entry 掛名的其他作者（key 或 literal）＋合作次數。
+    /// library 過濾與 personPublications 對齊（聚合回應內部一致，R1 Codex 中#2）。
+    public func coAuthors(of key: String, library: String? = nil) throws -> [CoAuthor] {
+        var scope = "SELECT entry_uuid FROM authors WHERE person_key = ?"
+        var bind: [Any?] = [key]
+        if let library {
+            scope += " AND entry_uuid IN (SELECT entry_uuid FROM entry_libraries WHERE library_key = ?)"
+            bind.append(library)
+        }
+        bind.append(key)
+        let rows = try db.query("""
+            SELECT a.person_key AS pk, a.literal AS lit, COUNT(DISTINCT a.entry_uuid) AS n
+            FROM authors a
+            WHERE a.entry_uuid IN (\(scope))
+              AND (a.person_key IS NULL OR a.person_key != ?)
+            GROUP BY a.person_key, a.literal
+            ORDER BY n DESC, COALESCE(a.person_key, a.literal)
+            """, bind: bind)
+        return rows.map { row in
+            let pk = row["pk"] as? String
+            let lit = row["lit"] as? String
+            return CoAuthor(personKey: pk, name: pk ?? lit ?? "?",
+                            count: row["n"] as? Int ?? 0)
+        }
+    }
+
     public func sameAuthor(as citekey: String) throws -> [EntrySummary] {
         let entry = try requireEntry(citekey)
         let uuid = entry["uuid"] as? String ?? ""

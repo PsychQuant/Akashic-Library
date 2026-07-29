@@ -10,6 +10,8 @@ public struct QueryFilter: Equatable {
     public var journal: String?
     public var tag: String?
     public var type: String?
+    /// library key 完全命中（#13 membership views）；nil＝全集
+    public var library: String?
 
     public init() {}
 }
@@ -83,6 +85,10 @@ public struct QueryEngine {
         if let tag = filter.tag {
             conditions.append("uuid IN (SELECT entry_uuid FROM tags WHERE tag = ?)")
             bind.append(tag)
+        }
+        if let library = filter.library {
+            conditions.append("uuid IN (SELECT entry_uuid FROM entry_libraries WHERE library_key = ?)")
+            bind.append(library)
         }
         if let type = filter.type {
             conditions.append("type = ?")

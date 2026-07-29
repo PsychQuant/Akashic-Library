@@ -158,3 +158,64 @@ extension IndexQueryTests {
 extension QueryEngine {
     func citekeysOf(_ result: [EntrySummary]) -> [String] { result.map(\.citekey) }
 }
+
+/// #13 多 library：index 的 entry_libraries 表 + query 的 library 篩選。
+final class LibraryQueryTests: XCTestCase {
+    var root: URL!
+    var store: LibraryStore!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-libquery-\(UUID().uuidString)")
+        store = LibraryStore(root: root)
+        try store.ensureLayout()
+        try store.writeLibrary(Library(key: "sinica", name: "中研院"))
+        try store.writeLibrary(Library(key: "psychology", name: "心理學"))
+        var e1 = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article",
+                       title: "Identifiability", date: "2025")
+        e1.akashic.libraries = ["sinica"]
+        e1.akashic.tags = ["identifiability"]
+        try store.writeEntry(e1)
+        var e2 = Entry(id: UUID(), citekey: "chen2004matrix", type: "book",
+                       title: "Matrix Visualization", date: "2004")
+        e2.akashic.libraries = ["sinica", "psychology"]
+        try store.writeEntry(e2)
+        try store.writeEntry(Entry(id: UUID(), citekey: "olsson1979maximum", type: "article",
+                                   title: "MLE", date: "1979"))
+        _ = try LibraryIndex(store: store).rebuild()
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    private func query() throws -> QueryEngine {
+        try QueryEngine(indexPath: store.indexURL)
+    }
+
+    func testLibraryFilterReturnsMembersOnly() throws {
+        var f = QueryFilter()
+        f.library = "sinica"
+        XCTAssertEqual(try query().find(f).map(\.citekey).sorted(),
+                       ["chen2004matrix", "cheng2025identifiability"])
+        f.library = "psychology"
+        XCTAssertEqual(try query().find(f).map(\.citekey), ["chen2004matrix"])
+    }
+
+    func testLibraryFilterComposesWithOtherFilters() throws {
+        var f = QueryFilter()
+        f.library = "sinica"
+        f.tag = "identifiability"
+        XCTAssertEqual(try query().find(f).map(\.citekey), ["cheng2025identifiability"])
+    }
+
+    func testUnknownLibraryYieldsEmpty() throws {
+        var f = QueryFilter()
+        f.library = "ghost"
+        XCTAssertTrue(try query().find(f).isEmpty, "未知 library＝空集合（無成員）")
+    }
+
+    func testNoLibraryFilterReturnsAll() throws {
+        XCTAssertEqual(try query().find(QueryFilter()).count, 3, "未指定 library＝全集（零行為變化）")
+    }
+}

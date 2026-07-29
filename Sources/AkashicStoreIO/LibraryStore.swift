@@ -80,6 +80,8 @@ public final class LibraryStore {
         guard StoreKey.isValid(library.key) else {
             throw StoreIOError.invalidKey("library key", library.key)
         }
+        // pre-v1.2 store（無 libraries/）也能直接建 library——目錄缺就補
+        try FileManager.default.createDirectory(at: librariesDir, withIntermediateDirectories: true)
         let yaml = try LibraryYAML.encode(library)
         let dest = libraryURL(key: library.key)
         try atomicWrite(yaml, to: dest)

@@ -41,11 +41,13 @@ public struct LibraryIndex {
             """,
             "CREATE TABLE authors(entry_uuid TEXT, position INT, person_key TEXT, literal TEXT)",
             "CREATE TABLE tags(entry_uuid TEXT, tag TEXT)",
+            "CREATE TABLE entry_libraries(entry_uuid TEXT, library_key TEXT)",
             "CREATE TABLE relations(from_uuid TEXT, kind TEXT, target TEXT)",
             "CREATE TABLE people(key TEXT PRIMARY KEY, names TEXT)",
             "CREATE INDEX idx_authors_entry ON authors(entry_uuid)",
             "CREATE INDEX idx_authors_key ON authors(person_key)",
             "CREATE INDEX idx_tags_entry ON tags(entry_uuid)",
+            "CREATE INDEX idx_entry_libraries_key ON entry_libraries(library_key)",
             "CREATE INDEX idx_relations_from ON relations(from_uuid)",
             "CREATE INDEX idx_relations_target ON relations(target)",
         ] {
@@ -76,6 +78,10 @@ public struct LibraryIndex {
             }
             for tag in entry.akashic.tags {
                 try db.execute("INSERT INTO tags VALUES (?,?)", bind: [entry.id.uuidString, tag])
+            }
+            for libraryKey in entry.akashic.libraries {
+                try db.execute("INSERT INTO entry_libraries VALUES (?,?)",
+                               bind: [entry.id.uuidString, libraryKey])
             }
             for cite in entry.akashic.relations.cites {
                 try db.execute("INSERT INTO relations VALUES (?,'cites',?)",

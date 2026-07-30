@@ -94,6 +94,12 @@ actor AkashicMCPServer {
         Tool(name: "akashic_doctor",
              description: "library 健康報告：entries/people/relations 統計、index 重建、quarantine、未解析作者數、orphans。",
              inputSchema: obj([:])),
+        Tool(name: "akashic_files",
+             description: "多檔案（#18）：list＝列出已註冊的實體庫（檔案）與 active root；use＝session 內切換到另一個檔案（互不相通——切換後所有 tool 都作用在新 universe；不寫 config，持久預設用 CLI akashic file use）。",
+             inputSchema: obj([
+                "action": str("list 或 use"),
+                "key": str("use 時：已註冊的檔案 key"),
+             ])),
         Tool(name: "akashic_person",
              description: "人物檢索（#14）：person key 直查聚合（人物資料＋著作＋合著者統計，可選 library 過濾）；模糊姓名回候選清單（絕不自動選定——消歧交給 caller）。",
              inputSchema: obj([
@@ -209,6 +215,8 @@ actor AkashicMCPServer {
                 output = try service.people(query: arg("query"))
             case "akashic_doctor":
                 output = try service.doctor()
+            case "akashic_files":
+                output = try service.files(action: arg("action") ?? "list", key: arg("key"))
             case "akashic_person":
                 output = try service.person(key: arg("key"), name: arg("name"),
                                             library: arg("library"))

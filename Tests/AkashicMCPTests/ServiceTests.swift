@@ -426,3 +426,54 @@ extension ServiceTests {
         XCTAssertEqual(out["truncated"] as? Bool, true)
     }
 }
+
+/// #18 多檔案：akashic_files handler（list / use；session-scoped 切換）。
+extension ServiceTests {
+    private func makeSecondUniverse() throws -> (configURL: URL, otherRoot: URL) {
+        let otherRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-svc-other-\(UUID().uuidString)")
+        let store = LibraryStore(root: otherRoot)
+        try store.ensureLayout()
+        try store.writeEntry(Entry(id: UUID(), citekey: "other2020paper", type: "article",
+                                   title: "Another universe", authors: [.literal("Someone Else")],
+                                   date: "2020"))
+        let configURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-svc-cfg-\(UUID().uuidString).yaml")
+        var config = AkashicConfig()
+        config.files = ["origin": root.path, "other": otherRoot.path]
+        config.current = "origin"
+        try config.write(to: configURL)
+        return (configURL, otherRoot)
+    }
+
+    func testFilesListShowsRegistryAndActiveRoot() throws {
+        let (configURL, _) = try makeSecondUniverse()
+        let svc = AkashicService(root: root, configURL: configURL)
+        let out = try json(svc.files(action: "list", key: nil)) as! [String: Any]
+        let files = out["files"] as! [[String: Any]]
+        XCTAssertEqual(files.count, 2)
+        XCTAssertEqual(out["active_root"] as? String, root.path)
+        XCTAssertTrue(files.contains { ($0["key"] as? String) == "other" })
+    }
+
+    func testFilesUseSwitchesUniverseCompletely() throws {
+        let (configURL, otherRoot) = try makeSecondUniverse()
+        let svc = AkashicService(root: root, configURL: configURL)
+        // 切換前：搜得到本 universe 的 entry
+        XCTAssertTrue(try svc.search(journal: "Psychometrika").contains("cheng2025identifiability"))
+        let out = try json(svc.files(action: "use", key: "other")) as! [String: Any]
+        XCTAssertEqual(out["active_root"] as? String, otherRoot.path)
+        // 切換後：互不相通——舊 universe 的內容看不到、新 universe 的看得到
+        let all = try svc.search()
+        XCTAssertTrue(all.contains("other2020paper"), all)
+        XCTAssertFalse(all.contains("cheng2025identifiability"), "互不相通：舊 universe 內容不得洩入")
+    }
+
+    func testFilesUseValidation() throws {
+        let (configURL, _) = try makeSecondUniverse()
+        let svc = AkashicService(root: root, configURL: configURL)
+        XCTAssertThrowsError(try svc.files(action: "use", key: "ghost"), "未註冊 key 擲錯")
+        XCTAssertThrowsError(try svc.files(action: "use", key: nil), "use 缺 key 擲錯")
+        XCTAssertThrowsError(try svc.files(action: "teleport", key: nil), "未知 action 擲錯")
+    }
+}

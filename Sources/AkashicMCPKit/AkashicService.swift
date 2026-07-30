@@ -23,10 +23,13 @@ public enum ServiceError: Error, LocalizedError {
 /// akashic-mcp 的 handler 核心（可測試、不含 MCP 佈線）。
 /// 讀走 index（mtime stale 自動重建）；寫只碰衍生層，寫後重建 index。
 public final class AkashicService {
-    let root: URL
+    /// #18 多檔案：use 切換時重指（session-scoped）；store/index 為 computed，全部跟隨。
+    private(set) var root: URL
+    let configURL: URL
 
-    public init(root: URL) {
+    public init(root: URL, configURL: URL = AkashicConfig.defaultURL) {
         self.root = root
+        self.configURL = configURL
     }
 
     var store: LibraryStore { LibraryStore(root: root) }
@@ -140,6 +143,39 @@ public final class AkashicService {
     }
 
     // MARK: - 寫（衍生層 only）
+
+    /// #18 多檔案：registry 檢視與 session 內切換（互不相通——切換即整個 universe 換掉）。
+    /// use 不寫 config（server 是讀者；持久預設由 CLI file use 管）。
+    public func files(action: String, key: String?) throws -> String {
+        switch action {
+        case "list":
+            let config = try AkashicConfig.read(from: configURL)
+            let list = config.files.keys.sorted().map { k -> [String: Any] in
+                ["key": k, "path": config.files[k]!, "current": k == config.current]
+            }
+            var out: [String: Any] = ["files": list, "active_root": root.path]
+            if let legacy = config.library { out["legacy_library"] = legacy }
+            return try jsonString(out)
+        case "use":
+            guard let key, !key.isEmpty else {
+                throw ServiceError.invalid("use 需要 key")
+            }
+            let config = try AkashicConfig.read(from: configURL)
+            guard let path = config.files[key] else {
+                let known = config.files.keys.sorted().joined(separator: ", ")
+                throw ServiceError.notFound("檔案 key「\(key)」（已註冊：\(known.isEmpty ? "無" : known)）")
+            }
+            let newRoot = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+            guard FileManager.default.fileExists(
+                atPath: newRoot.appendingPathComponent("entries").path) else {
+                throw ServiceError.invalid("「\(path)」不是 Akashic library（缺 entries/）")
+            }
+            root = newRoot
+            return try jsonString(["active_root": root.path, "key": key] as [String: Any])
+        default:
+            throw ServiceError.invalid("未知 action「\(action)」（list / use）")
+        }
+    }
 
     /// #14 人物檢索：person 聚合視圖。key 直查；模糊名回候選（絕不自動選）。
     /// key 與 name 互斥（同給擲錯）；空白輸入拒絕；候選上限 50。

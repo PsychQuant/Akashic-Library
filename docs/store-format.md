@@ -153,11 +153,32 @@ note: 中研院統計所            # 可選
 
 ## 5. 版本與相容
 
-本格式為 v1.2（v1.1 增 provenance hash 欄位；v1.2 增 `akashic.libraries` 與
-`libraries/` registry，#13）。欄位新增維持「未知欄位＝decode 錯誤」的嚴格策略——
-**注意**：含 `libraries` 欄位的新檔在 v1.2 以前的 binaries 下會因 strict decode 被
-quarantine（單機單使用者、三面同 repo 同版釋出可接受；混版部署前先全面升級）。
-放寬為 tolerant-preserve 屬未來議題（涉及 round-trip 保真）。
+本格式為 v1.3（v1.1 增 provenance hash 欄位；v1.2 增 `akashic.libraries` 與
+`libraries/` registry，#13；v1.3 引入 tolerant-preserve，#23）。
+
+### v1.3：tolerant-preserve（開放演化層）
+
+**開放演化層**——entry 頂層、person 頂層、library 頂層、`akashic` namespace——的
+未知欄位**不再是 decode 錯誤**。行為契約（normative）：
+
+1. **容忍（MUST）**：未知欄位不使檔案 quarantine；已知欄位照常可讀可用。
+2. **保留（MUST）**：未知欄位的 value 子樹整棵保留（`UnknownField`，YAML 文字形式），
+   re-encode 時原樣寫回。**容忍與保留不可拆分**——只容忍不保留會讓舊 binary 的
+   read-modify-write 靜默剝掉新欄位，是資料毀損路徑（v1.2 以前用 throw 防這件事，
+   v1.3 用保留寫回達成同一保證，同時讓較新 schema 的檔案保持可用）。
+3. **可見性（MUST）**：`validate()` 對未知欄位發 warning（非 error）；
+   `doctor` 列出含未知欄位的檔案（`unknownFieldFiles`），提示升級 binary。
+
+**strict 保留層**（closed shape，未知欄位仍＝decode 錯誤）：`authors` 元素
+（key/literal 二態封閉）、`provenance`（Zotero namespace，mapping 與 binary 同步
+演化、pull 覆寫）、`akashic.relations`（新關係類別應為 `akashic` 層的新欄位，
+由該層容忍涵蓋）。
+
+**接受的 trade-off**：typo 偵錯從 hard-reject 降為 warning——`orcidd:` 這類打錯
+不再擋下，由 validate / doctor 的 warning 保持可見。
+
+**適用邊界**：tolerant-preserve 只涵蓋 **additive** 演化（新增欄位）。欄位語意
+變更或刪除（non-additive）不在保護範圍——見 #24（format version marker）。
 
 ## 附註：多「檔案」（#18，config 層——不屬 store format）
 

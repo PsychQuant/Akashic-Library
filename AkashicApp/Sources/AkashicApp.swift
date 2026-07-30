@@ -10,7 +10,7 @@ struct AkashicApp: App {
         WindowGroup {
             switch launch.phase {
             case .ready(let state):
-                ContentView()
+                ContentView(onSwitchFile: { key in launch.switchFile(state, to: key) })
                     .environment(state)
             case .failed(let message):
                 ContentUnavailableView {
@@ -39,6 +39,24 @@ final class LaunchState {
 
     var phase: Phase = .loading
     private var watcher: FileWatcher?
+
+    /// #18 多檔案：切換 root 後 FileWatcher 必須跟著 rebind 到新 universe 的目錄。
+    func switchFile(_ state: AppState, to key: String) {
+        do {
+            try state.switchFile(key: key)
+            watcher?.stop()
+            let store = LibraryStore(root: state.root)
+            let newWatcher = FileWatcher(directories: [store.entriesDir, store.peopleDir]) {
+                Task { @MainActor in
+                    try? state.externalReload()
+                }
+            }
+            try newWatcher.start()
+            self.watcher = newWatcher
+        } catch {
+            // 切換失敗（config 壞/目錄不在）：state 未變或已擲回,維持現況即可
+        }
+    }
 
     func boot() {
         do {

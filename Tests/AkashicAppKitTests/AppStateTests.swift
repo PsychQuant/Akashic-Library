@@ -113,3 +113,49 @@ extension AppStateTests {
         XCTAssertEqual(state.filteredEntries.count, 2)
     }
 }
+
+/// #18 多檔案：App 端 registry 讀取與 root 切換（session-scoped）。
+extension AppStateTests {
+    private func makeUniverse(citekey: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-app-file-\(UUID().uuidString)")
+        let store = LibraryStore(root: url)
+        try store.ensureLayout()
+        try store.writeEntry(Entry(id: UUID(), citekey: citekey, type: "article",
+                                   title: citekey, authors: [.literal("X")], date: "2020"))
+        return url
+    }
+
+    func testSwitchFileSwapsUniverseAndResetsFilters() throws {
+        let rootA = try makeUniverse(citekey: "aaa2020first")
+        let rootB = try makeUniverse(citekey: "bbb2020second")
+        let configURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-app-cfg-\(UUID().uuidString).yaml")
+        var config = AkashicConfig()
+        config.files = ["a": rootA.path, "b": rootB.path]
+        config.current = "a"
+        try config.write(to: configURL)
+
+        let state = AppState(root: rootA, configURL: configURL)
+        try state.load()
+        XCTAssertEqual(state.availableFiles.map(\.key), ["a", "b"])
+        XCTAssertEqual(state.entries.map(\.citekey), ["aaa2020first"])
+
+        state.searchText = "殘留"
+        state.filterLibrary = "ghost"
+        try state.switchFile(key: "b")
+        XCTAssertEqual(state.root.path, rootB.path)
+        XCTAssertEqual(state.entries.map(\.citekey), ["bbb2020second"], "互不相通：整個 universe 換掉")
+        XCTAssertEqual(state.searchText, "", "切換重置搜尋")
+        XCTAssertNil(state.filterLibrary, "切換重置 library view（跨檔案殘留無意義）")
+    }
+
+    func testSwitchFileUnknownKeyThrows() throws {
+        let rootA = try makeUniverse(citekey: "aaa2020first")
+        let configURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-app-cfg-\(UUID().uuidString).yaml")
+        try AkashicConfig(files: ["a": rootA.path]).write(to: configURL)
+        let state = AppState(root: rootA, configURL: configURL)
+        XCTAssertThrowsError(try state.switchFile(key: "ghost"))
+    }
+}

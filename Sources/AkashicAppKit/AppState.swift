@@ -8,7 +8,11 @@ import AkashicIndex
 /// 寫入邊界與 MCP 相同（衍生層 + rename + orphan 裁決）；寫後 reload + reindex。
 @Observable
 public final class AppState {
-    public let root: URL
+    /// #18 多檔案：switchFile 時重指（session-scoped；不寫 config）。
+    public private(set) var root: URL
+    let configURL: URL
+    /// config 的 files registry（App 端唯讀視圖；load() 時同步刷新）。
+    public private(set) var availableFiles: [RegisteredFile] = []
 
     public private(set) var entries: [Entry] = []
     public private(set) var people: [Person] = []
@@ -34,8 +38,38 @@ public final class AppState {
     /// `.task(id: reloadCount)` 重建，集合放 model 內會在每次 reload 後歸零。
     public var skippedPeopleCandidates = Set<String>()
 
-    public init(root: URL) {
+    public init(root: URL, configURL: URL = AkashicConfig.defaultURL) {
         self.root = root
+        self.configURL = configURL
+    }
+
+    public struct RegisteredFile: Identifiable, Equatable {
+        public var key: String
+        public var path: String
+        public var isCurrent: Bool
+        public var id: String { key }
+    }
+
+    /// 切換到 registry 內另一個檔案：重指 root、清空 per-universe 狀態、整批重載。
+    /// 互不相通——filter/搜尋/skip 集合對新 universe 無意義，一律歸零。
+    public func switchFile(key: String) throws {
+        let config = try AkashicConfig.read(from: configURL)
+        guard let path = config.files[key] else {
+            throw AppStateError.unknownFile(key)
+        }
+        let newRoot = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        guard FileManager.default.fileExists(
+            atPath: newRoot.appendingPathComponent("entries").path) else {
+            throw AppStateError.notALibrary(path)
+        }
+        root = newRoot
+        searchText = ""
+        filterType = nil
+        filterTag = nil
+        filterJournal = nil
+        filterLibrary = nil
+        skippedPeopleCandidates = []
+        try load()
     }
 
     var store: LibraryStore { LibraryStore(root: root) }
@@ -48,6 +82,14 @@ public final class AppState {
         people = loaded.people
         libraries = loaded.libraries
         quarantined = loaded.quarantined
+        // registry 同步刷新（config 讀不到→空清單；App 不因 config 壞而擋 load）
+        if let config = try? AkashicConfig.read(from: configURL) {
+            availableFiles = config.files.keys.sorted().map {
+                RegisteredFile(key: $0, path: config.files[$0]!, isCurrent: $0 == config.current)
+            }
+        } else {
+            availableFiles = []
+        }
         reloadCount += 1
     }
 
@@ -147,5 +189,17 @@ public final class AppState {
     func reindexAndReload() throws {
         _ = try LibraryIndex(store: store).rebuild()
         try load()
+    }
+}
+
+public enum AppStateError: Error, LocalizedError {
+    case unknownFile(String)
+    case notALibrary(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unknownFile(let key): return "檔案 key「\(key)」未註冊於 config"
+        case .notALibrary(let path): return "「\(path)」不是 Akashic library（缺 entries/）"
+        }
     }
 }

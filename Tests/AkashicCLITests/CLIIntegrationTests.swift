@@ -205,3 +205,59 @@ extension CLIIntegrationTests {
         XCTAssertNotEqual(r.status, 0, "未知 library 要失敗")
     }
 }
+
+/// #18 多檔案：`akashic file` 子指令（--config 注入，不碰真實 ~/.akashic）。
+extension CLIIntegrationTests {
+    private func tmpDir(_ name: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-file-\(name)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    func testFileLifecycleAddUseListRemove() throws {
+        let configDir = try tmpDir("cfg")
+        let config = configDir.appendingPathComponent("config.yaml").path
+        let rootA = try tmpDir("rootA"), rootB = try tmpDir("rootB")
+
+        // add：註冊 + ensureLayout（空目錄變完整 layout）
+        var r = try runCLI(["file", "add", "main", rootA.path, "--config", config])
+        XCTAssertEqual(r.status, 0, r.stderr)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rootA.appendingPathComponent("entries").path),
+                      "add 對新目錄跑 ensureLayout")
+        _ = try runCLI(["file", "add", "work", rootB.path, "--config", config])
+
+        // use：寫 current
+        r = try runCLI(["file", "use", "work", "--config", config])
+        XCTAssertEqual(r.status, 0, r.stderr)
+
+        // list：current 有標記
+        r = try runCLI(["file", "list", "--config", config])
+        XCTAssertEqual(r.status, 0, r.stderr)
+        XCTAssertTrue(r.stdout.contains("main"), r.stdout)
+        let workLine = r.stdout.split(separator: "\n").first { $0.contains("work") }.map(String.init) ?? ""
+        XCTAssertTrue(workLine.contains("*"), "current 檔案要有標記：\(r.stdout)")
+
+        // remove：只除名不刪資料；remove current → current 清空
+        r = try runCLI(["file", "remove", "work", "--config", config])
+        XCTAssertEqual(r.status, 0, r.stderr)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rootB.path), "remove 不刪資料")
+        r = try runCLI(["file", "list", "--config", config])
+        XCTAssertFalse(r.stdout.contains("work"), r.stdout)
+    }
+
+    func testFileAddRejectsBadKeyAndDuplicate() throws {
+        let config = try tmpDir("cfg2").appendingPathComponent("config.yaml").path
+        let root = try tmpDir("root2")
+        XCTAssertNotEqual(try runCLI(["file", "add", "Bad_Key", root.path, "--config", config]).status, 0)
+        XCTAssertEqual(try runCLI(["file", "add", "main", root.path, "--config", config]).status, 0)
+        XCTAssertNotEqual(try runCLI(["file", "add", "main", root.path, "--config", config]).status, 0,
+                          "重複 key 拒絕")
+    }
+
+    func testFileUseUnknownKeyFails() throws {
+        let config = try tmpDir("cfg3").appendingPathComponent("config.yaml").path
+        let r = try runCLI(["file", "use", "ghost", "--config", config])
+        XCTAssertNotEqual(r.status, 0)
+    }
+}

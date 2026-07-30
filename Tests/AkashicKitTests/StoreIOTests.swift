@@ -430,3 +430,193 @@ extension RenameTests {
         XCTAssertEqual(renamed.akashic.libraries, ["sinica"])
     }
 }
+
+/// #18 多檔案：AkashicConfig parse/write + LibraryLocator registry resolution。
+final class MultiFileConfigTests: XCTestCase {
+    var dir: URL!
+
+    override func setUpWithError() throws {
+        dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-config-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    private func writeConfig(_ text: String) throws -> URL {
+        let url = dir.appendingPathComponent("config.yaml")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    func testParseFullSchema() throws {
+        let url = try writeConfig("""
+        library: /legacy/root
+        files:
+          main: /path/a
+          work: /path/b
+        current: work
+        """)
+        let config = try AkashicConfig.read(from: url)
+        XCTAssertEqual(config.library, "/legacy/root")
+        XCTAssertEqual(config.files, ["main": "/path/a", "work": "/path/b"])
+        XCTAssertEqual(config.current, "work")
+    }
+
+    func testParseLegacyOnlyUnchanged() throws {
+        let url = try writeConfig("library: /legacy/root\n")
+        let config = try AkashicConfig.read(from: url)
+        XCTAssertEqual(config.library, "/legacy/root")
+        XCTAssertTrue(config.files.isEmpty)
+        XCTAssertNil(config.current)
+    }
+
+    func testMalformedFileKeyThrows() throws {
+        let url = try writeConfig("files:\n  Bad_Key: /x\n")
+        XCTAssertThrowsError(try AkashicConfig.read(from: url), "file key 走 StoreKey 規則")
+    }
+
+    func testWriteRoundTripPreservesUnknownLines() throws {
+        let url = try writeConfig("""
+        library: /legacy/root
+        some_future_field: keep-me
+        """)
+        var config = try AkashicConfig.read(from: url)
+        config.files["work"] = "/path/b"
+        config.current = "work"
+        try config.write(to: url)
+        let reread = try AkashicConfig.read(from: url)
+        XCTAssertEqual(reread.files, ["work": "/path/b"])
+        XCTAssertEqual(reread.current, "work")
+        XCTAssertEqual(reread.library, "/legacy/root")
+        let raw = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(raw.contains("some_future_field: keep-me"), "未知頂層欄位保留")
+    }
+
+    func testResolveCurrentFileWins() throws {
+        let url = try writeConfig("""
+        library: /legacy/root
+        files:
+          work: /path/b
+        current: work
+        """)
+        let root = try LibraryLocator.resolve(explicit: nil, environment: [:], configURL: url)
+        XCTAssertEqual(root.path, "/path/b")
+    }
+
+    func testResolveLegacyFallbackWhenNoCurrent() throws {
+        let url = try writeConfig("""
+        library: /legacy/root
+        files:
+          work: /path/b
+        """)
+        let root = try LibraryLocator.resolve(explicit: nil, environment: [:], configURL: url)
+        XCTAssertEqual(root.path, "/legacy/root")
+    }
+
+    func testResolveInvalidCurrentThrows() throws {
+        let url = try writeConfig("""
+        files:
+          work: /path/b
+        current: ghost
+        """)
+        XCTAssertThrowsError(try LibraryLocator.resolve(explicit: nil, environment: [:], configURL: url),
+                             "current 指向不存在 key 擲錯，不靜默 fallback")
+    }
+
+    func testExplicitAndEnvStillWin() throws {
+        let url = try writeConfig("files:\n  work: /path/b\ncurrent: work\n")
+        XCTAssertEqual(try LibraryLocator.resolve(explicit: "/exp", environment: [:], configURL: url).path, "/exp")
+        XCTAssertEqual(try LibraryLocator.resolve(explicit: nil,
+                                                  environment: ["AKASHIC_LIBRARY": "/env"],
+                                                  configURL: url).path, "/env")
+    }
+}
+
+/// #18 verify R1：config 存在但不可讀 → 擲錯（不得當空 config 覆寫 registry）。
+extension MultiFileConfigTests {
+    func testUnreadableExistingConfigThrowsNotEmpty() throws {
+        let url = dir.appendingPathComponent("config.yaml")
+        // 寫入非 UTF-8 bytes：檔案存在但 .utf8 解不開
+        try Data([0xFF, 0xFE, 0x00, 0xD8]).write(to: url)
+        XCTAssertThrowsError(try AkashicConfig.read(from: url),
+                             "存在但讀不到 ≠ 空 config——防 RMW 靜默清空")
+    }
+}
+
+/// #18 Codex R1：parser 向後相容與 round-trip 加固。
+extension MultiFileConfigTests {
+    func testIndentedLegacyLibraryStillResolves() throws {
+        let url = try { let u = dir.appendingPathComponent("c6.yaml")
+            try "  library: /legacy/indented\n".write(to: u, atomically: true, encoding: .utf8); return u }()
+        let root = try LibraryLocator.resolve(explicit: nil, environment: [:], configURL: url)
+        XCTAssertEqual(root.path, "/legacy/indented", "舊版 trim 掃描接受縮排 library:——零改變")
+    }
+
+    func testCommentsSurviveRoundTrip() throws {
+        let url = dir.appendingPathComponent("c7.yaml")
+        try "# 我的註解\nlibrary: /x\n".write(to: url, atomically: true, encoding: .utf8)
+        var config = try AkashicConfig.read(from: url)
+        config.current = nil
+        try config.write(to: url)
+        let raw = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(raw.contains("# 我的註解"), "使用者註解不得在 RMW 中被丟棄")
+    }
+
+    func testQuotedValuesUnquoted() throws {
+        let url = dir.appendingPathComponent("c8.yaml")
+        try "library: \"/with space/lib\"\n".write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try AkashicConfig.read(from: url).library, "/with space/lib")
+    }
+}
+
+/// #18 Codex R2：inline comment、ENOENT 嚴格性、entries 目錄檢查。
+extension MultiFileConfigTests {
+    func testInlineCommentStrippedUnlessQuoted() throws {
+        let url = dir.appendingPathComponent("c9.yaml")
+        try """
+        library: /plain/path # 這是註解
+        files:
+          work: "/quoted/with #hash"
+        """.write(to: url, atomically: true, encoding: .utf8)
+        let config = try AkashicConfig.read(from: url)
+        XCTAssertEqual(config.library, "/plain/path", "unquoted 的 inline comment 要剝")
+        XCTAssertEqual(config.files["work"], "/quoted/with #hash", "quoted 內的 # 是字面值")
+    }
+
+    func testEntriesAsPlainFileIsNotLibraryRoot() throws {
+        let root = dir.appendingPathComponent("fake-root")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "file".write(to: root.appendingPathComponent("entries"), atomically: true, encoding: .utf8)
+        XCTAssertFalse(LibraryStore.isLibraryRoot(root), "entries 是普通檔案不算 library")
+        let real = dir.appendingPathComponent("real-root")
+        try LibraryStore(root: real).ensureLayout()
+        XCTAssertTrue(LibraryStore.isLibraryRoot(real))
+    }
+}
+
+/// #18 Codex R3：含「 #」值的 round-trip 對稱（writer 按需加引號）。
+extension MultiFileConfigTests {
+    func testValueWithHashRoundTripsThroughWrite() throws {
+        let url = dir.appendingPathComponent("c10.yaml")
+        var config = AkashicConfig()
+        config.files = ["work": "/tmp/a # b"]
+        config.library = "/lib with #hash"
+        try config.write(to: url)
+        let reread = try AkashicConfig.read(from: url)
+        XCTAssertEqual(reread.files["work"], "/tmp/a # b", "write→read 不得截斷")
+        XCTAssertEqual(reread.library, "/lib with #hash")
+        // 再寫再讀一輪（冪等）
+        try reread.write(to: url)
+        XCTAssertEqual(try AkashicConfig.read(from: url).files["work"], "/tmp/a # b")
+    }
+
+    func testQuotedValueFollowedByInlineComment() throws {
+        let url = dir.appendingPathComponent("c11.yaml")
+        try "library: \"/tmp/a # b\" # 真正的註解\n".write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try AkashicConfig.read(from: url).library, "/tmp/a # b",
+                       "引號內 # 字面值；引號後的 inline comment 忽略")
+    }
+}

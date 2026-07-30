@@ -158,3 +158,9 @@ note: 中研院統計所            # 可選
 **注意**：含 `libraries` 欄位的新檔在 v1.2 以前的 binaries 下會因 strict decode 被
 quarantine（單機單使用者、三面同 repo 同版釋出可接受；混版部署前先全面升級）。
 放寬為 tolerant-preserve 屬未來議題（涉及 round-trip 保真）。
+
+## 附註：多「檔案」（#18，config 層——不屬 store format）
+
+一份 config 可註冊多個實體 store root（`files:` registry＋`current:`）。**每個檔案
+內部完全遵守本文件的 store format**；檔案之間互不相通（無跨檔案 relations／people
+共用）。本節僅為指引——config schema 見 `docs/specs/2026-07-30-akashic-phase4c-multifile-design.md`。

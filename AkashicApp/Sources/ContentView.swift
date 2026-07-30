@@ -25,10 +25,15 @@ struct ContentView: View {
     @Environment(AppState.self) private var state
     @State private var section: SidebarSection = .library
     @State private var selectedCitekey: String?
+    /// #18：切換檔案（root view 注入,LaunchState 同步 rebind watcher）
+    var onSwitchFile: (String) -> Void = { _ in }
 
     var body: some View {
         NavigationSplitView {
-            SidebarView(section: $section)
+            SidebarView(section: $section, onSwitchFile: { key in
+                selectedCitekey = nil   // 舊 universe 的選取無意義
+                onSwitchFile(key)
+            })
         } content: {
             switch section {
             case .library:
@@ -59,6 +64,8 @@ struct ContentView: View {
 struct SidebarView: View {
     @Environment(AppState.self) private var state
     @Binding var section: SidebarSection
+    /// #18：切換檔案（由 root view 注入——需要同時 rebind FileWatcher）
+    var onSwitchFile: (String) -> Void = { _ in }
 
     var body: some View {
         List(selection: $section) {
@@ -77,6 +84,21 @@ struct SidebarView: View {
                           systemImage: "arrow.triangle.2.circlepath")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+            // #18 多檔案：實體庫切換（互不相通——切換即整個 universe 換掉）
+            if !state.availableFiles.isEmpty {
+                Section("檔案") {
+                    ForEach(state.availableFiles) { file in
+                        Button {
+                            onSwitchFile(file.key)
+                        } label: {
+                            Label(file.key, systemImage:
+                                    state.root.path == (file.path as NSString).expandingTildeInPath
+                                    ? "externaldrive.fill" : "externaldrive")
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
             // #13 多 library：具名成員集合視角切換（store 是全集，view 只過濾）

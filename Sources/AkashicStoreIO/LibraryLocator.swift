@@ -13,7 +13,7 @@ public enum LocatorError: Error, LocalizedError {
     }
 }
 
-/// Library root 解析：explicit → $AKASHIC_LIBRARY → ~/.akashic/config.yaml。
+/// Library root 解析：explicit → $AKASHIC_LIBRARY → config current+files → config library（legacy）。
 /// CLI 與 akashic-mcp 共用（config 驅動、無寫死路徑）。
 public enum LibraryLocator {
     public static func resolve(
@@ -28,17 +28,28 @@ public enum LibraryLocator {
         if let env = environment["AKASHIC_LIBRARY"], !env.isEmpty {
             return URL(fileURLWithPath: (env as NSString).expandingTildeInPath)
         }
-        if let content = try? String(contentsOf: configURL, encoding: .utf8) {
-            for line in content.split(separator: "\n") {
-                let parts = line.split(separator: ":", maxSplits: 1)
-                if parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces) == "library" {
-                    let path = parts[1].trimmingCharacters(in: .whitespaces)
-                    if !path.isEmpty {
-                        return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-                    }
-                }
+        let config = try AkashicConfig.read(from: configURL)
+        // #18 多檔案：current + files registry 優先於 legacy library
+        if let current = config.current {
+            guard let path = config.files[current] else {
+                throw ConfigError.invalidCurrent(current)
             }
+            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        }
+        if let path = config.library, !path.isEmpty {
+            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         }
         throw LocatorError.notConfigured
+    }
+}
+
+public extension LibraryStore {
+    /// 「這個 root 是可用的 Akashic library 嗎」——entries 必須存在**且是目錄**
+    /// （普通檔案冒充 entries 會過 fileExists，R2 #3）。三面（CLI/MCP/App）共用。
+    static func isLibraryRoot(_ root: URL) -> Bool {
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("entries").path, isDirectory: &isDir)
+        return exists && isDir.boolValue
     }
 }

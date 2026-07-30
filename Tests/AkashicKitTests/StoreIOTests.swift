@@ -430,3 +430,107 @@ extension RenameTests {
         XCTAssertEqual(renamed.akashic.libraries, ["sinica"])
     }
 }
+
+/// #18 多檔案：AkashicConfig parse/write + LibraryLocator registry resolution。
+final class MultiFileConfigTests: XCTestCase {
+    var dir: URL!
+
+    override func setUpWithError() throws {
+        dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-config-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    private func writeConfig(_ text: String) throws -> URL {
+        let url = dir.appendingPathComponent("config.yaml")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    func testParseFullSchema() throws {
+        let url = try writeConfig("""
+        library: /legacy/root
+        files:
+          main: /path/a
+          work: /path/b
+        current: work
+        """)
+        let config = try AkashicConfig.read(from: url)
+        XCTAssertEqual(config.library, "/legacy/root")
+        XCTAssertEqual(config.files, ["main": "/path/a", "work": "/path/b"])
+        XCTAssertEqual(config.current, "work")
+    }
+
+    func testParseLegacyOnlyUnchanged() throws {
+        let url = try writeConfig("library: /legacy/root\n")
+        let config = try AkashicConfig.read(from: url)
+        XCTAssertEqual(config.library, "/legacy/root")
+        XCTAssertTrue(config.files.isEmpty)
+        XCTAssertNil(config.current)
+    }
+
+    func testMalformedFileKeyThrows() throws {
+        let url = try writeConfig("files:\n  Bad_Key: /x\n")
+        XCTAssertThrowsError(try AkashicConfig.read(from: url), "file key 走 StoreKey 規則")
+    }
+
+    func testWriteRoundTripPreservesUnknownLines() throws {
+        let url = try writeConfig("""
+        library: /legacy/root
+        some_future_field: keep-me
+        """)
+        var config = try AkashicConfig.read(from: url)
+        config.files["work"] = "/path/b"
+        config.current = "work"
+        try config.write(to: url)
+        let reread = try AkashicConfig.read(from: url)
+        XCTAssertEqual(reread.files, ["work": "/path/b"])
+        XCTAssertEqual(reread.current, "work")
+        XCTAssertEqual(reread.library, "/legacy/root")
+        let raw = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(raw.contains("some_future_field: keep-me"), "未知頂層欄位保留")
+    }
+
+    func testResolveCurrentFileWins() throws {
+        let url = try writeConfig("""
+        library: /legacy/root
+        files:
+          work: /path/b
+        current: work
+        """)
+        let root = try LibraryLocator.resolve(explicit: nil, environment: [:], configURL: url)
+        XCTAssertEqual(root.path, "/path/b")
+    }
+
+    func testResolveLegacyFallbackWhenNoCurrent() throws {
+        let url = try writeConfig("""
+        library: /legacy/root
+        files:
+          work: /path/b
+        """)
+        let root = try LibraryLocator.resolve(explicit: nil, environment: [:], configURL: url)
+        XCTAssertEqual(root.path, "/legacy/root")
+    }
+
+    func testResolveInvalidCurrentThrows() throws {
+        let url = try writeConfig("""
+        files:
+          work: /path/b
+        current: ghost
+        """)
+        XCTAssertThrowsError(try LibraryLocator.resolve(explicit: nil, environment: [:], configURL: url),
+                             "current 指向不存在 key 擲錯，不靜默 fallback")
+    }
+
+    func testExplicitAndEnvStillWin() throws {
+        let url = try writeConfig("files:\n  work: /path/b\ncurrent: work\n")
+        XCTAssertEqual(try LibraryLocator.resolve(explicit: "/exp", environment: [:], configURL: url).path, "/exp")
+        XCTAssertEqual(try LibraryLocator.resolve(explicit: nil,
+                                                  environment: ["AKASHIC_LIBRARY": "/env"],
+                                                  configURL: url).path, "/env")
+    }
+}

@@ -36,6 +36,18 @@ public struct LibraryLoad {
         self.libraries = libraries
         self.quarantined = quarantined
     }
+
+    /// 含未知欄位（較新 schema 寫入）的檔案清單——#23 tolerant-preserve 的可見性面，
+    /// doctor / validate 據此提示升級 binary。檔名由 load 的 stem == key 不變式保證。
+    public var unknownFieldFiles: [String] {
+        var files: [String] = []
+        files += entries
+            .filter { !$0.unknownFields.isEmpty || !$0.akashic.unknownFields.isEmpty }
+            .map { "entries/\($0.citekey).yaml" }
+        files += people.filter { !$0.unknownFields.isEmpty }.map { "people/\($0.key).yaml" }
+        files += libraries.filter { !$0.unknownFields.isEmpty }.map { "libraries/\($0.key).yaml" }
+        return files.sorted()
+    }
 }
 
 /// 檔案為本的 library 存取層。canonical 是 entries/ 與 people/ 的 YAML；

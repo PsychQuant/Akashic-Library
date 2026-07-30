@@ -84,6 +84,23 @@ final class ServiceTests: XCTestCase {
         XCTAssertEqual(obj["entries"] as? Int, 2)
         XCTAssertEqual(obj["people"] as? Int, 1)
         XCTAssertEqual(obj["unresolvedAuthorLiterals"] as? Int, 2)
+        XCTAssertNil(obj["unknownFieldFiles"], "無未知欄位時不 emit（與 quarantined 同慣例）")
+    }
+
+    // #23 tolerant-preserve：doctor 對含未知欄位（較新 schema）的檔案給計數提示
+    func testDoctorReportsUnknownFieldFiles() throws {
+        let f = root.appendingPathComponent("people/future-person.yaml")
+        try """
+        key: future-person
+        names:
+          - Future Person
+        affiliations:
+          - organization: ISS
+        """.write(to: f, atomically: true, encoding: .utf8)
+        let obj = try json(try service.doctor()) as! [String: Any]
+        XCTAssertEqual(obj["people"] as? Int, 2, "新 schema 檔必須可用，不進 quarantine")
+        XCTAssertNil(obj["quarantined"])
+        XCTAssertEqual(obj["unknownFieldFiles"] as? [String], ["people/future-person.yaml"])
     }
 
     func testSetStatusPersistsAndReindexes() throws {

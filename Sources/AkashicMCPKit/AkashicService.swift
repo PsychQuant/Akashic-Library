@@ -139,6 +139,10 @@ public final class AkashicService {
         if !load.quarantined.isEmpty {
             d["quarantined"] = load.quarantined.map { ["file": $0.file, "reason": $0.reason] }
         }
+        // #23 tolerant-preserve：較新 schema 的檔案可用但應提示升級
+        if !load.unknownFieldFiles.isEmpty {
+            d["unknownFieldFiles"] = load.unknownFieldFiles
+        }
         return try jsonString(d)
     }
 

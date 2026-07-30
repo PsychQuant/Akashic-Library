@@ -34,6 +34,11 @@ struct Doctor: ParsableCommand {
             print("quarantined: \(load.quarantined.count)")
             load.quarantineLines.forEach { print($0) }
         }
+        // #23 tolerant-preserve：較新 schema 的檔案（未知欄位已保留）——提示升級
+        if !load.unknownFieldFiles.isEmpty {
+            print("unknown-field files: \(load.unknownFieldFiles.count)（可能由較新版本寫入；升級 binary）")
+            load.unknownFieldFiles.forEach { print("  ⚠ \($0)") }
+        }
     }
 }
 
@@ -57,6 +62,14 @@ struct Validate: ParsableCommand {
             for issue in issues {
                 let mark = issue.severity == .error ? "✗" : "⚠"
                 print("\(mark) \(entry.citekey): \(issue.message)")
+                if issue.severity == .error { failed = true }
+            }
+        }
+        // #23：person 層驗證（未知欄位 warning 不 fail——availability 優先，可見性保留）
+        for person in load.people {
+            for issue in person.validate() {
+                let mark = issue.severity == .error ? "✗" : "⚠"
+                print("\(mark) \(person.key): \(issue.message)")
                 if issue.severity == .error { failed = true }
             }
         }

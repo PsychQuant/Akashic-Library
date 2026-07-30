@@ -289,3 +289,23 @@ extension CLIIntegrationTests {
         XCTAssertNotEqual(r.status, 0, "use 指向消失的庫要拒絕（與 MCP/App 驗證一致）")
     }
 }
+
+/// #18 Codex R2：真正的相對路徑（不以 / 開頭）→ 入 config 必為絕對路徑。
+extension CLIIntegrationTests {
+    func testFileAddTrueRelativePathBecomesAbsolute() throws {
+        let configDir = try tmpDir("cfg6")
+        let config = configDir.appendingPathComponent("config.yaml").path
+        let relName = "akashic-rel-\(UUID().uuidString.prefix(8))"
+        defer { try? FileManager.default.removeItem(
+            at: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent(relName)) }
+        let r = try runCLI(["file", "add", "main", relName, "--config", config])
+        XCTAssertEqual(r.status, 0, r.stderr)
+        let saved = try String(contentsOf: URL(fileURLWithPath: config), encoding: .utf8)
+        let valueLine = saved.split(separator: "\n").first { $0.contains("main:") }.map(String.init) ?? ""
+        let value = valueLine.split(separator: ":", maxSplits: 1).last.map {
+            $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        XCTAssertTrue(value.hasPrefix("/"), "相對路徑入 config 必為絕對路徑：\(value)")
+        XCTAssertFalse(value.contains(".."), value)
+    }
+}

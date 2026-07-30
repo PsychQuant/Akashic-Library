@@ -92,9 +92,8 @@ struct FileUse: ParsableCommand {
         }
         // 與 MCP/App 一致的目標驗證（Codex R1 #7）：指過去必須是 library
         let target = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        guard FileManager.default.fileExists(
-            atPath: target.appendingPathComponent("entries").path) else {
-            throw ValidationError("「\(path)」不是 Akashic library（缺 entries/）。目錄被移走？file remove 後重加。")
+        guard LibraryStore.isLibraryRoot(target) else {
+            throw ValidationError("「\(path)」不是 Akashic library（缺 entries/ 目錄）。目錄被移走？file remove 後重加。")
         }
         config.current = key
         try config.write(to: options.configURL)

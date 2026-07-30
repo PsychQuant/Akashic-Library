@@ -36,17 +36,26 @@ public struct AkashicConfig: Equatable {
     /// 檔案存在但讀不到（權限/編碼）→ 擲錯——絕不能把暫時性讀失敗當空 config，
     /// 否則後續 read-modify-write 會整檔覆寫、靜默清空既有 registry（verify R1）。
     public static func read(from url: URL) throws -> AkashicConfig {
-        guard FileManager.default.fileExists(atPath: url.path) else {
+        let content: String
+        do {
+            content = try String(contentsOf: url, encoding: .utf8)
+        } catch let error as NSError
+            where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
+            // 嚴格只認「檔案不存在」；權限/編碼/其他讀失敗全部重拋（R2 #2）
             return AkashicConfig()
         }
-        let content = try String(contentsOf: url, encoding: .utf8)
         var config = AkashicConfig()
         var inFiles = false
         // 平面 YAML subset（documented）：頂層 key: value、files: 的一層縮排 mapping、
         // # 註解（保留於 unknownLines）。不支援 quoted 多行/anchor 等進階 YAML。
-        func unquote(_ s: String) -> String {
+        func cleanValue(_ raw: String) -> String {
+            var s = raw
+            // quoted：整段引號內容為值（含 #）；unquoted：「 #」起為 inline comment（R2）
             if s.count >= 2, (s.hasPrefix("\"") && s.hasSuffix("\"")) || (s.hasPrefix("'") && s.hasSuffix("'")) {
                 return String(s.dropFirst().dropLast())
+            }
+            if let range = s.range(of: " #") {
+                s = String(s[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
             }
             return s
         }
@@ -65,7 +74,7 @@ public struct AkashicConfig: Equatable {
                 let parts = trimmed.split(separator: ":", maxSplits: 1)
                 guard parts.count == 2 else { config.unknownLines.append(line); continue }
                 let key = parts[0].trimmingCharacters(in: .whitespaces)
-                let path = unquote(parts[1].trimmingCharacters(in: .whitespaces))
+                let path = cleanValue(parts[1].trimmingCharacters(in: .whitespaces))
                 guard StoreKey.isValid(key) else { throw ConfigError.invalidFileKey(key) }
                 if !path.isEmpty { config.files[key] = path }
                 continue
@@ -76,7 +85,7 @@ public struct AkashicConfig: Equatable {
             inFiles = false
             let parts = trimmed.split(separator: ":", maxSplits: 1)
             let key = parts.first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
-            let value = parts.count == 2 ? unquote(parts[1].trimmingCharacters(in: .whitespaces)) : ""
+            let value = parts.count == 2 ? cleanValue(parts[1].trimmingCharacters(in: .whitespaces)) : ""
             switch key {
             case "library": if !value.isEmpty { config.library = value }
             case "current": if !value.isEmpty { config.current = value }

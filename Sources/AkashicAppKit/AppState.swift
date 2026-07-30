@@ -58,8 +58,7 @@ public final class AppState {
             throw AppStateError.unknownFile(key)
         }
         let newRoot = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        guard FileManager.default.fileExists(
-            atPath: newRoot.appendingPathComponent("entries").path) else {
+        guard LibraryStore.isLibraryRoot(newRoot) else {
             throw AppStateError.notALibrary(path)
         }
         let oldRoot = root

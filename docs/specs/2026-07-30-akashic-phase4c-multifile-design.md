@@ -51,3 +51,7 @@ explicit 與 env 維持最高優先（自動化與測試的 escape hatch 不變�
 
 - 跨檔案搜尋／聯集視圖／跨檔案 relations／people 共用——未來要做是新設計題（新 issue）。
 - 檔案間搬移 entries——初版不做（可手動搬 YAML，store 契約自癒）。
+
+## Config YAML subset（documented limitation）
+
+config parser 為 hand-rolled **平面 subset**，只支援：頂層 `key: value`、`files:` 下一層縮排 mapping、整行 `#` 註解（RMW round-trip 保留）、unquoted value 的「` #`」inline comment、單雙引號包裹的 value（引號內 `#` 為字面值）。**不支援**多行字串、anchor/alias、巢狀超過一層、flow style——這些寫法會被誤解析或落入 unknownLines。config 是本系統自有檔案，請用 `akashic file` 指令維護而非手寫進階 YAML。讀取語意：檔案不存在（ENOENT）＝空 config；存在但讀不到（權限/編碼）＝擲錯（防 RMW 覆寫）。

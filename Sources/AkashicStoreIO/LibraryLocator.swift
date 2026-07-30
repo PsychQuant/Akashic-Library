@@ -42,3 +42,14 @@ public enum LibraryLocator {
         throw LocatorError.notConfigured
     }
 }
+
+public extension LibraryStore {
+    /// 「這個 root 是可用的 Akashic library 嗎」——entries 必須存在**且是目錄**
+    /// （普通檔案冒充 entries 會過 fileExists，R2 #3）。三面（CLI/MCP/App）共用。
+    static func isLibraryRoot(_ root: URL) -> Bool {
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("entries").path, isDirectory: &isDir)
+        return exists && isDir.boolValue
+    }
+}

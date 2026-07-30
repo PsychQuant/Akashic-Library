@@ -166,9 +166,8 @@ public final class AkashicService {
                 throw ServiceError.notFound("檔案 key「\(key)」（已註冊：\(known.isEmpty ? "無" : known)）")
             }
             let newRoot = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-            guard FileManager.default.fileExists(
-                atPath: newRoot.appendingPathComponent("entries").path) else {
-                throw ServiceError.invalid("「\(path)」不是 Akashic library（缺 entries/）")
+            guard LibraryStore.isLibraryRoot(newRoot) else {
+                throw ServiceError.invalid("「\(path)」不是 Akashic library（缺 entries/ 目錄）")
             }
             root = newRoot
             return try jsonString(["active_root": root.path, "key": key] as [String: Any])

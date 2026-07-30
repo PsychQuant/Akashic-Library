@@ -12,7 +12,7 @@ struct AkashicApp: App {
             case .ready(let state):
                 ContentView(onSwitchFile: { key in launch.switchFile(state, to: key) })
                     .environment(state)
-                    .alert("切換檔案失敗", isPresented: Binding(
+                    .alert("切換檔案", isPresented: Binding(
                         get: { launch.switchFileError != nil },
                         set: { if !$0 { launch.switchFileError = nil } })) {
                         Button("好") { launch.switchFileError = nil }
@@ -53,8 +53,17 @@ final class LaunchState {
     /// #18 多檔案：切換 root 後 FileWatcher 必須跟著 rebind 到新 universe 的目錄。
     /// 順序：先 start 新 watcher 再 stop 舊的——start 失敗時舊監看仍在（verify R1）。
     func switchFile(_ state: AppState, to key: String) {
+        // 兩段交易語意（R2 #1）：資料切換失敗 → state 已自行 rollback，報「切換失敗」；
+        // 資料切換成功但 watcher 起不來 → 維持新 universe，報「監看降級」警告（不是失敗）。
         do {
             try state.switchFile(key: key)
+        } catch {
+            switchFileError = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            return
+        }
+        watcher?.stop()   // 舊 watcher 監看舊 universe 目錄，已無意義
+        watcher = nil
+        do {
             let store = LibraryStore(root: state.root)
             let newWatcher = FileWatcher(directories: [store.entriesDir, store.peopleDir]) {
                 Task { @MainActor in
@@ -62,11 +71,9 @@ final class LaunchState {
                 }
             }
             try newWatcher.start()
-            watcher?.stop()
             self.watcher = newWatcher
         } catch {
-            // state.switchFile 已自行 rollback（root 與資料一致）；surface 給 UI
-            switchFileError = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            switchFileError = "已切換到「\(key)」，但外部變更監看未能啟動——外部編輯不會自動同步（重啟 App 可恢復）"
         }
     }
 

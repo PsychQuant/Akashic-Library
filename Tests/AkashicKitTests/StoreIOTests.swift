@@ -571,3 +571,28 @@ extension MultiFileConfigTests {
         XCTAssertEqual(try AkashicConfig.read(from: url).library, "/with space/lib")
     }
 }
+
+/// #18 Codex R2：inline comment、ENOENT 嚴格性、entries 目錄檢查。
+extension MultiFileConfigTests {
+    func testInlineCommentStrippedUnlessQuoted() throws {
+        let url = dir.appendingPathComponent("c9.yaml")
+        try """
+        library: /plain/path # 這是註解
+        files:
+          work: "/quoted/with #hash"
+        """.write(to: url, atomically: true, encoding: .utf8)
+        let config = try AkashicConfig.read(from: url)
+        XCTAssertEqual(config.library, "/plain/path", "unquoted 的 inline comment 要剝")
+        XCTAssertEqual(config.files["work"], "/quoted/with #hash", "quoted 內的 # 是字面值")
+    }
+
+    func testEntriesAsPlainFileIsNotLibraryRoot() throws {
+        let root = dir.appendingPathComponent("fake-root")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "file".write(to: root.appendingPathComponent("entries"), atomically: true, encoding: .utf8)
+        XCTAssertFalse(LibraryStore.isLibraryRoot(root), "entries 是普通檔案不算 library")
+        let real = dir.appendingPathComponent("real-root")
+        try LibraryStore(root: real).ensureLayout()
+        XCTAssertTrue(LibraryStore.isLibraryRoot(real))
+    }
+}

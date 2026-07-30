@@ -159,3 +159,25 @@ extension AppStateTests {
         XCTAssertThrowsError(try state.switchFile(key: "ghost"))
     }
 }
+
+/// #18 verify R1：switchFile 失敗 rollback（root 標籤與資料不可分離）。
+extension AppStateTests {
+    func testSwitchFileRollsBackWhenNewUniverseLoadFails() throws {
+        let rootA = try makeUniverse(citekey: "aaa2020first")
+        // rootB：entries 是「檔案」不是目錄——guard 過（fileExists true）但 load() 必炸
+        let rootB = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-app-broken-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: rootB, withIntermediateDirectories: true)
+        try "not a directory".write(to: rootB.appendingPathComponent("entries"),
+                                    atomically: true, encoding: .utf8)
+        let configURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-app-cfg-\(UUID().uuidString).yaml")
+        try AkashicConfig(files: ["a": rootA.path, "broken": rootB.path]).write(to: configURL)
+
+        let state = AppState(root: rootA, configURL: configURL)
+        try state.load()
+        XCTAssertThrowsError(try state.switchFile(key: "broken"))
+        XCTAssertEqual(state.root.path, rootA.path, "load 失敗 → root 回復舊 universe")
+        XCTAssertEqual(state.entries.map(\.citekey), ["aaa2020first"], "舊快照 best-effort 重載")
+    }
+}

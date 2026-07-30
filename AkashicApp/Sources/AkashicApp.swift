@@ -12,6 +12,13 @@ struct AkashicApp: App {
             case .ready(let state):
                 ContentView(onSwitchFile: { key in launch.switchFile(state, to: key) })
                     .environment(state)
+                    .alert("切換檔案失敗", isPresented: Binding(
+                        get: { launch.switchFileError != nil },
+                        set: { if !$0 { launch.switchFileError = nil } })) {
+                        Button("好") { launch.switchFileError = nil }
+                    } message: {
+                        Text(launch.switchFileError ?? "")
+                    }
             case .failed(let message):
                 ContentUnavailableView {
                     Label("找不到 Akashic library", systemImage: "books.vertical")
@@ -40,11 +47,14 @@ final class LaunchState {
     var phase: Phase = .loading
     private var watcher: FileWatcher?
 
+    /// #18 切換失敗的 UI surface（alert 用）。
+    var switchFileError: String?
+
     /// #18 多檔案：切換 root 後 FileWatcher 必須跟著 rebind 到新 universe 的目錄。
+    /// 順序：先 start 新 watcher 再 stop 舊的——start 失敗時舊監看仍在（verify R1）。
     func switchFile(_ state: AppState, to key: String) {
         do {
             try state.switchFile(key: key)
-            watcher?.stop()
             let store = LibraryStore(root: state.root)
             let newWatcher = FileWatcher(directories: [store.entriesDir, store.peopleDir]) {
                 Task { @MainActor in
@@ -52,9 +62,11 @@ final class LaunchState {
                 }
             }
             try newWatcher.start()
+            watcher?.stop()
             self.watcher = newWatcher
         } catch {
-            // 切換失敗（config 壞/目錄不在）：state 未變或已擲回,維持現況即可
+            // state.switchFile 已自行 rollback（root 與資料一致）；surface 給 UI
+            switchFileError = (error as? LocalizedError)?.errorDescription ?? "\(error)"
         }
     }
 

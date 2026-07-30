@@ -62,6 +62,7 @@ public final class AppState {
             atPath: newRoot.appendingPathComponent("entries").path) else {
             throw AppStateError.notALibrary(path)
         }
+        let oldRoot = root
         root = newRoot
         searchText = ""
         filterType = nil
@@ -69,7 +70,15 @@ public final class AppState {
         filterJournal = nil
         filterLibrary = nil
         skippedPeopleCandidates = []
-        try load()
+        do {
+            try load()
+        } catch {
+            // rollback：root 標籤與資料不可分離（verify R1 MEDIUM）——
+            // 新 universe 載入失敗就回到舊 universe，best-effort 重載舊快照
+            root = oldRoot
+            try? load()
+            throw error
+        }
     }
 
     var store: LibraryStore { LibraryStore(root: root) }

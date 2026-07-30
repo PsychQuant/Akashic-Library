@@ -534,3 +534,14 @@ final class MultiFileConfigTests: XCTestCase {
                                                   configURL: url).path, "/env")
     }
 }
+
+/// #18 verify R1：config 存在但不可讀 → 擲錯（不得當空 config 覆寫 registry）。
+extension MultiFileConfigTests {
+    func testUnreadableExistingConfigThrowsNotEmpty() throws {
+        let url = dir.appendingPathComponent("config.yaml")
+        // 寫入非 UTF-8 bytes：檔案存在但 .utf8 解不開
+        try Data([0xFF, 0xFE, 0x00, 0xD8]).write(to: url)
+        XCTAssertThrowsError(try AkashicConfig.read(from: url),
+                             "存在但讀不到 ≠ 空 config——防 RMW 靜默清空")
+    }
+}

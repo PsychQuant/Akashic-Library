@@ -33,10 +33,13 @@ public struct AkashicConfig: Equatable {
     }
 
     /// 檔案不存在 → 空 config（首次 `file add` 的正常起點）。
+    /// 檔案存在但讀不到（權限/編碼）→ 擲錯——絕不能把暫時性讀失敗當空 config，
+    /// 否則後續 read-modify-write 會整檔覆寫、靜默清空既有 registry（verify R1）。
     public static func read(from url: URL) throws -> AkashicConfig {
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else {
+        guard FileManager.default.fileExists(atPath: url.path) else {
             return AkashicConfig()
         }
+        let content = try String(contentsOf: url, encoding: .utf8)
         var config = AkashicConfig()
         var inFiles = false
         for rawLine in content.split(separator: "\n", omittingEmptySubsequences: false) {

@@ -42,27 +42,41 @@ public struct AkashicConfig: Equatable {
         let content = try String(contentsOf: url, encoding: .utf8)
         var config = AkashicConfig()
         var inFiles = false
+        // 平面 YAML subset（documented）：頂層 key: value、files: 的一層縮排 mapping、
+        // # 註解（保留於 unknownLines）。不支援 quoted 多行/anchor 等進階 YAML。
+        func unquote(_ s: String) -> String {
+            if s.count >= 2, (s.hasPrefix("\"") && s.hasSuffix("\"")) || (s.hasPrefix("'") && s.hasSuffix("'")) {
+                return String(s.dropFirst().dropLast())
+            }
+            return s
+        }
         for rawLine in content.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine)
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
+            if trimmed.isEmpty { continue }
+            if trimmed.hasPrefix("#") {
+                // 註解保留（round-trip 不丟使用者手寫內容；位置歸尾端，內容不失）
+                config.unknownLines.append(line)
+                continue
+            }
 
-            if line.first == " " || line.first == "\t" {
-                // 縮排行：只在 files: 區塊內有意義
-                guard inFiles else { config.unknownLines.append(line); continue }
+            if (line.first == " " || line.first == "\t") && inFiles {
+                // files: 區塊內的一層縮排 mapping
                 let parts = trimmed.split(separator: ":", maxSplits: 1)
                 guard parts.count == 2 else { config.unknownLines.append(line); continue }
                 let key = parts[0].trimmingCharacters(in: .whitespaces)
-                let path = parts[1].trimmingCharacters(in: .whitespaces)
+                let path = unquote(parts[1].trimmingCharacters(in: .whitespaces))
                 guard StoreKey.isValid(key) else { throw ConfigError.invalidFileKey(key) }
                 if !path.isEmpty { config.files[key] = path }
                 continue
             }
 
+            // 頂層（含縮排的頂層 key——舊版 locator 對 library: 做 trim 掃描，
+            // 縮排寫法曾是合法的；維持向後相容，Codex R1 #6）
             inFiles = false
             let parts = trimmed.split(separator: ":", maxSplits: 1)
             let key = parts.first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
-            let value = parts.count == 2 ? parts[1].trimmingCharacters(in: .whitespaces) : ""
+            let value = parts.count == 2 ? unquote(parts[1].trimmingCharacters(in: .whitespaces)) : ""
             switch key {
             case "library": if !value.isEmpty { config.library = value }
             case "current": if !value.isEmpty { config.current = value }

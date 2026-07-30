@@ -8,7 +8,7 @@ import AkashicStoreIO
 struct FileCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "file",
-        abstract: "管理多個實體庫（檔案）：list / add / remove / use",
+        abstract: "管理多個實體庫（檔案）：list / add / remove / use。config 寫入為 read-modify-write、無跨程序鎖（單機單使用者；並發寫最後寫者勝）",
         subcommands: [FileList.self, FileAdd.self, FileRemove.self, FileUse.self])
 }
 
@@ -61,12 +61,19 @@ struct FileAdd: ParsableCommand {
         guard config.files[key] == nil else {
             throw ValidationError("key「\(key)」已存在（→ \(config.files[key]!)）。先 file remove 再重加。")
         }
+        // 正規化為絕對路徑後才入 config——相對路徑會依各程序 CWD 指向不同
+        // universe（CLI/App/launchd 起的 MCP 各有各的 CWD，Codex R1 #3）
         let expanded = (path as NSString).expandingTildeInPath
-        let root = URL(fileURLWithPath: expanded)
-        try LibraryStore(root: root).ensureLayout()
-        config.files[key] = expanded
+        let absolute = URL(fileURLWithPath: expanded).standardizedFileURL.path
+        if let existing = config.files.first(where: {
+            URL(fileURLWithPath: ($0.value as NSString).expandingTildeInPath).standardizedFileURL.path == absolute
+        }) {
+            throw ValidationError("路徑已由 key「\(existing.key)」註冊（同一實體庫不重複註冊——檔案間互不相通）")
+        }
+        try LibraryStore(root: URL(fileURLWithPath: absolute)).ensureLayout()
+        config.files[key] = absolute
         try config.write(to: options.configURL)
-        print("✓ 已註冊「\(key)」→ \(expanded)（layout 已確保；用 file use \(key) 切換）")
+        print("✓ 已註冊「\(key)」→ \(absolute)（layout 已確保；用 file use \(key) 切換）")
     }
 }
 
@@ -82,6 +89,12 @@ struct FileUse: ParsableCommand {
         guard let path = config.files[key] else {
             let known = config.files.keys.sorted().joined(separator: ", ")
             throw ValidationError("key「\(key)」未註冊。已註冊：\(known.isEmpty ? "（無）" : known)")
+        }
+        // 與 MCP/App 一致的目標驗證（Codex R1 #7）：指過去必須是 library
+        let target = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        guard FileManager.default.fileExists(
+            atPath: target.appendingPathComponent("entries").path) else {
+            throw ValidationError("「\(path)」不是 Akashic library（缺 entries/）。目錄被移走？file remove 後重加。")
         }
         config.current = key
         try config.write(to: options.configURL)

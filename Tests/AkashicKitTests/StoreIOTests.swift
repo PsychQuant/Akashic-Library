@@ -545,3 +545,29 @@ extension MultiFileConfigTests {
                              "存在但讀不到 ≠ 空 config——防 RMW 靜默清空")
     }
 }
+
+/// #18 Codex R1：parser 向後相容與 round-trip 加固。
+extension MultiFileConfigTests {
+    func testIndentedLegacyLibraryStillResolves() throws {
+        let url = try { let u = dir.appendingPathComponent("c6.yaml")
+            try "  library: /legacy/indented\n".write(to: u, atomically: true, encoding: .utf8); return u }()
+        let root = try LibraryLocator.resolve(explicit: nil, environment: [:], configURL: url)
+        XCTAssertEqual(root.path, "/legacy/indented", "舊版 trim 掃描接受縮排 library:——零改變")
+    }
+
+    func testCommentsSurviveRoundTrip() throws {
+        let url = dir.appendingPathComponent("c7.yaml")
+        try "# 我的註解\nlibrary: /x\n".write(to: url, atomically: true, encoding: .utf8)
+        var config = try AkashicConfig.read(from: url)
+        config.current = nil
+        try config.write(to: url)
+        let raw = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(raw.contains("# 我的註解"), "使用者註解不得在 RMW 中被丟棄")
+    }
+
+    func testQuotedValuesUnquoted() throws {
+        let url = dir.appendingPathComponent("c8.yaml")
+        try "library: \"/with space/lib\"\n".write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try AkashicConfig.read(from: url).library, "/with space/lib")
+    }
+}

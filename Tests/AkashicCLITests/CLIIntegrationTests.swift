@@ -261,3 +261,31 @@ extension CLIIntegrationTests {
         XCTAssertNotEqual(r.status, 0)
     }
 }
+
+/// #18 Codex R1：CLI file 加固（絕對路徑、重複 path、use 驗證）。
+extension CLIIntegrationTests {
+    func testFileAddNormalizesRelativePathAndRejectsDuplicatePath() throws {
+        let configDir = try tmpDir("cfg4")
+        let config = configDir.appendingPathComponent("config.yaml").path
+        let rootA = try tmpDir("rootRel")
+        // 相對路徑（借 CWD 無法穩定控制 process CWD——用含 .. 的路徑驗 standardize）
+        let messy = rootA.path + "/../" + rootA.lastPathComponent
+        var r = try runCLI(["file", "add", "main", messy, "--config", config])
+        XCTAssertEqual(r.status, 0, r.stderr)
+        let saved = try String(contentsOf: URL(fileURLWithPath: config), encoding: .utf8)
+        XCTAssertFalse(saved.contains(".."), "入 config 的路徑必須 standardize：\(saved)")
+        // 同一實體 root 換個 key 再註冊 → 拒絕
+        r = try runCLI(["file", "add", "alias", rootA.path, "--config", config])
+        XCTAssertNotEqual(r.status, 0, "重複 path 拒絕（互不相通）")
+    }
+
+    func testFileUseRejectsVanishedTarget() throws {
+        let configDir = try tmpDir("cfg5")
+        let config = configDir.appendingPathComponent("config.yaml").path
+        let root = try tmpDir("rootGone")
+        _ = try runCLI(["file", "add", "main", root.path, "--config", config])
+        try FileManager.default.removeItem(at: root)   // 目錄被搬走
+        let r = try runCLI(["file", "use", "main", "--config", config])
+        XCTAssertNotEqual(r.status, 0, "use 指向消失的庫要拒絕（與 MCP/App 驗證一致）")
+    }
+}

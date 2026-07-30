@@ -596,3 +596,27 @@ extension MultiFileConfigTests {
         XCTAssertTrue(LibraryStore.isLibraryRoot(real))
     }
 }
+
+/// #18 Codex R3：含「 #」值的 round-trip 對稱（writer 按需加引號）。
+extension MultiFileConfigTests {
+    func testValueWithHashRoundTripsThroughWrite() throws {
+        let url = dir.appendingPathComponent("c10.yaml")
+        var config = AkashicConfig()
+        config.files = ["work": "/tmp/a # b"]
+        config.library = "/lib with #hash"
+        try config.write(to: url)
+        let reread = try AkashicConfig.read(from: url)
+        XCTAssertEqual(reread.files["work"], "/tmp/a # b", "write→read 不得截斷")
+        XCTAssertEqual(reread.library, "/lib with #hash")
+        // 再寫再讀一輪（冪等）
+        try reread.write(to: url)
+        XCTAssertEqual(try AkashicConfig.read(from: url).files["work"], "/tmp/a # b")
+    }
+
+    func testQuotedValueFollowedByInlineComment() throws {
+        let url = dir.appendingPathComponent("c11.yaml")
+        try "library: \"/tmp/a # b\" # 真正的註解\n".write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try AkashicConfig.read(from: url).library, "/tmp/a # b",
+                       "引號內 # 字面值；引號後的 inline comment 忽略")
+    }
+}

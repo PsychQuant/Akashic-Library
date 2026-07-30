@@ -49,15 +49,18 @@ public struct AkashicConfig: Equatable {
         // 平面 YAML subset（documented）：頂層 key: value、files: 的一層縮排 mapping、
         // # 註解（保留於 unknownLines）。不支援 quoted 多行/anchor 等進階 YAML。
         func cleanValue(_ raw: String) -> String {
-            var s = raw
-            // quoted：整段引號內容為值（含 #）；unquoted：「 #」起為 inline comment（R2）
-            if s.count >= 2, (s.hasPrefix("\"") && s.hasSuffix("\"")) || (s.hasPrefix("'") && s.hasSuffix("'")) {
-                return String(s.dropFirst().dropLast())
+            // quoted：讀到配對收尾引號為止（引號內 # 為字面值；引號後可跟 inline comment）；
+            // unquoted：「 #」起為 inline comment（R2/R3——與 writer 的按需加引號對稱）
+            if let q = raw.first, q == "\"" || q == "'" {
+                let body = raw.dropFirst()
+                if let end = body.firstIndex(of: q) {
+                    return String(body[..<end])
+                }
             }
-            if let range = s.range(of: " #") {
-                s = String(s[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+            if let range = raw.range(of: " #") {
+                return String(raw[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
             }
-            return s
+            return raw
         }
         for rawLine in content.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine)
@@ -96,17 +99,29 @@ public struct AkashicConfig: Equatable {
         return config
     }
 
+    /// 值含「 #」/首尾空白/引號起頭時按需加引號——與 parser 的 cleanValue 對稱，
+    /// round-trip 不截斷（R3）。引號字元挑值裡沒有的那種；兩種都有屬病態路徑，
+    /// 落 documented limitation（spec YAML subset 段）。
+    static func serializeScalar(_ value: String) -> String {
+        let needsQuoting = value.contains(" #") || value.hasPrefix("\"") || value.hasPrefix("'")
+            || value != value.trimmingCharacters(in: .whitespaces)
+        guard needsQuoting else { return value }
+        if !value.contains("\"") { return "\"\(value)\"" }
+        if !value.contains("'") { return "'\(value)'" }
+        return "\"\(value)\""   // 病態（同時含兩種引號）：documented limitation
+    }
+
     /// 整檔重寫：library → files（key 排序）→ current → 未知行（保序附尾）。
     public func write(to url: URL) throws {
         var lines: [String] = []
-        if let library { lines.append("library: \(library)") }
+        if let library { lines.append("library: \(Self.serializeScalar(library))") }
         if !files.isEmpty {
             lines.append("files:")
             for key in files.keys.sorted() {
-                lines.append("  \(key): \(files[key]!)")
+                lines.append("  \(key): \(Self.serializeScalar(files[key]!))")
             }
         }
-        if let current { lines.append("current: \(current)") }
+        if let current { lines.append("current: \(Self.serializeScalar(current))") }
         lines.append(contentsOf: unknownLines)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)

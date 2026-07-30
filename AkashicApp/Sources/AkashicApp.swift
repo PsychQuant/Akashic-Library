@@ -51,7 +51,6 @@ final class LaunchState {
     var switchFileError: String?
 
     /// #18 多檔案：切換 root 後 FileWatcher 必須跟著 rebind 到新 universe 的目錄。
-    /// 順序：先 start 新 watcher 再 stop 舊的——start 失敗時舊監看仍在（verify R1）。
     func switchFile(_ state: AppState, to key: String) {
         // 兩段交易語意（R2 #1）：資料切換失敗 → state 已自行 rollback，報「切換失敗」；
         // 資料切換成功但 watcher 起不來 → 維持新 universe，報「監看降級」警告（不是失敗）。

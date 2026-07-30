@@ -15,7 +15,7 @@ actor AkashicMCPServer {
         service = AkashicService(root: root)
         server = Server(
             name: "akashic-mcp",
-            version: "0.1.0",
+            version: "0.2.0",
             capabilities: .init(tools: .init()))
         transport = StdioTransport()
     }

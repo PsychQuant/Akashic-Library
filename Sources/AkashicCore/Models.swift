@@ -245,6 +245,22 @@ extension Entry {
     }
 }
 
+extension Library {
+    public func validate() -> [ValidationIssue] {
+        var issues: [ValidationIssue] = []
+        if !StoreKey.isValid(key) {
+            issues.append(ValidationIssue(
+                severity: .error,
+                message: "library key '\(key)' 不符合 \(StoreKey.pattern)"))
+        }
+        for f in unknownFields {
+            issues.append(ValidationIssue(severity: .warning,
+                message: "未知欄位「\(f.key)」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+        }
+        return issues
+    }
+}
+
 extension Person {
     public func validate() -> [ValidationIssue] {
         var issues: [ValidationIssue] = []

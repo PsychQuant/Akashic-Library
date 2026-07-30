@@ -140,18 +140,62 @@ public enum EntryYAML {
                 throw StoreYAMLError.invalidField(context, "非字串鍵")
             }
             if !known.contains(k) {
-                unknowns.append(UnknownField(
-                    key: k, yaml: try Yams.serialize(node: value, allowUnicode: true)))
+                // merge key 語意在 parser 間分歧（且寫回會讓自家檔案帶 `<<`）——
+                // 不入 tolerant 範圍，reject → load 層 quarantine（verify R1 F2）
+                if k == "<<" {
+                    throw StoreYAMLError.invalidField(
+                        context, "merge key「<<」不入 tolerant 範圍（見 docs/store-format.md §5）")
+                }
+                // alias 展開防線：serialize 會把 anchor/alias 展開，指數級別的
+                // alias 炸彈（數百 B → 數百 MB）必須在 serialize 前以預算走訪擋下
+                var budget = 10_000
+                try checkNodeBudget(value, budget: &budget, context: context, key: k)
+                var yaml = try Yams.serialize(node: value, allowUnicode: true)
+                // implicit-null（`foo:`）序列化為空文件，encode 端 compose 會回 nil——
+                // 正規化為顯式 null，讓 round-trip 成立（verify R1 F1）
+                if yaml.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    yaml = "null\n"
+                }
+                unknowns.append(UnknownField(key: k, yaml: yaml))
             }
         }
         return unknowns
     }
 
-    /// 未知欄位寫回（encode 端）。compose 失敗＝保留載體毀損——throw，不靜默丟。
+    /// 展開後節點數預算走訪：alias 共享子樹會被重複計數（這正是展開成本），
+    /// 超限 throw（→ load 層 quarantine），O(budget) 內結束、不實體化字串。
+    private static func checkNodeBudget(_ node: Yams.Node, budget: inout Int,
+                                        context: String, key: String) throws {
+        budget -= 1
+        if budget <= 0 {
+            throw StoreYAMLError.invalidField(
+                context, "未知欄位「\(key)」的子樹超出保留預算（alias 展開炸彈或病態巨樹）")
+        }
+        switch node {
+        case .mapping(let m):
+            for (k, v) in m {
+                try checkNodeBudget(k, budget: &budget, context: context, key: key)
+                try checkNodeBudget(v, budget: &budget, context: context, key: key)
+            }
+        case .sequence(let s):
+            for v in s {
+                try checkNodeBudget(v, budget: &budget, context: context, key: key)
+            }
+        case .scalar:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    /// 未知欄位寫回（encode 端）。whitespace-only payload 視為 null（縱深防禦，
+    /// 對應 capture 端正規化）；compose 失敗＝保留載體毀損——throw，不靜默丟。
     static func appendUnknownFields(_ fields: [UnknownField],
                                     to pairs: inout [(Node, Node)]) throws {
         for f in fields {
-            guard let node = try Yams.compose(yaml: f.yaml) else {
+            let payload = f.yaml.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "null" : f.yaml
+            guard let node = try Yams.compose(yaml: payload) else {
                 throw StoreYAMLError.invalidField("unknownFields", "無法還原保留欄位「\(f.key)」")
             }
             pairs.append((Node(f.key), node))

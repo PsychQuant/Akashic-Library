@@ -65,7 +65,7 @@ struct Validate: ParsableCommand {
                 if issue.severity == .error { failed = true }
             }
         }
-        // #23：person 層驗證（未知欄位 warning 不 fail——availability 優先，可見性保留）
+        // #23：person / library 層驗證（未知欄位 warning 不 fail——availability 優先，可見性保留）
         for person in load.people {
             for issue in person.validate() {
                 let mark = issue.severity == .error ? "✗" : "⚠"
@@ -73,10 +73,17 @@ struct Validate: ParsableCommand {
                 if issue.severity == .error { failed = true }
             }
         }
+        for library in load.libraries {
+            for issue in library.validate() {
+                let mark = issue.severity == .error ? "✗" : "⚠"
+                print("\(mark) \(library.key): \(issue.message)")
+                if issue.severity == .error { failed = true }
+            }
+        }
         if failed {
             throw ExitCode(1)
         }
-        print("✓ \(load.entries.count) entries、\(load.people.count) people 全部通過")
+        print("✓ \(load.entries.count) entries、\(load.people.count) people、\(load.libraries.count) libraries 全部通過")
     }
 }
 

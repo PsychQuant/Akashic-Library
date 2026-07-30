@@ -94,6 +94,24 @@ final class CLIIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
     }
 
+    // #23 tolerant-preserve E2E（verify R1 F5）：較新 schema 的 person 檔——
+    // validate 給 warning 但 exit 0（availability 優先）、doctor 列 unknown-field files
+    func testValidateToleratesFutureSchemaWithWarning() throws {
+        try """
+        key: future-one
+        names:
+          - Future One
+        affiliations:
+          - organization: ISS
+        """.write(to: libraryRoot.appendingPathComponent("people/future-one.yaml"),
+                  atomically: true, encoding: .utf8)
+        let result = try runCLI(["validate"] + lib)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("未知欄位「affiliations」"), result.stdout)
+        let doctor = try runCLI(["doctor"] + lib)
+        XCTAssertTrue(doctor.stdout.contains("unknown-field files: 1"), doctor.stdout)
+    }
+
     func testValidateFailsOnQuarantine() throws {
         try "not: a valid entry\n".write(
             to: libraryRoot.appendingPathComponent("entries/broken.yaml"),

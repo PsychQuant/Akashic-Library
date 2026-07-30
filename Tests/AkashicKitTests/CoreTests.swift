@@ -279,6 +279,55 @@ final class ForwardCompatTests: XCTestCase {
         XCTAssertFalse(meta.isEmpty)
     }
 
+    // verify R1 F1（#23）：implicit-null 未知欄位（`foo:` 空值）必須可 round-trip——
+    // 先前 decode 成功但 encode throw，讓該筆記錄「讀得到但永遠寫不回」
+    func testImplicitNullUnknownFieldRoundTrips() throws {
+        let person = try PersonYAML.decode("key: a\nnames: [A]\naffiliations:\n")
+        XCTAssertEqual(person.unknownFields.map(\.key), ["affiliations"])
+        let reencoded = try PersonYAML.encode(person)          // 先前在此 throw
+        let decoded = try PersonYAML.decode(reencoded)
+        XCTAssertEqual(decoded.unknownFields.map(\.key), ["affiliations"])
+        // entry 頂層與 akashic nested 同型
+        let eYaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        rating:
+        akashic:
+          reading_progress:
+        """
+        let entry = try EntryYAML.decode(eYaml)
+        let entry2 = try EntryYAML.decode(try EntryYAML.encode(entry))   // 先前在此 throw
+        XCTAssertEqual(entry2.unknownFields.map(\.key), ["rating"])
+        XCTAssertEqual(entry2.akashic.unknownFields.map(\.key), ["reading_progress"])
+    }
+
+    // verify R1 F2（#23）：alias 炸彈（深層 anchor/alias 指數展開）不得進入 tolerant 路徑——
+    // node-budget 超限 → decode throw → load 層 quarantine（恢復 v1.2 式保護）
+    func testAliasBombUnknownFieldRejected() {
+        var yaml = "key: a\nnames: [A]\nbomb:\n  a0: &a0 [x, x, x, x, x, x, x, x, x]\n"
+        for i in 1...8 {
+            yaml += "  a\(i): &a\(i) [*a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1)]\n"
+        }
+        XCTAssertThrowsError(try PersonYAML.decode(yaml),
+                             "指數展開的未知子樹必須被 budget guard 擋下，不得 serialize")
+    }
+
+    // verify R1 F2（#23）：merge key `<<` 語意在 parser 間分歧，不入 tolerant 範圍
+    func testMergeKeyUnknownFieldRejected() {
+        let yaml = "key: a\nnames: [A]\n<<: {orcid: smuggled}\n"
+        XCTAssertThrowsError(try PersonYAML.decode(yaml))
+    }
+
+    // verify R1 F3（#23）：§5 MUST 3 的第三層——library 的未知欄位要有 validate warning
+    func testLibraryValidateWarnsOnUnknownFields() throws {
+        let lib = try LibraryYAML.decode("key: sinica\nname: 中研院\ncolor: blue\n")
+        let issues = lib.validate()
+        XCTAssertTrue(issues.contains { $0.severity == .warning && $0.message.contains("color") })
+        XCTAssertFalse(issues.contains { $0.severity == .error })
+    }
+
     func testPersonValidateWarnsOnUnknownFields() throws {
         let person = try PersonYAML.decode("key: a\nnames: [A]\nemail: x@y.z\n")
         let issues = person.validate()

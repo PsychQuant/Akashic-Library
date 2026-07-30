@@ -1,4 +1,4 @@
-# Akashic Store 格式規格書（v1.2，#13 多 library 修訂）
+# Akashic Store 格式規格書（v1.3，#23 tolerant-preserve 修訂）
 
 Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版；
 實作＝`AkashicCore`（型別/YAML/citekey）＋ `AkashicStoreIO`（讀寫）。
@@ -175,10 +175,19 @@ note: 中研院統計所            # 可選
 由該層容忍涵蓋）。
 
 **接受的 trade-off**：typo 偵錯從 hard-reject 降為 warning——`orcidd:` 這類打錯
-不再擋下，由 validate / doctor 的 warning 保持可見。
+不再擋下，由 validate / doctor 的 warning 保持可見。此外容忍的是 **key** 層級；
+已知欄位「形狀不符」（如 `names` 非 sequence）的既有靜默行為不在本節範圍。
 
-**適用邊界**：tolerant-preserve 只涵蓋 **additive** 演化（新增欄位）。欄位語意
-變更或刪除（non-additive）不在保護範圍——見 #24（format version marker）。
+**保真邊界（normative，verify R1）**——「原樣寫回」的精確語意是 **YAML 語意等價**，
+非 byte 等價：
+
+- **implicit null 正規化**：`foo:`（空值）保留為 `foo: null`（否則空 payload 無法還原）。
+- **anchor / alias 展開**：未知子樹內的 `&anchor` / `*alias` 在寫回時展開為實體內容
+  （YAML 語意不變、byte 結構不保留）。防炸彈：未知子樹展開後節點數超出預算
+  （10,000）→ decode 錯誤 → 檔案 quarantine（恢復 v1.2 式保護）。
+- **merge key `<<` 不入 tolerant 範圍**：parser 間語意分歧、寫回會讓自家檔案攜帶
+  merge 語意——一律 decode 錯誤 → quarantine。
+- **欄位重排**：未知欄位一律 append 到 mapping 尾端；flow style 正規化為 block style。
 
 ## 附註：多「檔案」（#18，config 層——不屬 store format）
 

@@ -86,6 +86,42 @@ final class StoreIOTests: XCTestCase {
         XCTAssertTrue(load.people.isEmpty)
         XCTAssertTrue(load.quarantined.isEmpty)
     }
+
+    // #23：新 schema person 檔（未知欄位）不再 quarantine——person 可用、欄位保留
+    func testLoadToleratesFutureSchemaPersonFile() throws {
+        let f = root.appendingPathComponent("people/future-one.yaml")
+        try """
+        key: future-one
+        names:
+          - Future One
+        affiliations:
+          - organization: ISS
+        """.write(to: f, atomically: true, encoding: .utf8)
+        let load = try store.load()
+        XCTAssertTrue(load.quarantined.isEmpty, "未知欄位不該進 quarantine（#23 tolerant-preserve）")
+        XCTAssertEqual(load.people.map(\.key), ["future-one"])
+        XCTAssertEqual(load.people.first?.unknownFields.map(\.key), ["affiliations"])
+    }
+
+    // #23：容忍的另一半——read-modify-write 不得剝掉未知欄位（資料毀損防線）
+    func testWritePersonPreservesUnknownFieldsOnDisk() throws {
+        let f = root.appendingPathComponent("people/future-two.yaml")
+        try """
+        key: future-two
+        names:
+          - Future Two
+        facts:
+          - kind: rank
+            value: 研究員
+        """.write(to: f, atomically: true, encoding: .utf8)
+        var person = try store.load().people.first(where: { $0.key == "future-two" })!
+        person.note = "edited by old binary"          // 舊 binary 的合法編輯
+        _ = try store.writePerson(person)
+        let text = try String(contentsOf: f, encoding: .utf8)
+        XCTAssertTrue(text.contains("edited by old binary"))
+        XCTAssertTrue(text.contains("facts"), "寫回時未知欄位必須保留")
+        XCTAssertTrue(text.contains("研究員"))
+    }
 }
 
 extension StoreIOTests {

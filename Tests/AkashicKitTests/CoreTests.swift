@@ -164,8 +164,9 @@ final class PersonYAMLTests: XCTestCase {
 }
 
 final class StrictSchemaTests: XCTestCase {
-    // store-format §5：未知欄位＝decode 錯誤（防 re-encode 靜默資料流失）
-    func testUnknownTopLevelKeyRejected() {
+    // store-format §5 v1.3（#23）：頂層與 akashic 的未知欄位＝容忍 + round-trip 保留
+    // （tolerant-preserve）。strict 只保留在 closed shape（authors / provenance / relations）。
+    func testUnknownTopLevelKeyToleratedAndPreserved() throws {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
@@ -173,10 +174,13 @@ final class StrictSchemaTests: XCTestCase {
         title: T
         rating: 5
         """
-        XCTAssertThrowsError(try EntryYAML.decode(yaml))
+        let entry = try EntryYAML.decode(yaml)
+        XCTAssertEqual(entry.unknownFields.map(\.key), ["rating"])
+        let decoded = try EntryYAML.decode(try EntryYAML.encode(entry))
+        XCTAssertEqual(decoded, entry, "round-trip 必須保留未知欄位（資料毀損防線）")
     }
 
-    func testUnknownAkashicKeyRejected() {
+    func testUnknownAkashicKeyToleratedAndPreserved() throws {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
@@ -186,7 +190,10 @@ final class StrictSchemaTests: XCTestCase {
           tags: [x]
           reading_progress: 60
         """
-        XCTAssertThrowsError(try EntryYAML.decode(yaml))
+        let entry = try EntryYAML.decode(yaml)
+        XCTAssertEqual(entry.akashic.unknownFields.map(\.key), ["reading_progress"])
+        let decoded = try EntryYAML.decode(try EntryYAML.encode(entry))
+        XCTAssertEqual(decoded, entry)
     }
 
     func testUnknownProvenanceKeyRejected() {
@@ -217,8 +224,83 @@ final class StrictSchemaTests: XCTestCase {
         XCTAssertThrowsError(try EntryYAML.decode(yaml))
     }
 
-    func testUnknownPersonKeyRejected() {
-        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [A]\nemail: x@y.z\n"))
+    func testUnknownPersonKeyToleratedAndPreserved() throws {
+        let person = try PersonYAML.decode("key: a\nnames: [A]\nemail: x@y.z\n")
+        XCTAssertEqual(person.unknownFields.map(\.key), ["email"])
+        let decoded = try PersonYAML.decode(try PersonYAML.encode(person))
+        XCTAssertEqual(decoded, person)
+    }
+}
+
+final class ForwardCompatTests: XCTestCase {
+    /// #23 核心場景：#20 之後的「新版」person 檔（affiliations / facts），
+    /// 本版 binary 扮演「舊 binary」——必須可讀、可用、round-trip 不丟新欄位。
+    func testFuturePersonSchemaDecodesAndRoundTrips() throws {
+        let yaml = """
+        key: cheng-ching-shui
+        names:
+          - 鄭清水
+        affiliations:
+          - organization: 中央研究院統計科學研究所
+            from: 2003-01
+            to: 2006-08
+          - organization: 中央研究院統計科學研究所
+            from: 2013-07
+            to: 2017-06
+        facts:
+          - kind: rank
+            value: 研究員
+            source: iss-retired-page@2026-07-30
+        """
+        let person = try PersonYAML.decode(yaml)
+        XCTAssertEqual(person.key, "cheng-ching-shui")
+        XCTAssertEqual(person.names, ["鄭清水"])
+        XCTAssertEqual(person.unknownFields.map(\.key), ["affiliations", "facts"])
+        // round-trip：未知子樹整棵保留（含巢狀 mapping 與多段 sequence）
+        let reencoded = try PersonYAML.encode(person)
+        let decoded = try PersonYAML.decode(reencoded)
+        XCTAssertEqual(decoded, person)
+        XCTAssertTrue(reencoded.contains("organization"))
+        XCTAssertTrue(reencoded.contains("2013-07"))
+    }
+
+    func testLibraryUnknownKeyToleratedAndPreserved() throws {
+        let lib = try LibraryYAML.decode("key: sinica\nname: 中研院\ncolor: blue\n")
+        XCTAssertEqual(lib.unknownFields.map(\.key), ["color"])
+        let decoded = try LibraryYAML.decode(try LibraryYAML.encode(lib))
+        XCTAssertEqual(decoded, lib)
+    }
+
+    func testAkashicMetaIsEmptyIncludesUnknownFields() {
+        var meta = AkashicMeta()
+        XCTAssertTrue(meta.isEmpty)
+        meta.unknownFields = [UnknownField(key: "reading_progress", yaml: "60\n")]
+        // 否則「只有未知欄位的 akashic 段」會被 encode 整段略掉——靜默資料遺失
+        XCTAssertFalse(meta.isEmpty)
+    }
+
+    func testPersonValidateWarnsOnUnknownFields() throws {
+        let person = try PersonYAML.decode("key: a\nnames: [A]\nemail: x@y.z\n")
+        let issues = person.validate()
+        XCTAssertTrue(issues.contains { $0.severity == .warning && $0.message.contains("email") })
+        XCTAssertFalse(issues.contains { $0.severity == .error })
+    }
+
+    func testEntryValidateWarnsOnUnknownFields() throws {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        rating: 5
+        akashic:
+          reading_progress: 60
+        """
+        let entry = try EntryYAML.decode(yaml)
+        let issues = entry.validate()
+        XCTAssertTrue(issues.contains { $0.severity == .warning && $0.message.contains("rating") })
+        XCTAssertTrue(issues.contains { $0.severity == .warning && $0.message.contains("reading_progress") })
+        XCTAssertFalse(issues.contains { $0.severity == .error })
     }
 }
 
@@ -367,9 +449,10 @@ final class LibraryModelTests: XCTestCase {
         let lib = Library(key: "sinica", name: "中研院", description: "統計所 lab context")
         let yaml = try LibraryYAML.encode(lib)
         XCTAssertEqual(try LibraryYAML.decode(yaml), lib)
-        // 未知欄位 → strict 拒絕
-        XCTAssertThrowsError(try LibraryYAML.decode(yaml + "\nextra: nope\n"))
-        // 缺 key → 拒絕
+        // 未知欄位 → 容忍 + 保留（§5 v1.3 tolerant-preserve，#23）
+        let tolerated = try LibraryYAML.decode(yaml + "extra: nope\n")
+        XCTAssertEqual(tolerated.unknownFields.map(\.key), ["extra"])
+        // 缺 key → 仍拒絕（必要欄位不屬 tolerant 範圍）
         XCTAssertThrowsError(try LibraryYAML.decode("name: 沒有 key\n"))
     }
 }

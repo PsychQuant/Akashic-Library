@@ -95,8 +95,10 @@ public enum EntryYAML {
                 }
                 a.append((Node("relations"), Node(r)))
             }
+            try appendUnknownFields(entry.akashic.unknownFields, to: &a)
             pairs.append((Node("akashic"), Node(a)))
         }
+        try appendUnknownFields(entry.unknownFields, to: &pairs)
         return try Yams.serialize(node: Node(pairs), allowUnicode: true)
     }
 
@@ -111,8 +113,9 @@ public enum EntryYAML {
         "imported_at", "orphaned_at",
     ]
 
-    /// store-format §5 strict 策略：未知欄位＝decode 錯誤。
-    /// 沒有這層，未知欄位會在 re-encode（如 pull update）時被靜默刪除——資料毀損路徑。
+    /// store-format §5 strict 策略（v1.3 起僅限 closed shape：authors / provenance /
+    /// akashic.relations）：未知欄位＝decode 錯誤。開放演化層（entry / person /
+    /// library 頂層與 akashic namespace）改走 partitionUnknownKeys 容忍保留。
     static func rejectUnknownKeys(_ map: Yams.Node.Mapping, known: Set<String>,
                                   context: String) throws {
         for (key, _) in map {
@@ -125,11 +128,41 @@ public enum EntryYAML {
         }
     }
 
+    /// tolerant-preserve（store-format §5 v1.3，#23）：未知欄位不 throw，
+    /// value 節點整棵以 YAML 文字保留（保序），encode 端原樣寫回。
+    /// 舊版 rejectUnknownKeys 用 throw 防「re-encode 靜默剝欄位」的資料毀損；
+    /// 本 helper 用「保留 + 寫回」達成同一保證，同時讓較新 schema 的檔案保持可用。
+    static func partitionUnknownKeys(_ map: Yams.Node.Mapping, known: Set<String>,
+                                     context: String) throws -> [UnknownField] {
+        var unknowns: [UnknownField] = []
+        for (key, value) in map {
+            guard let k = key.string else {
+                throw StoreYAMLError.invalidField(context, "非字串鍵")
+            }
+            if !known.contains(k) {
+                unknowns.append(UnknownField(
+                    key: k, yaml: try Yams.serialize(node: value, allowUnicode: true)))
+            }
+        }
+        return unknowns
+    }
+
+    /// 未知欄位寫回（encode 端）。compose 失敗＝保留載體毀損——throw，不靜默丟。
+    static func appendUnknownFields(_ fields: [UnknownField],
+                                    to pairs: inout [(Node, Node)]) throws {
+        for f in fields {
+            guard let node = try Yams.compose(yaml: f.yaml) else {
+                throw StoreYAMLError.invalidField("unknownFields", "無法還原保留欄位「\(f.key)」")
+            }
+            pairs.append((Node(f.key), node))
+        }
+    }
+
     public static func decode(_ yaml: String) throws -> Entry {
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
-        try rejectUnknownKeys(map, known: knownTopLevelKeys, context: "entry")
+        let topUnknowns = try partitionUnknownKeys(map, known: knownTopLevelKeys, context: "entry")
         guard let idString = map["id"]?.string, let id = UUID(uuidString: idString) else {
             throw StoreYAMLError.missingField("id")
         }
@@ -144,6 +177,7 @@ public enum EntryYAML {
         }
 
         var entry = Entry(id: id, citekey: citekey, type: type, title: title)
+        entry.unknownFields = topUnknowns
         entry.date = map["date"]?.string
 
         if let authorSeq = map["authors"]?.sequence {
@@ -207,7 +241,8 @@ public enum EntryYAML {
             entry.provenance = prov
         }
         if let akMap = map["akashic"]?.mapping {
-            try rejectUnknownKeys(akMap, known: knownAkashicKeys, context: "akashic")
+            entry.akashic.unknownFields =
+                try partitionUnknownKeys(akMap, known: knownAkashicKeys, context: "akashic")
             if let tagSeq = akMap["tags"]?.sequence {
                 entry.akashic.tags = try stringList(tagSeq, context: "akashic.tags")
             }
@@ -267,6 +302,7 @@ public enum LibraryYAML {
         if let description = library.description {
             pairs.append((Node("description"), Node(description)))
         }
+        try EntryYAML.appendUnknownFields(library.unknownFields, to: &pairs)
         return try Yams.serialize(node: Node(pairs), allowUnicode: true)
     }
 
@@ -276,7 +312,7 @@ public enum LibraryYAML {
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
-        try EntryYAML.rejectUnknownKeys(map, known: knownLibraryKeys, context: "library")
+        let unknowns = try EntryYAML.partitionUnknownKeys(map, known: knownLibraryKeys, context: "library")
         guard let key = map["key"]?.string else {
             throw StoreYAMLError.missingField("key")
         }
@@ -284,6 +320,7 @@ public enum LibraryYAML {
             throw StoreYAMLError.missingField("name")
         }
         var library = Library(key: key, name: name)
+        library.unknownFields = unknowns
         if let descNode = map["description"] {
             guard let desc = descNode.string else {
                 throw StoreYAMLError.invalidField("library.description", "必須是 string")
@@ -303,6 +340,7 @@ public enum PersonYAML {
         if let orcid = person.orcid { pairs.append((Node("orcid"), Node(orcid))) }
         if let openalex = person.openalex { pairs.append((Node("openalex"), Node(openalex))) }
         if let note = person.note { pairs.append((Node("note"), Node(note))) }
+        try EntryYAML.appendUnknownFields(person.unknownFields, to: &pairs)
         return try Yams.serialize(node: Node(pairs), allowUnicode: true)
     }
 
@@ -312,11 +350,12 @@ public enum PersonYAML {
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
-        try EntryYAML.rejectUnknownKeys(map, known: knownPersonKeys, context: "person")
+        let unknowns = try EntryYAML.partitionUnknownKeys(map, known: knownPersonKeys, context: "person")
         guard let key = map["key"]?.string else {
             throw StoreYAMLError.missingField("key")
         }
         var person = Person(key: key)
+        person.unknownFields = unknowns
         if let seq = map["names"]?.sequence {
             person.names = try EntryYAML.stringList(seq, context: "person.names")
         }

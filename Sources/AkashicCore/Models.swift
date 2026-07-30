@@ -18,11 +18,14 @@ public struct Entry: Equatable {
     public var provenance: Provenance?
     /// Akashic 自有 namespace——pull 絕不觸碰。
     public var akashic: AkashicMeta
+    /// 頂層未知欄位（tolerant-preserve，#23）。
+    public var unknownFields: [UnknownField]
 
     public init(id: UUID, citekey: String, type: String, title: String,
                 authors: [Author] = [], date: String? = nil,
                 fields: [String: String] = [:], attachments: [AttachmentRef] = [],
-                provenance: Provenance? = nil, akashic: AkashicMeta = AkashicMeta()) {
+                provenance: Provenance? = nil, akashic: AkashicMeta = AkashicMeta(),
+                unknownFields: [UnknownField] = []) {
         self.id = id
         self.citekey = citekey
         self.type = type
@@ -33,6 +36,7 @@ public struct Entry: Equatable {
         self.attachments = attachments
         self.provenance = provenance
         self.akashic = akashic
+        self.unknownFields = unknownFields
     }
 }
 
@@ -46,6 +50,20 @@ public enum Author: Equatable {
         case .key(let k): return k
         case .literal(let s): return s
         }
+    }
+}
+
+/// 未知欄位（store-format §5 v1.3 tolerant-preserve，#23）：較新版本寫入、
+/// 本版不認識的欄位。decode 時整棵保留（value 為 YAML 序列化文字），encode 時
+/// 原樣寫回——舊 binary 的 read-modify-write 不得剝掉新欄位（資料毀損防線）。
+public struct UnknownField: Equatable {
+    public var key: String
+    /// 該欄位 value 節點的 YAML 序列化文字（round-trip 保真載體）。
+    public var yaml: String
+
+    public init(key: String, yaml: String) {
+        self.key = key
+        self.yaml = yaml
     }
 }
 
@@ -97,17 +115,25 @@ public struct AkashicMeta: Equatable {
     public var libraries: [String]
     public var status: String?
     public var relations: Relations
+    /// akashic namespace 內的未知欄位（tolerant-preserve，#23）——
+    /// 歷史上 schema 演化就發生在這層（#13 的 `libraries` 即是）。
+    public var unknownFields: [UnknownField]
 
     public init(tags: [String] = [], libraries: [String] = [],
-                status: String? = nil, relations: Relations = Relations()) {
+                status: String? = nil, relations: Relations = Relations(),
+                unknownFields: [UnknownField] = []) {
         self.tags = tags
         self.libraries = libraries
         self.status = status
         self.relations = relations
+        self.unknownFields = unknownFields
     }
 
+    /// unknownFields 必須參與 isEmpty——否則「只有未知欄位的 akashic 段」
+    /// 會被 encode 整段略掉，靜默丟資料（#23）。
     public var isEmpty: Bool {
         tags.isEmpty && libraries.isEmpty && status == nil && relations.isEmpty
+            && unknownFields.isEmpty
     }
 }
 
@@ -117,11 +143,15 @@ public struct Library: Equatable {
     public var key: String
     public var name: String
     public var description: String?
+    /// 頂層未知欄位（tolerant-preserve，#23）。
+    public var unknownFields: [UnknownField]
 
-    public init(key: String, name: String, description: String? = nil) {
+    public init(key: String, name: String, description: String? = nil,
+                unknownFields: [UnknownField] = []) {
         self.key = key
         self.name = name
         self.description = description
+        self.unknownFields = unknownFields
     }
 }
 
@@ -145,14 +175,18 @@ public struct Person: Equatable {
     public var orcid: String?
     public var openalex: String?
     public var note: String?
+    /// 頂層未知欄位（tolerant-preserve，#23）——如 #20 之後的 affiliations / facts。
+    public var unknownFields: [UnknownField]
 
     public init(key: String, names: [String] = [], orcid: String? = nil,
-                openalex: String? = nil, note: String? = nil) {
+                openalex: String? = nil, note: String? = nil,
+                unknownFields: [UnknownField] = []) {
         self.key = key
         self.names = names
         self.orcid = orcid
         self.openalex = openalex
         self.note = note
+        self.unknownFields = unknownFields
     }
 }
 
@@ -198,6 +232,30 @@ extension Entry {
         if Set(akashic.libraries).count != akashic.libraries.count {
             issues.append(ValidationIssue(severity: .warning,
                                           message: "akashic.libraries 含重複 key（load 已去重）"))
+        }
+        for f in unknownFields {
+            issues.append(ValidationIssue(severity: .warning,
+                message: "未知欄位「\(f.key)」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+        }
+        for f in akashic.unknownFields {
+            issues.append(ValidationIssue(severity: .warning,
+                message: "akashic 未知欄位「\(f.key)」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+        }
+        return issues
+    }
+}
+
+extension Person {
+    public func validate() -> [ValidationIssue] {
+        var issues: [ValidationIssue] = []
+        if !StoreKey.isValid(key) {
+            issues.append(ValidationIssue(
+                severity: .error,
+                message: "person key '\(key)' 不符合 \(StoreKey.pattern)"))
+        }
+        for f in unknownFields {
+            issues.append(ValidationIssue(severity: .warning,
+                message: "未知欄位「\(f.key)」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         return issues
     }

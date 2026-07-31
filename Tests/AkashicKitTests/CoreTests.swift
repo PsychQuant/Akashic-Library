@@ -324,21 +324,31 @@ final class ForwardCompatTests: XCTestCase {
         XCTAssertEqual(entry2.akashic.unknownFields.map(\.key), ["reading_progress"])
     }
 
-    // α（verify R2 後拍板）：alias 子樹**原樣保留、不展開**——raw-text 保留下
-    // 沒有 serialize，展開放大在結構上不存在（取代 R1 的 budget-reject 行為）
+    // α + oracle：**中等** alias 子樹原樣保留、不展開（raw-text 下無 serialize，
+    // 放大在結構上不存在）；**病態深炸彈**超出 oracle 驗證預算 → quarantine
+    // （fail-closed，檔案原封不動——資料完整性優先於病態檔案的可用性）
     func testAliasSubtreePreservedVerbatimWithoutExpansion() throws {
         var yaml = "key: a\nnames: [A]\nbomb:\n  a0: &a0 [x, x, x, x, x, x, x, x, x]\n"
-        for i in 1...8 {
+        for i in 1...3 {
             yaml += "  a\(i): &a\(i) [*a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1)]\n"
         }
         let person = try PersonYAML.decode(yaml)
         XCTAssertEqual(person.unknownFields.map(\.key), ["bomb"])
         let reencoded = try PersonYAML.encode(person)
         XCTAssertTrue(reencoded.contains("&a0"), "anchor 必須逐字保留")
-        XCTAssertTrue(reencoded.contains("*a7"), "alias 必須逐字保留、不展開")
+        XCTAssertTrue(reencoded.contains("*a2"), "alias 必須逐字保留、不展開")
         XCTAssertLessThan(reencoded.utf8.count, yaml.utf8.count + 200,
                           "輸出大小必須與輸入同量級——不得展開放大")
         XCTAssertEqual(try PersonYAML.decode(reencoded), person)
+    }
+
+    func testDeepAliasBombExceedsOracleBudgetAndQuarantines() {
+        var yaml = "key: a\nnames: [A]\nbomb:\n  a0: &a0 [x, x, x, x, x, x, x, x, x]\n"
+        for i in 1...8 {
+            yaml += "  a\(i): &a\(i) [*a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1)]\n"
+        }
+        XCTAssertThrowsError(try PersonYAML.decode(yaml),
+                             "DAG 比對爆炸超出 oracle 預算——fail-closed quarantine")
     }
 
     // α CRITICAL regression（R2 DA 實測毀檔路徑）：文字相同、型別不同的兩個 key
@@ -381,10 +391,83 @@ final class ForwardCompatTests: XCTestCase {
         XCTAssertThrowsError(try PersonYAML.decode(yaml))
     }
 
-    // α fail-closed：多文件 YAML 不支援（第二份文件的文字無法歸屬）
+    // 多文件 YAML：root compose 本身就拒收（單文件 stream 假設）——
+    // 不需要（也不再有）文字層守衛（R3 finding 6/7：守衛只會誤傷 block scalar 內容）
     func testMultiDocumentFileRejected() {
         let yaml = "key: a\nnames: [A]\nextra: 1\n---\nkey: b\n"
         XCTAssertThrowsError(try PersonYAML.decode(yaml))
+    }
+
+    // R3 CRITICAL regression（oracle round）——五個「計數相等但錯位」家族：
+
+    // (1) 跨區塊 alias：未知區塊引用已知欄位的 anchor → 區塊獨立 compose 失敗
+    //     → load 時 quarantine（檔案原封不動；v1.2 級安全，絕不寫壞）
+    func testCrossBoundaryAliasQuarantinedAtLoad() {
+        let yaml = "key: a\nnames: [A]\ntitle_note: &t Shared\nextra: *t\n"
+        // title_note 與 extra 都是未知欄位、同屬 raw 保留 → 各自區塊獨立可解析 → 容忍
+        // 但 alias 指向「已知欄位」的 anchor 時必須擋：
+        let cross = "key: &k a\nnames: [A]\nextra: *k\n"
+        XCTAssertThrowsError(try PersonYAML.decode(cross),
+                             "未知區塊引用已知欄位 anchor——寫回會產生 dangling alias，必須 load 時 quarantine")
+        _ = yaml   // 同區塊家族的合法案例由 testSelfContainedAnchorPreserved 覆蓋
+    }
+
+    // (1b) 自足的 anchor/alias（同一個未知區塊內）仍然容忍且逐字保留
+    func testSelfContainedAnchorPreserved() throws {
+        let yaml = "key: a\nnames: [A]\nbomb:\n  base: &b [x, y]\n  mirror: *b\n"
+        let person = try PersonYAML.decode(yaml)
+        XCTAssertEqual(person.unknownFields.map(\.key), ["bomb"])
+        let re = try PersonYAML.encode(person)
+        XCTAssertTrue(re.contains("&b"))
+        XCTAssertTrue(re.contains("*b"))
+        XCTAssertEqual(try PersonYAML.decode(re), person)
+    }
+
+    // (2) flow-style 多行 mapping：計數可能相等但對齊錯位 → oracle 擋下
+    func testMultilineFlowMappingQuarantined() {
+        let yaml = "{key: a, email: smuggle,\norcid: EVIL-0000,\nnote:\nn}\n"
+        XCTAssertThrowsError(try PersonYAML.decode(yaml))
+        let akFlow = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        akashic: {
+          tags: [x], status: read,
+          reading_progress:
+          60}
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(akFlow + "\n"))
+    }
+
+    // (3) CRLF / 混合行尾：Swift 行模型與 libyaml 分歧 → 顯式 reject（fail-closed）
+    func testCRLFWithUnknownFieldsQuarantined() {
+        let mixed = "extra: 1\r\nkey: i-mix\nnames: [\nA]\n"
+        XCTAssertThrowsError(try PersonYAML.decode(mixed))
+    }
+
+    // (4) 值截斷（flow 造成的靜默 null 化）→ oracle 的值等值檢查擋下
+    //     （由 (2) 的 akFlow 案例涵蓋——reading_progress 的 60 會被切掉）
+
+    // (5) 檔尾空行：只除 split artifact，`|+` keep-chomping 的尾空行逐字保真
+    func testKeepChompingTrailingBlanksPreserved() throws {
+        let yaml = "key: a\nnames: [A]\nnotes: |+\n  content\n\n\n"
+        let person = try PersonYAML.decode(yaml)
+        XCTAssertEqual(person.unknownFields.map(\.key), ["notes"])
+        XCTAssertTrue(person.unknownFields[0].raw.hasSuffix("content\n\n\n"),
+                      "|+ 的尾端空行是 scalar 值的一部分，必須保留")
+        let re = try PersonYAML.encode(person)
+        XCTAssertEqual(try PersonYAML.decode(re), person, "round-trip 冪等且不累積")
+        let re2 = try PersonYAML.encode(try PersonYAML.decode(re))
+        XCTAssertEqual(re2, re, "第二輪 encode 必須 byte 穩定")
+    }
+
+    // encode canary：寫出前 compose 自檢——程式化構造的毀損 raw 不得進磁碟
+    func testEncodeCanaryRefusesCorruptOutput() {
+        var person = Person(key: "a", names: ["A"])
+        person.unknownFields = [UnknownField(key: "x", raw: "x: 1\nkey: dup\n")]
+        XCTAssertThrowsError(try PersonYAML.encode(person),
+                             "產物含重複鍵——canary 必須拒寫，不得原子性覆蓋合法檔案")
     }
 
     // verify R1 F2（#23）：merge key `<<` 語意在 parser 間分歧，不入 tolerant 範圍

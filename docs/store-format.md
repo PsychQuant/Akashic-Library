@@ -189,9 +189,17 @@ note: 中研院統計所            # 可選
   同量前導空白，YAML 相對縮排語意不變）。區塊尾端空行正規化剝除。
 - **不保留**：檔案前導（檔頭註解、`---`）與已知欄位側的註解——known 重寫本就
   不保留（與 v1.2 行為一致）。
-- **fail-closed 切分校驗**：文字切分與 parse 的欄位數無法對齊（complex key `? `、
-  flow-style 文件、多文件 YAML）→ decode 錯誤 → 檔案 quarantine——絕不冒
-  錯位寫壞的險。
+- **fail-closed 對齊 oracle（R3 定案——計數校驗不夠）**：每個未知區塊必須
+  (a) 能**獨立**解析（跨區塊 anchor/alias 引用在此擋下）、(b) 恰為單一 entry、
+  (c) key 相符、(d) 值與原 parse 的節點**語意相等**（預算走訪；超出預算的病態
+  alias DAG → quarantine）。任一不成立 → decode 錯誤 → 檔案 quarantine——絕不
+  冒錯位寫壞的險。涵蓋：complex key、flow-style、tagged decoy、值截斷。
+- **CRLF/CR 行尾不支援**（含未知欄位時）：Swift 行模型與 libyaml 對 `\r\n` 的
+  歧異會讓切分靜默錯位 → decode 錯誤 → quarantine。純 known 檔案不受影響。
+- **encode 自檢 canary**：含未知欄位的寫出前必 re-parse 產物；失敗（重複鍵、
+  dangling alias、任何切分 bug）→ 拒絕寫出——絕不原子性覆蓋合法檔案。
+- **多文件 YAML** 由 root parse 拒收（單文件 stream）；`---`/`...` 出現在
+  block scalar 內容中不受影響（無文字層守衛誤傷）。
 - **頂層 merge key `<<` 不入 tolerant 範圍**（parser 間語意分歧）→ decode 錯誤 →
   quarantine；未知區塊**內部**的 `<<` 隨原文逐字保留（本生態單一 parser，寫回
   不改文字即無新語意）。

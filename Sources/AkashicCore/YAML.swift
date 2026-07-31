@@ -105,6 +105,9 @@ public enum EntryYAML {
             appendRawBlocks(entry.akashic.unknownFields, to: &out, targetIndent: 2)
         }
         appendRawBlocks(entry.unknownFields, to: &out, targetIndent: 0)
+        if !entry.unknownFields.isEmpty || !entry.akashic.unknownFields.isEmpty {
+            try encodeCanary(out, context: "entry")
+        }
         return out
     }
 
@@ -145,8 +148,7 @@ public enum EntryYAML {
             guard let k = key.string else {
                 throw StoreYAMLError.invalidField(context, "非字串鍵")
             }
-            if !known.contains(k), k == "<<" {
-                // merge key 語意在 parser 間分歧——不入 tolerant 範圍（§5）
+            if k == "<<" {   // merge key 從不在 known set——語意在 parser 間分歧，不入 tolerant 範圍（§5）
                 throw StoreYAMLError.invalidField(
                     context, "merge key「<<」不入 tolerant 範圍（見 docs/store-format.md §5）")
             }
@@ -157,51 +159,54 @@ public enum EntryYAML {
 
     /// 把 block-style YAML 文件切成同層 entry 的原文區塊（保留原縮排與註解）。
     /// `indent` 為該層 entry 的基準縮排（頂層 = 0）。entry 起始行 = 縮排恰為基準、
-    /// 首字非 `#`、非 sequence 指標（`-` + 空白/行尾）的行；其餘行（更深縮排、
-    /// 註解、空行）歸屬當前區塊。前導行（entry 開始前的 `---`、註解）不屬任何區塊。
-    /// 多文件標記（entry 開始後的 `---`/`...`）→ throw（第二份文件無法歸屬，fail-closed）。
+    /// 首字非 `#`、非 sequence 指標（`-` + 空白/行尾）、非 `---`/`...` 的行；
+    /// 其餘行歸屬當前區塊。前導行（entry 開始前的註解、`---`）不屬任何區塊。
+    /// CRLF/CR → throw（Swift 把 `\r\n` 當單一 Character，行模型與 libyaml 分歧
+    /// 會讓計數校驗靜默錯位——R3 CRITICAL，fail-closed）。
+    /// 多文件由 root compose 拒收（單文件 stream 假設），此處不設文字層守衛
+    /// （R3：守衛只會誤傷 block scalar 內容行）。
     static func splitBlocks(_ text: String, indent: Int, context: String) throws -> [String] {
+        if text.contains("\r") {
+            throw StoreYAMLError.invalidField(context, "CRLF/CR 行尾不支援（fail-closed；請轉為 LF）")
+        }
+        var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        // 只移除 split 的檔尾 artifact（最後一個 \n 之後的空片段）——
+        // 真實空行（含 |+ keep-chomping 的尾端空行）逐字保留，且 round-trip 不累積
+        if text.hasSuffix("\n"), lines.last?.isEmpty == true {
+            lines.removeLast()
+        }
         var blocks: [[Substring]] = []
         var current: [Substring] = []
-        var started = false
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+        for line in lines {
             let trimmed = line.drop(while: { $0 == " " })
             let lineIndent = line.count - trimmed.count
-            if trimmed == "---" || trimmed == "..." {
-                if started {
-                    throw StoreYAMLError.invalidField(context, "多文件 YAML 不支援（fail-closed）")
-                }
-                continue
-            }
+            let isDocMarker = trimmed == "---" || trimmed == "..."
             let isSequenceItem = trimmed.first == "-"
                 && (trimmed.count == 1 || trimmed.dropFirst().first == " "
                     || trimmed.dropFirst().first == "\t")
             let isEntryStart = lineIndent == indent && !trimmed.isEmpty
-                && trimmed.first != "#" && !isSequenceItem
+                && trimmed.first != "#" && !isSequenceItem && !isDocMarker
             if isEntryStart {
                 if !current.isEmpty { blocks.append(current) }
                 current = [line]
-                started = true
             } else if !current.isEmpty {
                 current.append(line)
             }
             // else: 前導行，丟棄（known 欄位重寫本就不保留檔案級註解）
         }
         if !current.isEmpty { blocks.append(current) }
-        // 區塊尾端空行剝除（split 的檔尾殘留 + 檔尾空行會逐次 round-trip 累積；
-        // 區塊內部空行照常保留）
-        return blocks.map { block in
-            var b = block
-            while b.last?.isEmpty == true { b.removeLast() }
-            return b.joined(separator: "\n") + "\n"
-        }
+        return blocks.map { $0.joined(separator: "\n") + "\n" }
     }
 
-    /// 未知欄位的原文擷取：切分區塊 → 以 compose 的 key 序對齊 → 計數校驗
-    /// （fail-closed：切分數 ≠ 欄位數 → throw → load 層 quarantine，絕不冒
-    /// 錯位寫壞的險）。無未知欄位時零成本快路徑（不切分）。
-    static func captureUnknownBlocks(text: String, keys: [String], known: Set<String>,
-                                     indent: Int, context: String) throws -> [UnknownField] {
+    /// 未知欄位的原文擷取：切分區塊 → 以 compose 的 key 序對齊 → 計數校驗 →
+    /// **對齊 oracle**（R3：計數相等不蘊含對齊——flow 錯位 / tagged decoy 都能
+    /// 保持計數抵銷）。每個未知區塊必須：獨立 compose 成功（跨區塊 anchor/alias
+    /// 在此擋下）、恰為單一 entry、key 相符、值與原 parse 的節點語意相等（預算
+    /// 走訪）。任何一項不成立 → throw → load 層 quarantine（檔案原封不動，
+    /// 絕不冒錯位寫壞的險）。無未知欄位時零成本快路徑。
+    static func captureUnknownBlocks(text: String, map: Yams.Node.Mapping, keys: [String],
+                                     known: Set<String>, indent: Int,
+                                     context: String) throws -> [UnknownField] {
         guard keys.contains(where: { !known.contains($0) }) else { return [] }
         let blocks = try splitBlocks(text, indent: indent, context: context)
         guard blocks.count == keys.count else {
@@ -209,11 +214,78 @@ public enum EntryYAML {
                 context,
                 "無法可靠切分未知欄位原文（區塊 \(blocks.count) ≠ 欄位 \(keys.count)；complex key 或 flow 樣式）")
         }
+        let entries = Array(map)
         var out: [UnknownField] = []
         for (i, k) in keys.enumerated() where !known.contains(k) {
+            try verifyBlockOracle(raw: blocks[i], dedent: indent, expectedKey: k,
+                                  originalValue: entries[i].value, context: context)
             out.append(UnknownField(key: k, raw: blocks[i]))
         }
         return out
+    }
+
+    /// 對齊 oracle：區塊獨立 re-parse 並與原 parse 節點比對。
+    static func verifyBlockOracle(raw: String, dedent: Int, expectedKey: String,
+                                  originalValue: Yams.Node, context: String) throws {
+        var text = raw
+        if dedent > 0 {
+            var shifted = ""
+            var lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
+            if raw.hasSuffix("\n"), lines.last?.isEmpty == true { lines.removeLast() }
+            for line in lines {
+                let strip = min(dedent, line.prefix(while: { $0 == " " }).count)
+                shifted += line.dropFirst(strip) + "\n"
+            }
+            text = shifted
+        }
+        let composed: Yams.Node?
+        do {
+            composed = try Yams.compose(yaml: text)
+        } catch {
+            throw StoreYAMLError.invalidField(
+                context, "未知欄位「\(expectedKey)」的區塊無法獨立解析（跨區塊 anchor/alias 或切分錯位）")
+        }
+        guard let m = composed?.mapping, m.count == 1, let entry = m.first,
+              entry.key.string == expectedKey else {
+            throw StoreYAMLError.invalidField(
+                context, "未知欄位「\(expectedKey)」的區塊對齊校驗失敗（切分錯位，fail-closed）")
+        }
+        var budget = 200_000
+        guard nodesSemanticallyEqual(entry.value, originalValue, budget: &budget) == true else {
+            throw StoreYAMLError.invalidField(
+                context, "未知欄位「\(expectedKey)」的區塊值與 parse 結果不符（切分錯位，或超出驗證預算的病態結構）")
+        }
+    }
+
+    /// 預算制節點語意等值（scalar 比 string+resolvedTag；collection 逐元素）。
+    /// 回傳 nil = 預算耗盡（alias 展開型 DAG 比對爆炸）——呼叫端 fail-closed。
+    static func nodesSemanticallyEqual(_ a: Yams.Node, _ b: Yams.Node,
+                                       budget: inout Int) -> Bool? {
+        budget -= 1
+        if budget <= 0 { return nil }
+        switch (a, b) {
+        case (.scalar(let x), .scalar(let y)):
+            // Node.Scalar 的 == 即 string + resolvedTag 比較（Yams 公開語意）
+            return x == y
+        case (.sequence(let x), .sequence(let y)):
+            guard x.count == y.count else { return false }
+            for (u, v) in zip(x, y) {
+                guard let r = nodesSemanticallyEqual(u, v, budget: &budget) else { return nil }
+                if !r { return false }
+            }
+            return true
+        case (.mapping(let x), .mapping(let y)):
+            guard x.count == y.count else { return false }
+            for ((k1, v1), (k2, v2)) in zip(Array(x), Array(y)) {
+                guard let rk = nodesSemanticallyEqual(k1, k2, budget: &budget) else { return nil }
+                if !rk { return false }
+                guard let rv = nodesSemanticallyEqual(v1, v2, budget: &budget) else { return nil }
+                if !rv { return false }
+            }
+            return true
+        default:
+            return false
+        }
     }
 
     /// 未知區塊寫回：逐字 append（零 parse、零 serialize——保真與防放大的機制核心）。
@@ -222,14 +294,19 @@ public enum EntryYAML {
     static func appendRawBlocks(_ fields: [UnknownField], to out: inout String,
                                 targetIndent: Int) {
         for f in fields {
-            let firstLine = f.raw.prefix(while: { $0 != "\n" })
+            // 不變式：raw 以 \n 結尾（程式化構造缺尾換行時補上，
+            // 否則 split 的 artifact 移除會吃掉最後一行內容——R3 LOW）
+            let raw = f.raw.hasSuffix("\n") ? f.raw : f.raw + "\n"
+            let firstLine = raw.prefix(while: { $0 != "\n" })
             let baseIndent = firstLine.count - firstLine.drop(while: { $0 == " " }).count
             if baseIndent == targetIndent {
-                out += f.raw
+                out += raw
                 continue
             }
             let delta = targetIndent - baseIndent
-            for line in f.raw.split(separator: "\n", omittingEmptySubsequences: false).dropLast() {
+            var lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
+            if lines.last?.isEmpty == true { lines.removeLast() }   // 檔尾 artifact only
+            for line in lines {
                 if line.isEmpty {
                     out += "\n"
                 } else if delta > 0 {
@@ -242,13 +319,26 @@ public enum EntryYAML {
         }
     }
 
+    /// encode 自檢 canary（R3）：寫出前 compose 產物——重複鍵、dangling alias、
+    /// 任何未來切分 bug 都攔在磁碟之前（refuse-to-write，絕不原子性覆蓋合法檔案）。
+    /// 只在有未知欄位時執行（純 known 檔案由 emitter 保證合法）。
+    static func encodeCanary(_ out: String, context: String) throws {
+        do {
+            _ = try Yams.compose(yaml: out)
+        } catch {
+            throw StoreYAMLError.invalidField(
+                context, "encode 自檢失敗（產物無法解析）——拒絕寫出：\(error)")
+        }
+    }
+
     public static func decode(_ yaml: String) throws -> Entry {
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
         let topKeys = try keyStrings(map, known: knownTopLevelKeys, context: "entry")
         let topUnknowns = try captureUnknownBlocks(
-            text: yaml, keys: topKeys, known: knownTopLevelKeys, indent: 0, context: "entry")
+            text: yaml, map: map, keys: topKeys, known: knownTopLevelKeys,
+            indent: 0, context: "entry")
         guard let idString = map["id"]?.string, let id = UUID(uuidString: idString) else {
             throw StoreYAMLError.missingField("id")
         }
@@ -350,8 +440,12 @@ public enum EntryYAML {
                         "akashic",
                         "無法可靠切分未知欄位原文（子區塊 \(childBlocks.count) ≠ 欄位 \(akKeys.count)；flow 樣式或 complex key）")
                 }
+                let akEntries = Array(akMap)
                 var akUnknowns: [UnknownField] = []
                 for (i, k) in akKeys.enumerated() where !knownAkashicKeys.contains(k) {
+                    try verifyBlockOracle(raw: childBlocks[i], dedent: childIndent,
+                                          expectedKey: k, originalValue: akEntries[i].value,
+                                          context: "akashic")
                     akUnknowns.append(UnknownField(key: k, raw: childBlocks[i]))
                 }
                 entry.akashic.unknownFields = akUnknowns
@@ -417,6 +511,9 @@ public enum LibraryYAML {
         }
         var out = try Yams.serialize(node: Node(pairs), allowUnicode: true)
         EntryYAML.appendRawBlocks(library.unknownFields, to: &out, targetIndent: 0)
+        if !library.unknownFields.isEmpty {
+            try EntryYAML.encodeCanary(out, context: "library")
+        }
         return out
     }
 
@@ -428,7 +525,8 @@ public enum LibraryYAML {
         }
         let keys = try EntryYAML.keyStrings(map, known: knownLibraryKeys, context: "library")
         let unknowns = try EntryYAML.captureUnknownBlocks(
-            text: yaml, keys: keys, known: knownLibraryKeys, indent: 0, context: "library")
+            text: yaml, map: map, keys: keys, known: knownLibraryKeys,
+            indent: 0, context: "library")
         guard let key = map["key"]?.string else {
             throw StoreYAMLError.missingField("key")
         }
@@ -458,6 +556,9 @@ public enum PersonYAML {
         if let note = person.note { pairs.append((Node("note"), Node(note))) }
         var out = try Yams.serialize(node: Node(pairs), allowUnicode: true)
         EntryYAML.appendRawBlocks(person.unknownFields, to: &out, targetIndent: 0)
+        if !person.unknownFields.isEmpty {
+            try EntryYAML.encodeCanary(out, context: "person")
+        }
         return out
     }
 
@@ -469,7 +570,8 @@ public enum PersonYAML {
         }
         let keys = try EntryYAML.keyStrings(map, known: knownPersonKeys, context: "person")
         let unknowns = try EntryYAML.captureUnknownBlocks(
-            text: yaml, keys: keys, known: knownPersonKeys, indent: 0, context: "person")
+            text: yaml, map: map, keys: keys, known: knownPersonKeys,
+            indent: 0, context: "person")
         guard let key = map["key"]?.string else {
             throw StoreYAMLError.missingField("key")
         }

@@ -53,17 +53,20 @@ public enum Author: Equatable {
     }
 }
 
-/// 未知欄位（store-format §5 v1.3 tolerant-preserve，#23）：較新版本寫入、
-/// 本版不認識的欄位。decode 時整棵保留（value 為 YAML 序列化文字），encode 時
-/// 原樣寫回——舊 binary 的 read-modify-write 不得剝掉新欄位（資料毀損防線）。
+/// 未知欄位（store-format §5 v1.3 tolerant-preserve，#23 α）：較新版本寫入、
+/// 本版不認識的欄位。保留載體是**原始檔案的逐字文字區塊**（含 key 行與其縮排
+/// 子行）——decode 不 serialize、encode 逐字 append。key 型別（quoted/typed）、
+/// tag、anchor/alias、註解、block scalar 全部 byte-level 保真，且結構上不存在
+/// 展開放大。舊 binary 的 read-modify-write 不得剝掉新欄位（資料毀損防線）。
 public struct UnknownField: Equatable {
+    /// key 的字串內容（顯示 / validate 用；型別資訊在 raw 內保真）。
     public var key: String
-    /// 該欄位 value 節點的 YAML 序列化文字（round-trip 保真載體）。
-    public var yaml: String
+    /// 原文區塊：含 key 行到下一個同層 entry 前的全部行（保留原縮排，以 \n 結尾）。
+    public var raw: String
 
-    public init(key: String, yaml: String) {
+    public init(key: String, raw: String) {
         self.key = key
-        self.yaml = yaml
+        self.raw = raw
     }
 }
 

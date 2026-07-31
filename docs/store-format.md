@@ -178,16 +178,23 @@ note: 中研院統計所            # 可選
 不再擋下，由 validate / doctor 的 warning 保持可見。此外容忍的是 **key** 層級；
 已知欄位「形狀不符」（如 `names` 非 sequence）的既有靜默行為不在本節範圍。
 
-**保真邊界（normative，verify R1）**——「原樣寫回」的精確語意是 **YAML 語意等價**，
-非 byte 等價：
+**保真邊界（normative，verify R2 後 α 定案）**——保留載體是**原始檔案的逐字文字
+區塊**（含 key 行與其縮排子行），decode 不 serialize、encode 逐字 append：
 
-- **implicit null 正規化**：`foo:`（空值）保留為 `foo: null`（否則空 payload 無法還原）。
-- **anchor / alias 展開**：未知子樹內的 `&anchor` / `*alias` 在寫回時展開為實體內容
-  （YAML 語意不變、byte 結構不保留）。防炸彈：未知子樹展開後節點數超出預算
-  （10,000）→ decode 錯誤 → 檔案 quarantine（恢復 v1.2 式保護）。
-- **merge key `<<` 不入 tolerant 範圍**：parser 間語意分歧、寫回會讓自家檔案攜帶
-  merge 語意——一律 decode 錯誤 → quarantine。
-- **欄位重排**：未知欄位一律 append 到 mapping 尾端；flow style 正規化為 block style。
+- **byte-level 保真**：未知區塊內的 key 型別（quoted / typed）、tag（`!!binary`、
+  自訂 tag）、anchor / alias（**不展開**）、註解、block scalar 全部逐字保留。
+  結構上不存在展開放大——未知子樹從不經過 parse-reserialize。
+- **欄位重排**：已知欄位由 encoder 重寫在前；未知區塊 append 到檔尾（akashic 的
+  未知子區塊 append 在 akashic 段尾、必要時做**等量縮排平移**——整塊每行加減
+  同量前導空白，YAML 相對縮排語意不變）。區塊尾端空行正規化剝除。
+- **不保留**：檔案前導（檔頭註解、`---`）與已知欄位側的註解——known 重寫本就
+  不保留（與 v1.2 行為一致）。
+- **fail-closed 切分校驗**：文字切分與 parse 的欄位數無法對齊（complex key `? `、
+  flow-style 文件、多文件 YAML）→ decode 錯誤 → 檔案 quarantine——絕不冒
+  錯位寫壞的險。
+- **頂層 merge key `<<` 不入 tolerant 範圍**（parser 間語意分歧）→ decode 錯誤 →
+  quarantine；未知區塊**內部**的 `<<` 隨原文逐字保留（本生態單一 parser，寫回
+  不改文字即無新語意）。
 
 ## 附註：多「檔案」（#18，config 層——不屬 store format）
 

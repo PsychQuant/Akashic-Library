@@ -274,9 +274,30 @@ final class ForwardCompatTests: XCTestCase {
     func testAkashicMetaIsEmptyIncludesUnknownFields() {
         var meta = AkashicMeta()
         XCTAssertTrue(meta.isEmpty)
-        meta.unknownFields = [UnknownField(key: "reading_progress", yaml: "60\n")]
+        meta.unknownFields = [UnknownField(key: "reading_progress", raw: "  reading_progress: 60\n")]
         // 否則「只有未知欄位的 akashic 段」會被 encode 整段略掉——靜默資料遺失
         XCTAssertFalse(meta.isEmpty)
+    }
+
+    // α nested 縮排平移：原檔 akashic 子層縮排 4 → 寫回等量平移到 emitter 的 2，
+    // 語意不變、re-decode 相等（key 集合與內容）
+    func testNestedUnknownReindentedUniformly() throws {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        akashic:
+            tags: [x]
+            reading_progress: 60
+        """
+        let entry = try EntryYAML.decode(yaml + "\n")
+        XCTAssertEqual(entry.akashic.unknownFields.map(\.key), ["reading_progress"])
+        let reencoded = try EntryYAML.encode(entry)
+        let decoded = try EntryYAML.decode(reencoded)
+        XCTAssertEqual(decoded.akashic.unknownFields.map(\.key), ["reading_progress"])
+        XCTAssertEqual(decoded.akashic.tags, ["x"])
+        XCTAssertTrue(reencoded.contains("  reading_progress: 60"), "子層平移到縮排 2")
     }
 
     // verify R1 F1（#23）：implicit-null 未知欄位（`foo:` 空值）必須可 round-trip——
@@ -303,15 +324,67 @@ final class ForwardCompatTests: XCTestCase {
         XCTAssertEqual(entry2.akashic.unknownFields.map(\.key), ["reading_progress"])
     }
 
-    // verify R1 F2（#23）：alias 炸彈（深層 anchor/alias 指數展開）不得進入 tolerant 路徑——
-    // node-budget 超限 → decode throw → load 層 quarantine（恢復 v1.2 式保護）
-    func testAliasBombUnknownFieldRejected() {
+    // α（verify R2 後拍板）：alias 子樹**原樣保留、不展開**——raw-text 保留下
+    // 沒有 serialize，展開放大在結構上不存在（取代 R1 的 budget-reject 行為）
+    func testAliasSubtreePreservedVerbatimWithoutExpansion() throws {
         var yaml = "key: a\nnames: [A]\nbomb:\n  a0: &a0 [x, x, x, x, x, x, x, x, x]\n"
         for i in 1...8 {
             yaml += "  a\(i): &a\(i) [*a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1)]\n"
         }
-        XCTAssertThrowsError(try PersonYAML.decode(yaml),
-                             "指數展開的未知子樹必須被 budget guard 擋下，不得 serialize")
+        let person = try PersonYAML.decode(yaml)
+        XCTAssertEqual(person.unknownFields.map(\.key), ["bomb"])
+        let reencoded = try PersonYAML.encode(person)
+        XCTAssertTrue(reencoded.contains("&a0"), "anchor 必須逐字保留")
+        XCTAssertTrue(reencoded.contains("*a7"), "alias 必須逐字保留、不展開")
+        XCTAssertLessThan(reencoded.utf8.count, yaml.utf8.count + 200,
+                          "輸出大小必須與輸入同量級——不得展開放大")
+        XCTAssertEqual(try PersonYAML.decode(reencoded), person)
+    }
+
+    // α CRITICAL regression（R2 DA 實測毀檔路徑）：文字相同、型別不同的兩個 key
+    // （'123' 是 str、123 是 int）必須逐字寫回為兩行不同文字，re-decode 成功
+    func testTypedKeysSurviveWriteBack() throws {
+        let yaml = "key: a\nnames: [A]\n'123': first\n123: second\n"
+        let person = try PersonYAML.decode(yaml)
+        XCTAssertEqual(person.unknownFields.map(\.key), ["123", "123"])
+        let reencoded = try PersonYAML.encode(person)
+        XCTAssertTrue(reencoded.contains("'123': first"), "quoted key 必須保留引號")
+        XCTAssertTrue(reencoded.contains("123: second"))
+        let decoded = try PersonYAML.decode(reencoded)   // R2 前這裡 parse 失敗（重複鍵）
+        XCTAssertEqual(decoded.unknownFields.map(\.key), ["123", "123"])
+    }
+
+    // α verbatim 保真：tag / 註解 / block scalar 在未知區塊內逐字保留
+    func testUnknownBlockVerbatimFidelity() throws {
+        let yaml = """
+        key: a
+        names: [A]
+        payload: !!binary R0lGODlh
+        notes_block: |
+          第一行
+            縮排第二行
+        annotated: value  # 尾隨註解
+        """
+        let person = try PersonYAML.decode(yaml + "\n")
+        XCTAssertEqual(person.unknownFields.map(\.key), ["payload", "notes_block", "annotated"])
+        let reencoded = try PersonYAML.encode(person)
+        XCTAssertTrue(reencoded.contains("!!binary R0lGODlh"), "tag 必須逐字保留")
+        XCTAssertTrue(reencoded.contains("notes_block: |"))
+        XCTAssertTrue(reencoded.contains("    縮排第二行"), "block scalar 內容縮排必須逐字保留")
+        XCTAssertTrue(reencoded.contains("# 尾隨註解"), "未知區塊的註解必須保留")
+        XCTAssertEqual(try PersonYAML.decode(reencoded), person)
+    }
+
+    // α fail-closed：切分無法與 compose 對齊（complex key）→ throw → load 層 quarantine
+    func testComplexKeyFileRejected() {
+        let yaml = "key: a\nnames: [A]\n? complex\n: value\n"
+        XCTAssertThrowsError(try PersonYAML.decode(yaml))
+    }
+
+    // α fail-closed：多文件 YAML 不支援（第二份文件的文字無法歸屬）
+    func testMultiDocumentFileRejected() {
+        let yaml = "key: a\nnames: [A]\nextra: 1\n---\nkey: b\n"
+        XCTAssertThrowsError(try PersonYAML.decode(yaml))
     }
 
     // verify R1 F2（#23）：merge key `<<` 語意在 parser 間分歧，不入 tolerant 範圍

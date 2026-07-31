@@ -132,8 +132,9 @@ public struct AkashicMeta: Equatable {
         self.unknownFields = unknownFields
     }
 
-    /// unknownFields 必須參與 isEmpty——否則「只有未知欄位的 akashic 段」
-    /// 會被 encode 整段略掉，靜默丟資料（#23）。
+    /// unknownFields 參與 isEmpty，供 API 消費者正確判空（α 之後 encoder 以
+    /// known 子欄位有無決定 akashic 段的 emit，nested raw 另行 append——
+    /// isEmpty 不再是 encode 的丟段防線，但語意上「有未知欄位 ≠ 空」仍須成立）。
     public var isEmpty: Bool {
         tags.isEmpty && libraries.isEmpty && status == nil && relations.isEmpty
             && unknownFields.isEmpty

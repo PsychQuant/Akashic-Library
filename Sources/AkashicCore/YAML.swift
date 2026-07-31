@@ -107,6 +107,20 @@ public enum EntryYAML {
         appendRawBlocks(entry.unknownFields, to: &out, targetIndent: 0)
         if !entry.unknownFields.isEmpty || !entry.akashic.unknownFields.isEmpty {
             try encodeCanary(out, context: "entry")
+            // 語意 canary（R4）：parse-only 驗不出「合法但不是我們要寫的東西」
+            // （程式化 key↔raw 不符、known 欄位被 raw 注入覆蓋）。decode 產物
+            // 與模型比對：known 欄位全等 + 各層未知 key 序列相符，否則拒寫。
+            let rd = try decode(out)
+            var a = rd, b = entry
+            a.unknownFields = []; b.unknownFields = []
+            a.akashic.unknownFields = []; b.akashic.unknownFields = []
+            guard a == b,
+                  rd.unknownFields.map(\.key) == entry.unknownFields.map(\.key),
+                  rd.akashic.unknownFields.map(\.key) == entry.akashic.unknownFields.map(\.key)
+            else {
+                throw StoreYAMLError.invalidField(
+                    "entry", "encode 語意自檢失敗——產物與模型不符，拒絕寫出")
+            }
         }
         return out
     }
@@ -141,8 +155,7 @@ public enum EntryYAML {
 
     /// 列出 mapping 的 key 字串（文件序）並施行 key 層檢查：
     /// 非 scalar 鍵（complex key）→ throw；頂層/該層的未知 merge key `<<` → throw。
-    static func keyStrings(_ map: Yams.Node.Mapping, known: Set<String>,
-                           context: String) throws -> [String] {
+    static func keyStrings(_ map: Yams.Node.Mapping, context: String) throws -> [String] {
         var keys: [String] = []
         for (key, _) in map {
             guard let k = key.string else {
@@ -166,8 +179,14 @@ public enum EntryYAML {
     /// 多文件由 root compose 拒收（單文件 stream 假設），此處不設文字層守衛
     /// （R3：守衛只會誤傷 block scalar 內容行）。
     static func splitBlocks(_ text: String, indent: Int, context: String) throws -> [String] {
-        if text.contains("\r") {
-            throw StoreYAMLError.invalidField(context, "CRLF/CR 行尾不支援（fail-closed；請轉為 LF）")
+        // 行尾守衛必須在 unicodeScalar 層比對：Swift 把 `\r\n` 當單一 grapheme
+        // Character，`text.contains("\r")` 對 CRLF 恆為 false（R4 CRITICAL——
+        // 死碼守衛）。libyaml 的 IS_BREAK 除 CR/LF 外還含 NEL/LS/PS，一併擋。
+        if text.unicodeScalars.contains(where: {
+            $0 == "\r" || $0 == "\u{85}" || $0 == "\u{2028}" || $0 == "\u{2029}"
+        }) {
+            throw StoreYAMLError.invalidField(
+                context, "CR/CRLF/NEL/LS/PS 行尾不支援（Swift 與 libyaml 行模型分歧，fail-closed；請轉為 LF）")
         }
         var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         // 只移除 split 的檔尾 artifact（最後一個 \n 之後的空片段）——
@@ -217,11 +236,28 @@ public enum EntryYAML {
         let entries = Array(map)
         var out: [UnknownField] = []
         for (i, k) in keys.enumerated() where !known.contains(k) {
-            try verifyBlockOracle(raw: blocks[i], dedent: indent, expectedKey: k,
+            let raw = stripDocMarkers(blocks[i])
+            try verifyBlockOracle(raw: raw, dedent: indent, expectedKey: k,
                                   originalValue: entries[i].value, context: context)
-            out.append(UnknownField(key: k, raw: blocks[i]))
+            out.append(UnknownField(key: k, raw: raw))
         }
         return out
+    }
+
+    /// 流層標記剝除（R4）：column-0 的 `---` / `...` 是 stream-scoped token、
+    /// 不屬於任何欄位資料；被吸進可搬移的未知區塊會讓 encode 產物永遠無法解析
+    /// （「讀得到但永遠寫不回」）。縮排的 `...` 是 scalar 內容，不受影響。
+    static func stripDocMarkers(_ raw: String) -> String {
+        guard raw.contains("---") || raw.contains("...") else { return raw }
+        var lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
+        if raw.hasSuffix("\n"), lines.last?.isEmpty == true { lines.removeLast() }
+        let kept = lines.filter { line in
+            let trimmed = line.drop(while: { $0 == " " })
+            let isColZeroMarker = line.count == trimmed.count
+                && (trimmed == "---" || trimmed == "...")
+            return !isColZeroMarker
+        }
+        return kept.joined(separator: "\n") + "\n"
     }
 
     /// 對齊 oracle：區塊獨立 re-parse 並與原 parse 節點比對。
@@ -251,9 +287,17 @@ public enum EntryYAML {
                 context, "未知欄位「\(expectedKey)」的區塊對齊校驗失敗（切分錯位，fail-closed）")
         }
         var budget = 200_000
-        guard nodesSemanticallyEqual(entry.value, originalValue, budget: &budget) == true else {
+        switch nodesSemanticallyEqual(entry.value, originalValue, budget: &budget) {
+        case true:
+            break
+        case false:
             throw StoreYAMLError.invalidField(
-                context, "未知欄位「\(expectedKey)」的區塊值與 parse 結果不符（切分錯位，或超出驗證預算的病態結構）")
+                context, "未知欄位「\(expectedKey)」的區塊值與 parse 結果不符（切分錯位，fail-closed）")
+        case nil:
+            // 預算耗盡 ≠ 不相符——是 alias 重用型 DAG 的比對爆炸（R4：觸發條件是
+            // anchor/alias 重用，與檔案大小無關）。訊息分開，診斷才可行動。
+            throw StoreYAMLError.invalidField(
+                context, "未知欄位「\(expectedKey)」超出驗證預算（anchor/alias 重用的展開比對爆炸）——fail-closed")
         }
     }
 
@@ -335,7 +379,7 @@ public enum EntryYAML {
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
-        let topKeys = try keyStrings(map, known: knownTopLevelKeys, context: "entry")
+        let topKeys = try keyStrings(map, context: "entry")
         let topUnknowns = try captureUnknownBlocks(
             text: yaml, map: map, keys: topKeys, known: knownTopLevelKeys,
             indent: 0, context: "entry")
@@ -417,7 +461,7 @@ public enum EntryYAML {
             entry.provenance = prov
         }
         if let akMap = map["akashic"]?.mapping {
-            let akKeys = try keyStrings(akMap, known: knownAkashicKeys, context: "akashic")
+            let akKeys = try keyStrings(akMap, context: "akashic")
             if akKeys.contains(where: { !knownAkashicKeys.contains($0) }) {
                 // 需要 akashic 區塊原文：由頂層切分取出（同樣計數校驗，fail-closed）
                 let topBlocks = try splitBlocks(yaml, indent: 0, context: "entry")
@@ -443,10 +487,11 @@ public enum EntryYAML {
                 let akEntries = Array(akMap)
                 var akUnknowns: [UnknownField] = []
                 for (i, k) in akKeys.enumerated() where !knownAkashicKeys.contains(k) {
-                    try verifyBlockOracle(raw: childBlocks[i], dedent: childIndent,
+                    let raw = stripDocMarkers(childBlocks[i])
+                    try verifyBlockOracle(raw: raw, dedent: childIndent,
                                           expectedKey: k, originalValue: akEntries[i].value,
                                           context: "akashic")
-                    akUnknowns.append(UnknownField(key: k, raw: childBlocks[i]))
+                    akUnknowns.append(UnknownField(key: k, raw: raw))
                 }
                 entry.akashic.unknownFields = akUnknowns
             }
@@ -513,6 +558,13 @@ public enum LibraryYAML {
         EntryYAML.appendRawBlocks(library.unknownFields, to: &out, targetIndent: 0)
         if !library.unknownFields.isEmpty {
             try EntryYAML.encodeCanary(out, context: "library")
+            let rd = try decode(out)   // 語意 canary（R4）
+            var a = rd, b = library
+            a.unknownFields = []; b.unknownFields = []
+            guard a == b, rd.unknownFields.map(\.key) == library.unknownFields.map(\.key) else {
+                throw StoreYAMLError.invalidField(
+                    "library", "encode 語意自檢失敗——產物與模型不符，拒絕寫出")
+            }
         }
         return out
     }
@@ -523,7 +575,7 @@ public enum LibraryYAML {
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
-        let keys = try EntryYAML.keyStrings(map, known: knownLibraryKeys, context: "library")
+        let keys = try EntryYAML.keyStrings(map, context: "library")
         let unknowns = try EntryYAML.captureUnknownBlocks(
             text: yaml, map: map, keys: keys, known: knownLibraryKeys,
             indent: 0, context: "library")
@@ -558,6 +610,13 @@ public enum PersonYAML {
         EntryYAML.appendRawBlocks(person.unknownFields, to: &out, targetIndent: 0)
         if !person.unknownFields.isEmpty {
             try EntryYAML.encodeCanary(out, context: "person")
+            let rd = try decode(out)   // 語意 canary（R4）
+            var a = rd, b = person
+            a.unknownFields = []; b.unknownFields = []
+            guard a == b, rd.unknownFields.map(\.key) == person.unknownFields.map(\.key) else {
+                throw StoreYAMLError.invalidField(
+                    "person", "encode 語意自檢失敗——產物與模型不符，拒絕寫出")
+            }
         }
         return out
     }
@@ -568,7 +627,7 @@ public enum PersonYAML {
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
-        let keys = try EntryYAML.keyStrings(map, known: knownPersonKeys, context: "person")
+        let keys = try EntryYAML.keyStrings(map, context: "person")
         let unknowns = try EntryYAML.captureUnknownBlocks(
             text: yaml, map: map, keys: keys, known: knownPersonKeys,
             indent: 0, context: "person")

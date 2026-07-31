@@ -400,16 +400,14 @@ final class ForwardCompatTests: XCTestCase {
 
     // R3 CRITICAL regression（oracle round）——五個「計數相等但錯位」家族：
 
-    // (1) 跨區塊 alias：未知區塊引用已知欄位的 anchor → 區塊獨立 compose 失敗
-    //     → load 時 quarantine（檔案原封不動；v1.2 級安全，絕不寫壞）
+    // (1) 跨區塊 anchor/alias 引用一律 quarantine（區塊獨立 compose 擋下）：
+    //     不論 anchor 在已知或未知欄位側，寫回都會產生 dangling / 倒置 alias。
+    //     同一區塊內自足的 anchor/alias 由 testSelfContainedAnchorPreserved 覆蓋。
     func testCrossBoundaryAliasQuarantinedAtLoad() {
-        let yaml = "key: a\nnames: [A]\ntitle_note: &t Shared\nextra: *t\n"
-        // title_note 與 extra 都是未知欄位、同屬 raw 保留 → 各自區塊獨立可解析 → 容忍
-        // 但 alias 指向「已知欄位」的 anchor 時必須擋：
-        let cross = "key: &k a\nnames: [A]\nextra: *k\n"
-        XCTAssertThrowsError(try PersonYAML.decode(cross),
-                             "未知區塊引用已知欄位 anchor——寫回會產生 dangling alias，必須 load 時 quarantine")
-        _ = yaml   // 同區塊家族的合法案例由 testSelfContainedAnchorPreserved 覆蓋
+        XCTAssertThrowsError(try PersonYAML.decode("key: &k a\nnames: [A]\nextra: *k\n"),
+                             "alias 指向已知欄位的 anchor → quarantine")
+        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [A]\ntitle_note: &t Shared\nextra: *t\n"),
+                             "兩個未知區塊之間的 anchor/alias 引用同樣 quarantine（fail-closed）")
     }
 
     // (1b) 自足的 anchor/alias（同一個未知區塊內）仍然容忍且逐字保留
@@ -444,6 +442,64 @@ final class ForwardCompatTests: XCTestCase {
     func testCRLFWithUnknownFieldsQuarantined() {
         let mixed = "extra: 1\r\nkey: i-mix\nnames: [\nA]\n"
         XCTAssertThrowsError(try PersonYAML.decode(mixed))
+    }
+
+    // R4 CRITICAL regression：CRLF 守衛必須在 unicodeScalar 層比對——
+    // Swift 把 \r\n 當單一 grapheme，`contains("\r")` 對 CRLF 恆 false（死碼守衛）。
+    // 本案例（folded scalar 內 CRLF）在 R4 前會「良性通過」oracle——守衛修好後必擋。
+    func testCRLFGuardActuallyFiresOnGraphemePairs() {
+        let benign = "key: a\nnames: [A]\nextra: >\r\n  folded content\n"
+        XCTAssertThrowsError(try PersonYAML.decode(benign),
+                             "CRLF 必須被 scalar 層守衛擋下，不得依賴 oracle 碰巧攔截")
+        // libyaml 的其他 break 字元（NEL/LS/PS）同族
+        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [A]\nextra: v\u{2028}more: 1\n"))
+        // 孤立 CR（classic-Mac）照舊擋
+        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [A]\nextra: 1\rmore: 2\n"))
+    }
+
+    // R4 HIGH regression：column-0 的 `...`/`---`（stream-scoped token）被吸進
+    // 未知區塊會讓 encode 永遠被 canary 拒寫（「讀得到但永遠寫不回」）——
+    // 擷取時剝除；縮排的 `...` 是 scalar 內容、不受影響
+    func testDocEndMarkerStrippedFromUnknownBlock() throws {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        rating: 5
+        akashic:
+          reading_progress: 60
+        ...
+        """
+        let entry = try EntryYAML.decode(yaml + "\n")
+        XCTAssertEqual(entry.akashic.unknownFields.map(\.key), ["reading_progress"])
+        XCTAssertFalse(entry.akashic.unknownFields[0].raw.contains("..."),
+                       "stream-scoped 標記不屬於欄位資料，必須剝除")
+        let re = try EntryYAML.encode(entry)          // R4 前在此被 canary 永久拒寫
+        XCTAssertEqual(try EntryYAML.decode(re).akashic.unknownFields.map(\.key),
+                       ["reading_progress"])
+    }
+
+    // R4 HIGH regression：語意 canary——parse-only 驗不出 key↔raw 不符的程式化注入
+    func testSemanticCanaryRefusesKeyRawMismatch() {
+        var person = Person(key: "a", names: ["A"])
+        person.unknownFields = [UnknownField(key: "x", raw: "orcid: HIJACKED-0000\n")]
+        XCTAssertThrowsError(try PersonYAML.encode(person),
+                             "raw 注入 known 欄位——語意 canary 必須拒寫")
+    }
+
+    // R3 CRITICAL #4 regression（R4 補）：tagged decoy——同字串異型別的 `akashic` 鍵
+    func testTaggedDecoyAkashicKeyQuarantined() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        !!str akashic: {status: decoy}
+        akashic:
+          reading_progress: 60
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml + "\n"))
     }
 
     // (4) 值截斷（flow 造成的靜默 null 化）→ oracle 的值等值檢查擋下

@@ -124,8 +124,9 @@ public enum EntryYAML {
               rd.unknownFields.map(\.key) == entry.unknownFields.map(\.key),
               rd.akashic.unknownFields.map(\.key) == entry.akashic.unknownFields.map(\.key)
         else {
+            // R7：指認不符欄位（R6-verify M13——泛用訊息無從人工行動）
             throw StoreYAMLError.invalidField(
-                "entry", "encode 語意自檢失敗——產物與模型不符，拒絕寫出")
+                "entry", "encode 語意自檢失敗——\(canaryMismatchDetail(ca, cb))，拒絕寫出")
         }
         // R6（L16）：未知欄位「值」的語意比對——key 序列相符不蘊含值未漂移
         // （縮排平移等寫出路徑的防護此前只靠切分計數偶然擋下）。
@@ -136,7 +137,10 @@ public enum EntryYAML {
     }
 
     /// canary 的比較基準：把序列化有損的已知欄位（provenance 的兩個 Date，
-    /// 秒精度）正規化到 encoder 精度。其餘欄位 lossless，不動。
+    /// 秒精度）正規化到 encoder 精度。字串欄位另有一條已知有損通道——**前導
+    /// U+FEFF**（Yams serialize 後 compose 會吃掉 quoted 開頭的 BOM）——刻意
+    /// **不**正規化：那是資料品質問題，fail-closed 拒寫 + 欄位指認訊息
+    /// （見 canaryMismatchDetail），不做靜默改資料（R6-verify M13）。
     static func canaryNormalized(_ entry: Entry) -> Entry {
         var e = entry
         if let d = e.provenance?.importedAt {
@@ -148,23 +152,48 @@ public enum EntryYAML {
         return e
     }
 
+    /// canary 不符時指認欄位（R7）：泛用「產物與模型不符」讓人工無從行動。
+    static func canaryMismatchDetail(_ a: Entry, _ b: Entry) -> String {
+        var bad: [String] = []
+        if a.id != b.id { bad.append("id") }
+        if a.citekey != b.citekey { bad.append("citekey") }
+        if a.type != b.type { bad.append("type") }
+        if a.title != b.title { bad.append("title") }
+        if a.authors != b.authors { bad.append("authors") }
+        if a.date != b.date { bad.append("date") }
+        if a.fields != b.fields { bad.append("fields") }
+        if a.attachments != b.attachments { bad.append("attachments") }
+        if a.provenance != b.provenance { bad.append("provenance") }
+        if a.akashic != b.akashic { bad.append("akashic") }
+        return bad.isEmpty
+            ? "未知欄位 key 序列不符"
+            : "欄位不符：\(bad.joined(separator: "、"))（常見原因：值含前導 U+FEFF 等序列化有損字元）"
+    }
+
     /// R6（L16）：寫出前後各未知區塊獨立 compose、語意比對——值漂移拒寫。
     /// 兩側 raw 縮排可能不同（平移是合法的），比對走 node 語意不走文字。
+    /// R7（R6-verify HIGH）：預算為**單次呼叫共用**、不是 per-block 重置——
+    /// N 個接近上限的區塊不可聚合成 N × 200k 的比對量（CPU 放大面）。
     static func verifyUnknownValuesPreserved(_ got: [UnknownField], _ want: [UnknownField],
                                              context: String) throws {
         guard got.count == want.count else {
             throw StoreYAMLError.invalidField(
                 context, "encode 語意自檢失敗——未知欄位數不符，拒絕寫出")
         }
+        var budget = 200_000
         for (g, w) in zip(got, want) {
             guard let gn = composeBlock(g.raw), let wn = composeBlock(w.raw) else {
                 throw StoreYAMLError.invalidField(
                     context, "未知欄位「\(w.key)」寫出前後無法獨立解析——拒絕寫出")
             }
-            var budget = 200_000
-            guard nodesSemanticallyEqual(gn, wn, budget: &budget) == true else {
+            switch nodesSemanticallyEqual(gn, wn, budget: &budget) {
+            case true: break
+            case false:
                 throw StoreYAMLError.invalidField(
                     context, "未知欄位「\(w.key)」寫出前後語意不符（值漂移）——拒絕寫出")
+            case nil:
+                throw StoreYAMLError.invalidField(
+                    context, "未知欄位「\(w.key)」超出驗證預算（單檔共用上限）——fail-closed")
             }
         }
     }
@@ -207,6 +236,13 @@ public enum EntryYAML {
             guard let k = key.string else {
                 throw StoreYAMLError.invalidField(context, "非字串鍵")
             }
+            // R7（R6-verify security HIGH）：closed shape 的 tagged-shadow 守衛——
+            // tag 非 str 的同名鍵 subscript 讀不到，optional 欄位會被靜默歸零、
+            // 寫回即剝除（required 欄位本就 fail-closed）。與 keyStrings 同款。
+            if key.tag != Tag(.str) {
+                throw StoreYAMLError.invalidField(
+                    context, "鍵「\(k)」帶非字串 tag——closed shape 不接受（fail-closed）")
+            }
             if !known.contains(k) {
                 throw StoreYAMLError.invalidField(context, "未知欄位「\(k)」（strict schema；見 docs/store-format.md §5）")
             }
@@ -242,16 +278,19 @@ public enum EntryYAML {
         return keys
     }
 
-    /// R6：行尾守衛限縮到 CR/CRLF——真正與 Swift 行模型分歧的是 CR（`\r\n` 是
-    /// 單一 grapheme，且 libyaml 視 CR 為行尾；R4 CRITICAL 的死碼守衛即此）。
-    /// NEL/LS/PS 是內容字元：plain scalar 含裸 NEL/LS 根本 compose 不過（早於
-    /// 容忍層即 quarantine），quoted scalar 內則被 libyaml 保留為內容、不影響
-    /// 行結構；本 binary 的 emitter 自己就會寫出 raw U+2028（R5 全文掃描把
-    /// 這種自家產物整檔誤殺——DA R5 (b)+(c)）。必須在 unicodeScalar 層比對。
+    /// 行尾守衛（R6 限縮、R7 更正）：擋 **CR/CRLF/NEL** 三個「有損通道」——
+    /// libyaml 讀取時會把 quoted scalar 內的 CR/NEL 摺疊成空白（毀字），且本
+    /// binary 的 emitter 對兩者都 escape（自家產物永不含 raw CR/NEL，守衛零
+    /// 誤殺）；CR 另有 Swift grapheme 行模型分歧（R4 CRITICAL 死碼守衛）。
+    /// **LS/PS 不擋**：quoted 內被 libyaml 依 YAML 1.1 摺疊規則**保留**（實測
+    /// round-trip 無損），且 emitter 自己就會寫出 raw U+2028——R5 的全文掃描
+    /// 把自家產物整檔誤殺（DA R5 (b)+(c)）。plain scalar 含裸 LS 會讓 libyaml
+    /// 多切出 key：帶未知欄位時由切分計數 oracle fail-closed；純 known 檔無此
+    /// 防線（已知盲區，§5 記載）。必須在 unicodeScalar 層比對。
     static func assertLFOnly(_ text: String, context: String) throws {
-        if text.unicodeScalars.contains(where: { $0 == "\r" }) {
+        if text.unicodeScalars.contains(where: { $0 == "\r" || $0 == "\u{85}" }) {
             throw StoreYAMLError.invalidField(
-                context, "CR/CRLF 行尾不支援（Swift 與 libyaml 行模型分歧，fail-closed；請將檔案行尾轉為 LF）")
+                context, "CR/CRLF/NEL 不支援（libyaml 讀取時摺疊毀字、行模型分歧，fail-closed；請正規化為 LF 或以 escape 表示）")
         }
     }
 
@@ -312,7 +351,7 @@ public enum EntryYAML {
     /// 絕不冒錯位寫壞的險）。無未知欄位時零成本快路徑。
     static func captureUnknownBlocks(text: String, map: Yams.Node.Mapping, keys: [String],
                                      known: Set<String>, indent: Int,
-                                     context: String) throws -> [UnknownField] {
+                                     context: String, budget: inout Int) throws -> [UnknownField] {
         guard keys.contains(where: { !known.contains($0) }) else { return [] }
         let blocks = try splitBlocks(text, indent: indent, context: context)
         guard blocks.count == keys.count else {
@@ -325,7 +364,8 @@ public enum EntryYAML {
         for (i, k) in keys.enumerated() where !known.contains(k) {
             let raw = stripDocMarkers(blocks[i])
             try verifyBlockOracle(raw: raw, dedent: indent, expectedKey: k,
-                                  originalValue: entries[i].value, context: context)
+                                  originalValue: entries[i].value, context: context,
+                                  budget: &budget)
             out.append(UnknownField(key: k, raw: raw))
         }
         return out
@@ -349,8 +389,10 @@ public enum EntryYAML {
     }
 
     /// 對齊 oracle：區塊獨立 re-parse 並與原 parse 節點比對。
+    /// R7：`budget` 由呼叫端供給、**單次 decode 全檔共用**（不 per-block 重置）。
     static func verifyBlockOracle(raw: String, dedent: Int, expectedKey: String,
-                                  originalValue: Yams.Node, context: String) throws {
+                                  originalValue: Yams.Node, context: String,
+                                  budget: inout Int) throws {
         var text = raw
         if dedent > 0 {
             var shifted = ""
@@ -374,7 +416,6 @@ public enum EntryYAML {
             throw StoreYAMLError.invalidField(
                 context, "未知欄位「\(expectedKey)」的區塊對齊校驗失敗（切分錯位，fail-closed）")
         }
-        var budget = 200_000
         switch nodesSemanticallyEqual(entry.value, originalValue, budget: &budget) {
         case true:
             break
@@ -453,11 +494,22 @@ public enum EntryYAML {
                 }
                 let indentCount = line.prefix(while: { $0 == " " }).count
                 let body = line.dropFirst(indentCount)
-                // 平移不變式（R6 M7）：語意續行平移後必須仍深於 targetIndent，
-                // 否則在下一次 decode 會被判為同層 entry 起始——區塊切不開、
-                // 該記錄「讀得到但永遠寫不回」。含兩個破壞型：縮排不足被 clamp、
-                // 恰好平移到 targetIndent/column 0。註解/空行不影響切分，照 clamp。
-                if i > 0, body.first != "#", indentCount + delta <= targetIndent {
+                // 平移不變式（R6 M7，R7 精確化）：語意續行平移後必須仍深於
+                // targetIndent，否則在下一次 decode 會被判為同層 entry 起始——
+                // 區塊切不開、該記錄「讀得到但永遠寫不回」。豁免三類與
+                // splitBlocks 的 entry-start oracle 對齊的行（R6-verify HIGH：
+                // 不變式必須鏡射切分規則，不能只看縮排）：
+                // (a) 註解行——`#` 行不觸發 entry-start，clamp 無害；
+                // (b) 空白-only 行——語意等同空行（R6 只認零長度是 bug）；
+                // (c) sequence 指標行——YAML 允許 indentationless sequence，
+                //     splitBlocks 亦排除 `- ` 行；平移後落在 targetIndent 合法，
+                //     低於 targetIndent 才是結構破壞。
+                let isSeqIndicator = body.first == "-"
+                    && (body.count == 1 || body.dropFirst().first == " "
+                        || body.dropFirst().first == "\t")
+                let floor = isSeqIndicator ? targetIndent - 1 : targetIndent
+                if i > 0, !body.isEmpty, body.first != "#",
+                   indentCount + delta <= floor {
                     throw StoreYAMLError.invalidField(
                         context,
                         "未知欄位「\(f.key)」縮排平移會破壞原文結構（續行平移後不深於目標縮排），無法安全寫回")
@@ -499,30 +551,50 @@ public enum EntryYAML {
         return v
     }
 
+    /// stream 開頭的 UTF-8 BOM 剝除（R7）：Yams/libyaml 把它當 stream BOM 吃掉，
+    /// 但文字層切分不會——第一個欄位若是未知欄位，BOM 會被吸進 raw、寫回時
+    /// 搬到文件中段（R6-verify M6）。屬 stream-scoped 保真例外（§5）。
+    static func stripLeadingBOM(_ yaml: String) -> String {
+        yaml.hasPrefix("\u{FEFF}") ? String(yaml.dropFirst()) : yaml
+    }
+
     public static func decode(_ yaml: String) throws -> Entry {
+        let yaml = stripLeadingBOM(yaml)
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
+        // oracle 預算：單次 decode 全檔共用（R7——per-block 重置可被 N 區塊
+        // 聚合成 CPU 放大面，R6-verify HIGH）
+        var oracleBudget = 200_000
         let topKeys = try keyStrings(map, known: knownTopLevelKeys, context: "entry")
         let topUnknowns = try captureUnknownBlocks(
             text: yaml, map: map, keys: topKeys, known: knownTopLevelKeys,
-            indent: 0, context: "entry")
-        guard let idString = map["id"]?.string, let id = UUID(uuidString: idString) else {
+            indent: 0, context: "entry", budget: &oracleBudget)
+        // 必填欄位走 requireShape（R7）：存在但形狀不符要報「形狀不符」而非
+        // 「缺欄位」（誤導診斷）；且 `Node.string` 對含 `=`（!!value）鍵的
+        // mapping 有 construct 特例，必須用 `scalar?.string` 驗真 scalar
+        // （R6-verify M14——mapping 假扮 scalar 通過形狀檢查、RMW 靜默扁平化）。
+        guard let idString = try requireShape(map["id"], field: "id",
+                                              expect: "scalar", { $0.scalar?.string }),
+              let id = UUID(uuidString: idString) else {
             throw StoreYAMLError.missingField("id")
         }
-        guard let citekey = map["citekey"]?.string else {
+        guard let citekey = try requireShape(map["citekey"], field: "citekey",
+                                             expect: "scalar", { $0.scalar?.string }) else {
             throw StoreYAMLError.missingField("citekey")
         }
-        guard let type = map["type"]?.string else {
+        guard let type = try requireShape(map["type"], field: "type",
+                                          expect: "scalar", { $0.scalar?.string }) else {
             throw StoreYAMLError.missingField("type")
         }
-        guard let title = map["title"]?.string else {
+        guard let title = try requireShape(map["title"], field: "title",
+                                           expect: "scalar", { $0.scalar?.string }) else {
             throw StoreYAMLError.missingField("title")
         }
 
         var entry = Entry(id: id, citekey: citekey, type: type, title: title)
         entry.unknownFields = topUnknowns
-        entry.date = try requireShape(map["date"], field: "date", expect: "scalar") { $0.string }
+        entry.date = try requireShape(map["date"], field: "date", expect: "scalar") { $0.scalar?.string }
 
         if let authorSeq = try requireShape(map["authors"], field: "authors",
                                             expect: "sequence", { $0.sequence }) {
@@ -543,9 +615,17 @@ public enum EntryYAML {
         }
         if let fieldMap = try requireShape(map["fields"], field: "fields",
                                            expect: "mapping", { $0.mapping }) {
+            var seenFieldKeys = Set<String>()
             for (k, v) in fieldMap {
-                guard let kk = k.string, let vv = v.string else {
+                guard let kk = k.string, let vv = v.scalar?.string else {
                     throw StoreYAMLError.invalidField("fields", "鍵值必須是 scalar（以字串面解讀）")
+                }
+                // R7（R6-verify M16）：Yams 只擋 string+tag 全等的重複鍵——
+                // `'123'` 與 `123` 是不同 Node 但同字串面，塞進 dictionary 會
+                // 靜默壓成一筆且 canary 看不見（模型端已丟）。fail-closed。
+                guard seenFieldKeys.insert(kk).inserted else {
+                    throw StoreYAMLError.invalidField(
+                        "fields", "鍵「\(kk)」字串面重複（tag 區分的同名鍵）——fail-closed")
                 }
                 entry.fields[kk] = vv
             }
@@ -556,7 +636,7 @@ public enum EntryYAML {
                 guard let m = node.mapping, m.count == 1,
                       let first = m.first, let kindRaw = first.key.string,
                       let kind = AttachmentRef.Kind(rawValue: kindRaw),
-                      let path = first.value.string else {
+                      let path = first.value.scalar?.string else {
                     throw StoreYAMLError.invalidField("attachments", "元素必須是 {zotero: path} 或 {pool: path}")
                 }
                 return AttachmentRef(kind: kind, path: path)
@@ -565,15 +645,16 @@ public enum EntryYAML {
         if let provMap = try requireShape(map["provenance"], field: "provenance",
                                           expect: "mapping", { $0.mapping }) {
             try rejectUnknownKeys(provMap, known: knownProvenanceKeys, context: "provenance")
-            guard let zKey = provMap["zotero_key"]?.string else {
+            guard let zKey = provMap["zotero_key"]?.scalar?.string else {
                 throw StoreYAMLError.invalidField("provenance", "缺 zotero_key")
             }
-            guard let zVerString = provMap["zotero_version"]?.string ?? provMap["zotero_version"]?.scalar?.string,
+            guard let zVerString = provMap["zotero_version"]?.scalar?.string,
                   let zVer = Int(zVerString) else {
                 throw StoreYAMLError.invalidField("provenance", "缺 zotero_version")
             }
             var prov = Provenance(zoteroKey: zKey, zoteroVersion: zVer)
-            if let s = provMap["library_id"]?.string ?? provMap["library_id"]?.scalar?.string {
+            if let s = try requireShape(provMap["library_id"], field: "provenance.library_id",
+                                        expect: "scalar", { $0.scalar?.string }) {
                 guard let lid = Int(s) else {
                     throw StoreYAMLError.invalidField("provenance", "library_id「\(s)」不是整數")
                 }
@@ -581,18 +662,18 @@ public enum EntryYAML {
             }
             prov.zoteroHash = try requireShape(provMap["zotero_hash"],
                                                field: "provenance.zotero_hash",
-                                               expect: "scalar") { $0.string }
+                                               expect: "scalar") { $0.scalar?.string }
             // R6（F2 延伸）：無法解析的時間戳此前被靜默丟棄（importedAt=nil）→
             // 下次改寫即剝除。形狀/值不符一律 fail-closed。
             if let n = provMap["imported_at"] {
-                guard let s = n.string, let d = isoFormatter.date(from: s) else {
+                guard let s = n.scalar?.string, let d = isoFormatter.date(from: s) else {
                     throw StoreYAMLError.invalidField(
                         "provenance.imported_at", "不是 ISO-8601 秒精度時間戳（fail-closed）")
                 }
                 prov.importedAt = d
             }
             if let n = provMap["orphaned_at"] {
-                guard let s = n.string, let d = isoFormatter.date(from: s) else {
+                guard let s = n.scalar?.string, let d = isoFormatter.date(from: s) else {
                     throw StoreYAMLError.invalidField(
                         "provenance.orphaned_at", "不是 ISO-8601 秒精度時間戳（fail-closed）")
                 }
@@ -631,7 +712,7 @@ public enum EntryYAML {
                     let raw = stripDocMarkers(childBlocks[i])
                     try verifyBlockOracle(raw: raw, dedent: childIndent,
                                           expectedKey: k, originalValue: akEntries[i].value,
-                                          context: "akashic")
+                                          context: "akashic", budget: &oracleBudget)
                     akUnknowns.append(UnknownField(key: k, raw: raw))
                 }
                 entry.akashic.unknownFields = akUnknowns
@@ -647,7 +728,7 @@ public enum EntryYAML {
                 entry.akashic.libraries = try stringList(libSeq, context: "akashic.libraries")
             }
             entry.akashic.status = try requireShape(akMap["status"], field: "akashic.status",
-                                                    expect: "scalar") { $0.string }
+                                                    expect: "scalar") { $0.scalar?.string }
             if let relMap = try requireShape(akMap["relations"], field: "akashic.relations",
                                              expect: "mapping", { $0.mapping }) {
                 try rejectUnknownKeys(relMap, known: knownRelationsKeys, context: "akashic.relations")
@@ -713,27 +794,28 @@ public enum LibraryYAML {
     static let knownLibraryKeys: Set<String> = ["key", "name", "description"]
 
     public static func decode(_ yaml: String) throws -> Library {
+        let yaml = EntryYAML.stripLeadingBOM(yaml)
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
+        var oracleBudget = 200_000
         let keys = try EntryYAML.keyStrings(map, known: knownLibraryKeys, context: "library")
         let unknowns = try EntryYAML.captureUnknownBlocks(
             text: yaml, map: map, keys: keys, known: knownLibraryKeys,
-            indent: 0, context: "library")
-        guard let key = map["key"]?.string else {
+            indent: 0, context: "library", budget: &oracleBudget)
+        guard let key = try EntryYAML.requireShape(map["key"], field: "library.key",
+                                                   expect: "scalar", { $0.scalar?.string }) else {
             throw StoreYAMLError.missingField("key")
         }
-        guard let name = map["name"]?.string else {
+        guard let name = try EntryYAML.requireShape(map["name"], field: "library.name",
+                                                    expect: "scalar", { $0.scalar?.string }) else {
             throw StoreYAMLError.missingField("name")
         }
         var library = Library(key: key, name: name)
         library.unknownFields = unknowns
-        if let descNode = map["description"] {
-            guard let desc = descNode.string else {
-                throw StoreYAMLError.invalidField("library.description", "必須是 string")
-            }
-            library.description = desc
-        }
+        library.description = try EntryYAML.requireShape(
+            map["description"], field: "library.description",
+            expect: "scalar") { $0.scalar?.string }
         return library
     }
 }
@@ -767,14 +849,17 @@ public enum PersonYAML {
     static let knownPersonKeys: Set<String> = ["key", "names", "orcid", "openalex", "note"]
 
     public static func decode(_ yaml: String) throws -> Person {
+        let yaml = EntryYAML.stripLeadingBOM(yaml)
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
+        var oracleBudget = 200_000
         let keys = try EntryYAML.keyStrings(map, known: knownPersonKeys, context: "person")
         let unknowns = try EntryYAML.captureUnknownBlocks(
             text: yaml, map: map, keys: keys, known: knownPersonKeys,
-            indent: 0, context: "person")
-        guard let key = map["key"]?.string else {
+            indent: 0, context: "person", budget: &oracleBudget)
+        guard let key = try EntryYAML.requireShape(map["key"], field: "person.key",
+                                                   expect: "scalar", { $0.scalar?.string }) else {
             throw StoreYAMLError.missingField("key")
         }
         var person = Person(key: key)
@@ -785,11 +870,11 @@ public enum PersonYAML {
             person.names = try EntryYAML.stringList(seq, context: "person.names")
         }
         person.orcid = try EntryYAML.requireShape(map["orcid"], field: "person.orcid",
-                                                  expect: "scalar") { $0.string }
+                                                  expect: "scalar") { $0.scalar?.string }
         person.openalex = try EntryYAML.requireShape(map["openalex"], field: "person.openalex",
-                                                     expect: "scalar") { $0.string }
+                                                     expect: "scalar") { $0.scalar?.string }
         person.note = try EntryYAML.requireShape(map["note"], field: "person.note",
-                                                 expect: "scalar") { $0.string }
+                                                 expect: "scalar") { $0.scalar?.string }
         return person
     }
 }

@@ -138,6 +138,11 @@ struct ImportZotero: ParsableCommand {
         }
         let stats = try LibraryIndex(store: store).rebuild()
         print("index rebuilt: \(stats.entries) entries")
+        // R7（R6-verify M22）：收容 ≠ 吞掉 process 層訊號——有單筆失敗仍以
+        // 非零退出，自動化（cron pull、CI）才看得到
+        if !report.writeFailed.isEmpty {
+            throw ExitCode(1)
+        }
     }
 }
 
@@ -205,12 +210,24 @@ struct ResolvePeople: ParsableCommand {
         if apply {
             let applied = PersonResolver.apply(candidates, to: load.entries)
             var written = 0
+            var writeFailed: [(String, String)] = []
+            // R7（R6-verify M21）：encode 自 v1.3 起可拒寫——多檔迴圈 per-item
+            // 收容，index 照 rebuild，不留「部分改寫 + index stale」的撕裂
             for (before, after) in zip(load.entries, applied) where before != after {
-                try store.writeEntry(after)
-                written += 1
+                do {
+                    try store.writeEntry(after)
+                    written += 1
+                } catch {
+                    writeFailed.append((after.citekey, String(describing: error)))
+                }
             }
             _ = try LibraryIndex(store: store).rebuild()
             print("✓ 套用 \(candidates.count) 個候選、改寫 \(written) 檔、index 已重建")
+            if !writeFailed.isEmpty {
+                print("write failed（單筆寫入失敗，已略過）: \(writeFailed.count)")
+                for (key, msg) in writeFailed { print("  ✗ \(key) — \(msg)") }
+                throw ExitCode(1)
+            }
         } else {
             print("（只列候選；要套用加 --apply）")
         }

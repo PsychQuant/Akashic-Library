@@ -451,8 +451,15 @@ final class ForwardCompatTests: XCTestCase {
         let benign = "key: a\nnames: [A]\nextra: >\r\n  folded content\n"
         XCTAssertThrowsError(try PersonYAML.decode(benign),
                              "CRLF 必須被 scalar 層守衛擋下，不得依賴 oracle 碰巧攔截")
-        // libyaml 的其他 break 字元（NEL/LS/PS）同族
-        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [A]\nextra: v\u{2028}more: 1\n"))
+        // NEL 與 CR 同族（libyaml 讀取有損、emitter 會 escape）——R7 回歸守衛
+        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [A]\nextra: v\u{85}more: 1\n")) {
+            XCTAssertTrue(String(describing: $0).contains("CR/CRLF/NEL"), "\($0)")
+        }
+        // 裸 LS 在 plain scalar：libyaml 當 break 多切出 key → 不走守衛、由
+        // 切分計數 oracle fail-closed（R6-verify [20] 更正——非「compose 不過」）
+        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [A]\nextra: v\u{2028}more: 1\n")) {
+            XCTAssertTrue(String(describing: $0).contains("無法可靠切分"), "\($0)")
+        }
         // 孤立 CR（classic-Mac）照舊擋
         XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [A]\nextra: 1\rmore: 2\n"))
     }

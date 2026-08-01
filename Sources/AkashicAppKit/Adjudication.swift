@@ -27,11 +27,19 @@ public final class PeopleResolveModel {
 
     public func accept(_ candidate: ResolutionCandidate) throws {
         let applied = PersonResolver.apply([candidate], to: state.entries)
+        // R7（R6-verify M21）：per-item 收容——先寫完能寫的、reindex 保持一致，
+        // 再把第一個失敗往上拋給 UI（不留「部分改寫 + index stale」）
+        var firstFailure: Error?
         for (before, after) in zip(state.entries, applied) where before != after {
-            try state.store.writeEntry(after)
+            do {
+                try state.store.writeEntry(after)
+            } catch {
+                if firstFailure == nil { firstFailure = error }
+            }
         }
         try state.reindexAndReload()
         refresh()
+        if let firstFailure { throw firstFailure }
     }
 
     /// skip 只影響本 session 的清單，不寫任何檔案。

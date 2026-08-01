@@ -387,12 +387,21 @@ public final class AkashicService {
         }
         let applied = PersonResolver.apply(chosen, to: load.entries)
         var written = 0
+        var writeFailed: [String: String] = [:]
+        // R7（R6-verify M21）：per-item 收容——單筆 encode 拒寫不中斷批次、
+        // index 照 rebuild、失敗照實回報
         for (before, after) in zip(load.entries, applied) where before != after {
-            try store.writeEntry(after)
-            written += 1
+            do {
+                try store.writeEntry(after)
+                written += 1
+            } catch {
+                writeFailed[after.citekey] = String(describing: error)
+            }
         }
         try LibraryIndex(store: store).rebuild()
-        return try jsonString(["applied": selected, "entriesRewritten": written] as [String: Any])
+        var result: [String: Any] = ["applied": selected, "entriesRewritten": written]
+        if !writeFailed.isEmpty { result["writeFailed"] = writeFailed }
+        return try jsonString(result)
     }
 
     public func createEntry(type: String, title: String, authors: [String],

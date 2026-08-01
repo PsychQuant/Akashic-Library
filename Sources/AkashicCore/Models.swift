@@ -197,37 +197,59 @@ public struct Person: Equatable {
     }
 }
 
-/// 顯示層消毒（R11，R10-verify M18/M19）——**任何把 store 內容字串放進人類可讀
-/// 輸出的路徑都必須先過這裡**（CLI stdout、MCP JSON、App）。store 檔案依 #23 的
-/// 前提可能由別的 binary、別人、Dropbox 同步寫入，未知欄位的 key 與 quarantine
-/// reason 都是**未信任內容**：
+/// 顯示層消毒——**任何把 store 內容字串放進人類可讀輸出的路徑都必須先過這裡**
+/// （CLI stdout、MCP JSON、App）。store 檔案依 #23 的前提可能由別的 binary、
+/// 別人、Dropbox 同步寫入，未知欄位 key、quarantine reason、以及**驗證失敗訊息
+/// 裡被插值的原始 key** 都是未信任內容。
 ///
-/// - **控制字元**：libyaml 擋輸入串流裡的裸 C0，但**不擋 double-quoted scalar 的
-///   跳脫序列**——`"\e[2J..."` 解碼後就是真的 ESC。實測可清螢幕、上色，並在
-///   `akashic validate` 的報告裡偽造出一行假的統計，而該報告正是人類判斷 store
-///   健不健康的依據（v1.2 會先 `rejectUnknownKeys` 擋掉，v1.3 把它移到 happy path）。
-/// - **長度**：Yams 的錯誤字串會展開成「訊息 + 出錯那一行的逐字內容」且不截斷；
-///   MCP 情境下那是直接灌進 LLM context 的無上限字串。
+/// - **控制字元**：libyaml 擋輸入串流的裸 C0，但**不擋 double-quoted scalar 的
+///   跳脫序列**——`"\e[2J…"` 解碼後就是真的 ESC。實測可清螢幕、上色，並在
+///   `akashic validate` 的報告裡偽造統計行，而該報告正是人類判斷 store 健不健康
+///   的依據（v1.2 由 `rejectUnknownKeys` 先擋，v1.3 把它移到 happy path）。
+/// - **長度**：Yams 錯誤字串會展開成出錯那一行的逐字內容且不截斷；MCP 情境下
+///   那是直接灌進 LLM context 的無上限字串。
 ///
-/// 消毒後仍可辨識（控制字元轉成 `\u{XXXX}` 而非刪除），使用者能看出「這裡本來有
-/// 個奇怪的東西」而不是無聲消失。
+/// **R12 三處更正**（R11 版本的實測缺陷）：
+/// 1. **預算以 unicode scalar 計，不以 Character 計**。原版 `for ch in s` 逐
+///    grapheme cluster 檢查預算，而一個 cluster 可含無上限的 combining mark——
+///    實測 `"a" + 50,000 個 U+0301` 在 `max: 200` 下**原樣通過**。
+/// 2. **補 LS/PS 與方向標記**。原版漏 U+2028/U+2029，而它們在 SwiftUI `Text`
+///    與 JSON→JS/LLM context 都是換行——「不得殘留真換行」的不變式在那兩個
+///    sink 上被繞過。另補 U+200E/200F/U+061C（Trojan-Source 家族較弱的一半）
+///    與 U+FEFF。
+/// 3. **反斜線自身要跳脫**，否則內容裡的字面 `\u{001B}` 與本函式的輸出無法區分
+///    （消毒後的字串會變得可偽造）。
 public func displaySafe(_ s: String, max: Int = 200) -> String {
-    var out = ""
-    out.reserveCapacity(min(s.count, max) + 16)
+    var out = String.UnicodeScalarView()
+    out.reserveCapacity(Swift.min(s.unicodeScalars.count, max) + 16)
+    var emitted = 0
     var truncated = false
-    for ch in s {
-        if out.count >= max { truncated = true; break }
-        for u in ch.unicodeScalars {
-            // C0（含 ESC/CR/LF/TAB）、DEL、C1、bidi-override / isolate
-            if u.value < 0x20 || u.value == 0x7F || (0x80...0x9F).contains(u.value)
-                || (0x202A...0x202E).contains(u.value) || (0x2066...0x2069).contains(u.value) {
-                out += String(format: "\\u{%04X}", u.value)
-            } else {
-                out.unicodeScalars.append(u)
-            }
-        }
+
+    func put(_ str: String) {
+        for u in str.unicodeScalars { out.append(u) }
     }
-    return truncated ? out + "…（已截斷）" : out
+
+    for u in s.unicodeScalars {
+        if emitted >= max { truncated = true; break }
+        let v = u.value
+        let escape =
+            v < 0x20 || v == 0x7F                    // C0 + DEL（含 ESC / CR / LF / TAB）
+            || (0x80...0x9F).contains(v)             // C1
+            || v == 0x2028 || v == 0x2029            // LS / PS——SwiftUI 與 JS 視為換行
+            || (0x202A...0x202E).contains(v)         // bidi override
+            || (0x2066...0x2069).contains(v)         // bidi isolate
+            || v == 0x200E || v == 0x200F || v == 0x061C  // 方向標記
+            || v == 0xFEFF                           // ZWNBSP / BOM
+            || v == 0x5C                             // 反斜線自身——否則輸出可被偽造
+        if escape {
+            put(String(format: "\\u{%04X}", v))
+        } else {
+            out.append(u)
+        }
+        emitted += 1
+    }
+    let body = String(out)
+    return truncated ? body + "…（已截斷）" : body
 }
 
 public struct ValidationIssue: Equatable {
@@ -261,7 +283,7 @@ extension Entry {
         if citekey.range(of: Self.citekeyPattern, options: .regularExpression) == nil {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "citekey '\(citekey)' 不符合 ^[a-z0-9][a-z0-9-]*$"))
+                message: "citekey '\(displaySafe(citekey, max: 120))' 不符合 ^[a-z0-9][a-z0-9-]*$"))
         }
         if type.trimmingCharacters(in: .whitespaces).isEmpty {
             issues.append(ValidationIssue(severity: .error, message: "type 不可為空"))
@@ -291,7 +313,7 @@ extension Library {
         if !StoreKey.isValid(key) {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "library key '\(key)' 不符合 \(StoreKey.pattern)"))
+                message: "library key '\(displaySafe(key, max: 120))' 不符合 \(StoreKey.pattern)"))
         }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
@@ -307,7 +329,7 @@ extension Person {
         if !StoreKey.isValid(key) {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "person key '\(key)' 不符合 \(StoreKey.pattern)"))
+                message: "person key '\(displaySafe(key, max: 120))' 不符合 \(StoreKey.pattern)"))
         }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,

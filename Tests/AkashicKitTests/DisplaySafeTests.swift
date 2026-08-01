@@ -54,4 +54,45 @@ final class DisplaySafeTests: XCTestCase {
         let exact = String(repeating: "b", count: 50)
         XCTAssertEqual(displaySafe(exact, max: 50), exact, "剛好等於上限不應加截斷標記")
     }
+
+    // MARK: - R12 補：R11 版本的三個實測缺陷
+
+    /// **grapheme cluster 繞過**（R12 M13/M16）：R11 版逐 Character 檢查預算，
+    /// 而一個 cluster 可含無上限的 combining mark——實測 `"a" + 50,000 個 U+0301`
+    /// 在 max:200 下原樣通過。預算必須以 unicode scalar 計。
+    func testGraphemeClusterCannotBypassBudget() {
+        let bomb = "a" + String(repeating: "\u{0301}", count: 50_000)
+        XCTAssertEqual(bomb.count, 1, "前提：這是單一 grapheme cluster")
+        let safe = displaySafe(bomb, max: 200)
+        XCTAssertLessThan(safe.unicodeScalars.count, 300,
+                          "預算必須以 scalar 計，實得 \(safe.unicodeScalars.count)")
+        XCTAssertTrue(safe.hasSuffix("…（已截斷）"))
+    }
+
+    /// **LS/PS**（R12 M14）：U+2028/U+2029 在 SwiftUI Text 與 JSON→JS/LLM
+    /// context 都是換行——「不得殘留真換行」的不變式原本在那兩個 sink 上被繞過。
+    func testLineAndParagraphSeparatorNeutralised() {
+        for u in ["\u{2028}", "\u{2029}"] {
+            let safe = displaySafe("a\(u)quarantined: 0 files")
+            XCTAssertFalse(safe.unicodeScalars.contains { $0.value == 0x2028 || $0.value == 0x2029 },
+                           "LS/PS 必須中和：\(safe)")
+        }
+    }
+
+    /// 方向標記與 BOM（Trojan-Source 家族較弱的一半）。
+    func testDirectionalMarksAndBOMNeutralised() {
+        for v: UInt32 in [0x200E, 0x200F, 0x061C, 0xFEFF] {
+            let ch = String(UnicodeScalar(v)!)
+            XCTAssertFalse(displaySafe("a\(ch)b").unicodeScalars.contains { $0.value == v },
+                           "U+\(String(format: "%04X", v)) 必須中和")
+        }
+    }
+
+    /// **反斜線自身要跳脫**（R12）：否則內容裡的字面 `\u{001B}` 與本函式的輸出
+    /// 無法區分，消毒後的字串反而可被偽造。
+    func testBackslashEscapedSoOutputCannotBeForged() {
+        let forged = "\\u{001B}[2J"          // 使用者內容裡的字面文字，不是真 ESC
+        let safe = displaySafe(forged)
+        XCTAssertTrue(safe.hasPrefix("\\u{005C}"), "反斜線應被跳脫：\(safe)")
+    }
 }

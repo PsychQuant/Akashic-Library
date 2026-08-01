@@ -145,7 +145,7 @@ public final class AkashicService {
         }
         // #23 tolerant-preserve：較新 schema 的檔案可用但應提示升級
         if !load.unknownFieldFiles.isEmpty {
-            d["unknownFieldFiles"] = load.unknownFieldFiles
+            d["unknownFieldFiles"] = load.unknownFieldFiles.map { displaySafe($0, max: 200) }
         }
         return try jsonString(d)
     }
@@ -408,13 +408,13 @@ public final class AkashicService {
         } catch {
             // R10（R9-verify L17）：附已改寫數——operator 才能對帳磁碟狀態
             throw ServiceError.invalid(
-                "index rebuild 失敗：\(error)（本批已改寫 \(written) 檔；writeFailed \(writeFailed.count) 筆：\(writeFailed.map { "\($0.key)（\($0.value)）" }.sorted().joined(separator: "; "))）")
+                "index rebuild 失敗：\(error)（本批已改寫 \(written) 檔；writeFailed \(writeFailed.count) 筆：\(writeFailed.map { "\(displaySafe($0.key, max: 200))（\(displaySafe($0.value, max: 512))）" }.sorted().joined(separator: "; "))）")
         }
         // R8（R7-verify L15）：applied 不誇報——排除寫入失敗的候選
         let appliedActual = chosen.filter { writeFailed[$0.citekey] == nil }
             .map { "\($0.citekey):\($0.authorIndex)" }
         var result: [String: Any] = ["applied": appliedActual, "entriesRewritten": written]
-        if !writeFailed.isEmpty { result["writeFailed"] = writeFailed }
+        if !writeFailed.isEmpty { result["writeFailed"] = writeFailed.mapValues { displaySafe($0, max: 512) } }
         return try jsonString(result)
     }
 
@@ -476,7 +476,7 @@ public final class AkashicService {
             try LibraryIndex(store: store).rebuild()
         } catch {
             throw ServiceError.invalid(
-                "index rebuild 失敗：\(error)（本趟 import 已落地：created \(report.created.count)、updated \(report.updated.count)、orphaned \(report.orphaned.count)；writeFailed \(report.writeFailed.count) 筆：\(report.writeFailed.keys.sorted().joined(separator: ", "))）")
+                "index rebuild 失敗：\(error)（本趟 import 已落地：created \(report.created.count)、updated \(report.updated.count)、orphaned \(report.orphaned.count)；writeFailed \(report.writeFailed.count) 筆：\(report.writeFailed.keys.sorted().map { displaySafe($0, max: 200) }.joined(separator: ", "))）")
         }
         var d: [String: Any] = [
             "created": report.created, "updated": report.updated,
@@ -488,7 +488,7 @@ public final class AkashicService {
         ]
         if !report.authorsPreserved.isEmpty { d["authorsPreserved"] = report.authorsPreserved }
         if !report.quarantineConflicts.isEmpty { d["quarantineConflicts"] = report.quarantineConflicts }
-        if !report.writeFailed.isEmpty { d["writeFailed"] = report.writeFailed }
+        if !report.writeFailed.isEmpty { d["writeFailed"] = report.writeFailed.mapValues { displaySafe($0, max: 512) } }
         return try jsonString(d)
     }
 

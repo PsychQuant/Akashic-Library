@@ -89,8 +89,11 @@ quarantine，這是刻意的 fail-closed 遷移（詳見 §5「known 欄位的�
   不適用**——`title:` → `""`、`title: Null` → `"Null"`，走字串面。把 null-as-absent 套到
   scalar 是 R8-verify 標為 CRITICAL 的東西（會讓 Zotero 無標題 item 永遠寫不進 store）。
   具名例外只有 `provenance.imported_at` / `orphaned_at` 兩個 Optional 日期。
-- **全檔無 LF** 的 classic-Mac lone-CR 檔照常無損載入（CR 是行尾慣例，由 libyaml 正規化）。
-  注意這與上表最後第二列不衝突：檔內**有** LF 時，不接 LF 的裸 CR 只能是內容，拒收。
+- **全檔無 LF** 的 classic-Mac lone-CR 檔可無損載入（CR 是行尾慣例，由 libyaml 正規化）
+  ——**但僅限不含未知欄位的檔案**。含未知欄位時走區塊切分路徑，該路徑對任何 CR
+  一律拒收（見上表倒數第二列），所以這條 carve-out 與該列**不是**互補而是**交集**：
+  只有「全檔無 LF」**且**「無未知欄位」的檔案才享有。這個分層不對稱是既有的，
+  §5「有損字元守衛」有記載。
 
 **為什麼要看這段**：舊 binary 讀新 store 的行為由**格式**版本決定；而新 binary 讀舊
 store 的行為由第 2、3 點決定。在 #24 落地之前 store 端沒有版本訊號，唯一可用的判斷依據

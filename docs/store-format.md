@@ -343,7 +343,7 @@ encode/decode 等冪。
   decode 端已經丟掉的東西**——「檔案 → 模型」的保真由 decode 側的 oracle 與
   各 fail-closed 條款負責。不符拒寫；絕不原子性覆蓋合法檔案。代價：每次寫入
   多數輪 parse（產物 canary、full decode、per-block compose ×2——檔案 KB 級，
-  可接受；效能面見 #31）。
+  可接受；效能面見 #30）。
 - **版面契約（normative）**：容忍層假設 block-style、LF 行尾、非 complex-key
   的版面——這是 store writer 的約束；超出此版面的合法 YAML 一律 fail-closed
   quarantine（資料完整性 > 病態版面的可用性）。

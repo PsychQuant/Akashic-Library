@@ -37,7 +37,7 @@ struct Doctor: ParsableCommand {
         // #23 tolerant-preserve：較新 schema 的檔案（未知欄位已保留）——提示升級
         if !load.unknownFieldFiles.isEmpty {
             print("unknown-field files: \(load.unknownFieldFiles.count)（可能由較新版本寫入；升級 binary）")
-            load.unknownFieldFiles.forEach { print("  ⚠ \($0)") }
+            load.unknownFieldFiles.forEach { print("  ⚠ \(displaySafe($0, max: 200))") }
         }
     }
 }
@@ -133,7 +133,7 @@ struct ImportZotero: ParsableCommand {
         if !report.writeFailed.isEmpty {
             print("write failed（單筆寫入失敗，已略過續跑）: \(report.writeFailed.count)")
             for key in report.writeFailed.keys.sorted() {
-                print("  ✗ \(key) — \(report.writeFailed[key]!)")
+                print("  ✗ \(displaySafe(key, max: 200)) — \(displaySafe(report.writeFailed[key]!, max: 512))")
             }
         }
         let stats = try LibraryIndex(store: store).rebuild()
@@ -225,7 +225,7 @@ struct ResolvePeople: ParsableCommand {
             // 不得吞掉已發生的寫入失敗報告
             if !writeFailed.isEmpty {
                 print("write failed（單筆寫入失敗，已略過）: \(writeFailed.count)")
-                for (key, msg) in writeFailed { print("  ✗ \(key) — \(msg)") }
+                for (key, msg) in writeFailed { print("  ✗ \(displaySafe(key, max: 200)) — \(displaySafe(msg, max: 512))") }
             }
             _ = try LibraryIndex(store: store).rebuild()
             // R8（R7-verify L29/L15）：成功行不誇報（✓ 只在全數成功時）

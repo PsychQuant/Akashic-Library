@@ -280,9 +280,21 @@ public enum EntryYAML {
             guard let k = key.string else {
                 throw StoreYAMLError.invalidField(context, "非字串鍵")
             }
-            if k == "<<" {   // merge key 從不在 known set——語意在 parser 間分歧，不入 tolerant 範圍（§5）
+            // R11（R10-verify H1，codex+logic 雙 lens 實測）：merge / value 語意由
+            // **tag** 決定，不由鍵名字串決定——Yams 自己的 merge 實作就是比 tag
+            // （`Node.Mapping.flatten()` 判 `pair.key.tag.name == .merge`）。R10 以前
+            // 用 `k == "<<"` 字串比對，兩個方向都錯：
+            //   漏擋：`!!merge foo:` 的字串面是 `foo`，字串測試看不到 → 被當未知
+            //         欄位收下並原樣寫回；merge-aware loader 讀同一份檔案會展開成
+            //         另一份記錄（實測可把 `orcid` 這種 known 欄位注入進去）。
+            //   過擋：quoted `'<<'` 依 YAML 是普通字串（tag = str），卻被字串測試拒收。
+            // 改判 tag 後兩個方向同時修正。`=`（value 面）同理——R10-verify DA 實測
+            // 頂層 `=` 被收下並原樣寫回。
+            if key.tag == Tag(.merge) || key.tag == Tag(.value) {
+                let face = key.tag == Tag(.merge) ? "merge「<<」" : "value「=」"
                 throw StoreYAMLError.invalidField(
-                    context, "merge key「<<」不入 tolerant 範圍（見 docs/store-format.md §5）")
+                    context, "\(face)面的鍵不入 tolerant 範圍——語意在 parser 間分歧"
+                             + "（見 docs/store-format.md §5）")
             }
             if known.contains(k), key.tag != Tag(.str) {
                 throw StoreYAMLError.invalidField(
@@ -319,7 +331,37 @@ public enum EntryYAML {
     /// 一律 escape（自家產物零誤殺）、且是 cp1252 `…` 誤轉的常見內容字元——
     /// 內容被摺疊即為毀字。帶未知欄位的檔另由 splitBlocks 的 assertLFOnly
     /// 全面拒收 CR + NEL（切分結構分歧）。
+    /// 顯式 complex key（`? key`）守衛——**必須在 `Yams.compose` 之前**（R11：
+    /// R10-verify H2，security lens 實測）。Yams 的 composer 對每個 mapping 呼叫
+    /// `Parser.checkDuplicates(mappingKeys:)`，它 `Dictionary(grouping:)` 每個 key
+    /// node，而 `Node.Sequence.hash(into:)` 遞迴合成、無 memoisation——所以把
+    /// alias 放在**顯式 complex key 位置**（`? *alias`），展開發生在 compose
+    /// **內部**，本檔所有 guard（oracleBudget / depth / verifyBlockOracle）
+    /// 一個都還沒開始跑。實測：927 bytes 的 `people/bomb.yaml` 讓 `akashic doctor`
+    /// 燒 36.3 s CPU 後被 45 s timeout 殺掉；同一顆 bomb **不放** complex key
+    /// 則 0.03 s 正確 quarantine（既有防線對 value 側是有效的，只是這條路徑
+    /// 整個繞過去）。
+    ///
+    /// 文字層偵測是唯一可行的位置——compose 之後就已經來不及。判準是 YAML 的
+    /// explicit key indicator：block context 下行首（可有縮排）的 `?` 後接空白
+    /// 或行尾。**可能過擋**（block scalar 內容行若剛好長這樣），但代價對稱不
+    /// 對等：過擋 = quarantine（檔案原封不動、可見、升級 binary 後恢復），
+    /// 漏擋 = 整台機器 100% CPU 掛死。真實 corpus 命中 0/536。
+    static func assertNoExplicitComplexKey(_ text: String, context: String) throws {
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let t = line.drop(while: { $0 == " " })
+            guard t.first == "?" else { continue }
+            let after = t.dropFirst().first
+            if after == nil || after == " " || after == "\t" {
+                throw StoreYAMLError.invalidField(
+                    context, "顯式 complex key（`? key`）不支援——alias 置於 key 位置會在"
+                           + " YAML compose 內部指數展開（早於所有預算守衛），fail-closed")
+            }
+        }
+    }
+
     static func assertNoLossyContentChars(_ text: String, context: String) throws {
+        try assertNoExplicitComplexKey(text, context: context)
         if text.unicodeScalars.contains(where: { $0 == "\u{85}" }) {
             throw StoreYAMLError.invalidField(
                 context, "NEL (U+0085) 不支援（libyaml 讀取時摺疊毀字，fail-closed；請正規化或以 escape 表示）")
@@ -704,6 +746,19 @@ public enum EntryYAML {
                         "fields", "鍵必須是隱式可解析的 scalar（str/int/float/bool/null/timestamp 面）、值必須是 scalar（以字串面解讀）")
                 }
                 let kk = kScalar.string
+                // R11（R10-verify H3，DA 實測）：閉集只擋得住 tag 面。quoted
+                // `'<<'` / `'='` 的 resolved tag 是 str → 通過閉集被 decode 收下，
+                // 但 encode 時 `Node("<<")` 是 implicit → resolve 成 merge/value →
+                // emit 成裸 `<<:` → 內層 canary 的 decode(out) 撞閉集 → 永遠 throw。
+                // 結果是 §5 自己命名的最壞形態「讀得到但永遠寫不回」，且**零可見性**
+                // （不進 quarantine、無未知欄位所以不進 unknownFieldFiles、validate()
+                // 也不吐 warning）。decode 端補上字串面 fail-closed，讓這種檔案在
+                // 載入時就進 quarantine——可見、可救、不會在下次 pull 才炸。
+                guard kk != "<<", kk != "=" else {
+                    throw StoreYAMLError.invalidField(
+                        "fields", "鍵「\(kk)」的字串面與 merge/value 指示符相同——本 binary 的"
+                                + " emitter 會把它寫成裸指示符而無法讀回（自我毒化），fail-closed")
+                }
                 // R7（R6-verify M16）：Yams 只擋 string+tag 全等的重複鍵——
                 // `'123'` 與 `123` 是不同 Node 但同字串面，塞進 dictionary 會
                 // 靜默壓成一筆且 canary 看不見（模型端已丟）。fail-closed。

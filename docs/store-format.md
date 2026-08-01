@@ -251,6 +251,26 @@ encode/decode 等冪。
   實際可容納的節點數依結構而定（單鍵 mapping 元素約耗 3 次比對/個）。巨大
   未知子樹與 anchor/alias 重用型 DAG 都會觸發 → quarantine。這是未知子樹的
   實質大小上限（可用性懸崖，照實記載）；超大 payload 不應塞在未知欄位裡。
+- **顯式 complex key（`? key`）不支援（R11，R10-verify HIGH）**：所有預算守衛
+  都跑在 `Yams.compose` **之後**，而 composer 的重複鍵偵測會對每個 key node
+  遞迴 hash（無 memoisation）——把 alias 放在 key 位置時，展開發生在 compose
+  **內部**，上面那一整套預算一個都還沒開始跑。實測：636 bytes 的 fixture
+  （`? *a12`，約 2.8×10¹¹ 邏輯節點）讓 `akashic doctor` 燒 36 s CPU 後被
+  timeout 殺掉；同一顆 bomb 不放在 key 位置則 0.03 s 正確 quarantine。因此
+  改在**文字層、compose 之前**擋：block context 下行首（可含縮排）的 `?` 後
+  接空白或行尾 → decode 錯誤 → quarantine。**可能過擋**（block scalar 的內容
+  行若恰好長這樣），代價不對稱是刻意的：過擋＝檔案原封不動且可見，漏擋＝
+  消費端 100% CPU 掛死。真實 corpus 命中 0/536。
+- **merge / value 面以 tag 判定，不以鍵名字串判定（R11，R10-verify HIGH）**：
+  YAML 的 merge 語意由 tag（`tag:yaml.org,2002:merge`）決定——Yams 自己的
+  `Node.Mapping.flatten()` 就是比 tag。R10 以前開放演化層用 `k == "<<"` 字串
+  比對，兩個方向都錯：**漏擋** `!!merge foo:`（字串面是 `foo`，字串測試看
+  不到）→ 被當普通未知欄位收下並原樣寫回，merge-aware loader 讀同一份檔案
+  會展開成**另一份記錄**（實測可注入 `orcid` 這類 known 欄位）；**過擋**
+  quoted `'<<'`（依 YAML 是普通字串、tag 為 str）。改判 `key.tag ∈ {merge,
+  value}` 後兩個方向同時修正——`!!merge`／`!!value` 加在任何鍵名上都拒收，
+  quoted `'<<'`／`'='` 在開放演化層照常當普通未知欄位保留（`fields` 層另有
+  字串面條款，見下）。
 - **tagged-shadow 鍵不入範圍（R6；R7 擴至所有層）**：字串與 schema 欄位同名、
   tag 非 str 的鍵（如 `!foo note:`、provenance 的 `!foo zotero_hash:`）→
   decode 錯誤 → quarantine——這種鍵 str-tag subscript 讀不到、又被字串比對
@@ -270,7 +290,14 @@ encode/decode 等冪。
   成 int/bool，str-tag 檢查會讓自家產物寫得出、讀不回（R8-verify HIGH）。
   閉集之外一律拒收：顯式 local tag（`!foo journal:`）、**merge 面 `<<`**
   （各層一致拒收——我們若 emit，他家 loader 會展開或報錯）、value 面 `=`
-  （R9 的 namespace 前綴判準誤放行兩者，R9-verify M4/M8）。已知邊界（記載）：
+  （R9 的 namespace 前綴判準誤放行兩者，R9-verify M4/M8）。**R11 補字串面**
+  （R10-verify HIGH）：tag 閉集只擋 tag 面，quoted `'<<'` / `'='` 的 resolved
+  tag 是 str、會通過閉集被 decode 收下，但 encode 時 `Node("<<")` implicit
+  resolve 成 merge → emit 成裸指示符 → 內層 canary decode 撞閉集 → **永遠
+  throw**。淨結果是本節自己命名的最壞形態「讀得到但永遠寫不回」，且**零
+  可見性**（不進 quarantine、無未知欄位故不進 `unknownFieldFiles`、
+  `validate()` 也不發 warning）。decode 端因此對字串面 `<<` / `=` 一併
+  fail-closed——載入即 quarantine，可見、可救。已知邊界（記載）：
   顯式 core tag（`!!int 123:`）與 plain `123:` 在 resolved-tag 層不可區分，
   接受並正規化為 plain。attachments 元素鍵維持 str-tag 檢查——鍵域固定為
   `zotero`/`pool` 兩個純字母字串、恆 resolve 為 str，無等冪問題（三層鍵規則

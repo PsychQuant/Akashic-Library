@@ -136,11 +136,20 @@ final class R7ForwardCompatTests: XCTestCase {
           '123': quoted
           123: plain
         """)) { error in
-            // R8 起 int-tag 鍵在更早的鍵層檢查即拒收（fail-closed 更前移）；
-            // 兩條路徑都可接受，重點是不得靜默壓成一筆
-            let msg = String(describing: error)
-            XCTAssertTrue(msg.contains("字串面重複") || msg.contains("鍵必須是字串"), "\(msg)")
+            // R9 re-pin（R8-verify M13）：core-resolved 鍵以字串面收下（等冪），
+            // 撞名由字串面重複檢查擋——此路徑必須可達，不得被鍵層 guard 短路
+            XCTAssertTrue(String(describing: error).contains("字串面重複"), "\(error)")
         }
+    }
+
+    /// R9（R8-verify HIGH-3）：emitter 對 fields 鍵輸出 plain 樣式，「2026」鍵
+    /// re-parse resolve 成 int——core-schema 鍵必須以字串面收下，encode/decode
+    /// 等冪（str-tag 檢查會讓自家產物寫得出、讀不回）。
+    func testNumericFaceFieldsKeyRoundTrips() throws {
+        var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        e.fields = ["2026": "hello", "no": "bool-face", "1.5": "float-face"]
+        let out = try EntryYAML.encode(e)
+        XCTAssertEqual(try EntryYAML.decode(out), e)
     }
 
     // MARK: - M6/M13：BOM

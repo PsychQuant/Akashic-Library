@@ -221,13 +221,17 @@ struct ResolvePeople: ParsableCommand {
                     writeFailed.append((after.citekey, String(describing: error)))
                 }
             }
+            // R9（R8-verify M8）：writeFailed 先印再 rebuild——rebuild 擲錯
+            // 不得吞掉已發生的寫入失敗報告
+            if !writeFailed.isEmpty {
+                print("write failed（單筆寫入失敗，已略過）: \(writeFailed.count)")
+                for (key, msg) in writeFailed { print("  ✗ \(key) — \(msg)") }
+            }
             _ = try LibraryIndex(store: store).rebuild()
-            // R8（R7-verify L29/L15）：失敗先印、成功行不誇報（✓ 只在全數成功時）
+            // R8（R7-verify L29/L15）：成功行不誇報（✓ 只在全數成功時）
             if writeFailed.isEmpty {
                 print("✓ 套用 \(candidates.count) 個候選、改寫 \(written) 檔、index 已重建")
             } else {
-                print("write failed（單筆寫入失敗，已略過）: \(writeFailed.count)")
-                for (key, msg) in writeFailed { print("  ✗ \(key) — \(msg)") }
                 print("部分套用：改寫 \(written) 檔、失敗 \(writeFailed.count) 檔、index 已重建")
                 throw ExitCode(1)
             }

@@ -21,10 +21,13 @@ final class R8ForwardCompatTests: XCTestCase {
         }
     }
 
-    func testPureKnownFileWithBareCRQuarantines() {
-        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: ['A\rB']\n")) {
-            XCTAssertTrue(String(describing: $0).contains("裸 CR"), "\($0)")
-        }
+    /// R9（R8-verify M11/L26 更正）：CR 系是行尾慣例、非毀字向量——classic-Mac
+    /// lone-CR 行尾檔 v1.2 可無損載入，必須維持可讀；quoted 內 CR 摺疊 ≡ LF
+    /// 摺疊（spec 語意）。純 known 檔的 entry 守衛只擋 NEL。
+    func testClassicMacLoneCRLineEndingsStillLoad() throws {
+        let p = try PersonYAML.decode("key: a\rnames: [A]\r")
+        XCTAssertEqual(p.key, "a")
+        XCTAssertEqual(p.names, ["A"])
     }
 
     /// v1.2 相容的關鍵反向面（DA R7 (b)）：CRLF **行尾**在純 known 檔由 libyaml
@@ -55,10 +58,11 @@ final class R8ForwardCompatTests: XCTestCase {
 
     // MARK: - M3：explicit/implicit null 的 known 欄位＝欄位不存在（v1.2 相容）
 
+    /// R9 限縮（R8-verify CRITICAL）：null-as-absent 只適用 collection 欄位；
+    /// scalar 欄位（date）以字串面收下 null-face（R6 normative）。
     func testNullKnownCollectionFieldsTreatedAsAbsent() throws {
-        let e = try EntryYAML.decode(head + "\nakashic:\ndate:\nfields:\n")
+        let e = try EntryYAML.decode(head + "\nakashic:\nfields:\n")
         XCTAssertTrue(e.akashic.isEmpty)
-        XCTAssertNil(e.date)
         XCTAssertTrue(e.fields.isEmpty)
         // RMW round-trip：null 行以「欄位不存在」重寫，無資料損失
         let rd = try EntryYAML.decode(try EntryYAML.encode(e))
@@ -67,11 +71,37 @@ final class R8ForwardCompatTests: XCTestCase {
         XCTAssertEqual(p.names, [])
     }
 
-    func testNullRequiredFieldReportsMissing() {
-        XCTAssertThrowsError(try EntryYAML.decode(
-            "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: article\ntitle:\n")) {
-            XCTAssertEqual($0 as? StoreYAMLError, .missingField("title"))
-        }
+    /// R8-verify CRITICAL 的直接 regression：Zotero 無標題 item
+    /// （`entry.title = fields["title"] ?? ""`）必須寫得進 store、讀得回來。
+    func testEmptyTitleRoundTripsThroughEncode() throws {
+        let e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "")
+        let out = try EntryYAML.encode(e)
+        XCTAssertEqual(try EntryYAML.decode(out), e)
+    }
+
+    /// v1.2 檔的 `title: Null`（emitter 對字串「Null」的 plain 輸出）必須載入
+    /// 為字面值——R8 把它 quarantine 是 #23 失敗模式的鏡像復發。
+    func testNullFaceScalarValuesReadAsStringFace() throws {
+        let e = try EntryYAML.decode(
+            "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: article\ntitle: Null\ndate:\n")
+        XCTAssertEqual(e.title, "Null")
+        XCTAssertEqual(e.date, "")   // scalar 欄位：null-face 的字串面
+        // optional scalar：status/note 的 null-face 值可寫可讀（等冪）
+        var e2 = Entry(id: UUID(), citekey: "b2020c", type: "article", title: "T")
+        e2.akashic.status = ""
+        XCTAssertEqual(try EntryYAML.decode(try EntryYAML.encode(e2)), e2)
+        var p = Person(key: "a", note: "~")
+        XCTAssertEqual(try PersonYAML.decode(try PersonYAML.encode(p)), p)
+        p.note = "null"
+        XCTAssertEqual(try PersonYAML.decode(try PersonYAML.encode(p)), p)
+    }
+
+    /// 檔案裡的 `note: ~` RMW 後不得被靜默刪行（R8-verify HIGH (b)）。
+    func testNullFaceOptionalScalarSurvivesRMW() throws {
+        let p = try PersonYAML.decode("key: a\nnote: ~\n")
+        XCTAssertEqual(p.note, "~")
+        let out = try PersonYAML.encode(p)
+        XCTAssertEqual(try PersonYAML.decode(out).note, "~")
     }
 
     // MARK: - L31：深巢狀 → quarantine 而非 stack overflow

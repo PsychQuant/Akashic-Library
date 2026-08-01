@@ -179,9 +179,17 @@ note: 中研院統計所            # 可選
 **known 欄位的形狀演化不入 tolerant 範圍（normative，R6；R8 精確化）**：known
 key 存在但形狀不符（如 `names` 由 sequence 演化為 mapping、`tags` 變 mapping、
 `status` 變 sequence、`imported_at` 非 ISO-8601）→ **decode 錯誤 → quarantine**。
-**例外（R8）**：explicit/implicit **null**（`akashic:` 空值行、`~`、`null`）視同
+**例外（R8，R9 限縮到 collection 欄位）**：**collection 形狀**的 known 欄位
+（`akashic:`/`fields:`/`names:`/`authors:`/`attachments:`/`relations:`/`tags:`/
+`libraries:` 等）遇 explicit/implicit **null**（空值行、`~`、`null` 面）視同
 「欄位不存在」——null 沒有可被剝除的子樹，quarantine 會把 v1.2 可載入的良性檔
-推下可用性懸崖；必填欄位的 null 報「缺欄位」。v1.2 的
+推下可用性懸崖；帶內容的顯式 `!!null foo` 不在此列（face 白名單）。**scalar
+欄位不適用**：其 extractor 以字串面收下 null-face（`title:` → `""`、
+`title: Null` → `"Null"`）——emitter 對 `""`/`"null"`/`"~"` 就是輸出 plain
+null-face，套 null-as-absent 會讓 Zotero 無標題 item 永遠寫不進 store、v1.2 的
+`title: Null` 檔被 quarantine（R8-verify CRITICAL）。附帶語意（照實記載）：
+collection **內部**的 null 元素同樣走字串面、保留**來源字面**（`[~]` → `"~"`、
+`[null]` → `"null"`、`[ ]` 空元素 → `""`——三種寫法三種字面值）。v1.2 的
 strict gate 事實上同時保護形狀演化（unknown key 先 throw、檔案永不被寫回）；
 v1.3 若只接「加 key」那一半，較新 schema 把既有 key 變豐富時，舊 binary 的
 read-modify-write 會把該欄位整段**靜默剝除**且所有檢查綠燈（verify R5 DA 實測
@@ -226,8 +234,10 @@ encode/decode 等冪。
   (c) key 相符、(d) 值與原 parse 的節點**語意相等**（預算走訪）。任一不成立 →
   decode 錯誤 → 檔案 quarantine——絕不冒錯位寫壞的險。涵蓋：complex key、
   flow-style、tagged decoy、值截斷。**驗證預算（R6 更正歸因，R7 改共用）**：
-  語意比對次數與節點數線性相關，上限 200,000 次、**單次 decode／encode 全檔
-  共用**（R7；R8 起 encode 側跨 entry/akashic 兩層同一份預算）；耗盡訊息指認
+  語意比對次數與節點數線性相關，上限 decode 200,000 次／encode 400,000 次（encode 比對含雙側
+  re-compose，單位消耗較高——R9）、**單次 decode／encode 全檔共用**（R7；
+  R8 起 encode 側跨 entry/akashic 兩層同一份預算；encode 內含的 canary decode
+  屬一次 decode、自帶 decode 側預算）；耗盡訊息指認
   的是「觸發」區塊，實際消耗可能來自同檔較早的區塊（訊息已註明）；另設遞迴
   深度上限（512）——深巢狀子樹 fail-closed quarantine 而非 stack overflow；
   實際可容納的節點數依結構而定（單鍵 mapping 元素約耗 3 次比對/個）。巨大
@@ -244,19 +254,24 @@ encode/decode 等冪。
   → decode 錯誤（R7，否則靜默壓成一筆）。mapping 型 complex key（`=`/!!value
   鍵）經 construct 特例會呈現字串面：known 欄位一律以真 scalar 驗形
   （`scalar` 檢查，R7）、known-同名由 tag 條款擋；sequence 型 complex key
-  直接 throw。**`fields` 的鍵與 `attachments` 元素鍵同受此律（R8）**——兩處
-  此前走 `Node.string` 的 construct 特例（tagged 鍵靜默丟 tag、`=`-鍵 mapping
-  扁平化），R8 起鍵側同樣真 scalar + str tag 驗形。
+  直接 throw。**`fields` 的鍵與 `attachments` 元素鍵同受此律（R8，R9 修正）**——
+  兩處此前走 `Node.string` 的 construct 特例（tagged 鍵靜默丟 tag、`=`-鍵
+  mapping 扁平化）。R9 規則：鍵必須是真 scalar 且 tag 屬 **core schema**
+  （`tag:yaml.org,2002:*`）、以字串面解讀——emitter 對 fields 鍵輸出 plain
+  樣式，`2026`/`no` 這類鍵 re-parse resolve 成 int/bool，str-tag 檢查會讓自家
+  產物寫得出、讀不回（R8-verify HIGH）；只拒**顯式 local tag**（`!foo journal:`
+  ——tagged-shadow 的丟 tag 通道）。字串面撞名仍 fail-closed。
 - **有損字元守衛（R8 拆成兩層、全部 decode 入口無條件執行）**：
-  (i) **毀字通道——NEL (U+0085) 與裸 CR（非 CRLF 一部分）一律拒收**（所有
-  decode 入口，含純 known 檔——R7 的守衛只長在切分路徑，純 known 檔被 libyaml
-  靜默摺疊毀字後寫回的半開門在 R8 關上）；libyaml 讀取時會把 quoted scalar 內
-  的 CR/NEL 摺疊成空白（毀字）。本 binary 的 emitter 對 CR/NEL 都 escape，
-  自家產物永不觸發（守衛零誤殺）。(ii) **CRLF 行尾＝結構分歧、只在帶未知欄位
-  時拒收**：CRLF 在純 known 檔由 libyaml 正規化為 LF、**無資料損失**（v1.2
-  相容——良性 CRLF 檔案仍可讀，重寫後正規化為 LF）；帶未知欄位時文字層切分
-  與 libyaml 行模型分歧（`\r\n` 是單一 grapheme，Character 層檢查是死碼；
-  unicodeScalar 層比對）→ decode 錯誤 → quarantine。**LS (U+2028) / PS
+  (i) **毀字通道——NEL (U+0085) 一律拒收**（所有 decode 入口，含純 known 檔
+  ——R7 的守衛只長在切分路徑，R8 關上半開門；R9 依 R8-verify 更正把裸 CR 移出
+  此層）。NEL 的特殊性：不是任何行尾慣例、emitter 一律 escape（自家產物零
+  誤殺）、且是 cp1252 `…` 誤轉 UTF-8 的常見**內容**字元——被 libyaml 當
+  line break 摺疊即為毀字。(ii) **CR 系＝行尾慣例，純 known 檔一律可讀**：
+  CRLF 與 classic-Mac lone-CR 行尾都由 libyaml 依規範正規化為 LF、無資料損失
+  （v1.2 相容）；quoted scalar 內的 CR 摺疊與 LF/CRLF 摺疊結果相同（YAML 摺疊
+  語意，非毀字——R8-verify L26 更正）。**帶未知欄位時 CR + NEL 全面拒收**：
+  文字層切分與 libyaml 行模型分歧（`\r\n` 是單一 grapheme，Character 層檢查
+  是死碼；unicodeScalar 層比對）→ decode 錯誤 → quarantine。**LS (U+2028) / PS
   (U+2029) 不在守衛範圍（R6 限縮，R7 更正機制敘述）**：quoted scalar 內被
   libyaml 依 YAML 1.1 摺疊規則**保留**（round-trip 無損），且 emitter 自己就
   會逐字寫出 raw U+2028（R5 的全文掃描把自家產物整檔誤殺）；plain scalar 含
@@ -298,8 +313,7 @@ encode/decode 等冪。
 （≤ v1.2）面對新欄位仍整檔 reject；要享有本節保證，所有讀寫者都必須先升到
 v1.3+。非累加演化（形狀變更、strict 層加欄位）另需版本訊號（#24）。同理，
 v1.3 的讀取面**嚴格化**（known 形狀不符、無法解析的時間戳由靜默容忍改為
-quarantine；`validate` 對 person/library 的 key 格式改報 error 級——既有 store
-若含畸形 key，`validate` 退出碼由 0 變 1）可能讓舊版可載入的病態檔案在升級後進 quarantine——這是刻意的
+quarantine）可能讓舊版可載入的病態檔案在升級後進 quarantine——這是刻意的
 fail-closed 遷移（檔案原封不動，`doctor` 列出 quarantine 原因供修復），不是
 資料損失。
 

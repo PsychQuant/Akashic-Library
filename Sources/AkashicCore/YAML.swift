@@ -131,7 +131,9 @@ public enum EntryYAML {
         // R6（L16）：未知欄位「值」的語意比對——key 序列相符不蘊含值未漂移
         // （縮排平移等寫出路徑的防護此前只靠切分計數偶然擋下）。
         // R8：encode 側預算同樣單次呼叫共用（跨 entry/akashic 兩層）。
-        var encodeBudget = 200_000
+        // R9（R8-verify L25）：encode 側比對含 got/want 雙側 re-compose，單位消耗
+        // 高於 decode oracle——放寬為 2×，避免「讀得到但永遠寫不回」的邊界檔
+        var encodeBudget = 400_000
         try verifyUnknownValuesPreserved(rd.unknownFields, entry.unknownFields,
                                          context: "entry", budget: &encodeBudget)
         try verifyUnknownValuesPreserved(rd.akashic.unknownFields, entry.akashic.unknownFields,
@@ -299,28 +301,18 @@ public enum EntryYAML {
 
     /// 毀字通道守衛——**全部 decode 入口無條件執行**（R8：R7 的守衛只長在
     /// splitBlocks，純 known 檔（無未知欄位、不走切分）仍會被 libyaml 靜默
-    /// 摺疊毀字後寫回——DA M23 只關了一半）。與 assertLFOnly 的差異：CRLF
-    /// 行尾在純 known 檔由 libyaml 正規化為 LF、無資料損失（v1.2 相容，
-    /// 良性 CRLF 檔案必須仍可讀），所以這裡只擋真正的毀字向量——NEL 一律、
-    /// **裸 CR**（非 CRLF 一部分；quoted 內會摺疊成空白）。帶未知欄位的檔
-    /// 另由 splitBlocks 的 assertLFOnly 全面拒收 CR（切分結構分歧）。
+    /// 摺疊毀字後寫回——DA M23 只關了一半）。R9 限縮到 **NEL only**
+    /// （R8-verify M11/L26 更正）：CR 系（CRLF、lone-CR 行尾）是 libyaml 依規範
+    /// 正規化的**行尾慣例**（classic-Mac lone-CR 檔 v1.2 可無損載入，R8 的
+    /// 裸 CR 掃描把它推下懸崖）；quoted 內的 CR 摺疊與 LF/CRLF 摺疊結果完全
+    /// 相同（spec 摺疊語意，非毀字）。NEL 不同：不是任何行尾慣例、emitter
+    /// 一律 escape（自家產物零誤殺）、且是 cp1252 `…` 誤轉的常見內容字元——
+    /// 內容被摺疊即為毀字。帶未知欄位的檔另由 splitBlocks 的 assertLFOnly
+    /// 全面拒收 CR + NEL（切分結構分歧）。
     static func assertNoLossyContentChars(_ text: String, context: String) throws {
-        let scalars = text.unicodeScalars
-        var i = scalars.startIndex
-        while i < scalars.endIndex {
-            let c = scalars[i]
-            if c == "\u{85}" {
-                throw StoreYAMLError.invalidField(
-                    context, "NEL (U+0085) 不支援（libyaml 讀取時摺疊毀字，fail-closed；請正規化或以 escape 表示）")
-            }
-            if c == "\r" {
-                let next = scalars.index(after: i)
-                if next == scalars.endIndex || scalars[next] != "\n" {
-                    throw StoreYAMLError.invalidField(
-                        context, "裸 CR 不支援（libyaml 讀取時摺疊毀字，fail-closed；請正規化為 LF 或以 escape 表示）")
-                }
-            }
-            i = scalars.index(after: i)
+        if text.unicodeScalars.contains(where: { $0 == "\u{85}" }) {
+            throw StoreYAMLError.invalidField(
+                context, "NEL (U+0085) 不支援（libyaml 讀取時摺疊毀字，fail-closed；請正規化或以 escape 表示）")
         }
     }
 
@@ -458,7 +450,7 @@ public enum EntryYAML {
             // 無關」——alias-free 的 70k+ 節點子樹同樣打穿）。訊息分開，診斷
             // 才可行動。
             throw StoreYAMLError.invalidField(
-                context, "未知欄位「\(expectedKey)」超出驗證預算（節點數或 anchor/alias 展開超過比對上限）——fail-closed")
+                context, "未知欄位「\(expectedKey)」超出驗證預算（節點數、anchor/alias 展開或巢狀深度超過上限）——fail-closed")
         }
     }
 
@@ -574,13 +566,21 @@ public enum EntryYAML {
     /// 把既有 key 變豐富（如 names: sequence → mapping）時，舊 binary 的 RMW
     /// 會把該欄位整段靜默剝除。known 欄位的形狀演化不入 tolerant 範圍。
     static func requireShape<T>(_ node: Yams.Node?, field: String, expect: String,
+                                nullIsAbsent: Bool = false,
                                 _ extract: (Yams.Node) -> T?) throws -> T? {
         guard let node else { return nil }
-        // R8（R7-verify M3）：explicit/implicit null（`akashic:` 空值行）視同
-        // 「欄位不存在」——null 沒有可被剝除的子樹，quarantine 整檔是把 v1.2
-        // 可載入的良性檔推下可用性懸崖；真正要 fail-closed 的是形狀「演化」
-        // （scalar↔collection 互換）。必填欄位由呼叫端的 missingField 接手。
-        if let scalar = node.scalar, scalar.style == .plain, node.tag == Tag(.null) {
+        // R8（R7-verify M3）、R9 限縮（R8-verify CRITICAL）：explicit/implicit
+        // null（`akashic:` 空值行）視同「欄位不存在」——但**只對 collection 形狀
+        // 的欄位**。null 沒有可被剝除的子樹、且 collection extractor 對 null 會
+        // 走進「形狀不符」quarantine（可用性懸崖）才需要這條救。scalar 欄位的
+        // extractor 本來就以字串面收下 null-face（R6 normative；emitter 對
+        // ""/"null"/"~" 就是輸出 plain null-face——套用 null-as-absent 會讓
+        // Zotero 無標題 item 永遠寫不進 store、v1.2 的 `title: Null` 檔被
+        // quarantine，R8 CRITICAL）。face 白名單擋 `!!null foo` 這種帶內容的
+        // 顯式 tag（R8-verify L22：內容不可靜默丟）。
+        if nullIsAbsent, let scalar = node.scalar, scalar.style == .plain,
+           node.tag == Tag(.null),
+           ["", "~", "null", "Null", "NULL"].contains(scalar.string) {
             return nil
         }
         guard let v = extract(node) else {
@@ -640,7 +640,7 @@ public enum EntryYAML {
         entry.date = try requireShape(map["date"], field: "date", expect: "scalar") { $0.scalar?.string }
 
         if let authorSeq = try requireShape(map["authors"], field: "authors",
-                                            expect: "sequence", { $0.sequence }) {
+                                            expect: "sequence", nullIsAbsent: true, { $0.sequence }) {
             entry.authors = try authorSeq.map { node in
                 guard let m = node.mapping else {
                     throw StoreYAMLError.invalidField("authors", "元素不是 mapping")
@@ -657,15 +657,21 @@ public enum EntryYAML {
             }
         }
         if let fieldMap = try requireShape(map["fields"], field: "fields",
-                                           expect: "mapping", { $0.mapping }) {
+                                           expect: "mapping", nullIsAbsent: true, { $0.mapping }) {
             var seenFieldKeys = Set<String>()
             for (k, v) in fieldMap {
-                // R8（R7-verify M2）：鍵側同樣要真 scalar + str tag——`Node.string`
-                // 的 construct 特例會把 `=`-鍵 mapping 扁平化、tagged 鍵靜默丟 tag
-                guard let kScalar = k.scalar, k.tag == Tag(.str),
+                // R8（R7-verify M2）+ R9 修正（R8-verify HIGH）：鍵側要真 scalar
+                // （擋 `=`-鍵 mapping 的 construct 扁平化）且 tag 屬 core schema
+                // ——**不得要求 str tag**：emitter 對 fields 鍵輸出 plain 樣式，
+                // `2026`/`no` 這類鍵 re-parse resolve 成 int/bool，str-tag 檢查會
+                // 讓自家產物寫得出、讀不回（R6 已判過的自我毒化原樣復發）。
+                // 只拒**顯式 local tag**（`!foo journal:`——tagged-shadow 的
+                // 靜默丟 tag 通道）；core-resolved 鍵以字串面解讀。
+                guard let kScalar = k.scalar,
+                      k.tag.description.hasPrefix("tag:yaml.org,2002:"),
                       let vv = v.scalar?.string else {
                     throw StoreYAMLError.invalidField(
-                        "fields", "鍵必須是字串 scalar、值必須是 scalar（以字串面解讀）")
+                        "fields", "鍵必須是 core-schema scalar、值必須是 scalar（以字串面解讀）")
                 }
                 let kk = kScalar.string
                 // R7（R6-verify M16）：Yams 只擋 string+tag 全等的重複鍵——
@@ -679,7 +685,7 @@ public enum EntryYAML {
             }
         }
         if let attSeq = try requireShape(map["attachments"], field: "attachments",
-                                         expect: "sequence", { $0.sequence }) {
+                                         expect: "sequence", nullIsAbsent: true, { $0.sequence }) {
             entry.attachments = try attSeq.map { node in
                 // R8（R7-verify M2）：元素鍵同樣真 scalar + str tag（此層無
                 // rejectUnknownKeys，R7 的 tagged-shadow 守衛此前搆不到）
@@ -694,7 +700,7 @@ public enum EntryYAML {
             }
         }
         if let provMap = try requireShape(map["provenance"], field: "provenance",
-                                          expect: "mapping", { $0.mapping }) {
+                                          expect: "mapping", nullIsAbsent: true, { $0.mapping }) {
             try rejectUnknownKeys(provMap, known: knownProvenanceKeys, context: "provenance")
             // R8（R7-verify L13）：必填欄位也走 requireShape——形狀不符要報
             // 「形狀不符」，缺席才報「缺欄位」（誤導診斷類）
@@ -725,15 +731,21 @@ public enum EntryYAML {
                                                expect: "scalar") { $0.scalar?.string }
             // R6（F2 延伸）：無法解析的時間戳此前被靜默丟棄（importedAt=nil）→
             // 下次改寫即剝除。形狀/值不符一律 fail-closed。
-            if let n = provMap["imported_at"] {
-                guard let s = n.scalar?.string, let d = isoFormatter.date(from: s) else {
+            // R9（R8-verify M14）：null 面（`imported_at:` 空值行）視同欄位不存在
+            // ——模型是 Optional<Date>，nil↔省略等冪，v1.2 亦可載入這種良性檔。
+            if let s = try requireShape(provMap["imported_at"], field: "provenance.imported_at",
+                                        expect: "scalar", nullIsAbsent: true,
+                                        { $0.scalar?.string }) {
+                guard let d = isoFormatter.date(from: s) else {
                     throw StoreYAMLError.invalidField(
                         "provenance.imported_at", "不是 ISO-8601 秒精度時間戳（fail-closed）")
                 }
                 prov.importedAt = d
             }
-            if let n = provMap["orphaned_at"] {
-                guard let s = n.scalar?.string, let d = isoFormatter.date(from: s) else {
+            if let s = try requireShape(provMap["orphaned_at"], field: "provenance.orphaned_at",
+                                        expect: "scalar", nullIsAbsent: true,
+                                        { $0.scalar?.string }) {
+                guard let d = isoFormatter.date(from: s) else {
                     throw StoreYAMLError.invalidField(
                         "provenance.orphaned_at", "不是 ISO-8601 秒精度時間戳（fail-closed）")
                 }
@@ -742,7 +754,7 @@ public enum EntryYAML {
             entry.provenance = prov
         }
         if let akMap = try requireShape(map["akashic"], field: "akashic",
-                                        expect: "mapping", { $0.mapping }) {
+                                        expect: "mapping", nullIsAbsent: true, { $0.mapping }) {
             let akKeys = try keyStrings(akMap, known: knownAkashicKeys, context: "akashic")
             if akKeys.contains(where: { !knownAkashicKeys.contains($0) }) {
                 // 需要 akashic 區塊原文：由頂層切分取出（同樣計數校驗，fail-closed）
@@ -778,26 +790,25 @@ public enum EntryYAML {
                 entry.akashic.unknownFields = akUnknowns
             }
             if let tagSeq = try requireShape(akMap["tags"], field: "akashic.tags",
-                                            expect: "sequence", { $0.sequence }) {
+                                            expect: "sequence", nullIsAbsent: true, { $0.sequence }) {
                 entry.akashic.tags = try stringList(tagSeq, context: "akashic.tags")
             }
-            if let libNode = akMap["libraries"] {
-                guard let libSeq = libNode.sequence else {
-                    throw StoreYAMLError.invalidField("akashic.libraries", "必須是 sequence")
-                }
+            if let libSeq = try requireShape(akMap["libraries"], field: "akashic.libraries",
+                                             expect: "sequence", nullIsAbsent: true,
+                                             { $0.sequence }) {
                 entry.akashic.libraries = try stringList(libSeq, context: "akashic.libraries")
             }
             entry.akashic.status = try requireShape(akMap["status"], field: "akashic.status",
                                                     expect: "scalar") { $0.scalar?.string }
             if let relMap = try requireShape(akMap["relations"], field: "akashic.relations",
-                                             expect: "mapping", { $0.mapping }) {
+                                             expect: "mapping", nullIsAbsent: true, { $0.mapping }) {
                 try rejectUnknownKeys(relMap, known: knownRelationsKeys, context: "akashic.relations")
                 if let seq = try requireShape(relMap["cites"], field: "akashic.relations.cites",
-                                              expect: "sequence", { $0.sequence }) {
+                                              expect: "sequence", nullIsAbsent: true, { $0.sequence }) {
                     entry.akashic.relations.cites = try stringList(seq, context: "akashic.relations.cites")
                 }
                 if let seq = try requireShape(relMap["related"], field: "akashic.relations.related",
-                                              expect: "sequence", { $0.sequence }) {
+                                              expect: "sequence", nullIsAbsent: true, { $0.sequence }) {
                     entry.akashic.relations.related = try stringList(seq, context: "akashic.relations.related")
                 }
             }
@@ -852,7 +863,9 @@ public enum LibraryYAML {
             throw StoreYAMLError.invalidField(
                 "library", "encode 語意自檢失敗——\(detail)，拒絕寫出")
         }
-        var encodeBudget = 200_000
+        // R9（R8-verify L25）：encode 側比對含 got/want 雙側 re-compose，單位消耗
+        // 高於 decode oracle——放寬為 2×，避免「讀得到但永遠寫不回」的邊界檔
+        var encodeBudget = 400_000
         try EntryYAML.verifyUnknownValuesPreserved(rd.unknownFields, library.unknownFields,
                                                    context: "library", budget: &encodeBudget)
         return out
@@ -917,7 +930,9 @@ public enum PersonYAML {
             throw StoreYAMLError.invalidField(
                 "person", "encode 語意自檢失敗——\(detail)，拒絕寫出")
         }
-        var encodeBudget = 200_000
+        // R9（R8-verify L25）：encode 側比對含 got/want 雙側 re-compose，單位消耗
+        // 高於 decode oracle——放寬為 2×，避免「讀得到但永遠寫不回」的邊界檔
+        var encodeBudget = 400_000
         try EntryYAML.verifyUnknownValuesPreserved(rd.unknownFields, person.unknownFields,
                                                    context: "person", budget: &encodeBudget)
         return out
@@ -944,7 +959,7 @@ public enum PersonYAML {
         person.unknownFields = unknowns
         // R6（DA R5 HIGH 實測案例即 person.names）：形狀不符 fail-closed
         if let seq = try EntryYAML.requireShape(map["names"], field: "person.names",
-                                                expect: "sequence", { $0.sequence }) {
+                                                expect: "sequence", nullIsAbsent: true, { $0.sequence }) {
             person.names = try EntryYAML.stringList(seq, context: "person.names")
         }
         person.orcid = try EntryYAML.requireShape(map["orcid"], field: "person.orcid",

@@ -494,3 +494,39 @@ extension ServiceTests {
         XCTAssertThrowsError(try svc.files(action: "teleport", key: nil), "未知 action 擲錯")
     }
 }
+
+// R9（R8-verify M15）：resolve-people 的 per-item 收容契約 regression
+extension ServiceTests {
+    func testResolvePeopleContainsWriteFailurePerItem() throws {
+        // 凍結記錄（decode 容忍、encode 平移不變式拒寫）+ literal 作者可解析
+        let frozen = """
+        id: 7C1F6C2E-0000-0000-0000-00000000CC01
+        citekey: frozen3
+        type: article
+        title: T
+        authors:
+          - literal: Che Cheng
+        akashic:
+            tags:
+            - keep
+            weird: [a,
+          b]
+        """
+        try (frozen + "\n").write(
+            to: root.appendingPathComponent("entries/frozen3.yaml"),
+            atomically: true, encoding: .utf8)
+        let list = try json(try service.resolvePeople(apply: nil)) as! [[String: Any]]
+        let ids = list.compactMap { $0["id"] as? String }
+        XCTAssertTrue(ids.contains("frozen3:0"), "\(ids)")
+        let out = try json(try service.resolvePeople(apply: ["frozen3:0"])) as! [String: Any]
+        // 收容：不 throw、writeFailed 記錄、applied 不誇報
+        let failed = out["writeFailed"] as? [String: String]
+        XCTAssertNotNil(failed?["frozen3"], "\(out)")
+        XCTAssertEqual(out["applied"] as? [String], [])
+        XCTAssertEqual(out["entriesRewritten"] as? Int, 0)
+        // 磁碟原封不動（fail-closed 不毀檔）
+        let onDisk = try String(
+            contentsOf: root.appendingPathComponent("entries/frozen3.yaml"), encoding: .utf8)
+        XCTAssertTrue(onDisk.contains("- literal: Che Cheng"))
+    }
+}

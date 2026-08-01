@@ -398,7 +398,13 @@ public final class AkashicService {
                 writeFailed[after.citekey] = String(describing: error)
             }
         }
-        try LibraryIndex(store: store).rebuild()
+        // R9（R8-verify M8）：rebuild 擲錯不得吞掉 writeFailed 報告
+        do {
+            try LibraryIndex(store: store).rebuild()
+        } catch {
+            throw ServiceError.invalid(
+                "index rebuild 失敗：\(error)（本批 writeFailed \(writeFailed.count) 筆：\(writeFailed.keys.sorted().joined(separator: ", "))）")
+        }
         // R8（R7-verify L15）：applied 不誇報——排除寫入失敗的候選
         let appliedActual = chosen.filter { writeFailed[$0.citekey] == nil }
             .map { "\($0.citekey):\($0.authorIndex)" }

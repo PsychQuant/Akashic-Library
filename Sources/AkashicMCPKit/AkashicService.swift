@@ -458,6 +458,7 @@ public final class AkashicService {
         ]
         if !report.authorsPreserved.isEmpty { d["authorsPreserved"] = report.authorsPreserved }
         if !report.quarantineConflicts.isEmpty { d["quarantineConflicts"] = report.quarantineConflicts }
+        if !report.writeFailed.isEmpty { d["writeFailed"] = report.writeFailed }
         return try jsonString(d)
     }
 

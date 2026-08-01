@@ -56,12 +56,15 @@ public enum Author: Equatable {
 /// 未知欄位（store-format §5 v1.3 tolerant-preserve，#23 α）：較新版本寫入、
 /// 本版不認識的欄位。保留載體是**原始檔案的逐字文字區塊**（含 key 行與其縮排
 /// 子行）——decode 不 serialize、encode 逐字 append。key 型別（quoted/typed）、
-/// tag、anchor/alias、註解、block scalar 全部 byte-level 保真，且結構上不存在
-/// 展開放大。舊 binary 的 read-modify-write 不得剝掉新欄位（資料毀損防線）。
+/// tag、anchor/alias、註解、block scalar 保真，且結構上不存在展開放大。
+/// 保真的兩個既知例外（見 docs/store-format.md §5）：column-0 stream 標記
+/// （`---`/`...` 及變體、`%` directive）於擷取時剝除；寫回時縮排可能整塊
+/// 等量平移。舊 binary 的 read-modify-write 不得剝掉新欄位（資料毀損防線）。
 public struct UnknownField: Equatable {
     /// key 的字串內容（顯示 / validate 用；型別資訊在 raw 內保真）。
     public var key: String
-    /// 原文區塊：含 key 行到下一個同層 entry 前的全部行（保留原縮排，以 \n 結尾）。
+    /// 原文區塊：含 key 行到下一個同層 entry 前的全部行（保留原縮排，以 \n
+    /// 結尾；column-0 stream 標記行已剝除——見型別註解的保真例外）。
     public var raw: String
 
     public init(key: String, raw: String) {

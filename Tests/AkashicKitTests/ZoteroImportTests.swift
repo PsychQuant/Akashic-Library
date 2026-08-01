@@ -484,3 +484,67 @@ extension ZoteroImportTests {
         XCTAssertEqual(after.akashic.libraries, ["sinica"], "pull update 不得清掉 membership")
     }
 }
+
+// R6（#23 verify R5）：import 主線對 v1.3 encode 可失敗性的收容
+extension ZoteroImportTests {
+    /// F1：帶未知欄位的既有 entry + 次秒 `now`（真實 pull 的預設 `Date()`）——
+    /// R5 的 identity canary 在此必拒寫並把整趟 import 打斷。
+    func testUpdateWithUnknownFieldsAndSubSecondNowSucceeds() throws {
+        let existing = """
+        id: 7C1F6C2E-0000-0000-0000-00000000AA02
+        citekey: prior1
+        type: article
+        title: Old
+        provenance:
+          zotero_key: KEYART01
+          zotero_version: 1
+          library_id: 1
+        rating: 5
+        """
+        try (existing + "\n").write(
+            to: store.entriesDir.appendingPathComponent("prior1.yaml"),
+            atomically: true, encoding: .utf8)
+        let report = try ZoteroImporter(store: store).run(
+            zoteroDB: fixture.dbURL,
+            now: Date(timeIntervalSince1970: 1_753_000_000.987))   // 次秒精度
+        XCTAssertTrue(report.updated.contains("prior1"), "\(report)")
+        XCTAssertTrue(report.writeFailed.isEmpty, "\(report.writeFailed)")
+        let after = try store.load().entries.first { $0.citekey == "prior1" }!
+        XCTAssertEqual(after.unknownFields.map(\.key), ["rating"], "未知欄位保留")
+        XCTAssertEqual(after.provenance?.importedAt,
+                       Date(timeIntervalSince1970: 1_753_000_000), "秒精度落地")
+    }
+
+    /// F7（M9）：單筆寫入失敗（encode 平移不變式 fail-closed）記入 writeFailed、
+    /// 不中斷整趟 import——其他 item 照常入庫。
+    func testWriteFailureContainedPerItem() throws {
+        let frozen = """
+        id: 7C1F6C2E-0000-0000-0000-00000000AA01
+        citekey: frozen1
+        type: article
+        title: T
+        provenance:
+          zotero_key: KEYART01
+          zotero_version: 1
+          library_id: 1
+        akashic:
+            tags:
+            - keep
+            weird: [a,
+          b]
+        """
+        try (frozen + "\n").write(
+            to: store.entriesDir.appendingPathComponent("frozen1.yaml"),
+            atomically: true, encoding: .utf8)
+        let report = try runImport()   // 不得 throw
+        XCTAssertNotNil(report.writeFailed["frozen1"], "\(report)")
+        XCTAssertTrue(String(describing: report.writeFailed["frozen1"]!).contains("平移"))
+        XCTAssertFalse(report.updated.contains("frozen1"))
+        XCTAssertFalse(report.created.isEmpty, "其他 item 照常入庫")
+        // 磁碟上的凍結檔原封不動（fail-closed 不毀檔）
+        let onDisk = try String(
+            contentsOf: store.entriesDir.appendingPathComponent("frozen1.yaml"),
+            encoding: .utf8)
+        XCTAssertTrue(onDisk.contains("weird: [a,"))
+    }
+}

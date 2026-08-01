@@ -129,6 +129,13 @@ struct ImportZotero: ParsableCommand {
         if report.skippedLinkedAttachments > 0 {
             print("skipped linked attachments（非 storage 附件，未入庫）: \(report.skippedLinkedAttachments)")
         }
+        // R6（M9）：per-item 寫入失敗不中斷 import——照實列出，人工處理
+        if !report.writeFailed.isEmpty {
+            print("write failed（單筆寫入失敗，已略過續跑）: \(report.writeFailed.count)")
+            for key in report.writeFailed.keys.sorted() {
+                print("  ✗ \(key) — \(report.writeFailed[key]!)")
+            }
+        }
         let stats = try LibraryIndex(store: store).rebuild()
         print("index rebuilt: \(stats.entries) entries")
     }

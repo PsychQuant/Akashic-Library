@@ -15,6 +15,10 @@ public struct ImportReport: Equatable {
     public var droppedFields: [String: Int] = [:]
     /// 寫入目的檔是 quarantined 檔而被拒寫的 citekeys（損壞 store，人工處理）。
     public var quarantineConflicts: [String] = []
+    /// 寫入時 encode/寫檔擲錯的 citekeys → 錯誤描述（R6 M9：encode 自 v1.3 起
+    /// 可 throw——canary fail-closed；per-item 隔離，單筆失敗不中斷整趟 import、
+    /// 不留半套用狀態，index 照常 rebuild）。
+    public var writeFailed: [String: String] = [:]
     /// date 無法正規化、保留原字串的 citekeys（#2）。
     public var unnormalizedDates: [String] = []
     /// 被略過的 linked / URL 附件數（#3，不靜默）。
@@ -75,15 +79,23 @@ public struct ZoteroImporter {
         }
         // 每一次寫入前的 destination guard：目的檔屬 quarantined 集合 → 拒寫、報告。
         // 不能只靠 citekey allocator——update/orphan 路徑不經 allocator。
-        func guardedWrite(_ entry: Entry, report: inout ImportReport) throws -> Bool {
+        // R6（M9）：寫入擲錯（encode canary fail-closed、I/O 失敗）→ 記入
+        // writeFailed、續跑下一筆——不讓單一病態檔把整趟 import 打斷成
+        // 「部分套用 + index 未重建」的撕裂狀態。
+        func guardedWrite(_ entry: Entry, report: inout ImportReport) -> Bool {
             if quarantinedBasenames.contains(entry.citekey.lowercased()) {
                 if !report.quarantineConflicts.contains(entry.citekey) {
                     report.quarantineConflicts.append(entry.citekey)
                 }
                 return false
             }
-            try store.writeEntry(entry)
-            return true
+            do {
+                try store.writeEntry(entry)
+                return true
+            } catch {
+                report.writeFailed[entry.citekey] = String(describing: error)
+                return false
+            }
         }
 
         let importedComposite = Set(items.map { "\($0.libraryID):\($0.key)" })
@@ -115,7 +127,7 @@ public struct ZoteroImporter {
                 if prov.orphanedAt != nil {
                     var restored = existing
                     restored.provenance?.orphanedAt = nil
-                    if try guardedWrite(restored, report: &report) {
+                    if guardedWrite(restored, report: &report) {
                         existing = restored
                         report.orphanCleared.append(existing.citekey)
                         orphanWasCleared = true
@@ -140,7 +152,7 @@ public struct ZoteroImporter {
                         zoteroKey: item.key, zoteroVersion: item.version,
                         libraryID: item.libraryID, zoteroHash: itemHash,
                         importedAt: now, orphanedAt: nil)
-                    if try guardedWrite(existing, report: &report) {
+                    if guardedWrite(existing, report: &report) {
                         report.updated.append(existing.citekey)
                         if let raw = item.fields["date"], DateNormalizer.normalize(raw) == nil {
                             report.unnormalizedDates.append(existing.citekey)
@@ -163,7 +175,7 @@ public struct ZoteroImporter {
                     zoteroKey: item.key, zoteroVersion: item.version,
                     libraryID: item.libraryID, zoteroHash: itemHash, importedAt: now)
                 entry.akashic.tags = item.tags   // 只在建檔時 seed；後續 pull 不動
-                if try guardedWrite(entry, report: &report) {
+                if guardedWrite(entry, report: &report) {
                     report.created.append(citekey)
                     if let raw = item.fields["date"], DateNormalizer.normalize(raw) == nil {
                         report.unnormalizedDates.append(citekey)
@@ -187,7 +199,7 @@ public struct ZoteroImporter {
             var orphan = entry
             prov.orphanedAt = now
             orphan.provenance = prov
-            if try guardedWrite(orphan, report: &report) {
+            if guardedWrite(orphan, report: &report) {
                 report.orphaned.append(orphan.citekey)
             }
         }

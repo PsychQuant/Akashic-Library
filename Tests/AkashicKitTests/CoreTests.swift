@@ -600,8 +600,11 @@ extension StrictSchemaTests {
 }
 
 extension StrictSchemaTests {
-    // R3：plain-style 非字串 scalar（int/bool/null）在清單與作者鍵位必須拒絕
-    func testNonStringScalarInTagsRejected() {
+    // R6（取代 R3 的嚴格拒收）：字串欄位以 scalar 的字串面解讀。emitter 對
+    // 「長得像 int/bool 的字串」輸出 plain 樣式（tags: ["2026"] → `- 2026`），
+    // R3 的拒收使本 binary 自己寫出的檔案永久 decode 失敗（寫得出、讀不回的
+    // 自我毒化——DA R5 更正二）。字串面解讀與 emitter 對合、encode/decode 等冪。
+    func testPlainScalarFaceAcceptedInTags() throws {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
@@ -610,7 +613,7 @@ extension StrictSchemaTests {
         akashic:
           tags: [ok, 123, true]
         """
-        XCTAssertThrowsError(try EntryYAML.decode(yaml))
+        XCTAssertEqual(try EntryYAML.decode(yaml).akashic.tags, ["ok", "123", "true"])
     }
 
     func testQuotedNumericStringTagAccepted() throws {
@@ -625,7 +628,16 @@ extension StrictSchemaTests {
         XCTAssertEqual(try EntryYAML.decode(yaml).akashic.tags, ["123"])
     }
 
-    func testNonStringAuthorKeyRejected() {
+    // DA R5 更正二的實測案例：Zotero 使用者標籤「2026」建檔 seed 後，encode
+    // 寫出 plain `- 2026`——R6 前這筆記錄下次 load 即 quarantine（自我毒化）。
+    func testNumericFaceTagsRoundTripIdempotent() throws {
+        var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        e.akashic.tags = ["2026", "null", "yes", "10.5"]
+        let out = try EntryYAML.encode(e)
+        XCTAssertEqual(try EntryYAML.decode(out), e)
+    }
+
+    func testPlainScalarFaceAcceptedInAuthorKey() throws {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
@@ -634,11 +646,24 @@ extension StrictSchemaTests {
         authors:
           - key: 123
         """
-        XCTAssertThrowsError(try EntryYAML.decode(yaml))
+        XCTAssertEqual(try EntryYAML.decode(yaml).authors, [.key("123")])
     }
 
-    func testNonStringPersonNameRejected() {
-        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [123]\n"))
+    func testPlainScalarFaceAcceptedInPersonNames() throws {
+        XCTAssertEqual(try PersonYAML.decode("key: a\nnames: [123]\n").names, ["123"])
+    }
+
+    // 非 scalar 元素仍拒收（字串面只對 scalar 有定義）
+    func testSequenceElementInTagsStillRejected() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        akashic:
+          tags: [[nested]]
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml))
     }
 }
 

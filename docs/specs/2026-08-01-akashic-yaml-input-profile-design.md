@@ -72,7 +72,16 @@ parser 完整保留，無資料損失。
 
 ## 4. Profile 定義（normative）
 
-**Store YAML profile v1**：下列語法為 profile 外，其餘 YAML 語法照舊放行。
+**Store YAML profile**：下列語法為 profile 外，其餘 YAML 語法照舊放行。
+
+> **profile 不自帶版本號（刻意）**：profile 是 store 格式版本的一個**性質**，不是獨立的
+> 版本軸。它隨引入它的那個 store 格式版本走（本 spec 落地時是 v1.4 或後續版本，視 #25
+> merge 後的編號而定）。
+>
+> 理由：獨立版本號現在沒有任何消費者——沒有東西讀它、沒有東西依它做決定。而 store 端的
+> version marker 本來就由 #24 承載；再立一條軸只會讓「舊 binary 讀新檔的行為由哪一條
+> 版本決定」變成沒有答案的問題。profile 若要不相容地收緊（例如未來禁 block scalar），
+> 那就是一次 store 格式版本 bump，由 #24 的 marker 標示——**一條軸，一個 marker**。
 
 | 禁止 | 對應的實際失敗 |
 |------|--------------|
@@ -91,11 +100,25 @@ parser 完整保留，無資料損失。
 
 ### 4.1 選擇「寬」而非「緊」的代價（誠實記載）
 
-寬 profile 能拆的舊守衛顯著少於緊 profile。`scalarString`、`splitBlocks`、
-`verifyBlockOracle` 這一整組 raw-text 機械**拆不掉**，因為 block scalar 與任意
-深度仍放行。預估 `YAML.swift` 只從 958 降到約 800，而非緊 profile 的 450–550。
+被放棄的**緊 profile**是：在上表之外**額外禁** block scalar `|` `>`、flow style
+`[a, b]`、以及巢狀深度上限（3 層）——亦即只允許 block style、平面 scalar、引號字串。
+真實 corpus 完全落在這個更小的子集內（實測 0 命中 block scalar / flow style，深度僅
+1–2 層），所以緊 profile 同樣是零遷移成本。
 
-換得的是：未來要存長文字（notes、長摘要）時不必回頭改 profile。這是刻意的取捨。
+差別在**未來**：緊 profile 下要存長文字（notes、長摘要）只能用引號字串，不能用
+`|` 多行寫法。
+
+代價是可拆的守衛顯著變少。`scalarString`、`splitBlocks`、`verifyBlockOracle` 這一整組
+raw-text 機械在寬 profile 下**拆不掉**（block scalar 與任意深度仍放行），緊 profile 下
+可以整組退場：
+
+| | 寬 profile（本 spec 採用） | 緊 profile（放棄） |
+|---|---|---|
+| `YAML.swift` 預估 | 958 → 約 800 | 958 → 450–550 |
+| 長文字寫法 | `\|` block scalar 可用 | 只能引號字串 |
+| raw-text 機械 | 保留 | 可整組退場 |
+
+換得的是：未來要存長文字時不必回頭改 profile。這是刻意的取捨。
 
 ## 5. Gate 機制
 

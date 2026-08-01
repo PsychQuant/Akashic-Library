@@ -184,7 +184,12 @@ key 存在但形狀不符（如 `names` 由 sequence 演化為 mapping、`tags` 
 `libraries:` 等）遇 explicit/implicit **null**（空值行、`~`、`null` 面）視同
 「欄位不存在」——null 沒有可被剝除的子樹，quarantine 會把 v1.2 可載入的良性檔
 推下可用性懸崖；face 白名單只收 **plain 樣式**的 `""`/`~`/`null`/`Null`/`NULL`
-——顯式 `!!null`（帶內容與否）皆走形狀 guard、不被吸收。**具名例外（R10
+——顯式 `!!null` **帶非 null-face 內容**（如 `!!null foo`）走形狀 guard、不被
+吸收。**R11 更正（R10-verify M7/M17）**：原文寫「帶內容與否**皆**不被吸收」
+是過度宣稱——`!!null null` / `!!null ~` 的 composed node 與 implicit `null`
+**完全相同**（同 `style == .plain`、同 `tag == Tag(.null)`、同字串面），
+resolved tag + style 無法分辨顯式與隱式。而兩者語意本來就等價、吸收不丟任何
+子樹，故照實記載為「與 implicit null 同視同不存在」。**具名例外（R10
 記載）**：`provenance.imported_at`/`orphaned_at` 雖是 scalar，因模型為
 Optional 日期、nil↔省略等冪，null 面同樣視同不存在（RMW 會把該行正規化為
 省略）；同一 mapping 內 `zotero_hash: ~` 則以字串面保留 `"~"`——差異照實

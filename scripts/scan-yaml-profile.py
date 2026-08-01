@@ -28,10 +28,16 @@ MERGE_KEY = re.compile(r'^\s*<<\s*:', re.M)
 BLOCK_SCALAR = re.compile(r':\s*[|>][0-9+-]*\s*$', re.M)
 EXOTIC_LINE_SEPS = re.compile('[  ]')
 
+## R11：顯式 complex key（`? key`）——profile §4 於 R11 補進禁止清單。
+## alias 置於 key 位置時展開發生在 compose 內部、早於所有預算守衛（實測
+## 636 B → 36 s CPU → timeout）。判準是 block context 的 explicit key
+## indicator：行首（可含縮排）`?` 後接空白或行尾。
+COMPLEX_KEY = re.compile(r'^[ ]*\?(?=[ \t]|$)', re.M)
+
 FEATURES = [
     "BOM", "NEL/LS/PS", "tab", "CR", "comment line", "inline comment",
     "multi-doc ---", "anchor/alias", "explicit tag", "merge key",
-    "block scalar |>", "flow seq [..]", "flow map {..}",
+    "block scalar |>", "flow seq [..]", "flow map {..}", "complex key ? k",
 ]
 
 
@@ -59,6 +65,7 @@ def scan(root: pathlib.Path):
         if BLOCK_SCALAR.search(text):          buckets["block scalar |>"].append(f)
         if re.search(r':\s*\[', text):         buckets["flow seq [..]"].append(f)
         if re.search(r':\s*\{', text):         buckets["flow map {..}"].append(f)
+        if COMPLEX_KEY.search(text):           buckets["complex key ? k"].append(f)
 
         lines = [l for l in text.splitlines() if l.strip()]
         d = max((len(l) - len(l.lstrip(' '))) for l in lines) if lines else 0
@@ -75,20 +82,25 @@ def ground_truth(files):
         print("\n(PyYAML 未安裝，跳過 parser 層 ground truth：pip install pyyaml)")
         return None
 
-    anchored, tagged, failed = [], [], []
+    anchored, tagged, tagged_core, failed = [], [], [], []
     for f in files:
         try:
             for ev in yaml.parse(f.read_text(encoding='utf-8')):
                 if getattr(ev, 'anchor', None):
                     anchored.append(f.name)
                     break
+                # R11（R10-verify M9）：原本用 `not startswith('tag:yaml.org,2002:')`
+                # 排除標準 URI——但 PyYAML 會把**顯式** `!!str` / `!!binary` 也展開成
+                # 標準 URI，於是顯式 core tag（profile §4 明文禁止）被誤判為「無 tag」。
+                # 改成：只要 event 帶 tag 就記錄，另分「標準 URI」與「自訂」兩欄，
+                # 讓報告能區分而不是靜默漏掉。
                 t = getattr(ev, 'tag', None)
-                if t and not t.startswith('tag:yaml.org,2002:'):
-                    tagged.append(f.name)
+                if t:
+                    (tagged if not t.startswith('tag:yaml.org,2002:') else tagged_core).append(f.name)
                     break
         except Exception as e:
             failed.append((f.name, f"{type(e).__name__}: {str(e)[:60]}"))
-    return anchored, tagged, failed
+    return anchored, tagged, tagged_core, failed
 
 
 def main():
@@ -114,11 +126,14 @@ def main():
 
     gt = ground_truth(files)
     if gt is not None:
-        anchored, tagged, failed = gt
+        anchored, tagged, tagged_core, failed = gt
         print()
         print("--- YAML parser ground truth（權威）---")
         print(f"真 anchor      : {len(anchored)}  {anchored[:3]}")
         print(f"非標準 tag     : {len(tagged)}  {tagged[:3]}")
+        # profile §4 同樣禁止顯式 core tag——與「非標準 tag」分欄是為了讓報告
+        # 看得出差別，而不是像 R11 之前那樣被 startswith 濾掉後靜默歸零。
+        print(f"顯式 core tag  : {len(tagged_core)}  {tagged_core[:3]}")
         if failed:
             print(f"parse 失敗     : {len(failed)}  {failed[:3]}")
 

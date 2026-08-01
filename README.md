@@ -58,21 +58,45 @@ store 是跨 binary（CLI / MCP / App）的契約。格式版本記載於
 | v1.2 | `akashic.libraries` + `libraries/` registry（#13）；未知欄位 **strict → throw** |
 | v1.3 | tolerant-preserve（#23）：**開放演化層**（entry / person / library 頂層、`akashic` namespace）的未知欄位改為容忍 + 原樣保留寫回，取代 v1.2 的 throw |
 
-**v1.3 的兩個限定，比表格本身重要**：
+**v1.3 的三個限定，比表格本身重要**：
 
-- **tolerant 只涵蓋開放演化層。** `authors` 元素、`attachments` 元素、`provenance`、
-  `akashic.relations` 仍是 **strict 保留層**（closed shape，未知欄位＝decode 錯誤）。
-  §5 特別註記 `attachments` 那層加新欄位會**原地重演 #23 的失敗模式**。
-- **升級方向也會咬人。** v1.3 的讀取面同時**嚴格化**（known 欄位形狀不符、無法解析的
-  時間戳、tagged-shadow 鍵、`fields` 字串面撞名與非隱式 tag 鍵、NEL 內容字元、
-  LF 檔內的裸 CR），部分 v1.2 讀得動的病態檔案在升級後會轉為 quarantine——這是
-  刻意的 fail-closed 遷移。反向的**放寬**也有（null 面的 known 欄位、classic-Mac
-  lone-CR 行尾檔照常可讀），詳見 §5 末段。
+**1. tolerant 只涵蓋開放演化層。** `authors` 元素、`attachments` 元素、`provenance`、
+`akashic.relations` 仍是 **strict 保留層**（closed shape，未知欄位＝decode 錯誤）。
+§5 特別註記 `attachments` 那層加新欄位會**原地重演 #23 的失敗模式**。
 
-**為什麼要看這段**：舊 binary 讀新 store 的行為由**格式**版本決定，不由 app 版本決定；
-而新 binary 讀舊 store 的行為由上面第二點決定。在 #24 落地之前，store 端沒有版本訊號，
-唯一可用的判斷依據是消費端的 binary 版本——升級 store 格式前先確認所有消費端
-（含 marketplace 上的 `akashic-mcp`）都已跟上。
+**2. 讀取面同時嚴格化——升級方向也會咬人。** 部分 v1.2 讀得動的病態檔案在升級後轉為
+quarantine，這是刻意的 fail-closed 遷移（詳見 §5「known 欄位的形狀演化」「有損字元
+守衛」「顯式 complex key」三個 bullet）：
+
+| 新增拒收 | 觸發條件 |
+|---|---|
+| known 欄位形狀不符、無法解析的時間戳 | 無條件 |
+| tagged-shadow 鍵、merge/value tag 面的鍵 | 無條件 |
+| `fields` 的字串面撞名、非隱式 tag 鍵、字串面 `<<`/`=` | 無條件 |
+| NEL (U+0085) 內容字元 | 無條件 |
+| **顯式 complex key（`? key`）** | 無條件（R11 新增，DoS 防線） |
+| LF 檔內的裸 CR | 無條件 |
+| **CR / CRLF 行尾** | **僅當檔案含未知欄位**（走區塊切分路徑） |
+| **encode 可拒寫** | canary fail-closed；CLI `import-zotero` / `resolve-people --apply` 單筆失敗即非零退出 |
+
+最後兩列是三個 binary 與任何包 CLI 的 script 都要知道的契約變更：**CRLF 使用者不能只看
+「LF 檔內的裸 CR」就以為自己安全**（觸發條件恰恰是本 PR 要服務的情境——較新 binary 寫出
+的、含未知欄位的檔），而**寫入自 v1.3 起可能失敗**，多檔寫入者必須收容。
+
+**3. 有兩條 carve-out，但它們不是「放寬」。** §5 從 v1.3 新增的嚴格化裡挖回了兩塊 v1.2
+既有行為，方向是**避免回歸**，不是 v1.3 開始接受 v1.2 拒收的東西：
+
+- **collection 形狀**的 known 欄位遇 null 視同不存在（`akashic:` 空值行）。**scalar 欄位
+  不適用**——`title:` → `""`、`title: Null` → `"Null"`，走字串面。把 null-as-absent 套到
+  scalar 是 R8-verify 標為 CRITICAL 的東西（會讓 Zotero 無標題 item 永遠寫不進 store）。
+  具名例外只有 `provenance.imported_at` / `orphaned_at` 兩個 Optional 日期。
+- **全檔無 LF** 的 classic-Mac lone-CR 檔照常無損載入（CR 是行尾慣例，由 libyaml 正規化）。
+  注意這與上表最後第二列不衝突：檔內**有** LF 時，不接 LF 的裸 CR 只能是內容，拒收。
+
+**為什麼要看這段**：舊 binary 讀新 store 的行為由**格式**版本決定；而新 binary 讀舊
+store 的行為由第 2、3 點決定。在 #24 落地之前 store 端沒有版本訊號，唯一可用的判斷依據
+是消費端的 binary 版本——升級 store 格式前先確認所有消費端（含 marketplace 上的
+`akashic-mcp`）都已跟上。
 
 ## App（AkashicApp）
 

@@ -41,7 +41,10 @@ struct LibraryOptions: ParsableArguments {
 
 extension LibraryLoad {
     /// 人類可讀的 quarantine 報告行。
+    /// R11（R10-verify M18/M19）：reason 是 Yams 展開的**逐字檔案內容**、
+    /// 不截斷且可含 double-quoted scalar 解碼出的真 ESC——經 displaySafe
+    /// 消毒後才進 stdout（未消毒時可清螢幕並在報告裡偽造統計行）。
     var quarantineLines: [String] {
-        quarantined.map { "  ✗ \($0.file) — \($0.reason)" }
+        quarantined.map { "  ✗ \(displaySafe($0.file, max: 200)) — \(displaySafe($0.reason, max: 512))" }
     }
 }

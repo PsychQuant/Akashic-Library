@@ -2,18 +2,18 @@
 
 **日期**：2026-08-01
 **狀態**：設計定案，待實作（實作 gated on PR #25 merge）
-**動機來源**：#23（v1.3 tolerant-preserve）R1–R8 的守衛增生
+**動機來源**：#23（v1.3 tolerant-preserve）R1–R11 的守衛增生
 **相關**：#24（version marker）、#26（known 層演化語意）、#31（可見性完整度）
 
 ---
 
 ## 1. 問題
 
-`Sources/AkashicCore/YAML.swift` 從 211 行長到 958 行，其中 #23 一個 issue 貢獻了
-+630 行（328 → 958，+192%），而**這 630 行沒有一行是新功能** —— 全部是為了「舊
+`Sources/AkashicCore/YAML.swift` 從 211 行長到 1000+ 行（本 spec 撰寫時 958，R9–R11 後續增長），
+其中 #23 一個 issue 貢獻了 +670 行以上（328 → 1000+，+200%），而**這 630 行沒有一行是新功能** —— 全部是為了「舊
 binary 讀新 store 不要爆炸」這個相容性需求，去對抗 YAML 規格本身的表面積。
 
-八輪 verify 的 findings 幾乎全落在 YAML 語法邊界，與文獻管理領域無關：
+十一輪 verify 的 findings 幾乎全落在 YAML 語法邊界，與文獻管理領域無關：
 
 | 輪次 | 打的是什麼 |
 |------|-----------|
@@ -24,6 +24,9 @@ binary 讀新 store 不要爆炸」這個相容性需求，去對抗 YAML 規格
 | R6 | 行尾守衛限縮到 CR、`strictString` → `scalarString` |
 | R7 | 平移不變式、NEL 回歸守衛、closed-shape tagged-shadow |
 | R8 | 毀字守衛全檔化、null-as-absent、`fields`/`attachments` 鍵層 guard |
+| R9 | null-as-absent 限縮 collection、`fields` 鍵 core-tag、CR 判別式 |
+| R10 | CR 判別式回歸 R8 保護、`fields` 鍵閉集、importZotero rebuild 收容 |
+| R11 | merge/value 改判 tag、complex key 在 compose 前擋、`fields` 字串面 fail-closed |
 
 根因是一個結構性的不對稱：
 
@@ -87,7 +90,8 @@ parser 完整保留，無資料損失。
 |------|--------------|
 | anchor `&x` / alias `*x` | 展開放大（R8 verify F4 的 20× CPU；billion-laughs 的唯一來源） |
 | explicit tag `!x` / `!!x` | tagged-shadow（R8 cross-model lens 的 CRITICAL；R7 的 `keyStrings` 守衛） |
-| merge key `<<:` | 隱式繼承使「未知 key」不再是局部性質 |
+| merge key `<<:` | 隱式繼承使「未知 key」不再是局部性質。**判準必須是 tag 不是鍵名字串**（R11：`!!merge foo:` 的字串面是 `foo`） |
+| **顯式 complex key `? key`**（R11 新增） | **alias 置於 key 位置時，展開發生在 `Yams.compose` 內部、早於所有預算守衛**。實測 636 B → 36 s CPU → timeout |
 | BOM（U+FEFF 開頭） | 現行為靜默剝除（`stripLeadingBOM`），改為拒收 |
 | CR / CRLF / NEL(U+0085) / LS(U+2028) / PS(U+2029) | 行尾家族（R4→R6→R7 三輪震盪） |
 
@@ -124,8 +128,9 @@ raw-text 機械在寬 profile 下**拆不掉**（block scalar 與任意深度仍
 
 ```
 profileGate(text) throws
-├─ Tier 0  byte 層，無條件拒
+├─ Tier 0  文字層，無條件拒（**必須在 compose 之前**）
 │    BOM / CR / NEL / LS / PS                    → violation
+│    ^\s*\?\s  顯式 complex key indicator       → violation（R11）
 │
 ├─ Tier 1  存在性前濾 — O(n)
 │    文字中不含 & 且不含 * 且不含 ! 且不含 "<<"
@@ -155,11 +160,29 @@ compose，`Event` 型別是 internal。不 fork Yams 就走不了這條路。
 
 Tier 1 的存在性前濾是它的廉價替代：對 97% 的檔案達到同樣的 O(n) 效果。
 
-### 5.3 攻擊面不減
+### 5.3 攻擊面（R11 重寫——原文的安全宣稱已被實測推翻）
 
-billion-laughs 類檔案必然含 `&` 與 `*` → 必進 Tier 2 → 現有預算 fail-closed。
-security lens 已實測該防線有效（1.3 KB / 10¹³ 邏輯節點 → 0.20 s / 12 MB RSS）。
-本設計不移除它，只是讓它對 Tier 1 檔案成為可證明的死碼。
+**原文（錯）**：「`Yams.compose(text)` ← 安全：COW 共享，不展開」「billion-laughs
+必然含 `&` 與 `*` → 必進 Tier 2 → 現有預算 fail-closed」。
+
+**實測反例**（PR #25 R11 verify，security lens）：`Yams.compose` 的
+`Parser.checkDuplicates` 對每個 key node **遞迴 hash**（無 memoisation）。把 alias
+放在**顯式 complex key** 位置時，展開發生在 compose **內部**：
+
+| fixture | 大小 | 結果 |
+|---|---|---|
+| `? *a15` complex key | 927 B | **36.3 s CPU、45 s timeout 被殺** |
+| 對照：同 bomb 不放 complex key | — | **0.03 s** → 正確 quarantine |
+
+對照組證明既有預算對 **value 側**有效；complex-key 路徑**完全繞過**它。
+
+**這不只是措辭錯誤——兩層 gate 的設計本身有洞**：complex-key bomb 必然含 `&` 與
+`*` → 依原設計被路由到 Tier 2 → Tier 2 呼叫 `compose` → 掛死。**profile gate 反而
+成為攻擊的必經之路。** 修正見上方 Tier 0：`? ` 是文字層可偵測的，必須在 compose
+之前擋。
+
+修正後的正確陳述：value 側的 alias 展開由既有預算擋（Tier 2 內），key 側的由
+Tier 0 的文字守衛擋（compose 之前）。兩者缺一不可。
 
 ### 5.4 Gate 位置
 
@@ -194,7 +217,7 @@ profile 必須同步約束 emitter 設定（而非只約束 decode 端）。此�
 
 | 守衛 | 可否拆 |
 |------|-------|
-| 三份 `oracleBudget = 200_000` | Tier 1 檔案可證明不需要 → 條件性跳過（R8 F4 的 20× CPU 對 523/536 消失） |
+| 三份 `oracleBudget = 200_000` | ~~Tier 1 檔案可證明不需要 → 條件性跳過~~ **R11 撤回**——該提議建立在「compose 安全」這個已被推翻的前提上（見 §5.3）。預算在修正後的設計裡仍然必要 |
 | tagged-shadow 相關（`keyStrings`、R7 guard） | 可拆 —— gate 已擋 |
 | `assertLFOnly` / `assertNoLossyContentChars` | 合併進 Tier 0（收攏，非刪除） |
 | `stripLeadingBOM` | 變成 Tier 0 的拒收條件 |
@@ -210,17 +233,27 @@ profile 必須同步約束 emitter 設定（而非只約束 decode 端）。此�
   與 `- '*Achievement *Mind *Self-Control'` 必須通過（這是初掃 13 個假命中的形狀）
 - Tier 1 / Tier 2 分流各自被覆蓋
 - billion-laughs 仍 quarantine（沿用 security lens 的 1.3 KB fixture）
+- **complex-key bomb 在 compose 之前被擋**（R11；測試若失效會 hang 而非 fail，那本身就是訊號）
+- **反向**：值裡的 `?`、`?foo:` 這類非 indicator 形不得誤判
 - encode 產物過 gate（§7）
 - corpus-level 迴歸：536 個真實檔案全數 in-profile
 
 ## 10. 升級方向的相容性代價
 
 本變更引入新的「v1.3 可載入、profile 後 quarantine」路徑：**BOM 開頭的檔案**
-（現行靜默剝除、之後拒收）。真實 corpus 零命中，但這與 R8 verify F12 記載的
-其他升級方向不相容屬同一類，必須併入 `docs/store-format.md` §5 末段的清單。
+（現行靜默剝除、之後拒收）。真實 corpus 零命中，但這與其他升級方向不相容屬
+同一類，應併入 `README.md`「Store 格式版本」的嚴格化表格與 `docs/store-format.md`
+§5 的對應 bullet。
 
-其餘四類（anchor/alias/tag/merge key/非 LF 行尾）在 v1.3 下本來就會 quarantine
-或毀字，profile 只是把失敗時機提前、失敗訊息變準確。
+> **R11 更正**：原文寫「必須併入 §5 **末段**的清單」——§5 末段（「混版部署」）
+> 並沒有那樣一份清單，各條嚴格化是分散在各 bullet 內的。錨點已改指實際位置。
+> 同一個錯誤原本也出現在 README（「詳見 §5 末段」），已一併修正。
+
+> **R11 更正之二**：原文說「其餘四類在 v1.3 下本來就會 quarantine 或毀字」——
+> 這句話**不成立**。`? key`（顯式 complex key，本 spec 於 R11 補進禁止清單）在
+> v1.3 下不但不 quarantine，還會在 `Yams.compose` 內部指數展開把消費端掛死
+> （實測 636 bytes → 36 s CPU → timeout）。該缺口已於 PR #25 的 R11 修復
+> （文字層守衛，compose 之前），但本節原本的樂觀敘述是錯的，照實更正。
 
 ## 11. 實作順序
 

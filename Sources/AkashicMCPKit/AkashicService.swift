@@ -137,7 +137,11 @@ public final class AkashicService {
             "orphaned": orphaned,
         ]
         if !load.quarantined.isEmpty {
-            d["quarantined"] = load.quarantined.map { ["file": $0.file, "reason": $0.reason] }
+            // R11（R10-verify M19）：reason 含 Yams 展開的逐字檔案內容且不截斷——
+            // MCP 情境下是直接灌進 LLM context 的無上限未信任字串。
+            d["quarantined"] = load.quarantined.map {
+                ["file": $0.file, "reason": displaySafe($0.reason, max: 512)]
+            }
         }
         // #23 tolerant-preserve：較新 schema 的檔案可用但應提示升級
         if !load.unknownFieldFiles.isEmpty {
@@ -395,7 +399,7 @@ public final class AkashicService {
                 try store.writeEntry(after)
                 written += 1
             } catch {
-                writeFailed[after.citekey] = String(describing: error)
+                writeFailed[after.citekey] = displaySafe(String(describing: error), max: 512)
             }
         }
         // R9（R8-verify M8）：rebuild 擲錯不得吞掉 writeFailed 報告

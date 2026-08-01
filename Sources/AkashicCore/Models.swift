@@ -197,6 +197,39 @@ public struct Person: Equatable {
     }
 }
 
+/// 顯示層消毒（R11，R10-verify M18/M19）——**任何把 store 內容字串放進人類可讀
+/// 輸出的路徑都必須先過這裡**（CLI stdout、MCP JSON、App）。store 檔案依 #23 的
+/// 前提可能由別的 binary、別人、Dropbox 同步寫入，未知欄位的 key 與 quarantine
+/// reason 都是**未信任內容**：
+///
+/// - **控制字元**：libyaml 擋輸入串流裡的裸 C0，但**不擋 double-quoted scalar 的
+///   跳脫序列**——`"\e[2J..."` 解碼後就是真的 ESC。實測可清螢幕、上色，並在
+///   `akashic validate` 的報告裡偽造出一行假的統計，而該報告正是人類判斷 store
+///   健不健康的依據（v1.2 會先 `rejectUnknownKeys` 擋掉，v1.3 把它移到 happy path）。
+/// - **長度**：Yams 的錯誤字串會展開成「訊息 + 出錯那一行的逐字內容」且不截斷；
+///   MCP 情境下那是直接灌進 LLM context 的無上限字串。
+///
+/// 消毒後仍可辨識（控制字元轉成 `\u{XXXX}` 而非刪除），使用者能看出「這裡本來有
+/// 個奇怪的東西」而不是無聲消失。
+public func displaySafe(_ s: String, max: Int = 200) -> String {
+    var out = ""
+    out.reserveCapacity(min(s.count, max) + 16)
+    var truncated = false
+    for ch in s {
+        if out.count >= max { truncated = true; break }
+        for u in ch.unicodeScalars {
+            // C0（含 ESC/CR/LF/TAB）、DEL、C1、bidi-override / isolate
+            if u.value < 0x20 || u.value == 0x7F || (0x80...0x9F).contains(u.value)
+                || (0x202A...0x202E).contains(u.value) || (0x2066...0x2069).contains(u.value) {
+                out += String(format: "\\u{%04X}", u.value)
+            } else {
+                out.unicodeScalars.append(u)
+            }
+        }
+    }
+    return truncated ? out + "…（已截斷）" : out
+}
+
 public struct ValidationIssue: Equatable {
     public enum Severity: Equatable { case error, warning }
 
@@ -242,11 +275,11 @@ extension Entry {
         }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
-                message: "未知欄位「\(f.key)」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+                message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         for f in akashic.unknownFields {
             issues.append(ValidationIssue(severity: .warning,
-                message: "akashic 未知欄位「\(f.key)」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+                message: "akashic 未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         return issues
     }
@@ -262,7 +295,7 @@ extension Library {
         }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
-                message: "未知欄位「\(f.key)」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+                message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         return issues
     }
@@ -278,7 +311,7 @@ extension Person {
         }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
-                message: "未知欄位「\(f.key)」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+                message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         return issues
     }

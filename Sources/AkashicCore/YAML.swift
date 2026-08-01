@@ -950,7 +950,9 @@ public enum LibraryYAML {
         }
         // R9（R8-verify L25）：encode 側比對含 got/want 雙側 re-compose，單位消耗
         // 高於 decode oracle——放寬為 2×，避免「讀得到但永遠寫不回」的邊界檔
-        var encodeBudget = 400_000
+        // R11（R10-verify M16/M20）：R10 只在 EntryYAML 撤回 R9 的 2× 放寬，
+        // Person/Library 留在 400k 與 §5 的 normative「200,000」分叉。對齊。
+        var encodeBudget = 200_000
         try EntryYAML.verifyUnknownValuesPreserved(rd.unknownFields, library.unknownFields,
                                                    context: "library", budget: &encodeBudget)
         return out
@@ -1017,7 +1019,9 @@ public enum PersonYAML {
         }
         // R9（R8-verify L25）：encode 側比對含 got/want 雙側 re-compose，單位消耗
         // 高於 decode oracle——放寬為 2×，避免「讀得到但永遠寫不回」的邊界檔
-        var encodeBudget = 400_000
+        // R11（R10-verify M16/M20）：R10 只在 EntryYAML 撤回 R9 的 2× 放寬，
+        // Person/Library 留在 400k 與 §5 的 normative「200,000」分叉。對齊。
+        var encodeBudget = 200_000
         try EntryYAML.verifyUnknownValuesPreserved(rd.unknownFields, person.unknownFields,
                                                    context: "person", budget: &encodeBudget)
         return out

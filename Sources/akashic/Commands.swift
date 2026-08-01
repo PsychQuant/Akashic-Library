@@ -205,7 +205,7 @@ struct ResolvePeople: ParsableCommand {
             return
         }
         for c in candidates {
-            print("\(c.citekey)[\(c.authorIndex)] 「\(c.literal)」 → \(c.personKey)（\(c.reason)）")
+            print("\(c.citekey)[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(c.personKey)（\(c.reason)）")
         }
         if apply {
             let applied = PersonResolver.apply(candidates, to: load.entries)
@@ -218,7 +218,7 @@ struct ResolvePeople: ParsableCommand {
                     try store.writeEntry(after)
                     written += 1
                 } catch {
-                    writeFailed.append((after.citekey, String(describing: error)))
+                    writeFailed.append((after.citekey, displaySafe(String(describing: error), max: 512)))
                 }
             }
             // R9（R8-verify M8）：writeFailed 先印再 rebuild——rebuild 擲錯

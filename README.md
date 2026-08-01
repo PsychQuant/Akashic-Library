@@ -35,6 +35,21 @@ attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox�
 - **Phase 3（本階段）**：原生 App — 管理工作台（人工裁決 GUI）+ Canvas 關係圖。
   Spec：[docs/specs/2026-07-22-akashic-library-phase3-app-design.md](docs/specs/2026-07-22-akashic-library-phase3-app-design.md)
 
+### Store 格式版本
+
+store 是跨 binary（CLI / MCP / App）的契約，格式自帶版本。完整版本史與相容條款是
+[docs/store-format.md](docs/store-format.md) §5，這裡只記當下位置：
+
+| 版本 | 狀態 | 要點 |
+|------|------|------|
+| v1.1 | 已發布 | provenance hash 欄位 |
+| v1.2 | 已發布（`main`）| `akashic.libraries` + `libraries/` registry（#13）；未知欄位 **strict → throw** |
+| v1.3 | **開發中**（branch `idd/23-…`、PR #25，verify 未通過前勿 merge）| tolerant-preserve（#23）：未知欄位改為原樣保留寫回，取代 v1.2 的 throw；known key 形狀不符則 quarantine |
+
+**為什麼要看這張表**：舊 binary 讀新 store 的行為由格式版本決定，不由 app 版本決定。
+升級 store 格式前先確認所有消費端（含 marketplace 上的 `akashic-mcp`）都已跟上——
+版本訊號與 refuse-if-newer 防線本身還在 #24 追蹤中。
+
 ## App（AkashicApp）
 
 ```bash

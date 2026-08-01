@@ -34,6 +34,17 @@ attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox�
   Spec：[docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md](docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md)
 - **Phase 3（本階段）**：原生 App — 管理工作台（人工裁決 GUI）+ Canvas 關係圖。
   Spec：[docs/specs/2026-07-22-akashic-library-phase3-app-design.md](docs/specs/2026-07-22-akashic-library-phase3-app-design.md)
+- **Phase 4a**：多 library（membership views）— canonical store 仍是全集不分割，
+  library 只是成員集合視角；people / graph / index 共用（#13）。
+  Spec：[docs/specs/2026-07-29-akashic-phase4a-multilibrary-design.md](docs/specs/2026-07-29-akashic-phase4a-multilibrary-design.md)
+- **Phase 4c**：多「檔案」（多實體 store root）— 每個檔案自成 universe，
+  互不相通、不跨檔案共用 people 或 relations（#18）。
+  Spec：[docs/specs/2026-07-30-akashic-phase4c-multifile-design.md](docs/specs/2026-07-30-akashic-phase4c-multifile-design.md)
+
+> 上面是**功能**分期。與之正交的還有一份 store 讀取契約的設計：
+> [YAML 輸入 profile](docs/specs/2026-08-01-akashic-yaml-input-profile-design.md)（#33，
+> 設計定案、實作待 #25 merge）——收窄 store 接受的 YAML 語法子集，讓未知欄位容忍層
+> 只需處理「未知的 key」而非「YAML 的全部語法」。
 
 ### Store 格式版本
 

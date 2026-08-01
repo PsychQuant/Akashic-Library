@@ -37,18 +37,29 @@ attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox�
 
 ### Store 格式版本
 
-store 是跨 binary（CLI / MCP / App）的契約，格式自帶版本。完整版本史與相容條款是
-[docs/store-format.md](docs/store-format.md) §5，這裡只記當下位置：
+store 是跨 binary（CLI / MCP / App）的契約。格式版本記載於
+[docs/store-format.md](docs/store-format.md) §5——**store 檔案本身尚未自我聲明版本**
+（version marker 與 refuse-if-newer 防線見 #24）。下表只記各版本的要點：
 
-| 版本 | 狀態 | 要點 |
-|------|------|------|
-| v1.1 | 已發布 | provenance hash 欄位 |
-| v1.2 | 已發布（`main`）| `akashic.libraries` + `libraries/` registry（#13）；未知欄位 **strict → throw** |
-| v1.3 | **開發中**（branch `idd/23-…`、PR #25，verify 未通過前勿 merge）| tolerant-preserve（#23）：未知欄位改為原樣保留寫回，取代 v1.2 的 throw；known key 形狀不符則 quarantine |
+| 版本 | 要點 |
+|------|------|
+| v1.1 | provenance hash 欄位 |
+| v1.2 | `akashic.libraries` + `libraries/` registry（#13）；未知欄位 **strict → throw** |
+| v1.3 | tolerant-preserve（#23）：**開放演化層**（entry / person / library 頂層、`akashic` namespace）的未知欄位改為容忍 + 原樣保留寫回，取代 v1.2 的 throw |
 
-**為什麼要看這張表**：舊 binary 讀新 store 的行為由格式版本決定，不由 app 版本決定。
-升級 store 格式前先確認所有消費端（含 marketplace 上的 `akashic-mcp`）都已跟上——
-版本訊號與 refuse-if-newer 防線本身還在 #24 追蹤中。
+**v1.3 的兩個限定，比表格本身重要**：
+
+- **tolerant 只涵蓋開放演化層。** `authors` 元素、`attachments` 元素、`provenance`、
+  `akashic.relations` 仍是 **strict 保留層**（closed shape，未知欄位＝decode 錯誤）。
+  §5 特別註記 `attachments` 那層加新欄位會**原地重演 #23 的失敗模式**。
+- **升級方向也會咬人。** v1.3 的讀取面同時**嚴格化**（known 欄位形狀不符、無法解析的
+  時間戳、tagged-shadow 鍵、`fields` 字串面撞名、CR/NEL 行尾），部分 v1.2 讀得動的
+  病態檔案在升級後會轉為 quarantine——這是刻意的 fail-closed 遷移，詳見 §5 末段。
+
+**為什麼要看這段**：舊 binary 讀新 store 的行為由**格式**版本決定，不由 app 版本決定；
+而新 binary 讀舊 store 的行為由上面第二點決定。在 #24 落地之前，store 端沒有版本訊號，
+唯一可用的判斷依據是消費端的 binary 版本——升級 store 格式前先確認所有消費端
+（含 marketplace 上的 `akashic-mcp`）都已跟上。
 
 ## App（AkashicApp）
 

@@ -131,9 +131,10 @@ public enum EntryYAML {
         // R6（L16）：未知欄位「值」的語意比對——key 序列相符不蘊含值未漂移
         // （縮排平移等寫出路徑的防護此前只靠切分計數偶然擋下）。
         // R8：encode 側預算同樣單次呼叫共用（跨 entry/akashic 兩層）。
-        // R9（R8-verify L25）：encode 側比對含 got/want 雙側 re-compose，單位消耗
-        // 高於 decode oracle——放寬為 2×，避免「讀得到但永遠寫不回」的邊界檔
-        var encodeBudget = 400_000
+        // R10 更正（R9-verify L18/L26）：R9 的 2× 放寬無效——實際約束是上方
+        // canary 的內層 decode（自帶 200k），且 compose 不計預算、兩側消耗
+        // 對稱。維持與 decode 相同的 200k。
+        var encodeBudget = 200_000
         try verifyUnknownValuesPreserved(rd.unknownFields, entry.unknownFields,
                                          context: "entry", budget: &encodeBudget)
         try verifyUnknownValuesPreserved(rd.akashic.unknownFields, entry.akashic.unknownFields,
@@ -220,6 +221,15 @@ public enum EntryYAML {
         }
         return (try? Yams.compose(yaml: dedented)) ?? nil
     }
+
+    /// fields 鍵允許的 resolved tag 閉集（R10）：plain 樣式在 core resolver 下
+    /// 可能落到的型別面。merge（`<<`）/ value（`=`）不在集內——語意在 parser
+    /// 間分歧（merge 面產物他家 loader 會展開/報錯）。顯式 core tag（`!!int 123`）
+    /// 與 plain `123` 在 Yams resolved-tag 層不可區分——接受並正規化為 plain
+    /// （已記載於 §5 的保真邊界）。
+    static let fieldsKeyTags: [Tag] = [
+        Tag(.str), Tag(.int), Tag(.float), Tag(.bool), Tag(.null), Tag(.timestamp),
+    ]
 
     static let knownTopLevelKeys: Set<String> = [
         "id", "citekey", "type", "title", "authors", "date",
@@ -313,6 +323,25 @@ public enum EntryYAML {
         if text.unicodeScalars.contains(where: { $0 == "\u{85}" }) {
             throw StoreYAMLError.invalidField(
                 context, "NEL (U+0085) 不支援（libyaml 讀取時摺疊毀字，fail-closed；請正規化或以 escape 表示）")
+        }
+        // R10（R9-verify HIGH，DA 判別式）：CR 的雙面性以「檔內有無 LF」裁決——
+        // 全檔無 LF ⇒ CR 是 classic-Mac 行尾（v1.2 可無損載入，放行）；
+        // 檔內有 LF ⇒ 行尾已由 LF/CRLF 承擔，**不接 LF 的裸 CR 只能是內容**
+        // （Word/RIS 貼入 quoted scalar 的 0x0D），libyaml 讀取時摺疊毀字 →
+        // 拒收（R8 的保護回歸；R9 把它連同行尾慣例一起拆掉是回歸）。emitter
+        // 對內容 CR 一律 escape（IS_PRINTABLE 不含 0x0D），自家產物零誤殺。
+        let scalars = text.unicodeScalars
+        guard scalars.contains(where: { $0 == "\n" }) else { return }
+        var i = scalars.startIndex
+        while i < scalars.endIndex {
+            if scalars[i] == "\r" {
+                let next = scalars.index(after: i)
+                if next == scalars.endIndex || scalars[next] != "\n" {
+                    throw StoreYAMLError.invalidField(
+                        context, "裸 CR 不支援（LF 檔內的 CR 是內容字元，libyaml 讀取時摺疊毀字，fail-closed；請以 escape 表示）")
+                }
+            }
+            i = scalars.index(after: i)
         }
     }
 
@@ -660,18 +689,19 @@ public enum EntryYAML {
                                            expect: "mapping", nullIsAbsent: true, { $0.mapping }) {
             var seenFieldKeys = Set<String>()
             for (k, v) in fieldMap {
-                // R8（R7-verify M2）+ R9 修正（R8-verify HIGH）：鍵側要真 scalar
-                // （擋 `=`-鍵 mapping 的 construct 扁平化）且 tag 屬 core schema
-                // ——**不得要求 str tag**：emitter 對 fields 鍵輸出 plain 樣式，
-                // `2026`/`no` 這類鍵 re-parse resolve 成 int/bool，str-tag 檢查會
-                // 讓自家產物寫得出、讀不回（R6 已判過的自我毒化原樣復發）。
-                // 只拒**顯式 local tag**（`!foo journal:`——tagged-shadow 的
-                // 靜默丟 tag 通道）；core-resolved 鍵以字串面解讀。
+                // R8（R7-verify M2）+ R9 修正（R8-verify HIGH）+ R10 收斂
+                // （R9-verify M4/M6/M7）：鍵側要真 scalar（擋 `=`-鍵 mapping 的
+                // construct 扁平化）且 tag 屬**隱式 resolver 可產出的閉集**——
+                // emitter 對 fields 鍵輸出 plain 樣式，`2026`/`no` 這類鍵
+                // re-parse resolve 成 int/bool，必須以字串面收下（等冪）；但
+                // R9 的 namespace 前綴判準放行了 merge（`<<`——本 PR 各層明文
+                // 拒收、且他家 parser 讀不動我們寫出的產物）、value（`=`）與
+                // 任意顯式 core tag。閉集把這些一併擋回。
                 guard let kScalar = k.scalar,
-                      k.tag.description.hasPrefix("tag:yaml.org,2002:"),
+                      fieldsKeyTags.contains(k.tag),
                       let vv = v.scalar?.string else {
                     throw StoreYAMLError.invalidField(
-                        "fields", "鍵必須是 core-schema scalar、值必須是 scalar（以字串面解讀）")
+                        "fields", "鍵必須是隱式可解析的 scalar（str/int/float/bool/null/timestamp 面）、值必須是 scalar（以字串面解讀）")
                 }
                 let kk = kScalar.string
                 // R7（R6-verify M16）：Yams 只擋 string+tag 全等的重複鍵——

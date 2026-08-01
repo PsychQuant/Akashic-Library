@@ -64,8 +64,10 @@ store 是跨 binary（CLI / MCP / App）的契約。格式版本記載於
   `akashic.relations` 仍是 **strict 保留層**（closed shape，未知欄位＝decode 錯誤）。
   §5 特別註記 `attachments` 那層加新欄位會**原地重演 #23 的失敗模式**。
 - **升級方向也會咬人。** v1.3 的讀取面同時**嚴格化**（known 欄位形狀不符、無法解析的
-  時間戳、tagged-shadow 鍵、`fields` 字串面撞名、CR/NEL 行尾），部分 v1.2 讀得動的
-  病態檔案在升級後會轉為 quarantine——這是刻意的 fail-closed 遷移，詳見 §5 末段。
+  時間戳、tagged-shadow 鍵、`fields` 字串面撞名與非隱式 tag 鍵、NEL 內容字元、
+  LF 檔內的裸 CR），部分 v1.2 讀得動的病態檔案在升級後會轉為 quarantine——這是
+  刻意的 fail-closed 遷移。反向的**放寬**也有（null 面的 known 欄位、classic-Mac
+  lone-CR 行尾檔照常可讀），詳見 §5 末段。
 
 **為什麼要看這段**：舊 binary 讀新 store 的行為由**格式**版本決定，不由 app 版本決定；
 而新 binary 讀舊 store 的行為由上面第二點決定。在 #24 落地之前，store 端沒有版本訊號，

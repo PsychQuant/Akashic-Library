@@ -140,3 +140,48 @@ final class R8ForwardCompatTests: XCTestCase {
         }
     }
 }
+
+// R10（#23 verify R9）：CR 判別式、fields 鍵閉集、null 白名單 pin
+extension R8ForwardCompatTests {
+    /// R9-verify HIGH（DA 構造）：LF 檔的 quoted 內容 CR 是毀字向量——validate
+    /// 全綠、一次良性寫入即靜默摺成空白。R8 擋、R9 誤拆、R10 以 LF 判別式回歸。
+    func testBareCRInsideQuotedScalarOfLFFileQuarantines() {
+        XCTAssertThrowsError(try EntryYAML.decode(
+            "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: article\ntitle: \"Attention\ris all\"\n")) {
+            XCTAssertTrue(String(describing: $0).contains("裸 CR"), "\($0)")
+        }
+    }
+
+    /// 判別式另一面：全檔無 LF ⇒ CR 是 classic-Mac 行尾，無損載入
+    /// （testClassicMacLoneCRLineEndingsStillLoad 已覆蓋，此處 pin 值無損性）。
+    func testLoneCRFileValuesLossless() throws {
+        let p = try PersonYAML.decode("key: a\rnames: [Alpha Beta]\rnote: intact\r")
+        XCTAssertEqual(p.names, ["Alpha Beta"])
+        XCTAssertEqual(p.note, "intact")
+    }
+
+    /// R9-verify M4/M8：merge 面（`<<`）與 value 面（`=`）鍵不入 fields——
+    /// 本 PR 各層明文拒收 merge；R9 的 namespace 前綴判準誤放行且會 emit。
+    func testMergeAndValueFaceFieldsKeysRejected() {
+        let head = "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: article\ntitle: T\n"
+        XCTAssertThrowsError(try EntryYAML.decode(head + "fields:\n  <<: x\n"))
+        XCTAssertThrowsError(try EntryYAML.decode(head + "fields:\n  =: x\n"))
+        var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        e.fields = ["<<": "v"]
+        XCTAssertThrowsError(try EntryYAML.encode(e), "encode 側同樣拒絕（canary 反射）")
+    }
+
+    /// R9-verify L14：帶內容的顯式 !!null 不入 face 白名單（collection 欄位）
+    func testExplicitNullWithContentNotAbsorbed() {
+        XCTAssertThrowsError(try EntryYAML.decode(
+            "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: article\ntitle: T\nakashic: !!null foo\n"))
+    }
+
+    /// R9-verify M12：missingField 的等價 pin（R9 刪了唯一測試）
+    func testAbsentTitleReportsMissingField() {
+        XCTAssertThrowsError(try EntryYAML.decode(
+            "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: article\n")) {
+            XCTAssertEqual($0 as? StoreYAMLError, .missingField("title"))
+        }
+    }
+}

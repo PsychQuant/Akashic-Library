@@ -402,8 +402,9 @@ public final class AkashicService {
         do {
             try LibraryIndex(store: store).rebuild()
         } catch {
+            // R10（R9-verify L17）：附已改寫數——operator 才能對帳磁碟狀態
             throw ServiceError.invalid(
-                "index rebuild 失敗：\(error)（本批 writeFailed \(writeFailed.count) 筆：\(writeFailed.keys.sorted().joined(separator: ", "))）")
+                "index rebuild 失敗：\(error)（本批已改寫 \(written) 檔；writeFailed \(writeFailed.count) 筆：\(writeFailed.map { "\($0.key)（\($0.value)）" }.sorted().joined(separator: "; "))）")
         }
         // R8（R7-verify L15）：applied 不誇報——排除寫入失敗的候選
         let appliedActual = chosen.filter { writeFailed[$0.citekey] == nil }
@@ -465,7 +466,14 @@ public final class AkashicService {
         try store.ensureLayout()
         let report = try ZoteroImporter(store: store)
             .run(zoteroDB: URL(fileURLWithPath: path), libraryID: libraryID)
-        try LibraryIndex(store: store).rebuild()
+        // R10（R9-verify M3/M5）：rebuild 擲錯不得吞掉整份 import report——
+        // 磁碟滿等原因與 writeFailed 正相關，最需要報告的場景恰好最易被吞
+        do {
+            try LibraryIndex(store: store).rebuild()
+        } catch {
+            throw ServiceError.invalid(
+                "index rebuild 失敗：\(error)（本趟 import 已落地：created \(report.created.count)、updated \(report.updated.count)、orphaned \(report.orphaned.count)；writeFailed \(report.writeFailed.count) 筆：\(report.writeFailed.keys.sorted().joined(separator: ", "))）")
+        }
         var d: [String: Any] = [
             "created": report.created, "updated": report.updated,
             "orphaned": report.orphaned, "orphanCleared": report.orphanCleared,

@@ -183,13 +183,21 @@ key 存在但形狀不符（如 `names` 由 sequence 演化為 mapping、`tags` 
 （`akashic:`/`fields:`/`names:`/`authors:`/`attachments:`/`relations:`/`tags:`/
 `libraries:` 等）遇 explicit/implicit **null**（空值行、`~`、`null` 面）視同
 「欄位不存在」——null 沒有可被剝除的子樹，quarantine 會把 v1.2 可載入的良性檔
-推下可用性懸崖；帶內容的顯式 `!!null foo` 不在此列（face 白名單）。**scalar
-欄位不適用**：其 extractor 以字串面收下 null-face（`title:` → `""`、
-`title: Null` → `"Null"`）——emitter 對 `""`/`"null"`/`"~"` 就是輸出 plain
-null-face，套 null-as-absent 會讓 Zotero 無標題 item 永遠寫不進 store、v1.2 的
-`title: Null` 檔被 quarantine（R8-verify CRITICAL）。附帶語意（照實記載）：
-collection **內部**的 null 元素同樣走字串面、保留**來源字面**（`[~]` → `"~"`、
-`[null]` → `"null"`、`[ ]` 空元素 → `""`——三種寫法三種字面值）。v1.2 的
+推下可用性懸崖；face 白名單只收 **plain 樣式**的 `""`/`~`/`null`/`Null`/`NULL`
+——顯式 `!!null`（帶內容與否）皆走形狀 guard、不被吸收。**具名例外（R10
+記載）**：`provenance.imported_at`/`orphaned_at` 雖是 scalar，因模型為
+Optional 日期、nil↔省略等冪，null 面同樣視同不存在（RMW 會把該行正規化為
+省略）；同一 mapping 內 `zotero_hash: ~` 則以字串面保留 `"~"`——差異照實
+記載。除此之外 **scalar 欄位不適用**：其 extractor 以字串面收下 null-face
+（`title:` → `""`、`title: Null` → `"Null"`）——emitter 對 `""`/`"null"`/`"~"`
+就是輸出 plain null-face，套 null-as-absent 會讓 Zotero 無標題 item 永遠寫不進
+store、v1.2 的 `title: Null` 檔被 quarantine（R8-verify CRITICAL）。附帶語意
+（照實記載）：collection **內部**的 null 元素同樣走字串面、保留**來源字面**
+（`[~]` → `"~"`、`[null]` → `"null"`、`[a, , b]` 的空元素 → `""`）。**RMW
+正規化（記載）**：collection 的 null 行重寫後省略（空集合≡省略是 §2.2 既有
+契約，非資料損失）；scalar 的 null-face **值**重寫後以 plain 面落地，磁碟
+表徵與 YAML null 不可區分——本 binary 以字串面讀回（round-trip 穩定），
+第三方 reader 會讀成 null（interop 邊界）。v1.2 的
 strict gate 事實上同時保護形狀演化（unknown key 先 throw、檔案永不被寫回）；
 v1.3 若只接「加 key」那一半，較新 schema 把既有 key 變豐富時，舊 binary 的
 read-modify-write 會把該欄位整段**靜默剝除**且所有檢查綠燈（verify R5 DA 實測
@@ -234,10 +242,10 @@ encode/decode 等冪。
   (c) key 相符、(d) 值與原 parse 的節點**語意相等**（預算走訪）。任一不成立 →
   decode 錯誤 → 檔案 quarantine——絕不冒錯位寫壞的險。涵蓋：complex key、
   flow-style、tagged decoy、值截斷。**驗證預算（R6 更正歸因，R7 改共用）**：
-  語意比對次數與節點數線性相關，上限 decode 200,000 次／encode 400,000 次（encode 比對含雙側
-  re-compose，單位消耗較高——R9）、**單次 decode／encode 全檔共用**（R7；
-  R8 起 encode 側跨 entry/akashic 兩層同一份預算；encode 內含的 canary decode
-  屬一次 decode、自帶 decode 側預算）；耗盡訊息指認
+  語意比對次數與節點數線性相關，上限 200,000 次、**單次 decode／encode 全檔
+  共用**（R7；R8 起 encode 側跨 entry/akashic 兩層同一份預算；encode 內含的
+  canary decode 屬一次 decode、自帶同額預算——它才是 encode 路徑的實際約束，
+  R10 撤回 R9 的 2× 放寬）；耗盡訊息指認
   的是「觸發」區塊，實際消耗可能來自同檔較早的區塊（訊息已註明）；另設遞迴
   深度上限（512）——深巢狀子樹 fail-closed quarantine 而非 stack overflow；
   實際可容納的節點數依結構而定（單鍵 mapping 元素約耗 3 次比對/個）。巨大
@@ -256,20 +264,31 @@ encode/decode 等冪。
   （`scalar` 檢查，R7）、known-同名由 tag 條款擋；sequence 型 complex key
   直接 throw。**`fields` 的鍵與 `attachments` 元素鍵同受此律（R8，R9 修正）**——
   兩處此前走 `Node.string` 的 construct 特例（tagged 鍵靜默丟 tag、`=`-鍵
-  mapping 扁平化）。R9 規則：鍵必須是真 scalar 且 tag 屬 **core schema**
-  （`tag:yaml.org,2002:*`）、以字串面解讀——emitter 對 fields 鍵輸出 plain
-  樣式，`2026`/`no` 這類鍵 re-parse resolve 成 int/bool，str-tag 檢查會讓自家
-  產物寫得出、讀不回（R8-verify HIGH）；只拒**顯式 local tag**（`!foo journal:`
-  ——tagged-shadow 的丟 tag 通道）。字串面撞名仍 fail-closed。
+  mapping 扁平化）。R10 規則：鍵必須是真 scalar 且 resolved tag 屬**隱式
+  resolver 可產出的閉集**（str/int/float/bool/null/timestamp）、以字串面解讀
+  ——emitter 對 fields 鍵輸出 plain 樣式，`2026`/`no` 這類鍵 re-parse resolve
+  成 int/bool，str-tag 檢查會讓自家產物寫得出、讀不回（R8-verify HIGH）。
+  閉集之外一律拒收：顯式 local tag（`!foo journal:`）、**merge 面 `<<`**
+  （各層一致拒收——我們若 emit，他家 loader 會展開或報錯）、value 面 `=`
+  （R9 的 namespace 前綴判準誤放行兩者，R9-verify M4/M8）。已知邊界（記載）：
+  顯式 core tag（`!!int 123:`）與 plain `123:` 在 resolved-tag 層不可區分，
+  接受並正規化為 plain。attachments 元素鍵維持 str-tag 檢查——鍵域固定為
+  `zotero`/`pool` 兩個純字母字串、恆 resolve 為 str，無等冪問題（三層鍵規則
+  不同是刻意的：各層鍵域不同）。字串面撞名仍 fail-closed。
 - **有損字元守衛（R8 拆成兩層、全部 decode 入口無條件執行）**：
   (i) **毀字通道——NEL (U+0085) 一律拒收**（所有 decode 入口，含純 known 檔
   ——R7 的守衛只長在切分路徑，R8 關上半開門；R9 依 R8-verify 更正把裸 CR 移出
   此層）。NEL 的特殊性：不是任何行尾慣例、emitter 一律 escape（自家產物零
   誤殺）、且是 cp1252 `…` 誤轉 UTF-8 的常見**內容**字元——被 libyaml 當
-  line break 摺疊即為毀字。(ii) **CR 系＝行尾慣例，純 known 檔一律可讀**：
-  CRLF 與 classic-Mac lone-CR 行尾都由 libyaml 依規範正規化為 LF、無資料損失
-  （v1.2 相容）；quoted scalar 內的 CR 摺疊與 LF/CRLF 摺疊結果相同（YAML 摺疊
-  語意，非毀字——R8-verify L26 更正）。**帶未知欄位時 CR + NEL 全面拒收**：
+  line break 摺疊即為毀字。(ii) **CR 以「檔內有無 LF」裁決（R10 判別式，
+  R9-verify HIGH）**：全檔無 LF ⇒ CR 是 classic-Mac 行尾，由 libyaml 正規化、
+  無損載入（v1.2 相容）；檔內有 LF ⇒ 行尾已由 LF/CRLF 承擔，**不接 LF 的
+  裸 CR 只能是內容字元**（Word/RIS 貼入 quoted scalar 的 0x0D）——libyaml
+  讀取時摺疊毀字 → 拒收（R9 連行尾慣例一起放行是回歸，實測一次良性寫入即
+  毀檔）。CRLF 行尾照常可讀；emitter 對內容 CR 一律 escape，自家產物零誤殺。
+  守衛分層造成「同一檔案的行尾接受度取決於有無未知欄位」（帶未知欄位時
+  CRLF 也拒收）——已知的分層不對稱，照實記載。**帶未知欄位時 CR + NEL 全面
+  拒收**：
   文字層切分與 libyaml 行模型分歧（`\r\n` 是單一 grapheme，Character 層檢查
   是死碼；unicodeScalar 層比對）→ decode 錯誤 → quarantine。**LS (U+2028) / PS
   (U+2029) 不在守衛範圍（R6 限縮，R7 更正機制敘述）**：quoted scalar 內被

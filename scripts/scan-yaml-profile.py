@@ -28,10 +28,11 @@ MERGE_KEY = re.compile(r'^\s*<<\s*:', re.M)
 BLOCK_SCALAR = re.compile(r':\s*[|>][0-9+-]*\s*$', re.M)
 EXOTIC_LINE_SEPS = re.compile('[  ]')
 
-## R11：顯式 complex key（`? key`）——profile §4 於 R11 補進禁止清單。
-## alias 置於 key 位置時展開發生在 compose 內部、早於所有預算守衛（實測
-## 636 B → 36 s CPU → timeout）。判準是 block context 的 explicit key
-## indicator：行首（可含縮排）`?` 後接空白或行尾。
+## 顯式 complex key（`? key`）——**這個統計是不完整的**（R12）。
+## alias 落在 key 位置會在 compose 內部指數展開，但 YAML 的 mapping key
+## 根本不需要 `?`：`*a12: 1`（block 隱式）、`{*a12: 1}`（flow）都繞過本判準。
+## 保留此欄僅供參考，**不可**用來論證「corpus 對該 DoS 免疫」——真正相關的
+## 是上面的 anchor/alias 統計。
 COMPLEX_KEY = re.compile(r'^[ ]*\?(?=[ \t]|$)', re.M)
 
 FEATURES = [

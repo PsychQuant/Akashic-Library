@@ -91,7 +91,7 @@ parser 完整保留，無資料損失。
 | anchor `&x` / alias `*x` | 展開放大（R8 verify F4 的 20× CPU；billion-laughs 的唯一來源） |
 | explicit tag `!x` / `!!x` | tagged-shadow（R8 cross-model lens 的 CRITICAL；R7 的 `keyStrings` 守衛） |
 | merge key `<<:` | 隱式繼承使「未知 key」不再是局部性質。**判準必須是 tag 不是鍵名字串**（R11：`!!merge foo:` 的字串面是 `foo`） |
-| **顯式 complex key `? key`**（R11 新增） | **alias 置於 key 位置時，展開發生在 `Yams.compose` 內部、早於所有預算守衛**。實測 636 B → 36 s CPU → timeout |
+| ~~顯式 complex key `? key`~~（R11 加、**R12 移除**） | 見 §5.3——文字層判不到。真正要禁的是 **anchor/alias 本身**（已在第一列），alias 落在 key 位置只是它的一個後果 |
 | BOM（U+FEFF 開頭） | 現行為靜默剝除（`stripLeadingBOM`），改為拒收 |
 | CR / CRLF / NEL(U+0085) / LS(U+2028) / PS(U+2029) | 行尾家族（R4→R6→R7 三輪震盪） |
 
@@ -130,7 +130,6 @@ raw-text 機械在寬 profile 下**拆不掉**（block scalar 與任意深度仍
 profileGate(text) throws
 ├─ Tier 0  文字層，無條件拒（**必須在 compose 之前**）
 │    BOM / CR / NEL / LS / PS                    → violation
-│    ^\s*\?\s  顯式 complex key indicator       → violation（R11）
 │
 ├─ Tier 1  存在性前濾 — O(n)
 │    文字中不含 & 且不含 * 且不含 ! 且不含 "<<"
@@ -176,13 +175,29 @@ Tier 1 的存在性前濾是它的廉價替代：對 97% 的檔案達到同樣�
 
 對照組證明既有預算對 **value 側**有效；complex-key 路徑**完全繞過**它。
 
-**這不只是措辭錯誤——兩層 gate 的設計本身有洞**：complex-key bomb 必然含 `&` 與
-`*` → 依原設計被路由到 Tier 2 → Tier 2 呼叫 `compose` → 掛死。**profile gate 反而
-成為攻擊的必經之路。** 修正見上方 Tier 0：`? ` 是文字層可偵測的，必須在 compose
-之前擋。
+**這不只是措辭錯誤——兩層 gate 的設計本身有洞**：bomb 必然含 `&` 與 `*` → 依原
+設計被路由到 Tier 2 → Tier 2 呼叫 `compose` → 掛死。**profile gate 反而成為攻擊
+的必經之路。**
 
-修正後的正確陳述：value 側的 alias 展開由既有預算擋（Tier 2 內），key 側的由
-Tier 0 的文字守衛擋（compose 之前）。兩者缺一不可。
+**R12 再更正**：R11 曾在此提議「`? ` 是文字層可偵測的，加進 Tier 0 即可」。
+**該提議也是錯的**，已於 PR #25 實作後被 R12 verify 推翻並 revert：
+
+| 繞道形式 | 大小 | 結果 |
+|---|---|---|
+| `*a12: 1`（block 隱式 alias key，**無 `?`**） | 630 B | 25 s timeout |
+| `{? *a12 : 1}`（flow 顯式，`?` 不在行首） | 645 B | 25 s timeout |
+| `{*a12: 1}`（flow 隱式） | 636 B | 25 s timeout |
+
+YAML 的 mapping key **根本不需要 `?`**。而且該守衛還會誤殺 block scalar 與折行
+續行中以 `? ` 開頭的合法內容（實測：`note: |` 內含 `? what is this` 被 quarantine，
+且因 encode 內含 decode canary 而永遠寫不回）。
+
+**修正後的正確陳述**：`? ` 不是可用的判準。唯一可靠的文字層判準是 **anchor/alias
+本身**（§4 第一列已禁）——沒有 `&` 就沒有 DAG，沒有 DAG 就沒有指數展開。但真實
+corpus 有 63 檔含 `&`（`&amp;` 在期刊名裡）、5 檔含 `*`（引號內的關鍵字標記）、
+1 檔兩者皆有，所以**存在性掃描會誤殺**——Tier 1 的前濾必須是 quote-aware 的，
+或改由 Tier 2 在 compose **之前**用其他機制（如 fan-out 預算）。這是本設計實作時
+必須先解決的問題，不是可以延後的細節（見 #36 的三個候選方向與各自代價）。
 
 ### 5.4 Gate 位置
 

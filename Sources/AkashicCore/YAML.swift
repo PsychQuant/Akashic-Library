@@ -331,37 +331,22 @@ public enum EntryYAML {
     /// 一律 escape（自家產物零誤殺）、且是 cp1252 `…` 誤轉的常見內容字元——
     /// 內容被摺疊即為毀字。帶未知欄位的檔另由 splitBlocks 的 assertLFOnly
     /// 全面拒收 CR + NEL（切分結構分歧）。
-    /// 顯式 complex key（`? key`）守衛——**必須在 `Yams.compose` 之前**（R11：
-    /// R10-verify H2，security lens 實測）。Yams 的 composer 對每個 mapping 呼叫
-    /// `Parser.checkDuplicates(mappingKeys:)`，它 `Dictionary(grouping:)` 每個 key
-    /// node，而 `Node.Sequence.hash(into:)` 遞迴合成、無 memoisation——所以把
-    /// alias 放在**顯式 complex key 位置**（`? *alias`），展開發生在 compose
-    /// **內部**，本檔所有 guard（oracleBudget / depth / verifyBlockOracle）
-    /// 一個都還沒開始跑。實測：927 bytes 的 `people/bomb.yaml` 讓 `akashic doctor`
-    /// 燒 36.3 s CPU 後被 45 s timeout 殺掉；同一顆 bomb **不放** complex key
-    /// 則 0.03 s 正確 quarantine（既有防線對 value 側是有效的，只是這條路徑
-    /// 整個繞過去）。
-    ///
-    /// 文字層偵測是唯一可行的位置——compose 之後就已經來不及。判準是 YAML 的
-    /// explicit key indicator：block context 下行首（可有縮排）的 `?` 後接空白
-    /// 或行尾。**可能過擋**（block scalar 內容行若剛好長這樣），但代價對稱不
-    /// 對等：過擋 = quarantine（檔案原封不動、可見、升級 binary 後恢復），
-    /// 漏擋 = 整台機器 100% CPU 掛死。真實 corpus 命中 0/536。
-    static func assertNoExplicitComplexKey(_ text: String, context: String) throws {
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let t = line.drop(while: { $0 == " " })
-            guard t.first == "?" else { continue }
-            let after = t.dropFirst().first
-            if after == nil || after == " " || after == "\t" {
-                throw StoreYAMLError.invalidField(
-                    context, "顯式 complex key（`? key`）不支援——alias 置於 key 位置會在"
-                           + " YAML compose 內部指數展開（早於所有預算守衛），fail-closed")
-            }
-        }
-    }
-
+    /// **關於 alias-in-key 的 DoS——為什麼這裡沒有守衛（R12 更正）**：R11 曾在此
+    /// 加一道文字層 `? key` 守衛，試圖擋 `Yams.compose` 內部的 hash 展開。該修復
+    /// **兩個方向都錯**，已 revert：
+    ///   - **沒關掉洞**：YAML 的 mapping key 根本不需要 `?`。實測三條繞道
+    ///     （`*a12: 1` block 隱式、`{? *a12 : 1}` flow 顯式、`{*a12: 1}` flow 隱式）
+    ///     在 630–645 bytes 下全部 25 s timeout。判準（`? ` 語法）與要防的失敗
+    ///     （alias 落在 key 位置）不是同一件事。
+    ///   - **製造新回歸**：守衛掃全文字、無 YAML context，於是 block scalar 與
+    ///     折行續行以 `? ` 開頭的**合法內容**被誤判——實測 `note: |` 內含
+    ///     `? what is this` 的檔案被 quarantine，而 encode 內含 decode canary，
+    ///     這種記錄變成永遠寫不回。
+    /// 該 DoS **不是本 PR 引入的**（`main` 的三個 decode 入口同樣 compose-first）；
+    /// 文字層補不到 flow context 與 implicit alias key，正確的層是 profile gate
+    /// （禁 anchor/alias，見 #33）或 Yams 端。已另立 issue 追蹤（#36），本檔不再嘗試
+    /// 在文字層攔截——繼續加 `?` 變體只會重複 R5/R6/R10 的震盪。
     static func assertNoLossyContentChars(_ text: String, context: String) throws {
-        try assertNoExplicitComplexKey(text, context: context)
         if text.unicodeScalars.contains(where: { $0 == "\u{85}" }) {
             throw StoreYAMLError.invalidField(
                 context, "NEL (U+0085) 不支援（libyaml 讀取時摺疊毀字，fail-closed；請正規化或以 escape 表示）")

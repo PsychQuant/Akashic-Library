@@ -70,64 +70,13 @@ final class R11ForwardCompatTests: XCTestCase {
                        "quoted '<<' 應被當成普通未知欄位保留")
     }
 
-    // MARK: - H2：顯式 complex key 在 compose 之前擋下
-
-    /// alias 置於 complex key 位置 → 展開發生在 `Yams.compose` **內部**
-    /// （`checkDuplicates` 遞迴 hash key node），早於本檔所有預算守衛。
-    /// 實測修復前：636 bytes 的檔案讓 doctor 燒 36 s CPU 後 timeout。
-    /// 本測試不比時間（CI 機器差異大），只斷言「decode 直接 throw」——
-    /// 若守衛失效，這條測試會 hang 而非 fail，那本身就是訊號。
-    func testExplicitComplexKeyAliasBombRejectedBeforeCompose() throws {
-        var lines = ["key: bomb", "names: [A]", "a0: &a0 [x,x,x,x,x,x,x,x,x]"]
-        for i in 1...12 {
-            let refs = (1...9).map { _ in "*a\(i - 1)" }.joined(separator: ",")
-            lines.append("a\(i): &a\(i) [\(refs)]")
-        }
-        lines.append("? *a12")
-        lines.append(": 1")
-        let yaml = lines.joined(separator: "\n")
-
-        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { err in
-            guard case StoreYAMLError.invalidField(_, let msg) = err else {
-                return XCTFail("預期 invalidField，得到 \(err)")
-            }
-            XCTAssertTrue(msg.contains("complex key"), "應由 complex-key 守衛擋下：\(msg)")
-        }
-    }
-
-    /// 無害的 complex key（不含 alias）同樣拒收——守衛是語法層 fail-closed，
-    /// 不試圖分辨「這個 complex key 危不危險」（分辨需要 compose，已經太遲）。
-    func testPlainExplicitComplexKeyRejected() throws {
-        let yaml = """
-        key: p
-        names: [A]
-        ? plain
-        : value
-        """
-        XCTAssertThrowsError(try PersonYAML.decode(yaml))
-    }
-
-    /// **反向**：值裡出現的 `?` 不得誤判（只有行首 + 空白才是 indicator）。
-    func testQuestionMarkInValueNotTreatedAsComplexKey() throws {
-        let yaml = """
-        key: p
-        names: [A]
-        note: "why? because."
-        """
-        let person = try PersonYAML.decode(yaml)
-        XCTAssertEqual(person.note, "why? because.")
-    }
-
-    /// **反向**：`?` 開頭但後面直接接字元（如 `?foo:`）不是 explicit key indicator。
-    func testQuestionMarkPrefixedKeyNotTreatedAsComplexKey() throws {
-        let yaml = """
-        key: p
-        names: [A]
-        ?foo: bar
-        """
-        let person = try PersonYAML.decode(yaml)
-        XCTAssertEqual(person.unknownFields.map(\.key), ["?foo"])
-    }
+    // MARK: - H2 的守衛已於 R12 revert（見 YAML.swift 的說明）
+    //
+    // R11 曾加一道文字層 `? key` 守衛並在此釘四條測試。R12 verify 實測證明
+    // 該守衛兩個方向都錯（三條繞道未擋、block scalar 合法內容被誤殺），已
+    // revert，對應測試一併移除。**不要重新加回來**——判準錯的測試會把錯的
+    // 行為釘成正確答案（這正是 R10 的 fields 閉集踩過的坑）。
+    // alias-in-key 的 DoS 由 #36 追蹤，正確的層是 profile gate（#33）。
 
     // MARK: - H3：fields 鍵的字串面 fail-closed（decode 端）
 

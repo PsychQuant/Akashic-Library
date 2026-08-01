@@ -256,16 +256,18 @@ encode/decode 等冪。
   實際可容納的節點數依結構而定（單鍵 mapping 元素約耗 3 次比對/個）。巨大
   未知子樹與 anchor/alias 重用型 DAG 都會觸發 → quarantine。這是未知子樹的
   實質大小上限（可用性懸崖，照實記載）；超大 payload 不應塞在未知欄位裡。
-- **顯式 complex key（`? key`）不支援（R11，R10-verify HIGH）**：所有預算守衛
-  都跑在 `Yams.compose` **之後**，而 composer 的重複鍵偵測會對每個 key node
-  遞迴 hash（無 memoisation）——把 alias 放在 key 位置時，展開發生在 compose
-  **內部**，上面那一整套預算一個都還沒開始跑。實測：636 bytes 的 fixture
-  （`? *a12`，約 2.8×10¹¹ 邏輯節點）讓 `akashic doctor` 燒 36 s CPU 後被
-  timeout 殺掉；同一顆 bomb 不放在 key 位置則 0.03 s 正確 quarantine。因此
-  改在**文字層、compose 之前**擋：block context 下行首（可含縮排）的 `?` 後
-  接空白或行尾 → decode 錯誤 → quarantine。**可能過擋**（block scalar 的內容
-  行若恰好長這樣），代價不對稱是刻意的：過擋＝檔案原封不動且可見，漏擋＝
-  消費端 100% CPU 掛死。真實 corpus 命中 0/536。
+- **已知未防護：alias 落在 mapping key 位置的展開 DoS（R12 照實記載）**：本檔
+  所有預算守衛都跑在 `Yams.compose` 之後，而 composer 的重複鍵偵測會對每個
+  key node 遞迴 hash（無 memoisation）。alias 指向 DAG 且落在 key 位置時，
+  展開發生在 compose **內部**，預算一個都還沒開始跑。實測三種形式在 630–645
+  bytes 下都讓消費端 100% CPU 直到 timeout：`*a12: 1`（block 隱式）、
+  `{? *a12 : 1}`（flow 顯式）、`{*a12: 1}`（flow 隱式）。
+  **這不是 v1.3 引入的**——`compose`-first 的順序自始如此。R11 曾嘗試在文字層
+  以 `? key` 判準攔截，**兩個方向都錯**（三條繞道未擋；block scalar 與折行續行
+  的合法 `? ` 內容被誤殺，且因 encode 內含 decode canary 而變成寫不回），已於
+  R12 revert。文字層補不到 flow context 與 implicit alias key；正確的層是禁
+  anchor/alias 的 profile gate（見 `docs/specs/2026-08-01-akashic-yaml-input-profile-design.md`）
+  或 Yams 端。已另立 issue 追蹤（#36）。**在該防線落地前，store 目錄應視為信任邊界內**。
 - **merge / value 面以 tag 判定，不以鍵名字串判定（R11，R10-verify HIGH）**：
   YAML 的 merge 語意由 tag（`tag:yaml.org,2002:merge`）決定——Yams 自己的
   `Node.Mapping.flatten()` 就是比 tag。R10 以前開放演化層用 `k == "<<"` 字串

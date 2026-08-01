@@ -65,8 +65,8 @@ store 是跨 binary（CLI / MCP / App）的契約。格式版本記載於
 §5 特別註記 `attachments` 那層加新欄位會**原地重演 #23 的失敗模式**。
 
 **2. 讀取面同時嚴格化——升級方向也會咬人。** 部分 v1.2 讀得動的病態檔案在升級後轉為
-quarantine，這是刻意的 fail-closed 遷移（詳見 §5「known 欄位的形狀演化」「有損字元
-守衛」「顯式 complex key」三個 bullet）：
+quarantine，這是刻意的 fail-closed 遷移（詳見 §5「known 欄位的形狀演化」與「有損字元
+守衛」兩個 bullet）：
 
 | 新增拒收 | 觸發條件 |
 |---|---|
@@ -74,7 +74,6 @@ quarantine，這是刻意的 fail-closed 遷移（詳見 §5「known 欄位的�
 | tagged-shadow 鍵、merge/value tag 面的鍵 | 無條件 |
 | `fields` 的字串面撞名、非隱式 tag 鍵、字串面 `<<`/`=` | 無條件 |
 | NEL (U+0085) 內容字元 | 無條件 |
-| **顯式 complex key（`? key`）** | 無條件（R11 新增，DoS 防線） |
 | LF 檔內的裸 CR | 無條件 |
 | **CR / CRLF 行尾** | **僅當檔案含未知欄位**（走區塊切分路徑） |
 | **encode 可拒寫** | canary fail-closed；CLI `import-zotero` / `resolve-people --apply` 單筆失敗即非零退出 |

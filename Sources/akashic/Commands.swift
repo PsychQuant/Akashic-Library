@@ -222,10 +222,13 @@ struct ResolvePeople: ParsableCommand {
                 }
             }
             _ = try LibraryIndex(store: store).rebuild()
-            print("✓ 套用 \(candidates.count) 個候選、改寫 \(written) 檔、index 已重建")
-            if !writeFailed.isEmpty {
+            // R8（R7-verify L29/L15）：失敗先印、成功行不誇報（✓ 只在全數成功時）
+            if writeFailed.isEmpty {
+                print("✓ 套用 \(candidates.count) 個候選、改寫 \(written) 檔、index 已重建")
+            } else {
                 print("write failed（單筆寫入失敗，已略過）: \(writeFailed.count)")
                 for (key, msg) in writeFailed { print("  ✗ \(key) — \(msg)") }
+                print("部分套用：改寫 \(written) 檔、失敗 \(writeFailed.count) 檔、index 已重建")
                 throw ExitCode(1)
             }
         } else {

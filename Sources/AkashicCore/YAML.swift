@@ -130,9 +130,12 @@ public enum EntryYAML {
         }
         // R6（L16）：未知欄位「值」的語意比對——key 序列相符不蘊含值未漂移
         // （縮排平移等寫出路徑的防護此前只靠切分計數偶然擋下）。
-        try verifyUnknownValuesPreserved(rd.unknownFields, entry.unknownFields, context: "entry")
+        // R8：encode 側預算同樣單次呼叫共用（跨 entry/akashic 兩層）。
+        var encodeBudget = 200_000
+        try verifyUnknownValuesPreserved(rd.unknownFields, entry.unknownFields,
+                                         context: "entry", budget: &encodeBudget)
         try verifyUnknownValuesPreserved(rd.akashic.unknownFields, entry.akashic.unknownFields,
-                                         context: "akashic")
+                                         context: "akashic", budget: &encodeBudget)
         return out
     }
 
@@ -175,12 +178,11 @@ public enum EntryYAML {
     /// R7（R6-verify HIGH）：預算為**單次呼叫共用**、不是 per-block 重置——
     /// N 個接近上限的區塊不可聚合成 N × 200k 的比對量（CPU 放大面）。
     static func verifyUnknownValuesPreserved(_ got: [UnknownField], _ want: [UnknownField],
-                                             context: String) throws {
+                                             context: String, budget: inout Int) throws {
         guard got.count == want.count else {
             throw StoreYAMLError.invalidField(
                 context, "encode 語意自檢失敗——未知欄位數不符，拒絕寫出")
         }
-        var budget = 200_000
         for (g, w) in zip(got, want) {
             guard let gn = composeBlock(g.raw), let wn = composeBlock(w.raw) else {
                 throw StoreYAMLError.invalidField(
@@ -192,8 +194,9 @@ public enum EntryYAML {
                 throw StoreYAMLError.invalidField(
                     context, "未知欄位「\(w.key)」寫出前後語意不符（值漂移）——拒絕寫出")
             case nil:
+                // R8（R7-verify L21）：共用預算——耗盡可能來自較早的區塊
                 throw StoreYAMLError.invalidField(
-                    context, "未知欄位「\(w.key)」超出驗證預算（單檔共用上限）——fail-closed")
+                    context, "未知欄位「\(w.key)」處超出共用驗證預算（消耗可能來自同檔較早的區塊）——fail-closed")
             }
         }
     }
@@ -291,6 +294,33 @@ public enum EntryYAML {
         if text.unicodeScalars.contains(where: { $0 == "\r" || $0 == "\u{85}" }) {
             throw StoreYAMLError.invalidField(
                 context, "CR/CRLF/NEL 不支援（libyaml 讀取時摺疊毀字、行模型分歧，fail-closed；請正規化為 LF 或以 escape 表示）")
+        }
+    }
+
+    /// 毀字通道守衛——**全部 decode 入口無條件執行**（R8：R7 的守衛只長在
+    /// splitBlocks，純 known 檔（無未知欄位、不走切分）仍會被 libyaml 靜默
+    /// 摺疊毀字後寫回——DA M23 只關了一半）。與 assertLFOnly 的差異：CRLF
+    /// 行尾在純 known 檔由 libyaml 正規化為 LF、無資料損失（v1.2 相容，
+    /// 良性 CRLF 檔案必須仍可讀），所以這裡只擋真正的毀字向量——NEL 一律、
+    /// **裸 CR**（非 CRLF 一部分；quoted 內會摺疊成空白）。帶未知欄位的檔
+    /// 另由 splitBlocks 的 assertLFOnly 全面拒收 CR（切分結構分歧）。
+    static func assertNoLossyContentChars(_ text: String, context: String) throws {
+        let scalars = text.unicodeScalars
+        var i = scalars.startIndex
+        while i < scalars.endIndex {
+            let c = scalars[i]
+            if c == "\u{85}" {
+                throw StoreYAMLError.invalidField(
+                    context, "NEL (U+0085) 不支援（libyaml 讀取時摺疊毀字，fail-closed；請正規化或以 escape 表示）")
+            }
+            if c == "\r" {
+                let next = scalars.index(after: i)
+                if next == scalars.endIndex || scalars[next] != "\n" {
+                    throw StoreYAMLError.invalidField(
+                        context, "裸 CR 不支援（libyaml 讀取時摺疊毀字，fail-closed；請正規化為 LF 或以 escape 表示）")
+                }
+            }
+            i = scalars.index(after: i)
         }
     }
 
@@ -433,11 +463,13 @@ public enum EntryYAML {
     }
 
     /// 預算制節點語意等值（scalar 比 string+resolvedTag；collection 逐元素）。
-    /// 回傳 nil = 預算耗盡（alias 展開型 DAG 比對爆炸）——呼叫端 fail-closed。
+    /// 回傳 nil = 預算耗盡（alias 展開型 DAG 比對爆炸）或深度超限——呼叫端
+    /// fail-closed。R8（R7-verify L31）：預算只界定廣度；深巢狀子樹會先
+    /// stack overflow 崩潰而非 quarantine，故另設遞迴深度上限。
     static func nodesSemanticallyEqual(_ a: Yams.Node, _ b: Yams.Node,
-                                       budget: inout Int) -> Bool? {
+                                       budget: inout Int, depth: Int = 0) -> Bool? {
         budget -= 1
-        if budget <= 0 { return nil }
+        if budget <= 0 || depth > 512 { return nil }
         switch (a, b) {
         case (.scalar(let x), .scalar(let y)):
             // Node.Scalar 的 == 即 string + resolvedTag 比較（Yams 公開語意）
@@ -445,16 +477,16 @@ public enum EntryYAML {
         case (.sequence(let x), .sequence(let y)):
             guard x.count == y.count else { return false }
             for (u, v) in zip(x, y) {
-                guard let r = nodesSemanticallyEqual(u, v, budget: &budget) else { return nil }
+                guard let r = nodesSemanticallyEqual(u, v, budget: &budget, depth: depth + 1) else { return nil }
                 if !r { return false }
             }
             return true
         case (.mapping(let x), .mapping(let y)):
             guard x.count == y.count else { return false }
             for ((k1, v1), (k2, v2)) in zip(Array(x), Array(y)) {
-                guard let rk = nodesSemanticallyEqual(k1, k2, budget: &budget) else { return nil }
+                guard let rk = nodesSemanticallyEqual(k1, k2, budget: &budget, depth: depth + 1) else { return nil }
                 if !rk { return false }
-                guard let rv = nodesSemanticallyEqual(v1, v2, budget: &budget) else { return nil }
+                guard let rv = nodesSemanticallyEqual(v1, v2, budget: &budget, depth: depth + 1) else { return nil }
                 if !rv { return false }
             }
             return true
@@ -544,6 +576,13 @@ public enum EntryYAML {
     static func requireShape<T>(_ node: Yams.Node?, field: String, expect: String,
                                 _ extract: (Yams.Node) -> T?) throws -> T? {
         guard let node else { return nil }
+        // R8（R7-verify M3）：explicit/implicit null（`akashic:` 空值行）視同
+        // 「欄位不存在」——null 沒有可被剝除的子樹，quarantine 整檔是把 v1.2
+        // 可載入的良性檔推下可用性懸崖；真正要 fail-closed 的是形狀「演化」
+        // （scalar↔collection 互換）。必填欄位由呼叫端的 missingField 接手。
+        if let scalar = node.scalar, scalar.style == .plain, node.tag == Tag(.null) {
+            return nil
+        }
         guard let v = extract(node) else {
             throw StoreYAMLError.invalidField(
                 field, "形狀不符——必須是 \(expect)（known 欄位的形狀演化不入 tolerant 範圍，fail-closed；見 docs/store-format.md §5）")
@@ -560,6 +599,7 @@ public enum EntryYAML {
 
     public static func decode(_ yaml: String) throws -> Entry {
         let yaml = stripLeadingBOM(yaml)
+        try assertNoLossyContentChars(yaml, context: "entry")
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
@@ -575,9 +615,12 @@ public enum EntryYAML {
         // mapping 有 construct 特例，必須用 `scalar?.string` 驗真 scalar
         // （R6-verify M14——mapping 假扮 scalar 通過形狀檢查、RMW 靜默扁平化）。
         guard let idString = try requireShape(map["id"], field: "id",
-                                              expect: "scalar", { $0.scalar?.string }),
-              let id = UUID(uuidString: idString) else {
+                                              expect: "scalar", { $0.scalar?.string }) else {
             throw StoreYAMLError.missingField("id")
+        }
+        // R8（R7-verify L18）：id 存在但非 UUID → 報格式錯誤，不誤報「缺欄位」
+        guard let id = UUID(uuidString: idString) else {
+            throw StoreYAMLError.invalidField("id", "「\(idString)」不是 UUID")
         }
         guard let citekey = try requireShape(map["citekey"], field: "citekey",
                                              expect: "scalar", { $0.scalar?.string }) else {
@@ -617,9 +660,14 @@ public enum EntryYAML {
                                            expect: "mapping", { $0.mapping }) {
             var seenFieldKeys = Set<String>()
             for (k, v) in fieldMap {
-                guard let kk = k.string, let vv = v.scalar?.string else {
-                    throw StoreYAMLError.invalidField("fields", "鍵值必須是 scalar（以字串面解讀）")
+                // R8（R7-verify M2）：鍵側同樣要真 scalar + str tag——`Node.string`
+                // 的 construct 特例會把 `=`-鍵 mapping 扁平化、tagged 鍵靜默丟 tag
+                guard let kScalar = k.scalar, k.tag == Tag(.str),
+                      let vv = v.scalar?.string else {
+                    throw StoreYAMLError.invalidField(
+                        "fields", "鍵必須是字串 scalar、值必須是 scalar（以字串面解讀）")
                 }
+                let kk = kScalar.string
                 // R7（R6-verify M16）：Yams 只擋 string+tag 全等的重複鍵——
                 // `'123'` 與 `123` 是不同 Node 但同字串面，塞進 dictionary 會
                 // 靜默壓成一筆且 canary 看不見（模型端已丟）。fail-closed。
@@ -633,11 +681,14 @@ public enum EntryYAML {
         if let attSeq = try requireShape(map["attachments"], field: "attachments",
                                          expect: "sequence", { $0.sequence }) {
             entry.attachments = try attSeq.map { node in
+                // R8（R7-verify M2）：元素鍵同樣真 scalar + str tag（此層無
+                // rejectUnknownKeys，R7 的 tagged-shadow 守衛此前搆不到）
                 guard let m = node.mapping, m.count == 1,
-                      let first = m.first, let kindRaw = first.key.string,
+                      let first = m.first, first.key.tag == Tag(.str),
+                      let kindRaw = first.key.scalar?.string,
                       let kind = AttachmentRef.Kind(rawValue: kindRaw),
                       let path = first.value.scalar?.string else {
-                    throw StoreYAMLError.invalidField("attachments", "元素必須是 {zotero: path} 或 {pool: path}")
+                    throw StoreYAMLError.invalidField("attachments", "元素必須是 {zotero: path} 或 {pool: path}（鍵為字串 scalar）")
                 }
                 return AttachmentRef(kind: kind, path: path)
             }
@@ -645,12 +696,21 @@ public enum EntryYAML {
         if let provMap = try requireShape(map["provenance"], field: "provenance",
                                           expect: "mapping", { $0.mapping }) {
             try rejectUnknownKeys(provMap, known: knownProvenanceKeys, context: "provenance")
-            guard let zKey = provMap["zotero_key"]?.scalar?.string else {
+            // R8（R7-verify L13）：必填欄位也走 requireShape——形狀不符要報
+            // 「形狀不符」，缺席才報「缺欄位」（誤導診斷類）
+            guard let zKey = try requireShape(provMap["zotero_key"],
+                                              field: "provenance.zotero_key",
+                                              expect: "scalar", { $0.scalar?.string }) else {
                 throw StoreYAMLError.invalidField("provenance", "缺 zotero_key")
             }
-            guard let zVerString = provMap["zotero_version"]?.scalar?.string,
-                  let zVer = Int(zVerString) else {
+            guard let zVerString = try requireShape(provMap["zotero_version"],
+                                                    field: "provenance.zotero_version",
+                                                    expect: "scalar", { $0.scalar?.string }) else {
                 throw StoreYAMLError.invalidField("provenance", "缺 zotero_version")
+            }
+            guard let zVer = Int(zVerString) else {
+                throw StoreYAMLError.invalidField(
+                    "provenance.zotero_version", "「\(zVerString)」不是整數")
             }
             var prov = Provenance(zoteroKey: zKey, zoteroVersion: zVer)
             if let s = try requireShape(provMap["library_id"], field: "provenance.library_id",
@@ -783,11 +843,18 @@ public enum LibraryYAML {
         var a = rd, b = library
         a.unknownFields = []; b.unknownFields = []
         guard a == b, rd.unknownFields.map(\.key) == library.unknownFields.map(\.key) else {
+            // R8（R7-verify L14）：欄位指認（與 EntryYAML 對齊）
+            var bad: [String] = []
+            if a.key != b.key { bad.append("key") }
+            if a.name != b.name { bad.append("name") }
+            if a.description != b.description { bad.append("description") }
+            let detail = bad.isEmpty ? "未知欄位 key 序列不符" : "欄位不符：\(bad.joined(separator: "、"))"
             throw StoreYAMLError.invalidField(
-                "library", "encode 語意自檢失敗——產物與模型不符，拒絕寫出")
+                "library", "encode 語意自檢失敗——\(detail)，拒絕寫出")
         }
+        var encodeBudget = 200_000
         try EntryYAML.verifyUnknownValuesPreserved(rd.unknownFields, library.unknownFields,
-                                                   context: "library")
+                                                   context: "library", budget: &encodeBudget)
         return out
     }
 
@@ -795,6 +862,7 @@ public enum LibraryYAML {
 
     public static func decode(_ yaml: String) throws -> Library {
         let yaml = EntryYAML.stripLeadingBOM(yaml)
+        try EntryYAML.assertNoLossyContentChars(yaml, context: "library")
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
@@ -838,11 +906,20 @@ public enum PersonYAML {
         var a = rd, b = person
         a.unknownFields = []; b.unknownFields = []
         guard a == b, rd.unknownFields.map(\.key) == person.unknownFields.map(\.key) else {
+            // R8（R7-verify L14）：欄位指認（與 EntryYAML 對齊）
+            var bad: [String] = []
+            if a.key != b.key { bad.append("key") }
+            if a.names != b.names { bad.append("names") }
+            if a.orcid != b.orcid { bad.append("orcid") }
+            if a.openalex != b.openalex { bad.append("openalex") }
+            if a.note != b.note { bad.append("note") }
+            let detail = bad.isEmpty ? "未知欄位 key 序列不符" : "欄位不符：\(bad.joined(separator: "、"))"
             throw StoreYAMLError.invalidField(
-                "person", "encode 語意自檢失敗——產物與模型不符，拒絕寫出")
+                "person", "encode 語意自檢失敗——\(detail)，拒絕寫出")
         }
+        var encodeBudget = 200_000
         try EntryYAML.verifyUnknownValuesPreserved(rd.unknownFields, person.unknownFields,
-                                                   context: "person")
+                                                   context: "person", budget: &encodeBudget)
         return out
     }
 
@@ -850,6 +927,7 @@ public enum PersonYAML {
 
     public static func decode(_ yaml: String) throws -> Person {
         let yaml = EntryYAML.stripLeadingBOM(yaml)
+        try EntryYAML.assertNoLossyContentChars(yaml, context: "person")
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }

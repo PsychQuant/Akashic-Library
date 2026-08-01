@@ -399,7 +399,10 @@ public final class AkashicService {
             }
         }
         try LibraryIndex(store: store).rebuild()
-        var result: [String: Any] = ["applied": selected, "entriesRewritten": written]
+        // R8（R7-verify L15）：applied 不誇報——排除寫入失敗的候選
+        let appliedActual = chosen.filter { writeFailed[$0.citekey] == nil }
+            .map { "\($0.citekey):\($0.authorIndex)" }
+        var result: [String: Any] = ["applied": appliedActual, "entriesRewritten": written]
         if !writeFailed.isEmpty { result["writeFailed"] = writeFailed }
         return try jsonString(result)
     }

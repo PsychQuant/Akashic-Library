@@ -135,7 +135,7 @@ actor AkashicMCPServer {
                 "add": strArray("要加的目標 citekeys"), "remove": strArray("要移除的目標"),
              ], required: ["citekey", "kind"])),
         Tool(name: "akashic_resolve_people",
-             description: "人物解析：不帶 apply 列出高信心候選（alias 完全命中、不歧義）；帶 apply（候選 id 陣列）逐候選套用。絕不自動合併。",
+             description: "人物解析：不帶 apply 列出高信心候選（alias 完全命中、不歧義）；帶 apply（候選 id 陣列）逐候選套用。絕不自動合併。單筆寫入失敗記入 writeFailed 並續跑（applied 只列實際套用者）。",
              inputSchema: obj(["apply": strArray("要套用的候選 id（形如 citekey:authorIndex）；省略＝只列候選")])),
         Tool(name: "akashic_create_entry",
              description: "建庫外手動文獻（無 Zotero provenance；citekey 自動生成）。",
@@ -158,7 +158,7 @@ actor AkashicMCPServer {
                 "orcid": str("ORCID（可選）"), "openalex": str("OpenAlex author ID（可選）"),
              ], required: ["key", "names"])),
         Tool(name: "akashic_import_zotero",
-             description: "觸發 Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）。回傳完整 import report。",
+             description: "觸發 Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）。回傳完整 import report；單筆寫入失敗記入 writeFailed 並續跑（index 照常重建）。",
              inputSchema: obj([
                 "zotero_db": str("zotero.sqlite 路徑（預設 ~/Zotero/zotero.sqlite）"),
                 "library_id": int("只拉此 libraryID（省略＝全部 libraries）"),

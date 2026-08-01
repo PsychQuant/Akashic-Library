@@ -58,7 +58,7 @@ final class R7ForwardCompatTests: XCTestCase {
         // quoted NEL：libyaml 讀取時摺疊毀字——R6 移除守衛後變靜默毀損，R7 回歸 fail-closed
         let yaml = "key: a\nnames: ['Attention\u{85}Is All']\nextra: 1\n"
         XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
-            XCTAssertTrue(String(describing: error).contains("CR/CRLF/NEL"), "\(error)")
+            XCTAssertTrue(String(describing: error).contains("NEL"), "\(error)")
         }
     }
 
@@ -136,7 +136,10 @@ final class R7ForwardCompatTests: XCTestCase {
           '123': quoted
           123: plain
         """)) { error in
-            XCTAssertTrue(String(describing: error).contains("字串面重複"), "\(error)")
+            // R8 起 int-tag 鍵在更早的鍵層檢查即拒收（fail-closed 更前移）；
+            // 兩條路徑都可接受，重點是不得靜默壓成一筆
+            let msg = String(describing: error)
+            XCTAssertTrue(msg.contains("字串面重複") || msg.contains("鍵必須是字串"), "\(msg)")
         }
     }
 

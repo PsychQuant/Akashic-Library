@@ -37,7 +37,12 @@ public final class PeopleResolveModel {
                 if firstFailure == nil { firstFailure = error }
             }
         }
-        try state.reindexAndReload()
+        // R8（R7-verify L16）：寫入失敗優先於 reindex 失敗——不可被吞掉
+        do {
+            try state.reindexAndReload()
+        } catch {
+            if firstFailure == nil { firstFailure = error }
+        }
         refresh()
         if let firstFailure { throw firstFailure }
     }

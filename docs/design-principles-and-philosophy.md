@@ -91,18 +91,59 @@ Akashic 的核心 store invariant 是：
 
 檔案不是 snapshot，而是該 entity 沿時間展開的 canonical container。
 
+### Canonical path 只編碼不可變身分
+
+一級 entities **SHOULD** 共用單一 canonical namespace：
+
 ```text
-people/<person-key>.yaml
-entries/<citekey>.yaml
-organizations/<organization-key>.yaml
+entities/<uuid>.yaml
 ```
+
+若單一目錄的檔案量需要物理分散，可以使用不帶語意的 UUID shard：
+
+```text
+entities/55/0e/550e8400-e29b-41d4-a716-446655440000.yaml
+```
+
+路徑不得編碼：
+
+- entity type；
+- domain；
+- 所屬機構；
+- 階層位置；
+- 作者、年份或題名；
+- 目前名稱或其他可變描述。
+
+Person、Work、Expression、Manifestation、Organization 與其他一級實體可以存在於同一 namespace。它們的差異由 record 內的 type、relations 與 validation grammar 表達，而不是由資料夾表達。
+
+例如 Work、Expression 與 Manifestation 的階層應表示為關係：
+
+```text
+Work ← realized_as ─ Expression ← embodied_in ─ Manifestation
+```
+
+而不是固定成巢狀路徑。Entity 可以同時參與多個階層、集合與世界片段；資料夾只能表達單一 containment 軸，不能充當 ontology。
+
+### UUID、designator 與名稱的分工
+
+- UUID 是 canonical machine identity，**MUST** 不可變。
+- Canonical designator 是人類可讀的穩定指涉名稱，可用於 CLI、UI 與查詢，但 **MUST NOT** 成為 canonical filename 的必要組成。
+- Names、titles、citekeys、DOI、ISBN、ORCID、ROR 與其他外部 identifiers 是名稱使用或外部識別，不等於 Akashic identity。
+- Work 可由作者＋年份＋題名產生可讀 designator，但該 designator 不應承擔檔案路徑的身分完整性。
+- DOI 可作為高權重的外部 identifier 與 identity-resolution evidence，但 **MUST NOT** 被假定等同於 Akashic Work identity；其 referent 粒度可能是 Work、Expression、Manifestation、chapter、dataset 或其他對象。
 
 ### 規範
 
 - 同一 entity 的 aliases **MUST NOT** 各自形成 canonical files。
-- 名稱、職級、隸屬或其他狀態變更 **MUST NOT** 自動產生新的 entity file。
-- 跨檔案連結 **SHOULD** 使用穩定 ID；人類可讀 key 可改名，但 identity 不得因此改變。
+- 名稱、職級、隸屬、type refinement、版本階層或其他狀態變更 **MUST NOT** 自動產生新 entity file 或搬移 canonical path。
+- 跨檔案連結 **SHOULD** 使用 UUID。
+- Type、hierarchy、membership 與 domain grouping **MUST** 存在 record／relation 或 derived view 中，不得由 canonical directory layout 暗示。
+- 「中研院有關」「某研究計畫相關」「某型別」「某時期」等集合 **SHOULD** 是可重建的 query／view，而不是 canonical folder。
 - derived index、search cache、export artifact **MUST NOT** 成為 canonical identity source。
+
+可濃縮為：
+
+> **Canonical paths encode immutable identity only; names, types, hierarchies, and classifications live in records, relations, or derived views.**
 
 ---
 
@@ -201,26 +242,26 @@ Adjudication
 
 ## 10. 合併是 identity correction，不是建立第二個失效 entity
 
-當兩個 Person files 被裁決為同一 entity 時，合併後 canonical store 應只剩一個 Person file。
+當兩個 entity files 被裁決為同一 identity 時，合併後 canonical store 應只剩一個 UUID file。
 
 ### 正確結果
 
 ```text
 合併前：
-people/chen-yc.yaml
-people/chen-yu-cheng.yaml
+entities/<uuid-a>.yaml
+entities/<uuid-b>.yaml
 
 合併後：
-people/chen-yu-cheng.yaml
+entities/<surviving-uuid>.yaml
 ```
 
 ### 規範
 
 - 被保留的 entity file **MUST NOT** 內嵌 `merged_from` 作為永久 domain metadata。
-- 被移除的 Person file **MUST NOT** 以 `merged_into` tombstone 留在 `people/`，否則會破壞 one identity, one canonical file。
-- 合併必須遷移所有指向舊 identity 的 references。
+- 被移除的 entity file **MUST NOT** 以 `merged_into` tombstone 留在 `entities/`，否則會破壞 one identity, one canonical file。
+- 合併必須遷移所有指向舊 UUID 的 references。
 - Git **MUST** 保存實際檔案變更歷史。
-- 若未來需要機器可查詢的 identity adjudication history，可另設 `adjudications/` 或 event log；該記錄是圖書館裁決事件，不是 Person entity。
+- 若未來需要機器可查詢的 identity adjudication history，可另設 `adjudications/` 或 event log；該記錄是圖書館裁決事件，不是另一個 canonical entity。
 
 可濃縮為：
 
@@ -324,10 +365,10 @@ AI 不可以：
 對 Akashic 而言：
 
 ```text
-Entity                = 圖像元素
-Relation / assertion  = 元素的配置
-Schema / ontology     = 可表現形式
-Record                 = 可能事態的圖像
+Entity                  = 圖像元素
+Relation / assertion    = 元素的配置
+Schema / ontology       = 可表現形式
+Record                   = 可能事態的圖像
 Evidence / adjudication = 圖像與世界的比較機制
 ```
 
@@ -444,6 +485,7 @@ Akashic 的技術選擇背後是一組檔案倫理：
 8. **圖書館必須保存自己如何修正錯誤，但不把錯誤 identity 永久留作 canonical entity。**
 9. **世界可以超出目前 schema；未知不等於不存在。**
 10. **每一次 ontology 擴張都應有可審計的理由，而不是因抽象野心任意增生。**
+11. **檔案路徑只保存不可變身分，不把暫時的名稱、型別、階層或分類誤當成存在本身。**
 
 ---
 
@@ -456,6 +498,8 @@ Akashic-Library 可以由以下命題概括：
 > Entity 提供身分；state of affairs 表達世界如何成立。
 >
 > 一個 identity 只有一個 canonical file；一個 file 只代表一個 identity。
+>
+> Canonical paths 只編碼不可變 UUID；名稱、型別、階層與分類存在紀錄、關係或可重建視角中。
 >
 > 檔案是本體，資料庫是可重建索引。
 >

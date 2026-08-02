@@ -22,6 +22,7 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
 mcps/                            MCP server submodules（che-zotero-mcp、che-biblatex-mcp）
 repos/                           共用 library submodules（biblatex-apa-swift = canonical）
 docs/                            spec 與 store 格式規格書
+docs/explainers/                 「為什麼」的說明（規格說 what，explainer 說 why）
 attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox）
 ```
 

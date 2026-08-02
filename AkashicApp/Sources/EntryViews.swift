@@ -71,11 +71,7 @@ struct EntryDetailView: View {
                     }
                 }
                 Section("衍生層（可編輯）") {
-                    if !entry.akashic.libraries.isEmpty {
-                        // #13：membership 唯讀顯示；編輯走 CLI/MCP（App 編輯面留 follow-up）
-                        LabeledContent("Libraries",
-                                       value: entry.akashic.libraries.joined(separator: "、"))
-                    }
+                    libraryEditor(entry)   // #15
                     Picker("Status", selection: statusBinding(entry)) {
                         Text("（無）").tag(String?.none)
                         ForEach(["to-read", "reading", "read", "published"], id: \.self) {
@@ -120,6 +116,60 @@ struct EntryDetailView: View {
                 set: { newValue in
                     attempt { try state.setStatus(citekey: entry.citekey, status: newValue) }
                 })
+    }
+
+    /// #15：membership 編輯。
+    ///
+    /// **刻意不做成 tags 那樣的自由輸入**——library key 是**參照**，打錯會產生懸空成員
+    /// 關係（entry 說它屬於某個 library，而那個 library 不存在）。改用選單，讓不合法的
+    /// 輸入從一開始就不可能，而不是事後由 `doctor` 報 warning。
+    @ViewBuilder
+    private func libraryEditor(_ entry: Entry) -> some View {
+        let available = state.availableLibraries(for: entry.citekey)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Libraries").foregroundStyle(.secondary)
+                Spacer()
+                if available.isEmpty {
+                    Text(state.libraries.isEmpty ? "（registry 無 library）" : "（已全部加入）")
+                        .font(.caption).foregroundStyle(.tertiary)
+                } else {
+                    Menu("加入…") {
+                        ForEach(available, id: \.key) { lib in
+                            Button(lib.name.isEmpty ? lib.key : "\(lib.name)（\(lib.key)）") {
+                                attempt {
+                                    try state.addToLibrary(citekey: entry.citekey,
+                                                           libraryKey: lib.key)
+                                }
+                            }
+                        }
+                    }
+                    .menuStyle(.borderlessButton).fixedSize()
+                }
+            }
+            if entry.akashic.libraries.isEmpty {
+                Text("（未加入任何 library）").font(.caption).foregroundStyle(.tertiary)
+            } else {
+                HStack {
+                    ForEach(entry.akashic.libraries, id: \.self) { key in
+                        HStack(spacing: 2) {
+                            Text(key).font(.caption)
+                            Button {
+                                attempt {
+                                    try state.removeFromLibrary(citekey: entry.citekey,
+                                                                libraryKey: key)
+                                }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill").font(.caption2)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder

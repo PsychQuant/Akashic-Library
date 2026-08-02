@@ -34,6 +34,71 @@ attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox�
   Spec：[docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md](docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md)
 - **Phase 3（本階段）**：原生 App — 管理工作台（人工裁決 GUI）+ Canvas 關係圖。
   Spec：[docs/specs/2026-07-22-akashic-library-phase3-app-design.md](docs/specs/2026-07-22-akashic-library-phase3-app-design.md)
+- **Phase 4a**：多 library（membership views）— canonical store 仍是全集不分割，
+  library 只是成員集合視角；people / graph / index 共用（#13）。
+  Spec：[docs/specs/2026-07-29-akashic-phase4a-multilibrary-design.md](docs/specs/2026-07-29-akashic-phase4a-multilibrary-design.md)
+- **Phase 4c**：多「檔案」（多實體 store root）— 每個檔案自成 universe，
+  互不相通、不跨檔案共用 people 或 relations（#18）。
+  Spec：[docs/specs/2026-07-30-akashic-phase4c-multifile-design.md](docs/specs/2026-07-30-akashic-phase4c-multifile-design.md)
+
+> 上面是**功能**分期。與之正交的還有一份 store 讀取契約的設計：
+> [YAML 輸入 profile](docs/specs/2026-08-01-akashic-yaml-input-profile-design.md)（#33，
+> 設計定案、實作待 #25 merge）——收窄 store 接受的 YAML 語法子集，讓未知欄位容忍層
+> 只需處理「未知的 key」而非「YAML 的全部語法」。
+
+### Store 格式版本
+
+store 是跨 binary（CLI / MCP / App）的契約。格式版本記載於
+[docs/store-format.md](docs/store-format.md) §5——**store 檔案本身尚未自我聲明版本**
+（version marker 與 refuse-if-newer 防線見 #24）。下表只記各版本的要點：
+
+| 版本 | 要點 |
+|------|------|
+| v1.1 | provenance hash 欄位 |
+| v1.2 | `akashic.libraries` + `libraries/` registry（#13）；未知欄位 **strict → throw** |
+| v1.3 | tolerant-preserve（#23）：**開放演化層**（entry / person / library 頂層、`akashic` namespace）的未知欄位改為容忍 + 原樣保留寫回，取代 v1.2 的 throw |
+
+**v1.3 的三個限定，比表格本身重要**：
+
+**1. tolerant 只涵蓋開放演化層。** `authors` 元素、`attachments` 元素、`provenance`、
+`akashic.relations` 仍是 **strict 保留層**（closed shape，未知欄位＝decode 錯誤）。
+§5 特別註記 `attachments` 那層加新欄位會**原地重演 #23 的失敗模式**。
+
+**2. 讀取面同時嚴格化——升級方向也會咬人。** 部分 v1.2 讀得動的病態檔案在升級後轉為
+quarantine，這是刻意的 fail-closed 遷移（詳見 §5「known 欄位的形狀演化」與「有損字元
+守衛」兩個 bullet）：
+
+| 新增拒收 | 觸發條件 |
+|---|---|
+| known 欄位形狀不符、無法解析的時間戳 | 無條件 |
+| tagged-shadow 鍵、merge/value tag 面的鍵 | 無條件 |
+| `fields` 的字串面撞名、非隱式 tag 鍵、字串面 `<<`/`=` | 無條件 |
+| NEL (U+0085) 內容字元 | 無條件 |
+| LF 檔內的裸 CR | 無條件 |
+| **CR / CRLF 行尾** | **僅當檔案含未知欄位**（走區塊切分路徑） |
+| **encode 可拒寫** | canary fail-closed；CLI `import-zotero` / `resolve-people --apply` 單筆失敗即非零退出 |
+
+最後兩列是三個 binary 與任何包 CLI 的 script 都要知道的契約變更：**CRLF 使用者不能只看
+「LF 檔內的裸 CR」就以為自己安全**（觸發條件恰恰是本 PR 要服務的情境——較新 binary 寫出
+的、含未知欄位的檔），而**寫入自 v1.3 起可能失敗**，多檔寫入者必須收容。
+
+**3. 有兩條 carve-out，但它們不是「放寬」。** §5 從 v1.3 新增的嚴格化裡挖回了兩塊 v1.2
+既有行為，方向是**避免回歸**，不是 v1.3 開始接受 v1.2 拒收的東西：
+
+- **collection 形狀**的 known 欄位遇 null 視同不存在（`akashic:` 空值行）。**scalar 欄位
+  不適用**——`title:` → `""`、`title: Null` → `"Null"`，走字串面。把 null-as-absent 套到
+  scalar 是 R8-verify 標為 CRITICAL 的東西（會讓 Zotero 無標題 item 永遠寫不進 store）。
+  具名例外只有 `provenance.imported_at` / `orphaned_at` 兩個 Optional 日期。
+- **全檔無 LF** 的 classic-Mac lone-CR 檔可無損載入（CR 是行尾慣例，由 libyaml 正規化）
+  ——**但僅限不含未知欄位的檔案**。含未知欄位時走區塊切分路徑，該路徑對任何 CR
+  一律拒收（見上表倒數第二列），所以這條 carve-out 與該列**不是**互補而是**交集**：
+  只有「全檔無 LF」**且**「無未知欄位」的檔案才享有。這個分層不對稱是既有的，
+  §5「有損字元守衛」有記載。
+
+**為什麼要看這段**：舊 binary 讀新 store 的行為由**格式**版本決定；而新 binary 讀舊
+store 的行為由第 2、3 點決定。在 #24 落地之前 store 端沒有版本訊號，唯一可用的判斷依據
+是消費端的 binary 版本——升級 store 格式前先確認所有消費端（含 marketplace 上的
+`akashic-mcp`）都已跟上。
 
 ## App（AkashicApp）
 

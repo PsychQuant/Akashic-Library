@@ -18,11 +18,14 @@ public struct Entry: Equatable {
     public var provenance: Provenance?
     /// Akashic 自有 namespace——pull 絕不觸碰。
     public var akashic: AkashicMeta
+    /// 頂層未知欄位（tolerant-preserve，#23）。
+    public var unknownFields: [UnknownField]
 
     public init(id: UUID, citekey: String, type: String, title: String,
                 authors: [Author] = [], date: String? = nil,
                 fields: [String: String] = [:], attachments: [AttachmentRef] = [],
-                provenance: Provenance? = nil, akashic: AkashicMeta = AkashicMeta()) {
+                provenance: Provenance? = nil, akashic: AkashicMeta = AkashicMeta(),
+                unknownFields: [UnknownField] = []) {
         self.id = id
         self.citekey = citekey
         self.type = type
@@ -33,6 +36,7 @@ public struct Entry: Equatable {
         self.attachments = attachments
         self.provenance = provenance
         self.akashic = akashic
+        self.unknownFields = unknownFields
     }
 }
 
@@ -46,6 +50,26 @@ public enum Author: Equatable {
         case .key(let k): return k
         case .literal(let s): return s
         }
+    }
+}
+
+/// 未知欄位（store-format §5 v1.3 tolerant-preserve，#23 α）：較新版本寫入、
+/// 本版不認識的欄位。保留載體是**原始檔案的逐字文字區塊**（含 key 行與其縮排
+/// 子行）——decode 不 serialize、encode 逐字 append。key 型別（quoted/typed）、
+/// tag、anchor/alias、註解、block scalar 保真，且結構上不存在展開放大。
+/// 保真的兩個既知例外（見 docs/store-format.md §5）：column-0 stream 標記
+/// （`---`/`...` 及變體、`%` directive）於擷取時剝除；寫回時縮排可能整塊
+/// 等量平移。舊 binary 的 read-modify-write 不得剝掉新欄位（資料毀損防線）。
+public struct UnknownField: Equatable {
+    /// key 的字串內容（顯示 / validate 用；型別資訊在 raw 內保真）。
+    public var key: String
+    /// 原文區塊：含 key 行到下一個同層 entry 前的全部行（保留原縮排，以 \n
+    /// 結尾；column-0 stream 標記行已剝除——見型別註解的保真例外）。
+    public var raw: String
+
+    public init(key: String, raw: String) {
+        self.key = key
+        self.raw = raw
     }
 }
 
@@ -97,17 +121,26 @@ public struct AkashicMeta: Equatable {
     public var libraries: [String]
     public var status: String?
     public var relations: Relations
+    /// akashic namespace 內的未知欄位（tolerant-preserve，#23）——
+    /// 歷史上 schema 演化就發生在這層（#13 的 `libraries` 即是）。
+    public var unknownFields: [UnknownField]
 
     public init(tags: [String] = [], libraries: [String] = [],
-                status: String? = nil, relations: Relations = Relations()) {
+                status: String? = nil, relations: Relations = Relations(),
+                unknownFields: [UnknownField] = []) {
         self.tags = tags
         self.libraries = libraries
         self.status = status
         self.relations = relations
+        self.unknownFields = unknownFields
     }
 
+    /// unknownFields 參與 isEmpty，供 API 消費者正確判空（α 之後 encoder 以
+    /// known 子欄位有無決定 akashic 段的 emit，nested raw 另行 append——
+    /// isEmpty 不再是 encode 的丟段防線，但語意上「有未知欄位 ≠ 空」仍須成立）。
     public var isEmpty: Bool {
         tags.isEmpty && libraries.isEmpty && status == nil && relations.isEmpty
+            && unknownFields.isEmpty
     }
 }
 
@@ -117,11 +150,15 @@ public struct Library: Equatable {
     public var key: String
     public var name: String
     public var description: String?
+    /// 頂層未知欄位（tolerant-preserve，#23）。
+    public var unknownFields: [UnknownField]
 
-    public init(key: String, name: String, description: String? = nil) {
+    public init(key: String, name: String, description: String? = nil,
+                unknownFields: [UnknownField] = []) {
         self.key = key
         self.name = name
         self.description = description
+        self.unknownFields = unknownFields
     }
 }
 
@@ -145,15 +182,81 @@ public struct Person: Equatable {
     public var orcid: String?
     public var openalex: String?
     public var note: String?
+    /// 頂層未知欄位（tolerant-preserve，#23）——如 #20 之後的 affiliations / facts。
+    public var unknownFields: [UnknownField]
 
     public init(key: String, names: [String] = [], orcid: String? = nil,
-                openalex: String? = nil, note: String? = nil) {
+                openalex: String? = nil, note: String? = nil,
+                unknownFields: [UnknownField] = []) {
         self.key = key
         self.names = names
         self.orcid = orcid
         self.openalex = openalex
         self.note = note
+        self.unknownFields = unknownFields
     }
+}
+
+/// 顯示層消毒。store 檔案依 #23 的前提可能由別的 binary、別人、Dropbox 同步
+/// 寫入，未知欄位 key、quarantine reason、以及**驗證失敗訊息裡被插值的原始 key**
+/// 都是未信任內容。
+///
+/// **涵蓋範圍（照實寫，不宣稱做不到的事）**：目前接上的是**錯誤與診斷訊息面**
+/// ——validate/doctor 的 issue 訊息、quarantine reason、writeFailed 的說明。
+/// **資料面尚未接上**：`akashic query` / `akashic library list` 直接插值 title /
+/// name / description，真 ESC 會原樣進 stdout（R13 實測）。App（AkashicAppKit）
+/// 同樣未接。補齊 sink coverage 屬 **#28**，且該用機械枚舉（grep 所有把 store
+/// 字串送進 print / JSON / SwiftUI 的位置）而不是憑記憶列清單——R11→R12→R13
+/// 三輪都是靠記憶補、每輪都漏。
+///
+/// - **控制字元**：libyaml 擋輸入串流的裸 C0，但**不擋 double-quoted scalar 的
+///   跳脫序列**——`"\e[2J…"` 解碼後就是真的 ESC。實測可清螢幕、上色，並在
+///   `akashic validate` 的報告裡偽造統計行，而該報告正是人類判斷 store 健不健康
+///   的依據（v1.2 由 `rejectUnknownKeys` 先擋，v1.3 把它移到 happy path）。
+/// - **長度**：Yams 錯誤字串會展開成出錯那一行的逐字內容且不截斷；MCP 情境下
+///   那是直接灌進 LLM context 的無上限字串。
+///
+/// **R12 三處更正**（R11 版本的實測缺陷）：
+/// 1. **預算以 unicode scalar 計，不以 Character 計**。原版 `for ch in s` 逐
+///    grapheme cluster 檢查預算，而一個 cluster 可含無上限的 combining mark——
+///    實測 `"a" + 50,000 個 U+0301` 在 `max: 200` 下**原樣通過**。
+/// 2. **補 LS/PS 與方向標記**。原版漏 U+2028/U+2029，而它們在 SwiftUI `Text`
+///    與 JSON→JS/LLM context 都是換行——「不得殘留真換行」的不變式在那兩個
+///    sink 上被繞過。另補 U+200E/200F/U+061C（Trojan-Source 家族較弱的一半）
+///    與 U+FEFF。
+/// 3. **反斜線自身要跳脫**，否則內容裡的字面 `\u{001B}` 與本函式的輸出無法區分
+///    （消毒後的字串會變得可偽造）。
+public func displaySafe(_ s: String, max: Int = 200) -> String {
+    var out = String.UnicodeScalarView()
+    out.reserveCapacity(Swift.min(s.unicodeScalars.count, max) + 16)
+    var emitted = 0
+    var truncated = false
+
+    func put(_ str: String) {
+        for u in str.unicodeScalars { out.append(u) }
+    }
+
+    for u in s.unicodeScalars {
+        if emitted >= max { truncated = true; break }
+        let v = u.value
+        let escape =
+            v < 0x20 || v == 0x7F                    // C0 + DEL（含 ESC / CR / LF / TAB）
+            || (0x80...0x9F).contains(v)             // C1
+            || v == 0x2028 || v == 0x2029            // LS / PS——SwiftUI 與 JS 視為換行
+            || (0x202A...0x202E).contains(v)         // bidi override
+            || (0x2066...0x2069).contains(v)         // bidi isolate
+            || v == 0x200E || v == 0x200F || v == 0x061C  // 方向標記
+            || v == 0xFEFF                           // ZWNBSP / BOM
+            || v == 0x5C                             // 反斜線自身——否則輸出可被偽造
+        if escape {
+            put(String(format: "\\u{%04X}", v))
+        } else {
+            out.append(u)
+        }
+        emitted += 1
+    }
+    let body = String(out)
+    return truncated ? body + "…（已截斷）" : body
 }
 
 public struct ValidationIssue: Equatable {
@@ -187,7 +290,7 @@ extension Entry {
         if citekey.range(of: Self.citekeyPattern, options: .regularExpression) == nil {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "citekey '\(citekey)' 不符合 ^[a-z0-9][a-z0-9-]*$"))
+                message: "citekey '\(displaySafe(citekey, max: 120))' 不符合 ^[a-z0-9][a-z0-9-]*$"))
         }
         if type.trimmingCharacters(in: .whitespaces).isEmpty {
             issues.append(ValidationIssue(severity: .error, message: "type 不可為空"))
@@ -198,6 +301,46 @@ extension Entry {
         if Set(akashic.libraries).count != akashic.libraries.count {
             issues.append(ValidationIssue(severity: .warning,
                                           message: "akashic.libraries 含重複 key（load 已去重）"))
+        }
+        for f in unknownFields {
+            issues.append(ValidationIssue(severity: .warning,
+                message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+        }
+        for f in akashic.unknownFields {
+            issues.append(ValidationIssue(severity: .warning,
+                message: "akashic 未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+        }
+        return issues
+    }
+}
+
+extension Library {
+    public func validate() -> [ValidationIssue] {
+        var issues: [ValidationIssue] = []
+        if !StoreKey.isValid(key) {
+            issues.append(ValidationIssue(
+                severity: .error,
+                message: "library key '\(displaySafe(key, max: 120))' 不符合 \(StoreKey.pattern)"))
+        }
+        for f in unknownFields {
+            issues.append(ValidationIssue(severity: .warning,
+                message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+        }
+        return issues
+    }
+}
+
+extension Person {
+    public func validate() -> [ValidationIssue] {
+        var issues: [ValidationIssue] = []
+        if !StoreKey.isValid(key) {
+            issues.append(ValidationIssue(
+                severity: .error,
+                message: "person key '\(displaySafe(key, max: 120))' 不符合 \(StoreKey.pattern)"))
+        }
+        for f in unknownFields {
+            issues.append(ValidationIssue(severity: .warning,
+                message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         return issues
     }

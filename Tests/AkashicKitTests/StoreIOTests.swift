@@ -86,6 +86,42 @@ final class StoreIOTests: XCTestCase {
         XCTAssertTrue(load.people.isEmpty)
         XCTAssertTrue(load.quarantined.isEmpty)
     }
+
+    // #23：新 schema person 檔（未知欄位）不再 quarantine——person 可用、欄位保留
+    func testLoadToleratesFutureSchemaPersonFile() throws {
+        let f = root.appendingPathComponent("people/future-one.yaml")
+        try """
+        key: future-one
+        names:
+          - Future One
+        affiliations:
+          - organization: ISS
+        """.write(to: f, atomically: true, encoding: .utf8)
+        let load = try store.load()
+        XCTAssertTrue(load.quarantined.isEmpty, "未知欄位不該進 quarantine（#23 tolerant-preserve）")
+        XCTAssertEqual(load.people.map(\.key), ["future-one"])
+        XCTAssertEqual(load.people.first?.unknownFields.map(\.key), ["affiliations"])
+    }
+
+    // #23：容忍的另一半——read-modify-write 不得剝掉未知欄位（資料毀損防線）
+    func testWritePersonPreservesUnknownFieldsOnDisk() throws {
+        let f = root.appendingPathComponent("people/future-two.yaml")
+        try """
+        key: future-two
+        names:
+          - Future Two
+        facts:
+          - kind: rank
+            value: 研究員
+        """.write(to: f, atomically: true, encoding: .utf8)
+        var person = try store.load().people.first(where: { $0.key == "future-two" })!
+        person.note = "edited by old binary"          // 舊 binary 的合法編輯
+        _ = try store.writePerson(person)
+        let text = try String(contentsOf: f, encoding: .utf8)
+        XCTAssertTrue(text.contains("edited by old binary"))
+        XCTAssertTrue(text.contains("facts"), "寫回時未知欄位必須保留")
+        XCTAssertTrue(text.contains("研究員"))
+    }
 }
 
 extension StoreIOTests {
@@ -618,5 +654,54 @@ extension MultiFileConfigTests {
         try "library: \"/tmp/a # b\" # 真正的註解\n".write(to: url, atomically: true, encoding: .utf8)
         XCTAssertEqual(try AkashicConfig.read(from: url).library, "/tmp/a # b",
                        "引號內 # 字面值；引號後的 inline comment 忽略")
+    }
+}
+
+// R7（#23 verify R6）：rename 預檢與 unknownFieldFiles 實際檔名的 regression
+extension RenameTests {
+    /// L32：preflight encode 失敗 → rename 完全不動磁碟（無半遷移）。
+    func testRenamePreflightAbortsBeforeTouchingDisk() throws {
+        var a = Entry(id: UUID(), citekey: "aaa1", type: "article", title: "A")
+        a.akashic.relations.cites = []
+        try store.writeEntry(a)
+        // 手寫一個「decode 容忍、encode 拒寫」的凍結記錄，relations 引用 aaa1
+        let frozen = """
+        id: 7C1F6C2E-0000-0000-0000-00000000BB01
+        citekey: frozen2
+        type: article
+        title: T
+        akashic:
+            relations:
+              cites:
+              - aaa1
+            weird: [a,
+          b]
+        """
+        try (frozen + "\n").write(
+            to: store.entriesDir.appendingPathComponent("frozen2.yaml"),
+            atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try store.renameEntry(from: "aaa1", to: "bbb2"))
+        // 磁碟完全未動：舊檔在、新檔不在、凍結檔原文未變
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: store.entriesDir.appendingPathComponent("aaa1.yaml").path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: store.entriesDir.appendingPathComponent("bbb2.yaml").path))
+        let onDisk = try String(
+            contentsOf: store.entriesDir.appendingPathComponent("frozen2.yaml"),
+            encoding: .utf8)
+        XCTAssertTrue(onDisk.contains("- aaa1"))
+    }
+}
+
+extension StoreIOTests {
+    /// L34：unknownFieldFiles 回報實際檔名（含 `.YAML` 大小寫別名）。
+    func testUnknownFieldFilesReportsActualFilename() throws {
+        try FileManager.default.createDirectory(
+            at: store.root.appendingPathComponent("people"), withIntermediateDirectories: true)
+        try "key: fut1\nextra: 1\n".write(
+            to: store.root.appendingPathComponent("people/fut1.YAML"),
+            atomically: true, encoding: .utf8)
+        let load = try store.load()
+        XCTAssertEqual(load.unknownFieldFiles, ["people/fut1.YAML"], "\(load.quarantined)")
     }
 }

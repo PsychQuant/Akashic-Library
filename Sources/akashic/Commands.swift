@@ -34,6 +34,11 @@ struct Doctor: ParsableCommand {
             print("quarantined: \(load.quarantined.count)")
             load.quarantineLines.forEach { print($0) }
         }
+        // #23 tolerant-preserve：較新 schema 的檔案（未知欄位已保留）——提示升級
+        if !load.unknownFieldFiles.isEmpty {
+            print("unknown-field files: \(load.unknownFieldFiles.count)（可能由較新版本寫入；升級 binary）")
+            load.unknownFieldFiles.forEach { print("  ⚠ \(displaySafe($0, max: 200))") }
+        }
     }
 }
 
@@ -60,10 +65,25 @@ struct Validate: ParsableCommand {
                 if issue.severity == .error { failed = true }
             }
         }
+        // #23：person / library 層驗證（未知欄位 warning 不 fail——availability 優先，可見性保留）
+        for person in load.people {
+            for issue in person.validate() {
+                let mark = issue.severity == .error ? "✗" : "⚠"
+                print("\(mark) \(person.key): \(issue.message)")
+                if issue.severity == .error { failed = true }
+            }
+        }
+        for library in load.libraries {
+            for issue in library.validate() {
+                let mark = issue.severity == .error ? "✗" : "⚠"
+                print("\(mark) \(library.key): \(issue.message)")
+                if issue.severity == .error { failed = true }
+            }
+        }
         if failed {
             throw ExitCode(1)
         }
-        print("✓ \(load.entries.count) entries、\(load.people.count) people 全部通過")
+        print("✓ \(load.entries.count) entries、\(load.people.count) people、\(load.libraries.count) libraries 全部通過")
     }
 }
 
@@ -109,8 +129,20 @@ struct ImportZotero: ParsableCommand {
         if report.skippedLinkedAttachments > 0 {
             print("skipped linked attachments（非 storage 附件，未入庫）: \(report.skippedLinkedAttachments)")
         }
+        // R6（M9）：per-item 寫入失敗不中斷 import——照實列出，人工處理
+        if !report.writeFailed.isEmpty {
+            print("write failed（單筆寫入失敗，已略過續跑）: \(report.writeFailed.count)")
+            for key in report.writeFailed.keys.sorted() {
+                print("  ✗ \(displaySafe(key, max: 200)) — \(displaySafe(report.writeFailed[key]!, max: 512))")
+            }
+        }
         let stats = try LibraryIndex(store: store).rebuild()
         print("index rebuilt: \(stats.entries) entries")
+        // R7（R6-verify M22）：收容 ≠ 吞掉 process 層訊號——有單筆失敗仍以
+        // 非零退出，自動化（cron pull、CI）才看得到
+        if !report.writeFailed.isEmpty {
+            throw ExitCode(1)
+        }
     }
 }
 
@@ -173,17 +205,36 @@ struct ResolvePeople: ParsableCommand {
             return
         }
         for c in candidates {
-            print("\(c.citekey)[\(c.authorIndex)] 「\(c.literal)」 → \(c.personKey)（\(c.reason)）")
+            print("\(c.citekey)[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(c.personKey)（\(c.reason)）")
         }
         if apply {
             let applied = PersonResolver.apply(candidates, to: load.entries)
             var written = 0
+            var writeFailed: [(String, String)] = []
+            // R7（R6-verify M21）：encode 自 v1.3 起可拒寫——多檔迴圈 per-item
+            // 收容，index 照 rebuild，不留「部分改寫 + index stale」的撕裂
             for (before, after) in zip(load.entries, applied) where before != after {
-                try store.writeEntry(after)
-                written += 1
+                do {
+                    try store.writeEntry(after)
+                    written += 1
+                } catch {
+                    writeFailed.append((after.citekey, displaySafe(String(describing: error), max: 512)))
+                }
+            }
+            // R9（R8-verify M8）：writeFailed 先印再 rebuild——rebuild 擲錯
+            // 不得吞掉已發生的寫入失敗報告
+            if !writeFailed.isEmpty {
+                print("write failed（單筆寫入失敗，已略過）: \(writeFailed.count)")
+                for (key, msg) in writeFailed { print("  ✗ \(displaySafe(key, max: 200)) — \(displaySafe(msg, max: 512))") }
             }
             _ = try LibraryIndex(store: store).rebuild()
-            print("✓ 套用 \(candidates.count) 個候選、改寫 \(written) 檔、index 已重建")
+            // R8（R7-verify L29/L15）：成功行不誇報（✓ 只在全數成功時）
+            if writeFailed.isEmpty {
+                print("✓ 套用 \(candidates.count) 個候選、改寫 \(written) 檔、index 已重建")
+            } else {
+                print("部分套用：改寫 \(written) 檔、失敗 \(writeFailed.count) 檔、index 已重建")
+                throw ExitCode(1)
+            }
         } else {
             print("（只列候選；要套用加 --apply）")
         }

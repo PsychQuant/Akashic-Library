@@ -84,6 +84,23 @@ final class ServiceTests: XCTestCase {
         XCTAssertEqual(obj["entries"] as? Int, 2)
         XCTAssertEqual(obj["people"] as? Int, 1)
         XCTAssertEqual(obj["unresolvedAuthorLiterals"] as? Int, 2)
+        XCTAssertNil(obj["unknownFieldFiles"], "無未知欄位時不 emit（與 quarantined 同慣例）")
+    }
+
+    // #23 tolerant-preserve：doctor 對含未知欄位（較新 schema）的檔案給計數提示
+    func testDoctorReportsUnknownFieldFiles() throws {
+        let f = root.appendingPathComponent("people/future-person.yaml")
+        try """
+        key: future-person
+        names:
+          - Future Person
+        affiliations:
+          - organization: ISS
+        """.write(to: f, atomically: true, encoding: .utf8)
+        let obj = try json(try service.doctor()) as! [String: Any]
+        XCTAssertEqual(obj["people"] as? Int, 2, "新 schema 檔必須可用，不進 quarantine")
+        XCTAssertNil(obj["quarantined"])
+        XCTAssertEqual(obj["unknownFieldFiles"] as? [String], ["people/future-person.yaml"])
     }
 
     func testSetStatusPersistsAndReindexes() throws {
@@ -475,5 +492,41 @@ extension ServiceTests {
         XCTAssertThrowsError(try svc.files(action: "use", key: "ghost"), "未註冊 key 擲錯")
         XCTAssertThrowsError(try svc.files(action: "use", key: nil), "use 缺 key 擲錯")
         XCTAssertThrowsError(try svc.files(action: "teleport", key: nil), "未知 action 擲錯")
+    }
+}
+
+// R9（R8-verify M15）：resolve-people 的 per-item 收容契約 regression
+extension ServiceTests {
+    func testResolvePeopleContainsWriteFailurePerItem() throws {
+        // 凍結記錄（decode 容忍、encode 平移不變式拒寫）+ literal 作者可解析
+        let frozen = """
+        id: 7C1F6C2E-0000-0000-0000-00000000CC01
+        citekey: frozen3
+        type: article
+        title: T
+        authors:
+          - literal: Che Cheng
+        akashic:
+            tags:
+            - keep
+            weird: [a,
+          b]
+        """
+        try (frozen + "\n").write(
+            to: root.appendingPathComponent("entries/frozen3.yaml"),
+            atomically: true, encoding: .utf8)
+        let list = try json(try service.resolvePeople(apply: nil)) as! [[String: Any]]
+        let ids = list.compactMap { $0["id"] as? String }
+        XCTAssertTrue(ids.contains("frozen3:0"), "\(ids)")
+        let out = try json(try service.resolvePeople(apply: ["frozen3:0"])) as! [String: Any]
+        // 收容：不 throw、writeFailed 記錄、applied 不誇報
+        let failed = out["writeFailed"] as? [String: String]
+        XCTAssertNotNil(failed?["frozen3"], "\(out)")
+        XCTAssertEqual(out["applied"] as? [String], [])
+        XCTAssertEqual(out["entriesRewritten"] as? Int, 0)
+        // 磁碟原封不動（fail-closed 不毀檔）
+        let onDisk = try String(
+            contentsOf: root.appendingPathComponent("entries/frozen3.yaml"), encoding: .utf8)
+        XCTAssertTrue(onDisk.contains("- literal: Che Cheng"))
     }
 }

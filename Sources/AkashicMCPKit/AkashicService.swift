@@ -137,7 +137,15 @@ public final class AkashicService {
             "orphaned": orphaned,
         ]
         if !load.quarantined.isEmpty {
-            d["quarantined"] = load.quarantined.map { ["file": $0.file, "reason": $0.reason] }
+            // R11（R10-verify M19）：reason 含 Yams 展開的逐字檔案內容且不截斷——
+            // MCP 情境下是直接灌進 LLM context 的無上限未信任字串。
+            d["quarantined"] = load.quarantined.map {
+                ["file": $0.file, "reason": displaySafe($0.reason, max: 512)]
+            }
+        }
+        // #23 tolerant-preserve：較新 schema 的檔案可用但應提示升級
+        if !load.unknownFieldFiles.isEmpty {
+            d["unknownFieldFiles"] = load.unknownFieldFiles.map { displaySafe($0, max: 200) }
         }
         return try jsonString(d)
     }
@@ -383,12 +391,31 @@ public final class AkashicService {
         }
         let applied = PersonResolver.apply(chosen, to: load.entries)
         var written = 0
+        var writeFailed: [String: String] = [:]
+        // R7（R6-verify M21）：per-item 收容——單筆 encode 拒寫不中斷批次、
+        // index 照 rebuild、失敗照實回報
         for (before, after) in zip(load.entries, applied) where before != after {
-            try store.writeEntry(after)
-            written += 1
+            do {
+                try store.writeEntry(after)
+                written += 1
+            } catch {
+                writeFailed[after.citekey] = displaySafe(String(describing: error), max: 512)
+            }
         }
-        try LibraryIndex(store: store).rebuild()
-        return try jsonString(["applied": selected, "entriesRewritten": written] as [String: Any])
+        // R9（R8-verify M8）：rebuild 擲錯不得吞掉 writeFailed 報告
+        do {
+            try LibraryIndex(store: store).rebuild()
+        } catch {
+            // R10（R9-verify L17）：附已改寫數——operator 才能對帳磁碟狀態
+            throw ServiceError.invalid(
+                "index rebuild 失敗：\(error)（本批已改寫 \(written) 檔；writeFailed \(writeFailed.count) 筆：\(writeFailed.map { "\(displaySafe($0.key, max: 200))（\(displaySafe($0.value, max: 512))）" }.sorted().joined(separator: "; "))）")
+        }
+        // R8（R7-verify L15）：applied 不誇報——排除寫入失敗的候選
+        let appliedActual = chosen.filter { writeFailed[$0.citekey] == nil }
+            .map { "\($0.citekey):\($0.authorIndex)" }
+        var result: [String: Any] = ["applied": appliedActual, "entriesRewritten": written]
+        if !writeFailed.isEmpty { result["writeFailed"] = writeFailed.mapValues { displaySafe($0, max: 512) } }
+        return try jsonString(result)
     }
 
     public func createEntry(type: String, title: String, authors: [String],
@@ -443,7 +470,14 @@ public final class AkashicService {
         try store.ensureLayout()
         let report = try ZoteroImporter(store: store)
             .run(zoteroDB: URL(fileURLWithPath: path), libraryID: libraryID)
-        try LibraryIndex(store: store).rebuild()
+        // R10（R9-verify M3/M5）：rebuild 擲錯不得吞掉整份 import report——
+        // 磁碟滿等原因與 writeFailed 正相關，最需要報告的場景恰好最易被吞
+        do {
+            try LibraryIndex(store: store).rebuild()
+        } catch {
+            throw ServiceError.invalid(
+                "index rebuild 失敗：\(error)（本趟 import 已落地：created \(report.created.count)、updated \(report.updated.count)、orphaned \(report.orphaned.count)；writeFailed \(report.writeFailed.count) 筆：\(report.writeFailed.keys.sorted().map { displaySafe($0, max: 200) }.joined(separator: ", "))）")
+        }
         var d: [String: Any] = [
             "created": report.created, "updated": report.updated,
             "orphaned": report.orphaned, "orphanCleared": report.orphanCleared,
@@ -454,6 +488,7 @@ public final class AkashicService {
         ]
         if !report.authorsPreserved.isEmpty { d["authorsPreserved"] = report.authorsPreserved }
         if !report.quarantineConflicts.isEmpty { d["quarantineConflicts"] = report.quarantineConflicts }
+        if !report.writeFailed.isEmpty { d["writeFailed"] = report.writeFailed.mapValues { displaySafe($0, max: 512) } }
         return try jsonString(d)
     }
 

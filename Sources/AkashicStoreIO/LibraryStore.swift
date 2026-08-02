@@ -28,13 +28,20 @@ public struct LibraryLoad {
     /// Library registry（#13 membership views）；成員關係在各 entry 的 akashic.libraries
     public var libraries: [Library]
     public var quarantined: [QuarantinedFile]
+    /// 含未知欄位（較新 schema 寫入）的檔案清單——#23 tolerant-preserve 的可見性面，
+    /// doctor / validate 據此提示升級 binary。R6（L20）：由 load() 以**實際檔名**
+    /// 填入（與 quarantined 同慣例）——先前用 key 合成 `.yaml` 檔名，`.YAML` 等
+    /// 大小寫別名會被報成不存在的路徑。
+    public var unknownFieldFiles: [String]
 
     public init(entries: [Entry] = [], people: [Person] = [],
-                libraries: [Library] = [], quarantined: [QuarantinedFile] = []) {
+                libraries: [Library] = [], quarantined: [QuarantinedFile] = [],
+                unknownFieldFiles: [String] = []) {
         self.entries = entries
         self.people = people
         self.libraries = libraries
         self.quarantined = quarantined
+        self.unknownFieldFiles = unknownFieldFiles
     }
 }
 
@@ -172,6 +179,9 @@ public final class LibraryStore {
                 var entry2 = entry
                 var seen = Set<String>()
                 entry2.akashic.libraries = entry.akashic.libraries.filter { seen.insert($0).inserted }
+                if !entry2.unknownFields.isEmpty || !entry2.akashic.unknownFields.isEmpty {
+                    result.unknownFieldFiles.append("entries/\(url.lastPathComponent)")
+                }
                 result.entries.append(entry2)
             } catch {
                 result.quarantined.append(QuarantinedFile(
@@ -194,6 +204,9 @@ public final class LibraryStore {
                         file: "people/\(url.lastPathComponent)",
                         reason: "檔名 stem「\(stem)」與 person key「\(person.key)」不符"))
                     continue
+                }
+                if !person.unknownFields.isEmpty {
+                    result.unknownFieldFiles.append("people/\(url.lastPathComponent)")
                 }
                 result.people.append(person)
             } catch {
@@ -218,6 +231,9 @@ public final class LibraryStore {
                         reason: "檔名 stem「\(stem)」與 library key「\(library.key)」不符"))
                     continue
                 }
+                if !library.unknownFields.isEmpty {
+                    result.unknownFieldFiles.append("libraries/\(url.lastPathComponent)")
+                }
                 result.libraries.append(library)
             } catch {
                 result.quarantined.append(QuarantinedFile(
@@ -228,6 +244,7 @@ public final class LibraryStore {
         result.entries.sort { $0.citekey < $1.citekey }
         result.people.sort { $0.key < $1.key }
         result.libraries.sort { $0.key < $1.key }
+        result.unknownFieldFiles.sort()
         return result
     }
 
@@ -309,10 +326,9 @@ extension LibraryStore {
             entry.akashic.relations.cites.map { $0 == oldKey ? newKey : $0 }
         entry.akashic.relations.related =
             entry.akashic.relations.related.map { $0 == oldKey ? newKey : $0 }
-        try writeEntryExclusive(entry)
-        // 2. 全庫 relations 遷移（cites/related 引用舊 citekey → 新，
+        // 2. 全庫 relations 遷移對象（cites/related 引用舊 citekey → 新，
         //    同一陣列的所有出現全部替換；UUID 引用不動）
-        var rewritten: [String] = []
+        var toRewrite: [Entry] = []
         for var other in load.entries where other.citekey != oldKey {
             let cites = other.akashic.relations.cites.map { $0 == oldKey ? newKey : $0 }
             let related = other.akashic.relations.related.map { $0 == oldKey ? newKey : $0 }
@@ -320,11 +336,22 @@ extension LibraryStore {
                 || related != other.akashic.relations.related {
                 other.akashic.relations.cites = cites
                 other.akashic.relations.related = related
-                try writeEntry(other)
-                rewritten.append(other.citekey)
+                toRewrite.append(other)
             }
         }
-        // 3. 刪舊檔
+        // R6（M9）：encode 自 v1.3 起可 throw（canary fail-closed）。動磁碟前先
+        // 對所有要寫的 entry 做 encode 預檢——任何一筆不可寫就整個 rename 不動，
+        // 避免中途 throw 留下 relations 半遷移的多檔撕裂。
+        _ = try EntryYAML.encode(entry)
+        for other in toRewrite { _ = try EntryYAML.encode(other) }
+        // 3. 寫新檔（先寫後刪，中斷時頂多多一份檔案，不丟資料）。
+        try writeEntryExclusive(entry)
+        var rewritten: [String] = []
+        for other in toRewrite {
+            try writeEntry(other)
+            rewritten.append(other.citekey)
+        }
+        // 4. 刪舊檔
         try FileManager.default.removeItem(at: entryURL(citekey: oldKey))
         return RenameReport(relationsRewritten: rewritten.sorted())
     }

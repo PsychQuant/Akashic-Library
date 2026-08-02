@@ -1,4 +1,4 @@
-# Akashic Store 格式規格書（v1.2，#13 多 library 修訂）
+# Akashic Store 格式規格書（v1.3，#23 tolerant-preserve 修訂）
 
 Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版；
 實作＝`AkashicCore`（型別/YAML/citekey）＋ `AkashicStoreIO`（讀寫）。
@@ -153,11 +153,237 @@ note: 中研院統計所            # 可選
 
 ## 5. 版本與相容
 
-本格式為 v1.2（v1.1 增 provenance hash 欄位；v1.2 增 `akashic.libraries` 與
-`libraries/` registry，#13）。欄位新增維持「未知欄位＝decode 錯誤」的嚴格策略——
-**注意**：含 `libraries` 欄位的新檔在 v1.2 以前的 binaries 下會因 strict decode 被
-quarantine（單機單使用者、三面同 repo 同版釋出可接受；混版部署前先全面升級）。
-放寬為 tolerant-preserve 屬未來議題（涉及 round-trip 保真）。
+本格式為 v1.3（v1.1 增 provenance hash 欄位；v1.2 增 `akashic.libraries` 與
+`libraries/` registry，#13；v1.3 引入 tolerant-preserve，#23）。
+
+### v1.3：tolerant-preserve（開放演化層）
+
+**開放演化層**——entry 頂層、person 頂層、library 頂層、`akashic` namespace——的
+未知欄位**不再是 decode 錯誤**。行為契約（normative）：
+
+1. **容忍（MUST）**：未知欄位不使檔案 quarantine；已知欄位照常可讀可用。
+2. **保留（MUST）**：未知欄位的 value 子樹整棵保留（`UnknownField`，YAML 文字形式），
+   re-encode 時原樣寫回。**容忍與保留不可拆分**——只容忍不保留會讓舊 binary 的
+   read-modify-write 靜默剝掉新欄位，是資料毀損路徑（v1.2 以前用 throw 防這件事，
+   v1.3 用保留寫回達成同一保證，同時讓較新 schema 的檔案保持可用）。
+3. **可見性（MUST）**：`validate()` 對未知欄位發 warning（非 error）；
+   `doctor` 列出含未知欄位的檔案（`unknownFieldFiles`），提示升級 binary。
+
+**strict 保留層**（closed shape，未知欄位仍＝decode 錯誤）：`authors` 元素
+（key/literal 二態封閉）、**`attachments` 元素**（`{zotero: path}` / `{pool: path}`
+單鍵封閉——R6 補列：此層加新欄位會原地重演 #23 的失敗模式，演化必須與 binary
+同步 + 版本訊號，見 #24）、`provenance`（Zotero namespace，mapping 與 binary 同步
+演化、pull 覆寫）、`akashic.relations`（新關係類別應為 `akashic` 層的新欄位，
+由該層容忍涵蓋）。
+
+**known 欄位的形狀演化不入 tolerant 範圍（normative，R6；R8 精確化）**：known
+key 存在但形狀不符（如 `names` 由 sequence 演化為 mapping、`tags` 變 mapping、
+`status` 變 sequence、`imported_at` 非 ISO-8601）→ **decode 錯誤 → quarantine**。
+**例外（R8，R9 限縮到 collection 欄位）**：**collection 形狀**的 known 欄位
+（`akashic:`/`fields:`/`names:`/`authors:`/`attachments:`/`relations:`/`tags:`/
+`libraries:` 等）遇 explicit/implicit **null**（空值行、`~`、`null` 面）視同
+「欄位不存在」——null 沒有可被剝除的子樹，quarantine 會把 v1.2 可載入的良性檔
+推下可用性懸崖；face 白名單只收 **plain 樣式**的 `""`/`~`/`null`/`Null`/`NULL`
+——顯式 `!!null` **帶非 null-face 內容**（如 `!!null foo`）走形狀 guard、不被
+吸收。**R11 更正（R10-verify M7/M17）**：原文寫「帶內容與否**皆**不被吸收」
+是過度宣稱——`!!null null` / `!!null ~` 的 composed node 與 implicit `null`
+**完全相同**（同 `style == .plain`、同 `tag == Tag(.null)`、同字串面），
+resolved tag + style 無法分辨顯式與隱式。而兩者語意本來就等價、吸收不丟任何
+子樹，故照實記載為「與 implicit null 同視同不存在」。**具名例外（R10
+記載）**：`provenance.imported_at`/`orphaned_at` 雖是 scalar，因模型為
+Optional 日期、nil↔省略等冪，null 面同樣視同不存在（RMW 會把該行正規化為
+省略）；同一 mapping 內 `zotero_hash: ~` 則以字串面保留 `"~"`——差異照實
+記載。除此之外 **scalar 欄位不適用**：其 extractor 以字串面收下 null-face
+（`title:` → `""`、`title: Null` → `"Null"`）——emitter 對 `""`/`"null"`/`"~"`
+就是輸出 plain null-face，套 null-as-absent 會讓 Zotero 無標題 item 永遠寫不進
+store、v1.2 的 `title: Null` 檔被 quarantine（R8-verify CRITICAL）。附帶語意
+（照實記載）：collection **內部**的 null 元素同樣走字串面、保留**來源字面**
+（`[~]` → `"~"`、`[null]` → `"null"`、`[a, , b]` 的空元素 → `""`）。**RMW
+正規化（記載）**：collection 的 null 行重寫後省略（空集合≡省略是 §2.2 既有
+契約，非資料損失）；scalar 的 null-face **值**重寫後以 plain 面落地，磁碟
+表徵與 YAML null 不可區分——本 binary 以字串面讀回（round-trip 穩定），
+第三方 reader 會讀成 null（interop 邊界）。v1.2 的
+strict gate 事實上同時保護形狀演化（unknown key 先 throw、檔案永不被寫回）；
+v1.3 若只接「加 key」那一半，較新 schema 把既有 key 變豐富時，舊 binary 的
+read-modify-write 會把該欄位整段**靜默剝除**且所有檢查綠燈（verify R5 DA 實測
+構造：`names` 被無害編輯刪除）。quarantine 是 v1.2 級保護——檔案原封不動、
+升級 binary 後恢復。非累加的形狀演化應走版本訊號（#24）。
+
+**字串欄位以 scalar 的字串面解讀（normative，R6）**：known 字串欄位（tags、
+names、status、author key/literal、fields 值等）接受**任意 scalar**、取其字面
+內容；非 scalar（sequence/mapping）→ decode 錯誤。理由：emitter 對「長得像
+int/bool/null 的字串」（如 tag「2026」）輸出 plain 樣式，plain `2026` re-parse
+resolve 成 int——嚴格拒收使**本 binary 自己寫出**的檔案永久 decode 失敗
+（寫得出、讀不回的自我毒化，verify R5 DA 實測）。字串面解讀與 emitter 對合，
+encode/decode 等冪。
+
+**接受的 trade-off**：typo 偵錯從 hard-reject 降為 warning——`orcidd:` 這類打錯
+不再擋下，由 validate / doctor 的 warning 保持可見。
+
+**保真邊界（normative，verify R2 後 α 定案）**——保留載體是**原始檔案的逐字文字
+區塊**（含 key 行與其縮排子行），decode 不 serialize、encode 逐字 append：
+
+- **byte-level 保真**：未知區塊內的 key 型別（quoted / typed）、tag（`!!binary`、
+  自訂 tag）、anchor / alias（**不展開**）、註解、block scalar 全部逐字保留。
+  結構上不存在展開放大——未知子樹從不經過 parse-reserialize。
+- **欄位重排**：已知欄位由 encoder 重寫在前；未知區塊 append 到檔尾（akashic 的
+  未知子區塊 append 在 akashic 段尾、必要時做**等量縮排平移**——整塊每行加減
+  同量前導空白，YAML 相對縮排語意不變）。**平移不變式（R6，R7 精確化）**：
+  語意續行平移後必須仍深於目標縮排，否則會成為下一次 decode 的同層 entry 起始
+  （區塊切不開、記錄「讀得到但永遠寫不回」）→ encode 拒寫（fail-closed；
+  decode 端對縮排不足的版面仍容忍，讀取可用性不受影響）。豁免與切分規則對齊
+  的三類行（R7——不變式必須鏡射 entry-start oracle）：註解行、空白-only 行
+  （語意等同空行）、sequence 指標行（indentationless sequence 落在目標縮排
+  合法，低於才拒寫）。空行逐字保留（含 `|+` keep-chomping 的尾端空行）；
+  stream-scoped 標記行（column-0 的 `---`/`...` **含尾隨空白/註解變體**、
+  `%` directive 行——R6 擴列；stream 開頭的 UTF-8 BOM——R7 補列）於擷取時
+  剝除——它們不屬於欄位資料，隨區塊搬移會使產物無法解析。
+- **不保留**：檔案前導（檔頭註解、directive、`---`）與已知欄位側的註解——known
+  重寫本就不保留（與 v1.2 行為一致）。**註解歸屬（R6 明確化）**：區塊以 key 行
+  起算，緊貼在未知欄位**上方**的註解歸前一個（已知）區塊、不保留；只有 key 行
+  之後、落在區塊內的註解逐字保真。
+- **fail-closed 對齊 oracle（R3 定案——計數校驗不夠）**：每個未知區塊必須
+  (a) 能**獨立**解析（跨區塊 anchor/alias 引用在此擋下）、(b) 恰為單一 entry、
+  (c) key 相符、(d) 值與原 parse 的節點**語意相等**（預算走訪）。任一不成立 →
+  decode 錯誤 → 檔案 quarantine——絕不冒錯位寫壞的險。涵蓋：complex key、
+  flow-style、tagged decoy、值截斷。**驗證預算（R6 更正歸因，R7 改共用）**：
+  語意比對次數與節點數線性相關，上限 200,000 次、**單次 decode／encode 全檔
+  共用**（R7；R8 起 encode 側跨 entry/akashic 兩層同一份預算；encode 內含的
+  canary decode 屬一次 decode、自帶同額預算——它才是 encode 路徑的實際約束，
+  R10 撤回 R9 的 2× 放寬）；耗盡訊息指認
+  的是「觸發」區塊，實際消耗可能來自同檔較早的區塊（訊息已註明）；另設遞迴
+  深度上限（512）——深巢狀子樹 fail-closed quarantine 而非 stack overflow；
+  實際可容納的節點數依結構而定（單鍵 mapping 元素約耗 3 次比對/個）。巨大
+  未知子樹與 anchor/alias 重用型 DAG 都會觸發 → quarantine。這是未知子樹的
+  實質大小上限（可用性懸崖，照實記載）；超大 payload 不應塞在未知欄位裡。
+- **已知未防護：alias 落在 mapping key 位置的展開 DoS（R12 照實記載）**：本檔
+  所有預算守衛都跑在 `Yams.compose` 之後，而 composer 的重複鍵偵測會對每個
+  key node 遞迴 hash（無 memoisation）。alias 指向 DAG 且落在 key 位置時，
+  展開發生在 compose **內部**，預算一個都還沒開始跑。實測三種形式在 630–645
+  bytes 下都讓消費端 100% CPU 直到 timeout：`*a12: 1`（block 隱式）、
+  `{? *a12 : 1}`（flow 顯式）、`{*a12: 1}`（flow 隱式）。
+  **這不是 v1.3 引入的**——`compose`-first 的順序自始如此。R11 曾嘗試在文字層
+  以 `? key` 判準攔截，**兩個方向都錯**（三條繞道未擋；block scalar 與折行續行
+  的合法 `? ` 內容被誤殺，且因 encode 內含 decode canary 而變成寫不回），已於
+  R12 revert。文字層補不到 flow context 與 implicit alias key；正確的層是禁
+  anchor/alias 的 profile gate（見 `docs/specs/2026-08-01-akashic-yaml-input-profile-design.md`）
+  或 Yams 端。已另立 issue 追蹤（#36）。
+
+  **揭露範圍（R13 codex 補）**：不只 alias-in-key。**所有 `compose` 之前的資源
+  耗用皆未防護**——200,000 節點預算不限制單一**超大 scalar**（數百 MB 的 scalar
+  對節點走訪只算一個節點，decode 端亦無檔案大小上限）；`depth > 512` 只保護語意
+  比較那一段遞迴，保護不到 libyaml/Yams 在 compose 階段的解析堆疊與記憶體。
+
+  **威脅模型（避免與 `displaySafe` 的註解讀起來互斥）**：store 目錄對**可用性**
+  （DoS）而言目前必須視為信任邊界內——沒有防線，一個 630 B 的檔案就能讓 consumer
+  掛死。但對**完整性與顯示安全**而言它是未信任的：檔案可能由別的 binary、別人、
+  Dropbox 同步寫入，所以未知欄位 key 與 quarantine reason 一律經 `displaySafe`。
+  兩者不矛盾——是同一份資料在不同軸上的不同假設，而 DoS 那條軸的防線還沒蓋。
+- **merge / value 面以 tag 判定，不以鍵名字串判定（R11，R10-verify HIGH）**：
+  YAML 的 merge 語意由 tag（`tag:yaml.org,2002:merge`）決定——Yams 自己的
+  `Node.Mapping.flatten()` 就是比 tag。R10 以前開放演化層用 `k == "<<"` 字串
+  比對，兩個方向都錯：**漏擋** `!!merge foo:`（字串面是 `foo`，字串測試看
+  不到）→ 被當普通未知欄位收下並原樣寫回，merge-aware loader 讀同一份檔案
+  會展開成**另一份記錄**（實測可注入 `orcid` 這類 known 欄位）；**過擋**
+  quoted `'<<'`（依 YAML 是普通字串、tag 為 str）。改判 `key.tag ∈ {merge,
+  value}` 後兩個方向同時修正——`!!merge`／`!!value` 加在任何鍵名上都拒收，
+  quoted `'<<'`／`'='` 在開放演化層照常當普通未知欄位保留（`fields` 層另有
+  字串面條款，見下）。
+- **tagged-shadow 鍵不入範圍（R6；R7 擴至所有層）**：字串與 schema 欄位同名、
+  tag 非 str 的鍵（如 `!foo note:`、provenance 的 `!foo zotero_hash:`）→
+  decode 錯誤 → quarantine——這種鍵 str-tag subscript 讀不到、又被字串比對
+  歸為已知而不進保留，optional 欄位會被靜默歸零、寫回即剝除（required 欄位
+  本就 fail-closed）。適用開放演化層與 closed shape 層。**unknown** 鍵不受
+  此限：tag 區分的同字串鍵、自訂 tag 鍵都走文件序 index 對齊，型別在 raw 內
+  逐字保真。前提（明文化）：Yams 的重複鍵偵測比的是 string+tag 全等——同
+  字串異 tag 不是 duplicate；`fields` 以字串面當 dictionary key，字串面撞名
+  → decode 錯誤（R7，否則靜默壓成一筆）。mapping 型 complex key（`=`/!!value
+  鍵）經 construct 特例會呈現字串面：known 欄位一律以真 scalar 驗形
+  （`scalar` 檢查，R7）、known-同名由 tag 條款擋；sequence 型 complex key
+  直接 throw。**`fields` 的鍵與 `attachments` 元素鍵同受此律（R8，R9 修正）**——
+  兩處此前走 `Node.string` 的 construct 特例（tagged 鍵靜默丟 tag、`=`-鍵
+  mapping 扁平化）。R10 規則：鍵必須是真 scalar 且 resolved tag 屬**隱式
+  resolver 可產出的閉集**（str/int/float/bool/null/timestamp）、以字串面解讀
+  ——emitter 對 fields 鍵輸出 plain 樣式，`2026`/`no` 這類鍵 re-parse resolve
+  成 int/bool，str-tag 檢查會讓自家產物寫得出、讀不回（R8-verify HIGH）。
+  閉集之外一律拒收：顯式 local tag（`!foo journal:`）、**merge 面 `<<`**
+  （各層一致拒收——我們若 emit，他家 loader 會展開或報錯）、value 面 `=`
+  （R9 的 namespace 前綴判準誤放行兩者，R9-verify M4/M8）。**R11 補字串面**
+  （R10-verify HIGH）：tag 閉集只擋 tag 面，quoted `'<<'` / `'='` 的 resolved
+  tag 是 str、會通過閉集被 decode 收下，但 encode 時 `Node("<<")` implicit
+  resolve 成 merge → emit 成裸指示符 → 內層 canary decode 撞閉集 → **永遠
+  throw**。淨結果是本節自己命名的最壞形態「讀得到但永遠寫不回」，且**零
+  可見性**（不進 quarantine、無未知欄位故不進 `unknownFieldFiles`、
+  `validate()` 也不發 warning）。decode 端因此對字串面 `<<` / `=` 一併
+  fail-closed——載入即 quarantine，可見、可救。已知邊界（記載）：
+  顯式 core tag（`!!int 123:`）與 plain `123:` 在 resolved-tag 層不可區分，
+  接受並正規化為 plain。attachments 元素鍵維持 str-tag 檢查——鍵域固定為
+  `zotero`/`pool` 兩個純字母字串、恆 resolve 為 str，無等冪問題（三層鍵規則
+  不同是刻意的：各層鍵域不同）。字串面撞名仍 fail-closed。
+- **有損字元守衛（R8 拆成兩層、全部 decode 入口無條件執行）**：
+  (i) **毀字通道——NEL (U+0085) 一律拒收**（所有 decode 入口，含純 known 檔
+  ——R7 的守衛只長在切分路徑，R8 關上半開門；R9 依 R8-verify 更正把裸 CR 移出
+  此層）。NEL 的特殊性：不是任何行尾慣例、emitter 一律 escape（自家產物零
+  誤殺）、且是 cp1252 `…` 誤轉 UTF-8 的常見**內容**字元——被 libyaml 當
+  line break 摺疊即為毀字。(ii) **CR 以「檔內有無 LF」裁決（R10 判別式，
+  R9-verify HIGH）**：全檔無 LF ⇒ CR 是 classic-Mac 行尾，由 libyaml 正規化、
+  無損載入（v1.2 相容）；檔內有 LF ⇒ 行尾已由 LF/CRLF 承擔，**不接 LF 的
+  裸 CR 只能是內容字元**（Word/RIS 貼入 quoted scalar 的 0x0D）——libyaml
+  讀取時摺疊毀字 → 拒收（R9 連行尾慣例一起放行是回歸，實測一次良性寫入即
+  毀檔）。CRLF 行尾照常可讀；emitter 對內容 CR 一律 escape，自家產物零誤殺。
+  守衛分層造成「同一檔案的行尾接受度取決於有無未知欄位」（帶未知欄位時
+  CRLF 也拒收）——已知的分層不對稱，照實記載。**帶未知欄位時 CR + NEL 全面
+  拒收**：
+  文字層切分與 libyaml 行模型分歧（`\r\n` 是單一 grapheme，Character 層檢查
+  是死碼；unicodeScalar 層比對）→ decode 錯誤 → quarantine。**LS (U+2028) / PS
+  (U+2029) 不在守衛範圍（R6 限縮，R7 更正機制敘述）**：quoted scalar 內被
+  libyaml 依 YAML 1.1 摺疊規則**保留**（round-trip 無損），且 emitter 自己就
+  會逐字寫出 raw U+2028（R5 的全文掃描把自家產物整檔誤殺）；plain scalar 含
+  裸 LS 會讓 libyaml 多切出 key——帶未知欄位時由切分計數 oracle fail-closed，
+  **純 known 檔無此防線（已知盲區**：`title: A␨date: 2020` 型的手寫檔會被
+  解成兩個 key、無任何訊號；本生態 writer 不產生此類版面**）**。
+- **encode 雙層 canary（R6 起無條件、正規化比較）**：**每次**寫出前
+  (a) re-parse 產物（重複鍵、dangling alias 拒寫）+ (b) **語意自檢**——decode
+  產物與**正規化後的模型**比對（known 欄位全等、各層未知 key 序列相符、各未知
+  區塊值語意相等；不符時訊息指認欄位——R7）。正規化＝把序列化有損的欄位截到
+  encoder 精度（provenance 的兩個 Date，秒精度——store 刻意不存 fractional
+  seconds；identity 比對會把次秒 Date 的合法寫入誤拒，verify R5 CRITICAL）。
+  已知的字串有損通道——值的**前導 U+FEFF**（serialize→compose 會吃掉）——
+  刻意不正規化：屬資料品質問題，fail-closed 拒寫 + 欄位指認訊息，不靜默改
+  資料。canary 的界線（明文化，R7）：它比的是「模型 ↔ 產物」，**偵測不到
+  decode 端已經丟掉的東西**——「檔案 → 模型」的保真由 decode 側的 oracle 與
+  各 fail-closed 條款負責。不符拒寫；絕不原子性覆蓋合法檔案。代價：每次寫入
+  多數輪 parse（產物 canary、full decode、per-block compose ×2——檔案 KB 級，
+  可接受；效能面見 #30）。
+- **版面契約（normative）**：容忍層假設 block-style、LF 行尾、非 complex-key
+  的版面——這是 store writer 的約束；超出此版面的合法 YAML **不保證保真**。
+  多數情形 fail-closed quarantine（資料完整性 > 病態版面的可用性），但**有一個
+  已知例外**：alias 落在 mapping key 位置時，展開發生在 `Yams.compose` **內部**，
+  在任何守衛之前——那不是 quarantine，是掛死（見上「已知未防護」與 #36）。
+  R11 曾加過一個文字層的 complex-key 守衛，R12 實測它兩個方向都錯（三條繞道未擋、
+  又誤殺 emitter 自己的輸出）後整段撤除。**不要重新加回文字層守衛。**
+- **多文件 YAML** 由 root parse 拒收（單文件 stream）；`---`/`...` 出現在
+  block scalar 內容中不受影響（無文字層守衛誤傷）。
+- **merge key `<<` 不入 tolerant 範圍**（parser 間語意分歧；適用所有容忍層——
+  entry/person/library 頂層與 `akashic` 巢狀層，R6 更正原「頂層」措辭）→
+  decode 錯誤 → quarantine；未知區塊**內部**的 `<<` 隨原文逐字保留（本生態
+  單一 parser，寫回不改文字即無新語意）。
+- **寫入路徑的可失敗性（R6，R7 誠實化）**：encode 自 v1.3 起可拒寫（canary
+  fail-closed）。多檔寫入者必須收容——已收容者：Zotero pull 與 resolve-people
+  （三個 call site：CLI／MCP／App）對單筆寫入失敗記入 `writeFailed`／回報並
+  續跑，index 照 rebuild；CLI（`import-zotero`、`resolve-people --apply`）在有
+  單筆失敗時**非零退出**（收容 ≠ 吞掉 process 層訊號）。citekey rename 先對
+  所有要改寫的 entry 做 **encode 預檢**——這只消除「canary 拒寫」這類**確定性
+  失敗**的中途中斷；I/O 層失敗（磁碟滿、權限、外部競態）仍可能留下部分改寫，
+  完整多檔交易／rollback 屬 #29 範圍，本節不宣稱多檔原子性。
+
+**混版部署（R7 重申）**：tolerant-preserve **不具追溯力**——已釋出的舊 binary
+（≤ v1.2）面對新欄位仍整檔 reject；要享有本節保證，所有讀寫者都必須先升到
+v1.3+。非累加演化（形狀變更、strict 層加欄位）另需版本訊號（#24）。同理，
+v1.3 的讀取面**嚴格化**（known 形狀不符、無法解析的時間戳由靜默容忍改為
+quarantine）可能讓舊版可載入的病態檔案在升級後進 quarantine——這是刻意的
+fail-closed 遷移（檔案原封不動，`doctor` 列出 quarantine 原因供修復），不是
+資料損失。
 
 ## 附註：多「檔案」（#18，config 層——不屬 store format）
 

@@ -63,10 +63,10 @@ final class AdjudicationTests: XCTestCase {
         XCTAssertThrowsError(try model.resolve(citekey: "a2020paper", action: .moveToTrash))
         // 找不到的 citekey 也要擲錯，不得靜默成功
         XCTAssertThrowsError(try model.resolve(citekey: "ghost2000x", action: .moveToTrash))
-        // 檔案毫髮無傷
+        // 檔案毫髮無傷。**用 load() 而非固定路徑判斷**——#35 之後檔案位置由 store
+        // format 決定（`entities/<uuid>.yaml` vs `entries/<citekey>.yaml`），
+        // 而這個測試要驗的是「記錄還在」，不是「記錄在哪個路徑」。
         let store = LibraryStore(root: root)
-        XCTAssertTrue(FileManager.default.fileExists(
-            atPath: store.entryURL(citekey: "a2020paper").path))
         XCTAssertNotNil(try store.load().entries.first { $0.citekey == "a2020paper" })
     }
 
@@ -79,8 +79,8 @@ final class AdjudicationTests: XCTestCase {
         try store.writeEntry(restored)
         // App 記憶體仍認為它是 orphan；動作當下必須以磁碟真相拒絕
         XCTAssertThrowsError(try model.resolve(citekey: "b2019gone", action: .moveToTrash))
-        XCTAssertTrue(FileManager.default.fileExists(
-            atPath: store.entryURL(citekey: "b2019gone").path))
+        // 同上：驗「記錄還在」而非「路徑是哪個」（#35 之後位置由 store format 決定）
+        XCTAssertNotNil(try store.load().entries.first { $0.citekey == "b2019gone" })
     }
 
     func testOrphanDetachClearsProvenance() throws {

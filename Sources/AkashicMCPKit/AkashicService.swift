@@ -541,7 +541,9 @@ public final class AkashicService {
             return
         }
         var newest = Date.distantPast
-        for dir in [store.entriesDir, store.peopleDir] {
+        // #35：**entities/ 必須在掃描範圍內**——format 2 的 store 所有 canonical 都在
+        // 那裡，漏掉它會讓 index 永遠被判為 current 而回答過期的查詢（verify CRITICAL）。
+        for dir in [store.entitiesDir, store.entriesDir, store.peopleDir] {
             // 目錄自身 mtime 在檔案增刪時更新——外部刪檔靠這個偵測
             if let dirM = (try? fm.attributesOfItem(atPath: dir.path)[.modificationDate]) as? Date,
                dirM > newest {

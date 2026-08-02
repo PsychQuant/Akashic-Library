@@ -4,6 +4,7 @@ import AkashicCore
 import AkashicStoreIO
 import AkashicEntity
 import AkashicZoteroImport
+import AkashicWoSImport
 import AkashicExport
 import AkashicIndex
 
@@ -18,6 +19,23 @@ struct Doctor: ParsableCommand {
         let store = LibraryStore(root: root)
         try store.ensureLayout()
         let load = try store.load()
+
+        // #35：跨記錄檢查必須在 rebuild **之前**。雙佈局並存時 index 會撞
+        // `UNIQUE constraint failed: entries.citekey`——使用者拿到的是 SQLite 的
+        // 內部錯誤，而不是「你有兩筆同 citekey 的記錄、它們在哪」。診斷工具在這種
+        // 狀態下正是最該說話的時候，不是最該掛掉的時候。
+        let cross = load.crossRecordIssues()
+        let fatalCross = cross.filter { $0.severity == .error }
+        if !cross.isEmpty {
+            print("cross-record: \(cross.count)")
+            for i in cross { print("  \(i.severity == .error ? "✗" : "⚠") \(i.message)") }
+        }
+        if !fatalCross.isEmpty {
+            print("library: \(displaySafe(root.path, max: 800))")
+            print("entries: \(load.entries.count)（未重建 index——先修好上面的重複）")
+            throw ExitCode(1)
+        }
+
         let stats = try LibraryIndex(store: store).rebuild()
 
         print("library: \(root.path)")
@@ -149,6 +167,171 @@ struct ImportZotero: ParsableCommand {
         // 非零退出，自動化（cron pull、CI）才看得到
         if !report.writeFailed.isEmpty {
             throw ExitCode(1)
+        }
+    }
+}
+
+/// #35：legacy → entities 的一次性遷移。
+struct Migrate: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "migrate",
+        abstract: "把 store 從 entries/+people/ 遷移到 entities/<uuid>.yaml（#35）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Flag(name: .long, help: "只回報會做什麼，不動磁碟")
+    var dryRun = false
+
+    func run() throws {
+        let store = try options.openStore()
+        do {
+            let r = try StoreMigration.toEntities(store: store, dryRun: dryRun)
+            let prefix = dryRun ? "（dry-run）" : "✓"
+            print("\(prefix) entries \(r.entriesMoved)、people \(r.peopleMoved) 筆"
+                + (r.alreadyMigrated > 0 ? "、已在 entities/ \(r.alreadyMigrated) 筆" : ""))
+            if dryRun {
+                print("  實際執行：akashic migrate")
+            } else {
+                print("  store format → 2；舊 binary 從此會拒絕開啟這個 store（#24）")
+                let stats = try LibraryIndex(store: store).rebuild()
+                print("  index rebuilt: \(stats.entries) entries → \(store.indexURL.path)")
+            }
+        } catch {
+            throw ValidationError((error as? LocalizedError)?.errorDescription ?? "\(error)")
+        }
+    }
+}
+
+/// #34：從 literal 作者 bootstrap person 記錄。
+struct BootstrapPeople: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "bootstrap-people",
+        abstract: "從 literal 作者建立 person 記錄（寧可分割，絕不合併）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Flag(name: .long, help: "實際寫入（預設只列出）")
+    var apply = false
+
+    @Option(name: .long, help: "只處理出現次數 ≥ N 的（投報率優先）")
+    var minOccurrences: Int = 1
+
+    @Option(name: .long, help: "最多處理前 N 個")
+    var limit: Int?
+
+    func run() throws {
+        let store = try options.openStore()
+        let load = try store.load()
+        var cands = PersonBootstrap.candidates(entries: load.entries, existing: load.people)
+            .filter { $0.occurrences >= minOccurrences }
+        let total = cands.count
+        if let limit { cands = Array(cands.prefix(limit)) }
+
+        guard !cands.isEmpty else {
+            print("無候選（literal 作者皆已有對應 person，或全部低於門檻）")
+            return
+        }
+        for c in cands.prefix(apply ? 0 : 20) {
+            let aliases = c.names.map { displaySafe($0, max: 200) }.joined(separator: " ≡ ")
+            print("  \(displaySafe(c.key, max: 200))  ×\(c.occurrences)  \(aliases)")
+        }
+        if !apply {
+            if total > 20 { print("  …共 \(total) 個（只列前 20）") }
+            print("（只列候選；要建立加 --apply）")
+            return
+        }
+        var written = 0
+        for p in PersonBootstrap.personsFor(cands) {
+            try store.writePerson(p)
+            written += 1
+        }
+        _ = try LibraryIndex(store: store).rebuild()
+        print("✓ 建立 \(written) 個 person（共 \(total) 個候選）、index 已重建")
+        print("  下一步：akashic resolve-people 把 entries 的 literal 歸戶")
+    }
+}
+
+/// #21：WoS 匯出 → entries。
+struct ImportWoS: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "import-wos",
+        abstract: "匯入 Web of Science 的 tab-delimited 匯出（作者一律不自動歸戶）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Argument(help: "WoS 匯出檔（tab-delimited；xlsx 請先另存為 TSV）")
+    var path: String
+
+    @Flag(name: .long, help: "只回報會做什麼，不寫檔")
+    var dryRun = false
+
+    @Flag(name: .long, help: "來源是逗號分隔（CSV）而非 tab")
+    var csv = false
+
+    func run() throws {
+        let store = try options.openStore()
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let r = try WoSImport.run(text: text, store: store,
+                                  separator: csv ? "," : "\t", dryRun: dryRun)
+        let prefix = dryRun ? "（dry-run）" : "✓"
+        print("\(prefix) created \(r.created.count)、unchanged \(r.unchanged.count)")
+        if !r.conflicts.isEmpty {
+            // **不覆寫**：citekey 撞號且內容不同，可能是使用者手動改過的資料，
+            // 而 WoS 的欄位比 store 的窄——覆寫會把人工補的資訊洗掉。
+            print("conflicts（citekey 相同但內容不同，未覆寫）: \(r.conflicts.count)")
+            for c in r.conflicts.prefix(10) { print("  ! \(displaySafe(c, max: 200))") }
+        }
+        if !r.skippedRows.isEmpty {
+            print("skipped: \(r.skippedRows.count)")
+            for s in r.skippedRows.prefix(5) { print("  - \(displaySafe(s, max: 300))") }
+        }
+        if !r.aliasGroups.isEmpty {
+            // 這是本 importer 的真正價值：兩欄同 index 對齊，免費得到每位作者的兩種寫法
+            print("alias 配對: \(r.aliasGroups.count) 組（可餵給 people 的 names[]）")
+            for g in r.aliasGroups.prefix(3) {
+                print("  \(g.map { displaySafe($0, max: 200) }.joined(separator: " ≡ "))")
+            }
+        }
+        if !dryRun, !r.created.isEmpty {
+            _ = try LibraryIndex(store: store).rebuild()
+            print("  index 已重建；作者全部為 .literal——用 akashic resolve-people 歸戶")
+        }
+    }
+}
+
+/// #22：Akashic → 關係式表格（DuckDB 為衍生）。
+struct ExportTables: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "export-tables",
+        abstract: "匯出 CSV + DuckDB 載入腳本（單向衍生；DuckDB 端不回寫）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Option(name: .shortAndLong, help: "輸出目錄")
+    var output: String
+
+    func run() throws {
+        let store = try options.openStore()
+        let load = try store.load()
+        let dir = URL(fileURLWithPath: (output as NSString).expandingTildeInPath)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let tables = RelationalExport.tables(entries: load.entries, people: load.people)
+        for t in tables.all {
+            let url = dir.appendingPathComponent("\(t.name).csv")
+            try RelationalExport.csv(t).write(to: url, atomically: true, encoding: .utf8)
+            print("\(t.name): \(t.rows.count) 列 → \(url.lastPathComponent)")
+        }
+        let sql = dir.appendingPathComponent("load.sql")
+        try RelationalExport.duckDBScript(csvDirectory: dir.path)
+            .write(to: sql, atomically: true, encoding: .utf8)
+        print("載入腳本 → \(sql.path)")
+        print("  duckdb akashic.db -c \".read \(sql.path)\"")
+        // 未歸戶作者是**狀態**不是缺漏，但值得說出數量——它是 resolve-people 的工作量
+        let unresolved = tables.publicationAuthor.rows.filter { $0[2] == nil }.count
+        if unresolved > 0 {
+            print("  （\(unresolved) 筆作者未歸戶 → publication_author.researcher_id IS NULL）")
         }
     }
 }

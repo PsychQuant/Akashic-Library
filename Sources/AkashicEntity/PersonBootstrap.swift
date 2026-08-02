@@ -1,0 +1,125 @@
+import Foundation
+import AkashicCore
+
+/// 從 literal 作者名 bootstrap person 記錄（#34）。
+///
+/// ## 為什麼需要它：雞生蛋
+///
+/// `PersonResolver.candidates` 的比對基礎是**既有 person 的 `names`**。people 是 0 時
+/// aliasMap 是空的，於是永遠 0 候選——`resolve-people` 無法自我啟動。實測：536 entries、
+/// 1746 個 literal 作者、0 個 person 檔、解析率 0.0%。
+///
+/// ## 安全方向：寧可分割，絕不合併
+///
+/// **過度分割可回復**（發現是同一人就合併），**過度合併不可回復**（兩個人被併成一個，
+/// 區別就此消失，而且沒有任何訊號說出它發生過）。所以：
+///
+/// - **只在機械可判時合併**：`Last, First` ↔ `First Last` 的重排是字串操作，不是猜測。
+/// - **縮寫不與全名合併**：`Cheng, C` 與 `Cheng, Che` 看起來像同一人，但也可能是
+///   `Cheng, Chao`。`WoSImport` 的兩欄同 index 對齊能給出這種配對，**因為來源保證了它**；
+///   單靠名字本身猜不出來。
+/// - **同姓氏 + 同名字首但全名不同 → 分開**，讓人決定。
+///
+/// 這與 `PersonResolver` 的「絕不自動合併」是同一條鐵律的兩面：那邊管 literal → 既有
+/// person 的歸戶，這邊管 literal → 新 person 的建立。
+public enum PersonBootstrap {
+
+    public struct Candidate: Equatable {
+        /// 建議的 person key（可改）。
+        public var key: String
+        /// 這一組的所有寫法——直接就是 `Person.names`。
+        public var names: [String]
+        /// 出現次數（多的先處理，投報率高）。
+        public var occurrences: Int
+    }
+
+    /// 正規化：trim + 摺疊空白 + lowercase。**刻意不去連字號、不去點號**——
+    /// `Jeng-Min` 與 `Jeng Min` 可能是同一人也可能不是，去掉就等於替人決定了。
+    static func normalize(_ s: String) -> String {
+        s.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .lowercased()
+    }
+
+    /// `"Cheng, Che"` → `"Che Cheng"`。**只處理恰好一個逗號**的情形；
+    /// 多逗號（`"Cheng, Che, Jr."`）語意不明，原樣回傳。
+    static func reordered(_ s: String) -> String? {
+        let parts = s.split(separator: ",", omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        let last = parts[0].trimmingCharacters(in: .whitespaces)
+        let first = parts[1].trimmingCharacters(in: .whitespaces)
+        guard !last.isEmpty, !first.isEmpty else { return nil }
+        return "\(first) \(last)"
+    }
+
+    /// 身分鍵：同一鍵的名字視為同一人。**只做重排這一種機械等價。**
+    static func identity(_ s: String) -> String {
+        let n = normalize(s)
+        if let r = reordered(s) { return min(n, normalize(r)) }
+        return n
+    }
+
+    /// 建議的 person key：`<姓氏>-<名>` 小寫、非字母轉 `-`。
+    static func suggestedKey(from name: String, taken: Set<String>) -> String? {
+        let display = reordered(name) ?? name
+        let tokens = display.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !tokens.isEmpty else { return nil }
+        // 姓在後（已重排成 First Last）
+        let surname = tokens.last!
+        let given = tokens.dropLast().joined(separator: "-")
+        func slug(_ s: String) -> String {
+            let mapped = s.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
+            return String(mapped).split(separator: "-").joined(separator: "-")
+        }
+        let base = given.isEmpty ? slug(surname) : "\(slug(surname))-\(slug(given))"
+        guard !base.isEmpty, StoreKey.isValid(base) else { return nil }
+        if !taken.contains(base) { return base }
+        for i in 2...99 where StoreKey.isValid("\(base)-\(i)") && !taken.contains("\(base)-\(i)") {
+            return "\(base)-\(i)"
+        }
+        return nil
+    }
+
+    /// 從 entries 的 literal 作者產出候選。
+    ///
+    /// **已存在的 person 不重複產出**——它們的 alias 已在 `PersonResolver` 的比對範圍內，
+    /// 再造一個新 person 就是在製造重複。
+    public static func candidates(entries: [Entry], existing: [Person]) -> [Candidate] {
+        let knownAliases = Set(existing.flatMap { $0.names.map(identity) })
+        var takenKeys = Set(existing.map(\.key))
+
+        var groups: [String: (names: [String], count: Int)] = [:]
+        for e in entries {
+            for a in e.authors {
+                guard case let .literal(raw) = a else { continue }
+                // 機構名（#6 的 `{...}` 標記）不是人——不建 person
+                guard !CorporateName.isMarked(raw) else { continue }
+                let name = raw.trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { continue }
+                let id = identity(name)
+                guard !knownAliases.contains(id) else { continue }
+                var g = groups[id] ?? ([], 0)
+                if !g.names.contains(name) { g.names.append(name) }
+                g.count += 1
+                groups[id] = g
+            }
+        }
+
+        // 出現次數多的先——處理它們的投報率最高
+        return groups.sorted { a, b in
+            a.value.count == b.value.count ? a.key < b.key : a.value.count > b.value.count
+        }.compactMap { (_, g) in
+            let sortedNames = g.names.sorted()
+            guard let key = suggestedKey(from: sortedNames[0], taken: takenKeys) else { return nil }
+            takenKeys.insert(key)
+            return Candidate(key: key, names: sortedNames, occurrences: g.count)
+        }
+    }
+
+    /// 把候選寫成 person 記錄。**不改 entries**——歸戶是 `resolve-people` 的工作，
+    /// 兩步分開讓每一步都可單獨檢查。
+    public static func personsFor(_ candidates: [Candidate]) -> [Person] {
+        candidates.map { Person(key: $0.key, names: $0.names) }
+    }
+}

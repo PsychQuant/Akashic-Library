@@ -177,17 +177,28 @@ public struct Relations: Equatable {
 
 /// 人物實體（people/<person-key>.yaml）。
 public struct Person: Equatable {
+    /// 不變的身分（#35）。legacy `people/<key>.yaml` 沒有這個欄位——decode 時由
+    /// `DeterministicUUID.forPerson(key:)` 推出，**每次都相同**，所以 index 的
+    /// primary key 與 entry 的作者引用不會漂。
+    public var id: UUID
     public var key: String
     public var names: [String]
     public var orcid: String?
     public var openalex: String?
     public var note: String?
-    /// 頂層未知欄位（tolerant-preserve，#23）——如 #20 之後的 affiliations / facts。
+    /// 機構與身分維度（#20，valid-time temporal）。各屬性自帶時間軸。
+    public var profile: PersonProfile
+    /// 頂層未知欄位（tolerant-preserve，#23）。
     public var unknownFields: [UnknownField]
 
+    /// `id` 省略時由 `key` 推出（確定性）——呼叫端不必為既有流程補一個 UUID。
     public init(key: String, names: [String] = [], orcid: String? = nil,
                 openalex: String? = nil, note: String? = nil,
+                id: UUID? = nil,
+                profile: PersonProfile = PersonProfile(),
                 unknownFields: [UnknownField] = []) {
+        self.profile = profile
+        self.id = id ?? DeterministicUUID.forPerson(key: key)
         self.key = key
         self.names = names
         self.orcid = orcid

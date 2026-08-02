@@ -7,7 +7,7 @@ let package = Package(
     products: [
         .library(name: "AkashicKit", targets: [
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
-            "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
+            "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph", "AkashicWoSImport",
         ]),
         .library(name: "AkashicAppKit", targets: ["AkashicAppKit"]),
         .executable(name: "akashic", targets: ["akashic"]),
@@ -32,12 +32,14 @@ let package = Package(
         .target(name: "AkashicIndex", dependencies: ["AkashicStoreIO", "AkashicSQLite"]),
         .target(name: "AkashicQuery", dependencies: ["AkashicIndex", "AkashicSQLite"]),
         .target(name: "AkashicGraph", dependencies: ["AkashicIndex", "AkashicSQLite"]),
+        .target(name: "AkashicWoSImport", dependencies: ["AkashicCore", "AkashicStoreIO"]),
         .target(name: "AkashicExport", dependencies: [
             "AkashicStoreIO",
             .product(name: "BiblatexAPA", package: "biblatex-apa-swift"),
         ]),
         .executableTarget(name: "akashic", dependencies: [
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
+            "AkashicWoSImport",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
         ]),
@@ -57,9 +59,11 @@ let package = Package(
         .testTarget(name: "AkashicKitTests", dependencies: [
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph", "AkashicSQLite",
+            "AkashicWoSImport",
         ]),
         .testTarget(name: "AkashicCLITests", dependencies: ["akashic"]),
         .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp"]),
-        .testTarget(name: "AkashicAppKitTests", dependencies: ["AkashicAppKit"]),
+        .testTarget(name: "AkashicAppKitTests",
+                    dependencies: ["AkashicAppKit", "AkashicCore", "AkashicStoreIO"]),
     ]
 )

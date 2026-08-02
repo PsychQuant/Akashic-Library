@@ -11,6 +11,7 @@ struct AkashicCLI: ParsableCommand {
         subcommands: [
             ImportZotero.self, Validate.self, ExportBib.self,
             ResolvePeople.self, Doctor.self, Query.self, Graph.self, Rename.self, LibraryCmd.self, FileCmd.self,
+            Migrate.self, ExportTables.self, ImportWoS.self, BootstrapPeople.self,
         ])
 }
 
@@ -33,13 +34,18 @@ struct LibraryOptions: ParsableArguments {
         }
     }
 
-    /// 開既有 library（entries/ 必須存在）；不自動建立。
+    /// 開既有 library；不自動建立。
+    ///
+    /// **#35：兩種佈局都算數。** 判準原本只看 `entries/`，format 2 的 store 沒有那個
+    /// 目錄——遷移完成後每個指令都會說「這不是 Akashic library」。
     func openStore() throws -> LibraryStore {
         let r = try resolved()
         let root = r.root
         let store = LibraryStore(root: root, key: r.key)
-        guard FileManager.default.fileExists(atPath: store.entriesDir.path) else {
-            throw ValidationError("『\(root.path)』不是 Akashic library（缺 entries/）。先跑 akashic doctor --library <path> 建立佈局。")
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: store.entitiesDir.path)
+                || fm.fileExists(atPath: store.entriesDir.path) else {
+            throw ValidationError("『\(root.path)』不是 Akashic library（缺 entities/ 與 entries/）。先跑 akashic doctor --library <path> 建立佈局。")
         }
         return store
     }

@@ -22,10 +22,12 @@ public enum StoreVersion {
 
     /// 本 binary 支援的最高 store format。
     ///
-    /// **1** ＝ v1.x 家族（`entries/<citekey>.yaml` + `people/<person-key>.yaml`；
-    /// tolerant-preserve 於 v1.3 落地，屬 additive，故不 bump）。
-    /// #35 的 `entities/<uuid>.yaml` 落地時 bump 為 2。
-    public static let supported = 1
+    /// - **1** ＝ v1.x 家族（`entries/<citekey>.yaml` + `people/<person-key>.yaml`；
+    ///   tolerant-preserve 於 v1.3 落地，屬 additive，故不 bump）。
+    /// - **2** ＝ `entities/<uuid>.yaml`（#35）。這是**結構重排**——舊 binary 會看到空的
+    ///   `entries/` 而回報「0 entries」，一個**看起來成功的錯誤答案**。refuse-if-newer
+    ///   存在的直接理由就是這一次。
+    public static let supported = 2
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，
@@ -69,19 +71,39 @@ public enum StoreVersion {
         }
     }
 
-    /// 建立標記檔（若不存在）。**不覆寫既有檔**——那可能是較新版本寫的，
-    /// 覆寫等於把 refuse-if-newer 的依據自己抹掉。
-    public static func writeIfAbsent(root: URL) throws {
-        let u = url(in: root)
-        guard !FileManager.default.fileExists(atPath: u.path) else { return }
+    /// 寫入指定 format。**只給遷移用**——一般流程不得改動既有 store 的 format。
+    public static func write(root: URL, format: Int) throws {
         let body = """
             # Akashic store format（#24）。只有 **non-additive** 變更才 bump——
             # 新增欄位由 tolerant-preserve 涵蓋（#23），不 bump。
             # 舊 binary 讀到比自己新的 format 會整體拒絕開啟，而不是按舊語意誤讀。
-            format: \(supported)
+            format: \(format)
 
             """
-        try body.write(to: u, atomically: true, encoding: .utf8)
+        try body.write(to: url(in: root), atomically: true, encoding: .utf8)
+    }
+
+    /// 建立標記檔（若不存在）。**不覆寫既有檔**——那可能是較新版本寫的，
+    /// 覆寫等於把 refuse-if-newer 的依據自己抹掉。
+    public static func writeIfAbsent(root: URL) throws {
+        let u = url(in: root)
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: u.path) else { return }
+
+        // **#35 的關鍵安全點**：沒有 marker 的 store 可能是 #24 之前建的 **legacy** store。
+        // 若無條件寫 `supported`（現在是 2），它會被誤標成 entities 佈局——而它的檔案
+        // 全在 `entries/` 與 `people/`。之後的寫入會往 `entities/` 去，讀取端則同時看到
+        // 兩個佈局，**而且沒有任何訊號說出哪裡不對**。
+        //
+        // 所以：有 legacy 內容 → 標 1（它就是 format 1）；全新的空 store → 標 supported。
+        func hasFiles(_ dir: URL) -> Bool {
+            ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? [])
+                .contains { $0.lowercased().hasSuffix(".yaml") }
+        }
+        let legacy = hasFiles(root.appendingPathComponent("entries"))
+            || hasFiles(root.appendingPathComponent("people"))
+        let format = legacy ? 1 : supported
+        try write(root: root, format: format)
     }
 }
 

@@ -65,12 +65,20 @@ public enum LibraryLocator {
 }
 
 public extension LibraryStore {
-    /// 「這個 root 是可用的 Akashic library 嗎」——entries 必須存在**且是目錄**
-    /// （普通檔案冒充 entries 會過 fileExists，R2 #3）。三面（CLI/MCP/App）共用。
+    /// 「這個 root 是可用的 Akashic library 嗎」——`entities/`（format 2）或
+    /// `entries/`（legacy）任一存在**且是目錄**即可（普通檔案冒充會過 fileExists，R2 #3）。
+    /// 三面（CLI / MCP / App）共用。
+    ///
+    /// **#35：必須認 `entities/`。** 只認 `entries/` 的話，遷移後的 store 在**新 clone**
+    /// 上完全開不起來——`entries/` 是空目錄，git 不追蹤空目錄，所以 clone 出來根本沒有它。
+    /// 這是 verify 抓到的 CRITICAL：已遷移的真實 store 換一台機器 clone 就用不了。
     static func isLibraryRoot(_ root: URL) -> Bool {
-        var isDir: ObjCBool = false
-        let exists = FileManager.default.fileExists(
-            atPath: root.appendingPathComponent("entries").path, isDirectory: &isDir)
-        return exists && isDir.boolValue
+        func isDirectory(_ name: String) -> Bool {
+            var isDir: ObjCBool = false
+            let exists = FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(name).path, isDirectory: &isDir)
+            return exists && isDir.boolValue
+        }
+        return isDirectory("entities") || isDirectory("entries")
     }
 }

@@ -57,8 +57,18 @@ public struct LibraryIndex {
         // 該目錄不由 ensureLayout 建（它只管 store root 內的佈局）。一律建 indexURL 的父目錄。
         try FileManager.default.createDirectory(
             at: store.indexURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? FileManager.default.removeItem(at: store.indexURL)
-        let db = try SQLiteDB(path: store.indexURL.path, readOnly: false)
+
+        // #7(a)：**先建到 temp、成功才 atomic 換位**。原本是先刪後建——rebuild 中途
+        // 失敗（磁碟滿、病態檔擲錯、程序被殺）會留下一個空的／半套的 index，而查詢端
+        // 看不出差別，只會安靜地回錯的答案。index 雖可重建，但「可重建」不等於「有人
+        // 會發現它壞了」。
+        let finalURL = store.indexURL
+        let tmpURL = finalURL.deletingLastPathComponent()
+            .appendingPathComponent(".\(finalURL.lastPathComponent).rebuild-\(UUID().uuidString)")
+        try? FileManager.default.removeItem(at: tmpURL)
+        // 失敗時清掉 temp——半套檔留在 index 目錄會累積且看起來像真的 index。
+        defer { try? FileManager.default.removeItem(at: tmpURL) }
+        let db = try SQLiteDB(path: tmpURL.path, readOnly: false)
 
         for sql in [
             """
@@ -127,6 +137,21 @@ public struct LibraryIndex {
                            bind: [person.key, person.names.joined(separator: "\n")])
         }
         try db.execute("COMMIT")
+        db.closeForHandoff()   // 換位前必須關閉——SQLite 對已開啟檔案的搬移無定義行為
+
+        // atomic 換位。`replaceItemAt` 在同一 volume 上是 rename(2)，查詢端永遠看到
+        // 「舊的完整 index」或「新的完整 index」，沒有中間態。目的檔不存在時
+        // `replaceItemAt` 會失敗，退回直接 move。
+        let fm = FileManager.default
+        if fm.fileExists(atPath: finalURL.path) {
+            _ = try fm.replaceItemAt(finalURL, withItemAt: tmpURL)
+        } else {
+            try fm.moveItem(at: tmpURL, to: finalURL)
+        }
+        // SQLite 的 -wal / -shm 屬於舊 index，換位後是孤兒且會讓新 index 讀到舊狀態。
+        for suffix in ["-wal", "-shm"] {
+            try? fm.removeItem(at: URL(fileURLWithPath: finalURL.path + suffix))
+        }
 
         return IndexStats(entries: load.entries.count, people: load.people.count,
                           relations: relationCount)

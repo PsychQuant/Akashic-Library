@@ -329,6 +329,25 @@ extension LibraryStore {
     /// citekey rename（#4）：驗證 → 搬檔 → 全庫 relations 遷移 → 舊檔刪除。
     /// UUID 不變（雙 ID 的 rename 承諾至此真正成立）。呼叫端負責 reindex。
     @discardableResult
+    /// 改 citekey 並遷移全庫 relations。
+    ///
+    /// **中斷恢復語意（#29，明確化）**——三個階段各有不同的中斷後果：
+    ///
+    /// | 中斷點 | 磁碟狀態 | 恢復方式 |
+    /// |---|---|---|
+    /// | pre-encode 預檢失敗 | **完全未動** | 修好那筆記錄再跑一次 |
+    /// | 寫新檔／遷移 relations 途中 | 新舊檔並存、部分 relations 已指向新 key | 重跑同一個 rename：目的檔已存在會擲錯，需先手動刪新檔；或改為 rename 回去 |
+    /// | 刪舊檔前 | 新舊檔並存、relations 全部已遷移 | 手動刪舊檔即可（新檔是完整的） |
+    ///
+    /// **設計選擇：先寫後刪**。中斷時頂多多一份檔案，**永遠不丟資料**。反過來
+    /// （先刪後寫）在同一個中斷點會直接失去記錄。多一份檔案由 `doctor` 的重複
+    /// citekey 檢查可見（#7b 的跨記錄驗證），失去記錄則無從發現。
+    ///
+    /// **為什麼 relations 遷移途中不做 per-entry 續跑**（與 import 的策略相反）：
+    /// import 的每一筆是獨立的，跳過一筆只損失那一筆；rename 的每一筆都是**同一個
+    /// 語意動作的一部分**，跳過一筆會留下「一半指向舊 key、一半指向新 key」的
+    /// 不一致，比整個中止更難修。pre-encode 預檢已經把可預期的失敗（encode canary）
+    /// 移到動磁碟之前，剩下的只有磁碟層錯誤——那種情況下中止是對的。
     public func renameEntry(from oldKey: String, to newKey: String) throws -> RenameReport {
         // oldKey 與 newKey 對稱驗證：oldKey 之後會進 entryURL 組刪除路徑，
         // 磁碟上若有畸形 citekey（load() 已 quarantine，此處縱深防禦）絕不可放行
@@ -387,5 +406,79 @@ extension LibraryStore {
 
     private func store_loadForRename() throws -> LibraryLoad {
         try load()
+    }
+}
+
+// MARK: - 跨記錄驗證（#7b）
+
+public extension LibraryLoad {
+    /// 跨記錄的一致性檢查——**單筆 `validate()` 看不到的那一層**。
+    ///
+    /// 每個 `Entry.validate()` / `Person.validate()` 只看自己，所以「兩筆 entry 用了
+    /// 同一個 UUID」「作者的 `.key` 指向不存在的 person」這類問題**結構上不可能**在單筆
+    /// 驗證中被發現。它們的後果也不是立刻可見的：重複 UUID 讓 index 的 `PRIMARY KEY`
+    /// 靜默丟掉其中一筆（查詢少一筆但不報錯），懸空的 `.key` 讓 person 頁面永遠是空的。
+    ///
+    /// **檔名 ↔ citekey 一致性不在這裡**——`load()` 已經在讀取時 quarantine 不符的檔，
+    /// 走到這裡的記錄都已對齊。
+    func crossRecordIssues() -> [ValidationIssue] {
+        var out: [ValidationIssue] = []
+
+        func duplicates<T: Hashable>(_ values: [T]) -> [T] {
+            var seen = Set<T>(), dup = Set<T>()
+            for v in values { if !seen.insert(v).inserted { dup.insert(v) } }
+            return Array(dup)
+        }
+
+        for u in duplicates(entries.map(\.id)).sorted(by: { $0.uuidString < $1.uuidString }) {
+            let keys = entries.filter { $0.id == u }.map { displaySafe($0.citekey, max: 200) }.sorted()
+            out.append(ValidationIssue(
+                severity: .error,
+                message: "UUID \(u.uuidString) 被 \(keys.count) 筆 entry 共用（\(keys.joined(separator: ", "))）"
+                       + "——index 的 PRIMARY KEY 會靜默丟掉其中一筆"))
+        }
+        for k in duplicates(entries.map(\.citekey)).sorted() {
+            out.append(ValidationIssue(severity: .error,
+                message: "citekey「\(displaySafe(k, max: 200))」重複"))
+        }
+        for k in duplicates(people.map(\.key)).sorted() {
+            out.append(ValidationIssue(severity: .error,
+                message: "person key「\(displaySafe(k, max: 200))」重複"))
+        }
+        for k in duplicates(libraries.map(\.key)).sorted() {
+            out.append(ValidationIssue(severity: .error,
+                message: "library key「\(displaySafe(k, max: 200))」重複"))
+        }
+
+        // 參照存在性。**warning 不是 error**：懸空參照讓畫面少東西，但不毀資料，
+        // 而且解析中途（resolve-people 尚未 apply）本來就會有——擋下反而卡住工作流。
+        let personKeys = Set(people.map(\.key))
+        var danglingAuthors: [String: Set<String>] = [:]
+        for e in entries {
+            for a in e.authors {
+                if case let .key(k) = a, !personKeys.contains(k) {
+                    danglingAuthors[k, default: []].insert(e.citekey)
+                }
+            }
+        }
+        for (k, cites) in danglingAuthors.sorted(by: { $0.key < $1.key }) {
+            out.append(ValidationIssue(severity: .warning,
+                message: "作者 key「\(displaySafe(k, max: 200))」沒有對應的 people 檔"
+                       + "（\(cites.count) 筆引用，如 \(displaySafe(cites.sorted().first ?? "", max: 200))）"))
+        }
+
+        let libraryKeys = Set(libraries.map(\.key))
+        var danglingLibs: [String: Int] = [:]
+        for e in entries {
+            for l in e.akashic.libraries where !libraryKeys.contains(l) {
+                danglingLibs[l, default: 0] += 1
+            }
+        }
+        for (l, n) in danglingLibs.sorted(by: { $0.key < $1.key }) {
+            out.append(ValidationIssue(severity: .warning,
+                message: "akashic.libraries 的「\(displaySafe(l, max: 200))」沒有對應的 registry 檔"
+                       + "（\(n) 筆引用）"))
+        }
+        return out
     }
 }

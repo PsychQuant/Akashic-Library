@@ -37,7 +37,13 @@ public final class SQLiteDB {
         sqlite3_busy_timeout(db, 3000)
     }
 
-    deinit { sqlite3_close(handle) }
+    deinit { if handle != nil { sqlite3_close(handle) } }
+
+    /// 顯式關閉，供 atomic rename 前使用（#7a）。SQLite 對「搬移一個仍開啟的
+    /// 資料庫檔」沒有定義行為，所以換位前必須關。idempotent；關閉後不得再用。
+    public func closeForHandoff() {
+        if handle != nil { sqlite3_close(handle); handle = nil }
+    }
 
     public func execute(_ sql: String, bind: [Any?] = []) throws {
         _ = try run(sql, bind: bind)

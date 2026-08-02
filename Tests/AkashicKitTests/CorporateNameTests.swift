@@ -4,6 +4,11 @@ import Foundation
 @testable import AkashicExport
 
 /// #6：機構名不得被切成 "Organization, World Health"。
+///
+/// **範圍（誠實記）**：本 issue 只交付「**標記存在時** export 端尊重它」。
+/// **不做**自動偵測——Zotero 的 `fieldMode == 1` 同時用於機構與「不想被拆的人名」，
+/// 沒有訊號能分開兩者，自動標記會把人名保護壞。真正的修法（family / given /
+/// corporate 三態各自成欄）屬 #35。
 final class CorporateNameTests: XCTestCase {
 
     // MARK: - 標記本身

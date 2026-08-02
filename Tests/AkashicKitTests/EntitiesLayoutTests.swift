@@ -347,6 +347,41 @@ final class EntitiesLayoutTests: XCTestCase {
                       "marker 壞掉時應以磁碟事實兜底（entities/ 有內容 → format 2）")
     }
 
+    /// **雙佈局並存時改寫必須拒絕。** `renameEntry` 的刪除路徑只按 store format 推算
+    /// 位置，所以它會刪掉其中一份而留下另一份——留下的還是舊 citekey。
+    /// 讀取面（validate / doctor）刻意不擋：診斷工具在這種狀態下正是最該說話的時候。
+    func testRenameRefusesWhenRecordExistsInBothLayouts() throws {
+        let store = try legacyStore()
+        let e = entry("a2020a")
+        try store.writeEntry(e)                                     // → entries/
+        try FileManager.default.createDirectory(at: store.entitiesDir,
+                                                withIntermediateDirectories: true)
+        try EntryYAML.encode(e).write(to: store.entityURL(id: e.id),
+                                      atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try store.renameEntry(from: "a2020a", to: "b2021b")) { err in
+            guard case StoreIOError.inconsistentStore = err else {
+                return XCTFail("應為 inconsistentStore，實得 \(err)")
+            }
+        }
+        // 兩份都還在——拒絕不得留下部分狀態
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.entryURL(citekey: "a2020a").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.entityURL(id: e.id).path))
+    }
+
+    /// 讀取面**不擋**——那是診斷工具該說話的時候。
+    func testValidateStillReportsInsteadOfRefusing() throws {
+        let store = try legacyStore()
+        let e = entry("a2020a")
+        try store.writeEntry(e)
+        try FileManager.default.createDirectory(at: store.entitiesDir,
+                                                withIntermediateDirectories: true)
+        try EntryYAML.encode(e).write(to: store.entityURL(id: e.id),
+                                      atomically: true, encoding: .utf8)
+        let load = try store.load()                                  // 不擲錯
+        XCTAssertEqual(load.entries.count, 2)
+        XCTAssertEqual(load.crossRecordIssues().filter { $0.severity == .error }.count, 2)
+    }
+
     func testMigrationIsIdempotent() throws {
         let store = try legacyStore()
         try store.writeEntry(entry("a2020a"))

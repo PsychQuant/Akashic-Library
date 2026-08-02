@@ -3,9 +3,17 @@ import AkashicCore
 
 public enum StoreIOError: Error, LocalizedError, Equatable {
     case invalidKey(String, String)
+    /// store 有跨記錄的不一致（重複 UUID / citekey），改寫動作拒絕執行（#35 verify）。
+    case inconsistentStore(action: String, issues: [String])
 
     public var errorDescription: String? {
         switch self {
+        case let .inconsistentStore(action, issues):
+            // 單行——會過 displaySafe
+            return "store 有 \(issues.count) 個跨記錄不一致，\(action) 拒絕執行"
+                 + "（改寫會刪掉其中一份而留下另一份）："
+                 + issues.prefix(3).map { displaySafe($0, max: 300) }.joined(separator: "；")
+                 + "。先跑 akashic doctor 看清楚並修好。"
         case .invalidKey(let kind, let value):
             return "\(kind)「\(value)」不符合 \(StoreKey.pattern)，拒絕寫入"
         }
@@ -439,6 +447,21 @@ extension LibraryStore {
     /// 語意動作的一部分**，跳過一筆會留下「一半指向舊 key、一半指向新 key」的
     /// 不一致，比整個中止更難修。pre-encode 預檢已經把可預期的失敗（encode canary）
     /// 移到動磁碟之前，剩下的只有磁碟層錯誤——那種情況下中止是對的。
+    /// 改寫前的一致性 gate（#35 verify）。
+    ///
+    /// **雙佈局並存時同一筆會被讀兩次**（半途遷移、還原的備份、git merge）。在那種狀態
+    /// 下做改寫是危險的：`renameEntry` 的刪除路徑只按 **store format** 推算位置，所以它
+    /// 會刪掉其中一份而留下另一份——留下的那份還是舊 citekey。
+    ///
+    /// 讀取面（`load` / `validate` / `doctor`）**刻意不擋**：診斷工具在這種狀態下正是最該
+    ///說話的時候。擋的是**寫入面**。
+    func assertNoCrossRecordErrors(_ load: LibraryLoad, action: String) throws {
+        let errs = load.crossRecordIssues().filter { $0.severity == .error }
+        guard errs.isEmpty else {
+            throw StoreIOError.inconsistentStore(action: action, issues: errs.map(\.message))
+        }
+    }
+
     public func renameEntry(from oldKey: String, to newKey: String) throws -> RenameReport {
         // oldKey 與 newKey 對稱驗證：oldKey 之後會進 entryURL 組刪除路徑，
         // 磁碟上若有畸形 citekey（load() 已 quarantine，此處縱深防禦）絕不可放行
@@ -456,6 +479,8 @@ extension LibraryStore {
             throw StoreIOError.invalidKey("citekey（目的檔已存在）", newKey)
         }
         let load = try store_loadForRename()
+        // 動磁碟前先擋——雙佈局並存時 rename 會刪掉其中一份而留下另一份（見上）
+        try assertNoCrossRecordErrors(load, action: "rename")
         guard var entry = load.entries.first(where: { $0.citekey == oldKey }) else {
             throw StoreIOError.invalidKey("citekey（來源不存在）", oldKey)
         }

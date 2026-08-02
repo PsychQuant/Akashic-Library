@@ -39,6 +39,9 @@ public enum BibExport {
         case .key(let k): display = people[k]?.names.first ?? k
         case .literal(let s): display = s
         }
+        // #6：機構名（`{...}` 標記）原樣輸出——biblatex 的大括號本來就是「別動它」，
+        // 切成 Family, Given 會產生 "Organization, World Health" 這種錯誤輸出。
+        if CorporateName.isMarked(display) { return display }
         return familyGiven(display).map { "\($0.family), \($0.given)" } ?? display
     }
 

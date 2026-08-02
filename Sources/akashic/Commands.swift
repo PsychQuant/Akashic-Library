@@ -200,21 +200,47 @@ struct ResolvePeople: ParsableCommand {
 
     @OptionGroup var options: LibraryOptions
 
-    @Flag(name: .long, help: "套用全部候選（顯式人工確認）")
+    @Flag(name: .long, help: "套用候選（顯式人工確認）；可用 --citekey / --person 收窄範圍")
     var apply = false
+
+    /// #5：alias 完全命中**仍可能同名不同人**——people 庫還沒記錄第二個人時，
+    /// 歧義偵測不會觸發。所以「全套用」對這種情境是危險的預設，必須能逐項挑。
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "只套用這些 citekey 的候選（可重複；與 --person 取交集）")
+    var citekey: [String] = []
+
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "只套用指向這些 person key 的候選（可重複；與 --citekey 取交集）")
+    var person: [String] = []
 
     func run() throws {
         let store = try options.openStore()
         let load = try store.load()
-        let candidates = PersonResolver.candidates(entries: load.entries, people: load.people)
-        guard !candidates.isEmpty else {
+        let all = PersonResolver.candidates(entries: load.entries, people: load.people)
+        // 篩選只影響 **--apply**，列表一律顯示全部——否則使用者用 --citekey 收窄後
+        // 會以為其他候選不存在。
+        let ckSet = Set(citekey), pkSet = Set(person)
+        let candidates = all.filter {
+            (ckSet.isEmpty || ckSet.contains($0.citekey))
+                && (pkSet.isEmpty || pkSet.contains($0.personKey))
+        }
+        guard !all.isEmpty else {
             print("無候選（literal 作者 \(load.entries.flatMap(\.authors).filter { if case .literal = $0 { return true } else { return false } }.count) 個，皆無 alias 完全命中）")
             return
         }
-        for c in candidates {
-            print("\(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
+        let selected = Set(candidates.map { "\($0.citekey)#\($0.authorIndex)" })
+        for c in all {
+            // 被篩掉的候選仍列出，但標明不會套用——收窄範圍不等於「其他不存在」
+            let mark = (apply && !selected.contains("\(c.citekey)#\(c.authorIndex)")) ? "  (skip) " : "  "
+            print("\(mark)\(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
         }
         if apply {
+            // 篩選條件寫了卻一個都沒中——多半是打錯 key，別靜默什麼都不做
+            if !(citekey.isEmpty && person.isEmpty), candidates.isEmpty {
+                throw ValidationError(
+                    "--citekey / --person 的篩選條件沒有命中任何候選"
+                    + "（共 \(all.count) 個候選）——請對照上面的清單確認 key 是否正確")
+            }
             let applied = PersonResolver.apply(candidates, to: load.entries)
             var written = 0
             var writeFailed: [(String, String)] = []

@@ -91,7 +91,19 @@ public enum ZoteroReader {
             let display: String
             let family: String
             if fieldMode == 1 {
-                // 單欄姓名：Zotero 把整個名字存在 lastName；citekey 用最後一個 token 當姓
+                // 單欄姓名：Zotero 把整個名字存在 lastName；citekey 用最後一個 token 當姓。
+                //
+                // **#6 刻意不在這裡自動標記機構名**：`fieldMode == 1` 同時被用在機構
+                // （"World Health Organization"）與「不想被拆的人名」（測試 fixture 的
+                // "Chun-Houh Chen" 就是），Zotero 端沒有能分開兩者的訊號。自動標記會把
+                // 人名保護成 `{Chun-Houh Chen}`，export 出 `{Chun-Houh Chen}` 而非
+                // `Chen, Chun-Houh`——**修一個錯換一個錯**。
+                //
+                // 沒有儲存結構就無法自動判別（token 數也分不開：2-token 的人名切分正確、
+                // 3-token 的機構切分錯誤，4-token 的人名又切分正確）。真正的修法是
+                // family / given / corporate 三態各自成欄，屬 #35 的 entity 模型統一。
+                // 在此之前，使用者可手動在 store 檔裡把機構名寫成 `{...}`，export 端
+                // 會尊重（見 `CorporateName`）。
                 display = last
                 family = last.split(separator: " ").last.map(String.init) ?? last
             } else {

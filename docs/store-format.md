@@ -332,7 +332,123 @@ encode/decode 等冪。
   實際可容納的節點數依結構而定（單鍵 mapping 元素約耗 3 次比對/個）。巨大
   未知子樹與 anchor/alias 重用型 DAG 都會觸發 → quarantine。這是未知子樹的
   實質大小上限（可用性懸崖，照實記載）；超大 payload 不應塞在未知欄位裡。
-- **已知未防護：alias 落在 mapping key 位置的展開 DoS（R12 照實記載）**：本檔
+- **已修：alias 展開 DoS（#36 / #27，normative）**——`compose` **之前**在 parser 的
+  **event 層**估計展開成本。**三個獨立的軸**，任一超過即拒收（quarantine）：
+
+  | 軸 | 上限 | 擋的是什麼 |
+  |---|---|---|
+  | 展開後**節點數** | 200,000 | 指數放大（billion laughs） |
+  | 展開後 **bytes** | 64 MB | **重量**——19,000 次引用一個 5 KB scalar 只算 38,003 節點（計數過關），展開後卻是 95 MB |
+  | **展開後**的樹深 | 512 | **語法深度看不到的那一種**——`k1: &a1 [*a0]` 每行都是深度 1，展開後卻可以是 8000 層 |
+  | 輸入 bytes | 8 MB | 單一超大 scalar |
+
+  **三個軸各自獨立，而且每一個都是被打出來的**：
+
+  - **計數不等於重量**——只算節點數會讓「少量 alias 引用大 scalar」完全通過。
+  - **語法深度不等於展開深度**（PR #49 因此被撤回）。這個構造語法上完全是平的：
+
+        root: &a0 x
+        k1: &a1 [*a0]
+        …8000 層…
+        ? *a8000
+        : 1
+
+    180 KB、24,005 節點、**語法深度 2**——只測語法深度的守衛完全放行，而
+    `akashic validate` 直接 **SIGSEGV（exit 139）**。libyaml 的 `MAX_NESTING_LEVEL`
+    也不觸發，它同樣只管語法。**SIGSEGV 比 DoS 更嚴重**：DoS 會 timeout 然後
+    quarantine，SIGSEGV 是 `catch` 抓不到的，那個檔案會讓三個 consumer 每次載入都死。
+
+    所以估計器記的是**展開後的樹深**：anchor 記錄其子樹深度，alias 引用時取該深度，
+    collection 的深度 = 1 + 子節點最大值。
+
+  **上限設在合法可解析範圍之內就是誤殺**：實測 500 層的 `[[[…]]]` 仍能被 Yams 正常
+  compose，所以 512 是下界。真實書目資料的深度是個位數。
+
+  **為什麼是 event 層**：`yaml_parser_parse` **不展開 alias**（每個 alias 就是一個
+  `YAML_ALIAS_EVENT`），成本與**輸入大小**成正比，與展開後大小無關。而它給的是 parser
+  自己的判斷，**不需要重現任何 YAML 詞法**——那正是前五次失敗的來源。
+
+  **慢的到底是什麼（實測，非推論）**——同一個 bomb，只差 alias 放在哪：
+
+  | alias 位置 | bytes | `Yams.compose` |
+  |---|---|---|
+  | **value**：`zz: *a8` | 404 | **0.001 s** |
+  | **key**：`*a8: 1` | 403 | **43.4 s** |
+
+  **43,000 倍**，展開量完全相同（9⁸ ≈ 4300 萬節點）。原因：compose 建完 mapping 後要
+  檢查重複鍵，而那需要 hash 每個 key node——key 是 alias 時得**遞迴 hash 整棵展開後的
+  子樹**，且**沒有 memoisation**。value 位置不痛是因為 Yams 的 `Node` 是 enum，
+  alias 在 value 位置只是共用同一個節點參照（COW），沒有真的展開。
+
+  **但守衛不需要知道位置**：它擋的是「展開量大」，而展開量大是 key 位置爆炸的**必要
+  條件**。擋掉必要條件就夠了。R11 那一輪去猜 complex-key 語法，直覺方向對（位置確實
+  是關鍵）但用文字判位置必然失敗——`*a: 1` / `{? *a : 1}` / `{*a: 1}` 是同一件事的
+  三種寫法。
+
+  **門檻與成本的對應**（實測，約線性）：
+
+  | 展開節點 | compose |
+  |---|---|
+  | 11 萬（fan 2 × 12 層）| 0.01 s |
+  | 480 萬（fan 9 × 7 層）| 4.8 s |
+  | 4300 萬（fan 9 × 8 層）| 43 s |
+
+  所以 200,000 的門檻對應 compose 約 **0.2 秒**上限。
+
+  **三個由 verify 補上的修正（第 7 版）**：
+
+  1. **估計值必須精確等於真實展開量**，不是「夠接近」。記錄 anchored 子樹大小時漏算
+     collection 自己那一層，單看是差一，鏈起來累積成 **84 倍**（500 層的鏈估 1,505、
+     真實 126,755）。修正後四組構造的估計值與真實值**逐一相等**。
+  2. **節點軸只在有 alias 時生效**。alias-free 的檔案放大**定義上不可能**，成本由
+     `maxBytes` 已界住（實測 alias-free 的 compose 對輸入線性）。不 gate 的話 1.8 MB 的
+     正常大檔會被擋下並告知「這是攻擊的形狀」——誤殺，而且訊息是錯的。
+  3. **寫入路徑放寬 2×（遲滯）**。encode canary 走同一道守衛，讀寫門檻若相同則一筆
+     199,999 節點的記錄讀得進來、下次編輯多一個節點就**永遠寫不回**。R9 對 oracle
+     預算做過同一件事，理由逐字相同。
+
+  **排除清單（文字層方案，不要再試）**：
+
+  | 嘗試 | 輪次 | 死法 |
+  |---|---|---|
+  | 行尾字元全文掃描 | R5 / R6 | 誤殺 block scalar 內容 |
+  | `? key` complex-key 判定 | R10 / R11 | 三條繞道未擋 + 誤殺 emitter 輸出 |
+  | anchor/alias 計數 | PR #42（撤回） | 真實 corpus 已坐在門檻上；跨行引號（雙向）、跨行 flow、CRLF、`#` 判準全破 |
+
+  共同形態：**用手寫的逐字元狀態機重現 YAML 詞法**。引號跨行、flow collection、
+  block scalar 標頭、CRLF、註解起始條件，每個細節都是一個獨立破口。
+
+  **門檻由合法資料的最壞情形校準，不是由現況**（這個區別是實作時修正的重點）：
+
+  | 輸入 | 估計節點數 |
+  |---|---|
+  | 真實 corpus 最大檔（536 檔實測） | **180** |
+  | 45 位作者 + 40 個大欄位的 entry | 230 |
+  | **#20 的 temporal person，1400 段時間軸** | **15,457** |
+  | fanout 2 × 12 層（**compose 僅 0.01 s，不痛**） | 135,158 |
+  | **真正會痛的**：fanout 9 × 7 層（357 B、compose **4.8 s**） | **超過門檻** |
+
+  第三列是**合法資料**——#20 明說「全部維度都要記錄歷史」，而 ISS 有 77 位 PI、六個維度
+  加聯絡資訊。門檻若貼著現況（~700）設，這種記錄會被誤殺，而誤殺代表**永久寫不回**
+  （encode canary 也走這道守衛），那正是 R11 的死法。200,000 讓合法最壞情形有 13× 餘裕、
+  **門檻擋在痛點之前**（實測 fanout 9 的痛點在 lv=7、compose 4.8 s，而 lv=5 就已超標）——**兩邊都留餘裕**，不是只顧一邊。
+
+  對比 PR #42 的「anchor 數 × alias 數」：那種代理指標與真實資料的距離**無法量測**，
+  結果 corpus 已經坐在上面。這裡是**同一個量綱**的直接比較，兩邊的餘裕都看得見。
+
+  **實測**：R12 三條繞道 + PR #42 四條（`>` 致盲、跨行 flow、CRLF、`#` 判準）+ 單一
+  anchor 放大 + 超大 scalar，**全部擋下**；713–789 B 的 payload 從 **40 s timeout →
+  0.33 s quarantine**。真實 corpus 536 檔零誤殺（validate 全程 0.32 s），emitter 對
+  含跨行折行的長 abstract 輸出零誤殺。
+
+  **守衛位置**（五處，缺一不可）：三個 decode 入口、encode canary、`EntityKind.peek`
+  （**entities 佈局的第一個動作**——只接 decode 入口實測仍會 timeout）、
+  `verifyBlockOracle` 的區塊獨立 compose（整檔通過不代表每個切片都便宜）。
+
+  實作在 `Sources/AkashicCore/AliasEventBudget.swift`，libyaml vendored 於
+  `Sources/CLibYAML`（Yams 未把 `CYaml` 匯出成 product，見 `include/VENDORED.md`）。
+
+- ~~**已知未防護：alias 落在 mapping key 位置的展開 DoS（R12 照實記載）**~~（已修，見上）：本檔
   所有預算守衛都跑在 `Yams.compose` 之後，而 composer 的重複鍵偵測會對每個
   key node 遞迴 hash（無 memoisation）。alias 指向 DAG 且落在 key 位置時，
   展開發生在 compose **內部**，預算一個都還沒開始跑。實測三種形式在 630–645

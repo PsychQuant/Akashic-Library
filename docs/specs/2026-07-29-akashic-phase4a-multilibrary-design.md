@@ -1,5 +1,7 @@
 # Akashic Phase 4a — 多 library（membership views）設計
 
+> **Superseded（2026-08-02，#23 / #30）**：本文件多處寫「strict decode：未知欄位仍拒」——那是 v1.2 的行為。**v1.3 起開放層（entry / person / library 頂層 + `akashic` nested）容忍未知欄位並逐字保留**；strict 只留在 `authors` / `attachments` / `provenance` / `akashic.relations`。以 `docs/store-format.md` §5 為準。
+
 日期：2026-07-29　狀態：#13 實作中（issue #13 decision comment 為裁定來源）
 
 ## 理念定錨

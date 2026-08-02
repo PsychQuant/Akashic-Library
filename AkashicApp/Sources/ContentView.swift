@@ -75,6 +75,13 @@ struct SidebarView: View {
                 LabeledContent("未解析作者", value: "\(state.unresolvedLiteralCount)")
                 LabeledContent("Orphans", value: "\(state.orphanedEntries.count)")
                 LabeledContent("Quarantined", value: "\(state.quarantined.count)")
+                // #31：與 Quarantined 並列但語意相反——這些檔**正常載入且完整保留**，
+                // 只是本 binary 看不懂其中一部分。0 時不顯示，避免噪音。
+                if !state.unknownFieldFiles.isEmpty {
+                    LabeledContent("較新欄位", value: "\(state.unknownFieldFiles.count)")
+                        .help("這些檔含本 binary 不認得的欄位。內容已完整保留，"
+                              + "但升級 CLI / akashic-mcp / App 才看得到它們。")
+                }
             }
             // 外部變更同步提示（spec §6 的 write-through 落地：沒有草稿緩衝可遺失，
             // 但外部剛更新畫面時要讓使用者知道）

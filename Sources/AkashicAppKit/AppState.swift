@@ -19,6 +19,11 @@ public final class AppState {
     /// Library registry（#13 membership views）
     public private(set) var libraries: [Library] = []
     public private(set) var quarantined: [QuarantinedFile] = []
+    /// #31：含未知欄位（較新 binary 寫入）的檔案清單。與 quarantined 並列而非合併——
+    /// 語意完全不同：quarantined 是「這個檔壞了、沒載入」，unknown-field 是
+    /// 「這個檔**正常載入且完整保留**，只是本 binary 看不懂其中一部分」。
+    /// 合併會讓使用者以為資料出事了。
+    public private(set) var unknownFieldFiles: [String] = []
     /// 每次 load() 遞增。App 層 model（People/Quarantine/Graph）以此為
     /// re-create 訊號，外部變更（FileWatcher reload）才會反映到快取清單。
     public private(set) var reloadCount: Int = 0
@@ -90,6 +95,7 @@ public final class AppState {
         people = loaded.people
         libraries = loaded.libraries
         quarantined = loaded.quarantined
+        unknownFieldFiles = loaded.unknownFieldFiles
         // registry 同步刷新（config 讀不到→空清單；App 不因 config 壞而擋 load）
         if let config = try? AkashicConfig.read(from: configURL) {
             availableFiles = config.files.keys.sorted().map {

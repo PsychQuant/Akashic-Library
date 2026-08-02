@@ -126,6 +126,9 @@ public final class AkashicService {
             var d: [String: Any] = ["key": person.key, "names": person.names]
             if let orcid = person.orcid { d["orcid"] = orcid }
             if let openalex = person.openalex { d["openalex"] = openalex }
+            if !person.unknownFields.isEmpty {   // #31：同 entryDict，只給 key
+                d["unknownFields"] = person.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
+            }
             return d
         }
         return try jsonString(dicts)
@@ -222,6 +225,10 @@ public final class AkashicService {
             var personDict: [String: Any] = ["key": key]
             if let record {
                 personDict["names"] = record.names
+                if !record.unknownFields.isEmpty {   // #31
+                    personDict["unknownFields"] =
+                        record.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
+                }
                 if let orcid = record.orcid { personDict["orcid"] = orcid }
             }
             return try jsonString([
@@ -604,6 +611,12 @@ public final class AkashicService {
         if !entry.akashic.relations.cites.isEmpty { akashic["cites"] = entry.akashic.relations.cites }
         if !entry.akashic.relations.related.isEmpty { akashic["related"] = entry.akashic.relations.related }
         d["akashic"] = akashic
+        // #31：讀取面必須露出「這筆記錄有本 binary 不認得的欄位」。只給 key 不給值——
+        // 值是未信任的逐字原文，灌進 LLM context 沒有意義且是注入面；key 足以讓使用者
+        // 知道「這裡有東西、你的 binary 看不懂」並去升級。
+        if !entry.unknownFields.isEmpty {
+            d["unknownFields"] = entry.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
+        }
         return d
     }
 

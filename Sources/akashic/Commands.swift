@@ -202,6 +202,55 @@ struct Migrate: ParsableCommand {
     }
 }
 
+/// #34：從 literal 作者 bootstrap person 記錄。
+struct BootstrapPeople: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "bootstrap-people",
+        abstract: "從 literal 作者建立 person 記錄（寧可分割，絕不合併）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Flag(name: .long, help: "實際寫入（預設只列出）")
+    var apply = false
+
+    @Option(name: .long, help: "只處理出現次數 ≥ N 的（投報率優先）")
+    var minOccurrences: Int = 1
+
+    @Option(name: .long, help: "最多處理前 N 個")
+    var limit: Int?
+
+    func run() throws {
+        let store = try options.openStore()
+        let load = try store.load()
+        var cands = PersonBootstrap.candidates(entries: load.entries, existing: load.people)
+            .filter { $0.occurrences >= minOccurrences }
+        let total = cands.count
+        if let limit { cands = Array(cands.prefix(limit)) }
+
+        guard !cands.isEmpty else {
+            print("無候選（literal 作者皆已有對應 person，或全部低於門檻）")
+            return
+        }
+        for c in cands.prefix(apply ? 0 : 20) {
+            let aliases = c.names.map { displaySafe($0, max: 200) }.joined(separator: " ≡ ")
+            print("  \(displaySafe(c.key, max: 200))  ×\(c.occurrences)  \(aliases)")
+        }
+        if !apply {
+            if total > 20 { print("  …共 \(total) 個（只列前 20）") }
+            print("（只列候選；要建立加 --apply）")
+            return
+        }
+        var written = 0
+        for p in PersonBootstrap.personsFor(cands) {
+            try store.writePerson(p)
+            written += 1
+        }
+        _ = try LibraryIndex(store: store).rebuild()
+        print("✓ 建立 \(written) 個 person（共 \(total) 個候選）、index 已重建")
+        print("  下一步：akashic resolve-people 把 entries 的 literal 歸戶")
+    }
+}
+
 /// #21：WoS 匯出 → entries。
 struct ImportWoS: ParsableCommand {
     static let configuration = CommandConfiguration(

@@ -255,6 +255,98 @@ final class EntitiesLayoutTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.entitiesDir.path))
     }
 
+    // MARK: - verify 抓到的問題（PR #48）
+
+    /// **CRITICAL：fresh clone 開不起來。** git 不追蹤空目錄，所以遷移後的 store
+    /// clone 出來只有 `entities/`——只認 `entries/` 的話換一台機器就用不了。
+    func testFreshCloneWithOnlyEntitiesIsRecognised() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: root.appendingPathComponent("entities"),
+                               withIntermediateDirectories: true)
+        try StoreVersion.write(root: root, format: 2)
+        XCTAssertTrue(LibraryStore.isLibraryRoot(root),
+                      "只有 entities/ 的 store 必須被認得（新 clone 的實際樣子）")
+    }
+
+    func testLegacyRootStillRecognised() throws {
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("entries"),
+                                                withIntermediateDirectories: true)
+        XCTAssertTrue(LibraryStore.isLibraryRoot(root))
+    }
+
+    /// 普通檔案冒充目錄不算（R2 #3 的既有防護，不得因為本次改動而失效）。
+    func testPlainFileNamedEntitiesIsNotALibrary() throws {
+        try "x".write(to: root.appendingPathComponent("entities"),
+                      atomically: true, encoding: .utf8)
+        XCTAssertFalse(LibraryStore.isLibraryRoot(root))
+    }
+
+    /// **CRITICAL：兩筆映到同一目的 UUID。** 照做會讓後寫的覆蓋前寫的、兩份 legacy
+    /// 都被刪 → 永久失去一筆。必須在動磁碟前擋下。
+    func testMigrationRefusesDuplicateDestinationUUID() throws {
+        let store = try legacyStore()
+        let shared = UUID()
+        try store.writeEntry(entry("a2020a", id: shared))
+        try store.writeEntry(entry("b2021b", id: shared))
+        XCTAssertThrowsError(try StoreMigration.toEntities(store: store)) { err in
+            // 重複 UUID 先被 crossRecordIssues 擋（兩者都是正確的拒絕理由）
+            switch err {
+            case StoreMigration.MigrationError.duplicateDestination,
+                 StoreMigration.MigrationError.crossRecordIssues: break
+            default: XCTFail("必須擋下重複目的檔，實得 \(err)")
+            }
+        }
+        XCTAssertEqual(try StoreVersion.read(root: root), 1, "失敗後不得 bump")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: store.entitiesDir.appendingPathComponent("\(shared.uuidString).yaml").path),
+            "動磁碟前就該擋下")
+    }
+
+    /// **entry.id 撞到 person 的衍生 id**——不同型別、不同集合，`crossRecordIssues`
+    /// 涵蓋不到，必須由遷移自己檢查。
+    func testMigrationRefusesEntryPersonUUIDCollision() throws {
+        let store = try legacyStore()
+        let p = Person(key: "p-one", names: ["A"])
+        try store.writePerson(p)
+        try store.writeEntry(entry("a2020a", id: p.id))
+        XCTAssertThrowsError(try StoreMigration.toEntities(store: store)) { err in
+            guard case StoreMigration.MigrationError.duplicateDestination = err else {
+                return XCTFail("跨型別的 UUID 碰撞必須擋下，實得 \(err)")
+            }
+        }
+    }
+
+    /// **legacy 刪不掉時不得 bump format。** bump 了會讓 store 進入死角：雙佈局並存
+    /// 使 index 撞 UNIQUE constraint 永遠 rebuild 不了，而 format 已是 2 使 migrate 拒絕再跑。
+    func testMigrationDoesNotBumpWhenLegacyDeletionFails() throws {
+        let store = try legacyStore()
+        try store.writeEntry(entry("a2020a"))
+        // 讓 entries/ 唯讀 → removeItem 失敗
+        let fm = FileManager.default
+        try fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: store.entriesDir.path)
+        defer { try? fm.setAttributes([.posixPermissions: 0o755],
+                                      ofItemAtPath: store.entriesDir.path) }
+        XCTAssertThrowsError(try StoreMigration.toEntities(store: store)) { err in
+            guard case StoreMigration.MigrationError.legacyDeletionFailed = err else {
+                return XCTFail("刪除失敗必須擲錯，實得 \(err)")
+            }
+        }
+        XCTAssertEqual(try StoreVersion.read(root: root), 1,
+                       "刪不掉時 format 必須留在 1——讀取端照舊佈局運作，資料一致")
+    }
+
+    /// marker 壞掉時**不得靜默當 format 1**——寫入端會把新記錄寫進 entries/，
+    /// 而其餘資料在 entities/，兩個佈局並存且無訊號。
+    func testCorruptMarkerFallsBackToDiskFactsNotFormat1() throws {
+        let store = LibraryStore(root: root)
+        try store.ensureLayout()
+        try store.writeEntry(entry("a2020a"))            // → entities/
+        try "garbage without format line\n".write(to: StoreVersion.url(in: root),
+                                                  atomically: true, encoding: .utf8)
+        XCTAssertTrue(store.usesEntitiesLayout,
+                      "marker 壞掉時應以磁碟事實兜底（entities/ 有內容 → format 2）")
+    }
+
     func testMigrationIsIdempotent() throws {
         let store = try legacyStore()
         try store.writeEntry(entry("a2020a"))

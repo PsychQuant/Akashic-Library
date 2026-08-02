@@ -110,7 +110,18 @@ public final class LibraryStore {
     /// `ensureLayout` 或半途中斷而存在卻是空的，用它當判準會讓寫入端在遷移完成前
     /// 就開始往新位置寫，產生兩個佈局並存的爛攤子。
     public var usesEntitiesLayout: Bool {
-        ((try? StoreVersion.read(root: root)) ?? 1) >= 2
+        do {
+            return try StoreVersion.read(root: root) >= 2
+        } catch {
+            // **marker 讀不到／壞掉時不得靜默當 format 1**（verify HIGH）：寫入端會把
+            // 新記錄寫進 `entries/`，而 format 2 的 store 其餘資料都在 `entities/`
+            // ——兩個佈局並存，且沒有任何訊號。改以**磁碟事實**兜底：entities/ 有內容
+            // 就當 format 2。這仍是猜，但猜的方向與資料一致，而不是與 marker 一致。
+            let fm = FileManager.default
+            let hasEntities = ((try? fm.contentsOfDirectory(atPath: entitiesDir.path)) ?? [])
+                .contains { $0.lowercased().hasSuffix(".yaml") }
+            return hasEntities
+        }
     }
 
     public func entryURL(citekey: String) -> URL {

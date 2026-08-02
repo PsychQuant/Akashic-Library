@@ -32,11 +32,37 @@ public enum StoreMigration {
     public enum MigrationError: Error, LocalizedError {
         case alreadyAtFormat(Int)
         case quarantinedFilesPresent([String])
+        /// 兩筆記錄映到同一個目的 UUID。**不遷移**——照做會讓後寫的覆蓋前寫的，
+        /// 而兩份 legacy 都被刪，永久失去一筆。
+        case duplicateDestination([String])
+        /// 跨記錄問題（重複 citekey / person key）。遷移會把它們帶進新佈局。
+        case crossRecordIssues([String])
+        /// legacy 檔刪除失敗。**不 bump format**——bump 了會讓 store 進入
+        /// 「index 永遠 rebuild 不了、migrate 又拒絕再跑」的死角。
+        case legacyDeletionFailed([String])
 
         public var errorDescription: String? {
             switch self {
             case let .alreadyAtFormat(v):
                 return "store 已經是 format \(v)，不需要遷移"
+            case let .duplicateDestination(keys):
+                return """
+                    有 \(keys.count) 組記錄會映到同一個目的檔——遷移中止。\
+                    照做會讓後寫的覆蓋前寫的、而兩份來源都被刪除，**永久失去一筆**。\
+                    先修好重複的 id / key：\(keys.prefix(5).map { displaySafe($0, max: 200) }.joined(separator: "、"))
+                    """
+            case let .crossRecordIssues(msgs):
+                return """
+                    store 有 \(msgs.count) 個跨記錄問題（重複 citekey / key）——遷移中止。\
+                    搬過去只會把問題帶進新佈局：\(msgs.prefix(3).map { displaySafe($0, max: 300) }.joined(separator: "；"))
+                    """
+            case let .legacyDeletionFailed(files):
+                return """
+                    entities/ 已寫入，但有 \(files.count) 個 legacy 檔刪不掉，\
+                    **store format 未 bump**（仍是 1，讀取端照舊佈局運作，資料一致）。\
+                    手動刪掉它們之後重跑 akashic migrate：\
+                    \(files.prefix(5).map { displaySafe($0, max: 300) }.joined(separator: "、"))
+                    """
             case let .quarantinedFilesPresent(files):
                 return """
                     有 \(files.count) 個檔案無法載入（quarantined），遷移中止——\
@@ -63,6 +89,32 @@ public enum StoreMigration {
             throw MigrationError.quarantinedFilesPresent(load.quarantined.map(\.file))
         }
 
+        // 跨記錄問題（重複 citekey / person key）——搬過去只會把問題帶進新佈局
+        let cross = load.crossRecordIssues().filter { $0.severity == .error }
+        guard cross.isEmpty else {
+            throw MigrationError.crossRecordIssues(cross.map(\.message))
+        }
+
+        // **目的檔碰撞（verify CRITICAL）**：兩筆記錄映到同一個 UUID 時，照做會讓
+        // 後寫的覆蓋前寫的、而兩份 legacy 都被刪 → 永久失去一筆。entry 的 id 由
+        // crossRecordIssues 涵蓋，但 **entry.id 與 person 的衍生 id 相撞**不在它的
+        // 範圍內（不同型別、不同集合），所以在這裡合起來檢查一次。
+        var destSeen: [String: String] = [:]
+        var collisions: [String] = []
+        for e in load.entries {
+            let d = e.id.uuidString
+            if let prev = destSeen[d] { collisions.append("\(prev) ↔ \(e.citekey)（\(d)）") }
+            destSeen[d] = e.citekey
+        }
+        for p in load.people {
+            let d = p.id.uuidString
+            if let prev = destSeen[d] { collisions.append("\(prev) ↔ \(p.key)（\(d)）") }
+            destSeen[d] = p.key
+        }
+        guard collisions.isEmpty else {
+            throw MigrationError.duplicateDestination(collisions)
+        }
+
         var report = Report()
         let fm = FileManager.default
 
@@ -75,6 +127,9 @@ public enum StoreMigration {
                 report.alreadyMigrated += 1
                 continue
             }
+            // dest 已存在（半途中斷的殘留）→ 覆寫是對的：來源是 legacy，dest 只是
+            // 上次寫到一半的產物。**但兩者同時存在時 load() 已經把它讀成兩筆**，
+            // 而上面的 crossRecordIssues 檢查會先擋下來，所以走到這裡代表沒有衝突。
             payloads.append((dest, try EntryYAML.encode(entry),
                              fm.fileExists(atPath: legacy.path) ? legacy : nil))
             report.entriesMoved += 1
@@ -102,7 +157,20 @@ public enum StoreMigration {
         // ── 階段 3：刪 legacy，最後才 bump format ──
         // format 是最後一步：在它翻成 2 之前，讀取端仍把 legacy 當 canonical，
         // 所以前兩階段中斷時 store 仍是一致的舊佈局 + 一份多餘的 entities/。
-        for p in payloads { if let legacy = p.legacy { try? fm.removeItem(at: legacy) } }
+        //
+        // **刪除失敗不得吞掉（verify CRITICAL/HIGH）**：`try?` 加上無條件 bump 會讓
+        // store 進入死角——雙佈局並存使 index 撞 UNIQUE constraint 永遠 rebuild 不了，
+        // 而 format 已是 2 使 migrate 拒絕再跑。不 bump 的話讀取端仍照 format 1 運作，
+        // 資料一致，人工刪掉殘留後重跑即可。
+        var undeleted: [String] = []
+        for p in payloads {
+            guard let legacy = p.legacy else { continue }
+            do { try fm.removeItem(at: legacy) }
+            catch { undeleted.append(legacy.lastPathComponent) }
+        }
+        guard undeleted.isEmpty else {
+            throw MigrationError.legacyDeletionFailed(undeleted)
+        }
         try StoreVersion.write(root: store.root, format: 2)
         return report
     }

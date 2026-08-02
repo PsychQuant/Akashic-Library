@@ -64,7 +64,7 @@ final class LaunchState {
         watcher = nil
         do {
             let store = LibraryStore(root: state.root)
-            let newWatcher = FileWatcher(directories: [store.entriesDir, store.peopleDir]) {
+            let newWatcher = FileWatcher(directories: [store.entitiesDir, store.entriesDir, store.peopleDir]) {
                 Task { @MainActor in
                     try? state.externalReload()
                 }
@@ -82,7 +82,7 @@ final class LaunchState {
             let state = AppState(root: root)
             try state.load()
             let store = LibraryStore(root: root)
-            let watcher = FileWatcher(directories: [store.entriesDir, store.peopleDir]) {
+            let watcher = FileWatcher(directories: [store.entitiesDir, store.entriesDir, store.peopleDir]) {
                 // 外部（CLI/MCP/git）變更 → 主執行緒 reload + 同步時戳
                 //（sidebar 顯示「外部變更已同步」；App 為 write-through 模型，
                 //  詳見 AppState.lastExternalSyncAt 的邊界說明）

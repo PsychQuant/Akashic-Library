@@ -157,6 +157,55 @@ final class AliasEventBudgetTests: XCTestCase {
                           "真實最大檔 \(maxNodes) 節點，門檻餘裕不足")
     }
 
+    /// **把「文件裡的數字」變成可證偽的斷言**（PR #42 的教訓機械化）。
+    ///
+    /// PR #42 的頭號宣稱「corpus 536 檔為 0 個 anchor/alias」是假的——作者量了
+    /// `exceedsBudget`（全 false）卻寫成「0 個」。這一輪我又犯一次同型：§5 寫
+    /// 「corpus 最大 ~700 節點」，實測是 **180**（沿用了未重量過的舊估計）。
+    ///
+    /// 所以把數字釘進測試：**文件改了而實測沒跟上，測試就失敗。**
+    func testDocumentedMeasurementsMatchReality() throws {
+        // 合法最壞情形（#20 的 temporal person）
+        var p = Person(key: "big", names: (0..<30).map { "A\($0)" })
+        let tl = Timeline((0..<200).map {
+            TemporalValue(value: "v\($0)",
+                          range: DateRange(start: "20\($0 % 90)", end: "20\(($0 + 1) % 90)"),
+                          source: "https://example.org/\($0)", note: "note \($0)")
+        })
+        p.profile.affiliations = tl; p.profile.ranks = tl; p.profile.administrative = tl
+        p.profile.appointments = tl; p.profile.fields = tl
+        p.profile.contacts = ["email": tl, "phone": tl]
+        let worst = try AliasEventBudget.estimate(try PersonYAML.encode(p))
+        XCTAssertEqual(worst.expandedNodes, 15_457, "§5 記載的合法最壞情形變了，文件要同步")
+
+        // 已知最小 bomb
+        var b = "a0: &a0 [x,x,x,x,x,x,x,x,x]\n"
+        for i in 1...12 {
+            b += "a\(i): &a\(i) [" + (0..<2).map { _ in "*a\(i-1)" }.joined(separator: ",") + "]\n"
+        }
+        b += "*a12: 1\n"
+        XCTAssertEqual(b.utf8.count, 262, "§5 記載的構造大小變了")
+        // **這個構造不需要被擋**——實測 compose 只要 0.01 s。文件曾把它誤稱為
+        // 「已知最小 bomb」，量了才知道節點數多不等於 compose 貴。
+        XCTAssertNoThrow(try AliasEventBudget.check(b, context: "t"))
+
+        // **真正會痛的**：fanout 9 × 7 層（357 B、compose 4.8 s）必須被擋，
+        // 而且門檻要擋在痛點**之前**——fanout 9 × 5 層（0.118 s）就該超標。
+        func fan9(_ lv: Int) -> String {
+            var s = "a0: &a0 [x,x,x,x,x,x,x,x,x]\n"
+            for i in 1...lv {
+                s += "a\(i): &a\(i) [" + (0..<9).map { _ in "*a\(i-1)" }.joined(separator: ",") + "]\n"
+            }
+            return s + "*a\(lv): 1\n"
+        }
+        assertRefused(fan9(7), "真正會痛的構造")
+        assertRefused(fan9(5), "門檻必須擋在痛點之前")
+
+        // 餘裕：合法最壞情形與門檻的距離
+        XCTAssertEqual(AliasEventBudget.maxExpandedNodes / worst.expandedNodes, 12,
+                       "§5 記載的餘裕倍數變了")
+    }
+
     /// **CI 也要有防護**：不依賴外部檔案的內建書目樣本，含 PR #42 誤殺的形態。
     func testBundledBibliographicCorpusPasses() throws {
         for v in ["A*-search and IDA* variants", "C*-algebras", "R&D expenditure & innovation",

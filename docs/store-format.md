@@ -156,6 +156,45 @@ note: 中研院統計所            # 可選
 本格式為 v1.3（v1.1 增 provenance hash 欄位；v1.2 增 `akashic.libraries` 與
 `libraries/` registry，#13；v1.3 引入 tolerant-preserve，#23）。
 
+### 5.0 Format marker 與 refuse-if-newer（normative，#24）
+
+store root 有一個 canonical 的 `store.yaml`，只含一個整數欄位：
+
+```yaml
+format: 1
+```
+
+**放 store root 而非 `.akashic/`**：version 是 canonical 事實（「這份資料是什麼格式」），
+不是衍生物。`.akashic/` 是可全刪重建的衍生層，把 canonical 事實放進去語意錯，而且會隨
+index 一起被清掉。
+
+**bump 準則（normative）**：
+
+| 變更種類 | 由誰處理 | bump `format`？ |
+|---|---|---|
+| **additive**（新增欄位）| §5「v1.3 tolerant-preserve」的容忍 + round-trip 保留 | **否** |
+| **non-additive**（欄位語意變更、欄位刪除、結構重排）| 本節的 refuse-if-newer | **是** |
+
+兩者**不重疊**，而且這條邊界是硬的：additive 變更下舊 binary 讀新資料是安全的（未知欄位
+原樣保留），所以 **MUST NOT** bump —— 每個 additive 演化都 bump 會逼所有 binary 同步升級，
+等於白做 tolerant-preserve。non-additive 下舊 binary 會**按舊語意解讀新格式**，靜默產生錯誤
+行為，所以 **MUST** bump。
+
+**binary 行為（normative）**：
+
+- 缺 `store.yaml` **MUST** 視為 `format: 1`（本機制之前寫的 store 都沒有這個檔，而它們就是
+  v1.x）。缺檔不是錯誤。
+- 檔案存在但無 `format:` 行、或值非正整數 → **MUST** 明確報錯，**MUST NOT** 猜成 1
+  （猜會讓一個壞掉的標記檔靜默降級成「沒有防線」）。
+- `format` > binary 支援上限 → **MUST** 在 `load()` 開始、**逐檔 decode 之前**整體拒絕，
+  訊息須點名兩個版本數字與「CLI / akashic-mcp / App 是各自獨立的 binary」。在 decode 現場
+  才報錯等於把「請升級」變成一堆難解的 per-file 錯誤。
+- `ensureLayout()` **MUST NOT** 覆寫既有的 `store.yaml`（那可能是較新版本寫的，覆寫等於在
+  使用者跑一個看似無害的 `doctor` 時把防線自毀）。
+
+**版本對照**：`format: 1` ＝ v1.x 家族（`entries/<citekey>.yaml` + `people/<person-key>.yaml`；
+tolerant-preserve 於 v1.3 落地，屬 additive 故不 bump）。
+
 ### v1.3：tolerant-preserve（開放演化層）
 
 **開放演化層**——entry 頂層、person 頂層、library 頂層、`akashic` namespace——的

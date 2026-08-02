@@ -90,6 +90,8 @@ public final class LibraryStore {
         for dir in [root, entriesDir, peopleDir, librariesDir, notesDir, akashicDir] {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
+        // #24：新建的 store 自我聲明格式。既有檔不覆寫（可能是較新版本寫的）。
+        try StoreVersion.writeIfAbsent(root: root)
     }
 
     public func entryURL(citekey: String) -> URL {
@@ -169,6 +171,9 @@ public final class LibraryStore {
     /// 掃描整個 library。schema 不合的檔案進 quarantined 報告，不靜默略過、
     /// 也不讓單一壞檔中斷整批載入。
     public func load() throws -> LibraryLoad {
+        // #24：refuse-if-newer 必須在**逐檔 decode 之前**。等到 decode 現場才發現
+        // 不對，使用者拿到的是一堆難解的 per-file 錯誤，而不是一句「請升級 binary」。
+        try StoreVersion.check(root: root)
         var result = LibraryLoad()
         for url in try yamlFiles(in: entriesDir) {
             do {

@@ -123,9 +123,9 @@ final class RelationalExportTests: XCTestCase {
     /// 多段任期（#20 的動機資料）必須各自成列，不得被壓成一段。
     func testMultiSegmentTenureExportsAsSeparateRows() {
         var p = Person(key: "cheng", names: ["C"])
-        p.profile.affiliations = Timeline([
-            TemporalValue(value: "ISS", range: DateRange(start: "2003-01", end: "2006-08")),
-            TemporalValue(value: "ISS", range: DateRange(start: "2013-07", end: "2017-06"))])
+        p.profile.affiliations = TimelineOf([
+            TemporalValue(value: .literal("ISS"), range: DateRange(start: "2003-01", end: "2006-08")),
+            TemporalValue(value: .literal("ISS"), range: DateRange(start: "2013-07", end: "2017-06"))])
         let rows = RelationalExport.tables(entries: [], people: [p]).researcherTimeline.rows
         XCTAssertEqual(rows.count, 2)
         XCTAssertEqual(rows.map { $0[3] }, ["2003-01", "2013-07"])
@@ -139,11 +139,11 @@ final class RelationalExportTests: XCTestCase {
 
     func testStatusDerivedFromOpenAffiliation() {
         var cur = Person(key: "a-current", names: ["A"])
-        cur.profile.affiliations = Timeline([
-            TemporalValue(value: "ISS", range: DateRange(start: "2020"))])
+        cur.profile.affiliations = TimelineOf([
+            TemporalValue(value: .literal("ISS"), range: DateRange(start: "2020"))])
         var ret = Person(key: "b-retired", names: ["B"])
-        ret.profile.affiliations = Timeline([
-            TemporalValue(value: "ISS", range: DateRange(start: "2000", end: "2010"))])
+        ret.profile.affiliations = TimelineOf([
+            TemporalValue(value: .literal("ISS"), range: DateRange(start: "2000", end: "2010"))])
         let rows = RelationalExport.tables(entries: [], people: [cur, ret]).researcher.rows
         XCTAssertEqual(rows[0][9], "current")
         XCTAssertEqual(rows[1][9], "retired")

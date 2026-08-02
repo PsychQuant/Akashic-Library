@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.3",
   "name": "akashic-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Akashic-Library MCP server — file-based canonical literature store: search, relations, graph, derived-layer writes (tags/status/links), person resolution, Zotero one-way pull",
   "author": {
     "name": "Che Cheng"

@@ -174,4 +174,83 @@ public enum StoreMigration {
         try StoreVersion.write(root: store.root, format: 2)
         return report
     }
+
+    // MARK: - format 2 → 3：補形狀標籤
+
+    public struct LabelReport: Equatable {
+        public var labelled: Int = 0
+        /// 已經有標籤的（重跑遷移時）。
+        public var alreadyLabelled: Int = 0
+    }
+
+    /// 把 `entities/` 下的每一筆記錄**重新編碼成目前的正典形式**，然後 bump 到
+    /// `StoreVersion.supported`。
+    ///
+    /// 「重新編碼」一次涵蓋所有 non-additive 的表示變更，因為它們共用同一條 encode 路徑：
+    /// 補上形狀裸標籤、移除冗餘的 `type: person`、把字串隸屬正規化成指涉或字面。
+    /// 分成多趟只會讓同一批檔案被讀寫多次，而每一趟都是一次中斷風險。
+    ///
+    /// ## 為什麼補標籤要走完整的載入路徑
+    ///
+    /// 判斷一個既有檔是 work 還是 person，用的是**載入器自己的回退**
+    /// （`EntityKind.peek(strict: false)` → 欄位組成）。不另寫一條私有推斷，因為遷移
+    /// 正是最需要「驗到的」與「讀到的」一致的時刻——若兩者可能分歧，預檢就失去意義。
+    ///
+    /// ## 順序與 `toEntities` 同源
+    ///
+    /// 先全量預檢（每一筆都要能 decode 且能 encode），再逐檔寫，**最後**才 bump format。
+    /// 中斷時 store 仍是 format 2、仍可被本 binary 以回退模式讀取，重跑即可完成。
+    /// 已有標籤的檔跳過，因此重跑是冪等的。
+    @discardableResult
+    public static func toShapeLabels(store: LibraryStore, dryRun: Bool = false) throws -> LabelReport {
+        let current = try StoreVersion.read(root: store.root)
+        guard current < StoreVersion.supported else {
+            throw MigrationError.alreadyAtFormat(current)
+        }
+        guard current >= 2 else {
+            throw MigrationError.crossRecordIssues(
+                ["store 仍是 format 1（legacy 佈局）。請先執行 entities 遷移，再補形狀標籤。"])
+        }
+
+        let load = try store.load()
+        guard load.quarantined.isEmpty else {
+            throw MigrationError.quarantinedFilesPresent(load.quarantined.map(\.file))
+        }
+
+        var report = LabelReport()
+        let fm = FileManager.default
+
+        // ── 階段 1：全量預檢。任何一筆不可寫 → 整個遷移不開始 ──
+        var payloads: [(url: URL, yaml: String)] = []
+        for entry in load.entries {
+            let dest = store.entityURL(id: entry.id)
+            guard fm.fileExists(atPath: dest.path) else { continue }
+            let existing = try String(contentsOf: dest, encoding: .utf8)
+            let yaml = try EntryYAML.encode(entry)
+            if existing == yaml { report.alreadyLabelled += 1; continue }
+            payloads.append((dest, yaml))
+            report.labelled += 1
+        }
+        for person in load.people {
+            let dest = store.entityURL(id: person.id)
+            guard fm.fileExists(atPath: dest.path) else { continue }
+            let existing = try String(contentsOf: dest, encoding: .utf8)
+            let yaml = try PersonYAML.encode(person)
+            if existing == yaml { report.alreadyLabelled += 1; continue }
+            payloads.append((dest, yaml))
+            report.labelled += 1
+        }
+
+        if dryRun { return report }
+
+        // ── 階段 2：逐檔改寫（原地，非搬移，所以不需要刪除階段）──
+        for p in payloads {
+            try p.yaml.write(to: p.url, atomically: true, encoding: .utf8)
+        }
+
+        // ── 階段 3：最後才 bump ──
+        // 在它翻成 3 之前，讀取端仍以回退模式運作，所以前兩階段中斷時 store 一致。
+        try StoreVersion.write(root: store.root, format: StoreVersion.supported)
+        return report
+    }
 }

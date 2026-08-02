@@ -44,4 +44,13 @@ public enum DeterministicUUID {
     public static func forPerson(key: String) -> UUID {
         v5(namespace: personNamespace, name: key)
     }
+
+    /// Organization 的 namespace。與 person 分開——同一個 key 字串在兩個形狀下
+    /// 必須推出**不同**的 UUID，否則一個叫 `iss` 的人與一個叫 `iss` 的機構會撞成同一筆。
+    public static let organizationNamespace =
+        UUID(uuidString: "3f9c8a71-2e64-4d0b-9a17-5c2e8b6f0d43")!
+
+    public static func forOrganization(key: String) -> UUID {
+        v5(namespace: organizationNamespace, name: key)
+    }
 }

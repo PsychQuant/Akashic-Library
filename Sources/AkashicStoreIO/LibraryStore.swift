@@ -33,6 +33,8 @@ public struct QuarantinedFile: Equatable {
 public struct LibraryLoad {
     public var entries: [Entry]
     public var people: [Person]
+    /// 機構（第三種一級實體形狀，標籤 `organization:`）。
+    public var organizations: [Organization]
     /// Library registry（#13 membership views）；成員關係在各 entry 的 akashic.libraries
     public var libraries: [Library]
     public var quarantined: [QuarantinedFile]
@@ -43,10 +45,12 @@ public struct LibraryLoad {
     public var unknownFieldFiles: [String]
 
     public init(entries: [Entry] = [], people: [Person] = [],
+                organizations: [Organization] = [],
                 libraries: [Library] = [], quarantined: [QuarantinedFile] = [],
                 unknownFieldFiles: [String] = []) {
         self.entries = entries
         self.people = people
+        self.organizations = organizations
         self.libraries = libraries
         self.quarantined = quarantined
         self.unknownFieldFiles = unknownFieldFiles
@@ -196,7 +200,18 @@ public final class LibraryStore {
         return dest
     }
 
+    /// 機構只存在於 entities 佈局（format 4 起）——legacy 佈局沒有它的位置。
     @discardableResult
+    public func writeOrganization(_ org: Organization) throws -> URL {
+        guard StoreKey.isValid(org.key) else {
+            throw StoreIOError.invalidKey("organization key", org.key)
+        }
+        let yaml = try OrganizationYAML.encode(org)
+        let dest = entityURL(id: org.id)
+        try atomicWrite(yaml, to: dest)
+        return dest
+    }
+
     public func writePerson(_ person: Person) throws -> URL {
         guard StoreKey.isValid(person.key) else {
             throw StoreIOError.invalidKey("person key", person.key)
@@ -213,6 +228,10 @@ public final class LibraryStore {
         // #24：refuse-if-newer 必須在**逐檔 decode 之前**。等到 decode 現場才發現
         // 不對，使用者拿到的是一堆難解的 per-file 錯誤，而不是一句「請升級 binary」。
         try StoreVersion.check(root: root)
+        // 形狀標籤的嚴格度由 format 決定（見 EntityKind.peek 的 strict 參數）：
+        // format ≥ 3 的檔案是標籤機制之後寫的，缺標籤即錯；舊格式須容忍，否則
+        // `akashic migrate` 會連載入都做不到——它正是要來替那些檔貼標籤的。
+        let strictLabels = (try StoreVersion.read(root: root)) >= 3
         var result = LibraryLoad()
 
         // #35：entities/ 是 format 2 的 canonical 目錄。**與 legacy 並存讀取**——
@@ -229,7 +248,7 @@ public final class LibraryStore {
                         file: name, reason: "entities/ 的檔名必須是 UUID，實得「\(stem)」"))
                     continue
                 }
-                switch try EntityKind.peek(text) {
+                switch try EntityKind.peek(text, strict: strictLabels) {
                 case .person:
                     let person = try PersonYAML.decode(text)
                     guard person.id == stemUUID else {
@@ -244,6 +263,22 @@ public final class LibraryStore {
                     }
                     if !person.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
                     result.people.append(person)
+                case .organization:
+                    let org = try OrganizationYAML.decode(text)
+                    guard org.id == stemUUID else {
+                        result.quarantined.append(QuarantinedFile(
+                            file: name,
+                            reason: "檔名 UUID 與 organization.id「\(org.id.uuidString)」不符"))
+                        continue
+                    }
+                    guard StoreKey.isValid(org.key) else {
+                        result.quarantined.append(QuarantinedFile(
+                            file: name,
+                            reason: "organization key「\(org.key)」不符合 \(StoreKey.pattern)"))
+                        continue
+                    }
+                    if !org.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
+                    result.organizations.append(org)
                 case .work:
                     let entry = try EntryYAML.decode(text)
                     guard entry.id == stemUUID else {

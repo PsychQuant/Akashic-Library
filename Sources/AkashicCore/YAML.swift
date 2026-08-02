@@ -5,12 +5,46 @@ public enum StoreYAMLError: Error, LocalizedError, Equatable {
     case notAMapping
     case missingField(String)
     case invalidField(String, String)
+    /// 頂層沒有任何已知的形狀裸標籤。`stray` 是看到的其他裸鍵（可能是打錯的形狀名）。
+    case unknownShapeLabel([String])
+    /// 形狀標籤帶了值（`person: true`）。允許帶值等於重新造出一個後設欄位。
+    case shapeLabelHasValue(String)
+    /// 多個互不從屬的形狀標籤——沒有唯一的最具體者，不猜。
+    case ambiguousShapeLabels([String])
+    /// 標籤與 `type:` 各自指向不同形狀。不得挑一邊。
+    case shapeLabelContradiction(label: String, typeField: String)
 
     public var errorDescription: String? {
+        let known = EntityKind.knownLabels.sorted().joined(separator: "、")
         switch self {
         case .notAMapping: return "YAML 頂層不是 mapping"
         case .missingField(let f): return "缺少必要欄位：\(f)"
         case .invalidField(let f, let why): return "欄位 \(f) 無效：\(why)"
+        case .unknownShapeLabel(let stray):
+            // 具名 + 重導。只說「不認得」只證明它在這個位置沒有意義；
+            // 讀者還需要知道哪個位置有意義。
+            guard !stray.isEmpty else {
+                return "缺少形狀標籤。每筆記錄的頂層須有一個無值的形狀鍵（已知：\(known)）。"
+            }
+            let names = stray.map { "「\(displaySafe($0))」" }.joined(separator: "、")
+            let redirects = stray.compactMap { EntityKind.misplacedElsewhere[$0] }
+            let tail = redirects.isEmpty ? "" : "——\(redirects.joined(separator: "；"))"
+            return "頂層的無值鍵 \(names) 不是已知形狀（已知：\(known)）\(tail)。"
+        case .shapeLabelHasValue(let name):
+            return """
+                形狀標籤「\(displaySafe(name))」不得帶值——它是標籤，不是欄位。\
+                帶值等於重新造出一個後設欄位，只是名字換成形狀名。
+                """
+        case .ambiguousShapeLabels(let labels):
+            return """
+                有多個互不從屬的形狀標籤（\(labels.map { displaySafe($0) }.joined(separator: "、"))），\
+                無法決定最具體者。不猜——請只留下最具體的那一個。
+                """
+        case let .shapeLabelContradiction(label, typeField):
+            return """
+                形狀標籤「\(displaySafe(label))」與 type 欄位的「\(displaySafe(typeField))」矛盾。\
+                type 是 work 專屬的書目類型，不是形狀名；兩者衝突時不得挑一邊。
+                """
         }
     }
 }
@@ -30,6 +64,9 @@ private let isoFormatter: ISO8601DateFormatter = {
 public enum EntryYAML {
     public static func encode(_ entry: Entry) throws -> String {
         var pairs: [(Node, Node)] = []
+        // 形狀裸標籤放最前面：讀檔的人第一眼看到的就是「這是什麼」。
+        // 值是空 scalar，序列化成 `work:`（無值）。
+        pairs.append((Node(EntityKind.work.rawValue), Node("")))
         pairs.append((Node("id"), Node(entry.id.uuidString)))
         pairs.append((Node("citekey"), Node(entry.citekey)))
         pairs.append((Node("type"), Node(entry.type)))
@@ -231,10 +268,12 @@ public enum EntryYAML {
         Tag(.str), Tag(.int), Tag(.float), Tag(.bool), Tag(.null), Tag(.timestamp),
     ]
 
-    static let knownTopLevelKeys: Set<String> = [
+    /// **形狀裸標籤也算已知鍵。** 不列入的話，tolerant-preserve 會把它當未知欄位
+    /// 逐字保留並在寫回時重新產生——舊的 `type: person` 也是同理，見 `knownPersonKeys`。
+    static let knownTopLevelKeys: Set<String> = Set([
         "id", "citekey", "type", "title", "authors", "date",
         "fields", "attachments", "provenance", "akashic",
-    ]
+    ]).union(EntityKind.knownLabels)
     static let knownAkashicKeys: Set<String> = ["tags", "libraries", "status", "relations"]
     static let knownRelationsKeys: Set<String> = ["cites", "related"]
     static let knownProvenanceKeys: Set<String> = [
@@ -992,11 +1031,11 @@ public enum LibraryYAML {
 
 public enum PersonYAML {
     public static func encode(_ person: Person) throws -> String {
-        // #35：id 在前，與 Entry 的欄位順序一致（id / key / …）
-        // #35：`type: person` 讓 entities/ 佈局分辨得出記錄種類。legacy `people/` 佈局下
-        // 它是 additive（舊 binary 當未知欄位保留），所以一律寫、不分佈局。
-        var pairs: [(Node, Node)] = [(Node("id"), Node(person.id.uuidString)),
-                                     (Node("type"), Node("person")),
+        // 形狀裸標籤放最前面（取代原本的 `type: person`）。
+        // 原本用 `type:` 標形狀，使形式種類與書目類型成為同一個 key 的平輩值——
+        // 那正是 `type: view` 看起來合理的原因。標籤與 `type:` 現在分屬兩層。
+        var pairs: [(Node, Node)] = [(Node(EntityKind.person.rawValue), Node("")),
+                                     (Node("id"), Node(person.id.uuidString)),
                                      (Node("key"), Node(person.key))]
         if !person.names.isEmpty {
             pairs.append((Node("names"), Node(person.names.map { Node($0) })))
@@ -1040,7 +1079,13 @@ public enum PersonYAML {
         return out
     }
 
-    static let knownPersonKeys: Set<String> = ["id", "type", "key", "names", "orcid", "openalex", "note", "profile"]
+    /// `type` **刻意保留在已知鍵內**，即使 person 不再寫出它：移出去會讓既有檔案的
+    /// `type: person` 被 tolerant-preserve 當成未知欄位保存下來、並在寫回時重新產生，
+    /// 與「停止寫出形狀名」的目的相反。留在已知鍵內＝讀得到、忽略其值、不寫回。
+    /// 形狀裸標籤同理必須列入。
+    static let knownPersonKeys: Set<String> = Set(["id", "type", "key", "names", "orcid",
+                                                   "openalex", "note", "profile"])
+        .union(EntityKind.knownLabels)
 
     public static func decode(_ yaml: String) throws -> Person {
         let yaml = EntryYAML.stripLeadingBOM(yaml)
@@ -1108,15 +1153,62 @@ public enum PersonYAML {
 /// **不用文字掃描**——`type:` 可能出現在註解、字串值、未知欄位裡，用 grep 判準是
 /// #36 那一族錯誤的同一種形態。這裡老實 compose 一次讀那個欄位。成本由 #30 的實測
 /// 背書（500 檔 baseline 0.29 s），而正確性不打折。
-public enum EntityKind {
+/// 記錄的**形狀**。形狀名以**裸標籤**出現在檔案頂層（一個沒有值的鍵），
+/// 不是某個後設欄位的值。
+///
+/// ## 為什麼不是 `kind: person`
+///
+/// `kind: person` 設立一個叫 `kind` 的後設欄位，把「種類」物化成一個可查詢、可比較、
+/// 有值域的欄位——那正是 Tractatus 4.1272 說的把形式概念當成真正的概念用。裸標籤沒有
+/// 後設欄位：`person` 不是誰的值，它就在那裡。
+///
+/// ## 為什麼不是「完全不放標籤、由欄位組成推斷」
+///
+/// 那需要「identity 欄位名跨形狀唯一」的約束，而那條約束會讓 identity 欄位名兼差當形狀名
+/// （`citekey` / `key` / `orgkey` / `venuekey`）——形狀資訊被塞進欄位的名字裡，一名二職。
+/// 而且欄位組成只能決定**一個**形狀；標籤可以有多個，本體因此不必是平坦分割。
+///
+/// ## 標籤不得帶值
+///
+/// 允許帶值就等於重新造出一個後設欄位，只是名字換成形狀名。這扇門必須關死。
+///
+/// ## 新增形狀時
+///
+/// 加進 `knownLabels`，並在 `subsumes` 補上它與既有形狀的層級關係（若有）。
+/// **可由 schema 推出的上位標籤不寫進檔案**——「person 是 agent」是 schema 的事實，
+/// 不是每一筆記錄的事實，寫進每個檔是把同一件事複製 N 份。
+public enum EntityKind: String, CaseIterable {
     case work
     case person
+    case organization
 
-    /// 讀 `type` 欄位決定種類。`type: person` → person，其餘（含缺席）→ work。
+    /// 封閉集合。不在其中的裸標籤 → quarantine，不猜。
+    public static let knownLabels: Set<String> = Set(allCases.map(\.rawValue))
+
+    /// `label → 它的上位標籤`。目前兩個形狀互不從屬，所以是空的；
+    /// 加入 organization、或引入 agent 這類上位概念時在此登記。
+    static let subsumes: [String: Set<String>] = [:]
+
+    /// 本專案在別處處理、因而值得給出**具名重導**的非形狀名稱。
     ///
-    /// **缺席視為 work 而非錯誤**：`type` 對 work 是必要欄位，缺席由 `EntryYAML.decode`
-    /// 自己報錯——在這裡多報一次只會讓錯誤訊息變成「不是 person」，離真正的問題更遠。
-    public static func peek(_ yaml: String) throws -> EntityKind {
+    /// 只說「不認得」等於只證明它在這個位置沒有意義；讀者還需要知道哪個位置有意義
+    /// （Tractatus 5.4733 的診斷方向：記法的失敗，不是形上學的失敗）。
+    static let misplacedElsewhere: [String: String] = [
+        "view": "view 的判準屬於 config.yaml，外延屬於衍生索引（見 #54）",
+        "index": "索引結構屬於衍生層，不進 entities/",
+        "query": "查詢屬於 config.yaml 或呼叫端，不進 entities/",
+    ]
+
+    /// 從檔案內容判定形狀。
+    ///
+    /// - Parameter strict: `true` 時缺標籤即擲錯；`false` 時以欄位組成回退
+    ///   （有 citekey → work、有 key → person）。由 store format 決定：format ≥ 3
+    ///   的檔案是本機制之後寫的，沒有理由缺標籤；format ≤ 2 的舊資料本來就沒有標籤，
+    ///   而**遷移程式必須先讀得動它才能替它貼標籤**——無條件嚴格會造成順序死結。
+    ///
+    ///   不認得的標籤、標籤帶值、多個互不從屬的標籤、與 `type:` 矛盾——這四種在
+    ///   兩種模式下都擲錯。它們是明確的錯誤，不是舊格式的正常狀態。
+    public static func peek(_ yaml: String, strict: Bool = true) throws -> EntityKind {
         let text = EntryYAML.stripLeadingBOM(yaml)
         // #36：**這是 entities 佈局的第一個動作**——沒有這道守衛，decode 端的預算根本
         // 來不及跑。（實測：接了三個 decode 入口仍 timeout，因為 load() 先走這裡。）
@@ -1124,8 +1216,72 @@ public enum EntityKind {
         guard let root = try Yams.compose(yaml: text), let map = root.mapping else {
             throw StoreYAMLError.invalidField("entity", "根節點必須是 mapping")
         }
-        let t = map["type"]?.scalar?.string
-        return t == "person" ? .person : .work
+
+        // 裸鍵 ＝ 值為空 scalar。`person:` 解析成 scalar("")；`person: true` 不是裸鍵。
+        var bareKeys: [String] = []
+        for (k, v) in map {
+            guard let name = k.string, k.tag == Tag(.str) else { continue }
+            if let s = v.scalar, s.string.isEmpty { bareKeys.append(name) }
+        }
+
+        // 已知形狀名出現但**帶了值** → 明說，不要讓它掉進「缺少標籤」。
+        for name in knownLabels {
+            if let v = map[name], !(v.scalar.map { $0.string.isEmpty } ?? false) {
+                throw StoreYAMLError.shapeLabelHasValue(name)
+            }
+        }
+
+        let labels = bareKeys.filter { knownLabels.contains($0) }
+        switch labels.count {
+        case 1:
+            let kind = EntityKind(rawValue: labels[0])!
+            try checkNoContradiction(map, label: kind)
+            return kind
+        case 0:
+            let stray = bareKeys.filter { !knownLabels.contains($0) }
+            // 不認得的裸鍵（`view:`）在兩種模式下都是錯——它是一個明確的形狀主張，只是錯的。
+            if !stray.isEmpty { throw StoreYAMLError.unknownShapeLabel(stray) }
+            if !strict, let inferred = inferFromComposition(map) { return inferred }
+            throw StoreYAMLError.unknownShapeLabel([])
+        default:
+            // 多個：只有在其中一個被其餘全部從屬（最具體）時才可判定。
+            let mostSpecific = labels.filter { cand in
+                labels.allSatisfy { $0 == cand || subsumes[cand]?.contains($0) == true }
+            }
+            guard mostSpecific.count == 1 else {
+                throw StoreYAMLError.ambiguousShapeLabels(labels.sorted())
+            }
+            let kind = EntityKind(rawValue: mostSpecific[0])!
+            try checkNoContradiction(map, label: kind)
+            return kind
+        }
+    }
+
+    /// format ≤ 2 的回退：由 identity 欄位的出現判斷形狀。
+    ///
+    /// **只用於讀取舊資料**，不是判準（判準是標籤）。兩個 identity 欄位同時出現或都不出現
+    /// 時回 `nil`——回退也不猜。
+    private static func inferFromComposition(_ map: Yams.Node.Mapping) -> EntityKind? {
+        // organization 是 format 4 才有的形狀，format ≤ 2 的舊資料不可能是它，
+        // 所以回退只需分辨 work / person。
+        let hasCitekey = map["citekey"] != nil
+        let hasKey = map["key"] != nil
+        switch (hasCitekey, hasKey) {
+        case (true, false): return .work
+        case (false, true): return .person
+        default: return nil
+        }
+    }
+
+    /// `type:` 若被拿來當形狀名用，且與標籤不符 → 矛盾，不得挑一邊。
+    ///
+    /// `type:` 是 work 專屬的**書目類型**（值域開放，`article` / `dataset` / …）。
+    /// 值恰好是某個形狀名時才有矛盾的可能。
+    private static func checkNoContradiction(_ map: Yams.Node.Mapping,
+                                             label: EntityKind) throws {
+        guard let t = map["type"]?.scalar?.string, knownLabels.contains(t),
+              t != label.rawValue else { return }
+        throw StoreYAMLError.shapeLabelContradiction(label: label.rawValue, typeField: t)
     }
 }
 
@@ -1134,8 +1290,9 @@ public enum EntityKind {
 extension PersonYAML {
     /// 時間軸的鍵名 ↔ `PersonProfile` 欄位。**contacts 以外的維度是固定的**——
     /// 新增維度要改 code，那是刻意的：維度是結構，不是資料。
+    /// **affiliations 不在此清單內**：它的值是 `OrgRef`（指涉或字面），不是字串，
+    /// 所以走自己的編解碼。其餘四個維度的值域來自外部且會變，維持純字串。
     static let timelineKeys: [(String, WritableKeyPath<PersonProfile, Timeline>)] = [
-        ("affiliations", \.affiliations),
         ("ranks", \.ranks),
         ("administrative", \.administrative),
         ("appointments", \.appointments),
@@ -1144,6 +1301,9 @@ extension PersonYAML {
 
     static func profileNode(_ p: PersonProfile) -> Node {
         var pairs: [(Node, Node)] = []
+        if !p.affiliations.isEmpty {
+            pairs.append((Node("affiliations"), orgTimelineNode(p.affiliations)))
+        }
         for (key, path) in timelineKeys where !p[keyPath: path].isEmpty {
             pairs.append((Node(key), timelineNode(p[keyPath: path])))
         }
@@ -1170,10 +1330,75 @@ extension PersonYAML {
         })
     }
 
+    /// 隸屬時間軸。`value` 是 `{key: …}` 或 `{literal: …}`——與 `authors` 同形，
+    /// 因為那是本專案已經解過一次的同型問題。
+    static func orgTimelineNode(_ t: TimelineOf<OrgRef>) -> Node {
+        Node(t.sorted.map { v -> Node in
+            let valueNode: Node
+            switch v.value {
+            case .key(let k):     valueNode = Node([(Node("key"), Node(k))] as [(Node, Node)])
+            case .literal(let s): valueNode = Node([(Node("literal"), Node(s))] as [(Node, Node)])
+            }
+            var pairs: [(Node, Node)] = [(Node("value"), valueNode)]
+            if let s = v.range.start { pairs.append((Node("start"), Node(s))) }
+            if let e = v.range.end { pairs.append((Node("end"), Node(e))) }
+            if let s = v.source { pairs.append((Node("source"), Node(s))) }
+            if let n = v.note { pairs.append((Node("note"), Node(n))) }
+            return Node(pairs)
+        })
+    }
+
+    static func decodeOrgTimeline(_ node: Node, context: String) throws -> TimelineOf<OrgRef> {
+        guard let seq = node.sequence else {
+            throw StoreYAMLError.invalidField(context, "必須是 sequence")
+        }
+        var out: [TemporalValue<OrgRef>] = []
+        for item in seq {
+            guard let m = item.mapping else {
+                throw StoreYAMLError.invalidField(context, "每一段必須是 mapping")
+            }
+            try EntryYAML.rejectUnknownKeys(
+                m, known: ["value", "start", "end", "source", "note"], context: context)
+            guard let vNode = m["value"] else {
+                throw StoreYAMLError.missingField("\(context).value")
+            }
+            let ref: OrgRef
+            if let vm = vNode.mapping {
+                try EntryYAML.rejectUnknownKeys(vm, known: ["key", "literal"],
+                                                context: "\(context).value")
+                let k = try vm["key"].map { try EntryYAML.scalarString($0, context: "\(context).value.key") }
+                let l = try vm["literal"].map { try EntryYAML.scalarString($0, context: "\(context).value.literal") }
+                switch (k, l) {
+                case (let k?, nil):  ref = .key(k)
+                case (nil, let l?):  ref = .literal(l)
+                case (_?, _?):
+                    throw StoreYAMLError.invalidField("\(context).value",
+                                                      "key 與 literal 只能擇一——兩者並存無法判斷歸戶狀態")
+                case (nil, nil):
+                    throw StoreYAMLError.missingField("\(context).value.key 或 .literal")
+                }
+            } else {
+                // 純字串視為未歸戶的字面值（相容於尚未升級的寫法）。
+                ref = .literal(try EntryYAML.scalarString(vNode, context: "\(context).value"))
+            }
+            out.append(TemporalValue(
+                value: ref,
+                range: DateRange(start: try m["start"].map { try EntryYAML.scalarString($0, context: context) },
+                                 end: try m["end"].map { try EntryYAML.scalarString($0, context: context) }),
+                source: try m["source"].map { try EntryYAML.scalarString($0, context: context) },
+                note: try m["note"].map { try EntryYAML.scalarString($0, context: context) }))
+        }
+        return TimelineOf(out)
+    }
+
     static func decodeProfile(_ m: Node.Mapping) throws -> PersonProfile {
         try EntryYAML.rejectUnknownKeys(
-            m, known: Set(timelineKeys.map(\.0) + ["contacts"]), context: "person.profile")
+            m, known: Set(timelineKeys.map(\.0) + ["affiliations", "contacts"]),
+            context: "person.profile")
         var p = PersonProfile()
+        if let a = m["affiliations"] {
+            p.affiliations = try decodeOrgTimeline(a, context: "person.profile.affiliations")
+        }
         for (key, path) in timelineKeys {
             guard let node = m[key] else { continue }
             p[keyPath: path] = try decodeTimeline(node, context: "person.profile.\(key)")
@@ -1219,5 +1444,84 @@ extension PersonYAML {
                 range: DateRange(start: try str("start"), end: try str("end")),
                 source: try str("source"), note: try str("note"))
         })
+    }
+}
+
+// MARK: - Organization ↔ YAML
+
+/// 機構的編解碼。沿用 person 的慣例：形狀裸標籤在最前、未知欄位 tolerant-preserve、
+/// encode 後自檢（canary）。
+public enum OrganizationYAML {
+    static let knownKeys: Set<String> = Set(["id", "key", "names", "founded", "dissolved",
+                                             "parents", "note"])
+        .union(EntityKind.knownLabels)
+
+    public static func encode(_ org: Organization) throws -> String {
+        var pairs: [(Node, Node)] = [(Node(EntityKind.organization.rawValue), Node("")),
+                                     (Node("id"), Node(org.id.uuidString)),
+                                     (Node("key"), Node(org.key))]
+        if !org.names.isEmpty {
+            pairs.append((Node("names"), PersonYAML.timelineNode(org.names)))
+        }
+        if let f = org.founded { pairs.append((Node("founded"), Node(f))) }
+        if let d = org.dissolved { pairs.append((Node("dissolved"), Node(d))) }
+        if !org.parents.isEmpty {
+            pairs.append((Node("parents"), PersonYAML.orgTimelineNode(org.parents)))
+        }
+        if let n = org.note { pairs.append((Node("note"), Node(n))) }
+        var text = try Yams.serialize(node: Node(pairs), allowUnicode: true)
+        try EntryYAML.appendRawBlocks(org.unknownFields, to: &text, targetIndent: 0,
+                                      context: "organization")
+        // canary：寫出去的東西必須讀得回同一個值，否則拒寫（v1.3 fail-closed）。
+        let back = try decode(text)
+        guard back == org else {
+            throw StoreYAMLError.invalidField("organization", "encode 自檢失敗：讀回的值與原值不符")
+        }
+        return text
+    }
+
+    public static func decode(_ yaml: String) throws -> Organization {
+        let yaml = EntryYAML.stripLeadingBOM(yaml)
+        try EntryYAML.assertNoLossyContentChars(yaml, context: "organization")
+        try AliasEventBudget.check(yaml, context: "library")
+        guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
+            throw StoreYAMLError.notAMapping
+        }
+        var oracleBudget = 200_000
+        let keys = try EntryYAML.keyStrings(map, known: knownKeys, context: "organization")
+        let unknowns = try EntryYAML.captureUnknownBlocks(
+            text: yaml, map: map, keys: keys, known: knownKeys,
+            indent: 0, context: "organization", budget: &oracleBudget)
+        guard let key = try EntryYAML.requireShape(map["key"], field: "organization.key",
+                                                   expect: "scalar", { $0.scalar?.string }) else {
+            throw StoreYAMLError.missingField("key")
+        }
+        var explicitID: UUID?
+        if let raw = try EntryYAML.requireShape(map["id"], field: "organization.id",
+                                                expect: "scalar", nullIsAbsent: true,
+                                                { $0.scalar?.string }) {
+            guard let u = UUID(uuidString: raw) else {
+                throw StoreYAMLError.invalidField("organization.id", "不是合法的 UUID")
+            }
+            explicitID = u
+        }
+        var org = Organization(key: key, id: explicitID)
+        org.unknownFields = unknowns
+        if let n = map["names"] {
+            org.names = try PersonYAML.decodeTimeline(n, context: "organization.names")
+        }
+        org.founded = try EntryYAML.requireShape(map["founded"], field: "organization.founded",
+                                                 expect: "scalar", nullIsAbsent: true,
+                                                 { $0.scalar?.string })
+        org.dissolved = try EntryYAML.requireShape(map["dissolved"], field: "organization.dissolved",
+                                                   expect: "scalar", nullIsAbsent: true,
+                                                   { $0.scalar?.string })
+        if let p = map["parents"] {
+            org.parents = try PersonYAML.decodeOrgTimeline(p, context: "organization.parents")
+        }
+        org.note = try EntryYAML.requireShape(map["note"], field: "organization.note",
+                                              expect: "scalar", nullIsAbsent: true,
+                                              { $0.scalar?.string })
+        return org
     }
 }

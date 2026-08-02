@@ -147,7 +147,7 @@ final class AliasEventBudgetTests: XCTestCase {
             TemporalValue(value: "v\($0)", range: DateRange(start: "2000", end: "2001"),
                           source: "s", note: "n")
         })
-        p.profile.affiliations = tl; p.profile.ranks = tl; p.profile.contacts = ["email": tl]
+        p.profile.ranks = tl; p.profile.contacts = ["email": tl]
         XCTAssertEqual(try AliasEventBudget.estimate(try PersonYAML.encode(p)).maxDepthSeen, 6)
     }
 
@@ -252,7 +252,14 @@ final class AliasEventBudgetTests: XCTestCase {
             TemporalValue(value: "v\($0)", range: DateRange(start: "2000", end: "2001"),
                           source: "s", note: "n")
         })
-        p.profile.affiliations = tl; p.profile.ranks = tl; p.profile.administrative = tl
+        // 隸屬的值是巢狀 mapping（`value: {literal: …}`），節點數比純字串維度多——
+        // 合法最壞情形必須把它算進去。
+        p.profile.affiliations = TimelineOf((0..<200).map {
+            TemporalValue(value: .literal("v\($0)"),
+                          range: DateRange(start: "20\($0 % 90)", end: "20\(($0 + 1) % 90)"),
+                          source: "https://example.org/\($0)", note: "note \($0)")
+        })
+        p.profile.ranks = tl; p.profile.administrative = tl
         p.profile.appointments = tl; p.profile.fields = tl
         p.profile.contacts = ["email": tl, "phone": tl]
         XCTAssertNoThrow(try PersonYAML.encode(p), "讀得進來的記錄必須寫得回去")
@@ -302,11 +309,18 @@ final class AliasEventBudgetTests: XCTestCase {
                           range: DateRange(start: "20\($0 % 90)", end: "20\(($0 + 1) % 90)"),
                           source: "https://example.org/\($0)", note: "note \($0)")
         })
-        p.profile.affiliations = tl; p.profile.ranks = tl; p.profile.administrative = tl
+        // 隸屬的值是巢狀 mapping（`value: {literal: …}`），節點數比純字串維度多——
+        // 合法最壞情形必須把它算進去。
+        p.profile.affiliations = TimelineOf((0..<200).map {
+            TemporalValue(value: .literal("v\($0)"),
+                          range: DateRange(start: "20\($0 % 90)", end: "20\(($0 + 1) % 90)"),
+                          source: "https://example.org/\($0)", note: "note \($0)")
+        })
+        p.profile.ranks = tl; p.profile.administrative = tl
         p.profile.appointments = tl; p.profile.fields = tl
         p.profile.contacts = ["email": tl, "phone": tl]
         let worst = try AliasEventBudget.estimate(try PersonYAML.encode(p))
-        XCTAssertEqual(worst.expandedNodes, 15_457, "§5 記載的合法最壞情形變了，文件要同步")
+        XCTAssertEqual(worst.expandedNodes, 15_857, "§5 記載的合法最壞情形變了，文件要同步")
 
         // 已知最小 bomb
         var b = "a0: &a0 [x,x,x,x,x,x,x,x,x]\n"
@@ -364,7 +378,7 @@ final class AliasEventBudgetTests: XCTestCase {
                           range: DateRange(start: "20\($0 % 90)", end: "20\(($0 + 1) % 90)"),
                           source: "https://example.org/\($0)", note: "note \($0)")
         })
-        p.profile.affiliations = tl; p.profile.ranks = tl
+        p.profile.ranks = tl
         p.profile.administrative = tl; p.profile.appointments = tl; p.profile.fields = tl
         p.profile.contacts = ["email": tl, "phone": tl]
         let yaml = try PersonYAML.encode(p)          // encode canary 也走守衛

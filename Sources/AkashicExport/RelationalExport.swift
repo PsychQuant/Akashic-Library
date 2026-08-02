@@ -47,21 +47,38 @@ public enum RelationalExport {
         public var researcherTimeline: Table
         public var publication: Table
         public var publicationAuthor: Table
+        public var organization: Table
 
         public var all: [Table] {
-            [researcher, researcherTimeline, publication, publicationAuthor]
+            [organization, researcher, researcherTimeline, publication, publicationAuthor]
         }
     }
 
     /// 從一次 load 的結果產出表格。
-    public static func tables(entries: [Entry], people: [Person]) -> Tables {
+    public static func tables(entries: [Entry], people: [Person],
+                              organizations: [Organization] = []) -> Tables {
+        // key → org id。**用實際載入的機構解析，不重算 UUID**——指向不存在的機構時
+        // 回 NULL 而不是憑空造一個 id，與懸空作者同一條理由：造出來的 id 會在下游
+        // 變成一筆不存在的 organization 的外鍵。
+        let sortedOrgs = organizations.sorted { $0.key < $1.key }
+        let orgIDByKey = Dictionary(sortedOrgs.map { ($0.key, $0.id.uuidString) },
+                                    uniquingKeysWith: { a, _ in a })
+        let organizationRows: [[String?]] = sortedOrgs.map { o in
+            [o.id.uuidString, o.key, o.displayName, o.founded, o.dissolved,
+             { () -> String? in
+                 // 上級機構只有在它是 `.key` 且該機構存在時才給外鍵；
+                 // 字面值與懸空參照一律 NULL，不造 id。
+                 guard case .key(let k)? = o.parents.current?.value else { return nil }
+                 return orgIDByKey[k]
+             }()]
+        }
         // researcher：id 用 person 的 UUID（#35 之後 person 有不變身分），
         // 不是 key——key 是**稱呼**，會改；surrogate id 才適合當 FK。
         let sortedPeople = people.sorted { $0.key < $1.key }
         let researcherRows: [[String?]] = sortedPeople.map { p in
             // 現況欄位由 timeline 推出（`end IS NULL` 的最新一段）——冗餘但常用
             [p.id.uuidString, p.key, p.names.first, p.orcid, p.openalex,
-             p.profile.affiliations.current?.value,
+             p.profile.affiliations.current?.value.displayName,
              p.profile.ranks.current?.value,
              p.profile.administrative.current?.value,
              p.profile.appointments.current?.value,
@@ -74,8 +91,16 @@ public enum RelationalExport {
         // long-format 時間軸。維度值域開放，所以不攤平成寬表。
         var timelineRows: [[String?]] = []
         for p in sortedPeople {
+            // 隸屬先出（值是指涉或字面，多一個外鍵欄）
+            for v in p.profile.affiliations.sorted {
+                let fk: String? = {
+                    if case .key(let k) = v.value { return orgIDByKey[k] }
+                    return nil   // .literal ＝ 未歸戶；懸空的 .key 也回 NULL，不造 id
+                }()
+                timelineRows.append([p.id.uuidString, "affiliation", v.value.displayName,
+                                     v.range.start, v.range.end, v.source, fk])
+            }
             let dims: [(String, Timeline)] = [
-                ("affiliation", p.profile.affiliations),
                 ("rank", p.profile.ranks),
                 ("administrative", p.profile.administrative),
                 ("appointment", p.profile.appointments),
@@ -84,7 +109,7 @@ public enum RelationalExport {
             for (dim, tl) in dims {
                 for v in tl.sorted {
                     timelineRows.append([p.id.uuidString, dim, v.value,
-                                         v.range.start, v.range.end, v.source])
+                                         v.range.start, v.range.end, v.source, nil])
                 }
             }
         }
@@ -126,7 +151,8 @@ public enum RelationalExport {
                               rows: researcherRows),
             researcherTimeline: Table(name: "researcher_timeline",
                                       columns: ["researcher_id", "dimension", "value",
-                                                "valid_start", "valid_end", "source"],
+                                                "valid_start", "valid_end", "source",
+                                                "organization_id"],
                                       rows: timelineRows),
             publication: Table(name: "publication",
                                columns: ["publication_id", "citekey", "type", "title",
@@ -135,7 +161,11 @@ public enum RelationalExport {
             publicationAuthor: Table(name: "publication_author",
                                      columns: ["publication_id", "author_seq",
                                                "researcher_id", "name_full"],
-                                     rows: authorRows))
+                                     rows: authorRows),
+            organization: Table(name: "organization",
+                                columns: ["organization_id", "org_key", "name_current",
+                                          "founded", "dissolved", "parent_id"],
+                                rows: organizationRows))
     }
 
     /// 從 `date` 抽出 4 位數年份。
@@ -182,9 +212,23 @@ public enum RelationalExport {
         -- 用法：akashic export-tables --output <dir> && duckdb x.db -c ".read <dir>/load.sql"
 
         DROP TABLE IF EXISTS publication_author;
+        DROP TABLE IF EXISTS organization_pending;
         DROP TABLE IF EXISTS publication;
         DROP TABLE IF EXISTS researcher_timeline;
         DROP TABLE IF EXISTS researcher;
+        DROP TABLE IF EXISTS organization;
+
+        -- 機構是第三種一級實體（形狀標籤 organization:）。
+        CREATE TABLE organization (
+            organization_id UUID PRIMARY KEY,
+            org_key         TEXT NOT NULL UNIQUE,
+            name_current    TEXT,
+            founded         TEXT,
+            dissolved       TEXT,   -- NULL ＝ 仍存續（**不是**未知）
+            -- 上級機構（部分—整體）。**與人的隸屬是不同的 predicate**，
+            -- 所以住在不同的表／不同的欄位，不合併成一張通用邊表。
+            parent_id       UUID REFERENCES organization(organization_id)
+        );
 
         CREATE TABLE researcher (
             researcher_id UUID PRIMARY KEY,
@@ -212,7 +256,11 @@ public enum RelationalExport {
             value         TEXT NOT NULL,
             valid_start   TEXT,   -- ISO 8601 前綴，保留來源精度（2003 / 2003-01 / 2003-01-15）
             valid_end     TEXT,   -- NULL ＝ 仍在進行中（**不是**未知）
-            source        TEXT
+            source        TEXT,
+            -- 只有 dimension='affiliation' 且該筆已歸戶時非空。
+            -- **NULL ＝ 未歸戶**，與 publication_author.researcher_id 同語意——
+            -- 不加「是否已歸戶」旗標欄位，缺席本身就是資訊，而且 IS NULL 直接就是查詢。
+            organization_id UUID REFERENCES organization(organization_id)
         );
 
         CREATE TABLE publication (
@@ -237,6 +285,8 @@ public enum RelationalExport {
             PRIMARY KEY (publication_id, author_seq)
         );
 
+        INSERT INTO organization
+            SELECT * FROM read_csv('\(csvDirectory)/organization.csv', header = true);
         INSERT INTO researcher
             SELECT * FROM read_csv('\(csvDirectory)/researcher.csv', header = true);
         INSERT INTO researcher_timeline

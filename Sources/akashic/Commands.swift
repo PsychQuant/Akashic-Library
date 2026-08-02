@@ -4,6 +4,7 @@ import AkashicCore
 import AkashicStoreIO
 import AkashicEntity
 import AkashicZoteroImport
+import AkashicWoSImport
 import AkashicExport
 import AkashicIndex
 
@@ -197,6 +198,55 @@ struct Migrate: ParsableCommand {
             }
         } catch {
             throw ValidationError((error as? LocalizedError)?.errorDescription ?? "\(error)")
+        }
+    }
+}
+
+/// #21：WoS 匯出 → entries。
+struct ImportWoS: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "import-wos",
+        abstract: "匯入 Web of Science 的 tab-delimited 匯出（作者一律不自動歸戶）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Argument(help: "WoS 匯出檔（tab-delimited；xlsx 請先另存為 TSV）")
+    var path: String
+
+    @Flag(name: .long, help: "只回報會做什麼，不寫檔")
+    var dryRun = false
+
+    @Flag(name: .long, help: "來源是逗號分隔（CSV）而非 tab")
+    var csv = false
+
+    func run() throws {
+        let store = try options.openStore()
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let r = try WoSImport.run(text: text, store: store,
+                                  separator: csv ? "," : "\t", dryRun: dryRun)
+        let prefix = dryRun ? "（dry-run）" : "✓"
+        print("\(prefix) created \(r.created.count)、unchanged \(r.unchanged.count)")
+        if !r.conflicts.isEmpty {
+            // **不覆寫**：citekey 撞號且內容不同，可能是使用者手動改過的資料，
+            // 而 WoS 的欄位比 store 的窄——覆寫會把人工補的資訊洗掉。
+            print("conflicts（citekey 相同但內容不同，未覆寫）: \(r.conflicts.count)")
+            for c in r.conflicts.prefix(10) { print("  ! \(displaySafe(c, max: 200))") }
+        }
+        if !r.skippedRows.isEmpty {
+            print("skipped: \(r.skippedRows.count)")
+            for s in r.skippedRows.prefix(5) { print("  - \(displaySafe(s, max: 300))") }
+        }
+        if !r.aliasGroups.isEmpty {
+            // 這是本 importer 的真正價值：兩欄同 index 對齊，免費得到每位作者的兩種寫法
+            print("alias 配對: \(r.aliasGroups.count) 組（可餵給 people 的 names[]）")
+            for g in r.aliasGroups.prefix(3) {
+                print("  \(g.map { displaySafe($0, max: 200) }.joined(separator: " ≡ "))")
+            }
+        }
+        if !dryRun, !r.created.isEmpty {
+            _ = try LibraryIndex(store: store).rebuild()
+            print("  index 已重建；作者全部為 .literal——用 akashic resolve-people 歸戶")
         }
     }
 }

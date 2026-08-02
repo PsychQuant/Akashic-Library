@@ -975,7 +975,12 @@ public enum LibraryYAML {
 
 public enum PersonYAML {
     public static func encode(_ person: Person) throws -> String {
-        var pairs: [(Node, Node)] = [(Node("key"), Node(person.key))]
+        // #35：id 在前，與 Entry 的欄位順序一致（id / key / …）
+        // #35：`type: person` 讓 entities/ 佈局分辨得出記錄種類。legacy `people/` 佈局下
+        // 它是 additive（舊 binary 當未知欄位保留），所以一律寫、不分佈局。
+        var pairs: [(Node, Node)] = [(Node("id"), Node(person.id.uuidString)),
+                                     (Node("type"), Node("person")),
+                                     (Node("key"), Node(person.key))]
         if !person.names.isEmpty {
             pairs.append((Node("names"), Node(person.names.map { Node($0) })))
         }
@@ -993,6 +998,7 @@ public enum PersonYAML {
         guard a == b, rd.unknownFields.map(\.key) == person.unknownFields.map(\.key) else {
             // R8（R7-verify L14）：欄位指認（與 EntryYAML 對齊）
             var bad: [String] = []
+            if a.id != b.id { bad.append("id") }
             if a.key != b.key { bad.append("key") }
             if a.names != b.names { bad.append("names") }
             if a.orcid != b.orcid { bad.append("orcid") }
@@ -1012,7 +1018,7 @@ public enum PersonYAML {
         return out
     }
 
-    static let knownPersonKeys: Set<String> = ["key", "names", "orcid", "openalex", "note"]
+    static let knownPersonKeys: Set<String> = ["id", "type", "key", "names", "orcid", "openalex", "note"]
 
     public static func decode(_ yaml: String) throws -> Person {
         let yaml = EntryYAML.stripLeadingBOM(yaml)
@@ -1029,7 +1035,25 @@ public enum PersonYAML {
                                                    expect: "scalar", { $0.scalar?.string }) else {
             throw StoreYAMLError.missingField("key")
         }
-        var person = Person(key: key)
+        // #35：`id` 缺席 → 由 key 確定性推出（legacy `people/<key>.yaml` 沒有這個欄位）。
+        // 在場但格式錯 → fail-closed，**不猜**：亂猜一個 id 會讓這筆記錄與別處的引用
+        // 對不上，而且錯得很安靜。
+        var explicitID: UUID?
+        if let raw = try EntryYAML.requireShape(map["id"], field: "person.id",
+                                                expect: "scalar", nullIsAbsent: true,
+                                                { $0.scalar?.string }) {
+            guard let u = UUID(uuidString: raw) else {
+                throw StoreYAMLError.invalidField("person.id", "不是合法的 UUID")
+            }
+            explicitID = u
+        }
+        // `type` 在 entities 佈局用來分辨記錄種類；person 檔只接受 "person"。
+        if let t = try EntryYAML.requireShape(map["type"], field: "person.type",
+                                              expect: "scalar", nullIsAbsent: true,
+                                              { $0.scalar?.string }), t != "person" {
+            throw StoreYAMLError.invalidField("person.type", "person 檔的 type 必須是「person」，實得「\(t)」")
+        }
+        var person = Person(key: key, id: explicitID)
         person.unknownFields = unknowns
         // R6（DA R5 HIGH 實測案例即 person.names）：形狀不符 fail-closed
         if let seq = try EntryYAML.requireShape(map["names"], field: "person.names",
@@ -1043,5 +1067,28 @@ public enum PersonYAML {
         person.note = try EntryYAML.requireShape(map["note"], field: "person.note",
                                                  expect: "scalar") { $0.scalar?.string }
         return person
+    }
+}
+
+/// `entities/<uuid>.yaml` 的種類判別（#35）。
+///
+/// **不用文字掃描**——`type:` 可能出現在註解、字串值、未知欄位裡，用 grep 判準是
+/// #36 那一族錯誤的同一種形態。這裡老實 compose 一次讀那個欄位。成本由 #30 的實測
+/// 背書（500 檔 baseline 0.29 s），而正確性不打折。
+public enum EntityKind {
+    case work
+    case person
+
+    /// 讀 `type` 欄位決定種類。`type: person` → person，其餘（含缺席）→ work。
+    ///
+    /// **缺席視為 work 而非錯誤**：`type` 對 work 是必要欄位，缺席由 `EntryYAML.decode`
+    /// 自己報錯——在這裡多報一次只會讓錯誤訊息變成「不是 person」，離真正的問題更遠。
+    public static func peek(_ yaml: String) throws -> EntityKind {
+        let text = EntryYAML.stripLeadingBOM(yaml)
+        guard let root = try Yams.compose(yaml: text), let map = root.mapping else {
+            throw StoreYAMLError.invalidField("entity", "根節點必須是 mapping")
+        }
+        let t = map["type"]?.scalar?.string
+        return t == "person" ? .person : .work
     }
 }

@@ -54,6 +54,11 @@ public final class LibraryStore {
     public var peopleDir: URL { root.appendingPathComponent("people") }
     public var librariesDir: URL { root.appendingPathComponent("libraries") }
     public var notesDir: URL { root.appendingPathComponent("notes") }
+    /// #35：統一的 canonical 目錄。**分類不進路徑**——work / person / organization 與
+    /// article / book 是同一個軸上的值，沒有理由前者當目錄、後者當欄位。檔名是不變的
+    /// UUID，所以改 citekey 不再需要搬檔案。
+    public var entitiesDir: URL { root.appendingPathComponent("entities") }
+
     public var akashicDir: URL { root.appendingPathComponent(".akashic") }
 
     /// registry key（`~/.akashic/config.yaml` 的 `files:` 鍵）。nil＝未註冊 store。
@@ -87,11 +92,25 @@ public final class LibraryStore {
 
     public func ensureLayout() throws {
         let fm = FileManager.default
-        for dir in [root, entriesDir, peopleDir, librariesDir, notesDir, akashicDir] {
+        for dir in [root, entitiesDir, entriesDir, peopleDir, librariesDir, notesDir, akashicDir] {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         // #24：新建的 store 自我聲明格式。既有檔不覆寫（可能是較新版本寫的）。
         try StoreVersion.writeIfAbsent(root: root)
+    }
+
+    /// #35：format 2 的檔案位置——**檔名是不變的 UUID**，所以改 citekey 不搬檔案。
+    public func entityURL(id: UUID) -> URL {
+        entitiesDir.appendingPathComponent("\(id.uuidString).yaml")
+    }
+
+    /// 這個 store 是否已遷移到 entities/ 佈局（#35）。
+    ///
+    /// 判準是 **store format**，不是「entities/ 目錄存不存在」——目錄可能因為
+    /// `ensureLayout` 或半途中斷而存在卻是空的，用它當判準會讓寫入端在遷移完成前
+    /// 就開始往新位置寫，產生兩個佈局並存的爛攤子。
+    public var usesEntitiesLayout: Bool {
+        ((try? StoreVersion.read(root: root)) ?? 1) >= 2
     }
 
     public func entryURL(citekey: String) -> URL {
@@ -138,7 +157,8 @@ public final class LibraryStore {
                                           entry.akashic.libraries.joined(separator: ","))
         }
         let yaml = try EntryYAML.encode(entry)
-        let dest = entryURL(citekey: entry.citekey)
+        // #35：format 2 走 entities/<uuid>.yaml，legacy 走 entries/<citekey>.yaml
+        let dest = usesEntitiesLayout ? entityURL(id: entry.id) : entryURL(citekey: entry.citekey)
         try atomicWrite(yaml, to: dest)
         return dest
     }
@@ -152,7 +172,7 @@ public final class LibraryStore {
             throw StoreIOError.invalidKey("citekey", entry.citekey)
         }
         let yaml = try EntryYAML.encode(entry)
-        let dest = entryURL(citekey: entry.citekey)
+        let dest = usesEntitiesLayout ? entityURL(id: entry.id) : entryURL(citekey: entry.citekey)
         try atomicWrite(yaml, to: dest, mustCreate: true)
         return dest
     }
@@ -163,7 +183,7 @@ public final class LibraryStore {
             throw StoreIOError.invalidKey("person key", person.key)
         }
         let yaml = try PersonYAML.encode(person)
-        let dest = personURL(key: person.key)
+        let dest = usesEntitiesLayout ? entityURL(id: person.id) : personURL(key: person.key)
         try atomicWrite(yaml, to: dest)
         return dest
     }
@@ -175,6 +195,66 @@ public final class LibraryStore {
         // 不對，使用者拿到的是一堆難解的 per-file 錯誤，而不是一句「請升級 binary」。
         try StoreVersion.check(root: root)
         var result = LibraryLoad()
+
+        // #35：entities/ 是 format 2 的 canonical 目錄。**與 legacy 並存讀取**——
+        // 遷移是一次性動作，但舊佈局的 store（含別人的 clone、未遷移的備份）必須照樣讀。
+        for url in try yamlFiles(in: entitiesDir) {
+            let name = "entities/\(url.lastPathComponent)"
+            do {
+                let text = try readUTF8(url)
+                let stem = url.deletingPathExtension().lastPathComponent
+                // 檔名即身分：stem 必須是合法 UUID 且與記錄的 id 相符。
+                // 不符時 quarantine——那代表有人手動改了檔名或 id，兩者都會讓引用錯位。
+                guard let stemUUID = UUID(uuidString: stem) else {
+                    result.quarantined.append(QuarantinedFile(
+                        file: name, reason: "entities/ 的檔名必須是 UUID，實得「\(stem)」"))
+                    continue
+                }
+                switch try EntityKind.peek(text) {
+                case .person:
+                    let person = try PersonYAML.decode(text)
+                    guard person.id == stemUUID else {
+                        result.quarantined.append(QuarantinedFile(
+                            file: name, reason: "檔名 UUID 與 person.id「\(person.id.uuidString)」不符"))
+                        continue
+                    }
+                    guard StoreKey.isValid(person.key) else {
+                        result.quarantined.append(QuarantinedFile(
+                            file: name, reason: "person key「\(person.key)」不符合 \(StoreKey.pattern)"))
+                        continue
+                    }
+                    if !person.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
+                    result.people.append(person)
+                case .work:
+                    let entry = try EntryYAML.decode(text)
+                    guard entry.id == stemUUID else {
+                        result.quarantined.append(QuarantinedFile(
+                            file: name, reason: "檔名 UUID 與 entry.id「\(entry.id.uuidString)」不符"))
+                        continue
+                    }
+                    guard StoreKey.isValid(entry.citekey) else {
+                        result.quarantined.append(QuarantinedFile(
+                            file: name, reason: "citekey「\(entry.citekey)」不符合 \(StoreKey.pattern)"))
+                        continue
+                    }
+                    if let bad = entry.akashic.libraries.first(where: { !StoreKey.isValid($0) }) {
+                        result.quarantined.append(QuarantinedFile(
+                            file: name, reason: "akashic.libraries 含不合法 key「\(bad)」"))
+                        continue
+                    }
+                    var e2 = entry
+                    var seen = Set<String>()
+                    e2.akashic.libraries = entry.akashic.libraries.filter { seen.insert($0).inserted }
+                    if !entry.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
+                    result.entries.append(e2)
+                }
+            } catch {
+                result.quarantined.append(QuarantinedFile(
+                    file: name,
+                    reason: (error as? LocalizedError)?.errorDescription ?? String(describing: error)))
+            }
+        }
+
         for url in try yamlFiles(in: entriesDir) {
             do {
                 let entry = try EntryYAML.decode(try readUTF8(url))
@@ -357,13 +437,22 @@ extension LibraryStore {
         guard StoreKey.isValid(newKey) else {
             throw StoreIOError.invalidKey("citekey", newKey)
         }
-        // 目的檔不可存在——含 quarantined 檔與 case-insensitive 別名
-        guard !FileManager.default.fileExists(atPath: entryURL(citekey: newKey).path) else {
+        // 目的檔不可存在——含 quarantined 檔與 case-insensitive 別名。
+        // #35：format 2 的檔名是 UUID 而非 citekey，這個檢查不適用（目的檔就是來源檔）；
+        // 「新 citekey 是否已被別的記錄佔用」改由下面的全庫檢查負責。
+        if !usesEntitiesLayout,
+           FileManager.default.fileExists(atPath: entryURL(citekey: newKey).path) {
             throw StoreIOError.invalidKey("citekey（目的檔已存在）", newKey)
         }
         let load = try store_loadForRename()
         guard var entry = load.entries.first(where: { $0.citekey == oldKey }) else {
             throw StoreIOError.invalidKey("citekey（來源不存在）", oldKey)
+        }
+        // #35：檔名不再是 citekey，所以「新 citekey 沒被佔用」不再由檔案系統天然保證。
+        // 沒有這個檢查，format 2 會安靜地產生兩筆同 citekey 的記錄。
+        if usesEntitiesLayout,
+           load.entries.contains(where: { $0.citekey == newKey && $0.id != entry.id }) {
+            throw StoreIOError.invalidKey("citekey（已被其他記錄使用）", newKey)
         }
 
         // 1. 寫新檔（先寫後刪，中斷時頂多多一份檔案，不丟資料）。
@@ -392,15 +481,28 @@ extension LibraryStore {
         // 避免中途 throw 留下 relations 半遷移的多檔撕裂。
         _ = try EntryYAML.encode(entry)
         for other in toRewrite { _ = try EntryYAML.encode(other) }
-        // 3. 寫新檔（先寫後刪，中斷時頂多多一份檔案，不丟資料）。
-        try writeEntryExclusive(entry)
+        // 3. 寫記錄本身。
+        //
+        // **#35：format 2 下 rename 不搬檔案。** 檔名是 UUID，而 rename 不改 UUID——
+        // 改的是 citekey 這個「稱呼」。所以目的檔就是來源檔，原地覆寫即可；用
+        // exclusive-create 反而會撞上「目的檔已存在」（那是它自己）。
+        //
+        // 這是 entities 佈局最直接的好處：**改稱呼不再是一次多檔搬移**，
+        // 也就沒有「新舊並存」這個中斷態要處理（見本函式開頭的表格）。
+        if usesEntitiesLayout {
+            try writeEntry(entry)
+        } else {
+            try writeEntryExclusive(entry)
+        }
         var rewritten: [String] = []
         for other in toRewrite {
             try writeEntry(other)
             rewritten.append(other.citekey)
         }
-        // 4. 刪舊檔
-        try FileManager.default.removeItem(at: entryURL(citekey: oldKey))
+        // 4. 刪舊檔（僅 legacy 佈局——format 2 沒有舊檔，見上）
+        if !usesEntitiesLayout {
+            try FileManager.default.removeItem(at: entryURL(citekey: oldKey))
+        }
         return RenameReport(relationsRewritten: rewritten.sorted())
     }
 

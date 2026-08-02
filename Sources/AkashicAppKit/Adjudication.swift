@@ -102,7 +102,10 @@ public final class OrphanModel {
         case .moveToTrash:
             var trashed: NSURL?
             try FileManager.default.trashItem(
-                at: state.store.entryURL(citekey: entry.citekey), resultingItemURL: &trashed)
+                at: state.store.usesEntitiesLayout   // #35
+                    ? state.store.entityURL(id: entry.id)
+                    : state.store.entryURL(citekey: entry.citekey),
+                resultingItemURL: &trashed)
         case .detachFromZotero:
             var detached = entry
             detached.provenance = nil

@@ -60,6 +60,7 @@ let package = Package(
         ]),
         .testTarget(name: "AkashicCLITests", dependencies: ["akashic"]),
         .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp"]),
-        .testTarget(name: "AkashicAppKitTests", dependencies: ["AkashicAppKit"]),
+        .testTarget(name: "AkashicAppKitTests",
+                    dependencies: ["AkashicAppKit", "AkashicCore", "AkashicStoreIO"]),
     ]
 )

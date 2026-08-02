@@ -1,0 +1,44 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Akashic-Library}",
+            "name": "Debug akashic",
+            "target": "akashic",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug akashic"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Akashic-Library}",
+            "name": "Release akashic",
+            "target": "akashic",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release akashic"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Akashic-Library}",
+            "name": "Debug akashic-mcp",
+            "target": "akashic-mcp",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug akashic-mcp"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Akashic-Library}",
+            "name": "Release akashic-mcp",
+            "target": "akashic-mcp",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release akashic-mcp"
+        }
+    ]
+}

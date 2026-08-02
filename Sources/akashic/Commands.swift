@@ -153,6 +153,37 @@ struct ImportZotero: ParsableCommand {
     }
 }
 
+/// #35：legacy → entities 的一次性遷移。
+struct Migrate: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "migrate",
+        abstract: "把 store 從 entries/+people/ 遷移到 entities/<uuid>.yaml（#35）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Flag(name: .long, help: "只回報會做什麼，不動磁碟")
+    var dryRun = false
+
+    func run() throws {
+        let store = try options.openStore()
+        do {
+            let r = try StoreMigration.toEntities(store: store, dryRun: dryRun)
+            let prefix = dryRun ? "（dry-run）" : "✓"
+            print("\(prefix) entries \(r.entriesMoved)、people \(r.peopleMoved) 筆"
+                + (r.alreadyMigrated > 0 ? "、已在 entities/ \(r.alreadyMigrated) 筆" : ""))
+            if dryRun {
+                print("  實際執行：akashic migrate")
+            } else {
+                print("  store format → 2；舊 binary 從此會拒絕開啟這個 store（#24）")
+                let stats = try LibraryIndex(store: store).rebuild()
+                print("  index rebuilt: \(stats.entries) entries → \(store.indexURL.path)")
+            }
+        } catch {
+            throw ValidationError((error as? LocalizedError)?.errorDescription ?? "\(error)")
+        }
+    }
+}
+
 struct ExportBib: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "export-bib", abstract: ".bib 匯出（編譯產物；經 biblatex-apa-swift）")

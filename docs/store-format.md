@@ -156,6 +156,42 @@ note: 中研院統計所            # 可選
 本格式為 v1.3（v1.1 增 provenance hash 欄位；v1.2 增 `akashic.libraries` 與
 `libraries/` registry，#13；v1.3 引入 tolerant-preserve，#23）。
 
+### 5.-1 v2：`entities/<uuid>.yaml`（normative，#35）
+
+**分類不進路徑。** `work` / `person` / `organization` 與 `article` / `book` 是**同一個軸上
+的值**，沒有理由前者當目錄、後者當欄位。
+
+```
+entities/<uuid>.yaml     +  type: article | book | person | …
+```
+
+| | format 1 | format 2 |
+|---|---|---|
+| work | `entries/<citekey>.yaml` | `entities/<uuid>.yaml` |
+| person | `people/<person-key>.yaml` | `entities/<uuid>.yaml` + `type: person` |
+| 檔名的意義 | **稱呼**（會變） | **身分**（不變） |
+
+**normative 規則：**
+
+1. `entities/` 的檔名 **MUST** 是合法 UUID，且 **MUST** 等於記錄的 `id`。不符 → quarantine
+   （代表有人改了檔名或 id，兩者都會讓引用錯位）。
+2. 記錄種類由 `type` 決定：`type: person` → person，其餘（含缺席）→ work。判別 **MUST**
+   讀該欄位，**MUST NOT** 用文字掃描——`type:` 可能出現在註解、字串值、未知欄位裡。
+3. person 記錄 **MUST** 有 `id`。legacy `people/<key>.yaml` 缺 `id` 時，讀取端 **MUST** 以
+   `UUIDv5(namespace, key)` 推出**確定性**值；**MUST NOT** 隨機生成（否則 index 的
+   primary key 與作者引用每次載入都會漂）。`id` 在場但非合法 UUID → **MUST** fail-closed。
+4. format 2 下 rename **MUST NOT** 搬檔案（UUID 不變），但 **MUST** 檢查新 citekey 未被
+   其他記錄佔用——檔名不再是 citekey，唯一性不再由檔案系統天然保證。
+5. 讀取端 **MUST** 同時讀 `entities/` 與 legacy 目錄（未遷移的 clone / 備份要能開）；
+   寫入端 **MUST** 依 **store format** 而非「`entities/` 目錄是否存在」決定寫哪裡
+   （空目錄可能是 `ensureLayout` 或中斷的遷移留下的）。
+6. 沒有 `store.yaml` 的既有 store，若 `entries/` 或 `people/` 有內容，**MUST** 標為
+   format 1——無條件標成 supported 會把 legacy store 誤標成 v2。
+
+**遷移**：`akashic migrate`（`--dry-run` 先看）。順序是**先驗、再寫、後刪、最後 bump
+format**；有任何 quarantine 檔則拒絕遷移（內容讀不出來的檔搬過去只會把問題帶進新佈局，
+並失去「它原本在哪」這個唯一線索）。
+
 ### 5.0 Format marker 與 refuse-if-newer（normative，#24）
 
 store root 有一個 canonical 的 `store.yaml`，只含一個整數欄位：
@@ -193,7 +229,8 @@ index 一起被清掉。
   使用者跑一個看似無害的 `doctor` 時把防線自毀）。
 
 **版本對照**：`format: 1` ＝ v1.x 家族（`entries/<citekey>.yaml` + `people/<person-key>.yaml`；
-tolerant-preserve 於 v1.3 落地，屬 additive 故不 bump）。
+tolerant-preserve 於 v1.3 落地，屬 additive 故不 bump）。`format: 2` ＝ `entities/<uuid>.yaml`
+（#35，見 §5.-1）——**結構重排**，是 refuse-if-newer 存在的直接理由。
 
 ### v1.3：tolerant-preserve（開放演化層）
 

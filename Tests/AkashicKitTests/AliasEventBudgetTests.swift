@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+import Yams
 @testable import AkashicCore
 
 /// #36 / #27：event-level 的 alias 展開預算。
@@ -192,6 +193,69 @@ final class AliasEventBudgetTests: XCTestCase {
             """)
         XCTAssertEqual(e.aliases, 0, "純量內容被當成 alias")
         XCTAssertEqual(e.anchors, 0)
+    }
+
+    /// **估計值必須精確等於真實展開量。** 這是整個估計器的正確性判準——不是「夠接近」，
+    /// 是相等。verify 抓到的 off-by-one（記錄 anchored 子樹大小時漏算 collection 自己）
+    /// 單看是差一，鏈起來卻累積成 84 倍。
+    func testEstimateEqualsGroundTruth() throws {
+        func trueNodes(_ n: Node) -> Int {
+            switch n {
+            case .scalar: return 1
+            case .sequence(let s): return 1 + s.reduce(0) { $0 + trueNodes($1) }
+            case .mapping(let m): return 1 + m.reduce(0) { $0 + trueNodes($1.key) + trueNodes($1.value) }
+            case .alias: return 1
+            }
+        }
+        var chain = "root: &a0 x\n"
+        for i in 1...50 { chain += "k\(i): &a\(i) [*a\(i-1)]\n" }
+        var fan = "a0: &a0 [x,x,x,x,x,x,x,x,x]\n"
+        for i in 1...6 { fan += "a\(i): &a\(i) [*a\(i-1),*a\(i-1)]\n" }
+        fan += "zz: *a6\n"
+        for (name, y) in [("benign", "base: &b [x,y,z]\nuse: *b\n"),
+                          ("plain", "a: 1\nb: [x,y]\nc: {d: e}\n"),
+                          ("chain50", chain), ("fan2x6", fan)] {
+            let est = try AliasEventBudget.estimate(y, nodeLimit: Int.max).expandedNodes
+            let truth = try Yams.compose(yaml: y).map { trueNodes($0) } ?? 0
+            XCTAssertEqual(est, truth, "\(name)：估計與真實展開量必須相等")
+        }
+    }
+
+    /// **verify 的 1.1 MB bypass**：chain 509 層讓 anchored size 被低估，再用 19 萬個
+    /// alias 放在 key 位置放大——修前四個軸全過、真實展開 9.7e7 節點。
+    func testCriticalChainUnderestimateBypass() {
+        var s = "root: &a0 x\n"
+        for i in 1...509 { s += "k\(i): &a\(i) [*a\(i-1)]\n" }
+        s += "? [" + (0..<190_000).map { _ in "*a509" }.joined(separator: ",") + "]\n: 1\n"
+        assertRefused(s, "chain 低估 + key 位置放大")
+    }
+
+    /// **節點軸只對有 alias 的輸入有意義。** alias-free 的檔案放大定義上不可能，
+    /// 成本由 `maxBytes` 已界住。不 gate 的話 1.8 MB 的正常大檔會被擋並告知
+    /// 「這是攻擊的形狀」——那是誤殺，而且訊息還是錯的。
+    func testAliasFreeLargeFileIsNotRefused() throws {
+        var s = "a: 1\n"
+        for i in 0..<120_000 { s += "k\(i): v\(i)\n" }
+        let e = try AliasEventBudget.estimate(s)
+        XCTAssertEqual(e.aliases, 0)
+        XCTAssertGreaterThan(e.expandedNodes, AliasEventBudget.maxExpandedNodes,
+                             "這個檔的節點數確實超過門檻——重點是它仍不得被擋")
+        XCTAssertNoThrow(try AliasEventBudget.check(s, context: "t"))
+    }
+
+    /// **write path 需要遲滯。** 讀寫用完全相同的門檻 → 一筆 199,999 節點的記錄讀得進來，
+    /// 但下次編輯多一個節點就永遠寫不回，使用者的修改被丟掉。R9 對 oracle 預算做過
+    /// 同一件事（「放寬為 2×，避免『讀得到但永遠寫不回』的邊界檔」）。
+    func testWritePathHasHysteresis() throws {
+        var p = Person(key: "big", names: ["A"])
+        let tl = Timeline((0..<2600).map {
+            TemporalValue(value: "v\($0)", range: DateRange(start: "2000", end: "2001"),
+                          source: "s", note: "n")
+        })
+        p.profile.affiliations = tl; p.profile.ranks = tl; p.profile.administrative = tl
+        p.profile.appointments = tl; p.profile.fields = tl
+        p.profile.contacts = ["email": tl, "phone": tl]
+        XCTAssertNoThrow(try PersonYAML.encode(p), "讀得進來的記錄必須寫得回去")
     }
 
     // MARK: - 2. 不誤殺真實資料

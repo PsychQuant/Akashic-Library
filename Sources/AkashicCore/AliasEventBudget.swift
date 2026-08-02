@@ -97,7 +97,8 @@ public enum AliasEventBudget {
     }
 
     /// 掃描一份 YAML，估計展開成本。**不建 document tree、不展開 alias。**
-    public static func estimate(_ text: String) throws -> Estimate {
+    public static func estimate(_ text: String,
+                                nodeLimit: Int = maxExpandedNodes) throws -> Estimate {
         var parser = yaml_parser_t()
         guard yaml_parser_initialize(&parser) == 1 else {
             throw AliasBudgetError.parserUnavailable
@@ -169,13 +170,19 @@ public enum AliasEventBudget {
                     expanded += 1
                     let a = event.data.sequence_start.anchor.map { String(cString: $0) }
                     if a != nil { anchors += 1 }
-                    openStack.append((a, expanded, expandedBytes, 0))
+                    // `expanded - 1`：START 事件已經把 collection 自己算進去了，起點要退回去，
+                    // 否則記錄的子樹大小**不含 collection 本身**。單看是差一，但鏈起來會
+                    // 累積——verify 實測 500 層的鏈估 1,505、真實 126,755（差 84 倍）。
+                    openStack.append((a, expanded - 1, expandedBytes, 0))
 
                 case YAML_MAPPING_START_EVENT:
                     expanded += 1
                     let a = event.data.mapping_start.anchor.map { String(cString: $0) }
                     if a != nil { anchors += 1 }
-                    openStack.append((a, expanded, expandedBytes, 0))
+                    // `expanded - 1`：START 事件已經把 collection 自己算進去了，起點要退回去，
+                    // 否則記錄的子樹大小**不含 collection 本身**。單看是差一，但鏈起來會
+                    // 累積——verify 實測 500 層的鏈估 1,505、真實 126,755（差 84 倍）。
+                    openStack.append((a, expanded - 1, expandedBytes, 0))
 
                 case YAML_SEQUENCE_END_EVENT, YAML_MAPPING_END_EVENT:
                     if let top = openStack.popLast() {
@@ -196,8 +203,12 @@ public enum AliasEventBudget {
                 }
 
                 // 邊掃邊擋——不必等掃完。三個軸各自獨立：計數、重量、深度。
-                if expanded > maxExpandedNodes {
-                    error = .expansionTooLarge(estimated: expanded, limit: maxExpandedNodes)
+                // **節點軸只對有 alias 的輸入有意義**（verify HIGH）：alias-free 的檔案
+                // `expanded == rawEvents`，放大**定義上不可能**，成本由 `maxBytes` 已經
+                // 界住（實測 alias-free 的 compose 對輸入線性：7.4 MB → 1.8 s）。
+                // 不 gate 的話，一個 1.2 MB 的正常大檔會被擋下並告知「這是攻擊的形狀」。
+                if aliases > 0, expanded > nodeLimit {
+                    error = .expansionTooLarge(estimated: expanded, limit: nodeLimit)
                     break loop
                 }
                 if expandedBytes > maxExpandedBytes {
@@ -218,13 +229,25 @@ public enum AliasEventBudget {
                         aliases: aliases, anchors: anchors)
     }
 
+    /// **write path 的放寬倍數**（verify HIGH，沿用 R9 的既有先例）。
+    ///
+    /// encode canary 走同一道守衛，若讀寫用**完全相同**的門檻就沒有遲滯：一筆
+    /// 199,999 節點的記錄讀得進來，但下一次編輯只要多一個節點就**永遠寫不回**，
+    /// 而使用者的修改被丟掉。YAML.swift 的 R9 註解逐字寫過這個危害
+    /// （「放寬為 2×，避免『讀得到但永遠寫不回』的邊界檔」）——同一個道理。
+    public static let writePathMultiplier = 2
+
     /// compose **之前**的守衛。
-    public static func check(_ text: String, context: String) throws {
+    ///
+    /// `isWritePath` 為 true 時門檻放寬 `writePathMultiplier` 倍（見上）。
+    public static func check(_ text: String, context: String,
+                             isWritePath: Bool = false) throws {
+        let mult = isWritePath ? writePathMultiplier : 1
         let byteCount = text.utf8.count
-        guard byteCount <= maxBytes else {
-            throw AliasBudgetError.fileTooLarge(bytes: byteCount, limit: maxBytes)
+        guard byteCount <= maxBytes * mult else {
+            throw AliasBudgetError.fileTooLarge(bytes: byteCount, limit: maxBytes * mult)
         }
-        do { _ = try estimate(text) }
+        do { _ = try estimate(text, nodeLimit: maxExpandedNodes * mult) }
         catch let e as AliasBudgetError { throw e.withContext(context) }
     }
 }

@@ -617,7 +617,7 @@ public enum EntryYAML {
         do {
             // #36：canary 同樣先過預算——emitter 若寫出超預算的東西，那是 bug
             // 不是攻擊，要在這裡就爆而不是留給下一次 decode。
-            try AliasEventBudget.check(out, context: "encode canary")
+            try AliasEventBudget.check(out, context: "encode canary", isWritePath: true)
             _ = try Yams.compose(yaml: out)
         } catch {
             throw StoreYAMLError.invalidField(

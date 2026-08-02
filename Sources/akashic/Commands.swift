@@ -201,6 +201,42 @@ struct Migrate: ParsableCommand {
     }
 }
 
+/// #22：Akashic → 關係式表格（DuckDB 為衍生）。
+struct ExportTables: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "export-tables",
+        abstract: "匯出 CSV + DuckDB 載入腳本（單向衍生；DuckDB 端不回寫）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Option(name: .shortAndLong, help: "輸出目錄")
+    var output: String
+
+    func run() throws {
+        let store = try options.openStore()
+        let load = try store.load()
+        let dir = URL(fileURLWithPath: (output as NSString).expandingTildeInPath)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let tables = RelationalExport.tables(entries: load.entries, people: load.people)
+        for t in tables.all {
+            let url = dir.appendingPathComponent("\(t.name).csv")
+            try RelationalExport.csv(t).write(to: url, atomically: true, encoding: .utf8)
+            print("\(t.name): \(t.rows.count) 列 → \(url.lastPathComponent)")
+        }
+        let sql = dir.appendingPathComponent("load.sql")
+        try RelationalExport.duckDBScript(csvDirectory: dir.path)
+            .write(to: sql, atomically: true, encoding: .utf8)
+        print("載入腳本 → \(sql.path)")
+        print("  duckdb akashic.db -c \".read \(sql.path)\"")
+        // 未歸戶作者是**狀態**不是缺漏，但值得說出數量——它是 resolve-people 的工作量
+        let unresolved = tables.publicationAuthor.rows.filter { $0[2] == nil }.count
+        if unresolved > 0 {
+            print("  （\(unresolved) 筆作者未歸戶 → publication_author.researcher_id IS NULL）")
+        }
+    }
+}
+
 struct ExportBib: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "export-bib", abstract: ".bib 匯出（編譯產物；經 biblatex-apa-swift）")

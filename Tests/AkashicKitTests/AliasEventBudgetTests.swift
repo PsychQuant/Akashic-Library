@@ -27,39 +27,39 @@ final class AliasEventBudgetTests: XCTestCase {
 
     /// R12 的三條繞道。
     func testR12BypassesAreCaught() {
-        assertRefused(bomb(levels: 12, fanout: 2, tail: "*a12: 1\n"), "block 隱式 alias key")
-        assertRefused(bomb(levels: 12, fanout: 2, tail: "zz: {? *a12 : 1}\n"), "flow 顯式")
-        assertRefused(bomb(levels: 12, fanout: 2, tail: "zz: {*a12: 1}\n"), "flow 隱式")
+        assertRefused(bomb(levels: 14, fanout: 2, tail: "*a12: 1\n"), "block 隱式 alias key")
+        assertRefused(bomb(levels: 14, fanout: 2, tail: "zz: {? *a12 : 1}\n"), "flow 顯式")
+        assertRefused(bomb(levels: 14, fanout: 2, tail: "zz: {*a12: 1}\n"), "flow 隱式")
     }
 
     /// PR #42 的四條繞道——文字掃描全破，event level 全擋。
     func testPR42BypassesAreCaught() {
         // 裸 `>` 讓文字掃描把後續行當 block scalar 而整段跳過
         var gt = "key: a\nnames: [A]\nbomb:\n  - k: x > y\n"
-        for l in bomb(levels: 12, fanout: 2, tail: "*a12: 1\n")
+        for l in bomb(levels: 14, fanout: 2, tail: "*a12: 1\n")
                     .split(separator: "\n") { gt += "    " + l + "\n" }
         assertRefused(gt, "`>` 致盲")
 
         // 跨行 flow collection
         var flow = "extra: [x > y,\n"
         flow += "  &a0 [q,q,q,q,q,q,q,q,q],\n"
-        for i in 1...12 {
+        for i in 1...14 {
             flow += "  &a\(i) [" + (0..<9).map { _ in "*a\(i-1)" }.joined(separator: ",") + "],\n"
         }
-        flow += "  {*a12: 1}]\n"
+        flow += "  {*a14: 1}]\n"
         assertRefused(flow, "跨行 flow")
 
         // CRLF——Swift 的 "\r\n" 是單一 grapheme，文字掃描不分行
-        assertRefused(bomb(levels: 12, fanout: 2, tail: "*a12: 1\n")
+        assertRefused(bomb(levels: 14, fanout: 2, tail: "*a12: 1\n")
                         .replacingOccurrences(of: "\n", with: "\r\n"), "CRLF")
 
         // `#` 判準：plain scalar 內的 `marker-#x` 讓文字掃描吃掉整行
         var hash = "root: {note: marker-#not-a-comment,\n"
         hash += "  a0: &a0 [x,x,x,x,x,x,x,x,x],\n"
-        for i in 1...12 {
+        for i in 1...14 {
             hash += "  a\(i): &a\(i) [" + (0..<9).map { _ in "*a\(i-1)" }.joined(separator: ",") + "],\n"
         }
-        hash += "  q: *a12}\n"
+        hash += "  q: *a14}\n"
         assertRefused(hash, "`#` 判準")
     }
 
@@ -136,6 +136,43 @@ final class AliasEventBudgetTests: XCTestCase {
             XCTAssertNoThrow(try AliasEventBudget.check(yaml, context: "t"),
                              "書目內容被誤殺：\(v.debugDescription)")
         }
+    }
+
+    /// **門檻必須由合法資料的最壞情形校準，不是由現況。** #20 的 temporal person
+    /// （六個維度 × 200 段 + 聯絡資訊）估到約 15,000 節點——那是**合法資料**，
+    /// 而 #20 明說「全部維度都要記錄歷史」。門檻若貼著現況設，這種記錄會被誤殺，
+    /// 而誤殺代表**永久寫不回**（encode canary 也走這道守衛）。
+    func testLegitimateTemporalPersonHasWideMargin() throws {
+        var p = Person(key: "big-person", names: (0..<30).map { "Alias \($0)" })
+        let tl = Timeline((0..<200).map {
+            TemporalValue(value: "v\($0)",
+                          range: DateRange(start: "20\($0 % 90)", end: "20\(($0 + 1) % 90)"),
+                          source: "https://example.org/\($0)", note: "note \($0)")
+        })
+        p.profile.affiliations = tl; p.profile.ranks = tl
+        p.profile.administrative = tl; p.profile.appointments = tl; p.profile.fields = tl
+        p.profile.contacts = ["email": tl, "phone": tl]
+        let yaml = try PersonYAML.encode(p)          // encode canary 也走守衛
+        let e = try AliasEventBudget.estimate(yaml)
+        XCTAssertLessThan(e.expandedNodes * 10, AliasEventBudget.maxExpandedNodes,
+                          "合法的 temporal person 估到 \(e.expandedNodes) 節點，"
+                          + "門檻 \(AliasEventBudget.maxExpandedNodes) 餘裕不足 10×")
+        XCTAssertEqual(try PersonYAML.decode(yaml), p)
+    }
+
+    /// 45 位作者（真實 corpus 的實際最大值）+ 大量欄位。
+    func testLargeAuthorListHasWideMargin() throws {
+        var e1 = Entry(id: UUID(), citekey: "big2020a", type: "article",
+                       title: String(repeating: "Long title ", count: 40),
+                       authors: (0..<45).map { .literal("Author Number \($0) With A Long Name") },
+                       date: "2020")
+        for i in 0..<40 {
+            e1.fields["field\(i)"] = String(repeating: "value ", count: 100)
+        }
+        let yaml = try EntryYAML.encode(e1)
+        let e = try AliasEventBudget.estimate(yaml)
+        XCTAssertLessThan(e.expandedNodes * 100, AliasEventBudget.maxExpandedNodes,
+                          "45 作者的 entry 估到 \(e.expandedNodes) 節點")
     }
 
     // MARK: - 3. 不誤殺 emitter 自己的輸出（R11 與 PR #42 的死因）

@@ -44,6 +44,20 @@ final class EntitiesLayoutTests: XCTestCase {
                       "variant 位元不符 RFC 4122：\(s)")
     }
 
+    /// **對照獨立實作的 RFC 4122 §4.3 測試向量。** 只驗「version/variant 位元對」不夠
+    /// ——那只證明它長得像 UUIDv5，不證明它**是**。若 namespace 的 byte order 弄反，
+    /// 位元檢查照樣過，但推出的 id 與世界上任何其他 UUIDv5 實作都對不上。
+    func testUUIDv5MatchesRFCTestVector() {
+        // Python `uuid.uuid5(uuid.NAMESPACE_DNS, "python.org")`
+        let dns = UUID(uuidString: "6ba7b810-9dad-11d1-80b4-00c04fd430c8")!
+        XCTAssertEqual(DeterministicUUID.v5(namespace: dns, name: "python.org").uuidString
+                        .lowercased(),
+                       "886313e1-3b8a-5372-9b90-0c9aee199e5d")
+        // 本專案的 namespace，對照同一個獨立實作
+        XCTAssertEqual(DeterministicUUID.forPerson(key: "cheng-che").uuidString.lowercased(),
+                       "7a7f0a53-9d44-5f61-8b54-e3b8b791c7f8")
+    }
+
     /// legacy person 檔沒有 `id`——decode 必須補出**同一個**值，不是隨機值。
     func testLegacyPersonWithoutIDGetsStableIdentity() throws {
         let yaml = "key: p-one\nnames: [A]\n"
@@ -175,6 +189,23 @@ final class EntitiesLayoutTests: XCTestCase {
         try store.writeEntry(entry("b2021b"))
         XCTAssertThrowsError(try store.renameEntry(from: "a2020a", to: "b2021b"))
         XCTAssertEqual(Set(try store.load().entries.map(\.citekey)), ["a2020a", "b2021b"])
+    }
+
+    /// **雙佈局並存時同一筆會被讀兩次**（半途遷移、還原的備份、git merge）。
+    /// 這不是假想——遷移前後正是最可能出現的狀態。必須被跨記錄檢查接住，
+    /// 而不是留給 index 的 UNIQUE constraint 去撞。
+    func testSameRecordInBothLayoutsIsCaughtAsDuplicate() throws {
+        let store = try legacyStore()
+        let e = entry("a2020a")
+        try store.writeEntry(e)                                   // → entries/
+        try FileManager.default.createDirectory(at: store.entitiesDir,
+                                                withIntermediateDirectories: true)
+        try EntryYAML.encode(e).write(to: store.entityURL(id: e.id),
+                                      atomically: true, encoding: .utf8)
+        let load = try store.load()
+        XCTAssertEqual(load.entries.count, 2, "雙佈局下同一筆確實被讀兩次")
+        let issues = load.crossRecordIssues().filter { $0.severity == .error }
+        XCTAssertEqual(issues.count, 2, "重複 UUID 與重複 citekey 都要報：\(issues)")
     }
 
     // MARK: - 遷移

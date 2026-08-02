@@ -18,6 +18,23 @@ struct Doctor: ParsableCommand {
         let store = LibraryStore(root: root)
         try store.ensureLayout()
         let load = try store.load()
+
+        // #35：跨記錄檢查必須在 rebuild **之前**。雙佈局並存時 index 會撞
+        // `UNIQUE constraint failed: entries.citekey`——使用者拿到的是 SQLite 的
+        // 內部錯誤，而不是「你有兩筆同 citekey 的記錄、它們在哪」。診斷工具在這種
+        // 狀態下正是最該說話的時候，不是最該掛掉的時候。
+        let cross = load.crossRecordIssues()
+        let fatalCross = cross.filter { $0.severity == .error }
+        if !cross.isEmpty {
+            print("cross-record: \(cross.count)")
+            for i in cross { print("  \(i.severity == .error ? "✗" : "⚠") \(i.message)") }
+        }
+        if !fatalCross.isEmpty {
+            print("library: \(displaySafe(root.path, max: 800))")
+            print("entries: \(load.entries.count)（未重建 index——先修好上面的重複）")
+            throw ExitCode(1)
+        }
+
         let stats = try LibraryIndex(store: store).rebuild()
 
         print("library: \(root.path)")

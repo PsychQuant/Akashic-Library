@@ -7,6 +7,45 @@
 
 ---
 
+## 0. 裁決（2026-08-02，#33 結案）——本 spec 的兩個目標分別走向不同結局
+
+本 spec 有兩個目標。**它們的結局不同，必須分開講。**
+
+### 目標 A：擋住 alias 展開 DoS —— **已達成，但用的不是本 spec 的機制**
+
+`#36` 的 `AliasBudget` 用**計數**（anchor 數 × alias 數，超過預算即拒）在 compose **之前**
+擋下，實測三條繞道 25 s timeout → 0.05 s、真實 corpus 536 檔零誤判、emitter 的 18 個對抗性
+輸出零誤判。
+
+它比本 spec 的 Tier 2 好在兩點：
+
+1. **不需要進 compose**。本 spec 的 Tier 2 寫「`Yams.compose(text)` ← 安全：COW 共享，
+   不展開」——**該前提已被實測推翻**（見 §5.3 的 R11 更正）。建立在錯前提上的階層不能用。
+2. **判準不依賴精確度**。Tier 1 的存在性前濾（「不含 `&` 且不含 `*`」）對任何含這些字元的
+   檔案都要落到 Tier 2；而計數式預算留了大量餘裕（`A ≥ 2 且 R ≥ 4`），掃描器不精確也需要
+   好幾個巧合才會誤判。**正確性不再依賴掃描器的精巧度**——這是 R11 用位置判準失敗後學到的。
+
+### 目標 B：收窄輸入契約以縮小 `YAML.swift` —— **不做**
+
+本 spec 的 §8 自己列出可拆的元件，而結論是主要的三個
+（`scalarString` / `splitBlocks` / `verifyBlockOracle`）**拆不掉**——因為 block scalar 與
+任意深度巢狀仍在 profile 之內。真正能拆的只有 `assertLFOnly` / `assertNoLossyContentChars`
+的合併與 `stripLeadingBOM` 的位置調整，那是**收攏不是刪除**，行數幾乎不變。
+
+換言之：付出「一道新的 gate ＋ 它自己的攻擊面 ＋ 它自己的誤殺風險」，換回的是幾乎沒有的
+行數減少。**R11 → R12 的教訓正是「新增一道文字層 gate 的風險被系統性低估」**——那道 gate
+兩個方向都錯，還讓 emitter 自我毒化。
+
+### 保留下來的東西
+
+本 spec 的 **§2 現況證據**（536 檔 corpus 的實測 profile：0 anchor、0 alias、0 自訂 tag、
+0 merge key）仍然有效且有用——`AliasBudget` 的門檻設定就是用它校準的，`docs/store-format.md`
+§5 的揭露也引用它。`scripts/scan-yaml-profile.py` 保留，供日後 corpus 變化時重測。
+
+**本 spec 自 2026-08-02 起為 historical design record**，不作為實作指引。
+
+---
+
 ## 1. 問題
 
 `Sources/AkashicCore/YAML.swift` 從 211 行長到 1000+ 行（本 spec 撰寫時 958，R9–R11 後續增長），

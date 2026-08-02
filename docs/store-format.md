@@ -318,6 +318,49 @@ encode/decode 等冪。
   掛死。但對**完整性與顯示安全**而言它是未信任的：檔案可能由別的 binary、別人、
   Dropbox 同步寫入，所以未知欄位 key 與 quarantine reason 一律經 `displaySafe`。
   兩者不矛盾——是同一份資料在不同軸上的不同假設，而 DoS 那條軸的防線還沒蓋。
+### 5.9 v1.4 規劃：known 層的演化語意（#26 裁決，尚未實作）
+
+v1.3 的 tolerant-preserve 只涵蓋**未知 key**。known 層的三個 strict 區塊在演化時整檔
+quarantine——而其中兩個正是「最可能的下一次演化位置」。實測（2026-08-02）確認行為：
+
+| 構造 | v1.3 行為 |
+|---|---|
+| `attachments: [{futurekind: files/x.pdf}]` | **整檔 quarantine** |
+| `provenance: {…, future_field: v}` | **整檔 quarantine** |
+| `akashic.relations: {futurekind: [...]}` | **整檔 quarantine** |
+| `akashic: {futureNested: v}`（對照，tolerant 層） | warning，正常載入並保留 |
+
+**裁決：三者全部升格 tolerant（逐字保留 + 明示「本 binary 不理解」），v1.4 實作。**
+
+理由是**代價不對稱**。這三處的共同形態是「一個小結構的未知細節，讓整筆書目資料消失」：
+
+- **新 relation kind**（`extends` / `refutes`…）——R1 DA 指出這是最可能的 additive 演化。
+  容忍後最壞是圖上少一條邊；quarantine 是整筆記錄不見。**少一條邊 << 少一整筆**。
+- **新 attachment kind**（`web` / `local`…）——附件解析不了，但書目資料完好。strict 當初
+  的理由是「path traversal 是安全面」，但那由 **path 的驗證**負責，與 **kind 是否認得**
+  無關；用 kind 的未知去否決整筆記錄是錯置的防線。
+- **provenance 新欄位**——那是 Zotero 同步的簿記，與記錄的意義無關。
+
+**這不需要 bump store format（#24）**：改的是**本 binary 變得更容忍**，舊 binary 的行為
+不變（它們照樣 quarantine，跟現在一樣）。純粹擴大容忍不是 non-additive 變更。
+
+**實作時的 normative 要求**（寫在這裡避免日後走樣）：
+
+1. 未知的 kind / 欄位 **MUST** 逐字保留並在 re-encode 時原樣寫回——與 v1.3 開放層同一個
+   raw-text 載體，不得 serialize。
+2. **MUST** 在讀取面明示（`unknownFields` 同族的訊號），否則使用者會以為圖上就是沒有那條邊。
+3. **MUST NOT** 讓未知 kind 影響已知 kind 的解析——例如未知 relation kind 不得使
+   `cites` / `related` 的解析改變。
+4. `attachments` 的 **path 驗證維持 strict**——容忍的是 kind，不是路徑。
+
+**已解決（#26 的第 1 項，issue body 已過時）**：「known-field shape 不符靜默剝除」在 #23
+的輪次中已改為 **fail-loud**。實測 `names: "字串"`（應為 sequence）→ quarantine，訊息
+明確指出形狀不符。原本擔心的「decode 略過 → re-encode 從磁碟抹除」的靜默資料遺失**不再存在**。
+
+**保持 strict 的部分（不改）**：`authors` 元素的 shape（`key` / `literal` 二選一）與
+`attachments` 的 path 驗證。這兩處的未知不是「不理解」而是「無法安全處理」——前者決定
+記錄的作者是誰、後者是 path traversal 面。
+
 - **merge / value 面以 tag 判定，不以鍵名字串判定（R11，R10-verify HIGH）**：
   YAML 的 merge 語意由 tag（`tag:yaml.org,2002:merge`）決定——Yams 自己的
   `Node.Mapping.flatten()` 就是比 tag。R10 以前開放演化層用 `k == "<<"` 字串

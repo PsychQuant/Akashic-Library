@@ -214,15 +214,29 @@ final class RenameTests: XCTestCase {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-rename-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try seed(format: 1)   // 預設 legacy——多數 rename 語意（改 citekey 就搬檔）是 legacy 專屬
+        try seed(format: 1)   // 預設 legacy——見下方 seed(format:) 說明
     }
 
     /// 以指定 store format 建好 fixture。
     ///
     /// **格式必須在寫入之前定好**，所以由各測試在開頭選，不是 setUp 寫死（#56 verify DA）。
-    /// `renameEntry` 對兩種佈局有**不同的分支**——entities 佈局下檔名是不變的 UUID，
-    /// 「新 citekey 沒被佔用」不再由檔案系統天然保證，改由全庫檢查負責。
-    /// 整組釘在 legacy 會讓那條分支從沒被測過。
+    ///
+    /// ## 為什麼預設仍是 legacy
+    ///
+    /// 實測「把預設改成 entities」時，7 個既有測試裡有 5 個照樣通過——但**通過不等於有覆蓋**。
+    /// `testRenameMovesFileMigratesRelationsKeepsUUID` 斷言 `entries/old2020key.yaml` 不存在，
+    /// 而在 entities 佈局下那個路徑**從來就沒存在過**，斷言因此空洞為真。把預設翻成 entities
+    /// 只會讓這類斷言安靜地失去意義，比留在 legacy 更糟。
+    ///
+    /// rename 的核心語意（改 citekey 就搬檔）本來就是 legacy 專屬；entities 佈局的專屬分支
+    /// 另由 `testRenameRejectsTakenCitekeyUnderEntitiesLayout` 與
+    /// `testRenameUnderEntitiesLayoutKeepsFilenameAndMigratesRelations` 明確覆蓋
+    /// （後者斷言 UUID 檔**仍然存在**，是上面那條空洞斷言的實質對應面）。
+    ///
+    /// **未涵蓋而誠實記錄**：`testRenameRejectsBadOrTakenTarget`、
+    /// `testRenameMigratesSelfReferenceAndDuplicates`、`testRenamePreservesLibraries`
+    /// 三者是佈局無關的，目前只跑 legacy。要不要讓它們兩種佈局各跑一次，是獨立的取捨，
+    /// 不在 #56 範圍。
     private func seed(format: Int) throws {
         try StoreVersion.write(root: root, format: format)
         store = LibraryStore(root: root)

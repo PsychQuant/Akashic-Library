@@ -484,7 +484,13 @@ public enum EntryYAML {
         }
         let composed: Yams.Node?
         do {
+            // #36：oracle 的獨立 compose 同樣要先過預算——未知區塊本身也可能是 bomb，
+            // 而它在這裡是被單獨 compose 的（整檔的守衛涵蓋不到「區塊獨立解析」這一步
+            // 的成本，因為整檔通過不代表每個切片都便宜）。
+            try AliasEventBudget.check(text, context: context)
             composed = try Yams.compose(yaml: text)
+        } catch let e as AliasBudgetError {
+            throw e
         } catch {
             throw StoreYAMLError.invalidField(
                 context, "未知欄位「\(expectedKey)」的區塊無法獨立解析（跨區塊 anchor/alias 或切分錯位）")
@@ -609,6 +615,9 @@ public enum EntryYAML {
     /// 磁碟之前（refuse-to-write，絕不原子性覆蓋合法檔案）。
     static func encodeCanary(_ out: String, context: String) throws {
         do {
+            // #36：canary 同樣先過預算——emitter 若寫出超預算的東西，那是 bug
+            // 不是攻擊，要在這裡就爆而不是留給下一次 decode。
+            try AliasEventBudget.check(out, context: "encode canary")
             _ = try Yams.compose(yaml: out)
         } catch {
             throw StoreYAMLError.invalidField(
@@ -656,6 +665,10 @@ public enum EntryYAML {
     public static func decode(_ yaml: String) throws -> Entry {
         let yaml = stripLeadingBOM(yaml)
         try assertNoLossyContentChars(yaml, context: "entry")
+        // #36：alias 展開預算在 compose **之前**。判準走 parser 的 event 層
+        // （`yaml_parser_parse` 不展開 alias），不是文字掃描——後者在本 repo 失敗過
+        // 五次，見 docs/store-format.md §5 的排除表。
+        try AliasEventBudget.check(yaml, context: "entry")
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
@@ -948,6 +961,10 @@ public enum LibraryYAML {
     public static func decode(_ yaml: String) throws -> Library {
         let yaml = EntryYAML.stripLeadingBOM(yaml)
         try EntryYAML.assertNoLossyContentChars(yaml, context: "library")
+        // #36：alias 展開預算在 compose **之前**。判準走 parser 的 event 層
+        // （`yaml_parser_parse` 不展開 alias），不是文字掃描——後者在本 repo 失敗過
+        // 五次，見 docs/store-format.md §5 的排除表。
+        try AliasEventBudget.check(yaml, context: "person")
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
@@ -1028,6 +1045,10 @@ public enum PersonYAML {
     public static func decode(_ yaml: String) throws -> Person {
         let yaml = EntryYAML.stripLeadingBOM(yaml)
         try EntryYAML.assertNoLossyContentChars(yaml, context: "person")
+        // #36：alias 展開預算在 compose **之前**。判準走 parser 的 event 層
+        // （`yaml_parser_parse` 不展開 alias），不是文字掃描——後者在本 repo 失敗過
+        // 五次，見 docs/store-format.md §5 的排除表。
+        try AliasEventBudget.check(yaml, context: "library")
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
@@ -1097,6 +1118,9 @@ public enum EntityKind {
     /// 自己報錯——在這裡多報一次只會讓錯誤訊息變成「不是 person」，離真正的問題更遠。
     public static func peek(_ yaml: String) throws -> EntityKind {
         let text = EntryYAML.stripLeadingBOM(yaml)
+        // #36：**這是 entities 佈局的第一個動作**——沒有這道守衛，decode 端的預算根本
+        // 來不及跑。（實測：接了三個 decode 入口仍 timeout，因為 load() 先走這裡。）
+        try AliasEventBudget.check(text, context: "entity")
         guard let root = try Yams.compose(yaml: text), let map = root.mapping else {
             throw StoreYAMLError.invalidField("entity", "根節點必須是 mapping")
         }

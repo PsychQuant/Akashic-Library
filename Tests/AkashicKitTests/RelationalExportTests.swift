@@ -100,6 +100,57 @@ final class RelationalExportTests: XCTestCase {
         XCTAssertEqual(a.researcher.rows.map { $0[1] }, ["a-two", "z-one"])
     }
 
+    // MARK: - temporal 維度（#20 → #22）
+
+    /// long format：維度值域開放，攤平成寬表會讓每個新職稱變成一次 schema 變更。
+    func testTimelineExportsAsLongFormat() {
+        var p = Person(key: "cheng", names: ["C"])
+        p.profile.ranks = Timeline([
+            TemporalValue(value: "助研究員", range: DateRange(start: "2010", end: "2015")),
+            TemporalValue(value: "研究員", range: DateRange(start: "2015"))])
+        p.profile.administrative = Timeline([
+            TemporalValue(value: "所長", range: DateRange(start: "2020", end: "2023"),
+                          source: "https://example.org")])
+        let t = RelationalExport.tables(entries: [], people: [p]).researcherTimeline
+        XCTAssertEqual(t.rows.count, 3)
+        XCTAssertEqual(t.rows.map { $0[1] }, ["rank", "rank", "administrative"])
+        XCTAssertEqual(t.rows[0][2], "助研究員")
+        XCTAssertEqual(t.rows[0][4], "2015", "valid_end")
+        XCTAssertNil(t.rows[1][4], "開放區間的 valid_end 必須是 NULL")
+        XCTAssertEqual(t.rows[2][5], "https://example.org", "source 必須帶出來")
+    }
+
+    /// 多段任期（#20 的動機資料）必須各自成列，不得被壓成一段。
+    func testMultiSegmentTenureExportsAsSeparateRows() {
+        var p = Person(key: "cheng", names: ["C"])
+        p.profile.affiliations = Timeline([
+            TemporalValue(value: "ISS", range: DateRange(start: "2003-01", end: "2006-08")),
+            TemporalValue(value: "ISS", range: DateRange(start: "2013-07", end: "2017-06"))])
+        let rows = RelationalExport.tables(entries: [], people: [p]).researcherTimeline.rows
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows.map { $0[3] }, ["2003-01", "2013-07"])
+    }
+
+    /// **沒有隸屬資料時 status 是 NULL，不猜成 current**——猜會讓退休者被算成現職。
+    func testStatusIsNullWithoutAffiliationData() {
+        let p = Person(key: "unknown-status", names: ["U"])
+        XCTAssertNil(RelationalExport.tables(entries: [], people: [p]).researcher.rows[0][9])
+    }
+
+    func testStatusDerivedFromOpenAffiliation() {
+        var cur = Person(key: "a-current", names: ["A"])
+        cur.profile.affiliations = Timeline([
+            TemporalValue(value: "ISS", range: DateRange(start: "2020"))])
+        var ret = Person(key: "b-retired", names: ["B"])
+        ret.profile.affiliations = Timeline([
+            TemporalValue(value: "ISS", range: DateRange(start: "2000", end: "2010"))])
+        let rows = RelationalExport.tables(entries: [], people: [cur, ret]).researcher.rows
+        XCTAssertEqual(rows[0][9], "current")
+        XCTAssertEqual(rows[1][9], "retired")
+        XCTAssertEqual(rows[0][6], "ISS" == rows[0][5] ? nil : rows[0][6])  // rank 無資料
+        XCTAssertEqual(rows[0][5], "ISS", "affiliation_current")
+    }
+
     /// researcher 的主鍵用**UUID 而非 key**——key 是稱呼會改，surrogate id 才適合當 FK。
     func testResearcherUsesStableIDNotKey() {
         let p = Person(key: "cheng-che", names: ["Che Cheng"], orcid: "0000-0001-2345-6789")

@@ -186,14 +186,18 @@ public struct Person: Equatable {
     public var orcid: String?
     public var openalex: String?
     public var note: String?
-    /// 頂層未知欄位（tolerant-preserve，#23）——如 #20 之後的 affiliations / facts。
+    /// 機構與身分維度（#20，valid-time temporal）。各屬性自帶時間軸。
+    public var profile: PersonProfile
+    /// 頂層未知欄位（tolerant-preserve，#23）。
     public var unknownFields: [UnknownField]
 
     /// `id` 省略時由 `key` 推出（確定性）——呼叫端不必為既有流程補一個 UUID。
     public init(key: String, names: [String] = [], orcid: String? = nil,
                 openalex: String? = nil, note: String? = nil,
                 id: UUID? = nil,
+                profile: PersonProfile = PersonProfile(),
                 unknownFields: [UnknownField] = []) {
+        self.profile = profile
         self.id = id ?? DeterministicUUID.forPerson(key: key)
         self.key = key
         self.names = names

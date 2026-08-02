@@ -73,7 +73,12 @@ final class ZoteroImportTests: XCTestCase {
         dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-zimport-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        store = LibraryStore(root: dir.appendingPathComponent("library"))
+        let libRoot = dir.appendingPathComponent("library")
+        try FileManager.default.createDirectory(at: libRoot, withIntermediateDirectories: true)
+        // #56：本 suite 觸及 legacy 佈局的檔案位置（`entries/<citekey>.yaml`）。
+        // `ensureLayout()` 會把新建的空 store 標成當前 format，必須先明確標回 1。
+        try StoreVersion.write(root: libRoot, format: 1)
+        store = LibraryStore(root: libRoot)
         try store.ensureLayout()
         fixture = try ZoteroFixture(dir: dir)
         try fixture.seedStandard()

@@ -18,6 +18,10 @@ final class ServiceTests: XCTestCase {
             .appendingPathComponent("akashic-home-\(UUID().uuidString)")
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-svc-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        // #56：本 suite 觸及 legacy 佈局的檔案位置（`entries/<citekey>.yaml`）。
+        // `ensureLayout()` 會把新建的空 store 標成當前 format，必須先明確標回 1。
+        try StoreVersion.write(root: root, format: 1)
         let store = LibraryStore(root: root)
         try store.ensureLayout()
         var e1 = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article",

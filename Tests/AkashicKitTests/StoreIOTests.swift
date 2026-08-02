@@ -9,6 +9,12 @@ final class StoreIOTests: XCTestCase {
     override func setUpWithError() throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        // #56：測的是 **legacy 佈局**的行為（檔名↔citekey 對應、rename 搬檔、
+        // stem 不符 quarantine）——那些行為在 entities 佈局下語意不同或不存在
+        // （UUID 檔名不隨 citekey 改名而搬）。`ensureLayout()` 會把新建的空 store
+        // 標成當前 format，所以必須先明確標回 1；`writeIfAbsent` 不覆寫既有標記。
+        try StoreVersion.write(root: root, format: 1)
         store = LibraryStore(root: root)
         try store.ensureLayout()
     }
@@ -196,6 +202,12 @@ final class RenameTests: XCTestCase {
     override func setUpWithError() throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-rename-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        // #56：測的是 **legacy 佈局**的行為（檔名↔citekey 對應、rename 搬檔、
+        // stem 不符 quarantine）——那些行為在 entities 佈局下語意不同或不存在
+        // （UUID 檔名不隨 citekey 改名而搬）。`ensureLayout()` 會把新建的空 store
+        // 標成當前 format，所以必須先明確標回 1；`writeIfAbsent` 不覆寫既有標記。
+        try StoreVersion.write(root: root, format: 1)
         store = LibraryStore(root: root)
         try store.ensureLayout()
         var e1 = Entry(id: UUID(), citekey: "old2020key", type: "article", title: "T1",

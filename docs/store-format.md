@@ -333,7 +333,20 @@ encode/decode 等冪。
   未知子樹與 anchor/alias 重用型 DAG 都會觸發 → quarantine。這是未知子樹的
   實質大小上限（可用性懸崖，照實記載）；超大 payload 不應塞在未知欄位裡。
 - **已修：alias 展開 DoS（#36 / #27，normative）**——`compose` **之前**在 parser 的
-  **event 層**估計展開成本，超過 20,000 節點或 8 MB 即拒收（quarantine）。
+  **event 層**估計展開成本。**三個獨立的軸**，任一超過即拒收（quarantine）：
+
+  | 軸 | 上限 | 擋的是什麼 |
+  |---|---|---|
+  | 展開後**節點數** | 200,000 | 指數放大（billion laughs） |
+  | 展開後 **bytes** | 64 MB | **重量**——19,000 次引用一個 5 KB scalar 只算 38,003 節點（計數過關），展開後卻是 95 MB |
+  | 巢狀**深度** | 512 | 讓深度問題在此被指名，而非留給 decode 報泛用 parse error |
+  | 輸入 bytes | 8 MB | 單一超大 scalar |
+
+  **計數不等於重量**——這是實作時被 verify 打出來的：只算節點數會讓「少量 alias 引用
+  大 scalar」完全通過。深度則相反，實測澄清它**不是** bypass（libyaml 自己有
+  `MAX_NESTING_LEVEL`，60,000 層時 parser 直接擲錯，而 `Yams.compose` 走同一個 parser
+  也擲錯）；上限的價值只在**指名**，且**設在合法可解析範圍之內就是誤殺**（實測 500 層
+  仍能正常 compose，所以 512 是下界）。
 
   **為什麼是 event 層**：`yaml_parser_parse` **不展開 alias**（每個 alias 就是一個
   `YAML_ALIAS_EVENT`），成本與**輸入大小**成正比，與展開後大小無關。而它給的是 parser

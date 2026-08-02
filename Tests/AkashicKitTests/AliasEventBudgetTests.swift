@@ -71,6 +71,42 @@ final class AliasEventBudgetTests: XCTestCase {
         assertRefused(s, "單一 anchor × 多次引用")
     }
 
+    /// **BYPASS（verify 實測）：節點數擋不住「重量」。** 19,000 次引用一個 5 KB scalar
+    /// 只算 38,003 節點（過關），但展開後是 **95 MB**。節點是計數，bytes 是重量——
+    /// 兩個軸都要。
+    func testScalarByteWeightAmplificationIsCaught() {
+        let big = String(repeating: "x", count: 5000)
+        var s = "a: &a \"\(big)\"\n"
+        for i in 0..<19000 { s += "k\(i): *a\n" }
+        assertRefused(s, "scalar 重量放大")
+    }
+
+    /// 深度上限在**可解析範圍內**被指名，超過 libyaml 自己的限制則由 parser 報錯。
+    ///
+    /// **實測澄清**：深度不是 bypass——60,000 層時 `yaml_parser_parse` 與
+    /// `Yams.compose` 都擲錯（同一個 parser），正常路徑會 quarantine。這道上限的價值
+    /// 是讓問題在這裡被**指名**，而不是留給 decode 報泛用 parse error。
+    func testExcessiveNestingIsNamedNotSilent() {
+        assertRefused("a: " + String(repeating: "[", count: 600)
+                      + String(repeating: "]", count: 600) + "\n", "超過 512 層")
+    }
+
+    /// **上限設在合法可解析範圍之內就是誤殺。** 實測 500 層仍能被 Yams 正常 compose，
+    /// 所以 512 是下界；真實書目資料是個位數。
+    func testLegitimateNestingDepthPasses() throws {
+        // 真實形狀：tolerant-preserve 的未知子樹，10 層已遠超實際
+        var s = "id: 11111111-1111-1111-1111-111111111111\ncitekey: a2020a\ntype: article\n"
+        s += "title: T\nauthors:\n  - literal: X\nextra:\n"
+        var indent = "  "
+        for i in 0..<10 { s += "\(indent)level\(i):\n"; indent += "  " }
+        s += "\(indent)leaf: value\n"
+        XCTAssertNoThrow(try AliasEventBudget.check(s, context: "t"))
+        // 500 層 flow：Yams 能 compose，所以守衛也不得擋
+        XCTAssertNoThrow(try AliasEventBudget.check(
+            "a: " + String(repeating: "[", count: 500)
+            + String(repeating: "]", count: 500) + "\n", context: "t"))
+    }
+
     /// **超大 scalar**——§5 記載的另一個未防護面，一個節點也能有數百 MB。
     func testOversizedInputIsRefused() {
         let huge = "title: " + String(repeating: "x", count: 9 * 1024 * 1024) + "\n"

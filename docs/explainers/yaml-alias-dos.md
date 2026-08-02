@@ -155,7 +155,7 @@ flow collection、CRLF、註解起始條件，每個細節都是一個獨立破�
 | 一般 entry | 5 | 34 |
 | 45 位作者 + 40 大欄位 | — | 230 |
 | 真實 corpus 最大檔 | 3 | 180 |
-| #20 的 temporal person（1400 段）| 6 | 15,457 |
+| #20 的 temporal person（1400 段）| 6 | 15,857 |
 
 **改門檻前先跑 `testDocumentedMeasurementsMatchReality`** —— 它把上面這些數字釘成
 斷言，文件改了而實測沒跟上就會失敗。

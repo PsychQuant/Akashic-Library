@@ -27,7 +27,14 @@ public enum StoreVersion {
     /// - **2** ＝ `entities/<uuid>.yaml`（#35）。這是**結構重排**——舊 binary 會看到空的
     ///   `entries/` 而回報「0 entries」，一個**看起來成功的錯誤答案**。refuse-if-newer
     ///   存在的直接理由就是這一次。
-    public static let supported = 2
+    /// - **3** ＝ 記錄的**形狀由裸標籤標示**（頂層一個無值的鍵），不再由 `type:` 的值標示。
+    ///   這是 non-additive：舊 binary 讀新的 person 檔會看不到 `type: person`，走它的
+    ///   全稱後備判成 work、decode 失敗，並回報與真正原因無關的 per-file 錯誤。
+    ///   refuse-if-newer 把它變成一句「請升級」。
+    /// - **4** ＝ 新增 organization 形狀，且 person 的隸屬值由字串升成**指涉或字面**。
+    ///   兩者都是 non-additive：舊 binary 讀到 `organization:` 標籤會判定「不認得的形狀」，
+    ///   讀到 `{key: …}` 形式的隸屬值會 decode 失敗。
+    public static let supported = 4
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，

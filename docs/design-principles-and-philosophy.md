@@ -54,6 +54,8 @@ Entity₁ ── Relation ── Entity₂
 
 Entity 提供穩定指涉與同一性的錨點；state of affairs／assertion 則表達世界在特定時間與脈絡中如何成立。
 
+本節標題的「事態」是《邏輯哲學論》**Sachverhalt** 的精確借用，不是隨手選的中文詞；其圖像論背景見 §14，該詞在實務上如何用來區分 entity 與形式概念，見 [entity 與 view 的界線](explainers/entity-vs-view.md)。
+
 ### 規範
 
 - 關係若具有自身屬性、來源、角色、次序、時間或裁決狀態，**SHOULD** 升格為可獨立表示的 relation record，而不是繼續壓縮成單一欄位。
@@ -80,6 +82,7 @@ Person 與 Work 都必須能夠：
 - 未解析作者 **MUST** 保留原始文字，不得為了結構完整而自動創造 Person。
 - 已解析的 authorship **MUST** 指向穩定 Person identity，而不是只保留顯示名稱。
 - 長期而言，Person 與 Work **SHOULD** 具備對等的不可變機器身分與可讀 key。
+- 上列六項是對 Person 與 Work 的**描述**，不是准入條件。穩定身分、可變名稱、aliases 與自身歷史四項是必要但**不充分**——index 的 schema 版本四項皆備，而它不是 entity。判斷一個新概念能否升格，**MUST** 依 §11 的 Entity admission rule，而不是從本節任取數項推論。
 
 ---
 
@@ -114,7 +117,9 @@ entities/55/0e/550e8400-e29b-41d4-a716-446655440000.yaml
 - 作者、年份或題名；
 - 目前名稱或其他可變描述。
 
-Person、Work、Expression、Manifestation、Organization 與其他一級實體可以存在於同一 namespace。它們的差異由 record 內的 type、relations 與 validation grammar 表達，而不是由資料夾表達。
+Person、Work、Expression、Manifestation、Organization 與其他一級實體可以存在於同一 namespace。它們的差異由 record 內的**形狀標籤**、relations 與 validation grammar 表達，而不是由資料夾表達。
+
+形狀標籤是 record 頂層一個**沒有值的鍵**（`person:`、`work:`），取自封閉集合；它標的是這筆記錄的形狀——哪些欄位存在、由哪個 decoder 讀。這與 `type:` 分屬兩層：`type:` 是 work 專屬的**書目類型**（`article`、`incollection`…），值域開放且來自外部分類法。兩者曾經共用同一個 key，使形式種類與書目類型成為平輩，是一次實際誤判的直接成因（見 [entity 與 view 的界線](explainers/entity-vs-view.md)）。`type:` 並未被廢除，只是不再標形狀。
 
 例如 Work、Expression 與 Manifestation 的階層應表示為關係：
 
@@ -211,6 +216,22 @@ Adjudication
 - 系統 **SHOULD** 允許 competing assertions、歧義與 unresolved states 共存。
 - Provenance **MUST** 能指出資料從何而來，以及哪些欄位由哪一個來源／機制管理。
 
+### Predicate 的定義域由欄位位置顯示
+
+一個 predicate（authorship、citation、隸屬、包含）適用於哪些記錄形狀，稱為它的定義域。
+
+- 定義域 **MUST** 由「哪些形狀帶有該欄位」表達，**MUST NOT** 表達成資料。
+- Canonical store **MUST NOT** 含通用邊表 `(subject, predicate, object)`。三元組使所有 predicate 互為平輩，於是無法阻止 subject 形狀根本不帶該 predicate 的列。
+- Canonical store **MUST NOT** 含宣告「某 predicate 接受哪些 subject」的 meta-schema。那會使**擴充定義域**與**新增一筆事實**變成同一個動作，文法變更與主張再也無法區分。
+- 圖或三元組表示 **MAY** 作為衍生產物存在，與 §5 的可重建索引同地位——可重建，因此攤平的損失可回復。
+- 擴充一個 predicate 的定義域 **MUST** 是 schema 變更，**MUST NOT** 是新增一筆記錄。
+
+現況即是本條的示例：「隸屬不能形容 work」沒有任何一行程式碼在陳述它——它由 work 記錄不帶該欄位所顯示。本條是把既有做法寫成規則，不是引入新約束。
+
+**誠實邊界**：這些限制是本 store 的**文法規則**，不是形上學必然（§15、§16）。若實踐改變——例如真的需要記錄某作品由哪個機構的出版社出版——則該形狀就該長出對應欄位。那不是破例，是文法變了。工程上的推論是：**改一條規則的代價應配得上它的邏輯地位**。定義域住在 schema 裡，擴充它就要改 struct、遷移、提升 store format；那是對的，因為那本來就是改文法。
+
+理由與被否決的替代方案，見 [entity 與 view 的界線](explainers/entity-vs-view.md)。
+
 ---
 
 ## 8. 不確定性是正式資料狀態，不是髒資料
@@ -295,7 +316,13 @@ Akashic 的語意 horizon 可以延伸至 Person、Work、Organization、Event�
 
 ### Entity admission rule
 
-一個概念只有在符合下列多數條件時，才 **SHOULD** 升格為一級 entity：
+准入分兩層。**第一層是必要條件，不參與多數決**：
+
+> 一個概念只有在它**決定了記錄的形狀**——決定了哪些欄位存在、使載入器為它分岔到不同的 decoder——時，才可能是一級 entity。
+
+不滿足這一層，其餘條件全數滿足也 **MUST NOT** 升格。這一層擋的是層次錯誤，不是程度不足。
+
+通過第一層之後，第二層才適用。一個概念符合下列多數條件時，才 **SHOULD** 升格為一級 entity：
 
 1. 需要跨紀錄保持穩定身分；
 2. 名稱改變後仍應被視為同一物；
@@ -304,7 +331,21 @@ Akashic 的語意 horizon 可以延伸至 Person、Work、Organization、Event�
 5. 需要獨立查詢、引用或裁決；
 6. 已有反覆出現的實際使用案例。
 
+第 4 條是第一層條件的**徵候**，不是它本身。能成為關係端點通常意味著決定形狀，但它可以靠「補一條指向它的關係」製造出來，形狀選擇不能。判準因此以第一層為準。
+
 若只是「未來可能有用」，應先保留為文字、tag、open field 或 assertion，而不是立即擴張 canonical ontology。
+
+### 形式概念不得進入 entity namespace
+
+**形式概念**是其作用為選取、分組或索引 entity 的表達式：view、分類、查詢、儲存的篩選條件、索引結構。它們與**真正的概念**（人、作品、機構——世界中被指涉的存在，見 §7 的 World entity 層）不在同一層次。
+
+- 形式概念 **MUST NOT** 存入 `entities/`，**MUST NOT** 取得 entity UUID。
+- 身分、可變名稱、aliases 與自身歷史是必要但**不充分**的：index 的 schema 版本四者皆備，而它不是 entity。
+- 判別測試即第一層的必要條件——**它決定了哪些欄位存在嗎？** 判準不綁定形狀在檔案中的標示方式；標示機制可改，判準不變。
+
+**本條與 §16 的界線**：§16 處理的是**真正的概念之間**的 domain 取捨——一門課、一個學期開課、一個研究領域該不該是 entity。那類問題確實無法由規則唯一決定，需要先例、實踐與共同體裁決；本條不觸碰它。本條只處理層次問題：一個形式概念不論在 domain 上多有用，都不因此成為世界中的存在。
+
+完整論證、被否決的替代判準，以及一次真實誤判的紀錄，見 [entity 與 view 的界線](explainers/entity-vs-view.md)。
 
 > **World may be the horizon of Akashic, but it must not be the scope of every release.**
 

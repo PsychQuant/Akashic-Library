@@ -30,3 +30,5 @@ AkashicApp/DerivedData/
 # agent 會就地建檔以便 `swift test` 跑得到，主 session 的 `add -A` 就把它們一起收了。
 # 命名慣例：ZZ 前綴（排在檔案清單最後、一眼看得出是暫時的）。
 Tests/**/ZZ*.swift
+.spectra/
+openspec/.vector-search.db*

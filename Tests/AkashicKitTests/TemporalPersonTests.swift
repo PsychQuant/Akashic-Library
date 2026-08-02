@@ -78,10 +78,10 @@ final class TemporalPersonTests: XCTestCase {
 
     func testProfileRoundTrips() throws {
         var p = Person(key: "cheng-ching-shui", names: ["鄭清水", "Cheng, Ching-Shui"])
-        p.profile.affiliations = Timeline([
-            TemporalValue(value: "ISS", range: DateRange(start: "2003-01", end: "2006-08"),
+        p.profile.affiliations = TimelineOf([
+            TemporalValue(value: .literal("ISS"), range: DateRange(start: "2003-01", end: "2006-08"),
                           source: "https://example.org/iss"),
-            TemporalValue(value: "ISS", range: DateRange(start: "2013-07", end: "2017-06")),
+            TemporalValue(value: .literal("ISS"), range: DateRange(start: "2013-07", end: "2017-06")),
         ])
         p.profile.ranks = Timeline([
             TemporalValue(value: "研究員", range: DateRange(start: "2013-07"))])

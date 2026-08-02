@@ -185,14 +185,28 @@ struct Migrate: ParsableCommand {
     func run() throws {
         let store = try options.openStore()
         do {
-            let r = try StoreMigration.toEntities(store: store, dryRun: dryRun)
+            // 兩階段：先把 legacy 佈局搬進 entities/（format 2），再補形狀標籤（format 3）。
+            // 已在目標格式的階段會擲 alreadyAtFormat，視為「這一階不用做」而不是失敗——
+            // 使用者可能是從 format 2 直接升上來的。
+            var moved = 0, people = 0, already = 0
+            do {
+                let r = try StoreMigration.toEntities(store: store, dryRun: dryRun)
+                moved = r.entriesMoved; people = r.peopleMoved; already = r.alreadyMigrated
+            } catch StoreMigration.MigrationError.alreadyAtFormat {
+                // 已是 format ≥ 2，跳過第一階
+            }
+            let l = try StoreMigration.toShapeLabels(store: store, dryRun: dryRun)
             let prefix = dryRun ? "（dry-run）" : "✓"
-            print("\(prefix) entries \(r.entriesMoved)、people \(r.peopleMoved) 筆"
-                + (r.alreadyMigrated > 0 ? "、已在 entities/ \(r.alreadyMigrated) 筆" : ""))
+            if moved + people + already > 0 {
+                print("\(prefix) entries \(moved)、people \(people) 筆"
+                    + (already > 0 ? "、已在 entities/ \(already) 筆" : ""))
+            }
+            print("\(prefix) 形狀標籤：補 \(l.labelled) 筆"
+                + (l.alreadyLabelled > 0 ? "、已有標籤 \(l.alreadyLabelled) 筆" : ""))
             if dryRun {
                 print("  實際執行：akashic migrate")
             } else {
-                print("  store format → 2；舊 binary 從此會拒絕開啟這個 store（#24）")
+                print("  store format → \(StoreVersion.supported)；舊 binary 從此會拒絕開啟這個 store（#24）")
                 let stats = try LibraryIndex(store: store).rebuild()
                 print("  index rebuilt: \(stats.entries) entries → \(store.indexURL.path)")
             }
@@ -317,7 +331,8 @@ struct ExportTables: ParsableCommand {
         let dir = URL(fileURLWithPath: (output as NSString).expandingTildeInPath)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        let tables = RelationalExport.tables(entries: load.entries, people: load.people)
+        let tables = RelationalExport.tables(entries: load.entries, people: load.people,
+                                            organizations: load.organizations)
         for t in tables.all {
             let url = dir.appendingPathComponent("\(t.name).csv")
             try RelationalExport.csv(t).write(to: url, atomically: true, encoding: .utf8)

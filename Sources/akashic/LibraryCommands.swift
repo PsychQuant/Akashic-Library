@@ -32,7 +32,7 @@ struct LibraryList: ParsableCommand {
         }
         for library in load.libraries {
             let desc = library.description.map { "　\($0)" } ?? ""
-            print("\(library.key)\t\(library.name)（\(counts[library.key] ?? 0) entries）\(desc)")
+            print("\(displaySafe(library.key, max: 200))\t\(displaySafe(library.name, max: 800))（\(counts[library.key] ?? 0) entries）\(displaySafe(desc, max: 800))")
         }
     }
 }
@@ -99,7 +99,7 @@ struct LibraryAdd: ParsableCommand {
                              requireRegistry: true) {
             if !$0.contains(libraryKey) { $0.append(libraryKey) }
         }
-        print("added: \(citekey) → \(libraryKey)")
+        print("added: \(displaySafe(citekey, max: 200)) → \(displaySafe(libraryKey, max: 200))")
     }
 }
 
@@ -117,6 +117,6 @@ struct LibraryRemove: ParsableCommand {
                              requireRegistry: false) {
             $0.removeAll { $0 == libraryKey }
         }
-        print("removed: \(citekey) ✕ \(libraryKey)")
+        print("removed: \(displaySafe(citekey, max: 200)) ✕ \(displaySafe(libraryKey, max: 200))")
     }
 }

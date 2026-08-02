@@ -35,12 +35,12 @@ struct FileList: ParsableCommand {
         } else {
             for key in config.files.keys.sorted() {
                 let marker = key == config.current ? "*" : " "
-                print("\(marker) \(key)\t\(config.files[key]!)")
+                print("\(marker) \(displaySafe(key, max: 200))\t\(displaySafe(config.files[key]!, max: 800))")
             }
         }
         if let legacy = config.library {
             let note = config.current == nil ? "（current 未設時作為預設）" : "（被 current 覆蓋）"
-            print("  library: \(legacy) \(note)")
+            print("  library: \(displaySafe(legacy, max: 800)) \(note)")
         }
     }
 }
@@ -73,7 +73,7 @@ struct FileAdd: ParsableCommand {
         try LibraryStore(root: URL(fileURLWithPath: absolute)).ensureLayout()
         config.files[key] = absolute
         try config.write(to: options.configURL)
-        print("✓ 已註冊「\(key)」→ \(absolute)（layout 已確保；用 file use \(key) 切換）")
+        print("✓ 已註冊「\(displaySafe(key, max: 200))」→ \(displaySafe(absolute, max: 800))（layout 已確保；用 file use \(displaySafe(key, max: 200)) 切換）")
     }
 }
 
@@ -97,7 +97,7 @@ struct FileUse: ParsableCommand {
         }
         config.current = key
         try config.write(to: options.configURL)
-        print("✓ current →「\(key)」（\(path)）")
+        print("✓ current →「\(displaySafe(key, max: 200))」（\(displaySafe(path, max: 800))）")
     }
 }
 
@@ -116,9 +116,9 @@ struct FileRemove: ParsableCommand {
         config.files.removeValue(forKey: key)
         if config.current == key {
             config.current = nil
-            print("ℹ current 是「\(key)」，已清空（回落 legacy library 或需重新 file use）")
+            print("ℹ current 是「\(displaySafe(key, max: 200))」，已清空（回落 legacy library 或需重新 file use）")
         }
         try config.write(to: options.configURL)
-        print("✓ 已除名「\(key)」（資料未刪除）")
+        print("✓ 已除名「\(displaySafe(key, max: 200))」（資料未刪除）")
     }
 }

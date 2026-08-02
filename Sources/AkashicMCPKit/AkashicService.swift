@@ -144,13 +144,13 @@ public final class AkashicService {
             "people": stats.people,
             "relations": stats.relations,
             "unresolvedAuthorLiterals": unresolved,
-            "orphaned": orphaned,
+            "orphaned": orphaned.map { displaySafe($0, max: 200) },
         ]
         if !load.quarantined.isEmpty {
             // R11（R10-verify M19）：reason 含 Yams 展開的逐字檔案內容且不截斷——
             // MCP 情境下是直接灌進 LLM context 的無上限未信任字串。
             d["quarantined"] = load.quarantined.map {
-                ["file": $0.file, "reason": displaySafe($0.reason, max: 512)]
+                ["file": displaySafe($0.file, max: 300), "reason": displaySafe($0.reason, max: 512)]
             }
         }
         // #23 tolerant-preserve：較新 schema 的檔案可用但應提示升級
@@ -423,9 +423,9 @@ public final class AkashicService {
         }
         // R8（R7-verify L15）：applied 不誇報——排除寫入失敗的候選
         let appliedActual = chosen.filter { writeFailed[$0.citekey] == nil }
-            .map { "\($0.citekey):\($0.authorIndex)" }
+            .map { "\(displaySafe($0.citekey, max: 200)):\($0.authorIndex)" }
         var result: [String: Any] = ["applied": appliedActual, "entriesRewritten": written]
-        if !writeFailed.isEmpty { result["writeFailed"] = writeFailed.mapValues { displaySafe($0, max: 512) } }
+        if !writeFailed.isEmpty { result["writeFailed"] = Dictionary(uniqueKeysWithValues: writeFailed.map { (displaySafe($0.key, max: 200), displaySafe($0.value, max: 512)) }) }
         return try jsonString(result)
     }
 
@@ -490,16 +490,18 @@ public final class AkashicService {
                 "index rebuild 失敗：\(error)（本趟 import 已落地：created \(report.created.count)、updated \(report.updated.count)、orphaned \(report.orphaned.count)；writeFailed \(report.writeFailed.count) 筆：\(report.writeFailed.keys.sorted().map { displaySafe($0, max: 200) }.joined(separator: ", "))）")
         }
         var d: [String: Any] = [
-            "created": report.created, "updated": report.updated,
-            "orphaned": report.orphaned, "orphanCleared": report.orphanCleared,
+            "created": report.created.map { displaySafe($0, max: 200) },
+            "updated": report.updated.map { displaySafe($0, max: 200) },
+            "orphaned": report.orphaned.map { displaySafe($0, max: 200) },
+            "orphanCleared": report.orphanCleared.map { displaySafe($0, max: 200) },
             "unchanged": report.unchanged,
             "droppedFields": report.droppedFields,
-            "unnormalizedDates": report.unnormalizedDates,
+            "unnormalizedDates": report.unnormalizedDates.map { displaySafe($0, max: 200) },
             "skippedLinkedAttachments": report.skippedLinkedAttachments,
         ]
-        if !report.authorsPreserved.isEmpty { d["authorsPreserved"] = report.authorsPreserved }
-        if !report.quarantineConflicts.isEmpty { d["quarantineConflicts"] = report.quarantineConflicts }
-        if !report.writeFailed.isEmpty { d["writeFailed"] = report.writeFailed.mapValues { displaySafe($0, max: 512) } }
+        if !report.authorsPreserved.isEmpty { d["authorsPreserved"] = report.authorsPreserved.map { displaySafe($0, max: 200) } }
+        if !report.quarantineConflicts.isEmpty { d["quarantineConflicts"] = report.quarantineConflicts.map { displaySafe($0, max: 200) } }
+        if !report.writeFailed.isEmpty { d["writeFailed"] = Dictionary(uniqueKeysWithValues: report.writeFailed.map { (displaySafe($0.key, max: 200), displaySafe($0.value, max: 512)) }) }
         return try jsonString(d)
     }
 

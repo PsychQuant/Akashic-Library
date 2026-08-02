@@ -49,7 +49,9 @@ public enum AliasBudget {
         var blockScalarIndent = 0
 
         for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = String(rawLine)
+            // CRLF：split(on: "\n") 會在行尾留下 \r，它會被算進 token 判定。
+            var line = String(rawLine)
+            if line.hasSuffix("\r") { line.removeLast() }
             let indent = line.prefix { $0 == " " }.count
 
             if inBlockScalar {
@@ -89,7 +91,14 @@ public enum AliasBudget {
                 case "\"": dq = true
                 case "'":  sq = true
                 case "|", ">":
-                    if prevWasStructural { sawBlockIndicator = true }
+                    // **不是每個 `>` 都是 block scalar 標頭**（reviewer probe 實測的繞道）：
+                    // `k: x > y` 的 `>` 是純量內容。真標頭的 indicator 之後只允許
+                    // chomping（`+`/`-`）、明確縮排（數字），然後就必須是行尾或註解。
+                    // 誤判的後果很嚴重：掃描器會把**後面所有行**當成 block scalar 內容
+                    // 而整段跳過，bomb 藏在那裡就完全掃不到。
+                    if prevWasStructural, Self.isBlockScalarHeader(line, from: next) {
+                        sawBlockIndicator = true
+                    }
                 case "&", "*":
                     // 只有 token 起始、且後面接非空白（`&name` / `*name`）才算
                     if prevWasStructural, next < line.endIndex,
@@ -110,6 +119,23 @@ public enum AliasBudget {
             }
         }
         return Count(anchors: anchors, aliases: aliases)
+    }
+
+    /// `|` / `>` 之後是否構成合法的 block scalar 標頭。
+    ///
+    /// YAML 允許 `|`、`|-`、`|+`、`|2`、`>2-` 等組合，但 indicator 之後**必須**是
+    /// 行尾或註解——一旦有其他內容（`x > y` 的 ` y`），那個 `>` 就是純量的一部分。
+    private static func isBlockScalarHeader(_ line: String, from start: String.Index) -> Bool {
+        var i = start
+        // chomping 與明確縮排指示（順序不拘，各至多一次；此處寬鬆接受）
+        while i < line.endIndex, line[i] == "+" || line[i] == "-" || line[i].isNumber {
+            i = line.index(after: i)
+        }
+        // 其後只允許空白 + 註解
+        while i < line.endIndex, line[i] == " " || line[i] == "\t" {
+            i = line.index(after: i)
+        }
+        return i == line.endIndex || line[i] == "#"
     }
 
     /// compose **之前**的守衛。超過預算 → 擲錯，讓呼叫端 quarantine 該檔而非掛死。

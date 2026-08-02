@@ -71,6 +71,51 @@ final class AliasBudgetTests: XCTestCase {
         XCTAssertEqual(AliasBudget.scan(s).anchors + AliasBudget.scan(s).aliases, 0)
     }
 
+    // MARK: - 2b. reviewer probe 實測抓到的繞道（#42 verify）
+
+    /// **裸 `>` 不是 block scalar 標頭**。`k: x > y` 的 `>` 是純量內容；把它當標頭
+    /// 會讓掃描器把**後面所有行**當成 block scalar 內容而整段跳過——bomb 藏在那裡
+    /// 就完全掃不到。這條由 verify 的 reviewer probe 實測發現。
+    func testBareGreaterThanInScalarIsNotBlockScalarHeader() {
+        var s = "key: a\nnames: [A]\nbomb:\n  - k: x > y\n"
+        s += "    a0: &a0 [x, x, x, x]\n"
+        for i in 1...10 {
+            s += "    a\(i): &a\(i) [*a\(i-1), *a\(i-1)]\n"
+        }
+        s += "    *a10: 1\n"
+        XCTAssertTrue(AliasBudget.scan(s).exceedsBudget,
+                      "裸 `>` 讓掃描器整段跳過 → 繞道：\(AliasBudget.scan(s))")
+    }
+
+    /// 同理：`a: b | c`、`x: 3 > 2` 之類都不是標頭。
+    func testPipeAndGreaterInPlainScalarsDoNotSuppressScanning() {
+        for prefix in ["k: a | b\n", "k: 3 > 2\n", "k: x|y\n", "zz: {k: 3 > 2}\n"] {
+            var s = "key: a\nnames: [A]\n" + prefix + "a0: &a0 [x]\n"
+            for i in 1...6 { s += "a\(i): &a\(i) [*a\(i-1), *a\(i-1)]\n" }
+            XCTAssertTrue(AliasBudget.scan(s).exceedsBudget, "被 \(prefix.debugDescription) 抑制")
+        }
+    }
+
+    /// 真正的 block scalar 標頭（含 chomping / 明確縮排）仍要正確識別，
+    /// 否則內容裡的 `&`/`*` 會被誤計成語法。
+    func testGenuineBlockScalarHeadersStillRecognised() {
+        for header in ["body: |", "body: >", "body: |-", "body: >+", "body: |2", "body: >2-",
+                       "body: |  # 註解", "body: >-   # 註解"] {
+            let s = header + "\n  &a *b &c *d &e *f\n  &g *h &i *j\n"
+            let c = AliasBudget.scan(s)
+            XCTAssertEqual(c.anchors + c.aliases, 0, "\(header.debugDescription) 未被識別 → \(c)")
+        }
+    }
+
+    /// CRLF 行尾：`split(on: "\n")` 會在行尾留 `\r`，不處理會影響 token 判定。
+    func testCRLFLineEndingsDoNotDefeatScanning() {
+        var s = "key: a\nnames: [A]\na0: &a0 [x]\n"
+        for i in 1...6 { s += "a\(i): &a\(i) [*a\(i-1), *a\(i-1)]\n" }
+        s += "*a6: 1\n"
+        let crlf = s.replacingOccurrences(of: "\n", with: "\r\n")
+        XCTAssertTrue(AliasBudget.scan(crlf).exceedsBudget, "CRLF 版本被繞過")
+    }
+
     // MARK: - 3. 不得誤殺 emitter 自己的輸出（R11 就是死在這裡）
 
     /// 把對抗性字串當成真實欄位值寫出去再掃回來。**emitter 自我毒化是 R11 的致命傷**：

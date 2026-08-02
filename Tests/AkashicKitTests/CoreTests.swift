@@ -327,19 +327,46 @@ final class ForwardCompatTests: XCTestCase {
     // α + oracle：**中等** alias 子樹原樣保留、不展開（raw-text 下無 serialize，
     // 放大在結構上不存在）；**病態深炸彈**超出 oracle 驗證預算 → quarantine
     // （fail-closed，檔案原封不動——資料完整性優先於病態檔案的可用性）
-    func testAliasSubtreePreservedVerbatimWithoutExpansion() throws {
+    /// **良性** alias 子樹仍逐字保留、不展開（#23 的契約，未變）。
+    ///
+    /// 「良性」＝在 #36 的展開預算之內。單一 anchor 最多放大 2×，沒有指數爆炸的形狀。
+    func testBenignAliasSubtreePreservedVerbatimWithoutExpansion() throws {
+        let yaml = """
+            key: a
+            names: [A]
+            extra:
+              base: &b [x, y, z]
+              use: *b
+            """ + "\n"
+        let person = try PersonYAML.decode(yaml)
+        XCTAssertEqual(person.unknownFields.map(\.key), ["extra"])
+        let reencoded = try PersonYAML.encode(person)
+        XCTAssertTrue(reencoded.contains("&b"), "anchor 必須逐字保留")
+        XCTAssertTrue(reencoded.contains("*b"), "alias 必須逐字保留、不展開")
+        XCTAssertLessThan(reencoded.utf8.count, yaml.utf8.count + 200,
+                          "輸出大小必須與輸入同量級——不得展開放大")
+        XCTAssertEqual(try PersonYAML.decode(reencoded), person)
+    }
+
+    /// **契約收窄（#36）**：bomb 形狀的 alias 檔改為**拒收**，不再保留。
+    ///
+    /// 原本這裡斷言「4 anchor / 27 alias 的檔案也逐字保留、不展開」。那個斷言在
+    /// **保留** 這一面是對的（raw-text 區塊確實不展開），但它預設了一件錯的事：
+    /// 檔案能先被 `Yams.compose` 讀進來。實際上展開發生在 compose **內部**，
+    /// 而 decode 的第一步就是 compose——**保留邏輯根本沒機會執行**。
+    ///
+    /// 所以契約改為：能不能指數展開的檔案，在 compose 之前就拒收。
+    /// **保留一個我們無法安全解析的檔案不是服務。**
+    func testBombShapedAliasFileIsRefusedBeforeCompose() throws {
         var yaml = "key: a\nnames: [A]\nbomb:\n  a0: &a0 [x, x, x, x, x, x, x, x, x]\n"
         for i in 1...3 {
             yaml += "  a\(i): &a\(i) [*a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1)]\n"
         }
-        let person = try PersonYAML.decode(yaml)
-        XCTAssertEqual(person.unknownFields.map(\.key), ["bomb"])
-        let reencoded = try PersonYAML.encode(person)
-        XCTAssertTrue(reencoded.contains("&a0"), "anchor 必須逐字保留")
-        XCTAssertTrue(reencoded.contains("*a2"), "alias 必須逐字保留、不展開")
-        XCTAssertLessThan(reencoded.utf8.count, yaml.utf8.count + 200,
-                          "輸出大小必須與輸入同量級——不得展開放大")
-        XCTAssertEqual(try PersonYAML.decode(reencoded), person)
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { err in
+            guard case AliasBudgetError.exceeded = err else {
+                return XCTFail("應在 compose 前以預算拒收，實得 \(err)")
+            }
+        }
     }
 
     func testDeepAliasBombExceedsOracleBudgetAndQuarantines() {

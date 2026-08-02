@@ -215,7 +215,11 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: "entries/\(url.lastPathComponent)",
-                    reason: String(describing: error)))
+                    // 有 LocalizedError 就用它——`String(describing:)` 會印出 Swift enum
+                    // 的原始 case（`exceeded(context: "entry", anchors: 13, ...)`），
+                    // 把作者寫的可行動訊息整個吃掉。
+                    reason: (error as? LocalizedError)?.errorDescription
+                        ?? String(describing: error)))
             }
         }
         for url in try yamlFiles(in: peopleDir) {
@@ -241,7 +245,11 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: "people/\(url.lastPathComponent)",
-                    reason: String(describing: error)))
+                    // 有 LocalizedError 就用它——`String(describing:)` 會印出 Swift enum
+                    // 的原始 case（`exceeded(context: "entry", anchors: 13, ...)`），
+                    // 把作者寫的可行動訊息整個吃掉。
+                    reason: (error as? LocalizedError)?.errorDescription
+                        ?? String(describing: error)))
             }
         }
         for url in try yamlFiles(in: librariesDir) {
@@ -267,7 +275,11 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: "libraries/\(url.lastPathComponent)",
-                    reason: String(describing: error)))
+                    // 有 LocalizedError 就用它——`String(describing:)` 會印出 Swift enum
+                    // 的原始 case（`exceeded(context: "entry", anchors: 13, ...)`），
+                    // 把作者寫的可行動訊息整個吃掉。
+                    reason: (error as? LocalizedError)?.errorDescription
+                        ?? String(describing: error)))
             }
         }
         result.entries.sort { $0.citekey < $1.citekey }

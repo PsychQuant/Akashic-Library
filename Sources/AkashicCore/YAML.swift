@@ -609,6 +609,9 @@ public enum EntryYAML {
     /// 磁碟之前（refuse-to-write，絕不原子性覆蓋合法檔案）。
     static func encodeCanary(_ out: String, context: String) throws {
         do {
+            // #36：canary 同樣先過預算——若 emitter 竟寫出超預算的內容，
+            // 那是 bug 不是攻擊，要在這裡就爆而不是留給下一次 decode。
+            try AliasBudget.check(out, context: "encode canary")
             _ = try Yams.compose(yaml: out)
         } catch {
             throw StoreYAMLError.invalidField(
@@ -656,6 +659,10 @@ public enum EntryYAML {
     public static func decode(_ yaml: String) throws -> Entry {
         let yaml = stripLeadingBOM(yaml)
         try assertNoLossyContentChars(yaml, context: "entry")
+        // #36：alias 展開的預算必須在 compose **之前**——展開發生在 parser 內部，
+        // 事後的節點預算來不及。判準是「能不能指數展開」（anchor × alias 計數），
+        // 不是「alias 在什麼位置」——後者是 R11 犯的錯，用文字判位置必然出錯。
+        try AliasBudget.check(yaml, context: "entry")
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
@@ -948,6 +955,10 @@ public enum LibraryYAML {
     public static func decode(_ yaml: String) throws -> Library {
         let yaml = EntryYAML.stripLeadingBOM(yaml)
         try EntryYAML.assertNoLossyContentChars(yaml, context: "library")
+        // #36：alias 展開的預算必須在 compose **之前**——展開發生在 parser 內部，
+        // 事後的節點預算來不及。判準是「能不能指數展開」（anchor × alias 計數），
+        // 不是「alias 在什麼位置」——後者是 R11 犯的錯，用文字判位置必然出錯。
+        try AliasBudget.check(yaml, context: "person")
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
@@ -1017,6 +1028,10 @@ public enum PersonYAML {
     public static func decode(_ yaml: String) throws -> Person {
         let yaml = EntryYAML.stripLeadingBOM(yaml)
         try EntryYAML.assertNoLossyContentChars(yaml, context: "person")
+        // #36：alias 展開的預算必須在 compose **之前**——展開發生在 parser 內部，
+        // 事後的節點預算來不及。判準是「能不能指數展開」（anchor × alias 計數），
+        // 不是「alias 在什麼位置」——後者是 R11 犯的錯，用文字判位置必然出錯。
+        try AliasBudget.check(yaml, context: "library")
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }

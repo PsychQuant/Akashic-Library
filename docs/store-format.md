@@ -306,18 +306,33 @@ encode/decode 等冪。
   的合法 `? ` 內容被誤殺，且因 encode 內含 decode canary 而變成寫不回），已於
   R12 revert。文字層補不到 flow context 與 implicit alias key；正確的層是禁
   anchor/alias 的 profile gate（見 `docs/specs/2026-08-01-akashic-yaml-input-profile-design.md`）
-  或 Yams 端。已另立 issue 追蹤（#36）。
+  或 Yams 端。
 
-  **揭露範圍（R13 codex 補）**：不只 alias-in-key。**所有 `compose` 之前的資源
-  耗用皆未防護**——200,000 節點預算不限制單一**超大 scalar**（數百 MB 的 scalar
-  對節點走訪只算一個節點，decode 端亦無檔案大小上限）；`depth > 512` 只保護語意
-  比較那一段遞迴，保護不到 libyaml/Yams 在 compose 階段的解析堆疊與記憶體。
+  **已修（#36 / #27，normative）**：`compose` **之前**跑一道 **alias 展開預算**
+  ——計數 anchor 定義數 A 與 alias 引用數 R，`A ≥ 2 且 R ≥ 4` 即拒收（quarantine）。
 
-  **威脅模型（避免與 `displaySafe` 的註解讀起來互斥）**：store 目錄對**可用性**
-  （DoS）而言目前必須視為信任邊界內——沒有防線，一個 630 B 的檔案就能讓 consumer
-  掛死。但對**完整性與顯示安全**而言它是未信任的：檔案可能由別的 binary、別人、
-  Dropbox 同步寫入，所以未知欄位 key 與 quarantine reason 一律經 `displaySafe`。
-  兩者不矛盾——是同一份資料在不同軸上的不同假設，而 DoS 那條軸的防線還沒蓋。
+  判準是「**這個檔能不能指數展開**」，**不是**「alias 在什麼位置」。位置是 parse 層
+  的問題，用文字判必然出錯（R11 就死在這裡）；而指數展開需要多個 anchor 且各被多次
+  引用，單一 anchor 最多放大 2×。因為門檻留了大量餘裕，**掃描器不必完美**——要誤判
+  需要好幾個巧合同時發生。實測：三條 R12 繞道全擋（712–721 B，**25 s timeout → 0.05 s**）；
+  真實 corpus 536 檔零誤判；emitter 對 18 個對抗性 title 的輸出零誤判且 round-trip 完好。
+
+  **契約收窄（一併記）**：bomb 形狀的 alias 檔從「逐字保留」改為「拒收」。原本的保留
+  斷言在**保留**那一面是對的，但它預設檔案能先被 compose 讀進來——展開就發生在
+  compose 內部，保留邏輯根本沒機會執行。**保留一個無法安全解析的檔案不是服務。**
+  良性 alias（預算內）仍逐字保留、不展開。
+
+  **仍未防護（照實記）**：(a) **超大 scalar**——200,000 節點預算不限制單一巨大純量
+  （數百 MB 的 scalar 對節點走訪只算一個節點，decode 端亦無檔案大小上限）；
+  (b) **compose 階段的解析堆疊與記憶體**——`depth > 512` 只保護語意比較那一段遞迴。
+  真正的終局是 event-level 解析（libyaml 的 `yaml_parser_parse` 逐事件掃描不展開
+  alias，成本與輸入大小成正比），但 Yams 未把 `CYaml` 匯出成 product，取不到。
+
+  **威脅模型（避免與 `displaySafe` 的註解讀起來互斥）**：store 目錄在**完整性與顯示
+  安全**軸上是未信任的（檔案可能由別的 binary、別人、Dropbox 同步寫入，所以未知欄位
+  key 與 quarantine reason 一律經 `displaySafe`）；在**可用性**軸上，指數展開這一類
+  已有防線，但上段的 (a)(b) 兩類仍需視為信任邊界內。同一份資料在不同軸上的不同假設，
+  不矛盾——只是防線覆蓋率不同。
 - **merge / value 面以 tag 判定，不以鍵名字串判定（R11，R10-verify HIGH）**：
   YAML 的 merge 語意由 tag（`tag:yaml.org,2002:merge`）決定——Yams 自己的
   `Node.Mapping.flatten()` 就是比 tag。R10 以前開放演化層用 `k == "<<"` 字串

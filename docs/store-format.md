@@ -267,7 +267,18 @@ encode/decode 等冪。
   的合法 `? ` 內容被誤殺，且因 encode 內含 decode canary 而變成寫不回），已於
   R12 revert。文字層補不到 flow context 與 implicit alias key；正確的層是禁
   anchor/alias 的 profile gate（見 `docs/specs/2026-08-01-akashic-yaml-input-profile-design.md`）
-  或 Yams 端。已另立 issue 追蹤（#36）。**在該防線落地前，store 目錄應視為信任邊界內**。
+  或 Yams 端。已另立 issue 追蹤（#36）。
+
+  **揭露範圍（R13 codex 補）**：不只 alias-in-key。**所有 `compose` 之前的資源
+  耗用皆未防護**——200,000 節點預算不限制單一**超大 scalar**（數百 MB 的 scalar
+  對節點走訪只算一個節點，decode 端亦無檔案大小上限）；`depth > 512` 只保護語意
+  比較那一段遞迴，保護不到 libyaml/Yams 在 compose 階段的解析堆疊與記憶體。
+
+  **威脅模型（避免與 `displaySafe` 的註解讀起來互斥）**：store 目錄對**可用性**
+  （DoS）而言目前必須視為信任邊界內——沒有防線，一個 630 B 的檔案就能讓 consumer
+  掛死。但對**完整性與顯示安全**而言它是未信任的：檔案可能由別的 binary、別人、
+  Dropbox 同步寫入，所以未知欄位 key 與 quarantine reason 一律經 `displaySafe`。
+  兩者不矛盾——是同一份資料在不同軸上的不同假設，而 DoS 那條軸的防線還沒蓋。
 - **merge / value 面以 tag 判定，不以鍵名字串判定（R11，R10-verify HIGH）**：
   YAML 的 merge 語意由 tag（`tag:yaml.org,2002:merge`）決定——Yams 自己的
   `Node.Mapping.flatten()` 就是比 tag。R10 以前開放演化層用 `k == "<<"` 字串
@@ -345,8 +356,12 @@ encode/decode 等冪。
   多數輪 parse（產物 canary、full decode、per-block compose ×2——檔案 KB 級，
   可接受；效能面見 #30）。
 - **版面契約（normative）**：容忍層假設 block-style、LF 行尾、非 complex-key
-  的版面——這是 store writer 的約束；超出此版面的合法 YAML 一律 fail-closed
-  quarantine（資料完整性 > 病態版面的可用性）。
+  的版面——這是 store writer 的約束；超出此版面的合法 YAML **不保證保真**。
+  多數情形 fail-closed quarantine（資料完整性 > 病態版面的可用性），但**有一個
+  已知例外**：alias 落在 mapping key 位置時，展開發生在 `Yams.compose` **內部**，
+  在任何守衛之前——那不是 quarantine，是掛死（見上「已知未防護」與 #36）。
+  R11 曾加過一個文字層的 complex-key 守衛，R12 實測它兩個方向都錯（三條繞道未擋、
+  又誤殺 emitter 自己的輸出）後整段撤除。**不要重新加回文字層守衛。**
 - **多文件 YAML** 由 root parse 拒收（單文件 stream）；`---`/`...` 出現在
   block scalar 內容中不受影響（無文字層守衛誤傷）。
 - **merge key `<<` 不入 tolerant 範圍**（parser 間語意分歧；適用所有容忍層——

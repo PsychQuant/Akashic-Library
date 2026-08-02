@@ -248,7 +248,7 @@ profile 必須同步約束 emitter 設定（而非只約束 decode 端）。此�
   與 `- '*Achievement *Mind *Self-Control'` 必須通過（這是初掃 13 個假命中的形狀）
 - Tier 1 / Tier 2 分流各自被覆蓋
 - billion-laughs 仍 quarantine（沿用 security lens 的 1.3 KB fixture）
-- **complex-key bomb 在 compose 之前被擋**（R11；測試若失效會 hang 而非 fail，那本身就是訊號）
+- ~~**complex-key bomb 在 compose 之前被擋**（R11）~~ —— **R12 撤除**。文字層判不到（三條繞道實測未擋），且誤殺 emitter 自己的輸出。這條驗收條件目前**無人滿足**，DoS 追蹤於 #36。
 - **反向**：值裡的 `?`、`?foo:` 這類非 indicator 形不得誤判
 - encode 產物過 gate（§7）
 - corpus-level 迴歸：536 個真實檔案全數 in-profile

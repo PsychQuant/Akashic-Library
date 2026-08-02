@@ -197,10 +197,17 @@ public struct Person: Equatable {
     }
 }
 
-/// 顯示層消毒——**任何把 store 內容字串放進人類可讀輸出的路徑都必須先過這裡**
-/// （CLI stdout、MCP JSON、App）。store 檔案依 #23 的前提可能由別的 binary、
-/// 別人、Dropbox 同步寫入，未知欄位 key、quarantine reason、以及**驗證失敗訊息
-/// 裡被插值的原始 key** 都是未信任內容。
+/// 顯示層消毒。store 檔案依 #23 的前提可能由別的 binary、別人、Dropbox 同步
+/// 寫入，未知欄位 key、quarantine reason、以及**驗證失敗訊息裡被插值的原始 key**
+/// 都是未信任內容。
+///
+/// **涵蓋範圍（照實寫，不宣稱做不到的事）**：目前接上的是**錯誤與診斷訊息面**
+/// ——validate/doctor 的 issue 訊息、quarantine reason、writeFailed 的說明。
+/// **資料面尚未接上**：`akashic query` / `akashic library list` 直接插值 title /
+/// name / description，真 ESC 會原樣進 stdout（R13 實測）。App（AkashicAppKit）
+/// 同樣未接。補齊 sink coverage 屬 **#28**，且該用機械枚舉（grep 所有把 store
+/// 字串送進 print / JSON / SwiftUI 的位置）而不是憑記憶列清單——R11→R12→R13
+/// 三輪都是靠記憶補、每輪都漏。
 ///
 /// - **控制字元**：libyaml 擋輸入串流的裸 C0，但**不擋 double-quoted scalar 的
 ///   跳脫序列**——`"\e[2J…"` 解碼後就是真的 ESC。實測可清螢幕、上色，並在

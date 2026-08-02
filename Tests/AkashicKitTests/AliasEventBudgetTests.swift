@@ -108,6 +108,48 @@ final class AliasEventBudgetTests: XCTestCase {
         XCTAssertEqual(e?.maxDepthSeen, 102, "展開深度必須被追蹤到，不是語法深度 2")
     }
 
+    /// **自攻擊：估計器的樹算術在三種構造下都不得低估。** DA 殺掉第 6 版靠的正是
+    /// 「估計器自己算錯」，所以第 7 版必須先自己攻這一面。三者實測都被**深度軸**擋下
+    /// （`tooDeep(513)`，不是撞到別的軸）。
+    func testEstimatorArithmeticUnderAdversarialConstructions() {
+        // forward reference：alias 指向之後才定義的 anchor（查表得 (1,0,1)）
+        var fwd = "head: *aN\na0: &a0 x\n"
+        for i in 1...3000 { fwd += "k\(i): &a\(i) [*a\(i-1)]\n" }
+        fwd += "aN: &aN [*a3000]\n? *aN\n: 1\n"
+        assertRefused(fwd, "forward reference 鏈")
+
+        // anchor 重定義：後面的定義覆蓋前面記錄的 size
+        var re = "a: &x [deep]\n"
+        for i in 1...2000 { re += "k\(i): &d\(i) [\(i == 1 ? "*x" : "*d\(i-1)")]\n" }
+        re += "shallow: &d2000 [q]\n? *d2000\n: 1\n"
+        assertRefused(re, "anchor 重定義")
+
+        // anchored 子樹**內部**含 alias——記錄的必須是完全展開的深度
+        var nested = "base: &b0 x\n"
+        for i in 1...600 { nested += "n\(i): &b\(i) [*b\(i-1)]\n" }
+        nested += "wrap: &w [*b600]\n? *w\n: 1\n"
+        assertRefused(nested, "anchored 子樹內含 alias")
+    }
+
+    /// **深度軸的誤殺面**：一般 entry 的展開深度是 5、#20 的 temporal person 是 6。
+    /// 門檻 512 留了 85–100× 餘裕。`d + openStack.count` 不得灌水——若這裡的數字變大，
+    /// 代表會計方式出了問題。
+    func testOrdinaryRecordsHaveShallowDepth() throws {
+        var e = Entry(id: UUID(), citekey: "a2020a", type: "article", title: "T",
+                      authors: [.literal("X"), .key("p-one")], date: "2020")
+        e.fields["journaltitle"] = "J"; e.akashic.tags = ["t1", "t2"]
+        e.akashic.relations.cites = ["b2020b"]
+        XCTAssertEqual(try AliasEventBudget.estimate(try EntryYAML.encode(e)).maxDepthSeen, 5)
+
+        var p = Person(key: "big", names: (0..<30).map { "A\($0)" })
+        let tl = Timeline((0..<200).map {
+            TemporalValue(value: "v\($0)", range: DateRange(start: "2000", end: "2001"),
+                          source: "s", note: "n")
+        })
+        p.profile.affiliations = tl; p.profile.ranks = tl; p.profile.contacts = ["email": tl]
+        XCTAssertEqual(try AliasEventBudget.estimate(try PersonYAML.encode(p)).maxDepthSeen, 6)
+    }
+
     /// 語法巢狀同樣要擋——但**上限設在合法可解析範圍之內就是誤殺**：
     /// 實測 500 層的 `[[[…]]]` 仍能被 Yams 正常 compose，所以 512 是下界。
     func testExcessiveSyntacticNestingIsAlsoCaught() {

@@ -133,3 +133,19 @@ public final class QuarantineModel {
         state.root.appendingPathComponent(item.file)
     }
 }
+
+/// #28：App 的顯示層消毒投影。
+///
+/// **View 一律用這裡的 `display*`，不要直接綁 `file` / `reason`。** 原始欄位保留是因為
+/// `fileURL(_:)` 需要真實檔名去組 URL——消毒過的字串會組出錯誤路徑。`reason` 更危險：
+/// 它含 Yams 展開的逐字檔案內容，U+2028/U+2029 在 SwiftUI `Text` 裡就是換行，
+/// C0 的 ESC 在某些 render 路徑下也會被解讀。
+public extension QuarantinedFile {
+    var displayFile: String { displaySafe(file, max: 300) }
+    var displayReason: String { displaySafe(reason, max: 512) }
+}
+
+public extension ResolutionCandidate {
+    var displayCitekey: String { displaySafe(citekey, max: 200) }
+    var displayReason: String { displaySafe(reason, max: 300) }
+}

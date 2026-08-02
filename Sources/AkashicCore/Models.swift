@@ -201,13 +201,16 @@ public struct Person: Equatable {
 /// 寫入，未知欄位 key、quarantine reason、以及**驗證失敗訊息裡被插值的原始 key**
 /// 都是未信任內容。
 ///
-/// **涵蓋範圍（照實寫，不宣稱做不到的事）**：目前接上的是**錯誤與診斷訊息面**
-/// ——validate/doctor 的 issue 訊息、quarantine reason、writeFailed 的說明。
-/// **資料面尚未接上**：`akashic query` / `akashic library list` 直接插值 title /
-/// name / description，真 ESC 會原樣進 stdout（R13 實測）。App（AkashicAppKit）
-/// 同樣未接。補齊 sink coverage 屬 **#28**，且該用機械枚舉（grep 所有把 store
-/// 字串送進 print / JSON / SwiftUI 的位置）而不是憑記憶列清單——R11→R12→R13
-/// 三輪都是靠記憶補、每輪都漏。
+/// **涵蓋範圍**：CLI stdout、MCP JSON、App（`QuarantinedFile.displayFile` /
+/// `displayReason`、`ResolutionCandidate.display*` 三個投影）。**資料面也在內**
+/// ——`title` / `name` / `description` 一律消毒，理由是 entries 來自 `import-zotero`，
+/// 而 Zotero 的資料來自出版商與網頁：那不是使用者自撰內容，是第三方內容。
+///
+/// **這個範圍由機械守衛維持，不靠記憶**（#28）：`DisplaySinkCoverageTests` 掃描
+/// CLI / MCP 原始碼，任何把 store 衍生字串插值進輸出而未經本函式的位置都會讓測試
+/// 失敗；要例外必須在同一行寫 `// display-safe-exempt: <理由>`。**新增輸出路徑時
+/// 不要回頭憑記憶檢查 sink 清單**——#23 的 R11→R12→R13 三輪都那樣做、三輪都漏，
+/// 第三輪漏的還是最常用的 `akashic query`。
 ///
 /// - **控制字元**：libyaml 擋輸入串流的裸 C0，但**不擋 double-quoted scalar 的
 ///   跳脫序列**——`"\e[2J…"` 解碼後就是真的 ESC。實測可清螢幕、上色，並在

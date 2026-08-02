@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import AkashicCore   // #28：displaySafe
 import AkashicStoreIO
 import AkashicIndex
 import AkashicQuery
@@ -83,7 +84,7 @@ struct Query: ParsableCommand {
             for summary in results {
                 let year = summary.year.map(String.init) ?? "----"
                 let authors = summary.authors.joined(separator: "; ")
-                print("\(summary.citekey)\t\(year)\t\(authors)\t\(summary.title)")
+                print("\(displaySafe(summary.citekey, max: 200))\t\(year)\t\(displaySafe(authors, max: 800))\t\(displaySafe(summary.title, max: 800))")
             }
         }
     }

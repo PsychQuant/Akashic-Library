@@ -25,7 +25,7 @@ struct Doctor: ParsableCommand {
         print("people: \(stats.people)")
         print("relations: \(stats.relations)")
         let orphaned = load.entries.filter { $0.provenance?.orphanedAt != nil }
-        print("orphaned: \(orphaned.count)\(orphaned.isEmpty ? "" : "（" + orphaned.map(\.citekey).joined(separator: ", ") + "）")")
+        print("orphaned: \(orphaned.count)\(orphaned.isEmpty ? "" : "（" + orphaned.map { displaySafe($0.citekey, max: 200) }.joined(separator: ", ") + "）")")
         let unresolved = load.entries.flatMap { entry in
             entry.authors.compactMap { if case .literal(let s) = $0 { return s } else { return nil } }
         }
@@ -61,7 +61,7 @@ struct Validate: ParsableCommand {
             let issues = entry.validate()
             for issue in issues {
                 let mark = issue.severity == .error ? "✗" : "⚠"
-                print("\(mark) \(entry.citekey): \(issue.message)")
+                print("\(mark) \(displaySafe(entry.citekey, max: 200)): \(issue.message)")
                 if issue.severity == .error { failed = true }
             }
         }
@@ -69,14 +69,14 @@ struct Validate: ParsableCommand {
         for person in load.people {
             for issue in person.validate() {
                 let mark = issue.severity == .error ? "✗" : "⚠"
-                print("\(mark) \(person.key): \(issue.message)")
+                print("\(mark) \(displaySafe(person.key, max: 200)): \(issue.message)")
                 if issue.severity == .error { failed = true }
             }
         }
         for library in load.libraries {
             for issue in library.validate() {
                 let mark = issue.severity == .error ? "✗" : "⚠"
-                print("\(mark) \(library.key): \(issue.message)")
+                print("\(mark) \(displaySafe(library.key, max: 200)): \(issue.message)")
                 if issue.severity == .error { failed = true }
             }
         }
@@ -109,14 +109,14 @@ struct ImportZotero: ParsableCommand {
         }
         let report = try ZoteroImporter(store: store).run(zoteroDB: dbURL, libraryID: libraryId)
         print("created: \(report.created.count)")
-        print("updated: \(report.updated.count)\(report.updated.isEmpty ? "" : "（" + report.updated.joined(separator: ", ") + "）")")
-        print("orphaned: \(report.orphaned.count)\(report.orphaned.isEmpty ? "" : "（" + report.orphaned.joined(separator: ", ") + "）")")
+        print("updated: \(report.updated.count)\(report.updated.isEmpty ? "" : "（" + report.updated.map { displaySafe($0, max: 200) }.joined(separator: ", ") + "）")")
+        print("orphaned: \(report.orphaned.count)\(report.orphaned.isEmpty ? "" : "（" + report.orphaned.map { displaySafe($0, max: 200) }.joined(separator: ", ") + "）")")
         print("unchanged: \(report.unchanged)")
         if !report.orphanCleared.isEmpty {
-            print("orphan cleared（Zotero 端復原）: \(report.orphanCleared.joined(separator: ", "))")
+            print("orphan cleared（Zotero 端復原）: \(report.orphanCleared.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
         }
         if !report.authorsPreserved.isEmpty {
-            print("authors preserved（已解析、未同步 Zotero 作者欄）: \(report.authorsPreserved.joined(separator: ", "))")
+            print("authors preserved（已解析、未同步 Zotero 作者欄）: \(report.authorsPreserved.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
         }
         if !report.droppedFields.isEmpty {
             let summary = report.droppedFields.keys.sorted()
@@ -124,7 +124,7 @@ struct ImportZotero: ParsableCommand {
             print("dropped fields（未映射的 Zotero 欄位，未入庫）: \(summary)")
         }
         if !report.unnormalizedDates.isEmpty {
-            print("unnormalized dates（date 保留原字串）: \(report.unnormalizedDates.count)（\(report.unnormalizedDates.prefix(8).joined(separator: ", "))\(report.unnormalizedDates.count > 8 ? ", …" : "")）")
+            print("unnormalized dates（date 保留原字串）: \(report.unnormalizedDates.count)（\(report.unnormalizedDates.prefix(8).map { displaySafe($0, max: 200) }.joined(separator: ", "))\(report.unnormalizedDates.count > 8 ? ", …" : "")）")
         }
         if report.skippedLinkedAttachments > 0 {
             print("skipped linked attachments（非 storage 附件，未入庫）: \(report.skippedLinkedAttachments)")
@@ -206,7 +206,7 @@ struct ResolvePeople: ParsableCommand {
             return
         }
         for c in candidates {
-            print("\(c.citekey)[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(c.personKey)（\(c.reason)）")
+            print("\(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
         }
         if apply {
             let applied = PersonResolver.apply(candidates, to: load.entries)
@@ -255,9 +255,9 @@ struct Rename: ParsableCommand {
         let store = try options.openStore()
         let report = try store.renameEntry(from: from, to: to)
         _ = try LibraryIndex(store: store).rebuild()
-        print("✓ \(from) → \(to)")
+        print("✓ \(displaySafe(from, max: 200)) → \(displaySafe(to, max: 200))")
         if !report.relationsRewritten.isEmpty {
-            print("relations 已遷移：\(report.relationsRewritten.joined(separator: ", "))")
+            print("relations 已遷移：\(report.relationsRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
         }
     }
 }

@@ -18,7 +18,7 @@ struct PeopleResolveView: View {
                         HStack {
                             VStack(alignment: .leading) {
                                 Text("「\(candidate.literal)」 → \(candidate.personKey)")
-                                Text("\(candidate.citekey)［作者 #\(candidate.authorIndex)］·\(candidate.reason)")
+                                Text("\(candidate.displayCitekey)［作者 #\(candidate.authorIndex)］·\(candidate.displayReason)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -125,13 +125,13 @@ struct QuarantineView: View {
                     List(model.items, id: \.file) { item in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text(item.file).font(.body.monospaced())
+                                Text(item.displayFile).font(.body.monospaced())
                                 Spacer()
                                 Button("在 Finder 開啟") {
                                     NSWorkspace.shared.activateFileViewerSelecting([model.fileURL(item)])
                                 }
                             }
-                            Text(item.reason)
+                            Text(item.displayReason)
                                 .font(.caption)
                                 .foregroundStyle(.red)
                         }

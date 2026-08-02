@@ -80,6 +80,12 @@ struct Validate: ParsableCommand {
                 if issue.severity == .error { failed = true }
             }
         }
+        // #7b：跨記錄檢查——單筆 validate() 結構上看不到的那一層
+        for issue in load.crossRecordIssues() {
+            let mark = issue.severity == .error ? "✗" : "⚠"
+            print("\(mark) [跨記錄] \(issue.message)")
+            if issue.severity == .error { failed = true }
+        }
         if failed {
             throw ExitCode(1)
         }

@@ -25,3 +25,8 @@ AkashicApp/DerivedData/
 
 # IDD runtime state（unattended-state lib，不入版控）
 .claude/.idd/state/
+
+# 背景 verify agent 的 probe 檔（#36 verify 期間三度被 `git add -A` 掃進 commit）。
+# agent 會就地建檔以便 `swift test` 跑得到，主 session 的 `add -A` 就把它們一起收了。
+# 命名慣例：ZZ 前綴（排在檔案清單最後、一眼看得出是暫時的）。
+Tests/**/ZZ*.swift

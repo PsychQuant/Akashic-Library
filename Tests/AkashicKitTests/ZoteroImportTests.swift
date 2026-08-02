@@ -73,7 +73,8 @@ final class ZoteroImportTests: XCTestCase {
         dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-zimport-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        store = LibraryStore(root: dir.appendingPathComponent("library"))
+        let libRoot = dir.appendingPathComponent("library")
+        store = LibraryStore(root: libRoot)
         try store.ensureLayout()
         fixture = try ZoteroFixture(dir: dir)
         try fixture.seedStandard()
@@ -81,6 +82,18 @@ final class ZoteroImportTests: XCTestCase {
 
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: dir)
+    }
+
+    /// 把 store 切成 **legacy 佈局**（`entries/<citekey>.yaml`）。
+    ///
+    /// 只給結構性依賴 legacy 檔名語意的測試用——它們直接往 `entriesDir` 寫 citekey 檔名
+    /// 來製造 stem 不符。**不放 setUp**：其餘 25 個測試（idempotent re-import、version bump、
+    /// orphan 標記、hash backfill、多 library scoping…）走的是格式無關的高階 API，
+    /// 整組釘死會拿掉它們在**實際出貨格式**（entities）下的覆蓋（#56 verify DA 發現）。
+    ///
+    /// 呼叫時機必須在任何 import 之前——此時 store 還是空的，改格式標記不會造成混合佈局。
+    private func useLegacyLayout() throws {
+        try StoreVersion.write(root: store.root, format: 1)
     }
 
     private func runImport() throws -> ImportReport {
@@ -216,6 +229,7 @@ extension ZoteroImportTests {
     // （stem-mismatch 語意驗證），錯位 entry 不再進入 library。importer 視該 item 為
     // 缺席並重建 canonical 檔；兩個隔離檔（語法壞檔 + 錯位檔）一 byte 不動。
     func testMismatchedStemIsQuarantinedAtLoadAndReimportRebuildsCanonical() throws {
+        try useLegacyLayout()   // 本測試直接往 entriesDir 寫 citekey 檔名（#56）
         _ = try runImport()
         let entries = store.entriesDir
         try "broken: [yaml\n".write(to: entries.appendingPathComponent("qtarget.yaml"),
@@ -278,6 +292,7 @@ extension ZoteroImportTests {
     // R3→#11 修訂：orphaned 錯位檔同樣在 load() 就 quarantine，不進 restore 路徑；
     // report 語意上該 item 是重建（created），不是 unchanged，也沒有寫入衝突。
     func testQuarantinedOrphanMismatchIsRebuiltNotUnchanged() throws {
+        try useLegacyLayout()   // 本測試直接往 entriesDir 寫 citekey 檔名（#56）
         _ = try runImport()
         let entries = store.entriesDir
         try "broken: [yaml\n".write(to: entries.appendingPathComponent("qtarget.yaml"),

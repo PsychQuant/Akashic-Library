@@ -211,11 +211,22 @@ extension ServiceTests {
     }
 
     // Codex/Logic CONFIRMED：外部刪檔後 freshness 要偵測到（目錄 mtime）
+    //
+    // #56：**檔案位置由 store 自己解析**，不寫死 legacy 路徑。原本假設
+    // `entriesDir/<citekey>.yaml`，但新建的 store 走 entities 佈局（`entities/<uuid>.yaml`），
+    // 於是刪不到檔。本測試要驗的是「外部刪檔 → freshness 偵測得到」，與佈局無關——
+    // 讓它跑在**實際出貨格式**上比釘死 legacy 更有價值。
     func testFreshnessDetectsExternalDeletion() throws {
         _ = try service.search(journal: "Psychometrika")   // 建 index（2 筆）
         Thread.sleep(forTimeInterval: 1.1)                  // 目錄 mtime 秒級粒度
-        try FileManager.default.removeItem(
-            at: LibraryStore(root: root).entriesDir.appendingPathComponent("olsson1979maximum.yaml"))
+        let store = LibraryStore(root: root)
+        let target = try XCTUnwrap(
+            store.load().entries.first { $0.citekey == "olsson1979maximum" },
+            "測試前提：store 內須有 olsson1979maximum")
+        let targetURL = store.usesEntitiesLayout
+            ? store.entityURL(id: target.id)
+            : store.entryURL(citekey: target.citekey)
+        try FileManager.default.removeItem(at: targetURL)
         let out = try service.search(journal: "Psychometrika")
         let arr = try JSONSerialization.jsonObject(with: Data(out.utf8)) as! [[String: Any]]
         XCTAssertEqual(arr.count, 1)

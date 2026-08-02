@@ -336,7 +336,7 @@ struct ExportTables: ParsableCommand {
         for t in tables.all {
             let url = dir.appendingPathComponent("\(t.name).csv")
             try RelationalExport.csv(t).write(to: url, atomically: true, encoding: .utf8)
-            print("\(t.name): \(t.rows.count) 列 → \(url.lastPathComponent)")
+            print("\(t.name): \(t.rows.count) 列 → \(url.lastPathComponent)")  // display-safe-exempt: t.name 是編譯期常數（RelationalExport 內寫死的表名），不含 store 衍生內容
         }
         let sql = dir.appendingPathComponent("load.sql")
         try RelationalExport.duckDBScript(csvDirectory: dir.path)

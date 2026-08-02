@@ -17,6 +17,16 @@ final class CrossRecordValidationTests: XCTestCase {
     }
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
 
+    /// legacy 佈局的 store（`entries/<citekey>.yaml` + `people/<key>.yaml`）。
+    ///
+    /// `setUpWithError` 的 `ensureLayout()` 會把新建的空 store 標成**當前** format，
+    /// 因而走 entities 佈局。測 legacy 行為的案例必須明確把 format 標回 1——沿用
+    /// `EntitiesLayoutTests.legacyStore()` 已建立的形式（#56）。
+    private func legacyStore() throws -> LibraryStore {
+        try StoreVersion.write(root: root, format: 1)
+        return LibraryStore(root: root)
+    }
+
     private func entry(_ key: String, id: UUID = UUID(), authors: [Author] = [.literal("X")],
                        libraries: [String] = []) -> Entry {
         var e = Entry(id: id, citekey: key, type: "article", title: "T",
@@ -29,15 +39,41 @@ final class CrossRecordValidationTests: XCTestCase {
 
     /// 重複 UUID 的實際後果：index 的 `PRIMARY KEY` 靜默丟掉其中一筆——
     /// 查詢少一筆但**不報錯**。所以這必須是 error 而非 warning。
+    ///
+    /// **legacy 佈局限定**（#56）：entities 佈局下**檔名就是 UUID**，兩筆共用 UUID 會寫進
+    /// 同一個檔、後者覆蓋前者，於是 load 只讀到一筆——「兩筆共用 UUID」在那個佈局裡
+    /// 結構上不可能存在。這條檢查因此只對 legacy 佈局有意義。entities 佈局的等價
+    /// 風險路徑（檔名與內容 id 不符）由 `testEntitiesLayoutRejectsIdFilenameMismatch` 覆蓋。
     func testDuplicateUUIDIsError() throws {
+        let store = try legacyStore()
         let shared = UUID()
         try store.writeEntry(entry("a2020a", id: shared))
         try store.writeEntry(entry("b2020b", id: shared))
         let issues = try store.load().crossRecordIssues()
-        XCTAssertEqual(issues.filter { $0.severity == .error }.count, 1)
-        XCTAssertTrue(issues[0].message.contains(shared.uuidString), issues[0].message)
-        XCTAssertTrue(issues[0].message.contains("a2020a") && issues[0].message.contains("b2020b"),
-                      "訊息要說出是哪兩筆，否則使用者無從下手：\(issues[0].message)")
+        let errors = issues.filter { $0.severity == .error }
+        XCTAssertEqual(errors.count, 1, "\(issues)")
+        // XCTUnwrap 而非 issues[0]：空陣列取值是 fatal error 而非測試失敗，
+        // 會中止整個 xctest 程序並遮蔽其後所有 suite（#56 的實際後果）。
+        let first = try XCTUnwrap(errors.first)
+        XCTAssertTrue(first.message.contains(shared.uuidString), first.message)
+        XCTAssertTrue(first.message.contains("a2020a") && first.message.contains("b2020b"),
+                      "訊息要說出是哪兩筆，否則使用者無從下手：\(first.message)")
+    }
+
+    /// entities 佈局的等價風險：檔名 UUID 與記錄內的 id 不符。
+    ///
+    /// 這是 `testDuplicateUUIDIsError` 在新佈局下的對應面——重複 UUID 不可能發生，
+    /// 但「有人手動改了檔名或 id」會讓引用錯位，必須被擋下而不是靜默載入。
+    func testEntitiesLayoutRejectsIdFilenameMismatch() throws {
+        let recorded = UUID(), filename = UUID()
+        var e = entry("a2020a", id: recorded)
+        e.akashic.libraries = []
+        let yaml = try EntryYAML.encode(e)
+        try yaml.write(to: store.entityURL(id: filename), atomically: true, encoding: .utf8)
+        let load = try store.load()
+        XCTAssertEqual(load.entries.count, 0, "檔名與 id 不符的記錄不得被載入")
+        let q = try XCTUnwrap(load.quarantined.first)
+        XCTAssertTrue(q.reason.contains(recorded.uuidString), q.reason)
     }
 
     /// **重複 key 在 macOS 上結構性不可能**——檔名就是 key，而 APFS 預設 case-insensitive，
@@ -73,9 +109,10 @@ final class CrossRecordValidationTests: XCTestCase {
     func testDanglingAuthorKeyIsWarningNotError() throws {
         try store.writeEntry(entry("a2020a", authors: [.key("ghost-person")]))
         let issues = try store.load().crossRecordIssues()
-        XCTAssertEqual(issues.count, 1)
-        XCTAssertEqual(issues[0].severity, .warning)
-        XCTAssertTrue(issues[0].message.contains("ghost-person"), issues[0].message)
+        XCTAssertEqual(issues.count, 1, "\(issues)")
+        let first = try XCTUnwrap(issues.first)
+        XCTAssertEqual(first.severity, .warning)
+        XCTAssertTrue(first.message.contains("ghost-person"), first.message)
     }
 
     func testResolvedAuthorKeyProducesNoIssue() throws {
@@ -87,8 +124,9 @@ final class CrossRecordValidationTests: XCTestCase {
     func testDanglingLibraryKeyIsWarning() throws {
         try store.writeEntry(entry("a2020a", libraries: ["nolib"]))
         let issues = try store.load().crossRecordIssues()
-        XCTAssertEqual(issues.filter { $0.severity == .warning }.count, 1)
-        XCTAssertTrue(issues[0].message.contains("nolib"))
+        let warnings = issues.filter { $0.severity == .warning }
+        XCTAssertEqual(warnings.count, 1, "\(issues)")
+        XCTAssertTrue(try XCTUnwrap(warnings.first).message.contains("nolib"))
     }
 
     func testCleanStoreHasNoCrossRecordIssues() throws {

@@ -10,17 +10,23 @@ final class StoreIOTests: XCTestCase {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        // #56：測的是 **legacy 佈局**的行為（檔名↔citekey 對應、rename 搬檔、
-        // stem 不符 quarantine）——那些行為在 entities 佈局下語意不同或不存在
-        // （UUID 檔名不隨 citekey 改名而搬）。`ensureLayout()` 會把新建的空 store
-        // 標成當前 format，所以必須先明確標回 1；`writeIfAbsent` 不覆寫既有標記。
-        try StoreVersion.write(root: root, format: 1)
         store = LibraryStore(root: root)
         try store.ensureLayout()
     }
 
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: root)
+    }
+
+    /// 把 store 切成 **legacy 佈局**（`entries/<citekey>.yaml`、`people/<key>.yaml`）。
+    ///
+    /// 只給結構性依賴 legacy 檔名語意的測試用——它們斷言檔名等於 citekey / person key。
+    /// **不放 setUp**：其餘測試（目錄建立、path traversal 拒絕、config 解析…）與佈局無關，
+    /// 整組釘死會拿掉它們在**實際出貨格式**（entities）下的覆蓋（#56 verify DA 發現）。
+    ///
+    /// 呼叫時機必須在任何寫入之前——此時 store 還是空的，改格式標記不會造成混合佈局。
+    private func useLegacyLayout() throws {
+        try StoreVersion.write(root: root, format: 1)
     }
 
     private func makeEntry(_ citekey: String = "cheng2025identifiability") -> Entry {
@@ -30,6 +36,7 @@ final class StoreIOTests: XCTestCase {
     }
 
     func testWriteEntryExclusiveRefusesExistingDestination() throws {
+        try useLegacyLayout()   // 斷言檔名 == key（#56）
         try store.writeEntry(makeEntry("taken2020key"))
         XCTAssertThrowsError(try store.writeEntryExclusive(makeEntry("taken2020key")),
                              "exclusive-create 對既存目的檔必須擲錯而非覆蓋")
@@ -47,6 +54,7 @@ final class StoreIOTests: XCTestCase {
     }
 
     func testWriteAndLoadEntryRoundTrip() throws {
+        try useLegacyLayout()   // 斷言檔名 == key（#56）
         let entry = makeEntry()
         let url = try store.writeEntry(entry)
         XCTAssertEqual(url.lastPathComponent, "cheng2025identifiability.yaml")
@@ -56,6 +64,7 @@ final class StoreIOTests: XCTestCase {
     }
 
     func testWriteEntryOverwritesAtomically() throws {
+        try useLegacyLayout()   // 斷言檔名 == key（#56）
         var entry = makeEntry()
         _ = try store.writeEntry(entry)
         entry.title = "Updated title"
@@ -79,6 +88,7 @@ final class StoreIOTests: XCTestCase {
     }
 
     func testWriteAndLoadPerson() throws {
+        try useLegacyLayout()   // 斷言檔名 == key（#56）
         let person = Person(key: "chen-chun-houh", names: ["Chun-Houh Chen", "陳君厚"])
         let url = try store.writePerson(person)
         XCTAssertEqual(url.lastPathComponent, "chen-chun-houh.yaml")
@@ -111,6 +121,7 @@ final class StoreIOTests: XCTestCase {
 
     // #23：容忍的另一半——read-modify-write 不得剝掉未知欄位（資料毀損防線）
     func testWritePersonPreservesUnknownFieldsOnDisk() throws {
+        try useLegacyLayout()   // 斷言檔名 == key（#56）
         let f = root.appendingPathComponent("people/future-two.yaml")
         try """
         key: future-two
@@ -203,11 +214,17 @@ final class RenameTests: XCTestCase {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-rename-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        // #56：測的是 **legacy 佈局**的行為（檔名↔citekey 對應、rename 搬檔、
-        // stem 不符 quarantine）——那些行為在 entities 佈局下語意不同或不存在
-        // （UUID 檔名不隨 citekey 改名而搬）。`ensureLayout()` 會把新建的空 store
-        // 標成當前 format，所以必須先明確標回 1；`writeIfAbsent` 不覆寫既有標記。
-        try StoreVersion.write(root: root, format: 1)
+        try seed(format: 1)   // 預設 legacy——多數 rename 語意（改 citekey 就搬檔）是 legacy 專屬
+    }
+
+    /// 以指定 store format 建好 fixture。
+    ///
+    /// **格式必須在寫入之前定好**，所以由各測試在開頭選，不是 setUp 寫死（#56 verify DA）。
+    /// `renameEntry` 對兩種佈局有**不同的分支**——entities 佈局下檔名是不變的 UUID，
+    /// 「新 citekey 沒被佔用」不再由檔案系統天然保證，改由全庫檢查負責。
+    /// 整組釘在 legacy 會讓那條分支從沒被測過。
+    private func seed(format: Int) throws {
+        try StoreVersion.write(root: root, format: format)
         store = LibraryStore(root: root)
         try store.ensureLayout()
         var e1 = Entry(id: UUID(), citekey: "old2020key", type: "article", title: "T1",
@@ -218,6 +235,47 @@ final class RenameTests: XCTestCase {
         e2.akashic.relations.cites = ["old2020key"]          // 引用即將被 rename 的 entry
         e2.akashic.relations.related = ["old2020key"]
         try store.writeEntry(e2)
+    }
+
+    /// 重建 fixture 為 **entities 佈局**（format 2+）。給要驗 entities 專屬分支的測試用。
+    private func reseedAsEntities() throws {
+        try FileManager.default.removeItem(at: root)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try seed(format: StoreVersion.supported)
+    }
+
+    /// entities 佈局下 `renameEntry` 的專屬守衛：檔名是不變的 UUID，所以「新 citekey
+    /// 沒被別人佔用」不再由檔案系統天然保證。沒有這個檢查會安靜地產生兩筆同 citekey。
+    ///
+    /// 這條分支在 #56 之前完全沒有測試覆蓋（RenameTests 整組跑在 legacy）。
+    func testRenameRejectsTakenCitekeyUnderEntitiesLayout() throws {
+        try reseedAsEntities()
+        XCTAssertTrue(store.usesEntitiesLayout, "測試前提：必須是 entities 佈局")
+        XCTAssertThrowsError(try store.renameEntry(from: "old2020key", to: "citing2021paper"),
+                             "新 citekey 已被另一筆佔用，必須拒絕") { err in
+            guard case StoreIOError.invalidKey(let field, _) = err else {
+                return XCTFail("應為 invalidKey，實得 \(err)")
+            }
+            XCTAssertTrue(field.contains("citekey"), field)
+        }
+        // 拒絕後兩筆都必須完好——不得留下半套狀態
+        let after = try store.load()
+        XCTAssertEqual(Set(after.entries.map(\.citekey)), ["old2020key", "citing2021paper"])
+    }
+
+    /// entities 佈局下改 citekey **不搬檔**（檔名是 UUID），但 citekey 與關係都要更新。
+    func testRenameUnderEntitiesLayoutKeepsFilenameAndMigratesRelations() throws {
+        try reseedAsEntities()
+        let before = try XCTUnwrap(try store.load().entries.first { $0.citekey == "old2020key" })
+        let urlBefore = store.entityURL(id: before.id)
+        _ = try store.renameEntry(from: "old2020key", to: "new2020key")
+        let after = try store.load()
+        XCTAssertEqual(after.entries.first { $0.id == before.id }?.citekey, "new2020key")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: urlBefore.path),
+                      "entities 佈局下檔名是不變的 UUID，改 citekey 不得搬檔")
+        let citing = try XCTUnwrap(after.entries.first { $0.citekey == "citing2021paper" })
+        XCTAssertEqual(citing.akashic.relations.cites, ["new2020key"], "關係必須跟著遷移")
+        XCTAssertEqual(citing.akashic.relations.related, ["new2020key"])
     }
 
     override func tearDownWithError() throws {

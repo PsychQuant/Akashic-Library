@@ -1,0 +1,4 @@
+module CLibYAML {
+    header "yaml.h"
+    export *
+}

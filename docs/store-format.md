@@ -332,7 +332,42 @@ encode/decode 等冪。
   實際可容納的節點數依結構而定（單鍵 mapping 元素約耗 3 次比對/個）。巨大
   未知子樹與 anchor/alias 重用型 DAG 都會觸發 → quarantine。這是未知子樹的
   實質大小上限（可用性懸崖，照實記載）；超大 payload 不應塞在未知欄位裡。
-- **已知未防護：alias 落在 mapping key 位置的展開 DoS（R12 照實記載）**：本檔
+- **已修：alias 展開 DoS（#36 / #27，normative）**——`compose` **之前**在 parser 的
+  **event 層**估計展開成本，超過 20,000 節點或 8 MB 即拒收（quarantine）。
+
+  **為什麼是 event 層**：`yaml_parser_parse` **不展開 alias**（每個 alias 就是一個
+  `YAML_ALIAS_EVENT`），成本與**輸入大小**成正比，與展開後大小無關。而它給的是 parser
+  自己的判斷，**不需要重現任何 YAML 詞法**——那正是前五次失敗的來源。
+
+  **排除清單（文字層方案，不要再試）**：
+
+  | 嘗試 | 輪次 | 死法 |
+  |---|---|---|
+  | 行尾字元全文掃描 | R5 / R6 | 誤殺 block scalar 內容 |
+  | `? key` complex-key 判定 | R10 / R11 | 三條繞道未擋 + 誤殺 emitter 輸出 |
+  | anchor/alias 計數 | PR #42（撤回） | 真實 corpus 已坐在門檻上；跨行引號（雙向）、跨行 flow、CRLF、`#` 判準全破 |
+
+  共同形態：**用手寫的逐字元狀態機重現 YAML 詞法**。引號跨行、flow collection、
+  block scalar 標頭、CRLF、註解起始條件，每個細節都是一個獨立破口。
+
+  **門檻由真實 corpus 校準**（不是代理指標）：536 檔實測最大 ~700 節點，已知最小 bomb
+  構造（282 B、12 層 fanout 2）估到 110,611——兩者差 5.5 個數量級。**同一個量綱的直接
+  比較，餘裕看得見**；PR #42 用「anchor 數 × alias 數」這種代理指標，與真實資料的距離
+  無法量測，結果 corpus 已經坐在上面。
+
+  **實測**：R12 三條繞道 + PR #42 四條（`>` 致盲、跨行 flow、CRLF、`#` 判準）+ 單一
+  anchor 放大 + 超大 scalar，**全部擋下**；713–789 B 的 payload 從 **40 s timeout →
+  0.33 s quarantine**。真實 corpus 536 檔零誤殺（validate 全程 0.32 s），emitter 對
+  含跨行折行的長 abstract 輸出零誤殺。
+
+  **守衛位置**（五處，缺一不可）：三個 decode 入口、encode canary、`EntityKind.peek`
+  （**entities 佈局的第一個動作**——只接 decode 入口實測仍會 timeout）、
+  `verifyBlockOracle` 的區塊獨立 compose（整檔通過不代表每個切片都便宜）。
+
+  實作在 `Sources/AkashicCore/AliasEventBudget.swift`，libyaml vendored 於
+  `Sources/CLibYAML`（Yams 未把 `CYaml` 匯出成 product，見 `include/VENDORED.md`）。
+
+- ~~**已知未防護：alias 落在 mapping key 位置的展開 DoS（R12 照實記載）**~~（已修，見上）：本檔
   所有預算守衛都跑在 `Yams.compose` 之後，而 composer 的重複鍵偵測會對每個
   key node 遞迴 hash（無 memoisation）。alias 指向 DAG 且落在 key 位置時，
   展開發生在 compose **內部**，預算一個都還沒開始跑。實測三種形式在 630–645

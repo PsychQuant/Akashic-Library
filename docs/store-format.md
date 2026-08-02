@@ -332,6 +332,9 @@ encode/decode 等冪。
   實際可容納的節點數依結構而定（單鍵 mapping 元素約耗 3 次比對/個）。巨大
   未知子樹與 anchor/alias 重用型 DAG 都會觸發 → quarantine。這是未知子樹的
   實質大小上限（可用性懸崖，照實記載）；超大 payload 不應塞在未知欄位裡。
+> **想知道「為什麼」而不是「規則是什麼」** → [`explainers/yaml-alias-dos.md`](explainers/yaml-alias-dos.md)
+> （一分鐘版的比喻、實測的 43,000 倍、七次失敗各錯在哪、威脅模型）。本節是 normative 規格。
+
 - **已修：alias 展開 DoS（#36 / #27，normative）**——`compose` **之前**在 parser 的
   **event 層**估計展開成本。**三個獨立的軸**，任一超過即拒收（quarantine）：
 

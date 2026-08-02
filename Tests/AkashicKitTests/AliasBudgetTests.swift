@@ -96,8 +96,38 @@ final class AliasBudgetTests: XCTestCase {
         }
     }
 
-    /// 真實 corpus 必須全數通過。找不到 corpus 時明確 skip，**不靜默 pass**——
-    /// 一個因為找不到資料而永遠綠的測試比沒有測試更糟。
+    /// **CI 也要有保護**：真實 corpus 測試在沒有 `~/.akashic` 的機器上永遠 skip，
+    /// 等於 CI 完全沒有 false-positive 防護。這個測試用**內建**的書目樣本補上——
+    /// 內容取自真實書目會出現的形態（數學/化學/演算法名稱、markdown 強調、R&D、
+    /// 中日文、URL、DOI、長摘要），不依賴任何外部檔案。
+    func testBundledBibliographicCorpusHasNoFalsePositives() throws {
+        let hostileFields = [
+            "A*-search and IDA* variants", "C*-algebras and von Neumann algebras",
+            "R&D expenditure & innovation", "*Emphasis* and **strong** in markdown",
+            "Ca2+ & Mg2+ transport", "p < .05 * p < .01 ** p < .001 ***",
+            "Item response theory: 2PL & 3PL models",
+            "https://example.org/a?b=1&c=2&d=3&e=4&f=5",
+            "10.1000/abc&def*ghi", "多變量分析：主成分 & 因素分析",
+            "統計的推測 * 検定 & 推定", "S&P 500 & Russell 2000",
+            "AT&T Bell Labs & IBM Research", "α & β & γ & δ & ε",
+            "* * * * * * * * * *", "& & & & & & & & & &",
+            "&anchor *alias &more *refs &yet *again",   // 全部都在純量裡
+        ]
+        for (i, v) in hostileFields.enumerated() {
+            var e = Entry(id: UUID(), citekey: "corp\(2000 + i)a", type: "article",
+                          title: v, authors: [.literal(v)], date: "2020")
+            e.fields["journaltitle"] = v
+            e.fields["abstract"] = v + "\n\n" + v
+            let yaml = try EntryYAML.encode(e)
+            let c = AliasBudget.scan(yaml)
+            XCTAssertFalse(c.exceedsBudget,
+                           "書目內容被誤殺：\(v.debugDescription) → \(c)\n\(yaml)")
+            XCTAssertEqual(try EntryYAML.decode(yaml).title, v)
+        }
+    }
+
+    /// 真實 corpus 若在本機則額外驗。找不到時明確 skip，**不靜默 pass**——
+    /// CI 的防護由上面那個內建 corpus 提供，這個是本機的加碼。
     func testRealCorpusHasNoFalsePositives() throws {
         let entries = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".akashic/entries")

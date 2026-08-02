@@ -32,6 +32,11 @@ public enum CSLExport {
                         case .key(let k): display = peopleByKey[k]?.names.first ?? k
                         case .literal(let s): display = s
                         }
+                        // #6：CSL 的 `literal` name variant 正好對應機構名——
+                        // 標記去掉後原樣輸出，不做 family/given 切分。
+                        if CorporateName.isMarked(display) {
+                            return ["literal": CorporateName.unmark(display)]
+                        }
                         if let split = BibExport.familyGiven(display) {
                             return ["family": split.family, "given": split.given]
                         }

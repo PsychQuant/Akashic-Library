@@ -1,4 +1,5 @@
 import Foundation
+import AkashicCore
 import AkashicSQLite
 
 /// Zotero 資料庫讀出的原始 item（尚未 map 成 Entry）。
@@ -91,8 +92,11 @@ public enum ZoteroReader {
             let display: String
             let family: String
             if fieldMode == 1 {
-                // 單欄姓名：Zotero 把整個名字存在 lastName；citekey 用最後一個 token 當姓
-                display = last
+                // 單欄姓名（機構、或不分姓名的個人）：Zotero 把整個名字存在 lastName。
+                // #6：以 `{...}` 標記保留「這不是 Given Family」這個事實——不標記的話
+                // export 會切成 "Organization, World Health"。citekey 仍用最後一個 token
+                // 當姓（既有行為，不動；改它會讓既有 citekey 全部漂移）。
+                display = CorporateName.mark(last)
                 family = last.split(separator: " ").last.map(String.init) ?? last
             } else {
                 display = [first, last].filter { !$0.isEmpty }.joined(separator: " ")

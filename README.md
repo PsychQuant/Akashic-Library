@@ -151,6 +151,28 @@ swift build
 swift test
 ```
 
+**`swift test` 必須跑完整套（538 tests），不得用 `--skip` 繞過。** 部分輸出很容易被誤讀成
+成功——測試程序若中途 fatal error 中止，畫面會停在「Executed N tests, 0 failures」，
+但 N 遠小於總數而其餘 suite 從未執行。判斷通過與否要看**最後一行的總數**，不是看有沒有
+紅字（#56：一個對空陣列取值的 `issues[0]` 曾以此形式遮蔽 12 個失敗）。
+
+測試裡對集合取第一個元素請用 `try XCTUnwrap(xs.first)`，不要用 `xs[0]`——後者在空集合上是
+fatal error（中止整個程序）而非測試失敗。
+
+### 測試的佈局假設
+
+store 有兩種佈局，測試必須明確選定其一：
+
+| 佈局 | 檔案位置 | 測什麼 |
+|---|---|---|
+| legacy（format 1）| `entries/<citekey>.yaml`、`people/<key>.yaml` | 檔名↔key 對應、rename 搬檔、stem 不符 quarantine |
+| entities（format ≥ 2）| `entities/<uuid>.yaml` | UUID 身分、檔名與內容 id 一致性 |
+
+`ensureLayout()` 會把**新建的空 store** 標成當前 format（走 entities 佈局），把**已有 legacy
+內容**的 store 標成 1。所以要測 legacy 行為的 setUp 必須明確寫 `StoreVersion.write(root:format: 1)`
+（見 `EntitiesLayoutTests.legacyStore()` 與 `CrossRecordValidationTests` 的同名 helper），
+否則測試會拿到 UUID 檔名而與期望不符。
+
 ## Submodules
 
 ```bash

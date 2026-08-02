@@ -18,7 +18,6 @@ final class ServiceTests: XCTestCase {
             .appendingPathComponent("akashic-home-\(UUID().uuidString)")
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-svc-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let store = LibraryStore(root: root)
         try store.ensureLayout()
         var e1 = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article",

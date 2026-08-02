@@ -74,7 +74,6 @@ final class ZoteroImportTests: XCTestCase {
             .appendingPathComponent("akashic-zimport-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let libRoot = dir.appendingPathComponent("library")
-        try FileManager.default.createDirectory(at: libRoot, withIntermediateDirectories: true)
         store = LibraryStore(root: libRoot)
         try store.ensureLayout()
         fixture = try ZoteroFixture(dir: dir)

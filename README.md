@@ -151,13 +151,19 @@ swift build
 swift test
 ```
 
-**`swift test` 必須跑完整套（538 tests），不得用 `--skip` 繞過。** 部分輸出很容易被誤讀成
-成功——測試程序若中途 fatal error 中止，畫面會停在「Executed N tests, 0 failures」，
-但 N 遠小於總數而其餘 suite 從未執行。判斷通過與否要看**最後一行的總數**，不是看有沒有
-紅字（#56：一個對空陣列取值的 `issues[0]` 曾以此形式遮蔽 12 個失敗）。
+**`swift test` 必須跑完整套，不得用 `--skip` 繞過。** 部分輸出很容易被誤讀成成功——測試
+程序若中途 fatal error 中止，畫面會停在「Executed N tests, 0 failures」，但 N 遠小於總數
+而其餘 suite 從未執行。判斷通過與否要看**最後一行的總數**，不是看有沒有紅字（#56：一個
+對空陣列取值的 `issues[0]` 曾以此形式遮蔽 12 個失敗）。
 
-測試裡對集合取第一個元素請用 `try XCTUnwrap(xs.first)`，不要用 `xs[0]`——後者在空集合上是
-fatal error（中止整個程序）而非測試失敗。
+**不寫死預期測試數**——它每次加測試都會過期，過期的數字比沒有數字更糟。跑一次 `swift test`
+看最後一行即可。
+
+測試裡對集合取第一個元素**應該**用 `try XCTUnwrap(xs.first)` 而非 `xs[0]`——後者在空集合上
+是 fatal error（中止整個程序）而非測試失敗。**這是往後的規則，不是既成事實**：測試樹裡仍有
+約 12 個未改的站點（`WoSImportTests`、`EntitiesLayoutTests`、`KnownLayerEvolutionTests`、
+`AppLibraryMembershipTests`、`ServiceTests`、`UnknownFieldVisibilityTests`），它們仍帶著同一種
+中止風險。
 
 ### 測試的佈局假設
 
@@ -169,9 +175,30 @@ store 有兩種佈局，測試必須明確選定其一：
 | entities（format ≥ 2）| `entities/<uuid>.yaml` | UUID 身分、檔名與內容 id 一致性 |
 
 `ensureLayout()` 會把**新建的空 store** 標成當前 format（走 entities 佈局），把**已有 legacy
-內容**的 store 標成 1。所以要測 legacy 行為的 setUp 必須明確寫 `StoreVersion.write(root:format: 1)`
-（見 `EntitiesLayoutTests.legacyStore()` 與 `CrossRecordValidationTests` 的同名 helper），
-否則測試會拿到 UUID 檔名而與期望不符。
+內容**的 store 標成 1。所以測 legacy 行為的案例必須明確寫 `StoreVersion.write(root:format: 1)`，
+否則會拿到 UUID 檔名而與期望不符。
+
+**但範圍要收到最小——不要放進共用的 `setUpWithError`。** 那會把整個 class 釘死在 legacy，
+連同其中與佈局無關的測試一起失去在**實際出貨格式**下的覆蓋。#56 就是這樣一次拿掉了 65+ 個
+測試的 entities 覆蓋，而 Zotero import 與 MCP service 這兩個子系統在測試樹裡沒有其他 entities
+覆蓋來兜底。
+
+正確做法是 per-test 的 helper，只讓真正需要的測試呼叫：
+
+```swift
+private func useLegacyLayout() throws {          // 見 ZoteroImportTests / StoreIOTests
+    try StoreVersion.write(root: root, format: 1)
+}
+```
+
+setUp 就寫入記錄的 suite（如 `RenameTests`）改成 `seed(format:)`，讓格式由各測試選。
+
+**判斷「哪些測試真的需要 legacy」的方法**：把 pin 全部拿掉跑一次，失敗的才是。實測數字
+（#56）：`ZoteroImportTests` 2/27、`ServiceTests` 1/41、`StoreIOTests` 5/13、`RenameTests` 2/7。
+
+**反過來也要小心：「換佈局後仍通過」不等於「該佈局有覆蓋」。** 斷言可能空洞為真——
+`testRenameMovesFileMigratesRelationsKeepsUUID` 斷言 `entries/old2020key.yaml` 不存在，而
+在 entities 佈局下那個路徑從來就沒存在過。判斷覆蓋要看斷言的內容，不是看有沒有變紅。
 
 ## Submodules
 

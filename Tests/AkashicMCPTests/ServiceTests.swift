@@ -8,7 +8,14 @@ final class ServiceTests: XCTestCase {
     var root: URL!
     var service: AkashicService!
 
+    /// #37：index 現在住在 `$AKASHIC_HOME/index/<key>.sqlite`。測試必須注入假 home——
+    /// 否則會寫進**使用者真實的** `~/.akashic/index/`（實測發生過，留下 `other.sqlite`）。
+    var fakeHome: URL!
+    var env: [String: String] { ["AKASHIC_HOME": fakeHome.path] }
+
     override func setUpWithError() throws {
+        fakeHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-home-\(UUID().uuidString)")
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-svc-\(UUID().uuidString)")
         let store = LibraryStore(root: root)
@@ -25,11 +32,12 @@ final class ServiceTests: XCTestCase {
         e2.fields["journaltitle"] = "Psychometrika"
         try store.writeEntry(e2)
         try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng", "鄭澈"]))
-        service = AkashicService(root: root)
+        service = AkashicService(root: root, environment: env)
     }
 
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.removeItem(at: fakeHome)
     }
 
     private func json(_ s: String) throws -> Any {
@@ -465,7 +473,7 @@ extension ServiceTests {
 
     func testFilesListShowsRegistryAndActiveRoot() throws {
         let (configURL, _) = try makeSecondUniverse()
-        let svc = AkashicService(root: root, configURL: configURL)
+        let svc = AkashicService(root: root, configURL: configURL, environment: env)
         let out = try json(svc.files(action: "list", key: nil)) as! [String: Any]
         let files = out["files"] as! [[String: Any]]
         XCTAssertEqual(files.count, 2)
@@ -475,7 +483,7 @@ extension ServiceTests {
 
     func testFilesUseSwitchesUniverseCompletely() throws {
         let (configURL, otherRoot) = try makeSecondUniverse()
-        let svc = AkashicService(root: root, configURL: configURL)
+        let svc = AkashicService(root: root, configURL: configURL, environment: env)
         // 切換前：搜得到本 universe 的 entry
         XCTAssertTrue(try svc.search(journal: "Psychometrika").contains("cheng2025identifiability"))
         let out = try json(svc.files(action: "use", key: "other")) as! [String: Any]
@@ -488,7 +496,7 @@ extension ServiceTests {
 
     func testFilesUseValidation() throws {
         let (configURL, _) = try makeSecondUniverse()
-        let svc = AkashicService(root: root, configURL: configURL)
+        let svc = AkashicService(root: root, configURL: configURL, environment: env)
         XCTAssertThrowsError(try svc.files(action: "use", key: "ghost"), "未註冊 key 擲錯")
         XCTAssertThrowsError(try svc.files(action: "use", key: nil), "use 缺 key 擲錯")
         XCTAssertThrowsError(try svc.files(action: "teleport", key: nil), "未知 action 擲錯")

@@ -21,8 +21,13 @@ struct LibraryOptions: ParsableArguments {
     var library: String?
 
     func resolveRoot() throws -> URL {
+        try resolved().root
+    }
+
+    /// #37：index 位置取決於 registry key，所以解析要保留 key 而不只是 root。
+    func resolved() throws -> LibraryLocator.Resolved {
         do {
-            return try LibraryLocator.resolve(explicit: library)
+            return try LibraryLocator.resolveDetailed(explicit: library)
         } catch {
             throw ValidationError((error as? LocalizedError)?.errorDescription ?? "\(error)")
         }
@@ -30,8 +35,9 @@ struct LibraryOptions: ParsableArguments {
 
     /// 開既有 library（entries/ 必須存在）；不自動建立。
     func openStore() throws -> LibraryStore {
-        let root = try resolveRoot()
-        let store = LibraryStore(root: root)
+        let r = try resolved()
+        let root = r.root
+        let store = LibraryStore(root: root, key: r.key)
         guard FileManager.default.fileExists(atPath: store.entriesDir.path) else {
             throw ValidationError("『\(root.path)』不是 Akashic library（缺 entries/）。先跑 akashic doctor --library <path> 建立佈局。")
         }

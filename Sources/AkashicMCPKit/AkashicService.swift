@@ -25,14 +25,24 @@ public enum ServiceError: Error, LocalizedError {
 public final class AkashicService {
     /// #18 多檔案：use 切換時重指（session-scoped）；store/index 為 computed，全部跟隨。
     private(set) var root: URL
+    /// #37：index 位置取決於 registry key。與 root 同生命週期——`use` 切換時
+    /// 兩者必須一起換，否則會用 A 的 index 查 B 的 store。nil＝未註冊（in-store 回落）。
+    private(set) var storeKey: String?
     let configURL: URL
+    /// #37：注入用——測試必須能把 index 導向假 home，否則會寫進使用者真實的
+    /// `~/.akashic/index/`（`testFilesUseSwitchesUniverseCompletely` 實際踩到）。
+    let environment: [String: String]
 
-    public init(root: URL, configURL: URL = AkashicConfig.defaultURL) {
+    public init(root: URL, key: String? = nil, configURL: URL = AkashicConfig.defaultURL,
+                environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.root = root
+        self.storeKey = key
         self.configURL = configURL
+        self.environment = environment
     }
 
-    var store: LibraryStore { LibraryStore(root: root) }
+    /// #37：index 位置取決於 registry key（`storeKey`；nil＝未註冊 → in-store 回落）。
+    var store: LibraryStore { LibraryStore(root: root, key: storeKey, environment: environment) }
 
     // MARK: - 讀
 
@@ -178,6 +188,7 @@ public final class AkashicService {
                 throw ServiceError.invalid("「\(path)」不是 Akashic library（缺 entries/ 目錄）")
             }
             root = newRoot
+            storeKey = key          // #37：index 必須跟著切，否則用舊 store 的 index 查新 store
             return try jsonString(["active_root": root.path, "key": key] as [String: Any])
         default:
             throw ServiceError.invalid("未知 action「\(action)」（list / use）")

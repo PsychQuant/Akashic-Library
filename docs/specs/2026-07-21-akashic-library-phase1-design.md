@@ -48,9 +48,11 @@ Akashic 是比 Zotero 更全面的資料庫——差異化在衍生知識層（�
 │   └── biblatex-apa-swift       ← submodule（立為 canonical）
 ├── docs/
 │   └── specs/                   ← 本 spec 與後續 spec
-├── library/                     ← 鄭澈的資料（獨立 private git repo；umbrella .gitignore 它）
 └── attachments/                 ← PDF pool（gitignored；要 Dropbox 備份可 symlink）
 ```
+
+> **2026-08-02 更新（#37）**：資料**不再**住在本 repo 底下的 `library/`。store 的家是
+> `~/.akashic/`（見 §4.1）。umbrella 的 `.gitignore library/` 保留作防呆，避免有人又在那建一個。
 
 - `mcps/` 收工具面（MCP servers）、`repos/` 收共用程式庫；未來 App 若抽成獨立 repo 也進 `repos/`。
 - **程式碼 repo ≠ 資料 repo**：`library/` 是 nested 獨立 git repo（remote 推 kiki830621
@@ -72,12 +74,18 @@ Akashic 是比 Zotero 更全面的資料庫——差異化在衍生知識層（�
 ### 4.1 資料 repo 佈局
 
 ```
-library/                          ← private git repo
+~/.akashic/                       ← store root ＝ akashic home ＝ private git repo 根（#37）
 ├── entries/<citekey>.yaml        ← 每筆文獻一檔
 ├── people/<person-key>.yaml      ← 人物實體
 ├── notes/<citekey>/*.md          ← 衍生筆記（自己的產出，git 追蹤）
-└── .akashic/                     ← 衍生 index（SQLite、embeddings）＋ local config；gitignored、可全刪重建
+├── config.yaml                   ← registry（files/current）；gitignored
+└── index/<key>.sqlite            ← 衍生 index，依 registry key 命名；gitignored、可全刪重建
 ```
+
+> **2026-08-02（#37）**：原本寫的是 `library/` 住在程式碼 repo 底下、index 走 in-store
+> `.akashic/`。兩者都改了——store 搬到 `~/.akashic/`，index 搬出 canonical 樹。理由見
+> `Sources/AkashicStoreIO/AkashicHome.swift` 的 doc comment。**未註冊**的 store（`--library`
+> 直指）仍走 in-store `.akashic/index.sqlite` 回落。
 
 附件不在資料 repo 內：pool 在 umbrella 的 `attachments/`（gitignored），
 過渡期 Zotero 既有 PDF 留在 `~/Zotero/storage/` 只記 reference。

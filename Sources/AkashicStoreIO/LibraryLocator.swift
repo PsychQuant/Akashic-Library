@@ -16,17 +16,36 @@ public enum LocatorError: Error, LocalizedError {
 /// Library root 解析：explicit → $AKASHIC_LIBRARY → config current+files → config library（legacy）。
 /// CLI 與 akashic-mcp 共用（config 驅動、無寫死路徑）。
 public enum LibraryLocator {
+    /// 解析結果——`key` 是 registry key（#37：index 位置需要它）。
+    /// explicit / env 兩條路徑沒有 key（未註冊），legacy `library:` 亦然。
+    public struct Resolved: Equatable {
+        public let root: URL
+        public let key: String?
+        public init(root: URL, key: String?) { self.root = root; self.key = key }
+    }
+
+    /// 既有簽章保留——只要 root 的呼叫端不必改。
     public static func resolve(
         explicit: String?,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        configURL: URL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".akashic/config.yaml")
+        configURL: URL = AkashicHome.configURL()
     ) throws -> URL {
+        try resolveDetailed(explicit: explicit, environment: environment,
+                            configURL: configURL).root
+    }
+
+    public static func resolveDetailed(
+        explicit: String?,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        configURL: URL = AkashicHome.configURL()
+    ) throws -> Resolved {
         if let explicit, !explicit.isEmpty {
-            return URL(fileURLWithPath: (explicit as NSString).expandingTildeInPath)
+            return Resolved(root: URL(fileURLWithPath: (explicit as NSString).expandingTildeInPath),
+                            key: nil)
         }
         if let env = environment["AKASHIC_LIBRARY"], !env.isEmpty {
-            return URL(fileURLWithPath: (env as NSString).expandingTildeInPath)
+            return Resolved(root: URL(fileURLWithPath: (env as NSString).expandingTildeInPath),
+                            key: nil)
         }
         let config = try AkashicConfig.read(from: configURL)
         // #18 多檔案：current + files registry 優先於 legacy library
@@ -34,10 +53,12 @@ public enum LibraryLocator {
             guard let path = config.files[current] else {
                 throw ConfigError.invalidCurrent(current)
             }
-            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+            return Resolved(root: URL(fileURLWithPath: (path as NSString).expandingTildeInPath),
+                            key: current)
         }
         if let path = config.library, !path.isEmpty {
-            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+            return Resolved(root: URL(fileURLWithPath: (path as NSString).expandingTildeInPath),
+                            key: nil)
         }
         throw LocatorError.notConfigured
     }

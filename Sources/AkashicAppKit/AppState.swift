@@ -157,6 +157,37 @@ public final class AppState {
         try mutate(citekey) { $0.akashic.tags.removeAll { $0 == tag } }
     }
 
+    /// #15：把 entry 加進 library。
+    ///
+    /// **與 `addTag` 的關鍵差異：library key 必須指向 registry 裡存在的項。**
+    /// tag 是自由字串（打錯只是多一個沒人用的 tag），library key 是**參照**——
+    /// 打錯會產生懸空成員關係：entry 說它屬於某個 library，而那個 library 不存在。
+    /// `#7b` 的跨記錄驗證會把它報成 warning，但更好的做法是**一開始就不讓它發生**。
+    /// 所以這裡 fail-loud，UI 端則只提供選單而非自由輸入。
+    public func addToLibrary(citekey: String, libraryKey: String) throws {
+        guard libraries.contains(where: { $0.key == libraryKey }) else {
+            throw AppStateError.unknownLibrary(libraryKey)
+        }
+        try mutate(citekey) {
+            if !$0.akashic.libraries.contains(libraryKey) {
+                $0.akashic.libraries.append(libraryKey)
+                $0.akashic.libraries.sort()   // 穩定順序——避免 diff 噪音
+            }
+        }
+    }
+
+    /// 移出 library。**不檢查 registry 存在性**——要能把懸空的成員關係清掉，
+    /// 而那正是 registry 已經沒有該 library 的情況。
+    public func removeFromLibrary(citekey: String, libraryKey: String) throws {
+        try mutate(citekey) { $0.akashic.libraries.removeAll { $0 == libraryKey } }
+    }
+
+    /// 這個 entry 還沒加入的、registry 裡有的 library（供 UI 出選單）。
+    public func availableLibraries(for citekey: String) -> [Library] {
+        let joined = Set(entries.first { $0.citekey == citekey }?.akashic.libraries ?? [])
+        return libraries.filter { !joined.contains($0.key) }.sorted { $0.key < $1.key }
+    }
+
     public func addRelation(citekey: String, kind: RelationKind, target: String) throws {
         try mutate(citekey) {
             switch kind {
@@ -209,9 +240,14 @@ public final class AppState {
 public enum AppStateError: Error, LocalizedError {
     case unknownFile(String)
     case notALibrary(String)
+    /// #15：library key 是**參照**不是自由字串——加進不存在的 library 會產生懸空成員關係。
+    case unknownLibrary(String)
 
     public var errorDescription: String? {
         switch self {
+        case .unknownLibrary(let key):
+            return "library「\(displaySafe(key, max: 200))」不在 registry 裡"
+                 + "——先用 akashic library create 建立，或從清單挑一個既有的"
         case .unknownFile(let key): return "檔案 key「\(key)」未註冊於 config"
         case .notALibrary(let path): return "「\(path)」不是 Akashic library（缺 entries/）"
         }

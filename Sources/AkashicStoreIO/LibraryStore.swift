@@ -212,6 +212,13 @@ public final class LibraryStore {
         return dest
     }
 
+    /// **需要 `@discardableResult`**：多數呼叫端隱式丟棄回傳的 URL——它們只在乎
+    /// 「寫成功了」，不在乎寫到哪。生產碼裡有兩處：`AkashicService.addPerson`
+    /// 與 CLI 的 `bootstrap-people`。
+    ///
+    /// 本 attribute 曾在 #55 插入 `writeOrganization` 時被誤刪（撞到 duplicate-attribute
+    /// 編譯錯誤，刪錯了那一個），於 #59 復原。
+    @discardableResult
     public func writePerson(_ person: Person) throws -> URL {
         guard StoreKey.isValid(person.key) else {
             throw StoreIOError.invalidKey("person key", person.key)
@@ -460,10 +467,24 @@ public struct RenameReport: Equatable {
 }
 
 extension LibraryStore {
+    /// 改寫前的一致性 gate（#35 verify）。
+    ///
+    /// **雙佈局並存時同一筆會被讀兩次**（半途遷移、還原的備份、git merge）。在那種狀態
+    /// 下做改寫是危險的：`renameEntry` 的刪除路徑只按 **store format** 推算位置，所以它
+    /// 會刪掉其中一份而留下另一份——留下的那份還是舊 citekey。
+    ///
+    /// 讀取面（`load` / `validate` / `doctor`）**刻意不擋**：診斷工具在這種狀態下正是最該
+    ///說話的時候。擋的是**寫入面**。
+    func assertNoCrossRecordErrors(_ load: LibraryLoad, action: String) throws {
+        let errs = load.crossRecordIssues().filter { $0.severity == .error }
+        guard errs.isEmpty else {
+            throw StoreIOError.inconsistentStore(action: action, issues: errs.map(\.message))
+        }
+    }
+
     /// citekey rename（#4）：驗證 → 搬檔 → 全庫 relations 遷移 → 舊檔刪除。
+    ///
     /// UUID 不變（雙 ID 的 rename 承諾至此真正成立）。呼叫端負責 reindex。
-    @discardableResult
-    /// 改 citekey 並遷移全庫 relations。
     ///
     /// **中斷恢復語意（#29，明確化）**——三個階段各有不同的中斷後果：
     ///
@@ -482,21 +503,20 @@ extension LibraryStore {
     /// 語意動作的一部分**，跳過一筆會留下「一半指向舊 key、一半指向新 key」的
     /// 不一致，比整個中止更難修。pre-encode 預檢已經把可預期的失敗（encode canary）
     /// 移到動磁碟之前，剩下的只有磁碟層錯誤——那種情況下中止是對的。
-    /// 改寫前的一致性 gate（#35 verify）。
     ///
-    /// **雙佈局並存時同一筆會被讀兩次**（半途遷移、還原的備份、git merge）。在那種狀態
-    /// 下做改寫是危險的：`renameEntry` 的刪除路徑只按 **store format** 推算位置，所以它
-    /// 會刪掉其中一份而留下另一份——留下的那份還是舊 citekey。
+    /// **回傳值值得看**：`RenameReport.relationsRewritten` 列出哪些記錄的 relations
+    /// 被改寫。
     ///
-    /// 讀取面（`load` / `validate` / `doctor`）**刻意不擋**：診斷工具在這種狀態下正是最該
-    ///說話的時候。擋的是**寫入面**。
-    func assertNoCrossRecordErrors(_ load: LibraryLoad, action: String) throws {
-        let errs = load.crossRecordIssues().filter { $0.severity == .error }
-        guard errs.isEmpty else {
-            throw StoreIOError.inconsistentStore(action: action, issues: errs.map(\.message))
-        }
-    }
-
+    /// 本 attribute 在 #11 加入時是直接貼在本函式上的，#35 的 `1f9bacf` 插入
+    /// `assertNoCrossRecordErrors` 時把它連同 doc comment 一起奪走（Swift 的 attribute
+    /// 綁定只認「下一個宣告」，不管中間夾了幾段註解），於 #59 復原——與 `writePerson`
+    /// 完全同型的機制。
+    ///
+    /// 復原而非順勢移除：這是**意外失去**的，不是誰決定過要拿掉。`AkashicStoreIO`
+    /// 經 `AkashicKit` product 對外暴露，庫外的呼叫端不在本 repo 的稽核範圍內；
+    /// 若要改成「強制呼叫端明示 `_ =`」，那是一次 API 政策變更，該自己走一次決策，
+    /// 不該是修註解的副作用。
+    @discardableResult
     public func renameEntry(from oldKey: String, to newKey: String) throws -> RenameReport {
         // oldKey 與 newKey 對稱驗證：oldKey 之後會進 entryURL 組刪除路徑，
         // 磁碟上若有畸形 citekey（load() 已 quarantine，此處縱深防禦）絕不可放行

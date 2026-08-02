@@ -55,10 +55,34 @@ public final class LibraryStore {
     public var librariesDir: URL { root.appendingPathComponent("libraries") }
     public var notesDir: URL { root.appendingPathComponent("notes") }
     public var akashicDir: URL { root.appendingPathComponent(".akashic") }
-    public var indexURL: URL { akashicDir.appendingPathComponent("index.sqlite") }
 
-    public init(root: URL) {
+    /// registry key（`~/.akashic/config.yaml` 的 `files:` 鍵）。nil＝未註冊 store。
+    public let key: String?
+    let environment: [String: String]
+
+    /// 衍生 index 的位置（#37）。
+    ///
+    /// - **已註冊 store**（有 registry key）→ `~/.akashic/index/<key>.sqlite`，在
+    ///   store root **之外**。理由見 `AkashicHome.indexDirectory`；核心是「store
+    ///   root 正是會進 Dropbox / git 的東西，而同步樹裡的 live SQLite 是已知的
+    ///   毀檔風險（partial write、conflict copy）」。
+    /// - **未註冊 store**（`--library <path>` 直指，多見於測試與一次性檢查）→
+    ///   回落 in-store `.akashic/index.sqlite`。那種 store 不在 registry 的治理
+    ///   範圍內，強行給它 home 內的位置反而要發明命名規則。
+    ///
+    /// 雙軌但各自合理：**有 key 就用 key，沒 key 就跟著 store**。
+    public var indexURL: URL {
+        if let key {
+            return AkashicHome.indexURL(forKey: key, environment: environment)
+        }
+        return akashicDir.appendingPathComponent("index.sqlite")
+    }
+
+    public init(root: URL, key: String? = nil,
+                environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.root = root
+        self.key = key
+        self.environment = environment
     }
 
     public func ensureLayout() throws {

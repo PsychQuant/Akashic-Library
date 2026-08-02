@@ -137,7 +137,8 @@ struct ImportZotero: ParsableCommand {
             }
         }
         let stats = try LibraryIndex(store: store).rebuild()
-        print("index rebuilt: \(stats.entries) entries")
+        // #37：index 已搬出 store root，路徑不再顯而易見——doctor 必須說它在哪。
+        print("index rebuilt: \(stats.entries) entries → \(store.indexURL.path)")
         // R7（R6-verify M22）：收容 ≠ 吞掉 process 層訊號——有單筆失敗仍以
         // 非零退出，自動化（cron pull、CI）才看得到
         if !report.writeFailed.isEmpty {

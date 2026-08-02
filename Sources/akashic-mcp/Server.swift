@@ -11,8 +11,9 @@ actor AkashicMCPServer {
     private let service: AkashicService
 
     init() throws {
-        let root = try LibraryLocator.resolve(explicit: nil)
-        service = AkashicService(root: root)
+        // #37：index 位置取決於 registry key，所以解析要保留 key 而不只是 root
+        let resolved = try LibraryLocator.resolveDetailed(explicit: nil)
+        service = AkashicService(root: resolved.root, key: resolved.key)
         server = Server(
             name: "akashic-mcp",
             version: "0.2.0",

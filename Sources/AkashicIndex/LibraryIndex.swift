@@ -15,8 +15,10 @@ public struct IndexStats: Equatable {
     }
 }
 
-/// `.akashic/index.sqlite` 重建器。index 是可全刪重建的衍生物——
-/// canonical 永遠是 entries/ 與 people/ 的 YAML。
+/// index 重建器。index 是可全刪重建的衍生物——canonical 永遠是 entries/ 與 people/ 的 YAML。
+///
+/// 位置由 `store.indexURL` 決定，**不是**固定的 `.akashic/index.sqlite`（#37）：
+/// 已註冊 store 走 `~/.akashic/index/<key>.sqlite`，未註冊才回落 in-store。
 public struct LibraryIndex {
     /// index schema 版本（#13 verify）：加表/改欄位時遞增。
     /// 舊 binary 建的 index 撞新查詢（如 entry_libraries）會 no such table——
@@ -51,7 +53,10 @@ public struct LibraryIndex {
         let load = try store.load()
 
         // 全刪重建：舊 index 直接移除，避免 schema 演化殘留
-        try FileManager.default.createDirectory(at: store.akashicDir, withIntermediateDirectories: true)
+        // #37：index 不一定住在 akashicDir——已註冊 store 走 ~/.akashic/index/<key>.sqlite，
+        // 該目錄不由 ensureLayout 建（它只管 store root 內的佈局）。一律建 indexURL 的父目錄。
+        try FileManager.default.createDirectory(
+            at: store.indexURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: store.indexURL)
         let db = try SQLiteDB(path: store.indexURL.path, readOnly: false)
 

@@ -22,9 +22,24 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
 mcps/                            MCP server submodules（che-zotero-mcp、che-biblatex-mcp）
 repos/                           共用 library submodules（biblatex-apa-swift = canonical）
 docs/                            spec 與 store 格式規格書
-library/                         使用者資料（獨立 private git repo；本 repo gitignore）
 attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox）
 ```
+
+**這個 repo 只有程式，不含資料。** 使用者的 store 住在 `~/.akashic/`（#37）：
+
+```
+~/.akashic/                      ← store root ＝ akashic home ＝ 資料的 git repo 根
+├── entries/<citekey>.yaml       ← canonical（版控）
+├── people/<person-key>.yaml     ← canonical（版控）
+├── libraries/  notes/           ← canonical（版控）
+├── config.yaml                  ← registry：files: {main: ~/.akashic} + current: main（gitignored）
+└── index/main.sqlite            ← 衍生 index，依 registry key 命名（gitignored）
+```
+
+`index/` 刻意**不**放在 canonical 樹裡：它可重建（536 筆約 0.55 s），而 store root 正是會進
+Dropbox / git 的東西——在同步樹裡放 live SQLite 是已知的毀檔風險（partial write、conflict copy）。
+未註冊的 store（`--library <path>` 直指）則回落 in-store `.akashic/index.sqlite`，因為那種 store
+不在 registry 治理範圍內。解析順序：`--library` → `$AKASHIC_LIBRARY` → `~/.akashic/config.yaml`。
 
 ## 狀態
 

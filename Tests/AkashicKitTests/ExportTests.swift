@@ -20,7 +20,10 @@ final class ExportTests: XCTestCase {
     }
 
     private var people: [Person] {
-        [Person(key: "cheng-che", names: ["Che Cheng", "鄭澈"])]
+        // #81：對外顯示名由 `authorized` 指定，不再由 `names` 的第一個元素決定。
+        // 本 fixture 兩個書寫系統各指定一個——匯出時 `.bib`／CSL 請求 latn。
+        [Person(key: "cheng-che", names: ["Che Cheng", "鄭澈"],
+                authorized: ["Che Cheng", "鄭澈"])]
     }
 
     func testBibExportRendersBiblatex() throws {

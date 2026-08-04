@@ -12,7 +12,7 @@ struct AkashicCLI: ParsableCommand {
             ImportZotero.self, Validate.self, ExportBib.self,
             ResolvePeople.self, Doctor.self, Query.self, Graph.self, Rename.self, LibraryCmd.self, FileCmd.self,
             Migrate.self, ExportTables.self, ImportWoS.self, BootstrapPeople.self,
-            ResolveDivergence.self,
+            ResolveDivergence.self, AuthorizeNames.self,
         ])
 }
 

@@ -50,6 +50,11 @@ public struct Organization: Equatable {
     /// 名稱變體與各自的效期（改名、多語言、縮寫）。時間軸而非單值，因為
     /// **改名之後舊記錄仍指向同一個 identity**——名稱是可變描述，不是身分。
     public var names: TimelineOf<String>
+    /// 對外可稱呼的名稱（#81）：從**當前有效**的名稱中指定，每個書寫系統至多一個。
+    ///
+    /// 與 `names` 的時間軸正交——改名記在時間軸上，「哪個名稱對外」記在這裡。空集合
+    /// 合法，意思是還沒指定，此時 `displayName` 退回當前有效名稱。
+    public var authorized: [String]
     /// 成立時間（ISO 8601 前綴，保留來源精度）。
     public var founded: String?
     /// 解散時間。`nil` ＝ 仍存續（**不是**未知）。
@@ -67,12 +72,14 @@ public struct Organization: Equatable {
     public var unknownFields: [UnknownField]
 
     public init(key: String, names: TimelineOf<String> = Timeline(),
+                authorized: [String] = [],
                 founded: String? = nil, dissolved: String? = nil,
                 parents: TimelineOf<OrgRef> = TimelineOf(),
                 note: String? = nil, id: UUID? = nil,
                 unknownFields: [UnknownField] = []) {
         self.key = key
         self.names = names
+        self.authorized = authorized
         self.founded = founded
         self.dissolved = dissolved
         self.parents = parents
@@ -81,6 +88,43 @@ public struct Organization: Equatable {
         self.unknownFields = unknownFields
     }
 
+    /// Schema 驗證（#81 起）。
+    ///
+    /// **`Validate` 子命令原本完全沒有走訪 organizations**——機構記錄從來沒有被驗證過。
+    /// 加 `authorized` 的同時補上這個缺口，並與 person 對齊（key 格式 + 未知欄位 +
+    /// 對外名字不變式），否則不變式只在型別層成立、使用層不成立。
+    public func validate() -> [ValidationIssue] {
+        var issues: [ValidationIssue] = []
+        if !StoreKey.isValid(key) {
+            issues.append(ValidationIssue(
+                severity: .error,
+                message: "organization key '\(displaySafe(key, max: 120))' 不符合 \(StoreKey.pattern)"))
+        }
+        issues += AuthorizedNames.validate(authorized: authorized,
+                                           names: names.entries.map(\.value), ownerKey: key)
+        for f in unknownFields {
+            issues.append(ValidationIssue(severity: .warning,
+                message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+        }
+        return issues
+    }
+
     /// 目前生效的顯示名稱（`end == nil` 的最新一段）；沒有時間軸資訊時回 key。
-    public var displayName: String { names.current?.value ?? key }
+    public var displayName: String { displayName(in: nil) }
+
+    /// 對外可稱呼的名稱（#81）。比 person 多一階：
+    ///
+    /// 1. `authorized` 中書寫系統相符者
+    /// 2. 任一 `authorized`
+    /// 3. **當前有效名稱**（`names.current`）
+    /// 4. `key`
+    ///
+    /// 第 3 階保留而 person 沒有，是因為它**不是位置式**——它是對名稱時間軸的查詢，
+    /// 有明確語意（「現在叫什麼」）。被廢除的是「陣列第 0 個」那種沒有語意的位置。
+    public func displayName(in script: WritingSystem?) -> String {
+        if let script, let hit = authorized.first(where: { WritingSystem.of($0) == script }) {
+            return hit
+        }
+        return authorized.first ?? names.current?.value ?? key
+    }
 }

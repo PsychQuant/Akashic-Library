@@ -221,7 +221,7 @@ public final class AkashicService {
                 : try engine.personPublications(key: key, library: library)
             let co = try engine.coAuthors(of: key, library: library)
             // resolved 合著者的 name 給人讀的名字（people.names 首項），key 另放 person_key
-            let nameByKey = Dictionary(uniqueKeysWithValues: load.people.map { ($0.key, $0.names.first ?? $0.key) })
+            let nameByKey = Dictionary(uniqueKeysWithValues: load.people.map { ($0.key, $0.displayName(in: .latn)) })
             var personDict: [String: Any] = ["key": key]
             if let record {
                 personDict["names"] = record.names

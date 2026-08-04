@@ -474,6 +474,15 @@ extension LibraryStore {
         check("openalex", mine: keeper.openalex, theirs: p.openalex)
         check("note", mine: keeper.note, theirs: p.note)
 
+        // #81：對外可稱呼的名字是**集合**不是純量——被併者指定過而倖存者沒指定的名字
+        // 會消失。`names` 本身由既有的合併流程處理（別名聯集），但「哪個名字對外」是
+        // 一個判斷，不能靠聯集救回來：兩邊各指定一個同書寫系統的名字時，聯集會違反
+        // 「每個書寫系統至多一個」的不變式，所以必須讓人看見並選一個。
+        let lostAuthorized = p.authorized.filter { !keeper.authorized.contains($0) }
+        if !lostAuthorized.isEmpty {
+            losses.append("authorized: " + lostAuthorized.joined(separator: "、"))
+        }
+
         // profile 同樣是**子集**而非相等。相等只放行「全空」與「完全相同」，於是
         // 「兩個聚合器各給一份隸屬時間軸、其一是另一的子集」這種常見情況被誤拒，
         // 而訊息叫人「搬到倖存者身上」時倖存者已經有了（#71 R3 DA 的 P1）。
@@ -517,7 +526,7 @@ extension LibraryStore {
     }
 
     /// 本函式涵蓋的 `Person` 儲存屬性數。`PersonFieldCoverageTests` 拿它與反射比對。
-    static let personFieldsCoveredByMergeCheck = 8
+    static let personFieldsCoveredByMergeCheck = 9
 
     // MARK: - 小工具
 

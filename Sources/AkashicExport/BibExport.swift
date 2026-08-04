@@ -36,7 +36,10 @@ public enum BibExport {
     static func bibName(for author: AkashicCore.Author, people: [String: Person]) -> String {
         let display: String
         switch author {
-        case .key(let k): display = people[k]?.names.first ?? k
+        // #81：對外名字由 `authorized` 指定，不由 `names` 的位置決定。書目是**羅馬化
+        // 脈絡**，所以請求 latn；沒有指定時解析退到 key，讓缺口在書目上看得見而不是
+        // 靜默印出索引系統產生的引用形（實測 84.6% 的記錄目前會走到這一步）。
+        case .key(let k): display = people[k]?.displayName(in: .latn) ?? k
         case .literal(let s): display = s
         }
         // #6：機構名（`{...}` 標記）原樣輸出——biblatex 的大括號本來就是「別動它」，

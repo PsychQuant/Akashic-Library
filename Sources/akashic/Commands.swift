@@ -51,6 +51,18 @@ struct Doctor: ParsableCommand {
             entry.authors.compactMap { if case .literal(let s) = $0 { return s } else { return nil } }
         }
         print("unresolved author literals: \(unresolved.count)")
+        // #81：沒有指定對外名字的記錄。**報告不是錯誤**——修復需要的資訊無法自動取得，
+        // 設成 validate 錯誤等於把不可自動化的工作變成載入的前置條件。
+        let nameGaps = load.recordsWithoutAuthorizedName()
+        print("no authorized name: \(nameGaps.people.count) person / \(nameGaps.organizations.count) organization"
+              + (nameGaps.people.isEmpty ? "" :
+                 "（前 10：" + nameGaps.people.prefix(10)
+                    .map { displaySafe($0, max: 120) }.joined(separator: ", ") + "）"))
+        // #81/#82：指定了、但指定的就是引用形——缺的不是指定，是名字本身。migration 把
+        // 唯一候選直接採用之後，這才是真正的缺口訊號（未指定者會掉到接近 0）。
+        let citationOnly = load.recordsAuthorizedOnlyByCitationForm()
+        print("authorized only by citation form: \(citationOnly.count) person"
+              + (citationOnly.isEmpty ? "" : "（無真正的名字，只有索引系統的變換）"))
         if !load.quarantined.isEmpty {
             print("quarantined: \(load.quarantined.count)")
             load.quarantineLines.forEach { print($0) }
@@ -98,6 +110,16 @@ struct Validate: ParsableCommand {
             for issue in library.validate() {
                 let mark = issue.severity == .error ? "✗" : "⚠"
                 print("\(mark) \(displaySafe(library.key, max: 200)): \(issue.message)")
+                if issue.severity == .error { failed = true }
+            }
+        }
+        // #81：機構記錄在此之前**從未被驗證過**——`Organization.validate()` 不存在，這個
+        // 迴圈也不存在。對外名字的不變式若只加在型別上，使用層不會生效。
+        // `AuthorizedNameTests` 有機械守衛掃這一段，刪掉會紅。
+        for organization in load.organizations {
+            for issue in organization.validate() {
+                let mark = issue.severity == .error ? "✗" : "⚠"
+                print("\(mark) \(displaySafe(organization.key, max: 200)): \(issue.message)")
                 if issue.severity == .error { failed = true }
             }
         }
@@ -510,5 +532,42 @@ struct Rename: ParsableCommand {
         if !report.divergenceCandidatesRewritten.isEmpty {
             print("歧異候選已遷移：\(report.divergenceCandidatesRewritten.joined(separator: ", "))")
         }
+    }
+}
+
+/// 為既有記錄補上對外可稱呼的名字（#81）。
+///
+/// **預設只報告不寫**——`authorized` 是指定不是推導，機械提名的結果要人看過才算數。
+struct AuthorizeNames: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "authorize-names",
+        abstract: "提名對外可稱呼的名字（#81）；預設 dry-run，--apply 才寫入")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Flag(name: .long, help: "實際寫入（預設只報告）")
+    var apply: Bool = false
+
+    func run() throws {
+        let store = try options.openStore()
+        let r = try AuthorizedNameMigration.run(store: store, apply: apply)
+        print("person 總數: \(r.total)")
+        print("  已指定（不動）: \(r.alreadyDesignated)")
+        print("  採用（該書寫系統唯一候選）: \(r.adopted)")
+        print("  提名（多候選中恰一個非引用形）: \(r.nominated)")
+        print("  留空（仍然歧義，需人工判斷）: \(r.undecided)")
+        // 上面三個是**逐書寫系統**的計數（雙語的人同時貢獻採用與提名），不能直接相加成
+        // 總人數。可相加的是下面這三個逐人計數。
+        let perPerson = r.peopleFullyDesignated + r.peopleUndecided
+                      + r.peopleWithoutNames + r.alreadyDesignated
+        print("逐人（互斥且窮盡）：全部指定完 \(r.peopleFullyDesignated) ＋ 仍有歧義 \(r.peopleUndecided)"
+              + " ＋ 無可用名字 \(r.peopleWithoutNames) ＋ 原本已指定 \(r.alreadyDesignated)"
+              + " = \(perPerson)\(perPerson == r.total ? "" : "（≠ \(r.total)，分類有漏）")")
+        if !r.undecidedKeys.isEmpty {
+            print("  歧異記錄: " + r.undecidedKeys.prefix(20)
+                .map { displaySafe($0, max: 120) }.joined(separator: ", ")
+                + (r.undecidedKeys.count > 20 ? " …（共 \(r.undecidedKeys.count) 筆）" : ""))
+        }
+        print(apply ? "✓ 已寫入" : "未寫入。確認上面的計畫後加 --apply 執行。")
     }
 }

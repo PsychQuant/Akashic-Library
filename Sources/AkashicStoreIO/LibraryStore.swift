@@ -689,6 +689,32 @@ public extension LibraryLoad {
     ///
     /// **檔名 ↔ citekey 一致性不在這裡**——`load()` 已經在讀取時 quarantine 不符的檔，
     /// 走到這裡的記錄都已對齊。
+    /// 沒有指定對外名字的記錄（#81）。
+    ///
+    /// **這是報告，不是錯誤。** 實測 868 位 person 中 734 位（84.6%）目前只有索引系統
+    /// 產生的引用形，沒有可稱呼的名字。設成 validate 錯誤會讓 store 當場無法通過驗證，
+    /// 而修復需要的資訊（正確的對外名字）**無法自動取得**——那等於把一件不可自動化的
+    /// 工作變成載入的前置條件。
+    ///
+    /// 回傳的 key 依字典序排序，讓報告在不同機器上一致。
+    public func recordsWithoutAuthorizedName() -> (people: [String], organizations: [String]) {
+        (people: people.filter { $0.authorized.isEmpty }.map(\.key).sorted(),
+         organizations: organizations.filter { $0.authorized.isEmpty }.map(\.key).sorted())
+    }
+
+    /// 指定的對外名字**本身就是索引系統產生的引用形**的記錄（#81 / #82）。
+    ///
+    /// migration 對「某書寫系統只有一個候選」的人直接採用那個候選——即使它是引用形，
+    /// 因為那是我們手上唯一的名字，印它仍比印 kebab key 好。但那讓「這個人其實沒有
+    /// 真正的名字」這個訊號**從缺口報告裡消失**（實測 migration 後未指定者由 734 掉到 1）。
+    ///
+    /// 這條把訊號找回來：缺的不是指定，是**名字本身**。
+    public func recordsAuthorizedOnlyByCitationForm() -> [String] {
+        people.filter { p in
+            !p.authorized.isEmpty && p.authorized.allSatisfy { NameForm.isCitationForm($0) }
+        }.map(\.key).sorted()
+    }
+
     func crossRecordIssues() -> [ValidationIssue] {
         var out: [ValidationIssue] = []
 

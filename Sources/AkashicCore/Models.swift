@@ -182,7 +182,14 @@ public struct Person: Equatable {
     /// primary key 與 entry 的作者引用不會漂。
     public var id: UUID
     public var key: String
+    /// 這個人的名字變體。**順序不帶語意**（#81）——「哪個名字對外」由 `authorized`
+    /// 指定，不由陣列位置決定。
     public var names: [String]
+    /// 對外可稱呼的名字（#81）：`names` 的子集，每個書寫系統至多一個。
+    ///
+    /// 空集合是合法的，意思是「還沒指定該怎麼稱呼他」——那時 `displayName` 退到 `key`，
+    /// 讓缺口在輸出上看得見，而不是靜默印出索引系統產生的引用形。
+    public var authorized: [String]
     public var orcid: String?
     public var openalex: String?
     public var note: String?
@@ -192,7 +199,8 @@ public struct Person: Equatable {
     public var unknownFields: [UnknownField]
 
     /// `id` 省略時由 `key` 推出（確定性）——呼叫端不必為既有流程補一個 UUID。
-    public init(key: String, names: [String] = [], orcid: String? = nil,
+    public init(key: String, names: [String] = [], authorized: [String] = [],
+                orcid: String? = nil,
                 openalex: String? = nil, note: String? = nil,
                 id: UUID? = nil,
                 profile: PersonProfile = PersonProfile(),
@@ -201,6 +209,7 @@ public struct Person: Equatable {
         self.id = id ?? DeterministicUUID.forPerson(key: key)
         self.key = key
         self.names = names
+        self.authorized = authorized
         self.orcid = orcid
         self.openalex = openalex
         self.note = note
@@ -345,6 +354,24 @@ extension Library {
 }
 
 extension Person {
+    /// 對外可稱呼的名字（#81）。
+    ///
+    /// 解析順序刻意**不含** `names` 的任一元素：
+    ///
+    /// 1. `authorized` 中書寫系統相符者
+    /// 2. 任一 `authorized`（不變式保證同書寫系統至多一個，所以「任一」不含歧義）
+    /// 3. `key`
+    ///
+    /// 第 3 步退到 `key`（`guan-yongtao`）而不是任一 name，是本 change 的核心判斷：
+    /// 沒有指定就是「不知道該怎麼稱呼他」，用醜的 key 讓缺口在輸出上**看得見**，比靜默
+    /// 印出索引系統的引用形誠實。實測 868 筆記錄中 734 筆（84.6%）目前會走到這一步。
+    public func displayName(in script: WritingSystem? = nil) -> String {
+        if let script, let hit = authorized.first(where: { WritingSystem.of($0) == script }) {
+            return hit
+        }
+        return authorized.first ?? key
+    }
+
     public func validate() -> [ValidationIssue] {
         var issues: [ValidationIssue] = []
         if !StoreKey.isValid(key) {
@@ -352,6 +379,9 @@ extension Person {
                 severity: .error,
                 message: "person key '\(displaySafe(key, max: 120))' 不符合 \(StoreKey.pattern)"))
         }
+        // #81：對外名字的兩條不變式（子集、每書寫系統至多一個）。與 organization 共用
+        // 同一份檢查——「哪個名字對外」是同一個問題，不該有兩套答案。
+        issues += AuthorizedNames.validate(authorized: authorized, names: names, ownerKey: key)
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
                 message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))

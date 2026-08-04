@@ -29,7 +29,7 @@ public enum CSLExport {
                     item["author"] = entry.authors.map { author -> [String: Any] in
                         let display: String
                         switch author {
-                        case .key(let k): display = peopleByKey[k]?.names.first ?? k
+                        case .key(let k): display = peopleByKey[k]?.displayName(in: .latn) ?? k
                         case .literal(let s): display = s
                         }
                         // #6：CSL 的 `literal` name variant 正好對應機構名——

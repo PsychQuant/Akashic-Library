@@ -31,7 +31,9 @@ final class ServiceTests: XCTestCase {
                        title: "Maximum likelihood estimation", authors: [.literal("Ulf Olsson")], date: "1979")
         e2.fields["journaltitle"] = "Psychometrika"
         try store.writeEntry(e2)
-        try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng", "鄭澈"]))
+        // #81：對外顯示名由 `authorized` 指定，`names` 的順序不再帶語意。
+        try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng", "鄭澈"],
+                                     authorized: ["Che Cheng", "鄭澈"]))
         service = AkashicService(root: root, environment: env)
     }
 
@@ -427,7 +429,8 @@ extension ServiceTests {
     func testPersonResolvedCoAuthorNameIsHumanReadable() throws {
         // 讓 cheng-che 與另一個 resolved person 合著
         let store = LibraryStore(root: root)
-        try store.writePerson(Person(key: "yang-hau-hung", names: ["Hau-Hung Yang"]))
+        try store.writePerson(Person(key: "yang-hau-hung", names: ["Hau-Hung Yang"],
+                                     authorized: ["Hau-Hung Yang"]))
         var e = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
         e.authors = [.key("cheng-che"), .key("yang-hau-hung")]
         try store.writeEntry(e)

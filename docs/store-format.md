@@ -132,14 +132,54 @@ key 成 dangling reference——不視為錯誤（同 relations 可指庫外的�
 
 ```yaml
 key: chen-chun-houh          # kebab-case 穩定字串
-names:                       # aliases；第一個是顯示名
+names:                       # 名字變體；**順序不帶語意**（#81）
   - Chun-Houh Chen
   - 陳君厚
-  - C.-H. Chen
+  - C.-H. Chen            # 索引系統產生的引用形也放這裡——它是配對鍵，不是名字
+authorized:                  # 對外可稱呼的名字：names 的子集，每書寫系統至多一個（#81）
+  - 陳君厚
+  - Chun-Houh Chen
 orcid: 0000-0002-…           # 可選
 openalex: A5017…             # 可選
 note: 中研院統計所            # 可選
 ```
+
+### 3.1 `authorized`：對外可稱呼的名字（normative，#81）
+
+`names` 的**順序不帶任何語意**。哪個名字對外由 `authorized` 指定——它是 `names` 的
+**子集**，不是另外引進的字串。
+
+**為什麼不是位置式**：本欄位之前，規格是「`names` 的第一個是顯示名」。那個約定沒有
+型別、沒有驗證，任何寫入者重排 `names` 就會無聲改掉一個人對外的名字。實測全 store
+868 位 person，`names` 第一個有 734 筆（84.6%）是索引系統產生的引用形（`Guan, Yongtao`
+這種 `姓, 名` 倒置），而該位置決定了 `.bib` 匯出印出的作者名。
+
+**兩條不變式（MUST）**：
+
+1. `authorized` 的每個元素 **MUST** 是 `names` 的成員。
+2. 每個書寫系統 **MUST** 至多一個 authorized。同書寫系統兩個是**未決的問題**，不是指定。
+
+**書寫系統是推導值，MUST NOT 儲存。** 它只用來切分同一筆記錄的名字，所以 `han` /
+`latn` 的粗分割就夠——沒有人同時擁有中文名與日文名，`Jpan` 與 `Hant` 的區別在這個用途
+上不存在。存下來只會多一個可能與值不一致的欄位。
+
+**解析順序（normative）**：
+
+```
+displayName(script) =
+  1. authorized 中書寫系統相符者
+  2. 任一 authorized
+  3. key                      ← MUST NOT fallback 回 names 的任一元素
+```
+
+第 3 步退到 `key` 而非任一 name：沒有指定就是「不知道該怎麼稱呼他」，用醜的 key 讓缺口
+**看得見**，比靜默印出引用形誠實。`organization` 在第 3 步之前多一階「當前有效名稱」
+（`names.current`）——那是對名稱時間軸的**查詢**，不是讀取順序，故保留。
+
+**`authorized` 為選填。** 缺席合法，由 `doctor` 報告而非 `validate` 拒絕：修復所需的
+資訊（正確的對外名字）無法自動取得，設成錯誤等於把不可自動化的工作變成載入的前置條件。
+
+## 3.2 解析紀律
 
 解析紀律：**絕不自動合併**。`akashic resolve-people` 只列 alias 完全命中的
 高信心候選（同 alias 對到 2+ 人＝歧義、不出候選），`--apply` 是顯式第二步。
@@ -228,9 +268,17 @@ index 一起被清掉。
 - `ensureLayout()` **MUST NOT** 覆寫既有的 `store.yaml`（那可能是較新版本寫的，覆寫等於在
   使用者跑一個看似無害的 `doctor` 時把防線自毀）。
 
-**版本對照**：`format: 1` ＝ v1.x 家族（`entries/<citekey>.yaml` + `people/<person-key>.yaml`；
-tolerant-preserve 於 v1.3 落地，屬 additive 故不 bump）。`format: 2` ＝ `entities/<uuid>.yaml`
-（#35，見 §5.-1）——**結構重排**，是 refuse-if-newer 存在的直接理由。
+**版本對照**（source of truth 是 `StoreVersion.supported` 的文件註解；下表為對照）：
+
+| format | 變更 | 為何 non-additive |
+|---|---|---|
+| 1 | v1.x 家族（`entries/<citekey>.yaml` + `people/<person-key>.yaml`）| — |
+| 2 | `entities/<uuid>.yaml`（#35，見 §5.-1）| 結構重排；舊 binary 看到空的 `entries/` 而回報「0 entries」——一個**看起來成功的錯誤答案** |
+| 3 | 記錄形狀改由**裸標籤**標示，不再由 `type:` 的值標示 | 舊 binary 看不到 `type: person`，走全稱後備判成 work、decode 失敗 |
+| 4 | 新增 organization 形狀；person 的隸屬值由字串升成**指涉或字面** | 舊 binary 不認得 `organization:` 標籤，也讀不懂 `{key: …}` 形式的隸屬值 |
+| 5 | 廢除「`names` 第一個是顯示名」，改由 `authorized` 指定（#81，見 §3.1）| **欄位語意變更**。`authorized` 對舊 binary 是未知欄位、會被保留，但保留不等於遵守——舊 binary 仍會把 `names[0]` 當顯示名，並在一次 read-modify-write 裡重排 `names` 而不自知 |
+
+3 與 4 曾經發生而未回寫本表；#81 一併補齊。
 
 ### v1.3：tolerant-preserve（開放演化層）
 

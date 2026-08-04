@@ -1040,6 +1040,11 @@ public enum PersonYAML {
         if !person.names.isEmpty {
             pairs.append((Node("names"), Node(person.names.map { Node($0) })))
         }
+        // #81：對外可稱呼的名字。空的不序列化——既有記錄多數尚未指定，寫出空序列只是
+        // 讓每個檔多一行雜訊。緊接 names 之後是因為它是 names 的子集，讀的人要能對照。
+        if !person.authorized.isEmpty {
+            pairs.append((Node("authorized"), Node(person.authorized.map { Node($0) })))
+        }
         if let orcid = person.orcid { pairs.append((Node("orcid"), Node(orcid))) }
         if let openalex = person.openalex { pairs.append((Node("openalex"), Node(openalex))) }
         if let note = person.note { pairs.append((Node("note"), Node(note))) }
@@ -1061,6 +1066,7 @@ public enum PersonYAML {
             if a.id != b.id { bad.append("id") }
             if a.key != b.key { bad.append("key") }
             if a.names != b.names { bad.append("names") }
+            if a.authorized != b.authorized { bad.append("authorized") }
             if a.orcid != b.orcid { bad.append("orcid") }
             if a.openalex != b.openalex { bad.append("openalex") }
             if a.note != b.note { bad.append("note") }
@@ -1083,8 +1089,8 @@ public enum PersonYAML {
     /// `type: person` 被 tolerant-preserve 當成未知欄位保存下來、並在寫回時重新產生，
     /// 與「停止寫出形狀名」的目的相反。留在已知鍵內＝讀得到、忽略其值、不寫回。
     /// 形狀裸標籤同理必須列入。
-    static let knownPersonKeys: Set<String> = Set(["id", "type", "key", "names", "orcid",
-                                                   "openalex", "note", "profile"])
+    static let knownPersonKeys: Set<String> = Set(["id", "type", "key", "names", "authorized",
+                                                   "orcid", "openalex", "note", "profile"])
         .union(EntityKind.knownLabels)
 
     public static func decode(_ yaml: String) throws -> Person {
@@ -1130,6 +1136,13 @@ public enum PersonYAML {
         if let seq = try EntryYAML.requireShape(map["names"], field: "person.names",
                                                 expect: "sequence", nullIsAbsent: true, { $0.sequence }) {
             person.names = try EntryYAML.stringList(seq, context: "person.names")
+        }
+        // #81：對外可稱呼的名字。**形狀不符 fail-closed**（與 names 同）——`authorized:`
+        // 若被寫成 mapping（例如誤以為要以書寫系統為鍵），靜默剝除會讓一次舊 binary 的
+        // read-modify-write 把整段指定吃掉。
+        if let seq = try EntryYAML.requireShape(map["authorized"], field: "person.authorized",
+                                                expect: "sequence", nullIsAbsent: true, { $0.sequence }) {
+            person.authorized = try EntryYAML.stringList(seq, context: "person.authorized")
         }
         // #20：profile。**形狀不符 fail-closed**（與 names 同——known 欄位的形狀演化
         // 不入 tolerant 範圍，見 §5）。
@@ -1457,7 +1470,8 @@ extension PersonYAML {
 /// 機構的編解碼。沿用 person 的慣例：形狀裸標籤在最前、未知欄位 tolerant-preserve、
 /// encode 後自檢（canary）。
 public enum OrganizationYAML {
-    static let knownKeys: Set<String> = Set(["id", "key", "names", "founded", "dissolved",
+    static let knownKeys: Set<String> = Set(["id", "key", "names", "authorized",
+                                             "founded", "dissolved",
                                              "parents", "note"])
         .union(EntityKind.knownLabels)
 
@@ -1467,6 +1481,10 @@ public enum OrganizationYAML {
                                      (Node("key"), Node(org.key))]
         if !org.names.isEmpty {
             pairs.append((Node("names"), PersonYAML.timelineNode(org.names)))
+        }
+        // #81：緊接 names 之後，讀的人要能對照「指定的是時間軸上的哪幾個」。
+        if !org.authorized.isEmpty {
+            pairs.append((Node("authorized"), Node(org.authorized.map { Node($0) })))
         }
         if let f = org.founded { pairs.append((Node("founded"), Node(f))) }
         if let d = org.dissolved { pairs.append((Node("dissolved"), Node(d))) }
@@ -1514,6 +1532,12 @@ public enum OrganizationYAML {
         org.unknownFields = unknowns
         if let n = map["names"] {
             org.names = try PersonYAML.decodeTimeline(n, context: "organization.names")
+        }
+        // #81：形狀不符 fail-closed（與 person.authorized 同紀律）。
+        if let seq = try EntryYAML.requireShape(map["authorized"], field: "organization.authorized",
+                                                expect: "sequence", nullIsAbsent: true,
+                                                { $0.sequence }) {
+            org.authorized = try EntryYAML.stringList(seq, context: "organization.authorized")
         }
         org.founded = try EntryYAML.requireShape(map["founded"], field: "organization.founded",
                                                  expect: "scalar", nullIsAbsent: true,

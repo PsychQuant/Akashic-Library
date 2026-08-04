@@ -34,7 +34,12 @@ public enum StoreVersion {
     /// - **4** ＝ 新增 organization 形狀，且 person 的隸屬值由字串升成**指涉或字面**。
     ///   兩者都是 non-additive：舊 binary 讀到 `organization:` 標籤會判定「不認得的形狀」，
     ///   讀到 `{key: …}` 形式的隸屬值會 decode 失敗。
-    public static let supported = 4
+    /// - **5** ＝ 廢除「`names` 的第一個是顯示名」（#81）。對外可稱呼的名字改由顯式的
+    ///   `authorized` 欄位指定（`names` 的子集，每個書寫系統至多一個）。這是**欄位語意
+    ///   變更**：`authorized` 本身對舊 binary 是未知欄位、會被 tolerant-preserve 保留，
+    ///   但保留不等於遵守——舊 binary 仍會把 `names[0]` 當顯示名，並在一次
+    ///   read-modify-write 裡重排 `names` 而不自知。bump 是唯一能擋住那條路的機制。
+    public static let supported = 5
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，

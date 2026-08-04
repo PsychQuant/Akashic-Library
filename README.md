@@ -19,7 +19,8 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
 ├── Sources/AkashicGraph         關係圖模型、鄰域展開、Mermaid/DOT/GraphML
 └── Sources/akashic              CLI：import-zotero / validate / export-bib /
                                  resolve-people / doctor / query / graph /
-                                 rename / resolve-divergence / authorize-names
+                                 rename / record-divergence / resolve-divergence /
+                                 authorize-names
 mcps/                            MCP server submodules（che-zotero-mcp、che-biblatex-mcp）
 repos/                           共用 library submodules（biblatex-apa-swift = canonical）
 docs/                            spec 與 store 格式規格書
@@ -76,7 +77,7 @@ store 是跨 binary（CLI / MCP / App）的契約。格式版本記載於
 | v1.1 | provenance hash 欄位 |
 | v1.2 | `akashic.libraries` + `libraries/` registry（#13）；未知欄位 **strict → throw** |
 | v1.3 | tolerant-preserve（#23）：**開放演化層**（entry / person / library 頂層、`akashic` namespace）的未知欄位改為容忍 + 原樣保留寫回，取代 v1.2 的 throw |
-| — | `divergence:` 形狀（#71）：未決的同一性問題成為可記錄的一級事物，消歧是「合併 + 全庫參照重寫 + 刪檔」的原子操作（`akashic resolve-divergence`）。**additive，不 bump format**——見 [store-format.md §5.8](docs/store-format.md) 與 #74 對相容性決定的討論 |
+| — | `divergence:` 形狀（#71）：未決的同一性問題成為可記錄的一級事物，記錄與消歧是**兩個**動作：`akashic record-divergence` 記下未決的問題（id 由候選鍵的集合推出，同一組候選＝同一筆記錄；有判斷就必須有依據），`akashic resolve-divergence` 才是「合併 + 全庫參照重寫 + 刪檔」的原子操作。**記下判斷不等於做掉它**（#77 補上建立入口前，後者有 CLI 而前者沒有——於是「先記下來、之後再判斷」在使用層不成立）。**additive，不 bump format**——見 [store-format.md §5.8](docs/store-format.md) 與 #74 對相容性決定的討論 |
 | format 5 | **對外可稱呼的名字由 `authorized` 指定**（#81）：`names` 的順序不再帶語意，`authorized` 是它的子集、每個書寫系統至多一個。書寫系統為**推導值不儲存**。**non-additive，MUST bump**——舊 binary 會繼續把 `names[0]` 當顯示名（按舊語意解讀新格式）。既有記錄用 `akashic authorize-names`（預設 dry-run，`--apply` 才寫）補；見 [store-format.md §3.1](docs/store-format.md) |
 
 **v1.3 的三個限定，比表格本身重要**：

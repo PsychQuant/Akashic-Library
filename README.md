@@ -19,7 +19,7 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
 ├── Sources/AkashicGraph         關係圖模型、鄰域展開、Mermaid/DOT/GraphML
 └── Sources/akashic              CLI：import-zotero / validate / export-bib /
                                  resolve-people / doctor / query / graph /
-                                 rename / resolve-divergence
+                                 rename / resolve-divergence / authorize-names
 mcps/                            MCP server submodules（che-zotero-mcp、che-biblatex-mcp）
 repos/                           共用 library submodules（biblatex-apa-swift = canonical）
 docs/                            spec 與 store 格式規格書
@@ -66,8 +66,10 @@ Dropbox / git 的東西——在同步樹裡放 live SQLite 是已知的毀檔�
 ### Store 格式版本
 
 store 是跨 binary（CLI / MCP / App）的契約。格式版本記載於
-[docs/store-format.md](docs/store-format.md) §5——**store 檔案本身尚未自我聲明版本**
-（version marker 與 refuse-if-newer 防線見 #24）。下表只記各版本的要點：
+[docs/store-format.md](docs/store-format.md) §5，並由 store root 的 `store.yaml`
+（單一整數 `format:`）自我聲明——binary 讀到高於自己支援上限的版本會在**逐檔 decode
+之前整體拒絕**（refuse-if-newer，#24）。CLI / MCP / App 是各自獨立的 binary，只升級
+其中一個仍會撞到同一道防線。下表只記各版本的要點：
 
 | 版本 | 要點 |
 |------|------|
@@ -75,6 +77,7 @@ store 是跨 binary（CLI / MCP / App）的契約。格式版本記載於
 | v1.2 | `akashic.libraries` + `libraries/` registry（#13）；未知欄位 **strict → throw** |
 | v1.3 | tolerant-preserve（#23）：**開放演化層**（entry / person / library 頂層、`akashic` namespace）的未知欄位改為容忍 + 原樣保留寫回，取代 v1.2 的 throw |
 | — | `divergence:` 形狀（#71）：未決的同一性問題成為可記錄的一級事物，消歧是「合併 + 全庫參照重寫 + 刪檔」的原子操作（`akashic resolve-divergence`）。**additive，不 bump format**——見 [store-format.md §5.8](docs/store-format.md) 與 #74 對相容性決定的討論 |
+| format 5 | **對外可稱呼的名字由 `authorized` 指定**（#81）：`names` 的順序不再帶語意，`authorized` 是它的子集、每個書寫系統至多一個。書寫系統為**推導值不儲存**。**non-additive，MUST bump**——舊 binary 會繼續把 `names[0]` 當顯示名（按舊語意解讀新格式）。既有記錄用 `akashic authorize-names`（預設 dry-run，`--apply` 才寫）補；見 [store-format.md §3.1](docs/store-format.md) |
 
 **v1.3 的三個限定，比表格本身重要**：
 

@@ -299,6 +299,16 @@ public final class LibraryStore {
                             reason: "檔名 UUID 與 divergence.id「\(d.id.uuidString)」不符"))
                         continue
                     }
+                    // 候選鍵的 load-time 驗證，與其他三個形狀一致。**沒有這道，寫入端的
+                    // 守衛會在最壞的位置開火**：一筆手寫的畸形記錄照樣進 store，於是
+                    // 每次消歧都在改寫階段才因為它而失敗，而那時倖存者的別名已經寫進
+                    // 磁碟了——一筆無關的壞記錄把合法的消歧永久鎖死（#71 R2 DA PROBE 12）。
+                    if let bad = d.candidates.first(where: { !StoreKey.isValid($0.key) }) {
+                        result.quarantined.append(QuarantinedFile(
+                            file: name,
+                            reason: "候選 key「\(bad.key)」不符合 \(StoreKey.pattern)"))
+                        continue
+                    }
                     if !d.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
                     result.divergences.append(d)
                 case .work:
@@ -477,10 +487,17 @@ public final class LibraryStore {
 
 public struct RenameReport: Equatable {
     /// relations 有引用被改寫的 citekeys。
+    ///
+    /// **只有 citekey。** 歧異候選的遷移另計於 `divergenceCandidatesRewritten`——
+    /// 把 UUID 混進來會讓庫外呼叫端拿它當 citekey 去查 entry 而查不到（#71 R2 DA）。
     public var relationsRewritten: [String]
+    /// 候選有跟著改名的歧異記錄 id（#71）。
+    public var divergenceCandidatesRewritten: [String]
 
-    public init(relationsRewritten: [String] = []) {
+    public init(relationsRewritten: [String] = [],
+                divergenceCandidatesRewritten: [String] = []) {
         self.relationsRewritten = relationsRewritten
+        self.divergenceCandidatesRewritten = divergenceCandidatesRewritten
     }
 }
 
@@ -606,7 +623,10 @@ extension LibraryStore {
                 throw StoreIOError.inconsistentStore(
                     action: "rename",
                     issues: ["歧異記錄 \(d.id.uuidString) 的候選會因這次改名塌縮成一個"
-                           + "——請先跑 resolve-divergence 消歧，rename 沒有合併語意"])
+                           + "——rename 沒有合併語意，不會替你刪記錄。能走到這裡代表新 citekey"
+                           + "是該記錄的一個懸空候選（它指向的記錄不存在），所以消歧也做不到。"
+                           + "請直接編輯 entities/\(d.id.uuidString).yaml：刪掉那個懸空候選，"
+                           + "或整筆刪掉這則歧異記錄，再重跑 rename"])
             }
             d.candidates = migrated
             divergencesToRewrite.append(d)
@@ -614,7 +634,13 @@ extension LibraryStore {
 
         _ = try EntryYAML.encode(entry)
         for other in toRewrite { _ = try EntryYAML.encode(other) }
-        for d in divergencesToRewrite { _ = try DivergenceYAML.encode(d) }
+        // **完整鏡射寫入端的前置條件**，不只 encode。只鏡射一半就是 R2 DA 實測到的
+        // 撕裂：entry 全部寫完之後才在 writeDivergence 擲錯，磁碟上 rename 已完成、
+        // 呼叫端卻收到錯誤、索引永遠不重建。
+        for d in divergencesToRewrite {
+            try assertDivergenceWritable(d)
+            _ = try DivergenceYAML.encode(d)
+        }
         // 3. 寫記錄本身。
         //
         // **#35：format 2 下 rename 不搬檔案。** 檔名是 UUID，而 rename 不改 UUID——
@@ -629,19 +655,21 @@ extension LibraryStore {
             try writeEntryExclusive(entry)
         }
         var rewritten: [String] = []
+        var divergenceIDs: [String] = []
         for other in toRewrite {
             try writeEntry(other)
             rewritten.append(other.citekey)
         }
         for d in divergencesToRewrite {
             try writeDivergence(d)
-            rewritten.append(d.id.uuidString)
+            divergenceIDs.append(d.id.uuidString)
         }
         // 4. 刪舊檔（僅 legacy 佈局——format 2 沒有舊檔，見上）
         if !usesEntitiesLayout {
             try FileManager.default.removeItem(at: entryURL(citekey: oldKey))
         }
-        return RenameReport(relationsRewritten: rewritten.sorted())
+        return RenameReport(relationsRewritten: rewritten.sorted(),
+                            divergenceCandidatesRewritten: divergenceIDs.sorted())
     }
 
     private func store_loadForRename() throws -> LibraryLoad {

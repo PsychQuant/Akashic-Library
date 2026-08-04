@@ -503,7 +503,7 @@ rests-on:
 3. `judgement` 與 `rests-on` **MUST** 成對出現。形狀與判斷型 provenance reference 相同，
    但 **MUST NOT** 含 `field:`——判斷關乎哪個候選才對，不是宿主記錄的哪個欄位。
 4. 記錄 **MUST NOT** 帶「已解決」狀態。消歧完成時整筆刪除，歷史託給版本控制而非 store。
-5. `divergence` **MUST** 只存在於 `entities/` 佈局（format ≥ 4）。legacy 下 person 落在
+5. `divergence` **MUST** 只存在於 `entities/` 佈局（format ≥ 2）。legacy 下 person 落在
    `people/<key>.yaml` 而刪除只認 `entities/<uuid>.yaml`——寫得進去、刪不掉。
 
 6. 候選鍵 **MUST** 在寫入時通過 `StoreKey` 驗證，與其他每一條寫入路徑一致。理由不是

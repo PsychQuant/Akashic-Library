@@ -360,8 +360,12 @@ final class DivergenceHardeningTests: XCTestCase {
         try store.writeDivergence(d)
         XCTAssertThrowsError(try store.renameEntry(from: "chu2024pseudo", to: "chu2025pseudo")) { e in
             let msg = (e as? LocalizedError)?.errorDescription ?? "\(e)"
-            XCTAssertTrue(msg.contains("塌縮") || msg.contains("resolve-divergence"),
-                          "錯誤須說明先消歧：\(msg)")
+            // 指示必須**可執行**。原本寫「先跑 resolve-divergence」，但能走到這裡
+            // 代表新 citekey 是懸空候選，消歧對它只會擲 candidateMissing——那是一條
+            // 做不到的指示，而測試把它固定成了契約（#71 R2 DA 未修好 6）。
+            XCTAssertTrue(msg.contains("entities/"), "錯誤須給出可執行的操作：\(msg)")
+            XCTAssertFalse(msg.contains("先跑 resolve-divergence"),
+                           "不得指向一條做不到的操作：\(msg)")
         }
     }
 
@@ -408,5 +412,84 @@ final class DivergenceHardeningTests: XCTestCase {
         XCTAssertNotNil(hit, "懸空候選必須被指名：\(issues.map(\.message))")
         XCTAssertEqual(hit?.severity, .warning,
                        "懸空參照在本 store 是 warning 而非 error——error 會鎖住整個寫入面")
+    }
+
+    // MARK: - R3：DA 抓到的、R2 修復自己引入的缺陷
+
+    /// **倖存者比被併者豐富**時照樣合併——這是消歧的常態，不是例外。
+    ///
+    /// R2 的修復用整體相等（「要嘛與倖存者相同、要嘛全預設」）當判定，於是使用者
+    /// 把資料較完整的那筆選為倖存者就被擋死，儘管沒有任何東西會消失。子集關係
+    /// 無法用相等表達（#71 R2 DA 未修好 1，附實測）。
+    func testMergeProceedsWhenSurvivorIsRicher() throws {
+        var keeper = Person(key: "fann-cathy-s-j")
+        keeper.names = ["Fann, Cathy S-J"]
+        keeper.orcid = "0000-0002-1825-0097"
+        keeper.note = "中研院統計所"
+        var doomed = Person(key: "fann-cathy-s-j-2")
+        doomed.names = ["Fann, Cathy S. J."]
+        doomed.orcid = "0000-0002-1825-0097"   // 同值，不會失去
+        try store.writePerson(keeper); try store.writePerson(doomed)
+        let d = Divergence(id: UUID(), question: "同一人？",
+                           candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),
+                                        DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
+        try store.writeDivergence(d)
+
+        let report = try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")
+        XCTAssertFalse(report.hasFailures, "\(report.failures)")
+        let p = try XCTUnwrap(try store.load().people.first)
+        XCTAssertEqual(p.note, "中研院統計所", "倖存者自己的資料不得被合併影響")
+    }
+
+    /// `Person` 加欄位而合併檢查沒跟上時，這條會紅。
+    ///
+    /// 逐欄是必要的（子集關係無法用相等表達），所以防腐不能靠結構比較——靠反射
+    /// 數屬性。這是「白名單會靜默失效」的機械解答。
+    func testPersonFieldCoverageOfMergeCheck() throws {
+        let n = Mirror(reflecting: Person(key: "x")).children.count
+        XCTAssertEqual(n, LibraryStore.personFieldsCoveredByMergeCheck,
+                       "Person 的儲存屬性數變了（\(n)），"
+                       + "請同步更新 LibraryStore.fieldsLostByMerging 與這個常數"
+                       + "——否則新欄位會在合併時靜默消失")
+    }
+
+    /// 畸形候選鍵的記錄在**載入時**就被 quarantine，不會留在 store 裡擋別人。
+    ///
+    /// 只有 write-time 守衛而沒有 load-time quarantine，會讓一筆手寫的壞記錄在改寫
+    /// 階段才引爆——而那時倖存者的別名已經落地（#71 R2 DA PROBE 12）。
+    func testMalformedCandidateKeyQuarantinedAtLoad() throws {
+        let id = UUID()
+        try """
+        divergence:
+        id: \(id.uuidString)
+        question: Q
+        candidates:
+        - key: Bad_Key
+          shape: person
+        - key: ok-key
+          shape: person
+
+        """.write(to: store.entityURL(id: id), atomically: true, encoding: .utf8)
+        let load = try store.load()
+        XCTAssertTrue(load.divergences.isEmpty, "畸形候選鍵的記錄不該進 divergences")
+        XCTAssertTrue(load.quarantined.contains { $0.reason.contains("Bad_Key") },
+                      "\(load.quarantined)")
+    }
+
+    /// keeper 自己既存的重複／自我參照不得被順手折掉。
+    func testKeeperOwnRelationsUntouchedWhenNoHit() throws {
+        var keeper = Entry(id: UUID(), citekey: "shen2015model", type: "article", title: "M")
+        keeper.akashic.relations.cites = ["z2019q", "z2019q", "a2020x"]
+        let dup = Entry(id: UUID(), citekey: "shen2015model-dup", type: "article", title: "D")
+        try store.writeEntry(keeper); try store.writeEntry(dup)
+        let d = Divergence(id: UUID(), question: "同一篇？",
+                           candidates: [DivergenceCandidate(key: "shen2015model", shape: .work),
+                                        DivergenceCandidate(key: "shen2015model-dup", shape: .work)])
+        try store.writeDivergence(d)
+
+        _ = try store.resolveDivergence(id: d.id, survivor: "shen2015model")
+        let e = try XCTUnwrap(try store.load().entries.first { $0.citekey == "shen2015model" })
+        XCTAssertEqual(e.akashic.relations.cites, ["z2019q", "z2019q", "a2020x"],
+                       "沒命中被併鍵就不該改動 keeper 自己的參照：\(e.akashic.relations.cites)")
     }
 }

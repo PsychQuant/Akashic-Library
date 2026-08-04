@@ -26,18 +26,18 @@ struct ResolveDivergence: ParsableCommand {
         let store = try options.openStore()
         let report = try store.resolveDivergence(id: uuid, survivor: survivor)
 
-        // **報告先印，索引後建。** 消歧是破壞性操作；rebuild 擲錯會把「哪些改了、
-        // 哪些沒改、什麼被刪了」整份吞掉，而那是使用者唯一能據以收拾的東西。
-        // rebuild 失敗只是索引過期（可重建），報告遺失才是不可回復的。
-        defer {
-            do {
-                _ = try LibraryIndex(store: store).rebuild()
-            } catch {
-                print("⚠ 索引重建失敗（資料已改，索引過期）："
-                    + displaySafe((error as? LocalizedError)?.errorDescription
-                                  ?? String(describing: error), max: 512))
-                print("  跑 akashic doctor 重建索引。")
-            }
+        // **報告先印，索引後建，退出碼最後決定。** 消歧是破壞性操作；rebuild 擲錯會把
+        // 「哪些改了、什麼被刪了」整份吞掉，而那是使用者唯一能據以收拾的東西。
+        //
+        // **刻意不用 `defer`**：`defer` 拿得到「報告先印」，卻在結構上改不了退出碼——
+        // rebuild 失敗會變成 exit 0，而 `resolve-divergence … && <下一步>` 會照跑。
+        // 索引過期可重建，但**靜默宣告成功**不行。所以把結果收進變數，最後一起判。
+        var rebuildError: String?
+        do {
+            _ = try LibraryIndex(store: store).rebuild()
+        } catch {
+            rebuildError = displaySafe((error as? LocalizedError)?.errorDescription
+                                       ?? String(describing: error), max: 512)
         }
 
         if !report.merged.isEmpty {
@@ -50,10 +50,16 @@ struct ResolveDivergence: ParsableCommand {
         if !report.removedDivergences.isEmpty {
             print("已刪除歧異記錄：\(report.removedDivergences.joined(separator: ", "))")
         }
-        guard !report.hasFailures else {
-            for f in report.failures { print("✗ \(displaySafe(f, max: 512))") }
-            // 非零退出（design「失敗模式」最後一列）：沒有任何 run 該在
-            // 「一部分參照改了、一部分沒改、而且什麼都沒說」的狀態下宣告成功。
+        for f in report.failures { FileHandle.standardError.write(Data("✗ \(displaySafe(f, max: 512))\n".utf8)) }
+        if let rebuildError {
+            FileHandle.standardError.write(Data(
+                ("⚠ 索引重建失敗（資料已改，索引過期）：\(rebuildError)\n"
+                 + "  跑 akashic doctor 重建索引。\n").utf8))
+        }
+        // 非零退出（design「失敗模式」最後一列）：沒有任何 run 該在
+        // 「一部分參照改了、一部分沒改、而且什麼都沒說」的狀態下宣告成功。
+        // 索引重建失敗同樣算——那時查詢面與資料面已經不一致。
+        if report.hasFailures || rebuildError != nil {
             throw ExitCode.failure
         }
     }

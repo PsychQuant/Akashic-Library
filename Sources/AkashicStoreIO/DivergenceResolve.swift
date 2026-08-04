@@ -28,7 +28,7 @@ public enum DivergenceResolveError: Error, LocalizedError, Equatable {
         case let .unsupportedShape(shape):
             return "本版的消歧只處理 person 與 work，不處理 \(shape)"
         case let .legacyLayout(root):
-            return "store「\(displaySafe(root, max: 300))」是 legacy 佈局（format < 4），"
+            return "store「\(displaySafe(root, max: 300))」是 legacy 佈局（format < 2），"
                  + "歧異記錄需要 entities/ 佈局。legacy 下 person 落在 people/<key>.yaml、"
                  + "而歧異記錄的刪除只認 entities/<uuid>.yaml——寫得進去、刪不掉，"
                  + "必然停在「參照全改了、被併檔還在」的半完成狀態。先跑 akashic migrate。"
@@ -43,7 +43,8 @@ public enum DivergenceResolveError: Error, LocalizedError, Equatable {
                  + "藏在工具看不見處的永久懸空參照："
                  + files.prefix(3).map { displaySafe($0, max: 200) }.joined(separator: "、")
                  + (files.count > 3 ? "…" : "")
-                 + "。先跑 akashic doctor 看清楚並修好。"
+                 + "。跑 akashic doctor 看每個檔的原因，然後手動修好或移出 store 再試"
+                 + "（doctor 只診斷、不修）。"
         }
     }
 }
@@ -59,24 +60,33 @@ public struct ResolveReport: Equatable {
     public var removedDivergences: [String]
     /// 單筆寫入失敗的訊息。非空即代表結束時該以非零碼退出。
     public var failures: [String]
+    /// 倖存者是否已被改寫（別名合併已落地）。**失敗路徑也可能為 true**——它是
+    /// 既成事實而非成功訊號；不說出來，`merged` 為空會讀成「什麼都沒發生」。
+    public var survivorUpdated: Bool
 
     public var hasFailures: Bool { !failures.isEmpty }
 
     public init(rewritten: [String] = [], merged: [String] = [],
-                removedDivergences: [String] = [], failures: [String] = []) {
+                removedDivergences: [String] = [], failures: [String] = [],
+                survivorUpdated: Bool = false) {
         self.rewritten = rewritten
         self.merged = merged
         self.removedDivergences = removedDivergences
         self.failures = failures
+        self.survivorUpdated = survivorUpdated
     }
 }
 
 extension LibraryStore {
 
-    /// **要求 entities 佈局**（format ≥ 4）。legacy store 上寫得進去卻刪不掉——
-    /// 見 `DivergenceResolveError.legacyLayout` 的說明。拒絕比部分支援誠實。
-    @discardableResult
-    public func writeDivergence(_ d: Divergence) throws -> URL {
+    /// `writeDivergence` 的**全部**前置條件，抽出來讓預檢能完整鏡射。
+    ///
+    /// 存在的理由是一次實測的撕裂：`renameEntry` 的動磁碟前預檢只跑了
+    /// `DivergenceYAML.encode`，漏掉這裡的兩道守衛，於是 entry 全部寫完之後才在
+    /// `writeDivergence` 擲錯——磁碟上 rename 已完成、呼叫端收到錯誤、索引永遠不重建
+    /// （#71 R2 DA 的 PROBE 3）。**預檢與寫入分別維護各自的條件清單，就是憑記憶維護
+    /// 清單**；本 repo 對 `displaySafe` 已經明文拒絕過這種做法。
+    func assertDivergenceWritable(_ d: Divergence) throws {
         guard usesEntitiesLayout else {
             throw DivergenceResolveError.legacyLayout(root: root.path)
         }
@@ -87,6 +97,13 @@ extension LibraryStore {
         for c in d.candidates where !StoreKey.isValid(c.key) {
             throw StoreIOError.invalidKey("divergence candidate key", c.key)
         }
+    }
+
+    /// **要求 entities 佈局**。legacy store 上寫得進去卻刪不掉——見
+    /// `DivergenceResolveError.legacyLayout`。拒絕比部分支援誠實。
+    @discardableResult
+    public func writeDivergence(_ d: Divergence) throws -> URL {
+        try assertDivergenceWritable(d)
         let yaml = try DivergenceYAML.encode(d)
         let dest = entityURL(id: d.id)
         try FileManager.default.createDirectory(at: entitiesDir, withIntermediateDirectories: true)
@@ -179,38 +196,11 @@ extension LibraryStore {
         // 典型來源正是「兩個聚合器對同一位作者的比對結果不一致」——那種情況下兩筆
         // 各帶一半識別碼的機率很高。所以拒絕並指名將失去什麼，讓人先搬再消歧。
         for p in doomed {
-            // **守衛是機械的，訊息才是逐欄的。** 逐欄白名單會在 `Person` 加欄位時
-            // 靜默失效——那正是這條檢查要防的失敗重演一次。所以判定用結構比較：
-            // 把「身分與別名」以外的內容拿掉之後，被併者要嘛與倖存者相同、要嘛是
-            // 全預設值；兩者皆非就代表它帶著會隨檔案消失的東西。新欄位自動參與。
-            var theirs = p
-            theirs.names = []; theirs.key = survivor; theirs.id = keeper.id
-            var mine = keeper
-            mine.names = []
-            let bare = Person(key: survivor, names: [], id: keeper.id)
-            guard theirs != mine && theirs != bare else { continue }
-
-            // 逐欄描述只為了讓錯誤訊息可據以行動；描述不完整不影響上面的判定。
-            var losses: [String] = []
-            func describe(_ label: String, _ a: String?, _ b: String?) {
-                guard let b, !b.isEmpty, a != b else { return }
-                losses.append("\(label): \(b)")
+            let losses = Self.fieldsLostByMerging(p, into: keeper)
+            guard losses.isEmpty else {
+                throw DivergenceResolveError.wouldLoseFields(
+                    merged: p.key, survivor: survivor, losses: losses)
             }
-            describe("orcid", keeper.orcid, p.orcid)
-            describe("openalex", keeper.openalex, p.openalex)
-            describe("note", keeper.note, p.note)
-            if p.profile != PersonProfile(), p.profile != keeper.profile {
-                losses.append("profile（隸屬等時間軸）")
-            }
-            if !p.unknownFields.isEmpty {
-                losses.append("未知欄位 " + p.unknownFields.map(\.key).joined(separator: "、"))
-            }
-            if losses.isEmpty {
-                // 機械守衛看到差異、逐欄描述卻說不出是哪裡——如實說，不要假裝完整。
-                losses.append("（本 binary 的描述清單未涵蓋的欄位——請直接比對兩筆記錄的檔案）")
-            }
-            throw DivergenceResolveError.wouldLoseFields(
-                merged: p.key, survivor: survivor, losses: losses)
         }
         // 別名併入倖存者：被併者的寫法保留，否則下次遇到那個寫法又會重新分割一次。
         keeper.names = dedupePreservingOrder(keeper.names + doomed.flatMap(\.names))
@@ -269,10 +259,16 @@ extension LibraryStore {
         // 合併之後那筆就是 keeper 自己。`renameEntry` 做同樣的自我參照遷移是對的
         // （同一筆記錄換稱呼），但合併的語意不同——留著會產生引用自己的記錄，而
         // `crossRecordIssues()` 既不查自我引用也不查 relations 懸空，沒人會發現。
-        keeperRewritten.akashic.relations.cites =
-            migrate(keeper.akashic.relations.cites).filter { $0 != survivor }
-        keeperRewritten.akashic.relations.related =
-            migrate(keeper.akashic.relations.related).filter { $0 != survivor }
+        //
+        // **同樣只在真的命中時才動。** 這兩行原本無條件跑，於是 keeper 既存的重複
+        // 參照與既存的自我參照都被靜默折掉——而且因為 keeper 一定會被寫回，連
+        // `rewritten` 都不會提它，比誤報還糟（#71 R2 DA PROBE 8）。
+        func migrateOwn(_ keys: [String]) -> [String] {
+            guard keys.contains(where: { merged.contains($0) }) else { return keys }
+            return migrate(keys).filter { $0 != survivor }
+        }
+        keeperRewritten.akashic.relations.cites = migrateOwn(keeper.akashic.relations.cites)
+        keeperRewritten.akashic.relations.related = migrateOwn(keeper.akashic.relations.related)
         for var e in snapshot.entries where e.id != keeper.id && !doomedIDs.contains(e.id) {
             // 同 person 側：沒指名被併鍵就別碰它，否則 `dedupePreservingOrder` 會把
             // 既存的重複參照順手折疊掉，改動與本次消歧無關的記錄。
@@ -343,6 +339,11 @@ extension LibraryStore {
             // 倖存者寫不進去就沒有「合併」可言，後面的刪除會直接造成資料遺失。
             throw error
         }
+        // **倖存者已經被改寫了，這是既成事實。** 之後任何失敗路徑退出時，若不說出
+        // 這件事，`merged=[]` 讀起來像「什麼都沒發生」，而使用者手上的 store 已經
+        // 不是他以為的那個（#71 R2 DA 的 PROBE 12）。重跑碰巧冪等，但那是
+        // `dedupePreservingOrder` 的副作用而非設計，不該當成保證。
+        report.survivorUpdated = true
         for e in entriesToWrite {
             do {
                 try writeEntry(e)
@@ -366,10 +367,16 @@ extension LibraryStore {
         // **參照重寫有失敗時不刪**——那正是「部分改寫且索引過期」的撕裂狀態，
         // 刪掉被併記錄會讓還沒改寫的參照永久懸空。
         guard !report.hasFailures else {
-            report.failures.append("因上述失敗，被併記錄與歧異記錄都未刪除（可修好後重跑）")
+            report.failures.append(
+                "因上述失敗，被併記錄與歧異記錄都未刪除；"
+                + "但倖存者的別名合併**已經落地**（磁碟上不是原狀）")
+            report.rewritten.sort()
             return report
         }
         for id in doomedIDs {
+            // 檔案已不存在 = 這一步先前已完成。重跑必須冪等，否則「修好後重跑」
+            // 這句話對部分完成的狀態是假的。
+            guard FileManager.default.fileExists(atPath: entityURL(id: id).path) else { continue }
             do {
                 try FileManager.default.removeItem(at: entityURL(id: id))
             } catch {
@@ -388,6 +395,10 @@ extension LibraryStore {
         }
         report.merged = mergedKeys.sorted()
         for d in collapsed + [record] {
+            guard FileManager.default.fileExists(atPath: entityURL(id: d.id).path) else {
+                report.removedDivergences.append(d.id.uuidString)
+                continue
+            }
             do {
                 try FileManager.default.removeItem(at: entityURL(id: d.id))
                 report.removedDivergences.append(d.id.uuidString)
@@ -400,6 +411,44 @@ extension LibraryStore {
         report.removedDivergences.sort()
         return report
     }
+
+    // MARK: - 合併會失去什麼
+
+    /// 把 `p` 併進 `keeper` 會讓哪些內容隨檔案消失。空陣列 = 什麼都不會失去。
+    ///
+    /// **問的是子集關係，不是相等。** 「被併者帶著倖存者缺少或衝突的東西」無法用整體
+    /// 相等表達——曾經寫成「被併者要嘛與倖存者相同、要嘛全預設」，那會誤拒**最常見**
+    /// 的形狀：使用者把資料較完整的那筆選為倖存者（消歧的常態），而被併者只要帶任何
+    /// 一個非預設欄位就被擋死，儘管它沒有任何東西會消失（#71 R2 DA 實測）。
+    ///
+    /// **所以逐欄是必要的，防腐不能靠結構比較。** 靠的是
+    /// `PersonFieldCoverageTests`：它用反射數 `Person` 的儲存屬性，與本函式聲明涵蓋的
+    /// 數量不符就紅。加欄位而忘了這裡，測試會說話——不是靠註解提醒，也不是靠記憶。
+    ///
+    /// 涵蓋 `Person` 的 8 個儲存屬性：`key` / `id`（身分，不隨合併移動）、
+    /// `names`（別名，由合併搬移）、以及下列五個。
+    static func fieldsLostByMerging(_ p: Person, into keeper: Person) -> [String] {
+        var losses: [String] = []
+        func check(_ label: String, mine: String?, theirs: String?) {
+            guard let theirs, !theirs.isEmpty else { return }  // 沒帶 → 不會失去
+            guard mine != theirs else { return }               // 倖存者已有同值 → 不會失去
+            losses.append("\(label): \(theirs)")
+        }
+        check("orcid", mine: keeper.orcid, theirs: p.orcid)
+        check("openalex", mine: keeper.openalex, theirs: p.openalex)
+        check("note", mine: keeper.note, theirs: p.note)
+        if p.profile != PersonProfile(), p.profile != keeper.profile {
+            losses.append("profile（隸屬等時間軸）")
+        }
+        let extra = p.unknownFields.filter { !keeper.unknownFields.contains($0) }
+        if !extra.isEmpty {
+            losses.append("未知欄位 " + extra.map(\.key).joined(separator: "、"))
+        }
+        return losses
+    }
+
+    /// 本函式涵蓋的 `Person` 儲存屬性數。`PersonFieldCoverageTests` 拿它與反射比對。
+    static let personFieldsCoveredByMergeCheck = 8
 
     // MARK: - 小工具
 

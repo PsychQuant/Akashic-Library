@@ -474,6 +474,51 @@ encode/decode 等冪。
   掛死。但對**完整性與顯示安全**而言它是未信任的：檔案可能由別的 binary、別人、
   Dropbox 同步寫入，所以未知欄位 key 與 quarantine reason 一律經 `displaySafe`。
   兩者不矛盾——是同一份資料在不同軸上的不同假設，而 DoS 那條軸的防線還沒蓋。
+### 5.8 `divergence`：未決的同一性問題（normative，#71）
+
+store 已有「寧可分割，絕不合併」——同一個人的兩種寫法會建成兩筆記錄，因為錯誤合併
+不可逆而錯誤分割可逆。但分割之後兩筆各自失憶：沒有地方記「這兩筆可能是同一個」。
+`divergence` 補的就是那個位置。
+
+```yaml
+divergence:
+id: 6577DE3B-DAFE-5CC0-A9DE-2E04030737B3
+question: 是否為同一人
+candidates:
+- key: fann-cathy-s-j
+  shape: person
+- key: fann-cathy-s-j-2
+  shape: person
+judgement: 兩者的姓與 given initials 一致，差異僅在連字號與句點的排版慣例
+rests-on:
+- sha256:9a23d701e4fe4888…
+```
+
+**normative 規則：**
+
+1. `candidates` **MUST** 至少兩筆、**MUST** 全部同 `shape`、且 **MUST NOT** 有重複的
+   `(shape, key)`。跨形狀不是未決的問題而是類別錯誤；重複的候選沒有東西可以與之相同。
+2. 每個候選的 `shape` **MUST** 明寫，**MUST NOT** 由 `key` 推導——鍵在不同形狀之間可以
+   同名（見 §organization 的 key 契約），而 decode 沒有 store 存取。
+3. `judgement` 與 `rests-on` **MUST** 成對出現。形狀與判斷型 provenance reference 相同，
+   但 **MUST NOT** 含 `field:`——判斷關乎哪個候選才對，不是宿主記錄的哪個欄位。
+4. 記錄 **MUST NOT** 帶「已解決」狀態。消歧完成時整筆刪除，歷史託給版本控制而非 store。
+5. `divergence` **MUST** 只存在於 `entities/` 佈局（format ≥ 4）。legacy 下 person 落在
+   `people/<key>.yaml` 而刪除只認 `entities/<uuid>.yaml`——寫得進去、刪不掉。
+
+**消歧**：`akashic resolve-divergence <id> --survivor <key>`。它是**一個操作**：合併別名
+→ 全庫參照重寫 → 刪除被併記錄與歧異記錄。刪除前 **MUST** 驗證 store 位於版控工作樹內
+（歷史託給版控，版控之外刪掉就是真的沒了）。
+
+失敗語意：參照重寫的單筆失敗**收容並繼續**，結束時報告清單並以非零碼退出；**有任何
+失敗就不刪任何東西**——歧異記錄是唯一能重跑的依據，先刪它再讓被併檔留著，比撕裂更糟。
+被併記錄若帶有倖存者沒有的識別碼（`orcid` / `openalex` / `note` / `profile` / 未知欄位），
+合併 **MUST** 拒絕並指名將失去什麼，不得靜默丟棄。
+
+**已知缺口**（皆有 issue）：沒有建立入口（#77）；版控檢查只確認「往上找得到 `.git`」而
+非「已被追蹤」（#73）；封閉集合擴充的相容性未決（#74）；消歧不看已寫下的判斷、work
+合併不搬欄位（#75）；MCP 面無投影（#76）。
+
 ### 5.9 v1.4 規劃：known 層的演化語意（#26 裁決，尚未實作）
 
 v1.3 的 tolerant-preserve 只涵蓋**未知 key**。known 層的三個 strict 區塊在演化時整檔

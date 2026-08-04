@@ -588,8 +588,33 @@ extension LibraryStore {
         // R6（M9）：encode 自 v1.3 起可 throw（canary fail-closed）。動磁碟前先
         // 對所有要寫的 entry 做 encode 預檢——任何一筆不可寫就整個 rename 不動，
         // 避免中途 throw 留下 relations 半遷移的多檔撕裂。
+        // 歧異記錄的候選也是對 citekey 的參照（#71）。不遷移的話，rename 之後那筆
+        // 歧異的候選指向一個不存在的 citekey——`resolve-divergence` 只會擲
+        // 「找不到對應記錄」，於是它永遠無法被消歧，而 rename 什麼都沒說。
+        var divergencesToRewrite: [Divergence] = []
+        for var d in load.divergences {
+            let migrated = d.candidates.map { c in
+                (c.shape == .work && c.key == oldKey)
+                    ? DivergenceCandidate(key: newKey, shape: c.shape) : c
+            }
+            guard migrated != d.candidates else { continue }
+            // 遷移後若兩個候選變成同一個，那筆歧異已被 rename 回答掉，但 rename 不是
+            // 消歧——它沒有合併語意、也不該替使用者刪記錄。拒絕並要求先消歧。
+            var seen = Set<String>()
+            let distinct = migrated.filter { seen.insert("\($0.shape.rawValue)\u{0}\($0.key)").inserted }
+            guard distinct.count >= 2 else {
+                throw StoreIOError.inconsistentStore(
+                    action: "rename",
+                    issues: ["歧異記錄 \(d.id.uuidString) 的候選會因這次改名塌縮成一個"
+                           + "——請先跑 resolve-divergence 消歧，rename 沒有合併語意"])
+            }
+            d.candidates = migrated
+            divergencesToRewrite.append(d)
+        }
+
         _ = try EntryYAML.encode(entry)
         for other in toRewrite { _ = try EntryYAML.encode(other) }
+        for d in divergencesToRewrite { _ = try DivergenceYAML.encode(d) }
         // 3. 寫記錄本身。
         //
         // **#35：format 2 下 rename 不搬檔案。** 檔名是 UUID，而 rename 不改 UUID——
@@ -607,6 +632,10 @@ extension LibraryStore {
         for other in toRewrite {
             try writeEntry(other)
             rewritten.append(other.citekey)
+        }
+        for d in divergencesToRewrite {
+            try writeDivergence(d)
+            rewritten.append(d.id.uuidString)
         }
         // 4. 刪舊檔（僅 legacy 佈局——format 2 沒有舊檔，見上）
         if !usesEntitiesLayout {

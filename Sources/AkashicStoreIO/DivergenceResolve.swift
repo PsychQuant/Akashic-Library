@@ -10,6 +10,7 @@ public enum DivergenceResolveError: Error, LocalizedError, Equatable {
     case unsupportedShape(String)
     case legacyLayout(root: String)
     case wouldLoseFields(merged: String, survivor: String, losses: [String])
+    case quarantinedPresent(files: [String])
 
     public var errorDescription: String? {
         switch self {
@@ -36,6 +37,13 @@ public enum DivergenceResolveError: Error, LocalizedError, Equatable {
                  + "「\(displaySafe(survivor, max: 200))」沒有的資料，合併會讓它隨檔案消失——"
                  + losses.map { displaySafe($0, max: 300) }.joined(separator: "；")
                  + "。先把要保留的搬到倖存者身上（或確認可以丟棄後手動清除），再消歧。"
+        case let .quarantinedPresent(files):
+            return "store 有 \(files.count) 個讀不進來的檔，消歧拒絕執行——"
+                 + "它們可能正指著要被刪掉的實體，而讀不到就改寫不到，刪除後會留下"
+                 + "藏在工具看不見處的永久懸空參照："
+                 + files.prefix(3).map { displaySafe($0, max: 200) }.joined(separator: "、")
+                 + (files.count > 3 ? "…" : "")
+                 + "。先跑 akashic doctor 看清楚並修好。"
         }
     }
 }
@@ -72,6 +80,13 @@ extension LibraryStore {
         guard usesEntitiesLayout else {
             throw DivergenceResolveError.legacyLayout(root: root.path)
         }
+        // 候選鍵的 write-time 驗證，與其他每一條寫入路徑一致。**理由不是 path
+        // traversal**（R1 的 DA 已證明候選鍵從未進過任何路徑），而是
+        // `Divergence.validate()` 對畸形候選鍵報 error——沒有這道守衛，工具就能寫出
+        // 一筆自己的 validate 永遠不會通過、而又沒有編輯入口可以修的記錄。
+        for c in d.candidates where !StoreKey.isValid(c.key) {
+            throw StoreIOError.invalidKey("divergence candidate key", c.key)
+        }
         let yaml = try DivergenceYAML.encode(d)
         let dest = entityURL(id: d.id)
         try FileManager.default.createDirectory(at: entitiesDir, withIntermediateDirectories: true)
@@ -105,6 +120,15 @@ extension LibraryStore {
         // `store_loadForRename()` 繞開的是同一件事）。
         let snapshot = try load()
         try assertNoCrossRecordErrors(snapshot, action: "resolve-divergence")
+        // **讀不到的檔可能正指著要被刪掉的東西。** spec 要求改寫「store 內每一個」
+        // 指名被併實體的參照，而 quarantined 檔根本沒進 `snapshot.entries`——它的
+        // 參照永遠不會被改寫，卻擋不住刪除，留下一筆藏在工具讀不到的檔案裡、
+        // `crossRecordIssues()` 也掃不到的永久懸空參照。這與本檔對 legacy 佈局採取的
+        // 立場（拒絕比部分支援誠實）是同一條理由，不該一邊拒絕一邊靜默放行。
+        guard snapshot.quarantined.isEmpty else {
+            throw DivergenceResolveError.quarantinedPresent(
+                files: snapshot.quarantined.map(\.file).sorted())
+        }
 
         guard let record = snapshot.divergences.first(where: { $0.id == id }) else {
             throw DivergenceResolveError.recordNotFound(id)
@@ -155,24 +179,38 @@ extension LibraryStore {
         // 典型來源正是「兩個聚合器對同一位作者的比對結果不一致」——那種情況下兩筆
         // 各帶一半識別碼的機率很高。所以拒絕並指名將失去什麼，讓人先搬再消歧。
         for p in doomed {
+            // **守衛是機械的，訊息才是逐欄的。** 逐欄白名單會在 `Person` 加欄位時
+            // 靜默失效——那正是這條檢查要防的失敗重演一次。所以判定用結構比較：
+            // 把「身分與別名」以外的內容拿掉之後，被併者要嘛與倖存者相同、要嘛是
+            // 全預設值；兩者皆非就代表它帶著會隨檔案消失的東西。新欄位自動參與。
+            var theirs = p
+            theirs.names = []; theirs.key = survivor; theirs.id = keeper.id
+            var mine = keeper
+            mine.names = []
+            let bare = Person(key: survivor, names: [], id: keeper.id)
+            guard theirs != mine && theirs != bare else { continue }
+
+            // 逐欄描述只為了讓錯誤訊息可據以行動；描述不完整不影響上面的判定。
             var losses: [String] = []
-            func check(_ label: String, _ mine: String?, _ theirs: String?) {
-                guard let theirs, !theirs.isEmpty else { return }
-                if mine != theirs { losses.append("\(label): \(theirs)") }
+            func describe(_ label: String, _ a: String?, _ b: String?) {
+                guard let b, !b.isEmpty, a != b else { return }
+                losses.append("\(label): \(b)")
             }
-            check("orcid", keeper.orcid, p.orcid)
-            check("openalex", keeper.openalex, p.openalex)
-            check("note", keeper.note, p.note)
+            describe("orcid", keeper.orcid, p.orcid)
+            describe("openalex", keeper.openalex, p.openalex)
+            describe("note", keeper.note, p.note)
             if p.profile != PersonProfile(), p.profile != keeper.profile {
                 losses.append("profile（隸屬等時間軸）")
             }
             if !p.unknownFields.isEmpty {
                 losses.append("未知欄位 " + p.unknownFields.map(\.key).joined(separator: "、"))
             }
-            guard losses.isEmpty else {
-                throw DivergenceResolveError.wouldLoseFields(
-                    merged: p.key, survivor: survivor, losses: losses)
+            if losses.isEmpty {
+                // 機械守衛看到差異、逐欄描述卻說不出是哪裡——如實說，不要假裝完整。
+                losses.append("（本 binary 的描述清單未涵蓋的欄位——請直接比對兩筆記錄的檔案）")
             }
+            throw DivergenceResolveError.wouldLoseFields(
+                merged: p.key, survivor: survivor, losses: losses)
         }
         // 別名併入倖存者：被併者的寫法保留，否則下次遇到那個寫法又會重新分割一次。
         keeper.names = dedupePreservingOrder(keeper.names + doomed.flatMap(\.names))
@@ -180,6 +218,13 @@ extension LibraryStore {
         let merged = Set(mergedKeys)
         var entriesToWrite: [Entry] = []
         for var e in snapshot.entries {
+            // **只碰真的指名被併鍵的記錄。** 先判斷有沒有命中，再改寫——否則
+            // `dedupeAuthors` 會順手把**既存的**重複作者折疊掉，改動一筆與本次消歧
+            // 毫無關係的記錄，還把它算進 `rewritten`。消歧不是清理工具。
+            guard e.authors.contains(where: {
+                if case let .key(k) = $0 { return merged.contains(k) }
+                return false
+            }) else { continue }
             let rewritten = dedupeAuthors(e.authors.map { author -> Author in
                 if case let .key(k) = author, merged.contains(k) { return .key(survivor) }
                 return author
@@ -229,6 +274,11 @@ extension LibraryStore {
         keeperRewritten.akashic.relations.related =
             migrate(keeper.akashic.relations.related).filter { $0 != survivor }
         for var e in snapshot.entries where e.id != keeper.id && !doomedIDs.contains(e.id) {
+            // 同 person 側：沒指名被併鍵就別碰它，否則 `dedupePreservingOrder` 會把
+            // 既存的重複參照順手折疊掉，改動與本次消歧無關的記錄。
+            guard e.akashic.relations.cites.contains(where: { merged.contains($0) })
+                || e.akashic.relations.related.contains(where: { merged.contains($0) })
+            else { continue }
             let cites = migrate(e.akashic.relations.cites)
             let related = migrate(e.akashic.relations.related)
             if cites != e.akashic.relations.cites || related != e.akashic.relations.related {

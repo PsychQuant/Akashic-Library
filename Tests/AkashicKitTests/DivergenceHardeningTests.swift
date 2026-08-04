@@ -277,6 +277,118 @@ final class DivergenceHardeningTests: XCTestCase {
         }
     }
 
+    // MARK: - R2：讀不到的檔可能正指著要被刪掉的東西
+
+    /// store 有任何 quarantined 檔時，消歧拒絕執行。
+    ///
+    /// quarantined 檔沒進 `snapshot.entries`，它的參照永遠不會被改寫，卻擋不住刪除
+    /// ——留下一筆藏在工具讀不到的檔案裡、`crossRecordIssues()` 也掃不到的永久懸空
+    /// 參照。與本檔對 legacy 佈局的立場（拒絕比部分支援誠實）是同一條理由。
+    func testQuarantinedFileBlocksResolve() throws {
+        var keeper = Person(key: "fann-cathy-s-j"); keeper.names = ["F"]
+        var doomed = Person(key: "fann-cathy-s-j-2"); doomed.names = ["F2"]
+        try store.writePerson(keeper)
+        try store.writePerson(doomed)
+        let d = Divergence(id: UUID(), question: "同一人？",
+                           candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),
+                                        DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
+        try store.writeDivergence(d)
+        // 一個檔名 UUID 與內容 id 不符的檔 → load() 會 quarantine 它。
+        let stray = root.appendingPathComponent("entities/\(UUID().uuidString).yaml")
+        try "work:\nid: \(UUID().uuidString)\ncitekey: ghost\ntype: article\ntitle: G\n"
+            .write(to: stray, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(try store.load().quarantined.isEmpty, "前提：該檔應被 quarantine")
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")) { e in
+            let msg = (e as? LocalizedError)?.errorDescription ?? "\(e)"
+            XCTAssertTrue(msg.contains("讀不進來"), "錯誤須說明理由：\(msg)")
+        }
+        XCTAssertEqual(try store.load().people.count, 2, "拒絕後不得有任何刪除")
+    }
+
+    // MARK: - R2：消歧不是清理工具
+
+    /// 沒指名被併鍵的記錄不得被改動——即使它自己有既存的重複作者。
+    func testUnrelatedRecordWithDuplicateAuthorsLeftAlone() throws {
+        var keeper = Person(key: "fann-cathy-s-j"); keeper.names = ["F"]
+        var doomed = Person(key: "fann-cathy-s-j-2"); doomed.names = ["F2"]
+        var other = Person(key: "someone-else"); other.names = ["S"]
+        try store.writePerson(keeper); try store.writePerson(doomed); try store.writePerson(other)
+        // 這筆與本次消歧無關，但它自己有重複作者。
+        var unrelated = Entry(id: UUID(), citekey: "unrelated2020", type: "article", title: "U")
+        unrelated.authors = [.key("someone-else"), .key("someone-else")]
+        try store.writeEntry(unrelated)
+        let d = Divergence(id: UUID(), question: "同一人？",
+                           candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),
+                                        DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
+        try store.writeDivergence(d)
+
+        let report = try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")
+        XCTAssertFalse(report.rewritten.contains("unrelated2020"),
+                       "無關記錄不該被算進 rewritten：\(report.rewritten)")
+        let e = try XCTUnwrap(try store.load().entries.first { $0.citekey == "unrelated2020" })
+        XCTAssertEqual(e.authors, [.key("someone-else"), .key("someone-else")],
+                       "既存的重複不該被順手折疊——消歧不是清理工具：\(e.authors)")
+    }
+
+    // MARK: - R2：rename 之後歧異候選要跟著走
+
+    /// `rename` 遷移歧異記錄的 work 候選，否則那筆歧異永遠無法被消歧。
+    func testRenameMigratesDivergenceCandidates() throws {
+        try store.writeEntry(Entry(id: UUID(), citekey: "jou2025generalized",
+                                   type: "article", title: "G"))
+        try store.writeEntry(Entry(id: UUID(), citekey: "jou2026generalized",
+                                   type: "article", title: "G2"))
+        let d = Divergence(id: UUID(), question: "同一篇？",
+                           candidates: [DivergenceCandidate(key: "jou2025generalized", shape: .work),
+                                        DivergenceCandidate(key: "jou2026generalized", shape: .work)])
+        try store.writeDivergence(d)
+
+        _ = try store.renameEntry(from: "jou2025generalized", to: "jou2025generalized-v2")
+        let after = try XCTUnwrap(try store.load().divergences.first)
+        XCTAssertEqual(after.candidates.map(\.key).sorted(),
+                       ["jou2025generalized-v2", "jou2026generalized"],
+                       "候選沒跟著改名，這筆歧異就再也消不掉：\(after.candidates)")
+    }
+
+    /// 改名會讓兩個候選塌縮成一個時，`rename` 拒絕——它沒有合併語意。
+    func testRenameRefusesWhenItWouldCollapseADivergence() throws {
+        try store.writeEntry(Entry(id: UUID(), citekey: "chu2024pseudo", type: "article", title: "P"))
+        let d = Divergence(id: UUID(), question: "同一篇？",
+                           candidates: [DivergenceCandidate(key: "chu2024pseudo", shape: .work),
+                                        DivergenceCandidate(key: "chu2025pseudo", shape: .work)])
+        try store.writeDivergence(d)
+        XCTAssertThrowsError(try store.renameEntry(from: "chu2024pseudo", to: "chu2025pseudo")) { e in
+            let msg = (e as? LocalizedError)?.errorDescription ?? "\(e)"
+            XCTAssertTrue(msg.contains("塌縮") || msg.contains("resolve-divergence"),
+                          "錯誤須說明先消歧：\(msg)")
+        }
+    }
+
+    // MARK: - R2：寫入面的鍵驗證與 validate 的可見性
+
+    /// 畸形候選鍵不得被寫出——否則會產生一筆自己的 validate 永遠不通過、
+    /// 而又沒有編輯入口可修的記錄。
+    func testWriteRefusesInvalidCandidateKey() throws {
+        let d = Divergence(id: UUID(), question: "Q",
+                           candidates: [DivergenceCandidate(key: "../../etc/passwd", shape: .person),
+                                        DivergenceCandidate(key: "ok-key", shape: .person)])
+        XCTAssertThrowsError(try store.writeDivergence(d))
+    }
+
+    /// 未知欄位在 `validate()` 現身——`akashic validate` 的提示只來自這條路徑。
+    func testValidateSurfacesUnknownFields() throws {
+        let d = Divergence(
+            id: UUID(), question: "Q",
+            candidates: [DivergenceCandidate(key: "a-b", shape: .person),
+                         DivergenceCandidate(key: "a-c", shape: .person)],
+            unknownFields: [UnknownField(key: "confidence_note", raw: "confidence_note: x\n")])
+        let issues = d.validate()
+        XCTAssertTrue(issues.contains { $0.message.contains("confidence_note") },
+                      "未知欄位必須被指名，否則 validate 會印「全部通過」：\(issues.map(\.message))")
+        XCTAssertEqual(issues.first?.severity, .warning)
+    }
+
     // MARK: - R1 #31／#34／#48：懸空候選沒有任何輸出說它壞了
 
     /// 候選指名的鍵不存在時，跨記錄檢查以 warning 指名該鍵。

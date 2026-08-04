@@ -26,9 +26,19 @@ struct ResolveDivergence: ParsableCommand {
         let store = try options.openStore()
         let report = try store.resolveDivergence(id: uuid, survivor: survivor)
 
-        // 索引重建放在報告之前：參照已經改了，索引不跟上就會查到舊鍵。
-        // 有失敗時仍要重建——已成功改寫的那些記錄同樣需要被索引看見。
-        _ = try LibraryIndex(store: store).rebuild()
+        // **報告先印，索引後建。** 消歧是破壞性操作；rebuild 擲錯會把「哪些改了、
+        // 哪些沒改、什麼被刪了」整份吞掉，而那是使用者唯一能據以收拾的東西。
+        // rebuild 失敗只是索引過期（可重建），報告遺失才是不可回復的。
+        defer {
+            do {
+                _ = try LibraryIndex(store: store).rebuild()
+            } catch {
+                print("⚠ 索引重建失敗（資料已改，索引過期）："
+                    + displaySafe((error as? LocalizedError)?.errorDescription
+                                  ?? String(describing: error), max: 512))
+                print("  跑 akashic doctor 重建索引。")
+            }
+        }
 
         if !report.merged.isEmpty {
             print("✓ 併入 \(displaySafe(survivor, max: 200))："

@@ -499,9 +499,12 @@ rests-on:
 1. `candidates` **MUST** 至少兩筆、**MUST** 全部同 `shape`、且 **MUST NOT** 有重複的
    `(shape, key)`。跨形狀不是未決的問題而是類別錯誤；重複的候選沒有東西可以與之相同。
 2. 每個候選的 `shape` **MUST** 明寫，**MUST NOT** 由 `key` 推導——鍵在不同形狀之間可以
-   同名（見 §organization 的 key 契約），而 decode 沒有 store 存取。
+   同名（見 §organization 的 key 契約），而 decode 沒有 store 存取。`shape: divergence`
+   **MUST** 拒收：歧異記錄沒有 key（身分是 UUID），不是可被指涉的對象。
 3. `judgement` 與 `rests-on` **MUST** 成對出現。形狀與判斷型 provenance reference 相同，
    但 **MUST NOT** 含 `field:`——判斷關乎哪個候選才對，不是宿主記錄的哪個欄位。
+   兩者的**空值**同樣 **MUST** 拒收（空 `question` 亦然）：空的斷言不是判斷，空的摘要
+   不是依據，而空的問題不是未決的問題。
 4. 記錄 **MUST NOT** 帶「已解決」狀態。消歧完成時整筆刪除，歷史託給版本控制而非 store。
 5. `divergence` **MUST** 只存在於 `entities/` 佈局（format ≥ 2）。legacy 下 person 落在
    `people/<key>.yaml` 而刪除只認 `entities/<uuid>.yaml`——寫得進去、刪不掉。
@@ -520,7 +523,7 @@ rests-on:
 | store 位於版控工作樹內 | 歷史託給版控，版控之外刪掉就是真的沒了 |
 | `entities/` 佈局（format ≥ 4） | legacy 下寫得進去、刪不掉 |
 | 無跨記錄不一致 | 雙佈局並存時會刪錯檔 |
-| **無 quarantined 檔** | 讀不到的檔可能正指著要被刪掉的實體，而讀不到就改寫不到——刪除後會留下藏在工具看不見處的永久懸空參照 |
+| **`entities/` 與 `entries/` 無 quarantined 檔** | 讀不到的檔可能正指著要被刪掉的實體，而讀不到就改寫不到——刪除後會留下藏在工具看不見處的永久懸空參照。**只擋這兩個目錄**：`people/` 與 `libraries/` 的記錄結構上不可能持有那種參照（person 不引用 person，library 只有 metadata），把它們一起擋，理由對它們就是假的，而且擋在最需要消歧的 store 狀態上 |
 
 參照的範圍包含**其他歧異記錄的候選**（那也是參照）。候選 **MUST** 同時比對 key 與
 shape 才遷移——鍵在不同形狀之間可以同名。遷移後候選少於兩個的記錄 **MUST** 一併刪除

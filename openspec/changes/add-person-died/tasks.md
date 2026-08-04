@@ -65,5 +65,5 @@
 
 ## 5. 收尾驗證
 
-- [ ] 5.1 確認 scope 未擴張：`StoreVersion.supported` 值與變更前相同；**未**新增任何表示學術活躍度的欄位、推導函式或匯出欄；**未**新增 `born` 欄位。驗證目標：測試直接斷言版本常數值，並以 git diff 確認 `Sources/AkashicStoreIO/StoreVersion.swift` 未被修改、且全 diff 不含 activity / active / born 相關的新增識別字。 （Requirement: Academic activity SHALL NOT be recorded as a stored field）
-- [ ] 5.2 全測試套件通過，無新增 quarantine、無既有測試回歸。驗證目標：`swift test` 全綠，並記錄變更前後的測試數量。
+- [x] 5.1 確認 scope 未擴張：`StoreVersion.supported` 值與變更前相同；**未**新增任何表示學術活躍度的欄位、推導函式或匯出欄；**未**新增 `born` 欄位。驗證目標：測試直接斷言版本常數值，並以 git diff 確認 `Sources/AkashicStoreIO/StoreVersion.swift` 未被修改、且全 diff 不含 activity / active / born 相關的新增識別字。 （Requirement: Academic activity SHALL NOT be recorded as a stored field）
+- [x] 5.2 全測試套件通過，無新增 quarantine、無既有測試回歸。驗證目標：`swift test` 全綠，並記錄變更前後的測試數量。

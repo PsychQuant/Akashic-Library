@@ -142,9 +142,15 @@ extension LibraryStore {
         // 參照永遠不會被改寫，卻擋不住刪除，留下一筆藏在工具讀不到的檔案裡、
         // `crossRecordIssues()` 也掃不到的永久懸空參照。這與本檔對 legacy 佈局採取的
         // 立場（拒絕比部分支援誠實）是同一條理由，不該一邊拒絕一邊靜默放行。
-        guard snapshot.quarantined.isEmpty else {
-            throw DivergenceResolveError.quarantinedPresent(
-                files: snapshot.quarantined.map(\.file).sorted())
+        //
+        // **只擋得住持有實體參照的那些目錄。** gate 的理由是「讀不到就改寫不到」，
+        // 而 `people/` 與 `libraries/` 的記錄結構上不可能指向被併的 work 或 person
+        // （person 不引用 person，library 只有 metadata）。把它們一起擋，理由對它們
+        // 就是假的——而擋在最需要消歧的 store 狀態（多來源、半遷移）上（#71 R2 DA）。
+        let blocking = snapshot.quarantined
+            .filter { $0.file.hasPrefix("entities/") || $0.file.hasPrefix("entries/") }
+        guard blocking.isEmpty else {
+            throw DivergenceResolveError.quarantinedPresent(files: blocking.map(\.file).sorted())
         }
 
         guard let record = snapshot.divergences.first(where: { $0.id == id }) else {

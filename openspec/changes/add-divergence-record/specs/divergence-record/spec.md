@@ -86,7 +86,9 @@ Resolution SHALL also rewrite the candidate lists of other records of unresolved
 
 Where rewriting leaves another record with fewer than two distinct candidates, that record SHALL be deleted as well, and the deletion SHALL be reported. Such a record can no longer be written back — a record naming fewer than two candidates is refused on load — so leaving it in place would persist a file the store itself will not accept.
 
-Resolution SHALL refuse to proceed where any file in the store failed to load, naming those files. A file that cannot be read may name a merged entity, and a reference that cannot be read cannot be rewritten; deleting the entity anyway would leave a dangling reference in a file no check can see.
+Resolution SHALL refuse to proceed where a file that could hold an entity reference failed to load, naming those files. A file that cannot be read may name a merged entity, and a reference that cannot be read cannot be rewritten; deleting the entity anyway would leave a dangling reference in a file no check can see.
+
+The refusal SHALL be scoped to the locations whose records can hold such a reference. Records that structurally cannot — a person naming no other person, a registry entry holding only metadata — SHALL NOT block resolution, because the stated reason is false for them and a refusal is least affordable in exactly the stores where unreadable files are common.
 
 #### Scenario: Another unresolved question that names a merged entity follows the merge
 

@@ -743,6 +743,10 @@ public extension LibraryLoad {
             .person: Set(people.map(\.key)),
             .work: Set(entries.map(\.citekey)),
             .organization: Set(organizations.map(\.key)),
+            // 歧異記錄沒有 key（身分是 UUID），所以以它為形狀的候選永遠對不到任何
+            // 東西。給它一個空集合會讓每一筆都被誤報懸空——那是雜訊不是訊號；
+            // 這種候選的正確處置是 decode 就拒收（見 DivergenceYAML.decode）。
+            .divergence: [],
         ]
         var danglingCandidates: [String: Int] = [:]
         for d in divergences {

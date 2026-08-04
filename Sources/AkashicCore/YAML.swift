@@ -1625,6 +1625,14 @@ public enum DivergenceYAML {
                     "候選「\(displaySafe(key, max: 200))」缺少 shape"
                     + "——鍵在不同形狀之間可以同名，形狀無法推導")
             }
+            // 歧異記錄本身不是可被指涉的對象（它沒有 key，身分是 UUID），所以它
+            // 不能當候選——「這兩個歧異是不是同一個」不是本形狀承載的問題。
+            if rawShape == EntityKind.divergence.rawValue {
+                throw StoreYAMLError.invalidField(
+                    "divergence.candidates",
+                    "候選「\(displaySafe(key, max: 200))」的 shape 不得是 divergence"
+                    + "——歧異記錄沒有 key，不是可被指涉的對象")
+            }
             guard let shape = EntityKind(rawValue: rawShape) else {
                 throw StoreYAMLError.invalidField(
                     "divergence.candidates",
@@ -1654,8 +1662,9 @@ public enum DivergenceYAML {
            let odd = candidates.first(where: { $0.shape != first.shape }) {
             throw StoreYAMLError.invalidField(
                 "divergence.candidates",
-                "候選跨越不同形狀：「\(first.key)」是 \(first.shape.rawValue)，"
-                + "「\(odd.key)」是 \(odd.shape.rawValue)——「是否為同一個」跨形狀無法回答")
+                "候選跨越不同形狀：「\(displaySafe(first.key, max: 200))」是 \(first.shape.rawValue)，"
+                + "「\(displaySafe(odd.key, max: 200))」是 \(odd.shape.rawValue)"
+                + "——「是否為同一個」跨形狀無法回答")
         }
 
         // judgement 與 rests-on 成對；只有其一時「這筆 provenance 完不完整」無法機械判定。
@@ -1672,6 +1681,14 @@ public enum DivergenceYAML {
         let restsOn = try restsOnSeq.map {
             try EntryYAML.stringList($0, context: "divergence.rests-on")
         } ?? []
+        // 空的斷言不是判斷，空的摘要不是依據——與空 question 同一條理由。
+        if let s = statement, s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw StoreYAMLError.invalidField("divergence.judgement", "不得為空")
+        }
+        if let bad = restsOn.first(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            _ = bad
+            throw StoreYAMLError.invalidField("divergence.rests-on", "元素不得為空")
+        }
         var judgement: Judgement?
         switch (statement, restsOn.isEmpty) {
         case (nil, true):

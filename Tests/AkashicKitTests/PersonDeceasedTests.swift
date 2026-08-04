@@ -1,0 +1,133 @@
+import XCTest
+import Foundation
+@testable import AkashicCore
+@testable import AkashicStoreIO
+
+/// 人的終結（#67）。
+///
+/// 缺陷重現：`Organization` 有 `founded` / `dissolved`，`Person` **沒有任何生平欄位**。
+/// 於是「隸屬在 2004-11 結束」與「2004-11 在職過世」在 store 裡是同一件事——
+/// 魏慶榮的 `end` 記的其實是死亡（Statistica Sinica 16(3) 紀念專輯載明 2004-11-18），
+/// 而資料裡看不出來。
+///
+/// **`died` 缺席的語意是右設限（censoring），不是「在世」。** 死亡是必然事件，所以缺席
+/// 永遠不是「不適用」，只是「尚未觀察到」。因此本組測試從不斷言「沒有 `died` ＝ 活著」。
+final class PersonDeceasedTests: XCTestCase {
+    var root: URL!
+    var store: LibraryStore!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-deceased-\(UUID().uuidString)")
+        store = LibraryStore(root: root)
+        try store.ensureLayout()
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    // MARK: - (a) 記錄得下來，且讀得回來
+
+    func testARecordedDeathSurvivesAStoreRoundTrip() throws {
+        _ = try store.writePerson(Person(key: "ching-zong-wei",
+                                         names: ["魏慶榮", "Ching-Zong Wei"],
+                                         authorized: ["魏慶榮", "Ching-Zong Wei"],
+                                         died: "2004-11-18"))
+        let load = try store.load()
+        XCTAssertEqual(load.quarantined.count, 0, "\(load.quarantined)")
+        XCTAssertEqual(load.people.first?.died, "2004-11-18")
+    }
+
+    // MARK: - (b) 精度就是區間寬度——不得被補齊
+
+    /// `2004` 說的是「2004 年的某個時候」（區間設限）。補成 `2004-01-01` 等於斷言了一個
+    /// 沒有任何來源說過的日子。
+    func testEachAdmissiblePrecisionIsPreservedByteForByte() throws {
+        for value in ["2004", "2004-11", "2004-11-18"] {
+            let p = Person(key: "k", names: ["N"], authorized: ["N"], died: value)
+            let back = try PersonYAML.decode(try PersonYAML.encode(p))
+            XCTAssertEqual(back.died, value, "精度被改動：寫入 \(value)，讀回 \(back.died ?? "nil")")
+        }
+    }
+
+    func testYearPrecisionIsNotCompletedIntoAFullDate() throws {
+        let p = Person(key: "k", names: ["N"], authorized: ["N"], died: "2004")
+        let back = try PersonYAML.decode(try PersonYAML.encode(p))
+        XCTAssertEqual(back.died, "2004")
+        XCTAssertNotEqual(back.died, "2004-01-01", "補上一個沒有來源說過的日")
+    }
+
+    // MARK: - 缺席不留痕跡
+
+    /// 右設限不是一個「有內容的觀測」，所以檔案裡不該有它的位置。空字串或 `null`
+    /// 佔位會讓「尚未觀察到」看起來像「觀察到了一個空值」。
+    func testAnUnrecordedDeathWritesNoKeyAtAll() throws {
+        let yaml = try PersonYAML.encode(Person(key: "k", names: ["N"], authorized: ["N"]))
+        XCTAssertFalse(yaml.contains("died"), yaml)
+    }
+
+    // MARK: - 形狀錯誤要點名欄位
+
+    func testANonScalarValueIsRejectedByFieldName() throws {
+        let yaml = """
+        person:
+        id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+        key: k
+        names:
+          - N
+        died:
+          - 2004
+        """
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { e in
+            XCTAssertTrue("\(e)".contains("person.died"), "訊息要點名欄位：\(e)")
+        }
+    }
+
+    // MARK: - known-keys 登記（回歸）
+
+    /// `died` 若沒登記進 `knownPersonKeys`，它會**同時**被結構欄位讀走、又被
+    /// tolerant-preserve 當成未知欄位保留——寫回時輸出兩次。編碼器的語意 canary 抓不到
+    /// 這種情況（兩邊的 `died` 值相同），只有數鍵才看得見。
+    func testTheFieldIsRegisteredSoItIsNotEmittedTwice() throws {
+        let yaml = """
+        person:
+        id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+        key: k
+        names:
+          - N
+        died: 2004-11-18
+        """
+        let out = try PersonYAML.encode(try PersonYAML.decode(yaml))
+        let occurrences = out.components(separatedBy: "died:").count - 1
+        XCTAssertEqual(occurrences, 1, "`died` 出現 \(occurrences) 次：\n\(out)")
+    }
+
+    // MARK: - 合併不得讓它靜默消失
+
+    /// 被併者記著死亡而倖存者沒有——合併會讓那個事實蒸發。這類遺失沒有錯誤訊息、
+    /// 只有資料變少，是最難事後發現的一種。
+    func testMergingThatWouldDropADeathDateIsReportedAsALoss() {
+        let losses = LibraryStore.fieldsLostByMerging(
+            Person(key: "a", names: ["N"], died: "2004-11-18"),
+            into: Person(key: "b", names: ["N"]))
+        XCTAssertTrue(losses.contains { $0.contains("died") }, "\(losses)")
+    }
+
+    /// 兩個**不同**的死亡日期不是排版差異——它是對「這兩筆是不是同一個人」的反證，
+    /// 或至少是必須有人裁決的來源衝突。
+    func testTwoDifferentDeathDatesAreReportedRatherThanSilentlyPicked() {
+        let losses = LibraryStore.fieldsLostByMerging(
+            Person(key: "a", names: ["N"], died: "2004-11-18"),
+            into: Person(key: "b", names: ["N"], died: "2005"))
+        XCTAssertTrue(losses.contains { $0.contains("died") }, "\(losses)")
+    }
+
+    /// 同值不算遺失——否則每次合併都會被自己的資料擋住。
+    func testAnIdenticalDeathDateIsNotALoss() {
+        let losses = LibraryStore.fieldsLostByMerging(
+            Person(key: "a", names: ["N"], died: "2004-11-18"),
+            into: Person(key: "b", names: ["N"], died: "2004-11-18"))
+        XCTAssertFalse(losses.contains { $0.contains("died") }, "\(losses)")
+    }
+}

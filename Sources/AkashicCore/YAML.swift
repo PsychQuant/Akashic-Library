@@ -1047,6 +1047,10 @@ public enum PersonYAML {
         }
         if let orcid = person.orcid { pairs.append((Node("orcid"), Node(orcid))) }
         if let openalex = person.openalex { pairs.append((Node("openalex"), Node(openalex))) }
+        // #67：逝世日期。缺席**不寫出任何鍵**——缺席的語意是右設限（尚未觀察到），
+        // 寫成空字串或 null 會把「沒觀察到」偽裝成一個有內容的觀測。
+        // 緊鄰 note 之前：#66 落地前來源寫在 note，兩者相鄰讓人一眼看到日期與其依據。
+        if let died = person.died { pairs.append((Node("died"), Node(died))) }
         if let note = person.note { pairs.append((Node("note"), Node(note))) }
         // #20：profile 空的不序列化（與 tags 同慣例）——避免每個 person 檔多一個空 map
         if !person.profile.isEmpty {
@@ -1069,6 +1073,7 @@ public enum PersonYAML {
             if a.authorized != b.authorized { bad.append("authorized") }
             if a.orcid != b.orcid { bad.append("orcid") }
             if a.openalex != b.openalex { bad.append("openalex") }
+            if a.died != b.died { bad.append("died") }
             if a.note != b.note { bad.append("note") }
             if a.profile != b.profile { bad.append("profile") }
             let detail = bad.isEmpty ? "未知欄位 key 序列不符" : "欄位不符：\(bad.joined(separator: "、"))"
@@ -1090,7 +1095,7 @@ public enum PersonYAML {
     /// 與「停止寫出形狀名」的目的相反。留在已知鍵內＝讀得到、忽略其值、不寫回。
     /// 形狀裸標籤同理必須列入。
     static let knownPersonKeys: Set<String> = Set(["id", "type", "key", "names", "authorized",
-                                                   "orcid", "openalex", "note", "profile"])
+                                                   "orcid", "openalex", "died", "note", "profile"])
         .union(EntityKind.knownLabels)
 
     public static func decode(_ yaml: String) throws -> Person {
@@ -1155,6 +1160,11 @@ public enum PersonYAML {
                                                   expect: "scalar") { $0.scalar?.string }
         person.openalex = try EntryYAML.requireShape(map["openalex"], field: "person.openalex",
                                                      expect: "scalar") { $0.scalar?.string }
+        // #67：值原樣讀入，**不驗證是否為合法 ISO 前綴**——與 `DateRange` 的
+        // `start` / `end` 及 `Organization.founded` / `dissolved` 同慣例。這裡拒絕的
+        // 只有形狀錯誤（sequence / mapping），內容的可信度屬使用端的判斷。
+        person.died = try EntryYAML.requireShape(map["died"], field: "person.died",
+                                                 expect: "scalar") { $0.scalar?.string }
         person.note = try EntryYAML.requireShape(map["note"], field: "person.note",
                                                  expect: "scalar") { $0.scalar?.string }
         return person

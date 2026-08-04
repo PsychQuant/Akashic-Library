@@ -192,6 +192,18 @@ public struct Person: Equatable {
     public var authorized: [String]
     public var orcid: String?
     public var openalex: String?
+    /// 逝世日期（#67）。ISO 8601 前綴：`2004`、`2004-11`、`2004-11-18`——與
+    /// `Organization.dissolved` 同慣例，精度就是來源說了什麼，**不補齊**。
+    ///
+    /// **缺席 ＝ 右設限，不是「在世」。** 死亡是必然事件，所以缺席永遠不是「不適用」，
+    /// 只是尚未觀察到——它同時涵蓋「真的還活著」與「已故但未記錄」，而從資料的角度
+    /// 那兩者本來就是同一件事。判斷「誰還在世」時據此讀，不要把缺席當成活著的斷言。
+    ///
+    /// 在場則是已觀察到的事件，精度即區間寬度（`2004` ＝ 落在該年某處）。唯一表達不了
+    /// 的是「已知過世但區間無界」——那屬 #63。
+    ///
+    /// 來源在 #66 的 provenance 機制落地前一律寫進 `note`（緊鄰本欄位即為此）。
+    public var died: String?
     public var note: String?
     /// 機構與身分維度（#20，valid-time temporal）。各屬性自帶時間軸。
     public var profile: PersonProfile
@@ -201,7 +213,7 @@ public struct Person: Equatable {
     /// `id` 省略時由 `key` 推出（確定性）——呼叫端不必為既有流程補一個 UUID。
     public init(key: String, names: [String] = [], authorized: [String] = [],
                 orcid: String? = nil,
-                openalex: String? = nil, note: String? = nil,
+                openalex: String? = nil, died: String? = nil, note: String? = nil,
                 id: UUID? = nil,
                 profile: PersonProfile = PersonProfile(),
                 unknownFields: [UnknownField] = []) {
@@ -212,6 +224,7 @@ public struct Person: Equatable {
         self.authorized = authorized
         self.orcid = orcid
         self.openalex = openalex
+        self.died = died
         self.note = note
         self.unknownFields = unknownFields
     }

@@ -514,6 +514,9 @@ extension LibraryStore {
         }
         check("orcid", mine: keeper.orcid, theirs: p.orcid)
         check("openalex", mine: keeper.openalex, theirs: p.openalex)
+        // #67：逝世日期。兩邊給出**不同**日期時尤其要擋——那不是排版差異，是對
+        // 「這兩筆是不是同一個人」的反證，或至少是一個必須有人裁決的來源衝突。
+        check("died", mine: keeper.died, theirs: p.died)
         check("note", mine: keeper.note, theirs: p.note)
 
         // #81：對外可稱呼的名字是**集合**不是純量——被併者指定過而倖存者沒指定的名字
@@ -568,7 +571,7 @@ extension LibraryStore {
     }
 
     /// 本函式涵蓋的 `Person` 儲存屬性數。`PersonFieldCoverageTests` 拿它與反射比對。
-    static let personFieldsCoveredByMergeCheck = 9
+    static let personFieldsCoveredByMergeCheck = 10
 
     // MARK: - 小工具
 

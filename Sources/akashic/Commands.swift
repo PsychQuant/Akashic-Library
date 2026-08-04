@@ -505,5 +505,10 @@ struct Rename: ParsableCommand {
         if !report.relationsRewritten.isEmpty {
             print("relations 已遷移：\(report.relationsRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
         }
+        // rename 會改寫**別的**記錄的歧異候選——那是使用者最不會預期的副作用，
+        // 不印等於沒發生過（#71 R3 DA 新 5）。
+        if !report.divergenceCandidatesRewritten.isEmpty {
+            print("歧異候選已遷移：\(report.divergenceCandidatesRewritten.joined(separator: ", "))")
+        }
     }
 }

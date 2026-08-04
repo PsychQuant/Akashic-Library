@@ -476,6 +476,76 @@ final class DivergenceHardeningTests: XCTestCase {
                       "\(load.quarantined)")
     }
 
+    // MARK: - R4：DA 指認自己 R2 處方造成的缺陷
+
+    /// 被併實體不在 `entities/<uuid>.yaml` 時，**動磁碟前**就拒絕。
+    ///
+    /// 這是「冪等刪除」得以成立的前提。`load()` 同時讀 entities/ 與 legacy 目錄，
+    /// 所以住在 `people/<key>.yaml` 的 person 照樣進得了 snapshot；而刪除只組
+    /// `entityURL(id:)`。沒有這道檢查，「檔案不存在就跳過」會把**刪不掉**當成
+    /// **已刪掉**——參照全改、被併檔原封不動、歧異記錄被刪、零警告、exit 0
+    /// （#71 R3 DA 的 P3）。
+    func testRefusesWhenCandidateLivesInLegacyDirectory() throws {
+        var keeper = Person(key: "fann-cathy-s-j"); keeper.names = ["F"]
+        try store.writePerson(keeper)
+        // 被併者手動放進 legacy 目錄——半途遷移／還原的舊備份，是預期存在的狀態。
+        var doomed = Person(key: "fann-cathy-s-j-2"); doomed.names = ["F2"]
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("people"), withIntermediateDirectories: true)
+        try PersonYAML.encode(doomed).write(
+            to: root.appendingPathComponent("people/fann-cathy-s-j-2.yaml"),
+            atomically: true, encoding: .utf8)
+        let d = Divergence(id: UUID(), question: "同一人？",
+                           candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),
+                                        DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
+        try store.writeDivergence(d)
+
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")) { e in
+            let msg = (e as? LocalizedError)?.errorDescription ?? "\(e)"
+            XCTAssertTrue(msg.contains("佈局") || msg.contains("migrate"),
+                          "錯誤須指出佈局不一致：\(msg)")
+        }
+        XCTAssertEqual(try store.load().people.count, 2, "拒絕後不得有任何刪除")
+        XCTAssertEqual(try store.load().divergences.count, 1, "歧異記錄不得被刪")
+    }
+
+    /// 被併者的 profile 是倖存者的**子集**時照樣合併——那不會失去任何東西。
+    func testMergeProceedsWhenDoomedProfileIsSubset() throws {
+        var keeper = Person(key: "p-keeper"); keeper.names = ["K"]
+        keeper.profile.ranks = TimelineOf([
+            TemporalValue(value: "助研究員", range: DateRange(start: "2010", end: "2015")),
+            TemporalValue(value: "副研究員", range: DateRange(start: "2015", end: nil)),
+        ])
+        var doomed = Person(key: "p-doomed"); doomed.names = ["D"]
+        doomed.profile.ranks = TimelineOf([
+            TemporalValue(value: "副研究員", range: DateRange(start: "2015", end: nil)),
+        ])
+        try store.writePerson(keeper); try store.writePerson(doomed)
+        let d = Divergence(id: UUID(), question: "同一人？",
+                           candidates: [DivergenceCandidate(key: "p-keeper", shape: .person),
+                                        DivergenceCandidate(key: "p-doomed", shape: .person)])
+        try store.writeDivergence(d)
+
+        let report = try store.resolveDivergence(id: d.id, survivor: "p-keeper")
+        XCTAssertFalse(report.hasFailures, "\(report.failures)")
+    }
+
+    /// 未知欄位是三分：key 不在 → 失去；raw 相同 → 放行；raw 不同 → **衝突**。
+    func testUnknownFieldSameKeyDifferentRawIsReportedAsConflict() throws {
+        var keeper = Person(key: "p-keeper"); keeper.names = ["K"]
+        keeper.unknownFields = [UnknownField(key: "scopus", raw: "scopus: 123\n")]
+        var doomed = Person(key: "p-doomed"); doomed.names = ["D"]
+        doomed.unknownFields = [UnknownField(key: "scopus", raw: "scopus: 456\n")]
+        let losses = LibraryStore.fieldsLostByMerging(doomed, into: keeper)
+        XCTAssertEqual(losses.count, 1)
+        XCTAssertTrue(losses[0].contains("內容不同"), "同 key 不同值是衝突不是缺少：\(losses)")
+
+        // 同值不同排版不該被報成任何東西——那是排版差異，不是資料遺失。
+        var sameValue = doomed
+        sameValue.unknownFields = [UnknownField(key: "scopus", raw: "scopus: 123\n")]
+        XCTAssertTrue(LibraryStore.fieldsLostByMerging(sameValue, into: keeper).isEmpty)
+    }
+
     /// keeper 自己既存的重複／自我參照不得被順手折掉。
     func testKeeperOwnRelationsUntouchedWhenNoHit() throws {
         var keeper = Entry(id: UUID(), citekey: "shen2015model", type: "article", title: "M")

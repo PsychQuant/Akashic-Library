@@ -11,6 +11,7 @@ public enum DivergenceResolveError: Error, LocalizedError, Equatable {
     case legacyLayout(root: String)
     case wouldLoseFields(merged: String, survivor: String, losses: [String])
     case quarantinedPresent(files: [String])
+    case candidateNotInEntities(key: String, expected: String)
 
     public var errorDescription: String? {
         switch self {
@@ -45,6 +46,12 @@ public enum DivergenceResolveError: Error, LocalizedError, Equatable {
                  + (files.count > 3 ? "…" : "")
                  + "。跑 akashic doctor 看每個檔的原因，然後手動修好或移出 store 再試"
                  + "（doctor 只診斷、不修）。"
+        case let .candidateNotInEntities(key, expected):
+            return "候選「\(displaySafe(key, max: 200))」的記錄不在 "
+                 + "\(displaySafe(expected, max: 300))——store 的佈局不一致"
+                 + "（marker 說 entities，記錄卻在 legacy 目錄）。"
+                 + "消歧的刪除只認 entities/<uuid>.yaml，硬跑會變成「參照全改了、"
+                 + "被併檔還在、而且沒有任何訊號」。先跑 akashic migrate。"
         }
     }
 }
@@ -197,6 +204,7 @@ extension LibraryStore {
             }
             doomed.append(p)
         }
+        try assertAllInEntities(([keeper] + doomed).map { ($0.key, $0.id) })
         // **合併只搬別名，所以別名以外的東西不許有。** 被併者若帶著倖存者沒有的
         // 識別碼或時間軸，那些資料會隨檔案一起消失而使用者只看到「✓ 併入」。歧異的
         // 典型來源正是「兩個聚合器對同一位作者的比對結果不一致」——那種情況下兩筆
@@ -236,7 +244,8 @@ extension LibraryStore {
                                     keeperEncode: { _ = try PersonYAML.encode(keeperFinal) },
                                     entriesToWrite: entriesToWrite,
                                     doomedIDs: doomed.map(\.id), mergedKeys: mergedKeys,
-                                    snapshot: snapshot, survivor: survivor)
+                                    snapshot: snapshot, survivor: survivor,
+                                    survivorNote: "倖存者的別名合併已經落地（磁碟上不是原狀）")
     }
 
     // MARK: - work
@@ -254,6 +263,7 @@ extension LibraryStore {
             }
             doomed.append(e)
         }
+        try assertAllInEntities(([keeper] + doomed).map { ($0.citekey, $0.id) })
         let merged = Set(mergedKeys)
         let doomedIDs = Set(doomed.map(\.id))
         func migrate(_ keys: [String]) -> [String] {
@@ -295,7 +305,9 @@ extension LibraryStore {
                                     keeperEncode: { _ = try EntryYAML.encode(keeperFinal) },
                                     entriesToWrite: entriesToWrite,
                                     doomedIDs: doomed.map(\.id), mergedKeys: mergedKeys,
-                                    snapshot: snapshot, survivor: survivor)
+                                    snapshot: snapshot, survivor: survivor,
+                                    survivorNote: "倖存者的記錄已被重寫"
+                                        + "（work 消歧不搬欄位，見 #75）")
     }
 
     // MARK: - 共用的落地
@@ -306,7 +318,8 @@ extension LibraryStore {
                                   keeperEncode: () throws -> Void,
                                   entriesToWrite: [Entry],
                                   doomedIDs: [UUID], mergedKeys: [String],
-                                  snapshot: LibraryLoad, survivor: String) throws -> ResolveReport {
+                                  snapshot: LibraryLoad, survivor: String,
+                                  survivorNote: String) throws -> ResolveReport {
         // 其他歧異記錄若也指名被併的鍵，同樣要遷移——spec 說的是「store 內**每一個**
         // 指名被併實體的參照」。遷移後若候選塌縮到少於兩個，那筆記錄已被本次消歧回答，
         // 一併刪除；留著會寫出一份 decode 拒收的檔（<2 候選），那是靜默的損壞。
@@ -374,8 +387,7 @@ extension LibraryStore {
         // 刪掉被併記錄會讓還沒改寫的參照永久懸空。
         guard !report.hasFailures else {
             report.failures.append(
-                "因上述失敗，被併記錄與歧異記錄都未刪除；"
-                + "但倖存者的別名合併**已經落地**（磁碟上不是原狀）")
+                "因上述失敗，被併記錄與歧異記錄都未刪除；但\(survivorNote)")
             report.rewritten.sort()
             return report
         }
@@ -395,16 +407,18 @@ extension LibraryStore {
         // 比對 git 才知道發生過什麼——正是本函式開頭宣稱要避免的半完成狀態。
         // `report.merged` 同樣要等真的刪成功才填，否則 CLI 會同時印「✓ 併入」與失敗。
         guard !report.hasFailures else {
-            report.failures.append("因刪除失敗，歧異記錄保留（修好後可重跑同一個 id）")
+            // 這條路徑先前完全沒提倖存者已被改寫——「歧異記錄保留」讀起來像
+            // 「什麼都沒發生」（#71 R3 DA 新 4）。
+            report.failures.append(
+                "因刪除失敗，歧異記錄保留（修好後可重跑同一個 id）；但\(survivorNote)")
             report.rewritten.sort()
             return report
         }
         report.merged = mergedKeys.sorted()
         for d in collapsed + [record] {
-            guard FileManager.default.fileExists(atPath: entityURL(id: d.id).path) else {
-                report.removedDivergences.append(d.id.uuidString)
-                continue
-            }
+            // 檔案不在 = 先前已刪。不回報成本輪的成果——回報一件沒做的事，
+            // 與靜默同樣誤導。
+            guard FileManager.default.fileExists(atPath: entityURL(id: d.id).path) else { continue }
             do {
                 try FileManager.default.removeItem(at: entityURL(id: d.id))
                 report.removedDivergences.append(d.id.uuidString)
@@ -416,6 +430,22 @@ extension LibraryStore {
         report.rewritten.sort()
         report.removedDivergences.sort()
         return report
+    }
+
+    /// 每個候選的檔案都必須真的在 `entities/<uuid>.yaml`。
+    ///
+    /// **這道前置存在，下游的「冪等刪除」才成立。** `load()` 同時讀 entities/ 與
+    /// legacy 目錄，所以一筆住在 `people/<key>.yaml` 的 person 照樣進得了
+    /// `snapshot.people`；而刪除只組 `entityURL(id:)`。沒有這道檢查，刪除迴圈的
+    /// 「檔案不存在就跳過」會把**刪不掉**當成**已刪掉**——參照全改了、被併檔原封
+    /// 不動、歧異記錄被刪、`crossRecordIssues()` 一個警告都沒有、CLI 印 ✓ 並 exit 0
+    /// （#71 R3 DA 的 P3 實測）。有了它，「檔案不在」就只可能是「已經刪過」。
+    private func assertAllInEntities(_ pairs: [(key: String, id: UUID)]) throws {
+        for (key, id) in pairs
+        where !FileManager.default.fileExists(atPath: entityURL(id: id).path) {
+            throw DivergenceResolveError.candidateNotInEntities(
+                key: key, expected: "entities/\(id.uuidString).yaml")
+        }
     }
 
     // MARK: - 合併會失去什麼
@@ -443,14 +473,47 @@ extension LibraryStore {
         check("orcid", mine: keeper.orcid, theirs: p.orcid)
         check("openalex", mine: keeper.openalex, theirs: p.openalex)
         check("note", mine: keeper.note, theirs: p.note)
-        if p.profile != PersonProfile(), p.profile != keeper.profile {
-            losses.append("profile（隸屬等時間軸）")
+
+        // profile 同樣是**子集**而非相等。相等只放行「全空」與「完全相同」，於是
+        // 「兩個聚合器各給一份隸屬時間軸、其一是另一的子集」這種常見情況被誤拒，
+        // 而訊息叫人「搬到倖存者身上」時倖存者已經有了（#71 R3 DA 的 P1）。
+        let profileGaps = profileDimensionsNotCovered(p.profile, by: keeper.profile)
+        if !profileGaps.isEmpty {
+            losses.append("profile 的 " + profileGaps.joined(separator: "、"))
         }
-        let extra = p.unknownFields.filter { !keeper.unknownFields.contains($0) }
-        if !extra.isEmpty {
-            losses.append("未知欄位 " + extra.map(\.key).joined(separator: "、"))
+
+        // 未知欄位是**三分**不是二分：key 不在 → 真的會失去；key 在且 raw 相等 → 不會
+        // 失去；key 在但 raw 不同 → 那是**衝突**不是「倖存者沒有」。用 `contains($0)`
+        // （key + raw 全等）會把純排版差異報成資料遺失，而訊息給的操作無事可做。
+        for f in p.unknownFields {
+            guard let mineSame = keeper.unknownFields.first(where: { $0.key == f.key }) else {
+                losses.append("未知欄位 \(f.key)")
+                continue
+            }
+            if mineSame.raw != f.raw {
+                losses.append("未知欄位 \(f.key)（兩邊都有但內容不同，需要選一個）")
+            }
         }
         return losses
+    }
+
+    /// `p` 的哪些 profile 維度**不是** `keeper` 的子集。空 = 合併不會失去任何時間軸。
+    private static func profileDimensionsNotCovered(
+        _ p: PersonProfile, by keeper: PersonProfile) -> [String] {
+        func covered<V>(_ a: TimelineOf<V>, _ b: TimelineOf<V>) -> Bool {
+            a.entries.allSatisfy { b.entries.contains($0) }
+        }
+        var gaps: [String] = []
+        if !covered(p.affiliations, keeper.affiliations) { gaps.append("隸屬") }
+        if !covered(p.ranks, keeper.ranks) { gaps.append("職級") }
+        if !covered(p.administrative, keeper.administrative) { gaps.append("行政職") }
+        if !covered(p.appointments, keeper.appointments) { gaps.append("聘任") }
+        if !covered(p.fields, keeper.fields) { gaps.append("研究領域") }
+        for (k, tl) in p.contacts.sorted(by: { $0.key < $1.key })
+        where !covered(tl, keeper.contacts[k] ?? TimelineOf()) {
+            gaps.append("聯絡資訊 \(k)")
+        }
+        return gaps
     }
 
     /// 本函式涵蓋的 `Person` 儲存屬性數。`PersonFieldCoverageTests` 拿它與反射比對。

@@ -50,6 +50,10 @@ struct ResolveDivergence: ParsableCommand {
         if !report.removedDivergences.isEmpty {
             print("已刪除歧異記錄：\(report.removedDivergences.joined(separator: ", "))")
         }
+        if report.hasFailures && report.survivorUpdated {
+            FileHandle.standardError.write(Data(
+                "⚠ 倖存者「\(displaySafe(survivor, max: 200))」已被改寫——磁碟上不是原狀\n".utf8))
+        }
         for f in report.failures { FileHandle.standardError.write(Data("✗ \(displaySafe(f, max: 512))\n".utf8)) }
         if let rebuildError {
             FileHandle.standardError.write(Data(

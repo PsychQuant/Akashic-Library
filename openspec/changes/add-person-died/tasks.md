@@ -46,11 +46,11 @@
 
 ## 2. 推導與驗證的契約（TDD）
 
-- [ ] 2.1 契約測試釘住「`died` 不影響隸屬狀態推導」：person 隸屬 `1990-09` 至 `2004-11`、`died` 為 `2004-11-18`，匯出後 status 欄仍為 `retired`。驗證目標：測試通過，且以 git diff 確認 `Sources/AkashicExport/RelationalExport.swift` 的 status 推導運算式逐字未改。 （Requirement: A death date SHALL NOT alter any derivation that describes affiliation）
-- [ ] 2.2 寫出**會失敗**的診斷測試：store 內有一筆帶 `died` 且至少一段 affiliation 仍開放的記錄時，該記錄的 key 出現在報告中。驗證目標：紅燈（查詢尚未存在）。 （Requirement: A deceased person retaining an open affiliation SHALL be reported and SHALL NOT be corrected）
-- [ ] 2.3 `LibraryStore` 新增查詢，回傳「有 `died` 且至少一段 affiliation 開放」的記錄 key 清單（依字典序），比照既有兩個同型報告函式的形狀。驗證目標：2.2 轉綠。
-- [ ] 2.4 該診斷**只報告不修正**：跑完診斷後該 person 檔案內容與跑之前 byte 相同；該記錄不進 quarantine、不阻擋 `load()`。驗證目標：新增測試涵蓋這三項斷言。
-- [ ] 2.5 `akashic doctor` 輸出含該項報告，無命中時不輸出該項（避免噪音）。驗證目標：對含命中記錄的暫存 store 執行 doctor，輸出含該 key；對無命中的 store，輸出不含該項標題。
+- [x] 2.1 契約測試釘住「`died` 不影響隸屬狀態推導」：person 隸屬 `1990-09` 至 `2004-11`、`died` 為 `2004-11-18`，匯出後 status 欄仍為 `retired`。驗證目標：測試通過，且以 git diff 確認 `Sources/AkashicExport/RelationalExport.swift` 的 status 推導運算式逐字未改。 （Requirement: A death date SHALL NOT alter any derivation that describes affiliation）
+- [x] 2.2 寫出**會失敗**的診斷測試：store 內有一筆帶 `died` 且至少一段 affiliation 仍開放的記錄時，該記錄的 key 出現在報告中。驗證目標：紅燈（查詢尚未存在）。 （Requirement: A deceased person retaining an open affiliation SHALL be reported and SHALL NOT be corrected）
+- [x] 2.3 `LibraryStore` 新增查詢，回傳「有 `died` 且至少一段 affiliation 開放」的記錄 key 清單（依字典序），比照既有兩個同型報告函式的形狀。驗證目標：2.2 轉綠。
+- [x] 2.4 該診斷**只報告不修正**：跑完診斷後該 person 檔案內容與跑之前 byte 相同；該記錄不進 quarantine、不阻擋 `load()`。驗證目標：新增測試涵蓋這三項斷言。
+- [x] 2.5 `akashic doctor` 輸出含該項報告，無命中時不輸出該項（避免噪音）。驗證目標：對含命中記錄的暫存 store 執行 doctor，輸出含該 key；對無命中的 store，輸出不含該項標題。
 
 ## 3. 匯出層
 

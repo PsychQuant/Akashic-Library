@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 @testable import AkashicCore
+@testable import AkashicExport
 @testable import AkashicStoreIO
 
 /// 人的終結（#67）。
@@ -129,5 +130,82 @@ final class PersonDeceasedTests: XCTestCase {
             Person(key: "a", names: ["N"], died: "2004-11-18"),
             into: Person(key: "b", names: ["N"], died: "2004-11-18"))
         XCTAssertFalse(losses.contains { $0.contains("died") }, "\(losses)")
+    }
+
+    // MARK: - 死亡與隸屬正交（characterization）
+
+    private func person(_ key: String, died: String? = nil,
+                        affiliation: DateRange) -> Person {
+        var profile = PersonProfile()
+        profile.affiliations = TimelineOf([
+            TemporalValue(value: OrgRef.literal("Institute of Statistical Science"),
+                          range: affiliation)])
+        return Person(key: key, names: [key], authorized: [key], died: died, profile: profile)
+    }
+
+    private func status(of p: Person) -> String? {
+        let t = RelationalExport.tables(entries: [], people: [p])
+        guard let i = t.researcher.columns.firstIndex(of: "status") else { return nil }
+        return t.researcher.rows[0][i]
+    }
+
+    /// 在職過世的所長。隸屬**確實**結束了，所以 `retired` 是對的——它描述的是隸屬，
+    /// 不是這個人。加上 `died` 不得改變這個推導。
+    func testADeathDateDoesNotChangeTheAffiliationDerivedStatus() {
+        XCTAssertEqual(status(of: person("ching-zong-wei", died: "2004-11-18",
+                                         affiliation: DateRange(start: "1990-09", end: "2004-11"))),
+                       "retired")
+    }
+
+    /// 沒有 `died`（右設限）＋ 開放的隸屬 → 仍是 `current`。缺席不參與推導。
+    func testAnUnrecordedDeathLeavesAnOpenAffiliationCurrent() {
+        XCTAssertEqual(status(of: person("living", affiliation: DateRange(start: "2010-01"))),
+                       "current")
+    }
+
+    // MARK: - 矛盾要被看見，但不被代為裁決
+
+    /// 已故卻仍有開放的隸屬段：兩者只有一個是對的，而**哪一個對無法自動判斷**——
+    /// 可能是死於任內而漏記結束日，也可能是離職多年後過世、開放段只是資料缺漏。
+    private func seedContradictionFixture() throws {
+        _ = try store.writePerson(person("dead-but-open", died: "2004-11-18",
+                                         affiliation: DateRange(start: "1990-09")))
+        _ = try store.writePerson(person("properly-closed", died: "2004-11-18",
+                                         affiliation: DateRange(start: "1990-09", end: "2004-11")))
+        _ = try store.writePerson(person("living-and-open",
+                                         affiliation: DateRange(start: "2010-01")))
+    }
+
+    func testADeceasedPersonRetainingAnOpenAffiliationIsReported() throws {
+        try seedContradictionFixture()
+        XCTAssertEqual(try store.load().recordsDeceasedWithOpenAffiliation(), ["dead-but-open"])
+    }
+
+    /// 報告不得修改記錄。自動把隸屬的結束日設成死亡日是**推論**，而推論可能錯。
+    func testTheReportLeavesTheRecordByteIdentical() throws {
+        try seedContradictionFixture()
+        let file = try store.load().people.first { $0.key == "dead-but-open" }!.id
+        let path = store.root.appendingPathComponent("entities/\(file.uuidString).yaml")
+        let before = try Data(contentsOf: path)
+        _ = try store.load().recordsDeceasedWithOpenAffiliation()
+        XCTAssertEqual(try Data(contentsOf: path), before, "報告改動了記錄")
+    }
+
+    /// 這不是錯誤——不進 quarantine、不阻擋載入。
+    func testTheContradictionDoesNotQuarantineOrBlockLoading() throws {
+        try seedContradictionFixture()
+        let load = try store.load()
+        XCTAssertEqual(load.quarantined.count, 0, "\(load.quarantined)")
+        XCTAssertEqual(load.people.count, 3)
+    }
+
+    /// 查得到卻沒有出口，等於沒查——`doctor` 必須實際呼叫它（防腐）。
+    func testDoctorSurfacesTheContradiction() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let commands = try String(contentsOf: repoRoot.appendingPathComponent("Sources/akashic/Commands.swift"),
+                                  encoding: .utf8)
+        XCTAssertTrue(commands.contains("recordsDeceasedWithOpenAffiliation()"),
+                      "報告函式存在但 doctor 沒呼叫它，矛盾永遠不會被任何人看到")
     }
 }

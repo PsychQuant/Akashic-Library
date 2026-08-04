@@ -715,6 +715,22 @@ public extension LibraryLoad {
         }.map(\.key).sorted()
     }
 
+    /// 已記錄逝世、卻仍有**開放**隸屬段的記錄（#67）。
+    ///
+    /// 兩者只有一個是對的，而**哪一個對無法自動判斷**：可能是死於任內、隸屬的結束日
+    /// 漏記；也可能是離職多年後才過世，開放段只是資料缺漏。把隸屬的結束日設成死亡日
+    /// 是一個**推論**，而這裡的紀律與 `TimelineOf.overlappingPairs()` 相同——
+    /// 回報而非代為裁決，判斷屬於使用端。
+    ///
+    /// 這**不是**錯誤：不進 quarantine、不阻擋載入。它只是一個值得有人看一眼的矛盾。
+    ///
+    /// 回傳的 key 依字典序排序，讓報告在不同機器上一致。
+    public func recordsDeceasedWithOpenAffiliation() -> [String] {
+        people.filter { p in
+            p.died != nil && p.profile.affiliations.entries.contains { $0.range.isOpen }
+        }.map(\.key).sorted()
+    }
+
     func crossRecordIssues() -> [ValidationIssue] {
         var out: [ValidationIssue] = []
 

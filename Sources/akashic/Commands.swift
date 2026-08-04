@@ -63,6 +63,14 @@ struct Doctor: ParsableCommand {
         let citationOnly = load.recordsAuthorizedOnlyByCitationForm()
         print("authorized only by citation form: \(citationOnly.count) person"
               + (citationOnly.isEmpty ? "" : "（無真正的名字，只有索引系統的變換）"))
+        // #67：已記錄逝世卻仍有開放的隸屬段。**只在命中時輸出**——0 是正常狀態，
+        // 每次都印一行「0」只是噪音（上面兩項是普查數字，性質不同）。
+        let deceasedOpen = load.recordsDeceasedWithOpenAffiliation()
+        if !deceasedOpen.isEmpty {
+            print("deceased with open affiliation: \(deceasedOpen.count) person"
+                  + "（隸屬的結束日與死亡只有一個是對的，需要人判斷；工具不代為關閉）")
+            deceasedOpen.prefix(10).forEach { print("  ⚠ \(displaySafe($0, max: 120))") }
+        }
         if !load.quarantined.isEmpty {
             print("quarantined: \(load.quarantined.count)")
             load.quarantineLines.forEach { print($0) }

@@ -199,6 +199,46 @@ final class PersonDeceasedTests: XCTestCase {
         XCTAssertEqual(load.people.count, 3)
     }
 
+    // MARK: - 匯出層
+
+    /// spec 的 Example 逐字：任期 1990-09 至 2004-11、`died` 為 2004-11-18 →
+    /// status 欄 `retired`、died 欄 `2004-11-18`。
+    func testTheExportCarriesTheDeathDateAlongsideTheAffiliationStatus() {
+        let t = RelationalExport.tables(
+            entries: [],
+            people: [person("ching-zong-wei", died: "2004-11-18",
+                            affiliation: DateRange(start: "1990-09", end: "2004-11"))])
+        guard let s = t.researcher.columns.firstIndex(of: "status"),
+              let d = t.researcher.columns.firstIndex(of: "died") else {
+            return XCTFail("researcher 表缺欄位：\(t.researcher.columns)")
+        }
+        XCTAssertEqual(t.researcher.rows[0][s], "retired")
+        XCTAssertEqual(t.researcher.rows[0][d], "2004-11-18")
+    }
+
+    /// 右設限在關聯層就是 NULL——不得填空字串或任何佔位。
+    func testAnUnrecordedDeathExportsAsNull() {
+        let t = RelationalExport.tables(
+            entries: [], people: [person("living", affiliation: DateRange(start: "2010-01"))])
+        guard let d = t.researcher.columns.firstIndex(of: "died") else {
+            return XCTFail("researcher 表缺 died 欄：\(t.researcher.columns)")
+        }
+        XCTAssertNil(t.researcher.rows[0][d])
+    }
+
+    /// 衍生層的消費者看不到原始碼註解。「status 描述的是隸屬」必須寫在匯出的 schema 裡。
+    func testTheExportedSchemaStatesWhatTheStatusColumnDescribes() {
+        let sql = RelationalExport.duckDBScript()
+        guard let statusLine = sql.components(separatedBy: "\n")
+            .first(where: { $0.contains("status") && $0.contains("CHECK") }) else {
+            return XCTFail("找不到 status 欄定義")
+        }
+        let idx = sql.range(of: statusLine)!.lowerBound
+        let preamble = String(sql[sql.startIndex..<idx].suffix(400))
+        XCTAssertTrue(preamble.contains("隸屬"),
+                      "status 欄的說明沒講清楚它描述的是隸屬：\n\(preamble)")
+    }
+
     /// 查得到卻沒有出口，等於沒查——`doctor` 必須實際呼叫它（防腐）。
     func testDoctorSurfacesTheContradiction() throws {
         let repoRoot = URL(fileURLWithPath: #filePath)

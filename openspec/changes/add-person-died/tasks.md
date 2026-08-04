@@ -54,8 +54,8 @@
 
 ## 3. 匯出層
 
-- [ ] 3.1 匯出的 `researcher` 表新增 `died` 欄（位置在既有欄位之後）：有記錄者填日期、無記錄者為 NULL。驗證目標：測試斷言欄位清單含 `died`，且兩種記錄的值各自正確。 （Requirement: The relational export SHALL expose the death date and SHALL state what its status column describes）
-- [ ] 3.2 「status 欄描述的是**隸屬**，不是活躍或在世」寫進**匯出的 schema 說明**，不再只存在於原始碼註解。驗證目標：測試斷言匯出 schema 中該欄位的說明文字含「隸屬」。
+- [x] 3.1 匯出的 `researcher` 表新增 `died` 欄（位置在既有欄位之後）：有記錄者填日期、無記錄者為 NULL。驗證目標：測試斷言欄位清單含 `died`，且兩種記錄的值各自正確。 （Requirement: The relational export SHALL expose the death date and SHALL state what its status column describes）
+- [x] 3.2 「status 欄描述的是**隸屬**，不是活躍或在世」寫進**匯出的 schema 說明**，不再只存在於原始碼註解。驗證目標：測試斷言匯出 schema 中該欄位的說明文字含「隸屬」。
 
 ## 4. 文件
 

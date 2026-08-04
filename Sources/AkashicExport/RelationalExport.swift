@@ -85,7 +85,10 @@ public enum RelationalExport {
              // status：有開放的隸屬 ＝ current，全部結束 ＝ retired，沒資料 ＝ NULL。
              // **沒資料不猜成 current**——那會讓 43 位退休者被算成現職。
              p.profile.affiliations.isEmpty ? nil
-                : (p.profile.affiliations.current != nil ? "current" : "retired")]
+                : (p.profile.affiliations.current != nil ? "current" : "retired"),
+             // #67：逝世日期。**與 status 正交**——status 描述隸屬，這欄描述這個人。
+             // NULL ＝ 右設限（尚未觀察到死亡），**不是**「在世」的斷言。
+             p.died]
         }
 
         // long-format 時間軸。維度值域開放，所以不攤平成寬表。
@@ -147,7 +150,7 @@ public enum RelationalExport {
                               columns: ["researcher_id", "person_key", "name_full",
                                         "orcid", "openalex", "affiliation_current",
                                         "rank_current", "administrative_current",
-                                        "appointment_current", "status"],
+                                        "appointment_current", "status", "died"],
                               rows: researcherRows),
             researcherTimeline: Table(name: "researcher_timeline",
                                       columns: ["researcher_id", "dimension", "value",
@@ -243,8 +246,19 @@ public enum RelationalExport {
             rank_current          TEXT,
             administrative_current TEXT,
             appointment_current   TEXT,
+            -- **本欄描述的是「隸屬」，不是這個人是否仍在研究、也不是是否在世。**
+            -- retired ＝ 所有隸屬段都已結束，僅此而已：離開的人可能仍在別處發表
+            -- （實測有 2017 / 2023 離職者的著作年表持續到 2026），也可能已經過世。
+            -- 「還在發表嗎」請自己從 publication 表算（MAX(year) GROUP BY 研究者）；
+            -- 「是否已知過世」看下面的 died 欄。
             -- current / retired / NULL。**沒有隸屬資料時是 NULL，不猜成 current**。
-            status        TEXT CHECK (status IS NULL OR status IN ('current', 'retired'))
+            status        TEXT CHECK (status IS NULL OR status IN ('current', 'retired')),
+            -- 逝世日期（#67）。ISO 8601 前綴，保留來源精度（2004 / 2004-11 / 2004-11-18）
+            -- —— 精度即區間寬度：'2004' 說的是「2004 年的某個時候」。
+            -- **NULL ＝ 尚未觀察到死亡（右設限），不是「在世」的斷言**：它同時涵蓋
+            -- 「真的還活著」與「已故但未記錄」，而從資料的角度那兩者是同一件事。
+            -- 與 status 正交：在職過世的人 status 仍是 retired（隸屬確實結束了）。
+            died          TEXT
         );
 
         -- #20 的 valid-time 歷史。**long format**：維度值域是開放的（新職稱只是一個

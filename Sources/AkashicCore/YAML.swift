@@ -1181,6 +1181,11 @@ public enum EntityKind: String, CaseIterable {
     case work
     case person
     case organization
+    /// 未決的同一性問題（#71）。它決定自己的欄位（question / candidates / judgement），
+    /// 因而選出自己的 decoder——這是 entity-boundary 的判別測試所要求的唯一條件。
+    /// 對照被同一個測試拒絕的 `view`：view 選不出任何形狀，載入器只會把它當成某個
+    /// 既有形狀來讀。
+    case divergence
 
     /// 封閉集合。不在其中的裸標籤 → quarantine，不猜。
     public static let knownLabels: Set<String> = Set(allCases.map(\.rawValue))
@@ -1523,5 +1528,138 @@ public enum OrganizationYAML {
                                               expect: "scalar", nullIsAbsent: true,
                                               { $0.scalar?.string })
         return org
+    }
+}
+
+// MARK: - Divergence（#71）
+
+/// `divergence` ↔ YAML。欄位順序：裸標籤 → id → question → candidates → judgement → rests-on。
+///
+/// 拒絕條件不是防禦性檢查，是形狀的意義：少於兩個候選的「歧異」沒有東西可以與之
+/// 相同；跨形狀的候選不是未決的問題而是類別錯誤；沒有依據的判斷不是判斷。
+public enum DivergenceYAML {
+    static let knownKeys: Set<String> = Set(["id", "question", "candidates",
+                                             "judgement", "rests-on"])
+        .union(EntityKind.knownLabels)
+
+    static let knownCandidateKeys: Set<String> = Set(["key", "shape"])
+
+    public static func encode(_ d: Divergence) throws -> String {
+        var pairs: [(Node, Node)] = [(Node(EntityKind.divergence.rawValue), Node("")),
+                                     (Node("id"), Node(d.id.uuidString)),
+                                     (Node("question"), Node(d.question))]
+        // 候選依 (shape, key) 排序輸出——同一組候選不論寫入順序都得到同一份位元組。
+        let sorted = d.candidates.sorted { ($0.shape.rawValue, $0.key) < ($1.shape.rawValue, $1.key) }
+        pairs.append((Node("candidates"), Node(sorted.map { c -> Node in
+            Node([(Node("key"), Node(c.key)),
+                  (Node("shape"), Node(c.shape.rawValue))] as [(Node, Node)])
+        })))
+        if let j = d.judgement {
+            pairs.append((Node("judgement"), Node(j.statement)))
+            pairs.append((Node("rests-on"), Node(j.restsOn.sorted().map { Node($0) })))
+        }
+        var text = try Yams.serialize(node: Node(pairs), allowUnicode: true)
+        try EntryYAML.appendRawBlocks(d.unknownFields, to: &text, targetIndent: 0,
+                                      context: "divergence")
+        // canary：寫出去的東西必須讀得回同一個值，否則拒寫（v1.3 fail-closed）。
+        let back = try decode(text)
+        guard back == d else {
+            throw StoreYAMLError.invalidField("divergence", "encode 自檢失敗：讀回的值與原值不符")
+        }
+        return text
+    }
+
+    public static func decode(_ yaml: String) throws -> Divergence {
+        let yaml = EntryYAML.stripLeadingBOM(yaml)
+        try EntryYAML.assertNoLossyContentChars(yaml, context: "divergence")
+        try AliasEventBudget.check(yaml, context: "entity")
+        guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
+            throw StoreYAMLError.notAMapping
+        }
+        var oracleBudget = 200_000
+        let keys = try EntryYAML.keyStrings(map, known: knownKeys, context: "divergence")
+        let unknowns = try EntryYAML.captureUnknownBlocks(
+            text: yaml, map: map, keys: keys, known: knownKeys,
+            indent: 0, context: "divergence", budget: &oracleBudget)
+
+        guard let question = try EntryYAML.requireShape(
+            map["question"], field: "divergence.question",
+            expect: "scalar", { $0.scalar?.string }) else {
+            throw StoreYAMLError.missingField("question")
+        }
+        guard let rawID = try EntryYAML.requireShape(
+            map["id"], field: "divergence.id",
+            expect: "scalar", nullIsAbsent: true, { $0.scalar?.string }),
+              let id = UUID(uuidString: rawID) else {
+            throw StoreYAMLError.invalidField("divergence.id", "缺少或不是合法的 UUID")
+        }
+
+        guard let seq = try EntryYAML.requireShape(
+            map["candidates"], field: "divergence.candidates",
+            expect: "sequence", { $0.sequence }) else {
+            throw StoreYAMLError.missingField("candidates")
+        }
+        var candidates: [DivergenceCandidate] = []
+        for node in seq {
+            guard let m = node.mapping else {
+                throw StoreYAMLError.invalidField("divergence.candidates", "每個候選必須是 mapping")
+            }
+            try EntryYAML.rejectUnknownKeys(m, known: knownCandidateKeys, context: "candidates")
+            guard let key = m["key"]?.scalar?.string else {
+                throw StoreYAMLError.missingField("candidates[].key")
+            }
+            guard let rawShape = m["shape"]?.scalar?.string else {
+                throw StoreYAMLError.invalidField(
+                    "divergence.candidates",
+                    "候選「\(key)」缺少 shape——鍵在不同形狀之間可以同名，形狀無法推導")
+            }
+            guard let shape = EntityKind(rawValue: rawShape) else {
+                throw StoreYAMLError.invalidField(
+                    "divergence.candidates",
+                    "候選「\(key)」的 shape「\(rawShape)」不是已知形狀")
+            }
+            candidates.append(DivergenceCandidate(key: key, shape: shape))
+        }
+
+        // 歧異需要有東西與之相同。
+        guard candidates.count >= 2 else {
+            throw StoreYAMLError.invalidField(
+                "divergence.candidates",
+                "歧異至少需要兩個候選，實際 \(candidates.count) 個")
+        }
+        // 跨形狀不是未決的問題，是類別錯誤——錯誤同時指名兩個候選與各自的形狀。
+        if let first = candidates.first,
+           let odd = candidates.first(where: { $0.shape != first.shape }) {
+            throw StoreYAMLError.invalidField(
+                "divergence.candidates",
+                "候選跨越不同形狀：「\(first.key)」是 \(first.shape.rawValue)，"
+                + "「\(odd.key)」是 \(odd.shape.rawValue)——「是否為同一個」跨形狀無法回答")
+        }
+
+        // judgement 與 rests-on 成對；只有其一時「這筆 provenance 完不完整」無法機械判定。
+        let statement = try EntryYAML.requireShape(
+            map["judgement"], field: "divergence.judgement",
+            expect: "scalar", nullIsAbsent: true, { $0.scalar?.string })
+        let restsOnSeq = try EntryYAML.requireShape(
+            map["rests-on"], field: "divergence.rests-on",
+            expect: "sequence", nullIsAbsent: true, { $0.sequence })
+        let restsOn = restsOnSeq?.compactMap { $0.scalar?.string } ?? []
+        var judgement: Judgement?
+        switch (statement, restsOn.isEmpty) {
+        case (nil, true):
+            judgement = nil
+        case (let s?, false):
+            judgement = Judgement(statement: s, restsOn: restsOn)
+        default:
+            throw StoreYAMLError.invalidField(
+                "divergence.judgement",
+                "judgement 與 rests-on 必須成對出現——"
+                + "沒有依據的斷言不是判斷，沒有斷言的依據不知道在支持什麼")
+        }
+
+        var d = Divergence(id: id, question: question, candidates: candidates,
+                           judgement: judgement)
+        d.unknownFields = unknowns
+        return d
     }
 }

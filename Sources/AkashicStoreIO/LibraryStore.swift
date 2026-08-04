@@ -35,6 +35,9 @@ public struct LibraryLoad {
     public var people: [Person]
     /// 機構（第三種一級實體形狀，標籤 `organization:`）。
     public var organizations: [Organization]
+    /// 未決的同一性問題（#71，標籤 `divergence:`）。**短暫**——消歧完成即刪除，
+    /// 歷史託給版本控制。載入時與其他形狀並列，但它不是被指涉的對象。
+    public var divergences: [Divergence]
     /// Library registry（#13 membership views）；成員關係在各 entry 的 akashic.libraries
     public var libraries: [Library]
     public var quarantined: [QuarantinedFile]
@@ -46,11 +49,13 @@ public struct LibraryLoad {
 
     public init(entries: [Entry] = [], people: [Person] = [],
                 organizations: [Organization] = [],
+                divergences: [Divergence] = [],
                 libraries: [Library] = [], quarantined: [QuarantinedFile] = [],
                 unknownFieldFiles: [String] = []) {
         self.entries = entries
         self.people = people
         self.organizations = organizations
+        self.divergences = divergences
         self.libraries = libraries
         self.quarantined = quarantined
         self.unknownFieldFiles = unknownFieldFiles
@@ -286,6 +291,16 @@ public final class LibraryStore {
                     }
                     if !org.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
                     result.organizations.append(org)
+                case .divergence:
+                    let d = try DivergenceYAML.decode(text)
+                    guard d.id == stemUUID else {
+                        result.quarantined.append(QuarantinedFile(
+                            file: name,
+                            reason: "檔名 UUID 與 divergence.id「\(d.id.uuidString)」不符"))
+                        continue
+                    }
+                    if !d.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
+                    result.divergences.append(d)
                 case .work:
                     let entry = try EntryYAML.decode(text)
                     guard entry.id == stemUUID else {

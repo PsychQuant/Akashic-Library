@@ -41,6 +41,9 @@ struct Doctor: ParsableCommand {
         print("library: \(root.path)")
         print("entries: \(stats.entries)")
         print("people: \(stats.people)")
+        // 見上方 validate 的同一理由（#71）。index 不索引歧異記錄（它是短暫的、
+        // 不被指涉），所以計數取自 load 而非 stats。
+        print("divergences: \(load.divergences.count)")
         print("relations: \(stats.relations)")
         let orphaned = load.entries.filter { $0.provenance?.orphanedAt != nil }
         print("orphaned: \(orphaned.count)\(orphaned.isEmpty ? "" : "（" + orphaned.map { displaySafe($0.citekey, max: 200) }.joined(separator: ", ") + "）")")
@@ -107,7 +110,10 @@ struct Validate: ParsableCommand {
         if failed {
             throw ExitCode(1)
         }
-        print("✓ \(load.entries.count) entries、\(load.people.count) people、\(load.libraries.count) libraries 全部通過")
+        // 歧異記錄計入摘要：承載若不可觀察就不可驗證——載入成功卻不出現在任何
+        // 輸出裡，使用者無從分辨「載入了」與「被靜默忽略」（#71）。
+        let divergenceNote = load.divergences.isEmpty ? "" : "、\(load.divergences.count) divergences"
+        print("✓ \(load.entries.count) entries、\(load.people.count) people、\(load.libraries.count) libraries\(divergenceNote) 全部通過")
     }
 }
 

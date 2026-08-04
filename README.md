@@ -18,7 +18,8 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
 ├── Sources/AkashicQuery         結構化查詢（欄位 + 關係：同作者/同期刊/cites/related）
 ├── Sources/AkashicGraph         關係圖模型、鄰域展開、Mermaid/DOT/GraphML
 └── Sources/akashic              CLI：import-zotero / validate / export-bib /
-                                 resolve-people / doctor / query / graph
+                                 resolve-people / doctor / query / graph /
+                                 rename / resolve-divergence
 mcps/                            MCP server submodules（che-zotero-mcp、che-biblatex-mcp）
 repos/                           共用 library submodules（biblatex-apa-swift = canonical）
 docs/                            spec 與 store 格式規格書
@@ -73,6 +74,7 @@ store 是跨 binary（CLI / MCP / App）的契約。格式版本記載於
 | v1.1 | provenance hash 欄位 |
 | v1.2 | `akashic.libraries` + `libraries/` registry（#13）；未知欄位 **strict → throw** |
 | v1.3 | tolerant-preserve（#23）：**開放演化層**（entry / person / library 頂層、`akashic` namespace）的未知欄位改為容忍 + 原樣保留寫回，取代 v1.2 的 throw |
+| — | `divergence:` 形狀（#71）：未決的同一性問題成為可記錄的一級事物，消歧是「合併 + 全庫參照重寫 + 刪檔」的原子操作（`akashic resolve-divergence`）。**additive，不 bump format**——見 [store-format.md §5.8](docs/store-format.md) 與 #74 對相容性決定的討論 |
 
 **v1.3 的三個限定，比表格本身重要**：
 

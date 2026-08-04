@@ -571,3 +571,48 @@ struct AuthorizeNames: ParsableCommand {
         print(apply ? "✓ 已寫入" : "未寫入。確認上面的計畫後加 --apply 執行。")
     }
 }
+
+/// 記下一個未決的同一性問題（#77）。
+///
+/// `resolve-divergence` 早有入口而**建立**沒有——於是「先記下來、之後再判斷」在使用層
+/// 不成立，只能手寫 YAML 繞過編碼器，或當場把判斷做掉而不留痕。
+struct RecordDivergence: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "record-divergence",
+        abstract: "記下未決的同一性問題（#77）；記下判斷**不等於**消歧，消歧用 resolve-divergence")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Option(name: .long, help: "未決的是什麼，一句話")
+    var question: String
+
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "候選，形如 `key:shape`（shape 為 person / organization / work）；需要兩個以上")
+    var candidate: [String]
+
+    @Option(name: .long, help: "已經形成的判斷（選填；給了就必須同時給 --rests-on）")
+    var judgement: String?
+
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "判斷的依據（來源 URL 或 sha256: 存檔摘要）；可多個")
+    var restsOn: [String] = []
+
+    func run() throws {
+        let store = try options.openStore()
+        let parsed: [(key: String, shape: EntityKind)] = try candidate.map { spec in
+            let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2, let shape = EntityKind(rawValue: parts[1]) else {
+                throw ValidationError(
+                    "候選格式為 `key:shape`（shape ∈ \(EntityKind.allCases.map(\.rawValue).joined(separator: " / "))），得到「\(displaySafe(spec, max: 120))」")
+            }
+            return (key: parts[0], shape: shape)
+        }
+        let d = try store.recordDivergence(question: question, candidates: parsed,
+                                           judgement: judgement, restsOn: restsOn)
+        print("✓ 已記錄 divergence \(d.id.uuidString)")
+        print("  候選: " + d.candidates.map { displaySafe($0.key, max: 120) }.joined(separator: " / "))
+        print(d.judgement == nil
+              ? "  尚無判斷——之後可再跑一次本命令補上 --judgement 與 --rests-on（同一組候選＝同一筆記錄）"
+              : "  已附判斷。**記下判斷不等於消歧**——要合併請跑 akashic resolve-divergence \(d.id.uuidString) --survivor <key>")
+    }
+}

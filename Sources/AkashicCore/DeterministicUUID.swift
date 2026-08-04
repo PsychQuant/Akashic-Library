@@ -53,4 +53,18 @@ public enum DeterministicUUID {
     public static func forOrganization(key: String) -> UUID {
         v5(namespace: organizationNamespace, name: key)
     }
+
+    /// 歧異記錄的 namespace。與 person / organization 分開——歧異記錄不是實體，
+    /// 它是「哪些實體可能是同一個」這個**未決問題**本身。
+    public static let divergenceNamespace = UUID(
+        uuidString: "3f4c9a71-2d68-4e15-9b03-7a6c1e5d8b24")!
+
+    /// 歧異記錄的 id：由**候選鍵的集合**推出。
+    ///
+    /// 用集合而非問句：同一組候選就是**同一個未決問題**，換個問法不該累積成第二筆
+    /// 記錄。排序後再雜湊，因為「這些是不是同一個」不因候選的排列而改變——`Divergence`
+    /// 的相等性同樣不看候選順序。
+    public static func forDivergence(candidateKeys: [String]) -> UUID {
+        v5(namespace: divergenceNamespace, name: candidateKeys.sorted().joined(separator: "\n"))
+    }
 }

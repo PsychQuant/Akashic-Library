@@ -106,6 +106,48 @@ extension LibraryStore {
         }
     }
 
+    /// 記下一個未決的同一性問題（#77）。
+    ///
+    /// #71 讓歧異成為可記錄的一級事物，`writeDivergence` 與 `resolveDivergence` 都備妥，
+    /// 消歧也有 CLI 入口——但**沒有任何方式建立一筆記錄**。於是「先記下來、之後再判斷」
+    /// 在使用層不成立：實務上只能手寫 YAML 繞過編碼器（位元組形式無保證），或當場把
+    /// 判斷做掉而不留痕。這個入口把型別層已有的能力接到使用層。
+    ///
+    /// **候選必須已經存在**：對不存在的鍵記歧異沒有意義，而且 `resolveDivergence` 之後
+    /// 會撞上同一個缺席——晚報不如早報。
+    ///
+    /// **記下判斷不等於做掉它。** 消歧是一個操作（`resolveDivergence`），不是一個欄位。
+    @discardableResult
+    public func recordDivergence(question: String,
+                                 candidates: [(key: String, shape: EntityKind)],
+                                 judgement: String?,
+                                 restsOn: [String]) throws -> Divergence {
+        guard candidates.count >= 2 else {
+            throw StoreIOError.invalidKey(
+                "divergence candidates", "需要兩個以上的候選，得到 \(candidates.count) 個")
+        }
+        // 「沒有依據的斷言不是判斷，沒有斷言的依據不知道在支持什麼」（#71 的不變式）。
+        // 編碼器也會擋，但那時的訊息在 YAML 層——這裡擋，訊息才貼近使用者的動作。
+        if (judgement != nil) != !restsOn.isEmpty {
+            throw StoreIOError.invalidKey(
+                "divergence judgement",
+                "判斷與依據必須成對：有 judgement 就要有 rests-on（依據），反之亦然")
+        }
+        let load = try load()
+        let known = Set(load.people.map(\.key)).union(load.organizations.map(\.key))
+        for c in candidates where !known.contains(c.key) {
+            throw StoreIOError.invalidKey(
+                "divergence candidate", "store 內找不到候選「\(c.key)」——對不存在的鍵記歧異沒有意義")
+        }
+        let d = Divergence(
+            id: DeterministicUUID.forDivergence(candidateKeys: candidates.map(\.key)),
+            question: question,
+            candidates: candidates.map { DivergenceCandidate(key: $0.key, shape: $0.shape) },
+            judgement: judgement.map { Judgement(statement: $0, restsOn: restsOn) })
+        _ = try writeDivergence(d)
+        return d
+    }
+
     /// **要求 entities 佈局**。legacy store 上寫得進去卻刪不掉——見
     /// `DivergenceResolveError.legacyLayout`。拒絕比部分支援誠實。
     @discardableResult

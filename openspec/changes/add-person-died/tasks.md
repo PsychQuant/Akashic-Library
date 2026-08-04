@@ -59,9 +59,9 @@
 
 ## 4. 文件
 
-- [ ] 4.1 `docs/store-format.md` 的 person 欄位段落新增 `died`，涵蓋四項：ISO 8601 前綴精度；缺席語意為**右設限**（既非「在世」斷言、亦非「不適用」——死亡是必然事件）；缺席**不容其他讀法**（死亡是邊界銳利的事件，不像機構的結束會牽涉合併/吸收所帶來的同一性問題，後者屬歧異記錄的範疇）；唯一不可表達的一格（已觀察到死亡但區間無界，屬 issue 63）。散文用 "deceased"、欄位名用 `died`。驗證目標：內容審查——四項各有對應文字。 （Requirement: The absence of a death date SHALL be read as right-censored, not as living）
-- [ ] 4.2 同一文件明寫「本變更為 additive、依 §5.0 準則**不 bump format**」及其理由，並與 issue 81 的欄位語意變更對照；另記載硬要求——provenance 機制（issue 66）落地前，逝世來源一律寫進 person 的 note 欄位。驗證目標：內容審查，且 §5.0 的版本對照表**未**新增列。 （Requirement: Adding the death field SHALL NOT change the supported store format version）
-- [ ] 4.3 `README.md` 對 person 欄位與 doctor 報告項目的敘述同步 `died`。驗證目標：內容審查——README 敘述與實作一致。
+- [x] 4.1 `docs/store-format.md` 的 person 欄位段落新增 `died`，涵蓋四項：ISO 8601 前綴精度；缺席語意為**右設限**（既非「在世」斷言、亦非「不適用」——死亡是必然事件）；缺席**不容其他讀法**（死亡是邊界銳利的事件，不像機構的結束會牽涉合併/吸收所帶來的同一性問題，後者屬歧異記錄的範疇）；唯一不可表達的一格（已觀察到死亡但區間無界，屬 issue 63）。散文用 "deceased"、欄位名用 `died`。驗證目標：內容審查——四項各有對應文字。 （Requirement: The absence of a death date SHALL be read as right-censored, not as living）
+- [x] 4.2 同一文件明寫「本變更為 additive、依 §5.0 準則**不 bump format**」及其理由，並與 issue 81 的欄位語意變更對照；另記載硬要求——provenance 機制（issue 66）落地前，逝世來源一律寫進 person 的 note 欄位。驗證目標：內容審查，且 §5.0 的版本對照表**未**新增列。 （Requirement: Adding the death field SHALL NOT change the supported store format version）
+- [x] 4.3 `README.md` 對 person 欄位與 doctor 報告項目的敘述同步 `died`。驗證目標：內容審查——README 敘述與實作一致。
 
 ## 5. 收尾驗證
 

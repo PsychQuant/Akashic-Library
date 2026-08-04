@@ -8,6 +8,8 @@ public enum DivergenceResolveError: Error, LocalizedError, Equatable {
     case candidateMissing(key: String, shape: String)
     case outsideVersionControl(root: String)
     case unsupportedShape(String)
+    case legacyLayout(root: String)
+    case wouldLoseFields(merged: String, survivor: String, losses: [String])
 
     public var errorDescription: String? {
         switch self {
@@ -24,6 +26,16 @@ public enum DivergenceResolveError: Error, LocalizedError, Equatable {
                  + "版控之外刪掉就是真的沒了。先把 store 放進版控（或改用位於工作樹內的 store）再試。"
         case let .unsupportedShape(shape):
             return "本版的消歧只處理 person 與 work，不處理 \(shape)"
+        case let .legacyLayout(root):
+            return "store「\(displaySafe(root, max: 300))」是 legacy 佈局（format < 4），"
+                 + "歧異記錄需要 entities/ 佈局。legacy 下 person 落在 people/<key>.yaml、"
+                 + "而歧異記錄的刪除只認 entities/<uuid>.yaml——寫得進去、刪不掉，"
+                 + "必然停在「參照全改了、被併檔還在」的半完成狀態。先跑 akashic migrate。"
+        case let .wouldLoseFields(merged, survivor, losses):
+            return "拒絕合併：被併的「\(displaySafe(merged, max: 200))」帶有倖存者"
+                 + "「\(displaySafe(survivor, max: 200))」沒有的資料，合併會讓它隨檔案消失——"
+                 + losses.map { displaySafe($0, max: 300) }.joined(separator: "；")
+                 + "。先把要保留的搬到倖存者身上（或確認可以丟棄後手動清除），再消歧。"
         }
     }
 }
@@ -53,11 +65,17 @@ public struct ResolveReport: Equatable {
 
 extension LibraryStore {
 
+    /// **要求 entities 佈局**（format ≥ 4）。legacy store 上寫得進去卻刪不掉——
+    /// 見 `DivergenceResolveError.legacyLayout` 的說明。拒絕比部分支援誠實。
     @discardableResult
     public func writeDivergence(_ d: Divergence) throws -> URL {
+        guard usesEntitiesLayout else {
+            throw DivergenceResolveError.legacyLayout(root: root.path)
+        }
         let yaml = try DivergenceYAML.encode(d)
         let dest = entityURL(id: d.id)
-        try atomicWriteEntity(yaml, to: dest)
+        try FileManager.default.createDirectory(at: entitiesDir, withIntermediateDirectories: true)
+        try atomicWrite(yaml, to: dest)
         return dest
     }
 
@@ -78,6 +96,10 @@ extension LibraryStore {
     public func resolveDivergence(id: UUID, survivor: String) throws -> ResolveReport {
         guard StoreKey.isValid(survivor) else {
             throw StoreIOError.invalidKey("survivor key", survivor)
+        }
+        // 佈局前提比版控前提更早——legacy 上連寫都不該發生。
+        guard usesEntitiesLayout else {
+            throw DivergenceResolveError.legacyLayout(root: root.path)
         }
         // 區域變數不叫 `load`——那會遮蔽 `load()` 方法本身（`renameEntry` 用
         // `store_loadForRename()` 繞開的是同一件事）。
@@ -128,6 +150,30 @@ extension LibraryStore {
             }
             doomed.append(p)
         }
+        // **合併只搬別名，所以別名以外的東西不許有。** 被併者若帶著倖存者沒有的
+        // 識別碼或時間軸，那些資料會隨檔案一起消失而使用者只看到「✓ 併入」。歧異的
+        // 典型來源正是「兩個聚合器對同一位作者的比對結果不一致」——那種情況下兩筆
+        // 各帶一半識別碼的機率很高。所以拒絕並指名將失去什麼，讓人先搬再消歧。
+        for p in doomed {
+            var losses: [String] = []
+            func check(_ label: String, _ mine: String?, _ theirs: String?) {
+                guard let theirs, !theirs.isEmpty else { return }
+                if mine != theirs { losses.append("\(label): \(theirs)") }
+            }
+            check("orcid", keeper.orcid, p.orcid)
+            check("openalex", keeper.openalex, p.openalex)
+            check("note", keeper.note, p.note)
+            if p.profile != PersonProfile(), p.profile != keeper.profile {
+                losses.append("profile（隸屬等時間軸）")
+            }
+            if !p.unknownFields.isEmpty {
+                losses.append("未知欄位 " + p.unknownFields.map(\.key).joined(separator: "、"))
+            }
+            guard losses.isEmpty else {
+                throw DivergenceResolveError.wouldLoseFields(
+                    merged: p.key, survivor: survivor, losses: losses)
+            }
+        }
         // 別名併入倖存者：被併者的寫法保留，否則下次遇到那個寫法又會重新分割一次。
         keeper.names = dedupePreservingOrder(keeper.names + doomed.flatMap(\.names))
 
@@ -174,8 +220,14 @@ extension LibraryStore {
         }
         var entriesToWrite: [Entry] = []
         var keeperRewritten = keeper
-        keeperRewritten.akashic.relations.cites = migrate(keeper.akashic.relations.cites)
-        keeperRewritten.akashic.relations.related = migrate(keeper.akashic.relations.related)
+        // **倖存者自己的參照要再濾掉 survivor**：keeper 原本引用的是「另一筆作品」，
+        // 合併之後那筆就是 keeper 自己。`renameEntry` 做同樣的自我參照遷移是對的
+        // （同一筆記錄換稱呼），但合併的語意不同——留著會產生引用自己的記錄，而
+        // `crossRecordIssues()` 既不查自我引用也不查 relations 懸空，沒人會發現。
+        keeperRewritten.akashic.relations.cites =
+            migrate(keeper.akashic.relations.cites).filter { $0 != survivor }
+        keeperRewritten.akashic.relations.related =
+            migrate(keeper.akashic.relations.related).filter { $0 != survivor }
         for var e in snapshot.entries where e.id != keeper.id && !doomedIDs.contains(e.id) {
             let cites = migrate(e.akashic.relations.cites)
             let related = migrate(e.akashic.relations.related)
@@ -207,11 +259,16 @@ extension LibraryStore {
         // 指名被併實體的參照」。遷移後若候選塌縮到少於兩個，那筆記錄已被本次消歧回答，
         // 一併刪除；留著會寫出一份 decode 拒收的檔（<2 候選），那是靜默的損壞。
         let merged = Set(mergedKeys)
+        // **比 key 也要比 shape。** 鍵在不同形狀之間可以同名（organization spec 明載
+        // 「key 與 person 同名是刻意的」），`shape:` 存進記錄的唯一理由就是這個。只比
+        // key 會把一筆機構歧異的候選改寫成指向 person 鍵，甚至讓它塌縮後被整筆刪除
+        // ——一個使用者從未回答、也與本次消歧無關的問題就這樣消失（#71 R1 verify）。
+        let mergedShape = record.shape
         var otherToWrite: [Divergence] = []
         var collapsed: [Divergence] = []
         for var other in snapshot.divergences where other.id != record.id {
             let migrated = dedupeCandidates(other.candidates.map { c in
-                merged.contains(c.key)
+                (merged.contains(c.key) && c.shape == mergedShape)
                     ? DivergenceCandidate(key: survivor, shape: c.shape) : c
             })
             guard migrated != other.candidates else { continue }
@@ -270,6 +327,15 @@ extension LibraryStore {
                     + ((error as? LocalizedError)?.errorDescription ?? String(describing: error)))
             }
         }
+        // **被併實體沒全刪掉就不刪歧異記錄。** 歧異記錄是唯一記得「這兩筆可能是同
+        // 一個」的東西，也是重跑的唯一依據；先刪它再讓被併檔留著，使用者只能手工
+        // 比對 git 才知道發生過什麼——正是本函式開頭宣稱要避免的半完成狀態。
+        // `report.merged` 同樣要等真的刪成功才填，否則 CLI 會同時印「✓ 併入」與失敗。
+        guard !report.hasFailures else {
+            report.failures.append("因刪除失敗，歧異記錄保留（修好後可重跑同一個 id）")
+            report.rewritten.sort()
+            return report
+        }
         report.merged = mergedKeys.sorted()
         for d in collapsed + [record] {
             do {
@@ -312,24 +378,6 @@ extension LibraryStore {
         }
     }
 
-    private func atomicWriteEntity(_ content: String, to dest: URL) throws {
-        try FileManager.default.createDirectory(
-            at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let tmp = dest.deletingLastPathComponent()
-            .appendingPathComponent(".\(dest.lastPathComponent).tmp-\(UUID().uuidString)")
-        try content.write(to: tmp, atomically: false, encoding: .utf8)
-        do {
-            let fm = FileManager.default
-            if fm.fileExists(atPath: dest.path) {
-                _ = try fm.replaceItemAt(dest, withItemAt: tmp)
-            } else {
-                try fm.moveItem(at: tmp, to: dest)
-            }
-        } catch {
-            try? FileManager.default.removeItem(at: tmp)
-            throw error
-        }
-    }
 }
 
 private func dedupePreservingOrder(_ values: [String]) -> [String] {

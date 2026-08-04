@@ -454,7 +454,10 @@ public final class LibraryStore {
     /// 防禦性改走 moveItem——兩條路徑都是同目錄 rename、同等原子性。
     /// mustCreate = true 時強制走 moveItem——目的檔已存在會原子性擲錯，
     /// 不進 replaceItemAt 的覆蓋分支（exclusive-create 語意）。
-    private func atomicWrite(_ content: String, to dest: URL, mustCreate: Bool = false) throws {
+    /// `internal` 而非 `private`：`DivergenceResolve.swift` 的 `writeDivergence` 走同一條
+    /// 路徑。曾經在那裡複製一份近乎相同的實作，於 #71 R1 verify 被指出——複本的問題
+    /// 不是當下行為不同，而是**日後對寫入路徑的加固不會傳到那一份**。
+    func atomicWrite(_ content: String, to dest: URL, mustCreate: Bool = false) throws {
         let fm = FileManager.default
         let tmp = dest.deletingLastPathComponent()
             .appendingPathComponent(".\(dest.lastPathComponent).tmp-\(UUID().uuidString)")
@@ -673,6 +676,28 @@ public extension LibraryLoad {
             out.append(ValidationIssue(severity: .warning,
                 message: "作者 key「\(displaySafe(k, max: 200))」沒有對應的 people 檔"
                        + "（\(cites.count) 筆引用，如 \(displaySafe(cites.sorted().first ?? "", max: 200))）"))
+        }
+
+        // 歧異的候選同樣要被看見（#71 R1 verify）。**warning 而非 error**，理由與
+        // 上面的懸空作者相同。DA 的更正指出它的實際後果不是安全問題（候選鍵從未進過
+        // 任何路徑），而是**那筆記錄永遠無法被消歧**——`resolveDivergence` 只會擲
+        // `candidateMissing`，而在這條檢查之前沒有任何輸出說它壞了。
+        let entityKeys: [EntityKind: Set<String>] = [
+            .person: Set(people.map(\.key)),
+            .work: Set(entries.map(\.citekey)),
+            .organization: Set(organizations.map(\.key)),
+        ]
+        var danglingCandidates: [String: Int] = [:]
+        for d in divergences {
+            for c in d.candidates where !(entityKeys[c.shape]?.contains(c.key) ?? false) {
+                danglingCandidates["\(c.shape.rawValue) 「\(displaySafe(c.key, max: 200))」",
+                                   default: 0] += 1
+            }
+        }
+        for (k, n) in danglingCandidates.sorted(by: { $0.key < $1.key }) {
+            out.append(ValidationIssue(severity: .warning,
+                message: "歧異候選 \(k) 沒有對應的記錄（\(n) 筆歧異引用）"
+                       + "——這筆歧異無法被消歧，`resolve-divergence` 會擲「找不到對應記錄」"))
         }
 
         let libraryKeys = Set(libraries.map(\.key))

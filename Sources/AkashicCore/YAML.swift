@@ -1587,6 +1587,10 @@ public enum DivergenceYAML {
             expect: "scalar", { $0.scalar?.string }) else {
             throw StoreYAMLError.missingField("question")
         }
+        // 空的 question 不是「未決的問題」——記錄的整個意義就是那句話。
+        guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw StoreYAMLError.invalidField("divergence.question", "不得為空")
+        }
         guard let rawID = try EntryYAML.requireShape(
             map["id"], field: "divergence.id",
             expect: "scalar", nullIsAbsent: true, { $0.scalar?.string }),
@@ -1605,23 +1609,41 @@ public enum DivergenceYAML {
                 throw StoreYAMLError.invalidField("divergence.candidates", "每個候選必須是 mapping")
             }
             try EntryYAML.rejectUnknownKeys(m, known: knownCandidateKeys, context: "candidates")
-            guard let key = m["key"]?.scalar?.string else {
-                throw StoreYAMLError.missingField("candidates[].key")
+            // requireShape 而非 `?.scalar?.string`：known 欄位的形狀演化不入 tolerant
+            // 範圍（fail-closed）。直接取 scalar 會把「key 寫成序列」誤報成「缺 key」。
+            guard let key = try EntryYAML.requireShape(
+                m["key"], field: "divergence.candidates[].key",
+                expect: "scalar", { $0.scalar?.string }), !key.isEmpty else {
+                throw StoreYAMLError.invalidField(
+                    "divergence.candidates", "候選的 key 缺少或為空")
             }
-            guard let rawShape = m["shape"]?.scalar?.string else {
+            guard let rawShape = try EntryYAML.requireShape(
+                m["shape"], field: "divergence.candidates[].shape",
+                expect: "scalar", { $0.scalar?.string }) else {
                 throw StoreYAMLError.invalidField(
                     "divergence.candidates",
-                    "候選「\(key)」缺少 shape——鍵在不同形狀之間可以同名，形狀無法推導")
+                    "候選「\(displaySafe(key, max: 200))」缺少 shape"
+                    + "——鍵在不同形狀之間可以同名，形狀無法推導")
             }
             guard let shape = EntityKind(rawValue: rawShape) else {
                 throw StoreYAMLError.invalidField(
                     "divergence.candidates",
-                    "候選「\(key)」的 shape「\(rawShape)」不是已知形狀")
+                    "候選「\(displaySafe(key, max: 200))」的 shape"
+                    + "「\(displaySafe(rawShape, max: 100))」不是已知形狀")
             }
             candidates.append(DivergenceCandidate(key: key, shape: shape))
         }
 
-        // 歧異需要有東西與之相同。
+        // 歧異需要有東西與之相同。**先去重再數**：兩個一模一樣的候選沒有東西可以
+        // 與之相同，卻能通過「至少兩個」——而消歧路徑對同一組候選的判定相反（它會
+        // 去重後視為塌縮並刪除記錄）。同一份資料兩種判定，其中一種必然是錯的。
+        var seenCandidate = Set<String>()
+        for c in candidates where !seenCandidate.insert("\(c.shape.rawValue)\u{0}\(c.key)").inserted {
+            throw StoreYAMLError.invalidField(
+                "divergence.candidates",
+                "候選「\(displaySafe(c.key, max: 200))」（\(c.shape.rawValue)）重複"
+                + "——重複的候選不構成歧異，它沒有東西可以與之相同")
+        }
         guard candidates.count >= 2 else {
             throw StoreYAMLError.invalidField(
                 "divergence.candidates",
@@ -1643,7 +1665,13 @@ public enum DivergenceYAML {
         let restsOnSeq = try EntryYAML.requireShape(
             map["rests-on"], field: "divergence.rests-on",
             expect: "sequence", nullIsAbsent: true, { $0.sequence })
-        let restsOn = restsOnSeq?.compactMap { $0.scalar?.string } ?? []
+        // **stringList 而非 compactMap**：非 scalar 元素要擲錯，不得靜默丟棄。
+        // 失敗情境：`- sha256: 9a23…`（冒號後多一個空格）在 YAML 是 mapping。若靜默
+        // 丟掉而其餘項合法，那筆證據就永久消失——而 canary 的 decode(encode(d)) 兩側
+        // 都缺同一項所以比對相等、照樣寫出。這正是 canary 要擋卻擋不到的靜默遺失。
+        let restsOn = try restsOnSeq.map {
+            try EntryYAML.stringList($0, context: "divergence.rests-on")
+        } ?? []
         var judgement: Judgement?
         switch (statement, restsOn.isEmpty) {
         case (nil, true):

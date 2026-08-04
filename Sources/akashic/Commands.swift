@@ -101,6 +101,16 @@ struct Validate: ParsableCommand {
                 if issue.severity == .error { failed = true }
             }
         }
+        // 歧異記錄的單筆檢查（#71 R1 verify 的 DA 更正四）：`Validate` 的未知欄位提示
+        // 完全來自每筆記錄的 `validate()`，不是 `load.unknownFieldFiles`（那條只餵
+        // doctor 與 App）。少了這個迴圈，帶未知欄位的歧異記錄會被印成「全部通過」。
+        for d in load.divergences {
+            for issue in d.validate() {
+                let mark = issue.severity == .error ? "✗" : "⚠"
+                print("\(mark) divergence \(d.id.uuidString): \(issue.message)")
+                if issue.severity == .error { failed = true }
+            }
+        }
         // #7b：跨記錄檢查——單筆 validate() 結構上看不到的那一層
         for issue in load.crossRecordIssues() {
             let mark = issue.severity == .error ? "✗" : "⚠"

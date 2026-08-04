@@ -62,7 +62,10 @@ public struct Divergence: Equatable {
         let kb = b.candidates.map { [$0.shape.rawValue, $0.key] }.sorted { $0.lexicographicallyPrecedes($1) }
         return a.id == b.id && a.question == b.question && ka == kb
             && a.judgement == b.judgement
-            && a.unknownFields.map(\.key) == b.unknownFields.map(\.key)
+            // **逐位元組比未知欄位，不是只比 key。** encode canary 就是靠這個比較器
+            // 看見「寫出去的東西與原值不符」；只比 key 會讓它對未知區塊的**內容**
+            // 全盲——tolerant-preserve 保證的正是那些位元組不變（#71 R1 verify）。
+            && a.unknownFields == b.unknownFields
     }
 
     /// 不變的機器身分。
@@ -87,4 +90,27 @@ public struct Divergence: Equatable {
 
     /// 全部候選共有的形狀。空候選時為 `nil`——但那種記錄過不了載入。
     public var shape: EntityKind? { candidates.first?.shape }
+}
+
+extension Divergence {
+    /// 與其他形狀同型的單筆檢查。
+    ///
+    /// **存在的理由是可見性**：`akashic validate` 的未知欄位提示完全來自每筆記錄的
+    /// `validate()`，不是 `load.unknownFieldFiles`（那條路只餵 doctor 與 App）。沒有
+    /// 這個方法，一筆由較新 binary 寫入、帶著本 binary 看不懂欄位的歧異記錄，在
+    /// `validate` 下印出來的是「✓ … 1 divergences 全部通過」——「全部通過」四個字
+    /// 正是這裡最不該說的（#71 R1 verify 的 DA 更正四）。
+    public func validate() -> [ValidationIssue] {
+        var issues: [ValidationIssue] = []
+        for c in candidates where !StoreKey.isValid(c.key) {
+            issues.append(ValidationIssue(
+                severity: .error,
+                message: "候選 key '\(displaySafe(c.key, max: 120))' 不符合 \(StoreKey.pattern)"))
+        }
+        for f in unknownFields {
+            issues.append(ValidationIssue(severity: .warning,
+                message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+        }
+        return issues
+    }
 }

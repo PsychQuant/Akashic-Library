@@ -8,73 +8,58 @@ TBD - created by archiving change 'add-formal-concept-boundary'. Update Purpose 
 
 ### Requirement: Formal concepts SHALL NOT occupy the canonical entity namespace
 
-A *formal concept* is an expression whose role is to select, group, or index entities — a view, a classification, a query, a saved filter, or an index structure. A *first-class entity* is something referred to in the world: a person, a work, an organization.
+A *formal concept* is an expression whose role is to select, group, or index entities — a view, a classification, a query, a saved filter, or an index structure. A formal concept is recognised by what it fails to do: it determines no fields of its own, so the loader must decode it as some existing shape.
 
-The canonical entity namespace (`entities/<uuid>.yaml`) SHALL contain only first-class entities. Formal concepts SHALL NOT be stored there, and SHALL NOT be assigned an entity UUID.
+The canonical entity namespace (`entities/<uuid>.yaml`) SHALL contain only records that determine their own fields. Formal concepts SHALL NOT be stored there, and SHALL NOT be assigned an entity UUID.
 
 The discriminating test SHALL be whether the candidate corresponds to a record shape — that is, whether it determines which fields exist and therefore which decoder the loader dispatches to. The test SHALL be stated independently of how a shape is marked in a file, because the marking mechanism may change while the criterion does not. Identity, a stable name, aliases, and a change history are necessary but NOT sufficient: an index schema version has all four and is not an entity.
 
-#### Scenario: A view definition is proposed as an entity
+Being referred to by other records SHALL NOT be required for admission, and grouping entities SHALL NOT by itself be grounds for refusal. Both criteria were previously implied by describing the admitted class as "something referred to in the world" and the refused class as anything that groups entities. Neither survives contact with the discriminating test: a record of an unresolved identity question groups two entities and is referred to by nothing, yet it determines its own fields and therefore selects its own decoder, while a view is referred to by configuration and still selects no shape. Where the earlier phrasing and the test disagree, the test SHALL govern — it is the criterion the loader actually enforces.
 
-- **WHEN** a contributor proposes storing a view definition (for example, a saved selection named "ISS people") as `entities/<uuid>.yaml` with `type: view`
-- **THEN** the proposal SHALL be rejected, because no decoder is selected by that value — a view has no record shape of its own, and the loader would decode it as some existing shape
+#### Scenario: A record that groups entities but selects its own shape is admitted
 
-##### Example: The ISS view
+- **WHEN** a candidate groups two or more entities, is referred to by no other record, and determines a set of fields that no existing shape decodes
+- **THEN** it SHALL be admitted, because the discriminating test asks what the loader must dispatch to, not what points at the record
 
-- **GIVEN** a proposed file `entities/7a7f0a53-9d44-5f61-8b54-e3b8b791c7f8.yaml` containing `type: view`, `key: iss`, `name: 中研院統計所`, and a predicate matching `profile.affiliations`
-- **WHEN** the shape-selection test is applied
-- **THEN** the answer is that the value selects no shape, so the record SHALL NOT be an entity
-- **AND** its predicate belongs in machine-local configuration and its extension belongs in the derived index
+##### Example: An unresolved identity question
 
-#### Scenario: A bibliographic type is mistaken for an entity kind
-
-- **WHEN** a contributor observes that a shape name and a bibliographic type occupy the same key in a file and concludes that a third sibling value is therefore admissible
-- **THEN** the shape-selection test SHALL separate them: one determines which fields exist and the other is a value inside a fixed set of fields
-- **AND** getting the bibliographic type wrong SHALL be recognised as a factual error correctable by editing one field, whereas getting the shape wrong SHALL be recognised as a structural error that invalidates the remaining fields
-- **AND** the shared key SHALL be recognised as the notational defect that invited the error, addressed by a separate change
-
-#### Scenario: An artifact satisfies identity and mutability but selects no shape
-
-- **WHEN** a candidate has a stable identity, a display name, aliases, and a recorded change history, but selects no record shape
-- **THEN** the candidate SHALL NOT be stored in the canonical entity namespace, regardless of how many of the other criteria it satisfies
+- **GIVEN** a candidate whose fields are a question in words, a list of candidate entity references, and an optional judgment with its evidence
+- **AND** that nothing in the store refers to it, and that it exists to group two entities
+- **WHEN** the discriminating test is applied
+- **THEN** it SHALL be admitted, because no existing decoder reads those fields
+- **AND** the contrast with a view SHALL be recorded: a view groups entities too, but a view's fields are decodable as an existing shape, so no dispatch decision turns on it
 
 
 <!-- @trace
-source: add-formal-concept-boundary
-updated: 2026-08-02
+source: add-divergence-record
+updated: 2026-08-05
 code:
-  - CLAUDE.md
-  - Sources/AkashicCore/Temporal.swift
-  - AGENTS.md
-  - .agents/skills/spectra-drift/SKILL.md
-  - .agents/skills/spectra-ask/SKILL.md
-  - Tests/AkashicKitTests/OrganizationTests.swift
-  - .agents/skills/spectra-commit/SKILL.md
-  - .agents/skills/spectra-ingest/SKILL.md
-  - .agents/skills/spectra-archive/SKILL.md
-  - docs/design-principles-and-philosophy.md
-  - .spectra.yaml
-  - Sources/AkashicCore/DeterministicUUID.swift
-  - Sources/AkashicCore/AliasEventBudget.swift
-  - docs/explainers/yaml-alias-dos.md
-  - Sources/AkashicCore/Organization.swift
-  - Sources/AkashicStoreIO/StoreVersion.swift
-  - Sources/AkashicStoreIO/StoreMigration.swift
-  - docs/store-format.md
-  - .agents/skills/spectra-debug/SKILL.md
-  - .agents/skills/spectra-apply/SKILL.md
   - Sources/AkashicStoreIO/LibraryStore.swift
-  - Tests/AkashicKitTests/EntityShapeLabelTests.swift
-  - .agents/skills/spectra-propose/SKILL.md
-  - Sources/akashic/Commands.swift
-  - docs/explainers/entity-vs-view.md
-  - .agents/skills/spectra-audit/SKILL.md
-  - .agents/skills/spectra-discuss/SKILL.md
-  - Sources/AkashicExport/RelationalExport.swift
-  - Tests/AkashicKitTests/TemporalPersonTests.swift
+  - README.md
+  - Tests/AkashicKitTests/ExportTests.swift
+  - Tests/AkashicMCPTests/ServiceTests.swift
+  - docs/store-format.md
+  - Sources/AkashicCore/DeterministicUUID.swift
+  - Sources/AkashicExport/BibExport.swift
   - Tests/AkashicKitTests/RelationalExportTests.swift
-  - Tests/AkashicKitTests/AliasEventBudgetTests.swift
+  - Tests/AkashicKitTests/PersonDeceasedTests.swift
+  - Tests/AkashicKitTests/DivergenceRecordTests.swift
+  - Sources/AkashicMCPKit/AkashicService.swift
+  - Sources/AkashicCore/AuthorizedName.swift
+  - Sources/AkashicStoreIO/StoreVersion.swift
+  - Sources/AkashicCore/Models.swift
   - Sources/AkashicCore/YAML.swift
+  - Sources/akashic/Commands.swift
+  - Sources/AkashicStoreIO/DivergenceResolve.swift
+  - Sources/AkashicWoSImport/WoSImport.swift
+  - Tests/AkashicCLITests/CLIIntegrationTests.swift
+  - Tests/AkashicKitTests/WoSImportTests.swift
+  - Sources/AkashicCore/Organization.swift
+  - Sources/AkashicExport/RelationalExport.swift
+  - Sources/AkashicExport/CSLExport.swift
+  - Sources/AkashicStoreIO/AuthorizedNameMigration.swift
+  - Tests/AkashicKitTests/AuthorizedNameTests.swift
+  - Sources/akashic/CLI.swift
 -->
 
 ---
@@ -306,4 +291,65 @@ code:
   - Tests/AkashicKitTests/RelationalExportTests.swift
   - Tests/AkashicKitTests/AliasEventBudgetTests.swift
   - Sources/AkashicCore/YAML.swift
+-->
+
+---
+### Requirement: Admissions to the entity namespace SHALL be recorded with their reasoning
+
+When a candidate is admitted to the canonical entity namespace, the decision SHALL be recorded together with the reasoning that the discriminating test produced — which fields the candidate determines, and therefore which decoder it selects.
+
+Recording the reasoning SHALL be required because the test is stated once but applied repeatedly; without the applications on record, a later contributor sees only a list of admitted shapes and cannot tell which of the necessary-but-insufficient criteria did the work. That is the inference the accompanying explainer records as incorrect.
+
+A recorded admission SHALL cite the contrast that made the decision non-trivial — a candidate the test rejects for the same reason this one passes — so that the record teaches the test rather than merely reporting its outcome.
+
+This requirement SHALL apply to admissions made after it takes effect. Shapes already in the set when it takes effect SHALL NOT be treated as incomplete for lacking such a record. The scoping is deliberate rather than an oversight: a requirement that declares the set retroactively incomplete on the day it lands says nothing about what anyone should do, and the reasoning for an earlier admission reconstructed years later is not the reasoning that was actually applied. Where an earlier admission's reasoning is wanted, it SHALL be recovered from that admission's own change rather than invented here.
+
+#### Scenario: An admission is recorded with its reasoning
+
+- **WHEN** a candidate is admitted to the canonical entity namespace
+- **THEN** the record SHALL state which fields the candidate determines
+- **AND** it SHALL cite a rejected candidate that fails the same test
+
+##### Example: A record of an unresolved identity question is admitted
+
+- **GIVEN** a candidate whose fields are a question in words, a list of candidate entity references, and an optional judgment with its evidence
+- **WHEN** the discriminating test is applied
+- **THEN** the candidate SHALL be admitted, because those fields exist only on this shape and the loader must dispatch to a decoder that reads them
+- **AND** the record SHALL cite the view as the contrasting rejection: a view selects no shape of its own, so the loader would decode it as some existing shape, whereas this candidate cannot be decoded as any existing shape
+
+#### Scenario: An admission without recorded reasoning is incomplete
+
+- **WHEN** a shape is added to the known set with no recorded shape-selection reasoning
+- **THEN** the addition SHALL be treated as incomplete, because the set's closure is a property of how it changes and an unargued addition does not exhibit that property
+
+<!-- @trace
+source: add-divergence-record
+updated: 2026-08-05
+code:
+  - Sources/AkashicStoreIO/LibraryStore.swift
+  - README.md
+  - Tests/AkashicKitTests/ExportTests.swift
+  - Tests/AkashicMCPTests/ServiceTests.swift
+  - docs/store-format.md
+  - Sources/AkashicCore/DeterministicUUID.swift
+  - Sources/AkashicExport/BibExport.swift
+  - Tests/AkashicKitTests/RelationalExportTests.swift
+  - Tests/AkashicKitTests/PersonDeceasedTests.swift
+  - Tests/AkashicKitTests/DivergenceRecordTests.swift
+  - Sources/AkashicMCPKit/AkashicService.swift
+  - Sources/AkashicCore/AuthorizedName.swift
+  - Sources/AkashicStoreIO/StoreVersion.swift
+  - Sources/AkashicCore/Models.swift
+  - Sources/AkashicCore/YAML.swift
+  - Sources/akashic/Commands.swift
+  - Sources/AkashicStoreIO/DivergenceResolve.swift
+  - Sources/AkashicWoSImport/WoSImport.swift
+  - Tests/AkashicCLITests/CLIIntegrationTests.swift
+  - Tests/AkashicKitTests/WoSImportTests.swift
+  - Sources/AkashicCore/Organization.swift
+  - Sources/AkashicExport/RelationalExport.swift
+  - Sources/AkashicExport/CSLExport.swift
+  - Sources/AkashicStoreIO/AuthorizedNameMigration.swift
+  - Tests/AkashicKitTests/AuthorizedNameTests.swift
+  - Sources/akashic/CLI.swift
 -->

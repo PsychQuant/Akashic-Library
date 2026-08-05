@@ -76,6 +76,8 @@ A record carrying no shape label SHALL be quarantined with a reason distinct fro
 
 Where the unrecognised label names something the project handles elsewhere, the reason SHALL say where it belongs. Naming a sign as unrecognised establishes only that it has no meaning in this position; a reader also needs to know the position in which it does have one.
 
+Membership of the set SHALL change only by a recorded decision that the candidate selects a record shape, per the discriminating test the entity-boundary capability states. Closure is a property of how the set changes, not a claim that it is finished — a set that grows by argument is still closed against labels that arrive without one.
+
 #### Scenario: A formal concept is proposed as a shape
 
 - **WHEN** a file carries a label naming a formal concept such as a view
@@ -93,43 +95,49 @@ Where the unrecognised label names something the project handles elsewhere, the 
 - **WHEN** one file in the canonical entity namespace cannot be classified
 - **THEN** the remaining files SHALL still load, and the unclassifiable file SHALL appear in the quarantine report
 
+#### Scenario: A label admitted by the discriminating test is recognised
+
+- **WHEN** a file carries a label that names a shape admitted to the set by a recorded shape-selection decision
+- **THEN** the file SHALL be decoded as that shape rather than quarantined
+
+##### Example: The identity-question shape
+
+- **GIVEN** the label naming a record of an unresolved identity question, admitted because it determines its own fields and therefore its own decoder
+- **WHEN** a file carrying that label is loaded
+- **THEN** it SHALL be decoded as that shape
+- **AND** re-encoding it SHALL produce a byte-identical file
+
 
 <!-- @trace
-source: add-entity-shape-label
-updated: 2026-08-02
+source: add-divergence-record
+updated: 2026-08-05
 code:
-  - .agents/skills/spectra-ingest/SKILL.md
-  - Sources/akashic/Commands.swift
-  - Sources/AkashicCore/Temporal.swift
-  - Sources/AkashicCore/YAML.swift
-  - .agents/skills/spectra-drift/SKILL.md
-  - docs/design-principles-and-philosophy.md
-  - .agents/skills/spectra-audit/SKILL.md
-  - Sources/AkashicCore/Organization.swift
   - Sources/AkashicStoreIO/LibraryStore.swift
-  - .agents/skills/spectra-propose/SKILL.md
-  - .agents/skills/spectra-ask/SKILL.md
-  - Tests/AkashicKitTests/OrganizationTests.swift
-  - .agents/skills/spectra-commit/SKILL.md
-  - Tests/AkashicKitTests/TemporalPersonTests.swift
-  - CLAUDE.md
-  - Tests/AkashicKitTests/AliasEventBudgetTests.swift
-  - Sources/AkashicStoreIO/StoreVersion.swift
-  - Tests/AkashicKitTests/EntityShapeLabelTests.swift
-  - docs/explainers/entity-vs-view.md
-  - .agents/skills/spectra-archive/SKILL.md
-  - Sources/AkashicCore/DeterministicUUID.swift
+  - README.md
+  - Tests/AkashicKitTests/ExportTests.swift
+  - Tests/AkashicMCPTests/ServiceTests.swift
   - docs/store-format.md
-  - docs/explainers/yaml-alias-dos.md
-  - .spectra.yaml
-  - Sources/AkashicExport/RelationalExport.swift
-  - .agents/skills/spectra-apply/SKILL.md
-  - .agents/skills/spectra-discuss/SKILL.md
+  - Sources/AkashicCore/DeterministicUUID.swift
+  - Sources/AkashicExport/BibExport.swift
   - Tests/AkashicKitTests/RelationalExportTests.swift
-  - Sources/AkashicCore/AliasEventBudget.swift
-  - AGENTS.md
-  - .agents/skills/spectra-debug/SKILL.md
-  - Sources/AkashicStoreIO/StoreMigration.swift
+  - Tests/AkashicKitTests/PersonDeceasedTests.swift
+  - Tests/AkashicKitTests/DivergenceRecordTests.swift
+  - Sources/AkashicMCPKit/AkashicService.swift
+  - Sources/AkashicCore/AuthorizedName.swift
+  - Sources/AkashicStoreIO/StoreVersion.swift
+  - Sources/AkashicCore/Models.swift
+  - Sources/AkashicCore/YAML.swift
+  - Sources/akashic/Commands.swift
+  - Sources/AkashicStoreIO/DivergenceResolve.swift
+  - Sources/AkashicWoSImport/WoSImport.swift
+  - Tests/AkashicCLITests/CLIIntegrationTests.swift
+  - Tests/AkashicKitTests/WoSImportTests.swift
+  - Sources/AkashicCore/Organization.swift
+  - Sources/AkashicExport/RelationalExport.swift
+  - Sources/AkashicExport/CSLExport.swift
+  - Sources/AkashicStoreIO/AuthorizedNameMigration.swift
+  - Tests/AkashicKitTests/AuthorizedNameTests.swift
+  - Sources/akashic/CLI.swift
 -->
 
 ---

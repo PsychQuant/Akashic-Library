@@ -1,0 +1,312 @@
+# divergence-record Specification
+
+## Purpose
+
+TBD - created by archiving change 'add-divergence-record'. Update Purpose after archive.
+
+## Requirements
+
+### Requirement: An unresolved identity question SHALL be recordable
+
+The store SHALL admit a record whose subject is an open question about identity — whether two or more entities are one. Such a record SHALL be marked by a bare shape label, and that label SHALL be added to the closed set of known shapes.
+
+The record SHALL state the question in words, and SHALL name at least two candidates. A record naming fewer than two candidates SHALL be refused, because a question about identity requires something to be identical to.
+
+All candidates of one record SHALL name entities of the same shape. A record whose candidates span shapes SHALL be refused, naming both candidates and their shapes, because the question "are these one" is unanswerable across shapes.
+
+#### Scenario: A two-candidate record loads
+
+- **WHEN** a record naming a question and two entity keys of the same shape is loaded
+- **THEN** it SHALL be accepted
+
+##### Example: Two spellings of one name
+
+- **GIVEN** a record whose question is `是否為同一人` and whose candidates are `fann-cathy-s-j` and `fann-cathy-s-j-2`, both person keys
+- **WHEN** the store is loaded
+- **THEN** the record SHALL be accepted and both candidates SHALL remain separate entities
+
+#### Scenario: A single-candidate record is refused
+
+- **WHEN** a record naming only one candidate is loaded
+- **THEN** it SHALL be refused, and the reason SHALL state that at least two candidates are required
+
+#### Scenario: Candidates spanning shapes are refused
+
+- **WHEN** a record names one person key and one work key as candidates
+- **THEN** it SHALL be refused, and the reason SHALL name both candidates and the shape of each
+
+
+<!-- @trace
+source: add-divergence-record
+updated: 2026-08-05
+code:
+  - Sources/AkashicStoreIO/LibraryStore.swift
+  - README.md
+  - Tests/AkashicKitTests/ExportTests.swift
+  - Tests/AkashicMCPTests/ServiceTests.swift
+  - docs/store-format.md
+  - Sources/AkashicCore/DeterministicUUID.swift
+  - Sources/AkashicExport/BibExport.swift
+  - Tests/AkashicKitTests/RelationalExportTests.swift
+  - Tests/AkashicKitTests/PersonDeceasedTests.swift
+  - Tests/AkashicKitTests/DivergenceRecordTests.swift
+  - Sources/AkashicMCPKit/AkashicService.swift
+  - Sources/AkashicCore/AuthorizedName.swift
+  - Sources/AkashicStoreIO/StoreVersion.swift
+  - Sources/AkashicCore/Models.swift
+  - Sources/AkashicCore/YAML.swift
+  - Sources/akashic/Commands.swift
+  - Sources/AkashicStoreIO/DivergenceResolve.swift
+  - Sources/AkashicWoSImport/WoSImport.swift
+  - Tests/AkashicCLITests/CLIIntegrationTests.swift
+  - Tests/AkashicKitTests/WoSImportTests.swift
+  - Sources/AkashicCore/Organization.swift
+  - Sources/AkashicExport/RelationalExport.swift
+  - Sources/AkashicExport/CSLExport.swift
+  - Sources/AkashicStoreIO/AuthorizedNameMigration.swift
+  - Tests/AkashicKitTests/AuthorizedNameTests.swift
+  - Sources/akashic/CLI.swift
+-->
+
+---
+### Requirement: The judgment SHALL reuse the provenance vocabulary
+
+A record MAY carry a judgment: a statement of which candidate was believed correct and why, together with the digests of the evidence it rests on.
+
+The judgment SHALL use the same two fields the store uses elsewhere to record a claim reached by reasoning rather than by retrieval — a statement in words and a list of digests. It SHALL NOT introduce a second vocabulary for the same concept.
+
+The judgment SHALL NOT carry the field-naming component that a provenance reference carries, because the judgment concerns which candidate is correct, not which field of a host record is supported.
+
+The two judgment fields SHALL appear together. A record carrying one without the other SHALL be refused, because a statement without its evidence and evidence without its statement are each incomplete.
+
+#### Scenario: A record carries a judgment
+
+- **WHEN** a record carries both a statement and at least one digest
+- **THEN** it SHALL be accepted
+
+#### Scenario: A statement without evidence is refused
+
+- **WHEN** a record carries a statement but no digests
+- **THEN** it SHALL be refused, and the reason SHALL state that the two appear together
+
+#### Scenario: Evidence without a statement is refused
+
+- **WHEN** a record carries digests but no statement
+- **THEN** it SHALL be refused, and the reason SHALL state that the two appear together
+
+
+<!-- @trace
+source: add-divergence-record
+updated: 2026-08-05
+code:
+  - Sources/AkashicStoreIO/LibraryStore.swift
+  - README.md
+  - Tests/AkashicKitTests/ExportTests.swift
+  - Tests/AkashicMCPTests/ServiceTests.swift
+  - docs/store-format.md
+  - Sources/AkashicCore/DeterministicUUID.swift
+  - Sources/AkashicExport/BibExport.swift
+  - Tests/AkashicKitTests/RelationalExportTests.swift
+  - Tests/AkashicKitTests/PersonDeceasedTests.swift
+  - Tests/AkashicKitTests/DivergenceRecordTests.swift
+  - Sources/AkashicMCPKit/AkashicService.swift
+  - Sources/AkashicCore/AuthorizedName.swift
+  - Sources/AkashicStoreIO/StoreVersion.swift
+  - Sources/AkashicCore/Models.swift
+  - Sources/AkashicCore/YAML.swift
+  - Sources/akashic/Commands.swift
+  - Sources/AkashicStoreIO/DivergenceResolve.swift
+  - Sources/AkashicWoSImport/WoSImport.swift
+  - Tests/AkashicCLITests/CLIIntegrationTests.swift
+  - Tests/AkashicKitTests/WoSImportTests.swift
+  - Sources/AkashicCore/Organization.swift
+  - Sources/AkashicExport/RelationalExport.swift
+  - Sources/AkashicExport/CSLExport.swift
+  - Sources/AkashicStoreIO/AuthorizedNameMigration.swift
+  - Tests/AkashicKitTests/AuthorizedNameTests.swift
+  - Sources/akashic/CLI.swift
+-->
+
+---
+### Requirement: Resolving SHALL merge, rewrite references, and delete atomically
+
+Resolving an identity question SHALL name one candidate as the survivor. Resolution SHALL merge the other candidates' aliases into the survivor, SHALL rewrite every reference in the store that names a merged entity so that it names the survivor, and SHALL then delete both the merged entities and the record of the question.
+
+These three SHALL constitute one operation. Deleting a record without rewriting its references SHALL NOT be offered, because it would leave references naming entities that no longer exist.
+
+A survivor not among the candidates SHALL be refused, and the refusal SHALL list the actual candidates.
+
+Where a single write fails during reference rewriting, the remaining writes SHALL still be attempted, the failures SHALL be named, and the operation SHALL exit non-zero — so that no run ends with some references rewritten, others not, and nothing said about it.
+
+#### Scenario: Resolution rewrites the references that named the merged entity
+
+- **WHEN** an identity question over two person keys is resolved in favour of one of them
+- **THEN** every record that named the merged key SHALL name the survivor instead
+- **AND** the merged entity's file SHALL NOT exist
+- **AND** the record of the question SHALL NOT exist
+
+##### Example: A work's author list follows the merge
+
+- **GIVEN** a work whose authors include the key `fann-cathy-s-j-2`
+- **AND** an identity question naming `fann-cathy-s-j` and `fann-cathy-s-j-2`
+- **WHEN** it is resolved in favour of `fann-cathy-s-j`
+- **THEN** that work's authors SHALL include `fann-cathy-s-j` and SHALL NOT include `fann-cathy-s-j-2`
+
+Resolution SHALL also rewrite the candidate lists of other records of unresolved questions, because those lists are references too. A candidate SHALL be rewritten only where both its key and its shape match a merged entity, because keys may repeat across shapes.
+
+Where rewriting leaves another record with fewer than two distinct candidates, that record SHALL be deleted as well, and the deletion SHALL be reported. Such a record can no longer be written back — a record naming fewer than two candidates is refused on load — so leaving it in place would persist a file the store itself will not accept.
+
+Resolution SHALL refuse to proceed where a file that could hold an entity reference failed to load, naming those files. A file that cannot be read may name a merged entity, and a reference that cannot be read cannot be rewritten; deleting the entity anyway would leave a dangling reference in a file no check can see.
+
+The refusal SHALL be scoped to the locations whose records can hold such a reference. Records that structurally cannot — a person naming no other person, a registry entry holding only metadata — SHALL NOT block resolution, because the stated reason is false for them and a refusal is least affordable in exactly the stores where unreadable files are common.
+
+#### Scenario: Another unresolved question that names a merged entity follows the merge
+
+- **WHEN** a second record names one of the merged entities among its candidates
+- **THEN** that candidate SHALL be rewritten to the survivor
+- **AND** where the rewrite leaves fewer than two distinct candidates, that record SHALL be deleted and its deletion reported
+
+#### Scenario: A record naming a key of a different shape is left alone
+
+- **WHEN** a second record names the same key as a merged entity but under a different shape
+- **THEN** it SHALL NOT be rewritten and SHALL NOT be deleted
+
+#### Scenario: Resolution refuses while any file fails to load
+
+- **WHEN** resolution is attempted on a store in which one or more files failed to load
+- **THEN** it SHALL refuse, naming those files
+- **AND** no entity SHALL have been deleted
+
+#### Scenario: A survivor outside the candidates is refused
+
+- **WHEN** resolution names a survivor that the record does not list as a candidate
+- **THEN** it SHALL be refused, and the refusal SHALL list the candidates the record does name
+
+
+<!-- @trace
+source: add-divergence-record
+updated: 2026-08-05
+code:
+  - Sources/AkashicStoreIO/LibraryStore.swift
+  - README.md
+  - Tests/AkashicKitTests/ExportTests.swift
+  - Tests/AkashicMCPTests/ServiceTests.swift
+  - docs/store-format.md
+  - Sources/AkashicCore/DeterministicUUID.swift
+  - Sources/AkashicExport/BibExport.swift
+  - Tests/AkashicKitTests/RelationalExportTests.swift
+  - Tests/AkashicKitTests/PersonDeceasedTests.swift
+  - Tests/AkashicKitTests/DivergenceRecordTests.swift
+  - Sources/AkashicMCPKit/AkashicService.swift
+  - Sources/AkashicCore/AuthorizedName.swift
+  - Sources/AkashicStoreIO/StoreVersion.swift
+  - Sources/AkashicCore/Models.swift
+  - Sources/AkashicCore/YAML.swift
+  - Sources/akashic/Commands.swift
+  - Sources/AkashicStoreIO/DivergenceResolve.swift
+  - Sources/AkashicWoSImport/WoSImport.swift
+  - Tests/AkashicCLITests/CLIIntegrationTests.swift
+  - Tests/AkashicKitTests/WoSImportTests.swift
+  - Sources/AkashicCore/Organization.swift
+  - Sources/AkashicExport/RelationalExport.swift
+  - Sources/AkashicExport/CSLExport.swift
+  - Sources/AkashicStoreIO/AuthorizedNameMigration.swift
+  - Tests/AkashicKitTests/AuthorizedNameTests.swift
+  - Sources/akashic/CLI.swift
+-->
+
+---
+### Requirement: Deletion SHALL require version control
+
+The history of a resolved question lives in version control rather than in the store, so deletion SHALL be permitted only where that history will exist.
+
+Resolution SHALL verify that the store lies within a version-controlled working tree before deleting anything. Where it does not, resolution SHALL refuse and SHALL say that version control is the precondition for deletion.
+
+This SHALL be verified rather than assumed, because a store may be created at any location and one outside version control loses the record irrecoverably.
+
+#### Scenario: Resolution refuses outside version control
+
+- **WHEN** resolution is attempted on a store that is not inside a version-controlled working tree
+- **THEN** it SHALL refuse
+- **AND** no file SHALL have been deleted
+- **AND** the reason SHALL state that version control is the precondition
+
+
+<!-- @trace
+source: add-divergence-record
+updated: 2026-08-05
+code:
+  - Sources/AkashicStoreIO/LibraryStore.swift
+  - README.md
+  - Tests/AkashicKitTests/ExportTests.swift
+  - Tests/AkashicMCPTests/ServiceTests.swift
+  - docs/store-format.md
+  - Sources/AkashicCore/DeterministicUUID.swift
+  - Sources/AkashicExport/BibExport.swift
+  - Tests/AkashicKitTests/RelationalExportTests.swift
+  - Tests/AkashicKitTests/PersonDeceasedTests.swift
+  - Tests/AkashicKitTests/DivergenceRecordTests.swift
+  - Sources/AkashicMCPKit/AkashicService.swift
+  - Sources/AkashicCore/AuthorizedName.swift
+  - Sources/AkashicStoreIO/StoreVersion.swift
+  - Sources/AkashicCore/Models.swift
+  - Sources/AkashicCore/YAML.swift
+  - Sources/akashic/Commands.swift
+  - Sources/AkashicStoreIO/DivergenceResolve.swift
+  - Sources/AkashicWoSImport/WoSImport.swift
+  - Tests/AkashicCLITests/CLIIntegrationTests.swift
+  - Tests/AkashicKitTests/WoSImportTests.swift
+  - Sources/AkashicCore/Organization.swift
+  - Sources/AkashicExport/RelationalExport.swift
+  - Sources/AkashicExport/CSLExport.swift
+  - Sources/AkashicStoreIO/AuthorizedNameMigration.swift
+  - Tests/AkashicKitTests/AuthorizedNameTests.swift
+  - Sources/akashic/CLI.swift
+-->
+
+---
+### Requirement: The new shape SHALL be serialized like every other
+
+A record of an identity question SHALL be written in the same canonical form the store applies to its other shapes: deterministic ordering, byte-preserving retention of unrecognized fields, and a self-check before writing that the bytes read back to the same value.
+
+#### Scenario: The record round-trips
+
+- **WHEN** a record is encoded, decoded, and encoded again
+- **THEN** the two encodings SHALL be byte-identical
+
+#### Scenario: An unrecognized field survives
+
+- **WHEN** a record carrying a field the store does not recognize is loaded and written back
+- **THEN** that field SHALL be present in the output unchanged
+
+<!-- @trace
+source: add-divergence-record
+updated: 2026-08-05
+code:
+  - Sources/AkashicStoreIO/LibraryStore.swift
+  - README.md
+  - Tests/AkashicKitTests/ExportTests.swift
+  - Tests/AkashicMCPTests/ServiceTests.swift
+  - docs/store-format.md
+  - Sources/AkashicCore/DeterministicUUID.swift
+  - Sources/AkashicExport/BibExport.swift
+  - Tests/AkashicKitTests/RelationalExportTests.swift
+  - Tests/AkashicKitTests/PersonDeceasedTests.swift
+  - Tests/AkashicKitTests/DivergenceRecordTests.swift
+  - Sources/AkashicMCPKit/AkashicService.swift
+  - Sources/AkashicCore/AuthorizedName.swift
+  - Sources/AkashicStoreIO/StoreVersion.swift
+  - Sources/AkashicCore/Models.swift
+  - Sources/AkashicCore/YAML.swift
+  - Sources/akashic/Commands.swift
+  - Sources/AkashicStoreIO/DivergenceResolve.swift
+  - Sources/AkashicWoSImport/WoSImport.swift
+  - Tests/AkashicCLITests/CLIIntegrationTests.swift
+  - Tests/AkashicKitTests/WoSImportTests.swift
+  - Sources/AkashicCore/Organization.swift
+  - Sources/AkashicExport/RelationalExport.swift
+  - Sources/AkashicExport/CSLExport.swift
+  - Sources/AkashicStoreIO/AuthorizedNameMigration.swift
+  - Tests/AkashicKitTests/AuthorizedNameTests.swift
+  - Sources/akashic/CLI.swift
+-->

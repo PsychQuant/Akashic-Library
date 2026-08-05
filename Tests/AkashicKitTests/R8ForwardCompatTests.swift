@@ -132,10 +132,17 @@ final class R8ForwardCompatTests: XCTestCase {
 
     // MARK: - L14：person canary 欄位指認
 
-    func testPersonCanaryNamesMismatchingField() {
+    /// 同 `testLeadingBOMInTitleEitherRefusesNamingFieldOrRoundTrips` 的理由：
+    /// canary 的契約是「值活不下來就拒寫」，前導 BOM 活不活得下來隨 toolchain
+    /// 而異（6.3 不行、6.1.2 可以）。斷言不變式而非其中一個分支。
+    func testPersonCanaryNamesEitherRefusesNamingFieldOrRoundTrips() throws {
         var p = Person(key: "a", names: ["\u{FEFF}X"])
         p.unknownFields = [UnknownField(key: "extra", raw: "extra: 1\n")]
-        XCTAssertThrowsError(try PersonYAML.encode(p)) { error in
+        do {
+            let out = try PersonYAML.encode(p)
+            XCTAssertEqual(try PersonYAML.decode(out).names, p.names,
+                           "沒有拒寫就必須原封不動")
+        } catch {
             XCTAssertTrue(String(describing: error).contains("names"), "\(error)")
         }
     }

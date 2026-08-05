@@ -21,7 +21,7 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
                                  export-bib / export-tables / resolve-people /
                                  bootstrap-people / doctor / query / graph /
                                  rename / record-divergence / resolve-divergence /
-                                 authorize-names / library / file / migrate
+                                 authorize-names / fmt / library / file / migrate
 mcps/                            MCP server submodules（che-zotero-mcp、che-biblatex-mcp）
 repos/                           共用 library submodules（biblatex-apa-swift = canonical）
 docs/                            spec 與 store 格式規格書

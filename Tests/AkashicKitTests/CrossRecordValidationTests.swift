@@ -27,12 +27,115 @@ final class CrossRecordValidationTests: XCTestCase {
         return LibraryStore(root: root)
     }
 
+    /// **標題預設隨 citekey 而異**（#79）。全部 fixture 共用 `title: "T"` 會讓
+    /// 「同標題同年」的重複檢查在每個測試裡誤報——那是 fixture 的假重複，不是
+    /// 被測邏輯的問題。需要真的測重複時，明確傳同一個 title。
     private func entry(_ key: String, id: UUID = UUID(), authors: [Author] = [.literal("X")],
-                       libraries: [String] = []) -> Entry {
-        var e = Entry(id: id, citekey: key, type: "article", title: "T",
+                       libraries: [String] = [], title: String? = nil) -> Entry {
+        var e = Entry(id: id, citekey: key, type: "article", title: title ?? "T-\(key)",
                       authors: authors, date: "2020")
         e.akashic.libraries = libraries
         return e
+    }
+
+    // MARK: - 重複 DOI（#79）
+
+    private func entryWithDOI(_ key: String, doi: String?, title: String = "Shared Title") -> Entry {
+        var e = entry(key, title: title)
+        if let doi { e.fields["doi"] = doi }
+        return e
+    }
+
+    /// #79：17 組 work 共用同一個 DOI 而 validate 全綠——重複本身看不見。
+    ///
+    /// **warning 而非 error**：重複不毀資料，而且「同一篇在個人庫與群組庫各一份」
+    /// 是真實且合理的狀態。用 error 會讓 `assertNoCrossRecordErrors` 鎖住整個寫入面。
+    func testDuplicateDOIIsWarningNamingAllCitekeys() throws {
+        try store.writeEntry(entryWithDOI("a2020a", doi: "10.1000/xyz"))
+        try store.writeEntry(entryWithDOI("a2020ba", doi: "10.1000/xyz"))
+        let issues = try store.load().crossRecordIssues()
+        XCTAssertTrue(issues.filter { $0.severity == .error }.isEmpty,
+                      "重複 DOI 不得是 error——會鎖住寫入面：\(issues)")
+        let w = try XCTUnwrap(issues.first { $0.message.contains("10.1000/xyz") })
+        XCTAssertEqual(w.severity, .warning)
+        XCTAssertTrue(w.message.contains("a2020a") && w.message.contains("a2020ba"),
+                      "訊息必須指名全部 citekey，否則無從下手：\(w.message)")
+    }
+
+    /// DOI 依規格大小寫不敏感——`10.1000/XYZ` 與 `10.1000/xyz` 是同一篇。
+    /// 大小寫敏感的比較會讓真實的重複逃掉，而那正是這條檢查要抓的東西。
+    func testDuplicateDOIComparisonIsCaseInsensitive() throws {
+        try store.writeEntry(entryWithDOI("a2020a", doi: "10.1000/XYZ"))
+        try store.writeEntry(entryWithDOI("a2020ba", doi: "10.1000/xyz"))
+        XCTAssertTrue(try store.load().crossRecordIssues()
+            .contains { $0.severity == .warning && $0.message.lowercased().contains("10.1000/xyz") },
+            "大小寫不同的同一個 DOI 必須被視為重複")
+    }
+
+    /// **沒有 DOI 不是重複。** 缺席與空字串都不得把彼此湊成一組——
+    /// 那會讓整個沒 DOI 的子集變成一則巨大的假警告。
+    func testAbsentOrEmptyDOIIsNotDuplicate() throws {
+        try store.writeEntry(entryWithDOI("a2020a", doi: nil, title: "A"))
+        try store.writeEntry(entryWithDOI("b2020b", doi: nil, title: "B"))
+        try store.writeEntry(entryWithDOI("c2020c", doi: "   ", title: "C"))
+        try store.writeEntry(entryWithDOI("d2020d", doi: "", title: "D"))
+        XCTAssertTrue(try store.load().crossRecordIssues().isEmpty,
+                      "無 DOI 的記錄不得互相配成重複")
+    }
+
+    /// 三筆以上共用同一 DOI 只出一則 warning，且列出全部——
+    /// 每對各出一則會讓 n 筆產生 n(n-1)/2 則雜訊。
+    func testThreeWayDuplicateReportsOnceWithAllCitekeys() throws {
+        for k in ["a2020a", "a2020ba", "a2020ca"] {
+            try store.writeEntry(entryWithDOI(k, doi: "10.1000/same"))
+        }
+        let ws = try store.load().crossRecordIssues().filter { $0.message.contains("10.1000/same") }
+        XCTAssertEqual(ws.count, 1, "同一個 DOI 只該出一則：\(ws)")
+        let m = try XCTUnwrap(ws.first).message
+        for k in ["a2020a", "a2020ba", "a2020ca"] {
+            XCTAssertTrue(m.contains(k), "缺 \(k)：\(m)")
+        }
+    }
+
+    /// DOI 有多種儲存形式——`https://doi.org/10.x/y`、`doi:10.x/y`、裸 `10.x/y`
+    /// 都指同一篇。真實資料裡兩種形式並存（`cheng2021likert` 存 URL 形式、
+    /// `cheng2021blikert` 存裸 DOI），只 trim+lowercase 會讓這組重複逃掉。
+    func testDOINormalizationStripsResolverPrefix() throws {
+        try store.writeEntry(entryWithDOI("a2020a", doi: "https://doi.org/10.1000/xyz"))
+        try store.writeEntry(entryWithDOI("a2020ba", doi: "10.1000/xyz"))
+        try store.writeEntry(entryWithDOI("a2020ca", doi: "doi:10.1000/XYZ"))
+        let ws = try store.load().crossRecordIssues().filter { $0.message.contains("10.1000/xyz") }
+        XCTAssertEqual(ws.count, 1, "三種寫法必須收斂成同一組：\(ws)")
+        let m = try XCTUnwrap(ws.first).message
+        for k in ["a2020a", "a2020ba", "a2020ca"] { XCTAssertTrue(m.contains(k), m) }
+    }
+
+    /// 同標題同年但 **DOI 不同**——DOI 檢查結構上看不到，而這是真實且大量的：
+    /// JSTOR DOI vs 出版商 DOI、arXiv 預印本 vs 正式版、期刊自己換過 DOI 規則。
+    func testSameTitleAndYearWithDifferentDOIsIsWarned() throws {
+        try store.writeEntry(entryWithDOI("a1996a", doi: "10.1080/01621459.1996.10476987"))
+        try store.writeEntry(entryWithDOI("a1996ba", doi: "10.2307/2291736"))
+        let issues = try store.load().crossRecordIssues()
+        XCTAssertTrue(issues.filter { $0.severity == .error }.isEmpty)
+        let w = try XCTUnwrap(issues.first { $0.message.contains("標題") })
+        XCTAssertEqual(w.severity, .warning)
+        XCTAssertTrue(w.message.contains("a1996a") && w.message.contains("a1996ba"), w.message)
+    }
+
+    /// **DOI 已經抓到的組不得再用標題重報一次**——同一件事出兩則是雜訊不是訊號。
+    func testTitleCheckDoesNotDuplicateDOIFinding() throws {
+        try store.writeEntry(entryWithDOI("a2020a", doi: "10.1000/xyz"))
+        try store.writeEntry(entryWithDOI("a2020ba", doi: "10.1000/xyz"))
+        let issues = try store.load().crossRecordIssues()
+        XCTAssertEqual(issues.count, 1, "同一組只該出一則：\(issues.map(\.message))")
+    }
+
+    /// 年份不同就不是同一篇——同名不同年的論文（年度報告、系列作）不得被湊成重複。
+    func testSameTitleDifferentYearIsNotDuplicate() throws {
+        var a = entryWithDOI("a2019a", doi: "10.1000/a", title: "Same"); a.date = "2019"
+        var b = entryWithDOI("a2020a", doi: "10.1000/b", title: "Same"); b.date = "2020"
+        try store.writeEntry(a); try store.writeEntry(b)
+        XCTAssertTrue(try store.load().crossRecordIssues().isEmpty)
     }
 
     // MARK: - 唯一性（單筆 validate 結構上看不到）

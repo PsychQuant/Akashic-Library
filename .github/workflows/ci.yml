@@ -18,7 +18,12 @@ jobs:
   test:
     runs-on: macos-15
     steps:
+      # **submodules 必須一起 checkout。** Package.swift 用 path-based 依賴指向
+      # repos/biblatex-apa-swift；沒有它 swift build 直接失敗。本機看不到這個問題
+      # ——submodule 早就在那裡了。這是 CI 的第一個回報，也是它存在的理由。
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Swift 版本
         run: swift --version

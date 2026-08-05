@@ -552,6 +552,30 @@ extension LibraryStore {
     /// 若要改成「強制呼叫端明示 `_ =`」，那是一次 API 政策變更，該自己走一次決策，
     /// 不該是修註解的副作用。
     @discardableResult
+    /// quarantined 檔裡有沒有哪一份宣稱這個 citekey；有的話回傳它的相對路徑。
+    ///
+    /// **刻意用行級文字比對而非 decode**：這些檔案之所以在 quarantine，正是因為
+    /// decode 不過或身分不符——要求它們可解析等於什麼都擋不到。`citekey` 在 store
+    /// 格式裡是頂層鍵，所以錨在行首（無前導空白）既足夠也不會誤抓巢狀值。
+    ///
+    /// 讀檔失敗一律**當成佔用**（fail-closed）：讀不到內容時無從判斷它宣稱什麼，
+    /// 而放行的代價是延遲爆炸的 citekey 重複，擋下的代價只是使用者去看一眼那個檔。
+    func quarantinedFileClaiming(citekey: String, in load: LibraryLoad) -> String? {
+        for q in load.quarantined {
+            let url = root.appendingPathComponent(q.file)
+            guard let text = try? readUTF8(url) else { return q.file }   // fail-closed
+            for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+                guard line.hasPrefix("citekey:") else { continue }
+                let claimed = line.dropFirst("citekey:".count)
+                    .trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+                if claimed == citekey { return q.file }
+                break                                  // 頂層 citekey 只有一行
+            }
+        }
+        return nil
+    }
+
     public func renameEntry(from oldKey: String, to newKey: String) throws -> RenameReport {
         // oldKey 與 newKey 對稱驗證：oldKey 之後會進 entryURL 組刪除路徑，
         // 磁碟上若有畸形 citekey（load() 已 quarantine，此處縱深防禦）絕不可放行
@@ -579,6 +603,17 @@ extension LibraryStore {
         if usesEntitiesLayout,
            load.entries.contains(where: { $0.citekey == newKey && $0.id != entry.id }) {
             throw StoreIOError.invalidKey("citekey（已被其他記錄使用）", newKey)
+        }
+        // #61：**quarantined 檔也佔用 citekey**。legacy 靠 `fileExists` 天然擋下
+        // （檔名就是 citekey，能不能解析都擋）；entities 的替代守衛只掃 `load.entries`，
+        // 而被 quarantine 的檔在 `load.quarantined` —— 於是這一半保護在遷移時掉了。
+        //
+        // 後果不是當下壞掉而是**延遲爆炸**：store 裡同時存在一份宣稱該 citekey 的隔離檔
+        // 與一筆剛改名成該 citekey 的合法記錄；直到有人修好隔離檔，`crossRecordIssues()`
+        // 才突然冒出「citekey 重複」。錯誤出現的時間與成因相隔任意長。
+        if usesEntitiesLayout, let occupied = quarantinedFileClaiming(citekey: newKey, in: load) {
+            throw StoreIOError.invalidKey(
+                "citekey（已被 quarantined 檔「\(occupied)」佔用——修好或移走該檔後再改名）", newKey)
         }
 
         // 1. 寫新檔（先寫後刪，中斷時頂多多一份檔案，不丟資料）。

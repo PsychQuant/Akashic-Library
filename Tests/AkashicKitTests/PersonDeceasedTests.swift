@@ -353,7 +353,12 @@ final class PersonDeceasedTests: XCTestCase {
                       "status 欄的說明沒講清楚它描述的是隸屬：\n\(preamble)")
     }
 
-    /// 查得到卻沒有出口，等於沒查——`doctor` 必須實際呼叫它（防腐）。
+    /// **防腐 guard，不是行為證明。** 它只斷言「這個字串出現在 `Commands.swift` 裡」——
+    /// 即使呼叫在註解裡、在不會執行的分支裡、或有呼叫卻沒印出結果，一樣會通過。
+    ///
+    /// 行為證明在 `AkashicCLITests/CLIIntegrationTests`（實際 spawn binary 比對 stdout）：
+    /// 命中時出現報告行與 key、無命中時整項不出現、11 筆時全列不截斷。#67 當初誤以為
+    /// repo 沒有 CLI 測試層而只寫了這條——那個前提是錯的，工具一直都在（#84）。
     func testDoctorSurfacesTheContradiction() throws {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

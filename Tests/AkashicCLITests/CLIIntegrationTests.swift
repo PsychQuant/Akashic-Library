@@ -326,4 +326,96 @@ extension CLIIntegrationTests {
         XCTAssertTrue(value.hasPrefix("/"), "相對路徑入 config 必為絕對路徑：\(value)")
         XCTAssertFalse(value.contains(".."), value)
     }
+
+    // MARK: - doctor 的矛盾報告（#84；行為由 #67 引入）
+
+    /// 寫一筆 person 到 fixture library。`affiliationEnd` 為 nil ＝ 隸屬段仍開著。
+    private func writePerson(_ key: String, died: String?, affiliationEnd: String?) throws {
+        var yaml = """
+        key: \(key)
+        names:
+          - \(key)
+        """
+        if let died { yaml += "\ndied: '\(died)'" }
+        yaml += """
+
+        profile:
+          affiliations:
+          - value: Institute of Statistical Science
+            start: '1990-09'
+        """
+        if let affiliationEnd { yaml += "\n    end: '\(affiliationEnd)'" }
+        try (yaml + "\n").write(to: libraryRoot.appendingPathComponent("people/\(key).yaml"),
+                                atomically: true, encoding: .utf8)
+    }
+
+    /// 從 doctor 輸出裡切出「已故卻仍有開放隸屬」那一段，回傳它列出的 key 集合。
+    ///
+    /// **不用 `stdout.contains(key)`**：那證明的是「這個字串出現在輸出的某處」，不是
+    /// 「它出現在那份報告底下」——key 可能來自路徑、其他清單或別的診斷行。切 section
+    /// 之後改斷言集合相等，同時解掉三件事：key 必須在該段內、任何 N 的截斷都會失敗
+    /// （只數 11 筆的話 `prefix(11)` 仍會通過）、而 section 存在本身即證明報告有接線。
+    ///
+    /// 回傳 `nil` ＝ 該段整個沒出現（無命中時的正確狀態）。
+    private func deceasedContradictionSection(_ stdout: String) -> Set<String>? {
+        let lines = stdout.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard let head = lines.firstIndex(where: { $0.hasPrefix("deceased with open affiliation") })
+        else { return nil }
+        var keys = Set<String>()
+        for line in lines[(head + 1)...] {
+            guard let r = line.range(of: "⚠ ") else { break }   // 下一段開始 → 停
+            keys.insert(String(line[r.upperBound...]).trimmingCharacters(in: .whitespaces))
+        }
+        return keys
+    }
+
+    /// 已記錄逝世、卻仍有開放的隸屬段——`doctor` 要把它報出來，並點名是哪一筆。
+    ///
+    /// 這條測的是**使用者跑指令會看到什麼**。#67 當初只在 `PersonDeceasedTests` 用
+    /// 原始碼字串斷言代替（`commands.contains("recordsDeceasedWithOpenAffiliation()")`），
+    /// 那種斷言即使呼叫在註解裡、或有呼叫但沒印出結果，一樣會通過。
+    func testDoctorReportsADeceasedPersonWithAnOpenAffiliation() throws {
+        try writePerson("dead-but-open", died: "2004-11-18", affiliationEnd: nil)
+        try writePerson("properly-closed", died: "2004-11-18", affiliationEnd: "2004-11")
+        let r = try runCLI(["doctor"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        // 恰好一筆，且**就是**開放那筆——同時證明「有報」與「沒錯報」。
+        XCTAssertEqual(deceasedContradictionSection(r.stdout), ["dead-but-open"], r.stdout)
+    }
+
+    /// 無命中時**整項不出現**。0 是這項報告的正常狀態，每次印一行「0」只是噪音——
+    /// 這個設計要求只有在真的跑一次 CLI 才驗得到。
+    func testDoctorOmitsTheContradictionReportEntirelyWhenThereIsNoHit() throws {
+        try writePerson("properly-closed", died: "2004-11-18", affiliationEnd: "2004-11")
+        try writePerson("no-death-recorded", died: nil, affiliationEnd: nil)
+        let r = try runCLI(["doctor"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        // 先確認 fixture 真的被載入（setUp 的 cheng-che ＋ 上面兩筆）。
+        // 少了這一步，YAML 寫壞導致 people: 0 時本測試會**因為錯的理由**通過——
+        // 「沒有矛盾」與「根本沒有人」在輸出上長得一樣。
+        XCTAssertTrue(r.stdout.contains("people: 3"),
+                      "fixture 未如預期載入，下面的斷言會是空的：\n\(r.stdout)")
+        XCTAssertNil(deceasedContradictionSection(r.stdout), r.stdout)
+    }
+
+    /// **全列，不截斷。** 這是待人處理的工作清單而非普查數字——省略第 11 筆之後，
+    /// 操作者就拿不到其餘待修記錄，而總數不等於清單。
+    ///
+    /// 這個缺陷實際發生過（`prefix(10)`），且**原始碼字串斷言在結構上抓不到它**：
+    /// 呼叫確實存在、報告確實印出，只是少了幾行。
+    func testDoctorListsEveryContradictionWithoutTruncating() throws {
+        let expected = Set((1...11).map { String(format: "person-%02d", $0) })
+        for key in expected {
+            try writePerson(key, died: "2004-11-18", affiliationEnd: nil)
+        }
+        let r = try runCLI(["doctor"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        // **集合相等**而非逐筆 `contains`。它證明的是：key 都在該報告段落內（不是輸出
+        // 別處的路徑或清單）、沒有少列（截斷）、也沒有多列（誤報）。
+        //
+        // **它證明不了的**：`prefix(N)` 中 N ≥ 11 的截斷——實測 `prefix(11)` 通過。
+        // 要抓那個需要無界的 fixture 數；11 筆是針對**實際發生過**的 `prefix(10)` 的
+        // 回歸（已實測：注入 `prefix(10)` 本測試失敗）。名稱說「不截斷」，範圍以此註解為準。
+        XCTAssertEqual(deceasedContradictionSection(r.stdout), expected, r.stdout)
+    }
 }

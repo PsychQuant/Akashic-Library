@@ -17,10 +17,11 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
 ├── Sources/AkashicIndex         .akashic/ SQLite index 重建
 ├── Sources/AkashicQuery         結構化查詢（欄位 + 關係：同作者/同期刊/cites/related）
 ├── Sources/AkashicGraph         關係圖模型、鄰域展開、Mermaid/DOT/GraphML
-└── Sources/akashic              CLI：import-zotero / validate / export-bib /
-                                 resolve-people / doctor / query / graph /
+└── Sources/akashic              CLI：import-zotero / import-wos / validate /
+                                 export-bib / export-tables / resolve-people /
+                                 bootstrap-people / doctor / query / graph /
                                  rename / record-divergence / resolve-divergence /
-                                 authorize-names
+                                 authorize-names / library / file / migrate
 mcps/                            MCP server submodules（che-zotero-mcp、che-biblatex-mcp）
 repos/                           共用 library submodules（biblatex-apa-swift = canonical）
 docs/                            spec 與 store 格式規格書
@@ -166,11 +167,28 @@ swift test
 **不寫死預期測試數**——它每次加測試都會過期，過期的數字比沒有數字更糟。跑一次 `swift test`
 看最後一行即可。
 
+> **CI 的「測試數下限」不是預期測試數**（#57）。它是一個**帶餘裕的下界**（目前 650，當下總數
+> 679），擋的是完全不同的失敗：測試**靜默地不再被執行**——整個 suite 沒編進 target、有人註解掉
+> 一個 class、filter 寫錯。那些情況 exit code 是 0，只有數量看得出來。它不驗證「跑滿了」，
+> 也不需要隨每次加測試而更新；只在測試規模成長一截之後才往上調，而那次調整本身就是一次 review。
+
 測試裡對集合取第一個元素**應該**用 `try XCTUnwrap(xs.first)` 而非 `xs[0]`——後者在空集合上
 是 fatal error（中止整個程序）而非測試失敗。**這是往後的規則，不是既成事實**：測試樹裡仍有
 約 12 個未改的站點（`WoSImportTests`、`EntitiesLayoutTests`、`KnownLayerEvolutionTests`、
 `AppLibraryMembershipTests`、`ServiceTests`、`UnknownFieldVisibilityTests`），它們仍帶著同一種
 中止風險。
+
+### 工具鏈可移植性
+
+`Package.swift` 宣告 `swift-tools-version: 5.9`，**程式碼就必須在那個範圍內編得過**，不能只在
+本機的最新 toolchain 上編得過。
+
+實例（#57，CI 第一次啟用即抓到）：`switch` 對 `Bool?` 用 `case true / case false / case nil`
+在 Swift 6.3.3 算窮盡，在 **6.1.2 不算**（`error: switch must be exhaustive` / `add missing
+case: '.some(_)'`）。也就是說 main 在此之前對任何非最新 toolchain 的環境是**編不過的**，而沒有
+任何機制會說出來。修法是寫成 `.some(true)` / `.some(false)` / `.none` 的 pattern 形式。
+
+判準：**optional 的 switch 一律用顯式 `.some` / `.none`**，不倚賴較新版本才有的窮盡性推導。
 
 ### 測試的佈局假設
 
@@ -206,6 +224,27 @@ setUp 就寫入記錄的 suite（如 `RenameTests`）改成 `seed(format:)`，�
 **反過來也要小心：「換佈局後仍通過」不等於「該佈局有覆蓋」。** 斷言可能空洞為真——
 `testRenameMovesFileMigratesRelationsKeepsUUID` 斷言 `entries/old2020key.yaml` 不存在，而
 在 entities 佈局下那個路徑從來就沒存在過。判斷覆蓋要看斷言的內容，不是看有沒有變紅。
+
+## CI
+
+`.github/workflows/ci.yml`，macOS runner，觸發限 **PR 與 push to main**（macOS runner 的
+GitHub Actions 計費倍率是 10×，而本 repo 是 Apple 平台專屬、沒有 Linux 選項；PR 是改動進
+main 前的最後一道門，那裡跑一次就夠）。
+
+| 檢查 | 擋什麼 |
+|---|---|
+| `swift build` + `swift test` | 一般回歸。**不得加 `--skip`**——允許跳過測試的 CI 等於沒有 CI |
+| 測試數下限 | 測試靜默地不再被執行（見上方說明）|
+| `load.sql` 端對端 | 「產生出來就跑不起來」的腳本。真的建 store、真的 `export-tables`、真的餵給 `duckdb` |
+| fixture 含母子機構 + 斷言 `parent_id` 非空 | 上一條的**前提**。#92 的觸發條件是自我參照 FK 非空，空 store 跑得過——不斷言 fixture 有效，端對端就是裝飾 |
+
+最後一條是 #92 的直接教訓：那個 bug 之所以能活很久，正是因為既有測試斷言的是「產生的 SQL
+**字串長什麼樣**」而非「SQL **跑不跑得起來**」。端對端若只跑空 store，等於把同一個錯誤重演一次
+——測到的路徑不是會壞的那條。
+
+`actions/checkout` 必須帶 `submodules: recursive`：`Package.swift` 有 path-based 依賴指向
+`repos/biblatex-apa-swift`，沒有它 `swift build` 直接失敗。本機看不到這個問題（submodule 早就
+在磁碟上），這是 CI 的第一個回報。
 
 ## Submodules
 

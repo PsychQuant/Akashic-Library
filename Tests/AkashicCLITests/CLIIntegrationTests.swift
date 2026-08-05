@@ -263,6 +263,14 @@ extension CLIIntegrationTests {
                       "已註冊 store 的 index 必須寫到 <home>/index/<key>.sqlite")
         XCTAssertFalse(fm.fileExists(atPath: storeRoot.appendingPathComponent(".akashic").path),
                        "已註冊的 store 不該有 in-store 的 index 回落位置")
+
+        // issue #101 的標題症狀：「每次 doctor 都長出 entries/ 與 people/」。
+        // 上面那兩條測的是 .akashic/；這兩條才是標題講的那件事，且**必須在跑過 doctor
+        // 之後**斷言——只測 file add 之後的狀態抓不到「doctor 又把它建回來」。
+        for legacy in ["entries", "people"] {
+            XCTAssertFalse(fm.fileExists(atPath: storeRoot.appendingPathComponent(legacy).path),
+                           "當前 format 的 store 跑完 doctor 不該長出 \(legacy)/")
+        }
     }
 
     private func tmpDir(_ name: String) throws -> URL {

@@ -16,8 +16,9 @@ final class DivergenceHardeningTests: XCTestCase {
             .appendingPathComponent("akashic-hard-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent("entities"), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        // #73：真 repo。版控前提升級成「要刪的檔案 tracked 且 clean」之後，
+        // 假 `.git` 目錄不再夠用。
+        GitFixture.initRepo(root)
         try StoreVersion.write(root: root, format: StoreVersion.supported)
         store = LibraryStore(root: root)
     }
@@ -46,6 +47,9 @@ final class DivergenceHardeningTests: XCTestCase {
         try store.writeDivergence(personDiv)
         try store.writeDivergence(orgDiv)
 
+        // #73：resolve 之前先 commit——被測的是消歧本身，不是「未 commit 會被擋」。
+        // 後者由 DivergenceResolveTests 的三個專門測試覆蓋。
+        GitFixture.commitAll(store.root)
         _ = try store.resolveDivergence(id: personDiv.id, survivor: "academia-sinica-a")
 
         let load = try store.load()
@@ -105,6 +109,7 @@ final class DivergenceHardeningTests: XCTestCase {
         defer { try? FileManager.default.setAttributes([.immutable: false],
                                                        ofItemAtPath: doomedURL.path) }
 
+        GitFixture.commitAll(store.root)
         let report = try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")
         XCTAssertTrue(report.hasFailures, "刪除失敗必須進 failures")
         XCTAssertEqual(try store.load().divergences.count, 1,
@@ -125,8 +130,7 @@ final class DivergenceHardeningTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: legacy) }
         try FileManager.default.createDirectory(
             at: legacy.appendingPathComponent("entries"), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(
-            at: legacy.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        GitFixture.initRepo(legacy)
         try StoreVersion.write(root: legacy, format: 1)
         let s = LibraryStore(root: legacy)
 
@@ -158,6 +162,7 @@ final class DivergenceHardeningTests: XCTestCase {
                                         DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
         try store.writeDivergence(d)
 
+        GitFixture.commitAll(store.root)
         XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")) { e in
             let msg = (e as? LocalizedError)?.errorDescription ?? "\(e)"
             XCTAssertTrue(msg.contains("orcid"), "錯誤須指名將失去的欄位：\(msg)")
@@ -178,6 +183,7 @@ final class DivergenceHardeningTests: XCTestCase {
                            candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),
                                         DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
         try store.writeDivergence(d)
+        GitFixture.commitAll(store.root)
         let report = try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")
         XCTAssertFalse(report.hasFailures, "\(report.failures)")
         XCTAssertEqual(try store.load().people.count, 1)
@@ -197,6 +203,7 @@ final class DivergenceHardeningTests: XCTestCase {
                                         DivergenceCandidate(key: "shen2015model-dup", shape: .work)])
         try store.writeDivergence(d)
 
+        GitFixture.commitAll(store.root)
         _ = try store.resolveDivergence(id: d.id, survivor: "shen2015model")
         let e = try XCTUnwrap(try store.load().entries.first { $0.citekey == "shen2015model" })
         XCTAssertFalse(e.akashic.relations.cites.contains("shen2015model"),
@@ -299,6 +306,7 @@ final class DivergenceHardeningTests: XCTestCase {
             .write(to: stray, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(try store.load().quarantined.isEmpty, "前提：該檔應被 quarantine")
+        GitFixture.commitAll(store.root)
         XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")) { e in
             let msg = (e as? LocalizedError)?.errorDescription ?? "\(e)"
             XCTAssertTrue(msg.contains("讀不進來"), "錯誤須說明理由：\(msg)")
@@ -323,6 +331,7 @@ final class DivergenceHardeningTests: XCTestCase {
                                         DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
         try store.writeDivergence(d)
 
+        GitFixture.commitAll(store.root)
         let report = try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")
         XCTAssertFalse(report.rewritten.contains("unrelated2020"),
                        "無關記錄不該被算進 rewritten：\(report.rewritten)")
@@ -435,6 +444,7 @@ final class DivergenceHardeningTests: XCTestCase {
                                         DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
         try store.writeDivergence(d)
 
+        GitFixture.commitAll(store.root)
         let report = try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")
         XCTAssertFalse(report.hasFailures, "\(report.failures)")
         let p = try XCTUnwrap(try store.load().people.first)
@@ -500,6 +510,7 @@ final class DivergenceHardeningTests: XCTestCase {
                                         DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
         try store.writeDivergence(d)
 
+        GitFixture.commitAll(store.root)
         XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")) { e in
             let msg = (e as? LocalizedError)?.errorDescription ?? "\(e)"
             XCTAssertTrue(msg.contains("佈局") || msg.contains("migrate"),
@@ -526,6 +537,7 @@ final class DivergenceHardeningTests: XCTestCase {
                                         DivergenceCandidate(key: "p-doomed", shape: .person)])
         try store.writeDivergence(d)
 
+        GitFixture.commitAll(store.root)
         let report = try store.resolveDivergence(id: d.id, survivor: "p-keeper")
         XCTAssertFalse(report.hasFailures, "\(report.failures)")
     }
@@ -557,6 +569,7 @@ final class DivergenceHardeningTests: XCTestCase {
                                         DivergenceCandidate(key: "shen2015model-dup", shape: .work)])
         try store.writeDivergence(d)
 
+        GitFixture.commitAll(store.root)
         _ = try store.resolveDivergence(id: d.id, survivor: "shen2015model")
         let e = try XCTUnwrap(try store.load().entries.first { $0.citekey == "shen2015model" })
         XCTAssertEqual(e.akashic.relations.cites, ["z2019q", "z2019q", "a2020x"],

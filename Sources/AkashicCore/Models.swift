@@ -205,10 +205,14 @@ public struct Person: Equatable {
     /// 來源在 #66 的 provenance 機制落地前建議寫進 `note`（緊鄰本欄位即為此）。那是
     /// 對填資料的人的慣例，**不是**格式要求——`died` 在場而 `note` 缺席是合法記錄。
     ///
-    /// **空值在 `didSet` 收斂成缺席**，所以每一條賦值路徑都守得住不變量。先前只在
-    /// init 與 decode 正規化，並宣稱「事後改成空字串會被 encode 的 canary 攔下」——
-    /// 那不夠：關聯匯出不經過 canary，而 canary 的行為是**拋錯**、不是規約要求的
-    /// 正規化。守衛在某一條路徑上，不等於不變量成立。
+    /// **空值在 `didSet` 收斂成缺席**，涵蓋每一條**建構後的寫入**路徑（直接賦值、
+    /// key-path、`inout` 寫回、decode 的賦值）。**初始化不在其中**——Swift 的
+    /// property observer 不在 initialization context 觸發，所以 `init` 必須自己呼叫
+    /// `normalisedDied`；日後若為本型別加上 `Decodable`，`init(from:)` 同理要自己呼叫。
+    ///
+    /// 先前只在 init 與 decode 正規化，並宣稱「事後改成空字串會被 encode 的 canary
+    /// 攔下」——那不夠：關聯匯出不經過 canary，而 canary 的行為是**拋錯**、不是規約
+    /// 要求的正規化。守衛在某一條路徑上，不等於不變量成立。
     public var died: String? {
         didSet { died = Person.normalisedDied(died) }   // 在 didSet 內賦值不會遞迴
     }

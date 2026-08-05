@@ -1164,26 +1164,18 @@ public enum PersonYAML {
         // `start` / `end` 及 `Organization.founded` / `dissolved` 同慣例。這裡拒絕的
         // 只有形狀錯誤（sequence / mapping），內容的可信度屬使用端的判斷。
         //
-        // **但空值正規化成缺席。** 空的 `died` 不帶任何資訊，而它的兩種可能意圖都不該
-        // 被讀成「已知死亡」：若是「不知道他死了沒」，那本來就是缺席；若是想說「死了但
-        // 不知何時」（δ=1 而區間無界），spec 明定該情形 MUST NOT 用佔位值表達、要寫進
-        // `note`。兩條路收斂到同一個處置。
-        //
-        // 這**不推翻** `requireShape` 對 scalar 欄位不套 null-as-absent 的決定（那條是
-        // R8 的 CRITICAL：`title: ` 的空值可能是真實狀態，套用會讓無標題的 Zotero item
-        // 永遠寫不進 store）。差別在**值域**——空字串永遠不是合法的 ISO 8601 前綴。
-        //
-        // 在**邊界**正規化而非在每個讀取點檢查：後者要求每個消費者都記得 `!isEmpty`，
-        // 是那種「小心就不會錯」的介面。
-        //
         // `nullIsAbsent: true` 是**認得缺席的不同寫法**，不是驗證內容：`null` / `~` /
         // `NULL` 是 YAML 表達「沒有值」的記法，不是值。這與 R8 對 scalar 不套此旗標的
         // 決定不衝突——那條的理由是 `title` 的空值可能是真實狀態，而 `died` 的值域
-        // （ISO 8601 前綴）本來就不含任何 null-face。
+        // （ISO 8601 前綴）本來就不含任何 null-face。**這一項在此不可省**：`died: null`
+        // 的字串面是 `"null"`，去空白去不掉它。
+        //
+        // 空白值的正規化**不在這裡做**——`person` 此時已初始化完成，賦值會觸發
+        // `Person.died` 的 `didSet`。在此再做一次是重複的第二個判準，而「同一概念兩套
+        // 判準」正是本欄位第一個缺陷的成因。
         person.died = try EntryYAML.requireShape(map["died"], field: "person.died",
                                                  expect: "scalar", nullIsAbsent: true,
                                                  { $0.scalar?.string })
-            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         person.note = try EntryYAML.requireShape(map["note"], field: "person.note",
                                                  expect: "scalar") { $0.scalar?.string }
         return person

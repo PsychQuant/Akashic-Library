@@ -125,6 +125,19 @@ final class PersonDeceasedTests: XCTestCase {
         XCTAssertEqual(p.died, "2004-11-18")
     }
 
+    /// 直接賦值不是唯一的建構後寫入路徑。key-path 走同一個 setter、`inout` 在
+    /// copy-out 寫回時觸發 observer——名稱說「每一條建構後寫入路徑」就要涵蓋它們。
+    func testKeyPathAndInoutWritesAreNormalisedToo() {
+        var p = Person(key: "k", names: ["N"])
+
+        p[keyPath: \Person.died] = "   "
+        XCTAssertNil(p.died, "key-path 寫入未被正規化")
+
+        func blank(_ s: inout String?) { s = "\n\t" }
+        blank(&p.died)
+        XCTAssertNil(p.died, "inout 寫回未被正規化")
+    }
+
     /// 事後賦空值不得從匯出漏出成空字串——這條路徑完全不經過 encoder。
     func testAPostAssignedBlankNeverReachesTheExportAsAnEmptyCell() {
         var p = person("k", affiliation: DateRange(start: "1990"))

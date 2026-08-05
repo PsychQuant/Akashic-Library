@@ -228,12 +228,15 @@ public enum EntryYAML {
                 throw StoreYAMLError.invalidField(
                     context, "未知欄位「\(w.key)」寫出前後無法獨立解析——拒絕寫出")
             }
+            // 顯式 .some/.none：`case true/false/nil` 對 `Bool?` 的窮盡性檢查
+            // 在 Swift 6.3 通過、6.1.2 不通過（「add missing case: '.some(_)'」）。
+            // 寫成 pattern 才與宣告的 swift-tools-version 5.9 相稱。
             switch nodesSemanticallyEqual(gn, wn, budget: &budget) {
-            case true: break
-            case false:
+            case .some(true): break
+            case .some(false):
                 throw StoreYAMLError.invalidField(
                     context, "未知欄位「\(w.key)」寫出前後語意不符（值漂移）——拒絕寫出")
-            case nil:
+            case .none:
                 // R8（R7-verify L21）：共用預算——耗盡可能來自較早的區塊
                 throw StoreYAMLError.invalidField(
                     context, "未知欄位「\(w.key)」處超出共用驗證預算（消耗可能來自同檔較早的區塊）——fail-closed")
@@ -540,12 +543,12 @@ public enum EntryYAML {
                 context, "未知欄位「\(expectedKey)」的區塊對齊校驗失敗（切分錯位，fail-closed）")
         }
         switch nodesSemanticallyEqual(entry.value, originalValue, budget: &budget) {
-        case true:
+        case .some(true):
             break
-        case false:
+        case .some(false):
             throw StoreYAMLError.invalidField(
                 context, "未知欄位「\(expectedKey)」的區塊值與 parse 結果不符（切分錯位，fail-closed）")
-        case nil:
+        case .none:
             // 預算耗盡 ≠ 不相符——比對次數與節點數線性相關：巨大未知子樹或
             // anchor/alias 重用型 DAG 都會觸發（R6 更正：R5 誤稱「與檔案大小
             // 無關」——alias-free 的 70k+ 節點子樹同樣打穿）。訊息分開，診斷

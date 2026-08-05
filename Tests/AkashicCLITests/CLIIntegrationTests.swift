@@ -65,10 +65,14 @@ final class CLIIntegrationTests: XCTestCase {
     }
 
     @discardableResult
-    private func runCLI(_ args: [String]) throws -> (status: Int32, stdout: String, stderr: String) {
+    private func runCLI(_ args: [String],
+                        env: [String: String]? = nil) throws -> (status: Int32, stdout: String, stderr: String) {
         let process = Process()
         process.executableURL = productsDirectory.appendingPathComponent("akashic")
         process.arguments = args
+        if let env {
+            process.environment = ProcessInfo.processInfo.environment.merging(env) { _, new in new }
+        }
         let out = Pipe(), err = Pipe()
         process.standardOutput = out
         process.standardError = err
@@ -226,6 +230,35 @@ extension CLIIntegrationTests {
 
 /// #18 多檔案：`akashic file` 子指令（--config 注入，不碰真實 ~/.akashic）。
 extension CLIIntegrationTests {
+    /// `doctor` 對**已註冊**的 store 必須保留 registry key（#101）。
+    ///
+    /// 曾經 `doctor` 走 `resolveRoot()` 只拿 root、丟掉 key，於是它把已註冊的 store 當成
+    /// 未註冊的：建一個永遠用不到的 in-store `.akashic/`，並且**重建錯的那個 index**——
+    /// `<home>/index/<key>.sqlite` 從來沒被 `doctor` 更新過，使用者的查詢一直打在一份
+    /// 過期的衍生資料上，而且沒有任何訊號。
+    func testDoctorOnRegisteredStoreKeepsIndexOutOfStore() throws {
+        let home = try tmpDir("home")
+        let storeRoot = try tmpDir("registered")
+        // registry 放進 fake home——`doctor` 沒有 `--config`，它從 AKASHIC_HOME 讀
+        let config = home.appendingPathComponent("config.yaml").path
+        let env = ["AKASHIC_HOME": home.path]
+
+        var r = try runCLI(["file", "add", "main", storeRoot.path, "--config", config], env: env)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        r = try runCLI(["file", "use", "main", "--config", config], env: env)
+        XCTAssertEqual(r.status, 0, r.stderr)
+
+        // 不帶 --library：走 registry，key = main
+        r = try runCLI(["doctor"], env: env)
+        XCTAssertEqual(r.status, 0, r.stderr)
+
+        let fm = FileManager.default
+        XCTAssertTrue(fm.fileExists(atPath: home.appendingPathComponent("index/main.sqlite").path),
+                      "已註冊 store 的 index 必須寫到 <home>/index/<key>.sqlite")
+        XCTAssertFalse(fm.fileExists(atPath: storeRoot.appendingPathComponent(".akashic").path),
+                       "已註冊的 store 不該有 in-store 的 index 回落位置")
+    }
+
     private func tmpDir(_ name: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-file-\(name)-\(UUID().uuidString)")

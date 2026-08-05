@@ -15,9 +15,8 @@ struct Doctor: ParsableCommand {
     @OptionGroup var options: LibraryOptions
 
     func run() throws {
-        let root = try options.resolveRoot()
-        let store = LibraryStore(root: root)
-        try store.ensureLayout()
+        let store = try options.openOrCreateStore()
+        let root = store.root
         let load = try store.load()
 
         // #35：跨記錄檢查必須在 rebuild **之前**。雙佈局並存時 index 會撞
@@ -172,9 +171,7 @@ struct ImportZotero: ParsableCommand {
     var libraryId: Int?
 
     func run() throws {
-        let root = try options.resolveRoot()
-        let store = LibraryStore(root: root)
-        try store.ensureLayout()
+        let store = try options.openOrCreateStore()
         let dbURL = URL(fileURLWithPath: (zoteroDb as NSString).expandingTildeInPath)
         guard FileManager.default.fileExists(atPath: dbURL.path) else {
             throw ValidationError("找不到 zotero.sqlite：\(dbURL.path)")

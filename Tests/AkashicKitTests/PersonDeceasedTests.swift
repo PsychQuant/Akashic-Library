@@ -108,7 +108,32 @@ final class PersonDeceasedTests: XCTestCase {
     func testTheInitialiserAlsoNormalisesAnEmptyValue() {
         XCTAssertNil(Person(key: "k", names: ["N"], died: "").died)
         XCTAssertNil(Person(key: "k", names: ["N"], died: "  ").died)
+        XCTAssertNil(Person(key: "k", names: ["N"], died: "\n").died)
         XCTAssertEqual(Person(key: "k", names: ["N"], died: "2004").died, "2004")
+    }
+
+    /// **第三條路徑：建構後直接賦值。** 先前只擋 init 與 decode，並宣稱事後賦值會被
+    /// encode 的 canary 攔下——但關聯匯出不經過 canary，而 canary 的行為是拋錯、
+    /// 不是正規化。守衛在某一條路徑上不等於不變量成立（cross-model verify 指出）。
+    func testPostConstructionAssignmentIsAlsoNormalised() {
+        var p = Person(key: "k", names: ["N"])
+        for blank in ["", "   ", "\n", " \t\n "] {
+            p.died = blank
+            XCTAssertNil(p.died, "事後賦值 \(blank.debugDescription) 未被正規化")
+        }
+        p.died = "2004-11-18"
+        XCTAssertEqual(p.died, "2004-11-18")
+    }
+
+    /// 事後賦空值不得從匯出漏出成空字串——這條路徑完全不經過 encoder。
+    func testAPostAssignedBlankNeverReachesTheExportAsAnEmptyCell() {
+        var p = person("k", affiliation: DateRange(start: "1990"))
+        p.died = "   "
+        let t = RelationalExport.tables(entries: [], people: [p])
+        guard let d = t.researcher.columns.firstIndex(of: "died") else {
+            return XCTFail("researcher 表缺 died 欄")
+        }
+        XCTAssertNil(t.researcher.rows[0][d], "空白值漏到匯出：\(String(describing: t.researcher.rows[0][d]))")
     }
 
     /// 空值不得觸發矛盾報告——那是從一個空白裡憑空生出一個事件。

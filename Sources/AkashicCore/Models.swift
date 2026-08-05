@@ -202,8 +202,22 @@ public struct Person: Equatable {
     /// 在場則是已觀察到的事件，精度即區間寬度（`2004` ＝ 落在該年某處）。唯一表達不了
     /// 的是「已知過世但區間無界」——那屬 #63。
     ///
-    /// 來源在 #66 的 provenance 機制落地前一律寫進 `note`（緊鄰本欄位即為此）。
-    public var died: String?
+    /// 來源在 #66 的 provenance 機制落地前建議寫進 `note`（緊鄰本欄位即為此）。那是
+    /// 對填資料的人的慣例，**不是**格式要求——`died` 在場而 `note` 缺席是合法記錄。
+    ///
+    /// **空值在 `didSet` 收斂成缺席**，所以每一條賦值路徑都守得住不變量。先前只在
+    /// init 與 decode 正規化，並宣稱「事後改成空字串會被 encode 的 canary 攔下」——
+    /// 那不夠：關聯匯出不經過 canary，而 canary 的行為是**拋錯**、不是規約要求的
+    /// 正規化。守衛在某一條路徑上，不等於不變量成立。
+    public var died: String? {
+        didSet { died = Person.normalisedDied(died) }   // 在 didSet 內賦值不會遞迴
+    }
+
+    /// 空或全空白 → 缺席。`.whitespacesAndNewlines` 而非 `.whitespaces`——後者不含
+    /// 換行，會讓一個純換行的值變成一筆「死於換行」的記錄。
+    static func normalisedDied(_ v: String?) -> String? {
+        v.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+    }
     public var note: String?
     /// 機構與身分維度（#20，valid-time temporal）。各屬性自帶時間軸。
     public var profile: PersonProfile
@@ -228,7 +242,8 @@ public struct Person: Equatable {
         // 意圖（「不知道死了沒」／「死了但不知何時」）都收斂到缺席。decode 端另有同樣
         // 的正規化（它繞過本 init 直接賦值）。兩個入口都擋住之後，`died` 在模型裡就
         // 不會是空字串；事後直接改成空字串仍會被 encode 的語意 canary 攔下。
-        self.died = died.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        // init 不觸發 `didSet`，所以這裡要自己走一次同一個正規化。
+        self.died = Person.normalisedDied(died)
         self.note = note
         self.unknownFields = unknownFields
     }

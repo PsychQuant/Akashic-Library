@@ -76,7 +76,9 @@ final class PersonDeceasedTests: XCTestCase {
     func testAnEmptyValueIsNormalisedToAbsenceAtTheDecodeBoundary() throws {
         // `null` / `~` / `NULL` 是 YAML 表達「沒有值」的**記法**，不是值——它們與空白
         // 同屬缺席的不同寫法。漏掉它們會讓一個人「死於 null」（cross-model verify 抓到）。
-        for blank in ["", "''", "\"\"", "'   '", "null", "~", "Null", "NULL"] {
+        // `"\n"` 曾經漏掉：`CharacterSet.whitespaces` **不含換行**，只有空白與 tab。
+        for blank in ["", "''", "\"\"", "'   '", "null", "~", "Null", "NULL",
+                      "\"\\t\"", "\"\\n\"", "\" \\t\\n \""] {
             let p = try PersonYAML.decode("""
             person:
             id: \(DeterministicUUID.forPerson(key: "k").uuidString)

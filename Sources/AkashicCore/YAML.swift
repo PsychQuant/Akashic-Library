@@ -1183,7 +1183,7 @@ public enum PersonYAML {
         person.died = try EntryYAML.requireShape(map["died"], field: "person.died",
                                                  expect: "scalar", nullIsAbsent: true,
                                                  { $0.scalar?.string })
-            .flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         person.note = try EntryYAML.requireShape(map["note"], field: "person.note",
                                                  expect: "scalar") { $0.scalar?.string }
         return person

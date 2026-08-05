@@ -228,7 +228,7 @@ public struct Person: Equatable {
         // 意圖（「不知道死了沒」／「死了但不知何時」）都收斂到缺席。decode 端另有同樣
         // 的正規化（它繞過本 init 直接賦值）。兩個入口都擋住之後，`died` 在模型裡就
         // 不會是空字串；事後直接改成空字串仍會被 encode 的語意 canary 攔下。
-        self.died = died.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+        self.died = died.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         self.note = note
         self.unknownFields = unknownFields
     }

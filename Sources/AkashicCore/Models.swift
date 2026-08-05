@@ -192,6 +192,36 @@ public struct Person: Equatable {
     public var authorized: [String]
     public var orcid: String?
     public var openalex: String?
+    /// 逝世日期（#67）。ISO 8601 前綴：`2004`、`2004-11`、`2004-11-18`——與
+    /// `Organization.dissolved` 同慣例，精度就是來源說了什麼，**不補齊**。
+    ///
+    /// **缺席 ＝ 右設限，不是「在世」。** 死亡是必然事件，所以缺席永遠不是「不適用」，
+    /// 只是尚未觀察到——它同時涵蓋「真的還活著」與「已故但未記錄」，而從資料的角度
+    /// 那兩者本來就是同一件事。判斷「誰還在世」時據此讀，不要把缺席當成活著的斷言。
+    ///
+    /// 在場則是已觀察到的事件，精度即區間寬度（`2004` ＝ 落在該年某處）。唯一表達不了
+    /// 的是「已知過世但區間無界」——那屬 #63。
+    ///
+    /// 來源在 #66 的 provenance 機制落地前建議寫進 `note`（緊鄰本欄位即為此）。那是
+    /// 對填資料的人的慣例，**不是**格式要求——`died` 在場而 `note` 缺席是合法記錄。
+    ///
+    /// **空值在 `didSet` 收斂成缺席**，涵蓋每一條**建構後的寫入**路徑（直接賦值、
+    /// key-path、`inout` 寫回、decode 的賦值）。**初始化不在其中**——Swift 的
+    /// property observer 不在 initialization context 觸發，所以 `init` 必須自己呼叫
+    /// `normalisedDied`；日後若為本型別加上 `Decodable`，`init(from:)` 同理要自己呼叫。
+    ///
+    /// 先前只在 init 與 decode 正規化，並宣稱「事後改成空字串會被 encode 的 canary
+    /// 攔下」——那不夠：關聯匯出不經過 canary，而 canary 的行為是**拋錯**、不是規約
+    /// 要求的正規化。守衛在某一條路徑上，不等於不變量成立。
+    public var died: String? {
+        didSet { died = Person.normalisedDied(died) }   // 在 didSet 內賦值不會遞迴
+    }
+
+    /// 空或全空白 → 缺席。`.whitespacesAndNewlines` 而非 `.whitespaces`——後者不含
+    /// 換行，會讓一個純換行的值變成一筆「死於換行」的記錄。
+    static func normalisedDied(_ v: String?) -> String? {
+        v.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+    }
     public var note: String?
     /// 機構與身分維度（#20，valid-time temporal）。各屬性自帶時間軸。
     public var profile: PersonProfile
@@ -201,7 +231,7 @@ public struct Person: Equatable {
     /// `id` 省略時由 `key` 推出（確定性）——呼叫端不必為既有流程補一個 UUID。
     public init(key: String, names: [String] = [], authorized: [String] = [],
                 orcid: String? = nil,
-                openalex: String? = nil, note: String? = nil,
+                openalex: String? = nil, died: String? = nil, note: String? = nil,
                 id: UUID? = nil,
                 profile: PersonProfile = PersonProfile(),
                 unknownFields: [UnknownField] = []) {
@@ -212,6 +242,12 @@ public struct Person: Equatable {
         self.authorized = authorized
         self.orcid = orcid
         self.openalex = openalex
+        // #67：空值正規化成缺席——空字串永遠不是合法的 ISO 8601 前綴，而它的兩種可能
+        // 意圖（「不知道死了沒」／「死了但不知何時」）都收斂到缺席。decode 端另有同樣
+        // 的正規化（它繞過本 init 直接賦值）。兩個入口都擋住之後，`died` 在模型裡就
+        // 不會是空字串；事後直接改成空字串仍會被 encode 的語意 canary 攔下。
+        // init 不觸發 `didSet`，所以這裡要自己走一次同一個正規化。
+        self.died = Person.normalisedDied(died)
         self.note = note
         self.unknownFields = unknownFields
     }

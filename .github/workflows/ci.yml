@@ -1,0 +1,105 @@
+name: CI
+
+# **只在 PR 與 push to main 觸發**（#57）。macOS runner 的 GitHub Actions 計費
+# 倍率是 10×，而這個 repo 是 Apple 平台專屬（Swift + XCTest + macOS-only 依賴），
+# 沒有 Linux 選項。在每個 feature branch 的每次 push 都跑，成本與價值不成比例——
+# PR 是改動進入 main 之前的最後一道門，那裡跑一次就夠。
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  # 同一個 PR 連推數次時，只留最後一次——省掉排隊中的過期 run。
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      # **submodules 必須一起 checkout。** Package.swift 用 path-based 依賴指向
+      # repos/biblatex-apa-swift；沒有它 swift build 直接失敗。本機看不到這個問題
+      # ——submodule 早就在那裡了。這是 CI 的第一個回報，也是它存在的理由。
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Swift 版本
+        run: swift --version
+
+      # .build 快取。key 綁 Package.resolved——依賴沒變就重用，變了就重建。
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved', 'Package.swift') }}
+          restore-keys: ${{ runner.os }}-spm-
+
+      - name: Build
+        run: swift build
+
+      # **不得加 --skip**（#57）。允許跳過測試的 CI 等於沒有 CI；要暫時停用某個
+      # 測試，正確做法是在測試裡 XCTSkip 並寫明理由，那會留在程式碼裡被 review。
+      - name: Test
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee /tmp/test.log
+
+      # 測試「跑到一半崩掉」由 exit code 擋（fatal error 會讓程序非零退出）。
+      # 這一步擋的是**另一種**失敗：測試靜默地不再被執行——整個 suite 沒編進
+      # target、有人註解掉一個 class、或 filter 寫錯。那些情況 exit code 是 0。
+      #
+      # 下限刻意設得比當下總數低一截：偶爾刪掉幾個測試是正常的，整個 suite 消失
+      # 不是。數字要隨測試成長往上調，調整本身就是一次 review。
+      - name: 測試數下限
+        run: |
+          MIN=650
+          N=$(grep -oE 'Executed [0-9]+ tests' /tmp/test.log | tail -1 | grep -oE '[0-9]+')
+          echo "執行了 $N 個測試（下限 $MIN）"
+          if [ -z "$N" ]; then
+            echo "::error::從測試輸出裡讀不到 'Executed N tests'——輸出格式變了或測試根本沒跑"
+            exit 1
+          fi
+          if [ "$N" -lt "$MIN" ]; then
+            echo "::error::測試數 $N 低於下限 $MIN——是不是有整組測試沒被執行？"
+            exit 1
+          fi
+
+      # #92 的教訓：既有測試斷言的是「產生的 SQL 字串長什麼樣」，沒有任何測試真的
+      # **執行**過那份腳本——於是一份「產生出來就跑不起來」的 load.sql 活了很久。
+      # 這一步把那道落差補上：真的建 store、真的匯出、真的把 SQL 餵給 duckdb。
+      #
+      # **fixture 必須含母子機構。** #92 的觸發條件是 organization.parent_id 非空
+      # （自我參照 FK）——空 store 或扁平機構跑得過，於是這一步就白做了。這正是
+      # 那個 bug 當初能活下來的同一個形狀：測到的路徑不是會壞的那條。
+      - name: 端對端 — export-tables 產生的 load.sql 必須跑得起來
+        run: |
+          brew install duckdb
+          swift build -c release
+          TMP=$(mktemp -d)
+          STORE="$TMP/store"
+          .build/release/akashic doctor --library "$STORE" > /dev/null
+          cat > "$STORE/entities/11111111-1111-4111-8111-111111111111.yaml" <<'ORG'
+          organization:
+          id: 11111111-1111-4111-8111-111111111111
+          key: parent-org
+          names:
+          - value: Parent
+          ORG
+          cat > "$STORE/entities/22222222-2222-4222-8222-222222222222.yaml" <<'ORG'
+          organization:
+          id: 22222222-2222-4222-8222-222222222222
+          key: child-org
+          names:
+          - value: Child
+          parents:
+          - value:
+              key: parent-org
+          ORG
+          .build/release/akashic validate --library "$STORE"
+          .build/release/akashic export-tables --library "$STORE" -o "$TMP/out"
+          grep -q 'parent-org' "$TMP/out/organization.csv" || { echo "::error::fixture 沒進匯出"; exit 1; }
+          test -n "$(awk -F, 'NR>1 && $NF != "" {print}' "$TMP/out/organization.csv")" \
+            || { echo "::error::匯出的 organization.csv 沒有非空的 parent_id——這一步就抓不到 #92 那類 bug"; exit 1; }
+          duckdb "$TMP/probe.db" -c ".read $TMP/out/load.sql"
+          echo "✓ 含母子機構的 load.sql 可執行"

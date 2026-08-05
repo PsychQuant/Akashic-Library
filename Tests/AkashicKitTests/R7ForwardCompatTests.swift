@@ -163,11 +163,25 @@ final class R7ForwardCompatTests: XCTestCase {
         XCTAssertEqual(try EntryYAML.decode(out).unknownFields.map(\.key), ["future"])
     }
 
-    func testLeadingBOMInTitleRefusedWithFieldNamedMessage() {
+    /// canary 的契約是「**值活不下來就拒寫**」——不是「一定要拒寫」。
+    ///
+    /// 前導 BOM 能不能 round-trip 取決於 YAML 寫入端與平台的字串處理：Swift 6.3
+    /// 上活不下來（canary 擲錯），6.1.2 上活得下來（canary 正確地不擲）。原本的
+    /// 斷言釘住了前者這個分支，於是在較舊的 toolchain 上失敗——但那不是回歸，
+    /// 是測試把實作細節寫成了契約。
+    ///
+    /// 改成斷言不變式本身：**要嘛拒寫並指認欄位，要嘛寫出去且值原封不動**。
+    /// 兩者之外的第三種結果（悄悄寫出一個變了的值）才是真正的失敗。
+    func testLeadingBOMInTitleEitherRefusesNamingFieldOrRoundTrips() throws {
         var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "\u{FEFF}X")
         e.unknownFields = [UnknownField(key: "rating", raw: "rating: 5\n")]
-        XCTAssertThrowsError(try EntryYAML.encode(e)) { error in
-            XCTAssertTrue(String(describing: error).contains("title"), "訊息應指認欄位：\(error)")
+        do {
+            let out = try EntryYAML.encode(e)
+            XCTAssertEqual(try EntryYAML.decode(out).title, e.title,
+                           "沒有拒寫就必須原封不動——悄悄改掉值是最壞的結果")
+        } catch {
+            XCTAssertTrue(String(describing: error).contains("title"),
+                          "拒寫時訊息應指認欄位：\(error)")
         }
     }
 

@@ -9,7 +9,8 @@ import Foundation
 /// 不存在鍵的參照，佈局檢查的孤兒計數會跳，但那時已經壞了。
 ///
 /// **沒有 `requireVersionControl:` 這種參數**：版控前提若可由呼叫端關掉，那它就不是
-/// 前提。測試改以「root 底下有沒有 `.git`」造出兩種真實情境——這正是實作檢查的事實。
+/// 前提。測試造出**真實**的兩種情境——#73 之後前提是「要刪的檔案 tracked 且 clean」，
+/// 所以 fixture 得真的 `git init` + commit（見 `GitFixture`），假 `.git` 目錄不再夠用。
 final class DivergenceResolveTests: XCTestCase {
     var root: URL!
     var store: LibraryStore!
@@ -27,9 +28,9 @@ final class DivergenceResolveTests: XCTestCase {
             at: dir.appendingPathComponent("entities"), withIntermediateDirectories: true)
         try StoreVersion.write(root: dir, format: StoreVersion.supported)
         if versioned {
-            // 工作樹的事實就是這個目錄的存在——實作走檔案系統，不呼叫 git 執行檔。
-            try FileManager.default.createDirectory(
-                at: dir.appendingPathComponent(".git"), withIntermediateDirectories: true)
+            // #73：**真的** git repo。假 `.git` 目錄在 #73 之後不再夠用——版控前提
+            // 已升級成「本次要刪的檔案 tracked 且 clean」，而那正是被測的性質。
+            GitFixture.initRepo(dir)
         }
         return dir
     }
@@ -55,7 +56,80 @@ final class DivergenceResolveTests: XCTestCase {
             candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),
                          DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
         try s.writeDivergence(d)
+        // #73：seed 完就 commit——被測的是「消歧」，不是「未 commit 會被擋」。
+        // 後者由 testRefusesWhenDoomedFilesAreUncommitted 專門覆蓋。
+        GitFixture.commitAll(s.root, message: "seed")
         return d
+    }
+
+    // MARK: - #73 版控前提：tracked + clean
+
+    /// 最常見的失效情況：歧異記錄建立後**尚未 commit** 就被消歧。
+    /// 舊檢查（往上找得到 `.git`）完全不觸發，於是 question / judgement / rests-on
+    /// 三者隨檔案一起永久消失——#71 要解決的「判斷留不下來」原封不動地回來。
+    func testRefusesWhenDoomedFilesAreUncommitted() throws {
+        var survivor = Person(key: "fann-cathy-s-j"); survivor.names = ["A"]
+        var merged = Person(key: "fann-cathy-s-j-2"); merged.names = ["B"]
+        try store.writePerson(survivor)
+        try store.writePerson(merged)
+        GitFixture.commitAll(root, message: "people only")
+        // 歧異記錄建立後**不** commit
+        let d = Divergence(id: UUID(), question: "是否為同一人",
+                           candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),
+                                        DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
+        try store.writeDivergence(d)
+
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j"),
+                             "未 commit 的歧異記錄消歧後永久消失，必須拒絕") { err in
+            guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else {
+                return XCTFail("應為 deletionNotRecoverable，實得 \(err)")
+            }
+            XCTAssertTrue(files.contains { $0.path.contains(d.id.uuidString) },
+                          "訊息必須指名是哪個檔：\(files)")
+        }
+        // 拒絕發生在**任何寫入之前**——被併記錄與歧異記錄都必須完好
+        let after = try store.load()
+        XCTAssertEqual(after.people.count, 2, "拒絕後不得動到任何檔案")
+        XCTAssertEqual(after.divergences.count, 1)
+    }
+
+    /// 被併實體有**未提交的修改**：git 裡有的是舊版本，當下這版刪掉不可回復。
+    func testRefusesWhenDoomedEntityHasUncommittedEdits() throws {
+        let d = try seed(into: store)           // seed 內已 commit
+        var merged = try XCTUnwrap(try store.load().people.first { $0.key == "fann-cathy-s-j-2" })
+        merged.names = ["Fann, Cathy S. J.", "後來補的別名（未 commit）"]
+        try store.writePerson(merged)
+
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")) { err in
+            guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else {
+                return XCTFail("應為 deletionNotRecoverable，實得 \(err)")
+            }
+            XCTAssertTrue(files.contains { $0.why.contains("未提交") }, "\(files)")
+        }
+    }
+
+    /// **entities/ 被 .gitignore 擋**——最隱蔽的一種：`git status --porcelain` 裡
+    /// 連 `??` 都不會出現，舊檢查也照樣放行。
+    func testRefusesWhenEntitiesDirectoryIsGitIgnored() throws {
+        try "entities/\n".write(to: root.appendingPathComponent(".gitignore"),
+                                atomically: true, encoding: .utf8)
+        var survivor = Person(key: "fann-cathy-s-j"); survivor.names = ["A"]
+        var merged = Person(key: "fann-cathy-s-j-2"); merged.names = ["B"]
+        try store.writePerson(survivor)
+        try store.writePerson(merged)
+        let d = Divergence(id: UUID(), question: "是否為同一人",
+                           candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),
+                                        DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(root, message: "commit — 但 entities/ 被 ignore，什麼都沒進去")
+
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j"),
+                             "被 ignore 的檔案從未進 git object，刪掉就沒了") { err in
+            guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else {
+                return XCTFail("應為 deletionNotRecoverable，實得 \(err)")
+            }
+            XCTAssertTrue(files.allSatisfy { $0.why.contains("未被 git 追蹤") }, "\(files)")
+        }
     }
 
     /// 引用跟著合併走——spec 的 `Example: A work's author list follows the merge`。

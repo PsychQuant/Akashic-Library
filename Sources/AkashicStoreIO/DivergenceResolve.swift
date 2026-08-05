@@ -2,7 +2,7 @@ import Foundation
 import AkashicCore
 
 /// 消歧失敗的原因。全部發生在**動磁碟之前**，除了 `partialWriteFailures`。
-public enum DivergenceResolveError: Error, LocalizedError, Equatable {
+public enum DivergenceResolveError: Error, LocalizedError {
     case recordNotFound(UUID)
     case survivorNotACandidate(survivor: String, candidates: [String])
     case candidateMissing(key: String, shape: String)
@@ -12,6 +12,8 @@ public enum DivergenceResolveError: Error, LocalizedError, Equatable {
     case wouldLoseFields(merged: String, survivor: String, losses: [String])
     case quarantinedPresent(files: [String])
     case candidateNotInEntities(key: String, expected: String)
+    /// #73：要刪的檔案不在版控裡、或有未提交的修改——刪掉就真的沒了。
+    case deletionNotRecoverable(files: [(path: String, why: String)])
 
     public var errorDescription: String? {
         switch self {
@@ -26,6 +28,12 @@ public enum DivergenceResolveError: Error, LocalizedError, Equatable {
             return "store「\(displaySafe(root, max: 300))」不在版本控制的工作樹內，拒絕刪除。"
                  + "消歧會刪掉被併記錄與歧異記錄本身，歷史託給版本控制而非 store；"
                  + "版控之外刪掉就是真的沒了。先把 store 放進版控（或改用位於工作樹內的 store）再試。"
+        case let .deletionNotRecoverable(files):
+            return "以下檔案刪掉之後無法從版控取回，拒絕消歧：\n"
+                 + files.map { "  - \(displaySafe($0.path, max: 300))：\($0.why)" }
+                        .joined(separator: "\n")
+                 + "\n消歧會刪掉被併記錄與歧異記錄本身，歷史託給版控而非 store。"
+                 + "先 `git add` 並 `git commit` 這些檔案（或確認 entities/ 沒被 .gitignore 擋），再重跑同一個 id。"
         case let .unsupportedShape(shape):
             return "本版的消歧只處理 person 與 work，不處理 \(shape)"
         case let .legacyLayout(root):
@@ -218,6 +226,24 @@ extension LibraryStore {
             throw DivergenceResolveError.outsideVersionControl(root: root.path)
         }
         let mergedKeys = candidateKeys.filter { $0 != survivor }
+
+        // #73：「在工作樹內」不等於「刪掉還找得回來」。D5 把 store 內的歷史全部
+        // 拿掉（不做 tombstone、不留已解決狀態），整個回溯性押在版控上——那就必須
+        // 驗到**這些檔案真的在版控裡**，而不只是「附近有個 .git」。
+        //
+        // 三種都不觸發舊檢查、但歷史真的會消失的情況：
+        //   1. store 在 repo 內但 entities/ 被 ignore → 檔案從未進 git object
+        //   2. 歧異記錄建立後尚未 commit 就被消歧（**最常見**）→ 三個欄位一起永久消失
+        //   3. 被併實體有未提交的修改 → 那個版本不可回復
+        //
+        // 檢查的是**本次要刪的那些檔案**，不是整棵樹——store 其他地方髒不影響這次
+        // 刪除的可回溯性，擋下它只會讓工具在正常工作節奏中變得難用。
+        let doomedFiles = doomedRelativePaths(record: record, shape: shape,
+                                              mergedKeys: mergedKeys, snapshot: snapshot)
+        let unsafe = Self.filesNotSafelyRecoverable(root: root, relativePaths: doomedFiles)
+        guard unsafe.isEmpty else {
+            throw DivergenceResolveError.deletionNotRecoverable(files: unsafe)
+        }
 
         switch shape {
         case .person:
@@ -588,6 +614,83 @@ extension LibraryStore {
     /// `/..`，再一次得 `/../..`，路徑無限成長。第一版就是這樣寫的，測試跑成 88% CPU
     /// 加 29 GB RSS 的失控迴圈。`NSString` 的同名操作在 `/` 會回傳 `/`，加上明寫的
     /// 根目錄出口，兩道保險。
+    /// 本次消歧會刪掉哪些檔案（store 相對路徑）。
+    ///
+    /// **只含能在此刻確定的那些**：被併實體與本次的歧異記錄。因候選塌縮而一併被刪的
+    /// 其他歧異記錄要跑完合併才知道，此處看不到——那是這道檢查已知的覆蓋邊界，不是
+    /// 疏漏。塌縮的那些與本記錄同批建立、同樣未 commit 的機率高，所以本記錄過關時
+    /// 它們通常也過關；但這是相關性不是保證。
+    func doomedRelativePaths(record: Divergence, shape: EntityKind,
+                             mergedKeys: [String], snapshot: LibraryLoad) -> [String] {
+        var ids: [UUID] = [record.id]
+        for key in mergedKeys {
+            switch shape {
+            case .person:
+                if let p = snapshot.people.first(where: { $0.key == key }) { ids.append(p.id) }
+            case .work:
+                if let e = snapshot.entries.first(where: { $0.citekey == key }) { ids.append(e.id) }
+            case .organization, .divergence:
+                continue                      // 上游已擋，這裡不猜
+            }
+        }
+        return ids.map { "entities/\($0.uuidString).yaml" }
+    }
+
+    /// 這些檔案裡，哪些刪掉之後**無法**從版控取回。回傳 `(路徑, 為什麼)`。
+    ///
+    /// 判準（#73 方案 A：tracked + clean）——
+    /// - **untracked**：從未進 git object，刪掉就沒了。含「entities/ 被 .gitignore 擋」
+    ///   這種最隱蔽的情況——它在 `git status --porcelain` 裡連 `??` 都不會出現。
+    /// - **有未提交的修改**：git 裡有的是舊版本，當下這個版本刪掉不可回復。
+    ///
+    /// **git 不可用時一律當成不安全**（fail-closed）。這與舊檢查的方向相反：舊的是
+    /// 「找得到 .git 就放行」，於是任何祖先目錄下名為 `.git` 的東西（空目錄、隨手建的
+    /// 檔案）都算數。不可逆刪除的預設應該是拒絕。
+    static func filesNotSafelyRecoverable(root: URL,
+                                          relativePaths: [String]) -> [(path: String, why: String)] {
+        var bad: [(String, String)] = []
+        for rel in relativePaths {
+            // **不存在的檔案跳過。** 它不可能被「不可回復地刪除」——刪除迴圈對它是
+            // no-op。更重要的是不搶戲：候選住在 legacy 目錄時 `entities/<uuid>.yaml`
+            // 不存在，那是**佈局不一致**，由 `assertAllInEntities` 給出可行動的診斷
+            // （「先跑 akashic migrate」）。這道 gate 若先開火，使用者會拿到一句
+            // 「未被 git 追蹤」——正確但完全指錯方向。
+            guard FileManager.default.fileExists(
+                    atPath: root.appendingPathComponent(rel).path) else { continue }
+            // tracked？`ls-files --error-unmatch` 對未追蹤的路徑回非零。
+            let tracked = git(["ls-files", "--error-unmatch", "--", rel], in: root)
+            guard tracked?.status == 0 else {
+                bad.append((rel, "未被 git 追蹤（從未 commit，或被 .gitignore 擋掉）"))
+                continue
+            }
+            // clean？`diff --quiet HEAD -- <path>` 有差異時回非零。
+            guard let diff = git(["diff", "--quiet", "HEAD", "--", rel], in: root) else {
+                bad.append((rel, "無法執行 git，無從確認可回溯性"))
+                continue
+            }
+            if diff.status != 0 {
+                bad.append((rel, "有未提交的修改——git 裡的是舊版本，當下這版刪掉不可回復"))
+            }
+        }
+        return bad.map { (path: $0.0, why: $0.1) }
+    }
+
+    /// 在 `dir` 跑一次 git。回傳 nil = 根本執行不起來（沒有 git、或 spawn 失敗）。
+    ///
+    /// 刻意**不**用 shell：參數直接進 `arguments`，路徑含空白或引號都不會被重新解析。
+    static func git(_ args: [String], in dir: URL) -> (status: Int32, out: String)? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = ["git", "-C", dir.path] + args
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = Pipe()
+        do { try p.run() } catch { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return (p.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+    }
+
     static func isInsideVersionedWorkTree(_ root: URL) -> Bool {
         var path = root.resolvingSymlinksInPath().standardizedFileURL.path
         while true {

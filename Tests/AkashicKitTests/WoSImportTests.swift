@@ -122,6 +122,40 @@ final class WoSImportTests: XCTestCase {
         XCTAssertEqual(WoSImport.rows(from: header + "\t\t\t\t\t\n").count, 0)
     }
 
+    /// #89：**行尾不得改變解析結果**。WoS 從 Windows 匯出的 tab-delimited 檔原生是
+    /// CRLF，而 Swift 的 `String` 以 grapheme cluster 迭代——`"\r\n"` 是**單一**
+    /// `Character`，既不等於 `"\r"` 也不等於 `"\n"`。逐 `Character` 比對換行的解析器
+    /// 會把整份檔案吞成一個 field，回報 created 0 而不報錯。
+    ///
+    /// 斷言寫成「LF 與 CRLF 必須等價」而非釘住某個 fixture：這條性質比任何單一
+    /// 樣本都難被未來的重構繞過。
+    func testLineEndingsDoNotChangeParsing() {
+        let lf = header + "Chen, CH\tChen-Hsin Chen\tDiagnostic Plots\tBiometrics\t1991\t10.2307/2532643\n"
+        let crlf = lf.replacingOccurrences(of: "\n", with: "\r\n")
+        let a = WoSImport.rows(from: lf), b = WoSImport.rows(from: crlf)
+        XCTAssertEqual(a.count, 1)
+        XCTAssertEqual(b.count, a.count, "CRLF 解析出 \(b.count) 列、LF 解析出 \(a.count) 列")
+        XCTAssertEqual(b.first?["Article Title"], "Diagnostic Plots")
+        XCTAssertEqual(b.first?["DOI"], "10.2307/2532643")
+        XCTAssertEqual(b.first?["Publication Year"], "1991")
+    }
+
+    /// 舊 Mac 的單獨 `\r` 行尾原本就被當成「丟掉」——修 CRLF 不得把它變成分列。
+    func testBareCarriageReturnStillDropped() {
+        let rows = WoSImport.rows(from: "Authors\tArticle Title\nA, B\tTi\rtle\n")
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0]["Article Title"], "Title")
+    }
+
+    /// header 解析成功但一列資料都沒有 → **必須說出來**，不能與「匯入成功但 0 筆」
+    /// 在輸出上無法區分（#89 的真正傷害是靜默，不只是解析錯）。
+    func testHeaderOnlyFileIsReportedNotSilent() throws {
+        let r = try WoSImport.run(text: header, store: store)
+        XCTAssertEqual(r.created.count, 0)
+        let msg = try XCTUnwrap(r.skippedRows.first, "只有表頭的檔案必須留下訊息")
+        XCTAssertTrue(msg.contains("表頭"), msg)
+    }
+
     /// 缺第一作者或年份 → **skip 並說出是哪一列**，不靜默丟掉。
     func testUnusableRowIsReportedNotSilentlyDropped() throws {
         let r = try WoSImport.run(text: header + "\t\tNo author\tJ\t2020\t\n", store: store)

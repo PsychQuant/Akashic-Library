@@ -1,0 +1,56 @@
+import Foundation
+import ArgumentParser
+import AkashicCore
+import AkashicStoreIO
+
+/// `akashic fmt` — 把記錄重寫為 canonical form（#69）。
+///
+/// canonical form 一直存在（三個 `encode` 函式就是它的定義），缺的只是**讓 encoder
+/// 以外的人也能用**的入口。外部寫入者（storyline 的 R pipeline、手寫記錄、#64 的 CV
+/// 補完流程、#68 的部分更新入口）不必各自重製排序與引號規則。
+///
+/// **`validate` 不擋排版，`fmt --check` 才擋**（design D5）。`Validate` 的失敗條件是
+/// quarantine 與 `.error` severity——兩者都是資料正確性，而排版偏離不是。若 `validate`
+/// 擋排版，外部 pipeline 每次寫完都得先跑 `fmt` 才過驗證，摩擦大到會讓人繞過 `validate`
+/// 本身。`--check` 的語意與 `swift format --lint` 一致，給 CI 與 pipeline 當明確關卡。
+struct Fmt: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "fmt",
+        abstract: "把記錄重寫為 canonical form（#69）；--check 只回報不寫檔")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Flag(name: .long, help: "只回報偏離並以非零碼退出，不寫任何檔案")
+    var check: Bool = false
+
+    func run() throws {
+        let store = try options.openStore()
+        let r = try CanonicalFormat.scan(store: store, apply: !check)
+
+        print("走訪 \(r.scanned) 筆記錄")
+        if r.deviating.isEmpty {
+            print("✓ 全部已是 canonical form")
+        } else {
+            print("偏離 canonical form: \(r.deviating.count) 筆")
+            for f in r.deviating.prefix(20) { print("  - \(displaySafe(f, max: 200))") }
+            if r.deviating.count > 20 { print("  …（共 \(r.deviating.count) 筆）") }
+        }
+        if !r.rewritten.isEmpty { print("已改寫 \(r.rewritten.count) 筆") }
+        if check, !r.deviating.isEmpty {
+            print("（--check：未寫任何檔案。去掉 --check 即可對齊）")
+        }
+        if !r.failures.isEmpty {
+            print("失敗 \(r.failures.count) 筆（其餘記錄仍已處理完）：")
+            for f in r.failures.prefix(10) {
+                print("  ! \(displaySafe(f.file, max: 200))：\(displaySafe(f.reason, max: 300))")
+            }
+            if r.failures.count > 10 { print("  …（共 \(r.failures.count) 筆）") }
+        }
+
+        // 偏離也算問題——`--check` 的用途正是當關卡。無 `--check` 時偏離已被改寫，
+        // 此時仍非零退出只會讓「跑一次 fmt」這件正常操作看起來像失敗。
+        if !r.failures.isEmpty || (check && !r.deviating.isEmpty) {
+            throw ExitCode.failure
+        }
+    }
+}

@@ -469,8 +469,19 @@ public final class LibraryStore {
     /// 不是當下行為不同，而是**日後對寫入路徑的加固不會傳到那一份**。
     func atomicWrite(_ content: String, to dest: URL, mustCreate: Bool = false) throws {
         let fm = FileManager.default
-        let tmp = dest.deletingLastPathComponent()
-            .appendingPathComponent(".\(dest.lastPathComponent).tmp-\(UUID().uuidString)")
+        let dir = dest.deletingLastPathComponent()
+        // **父目錄由寫入端自己保證**（#101）。在此之前這件事是 `ensureLayout` 的無條件
+        // 迴圈順便做掉的，於是那個迴圈不能依 format 條件化——「目錄存在」因此不再代表
+        // 「這個佈局在用」。把保證下放到唯一的寫入咽喉，兩件事就各自獨立：
+        // `ensureLayout` 負責**宣告**佈局，寫入路徑負責**自己能寫**。
+        //
+        // 這也收斂了三份各自發明的繞法：`writeLibrary`（pre-v1.2 store 無 libraries/）、
+        // `StoreMigration`、`DivergenceResolve` 從前都自己 createDirectory 一次，而
+        // entry / person 的寫入沒有——同一個不變式缺席三次、補三次、漏一次。
+        //
+        // 讀取端（`yamlFiles`）早就容忍缺目錄（回空陣列）。這裡讓寫入端與它對稱。
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let tmp = dir.appendingPathComponent(".\(dest.lastPathComponent).tmp-\(UUID().uuidString)")
         try content.write(to: tmp, atomically: false, encoding: .utf8)
         do {
             if !mustCreate && fm.fileExists(atPath: dest.path) {

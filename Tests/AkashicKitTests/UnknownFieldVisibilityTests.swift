@@ -15,8 +15,14 @@ final class UnknownFieldVisibilityTests: XCTestCase {
     }
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
 
+    /// `name` 是相對於 root 的路徑（含子目錄）。**父目錄由本 helper 保證**（#101）——
+    /// 這些 fixture 繞過 store API 直接寫原始檔，而 `ensureLayout` 不再無條件建立
+    /// legacy 目錄；Foundation 的 atomic write 會在目的目錄裡 mktemp，缺目錄即 errno 2。
     private func write(_ name: String, _ body: String) throws {
-        try body.write(to: root.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        let dest = root.appendingPathComponent(name)
+        try FileManager.default.createDirectory(
+            at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try body.write(to: dest, atomically: true, encoding: .utf8)
     }
 
     /// 檔名清單用**實際檔名**而非以 key 重組（R6 修的迴歸點）——`.YAML` 這類大小寫

@@ -107,13 +107,38 @@ public final class LibraryStore {
         self.environment = environment
     }
 
+    /// 建立**這個 store 實際會用到的**目錄（#101）。
+    ///
+    /// 「目錄存在」帶語意：看到 `entries/` 就知道這是 legacy 佈局，看到 `.akashic/`
+    /// 就知道這個 store 沒註冊。在此之前這裡是一個無條件迴圈，於是 format 5 的 store
+    /// 長出 format 1 的 `entries/`／`people/`、已註冊的 store 長出「未註冊 store 專用」
+    /// 的 `.akashic/`——每次 `doctor` 都長回來，刪不掉。
+    ///
+    /// 之所以曾經非無條件不可，是因為 `atomicWrite` 不建父目錄；那個保證已下放到寫入
+    /// 咽喉（見 `atomicWrite`），這裡才只剩「宣告佈局」一個職責。
+    ///
+    /// **順序有意義**：`store.yaml` 必須先寫，下面才讀得到 format。`writeIfAbsent` 只
+    /// 需要 `root` 存在；它判定 legacy 的依據是 `entries/`／`people/` 裡**既有的檔案**，
+    /// 不需要目錄被先建（原本的順序能運作只是因為 `createDirectory` 對既存目錄是 no-op）。
     public func ensureLayout() throws {
         let fm = FileManager.default
-        for dir in [root, entitiesDir, entriesDir, peopleDir, librariesDir, notesDir, akashicDir] {
-            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
         // #24：新建的 store 自我聲明格式。既有檔不覆寫（可能是較新版本寫的）。
         try StoreVersion.writeIfAbsent(root: root)
+
+        // 現行格式在用的目錄。`entitiesDir` 對 legacy store 也照建——`openStore()` 的
+        // library 偵測接受 `entities/` 或 `entries/` 任一，條件化它是安全的但超出 #101
+        // 的範圍，見 #102。
+        var dirs = [entitiesDir, librariesDir, notesDir]
+        // legacy 佈局才有的兩個目錄。
+        if !usesEntitiesLayout { dirs += [entriesDir, peopleDir] }
+        // in-store 的 index 回落位置，只有**未註冊**的 store 用得到（#37）。已註冊的
+        // store 走 `~/.akashic/index/<key>.sqlite`，永遠不碰這裡。
+        if key == nil { dirs.append(akashicDir) }
+
+        for dir in dirs {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
     }
 
     /// #35：format 2 的檔案位置——**檔名是不變的 UUID**，所以改 citekey 不搬檔案。

@@ -113,6 +113,8 @@ final class StoreVersionTests: XCTestCase {
         try store.ensureLayout()
         // 放一個**本身就壞掉**的 entry：若 version 檢查沒有搶在前面，
         // 這個檔會先產生 quarantine，錯誤面就不是 version 了。
+        // fixture 手寫原始檔進 legacy 的 entries/，需自己建目錄（#101）
+        try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
         try "這不是合法的 entry YAML: [".write(
             to: store.entriesDir.appendingPathComponent("broken.yaml"),
             atomically: true, encoding: .utf8)

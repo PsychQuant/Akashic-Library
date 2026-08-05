@@ -241,8 +241,12 @@ extension CLIIntegrationTests {
         // add：註冊 + ensureLayout（空目錄變完整 layout）
         var r = try runCLI(["file", "add", "main", rootA.path, "--config", config])
         XCTAssertEqual(r.status, 0, r.stderr)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: rootA.appendingPathComponent("entries").path),
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rootA.appendingPathComponent("entities").path),
                       "add 對新目錄跑 ensureLayout")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rootA.appendingPathComponent("entries").path),
+                       "新建的 store 是當前 format，不該有 legacy 的 entries/（#101）")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rootA.appendingPathComponent(".akashic").path),
+                       "file add 註冊了 key，index 住 store 之外，不該建 in-store 回落位置（#101）")
         _ = try runCLI(["file", "add", "work", rootB.path, "--config", config])
 
         // use：寫 current

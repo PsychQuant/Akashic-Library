@@ -11,6 +11,7 @@ final class StoreIOTests: XCTestCase {
             .appendingPathComponent("akashic-test-\(UUID().uuidString)")
         store = LibraryStore(root: root)
         try store.ensureLayout()
+        try makeLegacyDirectories(in: root)
     }
 
     override func tearDownWithError() throws {
@@ -43,8 +44,11 @@ final class StoreIOTests: XCTestCase {
         XCTAssertNoThrow(try store.writeEntry(makeEntry("taken2020key")))
     }
 
+    /// **只斷言這個 store 實際會用到的目錄**（#101）。`store` 是當前 format 且未註冊，
+    /// 所以它用 `entities/`／`libraries/`／`notes/` 加上 in-store 的 index 回落位置；
+    /// legacy 的 `entries/`／`people/` 不在其中。完整的條件對照由 `EnsureLayoutTests` 覆蓋。
     func testEnsureLayoutCreatesDirectories() {
-        for sub in ["entries", "people", "notes", ".akashic"] {
+        for sub in ["entities", "libraries", "notes", ".akashic"] {
             var isDir: ObjCBool = false
             let exists = FileManager.default.fileExists(
                 atPath: root.appendingPathComponent(sub).path, isDirectory: &isDir)
@@ -439,6 +443,7 @@ final class LoadIntegrityTests: XCTestCase {
             .appendingPathComponent("akashic-integrity-\(UUID().uuidString)")
         store = LibraryStore(root: root)
         try store.ensureLayout()
+        try makeLegacyDirectories(in: root)   // fixture 手寫原始檔進 entries/、people/（#101）
     }
 
     override func tearDownWithError() throws {
@@ -492,6 +497,7 @@ final class LibraryRegistryStoreTests: XCTestCase {
             .appendingPathComponent("akashic-lib-\(UUID().uuidString)")
         store = LibraryStore(root: root)
         try store.ensureLayout()
+        try makeLegacyDirectories(in: root)   // fixture 手寫原始檔進 entries/（#101）
     }
 
     override func tearDownWithError() throws {

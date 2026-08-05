@@ -76,6 +76,7 @@ final class ZoteroImportTests: XCTestCase {
         let libRoot = dir.appendingPathComponent("library")
         store = LibraryStore(root: libRoot)
         try store.ensureLayout()
+        try makeLegacyDirectories(in: libRoot)   // fixture 手寫原始檔進 entries/（#101）
         fixture = try ZoteroFixture(dir: dir)
         try fixture.seedStandard()
     }

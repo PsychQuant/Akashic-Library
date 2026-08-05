@@ -326,4 +326,66 @@ extension CLIIntegrationTests {
         XCTAssertTrue(value.hasPrefix("/"), "相對路徑入 config 必為絕對路徑：\(value)")
         XCTAssertFalse(value.contains(".."), value)
     }
+
+    // MARK: - doctor 的矛盾報告（#84；行為由 #67 引入）
+
+    /// 寫一筆 person 到 fixture library。`affiliationEnd` 為 nil ＝ 隸屬段仍開著。
+    private func writePerson(_ key: String, died: String?, affiliationEnd: String?) throws {
+        var yaml = """
+        key: \(key)
+        names:
+          - \(key)
+        """
+        if let died { yaml += "\ndied: '\(died)'" }
+        yaml += """
+
+        profile:
+          affiliations:
+          - value: Institute of Statistical Science
+            start: '1990-09'
+        """
+        if let affiliationEnd { yaml += "\n    end: '\(affiliationEnd)'" }
+        try (yaml + "\n").write(to: libraryRoot.appendingPathComponent("people/\(key).yaml"),
+                                atomically: true, encoding: .utf8)
+    }
+
+    /// 已記錄逝世、卻仍有開放的隸屬段——`doctor` 要把它報出來，並點名是哪一筆。
+    ///
+    /// 這條測的是**使用者跑指令會看到什麼**。#67 當初只在 `PersonDeceasedTests` 用
+    /// 原始碼字串斷言代替（`commands.contains("recordsDeceasedWithOpenAffiliation()")`），
+    /// 那種斷言即使呼叫在註解裡、或有呼叫但沒印出結果，一樣會通過。
+    func testDoctorReportsADeceasedPersonWithAnOpenAffiliation() throws {
+        try writePerson("dead-but-open", died: "2004-11-18", affiliationEnd: nil)
+        let r = try runCLI(["doctor"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        XCTAssertTrue(r.stdout.contains("deceased with open affiliation"), r.stdout)
+        XCTAssertTrue(r.stdout.contains("dead-but-open"), r.stdout)
+    }
+
+    /// 無命中時**整項不出現**。0 是這項報告的正常狀態，每次印一行「0」只是噪音——
+    /// 這個設計要求只有在真的跑一次 CLI 才驗得到。
+    func testDoctorOmitsTheContradictionReportEntirelyWhenThereIsNoHit() throws {
+        try writePerson("properly-closed", died: "2004-11-18", affiliationEnd: "2004-11")
+        try writePerson("no-death-recorded", died: nil, affiliationEnd: nil)
+        let r = try runCLI(["doctor"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        XCTAssertFalse(r.stdout.contains("deceased with open affiliation"), r.stdout)
+    }
+
+    /// **全列，不截斷。** 這是待人處理的工作清單而非普查數字——省略第 11 筆之後，
+    /// 操作者就拿不到其餘待修記錄，而總數不等於清單。
+    ///
+    /// 這個缺陷實際發生過（`prefix(10)`），且**原始碼字串斷言在結構上抓不到它**：
+    /// 呼叫確實存在、報告確實印出，只是少了幾行。
+    func testDoctorListsEveryContradictionWithoutTruncating() throws {
+        for i in 1...11 {
+            try writePerson(String(format: "person-%02d", i), died: "2004", affiliationEnd: nil)
+        }
+        let r = try runCLI(["doctor"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        for i in 1...11 {
+            let key = String(format: "person-%02d", i)
+            XCTAssertTrue(r.stdout.contains(key), "第 \(i) 筆 \(key) 未出現在報告中：\n\(r.stdout)")
+        }
+    }
 }

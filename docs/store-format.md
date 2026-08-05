@@ -3,18 +3,57 @@
 Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版；
 實作＝`AkashicCore`（型別/YAML/citekey）＋ `AkashicStoreIO`（讀寫）。
 
-原則：**檔案是本體，資料庫是 cache**。`entries/`、`people/`、`notes/` 是 canonical、
-git 追蹤；`.akashic/` 下一切可全刪重建。
+原則：**檔案是本體，資料庫是 cache**。記錄檔與 `notes/` 是 canonical、git 追蹤；
+衍生的 index 可全刪重建。
 
 ## 1. Library 佈局
 
+佈局**依 store format 而定**，而 `ensureLayout()` 只建立這個 store 實際會用到的
+目錄——所以「目錄存在」本身帶語意（#101）。
+
+### format ≥ 2（現行）
+
 ```
 <library-root>/
-├── entries/<citekey>.yaml    每筆文獻一檔
-├── people/<person-key>.yaml  人物實體
-├── notes/<citekey>/*.md      衍生筆記（自己的產出）
-└── .akashic/                 衍生物（index.sqlite 等）；gitignored、可重建
+├── store.yaml                  format 標記（§5）
+├── entities/<uuid>.yaml        全部記錄：work / person / organization / divergence
+├── libraries/<key>.yaml        library registry（§2.9）
+├── notes/<citekey>/*.md        衍生筆記（自己的產出）
+└── .akashic/                   **僅未註冊的 store**：in-store 的 index 回落位置
 ```
+
+### format 1（legacy，仍可讀）
+
+```
+<library-root>/
+├── store.yaml                  #24 之前建的 store 沒有這個檔——**缺檔即 format 1**
+├── entries/<citekey>.yaml      每筆文獻一檔
+├── people/<person-key>.yaml    人物實體
+├── libraries/<key>.yaml
+└── notes/<citekey>/*.md
+```
+
+讀取端**兩種佈局並存支援**：遷移是一次性動作，但舊佈局的 store（含別人的 clone、
+未遷移的備份）必須照樣讀。寫入端則單一：`store.yaml` 的 format 決定寫去哪邊。
+
+### 哪些目錄的存在帶語意
+
+| 目錄 | 何時存在 | 讀到它代表 |
+|---|---|---|
+| `entries/` `people/` | 僅 format 1 | 這是 legacy 佈局的 store |
+| `entities/` | 一律 | ——（兩種 format 都會有；條件化它見 #102）|
+| `libraries/` | 一律 | —— |
+| `notes/` | 一律 | ——（**目前沒有任何寫入端**，見 #103）|
+| `.akashic/` | 僅**未註冊**的 store | 這個 store 不在 `~/.akashic/config.yaml` 的 `files:` 裡 |
+
+**已註冊的 store 的 index 住 store 之外**（`~/.akashic/index/<key>.sqlite`，#37）：
+store root 正是會進 Dropbox／git 的東西，而同步樹裡的 live SQLite 是已知的毀檔風險
+（partial write、conflict copy）。未註冊的 store（`--library <path>` 直指）沒有 key
+可命名，才回落到 in-store 的 `.akashic/index.sqlite`。
+
+> **父目錄不由 `ensureLayout` 保證**。寫入路徑自己確保目的檔的父目錄存在
+> （`atomicWrite` 的單一咽喉），讀取路徑則容忍目錄缺席（回空）。兩者都不依賴
+> `ensureLayout` 事先跑過——它的職責只有「宣告這個 store 用哪種佈局」。
 
 附件不在 library 內：PDF 進外部 attachment pool 或留在 Zotero storage，
 entry 只記 reference（見 §2.4）。

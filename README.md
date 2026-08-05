@@ -52,7 +52,17 @@ format ≥ 2 的 store 不建 legacy 的 `entries/`／`people/`，對**有帶 re
 `index/` 刻意**不**放在 canonical 樹裡：它可重建（536 筆約 0.55 s），而 store root 正是會進
 Dropbox / git 的東西——在同步樹裡放 live SQLite 是已知的毀檔風險（partial write、conflict copy）。
 未註冊的 store（`--library <path>` 直指）則回落 in-store `.akashic/index.sqlite`，因為那種 store
-不在 registry 治理範圍內。解析順序：`--library` → `$AKASHIC_LIBRARY` → `~/.akashic/config.yaml`。
+不在 registry 治理範圍內。
+
+### 環境變數
+
+| 變數 | 作用 |
+|---|---|
+| `AKASHIC_HOME` | 覆寫 akashic home（預設 `~/.akashic`）。**同時決定 registry（`config.yaml`）與衍生 index（`index/<key>.sqlite`）的位置**——兩者必須同源，否則會出現「registry 讀一個 home、index 寫另一個 home」的跨 profile 混用（#101 修正）。CLI / MCP / App 三面一致遵守 |
+| `AKASHIC_LIBRARY` | 直接指定 library root，等同 `--library`。**目前一律以 keyless 開啟**，即使該路徑已註冊（#105）|
+
+Library root 的解析順序：`--library` → `$AKASHIC_LIBRARY` → `$AKASHIC_HOME/config.yaml`（`current` 指向的
+`files:` 項）。前兩者回 keyless，第三者帶 registry key。
 
 > **經 registry 解析的指令一律保留 key**（#101）。曾經 `doctor`、`import-zotero` 與 App 只取
 > root、丟掉 key，於是把已註冊的 store 當成未註冊的——它們**重建的是錯的那一份 index**：
@@ -150,6 +160,10 @@ store 的行為由第 2、3 點決定。在 #24 落地之前 store 端沒有版�
 cd AkashicApp && xcodegen generate && xcodebuild -scheme AkashicApp build   # 或直接開 Xcode
 ```
 
+> ⚠️ **`AkashicApp/` 是 XcodeGen 專案，不是 SwiftPM target** —— `swift build` 與 `swift test`
+> （以及 CI）**不會編譯它**。改動 `AkashicApp/Sources/` 之後，「測試全綠」對它沒有任何意義，
+> 必須手動跑上面那行。這個缺口已讓一次修正漏掉一半（#101 R1→R2）；補進 CI 見 **#109**。
+
 管理工作台：Sidebar 健康總覽、列表＋詳情（biblatex 唯讀／衍生層可編／rename）、
 裁決台三頁籤（People 逐候選、Orphans 三選——刪檔進垃圾桶可救回、Quarantine）、
 原生 Canvas force-directed 關係圖（拖拉/縮放/雙擊展開）。
@@ -158,7 +172,7 @@ cd AkashicApp && xcodegen generate && xcodebuild -scheme AkashicApp build   # �
 ## MCP（akashic-mcp）
 
 marketplace 安裝：`claude plugin install akashic-mcp@psychquant-claude-plugins`。
-Library 解析：`$AKASHIC_LIBRARY` → `~/.akashic/config.yaml`（`library: <path>`）。
+Library 解析與 CLI 共用同一條鏈（見下方「環境變數」）。
 
 多 library（#13，membership views）：`akashic library list/create/add/remove` 管理具名
 成員集合（如 `sinica`、`psychology`），`akashic query --in-library <key>` 篩選；MCP 有

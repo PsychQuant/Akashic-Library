@@ -121,6 +121,38 @@ final class RelationalExportTests: XCTestCase {
         XCTAssertEqual(t.rows[2][5], "https://example.org", "source 必須帶出來")
     }
 
+    /// #91：`note` 是 temporal 資料的另外半條命，不得在匯出時消失。
+    ///
+    /// `source` 分得出「名冊認證 vs 論文推得」，但分不出同一來源底下的**性質差異**
+    /// ——學程關係（TIGP）與所轄中心人員（DSSCC）共用同一個 `sha256:` source，
+    /// 差別只寫在 `note`。note 出不去，下游就只能去 parse 散文或放棄這個區分。
+    func testTimelineExportsNote() throws {
+        var p = Person(key: "cheng", names: ["C"])
+        p.profile.affiliations = TimelineOf([
+            TemporalValue(value: .literal("ISS"), range: DateRange(start: "2020"),
+                          source: "sha256:abc", note: "由論文機構字串推得；學程關係")])
+        p.profile.ranks = Timeline([
+            TemporalValue(value: "助研究員", range: DateRange(start: "2020"),
+                          source: "https://example.org", note: "任用形式待查")])
+        let t = RelationalExport.tables(entries: [], people: [p]).researcherTimeline
+        let i = try XCTUnwrap(t.columns.firstIndex(of: "note"),
+                              "researcher_timeline 必須有 note 欄")
+        XCTAssertEqual(t.rows[0][i], "由論文機構字串推得；學程關係", "affiliation 的 note")
+        XCTAssertEqual(t.rows[1][i], "任用形式待查", "note 不是 affiliation 專屬——所有 dimension 一致")
+        XCTAssertEqual(t.rows.map { $0.count }.reduce(into: Set()) { $0.insert($1) }.count, 1,
+                       "所有列的欄位數必須一致")
+        XCTAssertEqual(t.rows[0].count, t.columns.count, "列寬必須等於欄位數")
+    }
+
+    /// 沒有 note 的既有資料匯出成 NULL，不是空字串——與其他 optional 欄位一致。
+    func testAbsentNoteExportsAsNull() throws {
+        var p = Person(key: "cheng", names: ["C"])
+        p.profile.ranks = Timeline([TemporalValue(value: "研究員", range: DateRange(start: "2020"))])
+        let t = RelationalExport.tables(entries: [], people: [p]).researcherTimeline
+        let i = try XCTUnwrap(t.columns.firstIndex(of: "note"))
+        XCTAssertNil(t.rows[0][i])
+    }
+
     /// 多段任期（#20 的動機資料）必須各自成列，不得被壓成一段。
     func testMultiSegmentTenureExportsAsSeparateRows() {
         var p = Person(key: "cheng", names: ["C"])

@@ -204,4 +204,42 @@ final class OrganizationTests: XCTestCase {
         XCTAssertTrue(sql.contains("CREATE TABLE organization"))
         XCTAssertTrue(sql.contains("organization_id UUID REFERENCES organization(organization_id)"))
     }
+
+    /// #92：`organization` 的自我參照外鍵（`parent_id`）**不得在建立列的同一個
+    /// statement 內填入**。
+    ///
+    /// DuckDB 對 FK 的檢查是針對「statement 開始前的表狀態」——同一個 bulk INSERT
+    /// 裡，後面的列看不到前面的列。CSV 把母機構排在前面也不救。最小重現：
+    ///
+    /// ```sql
+    /// CREATE TABLE o(id INTEGER PRIMARY KEY, p INTEGER REFERENCES o(id));
+    /// INSERT INTO o SELECT * FROM (VALUES (1,NULL),(2,1)) t(a,b);  -- ✗ Constraint Error
+    /// ```
+    ///
+    /// 所以載入必須兩步：先插骨架、再回填 `parent_id`。這保留 FK 約束，而不是靠
+    /// 拿掉約束來繞過（拿掉之後下游就再也擋不住懸空 parent）。
+    ///
+    /// 斷言寫成「**不是** `INSERT INTO organization` 後面直接 `SELECT *`」＋「必須
+    /// 有回填 parent_id 的 UPDATE」，而非釘住某段 SQL 字面——前者描述的是那個會讓
+    /// 腳本跑不起來的性質本身。
+    func testOrganizationLoadsInTwoStepsForSelfReferencingFK() {
+        let sql = RelationalExport.duckDBScript()
+        XCTAssertFalse(sql.contains("INSERT INTO organization\n            SELECT * FROM read_csv"),
+                       "organization 不得用單一 SELECT * bulk insert——parent_id 的自我參照會 abort")
+        XCTAssertTrue(sql.contains("UPDATE organization"),
+                      "必須有回填 parent_id 的第二步")
+        XCTAssertTrue(sql.contains("SET parent_id"), "回填的是 parent_id")
+        // 骨架那一步必須顯式列欄位且不含 parent_id，否則等於沒分兩步
+        guard let insertRange = sql.range(of: "INSERT INTO organization") else {
+            return XCTFail("找不到 organization 的 INSERT")
+        }
+        // 只取這一個 statement（到第一個分號為止）——取寬了會把後面回填用的 UPDATE
+        // 也吃進來，讓「骨架不得含 parent_id」變成永遠失敗的假斷言。
+        let tail = sql[insertRange.lowerBound...]
+        let stmt = String(tail.prefix(upTo: tail.firstIndex(of: ";") ?? tail.endIndex))
+        XCTAssertTrue(stmt.contains("organization_id") && stmt.contains("org_key"),
+                      "骨架 INSERT 必須顯式列欄位：\(stmt)")
+        XCTAssertFalse(stmt.contains("parent_id"),
+                       "骨架 INSERT 不得含 parent_id：\(stmt)")
+    }
 }

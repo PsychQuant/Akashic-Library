@@ -101,7 +101,7 @@ public enum RelationalExport {
                     return nil   // .literal ＝ 未歸戶；懸空的 .key 也回 NULL，不造 id
                 }()
                 timelineRows.append([p.id.uuidString, "affiliation", v.value.displayName,
-                                     v.range.start, v.range.end, v.source, fk])
+                                     v.range.start, v.range.end, v.source, v.note, fk])
             }
             let dims: [(String, Timeline)] = [
                 ("rank", p.profile.ranks),
@@ -112,7 +112,7 @@ public enum RelationalExport {
             for (dim, tl) in dims {
                 for v in tl.sorted {
                     timelineRows.append([p.id.uuidString, dim, v.value,
-                                         v.range.start, v.range.end, v.source, nil])
+                                         v.range.start, v.range.end, v.source, v.note, nil])
                 }
             }
         }
@@ -154,7 +154,7 @@ public enum RelationalExport {
                               rows: researcherRows),
             researcherTimeline: Table(name: "researcher_timeline",
                                       columns: ["researcher_id", "dimension", "value",
-                                                "valid_start", "valid_end", "source",
+                                                "valid_start", "valid_end", "source", "note",
                                                 "organization_id"],
                                       rows: timelineRows),
             publication: Table(name: "publication",
@@ -278,6 +278,10 @@ public enum RelationalExport {
             valid_start   TEXT,   -- ISO 8601 前綴，保留來源精度（2003 / 2003-01 / 2003-01-15）
             valid_end     TEXT,   -- NULL ＝ 仍在進行中（**不是**未知）
             source        TEXT,
+            -- source 的另外半條命（#91）。source 分得出「名冊認證 vs 論文推得」，
+            -- 但同一個來源底下的性質差異——學程關係 vs 所轄中心人員——只寫在這裡。
+            -- 丟掉它，下游就只能 parse 散文或放棄該區分。
+            note          TEXT,
             -- 只有 dimension='affiliation' 且該筆已歸戶時非空。
             -- **NULL ＝ 未歸戶**，與 publication_author.researcher_id 同語意——
             -- 不加「是否已歸戶」旗標欄位，缺席本身就是資訊，而且 IS NULL 直接就是查詢。
@@ -306,8 +310,17 @@ public enum RelationalExport {
             PRIMARY KEY (publication_id, author_seq)
         );
 
-        INSERT INTO organization
-            SELECT * FROM read_csv('\(csvDirectory)/organization.csv', header = true);
+        -- organization 分兩步載入（#92）。`parent_id` 是**自我參照**外鍵，而 DuckDB
+        -- 對 FK 的檢查針對「statement 開始前的表狀態」——同一個 bulk INSERT 裡，後面
+        -- 的列看不到前面的列，所以把母機構排在 CSV 前面也不救。先插骨架、再回填，
+        -- 保留 FK 約束（拿掉約束會讓下游再也擋不住懸空 parent）。
+        INSERT INTO organization (organization_id, org_key, name_current, founded, dissolved)
+            SELECT organization_id, org_key, name_current, founded, dissolved
+            FROM read_csv('\(csvDirectory)/organization.csv', header = true);
+        UPDATE organization SET parent_id = c.parent_id
+            FROM read_csv('\(csvDirectory)/organization.csv', header = true) c
+            WHERE organization.organization_id = c.organization_id
+              AND c.parent_id IS NOT NULL;
         INSERT INTO researcher
             SELECT * FROM read_csv('\(csvDirectory)/researcher.csv', header = true);
         INSERT INTO researcher_timeline

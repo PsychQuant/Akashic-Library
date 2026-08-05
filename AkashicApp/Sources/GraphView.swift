@@ -206,7 +206,7 @@ struct GraphCanvasView: View {
     /// 外部變更後：索引重建一次（全庫掃描，不放在互動路徑上），再重查圖形。
     private func rebuildIndexThenGraph() {
         do {
-            let store = LibraryStore(root: state.root)
+            let store = state.store   // #101：key 必須帶著，否則寫/讀的是另一份 index
             _ = try LibraryIndex(store: store).rebuild()
         } catch {
             loadError = (error as? LocalizedError)?.errorDescription ?? "\(error)"
@@ -219,7 +219,7 @@ struct GraphCanvasView: View {
     private func rebuild() {
         guard let focus = focusCitekey else { return }
         do {
-            let store = LibraryStore(root: state.root)
+            let store = state.store   // #101：key 必須帶著，否則寫/讀的是另一份 index
             let builder = try GraphBuilder(indexPath: store.indexURL)
             let n = try builder.neighborhood(focus: focus, depth: Int(depth))
             neighborhood = n

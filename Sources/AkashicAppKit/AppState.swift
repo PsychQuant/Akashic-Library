@@ -10,8 +10,12 @@ import AkashicIndex
 public final class AppState {
     /// #18 多檔案：switchFile 時重指（session-scoped；不寫 config）。
     public private(set) var root: URL
-    /// registry key（#101）。**與 root 同生共死**——它決定衍生 index 住哪裡
-    /// （已註冊 → `~/.akashic/index/<key>.sqlite`；nil → in-store `.akashic/`）。
+    /// registry key（#101）。**與 root 同生共死**——它決定衍生 index 的**命名與位置**：
+    /// 有 key → `<akashic home>/index/<key>.sqlite`；nil → in-store `.akashic/index.sqlite`。
+    ///
+    /// 注意這**不等於**「index 一定在 store 之外」：預設 store 的 root 就是 akashic home
+    /// （`~/.akashic`），所以它的 index 字面上仍在 store root 內（`~/.akashic/index/`）。
+    /// 分離的實益是「不在 canonical 樹裡、且有名字」，不是路徑上的包含關係。
     ///
     /// 曾經 App 只保留 root、丟掉 key，於是它對**已註冊**的 store 也走 keyless 路徑：
     /// 每次寫入後的 `reindexAndReload()` 會在 store root 內重建一份 in-store index，
@@ -58,12 +62,19 @@ public final class AppState {
     let environment: [String: String]
 
     public init(root: URL, key: String? = nil,
-                configURL: URL = AkashicConfig.defaultURL,
+                configURL: URL? = nil,
                 environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.root = root
         self.storeKey = key
-        self.configURL = configURL
         self.environment = environment
+        // **configURL 必須與 environment 同源**（#101 verify R2）。從前它預設
+        // `AkashicConfig.defaultURL`——那個常數寫死真實家目錄、**不認 `AKASHIC_HOME`**，
+        // 而 `environment` 決定 index 住哪。兩者於是可以指向不同的 home：
+        // 設了 `AKASHIC_HOME` 時，開機由 env-aware 的 `resolveDetailed` 解析 root/key，
+        // 而 `availableFiles` / `switchFile` 卻讀**真實**的 `~/.akashic/config.yaml`——
+        // `switchFile(key:)` 會拿真實 registry 的路徑當 root，把 index 寫進 override
+        // home。root、registry、index 三者跨 profile 混用。
+        self.configURL = configURL ?? AkashicHome.configURL(environment: environment)
     }
 
     public struct RegisteredFile: Identifiable, Equatable {
@@ -106,7 +117,16 @@ public final class AppState {
         }
     }
 
-    var store: LibraryStore { LibraryStore(root: root, key: storeKey, environment: environment) }
+    /// **App 端建 store 的唯一入口**（#101 verify R2）。
+    ///
+    /// 從前它是 `internal`，於是 `AkashicApp/` 只好各自 `LibraryStore(root:)`——四個
+    /// 建構點、全部丟掉 key。其中 `GraphCanvasView.rebuildIndexThenGraph()` 會在圖形
+    /// 分頁出現時與**每一次編輯後**重建索引，於是 `.akashic/` 在已註冊的 store 裡照樣
+    /// 長回來（R1 說的那個後果一字不差地仍然成立），而且與 `reindexAndReload()` 寫的
+    /// `index/<key>.sqlite` 變成同一個 store 上的兩份索引。
+    ///
+    /// 開放它是為了讓「別自己 `LibraryStore(root:)`」這條規則**有地方可去**。
+    public var store: LibraryStore { LibraryStore(root: root, key: storeKey, environment: environment) }
 
     // MARK: - 載入與統計
 

@@ -67,11 +67,13 @@ in-store 的 `.akashic/index.sqlite`。
 > **父目錄不由 `ensureLayout` 保證**。寫入路徑自己確保目的檔的父目錄存在
 > （`atomicWrite` 的單一咽喉），讀取路徑則容忍目錄缺席（回空）。
 >
-> ⚠️ 這**不代表** root 打錯時會被擋下來——`atomicWrite` 會安靜地把整棵樹建出來，
-> 而且新 store 的 format 會取決於哪個寫入 API 先被呼叫（先 `writeEntry` → 建出
-> legacy format 1；先 `writeOrganization` → `entities/`）。CLI 有 `openStore()` 擋在
-> 前面，MCP 與 App 沒有。**呼叫端仍應先 `ensureLayout()` 或走 `openStore()`**；
-> 咽喉的保證只涵蓋「目錄」，不涵蓋「這個 root 是不是一個 store」。
+> ⚠️ 這**不代表** root 打錯時會被擋下來。`atomicWrite` 會安靜地把整棵樹建出來，
+> 而且此時**沒有 `store.yaml`**——這個半成品後續會依「當下碰巧有什麼」自我聲明格式：
+> 若先寫過 entry（落進 `entries/`），之後的 `ensureLayout()` 會把它標成 format 1。
+> CLI 有 `openStore()` 擋在前面，MCP 與 App 沒有（#108）。
+>
+> **呼叫端仍應先 `ensureLayout()` 或走 `openStore()`**；父目錄的保證只涵蓋「目錄」，
+> 不涵蓋「這個 root 是不是一個 store」。
 
 附件不在 library 內：PDF 進外部 attachment pool 或留在 Zotero storage，
 entry 只記 reference（見 §2.4）。

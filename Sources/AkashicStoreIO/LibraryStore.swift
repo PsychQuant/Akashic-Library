@@ -109,8 +109,7 @@ public final class LibraryStore {
 
     /// 建立**這個 store 實際會用到的**目錄（#101）。
     ///
-    /// 「目錄存在」帶語意：看到 `entries/` 就知道這是 legacy 佈局，看到 `.akashic/`
-    /// 就知道這個 store 沒註冊。在此之前這裡是一個無條件迴圈，於是 format 5 的 store
+    /// 規則是「只建這個 store 用得到的」。在此之前這裡是一個無條件迴圈，於是 format 5 的 store
     /// 長出 format 1 的 `entries/`／`people/`、已註冊的 store 長出「未註冊 store 專用」
     /// 的 `.akashic/`——每次 `doctor` 都長回來，刪不掉。
     ///
@@ -132,8 +131,9 @@ public final class LibraryStore {
         var dirs = [entitiesDir, librariesDir, notesDir]
         // legacy 佈局才有的兩個目錄。
         if !usesEntitiesLayout { dirs += [entriesDir, peopleDir] }
-        // in-store 的 index 回落位置，只有**未註冊**的 store 用得到（#37）。已註冊的
-        // store 走 `~/.akashic/index/<key>.sqlite`，永遠不碰這裡。
+        // in-store 的 index 回落位置，只有**沒帶 key 開啟**的 store 用得到（#37）。
+        // 注意這是「呼叫端有沒有傳 key」而非 registry 事實——`--library` 與
+        // `$AKASHIC_LIBRARY` 目前對已註冊路徑仍回 nil（#105）。
         if key == nil { dirs.append(akashicDir) }
 
         for dir in dirs {
@@ -495,8 +495,11 @@ public final class LibraryStore {
         let dir = dest.deletingLastPathComponent()
         // **父目錄由寫入端自己保證**（#101）。在此之前這件事是 `ensureLayout` 的無條件
         // 迴圈順便做掉的，於是那個迴圈不能依 format 條件化——「目錄存在」因此不再代表
-        // 「這個佈局在用」。把保證下放到唯一的寫入咽喉，兩件事就各自獨立：
+        // 「這個佈局在用」。把保證下放到寫入端，兩件事就各自獨立：
         // `ensureLayout` 負責**宣告**佈局，寫入路徑負責**自己能寫**。
+        //
+        // 這裡涵蓋**所有走 `atomicWrite` 的寫入**（7 個呼叫點）——但它不是全部的寫入
+        // 路徑：`StoreMigration` 直接用 Foundation 寫，見下。
         //
         // 讀取端（`yamlFiles`）早就容忍缺目錄（回空陣列）。這裡讓寫入端與它對稱。
         //

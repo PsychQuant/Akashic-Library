@@ -70,15 +70,17 @@ final class CLIIntegrationTests: XCTestCase {
         let process = Process()
         process.executableURL = productsDirectory.appendingPathComponent("akashic")
         process.arguments = args
-        if let env {
-            // **先清掉所有 AKASHIC_* 再注入**（#101 verify）。只注入 `AKASHIC_HOME` 是不夠的：
-            // `LibraryLocator.resolveDetailed` 的順序是 explicit → `$AKASHIC_LIBRARY` → registry，
-            // 所以省略 `--library` 的測試在**有設該變數的開發機上**會跑去打使用者的真實 store
-            // （並在那裡重建 index）。繼承父環境的其餘變數（PATH 等）仍需要，故只剔除 AKASHIC_*。
-            var merged = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
-            for (k, v) in env { merged[k] = v }
-            process.environment = merged
-        }
+        // **一律先清掉所有 AKASHIC_* 再注入**（#101 verify R1/R2）。
+        //
+        // 只注入 `AKASHIC_HOME` 不夠：`LibraryLocator.resolveDetailed` 的順序是
+        // explicit → `$AKASHIC_LIBRARY` → registry，所以省略 `--library` 的測試在**有設
+        // 該變數的開發機上**會跑去打使用者的真實 store（並在那裡重建 index）。
+        //
+        // R2 抓到第一版把這段包在 `if let env` 裡——於是**不帶 env 的呼叫完全沒被保護**，
+        // 而那正是註解描述的危險案例。剝除必須無條件；繼承父環境的其餘變數（PATH 等）仍需要。
+        var childEnv = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
+        for (k, v) in env ?? [:] { childEnv[k] = v }
+        process.environment = childEnv
         let out = Pipe(), err = Pipe()
         process.standardOutput = out
         process.standardError = err

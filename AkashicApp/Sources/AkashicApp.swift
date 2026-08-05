@@ -63,7 +63,7 @@ final class LaunchState {
         watcher?.stop()   // 舊 watcher 監看舊 universe 目錄，已無意義
         watcher = nil
         do {
-            let store = LibraryStore(root: state.root)
+            let store = state.store   // #101：一律經 AppState，不自己建
             let newWatcher = FileWatcher(directories: [store.entitiesDir, store.entriesDir, store.peopleDir]) {
                 Task { @MainActor in
                     try? state.externalReload()
@@ -85,7 +85,7 @@ final class LaunchState {
             let root = resolved.root
             let state = AppState(root: root, key: resolved.key)
             try state.load()
-            let store = LibraryStore(root: root)
+            let store = state.store   // #101：一律經 AppState，不自己建
             let watcher = FileWatcher(directories: [store.entitiesDir, store.entriesDir, store.peopleDir]) {
                 // 外部（CLI/MCP/git）變更 → 主執行緒 reload + 同步時戳
                 //（sidebar 顯示「外部變更已同步」；App 為 write-through 模型，

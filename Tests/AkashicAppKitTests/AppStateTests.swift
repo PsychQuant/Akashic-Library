@@ -208,16 +208,60 @@ final class AppStateRegistryKeyTests: XCTestCase {
     }
 
     func testRegisteredStoreReindexDoesNotCreateInStoreIndex() throws {
-        // **environment 必須注入**：不注入的話 indexURL 會指向使用者真實的
-        // ~/.akashic/index/main.sqlite，測試會把它覆寫掉（#101 verify 實際踩過）。
         let state = AppState(root: root, key: "main", environment: ["AKASHIC_HOME": home.path])
         XCTAssertEqual(state.storeKey, "main", "前置條件：key 有被保留")
+
+        // **正面斷言目的地，而且在任何重建之前**（#101 verify R2）。
+        //
+        // 第一版只斷言「沒長出 `.akashic/`」——那個負面斷言**抓不到它要抓的事故**：
+        // 若有人只拿掉 `environment:` 而保留 `key:`，key 非 nil 所以不會建 `.akashic/`，
+        // `storeKey == "main"` 也仍成立，測試照樣綠燈——而 index 會寫進**使用者真實的**
+        // `~/.akashic/index/main.sqlite`。那正是本測試存在的原因（實際發生過一次）。
+        let expected = home.appendingPathComponent("index").appendingPathComponent("main.sqlite")
+        guard state.store.indexURL.path == expected.path else {
+            XCTFail("""
+                indexURL 指向沙箱外——中止以免覆寫真實資料。
+                expected: \(expected.path)
+                actual:   \(state.store.indexURL.path)
+                """)
+            return
+        }
+
         try state.load()
         try state.reindexAndReload()
 
+        XCTAssertTrue(FileManager.default.fileExists(atPath: expected.path),
+                      "已註冊 store 的 index 必須落在 <home>/index/<key>.sqlite")
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: root.appendingPathComponent(".akashic").path),
             "已註冊的 store 被 App reindex 之後不該長出 in-store 的 .akashic/")
+    }
+
+    /// `switchFile` 的 storeKey 更新與回滾（#101 verify R2：原本完全沒有斷言，
+    /// 刪掉那兩行 706 個測試照樣全綠）。
+    func testSwitchFileUpdatesAndRollsBackStoreKey() throws {
+        let other = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-appkey2-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: other) }
+        try LibraryStore(root: other, key: "other",
+                         environment: ["AKASHIC_HOME": home.path]).ensureLayout()
+
+        let cfg = home.appendingPathComponent("config.yaml")
+        try "files:\n  main: \(root.path)\n  other: \(other.path)\ncurrent: main\n"
+            .write(to: cfg, atomically: true, encoding: .utf8)
+
+        let state = AppState(root: root, key: "main", configURL: cfg,
+                             environment: ["AKASHIC_HOME": home.path])
+        try state.load()
+
+        try state.switchFile(key: "other")
+        XCTAssertEqual(state.storeKey, "other", "切換成功後 key 必須跟著 root 走")
+        XCTAssertEqual(state.root.path, other.path)
+
+        // 切到不存在的 key → 擲錯且 key/root 都不動
+        XCTAssertThrowsError(try state.switchFile(key: "nope"))
+        XCTAssertEqual(state.storeKey, "other", "失敗的切換不得留下錯位的 key")
+        XCTAssertEqual(state.root.path, other.path)
     }
 
     func testUnregisteredStoreStillUsesInStoreIndex() throws {

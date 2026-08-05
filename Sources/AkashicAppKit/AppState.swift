@@ -10,6 +10,14 @@ import AkashicIndex
 public final class AppState {
     /// #18 多檔案：switchFile 時重指（session-scoped；不寫 config）。
     public private(set) var root: URL
+    /// registry key（#101）。**與 root 同生共死**——它決定衍生 index 住哪裡
+    /// （已註冊 → `~/.akashic/index/<key>.sqlite`；nil → in-store `.akashic/`）。
+    ///
+    /// 曾經 App 只保留 root、丟掉 key，於是它對**已註冊**的 store 也走 keyless 路徑：
+    /// 每次寫入後的 `reindexAndReload()` 會在 store root 內重建一份 in-store index，
+    /// 而 CLI / MCP 讀的是 `index/<key>.sqlite`——同一個 store 兩份索引各自為政，且
+    /// 使用者刪掉 `.akashic/` 之後只要開 App 編輯一次就長回來。
+    public private(set) var storeKey: String?
     let configURL: URL
     /// config 的 files registry（App 端唯讀視圖；load() 時同步刷新）。
     public private(set) var availableFiles: [RegisteredFile] = []
@@ -43,9 +51,19 @@ public final class AppState {
     /// `.task(id: reloadCount)` 重建，集合放 model 內會在每次 reload 後歸零。
     public var skippedPeopleCandidates = Set<String>()
 
-    public init(root: URL, configURL: URL = AkashicConfig.defaultURL) {
+    /// 環境變數視圖（#101）。**存在的唯一理由是可測試性**：已註冊 store 的 index 位置由
+    /// `AKASHIC_HOME` 決定，若這裡寫死 `ProcessInfo.processInfo.environment`，任何測試只要
+    /// 帶 key 就會去重建**使用者真實的** `~/.akashic/index/<key>.sqlite`。
+    /// （這不是假想——本欄位正是在 #101 verify 時被這樣打中一次才補上的。）
+    let environment: [String: String]
+
+    public init(root: URL, key: String? = nil,
+                configURL: URL = AkashicConfig.defaultURL,
+                environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.root = root
+        self.storeKey = key
         self.configURL = configURL
+        self.environment = environment
     }
 
     public struct RegisteredFile: Identifiable, Equatable {
@@ -67,7 +85,9 @@ public final class AppState {
             throw AppStateError.notALibrary(path)
         }
         let oldRoot = root
+        let oldKey = storeKey
         root = newRoot
+        storeKey = key          // #101：key 與 root 同生共死，回滾時一併還原
         searchText = ""
         filterType = nil
         filterTag = nil
@@ -80,12 +100,13 @@ public final class AppState {
             // rollback：root 標籤與資料不可分離（verify R1 MEDIUM）——
             // 新 universe 載入失敗就回到舊 universe，best-effort 重載舊快照
             root = oldRoot
+            storeKey = oldKey
             try? load()
             throw error
         }
     }
 
-    var store: LibraryStore { LibraryStore(root: root) }
+    var store: LibraryStore { LibraryStore(root: root, key: storeKey, environment: environment) }
 
     // MARK: - 載入與統計
 

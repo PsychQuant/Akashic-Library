@@ -71,7 +71,13 @@ final class CLIIntegrationTests: XCTestCase {
         process.executableURL = productsDirectory.appendingPathComponent("akashic")
         process.arguments = args
         if let env {
-            process.environment = ProcessInfo.processInfo.environment.merging(env) { _, new in new }
+            // **先清掉所有 AKASHIC_* 再注入**（#101 verify）。只注入 `AKASHIC_HOME` 是不夠的：
+            // `LibraryLocator.resolveDetailed` 的順序是 explicit → `$AKASHIC_LIBRARY` → registry，
+            // 所以省略 `--library` 的測試在**有設該變數的開發機上**會跑去打使用者的真實 store
+            // （並在那裡重建 index）。繼承父環境的其餘變數（PATH 等）仍需要，故只剔除 AKASHIC_*。
+            var merged = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
+            for (k, v) in env { merged[k] = v }
+            process.environment = merged
         }
         let out = Pipe(), err = Pipe()
         process.standardOutput = out

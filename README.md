@@ -41,21 +41,28 @@ attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox�
 └── index/main.sqlite            ← 衍生 index，依 registry key 命名（gitignored）
 ```
 
-**佈局依 format 而定，而且只建這個 store 實際會用到的目錄**（#101）——所以「目錄存在」本身帶
-語意：看到 `entries/`／`people/` 就知道那是 legacy（format 1）佈局；看到 in-store 的 `.akashic/`
-就知道那個 store 沒註冊。format ≥ 2 的 store 不會有前者，已註冊的 store 不會有後者。完整對照表
-見 [docs/store-format.md §1](docs/store-format.md)。
+**佈局依 format 而定，而且只建這個 store 實際會用到的目錄**（#101）：`ensureLayout()` 對
+format ≥ 2 的 store 不建 legacy 的 `entries/`／`people/`，對**有帶 registry key** 開啟的 store
+不建 in-store 的 `.akashic/`。
+
+反過來讀不成立——目錄的存在不是可靠判準：`--library <已註冊路徑>` 目前仍以 keyless 開啟
+（#105），`migrate` 也不刪空的 legacy 目錄。完整說明見
+[docs/store-format.md §1](docs/store-format.md)。
 
 `index/` 刻意**不**放在 canonical 樹裡：它可重建（536 筆約 0.55 s），而 store root 正是會進
 Dropbox / git 的東西——在同步樹裡放 live SQLite 是已知的毀檔風險（partial write、conflict copy）。
 未註冊的 store（`--library <path>` 直指）則回落 in-store `.akashic/index.sqlite`，因為那種 store
 不在 registry 治理範圍內。解析順序：`--library` → `$AKASHIC_LIBRARY` → `~/.akashic/config.yaml`。
 
-> **經 registry 解析的指令一律保留 key**（#101）。曾經 `doctor` 與 `import-zotero` 只取 root、
-> 丟掉 key，於是把已註冊的 store 當成未註冊的——它們**重建的是錯的那一份 index**：in-store 的
-> `.akashic/index.sqlite` 每次被寫成完整副本，而 `index/<key>.sqlite` 從來沒被更新過，查詢一直
->打在過期的衍生資料上且無任何訊號。若你的 store root 底下還留著一個 `.akashic/`，它是那個時期
-> 的殘留，可直接刪除（衍生物，`doctor` 會重建正確的那一份）。
+> **經 registry 解析的指令一律保留 key**（#101）。曾經 `doctor`、`import-zotero` 與 App 只取
+> root、丟掉 key，於是把已註冊的 store 當成未註冊的——它們**重建的是錯的那一份 index**：
+> in-store 的 `.akashic/index.sqlite` 每次被寫成完整副本，而 `index/<key>.sqlite` 從來沒被更新
+> 過，查詢一直打在過期的衍生資料上且無任何訊號。
+>
+> 若你的 store root 底下還留著一個 `.akashic/`，它多半是那個時期的殘留，可直接刪除（衍生物，
+> `doctor` 會重建正確的那一份）。**但它也可能再長回來**——`--library <路徑>` 與
+> `$AKASHIC_LIBRARY` 目前仍以 keyless 開啟，即使該路徑已註冊（#105）。刪之前先確認你平常怎麼
+> 開這個 store。
 
 ## 狀態
 

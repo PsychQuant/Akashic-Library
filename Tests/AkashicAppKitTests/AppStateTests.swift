@@ -181,3 +181,59 @@ extension AppStateTests {
         XCTAssertEqual(state.entries.map(\.citekey), ["aaa2020first"], "舊快照 best-effort 重載")
     }
 }
+
+/// App 面必須與 CLI / MCP 一樣保留 registry key（#101 verify）。
+///
+/// 曾經 `AppState.store` 是 `LibraryStore(root: root)`——key 永遠 nil。後果是 App 對
+/// **已註冊**的 store 也走 keyless 路徑：`reindexAndReload()` 會在 store root 內建出
+/// `.akashic/` 並寫一份沒有任何消費者的 index（CLI / MCP 讀的是 `index/<key>.sqlite`），
+/// 而且使用者刪掉 `.akashic/` 之後只要開 App 編輯一次就長回來。
+final class AppStateRegistryKeyTests: XCTestCase {
+    private var home: URL!
+    private var root: URL!
+
+    override func setUpWithError() throws {
+        home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-apphome-\(UUID().uuidString)")
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-appkey-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try LibraryStore(root: root, key: "main",
+                         environment: ["AKASHIC_HOME": home.path]).ensureLayout()
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.removeItem(at: home)
+    }
+
+    func testRegisteredStoreReindexDoesNotCreateInStoreIndex() throws {
+        // **environment 必須注入**：不注入的話 indexURL 會指向使用者真實的
+        // ~/.akashic/index/main.sqlite，測試會把它覆寫掉（#101 verify 實際踩過）。
+        let state = AppState(root: root, key: "main", environment: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(state.storeKey, "main", "前置條件：key 有被保留")
+        try state.load()
+        try state.reindexAndReload()
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: root.appendingPathComponent(".akashic").path),
+            "已註冊的 store 被 App reindex 之後不該長出 in-store 的 .akashic/")
+    }
+
+    func testUnregisteredStoreStillUsesInStoreIndex() throws {
+        let bare = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-appbare-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: bare) }
+        try LibraryStore(root: bare).ensureLayout()
+
+        let state = AppState(root: bare)          // key == nil
+        XCTAssertNil(state.storeKey)
+        try state.load()
+        try state.reindexAndReload()
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: bare.appendingPathComponent(".akashic/index.sqlite").path),
+            "未註冊的 store 仍回落 in-store index")
+    }
+}

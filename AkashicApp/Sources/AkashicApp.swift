@@ -78,8 +78,12 @@ final class LaunchState {
 
     func boot() {
         do {
-            let root = try LibraryLocator.resolve(explicit: nil)
-            let state = AppState(root: root)
+            // **resolveDetailed 而非 resolve**（#101）：root-only 的 overload 會把 registry
+            // key 丟掉，App 於是對已註冊的 store 也走 keyless 路徑、在 store root 內重建
+            // 一份沒有任何消費者的 in-store index。key 與 root 必須一起帶。
+            let resolved = try LibraryLocator.resolveDetailed(explicit: nil)
+            let root = resolved.root
+            let state = AppState(root: root, key: resolved.key)
             try state.load()
             let store = LibraryStore(root: root)
             let watcher = FileWatcher(directories: [store.entitiesDir, store.entriesDir, store.peopleDir]) {

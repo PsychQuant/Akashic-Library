@@ -498,11 +498,17 @@ public final class LibraryStore {
         // 「這個佈局在用」。把保證下放到唯一的寫入咽喉，兩件事就各自獨立：
         // `ensureLayout` 負責**宣告**佈局，寫入路徑負責**自己能寫**。
         //
-        // 這也收斂了三份各自發明的繞法：`writeLibrary`（pre-v1.2 store 無 libraries/）、
-        // `StoreMigration`、`DivergenceResolve` 從前都自己 createDirectory 一次，而
-        // entry / person 的寫入沒有——同一個不變式缺席三次、補三次、漏一次。
-        //
         // 讀取端（`yamlFiles`）早就容忍缺目錄（回空陣列）。這裡讓寫入端與它對稱。
+        //
+        // **它取代的只有 `writeLibrary` 那一處。** 另外兩處性質不同，別照著清：
+        //
+        // - `StoreMigration.swift:152` — **必要**。它下一行是 `p.yaml.write(to:atomically:)`，
+        //   直接走 Foundation 而**不經過本咽喉**，所以目錄仍得自己建。
+        // - `DivergenceResolve.swift:166` — 現在確實冗餘（下一行就是 `atomicWrite`），
+        //   但留著讓該檔不依賴本函式的內部細節。冗餘無害，刪不刪都對。
+        //
+        // 這個保證也**不是** root 正確性的驗證。root 打錯時它會安靜地把整棵樹建出來——
+        // CLI 有 `openStore()` 擋在前面，MCP 與 App 沒有（見 #105）。
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let tmp = dir.appendingPathComponent(".\(dest.lastPathComponent).tmp-\(UUID().uuidString)")
         try content.write(to: tmp, atomically: false, encoding: .utf8)

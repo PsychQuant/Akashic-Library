@@ -30,30 +30,48 @@ Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版�
 ├── entries/<citekey>.yaml      每筆文獻一檔
 ├── people/<person-key>.yaml    人物實體
 ├── libraries/<key>.yaml
-└── notes/<citekey>/*.md
+├── notes/<citekey>/*.md
+└── .akashic/                   同上：僅在沒傳 registry key 時才有
 ```
 
 讀取端**兩種佈局並存支援**：遷移是一次性動作，但舊佈局的 store（含別人的 clone、
 未遷移的備份）必須照樣讀。寫入端則單一：`store.yaml` 的 format 決定寫去哪邊。
 
-### 哪些目錄的存在帶語意
+### `ensureLayout()` 建哪些目錄
 
-| 目錄 | 何時存在 | 讀到它代表 |
-|---|---|---|
-| `entries/` `people/` | 僅 format 1 | 這是 legacy 佈局的 store |
-| `entities/` | 一律 | ——（兩種 format 都會有；條件化它見 #102）|
-| `libraries/` | 一律 | —— |
-| `notes/` | 一律 | ——（**目前沒有任何寫入端**，見 #103）|
-| `.akashic/` | 僅**未註冊**的 store | 這個 store 不在 `~/.akashic/config.yaml` 的 `files:` 裡 |
+| 目錄 | `ensureLayout()` 何時建 |
+|---|---|
+| `entries/` `people/` | 僅 format 1 |
+| `entities/` | 一律（兩種 format 都建；條件化它見 #102）|
+| `libraries/` | 一律 |
+| `notes/` | 一律（**目前沒有任何寫入端**，見 #103）|
+| `.akashic/` | 僅當開這個 store 的呼叫端**沒有傳 registry key** |
 
 **已註冊的 store 的 index 住 store 之外**（`~/.akashic/index/<key>.sqlite`，#37）：
 store root 正是會進 Dropbox／git 的東西，而同步樹裡的 live SQLite 是已知的毀檔風險
-（partial write、conflict copy）。未註冊的 store（`--library <path>` 直指）沒有 key
-可命名，才回落到 in-store 的 `.akashic/index.sqlite`。
+（partial write、conflict copy）。沒有 key 的 store 沒有名字可命名 index，才回落到
+in-store 的 `.akashic/index.sqlite`。
+
+> ⚠️ **反過來讀不成立**：目錄的存在**不是**可靠的判準。
+>
+> - **`.akashic/` 存在 ≠ 這個 store 未註冊。** `key` 反映的是「這次呼叫有沒有傳 key」，
+>   不是 registry 事實。`LibraryLocator.resolveDetailed` 對 `--library <path>` 與
+>   `$AKASHIC_LIBRARY` **一律回 `key: nil`**，即使那個路徑就登記在 `files:` 裡——於是
+>   `akashic doctor --library <已註冊路徑>` 仍會在該 store 內建出 `.akashic/` 並寫第二份
+>   index。要讓「存在即未註冊」成立，得先讓那條路徑反查 registry：**見 #105**。
+> - **`entries/` 存在 ≠ format 1。** `migrate` 搬完檔案後不刪空目錄，所以就地遷移過的
+>   store 會同時有空的 `entries/` 與 format ≥ 2 的 marker。
+>
+> 換句話說：這張表是 **`ensureLayout()` 的行為規格**，不是 store 狀態的推論規則。
 
 > **父目錄不由 `ensureLayout` 保證**。寫入路徑自己確保目的檔的父目錄存在
-> （`atomicWrite` 的單一咽喉），讀取路徑則容忍目錄缺席（回空）。兩者都不依賴
-> `ensureLayout` 事先跑過——它的職責只有「宣告這個 store 用哪種佈局」。
+> （`atomicWrite` 的單一咽喉），讀取路徑則容忍目錄缺席（回空）。
+>
+> ⚠️ 這**不代表** root 打錯時會被擋下來——`atomicWrite` 會安靜地把整棵樹建出來，
+> 而且新 store 的 format 會取決於哪個寫入 API 先被呼叫（先 `writeEntry` → 建出
+> legacy format 1；先 `writeOrganization` → `entities/`）。CLI 有 `openStore()` 擋在
+> 前面，MCP 與 App 沒有。**呼叫端仍應先 `ensureLayout()` 或走 `openStore()`**；
+> 咽喉的保證只涵蓋「目錄」，不涵蓋「這個 root 是不是一個 store」。
 
 附件不在 library 內：PDF 進外部 attachment pool 或留在 Zotero storage，
 entry 只記 reference（見 §2.4）。

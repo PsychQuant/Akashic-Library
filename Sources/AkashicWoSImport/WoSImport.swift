@@ -70,12 +70,19 @@ public enum WoSImport {
                     let n = text.index(after: i)
                     if n < text.endIndex, text[n] == "\"" { field.append("\""); i = n }
                     else { inQuotes = false }
-                } else { field.append(c) }
+                } else if c == "\r\n" {
+                    field.append("\n")                // 引號內的換行一律正規化成 LF，
+                } else { field.append(c) }            // 讓 LF 與 CRLF 兩份檔完全等價
             } else {
                 switch c {
+                // **`"\r\n"` 是單一 `Character`**（extended grapheme cluster），既不等於
+                // `"\r"` 也不等於 `"\n"`。少了這個 case，CRLF 檔的換行永遠不被辨識，
+                // 整份檔案被吞成一個 field → 0 列資料且不報錯（#89）。
+                // WoS 從 Windows 匯出的 tab-delimited 檔原生就是 CRLF。
+                case "\r\n": row.append(field); field = ""; rows.append(row); row = []
                 case "\"": inQuotes = true
                 case separator: row.append(field); field = ""
-                case "\r": break                      // CRLF 的 CR 丟掉
+                case "\r": break                      // 單獨的 CR（舊 Mac 行尾）丟掉
                 case "\n": row.append(field); field = ""; rows.append(row); row = []
                 default: field.append(c)
                 }
@@ -177,6 +184,16 @@ public enum WoSImport {
         var report = Report()
         let load = try store.load()
         var taken = Set(load.entries.map(\.citekey))
+
+        // **零列不得靜默。** 「匯入成功但一筆都沒進」與「檔案格式不被辨識」在
+        // created/unchanged 都是 0 時輸出完全相同——#89 的 CRLF bug 就是靠這個
+        // 沉默存活的。有內容卻解析不出資料列時，留下可診斷的訊息。
+        if rows(from: text, separator: separator).isEmpty,
+           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            report.skippedRows.append(
+                "整份檔案沒有解析出任何資料列：可能只有表頭，或分隔字元／行尾格式未被辨識"
+                + "（本次以 \(separator == "\t" ? "tab" : "逗號") 分隔解析）")
+        }
 
         // **身分判準先於碰撞避讓。** 這兩件事順序反了就不 idempotent：先避讓的話，
         // 重跑時「基底 citekey 已被自己上次匯入佔用」會生出 `su2015bfunctional`，

@@ -35,8 +35,15 @@ jobs:
           key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved', 'Package.swift') }}
           restore-keys: ${{ runner.os }}-spm-
 
-      - name: Build
-        run: swift build
+      # `-warnings-as-errors`（#62）。擋的是「只有 warning、沒有測試失敗」這一類——
+      # attribute 靜默轉移的第二次事故（PR #55）正是這個形狀：`writePerson` 失去
+      # `@discardableResult` 後 14 個站點變成 unused-result **warning**，`swift test`
+      # 照樣 0 failures，而 warning 在一般 build 輸出裡很容易被淹沒。
+      #
+      # 只對 build 開、不對 test 開：測試碼常有刻意的未使用結果（斷言只看有沒有擲錯），
+      # 把它們一起擋會逼出一堆 `_ =` 噪音，而那不是本守衛要防的東西。
+      - name: Build（warnings 視為錯誤）
+        run: swift build -Xswiftc -warnings-as-errors
 
       # **不得加 --skip**（#57）。允許跳過測試的 CI 等於沒有 CI；要暫時停用某個
       # 測試，正確做法是在測試裡 XCTSkip 並寫明理由，那會留在程式碼裡被 review。

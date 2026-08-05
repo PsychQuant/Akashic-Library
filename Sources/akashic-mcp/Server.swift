@@ -174,7 +174,7 @@ actor AkashicMCPServer {
         }
         await server.withMethodHandler(CallTool.self) { [weak self] params in
             guard let self else {
-                return CallTool.Result(content: [.text("server unavailable")], isError: true)
+                return CallTool.Result(content: [.text(text: "server unavailable", annotations: nil, _meta: nil)], isError: true)
             }
             return await self.handleToolCall(params)
         }
@@ -249,12 +249,12 @@ actor AkashicMCPServer {
                 output = try service.importZotero(zoteroDb: arg("zotero_db"),
                                                   libraryID: argInt("library_id"))
             default:
-                return CallTool.Result(content: [.text("Unknown tool: \(params.name)")], isError: true)
+                return CallTool.Result(content: [.text(text: "Unknown tool: \(params.name)", annotations: nil, _meta: nil)], isError: true)
             }
-            return CallTool.Result(content: [.text(output)], isError: false)
+            return CallTool.Result(content: [.text(text: output, annotations: nil, _meta: nil)], isError: false)
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
-            return CallTool.Result(content: [.text("Error: \(message)")], isError: true)
+            return CallTool.Result(content: [.text(text: "Error: \(message)", annotations: nil, _meta: nil)], isError: true)
         }
     }
 }

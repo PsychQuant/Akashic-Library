@@ -264,11 +264,10 @@ final class RenameTests: XCTestCase {
     ///
     /// 這條分支在 #56 之前完全沒有測試覆蓋（RenameTests 整組跑在 legacy）。
     ///
-    /// **覆蓋邊界（不要誤讀成「entities 的碰撞已經全涵蓋」）**：本測試只驗「目的 citekey
-    /// 被另一筆**成功載入**的記錄佔用」。被 **quarantined 檔案**佔用的情形**沒有**被擋——
-    /// 那是 #61 追蹤的既有守衛漏洞（legacy 佈局靠 `fileExists` 天然擋下，entities 的替代
-    /// 守衛只掃 `load.entries`，看不到 `load.quarantined`）。legacy 側的對應覆蓋是
-    /// `testRenameRejectsQuarantinedTarget`，entities 側目前**沒有**對應面。
+    /// **覆蓋邊界**：本測試只驗「目的 citekey 被另一筆**成功載入**的記錄佔用」。
+    /// 被 **quarantined 檔案**佔用的情形由 `testRenameRejectsQuarantinedTargetUnderEntitiesLayout`
+    /// 覆蓋（#61 補上——在那之前 entities 側確實沒有對應面，legacy 靠 `fileExists`
+    /// 天然擋下的那一半保護在遷移時掉了）。
     func testRenameRejectsTakenCitekeyUnderEntitiesLayout() throws {
         try reseedAsEntities()
         XCTAssertTrue(store.usesEntitiesLayout, "測試前提：必須是 entities 佈局")
@@ -282,6 +281,50 @@ final class RenameTests: XCTestCase {
         // 拒絕後兩筆都必須完好——不得留下半套狀態
         let after = try store.load()
         XCTAssertEqual(Set(after.entries.map(\.citekey)), ["old2020key", "citing2021paper"])
+    }
+
+    /// #61：entities 佈局下「目的 citekey 被 **quarantined 檔**佔用」也必須擋。
+    ///
+    /// legacy 靠 `fileExists(entryURL(citekey:))` 天然擋下——檔名就是 citekey，
+    /// 檔案存在就擋，不管內容能不能解析。entities 的檔名是 UUID，那條檢查失去意義，
+    /// 替代守衛改掃 `load.entries`——而被 quarantine 的檔案在 `load.quarantined`，
+    /// 守衛完全看不到。
+    ///
+    /// 後果不是「當下壞掉」而是**延遲爆炸**：store 裡同時存在一份宣稱 `qtarget` 的
+    /// 隔離檔與一筆剛改名為 `qtarget` 的合法記錄；直到有人修好那份隔離檔，
+    /// `crossRecordIssues()` 才突然冒出 citekey 重複。使用者體驗是「我只是修好一個
+    /// 舊檔案，為什麼整個 store 就壞了」——錯誤出現的時間與成因相隔任意長。
+    func testRenameRejectsQuarantinedTargetUnderEntitiesLayout() throws {
+        try reseedAsEntities()
+        XCTAssertTrue(store.usesEntitiesLayout, "測試前提：必須是 entities 佈局")
+        // 可解析、明確宣稱 citekey: qtarget，但檔名 UUID 與 entry.id 不符 → quarantined
+        let fileUUID = UUID(), contentUUID = UUID()
+        let yaml = """
+        work:
+        id: \(contentUUID.uuidString)
+        citekey: qtarget
+        type: article
+        title: Q
+        date: '2020'
+        """ + "\n"
+        try yaml.write(to: store.entitiesDir.appendingPathComponent("\(fileUUID.uuidString).yaml"),
+                       atomically: true, encoding: .utf8)
+        let load = try store.load()
+        XCTAssertEqual(load.quarantined.count, 1, "測試前提：該檔必須被 quarantine")
+        XCTAssertFalse(load.entries.contains { $0.citekey == "qtarget" },
+                       "測試前提：quarantined 檔不得出現在 entries——否則測的不是這條路徑")
+
+        XCTAssertThrowsError(try store.renameEntry(from: "old2020key", to: "qtarget"),
+                             "目的 citekey 被 quarantined 檔佔用，必須拒絕") { err in
+            guard case StoreIOError.invalidKey(let field, _) = err else {
+                return XCTFail("應為 invalidKey，實得 \(err)")
+            }
+            XCTAssertTrue(field.contains("citekey"), field)
+        }
+        // 拒絕後不得留下半套狀態
+        let after = try store.load()
+        XCTAssertTrue(after.entries.contains { $0.citekey == "old2020key" }, "來源必須完好")
+        XCTAssertFalse(after.entries.contains { $0.citekey == "qtarget" })
     }
 
     /// entities 佈局下改 citekey **不搬檔**（檔名是 UUID），但 citekey 與關係都要更新。

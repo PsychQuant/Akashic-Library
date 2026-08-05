@@ -68,6 +68,52 @@ final class PersonDeceasedTests: XCTestCase {
         XCTAssertFalse(yaml.contains("died"), yaml)
     }
 
+    // MARK: - 空值 ≡ 缺席
+
+    /// 空的 `died` 不帶資訊。它的兩種可能意圖都不該被讀成「已知死亡」：
+    /// 若是「不知道死了沒」，那本來就是缺席；若是想說「死了但不知何時」（δ=1 而區間
+    /// 無界），spec 明定 MUST NOT 用佔位值表達、要寫進 `note`。兩條路同一個處置。
+    func testAnEmptyValueIsNormalisedToAbsenceAtTheDecodeBoundary() throws {
+        for blank in ["", "''", "\"\"", "'   '"] {
+            let p = try PersonYAML.decode("""
+            person:
+            id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+            key: k
+            names:
+            - N
+            died: \(blank)
+            """)
+            XCTAssertNil(p.died, "空值 \(blank) 被讀成一筆已知死亡")
+        }
+    }
+
+    /// 正規化後不得留下空鍵——否則檔案裡看得到一個什麼都沒說的 `died:`。
+    func testANormalisedEmptyValueIsNotWrittenBack() throws {
+        let p = try PersonYAML.decode("""
+        person:
+        id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+        key: k
+        names:
+        - N
+        died: ''
+        """)
+        XCTAssertFalse(try PersonYAML.encode(p).contains("died"))
+    }
+
+    /// 另一個入口：程式內建構。decode 繞過 init 直接賦值，所以兩邊都要擋。
+    func testTheInitialiserAlsoNormalisesAnEmptyValue() {
+        XCTAssertNil(Person(key: "k", names: ["N"], died: "").died)
+        XCTAssertNil(Person(key: "k", names: ["N"], died: "  ").died)
+        XCTAssertEqual(Person(key: "k", names: ["N"], died: "2004").died, "2004")
+    }
+
+    /// 空值不得觸發矛盾報告——那是從一個空白裡憑空生出一個事件。
+    func testAnEmptyValueIsNotReportedAsDeceased() throws {
+        _ = try store.writePerson(person("empty-died", died: "",
+                                         affiliation: DateRange(start: "1990-09")))
+        XCTAssertEqual(try store.load().recordsDeceasedWithOpenAffiliation(), [])
+    }
+
     // MARK: - 形狀錯誤要點名欄位
 
     func testANonScalarValueIsRejectedByFieldName() throws {

@@ -727,7 +727,9 @@ public extension LibraryLoad {
     /// 回傳的 key 依字典序排序，讓報告在不同機器上一致。
     public func recordsDeceasedWithOpenAffiliation() -> [String] {
         people.filter { p in
-            p.died != nil && p.profile.affiliations.entries.contains { $0.range.isOpen }
+            // 空值視同缺席（decode 已在邊界正規化；這裡是對程式內直接賦值的防禦）。
+            // 判準與 `fieldsLostByMerging` 的 `check` 一致——同一個概念不該有兩套判準。
+            p.died?.isEmpty == false && p.profile.affiliations.entries.contains { $0.range.isOpen }
         }.map(\.key).sorted()
     }
 

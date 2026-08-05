@@ -1163,8 +1163,21 @@ public enum PersonYAML {
         // #67：值原樣讀入，**不驗證是否為合法 ISO 前綴**——與 `DateRange` 的
         // `start` / `end` 及 `Organization.founded` / `dissolved` 同慣例。這裡拒絕的
         // 只有形狀錯誤（sequence / mapping），內容的可信度屬使用端的判斷。
+        //
+        // **但空值正規化成缺席。** 空的 `died` 不帶任何資訊，而它的兩種可能意圖都不該
+        // 被讀成「已知死亡」：若是「不知道他死了沒」，那本來就是缺席；若是想說「死了但
+        // 不知何時」（δ=1 而區間無界），spec 明定該情形 MUST NOT 用佔位值表達、要寫進
+        // `note`。兩條路收斂到同一個處置。
+        //
+        // 這**不推翻** `requireShape` 對 scalar 欄位不套 null-as-absent 的決定（那條是
+        // R8 的 CRITICAL：`title: ` 的空值可能是真實狀態，套用會讓無標題的 Zotero item
+        // 永遠寫不進 store）。差別在**值域**——空字串永遠不是合法的 ISO 8601 前綴。
+        //
+        // 在**邊界**正規化而非在每個讀取點檢查：後者要求每個消費者都記得 `!isEmpty`，
+        // 是那種「小心就不會錯」的介面。
         person.died = try EntryYAML.requireShape(map["died"], field: "person.died",
                                                  expect: "scalar") { $0.scalar?.string }
+            .flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
         person.note = try EntryYAML.requireShape(map["note"], field: "person.note",
                                                  expect: "scalar") { $0.scalar?.string }
         return person

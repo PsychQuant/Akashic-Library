@@ -4,6 +4,8 @@
 
 A person record SHALL carry an optional `died` field holding the date of the person's death as an ISO 8601 prefix string. The field SHALL be absent when no death has been recorded; an empty string or an explicit null placeholder SHALL NOT be written.
 
+A value that is empty or consists only of whitespace SHALL be normalised to absence at every boundary through which a record enters the model — both decoding and construction. It SHALL NOT be retained, SHALL NOT be written back, and SHALL NOT be read as a recorded death. An empty value carries no information, and both readings a contributor might intend by it resolve to absence: "it is unknown whether this person has died" is what absence already means, and "this person has died but the date is unknown" is the unrepresentable case that MUST go in the note field rather than a placeholder value. The empty string is never a valid ISO 8601 prefix, so normalising it discards no expressible fact.
+
 `died` SHALL be registered in the set of known person keys. A field present in the record shape but absent from that set is retained twice — once by the shape and once by the tolerant-preserve mechanism — and emitted twice on write.
 
 #### Scenario: A death date is recorded and read back
@@ -22,6 +24,13 @@ A person record SHALL carry an optional `died` field holding the date of the per
 
 - **WHEN** a person record carrying `died` is loaded and written back unchanged
 - **THEN** the emitted document SHALL contain exactly one `died` key
+
+#### Scenario: An empty value is normalised to absence
+
+- **WHEN** a person record carries `died` whose value is empty or whitespace-only, by either decoding or construction
+- **THEN** the loaded record SHALL report no death date
+- **AND** writing the record back SHALL emit no `died` key
+- **AND** the record SHALL NOT appear in any report of deceased persons
 
 #### Scenario: A non-scalar value is rejected
 

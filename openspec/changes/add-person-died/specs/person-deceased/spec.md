@@ -97,10 +97,17 @@ Death and affiliation are orthogonal facts. A person whose affiliation ended is 
 - **THEN** the status column SHALL read `retired`
 - **AND** the died column SHALL read `2004-11-18`
 
-#### Scenario: A living person with an open affiliation
+#### Scenario: A person with no recorded death, holding an open affiliation
 
 - **WHEN** a person record has no `died` value and one open affiliation segment
 - **THEN** the derived affiliation status SHALL be `current`
+- **AND** this SHALL NOT be read as an assertion that the person is living — the premise is only that no death has been recorded
+
+#### Scenario: A recorded death alongside an affiliation that is still open
+
+- **WHEN** a person record has a `died` value and an affiliation segment with no end
+- **THEN** the derived affiliation status SHALL be `current`, because the status is derived from the affiliation timeline alone
+- **AND** the contradiction SHALL be surfaced by diagnostics rather than resolved by changing either value
 
 ### Requirement: Academic activity SHALL NOT be recorded as a stored field
 

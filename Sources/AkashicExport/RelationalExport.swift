@@ -257,7 +257,14 @@ public enum RelationalExport {
             -- —— 精度即區間寬度：'2004' 說的是「2004 年的某個時候」。
             -- **NULL ＝ 尚未觀察到死亡（右設限），不是「在世」的斷言**：它同時涵蓋
             -- 「真的還活著」與「已故但未記錄」，而從資料的角度那兩者是同一件事。
-            -- 與 status 正交：在職過世的人 status 仍是 retired（隸屬確實結束了）。
+            -- 內容**不驗證**（同 organization.founded / dissolved 與 valid_start /
+            -- valid_end 的慣例）——這裡只保證形狀，不保證是合法的 ISO 前綴。
+            --
+            -- **與 status 完全正交**：status 純由隸屬時間軸推導，died 不參與。所以
+            -- died IS NOT NULL AND status = 'current' 是**可能出現的**——那表示隸屬段
+            -- 還開著（可能是死於任內而漏記結束日，也可能是離職多年後才過世、開放段
+            -- 只是資料缺漏）。哪一種為真無法自動判斷，由 akashic doctor 報告、不代為
+            -- 關閉。要找這些矛盾：WHERE died IS NOT NULL AND status = 'current'
             died          TEXT
         );
 

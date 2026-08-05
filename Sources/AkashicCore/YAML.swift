@@ -1175,8 +1175,14 @@ public enum PersonYAML {
         //
         // 在**邊界**正規化而非在每個讀取點檢查：後者要求每個消費者都記得 `!isEmpty`，
         // 是那種「小心就不會錯」的介面。
+        //
+        // `nullIsAbsent: true` 是**認得缺席的不同寫法**，不是驗證內容：`null` / `~` /
+        // `NULL` 是 YAML 表達「沒有值」的記法，不是值。這與 R8 對 scalar 不套此旗標的
+        // 決定不衝突——那條的理由是 `title` 的空值可能是真實狀態，而 `died` 的值域
+        // （ISO 8601 前綴）本來就不含任何 null-face。
         person.died = try EntryYAML.requireShape(map["died"], field: "person.died",
-                                                 expect: "scalar") { $0.scalar?.string }
+                                                 expect: "scalar", nullIsAbsent: true,
+                                                 { $0.scalar?.string })
             .flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
         person.note = try EntryYAML.requireShape(map["note"], field: "person.note",
                                                  expect: "scalar") { $0.scalar?.string }

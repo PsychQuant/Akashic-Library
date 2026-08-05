@@ -74,7 +74,9 @@ final class PersonDeceasedTests: XCTestCase {
     /// 若是「不知道死了沒」，那本來就是缺席；若是想說「死了但不知何時」（δ=1 而區間
     /// 無界），spec 明定 MUST NOT 用佔位值表達、要寫進 `note`。兩條路同一個處置。
     func testAnEmptyValueIsNormalisedToAbsenceAtTheDecodeBoundary() throws {
-        for blank in ["", "''", "\"\"", "'   '"] {
+        // `null` / `~` / `NULL` 是 YAML 表達「沒有值」的**記法**，不是值——它們與空白
+        // 同屬缺席的不同寫法。漏掉它們會讓一個人「死於 null」（cross-model verify 抓到）。
+        for blank in ["", "''", "\"\"", "'   '", "null", "~", "Null", "NULL"] {
             let p = try PersonYAML.decode("""
             person:
             id: \(DeterministicUUID.forPerson(key: "k").uuidString)
@@ -125,6 +127,22 @@ final class PersonDeceasedTests: XCTestCase {
           - N
         died:
           - 2004
+        """
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { e in
+            XCTAssertTrue("\(e)".contains("person.died"), "訊息要點名欄位：\(e)")
+        }
+    }
+
+    /// mapping 與 sequence 都是形狀錯誤——只測其一等於只擋了一半。
+    func testAMappingValueIsAlsoRejectedByFieldName() throws {
+        let yaml = """
+        person:
+        id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+        key: k
+        names:
+          - N
+        died:
+          year: 2004
         """
         XCTAssertThrowsError(try PersonYAML.decode(yaml)) { e in
             XCTAssertTrue("\(e)".contains("person.died"), "訊息要點名欄位：\(e)")
@@ -225,6 +243,16 @@ final class PersonDeceasedTests: XCTestCase {
     func testADeceasedPersonRetainingAnOpenAffiliationIsReported() throws {
         try seedContradictionFixture()
         XCTAssertEqual(try store.load().recordsDeceasedWithOpenAffiliation(), ["dead-but-open"])
+    }
+
+    /// 字典序是規約的一部分——一筆命中證明不了排序。
+    func testTheReportIsOrderedLexicographically() throws {
+        for k in ["zulu", "alpha", "mike"] {
+            _ = try store.writePerson(person(k, died: "2004",
+                                             affiliation: DateRange(start: "1990-09")))
+        }
+        XCTAssertEqual(try store.load().recordsDeceasedWithOpenAffiliation(),
+                       ["alpha", "mike", "zulu"])
     }
 
     /// 報告不得修改記錄。自動把隸屬的結束日設成死亡日是**推論**，而推論可能錯。

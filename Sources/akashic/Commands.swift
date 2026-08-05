@@ -69,7 +69,9 @@ struct Doctor: ParsableCommand {
         if !deceasedOpen.isEmpty {
             print("deceased with open affiliation: \(deceasedOpen.count) person"
                   + "（隸屬的結束日與死亡只有一個是對的，需要人判斷；工具不代為關閉）")
-            deceasedOpen.prefix(10).forEach { print("  ⚠ \(displaySafe($0, max: 120))") }
+            // **列出全部**，不截斷。這是待人處理的工作清單而非普查數字——省略第 11 筆
+            // 之後等於讓操作者拿不到其餘待修記錄，而總數不等於清單。
+            deceasedOpen.forEach { print("  ⚠ \(displaySafe($0, max: 120))") }
         }
         if !load.quarantined.isEmpty {
             print("quarantined: \(load.quarantined.count)")

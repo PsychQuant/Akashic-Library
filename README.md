@@ -21,7 +21,7 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
                                  export-bib / export-tables / resolve-people /
                                  bootstrap-people / doctor / query / graph /
                                  rename / record-divergence / resolve-divergence /
-                                 authorize-names / library / file / migrate
+                                 authorize-names / fmt / library / file / migrate
 mcps/                            MCP server submodules（che-zotero-mcp、che-biblatex-mcp）
 repos/                           共用 library submodules（biblatex-apa-swift = canonical）
 docs/                            spec 與 store 格式規格書
@@ -80,6 +80,7 @@ store 是跨 binary（CLI / MCP / App）的契約。格式版本記載於
 | v1.3 | tolerant-preserve（#23）：**開放演化層**（entry / person / library 頂層、`akashic` namespace）的未知欄位改為容忍 + 原樣保留寫回，取代 v1.2 的 throw |
 | — | `divergence:` 形狀（#71）：未決的同一性問題成為可記錄的一級事物，記錄與消歧是**兩個**動作：`akashic record-divergence` 記下未決的問題（id 由候選鍵的集合推出，同一組候選＝同一筆記錄；有判斷就必須有依據），`akashic resolve-divergence` 才是「合併 + 全庫參照重寫 + 刪檔」的原子操作。**記下判斷不等於做掉它**（#77 補上建立入口前，後者有 CLI 而前者沒有——於是「先記下來、之後再判斷」在使用層不成立）。**消歧的版控前提是 tracked + clean**（#73）：不只「store 在工作樹內」，而是**本次要刪的每個檔案**都已被 git 追蹤且無未提交修改。「在工作樹內」與「刪掉還找得回來」是兩件事——未 commit 的歧異記錄消歧後，`question` / `judgement` / `rests-on` 三者一起永久消失。**additive，不 bump format**——見 [store-format.md §5.8](docs/store-format.md) 與 #74 對相容性決定的討論 |
 | format 5 | **對外可稱呼的名字由 `authorized` 指定**（#81）：`names` 的順序不再帶語意，`authorized` 是它的子集、每個書寫系統至多一個。書寫系統為**推導值不儲存**。**non-additive，MUST bump**——舊 binary 會繼續把 `names[0]` 當顯示名（按舊語意解讀新格式）。既有記錄用 `akashic authorize-names`（預設 dry-run，`--apply` 才寫）補；見 [store-format.md §3.1](docs/store-format.md) |
+| — | **canonical serialization form**（#69）：記錄寫出的位元組形式由**單一權威**定義（三個 `encode` 函式），正規化即 `encode(decode(x))`——沒有第二份定義。時間軸的序列化順序改為「依 `range` 排序，`range` 相同時**保留寫入順序**」，與相等性用的全序**分離**（後者 `range` 相同時比 `value`，那是為了讓「同樣的段落、不同的儲存順序」判為相等）。動機：`Organization.names` 三筆全無 `range`，由值決勝會讓主名（中文正式名）被 ASCII 別名推到後面。`authors` / `attachments` 的順序**不參與排序**（位置即語意）。新增 `akashic fmt`（`--check` 只回報不寫檔）作為對齊入口；`validate` 不擋排版。**additive，不 bump format**；見 [store-format.md §3.4](docs/store-format.md) |
 | — | **`died`：人的終結**（#67）。`Organization` 有 `founded`/`dissolved` 而 `Person` 沒有任何生平欄位，於是「隸屬在 2004-11 結束」與「2004-11 在職過世」是同一件事。ISO 8601 前綴、精度不補齊。**缺席 ＝ 右設限（censoring），不是「在世」**——死亡是必然事件，缺席永遠不是「不適用」，只是尚未觀察到。空值與 YAML 的 null-face（`null` / `~` / `NULL` / 空白 / **換行**）一律正規化成缺席——正規化發生在建構時**與建構後的每一次寫入**（`didSet`），不是只在 decode。與 `status` 正交（後者描述隸屬）；`doctor` 報告「已故卻仍有開放隸屬」但**不代為關閉**。「是否仍活躍」刻意**不記錄**——那是 `publication` 表的一句 SQL，一個刪掉不會壞事的欄位不該存在。**additive，不 bump format**；見 [store-format.md §3.2](docs/store-format.md) |
 
 **v1.3 的三個限定，比表格本身重要**：

@@ -101,8 +101,43 @@ public struct TimelineOf<V: Equatable & Comparable>: Equatable {
         entries.filter(\.range.isOpen).max()
     }
 
-    /// 依時間排序（穩定：同區間時按值排）。
+    /// 依時間排序（全序：同區間時按值排）。**供相等性使用**——`==` 定義為
+    /// `a.sorted == b.sorted`，要讓「同樣的段落、不同的儲存順序」判為相等就必須是全序，
+    /// 因此需要在 `range` 相同時以 `value` 決勝。
+    ///
+    /// **不要拿它當序列化順序**（#69）。序列化用 `inSerializationOrder`。
     public var sorted: [TemporalValue<V>] { entries.sorted() }
+
+    /// 序列化順序：**依 `range` 排序，`range` 相同時保留寫入順序**（#69）。
+    ///
+    /// 與 `sorted` **並存且互不呼叫**。兩者是不同的函式，沒有必須共用比較器的理由：
+    /// 相等性需要全序才能成立，序列化需要的只是「時間有話說時照時間排」。
+    ///
+    /// 分開之前，序列化是**順便繼承**相等性的比較器——沒有人決定過「檔案裡也要按字串
+    /// 排」。後果在沒有日期的時間軸上顯現：`Organization.names` 三筆全部無 `range`，
+    /// 排序完全由 `value` 決勝，於是主名（中文正式名）被推到英文名之後。工具每次把它
+    /// 推到後面、人每次改回來，最後沒人執行正規化。
+    ///
+    /// **穩定性顯式構造，不依賴 `sorted()`**：Swift 標準函式庫未承諾排序穩定（現行為
+    /// timsort，實務上穩定但非文件保證）。這裡以原始索引裝飾後比較，比較器本身即是
+    /// 嚴格全序，穩定與否無關緊要——依賴未文件化的行為屬於「今天能跑、升版就壞」。
+    ///
+    /// **代價（明確接受）**：失去「一個值只有一種位元組表示」。兩個 `==` 成立的
+    /// timeline 若 `entries` 順序不同，會寫出不同位元組。查證確認 store 內沒有任何機制
+    /// 對 entity YAML 做內容雜湊（`sources/` 走內容定址，entities 走 UUID 定址），
+    /// 因此此性質目前沒有依賴者。
+    ///
+    /// **冪等性不受影響**：序列化是 `entries` 陣列的純函式，decode 保留陣列順序，
+    /// 故 `fmt(fmt(x)) == fmt(x)`。
+    public var inSerializationOrder: [TemporalValue<V>] {
+        entries.enumerated()
+            .sorted { a, b in
+                a.element.range == b.element.range
+                    ? a.offset < b.offset
+                    : a.element.range < b.element.range
+            }
+            .map(\.element)
+    }
 
     /// 重疊的段落。**回報而非拒絕**——重疊在真實資料裡可能是對的（一人同時兼兩個
     /// 行政職），也可能是錯的（爬取重複）。判斷屬於使用端，這裡只給事實。

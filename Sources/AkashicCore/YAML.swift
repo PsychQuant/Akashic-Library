@@ -1361,8 +1361,11 @@ extension PersonYAML {
 
     /// 時間軸序列化為 sequence。**排序後輸出**——每次 encode 的順序必須相同，
     /// 否則同一份資料會產生假 diff。
+    ///
+    /// 用 `inSerializationOrder` 而非 `sorted`（#69）：後者是相等性用的全序，會在
+    /// `range` 相同時以 `value` 決勝，把無日期的主名推到後面。
     static func timelineNode(_ t: Timeline) -> Node {
-        Node(t.sorted.map { v -> Node in
+        Node(t.inSerializationOrder.map { v -> Node in
             var pairs: [(Node, Node)] = [(Node("value"), Node(v.value))]
             if let s = v.range.start { pairs.append((Node("start"), Node(s))) }
             if let e = v.range.end { pairs.append((Node("end"), Node(e))) }
@@ -1375,7 +1378,7 @@ extension PersonYAML {
     /// 隸屬時間軸。`value` 是 `{key: …}` 或 `{literal: …}`——與 `authors` 同形，
     /// 因為那是本專案已經解過一次的同型問題。
     static func orgTimelineNode(_ t: TimelineOf<OrgRef>) -> Node {
-        Node(t.sorted.map { v -> Node in
+        Node(t.inSerializationOrder.map { v -> Node in
             let valueNode: Node
             switch v.value {
             case .key(let k):     valueNode = Node([(Node("key"), Node(k))] as [(Node, Node)])

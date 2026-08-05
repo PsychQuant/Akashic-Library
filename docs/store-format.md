@@ -303,6 +303,62 @@ tolerant-preserve 原樣保留 `died`，**不會按舊語意誤讀新格式**，
 解析紀律：**絕不自動合併**。`akashic resolve-people` 只列 alias 完全命中的
 高信心候選（同 alias 對到 2+ 人＝歧義、不出候選），`--apply` 是顯式第二步。
 
+## 3.4 Canonical form：寫出去的位元組形式（normative，#69）
+
+記錄寫出的位元組形式由**單一權威**定義：三個 `encode` 函式（`EntryYAML` /
+`PersonYAML` / `OrganizationYAML`）。正規化即 `encode(decode(x))`——**沒有第二份
+定義**，`akashic fmt` 只是走訪器。
+
+### 時間軸的序列化順序
+
+時間軸（`affiliations` / `ranks` / `administrative` / `appointments` / `fields` /
+`contacts.*` / organization 的 `names` 與 `parents`）**MUST** 依下列順序寫出：
+
+| 情況 | 順序 |
+|---|---|
+| 兩段的 `range` 不同 | 依時間先後（早的在前）|
+| 兩段的 `range` 相同（含**全部無日期**）| **保留寫入順序** |
+| 一段有 `range`、一段沒有 | 有的在前（沿用 `DateRange.<` 對 `nil` 的既有處理）|
+
+**「相同時保留寫入順序」是刻意的**，不是實作細節。時間沒話說時，位置就是唯一
+可用的訊號——`Organization.names` 三筆全無 `range`，主名（中文正式名）靠位置表達，
+與 `Person.names` 的「第一個是主名」同一套規則。
+
+若改以值決勝（曾經的行為），ASCII 碼位低於中文，主名會被英文別名推到後面：工具每次
+把它推到後面、人每次改回來，最後沒人執行正規化。
+
+**序列化順序與相等性順序是兩個函式。** 相等性（`TimelineOf.==`）用的是全序（`range`
+相同時比 `value`），因為要讓「同樣的段落、不同的儲存順序」判為相等就必須是全序。
+兩者不共用比較器。
+
+### 位置即語意的序列不參與排序
+
+`authors` 與 `attachments` 的順序**MUST NOT** 被正規化改動。作者位置帶語意（第一
+作者、通訊作者），任何排序都是資料破壞而不是整理。
+
+### 冪等
+
+正規化 **MUST** 一次到達不動點：`fmt(fmt(x)) == fmt(x)`。序列化是 `entries` 陣列的
+純函式而 decode 保留陣列順序，故此性質成立。不成立的正規化每跑一次產生一次 diff，
+工具與版控互相對抗。
+
+### 明確不保證的性質
+
+**一個值不只有一種位元組表示。** 兩條 `==` 成立的時間軸，若 `entries` 陣列順序不同，
+會寫出不同位元組。store 內沒有任何機制對 entity YAML 做內容雜湊（`sources/` 走內容
+定址、entities 走 UUID 定址），故此性質目前沒有依賴者。
+
+### 對齊入口
+
+```bash
+akashic fmt            # 就地把偏離的記錄重寫為 canonical form
+akashic fmt --check    # 只回報偏離並以非零碼退出，不寫任何檔案
+```
+
+`validate` **不**擋排版偏離——那不是正確性問題。若 `validate` 擋排版，外部 pipeline
+每次寫完都得先跑 `fmt` 才過驗證，摩擦大到會讓人繞過 `validate` 本身。`--check` 的
+語意與 `swift format --lint` 一致，給 CI 與外部 pipeline 當明確關卡。
+
 ## 4. 衍生物
 
 - `.akashic/index.sqlite`：查詢/圖形用 index，`doctor`/import 尾端全刪重建。

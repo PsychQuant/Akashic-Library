@@ -732,7 +732,7 @@ public extension LibraryLoad {
     /// 工作變成載入的前置條件。
     ///
     /// 回傳的 key 依字典序排序，讓報告在不同機器上一致。
-    public func recordsWithoutAuthorizedName() -> (people: [String], organizations: [String]) {
+    func recordsWithoutAuthorizedName() -> (people: [String], organizations: [String]) {
         (people: people.filter { $0.authorized.isEmpty }.map(\.key).sorted(),
          organizations: organizations.filter { $0.authorized.isEmpty }.map(\.key).sorted())
     }
@@ -744,7 +744,7 @@ public extension LibraryLoad {
     /// 真正的名字」這個訊號**從缺口報告裡消失**（實測 migration 後未指定者由 734 掉到 1）。
     ///
     /// 這條把訊號找回來：缺的不是指定，是**名字本身**。
-    public func recordsAuthorizedOnlyByCitationForm() -> [String] {
+    func recordsAuthorizedOnlyByCitationForm() -> [String] {
         people.filter { p in
             !p.authorized.isEmpty && p.authorized.allSatisfy { NameForm.isCitationForm($0) }
         }.map(\.key).sorted()
@@ -760,7 +760,7 @@ public extension LibraryLoad {
     /// 這**不是**錯誤：不進 quarantine、不阻擋載入。它只是一個值得有人看一眼的矛盾。
     ///
     /// 回傳的 key 依字典序排序，讓報告在不同機器上一致。
-    public func recordsDeceasedWithOpenAffiliation() -> [String] {
+    func recordsDeceasedWithOpenAffiliation() -> [String] {
         people.filter { p in
             // 空值視同缺席（decode 已在邊界正規化；這裡是對程式內直接賦值的防禦）。
             // 判準與 `fieldsLostByMerging` 的 `check` 一致——同一個概念不該有兩套判準。

@@ -20,6 +20,11 @@ final class ServiceTests: XCTestCase {
             .appendingPathComponent("akashic-svc-\(UUID().uuidString)")
         let store = LibraryStore(root: root)
         try store.ensureLayout()
+        // fixture 手寫原始檔進 entries/、people/，需自己宣告 legacy 目錄（#101）
+        for sub in ["entries", "people"] {
+            try FileManager.default.createDirectory(
+                at: root.appendingPathComponent(sub), withIntermediateDirectories: true)
+        }
         var e1 = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article",
                        title: "Identifiability of polychoric models",
                        authors: [.key("cheng-che"), .literal("Hau-Hung Yang")], date: "2025")

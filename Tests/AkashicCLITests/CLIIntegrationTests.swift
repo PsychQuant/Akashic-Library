@@ -65,10 +65,22 @@ final class CLIIntegrationTests: XCTestCase {
     }
 
     @discardableResult
-    private func runCLI(_ args: [String]) throws -> (status: Int32, stdout: String, stderr: String) {
+    private func runCLI(_ args: [String],
+                        env: [String: String]? = nil) throws -> (status: Int32, stdout: String, stderr: String) {
         let process = Process()
         process.executableURL = productsDirectory.appendingPathComponent("akashic")
         process.arguments = args
+        // **一律先清掉所有 AKASHIC_* 再注入**（#101 verify R1/R2）。
+        //
+        // 只注入 `AKASHIC_HOME` 不夠：`LibraryLocator.resolveDetailed` 的順序是
+        // explicit → `$AKASHIC_LIBRARY` → registry，所以省略 `--library` 的測試在**有設
+        // 該變數的開發機上**會跑去打使用者的真實 store（並在那裡重建 index）。
+        //
+        // R2 抓到第一版把這段包在 `if let env` 裡——於是**不帶 env 的呼叫完全沒被保護**，
+        // 而那正是註解描述的危險案例。剝除必須無條件；繼承父環境的其餘變數（PATH 等）仍需要。
+        var childEnv = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
+        for (k, v) in env ?? [:] { childEnv[k] = v }
+        process.environment = childEnv
         let out = Pipe(), err = Pipe()
         process.standardOutput = out
         process.standardError = err
@@ -226,6 +238,43 @@ extension CLIIntegrationTests {
 
 /// #18 多檔案：`akashic file` 子指令（--config 注入，不碰真實 ~/.akashic）。
 extension CLIIntegrationTests {
+    /// `doctor` 對**已註冊**的 store 必須保留 registry key（#101）。
+    ///
+    /// 曾經 `doctor` 走 `resolveRoot()` 只拿 root、丟掉 key，於是它把已註冊的 store 當成
+    /// 未註冊的：建一個永遠用不到的 in-store `.akashic/`，並且**重建錯的那個 index**——
+    /// `<home>/index/<key>.sqlite` 從來沒被 `doctor` 更新過，使用者的查詢一直打在一份
+    /// 過期的衍生資料上，而且沒有任何訊號。
+    func testDoctorOnRegisteredStoreKeepsIndexOutOfStore() throws {
+        let home = try tmpDir("home")
+        let storeRoot = try tmpDir("registered")
+        // registry 放進 fake home——`doctor` 沒有 `--config`，它從 AKASHIC_HOME 讀
+        let config = home.appendingPathComponent("config.yaml").path
+        let env = ["AKASHIC_HOME": home.path]
+
+        var r = try runCLI(["file", "add", "main", storeRoot.path, "--config", config], env: env)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        r = try runCLI(["file", "use", "main", "--config", config], env: env)
+        XCTAssertEqual(r.status, 0, r.stderr)
+
+        // 不帶 --library：走 registry，key = main
+        r = try runCLI(["doctor"], env: env)
+        XCTAssertEqual(r.status, 0, r.stderr)
+
+        let fm = FileManager.default
+        XCTAssertTrue(fm.fileExists(atPath: home.appendingPathComponent("index/main.sqlite").path),
+                      "已註冊 store 的 index 必須寫到 <home>/index/<key>.sqlite")
+        XCTAssertFalse(fm.fileExists(atPath: storeRoot.appendingPathComponent(".akashic").path),
+                       "已註冊的 store 不該有 in-store 的 index 回落位置")
+
+        // issue #101 的標題症狀：「每次 doctor 都長出 entries/ 與 people/」。
+        // 上面那兩條測的是 .akashic/；這兩條才是標題講的那件事，且**必須在跑過 doctor
+        // 之後**斷言——只測 file add 之後的狀態抓不到「doctor 又把它建回來」。
+        for legacy in ["entries", "people"] {
+            XCTAssertFalse(fm.fileExists(atPath: storeRoot.appendingPathComponent(legacy).path),
+                           "當前 format 的 store 跑完 doctor 不該長出 \(legacy)/")
+        }
+    }
+
     private func tmpDir(_ name: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-file-\(name)-\(UUID().uuidString)")
@@ -241,8 +290,12 @@ extension CLIIntegrationTests {
         // add：註冊 + ensureLayout（空目錄變完整 layout）
         var r = try runCLI(["file", "add", "main", rootA.path, "--config", config])
         XCTAssertEqual(r.status, 0, r.stderr)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: rootA.appendingPathComponent("entries").path),
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rootA.appendingPathComponent("entities").path),
                       "add 對新目錄跑 ensureLayout")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rootA.appendingPathComponent("entries").path),
+                       "新建的 store 是當前 format，不該有 legacy 的 entries/（#101）")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rootA.appendingPathComponent(".akashic").path),
+                       "file add 註冊了 key，index 住 store 之外，不該建 in-store 回落位置（#101）")
         _ = try runCLI(["file", "add", "work", rootB.path, "--config", config])
 
         // use：寫 current

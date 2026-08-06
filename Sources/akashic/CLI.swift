@@ -23,8 +23,21 @@ struct LibraryOptions: ParsableArguments {
     @Option(name: .long, help: "library root（預設 $AKASHIC_LIBRARY 或 ~/.akashic/config.yaml 的 library:）")
     var library: String?
 
-    func resolveRoot() throws -> URL {
-        try resolved().root
+    /// 開 library，佈局不存在就建（`doctor` / `import-zotero` 用）。
+    ///
+    /// **必須經由這裡，不要自己 `LibraryStore(root:)`**（#101）。它與 `openStore()` 的
+    /// 差別只在「不存在就建」vs「不存在就拒絕」，兩者都保留 registry key。
+    ///
+    /// 曾經有一個 `resolveRoot()` 只回傳 root，而它的**兩個呼叫點都因此丟掉了 key**：
+    /// `doctor` 與 `import-zotero` 於是把已註冊 store 當成未註冊的，替它建一個永遠用
+    /// 不到的 in-store `.akashic/`，並且**重建錯的那個 index**——`~/.akashic/index/
+    /// <key>.sqlite` 從來沒被 `doctor` 更新過。少一個丟得掉 key 的入口，比修兩個呼叫點
+    /// 更可靠。
+    func openOrCreateStore() throws -> LibraryStore {
+        let r = try resolved()
+        let store = LibraryStore(root: r.root, key: r.key)
+        try store.ensureLayout()
+        return store
     }
 
     /// #37：index 位置取決於 registry key，所以解析要保留 key 而不只是 root。

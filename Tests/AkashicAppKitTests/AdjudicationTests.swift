@@ -12,6 +12,9 @@ final class AdjudicationTests: XCTestCase {
             .appendingPathComponent("akashic-adj-\(UUID().uuidString)")
         let store = LibraryStore(root: root)
         try store.ensureLayout()
+        // fixture 手寫壞掉的原始檔進 entries/，需自己宣告 legacy 目錄（#101）
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("entries"), withIntermediateDirectories: true)
         try store.writeEntry(Entry(id: UUID(), citekey: "a2020paper", type: "article",
                                    title: "T", authors: [.literal("Che Cheng")]))
         var orphan = Entry(id: UUID(), citekey: "b2019gone", type: "article", title: "Gone")

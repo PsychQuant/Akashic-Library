@@ -70,7 +70,10 @@ struct FileAdd: ParsableCommand {
         }) {
             throw ValidationError("路徑已由 key「\(existing.key)」註冊（同一實體庫不重複註冊——檔案間互不相通）")
         }
-        try LibraryStore(root: URL(fileURLWithPath: absolute)).ensureLayout()
+        // **key 要傳進去**（#101）：這裡正在註冊它，所以這個 store 是「已註冊」的，
+        // index 會住 `~/.akashic/index/<key>.sqlite`。省略 key 會讓 ensureLayout 以為
+        // 這是未註冊 store，替它建一個永遠用不到的 in-store `.akashic/` 回落位置。
+        try LibraryStore(root: URL(fileURLWithPath: absolute), key: key).ensureLayout()
         config.files[key] = absolute
         try config.write(to: options.configURL)
         print("✓ 已註冊「\(displaySafe(key, max: 200))」→ \(displaySafe(absolute, max: 800))（layout 已確保；用 file use \(displaySafe(key, max: 200)) 切換）")

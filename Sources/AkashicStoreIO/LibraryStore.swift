@@ -107,13 +107,38 @@ public final class LibraryStore {
         self.environment = environment
     }
 
+    /// 建立**這個 store 實際會用到的**目錄（#101）。
+    ///
+    /// 規則是「只建這個 store 用得到的」。在此之前這裡是一個無條件迴圈，於是 format 5 的 store
+    /// 長出 format 1 的 `entries/`／`people/`、已註冊的 store 長出「未註冊 store 專用」
+    /// 的 `.akashic/`——每次 `doctor` 都長回來，刪不掉。
+    ///
+    /// 之所以曾經非無條件不可，是因為 `atomicWrite` 不建父目錄；那個保證已下放到寫入
+    /// 咽喉（見 `atomicWrite`），這裡才只剩「宣告佈局」一個職責。
+    ///
+    /// **順序有意義**：`store.yaml` 必須先寫，下面才讀得到 format。`writeIfAbsent` 只
+    /// 需要 `root` 存在；它判定 legacy 的依據是 `entries/`／`people/` 裡**既有的檔案**，
+    /// 不需要目錄被先建（原本的順序能運作只是因為 `createDirectory` 對既存目錄是 no-op）。
     public func ensureLayout() throws {
         let fm = FileManager.default
-        for dir in [root, entitiesDir, entriesDir, peopleDir, librariesDir, notesDir, akashicDir] {
-            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
         // #24：新建的 store 自我聲明格式。既有檔不覆寫（可能是較新版本寫的）。
         try StoreVersion.writeIfAbsent(root: root)
+
+        // 現行格式在用的目錄。`entitiesDir` 對 legacy store 也照建——`openStore()` 的
+        // library 偵測接受 `entities/` 或 `entries/` 任一，條件化它是安全的但超出 #101
+        // 的範圍，見 #102。
+        var dirs = [entitiesDir, librariesDir, notesDir]
+        // legacy 佈局才有的兩個目錄。
+        if !usesEntitiesLayout { dirs += [entriesDir, peopleDir] }
+        // in-store 的 index 回落位置，只有**沒帶 key 開啟**的 store 用得到（#37）。
+        // 注意這是「呼叫端有沒有傳 key」而非 registry 事實——`--library` 與
+        // `$AKASHIC_LIBRARY` 目前對已註冊路徑仍回 nil（#105）。
+        if key == nil { dirs.append(akashicDir) }
+
+        for dir in dirs {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
     }
 
     /// #35：format 2 的檔案位置——**檔名是不變的 UUID**，所以改 citekey 不搬檔案。
@@ -160,8 +185,6 @@ public final class LibraryStore {
         guard StoreKey.isValid(library.key) else {
             throw StoreIOError.invalidKey("library key", library.key)
         }
-        // pre-v1.2 store（無 libraries/）也能直接建 library——目錄缺就補
-        try FileManager.default.createDirectory(at: librariesDir, withIntermediateDirectories: true)
         let yaml = try LibraryYAML.encode(library)
         let dest = libraryURL(key: library.key)
         // exclusive-create：registry 無 update 路徑，並發 create 不得靜默互吃
@@ -469,8 +492,28 @@ public final class LibraryStore {
     /// 不是當下行為不同，而是**日後對寫入路徑的加固不會傳到那一份**。
     func atomicWrite(_ content: String, to dest: URL, mustCreate: Bool = false) throws {
         let fm = FileManager.default
-        let tmp = dest.deletingLastPathComponent()
-            .appendingPathComponent(".\(dest.lastPathComponent).tmp-\(UUID().uuidString)")
+        let dir = dest.deletingLastPathComponent()
+        // **父目錄由寫入端自己保證**（#101）。在此之前這件事是 `ensureLayout` 的無條件
+        // 迴圈順便做掉的，於是那個迴圈不能依 format 條件化——「目錄存在」因此不再代表
+        // 「這個佈局在用」。把保證下放到寫入端，兩件事就各自獨立：
+        // `ensureLayout` 負責**宣告**佈局，寫入路徑負責**自己能寫**。
+        //
+        // 這裡涵蓋**所有走 `atomicWrite` 的寫入**（7 個呼叫點）——但它不是全部的寫入
+        // 路徑：`StoreMigration` 直接用 Foundation 寫，見下。
+        //
+        // 讀取端（`yamlFiles`）早就容忍缺目錄（回空陣列）。這裡讓寫入端與它對稱。
+        //
+        // **它取代的只有 `writeLibrary` 那一處。** 另外兩處性質不同，別照著清：
+        //
+        // - `StoreMigration.swift:152` — **必要**。它下一行是 `p.yaml.write(to:atomically:)`，
+        //   直接走 Foundation 而**不經過本咽喉**，所以目錄仍得自己建。
+        // - `DivergenceResolve.swift:166` — 現在確實冗餘（下一行就是 `atomicWrite`），
+        //   但留著讓該檔不依賴本函式的內部細節。冗餘無害，刪不刪都對。
+        //
+        // 這個保證也**不是** root 正確性的驗證。root 打錯時它會安靜地把整棵樹建出來——
+        // CLI 有 `openStore()` 擋在前面，MCP 與 App 沒有（見 #105）。
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let tmp = dir.appendingPathComponent(".\(dest.lastPathComponent).tmp-\(UUID().uuidString)")
         try content.write(to: tmp, atomically: false, encoding: .utf8)
         do {
             if !mustCreate && fm.fileExists(atPath: dest.path) {

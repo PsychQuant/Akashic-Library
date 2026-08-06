@@ -63,7 +63,7 @@ final class LaunchState {
         watcher?.stop()   // 舊 watcher 監看舊 universe 目錄，已無意義
         watcher = nil
         do {
-            let store = LibraryStore(root: state.root)
+            let store = state.store   // #101：一律經 AppState，不自己建
             let newWatcher = FileWatcher(directories: [store.entitiesDir, store.entriesDir, store.peopleDir]) {
                 Task { @MainActor in
                     try? state.externalReload()
@@ -78,10 +78,14 @@ final class LaunchState {
 
     func boot() {
         do {
-            let root = try LibraryLocator.resolve(explicit: nil)
-            let state = AppState(root: root)
+            // **resolveDetailed 而非 resolve**（#101）：root-only 的 overload 會把 registry
+            // key 丟掉，App 於是對已註冊的 store 也走 keyless 路徑、在 store root 內重建
+            // 一份沒有任何消費者的 in-store index。key 與 root 必須一起帶。
+            let resolved = try LibraryLocator.resolveDetailed(explicit: nil)
+            let root = resolved.root
+            let state = AppState(root: root, key: resolved.key)
             try state.load()
-            let store = LibraryStore(root: root)
+            let store = state.store   // #101：一律經 AppState，不自己建
             let watcher = FileWatcher(directories: [store.entitiesDir, store.entriesDir, store.peopleDir]) {
                 // 外部（CLI/MCP/git）變更 → 主執行緒 reload + 同步時戳
                 //（sidebar 顯示「外部變更已同步」；App 為 write-through 模型，

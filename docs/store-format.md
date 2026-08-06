@@ -3,18 +3,77 @@
 Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版；
 實作＝`AkashicCore`（型別/YAML/citekey）＋ `AkashicStoreIO`（讀寫）。
 
-原則：**檔案是本體，資料庫是 cache**。`entries/`、`people/`、`notes/` 是 canonical、
-git 追蹤；`.akashic/` 下一切可全刪重建。
+原則：**檔案是本體，資料庫是 cache**。記錄檔與 `notes/` 是 canonical、git 追蹤；
+衍生的 index 可全刪重建。
 
 ## 1. Library 佈局
 
+佈局**依 store format 而定**，而 `ensureLayout()` 只建立這個 store 實際會用到的
+目錄——所以「目錄存在」本身帶語意（#101）。
+
+### format ≥ 2（現行）
+
 ```
 <library-root>/
-├── entries/<citekey>.yaml    每筆文獻一檔
-├── people/<person-key>.yaml  人物實體
-├── notes/<citekey>/*.md      衍生筆記（自己的產出）
-└── .akashic/                 衍生物（index.sqlite 等）；gitignored、可重建
+├── store.yaml                  format 標記（§5）
+├── entities/<uuid>.yaml        全部記錄：work / person / organization / divergence
+├── libraries/<key>.yaml        library registry（§2.9）
+├── notes/<citekey>/*.md        衍生筆記（自己的產出）
+└── .akashic/                   **僅未註冊的 store**：in-store 的 index 回落位置
 ```
+
+### format 1（legacy，仍可讀）
+
+```
+<library-root>/
+├── store.yaml                  #24 之前建的 store 沒有這個檔——**缺檔即 format 1**
+├── entries/<citekey>.yaml      每筆文獻一檔
+├── people/<person-key>.yaml    人物實體
+├── libraries/<key>.yaml
+├── notes/<citekey>/*.md
+└── .akashic/                   同上：僅在沒傳 registry key 時才有
+```
+
+讀取端**兩種佈局並存支援**：遷移是一次性動作，但舊佈局的 store（含別人的 clone、
+未遷移的備份）必須照樣讀。寫入端則單一：`store.yaml` 的 format 決定寫去哪邊。
+
+### `ensureLayout()` 建哪些目錄
+
+| 目錄 | `ensureLayout()` 何時建 |
+|---|---|
+| `entries/` `people/` | 僅 format 1 |
+| `entities/` | 一律（兩種 format 都建；條件化它見 #102）|
+| `libraries/` | 一律 |
+| `notes/` | 一律（**目前沒有任何寫入端**，見 #103）|
+| `.akashic/` | 僅當開這個 store 的呼叫端**沒有傳 registry key** |
+
+**已註冊的 store 的 index 住 store 之外**（`~/.akashic/index/<key>.sqlite`，#37）：
+store root 正是會進 Dropbox／git 的東西，而同步樹裡的 live SQLite 是已知的毀檔風險
+（partial write、conflict copy）。沒有 key 的 store 沒有名字可命名 index，才回落到
+in-store 的 `.akashic/index.sqlite`。
+
+> ⚠️ **反過來讀不成立**：目錄的存在**不是**可靠的判準。
+>
+> - **`.akashic/` 存在 ≠ 這個 store 未註冊。** `key` 反映的是「這次呼叫有沒有傳 key」，
+>   不是 registry 事實。`LibraryLocator.resolveDetailed` 對 `--library <path>` 與
+>   `$AKASHIC_LIBRARY` **一律回 `key: nil`**，即使那個路徑就登記在 `files:` 裡——於是
+>   `akashic doctor --library <已註冊路徑>` 仍會在該 store 內建出 `.akashic/` 並寫第二份
+>   index。要讓「存在即未註冊」成立，得先讓那條路徑反查 registry：**見 #105**。
+> - **`entries/` 存在 ≠ format 1。** `migrate` 搬完檔案後不刪空目錄，所以就地遷移過的
+>   store 會同時有空的 `entries/` 與 format ≥ 2 的 marker。
+>
+> 換句話說：這張表是 **`ensureLayout()` 的行為規格**，不是 store 狀態的推論規則。
+
+> **父目錄不由 `ensureLayout` 保證**。寫入路徑自己確保目的檔的父目錄存在
+> （`atomicWrite` 的單一咽喉），讀取路徑則容忍目錄缺席（回空）。
+>
+> ⚠️ 這**不代表** root 打錯時會被擋下來。`atomicWrite` 會安靜地把整棵樹建出來，
+> 而且此時**沒有 `store.yaml`**——這個半成品後續會依「當下碰巧有什麼」自我聲明格式：
+> 若先寫過 entry（落進 `entries/`），之後的 `ensureLayout()` 會把它標成 format 1。
+> CLI 有 `openStore()` 擋在前面，MCP 與 App 沒有（#108）。
+>
+> **呼叫端仍應先 `ensureLayout()` 或走 `openStore()`**；父目錄的保證只涵蓋「目錄」，
+> 不涵蓋「這個 root 是不是一個 store」。
 
 附件不在 library 內：PDF 進外部 attachment pool 或留在 Zotero storage，
 entry 只記 reference（見 §2.4）。

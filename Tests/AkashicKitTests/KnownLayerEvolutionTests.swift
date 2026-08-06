@@ -20,7 +20,10 @@ final class KnownLayerEvolutionTests: XCTestCase {
     }
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
 
+    /// **目錄由本 helper 保證**（#101）：fixture 繞過 store API 直接寫原始檔進 legacy 的
+    /// `entries/`，而 `ensureLayout` 不再無條件建立它。
     private func writeEntry(_ name: String, extra: String) throws {
+        try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
         try """
         id: 11111111-1111-1111-1111-111111111111
         citekey: \(name)
@@ -71,6 +74,8 @@ final class KnownLayerEvolutionTests: XCTestCase {
     /// issue body 說「shape 不符 → decode 靜默略過 → re-encode 從磁碟抹除」。
     /// 那個**靜默資料遺失在 #23 的輪次中已修**——現在是 quarantine 且訊息明確。
     func testShapeMismatchIsFailLoudNotSilentStrip() throws {
+        // fixture 手寫原始檔進 legacy 的 people/，需自己建目錄（#101）
+        try FileManager.default.createDirectory(at: store.peopleDir, withIntermediateDirectories: true)
         try "key: p-one\nnames: \"不是 sequence\"\norcid: \"0000-0001-2345-6789\"\n".write(
             to: store.peopleDir.appendingPathComponent("p-one.yaml"),
             atomically: true, encoding: .utf8)

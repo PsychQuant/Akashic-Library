@@ -43,11 +43,15 @@ public enum GraphModel {
     }
 }
 
-/// Canvas 的座標幾何（#113）：繪圖、hit-test、拖曳反投影**共用同一組變換**。
+/// Canvas 的座標幾何（#113）：繪圖、hit-test、拖曳反投影**共用同一組變換式**。
 ///
 /// 座標契約：螢幕座標 = 畫布中心 + 模擬座標 × scale。三個消費者（繪圖投影、
 /// `hitTest`、拖曳的 `simPoint` 反投影）從前各自內聯這條式子——任何一處改了
 /// 縮放/平移語意，其餘兩處就靜默錯位。集中在這裡讓「互為逆變換」可被測試釘住。
+///
+/// **誠實邊界**：集中的是變換式，不是輸入。繪圖用 Canvas 閉包的 `size`、
+/// hit-test 與拖曳用 view 的 `@State canvasSize`（經 `onChange(of: geo.size)` 同步）——
+/// 兩者短暫不一致的視窗仍在 view 層，本型別管不到。
 public enum GraphGeometry {
 
     /// 模擬座標 → 螢幕座標。

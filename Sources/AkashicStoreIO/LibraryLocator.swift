@@ -89,6 +89,9 @@ public extension LibraryStore {
                 atPath: root.appendingPathComponent(name).path, isDirectory: &isDir)
             return exists && isDir.boolValue
         }
-        return isDirectory("entities") || isDirectory("entries")
+        // people/ 同列（#136 verify F4）：pre-#24 legacy store 的 entries/ 若恰為空，
+        // fresh clone 不會有它（git 不追蹤空目錄——與 #35 把 entities/ 列入的論證
+        // 同構），此時 people/ 的真實記錄是唯一的判定依據。
+        return isDirectory("entities") || isDirectory("entries") || isDirectory("people")
     }
 }

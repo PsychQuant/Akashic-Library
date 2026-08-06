@@ -59,6 +59,11 @@ format ≥ 2 的 store 建 `entities/`、不建 legacy 的 `entries/`／`people/
 反過來讀不成立——目錄的存在不是可靠判準：`migrate` 不刪空的 legacy 目錄（`doctor` 的
 殘留報告會列出，#107）。完整說明見 [docs/store-format.md §1](docs/store-format.md)。
 
+寫入面有**寫入閘**（#108）：六個寫入 API 前置「root 得是一個 store」的斷言——
+打錯的路徑被拒絕且零磁碟副作用，不再被安靜實體化成無 marker 的幽靈 store。
+建立入口（`doctor`／`import-zotero` 的 `ensureLayout`）是刻意的例外——它無法區分
+「刻意建新」與「打錯字」；詳見 [docs/store-format.md §1](docs/store-format.md)。
+
 `index/` 刻意**不**放在 canonical 樹裡：它可重建（536 筆約 0.55 s），而 store root 正是會進
 Dropbox / git 的東西——在同步樹裡放 live SQLite 是已知的毀檔風險（partial write、conflict copy）。
 index 自帶**身分戳記**（#122）：記錄它是為哪個 store root 建的，讀端比對身分不只 schema

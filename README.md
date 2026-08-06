@@ -42,8 +42,12 @@ attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox�
 ```
 
 **佈局依 format 而定，而且只建這個 store 實際會用到的目錄**（#101）：`ensureLayout()` 對
-format ≥ 2 的 store 不建 legacy 的 `entries/`／`people/`，對**有帶 registry key** 開啟的 store
-不建 in-store 的 `.akashic/`。
+format ≥ 2 的 store 建 `entities/`、不建 legacy 的 `entries/`／`people/`（format 1 反之，#102），
+對**有帶 registry key** 開啟的 store 不建 in-store 的 `.akashic/`。
+
+`store.yaml` **壞掉或比本 binary 新**時，`doctor`／`import-zotero`／`file add`／MCP 啟動會
+**明確拒絕**（「無法解析」／「請升級」），不再依猜測安靜蓋目錄（#106）——對壞 marker 繼續
+猜的代價是雙佈局。寫入路由（`usesEntitiesLayout`）的容錯不變，讀寫既有資料不受影響。
 
 反過來讀不成立——目錄的存在不是可靠判準：`--library <已註冊路徑>` 目前仍以 keyless 開啟
 （#105），`migrate` 也不刪空的 legacy 目錄。完整說明見

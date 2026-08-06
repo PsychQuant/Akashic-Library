@@ -29,6 +29,16 @@ struct Doctor: ParsableCommand {
             print("cross-record: \(cross.count)")
             for i in cross { print("  \(i.severity == .error ? "✗" : "⚠") \(i.message)") }
         }
+        // #107：佈局殘留——依 format/key 不該存在、且為空目錄或純衍生物的路徑。
+        // **只在命中時輸出，報告不動手刪**（#79 的形狀：讓看不見的變看見，處置留給人）。
+        // 判準保守：含資料的目錄永不報；sources/（#66 的被指涉內容）絕不列入。
+        // **排在 fatal cross-record 早退之前**（#120 verify）：重複 citekey 的 store
+        // 正是最需要看清全貌的時候，殘留報告不該被吞掉。
+        let residue = try store.layoutResidue()
+        if !residue.isEmpty {
+            print("殘留：")
+            residue.forEach { print("  ⚠ \(displaySafe($0, max: 300))") }
+        }
         if !fatalCross.isEmpty {
             print("library: \(displaySafe(root.path, max: 800))")
             print("entries: \(load.entries.count)（未重建 index——先修好上面的重複）")

@@ -23,10 +23,17 @@ struct AkashicCLI: ParsableCommand {
             let safe = displaySafeMultiline(full)
             if !safe.isEmpty {
                 let code = exitCode(for: error)
-                // help/CleanExit 走 stdout（exit 0 的訊息是輸出不是錯誤），其餘 stderr
+                // help/CleanExit 走 stdout（exit 0 的訊息是輸出不是錯誤），其餘 stderr。
+                // **try? 是必要的**（#135 verify F1）：Foundation 的非 throwing
+                // write(_:) 在 fd 已關（1>&- / daemon 情境）時擲不可捕捉的
+                // NSFileHandleOperationException——程序 abort（rc 134）而
+                // ArgumentParser 原版對寫入失敗是靜默忽略。EPIPE 兩者行為相同
+                // （SIGPIPE），只有 EBADF 有差。
                 let handle: FileHandle = code == .success ? .standardOutput : .standardError
-                handle.write(Data((safe + "\n").utf8))
+                try? handle.write(contentsOf: Data((safe + "\n").utf8))
             }
+            // 註：合成版 main 的 DEBUG async-misuse 檢查（failAsyncPlatform）未搬——
+            // 本 CLI 無 AsyncParsableCommand；若未來加入 async 子命令需一併補回。
             Foundation.exit(exitCode(for: error).rawValue)
         }
     }

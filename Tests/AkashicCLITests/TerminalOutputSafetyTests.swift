@@ -57,6 +57,48 @@ final class TerminalOutputSafetyTests: XCTestCase {
                           "2 MB 的行不得整條進 stderr——MCP/LLM context 的無上限灌注同型")
     }
 
+    /// #135 verify F2：VT/FF/CR/NEL/LS/PS **不是**分隔符——isNewline 版 wrapper 曾把
+    /// 它們轉成真 LF，讓困在單一 YAML scalar 的內容獲得多行輸出注入（偽造報告行）。
+    func testNonLFSeparatorsAreEscapedNotConverted() {
+        for (name, ch) in [("LS", "\u{2028}"), ("PS", "\u{2029}"), ("NEL", "\u{0085}"),
+                           ("VT", "\u{000B}"), ("FF", "\u{000C}"), ("CR", "\u{000D}")] {
+            let out = displaySafeMultiline("AAA\(ch)BBB")
+            XCTAssertFalse(out.contains("AAA\nBBB"),
+                           "\(name) 被轉成真 LF＝單行內容的多行注入")
+            XCTAssertTrue(out.contains("AAA") && out.contains("BBB"))
+        }
+        // CRLF 是正常換行（正規化為 LF）——不因 F2 修法而壞
+        XCTAssertEqual(displaySafeMultiline("a\r\nb").components(separatedBy: "\n").count, 2)
+    }
+
+    /// #135 verify F3：跳脫是 8 倍膨脹器——many-lines 形狀曾放大到 ~640 KB
+    /// （比未消毒還多 6.3 倍）。總量 cap 讓「有上限」成為真保證。
+    func testAmplifiedManyLineOutputIsBounded() {
+        let bomb = Array(repeating: String(repeating: "\u{1B}", count: 400), count: 250)
+            .joined(separator: "\n")
+        let out = displaySafeMultiline(bomb)
+        XCTAssertLessThan(out.count, 110_000, "跳脫膨脹後仍須有總量上限")
+        XCTAssertTrue(out.contains("截斷"))
+    }
+
+    /// #135 verify F4：harness 的 deadlock 修復（先讀後 wait）在 GREEN 態零覆蓋——
+    /// 錯誤路徑的輸出已被 choke point 的 cap 馴服到 64 KB 以下，構造大輸出要走
+    /// **合法多行輸出**：500 個 quarantined 檔讓 validate 印 500 行報告（>64 KB）。
+    /// 修復回歸（wait 先於讀）時本測試 hang 而非默默通過。
+    func testHarnessSurvivesOutputLargerThanPipeBuffer() throws {
+        let entities = root.appendingPathComponent("entities")
+        for i in 0..<900 {
+            try "this is not a valid record yaml [ \(String(repeating: "pad", count: 40))".write(
+                to: entities.appendingPathComponent("\(UUID().uuidString).yaml"),
+                atomically: true, encoding: .utf8)
+            _ = i
+        }
+        let r = try CLITestHarness.run(["validate", "--library", root.path], env: [:])
+        XCTAssertNotEqual(r.status, 0)
+        XCTAssertGreaterThan(r.output.count, 64 * 1024,
+                             "前置：本測試的輸出必須超過 pipe buffer 才能釘 deadlock 修復")
+    }
+
     func testHelpOutputSurvivesIntact() throws {
         // --help 走同一條錯誤輸出路徑（CleanExit）——消毒不得毀掉合法多行輸出
         let r = try CLITestHarness.run(["--help"], env: [:])

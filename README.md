@@ -72,6 +72,12 @@ Dropbox / git 的東西——在同步樹裡放 live SQLite 是已知的毀檔�
 Library root 的解析順序：`--library` → `$AKASHIC_LIBRARY` → `$AKASHIC_HOME/config.yaml`（`current` 指向的
 `files:` 項）。前兩者回 keyless，第三者帶 registry key。
 
+Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AKASHIC_HOME/config.yaml`。
+`file` 家族與 MCP 曾各自 fallback 到寫死的真實家目錄（設了 `AKASHIC_HOME` 時與 `doctor`
+讀**不同的 registry**、`file add` 寫進 doctor 看不到的那份）——#110 移除了那個第二來源，
+且各解析入口（含 `LibraryLocator`）的 config 預設一律由**同一份** environment 推導——
+「一條鏈」是 API 預設值層級的保證，不是只對現有呼叫端碰巧成立。
+
 > **經 registry 解析的指令一律保留 key**（#101）。曾經 `doctor`、`import-zotero` 與 App 只取
 > root、丟掉 key，於是把已註冊的 store 當成未註冊的——它們**重建的是錯的那一份 index**：
 > in-store 的 `.akashic/index.sqlite` 每次被寫成完整副本，而 `index/<key>.sqlite` 從來沒被更新

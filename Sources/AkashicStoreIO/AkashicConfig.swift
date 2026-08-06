@@ -128,9 +128,9 @@ public struct AkashicConfig: Equatable {
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
-    /// 預設 config 路徑（CLI/MCP/App 共用）。
-    public static var defaultURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".akashic/config.yaml")
-    }
+    // `defaultURL` 已移除（#110）：它寫死真實家目錄、不認 `AKASHIC_HOME`，與
+    // env-aware 的 `AkashicHome.configURL(environment:)` 並存時，「registry 在哪」
+    // 在同一支程式裡有兩個答案——`file add` 寫進真實 registry 而 doctor 讀 override
+    // home 的。移除而非修正，理由與 #101 移除 `resolveRoot()` 同構：**少一個能繞過
+    // env 解析的入口，比修 N 個呼叫點可靠**（編譯器保證零漏網）。
 }

@@ -68,7 +68,7 @@ public final class AppState {
         self.storeKey = key
         self.environment = environment
         // **configURL 必須與 environment 同源**（#101 verify R2）。從前它預設
-        // `AkashicConfig.defaultURL`——那個常數寫死真實家目錄、**不認 `AKASHIC_HOME`**，
+        // 寫死真實家目錄的常數（已於 #110 移除）——它**不認 `AKASHIC_HOME`**，
         // 而 `environment` 決定 index 住哪。兩者於是可以指向不同的 home：
         // 設了 `AKASHIC_HOME` 時，開機由 env-aware 的 `resolveDetailed` 解析 root/key，
         // 而 `availableFiles` / `switchFile` 卻讀**真實**的 `~/.akashic/config.yaml`——

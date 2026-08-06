@@ -17,8 +17,10 @@ struct FileConfigOptions: ParsableArguments {
     var config: String?
 
     var configURL: URL {
+        // 未帶 --config 時走 env-aware 解析（#110）——與 doctor 等指令的
+        // LibraryLocator 同一條鏈，file 家族不再讀到不同的 registry。
         config.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
-            ?? AkashicConfig.defaultURL
+            ?? AkashicHome.configURL()
     }
 }
 

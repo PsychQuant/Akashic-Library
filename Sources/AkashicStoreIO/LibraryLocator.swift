@@ -28,7 +28,7 @@ public enum LibraryLocator {
     public static func resolve(
         explicit: String?,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        configURL: URL = AkashicHome.configURL()
+        configURL: URL? = nil
     ) throws -> URL {
         try resolveDetailed(explicit: explicit, environment: environment,
                             configURL: configURL).root
@@ -37,8 +37,13 @@ public enum LibraryLocator {
     public static func resolveDetailed(
         explicit: String?,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        configURL: URL = AkashicHome.configURL()
+        configURL: URL? = nil
     ) throws -> Resolved {
+        // **configURL 與 environment 必須同源**（#110 verify）：舊預設
+        // `AkashicHome.configURL()` 讀 process env，不看本函式的 `environment:` 參數
+        // ——測試注入 fake env 時 registry 仍解析到真實 home，正是 #110 要消滅的
+        // 「兩個答案」的同構殘留。預設值改為由同一份 environment 推導。
+        let configURL = configURL ?? AkashicHome.configURL(environment: environment)
         if let explicit, !explicit.isEmpty {
             return Resolved(root: URL(fileURLWithPath: (explicit as NSString).expandingTildeInPath),
                             key: nil)

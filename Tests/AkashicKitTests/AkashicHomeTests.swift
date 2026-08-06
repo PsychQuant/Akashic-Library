@@ -117,3 +117,31 @@ final class AkashicHomeTests: XCTestCase {
                        "/tmp/legacy-store")
     }
 }
+
+/// #110 verify 的兩個回歸守衛。
+extension AkashicHomeTests {
+    /// `resolveDetailed` 的 `configURL` 預設必須由**同一份** `environment:` 推導——
+    /// 舊預設讀 process env，測試注入 fake env 時 registry 仍解析到真實 home
+    /// （#110 的「兩個答案」同構殘留）。
+    func testResolveDetailedDefaultConfigFollowsInjectedEnvironment() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-locenv-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try "files:\n  fake: \(home.path)/store\ncurrent: fake\n"
+            .write(to: home.appendingPathComponent("config.yaml"), atomically: true, encoding: .utf8)
+
+        let r = try LibraryLocator.resolveDetailed(
+            explicit: nil, environment: ["AKASHIC_HOME": home.path])   // configURL 省略
+        XCTAssertEqual(r.key, "fake",
+                       "configURL 預設該從注入的 environment 推導，而非 process env")
+    }
+
+    /// #110 的相容性宣稱入庫：未設 `AKASHIC_HOME` 時，env-aware 解析與舊的寫死路徑
+    /// **逐字等價**（此前只在 verify 時用 swiftc 探針驗過，沒有測試釘住）。
+    func testConfigURLWithoutOverrideMatchesLegacyHardcodedPath() {
+        let legacy = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".akashic/config.yaml")
+        XCTAssertEqual(AkashicHome.configURL(environment: [:]).path, legacy.path)
+    }
+}

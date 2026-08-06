@@ -473,34 +473,39 @@ extension CLIIntegrationTests {
     }
 }
 
+/// `AkashicConfig.defaultURL` 寫死真實家目錄、不認 `AKASHIC_HOME`（#110）。
+///
+/// 後果：設了 `AKASHIC_HOME` 時，`doctor`（env-aware 的 `AkashicHome.configURL`）與
+/// `file list/add/use`（fallback 到 `defaultURL`）讀**不同的 registry**——`file add`
+/// 寫進真實 registry 而 doctor 永遠看不到。
+final class ConfigHomeConsistencyTests: XCTestCase {
+    /// `file list` 未帶 `--config` 時必須讀 `$AKASHIC_HOME/config.yaml`，
+    /// 而非寫死的真實 `~/.akashic/config.yaml`。
+    func testFileListHonorsAkashicHome() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-cfghome-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let home = tmp.appendingPathComponent("home")
+        let store = tmp.appendingPathComponent("store")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
+        try "files:\n  fakekey: \(store.path)\ncurrent: fakekey\n"
+            .write(to: home.appendingPathComponent("config.yaml"), atomically: true, encoding: .utf8)
+
+        let r = try CLITestHarness.run(["file", "list"], env: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("fakekey"),
+                      "file list 該讀 $AKASHIC_HOME 的 registry（fake），實際輸出：\(r.output)")
+    }
+}
+
 /// 建佈局的入口對壞掉的 store.yaml 必須 fail-loud（#106）。
 ///
 /// 在此之前 `file add` 能成功註冊一個 format 比本 binary 新的 store、
 /// `doctor` 對 malformed marker 的 store 安靜蓋出 legacy 目錄——兩者都零訊號。
+///
+/// （merge 收斂：原內嵌的 runCLI 已遷移到 `CLITestHarness`——#119 verify V2。）
 final class EnsureLayoutStrictCLITests: XCTestCase {
-    private var productsDirectory: URL {
-        for bundle in Bundle.allBundles where bundle.bundlePath.hasSuffix(".xctest") {
-            return bundle.bundleURL.deletingLastPathComponent()
-        }
-        fatalError("找不到 products directory")
-    }
-
-    private func runCLI(_ args: [String], env: [String: String]) throws -> (status: Int32, output: String) {
-        let process = Process()
-        process.executableURL = productsDirectory.appendingPathComponent("akashic")
-        process.arguments = args
-        var childEnv = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
-        for (k, v) in env { childEnv[k] = v }
-        process.environment = childEnv
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        process.waitUntilExit()
-        let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        return (process.terminationStatus, out)
-    }
-
     func testFileAddRefusesTooNewStore() throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-toonew-\(UUID().uuidString)")
@@ -512,9 +517,9 @@ final class EnsureLayoutStrictCLITests: XCTestCase {
         try "format: 99\n".write(to: store.appendingPathComponent("store.yaml"),
                                  atomically: true, encoding: .utf8)
 
-        let r = try runCLI(["file", "add", "main", store.path,
-                            "--config", home.appendingPathComponent("config.yaml").path],
-                           env: ["AKASHIC_HOME": home.path])
+        let r = try CLITestHarness.run(["file", "add", "main", store.path,
+                                        "--config", home.appendingPathComponent("config.yaml").path],
+                                       env: ["AKASHIC_HOME": home.path])
         XCTAssertNotEqual(r.status, 0, "too-new 的 store 不得被成功註冊")
         XCTAssertTrue(r.output.contains("升級"), "錯誤訊息要指路（請升級）：\(r.output)")
         XCTAssertFalse(FileManager.default.fileExists(

@@ -50,6 +50,11 @@ Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版�
 `store.yaml` malformed 或 too-new 時 `ensureLayout()` **整體拒絕、零磁碟副作用**——
 不會依猜測建任何目錄（normative 定義見 §5.0，#106）。
 
+index 帶**身分戳記**（#122）：`index_identity` 表記錄它是為哪個 store root（canonical
+path）、何時、以多少筆記錄建的。讀端的 `isCurrent` 比對 schema 版本**與**身分——
+registry 路徑被重新利用（舊 store 刪除、新 store 用同一 key）時，`index/<key>.sqlite`
+是別的 store 建的，只看版本會整份讀到別人的資料。
+
 **既有 store 的殘留**由 `doctor` 報告（#107，report-only 不代刪）：依當前 format 與 key
 不該存在、且為**空目錄或純衍生物**的路徑（migrate 留下的空 legacy 目錄、keyless 時期的
 孤兒 in-store index、#103 撤下後的空 `notes/`）。含資料的目錄永不報；`sources/`（#66 的
@@ -256,6 +261,34 @@ displayName(script) =
 **`authorized` 為選填。** 缺席合法，由 `doctor` 報告而非 `validate` 拒絕：修復所需的
 資訊（正確的對外名字）無法自動取得，設成錯誤等於把不可自動化的工作變成載入的前置條件。
 
+### 時間軸段的 `ended`：已結束、時點未知（#63）
+
+profile 時間軸（`affiliations`／`ranks`／…）的每一段，`end` 缺席的預設語意是
+**進行中**。「已結束但結束日期未知」是另一個一等的知識狀態（例：退休名單只有
+「已退休」的事實、沒有年份）——用 `ended: true` 表達：
+
+```yaml
+affiliations:
+- value: {literal: 中研院統計所}
+  start: "1985"
+  ended: true        # 已結束、時點未知——不是進行中，也不捏日期
+  source: 所方網頁退休名單
+```
+
+- `ended: true` 的段**不算 current**（status 推導得 `retired`，不是 `current`）
+- `end` 有值時 `ended: true` 是矛盾（end 即「已結束於此」）——decode **MUST** 拒絕
+- `ended: false` 冗餘但合法（等同缺席）；encode **MUST NOT** 寫出預設值
+- 重疊判定：無端點無從排除——`ended` 段視為延伸到無限遠（保守多報，交人工裁決）
+- 同一批（format 6）順帶對齊：affiliations 段的 `start:`／`end:` 的 **null 面
+  （`null`／`~`）視為缺席**——先前 `ranks` 等純字串時間軸已如此，affiliations 卻把
+  `start: null` 存成字串 `"null"`。`source:`／`note:` 維持字串語意不變
+- **non-additive，MUST bump（format 6）**——「看似 additive 其實不是」：
+  tolerant-preserve 的開放演化層只涵蓋記錄**頂層**與 `akashic` namespace（§5 v1.3），
+  時間軸**段內**的鍵是 strict（未知鍵拒絕）——舊 binary 讀到 `ended:` 是**整檔
+  quarantine**（這個人在舊 binary 消失），不是保留。refuse-if-newer 的一句
+  「請升級」遠比 per-file quarantine 誠實（#74 判準的實際運用：判 additive 前
+  先確認新鍵落在哪一層）
+
 ## 3.2 `died`：逝世與設限（normative，#67）
 
 `died` 是 ISO 8601 前綴字串（`2004` / `2004-11` / `2004-11-18`），與
@@ -407,6 +440,39 @@ tolerant-preserve 原樣保留 `died`，**不會按舊語意誤讀新格式**，
 相同時比 `value`），因為要讓「同樣的段落、不同的儲存順序」判為相等就必須是全序。
 兩者不共用比較器。
 
+### 兩種「序」不在同一層（normative，#80）
+
+排序有兩種，混同它們是把「某個問題的答案」焊進圖書館：
+
+| | 例子 | 屬於誰 | 為什麼 |
+|---|---|---|---|
+| **正規序列化順序** | 時間軸按時間排（#69） | **圖書館** | 位元組穩定性的一部分——不排就沒有 canonical form，同一份資料會有多種表示 |
+| **語意／領域順序** | 職階高低、期刊分級、作者貢獻排名、來源可信度 | **使用端** | 它是**某一個問題的答案**，不是資料的性質。換個問題就換個序 |
+
+store 的職責是記「他的職稱字串是 X」，**不表態 X 跟 Y 誰高**。需要序的人在使用端
+自己帶，而且——**帶之前先確認領域真的有那個序**。實證教訓（#80）：為了標 PI 而在
+使用端捏造職階全序，立刻生出兩個領域裡不存在的問題（「助理研究員排門檻哪一邊」）；
+回去看所方原始分類，那裡是互斥的職稱詞彙表——判準是**集合歸屬**，「待人工確認」
+從 1 變 0。有些領域確實自帶序；但序**經常是問題強加的、不可假定存在**，分類常常
+只有分割。
+
+因此：
+
+- `profile.ranks` 等維度是 `TimelineOf<String>` **是刻意的**，不是待補的型別安全——
+  把 rank 換成 `enum: Comparable` 看似改進，實際是把「某機構某年代的升等階梯」
+  焊進圖書館：別的機構、別的年代、別的用途（薪資級距／指導資格／投票權各有各
+  的序）全部被綁架。回頭路要 schema／資料遷移且可能丟資訊（enum 裝不下的原始
+  標籤）——字串事後給序是使用端一行，焊死的序退場是一次格式工程
+- 同一判準適用於**標籤的語意排序**：職階高低、期刊分級、來源可信度（#66）、
+  作者**貢獻排名**——store 實作 **MUST NOT** 為這些標籤定義語意比較器。
+  此禁令**不**涵蓋：canonical 序列化與內部正規化用的比較器（`DateRange.<`、
+  `sorted` 的相等性全序——那是上表第一列的圖書館職責）；也不涵蓋**保存**
+  宣告過的序列位置——`authors` 的原文順序是 store 記錄並保護的資料（見下節
+  MUST NOT 改動），使用端擁有的是從它**另行推導**的排序（貢獻排名、姓氏排序）
+- 這是 #69「同一個 comparator 不得同時服務等價正規化與序列化順序」的同一條線
+  再往外一格：**值標籤**（rank／tier／credibility）不得同時服務「記錄說了什麼」
+  與「它比誰大」——後者屬於問題，不屬於資料
+
 ### 位置即語意的序列不參與排序
 
 `authors` 與 `attachments` 的順序**MUST NOT** 被正規化改動。作者位置帶語意（第一
@@ -523,11 +589,28 @@ index 一起被清掉。
   結構性動作，依猜測建目錄的代價是雙佈局。`usesEntitiesLayout` 的**寫入路由**兜底
   （marker 壞掉時以磁碟事實猜）不在此限，維持 #35 語意。拒絕 **MUST** 零磁碟副作用
   （不得留下依錯誤猜測建出的目錄）。
-- marker 解析 **MUST** 不把**縮排**（任何空白開頭，Unicode Zs ∪ tab）的 `format:`
-  行當候選（#112 verify：巢狀鍵曾贏過頂層真值，讓 format 5 的 store 被讀成 1、安靜
-  建出雙佈局）。頂層無 `format:` 行 → malformed。**已知限制**：解析是行為本的，
-  不解析 YAML 結構——flow mapping 內出現在第 0 欄的鍵不在此防護內；marker grammar
-  的完整定案見 #117。
+- **marker grammar（normative，#117 定案）**——合法 marker：
+
+  ```
+  marker      = *( comment / blank ) format-line *( comment / blank )
+  format-line = "format:" WS* 1*DIGIT WS* [ comment ]     ；必須頂格
+  comment     = *WS "#" anything                          ；註解可縮排
+  WS          = Unicode Zs ∪ tab（值周圍的空白種類不帶語意）
+  換行        = Character.isNewline 全集（\n、\r\n、\r、VT、FF、NEL、LS、PS）
+  DIGIT       = ASCII 0-9；值須為正整數且落在 Int64 可表示範圍，
+                超出（或全形/其他 Unicode 數字）→ malformed（fail-closed）
+  BOM         = 檔案開頭的 U+FEFF 在 UTF-8 解碼時剝除（編輯器加的 BOM 無害）；
+                檔案**中間**的 U+FEFF 是未知內容 → malformed
+  ```
+
+  其餘一律 malformed（fail-loud）：**未知頂層行**（含 `meta: {`——#112 修掉縮排類
+  fail-silent 後，flow mapping 第 0 欄的鍵是僅存的毒化繞法，本 grammar 整類關閉）、
+  **縮排的非註解行**（marker 無巢狀結構）、**第二個 `format:` 行**（歧義不猜）、
+  **值後的非註解尾隨內容**（`format: 2 garbage` 不得取前綴當真）。解析器 **MUST NOT**
+  「跳過不認識的行」——跳過正是 fail-silent 的來源。未來要加 additive key，**MUST**
+  連同本 grammar 一起修訂（marker 是自產檔，additive 演化必經設計）。
+  相容性註記：手工加料過的 `store.yaml` 自 #117 起會被拒絕（fail-loud）；
+  `write` 模板產出的形狀（註解 + 單一 `format:` 行）不受影響。
 
 **版本對照**（source of truth 是 `StoreVersion.supported` 的文件註解；下表為對照）：
 

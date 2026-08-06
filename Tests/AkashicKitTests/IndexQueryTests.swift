@@ -234,13 +234,13 @@ final class IndexSchemaVersionTests: XCTestCase {
         e.akashic.libraries = ["sinica"]
         try store.writeEntry(e)
         _ = try LibraryIndex(store: store).rebuild()
-        XCTAssertTrue(try LibraryIndex.isCurrent(indexPath: store.indexURL))
+        XCTAssertTrue(LibraryIndex.isCurrent(indexPath: store.indexURL, expectedRoot: root))
 
         // 模擬 v1.1 舊 index：砍掉新表 + 歸零版本
         let db = try SQLiteDB(path: store.indexURL.path, readOnly: false)
         try db.execute("DROP TABLE entry_libraries")
         try db.execute("PRAGMA user_version = 0")
-        XCTAssertFalse(try LibraryIndex.isCurrent(indexPath: store.indexURL),
+        XCTAssertFalse(LibraryIndex.isCurrent(indexPath: store.indexURL, expectedRoot: root),
                        "舊 schema 必須被偵測為 stale")
 
         // ensureCurrent：stale → rebuild → 查詢可用

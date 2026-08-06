@@ -161,31 +161,148 @@ final class StoreVersionTests: XCTestCase {
 /// 實測後果：`format: 5` 的 store 被讀成 1 → doctor exit 0 並安靜建出雙佈局——
 /// 這正是 #106 宣稱關掉的症狀，被一個 5 行的 YAML 檔繞回來。
 extension StoreVersionTests {
-    func testNestedFormatKeyDoesNotShadowTopLevel() throws {
+    /// **語意演進（#112 → #117）**：#112 的修法是「巢狀鍵不得贏過頂層」（讀 5）；
+    /// #117 的 grammar 定案更進一步——marker 裡**根本不允許**巢狀結構，任何未知
+    /// 頂層行（`meta:`）即 malformed。fail-silent 的殘餘可能性就此關閉。
+    func testNestedStructureIsMalformed() throws {
         try writeMarker("meta:\n  format: 1\nformat: 5\n")
-        XCTAssertEqual(try StoreVersion.read(root: root), 5,
-                       "巢狀的 format: 不是 marker——頂層的才是")
-        try writeMarker("meta:\n  format: 9\nformat: 5\n")
-        XCTAssertEqual(try StoreVersion.read(root: root), 5,
-                       "巢狀值比 supported 大也不得造成誤拒")
-    }
-
-    /// 守衛的字元集必須與 trim 的一致（#112 verify R2，兩個 lens + Codex 收斂）：
-    /// 只擋 ASCII space/tab 而 trim 吃整個 Unicode Zs，NBSP／全形空格縮排的巢狀鍵
-    /// 仍會贏過頂層。
-    func testUnicodeWhitespaceIndentedNestedKeyDoesNotShadow() throws {
+        XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in
+            guard case StoreVersionError.malformed = error else {
+                return XCTFail("預期 malformed（meta: 是未知頂層行），實得 \(error)")
+            }
+        }
         try writeMarker("meta:\n\u{00A0}\u{00A0}format: 1\nformat: 5\n")
-        XCTAssertEqual(try StoreVersion.read(root: root), 5, "NBSP 縮排的巢狀鍵不是候選")
+        XCTAssertThrowsError(try StoreVersion.read(root: root),
+                             "NBSP 縮排版同理——#112 曾要求「不遮蔽」，#117 收緊為「非法」")
         try writeMarker("meta:\n\u{3000}format: 1\nformat: 5\n")
-        XCTAssertEqual(try StoreVersion.read(root: root), 5, "全形空格縮排同理")
+        XCTAssertThrowsError(try StoreVersion.read(root: root), "全形空格縮排同理")
     }
 
     func testOnlyNestedFormatKeyIsMalformed() throws {
         try writeMarker("meta:\n  format: 5\n")
         XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in
             guard case StoreVersionError.malformed = error else {
-                return XCTFail("預期 malformed（頂層沒有 format: 行），實得 \(error)")
+                return XCTFail("預期 malformed，實得 \(error)")
             }
         }
+    }
+}
+
+/// #117：marker grammar 定案——合法 marker ＝ 註解行/空行 + **恰好一個**頂格
+/// `format:` 行；換行接受全部 Unicode 變體。其餘一律 malformed（fail-loud）。
+extension StoreVersionTests {
+    /// flow-mapping 毒化是 #112 修掉縮排類之後**僅存的 fail-silent 繞法**：
+    /// `meta: {` 換行後的 `format: 1,` 落在第 0 欄，行解析器曾把它當頂層——
+    /// format 5 的 store 讀成 1，靜默降版。新 grammar 下 `meta: {` 本身就是
+    /// 未知頂層行，整檔 malformed。
+    func testFlowMappingPoisonIsMalformed() throws {
+        try writeMarker("meta: {\nformat: 1, note: x}\nformat: 5\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in
+            guard case StoreVersionError.malformed = error else {
+                return XCTFail("預期 malformed（fail-loud），實得 \(error)——讀成任何數字都是 fail-silent")
+            }
+        }
+    }
+
+    /// CRLF：`split(separator: "\n")` 對 CRLF 檔完全不分行（`\r\n` 是單一
+    /// Character）——多行模板整檔被當一行註解、報「找不到 format: 行」。
+    /// 換行符變體不是語意歧義，grammar 接受全部 Unicode 換行。
+    func testCRLFMarkerReads() throws {
+        try writeMarker("# 說明\r\nformat: 4\r\n")
+        XCTAssertEqual(try StoreVersion.read(root: root), 4, "CRLF 模板要正常解析")
+    }
+
+    func testCROnlyAndUnicodeNewlinesRead() throws {
+        try writeMarker("# c\rformat: 3\r")
+        XCTAssertEqual(try StoreVersion.read(root: root), 3, "CR-only（classic Mac）")
+        try writeMarker("# c\u{2028}format: 2\u{2028}")
+        XCTAssertEqual(try StoreVersion.read(root: root), 2,
+                       "LS 分隔同理——displaySafe 也把 LS/PS 視為換行，立場一致")
+    }
+
+    func testUnknownTopLevelKeyIsMalformed() throws {
+        try writeMarker("format: 2\ncreated: 2026-08-06\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root),
+                             "未知頂層行不再被容忍——additive key 需要連解析器一起設計")
+    }
+
+    /// 兩個 `format:` 行＝歧義。first-wins 是猜；歧義不猜（同 #121 的
+    /// duplicateRegistration 哲學）。
+    func testDuplicateFormatLineIsMalformed() throws {
+        try writeMarker("format: 2\nformat: 3\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root))
+    }
+
+    /// 縮排的**註解**照樣容忍（grammar：註解與空行任意縮排；只有 format 行必須頂格）。
+    func testIndentedCommentIsTolerated() throws {
+        try writeMarker("  # 縮排註解\nformat: 2\n   \n")
+        XCTAssertEqual(try StoreVersion.read(root: root), 2)
+    }
+
+    /// #127 verify M1（mutation-proven 缺口）：舊版兩個縮排測試都以 `meta:` 開頭——
+    /// 解析器在第 1 行就 throw，縮排守衛**根本沒被執行到**；把守衛窄化回 #112 R2
+    /// 的 bug（只擋 ASCII space/tab）後 24 個測試照樣全綠。isolating 輸入：縮排行
+    /// 自己就是第一個非註解行，守衛不對就會被跳過、讀出 5——fail-silent 回歸。
+    func testIndentedFormatLineAloneIsMalformed() throws {
+        // **輸入必須是檔內唯一的行**：若後面還跟一個頂格 format 行，窄化的守衛
+        // 讓縮排行先當上 found、頂格行再觸發 duplicate——照樣 throw、理由全錯，
+        // 測試就綠著放走 fail-silent（本測試第一版正是這樣被 mutation 揭穿的）。
+        // 單行版本下，守衛失效＝直接讀出 1＝斷言變紅。
+        for indent in [" ", "\t", "\u{00A0}", "\u{3000}"] {
+            try writeMarker("\(indent)format: 1\n")
+            XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in
+                guard case StoreVersionError.malformed = error else {
+                    return XCTFail("縮排（U+\(String(indent.unicodeScalars.first!.value, radix: 16))）行未被拒——守衛失效，實得 \(error)")
+                }
+            }
+        }
+    }
+
+    /// 合法 format 行**之後**的縮排垃圾也要拒——「先讀到值就不管後面」是順序依賴的猜。
+    func testIndentedJunkAfterValidFormatLineIsMalformed() throws {
+        try writeMarker("format: 5\n\u{3000}junk\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root))
+    }
+
+    func testNegativeFormatThrows() throws {
+        try writeMarker("format: -1\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root))
+    }
+
+    /// PS 分隔與混合行尾（#127 verify L4：文件宣稱了但沒有測試釘）。
+    func testPSAndMixedNewlinesRead() throws {
+        try writeMarker("# a\u{2029}format: 4\u{2029}")
+        XCTAssertEqual(try StoreVersion.read(root: root), 4, "PS 分隔")
+        try writeMarker("# first\r\n\rformat: 4\u{2028}  # last\n")
+        XCTAssertEqual(try StoreVersion.read(root: root), 4, "混合行尾（CRLF+CR+LS+LF）")
+    }
+
+    /// malformed 訊息不得原樣攜帶檔案內容（#127 verify M2）：ESC 會清螢幕偽造輸出、
+    /// 超長行會灌爆 MCP context——StoreVersion 的 line payload 與 StoreIOError 同紀律。
+    func testMalformedMessageSanitizesFileContent() throws {
+        try writeMarker("\u{1B}[2J forged ok\nformat: 5\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertFalse(msg.contains("\u{1B}"), "ESC 不得原樣進錯誤訊息")
+        }
+        try writeMarker(String(repeating: "x", count: 100_000) + "\nformat: 5\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertLessThan(msg.count, 1_000, "超長行必須被截斷")
+        }
+    }
+
+    /// 值後面只能是註解——`format: 2 garbage` 取前綴當真是另一種猜。
+    func testTrailingGarbageAfterValueIsMalformed() throws {
+        try writeMarker("format: 2 garbage\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root))
+        try writeMarker("format: 2.5\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root), "小數不是「帶註解的整數」")
+    }
+
+    /// `write` 模板必須永遠合法（自產自讀的最低要求）。
+    func testWriteTemplateRoundTrips() throws {
+        try StoreVersion.write(root: root, format: 5)
+        XCTAssertEqual(try StoreVersion.read(root: root), 5)
     }
 }

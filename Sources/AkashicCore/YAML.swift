@@ -1057,7 +1057,7 @@ public enum PersonYAML {
         if let note = person.note { pairs.append((Node("note"), Node(note))) }
         // #20：profile 空的不序列化（與 tags 同慣例）——避免每個 person 檔多一個空 map
         if !person.profile.isEmpty {
-            pairs.append((Node("profile"), PersonYAML.profileNode(person.profile)))
+            try pairs.append((Node("profile"), PersonYAML.profileNode(person.profile)))
         }
         var out = try Yams.serialize(node: Node(pairs), allowUnicode: true)
         try EntryYAML.appendRawBlocks(person.unknownFields, to: &out, targetIndent: 0,
@@ -1341,19 +1341,19 @@ extension PersonYAML {
         ("fields", \.fields),
     ]
 
-    static func profileNode(_ p: PersonProfile) -> Node {
+    static func profileNode(_ p: PersonProfile) throws -> Node {
         var pairs: [(Node, Node)] = []
         if !p.affiliations.isEmpty {
-            pairs.append((Node("affiliations"), orgTimelineNode(p.affiliations)))
+            pairs.append((Node("affiliations"), try orgTimelineNode(p.affiliations)))
         }
         for (key, path) in timelineKeys where !p[keyPath: path].isEmpty {
-            pairs.append((Node(key), timelineNode(p[keyPath: path])))
+            pairs.append((Node(key), try timelineNode(p[keyPath: path])))
         }
         let contacts = p.contacts.filter { !$0.value.isEmpty }
         if !contacts.isEmpty {
-            pairs.append((Node("contacts"),
+            try pairs.append((Node("contacts"),
                           Node(contacts.keys.sorted().map { k in
-                              (Node(k), timelineNode(contacts[k]!))
+                              (Node(k), try timelineNode(contacts[k]!))
                           } as [(Node, Node)])))
         }
         return Node(pairs)
@@ -1364,11 +1364,24 @@ extension PersonYAML {
     ///
     /// 用 `inSerializationOrder` 而非 `sorted`（#69）：後者是相等性用的全序，會在
     /// `range` 相同時以 `value` 決勝，把無日期的主名推到後面。
-    static func timelineNode(_ t: Timeline) -> Node {
-        Node(t.inSerializationOrder.map { v -> Node in
+    /// encoder 側的矛盾防線（#131 verify Codex-H1）：`DateRange` 是公開可寫的
+    /// struct，model 層可以構造出 `end` 有值 + `endedUnknown` 的矛盾 instance——
+    /// decoder 會拒絕那個輸出，於是 `decode(encode(model))` 不安全（encode canary
+    /// 只會報難懂的自檢失敗）。與 decode 端同一條「拒絕、不猜」：在寫出前指明矛盾。
+    static func rejectContradictoryRange(_ r: DateRange) throws {
+        if r.end != nil && r.endedUnknown {
+            throw StoreYAMLError.invalidField(
+                "timeline.range", "end 與 endedUnknown 並存是矛盾——end 有值即已結束於該時點")
+        }
+    }
+
+    static func timelineNode(_ t: Timeline) throws -> Node {
+        try Node(t.inSerializationOrder.map { v -> Node in
+            try rejectContradictoryRange(v.range)
             var pairs: [(Node, Node)] = [(Node("value"), Node(v.value))]
             if let s = v.range.start { pairs.append((Node("start"), Node(s))) }
             if let e = v.range.end { pairs.append((Node("end"), Node(e))) }
+            if v.range.endedUnknown { pairs.append((Node("ended"), Node("true", .implicit, .plain))) }
             if let s = v.source { pairs.append((Node("source"), Node(s))) }
             if let n = v.note { pairs.append((Node("note"), Node(n))) }
             return Node(pairs)
@@ -1377,8 +1390,9 @@ extension PersonYAML {
 
     /// 隸屬時間軸。`value` 是 `{key: …}` 或 `{literal: …}`——與 `authors` 同形，
     /// 因為那是本專案已經解過一次的同型問題。
-    static func orgTimelineNode(_ t: TimelineOf<OrgRef>) -> Node {
-        Node(t.inSerializationOrder.map { v -> Node in
+    static func orgTimelineNode(_ t: TimelineOf<OrgRef>) throws -> Node {
+        try Node(t.inSerializationOrder.map { v -> Node in
+            try rejectContradictoryRange(v.range)
             let valueNode: Node
             switch v.value {
             case .key(let k):     valueNode = Node([(Node("key"), Node(k))] as [(Node, Node)])
@@ -1387,6 +1401,7 @@ extension PersonYAML {
             var pairs: [(Node, Node)] = [(Node("value"), valueNode)]
             if let s = v.range.start { pairs.append((Node("start"), Node(s))) }
             if let e = v.range.end { pairs.append((Node("end"), Node(e))) }
+            if v.range.endedUnknown { pairs.append((Node("ended"), Node("true", .implicit, .plain))) }
             if let s = v.source { pairs.append((Node("source"), Node(s))) }
             if let n = v.note { pairs.append((Node("note"), Node(n))) }
             return Node(pairs)
@@ -1403,7 +1418,7 @@ extension PersonYAML {
                 throw StoreYAMLError.invalidField(context, "每一段必須是 mapping")
             }
             try EntryYAML.rejectUnknownKeys(
-                m, known: ["value", "start", "end", "source", "note"], context: context)
+                m, known: ["value", "start", "end", "ended", "source", "note"], context: context)
             guard let vNode = m["value"] else {
                 throw StoreYAMLError.missingField("\(context).value")
             }
@@ -1428,8 +1443,7 @@ extension PersonYAML {
             }
             out.append(TemporalValue(
                 value: ref,
-                range: DateRange(start: try m["start"].map { try EntryYAML.scalarString($0, context: context) },
-                                 end: try m["end"].map { try EntryYAML.scalarString($0, context: context) }),
+                range: try decodeRange(m, context: context),
                 source: try m["source"].map { try EntryYAML.scalarString($0, context: context) },
                 note: try m["note"].map { try EntryYAML.scalarString($0, context: context) }))
         }
@@ -1472,7 +1486,7 @@ extension PersonYAML {
                 throw StoreYAMLError.invalidField(context, "元素必須是 mapping")
             }
             try EntryYAML.rejectUnknownKeys(
-                m, known: ["value", "start", "end", "source", "note"], context: context)
+                m, known: ["value", "start", "end", "ended", "source", "note"], context: context)
             guard let value = m["value"]?.scalar?.string else {
                 throw StoreYAMLError.invalidField(context, "缺 value")
             }
@@ -1486,9 +1500,45 @@ extension PersonYAML {
             }
             return TemporalValue(
                 value: value,
-                range: DateRange(start: try str("start"), end: try str("end")),
+                range: try decodeRange(m, context: context),
                 source: try str("source"), note: try str("note"))
         })
+    }
+
+    /// 共用的 range 解析（#63）：`ended: true` + `end` 缺席 ＝ 已結束、時點未知。
+    /// `end` 有值時 `ended: true` 是矛盾——end 本身就是「已結束於此」，兩者並存
+    /// 無法判斷哪個是真話：拒絕，不猜。`ended: false` 冗餘但無矛盾（寬容讀入、
+    /// encode 不寫出）。
+    static func decodeRange(_ m: Node.Mapping, context: String) throws -> DateRange {
+        func str(_ k: String) throws -> String? {
+            guard let n = m[k] else { return nil }
+            if n.null != nil { return nil }
+            guard let s = n.scalar?.string else {
+                throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")
+            }
+            return s
+        }
+        let end = try str("end")
+        var endedUnknown = false
+        if let endedNode = m["ended"] {
+            // 本 store 格式的第一個 boolean——慣例在此建立（#131 verify F4）：
+            // 只收裸寫的 true/false。引號版（"true" 是 !!str 不是 boolean）與
+            // YAML 1.1 變體（True/yes/on/1）一律拒絕——fail-closed 與 requireShape
+            // 的形狀紀律一致，訊息指路即可。
+            guard let sc = endedNode.scalar, sc.style == .plain,
+                  let b = Bool(sc.string) else {
+                throw StoreYAMLError.invalidField(
+                    "\(context).ended", "必須是裸寫的 true 或 false（不加引號、不用 Yes/On/1 等變體）")
+            }
+            if b, end != nil {
+                throw StoreYAMLError.invalidField(
+                    "\(context)",
+                    "end 與 ended: true 並存是矛盾——end 有值即已結束於該時點，" +
+                    "ended 只用於「已結束、時點未知」。二擇一。")
+            }
+            endedUnknown = b
+        }
+        return DateRange(start: try str("start"), end: end, endedUnknown: endedUnknown)
     }
 }
 
@@ -1507,7 +1557,7 @@ public enum OrganizationYAML {
                                      (Node("id"), Node(org.id.uuidString)),
                                      (Node("key"), Node(org.key))]
         if !org.names.isEmpty {
-            pairs.append((Node("names"), PersonYAML.timelineNode(org.names)))
+            try pairs.append((Node("names"), PersonYAML.timelineNode(org.names)))
         }
         // #81：緊接 names 之後，讀的人要能對照「指定的是時間軸上的哪幾個」。
         if !org.authorized.isEmpty {
@@ -1516,7 +1566,7 @@ public enum OrganizationYAML {
         if let f = org.founded { pairs.append((Node("founded"), Node(f))) }
         if let d = org.dissolved { pairs.append((Node("dissolved"), Node(d))) }
         if !org.parents.isEmpty {
-            pairs.append((Node("parents"), PersonYAML.orgTimelineNode(org.parents)))
+            try pairs.append((Node("parents"), PersonYAML.orgTimelineNode(org.parents)))
         }
         if let n = org.note { pairs.append((Node("note"), Node(n))) }
         var text = try Yams.serialize(node: Node(pairs), allowUnicode: true)

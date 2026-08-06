@@ -476,10 +476,10 @@ final class DateNormalizerBoundaryTests: XCTestCase {
 final class HashCanonicalTests: XCTestCase {
     // DA CONFIRMED（LOW-MEDIUM）：canonical 序列化不得有結構碰撞
     func testConstructedFieldCollisionResolved() {
-        var a = ZoteroItem(key: "K1", version: 1, libraryID: 1, typeName: "journalArticle",
+        let a = ZoteroItem(key: "K1", version: 1, libraryID: 1, typeName: "journalArticle",
                            fields: ["title": "T", "volume": "1\nfield:number=2"],
                            authors: [], tags: [], attachmentPaths: [])
-        var b = ZoteroItem(key: "K1", version: 1, libraryID: 1, typeName: "journalArticle",
+        let b = ZoteroItem(key: "K1", version: 1, libraryID: 1, typeName: "journalArticle",
                            fields: ["title": "T", "volume": "1", "issue": "2"],
                            authors: [], tags: [], attachmentPaths: [])
         _ = a; _ = b

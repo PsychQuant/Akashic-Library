@@ -7,6 +7,10 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
     /// #101 讓 atomicWrite 自建父目錄後，打錯的 root 曾被安靜實體化成無 marker
     /// 的幽靈 store（之後 ensureLayout 還會把它標成 format 1）。
     case notAStore(String)
+    /// 一般性的輸入拒絕（#133 verify F3）：invalidKey 的訊息框架是「不符合 key
+    /// 正規式」——把候選數不足、判斷缺依據這類拒絕塞進去，內文正確、框架全錯，
+    /// 會把 LLM 呼叫端引去清洗 key。語意歸語意。
+    case invalidInput(what: String, why: String)
     /// store 有跨記錄的不一致（重複 UUID / citekey），改寫動作拒絕執行（#35 verify）。
     case inconsistentStore(action: String, issues: [String])
 
@@ -16,6 +20,8 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
             return "「\(displaySafe(path, max: 300))」不是 Akashic store（無 store.yaml 也無 "
                  + "entities/／entries/）——寫入拒絕。若這是新 store，先跑 "
                  + "akashic doctor --library <path> 建立佈局；若是打錯路徑，這個拒絕正是在救你。"
+        case let .invalidInput(what, why):
+            return "\(displaySafe(what, max: 120)) 無效：\(displaySafe(why, max: 400))"
         case let .inconsistentStore(action, issues):
             // 單行——會過 displaySafe
             return "store 有 \(issues.count) 個跨記錄不一致，\(action) 拒絕執行"
@@ -361,6 +367,16 @@ public final class LibraryStore {
         guard StoreKey.isValid(org.key) else {
             throw StoreIOError.invalidKey("organization key", org.key)
         }
+        // v6-only 語法的 format gate——理由見 writePerson（#131 verify Codex-H2）
+        if org.names.entries.contains(where: \.range.endedUnknown)
+            || org.parents.entries.contains(where: \.range.endedUnknown) {
+            let format = try StoreVersion.read(root: root)
+            guard format >= 6 else {
+                throw StoreIOError.invalidKey(
+                    "organization（含 ended 段，需要 store format ≥ 6；本 store 是 \(format)）——" +
+                    "升級方式見 writePerson 同型訊息", org.key)
+            }
+        }
         let yaml = try OrganizationYAML.encode(org)
         let dest = entityURL(id: org.id)
         try atomicWrite(yaml, to: dest)
@@ -378,6 +394,21 @@ public final class LibraryStore {
         try assertStoreRoot()
         guard StoreKey.isValid(person.key) else {
             throw StoreIOError.invalidKey("person key", person.key)
+        }
+        // **v6-only 語法的 format gate**（#131 verify Codex-H2）：supported=6 只是本
+        // binary 的讀取上限，**不會**讓既有 store 的 marker 自己變 6。若在 format ≤ 5
+        // 的 store 寫入含 `ended` 的 person，v5 binary 看 marker 5 照讀 → 對該檔
+        // strict-reject → 整檔 quarantine（人檔消失）——refuse-if-newer 完全沒 fire。
+        // 拒絕而非自動 bump：升 marker 會讓其餘 binary（MCP/App）突然整庫拒開，
+        // 那必須是使用者知情的動作，訊息指路。
+        if person.profile.usesEndedUnknown {
+            let format = try StoreVersion.read(root: root)
+            guard format >= 6 else {
+                throw StoreIOError.invalidKey(
+                    "person（含 ended 段，需要 store format ≥ 6；本 store 是 \(format)）——" +
+                    "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                    "format: 改成 6（v6 只新增語法，既有資料不變）", person.key)
+            }
         }
         let yaml = try PersonYAML.encode(person)
         let dest = usesEntitiesLayout ? entityURL(id: person.id) : personURL(key: person.key)

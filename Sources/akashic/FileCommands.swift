@@ -99,6 +99,10 @@ struct FileUse: ParsableCommand {
         }
         // 與 MCP/App 一致的目標驗證（Codex R1 #7）：指過去必須是 library
         let target = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        // version check 與 file add 對稱（#134 verify F3）：把 current 指向一個
+        // 太新/壞 marker 的 store，下一個指令必然拒絕——在切換當下就說，
+        // 而不是留給下一步
+        try StoreVersion.check(root: target)
         guard LibraryStore.isLibraryRoot(target) else {
             throw ValidationError("「\(path)」不是 Akashic library（缺 entries/ 目錄）。目錄被移走？file remove 後重加。")
         }

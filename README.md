@@ -50,8 +50,11 @@ format ≥ 2 的 store 建 `entities/`、不建 legacy 的 `entries/`／`people/
 不再依猜測安靜蓋目錄（#106）——對壞 marker 繼續猜的代價是雙佈局。寫入路由
 （`usesEntitiesLayout`）的容錯不變，讀寫既有資料不受影響。
 
-> ⚠️ 這不是所有指令的保證：`akashic fmt` 的全庫改寫與 `library create` 目前**不在**
-> refuse-if-newer 的保護內（#115）。
+> refuse-if-newer 是**所有** CLI 指令的保證（#115）：閘在 `openStore()` 且**先於**
+> 佈局檢查（未來 format 可能改目錄結構——先問版本，才不會把太新的 store 誤診成
+> 「不是 library」）——`fmt` 的全庫改寫、`library create`、read-only 查詢，開 store
+> 的當下一律把關（按舊語意誤讀新格式，讀跟寫一樣危險）。`file use` 在切換 current
+> 的當下同步把關（與 `file add` 對稱）。
 
 反過來讀不成立——目錄的存在不是可靠判準：`migrate` 不刪空的 legacy 目錄（`doctor` 的
 殘留報告會列出，#107）。完整說明見 [docs/store-format.md §1](docs/store-format.md)。
@@ -63,6 +66,8 @@ format ≥ 2 的 store 建 `entities/`、不建 legacy 的 `entries/`／`people/
 
 `index/` 刻意**不**放在 canonical 樹裡：它可重建（536 筆約 0.55 s），而 store root 正是會進
 Dropbox / git 的東西——在同步樹裡放 live SQLite 是已知的毀檔風險（partial write、conflict copy）。
+index 自帶**身分戳記**（#122）：記錄它是為哪個 store root 建的，讀端比對身分不只 schema
+版本——registry 路徑被重新利用時，別的 store 建的 index 不再被誤當自己的。
 未註冊的 store（`--library <path>` 直指）則回落 in-store `.akashic/index.sqlite`，因為那種 store
 不在 registry 治理範圍內。
 
@@ -97,7 +102,7 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 
 - **Phase 1（完結）**：store 地基 — 格式規格、AkashicKit、Zotero 單向 pull、CLI。
   Spec：[docs/specs/2026-07-21-akashic-library-phase1-design.md](docs/specs/2026-07-21-akashic-library-phase1-design.md)
-- **Phase 2（本階段）**：MCP 整合 — schema hash 機制、`akashic-mcp`（14 tools）、發布統一。
+- **Phase 2（本階段）**：MCP 整合 — schema hash 機制、`akashic-mcp`（18 tools）、發布統一。
   Spec：[docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md](docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md)
 - **Phase 3（本階段）**：原生 App — 管理工作台（人工裁決 GUI）+ Canvas 關係圖。
   Spec：[docs/specs/2026-07-22-akashic-library-phase3-app-design.md](docs/specs/2026-07-22-akashic-library-phase3-app-design.md)
@@ -128,6 +133,7 @@ store 是跨 binary（CLI / MCP / App）的契約。格式版本記載於
 | v1.3 | tolerant-preserve（#23）：**開放演化層**（entry / person / library 頂層、`akashic` namespace）的未知欄位改為容忍 + 原樣保留寫回，取代 v1.2 的 throw |
 | — | `divergence:` 形狀（#71）：未決的同一性問題成為可記錄的一級事物，記錄與消歧是**兩個**動作：`akashic record-divergence` 記下未決的問題（id 由候選鍵的集合推出，同一組候選＝同一筆記錄；有判斷就必須有依據），`akashic resolve-divergence` 才是「合併 + 全庫參照重寫 + 刪檔」的原子操作。**記下判斷不等於做掉它**（#77 補上建立入口前，後者有 CLI 而前者沒有——於是「先記下來、之後再判斷」在使用層不成立）。**消歧的版控前提是 tracked + clean**（#73）：不只「store 在工作樹內」，而是**本次要刪的每個檔案**都已被 git 追蹤且無未提交修改。「在工作樹內」與「刪掉還找得回來」是兩件事——未 commit 的歧異記錄消歧後，`question` / `judgement` / `rests-on` 三者一起永久消失。**additive，不 bump format**——見 [store-format.md §5.8](docs/store-format.md) 與 #74 對相容性決定的討論 |
 | format 5 | **對外可稱呼的名字由 `authorized` 指定**（#81）：`names` 的順序不再帶語意，`authorized` 是它的子集、每個書寫系統至多一個。書寫系統為**推導值不儲存**。**non-additive，MUST bump**——舊 binary 會繼續把 `names[0]` 當顯示名（按舊語意解讀新格式）。既有記錄用 `akashic authorize-names`（預設 dry-run，`--apply` 才寫）補；見 [store-format.md §3.1](docs/store-format.md) |
+| format 6 | **時間軸段的 `ended: true`＝已結束、時點未知**（#63）：`end` 缺席的預設語意（進行中）不變；退休名單只有「已退休」沒有年份這類一等知識狀態從此可表達，status 推導自動得 `retired`，`export-tables` 的 `researcher_timeline` 以 `valid_end_unknown` 欄攜帶（「進行中」的 SQL 判準是 `valid_end IS NULL AND valid_end_unknown IS NULL`）。**non-additive，MUST bump**——「看似 additive 其實不是」：tolerant-preserve 只涵蓋記錄頂層與 `akashic` namespace，時間軸**段內**的鍵是 strict，舊 binary 讀到 `ended:` 是**整檔 quarantine**（人檔消失）而非保留；見 [store-format.md §3](docs/store-format.md) |
 | — | **canonical serialization form**（#69）：記錄寫出的位元組形式由**單一權威**定義（三個 `encode` 函式），正規化即 `encode(decode(x))`——沒有第二份定義。時間軸的序列化順序改為「依 `range` 排序，`range` 相同時**保留寫入順序**」，與相等性用的全序**分離**（後者 `range` 相同時比 `value`，那是為了讓「同樣的段落、不同的儲存順序」判為相等）。動機：`Organization.names` 三筆全無 `range`，由值決勝會讓主名（中文正式名）被 ASCII 別名推到後面。`authors` / `attachments` 的順序**不參與排序**（位置即語意）。新增 `akashic fmt`（`--check` 只回報不寫檔）作為對齊入口；`validate` 不擋排版。**additive，不 bump format**；見 [store-format.md §3.4](docs/store-format.md) |
 | — | **`died`：人的終結**（#67）。`Organization` 有 `founded`/`dissolved` 而 `Person` 沒有任何生平欄位，於是「隸屬在 2004-11 結束」與「2004-11 在職過世」是同一件事。ISO 8601 前綴、精度不補齊。**缺席 ＝ 右設限（censoring），不是「在世」**——死亡是必然事件，缺席永遠不是「不適用」，只是尚未觀察到。空值與 YAML 的 null-face（`null` / `~` / `NULL` / 空白 / **換行**）一律正規化成缺席——正規化發生在建構時**與建構後的每一次寫入**（`didSet`），不是只在 decode。與 `status` 正交（後者描述隸屬）；`doctor` 報告「已故卻仍有開放隸屬」但**不代為關閉**。「是否仍活躍」刻意**不記錄**——那是 `publication` 表的一句 SQL，一個刪掉不會壞事的欄位不該存在。**additive，不 bump format**；見 [store-format.md §3.2](docs/store-format.md) |
 
@@ -180,13 +186,17 @@ cd AkashicApp && xcodegen generate && xcodebuild -scheme AkashicApp build   # �
 ```
 
 > ⚠️ **`AkashicApp/` 是 XcodeGen 專案，不是 SwiftPM target** —— `swift build` 與 `swift test`
-> （以及 CI）**不會編譯它**。改動 `AkashicApp/Sources/` 之後，「測試全綠」對它沒有任何意義，
-> 必須手動跑上面那行。這個缺口已讓一次修正漏掉一半（#101 R1→R2）；補進 CI 見 **#109**。
+> **不會編譯它**（這個缺口曾讓一次修正漏掉一半，#101 R1→R2）。CI 會 build 它（#109），
+> 但那只保證**編得過**，不保證行為對。所以 view 檔案裡不放邏輯：索引重建／圖查詢／
+> 座標幾何住 `AkashicAppKit` 的 `GraphModel`／`GraphGeometry`（#113，`swift test` 射程內），
+> view 只留 SwiftUI 殼。改動 `AkashicApp/Sources/` 仍須手動跑上面那行驗證編譯。
 
 管理工作台：Sidebar 健康總覽、列表＋詳情（biblatex 唯讀／衍生層可編／rename）、
 裁決台三頁籤（People 逐候選、Orphans 三選——刪檔進垃圾桶可救回、Quarantine）、
 原生 Canvas force-directed 關係圖（拖拉/縮放/雙擊展開）。
-外部變更（CLI/MCP/git）由 file watcher 自動刷新。`akashic rename <old> <new>` CLI 同步提供。
+外部變更（CLI/MCP/git）由 file watcher 自動刷新——監看集合依 store 的實際佈局推導
+（root + 存在的 canonical 目錄），且會在結構變化後自動 rebind（#116）：`migrate` 建出的
+新目錄不需要重啟 App 就會被監看。`akashic rename <old> <new>` CLI 同步提供。
 
 ## MCP（akashic-mcp）
 
@@ -200,8 +210,8 @@ store 永遠是全集——library 只是視角，成員關係存在 entry 的 `
 ⚠ 並發限制：對**同一 entry** 並發執行 membership 寫入（CLI 與 MCP 同時 `library add/remove`）
 不保證安全——read-modify-write 無跨程序鎖，後寫者可能靜默蓋掉先寫者（跨程序鎖為 #7
 store 硬化範疇）。`create` 為 exclusive-create（並發同 key 恰一方成功）。單一操作者依序使用不受影響。
-工具面：17 tools——8 讀（search/get_entry/relations/graph/export/people/person/doctor）+ akashic_files（list/use——多檔案切換）+ akashic_libraries（list/create/add/remove）+
-7 寫（**只碰衍生層**：set_status/tag/link/resolve_people 逐候選/create_entry 庫外/add_person/import_zotero）。
+工具面：18 tools——8 讀（search/get_entry/relations/graph/export/people/person/doctor）+ akashic_files（list/use——多檔案切換）+ akashic_libraries（list/create/add/remove）+
+8 寫（**只碰衍生層**：set_status/tag/link/resolve_people 逐候選/create_entry 庫外/add_person/import_zotero/record_divergence 記歧異**不**消歧——消歧屬人工）。
 biblatex 面向唯讀——過渡期歸 Zotero pull 管。並發（MCP 與 CLI 並用）：per-file atomic
 write、last-wins、index 冪等重建（單人場景設計）。
 
@@ -230,6 +240,22 @@ swift test
 約 12 個未改的站點（`WoSImportTests`、`EntitiesLayoutTests`、`KnownLayerEvolutionTests`、
 `AppLibraryMembershipTests`、`ServiceTests`、`UnknownFieldVisibilityTests`），它們仍帶著同一種
 中止風險。
+
+### 測試沙箱（絕不碰真實 `~/.akashic`）
+
+測試一律在 temp 目錄建假 store、**顯式注入** `AKASHIC_HOME`（`LibraryStore(root:key:environment:)`
+的 `environment` 參數存在的唯一理由）；spawn 真 binary 的 E2E 測試必須剝除繼承環境裡的
+`AKASHIC_*`（`CLITestHarness` 無條件剝除；其餘兩個 spawn helper 的補齊在 PR #121）。
+這不是風格偏好：帶 key 的 store 少了 environment 注入，index 就寫進**使用者真實的**
+`~/.akashic/index/<key>.sqlite`（原子覆寫，實際發生過）。
+
+兩層防線（#124）：測試側是每個測試自己的目的地斷言（先斷言 `indexURL` 在沙箱內、才做任何
+重建）；process 側是 `RealHomeSandboxGuard`（`Sources/AkashicTestGuard/`，由 C constructor
+在 bundle 載入時啟用——`--filter`／`--parallel` 都涵蓋）——測試期間真實 `~/.akashic` 有異動
+就 **fatalError** 並盡可能歸因。它是 best-effort **偵測器**而非完備 boundary（`.git/` 刻意
+排除、改寫後復原偵測不到——誠實邊界見類別 doc）。守衛觸發時**來源未知**：可能是測試逃逸，
+也可能是你在另一個終端動了 store（git／編輯器／同步）——後者重跑即可；無法排除前者時，
+先找出是哪個測試，不要停用守衛。
 
 ### 工具鏈可移植性
 
@@ -280,9 +306,17 @@ setUp 就寫入記錄的 suite（如 `RenameTests`）改成 `seed(format:)`，�
 
 ## CI
 
-`.github/workflows/ci.yml`，macOS runner，觸發限 **PR 與 push to main**（macOS runner 的
-GitHub Actions 計費倍率是 10×，而本 repo 是 Apple 平台專屬、沒有 Linux 選項；PR 是改動進
-main 前的最後一道門，那裡跑一次就夠）。
+`.github/workflows/ci.yml`，macOS runner，觸發限 **push to main**（2026-08-07 改制：
+macOS runner 計費 10×，「每 PR 每 push 都跑」曾把 free plan 月額度燒爆——14016/2000
+折算分鐘，runner 層直接拒跑）。PR 面的把關改由兩層承擔：
+
+1. **pre-push hook**（本機全套）：`git config core.hooksPath .githooks` 一次安裝——
+   push 前跑 `-warnings-as-errors` build + 全套測試（hook 內有 pipefail，管線吞
+   exit code 的教訓見 hook 註解）
+2. **verify 紀律**：每個 PR 的本機驗證記錄在 PR body（測試總數、build 狀態）
+
+CI 保留的獨特價值是**乾淨環境**（#109 的教訓：submodule／DerivedData 殘留只有乾淨
+checkout 抓得到）——每次 merge 後在 main 上驗一次。
 
 | 檢查 | 擋什麼 |
 |---|---|

@@ -1,0 +1,15 @@
+#!/bin/bash
+# pre-push 把關（#與 CI 改制配套，2026-08-07）：CI 只在 push to main 跑一次
+# （macOS runner 10× 計費，額度見 org billing），push 前的品質閘在本機。
+#
+# pipefail 是必要的（#129 verify 的教訓）：`swift test | tail` 這類管線會吞掉
+# 測試程序的 exit code——crash 的 run 經管線回報 0。
+set -eo pipefail
+
+echo "pre-push: swift build -Xswiftc -warnings-as-errors"
+swift build -Xswiftc -warnings-as-errors
+
+echo "pre-push: swift test（全套；判讀看最後一行總數——#56 的教訓）"
+swift test
+
+echo "pre-push: ✓ 全部通過"

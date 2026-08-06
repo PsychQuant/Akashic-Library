@@ -104,7 +104,7 @@ final class RelationalExportTests: XCTestCase {
     // MARK: - temporal 維度（#20 → #22）
 
     /// long format：維度值域開放，攤平成寬表會讓每個新職稱變成一次 schema 變更。
-    func testTimelineExportsAsLongFormat() {
+    func testTimelineExportsAsLongFormat() throws {
         var p = Person(key: "cheng", names: ["C"])
         p.profile.ranks = Timeline([
             TemporalValue(value: "助研究員", range: DateRange(start: "2010", end: "2015")),
@@ -118,7 +118,9 @@ final class RelationalExportTests: XCTestCase {
         XCTAssertEqual(t.rows[0][2], "助研究員")
         XCTAssertEqual(t.rows[0][4], "2015", "valid_end")
         XCTAssertNil(t.rows[1][4], "開放區間的 valid_end 必須是 NULL")
-        XCTAssertEqual(t.rows[2][5], "https://example.org", "source 必須帶出來")
+        // 欄位索引改用 columns 反查——#63 加了 valid_end_unknown，寫死索引每加欄就過期
+        let srcIdx = try XCTUnwrap(t.columns.firstIndex(of: "source"))
+        XCTAssertEqual(t.rows[2][srcIdx], "https://example.org", "source 必須帶出來")
     }
 
     /// #91：`note` 是 temporal 資料的另外半條命，不得在匯出時消失。

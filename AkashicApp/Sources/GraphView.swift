@@ -1,8 +1,6 @@
 import SwiftUI
 import AkashicAppKit
 import AkashicGraph
-import AkashicIndex
-import AkashicStoreIO
 
 /// Graph 區塊的控制欄（content column）：focus 選擇 + depth。
 struct GraphControlView: View {
@@ -109,11 +107,9 @@ struct GraphCanvasView: View {
                         if generation == gen { layout = l }
                     }
 
-                    let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                    func screen(_ p: CGPoint) -> CGPoint {
-                        CGPoint(x: center.x + p.x * scale, y: center.y + p.y * scale)
-                    }
-                    let positions = Dictionary(uniqueKeysWithValues: l.nodes.map { ($0.id, screen($0.position)) })
+                    let positions = Dictionary(uniqueKeysWithValues: l.nodes.map {
+                        ($0.id, GraphGeometry.screenPoint($0.position, canvasSize: size, scale: scale))
+                    })
 
                     for edge in n.edges {
                         guard let a = positions[edge.from], let b = positions[edge.to] else { continue }
@@ -184,30 +180,23 @@ struct GraphCanvasView: View {
             }
     }
 
-    /// 螢幕座標 → 模擬座標（與繪圖共用 canvasSize/scale 的逆變換）
+    /// 螢幕座標 → 模擬座標（拖曳反投影；變換本體在 GraphGeometry，#113）
     private func simPoint(_ screen: CGPoint) -> CGPoint {
-        CGPoint(x: (screen.x - canvasSize.width / 2) / scale,
-                y: (screen.y - canvasSize.height / 2) / scale)
+        GraphGeometry.simPoint(screen, canvasSize: canvasSize, scale: scale)
     }
 
     /// 最近節點命中測試；超出 hitRadius 回 nil（點空白處不選任何節點）
     private func hitTest(_ location: CGPoint) -> String? {
-        guard let l = layout, !l.nodes.isEmpty else { return nil }
-        let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
-        func screenDistance(_ node: ForceLayout.Node) -> CGFloat {
-            hypot(center.x + node.position.x * scale - location.x,
-                  center.y + node.position.y * scale - location.y)
-        }
-        guard let nearest = l.nodes.min(by: { screenDistance($0) < screenDistance($1) }),
-              screenDistance(nearest) <= hitRadius else { return nil }
-        return nearest.id
+        GraphGeometry.hitTest(location, nodes: layout?.nodes ?? [],
+                              canvasSize: canvasSize, scale: scale, hitRadius: hitRadius)
     }
 
     /// 外部變更後：索引重建一次（全庫掃描，不放在互動路徑上），再重查圖形。
+    /// 邏輯在 GraphModel（#113 下沉使其可測）；view 只做 @State 寫回與錯誤呈現。
     private func rebuildIndexThenGraph() {
         do {
-            let store = state.store   // #101：key 必須帶著，否則寫/讀的是另一份 index
-            _ = try LibraryIndex(store: store).rebuild()
+            // #101：一律走 state.store——key/environment 決定 index 位置
+            try GraphModel.rebuildIndex(store: state.store)
         } catch {
             loadError = (error as? LocalizedError)?.errorDescription ?? "\(error)"
             return
@@ -219,14 +208,9 @@ struct GraphCanvasView: View {
     private func rebuild() {
         guard let focus = focusCitekey else { return }
         do {
-            let store = state.store   // #101：key 必須帶著，否則寫/讀的是另一份 index
-            let builder = try GraphBuilder(indexPath: store.indexURL)
-            let n = try builder.neighborhood(focus: focus, depth: Int(depth))
-            neighborhood = n
-            layout = ForceLayout(
-                nodeIDs: n.nodes.map(\.id),
-                edges: n.edges.map { ($0.from, $0.to) },
-                seed: 42)
+            let snap = try GraphModel.query(store: state.store, focus: focus, depth: Int(depth))
+            neighborhood = snap.neighborhood
+            layout = snap.layout
             generation += 1   // 舊 frame 的寫回全部作廢
         } catch {
             loadError = (error as? LocalizedError)?.errorDescription ?? "\(error)"

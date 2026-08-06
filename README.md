@@ -183,7 +183,9 @@ cd AkashicApp && xcodegen generate && xcodebuild -scheme AkashicApp build   # �
 管理工作台：Sidebar 健康總覽、列表＋詳情（biblatex 唯讀／衍生層可編／rename）、
 裁決台三頁籤（People 逐候選、Orphans 三選——刪檔進垃圾桶可救回、Quarantine）、
 原生 Canvas force-directed 關係圖（拖拉/縮放/雙擊展開）。
-外部變更（CLI/MCP/git）由 file watcher 自動刷新。`akashic rename <old> <new>` CLI 同步提供。
+外部變更（CLI/MCP/git）由 file watcher 自動刷新——監看集合依 store 的實際佈局推導
+（root + 存在的 canonical 目錄），且會在結構變化後自動 rebind（#116）：`migrate` 建出的
+新目錄不需要重啟 App 就會被監看。`akashic rename <old> <new>` CLI 同步提供。
 
 ## MCP（akashic-mcp）
 

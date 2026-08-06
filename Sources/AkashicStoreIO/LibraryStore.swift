@@ -143,7 +143,8 @@ public final class LibraryStore {
         // malformed 的 marker 配上空的 entities/ 會被猜成 legacy，安靜建出 entries/、
         // people/，零訊號；too-new 的 store 則會被 file add 成功註冊。兩者都該在這裡
         // 就拒絕：`read` 對 malformed 擲錯、tooNew 沿 refuse-if-newer（#24）的既有語意。
-        // tooNew 的訊息指路（「請升級」）；malformed 目前只描述不指路——修復指引另案。
+        // tooNew 與 malformed 的訊息都指路（tooNew「請升級」；malformed 的修復
+        // 指引見 StoreVersionError.errorDescription，#118）。
         let format = try StoreVersion.read(root: root)
         guard format <= StoreVersion.supported else {
             throw StoreVersionError.tooNew(found: format, supported: StoreVersion.supported)

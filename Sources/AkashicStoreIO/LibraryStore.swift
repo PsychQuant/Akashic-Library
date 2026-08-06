@@ -282,15 +282,18 @@ public final class LibraryStore {
         librariesDir.appendingPathComponent("\(key).yaml")
     }
 
-    /// Library registry 寫入（#13）：metadata-only；key 走 StoreKey write-time 驗證。
-    /// entry 的 membership（akashic.libraries）由 writeEntry 一併驗證。
-    @discardableResult
     /// **寫入閘**（#108）：canonical 記錄寫入的前提——root 得是一個 store。
     /// `store.yaml` 存在（#24 之後的 store）或 `isLibraryRoot`（pre-#24 legacy：
     /// 無 marker 但 canonical 目錄在）任一成立即放行。兩者皆無＝打錯的路徑——
     /// #101 讓 atomicWrite 自建父目錄後，這裡是唯一擋住「錯字 root 被安靜實體化」
     /// 的所在（CLI 的 openStore 只保護 CLI；MCP/App/外部呼叫端走的就是這些 API）。
     /// 正常路徑零成本：ensureLayout／openOrCreateStore 都寫 marker。
+    ///
+    /// ⚠️ 插入位置紀律（#136 verify F1——同型錯誤在本檔**第二次**發生，前科見
+    /// writePerson 的 #55/#59 註解）：在既有 API 的 attribute 與宣告之間插新函式，
+    /// attribute 會綁到新函式上（@discardableResult 綁 Void 函式＝warning，
+    /// -warnings-as-errors 下整個模組 build 失敗，且原 API 掉 attribute 生出
+    /// 七個呼叫端 warning）。
     func assertStoreRoot() throws {
         guard FileManager.default.fileExists(atPath: StoreVersion.url(in: root).path)
                 || LibraryStore.isLibraryRoot(root) else {
@@ -298,6 +301,9 @@ public final class LibraryStore {
         }
     }
 
+    /// Library registry 寫入（#13）：metadata-only；key 走 StoreKey write-time 驗證。
+    /// entry 的 membership（akashic.libraries）由 writeEntry 一併驗證。
+    @discardableResult
     public func writeLibrary(_ library: Library) throws -> URL {
         try assertStoreRoot()
         guard StoreKey.isValid(library.key) else {
@@ -632,8 +638,8 @@ public final class LibraryStore {
         // - `DivergenceResolve.swift:166` — 現在確實冗餘（下一行就是 `atomicWrite`），
         //   但留著讓該檔不依賴本函式的內部細節。冗餘無害，刪不刪都對。
         //
-        // 這個保證也**不是** root 正確性的驗證。root 打錯時它會安靜地把整棵樹建出來——
-        // CLI 有 `openStore()` 擋在前面，MCP 與 App 沒有（見 #108）。
+        // 這個保證也**不是** root 正確性的驗證——那是寫入 API 的 `assertStoreRoot`（#108）
+    /// 的職責：五個寫入 API 前置寫入閘，錯字 root 在到達這裡之前就被拒絕。
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let tmp = dir.appendingPathComponent(".\(dest.lastPathComponent).tmp-\(UUID().uuidString)")
         try content.write(to: tmp, atomically: false, encoding: .utf8)

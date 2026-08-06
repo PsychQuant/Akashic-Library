@@ -160,6 +160,10 @@ extension LibraryStore {
     /// `DivergenceResolveError.legacyLayout`。拒絕比部分支援誠實。
     @discardableResult
     public func writeDivergence(_ d: Divergence) throws -> URL {
+        // #108/#136-F8：先問「是不是 store」再問「是不是 entities 佈局」——
+        // 不存在的 root 曾被 legacyLayout 錯誤（「你的 store 是 legacy 佈局」）
+        // 誤導，真正的問題是路徑根本不存在
+        try assertStoreRoot()
         try assertDivergenceWritable(d)
         let yaml = try DivergenceYAML.encode(d)
         let dest = entityURL(id: d.id)

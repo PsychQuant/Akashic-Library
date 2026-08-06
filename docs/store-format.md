@@ -78,11 +78,16 @@ in-store 的 `.akashic/index.sqlite`。
 > **父目錄不由 `ensureLayout` 保證**。寫入路徑自己確保目的檔的父目錄存在
 > （`atomicWrite` 的單一咽喉），讀取路徑則容忍目錄缺席（回空）。
 >
-> root 打錯**會被擋下來**（#108）：五個寫入 API（`writeEntry`／`writeEntryExclusive`／
-> `writePerson`／`writeOrganization`／`writeLibrary`）前置寫入閘——`store.yaml` 存在或
-> `isLibraryRoot`（pre-#24 legacy）任一成立才放行，兩者皆無＝打錯的路徑，拒絕且
-> 零磁碟副作用。CLI／MCP／App／外部呼叫端一體適用；「新 store 的 format 取決於
-> 先呼叫哪個寫入 API」的分岔隨之消失（裸寫一律被拒，建立走 `ensureLayout`）。
+> root 打錯**會被寫入閘擋下來**（#108）：六個寫入 API（`writeEntry`／`writeEntryExclusive`／
+> `writePerson`／`writeOrganization`／`writeLibrary`／`writeDivergence`）前置
+> `assertStoreRoot`——`store.yaml` 存在或 `isLibraryRoot`（pre-#24 legacy）任一成立
+> 才放行，兩者皆無＝打錯的路徑，拒絕且零磁碟副作用。CLI／MCP／App／外部呼叫端
+> 一體適用；「新 store 的 format 取決於先呼叫哪個寫入 API」的分岔隨之消失。
+>
+> **建立入口是刻意的例外**：`ensureLayout`（`doctor`／`import-zotero`，含 MCP 的
+> `akashic_import_zotero`）就是「把一個路徑變成 store」的動作——它無法區分
+> 「刻意建新」與「打錯字」，指錯路徑會在該處建出空佈局（#136-F2/F3 記錄）。
+> 寫入閘擋的是**繞過建立入口的裸寫**，不是建立入口本身。
 >
 > **呼叫端仍應先 `ensureLayout()` 或走 `openStore()`**；父目錄的保證只涵蓋「目錄」，
 > 不涵蓋「這個 root 是不是一個 store」。

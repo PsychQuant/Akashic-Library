@@ -76,6 +76,14 @@ struct Doctor: ParsableCommand {
             print("quarantined: \(load.quarantined.count)")
             load.quarantineLines.forEach { print($0) }
         }
+        // #107：佈局殘留——依 format/key 不該存在、且為空目錄或純衍生物的路徑。
+        // **只在命中時輸出，報告不動手刪**（#79 的形狀：讓看不見的變看見，處置留給人）。
+        // 判準保守：含資料的目錄永不報；sources/（#66 的被指涉內容）絕不列入。
+        let residue = try store.layoutResidue()
+        if !residue.isEmpty {
+            print("殘留：")
+            residue.forEach { print("  ⚠ \(displaySafe($0, max: 300))") }
+        }
         // #23 tolerant-preserve：較新 schema 的檔案（未知欄位已保留）——提示升級
         if !load.unknownFieldFiles.isEmpty {
             print("unknown-field files: \(load.unknownFieldFiles.count)（可能由較新版本寫入；升級 binary）")

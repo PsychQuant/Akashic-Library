@@ -155,6 +155,54 @@ public final class LibraryStore {
         }
     }
 
+    /// 佈局殘留（#107）：依當前 format 與 key **不該存在**、且是**空目錄或純衍生物**
+    /// 的路徑。**報告用，不動手刪**——形狀沿 #79（讓看不見的變看見，處置留給人）。
+    ///
+    /// 判準刻意保守：
+    /// - **永不報含資料的目錄**（就地遷移到一半的 legacy 檔是資料，不是殘留）
+    /// - **`sources/` 絕不列入**——#66 的被指涉內容、只留 local 的唯一一份；
+    ///   「0 引用」不等於「不要」（#101 清理時險些誤刪的教訓直接寫進這裡）
+    /// - `.akashic/` 只在「帶 key 開啟 + 內容全是衍生物（index.sqlite 與暫存檔）」
+    ///   時才報——出現未知檔案就閉嘴
+    public func layoutResidue() throws -> [String] {
+        let fm = FileManager.default
+        let format = try StoreVersion.read(root: root)
+        var out: [String] = []
+
+        func isEmptyDir(_ url: URL) -> Bool {
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue,
+                  let contents = try? fm.contentsOfDirectory(atPath: url.path)
+            else { return false }
+            // .DS_Store 之類的 Finder 殘渣不算內容
+            return contents.allSatisfy { $0 == ".DS_Store" }
+        }
+
+        if format >= 2 {
+            if isEmptyDir(entriesDir) { out.append("entries/（空——migrate 的遺留，可刪）") }
+            if isEmptyDir(peopleDir) { out.append("people/（空——migrate 的遺留，可刪）") }
+        } else {
+            if isEmptyDir(entitiesDir) { out.append("entities/（空——legacy store 用不到它，可刪）") }
+        }
+        if isEmptyDir(root.appendingPathComponent("notes")) {
+            out.append("notes/（空——#103 已撤下，不再屬於佈局，可刪）")
+        }
+        if key != nil {
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: akashicDir.path, isDirectory: &isDir), isDir.boolValue,
+               let contents = try? fm.contentsOfDirectory(atPath: akashicDir.path) {
+                let derived = contents.allSatisfy {
+                    $0 == "index.sqlite" || $0 == ".DS_Store" || $0.hasPrefix(".index.sqlite.")
+                }
+                if derived {
+                    out.append(".akashic/（keyless 時期的孤兒 index——本 store 已註冊，"
+                             + "index 住 home 的 index/ 下；純衍生物，可刪）")
+                }
+            }
+        }
+        return out
+    }
+
     /// #35：format 2 的檔案位置——**檔名是不變的 UUID**，所以改 citekey 不搬檔案。
     public func entityURL(id: UUID) -> URL {
         entitiesDir.appendingPathComponent("\(id.uuidString).yaml")

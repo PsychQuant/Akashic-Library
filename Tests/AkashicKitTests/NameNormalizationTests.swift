@@ -71,3 +71,46 @@ final class NameNormalizationTests: XCTestCase {
                       "正規化製造的塌縮是歧義訊號，不是合併授權：\(found)")
     }
 }
+
+/// #140 verify F1 的 regression：bootstrap 與 resolver 的正規化必須是同一份——
+/// 分裂的後果是文件化主流程（bootstrap-people → resolve-people）對連字號變體
+/// 從 2 候選掉到 0，完全靜默。
+extension NameNormalizationTests {
+    func testBootstrapAndResolverShareNormalization() {
+        let ascii = Entry(id: UUID(), citekey: "a2020x", type: "article",
+                          title: "X", authors: [.literal("Chang, Y-H.")], date: "2020")
+        let u2010 = Entry(id: UUID(), citekey: "b2021y", type: "article",
+                          title: "Y", authors: [.literal("Chang, Y\u{2010}H.")], date: "2021")
+        // bootstrap 對兩種寫法必須聚成**一組**（同一人的兩個寫法），不是兩個 person
+        let groups = PersonBootstrap.candidates(entries: [ascii, u2010], existing: [])
+        XCTAssertEqual(groups.count, 1,
+                       "連字號變體必須聚成一組——兩組＝bootstrap 還有自己的舊正規化：\(groups)")
+        // 端到端：建出的 person 讓 resolver 對兩筆 entry 都提名
+        var p = Person(key: "chang-y-h")
+        p.names = groups.first?.names ?? []
+        let found = PersonResolver.candidates(entries: [ascii, u2010], people: [p])
+        XCTAssertEqual(found.count, 2,
+                       "主流程端到端：兩筆 entry 都應提名（曾掉到 0——塌縮歧義誤判）")
+    }
+
+    /// #140 verify F2：U+2015 HORIZONTAL BAR 與 dash 家族同鍵。
+    func testHorizontalBarUnifies() {
+        XCTAssertEqual(NameNormalization.matchingKey("Chang, Y\u{2015}H."),
+                       NameNormalization.matchingKey("Chang, Y-H."))
+    }
+}
+
+/// #140 verify F3：不可見格式字元（Cf）刪除——顯示相同的字串必須同鍵。
+extension NameNormalizationTests {
+    func testInvisibleFormatCharactersAreStripped() {
+        for (label, dirty) in [("ZWSP", "Fushing\u{200B} Hsieh"),
+                               ("BOM", "\u{FEFF}Fushing Hsieh"),
+                               ("SOFT HYPHEN", "Fushing Hsi\u{00AD}eh"),
+                               ("WORD JOINER", "Fushing\u{2060} Hsieh"),
+                               ("LRM", "Fushing Hsieh\u{200E}")] {
+            XCTAssertEqual(NameNormalization.matchingKey(dirty),
+                           NameNormalization.matchingKey("Fushing Hsieh"),
+                           "\(label) 必須被剝除——畫面相同的字串永遠配不起來且無診斷")
+        }
+    }
+}

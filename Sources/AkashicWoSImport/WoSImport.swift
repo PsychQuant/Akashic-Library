@@ -21,8 +21,9 @@ import AkashicStoreIO
 /// WoS 的 `Authors` 欄（`Su, YH; Chiou, JM`）與 `Author Full Names` 欄
 /// （`Su, Ying-Hao; Chiou, Jeng-Min`）**同 index 對齊**——每位作者免費得到兩種寫法。
 ///
-/// 這剛好補掉 `PersonResolver.normalize()` 只做 trim + lowercase + 空白摺疊的弱點
-/// （它不重排 `Last, First`、不去連字號）。**靠顯式列舉，不靠聰明的正規化**——
+/// 這剛好補掉 `PersonResolver.normalize()` 不重排 `Last, First`、不移除連字號的
+/// 限制（#81 起它經 `NameNormalization.matchingKey` 統一連字號**變體**與 NFKC，
+/// 但重排與去連字號仍刻意不做）。**靠顯式列舉，不靠聰明的正規化**——
 /// 每條 alias 都是可 `git diff` 的資料，錯配可追溯到哪一條造成。
 public enum WoSImport {
 

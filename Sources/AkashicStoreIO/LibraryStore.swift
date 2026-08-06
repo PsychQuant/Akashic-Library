@@ -29,7 +29,10 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
                  + issues.prefix(3).map { displaySafe($0, max: 300) }.joined(separator: "；")
                  + "。先跑 akashic doctor 看清楚並修好。"
         case .invalidKey(let kind, let value):
-            return "\(kind)「\(value)」不符合 \(StoreKey.pattern)，拒絕寫入"
+            // #142：value 是 caller 剛送進來的畸形 key——原始 ESC/bidi 位元組經
+            // MCP error 直達 LLM context；kind 是程式字面量
+            return "\(kind)「\(displaySafe(value, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入"   // display-safe-exempt: kind 是程式字面量、pattern 是常量
+        
         }
     }
 }

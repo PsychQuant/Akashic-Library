@@ -274,7 +274,7 @@ public enum AliasBudgetError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         // **單行**：quarantine reason 會過 displaySafe，真換行會被逸出成 \u{000A}。
         switch self {
-        case let .contextual(ctx, kind): return "\(ctx)：" + kind.text
+        case let .contextual(ctx, kind): return "\(ctx)：" + kind.text   // display-safe-exempt: ctx 是呼叫端字面量（decode context）
         case let .expansionTooLarge(e, l): return AliasBudgetErrorKind.expansion(e, l).text
         case let .expandedBytesTooLarge(e, l): return AliasBudgetErrorKind.bytes(e, l).text
         case let .tooDeep(d, l): return AliasBudgetErrorKind.depth(d, l).text

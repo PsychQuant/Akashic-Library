@@ -130,8 +130,17 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 // #78-7：error 構造點是**無條件** sink——payload 最終進 errorDescription
                 // →使用者可見輸出，插值的任何內容（YAML 未知 key、原始值）都可疑，
                 // 不看 token 清單（局部變數名抓不到）。安全的插值加 exempt 注記
+                // #142：ServiceError/StoreIOError 的 throw 行同屬 error sink（caller
+                // 輸入經 errorDescription 直達輸出）；errorDescription 的
+                // `case … return "…"` 形狀也是——那正是 #142 的雙重盲區（不含
+                // throw、又被 case 豁免跳過）。
+                let caseReturn = l.trimmingCharacters(in: .whitespaces).hasPrefix("case ")
+                    && l.contains("return \"")
                 let isErrorSink = l.contains("throw StoreYAMLError")
                     || l.contains("throw StoreVersionError")
+                    || l.contains("throw ServiceError")
+                    || l.contains("throw StoreIOError")
+                    || caseReturn
                 guard isSink || isErrorSink else { continue }
                 // switch 的 `case "x": stmt` 不是 dict 值——冒號後是語句（#138 F2）。
                 // **誠實邊界**：這也豁免了 case 行內的真 dict（如

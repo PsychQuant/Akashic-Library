@@ -756,3 +756,25 @@ final class ServiceObservabilityTests: XCTestCase {
         XCTAssertTrue(out.contains("hasJudgement"), "\(out)")
     }
 }
+
+/// #142：thrown error 不得把 caller 輸入的原始控制位元組 echo 回去——
+/// MCP 情境下 error 文本直灌 LLM context（bidi override / ESC sequence）。
+extension ServiceTests {
+    func testErrorMessagesEscapeCallerControlBytes() {
+        let hostile = "esc\u{1B}[31m\u{202E}evil"
+        // key guard 拒絕路徑（StoreIOError.invalidKey 經 addPerson）
+        XCTAssertThrowsError(try service.addPerson(
+            key: hostile, names: ["X"], orcid: nil, openalex: nil)) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertFalse(msg.contains("\u{1B}") || msg.contains("\u{202E}"),
+                           "原始位元組不得進錯誤訊息：\(msg.debugDescription)")
+            XCTAssertTrue(msg.contains("evil"), "消毒後仍可辨認：\(msg)")
+        }
+        // lookup miss 路徑（ServiceError.notFound）
+        XCTAssertThrowsError(try service.getEntry(citekey: hostile)) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertFalse(msg.contains("\u{1B}") || msg.contains("\u{202E}"),
+                           "notFound 的 echo 同樣要消毒：\(msg.debugDescription)")
+        }
+    }
+}

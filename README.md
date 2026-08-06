@@ -53,9 +53,8 @@ format ≥ 2 的 store 建 `entities/`、不建 legacy 的 `entries/`／`people/
 > ⚠️ 這不是所有指令的保證：`akashic fmt` 的全庫改寫與 `library create` 目前**不在**
 > refuse-if-newer 的保護內（#115）。
 
-反過來讀不成立——目錄的存在不是可靠判準：`--library <已註冊路徑>` 目前仍以 keyless 開啟
-（#105），`migrate` 也不刪空的 legacy 目錄。完整說明見
-[docs/store-format.md §1](docs/store-format.md)。
+反過來讀不成立——目錄的存在不是可靠判準：`migrate` 不刪空的 legacy 目錄（`doctor` 的
+殘留報告會列出，#107）。完整說明見 [docs/store-format.md §1](docs/store-format.md)。
 
 `index/` 刻意**不**放在 canonical 樹裡：它可重建（536 筆約 0.55 s），而 store root 正是會進
 Dropbox / git 的東西——在同步樹裡放 live SQLite 是已知的毀檔風險（partial write、conflict copy）。
@@ -69,10 +68,10 @@ index 自帶**身分戳記**（#122）：記錄它是為哪個 store root 建的
 | 變數 | 作用 |
 |---|---|
 | `AKASHIC_HOME` | 覆寫 akashic home（預設 `~/.akashic`）。**同時決定 registry（`config.yaml`）與衍生 index（`index/<key>.sqlite`）的位置**——兩者必須同源，否則會出現「registry 讀一個 home、index 寫另一個 home」的跨 profile 混用（#101 修正）。CLI / MCP / App 三面一致遵守 |
-| `AKASHIC_LIBRARY` | 直接指定 library root，等同 `--library`。**目前一律以 keyless 開啟**，即使該路徑已註冊（#105）|
+| `AKASHIC_LIBRARY` | 直接指定 library root，等同 `--library`。路徑已註冊時**反查 registry 帶 key**（#105）——同一個 store 不因開法不同而有兩份 index |
 
 Library root 的解析順序：`--library` → `$AKASHIC_LIBRARY` → `$AKASHIC_HOME/config.yaml`（`current` 指向的
-`files:` 項）。前兩者回 keyless，第三者帶 registry key。
+`files:` 項）。三條路都會解析 registry key：前兩者對已註冊路徑**反查**（#105），未註冊才 keyless。
 
 Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AKASHIC_HOME/config.yaml`。
 `file` 家族與 MCP 曾各自 fallback 到寫死的真實家目錄（設了 `AKASHIC_HOME` 時與 `doctor`
@@ -85,10 +84,11 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 > in-store 的 `.akashic/index.sqlite` 每次被寫成完整副本，而 `index/<key>.sqlite` 從來沒被更新
 > 過，查詢一直打在過期的衍生資料上且無任何訊號。
 >
-> 若你的 store root 底下還留著一個 `.akashic/`，它多半是那個時期的殘留，可直接刪除（衍生物，
-> `doctor` 會重建正確的那一份）。**但它也可能再長回來**——`--library <路徑>` 與
-> `$AKASHIC_LIBRARY` 目前仍以 keyless 開啟，即使該路徑已註冊（#105）。刪之前先確認你平常怎麼
-> 開這個 store。
+> 這類殘留不用自己猜：**`doctor` 會列出來**（#107 的「殘留：」段——依 format/key 不該
+> 存在、且為空目錄或純衍生物的路徑；report-only，處置留給人；含資料的目錄與 `sources/`
+> 永不列入）。已註冊的路徑不會再長出來——`--library <路徑>` 與 `$AKASHIC_LIBRARY`
+> 現在都反查 registry 帶 key（#105）；只有**真的未註冊**的 store 仍以 keyless 開啟並寫
+> in-store `.akashic/`，那是它的正常回落位置，不是殘留。
 
 ## 狀態
 
@@ -177,13 +177,17 @@ cd AkashicApp && xcodegen generate && xcodebuild -scheme AkashicApp build   # �
 ```
 
 > ⚠️ **`AkashicApp/` 是 XcodeGen 專案，不是 SwiftPM target** —— `swift build` 與 `swift test`
-> （以及 CI）**不會編譯它**。改動 `AkashicApp/Sources/` 之後，「測試全綠」對它沒有任何意義，
-> 必須手動跑上面那行。這個缺口已讓一次修正漏掉一半（#101 R1→R2）；補進 CI 見 **#109**。
+> **不會編譯它**（這個缺口曾讓一次修正漏掉一半，#101 R1→R2）。CI 會 build 它（#109），
+> 但那只保證**編得過**，不保證行為對。所以 view 檔案裡不放邏輯：索引重建／圖查詢／
+> 座標幾何住 `AkashicAppKit` 的 `GraphModel`／`GraphGeometry`（#113，`swift test` 射程內），
+> view 只留 SwiftUI 殼。改動 `AkashicApp/Sources/` 仍須手動跑上面那行驗證編譯。
 
 管理工作台：Sidebar 健康總覽、列表＋詳情（biblatex 唯讀／衍生層可編／rename）、
 裁決台三頁籤（People 逐候選、Orphans 三選——刪檔進垃圾桶可救回、Quarantine）、
 原生 Canvas force-directed 關係圖（拖拉/縮放/雙擊展開）。
-外部變更（CLI/MCP/git）由 file watcher 自動刷新。`akashic rename <old> <new>` CLI 同步提供。
+外部變更（CLI/MCP/git）由 file watcher 自動刷新——監看集合依 store 的實際佈局推導
+（root + 存在的 canonical 目錄），且會在結構變化後自動 rebind（#116）：`migrate` 建出的
+新目錄不需要重啟 App 就會被監看。`akashic rename <old> <new>` CLI 同步提供。
 
 ## MCP（akashic-mcp）
 
@@ -227,6 +231,22 @@ swift test
 約 12 個未改的站點（`WoSImportTests`、`EntitiesLayoutTests`、`KnownLayerEvolutionTests`、
 `AppLibraryMembershipTests`、`ServiceTests`、`UnknownFieldVisibilityTests`），它們仍帶著同一種
 中止風險。
+
+### 測試沙箱（絕不碰真實 `~/.akashic`）
+
+測試一律在 temp 目錄建假 store、**顯式注入** `AKASHIC_HOME`（`LibraryStore(root:key:environment:)`
+的 `environment` 參數存在的唯一理由）；spawn 真 binary 的 E2E 測試必須剝除繼承環境裡的
+`AKASHIC_*`（`CLITestHarness` 無條件剝除；其餘兩個 spawn helper 的補齊在 PR #121）。
+這不是風格偏好：帶 key 的 store 少了 environment 注入，index 就寫進**使用者真實的**
+`~/.akashic/index/<key>.sqlite`（原子覆寫，實際發生過）。
+
+兩層防線（#124）：測試側是每個測試自己的目的地斷言（先斷言 `indexURL` 在沙箱內、才做任何
+重建）；process 側是 `RealHomeSandboxGuard`（`Sources/AkashicTestGuard/`，由 C constructor
+在 bundle 載入時啟用——`--filter`／`--parallel` 都涵蓋）——測試期間真實 `~/.akashic` 有異動
+就 **fatalError** 並盡可能歸因。它是 best-effort **偵測器**而非完備 boundary（`.git/` 刻意
+排除、改寫後復原偵測不到——誠實邊界見類別 doc）。守衛觸發時**來源未知**：可能是測試逃逸，
+也可能是你在另一個終端動了 store（git／編輯器／同步）——後者重跑即可；無法排除前者時，
+先找出是哪個測試，不要停用守衛。
 
 ### 工具鏈可移植性
 
@@ -277,9 +297,17 @@ setUp 就寫入記錄的 suite（如 `RenameTests`）改成 `seed(format:)`，�
 
 ## CI
 
-`.github/workflows/ci.yml`，macOS runner，觸發限 **PR 與 push to main**（macOS runner 的
-GitHub Actions 計費倍率是 10×，而本 repo 是 Apple 平台專屬、沒有 Linux 選項；PR 是改動進
-main 前的最後一道門，那裡跑一次就夠）。
+`.github/workflows/ci.yml`，macOS runner，觸發限 **push to main**（2026-08-07 改制：
+macOS runner 計費 10×，「每 PR 每 push 都跑」曾把 free plan 月額度燒爆——14016/2000
+折算分鐘，runner 層直接拒跑）。PR 面的把關改由兩層承擔：
+
+1. **pre-push hook**（本機全套）：`git config core.hooksPath .githooks` 一次安裝——
+   push 前跑 `-warnings-as-errors` build + 全套測試（hook 內有 pipefail，管線吞
+   exit code 的教訓見 hook 註解）
+2. **verify 紀律**：每個 PR 的本機驗證記錄在 PR body（測試總數、build 狀態）
+
+CI 保留的獨特價值是**乾淨環境**（#109 的教訓：submodule／DerivedData 殘留只有乾淨
+checkout 抓得到）——每次 merge 後在 main 上驗一次。
 
 | 檢查 | 擋什麼 |
 |---|---|

@@ -141,7 +141,7 @@ final class ServiceTests: XCTestCase {
     }
 
     func testResolvePeopleListsAndAppliesSelectively() throws {
-        var e3 = Entry(id: UUID(), citekey: "cheng2020analysis", type: "thesis",
+        let e3 = Entry(id: UUID(), citekey: "cheng2020analysis", type: "thesis",
                        title: "Analysis of growth curves", authors: [.literal("Che Cheng")], date: "2020")
         try LibraryStore(root: root).writeEntry(e3)
         let list = try json(try service.resolvePeople(apply: nil)) as! [[String: Any]]

@@ -56,14 +56,18 @@ let package = Package(
             "AkashicMCPKit",
             .product(name: "MCP", package: "swift-sdk"),
         ]),
+        // 測試 helper（只被 test targets 依賴，不經任何 product 對外）：
+        // guard 本體 + C constructor loader（bundle 載入即啟用，#124 verify F1/F5）
+        .target(name: "AkashicTestGuard", dependencies: ["AkashicTestGuardLoader"]),
+        .target(name: "AkashicTestGuardLoader"),
         .testTarget(name: "AkashicKitTests", dependencies: [
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph", "AkashicSQLite",
-            "AkashicWoSImport",
+            "AkashicWoSImport", "AkashicTestGuard",
         ]),
-        .testTarget(name: "AkashicCLITests", dependencies: ["akashic"]),
-        .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp"]),
+        .testTarget(name: "AkashicCLITests", dependencies: ["akashic", "AkashicTestGuard"]),
+        .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp", "AkashicTestGuard"]),
         .testTarget(name: "AkashicAppKitTests",
-                    dependencies: ["AkashicAppKit", "AkashicCore", "AkashicStoreIO"]),
+                    dependencies: ["AkashicAppKit", "AkashicCore", "AkashicStoreIO", "AkashicTestGuard"]),
     ]
 )

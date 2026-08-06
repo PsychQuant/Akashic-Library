@@ -55,6 +55,15 @@ path）、何時、以多少筆記錄建的。讀端的 `isCurrent` 比對 schem
 registry 路徑被重新利用（舊 store 刪除、新 store 用同一 key）時，`index/<key>.sqlite`
 是別的 store 建的，只看版本會整份讀到別人的資料。
 
+**既有 store 的殘留**由 `doctor` 報告（#107，report-only 不代刪）：依當前 format 與 key
+不該存在、且為**空目錄或純衍生物**的路徑（migrate 留下的空 legacy 目錄、keyless 時期的
+孤兒 in-store index、#103 撤下後的空 `notes/`）。含資料的目錄永不報；`sources/`（#66 的
+被指涉內容、只留 local 的唯一一份）絕不列入。
+
+**預設 store 的特例**：`~/.akashic` 同時是 akashic home 與 store root，所以
+`index/<key>.sqlite` 字面上位於 store root 之內——那是 home 的一部分，**不是殘留**
+（分離的實益是「不在 canonical 樹裡、且有名字」，不是路徑上的包含關係）。
+
 **已註冊的 store 的 index 住 store 之外**（`~/.akashic/index/<key>.sqlite`，#37）：
 store root 正是會進 Dropbox／git 的東西，而同步樹裡的 live SQLite 是已知的毀檔風險
 （partial write、conflict copy）。沒有 key 的 store 沒有名字可命名 index，才回落到
@@ -62,11 +71,10 @@ in-store 的 `.akashic/index.sqlite`。
 
 > ⚠️ **反過來讀不成立**：目錄的存在**不是**可靠的判準。
 >
-> - **`.akashic/` 存在 ≠ 這個 store 未註冊。** `key` 反映的是「這次呼叫有沒有傳 key」，
->   不是 registry 事實。`LibraryLocator.resolveDetailed` 對 `--library <path>` 與
->   `$AKASHIC_LIBRARY` **一律回 `key: nil`**，即使那個路徑就登記在 `files:` 裡——於是
->   `akashic doctor --library <已註冊路徑>` 仍會在該 store 內建出 `.akashic/` 並寫第二份
->   index。要讓「存在即未註冊」成立，得先讓那條路徑反查 registry：**見 #105**。
+> - **`.akashic/` 存在 ≠ 這個 store 未註冊**——它可能是 #105 之前的殘留（`doctor` 的
+>   殘留報告會列出，#107）。#105 之後 `--library <path>` 與 `$AKASHIC_LIBRARY` 對已註冊
+>   路徑**反查 registry 帶 key**，keyless 只剩「真的未註冊」；但歷史殘留與手動搬移仍讓
+>   「存在即未註冊」不可反推。
 > - **`entries/` 存在 ≠ format 1。** `migrate` 搬完檔案後不刪空目錄，所以就地遷移過的
 >   store 會同時有空的 `entries/` 與 format ≥ 2 的 marker。
 >
@@ -514,11 +522,28 @@ index 一起被清掉。
   結構性動作，依猜測建目錄的代價是雙佈局。`usesEntitiesLayout` 的**寫入路由**兜底
   （marker 壞掉時以磁碟事實猜）不在此限，維持 #35 語意。拒絕 **MUST** 零磁碟副作用
   （不得留下依錯誤猜測建出的目錄）。
-- marker 解析 **MUST** 不把**縮排**（任何空白開頭，Unicode Zs ∪ tab）的 `format:`
-  行當候選（#112 verify：巢狀鍵曾贏過頂層真值，讓 format 5 的 store 被讀成 1、安靜
-  建出雙佈局）。頂層無 `format:` 行 → malformed。**已知限制**：解析是行為本的，
-  不解析 YAML 結構——flow mapping 內出現在第 0 欄的鍵不在此防護內；marker grammar
-  的完整定案見 #117。
+- **marker grammar（normative，#117 定案）**——合法 marker：
+
+  ```
+  marker      = *( comment / blank ) format-line *( comment / blank )
+  format-line = "format:" WS* 1*DIGIT WS* [ comment ]     ；必須頂格
+  comment     = *WS "#" anything                          ；註解可縮排
+  WS          = Unicode Zs ∪ tab（值周圍的空白種類不帶語意）
+  換行        = Character.isNewline 全集（\n、\r\n、\r、VT、FF、NEL、LS、PS）
+  DIGIT       = ASCII 0-9；值須為正整數且落在 Int64 可表示範圍，
+                超出（或全形/其他 Unicode 數字）→ malformed（fail-closed）
+  BOM         = 檔案開頭的 U+FEFF 在 UTF-8 解碼時剝除（編輯器加的 BOM 無害）；
+                檔案**中間**的 U+FEFF 是未知內容 → malformed
+  ```
+
+  其餘一律 malformed（fail-loud）：**未知頂層行**（含 `meta: {`——#112 修掉縮排類
+  fail-silent 後，flow mapping 第 0 欄的鍵是僅存的毒化繞法，本 grammar 整類關閉）、
+  **縮排的非註解行**（marker 無巢狀結構）、**第二個 `format:` 行**（歧義不猜）、
+  **值後的非註解尾隨內容**（`format: 2 garbage` 不得取前綴當真）。解析器 **MUST NOT**
+  「跳過不認識的行」——跳過正是 fail-silent 的來源。未來要加 additive key，**MUST**
+  連同本 grammar 一起修訂（marker 是自產檔，additive 演化必經設計）。
+  相容性註記：手工加料過的 `store.yaml` 自 #117 起會被拒絕（fail-loud）；
+  `write` 模板產出的形狀（註解 + 單一 `format:` 行）不受影響。
 
 **版本對照**（source of truth 是 `StoreVersion.supported` 的文件註解；下表為對照）：
 

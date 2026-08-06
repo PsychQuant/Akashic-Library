@@ -67,10 +67,12 @@ struct FileAdd: ParsableCommand {
         // universe（CLI/App/launchd 起的 MCP 各有各的 CWD，Codex R1 #3）
         let expanded = (path as NSString).expandingTildeInPath
         let absolute = URL(fileURLWithPath: expanded).standardizedFileURL.path
-        if let existing = config.files.first(where: {
-            URL(fileURLWithPath: ($0.value as NSString).expandingTildeInPath).standardizedFileURL.path == absolute
-        }) {
-            throw ValidationError("路徑已由 key「\(existing.key)」註冊（同一實體庫不重複註冊——檔案間互不相通）")
+        // 與 resolveDetailed 的反查共用同一條比對邏輯（#105）——兩處各自實作遲早漂移。
+        // **in-memory 版**：對已載入的 config 比對，不做第二次讀檔（#121 verify：
+        // TOCTOU + 二讀失敗會被當成「無重複」）。canonical 比對含 symlink 解析——
+        // 經 symlink 別名重複註冊同一實體庫從此也擋得住。
+        if let existing = try AkashicConfig.key(forPath: absolute, in: config) {
+            throw ValidationError("路徑已由 key「\(existing)」註冊（同一實體庫不重複註冊——檔案間互不相通）")
         }
         // **key 要傳進去**（#101）：這裡正在註冊它，所以這個 store 是「已註冊」的，
         // index 會住 `~/.akashic/index/<key>.sqlite`。省略 key 會讓 ensureLayout 以為

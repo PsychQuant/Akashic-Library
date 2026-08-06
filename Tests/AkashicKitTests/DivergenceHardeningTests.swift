@@ -195,7 +195,7 @@ final class DivergenceHardeningTests: XCTestCase {
     func testWorkMergeDoesNotCreateSelfReference() throws {
         var keeper = Entry(id: UUID(), citekey: "shen2015model", type: "article", title: "M")
         keeper.akashic.relations.cites = ["shen2015model-dup"]
-        var dup = Entry(id: UUID(), citekey: "shen2015model-dup", type: "article", title: "M dup")
+        let dup = Entry(id: UUID(), citekey: "shen2015model-dup", type: "article", title: "M dup")
         try store.writeEntry(keeper)
         try store.writeEntry(dup)
         let d = Divergence(id: UUID(), question: "同一篇？",

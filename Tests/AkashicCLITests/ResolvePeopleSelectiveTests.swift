@@ -18,6 +18,9 @@ final class ResolvePeopleSelectiveTests: XCTestCase {
         let p = Process()
         p.executableURL = productsDirectory.appendingPathComponent("akashic")
         p.arguments = args + ["--library", root.path]
+        // AKASHIC_* 無條件剝除（#105 之後 --library 會反查 registry——不剝除的話
+        // 這個 harness 會讀開發機的真實 config.yaml；#101/#112 的沙箱紀律同款）
+        p.environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
         let o = Pipe(), e = Pipe()
         p.standardOutput = o; p.standardError = e
         try p.run()

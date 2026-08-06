@@ -533,3 +533,33 @@ final class EnsureLayoutStrictCLITests: XCTestCase {
             "拒絕之後 config 不得被建立/寫入——否則 registry 已含一個打不開的 store")
     }
 }
+
+/// #105 E2E：`doctor --library <已註冊路徑>` 必須帶 key——寫 `<home>/index/<key>.sqlite`、
+/// 不建 in-store `.akashic/`（#101 R1 finding #4 的情境，當時無測試；同時終結 #120
+/// verify 的 FP-4「刪掉 → --library 開一次又長回 → 無限建議循環」）。
+final class RegistryLookupCLITests: XCTestCase {
+    func testDoctorViaLibraryFlagOnRegisteredStoreKeepsIndexInHome() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-lookup-e2e-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let home = tmp.appendingPathComponent("home")
+        let store = tmp.appendingPathComponent("store")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let env = ["AKASHIC_HOME": home.path]
+
+        var r = try CLITestHarness.run(["file", "add", "main", store.path,
+                                        "--config", home.appendingPathComponent("config.yaml").path],
+                                       env: env)
+        XCTAssertEqual(r.status, 0, r.output)
+
+        // 關鍵：用 --library 直指同一個已註冊路徑
+        r = try CLITestHarness.run(["doctor", "--library", store.path], env: env)
+        XCTAssertEqual(r.status, 0, r.output)
+
+        let fm = FileManager.default
+        XCTAssertTrue(fm.fileExists(atPath: home.appendingPathComponent("index/main.sqlite").path),
+                      "反查到 key 後 index 必須寫 home 的 index/main.sqlite")
+        XCTAssertFalse(fm.fileExists(atPath: store.appendingPathComponent(".akashic").path),
+                       "已註冊的 store 經 --library 開啟不得再建 in-store .akashic/")
+    }
+}

@@ -82,10 +82,11 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 > in-store 的 `.akashic/index.sqlite` 每次被寫成完整副本，而 `index/<key>.sqlite` 從來沒被更新
 > 過，查詢一直打在過期的衍生資料上且無任何訊號。
 >
-> 若你的 store root 底下還留著一個 `.akashic/`，它多半是那個時期的殘留，可直接刪除（衍生物，
-> `doctor` 會重建正確的那一份）。已註冊的路徑不會再長出來——`--library <路徑>` 與
-> `$AKASHIC_LIBRARY` 現在都反查 registry 帶 key（#105）；只有**真的未註冊**的 store 仍以
-> keyless 開啟並寫 in-store `.akashic/`，那是它的正常回落位置，不是殘留。
+> 這類殘留不用自己猜：**`doctor` 會列出來**（#107 的「殘留：」段——依 format/key 不該
+> 存在、且為空目錄或純衍生物的路徑；report-only，處置留給人；含資料的目錄與 `sources/`
+> 永不列入）。已註冊的路徑不會再長出來——`--library <路徑>` 與 `$AKASHIC_LIBRARY`
+> 現在都反查 registry 帶 key（#105）；只有**真的未註冊**的 store 仍以 keyless 開啟並寫
+> in-store `.akashic/`，那是它的正常回落位置，不是殘留。
 
 ## 狀態
 

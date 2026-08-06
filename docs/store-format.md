@@ -50,6 +50,15 @@ Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版�
 `store.yaml` malformed 或 too-new 時 `ensureLayout()` **整體拒絕、零磁碟副作用**——
 不會依猜測建任何目錄（normative 定義見 §5.0，#106）。
 
+**既有 store 的殘留**由 `doctor` 報告（#107，report-only 不代刪）：依當前 format 與 key
+不該存在、且為**空目錄或純衍生物**的路徑（migrate 留下的空 legacy 目錄、keyless 時期的
+孤兒 in-store index、#103 撤下後的空 `notes/`）。含資料的目錄永不報；`sources/`（#66 的
+被指涉內容、只留 local 的唯一一份）絕不列入。
+
+**預設 store 的特例**：`~/.akashic` 同時是 akashic home 與 store root，所以
+`index/<key>.sqlite` 字面上位於 store root 之內——那是 home 的一部分，**不是殘留**
+（分離的實益是「不在 canonical 樹裡、且有名字」，不是路徑上的包含關係）。
+
 **已註冊的 store 的 index 住 store 之外**（`~/.akashic/index/<key>.sqlite`，#37）：
 store root 正是會進 Dropbox／git 的東西，而同步樹裡的 live SQLite 是已知的毀檔風險
 （partial write、conflict copy）。沒有 key 的 store 沒有名字可命名 index，才回落到

@@ -5,6 +5,39 @@ import AkashicStoreIO
 
 @main
 struct AkashicCLI: ParsableCommand {
+    /// **ArgumentParser 頂層錯誤輸出的消毒 choke point**（#114）。
+    ///
+    /// throw 路徑的終點曾完全沒有消毒：errorDescription 內插的使用者可控內容
+    /// （store.yaml 逐字行、config key、Yams 錯誤展開）原樣落地 stderr——
+    /// #112 verify 實測 ESC/BEL 穿透、2 MB 行無上限。逐條補 error 站點是假性
+    /// 閉合（DA 裁決）：新增的 case 又會裸奔。這裡取代合成的 main()，在唯一
+    /// 出口統一過 displaySafeMultiline（help/usage 是多行合法輸出——單行版
+    /// displaySafe 會跳脫 LF 並截 200 字，不能直接用）。exit code 語意不變
+    /// （沿用 ArgumentParser 的 exitCode(for:)）。
+    static func main() {
+        do {
+            var command = try parseAsRoot()
+            try command.run()
+        } catch {
+            let full = fullMessage(for: error)
+            let safe = displaySafeMultiline(full)
+            if !safe.isEmpty {
+                let code = exitCode(for: error)
+                // help/CleanExit 走 stdout（exit 0 的訊息是輸出不是錯誤），其餘 stderr。
+                // **try? 是必要的**（#135 verify F1）：Foundation 的非 throwing
+                // write(_:) 在 fd 已關（1>&- / daemon 情境）時擲不可捕捉的
+                // NSFileHandleOperationException——程序 abort（rc 134）而
+                // ArgumentParser 原版對寫入失敗是靜默忽略。EPIPE 兩者行為相同
+                // （SIGPIPE），只有 EBADF 有差。
+                let handle: FileHandle = code == .success ? .standardOutput : .standardError
+                try? handle.write(contentsOf: Data((safe + "\n").utf8))
+            }
+            // 註：合成版 main 的 DEBUG async-misuse 檢查（failAsyncPlatform）未搬——
+            // 本 CLI 無 AsyncParsableCommand；若未來加入 async 子命令需一併補回。
+            Foundation.exit(exitCode(for: error).rawValue)
+        }
+    }
+
     static let configuration = CommandConfiguration(
         commandName: "akashic",
         abstract: "Akashic-Library — 檔案為本的文獻整合系統",

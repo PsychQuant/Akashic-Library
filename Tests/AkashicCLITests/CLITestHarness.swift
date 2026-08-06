@@ -32,8 +32,12 @@ enum CLITestHarness {
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
+        // **先讀到 EOF、再 waitUntilExit**（#114）：反過來會 pipe 緩衝死鎖——
+        // 輸出超過 pipe buffer（64 KB）時子程序 block 在 write、父程序 block 在
+        // waitUntilExit 互等。既有測試輸出都小所以沒踩過；#114 的 2 MB 行測試
+        // 第一個踩到。
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        return (process.terminationStatus,
-                String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
+        return (process.terminationStatus, String(decoding: data, as: UTF8.self))
     }
 }

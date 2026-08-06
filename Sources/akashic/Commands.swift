@@ -47,7 +47,7 @@ struct Doctor: ParsableCommand {
 
         let stats = try LibraryIndex(store: store).rebuild()
 
-        print("library: \(root.path)")
+        print("library: \(displaySafe(root.path, max: 800))")
         print("entries: \(stats.entries)")
         print("people: \(stats.people)")
         // 見上方 validate 的同一理由（#71）。index 不索引歧異記錄（它是短暫的、

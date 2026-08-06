@@ -1,4 +1,5 @@
 import Foundation
+import AkashicCore
 
 @main
 struct AkashicMCPMain {
@@ -8,7 +9,7 @@ struct AkashicMCPMain {
             try await server.run()
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
-            FileHandle.standardError.write(Data("akashic-mcp 啟動失敗：\(message)\n".utf8))
+            try? FileHandle.standardError.write(contentsOf: Data("akashic-mcp 啟動失敗：\(displaySafeMultiline(message))\n".utf8))
             exit(1)
         }
     }

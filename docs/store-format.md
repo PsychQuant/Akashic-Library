@@ -255,6 +255,34 @@ displayName(script) =
 **`authorized` 為選填。** 缺席合法，由 `doctor` 報告而非 `validate` 拒絕：修復所需的
 資訊（正確的對外名字）無法自動取得，設成錯誤等於把不可自動化的工作變成載入的前置條件。
 
+### 時間軸段的 `ended`：已結束、時點未知（#63）
+
+profile 時間軸（`affiliations`／`ranks`／…）的每一段，`end` 缺席的預設語意是
+**進行中**。「已結束但結束日期未知」是另一個一等的知識狀態（例：退休名單只有
+「已退休」的事實、沒有年份）——用 `ended: true` 表達：
+
+```yaml
+affiliations:
+- value: {literal: 中研院統計所}
+  start: "1985"
+  ended: true        # 已結束、時點未知——不是進行中，也不捏日期
+  source: 所方網頁退休名單
+```
+
+- `ended: true` 的段**不算 current**（status 推導得 `retired`，不是 `current`）
+- `end` 有值時 `ended: true` 是矛盾（end 即「已結束於此」）——decode **MUST** 拒絕
+- `ended: false` 冗餘但合法（等同缺席）；encode **MUST NOT** 寫出預設值
+- 重疊判定：無端點無從排除——`ended` 段視為延伸到無限遠（保守多報，交人工裁決）
+- 同一批（format 6）順帶對齊：affiliations 段的 `start:`／`end:` 的 **null 面
+  （`null`／`~`）視為缺席**——先前 `ranks` 等純字串時間軸已如此，affiliations 卻把
+  `start: null` 存成字串 `"null"`。`source:`／`note:` 維持字串語意不變
+- **non-additive，MUST bump（format 6）**——「看似 additive 其實不是」：
+  tolerant-preserve 的開放演化層只涵蓋記錄**頂層**與 `akashic` namespace（§5 v1.3），
+  時間軸**段內**的鍵是 strict（未知鍵拒絕）——舊 binary 讀到 `ended:` 是**整檔
+  quarantine**（這個人在舊 binary 消失），不是保留。refuse-if-newer 的一句
+  「請升級」遠比 per-file quarantine 誠實（#74 判準的實際運用：判 additive 前
+  先確認新鍵落在哪一層）
+
 ## 3.2 `died`：逝世與設限（normative，#67）
 
 `died` 是 ISO 8601 前綴字串（`2004` / `2004-11` / `2004-11-18`），與

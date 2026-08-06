@@ -318,8 +318,8 @@ final class AuthorizedNameTests: XCTestCase {
     // 繼續把第一個名字當顯示名——**按舊語意解讀新格式**，正是 refuse-if-newer 存在的情境。
 
     func testSupportedFormatIsRaised() {
-        XCTAssertEqual(StoreVersion.supported, 5,
-                       "廢除位置式顯示名是欄位語意變更；§5.0 準則下 MUST bump")
+        XCTAssertGreaterThanOrEqual(StoreVersion.supported, 5,
+                       "廢除位置式顯示名是欄位語意變更；§5.0 準則下 MUST bump（下限——後續 format 各有各的 bump 測試）")
     }
 
     func testNewerStoreIsRefusedAsAWhole() throws {
@@ -327,10 +327,11 @@ final class AuthorizedNameTests: XCTestCase {
             .appendingPathComponent("akashic-fmt-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent("entities"), withIntermediateDirectories: true)
-        try "format: 6\n".write(to: StoreVersion.url(in: root), atomically: true, encoding: .utf8)
+        try "format: \(StoreVersion.supported + 1)\n".write(
+            to: StoreVersion.url(in: root), atomically: true, encoding: .utf8)
         XCTAssertThrowsError(try LibraryStore(root: root).load()) { error in
             let m = "\(error)"
-            XCTAssertTrue(m.contains("6") && m.contains("5"),
+            XCTAssertTrue(m.contains("\(StoreVersion.supported + 1)") && m.contains("\(StoreVersion.supported)"),
                           "訊息要同時點名 store 的 marker 與本 binary 的上限：\(m)")
         }
         try? FileManager.default.removeItem(at: root)

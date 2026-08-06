@@ -24,7 +24,7 @@ import AkashicCore
 /// ## temporal 維度怎麼出（#20 落地後）
 ///
 /// `PersonProfile` 的每個維度是**一條時間軸**，關係式端對應一張 **long-format** 表
-/// `researcher_timeline(researcher_id, dimension, value, start, end, source)`。
+/// `researcher_timeline(researcher_id, dimension, value, start, end, end_unknown, source)`。
 ///
 /// **不攤平成寬表**（`rank_2020`、`rank_2021`…）：維度值域是開放的（新職稱只是一個
 /// 新字串），攤平會讓每個新值變成一次 schema 變更。long format 讓「歷任所長」是
@@ -101,7 +101,9 @@ public enum RelationalExport {
                     return nil   // .literal ＝ 未歸戶；懸空的 .key 也回 NULL，不造 id
                 }()
                 timelineRows.append([p.id.uuidString, "affiliation", v.value.displayName,
-                                     v.range.start, v.range.end, v.source, v.note, fk])
+                                     v.range.start, v.range.end,
+                                     v.range.endedUnknown ? "true" : nil,
+                                     v.source, v.note, fk])
             }
             let dims: [(String, Timeline)] = [
                 ("rank", p.profile.ranks),
@@ -112,7 +114,9 @@ public enum RelationalExport {
             for (dim, tl) in dims {
                 for v in tl.sorted {
                     timelineRows.append([p.id.uuidString, dim, v.value,
-                                         v.range.start, v.range.end, v.source, v.note, nil])
+                                         v.range.start, v.range.end,
+                                         v.range.endedUnknown ? "true" : nil,
+                                         v.source, v.note, nil])
                 }
             }
         }
@@ -154,8 +158,8 @@ public enum RelationalExport {
                               rows: researcherRows),
             researcherTimeline: Table(name: "researcher_timeline",
                                       columns: ["researcher_id", "dimension", "value",
-                                                "valid_start", "valid_end", "source", "note",
-                                                "organization_id"],
+                                                "valid_start", "valid_end", "valid_end_unknown",
+                                                "source", "note", "organization_id"],
                                       rows: timelineRows),
             publication: Table(name: "publication",
                                columns: ["publication_id", "citekey", "type", "title",
@@ -239,7 +243,8 @@ public enum RelationalExport {
             name_full     TEXT,
             orcid         TEXT,
             openalex      TEXT,
-            -- 以下為**現況**便利欄位，可由 researcher_timeline 推出（end IS NULL 的
+            -- 以下為**現況**便利欄位，可由 researcher_timeline 推出（valid_end IS NULL
+            -- 且 valid_end_unknown IS NULL 的
             -- 最新一段）。冗餘是刻意的：不放的話每個「現在誰是研究員」的查詢都要
             -- 自己寫一次 window function。
             affiliation_current   TEXT,
@@ -276,7 +281,10 @@ public enum RelationalExport {
             dimension     TEXT NOT NULL,
             value         TEXT NOT NULL,
             valid_start   TEXT,   -- ISO 8601 前綴，保留來源精度（2003 / 2003-01 / 2003-01-15）
-            valid_end     TEXT,   -- NULL ＝ 仍在進行中（**不是**未知）
+            -- 「進行中」的判準是 valid_end IS NULL **且** valid_end_unknown IS NULL——
+            -- 只看 valid_end 會把「已結束、時點未知」（#63 的退休 PI）拉回現職。
+            valid_end     TEXT,   -- NULL 且 valid_end_unknown 也 NULL ＝ 仍在進行中
+            valid_end_unknown BOOLEAN,  -- TRUE ＝ 已結束、時點未知（#63）；NULL ＝ 不適用
             source        TEXT,
             -- source 的另外半條命（#91）。source 分得出「名冊認證 vs 論文推得」，
             -- 但同一個來源底下的性質差異——學程關係 vs 所轄中心人員——只寫在這裡。

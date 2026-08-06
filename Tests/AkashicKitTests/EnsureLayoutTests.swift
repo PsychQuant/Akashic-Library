@@ -50,9 +50,11 @@ final class EnsureLayoutTests: XCTestCase {
         XCTAssertFalse(exists("people"),
                        "format \(StoreVersion.supported) 的 store 不該有 legacy 的 people/")
 
-        for sub in ["entities", "libraries", "notes"] {
+        for sub in ["entities", "libraries"] {
             XCTAssertTrue(exists(sub), "\(sub)/ 是現行格式在用的目錄，必須建立")
         }
+        XCTAssertFalse(exists("notes"),
+                       "notes/ 已撤下（#103）——宣告以來沒有任何寫入端，不再屬於佈局")
     }
 
     /// 已註冊的 store 的 index 住 store **之外**（`~/.akashic/index/<key>.sqlite`，#37），
@@ -86,6 +88,9 @@ final class EnsureLayoutTests: XCTestCase {
                        "前置條件：entries/ 有內容 → writeIfAbsent 標 format 1（#35 的安全點）")
         XCTAssertTrue(exists("entries"), "legacy 佈局在用 entries/")
         XCTAssertTrue(exists("people"), "legacy 佈局在用 people/")
+        XCTAssertFalse(exists("entities"),
+                       "#101 的鏡像（#102）：format 1 的 store 不該拿到永遠空著的 entities/——" +
+                       "遷移時 StoreMigration 自己建，寫入時 atomicWrite 自建父目錄，都不靠這裡")
     }
 
     /// 未註冊的 store（`--library <path>` 直指）仍需要 in-store 的 index 回落位置。
@@ -98,6 +103,40 @@ final class EnsureLayoutTests: XCTestCase {
         XCTAssertEqual(store.indexURL.path,
                        root.appendingPathComponent(".akashic")
                            .appendingPathComponent("index.sqlite").path)
+    }
+
+    // MARK: - marker 壞掉時建佈局要 fail-loud（#106）
+
+    /// `usesEntitiesLayout` 的兜底是給**寫入路由**的（#35：猜的方向與資料一致）。
+    /// 建佈局是結構性動作，猜錯的代價是雙佈局爛攤子——`ensureLayout` 必須走 strict：
+    /// marker 讀不懂就拒絕（malformed 訊息目前只描述、不含修復指引——另案）。
+    func testEnsureLayoutRefusesMalformedMarker() throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "format: banana\n".write(to: StoreVersion.url(in: root),
+                                     atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try LibraryStore(root: root).ensureLayout()) { error in
+            guard case StoreVersionError.malformed = error else {
+                return XCTFail("預期 malformed，實得 \(error)")
+            }
+        }
+        XCTAssertFalse(exists("entries"),
+                       "拒絕之後不得留下依錯誤猜測建出的目錄（現在：安靜判成 legacy 並建出它們）")
+    }
+
+    /// 比本 binary 新的 store：refuse-if-newer 的既有語意（#24）必須涵蓋建佈局的入口——
+    /// 否則 `file add` 能成功註冊一個 too-new 的 store、doctor 對它安靜蓋目錄。
+    func testEnsureLayoutRefusesNewerStore() throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try StoreVersion.write(root: root, format: StoreVersion.supported + 5)
+
+        XCTAssertThrowsError(try LibraryStore(root: root).ensureLayout()) { error in
+            guard case StoreVersionError.tooNew = error else {
+                return XCTFail("預期 tooNew，實得 \(error)")
+            }
+        }
+        XCTAssertFalse(exists("entries"))
+        XCTAssertFalse(exists("entities"))
     }
 
     // MARK: - 父目錄保證

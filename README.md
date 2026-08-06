@@ -36,14 +36,22 @@ attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox�
 ├── store.yaml                   ← format 標記（#24）；決定佈局長什麼樣
 ├── entities/<uuid>.yaml         ← canonical（版控）——work 與 person 同一個目錄，
 │                                   靠 type 欄位分辨；檔名是不變的 UUID（#35）
-├── libraries/  notes/           ← canonical（版控）
+├── libraries/                   ← canonical（版控）
 ├── config.yaml                  ← registry：files: {main: ~/.akashic} + current: main（gitignored）
 └── index/main.sqlite            ← 衍生 index，依 registry key 命名（gitignored）
 ```
 
 **佈局依 format 而定，而且只建這個 store 實際會用到的目錄**（#101）：`ensureLayout()` 對
-format ≥ 2 的 store 不建 legacy 的 `entries/`／`people/`，對**有帶 registry key** 開啟的 store
-不建 in-store 的 `.akashic/`。
+format ≥ 2 的 store 建 `entities/`、不建 legacy 的 `entries/`／`people/`（format 1 反之，#102），
+對**有帶 registry key** 開啟的 store 不建 in-store 的 `.akashic/`。
+
+`store.yaml` **壞掉或比本 binary 新**時，會建佈局的入口（`doctor`／`import-zotero`／
+`file add`；MCP 的 `import-zotero` tool 同理）**明確拒絕**（「無法解析」／「請升級」），
+不再依猜測安靜蓋目錄（#106）——對壞 marker 繼續猜的代價是雙佈局。寫入路由
+（`usesEntitiesLayout`）的容錯不變，讀寫既有資料不受影響。
+
+> ⚠️ 這不是所有指令的保證：`akashic fmt` 的全庫改寫與 `library create` 目前**不在**
+> refuse-if-newer 的保護內（#115）。
 
 反過來讀不成立——目錄的存在不是可靠判準：`--library <已註冊路徑>` 目前仍以 keyless 開啟
 （#105），`migrate` 也不刪空的 legacy 目錄。完整說明見

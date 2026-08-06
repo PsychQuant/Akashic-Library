@@ -70,7 +70,6 @@ public final class LibraryStore {
     public var entriesDir: URL { root.appendingPathComponent("entries") }
     public var peopleDir: URL { root.appendingPathComponent("people") }
     public var librariesDir: URL { root.appendingPathComponent("libraries") }
-    public var notesDir: URL { root.appendingPathComponent("notes") }
     /// #35：統一的 canonical 目錄。**分類不進路徑**——work / person / organization 與
     /// article / book 是同一個軸上的值，沒有理由前者當目錄、後者當欄位。檔名是不變的
     /// UUID，所以改 citekey 不再需要搬檔案。
@@ -125,12 +124,27 @@ public final class LibraryStore {
         // #24：新建的 store 自我聲明格式。既有檔不覆寫（可能是較新版本寫的）。
         try StoreVersion.writeIfAbsent(root: root)
 
-        // 現行格式在用的目錄。`entitiesDir` 對 legacy store 也照建——`openStore()` 的
-        // library 偵測接受 `entities/` 或 `entries/` 任一，條件化它是安全的但超出 #101
-        // 的範圍，見 #102。
-        var dirs = [entitiesDir, librariesDir, notesDir]
-        // legacy 佈局才有的兩個目錄。
-        if !usesEntitiesLayout { dirs += [entriesDir, peopleDir] }
+        // **建佈局走 strict，不走 `usesEntitiesLayout` 的兜底**（#106）。那個兜底是給
+        // 寫入路由的（#35：marker 壞掉時猜的方向與資料一致），但建佈局是結構性動作——
+        // malformed 的 marker 配上空的 entities/ 會被猜成 legacy，安靜建出 entries/、
+        // people/，零訊號；too-new 的 store 則會被 file add 成功註冊。兩者都該在這裡
+        // 就拒絕：`read` 對 malformed 擲錯、tooNew 沿 refuse-if-newer（#24）的既有語意。
+        // tooNew 的訊息指路（「請升級」）；malformed 目前只描述不指路——修復指引另案。
+        let format = try StoreVersion.read(root: root)
+        guard format <= StoreVersion.supported else {
+            throw StoreVersionError.tooNew(found: format, supported: StoreVersion.supported)
+        }
+
+        // 佈局目錄依 format 二選一（#102 完成了 #101 的鏡像）：entities 佈局建
+        // `entities/`，legacy 建 `entries/`+`people/`——不再有哪個目錄是「兩邊都建」。
+        // legacy store 的 `entities/` 由真正需要它的人建：遷移時 `StoreMigration`、
+        // 消歧寫入時 `DivergenceResolve`、一般寫入時 `atomicWrite` 的父目錄保證。
+        var dirs = [librariesDir]
+        if format >= 2 {
+            dirs.append(entitiesDir)
+        } else {
+            dirs += [entriesDir, peopleDir]
+        }
         // in-store 的 index 回落位置，只有**沒帶 key 開啟**的 store 用得到（#37）。
         // 注意這是「呼叫端有沒有傳 key」而非 registry 事實——`--library` 與
         // `$AKASHIC_LIBRARY` 目前對已註冊路徑仍回 nil（#105）。

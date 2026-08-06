@@ -498,3 +498,38 @@ final class ConfigHomeConsistencyTests: XCTestCase {
                       "file list 該讀 $AKASHIC_HOME 的 registry（fake），實際輸出：\(r.output)")
     }
 }
+
+/// 建佈局的入口對壞掉的 store.yaml 必須 fail-loud（#106）。
+///
+/// 在此之前 `file add` 能成功註冊一個 format 比本 binary 新的 store、
+/// `doctor` 對 malformed marker 的 store 安靜蓋出 legacy 目錄——兩者都零訊號。
+///
+/// （merge 收斂：原內嵌的 runCLI 已遷移到 `CLITestHarness`——#119 verify V2。）
+final class EnsureLayoutStrictCLITests: XCTestCase {
+    func testFileAddRefusesTooNewStore() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-toonew-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let home = tmp.appendingPathComponent("home")
+        let store = tmp.appendingPathComponent("store")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
+        try "format: 99\n".write(to: store.appendingPathComponent("store.yaml"),
+                                 atomically: true, encoding: .utf8)
+
+        let r = try CLITestHarness.run(["file", "add", "main", store.path,
+                                        "--config", home.appendingPathComponent("config.yaml").path],
+                                       env: ["AKASHIC_HOME": home.path])
+        XCTAssertNotEqual(r.status, 0, "too-new 的 store 不得被成功註冊")
+        XCTAssertTrue(r.output.contains("升級"), "錯誤訊息要指路（請升級）：\(r.output)")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: store.appendingPathComponent("entries").path),
+            "拒絕之後不得留下猜出來的目錄")
+        // **registry 必須未被寫入**（#112 verify）——「拒絕註冊」的本體是這一條，
+        // 不是 exit code。現況成立靠的是 FileAdd.run 裡 ensureLayout 先於 config.write
+        // 的順序，這個斷言把那個順序釘住。
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: home.appendingPathComponent("config.yaml").path),
+            "拒絕之後 config 不得被建立/寫入——否則 registry 已含一個打不開的 store")
+    }
+}

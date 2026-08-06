@@ -95,8 +95,8 @@ public enum CanonicalFormat {
     /// `people/`。判準不是「store 宣稱哪個 format」而是「磁碟上有什麼」——遷移中途
     /// 的 store 兩邊都有檔案，只走一邊會讓另一邊永遠對不齊。
     ///
-    /// `libraries/` 與 `notes/` 不在內：前者的 registry 形狀沒有 timeline、後者不是
-    /// entity。把它們一起走要先回答「它們的 canonical form 是什麼」，那是另一件事。
+    /// `libraries/` 不在內：registry 形狀沒有 timeline、不是 entity。把它納進來
+    /// 要先回答「registry 的 canonical form 是什麼」，那是另一件事。
     static func recordFiles(in store: LibraryStore) throws -> [URL] {
         let fm = FileManager.default
         var out: [URL] = []

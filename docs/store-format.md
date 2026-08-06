@@ -3,8 +3,11 @@
 Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版；
 實作＝`AkashicCore`（型別/YAML/citekey）＋ `AkashicStoreIO`（讀寫）。
 
-原則：**檔案是本體，資料庫是 cache**。記錄檔與 `notes/` 是 canonical、git 追蹤；
+原則：**檔案是本體，資料庫是 cache**。記錄檔是 canonical、git 追蹤；
 衍生的 index 可全刪重建。
+
+> `notes/<citekey>/*.md` 曾在此宣告為佈局的一部分，但自宣告以來沒有任何寫入端，
+> 已於 #103 撤下。日後真要做衍生筆記，從設計開始另開 issue。
 
 ## 1. Library 佈局
 
@@ -18,7 +21,6 @@ Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版�
 ├── store.yaml                  format 標記（§5）
 ├── entities/<uuid>.yaml        全部記錄：work / person / organization / divergence
 ├── libraries/<key>.yaml        library registry（§2.9）
-├── notes/<citekey>/*.md        衍生筆記（自己的產出）
 └── .akashic/                   **僅未註冊的 store**：in-store 的 index 回落位置
 ```
 
@@ -30,7 +32,6 @@ Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版�
 ├── entries/<citekey>.yaml      每筆文獻一檔
 ├── people/<person-key>.yaml    人物實體
 ├── libraries/<key>.yaml
-├── notes/<citekey>/*.md
 └── .akashic/                   同上：僅在沒傳 registry key 時才有
 ```
 
@@ -42,10 +43,12 @@ Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版�
 | 目錄 | `ensureLayout()` 何時建 |
 |---|---|
 | `entries/` `people/` | 僅 format 1 |
-| `entities/` | 一律（兩種 format 都建；條件化它見 #102）|
+| `entities/` | 僅 format ≥ 2（#102）|
 | `libraries/` | 一律 |
-| `notes/` | 一律（**目前沒有任何寫入端**，見 #103）|
 | `.akashic/` | 僅當開這個 store 的呼叫端**沒有傳 registry key** |
+
+`store.yaml` malformed 或 too-new 時 `ensureLayout()` **整體拒絕、零磁碟副作用**——
+不會依猜測建任何目錄（normative 定義見 §5.0，#106）。
 
 **已註冊的 store 的 index 住 store 之外**（`~/.akashic/index/<key>.sqlite`，#37）：
 store root 正是會進 Dropbox／git 的東西，而同步樹裡的 live SQLite 是已知的毀檔風險
@@ -501,6 +504,16 @@ index 一起被清掉。
   才報錯等於把「請升級」變成一堆難解的 per-file 錯誤。
 - `ensureLayout()` **MUST NOT** 覆寫既有的 `store.yaml`（那可能是較新版本寫的，覆寫等於在
   使用者跑一個看似無害的 `doctor` 時把防線自毀）。
+- `ensureLayout()`（建佈局的入口：`doctor`／`import-zotero`／`file add`／MCP 的
+  `import-zotero`）**MUST** 對 malformed 與 too-new 的 marker 拒絕（#106）——建佈局是
+  結構性動作，依猜測建目錄的代價是雙佈局。`usesEntitiesLayout` 的**寫入路由**兜底
+  （marker 壞掉時以磁碟事實猜）不在此限，維持 #35 語意。拒絕 **MUST** 零磁碟副作用
+  （不得留下依錯誤猜測建出的目錄）。
+- marker 解析 **MUST** 不把**縮排**（任何空白開頭，Unicode Zs ∪ tab）的 `format:`
+  行當候選（#112 verify：巢狀鍵曾贏過頂層真值，讓 format 5 的 store 被讀成 1、安靜
+  建出雙佈局）。頂層無 `format:` 行 → malformed。**已知限制**：解析是行為本的，
+  不解析 YAML 結構——flow mapping 內出現在第 0 欄的鍵不在此防護內；marker grammar
+  的完整定案見 #117。
 
 **版本對照**（source of truth 是 `StoreVersion.supported` 的文件註解；下表為對照）：
 

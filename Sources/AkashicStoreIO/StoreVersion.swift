@@ -59,6 +59,20 @@ public enum StoreVersion {
         guard FileManager.default.fileExists(atPath: u.path) else { return 1 }
         let text = try String(contentsOf: u, encoding: .utf8)
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            // **只認頂層的 `format:` 行**（#112 verify）。先 trim 再比對會讓巢狀在別的
+            // mapping 底下的 `format:`（外來 store 的 `meta:\n  format: 1`）贏過頂層
+            // 真值——實測後果是 format 5 的 store 被讀成 1，doctor 安靜建出雙佈局，
+            // 正是 #106 要關掉的症狀。縮排行不是 marker 的候選。
+            //
+            // 守衛字元集**必須與下面 trim 的一致**（Unicode Zs ∪ tab）——R2 抓到只擋
+            // ASCII space/tab 時，NBSP／全形空格縮排的巢狀鍵照樣贏。
+            //
+            // **誠實邊界**：這是行解析器，不解析 YAML 結構。flow mapping 裡出現在
+            // 第 0 欄的鍵（`meta: {\nformat: 1,…`）在語意上是巢狀的，但本解析器會
+            // 當成頂層——marker 是自產檔（`write` 的模板），完整的「外來 store 開啟」
+            // 防護是 #108/#114 的信任邊界工作，marker grammar 的定案見 #117。
+            guard let first = raw.unicodeScalars.first,
+                  !CharacterSet.whitespaces.contains(first) else { continue }
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.isEmpty || line.hasPrefix("#") { continue }
             guard line.hasPrefix("format:") else { continue }

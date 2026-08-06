@@ -99,10 +99,17 @@ final class StoreVersionTests: XCTestCase {
 
     /// **不覆寫既有檔**——那可能是較新版本寫的，覆寫等於把 refuse-if-newer 的依據
     /// 自己抹掉（而且是在使用者跑一個看似無害的 `doctor` 時發生）。
+    ///
+    /// #106 之後契約更強：`ensureLayout` 對 too-new 的 store **直接拒絕**（先前只是
+    /// 不覆寫但照樣蓋目錄）。本測試守的性質不變——marker 原封不動——外加拒絕語意。
     func testEnsureLayoutDoesNotOverwriteNewerMarker() throws {
         try writeMarker("format: 99\n")
         let store = LibraryStore(root: root)
-        try store.ensureLayout()
+        XCTAssertThrowsError(try store.ensureLayout()) { error in
+            guard case StoreVersionError.tooNew = error else {
+                return XCTFail("預期 tooNew，實得 \(error)")
+            }
+        }
         XCTAssertEqual(try StoreVersion.read(root: root), 99, "既有標記被覆寫＝防線自毀")
     }
 
@@ -144,5 +151,41 @@ final class StoreVersionTests: XCTestCase {
         XCTAssertTrue(load.quarantined.isEmpty, "store.yaml 不該進 quarantine：\(load.quarantined)")
         XCTAssertTrue(load.entries.isEmpty)
         XCTAssertTrue(load.libraries.isEmpty)
+    }
+}
+
+/// marker 解析只認**頂層**的 `format:` 行（#112 verify DA A1）。
+///
+/// `read` 曾是「逐行 trim 後前綴比對、第一個匹配勝出」——於是巢狀在別的 mapping
+/// 底下的 `format:`（例如外來 store 的 `meta:\n  format: 1`）會贏過頂層的真值。
+/// 實測後果：`format: 5` 的 store 被讀成 1 → doctor exit 0 並安靜建出雙佈局——
+/// 這正是 #106 宣稱關掉的症狀，被一個 5 行的 YAML 檔繞回來。
+extension StoreVersionTests {
+    func testNestedFormatKeyDoesNotShadowTopLevel() throws {
+        try writeMarker("meta:\n  format: 1\nformat: 5\n")
+        XCTAssertEqual(try StoreVersion.read(root: root), 5,
+                       "巢狀的 format: 不是 marker——頂層的才是")
+        try writeMarker("meta:\n  format: 9\nformat: 5\n")
+        XCTAssertEqual(try StoreVersion.read(root: root), 5,
+                       "巢狀值比 supported 大也不得造成誤拒")
+    }
+
+    /// 守衛的字元集必須與 trim 的一致（#112 verify R2，兩個 lens + Codex 收斂）：
+    /// 只擋 ASCII space/tab 而 trim 吃整個 Unicode Zs，NBSP／全形空格縮排的巢狀鍵
+    /// 仍會贏過頂層。
+    func testUnicodeWhitespaceIndentedNestedKeyDoesNotShadow() throws {
+        try writeMarker("meta:\n\u{00A0}\u{00A0}format: 1\nformat: 5\n")
+        XCTAssertEqual(try StoreVersion.read(root: root), 5, "NBSP 縮排的巢狀鍵不是候選")
+        try writeMarker("meta:\n\u{3000}format: 1\nformat: 5\n")
+        XCTAssertEqual(try StoreVersion.read(root: root), 5, "全形空格縮排同理")
+    }
+
+    func testOnlyNestedFormatKeyIsMalformed() throws {
+        try writeMarker("meta:\n  format: 5\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in
+            guard case StoreVersionError.malformed = error else {
+                return XCTFail("預期 malformed（頂層沒有 format: 行），實得 \(error)")
+            }
+        }
     }
 }

@@ -64,6 +64,41 @@ final class DisplaySinkCoverageTests: XCTestCase {
         return out
     }
 
+    /// 抓出一行裡所有 `"key": <value>` 字典值表達式（#138 verify F2）。
+    ///
+    /// **插值不是唯一的 sink 形狀。** MCP 面的輸出走 JSON dict——值是裸表達式、
+    /// 不經 `\( … )`，只掃插值的守衛對它整面全盲（mutation 實測：拔掉
+    /// `displaySafe` 後 U+202E 逐字回流 LLM）。值的邊界用括號深度感知的逗號
+    /// 切分——`displaySafe($0.file, max: 300)` 內部的逗號不是邊界。
+    private func dictValues(in line: String) -> [String] {
+        var out: [String] = []
+        let chars = Array(line)
+        var i = 0
+        while i < chars.count - 2 {
+            if chars[i] == "\"" && chars[i + 1] == ":" {
+                var j = i + 2
+                while j < chars.count && chars[j] == " " { j += 1 }
+                var depth = 0
+                var buf = ""
+                while j < chars.count {
+                    let c = chars[j]
+                    if c == "(" || c == "[" || c == "{" { depth += 1 }
+                    if c == ")" || c == "]" || c == "}" {
+                        if depth == 0 { break }
+                        depth -= 1
+                    }
+                    if c == "," && depth == 0 { break }
+                    buf.append(c)
+                    j += 1
+                }
+                out.append(buf)
+                i = j
+            }
+            i += 1
+        }
+        return out
+    }
+
     func testNoUnsanitisedStoreStringReachesUserVisibleOutput() throws {
         var violations: [String] = []
 
@@ -82,13 +117,24 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 let isSink = l.contains("print(") || l.contains("jsonString(")
                     || l.contains("d[\"") || l.contains("result[\"") || l.contains("\": ")
                 guard isSink else { continue }
+                // switch 的 `case "x": stmt` 不是 dict 值——冒號後是語句。
+                // **誠實邊界**：這也豁免了 case 行內的真 dict（如
+                // `case .literal(let s): return ["literal": s]`），且短變數名值
+                // 本就不含可比對 token——那類站點靠人工 + 功能測試釘住。
+                if l.trimmingCharacters(in: .whitespaces).hasPrefix("case ") { continue }
 
-                for expr in interpolations(in: l) {
+                for expr in interpolations(in: l) + dictValues(in: l) {
                     guard taintedTokens.contains(where: { expr.contains($0) }) else { continue }
                     if expr.contains("displaySafe(") { continue }
-                    // `.count` / `.isEmpty` 等是數量不是內容
+                    // `.count` / `.isEmpty` 是數量不是內容；`!= nil` / `== nil` 是
+                    // Bool 存在測試（如 hasJudgement）——都到不了內容本身
                     if expr.contains(".count") || expr.contains(".isEmpty") { continue }
-                    violations.append("\(name):\(idx + 1)  \\(\(expr))")
+                    if expr.contains("!= nil") || expr.contains("== nil") { continue }
+                    // 多行 closure 的開頭行（`… { author -> T in`）：實際輸出在
+                    // 後續行——closure 體若是 `case` 行則落入上方 case 豁免的
+                    // 誠實邊界，否則仍會被逐行掃到
+                    if expr.hasSuffix(" in") || expr.hasSuffix("{") { continue }
+                    violations.append("\(name):\(idx + 1)  \(expr)")
                 }
             }
         }
@@ -114,5 +160,12 @@ final class DisplaySinkCoverageTests: XCTestCase {
         XCTAssertTrue(exprs.allSatisfy { e in
             taintedTokens.contains { e.contains($0) } && !e.contains("displaySafe(")
         }, "判準抓不到已知的壞樣式")
+        // dict-value 形狀（#138 verify F2 的 mutation 靶）：值是裸表達式、無插值
+        let badDict = #""question": d.question,"#
+        let vals = dictValues(in: badDict)
+        XCTAssertEqual(vals, ["d.question"], "dict 值抽取失效：\(vals)")
+        // 消毒後同形狀必須通過；內部逗號不得被當成值邊界
+        let goodDict = #""question": displaySafe(d.question, max: 400),"#
+        XCTAssertEqual(dictValues(in: goodDict), ["displaySafe(d.question, max: 400)"])
     }
 }

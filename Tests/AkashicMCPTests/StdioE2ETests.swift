@@ -143,5 +143,18 @@ final class StdioE2ETests: XCTestCase {
         let load = try LibraryStore(root: root).load()
         XCTAssertEqual(load.divergences.first?.judgement?.statement, "同一人")
         XCTAssertEqual(load.divergences.first?.judgement?.restsOn, ["https://example.org/roster"])
+
+        // #138 verify F4：akashic_divergences 不只出現在 tools/list，還要真的
+        // 打得通——dispatch switch 的 case 標籤打錯字，只有實際呼叫抓得到。
+        try send([
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": ["name": "akashic_divergences", "arguments": [:]],
+        ])
+        let listResp = try readResponse()
+        let listResult = listResp["result"] as? [String: Any]
+        XCTAssertNotEqual(listResult?["isError"] as? Bool, true, "\(listResp)")
+        let listText = ((listResult?["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
+        XCTAssertTrue(listText.contains("縮寫是否同一人"), "list 要含剛記下的 question：\(listText)")
+        XCTAssertTrue(listText.contains("\"count\""), listText)
     }
 }

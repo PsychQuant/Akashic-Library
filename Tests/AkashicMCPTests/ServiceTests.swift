@@ -51,6 +51,43 @@ final class ServiceTests: XCTestCase {
         try JSONSerialization.jsonObject(with: Data(s.utf8))
     }
 
+    /// #138 verify F1：fatal cross-record（重複 citekey）時 doctor 必須**說話**而
+    /// 不是把 SQLite 的 UNIQUE constraint 內部錯誤丟給 consumer。CLI 的 #35 順序
+    /// （跨記錄檢查先於 rebuild）在 MCP 面必須同樣成立。
+    func testDoctorSurvivesFatalCrossRecordIssues() throws {
+        // 構造重複 citekey：複製一筆 entry 檔、換 UUID（檔名與 id 同步換，
+        // 否則先被 filename≠id 的 quarantine 擋住，到不了 rebuild）
+        let entities = root.appendingPathComponent("entities")
+        let src = try XCTUnwrap(FileManager.default
+            .contentsOfDirectory(at: entities, includingPropertiesForKeys: nil)
+            .first { (try? String(contentsOf: $0, encoding: .utf8))?
+                .contains("cheng2025identifiability") == true })
+        let newID = UUID().uuidString
+        let dup = try String(contentsOf: src, encoding: .utf8)
+            .replacingOccurrences(of: src.deletingPathExtension().lastPathComponent,
+                                  with: newID)
+        try dup.write(to: entities.appendingPathComponent("\(newID).yaml"),
+                      atomically: true, encoding: .utf8)
+
+        let out = try service.doctor()   // 不得 throw
+        XCTAssertFalse(out.contains("UNIQUE constraint"),
+                       "SQLite 內部錯誤不得露給 consumer：\(out)")
+        let obj = try json(out) as! [String: Any]
+        XCTAssertEqual(obj["indexRebuilt"] as? Bool, false, "fatal 時不重建 index：\(out)")
+        let cross = try XCTUnwrap(obj["crossRecordIssues"] as? [String: Any])
+        let first = try XCTUnwrap(cross["first"] as? [[String: String]])
+        XCTAssertTrue(first.contains { $0["severity"] == "error" },
+                      "severity 要逐條攜帶（✗/⚠ 之別不得只在 CLI 面）：\(out)")
+    }
+
+    /// #138 verify F3：CLI doctor 的普查面（#81/#82）MCP 也要有。
+    func testDoctorReportsCensusFacetsMirroringCLI() throws {
+        let obj = try json(try service.doctor()) as! [String: Any]
+        XCTAssertEqual(obj["indexRebuilt"] as? Bool, true)
+        XCTAssertNotNil(obj["noAuthorizedName"], "#81 面向不得只在 CLI 可見")
+        XCTAssertNotNil(obj["authorizedOnlyByCitationForm"], "#82 面向不得只在 CLI 可見")
+    }
+
     func testSearchByJournal() throws {
         let out = try service.search(journal: "Psychometrika")
         let arr = try json(out) as! [[String: Any]]

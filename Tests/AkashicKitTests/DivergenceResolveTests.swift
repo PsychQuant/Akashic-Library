@@ -332,6 +332,27 @@ final class DivergenceResolveTests: XCTestCase {
         XCTAssertEqual(load.divergences.count, 1, "歧異記錄保留，修好後可重跑")
     }
 
+    /// #139 verify F1 的 regression：shape 專屬拒絕（wouldLoseFields）preview 也要擲
+    /// ——它是最高頻的拒絕（兩筆各帶一半識別碼），dry-run 對它沉默等於在最需要
+    /// 預告的場景上失效。
+    func testPreviewRejectsWouldLoseFieldsSameAsActual() throws {
+        let d = try seed(into: store)
+        // 被併者帶 keeper 沒有的 orcid → 實跑會拒
+        var merged = try XCTUnwrap(try store.load().people.first { $0.key == "fann-cathy-s-j-2" })
+        merged.orcid = "0000-0002-1825-0097"
+        try store.writePerson(merged)
+        GitFixture.commitAll(store.root, message: "orcid on doomed")
+
+        for run in [{ try self.store.previewResolveDivergence(id: d.id, survivor: "fann-cathy-s-j") },
+                    { try self.store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j") }] {
+            XCTAssertThrowsError(try run(), "preview 與實跑必須擲同樣的拒絕") { error in
+                guard case DivergenceResolveError.wouldLoseFields = error else {
+                    return XCTFail("預期 wouldLoseFields，實得 \(error)")
+                }
+            }
+        }
+    }
+
     /// preview 與實跑擲**同樣的**拒絕——dry-run 放行而實跑被擋是在騙人。
     func testPreviewRejectsSameAsActual() throws {
         let d = try seed(into: store)

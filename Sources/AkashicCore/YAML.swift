@@ -1470,8 +1470,10 @@ extension PersonYAML {
                 guard let name = k.scalar?.string else {
                     throw StoreYAMLError.invalidField("person.profile.contacts", "鍵必須是字串")
                 }
+                // #139 verify F2：name 是**檔案裡的 mapping key**（未信任），進
+                // context 前消毒——否則下游 throw 的 errorDescription 帶原始位元組
                 p.contacts[name] = try decodeTimeline(
-                    v, context: "person.profile.contacts.\(name)")
+                    v, context: "person.profile.contacts.\(displaySafe(name, max: 120))")
             }
         }
         return p
@@ -1494,7 +1496,7 @@ extension PersonYAML {
                 guard let n = m[k] else { return nil }
                 if n.null != nil { return nil }
                 guard let s = n.scalar?.string else {
-                    throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")   // display-safe-exempt: k 是呼叫端字面常量、context 程式構造
+                    throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")   // display-safe-exempt: k 是呼叫端字面常量；context 程式構造或呼叫端已消毒（contacts name 先 displaySafe，#139 F2）
                 }
                 return s
             }
@@ -1514,7 +1516,7 @@ extension PersonYAML {
             guard let n = m[k] else { return nil }
             if n.null != nil { return nil }
             guard let s = n.scalar?.string else {
-                throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")   // display-safe-exempt: k 是呼叫端字面常量、context 程式構造
+                throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")   // display-safe-exempt: k 是呼叫端字面常量；context 程式構造或呼叫端已消毒（contacts name 先 displaySafe，#139 F2）
             }
             return s
         }

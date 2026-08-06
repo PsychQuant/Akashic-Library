@@ -331,11 +331,18 @@ extension LibraryStore {
         report.merged = mergedKeys.sorted()
         switch shape {
         case .person:
+            // shape 專屬拒絕與實跑共用（#139 verify F1）：wouldLoseFields／
+            // candidateMissing／assertAllInEntities 在 preview 也要擲——dry-run
+            // 對最高頻的 wouldLoseFields 沉默，就是在最需要預告的場景上失效
+            _ = try validatePersonPreconditions(
+                survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
             for e in snapshot.entries where e.authors.contains(where: {
                 if case let .key(k) = $0 { return merged.contains(k) }
                 return false
             }) { report.rewritten.append(e.citekey) }
         case .work:
+            _ = try validateWorkPreconditions(
+                survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
             // 與實跑同：keeper 與被併記錄不進 rewritten（keeper 走獨立寫回、
             // doomed 走刪除）。
             let doomedIDs = Set(snapshot.entries
@@ -361,10 +368,14 @@ extension LibraryStore {
 
     // MARK: - person
 
-    private func resolvePersonDivergence(record: Divergence, survivor: String,
-                                         mergedKeys: [String],
-                                         snapshot: LibraryLoad) throws -> ResolveReport {
-        guard var keeper = snapshot.people.first(where: { $0.key == survivor }) else {
+    /// person 側的 shape 專屬拒絕條件（#139 verify F1）：keeper／doomed 查找、
+    /// `assertAllInEntities`、`fieldsLostByMerging`——**preview 與實跑共用這一份**。
+    /// 曾經只在實跑路徑內：dry-run 對最高頻的 `wouldLoseFields`（兩筆各帶一半
+    /// 識別碼）完全沉默，「跑同樣的拒絕條件」的宣稱是假的。
+    func validatePersonPreconditions(survivor: String, mergedKeys: [String],
+                                     snapshot: LibraryLoad) throws
+        -> (keeper: Person, doomed: [Person]) {
+        guard let keeper = snapshot.people.first(where: { $0.key == survivor }) else {
             throw DivergenceResolveError.candidateMissing(key: survivor, shape: "person")
         }
         var doomed: [Person] = []
@@ -386,6 +397,33 @@ extension LibraryStore {
                     merged: p.key, survivor: survivor, losses: losses)
             }
         }
+        return (keeper, doomed)
+    }
+
+    /// work 側的 shape 專屬拒絕條件（#139 verify F1，與 person 側對稱）。
+    /// work 無 `fieldsLostByMerging` 閘——那是 #75 對二要補的（合併不搬欄位）。
+    func validateWorkPreconditions(survivor: String, mergedKeys: [String],
+                                   snapshot: LibraryLoad) throws
+        -> (keeper: Entry, doomed: [Entry]) {
+        guard let keeper = snapshot.entries.first(where: { $0.citekey == survivor }) else {
+            throw DivergenceResolveError.candidateMissing(key: survivor, shape: "work")
+        }
+        var doomed: [Entry] = []
+        for key in mergedKeys {
+            guard let e = snapshot.entries.first(where: { $0.citekey == key }) else {
+                throw DivergenceResolveError.candidateMissing(key: key, shape: "work")
+            }
+            doomed.append(e)
+        }
+        try assertAllInEntities(([keeper] + doomed).map { ($0.citekey, $0.id) })
+        return (keeper, doomed)
+    }
+
+    private func resolvePersonDivergence(record: Divergence, survivor: String,
+                                         mergedKeys: [String],
+                                         snapshot: LibraryLoad) throws -> ResolveReport {
+        var (keeper, doomed) = try validatePersonPreconditions(
+            survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
         // 別名併入倖存者：被併者的寫法保留，否則下次遇到那個寫法又會重新分割一次。
         keeper.names = dedupePreservingOrder(keeper.names + doomed.flatMap(\.names))
 
@@ -423,17 +461,8 @@ extension LibraryStore {
     private func resolveWorkDivergence(record: Divergence, survivor: String,
                                        mergedKeys: [String],
                                        snapshot: LibraryLoad) throws -> ResolveReport {
-        guard let keeper = snapshot.entries.first(where: { $0.citekey == survivor }) else {
-            throw DivergenceResolveError.candidateMissing(key: survivor, shape: "work")
-        }
-        var doomed: [Entry] = []
-        for key in mergedKeys {
-            guard let e = snapshot.entries.first(where: { $0.citekey == key }) else {
-                throw DivergenceResolveError.candidateMissing(key: key, shape: "work")
-            }
-            doomed.append(e)
-        }
-        try assertAllInEntities(([keeper] + doomed).map { ($0.citekey, $0.id) })
+        let (keeper, doomed) = try validateWorkPreconditions(
+            survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
         let merged = Set(mergedKeys)
         let doomedIDs = Set(doomed.map(\.id))
         func migrate(_ keys: [String]) -> [String] {
@@ -538,6 +567,23 @@ extension LibraryStore {
         for d in otherToWrite { _ = try DivergenceYAML.encode(d) }
 
         var report = ResolveReport()
+        // #78-1（#139 verify F5 上移）：可預期的刪除失敗在**動任何磁碟之前**檢查
+        // ——放在 keeperWrite 之後只能得到「別名已併、參照已改寫、什麼都沒刪」；
+        // 放在這裡，immutable／不可刪的情況是**完全的 no-op**，與 resolveDivergence
+        // doc「所有拒絕條件都在動磁碟之前」一致。TOCTOU 與真 I/O 錯誤仍由下方
+        // 收容路徑處理。
+        let allDoomedURLs = doomedIDs.map { entityURL(id: $0) }
+            + (collapsed + [record]).map { entityURL(id: $0.id) }
+        let undeletable = allDoomedURLs.filter {
+            FileManager.default.fileExists(atPath: $0.path) && !Self.isDeletableUpfront($0)
+        }
+        guard undeletable.isEmpty else {
+            report.failures.append(
+                "以下檔案不可刪（immutable flag 或目錄權限），未動任何檔案"
+                + "（修好後可重跑同一個 id）："
+                + undeletable.map(\.lastPathComponent).sorted().joined(separator: ", "))
+            return report
+        }
         do {
             _ = try keeperWrite()
         } catch {
@@ -577,24 +623,6 @@ extension LibraryStore {
             report.rewritten.sort()
             return report
         }
-        // #78-1：可預期的刪除失敗**前移**。「全刪或全不刪」在沒有交易的檔案系統上
-        // 只能逼近——動手前檢查每個要刪的檔案可刪（父目錄可寫、無 immutable flag），
-        // 任何一個不可刪就**一個都不刪**。這與 `assertAllInEntities` 是同一個做法
-        // 的兩個實例：把可預期的失敗擋在動磁碟之前。檢查後仍發生的失敗（TOCTOU、
-        // 真正的 I/O 錯誤）由下方收容路徑處理——那是逼近的誠實殘餘，不是矛盾。
-        let allDoomedURLs = doomedIDs.map { entityURL(id: $0) }
-            + (collapsed + [record]).map { entityURL(id: $0.id) }
-        let undeletable = allDoomedURLs.filter {
-            FileManager.default.fileExists(atPath: $0.path) && !Self.isDeletableUpfront($0)
-        }
-        guard undeletable.isEmpty else {
-            report.failures.append(
-                "以下檔案不可刪（immutable flag 或目錄權限），未刪除任何東西"
-                + "（修好後可重跑同一個 id）；但\(survivorNote)："
-                + undeletable.map(\.lastPathComponent).sorted().joined(separator: ", "))
-            report.rewritten.sort()
-            return report
-        }
         for id in doomedIDs {
             // 檔案已不存在 = 這一步先前已完成。重跑必須冪等，否則「修好後重跑」
             // 這句話對部分完成的狀態是假的。
@@ -619,18 +647,36 @@ extension LibraryStore {
             return report
         }
         report.merged = mergedKeys.sorted()
-        for d in collapsed + [record] {
-            // 檔案不在 = 先前已刪。不回報成本輪的成果——回報一件沒做的事，
-            // 與靜默同樣誤導。
+        // #139 verify F4：塌縮記錄**先**刪、全部成功**才**刪主記錄。順序反了或
+        // 收容後繼續，主記錄會在塌縮記錄刪失敗時被刪掉——重跑同一個 id 只得
+        // recordNotFound，而失敗的塌縮記錄留在磁碟上、候選還是未遷移的舊鍵，
+        // §5.8 的「歧異記錄 MUST 保留」變成假話。
+        for d in collapsed {
             guard FileManager.default.fileExists(atPath: entityURL(id: d.id).path) else { continue }
             do {
                 try FileManager.default.removeItem(at: entityURL(id: d.id))
                 report.removedDivergences.append(d.id.uuidString)
-                if d.id != record.id {   // #78-2：使用者沒指名的塌縮刪除，帶 question
-                    report.collapsedDetails.append((id: d.id.uuidString, question: d.question))
-                }
+                // #78-2：使用者沒指名的塌縮刪除，帶 question
+                report.collapsedDetails.append((id: d.id.uuidString, question: d.question))
             } catch {
-                report.failures.append("刪除歧異記錄 \(d.id.uuidString) 失敗："
+                report.failures.append("刪除塌縮的歧異記錄 \(d.id.uuidString) 失敗："
+                    + ((error as? LocalizedError)?.errorDescription ?? String(describing: error)))
+            }
+        }
+        guard !report.hasFailures else {
+            report.failures.append(
+                "因塌縮記錄刪除失敗，主歧異記錄保留（修好後可重跑同一個 id）")
+            report.rewritten.sort()
+            report.removedDivergences.sort()
+            return report
+        }
+        // 檔案不在 = 先前已刪。不回報成本輪的成果——回報一件沒做的事，與靜默同樣誤導。
+        if FileManager.default.fileExists(atPath: entityURL(id: record.id).path) {
+            do {
+                try FileManager.default.removeItem(at: entityURL(id: record.id))
+                report.removedDivergences.append(record.id.uuidString)
+            } catch {
+                report.failures.append("刪除歧異記錄 \(record.id.uuidString) 失敗："
                     + ((error as? LocalizedError)?.errorDescription ?? String(describing: error)))
             }
         }

@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+@testable import AkashicCore
 
 /// #28：**sink coverage 的機械守衛**。
 ///
@@ -128,5 +129,32 @@ final class DisplaySinkCoverageTests: XCTestCase {
         XCTAssertTrue(exprs.allSatisfy { e in
             taintedTokens.contains { e.contains($0) } && !e.contains("displaySafe(")
         }, "判準抓不到已知的壞樣式")
+    }
+}
+
+/// #139 verify F2 的行為面 regression：contacts 的 mapping key 來自檔案，
+/// 它進 errorDescription 前必須被消毒——掃描守衛管的是原始碼形狀，這條管行為。
+extension DisplaySinkCoverageTests {
+    func testContactsDirtyKeyDoesNotLeakRawBytesIntoError() {
+        // 裸控制字元進不了 YAML（libyaml reader 先擋）——真正的注入路徑是
+        // 雙引號的 \u escape，parser 在 reader 檢查**之後**解碼（#144 verify 同發現）
+        let yaml = """
+        person:
+        id: 33333333-4444-5555-6666-777777777777
+        key: dirty-contact
+        names:
+        - D
+        profile:
+          contacts:
+            "email\\u001B[31mEVIL":
+              value: not-a-sequence
+        """
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertFalse(msg.contains("\u{1B}"),
+                           "原始 ESC 不得進 errorDescription：\(msg.debugDescription)")
+            XCTAssertTrue(msg.contains("u{001B}") || msg.contains("EVIL"),
+                          "消毒後仍要可辨認：\(msg)")
+        }
     }
 }

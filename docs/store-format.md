@@ -3,8 +3,11 @@
 Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版；
 實作＝`AkashicCore`（型別/YAML/citekey）＋ `AkashicStoreIO`（讀寫）。
 
-原則：**檔案是本體，資料庫是 cache**。記錄檔與 `notes/` 是 canonical、git 追蹤；
+原則：**檔案是本體，資料庫是 cache**。記錄檔是 canonical、git 追蹤；
 衍生的 index 可全刪重建。
+
+> `notes/<citekey>/*.md` 曾在此宣告為佈局的一部分，但自宣告以來沒有任何寫入端，
+> 已於 #103 撤下。日後真要做衍生筆記，從設計開始另開 issue。
 
 ## 1. Library 佈局
 
@@ -18,7 +21,6 @@ Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版�
 ├── store.yaml                  format 標記（§5）
 ├── entities/<uuid>.yaml        全部記錄：work / person / organization / divergence
 ├── libraries/<key>.yaml        library registry（§2.9）
-├── notes/<citekey>/*.md        衍生筆記（自己的產出）
 └── .akashic/                   **僅未註冊的 store**：in-store 的 index 回落位置
 ```
 
@@ -30,7 +32,6 @@ Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版�
 ├── entries/<citekey>.yaml      每筆文獻一檔
 ├── people/<person-key>.yaml    人物實體
 ├── libraries/<key>.yaml
-├── notes/<citekey>/*.md
 └── .akashic/                   同上：僅在沒傳 registry key 時才有
 ```
 
@@ -44,7 +45,6 @@ Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版�
 | `entries/` `people/` | 僅 format 1 |
 | `entities/` | 一律（兩種 format 都建；條件化它見 #102）|
 | `libraries/` | 一律 |
-| `notes/` | 一律（**目前沒有任何寫入端**，見 #103）|
 | `.akashic/` | 僅當開這個 store 的呼叫端**沒有傳 registry key** |
 
 **已註冊的 store 的 index 住 store 之外**（`~/.akashic/index/<key>.sqlite`，#37）：

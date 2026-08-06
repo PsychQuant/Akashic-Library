@@ -36,7 +36,7 @@ attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox�
 ├── store.yaml                   ← format 標記（#24）；決定佈局長什麼樣
 ├── entities/<uuid>.yaml         ← canonical（版控）——work 與 person 同一個目錄，
 │                                   靠 type 欄位分辨；檔名是不變的 UUID（#35）
-├── libraries/  notes/           ← canonical（版控）
+├── libraries/                   ← canonical（版控）
 ├── config.yaml                  ← registry：files: {main: ~/.akashic} + current: main（gitignored）
 └── index/main.sqlite            ← 衍生 index，依 registry key 命名（gitignored）
 ```

@@ -70,7 +70,6 @@ public final class LibraryStore {
     public var entriesDir: URL { root.appendingPathComponent("entries") }
     public var peopleDir: URL { root.appendingPathComponent("people") }
     public var librariesDir: URL { root.appendingPathComponent("libraries") }
-    public var notesDir: URL { root.appendingPathComponent("notes") }
     /// #35：統一的 canonical 目錄。**分類不進路徑**——work / person / organization 與
     /// article / book 是同一個軸上的值，沒有理由前者當目錄、後者當欄位。檔名是不變的
     /// UUID，所以改 citekey 不再需要搬檔案。
@@ -128,7 +127,7 @@ public final class LibraryStore {
         // 現行格式在用的目錄。`entitiesDir` 對 legacy store 也照建——`openStore()` 的
         // library 偵測接受 `entities/` 或 `entries/` 任一，條件化它是安全的但超出 #101
         // 的範圍，見 #102。
-        var dirs = [entitiesDir, librariesDir, notesDir]
+        var dirs = [entitiesDir, librariesDir]
         // legacy 佈局才有的兩個目錄。
         if !usesEntitiesLayout { dirs += [entriesDir, peopleDir] }
         // in-store 的 index 回落位置，只有**沒帶 key 開啟**的 store 用得到（#37）。

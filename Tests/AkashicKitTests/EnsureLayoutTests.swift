@@ -50,9 +50,11 @@ final class EnsureLayoutTests: XCTestCase {
         XCTAssertFalse(exists("people"),
                        "format \(StoreVersion.supported) 的 store 不該有 legacy 的 people/")
 
-        for sub in ["entities", "libraries", "notes"] {
+        for sub in ["entities", "libraries"] {
             XCTAssertTrue(exists(sub), "\(sub)/ 是現行格式在用的目錄，必須建立")
         }
+        XCTAssertFalse(exists("notes"),
+                       "notes/ 已撤下（#103）——宣告以來沒有任何寫入端，不再屬於佈局")
     }
 
     /// 已註冊的 store 的 index 住 store **之外**（`~/.akashic/index/<key>.sqlite`，#37），

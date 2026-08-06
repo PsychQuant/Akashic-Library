@@ -48,7 +48,7 @@ final class StoreIOTests: XCTestCase {
     /// 所以它用 `entities/`／`libraries/`／`notes/` 加上 in-store 的 index 回落位置；
     /// legacy 的 `entries/`／`people/` 不在其中。完整的條件對照由 `EnsureLayoutTests` 覆蓋。
     func testEnsureLayoutCreatesDirectories() {
-        for sub in ["entities", "libraries", "notes", ".akashic"] {
+        for sub in ["entities", "libraries", ".akashic"] {   // notes/ 已撤下（#103）
             var isDir: ObjCBool = false
             let exists = FileManager.default.fileExists(
                 atPath: root.appendingPathComponent(sub).path, isDirectory: &isDir)

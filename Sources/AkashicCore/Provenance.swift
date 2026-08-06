@@ -62,6 +62,9 @@ public struct ProvenanceReference: Equatable {
         guard !field.isEmpty else {
             throw StoreYAMLError.missingField("reference.field")
         }
+        // field 來自 YAML 檔案（未信任）——錯誤訊息一律用消毒後的值（#139 守衛
+        // 合併掃描面後照出；行級掃描對跨行 throw 有盲區，所以這裡整批處理）
+        let safeField = displaySafe(field, max: 120)
         let hasRetrievalSide = url != nil || retrieved != nil || status != nil
             || mediaType != nil || content != nil
         let hasJudgementSide = judgement != nil || !restsOn.isEmpty
@@ -70,36 +73,36 @@ public struct ProvenanceReference: Equatable {
         case (true, true):
             if content != nil {
                 throw StoreYAMLError.invalidField(
-                    "reference(field: \(field))",
+                    "reference(field: \(safeField))",
                     "判斷型 reference 不得帶 content——判斷不是擷取，沒有自己的位元組；"
                     + "它依據的內容以 rests-on 指名")
             }
             throw StoreYAMLError.invalidField(
-                "reference(field: \(field))",
+                "reference(field: \(safeField))",
                 "擷取型欄位（url/retrieved/status/media-type）與判斷型欄位"
                 + "（judgement/rests-on）不得混用——兩種 reference 互斥")
         case (false, false):
             throw StoreYAMLError.invalidField(
-                "reference(field: \(field))",
+                "reference(field: \(safeField))",
                 "無法辨識種類：擷取型需要 url/retrieved/status/content，"
                 + "判斷型需要 judgement/rests-on，兩側都是空的")
         case (true, false):
-            guard let url else { throw StoreYAMLError.missingField("reference(field: \(field)).url") }
+            guard let url else { throw StoreYAMLError.missingField("reference(field: \(safeField)).url") }   // display-safe-exempt: safeField 已於本 init 開頭 displaySafe
             guard let retrieved else {
-                throw StoreYAMLError.missingField("reference(field: \(field)).retrieved")
+                throw StoreYAMLError.missingField("reference(field: \(safeField)).retrieved")   // display-safe-exempt: safeField 已消毒
             }
             guard let status else {
-                throw StoreYAMLError.missingField("reference(field: \(field)).status")
+                throw StoreYAMLError.missingField("reference(field: \(safeField)).status")   // display-safe-exempt: safeField 已消毒
             }
             guard let content else {
                 throw StoreYAMLError.missingField(
-                    "reference(field: \(field)).content——只有 URL 不構成 provenance，"
+                    "reference(field: \(safeField)).content——只有 URL 不構成 provenance，"
                     + "內容的 digest 是必要的另一半")
             }
             guard Self.isValidDigest(content) else {
                 throw StoreYAMLError.invalidField(
-                    "reference(field: \(field)).content",
-                    "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(content)」")
+                    "reference(field: \(safeField)).content",
+                    "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafe(content, max: 120))」")
             }
             self.init(field: field, value: value,
                       kind: .retrieval(url: url, retrieved: retrieved, status: status,
@@ -107,16 +110,16 @@ public struct ProvenanceReference: Equatable {
         case (false, true):
             guard let judgement, !judgement.isEmpty else {
                 throw StoreYAMLError.missingField(
-                    "reference(field: \(field)).judgement——沒有斷言的依據不知道在支持什麼")
+                    "reference(field: \(safeField)).judgement——沒有斷言的依據不知道在支持什麼")
             }
             guard !restsOn.isEmpty else {
                 throw StoreYAMLError.missingField(
-                    "reference(field: \(field)).rests-on——沒有依據的斷言不是判斷")
+                    "reference(field: \(safeField)).rests-on——沒有依據的斷言不是判斷")
             }
             for d in restsOn where !Self.isValidDigest(d) {
                 throw StoreYAMLError.invalidField(
-                    "reference(field: \(field)).rests-on",
-                    "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(d)」")
+                    "reference(field: \(safeField)).rests-on",
+                    "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafe(d, max: 120))」")
             }
             self.init(field: field, value: value,
                       kind: .judgement(statement: judgement, restsOn: restsOn))
@@ -163,17 +166,17 @@ public enum ProvenanceYAML {
 
     public static func decode(_ node: Node, context: String) throws -> [ProvenanceReference] {
         guard let seq = node.sequence else {
-            throw StoreYAMLError.invalidField("\(context).references", "必須是 sequence")
+            throw StoreYAMLError.invalidField("\(context).references", "必須是 sequence")   // display-safe-exempt: context 是呼叫端字面量（person/organization）
         }
         return try seq.enumerated().map { (i, item) in
             guard let map = item.mapping else {
                 throw StoreYAMLError.invalidField(
-                    "\(context).references[\(i)]", "每筆 reference 必須是 mapping")
+                    "\(context).references[\(i)]", "每筆 reference 必須是 mapping")   // display-safe-exempt: context 是呼叫端字面量（person/organization）、i 是索引
             }
             for k in map.keys.compactMap({ $0.scalar?.string }) where !knownKeys.contains(k) {
                 throw StoreYAMLError.invalidField(
                     "\(context).references[\(i)]",
-                    "不認得的鍵「\(k)」——reference 內的鍵是 strict（合法鍵："
+                    "不認得的鍵「\(displaySafe(k, max: 120))」——reference 內的鍵是 strict（合法鍵："
                     + knownKeys.sorted().joined(separator: "、") + "）")
             }
             func scalar(_ key: String) throws -> String? {

@@ -280,6 +280,31 @@ extension ProvenanceTests {
         }
     }
 
+    /// #145 R2 的 R1：org 側純量-value 守衛的測試——person/org 對稱實作只測一邊
+    /// 是本 PR 出現三次的形狀，這條把 org 側釘住。
+    func testOrganizationScalarFieldWithValueRejected() {
+        let d = "sha256:" + String(repeating: "ab", count: 32)
+        let yaml = """
+        organization:
+        id: 44444444-5555-6666-7777-888888888888
+        key: stat-sinica
+        names:
+        - value: 中央研究院統計科學研究所
+        founded: '1987'
+        references:
+        - field: founded
+          value: "偷渡的值"
+          url: https://example.org/f
+          retrieved: 2026-08-03
+          status: 200
+          content: \(d)
+        """
+        XCTAssertThrowsError(try OrganizationYAML.decode(yaml)) { error in
+            XCTAssertTrue(message(error).contains("純量") || message(error).contains("value"),
+                          message(error))
+        }
+    }
+
     /// F5：`references:` 為 null（手改殘留）當缺席，不 quarantine——與兄弟欄位一致。
     func testNullReferencesIsAbsentNotError() throws {
         let yaml = personYAML(references: "references:")

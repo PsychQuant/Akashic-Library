@@ -45,7 +45,10 @@ final class DateFieldReportTests: XCTestCase {
         LibraryLoad(people: people, organizations: organizations)
     }
 
-    func testAnomaliesFindsBadValuesAcrossAllFourFieldFamilies() {
+    /// **11 個掃描點每個都種一個獨特壞值**（#144 verify F4：曾只種 6 點，
+    /// administrative/appointments/fields/contacts/parents 五點可以整段拔掉而
+    /// 完整 suite 全綠——計數斷言對它們全盲）。
+    func testAnomaliesFindsBadValuesAcrossAllElevenScanPoints() {
         var p = Person(key: "bad-person")
         p.died = "2004-13-99"
         p.profile.affiliations = TimelineOf([
@@ -53,22 +56,33 @@ final class DateFieldReportTests: XCTestCase {
                           range: DateRange(start: "not-a-date", end: "2010"))])
         p.profile.ranks = Timeline([
             TemporalValue(value: "研究員", range: DateRange(start: "2003", end: "tomorrow"))])
+        p.profile.administrative = Timeline([
+            TemporalValue(value: "所長", range: DateRange(start: "bad-admin"))])
+        p.profile.appointments = Timeline([
+            TemporalValue(value: "全職", range: DateRange(start: "bad-appt"))])
+        p.profile.fields = Timeline([
+            TemporalValue(value: "統計", range: DateRange(start: "bad-field"))])
+        p.profile.contacts = ["email": Timeline([
+            TemporalValue(value: "x@y", range: DateRange(start: "bad-contact"))])]
         var org = Organization(key: "bad-org")
         org.founded = "民國九十三年"
         org.dissolved = "2004-1"
         org.names = TimelineOf([
             TemporalValue(value: "舊名", range: DateRange(start: "2004-00"))])
+        org.parents = TimelineOf([
+            TemporalValue(value: OrgRef.literal("上級"),
+                          range: DateRange(start: "bad-parent"))])
 
         let found = makeLoad(people: [p], organizations: [org]).dateFieldAnomalies()
         let fields = found.map(\.field)
-        XCTAssertTrue(fields.contains("died"), "\(found)")
-        XCTAssertTrue(fields.contains { $0.contains("affiliations") }, "\(found)")
-        XCTAssertTrue(fields.contains { $0.contains("ranks") }, "\(found)")
-        XCTAssertTrue(fields.contains("founded"), "\(found)")
-        XCTAssertTrue(fields.contains("dissolved"), "\(found)")
-        XCTAssertTrue(fields.contains { $0.contains("names") }, "\(found)")
-        XCTAssertEqual(found.count, 6,
-            "壞值逐筆列出（同段的合法 start/end 不連帶）：\(found)")
+        for expected in ["died", "affiliations", "ranks", "administrative",
+                         "appointments", "fields", "contacts.email",
+                         "founded", "dissolved", "names", "parents"] {
+            XCTAssertTrue(fields.contains { $0.contains(expected) },
+                          "掃描點 \(expected) 沒接上：\(found)")
+        }
+        XCTAssertEqual(found.count, 11,
+            "11 個掃描點各一筆（同段的合法 start/end 不連帶）：\(found)")
         // 報告帶原值——修復需要知道原本寫了什麼
         XCTAssertTrue(found.contains { $0.value == "2004-13-99" })
     }

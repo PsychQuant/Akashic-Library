@@ -386,7 +386,9 @@ canary 攔下。那不成立——關聯匯出不經過 canary，而 canary 的�
 
 **#85 把這個沿襲變成裁決**：值域是文件契約、驗證是 `doctor` 報告、載入不擋。
 `doctor` 對四個日期樣欄位（`DateRange.start`/`end`、`founded`/`dissolved`、`died`）
-逐筆列出不合值域的值（key＋欄位＋原值，命中才輸出）——回報而非拒絕，判斷屬使用端，
+逐筆列出不合值域的值（key＋欄位＋原值，命中才輸出）。**`entry.date` 刻意不在掃描
+範圍**：biblatex/EDTF 允許區間、季節、約略與 `unknown`/`open`——它的值域屬
+biblatex 契約，ISO 前綴檢查對它全是假陽性——回報而非拒絕，判斷屬使用端，
 與重疊報告、authorized-name 缺口報告同一形狀。值域判定只驗月 01–12、日 01–31，
 **不驗日曆**（`2004-02-30` 通過）——日曆級驗證需要曆法假設，對歷史資料是另一個裁決。
 `endedUnknown` 段的 `end` 缺席是合法而非缺值，報告用 `isOpen` 語意、不裸看 `nil`。

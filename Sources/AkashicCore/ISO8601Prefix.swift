@@ -7,6 +7,10 @@ import Foundation
 /// 整個 store 載入不了）；`doctor` 用本判定把不合值域的列出來——回報而非拒絕，
 /// 判斷屬使用端。四個日期樣欄位（`DateRange.start/end`、`organization.founded/
 /// dissolved`、`person.died`）一致適用。
+///
+/// **`Entry.date` 刻意排除**（#144 verify F6 的追問）：biblatex/EDTF 的 date 合法
+/// 地包含區間（`2003/2004`）、季節、約略（`2003~`）與 `unknown`/`open`——拿去過
+/// ISO 前綴檢查會把報告灌爆假陽性。它的值域屬 biblatex 契約，不屬本判定。
 public enum ISO8601Prefix {
 
     /// 月 01–12、日 01–31 的值域檢查；**不驗日曆**（`2004-02-30` 通過）——

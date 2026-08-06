@@ -124,12 +124,23 @@ public final class LibraryStore {
         // #24：新建的 store 自我聲明格式。既有檔不覆寫（可能是較新版本寫的）。
         try StoreVersion.writeIfAbsent(root: root)
 
+        // **建佈局走 strict，不走 `usesEntitiesLayout` 的兜底**（#106）。那個兜底是給
+        // 寫入路由的（#35：marker 壞掉時猜的方向與資料一致），但建佈局是結構性動作——
+        // malformed 的 marker 配上空的 entities/ 會被猜成 legacy，安靜建出 entries/、
+        // people/，零訊號；too-new 的 store 則會被 file add 成功註冊。兩者都該在這裡
+        // 就拒絕：`read` 對 malformed 擲錯、tooNew 沿 refuse-if-newer（#24）的既有語意，
+        // 錯誤訊息自己指路（「無法解析」／「請升級」）。
+        let format = try StoreVersion.read(root: root)
+        guard format <= StoreVersion.supported else {
+            throw StoreVersionError.tooNew(found: format, supported: StoreVersion.supported)
+        }
+
         // 佈局目錄依 format 二選一（#102 完成了 #101 的鏡像）：entities 佈局建
         // `entities/`，legacy 建 `entries/`+`people/`——不再有哪個目錄是「兩邊都建」。
         // legacy store 的 `entities/` 由真正需要它的人建：遷移時 `StoreMigration`、
         // 消歧寫入時 `DivergenceResolve`、一般寫入時 `atomicWrite` 的父目錄保證。
         var dirs = [librariesDir]
-        if usesEntitiesLayout {
+        if format >= 2 {
             dirs.append(entitiesDir)
         } else {
             dirs += [entriesDir, peopleDir]

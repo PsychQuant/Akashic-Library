@@ -472,3 +472,53 @@ extension CLIIntegrationTests {
         XCTAssertEqual(deceasedContradictionSection(r.stdout), expected, r.stdout)
     }
 }
+
+/// 建佈局的入口對壞掉的 store.yaml 必須 fail-loud（#106）。
+///
+/// 在此之前 `file add` 能成功註冊一個 format 比本 binary 新的 store、
+/// `doctor` 對 malformed marker 的 store 安靜蓋出 legacy 目錄——兩者都零訊號。
+final class EnsureLayoutStrictCLITests: XCTestCase {
+    private var productsDirectory: URL {
+        for bundle in Bundle.allBundles where bundle.bundlePath.hasSuffix(".xctest") {
+            return bundle.bundleURL.deletingLastPathComponent()
+        }
+        fatalError("找不到 products directory")
+    }
+
+    private func runCLI(_ args: [String], env: [String: String]) throws -> (status: Int32, output: String) {
+        let process = Process()
+        process.executableURL = productsDirectory.appendingPathComponent("akashic")
+        process.arguments = args
+        var childEnv = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
+        for (k, v) in env { childEnv[k] = v }
+        process.environment = childEnv
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+        let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        return (process.terminationStatus, out)
+    }
+
+    func testFileAddRefusesTooNewStore() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-toonew-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let home = tmp.appendingPathComponent("home")
+        let store = tmp.appendingPathComponent("store")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
+        try "format: 99\n".write(to: store.appendingPathComponent("store.yaml"),
+                                 atomically: true, encoding: .utf8)
+
+        let r = try runCLI(["file", "add", "main", store.path,
+                            "--config", home.appendingPathComponent("config.yaml").path],
+                           env: ["AKASHIC_HOME": home.path])
+        XCTAssertNotEqual(r.status, 0, "too-new 的 store 不得被成功註冊")
+        XCTAssertTrue(r.output.contains("升級"), "錯誤訊息要指路（請升級）：\(r.output)")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: store.appendingPathComponent("entries").path),
+            "拒絕之後不得留下猜出來的目錄")
+    }
+}

@@ -99,10 +99,17 @@ final class StoreVersionTests: XCTestCase {
 
     /// **不覆寫既有檔**——那可能是較新版本寫的，覆寫等於把 refuse-if-newer 的依據
     /// 自己抹掉（而且是在使用者跑一個看似無害的 `doctor` 時發生）。
+    ///
+    /// #106 之後契約更強：`ensureLayout` 對 too-new 的 store **直接拒絕**（先前只是
+    /// 不覆寫但照樣蓋目錄）。本測試守的性質不變——marker 原封不動——外加拒絕語意。
     func testEnsureLayoutDoesNotOverwriteNewerMarker() throws {
         try writeMarker("format: 99\n")
         let store = LibraryStore(root: root)
-        try store.ensureLayout()
+        XCTAssertThrowsError(try store.ensureLayout()) { error in
+            guard case StoreVersionError.tooNew = error else {
+                return XCTFail("預期 tooNew，實得 \(error)")
+            }
+        }
         XCTAssertEqual(try StoreVersion.read(root: root), 99, "既有標記被覆寫＝防線自毀")
     }
 

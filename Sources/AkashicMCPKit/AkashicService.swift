@@ -33,11 +33,13 @@ public final class AkashicService {
     /// `~/.akashic/index/`（`testFilesUseSwitchesUniverseCompletely` 實際踩到）。
     let environment: [String: String]
 
-    public init(root: URL, key: String? = nil, configURL: URL = AkashicConfig.defaultURL,
+    public init(root: URL, key: String? = nil, configURL: URL? = nil,
                 environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.root = root
         self.storeKey = key
-        self.configURL = configURL
+        // configURL 與 environment 必須同源（#110，AppState 同款）——預設由
+        // env-aware 的 AkashicHome 解析，而非寫死真實家目錄。
+        self.configURL = configURL ?? AkashicHome.configURL(environment: environment)
         self.environment = environment
     }
 

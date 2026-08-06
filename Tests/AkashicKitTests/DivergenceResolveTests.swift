@@ -353,6 +353,35 @@ final class DivergenceResolveTests: XCTestCase {
         }
     }
 
+    /// #139 R2 複驗的 R1：work 側 preview 驗證的 regression——person 側有測試守著、
+    /// work 側沒有＝留著 F1（兩條路徑分開維護）的復發面。
+    func testWorkPreviewRejectsCandidateMissingSameAsActual() throws {
+        var e1 = Entry(id: UUID(), citekey: "w2020a", type: "article", title: "A")
+        var e2 = Entry(id: UUID(), citekey: "w2021b", type: "article", title: "B")
+        try store.writeEntry(e1)
+        try store.writeEntry(e2)
+        let d = Divergence(
+            id: UUID(), question: "是否同一篇",
+            candidates: [DivergenceCandidate(key: "w2020a", shape: .work),
+                         DivergenceCandidate(key: "w2021b", shape: .work)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(store.root, message: "seed work pair")
+        // 候選的 entity 檔被外力刪掉
+        try FileManager.default.removeItem(at: store.entityURL(id: e2.id))
+        GitFixture.commitAll(store.root, message: "remove candidate file")
+
+        for run in [{ try self.store.previewResolveDivergence(id: d.id, survivor: "w2020a") },
+                    { try self.store.resolveDivergence(id: d.id, survivor: "w2020a") }] {
+            XCTAssertThrowsError(try run(), "work 側 preview 與實跑必須擲同樣的拒絕") { error in
+                guard case DivergenceResolveError.candidateMissing(let key, let shape) = error else {
+                    return XCTFail("預期 candidateMissing，實得 \(error)")
+                }
+                XCTAssertEqual(key, "w2021b")
+                XCTAssertEqual(shape, "work")
+            }
+        }
+    }
+
     /// preview 與實跑擲**同樣的**拒絕——dry-run 放行而實跑被擋是在騙人。
     func testPreviewRejectsSameAsActual() throws {
         let d = try seed(into: store)

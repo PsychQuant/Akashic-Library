@@ -57,11 +57,10 @@ in-store 的 `.akashic/index.sqlite`。
 
 > ⚠️ **反過來讀不成立**：目錄的存在**不是**可靠的判準。
 >
-> - **`.akashic/` 存在 ≠ 這個 store 未註冊。** `key` 反映的是「這次呼叫有沒有傳 key」，
->   不是 registry 事實。`LibraryLocator.resolveDetailed` 對 `--library <path>` 與
->   `$AKASHIC_LIBRARY` **一律回 `key: nil`**，即使那個路徑就登記在 `files:` 裡——於是
->   `akashic doctor --library <已註冊路徑>` 仍會在該 store 內建出 `.akashic/` 並寫第二份
->   index。要讓「存在即未註冊」成立，得先讓那條路徑反查 registry：**見 #105**。
+> - **`.akashic/` 存在 ≠ 這個 store 未註冊**——它可能是 #105 之前的殘留（`doctor` 的
+>   殘留報告會列出，#107）。#105 之後 `--library <path>` 與 `$AKASHIC_LIBRARY` 對已註冊
+>   路徑**反查 registry 帶 key**，keyless 只剩「真的未註冊」；但歷史殘留與手動搬移仍讓
+>   「存在即未註冊」不可反推。
 > - **`entries/` 存在 ≠ format 1。** `migrate` 搬完檔案後不刪空目錄，所以就地遷移過的
 >   store 會同時有空的 `entries/` 與 format ≥ 2 的 marker。
 >

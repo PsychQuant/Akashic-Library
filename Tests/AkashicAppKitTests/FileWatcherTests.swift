@@ -204,6 +204,42 @@ final class FileWatcherRebindTests: XCTestCase {
                       "重建後目錄內的寫入必須觸發 onChange——舊 fd 綁死 inode 就是靜默失聰")
     }
 
+    func testReopenFailureKeepsRetrySignal() throws {
+        // #126 verify 複驗缺陷 B（PROBE-INV）：同路徑替換成**不可開**的目錄時，
+        // rebind 沿用舊（死）source——此時 invalidated 旗標若被無條件清掉，
+        // 下次 rebind 看集合沒變、旗標空 → 早退，該目錄永久失聰。
+        // 旗標保留 ＝ 權限恢復後的下一個 event 把它重開回來。
+        let entries = dir.appendingPathComponent("entries")
+        try FileManager.default.createDirectory(at: entries, withIntermediateDirectories: true)
+        let lock = NSLock()
+        var count = 0
+        let watcher = FileWatcher(
+            directoryProvider: { self.existing([self.dir!, entries]) },
+            debounce: 0.1) {
+            lock.lock(); count += 1; lock.unlock()
+        }
+        try watcher.start()
+        defer { watcher.stop() }
+
+        // 同路徑替換 + 立即封權限：rename event 標 invalidated、reopen 失敗
+        try FileManager.default.removeItem(at: entries)
+        try FileManager.default.createDirectory(at: entries, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: entries.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: entries.path) }
+        _ = eventually(timeout: 1.0) { false }   // 讓 replace 事件的 rebind 跑完（reopen 失敗）
+
+        // 權限恢復 + root 層 event → 下一輪 rebind 必須重開（retry 訊號還在）
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: entries.path)
+        try "t".write(to: dir.appendingPathComponent("touch.yaml"),
+                      atomically: true, encoding: .utf8)
+        Thread.sleep(forTimeInterval: 0.4)
+        lock.lock(); let before = count; lock.unlock()
+        try "x".write(to: entries.appendingPathComponent("alive.yaml"),
+                      atomically: true, encoding: .utf8)
+        XCTAssertTrue(eventually { lock.lock(); defer { lock.unlock() }; return count > before },
+                      "reopen 失敗的 retry 訊號被清掉＝該目錄永久失聰（watchedPaths 仍報健康）")
+    }
+
     func testPartialOpenFailureKeepsRootAndRecovers() throws {
         // verify F3（PROBE8 的 silent-shrink）：want 中某目錄開不起來（EACCES）時，
         // 不得把整個監看集合縮到只剩 root 而無恢復路徑——root 恆在，權限恢復後

@@ -52,7 +52,7 @@ public final class FileWatcher {
     private var pending: DispatchWorkItem?
     private var stopped = true
     private let queue: DispatchQueue
-    private static let queueKey = DispatchSpecificKey<UInt8>()
+    private static let queueKey = DispatchSpecificKey<ObjectIdentifier>()
 
     public init(directoryProvider: @escaping () -> [URL], debounce: TimeInterval = 0.5,
                 onChange: @escaping () -> Void) {
@@ -60,7 +60,12 @@ public final class FileWatcher {
         self.debounce = debounce
         self.onChange = onChange
         self.queue = DispatchQueue(label: "akashic.filewatcher")
-        queue.setSpecific(key: Self.queueKey, value: 1)
+        // **值必須是 per-instance 的**（#126 verify 複驗缺陷 A）：static key + 常數值
+        // + presence-only 檢查，會讓 watcher A 的回呼裡碰 watcher B 時，B 的
+        // onQueueSync 誤判「已在自己的 queue 上」而無鎖直改 B 的 queue-confined
+        // 狀態——把 loud crash 換成 silent corruption。ObjectIdentifier 比對讓
+        // 「在某個 watcher 的 queue 上」≠「在**我的** queue 上」。
+        queue.setSpecific(key: Self.queueKey, value: ObjectIdentifier(self))
     }
 
     /// 固定目錄集合的便利建構（provider 版的常量特例）。
@@ -100,7 +105,7 @@ public final class FileWatcher {
     /// 就直接執行；否則 `queue.sync` 進入。dispatch 的 `sync` 對自己持有的 queue
     /// 是 crash 不是等待——這個檢查是 watchedPaths/stop 可以從回呼內安全呼叫的原因。
     private func onQueueSync<T>(_ body: () throws -> T) rethrows -> T {
-        if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
+        if DispatchQueue.getSpecific(key: Self.queueKey) == ObjectIdentifier(self) {
             return try body()
         }
         return try queue.sync(execute: body)
@@ -170,12 +175,14 @@ public final class FileWatcher {
         guard Set(want) != have || !invalidated.isEmpty else { return }
 
         var next: [String: DispatchSourceFileSystemObject] = [:]
+        var reopened: Set<String> = []
         for path in want where next[path] == nil {
             if let existing = sources[path], !invalidated.contains(path) {
                 next[path] = existing          // 沿用既有 source，fd 不重開
             } else if let source = makeSource(path: path) {
                 next[path] = source
                 source.resume()
+                reopened.insert(path)
             } else if let existing = sources[path] {
                 next[path] = existing          // 重開失敗：舊的可能還活著，別自斷
             }
@@ -187,7 +194,12 @@ public final class FileWatcher {
             source.cancel()                     // 消失／被換掉的：殭屍 fd 不是監看
         }
         sources = next
-        invalidated.removeAll()
+        // **只清實際重開成功的**（#126 verify 複驗缺陷 B）：無條件 removeAll 會把
+        // 「reopen 失敗、沿用舊 source」的 path 的 retry 訊號一併清掉——下次 rebind
+        // 看集合沒變、invalidated 空 → 早退，該目錄永久失聰而 watchedPaths 仍報健康
+        //（正是 F1 要關的失效模式從窄路回歸）。保留旗標＝下一個 event 再試。
+        invalidated.subtract(reopened)
+        invalidated.formIntersection(Set(sources.keys))   // 已不在集合的不必再追
     }
 
     /// debounce：密集變更（如 import wave）合併為一次通知。

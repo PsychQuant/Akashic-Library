@@ -1450,6 +1450,50 @@ extension PersonYAML {
         return TimelineOf(out)
     }
 
+    /// #68：部分更新入口的可更新欄位集合——由 decoder 的 known keys **推導**
+    /// （白名單不手寫；#75 的 prefers、#66 的 references 落地時自動納入，不必記得
+    /// 回來改）。結構性鍵（id/key/type/形狀標籤）排除：它們是記錄的身分，不是資料。
+    public static var updatableKeys: Set<String> {
+        knownPersonKeys.subtracting(["id", "key", "type"])
+            .subtracting(EntityKind.knownLabels)
+    }
+
+    /// #68：單一 profile 維度的 decode——部分更新的**維度級**覆寫用。
+    /// 與 `decodeProfile` 走同一條 decode 路徑（形狀驗證、ended 矛盾防線、
+    /// null-face 拒收），同一個概念只有一套判準。
+    public static func decodeProfileDimension(_ name: String, node: Node,
+                                              into profile: inout PersonProfile) throws {
+        if name == "affiliations" {
+            profile.affiliations = try decodeOrgTimeline(
+                node, context: "person.profile.affiliations")
+            return
+        }
+        if let (_, path) = timelineKeys.first(where: { $0.0 == name }) {
+            profile[keyPath: path] = try decodeTimeline(
+                node, context: "person.profile.\(name)")
+            return
+        }
+        if name == "contacts" {
+            guard let cm = node.mapping else {
+                throw StoreYAMLError.invalidField("person.profile.contacts", "必須是 mapping")
+            }
+            var contacts: [String: Timeline] = [:]
+            for (k, v) in cm {
+                guard let n = k.scalar?.string else {
+                    throw StoreYAMLError.invalidField("person.profile.contacts", "鍵必須是字串")
+                }
+                contacts[n] = try decodeTimeline(v, context: "person.profile.contacts.\(n)")
+            }
+            profile.contacts = contacts
+            return
+        }
+        throw StoreYAMLError.invalidField(
+            "person.profile",
+            "不認得的維度「\(name)」——合法維度："
+            + (timelineKeys.map(\.0) + ["affiliations", "contacts"]).sorted()
+                .joined(separator: "、"))
+    }
+
     static func decodeProfile(_ m: Node.Mapping) throws -> PersonProfile {
         try EntryYAML.rejectUnknownKeys(
             m, known: Set(timelineKeys.map(\.0) + ["affiliations", "contacts"]),

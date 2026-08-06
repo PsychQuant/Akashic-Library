@@ -158,6 +158,17 @@ actor AkashicMCPServer {
                 "names": strArray("aliases（第一個為顯示名）"),
                 "orcid": str("ORCID（可選）"), "openalex": str("OpenAlex author ID（可選）"),
              ], required: ["key", "names"])),
+        Tool(name: "akashic_update_person",
+             description: "person 的部分更新（#68）：提及的欄位整個換、未提及一律不動。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names/authorized 收字串陣列（全量替換）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）。dry_run 時零寫入、回報會改什麼 + format gate 預演。",
+             inputSchema: obj([
+                "key": str("person key"),
+                "fields": .object([
+                    "type": .string("object"),
+                    "description": .string("要更新的欄位（結構化 JSON，見工具描述）"),
+                ]),
+                "dry_run": .object(["type": .string("boolean"),
+                                    "description": .string("true＝只預告不寫入（預設 false）")]),
+             ], required: ["key", "fields"])),
         Tool(name: "akashic_divergences",
              description: "列出全部歧異記錄（id/question/候選/有無判斷）。list-only——消歧屬人工（CLI resolve-divergence）。",
              inputSchema: obj([:])),
@@ -256,6 +267,19 @@ actor AkashicMCPServer {
             case "akashic_add_person":
                 output = try service.addPerson(key: arg("key") ?? "", names: argList("names"),
                                                orcid: arg("orcid"), openalex: arg("openalex"))
+            case "akashic_update_person":
+                guard let fieldsValue = params.arguments?["fields"],
+                      case .object = fieldsValue else {
+                    return CallTool.Result(
+                        content: [.text(text: "fields 必須是 object", annotations: nil, _meta: nil)],
+                        isError: true)
+                }
+                let dryRun: Bool
+                if case .bool(let b)? = params.arguments?["dry_run"] { dryRun = b } else { dryRun = false }
+                output = try service.updatePerson(
+                    key: arg("key") ?? "",
+                    fields: valueToAny(fieldsValue) as? [String: Any] ?? [:],
+                    dryRun: dryRun)
             case "akashic_divergences":
                 output = try service.listDivergences()
             case "akashic_record_divergence":
@@ -273,5 +297,20 @@ actor AkashicMCPServer {
             let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
             return CallTool.Result(content: [.text(text: "Error: \(message)", annotations: nil, _meta: nil)], isError: true)
         }
+    }
+}
+
+/// MCP `Value` → Foundation `Any`（#68：update_person 的 fields 收任意巢狀 JSON）。
+/// bool 用 NSNumber(booleanLiteral)——AkashicService 端以 CFBoolean 判定還原。
+func valueToAny(_ v: Value) -> Any {
+    switch v {
+    case .null: return NSNull()
+    case .bool(let b): return NSNumber(booleanLiteral: b)
+    case .int(let i): return i
+    case .double(let d): return d
+    case .string(let s): return s
+    case .data(_, let d): return d
+    case .array(let arr): return arr.map(valueToAny)
+    case .object(let dict): return dict.mapValues(valueToAny)
     }
 }

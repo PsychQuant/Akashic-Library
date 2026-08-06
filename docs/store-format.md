@@ -50,6 +50,11 @@ Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版�
 `store.yaml` malformed 或 too-new 時 `ensureLayout()` **整體拒絕、零磁碟副作用**——
 不會依猜測建任何目錄（normative 定義見 §5.0，#106）。
 
+index 帶**身分戳記**（#122）：`index_identity` 表記錄它是為哪個 store root（canonical
+path）、何時、以多少筆記錄建的。讀端的 `isCurrent` 比對 schema 版本**與**身分——
+registry 路徑被重新利用（舊 store 刪除、新 store 用同一 key）時，`index/<key>.sqlite`
+是別的 store 建的，只看版本會整份讀到別人的資料。
+
 **既有 store 的殘留**由 `doctor` 報告（#107，report-only 不代刪）：依當前 format 與 key
 不該存在、且為**空目錄或純衍生物**的路徑（migrate 留下的空 legacy 目錄、keyless 時期的
 孤兒 in-store index、#103 撤下後的空 `notes/`）。含資料的目錄永不報；`sources/`（#66 的

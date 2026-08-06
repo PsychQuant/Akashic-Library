@@ -58,6 +58,8 @@ format ≥ 2 的 store 建 `entities/`、不建 legacy 的 `entries/`／`people/
 
 `index/` 刻意**不**放在 canonical 樹裡：它可重建（536 筆約 0.55 s），而 store root 正是會進
 Dropbox / git 的東西——在同步樹裡放 live SQLite 是已知的毀檔風險（partial write、conflict copy）。
+index 自帶**身分戳記**（#122）：記錄它是為哪個 store root 建的，讀端比對身分不只 schema
+版本——registry 路徑被重新利用時，別的 store 建的 index 不再被誤當自己的。
 未註冊的 store（`--library <path>` 直指）則回落 in-store `.akashic/index.sqlite`，因為那種 store
 不在 registry 治理範圍內。
 

@@ -530,8 +530,10 @@ public final class AkashicService {
 
     /// index stale（entries/people 有更新 mtime 或 index 缺）→ 重建，再開 QueryEngine。
     func ensureFreshIndex() throws {
-        // schema 版本先於 mtime：舊 binary 建的 index 撞新查詢會 no such table（#13 verify）
-        if try !LibraryIndex.isCurrent(indexPath: store.indexURL) {
+        // schema 版本 + store 身分先於 mtime（#13 verify、#122）：舊 binary 建的 index
+        // 撞新查詢會 no such table；別的 store 建的 index（registry 路徑重新利用）
+        // 內容整份是別人的
+        if !LibraryIndex.isCurrent(indexPath: store.indexURL, expectedRoot: store.root) {
             try LibraryIndex(store: store).rebuild()
             return
         }

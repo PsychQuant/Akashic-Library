@@ -23,7 +23,9 @@ public struct LibraryIndex {
     /// index schema 版本（#13 verify）：加表/改欄位時遞增。
     /// 舊 binary 建的 index 撞新查詢（如 entry_libraries）會 no such table——
     /// 讀端先 isCurrent 檢查、stale 就 rebuild，不靠 mtime。
-    public static let schemaVersion: Int32 = 2
+    /// **3**＝新增 `index_identity`（#122）：bump 讓所有無身分戳記的舊 index
+    /// 判 stale、升級後第一次使用自動重建一次。
+    public static let schemaVersion: Int32 = 3
 
     let store: LibraryStore
 
@@ -31,21 +33,40 @@ public struct LibraryIndex {
         self.store = store
     }
 
-    /// index 是否為當前 schema 版本（檔案不存在＝false）。
-    public static func isCurrent(indexPath: URL) throws -> Bool {
+    /// index 是否 current：schema 版本相符 **且** 身分戳記指向同一個 store（#122）。
+    ///
+    /// 只看版本的病（皆實測過）：被誤寫的空 index 版本對就永不重建（#101 R2 DA）；
+    /// registry 路徑被重新利用（舊 store 刪、新 store 同 key）時，`index/<key>.sqlite`
+    /// 是**別的 store**建的，版本照樣點頭（#121 verify (c)）——查詢一直吃錯的資料
+    /// 且無訊號。身分比對用 canonical path：tilde／symlink／`/var` 前綴的路徑別名
+    /// 不是別的 store。
+    public static func isCurrent(indexPath: URL, expectedRoot: URL) throws -> Bool {
         guard FileManager.default.fileExists(atPath: indexPath.path) else { return false }
         let db = try SQLiteDB(path: indexPath.path, readOnly: true)
         let rows = try db.query("PRAGMA user_version")
         let version = (rows.first?["user_version"] as? Int).map(Int32.init) ?? 0
-        return version == schemaVersion
+        guard version == schemaVersion else { return false }
+        // schema 相符 → 身分表必在（同一次 rebuild 寫入）。查不到＝手工拼裝的
+        // 假 index，一樣 stale。
+        guard let stamped = (try? db.query("SELECT store_root FROM index_identity"))?
+            .first?["store_root"] as? String else { return false }
+        return stamped == canonicalRootPath(expectedRoot)
     }
 
-    /// stale（版本不符）就 rebuild；current 則 no-op。回傳是否 rebuild 過。
+    /// stale（版本或**身分**不符）就 rebuild；current 則 no-op。回傳是否 rebuild 過。
     @discardableResult
     public func ensureCurrent() throws -> Bool {
-        if try Self.isCurrent(indexPath: store.indexURL) { return false }
+        if try Self.isCurrent(indexPath: store.indexURL, expectedRoot: store.root) { return false }
         _ = try rebuild()
         return true
+    }
+
+    /// canonical path（tilde 展開 + standardized + symlink 解析）。
+    /// 與 registry 反查（#105/#121 的 `AkashicConfig.canonicalPath`）同語意——
+    /// 兩者 merge 後應統一為一個 helper（差異即 bug）。
+    static func canonicalRootPath(_ root: URL) -> String {
+        URL(fileURLWithPath: (root.path as NSString).expandingTildeInPath)
+            .standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     @discardableResult
@@ -87,10 +108,16 @@ public struct LibraryIndex {
             "CREATE INDEX idx_entry_libraries_key ON entry_libraries(library_key)",
             "CREATE INDEX idx_relations_from ON relations(from_uuid)",
             "CREATE INDEX idx_relations_target ON relations(target)",
-            "PRAGMA user_version = 2",   // = schemaVersion；同步遞增
+            // #122：身分戳記——這份 index 是誰的、何時建的、當時多少筆
+            "CREATE TABLE index_identity(store_root TEXT NOT NULL, built_at TEXT NOT NULL, entry_count INT NOT NULL)",
+            "PRAGMA user_version = 3",   // = schemaVersion；同步遞增
         ] {
             try db.execute(sql)
         }
+        try db.execute("INSERT INTO index_identity VALUES (?,?,?)",
+                       bind: [Self.canonicalRootPath(store.root),
+                              ISO8601DateFormatter().string(from: Date()),
+                              load.entries.count])
 
         var relationCount = 0
         try db.execute("BEGIN")

@@ -970,6 +970,8 @@ public extension LibraryLoad {
         }.map(\.key).sorted()
     }
 
+    /// public（#76）：MCP doctor 也要看得到跨記錄警告——「同一個 store 從兩個
+    /// consumer 看到不同的事實」是 #71 第 7 條（承載必須可觀察）的直接違反。
     func crossRecordIssues() -> [ValidationIssue] {
         var out: [ValidationIssue] = []
 

@@ -661,3 +661,61 @@ final class ServiceRecordDivergenceTests: XCTestCase {
             "對不存在的鍵記歧異沒有意義（store 層既有守衛，經 MCP 面透傳）")
     }
 }
+
+/// #76：「承載必須可觀察」的 MCP 面——#71 第 7 條只在 CLI 落實，#133 之後
+/// MCP 能寫歧異卻仍看不見它（寫得進、看不見比純粹看不見更糟——#133 verify F2
+/// 實測：MCP 寫出 validate 會警告的記錄，警告只在 CLI 面出現）。
+final class ServiceObservabilityTests: XCTestCase {
+    var root: URL!
+    var fakeHome: URL!
+    var service: AkashicService!
+
+    override func setUpWithError() throws {
+        fakeHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-home-\(UUID().uuidString)")
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-obs-\(UUID().uuidString)")
+        let store = LibraryStore(root: root, key: nil,
+                                 environment: ["AKASHIC_HOME": fakeHome.path])
+        try store.ensureLayout()
+        try store.writePerson(Person(key: "chen-h-y", names: ["Chen, H.-Y."]))
+        try store.writePerson(Person(key: "chen-hui-yun", names: ["Chen, Hui-Yun"]))
+        service = AkashicService(root: root, environment: ["AKASHIC_HOME": fakeHome.path])
+        _ = try service.recordDivergence(
+            question: "縮寫是否同一人", candidates: ["chen-h-y:person", "chen-hui-yun:person"],
+            judgement: nil, restsOn: [])
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.removeItem(at: fakeHome)
+    }
+
+    func testDoctorReportsDivergenceCount() throws {
+        let out = try service.doctor()
+        XCTAssertTrue(out.contains("\"divergences\""),
+                      "MCP doctor 要與 CLI 對齊——同一個 store 不得從兩個 consumer 看到不同的事實：\(out)")
+    }
+
+    func testDoctorReportsCrossRecordIssues() throws {
+        // 構造一筆跨記錄問題：歧異候選指向的 person 刪掉 → 懸空
+        try FileManager.default.removeItem(
+            at: try XCTUnwrap(FileManager.default
+                .contentsOfDirectory(at: root.appendingPathComponent("entities"),
+                                     includingPropertiesForKeys: nil)
+                .first { url in
+                    (try? String(contentsOf: url, encoding: .utf8))?.contains("chen-h-y") == true
+                        && (try? String(contentsOf: url, encoding: .utf8))?.contains("divergence") != true
+                }))
+        let out = try service.doctor()
+        XCTAssertTrue(out.contains("crossRecordIssues"),
+                      "跨記錄警告（含「歧異無法被消歧」）不得只在 CLI 面可見：\(out)")
+    }
+
+    func testDivergencesListTool() throws {
+        let out = try service.listDivergences()
+        XCTAssertTrue(out.contains("縮寫是否同一人"), "list 要含 question：\(out)")
+        XCTAssertTrue(out.contains("chen-h-y"), "list 要含候選鍵：\(out)")
+        XCTAssertTrue(out.contains("hasJudgement"), "\(out)")
+    }
+}

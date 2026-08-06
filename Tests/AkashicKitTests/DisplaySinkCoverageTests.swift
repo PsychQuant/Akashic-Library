@@ -19,6 +19,8 @@ final class DisplaySinkCoverageTests: XCTestCase {
     private let taintedTokens = [
         "citekey", ".title", ".name", ".reason", ".file",
         ".literal", "personKey", "libraryKey", "authors",
+        // #76：divergence 的未信任內容（#133 起可由 LLM 經 MCP 寫入——來源面擴大）
+        ".question", ".judgement", ".statement", "restsOn",
     ]
 
     /// 掃描範圍：使用者看得到輸出的兩層。App 層走型別投影（`displayFile` 等），

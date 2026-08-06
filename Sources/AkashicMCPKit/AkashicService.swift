@@ -162,7 +162,40 @@ public final class AkashicService {
         if !load.unknownFieldFiles.isEmpty {
             d["unknownFieldFiles"] = load.unknownFieldFiles.map { displaySafe($0, max: 200) }
         }
+        // #76：與 CLI doctor 對齊——divergence 計數與跨記錄警告不得只在 CLI 面
+        // 可見（#133 verify F2 實測：MCP 寫出的壞記錄只有 CLI 看得到警告）。
+        // 計數無條件給（0 也是資訊）；issues 有才給、逐條 displaySafe + 截前 20。
+        d["divergences"] = load.divergences.count
+        let cross = load.crossRecordIssues()
+        if !cross.isEmpty {
+            d["crossRecordIssues"] = [
+                "count": cross.count,
+                "first": cross.prefix(20).map { displaySafe($0.message, max: 300) },
+            ] as [String: Any]
+        }
         return try jsonString(d)
+    }
+
+    /// #76：divergence 的 list-only 投影——「載入了幾筆、各是什麼」是可觀察性
+    /// （#71 第 7 條自身的要求），與 doctor 計數同層。**不做**過濾與圖形化
+    /// （那才是 #71 的「範圍外：歧異查詢或圖形化」）。
+    public func listDivergences() throws -> String {
+        let load = try store.load()
+        return try jsonString([
+            "count": load.divergences.count,
+            "divergences": load.divergences
+                .sorted { $0.id.uuidString < $1.id.uuidString }
+                .map { d in
+                    [
+                        "id": d.id.uuidString,
+                        "question": displaySafe(d.question, max: 400),
+                        "candidates": d.candidates.map {
+                            ["key": displaySafe($0.key, max: 200), "shape": $0.shape.rawValue]
+                        },
+                        "hasJudgement": d.judgement != nil,
+                    ] as [String: Any]
+                },
+        ])
     }
 
     // MARK: - 寫（衍生層 only）

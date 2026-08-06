@@ -100,6 +100,19 @@ final class FileWatcherRebindTests: XCTestCase {
         candidates.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
+    /// 有界輪詢取代固定 sleep（verify M5：固定 0.6s 在慢 CI 上既可假紅也可假綠）。
+    /// 條件成立即早退；超時回 false 讓呼叫端的斷言訊息說話。
+    @discardableResult
+    private func eventually(timeout: TimeInterval = 5.0,
+                            _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return condition()
+    }
+
     func testProviderInitWatchesOnlyExistingDirectories() throws {
         let entries = dir.appendingPathComponent("entries")
         try FileManager.default.createDirectory(at: entries, withIntermediateDirectories: true)
@@ -129,20 +142,21 @@ final class FileWatcherRebindTests: XCTestCase {
         XCTAssertFalse(watcher.watchedPaths.contains(entities.path),
                        "前置：entities/ 尚不存在、不在監看集合")
 
-        // 模擬 migrate：root 下新建 entities/（root 的 vnode event → debounce → rebind）
+        // 模擬 migrate：root 下新建 entities/（root 的 vnode event → debounce → rebind）。
+        // 結構變化事件自己也要產生一次 onChange（rebind 不吞事件，verify M5）。
+        lock.lock(); let base = count; lock.unlock()
         try FileManager.default.createDirectory(at: entities, withIntermediateDirectories: true)
-        Thread.sleep(forTimeInterval: 0.6)
-        XCTAssertTrue(watcher.watchedPaths.contains(entities.path),
+        XCTAssertTrue(eventually { watcher.watchedPaths.contains(entities.path) },
                       "root 的結構變化必須讓 watcher 追上新目錄——否則 migrate 後外部變更永不刷新")
+        XCTAssertTrue(eventually { lock.lock(); defer { lock.unlock() }; return count > base },
+                      "結構變化事件本身也要觸發 onChange（rebind 不吞掉它）")
 
         // rebind 之後，新目錄**內**的變更要能觸發刷新
         lock.lock(); let before = count; lock.unlock()
         try "e".write(to: entities.appendingPathComponent("x.yaml"),
                       atomically: true, encoding: .utf8)
-        Thread.sleep(forTimeInterval: 0.6)
-        lock.lock(); let after = count; lock.unlock()
-        XCTAssertGreaterThan(after, before,
-                             "rebind 後 entities/ 內的寫入必須觸發 onChange（#116 的靶心）")
+        XCTAssertTrue(eventually { lock.lock(); defer { lock.unlock() }; return count > before },
+                      "rebind 後 entities/ 內的寫入必須觸發 onChange（#116 的靶心）")
     }
 
     func testRebindDropsDeletedDirectory() throws {
@@ -156,9 +170,116 @@ final class FileWatcherRebindTests: XCTestCase {
         XCTAssertTrue(watcher.watchedPaths.contains(entries.path))
 
         try FileManager.default.removeItem(at: entries)
-        Thread.sleep(forTimeInterval: 0.6)
-        XCTAssertFalse(watcher.watchedPaths.contains(entries.path),
-                       "消失的目錄要從監看集合移除——殭屍 fd 不是監看")
+        XCTAssertTrue(eventually { !watcher.watchedPaths.contains(entries.path) },
+                      "消失的目錄要從監看集合移除——殭屍 fd 不是監看")
+    }
+
+    func testRebindReopensReplacedDirectoryAtSamePath() throws {
+        // verify F1（PROBE2 重現的 stale-fd）：fd 綁 inode 不綁路徑。同路徑刪除重建
+        //（git checkout / rm -rf + migrate / 雲端同步替換）後，路徑集合比對看不出
+        // 變化——沒有 invalidation 機制的話，舊 source 掛在死 inode 上，此後該目錄
+        // 的一切變更靜默丟失而 watchedPaths 仍報健康。
+        let entries = dir.appendingPathComponent("entries")
+        try FileManager.default.createDirectory(at: entries, withIntermediateDirectories: true)
+        let lock = NSLock()
+        var count = 0
+        let watcher = FileWatcher(
+            directoryProvider: { self.existing([self.dir!, entries]) },
+            debounce: 0.1) {
+            lock.lock(); count += 1; lock.unlock()
+        }
+        try watcher.start()
+        defer { watcher.stop() }
+
+        // 同路徑替換：刪掉 + 立刻重建（新 inode）
+        try FileManager.default.removeItem(at: entries)
+        try FileManager.default.createDirectory(at: entries, withIntermediateDirectories: true)
+        XCTAssertTrue(eventually { watcher.watchedPaths.contains(entries.path) })
+        // 等 rebind 沉澱後，向**重建後**的目錄寫入——必須觸發 onChange
+        Thread.sleep(forTimeInterval: 0.3)
+        lock.lock(); let before = count; lock.unlock()
+        try "x".write(to: entries.appendingPathComponent("new.yaml"),
+                      atomically: true, encoding: .utf8)
+        XCTAssertTrue(eventually { lock.lock(); defer { lock.unlock() }; return count > before },
+                      "重建後目錄內的寫入必須觸發 onChange——舊 fd 綁死 inode 就是靜默失聰")
+    }
+
+    func testPartialOpenFailureKeepsRootAndRecovers() throws {
+        // verify F3（PROBE8 的 silent-shrink）：want 中某目錄開不起來（EACCES）時，
+        // 不得把整個監看集合縮到只剩 root 而無恢復路徑——root 恆在，權限恢復後
+        // 的下一個 root event 要能把它撿回來。
+        let entries = dir.appendingPathComponent("entries")
+        try FileManager.default.createDirectory(at: entries, withIntermediateDirectories: true)
+        let sealed = dir.appendingPathComponent("entities")
+        try FileManager.default.createDirectory(at: sealed, withIntermediateDirectories: true)
+        let watcher = FileWatcher(
+            directoryProvider: { self.existing([self.dir!, entries, sealed]) },
+            debounce: 0.1) {}
+        try watcher.start()
+        defer { watcher.stop() }
+        XCTAssertTrue(watcher.watchedPaths.contains(sealed.path))
+
+        // 讓 sealed 變得不可 open（權限 000），並以同路徑替換使舊 fd 失效
+        try FileManager.default.removeItem(at: sealed)
+        try FileManager.default.createDirectory(at: sealed, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: sealed.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sealed.path) }
+        _ = eventually(timeout: 1.0) { false }   // 讓 replace 事件的 rebind 跑完
+        XCTAssertTrue(watcher.watchedPaths.contains(dir.path),
+                      "root 必須恆在——它是恢復的唯一事件源")
+
+        // 權限恢復 + root 層變化 → 下一輪 rebind 撿回
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sealed.path)
+        try "t".write(to: dir.appendingPathComponent("touch.yaml"),
+                      atomically: true, encoding: .utf8)
+        XCTAssertTrue(eventually { watcher.watchedPaths.contains(sealed.path) },
+                      "開失敗的目錄在可開之後要被下一輪 rebind 撿回（恢復路徑存在）")
+    }
+
+    func testWatchedPathsReadableFromOnChange() throws {
+        // verify F4（PROBE7 的 SIGTRAP）：onChange 在 watcher queue 上執行，
+        // queue.sync 對已持有的 queue 是即刻 crash——重入必須直接執行。
+        let read = expectation(description: "watchedPaths read inside onChange")
+        read.assertForOverFulfill = false
+        var seen: Set<String> = []
+        var watcher: FileWatcher!
+        watcher = FileWatcher(directoryProvider: { [self.dir!] }, debounce: 0.05) {
+            seen = watcher.watchedPaths   // 重入讀取——修法前這行直接 SIGTRAP
+            read.fulfill()
+        }
+        try watcher.start()
+        defer { watcher.stop() }
+        try "x".write(to: dir.appendingPathComponent("f.yaml"),
+                      atomically: true, encoding: .utf8)
+        wait(for: [read], timeout: 5.0)
+        XCTAssertEqual(seen, Set([dir.path]), "回呼內讀到的集合要是真值")
+    }
+
+    func testStoreYamlAtomicRewriteTriggersOnChange() throws {
+        // watchTargets 把 store.yaml 納入監看的理由：format 變更要能刷新。
+        // akashic 的寫入是 atomic（temp+rename）——rename 讓舊 fd 失效，
+        // invalidation 機制要在 rebind 時重開新 inode，後續變更不失聰。
+        let marker = dir.appendingPathComponent("store.yaml")
+        try "format: 1\n".write(to: marker, atomically: true, encoding: .utf8)
+        let lock = NSLock()
+        var count = 0
+        let watcher = FileWatcher(
+            directoryProvider: { self.existing([self.dir!, marker]) },
+            debounce: 0.1) {
+            lock.lock(); count += 1; lock.unlock()
+        }
+        try watcher.start()
+        defer { watcher.stop() }
+
+        try "format: 2\n".write(to: marker, atomically: true, encoding: .utf8)   // atomic = rename
+        XCTAssertTrue(eventually { lock.lock(); defer { lock.unlock() }; return count >= 1 },
+                      "atomic 改寫 store.yaml 必須觸發 onChange")
+        // rename 之後（舊 inode 已死）再寫一次——invalidation + reopen 讓第二次也看得見
+        Thread.sleep(forTimeInterval: 0.3)
+        lock.lock(); let before = count; lock.unlock()
+        try "format: 3\n".write(to: marker, atomically: true, encoding: .utf8)
+        XCTAssertTrue(eventually { lock.lock(); defer { lock.unlock() }; return count > before },
+                      "第二次 atomic 改寫也要觸發——fd 若仍綁第一代 inode 就是失聰")
     }
 }
 
@@ -186,9 +307,10 @@ final class FileWatcherWatchTargetsTests: XCTestCase {
         let store = LibraryStore(root: root, key: nil, environment: ["AKASHIC_HOME": root.path])
         let targets = Set(FileWatcher.watchTargets(for: store).map(\.path))
         XCTAssertEqual(targets, Set([root.path,
+                                     root.appendingPathComponent("store.yaml").path,
                                      root.appendingPathComponent("entries").path,
                                      root.appendingPathComponent("people").path]),
-                       "legacy store：root（含 store.yaml 與結構變化）+ 存在的 legacy 目錄")
+                       "legacy store：root + store.yaml + 存在的 legacy 目錄")
     }
 
     func testWatchTargetsEntitiesStore() throws {
@@ -198,7 +320,27 @@ final class FileWatcherWatchTargetsTests: XCTestCase {
         let store = LibraryStore(root: root, key: nil, environment: ["AKASHIC_HOME": root.path])
         let targets = Set(FileWatcher.watchTargets(for: store).map(\.path))
         XCTAssertEqual(targets, Set([root.path,
+                                     root.appendingPathComponent("store.yaml").path,
                                      root.appendingPathComponent("entities").path]),
                        "entities store：不含 legacy 目錄——監看不存在的目錄是靜默缺角的來源")
+    }
+
+    func testWatchTargetsCrossoverLayoutsFollowDiskNotFormat(){
+        // verify M5（crossover）：監看目標以「磁碟現況」為準、不看 format 猜——
+        // format 1 但已有 entities/（就地遷移中）與 format 新但殘留 entries/（migrate
+        // 不刪空目錄）都要把**存在的全部**納入；按 format 挑目錄的錯誤實作兩測皆綠。
+        try? StoreVersion.write(root: root, format: 1)
+        for d in ["entries", "people", "entities"] {
+            try? FileManager.default.createDirectory(
+                at: root.appendingPathComponent(d), withIntermediateDirectories: true)
+        }
+        let store = LibraryStore(root: root, key: nil, environment: ["AKASHIC_HOME": root.path])
+        let targets = Set(FileWatcher.watchTargets(for: store).map(\.path))
+        XCTAssertEqual(targets, Set([root.path,
+                                     root.appendingPathComponent("store.yaml").path,
+                                     root.appendingPathComponent("entries").path,
+                                     root.appendingPathComponent("people").path,
+                                     root.appendingPathComponent("entities").path]),
+                       "format 1 + 既存 entities/：存在的全都要監看——按 format 猜就會缺角")
     }
 }

@@ -63,9 +63,13 @@ final class LaunchState {
         watcher?.stop()   // 舊 watcher 監看舊 universe 目錄，已無意義
         watcher = nil
         do {
-            // #101：一律經 AppState，不自己建；#116：監看目標依佈局現況推導，
-            // provider 讓 migrate 後的結構變化能被 rebind 追上
-            let newWatcher = FileWatcher(directoryProvider: { FileWatcher.watchTargets(for: state.store) }) {
+            // #101：一律經 AppState，不自己建；#116：監看目標依佈局現況推導。
+            // **provider 捕捉 immutable snapshot 而非 state**（verify F2）：provider 在
+            // watcher queue 上執行，直接讀 state.store 是與 MainActor 上 switchFile
+            // 寫入的未同步競態（probe 實測到 torn pair）。LibraryStore 全 let——換
+            // universe 時本函式重建 watcher，snapshot 永遠對應這個 watcher 的 universe。
+            let store = state.store
+            let newWatcher = FileWatcher(directoryProvider: { FileWatcher.watchTargets(for: store) }) {
                 Task { @MainActor in
                     try? state.externalReload()
                 }
@@ -86,8 +90,10 @@ final class LaunchState {
             let root = resolved.root
             let state = AppState(root: root, key: resolved.key)
             try state.load()
-            // #101：一律經 AppState，不自己建；#116：同上，佈局感知 + rebind
-            let watcher = FileWatcher(directoryProvider: { FileWatcher.watchTargets(for: state.store) }) {
+            // #101：一律經 AppState，不自己建；#116：同上，佈局感知 + rebind；
+            // snapshot 理由同 switchFile 處（verify F2）
+            let store = state.store
+            let watcher = FileWatcher(directoryProvider: { FileWatcher.watchTargets(for: store) }) {
                 // 外部（CLI/MCP/git）變更 → 主執行緒 reload + 同步時戳
                 //（sidebar 顯示「外部變更已同步」；App 為 write-through 模型，
                 //  詳見 AppState.lastExternalSyncAt 的邊界說明）

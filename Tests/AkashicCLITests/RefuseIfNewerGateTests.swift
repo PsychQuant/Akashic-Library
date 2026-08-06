@@ -18,7 +18,32 @@ final class RefuseIfNewerGateTests: XCTestCase {
             .appendingPathComponent("akashic-gate115-\(UUID().uuidString)")
         let store = LibraryStore(root: root, key: nil, environment: [:])
         try store.ensureLayout()
-        try store.writePerson(Person(key: "p-one", names: ["P"], authorized: ["P"]))
+        // **fixture 必須是 deviating 記錄**（#134 verify F2 的 mutation 教訓）：
+        // writePerson 出的是 canonical form，fmt 對它本來就零改寫——byte-snapshot
+        // 斷言在「閘移到 scan 之後」的變異下照樣綠（席位實測：變異 binary 對
+        // deviating store 印了拒絕、exit 非零、**照樣改寫了檔案**——#112 原 bug
+        // 在綠測試下重現）。手刻反時間序 affiliations 讓 fmt 真的有東西要改，
+        // snapshot 斷言才咬得到「拒絕先於改寫」。
+        let id = UUID()
+        let yaml = """
+        person:
+        id: \(id.uuidString)
+        key: p-one
+        names:
+        - P
+        authorized:
+        - P
+        profile:
+          affiliations:
+          - value:
+              literal: ISS
+            start: 2013-07
+          - value:
+              literal: ISS
+            start: 2003-01
+            end: 2006-08
+        """ + "\n"
+        try yaml.write(to: store.entityURL(id: id), atomically: true, encoding: .utf8)
     }
 
     override func tearDownWithError() throws {
@@ -75,7 +100,11 @@ final class RefuseIfNewerGateTests: XCTestCase {
     }
 
     func testNormalStoreUnaffected() throws {
+        // fixture 是 deviating（F2 的要求）——正常 store 上 --check 走到偏離報告
+        // （exit 1、印偏離），而**不是**被版本閘擋下：這才證明 gate 只擋該擋的
         let r = try CLITestHarness.run(["fmt", "--check", "--library", root.path], env: [:])
-        XCTAssertEqual(r.status, 0, "正常 store 的 fmt --check 不受影響：\(r.output)")
+        XCTAssertEqual(r.status, 1, "偏離報告的 exit 1：\(r.output)")
+        XCTAssertTrue(r.output.contains("偏離"), "走到正常 fmt 流程：\(r.output)")
+        XCTAssertFalse(r.output.contains("升級"), "不得被版本閘誤擋：\(r.output)")
     }
 }

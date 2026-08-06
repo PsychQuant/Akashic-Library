@@ -145,3 +145,69 @@ extension AkashicHomeTests {
         XCTAssertEqual(AkashicHome.configURL(environment: [:]).path, legacy.path)
     }
 }
+
+/// registry 反查（#105，使用者拍板）：`--library <已註冊路徑>` 的語意是「指定一個
+/// store」不是「繞過 registry」——同一個 store 不因開法不同而有兩份會漂移的 index。
+extension AkashicHomeTests {
+    private func makeRegistry() throws -> (home: URL, store: URL, cleanup: () -> Void) {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-lookup-\(UUID().uuidString)")
+        let home = tmp.appendingPathComponent("home")
+        let store = tmp.appendingPathComponent("store")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
+        try "files:\n  main: \(store.path)\ncurrent: main\n"
+            .write(to: home.appendingPathComponent("config.yaml"), atomically: true, encoding: .utf8)
+        return (home, store, { try? FileManager.default.removeItem(at: tmp) })
+    }
+
+    /// 已註冊路徑經 `--library`（explicit）開啟 → 帶 key 回來。
+    func testExplicitPathToRegisteredStoreCarriesKey() throws {
+        let (home, store, cleanup) = try makeRegistry()
+        defer { cleanup() }
+        let r = try LibraryLocator.resolveDetailed(
+            explicit: store.path, environment: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(r.key, "main", "路徑已註冊就該把 key 帶回來（#105 拍板：反查）")
+        XCTAssertEqual(r.root.standardizedFileURL.path, store.standardizedFileURL.path)
+    }
+
+    /// `$AKASHIC_LIBRARY` 同理。
+    func testEnvLibraryToRegisteredStoreCarriesKey() throws {
+        let (home, store, cleanup) = try makeRegistry()
+        defer { cleanup() }
+        let r = try LibraryLocator.resolveDetailed(
+            explicit: nil,
+            environment: ["AKASHIC_HOME": home.path, "AKASHIC_LIBRARY": store.path])
+        XCTAssertEqual(r.key, "main")
+    }
+
+    /// 未註冊路徑 → 維持 keyless（fallback 不變）。
+    func testExplicitUnregisteredPathStaysKeyless() throws {
+        let (home, _, cleanup) = try makeRegistry()
+        defer { cleanup() }
+        let other = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-unreg-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: other) }
+        let r = try LibraryLocator.resolveDetailed(
+            explicit: other.path, environment: ["AKASHIC_HOME": home.path])
+        XCTAssertNil(r.key)
+    }
+
+    /// config 不存在 → keyless、**不擲錯**（explicit path 不依賴 registry 存在）。
+    func testExplicitPathWithoutConfigStaysKeylessWithoutThrowing() throws {
+        let ghostHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-nohome-\(UUID().uuidString)")
+        let r = try LibraryLocator.resolveDetailed(
+            explicit: "/tmp/whatever-store", environment: ["AKASHIC_HOME": ghostHome.path])
+        XCTAssertNil(r.key)
+    }
+
+    /// 路徑正規化：尾斜線、tilde 混寫都要比得中（沿 file add 的 standardizedFileURL 語意）。
+    func testLookupNormalizesPathForms() throws {
+        let (home, store, cleanup) = try makeRegistry()
+        defer { cleanup() }
+        let r = try LibraryLocator.resolveDetailed(
+            explicit: store.path + "/", environment: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(r.key, "main", "尾斜線不該讓反查失敗")
+    }
+}

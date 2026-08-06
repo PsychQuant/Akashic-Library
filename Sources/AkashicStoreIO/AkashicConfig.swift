@@ -128,6 +128,21 @@ public struct AkashicConfig: Equatable {
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// registry 反查（#105）：`path` 已註冊就回它的 key，否則 nil。
+    ///
+    /// **standardized-path 比對**——與 `file add` 的重複註冊檢查同一條邏輯（tilde 展開
+    /// + `standardizedFileURL`；不解析 symlink，不另發明語意）。config 缺失或讀不到
+    /// 一律回 nil：explicit path 的解析不依賴 registry 存在。
+    public static func key(forPath path: String, configURL: URL) -> String? {
+        guard let config = try? AkashicConfig.read(from: configURL) else { return nil }
+        let target = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+            .standardizedFileURL.path
+        return config.files.first(where: {
+            URL(fileURLWithPath: ($0.value as NSString).expandingTildeInPath)
+                .standardizedFileURL.path == target
+        })?.key
+    }
+
     // `defaultURL` 已移除（#110）：它寫死真實家目錄、不認 `AKASHIC_HOME`，與
     // env-aware 的 `AkashicHome.configURL(environment:)` 並存時，「registry 在哪」
     // 在同一支程式裡有兩個答案——`file add` 寫進真實 registry 而 doctor 讀 override

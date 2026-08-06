@@ -44,13 +44,17 @@ public enum LibraryLocator {
         // ——測試注入 fake env 時 registry 仍解析到真實 home，正是 #110 要消滅的
         // 「兩個答案」的同構殘留。預設值改為由同一份 environment 推導。
         let configURL = configURL ?? AkashicHome.configURL(environment: environment)
+        // **explicit / env 路徑反查 registry**（#105，使用者拍板）：`--library` 的語意是
+        // 「指定一個 store」不是「繞過 registry」。路徑已註冊就把 key 帶回來——同一個
+        // store 不因開法不同而有兩份會漂移的 index（#101 實測過的病）。未註冊或 config
+        // 缺失 → 維持 keyless fallback。
         if let explicit, !explicit.isEmpty {
             return Resolved(root: URL(fileURLWithPath: (explicit as NSString).expandingTildeInPath),
-                            key: nil)
+                            key: AkashicConfig.key(forPath: explicit, configURL: configURL))
         }
         if let env = environment["AKASHIC_LIBRARY"], !env.isEmpty {
             return Resolved(root: URL(fileURLWithPath: (env as NSString).expandingTildeInPath),
-                            key: nil)
+                            key: AkashicConfig.key(forPath: env, configURL: configURL))
         }
         let config = try AkashicConfig.read(from: configURL)
         // #18 多檔案：current + files registry 優先於 legacy library

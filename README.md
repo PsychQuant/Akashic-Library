@@ -275,9 +275,17 @@ setUp 就寫入記錄的 suite（如 `RenameTests`）改成 `seed(format:)`，�
 
 ## CI
 
-`.github/workflows/ci.yml`，macOS runner，觸發限 **PR 與 push to main**（macOS runner 的
-GitHub Actions 計費倍率是 10×，而本 repo 是 Apple 平台專屬、沒有 Linux 選項；PR 是改動進
-main 前的最後一道門，那裡跑一次就夠）。
+`.github/workflows/ci.yml`，macOS runner，觸發限 **push to main**（2026-08-07 改制：
+macOS runner 計費 10×，「每 PR 每 push 都跑」曾把 free plan 月額度燒爆——14016/2000
+折算分鐘，runner 層直接拒跑）。PR 面的把關改由兩層承擔：
+
+1. **pre-push hook**（本機全套）：`git config core.hooksPath .githooks` 一次安裝——
+   push 前跑 `-warnings-as-errors` build + 全套測試（hook 內有 pipefail，管線吞
+   exit code 的教訓見 hook 註解）
+2. **verify 紀律**：每個 PR 的本機驗證記錄在 PR body（測試總數、build 狀態）
+
+CI 保留的獨特價值是**乾淨環境**（#109 的教訓：submodule／DerivedData 殘留只有乾淨
+checkout 抓得到）——每次 merge 後在 main 上驗一次。
 
 | 檢查 | 擋什麼 |
 |---|---|

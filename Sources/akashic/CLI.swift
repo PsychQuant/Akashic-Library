@@ -5,6 +5,32 @@ import AkashicStoreIO
 
 @main
 struct AkashicCLI: ParsableCommand {
+    /// **ArgumentParser 頂層錯誤輸出的消毒 choke point**（#114）。
+    ///
+    /// throw 路徑的終點曾完全沒有消毒：errorDescription 內插的使用者可控內容
+    /// （store.yaml 逐字行、config key、Yams 錯誤展開）原樣落地 stderr——
+    /// #112 verify 實測 ESC/BEL 穿透、2 MB 行無上限。逐條補 error 站點是假性
+    /// 閉合（DA 裁決）：新增的 case 又會裸奔。這裡取代合成的 main()，在唯一
+    /// 出口統一過 displaySafeMultiline（help/usage 是多行合法輸出——單行版
+    /// displaySafe 會跳脫 LF 並截 200 字，不能直接用）。exit code 語意不變
+    /// （沿用 ArgumentParser 的 exitCode(for:)）。
+    static func main() {
+        do {
+            var command = try parseAsRoot()
+            try command.run()
+        } catch {
+            let full = fullMessage(for: error)
+            let safe = displaySafeMultiline(full)
+            if !safe.isEmpty {
+                let code = exitCode(for: error)
+                // help/CleanExit 走 stdout（exit 0 的訊息是輸出不是錯誤），其餘 stderr
+                let handle: FileHandle = code == .success ? .standardOutput : .standardError
+                handle.write(Data((safe + "\n").utf8))
+            }
+            Foundation.exit(exitCode(for: error).rawValue)
+        }
+    }
+
     static let configuration = CommandConfiguration(
         commandName: "akashic",
         abstract: "Akashic-Library — 檔案為本的文獻整合系統",

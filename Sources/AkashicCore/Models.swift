@@ -285,6 +285,20 @@ public struct Person: Equatable {
 ///    與 U+FEFF。
 /// 3. **反斜線自身要跳脫**，否則內容裡的字面 `\u{001B}` 與本函式的輸出無法區分
 ///    （消毒後的字串會變得可偽造）。
+/// 多行版 displaySafe（#114）：`displaySafe` 會跳脫 LF 且截 200 字——把它直接套在
+/// CLI 頂層錯誤輸出會毀掉合法的多行 usage/help。這裡按行分割、逐行消毒（行內
+/// 控制字元照舊跳脫）、保留換行重組；行數與行長設寬鬆上限（擋 2 MB 攻擊行、
+/// 不砍正常 usage）。
+public func displaySafeMultiline(_ s: String, maxLineLength: Int = 400,
+                                 maxLines: Int = 200) -> String {
+    let lines = s.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+    var out = lines.prefix(maxLines).map { displaySafe(String($0), max: maxLineLength) }
+    if lines.count > maxLines {
+        out.append("……（截斷：共 \(lines.count) 行）")
+    }
+    return out.joined(separator: "\n")
+}
+
 public func displaySafe(_ s: String, max: Int = 200) -> String {
     var out = String.UnicodeScalarView()
     out.reserveCapacity(Swift.min(s.unicodeScalars.count, max) + 16)

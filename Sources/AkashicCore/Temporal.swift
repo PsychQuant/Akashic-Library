@@ -64,11 +64,18 @@ public struct DateRange: Equatable, Comparable {
             case (_, nil):     return true
             }
         }
-        // end 三態順位：0 = 具體日期、1 = 已結束未知、2 = 進行中（+∞）
-        func endRank(_ r: DateRange) -> Int { r.end != nil ? 0 : (r.endedUnknown ? 1 : 2) }
+        // end 三態順位：0 = 具體日期、1 = 已結束未知、2 = 進行中（+∞）。
+        // `endedUnknown` 也入 rank（#143 verify F1）：`end != nil` 時曾一律 rank 0，
+        // 「同 start 同 end、不同 endedUnknown」的矛盾 in-memory 組合（encode/decode
+        // 兩端都拒收，但 struct 公開可寫、構造得出來）互不可比又 !=——正是本修復
+        // 要消滅的失敗模式。型別自己成立，比靠邊界守衛成立更穩。
+        func endRank(_ r: DateRange) -> Int {
+            if r.end != nil { return r.endedUnknown ? 1 : 0 }
+            return r.endedUnknown ? 2 : 3
+        }
         guard endRank(a) == endRank(b) else { return endRank(a) < endRank(b) }
         if let ae = a.end, let be = b.end { return ae < be }
-        return false   // 同態且無具體 end → start/end/endedUnknown 全等 → 相等
+        return false   // rank 相同且 end 相等（或皆 nil）→ 三欄位全等 → 相等
     }
 
     /// 兩個區間是否重疊。**無端點的區間（`end == nil`，含 `endedUnknown`）視為

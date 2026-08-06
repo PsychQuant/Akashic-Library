@@ -21,6 +21,10 @@ final class DateRangeTotalOrderTests: XCTestCase {
             DateRange(start: "2003-01"),
             DateRange(end: "2010"),
             DateRange(endedUnknown: true),
+            // 矛盾組合（encode/decode 兩端拒收，但 struct 公開可寫——#143 verify F1：
+            // 全序必須在**型別的整個定義域**上成立，不是只在序列化允許的子集上）
+            DateRange(start: "2003", end: "2010", endedUnknown: true),
+            DateRange(end: "2010", endedUnknown: true),
         ]
         for a in ranges {
             for b in ranges {
@@ -63,6 +67,19 @@ final class DateRangeTotalOrderTests: XCTestCase {
         let backward = TimelineOf([s3, s2, s1])
         XCTAssertEqual(forward, backward,
                        "相等性不看儲存順序——這正是型別 header 的宣稱")
+    }
+
+    /// #143 verify F1 的原始重現：同 start 同 end、不同 endedUnknown 必須可比。
+    func testSameStartSameEndDifferentEndedUnknownIsComparable() {
+        let a = DateRange(start: "2003", end: "2010")
+        let b = DateRange(start: "2003", end: "2010", endedUnknown: true)
+        XCTAssertNotEqual(a, b)
+        XCTAssertTrue(a < b, "矛盾組合排在正常組合後（rank 0 < 1）")
+        let forward = TimelineOf([TemporalValue(value: "x", range: a),
+                                  TemporalValue(value: "x", range: b)])
+        let backward = TimelineOf([TemporalValue(value: "x", range: b),
+                                   TemporalValue(value: "x", range: a)])
+        XCTAssertEqual(forward, backward, "順序敏感不得回來")
     }
 
     /// 既有語意不倒退：nil start 仍排最後。

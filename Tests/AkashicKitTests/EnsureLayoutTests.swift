@@ -88,6 +88,9 @@ final class EnsureLayoutTests: XCTestCase {
                        "前置條件：entries/ 有內容 → writeIfAbsent 標 format 1（#35 的安全點）")
         XCTAssertTrue(exists("entries"), "legacy 佈局在用 entries/")
         XCTAssertTrue(exists("people"), "legacy 佈局在用 people/")
+        XCTAssertFalse(exists("entities"),
+                       "#101 的鏡像（#102）：format 1 的 store 不該拿到永遠空著的 entities/——" +
+                       "遷移時 StoreMigration 自己建，寫入時 atomicWrite 自建父目錄，都不靠這裡")
     }
 
     /// 未註冊的 store（`--library <path>` 直指）仍需要 in-store 的 index 回落位置。

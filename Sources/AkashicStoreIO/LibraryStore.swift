@@ -124,12 +124,16 @@ public final class LibraryStore {
         // #24：新建的 store 自我聲明格式。既有檔不覆寫（可能是較新版本寫的）。
         try StoreVersion.writeIfAbsent(root: root)
 
-        // 現行格式在用的目錄。`entitiesDir` 對 legacy store 也照建——`openStore()` 的
-        // library 偵測接受 `entities/` 或 `entries/` 任一，條件化它是安全的但超出 #101
-        // 的範圍，見 #102。
-        var dirs = [entitiesDir, librariesDir]
-        // legacy 佈局才有的兩個目錄。
-        if !usesEntitiesLayout { dirs += [entriesDir, peopleDir] }
+        // 佈局目錄依 format 二選一（#102 完成了 #101 的鏡像）：entities 佈局建
+        // `entities/`，legacy 建 `entries/`+`people/`——不再有哪個目錄是「兩邊都建」。
+        // legacy store 的 `entities/` 由真正需要它的人建：遷移時 `StoreMigration`、
+        // 消歧寫入時 `DivergenceResolve`、一般寫入時 `atomicWrite` 的父目錄保證。
+        var dirs = [librariesDir]
+        if usesEntitiesLayout {
+            dirs.append(entitiesDir)
+        } else {
+            dirs += [entriesDir, peopleDir]
+        }
         // in-store 的 index 回落位置，只有**沒帶 key 開啟**的 store 用得到（#37）。
         // 注意這是「呼叫端有沒有傳 key」而非 registry 事實——`--library` 與
         // `$AKASHIC_LIBRARY` 目前對已註冊路徑仍回 nil（#105）。

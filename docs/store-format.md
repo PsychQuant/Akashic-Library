@@ -43,7 +43,7 @@ Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版�
 | 目錄 | `ensureLayout()` 何時建 |
 |---|---|
 | `entries/` `people/` | 僅 format 1 |
-| `entities/` | 一律（兩種 format 都建；條件化它見 #102）|
+| `entities/` | 僅 format ≥ 2（#102）|
 | `libraries/` | 一律 |
 | `.akashic/` | 僅當開這個 store 的呼叫端**沒有傳 registry key** |
 

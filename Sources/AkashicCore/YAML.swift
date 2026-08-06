@@ -301,7 +301,7 @@ public enum EntryYAML {
                     context, "鍵「\(k)」帶非字串 tag——closed shape 不接受（fail-closed）")
             }
             if !known.contains(k) {
-                throw StoreYAMLError.invalidField(context, "未知欄位「\(k)」（strict schema；見 docs/store-format.md §5）")
+                throw StoreYAMLError.invalidField(context, "未知欄位「\(displaySafe(k, max: 120))」（strict schema；見 docs/store-format.md §5）")
             }
         }
     }
@@ -731,7 +731,7 @@ public enum EntryYAML {
         }
         // R8（R7-verify L18）：id 存在但非 UUID → 報格式錯誤，不誤報「缺欄位」
         guard let id = UUID(uuidString: idString) else {
-            throw StoreYAMLError.invalidField("id", "「\(idString)」不是 UUID")
+            throw StoreYAMLError.invalidField("id", "「\(displaySafe(idString, max: 120))」不是 UUID")
         }
         guard let citekey = try requireShape(map["citekey"], field: "citekey",
                                              expect: "scalar", { $0.scalar?.string }) else {
@@ -847,7 +847,7 @@ public enum EntryYAML {
             if let s = try requireShape(provMap["library_id"], field: "provenance.library_id",
                                         expect: "scalar", { $0.scalar?.string }) {
                 guard let lid = Int(s) else {
-                    throw StoreYAMLError.invalidField("provenance", "library_id「\(s)」不是整數")
+                    throw StoreYAMLError.invalidField("provenance", "library_id「\(displaySafe(s, max: 120))」不是整數")
                 }
                 prov.libraryID = lid
             }
@@ -1136,7 +1136,7 @@ public enum PersonYAML {
         if let t = try EntryYAML.requireShape(map["type"], field: "person.type",
                                               expect: "scalar", nullIsAbsent: true,
                                               { $0.scalar?.string }), t != "person" {
-            throw StoreYAMLError.invalidField("person.type", "person 檔的 type 必須是「person」，實得「\(t)」")
+            throw StoreYAMLError.invalidField("person.type", "person 檔的 type 必須是「person」，實得「\(displaySafe(t, max: 120))」")
         }
         var person = Person(key: key, id: explicitID)
         person.unknownFields = unknowns
@@ -1420,7 +1420,7 @@ extension PersonYAML {
             try EntryYAML.rejectUnknownKeys(
                 m, known: ["value", "start", "end", "ended", "source", "note"], context: context)
             guard let vNode = m["value"] else {
-                throw StoreYAMLError.missingField("\(context).value")
+                throw StoreYAMLError.missingField("\(context).value")   // display-safe-exempt: context 是程式構造的欄位路徑
             }
             let ref: OrgRef
             if let vm = vNode.mapping {
@@ -1432,10 +1432,10 @@ extension PersonYAML {
                 case (let k?, nil):  ref = .key(k)
                 case (nil, let l?):  ref = .literal(l)
                 case (_?, _?):
-                    throw StoreYAMLError.invalidField("\(context).value",
+                    throw StoreYAMLError.invalidField("\(context).value",   // display-safe-exempt: context 程式構造
                                                       "key 與 literal 只能擇一——兩者並存無法判斷歸戶狀態")
                 case (nil, nil):
-                    throw StoreYAMLError.missingField("\(context).value.key 或 .literal")
+                    throw StoreYAMLError.missingField("\(context).value.key 或 .literal")   // display-safe-exempt: 同上
                 }
             } else {
                 // 純字串視為未歸戶的字面值（相容於尚未升級的寫法）。
@@ -1470,8 +1470,10 @@ extension PersonYAML {
                 guard let name = k.scalar?.string else {
                     throw StoreYAMLError.invalidField("person.profile.contacts", "鍵必須是字串")
                 }
+                // #139 verify F2：name 是**檔案裡的 mapping key**（未信任），進
+                // context 前消毒——否則下游 throw 的 errorDescription 帶原始位元組
                 p.contacts[name] = try decodeTimeline(
-                    v, context: "person.profile.contacts.\(name)")
+                    v, context: "person.profile.contacts.\(displaySafe(name, max: 120))")
             }
         }
         return p
@@ -1494,7 +1496,7 @@ extension PersonYAML {
                 guard let n = m[k] else { return nil }
                 if n.null != nil { return nil }
                 guard let s = n.scalar?.string else {
-                    throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")
+                    throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")   // display-safe-exempt: k 是呼叫端字面常量；context 程式構造或呼叫端已消毒（contacts name 先 displaySafe，#139 F2）
                 }
                 return s
             }
@@ -1514,7 +1516,7 @@ extension PersonYAML {
             guard let n = m[k] else { return nil }
             if n.null != nil { return nil }
             guard let s = n.scalar?.string else {
-                throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")
+                throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")   // display-safe-exempt: k 是呼叫端字面常量；context 程式構造或呼叫端已消毒（contacts name 先 displaySafe，#139 F2）
             }
             return s
         }

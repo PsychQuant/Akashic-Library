@@ -18,12 +18,27 @@ struct ResolveDivergence: ParsableCommand {
 
     @Argument(help: "歧異記錄的 id（UUID）") var id: String
     @Option(name: .long, help: "倖存者的鍵，必須是該記錄的候選之一") var survivor: String
+    @Flag(name: .long, help: "只預告會做什麼（含連帶塌縮刪除的記錄），不動任何檔案")
+    var dryRun: Bool = false
 
     func run() throws {
         guard let uuid = UUID(uuidString: id) else {
             throw ValidationError("『\(displaySafe(id, max: 200))』不是合法的 UUID")
         }
         let store = try options.openStore()
+        if dryRun {   // #78-2：消歧會連帶刪除使用者沒指名的塌縮記錄——要能先看
+            let preview = try store.previewResolveDivergence(id: uuid, survivor: survivor)
+            print("dry-run（不動任何檔案）：")
+            print("  併入 \(displaySafe(survivor, max: 200))：" +
+                  preview.merged.map { displaySafe($0, max: 200) }.joined(separator: "、"))
+            if !preview.rewritten.isEmpty {
+                print("  參照將改寫：\(preview.rewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
+            }
+            for c in preview.collapsedDetails {
+                print("  ⚠ 連帶刪除（候選塌縮）：\(c.id)——「\(displaySafe(c.question, max: 300))」")
+            }
+            return
+        }
         let report = try store.resolveDivergence(id: uuid, survivor: survivor)
 
         // **報告先印，索引後建，退出碼最後決定。** 消歧是破壞性操作；rebuild 擲錯會把
@@ -49,6 +64,9 @@ struct ResolveDivergence: ParsableCommand {
         }
         if !report.removedDivergences.isEmpty {
             print("已刪除歧異記錄：\(report.removedDivergences.joined(separator: ", "))")
+        }
+        for c in report.collapsedDetails {   // #78-2：被連帶刪的是哪個問題，說出來
+            print("  ⚠ 其中 \(c.id) 是候選塌縮的連帶刪除——「\(displaySafe(c.question, max: 300))」")
         }
         if report.hasFailures && report.survivorUpdated {
             FileHandle.standardError.write(Data(

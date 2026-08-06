@@ -143,6 +143,22 @@ final class SourceStoreTests: XCTestCase {
                        "非 git repo 跳過驗證——事實記錄在 receipt，呼叫端可轉發")
     }
 
+    /// #145 verify F1 的 regression：無關規則碰巧命中舊探測路徑（basename
+    /// `probe`）不得騙過驗證——驗的必須是實際寫入路徑。
+    func testUnrelatedIgnoreRuleDoesNotDefeatExclusionCheck() throws {
+        GitFixture.initRepo(root)
+        try store.ensureLayout()
+        // 使用者移除了 sources 區塊；.gitignore 只剩一條與本案無關的規則
+        try "probe\n".write(to: root.appendingPathComponent(".gitignore"),
+                            atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try store.storeSourceContent(Data("leak me".utf8)),
+                             "實際寫入路徑未被排除就必須拒寫——不管別的規則命中什麼")
+        let sourcesPath = root.appendingPathComponent("sources").path
+        let leftover = (try? FileManager.default.subpathsOfDirectory(atPath: sourcesPath))?
+            .filter { $0.contains("/") } ?? []
+        XCTAssertTrue(leftover.isEmpty, "拒寫不得留內容：\(leftover)")
+    }
+
     // MARK: - 4.5 digest 缺席 ≠ 損毀
 
     func testAbsentDigestIsDistinctFromMalformed() throws {

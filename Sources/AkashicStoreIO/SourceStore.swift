@@ -39,9 +39,16 @@ public extension LibraryStore {
     ///   寫入——拒寫時不留內容。
     @discardableResult
     func storeSourceContent(_ data: Data) throws -> SourceReceipt {
-        let verified = try assertSourcesExcluded()
         let hex = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         let digest = "sha256:\(hex)"
+        // 排除驗證問的必須是**即將寫入的那條路徑**（#145 verify F1）：曾用寫死的
+        // 探測路徑 `sources/00/probe`——任何碰巧命中它的無關規則（basename
+        // `probe`、窄的 `sources/00/`、使用者全域 gitignore 的一行）都會讓驗證
+        // 回「已排除」而實際寫入路徑根本沒被排除——fail-open 還回報假的
+        // exclusionVerified: true。順帶收穫：check-ignore 對**已被追蹤**的路徑
+        // 回「未忽略」，所以先前被 add -f 進 index 的存檔也會被擋（F4）。
+        let relative = "sources/\(hex.prefix(2))/\(hex.dropFirst(2))"
+        let verified = try assertSourcesExcluded(relativePath: relative)
         // sourceURL 對剛算出的合法 digest 不可能回 nil
         let url = sourceURL(digest: digest)!
         if !FileManager.default.fileExists(atPath: url.path) {
@@ -93,10 +100,9 @@ public extension LibraryStore {
     ///   未生效 → throw，錯誤說明如何修。回 true。
     /// - 非 git repo：跳過，回 false——事實進 `SourceReceipt`，不沉默。
     @discardableResult
-    internal func assertSourcesExcluded() throws -> Bool {
+    internal func assertSourcesExcluded(relativePath: String) throws -> Bool {
         guard Self.isInsideVersionedWorkTree(root) else { return false }
-        let probe = "sources/00/probe"
-        guard let r = Self.git(["check-ignore", "-q", "--", probe], in: root) else {
+        guard let r = Self.git(["check-ignore", "-q", "--", relativePath], in: root) else {
             // git 執行不起來時 fail-closed——「不知道有沒有排除」不等於「排除了」
             throw StoreIOError.invalidInput(
                 what: "sources 版控排除",

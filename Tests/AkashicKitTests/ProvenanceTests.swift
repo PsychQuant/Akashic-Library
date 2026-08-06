@@ -1,6 +1,7 @@
 import XCTest
 import Yams
 @testable import AkashicCore
+@testable import AkashicStoreIO
 
 /// #66：provenance reference——「路徑 + 內容」的雙半 provenance、欄位層附著、
 /// 擷取型/判斷型互斥（D6）。
@@ -239,5 +240,50 @@ extension ProvenanceTests {
         // 寫回位元組穩定（canonical 形式的冪等）
         let again = try PersonYAML.encode(try PersonYAML.decode(canonical))
         XCTAssertEqual(canonical, again, "decode→encode 必須位元組冪等")
+    }
+}
+
+/// #145 verify F2/F3/F5 的 regression。
+extension ProvenanceTests {
+
+    /// F2：合併不得靜默丟 references——契約表這一列先前無測試支撐（mutation 存活）。
+    func testMergeRefusesWhenDoomedCarriesReferencesKeeperLacks() {
+        let d = "sha256:" + String(repeating: "ab", count: 32)
+        var keeper = Person(key: "a-keep"); keeper.names = ["A"]
+        var doomed = Person(key: "a-gone"); doomed.names = ["A."]
+        doomed.orcid = "0000-0002-1825-0097"
+        doomed.references = [ProvenanceReference(field: "orcid", kind: .retrieval(
+            url: "https://example.org/o", retrieved: "2026-08-03", status: 200,
+            mediaType: nil, content: d))]
+        let losses = LibraryStore.fieldsLostByMerging(doomed, into: keeper)
+        XCTAssertTrue(losses.contains { $0.contains("references") },
+                      "被併者的 reference 會隨檔案消失，必須列入 losses：\(losses)")
+    }
+
+    /// F3：純量欄位帶 value → 拒（value 是清單欄位的定位，掛在純量上是垃圾欄位）。
+    /// 驗證住 record 層（validateReferenceAttachment）——建構器不看 record，
+    /// 不知道 field 是不是純量。
+    func testScalarFieldWithValueRejected() {
+        let yaml = personYAML(references: """
+        references:
+        - field: orcid
+          value: "偷渡的值"
+          url: https://example.org/x
+          retrieved: 2026-08-03
+          status: 200
+          content: \(digestA)
+        """).replacingOccurrences(of: "names:\n- Chen, H-Y.",
+                                  with: "names:\n- Chen, H-Y.\norcid: 0000-0002-1825-0097")
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
+            XCTAssertTrue(message(error).contains("純量") || message(error).contains("value"),
+                          message(error))
+        }
+    }
+
+    /// F5：`references:` 為 null（手改殘留）當缺席，不 quarantine——與兄弟欄位一致。
+    func testNullReferencesIsAbsentNotError() throws {
+        let yaml = personYAML(references: "references:")
+        let p = try PersonYAML.decode(yaml)
+        XCTAssertEqual(p.references, [])
     }
 }

@@ -1168,7 +1168,11 @@ public enum PersonYAML {
         // #66：references。逐筆驗證（互斥、必要欄位、digest 形狀）住
         // ProvenanceYAML.decode；欄位/值的存在性驗證在整筆 person 組完後跑
         // （它需要其他欄位都就位）。
-        if let rn = map["references"] {
+        // null 當缺席（#145 verify F5——與其他 collection 欄位的 nullIsAbsent 慣例
+        // 一致；`references:` 後面空白是常見的手改殘留，不值得整檔 quarantine）
+        if let rn = try EntryYAML.requireShape(map["references"], field: "person.references",
+                                               expect: "sequence", nullIsAbsent: true,
+                                               { $0.sequence != nil ? $0 : nil }) {
             person.references = try ProvenanceYAML.decode(rn, context: "person")
         }
         person.orcid = try EntryYAML.requireShape(map["orcid"], field: "person.orcid",
@@ -1647,7 +1651,9 @@ public enum OrganizationYAML {
                                               expect: "scalar", nullIsAbsent: true,
                                               { $0.scalar?.string })
         // #66：references（同 person——逐筆驗證住 ProvenanceYAML，附著驗證在組完後）
-        if let rn = map["references"] {
+        if let rn = try EntryYAML.requireShape(map["references"], field: "organization.references",
+                                               expect: "sequence", nullIsAbsent: true,
+                                               { $0.sequence != nil ? $0 : nil }) {
             org.references = try ProvenanceYAML.decode(rn, context: "organization")
         }
         try org.validateReferenceAttachment()

@@ -241,6 +241,14 @@ extension Person {
                         + "把 value 更新成現值或移除這筆 reference")
                 }
             case "orcid", "openalex", "died", "note":
+                // #145 verify F3：純量欄位的 value 沒有意義又永不被驗——靜默收下
+                // 就是安靜的垃圾欄位，拒絕並說明 value 屬於清單欄位的定位（D2）
+                guard r.value == nil else {
+                    throw StoreYAMLError.invalidField(
+                        "person.references(field: \(r.field))",
+                        "\(r.field) 是純量欄位，不收 value——value 是清單欄位"
+                        + "（names/authorized）的定位用（D2）")
+                }
                 let present: Bool
                 switch r.field {
                 case "orcid": present = orcid != nil
@@ -306,6 +314,11 @@ extension Organization {
                         "value「\(v)」不在 authorized 清單內")
                 }
             case "founded", "dissolved", "note":
+                guard r.value == nil else {
+                    throw StoreYAMLError.invalidField(
+                        "organization.references(field: \(r.field))",
+                        "\(r.field) 是純量欄位，不收 value（D2）")
+                }
                 let present: Bool
                 switch r.field {
                 case "founded": present = founded != nil

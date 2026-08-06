@@ -529,8 +529,11 @@ references:
 **normative 規則：**
 
 1. 每筆 reference **MUST** 帶 `field:` 指名它支持的欄位；欄位是清單（`names`／
-   `authorized`）時 **MUST** 另帶 `value:` 以值定位。指名不存在的欄位或值拒絕載入
-   （值被改寫後 provenance 成了孤兒——載入時擋下，錯誤同時指名欄位與值）。
+   `authorized`）時 **MUST** 另帶 `value:` 以值定位、純量欄位 **MUST NOT** 帶
+   `value:`（掛在純量上沒有意義又永不被驗——安靜的垃圾欄位）。指名不存在的欄位
+   拒絕載入；清單欄位的 `value` 不在清單內拒絕載入（值被改寫後 provenance 成了
+   孤兒——載入時擋下，錯誤同時指名欄位與值）。`profile.*` 維度只驗非空、`value`
+   不比對（OrgRef 等複合值無 canonical 字串——誠實邊界，細部定位屬消費端）。
 2. 擷取型 **MUST** 有 `url`／`retrieved`／`status`／`content`；缺 `content` 拒收
    ——內容的 digest 是 provenance 必要的另一半。判斷型 **MUST** 有 `judgement` 與
    `rests-on`（成對、皆非空）；帶 `content` 拒收——判斷不是擷取，沒有自己的位元組，

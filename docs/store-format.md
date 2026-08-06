@@ -501,6 +501,14 @@ index 一起被清掉。
   才報錯等於把「請升級」變成一堆難解的 per-file 錯誤。
 - `ensureLayout()` **MUST NOT** 覆寫既有的 `store.yaml`（那可能是較新版本寫的，覆寫等於在
   使用者跑一個看似無害的 `doctor` 時把防線自毀）。
+- `ensureLayout()`（建佈局的入口：`doctor`／`import-zotero`／`file add`／MCP 的
+  `import-zotero`）**MUST** 對 malformed 與 too-new 的 marker 拒絕（#106）——建佈局是
+  結構性動作，依猜測建目錄的代價是雙佈局。`usesEntitiesLayout` 的**寫入路由**兜底
+  （marker 壞掉時以磁碟事實猜）不在此限，維持 #35 語意。拒絕 **MUST** 零磁碟副作用
+  （不得留下依錯誤猜測建出的目錄）。
+- marker 解析 **MUST** 只認**頂層**的 `format:` 行——縮排（巢狀）的 `format:` 不是
+  候選（#112 verify：巢狀鍵曾贏過頂層真值，讓 format 5 的 store 被讀成 1、安靜建出
+  雙佈局）。頂層無 `format:` 行 → malformed。
 
 **版本對照**（source of truth 是 `StoreVersion.supported` 的文件註解；下表為對照）：
 

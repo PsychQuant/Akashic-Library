@@ -59,6 +59,12 @@ public enum StoreVersion {
         guard FileManager.default.fileExists(atPath: u.path) else { return 1 }
         let text = try String(contentsOf: u, encoding: .utf8)
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            // **只認頂層的 `format:` 行**（#112 verify）。先 trim 再比對會讓巢狀在別的
+            // mapping 底下的 `format:`（外來 store 的 `meta:\n  format: 1`）贏過頂層
+            // 真值——實測後果是 format 5 的 store 被讀成 1，doctor 安靜建出雙佈局，
+            // 正是 #106 要關掉的症狀。縮排行不是 marker 的候選。
+            guard let first = raw.unicodeScalars.first,
+                  first != " ", first != "\t" else { continue }
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.isEmpty || line.hasPrefix("#") { continue }
             guard line.hasPrefix("format:") else { continue }

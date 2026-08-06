@@ -520,5 +520,11 @@ final class EnsureLayoutStrictCLITests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: store.appendingPathComponent("entries").path),
             "拒絕之後不得留下猜出來的目錄")
+        // **registry 必須未被寫入**（#112 verify）——「拒絕註冊」的本體是這一條，
+        // 不是 exit code。現況成立靠的是 FileAdd.run 裡 ensureLayout 先於 config.write
+        // 的順序，這個斷言把那個順序釘住。
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: home.appendingPathComponent("config.yaml").path),
+            "拒絕之後 config 不得被建立/寫入——否則 registry 已含一個打不開的 store")
     }
 }

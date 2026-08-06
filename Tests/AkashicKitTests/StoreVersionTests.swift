@@ -153,3 +153,29 @@ final class StoreVersionTests: XCTestCase {
         XCTAssertTrue(load.libraries.isEmpty)
     }
 }
+
+/// marker 解析只認**頂層**的 `format:` 行（#112 verify DA A1）。
+///
+/// `read` 曾是「逐行 trim 後前綴比對、第一個匹配勝出」——於是巢狀在別的 mapping
+/// 底下的 `format:`（例如外來 store 的 `meta:\n  format: 1`）會贏過頂層的真值。
+/// 實測後果：`format: 5` 的 store 被讀成 1 → doctor exit 0 並安靜建出雙佈局——
+/// 這正是 #106 宣稱關掉的症狀，被一個 5 行的 YAML 檔繞回來。
+extension StoreVersionTests {
+    func testNestedFormatKeyDoesNotShadowTopLevel() throws {
+        try writeMarker("meta:\n  format: 1\nformat: 5\n")
+        XCTAssertEqual(try StoreVersion.read(root: root), 5,
+                       "巢狀的 format: 不是 marker——頂層的才是")
+        try writeMarker("meta:\n  format: 9\nformat: 5\n")
+        XCTAssertEqual(try StoreVersion.read(root: root), 5,
+                       "巢狀值比 supported 大也不得造成誤拒")
+    }
+
+    func testOnlyNestedFormatKeyIsMalformed() throws {
+        try writeMarker("meta:\n  format: 5\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in
+            guard case StoreVersionError.malformed = error else {
+                return XCTFail("預期 malformed（頂層沒有 format: 行），實得 \(error)")
+            }
+        }
+    }
+}

@@ -1059,6 +1059,10 @@ public enum PersonYAML {
         if !person.profile.isEmpty {
             try pairs.append((Node("profile"), PersonYAML.profileNode(person.profile)))
         }
+        // #66：欄位層級的 provenance。空清單不寫出——既有記錄零 diff。
+        if !person.references.isEmpty {
+            try pairs.append((Node("references"), ProvenanceYAML.node(person.references)))
+        }
         var out = try Yams.serialize(node: Node(pairs), allowUnicode: true)
         try EntryYAML.appendRawBlocks(person.unknownFields, to: &out, targetIndent: 0,
                                       context: "person")
@@ -1079,6 +1083,7 @@ public enum PersonYAML {
             if a.died != b.died { bad.append("died") }
             if a.note != b.note { bad.append("note") }
             if a.profile != b.profile { bad.append("profile") }
+            if a.references != b.references { bad.append("references") }
             let detail = bad.isEmpty ? "未知欄位 key 序列不符" : "欄位不符：\(bad.joined(separator: "、"))"
             throw StoreYAMLError.invalidField(
                 "person", "encode 語意自檢失敗——\(detail)，拒絕寫出")
@@ -1098,7 +1103,8 @@ public enum PersonYAML {
     /// 與「停止寫出形狀名」的目的相反。留在已知鍵內＝讀得到、忽略其值、不寫回。
     /// 形狀裸標籤同理必須列入。
     static let knownPersonKeys: Set<String> = Set(["id", "type", "key", "names", "authorized",
-                                                   "orcid", "openalex", "died", "note", "profile"])
+                                                   "orcid", "openalex", "died", "note", "profile",
+                                                   "references"])
         .union(EntityKind.knownLabels)
 
     public static func decode(_ yaml: String) throws -> Person {
@@ -1159,6 +1165,12 @@ public enum PersonYAML {
                                                { $0.mapping }) {
             person.profile = try PersonYAML.decodeProfile(pm)
         }
+        // #66：references。逐筆驗證（互斥、必要欄位、digest 形狀）住
+        // ProvenanceYAML.decode；欄位/值的存在性驗證在整筆 person 組完後跑
+        // （它需要其他欄位都就位）。
+        if let rn = map["references"] {
+            person.references = try ProvenanceYAML.decode(rn, context: "person")
+        }
         person.orcid = try EntryYAML.requireShape(map["orcid"], field: "person.orcid",
                                                   expect: "scalar") { $0.scalar?.string }
         person.openalex = try EntryYAML.requireShape(map["openalex"], field: "person.openalex",
@@ -1181,6 +1193,8 @@ public enum PersonYAML {
                                                  { $0.scalar?.string })
         person.note = try EntryYAML.requireShape(map["note"], field: "person.note",
                                                  expect: "scalar") { $0.scalar?.string }
+        // #66 task 3.3：reference 附著的存在性驗證——欄位全部就位後才有意義
+        try person.validateReferenceAttachment()
         return person
     }
 }
@@ -1549,7 +1563,7 @@ extension PersonYAML {
 public enum OrganizationYAML {
     static let knownKeys: Set<String> = Set(["id", "key", "names", "authorized",
                                              "founded", "dissolved",
-                                             "parents", "note"])
+                                             "parents", "note", "references"])
         .union(EntityKind.knownLabels)
 
     public static func encode(_ org: Organization) throws -> String {
@@ -1569,6 +1583,10 @@ public enum OrganizationYAML {
             try pairs.append((Node("parents"), PersonYAML.orgTimelineNode(org.parents)))
         }
         if let n = org.note { pairs.append((Node("note"), Node(n))) }
+        // #66：欄位層級的 provenance。空清單不寫出——既有記錄零 diff。
+        if !org.references.isEmpty {
+            try pairs.append((Node("references"), ProvenanceYAML.node(org.references)))
+        }
         var text = try Yams.serialize(node: Node(pairs), allowUnicode: true)
         try EntryYAML.appendRawBlocks(org.unknownFields, to: &text, targetIndent: 0,
                                       context: "organization")
@@ -1628,6 +1646,11 @@ public enum OrganizationYAML {
         org.note = try EntryYAML.requireShape(map["note"], field: "organization.note",
                                               expect: "scalar", nullIsAbsent: true,
                                               { $0.scalar?.string })
+        // #66：references（同 person——逐筆驗證住 ProvenanceYAML，附著驗證在組完後）
+        if let rn = map["references"] {
+            org.references = try ProvenanceYAML.decode(rn, context: "organization")
+        }
+        try org.validateReferenceAttachment()
         return org
     }
 }

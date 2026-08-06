@@ -388,8 +388,9 @@ canary 攔下。那不成立——關聯匯出不經過 canary，而 canary 的�
 
 ### 來源（#66 之前的資料輸入慣例）
 
-provenance 機制（#66）落地前，`died` 的來源（訃聞、紀念專輯、機構公告）**應**寫進
-`note`。它醜——單一自由文字欄、不參與計算——但**「醜且留著」勝過「乾淨且弄丟」**：
+provenance 機制（#66，見 §3.5）落地前，`died` 的來源（訃聞、紀念專輯、機構公告）
+**應**寫進 `note`。落地後新資料可改用 `references:`（`field: died` 的擷取型或判斷型）；
+既有 note 的遷移不強制。它醜——單一自由文字欄、不參與計算——但**「醜且留著」勝過「乾淨且弄丟」**：
 機制落地時這些字串可以遷移，沒記下來的來源不行。
 
 **這是對「填資料的人」的慣例，不是格式的 normative 要求**：`died` 在場而 `note` 缺席
@@ -500,6 +501,67 @@ akashic fmt --check    # 只回報偏離並以非零碼退出，不寫任何檔�
 `validate` **不**擋排版偏離——那不是正確性問題。若 `validate` 擋排版，外部 pipeline
 每次寫完都得先跑 `fmt` 才過驗證，摩擦大到會讓人繞過 `validate` 本身。`--check` 的
 語意與 `swift format --lint` 一致，給 CI 與外部 pipeline 當明確關卡。
+
+## 3.5 `references`：欄位層級的 provenance（normative，#66）
+
+person 與 organization 記錄可攜帶頂層 `references:` 清單——一筆 provenance 同時記
+**取得路徑**（URL、擷取日期、HTTP 狀態）與**取得的內容**（SHA-256 定址的位元組）。
+只有 URL 不構成 provenance：URL 是通往內容的路徑，不是內容本身（實測兩個 host 回
+相同位元組、第三個 404）。
+
+兩種 reference，**互斥**（混用拒收）：
+
+```yaml
+references:
+- field: orcid                    # 擷取型：url / retrieved / status / content 皆必要
+  url: https://pub.orcid.org/v3.0/0000-0003-4038-9439
+  retrieved: 2026-08-03
+  status: 200                     # 錯誤頁面同樣有 digest——「死」也是內容；200 不代表活著
+  media-type: application/json    # 可選
+  content: sha256:d1f446b3507bd24aXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+- field: names                    # 判斷型：judgement + rests-on 成對；不得帶 content
+  value: "Chen, H-Y."             # 欄位是清單時以值定位（索引在重排時失效）
+  judgement: 名冊內 Chen 姓且 given initials H-Y 唯一，與縮寫配對一致
+  rests-on:
+  - sha256:9a23d701e4fe4888XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+```
+
+**normative 規則：**
+
+1. 每筆 reference **MUST** 帶 `field:` 指名它支持的欄位；欄位是清單（`names`／
+   `authorized`）時 **MUST** 另帶 `value:` 以值定位。指名不存在的欄位或值拒絕載入
+   （值被改寫後 provenance 成了孤兒——載入時擋下，錯誤同時指名欄位與值）。
+2. 擷取型 **MUST** 有 `url`／`retrieved`／`status`／`content`；缺 `content` 拒收
+   ——內容的 digest 是 provenance 必要的另一半。判斷型 **MUST** 有 `judgement` 與
+   `rests-on`（成對、皆非空）；帶 `content` 拒收——判斷不是擷取，沒有自己的位元組，
+   它依據的內容以 `rests-on` 指名。
+3. digest 形狀 **MUST** 是 `sha256:` + 64 個小寫 hex——算在**收到的原始位元組**上，
+   不正規化、不轉碼（同一份實質內容可能因廣告/時間戳而有多個 digest——誠實接受的
+   代價；正規化是詮釋，另案）。
+4. reference 清單內的鍵是 **strict**（未知鍵拒收）——未來加欄位是 **non-additive**
+   （同時間軸段內鍵的教訓，#63/#74）。
+5. 既有 `TemporalValue.source`（時間段上的裸 URL）**不動**、不遷移、與 references
+   並存（#66 D7；遷移另案）。無 `references` 的既有記錄零 diff。
+
+### 存檔佈局：`sources/`（內容定址，不進 remote）
+
+擷取的位元組住 `<store>/sources/<digest 前 2 字元>/<其餘 62 字元>`，**無副檔名**
+（位元組就是位元組，媒體型別記在 reference 上）。同位元組只存一份。
+
+**存檔 MUST NOT 進版控 remote**——它是第三方逐字內容，與本專案對 raw 逐字稿的
+處置相同；追蹤的是**指涉紀錄**（references 欄位），不是被指涉的位元組。
+`ensureLayout()` 建 `sources/` 並寫入 `.gitignore` 標記區塊（`# BEGIN akashic
+sources` … `# END`；idempotent——標記已在（含手工版本）就不寫也不改寫）。寫入存檔
+前 **MUST** 以 git 自身的忽略判定驗證排除生效（fail-closed）：未生效拒寫、git 不可
+用拒寫；store 非 git repo 時跳過驗證，跳過的事實記錄在寫入回條。
+
+**digest 缺席是預期狀態，不是損毀**：存檔不進 remote，clone 後必然缺席。載入
+**MUST** 照常成功，缺席以與格式錯誤**不同的**條件回報（`missingSourceDigests`）。
+
+**存檔不是 entity**（兩個獨立理由，任一充分）：網頁不決定記錄形狀、不讓 loader
+分岔到不同 decoder；且內容定址的身分被位元組窮盡——entity 的判準之一是「改名後
+仍是同一物」，而位元組串改一個 byte 就是另一串。它沒有名字、沒有歷史、沒有生命
+週期，在構造上不可能是 entity（詳見 design-principles 的對應節）。
 
 ## 4. 衍生物
 

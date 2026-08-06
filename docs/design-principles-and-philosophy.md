@@ -347,6 +347,23 @@ Akashic 的語意 horizon 可以延伸至 Person、Work、Organization、Event�
 
 完整論證、被否決的替代判準，以及一次真實誤判的紀錄，見 [entity 與 view 的界線](explainers/entity-vs-view.md)。
 
+### 內容定址的存檔不得進入 entity namespace（#66）
+
+`sources/` 內的擷取內容（provenance reference 指涉的位元組）**MUST NOT** 寫入
+`entities/`、**MUST NOT** 帶形狀標籤、**MUST NOT** 取得 key。**兩個獨立的理由，
+任一充分**——日後有人提議把存檔升格為 entity 時，用哪一條擋都成立：
+
+1. **形狀判準**（第一層必要條件）：一份網頁的位元組不決定記錄的形狀——沒有欄位
+   因它存在，載入器不為它分岔到不同 decoder。它與 view 一樣停在第一層。
+2. **內容定址判準**（本節特有，且方向相反）：entity 的第二層條件之一是「名稱改變
+   後仍應被視為同一物」——身分**超越**內容。而內容定址的存檔恰好相反：身分被
+   位元組**窮盡**，改一個 byte 就是另一份內容。它沒有名字、沒有歷史、沒有生命
+   週期。這不是「程度不足」，是與 entity 的身分概念**正交對反**——即使第一層
+   有天被重新詮釋，這一條仍然擋住。
+
+「一個 digest 被很多筆記錄指涉」不構成升格理由——共用是內容定址的自然結果
+（同位元組必然同 digest），不是跨紀錄身分的徵候。
+
 > **World may be the horizon of Akashic, but it must not be the scope of every release.**
 
 ---

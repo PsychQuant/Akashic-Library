@@ -1,0 +1,135 @@
+import Foundation
+import CryptoKit
+import AkashicCore
+
+/// 擷取內容的存檔（#66 task 4.x）：`sources/<前2字元>/<其餘>`、內容定址、無副檔名。
+///
+/// **存檔不進 remote**（spec：Stored content SHALL NOT be tracked by the
+/// version-control remote）——它是第三方逐字位元組，與本專案對 raw 逐字稿的處置
+/// 相同。排除是 **fail-closed 的驗證**不是文件慣例（D5）：寫入前以 git 自身的
+/// 忽略判定確認，未生效拒寫——外流不可逆，不能押在「使用者記得設定」上。
+///
+/// **存檔不是 entity**（spec 兩個獨立理由，任一充分）：網頁不決定記錄形狀、
+/// 不讓 loader 分岔；且內容定址的身分被位元組窮盡——改一個 byte 就是另一串，
+/// 沒有名字、沒有歷史、沒有生命週期，與 entity「改名後仍是同一物」正好相反。
+public extension LibraryStore {
+
+    var sourcesDir: URL { root.appendingPathComponent("sources") }
+
+    /// 寫入的回條：digest 之外**記錄排除驗證是否真的跑了**（D5：store 非 git repo
+    /// 時跳過驗證，但跳過的事實不沉默——呼叫端可轉發給使用者）。
+    struct SourceReceipt {
+        public let digest: String
+        public let exclusionVerified: Bool
+    }
+
+    /// digest → 存檔路徑。形狀錯回 nil（呼叫端決定 throw 與否）。
+    internal func sourceURL(digest: String) -> URL? {
+        guard ProvenanceReference.isValidDigest(digest) else { return nil }
+        let hex = String(digest.dropFirst("sha256:".count))
+        return sourcesDir.appendingPathComponent(String(hex.prefix(2)))
+            .appendingPathComponent(String(hex.dropFirst(2)))
+    }
+
+    /// 存入一份擷取內容，回 digest（`sha256:` 前綴）。
+    ///
+    /// - digest 算在**原始位元組**上（D3）：不正規化、不轉碼——判準必須客觀。
+    /// - 同位元組冪等：已存在就不重寫（內容定址，兩份是不可能的）。
+    /// - 寫入前驗證版控排除（見 `assertSourcesExcluded`）；驗證先於**任何**磁碟
+    ///   寫入——拒寫時不留內容。
+    @discardableResult
+    func storeSourceContent(_ data: Data) throws -> SourceReceipt {
+        let verified = try assertSourcesExcluded()
+        let hex = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let digest = "sha256:\(hex)"
+        // sourceURL 對剛算出的合法 digest 不可能回 nil
+        let url = sourceURL(digest: digest)!
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url, options: .atomic)
+        }
+        return SourceReceipt(digest: digest, exclusionVerified: verified)
+    }
+
+    /// 讀回存檔。**缺席（nil）與格式錯（throw）是兩個條件**（task 4.5）：
+    /// 存檔不進 remote，clone 後必然缺席——那是預期狀態不是損毀；
+    /// 形狀錯的 digest 才是真正的格式錯誤。
+    func sourceContent(digest: String) throws -> Data? {
+        guard let url = sourceURL(digest: digest) else {
+            throw StoreIOError.invalidInput(
+                what: "source digest",
+                why: "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafe(digest, max: 120))」")
+        }
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try Data(contentsOf: url)
+    }
+
+    /// 全庫 references 指名、但本機沒有存檔的 digest（排序去重）。
+    /// 「回報缺席」的可用面——doctor/CLI 接線屬後續 issue（Out of scope）。
+    func missingSourceDigests(_ load: LibraryLoad) -> [String] {
+        var digests = Set<String>()
+        func collect(_ refs: [ProvenanceReference]) {
+            for r in refs {
+                switch r.kind {
+                case .retrieval(_, _, _, _, let content): digests.insert(content)
+                case .judgement(_, let restsOn): digests.formUnion(restsOn)
+                }
+            }
+        }
+        for p in load.people { collect(p.references) }
+        for o in load.organizations { collect(o.references) }
+        return digests.filter { d in
+            guard let url = sourceURL(digest: d) else { return true }
+            return !FileManager.default.fileExists(atPath: url.path)
+        }.sorted()
+    }
+
+    /// 版控排除的 fail-closed 驗證（D5）。
+    ///
+    /// - store 是 git repo：`git check-ignore` 對 `sources/` 內的探測路徑必須回
+    ///   「被忽略」——用 git **自己的**判定，不是自己 parse .gitignore（更外層的
+    ///   全域設定、`.git/info/exclude` 都會影響結果，只有 git 知道總和）。
+    ///   未生效 → throw，錯誤說明如何修。回 true。
+    /// - 非 git repo：跳過，回 false——事實進 `SourceReceipt`，不沉默。
+    @discardableResult
+    internal func assertSourcesExcluded() throws -> Bool {
+        guard Self.isInsideVersionedWorkTree(root) else { return false }
+        let probe = "sources/00/probe"
+        guard let r = Self.git(["check-ignore", "-q", "--", probe], in: root) else {
+            // git 執行不起來時 fail-closed——「不知道有沒有排除」不等於「排除了」
+            throw StoreIOError.invalidInput(
+                what: "sources 版控排除",
+                why: "無法執行 git 確認 sources/ 的忽略狀態——排除驗證是寫入前提"
+                    + "（外流不可逆），git 不可用時拒絕寫入")
+        }
+        guard r.status == 0 else {
+            throw StoreIOError.invalidInput(
+                what: "sources 版控排除",
+                why: "sources/ 未被版控忽略——存檔是第三方逐字內容，不得進 remote。"
+                    + "在 store 的 .gitignore 加上「sources/」（ensureLayout 會寫入"
+                    + "標記區塊），或確認沒有其他規則反向 un-ignore 它，再重試")
+        }
+        return true
+    }
+
+    /// `.gitignore` 的 sources 排除區塊（task 4.3）。**以標記為判準的 idempotent**：
+    /// `# BEGIN akashic sources` 已在（即使內文是手工版本、與程式版不同）就不寫
+    /// 也不改寫——真實 store 的區塊是手工先寫的（#66 落地前），程式必須與既有
+    /// 狀態相容，改寫等於用程式版覆蓋使用者的措辭。
+    internal func ensureSourcesIgnoreBlock() throws {
+        let ignoreURL = root.appendingPathComponent(".gitignore")
+        let existing = (try? String(contentsOf: ignoreURL, encoding: .utf8)) ?? ""
+        guard !existing.contains("# BEGIN akashic sources") else { return }
+        var out = existing
+        if !out.isEmpty && !out.hasSuffix("\n") { out += "\n" }
+        out += """
+        # BEGIN akashic sources — 存檔的來源內容（第三方逐字位元組）
+        # 被指涉的內容本身不進 remote（Akashic-Library#66）；指涉紀錄（references:）照常追蹤。
+        sources/
+        # END akashic sources
+
+        """
+        try out.write(to: ignoreURL, atomically: true, encoding: .utf8)
+    }
+}

@@ -595,6 +595,17 @@ extension LibraryStore {
             losses.append("profile 的 " + profileGaps.joined(separator: "、"))
         }
 
+        // #66：provenance references 是**子集**判準（同 authorized）——被併者的每筆
+        // reference 若不在倖存者身上就會隨檔案消失，而 provenance 消失比資料消失
+        // 更難察覺（資料錯了看得出來，依據沒了要等下次質疑才發現）。不做自動搬移：
+        // reference 的 field/value 指向被併者的欄位，搬過去可能指到倖存者沒有的值
+        // ——那正是 validateReferenceAttachment 要擋的孤兒。
+        let lostRefs = p.references.filter { !keeper.references.contains($0) }
+        if !lostRefs.isEmpty {
+            losses.append("references（\(lostRefs.count) 筆，欄位："
+                + lostRefs.map(\.field).joined(separator: "、") + "）")
+        }
+
         // 未知欄位是**三分**不是二分：key 不在 → 真的會失去；key 在且 raw 相等 → 不會
         // 失去；key 在但 raw 不同 → 那是**衝突**不是「倖存者沒有」。用 `contains($0)`
         // （key + raw 全等）會把純排版差異報成資料遺失，而訊息給的操作無事可做。
@@ -630,7 +641,7 @@ extension LibraryStore {
     }
 
     /// 本函式涵蓋的 `Person` 儲存屬性數。`PersonFieldCoverageTests` 拿它與反射比對。
-    static let personFieldsCoveredByMergeCheck = 10
+    static let personFieldsCoveredByMergeCheck = 11
 
     // MARK: - 小工具
 

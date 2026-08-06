@@ -131,24 +131,53 @@ extension LibraryStore {
                                  judgement: String?,
                                  restsOn: [String]) throws -> Divergence {
         guard candidates.count >= 2 else {
-            throw StoreIOError.invalidKey(
-                "divergence candidates", "需要兩個以上的候選，得到 \(candidates.count) 個")
+            throw StoreIOError.invalidInput(
+                what: "divergence candidates", why: "需要兩個以上的候選，得到 \(candidates.count) 個")
         }
         // 「沒有依據的斷言不是判斷，沒有斷言的依據不知道在支持什麼」（#71 的不變式）。
         // 編碼器也會擋，但那時的訊息在 YAML 層——這裡擋，訊息才貼近使用者的動作。
         if (judgement != nil) != !restsOn.isEmpty {
-            throw StoreIOError.invalidKey(
-                "divergence judgement",
-                "判斷與依據必須成對：有 judgement 就要有 rests-on（依據），反之亦然")
+            throw StoreIOError.invalidInput(
+                what: "divergence judgement",
+                why: "判斷與依據必須成對：有 judgement 就要有 rests-on（依據），反之亦然")
         }
         let load = try load()
-        let known = Set(load.people.map(\.key)).union(load.organizations.map(\.key))
-        for c in candidates where !known.contains(c.key) {
-            throw StoreIOError.invalidKey(
-                "divergence candidate", "store 內找不到候選「\(c.key)」——對不存在的鍵記歧異沒有意義")
+        // **per-shape 存在檢查**（#133 verify F2）：曾用 people ∪ organizations 的
+        // 合集只驗 key 不驗 shape——person 被記成 work 照樣寫入，validate 警告
+        // 「無法被消歧」而 MCP 面完全看不見；真正的 work（citekey）反而不在集合裡、
+        // 結構上不可用。shape 說是什麼，就到那個形狀的集合裡驗。
+        let byShape: [EntityKind: Set<String>] = [
+            .person: Set(load.people.map(\.key)),
+            .organization: Set(load.organizations.map(\.key)),
+            .work: Set(load.entries.map(\.citekey)),
+        ]
+        for c in candidates {
+            guard let pool = byShape[c.shape] else {
+                throw StoreIOError.invalidInput(
+                    what: "divergence candidate",
+                    why: "shape「\(c.shape.rawValue)」不可作候選——歧異記錄沒有 key，不是可被指涉的對象")
+            }
+            guard pool.contains(c.key) else {
+                throw StoreIOError.invalidInput(
+                    what: "divergence candidate",
+                    why: "store 內沒有 \(c.shape.rawValue)「\(c.key)」——對不存在的鍵記歧異沒有意義（key 存在但形狀不符也算不存在：shape 說是什麼就驗什麼）")
+            }
+        }
+        let id = DeterministicUUID.forDivergence(candidateKeys: candidates.map(\.key))
+        // **補寫允許、毀損拒絕**（#133 verify F1）：同組候選＝同一筆記錄（決定性
+        // UUID），re-record 是原子全替換——曾經「無判斷的新呼叫」會把既有判斷
+        // **靜默抹掉**（question 也無聲換掉）。撤銷判斷是刻意動作，不是省略參數
+        // 的副作用；更新判斷（有→有）與補上判斷（無→有）照常。
+        if let existing = load.divergences.first(where: { $0.id == id }),
+           existing.judgement != nil, judgement == nil {
+            throw StoreIOError.invalidInput(
+                what: "divergence（同組候選既有記錄）",
+                why: "這組候選已有判斷（\(displaySafe(existing.judgement!.statement, max: 120))）——" +
+                     "無判斷的重呼叫不得靜默抹掉它。要更新判斷請帶新的 judgement + rests-on；" +
+                     "要撤銷判斷請直接編輯該檔（entities/\(id.uuidString).yaml）")
         }
         let d = Divergence(
-            id: DeterministicUUID.forDivergence(candidateKeys: candidates.map(\.key)),
+            id: id,
             question: question,
             candidates: candidates.map { DivergenceCandidate(key: $0.key, shape: $0.shape) },
             judgement: judgement.map { Judgement(statement: $0, restsOn: restsOn) })

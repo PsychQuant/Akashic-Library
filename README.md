@@ -195,8 +195,8 @@ store 永遠是全集——library 只是視角，成員關係存在 entry 的 `
 ⚠ 並發限制：對**同一 entry** 並發執行 membership 寫入（CLI 與 MCP 同時 `library add/remove`）
 不保證安全——read-modify-write 無跨程序鎖，後寫者可能靜默蓋掉先寫者（跨程序鎖為 #7
 store 硬化範疇）。`create` 為 exclusive-create（並發同 key 恰一方成功）。單一操作者依序使用不受影響。
-工具面：17 tools——8 讀（search/get_entry/relations/graph/export/people/person/doctor）+ akashic_files（list/use——多檔案切換）+ akashic_libraries（list/create/add/remove）+
-7 寫（**只碰衍生層**：set_status/tag/link/resolve_people 逐候選/create_entry 庫外/add_person/import_zotero）。
+工具面：18 tools——8 讀（search/get_entry/relations/graph/export/people/person/doctor）+ akashic_files（list/use——多檔案切換）+ akashic_libraries（list/create/add/remove）+
+8 寫（**只碰衍生層**：set_status/tag/link/resolve_people 逐候選/create_entry 庫外/add_person/import_zotero/record_divergence 記歧異**不**消歧——消歧屬人工）。
 biblatex 面向唯讀——過渡期歸 Zotero pull 管。並發（MCP 與 CLI 並用）：per-file atomic
 write、last-wins、index 冪等重建（單人場景設計）。
 

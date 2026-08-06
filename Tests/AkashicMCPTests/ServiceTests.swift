@@ -616,6 +616,44 @@ final class ServiceRecordDivergenceTests: XCTestCase {
             "候選格式 key:shape——與 CLI 同格式，錯格式要指明")
     }
 
+    /// #133 verify F1：同組候選 re-record 的三態——補寫允許、更新允許、毀損拒絕。
+    func testRecordDivergenceRefusesToSilentlyEraseJudgement() throws {
+        _ = try service.recordDivergence(
+            question: "q1", candidates: ["chen-h-y:person", "chen-hui-yun:person"],
+            judgement: "同一人", restsOn: ["https://example.org/roster"])
+        // 有→nil：拒絕（曾經靜默抹掉判斷與 question）
+        XCTAssertThrowsError(try service.recordDivergence(
+            question: "q2", candidates: ["chen-h-y:person", "chen-hui-yun:person"],
+            judgement: nil, restsOn: [])) { error in
+            let m = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(m.contains("判斷") && !m.contains("不符合"),
+                          "要指明既有判斷會被抹掉、且不得套 key-pattern 框架：\(m)")
+        }
+        // 有→有：更新允許
+        XCTAssertNoThrow(try service.recordDivergence(
+            question: "q3", candidates: ["chen-h-y:person", "chen-hui-yun:person"],
+            judgement: "仍同一人，另據", restsOn: ["https://example.org/other"]))
+    }
+
+    /// #133 verify F2：shape 說是什麼就到那個形狀的集合驗——person 記成 work 拒絕；
+    /// 真正的 work（citekey）從此可用（曾因 known 漏掉 entries 而結構上不可用）。
+    func testRecordDivergenceValidatesShapeMembership() throws {
+        XCTAssertThrowsError(try service.recordDivergence(
+            question: "q", candidates: ["chen-h-y:work", "chen-hui-yun:work"],
+            judgement: nil, restsOn: []),
+            "person 的 key 記成 work＝寫出一筆永遠無法消歧的記錄，必須當場拒絕")
+    }
+
+    /// #133 verify F3：拒絕訊息不得套「不符合 key 正規式」的假框架。
+    func testRecordDivergenceErrorsDoNotClaimKeyPatternViolation() {
+        XCTAssertThrowsError(try service.recordDivergence(
+            question: "q", candidates: ["chen-h-y:person"], judgement: nil, restsOn: [])) { error in
+            let m = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertFalse(m.contains("不符合"),
+                           "候選數不足與 key 語法無關——框架錯了 LLM 會去清洗 key：\(m)")
+        }
+    }
+
     func testRecordDivergenceRejectsUnknownCandidate() {
         XCTAssertThrowsError(try service.recordDivergence(
             question: "q", candidates: ["ghost-person:person", "chen-hui-yun:person"],

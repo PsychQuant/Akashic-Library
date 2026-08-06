@@ -492,7 +492,7 @@ public final class AkashicService {
             let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
             guard parts.count == 2, let shape = EntityKind(rawValue: parts[1]) else {
                 throw ServiceError.invalid(
-                    "候選格式為 `key:shape`（shape ∈ \(EntityKind.allCases.map(\.rawValue).joined(separator: " / "))），得到「\(displaySafe(spec, max: 120))」")
+                    "候選格式為 `key:shape`（shape ∈ \(EntityKind.allCases.filter { $0 != .divergence }.map(\.rawValue).joined(separator: " / "))），得到「\(displaySafe(spec, max: 120))」")
             }
             return (key: parts[0], shape: shape)
         }
@@ -501,7 +501,7 @@ public final class AkashicService {
         return try jsonString([
             "id": d.id.uuidString,
             "candidates": d.candidates.map(\.key),
-            "hasJudgement": d.judgement != nil ? "true" : "false",
+            "hasJudgement": d.judgement != nil,
             "note": "記下判斷不等於消歧——合併請由人工跑 akashic resolve-divergence",
         ])
     }

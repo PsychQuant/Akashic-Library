@@ -3,11 +3,17 @@ import AkashicCore
 
 public enum StoreIOError: Error, LocalizedError, Equatable {
     case invalidKey(String, String)
+    /// 一般性的輸入拒絕（#133 verify F3）：invalidKey 的訊息框架是「不符合 key
+    /// 正規式」——把候選數不足、判斷缺依據這類拒絕塞進去，內文正確、框架全錯，
+    /// 會把 LLM 呼叫端引去清洗 key。語意歸語意。
+    case invalidInput(what: String, why: String)
     /// store 有跨記錄的不一致（重複 UUID / citekey），改寫動作拒絕執行（#35 verify）。
     case inconsistentStore(action: String, issues: [String])
 
     public var errorDescription: String? {
         switch self {
+        case let .invalidInput(what, why):
+            return "\(displaySafe(what, max: 120)) 無效：\(displaySafe(why, max: 400))"
         case let .inconsistentStore(action, issues):
             // 單行——會過 displaySafe
             return "store 有 \(issues.count) 個跨記錄不一致，\(action) 拒絕執行"

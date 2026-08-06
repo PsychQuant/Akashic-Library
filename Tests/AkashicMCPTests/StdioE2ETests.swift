@@ -28,6 +28,8 @@ final class StdioE2ETests: XCTestCase {
                        authors: [.literal("Che Cheng")], date: "2025")
         e1.fields["journaltitle"] = "Psychometrika"
         try store.writeEntry(e1)
+        try store.writePerson(Person(key: "chen-h-y", names: ["Chen, H.-Y."]))
+        try store.writePerson(Person(key: "chen-hui-yun", names: ["Chen, Hui-Yun"]))
 
         process = Process()
         process.executableURL = productsDirectory.appendingPathComponent("akashic-mcp")
@@ -107,5 +109,37 @@ final class StdioE2ETests: XCTestCase {
         let content = ((callResponse["result"] as? [String: Any])?["content"] as? [[String: Any]]) ?? []
         let text = content.first?["text"] as? String ?? ""
         XCTAssertTrue(text.contains("cheng2025identifiability"), text)
+    }
+
+    /// #77/#133：record_divergence 的 dispatch 層煙霧——service 測試蓋不到
+    /// Server.swift 的 arg 取用（schema key 改名／掉參數，service 層全綠照樣壞）。
+    /// 這裡用**與 schema 一致的 key 名**（question/candidates/judgement/rests_on）
+    /// 走真 binary，釘住 dispatch 的每個參數都真的被轉發。
+    func testRecordDivergenceToolCallEndToEnd() throws {
+        try send(["jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": ["protocolVersion": "2024-11-05", "capabilities": [:],
+                             "clientInfo": ["name": "t", "version": "0"]]])
+        _ = try readResponse()
+        try send(["jsonrpc": "2.0", "method": "notifications/initialized"])
+
+        try send([
+            "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": ["name": "akashic_record_divergence",
+                       "arguments": ["question": "縮寫是否同一人",
+                                     "candidates": ["chen-h-y:person", "chen-hui-yun:person"],
+                                     "judgement": "同一人",
+                                     "rests_on": ["https://example.org/roster"]]],
+        ])
+        let resp = try readResponse()
+        let result = resp["result"] as? [String: Any]
+        XCTAssertNotEqual(result?["isError"] as? Bool, true, "\(resp)")
+        let text = ((result?["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
+        XCTAssertTrue(text.contains("id"), text)
+        XCTAssertTrue(text.contains("true"), "judgement 有被轉發（hasJudgement）：\(text)")
+
+        // 判斷落地（judgement/rests_on 兩個 key 都真的到了 store）
+        let load = try LibraryStore(root: root).load()
+        XCTAssertEqual(load.divergences.first?.judgement?.statement, "同一人")
+        XCTAssertEqual(load.divergences.first?.judgement?.restsOn, ["https://example.org/roster"])
     }
 }

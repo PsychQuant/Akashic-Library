@@ -229,14 +229,18 @@ swift test
 ### 測試沙箱（絕不碰真實 `~/.akashic`）
 
 測試一律在 temp 目錄建假 store、**顯式注入** `AKASHIC_HOME`（`LibraryStore(root:key:environment:)`
-的 `environment` 參數存在的唯一理由）；spawn 真 binary 的 E2E 測試用 `CLITestHarness`——它
-無條件剝除繼承環境裡的 `AKASHIC_*`。這不是風格偏好：帶 key 的 store 少了 environment 注入，
-index 就寫進**使用者真實的** `~/.akashic/index/<key>.sqlite`（原子覆寫，實際發生過）。
+的 `environment` 參數存在的唯一理由）；spawn 真 binary 的 E2E 測試必須剝除繼承環境裡的
+`AKASHIC_*`（`CLITestHarness` 無條件剝除；其餘兩個 spawn helper 的補齊在 PR #121）。
+這不是風格偏好：帶 key 的 store 少了 environment 注入，index 就寫進**使用者真實的**
+`~/.akashic/index/<key>.sqlite`（原子覆寫，實際發生過）。
 
 兩層防線（#124）：測試側是每個測試自己的目的地斷言（先斷言 `indexURL` 在沙箱內、才做任何
-重建）；process 側是 `RealHomeSandboxGuard`（`Sources/AkashicTestGuard/`）——整輪測試期間
-真實 `~/.akashic` 有任何異動就 **fatalError 整個 run** 並指出最後通過檢查的測試邊界。
-守衛誤殺你的新測試＝那個測試在碰真實 home，修測試，不要動守衛。
+重建）；process 側是 `RealHomeSandboxGuard`（`Sources/AkashicTestGuard/`，由 C constructor
+在 bundle 載入時啟用——`--filter`／`--parallel` 都涵蓋）——測試期間真實 `~/.akashic` 有異動
+就 **fatalError** 並盡可能歸因。它是 best-effort **偵測器**而非完備 boundary（`.git/` 刻意
+排除、改寫後復原偵測不到——誠實邊界見類別 doc）。守衛觸發時**來源未知**：可能是測試逃逸，
+也可能是你在另一個終端動了 store（git／編輯器／同步）——後者重跑即可；無法排除前者時，
+先找出是哪個測試，不要停用守衛。
 
 ### 工具鏈可移植性
 

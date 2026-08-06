@@ -1508,8 +1508,14 @@ extension PersonYAML {
         let end = try str("end")
         var endedUnknown = false
         if let endedNode = m["ended"] {
-            guard let b = Bool(endedNode.scalar?.string ?? "") else {
-                throw StoreYAMLError.invalidField("\(context).ended", "必須是 true/false")
+            // 本 store 格式的第一個 boolean——慣例在此建立（#131 verify F4）：
+            // 只收裸寫的 true/false。引號版（"true" 是 !!str 不是 boolean）與
+            // YAML 1.1 變體（True/yes/on/1）一律拒絕——fail-closed 與 requireShape
+            // 的形狀紀律一致，訊息指路即可。
+            guard let sc = endedNode.scalar, sc.style == .plain,
+                  let b = Bool(sc.string) else {
+                throw StoreYAMLError.invalidField(
+                    "\(context).ended", "必須是裸寫的 true 或 false（不加引號、不用 Yes/On/1 等變體）")
             }
             if b, end != nil {
                 throw StoreYAMLError.invalidField(

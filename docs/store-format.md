@@ -260,6 +260,9 @@ affiliations:
 - `end` 有值時 `ended: true` 是矛盾（end 即「已結束於此」）——decode **MUST** 拒絕
 - `ended: false` 冗餘但合法（等同缺席）；encode **MUST NOT** 寫出預設值
 - 重疊判定：無端點無從排除——`ended` 段視為延伸到無限遠（保守多報，交人工裁決）
+- 同一批（format 6）順帶對齊：affiliations 段的 `start:`／`end:` 的 **null 面
+  （`null`／`~`）視為缺席**——先前 `ranks` 等純字串時間軸已如此，affiliations 卻把
+  `start: null` 存成字串 `"null"`。`source:`／`note:` 維持字串語意不變
 - **non-additive，MUST bump（format 6）**——「看似 additive 其實不是」：
   tolerant-preserve 的開放演化層只涵蓋記錄**頂層**與 `akashic` namespace（§5 v1.3），
   時間軸**段內**的鍵是 strict（未知鍵拒絕）——舊 binary 讀到 `ended:` 是**整檔

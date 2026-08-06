@@ -11,7 +11,8 @@ import Foundation
 ///
 /// ## 為什麼 `end` 是 optional 而不是用一個哨兵日期
 ///
-/// `nil` ＝ **仍在進行中**。用 `9999-12` 之類的哨兵會讓「現在還在」與「預計到 9999 年」
+/// `nil` ＝ **仍在進行中**（除非另標 `endedUnknown`——「已結束、時點未知」是第三個
+/// 一等狀態，#63）。用 `9999-12` 之類的哨兵會讓「現在還在」與「預計到 9999 年」
 /// 無法區分，而且任何忘記處理哨兵的計算都會產生荒謬的區間長度。
 ///
 /// ## 精度
@@ -28,9 +29,11 @@ public struct DateRange: Equatable, Comparable {
     public var end: String?
     /// **已結束，但結束日期未知**（#63）。43 位退休 PI 只有「已退休」的事實、
     /// 沒有年份——`end: nil` 的既有語意（進行中）會把整批算成現職。
-    /// `end` 有值時本欄位無意義（decode 拒絕矛盾組合）。additive：舊 binary 經
-    /// tolerant-preserve 保留本欄位但按舊語意當開放段——那只是少了它本來就沒有的
-    /// 表達力，非 §5.0 的 non-additive（語意變更）情形，不 bump format（#74）。
+    /// `end` 有值時本欄位無意義（decode 拒絕矛盾組合）。
+    /// **non-additive，format 6**：看似 additive 其實不是——tolerant-preserve 的
+    /// 開放層只涵蓋記錄頂層與 `akashic` namespace，時間軸**段內**的鍵是 strict，
+    /// 舊 binary 讀到本欄位是整檔 quarantine（人檔消失）而非保留（#74 判準的
+    /// 實際教訓：判 additive 前先確認新鍵落在哪一層）。
     public var endedUnknown: Bool
 
     public init(start: String? = nil, end: String? = nil, endedUnknown: Bool = false) {

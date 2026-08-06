@@ -83,8 +83,11 @@ final class EndedUnknownTests: XCTestCase {
                 end: "2020"
                 ended: true
             """
-        XCTAssertThrowsError(try PersonYAML.decode(yaml),
-                             "end 有值 + ended: true 是矛盾組合——拒絕，不猜哪個是真話")
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
+            let m = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(m.contains("矛盾"),
+                          "必須是矛盾偵測在拒絕（不是 unknown-key 或其他 strict 拒絕順便擋下）：\(m)")
+        }
     }
 
     func testEndedFalseIsTolerated() throws {
@@ -101,6 +104,42 @@ final class EndedUnknownTests: XCTestCase {
         let p = try PersonYAML.decode(yaml)
         XCTAssertEqual(p.profile.ranks.entries.first?.range.endedUnknown, false)
         XCTAssertNotNil(p.profile.ranks.current, "ended: false ＝ 照常進行中")
+    }
+
+    /// boolean 慣例（#131 verify F4——本 store 格式的第一個 boolean，慣例在此建立）：
+    /// 只收裸寫 true/false；引號版與 YAML 1.1 變體一律拒絕（fail-closed）。
+    func testEndedBooleanFormsAreStrict() throws {
+        func person(_ ended: String) -> String {
+            "key: b\nnames: [B]\nprofile:\n  ranks:\n  - value: r\n    start: \"2010\"\n    ended: \(ended)\n"
+        }
+        XCTAssertNoThrow(try PersonYAML.decode(person("true")))
+        XCTAssertNoThrow(try PersonYAML.decode(person("false")))
+        for bad in ["\"true\"", "True", "TRUE", "yes", "on", "1"] {
+            XCTAssertThrowsError(try PersonYAML.decode(person(bad)),
+                                 "\(bad) 不是裸寫的 true/false——第一個 boolean 的慣例是 fail-closed")
+        }
+    }
+
+    /// 目前的精確 format 值（#131 verify：下限斷言防不了「意外多 bump 一次」——
+    /// 本測試釘精確值，每次刻意 bump 時隨新 format 的測試一起搬家）。
+    func testCurrentSupportedFormatIsExactlySix() {
+        XCTAssertEqual(StoreVersion.supported, 6)
+    }
+
+    /// #131 verify F2：affiliations 段的 start/end null 面視為缺席（format 6 順帶
+    /// 對齊——先前 ranks 已如此、affiliations 卻存成字串 "null"）。文件化 + 釘住。
+    func testAffiliationStartNullFaceIsAbsence() throws {
+        let yaml = """
+            key: n-person
+            names: [N]
+            profile:
+              affiliations:
+              - value: {literal: 某機構}
+                start: null
+            """
+        let p = try PersonYAML.decode(yaml)
+        XCTAssertNil(p.profile.affiliations.entries.first?.range.start,
+                     "null 面＝缺席，不是字串 \"null\"")
     }
 
     // MARK: - format bump（#63 是 non-additive）
@@ -122,9 +161,21 @@ final class EndedUnknownTests: XCTestCase {
             TemporalValue(value: .literal("中研院統計所"),
                           range: DateRange(start: "1985", endedUnknown: true)),
         ])
-        let table = RelationalExport.tables(entries: [], people: [p]).researcher
-        let statusIdx = try XCTUnwrap(table.columns.firstIndex(of: "status"))
-        XCTAssertEqual(table.rows.first?[statusIdx], "retired",
+        let tables = RelationalExport.tables(entries: [], people: [p])
+        let statusIdx = try XCTUnwrap(tables.researcher.columns.firstIndex(of: "status"))
+        XCTAssertEqual(tables.researcher.rows.first?[statusIdx], "retired",
                        "退休（時點未知）→ status=retired——#63 的 43 位 PI 場景")
+
+        // #131 verify F1（HIGH）：researcher_timeline 曾丟掉 endedUnknown——
+        // status=retired 而 timeline 行 valid_end NULL＝進行中，同一份輸出自相矛盾，
+        // SQL 下游按「end IS NULL」慣例把退休 PI 拉回現職（issue 的病搬進 DuckDB 重現）。
+        let tl = tables.researcherTimeline
+        let unknownIdx = try XCTUnwrap(tl.columns.firstIndex(of: "valid_end_unknown"))
+        let endIdx = try XCTUnwrap(tl.columns.firstIndex(of: "valid_end"))
+        let row = try XCTUnwrap(tl.rows.first)
+        XCTAssertEqual(row[unknownIdx], "true", "timeline 行必須攜帶「已結束、時點未知」")
+        XCTAssertNil(row[endIdx])
+        XCTAssertTrue(RelationalExport.duckDBScript().contains("valid_end_unknown"),
+                      "load.sql 的 schema 要有這欄——匯出是全刪重建的衍生物，掉了就永遠消失")
     }
 }

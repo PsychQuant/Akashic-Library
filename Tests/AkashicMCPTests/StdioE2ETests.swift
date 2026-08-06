@@ -94,8 +94,9 @@ final class StdioE2ETests: XCTestCase {
         try send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
         let listResponse = try readResponse()
         let tools = ((listResponse["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
-        XCTAssertEqual(tools.count, 18)   // #13: + akashic_libraries；#14: + akashic_person；#18: + akashic_files；#77: + akashic_record_divergence
+        XCTAssertEqual(tools.count, 19)   // #13/#14/#18/#77 歷次擴充；#76: + akashic_divergences（list-only）
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_record_divergence" })
+        XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_divergences" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_search" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_libraries" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_person" })
@@ -142,5 +143,18 @@ final class StdioE2ETests: XCTestCase {
         let load = try LibraryStore(root: root).load()
         XCTAssertEqual(load.divergences.first?.judgement?.statement, "同一人")
         XCTAssertEqual(load.divergences.first?.judgement?.restsOn, ["https://example.org/roster"])
+
+        // #138 verify F4：akashic_divergences 不只出現在 tools/list，還要真的
+        // 打得通——dispatch switch 的 case 標籤打錯字，只有實際呼叫抓得到。
+        try send([
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": ["name": "akashic_divergences", "arguments": [:]],
+        ])
+        let listResp = try readResponse()
+        let listResult = listResp["result"] as? [String: Any]
+        XCTAssertNotEqual(listResult?["isError"] as? Bool, true, "\(listResp)")
+        let listText = ((listResult?["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
+        XCTAssertTrue(listText.contains("縮寫是否同一人"), "list 要含剛記下的 question：\(listText)")
+        XCTAssertTrue(listText.contains("\"count\""), listText)
     }
 }

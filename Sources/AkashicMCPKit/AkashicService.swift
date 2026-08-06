@@ -125,7 +125,8 @@ public final class AkashicService {
             }
         }
         let dicts = people.map { person -> [String: Any] in
-            var d: [String: Any] = ["key": person.key, "names": person.names]
+            var d: [String: Any] = ["key": displaySafe(person.key, max: 200),
+                                    "names": person.names.map { displaySafe($0, max: 200) }]
             if let orcid = person.orcid { d["orcid"] = orcid }
             if let openalex = person.openalex { d["openalex"] = openalex }
             if !person.unknownFields.isEmpty {   // #31：同 entryDict，只給 key
@@ -138,19 +139,32 @@ public final class AkashicService {
 
     public func doctor() throws -> String {
         let load = try store.load()
-        let stats = try LibraryIndex(store: store).rebuild()
-        let unresolved = load.entries.flatMap { entry in
-            entry.authors.compactMap { if case .literal = $0 { return 1 } else { return nil } }
-        }.count
-        let orphaned = load.entries.filter { $0.provenance?.orphanedAt != nil }.map(\.citekey)
-        var d: [String: Any] = [
-            "library": root.path,
-            "entries": stats.entries,
-            "people": stats.people,
-            "relations": stats.relations,
-            "unresolvedAuthorLiterals": unresolved,
-            "orphaned": orphaned.map { displaySafe($0, max: 200) },
-        ]
+        var d: [String: Any] = ["library": root.path]
+
+        // #35（鏡射 CLI doctor 的順序；#138 verify F1）：跨記錄檢查必須在 rebuild
+        // **之前**。重複 citekey / person key 時 rebuild 會撞 UNIQUE constraint——
+        // consumer 拿到的是 SQLite 內部錯誤，而不是「你有兩筆同 citekey 的記錄」。
+        // 診斷工具在這種狀態下正是最該說話的時候，不是最該掛掉的時候。
+        // severity 逐條攜帶（#138 verify F3）：✗/⚠ 之別在 CLI 面有、MCP 面就不能丟。
+        let cross = load.crossRecordIssues()
+        let fatalCross = cross.filter { $0.severity == .error }
+        if !cross.isEmpty {
+            d["crossRecordIssues"] = [
+                "count": cross.count,
+                "first": cross.prefix(20).map {
+                    ["severity": $0.severity == .error ? "error" : "warning",
+                     "message": displaySafe($0.message, max: 300)]
+                },
+            ] as [String: Any]
+        }
+        // #107：佈局殘留（報告不動手刪）。與 CLI 同：排在 fatal 早退之前——
+        // 重複 citekey 的 store 正是最需要看清全貌的時候。
+        let residue = try store.layoutResidue()
+        if !residue.isEmpty {
+            d["layoutResidue"] = residue.map { displaySafe($0, max: 300) }
+        }
+        // #76：divergence 計數無條件給（0 也是資訊）；同樣在 fatal 早退之前。
+        d["divergences"] = load.divergences.count
         if !load.quarantined.isEmpty {
             // R11（R10-verify M19）：reason 含 Yams 展開的逐字檔案內容且不截斷——
             // MCP 情境下是直接灌進 LLM context 的無上限未信任字串。
@@ -162,7 +176,60 @@ public final class AkashicService {
         if !load.unknownFieldFiles.isEmpty {
             d["unknownFieldFiles"] = load.unknownFieldFiles.map { displaySafe($0, max: 200) }
         }
+        guard fatalCross.isEmpty else {
+            d["entries"] = load.entries.count
+            d["indexRebuilt"] = false
+            d["note"] = "index 未重建——先修好 crossRecordIssues 內 severity=error 的重複"
+            return try jsonString(d)
+        }
+
+        let stats = try LibraryIndex(store: store).rebuild()
+        d["indexRebuilt"] = true
+        d["entries"] = stats.entries
+        d["people"] = stats.people
+        d["relations"] = stats.relations
+        d["unresolvedAuthorLiterals"] = load.entries.flatMap { entry in
+            entry.authors.compactMap { if case .literal = $0 { return 1 } else { return nil } }
+        }.count
+        d["orphaned"] = load.entries.filter { $0.provenance?.orphanedAt != nil }
+            .map { displaySafe($0.citekey, max: 200) }
+        // #81 / #82 / #67（#138 verify F3）：CLI doctor 的普查面 MCP 也要有——
+        // 「同一個 store 不得從兩個 consumer 看到不同的事實」是本 change 的主旨。
+        let nameGaps = load.recordsWithoutAuthorizedName()
+        d["noAuthorizedName"] = [
+            "people": nameGaps.people.count,
+            "organizations": nameGaps.organizations.count,
+            "firstPeople": nameGaps.people.prefix(10).map { displaySafe($0, max: 120) },
+        ] as [String: Any]
+        d["authorizedOnlyByCitationForm"] = load.recordsAuthorizedOnlyByCitationForm().count
+        let deceasedOpen = load.recordsDeceasedWithOpenAffiliation()
+        if !deceasedOpen.isEmpty {
+            // 與 CLI 同：待人處理的工作清單，列全部不截斷
+            d["deceasedWithOpenAffiliation"] = deceasedOpen.map { displaySafe($0, max: 120) }
+        }
         return try jsonString(d)
+    }
+
+    /// #76：divergence 的 list-only 投影——「載入了幾筆、各是什麼」是可觀察性
+    /// （#71 第 7 條自身的要求），與 doctor 計數同層。**不做**過濾與圖形化
+    /// （那才是 #71 的「範圍外：歧異查詢或圖形化」）。
+    public func listDivergences() throws -> String {
+        let load = try store.load()
+        return try jsonString([
+            "count": load.divergences.count,
+            "divergences": load.divergences
+                .sorted { $0.id.uuidString < $1.id.uuidString }
+                .map { d in
+                    [
+                        "id": d.id.uuidString,
+                        "question": displaySafe(d.question, max: 400),
+                        "candidates": d.candidates.map {
+                            ["key": displaySafe($0.key, max: 200), "shape": $0.shape.rawValue]
+                        },
+                        "hasJudgement": d.judgement != nil,
+                    ] as [String: Any]
+                },
+        ])
     }
 
     // MARK: - 寫（衍生層 only）
@@ -174,7 +241,8 @@ public final class AkashicService {
         case "list":
             let config = try AkashicConfig.read(from: configURL)
             let list = config.files.keys.sorted().map { k -> [String: Any] in
-                ["key": k, "path": config.files[k]!, "current": k == config.current]
+                ["key": k, "path": displaySafe(config.files[k]!, max: 800),
+                 "current": k == config.current]
             }
             var out: [String: Any] = ["files": list, "active_root": root.path]
             if let legacy = config.library { out["legacy_library"] = legacy }
@@ -272,7 +340,8 @@ public final class AkashicService {
             var candidates: [[String: Any]] = []
             for p in load.people where p.names.contains(where: { $0.lowercased().contains(needle) })
                 || p.key.lowercased().contains(needle) {
-                candidates.append(["person_key": p.key, "names": p.names,
+                candidates.append(["person_key": displaySafe(p.key, max: 200),
+                                   "names": p.names.map { displaySafe($0, max: 200) },
                                    "publications": keyPubCount[p.key] ?? 0])
             }
             for (literal, count) in literalCounts.sorted(by: { $0.key < $1.key }) {
@@ -297,7 +366,8 @@ public final class AkashicService {
                 for k in Set(entry.akashic.libraries) { counts[k, default: 0] += 1 }
             }
             return try jsonString(load.libraries.map { lib -> [String: Any] in
-                var d: [String: Any] = ["key": lib.key, "name": lib.name,
+                var d: [String: Any] = ["key": displaySafe(lib.key, max: 200),
+                                        "name": displaySafe(lib.name, max: 200),
                                         "members": counts[lib.key] ?? 0]
                 if let desc = lib.description { d["description"] = desc }
                 return d
@@ -337,7 +407,8 @@ public final class AkashicService {
                 entry.akashic.libraries.removeAll { $0 == key }
             }
             try writeAndReindex(entry)
-            return try jsonString(["citekey": citekey, "libraries": entry.akashic.libraries])
+            return try jsonString(["citekey": displaySafe(citekey, max: 200),
+                                   "libraries": entry.akashic.libraries])
         default:
             throw ServiceError.invalid("未知 action「\(action)」（list/create/add/remove）")
         }
@@ -347,7 +418,8 @@ public final class AkashicService {
         var entry = try requireEntry(citekey)
         entry.akashic.status = status
         try writeAndReindex(entry)
-        return try jsonString(["citekey": citekey, "status": status ?? NSNull()] as [String: Any])
+        return try jsonString(["citekey": displaySafe(citekey, max: 200),
+                               "status": status ?? NSNull()] as [String: Any])
     }
 
     public func tag(citekey: String, add: [String], remove: [String]) throws -> String {
@@ -357,7 +429,8 @@ public final class AkashicService {
         }
         entry.akashic.tags.removeAll { remove.contains($0) }
         try writeAndReindex(entry)
-        return try jsonString(["citekey": citekey, "tags": entry.akashic.tags])
+        return try jsonString(["citekey": displaySafe(citekey, max: 200),
+                               "tags": entry.akashic.tags])
     }
 
     public func link(citekey: String, kind: String, add: [String], remove: [String]) throws -> String {
@@ -378,7 +451,7 @@ public final class AkashicService {
         }
         try writeAndReindex(entry)
         return try jsonString([
-            "citekey": citekey,
+            "citekey": displaySafe(citekey, max: 200),
             "cites": entry.akashic.relations.cites,
             "related": entry.akashic.relations.related,
         ] as [String: Any])
@@ -394,11 +467,11 @@ public final class AkashicService {
         guard let selected = apply else {
             return try jsonString(withIDs.map { pair -> [String: Any] in
                 [
-                    "id": pair.id, "citekey": pair.candidate.citekey,
+                    "id": pair.id, "citekey": displaySafe(pair.candidate.citekey, max: 200),
                     "authorIndex": pair.candidate.authorIndex,
-                    "literal": pair.candidate.literal,
-                    "personKey": pair.candidate.personKey,
-                    "reason": pair.candidate.reason,
+                    "literal": displaySafe(pair.candidate.literal, max: 400),
+                    "personKey": displaySafe(pair.candidate.personKey, max: 200),
+                    "reason": displaySafe(pair.candidate.reason, max: 400),
                 ]
             })
         }
@@ -464,7 +537,8 @@ public final class AkashicService {
                           authors: authors.map { .literal($0) }, date: date)
         entry.fields = fields
         try writeAndReindex(entry)
-        return try jsonString(["citekey": citekey, "id": entry.id.uuidString])
+        return try jsonString(["citekey": displaySafe(citekey, max: 200),
+                               "id": entry.id.uuidString])
     }
 
     public func addPerson(key: String, names: [String], orcid: String?, openalex: String?) throws -> String {
@@ -597,7 +671,9 @@ public final class AkashicService {
 
     func summaryDict(_ s: EntrySummary) -> [String: Any] {
         var d: [String: Any] = [
-            "citekey": s.citekey, "type": s.type, "title": s.title, "authors": s.authors,
+            "citekey": displaySafe(s.citekey, max: 200), "type": s.type,
+            "title": displaySafe(s.title, max: 800),
+            "authors": s.authors.map { displaySafe($0, max: 200) },
         ]
         if let year = s.year { d["year"] = year }
         if let journal = s.journal { d["journal"] = journal }
@@ -607,20 +683,25 @@ public final class AkashicService {
     func entryDict(_ entry: Entry) -> [String: Any] {
         var d: [String: Any] = [
             "id": entry.id.uuidString,
-            "citekey": entry.citekey,
+            "citekey": displaySafe(entry.citekey, max: 200),
             "type": entry.type,
-            "title": entry.title,
+            "title": displaySafe(entry.title, max: 800),
             "authors": entry.authors.map { author -> [String: String] in
                 switch author {
-                case .key(let k): return ["key": k]
-                case .literal(let s): return ["literal": s]
+                case .key(let k): return ["key": displaySafe(k, max: 200)]
+                // literal 是 Zotero 匯入的第三方原文——掃描器對 case 行的短變數
+                // 值是盲點（見 DisplaySinkCoverageTests doc），此站點靠人工 + 測試釘
+                case .literal(let s): return ["literal": displaySafe(s, max: 400)]
                 }
             },
-            "fields": entry.fields,
+            // fields 值是 biblatex 第三方內容（journal、booktitle…）——與 title 同源
+            "fields": entry.fields.mapValues { displaySafe($0, max: 800) },
         ]
         if let date = entry.date { d["date"] = date }
         if !entry.attachments.isEmpty {
-            d["attachments"] = entry.attachments.map { [$0.kind.rawValue: $0.path] }
+            d["attachments"] = entry.attachments.map {
+                [$0.kind.rawValue: displaySafe($0.path, max: 800)]
+            }
         }
         if let prov = entry.provenance {
             var p: [String: Any] = ["zotero_key": prov.zoteroKey, "zotero_version": prov.zoteroVersion]

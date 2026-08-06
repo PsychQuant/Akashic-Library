@@ -39,7 +39,12 @@ public enum StoreVersion {
     ///   變更**：`authorized` 本身對舊 binary 是未知欄位、會被 tolerant-preserve 保留，
     ///   但保留不等於遵守——舊 binary 仍會把 `names[0]` 當顯示名，並在一次
     ///   read-modify-write 裡重排 `names` 而不自知。bump 是唯一能擋住那條路的機制。
-    public static let supported = 5
+    /// - **6** ＝ 時間軸段新增 `ended`（「已結束、時點未知」，#63）。**看似 additive
+    ///   其實不是**：tolerant-preserve 的開放演化層只涵蓋記錄「頂層」與 `akashic`
+    ///   namespace——時間軸**段內**的鍵是 strict（`rejectUnknownKeys`），舊 binary
+    ///   讀到 `ended:` 是**整檔 quarantine**（人檔在舊 binary 消失），不是保留。
+    ///   refuse-if-newer 的一句「請升級」遠比 per-file quarantine 誠實。
+    public static let supported = 6
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，

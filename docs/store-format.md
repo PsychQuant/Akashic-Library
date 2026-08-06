@@ -260,8 +260,12 @@ affiliations:
 - `end` 有值時 `ended: true` 是矛盾（end 即「已結束於此」）——decode **MUST** 拒絕
 - `ended: false` 冗餘但合法（等同缺席）；encode **MUST NOT** 寫出預設值
 - 重疊判定：無端點無從排除——`ended` 段視為延伸到無限遠（保守多報，交人工裁決）
-- **additive，不 bump format**（#74 判準）：舊 binary 經 tolerant-preserve 保留欄位、
-  按舊語意當開放段——那只是少了它本來就沒有的表達力，不是語意變更
+- **non-additive，MUST bump（format 6）**——「看似 additive 其實不是」：
+  tolerant-preserve 的開放演化層只涵蓋記錄**頂層**與 `akashic` namespace（§5 v1.3），
+  時間軸**段內**的鍵是 strict（未知鍵拒絕）——舊 binary 讀到 `ended:` 是**整檔
+  quarantine**（這個人在舊 binary 消失），不是保留。refuse-if-newer 的一句
+  「請升級」遠比 per-file quarantine 誠實（#74 判準的實際運用：判 additive 前
+  先確認新鍵落在哪一層）
 
 ## 3.2 `died`：逝世與設限（normative，#67）
 

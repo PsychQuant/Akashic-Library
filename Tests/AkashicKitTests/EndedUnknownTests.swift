@@ -1,6 +1,7 @@
 import XCTest
 @testable import AkashicCore
 @testable import AkashicExport
+@testable import AkashicStoreIO
 
 /// #63：「已結束，但結束日期未知」的一等表達。
 ///
@@ -100,6 +101,17 @@ final class EndedUnknownTests: XCTestCase {
         let p = try PersonYAML.decode(yaml)
         XCTAssertEqual(p.profile.ranks.entries.first?.range.endedUnknown, false)
         XCTAssertNotNil(p.profile.ranks.current, "ended: false ＝ 照常進行中")
+    }
+
+    // MARK: - format bump（#63 是 non-additive）
+
+    /// 「看似 additive 其實不是」：tolerant-preserve 的開放層只涵蓋記錄頂層與
+    /// akashic namespace——時間軸**段內**的鍵是 strict（rejectUnknownKeys），
+    /// 舊 binary 讀到 `ended:` 是**整檔 quarantine**（人檔消失），不是保留。
+    /// refuse-if-newer 的「請升級」遠比 per-file quarantine 誠實 → MUST bump。
+    func testEndedRequiresFormatBump() {
+        XCTAssertGreaterThanOrEqual(StoreVersion.supported, 6,
+                                    "#63 的 ended 是段內新鍵——舊 binary quarantine 整檔，non-additive")
     }
 
     // MARK: - status 推導（#63 的實際案例）

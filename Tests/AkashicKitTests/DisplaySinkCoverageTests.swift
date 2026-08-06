@@ -35,6 +35,15 @@ final class DisplaySinkCoverageTests: XCTestCase {
             out += files.filter { $0.pathExtension == "swift" }
         }
         out.append(repoRoot.appendingPathComponent("Sources/AkashicMCPKit/AkashicService.swift"))
+        // #78-7：AkashicCore 的 decode 錯誤訊息會內插未信任的 YAML 值（#23 的前提：
+        // 檔案內容未信任）——#127 verify M2 的 StoreVersion 案例正是這一類，當時
+        // 手工修；機械守衛掃到之後這類洞在測試就會亮。akashic-mcp/ 同（#135 F5）。
+        for dir in ["Sources/AkashicCore", "Sources/akashic-mcp"] {
+            let d = repoRoot.appendingPathComponent(dir)
+            if let files = try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: nil) {
+                out += files.filter { $0.pathExtension == "swift" }
+            }
+        }
         return out
     }
 
@@ -79,10 +88,17 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 // 只看真正的輸出面：print(…) 與 JSON dict 的字串值
                 let isSink = l.contains("print(") || l.contains("jsonString(")
                     || l.contains("d[\"") || l.contains("result[\"") || l.contains("\": ")
-                guard isSink else { continue }
+                    || l.contains("return \"") || l.contains("FileHandle.standard")
+                // #78-7：error 構造點是**無條件** sink——payload 最終進 errorDescription
+                // →使用者可見輸出，插值的任何內容（YAML 未知 key、原始值）都可疑，
+                // 不看 token 清單（局部變數名抓不到）。安全的插值加 exempt 注記
+                let isErrorSink = l.contains("throw StoreYAMLError")
+                    || l.contains("throw StoreVersionError")
+                guard isSink || isErrorSink else { continue }
 
                 for expr in interpolations(in: l) {
-                    guard taintedTokens.contains(where: { expr.contains($0) }) else { continue }
+                    guard isErrorSink
+                        || taintedTokens.contains(where: { expr.contains($0) }) else { continue }
                     if expr.contains("displaySafe(") { continue }
                     // `.count` / `.isEmpty` 等是數量不是內容
                     if expr.contains(".count") || expr.contains(".isEmpty") { continue }

@@ -247,6 +247,119 @@ final class DivergenceResolveTests: XCTestCase {
             URL(fileURLWithPath: #filePath).deletingLastPathComponent()))
     }
 
+    // MARK: - #78-2 塌縮可見性與 dry-run
+
+    /// 第二筆歧異記錄的兩個候選都指向本次消歧的鍵——遷移後塌縮、被連帶刪除。
+    /// 使用者沒有指名它，所以回報必須帶 question，不能只有裸 UUID。
+    private func seedCollapsible(into s: LibraryStore) throws -> (main: Divergence, other: Divergence) {
+        let main = try seed(into: s)
+        let other = Divergence(
+            id: UUID(),
+            question: "兩個寫法是否同屬機構 X",
+            candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),
+                         DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
+        try s.writeDivergence(other)
+        GitFixture.commitAll(s.root, message: "seed collapsible")
+        return (main, other)
+    }
+
+    func testCollapsedDetailsCarryQuestion() throws {
+        let (main, other) = try seedCollapsible(into: store)
+        let report = try store.resolveDivergence(id: main.id, survivor: "fann-cathy-s-j")
+        XCTAssertEqual(report.failures, [])
+        // 兩筆歧異記錄都被刪（main 是使用者指名的、other 是塌縮連帶）……
+        XCTAssertEqual(report.removedDivergences.sorted(),
+                       [main.id.uuidString, other.id.uuidString].sorted())
+        // ……但只有 other 進 collapsedDetails——main 是使用者自己要求的，不算連帶。
+        XCTAssertEqual(report.collapsedDetails.count, 1)
+        XCTAssertEqual(report.collapsedDetails.first?.id, other.id.uuidString)
+        XCTAssertEqual(report.collapsedDetails.first?.question, "兩個寫法是否同屬機構 X")
+    }
+
+    /// preview 的三個承諾：(1) 一個檔案都不動；(2) merged / collapsedDetails 與實跑
+    /// 一致（判準共用 `migrateOtherDivergences`，這個測試釘住共用沒被拆散）；
+    /// (3) rewritten 的預測 = 實跑正常路徑的 rewritten。
+    func testPreviewMatchesActualAndTouchesNothing() throws {
+        let (main, _) = try seedCollapsible(into: store)
+        let before = try snapshot(root)
+        let preview = try store.previewResolveDivergence(id: main.id, survivor: "fann-cathy-s-j")
+        XCTAssertEqual(try snapshot(root), before, "preview 不得動任何檔案")
+        XCTAssertFalse(preview.survivorUpdated, "preview 沒有既成事實可報")
+        XCTAssertEqual(preview.removedDivergences, [], "同上——removed 是事實欄位")
+
+        let actual = try store.resolveDivergence(id: main.id, survivor: "fann-cathy-s-j")
+        XCTAssertEqual(actual.failures, [])
+        XCTAssertEqual(preview.merged, actual.merged)
+        XCTAssertEqual(preview.rewritten, actual.rewritten)
+        XCTAssertEqual(preview.collapsedDetails.map(\.id), actual.collapsedDetails.map(\.id))
+        XCTAssertEqual(preview.collapsedDetails.map(\.question),
+                       actual.collapsedDetails.map(\.question))
+    }
+
+    /// #78-1：可預期的刪除失敗前移——一個檔案不可刪就**一個都不刪**。
+    /// 三候選：兩筆被併，其中一筆設 immutable。沒有前移檢查時，可刪的那筆會先被
+    /// 刪掉、immutable 那筆留下——「部分成功」正是最難描述的狀態。
+    func testUndeletableDoomedFileDeletesNothing() throws {
+        var survivor = Person(key: "wang-a")
+        survivor.names = ["Wang, A"]
+        var m1 = Person(key: "wang-a-2")
+        m1.names = ["Wang, A."]
+        var m2 = Person(key: "wang-a-3")
+        m2.names = ["Wang, A.-B."]
+        for p in [survivor, m1, m2] { try store.writePerson(p) }
+        let d = Divergence(
+            id: UUID(), question: "三個寫法是否同一人",
+            candidates: [DivergenceCandidate(key: "wang-a", shape: .person),
+                         DivergenceCandidate(key: "wang-a-2", shape: .person),
+                         DivergenceCandidate(key: "wang-a-3", shape: .person)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(store.root, message: "seed three-way")
+
+        let blocked = store.entityURL(id: m2.id)
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: blocked.path)
+        defer {
+            try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: blocked.path)
+        }
+
+        let report = try store.resolveDivergence(id: d.id, survivor: "wang-a")
+        XCTAssertTrue(report.hasFailures)
+        XCTAssertTrue(report.failures.contains { $0.contains(blocked.lastPathComponent) },
+                      "失敗訊息須指名不可刪的檔案：\(report.failures)")
+        let load = try store.load()
+        XCTAssertTrue(load.people.contains { $0.key == "wang-a-2" },
+                      "**可刪的那筆也不得刪**——全刪或全不刪")
+        XCTAssertTrue(load.people.contains { $0.key == "wang-a-3" })
+        XCTAssertEqual(load.divergences.count, 1, "歧異記錄保留，修好後可重跑")
+    }
+
+    /// preview 與實跑擲**同樣的**拒絕——dry-run 放行而實跑被擋是在騙人。
+    func testPreviewRejectsSameAsActual() throws {
+        let d = try seed(into: store)
+        XCTAssertThrowsError(try store.previewResolveDivergence(
+            id: d.id, survivor: "not-a-candidate")) { error in
+            guard case DivergenceResolveError.survivorNotACandidate = error else {
+                return XCTFail("預期 survivorNotACandidate，實得 \(error)")
+            }
+        }
+        // 版控前提也要在 preview 就擋（#73 的 gate 屬於共用驗證段）
+        try "dirty".write(to: root.appendingPathComponent("entities/extra.txt"),
+                          atomically: true, encoding: .utf8)
+        var uncommitted = Person(key: "ghost-person")
+        uncommitted.names = ["Ghost"]
+        try store.writePerson(uncommitted)   // 未 commit
+        let d2 = Divergence(
+            id: UUID(), question: "未提交者",
+            candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),
+                         DivergenceCandidate(key: "ghost-person", shape: .person)])
+        try store.writeDivergence(d2)
+        XCTAssertThrowsError(try store.previewResolveDivergence(
+            id: d2.id, survivor: "fann-cathy-s-j")) { error in
+            guard case DivergenceResolveError.deletionNotRecoverable = error else {
+                return XCTFail("預期 deletionNotRecoverable，實得 \(error)")
+            }
+        }
+    }
+
     /// 逐檔雜湊，用來斷言「什麼都沒動」。
     private func snapshot(_ dir: URL) throws -> [String: Int] {
         let entities = dir.appendingPathComponent("entities")

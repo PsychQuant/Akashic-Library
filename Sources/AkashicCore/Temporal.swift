@@ -214,6 +214,13 @@ public struct PersonProfile: Equatable {
             && appointments.isEmpty && fields.isEmpty
             && contacts.allSatisfy { $0.value.isEmpty }
     }
+
+    /// 任一段標了 `endedUnknown`（#63 的 v6-only 語法）——寫入端的 format gate 用。
+    public var usesEndedUnknown: Bool {
+        affiliations.entries.contains(where: \.range.endedUnknown)
+            || ([ranks, administrative, appointments, fields] + Array(contacts.values))
+                .contains { $0.entries.contains(where: \.range.endedUnknown) }
+    }
 }
 
 /// 絕大多數維度（職級、行政職、聘任、研究領域、聯絡資訊）的值仍是純字串：

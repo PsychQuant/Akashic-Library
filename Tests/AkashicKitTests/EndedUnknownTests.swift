@@ -7,7 +7,8 @@ import XCTest
 ///
 /// 具體案例：43 位退休 PI 只有「已退休」的事實、沒有退休年份——`end: nil` 語意是
 /// 進行中（整批被算成現職）、捏造年份是偽造資料、塞 `note` 不參與計算。
-/// 依 issue 選項 3（additive）：`ended: true` + `end` 缺席 = 已結束、時點未知。
+/// 依 issue 選項 3 的欄位形狀（`ended: true` + `end` 缺席）；相容性層級後經
+/// 自查更正為 **non-additive（format 6）**——段內鍵是 strict，詳見 StoreVersion doc。
 final class EndedUnknownTests: XCTestCase {
 
     // MARK: - DateRange 語意
@@ -140,6 +141,65 @@ final class EndedUnknownTests: XCTestCase {
         let p = try PersonYAML.decode(yaml)
         XCTAssertNil(p.profile.affiliations.entries.first?.range.start,
                      "null 面＝缺席，不是字串 \"null\"")
+    }
+
+    /// #131 verify Codex-H1：DateRange 是公開可寫 struct——model 層可構造
+    /// end+endedUnknown 的矛盾 instance；encoder 曾照寫兩鍵、同版本 decoder 再拒絕
+    /// （decode(encode(m)) 不安全、canary 只報難懂的自檢失敗）。encoder 前置拒絕。
+    func testEncoderRejectsContradictoryRange() {
+        var p = Person(key: "c-person", names: ["C"])
+        p.profile.ranks = Timeline([
+            TemporalValue(value: "研究員",
+                          range: DateRange(start: "2010", end: "2020", endedUnknown: true)),
+        ])
+        XCTAssertThrowsError(try PersonYAML.encode(p)) { error in
+            let m = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(m.contains("矛盾"), "encoder 要指明矛盾，不是 canary 自檢失敗：\(m)")
+        }
+    }
+
+    /// #131 verify Codex-H2：supported=6 只是讀取上限——format 5 store 的 marker
+    /// 不會自己變 6。在 format 5 store 寫含 ended 的 person，v5 binary 會 marker 5
+    /// 照讀 → strict-reject → 整檔 quarantine（refuse-if-newer 沒 fire）。寫入端拒絕。
+    func testWritePersonWithEndedRefusedOnFormat5Store() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-gate-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LibraryStore(root: root, key: nil, environment: [:])
+        try store.ensureLayout()
+        try StoreVersion.write(root: root, format: 5)   // 模擬既有 v5 store
+
+        var p = Person(key: "gate-person", names: ["G"])
+        p.profile.ranks = Timeline([
+            TemporalValue(value: "研究員", range: DateRange(start: "1990", endedUnknown: true)),
+        ])
+        XCTAssertThrowsError(try store.writePerson(p)) { error in
+            let m = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(m.contains("format") && m.contains("6"),
+                          "訊息要指路（需要 format 6、如何升級）：\(m)")
+        }
+        // marker 升 6 之後照常寫入
+        try StoreVersion.write(root: root, format: 6)
+        XCTAssertNoThrow(try store.writePerson(p))
+        // 無 ended 的 person 在 v5 store 照常寫（gate 只擋 v6-only 語法）
+        try StoreVersion.write(root: root, format: 5)
+        XCTAssertNoThrow(try store.writePerson(Person(key: "plain-p", names: ["P"])))
+    }
+
+    /// P0-4：純字串 timeline（rank）的 ended round-trip——先前只測了 affiliations。
+    /// P1-6：ended: false 的 model encode 不寫出 key。
+    func testStringTimelineEndedRoundTripsAndFalseIsDropped() throws {
+        var p = Person(key: "r-person", names: ["R"])
+        p.profile.ranks = Timeline([
+            TemporalValue(value: "研究員", range: DateRange(start: "1990", endedUnknown: true)),
+            TemporalValue(value: "副研究員", range: DateRange(start: "1980", end: "1990")),
+        ])
+        let yaml = try PersonYAML.encode(p)
+        XCTAssertTrue(yaml.contains("ended: true"))
+        XCTAssertEqual(yaml.components(separatedBy: "ended").count - 1, 1,
+                       "endedUnknown=false 的段不得寫出 ended key")
+        let back = try PersonYAML.decode(yaml)
+        XCTAssertEqual(back.profile.ranks, p.profile.ranks)
     }
 
     // MARK: - format bump（#63 是 non-additive）

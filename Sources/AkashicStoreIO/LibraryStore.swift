@@ -166,16 +166,31 @@ public final class LibraryStore {
     ///   時才報——出現未知檔案就閉嘴
     public func layoutResidue() throws -> [String] {
         let fm = FileManager.default
+        // **前提：這裡真的是 store**（#120 verify FP-2）。缺了這條，`doctor --library
+        // <任意目錄>` 會把使用者自己的空 `notes/`、`entries/` 報成「migrate 的遺留」
+        // ——把 #105 的傷害從「留下垃圾」升級成「建議刪使用者的目錄」。
+        guard LibraryStore.isLibraryRoot(root) else { return [] }
         let format = try StoreVersion.read(root: root)
         var out: [String] = []
 
+        /// 目錄本身不是 symlink 的型別檢查（#120 verify FP-1：`fileExists` 跟隨
+        /// symlink，`notes -> 外部目錄` 會被報「可刪」，而 `rm -rf notes/` 刪的是
+        /// **目標**目錄——殘留判準絕不跨出 store）。
+        func isRealDir(_ url: URL) -> Bool {
+            guard let type = (try? fm.attributesOfItem(atPath: url.path))?[.type] as? FileAttributeType
+            else { return false }
+            return type == .typeDirectory
+        }
+
+        /// **嚴格空**：零子項才算空（#120 verify FP-3 + Codex P1：`.DS_Store` 豁免
+        /// 疊在一個已隱形過濾 AppleDouble 的 API 上，且 `.DS_Store` 可以是**目錄**、
+        /// 可以裝資料——「永不報含資料的目錄」必須是字面保證。Finder 殘渣讓目錄
+        /// 不被報是可接受的 false negative，反向不是）。
         func isEmptyDir(_ url: URL) -> Bool {
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue,
+            guard isRealDir(url),
                   let contents = try? fm.contentsOfDirectory(atPath: url.path)
             else { return false }
-            // .DS_Store 之類的 Finder 殘渣不算內容
-            return contents.allSatisfy { $0 == ".DS_Store" }
+            return contents.isEmpty
         }
 
         if format >= 2 {
@@ -187,16 +202,35 @@ public final class LibraryStore {
         if isEmptyDir(root.appendingPathComponent("notes")) {
             out.append("notes/（空——#103 已撤下，不再屬於佈局，可刪）")
         }
-        if key != nil {
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: akashicDir.path, isDirectory: &isDir), isDir.boolValue,
-               let contents = try? fm.contentsOfDirectory(atPath: akashicDir.path) {
-                let derived = contents.allSatisfy {
-                    $0 == "index.sqlite" || $0 == ".DS_Store" || $0.hasPrefix(".index.sqlite.")
+        if key != nil, isRealDir(akashicDir),
+           let contents = try? fm.contentsOfDirectory(atPath: akashicDir.path) {
+            if contents.isEmpty {
+                out.append(".akashic/（空——本 store 已註冊，index 住 home 的 index/ 下，可刪）")
+            } else {
+                // **內容逐項驗明是 rebuild 的產物才報**（#120 verify FN-2 + Codex P1）：
+                // - 白名單含 SQLite 側車（-wal/-shm/-journal——LibraryIndex 換位後會刪
+                //   它們，崩過的孤兒正好是帶著側車的那種）
+                // - temp 檔比對 rebuild 的**精確文法**（`.index.sqlite.rebuild-<UUID>`），
+                //   不是寬前綴——`.index.sqlite.manual-backup` 是使用者的救援資料，
+                //   不是衍生物
+                // - 只接受一般檔：目錄／symlink 一律視為未知內容 → 閉嘴
+                func isDerivedArtifact(_ name: String) -> Bool {
+                    let u = akashicDir.appendingPathComponent(name)
+                    guard let type = (try? fm.attributesOfItem(atPath: u.path))?[.type]
+                            as? FileAttributeType, type == .typeRegular else { return false }
+                    switch name {
+                    case "index.sqlite", "index.sqlite-wal", "index.sqlite-shm",
+                         "index.sqlite-journal":
+                        return true
+                    default:
+                        let prefix = ".index.sqlite.rebuild-"
+                        guard name.hasPrefix(prefix) else { return false }
+                        return UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
+                    }
                 }
-                if derived {
+                if contents.allSatisfy(isDerivedArtifact) {
                     out.append(".akashic/（keyless 時期的孤兒 index——本 store 已註冊，"
-                             + "index 住 home 的 index/ 下；純衍生物，可刪）")
+                             + "index 住 home 的 index/ 下；內容全為可重建的 index 衍生物，可刪）")
                 }
             }
         }

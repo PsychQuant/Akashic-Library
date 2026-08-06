@@ -509,11 +509,23 @@ index 一起被清掉。
   結構性動作，依猜測建目錄的代價是雙佈局。`usesEntitiesLayout` 的**寫入路由**兜底
   （marker 壞掉時以磁碟事實猜）不在此限，維持 #35 語意。拒絕 **MUST** 零磁碟副作用
   （不得留下依錯誤猜測建出的目錄）。
-- marker 解析 **MUST** 不把**縮排**（任何空白開頭，Unicode Zs ∪ tab）的 `format:`
-  行當候選（#112 verify：巢狀鍵曾贏過頂層真值，讓 format 5 的 store 被讀成 1、安靜
-  建出雙佈局）。頂層無 `format:` 行 → malformed。**已知限制**：解析是行為本的，
-  不解析 YAML 結構——flow mapping 內出現在第 0 欄的鍵不在此防護內；marker grammar
-  的完整定案見 #117。
+- **marker grammar（normative，#117 定案）**——合法 marker：
+
+  ```
+  marker      = *( comment / blank ) format-line *( comment / blank )
+  format-line = "format:" SP* 1*DIGIT [ SP* comment ]    ；必須頂格
+  comment     = *WS "#" anything                          ；註解可縮排
+  換行        = 任何 Unicode 換行（\n、\r\n、\r、LS、PS）
+  ```
+
+  其餘一律 malformed（fail-loud）：**未知頂層行**（含 `meta: {`——#112 修掉縮排類
+  fail-silent 後，flow mapping 第 0 欄的鍵是僅存的毒化繞法，本 grammar 整類關閉）、
+  **縮排的非註解行**（marker 無巢狀結構）、**第二個 `format:` 行**（歧義不猜）、
+  **值後的非註解尾隨內容**（`format: 2 garbage` 不得取前綴當真）。解析器 **MUST NOT**
+  「跳過不認識的行」——跳過正是 fail-silent 的來源。未來要加 additive key，**MUST**
+  連同本 grammar 一起修訂（marker 是自產檔，additive 演化必經設計）。
+  相容性註記：手工加料過的 `store.yaml` 自 #117 起會被拒絕（fail-loud）；
+  `write` 模板產出的形狀（註解 + 單一 `format:` 行）不受影響。
 
 **版本對照**（source of truth 是 `StoreVersion.supported` 的文件註解；下表為對照）：
 

@@ -175,8 +175,10 @@ cd AkashicApp && xcodegen generate && xcodebuild -scheme AkashicApp build   # �
 ```
 
 > ⚠️ **`AkashicApp/` 是 XcodeGen 專案，不是 SwiftPM target** —— `swift build` 與 `swift test`
-> （以及 CI）**不會編譯它**。改動 `AkashicApp/Sources/` 之後，「測試全綠」對它沒有任何意義，
-> 必須手動跑上面那行。這個缺口已讓一次修正漏掉一半（#101 R1→R2）；補進 CI 見 **#109**。
+> **不會編譯它**（這個缺口曾讓一次修正漏掉一半，#101 R1→R2）。CI 會 build 它（#109），
+> 但那只保證**編得過**，不保證行為對。所以 view 檔案裡不放邏輯：索引重建／圖查詢／
+> 座標幾何住 `AkashicAppKit` 的 `GraphModel`／`GraphGeometry`（#113，`swift test` 射程內），
+> view 只留 SwiftUI 殼。改動 `AkashicApp/Sources/` 仍須手動跑上面那行驗證編譯。
 
 管理工作台：Sidebar 健康總覽、列表＋詳情（biblatex 唯讀／衍生層可編／rename）、
 裁決台三頁籤（People 逐候選、Orphans 三選——刪檔進垃圾桶可救回、Quarantine）、

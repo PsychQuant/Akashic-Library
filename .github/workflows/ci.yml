@@ -72,6 +72,23 @@ jobs:
             exit 1
           fi
 
+      # **AkashicApp 是 XcodeGen 專案，不是 SwiftPM target**（#109）——上面的
+      # `swift build` / `swift test` 完全不編譯 `AkashicApp/Sources/`。#101 的
+      # R1→R2 已實證後果：App 面修一半、707 個測試全綠、沒有任何機制能發現
+      # （GraphView 的同類缺陷靠第二輪 verify ensemble 才抓到）。這一步把
+      # 「測試全綠」對 App 面重新變得有意義：至少保證它編得過。
+      #
+      # 只 build 不 test：AkashicApp target 目前沒有測試（view 邏輯下沉到
+      # AkashicAppKit 讓它可測是 #109 明列的另案 B 選項）。
+      - name: AkashicApp（XcodeGen 專案——swift test 涵蓋不到）
+        run: |
+          set -o pipefail   # 沒有它，xcodebuild 失敗會被 tail 的 exit 0 蓋掉——假綠
+          brew install xcodegen
+          cd AkashicApp
+          xcodegen generate
+          xcodebuild -project AkashicApp.xcodeproj -scheme AkashicApp \
+            -destination 'platform=macOS' build | tail -20
+
       # #92 的教訓：既有測試斷言的是「產生的 SQL 字串長什麼樣」，沒有任何測試真的
       # **執行**過那份腳本——於是一份「產生出來就跑不起來」的 load.sql 活了很久。
       # 這一步把那道落差補上：真的建 store、真的匯出、真的把 SQL 餵給 duckdb。

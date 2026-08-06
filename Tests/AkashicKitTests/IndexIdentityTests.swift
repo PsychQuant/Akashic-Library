@@ -57,15 +57,16 @@ final class IndexIdentityTests: XCTestCase {
     func testIsCurrentAcceptsOwnIndexIncludingPathAliases() throws {
         let store = makeStore(root: root, key: "main")
         _ = try LibraryIndex(store: store).rebuild()
-        XCTAssertTrue(try LibraryIndex.isCurrent(indexPath: store.indexURL,
-                                                 expectedRoot: root))
-        // 路徑別名（未 resolve 的 temp 前綴 /var vs /private/var）也要命中
+        XCTAssertTrue(LibraryIndex.isCurrent(indexPath: store.indexURL,
+                                             expectedRoot: root))
+        // 路徑別名（未 resolve 的 temp 前綴 /var vs /private/var）也要命中。
+        // XCTSkipUnless 讓「別名不存在的環境」顯式 skip 而非靜默空轉（verify F4）
         let alias = URL(fileURLWithPath: "/private" + root.path)
-        if FileManager.default.fileExists(atPath: alias.path) {
-            XCTAssertTrue(try LibraryIndex.isCurrent(indexPath: store.indexURL,
-                                                     expectedRoot: alias),
-                          "canonical 比對——別名不是別的 store")
-        }
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: alias.path),
+                          "/private 別名在此環境不存在")
+        XCTAssertTrue(LibraryIndex.isCurrent(indexPath: store.indexURL,
+                                             expectedRoot: alias),
+                      "canonical 比對——別名不是別的 store")
     }
 
     /// #121 verify (c) 的靶心：同一 indexURL、不同 store root → stale。
@@ -76,8 +77,8 @@ final class IndexIdentityTests: XCTestCase {
         let otherRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-idother-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: otherRoot) }
-        XCTAssertFalse(try LibraryIndex.isCurrent(indexPath: store.indexURL,
-                                                  expectedRoot: otherRoot),
+        XCTAssertFalse(LibraryIndex.isCurrent(indexPath: store.indexURL,
+                                              expectedRoot: otherRoot),
                        "別的 store 的 index 不是你的 index——root 不符即 stale")
     }
 
@@ -112,14 +113,79 @@ final class IndexIdentityTests: XCTestCase {
         let db = try SQLiteDB(path: store.indexURL.path, readOnly: false)
         try db.execute("CREATE TABLE entries(citekey TEXT)")
         try db.execute("PRAGMA user_version = 2")
-        XCTAssertFalse(try LibraryIndex.isCurrent(indexPath: store.indexURL,
-                                                  expectedRoot: root),
+        XCTAssertFalse(LibraryIndex.isCurrent(indexPath: store.indexURL,
+                                              expectedRoot: root),
                        "舊 schema（無身分表）＝stale，升級後第一次使用自動重建")
     }
 
     func testMissingIndexIsStale() throws {
-        XCTAssertFalse(try LibraryIndex.isCurrent(
+        XCTAssertFalse(LibraryIndex.isCurrent(
             indexPath: root.appendingPathComponent("nonexistent.sqlite"),
             expectedRoot: root))
+    }
+
+    /// #129 verify F1/F2 的核心閘：root 不像 store（unmount／path flap／打錯）
+    /// → rebuild 拒絕、舊 index 原封不動——寫出身分正確的空 index 比留舊的更糟。
+    func testRebuildRefusesNonLibraryRootAndPreservesOldIndex() throws {
+        let store = makeStore(root: root, key: "main")
+        _ = try LibraryIndex(store: store).rebuild()
+        let before = try Data(contentsOf: store.indexURL)
+
+        let ghost = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-idghost-\(UUID().uuidString)")   // 不存在
+        let ghostStore = makeStore(root: ghost, key: "main")   // 同 key → 同 indexURL
+        XCTAssertThrowsError(try LibraryIndex(store: ghostStore).rebuild()) { error in
+            guard case IndexError.rootNotALibrary = error else {
+                return XCTFail("預期 rootNotALibrary，實得 \(error)")
+            }
+        }
+        XCTAssertEqual(try Data(contentsOf: store.indexURL), before,
+                       "拒絕重建時舊 index 必須原封不動——unmount 是暫時的，資料不是")
+    }
+
+    /// isCurrent 整體 fail-safe（#129 verify F3/C7）：非 SQLite 檔（Dropbox conflict
+    /// copy、截斷寫入）＝stale，不是把指令炸掉。
+    func testGarbageIndexFileIsStaleNotFatal() throws {
+        let store = makeStore(root: root, key: "main")
+        try FileManager.default.createDirectory(
+            at: store.indexURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "this is not a sqlite database".write(to: store.indexURL,
+                                                  atomically: true, encoding: .utf8)
+        XCTAssertFalse(LibraryIndex.isCurrent(indexPath: store.indexURL, expectedRoot: root),
+                       "壞檔＝stale（會被 rebuild 換掉），不得 throw")
+        XCTAssertTrue(try LibraryIndex(store: store).ensureCurrent(), "接著正常重建")
+    }
+
+    /// `..`＋symlink 的 canonical 求值（#129 verify Codex-5 的反例場景）：
+    /// macOS Foundation 實測走 traversal 語意（/a/link/../store → /b/store），
+    /// 兩種求值順序同果——本測試釘住這個行為，防未來 helper 改寫時倒退。
+    func testCanonicalPathResolvesDotDotThroughSymlinks() throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-canon-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        for d in ["b/child", "b/store", "a", "a/store"] {
+            try FileManager.default.createDirectory(
+                at: base.appendingPathComponent(d), withIntermediateDirectories: true)
+        }
+        try FileManager.default.createSymbolicLink(
+            at: base.appendingPathComponent("a/link"),
+            withDestinationURL: base.appendingPathComponent("b/child"))
+        let canon = LibraryIndex.canonicalRootPath(base.appendingPathComponent("a/link/../store"))
+        XCTAssertTrue(canon.hasSuffix("/b/store"),
+                      "`..` 穿過 symlink 必須走 traversal 語意（得 b/store），不是 lexical（a/store）：\(canon)")
+    }
+
+    /// **已知限制的文件測試**（#129 verify Codex-1）：canonical path 是位置不是
+    /// 化身——同路徑同 key 的「store 重生」通過身分比對。這個測試斷言**現況**，
+    /// 讓限制可見；incarnation id（store.yaml 內的 UUID）落地時翻轉此斷言。
+    func testKnownLimitationSamePathReincarnationPassesIdentity() throws {
+        let store = makeStore(root: root, key: "main")
+        _ = try LibraryIndex(store: store).rebuild()
+        // 「重生」：整個 root 刪掉重建（新化身、同路徑）
+        try FileManager.default.removeItem(at: root)
+        let reborn = makeStore(root: root, key: "main")
+        try reborn.ensureLayout()
+        XCTAssertTrue(LibraryIndex.isCurrent(indexPath: store.indexURL, expectedRoot: root),
+                      "已知限制：path-based 身分分不出同路徑的重生——需要 store incarnation id")
     }
 }

@@ -40,10 +40,14 @@ public struct LibraryIndex {
     /// 是**別的 store**建的，版本照樣點頭（#121 verify (c)）——查詢一直吃錯的資料
     /// 且無訊號。身分比對用 canonical path：tilde／symlink／`/var` 前綴的路徑別名
     /// 不是別的 store。
-    public static func isCurrent(indexPath: URL, expectedRoot: URL) throws -> Bool {
+    public static func isCurrent(indexPath: URL, expectedRoot: URL) -> Bool {
+        // **整體 fail-safe**（#129 verify F3/C7）：index 是衍生物，任何讀取失敗
+        // （非 SQLite 檔、Dropbox conflict copy、截斷寫入）都是「stale、重建」，
+        // 不是往上炸——半 throw 半 swallow 的舊形狀讓 conflict copy 直接殺掉指令。
+        // 若底層是持續性 I/O 問題，rebuild 自己會失敗並往上拋，不會靜默循環。
         guard FileManager.default.fileExists(atPath: indexPath.path) else { return false }
-        let db = try SQLiteDB(path: indexPath.path, readOnly: true)
-        let rows = try db.query("PRAGMA user_version")
+        guard let db = try? SQLiteDB(path: indexPath.path, readOnly: true),
+              let rows = try? db.query("PRAGMA user_version") else { return false }
         let version = (rows.first?["user_version"] as? Int).map(Int32.init) ?? 0
         guard version == schemaVersion else { return false }
         // schema 相符 → 身分表必在（同一次 rebuild 寫入）。查不到＝手工拼裝的
@@ -56,21 +60,35 @@ public struct LibraryIndex {
     /// stale（版本或**身分**不符）就 rebuild；current 則 no-op。回傳是否 rebuild 過。
     @discardableResult
     public func ensureCurrent() throws -> Bool {
-        if try Self.isCurrent(indexPath: store.indexURL, expectedRoot: store.root) { return false }
+        if Self.isCurrent(indexPath: store.indexURL, expectedRoot: store.root) { return false }
         _ = try rebuild()
         return true
     }
 
-    /// canonical path（tilde 展開 + standardized + symlink 解析）。
-    /// 與 registry 反查（#105/#121 的 `AkashicConfig.canonicalPath`）同語意——
-    /// 兩者 merge 後應統一為一個 helper（差異即 bug）。
+    /// canonical path（standardized + symlink 解析；輸入是 URL，`URL.path` 永遠
+    /// 不以 `~` 開頭——tilde 展開屬收 String 的那一版）。
+    /// 與 PR #121 的 `AkashicConfig.canonicalPath(String)` 同語意——merge 後應統一
+    /// 為一個 helper（差異即 bug）；`..`＋symlink 的組合兩種求值順序在 macOS
+    /// Foundation 實測同果（守衛測試釘住）。
+    ///
+    /// **誠實邊界（#129 verify C1）**：canonical path 是**位置**不是**化身**——
+    /// 同路徑同 key 的「store 重生」（刪掉重建）會拿到同一個 canonical path、
+    /// 通過身分比對。要分辨化身需要 store 自帶的 incarnation id（follow-up）。
     static func canonicalRootPath(_ root: URL) -> String {
-        URL(fileURLWithPath: (root.path as NSString).expandingTildeInPath)
-            .standardizedFileURL.resolvingSymlinksInPath().path
+        root.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     @discardableResult
     public func rebuild() throws -> IndexStats {
+        // **重建前提：root 得像一個 store**（#129 verify F1/F2 的配對）。身分比對
+        // 讓 path flap（symlink 目標消失、volume unmount、CloudStorage 重掛）觸發
+        // 重建，而 load() 對不可達的 root 會「成功地」回 0 筆——好 index 被一份
+        // 蓋著正確身分戳記的**空 index** 取代，此後永遠自認 current。「可重建」
+        // 不等於「有人會發現它壞了」（同檔 #7(a) 的教訓）；unmount 是暫時的，
+        // 拒絕重建讓舊 index 留在原地，remount 後一切如常。
+        guard LibraryStore.isLibraryRoot(store.root) else {
+            throw IndexError.rootNotALibrary(store.root.path)
+        }
         let load = try store.load()
 
         // 全刪重建：舊 index 直接移除，避免 schema 演化殘留
@@ -109,12 +127,12 @@ public struct LibraryIndex {
             "CREATE INDEX idx_relations_from ON relations(from_uuid)",
             "CREATE INDEX idx_relations_target ON relations(target)",
             // #122：身分戳記——這份 index 是誰的、何時建的、當時多少筆
-            "CREATE TABLE index_identity(store_root TEXT NOT NULL, built_at TEXT NOT NULL, entry_count INT NOT NULL)",
+            "CREATE TABLE index_identity(only_row INT PRIMARY KEY CHECK (only_row = 1), store_root TEXT NOT NULL, built_at TEXT NOT NULL, entry_count INT NOT NULL)",
             "PRAGMA user_version = 3",   // = schemaVersion；同步遞增
         ] {
             try db.execute(sql)
         }
-        try db.execute("INSERT INTO index_identity VALUES (?,?,?)",
+        try db.execute("INSERT INTO index_identity VALUES (1,?,?,?)",
                        bind: [Self.canonicalRootPath(store.root),
                               ISO8601DateFormatter().string(from: Date()),
                               load.entries.count])
@@ -187,5 +205,20 @@ public struct LibraryIndex {
     static func extractYear(_ date: String) -> Int? {
         guard let range = date.range(of: "[0-9]{4}", options: .regularExpression) else { return nil }
         return Int(date[range])
+    }
+}
+
+public enum IndexError: Error, LocalizedError, Equatable {
+    /// #129 verify F1/F2：root 不像一個 store（unmount／path flap／打錯路徑）時
+    /// 拒絕重建——寫出一份身分正確的空 index 比留著舊 index 更糟。
+    case rootNotALibrary(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .rootNotALibrary(let path):
+            return "「\(displaySafe(path, max: 300))」不是 Akashic library（缺 entities/ 與 entries/）"
+                 + "——拒絕重建 index。若這是暫時的（磁碟未掛載／同步中），恢復後重試即可；"
+                 + "舊 index 原封未動。"
+        }
     }
 }

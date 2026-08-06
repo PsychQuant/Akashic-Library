@@ -533,7 +533,7 @@ public final class AkashicService {
         // schema 版本 + store 身分先於 mtime（#13 verify、#122）：舊 binary 建的 index
         // 撞新查詢會 no such table；別的 store 建的 index（registry 路徑重新利用）
         // 內容整份是別人的
-        if try !LibraryIndex.isCurrent(indexPath: store.indexURL, expectedRoot: store.root) {
+        if !LibraryIndex.isCurrent(indexPath: store.indexURL, expectedRoot: store.root) {
             try LibraryIndex(store: store).rebuild()
             return
         }

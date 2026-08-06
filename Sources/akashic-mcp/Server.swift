@@ -158,6 +158,14 @@ actor AkashicMCPServer {
                 "names": strArray("aliases（第一個為顯示名）"),
                 "orcid": str("ORCID（可選）"), "openalex": str("OpenAlex author ID（可選）"),
              ], required: ["key", "names"])),
+        Tool(name: "akashic_record_divergence",
+             description: "記下未決的同一性問題（#77）——遇到「這兩筆可能是同一個」時當場記錄而非當場判斷。記下判斷不等於消歧；消歧（合併＋刪檔）屬人工操作（CLI resolve-divergence），本面刻意不提供。",
+             inputSchema: obj([
+                "question": str("未決的是什麼，一句話"),
+                "candidates": strArray("候選，形如 key:shape（shape 為 person / organization / work）；需要兩個以上"),
+                "judgement": str("已形成的判斷（選填；給了就必須同時給 rests_on）"),
+                "rests_on": strArray("判斷的依據（來源 URL 或 sha256: 摘要；選填，與 judgement 成對）"),
+             ], required: ["question", "candidates"])),
         Tool(name: "akashic_import_zotero",
              description: "觸發 Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）。回傳完整 import report；單筆寫入失敗記入 writeFailed 並續跑（index 照常重建）。",
              inputSchema: obj([
@@ -245,6 +253,10 @@ actor AkashicMCPServer {
             case "akashic_add_person":
                 output = try service.addPerson(key: arg("key") ?? "", names: argList("names"),
                                                orcid: arg("orcid"), openalex: arg("openalex"))
+            case "akashic_record_divergence":
+                output = try service.recordDivergence(
+                    question: arg("question") ?? "", candidates: argList("candidates"),
+                    judgement: arg("judgement"), restsOn: argList("rests_on"))
             case "akashic_import_zotero":
                 output = try service.importZotero(zoteroDb: arg("zotero_db"),
                                                   libraryID: argInt("library_id"))

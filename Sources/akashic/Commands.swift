@@ -620,7 +620,7 @@ struct RecordDivergence: ParsableCommand {
             let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
             guard parts.count == 2, let shape = EntityKind(rawValue: parts[1]) else {
                 throw ValidationError(
-                    "候選格式為 `key:shape`（shape ∈ \(EntityKind.allCases.map(\.rawValue).joined(separator: " / "))），得到「\(displaySafe(spec, max: 120))」")
+                    "候選格式為 `key:shape`（shape ∈ \(EntityKind.allCases.filter { $0 != .divergence }.map(\.rawValue).joined(separator: " / "))），得到「\(displaySafe(spec, max: 120))」")
             }
             return (key: parts[0], shape: shape)
         }

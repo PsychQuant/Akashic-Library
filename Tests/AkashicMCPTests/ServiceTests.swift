@@ -557,3 +557,107 @@ extension ServiceTests {
         XCTAssertTrue(onDisk.contains("- literal: Che Cheng"))
     }
 }
+
+/// #77 層次 2：MCP 面的歧異記錄入口——LLM 驅動的資料補完流程正是 #71 診斷裡
+/// 「七次歧異全部在寫入前被判斷掉」的實際發生點，MCP 記不了歧異等於逼流程
+/// 當場判斷。刻意**不**提供 MCP 版 resolve（消歧含合併＋刪檔，屬人工確認面）。
+final class ServiceRecordDivergenceTests: XCTestCase {
+    var root: URL!
+    var fakeHome: URL!
+    var service: AkashicService!
+
+    override func setUpWithError() throws {
+        fakeHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-home-\(UUID().uuidString)")
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-divsvc-\(UUID().uuidString)")
+        let store = LibraryStore(root: root, key: nil,
+                                 environment: ["AKASHIC_HOME": fakeHome.path])
+        try store.ensureLayout()
+        try store.writePerson(Person(key: "chen-h-y", names: ["Chen, H.-Y."]))
+        try store.writePerson(Person(key: "chen-hui-yun", names: ["Chen, Hui-Yun"]))
+        service = AkashicService(root: root, environment: ["AKASHIC_HOME": fakeHome.path])
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.removeItem(at: fakeHome)
+    }
+
+    func testRecordDivergenceWritesRecord() throws {
+        let out = try service.recordDivergence(
+            question: "縮寫 H.-Y. 是否即 Hui-Yun",
+            candidates: ["chen-h-y:person", "chen-hui-yun:person"],
+            judgement: nil, restsOn: [])
+        XCTAssertTrue(out.contains("id"), "回傳要含記錄 id：\(out)")
+        let load = try LibraryStore(root: root, key: nil,
+                                    environment: ["AKASHIC_HOME": fakeHome.path]).load()
+        XCTAssertEqual(load.divergences.count, 1)
+        XCTAssertEqual(load.divergences.first?.candidates.map(\.key).sorted(),
+                       ["chen-h-y", "chen-hui-yun"])
+    }
+
+    func testRecordDivergenceRejectsSingleCandidate() {
+        XCTAssertThrowsError(try service.recordDivergence(
+            question: "q", candidates: ["chen-h-y:person"], judgement: nil, restsOn: []))
+    }
+
+    func testRecordDivergenceRejectsJudgementWithoutBasis() {
+        XCTAssertThrowsError(try service.recordDivergence(
+            question: "q", candidates: ["chen-h-y:person", "chen-hui-yun:person"],
+            judgement: "同一人", restsOn: []),
+            "判斷與依據必須成對（#71 不變式）——MCP 面與 CLI 同紀律")
+    }
+
+    func testRecordDivergenceRejectsMalformedCandidateSpec() {
+        XCTAssertThrowsError(try service.recordDivergence(
+            question: "q", candidates: ["chen-h-y", "chen-hui-yun:person"],
+            judgement: nil, restsOn: []),
+            "候選格式 key:shape——與 CLI 同格式，錯格式要指明")
+    }
+
+    /// #133 verify F1：同組候選 re-record 的三態——補寫允許、更新允許、毀損拒絕。
+    func testRecordDivergenceRefusesToSilentlyEraseJudgement() throws {
+        _ = try service.recordDivergence(
+            question: "q1", candidates: ["chen-h-y:person", "chen-hui-yun:person"],
+            judgement: "同一人", restsOn: ["https://example.org/roster"])
+        // 有→nil：拒絕（曾經靜默抹掉判斷與 question）
+        XCTAssertThrowsError(try service.recordDivergence(
+            question: "q2", candidates: ["chen-h-y:person", "chen-hui-yun:person"],
+            judgement: nil, restsOn: [])) { error in
+            let m = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(m.contains("判斷") && !m.contains("不符合"),
+                          "要指明既有判斷會被抹掉、且不得套 key-pattern 框架：\(m)")
+        }
+        // 有→有：更新允許
+        XCTAssertNoThrow(try service.recordDivergence(
+            question: "q3", candidates: ["chen-h-y:person", "chen-hui-yun:person"],
+            judgement: "仍同一人，另據", restsOn: ["https://example.org/other"]))
+    }
+
+    /// #133 verify F2：shape 說是什麼就到那個形狀的集合驗——person 記成 work 拒絕；
+    /// 真正的 work（citekey）從此可用（曾因 known 漏掉 entries 而結構上不可用）。
+    func testRecordDivergenceValidatesShapeMembership() throws {
+        XCTAssertThrowsError(try service.recordDivergence(
+            question: "q", candidates: ["chen-h-y:work", "chen-hui-yun:work"],
+            judgement: nil, restsOn: []),
+            "person 的 key 記成 work＝寫出一筆永遠無法消歧的記錄，必須當場拒絕")
+    }
+
+    /// #133 verify F3：拒絕訊息不得套「不符合 key 正規式」的假框架。
+    func testRecordDivergenceErrorsDoNotClaimKeyPatternViolation() {
+        XCTAssertThrowsError(try service.recordDivergence(
+            question: "q", candidates: ["chen-h-y:person"], judgement: nil, restsOn: [])) { error in
+            let m = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertFalse(m.contains("不符合"),
+                           "候選數不足與 key 語法無關——框架錯了 LLM 會去清洗 key：\(m)")
+        }
+    }
+
+    func testRecordDivergenceRejectsUnknownCandidate() {
+        XCTAssertThrowsError(try service.recordDivergence(
+            question: "q", candidates: ["ghost-person:person", "chen-hui-yun:person"],
+            judgement: nil, restsOn: []),
+            "對不存在的鍵記歧異沒有意義（store 層既有守衛，經 MCP 面透傳）")
+    }
+}

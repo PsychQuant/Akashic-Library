@@ -4,11 +4,16 @@ import AkashicCore
 public enum ConfigError: Error, LocalizedError {
     case invalidFileKey(String)
     case invalidCurrent(String)
+    /// 同一正規路徑被 ≥ 2 個 key 註冊（#105/#121）——registry 損壞，反查不猜。
+    case duplicateRegistration(path: String, keys: [String])
 
     public var errorDescription: String? {
         switch self {
         case .invalidFileKey(let key):
             return "config.yaml 的 files key「\(key)」不合法（小寫英數起頭、僅 a-z0-9- ）"
+        case let .duplicateRegistration(path, keys):
+            return "路徑「\(displaySafe(path, max: 300))」被多個 key 註冊（\(keys.joined(separator: ", "))）"
+                 + "——同一實體庫不重複註冊；用 file remove 清掉多餘的再試"
         case .invalidCurrent(let key):
             return "config.yaml 的 current「\(key)」不在 files registry 中"
         }
@@ -128,19 +133,46 @@ public struct AkashicConfig: Equatable {
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
-    /// registry 反查（#105）：`path` 已註冊就回它的 key，否則 nil。
+    /// 路徑的正規形（#105 verify）：tilde 展開 + `standardizedFileURL` + **解析
+    /// symlink**（`resolvingSymlinksInPath`——同時把 `/private` 前綴與 APFS 上的
+    /// 大小寫正規化到磁碟實際形）。
     ///
-    /// **standardized-path 比對**——與 `file add` 的重複註冊檢查同一條邏輯（tilde 展開
-    /// + `standardizedFileURL`；不解析 symlink，不另發明語意）。config 缺失或讀不到
-    /// 一律回 nil：explicit path 的解析不依賴 registry 存在。
-    public static func key(forPath path: String, configURL: URL) -> String? {
-        guard let config = try? AkashicConfig.read(from: configURL) else { return nil }
-        let target = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-            .standardizedFileURL.path
-        return config.files.first(where: {
-            URL(fileURLWithPath: ($0.value as NSString).expandingTildeInPath)
-                .standardizedFileURL.path == target
-        })?.key
+    /// 為什麼要解析 symlink：`~/Dropbox` 在本機就是 symlink → `~/Library/
+    /// CloudStorage/Dropbox`，而「store 在 Dropbox 裡」正是 index 外移的初衷場景
+    /// ——只比 standardized path 會讓最需要反查的部署形態反查失敗，
+    /// 在已註冊的 store 裡長出 `.akashic/`。路徑不存在時 `resolvingSymlinksInPath`
+    /// 原樣保留該段，仍是決定性的。
+    static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+            .standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    /// registry 反查（#105，in-memory）：對**已載入**的 config 比對——`file add`
+    /// 用這個，不做第二次讀檔（#121 verify Codex：TOCTOU + 二讀失敗被當成無重複）。
+    ///
+    /// **≥ 2 個 key 命中同一正規路徑 → 擲錯**（#121 verify H2：`Dictionary.first`
+    /// 每個 process 的雜湊種子不同，同 store 反查結果會逐次交替、交替寫兩份 index
+    /// ——正是 #105 的靶心以不可重現的形式回歸）。重複註冊是 registry 損壞，
+    /// 修它，不猜它。
+    public static func key(forPath path: String, in config: AkashicConfig) throws -> String? {
+        let target = canonicalPath(path)
+        let hits = config.files.filter { canonicalPath($0.value) == target }.keys.sorted()
+        guard hits.count <= 1 else {
+            throw ConfigError.duplicateRegistration(path: path, keys: hits)
+        }
+        return hits.first
+    }
+
+    /// registry 反查（#105，讀檔版）：resolveDetailed 用。
+    ///
+    /// **只有「config 檔不存在」降級成 nil**（explicit path 的解析不依賴 registry
+    /// 存在）；malformed／權限／I/O 錯誤**往上拋**（#121 verify Codex：`try?` 會把
+    /// 「registry 壞掉」當成「未註冊」，在已註冊的 store 裡靜默寫第二份 index，
+    /// 且使用者拿不到任何 registry 損壞的診斷）。
+    public static func key(forPath path: String, configURL: URL) throws -> String? {
+        guard FileManager.default.fileExists(atPath: configURL.path) else { return nil }
+        let config = try AkashicConfig.read(from: configURL)
+        return try key(forPath: path, in: config)
     }
 
     // `defaultURL` 已移除（#110）：它寫死真實家目錄、不認 `AKASHIC_HOME`，與

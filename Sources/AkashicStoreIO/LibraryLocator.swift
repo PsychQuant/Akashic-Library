@@ -17,7 +17,8 @@ public enum LocatorError: Error, LocalizedError {
 /// CLI 與 akashic-mcp 共用（config 驅動、無寫死路徑）。
 public enum LibraryLocator {
     /// 解析結果——`key` 是 registry key（#37：index 位置需要它）。
-    /// explicit / env 兩條路徑沒有 key（未註冊），legacy `library:` 亦然。
+    /// #105 之後 explicit / env 路徑會反查 registry（canonical 比對，含 symlink 解析）
+    /// ——已註冊就帶 key；未註冊與 legacy `library:` 才是 nil。
     public struct Resolved: Equatable {
         public let root: URL
         public let key: String?
@@ -50,11 +51,11 @@ public enum LibraryLocator {
         // 缺失 → 維持 keyless fallback。
         if let explicit, !explicit.isEmpty {
             return Resolved(root: URL(fileURLWithPath: (explicit as NSString).expandingTildeInPath),
-                            key: AkashicConfig.key(forPath: explicit, configURL: configURL))
+                            key: try AkashicConfig.key(forPath: explicit, configURL: configURL))
         }
         if let env = environment["AKASHIC_LIBRARY"], !env.isEmpty {
             return Resolved(root: URL(fileURLWithPath: (env as NSString).expandingTildeInPath),
-                            key: AkashicConfig.key(forPath: env, configURL: configURL))
+                            key: try AkashicConfig.key(forPath: env, configURL: configURL))
         }
         let config = try AkashicConfig.read(from: configURL)
         // #18 多檔案：current + files registry 優先於 legacy library

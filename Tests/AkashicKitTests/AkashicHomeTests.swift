@@ -87,8 +87,10 @@ final class AkashicHomeTests: XCTestCase {
         XCTAssertEqual(r.key, "main", "registry 解析必須帶回 key，否則 index 會回落 in-store")
     }
 
-    /// explicit / env / legacy 三條路徑都沒有 key——照實回 nil，不猜。
-    func testExplicitAndEnvAndLegacyHaveNoKey() throws {
+    /// **未註冊的** explicit / env 路徑與 legacy `library:` 都沒有 key——照實回 nil，
+    /// 不猜（#105 之後 explicit / env 對**已註冊**路徑會反查帶 key，見
+    /// `testExplicitPathToRegisteredStoreCarriesKey`；本測試釘的是未命中面）。
+    func testUnregisteredExplicitEnvAndLegacyHaveNoKey() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("akashic-locator-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -202,12 +204,73 @@ extension AkashicHomeTests {
         XCTAssertNil(r.key)
     }
 
-    /// 路徑正規化：尾斜線、tilde 混寫都要比得中（沿 file add 的 standardizedFileURL 語意）。
+    /// 路徑正規化：尾斜線要比得中。
     func testLookupNormalizesPathForms() throws {
         let (home, store, cleanup) = try makeRegistry()
         defer { cleanup() }
         let r = try LibraryLocator.resolveDetailed(
             explicit: store.path + "/", environment: ["AKASHIC_HOME": home.path])
         XCTAssertEqual(r.key, "main", "尾斜線不該讓反查失敗")
+    }
+
+    /// **symlink 命中**（#121 verify H1）：registry 存實路徑、使用者給 symlink——
+    /// `~/Dropbox` 型部署正是 index 外移的初衷場景，反查必須解析 symlink。
+    func testLookupResolvesSymlinks() throws {
+        let (home, store, cleanup) = try makeRegistry()
+        defer { cleanup() }
+        let link = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-link-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: link) }
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: store)
+        let r = try LibraryLocator.resolveDetailed(
+            explicit: link.path, environment: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(r.key, "main", "經 symlink 開已註冊 store 必須反查得到")
+    }
+
+    /// tilde 形（真實 registry 的形狀：`main: ~/.akashic`）——registry 值帶 tilde 也要命中。
+    func testLookupExpandsTildeInRegistryValue() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-tilde-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let home = tmp.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        // registry 值用 tilde 寫；查詢用展開後的絕對路徑
+        let expanded = ("~/Desktop" as NSString).expandingTildeInPath
+        try "files:\n  desk: ~/Desktop\ncurrent: desk\n"
+            .write(to: home.appendingPathComponent("config.yaml"), atomically: true, encoding: .utf8)
+        let r = try LibraryLocator.resolveDetailed(
+            explicit: expanded, environment: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(r.key, "desk")
+    }
+
+    /// **malformed registry 必須擲錯**（#121 verify Codex）：`try?` 會把「registry
+    /// 壞掉」當成「未註冊」→ 在已註冊 store 裡靜默寫第二份 index，且使用者拿不到
+    /// 任何損壞診斷。只有「檔案不存在」才降級成 keyless。
+    func testMalformedRegistryThrowsInsteadOfKeyless() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-badcfg-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let home = tmp.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try "files:\n  Bad Key!!: /tmp/x\n"
+            .write(to: home.appendingPathComponent("config.yaml"), atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try LibraryLocator.resolveDetailed(
+            explicit: "/tmp/whatever", environment: ["AKASHIC_HOME": home.path]))
+    }
+
+    /// **重複註冊擲錯**（#121 verify H2）：`Dictionary` 反查非決定性——同 store 的
+    /// 反查結果會逐 process 交替、交替寫兩份 index。≥2 命中 = registry 損壞，修它不猜它。
+    func testDuplicateRegistrationThrows() throws {
+        let (home, store, cleanup) = try makeRegistry()
+        defer { cleanup() }
+        try "files:\n  aaa: \(store.path)\n  zzz: \(store.path)\ncurrent: aaa\n"
+            .write(to: home.appendingPathComponent("config.yaml"), atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try LibraryLocator.resolveDetailed(
+            explicit: store.path, environment: ["AKASHIC_HOME": home.path])) { error in
+            guard case ConfigError.duplicateRegistration(_, let keys) = error else {
+                return XCTFail("預期 duplicateRegistration，實得 \(error)")
+            }
+            XCTAssertEqual(keys, ["aaa", "zzz"], "keys 排序後回報，錯誤訊息可重現")
+        }
     }
 }

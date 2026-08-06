@@ -77,10 +77,10 @@ Library root 的解析順序：`--library` → `$AKASHIC_LIBRARY` → `$AKASHIC_
 > in-store 的 `.akashic/index.sqlite` 每次被寫成完整副本，而 `index/<key>.sqlite` 從來沒被更新
 > 過，查詢一直打在過期的衍生資料上且無任何訊號。
 >
-> 若你的 store root 底下還留著一個 `.akashic/`，它多半是那個時期的殘留，可直接刪除（衍生物，
-> `doctor` 會重建正確的那一份）。**但它也可能再長回來**——`--library <路徑>` 與
-> `$AKASHIC_LIBRARY` 目前仍以 keyless 開啟，即使該路徑已註冊（#105）。刪之前先確認你平常怎麼
-> 開這個 store。
+> 這類殘留不用自己猜：**`doctor` 會列出來**（#107 的「殘留：」段——依 format/key 不該
+> 存在、且為空目錄或純衍生物的路徑；report-only，處置留給人；含資料的目錄與 `sources/`
+> 永不列入）。注意 `.akashic/` 可能再長回來——`--library <路徑>` 與 `$AKASHIC_LIBRARY`
+> 目前仍以 keyless 開啟，即使該路徑已註冊（#105）。刪之前先確認你平常怎麼開這個 store。
 
 ## 狀態
 

@@ -78,10 +78,11 @@ in-store 的 `.akashic/index.sqlite`。
 > **父目錄不由 `ensureLayout` 保證**。寫入路徑自己確保目的檔的父目錄存在
 > （`atomicWrite` 的單一咽喉），讀取路徑則容忍目錄缺席（回空）。
 >
-> ⚠️ 這**不代表** root 打錯時會被擋下來。`atomicWrite` 會安靜地把整棵樹建出來，
-> 而且此時**沒有 `store.yaml`**——這個半成品後續會依「當下碰巧有什麼」自我聲明格式：
-> 若先寫過 entry（落進 `entries/`），之後的 `ensureLayout()` 會把它標成 format 1。
-> CLI 有 `openStore()` 擋在前面，MCP 與 App 沒有（#108）。
+> root 打錯**會被擋下來**（#108）：五個寫入 API（`writeEntry`／`writeEntryExclusive`／
+> `writePerson`／`writeOrganization`／`writeLibrary`）前置寫入閘——`store.yaml` 存在或
+> `isLibraryRoot`（pre-#24 legacy）任一成立才放行，兩者皆無＝打錯的路徑，拒絕且
+> 零磁碟副作用。CLI／MCP／App／外部呼叫端一體適用；「新 store 的 format 取決於
+> 先呼叫哪個寫入 API」的分岔隨之消失（裸寫一律被拒，建立走 `ensureLayout`）。
 >
 > **呼叫端仍應先 `ensureLayout()` 或走 `openStore()`**；父目錄的保證只涵蓋「目錄」，
 > 不涵蓋「這個 root 是不是一個 store」。

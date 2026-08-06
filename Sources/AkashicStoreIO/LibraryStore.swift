@@ -3,11 +3,19 @@ import AkashicCore
 
 public enum StoreIOError: Error, LocalizedError, Equatable {
     case invalidKey(String, String)
+    /// #108：root 不是一個 store（無 marker 也無 canonical 目錄）——寫入拒絕。
+    /// #101 讓 atomicWrite 自建父目錄後，打錯的 root 曾被安靜實體化成無 marker
+    /// 的幽靈 store（之後 ensureLayout 還會把它標成 format 1）。
+    case notAStore(String)
     /// store 有跨記錄的不一致（重複 UUID / citekey），改寫動作拒絕執行（#35 verify）。
     case inconsistentStore(action: String, issues: [String])
 
     public var errorDescription: String? {
         switch self {
+        case let .notAStore(path):
+            return "「\(displaySafe(path, max: 300))」不是 Akashic store（無 store.yaml 也無 "
+                 + "entities/／entries/）——寫入拒絕。若這是新 store，先跑 "
+                 + "akashic doctor --library <path> 建立佈局；若是打錯路徑，這個拒絕正是在救你。"
         case let .inconsistentStore(action, issues):
             // 單行——會過 displaySafe
             return "store 有 \(issues.count) 個跨記錄不一致，\(action) 拒絕執行"
@@ -277,7 +285,21 @@ public final class LibraryStore {
     /// Library registry 寫入（#13）：metadata-only；key 走 StoreKey write-time 驗證。
     /// entry 的 membership（akashic.libraries）由 writeEntry 一併驗證。
     @discardableResult
+    /// **寫入閘**（#108）：canonical 記錄寫入的前提——root 得是一個 store。
+    /// `store.yaml` 存在（#24 之後的 store）或 `isLibraryRoot`（pre-#24 legacy：
+    /// 無 marker 但 canonical 目錄在）任一成立即放行。兩者皆無＝打錯的路徑——
+    /// #101 讓 atomicWrite 自建父目錄後，這裡是唯一擋住「錯字 root 被安靜實體化」
+    /// 的所在（CLI 的 openStore 只保護 CLI；MCP/App/外部呼叫端走的就是這些 API）。
+    /// 正常路徑零成本：ensureLayout／openOrCreateStore 都寫 marker。
+    func assertStoreRoot() throws {
+        guard FileManager.default.fileExists(atPath: StoreVersion.url(in: root).path)
+                || LibraryStore.isLibraryRoot(root) else {
+            throw StoreIOError.notAStore(root.path)
+        }
+    }
+
     public func writeLibrary(_ library: Library) throws -> URL {
+        try assertStoreRoot()
         guard StoreKey.isValid(library.key) else {
             throw StoreIOError.invalidKey("library key", library.key)
         }
@@ -290,6 +312,7 @@ public final class LibraryStore {
 
     @discardableResult
     public func writeEntry(_ entry: Entry) throws -> URL {
+        try assertStoreRoot()
         // write-time key 驗證：不合格式的 citekey 絕不進檔名（path traversal 防護）
         guard StoreKey.isValid(entry.citekey) else {
             throw StoreIOError.invalidKey("citekey", entry.citekey)
@@ -315,6 +338,7 @@ public final class LibraryStore {
     /// 之間的 TOCTOU 覆寫視窗（moveItem 對既存目的檔是原子性拒絕）。
     @discardableResult
     public func writeEntryExclusive(_ entry: Entry) throws -> URL {
+        try assertStoreRoot()
         guard StoreKey.isValid(entry.citekey) else {
             throw StoreIOError.invalidKey("citekey", entry.citekey)
         }
@@ -327,6 +351,7 @@ public final class LibraryStore {
     /// 機構只存在於 entities 佈局（format 4 起）——legacy 佈局沒有它的位置。
     @discardableResult
     public func writeOrganization(_ org: Organization) throws -> URL {
+        try assertStoreRoot()
         guard StoreKey.isValid(org.key) else {
             throw StoreIOError.invalidKey("organization key", org.key)
         }
@@ -344,6 +369,7 @@ public final class LibraryStore {
     /// 編譯錯誤，刪錯了那一個），於 #59 復原。
     @discardableResult
     public func writePerson(_ person: Person) throws -> URL {
+        try assertStoreRoot()
         guard StoreKey.isValid(person.key) else {
             throw StoreIOError.invalidKey("person key", person.key)
         }

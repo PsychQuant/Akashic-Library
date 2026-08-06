@@ -47,6 +47,9 @@ Akashic library 的 canonical store 格式。本文件是 spec §4 的正式版�
 | `libraries/` | 一律 |
 | `.akashic/` | 僅當開這個 store 的呼叫端**沒有傳 registry key** |
 
+`store.yaml` malformed 或 too-new 時 `ensureLayout()` **整體拒絕、零磁碟副作用**——
+不會依猜測建任何目錄（normative 定義見 §5.0，#106）。
+
 **已註冊的 store 的 index 住 store 之外**（`~/.akashic/index/<key>.sqlite`，#37）：
 store root 正是會進 Dropbox／git 的東西，而同步樹裡的 live SQLite 是已知的毀檔風險
 （partial write、conflict copy）。沒有 key 的 store 沒有名字可命名 index，才回落到
@@ -506,9 +509,11 @@ index 一起被清掉。
   結構性動作，依猜測建目錄的代價是雙佈局。`usesEntitiesLayout` 的**寫入路由**兜底
   （marker 壞掉時以磁碟事實猜）不在此限，維持 #35 語意。拒絕 **MUST** 零磁碟副作用
   （不得留下依錯誤猜測建出的目錄）。
-- marker 解析 **MUST** 只認**頂層**的 `format:` 行——縮排（巢狀）的 `format:` 不是
-  候選（#112 verify：巢狀鍵曾贏過頂層真值，讓 format 5 的 store 被讀成 1、安靜建出
-  雙佈局）。頂層無 `format:` 行 → malformed。
+- marker 解析 **MUST** 不把**縮排**（任何空白開頭，Unicode Zs ∪ tab）的 `format:`
+  行當候選（#112 verify：巢狀鍵曾贏過頂層真值，讓 format 5 的 store 被讀成 1、安靜
+  建出雙佈局）。頂層無 `format:` 行 → malformed。**已知限制**：解析是行為本的，
+  不解析 YAML 結構——flow mapping 內出現在第 0 欄的鍵不在此防護內；marker grammar
+  的完整定案見 #117。
 
 **版本對照**（source of truth 是 `StoreVersion.supported` 的文件註解；下表為對照）：
 

@@ -109,7 +109,7 @@ final class EnsureLayoutTests: XCTestCase {
 
     /// `usesEntitiesLayout` 的兜底是給**寫入路由**的（#35：猜的方向與資料一致）。
     /// 建佈局是結構性動作，猜錯的代價是雙佈局爛攤子——`ensureLayout` 必須走 strict：
-    /// marker 讀不懂就拒絕，錯誤訊息自己會指路（「store format 標記無法解析」）。
+    /// marker 讀不懂就拒絕（malformed 訊息目前只描述、不含修復指引——另案）。
     func testEnsureLayoutRefusesMalformedMarker() throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try "format: banana\n".write(to: StoreVersion.url(in: root),

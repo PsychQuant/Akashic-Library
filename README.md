@@ -50,8 +50,8 @@ format ≥ 2 的 store 建 `entities/`、不建 legacy 的 `entries/`／`people/
 不再依猜測安靜蓋目錄（#106）——對壞 marker 繼續猜的代價是雙佈局。寫入路由
 （`usesEntitiesLayout`）的容錯不變，讀寫既有資料不受影響。
 
-> ⚠️ 這不是所有指令的保證：`akashic fmt` 的全庫改寫目前**不在** refuse-if-newer 的
-> 保護內（#115）。
+> ⚠️ 這不是所有指令的保證：`akashic fmt` 的全庫改寫與 `library create` 目前**不在**
+> refuse-if-newer 的保護內（#115）。
 
 反過來讀不成立——目錄的存在不是可靠判準：`--library <已註冊路徑>` 目前仍以 keyless 開啟
 （#105），`migrate` 也不刪空的 legacy 目錄。完整說明見

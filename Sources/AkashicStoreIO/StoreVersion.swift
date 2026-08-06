@@ -63,8 +63,16 @@ public enum StoreVersion {
             // mapping 底下的 `format:`（外來 store 的 `meta:\n  format: 1`）贏過頂層
             // 真值——實測後果是 format 5 的 store 被讀成 1，doctor 安靜建出雙佈局，
             // 正是 #106 要關掉的症狀。縮排行不是 marker 的候選。
+            //
+            // 守衛字元集**必須與下面 trim 的一致**（Unicode Zs ∪ tab）——R2 抓到只擋
+            // ASCII space/tab 時，NBSP／全形空格縮排的巢狀鍵照樣贏。
+            //
+            // **誠實邊界**：這是行解析器，不解析 YAML 結構。flow mapping 裡出現在
+            // 第 0 欄的鍵（`meta: {\nformat: 1,…`）在語意上是巢狀的，但本解析器會
+            // 當成頂層——marker 是自產檔（`write` 的模板），完整的「外來 store 開啟」
+            // 防護是 #108/#114 的信任邊界工作，marker grammar 的定案見 #117。
             guard let first = raw.unicodeScalars.first,
-                  first != " ", first != "\t" else { continue }
+                  !CharacterSet.whitespaces.contains(first) else { continue }
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.isEmpty || line.hasPrefix("#") { continue }
             guard line.hasPrefix("format:") else { continue }

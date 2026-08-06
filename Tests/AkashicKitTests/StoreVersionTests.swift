@@ -170,6 +170,16 @@ extension StoreVersionTests {
                        "巢狀值比 supported 大也不得造成誤拒")
     }
 
+    /// 守衛的字元集必須與 trim 的一致（#112 verify R2，兩個 lens + Codex 收斂）：
+    /// 只擋 ASCII space/tab 而 trim 吃整個 Unicode Zs，NBSP／全形空格縮排的巢狀鍵
+    /// 仍會贏過頂層。
+    func testUnicodeWhitespaceIndentedNestedKeyDoesNotShadow() throws {
+        try writeMarker("meta:\n\u{00A0}\u{00A0}format: 1\nformat: 5\n")
+        XCTAssertEqual(try StoreVersion.read(root: root), 5, "NBSP 縮排的巢狀鍵不是候選")
+        try writeMarker("meta:\n\u{3000}format: 1\nformat: 5\n")
+        XCTAssertEqual(try StoreVersion.read(root: root), 5, "全形空格縮排同理")
+    }
+
     func testOnlyNestedFormatKeyIsMalformed() throws {
         try writeMarker("meta:\n  format: 5\n")
         XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in

@@ -128,8 +128,8 @@ public final class LibraryStore {
         // 寫入路由的（#35：marker 壞掉時猜的方向與資料一致），但建佈局是結構性動作——
         // malformed 的 marker 配上空的 entities/ 會被猜成 legacy，安靜建出 entries/、
         // people/，零訊號；too-new 的 store 則會被 file add 成功註冊。兩者都該在這裡
-        // 就拒絕：`read` 對 malformed 擲錯、tooNew 沿 refuse-if-newer（#24）的既有語意，
-        // 錯誤訊息自己指路（「無法解析」／「請升級」）。
+        // 就拒絕：`read` 對 malformed 擲錯、tooNew 沿 refuse-if-newer（#24）的既有語意。
+        // tooNew 的訊息指路（「請升級」）；malformed 目前只描述不指路——修復指引另案。
         let format = try StoreVersion.read(root: root)
         guard format <= StoreVersion.supported else {
             throw StoreVersionError.tooNew(found: format, supported: StoreVersion.supported)

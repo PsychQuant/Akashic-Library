@@ -53,9 +53,8 @@ format ≥ 2 的 store 建 `entities/`、不建 legacy 的 `entries/`／`people/
 > ⚠️ 這不是所有指令的保證：`akashic fmt` 的全庫改寫與 `library create` 目前**不在**
 > refuse-if-newer 的保護內（#115）。
 
-反過來讀不成立——目錄的存在不是可靠判準：`--library <已註冊路徑>` 目前仍以 keyless 開啟
-（#105），`migrate` 也不刪空的 legacy 目錄。完整說明見
-[docs/store-format.md §1](docs/store-format.md)。
+反過來讀不成立——目錄的存在不是可靠判準：`migrate` 不刪空的 legacy 目錄（`doctor` 的
+殘留報告會列出，#107）。完整說明見 [docs/store-format.md §1](docs/store-format.md)。
 
 `index/` 刻意**不**放在 canonical 樹裡：它可重建（536 筆約 0.55 s），而 store root 正是會進
 Dropbox / git 的東西——在同步樹裡放 live SQLite 是已知的毀檔風險（partial write、conflict copy）。
@@ -67,10 +66,10 @@ Dropbox / git 的東西——在同步樹裡放 live SQLite 是已知的毀檔�
 | 變數 | 作用 |
 |---|---|
 | `AKASHIC_HOME` | 覆寫 akashic home（預設 `~/.akashic`）。**同時決定 registry（`config.yaml`）與衍生 index（`index/<key>.sqlite`）的位置**——兩者必須同源，否則會出現「registry 讀一個 home、index 寫另一個 home」的跨 profile 混用（#101 修正）。CLI / MCP / App 三面一致遵守 |
-| `AKASHIC_LIBRARY` | 直接指定 library root，等同 `--library`。**目前一律以 keyless 開啟**，即使該路徑已註冊（#105）|
+| `AKASHIC_LIBRARY` | 直接指定 library root，等同 `--library`。路徑已註冊時**反查 registry 帶 key**（#105）——同一個 store 不因開法不同而有兩份 index |
 
 Library root 的解析順序：`--library` → `$AKASHIC_LIBRARY` → `$AKASHIC_HOME/config.yaml`（`current` 指向的
-`files:` 項）。前兩者回 keyless，第三者帶 registry key。
+`files:` 項）。三條路都會解析 registry key：前兩者對已註冊路徑**反查**（#105），未註冊才 keyless。
 
 Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AKASHIC_HOME/config.yaml`。
 `file` 家族與 MCP 曾各自 fallback 到寫死的真實家目錄（設了 `AKASHIC_HOME` 時與 `doctor`
@@ -85,8 +84,9 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 >
 > 這類殘留不用自己猜：**`doctor` 會列出來**（#107 的「殘留：」段——依 format/key 不該
 > 存在、且為空目錄或純衍生物的路徑；report-only，處置留給人；含資料的目錄與 `sources/`
-> 永不列入）。注意 `.akashic/` 可能再長回來——`--library <路徑>` 與 `$AKASHIC_LIBRARY`
-> 目前仍以 keyless 開啟，即使該路徑已註冊（#105）。刪之前先確認你平常怎麼開這個 store。
+> 永不列入）。已註冊的路徑不會再長出來——`--library <路徑>` 與 `$AKASHIC_LIBRARY`
+> 現在都反查 registry 帶 key（#105）；只有**真的未註冊**的 store 仍以 keyless 開啟並寫
+> in-store `.akashic/`，那是它的正常回落位置，不是殘留。
 
 ## 狀態
 

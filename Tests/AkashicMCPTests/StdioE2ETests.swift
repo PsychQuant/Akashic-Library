@@ -32,6 +32,7 @@ final class StdioE2ETests: XCTestCase {
         process = Process()
         process.executableURL = productsDirectory.appendingPathComponent("akashic-mcp")
         process.environment = ProcessInfo.processInfo.environment
+            .filter { !$0.key.hasPrefix("AKASHIC_") }   // 反查時代不與開發機 registry 耦合（#105）
             .merging(["AKASHIC_LIBRARY": root.path]) { _, new in new }
         stdinPipe = Pipe()
         stdoutPipe = Pipe()

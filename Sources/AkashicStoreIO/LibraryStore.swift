@@ -146,8 +146,8 @@ public final class LibraryStore {
             dirs += [entriesDir, peopleDir]
         }
         // in-store 的 index 回落位置，只有**沒帶 key 開啟**的 store 用得到（#37）。
-        // 注意這是「呼叫端有沒有傳 key」而非 registry 事實——`--library` 與
-        // `$AKASHIC_LIBRARY` 目前對已註冊路徑仍回 nil（#105）。
+        // #105 之後 `--library` 與 `$AKASHIC_LIBRARY` 對已註冊路徑會反查 registry
+        // 帶 key 回來——keyless 只剩「真的未註冊」一種情況。
         if key == nil { dirs.append(akashicDir) }
 
         for dir in dirs {
@@ -607,7 +607,7 @@ public final class LibraryStore {
         //   但留著讓該檔不依賴本函式的內部細節。冗餘無害，刪不刪都對。
         //
         // 這個保證也**不是** root 正確性的驗證。root 打錯時它會安靜地把整棵樹建出來——
-        // CLI 有 `openStore()` 擋在前面，MCP 與 App 沒有（見 #105）。
+        // CLI 有 `openStore()` 擋在前面，MCP 與 App 沒有（見 #108）。
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let tmp = dir.appendingPathComponent(".\(dest.lastPathComponent).tmp-\(UUID().uuidString)")
         try content.write(to: tmp, atomically: false, encoding: .utf8)

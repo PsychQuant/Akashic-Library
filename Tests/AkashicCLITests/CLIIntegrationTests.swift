@@ -479,29 +479,6 @@ extension CLIIntegrationTests {
 /// `file list/add/use`（fallback 到 `defaultURL`）讀**不同的 registry**——`file add`
 /// 寫進真實 registry 而 doctor 永遠看不到。
 final class ConfigHomeConsistencyTests: XCTestCase {
-    private var productsDirectory: URL {
-        for bundle in Bundle.allBundles where bundle.bundlePath.hasSuffix(".xctest") {
-            return bundle.bundleURL.deletingLastPathComponent()
-        }
-        fatalError("找不到 products directory")
-    }
-
-    private func runCLI(_ args: [String], env: [String: String]) throws -> (status: Int32, output: String) {
-        let process = Process()
-        process.executableURL = productsDirectory.appendingPathComponent("akashic")
-        process.arguments = args
-        var childEnv = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
-        for (k, v) in env { childEnv[k] = v }
-        process.environment = childEnv
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        process.waitUntilExit()
-        return (process.terminationStatus,
-                String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
-    }
-
     /// `file list` 未帶 `--config` 時必須讀 `$AKASHIC_HOME/config.yaml`，
     /// 而非寫死的真實 `~/.akashic/config.yaml`。
     func testFileListHonorsAkashicHome() throws {
@@ -515,7 +492,7 @@ final class ConfigHomeConsistencyTests: XCTestCase {
         try "files:\n  fakekey: \(store.path)\ncurrent: fakekey\n"
             .write(to: home.appendingPathComponent("config.yaml"), atomically: true, encoding: .utf8)
 
-        let r = try runCLI(["file", "list"], env: ["AKASHIC_HOME": home.path])
+        let r = try CLITestHarness.run(["file", "list"], env: ["AKASHIC_HOME": home.path])
         XCTAssertEqual(r.status, 0, r.output)
         XCTAssertTrue(r.output.contains("fakekey"),
                       "file list 該讀 $AKASHIC_HOME 的 registry（fake），實際輸出：\(r.output)")

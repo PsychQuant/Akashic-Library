@@ -128,7 +128,6 @@ public struct AkashicConfig: Equatable {
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
-    /// 預設 config 路徑（CLI/MCP/App 共用）。
     // `defaultURL` 已移除（#110）：它寫死真實家目錄、不認 `AKASHIC_HOME`，與
     // env-aware 的 `AkashicHome.configURL(environment:)` 並存時，「registry 在哪」
     // 在同一支程式裡有兩個答案——`file add` 寫進真實 registry 而 doctor 讀 override

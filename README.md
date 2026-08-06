@@ -92,7 +92,7 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 
 - **Phase 1（完結）**：store 地基 — 格式規格、AkashicKit、Zotero 單向 pull、CLI。
   Spec：[docs/specs/2026-07-21-akashic-library-phase1-design.md](docs/specs/2026-07-21-akashic-library-phase1-design.md)
-- **Phase 2（本階段）**：MCP 整合 — schema hash 機制、`akashic-mcp`（14 tools）、發布統一。
+- **Phase 2（本階段）**：MCP 整合 — schema hash 機制、`akashic-mcp`（18 tools）、發布統一。
   Spec：[docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md](docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md)
 - **Phase 3（本階段）**：原生 App — 管理工作台（人工裁決 GUI）+ Canvas 關係圖。
   Spec：[docs/specs/2026-07-22-akashic-library-phase3-app-design.md](docs/specs/2026-07-22-akashic-library-phase3-app-design.md)

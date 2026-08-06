@@ -482,6 +482,30 @@ public final class AkashicService {
         return try jsonString(["key": key, "names": names])
     }
 
+    /// #77 層次 2：MCP 面的歧異記錄入口。LLM 驅動的補完流程遇到同一性疑問時
+    /// **當場記錄而非當場判斷**（#71 的診斷點）。candidates 格式與 CLI 一致
+    /// （`key:shape`）。刻意**無** MCP 版 resolve——消歧含合併＋全庫改寫＋刪檔，
+    /// tracked+clean 前提與人工確認屬 CLI／App 的互動面。
+    public func recordDivergence(question: String, candidates: [String],
+                                 judgement: String?, restsOn: [String]) throws -> String {
+        let parsed: [(key: String, shape: EntityKind)] = try candidates.map { spec in
+            let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2, let shape = EntityKind(rawValue: parts[1]) else {
+                throw ServiceError.invalid(
+                    "候選格式為 `key:shape`（shape ∈ \(EntityKind.allCases.map(\.rawValue).joined(separator: " / "))），得到「\(displaySafe(spec, max: 120))」")
+            }
+            return (key: parts[0], shape: shape)
+        }
+        let d = try store.recordDivergence(question: question, candidates: parsed,
+                                           judgement: judgement, restsOn: restsOn)
+        return try jsonString([
+            "id": d.id.uuidString,
+            "candidates": d.candidates.map(\.key),
+            "hasJudgement": d.judgement != nil ? "true" : "false",
+            "note": "記下判斷不等於消歧——合併請由人工跑 akashic resolve-divergence",
+        ])
+    }
+
     public func importZotero(zoteroDb: String?, libraryID: Int?) throws -> String {
         let path = ((zoteroDb ?? "~/Zotero/zotero.sqlite") as NSString).expandingTildeInPath
         guard FileManager.default.fileExists(atPath: path) else {

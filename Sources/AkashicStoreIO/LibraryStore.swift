@@ -168,6 +168,11 @@ public final class LibraryStore {
         for dir in dirs {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
+        // #66：擷取內容的存檔目錄 + 版控排除區塊（idempotent；既有手工區塊不改寫）。
+        // 建目錄與寫排除**同一動作**——目錄先於排除存在的窗口，就是內容可能被
+        // commit 的窗口。
+        try fm.createDirectory(at: sourcesDir, withIntermediateDirectories: true)
+        try ensureSourcesIgnoreBlock()
     }
 
     /// 佈局殘留（#107）：依當前 format 與 key **不該存在**、且是**空目錄或純衍生物**

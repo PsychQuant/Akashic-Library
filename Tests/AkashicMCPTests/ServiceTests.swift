@@ -51,6 +51,43 @@ final class ServiceTests: XCTestCase {
         try JSONSerialization.jsonObject(with: Data(s.utf8))
     }
 
+    /// #138 verify F1：fatal cross-record（重複 citekey）時 doctor 必須**說話**而
+    /// 不是把 SQLite 的 UNIQUE constraint 內部錯誤丟給 consumer。CLI 的 #35 順序
+    /// （跨記錄檢查先於 rebuild）在 MCP 面必須同樣成立。
+    func testDoctorSurvivesFatalCrossRecordIssues() throws {
+        // 構造重複 citekey：複製一筆 entry 檔、換 UUID（檔名與 id 同步換，
+        // 否則先被 filename≠id 的 quarantine 擋住，到不了 rebuild）
+        let entities = root.appendingPathComponent("entities")
+        let src = try XCTUnwrap(FileManager.default
+            .contentsOfDirectory(at: entities, includingPropertiesForKeys: nil)
+            .first { (try? String(contentsOf: $0, encoding: .utf8))?
+                .contains("cheng2025identifiability") == true })
+        let newID = UUID().uuidString
+        let dup = try String(contentsOf: src, encoding: .utf8)
+            .replacingOccurrences(of: src.deletingPathExtension().lastPathComponent,
+                                  with: newID)
+        try dup.write(to: entities.appendingPathComponent("\(newID).yaml"),
+                      atomically: true, encoding: .utf8)
+
+        let out = try service.doctor()   // 不得 throw
+        XCTAssertFalse(out.contains("UNIQUE constraint"),
+                       "SQLite 內部錯誤不得露給 consumer：\(out)")
+        let obj = try json(out) as! [String: Any]
+        XCTAssertEqual(obj["indexRebuilt"] as? Bool, false, "fatal 時不重建 index：\(out)")
+        let cross = try XCTUnwrap(obj["crossRecordIssues"] as? [String: Any])
+        let first = try XCTUnwrap(cross["first"] as? [[String: String]])
+        XCTAssertTrue(first.contains { $0["severity"] == "error" },
+                      "severity 要逐條攜帶（✗/⚠ 之別不得只在 CLI 面）：\(out)")
+    }
+
+    /// #138 verify F3：CLI doctor 的普查面（#81/#82）MCP 也要有。
+    func testDoctorReportsCensusFacetsMirroringCLI() throws {
+        let obj = try json(try service.doctor()) as! [String: Any]
+        XCTAssertEqual(obj["indexRebuilt"] as? Bool, true)
+        XCTAssertNotNil(obj["noAuthorizedName"], "#81 面向不得只在 CLI 可見")
+        XCTAssertNotNil(obj["authorizedOnlyByCitationForm"], "#82 面向不得只在 CLI 可見")
+    }
+
     func testSearchByJournal() throws {
         let out = try service.search(journal: "Psychometrika")
         let arr = try json(out) as! [[String: Any]]
@@ -659,5 +696,63 @@ final class ServiceRecordDivergenceTests: XCTestCase {
             question: "q", candidates: ["ghost-person:person", "chen-hui-yun:person"],
             judgement: nil, restsOn: []),
             "對不存在的鍵記歧異沒有意義（store 層既有守衛，經 MCP 面透傳）")
+    }
+}
+
+/// #76：「承載必須可觀察」的 MCP 面——#71 第 7 條只在 CLI 落實，#133 之後
+/// MCP 能寫歧異卻仍看不見它（寫得進、看不見比純粹看不見更糟——#133 verify F2
+/// 實測：MCP 寫出 validate 會警告的記錄，警告只在 CLI 面出現）。
+final class ServiceObservabilityTests: XCTestCase {
+    var root: URL!
+    var fakeHome: URL!
+    var service: AkashicService!
+
+    override func setUpWithError() throws {
+        fakeHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-home-\(UUID().uuidString)")
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-obs-\(UUID().uuidString)")
+        let store = LibraryStore(root: root, key: nil,
+                                 environment: ["AKASHIC_HOME": fakeHome.path])
+        try store.ensureLayout()
+        try store.writePerson(Person(key: "chen-h-y", names: ["Chen, H.-Y."]))
+        try store.writePerson(Person(key: "chen-hui-yun", names: ["Chen, Hui-Yun"]))
+        service = AkashicService(root: root, environment: ["AKASHIC_HOME": fakeHome.path])
+        _ = try service.recordDivergence(
+            question: "縮寫是否同一人", candidates: ["chen-h-y:person", "chen-hui-yun:person"],
+            judgement: nil, restsOn: [])
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.removeItem(at: fakeHome)
+    }
+
+    func testDoctorReportsDivergenceCount() throws {
+        let out = try service.doctor()
+        XCTAssertTrue(out.contains("\"divergences\""),
+                      "MCP doctor 要與 CLI 對齊——同一個 store 不得從兩個 consumer 看到不同的事實：\(out)")
+    }
+
+    func testDoctorReportsCrossRecordIssues() throws {
+        // 構造一筆跨記錄問題：歧異候選指向的 person 刪掉 → 懸空
+        try FileManager.default.removeItem(
+            at: try XCTUnwrap(FileManager.default
+                .contentsOfDirectory(at: root.appendingPathComponent("entities"),
+                                     includingPropertiesForKeys: nil)
+                .first { url in
+                    (try? String(contentsOf: url, encoding: .utf8))?.contains("chen-h-y") == true
+                        && (try? String(contentsOf: url, encoding: .utf8))?.contains("divergence") != true
+                }))
+        let out = try service.doctor()
+        XCTAssertTrue(out.contains("crossRecordIssues"),
+                      "跨記錄警告（含「歧異無法被消歧」）不得只在 CLI 面可見：\(out)")
+    }
+
+    func testDivergencesListTool() throws {
+        let out = try service.listDivergences()
+        XCTAssertTrue(out.contains("縮寫是否同一人"), "list 要含 question：\(out)")
+        XCTAssertTrue(out.contains("chen-h-y"), "list 要含候選鍵：\(out)")
+        XCTAssertTrue(out.contains("hasJudgement"), "\(out)")
     }
 }

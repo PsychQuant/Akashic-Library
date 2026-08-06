@@ -184,7 +184,23 @@ public enum StoreVersionError: Error, LocalizedError, Equatable {
                 按舊語意誤讀新結構——那正是這道防線要擋的事。）
                 """
         case let .malformed(path, line):
-            return "store format 標記無法解析：\(path)（\(line)）"
+            // 指路（#118）：對照 tooNew 的「請升級」，malformed 也要有出口——
+            // 修復入口（doctor）對它第一步就拒絕，使用者被正確地擋下之後
+            // 不能不知道往哪走。**不提供自動修復**：marker 是 canonical 事實，
+            // 自動改寫它與 writeIfAbsent 的「不覆寫既有檔」哲學衝突（#106 的
+            // 整個教訓是「對壞 marker 不猜」）——人工修檔 + 清楚指引已足夠。
+            return """
+                store format 標記無法解析：\(path)（\(line)）
+                合法形狀：檔內只有註解行與**一個**頂格的 `format: <正整數>` 行\
+                （規格見 docs/store-format.md §5.0）。修復方式：
+                1. 手動修檔——把 \(StoreVersion.fileName) 改回上述形狀\
+                （不確定原值時看 git 歷史或備份）
+                2. 確定這是 #24 之前建的 v1.x store 被外力加料——可刪除 \(StoreVersion.fileName)\
+                 重跑 doctor（**只對真的是 v1.x 的 store 安全**：不是 v1.x 的 store 會被\
+                重標成 format \(StoreVersion.supported)——較新的被按舊語意誤讀、較舊的\
+                （format 2–\(StoreVersion.supported - 1)）被按新語意誤讀（如整庫 quarantine）。\
+                怎麼判斷：磁碟上有 entries/＋people/ 的 yaml → v1.x；有 entities/ → ≥2）
+                """
         }
     }
 }

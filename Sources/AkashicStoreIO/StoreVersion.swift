@@ -1,4 +1,5 @@
 import Foundation
+import AkashicCore
 
 /// Store format version 標記與 refuse-if-newer 防線（#24）。
 ///
@@ -54,39 +55,68 @@ public enum StoreVersion {
     ///
     /// **缺檔 ＝ format 1**，不是錯誤：#24 之前寫的 store 都沒有這個檔，而它們就是
     /// v1.x。把缺檔當錯誤會讓這道防線一落地就打死所有既有 store。
+    ///
+    /// **Grammar（#117 定案；normative 見 store-format.md §5.0）**——合法 marker：
+    ///
+    /// ```
+    /// marker      = *( comment / blank ) format-line *( comment / blank )
+    /// format-line = "format:" SP* 1*DIGIT [ SP* comment ]    ；必須頂格
+    /// comment     = *WS "#" anything                          ；註解可縮排
+    /// 換行        = 任何 Unicode 換行（\n、\r\n、\r、LS、PS）
+    /// ```
+    ///
+    /// 其餘一律 malformed（fail-loud）：
+    /// - **未知頂層行**（含 `meta: {`）——#112 修掉縮排類 fail-silent 之後，flow
+    ///   mapping 第 0 欄的鍵是僅存的繞法（毒化 marker 靜默降版）；grammar 不再
+    ///   「跳過不認識的行」，繞法整類關閉。additive key 未來要加，得連解析器一起設計
+    /// - **縮排的非註解行**——marker 裡沒有巢狀結構
+    /// - **第二個 `format:` 行**——歧義不猜（同 #121 duplicateRegistration 的哲學）
+    ///
+    /// 換行用 `isNewline` 分割：CRLF 檔曾整檔被當一行（`\r\n` 是單一 Character、
+    /// `split(separator: "\n")` 完全不分行）——換行符變體不是語意歧義。
     public static func read(root: URL) throws -> Int {
         let u = url(in: root)
         guard FileManager.default.fileExists(atPath: u.path) else { return 1 }
         let text = try String(contentsOf: u, encoding: .utf8)
-        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            // **只認頂層的 `format:` 行**（#112 verify）。先 trim 再比對會讓巢狀在別的
-            // mapping 底下的 `format:`（外來 store 的 `meta:\n  format: 1`）贏過頂層
-            // 真值——實測後果是 format 5 的 store 被讀成 1，doctor 安靜建出雙佈局，
-            // 正是 #106 要關掉的症狀。縮排行不是 marker 的候選。
-            //
-            // 守衛字元集**必須與下面 trim 的一致**（Unicode Zs ∪ tab）——R2 抓到只擋
-            // ASCII space/tab 時，NBSP／全形空格縮排的巢狀鍵照樣贏。
-            //
-            // **誠實邊界**：這是行解析器，不解析 YAML 結構。flow mapping 裡出現在
-            // 第 0 欄的鍵（`meta: {\nformat: 1,…`）在語意上是巢狀的，但本解析器會
-            // 當成頂層——marker 是自產檔（`write` 的模板），完整的「外來 store 開啟」
-            // 防護是 #108/#114 的信任邊界工作，marker grammar 的定案見 #117。
-            guard let first = raw.unicodeScalars.first,
-                  !CharacterSet.whitespaces.contains(first) else { continue }
+        var found: Int?
+        for raw in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.isEmpty || line.hasPrefix("#") { continue }
-            guard line.hasPrefix("format:") else { continue }
+            // 有內容的行必須頂格（守衛字元集與上面 trim 的一致：Unicode Zs ∪ tab）。
+            // 縮排 case 的 payload 用**原始行**（#127 verify F3）：trim 過的版本看起來
+            // 完全合法（縮排正是被拒的原因，卻被 trim 掉了）。
+            // 全部 payload 過 displaySafe（#127 verify M2）：這裡的 line 是攻擊者可控
+            // 的檔案原文——ESC/bidi/超長行不得原樣進 error（StoreIOError 同模式；
+            // CLI 頂層的 choke point 是 #114 的另一層，兩者互補不互代）。
+            guard let first = raw.unicodeScalars.first,
+                  !CharacterSet.whitespaces.contains(first) else {
+                throw StoreVersionError.malformed(path: u.path, line: displaySafe(String(raw)))
+            }
+            guard line.hasPrefix("format:") else {
+                throw StoreVersionError.malformed(path: u.path, line: displaySafe(line))
+            }
+            guard found == nil else {
+                throw StoreVersionError.malformed(path: u.path, line: "(第二個 format: 行——歧義)")
+            }
             let v = line.dropFirst("format:".count)
                 .trimmingCharacters(in: .whitespaces)
-            // 註解可以跟在值後面（`format: 1  # v1.x`）
             let numeric = v.prefix { $0.isNumber }
             guard let n = Int(numeric), n >= 1 else {
-                throw StoreVersionError.malformed(path: u.path, line: line)
+                throw StoreVersionError.malformed(path: u.path, line: displaySafe(line))
             }
-            return n
+            // 值後面只能是註解（`format: 1  # v1.x`）——`format: 2 garbage` 與
+            // `format: 2.5` 都不是「帶註解的整數」，不得取前綴當真
+            let rest = v.dropFirst(numeric.count).trimmingCharacters(in: .whitespaces)
+            guard rest.isEmpty || rest.hasPrefix("#") else {
+                throw StoreVersionError.malformed(path: u.path, line: displaySafe(line))
+            }
+            found = n
         }
-        // 檔案存在但沒有 format: 行——不猜，明說。
-        throw StoreVersionError.malformed(path: u.path, line: "(檔案內找不到 format: 行)")
+        guard let found else {
+            // 檔案存在但沒有 format: 行——不猜，明說。
+            throw StoreVersionError.malformed(path: u.path, line: "(檔案內找不到 format: 行)")
+        }
+        return found
     }
 
     /// 開 store 前的防線。version 超過本 binary 支援上限 → 整體拒絕。

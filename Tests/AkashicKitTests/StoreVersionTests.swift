@@ -239,6 +239,59 @@ extension StoreVersionTests {
         XCTAssertEqual(try StoreVersion.read(root: root), 2)
     }
 
+    /// #127 verify M1（mutation-proven 缺口）：舊版兩個縮排測試都以 `meta:` 開頭——
+    /// 解析器在第 1 行就 throw，縮排守衛**根本沒被執行到**；把守衛窄化回 #112 R2
+    /// 的 bug（只擋 ASCII space/tab）後 24 個測試照樣全綠。isolating 輸入：縮排行
+    /// 自己就是第一個非註解行，守衛不對就會被跳過、讀出 5——fail-silent 回歸。
+    func testIndentedFormatLineAloneIsMalformed() throws {
+        // **輸入必須是檔內唯一的行**：若後面還跟一個頂格 format 行，窄化的守衛
+        // 讓縮排行先當上 found、頂格行再觸發 duplicate——照樣 throw、理由全錯，
+        // 測試就綠著放走 fail-silent（本測試第一版正是這樣被 mutation 揭穿的）。
+        // 單行版本下，守衛失效＝直接讀出 1＝斷言變紅。
+        for indent in [" ", "\t", "\u{00A0}", "\u{3000}"] {
+            try writeMarker("\(indent)format: 1\n")
+            XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in
+                guard case StoreVersionError.malformed = error else {
+                    return XCTFail("縮排（U+\(String(indent.unicodeScalars.first!.value, radix: 16))）行未被拒——守衛失效，實得 \(error)")
+                }
+            }
+        }
+    }
+
+    /// 合法 format 行**之後**的縮排垃圾也要拒——「先讀到值就不管後面」是順序依賴的猜。
+    func testIndentedJunkAfterValidFormatLineIsMalformed() throws {
+        try writeMarker("format: 5\n\u{3000}junk\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root))
+    }
+
+    func testNegativeFormatThrows() throws {
+        try writeMarker("format: -1\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root))
+    }
+
+    /// PS 分隔與混合行尾（#127 verify L4：文件宣稱了但沒有測試釘）。
+    func testPSAndMixedNewlinesRead() throws {
+        try writeMarker("# a\u{2029}format: 4\u{2029}")
+        XCTAssertEqual(try StoreVersion.read(root: root), 4, "PS 分隔")
+        try writeMarker("# first\r\n\rformat: 4\u{2028}  # last\n")
+        XCTAssertEqual(try StoreVersion.read(root: root), 4, "混合行尾（CRLF+CR+LS+LF）")
+    }
+
+    /// malformed 訊息不得原樣攜帶檔案內容（#127 verify M2）：ESC 會清螢幕偽造輸出、
+    /// 超長行會灌爆 MCP context——StoreVersion 的 line payload 與 StoreIOError 同紀律。
+    func testMalformedMessageSanitizesFileContent() throws {
+        try writeMarker("\u{1B}[2J forged ok\nformat: 5\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertFalse(msg.contains("\u{1B}"), "ESC 不得原樣進錯誤訊息")
+        }
+        try writeMarker(String(repeating: "x", count: 100_000) + "\nformat: 5\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertLessThan(msg.count, 1_000, "超長行必須被截斷")
+        }
+    }
+
     /// 值後面只能是註解——`format: 2 garbage` 取前綴當真是另一種猜。
     func testTrailingGarbageAfterValueIsMalformed() throws {
         try writeMarker("format: 2 garbage\n")

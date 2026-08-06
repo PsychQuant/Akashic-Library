@@ -513,9 +513,14 @@ index 一起被清掉。
 
   ```
   marker      = *( comment / blank ) format-line *( comment / blank )
-  format-line = "format:" SP* 1*DIGIT [ SP* comment ]    ；必須頂格
+  format-line = "format:" WS* 1*DIGIT WS* [ comment ]     ；必須頂格
   comment     = *WS "#" anything                          ；註解可縮排
-  換行        = 任何 Unicode 換行（\n、\r\n、\r、LS、PS）
+  WS          = Unicode Zs ∪ tab（值周圍的空白種類不帶語意）
+  換行        = Character.isNewline 全集（\n、\r\n、\r、VT、FF、NEL、LS、PS）
+  DIGIT       = ASCII 0-9；值須為正整數且落在 Int64 可表示範圍，
+                超出（或全形/其他 Unicode 數字）→ malformed（fail-closed）
+  BOM         = 檔案開頭的 U+FEFF 在 UTF-8 解碼時剝除（編輯器加的 BOM 無害）；
+                檔案**中間**的 U+FEFF 是未知內容 → malformed
   ```
 
   其餘一律 malformed（fail-loud）：**未知頂層行**（含 `meta: {`——#112 修掉縮排類

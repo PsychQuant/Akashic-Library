@@ -1,4 +1,5 @@
 import Foundation
+import AkashicCore
 
 /// Store format version 標記與 refuse-if-newer 防線（#24）。
 ///
@@ -81,13 +82,18 @@ public enum StoreVersion {
         for raw in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.isEmpty || line.hasPrefix("#") { continue }
-            // 有內容的行必須頂格（守衛字元集與上面 trim 的一致：Unicode Zs ∪ tab）
+            // 有內容的行必須頂格（守衛字元集與上面 trim 的一致：Unicode Zs ∪ tab）。
+            // 縮排 case 的 payload 用**原始行**（#127 verify F3）：trim 過的版本看起來
+            // 完全合法（縮排正是被拒的原因，卻被 trim 掉了）。
+            // 全部 payload 過 displaySafe（#127 verify M2）：這裡的 line 是攻擊者可控
+            // 的檔案原文——ESC/bidi/超長行不得原樣進 error（StoreIOError 同模式；
+            // CLI 頂層的 choke point 是 #114 的另一層，兩者互補不互代）。
             guard let first = raw.unicodeScalars.first,
                   !CharacterSet.whitespaces.contains(first) else {
-                throw StoreVersionError.malformed(path: u.path, line: line)
+                throw StoreVersionError.malformed(path: u.path, line: displaySafe(String(raw)))
             }
             guard line.hasPrefix("format:") else {
-                throw StoreVersionError.malformed(path: u.path, line: line)
+                throw StoreVersionError.malformed(path: u.path, line: displaySafe(line))
             }
             guard found == nil else {
                 throw StoreVersionError.malformed(path: u.path, line: "(第二個 format: 行——歧義)")
@@ -96,13 +102,13 @@ public enum StoreVersion {
                 .trimmingCharacters(in: .whitespaces)
             let numeric = v.prefix { $0.isNumber }
             guard let n = Int(numeric), n >= 1 else {
-                throw StoreVersionError.malformed(path: u.path, line: line)
+                throw StoreVersionError.malformed(path: u.path, line: displaySafe(line))
             }
             // 值後面只能是註解（`format: 1  # v1.x`）——`format: 2 garbage` 與
             // `format: 2.5` 都不是「帶註解的整數」，不得取前綴當真
             let rest = v.dropFirst(numeric.count).trimmingCharacters(in: .whitespaces)
             guard rest.isEmpty || rest.hasPrefix("#") else {
-                throw StoreVersionError.malformed(path: u.path, line: line)
+                throw StoreVersionError.malformed(path: u.path, line: displaySafe(line))
             }
             found = n
         }

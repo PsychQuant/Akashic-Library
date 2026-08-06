@@ -310,8 +310,14 @@ extension StoreVersionTests {
             XCTAssertTrue(m.contains("format:") && m.contains("正整數"),
                           "要說出合法形狀（一個頂格 format: 正整數行）：\(m)")
             XCTAssertTrue(m.contains("store-format.md"), "要指向規格：\(m)")
-            XCTAssertTrue(m.contains("v1.x") || m.contains("format 1"),
-                          "「刪檔=當 format 1」的前提必須說清楚——否則指引本身是降版陷阱：\(m)")
+            // #137 verify M3 的教訓：contains("v1.x") 被出口 2 的標題句滿足、caveat
+            // 整段刪掉照樣綠——斷言要釘 caveat 獨有的字串（雙向誤讀的警告本體）
+            XCTAssertTrue(m.contains("只對真的是 v1.x"),
+                          "caveat 本體（只對 v1.x 安全）必須在——否則指引是降版陷阱：\(m)")
+            XCTAssertTrue(m.contains("誤讀"),
+                          "雙向誤讀的後果必須說出來：\(m)")
+            XCTAssertTrue(m.contains("怎麼判斷"),
+                          "出口要可執行——使用者得知道自己是哪一種：\(m)")
         }
     }
 
@@ -325,7 +331,8 @@ extension StoreVersionTests {
         try writeMarker("format: banana\n")
         XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in
             let m = (error as? LocalizedError)?.errorDescription ?? ""
-            XCTAssertTrue(m.contains("修"), "malformed 也要有出口：\(m)")
+            XCTAssertTrue(m.contains("修復方式") && m.contains("1.") && m.contains("2."),
+                          "malformed 的出口要是編號步驟，不是恰好出現一個「修」字：\(m)")
         }
     }
 

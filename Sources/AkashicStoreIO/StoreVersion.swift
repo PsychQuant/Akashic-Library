@@ -196,8 +196,10 @@ public enum StoreVersionError: Error, LocalizedError, Equatable {
                 1. 手動修檔——把 \(StoreVersion.fileName) 改回上述形狀\
                 （不確定原值時看 git 歷史或備份）
                 2. 確定這是 #24 之前建的 v1.x store 被外力加料——可刪除 \(StoreVersion.fileName)\
-                 重跑 doctor（缺檔＝format 1 的既有語意；**只對真的是 v1.x 的 store 安全**，\
-                較新格式的 store 刪 marker 會被誤標、資料被按舊語意誤讀）
+                 重跑 doctor（**只對真的是 v1.x 的 store 安全**：不是 v1.x 的 store 會被\
+                重標成 format \(StoreVersion.supported)——較新的被按舊語意誤讀、較舊的\
+                （format 2–\(StoreVersion.supported - 1)）被按新語意誤讀（如整庫 quarantine）。\
+                怎麼判斷：磁碟上有 entries/＋people/ 的 yaml → v1.x；有 entities/ → ≥2）
                 """
         }
     }

@@ -47,13 +47,28 @@ public struct DateRange: Equatable, Comparable {
 
     /// 字典序比較（ISO 8601 前綴的排序 == 時間順序）。`nil` start 排最後——
     /// 沒有起點的區間放前面會讓時間軸從一個未知開始。
+    ///
+    /// **必須是全序**（#100 系列，#131 verify F5）：`==` 看整個 range，`<` 若只比
+    /// `start`，「同 start 不同 end」的兩段就互不相等又互不可比——`sorted` 不再是
+    /// 它自稱的全序，`TimelineOf.==`（`a.sorted == b.sorted`）在這類段上變回順序
+    /// 敏感，靠的只剩 Swift sort 對 incomparable 元素的**未文件化**穩定性——正是
+    /// 本檔在 #69 拒絕依賴的那個性質。所以 start 之後比 end：具體日期（字典序）
+    /// < 已結束未知（#63）< 進行中——這是全序的技術決定而非時間語意的斷言，但
+    /// 順位可解釋：進行中的 end 對應 +∞ 理應最後，endedUnknown 已結束、只是不知
+    /// 何時。三欄位比完仍平手 ⟺ 相等（synthesized `==` 的三個欄位正是這三個）。
     public static func < (a: DateRange, b: DateRange) -> Bool {
-        switch (a.start, b.start) {
-        case let (l?, r?): return l < r
-        case (nil, _?):    return false
-        case (_?, nil):    return true
-        case (nil, nil):   return false
+        if a.start != b.start {
+            switch (a.start, b.start) {
+            case let (l?, r?): return l < r
+            case (nil, _):     return false
+            case (_, nil):     return true
+            }
         }
+        // end 三態順位：0 = 具體日期、1 = 已結束未知、2 = 進行中（+∞）
+        func endRank(_ r: DateRange) -> Int { r.end != nil ? 0 : (r.endedUnknown ? 1 : 2) }
+        guard endRank(a) == endRank(b) else { return endRank(a) < endRank(b) }
+        if let ae = a.end, let be = b.end { return ae < be }
+        return false   // 同態且無具體 end → start/end/endedUnknown 全等 → 相等
     }
 
     /// 兩個區間是否重疊。**無端點的區間（`end == nil`，含 `endedUnknown`）視為

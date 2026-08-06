@@ -1369,6 +1369,7 @@ extension PersonYAML {
             var pairs: [(Node, Node)] = [(Node("value"), Node(v.value))]
             if let s = v.range.start { pairs.append((Node("start"), Node(s))) }
             if let e = v.range.end { pairs.append((Node("end"), Node(e))) }
+            if v.range.endedUnknown { pairs.append((Node("ended"), Node("true", .implicit, .plain))) }
             if let s = v.source { pairs.append((Node("source"), Node(s))) }
             if let n = v.note { pairs.append((Node("note"), Node(n))) }
             return Node(pairs)
@@ -1387,6 +1388,7 @@ extension PersonYAML {
             var pairs: [(Node, Node)] = [(Node("value"), valueNode)]
             if let s = v.range.start { pairs.append((Node("start"), Node(s))) }
             if let e = v.range.end { pairs.append((Node("end"), Node(e))) }
+            if v.range.endedUnknown { pairs.append((Node("ended"), Node("true", .implicit, .plain))) }
             if let s = v.source { pairs.append((Node("source"), Node(s))) }
             if let n = v.note { pairs.append((Node("note"), Node(n))) }
             return Node(pairs)
@@ -1403,7 +1405,7 @@ extension PersonYAML {
                 throw StoreYAMLError.invalidField(context, "每一段必須是 mapping")
             }
             try EntryYAML.rejectUnknownKeys(
-                m, known: ["value", "start", "end", "source", "note"], context: context)
+                m, known: ["value", "start", "end", "ended", "source", "note"], context: context)
             guard let vNode = m["value"] else {
                 throw StoreYAMLError.missingField("\(context).value")
             }
@@ -1428,8 +1430,7 @@ extension PersonYAML {
             }
             out.append(TemporalValue(
                 value: ref,
-                range: DateRange(start: try m["start"].map { try EntryYAML.scalarString($0, context: context) },
-                                 end: try m["end"].map { try EntryYAML.scalarString($0, context: context) }),
+                range: try decodeRange(m, context: context),
                 source: try m["source"].map { try EntryYAML.scalarString($0, context: context) },
                 note: try m["note"].map { try EntryYAML.scalarString($0, context: context) }))
         }
@@ -1472,7 +1473,7 @@ extension PersonYAML {
                 throw StoreYAMLError.invalidField(context, "元素必須是 mapping")
             }
             try EntryYAML.rejectUnknownKeys(
-                m, known: ["value", "start", "end", "source", "note"], context: context)
+                m, known: ["value", "start", "end", "ended", "source", "note"], context: context)
             guard let value = m["value"]?.scalar?.string else {
                 throw StoreYAMLError.invalidField(context, "缺 value")
             }
@@ -1486,9 +1487,39 @@ extension PersonYAML {
             }
             return TemporalValue(
                 value: value,
-                range: DateRange(start: try str("start"), end: try str("end")),
+                range: try decodeRange(m, context: context),
                 source: try str("source"), note: try str("note"))
         })
+    }
+
+    /// 共用的 range 解析（#63）：`ended: true` + `end` 缺席 ＝ 已結束、時點未知。
+    /// `end` 有值時 `ended: true` 是矛盾——end 本身就是「已結束於此」，兩者並存
+    /// 無法判斷哪個是真話：拒絕，不猜。`ended: false` 冗餘但無矛盾（寬容讀入、
+    /// encode 不寫出）。
+    static func decodeRange(_ m: Node.Mapping, context: String) throws -> DateRange {
+        func str(_ k: String) throws -> String? {
+            guard let n = m[k] else { return nil }
+            if n.null != nil { return nil }
+            guard let s = n.scalar?.string else {
+                throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")
+            }
+            return s
+        }
+        let end = try str("end")
+        var endedUnknown = false
+        if let endedNode = m["ended"] {
+            guard let b = Bool(endedNode.scalar?.string ?? "") else {
+                throw StoreYAMLError.invalidField("\(context).ended", "必須是 true/false")
+            }
+            if b, end != nil {
+                throw StoreYAMLError.invalidField(
+                    "\(context)",
+                    "end 與 ended: true 並存是矛盾——end 有值即已結束於該時點，" +
+                    "ended 只用於「已結束、時點未知」。二擇一。")
+            }
+            endedUnknown = b
+        }
+        return DateRange(start: try str("start"), end: end, endedUnknown: endedUnknown)
     }
 }
 

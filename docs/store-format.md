@@ -242,6 +242,27 @@ displayName(script) =
 **`authorized` 為選填。** 缺席合法，由 `doctor` 報告而非 `validate` 拒絕：修復所需的
 資訊（正確的對外名字）無法自動取得，設成錯誤等於把不可自動化的工作變成載入的前置條件。
 
+### 時間軸段的 `ended`：已結束、時點未知（#63）
+
+profile 時間軸（`affiliations`／`ranks`／…）的每一段，`end` 缺席的預設語意是
+**進行中**。「已結束但結束日期未知」是另一個一等的知識狀態（例：退休名單只有
+「已退休」的事實、沒有年份）——用 `ended: true` 表達：
+
+```yaml
+affiliations:
+- value: {literal: 中研院統計所}
+  start: "1985"
+  ended: true        # 已結束、時點未知——不是進行中，也不捏日期
+  source: 所方網頁退休名單
+```
+
+- `ended: true` 的段**不算 current**（status 推導得 `retired`，不是 `current`）
+- `end` 有值時 `ended: true` 是矛盾（end 即「已結束於此」）——decode **MUST** 拒絕
+- `ended: false` 冗餘但合法（等同缺席）；encode **MUST NOT** 寫出預設值
+- 重疊判定：無端點無從排除——`ended` 段視為延伸到無限遠（保守多報，交人工裁決）
+- **additive，不 bump format**（#74 判準）：舊 binary 經 tolerant-preserve 保留欄位、
+  按舊語意當開放段——那只是少了它本來就沒有的表達力，不是語意變更
+
 ## 3.2 `died`：逝世與設限（normative，#67）
 
 `died` 是 ISO 8601 前綴字串（`2004` / `2004-11` / `2004-11-18`），與

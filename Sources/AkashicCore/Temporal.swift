@@ -22,16 +22,25 @@ import Foundation
 public struct DateRange: Equatable, Comparable {
     /// ISO 8601 前綴：`2003`、`2003-01`、`2003-01-15`。
     public var start: String?
-    /// `nil` ＝ 仍在進行中（**不是**「未知」——未知請用 `note` 說明）。
+    /// `nil` 且未標 `endedUnknown` ＝ 仍在進行中（**不是**「未知」）。
+    /// 「已結束、時點未知」用 `endedUnknown`（#63）——那是一等的知識狀態，
+    /// 不是髒資料；塞 `note` 不參與計算、捏日期是偽造。
     public var end: String?
+    /// **已結束，但結束日期未知**（#63）。43 位退休 PI 只有「已退休」的事實、
+    /// 沒有年份——`end: nil` 的既有語意（進行中）會把整批算成現職。
+    /// `end` 有值時本欄位無意義（decode 拒絕矛盾組合）。additive：舊 binary 經
+    /// tolerant-preserve 保留本欄位但按舊語意當開放段——那只是少了它本來就沒有的
+    /// 表達力，非 §5.0 的 non-additive（語意變更）情形，不 bump format（#74）。
+    public var endedUnknown: Bool
 
-    public init(start: String? = nil, end: String? = nil) {
+    public init(start: String? = nil, end: String? = nil, endedUnknown: Bool = false) {
         self.start = start
         self.end = end
+        self.endedUnknown = endedUnknown
     }
 
-    /// 是否仍在進行中。
-    public var isOpen: Bool { end == nil }
+    /// 是否仍在進行中——`current`／status 推導的根。
+    public var isOpen: Bool { end == nil && !endedUnknown }
 
     /// 字典序比較（ISO 8601 前綴的排序 == 時間順序）。`nil` start 排最後——
     /// 沒有起點的區間放前面會讓時間軸從一個未知開始。
@@ -44,7 +53,8 @@ public struct DateRange: Equatable, Comparable {
         }
     }
 
-    /// 兩個區間是否重疊。**開放區間（`end == nil`）視為延伸到無限遠。**
+    /// 兩個區間是否重疊。**無端點的區間（`end == nil`，含 `endedUnknown`）視為
+    /// 延伸到無限遠**——已結束但不知何時＝無從排除重疊，保守多報、交由人工裁決。
     public func overlaps(_ other: DateRange) -> Bool {
         // a 完全在 b 之前 → 不重疊
         func before(_ x: DateRange, _ y: DateRange) -> Bool {

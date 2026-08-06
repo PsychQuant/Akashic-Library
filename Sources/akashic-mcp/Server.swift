@@ -158,6 +158,9 @@ actor AkashicMCPServer {
                 "names": strArray("aliases（第一個為顯示名）"),
                 "orcid": str("ORCID（可選）"), "openalex": str("OpenAlex author ID（可選）"),
              ], required: ["key", "names"])),
+        Tool(name: "akashic_divergences",
+             description: "列出全部歧異記錄（id/question/候選/有無判斷）。list-only——消歧屬人工（CLI resolve-divergence）。",
+             inputSchema: obj([:])),
         Tool(name: "akashic_record_divergence",
              description: "記下未決的同一性問題（#77）——遇到「這兩筆可能是同一個」時當場記錄而非當場判斷。記下判斷不等於消歧；消歧（合併＋刪檔）屬人工操作（CLI resolve-divergence），本面刻意不提供。",
              inputSchema: obj([
@@ -253,6 +256,8 @@ actor AkashicMCPServer {
             case "akashic_add_person":
                 output = try service.addPerson(key: arg("key") ?? "", names: argList("names"),
                                                orcid: arg("orcid"), openalex: arg("openalex"))
+            case "akashic_divergences":
+                output = try service.listDivergences()
             case "akashic_record_divergence":
                 output = try service.recordDivergence(
                     question: arg("question") ?? "", candidates: argList("candidates"),

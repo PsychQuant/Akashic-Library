@@ -56,14 +56,18 @@ let package = Package(
             "AkashicMCPKit",
             .product(name: "MCP", package: "swift-sdk"),
         ]),
+        .target(name: "AkashicTestGuard", linkerSettings: [
+            // XCTest 不在一般 build 的預設搜尋路徑——測試 helper target 的標準連結設定
+            .unsafeFlags(["-Xlinker", "-weak_framework", "-Xlinker", "XCTest"], .when(platforms: [.macOS])),
+        ]),
         .testTarget(name: "AkashicKitTests", dependencies: [
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph", "AkashicSQLite",
-            "AkashicWoSImport",
+            "AkashicWoSImport", "AkashicTestGuard",
         ]),
-        .testTarget(name: "AkashicCLITests", dependencies: ["akashic"]),
-        .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp"]),
+        .testTarget(name: "AkashicCLITests", dependencies: ["akashic", "AkashicTestGuard"]),
+        .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp", "AkashicTestGuard"]),
         .testTarget(name: "AkashicAppKitTests",
-                    dependencies: ["AkashicAppKit", "AkashicCore", "AkashicStoreIO"]),
+                    dependencies: ["AkashicAppKit", "AkashicCore", "AkashicStoreIO", "AkashicTestGuard"]),
     ]
 )

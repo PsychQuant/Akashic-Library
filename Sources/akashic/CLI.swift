@@ -62,6 +62,15 @@ struct LibraryOptions: ParsableArguments {
                 || fm.fileExists(atPath: store.entriesDir.path) else {
             throw ValidationError("『\(root.path)』不是 Akashic library（缺 entities/ 與 entries/）。先跑 akashic doctor --library <path> 建立佈局。")
         }
+        // **refuse-if-newer 的 choke point**（#115）。`StoreVersion.check` 曾只在
+        // `load()` 被呼叫——凡不經 load() 的路徑全部繞過：`fmt` 的全庫
+        // read-modify-write 在 format 太新的 store 上照改寫 exit 0（#112 DA 實測，
+        // 用本 binary 的舊語意改寫較新格式的記錄）、`library create` 對 malformed
+        // marker 照走。修在這裡讓**全部** CLI 指令（現在與未來的）一次涵蓋；
+        // 與 load() 內的 check 冗餘無害（冪等讀 marker）。read-only 指令同受閘——
+        // 按舊語意誤讀，讀跟寫一樣危險。`openOrCreateStore` 由 #106 的 strict
+        // ensureLayout 保護，不再重複。
+        try StoreVersion.check(root: root)
         return store
     }
 }

@@ -50,8 +50,9 @@ format ≥ 2 的 store 建 `entities/`、不建 legacy 的 `entries/`／`people/
 不再依猜測安靜蓋目錄（#106）——對壞 marker 繼續猜的代價是雙佈局。寫入路由
 （`usesEntitiesLayout`）的容錯不變，讀寫既有資料不受影響。
 
-> ⚠️ 這不是所有指令的保證：`akashic fmt` 的全庫改寫與 `library create` 目前**不在**
-> refuse-if-newer 的保護內（#115）。
+> refuse-if-newer 是**所有** CLI 指令的保證（#115）：閘在 `openStore()`——`fmt` 的
+> 全庫改寫、`library create`、read-only 查詢，開 store 的當下一律把關（按舊語意
+> 誤讀新格式，讀跟寫一樣危險）。
 
 反過來讀不成立——目錄的存在不是可靠判準：`migrate` 不刪空的 legacy 目錄（`doctor` 的
 殘留報告會列出，#107）。完整說明見 [docs/store-format.md §1](docs/store-format.md)。

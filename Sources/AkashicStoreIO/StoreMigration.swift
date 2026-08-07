@@ -44,7 +44,7 @@ public enum StoreMigration {
         public var errorDescription: String? {
             switch self {
             case let .alreadyAtFormat(v):
-                return "store 已經是 format \(v)，不需要遷移"
+                return "store 已經是 format \(v)，不需要遷移"   // display-safe-exempt: v 是 Int format 版本
             case let .duplicateDestination(keys):
                 return """
                     有 \(keys.count) 組記錄會映到同一個目的檔——遷移中止。\

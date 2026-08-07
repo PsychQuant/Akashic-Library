@@ -1,4 +1,5 @@
 import Foundation
+import AkashicCore
 import AkashicSQLite
 
 public struct GraphNode: Equatable {
@@ -46,7 +47,8 @@ public enum GraphError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .unknownCitekey(let key): return "index 中找不到 citekey：\(key)"
+        // #149 verify F1：同 QueryError——caller citekey 消毒
+        case .unknownCitekey(let key): return "index 中找不到 citekey：\(displaySafe(key, max: 200))"
         }
     }
 }
@@ -178,7 +180,7 @@ public struct GraphBuilder {
             bind: [target, target]).first,
             let citekey = row["citekey"] as? String {
             addNode(entryNode(row))
-            return "entry:\(citekey)"
+            return "entry:\(citekey)"   // display-safe-exempt: citekey 來自 index row（SQLite 存的是已驗證寫入的 citekey）、非 caller 輸入
         }
         // 庫外引用：以 citekey 佔位節點呈現（library 還沒有這篇）
         let id = "entry:\(target)"

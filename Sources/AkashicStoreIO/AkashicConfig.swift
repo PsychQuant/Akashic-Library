@@ -10,12 +10,12 @@ public enum ConfigError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidFileKey(let key):
-            return "config.yaml 的 files key「\(key)」不合法（小寫英數起頭、僅 a-z0-9- ）"
+            return "config.yaml 的 files key「\(displaySafe(key, max: 200))」不合法（小寫英數起頭、僅 a-z0-9- ）"
         case let .duplicateRegistration(path, keys):
-            return "路徑「\(displaySafe(path, max: 300))」被多個 key 註冊（\(keys.joined(separator: ", "))）"
+            return "路徑「\(displaySafe(path, max: 300))」被多個 key 註冊（\(keys.map { displaySafe($0, max: 200) }.joined(separator: ", "))）"
                  + "——同一實體庫不重複註冊；用 file remove 清掉多餘的再試"
         case .invalidCurrent(let key):
-            return "config.yaml 的 current「\(key)」不在 files registry 中"
+            return "config.yaml 的 current「\(displaySafe(key, max: 200))」不在 files registry 中"
         }
     }
 }

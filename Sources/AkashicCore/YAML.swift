@@ -18,8 +18,8 @@ public enum StoreYAMLError: Error, LocalizedError, Equatable {
         let known = EntityKind.knownLabels.sorted().joined(separator: "、")
         switch self {
         case .notAMapping: return "YAML 頂層不是 mapping"
-        case .missingField(let f): return "缺少必要欄位：\(f)"   // display-safe-exempt: payload 由 throw 站點消毒（error-sink 無條件規則管 throw 端；再消毒＝雙重 escape）
-        case .invalidField(let f, let why): return "欄位 \(f) 無效：\(why)"   // display-safe-exempt: 同上——payload 由 throw 站點消毒
+        case .missingField(let f): return "缺少必要欄位：\(f)"   // display-safe-exempt: payload 由**輸出端 sink** 消毒（quarantine .reason / fmt failures / MCP doctor 各自 displaySafe；#149 verify F5 證實不是 throw 站點——約 50 個跨行 throw 站點未消毒，靠 sink 兜底。任何讓 StoreYAMLError 直達裸輸出的新路徑都須自行消毒）
+        case .invalidField(let f, let why): return "欄位 \(f) 無效：\(why)"   // display-safe-exempt: 同上——payload 由輸出端 sink 消毒（#149 verify F5）
         case .unknownShapeLabel(let stray):
             // 具名 + 重導。只說「不認得」只證明它在這個位置沒有意義；
             // 讀者還需要知道哪個位置有意義。

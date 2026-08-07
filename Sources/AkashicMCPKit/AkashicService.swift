@@ -14,8 +14,12 @@ public enum ServiceError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        // #142：what 內嵌 caller 輸入（MCP 面直達 LLM context）——消毒
-        case .notFound(let what): return "找不到：\(displaySafe(what, max: 300))"
+        // #142 / #149 verify F3：what 由 throw 站點組裝並消毒 caller payload
+        // （見 notFound(…) 各呼叫端的 displaySafe），此處**不再**消毒——displaySafe
+        // 會跳脫反斜線本身、不 idempotent，兩層會把 \u{001B} 變成 \u{005C}u{001B}
+        // 並讓外層 max 對已膨脹字串二次截斷。守衛（error-sink 規則 + throw 站點
+        // 在掃描面內）保證新 throw 站點的 caller payload 都消毒。
+        case .notFound(let what): return "找不到：\(what)"   // display-safe-exempt: what 由 throw 站點消毒（見上方註解）
         case .invalid(let why): return why
         }
     }

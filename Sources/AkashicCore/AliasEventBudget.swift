@@ -294,19 +294,19 @@ public enum AliasBudgetErrorKind: Equatable {
     var text: String {
         switch self {
         case let .expansion(e, l):
-            return "alias 展開後估計超過 \(l) 個節點（已數到 \(e)）——這是展開放大攻擊的形狀。"
+            return "alias 展開後估計超過 \(l) 個節點（已數到 \(e)）——這是展開放大攻擊的形狀。"   // display-safe-exempt: e/l 是 Int 計數
                  + "估計在 parser 的 event 層完成，**不展開** alias，所以掃描本身的成本與檔案大小成正比。"
                  + "store 的寫入端從不產生 anchor/alias；若這是手寫的檔案，請把 alias 展開後再存。"
         case let .bytes(e, l):
-            return "alias 展開後估計 \(e) bytes 超過上限 \(l)——節點數擋不住這一類："
+            return "alias 展開後估計 \(e) bytes 超過上限 \(l)——節點數擋不住這一類："   // display-safe-exempt: e/l 是 Int
                  + "少量 alias 引用一個大 scalar，計數過關但重量爆炸。"
         case let .depth(d, l):
-            return "**展開後**的樹深 \(d) 超過上限 \(l)——深度可以由 alias 展開產生而"
+            return "**展開後**的樹深 \(d) 超過上限 \(l)——深度可以由 alias 展開產生而"   // display-safe-exempt: d/l 是 Int
                  + "語法上完全是平的（`k1: &a1 [*a0]` 每行都是深度 1），節點數也看不到它。"
                  + "過深會讓下游遞迴打爆堆疊而 **SIGSEGV**（catch 不到、無法 quarantine）。"
                  + "真實書目資料的深度是個位數。"
         case let .size(b, l):
-            return "檔案 \(b) bytes 超過上限 \(l)——單一超大節點同樣會讓 parser 耗盡記憶體。"
+            return "檔案 \(b) bytes 超過上限 \(l)——單一超大節點同樣會讓 parser 耗盡記憶體。"   // display-safe-exempt: b/l 是 Int
         case .parser:
             return "YAML parser 初始化失敗（記憶體不足）。"
         }

@@ -41,6 +41,7 @@ let package = Package(
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
             "AkashicWoSImport",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
+            "AkashicMCPKit",   // #68：update-person 與 MCP 面共用同一條合併路徑
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
         ]),
         .target(name: "AkashicAppKit", dependencies: [

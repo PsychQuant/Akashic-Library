@@ -431,6 +431,16 @@ extension LibraryStore {
             doomed.append(e)
         }
         try assertAllInEntities(([keeper] + doomed).map { ($0.citekey, $0.id) })
+        // #75 對二：欄位遺失比對放在**前置**（preview 與實跑共用——#139 F1 的教訓：
+        // 拒絕條件只有一份，dry-run 對它沉默是在騙人）。被併 work 帶有倖存者沒有的
+        // 欄位／附件／標籤／出向參照／來源 → 拒絕並指名（子集才放行）。
+        for e in doomed {
+            let losses = Self.fieldsLostByMerging(e, into: keeper)
+            guard losses.isEmpty else {
+                throw DivergenceResolveError.wouldLoseFields(
+                    merged: e.citekey, survivor: survivor, losses: losses)
+            }
+        }
         return (keeper, doomed)
     }
 
@@ -747,6 +757,52 @@ extension LibraryStore {
     ///
     /// 涵蓋 `Person` 的 8 個儲存屬性：`key` / `id`（身分，不隨合併移動）、
     /// `names`（別名，由合併搬移）、以及下列五個。
+    /// work 消歧的欄位遺失比對（#75 對二，與 person 側 `fieldsLostByMerging` 對稱）。
+    ///
+    /// work 消歧只搬「別人指向被併者」的參照，被併者自己帶的內容隨檔案消失而使用者
+    /// 只看到「✓ 併入」。同 person 鐵律：**子集才放行**，被併者帶有倖存者沒有的
+    /// 內容 → 拒絕並指名將失去什麼（搬欄位是人的判斷，不自動合併）。
+    ///
+    /// **出向 relations 特別要比**：`resolveWorkDivergence` 的遷移迴圈跳過 doomed
+    /// 本身，所以 doomed 自己 cites/related 的東西不會搬到 keeper——實測確認會隨
+    /// 檔案消失（#75 diagnosis 的「relations 出向遷移實況」）。
+    static func fieldsLostByMerging(_ e: Entry, into keeper: Entry) -> [String] {
+        var losses: [String] = []
+        // biblatex fields 逐 key：被併有、倖存無 → 失去；兩邊都有但值不同 → 衝突
+        for (k, v) in e.fields.sorted(by: { $0.key < $1.key }) {
+            if let mine = keeper.fields[k] {
+                if mine != v { losses.append("fields.\(k)（兩邊都有但不同，需選一個）") }
+            } else {
+                losses.append("fields.\(k): \(v)")
+            }
+        }
+        // attachments／tags／libraries：被併者有而倖存者沒有的（差集）
+        let lostAttach = e.attachments.filter { !keeper.attachments.contains($0) }
+        if !lostAttach.isEmpty {
+            losses.append("attachments（\(lostAttach.count) 筆）")
+        }
+        let lostTags = e.akashic.tags.filter { !keeper.akashic.tags.contains($0) }
+        if !lostTags.isEmpty { losses.append("tags: " + lostTags.joined(separator: "、")) }
+        let lostLibs = e.akashic.libraries.filter { !keeper.akashic.libraries.contains($0) }
+        if !lostLibs.isEmpty { losses.append("libraries: " + lostLibs.joined(separator: "、")) }
+        // 出向 relations（doomed 自己指出去的）——遷移迴圈不搬 doomed 的出向
+        let lostCites = e.akashic.relations.cites.filter { !keeper.akashic.relations.cites.contains($0) }
+        if !lostCites.isEmpty { losses.append("cites: " + lostCites.joined(separator: "、")) }
+        let lostRel = e.akashic.relations.related.filter { !keeper.akashic.relations.related.contains($0) }
+        if !lostRel.isEmpty { losses.append("related: " + lostRel.joined(separator: "、")) }
+        // status：被併有、倖存無或不同
+        if let s = e.akashic.status, !s.isEmpty, keeper.akashic.status != s {
+            losses.append("status: \(s)")
+        }
+        // provenance.zoteroKey 不同 → 兩個不同的 Zotero 來源是「這兩筆是同一篇」的反證
+        if let ep = e.provenance, let kp = keeper.provenance, ep.zoteroKey != kp.zoteroKey {
+            losses.append("zotero-key（\(ep.zoteroKey) ≠ \(kp.zoteroKey)，來源衝突）")
+        } else if let ep = e.provenance, keeper.provenance == nil {
+            losses.append("zotero-key: \(ep.zoteroKey)（倖存者無 provenance）")
+        }
+        return losses
+    }
+
     static func fieldsLostByMerging(_ p: Person, into keeper: Person) -> [String] {
         var losses: [String] = []
         func check(_ label: String, mine: String?, theirs: String?) {

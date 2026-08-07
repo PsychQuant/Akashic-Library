@@ -190,6 +190,11 @@ cd AkashicApp && xcodegen generate && xcodebuild -scheme AkashicApp build   # �
 > 但那只保證**編得過**，不保證行為對。所以 view 檔案裡不放邏輯：索引重建／圖查詢／
 > 座標幾何住 `AkashicAppKit` 的 `GraphModel`／`GraphGeometry`（#113，`swift test` 射程內），
 > view 只留 SwiftUI 殼。改動 `AkashicApp/Sources/` 仍須手動跑上面那行驗證編譯。
+>
+> 同一個理由讓 `GraphModel` 是**持有 store 的實例**而非 static 函式集（#125）：
+> 「索引重建與圖查詢必須用同一個 store」從前只寫在註解裡，而註解在編不出錯的
+> target 裡沒有約束力——#101 的事故（keyless 重建寫進另一份 index、查詢讀不到）
+> 在型別上仍可重演。改成實例後那件事不可表達。
 
 管理工作台：Sidebar 健康總覽、列表＋詳情（biblatex 唯讀／衍生層可編／rename）、
 裁決台三頁籤（People 逐候選、Orphans 三選——刪檔進垃圾桶可救回、Quarantine）、

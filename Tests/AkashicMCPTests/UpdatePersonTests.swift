@@ -149,6 +149,12 @@ final class UpdatePersonTests: XCTestCase {
     }
 
     /// #148 verify F3：深度炸彈回真正的錯誤，不是進程死亡。
+    ///
+    /// **只覆蓋 service 層**（in-process）：R2 複驗定位到 depth 200-700 的撞毀
+    /// 其實在 MCP transport（SDK 解訊息層、影響全部 tool、與本 PR 無關——任何
+    /// 帶深巢狀的 JSON-RPC 訊息都殺 server，連 unknown tool 都到不了 handler）。
+    /// 本測試綠**不代表** transport 層安全——那屬 transport 深度 issue 的範圍。
+    /// 這裡的兩個深度上限是 defence in depth（65-100 層有效、訊息可讀）。
     func testNestingDepthBombReturnsErrorNotCrash() {
         var nested: Any = "leaf"
         for _ in 0..<300 { nested = [nested] }

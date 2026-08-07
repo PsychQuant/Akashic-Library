@@ -1,4 +1,5 @@
 import Foundation
+import AkashicCore
 import AkashicStoreIO
 
 public enum FileWatcherError: Error, LocalizedError, Equatable {
@@ -7,7 +8,9 @@ public enum FileWatcherError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .noDirectoriesWatchable(let dirs):
-            return "沒有任何目錄可監看（open 全部失敗）：\(dirs.joined(separator: ", "))"
+            // #155：dirs 是 store 路徑（使用者可控）——同 Adjudication 的理由
+            return "沒有任何目錄可監看（open 全部失敗）："
+                 + dirs.map { displaySafe($0, max: 300) }.joined(separator: ", ")
         }
     }
 }

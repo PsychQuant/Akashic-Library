@@ -24,8 +24,11 @@ final class DisplaySinkCoverageTests: XCTestCase {
         ".question", ".judgement", ".statement", "restsOn",
     ]
 
-    /// 掃描範圍：使用者看得到輸出的兩層。App 層走型別投影（`displayFile` 等），
-    /// 由 `AkashicAppKit` 的 `public extension` 保證，不在本掃描內。
+    /// 掃描範圍：使用者看得到輸出的各層。**含 `AkashicAppKit`**（#155）——App 的
+    /// error 型別（Adjudication／AppState／FileWatcher）同樣 echo store 衍生值，
+    /// 威脅模型比 MCP-直達-LLM 弱（顯示在 SwiftUI 而非灌進 context），但同 bug
+    /// class；掃描面納入後三處已消毒、守衛零違規。**App target 未測不影響本守衛**
+    /// ——它掃的是原始碼文字，不需要能執行 App。
     private var scannedFiles: [URL] {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // AkashicKitTests
@@ -48,7 +51,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
         // F4：該檔根本沒被讀）。
         for dir in ["Sources/AkashicCore", "Sources/akashic-mcp",
                     "Sources/AkashicQuery", "Sources/AkashicGraph",
-                    "Sources/AkashicStoreIO"] {
+                    "Sources/AkashicStoreIO", "Sources/AkashicAppKit"] {
             let d = repoRoot.appendingPathComponent(dir)
             if let files = try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: nil) {
                 out += files.filter { $0.pathExtension == "swift" }

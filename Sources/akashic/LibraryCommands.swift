@@ -32,7 +32,7 @@ struct LibraryList: ParsableCommand {
         }
         for library in load.libraries {
             let desc = library.description.map { "　\($0)" } ?? ""
-            print("\(displaySafe(library.key, max: 200))\t\(displaySafe(library.name, max: 800))（\(counts[library.key] ?? 0) entries）\(displaySafe(desc, max: 800))")
+            print("\(displaySafe(library.key, max: 200))\t\(displaySafe(library.name, max: 800))（\(counts[library.key] ?? 0) entries）\(displaySafe(desc, max: 800))")   // display-safe-exempt: dict 查找，值是 Int 計數；key 只是索引不進輸出
         }
     }
 }

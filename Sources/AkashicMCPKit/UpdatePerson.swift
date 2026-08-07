@@ -85,7 +85,11 @@ public extension AkashicService {
             var out: [String: Any] = [
                 "dryRun": true,
                 "key": displaySafe(key, max: 200),
-                "wouldChange": changes.keys.sorted(),
+                // #156 × #158 交會後浮現：`changes` 的 key 是 `k`，而 `k` 已被
+                // `guard updatable.contains(k)` + 下方 `switch k { case "orcid" … }`
+                // 雙重約束成那六個**字面量**之一（`updatableKeys` 由 `knownPersonKeys`
+                // 這個字面 Set 推導）。不是 store 內容。
+                "wouldChange": changes.keys.sorted(),   // display-safe-exempt: key 受 updatable 白名單約束成字面量
             ]
             if !validationErrors.isEmpty {
                 out["blockedByValidation"] = validationErrors.prefix(5)
@@ -113,7 +117,7 @@ public extension AkashicService {
         try store.writePerson(person)   // v6 gate／canary／tolerant-preserve 全在這條路上
         try LibraryIndex(store: store).rebuild()
         return try jsonString(["key": displaySafe(key, max: 200),
-                               "updated": changes.keys.sorted()])
+                               "updated": changes.keys.sorted()])   // display-safe-exempt: 同上，key 受白名單約束
     }
 
     // MARK: - JSON 邊界

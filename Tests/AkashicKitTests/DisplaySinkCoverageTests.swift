@@ -12,6 +12,53 @@ import Foundation
 /// 判準：CLI / MCP 的原始碼裡，任何把 **store 衍生字串**插值進輸出的位置，該表達式
 /// 必須含 `displaySafe(`。要例外就在同一行寫 `// display-safe-exempt: <理由>`——
 /// 逼人講出理由，而不是安靜跳過。
+///
+/// ## 守衛的涵蓋邊界（#141——誠實記錄「行級文字掃描」照不到的形狀）
+///
+/// 這是**行級的文字啟發式**，不是型別感知的資料流分析。以下形狀結構性地在它的
+/// 視野外，靠人工 + 功能測試釘住，不是它的失效：
+///
+/// - **bare 變數名**（含 `$0` 的 `.map { }`。#156 verify 156-3：原本這裡寫「最大宗」，
+///   但四類的相對量**從來沒有人量過**——盲點依定義是守衛看不到的東西，數不出來。
+///   宣稱已撤下，不改成另一個同樣沒支撐的排序）。
+///
+///   **這個盲區在 #141 的量測中造成了一次真實的洩漏**：`AkashicService.swift` 的
+///   `["literal": literal, …]`——`literal` 是 Zotero 匯入的作者原字串（第三方最直接
+///   的來源），裸送進 MCP 回應。守衛看不到，因為 token 是 `.literal`（帶點）而這裡
+///   是裸變數名；同一個回應裡上面兩行的 `person_key` 卻有消毒。**它是人工比對發現
+///   的，不是守衛抓到的，而且修好之後守衛依然看不見**（拔掉 displaySafe 仍全綠）。
+///   這條記在這裡，是為了讓「守衛全綠」永遠不被讀成「這一面已經安全」。
+///
+///   **第二次同型**（#156 verify 156-15）：`summaryDict` 的 `journal` 裸送進 MCP
+///   回應，而同一個檔案的 `entryDict` 註解自己寫著「fields 值是 biblatex 第三方
+///   內容（journal、booktitle…）——**與 title 同源**」並在那裡消毒了。同樣是裸
+///   變數名（`journal` 不含任何 token），同樣是人工比對發現的。兩次都是「同一份
+///   資料在同一個檔案裡兩種待遇」——那個不一致本身比守衛更早發現問題。
+///
+///   `load.residue.map { $0 }` 的 `$0` 不含
+///   任何 tainted token，token 判準對它結構性失效。
+///
+///   **「差額多是這一類」已撤下**（#156 verify R2 實測推翻）：全掃描面 210 個含
+///   `displaySafe(` 的行裡守衛只認 67（recall 31%），143 條未見行的分類是——
+///   **沒被認成 sink 行 82**（其中 70 條是真的輸出行，多為多行字串串接的續行）、
+///   bare-`$0` **32**、其他 token 未命中 23、`case ` 豁免 2、exempt 標記 4。
+///   也就是說最大宗是 **sink 辨識失敗（≈49%）**，不是 bare-`$0`（22%）。
+///   （單檔基準：`AkashicService` 的 `grep -c 'displaySafe('` = 75、守衛認 38，
+///   2026-08-07 自量。）補 bare-`$0` 需要
+///   element-type 或 receiver 上下文（`.map` 的來源是誰），不是另一條行級 regex。
+/// - **key-family accessor**（`$0.key`/`p.key`/`lib.key`/`$0.path`）：`key` 不在
+///   `taintedTokens`（只有 `citekey`/`personKey`/`libraryKey`）——因為 `key` 也是
+///   大量 registry/config 常量 key 的名字，無腦入清單會誤中一片。
+/// - **跨行 throw**：`throw StoreYAMLError.invalidField(` 在 N 行、payload 內插在
+///   N+1 行——行級掃描看不到 N+1 行的 sink。約 50 個 StoreYAMLError 站點屬此，
+///   靠輸出端 sink 兜底（#149 verify F5）。
+/// - **switch `case` 短變數值**：`case .literal(let s): return ["literal": s]` 的
+///   `s` 是短名、不含 token——那類站點靠人工消毒 + 功能測試。
+///
+/// **`testGuardCatchesStrippedSanitisation`（#141）是對這個侷限的補償**：它不宣稱
+/// 守衛涵蓋每條路徑，而是量測「守衛確實在看真實的消毒站點」——拔光 displaySafe
+/// 後守衛必須報大量違規（實測 78）。守衛退化成空洞會讓那個下限失守。完整的
+/// 型別感知覆蓋屬另案（需要 SwiftSyntax 級的分析，非本測試的體量）。
 final class DisplaySinkCoverageTests: XCTestCase {
 
     /// store 衍生（＝可能來自別的 binary / 別人 / Zotero 匯入的第三方內容）的識別字。
@@ -22,6 +69,28 @@ final class DisplaySinkCoverageTests: XCTestCase {
         ".literal", "personKey", "libraryKey", "authors",
         // #76：divergence 的未信任內容（#133 起可由 LLM 經 MCP 寫入——來源面擴大）
         ".question", ".judgement", ".statement", "restsOn",
+        // #141 第 3 項（「key 該不該入清單」）**實測後入列**。issue 當時擔心
+        // 「`key` 全下會誤中大量 registry/config key」——那個顧慮對**裸** `key`
+        // 成立，對 `.key` 不成立：加了點之後 `d["some-key"]` 這種常量不會命中。
+        // **正常掃描**只新增 4 條（3 條 dict 查找 + 1 條 MCP 回應的真不一致，
+        // 後者已於 `bcd46d4` 修掉）；strip-all 面則 +11（78→89）。兩個量差 3.5 倍，
+        // 所以要說清楚是哪一種掃描（#156 verify R3 的精確化建議）。
+        //
+        // 那 3 條 dict 查找**用具名 exempt 處理，不用形狀規則**（#156 verify 156-14）：
+        // 我曾加過 `if expr.contains("[") && expr.contains("] ?? ") { continue }`，
+        // 席位實測它是個洞——判準取的是**查找的形狀**，而風險在**值的型別**，形狀
+        // 決定不了型別。守衛沒有型別資訊，分不出 `?? 0` 與 `?? entry.title`：
+        //
+        //     放過  titles[lib.key] ?? entry.title      ← fallback 就是 store 內容
+        //     放過  names[personKey] ?? "(無)"           ← 值型別是字串
+        //     放過  entry.title.isEmpty ? alt[0] ?? "" : entry.title   ← **共現洞**：
+        //           整條只要「某處」含 `[…] ?? ` 就整條豁免，即使 tainted 的部分
+        //           與那個查找毫無關係
+        //
+        // 而且它正是 156-7 標記的那一類（為降 false positive 加的形狀規則），逐軸
+        // 計數偵測不到——加了它總數只掉 3，四軸全在 floor 上。用 3 條具名 exempt
+        // 換掉：理由進 git、可稽核、零洞。
+        ".key",
     ]
 
     /// 掃描範圍是**封閉列舉**（見 `scannedDirs` 與下方兩個個別加入的路徑），不是
@@ -184,8 +253,64 @@ final class DisplaySinkCoverageTests: XCTestCase {
     /// 不經 `\( … )`，只掃插值的守衛對它整面全盲（mutation 實測：拔掉
     /// `displaySafe` 後 U+202E 逐字回流 LLM）。值的邊界用括號深度感知的逗號
     /// 切分——`displaySafe($0.file, max: 300)` 內部的逗號不是邊界。
+    ///
+    /// **subscript 指派也是 dict 值**（#156 verify 156-16）：`isSink` 一直認得
+    /// `d["` 與 `result["`——那正是 `d["key"] = value` 的形狀——但抽取器只認**字面量**
+    /// `"key": value`，對 subscript 指派抽出**空陣列**。於是那兩條 disjunct 是
+    /// **死碼**：守衛認得這個 sink，然後什麼都沒抽出來。
+    ///
+    /// 席位量到的怪事因此有了解釋：把 `d["` / `result["` 從 `isSink` 拿掉，總數
+    /// 78→78 完全不動。而 `AkashicService.swift` 有一整批 `d["k"] = v` 的站點靠
+    /// 這個缺口逃掉（含 156-15 那條真洩漏）。
     private func dictValues(in line: String) -> [String] {
         var out: [String] = []
+        // subscript 指派：`d["key"] = <expr>` / `result["key"] = <expr>`。取 `] = `
+        // 之後到行尾（Swift 的 subscript 指派本來就是一個完整敘述）。
+        //
+        // **已知限制**（實掃 66 個站點後記錄，#156 verify R3 的追問）：
+        // - 每行只取**第一個** `"] = `——同行兩個 subscript 指派時第二個看不到（實掃
+        //   無此形狀，但不是保證）。
+        // - 值在**下一行**時抽到空字串（`d["k"] =` 換行接 expr）→ 落回續行盲區
+        //   （#162），與整個判準的既有限制一致，不是這條新增的洞。
+        // - 尾隨的 `}`（`if let x = … { d["k"] = x }`）會被含進表達式，對 token 比對
+        //   無影響；`displaySafe(` 與 `{` 結尾的既有豁免照常生效。
+        // - 字串**字面量**內含 `"] = ` 會誤中，但同行的真陽性仍會被攔下——是**報告
+        //   雜訊**不是假紅（席位 R4 實測；掃描面上零命中）。
+        // - **少報**四種形狀（皆不導出錯誤結論，記錄以免被誤讀成涵蓋）：
+        //   `d["k"] += expr`（複合指派）、`d["k"] =expr`（無空格）、值在下一行
+        //   （落回 #162）、`d[field] = expr`（key 非字面量）。
+        if let r = line.range(of: "\"] = ") {
+            var v = String(line[r.upperBound...])
+            // **行尾註解必須切掉**（#156 verify 156-17）：取到行尾會讓註解文字整段
+            // 參與後續**所有**豁免判斷。席位實測四種豁免都會被註解觸發：
+            //
+            //     d["name"] = c.name  // TODO: 之後包 displaySafe(...)   → 假綠
+            //     d["name"] = c.name  // 只有 .count 會變                 → 假綠
+            //     d["name"] = c.name  // 若 == nil 就跳過                 → 假綠
+            //     d["name"] = c.name  // 見下面的 {                       → 假綠
+            //
+            // 形狀還特別自然——**TODO 註解正好提到要包 `displaySafe(...)` 的那一刻，
+            // 守衛就閉嘴了**。這是本判準唯一會造成假綠的缺陷。
+            //
+            // 切在未被引號包住的 ` //`。URL 的 `https://` 前面沒有空格，不誤切。
+            var depth = 0, inString = false, cut: String.Index?
+            var idx = v.startIndex
+            while idx < v.endIndex {
+                let c = v[idx]
+                if c == "\"" { inString.toggle() }
+                if !inString, c == "/", idx > v.startIndex {
+                    let prev = v.index(before: idx)
+                    let next = v.index(after: idx)
+                    if v[prev] == " ", next < v.endIndex, v[next] == "/" { cut = prev; break }
+                }
+                if !inString { if c == "(" { depth += 1 }; if c == ")" { depth -= 1 } }
+                idx = v.index(after: idx)
+            }
+            _ = depth
+            if let cut { v = String(v[v.startIndex..<cut]) }
+            let trimmed = v.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty { out.append(trimmed) }
+        }
         let chars = Array(line)
         var i = 0
         while i < chars.count - 2 {
@@ -213,15 +338,32 @@ final class DisplaySinkCoverageTests: XCTestCase {
         return out
     }
 
-    func testNoUnsanitisedStoreStringReachesUserVisibleOutput() throws {
-        var violations: [String] = []
+    /// 判準的四條**獨立軸**（#156 verify 156-1）。strip-all 自測按軸分別設下限，
+    /// 因為總數下限**結構上**擋不住單軸失效——關掉 errorSink 總數只從 78 掉到 74、
+    /// 關掉 caseReturn 只掉到 76（那些行多半同時被 token 路徑收走，classifier 死了
+    /// 報告仍在）。逐軸計數才會歸零。理由與實測表見
+    /// `testGuardCatchesStrippedSanitisation` 的 doc。
+    enum Axis: String, CaseIterable {
+        /// `print(` / dict 值 / `return "` 等一般輸出面
+        case sink
+        /// `throw XxxError` 行——payload 經 errorDescription 直達輸出
+        case errorThrow
+        /// `case …: return "…"`（含跨行）——#142 的雙重盲區
+        case caseReturn
+        /// 靠 `taintedTokens` 命中而入列（非 error sink 的那條路徑）
+        case token
+    }
 
-        for url in scannedFiles {
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else {
-                XCTFail("讀不到 \(url.lastPathComponent)——掃描範圍若失效，這個測試會變成空跑")
-                continue
-            }
-            let name = url.lastPathComponent
+    struct Violation {
+        let text: String
+        let axes: Set<Axis>
+    }
+
+    /// 對單一檔案的原始碼文字掃描違規（#141：抽成純函式，讓正常掃描與 strip-all
+    /// 量測自測共用同一判準——meta-test 要能對「拔光 displaySafe 的 source」重跑）。
+    func scanViolations(name: String, text: String) -> [Violation] {
+        var violations: [Violation] = []
+        do {
             let allLines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
             for (idx, line) in allLines.enumerated() {
                 let l = String(line)
@@ -269,8 +411,8 @@ final class DisplaySinkCoverageTests: XCTestCase {
                    l.trimmingCharacters(in: .whitespaces).hasPrefix("case ") { continue }
 
                 for expr in interpolations(in: l) + dictValues(in: l) {
-                    guard isErrorSink
-                        || taintedTokens.contains(where: { expr.contains($0) }) else { continue }
+                    let tokenMatched = taintedTokens.contains(where: { expr.contains($0) })
+                    guard isErrorSink || tokenMatched else { continue }
                     if expr.contains("displaySafe(") { continue }
                     // `.count` / `.isEmpty` 是數量不是內容；`!= nil` / `== nil` 是
                     // Bool 存在測試（如 hasJudgement）——都到不了內容本身
@@ -285,15 +427,34 @@ final class DisplaySinkCoverageTests: XCTestCase {
                     // 後續行——closure 體若是 `case` 行則落入上方 case 豁免的
                     // 誠實邊界，否則仍會被逐行掃到
                     if expr.hasSuffix(" in") || expr.hasSuffix("{") { continue }
-                    violations.append("\(name):\(idx + 1)  \(expr)")
+                    var axes: Set<Axis> = []
+                    if isSink { axes.insert(.sink) }
+                    if isErrorSink && !caseReturn { axes.insert(.errorThrow) }
+                    if caseReturn { axes.insert(.caseReturn) }
+                    // `.token` 只在「不是靠 errorSink 免檢入列」時成立——那才證明
+                    // token 清單真的有在做事（清空清單時這一軸歸零）
+                    if !isErrorSink && tokenMatched { axes.insert(.token) }
+                    violations.append(Violation(text: "\(name):\(idx + 1)  \(expr)", axes: axes))
                 }
             }
+        }
+        return violations
+    }
+
+    func testNoUnsanitisedStoreStringReachesUserVisibleOutput() throws {
+        var violations: [Violation] = []
+        for url in scannedFiles {
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+                XCTFail("讀不到 \(url.lastPathComponent)——掃描範圍若失效，這個測試會變成空跑")
+                continue
+            }
+            violations += scanViolations(name: url.lastPathComponent, text: text)
         }
 
         XCTAssertTrue(violations.isEmpty, """
             有 \(violations.count) 條把 store 衍生字串未消毒送進使用者可見輸出的路徑：
 
-            \(violations.joined(separator: "\n            "))
+            \(violations.map(\.text).joined(separator: "\n            "))
 
             修法二選一：
               1. 包上 displaySafe(…)——資料面用 max: 800，識別字用 max: 200
@@ -331,9 +492,105 @@ final class DisplaySinkCoverageTests: XCTestCase {
         }
     }
 
+    /// #141：**量測式自測**——守衛非空洞不能靠「有一條壞樣式抓得到」單點證明
+    /// （那被 verify 席多次質疑：拔一個真實站點守衛卻全綠）。這裡把 verify 席手動
+    /// 做的 strip-all 量測內建：拔光全部 `displaySafe(`，重掃 shipped source，
+    /// 守衛**必須**報大量違規。若守衛的判準退化成永遠不報（token 清單被清空、
+    /// isSink 判斷失效…），strip-all 也不會報 → 這個測試紅。
+    ///
+    /// **逐軸下限**（#156 verify 156-1／156-4）。
+    ///
+    /// ### 更正紀錄：我先前在這裡寫的數字與因果都是錯的
+    ///
+    /// 第一版說「席位報的各軸數字全錯」，並列出本 tree 實測 59／74／76 當反證。
+    /// **錯的是我。** 那三個數字來自 partial mutation——`let isSink = false && A || B || C`
+    /// 只關掉第一個 disjunct（Swift 的 `&&` 綁定緊於 `||`）。我後來確實改用整條
+    /// 包覆重跑並得到四軸全零，卻**沒有回頭更新這張表**，於是一份 partial 數字與
+    /// 一份 correct 結論並存在同一段 doc 裡。R2 席位把兩種 mutation 都跑了：
+    ///
+    /// **席位在 `714d062` 量的**（`.key` 入 token 清單之前）：
+    ///
+    /// | mutation（**整條**關掉） | total | sink | errorThrow | caseReturn | token |
+    /// |---|---|---|---|---|---|
+    /// | baseline | 78 | 57 | 21 | 14 | 43 |
+    /// | `isSink = false` | **35** | 0 | 21 | 14 | 0 |
+    /// | `isErrorSink = false` | **43** | 43 | 0 | 0 | 43 |
+    /// | `caseReturn = false` | **64** | 43 | 21 | 0 | 43 |
+    /// | `taintedTokens = []` | **35** | 14 | 21 | 14 | 0 |
+    /// | 只剩 `citekey` | **49** | 28 | 21 | 14 | 14 |
+    ///
+    /// 這五個數字與席位第一輪回報的**逐一相同**；partial mutation 則重現出我的
+    /// 59／74／76，一個不差。決定性旁證：雙方唯一一致的是「只剩 citekey」的 **49**
+    /// ——那是改陣列字面量、沒有布林運算式可誤括號的那一個。
+    ///
+    /// **當前 tree 自量**（`a15ed09` 之後，`.key` 已入清單）：baseline **89** =
+    /// sink 68／errorThrow 21／caseReturn 14／token 54。sink 與 token 各 +11，就是
+    /// `.key` 帶進來的量；errorThrow／caseReturn 不受影響（它們不看 token）。
+    /// 四個 classifier mutation 在當前 tree 一樣把對應軸打到 **0**（自量，非採信）。
+    /// 兩組數字都留著：一組是席位可複核的基準，一組是這個檔案現在的實況。
+    ///
+    /// **連帶更正兩件事**：
+    ///
+    /// 1. 我曾寫「那些行多半同時被 token 路徑收走」——**因果剛好相反**。`.token` 的
+    ///    定義是 `!isErrorSink && tokenMatched`，與 error sink 依構造**互斥**：
+    ///    78 − 43 = 35 = errorThrow 21 + caseReturn 14，被 token 接住的是**零**。
+    /// 2. 我曾寫「總數 60 之下只有 isSink 會紅」——實際五分之四會紅（35／43／35／49
+    ///    都低於 60），只漏 caseReturn 的 64。
+    ///
+    /// ### 為什麼仍然採用逐軸下限
+    ///
+    /// 上面的更正削弱了我原本的論證，但**沒有推翻結論**——R2 席位獨立確認逐軸下限
+    /// 在正確 mutation 下五個全紅（`caseReturn` 那個總數下限抓不到）。理由改成誠實
+    /// 的版本：逐軸計數在 classifier 整條失效時**歸零**，與消毒站點的多寡無關，
+    /// 所以不隨正常增減漂移；總數下限則是唯一擋得住**掃描面萎縮**的東西
+    /// （席位實測：drop 整個 `Sources/akashic` → 四軸全綠、只有總數接住），
+    /// 兩者互補，不是主從。
+    ///
+    /// ### 誠實邊界（席位 156-7 實測，本判準看不到的東西）
+    ///
+    /// 逐軸下限只偵測 classifier **整條**失效。**部分**退化四軸都測不到：
+    /// `isSink` 少掉 `return "`（sink 57→43，仍在 floor 上）、`isErrorSink` 少掉
+    /// 某一個 error 型別、`taintedTokens` 少掉**任一**單一 token（13 個逐一測過，
+    /// 最兇的 citekey 也只讓總數 78→64）、以及撤銷 #149-R2 的「回看跳過註解」修正
+    /// （完全不動）。要抓這類需要 oracle-delta（把 oracle 在測試裡重新推導、斷言
+    /// 差額為零），不是更多的 magic number——那屬另案。
+    ///
+    /// 下限取當前實測的一半上下，只釘「這一軸還活著」，不釘精確計數——所以 `.key`
+    /// 這種讓數字整體上移的改動不需要動下限。
+    func testGuardCatchesStrippedSanitisation() throws {
+        var stripped: [Violation] = []
+        for url in scannedFiles {
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            // 移除 `displaySafe(` ＝ 模擬「拔掉全部消毒」：`displaySafe(citekey, max:200)`
+            // → `citekey, max:200)`，掃描抽出的 `citekey` 是 tainted 且不含 displaySafe
+            let mutated = text.replacingOccurrences(of: "displaySafe(", with: "")
+            stripped += scanViolations(name: url.lastPathComponent, text: mutated)
+        }
+        let byAxis = Dictionary(uniqueKeysWithValues: Axis.allCases.map { axis in
+            (axis, stripped.filter { $0.axes.contains(axis) }.count)
+        })
+        let floors: [Axis: Int] = [.sink: 25, .errorThrow: 8, .caseReturn: 5, .token: 20]
+        for axis in Axis.allCases {
+            XCTAssertGreaterThanOrEqual(byAxis[axis] ?? 0, floors[axis]!, """
+                strip-all 後 `\(axis.rawValue)` 軸只報 \(byAxis[axis] ?? 0) 條
+                （下限 \(floors[axis]!)）——這一軸的判準可能已整條失效。
+                全軸實測：\(Axis.allCases.map { "\($0.rawValue)=\(byAxis[$0] ?? 0)" }
+                    .joined(separator: " "))（2026-08-07 baseline：68/21/14/54）。
+                若是消毒站點正常減少造成的，重新校準下限並更新上方的量測時點。
+                """)
+        }
+        XCTAssertGreaterThanOrEqual(stripped.count, 60, """
+            拔光 displaySafe 後守衛只報 \(stripped.count) 條（總數下限 60、量測時
+            baseline 78）。逐軸檢查是主判準，這條只是粗篩。
+            """)
+    }
+
+    /// 守衛自身要可證偽：掃描範圍不得為空，判準不得永遠成立。
     func testGuardItselfIsNotVacuous() throws {
-        // 4 太鬆——光 Sources/akashic 一個目錄就有 8 個檔（#156 verify R2）
-        XCTAssertGreaterThanOrEqual(scannedFiles.count, 30, "掃描範圍萎縮＝守衛失效")
+        // 4 太鬆——光 `Sources/akashic` 一個目錄就有 8 個檔，其餘五個全掉光也滿足
+        //（#156 verify R2）。實際 38 個檔，取 30 留 ~21% 緩衝。
+        XCTAssertGreaterThanOrEqual(scannedFiles.count, 30,
+                                    "掃描範圍萎縮＝守衛失效（實際 38 檔）")
         // 判準對已知的壞樣式必須成立
         let bad = #"print("\(summary.citekey)\t\(summary.title)")"#
         let exprs = interpolations(in: bad)

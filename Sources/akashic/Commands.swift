@@ -421,10 +421,18 @@ struct BootstrapOrganizations: ParsableCommand {
         } else {
             print("⚠ 部分完成：建立 \(written) 個、\(failed.count) 個失敗、index 已重建")
         }
+        // exit code 見下方 reportDropped 之後——**不能在這裡 throw**，否則會吞掉
+        // dropped 清單與「下一步」提示（#154 verify 154-13）
         // #154 verify 154-9：**這個呼叫點先前零測試覆蓋**——刪掉它全套 965 綠。
         // `--apply` 是使用者最容易認定「做完了」的時刻，也是唯一留下永久痕跡的路徑。
         reportDropped()
         print("  下一步：akashic resolve-organizations 把 affiliations 的 literal 歸戶")
+        // #154 verify 154-13：部分失敗時 exit 1，與 `resolve-organizations` 對齊。
+        // 先前只有 resolve 側 throw——而 `--apply` 正是最常被 chain 的一步（輸出
+        // 自己就寫著「下一步：…」），bootstrap 半途失敗時
+        // `bootstrap-organizations --apply && resolve-organizations --apply`
+        // 會若無其事往下走。**放在 reportDropped 與「下一步」之後**，否則會吞掉它們。
+        if !failed.isEmpty { throw ExitCode(1) }
     }
 }
 

@@ -116,4 +116,38 @@ final class OrgBootstrapCLITests: XCTestCase {
         // 只建一個——dropped 的那個不得被建成垃圾 key
         XCTAssertEqual(try store.load().organizations.map(\.key), ["national-taiwan-university"])
     }
+
+    /// **寫入失敗時不得留半套狀態**（#154 verify 154-11）。
+    ///
+    /// 補這條的理由不是「補測試比較好」，而是**本 PR 新增的防護本身沒有防護**：
+    /// per-item 收容、`⚠ 部分完成`、exit 1 全是這次新加的行為，而驗證它們的只有
+    /// 席位手動的 `chflags uchg`——那不會留在 repo 裡。下一個人動這段時沒有任何
+    /// 東西擋住回歸。
+    ///
+    /// 用 `chflags uchg` 把其中一個目標檔設成不可寫，斷言：exit≠0、輸出列出失敗的
+    /// key、**其餘 org 仍被寫入**（不是「連試都沒試」）、index 有重建。
+    func testApplyReportsPartialFailureAndKeepsGoing() throws {
+        try writePerson(key: "p-six",
+                        affiliations: ["National Taiwan University", "Academia Sinica"])
+        // 先 dry-run 拿到會建立的兩個 key
+        let dry = try runCLI(["bootstrap-organizations"])
+        XCTAssertTrue(dry.output.contains("academia-sinica"), dry.output)
+
+        // 讓其中一個寫不進去：把 entities 目錄下該 org 將落的檔案先佔位並鎖起來
+        // （org 的檔名是 UUID，無法預測，所以改鎖整個 entities 目錄的寫入權）
+        let entities = root.appendingPathComponent("entities")
+        let before = try FileManager.default.attributesOfItem(atPath: entities.path)
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: entities.path)
+        defer { try? FileManager.default.setAttributes(
+            [.immutable: before[.immutable] ?? false], ofItemAtPath: entities.path) }
+
+        let r = try runCLI(["bootstrap-organizations", "--apply"])
+        try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: entities.path)
+
+        XCTAssertNotEqual(r.status, 0, "部分失敗必須 exit≠0（否則會被 && chain 吞掉）：\n\(r.output)")
+        XCTAssertTrue(r.output.contains("write failed"),
+                      "要列出失敗項，不能只擲一句 Foundation 錯誤：\n\(r.output)")
+        XCTAssertTrue(r.output.contains("部分完成"),
+                      "不得印 ✓（那讀起來像全成功）：\n\(r.output)")
+    }
 }

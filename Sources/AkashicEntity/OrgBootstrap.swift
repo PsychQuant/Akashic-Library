@@ -25,9 +25,33 @@ import AkashicCore
 ///    只能產 ASCII slug，而「中央研究院統計科學研究所」這類是本 store 的**主要**
 ///    形狀。真正的修法是讓使用者能為 dropped 項目直接指定 key（互動或
 ///    `--key <name>=<key>`），而不是繞去手寫 YAML。
-/// 2. **`suggestedKey` 的 6-token 上限與去重 `-2…-99`** 沒有測試覆蓋，也沒有依據
-///    ——6 是拍腦袋的數字。長機構名截斷後可能撞在一起，靠 `-2` 尾碼區分，但那個
-///    尾碼對人沒有意義（`national-taiwan-university-2` 是誰？）。
+/// 2. **`suggestedKey` 的 6-token 上限與去重 `-2…-99`**（#154 verify R3 實測更正）。
+///    原本寫的例子是 `national-taiwan-university-2`，但**實際最常撞的形狀不是那個**：
+///
+///        department-of-computer-science-and-information      ← …, NCTU
+///        department-of-computer-science-and-information-2    ← …, NTU
+///        graduate-institute-of-epidemiology-and-preventive   ← …, NTU
+///        graduate-institute-of-epidemiology-and-preventive-2 ← …, NYCU
+///
+///    學術 affiliation 的格式是 `[通用的系所字詞…] + [特定機構]`，而 `prefix(6)` 的
+///    截斷方向**恰好相反於資訊分布**——前 6 個 token 全是通用字，**唯一能區分的
+///    token 正好被截掉**。這正是 WoS／Zotero 匯出的作者 affiliation 標準寫法，也就是
+///    餵給這個工具的主要資料。覆蓋率閘對此**完全無效**（這些名字 100% ASCII）。
+///    誰拿到裸 key 由 matchingKey 的字典序決定，沒有語意。
+///    修法方向不是調 6 這個數字，而是**截斷要保留尾端的區辨 token**（前 4 + 最後 1），
+///    或撞號時改用「加入第一個相異 token」而非流水號。
+/// 2b. **覆蓋率閘的誤擋**（#154 verify R3）：分母是**字元數**，而 CJK 的資訊密度
+///    遠高於拉丁字元（`國立臺灣大學` 6 字 ≈ `National Taiwan University` 26 字元的
+///    資訊量）。於是「CJK 全名 + 拉丁縮寫」被系統性懲罰——而那個縮寫正是想要的 key：
+///
+///        臺大 NTU              60%  ✅        國立臺灣大學 NTU      27%  ❌ 誤擋
+///        IBM 台灣              60%  ✅        IBM 台灣分公司        37%  ❌ 誤擋
+///        東京大学（ＵＴｏｋｙｏ） 50%  ✅（剛好）  中央研究院 AS         29%  ⚠ 可接受
+///
+///    判準跟著「中文名有多長」跑，不是跟著「拉丁部分是不是好 key」跑。失敗模式是
+///    **誠實的**（進 dropped、明列、請人給 key），不是資料汙染，所以不擋 merge。
+///    低成本的例外處理：某個 ASCII token 本身是合法 key 且長度 ≥2、全大寫寫在括號
+///    或名字尾端（縮寫慣例）時視為通過。
 /// 3. **`resolve-organizations` 的歧義判準**只看正規化後完全相等，不做子字串／
 ///    縮寫比對（「中研院」vs「中央研究院」配不上）。同義詞歸戶屬 alias 層，未做。
 public enum OrgBootstrap {

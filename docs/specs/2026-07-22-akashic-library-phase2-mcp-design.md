@@ -91,6 +91,7 @@ Zotero raw date → 正規化：抓 ISO-ish 前綴（`YYYY[-MM[-DD]]`），`00` 
 - **Library 解析**：同 CLI（`AKASHIC_LIBRARY` env → `~/.akashic/config.yaml`）；mcpb user_config 可帶路徑。
 - **Index freshness**：每次 tool call 比對 `entries/` 最新 mtime vs index mtime，stale 就地重建；寫入工具尾端自動重建。
 - **併發**（MCP 與 CLI 並用）：per-file atomic write、last-wins、index 冪等重建；單人場景足夠，README 註明。
+- **錯誤訊息消毒（#142/#149）**：所有面向 MCP 的錯誤訊息（`ServiceError`／`QueryError`／`GraphError`／`ConfigError`／`StoreIOError` 的 `errorDescription`）內插的 caller 輸入與 store 內容一律經 `displaySafe`——lookup miss 把 raw ESC／bidi override 原樣回吐 LLM context 是與資料注入同型的洩漏。機械守衛（`DisplaySinkCoverageTests`）掃 CLI／MCPKit／Core／Query／Graph／StoreIO 六個模組的輸出面與 error-sink，新增未消毒路徑即測試紅。
 
 ## 5. 發布統一
 

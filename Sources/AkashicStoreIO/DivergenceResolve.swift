@@ -416,7 +416,7 @@ extension LibraryStore {
     }
 
     /// work 側的 shape 專屬拒絕條件（#139 verify F1，與 person 側對稱）。
-    /// work 無 `fieldsLostByMerging` 閘——那是 #75 對二要補的（合併不搬欄位）。
+    /// work 側的欄位遺失比對就在下方 body（#75 對二已落地）——與 person 側對稱。
     func validateWorkPreconditions(survivor: String, mergedKeys: [String],
                                    snapshot: LibraryLoad) throws
         -> (keeper: Entry, doomed: [Entry]) {
@@ -431,6 +431,16 @@ extension LibraryStore {
             doomed.append(e)
         }
         try assertAllInEntities(([keeper] + doomed).map { ($0.citekey, $0.id) })
+        // #75 對二：欄位遺失比對放在**前置**（preview 與實跑共用——#139 F1 的教訓：
+        // 拒絕條件只有一份，dry-run 對它沉默是在騙人）。被併 work 帶有倖存者沒有的
+        // 欄位／附件／標籤／出向參照／來源 → 拒絕並指名（子集才放行）。
+        for e in doomed {
+            let losses = Self.fieldsLostByMerging(e, into: keeper)
+            guard losses.isEmpty else {
+                throw DivergenceResolveError.wouldLoseFields(
+                    merged: e.citekey, survivor: survivor, losses: losses)
+            }
+        }
         return (keeper, doomed)
     }
 
@@ -742,11 +752,19 @@ extension LibraryStore {
     /// 一個非預設欄位就被擋死，儘管它沒有任何東西會消失（#71 R2 DA 實測）。
     ///
     /// **所以逐欄是必要的，防腐不能靠結構比較。** 靠的是
-    /// `PersonFieldCoverageTests`：它用反射數 `Person` 的儲存屬性，與本函式聲明涵蓋的
+    /// `DivergenceHardeningTests.testPersonFieldCoverageOfMergeCheck`：它用反射數 `Person` 的儲存屬性，與本函式聲明涵蓋的
     /// 數量不符就紅。加欄位而忘了這裡，測試會說話——不是靠註解提醒，也不是靠記憶。
     ///
-    /// 涵蓋 `Person` 的 8 個儲存屬性：`key` / `id`（身分，不隨合併移動）、
-    /// `names`（別名，由合併搬移）、以及下列五個。
+    /// 涵蓋 `Person` 的 **11** 個儲存屬性（#157 verify 157-10：原本寫 8，是過時的
+    /// 舊數字——`personFieldsCoveredByMergeCheck = 11` 才是反射守衛實際釘住的值，
+    /// 兩者一直不一致而沒人發現）：`key` / `id`（身分，不隨合併移動）、
+    /// `names`（別名，由合併搬移）、以及下列各項。
+    ///
+    /// **插入位置紀律**（#157 verify 157-4，**同型第五次**——#59、#136 F1、#157
+    /// 本身、#160 160-4，以及**寫下這條紀律的那個 commit 自己在 test 檔又犯一次**）：
+    /// 新成員 **不得**插進既有 API 的 doc comment／attribute 與其宣告之間。那會讓兩份文件
+    /// 對調——這段論證曾經整段掛到 Entry 版頭上，而它對 Entry 每一句都是假的
+    /// （不是 Person、沒有那 8 個屬性、也不受 DivergenceHardeningTests.testPersonFieldCoverageOfMergeCheck 保護）。
     static func fieldsLostByMerging(_ p: Person, into keeper: Person) -> [String] {
         var losses: [String] = []
         func check(_ label: String, mine: String?, theirs: String?) {
@@ -804,6 +822,245 @@ extension LibraryStore {
         return losses
     }
 
+    /// work 消歧的欄位遺失比對（#75 對二，與 person 側 `fieldsLostByMerging` 對稱）。
+    ///
+    /// work 消歧只搬「別人指向被併者」的參照，被併者自己帶的內容隨檔案消失而使用者
+    /// 只看到「✓ 併入」。同 person 鐵律：**子集才放行**，被併者帶有倖存者沒有的
+    /// 內容 → 拒絕並指名將失去什麼（搬欄位是人的判斷，不自動合併）。
+    ///
+    /// **出向 relations 特別要比**：`resolveWorkDivergence` 的遷移迴圈跳過 doomed
+    /// 本身，所以 doomed 自己 cites/related 的東西不會搬到 keeper——實測確認會隨
+    /// 檔案消失（#75 diagnosis 的「relations 出向遷移實況」）。
+    static func fieldsLostByMerging(_ e: Entry, into keeper: Entry) -> [String] {
+        var losses: [String] = []
+        // **三態判定的單一實作**（#157 verify 157-12）：缺席／同值／衝突。
+        //
+        // 157-6 修的是這條規則的**一個實例**（date 的 keeper 側），不是規則本身。
+        // 席位實測同一個函式裡還有三處展開、兩處錯，而且真 binary 會在**一則訊息裡
+        // 吐兩句假話**：
+        //
+        //     doomed.fields["doi"] = ""，keeper 無 doi
+        //       → 報 `fields.doi: `                    ← 空值＝缺席，卻報成遺失
+        //     keeper.fields["doi"] = ""，doomed 有真值
+        //       → 報 `fields.doi（兩邊都有但不同…）`     ← 「兩邊都有」是假的
+        //
+        // 後者與 157-6 修掉的「與倖存者的  互斥」是**同一句謊、同一個函式、隔壁欄位**。
+        // 根因：person 側靠一個 `check()` helper 把三態一次做對，Entry 版是逐處展開
+        // ——於是逐處寫錯。抽同一個 helper 共用。
+        func check(_ label: String, mine: String?, theirs: String?,
+                   conflictSuffix: String = "（兩邊都有但不同，需選一個）") {
+            guard let theirs, !theirs.isEmpty else { return }   // 缺席（含空值）→ 不會失去
+            guard let mine, !mine.isEmpty else {                // 倖存者沒有 → 失去
+                losses.append("\(label): \(theirs)")
+                return
+            }
+            guard mine != theirs else { return }                // 同值 → 不會失去
+            losses.append("\(label)\(conflictSuffix)")
+        }
+        for (k, v) in e.fields.sorted(by: { $0.key < $1.key }) {
+            check("fields.\(k)", mine: keeper.fields[k], theirs: v)
+        }
+        // attachments／tags／libraries：被併者有而倖存者沒有的（差集）
+        // #157 verify 157-18：**指名**。整條閘的語意是「拒絕並指名將失去什麼」，
+        // 而訊息結尾寫著「先把要保留的搬到倖存者身上」——只說「1 筆」的話那句話
+        // 不可執行。同函式的 tags／cites／related／fields 全部指名，person 側的
+        // `references` 也指名（附 field 清單）。同一個 feature 的兩半又不對稱。
+        let lostAttach = e.attachments.filter { !keeper.attachments.contains($0) }
+        if !lostAttach.isEmpty {
+            losses.append("attachments: " + lostAttach.prefix(3).map(\.path)
+                .joined(separator: "、") + (lostAttach.count > 3 ? "…" : ""))
+        }
+        let lostTags = e.akashic.tags.filter { !keeper.akashic.tags.contains($0) }
+        if !lostTags.isEmpty { losses.append("tags: " + lostTags.joined(separator: "、")) }
+        let lostLibs = e.akashic.libraries.filter { !keeper.akashic.libraries.contains($0) }
+        if !lostLibs.isEmpty { losses.append("libraries: " + lostLibs.joined(separator: "、")) }
+        // 出向 relations（doomed 自己指出去的）——遷移迴圈不搬 doomed 的出向
+        let lostCites = e.akashic.relations.cites.filter { !keeper.akashic.relations.cites.contains($0) }
+        if !lostCites.isEmpty { losses.append("cites: " + lostCites.joined(separator: "、")) }
+        let lostRel = e.akashic.relations.related.filter { !keeper.akashic.relations.related.contains($0) }
+        if !lostRel.isEmpty { losses.append("related: " + lostRel.joined(separator: "、")) }
+        // status：被併有、倖存無或不同
+        if let s = e.akashic.status, !s.isEmpty, keeper.akashic.status != s {
+            losses.append("status: \(s)")
+        }
+        // authors（#157 verify 157-1）：doomed 的 `.key(...)` 是 resolve-people 歸戶的
+        // **產物**——person 側的 names 由合併搬移，但 work 的 authors **不搬**（實測
+        // keeper 併完是 0 作者）。丟掉的是人做過的判斷，不是重複資料。
+        //
+        // **identity 用 exhaustive `switch`、無 `default`**（#157 verify 157-15）：
+        // 原本三處都是 `if case … else if case … else { "" }`／`else { "?" }` 的兜底。
+        // 今天 `Author` 只有兩個 case 所以兜底不可達，但**一旦加第三個 case，全部的
+        // 新作者都會塌成 `""` 互相遮蔽**——那是靜默的資料遺失，而席位 mutation 實測
+        // 966 條測試**一條都不會響**。exhaustive switch 讓「加 case」變成編譯錯誤，
+        // 比 157-9 剛加的 Mirror 計數守衛更強（編譯期 vs 執行期），理由完全同源。
+        // `identity` 的回傳值**只當比對鍵**（進 Set / 相等比較），不進任何輸出面。
+        func identity(_ a: Author) -> String {
+            switch a {
+            case let .key(k): return "key:\(k)"       // display-safe-exempt: 比對鍵，不進輸出
+            case let .literal(s): return "literal:\(s)"   // display-safe-exempt: 同上
+            }
+        }
+        // `display` 的回傳值會進 `losses`，而 `losses` 的**每一項**在下游
+        // （`wouldLoseFields` 的 errorDescription）都過 `displaySafe($0, max: 300)`
+        // ——與同函式其他所有 losses 條目同一條保險。
+        func display(_ a: Author) -> String {
+            switch a {
+            case let .key(k): return "已歸戶 \(k)"     // display-safe-exempt: 進 losses，下游整批 displaySafe
+            case let .literal(s): return s
+            }
+        }
+        let keeperAuthors = Set(keeper.authors.map(identity))
+        let lostAuthors = e.authors.filter { !keeperAuthors.contains(identity($0)) }
+        if !lostAuthors.isEmpty {
+            losses.append("authors（\(lostAuthors.count) 個，含 "
+                + lostAuthors.prefix(3).map(display)
+                    .joined(separator: "、") + (lostAuthors.count > 3 ? "…" : "") + "）")
+        }
+        // **順序也比**（#157 verify 157-19）：先前只比集合，`[A,B]` vs `[B,A]` → 無 loss。
+        // 採「比順序」而非「寫進封閉列舉說明為何不比」，理由是 codebase 自己會區分
+        // 這件事——`Person.names` 的 doc 明寫「順序不帶語意（#81）」，`Entry.authors`
+        // **沒有**對應聲明，而 work 的作者順序在學術慣例上帶語意（第一作者、通訊作者）。
+        // 同集合不同序＝需要人裁決，不自動選一邊。
+        // **比對前先 dedupe**（#157 verify 157-21）：`else if` 的 `Set(…) == keeperAuthors`
+        // 擋得住集合差異，擋不住**重數**差異。keeper 帶既存重複作者時：
+        //
+        //     keeper = [a, a]、doomed = [a]  → 報「順序不同」
+        //
+        // 順序**沒有**不同（dedupe 後兩邊都是 `[a]`），而且 doomed 是 keeper 的子集、
+        // **什麼都不會失去**——訊息宣稱的理由不成立，與這幾輪一直在收的「訊息說假話」
+        // 同類。而 keeper 帶既存重複是本 repo **明文保護**的狀態
+        //（`testUnrelatedRecordWithDuplicateAuthorsLeftAlone`：「既存的重複不該被順手
+        // 折疊——消歧不是清理工具」），所以可達性不是理論的。
+        else if dedupePreservingOrder(keeper.authors.map(identity))
+                    != dedupePreservingOrder(e.authors.map(identity)),
+                Set(e.authors.map(identity)) == keeperAuthors {
+            losses.append("authors（同一組作者但**順序不同**，work 的作者順序帶語意，需人確認）")
+        }
+        // date（#157 verify 157-6／157-8）：判準是**前綴相容**，不是「只比在場與否」。
+        //
+        // 第一版寫成 `if let d = e.date, !d.isEmpty, keeper.date == nil`，兩個獨立錯誤：
+        //
+        // 1. **`keeper.date == nil` 讓空字串遮蔽真實日期**（157-6）。YAML `date: ""`
+        //    decode 成 `Optional("")` 且不 quarantine——席位真 binary 實測：keeper
+        //    `date: ""`、doomed `date: "2020-03-15"` → 閘不報、合併成功、日期永久消失。
+        //    專案內明文慣例（`LibraryStore.swift:997`）：「空值視同缺席……同一個概念
+        //    不該有兩套判準」。
+        // 2. **「只比在場與否」矯正過頭**（157-8）：`2019` vs `2021` 靜默通過。原本
+        //    要避免的是 `2020` vs `2020-03-15` 這種**精度**差異被當成衝突——那只證成
+        //    前綴相容的放行，不證成「值不同也放行」。person 側結構相同的 `died` 對
+        //    同一組輸入會報，其 doc 說得很清楚：不同日期「是對『這兩筆是不是同一個
+        //    人』的反證，或至少是一個必須有人裁決的來源衝突」。
+        // **title 只比缺席方向**（#157 verify 157-22）——這一格不是純排除。
+        //
+        // 排除 `type`/`title` 的理由明寫是「keeper 的寫法**就是人選的 canonical
+        // form**」，而 `""` **不是任何人選的 form，它是缺席**。實測 fail-open：
+        //
+        //     keeper.title = ""、doomed.title = "The Only Real Title"
+        //     → losses == []  → exit=0 → 唯一的真標題消失，零訊息
+        //
+        // 這是這幾輪唯一一個 **fail-open**（其餘 finding 都是 fail-closed 的誤拒 +
+        // 錯訊息）。而且結構與 157-7 同構：`validate` 已經印過「⚠ title 為空」，
+        // 系統早就知道，合併閘卻不看。
+        //
+        // **兩邊都非空的 title 差異仍刻意不擋**（#71 R2 DA 的誤拒教訓），只補缺席方向。
+        if keeper.title.isEmpty, !e.title.isEmpty { losses.append("title: \(e.title)") }
+        if keeper.type.isEmpty, !e.type.isEmpty { losses.append("type: \(e.type)") }
+        // date 用同一個三態骨架，但衝突判定換成前綴相容（見 ISO8601Prefix.compatible）。
+        // **訊息不宣稱「互斥」**（#157 verify 157-12）：`2003/2004` 是 EDTF 區間、
+        // 包含 2003，`2020-03-15T10:00` 是同一時點的更高精度——`compatible` 對它們
+        // 回 false 是因為**判不出關係**，不是因為它們互斥。`ISO8601Prefix` 自己的
+        // 型別 doc 就明寫 `Entry.date` 的值域屬 biblatex 契約、不屬本判定。
+        let doomedDate = e.date.flatMap { $0.isEmpty ? nil : $0 }
+        let keeperDate = keeper.date.flatMap { $0.isEmpty ? nil : $0 }
+        if let d = doomedDate {
+            if let k = keeperDate {
+                if !ISO8601Prefix.compatible(d, k) {
+                    losses.append("date: \(d)（與倖存者的 \(k) 無法機械判定是否同一日期"
+                        + "——非 ISO 前綴相容，需人裁決）")
+                }
+            } else {
+                losses.append("date: \(d)")
+            }
+        }
+        // unknownFields（#157 verify 157-1／157-7，**最強的一項**）：#23
+        // tolerant-preserve 的整個前提是「較新版本寫入、本版不認識的欄位不得被本版
+        // 破壞」。本 binary **依定義無法判斷**它重不重要——唯一安全的預設是拒絕。
+        //
+        // **三分不是二分**（157-7，照抄 person 版）：key 缺席＝遺失、raw 相同＝不
+        // 遺失、**raw 不同＝衝突**。第一版只比 key 在不在，於是「兩邊都有同名欄位
+        // 但內容不同」整條漏掉——席位真 binary 實測 doomed 的
+        // `peer_review_status: accepted-with-major-revisions-2026-03` 被 keeper 的
+        // `pending` 靜默覆蓋，而 `validate` 兩行都印過「未知欄位（已保留）」。
+        // 系統已經知道兩邊都有，合併閘卻不看值。
+        func unknownLosses(_ theirs: [UnknownField], _ mine: [UnknownField],
+                           label: String) {
+            for f in theirs {
+                guard let same = mine.first(where: { $0.key == f.key }) else {
+                    losses.append("\(label)\(f.key)（較新版本寫入、本 binary 不認識）")
+                    continue
+                }
+                if same.raw != f.raw {
+                    losses.append("\(label)\(f.key)（兩邊都有但內容不同，需要選一個）")
+                }
+            }
+        }
+        unknownLosses(e.unknownFields, keeper.unknownFields, label: "未知欄位 ")
+        unknownLosses(e.akashic.unknownFields, keeper.akashic.unknownFields,
+                      label: "akashic 的未知欄位 ")
+        // provenance（#157 verify 157-2）：Zotero 記錄的身分是 **(libraryID, zoteroKey)**
+        // 這個對，不是 zoteroKey 單獨——不同 library 的同 key 是不同記錄。
+        // orphanedAt 是「Zotero 端已刪除、待人工裁決」的標記，屬一般遺失。
+        if let ep = e.provenance {
+            if let kp = keeper.provenance {
+                if ep.zoteroKey != kp.zoteroKey {
+                    losses.append("zotero-key（\(ep.zoteroKey) ≠ \(kp.zoteroKey)，來源衝突）")
+                } else if let el = ep.libraryID, el != kp.libraryID {
+                    // #157 verify 157-12：**只在被併者有值時比**。`Provenance` 自己的
+                    // doc 明寫「缺欄位＝pre-Phase-2 舊檔，**合法**」——`nil` 不是
+                    // 「不同 library」，是「未記錄」。而且被併者為 nil 時這個方向
+                    // **什麼都不會失去**（倖存者已有較完整的值），卻擋下合併且
+                    // 「搬到倖存者身上」無物可搬。
+                    losses.append("zotero library（\(el) ≠ "
+                        + "\(kp.libraryID.map(String.init) ?? "未記錄")，同 key 不同 library＝不同記錄）")
+                }
+                if ep.orphanedAt != nil && kp.orphanedAt == nil {
+                    losses.append("orphaned 標記（Zotero 端已刪除、待人工裁決）")
+                }
+            } else {
+                losses.append("zotero-key: \(ep.zoteroKey)（倖存者無 provenance）")
+            }
+        }
+        return losses
+    }
+
+    /// work 合併比對**刻意排除**的欄位（#157 verify 157-1 的取捨，明寫讓「排除」與
+    /// 「忘記」可分辨）：
+    ///
+    /// - `type` / `title`：**部分比對，不是純排除**（#157 verify 157-22）。
+    ///   要求**相等**會直接重演 #71 R2 DA 的誤拒——同一篇的兩筆記錄 title 大小寫／
+    ///   副標題本來就會不同，而 keeper 的寫法**就是人選的 canonical form**。合併的
+    ///   語意是「keeper 的表述勝出」，不是「兩邊必須一致」。
+    ///   **但 `""` 不是任何人選的 form，它是缺席**——所以只比缺席方向（keeper 空、
+    ///   被併者非空 → 報）。這與本函式其他欄位的「空值＝缺席」是同一條規則，
+    ///   先前漏了這一格，造成本函式唯一的 **fail-open**（唯一的真標題靜默消失）。
+    /// - `id` / `citekey`：身分，不隨合併移動（同 person 側的 key/id）。
+    ///
+    /// **逐一對到 `Entry` 的 11 個儲存屬性**（#157 verify 157-10：原本寫「這五個 +
+    /// 上方的六類 = 11」，兩個數都錯，只是 5+6 湊巧等於 11——排除項是 4 個、比對
+    /// 的是 7 個。湊得出總數不代表對得上）：
+    ///
+    /// | 比對（7） | **部分比對**（2） | 排除（2） |
+    /// |---|---|---|
+    /// | `fields`、`attachments`、`akashic`（tags／libraries／status／relations／unknownFields 五個子欄位都在裡面，**收合成一個屬性算**）、`authors`、`date`、`unknownFields`、`provenance` | `type`、`title`——**只比缺席方向**（見下） | `id`、`citekey` |
+    ///
+    /// 7 + 2 + 2 = 11，由 `testEntryFieldCoverageOfMergeCheck` 以反射釘住。
+    ///
+    /// **反射只釘頂層**（#157 verify 157-9）：`AkashicMeta`／`Relations`／`Provenance`
+    /// 的巢狀屬性另有各自的計數斷言——歷史上 schema 演化正是發生在 `akashic` 那層
+    /// （`Models.swift` 自己這麼寫，#13 的 `libraries` 即是），只釘頂層等於對最會
+    /// rot 的地方失明。
+    static let entryFieldsCoveredByMergeCheck = 11
+
     /// `p` 的哪些 profile 維度**不是** `keeper` 的子集。空 = 合併不會失去任何時間軸。
     private static func profileDimensionsNotCovered(
         _ p: PersonProfile, by keeper: PersonProfile) -> [String] {
@@ -823,7 +1080,7 @@ extension LibraryStore {
         return gaps
     }
 
-    /// 本函式涵蓋的 `Person` 儲存屬性數。`PersonFieldCoverageTests` 拿它與反射比對。
+    /// 本函式涵蓋的 `Person` 儲存屬性數。`DivergenceHardeningTests.testPersonFieldCoverageOfMergeCheck` 拿它與反射比對。
     static let personFieldsCoveredByMergeCheck = 11
 
     // MARK: - 小工具

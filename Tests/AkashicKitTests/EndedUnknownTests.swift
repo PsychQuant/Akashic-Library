@@ -121,12 +121,6 @@ final class EndedUnknownTests: XCTestCase {
         }
     }
 
-    /// 目前的精確 format 值（#131 verify：下限斷言防不了「意外多 bump 一次」——
-    /// 本測試釘精確值，每次刻意 bump 時隨新 format 的測試一起搬家）。
-    func testCurrentSupportedFormatIsExactlySix() {
-        XCTAssertEqual(StoreVersion.supported, 6)
-    }
-
     /// #131 verify F2：affiliations 段的 start/end null 面視為缺席（format 6 順帶
     /// 對齊——先前 ranks 已如此、affiliations 卻存成字串 "null"）。文件化 + 釘住。
     func testAffiliationStartNullFaceIsAbsence() throws {

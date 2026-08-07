@@ -261,6 +261,33 @@ displayName(script) =
 **`authorized` 為選填。** 缺席合法，由 `doctor` 報告而非 `validate` 拒絕：修復所需的
 資訊（正確的對外名字）無法自動取得，設成錯誤等於把不可自動化的工作變成載入的前置條件。
 
+### 時間軸段的 `attested`：某時點成立、起訖皆不明（normative，#70）
+
+`ended`（下節）的鏡像：不是「何時結束不知道」而是「**起訖都**不知道，只知道這幾個
+時點成立」。典型來源是論文的機構掛名——同人同機構 5 篇論文＝5 個觀測點：
+
+```yaml
+- value:
+    literal: 中央研究院統計科學研究所
+  attested:
+  - '2003'
+  - '2011'
+```
+
+**normative 規則：**
+
+1. `attested` 是 ISO 8601 前綴的清單；非空時 `start`／`end`／`ended` **MUST** 全
+   缺席——起點若已知就不是「起訖皆不明」，用 `start`（encode/decode 兩端拒矛盾）。
+2. attested-only 段 **MUST NOT** 視為進行中（`isOpen` false、`current` 不採計、
+   status 推導不採計）——有觀測不等於現況。
+3. 觀測點**不合併**：同 org 的多個觀測各自成點（每點日後可掛 #66 的 reference
+   逐點溯源——本版尚未接，觀測來源暫記 `source`／`note`）。
+4. **format 7 專屬**（段內鍵 strict → non-additive）：write gate 對 format < 7 的
+   store 拒寫＋指路，同 `ended` 的 v6 gate 機制。§5 版本對照表的 7 行隨 #74 的
+   表格回填（PR #147）merge 後補齊。
+5. 把發表年填進 `start` 是「從那年起」的**偽造斷言**——`attested` 存在的理由就是
+   讓這個常見的資料輸入偽造有一個誠實的替代。
+
 ### 時間軸段的 `ended`：已結束、時點未知（#63）
 
 profile 時間軸（`affiliations`／`ranks`／…）的每一段，`end` 缺席的預設語意是
@@ -711,9 +738,10 @@ index 一起被清掉。
 | 2 | `entities/<uuid>.yaml`（#35，見 §5.-1）| 結構重排；舊 binary 看到空的 `entries/` 而回報「0 entries」——一個**看起來成功的錯誤答案** |
 | 3 | 記錄形狀改由**裸標籤**標示，不再由 `type:` 的值標示 | 舊 binary 看不到 `type: person`，走全稱後備判成 work、decode 失敗 |
 | 4 | 新增 organization 形狀；person 的隸屬值由字串升成**指涉或字面** | 舊 binary 不認得 `organization:` 標籤，也讀不懂 `{key: …}` 形式的隸屬值 |
-| 5 | 廢除「`names` 第一個是顯示名」，改由 `authorized` 指定（#81，見 §3.1）| **欄位語意變更**。`authorized` 對舊 binary 是未知欄位、會被保留，但保留不等於遵守——舊 binary 仍會把 `names[0]` 當顯示名，並在一次 read-modify-write 裡重排 `names` 而不自知 |
+| 5 | 廢除「`names` 第一個是顯示名」，改由 `authorized` 指定（#81，見 §3.1）；**`divergence` 形狀歸屬本版**（#71 引入、#74 回填歸屬） | **欄位語意變更**。`authorized` 對舊 binary 是未知欄位、會被保留，但保留不等於遵守——舊 binary 仍會把 `names[0]` 當顯示名，並在一次 read-modify-write 裡重排 `names` 而不自知。`divergence:` 形狀標籤對 ≤4 世代 binary 是整檔 quarantine（形狀標籤是 strict——#131 判準重評，曾誤標 additive）；`writeDivergence` 對 format < 5 的 store 拒寫＋指路（#74） |
+| 6 | 時間軸段內新增 `ended: true`（已結束、時點未知，#63）；null-face 對齊 | **段內鍵是 strict**——tolerant-preserve 的開放層只涵蓋記錄頂層與 `akashic` namespace，舊 binary 讀到 `ended` 是整檔 quarantine（人檔消失）而非保留。`writePerson` 對 format < 6 的 store 拒寫含 ended 段的記錄＋指路（#131） |
 
-3 與 4 曾經發生而未回寫本表；#81 一併補齊。
+3 與 4 曾經發生而未回寫本表（#81 補齊）；6 曾漏補（#74 一併回寫）。**「資料鍵變保留字」同屬版本歸屬**：`divergence` 成為形狀標籤使同名頂層鍵在 ≥5 成為保留字——這與形狀標籤機制（format 3）的既有語意一致，不另立規則（#74 後果二）。`akashic migrate` 是使用者知情動作：它把 store 升到 supported 版本，升版後舊 binary 整庫拒開是 refuse-if-newer 的**預期**行為，不是 migrate 的缺陷（#74 後果三，文件化現況）。
 
 ### v1.3：tolerant-preserve（開放演化層）
 
@@ -989,7 +1017,9 @@ rests-on:
    兩者的**空值**同樣 **MUST** 拒收（空 `question` 亦然）：空的斷言不是判斷，空的摘要
    不是依據，而空的問題不是未決的問題。
 4. 記錄 **MUST NOT** 帶「已解決」狀態。消歧完成時整筆刪除，歷史託給版本控制而非 store。
-5. `divergence` **MUST** 只存在於 `entities/` 佈局（format ≥ 2）。legacy 下 person 落在
+5. `divergence` **MUST** 只存在於 format ≥ 5 的 store（版本歸屬見 §5 版本對照表，
+   #74 回填；寫入 gate 對 format < 5 拒寫＋指路）。佈局前提（`entities/`）由版本
+   歸屬蘊含——format ≥ 5 必然 ≥ 2。legacy 下 person 落在
    `people/<key>.yaml` 而刪除只認 `entities/<uuid>.yaml`——寫得進去、刪不掉。
 
 6. 候選鍵 **MUST** 在寫入時通過 `StoreKey` 驗證，與其他每一條寫入路徑一致。理由不是

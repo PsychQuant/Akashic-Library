@@ -394,16 +394,35 @@ struct BootstrapOrganizations: ParsableCommand {
             print("（只列候選；要建立加 --apply）")
             return
         }
+        // #154 verify 154-8：per-item 收容（同 ResolveOrganizations 與 ResolvePeople
+        // 的既有紀律）——中途失敗不得讓其餘候選連試都沒試，也不得吞掉已建立的清單。
         var written = 0
+        var failed: [(key: String, why: String)] = []
         for o in OrgBootstrap.organizationsFor(cands) {
-            try store.writeOrganization(o)
-            // #154 verify 附帶：apply 時列出建了什麼（先前一筆都不印）
-            print("  ✓ \(displaySafe(o.key, max: 200))  "
-                  + o.names.entries.map { displaySafe($0.value, max: 200) }.joined(separator: " ≡ "))
-            written += 1
+            do {
+                try store.writeOrganization(o)
+                // #154 verify 附帶：apply 時列出建了什麼（先前一筆都不印）
+                print("  ✓ \(displaySafe(o.key, max: 200))  "
+                      + o.names.entries.map { displaySafe($0.value, max: 200) }.joined(separator: " ≡ "))
+                written += 1
+            } catch {
+                failed.append((key: o.key, why: "\(error)"))
+            }
+        }
+        if !failed.isEmpty {
+            print("write failed（單筆寫入失敗，已略過續跑）: \(failed.count)")
+            for f in failed {
+                print("  ✗ \(displaySafe(f.key, max: 200)) — \(displaySafe(f.why, max: 512))")
+            }
         }
         _ = try LibraryIndex(store: store).rebuild()
-        print("✓ 建立 \(written) 個 organization（共 \(total) 個候選）、index 已重建")
+        if failed.isEmpty {
+            print("✓ 建立 \(written) 個 organization（共 \(total) 個候選）、index 已重建")
+        } else {
+            print("⚠ 部分完成：建立 \(written) 個、\(failed.count) 個失敗、index 已重建")
+        }
+        // #154 verify 154-9：**這個呼叫點先前零測試覆蓋**——刪掉它全套 965 綠。
+        // `--apply` 是使用者最容易認定「做完了」的時刻，也是唯一留下永久痕跡的路徑。
         reportDropped()
         print("  下一步：akashic resolve-organizations 把 affiliations 的 literal 歸戶")
     }
@@ -444,14 +463,40 @@ struct ResolveOrganizations: ParsableCommand {
             if !(person.isEmpty && org.isEmpty), candidates.isEmpty {
                 throw ValidationError("--person / --org 的篩選條件沒有命中任何候選")
             }
+            // #154 verify 154-8：per-item 收容 + 先報告再 rebuild + `✓` 只在全綠。
+            //
+            // 原本 `try store.writePerson(p)` 直接往外擲，實測（三人命中同一 org、
+            // 中間那個檔案設 `uchg`）：第一個寫入、第二個失敗、第三個**從未被嘗試**、
+            // index 從未重建，而使用者只拿到一句 Foundation 原始錯誤，看不到哪些已經
+            // 落地。同一個檔案的 `ResolvePeople` 早為此修過三輪（R7/M21 per-item
+            // 收容、R9/M8 先印再 rebuild、R8/L29 `✓` 只在全綠）——org 側三條全沒
+            // 帶過來。這不是新設計，是把既有紀律平移。
             let updated = OrgResolver.apply(candidates, to: load.people)
             var written = 0
+            var failed: [(key: String, why: String)] = []
             for p in updated where !load.people.contains(where: { $0 == p }) {
-                try store.writePerson(p)
-                written += 1
+                do {
+                    try store.writePerson(p)
+                    written += 1
+                } catch {
+                    failed.append((key: p.key, why: "\(error)"))
+                }
+            }
+            // **先報失敗**：rebuild 可能自己再擲一次，那會把上面的清單吞掉
+            if !failed.isEmpty {
+                print("write failed（單筆寫入失敗，已略過續跑）: \(failed.count)")
+                for f in failed {
+                    print("  ✗ \(displaySafe(f.key, max: 200)) — \(displaySafe(f.why, max: 512))")
+                }
             }
             _ = try LibraryIndex(store: store).rebuild()
-            print("✓ 歸戶 \(candidates.count) 筆、改寫 \(written) 個 person、index 已重建")
+            // `✓` 只在全綠。報**寫入數**不是候選數——先前用 candidates.count，失敗時誇報
+            if failed.isEmpty {
+                print("✓ 歸戶 \(candidates.count) 筆、改寫 \(written) 個 person、index 已重建")
+            } else {
+                print("⚠ 部分完成：改寫 \(written) 個 person、\(failed.count) 個失敗、index 已重建")
+                throw ExitCode(1)
+            }
         } else {
             print("（只列候選；要套用加 --apply）")
         }

@@ -148,6 +148,42 @@ public enum OrgBootstrap {
         guard !asciiTokens.isEmpty else { return nil }
         let base = asciiTokens.prefix(6).joined(separator: "-")
         guard !base.isEmpty, StoreKey.isValid(base) else { return nil }
+        // **ASCII 產出要有實質內容**（#154 verify 154-7——NFKC 引入的回歸）。
+        //
+        // NFKC 會把符號殘渣折成 ASCII：`℡`→`tel`、`™`→`tm`、`Ⅲ`→`iii`、`①`→`1`、
+        // `（Ａ）`→`(a)`。於是純 CJK 機構名突然「產得出 key」——席位實測 8 個名字
+        // 有 6 個從**誠實列進 dropped** 變成產出垃圾 key，而且已用 `--apply` 實際
+        // 寫進 store：
+        //
+        //     中央研究院℡   → tel        國家衛生研究院℡ → tel-2
+        //     榮總２院區     → 2          第２醫院         → 2-2
+        //     臺大醫院２院區 → 2-3        長庚２院區       → 2-4
+        //
+        // 兩個毫不相干的機構被一個符號殘渣綁進同一個 key 家族，誰拿到 `tel`、誰拿到
+        // `tel-2` 只取決於分組排序。這**正好推翻 154-1 的目的**：判準本是「產不出
+        // key 就要說出來」，變成「產得出一個**假的** key 就不說了」——使用者失去的
+        // 資訊比靜默丟棄更多，因為 store 裡多了永久識別碼。
+        //
+        // 判準是 **ASCII 覆蓋率**，不是長度。第一版用「≥3 字元且含字母」——`tel`
+        // 剛好通過（3 個字母），沒修到。覆蓋率才貼根因：符號殘渣**依定義**只佔名字
+        // 的一小部分，真正的雙語名則以拉丁為主。實測分佈乾淨分開：
+        //
+        //     37% 中央研究院℡    28% 中央研究院™     25% 中研院①
+        //     25% 第２醫院       20% 榮總２院區      12% 中央研究院（Ａ）
+        //     33% 國立臺灣大學Ⅲ  ← 以上全是殘渣
+        //     ─────────────────────── 門檻 50% ───────────────────────
+        //     60% 臺大 NTU      73% 中央研究院 Academia Sinica
+        //     80% 國立臺灣大學 National Taiwan University
+        //    100% Ｎａｔｉｏｎａｌ…（全形拉丁）  100% ﬁnance Institute（ligature）
+        //
+        // 上下之間有 23 個百分點的空隙，門檻不敏感。另要求至少一個 ASCII **字母**
+        // ——純數字名（`2020`）的 slug 對人沒有意義。
+        let nfkcChars = name.filter { !$0.isWhitespace }
+        let asciiAlnum = nfkcChars.filter { $0.isASCII && ($0.isLetter || $0.isNumber) }
+        guard !nfkcChars.isEmpty,
+              asciiAlnum.count * 2 >= nfkcChars.count,
+              asciiAlnum.contains(where: { $0.isLetter })
+        else { return nil }
         if !taken.contains(base) { return base }
         for i in 2...99 where StoreKey.isValid("\(base)-\(i)") && !taken.contains("\(base)-\(i)") {
             return "\(base)-\(i)"

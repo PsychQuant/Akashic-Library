@@ -99,4 +99,21 @@ final class OrgBootstrapCLITests: XCTestCase {
         XCTAssertEqual(orgs.map(\.key), ["national-taiwan-university"],
                        "--apply 要真的寫進 store")
     }
+
+    /// **`--apply` 路徑也要列 dropped**（#154 verify 154-9）：`reportDropped()` 有三個
+    /// 呼叫點，先前只有「空候選」與「dry-run 列表」兩個被蓋住——刪掉 `--apply` 後面
+    /// 那個呼叫，全套 965 測試綠。而 `--apply` 正是使用者最容易認定「做完了」的
+    /// 時刻，也是唯一留下永久痕跡的路徑。
+    func testApplyAlsoListsDropped() throws {
+        try writePerson(key: "p-five",
+                        affiliations: ["National Taiwan University", "中央研究院"])
+        let r = try runCLI(["bootstrap-organizations", "--apply"])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("national-taiwan-university"), r.output)
+        XCTAssertTrue(r.output.contains("中央研究院"),
+                      "--apply 之後仍要說出哪些沒建起來：\n\(r.output)")
+        XCTAssertTrue(r.output.contains("無法自動產生 key"), r.output)
+        // 只建一個——dropped 的那個不得被建成垃圾 key
+        XCTAssertEqual(try store.load().organizations.map(\.key), ["national-taiwan-university"])
+    }
 }

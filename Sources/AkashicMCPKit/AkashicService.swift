@@ -379,7 +379,10 @@ public final class AkashicService {
                 var d: [String: Any] = ["key": displaySafe(lib.key, max: 200),
                                         "name": displaySafe(lib.name, max: 200),
                                         "members": counts[lib.key] ?? 0]   // display-safe-exempt: dict 查找，值是 Int 計數
-                if let desc = lib.description { d["description"] = desc }
+                // #156 verify R4：library 的自由文字，與 name 同源（上面兩行已消毒）
+                if let desc = lib.description {
+                    d["description"] = displaySafe(desc, max: 800)
+                }
                 return d
             })
         case "create":
@@ -723,8 +726,12 @@ public final class AkashicService {
         }
         if let prov = entry.provenance {
             var p: [String: Any] = ["zotero_key": prov.zoteroKey, "zotero_version": prov.zoteroVersion]
-            if let lid = prov.libraryID { p["library_id"] = lid }
-            if let hash = prov.zoteroHash { p["zotero_hash"] = hash }
+            if let lid = prov.libraryID { p["library_id"] = lid }   // display-safe-exempt: Int
+            // #156 verify R4：Zotero 來源的字串（雖為 hash 形狀，但本 binary 未驗證
+            // 它真的是 hash——那是 Zotero 寫進來的自由字串）
+            if let hash = prov.zoteroHash {
+                p["zotero_hash"] = displaySafe(hash, max: 200)
+            }
             let iso = ISO8601DateFormatter()
             if let at = prov.importedAt { p["imported_at"] = iso.string(from: at) }
             if let at = prov.orphanedAt {
@@ -734,9 +741,13 @@ public final class AkashicService {
             d["provenance"] = p
         }
         var akashic: [String: Any] = [:]
-        if !entry.akashic.tags.isEmpty { akashic["tags"] = entry.akashic.tags }
+        // #156 verify R4：`tags` 是自由文字，且 **#133 起 LLM 可經 MCP 寫入**
+        // ——來源面與 divergence 的 judgement 同級，優先於其他幾條
+        if !entry.akashic.tags.isEmpty {
+            akashic["tags"] = entry.akashic.tags.map { displaySafe($0, max: 200) }
+        }
         if !entry.akashic.libraries.isEmpty { akashic["libraries"] = entry.akashic.libraries }
-        if let status = entry.akashic.status { akashic["status"] = status }
+        if let status = entry.akashic.status { akashic["status"] = displaySafe(status, max: 200) }
         if !entry.akashic.relations.cites.isEmpty { akashic["cites"] = entry.akashic.relations.cites }
         if !entry.akashic.relations.related.isEmpty { akashic["related"] = entry.akashic.relations.related }
         d["akashic"] = akashic

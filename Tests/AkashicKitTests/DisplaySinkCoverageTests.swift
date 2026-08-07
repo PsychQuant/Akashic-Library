@@ -63,7 +63,25 @@ final class DisplaySinkCoverageTests: XCTestCase {
     ///
     /// 要排除必須寫進 `optOut` **並給理由**，跟 `display-safe-exempt` 同一個哲學：
     /// 逼人講出理由，而不是安靜跳過。
-    /// **理由必須是可否證的陳述**（#158 verify R3）——「無使用者可見輸出面」這種
+    /// **理由必須是可否證的陳述，而且量詞要附上能驗它的 grep**（#158 verify R3／R4）。
+    ///
+    /// R3 把「讀起來合理但沒人能檢查」的理由換成可否證的；R4 證明**可否證性起作用了**
+    /// ——席位用 `grep` 就把新寫的三條全部打臉，而**三條全部栽在量詞上**（「唯二」
+    /// 講的是別的模組、「同上」繼承了對自己為假的字面、「6 條」實際是 4 行）。
+    ///
+    /// 兩個教訓：
+    /// 1. **「同上」繼承的是字面、不是意圖**——兩條 import 模組的理由改成各自為真。
+    /// 2. **理由裡出現「唯一／唯二／零／N 條」時，附上那條 grep**。R4 的三次打臉
+    ///    都只需要一行 `grep -c`。
+    ///
+    /// R4 另外收回了「opt-out 模組不得含 `LocalizedError`」這個機械檢查的提案——
+    /// 它是**用形式當性質的 proxy**（正是 `common-spec-prose-enumeration` 要防的）：
+    /// 它會因為 `SQLiteError` 存在而擋下 `AkashicSQLite`，但擋的理由是錯的，真正的
+    /// 問題是 `bindFailed` 的 caller payload 與跨模組 SQL 不變式——兩個都不是
+    /// 「有沒有 LocalizedError」看得出來的。用錯的 proxy 擋對的東西，下次 proxy
+    /// 不成立時就靜默放行。
+    ///
+    /// **（歷史）R3 的三條假理由**——「無使用者可見輸出面」這種
     /// 讀起來合理但沒人能檢查的句子不算。R3 席位實測：第一版 7 條裡 **3 條是假的**，
     /// 而且錯的兩條正是我自己心虛、特地請席位攻擊的那兩條：
     ///
@@ -80,14 +98,18 @@ final class DisplaySinkCoverageTests: XCTestCase {
     ///   差別不是措辭：「無輸出面」＝以後沒人需要回來看；「有輸出面但目前不含
     ///   caller payload」＝以後有人往裡面塞 `citekey` 時理由當場失效、會被發現。
     static let optOut: [String: String] = [
-        "AkashicSQLite":
-            "有輸出面（SQLiteError 4 個 case／6 條 caseReturn），但只帶 sqlite3_errmsg "
-            + "與自產 SQL 文字、**不含 caller payload**（SQL 全走 bind 參數，無內插）",
-        "AkashicTestGuard": "test-only target，不進 release binary",
-        "AkashicTestGuardLoader": "同上",
+        "AkashicTestGuard": "test-only target（Package.swift 只被 .testTarget 依賴），不進 release binary",
+        "AkashicTestGuardLoader": "同上：test-only target，不進 release binary",
+        // #158 verify R4：**理由裡的量詞是最容易被打臉的部分**，所以附上能驗它的
+        // grep。上一版寫「全模組零 print(／return \"／throw；唯二的 return \" 是
+        // dedup key 構造」——前半對 Zotero 為真，但那「唯二」講的是 **WoS** 的程式碼，
+        // 而 WoS 的「同上」因此繼承了一句對它為假的陳述。「同上」繼承的是**字面**、
+        // 不是**意圖**，兩條都改成對自己為真。
         "AkashicZoteroImport":
-            "全模組零 print(／return \"／throw；唯二的 return \" 是 dedup key 構造",
-        "AkashicWoSImport": "同上",
+            "零輸出面：`grep -c 'print(\\|return \"\\|throw ' Sources/AkashicZoteroImport/*.swift` = 0",
+        "AkashicWoSImport":
+            "唯二的 `return \"` 是 dedup key 構造（WoSImport.swift:206/208，`\"doi:…\"` 與 "
+            + "`\"ty:…\"`，回傳值只進 Dictionary 的鍵、不進輸出）；無 print(、無 throw 帶 payload",
     ]
 
     /// **不得 opt-out、且必須真的在掃描面裡**的模組。兩個條件用同一份清單
@@ -95,7 +117,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
     static let mustScan = ["AkashicCore", "AkashicStoreIO", "AkashicEntity",
                            "akashic", "akashic-mcp", "AkashicMCPKit",
                            "AkashicQuery", "AkashicGraph", "AkashicAppKit",
-                           "AkashicExport", "AkashicIndex"]
+                           "AkashicExport", "AkashicIndex", "AkashicSQLite"]
 
     /// 實際被掃的模組目錄 = `Sources/` 底下全部，減去 `optOut`。
     ///

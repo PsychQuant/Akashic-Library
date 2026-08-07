@@ -383,6 +383,16 @@ public final class LibraryStore {
                     "升級方式見 writePerson 同型訊息", org.key)
             }
         }
+        // v7-only（attested，#70）——同上
+        if org.names.entries.contains(where: { !$0.range.attested.isEmpty })
+            || org.parents.entries.contains(where: { !$0.range.attested.isEmpty }) {
+            let format = try StoreVersion.read(root: root)
+            guard format >= 7 else {
+                throw StoreIOError.invalidKey(
+                    "organization（含 attested 段，需要 store format ≥ 7；本 store 是 \(format)）——" +
+                    "升級方式見 writePerson 同型訊息", org.key)
+            }
+        }
         let yaml = try OrganizationYAML.encode(org)
         let dest = entityURL(id: org.id)
         try atomicWrite(yaml, to: dest)
@@ -414,6 +424,16 @@ public final class LibraryStore {
                     "person（含 ended 段，需要 store format ≥ 6；本 store 是 \(format)）——" +
                     "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
                     "format: 改成 6（v6 只新增語法，既有資料不變）", person.key)
+            }
+        }
+        // v7-only 語法的 format gate（#70，同 ended gate 的機制與理由）
+        if person.profile.usesAttested {
+            let format = try StoreVersion.read(root: root)
+            guard format >= 7 else {
+                throw StoreIOError.invalidKey(
+                    "person（含 attested 段，需要 store format ≥ 7；本 store 是 \(format)）——" +
+                    "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                    "format: 改成 7（v7 只新增語法，既有資料不變）", person.key)
             }
         }
         let yaml = try PersonYAML.encode(person)

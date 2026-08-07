@@ -19,7 +19,9 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
 ├── Sources/AkashicGraph         關係圖模型、鄰域展開、Mermaid/DOT/GraphML
 └── Sources/akashic              CLI：import-zotero / import-wos / validate /
                                  export-bib / export-tables / resolve-people /
-                                 bootstrap-people / doctor / query / graph /
+                                 bootstrap-people / bootstrap-organizations /
+                                 resolve-organizations / update-person /
+                                 doctor / query / graph /
                                  rename / record-divergence / resolve-divergence /
                                  authorize-names / fmt / library / file / migrate
 mcps/                            MCP server submodules（che-zotero-mcp、che-biblatex-mcp）
@@ -117,6 +119,25 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 > [YAML 輸入 profile](docs/specs/2026-08-01-akashic-yaml-input-profile-design.md)（#33，
 > 設計定案、實作待 #25 merge）——收窄 store 接受的 YAML 語法子集，讓未知欄位容忍層
 > 只需處理「未知的 key」而非「YAML 的全部語法」。
+
+### 實體歸戶的兩步（人／機構同紀律）
+
+`literal`（未歸戶的裸字串）是**合法的長期狀態**，不是待清理的髒資料。要把它變成
+指向實體的 `key`，兩個 CLI 分工，中間隔著人的確認：
+
+| 步驟 | 人 | 機構 |
+|---|---|---|
+| 1. 建實體（從 literal 分組） | `bootstrap-people` | `bootstrap-organizations` |
+| 2. 歸戶（literal → key） | `resolve-people` | `resolve-organizations` |
+
+兩步都預設**只列候選**，`--apply` 才寫入；`--min-occurrences N` 依出現次數過濾
+（投報率優先）。**絕不自動合併**：正規化（NFKC／連字號家族／不可見字元）只住配對
+鍵，同一個正規化名對到 2 個以上實體即判歧義、整組排除，交人裁決。
+
+**已知限制**：`bootstrap-organizations` 的 key 取機構名的 ASCII 字母數字 token
+——雙語寫法（`國立臺灣大學 National Taiwan University`）用英文部分產 key；純 CJK
+（無任何 ASCII token）產不出 key，會列在「無法自動產生 key」清單裡等人工指定，
+**不會靜默消失**。
 
 ### Store 格式版本
 

@@ -976,6 +976,49 @@ public extension LibraryLoad {
         }.map(\.key).sorted()
     }
 
+    /// 日期樣欄位不合 ISO 8601 前綴值域的值（#85，裁決 (c)：不驗證但報告）。
+    ///
+    /// **這是報告，不是錯誤**：`2004-13-99` 是歷史資料裡真實會出現的東西（民國年、
+    /// 手誤、來源系統的格式），fail-closed 會讓一筆可疑值變成整檔 quarantine
+    /// （#131 實測的同型災難）。報告帶原值——修復需要知道原本寫了什麼。
+    ///
+    /// **缺席不是異常**：`endedUnknown` 段的 `end` 缺席是合法（#63），`start` 缺席
+    /// 也是——只看「在場但不合值域」（#131 F1 的同型教訓：用語意判準，不裸看 nil）。
+    ///
+    /// 掃描清單手寫、由測試以反射計數防腐（`PersonProfile` 新增 timeline 維度時
+    /// 測試變紅提醒接線）——同 `fieldsLostByMerging` 的紀律。
+    func dateFieldAnomalies() -> [(key: String, field: String, value: String)] {
+        var out: [(key: String, field: String, value: String)] = []
+        func check(_ v: String?, key: String, field: String) {
+            guard let v, !v.isEmpty, !ISO8601Prefix.isValid(v) else { return }
+            out.append((key: key, field: field, value: v))
+        }
+        func scan<V>(_ t: TimelineOf<V>, key: String, dim: String) {
+            for (i, seg) in t.entries.enumerated() {
+                check(seg.range.start, key: key, field: "\(dim)[\(i)].start")
+                check(seg.range.end, key: key, field: "\(dim)[\(i)].end")
+            }
+        }
+        for p in people.sorted(by: { $0.key < $1.key }) {
+            check(p.died, key: p.key, field: "died")
+            scan(p.profile.affiliations, key: p.key, dim: "affiliations")
+            scan(p.profile.ranks, key: p.key, dim: "ranks")
+            scan(p.profile.administrative, key: p.key, dim: "administrative")
+            scan(p.profile.appointments, key: p.key, dim: "appointments")
+            scan(p.profile.fields, key: p.key, dim: "fields")
+            for (name, t) in p.profile.contacts.sorted(by: { $0.key < $1.key }) {
+                scan(t, key: p.key, dim: "contacts.\(name)")
+            }
+        }
+        for o in organizations.sorted(by: { $0.key < $1.key }) {
+            check(o.founded, key: o.key, field: "founded")
+            check(o.dissolved, key: o.key, field: "dissolved")
+            scan(o.names, key: o.key, dim: "names")
+            scan(o.parents, key: o.key, dim: "parents")
+        }
+        return out
+    }
+
     /// public（#76）：MCP doctor 也要看得到跨記錄警告——「同一個 store 從兩個
     /// consumer 看到不同的事實」是 #71 第 7 條（承載必須可觀察）的直接違反。
     func crossRecordIssues() -> [ValidationIssue] {

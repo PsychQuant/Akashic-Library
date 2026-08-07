@@ -84,6 +84,17 @@ struct Doctor: ParsableCommand {
             // 之後等於讓操作者拿不到其餘待修記錄，而總數不等於清單。
             deceasedOpen.forEach { print("  ⚠ \(displaySafe($0, max: 120))") }
         }
+        // #85：日期樣欄位不合 ISO 8601 前綴值域——裁決 (c)：不驗證但報告。
+        // **只在命中時輸出**（同 deceasedOpen：待人處理的工作清單，列全部不截斷）。
+        let dateAnomalies = load.dateFieldAnomalies()
+        if !dateAnomalies.isEmpty {
+            print("date-like values outside ISO 8601 prefix: \(dateAnomalies.count)"
+                  + "（值域是文件契約、載入不擋；民國年等真實情況請補正或留註記）")
+            dateAnomalies.forEach {
+                print("  ⚠ \(displaySafe($0.key, max: 120)).\(displaySafe($0.field, max: 120))："
+                      + "「\(displaySafe($0.value, max: 200))」")
+            }
+        }
         if !load.quarantined.isEmpty {
             print("quarantined: \(load.quarantined.count)")
             load.quarantineLines.forEach { print($0) }

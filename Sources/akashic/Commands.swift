@@ -343,6 +343,97 @@ struct BootstrapPeople: ParsableCommand {
     }
 }
 
+/// #70 第三題：從 literal 機構名建立 organization 記錄（門檻同 bootstrap-people）。
+struct BootstrapOrganizations: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "bootstrap-organizations",
+        abstract: "從 literal 機構名（affiliations／parents）建立 organization 記錄")
+
+    @OptionGroup var options: LibraryOptions
+    @Flag(name: .long, help: "實際寫入（預設只列出）") var apply = false
+    @Option(name: .long, help: "只處理出現次數 ≥ N 的（投報率優先）") var minOccurrences: Int = 1
+    @Option(name: .long, help: "最多處理前 N 個") var limit: Int?
+
+    func run() throws {
+        let store = try options.openStore()
+        let load = try store.load()
+        var cands = OrgBootstrap.candidates(people: load.people, organizations: load.organizations)
+            .filter { $0.occurrences >= minOccurrences }
+        let total = cands.count
+        if let limit { cands = Array(cands.prefix(limit)) }
+        guard !cands.isEmpty else {
+            print("無候選（literal 機構名皆已有對應 organization，或全部低於門檻）")
+            return
+        }
+        for c in cands.prefix(apply ? 0 : 20) {
+            let aliases = c.names.map { displaySafe($0, max: 200) }.joined(separator: " ≡ ")
+            print("  \(displaySafe(c.key, max: 200))  ×\(c.occurrences)  \(aliases)")
+        }
+        if !apply {
+            if total > 20 { print("  …共 \(total) 個（只列前 20）") }
+            print("（只列候選；要建立加 --apply）")
+            return
+        }
+        var written = 0
+        for o in OrgBootstrap.organizationsFor(cands) {
+            try store.writeOrganization(o)
+            written += 1
+        }
+        _ = try LibraryIndex(store: store).rebuild()
+        print("✓ 建立 \(written) 個 organization（共 \(total) 個候選）、index 已重建")
+        print("  下一步：akashic resolve-organizations 把 affiliations 的 literal 歸戶")
+    }
+}
+
+/// #70 第二題：literal 機構名 → organization key 的高信心歸戶（絕不自動合併）。
+struct ResolveOrganizations: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "resolve-organizations",
+        abstract: "列出 literal→organization 高信心候選；--apply 才寫入")
+
+    @OptionGroup var options: LibraryOptions
+    @Flag(name: .long, help: "套用候選（顯式人工確認）；可用 --person / --org 收窄") var apply = false
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "只套用這些 person key 的候選") var person: [String] = []
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "只套用指向這些 organization key 的候選") var org: [String] = []
+
+    func run() throws {
+        let store = try options.openStore()
+        let load = try store.load()
+        let all = OrgResolver.candidates(people: load.people, organizations: load.organizations)
+        let pkSet = Set(person), okSet = Set(org)
+        let candidates = all.filter {
+            (pkSet.isEmpty || pkSet.contains($0.personKey))
+                && (okSet.isEmpty || okSet.contains($0.orgKey))
+        }
+        guard !all.isEmpty else {
+            print("無候選（affiliation literal 皆無 org name 完全命中）")
+            return
+        }
+        let selected = Set(candidates.map { "\($0.personKey)#\($0.literal)" })
+        for c in all {
+            let mark = (apply && !selected.contains("\(c.personKey)#\(c.literal)")) ? "  (skip) " : "  "
+            print("\(mark)\(displaySafe(c.personKey, max: 200)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
+        }
+        if apply {
+            if !(person.isEmpty && org.isEmpty), candidates.isEmpty {
+                throw ValidationError("--person / --org 的篩選條件沒有命中任何候選")
+            }
+            let updated = OrgResolver.apply(candidates, to: load.people)
+            var written = 0
+            for p in updated where !load.people.contains(where: { $0 == p }) {
+                try store.writePerson(p)
+                written += 1
+            }
+            _ = try LibraryIndex(store: store).rebuild()
+            print("✓ 歸戶 \(candidates.count) 筆、改寫 \(written) 個 person、index 已重建")
+        } else {
+            print("（只列候選；要套用加 --apply）")
+        }
+    }
+}
+
 /// #21：WoS 匯出 → entries。
 struct ImportWoS: ParsableCommand {
     static let configuration = CommandConfiguration(

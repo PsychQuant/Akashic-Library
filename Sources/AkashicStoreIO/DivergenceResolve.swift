@@ -921,7 +921,18 @@ extension LibraryStore {
         // 這件事——`Person.names` 的 doc 明寫「順序不帶語意（#81）」，`Entry.authors`
         // **沒有**對應聲明，而 work 的作者順序在學術慣例上帶語意（第一作者、通訊作者）。
         // 同集合不同序＝需要人裁決，不自動選一邊。
-        else if keeper.authors.map(identity) != e.authors.map(identity),
+        // **比對前先 dedupe**（#157 verify 157-21）：`else if` 的 `Set(…) == keeperAuthors`
+        // 擋得住集合差異，擋不住**重數**差異。keeper 帶既存重複作者時：
+        //
+        //     keeper = [a, a]、doomed = [a]  → 報「順序不同」
+        //
+        // 順序**沒有**不同（dedupe 後兩邊都是 `[a]`），而且 doomed 是 keeper 的子集、
+        // **什麼都不會失去**——訊息宣稱的理由不成立，與這幾輪一直在收的「訊息說假話」
+        // 同類。而 keeper 帶既存重複是本 repo **明文保護**的狀態
+        //（`testUnrelatedRecordWithDuplicateAuthorsLeftAlone`：「既存的重複不該被順手
+        // 折疊——消歧不是清理工具」），所以可達性不是理論的。
+        else if dedupePreservingOrder(keeper.authors.map(identity))
+                    != dedupePreservingOrder(e.authors.map(identity)),
                 Set(e.authors.map(identity)) == keeperAuthors {
             losses.append("authors（同一組作者但**順序不同**，work 的作者順序帶語意，需人確認）")
         }
@@ -939,6 +950,21 @@ extension LibraryStore {
         //    前綴相容的放行，不證成「值不同也放行」。person 側結構相同的 `died` 對
         //    同一組輸入會報，其 doc 說得很清楚：不同日期「是對『這兩筆是不是同一個
         //    人』的反證，或至少是一個必須有人裁決的來源衝突」。
+        // **title 只比缺席方向**（#157 verify 157-22）——這一格不是純排除。
+        //
+        // 排除 `type`/`title` 的理由明寫是「keeper 的寫法**就是人選的 canonical
+        // form**」，而 `""` **不是任何人選的 form，它是缺席**。實測 fail-open：
+        //
+        //     keeper.title = ""、doomed.title = "The Only Real Title"
+        //     → losses == []  → exit=0 → 唯一的真標題消失，零訊息
+        //
+        // 這是這幾輪唯一一個 **fail-open**（其餘 finding 都是 fail-closed 的誤拒 +
+        // 錯訊息）。而且結構與 157-7 同構：`validate` 已經印過「⚠ title 為空」，
+        // 系統早就知道，合併閘卻不看。
+        //
+        // **兩邊都非空的 title 差異仍刻意不擋**（#71 R2 DA 的誤拒教訓），只補缺席方向。
+        if keeper.title.isEmpty, !e.title.isEmpty { losses.append("title: \(e.title)") }
+        if keeper.type.isEmpty, !e.type.isEmpty { losses.append("type: \(e.type)") }
         // date 用同一個三態骨架，但衝突判定換成前綴相容（見 ISO8601Prefix.compatible）。
         // **訊息不宣稱「互斥」**（#157 verify 157-12）：`2003/2004` 是 EDTF 區間、
         // 包含 2003，`2020-03-15T10:00` 是同一時點的更高精度——`compatible` 對它們
@@ -1010,20 +1036,24 @@ extension LibraryStore {
     /// work 合併比對**刻意排除**的欄位（#157 verify 157-1 的取捨，明寫讓「排除」與
     /// 「忘記」可分辨）：
     ///
-    /// - `type` / `title`：要求相等會直接重演 #71 R2 DA 的誤拒——同一篇的兩筆記錄
-    ///   title 大小寫／副標題本來就會不同，而 keeper 的寫法**就是人選的 canonical
-    ///   form**。合併的語意是「keeper 的表述勝出」，不是「兩邊必須一致」。
+    /// - `type` / `title`：**部分比對，不是純排除**（#157 verify 157-22）。
+    ///   要求**相等**會直接重演 #71 R2 DA 的誤拒——同一篇的兩筆記錄 title 大小寫／
+    ///   副標題本來就會不同，而 keeper 的寫法**就是人選的 canonical form**。合併的
+    ///   語意是「keeper 的表述勝出」，不是「兩邊必須一致」。
+    ///   **但 `""` 不是任何人選的 form，它是缺席**——所以只比缺席方向（keeper 空、
+    ///   被併者非空 → 報）。這與本函式其他欄位的「空值＝缺席」是同一條規則，
+    ///   先前漏了這一格，造成本函式唯一的 **fail-open**（唯一的真標題靜默消失）。
     /// - `id` / `citekey`：身分，不隨合併移動（同 person 側的 key/id）。
     ///
     /// **逐一對到 `Entry` 的 11 個儲存屬性**（#157 verify 157-10：原本寫「這五個 +
     /// 上方的六類 = 11」，兩個數都錯，只是 5+6 湊巧等於 11——排除項是 4 個、比對
     /// 的是 7 個。湊得出總數不代表對得上）：
     ///
-    /// | 比對（7） | 排除（4） |
-    /// |---|---|
-    /// | `fields`、`attachments`、`akashic`（tags／libraries／status／relations／unknownFields 五個子欄位都在裡面，**收合成一個屬性算**）、`authors`、`date`、`unknownFields`、`provenance` | `type`、`title`、`id`、`citekey` |
+    /// | 比對（7） | **部分比對**（2） | 排除（2） |
+    /// |---|---|---|
+    /// | `fields`、`attachments`、`akashic`（tags／libraries／status／relations／unknownFields 五個子欄位都在裡面，**收合成一個屬性算**）、`authors`、`date`、`unknownFields`、`provenance` | `type`、`title`——**只比缺席方向**（見下） | `id`、`citekey` |
     ///
-    /// 7 + 4 = 11，由 `testEntryFieldCoverageOfMergeCheck` 以反射釘住。
+    /// 7 + 2 + 2 = 11，由 `testEntryFieldCoverageOfMergeCheck` 以反射釘住。
     ///
     /// **反射只釘頂層**（#157 verify 157-9）：`AkashicMeta`／`Relations`／`Provenance`
     /// 的巢狀屬性另有各自的計數斷言——歷史上 schema 演化正是發生在 `akashic` 那層

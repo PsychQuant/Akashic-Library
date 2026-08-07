@@ -397,4 +397,50 @@ final class WorkMergeFieldsTests: XCTestCase {
         doomed.authors = [.literal("A"), .literal("B")]
         XCTAssertTrue(LibraryStore.fieldsLostByMerging(doomed, into: keeper).isEmpty)
     }
+
+    // MARK: - #157 最終裁決的兩項
+
+    /// **157-21**：157-19 的修法自己帶進來的誤拒。`Set(…) == keeperAuthors` 擋得住
+    /// 集合差異，擋不住**重數**差異——keeper 帶既存重複時，doomed 的真子集會被報成
+    /// 「順序不同」，而順序沒有不同、且什麼都不會失去。
+    ///
+    /// 可達性不是理論的：keeper 帶既存重複是本 repo **明文保護**的狀態
+    ///（`testUnrelatedRecordWithDuplicateAuthorsLeftAlone`：「消歧不是清理工具」）。
+    func testDuplicateAuthorsInKeeperAreNotReportedAsOrderDifference() {
+        func l(keeper ka: [Author], doomed da: [Author]) -> [String] {
+            var keeper = Entry(id: UUID(), citekey: "k", type: "article", title: "T")
+            keeper.authors = ka
+            var doomed = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
+            doomed.authors = da
+            return LibraryStore.fieldsLostByMerging(doomed, into: keeper)
+        }
+        XCTAssertTrue(l(keeper: [.key("a"), .key("a")], doomed: [.key("a")]).isEmpty,
+                      "keeper 既存重複、doomed 是子集——什麼都不會失去")
+        XCTAssertFalse(l(keeper: [.key("a"), .key("b")], doomed: [.key("b"), .key("a")]).isEmpty,
+                       "同集合反序仍要報——不得為了修上一條把 157-19 關掉")
+    }
+
+    /// **157-22**：本函式唯一的 **fail-open**——keeper 空標題靜默吞掉被併者的唯一標題。
+    ///
+    /// 排除 `type`/`title` 的理由是「keeper 的寫法就是人選的 canonical form」，
+    /// 而 `""` 不是任何人選的 form、它是缺席。`validate` 已經印過「⚠ title 為空」，
+    /// 系統早就知道，合併閘卻不看——與 157-7 的結構同構。
+    func testEmptyKeeperTitleDoesNotSwallowDoomedTitle() {
+        func losses(keeperTitle kt: String, doomedTitle dt: String) -> [String] {
+            let keeper = Entry(id: UUID(), citekey: "k", type: "article", title: kt)
+            let doomed = Entry(id: UUID(), citekey: "d", type: "article", title: dt)
+            return LibraryStore.fieldsLostByMerging(doomed, into: keeper)
+        }
+        XCTAssertTrue(losses(keeperTitle: "", doomedTitle: "The Only Real Title")
+            .contains { $0.contains("The Only Real Title") },
+            "keeper 空標題不得吞掉被併者的唯一標題")
+        XCTAssertTrue(losses(keeperTitle: "Short", doomedTitle: "Short: A Longer Subtitle").isEmpty,
+                      "兩邊都非空的 title 差異仍**刻意不擋**（#71 R2 DA 的誤拒教訓）")
+        // type 同一格
+        var k = Entry(id: UUID(), citekey: "k", type: "", title: "T")
+        k.type = ""
+        let d = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
+        XCTAssertTrue(LibraryStore.fieldsLostByMerging(d, into: k)
+            .contains { $0.hasPrefix("type:") }, "type 的空值同理")
+    }
 }

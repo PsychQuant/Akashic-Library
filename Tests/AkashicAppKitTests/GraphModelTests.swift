@@ -279,6 +279,10 @@ final class GraphModelTests: XCTestCase {
     /// 拿到不同 store」在型別上不可表達（#101 的事故形狀）。這條測試釘住的是
     /// **同一個實例的兩次呼叫指向同一份 index**；若日後有人把方法改回 static 收
     /// store 參數，這裡的寫法會編不過。
+    /// **shape pin，不是回歸網**（#160 verify 160-2 的措辭下修）：它釘住
+    /// 「`GraphModel` 是可實例化的、init 原樣保存 store」這個形狀，讓改回 static
+    /// 或在 init 裡重造 store 都編不過／變紅。但套件層級的偵測能力沒有增加——
+    /// 它殺得死的 mutation，既有的 #101 測試都殺得死。
     func testInstanceSharesStoreAcrossRebuildAndQuery() throws {
         let store = try sandboxStore(key: "main")
         let model = GraphModel(store: store)
@@ -286,7 +290,14 @@ final class GraphModelTests: XCTestCase {
         let snap = try model.query(focus: "aaa2020first", depth: 1)
         XCTAssertFalse(snap.neighborhood.nodes.isEmpty,
                        "同一實例：rebuild 寫的 index 就是 query 讀的那份")
-        // store 是 let——實例存續期間不可換掉（型別層的「同一個 store」保證）
+        // #160 verify 160-2：原本這裡的註解寫「store 是 let——實例存續期間不可
+        // 換掉（型別層保證）」。**那是這條測試驗不了的**——`let` 是編譯器的事，
+        // runtime 斷言碰不到；席位實測把 `let` 改成 `var`，954 tests 全綠。
+        //
+        // 它實際釘住的只有「init 有沒有把你給的 store 原樣存起來」（丟掉 key 的
+        // mutation 確實會殺死它）——但同一個 mutation 也被既有的 #101 測試殺死，
+        // 所以這條**沒有 unique kill**。保留為 shape pin，不宣稱是回歸網。
+        XCTAssertEqual(model.store.key, "main", "init 不得改動傳入的 store（含 registry key）")
         XCTAssertEqual(model.store.indexURL, store.indexURL)
     }
 

@@ -194,7 +194,13 @@ cd AkashicApp && xcodegen generate && xcodebuild -scheme AkashicApp build   # �
 > 同一個理由讓 `GraphModel` 是**持有 store 的實例**而非 static 函式集（#125）：
 > 「索引重建與圖查詢必須用同一個 store」從前只寫在註解裡，而註解在編不出錯的
 > target 裡沒有約束力——#101 的事故（keyless 重建寫進另一份 index、查詢讀不到）
-> 在型別上仍可重演。改成實例後那件事不可表達。
+> 在型別上仍可重演。改成實例後 **API 允許**把 store 綁定一次讓兩個方法共用。
+>
+> **但呼叫端還沒採用**（#160 verify 兩席獨立指出，措辭已下修）：`GraphView` 的兩
+> 個站點各自 `GraphModel(store: state.store)`，是兩個獨立實例——事故形狀在型別上
+> 仍可寫出來，今天沒事靠的是「兩個呼叫同步相鄰」這個**時序**巧合。要讓保證真的
+> 生效得把實例 hoist 成單一 binding，而那會引入 stale 問題（`AppState.store` 是
+> computed、切檔時會變），需連同重建契約一起做。#125 追蹤。
 
 管理工作台：Sidebar 健康總覽、列表＋詳情（biblatex 唯讀／衍生層可編／rename）、
 裁決台三頁籤（People 逐候選、Orphans 三選——刪檔進垃圾桶可救回、Quarantine）、

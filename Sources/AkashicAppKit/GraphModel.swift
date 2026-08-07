@@ -15,11 +15,27 @@ import AkashicStoreIO
 /// 只寫在註解裡，型別不擋。#101 的事故形狀（keyless 重建寫進另一份 index、query
 /// 讀不到）因此在型別上仍可重演，而 `AkashicApp/` 不在測試範圍、編得過就過。
 ///
-/// 改成實例後那件事**在型別上不可表達**：store 在構造時決定一次，兩個方法共用。
+/// 改成實例後，**API 允許**把 store 綁定一次、兩個方法共用。
 ///
-/// **誠實邊界**：它擋不住 `GraphModel(store: LibraryStore(root:))`——「registry
-/// 解析過的 store」要成為型別事實需要 #125 的第三層（resolved-store wrapper），
-/// 那會動 150+ 個站點、屬另案。這一層只消滅「兩個呼叫拿到不同 store」的形狀。
+/// **誠實邊界（下修過的宣稱——#160 verify 兩席獨立指出原文過度）**：
+///
+/// 1. **「在型別上不可表達」只對單一實例的兩次呼叫成立，而生產程式碼沒有採用
+///    那個模式。** `GraphView.swift:199` 與 `:211` 各自 `GraphModel(store: state.store)`
+///    ——兩個獨立實例、分屬兩個函式。席位把 #125 issue body 的事故程式碼逐字
+///    翻成新 API，**編得過而且重現同一個事故**（keyless 重建在已註冊 store 裡長出
+///    `.akashic/index.sqlite`、query 開不了檔）。今天沒事只因為
+///    `rebuildIndexThenGraph()` 同步接著呼叫 `rebuild()`——那是**時序**保證，不是
+///    型別保證。這一層提供了機制，事故現場尚未啟用它。
+/// 2. **它擋不住 `GraphModel(store: LibraryStore(root:))`**——「registry 解析過的
+///    store」要成為型別事實需要 #125 的第三層（resolved-store wrapper），那會動
+///    150+ 個站點、屬另案。
+///
+/// 為什麼不直接 hoist 成單一 binding（那才會讓保證生效）：`AppState.store` 是
+/// **computed property**，每次存取用當下的 `root`/`storeKey` 現造一顆，而那兩個是
+/// `private(set) var`（`switchFile` 會改）。被持有的實例切檔後會指著舊 library
+/// （席位實測 `stale=true`）。要 hoist 就得連同重建契約一起做——`FileWatcher` 已有
+/// 正確範本（`AkashicApp.swift:53-82` 的 `switchFile` 負責重建 watcher），但那是
+/// 另一個改動的體量。#125 追蹤。
 public struct GraphModel {
 
     /// 一次查詢的成果：鄰域（畫什麼）+ 初始佈局（畫在哪）。
@@ -29,18 +45,24 @@ public struct GraphModel {
         public let layout: ForceLayout
     }
 
-    /// 外部變更後的索引重建（全庫掃描，不放在互動路徑上）。
+    /// 構造時決定 store——之後的所有操作都用它（見型別 doc 的誠實邊界）。
     ///
-    /// index 的**位置**由 `store` 的 key/environment 決定（#101：帶 key →
-    /// `<home>/index/<key>.sqlite`；keyless → in-store `.akashic/index.sqlite`）。
-    /// 呼叫端一律用 `AppState.store`，不得自己 `LibraryStore(root:)`。
-    /// 構造時決定 store——之後的所有操作都用它（見型別 doc）。
+    /// **插入位置紀律**（#160 verify 160-4，**同型第四次**——#157 157-4、#136 F1、
+    /// #59）：這個 property 當初被插進 `rebuildIndex` 的 doc comment 與它的宣告
+    /// 之間，於是那段 doc 掛到了 property 上、方法自己零註解。被孤兒化的正是
+    /// 「呼叫端一律用 `AppState.store`，不得自己 `LibraryStore(root:)`」——本型別
+    /// 誠實邊界第 2 條所依賴的那句話。**新成員不得插進既有 API 的 doc 與宣告之間。**
     public let store: LibraryStore
 
     public init(store: LibraryStore) {
         self.store = store
     }
 
+    /// 外部變更後的索引重建（全庫掃描，不放在互動路徑上）。
+    ///
+    /// index 的**位置**由 `store` 的 key/environment 決定（#101：帶 key →
+    /// `<home>/index/<key>.sqlite`；keyless → in-store `.akashic/index.sqlite`）。
+    /// 呼叫端一律用 `AppState.store`，不得自己 `LibraryStore(root:)`。
     public func rebuildIndex() throws {
         _ = try LibraryIndex(store: store).rebuild()
     }

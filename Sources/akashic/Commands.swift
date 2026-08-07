@@ -357,12 +357,31 @@ struct BootstrapOrganizations: ParsableCommand {
     func run() throws {
         let store = try options.openStore()
         let load = try store.load()
-        var cands = OrgBootstrap.candidates(people: load.people, organizations: load.organizations)
-            .filter { $0.occurrences >= minOccurrences }
+        let result = OrgBootstrap.result(people: load.people, organizations: load.organizations)
+        var cands = result.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }
+
+        // #154 verify 154-1：產不出合法 key 的機構名**不靜默丟**——含 CJK 的名字
+        // （台灣機構的雙語寫法最常見）無 ASCII token 時無法 slug，要明列，否則
+        // 使用者以為「都建好了」。過濾門檻同 candidates。
+        let dropped = result.dropped.filter { $0.occurrences >= minOccurrences }
+        func reportDropped() {
+            guard !dropped.isEmpty else { return }
+            print("另有 \(dropped.count) 個機構名無法自動產生 key（含非 ASCII、需人工指定）：")
+            for d in dropped.prefix(20) {
+                print("  ⚠ 「\(displaySafe(d.name, max: 200))」 ×\(d.occurrences)")
+            }
+            if dropped.count > 20 { print("  …共 \(dropped.count) 個") }
+        }
+
         guard !cands.isEmpty else {
-            print("無候選（literal 機構名皆已有對應 organization，或全部低於門檻）")
+            if dropped.isEmpty {
+                print("無候選（literal 機構名皆已有對應 organization，或全部低於門檻）")
+            } else {
+                print("無可自動建立的候選——但有機構名產不出 key（見下）")
+                reportDropped()
+            }
             return
         }
         for c in cands.prefix(apply ? 0 : 20) {
@@ -371,16 +390,21 @@ struct BootstrapOrganizations: ParsableCommand {
         }
         if !apply {
             if total > 20 { print("  …共 \(total) 個（只列前 20）") }
+            reportDropped()
             print("（只列候選；要建立加 --apply）")
             return
         }
         var written = 0
         for o in OrgBootstrap.organizationsFor(cands) {
             try store.writeOrganization(o)
+            // #154 verify 附帶：apply 時列出建了什麼（先前一筆都不印）
+            print("  ✓ \(displaySafe(o.key, max: 200))  "
+                  + o.names.entries.map { displaySafe($0.value, max: 200) }.joined(separator: " ≡ "))
             written += 1
         }
         _ = try LibraryIndex(store: store).rebuild()
         print("✓ 建立 \(written) 個 organization（共 \(total) 個候選）、index 已重建")
+        reportDropped()
         print("  下一步：akashic resolve-organizations 把 affiliations 的 literal 歸戶")
     }
 }

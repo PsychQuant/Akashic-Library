@@ -57,13 +57,26 @@ final class OrgBootstrapResolveTests: XCTestCase {
         XCTAssertEqual(cands.first?.names, ["Academia Sinica"])
     }
 
-    /// **已知限制**（同 person bootstrap，#140 verify 附帶觀察）：純 CJK 機構名
-    /// slug 後全是非 ASCII、產不出合法 StoreKey → 不出候選。真實 affiliation 常
-    /// 有英文形式可用；中文-only 機構需人先給 key（或未來羅馬拼音支援）。
-    func testBootstrapCJKOnlyNameProducesNoCandidate() {
+    /// #154 verify 154-1：雙語名（台灣機構最常見）用**英文 token** 產 key——
+    /// 曾因含 CJK 讓整個候選被丟。
+    func testBootstrapBilingualNameUsesAsciiTokens() {
+        let people = [personWith("a", affiliations: [
+            .literal("國立臺灣大學 National Taiwan University")])]
+        let cands = OrgBootstrap.candidates(people: people, organizations: [])
+        XCTAssertEqual(cands.count, 1, "雙語名不該被丟")
+        XCTAssertEqual(cands.first?.key, "national-taiwan-university",
+                       "key 取 ASCII token：\(cands)")
+        XCTAssertEqual(cands.first?.names, ["國立臺灣大學 National Taiwan University"],
+                       "names 保留原字串")
+    }
+
+    /// 純 CJK（無 ASCII token）仍產不出 key——但**不靜默丟**，進 result.dropped。
+    func testCJKOnlyNameGoesToDroppedNotSilent() {
         let people = [personWith("a", affiliations: [.literal("中央研究院統計科學研究所")])]
-        XCTAssertTrue(OrgBootstrap.candidates(people: people, organizations: []).isEmpty,
-                      "純 CJK 名產不出 ASCII key——已知限制")
+        let result = OrgBootstrap.result(people: people, organizations: [])
+        XCTAssertTrue(result.candidates.isEmpty, "純 CJK 產不出 key")
+        XCTAssertEqual(result.dropped.count, 1, "但要進 dropped 讓 CLI 說出來")
+        XCTAssertEqual(result.dropped.first?.name, "中央研究院統計科學研究所")
     }
 
     func testOrganizationsForBuildsNamesTimeline() {

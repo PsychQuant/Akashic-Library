@@ -12,6 +12,12 @@ import AkashicCore
 /// 交人確認）。正規化只住配對鍵（`NameNormalization.matchingKey`，#81），輸出的
 /// `names` 是原字串——「中央研究院」「中研院」「Academia Sinica」各自保留寫法為
 /// variant，否則下次遇到那個寫法又重新分割一次。
+///
+/// **key 產生的定義域**（#154 verify 154-1）：key 取機構名的**ASCII 字母數字
+/// token**——雙語寫法（`國立臺灣大學 National Taiwan University`，台灣機構最常見）
+/// 用英文部分產 key。純 CJK（無任何 ASCII token）產不出 key，但**不靜默丟**：
+/// 進 `result` 的 `dropped`，由 CLI 明列（需人工指定 key）。用 `result`（帶
+/// dropped）而非 `candidates`（只有能建的）才看得到全貌。
 public enum OrgBootstrap {
 
     public struct Candidate: Equatable {
@@ -22,6 +28,19 @@ public enum OrgBootstrap {
             self.key = key
             self.names = names
             self.occurrences = occurrences
+        }
+    }
+
+    /// 產不出合法 key 而被丟棄的機構名（#154 verify 154-1）——**不能靜默丟**：
+    /// 使用者看到 N 個候選，不知道其實有 N+M 個機構名、M 個因無 ASCII 可 slug
+    /// 被略過。CLI 據此明列，而非讓 `無候選` 訊息誤導成「都已建好或低於門檻」。
+    public struct Result: Equatable {
+        public var candidates: [Candidate]
+        public var dropped: [(name: String, occurrences: Int)]
+        public static func == (a: Result, b: Result) -> Bool {
+            a.candidates == b.candidates
+                && a.dropped.map { "\($0.name)|\($0.occurrences)" }
+                    == b.dropped.map { "\($0.name)|\($0.occurrences)" }
         }
     }
 
@@ -73,21 +92,62 @@ public enum OrgBootstrap {
         }
     }
 
-    /// 機構名 → key slug。機構名不做 `Last, First` 重排（那是人名的慣例）——
-    /// 直接 slug 全名，取前幾個 token 避免 key 過長。
+    /// 候選 + 丟棄清單（#154 verify 154-1）：產不出 key 的機構名要能被 CLI 說出來，
+    /// 不是靜默消失。與 `candidates` 共用分組邏輯——`candidates` 保留為 API。
+    public static func result(people: [Person],
+                              organizations: [Organization]) -> Result {
+        let known = Set(organizations.flatMap { org in
+            org.names.entries.map { NameNormalization.matchingKey($0.value) }
+        })
+        var takenKeys = Set(organizations.map(\.key))
+
+        var groups: [String: (names: [String], count: Int)] = [:]
+        for raw in literalOrgNames(people: people, organizations: organizations) {
+            let name = CorporateName.unmark(raw).trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else { continue }
+            let id = NameNormalization.matchingKey(name)
+            guard !known.contains(id) else { continue }
+            var g = groups[id] ?? ([], 0)
+            if !g.names.contains(name) { g.names.append(name) }
+            g.count += 1
+            groups[id] = g
+        }
+
+        var cands: [Candidate] = []
+        var dropped: [(name: String, occurrences: Int)] = []
+        for (_, g) in groups.sorted(by: {
+            $0.value.count == $1.value.count ? $0.key < $1.key : $0.value.count > $1.value.count
+        }) {
+            let sortedNames = g.names.sorted()
+            if let key = suggestedKey(from: sortedNames[0], taken: takenKeys) {
+                takenKeys.insert(key)
+                cands.append(Candidate(key: key, names: sortedNames, occurrences: g.count))
+            } else {
+                dropped.append((name: sortedNames[0], occurrences: g.count))
+            }
+        }
+        return Result(candidates: cands, dropped: dropped)
+    }
+
+    /// 機構名 → key slug。機構名不做 `Last, First` 重排（那是人名的慣例）。
     ///
-    /// **已知限制**（同 `PersonBootstrap.suggestedKey`，#140 verify 附帶觀察）：純
-    /// CJK 名 slug 後全是非 ASCII、`StoreKey.isValid` 不過 → 回 nil、該候選被丟。
-    /// 真實 affiliation 多半有英文形式可用；中文-only 機構需人先給 key。
+    /// **只取 ASCII token**（#154 verify 154-1）：台灣機構最常見的寫法是雙語
+    /// （`國立臺灣大學 National Taiwan University`），英文名就在同一字串裡——slug
+    /// 全名會因 CJH 字元讓 `StoreKey.isValid` 失敗、整個候選被丟。改成濾出**純
+    /// ASCII 字母數字的 token**（CJK token 略過），雙語名用英文部分產 key。
+    ///
+    /// **殘留限制**：純 CJK（無任何 ASCII token）仍產不出 key → 回 nil，由
+    /// `result` 的 `dropped` 回報、CLI 明列（不再靜默）。中文-only 機構需人先給 key。
     static func suggestedKey(from name: String, taken: Set<String>) -> String? {
-        let tokens = name.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
-        guard !tokens.isEmpty else { return nil }
-        func slug(_ s: String) -> String {
-            String(s.map { $0.isLetter || $0.isNumber ? $0 : "-" })
+        // token 內只保留 ASCII 字母數字；含 CJK 的 token slug 後為空、被濾掉
+        func asciiSlug(_ s: String) -> String {
+            String(s.lowercased().map { ($0.isASCII && ($0.isLetter || $0.isNumber)) ? $0 : "-" })
                 .split(separator: "-").joined(separator: "-")
         }
-        // 前 4 個 token 足以辨識（「Institute of Statistical Science」→ institute-of-statistical-science）
-        let base = tokens.prefix(4).map(slug).filter { !$0.isEmpty }.joined(separator: "-")
+        let asciiTokens = name.split(whereSeparator: \.isWhitespace)
+            .map { asciiSlug(String($0)) }.filter { !$0.isEmpty }
+        guard !asciiTokens.isEmpty else { return nil }
+        let base = asciiTokens.prefix(6).joined(separator: "-")
         guard !base.isEmpty, StoreKey.isValid(base) else { return nil }
         if !taken.contains(base) { return base }
         for i in 2...99 where StoreKey.isValid("\(base)-\(i)") && !taken.contains("\(base)-\(i)") {

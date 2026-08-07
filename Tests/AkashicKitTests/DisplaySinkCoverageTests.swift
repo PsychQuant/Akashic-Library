@@ -169,6 +169,15 @@ final class DisplaySinkCoverageTests: XCTestCase {
         var out: [String] = []
         // subscript 指派：`d["key"] = <expr>` / `result["key"] = <expr>`。取 `] = `
         // 之後到行尾（Swift 的 subscript 指派本來就是一個完整敘述）。
+        //
+        // **已知限制**（實掃 66 個站點後記錄，#156 verify R3 的追問）：
+        // - 每行只取**第一個** `"] = `——同行兩個 subscript 指派時第二個看不到（實掃
+        //   無此形狀，但不是保證）。
+        // - 值在**下一行**時抽到空字串（`d["k"] =` 換行接 expr）→ 落回續行盲區
+        //   （#162），與整個判準的既有限制一致，不是這條新增的洞。
+        // - 尾隨的 `}`（`if let x = … { d["k"] = x }`）會被含進表達式，對 token 比對
+        //   無影響；`displaySafe(` 與 `{` 結尾的既有豁免照常生效。
+        // - 字串**字面量**內含 `"] = ` 會誤中（實掃無此形狀）——真出現時加具名 exempt。
         if let r = line.range(of: "\"] = ") {
             let v = line[r.upperBound...].trimmingCharacters(in: .whitespaces)
             if !v.isEmpty { out.append(v) }

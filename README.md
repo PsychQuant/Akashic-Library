@@ -19,7 +19,9 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
 ├── Sources/AkashicGraph         關係圖模型、鄰域展開、Mermaid/DOT/GraphML
 └── Sources/akashic              CLI：import-zotero / import-wos / validate /
                                  export-bib / export-tables / resolve-people /
-                                 bootstrap-people / doctor / query / graph /
+                                 bootstrap-people / bootstrap-organizations /
+                                 resolve-organizations / update-person /
+                                 doctor / query / graph /
                                  rename / record-divergence / resolve-divergence /
                                  authorize-names / fmt / library / file / migrate
 mcps/                            MCP server submodules（che-zotero-mcp、che-biblatex-mcp）
@@ -117,6 +119,41 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 > [YAML 輸入 profile](docs/specs/2026-08-01-akashic-yaml-input-profile-design.md)（#33，
 > 設計定案、實作待 #25 merge）——收窄 store 接受的 YAML 語法子集，讓未知欄位容忍層
 > 只需處理「未知的 key」而非「YAML 的全部語法」。
+
+### 實體歸戶的兩步（人／機構同紀律）
+
+`literal`（未歸戶的裸字串）是**合法的長期狀態**，不是待清理的髒資料。要把它變成
+指向實體的 `key`，兩個 CLI 分工，中間隔著人的確認：
+
+| 步驟 | 人 | 機構 |
+|---|---|---|
+| 1. 建實體（從 literal 分組） | `bootstrap-people` | `bootstrap-organizations` |
+| 2. 歸戶（literal → key） | `resolve-people` | `resolve-organizations` |
+
+兩步都預設**只列候選**，`--apply` 才寫入；`--min-occurrences N` 依出現次數過濾
+（投報率優先）。**絕不自動合併**：正規化（NFKC／連字號家族／不可見字元）只住配對
+鍵，同一個正規化名對到 2 個以上實體即判歧義、整組排除，交人裁決。
+
+**已知限制**：`bootstrap-organizations` 的 key 取機構名 **NFKC 正規化後**的 ASCII
+字母數字 token——雙語寫法（`國立臺灣大學 National Taiwan University`）用英文部分產
+key，全形拉丁（`Ｎａｔｉｏｎａｌ…`，CJK 輸入法下的常見產物）先折回 ASCII 再取。
+正規化只用於**產 key**，`names` 一律保留原字串。
+
+**產 key 的門檻是 ASCII 覆蓋率 ≥ 50%**，不是「有沒有 ASCII token」。NFKC 會把符號
+殘渣折成 ASCII（`℡`→`tel`、`②`→`2`、`Ⅲ`→`iii`），若只看「有沒有」，純 CJK 名字會
+突然產出**垃圾 key** 並寫進 store——那比靜默丟棄更糟（多了永久識別碼）。覆蓋率把
+殘渣（12–37%）與真雙語名（60–100%）分開，中間有 23 個百分點的空隙。
+
+低於門檻的會列在「無法自動產生 key」清單裡等人工指定，**不會靜默消失**。已知的
+**誤擋**：「CJK 全名 + 拉丁縮寫」（`國立臺灣大學 NTU` 27%）會被擋，因為分母是字元數
+而 CJK 資訊密度遠高於拉丁——判準跟著「中文名有多長」跑，不是跟著「拉丁部分是不是
+好 key」跑。失敗模式是**誠實的**（明列、請人給 key），不是資料汙染。中文-only 機構
+同樣只能人先給 key。完整殘留清單見 `Sources/AkashicEntity/OrgBootstrap.swift` 的型別 doc。
+
+**`--apply` 的部分失敗**：單筆寫入失敗不中斷後續（per-item 收容），失敗項逐一列出、
+index 照常重建，且**輸出用 `⚠ 部分完成` 而非 `✓`、exit code 為 1**——`--apply` 常被
+chain（`bootstrap-organizations --apply && resolve-organizations --apply`），exit 0
+會讓半途失敗的結果若無其事往下走。兩個 org 指令的語意一致。
 
 ### Store 格式版本
 

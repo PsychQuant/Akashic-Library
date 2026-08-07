@@ -343,6 +343,180 @@ struct BootstrapPeople: ParsableCommand {
     }
 }
 
+/// #70 第三題：從 literal 機構名建立 organization 記錄（門檻同 bootstrap-people）。
+struct BootstrapOrganizations: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "bootstrap-organizations",
+        abstract: "從 literal 機構名（affiliations／parents）建立 organization 記錄")
+
+    @OptionGroup var options: LibraryOptions
+    @Flag(name: .long, help: "實際寫入（預設只列出）") var apply = false
+    @Option(name: .long, help: "只處理出現次數 ≥ N 的（投報率優先）") var minOccurrences: Int = 1
+    @Option(name: .long, help: "最多處理前 N 個") var limit: Int?
+
+    func run() throws {
+        let store = try options.openStore()
+        let load = try store.load()
+        let result = OrgBootstrap.result(people: load.people, organizations: load.organizations)
+        var cands = result.candidates.filter { $0.occurrences >= minOccurrences }
+        let total = cands.count
+        if let limit { cands = Array(cands.prefix(limit)) }
+
+        // #154 verify 154-1：產不出合法 key 的機構名**不靜默丟**——含 CJK 的名字
+        // （台灣機構的雙語寫法最常見）無 ASCII token 時無法 slug，要明列，否則
+        // 使用者以為「都建好了」。過濾門檻同 candidates。
+        let dropped = result.dropped.filter { $0.occurrences >= minOccurrences }
+        func reportDropped() {
+            guard !dropped.isEmpty else { return }
+            print("另有 \(dropped.count) 個機構名無法自動產生 key（含非 ASCII、需人工指定）：")
+            for d in dropped.prefix(20) {
+                print("  ⚠ 「\(displaySafe(d.name, max: 200))」 ×\(d.occurrences)")
+            }
+            if dropped.count > 20 { print("  …共 \(dropped.count) 個") }
+        }
+
+        guard !cands.isEmpty else {
+            if dropped.isEmpty {
+                print("無候選（literal 機構名皆已有對應 organization，或全部低於門檻）")
+            } else {
+                print("無可自動建立的候選——但有機構名產不出 key（見下）")
+                reportDropped()
+            }
+            return
+        }
+        for c in cands.prefix(apply ? 0 : 20) {
+            let aliases = c.names.map { displaySafe($0, max: 200) }.joined(separator: " ≡ ")
+            print("  \(displaySafe(c.key, max: 200))  ×\(c.occurrences)  \(aliases)")
+        }
+        if !apply {
+            if total > 20 { print("  …共 \(total) 個（只列前 20）") }
+            reportDropped()
+            print("（只列候選；要建立加 --apply）")
+            return
+        }
+        // #154 verify 154-8：per-item 收容（同 ResolveOrganizations 與 ResolvePeople
+        // 的既有紀律）——中途失敗不得讓其餘候選連試都沒試，也不得吞掉已建立的清單。
+        var written = 0
+        var failed: [(key: String, why: String)] = []
+        for o in OrgBootstrap.organizationsFor(cands) {
+            do {
+                try store.writeOrganization(o)
+                // #154 verify 附帶：apply 時列出建了什麼（先前一筆都不印）
+                print("  ✓ \(displaySafe(o.key, max: 200))  "
+                      + o.names.entries.map { displaySafe($0.value, max: 200) }.joined(separator: " ≡ "))
+                written += 1
+            } catch {
+                failed.append((key: o.key, why: "\(error)"))
+            }
+        }
+        if !failed.isEmpty {
+            print("write failed（單筆寫入失敗，已略過續跑）: \(failed.count)")
+            for f in failed {
+                print("  ✗ \(displaySafe(f.key, max: 200)) — \(displaySafe(f.why, max: 512))")
+            }
+        }
+        _ = try LibraryIndex(store: store).rebuild()
+        if failed.isEmpty {
+            print("✓ 建立 \(written) 個 organization（共 \(total) 個候選）、index 已重建")
+        } else {
+            print("⚠ 部分完成：建立 \(written) 個、\(failed.count) 個失敗、index 已重建")
+        }
+        // exit code 見下方 reportDropped 之後——**不能在這裡 throw**，否則會吞掉
+        // dropped 清單與「下一步」提示（#154 verify 154-13）
+        // #154 verify 154-9：**這個呼叫點先前零測試覆蓋**——刪掉它全套 965 綠。
+        // `--apply` 是使用者最容易認定「做完了」的時刻，也是唯一留下永久痕跡的路徑。
+        reportDropped()
+        print("  下一步：akashic resolve-organizations 把 affiliations 的 literal 歸戶")
+        // #154 verify 154-13：部分失敗時 exit 1，與 `resolve-organizations` 對齊。
+        // 先前只有 resolve 側 throw——而 `--apply` 正是最常被 chain 的一步（輸出
+        // 自己就寫著「下一步：…」），bootstrap 半途失敗時
+        // `bootstrap-organizations --apply && resolve-organizations --apply`
+        // 會若無其事往下走。**放在 reportDropped 與「下一步」之後**，否則會吞掉它們。
+        if !failed.isEmpty { throw ExitCode(1) }
+    }
+}
+
+/// #70 第二題：literal 機構名 → organization key 的高信心歸戶（絕不自動合併）。
+struct ResolveOrganizations: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "resolve-organizations",
+        abstract: "列出 literal→organization 高信心候選；--apply 才寫入")
+
+    @OptionGroup var options: LibraryOptions
+    @Flag(name: .long, help: "套用候選（顯式人工確認）；可用 --person / --org 收窄") var apply = false
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "只套用這些 person key 的候選") var person: [String] = []
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "只套用指向這些 organization key 的候選") var org: [String] = []
+
+    func run() throws {
+        let store = try options.openStore()
+        let load = try store.load()
+        let all = OrgResolver.candidates(people: load.people, organizations: load.organizations)
+        let pkSet = Set(person), okSet = Set(org)
+        let candidates = all.filter {
+            (pkSet.isEmpty || pkSet.contains($0.personKey))
+                && (okSet.isEmpty || okSet.contains($0.orgKey))
+        }
+        guard !all.isEmpty else {
+            print("無候選（affiliation literal 皆無 org name 完全命中）")
+            return
+        }
+        let selected = Set(candidates.map { "\($0.personKey)#\($0.literal)" })
+        for c in all {
+            let mark = (apply && !selected.contains("\(c.personKey)#\(c.literal)")) ? "  (skip) " : "  "
+            print("\(mark)\(displaySafe(c.personKey, max: 200)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
+        }
+        if apply {
+            if !(person.isEmpty && org.isEmpty), candidates.isEmpty {
+                throw ValidationError("--person / --org 的篩選條件沒有命中任何候選")
+            }
+            // #154 verify 154-8：per-item 收容 + 先報告再 rebuild + `✓` 只在全綠。
+            //
+            // 原本 `try store.writePerson(p)` 直接往外擲，實測（三人命中同一 org、
+            // 中間那個檔案設 `uchg`）：第一個寫入、第二個失敗、第三個**從未被嘗試**、
+            // index 從未重建，而使用者只拿到一句 Foundation 原始錯誤，看不到哪些已經
+            // 落地。同一個檔案的 `ResolvePeople` 早為此修過三輪（R7/M21 per-item
+            // 收容、R9/M8 先印再 rebuild、R8/L29 `✓` 只在全綠）——org 側三條全沒
+            // 帶過來。這不是新設計，是把既有紀律平移。
+            let updated = OrgResolver.apply(candidates, to: load.people)
+            var written = 0
+            var failed: [(key: String, why: String)] = []
+            for p in updated where !load.people.contains(where: { $0 == p }) {
+                do {
+                    try store.writePerson(p)
+                    written += 1
+                } catch {
+                    failed.append((key: p.key, why: "\(error)"))
+                }
+            }
+            // **先報失敗**：rebuild 可能自己再擲一次，那會把上面的清單吞掉
+            if !failed.isEmpty {
+                print("write failed（單筆寫入失敗，已略過續跑）: \(failed.count)")
+                for f in failed {
+                    print("  ✗ \(displaySafe(f.key, max: 200)) — \(displaySafe(f.why, max: 512))")
+                }
+            }
+            _ = try LibraryIndex(store: store).rebuild()
+            // `✓` 只在全綠。報**寫入數**不是候選數——先前用 candidates.count，失敗時誇報
+            if failed.isEmpty {
+                print("✓ 歸戶 \(candidates.count) 筆、改寫 \(written) 個 person、index 已重建")
+            } else {
+                print("⚠ 部分完成：改寫 \(written) 個 person、\(failed.count) 個失敗、index 已重建")
+                // **throw 必須在本次執行所有該印的東西之後**（#154 verify R4 Q2）。
+                // 這裡 `if apply` 區塊尾端目前沒有其他 print，所以就地 throw 成立；
+                // 但**下一次可能被違反的正是這裡**——有人在區塊尾端加一行 print
+                // 就會被這個 throw 吞掉，而且不會有任何東西提醒他。
+                // （bootstrap-organizations 那邊因為 throw 之後還有 reportDropped 與
+                // 「下一步」，所以 throw 放在函式最後。同一個不變式、不同位置。）
+                throw ExitCode(1)
+            }
+        } else {
+            print("（只列候選；要套用加 --apply）")
+        }
+    }
+}
+
 /// #21：WoS 匯出 → entries。
 struct ImportWoS: ParsableCommand {
     static let configuration = CommandConfiguration(

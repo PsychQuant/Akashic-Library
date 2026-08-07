@@ -118,6 +118,19 @@ extension LibraryStore {
         guard usesEntitiesLayout else {
             throw DivergenceResolveError.legacyLayout(root: root.path)
         }
+        // **divergence 的 format gate**（#74，歸屬回填 5——使用者拍板 2026-08-07）：
+        // 形狀標籤是 strict（#131 判準），format ≤ 4 世代的 binary 讀到 `divergence:`
+        // 即整檔 quarantine——在 format < 5 的 store 寫入等於替舊 binary 埋地雷。
+        // 拒絕而非自動 bump：升 marker 會讓其餘 binary（MCP/App）整庫拒開，
+        // 必須是使用者知情的動作（同 writePerson 的 ended gate，#131 Codex-H2）。
+        let format = try StoreVersion.read(root: root)
+        guard format >= 5 else {
+            throw StoreIOError.invalidInput(
+                what: "divergence 記錄（需要 store format ≥ 5；本 store 是 \(format)）",
+                why: "divergence 形狀標籤對 format \(format) 世代的 binary 是整檔 "
+                    + "quarantine。確認會碰這個 store 的 CLI/MCP/App 都已升級後，"
+                    + "把 store.yaml 的 format: 改成 5（或更高）再寫入")
+        }
         // 候選鍵的 write-time 驗證，與其他每一條寫入路徑一致。**理由不是 path
         // traversal**（R1 的 DA 已證明候選鍵從未進過任何路徑），而是
         // `Divergence.validate()` 對畸形候選鍵報 error——沒有這道守衛，工具就能寫出
@@ -564,7 +577,13 @@ extension LibraryStore {
         // 剩下的只有磁碟層錯誤——那才是下面逐筆收容要處理的。
         try keeperEncode()
         for e in entriesToWrite { _ = try EntryYAML.encode(e) }
-        for d in otherToWrite { _ = try DivergenceYAML.encode(d) }
+        // #147 verify F1：預檢必須**完整鏡射**寫入條件（本 helper 存在的理由）——
+        // 曾只 encode 不跑 assertDivergenceWritable，format gate 加入後 format < 5
+        // store 上的消歧走到寫入才失敗：倖存者已改寫、參照已改、刪除被跳過的撕裂。
+        for d in otherToWrite {
+            try assertDivergenceWritable(d)
+            _ = try DivergenceYAML.encode(d)
+        }
 
         var report = ResolveReport()
         // #78-1（#139 verify F5 上移）：可預期的刪除失敗在**動任何磁碟之前**檢查

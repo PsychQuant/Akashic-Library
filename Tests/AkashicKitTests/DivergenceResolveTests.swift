@@ -356,8 +356,8 @@ final class DivergenceResolveTests: XCTestCase {
     /// #139 R2 複驗的 R1：work 側 preview 驗證的 regression——person 側有測試守著、
     /// work 側沒有＝留著 F1（兩條路徑分開維護）的復發面。
     func testWorkPreviewRejectsCandidateMissingSameAsActual() throws {
-        var e1 = Entry(id: UUID(), citekey: "w2020a", type: "article", title: "A")
-        var e2 = Entry(id: UUID(), citekey: "w2021b", type: "article", title: "B")
+        let e1 = Entry(id: UUID(), citekey: "w2020a", type: "article", title: "A")
+        let e2 = Entry(id: UUID(), citekey: "w2021b", type: "article", title: "B")
         try store.writeEntry(e1)
         try store.writeEntry(e2)
         let d = Divergence(

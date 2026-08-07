@@ -373,15 +373,25 @@ canary 攔下。那不成立——關聯匯出不經過 canary，而 canary 的�
 （已故卻仍有開放的隸屬段），`doctor` **MUST** 報告它，並 **MUST NOT** 代為關閉：
 把隸屬的結束日設成死亡日是推論，而人可能離職多年後才過世。
 
-### 內容不驗證（與既有日期欄位同慣例）
+### 內容不驗證，但 doctor 報告（#85 的裁決，四欄位一致適用）
 
 上表的三種精度是**值域的描述**，不是解碼器強制的約束。`died` 的內容**不驗證**——
 與 `DateRange` 的 `start` / `end`、`organization` 的 `founded` / `dissolved` 同慣例。
 解碼只拒絕**形狀**錯誤（sequence / mapping）；`2004-13-99` 或 `not-a-date` 會被原樣收下。
 
 理由與整個 store 一致：內容的可信度屬使用端的判斷，而 fail-closed 的內容驗證會讓一筆
-可疑的歷史記錄變成整個 store 載入不了。**要改成驗證是跨欄位的決定**（同時影響上述四個
-欄位），不屬本節範圍。
+可疑的**歷史資料**變成整個 store 載入不了（quarantine 對舊 binary 的實際後果是
+「人檔消失」）。而「只知道民國某年」這類真實情況在拒絕式驗證下會被擋死——不確定性
+是正式的資料狀態（§8）。
+
+**#85 把這個沿襲變成裁決**：值域是文件契約、驗證是 `doctor` 報告、載入不擋。
+`doctor` 對四個日期樣欄位（`DateRange.start`/`end`、`founded`/`dissolved`、`died`）
+逐筆列出不合值域的值（key＋欄位＋原值，命中才輸出）。**`entry.date` 刻意不在掃描
+範圍**：biblatex/EDTF 允許區間、季節、約略與 `unknown`/`open`——它的值域屬
+biblatex 契約，ISO 前綴檢查對它全是假陽性——回報而非拒絕，判斷屬使用端，
+與重疊報告、authorized-name 缺口報告同一形狀。值域判定只驗月 01–12、日 01–31，
+**不驗日曆**（`2004-02-30` 通過）——日曆級驗證需要曆法假設，對歷史資料是另一個裁決。
+`endedUnknown` 段的 `end` 缺席是合法而非缺值，報告用 `isOpen` 語意、不裸看 `nil`。
 
 （缺席的**記法**——`null` / `~` / `NULL` / 空白——不在此列：那些不是值，會在邊界被
 正規化成缺席，見上一節。）
@@ -685,9 +695,10 @@ index 一起被清掉。
 | 2 | `entities/<uuid>.yaml`（#35，見 §5.-1）| 結構重排；舊 binary 看到空的 `entries/` 而回報「0 entries」——一個**看起來成功的錯誤答案** |
 | 3 | 記錄形狀改由**裸標籤**標示，不再由 `type:` 的值標示 | 舊 binary 看不到 `type: person`，走全稱後備判成 work、decode 失敗 |
 | 4 | 新增 organization 形狀；person 的隸屬值由字串升成**指涉或字面** | 舊 binary 不認得 `organization:` 標籤，也讀不懂 `{key: …}` 形式的隸屬值 |
-| 5 | 廢除「`names` 第一個是顯示名」，改由 `authorized` 指定（#81，見 §3.1）| **欄位語意變更**。`authorized` 對舊 binary 是未知欄位、會被保留，但保留不等於遵守——舊 binary 仍會把 `names[0]` 當顯示名，並在一次 read-modify-write 裡重排 `names` 而不自知 |
+| 5 | 廢除「`names` 第一個是顯示名」，改由 `authorized` 指定（#81，見 §3.1）；**`divergence` 形狀歸屬本版**（#71 引入、#74 回填歸屬） | **欄位語意變更**。`authorized` 對舊 binary 是未知欄位、會被保留，但保留不等於遵守——舊 binary 仍會把 `names[0]` 當顯示名，並在一次 read-modify-write 裡重排 `names` 而不自知。`divergence:` 形狀標籤對 ≤4 世代 binary 是整檔 quarantine（形狀標籤是 strict——#131 判準重評，曾誤標 additive）；`writeDivergence` 對 format < 5 的 store 拒寫＋指路（#74） |
+| 6 | 時間軸段內新增 `ended: true`（已結束、時點未知，#63）；null-face 對齊 | **段內鍵是 strict**——tolerant-preserve 的開放層只涵蓋記錄頂層與 `akashic` namespace，舊 binary 讀到 `ended` 是整檔 quarantine（人檔消失）而非保留。`writePerson` 對 format < 6 的 store 拒寫含 ended 段的記錄＋指路（#131） |
 
-3 與 4 曾經發生而未回寫本表；#81 一併補齊。
+3 與 4 曾經發生而未回寫本表（#81 補齊）；6 曾漏補（#74 一併回寫）。**「資料鍵變保留字」同屬版本歸屬**：`divergence` 成為形狀標籤使同名頂層鍵在 ≥5 成為保留字——這與形狀標籤機制（format 3）的既有語意一致，不另立規則（#74 後果二）。`akashic migrate` 是使用者知情動作：它把 store 升到 supported 版本，升版後舊 binary 整庫拒開是 refuse-if-newer 的**預期**行為，不是 migrate 的缺陷（#74 後果三，文件化現況）。
 
 ### v1.3：tolerant-preserve（開放演化層）
 
@@ -963,7 +974,9 @@ rests-on:
    兩者的**空值**同樣 **MUST** 拒收（空 `question` 亦然）：空的斷言不是判斷，空的摘要
    不是依據，而空的問題不是未決的問題。
 4. 記錄 **MUST NOT** 帶「已解決」狀態。消歧完成時整筆刪除，歷史託給版本控制而非 store。
-5. `divergence` **MUST** 只存在於 `entities/` 佈局（format ≥ 2）。legacy 下 person 落在
+5. `divergence` **MUST** 只存在於 format ≥ 5 的 store（版本歸屬見 §5 版本對照表，
+   #74 回填；寫入 gate 對 format < 5 拒寫＋指路）。佈局前提（`entities/`）由版本
+   歸屬蘊含——format ≥ 5 必然 ≥ 2。legacy 下 person 落在
    `people/<key>.yaml` 而刪除只認 `entities/<uuid>.yaml`——寫得進去、刪不掉。
 
 6. 候選鍵 **MUST** 在寫入時通過 `StoreKey` 驗證，與其他每一條寫入路徑一致。理由不是

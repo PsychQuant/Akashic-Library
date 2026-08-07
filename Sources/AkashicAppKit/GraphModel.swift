@@ -10,6 +10,7 @@ import AkashicStoreIO
 /// 範圍——#109 只把它納入 CI **build**，而「用哪個 store、寫/讀哪份 index」這類缺陷
 /// （#101 R2 的實證：keyless 重建讓同一 store 長出兩份各自漂移的 index）不是編譯錯誤，
 /// build-only 檢查結構上抓不到。view 層只留 SwiftUI 殼與 generation token 併發契約。
+///
 /// **持有單一 store 的實例**（#125 第二層）：`rebuildIndex` 與 `query` 從前是
 /// 兩個各收一個 `LibraryStore` 的 static func——「兩個呼叫必須拿到同一個 store」
 /// 只寫在註解裡，型別不擋。#101 的事故形狀（keyless 重建寫進另一份 index、query
@@ -23,12 +24,25 @@ import AkashicStoreIO
 ///    那個模式。** `GraphView.swift:199` 與 `:211` 各自 `GraphModel(store: state.store)`
 ///    ——兩個獨立實例、分屬兩個函式。席位把 #125 issue body 的事故程式碼逐字
 ///    翻成新 API，**編得過而且重現同一個事故**（keyless 重建在已註冊 store 裡長出
-///    `.akashic/index.sqlite`、query 開不了檔）。今天沒事只因為
-///    `rebuildIndexThenGraph()` 同步接著呼叫 `rebuild()`——那是**時序**保證，不是
-///    型別保證。這一層提供了機制，事故現場尚未啟用它。
+///    `.akashic/index.sqlite`、query 開不了檔）。
+///
+///    **今天沒事靠兩條腿，而承重的是第一條**（#160 verify 160-8）：
+///    (a) 兩個站點都傳 `state.store`——全 `AkashicApp/Sources/` 的 `LibraryStore(`
+///        出現 **0 次**。但這條**只有註解在擋**（`// #101：一律走 state.store`），
+///        正是 #125 要取代的那種擋法。
+///    (b) 兩個呼叫在 `rebuildIndexThenGraph()` 內 MainActor 同步相鄰，
+///        `root`/`storeKey` 來不及被 `switchFile` 改——**時序上確定**（呼叫鏈是
+///        同步的，不是巧合）。
+///
+///    先前只寫了 (b)，會讓讀者以為剩下的風險是時序問題（聽起來像併發細節）；
+///    真正的風險是**構造紀律**，也就是 #125 本體。這一層提供了機制，事故現場
+///    尚未啟用它。
 /// 2. **它擋不住 `GraphModel(store: LibraryStore(root:))`**——「registry 解析過的
 ///    store」要成為型別事實需要 #125 的第三層（resolved-store wrapper），那會動
-///    150+ 個站點、屬另案。
+///    **170 個構造點（production 12、tests 158）**——席位 R2 量到 169/11，我複核
+///    時是 170/12（差 1 在這輪的編輯本身）。數字會漂，重點是**比例**：production 只佔 12。
+///    先前寫「150+ 個站點」易被讀成 production 有 150 個；拆開之後第三層反而
+///    看起來**更可行**。屬另案。
 ///
 /// 為什麼不直接 hoist 成單一 binding（那才會讓保證生效）：`AppState.store` 是
 /// **computed property**，每次存取用當下的 `root`/`storeKey` 現造一顆，而那兩個是

@@ -292,7 +292,7 @@ final class GraphModelTests: XCTestCase {
                        "同一實例：rebuild 寫的 index 就是 query 讀的那份")
         // #160 verify 160-2：原本這裡的註解寫「store 是 let——實例存續期間不可
         // 換掉（型別層保證）」。**那是這條測試驗不了的**——`let` 是編譯器的事，
-        // runtime 斷言碰不到；席位實測把 `let` 改成 `var`，954 tests 全綠。
+        // runtime 斷言碰不到；席位實測把 `let` 改成 `var`，全套件全綠（R2 席在乾淨樹複核為 951；R1 的 954 含它自己加的 probe——數字本來就會漂移，所以不寫死）。
         //
         // 它實際釘住的只有「init 有沒有把你給的 store 原樣存起來」（丟掉 key 的
         // mutation 確實會殺死它）——但同一個 mutation 也被既有的 #101 測試殺死，

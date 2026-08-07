@@ -35,15 +35,25 @@ public struct DateRange: Equatable, Comparable {
     /// 舊 binary 讀到本欄位是整檔 quarantine（人檔消失）而非保留（#74 判準的
     /// 實際教訓：判 additive 前先確認新鍵落在哪一層）。
     public var endedUnknown: Bool
+    /// **觀測點列表**（#70）：「這幾個時點觀測到成立」——起訖皆不明時的一等知識
+    /// 狀態，`ended`（#63）的鏡像。把發表年填 `start` 是「從那年起」的偽造斷言；
+    /// 同人同機構 5 篇論文＝5 個觀測點，各點日後可掛 #66 的 reference 逐點溯源。
+    /// 非空時 `start`／`end`／`endedUnknown` **必須**全缺席（encode/decode 拒矛盾）。
+    /// **non-additive，format 7**：段內鍵是 strict（#63/#74 判準），舊 binary 讀到
+    /// 即整檔 quarantine——write gate 對 format < 7 拒寫。
+    public var attested: [String]
 
-    public init(start: String? = nil, end: String? = nil, endedUnknown: Bool = false) {
+    public init(start: String? = nil, end: String? = nil, endedUnknown: Bool = false,
+                attested: [String] = []) {
         self.start = start
         self.end = end
         self.endedUnknown = endedUnknown
+        self.attested = attested
     }
 
     /// 是否仍在進行中——`current`／status 推導的根。
-    public var isOpen: Bool { end == nil && !endedUnknown }
+    /// attested-only 段不是進行中：有觀測不等於現況（#70）。
+    public var isOpen: Bool { end == nil && !endedUnknown && attested.isEmpty }
 
     /// 字典序比較（ISO 8601 前綴的排序 == 時間順序）。`nil` start 排最後——
     /// 沒有起點的區間放前面會讓時間軸從一個未知開始。
@@ -74,8 +84,13 @@ public struct DateRange: Equatable, Comparable {
             return r.endedUnknown ? 2 : 3
         }
         guard endRank(a) == endRank(b) else { return endRank(a) < endRank(b) }
-        if let ae = a.end, let be = b.end { return ae < be }
-        return false   // rank 相同且 end 相等（或皆 nil）→ 三欄位全等 → 相等
+        if let ae = a.end, let be = b.end, ae != be { return ae < be }
+        // attested 也入序（#70；#143 的教訓：synthesized == 的**每個**欄位 < 都要
+        // 比，否則 incomparable ⟹ equal 的全序性質破掉）。字典序陣列比較。
+        if a.attested != b.attested {
+            return a.attested.lexicographicallyPrecedes(b.attested)
+        }
+        return false   // 四欄位全等 → 相等
     }
 
     /// 兩個區間是否重疊。**無端點的區間（`end == nil`，含 `endedUnknown`）視為
@@ -238,6 +253,14 @@ public struct PersonProfile: Equatable {
     }
 
     /// 任一段標了 `endedUnknown`（#63 的 v6-only 語法）——寫入端的 format gate 用。
+    /// 任何維度帶 attested 段（#70 的 v7 gate 用，與 `usesEndedUnknown` 同型）。
+    public var usesAttested: Bool {
+        let all: [Timeline] = [ranks, administrative, appointments, fields]
+            + Array(contacts.values)
+        return affiliations.entries.contains { !$0.range.attested.isEmpty }
+            || all.contains { $0.entries.contains { !$0.range.attested.isEmpty } }
+    }
+
     public var usesEndedUnknown: Bool {
         affiliations.entries.contains(where: \.range.endedUnknown)
             || ([ranks, administrative, appointments, fields] + Array(contacts.values))

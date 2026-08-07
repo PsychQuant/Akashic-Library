@@ -45,7 +45,10 @@ public enum StoreVersion {
     ///   namespace——時間軸**段內**的鍵是 strict（`rejectUnknownKeys`），舊 binary
     ///   讀到 `ended:` 是**整檔 quarantine**（人檔在舊 binary 消失），不是保留。
     ///   refuse-if-newer 的一句「請升級」遠比 per-file quarantine 誠實。
-    public static let supported = 6
+    /// - **7** ＝ 時間軸段新增 `attested`（觀測點列表——「某時點成立、起訖皆不明」，
+    ///   #70）。與 6 同型：段內鍵 strict → non-additive，write gate 對 format < 7
+    ///   拒寫含 attested 的記錄。
+    public static let supported = 7
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，

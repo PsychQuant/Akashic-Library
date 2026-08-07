@@ -431,8 +431,14 @@ public final class AkashicService {
         var entry = try requireEntry(citekey)
         entry.akashic.status = status
         try writeAndReindex(entry)
+        // #156 verify R5：**寫入 tool 自己的回應就吐原文**——攻擊路徑不是「寫進去
+        // 再讀回來」，而是單一 MCP 來回：`akashic_set_status(status: "\u{1B}[31m…")`
+        // 的回應直接把 raw ESC 送進 LLM context。比 `journal` 那條**更短**（那條還
+        // 需要先毒化一份 Zotero 匯入）。而 `status` 的寫入路徑上**零格式驗證**
+        // （全庫 grep `guard`/`throw`/`isValid`/`pattern` 對它零命中）。
         return try jsonString(["citekey": displaySafe(citekey, max: 200),
-                               "status": status ?? NSNull()] as [String: Any])
+                               "status": status.map { displaySafe($0, max: 200) }
+                                   ?? NSNull()] as [String: Any])
     }
 
     public func tag(citekey: String, add: [String], remove: [String]) throws -> String {
@@ -442,8 +448,11 @@ public final class AkashicService {
         }
         entry.akashic.tags.removeAll { remove.contains($0) }
         try writeAndReindex(entry)
+        // #156 verify R5：同 setStatus——`akashic_tag` 是 MCP 暴露的 tool，`tags`
+        // 寫入路徑零驗證，回應直接吐原文。這是**同一個檔案裡的第三次同形**
+        // （`literal`／`journal`／此處）：相鄰兩行，上面的 citekey 消毒了、下面的沒有。
         return try jsonString(["citekey": displaySafe(citekey, max: 200),
-                               "tags": entry.akashic.tags])
+                               "tags": entry.akashic.tags.map { displaySafe($0, max: 200) }])
     }
 
     public func link(citekey: String, kind: String, add: [String], remove: [String]) throws -> String {

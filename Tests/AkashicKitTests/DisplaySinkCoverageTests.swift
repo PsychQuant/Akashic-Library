@@ -46,46 +46,60 @@ final class DisplaySinkCoverageTests: XCTestCase {
     /// 差別只在錯的方向。真正的處置是 follow-up issue，不是換一句好聽的註解。
     ///
     /// **App target 未編不影響本守衛**——它掃的是原始碼文字，不需要能執行 App。
-    private var scannedFiles: [URL] {
-        let fm = FileManager.default
-        var out: [URL] = []
-        let cliDir = repoRoot.appendingPathComponent("Sources/akashic")
-        if let files = try? fm.contentsOfDirectory(at: cliDir, includingPropertiesForKeys: nil) {
-            out += files.filter { $0.pathExtension == "swift" }
-        }
-        out.append(repoRoot.appendingPathComponent("Sources/AkashicMCPKit/AkashicService.swift"))
-        // #78-7：AkashicCore 的 decode 錯誤訊息會內插未信任的 YAML 值（#23 的前提：
-        // 檔案內容未信任）——#127 verify M2 的 StoreVersion 案例正是這一類，當時
-        // 手工修；機械守衛掃到之後這類洞在測試就會亮。akashic-mcp/ 同（#135 F5）。
-        // #149 verify F1：QueryError/GraphError 的 errorDescription 同 #142 的病
-        //（lookup miss 把 caller citekey 原樣回吐），但這兩個模組不在掃描面——
-        // 一次 MCP 呼叫就能把 raw ESC 打進 LLM context。StoreIOError/ConfigError
-        // 住 AkashicStoreIO 同理（#142 加的 throw StoreIOError 規則先前是死碼——
-        // F4：該檔根本沒被讀）。
-        for dir in Self.scannedDirs {
-            let d = repoRoot.appendingPathComponent(dir)
-            if let files = try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: nil) {
-                out += files.filter { $0.pathExtension == "swift" }
-            }
-        }
-        return out
-    }
+    /// **掃描面用「枚舉 `Sources/` + 顯式 opt-out」，不是手寫白名單**
+    /// （#158 verify 158-3b）。
+    ///
+    /// 手寫清單有三個靜默失效路徑，實測全部成立：
+    ///
+    /// | 洞 | 手寫清單 | 枚舉 + opt-out |
+    /// |---|---|---|
+    /// | 打錯字（`AkashicAppKitTYPO`）| `try?` 貢獻 0 檔、不報錯 | 目錄還在 `Sources/` → 自動掃回來 |
+    /// | **刪掉一項** | 清單與斷言讀同一份常數，一起縮，測試無感 | 同上 |
+    /// | 新模組沒人加進清單 | 完全開放 | 自動被掃 |
+    ///
+    /// 第二項是 R2 席位的實測：刪掉 `Sources/AkashicAppKit` **並且**同時放回一條
+    /// 真的未消毒輸出 → 全套仍綠。第一版的逐項非空斷言只 pin「宣稱掃的目錄都
+    /// 存在」，membership 軸還是 tautology——入口從 typo 換成 deletion。
+    ///
+    /// 要排除必須寫進 `optOut` **並給理由**，跟 `display-safe-exempt` 同一個哲學：
+    /// 逼人講出理由，而不是安靜跳過。
+    static let optOut: [String: String] = [
+        "AkashicSQLite": "SQLite C 綁定，無使用者可見輸出面",
+        "AkashicTestGuard": "測試用沙箱守衛，不進 release binary",
+        "AkashicTestGuardLoader": "同上",
+        "AkashicIndex": "只寫 SQLite，不產生使用者可見字串",
+        "AkashicExport": "產出 .bib／CSL-JSON 給檔案，不是終端輸出；跳脫由 biblatex 層負責",
+        "AkashicZoteroImport": "讀 zotero.sqlite 寫 entries，輸出面在呼叫端",
+        "AkashicWoSImport": "同上",
+    ]
 
-    /// 被掃的模組目錄。抽成具名常數是為了讓 `testEveryScannedDirIsNonEmpty`
-    /// 能逐項斷言——**`try? contentsOfDirectory` 對不存在的目錄貢獻 0 檔且不報錯**，
-    /// 所以打錯一個字元就能靜默清空一整個模組的覆蓋（#158 verify 158-3 實測：
-    /// 把 `AkashicAppKit` 改成 `AkashicAppKitTYPO`，再疊上一條真的未消毒輸出，
-    /// 整套測試**仍然全綠**）。`scannedFiles.count >= 4` 擋不住——光 `Sources/akashic`
-    /// 一個目錄就有 8 個檔，其餘五個全掉光也滿足。
-    static let scannedDirs = ["Sources/AkashicCore", "Sources/akashic-mcp",
-                              "Sources/AkashicQuery", "Sources/AkashicGraph",
-                              "Sources/AkashicStoreIO", "Sources/AkashicAppKit"]
+    /// 實際被掃的模組目錄 = `Sources/` 底下全部，減去 `optOut`。
+    static func scannedDirs(repoRoot: URL) -> [String] {
+        let sources = repoRoot.appendingPathComponent("Sources")
+        let all = (try? FileManager.default.contentsOfDirectory(
+            at: sources, includingPropertiesForKeys: [.isDirectoryKey]))?
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
+            .map(\.lastPathComponent).sorted() ?? []
+        return all.filter { optOut[$0] == nil }.map { "Sources/\($0)" }
+    }
 
     private var repoRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // AkashicKitTests
             .deletingLastPathComponent()   // Tests
             .deletingLastPathComponent()   // repo root
+    }
+
+    private var scannedFiles: [URL] {
+        let fm = FileManager.default
+        var out: [URL] = []
+        for dir in Self.scannedDirs(repoRoot: repoRoot) {
+            let d = repoRoot.appendingPathComponent(dir)
+            if let files = try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: nil) {
+                out += files.filter { $0.pathExtension == "swift" }
+            }
+        }
+        return out
     }
 
     /// 抓出一行裡所有 `\( … )` 插值的內容（括號配對，處理巢狀）。
@@ -235,38 +249,40 @@ final class DisplaySinkCoverageTests: XCTestCase {
             """)
     }
 
-    /// 守衛自身要可證偽：掃描範圍不得為空，判準不得永遠成立。
-    /// **每個掃描目錄都必須真的貢獻檔案**（#158 verify 158-3）。
+    /// **opt-out 必須逐條有理由，且掃描面必須真的涵蓋核心模組**（#158 verify 158-3b）。
     ///
-    /// 清單裡多一個名字不等於多一份保護：`try?` 把「目錄不存在」變成「0 個檔」，
-    /// 而聚合的 `scannedFiles.count >= 4` 對此完全無感。這條把「宣稱掃了」與
-    /// 「真的掃了」分開——打錯字、模組改名、目錄搬走，都會在這裡亮而不是靜默縮小
-    /// 覆蓋面。**逐項斷言，不看總數。**
-    func testEveryScannedDirIsNonEmpty() throws {
-        let fm = FileManager.default
-        for dir in Self.scannedDirs {
-            let d = repoRoot.appendingPathComponent(dir)
-            let files = (try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: nil))?
-                .filter { $0.pathExtension == "swift" } ?? []
-            XCTAssertFalse(files.isEmpty, """
-                掃描目錄「\(dir)」貢獻 0 個 .swift——目錄不存在（打錯字／改名／搬走）
-                或真的空了。前者是守衛靜默失效，後者請把它從 scannedDirs 移除並說明。
-                """)
+    /// 枚舉 + opt-out 把「刪掉一項」這個洞關掉了（模組還在 `Sources/` 就會被掃回來），
+    /// 但留下一個新的入口：**把模組加進 `optOut`**。這條把它擋住——理由不得為空，
+    /// 且幾個核心輸出面模組不得出現在 opt-out 裡（要移除必須先改這條測試，那是
+    /// 顯式動作而非順手一改）。
+    func testOptOutIsJustifiedAndCoreModulesAreScanned() throws {
+        for (name, reason) in Self.optOut {
+            XCTAssertFalse(reason.trimmingCharacters(in: .whitespaces).isEmpty,
+                           "opt-out 的「\(name)」沒有理由——排除必須講出為什麼")
         }
-        // CLI 與 MCPKit 走個別路徑加入，同樣要非空
-        XCTAssertFalse(
-            ((try? fm.contentsOfDirectory(
-                at: repoRoot.appendingPathComponent("Sources/akashic"),
-                includingPropertiesForKeys: nil))?.filter { $0.pathExtension == "swift" } ?? []).isEmpty,
-            "Sources/akashic 貢獻 0 個 .swift")
-        XCTAssertTrue(
-            fm.fileExists(atPath: repoRoot
-                .appendingPathComponent("Sources/AkashicMCPKit/AkashicService.swift").path),
-            "AkashicService.swift 不在——MCP 面的掃描已失效")
+        for core in ["AkashicCore", "AkashicStoreIO", "akashic", "akashic-mcp",
+                     "AkashicMCPKit", "AkashicQuery", "AkashicGraph", "AkashicAppKit"] {
+            XCTAssertNil(Self.optOut[core], "「\(core)」是使用者可見輸出面，不得 opt-out")
+        }
+        let dirs = Self.scannedDirs(repoRoot: repoRoot)
+        for core in ["AkashicCore", "AkashicStoreIO", "akashic", "akashic-mcp",
+                     "AkashicMCPKit", "AkashicAppKit"] {
+            XCTAssertTrue(dirs.contains("Sources/\(core)"),
+                          "掃描面不含 Sources/\(core)：\(dirs)")
+        }
+        // 每個被掃的目錄都要真的有 .swift（目錄空了＝那個模組的覆蓋是假的）
+        let fm = FileManager.default
+        for dir in dirs {
+            let files = (try? fm.contentsOfDirectory(
+                at: repoRoot.appendingPathComponent(dir),
+                includingPropertiesForKeys: nil))?.filter { $0.pathExtension == "swift" } ?? []
+            XCTAssertFalse(files.isEmpty, "掃描目錄「\(dir)」貢獻 0 個 .swift")
+        }
     }
 
     func testGuardItselfIsNotVacuous() throws {
-        XCTAssertGreaterThanOrEqual(scannedFiles.count, 4, "掃描範圍萎縮＝守衛失效")
+        // 4 太鬆——光 Sources/akashic 一個目錄就有 8 個檔（#156 verify R2）
+        XCTAssertGreaterThanOrEqual(scannedFiles.count, 30, "掃描範圍萎縮＝守衛失效")
         // 判準對已知的壞樣式必須成立
         let bad = #"print("\(summary.citekey)\t\(summary.title)")"#
         let exprs = interpolations(in: bad)

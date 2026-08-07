@@ -121,14 +121,14 @@ public extension AkashicService {
     private func scalarOrNull(_ v: Any, field: String) throws -> String? {
         if v is NSNull { return nil }
         guard let s = v as? String else {
-            throw ServiceError.invalid("欄位「\(field)」必須是字串或 null")
+            throw ServiceError.invalid("欄位「\(field)」必須是字串或 null")   // display-safe-exempt: field 是呼叫端已過 updatable/switch 白名單的字面量，非 store 內容
         }
         return s
     }
 
     private func stringList(_ v: Any, field: String) throws -> [String] {
         guard let arr = v as? [Any], let strings = arr as? [String] else {
-            throw ServiceError.invalid("欄位「\(field)」必須是字串陣列（全量替換）")
+            throw ServiceError.invalid("欄位「\(field)」必須是字串陣列（全量替換）")   // display-safe-exempt: 同上
         }
         return strings
     }
@@ -160,6 +160,6 @@ public extension AkashicService {
             return try Node(dict.sorted { $0.key < $1.key }
                 .map { (Node($0.key), try jsonToNode($0.value, depth: depth + 1)) })
         }
-        throw ServiceError.invalid("無法轉換的 JSON 值型別：\(type(of: v))")
+        throw ServiceError.invalid("無法轉換的 JSON 值型別：\(type(of: v))")   // display-safe-exempt: Swift 型別名，非資料
     }
 }

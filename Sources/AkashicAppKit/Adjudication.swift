@@ -62,10 +62,13 @@ public enum AdjudicationError: Error, LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
+        // #155：key 是 store 衍生（citekey，來自 Zotero 匯入等第三方來源）——
+        // App 的 error 顯示在 SwiftUI，威脅模型比 MCP-直達-LLM 弱，但同 bug class
+        // 的一致性值得（#142 sweep 的溢出）。
         case .entryNotFound(let key):
-            return "找不到 entry「\(key)」——外部變更可能已移除，請重新整理"
+            return "找不到 entry「\(displaySafe(key, max: 200))」——外部變更可能已移除，請重新整理"
         case .notAnOrphan(let key):
-            return "「\(key)」不是 orphan——外部同步可能已恢復連結，已拒絕破壞性動作"
+            return "「\(displaySafe(key, max: 200))」不是 orphan——外部同步可能已恢復連結，已拒絕破壞性動作"
         }
     }
 }

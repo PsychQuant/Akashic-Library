@@ -9,10 +9,20 @@ public enum SQLiteError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .openFailed(let m): return "SQLite open 失敗：\(m)"
-        case .prepareFailed(let m, let sql): return "SQLite prepare 失敗：\(m)（\(sql)）"
-        case .stepFailed(let m, let sql): return "SQLite step 失敗：\(m)（\(sql)）"
-        case .bindFailed(let m): return "SQLite bind 失敗：\(m)"
+        case .openFailed(let m): return "SQLite open 失敗：\(m)"   // display-safe-exempt: m 是 sqlite3_errmsg，非 caller/store payload
+        // #158 verify R4：`sql` 由**呼叫端**建構，所以這條 exempt 依賴一個**跨模組
+        // 不變式**——SQL 文字只由程式字面片段組成、所有值走 `?` bind。釘在這裡而不是
+        // 寫在別的檔案的 opt-out 理由裡，是因為改 SQL 建構的人會看見這一行。
+        // 唯一的 SQL 內插點：`AkashicQuery/QueryEngine.swift:100` 的 `\(whereClause)`，
+        // 內插的是 `conditions` 陣列（全為程式字面片段 + `?`），值全走 bind。
+        case .prepareFailed(let m, let sql): return "SQLite prepare 失敗：\(m)（\(sql)）"   // display-safe-exempt: m 是 errmsg；sql 見上方不變式
+        case .stepFailed(let m, let sql): return "SQLite step 失敗：\(m)（\(sql)）"   // display-safe-exempt: 同 prepareFailed 的不變式
+        // #158 verify R4：**這條與上面三條不同**——`bindFailed` 的 payload 來自
+        // `SQLiteDB.swift:79` 的 `String(describing: value)`，`value` 是 **caller 傳進來
+        // 的 bind 值**，不是 errmsg 也不是 SQL。目前 unreachable（呼叫端只 bind 支援
+        // 型別），但「目前不可達」與「不含 caller payload」是兩件事——前一版的 opt-out
+        // 理由宣稱後者，那是假的。
+        case .bindFailed(let m): return "SQLite bind 失敗：\(m)"   // display-safe-exempt: payload 已在 :79 收斂成型別名（見該處）
         }
     }
 }
@@ -76,7 +86,13 @@ public final class SQLiteDB {
             case let v as String:
                 rc = sqlite3_bind_text(stmt, idx, v, -1, sqliteTransient)
             default:
-                throw SQLiteError.bindFailed("不支援的型別：\(String(describing: value))")
+                // #158 verify R4：**不要把值本身放進訊息**。原本是
+                // `String(describing: value)`——那是 caller 傳進來的任意值，會經
+                // errorDescription 流到使用者可見輸出。而訊息真正需要的是**型別**
+                // 不是值：「不支援的型別：Date」比「不支援的型別：2020-01-01」更有用。
+                // 收斂成型別名之後這條路徑結構上不可能帶 payload——比消毒更徹底，
+                // 也讓 AkashicSQLite 不必依賴 AkashicCore（C 綁定模組不該依賴 domain core）。
+                throw SQLiteError.bindFailed("不支援的型別：\(type(of: value))")
             }
             guard rc == SQLITE_OK else {
                 throw SQLiteError.bindFailed(String(cString: sqlite3_errmsg(handle)))

@@ -93,31 +93,128 @@ final class DisplaySinkCoverageTests: XCTestCase {
         ".key",
     ]
 
-    /// 掃描範圍：使用者看得到輸出的兩層。App 層走型別投影（`displayFile` 等），
-    /// 由 `AkashicAppKit` 的 `public extension` 保證，不在本掃描內。
-    private var scannedFiles: [URL] {
-        let repoRoot = URL(fileURLWithPath: #filePath)
+    /// 掃描範圍是**封閉列舉**（見 `scannedDirs` 與下方兩個個別加入的路徑），不是
+    /// 「使用者看得到輸出的各層」——那個說法在 #158 第一版寫過，是**假的**，這裡
+    /// 記著避免再寫回去。
+    ///
+    /// **含 `AkashicAppKit`**（#155）：App 的 error 型別（Adjudication／AppState／
+    /// FileWatcher）同樣 echo store 衍生值，威脅模型比 MCP-直達-LLM 弱（顯示在
+    /// SwiftUI 而非灌進 context），但同 bug class。
+    ///
+    /// **不含 `AkashicApp/Sources/`——那才是真正的使用者顯示層，而且有 10 處裸綁**
+    /// （#158 verify 158-1 實測）。它是 XcodeGen 專案、不是 SwiftPM target
+    /// （`Package.swift` 對它零引用，`swift build` 從不編譯它）。把它加進掃描清單
+    /// **也照樣零違規**——因為 `isSink` 只認 `print(` / `jsonString(` / `d["` /
+    /// `result["` / `": ` / `return "` / `FileHandle.standard`，SwiftUI 的 `Text(` /
+    /// `Label(` / `Button(` / `.alert(` 一個都不在裡面。加目錄不等於加保護。
+    ///
+    /// 舊註解說 App 層「走型別投影（`displayFile` 等）由 `AkashicAppKit` 的
+    /// `public extension` 保證」——**那也是假的**：`ResolutionCandidate` 根本沒有
+    /// `displayLiteral` / `displayPersonKey`，`AdjudicationViews.swift:20` 就裸綁著
+    /// 這兩個（而 21 行用的是消毒過的 `displayCitekey`）。兩個版本的說法都不成立，
+    /// 差別只在錯的方向。真正的處置是 follow-up issue，不是換一句好聽的註解。
+    ///
+    /// **App target 未編不影響本守衛**——它掃的是原始碼文字，不需要能執行 App。
+    /// **掃描面用「枚舉 `Sources/` + 顯式 opt-out」，不是手寫白名單**
+    /// （#158 verify 158-3b）。
+    ///
+    /// 手寫清單有三個靜默失效路徑，實測全部成立：
+    ///
+    /// | 洞 | 手寫清單 | 枚舉 + opt-out |
+    /// |---|---|---|
+    /// | 打錯字（`AkashicAppKitTYPO`）| `try?` 貢獻 0 檔、不報錯 | 目錄還在 `Sources/` → 自動掃回來 |
+    /// | **刪掉一項** | 清單與斷言讀同一份常數，一起縮，測試無感 | 同上 |
+    /// | 新模組沒人加進清單 | 完全開放 | 自動被掃 |
+    ///
+    /// 第二項是 R2 席位的實測：刪掉 `Sources/AkashicAppKit` **並且**同時放回一條
+    /// 真的未消毒輸出 → 全套仍綠。第一版的逐項非空斷言只 pin「宣稱掃的目錄都
+    /// 存在」，membership 軸還是 tautology——入口從 typo 換成 deletion。
+    ///
+    /// 要排除必須寫進 `optOut` **並給理由**，跟 `display-safe-exempt` 同一個哲學：
+    /// 逼人講出理由，而不是安靜跳過。
+    /// **理由必須是可否證的陳述，而且量詞要附上能驗它的 grep**（#158 verify R3／R4）。
+    ///
+    /// R3 把「讀起來合理但沒人能檢查」的理由換成可否證的；R4 證明**可否證性起作用了**
+    /// ——席位用 `grep` 就把新寫的三條全部打臉，而**三條全部栽在量詞上**（「唯二」
+    /// 講的是別的模組、「同上」繼承了對自己為假的字面、「6 條」實際是 4 行）。
+    ///
+    /// 兩個教訓：
+    /// 1. **「同上」繼承的是字面、不是意圖**——兩條 import 模組的理由改成各自為真。
+    /// 2. **理由裡出現「唯一／唯二／零／N 條」時，附上那條 grep**。R4 的三次打臉
+    ///    都只需要一行 `grep -c`。
+    ///
+    /// R4 另外收回了「opt-out 模組不得含 `LocalizedError`」這個機械檢查的提案——
+    /// 它是**用形式當性質的 proxy**（正是 `common-spec-prose-enumeration` 要防的）：
+    /// 它會因為 `SQLiteError` 存在而擋下 `AkashicSQLite`，但擋的理由是錯的，真正的
+    /// 問題是 `bindFailed` 的 caller payload 與跨模組 SQL 不變式——兩個都不是
+    /// 「有沒有 LocalizedError」看得出來的。用錯的 proxy 擋對的東西，下次 proxy
+    /// 不成立時就靜默放行。
+    ///
+    /// **（歷史）R3 的三條假理由**——「無使用者可見輸出面」這種
+    /// 讀起來合理但沒人能檢查的句子不算。R3 席位實測：第一版 7 條裡 **3 條是假的**，
+    /// 而且錯的兩條正是我自己心虛、特地請席位攻擊的那兩條：
+    ///
+    /// - `AkashicExport`「不是終端輸出；跳脫由 biblatex 層負責」——**兩個子句都假**。
+    ///   `akashic export-bib` 預設印到 stdout、MCP `akashic_export` 把 .bib 全文當
+    ///   tool result 回 LLM（最強威脅模型）；而 biblatex 跳脫的是 TeX specials
+    ///   （`{}`／`\`／`%`／`&`），**不是** C0／bidi／LS-PS。席位探針實測：raw ESC
+    ///   與 U+202E 都原樣通過。已移出 opt-out，leak 另開 issue。
+    /// - `AkashicIndex`「只寫 SQLite」——假。`IndexError.rootNotALibrary` 是
+    ///   `LocalizedError` 且**它自己就包了 `displaySafe`**（寫的人知道那是輸出面）。
+    ///   opt-out 把那條的回歸保護整個拆掉（席位 mutation 實測綠）。已移出。
+    /// - `AkashicSQLite`「無使用者可見輸出面」——結論對、**理由錯**。它有 4 個
+    ///   `SQLiteError` case、6 條 caseReturn。正確理由是 #155 issue 自己寫的那句。
+    ///   差別不是措辭：「無輸出面」＝以後沒人需要回來看；「有輸出面但目前不含
+    ///   caller payload」＝以後有人往裡面塞 `citekey` 時理由當場失效、會被發現。
+    static let optOut: [String: String] = [
+        "AkashicTestGuard": "test-only target（Package.swift 只被 .testTarget 依賴），不進 release binary",
+        "AkashicTestGuardLoader": "同上：test-only target，不進 release binary",
+        // #158 verify R4：**理由裡的量詞是最容易被打臉的部分**，所以附上能驗它的
+        // grep。上一版寫「全模組零 print(／return \"／throw；唯二的 return \" 是
+        // dedup key 構造」——前半對 Zotero 為真，但那「唯二」講的是 **WoS** 的程式碼，
+        // 而 WoS 的「同上」因此繼承了一句對它為假的陳述。「同上」繼承的是**字面**、
+        // 不是**意圖**，兩條都改成對自己為真。
+        "AkashicZoteroImport":
+            "零輸出面：`grep -c 'print(\\|return \"\\|throw ' Sources/AkashicZoteroImport/*.swift` = 0",
+        "AkashicWoSImport":
+            "唯二的 `return \"` 是 dedup key 構造（WoSImport.swift:206/208，`\"doi:…\"` 與 "
+            + "`\"ty:…\"`，回傳值只進 Dictionary 的鍵、不進輸出）；無 print(、無 throw 帶 payload",
+    ]
+
+    /// **不得 opt-out、且必須真的在掃描面裡**的模組。兩個條件用同一份清單
+    /// （#158 verify R3-4——分成兩份時差集會靜默漏掉）。
+    static let mustScan = ["AkashicCore", "AkashicStoreIO", "AkashicEntity",
+                           "akashic", "akashic-mcp", "AkashicMCPKit",
+                           "AkashicQuery", "AkashicGraph", "AkashicAppKit",
+                           "AkashicExport", "AkashicIndex", "AkashicSQLite"]
+
+    /// 實際被掃的模組目錄 = `Sources/` 底下全部，減去 `optOut`。
+    ///
+    /// **只掃各模組頂層**（#158 verify R3 的 158-5 升級）：`contentsOfDirectory` 非
+    /// 遞迴，`Sources/AkashicCore/Sub/Probe.swift` 這種巢狀檔案**掃不到**（席位實測
+    /// 放一條未消毒輸出進去 → 全綠）。SwiftPM 完全支援巢狀 source 目錄，所以
+    /// 「= `Sources/` 底下全部」這句在**檔案**層級是假的——寫在這裡以免被誤讀。
+    /// 改用 `enumerator(at:)` 屬另案（#162 家族）。
+    static func scannedDirs(repoRoot: URL) -> [String] {
+        let sources = repoRoot.appendingPathComponent("Sources")
+        let all = (try? FileManager.default.contentsOfDirectory(
+            at: sources, includingPropertiesForKeys: [.isDirectoryKey]))?
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
+            .map(\.lastPathComponent).sorted() ?? []
+        return all.filter { optOut[$0] == nil }.map { "Sources/\($0)" }
+    }
+
+    private var repoRoot: URL {
+        URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // AkashicKitTests
             .deletingLastPathComponent()   // Tests
             .deletingLastPathComponent()   // repo root
+    }
+
+    private var scannedFiles: [URL] {
         let fm = FileManager.default
         var out: [URL] = []
-        let cliDir = repoRoot.appendingPathComponent("Sources/akashic")
-        if let files = try? fm.contentsOfDirectory(at: cliDir, includingPropertiesForKeys: nil) {
-            out += files.filter { $0.pathExtension == "swift" }
-        }
-        out.append(repoRoot.appendingPathComponent("Sources/AkashicMCPKit/AkashicService.swift"))
-        // #78-7：AkashicCore 的 decode 錯誤訊息會內插未信任的 YAML 值（#23 的前提：
-        // 檔案內容未信任）——#127 verify M2 的 StoreVersion 案例正是這一類，當時
-        // 手工修；機械守衛掃到之後這類洞在測試就會亮。akashic-mcp/ 同（#135 F5）。
-        // #149 verify F1：QueryError/GraphError 的 errorDescription 同 #142 的病
-        //（lookup miss 把 caller citekey 原樣回吐），但這兩個模組不在掃描面——
-        // 一次 MCP 呼叫就能把 raw ESC 打進 LLM context。StoreIOError/ConfigError
-        // 住 AkashicStoreIO 同理（#142 加的 throw StoreIOError 規則先前是死碼——
-        // F4：該檔根本沒被讀）。
-        for dir in ["Sources/AkashicCore", "Sources/akashic-mcp",
-                    "Sources/AkashicQuery", "Sources/AkashicGraph",
-                    "Sources/AkashicStoreIO"] {
+        for dir in Self.scannedDirs(repoRoot: repoRoot) {
             let d = repoRoot.appendingPathComponent(dir)
             if let files = try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: nil) {
                 out += files.filter { $0.pathExtension == "swift" }
@@ -363,6 +460,36 @@ final class DisplaySinkCoverageTests: XCTestCase {
               1. 包上 displaySafe(…)——資料面用 max: 800，識別字用 max: 200
               2. 確定安全 → 同一行加 `// display-safe-exempt: <理由>`，把理由寫出來
             """)
+    }
+
+    /// **opt-out 必須逐條有理由，且掃描面必須真的涵蓋核心模組**（#158 verify 158-3b）。
+    ///
+    /// 枚舉 + opt-out 把「刪掉一項」這個洞關掉了（模組還在 `Sources/` 就會被掃回來），
+    /// 但留下一個新的入口：**把模組加進 `optOut`**。這條把它擋住——理由不得為空，
+    /// 且幾個核心輸出面模組不得出現在 opt-out 裡（要移除必須先改這條測試，那是
+    /// 顯式動作而非順手一改）。
+    func testOptOutIsJustifiedAndCoreModulesAreScanned() throws {
+        for (name, reason) in Self.optOut {
+            XCTAssertFalse(reason.trimmingCharacters(in: .whitespaces).isEmpty,
+                           "opt-out 的「\(name)」沒有理由——排除必須講出為什麼")
+        }
+        // **同一份清單**（#158 verify R3-4）：兩處各寫一份時差集是 `AkashicGraph`
+        // 與 `AkashicQuery`——它們若目錄被改名／搬走，第一條檢查照過（不在 optOut）、
+        // 第二條根本不看它們，只剩 `count >= 30` 兜底。
+        let dirs = Self.scannedDirs(repoRoot: repoRoot)
+        for core in Self.mustScan {
+            XCTAssertNil(Self.optOut[core], "「\(core)」是使用者可見輸出面，不得 opt-out")
+            XCTAssertTrue(dirs.contains("Sources/\(core)"),
+                          "掃描面不含 Sources/\(core)：\(dirs)")
+        }
+        // 每個被掃的目錄都要真的有 .swift（目錄空了＝那個模組的覆蓋是假的）
+        let fm = FileManager.default
+        for dir in dirs {
+            let files = (try? fm.contentsOfDirectory(
+                at: repoRoot.appendingPathComponent(dir),
+                includingPropertiesForKeys: nil))?.filter { $0.pathExtension == "swift" } ?? []
+            XCTAssertFalse(files.isEmpty, "掃描目錄「\(dir)」貢獻 0 個 .swift")
+        }
     }
 
     /// #141：**量測式自測**——守衛非空洞不能靠「有一條壞樣式抓得到」單點證明

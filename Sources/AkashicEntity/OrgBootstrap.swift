@@ -22,9 +22,22 @@ import AkashicCore
 ///
 /// **殘留**（#154 verify 154-6，誠實記錄，不在本 change 修）：
 /// 1. **中文-only 機構仍需人工給 key**。這不是 bug 是設計缺口——`bootstrap` 現在
-///    只能產 ASCII slug，而「中央研究院統計科學研究所」這類是本 store 的**主要**
-///    形狀。真正的修法是讓使用者能為 dropped 項目直接指定 key（互動或
-///    `--key <name>=<key>`），而不是繞去手寫 YAML。
+///    只能產 ASCII slug。
+///
+///    **實測後這一項的優先序要往上提**（#154 verify R4 Q3，唯讀量 `~/.akashic`）：
+///    真實 store 有 1769 個 entity、**0 個 affiliation literal**（160 個 affiliation
+///    段落全部已是 `.key`；2121 個 `literal:` 全是 entry 的 authors，與機構無關）。
+///    而且**沒有任何 importer 會產生 affiliation literal**——WoS／Zotero／MCP／App
+///    的寫入面全部不碰它，只能由人手寫 YAML。
+///
+///    所以未來的輸入分佈＝使用者的書寫習慣，而那個習慣在現存的兩筆 organization
+///    裡看得到：**各語言各自成一個變體**（`中央研究院`／`Academia Sinica`／`中研院`
+///    是同一筆 org 的三個 name），而不是把中英塞進同一個字串。
+///
+///    在這個慣例下，**每一個機構都會落進本殘留**：三個寫法被分成三組，ASCII 那組
+///    建得起來、兩組中文進 dropped。這不是偶爾的邊角，是常態。所以最有價值的下一步
+///    是 `--key <name>=<key>`（或互動指定）——它能讓那三行一次收成同一個 org 的三個
+///    variant，正好長成現存兩筆 organization 的樣子。
 /// 2. **`suggestedKey` 的 6-token 上限與去重 `-2…-99`**（#154 verify R3 實測更正）。
 ///    原本寫的例子是 `national-taiwan-university-2`，但**實際最常撞的形狀不是那個**：
 ///
@@ -50,8 +63,13 @@ import AkashicCore
 ///
 ///    判準跟著「中文名有多長」跑，不是跟著「拉丁部分是不是好 key」跑。失敗模式是
 ///    **誠實的**（進 dropped、明列、請人給 key），不是資料汙染，所以不擋 merge。
-///    低成本的例外處理：某個 ASCII token 本身是合法 key 且長度 ≥2、全大寫寫在括號
-///    或名字尾端（縮寫慣例）時視為通過。
+///    曾考慮加一條縮寫例外（「全大寫、長度 ≥2、在括號或名字尾端」視為通過）。
+///    **實測後決定不做**（#154 verify R4 Q3）：真實 store 對這個形狀的觀測次數是
+///    **0**——因為所有形狀的觀測次數都是 0（見殘留 #1），而使用者的慣例是各變體
+///    分開寫，那個慣例下覆蓋率閘根本是 no-op（群組的 `sortedNames[0]` 會是純 ASCII
+///    的那個變體）。為一個沒觀測到的形狀加啟發式規則，只會多一條自己也需要邊界
+///    案例的規則。誤擋的失敗模式是誠實的（進 dropped、明列、請人給 key），留在
+///    殘留裡是正確的處置。
 /// 3. **`resolve-organizations` 的歧義判準**只看正規化後完全相等，不做子字串／
 ///    縮寫比對（「中研院」vs「中央研究院」配不上）。同義詞歸戶屬 alias 層，未做。
 public enum OrgBootstrap {

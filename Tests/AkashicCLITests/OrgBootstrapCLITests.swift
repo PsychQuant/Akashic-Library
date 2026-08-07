@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+@testable import AkashicCore
 @testable import AkashicStoreIO
 
 /// #154 verify 154-4：`bootstrap-organizations` 的**CLI 輸出面**沒有任何測試。
@@ -133,21 +134,37 @@ final class OrgBootstrapCLITests: XCTestCase {
         let dry = try runCLI(["bootstrap-organizations"])
         XCTAssertTrue(dry.output.contains("academia-sinica"), dry.output)
 
-        // 讓其中一個寫不進去：把 entities 目錄下該 org 將落的檔案先佔位並鎖起來
-        // （org 的檔名是 UUID，無法預測，所以改鎖整個 entities 目錄的寫入權）
-        let entities = root.appendingPathComponent("entities")
-        let before = try FileManager.default.attributesOfItem(atPath: entities.path)
-        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: entities.path)
+        // **只鎖一個檔**（#154 verify R4 Q1）。第一版鎖整個 `entities/` 目錄，理由是
+        // 「org 的檔名是 UUID，無法預測」——**那個前提是錯的**：
+        // `Organization.init` 走 `DeterministicUUID.forOrganization(key:)`（UUIDv5，
+        // 從 key 推出），同一個 key 在任何 store 都得到同一個 UUID。
+        //
+        // 而鎖整個目錄讓這條測試**驗不到自己名字裡的 `AndKeepsGoing`**：所有寫入都
+        // 失敗 → `written` 恆為 0 → 席位把「首次失敗即 break」的回歸原封不動放回去，
+        // 六條測試**全綠**。測試名字宣稱了它沒驗的性質，那比沒有測試更糟。
+        //
+        // 佔位檔刻意寫成會被 quarantine 的壞 YAML——那樣該 org 不算「已存在」、
+        // 仍會被提名，寫入時才撞上 immutable。
+        let target = store.entityURL(
+            id: DeterministicUUID.forOrganization(key: "academia-sinica"))
+        try "organization:\n  bad: [unclosed\n".write(to: target, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: target.path)
         defer { try? FileManager.default.setAttributes(
-            [.immutable: before[.immutable] ?? false], ofItemAtPath: entities.path) }
+            [.immutable: false], ofItemAtPath: target.path) }
 
         let r = try runCLI(["bootstrap-organizations", "--apply"])
-        try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: entities.path)
+        try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: target.path)
 
         XCTAssertNotEqual(r.status, 0, "部分失敗必須 exit≠0（否則會被 && chain 吞掉）：\n\(r.output)")
         XCTAssertTrue(r.output.contains("write failed"),
                       "要列出失敗項，不能只擲一句 Foundation 錯誤：\n\(r.output)")
         XCTAssertTrue(r.output.contains("部分完成"),
                       "不得印 ✓（那讀起來像全成功）：\n\(r.output)")
+        // **這兩條才是 `AndKeepsGoing`**：失敗之後其餘候選仍被嘗試且真的寫進去。
+        XCTAssertTrue(r.output.contains("national-taiwan-university"),
+                      "失敗不得中斷後續候選：\n\(r.output)")
+        XCTAssertEqual(try store.load().organizations.map(\.key),
+                       ["national-taiwan-university"],
+                       "印了還不夠——要真的落地（擋住「印了但沒寫進去」）")
     }
 }

@@ -503,6 +503,12 @@ struct ResolveOrganizations: ParsableCommand {
                 print("✓ 歸戶 \(candidates.count) 筆、改寫 \(written) 個 person、index 已重建")
             } else {
                 print("⚠ 部分完成：改寫 \(written) 個 person、\(failed.count) 個失敗、index 已重建")
+                // **throw 必須在本次執行所有該印的東西之後**（#154 verify R4 Q2）。
+                // 這裡 `if apply` 區塊尾端目前沒有其他 print，所以就地 throw 成立；
+                // 但**下一次可能被違反的正是這裡**——有人在區塊尾端加一行 print
+                // 就會被這個 throw 吞掉，而且不會有任何東西提醒他。
+                // （bootstrap-organizations 那邊因為 throw 之後還有 reportDropped 與
+                // 「下一步」，所以 throw 放在函式最後。同一個不變式、不同位置。）
                 throw ExitCode(1)
             }
         } else {

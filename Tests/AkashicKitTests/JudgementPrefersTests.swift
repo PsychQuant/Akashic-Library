@@ -264,4 +264,58 @@ final class JudgementPrefersTests: XCTestCase {
         XCTAssertEqual(try store.load().divergences.count, 1)
         XCTAssertEqual(try store.load().people.count, 2)
     }
+
+    /// **gate 涵蓋另外兩類記錄**（#159 verify 159-12）：第一版只守使用者指名的那筆，
+    /// 但這個操作親手摧毀／改寫的 divergence 有三類。席位實測另外兩類都放行：
+    ///
+    /// - `collapsed`：候選遷移後與目標重複 → **一併刪除**，帶著它的未知欄位
+    /// - `toWrite`：候選被 read-modify-write 改寫 → 產出**自相矛盾**的檔案（候選
+    ///   改成 `fann-b`，未知欄位仍指著全庫已無的 `fann-a`）
+    ///
+    /// 沒有測試就沒有這個發現——mutation 只能證明「寫下來的那條被測到」，證不了
+    /// 「沒寫的那條不存在」。
+    func testGateCoversCollapsedAndRewrittenRecords() throws {
+        func seed(extraCandidate: String?, unknown: String) throws -> UUID {
+            var p1 = Person(key: "fann-a"); p1.names = ["Fann, A"]
+            var p2 = Person(key: "fann-b"); p2.names = ["Fann, B"]
+            var p3 = Person(key: "chen-a"); p3.names = ["Chen, A"]
+            try store.writePerson(p1); try store.writePerson(p2); try store.writePerson(p3)
+            let main = Divergence(
+                id: UUID(), question: "同一人？",
+                candidates: [DivergenceCandidate(key: "fann-a", shape: .person),
+                             DivergenceCandidate(key: "fann-b", shape: .person)])
+            try store.writeDivergence(main)
+            var others = [DivergenceCandidate(key: "fann-a", shape: .person)]
+            if let e = extraCandidate { others.append(DivergenceCandidate(key: e, shape: .person)) }
+            else { others.append(DivergenceCandidate(key: "fann-b", shape: .person)) }
+            let other = Divergence(
+                id: UUID(), question: "另一筆", candidates: others,
+                unknownFields: [UnknownField(key: unknown, raw: "\(unknown): x\n")])
+            try store.writeDivergence(other)
+            GitFixture.commitAll(root, message: "seed")
+            return main.id
+        }
+
+        // (a) collapsed：候選 {fann-a, fann-b} → 遷移後與目標重複 → 連帶刪除
+        let idA = try seed(extraCandidate: nil, unknown: "future-veto")
+        XCTAssertThrowsError(try store.resolveDivergence(id: idA, survivor: "fann-b")) { e in
+            guard case DivergenceResolveError.recordHasUnknownFields(_, let f) = e else {
+                return XCTFail("collapsed 那筆要擋，實得 \(e)")
+            }
+            XCTAssertEqual(f, ["future-veto"])
+        }
+        try? FileManager.default.removeItem(at: root)
+        try setUpWithError()
+
+        // (b) toWrite：候選 {fann-a, chen-a} → fann-a 改寫成 fann-b，記錄被改寫
+        let idB = try seed(extraCandidate: "chen-a", unknown: "future-candidate-meta")
+        XCTAssertThrowsError(try store.resolveDivergence(id: idB, survivor: "fann-b")) { e in
+            guard case DivergenceResolveError.recordHasUnknownFields(_, let f) = e else {
+                return XCTFail("toWrite 那筆要擋，實得 \(e)")
+            }
+            XCTAssertEqual(f, ["future-candidate-meta"])
+        }
+        // 兩筆記錄都還在——擋下來零副作用
+        XCTAssertEqual(try store.load().divergences.count, 2)
+    }
 }

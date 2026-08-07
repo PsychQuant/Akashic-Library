@@ -1044,9 +1044,26 @@ divergence 記錄的**頂層**（與 `judgement`／`rests-on` 平行，不是巢
 `exit=0`，一個字都不說）。這是「選填護欄 + tolerant-preserve」的必然：要讓舊 binary 也
 擋，唯一手段是 bump format，那會讓它們對整庫拒絕開啟（含唯讀）——代價不對稱，不做。
 
-**不可逆操作 MUST NOT 在帶有本 binary 不理解欄位的記錄上執行**（#159 verify §6）：
-`resolve-divergence` 在共用驗證段檢查該筆 divergence 的 `unknownFields`，非空即拒絕
-（preview 與實跑同擋），訊息指路「升級 binary，或確認該欄位可忽略後手動移除」。
+**不可逆消歧 MUST NOT 在帶有本 binary 不理解欄位的記錄上執行**（#159 verify §6／
+159-12／159-13）。適用範圍是**封閉列舉**——`resolve-divergence` 本次會刪除或改寫的
+divergence 記錄，**只有這三類，不得依性質相似類推第四類**：
+
+| # | 類別 | 這個操作對它做什麼 |
+|---|---|---|
+| 1 | **目標**（使用者以 `<id>` 指名的那筆） | 刪除 |
+| 2 | **塌縮連帶刪除**（`migrateOtherDivergences` 的 `collapsed`） | 刪除 |
+| 3 | **候選遷移改寫**（同函式的 `toWrite`） | read-modify-write |
+
+三類的完整性由 `migrateOtherDivergences` 的回傳值界定，不由性質推導。任一筆的
+`unknownFields` 非空即拒絕（preview 與實跑同擋，檢查住共用驗證段），訊息指路
+「升級 binary，或確認該欄位可忽略後手動移除」。
+
+**為什麼寫成列舉而非「所有受影響的記錄」**：第一版寫的正是那句總括判準，而實作
+只檢查目標那一筆——席位實測另外兩類都放行，其中第 3 類更產出**自相矛盾**的檔案
+（候選被改寫成新鍵，未知欄位仍指著全庫已無的舊鍵；tolerant-preserve 保證位元組
+不變，但候選被改寫時「不變」剛好就是錯的）。總括判準的字面涵蓋範圍大於實作，
+差距就在邊界上安靜地答出沒人同意的答案——這是 `common-spec-prose-enumeration`
+記載的失敗模式，逐字對應。
 
 這是「跨版本安全」的**正解**，取代「每加一個安全欄位就 bump format」：它版本無關
 （是本 binary 對自己無知的紀律，不需 store 級協商）、一次涵蓋所有未來欄位、且代價

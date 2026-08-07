@@ -391,26 +391,6 @@ extension LibraryStore {
         guard let record = snapshot.divergences.first(where: { $0.id == id }) else {
             throw DivergenceResolveError.recordNotFound(id)
         }
-        // #159 verify §6：**不可逆操作不在自己讀不懂的記錄上執行。**
-        //
-        // 這是 verify 席在駁回「為 `prefers` bump format」時提出的替代方案，而它
-        // 比 bump 好三點：(1) 版本無關——是本 binary 對自己無知的紀律，不需要任何
-        // store 級協商；(2) 一次保護**所有**未來欄位，不必每加一個欄位重打一次
-        // 「該不該 bump」的仗；(3) 代價侷限在該筆記錄，不像 bump 是整庫拒開。
-        //
-        // 觸發它的實驗很直白：在記錄裡塞一個叫 `future-veto` 的未知欄位，新 binary
-        // 的 `validate` **會印出**「未知欄位『future-veto』（已保留）」——它知道自己
-        // 讀不懂——然後照樣把記錄連同那個欄位一起刪掉，一邊還印著「無法機械核對」。
-        // 明知有讀不懂的東西還執行不可逆刪除，是同一條「讀不到就改寫不到」理由
-        // （上面的 quarantined gate）在另一個面向的漏網。
-        //
-        // **誠實邊界**：這救不了已經編譯出去的舊 binary——它們讀 `prefers` 時不會
-        // 覺得自己讀不懂。那個缺口留著、由 §5.8 記載；但它是一個世代、有界的，而
-        // bump 的代價是永久且全庫的。
-        guard record.unknownFields.isEmpty else {
-            throw DivergenceResolveError.recordHasUnknownFields(
-                id: id.uuidString, fields: record.unknownFields.map(\.key).sorted())
-        }
         let candidateKeys = record.candidates.map(\.key)
         guard candidateKeys.contains(survivor) else {
             throw DivergenceResolveError.survivorNotACandidate(
@@ -439,6 +419,42 @@ extension LibraryStore {
             throw DivergenceResolveError.outsideVersionControl(root: root.path)
         }
         let mergedKeys = candidateKeys.filter { $0 != survivor }
+
+        // #159 verify §6 + 159-12：**不可逆操作不在自己讀不懂的記錄上執行。**
+        //
+        // 這是 verify 席在駁回「為 `prefers` bump format」時提出的替代方案，比 bump
+        // 好三點：(1) 版本無關——是本 binary 對自己無知的紀律，不需 store 級協商；
+        // (2) 一次保護**所有**未來欄位；(3) 代價侷限在該筆記錄，不像 bump 是整庫拒開。
+        //
+        // 觸發它的實驗：塞一個叫 `future-veto` 的未知欄位，新 binary 的 `validate`
+        // **會印出**「未知欄位（已保留）」——它知道自己讀不懂——然後照樣把記錄連同
+        // 那個欄位一起刪掉。與上游「quarantined 檔讀不到就改寫不到」是同一條理由的
+        // 另一面：**讀不懂**與**讀不到**在不可逆操作前該同樣保守。
+        //
+        // **涵蓋三類記錄，封閉列舉**（159-12——第一版只守目標那一筆，而席位實測
+        // 另外兩類同樣被這個操作親手摧毀／改寫）：
+        //
+        //   1. **目標**——使用者指名的那筆，刪除
+        //   2. **塌縮連帶刪除**（`collapsed`）——候選遷移後與目標重複，一併刪除。
+        //      席位實測：帶 `future-veto` 的 D2 被連同欄位一起刪掉、exit=0
+        //   3. **候選遷移改寫**（`toWrite`）——read-modify-write。席位實測產出
+        //      **自相矛盾**的檔案：候選被改寫成 `fann-b`，而未知欄位
+        //      `future-candidate-meta: fann-a-is-primary` 原樣保留、仍指著全庫已無的
+        //      `fann-a`。tolerant-preserve 保證位元組不變，但候選被改寫時「不變」
+        //      剛好就是錯的。這正是 §5.0 用來定義 non-additive 的那個危險樣式，
+        //      由**新** binary 重演一次。
+        //
+        // **不得依性質相似類推第四類**：這三類是「本次操作會刪除或改寫的全部
+        // divergence 記錄」的完整枚舉，由 `migrateOtherDivergences` 的回傳值界定。
+        //
+        // 位置在共用驗證段（而非兩個呼叫端各補一次）——分兩邊補會複製 159-1 的病。
+        let affectedMigration = migrateOtherDivergences(
+            record: record, survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
+        for d in [record] + affectedMigration.collapsed + affectedMigration.toWrite
+        where !d.unknownFields.isEmpty {
+            throw DivergenceResolveError.recordHasUnknownFields(
+                id: d.id.uuidString, fields: d.unknownFields.map(\.key).sorted())
+        }
 
         // #73：「在工作樹內」不等於「刪掉還找得回來」。D5 把 store 內的歷史全部
         // 拿掉（不做 tombstone、不留已解決狀態），整個回溯性押在版控上——那就必須

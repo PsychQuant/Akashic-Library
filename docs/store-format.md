@@ -1058,6 +1058,25 @@ divergence 記錄，**只有這三類，不得依性質相似類推第四類**�
 `unknownFields` 非空即拒絕（preview 與實跑同擋，檢查住共用驗證段），訊息指路
 「升級 binary，或確認該欄位可忽略後手動移除」。
 
+**本列舉只涵蓋 divergence 記錄，不涵蓋被併的實體**（#159 verify R3 Q1(b)）。被併
+實體（person／work 記錄本身）也在這個操作裡被刪除，它們的未知欄位由**另一道守衛**
+負責——`fieldsLostByMerging`：
+
+| 被刪的東西 | 守它的是誰 |
+|---|---|
+| divergence 記錄（三類，上表） | 本節的 unknown-field gate |
+| 被併的 **person** | `fieldsLostByMerging(_ p: Person, into:)`——三分比對，含「兩邊都有同名未知欄位但值不同」 |
+| 被併的 **work** | `fieldsLostByMerging(_ e: Entry, into:)`（#75 對二）——**同一組守衛的另一半** |
+
+**這兩道守衛的來源不同、目的也不同**：unknown-field gate 是「本 binary 讀不懂就不
+執行不可逆操作」，`fieldsLostByMerging` 是「被併者帶有倖存者沒有的內容就不自動合併」。
+它們**碰巧**都涵蓋未知欄位，但那是巧合不是設計——所以兩邊都要寫出來，否則
+「不可逆消歧已經全面守住讀不懂的記錄」會被讀成無條件成立。
+
+實測紀錄：work 側的 `fieldsLostByMerging` 是 #75 對二補上的；在它落地**之前**，
+work 的被併 entry 帶未知欄位時消歧照跑（席位實測 `exit=0`，`validate` 事前才印過
+「未知欄位（已保留）」）。person 側被守住是因為那道為別的目的寫的守衛剛好涵蓋。
+
 **為什麼寫成列舉而非「所有受影響的記錄」**：第一版寫的正是那句總括判準，而實作
 只檢查目標那一筆——席位實測另外兩類都放行，其中第 3 類更產出**自相矛盾**的檔案
 （候選被改寫成新鍵，未知欄位仍指著全庫已無的舊鍵；tolerant-preserve 保證位元組

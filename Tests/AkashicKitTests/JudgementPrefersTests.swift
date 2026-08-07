@@ -318,4 +318,28 @@ final class JudgementPrefersTests: XCTestCase {
         // 兩筆記錄都還在——擋下來零副作用
         XCTAssertEqual(try store.load().divergences.count, 2)
     }
+
+    /// **`Judgement.==` 的 `prefers` 條款是 encode canary 的唯一依據**
+    /// （#159 verify R3 Q3）。席位用疊加 mutation 把「canary 半盲」從推測變成實證：
+    ///
+    /// | encode 漏寫 prefers | `==` 有 prefers 條款 | 結果 |
+    /// |---|---|---|
+    /// | ✓ | ✓ | `encode 自檢失敗：讀回的值與原值不符` ✅ 擋下 |
+    /// | ✓ | ✗ | **靜默寫出沒有 prefers 的檔** ❌ |
+    ///
+    /// 也就是說 `&& a.prefers == b.prefers` 是「encode bug」與「磁碟上 prefers 無聲
+    /// 消失」之間的**唯一**一道防線，而先前**沒有任何測試釘住它**——拿掉它 963 個
+    /// 測試全綠。這與 159-4 是同一個失效類別（prefers 靜默消失 → 護欄退回只警告
+    /// 不擋），只是入口從「重錄」換成「encode refactor」。
+    func testJudgementEqualityDistinguishesPrefers() {
+        XCTAssertNotEqual(Judgement(statement: "s", restsOn: [digest], prefers: "a"),
+                          Judgement(statement: "s", restsOn: [digest], prefers: "b"),
+                          "不同 prefers 必須不相等——否則 encode canary 對它半盲")
+        XCTAssertNotEqual(Judgement(statement: "s", restsOn: [digest], prefers: "a"),
+                          Judgement(statement: "s", restsOn: [digest], prefers: nil),
+                          "有 prefers 與無 prefers 必須不相等")
+        XCTAssertEqual(Judgement(statement: "s", restsOn: [digest], prefers: "a"),
+                       Judgement(statement: "s", restsOn: [digest], prefers: "a"),
+                       "同值仍要相等（否則 canary 對正常 round-trip 誤報）")
+    }
 }

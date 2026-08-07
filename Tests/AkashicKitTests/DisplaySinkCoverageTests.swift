@@ -24,16 +24,29 @@ final class DisplaySinkCoverageTests: XCTestCase {
         ".question", ".judgement", ".statement", "restsOn",
     ]
 
-    /// 掃描範圍：使用者看得到輸出的各層。**含 `AkashicAppKit`**（#155）——App 的
-    /// error 型別（Adjudication／AppState／FileWatcher）同樣 echo store 衍生值，
-    /// 威脅模型比 MCP-直達-LLM 弱（顯示在 SwiftUI 而非灌進 context），但同 bug
-    /// class；掃描面納入後三處已消毒、守衛零違規。**App target 未測不影響本守衛**
-    /// ——它掃的是原始碼文字，不需要能執行 App。
+    /// 掃描範圍是**封閉列舉**（見 `scannedDirs` 與下方兩個個別加入的路徑），不是
+    /// 「使用者看得到輸出的各層」——那個說法在 #158 第一版寫過，是**假的**，這裡
+    /// 記著避免再寫回去。
+    ///
+    /// **含 `AkashicAppKit`**（#155）：App 的 error 型別（Adjudication／AppState／
+    /// FileWatcher）同樣 echo store 衍生值，威脅模型比 MCP-直達-LLM 弱（顯示在
+    /// SwiftUI 而非灌進 context），但同 bug class。
+    ///
+    /// **不含 `AkashicApp/Sources/`——那才是真正的使用者顯示層，而且有 10 處裸綁**
+    /// （#158 verify 158-1 實測）。它是 XcodeGen 專案、不是 SwiftPM target
+    /// （`Package.swift` 對它零引用，`swift build` 從不編譯它）。把它加進掃描清單
+    /// **也照樣零違規**——因為 `isSink` 只認 `print(` / `jsonString(` / `d["` /
+    /// `result["` / `": ` / `return "` / `FileHandle.standard`，SwiftUI 的 `Text(` /
+    /// `Label(` / `Button(` / `.alert(` 一個都不在裡面。加目錄不等於加保護。
+    ///
+    /// 舊註解說 App 層「走型別投影（`displayFile` 等）由 `AkashicAppKit` 的
+    /// `public extension` 保證」——**那也是假的**：`ResolutionCandidate` 根本沒有
+    /// `displayLiteral` / `displayPersonKey`，`AdjudicationViews.swift:20` 就裸綁著
+    /// 這兩個（而 21 行用的是消毒過的 `displayCitekey`）。兩個版本的說法都不成立，
+    /// 差別只在錯的方向。真正的處置是 follow-up issue，不是換一句好聽的註解。
+    ///
+    /// **App target 未編不影響本守衛**——它掃的是原始碼文字，不需要能執行 App。
     private var scannedFiles: [URL] {
-        let repoRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // AkashicKitTests
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // repo root
         let fm = FileManager.default
         var out: [URL] = []
         let cliDir = repoRoot.appendingPathComponent("Sources/akashic")
@@ -49,15 +62,30 @@ final class DisplaySinkCoverageTests: XCTestCase {
         // 一次 MCP 呼叫就能把 raw ESC 打進 LLM context。StoreIOError/ConfigError
         // 住 AkashicStoreIO 同理（#142 加的 throw StoreIOError 規則先前是死碼——
         // F4：該檔根本沒被讀）。
-        for dir in ["Sources/AkashicCore", "Sources/akashic-mcp",
-                    "Sources/AkashicQuery", "Sources/AkashicGraph",
-                    "Sources/AkashicStoreIO", "Sources/AkashicAppKit"] {
+        for dir in Self.scannedDirs {
             let d = repoRoot.appendingPathComponent(dir)
             if let files = try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: nil) {
                 out += files.filter { $0.pathExtension == "swift" }
             }
         }
         return out
+    }
+
+    /// 被掃的模組目錄。抽成具名常數是為了讓 `testEveryScannedDirIsNonEmpty`
+    /// 能逐項斷言——**`try? contentsOfDirectory` 對不存在的目錄貢獻 0 檔且不報錯**，
+    /// 所以打錯一個字元就能靜默清空一整個模組的覆蓋（#158 verify 158-3 實測：
+    /// 把 `AkashicAppKit` 改成 `AkashicAppKitTYPO`，再疊上一條真的未消毒輸出，
+    /// 整套測試**仍然全綠**）。`scannedFiles.count >= 4` 擋不住——光 `Sources/akashic`
+    /// 一個目錄就有 8 個檔，其餘五個全掉光也滿足。
+    static let scannedDirs = ["Sources/AkashicCore", "Sources/akashic-mcp",
+                              "Sources/AkashicQuery", "Sources/AkashicGraph",
+                              "Sources/AkashicStoreIO", "Sources/AkashicAppKit"]
+
+    private var repoRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // AkashicKitTests
+            .deletingLastPathComponent()   // Tests
+            .deletingLastPathComponent()   // repo root
     }
 
     /// 抓出一行裡所有 `\( … )` 插值的內容（括號配對，處理巢狀）。
@@ -208,6 +236,35 @@ final class DisplaySinkCoverageTests: XCTestCase {
     }
 
     /// 守衛自身要可證偽：掃描範圍不得為空，判準不得永遠成立。
+    /// **每個掃描目錄都必須真的貢獻檔案**（#158 verify 158-3）。
+    ///
+    /// 清單裡多一個名字不等於多一份保護：`try?` 把「目錄不存在」變成「0 個檔」，
+    /// 而聚合的 `scannedFiles.count >= 4` 對此完全無感。這條把「宣稱掃了」與
+    /// 「真的掃了」分開——打錯字、模組改名、目錄搬走，都會在這裡亮而不是靜默縮小
+    /// 覆蓋面。**逐項斷言，不看總數。**
+    func testEveryScannedDirIsNonEmpty() throws {
+        let fm = FileManager.default
+        for dir in Self.scannedDirs {
+            let d = repoRoot.appendingPathComponent(dir)
+            let files = (try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: nil))?
+                .filter { $0.pathExtension == "swift" } ?? []
+            XCTAssertFalse(files.isEmpty, """
+                掃描目錄「\(dir)」貢獻 0 個 .swift——目錄不存在（打錯字／改名／搬走）
+                或真的空了。前者是守衛靜默失效，後者請把它從 scannedDirs 移除並說明。
+                """)
+        }
+        // CLI 與 MCPKit 走個別路徑加入，同樣要非空
+        XCTAssertFalse(
+            ((try? fm.contentsOfDirectory(
+                at: repoRoot.appendingPathComponent("Sources/akashic"),
+                includingPropertiesForKeys: nil))?.filter { $0.pathExtension == "swift" } ?? []).isEmpty,
+            "Sources/akashic 貢獻 0 個 .swift")
+        XCTAssertTrue(
+            fm.fileExists(atPath: repoRoot
+                .appendingPathComponent("Sources/AkashicMCPKit/AkashicService.swift").path),
+            "AkashicService.swift 不在——MCP 面的掃描已失效")
+    }
+
     func testGuardItselfIsNotVacuous() throws {
         XCTAssertGreaterThanOrEqual(scannedFiles.count, 4, "掃描範圍萎縮＝守衛失效")
         // 判準對已知的壞樣式必須成立

@@ -63,17 +63,47 @@ final class DisplaySinkCoverageTests: XCTestCase {
     ///
     /// 要排除必須寫進 `optOut` **並給理由**，跟 `display-safe-exempt` 同一個哲學：
     /// 逼人講出理由，而不是安靜跳過。
+    /// **理由必須是可否證的陳述**（#158 verify R3）——「無使用者可見輸出面」這種
+    /// 讀起來合理但沒人能檢查的句子不算。R3 席位實測：第一版 7 條裡 **3 條是假的**，
+    /// 而且錯的兩條正是我自己心虛、特地請席位攻擊的那兩條：
+    ///
+    /// - `AkashicExport`「不是終端輸出；跳脫由 biblatex 層負責」——**兩個子句都假**。
+    ///   `akashic export-bib` 預設印到 stdout、MCP `akashic_export` 把 .bib 全文當
+    ///   tool result 回 LLM（最強威脅模型）；而 biblatex 跳脫的是 TeX specials
+    ///   （`{}`／`\`／`%`／`&`），**不是** C0／bidi／LS-PS。席位探針實測：raw ESC
+    ///   與 U+202E 都原樣通過。已移出 opt-out，leak 另開 issue。
+    /// - `AkashicIndex`「只寫 SQLite」——假。`IndexError.rootNotALibrary` 是
+    ///   `LocalizedError` 且**它自己就包了 `displaySafe`**（寫的人知道那是輸出面）。
+    ///   opt-out 把那條的回歸保護整個拆掉（席位 mutation 實測綠）。已移出。
+    /// - `AkashicSQLite`「無使用者可見輸出面」——結論對、**理由錯**。它有 4 個
+    ///   `SQLiteError` case、6 條 caseReturn。正確理由是 #155 issue 自己寫的那句。
+    ///   差別不是措辭：「無輸出面」＝以後沒人需要回來看；「有輸出面但目前不含
+    ///   caller payload」＝以後有人往裡面塞 `citekey` 時理由當場失效、會被發現。
     static let optOut: [String: String] = [
-        "AkashicSQLite": "SQLite C 綁定，無使用者可見輸出面",
-        "AkashicTestGuard": "測試用沙箱守衛，不進 release binary",
+        "AkashicSQLite":
+            "有輸出面（SQLiteError 4 個 case／6 條 caseReturn），但只帶 sqlite3_errmsg "
+            + "與自產 SQL 文字、**不含 caller payload**（SQL 全走 bind 參數，無內插）",
+        "AkashicTestGuard": "test-only target，不進 release binary",
         "AkashicTestGuardLoader": "同上",
-        "AkashicIndex": "只寫 SQLite，不產生使用者可見字串",
-        "AkashicExport": "產出 .bib／CSL-JSON 給檔案，不是終端輸出；跳脫由 biblatex 層負責",
-        "AkashicZoteroImport": "讀 zotero.sqlite 寫 entries，輸出面在呼叫端",
+        "AkashicZoteroImport":
+            "全模組零 print(／return \"／throw；唯二的 return \" 是 dedup key 構造",
         "AkashicWoSImport": "同上",
     ]
 
+    /// **不得 opt-out、且必須真的在掃描面裡**的模組。兩個條件用同一份清單
+    /// （#158 verify R3-4——分成兩份時差集會靜默漏掉）。
+    static let mustScan = ["AkashicCore", "AkashicStoreIO", "AkashicEntity",
+                           "akashic", "akashic-mcp", "AkashicMCPKit",
+                           "AkashicQuery", "AkashicGraph", "AkashicAppKit",
+                           "AkashicExport", "AkashicIndex"]
+
     /// 實際被掃的模組目錄 = `Sources/` 底下全部，減去 `optOut`。
+    ///
+    /// **只掃各模組頂層**（#158 verify R3 的 158-5 升級）：`contentsOfDirectory` 非
+    /// 遞迴，`Sources/AkashicCore/Sub/Probe.swift` 這種巢狀檔案**掃不到**（席位實測
+    /// 放一條未消毒輸出進去 → 全綠）。SwiftPM 完全支援巢狀 source 目錄，所以
+    /// 「= `Sources/` 底下全部」這句在**檔案**層級是假的——寫在這裡以免被誤讀。
+    /// 改用 `enumerator(at:)` 屬另案（#162 家族）。
     static func scannedDirs(repoRoot: URL) -> [String] {
         let sources = repoRoot.appendingPathComponent("Sources")
         let all = (try? FileManager.default.contentsOfDirectory(
@@ -260,13 +290,12 @@ final class DisplaySinkCoverageTests: XCTestCase {
             XCTAssertFalse(reason.trimmingCharacters(in: .whitespaces).isEmpty,
                            "opt-out 的「\(name)」沒有理由——排除必須講出為什麼")
         }
-        for core in ["AkashicCore", "AkashicStoreIO", "akashic", "akashic-mcp",
-                     "AkashicMCPKit", "AkashicQuery", "AkashicGraph", "AkashicAppKit"] {
-            XCTAssertNil(Self.optOut[core], "「\(core)」是使用者可見輸出面，不得 opt-out")
-        }
+        // **同一份清單**（#158 verify R3-4）：兩處各寫一份時差集是 `AkashicGraph`
+        // 與 `AkashicQuery`——它們若目錄被改名／搬走，第一條檢查照過（不在 optOut）、
+        // 第二條根本不看它們，只剩 `count >= 30` 兜底。
         let dirs = Self.scannedDirs(repoRoot: repoRoot)
-        for core in ["AkashicCore", "AkashicStoreIO", "akashic", "akashic-mcp",
-                     "AkashicMCPKit", "AkashicAppKit"] {
+        for core in Self.mustScan {
+            XCTAssertNil(Self.optOut[core], "「\(core)」是使用者可見輸出面，不得 opt-out")
             XCTAssertTrue(dirs.contains("Sources/\(core)"),
                           "掃描面不含 Sources/\(core)：\(dirs)")
         }

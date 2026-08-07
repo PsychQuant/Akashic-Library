@@ -177,10 +177,42 @@ final class DisplaySinkCoverageTests: XCTestCase {
         //   （#162），與整個判準的既有限制一致，不是這條新增的洞。
         // - 尾隨的 `}`（`if let x = … { d["k"] = x }`）會被含進表達式，對 token 比對
         //   無影響；`displaySafe(` 與 `{` 結尾的既有豁免照常生效。
-        // - 字串**字面量**內含 `"] = ` 會誤中（實掃無此形狀）——真出現時加具名 exempt。
+        // - 字串**字面量**內含 `"] = ` 會誤中，但同行的真陽性仍會被攔下——是**報告
+        //   雜訊**不是假紅（席位 R4 實測；掃描面上零命中）。
+        // - **少報**四種形狀（皆不導出錯誤結論，記錄以免被誤讀成涵蓋）：
+        //   `d["k"] += expr`（複合指派）、`d["k"] =expr`（無空格）、值在下一行
+        //   （落回 #162）、`d[field] = expr`（key 非字面量）。
         if let r = line.range(of: "\"] = ") {
-            let v = line[r.upperBound...].trimmingCharacters(in: .whitespaces)
-            if !v.isEmpty { out.append(v) }
+            var v = String(line[r.upperBound...])
+            // **行尾註解必須切掉**（#156 verify 156-17）：取到行尾會讓註解文字整段
+            // 參與後續**所有**豁免判斷。席位實測四種豁免都會被註解觸發：
+            //
+            //     d["name"] = c.name  // TODO: 之後包 displaySafe(...)   → 假綠
+            //     d["name"] = c.name  // 只有 .count 會變                 → 假綠
+            //     d["name"] = c.name  // 若 == nil 就跳過                 → 假綠
+            //     d["name"] = c.name  // 見下面的 {                       → 假綠
+            //
+            // 形狀還特別自然——**TODO 註解正好提到要包 `displaySafe(...)` 的那一刻，
+            // 守衛就閉嘴了**。這是本判準唯一會造成假綠的缺陷。
+            //
+            // 切在未被引號包住的 ` //`。URL 的 `https://` 前面沒有空格，不誤切。
+            var depth = 0, inString = false, cut: String.Index?
+            var idx = v.startIndex
+            while idx < v.endIndex {
+                let c = v[idx]
+                if c == "\"" { inString.toggle() }
+                if !inString, c == "/", idx > v.startIndex {
+                    let prev = v.index(before: idx)
+                    let next = v.index(after: idx)
+                    if v[prev] == " ", next < v.endIndex, v[next] == "/" { cut = prev; break }
+                }
+                if !inString { if c == "(" { depth += 1 }; if c == ")" { depth -= 1 } }
+                idx = v.index(after: idx)
+            }
+            _ = depth
+            if let cut { v = String(v[v.startIndex..<cut]) }
+            let trimmed = v.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty { out.append(trimmed) }
         }
         let chars = Array(line)
         var i = 0

@@ -52,3 +52,54 @@ final class DivergenceFormatGateTests: XCTestCase {
         }
     }
 }
+
+/// #147 verify F1 的 regression：format < 5 store 上的消歧（會遷移其他歧異記錄）
+/// 必須在**動磁碟前**被 gate 擋——不是走到寫入才收容成撕裂。
+extension DivergenceFormatGateTests {
+    func testResolveOnOldFormatStoreRefusedUpfrontNotTorn() throws {
+        // format 5 建好（含兩筆歧異、D2 引用會被併的鍵）再降 marker 到 4——
+        // 模擬 #71 之後、#74 gate 之前寫過 divergence 的 format 4 store 族群
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-divgate-torn-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: dir.appendingPathComponent("entities"), withIntermediateDirectories: true)
+        try StoreVersion.write(root: dir, format: 5)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let store = LibraryStore(root: dir)
+        for k in ["fann-a", "fann-b", "fann-c"] {
+            var p = Person(key: k); p.names = [k]
+            try store.writePerson(p)
+        }
+        let d1 = try store.recordDivergence(
+            question: "a b 同一人？",
+            candidates: [("fann-a", .person), ("fann-b", .person)],
+            judgement: nil, restsOn: [])
+        _ = try store.recordDivergence(
+            question: "b c 同一人？",
+            candidates: [("fann-b", .person), ("fann-c", .person)],
+            judgement: nil, restsOn: [])
+        GitFixture.initRepo(dir)
+        GitFixture.commitAll(dir, message: "seed at format 5")
+        try StoreVersion.write(root: dir, format: 4)   // 降 marker
+        GitFixture.commitAll(dir, message: "downgrade marker")
+
+        let before = try snapshotEntities(dir)
+        XCTAssertThrowsError(
+            try store.resolveDivergence(id: d1.id, survivor: "fann-a"),
+            "otherToWrite 的預檢必須鏡射 gate——動磁碟前拒絕") { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(msg.contains("format"), msg)
+        }
+        XCTAssertEqual(try snapshotEntities(dir), before,
+                       "拒絕必須是完全 no-op——倖存者不得已被改寫")
+    }
+
+    private func snapshotEntities(_ dir: URL) throws -> [String: Int] {
+        var out: [String: Int] = [:]
+        for f in try FileManager.default.contentsOfDirectory(
+            atPath: dir.appendingPathComponent("entities").path) {
+            out[f] = try Data(contentsOf: dir.appendingPathComponent("entities/\(f)")).hashValue
+        }
+        return out
+    }
+}

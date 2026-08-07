@@ -577,7 +577,13 @@ extension LibraryStore {
         // 剩下的只有磁碟層錯誤——那才是下面逐筆收容要處理的。
         try keeperEncode()
         for e in entriesToWrite { _ = try EntryYAML.encode(e) }
-        for d in otherToWrite { _ = try DivergenceYAML.encode(d) }
+        // #147 verify F1：預檢必須**完整鏡射**寫入條件（本 helper 存在的理由）——
+        // 曾只 encode 不跑 assertDivergenceWritable，format gate 加入後 format < 5
+        // store 上的消歧走到寫入才失敗：倖存者已改寫、參照已改、刪除被跳過的撕裂。
+        for d in otherToWrite {
+            try assertDivergenceWritable(d)
+            _ = try DivergenceYAML.encode(d)
+        }
 
         var report = ResolveReport()
         // #78-1（#139 verify F5 上移）：可預期的刪除失敗在**動任何磁碟之前**檢查

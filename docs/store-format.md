@@ -283,8 +283,7 @@ displayName(script) =
 3. 觀測點**不合併**：同 org 的多個觀測各自成點（每點日後可掛 #66 的 reference
    逐點溯源——本版尚未接，觀測來源暫記 `source`／`note`）。
 4. **format 7 專屬**（段內鍵 strict → non-additive）：write gate 對 format < 7 的
-   store 拒寫＋指路，同 `ended` 的 v6 gate 機制。§5 版本對照表的 7 行隨 #74 的
-   表格回填（PR #147）merge 後補齊。
+   store 拒寫＋指路，同 `ended` 的 v6 gate 機制（版本歸屬見 §5 版本對照表的 7 行）。
 5. 把發表年填進 `start` 是「從那年起」的**偽造斷言**——`attested` 存在的理由就是
    讓這個常見的資料輸入偽造有一個誠實的替代。
 
@@ -455,6 +454,22 @@ tolerant-preserve 原樣保留 `died`，**不會按舊語意誤讀新格式**，
 記錄寫出的位元組形式由**單一權威**定義：三個 `encode` 函式（`EntryYAML` /
 `PersonYAML` / `OrganizationYAML`）。正規化即 `encode(decode(x))`——**沒有第二份
 定義**，`akashic fmt` 只是走訪器。
+
+### 「range 相同」的兩種成因（誠實邊界，#100）
+
+`range` 相同時保留寫入順序（下節）——但「相同」有兩種成因，**系統分不出來**：
+
+1. **真的同時**（或該維度本質上無時序，如別名的並存寫法）——fallback 排序是
+   明示的決定；
+2. **時間解析度不夠／根本沒記時間**——排序默默製造一個現實中沒有根據的順序，
+   同時把「你的資料不夠精確」藏起來。
+
+實測（2026-08，1769 筆）：175 組 range 相同的段**全部**是「完全沒有日期」，且
+names／fields／ranks 三個維度**從來沒有**日期——問題的實際形狀不是「精度粗」而是
+「未記錄」。`doctor` 對「從來沒有日期」的維度出 warning（`timeline dimensions
+with zero dates`）——讓缺席可見，處置（補日期 vs 承認它不是時間軸）留給人。
+後者牽動「該維度是否該是 Timeline 形狀」的設計問題（#63/#54/#65 的值域），
+不在報告層決定。
 
 ### 時間軸的序列化順序
 
@@ -724,6 +739,7 @@ index 一起被清掉。
 | 4 | 新增 organization 形狀；person 的隸屬值由字串升成**指涉或字面** | 舊 binary 不認得 `organization:` 標籤，也讀不懂 `{key: …}` 形式的隸屬值 |
 | 5 | 廢除「`names` 第一個是顯示名」，改由 `authorized` 指定（#81，見 §3.1）；**`divergence` 形狀歸屬本版**（#71 引入、#74 回填歸屬） | **欄位語意變更**。`authorized` 對舊 binary 是未知欄位、會被保留，但保留不等於遵守——舊 binary 仍會把 `names[0]` 當顯示名，並在一次 read-modify-write 裡重排 `names` 而不自知。`divergence:` 形狀標籤對 ≤4 世代 binary 是整檔 quarantine（形狀標籤是 strict——#131 判準重評，曾誤標 additive）；`writeDivergence` 對 format < 5 的 store 拒寫＋指路（#74） |
 | 6 | 時間軸段內新增 `ended: true`（已結束、時點未知，#63）；null-face 對齊 | **段內鍵是 strict**——tolerant-preserve 的開放層只涵蓋記錄頂層與 `akashic` namespace，舊 binary 讀到 `ended` 是整檔 quarantine（人檔消失）而非保留。`writePerson` 對 format < 6 的 store 拒寫含 ended 段的記錄＋指路（#131） |
+| 7 | 時間軸段內新增 `attested: [觀測點]`（某時點成立、起訖皆不明——`ended` 的鏡像，#70）| 同 6：段內鍵 strict → 舊 binary 整檔 quarantine；write gate 對 format < 7 拒寫＋指路。`attested` 與 `start`/`end`/`ended` 並存是矛盾（encode/decode 兩端拒收）|
 
 3 與 4 曾經發生而未回寫本表（#81 補齊）；6 曾漏補（#74 一併回寫）。**「資料鍵變保留字」同屬版本歸屬**：`divergence` 成為形狀標籤使同名頂層鍵在 ≥5 成為保留字——這與形狀標籤機制（format 3）的既有語意一致，不另立規則（#74 後果二）。`akashic migrate` 是使用者知情動作：它把 store 升到 supported 版本，升版後舊 binary 整庫拒開是 refuse-if-newer 的**預期**行為，不是 migrate 的缺陷（#74 後果三，文件化現況）。
 

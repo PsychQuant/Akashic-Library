@@ -12,6 +12,29 @@ import Foundation
 /// 判準：CLI / MCP 的原始碼裡，任何把 **store 衍生字串**插值進輸出的位置，該表達式
 /// 必須含 `displaySafe(`。要例外就在同一行寫 `// display-safe-exempt: <理由>`——
 /// 逼人講出理由，而不是安靜跳過。
+///
+/// ## 守衛的涵蓋邊界（#141——誠實記錄「行級文字掃描」照不到的形狀）
+///
+/// 這是**行級的文字啟發式**，不是型別感知的資料流分析。以下形狀結構性地在它的
+/// 視野外，靠人工 + 功能測試釘住，不是它的失效：
+///
+/// - **bare-`$0` 的 `.map { }`**（最大宗）：`load.residue.map { $0 }` 的 `$0` 不含
+///   任何 tainted token，token 判準對它結構性失效。#149 verify 席 strip-all 實測
+///   `AkashicService` 一檔 55 個消毒站點守衛只認 21——差額多是這一類。補它需要
+///   element-type 或 receiver 上下文（`.map` 的來源是誰），不是另一條行級 regex。
+/// - **key-family accessor**（`$0.key`/`p.key`/`lib.key`/`$0.path`）：`key` 不在
+///   `taintedTokens`（只有 `citekey`/`personKey`/`libraryKey`）——因為 `key` 也是
+///   大量 registry/config 常量 key 的名字，無腦入清單會誤中一片。
+/// - **跨行 throw**：`throw StoreYAMLError.invalidField(` 在 N 行、payload 內插在
+///   N+1 行——行級掃描看不到 N+1 行的 sink。約 50 個 StoreYAMLError 站點屬此，
+///   靠輸出端 sink 兜底（#149 verify F5）。
+/// - **switch `case` 短變數值**：`case .literal(let s): return ["literal": s]` 的
+///   `s` 是短名、不含 token——那類站點靠人工消毒 + 功能測試。
+///
+/// **`testGuardCatchesStrippedSanitisation`（#141）是對這個侷限的補償**：它不宣稱
+/// 守衛涵蓋每條路徑，而是量測「守衛確實在看真實的消毒站點」——拔光 displaySafe
+/// 後守衛必須報大量違規（實測 78）。守衛退化成空洞會讓那個下限失守。完整的
+/// 型別感知覆蓋屬另案（需要 SwiftSyntax 級的分析，非本測試的體量）。
 final class DisplaySinkCoverageTests: XCTestCase {
 
     /// store 衍生（＝可能來自別的 binary / 別人 / Zotero 匯入的第三方內容）的識別字。
@@ -116,15 +139,11 @@ final class DisplaySinkCoverageTests: XCTestCase {
         return out
     }
 
-    func testNoUnsanitisedStoreStringReachesUserVisibleOutput() throws {
+    /// 對單一檔案的原始碼文字掃描違規（#141：抽成純函式，讓正常掃描與 strip-all
+    /// 量測自測共用同一判準——meta-test 要能對「拔光 displaySafe 的 source」重跑）。
+    func scanViolations(name: String, text: String) -> [String] {
         var violations: [String] = []
-
-        for url in scannedFiles {
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else {
-                XCTFail("讀不到 \(url.lastPathComponent)——掃描範圍若失效，這個測試會變成空跑")
-                continue
-            }
-            let name = url.lastPathComponent
+        do {
             let allLines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
             for (idx, line) in allLines.enumerated() {
                 let l = String(line)
@@ -192,6 +211,18 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 }
             }
         }
+        return violations
+    }
+
+    func testNoUnsanitisedStoreStringReachesUserVisibleOutput() throws {
+        var violations: [String] = []
+        for url in scannedFiles {
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+                XCTFail("讀不到 \(url.lastPathComponent)——掃描範圍若失效，這個測試會變成空跑")
+                continue
+            }
+            violations += scanViolations(name: url.lastPathComponent, text: text)
+        }
 
         XCTAssertTrue(violations.isEmpty, """
             有 \(violations.count) 條把 store 衍生字串未消毒送進使用者可見輸出的路徑：
@@ -201,6 +232,31 @@ final class DisplaySinkCoverageTests: XCTestCase {
             修法二選一：
               1. 包上 displaySafe(…)——資料面用 max: 800，識別字用 max: 200
               2. 確定安全 → 同一行加 `// display-safe-exempt: <理由>`，把理由寫出來
+            """)
+    }
+
+    /// #141：**量測式自測**——守衛非空洞不能靠「有一條壞樣式抓得到」單點證明
+    /// （那被 verify 席多次質疑：拔一個真實站點守衛卻全綠）。這裡把 verify 席手動
+    /// 做的 strip-all 量測內建：拔光全部 `displaySafe(`，重掃 shipped source，
+    /// 守衛**必須**報大量違規。若守衛的判準退化成永遠不報（token 清單被清空、
+    /// isSink 判斷失效…），strip-all 也不會報 → 這個測試紅。
+    ///
+    /// 下限 20：verify 席實測單一 `AkashicService.swift` strip-all 就 21 站點
+    /// （#149 F1 sweep），六模組全掃遠超此數。用保守下限釘住「守衛確實在看真實
+    /// 消毒站點」，而非精確計數（精確數隨消毒站點增減、會變脆）。
+    func testGuardCatchesStrippedSanitisation() throws {
+        var stripped: [String] = []
+        for url in scannedFiles {
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            // 移除 `displaySafe(` ＝ 模擬「拔掉全部消毒」：`displaySafe(citekey, max:200)`
+            // → `citekey, max:200)`，掃描抽出的 `citekey` 是 tainted 且不含 displaySafe
+            let mutated = text.replacingOccurrences(of: "displaySafe(", with: "")
+            stripped += scanViolations(name: url.lastPathComponent, text: mutated)
+        }
+        XCTAssertGreaterThanOrEqual(stripped.count, 20, """
+            拔光 displaySafe 後守衛只報 \(stripped.count) 條——守衛判準可能已退化成
+            接近空洞（token 清單、isSink 判斷或抽取器失效）。shipped code 有遠超 20
+            個消毒站點，strip-all 應報大量違規。
             """)
     }
 

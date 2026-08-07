@@ -373,23 +373,34 @@ canary 攔下。那不成立——關聯匯出不經過 canary，而 canary 的�
 （已故卻仍有開放的隸屬段），`doctor` **MUST** 報告它，並 **MUST NOT** 代為關閉：
 把隸屬的結束日設成死亡日是推論，而人可能離職多年後才過世。
 
-### 內容不驗證（與既有日期欄位同慣例）
+### 內容不驗證，但 doctor 報告（#85 的裁決，四欄位一致適用）
 
 上表的三種精度是**值域的描述**，不是解碼器強制的約束。`died` 的內容**不驗證**——
 與 `DateRange` 的 `start` / `end`、`organization` 的 `founded` / `dissolved` 同慣例。
 解碼只拒絕**形狀**錯誤（sequence / mapping）；`2004-13-99` 或 `not-a-date` 會被原樣收下。
 
 理由與整個 store 一致：內容的可信度屬使用端的判斷，而 fail-closed 的內容驗證會讓一筆
-可疑的歷史記錄變成整個 store 載入不了。**要改成驗證是跨欄位的決定**（同時影響上述四個
-欄位），不屬本節範圍。
+可疑的**歷史資料**變成整個 store 載入不了（quarantine 對舊 binary 的實際後果是
+「人檔消失」）。而「只知道民國某年」這類真實情況在拒絕式驗證下會被擋死——不確定性
+是正式的資料狀態（§8）。
+
+**#85 把這個沿襲變成裁決**：值域是文件契約、驗證是 `doctor` 報告、載入不擋。
+`doctor` 對四個日期樣欄位（`DateRange.start`/`end`、`founded`/`dissolved`、`died`）
+逐筆列出不合值域的值（key＋欄位＋原值，命中才輸出）。**`entry.date` 刻意不在掃描
+範圍**：biblatex/EDTF 允許區間、季節、約略與 `unknown`/`open`——它的值域屬
+biblatex 契約，ISO 前綴檢查對它全是假陽性——回報而非拒絕，判斷屬使用端，
+與重疊報告、authorized-name 缺口報告同一形狀。值域判定只驗月 01–12、日 01–31，
+**不驗日曆**（`2004-02-30` 通過）——日曆級驗證需要曆法假設，對歷史資料是另一個裁決。
+`endedUnknown` 段的 `end` 缺席是合法而非缺值，報告用 `isOpen` 語意、不裸看 `nil`。
 
 （缺席的**記法**——`null` / `~` / `NULL` / 空白——不在此列：那些不是值，會在邊界被
 正規化成缺席，見上一節。）
 
 ### 來源（#66 之前的資料輸入慣例）
 
-provenance 機制（#66）落地前，`died` 的來源（訃聞、紀念專輯、機構公告）**應**寫進
-`note`。它醜——單一自由文字欄、不參與計算——但**「醜且留著」勝過「乾淨且弄丟」**：
+provenance 機制（#66，見 §3.5）落地前，`died` 的來源（訃聞、紀念專輯、機構公告）
+**應**寫進 `note`。落地後新資料可改用 `references:`（`field: died` 的擷取型或判斷型）；
+既有 note 的遷移不強制。它醜——單一自由文字欄、不參與計算——但**「醜且留著」勝過「乾淨且弄丟」**：
 機制落地時這些字串可以遷移，沒記下來的來源不行。
 
 **這是對「填資料的人」的慣例，不是格式的 normative 要求**：`died` 在場而 `note` 缺席
@@ -500,6 +511,70 @@ akashic fmt --check    # 只回報偏離並以非零碼退出，不寫任何檔�
 `validate` **不**擋排版偏離——那不是正確性問題。若 `validate` 擋排版，外部 pipeline
 每次寫完都得先跑 `fmt` 才過驗證，摩擦大到會讓人繞過 `validate` 本身。`--check` 的
 語意與 `swift format --lint` 一致，給 CI 與外部 pipeline 當明確關卡。
+
+## 3.5 `references`：欄位層級的 provenance（normative，#66）
+
+person 與 organization 記錄可攜帶頂層 `references:` 清單——一筆 provenance 同時記
+**取得路徑**（URL、擷取日期、HTTP 狀態）與**取得的內容**（SHA-256 定址的位元組）。
+只有 URL 不構成 provenance：URL 是通往內容的路徑，不是內容本身（實測兩個 host 回
+相同位元組、第三個 404）。
+
+兩種 reference，**互斥**（混用拒收）：
+
+```yaml
+references:
+- field: orcid                    # 擷取型：url / retrieved / status / content 皆必要
+  url: https://pub.orcid.org/v3.0/0000-0003-4038-9439
+  retrieved: 2026-08-03
+  status: 200                     # 錯誤頁面同樣有 digest——「死」也是內容；200 不代表活著
+  media-type: application/json    # 可選
+  content: sha256:d1f446b3507bd24aXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+- field: names                    # 判斷型：judgement + rests-on 成對；不得帶 content
+  value: "Chen, H-Y."             # 欄位是清單時以值定位（索引在重排時失效）
+  judgement: 名冊內 Chen 姓且 given initials H-Y 唯一，與縮寫配對一致
+  rests-on:
+  - sha256:9a23d701e4fe4888XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+```
+
+**normative 規則：**
+
+1. 每筆 reference **MUST** 帶 `field:` 指名它支持的欄位；欄位是清單（`names`／
+   `authorized`）時 **MUST** 另帶 `value:` 以值定位、純量欄位 **MUST NOT** 帶
+   `value:`（掛在純量上沒有意義又永不被驗——安靜的垃圾欄位）。指名不存在的欄位
+   拒絕載入；清單欄位的 `value` 不在清單內拒絕載入（值被改寫後 provenance 成了
+   孤兒——載入時擋下，錯誤同時指名欄位與值）。`profile.*` 維度只驗非空、`value`
+   不比對（OrgRef 等複合值無 canonical 字串——誠實邊界，細部定位屬消費端）。
+2. 擷取型 **MUST** 有 `url`／`retrieved`／`status`／`content`；缺 `content` 拒收
+   ——內容的 digest 是 provenance 必要的另一半。判斷型 **MUST** 有 `judgement` 與
+   `rests-on`（成對、皆非空）；帶 `content` 拒收——判斷不是擷取，沒有自己的位元組，
+   它依據的內容以 `rests-on` 指名。
+3. digest 形狀 **MUST** 是 `sha256:` + 64 個小寫 hex——算在**收到的原始位元組**上，
+   不正規化、不轉碼（同一份實質內容可能因廣告/時間戳而有多個 digest——誠實接受的
+   代價；正規化是詮釋，另案）。
+4. reference 清單內的鍵是 **strict**（未知鍵拒收）——未來加欄位是 **non-additive**
+   （同時間軸段內鍵的教訓，#63/#74）。
+5. 既有 `TemporalValue.source`（時間段上的裸 URL）**不動**、不遷移、與 references
+   並存（#66 D7；遷移另案）。無 `references` 的既有記錄零 diff。
+
+### 存檔佈局：`sources/`（內容定址，不進 remote）
+
+擷取的位元組住 `<store>/sources/<digest 前 2 字元>/<其餘 62 字元>`，**無副檔名**
+（位元組就是位元組，媒體型別記在 reference 上）。同位元組只存一份。
+
+**存檔 MUST NOT 進版控 remote**——它是第三方逐字內容，與本專案對 raw 逐字稿的
+處置相同；追蹤的是**指涉紀錄**（references 欄位），不是被指涉的位元組。
+`ensureLayout()` 建 `sources/` 並寫入 `.gitignore` 標記區塊（`# BEGIN akashic
+sources` … `# END`；idempotent——標記已在（含手工版本）就不寫也不改寫）。寫入存檔
+前 **MUST** 以 git 自身的忽略判定驗證排除生效（fail-closed）：未生效拒寫、git 不可
+用拒寫；store 非 git repo 時跳過驗證，跳過的事實記錄在寫入回條。
+
+**digest 缺席是預期狀態，不是損毀**：存檔不進 remote，clone 後必然缺席。載入
+**MUST** 照常成功，缺席以與格式錯誤**不同的**條件回報（`missingSourceDigests`）。
+
+**存檔不是 entity**（兩個獨立理由，任一充分）：網頁不決定記錄形狀、不讓 loader
+分岔到不同 decoder；且內容定址的身分被位元組窮盡——entity 的判準之一是「改名後
+仍是同一物」，而位元組串改一個 byte 就是另一串。它沒有名字、沒有歷史、沒有生命
+週期，在構造上不可能是 entity（詳見 design-principles 的對應節）。
 
 ## 4. 衍生物
 
@@ -929,9 +1004,19 @@ shape 才遷移——鍵在不同形狀之間可以同名。遷移後候選少�
 `akashic rename` 同樣 **MUST** 遷移歧異記錄的 work 候選；改名會讓候選塌縮時 **MUST**
 拒絕——rename 沒有合併語意。
 
-**失敗語意**：參照重寫的單筆失敗**收容並繼續**，結束時報告清單並以非零碼退出；**有任何
-失敗就不刪任何東西**——歧異記錄是唯一能重跑的依據，先刪它再讓被併檔留著，比撕裂更糟。
-報告 **MUST** 在索引重建之前印出：索引過期可重建，報告遺失不可回復。
+**失敗語意**：參照重寫的單筆失敗**收容並繼續**，結束時報告清單並以非零碼退出；參照
+重寫**有任何失敗就不進入刪除**——歧異記錄是唯一能重跑的依據，先刪它再讓被併檔留著，
+比撕裂更糟。刪除階段自身的可預期失敗 **MUST** **前移**：動手前檢查每個要刪的檔案
+可刪（父目錄可寫、無 immutable flag），任何一個不可刪就**一個都不刪**（與「候選檔案
+必須在 `entities/`」的前置是同一個做法）。前移檢查後仍發生的刪除失敗（TOCTOU、真正的
+I/O 錯誤）收容並回報——此時被併記錄**可能部分已刪**，但歧異記錄 **MUST** 保留，修復
+後重跑同一個 id 冪等收尾。報告 **MUST** 在索引重建之前印出：索引過期可重建，報告遺失
+不可回復。
+
+**塌縮的可見性**：候選塌縮的連帶刪除動的是**使用者沒有指名**的記錄，回報 **MUST**
+攜帶該記錄的 `question`，不得只有 UUID——裸 UUID 讓使用者無從知道被刪掉的是哪個
+問題。消歧 **MUST** 提供 dry-run（`--dry-run`）：跑同樣的拒絕條件、預告合併／改寫／
+塌縮刪除，不動任何檔案。
 
 **合併的範圍**：只搬別名。被併記錄帶有倖存者沒有的內容時，合併 **MUST** 拒絕並指名將
 失去什麼。
@@ -952,9 +1037,9 @@ key 在但原文不同 → 那是**衝突**，訊息 **MUST** 據此措辭（說
 **消歧不是清理工具**：沒有指名被併鍵的記錄 **MUST NOT** 被改動，即使它自己有既存的
 重複參照。
 
-**已知缺口**（皆有 issue）：沒有建立入口（#77）；版控檢查只確認「往上找得到 `.git`」而
-非「已被追蹤」（#73）；封閉集合擴充的相容性未決（#74）；消歧不看已寫下的判斷、work
-合併不搬欄位（#75）；MCP 面無投影（#76）。
+**已知缺口**（皆有 issue）：沒有建立入口（#77）；封閉集合擴充的相容性未決（#74）；
+消歧不看已寫下的判斷、work 合併不搬欄位（#75）；MCP 面無投影（#76，進行中）。
+（#73「版控檢查只到『往上找得到 `.git`』」已修——見上方前提表格的 tracked+clean 列。）
 
 ### 5.9 v1.4 規劃：known 層的演化語意（#26 裁決，尚未實作）
 

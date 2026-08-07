@@ -60,10 +60,9 @@ public enum PersonResolver {
         return entries.map { byCitekey[$0.citekey] ?? $0 }
     }
 
+    /// 比對面吃正規化（#81：NFKC＋連字號家族＋空白收斂），輸出仍是原字串——
+    /// 正規化只住在配對鍵裡，永不外洩成資料。
     static func normalize(_ s: String) -> String {
-        s.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .split(separator: " ")
-            .joined(separator: " ")
+        NameNormalization.matchingKey(s)
     }
 }

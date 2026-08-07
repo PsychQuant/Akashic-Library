@@ -263,6 +263,30 @@ store 硬化範疇）。`create` 為 exclusive-create（並發同 key 恰一方�
 biblatex 面向唯讀——過渡期歸 Zotero pull 管。並發（MCP 與 CLI 並用）：per-file atomic
 write、last-wins、index 冪等重建（單人場景設計）。
 
+## 輸出消毒（`displaySafe`）與它的機械守衛
+
+store 內容是**未信任的**——來自 Zotero 匯入（出版商與網頁）、別的 binary、以及 #133
+起可由 LLM 經 MCP 寫入的 divergence 判斷。任何把 store 衍生字串送進使用者可見輸出的
+位置都要包 `displaySafe(…)`（資料面 `max: 800`、識別字 `max: 200`、路徑 `max: 300`），
+否則 raw ESC／U+202E（RTL override）／U+2028 會逐字流進終端、LLM context 或 SwiftUI。
+
+守衛是 `DisplaySinkCoverageTests` 的**原始碼文字掃描**（#28／#141）——問題從來不是
+`displaySafe` 本身有 bug，而是**有人新增了一條沒接上它的輸出路徑**，而記憶枚舉贏不了
+「每次改動都可能新增一條」。掃描面用**枚舉 `Sources/` + 顯式 opt-out（含理由）**，不是
+手寫白名單：手寫清單有三個靜默失效路徑（打錯字、刪掉一項、新模組沒人加），實測全部
+成立。要排除必須寫進 `optOut` 並給理由。
+
+> **守衛全綠 ≠ 這一面安全。** recall 實測 **31%**（210 個含 `displaySafe(` 的行只認得
+> 67）。已知盲區：**續行**（sink 標記在 N 行、payload 在 N+1 行，56 處，#162）、
+> **裸變數名**（token 是 `.title` 這種帶點形式，`if let journal = s.journal` 之後的
+> `journal` 抓不到，#164）、以及**部分退化**（少一個 disjunct、少一個 token——逐軸
+> 下限只抓整條失效，#163）。
+>
+> 這不是理論缺口：**兩次真洩漏都是人工比對發現的，不是守衛抓到的，而且修好之後
+> 守衛依然看不見**（MCP 回應的作者 `literal`、`summaryDict` 的 `journal`）。兩次的
+> 共同形狀都是「同一份資料在同一個檔案裡兩種待遇」——**那個不一致比守衛更早發現
+> 問題**，review 時值得優先看它。
+
 ## Build & Test
 
 ```bash

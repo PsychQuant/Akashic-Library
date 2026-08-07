@@ -463,6 +463,65 @@ final class DivergenceHardeningTests: XCTestCase {
                        + "——否則新欄位會在合併時靜默消失")
     }
 
+    /// work 側的同型防腐（#157 verify 157-4）——`Entry` 加欄位而 work 合併檢查
+    /// 沒跟上時這條會紅。person 側有守衛、work 側先前沒有（同一個 feature 的
+    /// 兩半不對稱，那正是 157-1 能發生的結構原因）。
+    ///
+    /// **這條測試自己就是插入位置紀律的第五個受害者**：它當初被插進
+    /// `testPersonFieldCoverageOfMergeCheck` 的 doc 與宣告之間，於是 person 版那段
+    /// doc 掛到了它頭上——而那段話對它每一句都是假的，person 版則完全沒有 doc。
+    /// 更難堪的是，**做這件事的 commit 正是在原始碼側寫下「插入位置紀律」的那個**。
+    /// 註解形式的紀律已經第五次擋不住。**試過機械化，做不到**——2026-08-07 實作並
+    /// 量測三種判準的誤中數（掃 5128 個宣告）：
+    ///
+    /// | 判準 | 誤中 |
+    /// |---|---|
+    /// | doc 反覆提到別的識別字、完全沒提 owner | 19 |
+    /// | 無 doc 的 func 緊接在有 doc 的宣告之後 | 78 |
+    /// | 孤兒 doc 提到的詞出現在下一個無 doc 宣告的名字裡 | 26 |
+    ///
+    /// 三者的誤中都是**正常寫法**：doc 用鄰居的名字描述自己（`endedUnknown` 的 doc
+    /// 講 `end`、`Snapshot` 的 doc 講 `neighborhood`）在這個 codebase 是常態。帶 20+
+    /// 個豁免的守衛會訓練出反射性加豁免，比沒有守衛更糟，所以**不 ship**。
+    ///
+    /// 留給下一個嘗試的人：真正的訊號可能是「doc 提到型別 T、但宣告的 signature／
+    /// body 用的是型別 U」——本次沒實作，成本較高（要解析 signature）。
+    func testEntryFieldCoverageOfMergeCheck() throws {
+        let n = Mirror(reflecting: Entry(id: UUID(), citekey: "x", type: "article",
+                                         title: "T")).children.count
+        XCTAssertEqual(n, LibraryStore.entryFieldsCoveredByMergeCheck,
+                       "Entry 的儲存屬性數變了（\(n)）——請同步更新 "
+                       + "LibraryStore.fieldsLostByMerging(_:into:) 的 Entry 版與這個常數"
+                       + "（刻意排除的欄位見該函式下方的 doc）")
+    }
+
+    /// **巢狀型別的防腐**（#157 verify 157-9）：只釘 `Entry` 頂層會對最會 rot 的那層
+    /// 失明。席位 mutation 實測——`AkashicMeta` 加一個 stored property，
+    /// `testEntryFieldCoverageOfMergeCheck` **照樣綠**，而該欄位在合併時會靜默消失。
+    ///
+    /// 為什麼是這三個：`Entry` 的 `akashic` / `relations` / `provenance` 都是把多個
+    /// 值收合成一個頂層屬性的複合型別——反射數頂層時它們各只算 1。而
+    /// `Models.swift` 自己寫著 `akashic.unknownFields` 的存在理由是「**歷史上 schema
+    /// 演化就發生在這層**（#13 的 `libraries` 即是）」。person 側早有對應紀律
+    /// （`DateFieldReportTests` 用 `Mirror(reflecting: PersonProfile())` 釘住維度數）。
+    func testNestedTypeFieldCoverageOfMergeCheck() throws {
+        let meta = Mirror(reflecting: AkashicMeta()).children.count
+        XCTAssertEqual(meta, 5, """
+            AkashicMeta 的儲存屬性數變了（\(meta)）——`fieldsLostByMerging` 的 Entry 版
+            逐一比對 tags／libraries／status／relations／unknownFields，新增的那個
+            會在合併時靜默消失。補上比對後再更新這個數字。
+            """)
+        let rel = Mirror(reflecting: Relations()).children.count
+        XCTAssertEqual(rel, 2, "Relations 的儲存屬性數變了（\(rel)）——出向 relations 的比對要跟上")
+        let prov = Mirror(reflecting: Provenance(zoteroKey: "x", zoteroVersion: 1)).children.count
+        XCTAssertEqual(prov, 6, """
+            Provenance 的儲存屬性數變了（\(prov)）。合併比對的是 zoteroKey／libraryID／
+            orphanedAt 三個；**刻意不比** zoteroVersion／zoteroHash／importedAt——那三個
+            是同步狀態不是內容（重新 import 就會變），拿它們擋合併會誤拒。新增欄位請
+            先判定屬於哪一類，再更新這個數字。
+            """)
+    }
+
     /// 畸形候選鍵的記錄在**載入時**就被 quarantine，不會留在 store 裡擋別人。
     ///
     /// 只有 write-time 守衛而沒有 load-time quarantine，會讓一筆手寫的壞記錄在改寫

@@ -299,12 +299,12 @@ public final class AkashicService {
             let nameByKey = Dictionary(uniqueKeysWithValues: load.people.map { ($0.key, $0.displayName(in: .latn)) })
             var personDict: [String: Any] = ["key": key]
             if let record {
-                personDict["names"] = record.names
+                personDict["names"] = record.names.map { displaySafe($0, max: 200) }
                 if !record.unknownFields.isEmpty {   // #31
                     personDict["unknownFields"] =
                         record.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
                 }
-                if let orcid = record.orcid { personDict["orcid"] = orcid }
+                if let orcid = record.orcid { personDict["orcid"] = displaySafe(orcid, max: 200) }
             }
             return try jsonString([
                 "person": personDict,
@@ -313,9 +313,9 @@ public final class AkashicService {
                     var d: [String: Any] = ["count": c.count]
                     if let pk = c.personKey {
                         d["person_key"] = pk
-                        d["name"] = nameByKey[pk] ?? pk
+                        d["name"] = displaySafe(nameByKey[pk] ?? pk, max: 200)
                     } else {
-                        d["name"] = c.name
+                        d["name"] = displaySafe(c.name, max: 200)
                     }
                     return d
                 },
@@ -347,10 +347,15 @@ public final class AkashicService {
                 || p.key.lowercased().contains(needle) {
                 candidates.append(["person_key": displaySafe(p.key, max: 200),
                                    "names": p.names.map { displaySafe($0, max: 200) },
-                                   "publications": keyPubCount[p.key] ?? 0])
+                                   "publications": keyPubCount[p.key] ?? 0])   // display-safe-exempt: dict 查找，值是 Int 計數
             }
             for (literal, count) in literalCounts.sorted(by: { $0.key < $1.key }) {
-                candidates.append(["literal": literal, "publications": count])
+                // #141 verify 實測：`literal` 是 Zotero 匯入的作者原字串（第三方最
+                // 直接的來源），先前**裸送**進 MCP 回應。守衛沒抓到是因為 token 是
+                // `.literal`（帶點）而這裡是裸變數名——正是 #141 記載的 bare-變數盲區。
+                // 對照上方 :348 的 `person_key` 有消毒，同一個回應裡兩種待遇。
+                candidates.append(["literal": displaySafe(literal, max: 200),
+                                   "publications": count])
             }
             let capped = Array(candidates.prefix(50))
             var out: [String: Any] = ["candidates": capped]
@@ -373,8 +378,11 @@ public final class AkashicService {
             return try jsonString(load.libraries.map { lib -> [String: Any] in
                 var d: [String: Any] = ["key": displaySafe(lib.key, max: 200),
                                         "name": displaySafe(lib.name, max: 200),
-                                        "members": counts[lib.key] ?? 0]
-                if let desc = lib.description { d["description"] = desc }
+                                        "members": counts[lib.key] ?? 0]   // display-safe-exempt: dict 查找，值是 Int 計數
+                // #156 verify R4：library 的自由文字，與 name 同源（上面兩行已消毒）
+                if let desc = lib.description {
+                    d["description"] = displaySafe(desc, max: 800)
+                }
                 return d
             })
         case "create":
@@ -423,8 +431,14 @@ public final class AkashicService {
         var entry = try requireEntry(citekey)
         entry.akashic.status = status
         try writeAndReindex(entry)
+        // #156 verify R5：**寫入 tool 自己的回應就吐原文**——攻擊路徑不是「寫進去
+        // 再讀回來」，而是單一 MCP 來回：`akashic_set_status(status: "\u{1B}[31m…")`
+        // 的回應直接把 raw ESC 送進 LLM context。比 `journal` 那條**更短**（那條還
+        // 需要先毒化一份 Zotero 匯入）。而 `status` 的寫入路徑上**零格式驗證**
+        // （全庫 grep `guard`/`throw`/`isValid`/`pattern` 對它零命中）。
         return try jsonString(["citekey": displaySafe(citekey, max: 200),
-                               "status": status ?? NSNull()] as [String: Any])
+                               "status": status.map { displaySafe($0, max: 200) }
+                                   ?? NSNull()] as [String: Any])
     }
 
     public func tag(citekey: String, add: [String], remove: [String]) throws -> String {
@@ -434,8 +448,11 @@ public final class AkashicService {
         }
         entry.akashic.tags.removeAll { remove.contains($0) }
         try writeAndReindex(entry)
+        // #156 verify R5：同 setStatus——`akashic_tag` 是 MCP 暴露的 tool，`tags`
+        // 寫入路徑零驗證，回應直接吐原文。這是**同一個檔案裡的第三次同形**
+        // （`literal`／`journal`／此處）：相鄰兩行，上面的 citekey 消毒了、下面的沒有。
         return try jsonString(["citekey": displaySafe(citekey, max: 200),
-                               "tags": entry.akashic.tags])
+                               "tags": entry.akashic.tags.map { displaySafe($0, max: 200) }])
     }
 
     public func link(citekey: String, kind: String, add: [String], remove: [String]) throws -> String {
@@ -581,6 +598,9 @@ public final class AkashicService {
                                            prefers: prefers)
         return try jsonString([
             "id": d.id.uuidString,
+            // 與 :233 的列表回應一致（那裡本來就 displaySafe）。key 受
+            // StoreKey.isValid 約束成 [a-z0-9-]，本身載不了控制字元——但同一份資料
+            // 在同一個檔案裡有兩種待遇，遲早有人照沒消毒的那個抄。
             "candidates": d.candidates.map { displaySafe($0.key, max: 200) },
             "hasJudgement": d.judgement != nil,
             // #75 對一：傾向回傳給呼叫端——它是消歧會據以比對的結構化欄位
@@ -684,8 +704,13 @@ public final class AkashicService {
             "title": displaySafe(s.title, max: 800),
             "authors": s.authors.map { displaySafe($0, max: 200) },
         ]
-        if let year = s.year { d["year"] = year }
-        if let journal = s.journal { d["journal"] = journal }
+        if let year = s.year { d["year"] = year }   // display-safe-exempt: Int
+        // #156 verify 156-15：`journal` 先前**裸送**。同一個檔案的 `entryDict` 自己
+        // 寫著「fields 值是 biblatex 第三方內容（journal、booktitle…）——與 title
+        // 同源」並在那裡消毒了——一處消毒、一處裸送，與 `bcd46d4` 剛修掉的
+        // `["literal": literal]` 是同一個形狀。summaryDict 餵的是 publications／
+        // search 回應，MCP 直達 LLM。
+        if let journal = s.journal { d["journal"] = displaySafe(journal, max: 800) }
         return d
     }
 
@@ -706,7 +731,7 @@ public final class AkashicService {
             // fields 值是 biblatex 第三方內容（journal、booktitle…）——與 title 同源
             "fields": entry.fields.mapValues { displaySafe($0, max: 800) },
         ]
-        if let date = entry.date { d["date"] = date }
+        if let date = entry.date { d["date"] = displaySafe(date, max: 200) }
         if !entry.attachments.isEmpty {
             d["attachments"] = entry.attachments.map {
                 [$0.kind.rawValue: displaySafe($0.path, max: 800)]
@@ -714,8 +739,12 @@ public final class AkashicService {
         }
         if let prov = entry.provenance {
             var p: [String: Any] = ["zotero_key": prov.zoteroKey, "zotero_version": prov.zoteroVersion]
-            if let lid = prov.libraryID { p["library_id"] = lid }
-            if let hash = prov.zoteroHash { p["zotero_hash"] = hash }
+            if let lid = prov.libraryID { p["library_id"] = lid }   // display-safe-exempt: Int
+            // #156 verify R4：Zotero 來源的字串（雖為 hash 形狀，但本 binary 未驗證
+            // 它真的是 hash——那是 Zotero 寫進來的自由字串）
+            if let hash = prov.zoteroHash {
+                p["zotero_hash"] = displaySafe(hash, max: 200)
+            }
             let iso = ISO8601DateFormatter()
             if let at = prov.importedAt { p["imported_at"] = iso.string(from: at) }
             if let at = prov.orphanedAt {
@@ -725,9 +754,13 @@ public final class AkashicService {
             d["provenance"] = p
         }
         var akashic: [String: Any] = [:]
-        if !entry.akashic.tags.isEmpty { akashic["tags"] = entry.akashic.tags }
+        // #156 verify R4：`tags` 是自由文字，且 **#133 起 LLM 可經 MCP 寫入**
+        // ——來源面與 divergence 的 judgement 同級，優先於其他幾條
+        if !entry.akashic.tags.isEmpty {
+            akashic["tags"] = entry.akashic.tags.map { displaySafe($0, max: 200) }
+        }
         if !entry.akashic.libraries.isEmpty { akashic["libraries"] = entry.akashic.libraries }
-        if let status = entry.akashic.status { akashic["status"] = status }
+        if let status = entry.akashic.status { akashic["status"] = displaySafe(status, max: 200) }
         if !entry.akashic.relations.cites.isEmpty { akashic["cites"] = entry.akashic.relations.cites }
         if !entry.akashic.relations.related.isEmpty { akashic["related"] = entry.akashic.relations.related }
         d["akashic"] = akashic

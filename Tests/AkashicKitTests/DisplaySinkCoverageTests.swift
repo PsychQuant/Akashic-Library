@@ -29,6 +29,12 @@ import Foundation
 ///   的，不是守衛抓到的，而且修好之後守衛依然看不見**（拔掉 displaySafe 仍全綠）。
 ///   這條記在這裡，是為了讓「守衛全綠」永遠不被讀成「這一面已經安全」。
 ///
+///   **第二次同型**（#156 verify 156-15）：`summaryDict` 的 `journal` 裸送進 MCP
+///   回應，而同一個檔案的 `entryDict` 註解自己寫著「fields 值是 biblatex 第三方
+///   內容（journal、booktitle…）——**與 title 同源**」並在那裡消毒了。同樣是裸
+///   變數名（`journal` 不含任何 token），同樣是人工比對發現的。兩次都是「同一份
+///   資料在同一個檔案裡兩種待遇」——那個不一致本身比守衛更早發現問題。
+///
 ///   `load.residue.map { $0 }` 的 `$0` 不含
 ///   任何 tainted token，token 判準對它結構性失效。
 ///
@@ -66,9 +72,24 @@ final class DisplaySinkCoverageTests: XCTestCase {
         // #141 第 3 項（「key 該不該入清單」）**實測後入列**。issue 當時擔心
         // 「`key` 全下會誤中大量 registry/config key」——那個顧慮對**裸** `key`
         // 成立，對 `.key` 不成立：加了點之後 `d["some-key"]` 這種常量不會命中。
-        // 實測全掃描面只新增 4 條，其中 3 條是 `counts[lib.key] ?? 0` 這種 dict
-        // **查找**（值是計數不是 key，由下方 `?? ` 形狀豁免），1 條是 MCP
-        // recordDivergence 回應裡的真不一致（已修）。成本遠低於 issue 的預估。
+        // **正常掃描**只新增 4 條（3 條 dict 查找 + 1 條 MCP 回應的真不一致，
+        // 後者已於 `bcd46d4` 修掉）；strip-all 面則 +11（78→89）。兩個量差 3.5 倍，
+        // 所以要說清楚是哪一種掃描（#156 verify R3 的精確化建議）。
+        //
+        // 那 3 條 dict 查找**用具名 exempt 處理，不用形狀規則**（#156 verify 156-14）：
+        // 我曾加過 `if expr.contains("[") && expr.contains("] ?? ") { continue }`，
+        // 席位實測它是個洞——判準取的是**查找的形狀**，而風險在**值的型別**，形狀
+        // 決定不了型別。守衛沒有型別資訊，分不出 `?? 0` 與 `?? entry.title`：
+        //
+        //     放過  titles[lib.key] ?? entry.title      ← fallback 就是 store 內容
+        //     放過  names[personKey] ?? "(無)"           ← 值型別是字串
+        //     放過  entry.title.isEmpty ? alt[0] ?? "" : entry.title   ← **共現洞**：
+        //           整條只要「某處」含 `[…] ?? ` 就整條豁免，即使 tainted 的部分
+        //           與那個查找毫無關係
+        //
+        // 而且它正是 156-7 標記的那一類（為降 false positive 加的形狀規則），逐軸
+        // 計數偵測不到——加了它總數只掉 3，四軸全在 floor 上。用 3 條具名 exempt
+        // 換掉：理由進 git、可稽核、零洞。
         ".key",
     ]
 
@@ -135,8 +156,23 @@ final class DisplaySinkCoverageTests: XCTestCase {
     /// 不經 `\( … )`，只掃插值的守衛對它整面全盲（mutation 實測：拔掉
     /// `displaySafe` 後 U+202E 逐字回流 LLM）。值的邊界用括號深度感知的逗號
     /// 切分——`displaySafe($0.file, max: 300)` 內部的逗號不是邊界。
+    ///
+    /// **subscript 指派也是 dict 值**（#156 verify 156-16）：`isSink` 一直認得
+    /// `d["` 與 `result["`——那正是 `d["key"] = value` 的形狀——但抽取器只認**字面量**
+    /// `"key": value`，對 subscript 指派抽出**空陣列**。於是那兩條 disjunct 是
+    /// **死碼**：守衛認得這個 sink，然後什麼都沒抽出來。
+    ///
+    /// 席位量到的怪事因此有了解釋：把 `d["` / `result["` 從 `isSink` 拿掉，總數
+    /// 78→78 完全不動。而 `AkashicService.swift` 有一整批 `d["k"] = v` 的站點靠
+    /// 這個缺口逃掉（含 156-15 那條真洩漏）。
     private func dictValues(in line: String) -> [String] {
         var out: [String] = []
+        // subscript 指派：`d["key"] = <expr>` / `result["key"] = <expr>`。取 `] = `
+        // 之後到行尾（Swift 的 subscript 指派本來就是一個完整敘述）。
+        if let r = line.range(of: "\"] = ") {
+            let v = line[r.upperBound...].trimmingCharacters(in: .whitespaces)
+            if !v.isEmpty { out.append(v) }
+        }
         let chars = Array(line)
         var i = 0
         while i < chars.count - 2 {
@@ -243,11 +279,6 @@ final class DisplaySinkCoverageTests: XCTestCase {
                     // `.count` / `.isEmpty` 是數量不是內容；`!= nil` / `== nil` 是
                     // Bool 存在測試（如 hasJudgement）——都到不了內容本身
                     if expr.contains(".count") || expr.contains(".isEmpty") { continue }
-                    // dict **查找**不是 dict 值：`counts[lib.key] ?? 0` 的輸出是計數，
-                    // key 只是索引、不會進輸出（#141 第 3 項，`.key` 入清單後浮現的
-                    // 唯一一類誤中）。判準取 `[…] ?? ` 的形狀——有 fallback 才是查找，
-                    // 沒有的（`d["x"] = expr`）仍照掃。
-                    if expr.contains("[") && expr.contains("] ?? ") { continue }
                     if expr.contains("!= nil") || expr.contains("== nil") { continue }
                     // MCP tool schema 的描述文字（`str("citekey")` 等）：schema
                     // builder 的引數是程式字面量、不是 store 衍生內容——合併掃描面

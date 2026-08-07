@@ -69,8 +69,12 @@ struct Query: ParsableCommand {
                     "title": displaySafe(summary.title, max: 800),
                     "authors": summary.authors.map { displaySafe($0, max: 200) },
                 ]
-                if let year = summary.year { dict["year"] = year }
-                if let journal = summary.journal { dict["journal"] = journal }
+                if let year = summary.year { dict["year"] = year }   // display-safe-exempt: Int
+                // #156 verify 156-15：同 AkashicService.summaryDict——journal 是
+                // biblatex 第三方內容，與 title 同源
+                if let journal = summary.journal {
+                    dict["journal"] = displaySafe(journal, max: 800)
+                }
                 return dict
             }
             let data = try JSONSerialization.data(

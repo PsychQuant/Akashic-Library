@@ -299,12 +299,12 @@ public final class AkashicService {
             let nameByKey = Dictionary(uniqueKeysWithValues: load.people.map { ($0.key, $0.displayName(in: .latn)) })
             var personDict: [String: Any] = ["key": key]
             if let record {
-                personDict["names"] = record.names
+                personDict["names"] = record.names.map { displaySafe($0, max: 200) }
                 if !record.unknownFields.isEmpty {   // #31
                     personDict["unknownFields"] =
                         record.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
                 }
-                if let orcid = record.orcid { personDict["orcid"] = orcid }
+                if let orcid = record.orcid { personDict["orcid"] = displaySafe(orcid, max: 200) }
             }
             return try jsonString([
                 "person": personDict,
@@ -313,9 +313,9 @@ public final class AkashicService {
                     var d: [String: Any] = ["count": c.count]
                     if let pk = c.personKey {
                         d["person_key"] = pk
-                        d["name"] = nameByKey[pk] ?? pk
+                        d["name"] = displaySafe(nameByKey[pk] ?? pk, max: 200)
                     } else {
-                        d["name"] = c.name
+                        d["name"] = displaySafe(c.name, max: 200)
                     }
                     return d
                 },
@@ -347,7 +347,7 @@ public final class AkashicService {
                 || p.key.lowercased().contains(needle) {
                 candidates.append(["person_key": displaySafe(p.key, max: 200),
                                    "names": p.names.map { displaySafe($0, max: 200) },
-                                   "publications": keyPubCount[p.key] ?? 0])
+                                   "publications": keyPubCount[p.key] ?? 0])   // display-safe-exempt: dict 查找，值是 Int 計數
             }
             for (literal, count) in literalCounts.sorted(by: { $0.key < $1.key }) {
                 // #141 verify 實測：`literal` 是 Zotero 匯入的作者原字串（第三方最
@@ -378,7 +378,7 @@ public final class AkashicService {
             return try jsonString(load.libraries.map { lib -> [String: Any] in
                 var d: [String: Any] = ["key": displaySafe(lib.key, max: 200),
                                         "name": displaySafe(lib.name, max: 200),
-                                        "members": counts[lib.key] ?? 0]
+                                        "members": counts[lib.key] ?? 0]   // display-safe-exempt: dict 查找，值是 Int 計數
                 if let desc = lib.description { d["description"] = desc }
                 return d
             })
@@ -688,8 +688,13 @@ public final class AkashicService {
             "title": displaySafe(s.title, max: 800),
             "authors": s.authors.map { displaySafe($0, max: 200) },
         ]
-        if let year = s.year { d["year"] = year }
-        if let journal = s.journal { d["journal"] = journal }
+        if let year = s.year { d["year"] = year }   // display-safe-exempt: Int
+        // #156 verify 156-15：`journal` 先前**裸送**。同一個檔案的 `entryDict` 自己
+        // 寫著「fields 值是 biblatex 第三方內容（journal、booktitle…）——與 title
+        // 同源」並在那裡消毒了——一處消毒、一處裸送，與 `bcd46d4` 剛修掉的
+        // `["literal": literal]` 是同一個形狀。summaryDict 餵的是 publications／
+        // search 回應，MCP 直達 LLM。
+        if let journal = s.journal { d["journal"] = displaySafe(journal, max: 800) }
         return d
     }
 
@@ -710,7 +715,7 @@ public final class AkashicService {
             // fields 值是 biblatex 第三方內容（journal、booktitle…）——與 title 同源
             "fields": entry.fields.mapValues { displaySafe($0, max: 800) },
         ]
-        if let date = entry.date { d["date"] = date }
+        if let date = entry.date { d["date"] = displaySafe(date, max: 200) }
         if !entry.attachments.isEmpty {
             d["attachments"] = entry.attachments.map {
                 [$0.kind.rawValue: displaySafe($0.path, max: 800)]

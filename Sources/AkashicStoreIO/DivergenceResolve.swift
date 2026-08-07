@@ -326,18 +326,37 @@ extension LibraryStore {
         case .organization, .divergence:
             throw DivergenceResolveError.unsupportedShape(shape.rawValue)
         }
-        report.warnings += Self.judgementWarnings(record: record, survivor: survivor,
-                                                  overrideReason: overrideReason)
+        report.warnings += Self.judgementWarnings(
+            record: record, survivor: survivor, overrideReason: overrideReason,
+            collapsed: migrateOtherDivergences(record: record, survivor: survivor,
+                                               mergedKeys: mergedKeys,
+                                               snapshot: snapshot).collapsed)
         return report
     }
 
     /// 判斷相關的**不擋提醒**（#75 對一）：有判斷卻無 `prefers` 時無從機械比對——
     /// 說出來，而不是靜默當作沒有判斷。覆寫時記下理由（審計軌跡留在 CLI 輸出與
     /// 版控的 commit message；記錄本身隨消歧刪除，這是 #71 的設計）。
+    ///
+    /// **也掃被連帶刪除的記錄**（#159 verify R4-1）：`collapsed` 那些記錄同樣被這個
+    /// 操作刪掉，而它們可能帶著與所選 survivor 相反的判斷。席位實測一條全部由正常
+    /// 操作組成的鏈：消歧不只沒被判斷擋下，還把**寫著那個判斷的記錄一起刪掉**，
+    /// 然後把判斷指名為正確的那個候選合併掉，dry-run 與實跑都 exit=0、一個字都沒提。
+    ///
+    /// **只警告不拒絕**：那筆記錄不是使用者指名的操作對象，硬擋會讓一個沒人指名的
+    /// 記錄癱瘓別人的消歧（同 quarantine blast radius 的顧慮）。
     static func judgementWarnings(record: Divergence, survivor: String,
-                                  overrideReason: String?) -> [String] {
-        guard let j = record.judgement else { return [] }
+                                  overrideReason: String?,
+                                  collapsed: [Divergence] = []) -> [String] {
         var out: [String] = []
+        for c in collapsed {
+            guard let cj = c.judgement else { continue }
+            let prefersNote = cj.prefers.map { "（傾向「\(displaySafe($0, max: 200))」）" } ?? ""
+            out.append("將**連帶刪除**的歧異記錄 \(c.id.uuidString) 帶有判斷"
+                       + "\(prefersNote)：\(displaySafe(cj.statement, max: 300))"
+                       + "——它不是你指名的對象，但會隨這次消歧一起消失，請確認不衝突")
+        }
+        guard let j = record.judgement else { return out }
         if j.prefers == nil {
             out.append("這筆歧異有判斷但未指定 prefers，無法機械核對——"
                        + "請自行確認倖存者與判斷一致：\(displaySafe(j.statement, max: 300))")
@@ -500,8 +519,11 @@ extension LibraryStore {
                                              overrideReason: overrideReason)
         let merged = Set(mergedKeys)
         var report = ResolveReport()
-        report.warnings += Self.judgementWarnings(record: record, survivor: survivor,
-                                                  overrideReason: overrideReason)
+        report.warnings += Self.judgementWarnings(
+            record: record, survivor: survivor, overrideReason: overrideReason,
+            collapsed: migrateOtherDivergences(record: record, survivor: survivor,
+                                               mergedKeys: mergedKeys,
+                                               snapshot: snapshot).collapsed)
         report.merged = mergedKeys.sorted()
         switch shape {
         case .person:

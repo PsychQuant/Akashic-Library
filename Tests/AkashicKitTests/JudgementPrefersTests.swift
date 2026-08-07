@@ -342,4 +342,42 @@ final class JudgementPrefersTests: XCTestCase {
                        Judgement(statement: "s", restsOn: [digest], prefers: "a"),
                        "同值仍要相等（否則 canary 對正常 round-trip 誤報）")
     }
+
+    /// **R4-1**：被**連帶刪除**的記錄若帶判斷，要說出來。
+    ///
+    /// 席位實測一條全部由正常操作組成的鏈：消歧不只沒被判斷擋下，還把**寫著那個
+    /// 判斷的記錄一起刪掉**，然後把判斷指名為正確的候選合併掉——dry-run 與實跑都
+    /// exit=0、一個字都沒提。與 159-12 同形狀、隔壁一層（那個是 unknown-field gate
+    /// 只守目標，這個是 judgement 檢查只守目標）。
+    ///
+    /// **只警告不拒絕**：那筆記錄不是使用者指名的操作對象。
+    func testWarnsAboutJudgementOnCollapsedRecords() throws {
+        var p1 = Person(key: "fann-a"); p1.names = ["Fann, A"]
+        var p2 = Person(key: "fann-b"); p2.names = ["Fann, B"]
+        try store.writePerson(p1); try store.writePerson(p2)
+        let main = Divergence(
+            id: UUID(), question: "同一人？",
+            candidates: [DivergenceCandidate(key: "fann-a", shape: .person),
+                         DivergenceCandidate(key: "fann-b", shape: .person)])
+        try store.writeDivergence(main)
+        // 同一組候選、不同 id——正常情況下不會有（id 是候選集的函數），但候選遷移
+        // 保留舊 id 的 pre-existing bug 會製造出來
+        let other = Divergence(
+            id: UUID(), question: "另一筆",
+            candidates: [DivergenceCandidate(key: "fann-a", shape: .person),
+                         DivergenceCandidate(key: "fann-b", shape: .person)],
+            judgement: Judgement(statement: "名冊確認 fann-a 才是正式寫法",
+                                 restsOn: [digest], prefers: "fann-a"))
+        try store.writeDivergence(other)
+        GitFixture.commitAll(root, message: "seed")
+
+        for (label, r) in [
+            ("preview", try store.previewResolveDivergence(
+                id: main.id, survivor: "fann-b", overrideReason: nil)),
+            ("actual", try store.resolveDivergence(id: main.id, survivor: "fann-b")),
+        ] {
+            XCTAssertTrue(r.warnings.contains { $0.contains("連帶刪除") && $0.contains("fann-a") },
+                          "\(label) 要說出被連帶刪除的那筆帶著判斷：\(r.warnings)")
+        }
+    }
 }

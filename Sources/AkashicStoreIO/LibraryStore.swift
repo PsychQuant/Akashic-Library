@@ -1071,7 +1071,11 @@ public extension LibraryLoad {
         forEachTimelineSegment { _, shape, dim, _, range in
             let name = "\(shape).\(dim)"
             var t = tally[name] ?? (0, 0)
-            if range.start != nil || range.end != nil || range.endedUnknown {
+            // attested（#70）算有時間資訊——它是「觀測到的時點」，與 endedUnknown
+            // 同屬一等知識狀態（#150/#151 verify F1/F4：DateRange 層有 attested 就是
+            // 有時點，census 不該當它沒日期而誤報「zero dates」）
+            if range.start != nil || range.end != nil || range.endedUnknown
+                || !range.attested.isEmpty {
                 t.dated += 1
             } else {
                 t.undated += 1

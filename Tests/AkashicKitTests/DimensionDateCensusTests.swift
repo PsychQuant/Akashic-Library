@@ -60,6 +60,35 @@ final class DimensionDateCensusTests: XCTestCase {
         XCTAssertEqual(census.first { $0.dimension == "person.affiliations" }?.dated, 1)
     }
 
+    /// #150/#151 verify F1/F4：attested 段算 dated——「觀測到的時點」是有時間
+    /// 資訊，census 不得當它沒日期而誤報「zero dates」。
+    func testAttestedCountsAsDated() {
+        var p = Person(key: "a")
+        p.profile.affiliations = TimelineOf([
+            TemporalValue(value: OrgRef.literal("X"),
+                          range: DateRange(attested: ["2003", "2011"]))])
+        let census = makeLoad(people: [p]).timelineDateCensus()
+        let aff = census.first { $0.dimension == "person.affiliations" }
+        XCTAssertEqual(aff?.dated, 1, "attested 段算有時間資訊")
+        XCTAssertEqual(aff?.undated, 0)
+        // 不得誤報「zero dates」
+        let neverDated = census.filter { $0.dated == 0 && $0.undated > 0 }.map(\.dimension)
+        XCTAssertFalse(neverDated.contains("person.affiliations"),
+                       "全 attested 的維度不是「從來沒有日期」：\(neverDated)")
+    }
+
+    /// #150/#151 verify F2：organization 維度也進 census（走訪器涵蓋 org，
+    /// 但先前無獨立斷言）。
+    func testOrganizationDimensionsInCensus() {
+        var org = Organization(key: "o")
+        org.names = TimelineOf([TemporalValue(value: "舊名", range: DateRange())])
+        org.parents = TimelineOf([
+            TemporalValue(value: OrgRef.literal("上級"), range: DateRange(start: "1990"))])
+        let census = makeLoad(organizations: [org]).timelineDateCensus()
+        XCTAssertEqual(census.first { $0.dimension == "organization.names" }?.undated, 1)
+        XCTAssertEqual(census.first { $0.dimension == "organization.parents" }?.dated, 1)
+    }
+
     /// 防腐：census 與 dateFieldAnomalies 走同一個維度走訪器——新增維度時兩者
     /// 同步涵蓋（#144 R1 的教訓：兩份清單必有一份漏）。
     func testCensusAndAnomaliesShareDimensionCoverage() {

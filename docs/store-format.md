@@ -1032,7 +1032,23 @@ rests-on:
 執行——判斷可由 LLM 經 MCP 寫入（#133），自動採信等於把「當場判斷」換成「延遲自動
 判斷」，繞過 #71 的人工確認底線。倖存者永遠是消歧當下的人工輸入。判斷本身可能錯：
 `--override-reason <理由>` 是知情的覆寫通道，**空理由不接受**（判斷的變更也是判斷）。
-有 `judgement` 但無 `prefers` 時無從機械核對——**報 warning、不擋**。
+有 `judgement` 但無 `prefers` 時無從機械核對——**報 warning、不擋**。preview（`--dry-run`）
+與實跑 **MUST** 對同一組參數擲同樣的錯、給同樣的 warning：dry-run 的價值是誠實預告，
+而它是使用者在不可逆刪除前唯一還能反悔的時點。
+
+**這道一致性檢查是 binary 級、不是 store 級的保證**（#159 verify 159-8）。`prefers` 落在
+divergence 記錄的**頂層**（與 `judgement`／`rests-on` 平行，不是巢狀在 judgement 裡），
+因此在 tolerant-preserve 的涵蓋範圍內——**不需要 bump format**，跨版 round-trip 無損
+（實測：舊 binary 讀到只報「未知欄位『prefers』（已保留）」、`fmt` 整檔改寫後該欄位仍在、
+新 binary 重讀護欄照常 fire）。代價是**舊 binary 會靜默無視這道護欄照樣消歧**（實測
+`exit=0`，一個字都不說）。這是「選填護欄 + tolerant-preserve」的必然：要讓舊 binary 也
+擋，唯一手段是 bump format，那會讓它們對整庫拒絕開啟（含唯讀）——代價不對稱，不做。
+
+**重錄 MUST NOT 靜默抹掉 `prefers`**（#159 verify 159-4）：既有記錄已指定 `prefers` 時，
+帶新 `judgement` 而省略 `prefers` 的重呼叫 **MUST** 拒絕。與 `judgement` 自己那道守衛
+（#133 F1）對稱——`prefers` 是本機制唯一能機械執法的東西，抹掉它就退回「只警告不擋」，
+而「更新判斷時忘了帶 prefers」在 LLM 經 MCP 寫入的前提下是很順的一條路徑。沿用請再帶
+一次同值、改傾向請帶新值、撤銷請直接編輯該檔。
 
 **消歧**：`akashic resolve-divergence <id> --survivor <key>`。它是**一個操作**：合併別名
 → 全庫參照重寫 → 刪除被併記錄與歧異記錄。

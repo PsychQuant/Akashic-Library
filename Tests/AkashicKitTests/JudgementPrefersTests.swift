@@ -126,9 +126,10 @@ final class JudgementPrefersTests: XCTestCase {
         XCTAssertEqual(report.merged, ["fann-b"])
     }
 
-    /// 判斷本身錯了是常態——`--force` 通道保留，但**要求覆寫理由**（判斷的變更
-    /// 也是判斷，不能無聲蓋過）。
-    func testForceOverridesWithReason() throws {
+    /// 判斷本身錯了是常態——覆寫通道保留，但**要求理由**（判斷的變更也是判斷，
+    /// 不能無聲蓋過）。#159 verify 159-2：舊名字叫 `testForce…` 是殘留——`--force`
+    /// **從未存在過**，錯誤訊息叫人用它會拿到 `Unknown option '--force'`。
+    func testOverrideRequiresReason() throws {
         let d = try seedWithJudgement(prefers: "fann-a")
         XCTAssertThrowsError(try store.resolveDivergence(
             id: d.id, survivor: "fann-b", overrideReason: ""),
@@ -146,5 +147,77 @@ final class JudgementPrefersTests: XCTestCase {
         XCTAssertEqual(report.failures, [])
         XCTAssertTrue(report.warnings.contains { $0.contains("判斷") },
                       "有判斷但無 prefers → 提醒人自行核對：\(report.warnings)")
+    }
+
+    // MARK: - #159 verify 的四個回歸
+
+    /// **159-1**：preview 與實跑對同一組參數必須同進同出。
+    ///
+    /// 席位實測分岔且方向是壞的那個：`--dry-run --override-reason …` 被拒、拿掉
+    /// `--dry-run` 卻成功——先跑 dry-run 的謹慎使用者被告知這件事做不到，唯一能
+    /// 知道它會做什麼的方法是真的做下去，在一個會刪檔的操作上。根因是
+    /// `previewResolveDivergence` 沒收 `overrideReason`、靜默吃到預設 nil。
+    func testPreviewAndActualAgreeOnOverrideReason() throws {
+        // (a) 兩邊都不帶 reason → 兩邊都要擲
+        let d1 = try seedWithJudgement(prefers: "fann-a")
+        XCTAssertThrowsError(try store.previewResolveDivergence(
+            id: d1.id, survivor: "fann-b", overrideReason: nil), "preview 要擲")
+        XCTAssertThrowsError(try store.resolveDivergence(
+            id: d1.id, survivor: "fann-b"), "實跑要擲")
+
+        // (b) 兩邊都帶 reason → 兩邊都要放行
+        _ = try store.previewResolveDivergence(
+            id: d1.id, survivor: "fann-b", overrideReason: "名冊確認 B")
+        let actual = try store.resolveDivergence(
+            id: d1.id, survivor: "fann-b", overrideReason: "名冊確認 B")
+        XCTAssertEqual(actual.merged, ["fann-a"])
+    }
+
+    /// **159-5**：warning 在 preview 也要有。「有判斷但無 prefers、無從機械核對」
+    /// 是決定要不要按下破壞性合併時最該看到的一條——只有實跑才印，等於在唯一還能
+    /// 反悔的時點沉默。
+    func testPreviewCarriesJudgementWarnings() throws {
+        let d = try seedWithJudgement(prefers: nil)
+        let preview = try store.previewResolveDivergence(
+            id: d.id, survivor: "fann-b", overrideReason: nil)
+        XCTAssertTrue(preview.warnings.contains { $0.contains("判斷") },
+                      "preview 要帶同一組提醒：\(preview.warnings)")
+        let actual = try store.resolveDivergence(id: d.id, survivor: "fann-b")
+        XCTAssertEqual(preview.warnings, actual.warnings, "preview 與實跑的提醒必須一致")
+    }
+
+    /// **159-4**：重錄判斷不得靜默抹掉 `prefers`。
+    ///
+    /// 這是本 change 唯一能機械執法的東西——抹掉它，消歧就退回「只警告不擋」，
+    /// 整個 #75 對一被一個省略的選填參數關掉。隔壁 20 行就有一道 #133 F1 的守衛
+    /// 專門擋「無判斷的重呼叫靜默抹掉判斷」，這是同一個 bug class 在新欄位重演。
+    func testRerecordCannotSilentlyDropPrefers() throws {
+        var p1 = Person(key: "fann-a"); p1.names = ["Fann, A"]
+        var p2 = Person(key: "fann-b"); p2.names = ["Fann, B"]
+        try store.writePerson(p1); try store.writePerson(p2)
+        let cands: [(key: String, shape: EntityKind)] =
+            [("fann-a", .person), ("fann-b", .person)]
+        _ = try store.recordDivergence(question: "同一人？", candidates: cands,
+                                       judgement: "初判", restsOn: [digest],
+                                       prefers: "fann-a")
+        // 帶新 judgement、省略 prefers → 必須拒絕（不是靜默抹掉）
+        XCTAssertThrowsError(try store.recordDivergence(
+            question: "同一人？", candidates: cands,
+            judgement: "再確認一次", restsOn: [digest], prefers: nil)) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(msg.contains("fann-a"), "要說出既有傾向是什麼：\(msg)")
+        }
+        // 明確再帶一次同值 → 放行；磁碟上仍在
+        _ = try store.recordDivergence(question: "同一人？", candidates: cands,
+                                       judgement: "再確認一次", restsOn: [digest],
+                                       prefers: "fann-a")
+        let reload = try store.load().divergences.first { $0.candidates.count == 2 }
+        XCTAssertEqual(reload?.judgement?.prefers, "fann-a", "沿用時要留著")
+        XCTAssertEqual(reload?.judgement?.statement, "再確認一次", "judgement 照常更新")
+        // 改傾向 → 放行（那是刻意動作）
+        _ = try store.recordDivergence(question: "同一人？", candidates: cands,
+                                       judgement: "改判", restsOn: [digest],
+                                       prefers: "fann-b")
+        XCTAssertEqual(try store.load().divergences.first?.judgement?.prefers, "fann-b")
     }
 }

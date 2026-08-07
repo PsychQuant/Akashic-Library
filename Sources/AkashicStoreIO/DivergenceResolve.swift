@@ -42,10 +42,10 @@ public enum DivergenceResolveError: Error, LocalizedError {
             return "這筆歧異已有判斷、且傾向「\(displaySafe(prefers, max: 200))」，"
                  + "但你選了「\(displaySafe(survivor, max: 200))」作為倖存者——"
                  + "判斷內容：\(displaySafe(statement, max: 300))。"
-                 + "若判斷本身錯了，用 --force 並以 --override-reason 說明為什麼"
+                 + "若判斷本身錯了，用 --override-reason 說明為什麼"
                  + "（判斷的變更也是判斷，不能無聲蓋過）。"
         case let .overrideNeedsReason(prefers, survivor):
-            return "--force 覆寫判斷（傾向「\(displaySafe(prefers, max: 200))」、"
+            return "覆寫判斷（傾向「\(displaySafe(prefers, max: 200))」、"
                  + "你選「\(displaySafe(survivor, max: 200))」）需要 --override-reason："
                  + "為什麼原判斷不成立。"
         case let .unsupportedShape(shape):
@@ -227,6 +227,25 @@ extension LibraryStore {
                      "無判斷的重呼叫不得靜默抹掉它。要更新判斷請帶新的 judgement + rests-on；" +
                      "要撤銷判斷請直接編輯該檔（entities/\(id.uuidString).yaml）")
         }
+        // #159 verify 159-4（**與上面那道守衛對稱**——同一個 bug class 在新欄位上
+        // 重演）：既有記錄已指定 `prefers`，重錄時省略它會**靜默抹掉**它。而 prefers
+        // 正是本 change 唯一能機械執法的東西——抹掉它，`resolve-divergence` 就退回
+        // 「只警告不擋」，整個 #75 對一被一個省略的選填參數關掉。實測（席位 P5 +
+        // MCP e2e 雙路）：re-record 帶新 judgement、省略 prefers → 欄位消失 → 接著
+        // 選原判斷反對的那一邊 **成功**，只留一句 warning。
+        //
+        // 在 #133 的前提下（判斷由 LLM 經 MCP 寫入），「更新 judgement 時忘了帶
+        // prefers」是很順的一條路徑，不是邊角。
+        if let existing = load.divergences.first(where: { $0.id == id }),
+           let existingPrefers = existing.judgement?.prefers,
+           judgement != nil, prefers == nil {
+            throw StoreIOError.invalidInput(
+                what: "divergence（同組候選既有記錄）",
+                // 同上：invalidInput 的 errorDescription 已消毒 why，此處傳原字串
+                why: "這組候選已指定傾向「\(existingPrefers)」——" +
+                     "重錄時省略 prefers 不得靜默抹掉它。要沿用請再帶一次相同的 prefers；" +
+                     "要改傾向請帶新的值；要撤銷請直接編輯該檔（entities/\(id.uuidString).yaml）")
+        }
         if let p = prefers, !candidates.contains(where: { $0.key == p }) {
             throw StoreIOError.invalidInput(
                 what: "divergence prefers",
@@ -323,8 +342,13 @@ extension LibraryStore {
     /// `resolveDivergence` 與 `previewResolveDivergence` 共用的拒絕條件（#78-2）。
     /// **兩邊必須擲一樣的錯**——dry-run 的價值是誠實預告，preview 放行而實跑被擋
     /// （或反過來）都是在騙人，所以驗證只能有這一份。
+    ///
+    /// **`overrideReason` 刻意沒有預設值**（#159 verify 159-1）：共用一份驗證還是分岔
+    /// 了，因為 `previewResolveDivergence` 沒收這個參數、於是**靜默吃到 `nil` 預設**
+    /// ——preview 擲 `contradictsJudgement`、實跑帶 reason 成功，dry-run 比實跑還嚴。
+    /// 「共用同一個函式」擋不住這種分岔，「參數沒有預設值」才擋得住：少傳就編不過。
     private func validateResolvePreconditions(id: UUID, survivor: String,
-                                              overrideReason: String? = nil)
+                                              overrideReason: String?)
         throws -> (record: Divergence, shape: EntityKind,
                    mergedKeys: [String], snapshot: LibraryLoad) {
         guard StoreKey.isValid(survivor) else {
@@ -416,11 +440,22 @@ extension LibraryStore {
     /// `resolveWorkDivergence` 的改寫迴圈一致（命中被併鍵 ⇒ 必有改寫），塌縮判準
     /// 直接共用 `migrateOtherDivergences`——一致性由 `DivergenceResolveTests` 的
     /// preview-vs-actual 測試釘住。
-    public func previewResolveDivergence(id: UUID, survivor: String) throws -> ResolveReport {
+    ///
+    /// **`overrideReason` 必須傳**（#159 verify 159-1）：不收這個參數的舊簽章讓
+    /// preview 靜默吃到 `nil`，於是 `--dry-run --override-reason …` 被拒、拿掉
+    /// `--dry-run` 卻成功——**dry-run 比實跑還嚴**，而且方向是壞的那個：先跑
+    /// dry-run 的謹慎使用者被告知這件事做不到，唯一能知道它會做什麼的方法是真的
+    /// 做下去，在一個會刪檔的操作上。`judgementWarnings` 同理併入報告——「有判斷
+    /// 但無 prefers、無從機械核對」正是人最需要在按下去之前看到的那一條。
+    public func previewResolveDivergence(id: UUID, survivor: String,
+                                         overrideReason: String?) throws -> ResolveReport {
         let (record, shape, mergedKeys, snapshot) =
-            try validateResolvePreconditions(id: id, survivor: survivor)
+            try validateResolvePreconditions(id: id, survivor: survivor,
+                                             overrideReason: overrideReason)
         let merged = Set(mergedKeys)
         var report = ResolveReport()
+        report.warnings += Self.judgementWarnings(record: record, survivor: survivor,
+                                                  overrideReason: overrideReason)
         report.merged = mergedKeys.sorted()
         switch shape {
         case .person:

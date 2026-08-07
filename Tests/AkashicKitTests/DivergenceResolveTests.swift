@@ -282,7 +282,7 @@ final class DivergenceResolveTests: XCTestCase {
     func testPreviewMatchesActualAndTouchesNothing() throws {
         let (main, _) = try seedCollapsible(into: store)
         let before = try snapshot(root)
-        let preview = try store.previewResolveDivergence(id: main.id, survivor: "fann-cathy-s-j")
+        let preview = try store.previewResolveDivergence(id: main.id, survivor: "fann-cathy-s-j", overrideReason: nil)
         XCTAssertEqual(try snapshot(root), before, "preview 不得動任何檔案")
         XCTAssertFalse(preview.survivorUpdated, "preview 沒有既成事實可報")
         XCTAssertEqual(preview.removedDivergences, [], "同上——removed 是事實欄位")
@@ -343,7 +343,7 @@ final class DivergenceResolveTests: XCTestCase {
         try store.writePerson(merged)
         GitFixture.commitAll(store.root, message: "orcid on doomed")
 
-        for run in [{ try self.store.previewResolveDivergence(id: d.id, survivor: "fann-cathy-s-j") },
+        for run in [{ try self.store.previewResolveDivergence(id: d.id, survivor: "fann-cathy-s-j", overrideReason: nil) },
                     { try self.store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j") }] {
             XCTAssertThrowsError(try run(), "preview 與實跑必須擲同樣的拒絕") { error in
                 guard case DivergenceResolveError.wouldLoseFields = error else {
@@ -370,7 +370,7 @@ final class DivergenceResolveTests: XCTestCase {
         try FileManager.default.removeItem(at: store.entityURL(id: e2.id))
         GitFixture.commitAll(store.root, message: "remove candidate file")
 
-        for run in [{ try self.store.previewResolveDivergence(id: d.id, survivor: "w2020a") },
+        for run in [{ try self.store.previewResolveDivergence(id: d.id, survivor: "w2020a", overrideReason: nil) },
                     { try self.store.resolveDivergence(id: d.id, survivor: "w2020a") }] {
             XCTAssertThrowsError(try run(), "work 側 preview 與實跑必須擲同樣的拒絕") { error in
                 guard case DivergenceResolveError.candidateMissing(let key, let shape) = error else {
@@ -386,7 +386,7 @@ final class DivergenceResolveTests: XCTestCase {
     func testPreviewRejectsSameAsActual() throws {
         let d = try seed(into: store)
         XCTAssertThrowsError(try store.previewResolveDivergence(
-            id: d.id, survivor: "not-a-candidate")) { error in
+            id: d.id, survivor: "not-a-candidate", overrideReason: nil)) { error in
             guard case DivergenceResolveError.survivorNotACandidate = error else {
                 return XCTFail("預期 survivorNotACandidate，實得 \(error)")
             }
@@ -403,7 +403,7 @@ final class DivergenceResolveTests: XCTestCase {
                          DivergenceCandidate(key: "ghost-person", shape: .person)])
         try store.writeDivergence(d2)
         XCTAssertThrowsError(try store.previewResolveDivergence(
-            id: d2.id, survivor: "fann-cathy-s-j")) { error in
+            id: d2.id, survivor: "fann-cathy-s-j", overrideReason: nil)) { error in
             guard case DivergenceResolveError.deletionNotRecoverable = error else {
                 return XCTFail("預期 deletionNotRecoverable，實得 \(error)")
             }

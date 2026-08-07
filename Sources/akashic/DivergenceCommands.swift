@@ -30,7 +30,11 @@ struct ResolveDivergence: ParsableCommand {
         }
         let store = try options.openStore()
         if dryRun {   // #78-2：消歧會連帶刪除使用者沒指名的塌縮記錄——要能先看
-            let preview = try store.previewResolveDivergence(id: uuid, survivor: survivor)
+            // #159 verify 159-1：**必須把 overrideReason 一起傳**。少傳時 preview
+            // 吃到 nil → dry-run 擲 contradictsJudgement 而實跑成功，方向還是壞的
+            // 那個（謹慎的人被擋、直接做的人通過）。
+            let preview = try store.previewResolveDivergence(
+                id: uuid, survivor: survivor, overrideReason: overrideReason)
             print("dry-run（不動任何檔案）：")
             print("  併入 \(displaySafe(survivor, max: 200))：" +
                   preview.merged.map { displaySafe($0, max: 200) }.joined(separator: "、"))
@@ -40,6 +44,10 @@ struct ResolveDivergence: ParsableCommand {
             for c in preview.collapsedDetails {
                 print("  ⚠ 連帶刪除（候選塌縮）：\(c.id)——「\(displaySafe(c.question, max: 300))」")
             }
+            // #159 verify 159-5：warning 在 dry-run 也要印。「有判斷但無 prefers、
+            // 無從機械核對」正是人最需要在按下破壞性合併之前看到的一條——先前
+            // 只有實跑會印，等於在唯一還能反悔的時點沉默。
+            for w in preview.warnings { print("  ⚠ \(w)") }
             return
         }
         let report = try store.resolveDivergence(id: uuid, survivor: survivor,

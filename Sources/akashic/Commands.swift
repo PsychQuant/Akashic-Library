@@ -637,6 +637,14 @@ struct RecordDivergence: ParsableCommand {
             help: "判斷的依據（來源 URL 或 sha256: 存檔摘要）；可多個")
     var restsOn: [String] = []
 
+    /// #159 verify 159-3：先前**只有 MCP** 能寫 `prefers`——LLM 寫得了、人寫不了。
+    /// 那讓 CLI 使用者記下的判斷永遠落在「只警告不擋」那條路，`resolve-divergence`
+    /// 的機械執法對他們結構上不可達；而 #75 對一的立論恰恰是「別讓 LLM 的判斷被
+    /// 自動採信」——工具卻只給了 LLM 執法權。
+    @Option(name: .long,
+            help: "判斷傾向哪個候選（選填；須是候選之一、與 --judgement 成對）。指定後 resolve-divergence 選別人會拒絕，而非只警告")
+    var prefers: String?
+
     func run() throws {
         let store = try options.openStore()
         let parsed: [(key: String, shape: EntityKind)] = try candidate.map { spec in
@@ -648,11 +656,21 @@ struct RecordDivergence: ParsableCommand {
             return (key: parts[0], shape: shape)
         }
         let d = try store.recordDivergence(question: question, candidates: parsed,
-                                           judgement: judgement, restsOn: restsOn)
+                                           judgement: judgement, restsOn: restsOn,
+                                           prefers: prefers)
         print("✓ 已記錄 divergence \(d.id.uuidString)")
         print("  候選: " + d.candidates.map { displaySafe($0.key, max: 120) }.joined(separator: " / "))
-        print(d.judgement == nil
-              ? "  尚無判斷——之後可再跑一次本命令補上 --judgement 與 --rests-on（同一組候選＝同一筆記錄）"
-              : "  已附判斷。**記下判斷不等於消歧**——要合併請跑 akashic resolve-divergence \(d.id.uuidString) --survivor <key>")
+        if d.judgement == nil {
+            print("  尚無判斷——之後可再跑一次本命令補上 --judgement 與 --rests-on（同一組候選＝同一筆記錄）")
+        } else {
+            print("  已附判斷。**記下判斷不等於消歧**——要合併請跑 akashic resolve-divergence \(d.id.uuidString) --survivor <key>")
+            // #159 verify 159-3：說出這筆判斷會不會被機械執法。有 judgement 沒
+            // prefers 時 resolve 只警告不擋——那個差別對使用者是不可見的，除非說。
+            if let p = d.judgement?.prefers {
+                print("  傾向「\(displaySafe(p, max: 120))」——選別的候選會被**拒絕**（除非帶 --override-reason）")
+            } else {
+                print("  未指定 --prefers——消歧時只會提醒、不會擋。要機械執法請補 --prefers <key>")
+            }
+        }
     }
 }

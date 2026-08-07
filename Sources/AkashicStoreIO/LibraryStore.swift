@@ -23,8 +23,8 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
         case let .invalidInput(what, why):
             return "\(displaySafe(what, max: 120)) 無效：\(displaySafe(why, max: 400))"
         case let .inconsistentStore(action, issues):
-            // 單行——會過 displaySafe
-            return "store 有 \(issues.count) 個跨記錄不一致，\(action) 拒絕執行"
+            // action 是呼叫端字面量（"rename"/"resolve-divergence"）、issues 已消毒
+            return "store 有 \(issues.count) 個跨記錄不一致，\(action) 拒絕執行"   // display-safe-exempt: action 是呼叫端字面量
                  + "（改寫會刪掉其中一份而留下另一份）："
                  + issues.prefix(3).map { displaySafe($0, max: 300) }.joined(separator: "；")
                  + "。先跑 akashic doctor 看清楚並修好。"

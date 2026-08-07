@@ -198,7 +198,9 @@ extension LibraryStore {
            existing.judgement != nil, judgement == nil {
             throw StoreIOError.invalidInput(
                 what: "divergence（同組候選既有記錄）",
-                why: "這組候選已有判斷（\(displaySafe(existing.judgement!.statement, max: 120))）——" +
+                // #149 R2：invalidInput 的 errorDescription 已消毒 why（sink 策略）——
+                // 此處預先消毒是雙重 escape（反斜線被跳脫兩次）。傳原字串。
+                why: "這組候選已有判斷（\(existing.judgement!.statement)）——" +
                      "無判斷的重呼叫不得靜默抹掉它。要更新判斷請帶新的 judgement + rests-on；" +
                      "要撤銷判斷請直接編輯該檔（entities/\(id.uuidString).yaml）")
         }

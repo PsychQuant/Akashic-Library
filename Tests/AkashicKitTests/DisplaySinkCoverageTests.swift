@@ -129,10 +129,17 @@ final class DisplaySinkCoverageTests: XCTestCase {
             for (idx, line) in allLines.enumerated() {
                 let l = String(line)
                 // 前一行是否為 `case …:` 結尾（ConfigError 的 case/return 跨兩行——
-                // #149 verify F2：同一行的 caseReturn 照不到跨行寫法）
-                let prevIsCase = idx > 0
-                    && allLines[idx - 1].trimmingCharacters(in: .whitespaces).hasPrefix("case ")
-                    && allLines[idx - 1].trimmingCharacters(in: .whitespaces).hasSuffix(":")
+                // #149 verify F2）。**往回跳過註解與空行**（#149 R2 F4：case 與
+                // return 之間常夾說明註解——愈認真解釋為什麼要消毒，愈把守衛的
+                // 回看擋掉；StoreIOError.invalidKey 正是這樣漏掉的）。
+                var prevIsCase = false
+                var k = idx - 1
+                while k >= 0 {
+                    let prev = allLines[k].trimmingCharacters(in: .whitespaces)
+                    if prev.isEmpty || prev.hasPrefix("//") { k -= 1; continue }
+                    prevIsCase = prev.hasPrefix("case ") && prev.hasSuffix(":")
+                    break
+                }
                 // 註解行不算輸出
                 if l.trimmingCharacters(in: .whitespaces).hasPrefix("//") { continue }
                 if l.contains("display-safe-exempt:") { continue }

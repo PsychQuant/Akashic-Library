@@ -52,7 +52,19 @@ public enum ISO8601Prefix {
         let (short, long) = a.count < b.count ? (a, b) : (b, a)
         guard isValid(short), isValid(long) else { return false }
         guard long.hasPrefix(short) else { return false }
-        // 分隔點檢查：`2020` → `2020-03` 的下一個字元必須是 `-`
+        // 分隔點檢查：`2020` → `2020-03` 的下一個字元必須是 `-`。
+        //
+        // **這是 defence-in-depth，現行 `isValid` 下不可達**（#157 verify 157-14）：
+        // `isValid` 只接受 `YYYY`(4)／`YYYY-MM`(7)／`YYYY-MM-DD`(10) 三種**定寬**形狀，
+        // 所以任何「合法且是另一個合法值的前綴」的組合，下一個字元必然是 `-`。
+        // 席位 mutation 實測：改成 `return true` 全套 966 綠——**寫不出能觸發它的
+        // 測試，那本身就是不可達的證明**。
+        //
+        // 保留而非刪除，因為它釘的是 `isValid` 的定寬文法這個前提；日後若放寬
+        // （例如支援 EDTF 的變寬形式）它就會活起來。但**測試不得宣稱在驗它**——
+        // `testMutuallyExclusiveDatesAreReportedButPrecisionIsNot` 的「202 不是 2020
+        // 的精度較低版本」實際上是被 `isValid` 的四位數年份規則擋下的。歸因寫錯會
+        // 讓日後放寬 `isValid` 的人以為這條還罩得住。
         let next = long[long.index(long.startIndex, offsetBy: short.count)]
         return next == "-"
     }

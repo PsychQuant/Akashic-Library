@@ -181,8 +181,13 @@ final class WorkMergeFieldsTests: XCTestCase {
         }
     }
 
-    /// date **只比在場與否、不比精度**——`2020` vs `2020-03-15` 是重複記錄的正常
-    /// 形狀（#71 R2 DA 的同型誤拒教訓）。
+    /// date 的**精度差異**不算衝突——`2020` vs `2020-03-15` 是重複記錄的正常形狀
+    /// （#71 R2 DA 的同型誤拒教訓）。
+    ///
+    /// **舊契約「只比在場與否」已被 157-8 推翻**（那個說法過度矯正，`2019` vs
+    /// `2021` 會靜默通過）。本測試的兩條斷言在新的前綴相容語意下仍成立，但 doc
+    /// 曾把舊契約留在檔案裡、就在 157-8 的回歸測試上方——下一個讀者會照 doc 把
+    /// 行為「改回去」。#157 verify 157-20。
     func testDateComparesPresenceNotPrecision() throws {
         // (a) doomed 有、keeper 沒有 → 拒
         var k1 = work("i2020"); k1.date = nil
@@ -258,8 +263,19 @@ final class WorkMergeFieldsTests: XCTestCase {
         // 回報（空字串落進不相容分支），但會說「與倖存者的  互斥」——把「倖存者
         // 沒有這個欄位」講成「兩邊的值衝突」，人會去找一個不存在的衝突。
         // 沒有這條斷言，`isEmpty` 的處理就是可被靜默移除的死碼（mutation 實測）。
-        XCTAssertFalse(losses.contains { $0.contains("互斥") },
-                       "空值是缺席不是衝突，訊息不得說互斥：\(losses)")
+        XCTAssertFalse(losses.contains { $0.contains("無法機械判定") },
+                       "空值是缺席不是衝突，訊息不得說判不出關係：\(losses)")
+
+        // **對稱的另一半**（#157 verify 157-13）：先前只釘住 keeper 側，doomed 側的
+        // 折疊 mutation 是**存活**的（966 全綠）。doomed 空、keeper 有真值時不得
+        // 報任何 date 遺失——那是「被併者沒帶」，不是衝突。
+        var k2 = Entry(id: UUID(), citekey: "k2", type: "article", title: "T")
+        k2.date = "2020"
+        var d2 = Entry(id: UUID(), citekey: "d2", type: "article", title: "T")
+        d2.date = ""
+        XCTAssertFalse(LibraryStore.fieldsLostByMerging(d2, into: k2)
+            .contains { $0.hasPrefix("date") },
+            "doomed 側空值同樣視同缺席")
     }
 
     /// **157-8**：互斥年份是衝突，不是精度差異。
@@ -310,5 +326,75 @@ final class WorkMergeFieldsTests: XCTestCase {
         XCTAssertEqual(diff.count, 2, "頂層與 akashic 兩處都要報：\(diff)")
         XCTAssertTrue(diff.allSatisfy { $0.contains("內容不同") },
                       "訊息要說出是衝突而非缺席：\(diff)")
+    }
+
+    // MARK: - #157 R3 的四個回歸
+
+    /// **157-12**：「空值＝缺席」是**規則**不是 date 的特例。席位實測 `fields` 兩個
+    /// 方向都錯，而且真 binary 在一則訊息裡吐兩句假話。
+    func testEmptyValuesAreAbsentForFieldsToo() {
+        func losses(keeper kv: String?, doomed dv: String?) -> [String] {
+            var keeper = Entry(id: UUID(), citekey: "k", type: "article", title: "T")
+            if let kv { keeper.fields["doi"] = kv }
+            var doomed = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
+            if let dv { doomed.fields["doi"] = dv }
+            return LibraryStore.fieldsLostByMerging(doomed, into: keeper)
+        }
+        XCTAssertTrue(losses(keeper: nil, doomed: "").isEmpty,
+                      "doomed 的空值＝缺席，不該報成遺失（spurious refusal）")
+        let masked = losses(keeper: "", doomed: "10.1234/real")
+        XCTAssertTrue(masked.contains { $0.contains("10.1234/real") },
+                      "keeper 的空值不得遮蔽 doomed 的真值：\(masked)")
+        XCTAssertFalse(masked.contains { $0.contains("兩邊都有") },
+                       "keeper 那邊是缺席——「兩邊都有」是假話：\(masked)")
+        XCTAssertTrue(losses(keeper: "10.1/x", doomed: "10.1/x").isEmpty, "同值不算失去")
+        XCTAssertTrue(losses(keeper: "10.1/x", doomed: "10.2/y")
+            .contains { $0.contains("兩邊都有") }, "真的兩邊都有且不同 → 衝突")
+    }
+
+    /// **157-12(c)**：`provenance.libraryID` 的 `nil` 是「pre-Phase-2 未記錄」不是
+    /// 「不同 library」——`Provenance` 自己的 doc 就這麼寫。而且那個方向什麼都不會
+    /// 失去（倖存者已有較完整的值），卻擋下合併且「搬到倖存者身上」無物可搬。
+    func testAbsentLibraryIDIsNotAConflict() {
+        func losses(keeperLib: Int?, doomedLib: Int?) -> [String] {
+            var keeper = Entry(id: UUID(), citekey: "k", type: "article", title: "T")
+            keeper.provenance = Provenance(zoteroKey: "ABCD", zoteroVersion: 1,
+                                           libraryID: keeperLib)
+            var doomed = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
+            doomed.provenance = Provenance(zoteroKey: "ABCD", zoteroVersion: 1,
+                                           libraryID: doomedLib)
+            return LibraryStore.fieldsLostByMerging(doomed, into: keeper)
+        }
+        XCTAssertTrue(losses(keeperLib: 1, doomedLib: nil).isEmpty,
+                      "被併者未記錄 → 什麼都不會失去，不得擋")
+        XCTAssertTrue(losses(keeperLib: nil, doomedLib: 1)
+            .contains { $0.contains("library") }, "反方向照報（被併者有、倖存者無）")
+        XCTAssertTrue(losses(keeperLib: 1, doomedLib: 2)
+            .contains { $0.contains("library") }, "兩邊都有且不同 → 衝突")
+    }
+
+    /// **157-18**：attachments 要指名。「先把要保留的搬到倖存者身上」對「1 筆」
+    /// 不可執行。
+    func testAttachmentLossNamesTheFile() {
+        let keeper = Entry(id: UUID(), citekey: "k", type: "article", title: "T")
+        var doomed = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
+        doomed.attachments = [AttachmentRef(kind: .pool, path: "supplementary-appendix.pdf")]
+        let losses = LibraryStore.fieldsLostByMerging(doomed, into: keeper)
+        XCTAssertTrue(losses.contains { $0.contains("supplementary-appendix.pdf") },
+                      "要說出是哪個檔，否則指示不可執行：\(losses)")
+    }
+
+    /// **157-19**：同一組作者但順序不同 → 需人裁決。work 的作者順序帶語意
+    /// （`Person.names` 的 doc 明寫順序不帶語意，`Entry.authors` 沒有對應聲明）。
+    func testAuthorOrderDifferenceIsReported() {
+        var keeper = Entry(id: UUID(), citekey: "k", type: "article", title: "T")
+        keeper.authors = [.literal("A"), .literal("B")]
+        var doomed = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
+        doomed.authors = [.literal("B"), .literal("A")]
+        XCTAssertTrue(LibraryStore.fieldsLostByMerging(doomed, into: keeper)
+            .contains { $0.contains("順序") }, "同集合不同序要報")
+        // 完全相同 → 不報
+        doomed.authors = [.literal("A"), .literal("B")]
+        XCTAssertTrue(LibraryStore.fieldsLostByMerging(doomed, into: keeper).isEmpty)
     }
 }

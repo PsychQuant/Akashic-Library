@@ -225,6 +225,8 @@ public struct Person: Equatable {
     public var note: String?
     /// 機構與身分維度（#20，valid-time temporal）。各屬性自帶時間軸。
     public var profile: PersonProfile
+    /// 欄位層級的 provenance（#66）。空清單不序列化——既有記錄零 diff。
+    public var references: [ProvenanceReference]
     /// 頂層未知欄位（tolerant-preserve，#23）。
     public var unknownFields: [UnknownField]
 
@@ -234,8 +236,10 @@ public struct Person: Equatable {
                 openalex: String? = nil, died: String? = nil, note: String? = nil,
                 id: UUID? = nil,
                 profile: PersonProfile = PersonProfile(),
+                references: [ProvenanceReference] = [],
                 unknownFields: [UnknownField] = []) {
         self.profile = profile
+        self.references = references
         self.id = id ?? DeterministicUUID.forPerson(key: key)
         self.key = key
         self.names = names

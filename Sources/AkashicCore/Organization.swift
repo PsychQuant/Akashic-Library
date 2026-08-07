@@ -68,6 +68,8 @@ public struct Organization: Equatable {
     /// （§7 的 predicate 定義域規則）。表層文法相同不構成它們是同一個 predicate 的證據。
     public var parents: TimelineOf<OrgRef>
     public var note: String?
+    /// 欄位層級的 provenance（#66）。空清單不序列化——既有記錄零 diff。
+    public var references: [ProvenanceReference]
     /// 較新版本寫入、本 binary 不認得的欄位（§5 tolerant-preserve）。
     public var unknownFields: [UnknownField]
 
@@ -76,6 +78,7 @@ public struct Organization: Equatable {
                 founded: String? = nil, dissolved: String? = nil,
                 parents: TimelineOf<OrgRef> = TimelineOf(),
                 note: String? = nil, id: UUID? = nil,
+                references: [ProvenanceReference] = [],
                 unknownFields: [UnknownField] = []) {
         self.key = key
         self.names = names
@@ -85,6 +88,7 @@ public struct Organization: Equatable {
         self.parents = parents
         self.note = note
         self.id = id ?? DeterministicUUID.forOrganization(key: key)
+        self.references = references
         self.unknownFields = unknownFields
     }
 

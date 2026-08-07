@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+@testable import AkashicCore
 
 /// #28：**sink coverage 的機械守衛**。
 ///
@@ -37,6 +38,15 @@ final class DisplaySinkCoverageTests: XCTestCase {
             out += files.filter { $0.pathExtension == "swift" }
         }
         out.append(repoRoot.appendingPathComponent("Sources/AkashicMCPKit/AkashicService.swift"))
+        // #78-7：AkashicCore 的 decode 錯誤訊息會內插未信任的 YAML 值（#23 的前提：
+        // 檔案內容未信任）——#127 verify M2 的 StoreVersion 案例正是這一類，當時
+        // 手工修；機械守衛掃到之後這類洞在測試就會亮。akashic-mcp/ 同（#135 F5）。
+        for dir in ["Sources/AkashicCore", "Sources/akashic-mcp"] {
+            let d = repoRoot.appendingPathComponent(dir)
+            if let files = try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: nil) {
+                out += files.filter { $0.pathExtension == "swift" }
+            }
+        }
         return out
     }
 
@@ -116,20 +126,34 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 // 只看真正的輸出面：print(…) 與 JSON dict 的字串值
                 let isSink = l.contains("print(") || l.contains("jsonString(")
                     || l.contains("d[\"") || l.contains("result[\"") || l.contains("\": ")
-                guard isSink else { continue }
-                // switch 的 `case "x": stmt` 不是 dict 值——冒號後是語句。
+                    || l.contains("return \"") || l.contains("FileHandle.standard")
+                // #78-7：error 構造點是**無條件** sink——payload 最終進 errorDescription
+                // →使用者可見輸出，插值的任何內容（YAML 未知 key、原始值）都可疑，
+                // 不看 token 清單（局部變數名抓不到）。安全的插值加 exempt 注記
+                let isErrorSink = l.contains("throw StoreYAMLError")
+                    || l.contains("throw StoreVersionError")
+                guard isSink || isErrorSink else { continue }
+                // switch 的 `case "x": stmt` 不是 dict 值——冒號後是語句（#138 F2）。
                 // **誠實邊界**：這也豁免了 case 行內的真 dict（如
                 // `case .literal(let s): return ["literal": s]`），且短變數名值
                 // 本就不含可比對 token——那類站點靠人工 + 功能測試釘住。
-                if l.trimmingCharacters(in: .whitespaces).hasPrefix("case ") { continue }
+                // error-sink 行不豁免——throw 行的插值無條件檢查優先於 case 形狀。
+                if !isErrorSink,
+                   l.trimmingCharacters(in: .whitespaces).hasPrefix("case ") { continue }
 
                 for expr in interpolations(in: l) + dictValues(in: l) {
-                    guard taintedTokens.contains(where: { expr.contains($0) }) else { continue }
+                    guard isErrorSink
+                        || taintedTokens.contains(where: { expr.contains($0) }) else { continue }
                     if expr.contains("displaySafe(") { continue }
                     // `.count` / `.isEmpty` 是數量不是內容；`!= nil` / `== nil` 是
                     // Bool 存在測試（如 hasJudgement）——都到不了內容本身
                     if expr.contains(".count") || expr.contains(".isEmpty") { continue }
                     if expr.contains("!= nil") || expr.contains("== nil") { continue }
+                    // MCP tool schema 的描述文字（`str("citekey")` 等）：schema
+                    // builder 的引數是程式字面量、不是 store 衍生內容——合併掃描面
+                    //（#78-7 akashic-mcp）與 dict 值抽取（#138 F2）後的交叉誤中
+                    if expr.hasPrefix("str(\"") || expr.hasPrefix("strArray(\"")
+                        || expr.hasPrefix(".string(\"") { continue }
                     // 多行 closure 的開頭行（`… { author -> T in`）：實際輸出在
                     // 後續行——closure 體若是 `case` 行則落入上方 case 豁免的
                     // 誠實邊界，否則仍會被逐行掃到
@@ -167,5 +191,32 @@ final class DisplaySinkCoverageTests: XCTestCase {
         // 消毒後同形狀必須通過；內部逗號不得被當成值邊界
         let goodDict = #""question": displaySafe(d.question, max: 400),"#
         XCTAssertEqual(dictValues(in: goodDict), ["displaySafe(d.question, max: 400)"])
+    }
+}
+
+/// #139 verify F2 的行為面 regression：contacts 的 mapping key 來自檔案，
+/// 它進 errorDescription 前必須被消毒——掃描守衛管的是原始碼形狀，這條管行為。
+extension DisplaySinkCoverageTests {
+    func testContactsDirtyKeyDoesNotLeakRawBytesIntoError() {
+        // 裸控制字元進不了 YAML（libyaml reader 先擋）——真正的注入路徑是
+        // 雙引號的 \u escape，parser 在 reader 檢查**之後**解碼（#144 verify 同發現）
+        let yaml = """
+        person:
+        id: 33333333-4444-5555-6666-777777777777
+        key: dirty-contact
+        names:
+        - D
+        profile:
+          contacts:
+            "email\\u001B[31mEVIL":
+              value: not-a-sequence
+        """
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertFalse(msg.contains("\u{1B}"),
+                           "原始 ESC 不得進 errorDescription：\(msg.debugDescription)")
+            XCTAssertTrue(msg.contains("u{001B}") || msg.contains("EVIL"),
+                          "消毒後仍要可辨認：\(msg)")
+        }
     }
 }

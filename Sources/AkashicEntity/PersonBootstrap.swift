@@ -33,13 +33,15 @@ public enum PersonBootstrap {
         public var occurrences: Int
     }
 
-    /// 正規化：trim + 摺疊空白 + lowercase。**刻意不去連字號、不去點號**——
-    /// `Jeng-Min` 與 `Jeng Min` 可能是同一人也可能不是，去掉就等於替人決定了。
+    /// 正規化走 `NameNormalization.matchingKey`（#140 verify F1）：曾自留一份舊版
+    /// （trim+空白+lowercase，無 NFKC、不統一連字號），與 resolver 的新判準分裂——
+    /// 後果是 bootstrap 對連字號變體建出**兩個** person，resolver 再把它們的 alias
+    /// 判成塌縮歧義、整組排除：`bootstrap-people` → `resolve-people` 的文件化主流程
+    /// 從 2 候選掉到 0，完全靜默。正規化只能有一份定義。
+    /// **仍刻意不去連字號、不去點號**——`Jeng-Min` 與 `Jeng Min` 可能是同一人也
+    /// 可能不是，去掉等於替人決定（matchingKey 統一連字號**變體**、不移除連字號）。
     static func normalize(_ s: String) -> String {
-        s.trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
-            .lowercased()
+        NameNormalization.matchingKey(s)
     }
 
     /// `"Cheng, Che"` → `"Che Cheng"`。**只處理恰好一個逗號**的情形；

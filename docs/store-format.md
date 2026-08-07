@@ -429,6 +429,22 @@ tolerant-preserve 原樣保留 `died`，**不會按舊語意誤讀新格式**，
 `PersonYAML` / `OrganizationYAML`）。正規化即 `encode(decode(x))`——**沒有第二份
 定義**，`akashic fmt` 只是走訪器。
 
+### 「range 相同」的兩種成因（誠實邊界，#100）
+
+`range` 相同時保留寫入順序（下節）——但「相同」有兩種成因，**系統分不出來**：
+
+1. **真的同時**（或該維度本質上無時序，如別名的並存寫法）——fallback 排序是
+   明示的決定；
+2. **時間解析度不夠／根本沒記時間**——排序默默製造一個現實中沒有根據的順序，
+   同時把「你的資料不夠精確」藏起來。
+
+實測（2026-08，1769 筆）：175 組 range 相同的段**全部**是「完全沒有日期」，且
+names／fields／ranks 三個維度**從來沒有**日期——問題的實際形狀不是「精度粗」而是
+「未記錄」。`doctor` 對「從來沒有日期」的維度出 warning（`timeline dimensions
+with zero dates`）——讓缺席可見，處置（補日期 vs 承認它不是時間軸）留給人。
+後者牽動「該維度是否該是 Timeline 形狀」的設計問題（#63/#54/#65 的值域），
+不在報告層決定。
+
 ### 時間軸的序列化順序
 
 時間軸（`affiliations` / `ranks` / `administrative` / `appointments` / `fields` /

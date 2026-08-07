@@ -84,6 +84,16 @@ struct Doctor: ParsableCommand {
             // 之後等於讓操作者拿不到其餘待修記錄，而總數不等於清單。
             deceasedOpen.forEach { print("  ⚠ \(displaySafe($0, max: 120))") }
         }
+        // #100：「從來沒有日期」的維度——range 相同時的 fallback 排序對它們
+        // 沒有現實根據，系統要說出來（要嘛補日期，要嘛承認它不是時間軸）。
+        // 命中才輸出；空維度不報（沒有段就沒有「該不該有日期」的問題）。
+        let neverDated = load.timelineDateCensus().filter { $0.dated == 0 && $0.undated > 0 }
+        if !neverDated.isEmpty {
+            print("timeline dimensions with zero dates: \(neverDated.count)"
+                  + "（range 相同時的排序對這些維度沒有時間根據——補日期，或接受它是"
+                  + "無時序的集合）")
+            neverDated.forEach { print("  ⚠ \($0.dimension)：\($0.undated) 段、0 個日期") }
+        }
         // #85：日期樣欄位不合 ISO 8601 前綴值域——裁決 (c)：不驗證但報告。
         // **只在命中時輸出**（同 deceasedOpen：待人處理的工作清單，列全部不截斷）。
         let dateAnomalies = load.dateFieldAnomalies()

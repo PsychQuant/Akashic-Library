@@ -64,10 +64,10 @@ struct Query: ParsableCommand {
         if json {
             let payload: [[String: Any]] = results.map { summary in
                 var dict: [String: Any] = [
-                    "citekey": summary.citekey,
+                    "citekey": displaySafe(summary.citekey, max: 200),
                     "type": summary.type,
-                    "title": summary.title,
-                    "authors": summary.authors,
+                    "title": displaySafe(summary.title, max: 800),
+                    "authors": summary.authors.map { displaySafe($0, max: 200) },
                 ]
                 if let year = summary.year { dict["year"] = year }
                 if let journal = summary.journal { dict["journal"] = journal }

@@ -143,7 +143,8 @@ public final class LibraryStore {
         // malformed 的 marker 配上空的 entities/ 會被猜成 legacy，安靜建出 entries/、
         // people/，零訊號；too-new 的 store 則會被 file add 成功註冊。兩者都該在這裡
         // 就拒絕：`read` 對 malformed 擲錯、tooNew 沿 refuse-if-newer（#24）的既有語意。
-        // tooNew 的訊息指路（「請升級」）；malformed 目前只描述不指路——修復指引另案。
+        // tooNew 與 malformed 的訊息都指路（tooNew「請升級」；malformed 的修復
+        // 指引見 StoreVersionError.errorDescription，#118）。
         let format = try StoreVersion.read(root: root)
         guard format <= StoreVersion.supported else {
             throw StoreVersionError.tooNew(found: format, supported: StoreVersion.supported)
@@ -167,6 +168,11 @@ public final class LibraryStore {
         for dir in dirs {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
+        // #66：擷取內容的存檔目錄 + 版控排除區塊（idempotent；既有手工區塊不改寫）。
+        // 建目錄與寫排除**同一動作**——目錄先於排除存在的窗口，就是內容可能被
+        // commit 的窗口。
+        try fm.createDirectory(at: sourcesDir, withIntermediateDirectories: true)
+        try ensureSourcesIgnoreBlock()
     }
 
     /// 佈局殘留（#107）：依當前 format 與 key **不該存在**、且是**空目錄或純衍生物**
@@ -1013,6 +1019,8 @@ public extension LibraryLoad {
         return out
     }
 
+    /// public（#76）：MCP doctor 也要看得到跨記錄警告——「同一個 store 從兩個
+    /// consumer 看到不同的事實」是 #71 第 7 條（承載必須可觀察）的直接違反。
     func crossRecordIssues() -> [ValidationIssue] {
         var out: [ValidationIssue] = []
 

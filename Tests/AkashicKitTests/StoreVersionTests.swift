@@ -300,6 +300,42 @@ extension StoreVersionTests {
         XCTAssertThrowsError(try StoreVersion.read(root: root), "小數不是「帶註解的整數」")
     }
 
+    /// #118：malformed 的訊息要指路——對照 tooNew 有「請升級」與降級說明，
+    /// malformed 曾只描述不指路，而修復入口（doctor）對它第一步就拒絕：
+    /// 使用者被正確地擋下，然後不知道往哪走。
+    func testMalformedMessageGivesGuidance() throws {
+        try writeMarker("format: banana\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in
+            let m = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(m.contains("format:") && m.contains("正整數"),
+                          "要說出合法形狀（一個頂格 format: 正整數行）：\(m)")
+            XCTAssertTrue(m.contains("store-format.md"), "要指向規格：\(m)")
+            // #137 verify M3 的教訓：contains("v1.x") 被出口 2 的標題句滿足、caveat
+            // 整段刪掉照樣綠——斷言要釘 caveat 獨有的字串（雙向誤讀的警告本體）
+            XCTAssertTrue(m.contains("只對真的是 v1.x"),
+                          "caveat 本體（只對 v1.x 安全）必須在——否則指引是降版陷阱：\(m)")
+            XCTAssertTrue(m.contains("誤讀"),
+                          "雙向誤讀的後果必須說出來：\(m)")
+            XCTAssertTrue(m.contains("怎麼判斷"),
+                          "出口要可執行——使用者得知道自己是哪一種：\(m)")
+        }
+    }
+
+    /// tooNew 與 malformed 的訊息對稱性：兩個 case 都要有出口。
+    func testBothErrorCasesGiveActionableGuidance() throws {
+        try writeMarker("format: \(StoreVersion.supported + 1)\n")
+        XCTAssertThrowsError(try StoreVersion.check(root: root)) { error in
+            let m = (error as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertTrue(m.contains("升級"), "tooNew 的出口（既有）")
+        }
+        try writeMarker("format: banana\n")
+        XCTAssertThrowsError(try StoreVersion.read(root: root)) { error in
+            let m = (error as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertTrue(m.contains("修復方式") && m.contains("1.") && m.contains("2."),
+                          "malformed 的出口要是編號步驟，不是恰好出現一個「修」字：\(m)")
+        }
+    }
+
     /// `write` 模板必須永遠合法（自產自讀的最低要求）。
     func testWriteTemplateRoundTrips() throws {
         try StoreVersion.write(root: root, format: 5)

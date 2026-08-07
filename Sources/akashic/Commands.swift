@@ -52,7 +52,9 @@ struct Doctor: ParsableCommand {
         print("people: \(stats.people)")
         // 見上方 validate 的同一理由（#71）。index 不索引歧異記錄（它是短暫的、
         // 不被指涉），所以計數取自 load 而非 stats。
-        print("divergences: \(load.divergences.count)")
+        if !load.divergences.isEmpty {   // #78-3：與 validate 對齊——有才印
+            print("divergences: \(load.divergences.count)")
+        }
         print("relations: \(stats.relations)")
         let orphaned = load.entries.filter { $0.provenance?.orphanedAt != nil }
         print("orphaned: \(orphaned.count)\(orphaned.isEmpty ? "" : "（" + orphaned.map { displaySafe($0.citekey, max: 200) }.joined(separator: ", ") + "）")")

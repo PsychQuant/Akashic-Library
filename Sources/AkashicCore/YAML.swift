@@ -301,7 +301,7 @@ public enum EntryYAML {
                     context, "鍵「\(k)」帶非字串 tag——closed shape 不接受（fail-closed）")
             }
             if !known.contains(k) {
-                throw StoreYAMLError.invalidField(context, "未知欄位「\(k)」（strict schema；見 docs/store-format.md §5）")
+                throw StoreYAMLError.invalidField(context, "未知欄位「\(displaySafe(k, max: 120))」（strict schema；見 docs/store-format.md §5）")
             }
         }
     }
@@ -731,7 +731,7 @@ public enum EntryYAML {
         }
         // R8（R7-verify L18）：id 存在但非 UUID → 報格式錯誤，不誤報「缺欄位」
         guard let id = UUID(uuidString: idString) else {
-            throw StoreYAMLError.invalidField("id", "「\(idString)」不是 UUID")
+            throw StoreYAMLError.invalidField("id", "「\(displaySafe(idString, max: 120))」不是 UUID")
         }
         guard let citekey = try requireShape(map["citekey"], field: "citekey",
                                              expect: "scalar", { $0.scalar?.string }) else {
@@ -847,7 +847,7 @@ public enum EntryYAML {
             if let s = try requireShape(provMap["library_id"], field: "provenance.library_id",
                                         expect: "scalar", { $0.scalar?.string }) {
                 guard let lid = Int(s) else {
-                    throw StoreYAMLError.invalidField("provenance", "library_id「\(s)」不是整數")
+                    throw StoreYAMLError.invalidField("provenance", "library_id「\(displaySafe(s, max: 120))」不是整數")
                 }
                 prov.libraryID = lid
             }
@@ -1059,6 +1059,10 @@ public enum PersonYAML {
         if !person.profile.isEmpty {
             try pairs.append((Node("profile"), PersonYAML.profileNode(person.profile)))
         }
+        // #66：欄位層級的 provenance。空清單不寫出——既有記錄零 diff。
+        if !person.references.isEmpty {
+            try pairs.append((Node("references"), ProvenanceYAML.node(person.references)))
+        }
         var out = try Yams.serialize(node: Node(pairs), allowUnicode: true)
         try EntryYAML.appendRawBlocks(person.unknownFields, to: &out, targetIndent: 0,
                                       context: "person")
@@ -1079,6 +1083,7 @@ public enum PersonYAML {
             if a.died != b.died { bad.append("died") }
             if a.note != b.note { bad.append("note") }
             if a.profile != b.profile { bad.append("profile") }
+            if a.references != b.references { bad.append("references") }
             let detail = bad.isEmpty ? "未知欄位 key 序列不符" : "欄位不符：\(bad.joined(separator: "、"))"
             throw StoreYAMLError.invalidField(
                 "person", "encode 語意自檢失敗——\(detail)，拒絕寫出")
@@ -1098,7 +1103,8 @@ public enum PersonYAML {
     /// 與「停止寫出形狀名」的目的相反。留在已知鍵內＝讀得到、忽略其值、不寫回。
     /// 形狀裸標籤同理必須列入。
     static let knownPersonKeys: Set<String> = Set(["id", "type", "key", "names", "authorized",
-                                                   "orcid", "openalex", "died", "note", "profile"])
+                                                   "orcid", "openalex", "died", "note", "profile",
+                                                   "references"])
         .union(EntityKind.knownLabels)
 
     public static func decode(_ yaml: String) throws -> Person {
@@ -1136,7 +1142,7 @@ public enum PersonYAML {
         if let t = try EntryYAML.requireShape(map["type"], field: "person.type",
                                               expect: "scalar", nullIsAbsent: true,
                                               { $0.scalar?.string }), t != "person" {
-            throw StoreYAMLError.invalidField("person.type", "person 檔的 type 必須是「person」，實得「\(t)」")
+            throw StoreYAMLError.invalidField("person.type", "person 檔的 type 必須是「person」，實得「\(displaySafe(t, max: 120))」")
         }
         var person = Person(key: key, id: explicitID)
         person.unknownFields = unknowns
@@ -1158,6 +1164,16 @@ public enum PersonYAML {
                                                expect: "mapping", nullIsAbsent: true,
                                                { $0.mapping }) {
             person.profile = try PersonYAML.decodeProfile(pm)
+        }
+        // #66：references。逐筆驗證（互斥、必要欄位、digest 形狀）住
+        // ProvenanceYAML.decode；欄位/值的存在性驗證在整筆 person 組完後跑
+        // （它需要其他欄位都就位）。
+        // null 當缺席（#145 verify F5——與其他 collection 欄位的 nullIsAbsent 慣例
+        // 一致；`references:` 後面空白是常見的手改殘留，不值得整檔 quarantine）
+        if let rn = try EntryYAML.requireShape(map["references"], field: "person.references",
+                                               expect: "sequence", nullIsAbsent: true,
+                                               { $0.sequence != nil ? $0 : nil }) {
+            person.references = try ProvenanceYAML.decode(rn, context: "person")
         }
         person.orcid = try EntryYAML.requireShape(map["orcid"], field: "person.orcid",
                                                   expect: "scalar") { $0.scalar?.string }
@@ -1181,6 +1197,8 @@ public enum PersonYAML {
                                                  { $0.scalar?.string })
         person.note = try EntryYAML.requireShape(map["note"], field: "person.note",
                                                  expect: "scalar") { $0.scalar?.string }
+        // #66 task 3.3：reference 附著的存在性驗證——欄位全部就位後才有意義
+        try person.validateReferenceAttachment()
         return person
     }
 }
@@ -1420,7 +1438,7 @@ extension PersonYAML {
             try EntryYAML.rejectUnknownKeys(
                 m, known: ["value", "start", "end", "ended", "source", "note"], context: context)
             guard let vNode = m["value"] else {
-                throw StoreYAMLError.missingField("\(context).value")
+                throw StoreYAMLError.missingField("\(context).value")   // display-safe-exempt: context 是程式構造的欄位路徑
             }
             let ref: OrgRef
             if let vm = vNode.mapping {
@@ -1432,10 +1450,10 @@ extension PersonYAML {
                 case (let k?, nil):  ref = .key(k)
                 case (nil, let l?):  ref = .literal(l)
                 case (_?, _?):
-                    throw StoreYAMLError.invalidField("\(context).value",
+                    throw StoreYAMLError.invalidField("\(context).value",   // display-safe-exempt: context 程式構造
                                                       "key 與 literal 只能擇一——兩者並存無法判斷歸戶狀態")
                 case (nil, nil):
-                    throw StoreYAMLError.missingField("\(context).value.key 或 .literal")
+                    throw StoreYAMLError.missingField("\(context).value.key 或 .literal")   // display-safe-exempt: 同上
                 }
             } else {
                 // 純字串視為未歸戶的字面值（相容於尚未升級的寫法）。
@@ -1470,8 +1488,10 @@ extension PersonYAML {
                 guard let name = k.scalar?.string else {
                     throw StoreYAMLError.invalidField("person.profile.contacts", "鍵必須是字串")
                 }
+                // #139 verify F2：name 是**檔案裡的 mapping key**（未信任），進
+                // context 前消毒——否則下游 throw 的 errorDescription 帶原始位元組
                 p.contacts[name] = try decodeTimeline(
-                    v, context: "person.profile.contacts.\(name)")
+                    v, context: "person.profile.contacts.\(displaySafe(name, max: 120))")
             }
         }
         return p
@@ -1494,7 +1514,7 @@ extension PersonYAML {
                 guard let n = m[k] else { return nil }
                 if n.null != nil { return nil }
                 guard let s = n.scalar?.string else {
-                    throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")
+                    throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")   // display-safe-exempt: k 是呼叫端字面常量；context 程式構造或呼叫端已消毒（contacts name 先 displaySafe，#139 F2）
                 }
                 return s
             }
@@ -1514,7 +1534,7 @@ extension PersonYAML {
             guard let n = m[k] else { return nil }
             if n.null != nil { return nil }
             guard let s = n.scalar?.string else {
-                throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")
+                throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")   // display-safe-exempt: k 是呼叫端字面常量；context 程式構造或呼叫端已消毒（contacts name 先 displaySafe，#139 F2）
             }
             return s
         }
@@ -1549,7 +1569,7 @@ extension PersonYAML {
 public enum OrganizationYAML {
     static let knownKeys: Set<String> = Set(["id", "key", "names", "authorized",
                                              "founded", "dissolved",
-                                             "parents", "note"])
+                                             "parents", "note", "references"])
         .union(EntityKind.knownLabels)
 
     public static func encode(_ org: Organization) throws -> String {
@@ -1569,6 +1589,10 @@ public enum OrganizationYAML {
             try pairs.append((Node("parents"), PersonYAML.orgTimelineNode(org.parents)))
         }
         if let n = org.note { pairs.append((Node("note"), Node(n))) }
+        // #66：欄位層級的 provenance。空清單不寫出——既有記錄零 diff。
+        if !org.references.isEmpty {
+            try pairs.append((Node("references"), ProvenanceYAML.node(org.references)))
+        }
         var text = try Yams.serialize(node: Node(pairs), allowUnicode: true)
         try EntryYAML.appendRawBlocks(org.unknownFields, to: &text, targetIndent: 0,
                                       context: "organization")
@@ -1628,6 +1652,13 @@ public enum OrganizationYAML {
         org.note = try EntryYAML.requireShape(map["note"], field: "organization.note",
                                               expect: "scalar", nullIsAbsent: true,
                                               { $0.scalar?.string })
+        // #66：references（同 person——逐筆驗證住 ProvenanceYAML，附著驗證在組完後）
+        if let rn = try EntryYAML.requireShape(map["references"], field: "organization.references",
+                                               expect: "sequence", nullIsAbsent: true,
+                                               { $0.sequence != nil ? $0 : nil }) {
+            org.references = try ProvenanceYAML.decode(rn, context: "organization")
+        }
+        try org.validateReferenceAttachment()
         return org
     }
 }

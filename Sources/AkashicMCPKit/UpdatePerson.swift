@@ -76,12 +76,21 @@ public extension AkashicService {
             }
         }
 
+        // #148 verify F4：names 全量替換可讓 authorized 懸空（authorized ⊆ names 的
+        // 不變式只活在 Person.validate()，writePerson 不跑它）。部分更新是獨特的
+        // 暴露面——替換 names 的呼叫端本來就沒在想 authorized。error 等級拒絕，
+        // dry-run 一併預演。
+        let validationErrors = person.validate().filter { $0.severity == .error }
         if dryRun {
             var out: [String: Any] = [
                 "dryRun": true,
                 "key": displaySafe(key, max: 200),
                 "wouldChange": changes.keys.sorted(),
             ]
+            if !validationErrors.isEmpty {
+                out["blockedByValidation"] = validationErrors.prefix(5)
+                    .map { displaySafe($0.message, max: 300) }
+            }
             // gate 預演（#131 的 v6 gate）：不預演的 dry-run 會說「會改」而
             // real run 被擋——dry-run 就成了謊言（diagnosis 明列的要求）
             if person.profile.usesEndedUnknown {
@@ -95,6 +104,12 @@ public extension AkashicService {
             return try jsonString(out)
         }
 
+        guard validationErrors.isEmpty else {
+            throw ServiceError.invalid(
+                "更新後的記錄無法通過驗證（error 等級），拒絕寫入：\n"
+                + validationErrors.prefix(5).map { "- " + displaySafe($0.message, max: 300) }
+                    .joined(separator: "\n"))
+        }
         try store.writePerson(person)   // v6 gate／canary／tolerant-preserve 全在這條路上
         try LibraryIndex(store: store).rebuild()
         return try jsonString(["key": displaySafe(key, max: 200),
@@ -121,7 +136,15 @@ public extension AkashicService {
     /// JSON 值 → Yams Node（遞迴）。**Bool 判定先於 Int**：JSON 的 true/false 進
     /// `[String: Any]` 後是 NSNumber，`as? Int` 對它也成立——順序反了 `ended: true`
     /// 會變成 `ended: 1` 被 decode 拒收。
-    static func jsonToNode(_ v: Any) throws -> Node {
+    ///
+    /// **深度上限 64**（#148 verify F3）：fields 是本 MCP 面唯一收任意巢狀 JSON 的
+    /// 參數，200–700 層的巢狀會炸掉遞迴堆疊、整個 server 進程無聲死亡——而 SDK 的
+    /// transport 守衛（~800 層才擋）比這裡鬆。合法 profile 段深度 ≤ 4，64 綽綽有餘。
+    static func jsonToNode(_ v: Any, depth: Int = 0) throws -> Node {
+        guard depth <= 64 else {
+            throw ServiceError.invalid("fields 的巢狀深度超過 64——合法欄位結構深度 ≤ 4，"
+                + "這不是任何可更新欄位的形狀")
+        }
         if v is NSNull { return Node("null", Tag(.null)) }
         if let num = v as? NSNumber {
             if CFGetTypeID(num) == CFBooleanGetTypeID() {
@@ -132,10 +155,10 @@ public extension AkashicService {
             return Node("\(num)", Tag(.float))
         }
         if let s = v as? String { return Node(s) }
-        if let arr = v as? [Any] { return try Node(arr.map(jsonToNode)) }
+        if let arr = v as? [Any] { return try Node(arr.map { try jsonToNode($0, depth: depth + 1) }) }
         if let dict = v as? [String: Any] {
             return try Node(dict.sorted { $0.key < $1.key }
-                .map { (Node($0.key), try jsonToNode($0.value)) })
+                .map { (Node($0.key), try jsonToNode($0.value, depth: depth + 1)) })
         }
         throw ServiceError.invalid("無法轉換的 JSON 值型別：\(type(of: v))")
     }

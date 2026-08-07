@@ -155,11 +155,11 @@ actor AkashicMCPServer {
              description: "建人物實體（people/<key>.yaml；aliases、ORCID、OpenAlex）。",
              inputSchema: obj([
                 "key": str("kebab-case person key"),
-                "names": strArray("aliases（第一個為顯示名）"),
+                "names": strArray("aliases（顯示名由 authorized 指定——#81 起 names 順序不帶語意）"),
                 "orcid": str("ORCID（可選）"), "openalex": str("OpenAlex author ID（可選）"),
              ], required: ["key", "names"])),
         Tool(name: "akashic_update_person",
-             description: "person 的部分更新（#68）：提及的欄位整個換、未提及一律不動。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names/authorized 收字串陣列（全量替換）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）。dry_run 時零寫入、回報會改什麼 + format gate 預演。",
+             description: "person 的部分更新（#68）：提及的欄位整個換、未提及一律不動。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names/authorized 收字串陣列（全量替換）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）；注意 contacts 是**一個**維度——提及它＝整個 contacts map 替換，未提及的子鍵（email/phone…）會消失。dry_run 時零寫入、回報會改什麼 + format gate 預演。",
              inputSchema: obj([
                 "key": str("person key"),
                 "fields": .object([
@@ -276,10 +276,14 @@ actor AkashicMCPServer {
                 }
                 let dryRun: Bool
                 if case .bool(let b)? = params.arguments?["dry_run"] { dryRun = b } else { dryRun = false }
+                guard let fieldsAny = valueToAny(fieldsValue) as? [String: Any] else {
+                    return CallTool.Result(
+                        content: [.text(text: "fields 的巢狀深度超過 64——不是任何可更新欄位的形狀",
+                                        annotations: nil, _meta: nil)],
+                        isError: true)
+                }
                 output = try service.updatePerson(
-                    key: arg("key") ?? "",
-                    fields: valueToAny(fieldsValue) as? [String: Any] ?? [:],
-                    dryRun: dryRun)
+                    key: arg("key") ?? "", fields: fieldsAny, dryRun: dryRun)
             case "akashic_divergences":
                 output = try service.listDivergences()
             case "akashic_record_divergence":
@@ -302,7 +306,10 @@ actor AkashicMCPServer {
 
 /// MCP `Value` → Foundation `Any`（#68：update_person 的 fields 收任意巢狀 JSON）。
 /// bool 用 NSNumber(booleanLiteral)——AkashicService 端以 CFBoolean 判定還原。
-func valueToAny(_ v: Value) -> Any {
+/// **深度上限 64**（#148 verify F3）：與 jsonToNode 同一理由——這條遞迴在它之前跑，
+/// 兩層都要守，回 nil 讓呼叫端回真正的錯誤而不是進程死亡。
+func valueToAny(_ v: Value, depth: Int = 0) -> Any? {
+    guard depth <= 64 else { return nil }
     switch v {
     case .null: return NSNull()
     case .bool(let b): return NSNumber(booleanLiteral: b)
@@ -310,7 +317,19 @@ func valueToAny(_ v: Value) -> Any {
     case .double(let d): return d
     case .string(let s): return s
     case .data(_, let d): return d
-    case .array(let arr): return arr.map(valueToAny)
-    case .object(let dict): return dict.mapValues(valueToAny)
+    case .array(let arr):
+        var out: [Any] = []
+        for x in arr {
+            guard let a = valueToAny(x, depth: depth + 1) else { return nil }
+            out.append(a)
+        }
+        return out
+    case .object(let dict):
+        var out: [String: Any] = [:]
+        for (k, x) in dict {
+            guard let a = valueToAny(x, depth: depth + 1) else { return nil }
+            out[k] = a
+        }
+        return out
     }
 }

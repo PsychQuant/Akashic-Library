@@ -100,6 +100,63 @@ final class UpdatePersonTests: XCTestCase {
             key: "cheng-che", fields: ["orcidd": "typo"], dryRun: false)) { error in
             let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
             XCTAssertTrue(msg.contains("orcidd"), "錯誤必須指名不認得的欄位：\(msg)")
+            // #148 verify F5：必須走白名單分支（列出可更新集合），不是 default
+            // 分支的「decoder 認得但未支援」——那對 typo 是一句假話。拔掉白名單
+            // 檢查時這兩個斷言會紅。
+            XCTAssertTrue(msg.contains("orcid") && msg.contains("profile"),
+                          "訊息必須列出可更新集合：\(msg)")
+            XCTAssertFalse(msg.contains("尚未支援"),
+                           "typo 不得被說成「decoder 認得但未支援」：\(msg)")
+        }
+    }
+
+    /// #148 verify F4：names 全量替換讓 authorized 懸空 → error 等級拒絕，
+    /// dry-run 一併預演。
+    func testNamesReplacementLeavingAuthorizedDanglingRefused() throws {
+        _ = try service.updatePerson(
+            key: "cheng-che", fields: ["authorized": ["Che Cheng"]], dryRun: false)
+        // 換掉 names、不提 authorized——"Che Cheng" 懸空
+        let fields: [String: Any] = ["names": ["鄭澈", "Cheng, C."]]
+        let dry = try service.updatePerson(key: "cheng-che", fields: fields, dryRun: true)
+        XCTAssertTrue(dry.contains("blockedByValidation"),
+                      "dry-run 必須預演驗證拒絕：\(dry)")
+        XCTAssertThrowsError(try service.updatePerson(
+            key: "cheng-che", fields: fields, dryRun: false)) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(msg.contains("authorized") || msg.contains("驗證"), msg)
+        }
+        // 檔案未被改動
+        XCTAssertEqual(try load().names, ["Che Cheng", "鄭澈"])
+    }
+
+    /// #148 verify F7：contacts 是「值為子鍵 map」的維度——維度級覆寫＝整個
+    /// contacts map 替換（未提及的子鍵會消失），釘住這個容易被誤讀的形狀。
+    func testContactsDimensionReplacesWholeMap() throws {
+        _ = try service.updatePerson(
+            key: "cheng-che",
+            fields: ["profile": ["contacts": [
+                "email": [["value": "a@b.c"]],
+                "phone": [["value": "123"]],
+            ]]], dryRun: false)
+        _ = try service.updatePerson(
+            key: "cheng-che",
+            fields: ["profile": ["contacts": ["phone": [["value": "456"]]]]],
+            dryRun: false)
+        let p = try load()
+        XCTAssertNil(p.profile.contacts["email"],
+                     "contacts 是一個維度：整 map 替換，email 消失是契約行為")
+        XCTAssertEqual(p.profile.contacts["phone"]?.entries.first?.value, "456")
+    }
+
+    /// #148 verify F3：深度炸彈回真正的錯誤，不是進程死亡。
+    func testNestingDepthBombReturnsErrorNotCrash() {
+        var nested: Any = "leaf"
+        for _ in 0..<300 { nested = [nested] }
+        XCTAssertThrowsError(try service.updatePerson(
+            key: "cheng-che",
+            fields: ["profile": ["contacts": ["phone": nested]]], dryRun: true)) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(msg.contains("深度"), "必須是深度上限的錯誤：\(msg)")
         }
     }
 
@@ -160,7 +217,7 @@ final class UpdatePersonTests: XCTestCase {
         try FileManager.default.createDirectory(
             at: oldRoot.appendingPathComponent("entities"), withIntermediateDirectories: true)
         try StoreVersion.write(root: oldRoot, format: 5)
-        var p = Person(key: "wang-x", names: ["Wang, X."])
+        let p = Person(key: "wang-x", names: ["Wang, X."])
         try old.writePerson(p)
         let oldService = AkashicService(root: oldRoot,
                                         environment: ["AKASHIC_HOME": fakeHome.path])

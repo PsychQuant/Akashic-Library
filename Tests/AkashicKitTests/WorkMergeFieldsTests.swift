@@ -139,7 +139,7 @@ final class WorkMergeFieldsTests: XCTestCase {
         var doomed = work("f2020dup")
         doomed.fields["doi"] = "10.1/xyz"
         let d = try seed(keeper: keeper, doomed: doomed)
-        for run in [{ try self.store.previewResolveDivergence(id: d.id, survivor: "f2020") },
+        for run in [{ try self.store.previewResolveDivergence(id: d.id, survivor: "f2020", overrideReason: nil) },
                     { try self.store.resolveDivergence(id: d.id, survivor: "f2020") }] {
             XCTAssertThrowsError(try run()) { error in
                 guard case DivergenceResolveError.wouldLoseFields = error else {

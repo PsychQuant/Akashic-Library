@@ -1012,7 +1012,8 @@ rests-on:
 2. 每個候選的 `shape` **MUST** 明寫，**MUST NOT** 由 `key` 推導——鍵在不同形狀之間可以
    同名（見 §organization 的 key 契約），而 decode 沒有 store 存取。`shape: divergence`
    **MUST** 拒收：歧異記錄沒有 key（身分是 UUID），不是可被指涉的對象。
-3. `judgement` 與 `rests-on` **MUST** 成對出現。形狀與判斷型 provenance reference 相同，
+3. `judgement` 與 `rests-on` **MUST** 成對出現。`prefers`（選填）指名判斷傾向的
+   候選，**MUST** 與 `judgement` 成對、**MUST** 是本記錄的候選之一。形狀與判斷型 provenance reference 相同，
    但 **MUST NOT** 含 `field:`——判斷關乎哪個候選才對，不是宿主記錄的哪個欄位。
    兩者的**空值**同樣 **MUST** 拒收（空 `question` 亦然）：空的斷言不是判斷，空的摘要
    不是依據，而空的問題不是未決的問題。
@@ -1025,6 +1026,91 @@ rests-on:
 6. 候選鍵 **MUST** 在寫入時通過 `StoreKey` 驗證，與其他每一條寫入路徑一致。理由不是
    path traversal（候選鍵不進任何路徑），而是 `validate` 對畸形候選鍵報 error——沒有
    這道守衛，工具就能寫出一筆自己的 validate 永遠不會通過、又沒有編輯入口可修的記錄。
+
+**判斷與消歧的關係**（#75 對一）：消歧 **MUST NOT** 對已寫下的判斷惰性——`prefers`
+與 `--survivor` 不一致時 **MUST** 拒絕。但**也 MUST NOT 代選**：不照 `prefers` 自動
+執行——判斷可由 LLM 經 MCP 寫入（#133），自動採信等於把「當場判斷」換成「延遲自動
+判斷」，繞過 #71 的人工確認底線。倖存者永遠是消歧當下的人工輸入。判斷本身可能錯：
+`--override-reason <理由>` 是知情的覆寫通道，**空理由不接受**（判斷的變更也是判斷）。
+有 `judgement` 但無 `prefers` 時無從機械核對——**報 warning、不擋**。preview（`--dry-run`）
+與實跑 **MUST** 對同一組參數擲同樣的錯、給同樣的 warning：dry-run 的價值是誠實預告，
+而它是使用者在不可逆刪除前唯一還能反悔的時點。
+
+**這道一致性檢查是 binary 級、不是 store 級的保證**（#159 verify 159-8）。`prefers` 落在
+divergence 記錄的**頂層**（與 `judgement`／`rests-on` 平行，不是巢狀在 judgement 裡），
+因此在 tolerant-preserve 的涵蓋範圍內——**不需要 bump format**，跨版 round-trip 無損
+（實測：舊 binary 讀到只報「未知欄位『prefers』（已保留）」、`fmt` 整檔改寫後該欄位仍在、
+新 binary 重讀護欄照常 fire）。代價是**舊 binary 會靜默無視這道護欄照樣消歧**（實測
+`exit=0`，一個字都不說）。這是「選填護欄 + tolerant-preserve」的必然：要讓舊 binary 也
+擋，唯一手段是 bump format，那會讓它們對整庫拒絕開啟（含唯讀）——代價不對稱，不做。
+
+**不可逆消歧 MUST NOT 在帶有本 binary 不理解欄位的記錄上執行**（#159 verify §6／
+159-12／159-13）。適用範圍是**封閉列舉**——`resolve-divergence` 本次會刪除或改寫的
+divergence 記錄，**只有這三類，不得依性質相似類推第四類**：
+
+| # | 類別 | 這個操作對它做什麼 |
+|---|---|---|
+| 1 | **目標**（使用者以 `<id>` 指名的那筆） | 刪除 |
+| 2 | **塌縮連帶刪除**（`migrateOtherDivergences` 的 `collapsed`） | 刪除 |
+| 3 | **候選遷移改寫**（同函式的 `toWrite`） | read-modify-write |
+
+三類的完整性由 `migrateOtherDivergences` 的回傳值界定，不由性質推導。任一筆的
+`unknownFields` 非空即拒絕（preview 與實跑同擋，檢查住共用驗證段），訊息指路
+「升級 binary，或確認該欄位可忽略後手動移除」。
+
+**本列舉只涵蓋 divergence 記錄，不涵蓋被併的實體**（#159 verify R3 Q1(b)）。被併
+實體（person／work 記錄本身）也在這個操作裡被刪除，它們的未知欄位由**另一道守衛**
+負責——`fieldsLostByMerging`：
+
+| 被刪的東西 | 守它的是誰 |
+|---|---|
+| divergence 記錄（三類，上表） | 本節的 unknown-field gate |
+| 被併的 **person** | `fieldsLostByMerging(_ p: Person, into:)`——三分比對，含「兩邊都有同名未知欄位但值不同」 |
+| 被併的 **work** | `fieldsLostByMerging(_ e: Entry, into:)`（#75 對二）——**同一組守衛的另一半** |
+
+**這兩道守衛的來源不同、目的也不同**：unknown-field gate 是「本 binary 讀不懂就不
+執行不可逆操作」，`fieldsLostByMerging` 是「被併者帶有倖存者沒有的內容就不自動合併」。
+它們**碰巧**都涵蓋未知欄位，但那是巧合不是設計。
+
+**而且巧合是不完整的**（#159 verify R4-2）：`fieldsLostByMerging` 對未知欄位是**三分**
+判定——倖存者沒有 → 報、值不同 → 報、**兩邊同名同值 → 不報**。最後那一格對它自己的
+目的完全正確（合併不會失去任何東西），但對 gate 的目的是漏的。席位實測的邊界案例：
+
+```
+兩個記錄都帶 `future-veto: do-not-merge`（validate 兩邊都印過「未知欄位（已保留）」）
+→ fieldsLostByMerging 判定「不會失去」→ 放行 → exit=0，被併者連同該欄位一起刪除
+```
+
+那個欄位**字面叫 `do-not-merge`**——正是 gate 的錯誤訊息裡寫的「那些欄位可能正是
+一道本版讀不到的限制」。關鍵區分：`fieldsLostByMerging` 問的是「會不會**失去內容**」，
+gate 問的是「我**讀不讀得懂**」。未知欄位若是**限制**而非**內容**，前者結構上表達不了。
+
+所以本表第 2、3 列涵蓋的是未知欄位的**資料遺失子集**，不是全集；divergence 側的
+gate 沒有這個洞（任何未知欄位一律擋，不看值）。把 gate 也套到被併實體是**行為變更**
+（會改變今天通過的合併），屬另案。
+
+實測紀錄：work 側的 `fieldsLostByMerging` 是 #75 對二補上的；在它落地**之前**，
+work 的被併 entry 帶未知欄位時消歧照跑（席位實測 `exit=0`，`validate` 事前才印過
+「未知欄位（已保留）」）。person 側被守住是因為那道為別的目的寫的守衛剛好涵蓋。
+
+**為什麼寫成列舉而非「所有受影響的記錄」**：第一版寫的正是那句總括判準，而實作
+只檢查目標那一筆——席位實測另外兩類都放行，其中第 3 類更產出**自相矛盾**的檔案
+（候選被改寫成新鍵，未知欄位仍指著全庫已無的舊鍵；tolerant-preserve 保證位元組
+不變，但候選被改寫時「不變」剛好就是錯的）。總括判準的字面涵蓋範圍大於實作，
+差距就在邊界上安靜地答出沒人同意的答案——這是 `common-spec-prose-enumeration`
+記載的失敗模式，逐字對應。
+
+這是「跨版本安全」的**正解**，取代「每加一個安全欄位就 bump format」：它版本無關
+（是本 binary 對自己無知的紀律，不需 store 級協商）、一次涵蓋所有未來欄位、且代價
+侷限在該筆記錄而非整庫拒開。與上游「quarantined 檔讀不到就改寫不到」的 gate 是同一
+條理由的另一面——**讀不懂**與**讀不到**在不可逆操作前應該同樣保守。誠實邊界：它救不
+了已編譯出去的舊 binary（它們不覺得自己讀不懂 `prefers`），那個缺口見上一段。
+
+**重錄 MUST NOT 靜默抹掉 `prefers`**（#159 verify 159-4）：既有記錄已指定 `prefers` 時，
+帶新 `judgement` 而省略 `prefers` 的重呼叫 **MUST** 拒絕。與 `judgement` 自己那道守衛
+（#133 F1）對稱——`prefers` 是本機制唯一能機械執法的東西，抹掉它就退回「只警告不擋」，
+而「更新判斷時忘了帶 prefers」在 LLM 經 MCP 寫入的前提下是很順的一條路徑。沿用請再帶
+一次同值、改傾向請帶新值、撤銷請直接編輯該檔。
 
 **消歧**：`akashic resolve-divergence <id> --survivor <key>`。它是**一個操作**：合併別名
 → 全庫參照重寫 → 刪除被併記錄與歧異記錄。

@@ -20,6 +20,9 @@ struct ResolveDivergence: ParsableCommand {
     @Option(name: .long, help: "倖存者的鍵，必須是該記錄的候選之一") var survivor: String
     @Flag(name: .long, help: "只預告會做什麼（含連帶塌縮刪除的記錄），不動任何檔案")
     var dryRun: Bool = false
+    /// #75 對一：記錄的判斷傾向另一個候選時，消歧拒絕——除非明說原判斷錯在哪。
+    @Option(name: .long, help: "覆寫記錄的判斷傾向（prefers）時，說明為什麼原判斷不成立")
+    var overrideReason: String?
 
     func run() throws {
         guard let uuid = UUID(uuidString: id) else {
@@ -27,7 +30,11 @@ struct ResolveDivergence: ParsableCommand {
         }
         let store = try options.openStore()
         if dryRun {   // #78-2：消歧會連帶刪除使用者沒指名的塌縮記錄——要能先看
-            let preview = try store.previewResolveDivergence(id: uuid, survivor: survivor)
+            // #159 verify 159-1：**必須把 overrideReason 一起傳**。少傳時 preview
+            // 吃到 nil → dry-run 擲 contradictsJudgement 而實跑成功，方向還是壞的
+            // 那個（謹慎的人被擋、直接做的人通過）。
+            let preview = try store.previewResolveDivergence(
+                id: uuid, survivor: survivor, overrideReason: overrideReason)
             print("dry-run（不動任何檔案）：")
             print("  併入 \(displaySafe(survivor, max: 200))：" +
                   preview.merged.map { displaySafe($0, max: 200) }.joined(separator: "、"))
@@ -37,9 +44,14 @@ struct ResolveDivergence: ParsableCommand {
             for c in preview.collapsedDetails {
                 print("  ⚠ 連帶刪除（候選塌縮）：\(c.id)——「\(displaySafe(c.question, max: 300))」")
             }
+            // #159 verify 159-5：warning 在 dry-run 也要印。「有判斷但無 prefers、
+            // 無從機械核對」正是人最需要在按下破壞性合併之前看到的一條——先前
+            // 只有實跑會印，等於在唯一還能反悔的時點沉默。
+            for w in preview.warnings { print("  ⚠ \(w)") }
             return
         }
-        let report = try store.resolveDivergence(id: uuid, survivor: survivor)
+        let report = try store.resolveDivergence(id: uuid, survivor: survivor,
+                                                 overrideReason: overrideReason)
 
         // **報告先印，索引後建，退出碼最後決定。** 消歧是破壞性操作；rebuild 擲錯會把
         // 「哪些改了、什麼被刪了」整份吞掉，而那是使用者唯一能據以收拾的東西。
@@ -64,6 +76,9 @@ struct ResolveDivergence: ParsableCommand {
         }
         if !report.removedDivergences.isEmpty {
             print("已刪除歧異記錄：\(report.removedDivergences.joined(separator: ", "))")
+        }
+        for w in report.warnings {   // #75 對一：不擋但要說
+            print("  ⚠ \(w)")
         }
         for c in report.collapsedDetails {   // #78-2：被連帶刪的是哪個問題，說出來
             print("  ⚠ 其中 \(c.id) 是候選塌縮的連帶刪除——「\(displaySafe(c.question, max: 300))」")

@@ -583,7 +583,8 @@ public final class AkashicService {
     /// （`key:shape`）。刻意**無** MCP 版 resolve——消歧含合併＋全庫改寫＋刪檔，
     /// tracked+clean 前提與人工確認屬 CLI／App 的互動面。
     public func recordDivergence(question: String, candidates: [String],
-                                 judgement: String?, restsOn: [String]) throws -> String {
+                                 judgement: String?, restsOn: [String],
+                                 prefers: String? = nil) throws -> String {
         let parsed: [(key: String, shape: EntityKind)] = try candidates.map { spec in
             let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
             guard parts.count == 2, let shape = EntityKind(rawValue: parts[1]) else {
@@ -593,7 +594,8 @@ public final class AkashicService {
             return (key: parts[0], shape: shape)
         }
         let d = try store.recordDivergence(question: question, candidates: parsed,
-                                           judgement: judgement, restsOn: restsOn)
+                                           judgement: judgement, restsOn: restsOn,
+                                           prefers: prefers)
         return try jsonString([
             "id": d.id.uuidString,
             // 與 :233 的列表回應一致（那裡本來就 displaySafe）。key 受
@@ -601,8 +603,10 @@ public final class AkashicService {
             // 在同一個檔案裡有兩種待遇，遲早有人照沒消毒的那個抄。
             "candidates": d.candidates.map { displaySafe($0.key, max: 200) },
             "hasJudgement": d.judgement != nil,
+            // #75 對一：傾向回傳給呼叫端——它是消歧會據以比對的結構化欄位
+            "prefers": d.judgement?.prefers.map { displaySafe($0, max: 200) } ?? NSNull(),
             "note": "記下判斷不等於消歧——合併請由人工跑 akashic resolve-divergence",
-        ])
+        ] as [String: Any])
     }
 
     public func importZotero(zoteroDb: String?, libraryID: Int?) throws -> String {

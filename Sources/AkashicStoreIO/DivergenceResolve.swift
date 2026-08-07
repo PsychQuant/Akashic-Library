@@ -14,6 +14,13 @@ public enum DivergenceResolveError: Error, LocalizedError {
     case candidateNotInEntities(key: String, expected: String)
     /// #73：要刪的檔案不在版控裡、或有未提交的修改——刪掉就真的沒了。
     case deletionNotRecoverable(files: [(path: String, why: String)])
+    /// #159 verify §6：記錄裡有本 binary 不理解的欄位——不可逆操作不在讀不懂的
+    /// 記錄上執行。
+    case recordHasUnknownFields(id: String, fields: [String])
+    /// #75 對一：記錄的判斷傾向另一個候選——消歧不對已寫下的判斷惰性。
+    case contradictsJudgement(prefers: String, survivor: String, statement: String)
+    /// #75 對一：`--force` 覆寫判斷但沒給理由——判斷的變更也是判斷。
+    case overrideNeedsReason(prefers: String, survivor: String)
 
     public var errorDescription: String? {
         switch self {
@@ -34,6 +41,23 @@ public enum DivergenceResolveError: Error, LocalizedError {
                         .joined(separator: "\n")
                  + "\n消歧會刪掉被併記錄與歧異記錄本身，歷史託給版控而非 store。"
                  + "先 `git add` 並 `git commit` 這些檔案（或確認 entities/ 沒被 .gitignore 擋），再重跑同一個 id。"
+        case let .recordHasUnknownFields(id, fields):
+            return "歧異記錄 \(displaySafe(id, max: 80)) 帶有本 binary 不認得的欄位，"
+                 + "消歧拒絕執行——這是**不可逆**操作（合併＋改寫參照＋刪檔），"
+                 + "而那些欄位可能正是一道本版讀不到的限制："
+                 + fields.prefix(5).map { displaySafe($0, max: 120) }.joined(separator: "、")
+                 + (fields.count > 5 ? "…" : "")
+                 + "。升級 binary；或確認該欄位可忽略後，從記錄檔手動移除再重跑。"
+        case let .contradictsJudgement(prefers, survivor, statement):
+            return "這筆歧異已有判斷、且傾向「\(displaySafe(prefers, max: 200))」，"
+                 + "但你選了「\(displaySafe(survivor, max: 200))」作為倖存者——"
+                 + "判斷內容：\(displaySafe(statement, max: 300))。"
+                 + "若判斷本身錯了，用 --override-reason 說明為什麼"
+                 + "（判斷的變更也是判斷，不能無聲蓋過）。"
+        case let .overrideNeedsReason(prefers, survivor):
+            return "覆寫判斷（傾向「\(displaySafe(prefers, max: 200))」、"
+                 + "你選「\(displaySafe(survivor, max: 200))」）需要 --override-reason："
+                 + "為什麼原判斷不成立。"
         case let .unsupportedShape(shape):
             return "本版的消歧只處理 person 與 work，不處理 \(shape)"   // display-safe-exempt: shape 是 EntityKind.rawValue（enum）
         case let .legacyLayout(root):
@@ -78,6 +102,9 @@ public struct ResolveReport: Equatable {
     public var collapsedDetails: [(id: String, question: String)]
     /// 單筆寫入失敗的訊息。非空即代表結束時該以非零碼退出。
     public var failures: [String]
+    /// **不擋、但要說**的提醒（#75 對一）：有判斷卻沒有結構化的 `prefers` 時，
+    /// 消歧無從機械比對——提醒人自行核對，而不是靜默當作沒有判斷。
+    public var warnings: [String]
     /// 倖存者是否已被改寫（別名合併已落地）。**失敗路徑也可能為 true**——它是
     /// 既成事實而非成功訊號；不說出來，`merged` 為空會讀成「什麼都沒發生」。
     public var survivorUpdated: Bool
@@ -86,8 +113,10 @@ public struct ResolveReport: Equatable {
 
     public init(rewritten: [String] = [], merged: [String] = [],
                 removedDivergences: [String] = [], failures: [String] = [],
+                warnings: [String] = [],
                 collapsedDetails: [(id: String, question: String)] = [],
                 survivorUpdated: Bool = false) {
+        self.warnings = warnings
         self.rewritten = rewritten
         self.merged = merged
         self.removedDivergences = removedDivergences
@@ -99,6 +128,7 @@ public struct ResolveReport: Equatable {
     public static func == (a: ResolveReport, b: ResolveReport) -> Bool {
         a.rewritten == b.rewritten && a.merged == b.merged
             && a.removedDivergences == b.removedDivergences && a.failures == b.failures
+            && a.warnings == b.warnings
             && a.collapsedDetails.map { "\($0.id)|\($0.question)" }
                 == b.collapsedDetails.map { "\($0.id)|\($0.question)" }
             && a.survivorUpdated == b.survivorUpdated
@@ -152,10 +182,13 @@ extension LibraryStore {
     ///
     /// **記下判斷不等於做掉它。** 消歧是一個操作（`resolveDivergence`），不是一個欄位。
     @discardableResult
+    /// - Parameter prefers: 判斷傾向的候選（#75 對一，選填）——消歧會據以比對，
+    ///   但**不代選**（survivor 仍須人工輸入）。
     public func recordDivergence(question: String,
                                  candidates: [(key: String, shape: EntityKind)],
                                  judgement: String?,
-                                 restsOn: [String]) throws -> Divergence {
+                                 restsOn: [String],
+                                 prefers: String? = nil) throws -> Divergence {
         guard candidates.count >= 2 else {
             throw StoreIOError.invalidInput(
                 what: "divergence candidates", why: "需要兩個以上的候選，得到 \(candidates.count) 個")
@@ -204,11 +237,42 @@ extension LibraryStore {
                      "無判斷的重呼叫不得靜默抹掉它。要更新判斷請帶新的 judgement + rests-on；" +
                      "要撤銷判斷請直接編輯該檔（entities/\(id.uuidString).yaml）")
         }
+        // #159 verify 159-4（**與上面那道守衛對稱**——同一個 bug class 在新欄位上
+        // 重演）：既有記錄已指定 `prefers`，重錄時省略它會**靜默抹掉**它。而 prefers
+        // 正是本 change 唯一能機械執法的東西——抹掉它，`resolve-divergence` 就退回
+        // 「只警告不擋」，整個 #75 對一被一個省略的選填參數關掉。實測（席位 P5 +
+        // MCP e2e 雙路）：re-record 帶新 judgement、省略 prefers → 欄位消失 → 接著
+        // 選原判斷反對的那一邊 **成功**，只留一句 warning。
+        //
+        // 在 #133 的前提下（判斷由 LLM 經 MCP 寫入），「更新 judgement 時忘了帶
+        // prefers」是很順的一條路徑，不是邊角。
+        if let existing = load.divergences.first(where: { $0.id == id }),
+           let existingPrefers = existing.judgement?.prefers,
+           judgement != nil, prefers == nil {
+            throw StoreIOError.invalidInput(
+                what: "divergence（同組候選既有記錄）",
+                // 同上：invalidInput 的 errorDescription 已消毒 why，此處傳原字串
+                why: "這組候選已指定傾向「\(existingPrefers)」——" +
+                     "重錄時省略 prefers 不得靜默抹掉它。要沿用請再帶一次相同的 prefers；" +
+                     "要改傾向請帶新的值；要撤銷請直接編輯該檔（entities/\(id.uuidString).yaml）")
+        }
+        if let p = prefers, !candidates.contains(where: { $0.key == p }) {
+            throw StoreIOError.invalidInput(
+                what: "divergence prefers",
+                why: "「\(p)」不是本次的候選之一——判斷傾向的對象必須在候選清單內")
+        }
+        if prefers != nil && judgement == nil {
+            throw StoreIOError.invalidInput(
+                what: "divergence prefers",
+                why: "prefers 需與 judgement 成對——沒有判斷的傾向不知道依據什麼")
+        }
         let d = Divergence(
             id: id,
             question: question,
             candidates: candidates.map { DivergenceCandidate(key: $0.key, shape: $0.shape) },
-            judgement: judgement.map { Judgement(statement: $0, restsOn: restsOn) })
+            judgement: judgement.map {
+                Judgement(statement: $0, restsOn: restsOn, prefers: prefers)
+            })
         _ = try writeDivergence(d)
         return d
     }
@@ -243,25 +307,77 @@ extension LibraryStore {
     /// **刻意沒有 `@discardableResult`**：回傳值裡有 `failures`，而部分失敗是
     /// **不擲錯**的正常回傳（見 `ResolveReport`）。若允許隱式丟棄，`try resolve(…)`
     /// 這一行就會讀起來像成功而實際上吞掉了失敗清單。要丟得自己寫 `_ =`。
-    public func resolveDivergence(id: UUID, survivor: String) throws -> ResolveReport {
+    /// - Parameter overrideReason: `prefers` 與 `survivor` 不一致時的覆寫理由
+    ///   （#75 對一）。非 nil ＝ 使用者主張原判斷錯了；**空字串不接受**——判斷的
+    ///   變更也是判斷，不能無聲蓋過。
+    public func resolveDivergence(id: UUID, survivor: String,
+                                  overrideReason: String? = nil) throws -> ResolveReport {
         let (record, shape, mergedKeys, snapshot) =
-            try validateResolvePreconditions(id: id, survivor: survivor)
+            try validateResolvePreconditions(id: id, survivor: survivor,
+                                             overrideReason: overrideReason)
+        var report: ResolveReport
         switch shape {
         case .person:
-            return try resolvePersonDivergence(record: record, survivor: survivor,
-                                               mergedKeys: mergedKeys, snapshot: snapshot)
+            report = try resolvePersonDivergence(record: record, survivor: survivor,
+                                                 mergedKeys: mergedKeys, snapshot: snapshot)
         case .work:
-            return try resolveWorkDivergence(record: record, survivor: survivor,
-                                             mergedKeys: mergedKeys, snapshot: snapshot)
+            report = try resolveWorkDivergence(record: record, survivor: survivor,
+                                               mergedKeys: mergedKeys, snapshot: snapshot)
         case .organization, .divergence:
             throw DivergenceResolveError.unsupportedShape(shape.rawValue)
         }
+        report.warnings += Self.judgementWarnings(
+            record: record, survivor: survivor, overrideReason: overrideReason,
+            collapsed: migrateOtherDivergences(record: record, survivor: survivor,
+                                               mergedKeys: mergedKeys,
+                                               snapshot: snapshot).collapsed)
+        return report
+    }
+
+    /// 判斷相關的**不擋提醒**（#75 對一）：有判斷卻無 `prefers` 時無從機械比對——
+    /// 說出來，而不是靜默當作沒有判斷。覆寫時記下理由（審計軌跡留在 CLI 輸出與
+    /// 版控的 commit message；記錄本身隨消歧刪除，這是 #71 的設計）。
+    ///
+    /// **也掃被連帶刪除的記錄**（#159 verify R4-1）：`collapsed` 那些記錄同樣被這個
+    /// 操作刪掉，而它們可能帶著與所選 survivor 相反的判斷。席位實測一條全部由正常
+    /// 操作組成的鏈：消歧不只沒被判斷擋下，還把**寫著那個判斷的記錄一起刪掉**，
+    /// 然後把判斷指名為正確的那個候選合併掉，dry-run 與實跑都 exit=0、一個字都沒提。
+    ///
+    /// **只警告不拒絕**：那筆記錄不是使用者指名的操作對象，硬擋會讓一個沒人指名的
+    /// 記錄癱瘓別人的消歧（同 quarantine blast radius 的顧慮）。
+    static func judgementWarnings(record: Divergence, survivor: String,
+                                  overrideReason: String?,
+                                  collapsed: [Divergence] = []) -> [String] {
+        var out: [String] = []
+        for c in collapsed {
+            guard let cj = c.judgement else { continue }
+            let prefersNote = cj.prefers.map { "（傾向「\(displaySafe($0, max: 200))」）" } ?? ""
+            out.append("將**連帶刪除**的歧異記錄 \(c.id.uuidString) 帶有判斷"
+                       + "\(prefersNote)：\(displaySafe(cj.statement, max: 300))"
+                       + "——它不是你指名的對象，但會隨這次消歧一起消失，請確認不衝突")
+        }
+        guard let j = record.judgement else { return out }
+        if j.prefers == nil {
+            out.append("這筆歧異有判斷但未指定 prefers，無法機械核對——"
+                       + "請自行確認倖存者與判斷一致：\(displaySafe(j.statement, max: 300))")
+        }
+        if let r = overrideReason, let p = j.prefers, p != survivor {
+            out.append("已覆寫判斷（原傾向「\(displaySafe(p, max: 200))」→ 實選"
+                       + "「\(displaySafe(survivor, max: 200))」）：\(displaySafe(r, max: 300))")
+        }
+        return out
     }
 
     /// `resolveDivergence` 與 `previewResolveDivergence` 共用的拒絕條件（#78-2）。
     /// **兩邊必須擲一樣的錯**——dry-run 的價值是誠實預告，preview 放行而實跑被擋
     /// （或反過來）都是在騙人，所以驗證只能有這一份。
-    private func validateResolvePreconditions(id: UUID, survivor: String)
+    ///
+    /// **`overrideReason` 刻意沒有預設值**（#159 verify 159-1）：共用一份驗證還是分岔
+    /// 了，因為 `previewResolveDivergence` 沒收這個參數、於是**靜默吃到 `nil` 預設**
+    /// ——preview 擲 `contradictsJudgement`、實跑帶 reason 成功，dry-run 比實跑還嚴。
+    /// 「共用同一個函式」擋不住這種分岔，「參數沒有預設值」才擋得住：少傳就編不過。
+    private func validateResolvePreconditions(id: UUID, survivor: String,
+                                              overrideReason: String?)
         throws -> (record: Divergence, shape: EntityKind,
                    mergedKeys: [String], snapshot: LibraryLoad) {
         guard StoreKey.isValid(survivor) else {
@@ -299,6 +415,21 @@ extension LibraryStore {
             throw DivergenceResolveError.survivorNotACandidate(
                 survivor: survivor, candidates: candidateKeys.sorted())
         }
+        // #75 對一：消歧不對已寫下的判斷惰性——`prefers` 與 survivor 不一致即拒絕。
+        // **不代選**：不會照 prefers 自動執行（#133 起判斷可由 LLM 經 MCP 寫入，
+        // 自動採信＝把「當場判斷」換成「延遲自動判斷」，繞過人工確認底線）。
+        // 判斷本身可能錯——`overrideReason` 是知情的覆寫通道，但要求說出理由。
+        if let j = record.judgement, let prefers = j.prefers, prefers != survivor {
+            if let reason = overrideReason {
+                guard !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw DivergenceResolveError.overrideNeedsReason(
+                        prefers: prefers, survivor: survivor)
+                }
+            } else {
+                throw DivergenceResolveError.contradictsJudgement(
+                    prefers: prefers, survivor: survivor, statement: j.statement)
+            }
+        }
         guard let shape = record.shape else {
             throw DivergenceResolveError.recordNotFound(id)
         }
@@ -307,6 +438,42 @@ extension LibraryStore {
             throw DivergenceResolveError.outsideVersionControl(root: root.path)
         }
         let mergedKeys = candidateKeys.filter { $0 != survivor }
+
+        // #159 verify §6 + 159-12：**不可逆操作不在自己讀不懂的記錄上執行。**
+        //
+        // 這是 verify 席在駁回「為 `prefers` bump format」時提出的替代方案，比 bump
+        // 好三點：(1) 版本無關——是本 binary 對自己無知的紀律，不需 store 級協商；
+        // (2) 一次保護**所有**未來欄位；(3) 代價侷限在該筆記錄，不像 bump 是整庫拒開。
+        //
+        // 觸發它的實驗：塞一個叫 `future-veto` 的未知欄位，新 binary 的 `validate`
+        // **會印出**「未知欄位（已保留）」——它知道自己讀不懂——然後照樣把記錄連同
+        // 那個欄位一起刪掉。與上游「quarantined 檔讀不到就改寫不到」是同一條理由的
+        // 另一面：**讀不懂**與**讀不到**在不可逆操作前該同樣保守。
+        //
+        // **涵蓋三類記錄，封閉列舉**（159-12——第一版只守目標那一筆，而席位實測
+        // 另外兩類同樣被這個操作親手摧毀／改寫）：
+        //
+        //   1. **目標**——使用者指名的那筆，刪除
+        //   2. **塌縮連帶刪除**（`collapsed`）——候選遷移後與目標重複，一併刪除。
+        //      席位實測：帶 `future-veto` 的 D2 被連同欄位一起刪掉、exit=0
+        //   3. **候選遷移改寫**（`toWrite`）——read-modify-write。席位實測產出
+        //      **自相矛盾**的檔案：候選被改寫成 `fann-b`，而未知欄位
+        //      `future-candidate-meta: fann-a-is-primary` 原樣保留、仍指著全庫已無的
+        //      `fann-a`。tolerant-preserve 保證位元組不變，但候選被改寫時「不變」
+        //      剛好就是錯的。這正是 §5.0 用來定義 non-additive 的那個危險樣式，
+        //      由**新** binary 重演一次。
+        //
+        // **不得依性質相似類推第四類**：這三類是「本次操作會刪除或改寫的全部
+        // divergence 記錄」的完整枚舉，由 `migrateOtherDivergences` 的回傳值界定。
+        //
+        // 位置在共用驗證段（而非兩個呼叫端各補一次）——分兩邊補會複製 159-1 的病。
+        let affectedMigration = migrateOtherDivergences(
+            record: record, survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
+        for d in [record] + affectedMigration.collapsed + affectedMigration.toWrite
+        where !d.unknownFields.isEmpty {
+            throw DivergenceResolveError.recordHasUnknownFields(
+                id: d.id.uuidString, fields: d.unknownFields.map(\.key).sorted())
+        }
 
         // #73：「在工作樹內」不等於「刪掉還找得回來」。D5 把 store 內的歷史全部
         // 拿掉（不做 tombstone、不留已解決狀態），整個回溯性押在版控上——那就必須
@@ -338,11 +505,25 @@ extension LibraryStore {
     /// `resolveWorkDivergence` 的改寫迴圈一致（命中被併鍵 ⇒ 必有改寫），塌縮判準
     /// 直接共用 `migrateOtherDivergences`——一致性由 `DivergenceResolveTests` 的
     /// preview-vs-actual 測試釘住。
-    public func previewResolveDivergence(id: UUID, survivor: String) throws -> ResolveReport {
+    ///
+    /// **`overrideReason` 必須傳**（#159 verify 159-1）：不收這個參數的舊簽章讓
+    /// preview 靜默吃到 `nil`，於是 `--dry-run --override-reason …` 被拒、拿掉
+    /// `--dry-run` 卻成功——**dry-run 比實跑還嚴**，而且方向是壞的那個：先跑
+    /// dry-run 的謹慎使用者被告知這件事做不到，唯一能知道它會做什麼的方法是真的
+    /// 做下去，在一個會刪檔的操作上。`judgementWarnings` 同理併入報告——「有判斷
+    /// 但無 prefers、無從機械核對」正是人最需要在按下去之前看到的那一條。
+    public func previewResolveDivergence(id: UUID, survivor: String,
+                                         overrideReason: String?) throws -> ResolveReport {
         let (record, shape, mergedKeys, snapshot) =
-            try validateResolvePreconditions(id: id, survivor: survivor)
+            try validateResolvePreconditions(id: id, survivor: survivor,
+                                             overrideReason: overrideReason)
         let merged = Set(mergedKeys)
         var report = ResolveReport()
+        report.warnings += Self.judgementWarnings(
+            record: record, survivor: survivor, overrideReason: overrideReason,
+            collapsed: migrateOtherDivergences(record: record, survivor: survivor,
+                                               mergedKeys: mergedKeys,
+                                               snapshot: snapshot).collapsed)
         report.merged = mergedKeys.sorted()
         switch shape {
         case .person:

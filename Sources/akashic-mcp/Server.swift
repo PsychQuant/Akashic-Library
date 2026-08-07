@@ -181,6 +181,7 @@ actor AkashicMCPServer {
                 "candidates": strArray("候選，形如 key:shape（shape 為 person / organization / work）；需要兩個以上"),
                 "judgement": str("已形成的判斷（選填；給了就必須同時給 rests_on）"),
                 "rests_on": strArray("判斷的依據（來源 URL 或 sha256: 摘要；選填，與 judgement 成對）"),
+                "prefers": str("判斷傾向哪個候選的 key（選填，與 judgement 成對；必須是候選之一）——消歧會據以比對、不一致時拒絕，但**不代選**：倖存者仍須人工指定"),
              ], required: ["question", "candidates"])),
         Tool(name: "akashic_import_zotero",
              description: "觸發 Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）。回傳完整 import report；單筆寫入失敗記入 writeFailed 並續跑（index 照常重建）。",
@@ -291,7 +292,8 @@ actor AkashicMCPServer {
             case "akashic_record_divergence":
                 output = try service.recordDivergence(
                     question: arg("question") ?? "", candidates: argList("candidates"),
-                    judgement: arg("judgement"), restsOn: argList("rests_on"))
+                    judgement: arg("judgement"), restsOn: argList("rests_on"),
+                    prefers: arg("prefers"))
             case "akashic_import_zotero":
                 output = try service.importZotero(zoteroDb: arg("zotero_db"),
                                                   libraryID: argInt("library_id"))

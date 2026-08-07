@@ -91,6 +91,7 @@ Zotero raw date → 正規化：抓 ISO-ish 前綴（`YYYY[-MM[-DD]]`），`00` 
 - **Library 解析**：同 CLI（`AKASHIC_LIBRARY` env → `~/.akashic/config.yaml`）；mcpb user_config 可帶路徑。
 - **Index freshness**：每次 tool call 比對 `entries/` 最新 mtime vs index mtime，stale 就地重建；寫入工具尾端自動重建。
 - **併發**（MCP 與 CLI 並用）：per-file atomic write、last-wins、index 冪等重建；單人場景足夠，README 註明。
+- **入站訊息健壯性（#152）**：SDK 的 `Value` 是遞迴 Codable，約 200–700 層巢狀的 JSON-RPC 訊息會炸掉解碼堆疊、server 進程無聲死亡（影響全部 tool，crash 在 handler 上游；SDK 自身守衛約 800 層才擋，比它保護的遞迴鬆）。`DepthGuardedTransport` 包在 `StdioTransport` 外，在 raw bytes 層數 nesting 深度（引號感知），超過 128 的訊息不進 decoder、回 JSON-RPC error。服務層另有欄位深度上限（64）作第二道 defence in depth。
 
 ## 5. 發布統一
 

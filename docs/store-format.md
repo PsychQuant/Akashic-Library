@@ -261,6 +261,33 @@ displayName(script) =
 **`authorized` 為選填。** 缺席合法，由 `doctor` 報告而非 `validate` 拒絕：修復所需的
 資訊（正確的對外名字）無法自動取得，設成錯誤等於把不可自動化的工作變成載入的前置條件。
 
+### 時間軸段的 `attested`：某時點成立、起訖皆不明（normative，#70）
+
+`ended`（下節）的鏡像：不是「何時結束不知道」而是「**起訖都**不知道，只知道這幾個
+時點成立」。典型來源是論文的機構掛名——同人同機構 5 篇論文＝5 個觀測點：
+
+```yaml
+- value:
+    literal: 中央研究院統計科學研究所
+  attested:
+  - '2003'
+  - '2011'
+```
+
+**normative 規則：**
+
+1. `attested` 是 ISO 8601 前綴的清單；非空時 `start`／`end`／`ended` **MUST** 全
+   缺席——起點若已知就不是「起訖皆不明」，用 `start`（encode/decode 兩端拒矛盾）。
+2. attested-only 段 **MUST NOT** 視為進行中（`isOpen` false、`current` 不採計、
+   status 推導不採計）——有觀測不等於現況。
+3. 觀測點**不合併**：同 org 的多個觀測各自成點（每點日後可掛 #66 的 reference
+   逐點溯源——本版尚未接，觀測來源暫記 `source`／`note`）。
+4. **format 7 專屬**（段內鍵 strict → non-additive）：write gate 對 format < 7 的
+   store 拒寫＋指路，同 `ended` 的 v6 gate 機制。§5 版本對照表的 7 行隨 #74 的
+   表格回填（PR #147）merge 後補齊。
+5. 把發表年填進 `start` 是「從那年起」的**偽造斷言**——`attested` 存在的理由就是
+   讓這個常見的資料輸入偽造有一個誠實的替代。
+
 ### 時間軸段的 `ended`：已結束、時點未知（#63）
 
 profile 時間軸（`affiliations`／`ranks`／…）的每一段，`end` 缺席的預設語意是

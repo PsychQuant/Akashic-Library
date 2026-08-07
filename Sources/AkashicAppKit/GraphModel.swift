@@ -10,7 +10,17 @@ import AkashicStoreIO
 /// 範圍——#109 只把它納入 CI **build**，而「用哪個 store、寫/讀哪份 index」這類缺陷
 /// （#101 R2 的實證：keyless 重建讓同一 store 長出兩份各自漂移的 index）不是編譯錯誤，
 /// build-only 檢查結構上抓不到。view 層只留 SwiftUI 殼與 generation token 併發契約。
-public enum GraphModel {
+/// **持有單一 store 的實例**（#125 第二層）：`rebuildIndex` 與 `query` 從前是
+/// 兩個各收一個 `LibraryStore` 的 static func——「兩個呼叫必須拿到同一個 store」
+/// 只寫在註解裡，型別不擋。#101 的事故形狀（keyless 重建寫進另一份 index、query
+/// 讀不到）因此在型別上仍可重演，而 `AkashicApp/` 不在測試範圍、編得過就過。
+///
+/// 改成實例後那件事**在型別上不可表達**：store 在構造時決定一次，兩個方法共用。
+///
+/// **誠實邊界**：它擋不住 `GraphModel(store: LibraryStore(root:))`——「registry
+/// 解析過的 store」要成為型別事實需要 #125 的第三層（resolved-store wrapper），
+/// 那會動 150+ 個站點、屬另案。這一層只消滅「兩個呼叫拿到不同 store」的形狀。
+public struct GraphModel {
 
     /// 一次查詢的成果：鄰域（畫什麼）+ 初始佈局（畫在哪）。
     /// 兩者的節點集一致——layout 由 neighborhood 的節點/邊建構。
@@ -24,15 +34,23 @@ public enum GraphModel {
     /// index 的**位置**由 `store` 的 key/environment 決定（#101：帶 key →
     /// `<home>/index/<key>.sqlite`；keyless → in-store `.akashic/index.sqlite`）。
     /// 呼叫端一律用 `AppState.store`，不得自己 `LibraryStore(root:)`。
-    public static func rebuildIndex(store: LibraryStore) throws {
+    /// 構造時決定 store——之後的所有操作都用它（見型別 doc）。
+    public let store: LibraryStore
+
+    public init(store: LibraryStore) {
+        self.store = store
+    }
+
+    public func rebuildIndex() throws {
         _ = try LibraryIndex(store: store).rebuild()
     }
 
     /// 互動路徑（focus/depth 變更）：只查詢既有索引，不做全庫重建。
     ///
     /// `seed` 固定預設值——同一份鄰域的初始佈局必須決定性，rebuild 不得讓圖形隨機跳動。
-    public static func query(store: LibraryStore, focus: String, depth: Int,
-                             seed: UInt64 = 42) throws -> Snapshot {
+    public func query(focus: String, depth: Int, seed: UInt64 = 42) throws -> Snapshot {
+        // #130 交叉引用：這裡直接開 index、不驗身分（App 是三面中唯一如此的）
+        // ——身分驗證屬 #130 的值域（incarnation id + isCurrent），不在本層修。
         let builder = try GraphBuilder(indexPath: store.indexURL)
         let n = try builder.neighborhood(focus: focus, depth: depth)
         let layout = ForceLayout(

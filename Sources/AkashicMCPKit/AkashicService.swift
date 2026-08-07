@@ -350,7 +350,12 @@ public final class AkashicService {
                                    "publications": keyPubCount[p.key] ?? 0])
             }
             for (literal, count) in literalCounts.sorted(by: { $0.key < $1.key }) {
-                candidates.append(["literal": literal, "publications": count])
+                // #141 verify 實測：`literal` 是 Zotero 匯入的作者原字串（第三方最
+                // 直接的來源），先前**裸送**進 MCP 回應。守衛沒抓到是因為 token 是
+                // `.literal`（帶點）而這裡是裸變數名——正是 #141 記載的 bare-變數盲區。
+                // 對照上方 :348 的 `person_key` 有消毒，同一個回應裡兩種待遇。
+                candidates.append(["literal": displaySafe(literal, max: 200),
+                                   "publications": count])
             }
             let capped = Array(candidates.prefix(50))
             var out: [String: Any] = ["candidates": capped]
@@ -579,7 +584,10 @@ public final class AkashicService {
                                            judgement: judgement, restsOn: restsOn)
         return try jsonString([
             "id": d.id.uuidString,
-            "candidates": d.candidates.map(\.key),
+            // 與 :233 的列表回應一致（那裡本來就 displaySafe）。key 受
+            // StoreKey.isValid 約束成 [a-z0-9-]，本身載不了控制字元——但同一份資料
+            // 在同一個檔案裡有兩種待遇，遲早有人照沒消毒的那個抄。
+            "candidates": d.candidates.map { displaySafe($0.key, max: 200) },
             "hasJudgement": d.judgement != nil,
             "note": "記下判斷不等於消歧——合併請由人工跑 akashic resolve-divergence",
         ])

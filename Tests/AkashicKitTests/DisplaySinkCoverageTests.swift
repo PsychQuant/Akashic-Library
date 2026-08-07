@@ -18,9 +18,18 @@ import Foundation
 /// 這是**行級的文字啟發式**，不是型別感知的資料流分析。以下形狀結構性地在它的
 /// 視野外，靠人工 + 功能測試釘住，不是它的失效：
 ///
-/// - **bare-`$0` 的 `.map { }`**（#156 verify 156-3：原本這裡寫「最大宗」，但四類
-///   的相對量**從來沒有人量過**——盲點依定義是守衛看不到的東西，數不出來。宣稱已
-///   撤下，不改成另一個同樣沒支撐的排序）：`load.residue.map { $0 }` 的 `$0` 不含
+/// - **bare 變數名**（含 `$0` 的 `.map { }`。#156 verify 156-3：原本這裡寫「最大宗」，
+///   但四類的相對量**從來沒有人量過**——盲點依定義是守衛看不到的東西，數不出來。
+///   宣稱已撤下，不改成另一個同樣沒支撐的排序）。
+///
+///   **這個盲區在 #141 的量測中造成了一次真實的洩漏**：`AkashicService.swift` 的
+///   `["literal": literal, …]`——`literal` 是 Zotero 匯入的作者原字串（第三方最直接
+///   的來源），裸送進 MCP 回應。守衛看不到，因為 token 是 `.literal`（帶點）而這裡
+///   是裸變數名；同一個回應裡上面兩行的 `person_key` 卻有消毒。**它是人工比對發現
+///   的，不是守衛抓到的，而且修好之後守衛依然看不見**（拔掉 displaySafe 仍全綠）。
+///   這條記在這裡，是為了讓「守衛全綠」永遠不被讀成「這一面已經安全」。
+///
+///   `load.residue.map { $0 }` 的 `$0` 不含
 ///   任何 tainted token，token 判準對它結構性失效。#149 verify 席 strip-all 實測
 ///   `AkashicService` 一檔 55 個消毒站點守衛只認 21（**2026-08-07 自行複量：該檔
 ///   `grep -c 'displaySafe('` = 75、守衛認 38**——比例相近，差額仍在）。差額多是
@@ -49,6 +58,13 @@ final class DisplaySinkCoverageTests: XCTestCase {
         ".literal", "personKey", "libraryKey", "authors",
         // #76：divergence 的未信任內容（#133 起可由 LLM 經 MCP 寫入——來源面擴大）
         ".question", ".judgement", ".statement", "restsOn",
+        // #141 第 3 項（「key 該不該入清單」）**實測後入列**。issue 當時擔心
+        // 「`key` 全下會誤中大量 registry/config key」——那個顧慮對**裸** `key`
+        // 成立，對 `.key` 不成立：加了點之後 `d["some-key"]` 這種常量不會命中。
+        // 實測全掃描面只新增 4 條，其中 3 條是 `counts[lib.key] ?? 0` 這種 dict
+        // **查找**（值是計數不是 key，由下方 `?? ` 形狀豁免），1 條是 MCP
+        // recordDivergence 回應裡的真不一致（已修）。成本遠低於 issue 的預估。
+        ".key",
     ]
 
     /// 掃描範圍：使用者看得到輸出的兩層。App 層走型別投影（`displayFile` 等），
@@ -222,6 +238,11 @@ final class DisplaySinkCoverageTests: XCTestCase {
                     // `.count` / `.isEmpty` 是數量不是內容；`!= nil` / `== nil` 是
                     // Bool 存在測試（如 hasJudgement）——都到不了內容本身
                     if expr.contains(".count") || expr.contains(".isEmpty") { continue }
+                    // dict **查找**不是 dict 值：`counts[lib.key] ?? 0` 的輸出是計數，
+                    // key 只是索引、不會進輸出（#141 第 3 項，`.key` 入清單後浮現的
+                    // 唯一一類誤中）。判準取 `[…] ?? ` 的形狀——有 fallback 才是查找，
+                    // 沒有的（`d["x"] = expr`）仍照掃。
+                    if expr.contains("[") && expr.contains("] ?? ") { continue }
                     if expr.contains("!= nil") || expr.contains("== nil") { continue }
                     // MCP tool schema 的描述文字（`str("citekey")` 等）：schema
                     // builder 的引數是程式字面量、不是 store 衍生內容——合併掃描面

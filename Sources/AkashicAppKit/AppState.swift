@@ -289,8 +289,11 @@ public enum AppStateError: Error, LocalizedError {
         case .unknownLibrary(let key):
             return "library「\(displaySafe(key, max: 200))」不在 registry 裡"
                  + "——先用 akashic library create 建立，或從清單挑一個既有的"
-        case .unknownFile(let key): return "檔案 key「\(key)」未註冊於 config"
-        case .notALibrary(let path): return "「\(path)」不是 Akashic library（缺 entries/）"
+        // #155：key／path 來自 config.yaml 與使用者輸入——同 unknownLibrary 消毒
+        case .unknownFile(let key):
+            return "檔案 key「\(displaySafe(key, max: 200))」未註冊於 config"
+        case .notALibrary(let path):
+            return "「\(displaySafe(path, max: 300))」不是 Akashic library（缺 entries/）"
         }
     }
 }

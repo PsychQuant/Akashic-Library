@@ -1,4 +1,5 @@
 import Foundation
+import AkashicCore
 import AkashicStoreIO
 
 public enum FileWatcherError: Error, LocalizedError, Equatable {
@@ -7,7 +8,24 @@ public enum FileWatcherError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .noDirectoriesWatchable(let dirs):
-            return "沒有任何目錄可監看（open 全部失敗）：\(dirs.joined(separator: ", "))"
+            // #155：dirs 是 store 路徑（使用者可控）——同 Adjudication 的理由。
+            //
+            // **刻意寫成單行**（#158 verify 158-2）：原本是 `return "…"` 換行接
+            // `+ dirs.map { … }` 的續行形狀，而 `DisplaySinkCoverageTests` 是**行級**
+            // 掃描——續行本身不含任何 sink 標記（`print(`／`return "`／dict 值…），
+            // 前一行又不是 `case …:`（回看只認緊鄰的 case），於是整行被跳過。席位
+            // 實測：把這裡的 `displaySafe` 拔掉，守衛**全綠**。
+            //
+            // 三處消毒裡只有這一處沒有回歸保護，而它看起來與另外兩處一樣安全——
+            // 那正是最危險的形狀。合併成單行讓守衛看得見；判準的續行盲區另案
+            // 追蹤（擴充回看要處理任意深度的續行，不是這個 PR 的體量）。
+            //
+            // 形狀要求很窄：必須是 `case …:` **緊鄰的** `return "…"` 單行——那時
+            // `caseReturn` 成立 ⇒ `isErrorSink` 成立 ⇒ token 檢查被短路，插值裡沒有
+            // `displaySafe(` 就是違規。拆成 `let joined = …` 再 `return "\(joined)"`
+            // **不行**：那條 return 雖是 sink，但 `joined` 不在 token 清單裡，會被
+            // token 檢查放行（第一版修法就是這樣，等於沒修）。
+            return "沒有任何目錄可監看（open 全部失敗）：\(dirs.map { displaySafe($0, max: 300) }.joined(separator: ", "))"
         }
     }
 }

@@ -13,11 +13,23 @@ import AkashicCore
 /// `names` 是原字串——「中央研究院」「中研院」「Academia Sinica」各自保留寫法為
 /// variant，否則下次遇到那個寫法又重新分割一次。
 ///
-/// **key 產生的定義域**（#154 verify 154-1）：key 取機構名的**ASCII 字母數字
-/// token**——雙語寫法（`國立臺灣大學 National Taiwan University`，台灣機構最常見）
-/// 用英文部分產 key。純 CJK（無任何 ASCII token）產不出 key，但**不靜默丟**：
-/// 進 `result` 的 `dropped`，由 CLI 明列（需人工指定 key）。用 `result`（帶
-/// dropped）而非 `candidates`（只有能建的）才看得到全貌。
+/// **key 產生的定義域**（#154 verify 154-1／154-5）：key 取機構名 NFKC 後的
+/// **ASCII 字母數字 token**——雙語寫法（`國立臺灣大學 National Taiwan University`，
+/// 台灣機構最常見）用英文部分產 key，全形拉丁先經 NFKC 折回 ASCII。純 CJK（NFKC 後
+/// 仍無任何 ASCII token）產不出 key，但**不靜默丟**：進 `result` 的 `dropped`，由
+/// CLI 明列（需人工指定 key）。用 `result`（帶 dropped）而非 `candidates`（只有能
+/// 建的）才看得到全貌。
+///
+/// **殘留**（#154 verify 154-6，誠實記錄，不在本 change 修）：
+/// 1. **中文-only 機構仍需人工給 key**。這不是 bug 是設計缺口——`bootstrap` 現在
+///    只能產 ASCII slug，而「中央研究院統計科學研究所」這類是本 store 的**主要**
+///    形狀。真正的修法是讓使用者能為 dropped 項目直接指定 key（互動或
+///    `--key <name>=<key>`），而不是繞去手寫 YAML。
+/// 2. **`suggestedKey` 的 6-token 上限與去重 `-2…-99`** 沒有測試覆蓋，也沒有依據
+///    ——6 是拍腦袋的數字。長機構名截斷後可能撞在一起，靠 `-2` 尾碼區分，但那個
+///    尾碼對人沒有意義（`national-taiwan-university-2` 是誰？）。
+/// 3. **`resolve-organizations` 的歧義判準**只看正規化後完全相等，不做子字串／
+///    縮寫比對（「中研院」vs「中央研究院」配不上）。同義詞歸戶屬 alias 層，未做。
 public enum OrgBootstrap {
 
     public struct Candidate: Equatable {
@@ -62,40 +74,20 @@ public enum OrgBootstrap {
     }
 
     /// 從 literal 機構名產出候選。已存在的 organization（其 `names` variant）不重複產出。
+    ///
+    /// **只是 `result` 的投影**（#154 verify 154-4 附帶）：原本兩者各有一份分組邏輯
+    /// ——兩份會漂移，而且漂移的方向恰好是「`candidates` 靜默丟、`result` 有記錄」，
+    /// 也就是這個 issue 本來要修的病。收斂成單一來源。
     public static func candidates(people: [Person],
                                   organizations: [Organization]) -> [Candidate] {
-        // 既有 org 的所有寫法（正規化）——已在 resolve 的比對範圍內，不重造
-        let known = Set(organizations.flatMap { org in
-            org.names.entries.map { NameNormalization.matchingKey($0.value) }
-        })
-        var takenKeys = Set(organizations.map(\.key))
-
-        var groups: [String: (names: [String], count: Int)] = [:]
-        for raw in literalOrgNames(people: people, organizations: organizations) {
-            let name = CorporateName.unmark(raw).trimmingCharacters(in: .whitespaces)
-            guard !name.isEmpty else { continue }
-            let id = NameNormalization.matchingKey(name)
-            guard !known.contains(id) else { continue }
-            var g = groups[id] ?? ([], 0)
-            if !g.names.contains(name) { g.names.append(name) }
-            g.count += 1
-            groups[id] = g
-        }
-
-        return groups.sorted { a, b in
-            a.value.count == b.value.count ? a.key < b.key : a.value.count > b.value.count
-        }.compactMap { (_, g) in
-            let sortedNames = g.names.sorted()
-            guard let key = suggestedKey(from: sortedNames[0], taken: takenKeys) else { return nil }
-            takenKeys.insert(key)
-            return Candidate(key: key, names: sortedNames, occurrences: g.count)
-        }
+        result(people: people, organizations: organizations).candidates
     }
 
     /// 候選 + 丟棄清單（#154 verify 154-1）：產不出 key 的機構名要能被 CLI 說出來，
-    /// 不是靜默消失。與 `candidates` 共用分組邏輯——`candidates` 保留為 API。
+    /// 不是靜默消失。這是分組與 key 產生的**唯一**實作。
     public static func result(people: [Person],
                               organizations: [Organization]) -> Result {
+        // 既有 org 的所有寫法（正規化）——已在 resolve 的比對範圍內，不重造
         let known = Set(organizations.flatMap { org in
             org.names.entries.map { NameNormalization.matchingKey($0.value) }
         })
@@ -136,7 +128,13 @@ public enum OrgBootstrap {
     /// 全名會因 CJH 字元讓 `StoreKey.isValid` 失敗、整個候選被丟。改成濾出**純
     /// ASCII 字母數字的 token**（CJK token 略過），雙語名用英文部分產 key。
     ///
-    /// **殘留限制**：純 CJK（無任何 ASCII token）仍產不出 key → 回 nil，由
+    /// **先 NFKC 相容正規化**（#154 verify 154-5）：全形拉丁（`Ｎａｔｉｏｎａｌ`）
+    /// 在 Unicode 上不是 ASCII，逐字元判斷會整串濾掉、機構被誤丟。全形英數在 CJK
+    /// 輸入法下是**常見**產物，不是邊角。這與配對鍵的做法一致——`NameNormalization`
+    /// `matchingKey` 第一步就是 NFKC；key 產生沿用同一個正規化階梯才不會出現
+    /// 「配得上但建不出來」的錯位。正規化只用於**產 key**，`names` 仍存原字串。
+    ///
+    /// **殘留限制**：純 CJK（NFKC 後仍無任何 ASCII token）產不出 key → 回 nil，由
     /// `result` 的 `dropped` 回報、CLI 明列（不再靜默）。中文-only 機構需人先給 key。
     static func suggestedKey(from name: String, taken: Set<String>) -> String? {
         // token 內只保留 ASCII 字母數字；含 CJK 的 token slug 後為空、被濾掉
@@ -144,6 +142,7 @@ public enum OrgBootstrap {
             String(s.lowercased().map { ($0.isASCII && ($0.isLetter || $0.isNumber)) ? $0 : "-" })
                 .split(separator: "-").joined(separator: "-")
         }
+        let name = name.precomposedStringWithCompatibilityMapping
         let asciiTokens = name.split(whereSeparator: \.isWhitespace)
             .map { asciiSlug(String($0)) }.filter { !$0.isEmpty }
         guard !asciiTokens.isEmpty else { return nil }

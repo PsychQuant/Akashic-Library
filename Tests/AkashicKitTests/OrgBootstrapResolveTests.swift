@@ -70,6 +70,22 @@ final class OrgBootstrapResolveTests: XCTestCase {
                        "names 保留原字串")
     }
 
+    /// 全形拉丁要能產 key（#154 verify 154-5）——CJK 輸入法下全形英數是常見產物，
+    /// 逐字元 `isASCII` 判斷會把整串濾掉、機構被誤丟。key 產生的正規化階梯要與
+    /// 配對鍵（`NameNormalization.matchingKey`，第一步就是 NFKC）對齊，否則會出現
+    /// 「配得上但建不出來」的錯位。
+    func testFullwidthLatinStillProducesKey() {
+        let people = [personWith("a", affiliations: [
+            .literal("Ｎａｔｉｏｎａｌ　Ｔａｉｗａｎ　Ｕｎｉｖｅｒｓｉｔｙ")])]
+        let result = OrgBootstrap.result(people: people, organizations: [])
+        XCTAssertEqual(result.candidates.first?.key, "national-taiwan-university",
+                       "全形拉丁 NFKC 後就是 ASCII：\(result)")
+        XCTAssertTrue(result.dropped.isEmpty, "不該被丟：\(result.dropped)")
+        XCTAssertEqual(result.candidates.first?.names,
+                       ["Ｎａｔｉｏｎａｌ　Ｔａｉｗａｎ　Ｕｎｉｖｅｒｓｉｔｙ"],
+                       "正規化只用於產 key，names 存原字串")
+    }
+
     /// 純 CJK（無 ASCII token）仍產不出 key——但**不靜默丟**，進 result.dropped。
     func testCJKOnlyNameGoesToDroppedNotSilent() {
         let people = [personWith("a", affiliations: [.literal("中央研究院統計科學研究所")])]

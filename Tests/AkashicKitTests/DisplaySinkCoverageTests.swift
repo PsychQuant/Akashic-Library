@@ -30,10 +30,15 @@ import Foundation
 ///   這條記在這裡，是為了讓「守衛全綠」永遠不被讀成「這一面已經安全」。
 ///
 ///   `load.residue.map { $0 }` 的 `$0` 不含
-///   任何 tainted token，token 判準對它結構性失效。#149 verify 席 strip-all 實測
-///   `AkashicService` 一檔 55 個消毒站點守衛只認 21（**2026-08-07 自行複量：該檔
-///   `grep -c 'displaySafe('` = 75、守衛認 38**——比例相近，差額仍在）。差額多是
-///   這一類。補它需要
+///   任何 tainted token，token 判準對它結構性失效。
+///
+///   **「差額多是這一類」已撤下**（#156 verify R2 實測推翻）：全掃描面 210 個含
+///   `displaySafe(` 的行裡守衛只認 67（recall 31%），143 條未見行的分類是——
+///   **沒被認成 sink 行 82**（其中 70 條是真的輸出行，多為多行字串串接的續行）、
+///   bare-`$0` **32**、其他 token 未命中 23、`case ` 豁免 2、exempt 標記 4。
+///   也就是說最大宗是 **sink 辨識失敗（≈49%）**，不是 bare-`$0`（22%）。
+///   （單檔基準：`AkashicService` 的 `grep -c 'displaySafe('` = 75、守衛認 38，
+///   2026-08-07 自量。）補 bare-`$0` 需要
 ///   element-type 或 receiver 上下文（`.map` 的來源是誰），不是另一條行級 regex。
 /// - **key-family accessor**（`$0.key`/`p.key`/`lib.key`/`$0.path`）：`key` 不在
 ///   `taintedTokens`（只有 `citekey`/`personKey`/`libraryKey`）——因為 `key` 也是
@@ -294,36 +299,65 @@ final class DisplaySinkCoverageTests: XCTestCase {
     /// 守衛**必須**報大量違規。若守衛的判準退化成永遠不報（token 清單被清空、
     /// isSink 判斷失效…），strip-all 也不會報 → 這個測試紅。
     ///
-    /// **逐軸下限**（#156 verify 156-1 的修正——但**不是**它建議的做法，見下）。
+    /// **逐軸下限**（#156 verify 156-1／156-4）。
     ///
-    /// 156-1 指出原本的總數下限 20 太鬆，建議提高到 55–60。方向對，但**那個做法
-    /// 不成立**——席位報的各軸數字（isSink 關 35／errorSink 關 43／caseReturn 關
-    /// 64）與本 tree 實測差很多。實測「關掉該軸後的**總數**」是：
+    /// ### 更正紀錄：我先前在這裡寫的數字與因果都是錯的
     ///
-    /// | 軸失效 | strip-all 總數 | 相對 baseline 78 |
-    /// |---|---|---|
-    /// | isSink | 59 | −19 |
-    /// | errorSink | 74 | **−4** |
-    /// | caseReturn | 76 | **−2** |
-    /// | 只剩 citekey token | 49 | −29 |
+    /// 第一版說「席位報的各軸數字全錯」，並列出本 tree 實測 59／74／76 當反證。
+    /// **錯的是我。** 那三個數字來自 partial mutation——`let isSink = false && A || B || C`
+    /// 只關掉第一個 disjunct（Swift 的 `&&` 綁定緊於 `||`）。我後來確實改用整條
+    /// 包覆重跑並得到四軸全零，卻**沒有回頭更新這張表**，於是一份 partial 數字與
+    /// 一份 correct 結論並存在同一段 doc 裡。R2 席位把兩種 mutation 都跑了：
     ///
-    /// 關掉 errorSink 只讓總數少 4 條、caseReturn 只少 2 條——因為那些行多半**同時**
-    /// 靠 token 路徑入列，classifier 死了報告仍在。於是 **任何**不誤傷「消毒站點正常
-    /// 增減」的總數門檻都攔不到這兩軸（60 只勉強抓到 isSink，還只差 1 條）。這是
-    /// 總數判準的結構限制，不是數字沒調好。
+    /// **席位在 `714d062` 量的**（`.key` 入 token 清單之前）：
     ///
-    /// 所以改成**逐軸計數**：violation 記下自己是被哪幾條判準收進來的，某一軸的
-    /// classifier 整條失效時該軸直接歸零——與總數多寡無關，也不隨消毒站點增減漂移。
-    /// 總數下限保留為粗篩。
+    /// | mutation（**整條**關掉） | total | sink | errorThrow | caseReturn | token |
+    /// |---|---|---|---|---|---|
+    /// | baseline | 78 | 57 | 21 | 14 | 43 |
+    /// | `isSink = false` | **35** | 0 | 21 | 14 | 0 |
+    /// | `isErrorSink = false` | **43** | 43 | 0 | 0 | 43 |
+    /// | `caseReturn = false` | **64** | 43 | 21 | 0 | 43 |
+    /// | `taintedTokens = []` | **35** | 14 | 21 | 14 | 0 |
+    /// | 只剩 `citekey` | **49** | 28 | 21 | 14 | 14 |
     ///
-    /// 量測時點 2026-08-07（#156）：baseline 78 條 = sink 57／errorThrow 21／
-    /// caseReturn 14／token 43（一條 violation 可同時屬多軸，故相加大於 78）。
-    /// 下限取實測的一半上下，只釘「這一軸還活著」，不釘精確計數。
+    /// 這五個數字與席位第一輪回報的**逐一相同**；partial mutation 則重現出我的
+    /// 59／74／76，一個不差。決定性旁證：雙方唯一一致的是「只剩 citekey」的 **49**
+    /// ——那是改陣列字面量、沒有布林運算式可誤括號的那一個。
     ///
-    /// **mutation 驗證**（逐軸關掉 classifier，實測本測試是否轉紅）：
-    /// isSink→`sink=0 token=0`、errorSink→`errorThrow=0 caseReturn=0`、
-    /// caseReturn→`caseReturn=0`、token 清單→`token=0`——**四軸全紅**。
-    /// 同樣四個 mutation 在總數下限 60 之下只有 isSink 會紅（且只差 1 條）。
+    /// **當前 tree 自量**（`a15ed09` 之後，`.key` 已入清單）：baseline **89** =
+    /// sink 68／errorThrow 21／caseReturn 14／token 54。sink 與 token 各 +11，就是
+    /// `.key` 帶進來的量；errorThrow／caseReturn 不受影響（它們不看 token）。
+    /// 四個 classifier mutation 在當前 tree 一樣把對應軸打到 **0**（自量，非採信）。
+    /// 兩組數字都留著：一組是席位可複核的基準，一組是這個檔案現在的實況。
+    ///
+    /// **連帶更正兩件事**：
+    ///
+    /// 1. 我曾寫「那些行多半同時被 token 路徑收走」——**因果剛好相反**。`.token` 的
+    ///    定義是 `!isErrorSink && tokenMatched`，與 error sink 依構造**互斥**：
+    ///    78 − 43 = 35 = errorThrow 21 + caseReturn 14，被 token 接住的是**零**。
+    /// 2. 我曾寫「總數 60 之下只有 isSink 會紅」——實際五分之四會紅（35／43／35／49
+    ///    都低於 60），只漏 caseReturn 的 64。
+    ///
+    /// ### 為什麼仍然採用逐軸下限
+    ///
+    /// 上面的更正削弱了我原本的論證，但**沒有推翻結論**——R2 席位獨立確認逐軸下限
+    /// 在正確 mutation 下五個全紅（`caseReturn` 那個總數下限抓不到）。理由改成誠實
+    /// 的版本：逐軸計數在 classifier 整條失效時**歸零**，與消毒站點的多寡無關，
+    /// 所以不隨正常增減漂移；總數下限則是唯一擋得住**掃描面萎縮**的東西
+    /// （席位實測：drop 整個 `Sources/akashic` → 四軸全綠、只有總數接住），
+    /// 兩者互補，不是主從。
+    ///
+    /// ### 誠實邊界（席位 156-7 實測，本判準看不到的東西）
+    ///
+    /// 逐軸下限只偵測 classifier **整條**失效。**部分**退化四軸都測不到：
+    /// `isSink` 少掉 `return "`（sink 57→43，仍在 floor 上）、`isErrorSink` 少掉
+    /// 某一個 error 型別、`taintedTokens` 少掉**任一**單一 token（13 個逐一測過，
+    /// 最兇的 citekey 也只讓總數 78→64）、以及撤銷 #149-R2 的「回看跳過註解」修正
+    /// （完全不動）。要抓這類需要 oracle-delta（把 oracle 在測試裡重新推導、斷言
+    /// 差額為零），不是更多的 magic number——那屬另案。
+    ///
+    /// 下限取當前實測的一半上下，只釘「這一軸還活著」，不釘精確計數——所以 `.key`
+    /// 這種讓數字整體上移的改動不需要動下限。
     func testGuardCatchesStrippedSanitisation() throws {
         var stripped: [Violation] = []
         for url in scannedFiles {
@@ -342,7 +376,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 strip-all 後 `\(axis.rawValue)` 軸只報 \(byAxis[axis] ?? 0) 條
                 （下限 \(floors[axis]!)）——這一軸的判準可能已整條失效。
                 全軸實測：\(Axis.allCases.map { "\($0.rawValue)=\(byAxis[$0] ?? 0)" }
-                    .joined(separator: " "))（量測時點 2026-08-07：57/21/14/43）。
+                    .joined(separator: " "))（2026-08-07 baseline：68/21/14/54）。
                 若是消毒站點正常減少造成的，重新校準下限並更新上方的量測時點。
                 """)
         }
@@ -354,7 +388,10 @@ final class DisplaySinkCoverageTests: XCTestCase {
 
     /// 守衛自身要可證偽：掃描範圍不得為空，判準不得永遠成立。
     func testGuardItselfIsNotVacuous() throws {
-        XCTAssertGreaterThanOrEqual(scannedFiles.count, 4, "掃描範圍萎縮＝守衛失效")
+        // 4 太鬆——光 `Sources/akashic` 一個目錄就有 8 個檔，其餘五個全掉光也滿足
+        //（#156 verify R2）。實際 38 個檔，取 30 留 ~21% 緩衝。
+        XCTAssertGreaterThanOrEqual(scannedFiles.count, 30,
+                                    "掃描範圍萎縮＝守衛失效（實際 38 檔）")
         // 判準對已知的壞樣式必須成立
         let bad = #"print("\(summary.citekey)\t\(summary.title)")"#
         let exprs = interpolations(in: bad)

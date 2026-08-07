@@ -22,7 +22,9 @@ import Foundation
 ///   的相對量**從來沒有人量過**——盲點依定義是守衛看不到的東西，數不出來。宣稱已
 ///   撤下，不改成另一個同樣沒支撐的排序）：`load.residue.map { $0 }` 的 `$0` 不含
 ///   任何 tainted token，token 判準對它結構性失效。#149 verify 席 strip-all 實測
-///   `AkashicService` 一檔 55 個消毒站點守衛只認 21——差額多是這一類。補它需要
+///   `AkashicService` 一檔 55 個消毒站點守衛只認 21（**2026-08-07 自行複量：該檔
+///   `grep -c 'displaySafe('` = 75、守衛認 38**——比例相近，差額仍在）。差額多是
+///   這一類。補它需要
 ///   element-type 或 receiver 上下文（`.map` 的來源是誰），不是另一條行級 regex。
 /// - **key-family accessor**（`$0.key`/`p.key`/`lib.key`/`$0.path`）：`key` 不在
 ///   `taintedTokens`（只有 `citekey`/`personKey`/`libraryKey`）——因為 `key` 也是

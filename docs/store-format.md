@@ -1012,7 +1012,8 @@ rests-on:
 2. 每個候選的 `shape` **MUST** 明寫，**MUST NOT** 由 `key` 推導——鍵在不同形狀之間可以
    同名（見 §organization 的 key 契約），而 decode 沒有 store 存取。`shape: divergence`
    **MUST** 拒收：歧異記錄沒有 key（身分是 UUID），不是可被指涉的對象。
-3. `judgement` 與 `rests-on` **MUST** 成對出現。形狀與判斷型 provenance reference 相同，
+3. `judgement` 與 `rests-on` **MUST** 成對出現。`prefers`（選填）指名判斷傾向的
+   候選，**MUST** 與 `judgement` 成對、**MUST** 是本記錄的候選之一。形狀與判斷型 provenance reference 相同，
    但 **MUST NOT** 含 `field:`——判斷關乎哪個候選才對，不是宿主記錄的哪個欄位。
    兩者的**空值**同樣 **MUST** 拒收（空 `question` 亦然）：空的斷言不是判斷，空的摘要
    不是依據，而空的問題不是未決的問題。
@@ -1025,6 +1026,13 @@ rests-on:
 6. 候選鍵 **MUST** 在寫入時通過 `StoreKey` 驗證，與其他每一條寫入路徑一致。理由不是
    path traversal（候選鍵不進任何路徑），而是 `validate` 對畸形候選鍵報 error——沒有
    這道守衛，工具就能寫出一筆自己的 validate 永遠不會通過、又沒有編輯入口可修的記錄。
+
+**判斷與消歧的關係**（#75 對一）：消歧 **MUST NOT** 對已寫下的判斷惰性——`prefers`
+與 `--survivor` 不一致時 **MUST** 拒絕。但**也 MUST NOT 代選**：不照 `prefers` 自動
+執行——判斷可由 LLM 經 MCP 寫入（#133），自動採信等於把「當場判斷」換成「延遲自動
+判斷」，繞過 #71 的人工確認底線。倖存者永遠是消歧當下的人工輸入。判斷本身可能錯：
+`--override-reason <理由>` 是知情的覆寫通道，**空理由不接受**（判斷的變更也是判斷）。
+有 `judgement` 但無 `prefers` 時無從機械核對——**報 warning、不擋**。
 
 **消歧**：`akashic resolve-divergence <id> --survivor <key>`。它是**一個操作**：合併別名
 → 全庫參照重寫 → 刪除被併記錄與歧異記錄。

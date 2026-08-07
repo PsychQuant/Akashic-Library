@@ -16,16 +16,27 @@ public struct Judgement: Equatable {
     /// 兩者是不同的函式：共用同一個比較器正是 Akashic-Library#69 診斷出的病。
     public static func == (a: Judgement, b: Judgement) -> Bool {
         a.statement == b.statement && a.restsOn.sorted() == b.restsOn.sorted()
+            && a.prefers == b.prefers
     }
 
     /// 判斷本身，人寫的一句話。
     public var statement: String
     /// 這個判斷建立在哪些存檔上（`sha256:` 前綴的摘要）。
     public var restsOn: [String]
+    /// **選填**：判斷傾向哪個候選（#75 對一）。`statement` 是自由文字，「它指向誰」
+    /// 無法機械判定——這個欄位讓消歧能**比對**（`prefers ≠ survivor` → 拒絕）。
+    ///
+    /// **不代選**：消歧不會照 `prefers` 自動執行。#133 起判斷可經 MCP 由 LLM 寫入，
+    /// 自動採信＝把「當場判斷」換成「延遲自動判斷」，繞過 #71 的人工確認底線。
+    /// survivor 仍必須是消歧當下的人工輸入；`prefers` 只擋下不一致。
+    ///
+    /// **MUST 是本記錄的候選之一**（decode 驗證）——指向別的東西是無法執行的判斷。
+    public var prefers: String?
 
-    public init(statement: String, restsOn: [String]) {
+    public init(statement: String, restsOn: [String], prefers: String? = nil) {
         self.statement = statement
         self.restsOn = restsOn
+        self.prefers = prefers
     }
 }
 

@@ -1744,7 +1744,7 @@ public enum OrganizationYAML {
 /// 相同；跨形狀的候選不是未決的問題而是類別錯誤；沒有依據的判斷不是判斷。
 public enum DivergenceYAML {
     static let knownKeys: Set<String> = Set(["id", "question", "candidates",
-                                             "judgement", "rests-on"])
+                                             "judgement", "prefers", "rests-on"])
         .union(EntityKind.knownLabels)
 
     static let knownCandidateKeys: Set<String> = Set(["key", "shape"])
@@ -1761,6 +1761,8 @@ public enum DivergenceYAML {
         })))
         if let j = d.judgement {
             pairs.append((Node("judgement"), Node(j.statement)))
+            // #75 對一：選填的結構化傾向。緊接 judgement——讀的人要能對照
+            if let p = j.prefers { pairs.append((Node("prefers"), Node(p))) }
             pairs.append((Node("rests-on"), Node(j.restsOn.sorted().map { Node($0) })))
         }
         var text = try Yams.serialize(node: Node(pairs), allowUnicode: true)
@@ -1894,17 +1896,40 @@ public enum DivergenceYAML {
             _ = bad
             throw StoreYAMLError.invalidField("divergence.rests-on", "元素不得為空")
         }
+        // #75 對一：prefers（選填）——與 judgement 成對（單獨存在無意義），
+        // 且 MUST 是本記錄的候選之一（指向別的東西是無法執行的判斷）。
+        let prefers = try EntryYAML.requireShape(
+            map["prefers"], field: "divergence.prefers",
+            expect: "scalar", nullIsAbsent: true, { $0.scalar?.string })
+        if let p = prefers, p.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw StoreYAMLError.invalidField("divergence.prefers", "不得為空")
+        }
+        if prefers != nil && statement == nil {
+            throw StoreYAMLError.invalidField(
+                "divergence.prefers",
+                "prefers 需與 judgement 成對——沒有判斷的傾向不知道依據什麼")
+        }
         var judgement: Judgement?
         switch (statement, restsOn.isEmpty) {
         case (nil, true):
             judgement = nil
         case (let s?, false):
-            judgement = Judgement(statement: s, restsOn: restsOn)
+            judgement = Judgement(statement: s, restsOn: restsOn, prefers: prefers)
         default:
             throw StoreYAMLError.invalidField(
                 "divergence.judgement",
                 "judgement 與 rests-on 必須成對出現——"
                 + "沒有依據的斷言不是判斷，沒有斷言的依據不知道在支持什麼")
+        }
+
+        // prefers 必須指名本記錄的候選之一（#75 對一）——候選解析完才驗得了
+        if let p = prefers, !candidates.contains(where: { $0.key == p }) {
+            throw StoreYAMLError.invalidField(
+                "divergence.prefers",
+                "「\(displaySafe(p, max: 200))」不是本記錄的候選——"
+                + "判斷傾向的對象必須在候選清單內（實際候選："
+                + candidates.map { displaySafe($0.key, max: 200) }.sorted()
+                    .joined(separator: "、") + "）")
         }
 
         var d = Divergence(id: id, question: question, candidates: candidates,

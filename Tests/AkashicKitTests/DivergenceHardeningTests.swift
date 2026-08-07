@@ -455,6 +455,17 @@ final class DivergenceHardeningTests: XCTestCase {
     ///
     /// 逐欄是必要的（子集關係無法用相等表達），所以防腐不能靠結構比較——靠反射
     /// 數屬性。這是「白名單會靜默失效」的機械解答。
+    /// #157 verify 157-4：work 側的同型防腐——`Entry` 加欄位而 work 合併檢查沒跟上
+    /// 時這條會紅。person 側有守衛、work 側先前沒有（同一個 feature 的兩半不對稱）。
+    func testEntryFieldCoverageOfMergeCheck() throws {
+        let n = Mirror(reflecting: Entry(id: UUID(), citekey: "x", type: "article",
+                                         title: "T")).children.count
+        XCTAssertEqual(n, LibraryStore.entryFieldsCoveredByMergeCheck,
+                       "Entry 的儲存屬性數變了（\(n)）——請同步更新 "
+                       + "LibraryStore.fieldsLostByMerging(_:into:) 的 Entry 版與這個常數"
+                       + "（刻意排除的欄位見該函式下方的 doc）")
+    }
+
     func testPersonFieldCoverageOfMergeCheck() throws {
         let n = Mirror(reflecting: Person(key: "x")).children.count
         XCTAssertEqual(n, LibraryStore.personFieldsCoveredByMergeCheck,

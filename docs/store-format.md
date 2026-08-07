@@ -1062,10 +1062,15 @@ I/O 錯誤）收容並回報——此時被併記錄**可能部分已刪**，但
 塌縮刪除，不動任何檔案。
 
 **合併的範圍**：只搬別名。被併記錄帶有倖存者沒有的內容時，合併 **MUST** 拒絕並指名將
-失去什麼。**work 消歧同此**（#75 對二）：被併 work 帶有倖存者沒有的 `fields`／
-`attachments`／`tags`／`libraries`／**出向 relations**（cites/related——遷移只搬「別人
-指向被併者」的參照，被併者自己指出去的隨檔案消失）／`provenance.zoteroKey`（不同即
-來源衝突）時拒絕。子集才放行——搬欄位是人的判斷，不自動合併。
+失去什麼。**work 消歧同此**（#75 對二）。比對面是**封閉列舉**——`Entry` 的 11 個儲存屬性分成
+兩組，**不得依性質相似類推第三類**：
+
+| 比對（doomed 有而 keeper 沒有／衝突 → 拒絕） | 刻意排除（不比） |
+|---|---|
+| `fields`（逐 key；同 key 不同值＝衝突）、`attachments`、`akashic.tags`／`libraries`／`status`、**出向 relations**（cites/related——遷移只搬「別人指向被併者」的參照，被併者自己指出去的隨檔案消失）、`authors`（`.key` 是 resolve-people 歸戶的產物，work 合併不搬）、`date`（**只比在場與否、不比精度**）、`unknownFields`（含 `akashic` 的——tolerant-preserve 的前提是本 binary 無法判斷它重不重要）、`provenance`（`zoteroKey`／`libraryID` 的**對**、`orphanedAt`） | `type`／`title`（要求相等會誤拒最常見形狀——同一篇的兩筆記錄 title 本來就會不同，keeper 的寫法**就是人選的 canonical form**）、`id`／`citekey`（身分，不隨合併移動） |
+
+子集才放行——搬欄位是人的判斷，不自動合併。兩組相加＝11 個屬性，由
+`testEntryFieldCoverageOfMergeCheck` 以反射釘住（加欄位而比對沒跟上即測試紅）。
 
 判定 **MUST** 是**子集**而非相等：被併者的每個欄位要嘛為空、要嘛與倖存者相同，才算
 「不會失去」。相等只放行「全空」與「完全相同」，會誤拒最常見的形狀——使用者把資料

@@ -42,7 +42,7 @@ final class WorkMergeFieldsTests: XCTestCase {
     }
 
     func testRefusesWhenDoomedHasFieldKeeperLacks() throws {
-        var keeper = work("a2020")
+        let keeper = work("a2020")
         var doomed = work("a2020dup")
         doomed.fields["doi"] = "10.1/xyz"   // keeper 沒有
         let d = try seed(keeper: keeper, doomed: doomed)
@@ -91,7 +91,7 @@ final class WorkMergeFieldsTests: XCTestCase {
     /// **出向 relations**：被併者自己 cites 的東西，keeper 沒 cite → 遺失。
     /// （resolveWorkDivergence 的遷移迴圈跳過 doomed，所以 doomed 的出向不會搬。）
     func testRefusesWhenDoomedCitesSomethingKeeperDoesNot() throws {
-        var keeper = work("c2020")
+        let keeper = work("c2020")
         var doomed = work("c2020dup")
         doomed.akashic.relations.cites = ["olsson1979"]   // keeper 沒 cite
         let d = try seed(keeper: keeper, doomed: doomed)
@@ -148,4 +148,95 @@ final class WorkMergeFieldsTests: XCTestCase {
             }
         }
     }
+    // MARK: - #157 verify 157-1／157-2 的 regression
+
+    /// **最強的一項**：tolerant-preserve 的未知欄位（較新 binary 寫入、本版不認識）
+    /// ——本 binary 依定義無法判斷它重不重要，唯一安全的預設是拒絕。
+    func testRefusesWhenDoomedHasUnknownFields() throws {
+        let keeper = work("g2020")
+        var doomed = work("g2020dup")
+        doomed.unknownFields = [UnknownField(key: "future_field", raw: "future_field: 42")]
+        let d = try seed(keeper: keeper, doomed: doomed)
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "g2020")) { error in
+            guard case DivergenceResolveError.wouldLoseFields(_, _, let losses) = error else {
+                return XCTFail("預期 wouldLoseFields，實得 \(error)")
+            }
+            XCTAssertTrue(losses.contains { $0.contains("future_field") }, "\(losses)")
+        }
+    }
+
+    /// authors：doomed 的 `.key(...)` 是 resolve-people 歸戶的產物——work 合併不搬，
+    /// 丟掉的是人做過的判斷。
+    func testRefusesWhenDoomedHasResolvedAuthorsKeeperLacks() throws {
+        let keeper = work("h2020")
+        var doomed = work("h2020dup")
+        doomed.authors = [.key("chen-ming")]
+        let d = try seed(keeper: keeper, doomed: doomed)
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "h2020")) { error in
+            guard case DivergenceResolveError.wouldLoseFields(_, _, let losses) = error else {
+                return XCTFail("預期 wouldLoseFields，實得 \(error)")
+            }
+            XCTAssertTrue(losses.contains { $0.contains("chen-ming") },
+                          "已歸戶的作者不得靜默消失：\(losses)")
+        }
+    }
+
+    /// date **只比在場與否、不比精度**——`2020` vs `2020-03-15` 是重複記錄的正常
+    /// 形狀（#71 R2 DA 的同型誤拒教訓）。
+    func testDateComparesPresenceNotPrecision() throws {
+        // (a) doomed 有、keeper 沒有 → 拒
+        var k1 = work("i2020"); k1.date = nil
+        var d1 = work("i2020dup"); d1.date = "2020-03-15"
+        let div1 = try seed(keeper: k1, doomed: d1)
+        XCTAssertThrowsError(try store.resolveDivergence(id: div1.id, survivor: "i2020"))
+
+        // (b) 兩邊都有但精度不同 → **放行**（不是衝突）
+        let r2 = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-wmf-date-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: r2.appendingPathComponent("entities"), withIntermediateDirectories: true)
+        try StoreVersion.write(root: r2, format: StoreVersion.supported)
+        GitFixture.initRepo(r2)
+        defer { try? FileManager.default.removeItem(at: r2) }
+        let s2 = LibraryStore(root: r2)
+        var k2 = work("j2020"); k2.date = "2020"
+        var d2 = work("j2020dup"); d2.date = "2020-03-15"
+        try s2.writeEntry(k2); try s2.writeEntry(d2)
+        let div2 = Divergence(id: UUID(), question: "?",
+            candidates: [DivergenceCandidate(key: "j2020", shape: .work),
+                         DivergenceCandidate(key: "j2020dup", shape: .work)])
+        try s2.writeDivergence(div2)
+        GitFixture.commitAll(r2, message: "seed")
+        let report = try s2.resolveDivergence(id: div2.id, survivor: "j2020")
+        XCTAssertEqual(report.failures, [], "精度差異不是衝突——不得誤拒")
+    }
+
+    /// #157 verify 157-2：Zotero 記錄的身分是 (libraryID, zoteroKey) 這個**對**。
+    func testRefusesWhenSameZoteroKeyDifferentLibrary() throws {
+        var keeper = work("k2020")
+        keeper.provenance = Provenance(zoteroKey: "ABCD", zoteroVersion: 1, libraryID: 1)
+        var doomed = work("k2020dup")
+        doomed.provenance = Provenance(zoteroKey: "ABCD", zoteroVersion: 1, libraryID: 77)
+        let d = try seed(keeper: keeper, doomed: doomed)
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "k2020")) { error in
+            guard case DivergenceResolveError.wouldLoseFields(_, _, let losses) = error else {
+                return XCTFail("預期 wouldLoseFields，實得 \(error)")
+            }
+            XCTAssertTrue(losses.contains { $0.contains("library") }, "\(losses)")
+        }
+    }
+
+    /// type/title 是**刻意排除**——同一篇的兩筆記錄 title 本來就會不同，keeper 的
+    /// 寫法就是人選的 canonical form（要求相等會重演 #71 R2 DA 的誤拒）。
+    func testTypeAndTitleDifferencesDoNotBlock() throws {
+        var keeper = work("l2020"); keeper.title = "Short"
+        var doomed = work("l2020dup")
+        doomed.title = "Short: A Much Longer Subtitle"
+        doomed.type = "misc"
+        let d = try seed(keeper: keeper, doomed: doomed)
+        let report = try store.resolveDivergence(id: d.id, survivor: "l2020")
+        XCTAssertEqual(report.failures, [], "type/title 差異刻意不擋")
+        XCTAssertEqual(report.merged, ["l2020dup"])
+    }
+
 }

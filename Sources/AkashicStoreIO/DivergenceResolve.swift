@@ -416,7 +416,7 @@ extension LibraryStore {
     }
 
     /// work 側的 shape 專屬拒絕條件（#139 verify F1，與 person 側對稱）。
-    /// work 無 `fieldsLostByMerging` 閘——那是 #75 對二要補的（合併不搬欄位）。
+    /// work 側的欄位遺失比對就在下方 body（#75 對二已落地）——與 person 側對稱。
     func validateWorkPreconditions(survivor: String, mergedKeys: [String],
                                    snapshot: LibraryLoad) throws
         -> (keeper: Entry, doomed: [Entry]) {
@@ -757,52 +757,11 @@ extension LibraryStore {
     ///
     /// 涵蓋 `Person` 的 8 個儲存屬性：`key` / `id`（身分，不隨合併移動）、
     /// `names`（別名，由合併搬移）、以及下列五個。
-    /// work 消歧的欄位遺失比對（#75 對二，與 person 側 `fieldsLostByMerging` 對稱）。
     ///
-    /// work 消歧只搬「別人指向被併者」的參照，被併者自己帶的內容隨檔案消失而使用者
-    /// 只看到「✓ 併入」。同 person 鐵律：**子集才放行**，被併者帶有倖存者沒有的
-    /// 內容 → 拒絕並指名將失去什麼（搬欄位是人的判斷，不自動合併）。
-    ///
-    /// **出向 relations 特別要比**：`resolveWorkDivergence` 的遷移迴圈跳過 doomed
-    /// 本身，所以 doomed 自己 cites/related 的東西不會搬到 keeper——實測確認會隨
-    /// 檔案消失（#75 diagnosis 的「relations 出向遷移實況」）。
-    static func fieldsLostByMerging(_ e: Entry, into keeper: Entry) -> [String] {
-        var losses: [String] = []
-        // biblatex fields 逐 key：被併有、倖存無 → 失去；兩邊都有但值不同 → 衝突
-        for (k, v) in e.fields.sorted(by: { $0.key < $1.key }) {
-            if let mine = keeper.fields[k] {
-                if mine != v { losses.append("fields.\(k)（兩邊都有但不同，需選一個）") }
-            } else {
-                losses.append("fields.\(k): \(v)")
-            }
-        }
-        // attachments／tags／libraries：被併者有而倖存者沒有的（差集）
-        let lostAttach = e.attachments.filter { !keeper.attachments.contains($0) }
-        if !lostAttach.isEmpty {
-            losses.append("attachments（\(lostAttach.count) 筆）")
-        }
-        let lostTags = e.akashic.tags.filter { !keeper.akashic.tags.contains($0) }
-        if !lostTags.isEmpty { losses.append("tags: " + lostTags.joined(separator: "、")) }
-        let lostLibs = e.akashic.libraries.filter { !keeper.akashic.libraries.contains($0) }
-        if !lostLibs.isEmpty { losses.append("libraries: " + lostLibs.joined(separator: "、")) }
-        // 出向 relations（doomed 自己指出去的）——遷移迴圈不搬 doomed 的出向
-        let lostCites = e.akashic.relations.cites.filter { !keeper.akashic.relations.cites.contains($0) }
-        if !lostCites.isEmpty { losses.append("cites: " + lostCites.joined(separator: "、")) }
-        let lostRel = e.akashic.relations.related.filter { !keeper.akashic.relations.related.contains($0) }
-        if !lostRel.isEmpty { losses.append("related: " + lostRel.joined(separator: "、")) }
-        // status：被併有、倖存無或不同
-        if let s = e.akashic.status, !s.isEmpty, keeper.akashic.status != s {
-            losses.append("status: \(s)")
-        }
-        // provenance.zoteroKey 不同 → 兩個不同的 Zotero 來源是「這兩筆是同一篇」的反證
-        if let ep = e.provenance, let kp = keeper.provenance, ep.zoteroKey != kp.zoteroKey {
-            losses.append("zotero-key（\(ep.zoteroKey) ≠ \(kp.zoteroKey)，來源衝突）")
-        } else if let ep = e.provenance, keeper.provenance == nil {
-            losses.append("zotero-key: \(ep.zoteroKey)（倖存者無 provenance）")
-        }
-        return losses
-    }
-
+    /// **插入位置紀律**（#157 verify 157-4，同型第三次——#136 F1、#59）：新函式
+    /// **不得**插進既有 API 的 doc comment／attribute 與其宣告之間。那會讓兩份文件
+    /// 對調——這段論證曾經整段掛到 Entry 版頭上，而它對 Entry 每一句都是假的
+    /// （不是 Person、沒有那 8 個屬性、也不受 PersonFieldCoverageTests 保護）。
     static func fieldsLostByMerging(_ p: Person, into keeper: Person) -> [String] {
         var losses: [String] = []
         func check(_ label: String, mine: String?, theirs: String?) {
@@ -859,6 +818,115 @@ extension LibraryStore {
         }
         return losses
     }
+
+    /// work 消歧的欄位遺失比對（#75 對二，與 person 側 `fieldsLostByMerging` 對稱）。
+    ///
+    /// work 消歧只搬「別人指向被併者」的參照，被併者自己帶的內容隨檔案消失而使用者
+    /// 只看到「✓ 併入」。同 person 鐵律：**子集才放行**，被併者帶有倖存者沒有的
+    /// 內容 → 拒絕並指名將失去什麼（搬欄位是人的判斷，不自動合併）。
+    ///
+    /// **出向 relations 特別要比**：`resolveWorkDivergence` 的遷移迴圈跳過 doomed
+    /// 本身，所以 doomed 自己 cites/related 的東西不會搬到 keeper——實測確認會隨
+    /// 檔案消失（#75 diagnosis 的「relations 出向遷移實況」）。
+    static func fieldsLostByMerging(_ e: Entry, into keeper: Entry) -> [String] {
+        var losses: [String] = []
+        // biblatex fields 逐 key：被併有、倖存無 → 失去；兩邊都有但值不同 → 衝突
+        for (k, v) in e.fields.sorted(by: { $0.key < $1.key }) {
+            if let mine = keeper.fields[k] {
+                if mine != v { losses.append("fields.\(k)（兩邊都有但不同，需選一個）") }
+            } else {
+                losses.append("fields.\(k): \(v)")
+            }
+        }
+        // attachments／tags／libraries：被併者有而倖存者沒有的（差集）
+        let lostAttach = e.attachments.filter { !keeper.attachments.contains($0) }
+        if !lostAttach.isEmpty {
+            losses.append("attachments（\(lostAttach.count) 筆）")
+        }
+        let lostTags = e.akashic.tags.filter { !keeper.akashic.tags.contains($0) }
+        if !lostTags.isEmpty { losses.append("tags: " + lostTags.joined(separator: "、")) }
+        let lostLibs = e.akashic.libraries.filter { !keeper.akashic.libraries.contains($0) }
+        if !lostLibs.isEmpty { losses.append("libraries: " + lostLibs.joined(separator: "、")) }
+        // 出向 relations（doomed 自己指出去的）——遷移迴圈不搬 doomed 的出向
+        let lostCites = e.akashic.relations.cites.filter { !keeper.akashic.relations.cites.contains($0) }
+        if !lostCites.isEmpty { losses.append("cites: " + lostCites.joined(separator: "、")) }
+        let lostRel = e.akashic.relations.related.filter { !keeper.akashic.relations.related.contains($0) }
+        if !lostRel.isEmpty { losses.append("related: " + lostRel.joined(separator: "、")) }
+        // status：被併有、倖存無或不同
+        if let s = e.akashic.status, !s.isEmpty, keeper.akashic.status != s {
+            losses.append("status: \(s)")
+        }
+        // authors（#157 verify 157-1）：doomed 的 `.key(...)` 是 resolve-people 歸戶的
+        // **產物**——person 側的 names 由合併搬移，但 work 的 authors **不搬**（實測
+        // keeper 併完是 0 作者）。丟掉的是人做過的判斷，不是重複資料。
+        let keeperAuthors = Set(keeper.authors.map { a -> String in
+            if case let .key(k) = a { return "key:\(k)" }
+            if case let .literal(s) = a { return "literal:\(s)" }
+            return ""
+        })
+        let lostAuthors = e.authors.filter { a in
+            let id: String
+            if case let .key(k) = a { id = "key:\(k)" }
+            else if case let .literal(s) = a { id = "literal:\(s)" }
+            else { id = "" }
+            return !keeperAuthors.contains(id)
+        }
+        if !lostAuthors.isEmpty {
+            losses.append("authors（\(lostAuthors.count) 個，含 "
+                + lostAuthors.prefix(3).map { a -> String in
+                    if case let .key(k) = a { return "已歸戶 \(k)" }
+                    if case let .literal(s) = a { return s }
+                    return "?"
+                }.joined(separator: "、") + (lostAuthors.count > 3 ? "…" : "") + "）")
+        }
+        // date（#157 verify 157-1）：**只比在場與否，不比精度**——`2020` vs
+        // `2020-03-15` 是重複記錄的正常形狀，用「值不同即衝突」會誤拒（#71 R2 DA
+        // 的同型教訓）。doomed 有、keeper 沒有才算失去。
+        if let d = e.date, !d.isEmpty, keeper.date == nil {
+            losses.append("date: \(d)")
+        }
+        // unknownFields（#157 verify 157-1，**最強的一項**）：#23 tolerant-preserve 的
+        // 整個前提是「較新版本寫入、本版不認識的欄位不得被本版破壞」。本 binary
+        // **依定義無法判斷**它重不重要——唯一安全的預設是拒絕並讓人裁決。
+        for f in e.unknownFields where !keeper.unknownFields.contains(where: { $0.key == f.key }) {
+            losses.append("未知欄位 \(f.key)（較新版本寫入、本 binary 不認識）")
+        }
+        for f in e.akashic.unknownFields
+        where !keeper.akashic.unknownFields.contains(where: { $0.key == f.key }) {
+            losses.append("akashic 的未知欄位 \(f.key)")
+        }
+        // provenance（#157 verify 157-2）：Zotero 記錄的身分是 **(libraryID, zoteroKey)**
+        // 這個對，不是 zoteroKey 單獨——不同 library 的同 key 是不同記錄。
+        // orphanedAt 是「Zotero 端已刪除、待人工裁決」的標記，屬一般遺失。
+        if let ep = e.provenance {
+            if let kp = keeper.provenance {
+                if ep.zoteroKey != kp.zoteroKey {
+                    losses.append("zotero-key（\(ep.zoteroKey) ≠ \(kp.zoteroKey)，來源衝突）")
+                } else if ep.libraryID != kp.libraryID {
+                    losses.append("zotero library（\(ep.libraryID.map(String.init) ?? "nil") ≠ "
+                        + "\(kp.libraryID.map(String.init) ?? "nil")，同 key 不同 library＝不同記錄）")
+                }
+                if ep.orphanedAt != nil && kp.orphanedAt == nil {
+                    losses.append("orphaned 標記（Zotero 端已刪除、待人工裁決）")
+                }
+            } else {
+                losses.append("zotero-key: \(ep.zoteroKey)（倖存者無 provenance）")
+            }
+        }
+        return losses
+    }
+
+    /// work 合併比對**刻意排除**的欄位（#157 verify 157-1 的取捨，明寫讓「排除」與
+    /// 「忘記」可分辨）：
+    ///
+    /// - `type` / `title`：要求相等會直接重演 #71 R2 DA 的誤拒——同一篇的兩筆記錄
+    ///   title 大小寫／副標題本來就會不同，而 keeper 的寫法**就是人選的 canonical
+    ///   form**。合併的語意是「keeper 的表述勝出」，不是「兩邊必須一致」。
+    /// - `id` / `citekey`：身分，不隨合併移動（同 person 側的 key/id）。
+    ///
+    /// 這五個 + 上方比對的六類 ＝ `Entry` 的 11 個儲存屬性，由
+    /// `testEntryFieldCoverageOfMergeCheck` 以反射釘住（同 person 側的紀律）。
+    static let entryFieldsCoveredByMergeCheck = 11
 
     /// `p` 的哪些 profile 維度**不是** `keeper` 的子集。空 = 合併不會失去任何時間軸。
     private static func profileDimensionsNotCovered(

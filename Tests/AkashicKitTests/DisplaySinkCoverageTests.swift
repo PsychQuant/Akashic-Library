@@ -41,7 +41,14 @@ final class DisplaySinkCoverageTests: XCTestCase {
         // #78-7：AkashicCore 的 decode 錯誤訊息會內插未信任的 YAML 值（#23 的前提：
         // 檔案內容未信任）——#127 verify M2 的 StoreVersion 案例正是這一類，當時
         // 手工修；機械守衛掃到之後這類洞在測試就會亮。akashic-mcp/ 同（#135 F5）。
-        for dir in ["Sources/AkashicCore", "Sources/akashic-mcp"] {
+        // #149 verify F1：QueryError/GraphError 的 errorDescription 同 #142 的病
+        //（lookup miss 把 caller citekey 原樣回吐），但這兩個模組不在掃描面——
+        // 一次 MCP 呼叫就能把 raw ESC 打進 LLM context。StoreIOError/ConfigError
+        // 住 AkashicStoreIO 同理（#142 加的 throw StoreIOError 規則先前是死碼——
+        // F4：該檔根本沒被讀）。
+        for dir in ["Sources/AkashicCore", "Sources/akashic-mcp",
+                    "Sources/AkashicQuery", "Sources/AkashicGraph",
+                    "Sources/AkashicStoreIO"] {
             let d = repoRoot.appendingPathComponent(dir)
             if let files = try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: nil) {
                 out += files.filter { $0.pathExtension == "swift" }
@@ -118,8 +125,21 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 continue
             }
             let name = url.lastPathComponent
-            for (idx, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            let allLines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            for (idx, line) in allLines.enumerated() {
                 let l = String(line)
+                // 前一行是否為 `case …:` 結尾（ConfigError 的 case/return 跨兩行——
+                // #149 verify F2）。**往回跳過註解與空行**（#149 R2 F4：case 與
+                // return 之間常夾說明註解——愈認真解釋為什麼要消毒，愈把守衛的
+                // 回看擋掉；StoreIOError.invalidKey 正是這樣漏掉的）。
+                var prevIsCase = false
+                var k = idx - 1
+                while k >= 0 {
+                    let prev = allLines[k].trimmingCharacters(in: .whitespaces)
+                    if prev.isEmpty || prev.hasPrefix("//") { k -= 1; continue }
+                    prevIsCase = prev.hasPrefix("case ") && prev.hasSuffix(":")
+                    break
+                }
                 // 註解行不算輸出
                 if l.trimmingCharacters(in: .whitespaces).hasPrefix("//") { continue }
                 if l.contains("display-safe-exempt:") { continue }
@@ -130,8 +150,18 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 // #78-7：error 構造點是**無條件** sink——payload 最終進 errorDescription
                 // →使用者可見輸出，插值的任何內容（YAML 未知 key、原始值）都可疑，
                 // 不看 token 清單（局部變數名抓不到）。安全的插值加 exempt 注記
+                // #142：ServiceError/StoreIOError 的 throw 行同屬 error sink（caller
+                // 輸入經 errorDescription 直達輸出）；errorDescription 的
+                // `case … return "…"` 形狀也是——那正是 #142 的雙重盲區（不含
+                // throw、又被 case 豁免跳過）。
+                let caseReturn = (l.trimmingCharacters(in: .whitespaces).hasPrefix("case ")
+                        && l.contains("return \""))
+                    || (prevIsCase && l.trimmingCharacters(in: .whitespaces).hasPrefix("return \""))
                 let isErrorSink = l.contains("throw StoreYAMLError")
                     || l.contains("throw StoreVersionError")
+                    || l.contains("throw ServiceError")
+                    || l.contains("throw StoreIOError")
+                    || caseReturn
                 guard isSink || isErrorSink else { continue }
                 // switch 的 `case "x": stmt` 不是 dict 值——冒號後是語句（#138 F2）。
                 // **誠實邊界**：這也豁免了 case 行內的真 dict（如

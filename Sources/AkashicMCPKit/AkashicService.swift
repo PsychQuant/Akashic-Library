@@ -14,7 +14,12 @@ public enum ServiceError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .notFound(let what): return "找不到：\(what)"
+        // #142 / #149 verify F3：what 由 throw 站點組裝並消毒 caller payload
+        // （見 notFound(…) 各呼叫端的 displaySafe），此處**不再**消毒——displaySafe
+        // 會跳脫反斜線本身、不 idempotent，兩層會把 \u{001B} 變成 \u{005C}u{001B}
+        // 並讓外層 max 對已膨脹字串二次截斷。守衛（error-sink 規則 + throw 站點
+        // 在掃描面內）保證新 throw 站點的 caller payload 都消毒。
+        case .notFound(let what): return "找不到：\(what)"   // display-safe-exempt: what 由 throw 站點消毒（見上方註解）
         case .invalid(let why): return why
         }
     }
@@ -66,7 +71,7 @@ public final class AkashicService {
     public func getEntry(citekey: String) throws -> String {
         let load = try store.load()
         guard let entry = load.entries.first(where: { $0.citekey == citekey }) else {
-            throw ServiceError.notFound("citekey「\(citekey)」")
+            throw ServiceError.notFound("citekey「\(displaySafe(citekey, max: 200))」")
         }
         return try jsonString(entryDict(entry))
     }
@@ -106,7 +111,7 @@ public final class AkashicService {
             entries = entries.filter { wantedSet.contains($0.citekey) }
             let missing = wantedSet.subtracting(entries.map(\.citekey))
             guard missing.isEmpty else {
-                throw ServiceError.notFound("citekeys：\(missing.sorted().joined(separator: ", "))")
+                throw ServiceError.notFound("citekeys：\(missing.sorted().map { displaySafe($0, max: 200) }.joined(separator: ", "))")
             }
         }
         switch format {
@@ -254,17 +259,17 @@ public final class AkashicService {
             let config = try AkashicConfig.read(from: configURL)
             guard let path = config.files[key] else {
                 let known = config.files.keys.sorted().joined(separator: ", ")
-                throw ServiceError.notFound("檔案 key「\(key)」（已註冊：\(known.isEmpty ? "無" : known)）")
+                throw ServiceError.notFound("檔案 key「\(displaySafe(key, max: 200))」（已註冊：\(known.isEmpty ? "無" : displaySafe(known, max: 400))）")
             }
             let newRoot = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
             guard LibraryStore.isLibraryRoot(newRoot) else {
-                throw ServiceError.invalid("「\(path)」不是 Akashic library（缺 entries/ 目錄）")
+                throw ServiceError.invalid("「\(displaySafe(path, max: 300))」不是 Akashic library（缺 entries/ 目錄）")
             }
             root = newRoot
             storeKey = key          // #37：index 必須跟著切，否則用舊 store 的 index 查新 store
             return try jsonString(["active_root": root.path, "key": key] as [String: Any])
         default:
-            throw ServiceError.invalid("未知 action「\(action)」（list / use）")
+            throw ServiceError.invalid("未知 action「\(displaySafe(action, max: 120))」（list / use）")
         }
     }
 
@@ -285,7 +290,7 @@ public final class AkashicService {
             // 存在性判準用全集（scoped 過濾不可誤報 notFound——person 可能只是不在該 library）
             let allPubs = try engine.personPublications(key: key, library: nil)
             guard record != nil || !allPubs.isEmpty else {
-                throw ServiceError.notFound("person「\(key)」")
+                throw ServiceError.notFound("person「\(displaySafe(key, max: 200))」")
             }
             let pubs = library == nil ? allPubs
                 : try engine.personPublications(key: key, library: library)
@@ -378,28 +383,28 @@ public final class AkashicService {
             }
             // 驗證先行：未驗證 key 不得進任何路徑組合（存在性 oracle 防護）
             guard StoreKey.isValid(key) else {
-                throw ServiceError.invalid("library key「\(key)」不符合 \(StoreKey.pattern)，拒絕寫入")
+                throw ServiceError.invalid("library key「\(displaySafe(key, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入")   // display-safe-exempt: pattern 是常量
             }
             guard !FileManager.default.fileExists(atPath: store.libraryURL(key: key).path) else {
-                throw ServiceError.invalid("library「\(key)」已存在")
+                throw ServiceError.invalid("library「\(displaySafe(key, max: 200))」已存在")
             }
             _ = try store.writeLibrary(Library(key: key, name: name, description: description))
             return try jsonString(["created": key])
         case "add", "remove":
             guard let key, let citekey else {
-                throw ServiceError.invalid("\(action) 需要 key 與 citekey")
+                throw ServiceError.invalid("\(displaySafe(action, max: 120)) 需要 key 與 citekey")
             }
             guard StoreKey.isValid(key) else {
-                throw ServiceError.invalid("library key「\(key)」不符合 \(StoreKey.pattern)")
+                throw ServiceError.invalid("library key「\(displaySafe(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: pattern 是常量
             }
             let load = try store.load()
             // add 要求 registry 存在；remove 不要求——dangling membership（spec 允許）
             // 必須能用正式介面清理
             if action == "add", !load.libraries.contains(where: { $0.key == key }) {
-                throw ServiceError.notFound("library「\(key)」")
+                throw ServiceError.notFound("library「\(displaySafe(key, max: 200))」")
             }
             guard var entry = load.entries.first(where: { $0.citekey == citekey }) else {
-                throw ServiceError.notFound("citekey「\(citekey)」")
+                throw ServiceError.notFound("citekey「\(displaySafe(citekey, max: 200))」")
             }
             if action == "add" {
                 if !entry.akashic.libraries.contains(key) { entry.akashic.libraries.append(key) }
@@ -410,7 +415,7 @@ public final class AkashicService {
             return try jsonString(["citekey": displaySafe(citekey, max: 200),
                                    "libraries": entry.akashic.libraries])
         default:
-            throw ServiceError.invalid("未知 action「\(action)」（list/create/add/remove）")
+            throw ServiceError.invalid("未知 action「\(displaySafe(action, max: 120))」（list/create/add/remove）")
         }
     }
 
@@ -478,7 +483,7 @@ public final class AkashicService {
         let byID = Dictionary(withIDs.map { ($0.id, $0.candidate) }, uniquingKeysWith: { first, _ in first })
         let chosen = try selected.map { id -> ResolutionCandidate in
             guard let c = byID[id] else {
-                throw ServiceError.notFound("候選 id「\(id)」（先不帶 apply 列出候選）")
+                throw ServiceError.notFound("候選 id「\(displaySafe(id, max: 200))」（先不帶 apply 列出候選）")
             }
             return c
         }
@@ -531,7 +536,7 @@ public final class AkashicService {
             familyName: family, year: date, title: title, existing: existing)
         // 最後防線：目的檔已存在（含 quarantined/大小寫別名）→ 拒寫
         guard !FileManager.default.fileExists(atPath: store.entryURL(citekey: citekey).path) else {
-            throw ServiceError.invalid("目的檔已存在：entries/\(citekey).yaml（可能是 quarantined 檔）")
+            throw ServiceError.invalid("目的檔已存在：entries/\(displaySafe(citekey, max: 200)).yaml（可能是 quarantined 檔）")
         }
         var entry = Entry(id: UUID(), citekey: citekey, type: type, title: title,
                           authors: authors.map { .literal($0) }, date: date)
@@ -544,11 +549,11 @@ public final class AkashicService {
     public func addPerson(key: String, names: [String], orcid: String?, openalex: String?) throws -> String {
         let load = try store.load()
         guard !load.people.contains(where: { $0.key == key }) else {
-            throw ServiceError.invalid("person key「\(key)」已存在")
+            throw ServiceError.invalid("person key「\(displaySafe(key, max: 200))」已存在")
         }
         // quarantined people 檔同樣受保護：目的檔存在即拒寫
         guard !FileManager.default.fileExists(atPath: store.personURL(key: key).path) else {
-            throw ServiceError.invalid("people/\(key).yaml 已存在（可能是 quarantined 檔），不覆寫")
+            throw ServiceError.invalid("people/\(displaySafe(key, max: 200)).yaml 已存在（可能是 quarantined 檔），不覆寫")
         }
         let person = Person(key: key, names: names, orcid: orcid, openalex: openalex)
         try store.writePerson(person)
@@ -583,7 +588,7 @@ public final class AkashicService {
     public func importZotero(zoteroDb: String?, libraryID: Int?) throws -> String {
         let path = ((zoteroDb ?? "~/Zotero/zotero.sqlite") as NSString).expandingTildeInPath
         guard FileManager.default.fileExists(atPath: path) else {
-            throw ServiceError.notFound("zotero.sqlite：\(path)")
+            throw ServiceError.notFound("zotero.sqlite：\(displaySafe(path, max: 300))")
         }
         try store.ensureLayout()
         let report = try ZoteroImporter(store: store)
@@ -616,7 +621,7 @@ public final class AkashicService {
 
     func requireEntry(_ citekey: String) throws -> Entry {
         guard let entry = try store.load().entries.first(where: { $0.citekey == citekey }) else {
-            throw ServiceError.notFound("citekey「\(citekey)」")
+            throw ServiceError.notFound("citekey「\(displaySafe(citekey, max: 200))」")
         }
         return entry
     }

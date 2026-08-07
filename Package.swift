@@ -30,8 +30,8 @@ let package = Package(
         .target(name: "AkashicSQLite"),
         .target(name: "AkashicZoteroImport", dependencies: ["AkashicStoreIO", "AkashicSQLite"]),
         .target(name: "AkashicIndex", dependencies: ["AkashicStoreIO", "AkashicSQLite"]),
-        .target(name: "AkashicQuery", dependencies: ["AkashicIndex", "AkashicSQLite"]),
-        .target(name: "AkashicGraph", dependencies: ["AkashicIndex", "AkashicSQLite"]),
+        .target(name: "AkashicQuery", dependencies: ["AkashicIndex", "AkashicSQLite", "AkashicCore"]),
+        .target(name: "AkashicGraph", dependencies: ["AkashicIndex", "AkashicSQLite", "AkashicCore"]),
         .target(name: "AkashicWoSImport", dependencies: ["AkashicCore", "AkashicStoreIO"]),
         .target(name: "AkashicExport", dependencies: [
             "AkashicStoreIO",
@@ -67,7 +67,7 @@ let package = Package(
             "AkashicWoSImport", "AkashicTestGuard",
         ]),
         .testTarget(name: "AkashicCLITests", dependencies: ["akashic", "AkashicTestGuard"]),
-        .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp", "AkashicTestGuard"]),
+        .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp", "AkashicTestGuard", "AkashicQuery", "AkashicGraph", "AkashicStoreIO"]),
         .testTarget(name: "AkashicAppKitTests",
                     dependencies: ["AkashicAppKit", "AkashicCore", "AkashicStoreIO", "AkashicTestGuard"]),
     ]

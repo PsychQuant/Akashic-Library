@@ -1,4 +1,5 @@
 import Foundation
+import AkashicCore
 import AkashicSQLite
 
 public struct QueryFilter: Equatable {
@@ -42,7 +43,8 @@ public enum QueryError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .unknownCitekey(let key): return "index 中找不到 citekey：\(key)"
+        // #149 verify F1：key 是 caller 輸入（lookup miss 的 citekey）——消毒
+        case .unknownCitekey(let key): return "index 中找不到 citekey：\(displaySafe(key, max: 200))"
         }
     }
 }

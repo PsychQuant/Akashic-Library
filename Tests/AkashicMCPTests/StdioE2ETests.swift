@@ -158,3 +158,57 @@ final class StdioE2ETests: XCTestCase {
         XCTAssertTrue(listText.contains("\"count\""), listText)
     }
 }
+
+/// #152：深度炸彈的 transport 層 regression——**必須經真 binary**（in-process
+/// 測不到 transport，#148 的教訓）。
+extension StdioE2ETests {
+    func testDeepNestingBombGetsErrorAndServerSurvives() throws {
+        try send(["jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": ["protocolVersion": "2024-11-05", "capabilities": [:],
+                             "clientInfo": ["name": "t", "version": "0"]]])
+        _ = try readResponse()
+        try send(["jsonrpc": "2.0", "method": "notifications/initialized"])
+
+        // depth 300：撞毀窗口正中央（200-700）。手組 raw bytes——JSONSerialization
+        // 自己也會炸深巢狀
+        let bomb = String(repeating: "[", count: 300) + String(repeating: "]", count: 300)
+        let msg = #"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"akashic_people","arguments":{"junk":\#(bomb)}}}"#
+        stdinPipe.fileHandleForWriting.write(Data((msg + "\n").utf8))
+
+        let errResp = try readResponse()
+        XCTAssertEqual(errResp["id"] as? Int, 7, "error 要回給正確的請求 id：\(errResp)")
+        let error = errResp["error"] as? [String: Any]
+        XCTAssertNotNil(error, "必須是 JSON-RPC error 而不是進程死亡：\(errResp)")
+        XCTAssertTrue((error?["message"] as? String)?.contains("depth") == true, "\(errResp)")
+
+        // server 存活：後續請求照常服務
+        try send(["jsonrpc": "2.0", "id": 8, "method": "tools/list", "params": [:]])
+        let listResp = try readResponse()
+        let tools = ((listResp["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
+        XCTAssertEqual(tools.count, 20, "深度炸彈之後 server 必須照常服務：\(listResp)")
+        XCTAssertTrue(process.isRunning, "進程必須存活")
+    }
+
+    /// 引號感知：字串字面量裡的括號不算深度——大量 `[` 字元的**合法字串值**
+    /// 不得被誤擋。
+    func testBracketsInsideStringsDoNotTripGuard() throws {
+        try send(["jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": ["protocolVersion": "2024-11-05", "capabilities": [:],
+                             "clientInfo": ["name": "t", "version": "0"]]])
+        _ = try readResponse()
+        try send(["jsonrpc": "2.0", "method": "notifications/initialized"])
+
+        let bracketsString = String(repeating: "[", count: 500)
+        try send(["jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                  "params": ["name": "akashic_search",
+                             "arguments": ["author": bracketsString]]])
+        let resp = try readResponse()
+        XCTAssertEqual(resp["id"] as? Int, 9)
+        // 搜不到是正常（查詢字串怪）；重點是**不是** depth error、server 活著
+        if let error = resp["error"] as? [String: Any] {
+            XCTAssertFalse((error["message"] as? String)?.contains("depth") == true,
+                           "字串內括號不得觸發深度守衛：\(resp)")
+        }
+        XCTAssertTrue(process.isRunning)
+    }
+}

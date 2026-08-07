@@ -139,9 +139,21 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 key，全形拉丁（`Ｎａｔｉｏｎａｌ…`，CJK 輸入法下的常見產物）先折回 ASCII 再取。
 正規化只用於**產 key**，`names` 一律保留原字串。
 
-純 CJK（NFKC 後仍無任何 ASCII token）產不出 key，會列在「無法自動產生 key」清單裡
-等人工指定，**不會靜默消失**——中文-only 機構目前只能人先給 key，那是設計缺口不是
-bug（殘留清單見 `Sources/AkashicEntity/OrgBootstrap.swift` 的型別 doc）。
+**產 key 的門檻是 ASCII 覆蓋率 ≥ 50%**，不是「有沒有 ASCII token」。NFKC 會把符號
+殘渣折成 ASCII（`℡`→`tel`、`②`→`2`、`Ⅲ`→`iii`），若只看「有沒有」，純 CJK 名字會
+突然產出**垃圾 key** 並寫進 store——那比靜默丟棄更糟（多了永久識別碼）。覆蓋率把
+殘渣（12–37%）與真雙語名（60–100%）分開，中間有 23 個百分點的空隙。
+
+低於門檻的會列在「無法自動產生 key」清單裡等人工指定，**不會靜默消失**。已知的
+**誤擋**：「CJK 全名 + 拉丁縮寫」（`國立臺灣大學 NTU` 27%）會被擋，因為分母是字元數
+而 CJK 資訊密度遠高於拉丁——判準跟著「中文名有多長」跑，不是跟著「拉丁部分是不是
+好 key」跑。失敗模式是**誠實的**（明列、請人給 key），不是資料汙染。中文-only 機構
+同樣只能人先給 key。完整殘留清單見 `Sources/AkashicEntity/OrgBootstrap.swift` 的型別 doc。
+
+**`--apply` 的部分失敗**：單筆寫入失敗不中斷後續（per-item 收容），失敗項逐一列出、
+index 照常重建，且**輸出用 `⚠ 部分完成` 而非 `✓`、exit code 為 1**——`--apply` 常被
+chain（`bootstrap-organizations --apply && resolve-organizations --apply`），exit 0
+會讓半途失敗的結果若無其事往下走。兩個 org 指令的語意一致。
 
 ### Store 格式版本
 

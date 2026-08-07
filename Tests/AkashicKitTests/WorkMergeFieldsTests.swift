@@ -239,4 +239,76 @@ final class WorkMergeFieldsTests: XCTestCase {
         XCTAssertEqual(report.merged, ["l2020dup"])
     }
 
+    // MARK: - #157 R2 的三個回歸（席位真 binary 實測皆會靜默丟資料）
+
+    /// **157-6**：keeper 的空字串日期不得遮蔽被併者的真實日期。
+    ///
+    /// YAML `date: ""` decode 成 `Optional("")` 且不 quarantine，於是 `keeper.date == nil`
+    /// 為假 → 閘不報 → 席位真 binary 實測 `2020-03-15` 永久消失。專案內明文慣例：
+    /// 「空值視同缺席……同一個概念不該有兩套判準」（`LibraryStore.swift:997`）。
+    func testEmptyKeeperDateDoesNotMaskDoomedDate() {
+        var keeper = Entry(id: UUID(), citekey: "k2020", type: "article", title: "T")
+        keeper.date = ""
+        var doomed = Entry(id: UUID(), citekey: "d2020", type: "article", title: "T")
+        doomed.date = "2020-03-15"
+        let losses = LibraryStore.fieldsLostByMerging(doomed, into: keeper)
+        XCTAssertTrue(losses.contains { $0.contains("2020-03-15") },
+                      "空字串要視同缺席，否則日期靜默消失：\(losses)")
+        // **訊息也要對**：空值＝缺席，不是「互斥」。少了 isEmpty 折疊時這條仍會
+        // 回報（空字串落進不相容分支），但會說「與倖存者的  互斥」——把「倖存者
+        // 沒有這個欄位」講成「兩邊的值衝突」，人會去找一個不存在的衝突。
+        // 沒有這條斷言，`isEmpty` 的處理就是可被靜默移除的死碼（mutation 實測）。
+        XCTAssertFalse(losses.contains { $0.contains("互斥") },
+                       "空值是缺席不是衝突，訊息不得說互斥：\(losses)")
+    }
+
+    /// **157-8**：互斥年份是衝突，不是精度差異。
+    ///
+    /// 「只比在場與否」是對「`2020` vs `2020-03-15` 會誤拒」的**過度**矯正——那只
+    /// 證成前綴相容的放行。person 側結構相同的 `died` 對同一組輸入會報，理由是
+    /// 不同日期「是對『這兩筆是不是同一個』的反證，或至少是必須有人裁決的來源衝突」。
+    func testMutuallyExclusiveDatesAreReportedButPrecisionIsNot() {
+        func losses(keeper k: String, doomed d: String) -> [String] {
+            var keeper = Entry(id: UUID(), citekey: "k", type: "article", title: "T")
+            keeper.date = k
+            var doomed = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
+            doomed.date = d
+            return LibraryStore.fieldsLostByMerging(doomed, into: keeper)
+        }
+        XCTAssertFalse(losses(keeper: "2020", doomed: "2020-03-15").contains { $0.hasPrefix("date") },
+                       "精度差異是重複記錄的正常形狀，不得誤拒")
+        XCTAssertFalse(losses(keeper: "2020-03-15", doomed: "2020").contains { $0.hasPrefix("date") },
+                       "反向同理")
+        XCTAssertTrue(losses(keeper: "2019", doomed: "2021").contains { $0.hasPrefix("date") },
+                      "互斥年份必須報")
+        XCTAssertTrue(losses(keeper: "2020-03", doomed: "2020-07").contains { $0.hasPrefix("date") },
+                      "同年不同月同樣互斥")
+        // 前綴必須落在分隔點上——202 與 2020 是不同年份，不得當成精度差異
+        XCTAssertTrue(losses(keeper: "202", doomed: "2020").contains { $0.hasPrefix("date") },
+                      "202 不是 2020 的精度較低版本")
+    }
+
+    /// **157-7**：同名未知欄位但內容不同＝衝突（三分不是二分）。
+    ///
+    /// 第一版只比 key 在不在，於是「兩邊都有 `peer_review_status` 但值不同」整條
+    /// 漏掉——席位真 binary 實測 doomed 的值被 keeper 靜默覆蓋，而 `validate` 兩行
+    /// 都印過「未知欄位（已保留）」。系統已經知道兩邊都有，合併閘卻不看值。
+    /// person 版（`:816-826`）早就是三分的，這是「宣稱對稱但沒真的對稱」。
+    func testSameUnknownFieldKeyWithDifferentValueIsAConflict() {
+        func make(_ raw: String) -> Entry {
+            var e = Entry(id: UUID(), citekey: "x", type: "article", title: "T")
+            e.unknownFields = [UnknownField(key: "peer_review_status", raw: raw)]
+            e.akashic.unknownFields = [UnknownField(key: "cohort", raw: raw)]
+            return e
+        }
+        let same = LibraryStore.fieldsLostByMerging(
+            make("peer_review_status: pending\n"), into: make("peer_review_status: pending\n"))
+        XCTAssertTrue(same.isEmpty, "兩邊同值＝不會失去：\(same)")
+
+        let diff = LibraryStore.fieldsLostByMerging(
+            make("peer_review_status: accepted\n"), into: make("peer_review_status: pending\n"))
+        XCTAssertEqual(diff.count, 2, "頂層與 akashic 兩處都要報：\(diff)")
+        XCTAssertTrue(diff.allSatisfy { $0.contains("內容不同") },
+                      "訊息要說出是衝突而非缺席：\(diff)")
+    }
 }

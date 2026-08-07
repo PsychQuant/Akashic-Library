@@ -755,11 +755,14 @@ extension LibraryStore {
     /// `PersonFieldCoverageTests`：它用反射數 `Person` 的儲存屬性，與本函式聲明涵蓋的
     /// 數量不符就紅。加欄位而忘了這裡，測試會說話——不是靠註解提醒，也不是靠記憶。
     ///
-    /// 涵蓋 `Person` 的 8 個儲存屬性：`key` / `id`（身分，不隨合併移動）、
-    /// `names`（別名，由合併搬移）、以及下列五個。
+    /// 涵蓋 `Person` 的 **11** 個儲存屬性（#157 verify 157-10：原本寫 8，是過時的
+    /// 舊數字——`personFieldsCoveredByMergeCheck = 11` 才是反射守衛實際釘住的值，
+    /// 兩者一直不一致而沒人發現）：`key` / `id`（身分，不隨合併移動）、
+    /// `names`（別名，由合併搬移）、以及下列各項。
     ///
-    /// **插入位置紀律**（#157 verify 157-4，同型第三次——#136 F1、#59）：新函式
-    /// **不得**插進既有 API 的 doc comment／attribute 與其宣告之間。那會讓兩份文件
+    /// **插入位置紀律**（#157 verify 157-4，**同型第五次**——#59、#136 F1、#157
+    /// 本身、#160 160-4，以及**寫下這條紀律的那個 commit 自己在 test 檔又犯一次**）：
+    /// 新成員 **不得**插進既有 API 的 doc comment／attribute 與其宣告之間。那會讓兩份文件
     /// 對調——這段論證曾經整段掛到 Entry 版頭上，而它對 Entry 每一句都是假的
     /// （不是 Person、沒有那 8 個屬性、也不受 PersonFieldCoverageTests 保護）。
     static func fieldsLostByMerging(_ p: Person, into keeper: Person) -> [String] {
@@ -879,22 +882,56 @@ extension LibraryStore {
                     return "?"
                 }.joined(separator: "、") + (lostAuthors.count > 3 ? "…" : "") + "）")
         }
-        // date（#157 verify 157-1）：**只比在場與否，不比精度**——`2020` vs
-        // `2020-03-15` 是重複記錄的正常形狀，用「值不同即衝突」會誤拒（#71 R2 DA
-        // 的同型教訓）。doomed 有、keeper 沒有才算失去。
-        if let d = e.date, !d.isEmpty, keeper.date == nil {
-            losses.append("date: \(d)")
+        // date（#157 verify 157-6／157-8）：判準是**前綴相容**，不是「只比在場與否」。
+        //
+        // 第一版寫成 `if let d = e.date, !d.isEmpty, keeper.date == nil`，兩個獨立錯誤：
+        //
+        // 1. **`keeper.date == nil` 讓空字串遮蔽真實日期**（157-6）。YAML `date: ""`
+        //    decode 成 `Optional("")` 且不 quarantine——席位真 binary 實測：keeper
+        //    `date: ""`、doomed `date: "2020-03-15"` → 閘不報、合併成功、日期永久消失。
+        //    專案內明文慣例（`LibraryStore.swift:997`）：「空值視同缺席……同一個概念
+        //    不該有兩套判準」。
+        // 2. **「只比在場與否」矯正過頭**（157-8）：`2019` vs `2021` 靜默通過。原本
+        //    要避免的是 `2020` vs `2020-03-15` 這種**精度**差異被當成衝突——那只證成
+        //    前綴相容的放行，不證成「值不同也放行」。person 側結構相同的 `died` 對
+        //    同一組輸入會報，其 doc 說得很清楚：不同日期「是對『這兩筆是不是同一個
+        //    人』的反證，或至少是一個必須有人裁決的來源衝突」。
+        let doomedDate = e.date.flatMap { $0.isEmpty ? nil : $0 }
+        let keeperDate = keeper.date.flatMap { $0.isEmpty ? nil : $0 }
+        if let d = doomedDate {
+            if let k = keeperDate {
+                if !ISO8601Prefix.compatible(d, k) {
+                    losses.append("date: \(d)（與倖存者的 \(k) 互斥，不是精度差異）")
+                }
+            } else {
+                losses.append("date: \(d)")
+            }
         }
-        // unknownFields（#157 verify 157-1，**最強的一項**）：#23 tolerant-preserve 的
-        // 整個前提是「較新版本寫入、本版不認識的欄位不得被本版破壞」。本 binary
-        // **依定義無法判斷**它重不重要——唯一安全的預設是拒絕並讓人裁決。
-        for f in e.unknownFields where !keeper.unknownFields.contains(where: { $0.key == f.key }) {
-            losses.append("未知欄位 \(f.key)（較新版本寫入、本 binary 不認識）")
+        // unknownFields（#157 verify 157-1／157-7，**最強的一項**）：#23
+        // tolerant-preserve 的整個前提是「較新版本寫入、本版不認識的欄位不得被本版
+        // 破壞」。本 binary **依定義無法判斷**它重不重要——唯一安全的預設是拒絕。
+        //
+        // **三分不是二分**（157-7，照抄 person 版）：key 缺席＝遺失、raw 相同＝不
+        // 遺失、**raw 不同＝衝突**。第一版只比 key 在不在，於是「兩邊都有同名欄位
+        // 但內容不同」整條漏掉——席位真 binary 實測 doomed 的
+        // `peer_review_status: accepted-with-major-revisions-2026-03` 被 keeper 的
+        // `pending` 靜默覆蓋，而 `validate` 兩行都印過「未知欄位（已保留）」。
+        // 系統已經知道兩邊都有，合併閘卻不看值。
+        func unknownLosses(_ theirs: [UnknownField], _ mine: [UnknownField],
+                           label: String) {
+            for f in theirs {
+                guard let same = mine.first(where: { $0.key == f.key }) else {
+                    losses.append("\(label)\(f.key)（較新版本寫入、本 binary 不認識）")
+                    continue
+                }
+                if same.raw != f.raw {
+                    losses.append("\(label)\(f.key)（兩邊都有但內容不同，需要選一個）")
+                }
+            }
         }
-        for f in e.akashic.unknownFields
-        where !keeper.akashic.unknownFields.contains(where: { $0.key == f.key }) {
-            losses.append("akashic 的未知欄位 \(f.key)")
-        }
+        unknownLosses(e.unknownFields, keeper.unknownFields, label: "未知欄位 ")
+        unknownLosses(e.akashic.unknownFields, keeper.akashic.unknownFields,
+                      label: "akashic 的未知欄位 ")
         // provenance（#157 verify 157-2）：Zotero 記錄的身分是 **(libraryID, zoteroKey)**
         // 這個對，不是 zoteroKey 單獨——不同 library 的同 key 是不同記錄。
         // orphanedAt 是「Zotero 端已刪除、待人工裁決」的標記，屬一般遺失。
@@ -924,8 +961,20 @@ extension LibraryStore {
     ///   form**。合併的語意是「keeper 的表述勝出」，不是「兩邊必須一致」。
     /// - `id` / `citekey`：身分，不隨合併移動（同 person 側的 key/id）。
     ///
-    /// 這五個 + 上方比對的六類 ＝ `Entry` 的 11 個儲存屬性，由
-    /// `testEntryFieldCoverageOfMergeCheck` 以反射釘住（同 person 側的紀律）。
+    /// **逐一對到 `Entry` 的 11 個儲存屬性**（#157 verify 157-10：原本寫「這五個 +
+    /// 上方的六類 = 11」，兩個數都錯，只是 5+6 湊巧等於 11——排除項是 4 個、比對
+    /// 的是 7 個。湊得出總數不代表對得上）：
+    ///
+    /// | 比對（7） | 排除（4） |
+    /// |---|---|
+    /// | `fields`、`attachments`、`akashic`（tags／libraries／status／relations／unknownFields 五個子欄位都在裡面，**收合成一個屬性算**）、`authors`、`date`、`unknownFields`、`provenance` | `type`、`title`、`id`、`citekey` |
+    ///
+    /// 7 + 4 = 11，由 `testEntryFieldCoverageOfMergeCheck` 以反射釘住。
+    ///
+    /// **反射只釘頂層**（#157 verify 157-9）：`AkashicMeta`／`Relations`／`Provenance`
+    /// 的巢狀屬性另有各自的計數斷言——歷史上 schema 演化正是發生在 `akashic` 那層
+    /// （`Models.swift` 自己這麼寫，#13 的 `libraries` 即是），只釘頂層等於對最會
+    /// rot 的地方失明。
     static let entryFieldsCoveredByMergeCheck = 11
 
     /// `p` 的哪些 profile 維度**不是** `keeper` 的子集。空 = 合併不會失去任何時間軸。

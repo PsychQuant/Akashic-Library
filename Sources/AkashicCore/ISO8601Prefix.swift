@@ -33,4 +33,27 @@ public enum ISO8601Prefix {
         }
         return true
     }
+
+    /// 兩個日期是否**相容**——其一是另一個的前綴（#157 verify 157-8）。
+    ///
+    /// 這是「精度差異」與「值衝突」的分界。合併重複記錄時兩者的後果相反：
+    ///
+    /// - `2020` vs `2020-03-15`：同一件事的不同精度，是重複記錄的**正常形狀**。
+    ///   要求相等會誤拒最常見的情況（#71 R2 DA 的同型教訓）。
+    /// - `2019` vs `2021`：互斥。那不是排版差異，是對「這兩筆是不是同一篇」的
+    ///   反證，或至少是一個必須有人裁決的來源衝突（同 person 側 `died` 的理由）。
+    ///
+    /// **前綴必須落在分隔點上**：`2020` 相容 `2020-03`，但 `202` 不相容 `2020`
+    ///（否則 202 年與 2020 年會被當成同一件事）。非 ISO 前綴格式的值一律**當成
+    /// 不相容**——本函式無法判斷兩個自由文字日期的關係，而不可逆合併前的預設
+    /// 應該是讓人裁決。
+    public static func compatible(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        let (short, long) = a.count < b.count ? (a, b) : (b, a)
+        guard isValid(short), isValid(long) else { return false }
+        guard long.hasPrefix(short) else { return false }
+        // 分隔點檢查：`2020` → `2020-03` 的下一個字元必須是 `-`
+        let next = long[long.index(long.startIndex, offsetBy: short.count)]
+        return next == "-"
+    }
 }

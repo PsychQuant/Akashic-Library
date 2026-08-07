@@ -134,10 +134,14 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 （投報率優先）。**絕不自動合併**：正規化（NFKC／連字號家族／不可見字元）只住配對
 鍵，同一個正規化名對到 2 個以上實體即判歧義、整組排除，交人裁決。
 
-**已知限制**：`bootstrap-organizations` 的 key 取機構名的 ASCII 字母數字 token
-——雙語寫法（`國立臺灣大學 National Taiwan University`）用英文部分產 key；純 CJK
-（無任何 ASCII token）產不出 key，會列在「無法自動產生 key」清單裡等人工指定，
-**不會靜默消失**。
+**已知限制**：`bootstrap-organizations` 的 key 取機構名 **NFKC 正規化後**的 ASCII
+字母數字 token——雙語寫法（`國立臺灣大學 National Taiwan University`）用英文部分產
+key，全形拉丁（`Ｎａｔｉｏｎａｌ…`，CJK 輸入法下的常見產物）先折回 ASCII 再取。
+正規化只用於**產 key**，`names` 一律保留原字串。
+
+純 CJK（NFKC 後仍無任何 ASCII token）產不出 key，會列在「無法自動產生 key」清單裡
+等人工指定，**不會靜默消失**——中文-only 機構目前只能人先給 key，那是設計缺口不是
+bug（殘留清單見 `Sources/AkashicEntity/OrgBootstrap.swift` 的型別 doc）。
 
 ### Store 格式版本
 

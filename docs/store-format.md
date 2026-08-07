@@ -1044,6 +1044,16 @@ divergence 記錄的**頂層**（與 `judgement`／`rests-on` 平行，不是巢
 `exit=0`，一個字都不說）。這是「選填護欄 + tolerant-preserve」的必然：要讓舊 binary 也
 擋，唯一手段是 bump format，那會讓它們對整庫拒絕開啟（含唯讀）——代價不對稱，不做。
 
+**不可逆操作 MUST NOT 在帶有本 binary 不理解欄位的記錄上執行**（#159 verify §6）：
+`resolve-divergence` 在共用驗證段檢查該筆 divergence 的 `unknownFields`，非空即拒絕
+（preview 與實跑同擋），訊息指路「升級 binary，或確認該欄位可忽略後手動移除」。
+
+這是「跨版本安全」的**正解**，取代「每加一個安全欄位就 bump format」：它版本無關
+（是本 binary 對自己無知的紀律，不需 store 級協商）、一次涵蓋所有未來欄位、且代價
+侷限在該筆記錄而非整庫拒開。與上游「quarantined 檔讀不到就改寫不到」的 gate 是同一
+條理由的另一面——**讀不懂**與**讀不到**在不可逆操作前應該同樣保守。誠實邊界：它救不
+了已編譯出去的舊 binary（它們不覺得自己讀不懂 `prefers`），那個缺口見上一段。
+
 **重錄 MUST NOT 靜默抹掉 `prefers`**（#159 verify 159-4）：既有記錄已指定 `prefers` 時，
 帶新 `judgement` 而省略 `prefers` 的重呼叫 **MUST** 拒絕。與 `judgement` 自己那道守衛
 （#133 F1）對稱——`prefers` 是本機制唯一能機械執法的東西，抹掉它就退回「只警告不擋」，

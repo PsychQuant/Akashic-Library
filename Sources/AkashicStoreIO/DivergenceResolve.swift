@@ -14,6 +14,9 @@ public enum DivergenceResolveError: Error, LocalizedError {
     case candidateNotInEntities(key: String, expected: String)
     /// #73：要刪的檔案不在版控裡、或有未提交的修改——刪掉就真的沒了。
     case deletionNotRecoverable(files: [(path: String, why: String)])
+    /// #159 verify §6：記錄裡有本 binary 不理解的欄位——不可逆操作不在讀不懂的
+    /// 記錄上執行。
+    case recordHasUnknownFields(id: String, fields: [String])
     /// #75 對一：記錄的判斷傾向另一個候選——消歧不對已寫下的判斷惰性。
     case contradictsJudgement(prefers: String, survivor: String, statement: String)
     /// #75 對一：`--force` 覆寫判斷但沒給理由——判斷的變更也是判斷。
@@ -38,6 +41,13 @@ public enum DivergenceResolveError: Error, LocalizedError {
                         .joined(separator: "\n")
                  + "\n消歧會刪掉被併記錄與歧異記錄本身，歷史託給版控而非 store。"
                  + "先 `git add` 並 `git commit` 這些檔案（或確認 entities/ 沒被 .gitignore 擋），再重跑同一個 id。"
+        case let .recordHasUnknownFields(id, fields):
+            return "歧異記錄 \(displaySafe(id, max: 80)) 帶有本 binary 不認得的欄位，"
+                 + "消歧拒絕執行——這是**不可逆**操作（合併＋改寫參照＋刪檔），"
+                 + "而那些欄位可能正是一道本版讀不到的限制："
+                 + fields.prefix(5).map { displaySafe($0, max: 120) }.joined(separator: "、")
+                 + (fields.count > 5 ? "…" : "")
+                 + "。升級 binary；或確認該欄位可忽略後，從記錄檔手動移除再重跑。"
         case let .contradictsJudgement(prefers, survivor, statement):
             return "這筆歧異已有判斷、且傾向「\(displaySafe(prefers, max: 200))」，"
                  + "但你選了「\(displaySafe(survivor, max: 200))」作為倖存者——"
@@ -380,6 +390,26 @@ extension LibraryStore {
 
         guard let record = snapshot.divergences.first(where: { $0.id == id }) else {
             throw DivergenceResolveError.recordNotFound(id)
+        }
+        // #159 verify §6：**不可逆操作不在自己讀不懂的記錄上執行。**
+        //
+        // 這是 verify 席在駁回「為 `prefers` bump format」時提出的替代方案，而它
+        // 比 bump 好三點：(1) 版本無關——是本 binary 對自己無知的紀律，不需要任何
+        // store 級協商；(2) 一次保護**所有**未來欄位，不必每加一個欄位重打一次
+        // 「該不該 bump」的仗；(3) 代價侷限在該筆記錄，不像 bump 是整庫拒開。
+        //
+        // 觸發它的實驗很直白：在記錄裡塞一個叫 `future-veto` 的未知欄位，新 binary
+        // 的 `validate` **會印出**「未知欄位『future-veto』（已保留）」——它知道自己
+        // 讀不懂——然後照樣把記錄連同那個欄位一起刪掉，一邊還印著「無法機械核對」。
+        // 明知有讀不懂的東西還執行不可逆刪除，是同一條「讀不到就改寫不到」理由
+        // （上面的 quarantined gate）在另一個面向的漏網。
+        //
+        // **誠實邊界**：這救不了已經編譯出去的舊 binary——它們讀 `prefers` 時不會
+        // 覺得自己讀不懂。那個缺口留著、由 §5.8 記載；但它是一個世代、有界的，而
+        // bump 的代價是永久且全庫的。
+        guard record.unknownFields.isEmpty else {
+            throw DivergenceResolveError.recordHasUnknownFields(
+                id: id.uuidString, fields: record.unknownFields.map(\.key).sorted())
         }
         let candidateKeys = record.candidates.map(\.key)
         guard candidateKeys.contains(survivor) else {

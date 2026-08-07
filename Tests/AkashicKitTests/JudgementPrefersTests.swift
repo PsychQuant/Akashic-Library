@@ -220,4 +220,48 @@ final class JudgementPrefersTests: XCTestCase {
                                        prefers: "fann-b")
         XCTAssertEqual(try store.load().divergences.first?.judgement?.prefers, "fann-b")
     }
+
+    /// **#159 verify §6**：不可逆操作不得在帶有本 binary 不理解欄位的記錄上執行。
+    ///
+    /// 觸發它的實驗：塞一個叫 `future-veto` 的未知欄位，新 binary 的 `validate`
+    /// **會印出**「未知欄位（已保留）」——它知道自己讀不懂——然後照樣把記錄連同
+    /// 那個欄位一起刪掉。明知有讀不懂的東西還做不可逆刪除，與上游那道
+    /// 「quarantined 檔讀不到就改寫不到」的 gate 是同一條理由的另一面。
+    ///
+    /// 這是 verify 席駁回「為 prefers bump format」時給的替代方案：版本無關、一次
+    /// 保護所有未來欄位、代價侷限在該筆記錄（bump 是整庫拒開）。
+    func testRefusesToResolveRecordWithUnknownFields() throws {
+        var p1 = Person(key: "fann-a"); p1.names = ["Fann, A"]
+        var p2 = Person(key: "fann-b"); p2.names = ["Fann, B"]
+        try store.writePerson(p1); try store.writePerson(p2)
+        let d = Divergence(
+            id: UUID(), question: "同一人？",
+            candidates: [DivergenceCandidate(key: "fann-a", shape: .person),
+                         DivergenceCandidate(key: "fann-b", shape: .person)],
+            unknownFields: [UnknownField(key: "future-veto", raw: "future-veto: 別合併\n")])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(root, message: "seed unknown")
+
+        // 記錄真的帶著那個欄位（不是被 encode 丟掉——否則這條測試是空的）
+        let reloaded = try store.load().divergences.first { $0.id == d.id }
+        XCTAssertEqual(reloaded?.unknownFields.map(\.key), ["future-veto"],
+                       "未知欄位要被保留，測試才有東西可擋")
+
+        // **preview 與實跑都要擋**（gate 在共用驗證裡——否則 dry-run 會說「沒問題」）
+        for (label, run) in [
+            ("preview", { try self.store.previewResolveDivergence(
+                id: d.id, survivor: "fann-a", overrideReason: nil) }),
+            ("actual", { try self.store.resolveDivergence(id: d.id, survivor: "fann-a") }),
+        ] {
+            XCTAssertThrowsError(try run(), "\(label) 要擋") { error in
+                guard case DivergenceResolveError.recordHasUnknownFields(_, let fields) = error else {
+                    return XCTFail("\(label) 預期 recordHasUnknownFields，實得 \(error)")
+                }
+                XCTAssertEqual(fields, ["future-veto"], "要說出是哪個欄位擋住的")
+            }
+        }
+        // 記錄與兩個候選都還在——擋下來就不該有任何副作用
+        XCTAssertEqual(try store.load().divergences.count, 1)
+        XCTAssertEqual(try store.load().people.count, 2)
+    }
 }

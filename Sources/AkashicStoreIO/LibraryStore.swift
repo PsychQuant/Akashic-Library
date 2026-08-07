@@ -23,13 +23,16 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
         case let .invalidInput(what, why):
             return "\(displaySafe(what, max: 120)) 無效：\(displaySafe(why, max: 400))"
         case let .inconsistentStore(action, issues):
-            // 單行——會過 displaySafe
-            return "store 有 \(issues.count) 個跨記錄不一致，\(action) 拒絕執行"
+            // action 是呼叫端字面量（"rename"/"resolve-divergence"）、issues 已消毒
+            return "store 有 \(issues.count) 個跨記錄不一致，\(action) 拒絕執行"   // display-safe-exempt: action 是呼叫端字面量
                  + "（改寫會刪掉其中一份而留下另一份）："
                  + issues.prefix(3).map { displaySafe($0, max: 300) }.joined(separator: "；")
                  + "。先跑 akashic doctor 看清楚並修好。"
         case .invalidKey(let kind, let value):
-            return "\(kind)「\(value)」不符合 \(StoreKey.pattern)，拒絕寫入"
+            // #142：value 是 caller 剛送進來的畸形 key——原始 ESC/bidi 位元組經
+            // MCP error 直達 LLM context；kind 是程式字面量
+            return "\(kind)「\(displaySafe(value, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入"   // display-safe-exempt: kind 是程式字面量、pattern 是常量
+        
         }
     }
 }
@@ -383,6 +386,16 @@ public final class LibraryStore {
                     "升級方式見 writePerson 同型訊息", org.key)
             }
         }
+        // v7-only（attested，#70）——同上
+        if org.names.entries.contains(where: { !$0.range.attested.isEmpty })
+            || org.parents.entries.contains(where: { !$0.range.attested.isEmpty }) {
+            let format = try StoreVersion.read(root: root)
+            guard format >= 7 else {
+                throw StoreIOError.invalidKey(
+                    "organization（含 attested 段，需要 store format ≥ 7；本 store 是 \(format)）——" +
+                    "升級方式見 writePerson 同型訊息", org.key)
+            }
+        }
         let yaml = try OrganizationYAML.encode(org)
         let dest = entityURL(id: org.id)
         try atomicWrite(yaml, to: dest)
@@ -414,6 +427,16 @@ public final class LibraryStore {
                     "person（含 ended 段，需要 store format ≥ 6；本 store 是 \(format)）——" +
                     "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
                     "format: 改成 6（v6 只新增語法，既有資料不變）", person.key)
+            }
+        }
+        // v7-only 語法的 format gate（#70，同 ended gate 的機制與理由）
+        if person.profile.usesAttested {
+            let format = try StoreVersion.read(root: root)
+            guard format >= 7 else {
+                throw StoreIOError.invalidKey(
+                    "person（含 attested 段，需要 store format ≥ 7；本 store 是 \(format)）——" +
+                    "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                    "format: 改成 7（v7 只新增語法，既有資料不變）", person.key)
             }
         }
         let yaml = try PersonYAML.encode(person)
@@ -993,30 +1016,77 @@ public extension LibraryLoad {
             guard let v, !v.isEmpty, !ISO8601Prefix.isValid(v) else { return }
             out.append((key: key, field: field, value: v))
         }
-        func scan<V>(_ t: TimelineOf<V>, key: String, dim: String) {
-            for (i, seg) in t.entries.enumerated() {
-                check(seg.range.start, key: key, field: "\(dim)[\(i)].start")
-                check(seg.range.end, key: key, field: "\(dim)[\(i)].end")
-            }
+        // timeline 段走統一走訪器（#100：census 與 anomalies **一份維度清單**——
+        // 各自維護就必有一份漏，#144 R1 的實測教訓）；純量欄位另列
+        forEachTimelineSegment { key, _, dim, i, range in
+            check(range.start, key: key, field: "\(dim)[\(i)].start")
+            check(range.end, key: key, field: "\(dim)[\(i)].end")
         }
         for p in people.sorted(by: { $0.key < $1.key }) {
             check(p.died, key: p.key, field: "died")
-            scan(p.profile.affiliations, key: p.key, dim: "affiliations")
-            scan(p.profile.ranks, key: p.key, dim: "ranks")
-            scan(p.profile.administrative, key: p.key, dim: "administrative")
-            scan(p.profile.appointments, key: p.key, dim: "appointments")
-            scan(p.profile.fields, key: p.key, dim: "fields")
-            for (name, t) in p.profile.contacts.sorted(by: { $0.key < $1.key }) {
-                scan(t, key: p.key, dim: "contacts.\(name)")
-            }
         }
         for o in organizations.sorted(by: { $0.key < $1.key }) {
             check(o.founded, key: o.key, field: "founded")
             check(o.dissolved, key: o.key, field: "dissolved")
-            scan(o.names, key: o.key, dim: "names")
-            scan(o.parents, key: o.key, dim: "parents")
         }
         return out
+    }
+
+    /// 全部 timeline 維度的統一走訪器。`shape` 是 person/organization、`dim` 不帶
+    /// 前綴（contacts 帶子鍵：`contacts.email`）。**維度清單只有這一份**——
+    /// 反射防腐（`DateFieldReportTests`）守 PersonProfile 的維度數。
+    func forEachTimelineSegment(
+        _ visit: (_ key: String, _ shape: String, _ dim: String,
+                  _ index: Int, _ range: DateRange) -> Void) {
+        for p in people.sorted(by: { $0.key < $1.key }) {
+            func scan<V>(_ t: TimelineOf<V>, _ dim: String) {
+                for (i, seg) in t.entries.enumerated() {
+                    visit(p.key, "person", dim, i, seg.range)
+                }
+            }
+            scan(p.profile.affiliations, "affiliations")
+            scan(p.profile.ranks, "ranks")
+            scan(p.profile.administrative, "administrative")
+            scan(p.profile.appointments, "appointments")
+            scan(p.profile.fields, "fields")
+            for (name, t) in p.profile.contacts.sorted(by: { $0.key < $1.key }) {
+                scan(t, "contacts.\(name)")
+            }
+        }
+        for o in organizations.sorted(by: { $0.key < $1.key }) {
+            func scan<V>(_ t: TimelineOf<V>, _ dim: String) {
+                for (i, seg) in t.entries.enumerated() {
+                    visit(o.key, "organization", dim, i, seg.range)
+                }
+            }
+            scan(o.names, "names")
+            scan(o.parents, "parents")
+        }
+    }
+
+    /// 逐維度的日期普查（#100）：「range 相同」經常不是「真的同時」而是
+    /// 「這個維度根本沒記過時間」（實測 175 組相同 range **全部**無日期；
+    /// names/fields/ranks **從來沒有**日期）。census 讓這件事可見——排序默默
+    /// 製造的順序沒有現實根據時，系統要說，不是靜默 fallback。
+    /// `endedUnknown` 算有時間資訊（一等的知識狀態，#63）。
+    func timelineDateCensus() -> [(dimension: String, dated: Int, undated: Int)] {
+        var tally: [String: (dated: Int, undated: Int)] = [:]
+        forEachTimelineSegment { _, shape, dim, _, range in
+            let name = "\(shape).\(dim)"
+            var t = tally[name] ?? (0, 0)
+            // attested（#70）算有時間資訊——它是「觀測到的時點」，與 endedUnknown
+            // 同屬一等知識狀態（#150/#151 verify F1/F4：DateRange 層有 attested 就是
+            // 有時點，census 不該當它沒日期而誤報「zero dates」）
+            if range.start != nil || range.end != nil || range.endedUnknown
+                || !range.attested.isEmpty {
+                t.dated += 1
+            } else {
+                t.undated += 1
+            }
+            tally[name] = t
+        }
+        return tally.sorted { $0.key < $1.key }
+            .map { (dimension: $0.key, dated: $0.value.dated, undated: $0.value.undated) }
     }
 
     /// public（#76）：MCP doctor 也要看得到跨記錄警告——「同一個 store 從兩個

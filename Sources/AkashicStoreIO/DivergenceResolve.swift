@@ -18,12 +18,12 @@ public enum DivergenceResolveError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case let .recordNotFound(id):
-            return "找不到 id 為 \(id.uuidString) 的歧異記錄"
+            return "找不到 id 為 \(id.uuidString) 的歧異記錄"   // display-safe-exempt: UUID.uuidString 是 hex+dash
         case let .survivorNotACandidate(survivor, candidates):
             return "倖存者「\(displaySafe(survivor, max: 200))」不在候選清單內；"
                  + "實際候選為 \(candidates.map { displaySafe($0, max: 200) }.joined(separator: "、"))"
         case let .candidateMissing(key, shape):
-            return "候選「\(displaySafe(key, max: 200))」（\(shape)）在 store 內找不到對應記錄"
+            return "候選「\(displaySafe(key, max: 200))」（\(shape)）在 store 內找不到對應記錄"   // display-safe-exempt: shape 是呼叫端字面量（"person"/"work"）
         case let .outsideVersionControl(root):
             return "store「\(displaySafe(root, max: 300))」不在版本控制的工作樹內，拒絕刪除。"
                  + "消歧會刪掉被併記錄與歧異記錄本身，歷史託給版本控制而非 store；"
@@ -35,7 +35,7 @@ public enum DivergenceResolveError: Error, LocalizedError {
                  + "\n消歧會刪掉被併記錄與歧異記錄本身，歷史託給版控而非 store。"
                  + "先 `git add` 並 `git commit` 這些檔案（或確認 entities/ 沒被 .gitignore 擋），再重跑同一個 id。"
         case let .unsupportedShape(shape):
-            return "本版的消歧只處理 person 與 work，不處理 \(shape)"
+            return "本版的消歧只處理 person 與 work，不處理 \(shape)"   // display-safe-exempt: shape 是 EntityKind.rawValue（enum）
         case let .legacyLayout(root):
             return "store「\(displaySafe(root, max: 300))」是 legacy 佈局（format < 2），"
                  + "歧異記錄需要 entities/ 佈局。legacy 下 person 落在 people/<key>.yaml、"
@@ -198,7 +198,9 @@ extension LibraryStore {
            existing.judgement != nil, judgement == nil {
             throw StoreIOError.invalidInput(
                 what: "divergence（同組候選既有記錄）",
-                why: "這組候選已有判斷（\(displaySafe(existing.judgement!.statement, max: 120))）——" +
+                // #149 R2：invalidInput 的 errorDescription 已消毒 why（sink 策略）——
+                // 此處預先消毒是雙重 escape（反斜線被跳脫兩次）。傳原字串。
+                why: "這組候選已有判斷（\(existing.judgement!.statement)）——" +
                      "無判斷的重呼叫不得靜默抹掉它。要更新判斷請帶新的 judgement + rests-on；" +
                      "要撤銷判斷請直接編輯該檔（entities/\(id.uuidString).yaml）")
         }

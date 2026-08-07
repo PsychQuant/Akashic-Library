@@ -3,6 +3,8 @@ import XCTest
 @testable import AkashicStoreIO
 @testable import AkashicMCPKit
 @testable import AkashicSQLite
+@testable import AkashicQuery
+@testable import AkashicGraph
 
 final class ServiceTests: XCTestCase {
     var root: URL!
@@ -754,5 +756,54 @@ final class ServiceObservabilityTests: XCTestCase {
         XCTAssertTrue(out.contains("縮寫是否同一人"), "list 要含 question：\(out)")
         XCTAssertTrue(out.contains("chen-h-y"), "list 要含候選鍵：\(out)")
         XCTAssertTrue(out.contains("hasJudgement"), "\(out)")
+    }
+}
+
+/// #142：thrown error 不得把 caller 輸入的原始控制位元組 echo 回去——
+/// MCP 情境下 error 文本直灌 LLM context（bidi override / ESC sequence）。
+extension ServiceTests {
+    func testErrorMessagesEscapeCallerControlBytes() throws {
+        let hostile = "esc\u{1B}[31m\u{202E}evil"
+        func assertClean(_ error: Error, _ ctx: String) {
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertFalse(msg.contains("\u{1B}") || msg.contains("\u{202E}"),
+                           "\(ctx)：原始位元組不得進錯誤訊息：\(msg.debugDescription)")
+        }
+        // key guard 拒絕路徑（StoreIOError.invalidKey 經 addPerson）
+        XCTAssertThrowsError(try service.addPerson(
+            key: hostile, names: ["X"], orcid: nil, openalex: nil)) { e in
+            assertClean(e, "invalidKey")
+            let msg = (e as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertTrue(msg.contains("evil"), "消毒後仍可辨認：\(msg)")
+            // #149 verify F3：不得雙重 escape（\u{005C}u{001B}）
+            XCTAssertFalse(msg.contains("u{005C}u{"), "雙重 escape：\(msg)")
+        }
+        // lookup miss（ServiceError.notFound）
+        XCTAssertThrowsError(try service.getEntry(citekey: hostile)) { assertClean($0, "notFound") }
+        // #149 verify F1：graph 與 relations 的 lookup miss（GraphError/QueryError）
+        XCTAssertThrowsError(try service.graph(focus: hostile, depth: 1, format: "mermaid")) {
+            assertClean($0, "graph/GraphError")
+        }
+        XCTAssertThrowsError(try service.relations(citekey: hostile, kind: "cites")) {
+            assertClean($0, "relations/QueryError")
+        }
+    }
+
+    /// #149 verify F1/F2：姊妹 error 型別的 errorDescription 消毒 caller 值
+    /// （QueryError/GraphError/ConfigError——與 ServiceError.notFound 同 bug class）。
+    func testSiblingErrorTypesEscapeCallerValues() {
+        let hostile = "ev\u{1B}[31m\u{202E}il"
+        let cases: [(String, LocalizedError)] = [
+            ("QueryError", QueryError.unknownCitekey(hostile)),
+            ("GraphError", GraphError.unknownCitekey(hostile)),
+            ("ConfigError.invalidFileKey", ConfigError.invalidFileKey(hostile)),
+            ("ConfigError.invalidCurrent", ConfigError.invalidCurrent(hostile)),
+        ]
+        for (name, err) in cases {
+            let msg = err.errorDescription ?? ""
+            XCTAssertFalse(msg.contains("\u{1B}") || msg.contains("\u{202E}"),
+                           "\(name)：原始位元組不得進 errorDescription：\(msg.debugDescription)")
+            XCTAssertTrue(msg.contains("il"), "\(name)：消毒後仍可辨認：\(msg)")
+        }
     }
 }

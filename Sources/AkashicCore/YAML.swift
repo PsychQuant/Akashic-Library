@@ -18,8 +18,8 @@ public enum StoreYAMLError: Error, LocalizedError, Equatable {
         let known = EntityKind.knownLabels.sorted().joined(separator: "、")
         switch self {
         case .notAMapping: return "YAML 頂層不是 mapping"
-        case .missingField(let f): return "缺少必要欄位：\(f)"
-        case .invalidField(let f, let why): return "欄位 \(f) 無效：\(why)"
+        case .missingField(let f): return "缺少必要欄位：\(f)"   // display-safe-exempt: payload 由**輸出端 sink** 消毒（quarantine .reason / fmt failures / MCP doctor 各自 displaySafe；#149 verify F5 證實不是 throw 站點——約 50 個跨行 throw 站點未消毒，靠 sink 兜底。任何讓 StoreYAMLError 直達裸輸出的新路徑都須自行消毒）
+        case .invalidField(let f, let why): return "欄位 \(f) 無效：\(why)"   // display-safe-exempt: 同上——payload 由輸出端 sink 消毒（#149 verify F5）
         case .unknownShapeLabel(let stray):
             // 具名 + 重導。只說「不認得」只證明它在這個位置沒有意義；
             // 讀者還需要知道哪個位置有意義。
@@ -1391,6 +1391,13 @@ extension PersonYAML {
             throw StoreYAMLError.invalidField(
                 "timeline.range", "end 與 endedUnknown 並存是矛盾——end 有值即已結束於該時點")
         }
+        // #70：attested 是「起訖皆不明」的知識狀態——起點/終點若已知就不是它
+        if !r.attested.isEmpty && (r.start != nil || r.end != nil || r.endedUnknown) {
+            throw StoreYAMLError.invalidField(
+                "timeline.range",
+                "attested 與 start/end/ended 並存是矛盾——觀測點列表只用於起訖皆不明；"
+                + "起點已知請用 start（觀測點可留在 note 或日後的 reference）")
+        }
     }
 
     static func timelineNode(_ t: Timeline) throws -> Node {
@@ -1400,6 +1407,9 @@ extension PersonYAML {
             if let s = v.range.start { pairs.append((Node("start"), Node(s))) }
             if let e = v.range.end { pairs.append((Node("end"), Node(e))) }
             if v.range.endedUnknown { pairs.append((Node("ended"), Node("true", .implicit, .plain))) }
+            if !v.range.attested.isEmpty {
+                pairs.append((Node("attested"), Node(v.range.attested.map { Node($0) })))
+            }
             if let s = v.source { pairs.append((Node("source"), Node(s))) }
             if let n = v.note { pairs.append((Node("note"), Node(n))) }
             return Node(pairs)
@@ -1420,6 +1430,9 @@ extension PersonYAML {
             if let s = v.range.start { pairs.append((Node("start"), Node(s))) }
             if let e = v.range.end { pairs.append((Node("end"), Node(e))) }
             if v.range.endedUnknown { pairs.append((Node("ended"), Node("true", .implicit, .plain))) }
+            if !v.range.attested.isEmpty {
+                pairs.append((Node("attested"), Node(v.range.attested.map { Node($0) })))
+            }
             if let s = v.source { pairs.append((Node("source"), Node(s))) }
             if let n = v.note { pairs.append((Node("note"), Node(n))) }
             return Node(pairs)
@@ -1436,7 +1449,7 @@ extension PersonYAML {
                 throw StoreYAMLError.invalidField(context, "每一段必須是 mapping")
             }
             try EntryYAML.rejectUnknownKeys(
-                m, known: ["value", "start", "end", "ended", "source", "note"], context: context)
+                m, known: ["value", "start", "end", "ended", "attested", "source", "note"], context: context)
             guard let vNode = m["value"] else {
                 throw StoreYAMLError.missingField("\(context).value")   // display-safe-exempt: context 是程式構造的欄位路徑
             }
@@ -1550,7 +1563,7 @@ extension PersonYAML {
                 throw StoreYAMLError.invalidField(context, "元素必須是 mapping")
             }
             try EntryYAML.rejectUnknownKeys(
-                m, known: ["value", "start", "end", "ended", "source", "note"], context: context)
+                m, known: ["value", "start", "end", "ended", "attested", "source", "note"], context: context)
             guard let value = m["value"]?.scalar?.string else {
                 throw StoreYAMLError.invalidField(context, "缺 value")
             }
@@ -1602,7 +1615,23 @@ extension PersonYAML {
             }
             endedUnknown = b
         }
-        return DateRange(start: try str("start"), end: end, endedUnknown: endedUnknown)
+        // #70：attested 觀測點列表（segment 內鍵 strict → format 7 world）
+        var attested: [String] = []
+        if let an = m["attested"] {
+            guard let seq = an.sequence else {
+                throw StoreYAMLError.invalidField("\(context).attested", "必須是 sequence")   // display-safe-exempt: context 程式構造或呼叫端已消毒
+            }
+            attested = try seq.map {
+                guard let v = $0.scalar?.string else {
+                    throw StoreYAMLError.invalidField("\(context).attested", "觀測點必須是 scalar")   // display-safe-exempt: context 程式構造或呼叫端已消毒
+                }
+                return v
+            }
+        }
+        let range = DateRange(start: try str("start"), end: end,
+                              endedUnknown: endedUnknown, attested: attested)
+        try rejectContradictoryRange(range)   // decode 端同一道矛盾防線（#70）
+        return range
     }
 }
 

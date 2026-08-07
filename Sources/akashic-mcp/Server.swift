@@ -7,7 +7,7 @@ import AkashicStoreIO
 /// 讀走 index；寫只碰衍生層（akashic namespace／人物解析／庫外 entry／import 觸發）。
 actor AkashicMCPServer {
     private let server: Server
-    private let transport: StdioTransport
+    private let transport: DepthGuardedTransport
     private let service: AkashicService
 
     init() throws {
@@ -18,7 +18,9 @@ actor AkashicMCPServer {
             name: "akashic-mcp",
             version: "0.2.0",
             capabilities: .init(tools: .init()))
-        transport = StdioTransport()
+        // #152：深度預檢包在 SDK transport 外——撞毀在 SDK 解 Value 的遞迴，
+        // 必須擋在 bytes 進 decoder 之前
+        transport = DepthGuardedTransport(wrapping: StdioTransport())
     }
 
     func run() async throws {

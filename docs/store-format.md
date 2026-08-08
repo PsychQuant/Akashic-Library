@@ -1234,14 +1234,24 @@ I/O 錯誤）收容並回報——此時被併記錄**可能部分已刪**，但
 塌縮刪除，不動任何檔案。
 
 **合併的範圍**：只搬別名。被併記錄帶有倖存者沒有的內容時，合併 **MUST** 拒絕並指名將
-失去什麼。**work 消歧同此**（#75 對二）。比對面是**封閉列舉**——`Entry` 的 11 個儲存屬性分成
-兩組，**不得依性質相似類推第三類**：
+失去什麼。**work 消歧同此**（#75 對二）。
 
-| 比對（doomed 有而 keeper 沒有／衝突 → 拒絕） | 刻意排除（不比） |
-|---|---|
-| `fields`（逐 key；同 key 不同值＝衝突）、`attachments`、`akashic`（tags／libraries／status／**出向 relations**／unknownFields——cites/related 的遷移只搬「別人指向被併者」的參照，被併者自己指出去的隨檔案消失）、`authors`（`.key` 是 resolve-people 歸戶的產物，work 合併不搬）、`date`、`unknownFields`、`provenance`（`zoteroKey`／`libraryID` 的**對**、`orphanedAt`） | `type`／`title` — **只比缺席方向**（keeper 為空、被併者非空 → 拒絕；`""` 不是任何人選的 form，它是缺席）。兩邊都非空時**不擋**——要求相等會誤拒最常見形狀，keeper 的寫法**就是人選的 canonical form**。**`title` 另有不擋的提醒**（#169）：被併者嚴格包含倖存者、**且多出來的部分含詞字元**時進 `warnings`（少了後者，真 corpus 上 5 次觸發全部是 APA 句末句點、真實遺失 0 筆——尾端標點正好就是嚴格包含的形狀）。**`type` 不比**：它是封閉 token 集合，字串包含與完整度零相關（13 對標準 biblatex type 滿足包含，`book ⊂ inbook` 不是「較長版本」）。`id`／`citekey`（身分，不隨合併移動） |
+比對面是**封閉列舉**——`Entry` 的 11 個儲存屬性分成**三組**（7／2／2），
+**不得依性質相似類推第四組**：
 
-子集才放行——搬欄位是人的判斷，不自動合併。比對 7 + 排除 4 ＝ `Entry` 的 11 個儲存
+> **這句先前寫「兩組……第三類」，是事實錯誤**（#169 verify F8）。表格只有兩欄、
+> 散文寫「比對 7 + 排除 4」，而 `fieldsLostByMerging` 自己的 doc 用第三套帳
+> （7／2／2）——同一份規格三套數法。正確的是 code doc 那套：`type`／`title`
+> **有比**（缺席方向會拒絕），把它們併進「排除」是錯的。
+>
+> 值得記在原地：`common-spec-prose-enumeration` 那條規則要保護的就是封閉列舉的
+> 宣告，而**寫錯的封閉列舉比沒有更糟**——它讓讀者確信自己知道有幾類。
+
+| 比對（doomed 有而 keeper 沒有／衝突 → 拒絕） | 部分比對（只比缺席方向） | 排除（身分） |
+|---|---|---|
+| `fields`（逐 key；同 key 不同值＝衝突）、`attachments`、`akashic`（tags／libraries／status／**出向 relations**／unknownFields——cites/related 的遷移只搬「別人指向被併者」的參照，被併者自己指出去的隨檔案消失）、`authors`（`.key` 是 resolve-people 歸戶的產物，work 合併不搬）、`date`、`unknownFields`、`provenance`（`zoteroKey`／`libraryID` 的**對**、`orphanedAt`）——共 **7** | `type`／`title`——共 **2**。keeper 為空、被併者非空 → 拒絕（`""` 不是任何人選的 form，它是缺席）。兩邊都非空時**不擋**：要求相等會誤拒最常見形狀，keeper 的寫法**就是人選的 canonical form**。<br><br>**兩者不對稱**：只有 `title` 額外發不擋的提醒（#169）——被併者以 `title` 為前綴（case-fold）、且多出來的部分**含詞字元**時進 `warnings`。少了詞字元條件，真 corpus 上 5 次觸發**全部**是 APA 句末句點、真實遺失 0 筆。**`type` 不發**：它是封閉 token 集合，字串包含與完整度零相關（13 對標準 biblatex type 滿足包含，`book ⊂ inbook` 不是「較長版本」）。 | `id`／`citekey`——共 **2**。身分，不隨合併移動 |
+
+子集才放行——搬欄位是人的判斷，不自動合併。7 + 2 + 2 ＝ `Entry` 的 11 個儲存
 屬性（`akashic` 的五個子欄位**收合成一個屬性算**），由
 `testEntryFieldCoverageOfMergeCheck` 以反射釘住；巢狀型別（`AkashicMeta`／`Relations`／
 `Provenance`）另有各自的計數斷言——歷史上 schema 演化正是發生在 `akashic` 那層，

@@ -79,6 +79,26 @@ final class WorkContentWarningTests: XCTestCase {
                                 doomedTitle: "Short: A Real Subtitle").count, 1)
     }
 
+    /// **前綴比對走 case-fold**（#169 verify F5）。
+    ///
+    /// 真 corpus 上 **15/15** 有差異的候選對都是大小寫差異——同一篇的兩筆記錄
+    /// 幾乎必然在大小寫上不同。真的帶副標題遺失的那組**同時**帶大小寫差異的
+    /// 機率高於不帶，case-sensitive 會整個漏掉。
+    func testPrefixMatchIsCaseInsensitive() {
+        let w = warnings(keeperTitle: "Attention is all you need",
+                         doomedTitle: "Attention Is All You Need: A Retrospective")
+        XCTAssertEqual(w.count, 1, "sentence case vs title case 是書目來源最常見的差異：\(w)")
+        XCTAssertTrue(w[0].contains(": A Retrospective"),
+                      "extra 必須從**原始的** doomed 切——從折疊後的切會印出小寫化的內容")
+        XCTAssertFalse(w[0].contains("a retrospective"), "同上")
+        // 純大小寫差異（等長）仍不說
+        XCTAssertEqual(warnings(keeperTitle: "The Structure of X",
+                                doomedTitle: "the structure of x"), [])
+        // 大小寫差異 + 尾端句點：詞字元 guard 擋掉
+        XCTAssertEqual(warnings(keeperTitle: "The Structure of X",
+                                doomedTitle: "the structure of x."), [])
+    }
+
     /// **一般的不同不說**——那會變成噪音，而噪音讓人停止讀提醒。
     func testUnrelatedTitleDifferencesAreSilent() {
         XCTAssertTrue(warnings(keeperTitle: "The Structure of X",

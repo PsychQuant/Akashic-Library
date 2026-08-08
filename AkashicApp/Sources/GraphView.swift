@@ -196,7 +196,7 @@ struct GraphCanvasView: View {
     private func rebuildIndexThenGraph() {
         do {
             // #101：一律走 state.store——key/environment 決定 index 位置
-            try GraphModel(store: state.store).rebuildIndex()
+            try GraphModel(store: state.resolvedStore).rebuildIndex()
         } catch {
             loadError = (error as? LocalizedError)?.errorDescription ?? "\(error)"
             return
@@ -208,7 +208,7 @@ struct GraphCanvasView: View {
     private func rebuild() {
         guard let focus = focusCitekey else { return }
         do {
-            let snap = try GraphModel(store: state.store).query(focus: focus, depth: Int(depth))
+            let snap = try GraphModel(store: state.resolvedStore).query(focus: focus, depth: Int(depth))
             neighborhood = snap.neighborhood
             layout = snap.layout
             generation += 1   // 舊 frame 的寫回全部作廢

@@ -96,10 +96,19 @@ final class IndexIdentityTests: XCTestCase {
         try newStore.ensureLayout()
         try newStore.writeEntry(Entry(id: UUID(), citekey: "bbb2021second", type: "article",
                                       title: "U", authors: [.literal("Y")], date: "2021"))
-        XCTAssertEqual(store.indexURL.path, newStore.indexURL.path, "前置：同 key 同 indexURL")
+        // #130 之前這裡斷言「同 key 同 indexURL」，因為 index 檔名只由 key 決定，
+        // 於是兩個不同的 store 共用一個檔案、只能靠身分戳記分辨。**化身落地後
+        // 檔名自己就分開了**——這是同一個保護往前挪一層，不是保護消失。
+        XCTAssertNotEqual(store.indexURL.path, newStore.indexURL.path,
+                          "不同化身的 index 是不同檔案（#130 裁決 3）")
 
         let rebuilt = try LibraryIndex(store: newStore).ensureCurrent()
         XCTAssertTrue(rebuilt, "root 變了必須重建——沿用舊 index 就是讀別人的資料")
+        // **戳記那一層仍要成立**（縱深防禦）：就算有人把舊檔改成新名字，
+        // `store_root` 不符照樣判 stale。
+        XCTAssertFalse(LibraryIndex.isCurrent(indexPath: store.indexURL, expectedRoot: newRoot,
+                                              expectedIncarnation: newStore.incarnation),
+                       "舊 store 的 index 對新 root 必須是 stale")
         let db = try SQLiteDB(path: newStore.indexURL.path, readOnly: true)
         let citekeys = try db.query("SELECT citekey FROM entries").compactMap { $0["citekey"] as? String }
         XCTAssertEqual(citekeys, ["bbb2021second"], "重建後是新 store 的內容")
@@ -178,14 +187,63 @@ final class IndexIdentityTests: XCTestCase {
     /// **已知限制的文件測試**（#129 verify Codex-1）：canonical path 是位置不是
     /// 化身——同路徑同 key 的「store 重生」通過身分比對。這個測試斷言**現況**，
     /// 讓限制可見；incarnation id（store.yaml 內的 UUID）落地時翻轉此斷言。
-    func testKnownLimitationSamePathReincarnationPassesIdentity() throws {
+    /// **同路徑重生**（#130）。這條原本是 `testKnownLimitation…PassesIdentity`，
+    /// 斷言 `isCurrent == true` 並附註「已知限制」。化身 id 落地後翻轉。
+    ///
+    /// 兩層保護，**主要在檔名**：重生後的 store 有新的 incarnation，於是它的
+    /// `indexURL` 是**另一個檔案**——舊 index 不是「被判 stale」，是根本不會被
+    /// 拿去比對。這把 TOCTOU 從「偵測」變成「不可表達」。
+    func testSamePathReincarnationGetsADifferentIndexFile() throws {
         let store = makeStore(root: root, key: "main")
+        try store.ensureLayout()
+        let before = store.indexURL
+        // **刪除前先抓值**：`incarnation` 與 `indexURL` 都是 computed（每次讀磁碟），
+        // 刪掉重建之後 `store.incarnation` 讀到的是**新**檔案——比對自己等於自己。
+        // 第一版就是那樣寫的，測試因此紅在一個不存在的問題上。
+        let originalID = store.incarnation
         _ = try LibraryIndex(store: store).rebuild()
+        XCTAssertNotNil(originalID, "ensureLayout 要補寫化身 id")
+
         // 「重生」：整個 root 刪掉重建（新化身、同路徑）
         try FileManager.default.removeItem(at: root)
         let reborn = makeStore(root: root, key: "main")
         try reborn.ensureLayout()
-        XCTAssertTrue(LibraryIndex.isCurrent(indexPath: store.indexURL, expectedRoot: root),
-                      "已知限制：path-based 身分分不出同路徑的重生——需要 store incarnation id")
+
+        XCTAssertNotNil(reborn.incarnation)
+        XCTAssertNotEqual(reborn.incarnation, originalID, "重生要拿到新化身")
+        XCTAssertNotEqual(reborn.indexURL, before,
+                          "index 檔名綁化身——重生後根本是另一個檔案，不存在「舊 index 被誤信」")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: reborn.indexURL.path),
+                       "新化身的 index 還沒建，`ensureCurrent` 必須重建")
+    }
+
+    /// 縱深防禦那一層：**同一個檔案**被拿去比對時，`store_id` 不符要判 stale。
+    ///
+    /// 這一層擋的是人工改名（把舊 index 改成新化身的檔名）。主要保護在檔名，
+    /// 所以這條要**刻意繞過檔名**才驗得到。
+    func testStoreIdMismatchIsStaleEvenAtTheSamePath() throws {
+        let store = makeStore(root: root, key: "main")
+        try store.ensureLayout()
+        _ = try LibraryIndex(store: store).rebuild()
+        let built = store.indexURL
+        XCTAssertTrue(LibraryIndex.isCurrent(indexPath: built, expectedRoot: root,
+                                             expectedIncarnation: store.incarnation))
+        XCTAssertFalse(LibraryIndex.isCurrent(indexPath: built, expectedRoot: root,
+                                              expectedIncarnation: UUID().uuidString),
+                       "store_id 不符＝別的化身建的，必須判 stale")
+    }
+
+    /// **缺席退回純路徑比對，不判 stale。**
+    ///
+    /// 既有 index 與既有 store 都沒有這個欄位／檔案。讓缺席等於「不符」會把全部
+    /// 既有 index 判 stale——而且每次呼叫都重來（新 index 也只在 store 有 id 時
+    /// 才寫 `store_id`）。`nil` 不會誤信：真正的保護在檔名。
+    func testAbsentIncarnationFallsBackToPathComparison() throws {
+        let store = makeStore(root: root, key: "main")
+        try store.ensureLayout()
+        _ = try LibraryIndex(store: store).rebuild()
+        XCTAssertTrue(LibraryIndex.isCurrent(indexPath: store.indexURL, expectedRoot: root,
+                                             expectedIncarnation: nil),
+                      "呼叫端不知道化身時退回路徑比對——那是今天的行為，不是退步")
     }
 }

@@ -110,10 +110,36 @@ public final class LibraryStore {
     ///
     /// 雙軌但各自合理：**有 key 就用 key，沒 key 就跟著 store**。
     public var indexURL: URL {
+        // **檔名綁化身**（#130 裁決 3）：把 TOCTOU 從「偵測」變成「不可表達」——
+        // 驗證與開啟之間有多少檔案存取都無所謂，換掉的 store 的 index 根本不叫
+        // 這個名字。同路徑重生時新舊 index 是不同檔案，「舊 index 被誤信」的狀態
+        // 不存在。缺席（既有 store 沒有 incarnation 檔）→ 沿用舊檔名，不遷移。
+        let tag = StoreIncarnation.shortTag(StoreIncarnation.read(root: root))
         if let key {
-            return AkashicHome.indexURL(forKey: key, environment: environment)
+            let name = tag.map { "\(key)-\($0)" } ?? key
+            return AkashicHome.indexURL(forKey: name, environment: environment)
         }
-        return akashicDir.appendingPathComponent("index.sqlite")
+        let name = tag.map { "index-\($0).sqlite" } ?? "index.sqlite"
+        return akashicDir.appendingPathComponent(name)
+    }
+
+    /// 本 store 的化身 id（#130）。缺席回 `nil`——既有 store 都沒有，那不是錯誤。
+    public var incarnation: String? { StoreIncarnation.read(root: root) }
+
+    /// 同一個 registry key 底下、**不屬於當下化身**的 index 檔（#130）。
+    ///
+    /// 重生之後舊 index 成為孤兒。**報告不動手刪**（#79 的形狀）——它們可能是
+    /// 另一台機器同步過來的、或使用者還想比對的。
+    public func orphanedIndexFiles() -> [String] {
+        guard let key, let tag = StoreIncarnation.shortTag(incarnation) else { return [] }
+        let dir = AkashicHome.indexURL(forKey: key, environment: environment)
+            .deletingLastPathComponent()
+        let current = "\(key)-\(tag).sqlite"
+        let all = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        return all.filter {
+            $0 != current && $0.hasSuffix(".sqlite")
+                && ($0 == "\(key).sqlite" || $0.hasPrefix("\(key)-"))
+        }.sorted()
     }
 
     public init(root: URL, key: String? = nil,
@@ -140,6 +166,10 @@ public final class LibraryStore {
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         // #24：新建的 store 自我聲明格式。既有檔不覆寫（可能是較新版本寫的）。
         try StoreVersion.writeIfAbsent(root: root)
+        // #130：化身 id。既有檔一律不覆寫——覆寫等於把一個 store 變成另一個化身，
+        // 而那正是這個機制要偵測的事件。既有 store 首次被開啟時在此補寫，之後
+        // 隨檔案原樣搬移（cp / rsync / Dropbox / git 都是同一份位元組）。
+        try StoreIncarnation.writeIfAbsent(root: root)
 
         // **建佈局走 strict，不走 `usesEntitiesLayout` 的兜底**（#106）。那個兜底是給
         // 寫入路由的（#35：marker 壞掉時猜的方向與資料一致），但建佈局是結構性動作——
@@ -304,8 +334,8 @@ public final class LibraryStore {
     /// 的所在（CLI 的 openStore 只保護 CLI；MCP/App/外部呼叫端走的就是這些 API）。
     /// 正常路徑零成本：ensureLayout／openOrCreateStore 都寫 marker。
     ///
-    /// ⚠️ 插入位置紀律（#136 verify F1——同型錯誤在本檔**第二次**發生，前科見
-    /// writePerson 的 #55/#59 註解）：在既有 API 的 attribute 與宣告之間插新函式，
+    /// ⚠️ 插入位置紀律（#136 verify F1（正典計數與三次機械化失敗的量測在 `docs/design-principles-and-philosophy.md` §16——**不要在原始碼裡各自重新計數**，那正是它一直過期的原因））：
+    /// 在既有 API 的 attribute 與宣告之間插新函式，
     /// attribute 會綁到新函式上（@discardableResult 綁 Void 函式＝warning，
     /// -warnings-as-errors 下整個模組 build 失敗，且原 API 掉 attribute 生出
     /// 七個呼叫端 warning）。
@@ -1118,6 +1148,78 @@ public extension LibraryLoad {
         for k in duplicates(libraries.map(\.key)).sorted() {
             out.append(ValidationIssue(severity: .error,
                 message: "library key「\(displaySafe(k, max: 200))」重複"))
+        }
+
+        // **organization 階層的環**（#179）。先前**沒有任何地方**偵測它：載入不查、
+        // 這裡不查、`validate`／`doctor` 不查、型別層當然也擋不住。環造出來會
+        // **安靜存在**，直到某個沿 parents 走的消費端無限迴圈或堆疊溢位。
+        //
+        // **warning 而非 error**，與 `ISO8601Prefix` 的既有裁決一致：fail-closed 的
+        // 內容驗證會讓一筆壞資料使整個 store 載入不了，而環是**可回溯的**（檔案都在
+        // 版控裡）。`assertNoCrossRecordErrors` 鎖住寫入面對這件事太重。
+        //
+        // #166 已在**歸戶端**（`resolve-organizations`）擋下會閉環的候選——那是製造
+        // 環最容易的路徑，防護放在製造點成本最低。但那不涵蓋手寫 YAML、批次改寫、
+        // 或**從別台機器同步進來的檔案**（#23 的前提：store 內容未信任）。最後一條
+        // 特別重要：環可能不是這台機器造出來的，所以「所有寫入點都擋」永遠不完整。
+        //
+        // 只報**每個環一次**（取環上字典序最小的 key 當代表），否則 n 個節點的環
+        // 會產生 n 則說同一件事的警告。
+        var parentEdges: [String: [String]] = [:]
+        for org in organizations {
+            parentEdges[org.key] = org.parents.entries.compactMap {
+                if case let .key(p) = $0.value { return p } else { return nil }
+            }
+        }
+        var cycleReported = Set<String>()
+
+        /// 從 `start` 沿 parents 找一條回到 `start` 的路徑（含自環）；找不到回 nil。
+        ///
+        /// **持久的 `visited` 集合，不是「當前路徑」集合。** 第一版用
+        /// `path.contains(node)`——那只擋**當前路徑**上的重訪，於是有分支的圖會走遍
+        /// 所有**路徑**而不是所有**節點**：實測 n=40 → 0.007s、n=80 → 2.3s、
+        /// **n=120 → 543s**，指數爆炸。
+        ///
+        /// 那是我把兩份狀態「收成一份」時**留錯了那一份**：先前同時有 `path` 陣列與
+        /// `onPath` 集合，mutation 顯示拿掉 `onPath.remove(node)` 全綠——我讀成「兩份
+        /// 冗餘」，但那個 survived mutation 其實揭露的是**正確且高效的版本**（不移除
+        /// ＝持久 visited）。對「start 能否走回 start」這個查詢，任何能到 start 的
+        /// 節點在它**唯一一次**被探索時就會發現，所以 visited 可以跨分支持久。
+        ///
+        /// 複雜度 O(V+E) per start。路徑用 BFS 的 predecessor 回溯，所以報出來的環
+        /// 不含通往它的前綴（`a→b`、`b→c`、`c→b` 報 `b → c → b`，`a` 不在內）。
+        func findCycle(from start: String) -> [String]? {
+            if (parentEdges[start] ?? []).contains(start) { return [start] }
+            var visited: Set<String> = [start]
+            var pred: [String: String] = [:]
+            var queue: [String] = []
+            for c in parentEdges[start] ?? [] where visited.insert(c).inserted {
+                pred[c] = start
+                queue.append(c)
+            }
+            var head = 0
+            while head < queue.count {
+                let node = queue[head]; head += 1
+                for next in parentEdges[node] ?? [] {
+                    if next == start {
+                        var chain = [node], cur = node
+                        while let p = pred[cur], p != start { chain.append(p); cur = p }
+                        return [start] + chain.reversed()
+                    }
+                    if visited.insert(next).inserted { pred[next] = node; queue.append(next) }
+                }
+            }
+            return nil
+        }
+
+        for start in organizations.map(\.key).sorted() where !cycleReported.contains(start) {
+            guard let cycle = findCycle(from: start) else { continue }
+            cycleReported.formUnion(cycle)
+            out.append(ValidationIssue(
+                severity: .warning,
+                message: "organization 階層有環：\(cycle.map { displaySafe($0, max: 200) }.joined(separator: " → "))"
+                       + " → \(displaySafe(start, max: 200))"
+                       + "——沿 parents 走的消費端會無限迴圈。改掉其中一條 parents 邊"))
         }
 
         // 重複 DOI（#79）。**warning 而非 error**：重複本身不毀資料，而且「同一篇在

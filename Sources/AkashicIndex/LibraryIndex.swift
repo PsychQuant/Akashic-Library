@@ -40,7 +40,8 @@ public struct LibraryIndex {
     /// 是**別的 store**建的，版本照樣點頭（#121 verify (c)）——查詢一直吃錯的資料
     /// 且無訊號。身分比對用 canonical path：tilde／symlink／`/var` 前綴的路徑別名
     /// 不是別的 store。
-    public static func isCurrent(indexPath: URL, expectedRoot: URL) -> Bool {
+    public static func isCurrent(indexPath: URL, expectedRoot: URL,
+                                 expectedIncarnation: String? = nil) -> Bool {
         // **整體 fail-safe**（#129 verify F3/C7）：index 是衍生物，任何讀取失敗
         // （非 SQLite 檔、Dropbox conflict copy、截斷寫入）都是「stale、重建」，
         // 不是往上炸——半 throw 半 swallow 的舊形狀讓 conflict copy 直接殺掉指令。
@@ -52,15 +53,25 @@ public struct LibraryIndex {
         guard version == schemaVersion else { return false }
         // schema 相符 → 身分表必在（同一次 rebuild 寫入）。查不到＝手工拼裝的
         // 假 index，一樣 stale。
-        guard let stamped = (try? db.query("SELECT store_root FROM index_identity"))?
-            .first?["store_root"] as? String else { return false }
-        return stamped == canonicalRootPath(expectedRoot)
+        guard let row = (try? db.query("SELECT store_root, store_id FROM index_identity"))?
+            .first, let stamped = row["store_root"] as? String else { return false }
+        guard stamped == canonicalRootPath(expectedRoot) else { return false }
+        // #130：化身比對。**缺席一律視為未知並退回路徑比對**——既有 index 與既有
+        // store 都沒有這個欄位／檔案，讓缺席等於「不符」會把全部既有 index 判 stale
+        // （一次全庫重建，且每次呼叫都重來，因為新 index 也只在 store 有 id 時才寫）。
+        //
+        // 而 `nil` 不會誤信：真正的保護在**檔名**（index 檔名帶化身前綴），這一欄
+        // 是縱深防禦，擋的是人工改名。兩者缺席時退回今日的純路徑行為，不是退步。
+        let stampedID = (row["store_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        guard let expectedIncarnation, let stampedID else { return true }
+        return stampedID == expectedIncarnation
     }
 
     /// stale（版本或**身分**不符）就 rebuild；current 則 no-op。回傳是否 rebuild 過。
     @discardableResult
     public func ensureCurrent() throws -> Bool {
-        if Self.isCurrent(indexPath: store.indexURL, expectedRoot: store.root) { return false }
+        if Self.isCurrent(indexPath: store.indexURL, expectedRoot: store.root,
+                          expectedIncarnation: store.incarnation) { return false }
         _ = try rebuild()
         return true
     }
@@ -127,13 +138,20 @@ public struct LibraryIndex {
             "CREATE INDEX idx_relations_from ON relations(from_uuid)",
             "CREATE INDEX idx_relations_target ON relations(target)",
             // #122：身分戳記——這份 index 是誰的、何時建的、當時多少筆
-            "CREATE TABLE index_identity(only_row INT PRIMARY KEY CHECK (only_row = 1), store_root TEXT NOT NULL, built_at TEXT NOT NULL, entry_count INT NOT NULL)",
+            // #130：`store_id` 是**縱深防禦**——主要保護在檔名（index 檔名帶化身
+            // 前綴，換掉的 store 的 index 根本不叫這個名字）。這一欄擋的是人工
+            // 改名。可空：既有 store 沒有 incarnation 檔。
+            "CREATE TABLE index_identity(only_row INT PRIMARY KEY CHECK (only_row = 1), store_root TEXT NOT NULL, store_id TEXT, built_at TEXT NOT NULL, entry_count INT NOT NULL)",
             "PRAGMA user_version = 3",   // = schemaVersion；同步遞增
         ] {
             try db.execute(sql)
         }
-        try db.execute("INSERT INTO index_identity VALUES (1,?,?,?)",
+        try db.execute("INSERT INTO index_identity VALUES (1,?,?,?,?)",
                        bind: [Self.canonicalRootPath(store.root),
+                              // 空字串＝缺席。**不用 SQL NULL** 是為了不動共用的
+                              // `SQLiteDB` bind 層（它目前只認 Int/Int64/Double/String）
+                              // ——在一個講化身的 change 裡改低階綁定會混進不相干的風險。
+                              store.incarnation ?? "",
                               ISO8601DateFormatter().string(from: Date()),
                               load.entries.count])
 

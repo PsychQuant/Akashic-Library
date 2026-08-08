@@ -128,6 +128,15 @@ public final class AppState {
     /// 開放它是為了讓「別自己 `LibraryStore(root:)`」這條規則**有地方可去**。
     public var store: LibraryStore { LibraryStore(root: root, key: storeKey, environment: environment) }
 
+    /// **registry 解析過的 store**（#125）。`storeKey` 由開機的 `resolveDetailed`
+    /// 或 `switchFile` 決定，兩者都查過 registry——所以這裡的 store 是「有沒有 key
+    /// 這件事被查過」的那一種，可以交給只收 `ResolvedStore` 的消費端。
+    ///
+    /// **不快取**：`store` 是 computed（每次用當下的 `root`/`storeKey` 現造），
+    /// 而那兩個是 `private(set) var`，`switchFile` 會改。持有一顆會在切檔後指著
+    /// 舊 library（#160 verify 實測 `stale=true`）。
+    public var resolvedStore: ResolvedStore { .resolved(store) }
+
     // MARK: - 載入與統計
 
     public func load() throws {

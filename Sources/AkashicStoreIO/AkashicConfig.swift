@@ -4,6 +4,8 @@ import AkashicCore
 public enum ConfigError: Error, LocalizedError {
     case invalidFileKey(String)
     case invalidCurrent(String)
+    case invalidViewKey(String)
+    case invalidViewField(view: String, field: String, value: String)
     /// 同一正規路徑被 ≥ 2 個 key 註冊（#105/#121）——registry 損壞，反查不猜。
     case duplicateRegistration(path: String, keys: [String])
 
@@ -14,6 +16,11 @@ public enum ConfigError: Error, LocalizedError {
         case let .duplicateRegistration(path, keys):
             return "路徑「\(displaySafe(path, max: 300))」被多個 key 註冊（\(keys.map { displaySafe($0, max: 200) }.joined(separator: ", "))）"
                  + "——同一實體庫不重複註冊；用 file remove 清掉多餘的再試"
+        case .invalidViewKey(let key):
+            return "view key「\(displaySafe(key, max: 200))」不符合 \(StoreKey.pattern)"   // display-safe-exempt: pattern 是編譯期常量（同 LibraryStore 的 invalidKey）
+        case let .invalidViewField(view, field, value):
+            return "view「\(displaySafe(view, max: 200))」的 \(displaySafe(field, max: 60))"
+                + "「\(displaySafe(value, max: 200))」不合法"
         case .invalidCurrent(let key):
             return "config.yaml 的 current「\(displaySafe(key, max: 200))」不在 files registry 中"
         }
@@ -26,6 +33,12 @@ public struct AkashicConfig: Equatable {
     public var library: String?
     public var files: [String: String]
     public var current: String?
+    /// view 的**判準**（#54／#65）。外延是衍生物、不在這裡。
+    ///
+    /// 住在 `config.yaml` 是 `docs/explainers/entity-vs-view.md` 拍板的位置：
+    /// **它是設定，不是知識**——所以與 `library`／`files`／`current` 同層，而不是
+    /// 進 `entities/`。**view 不是 entity**，這個欄位不改變那件事。
+    public var views: [String: ViewDefinition] = [:]
     /// 不認得的頂層原始行（保序），write 時原樣寫回——不破壞使用者手寫內容。
     public var unknownLines: [String]
 
@@ -51,6 +64,10 @@ public struct AkashicConfig: Equatable {
         }
         var config = AkashicConfig()
         var inFiles = false
+        // views: 的兩層縮排——`  <key>:` 開一個 view，`    <field>: <value>` 是它的欄位。
+        // 與 `files:` 的一層平面 mapping 不同，所以要記住「現在在哪個 view 裡」。
+        var inViews = false
+        var currentView: String? = nil
         // 平面 YAML subset（documented）：頂層 key: value、files: 的一層縮排 mapping、
         // # 註解（保留於 unknownLines）。不支援 quoted 多行/anchor 等進階 YAML。
         func cleanValue(_ raw: String) -> String {
@@ -77,6 +94,46 @@ public struct AkashicConfig: Equatable {
                 continue
             }
 
+            if (line.first == " " || line.first == "\t") && inViews {
+                let indent = line.prefix { $0 == " " || $0 == "\t" }.count
+                // **`omittingEmptySubsequences` 預設是 true**：`"iss:"` 只切出
+                // `["iss"]`，不是 `["iss", ""]`。view key 那一行**本來就沒有值**，
+                // 用 `count == 2` 當 guard 會把它整行丟進 unknownLines——
+                // 那正是第一版的症狀（views 區塊完全沒被 parse，而且無聲）。
+                let parts = trimmed.split(separator: ":", maxSplits: 1,
+                                          omittingEmptySubsequences: false)
+                guard parts.count == 2 else { config.unknownLines.append(line); continue }
+                let key = parts[0].trimmingCharacters(in: .whitespaces)
+                let value = cleanValue(parts[1].trimmingCharacters(in: .whitespaces))
+                if indent <= 2 {
+                    // 新的 view。key 走 StoreKey——view key 會出現在 CLI 旗標與檔名裡
+                    guard StoreKey.isValid(key) else { throw ConfigError.invalidViewKey(key) }
+                    currentView = key
+                    config.views[key] = ViewDefinition(key: key)
+                    continue
+                }
+                guard let vk = currentView, var v = config.views[vk] else {
+                    config.unknownLines.append(line); continue
+                }
+                switch key {
+                case "description": if !value.isEmpty { v.description = value }
+                case "person-affiliation":
+                    // **只收 organization key**——未歸戶的 literal 當判準會讓成員
+                    // 資格隨拼寫漂移（見 ViewDefinition 的 doc）
+                    guard value.isEmpty || StoreKey.isValid(value) else {
+                        throw ConfigError.invalidViewField(view: vk, field: key, value: value)
+                    }
+                    if !value.isEmpty { v.personAffiliation = value }
+                case "work-has-author-in-view":
+                    guard ["true", "false"].contains(value) else {
+                        throw ConfigError.invalidViewField(view: vk, field: key, value: value)
+                    }
+                    v.workHasAuthorInView = (value == "true")
+                default: config.unknownLines.append(line); continue
+                }
+                config.views[vk] = v
+                continue
+            }
             if (line.first == " " || line.first == "\t") && inFiles {
                 // files: 區塊內的一層縮排 mapping
                 let parts = trimmed.split(separator: ":", maxSplits: 1)
@@ -90,7 +147,7 @@ public struct AkashicConfig: Equatable {
 
             // 頂層（含縮排的頂層 key——舊版 locator 對 library: 做 trim 掃描，
             // 縮排寫法曾是合法的；維持向後相容，Codex R1 #6）
-            inFiles = false
+            inFiles = false; inViews = false; currentView = nil
             let parts = trimmed.split(separator: ":", maxSplits: 1)
             let key = parts.first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
             let value = parts.count == 2 ? cleanValue(parts[1].trimmingCharacters(in: .whitespaces)) : ""
@@ -98,6 +155,7 @@ public struct AkashicConfig: Equatable {
             case "library": if !value.isEmpty { config.library = value }
             case "current": if !value.isEmpty { config.current = value }
             case "files": inFiles = true
+            case "views": inViews = true
             default: config.unknownLines.append(line)
             }
         }
@@ -124,6 +182,16 @@ public struct AkashicConfig: Equatable {
             lines.append("files:")
             for key in files.keys.sorted() {
                 lines.append("  \(key): \(Self.serializeScalar(files[key]!))")
+            }
+        }
+        if !views.isEmpty {
+            lines.append("views:")
+            for key in views.keys.sorted() {
+                let v = views[key]!
+                lines.append("  \(key):")
+                if let d = v.description { lines.append("    description: \(Self.serializeScalar(d))") }
+                if let a = v.personAffiliation { lines.append("    person-affiliation: \(a)") }
+                if v.workHasAuthorInView { lines.append("    work-has-author-in-view: true") }
             }
         }
         if let current { lines.append("current: \(Self.serializeScalar(current))") }

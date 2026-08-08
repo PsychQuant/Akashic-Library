@@ -28,6 +28,9 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
 mcps/                            MCP server submodules（che-zotero-mcp、che-biblatex-mcp）
 repos/                           共用 library submodules（biblatex-apa-swift = canonical）
 docs/                            spec 與 store 格式規格書
+docs/design-principles-and-philosophy.md
+                                 建模的規範性原則（Part I）與哲學基礎（Part II）；
+                                 §16 另存原始碼慣例的正典計數（見下）
 docs/explainers/                 「為什麼」的說明（規格說 what，explainer 說 why）
 attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox）
 ```
@@ -73,6 +76,58 @@ index 自帶**身分戳記**（#122）：記錄它是為哪個 store root 建的
 版本——registry 路徑被重新利用時，別的 store 建的 index 不再被誤當自己的。
 未註冊的 store（`--library <path>` 直指）則回落 in-store `.akashic/index.sqlite`，因為那種 store
 不在 registry 治理範圍內。
+
+### View：判準是設定，外延是衍生（#54／#65）
+
+「中研院的人」這種切片有名字了。**判準**（誰算在內）寫進 `~/.akashic/config.yaml`，
+**外延**（實際是哪些人與著作）現算、不保存：
+
+```yaml
+views:
+  iss:
+    description: 中研院統計所的人與其著作
+    person-affiliation: institute-of-statistical-science
+    work-has-author-in-view: true
+```
+
+```bash
+akashic view list              # 有哪些 view、判準是什麼
+akashic view show iss          # 外延（實測本 store：159 人 / 424 篇）
+akashic view show iss --keys-only   # 一行一個 key，給下游腳本吃
+```
+
+**view 不是 entity**（#54 的裁決）：不動 `EntityKind`、不新增形狀裸標籤、
+`entities/` 不會出現 `view:`。判準住 `config.yaml` 是因為**它是設定，不是知識**。
+
+沒有 `view create`——設定該用編輯器改，不是用 CLI 造。給一個寫入指令會讓那個區分
+在使用層被磨掉（與 `library create` 刻意不同：後者是 registry metadata、屬 store）。
+
+**缺這一半的代價**（#65 記錄的實例）：判準被推到 store 之外，由每個下游各自重新
+發明。storyline#5 的 `4AK_build_duckdb.R` 裡那段 filter 就是這裡該有的東西——只是
+它住在另一個 repo、另一種語言、另一個人維護的檔案裡。後果是判準不可稽核、會分岔、
+無法演化，而成員清單被迫用一份 `.txt` 代替（**外延被當成判準用**，方向反轉）。
+
+**兩個刻意的取捨**：`person-affiliation` 只收 organization **key** 不收 literal
+（未歸戶的 literal 拿來當判準會讓成員資格隨拼寫漂移——要納入就先 `resolve-organizations`）；
+成員資格**不比對時間範圍**（「現在還在不在」是另一個問題，`endedUnknown` 的語意未定，
+見 #63）——view 回答的是「屬於過」。
+
+**「有沒有 key」必須是被查過的事實，不是碰巧**（#125）。keyless 是**合法**狀態；壞的是
+「一個已註冊的 store 被當成 keyless」——那會在它裡面長出一個永遠用不到的 index，並且
+**重建錯的那個**。#101 修過兩個這樣的呼叫點並留下註解要人一律走 `AppState.store`，但
+**註解擋不住新的呼叫點，也擋不住重構**。
+
+所以 `AkashicStoreIO.ResolvedStore` 把它變成型別事實：`GraphModel` 只收 `ResolvedStore`，
+於是 `GraphModel(store: LibraryStore(root: x))` **編不過**。取得方式兩種，都要顯式：
+
+| 取得 | 意思 |
+|---|---|
+| `.resolved(store)` | 由 registry 解析而來（`AppState.resolvedStore` 走這條） |
+| `.unregistered(store, reason:)` | 顯式的 keyless opt-out，**理由必填**（同 `display-safe-exempt` 的哲學） |
+
+`.unregistered` 是**刻意留的洞**——keyless 合法，那條路徑必須存在，代價是它可以被誤用。
+生產程式碼不得走它，有測試釘住；同一組測試也釘住「`GraphModel` 只能有一個 init」——
+多一個收 `LibraryStore` 的 overload，閘門就形同虛設而所有既有測試照樣綠。
 
 ### 環境變數
 
@@ -135,6 +190,20 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 （投報率優先）。**絕不自動合併**：正規化（NFKC／連字號家族／不可見字元）只住配對
 鍵，同一個正規化名對到 2 個以上實體即判歧義、整組排除，交人裁決。
 
+`resolve-organizations` 走**兩處** literal：person 的 `profile.affiliations` 與
+**organization 的 `parents`**（#166；先前只走前者，於是 `bootstrap-organizations`
+吃進去的 parents literal 進得去、出不來）。parents 側多兩道排除，因為那裡有 person
+側**不可表達**的錯誤形狀：
+
+- **自我父權**——literal 命中自己的別名。那不是歸戶，是把記錄變成自己的上級。
+- **環**——A→B 已存在時再讓 B 指回 A。**本 repo 沒有任何地方偵測 org 階層的環**
+  （載入不查、`crossRecordIssues` 不查），造出來會安靜存在到某個走 parents 的消費端
+  無限迴圈。判定含既有 `.key` 邊**與本輪已接受的候選**——只看既有邊會漏掉「兩個候選
+  各自無害、湊在一起成環」。
+
+篩選旗標 `--person` 改名為 `--holder`（持有者可能是 organization）；**舊名保留為
+alias**，既有腳本不會壞。
+
 **已知限制**：`bootstrap-organizations` 的 key 取機構名 **NFKC 正規化後**的 ASCII
 字母數字 token——雙語寫法（`國立臺灣大學 National Taiwan University`）用英文部分產
 key，全形拉丁（`Ｎａｔｉｏｎａｌ…`，CJK 輸入法下的常見產物）先折回 ASCII 再取。
@@ -169,7 +238,7 @@ store 是跨 binary（CLI / MCP / App）的契約。格式版本記載於
 | v1.1 | provenance hash 欄位 |
 | v1.2 | `akashic.libraries` + `libraries/` registry（#13）；未知欄位 **strict → throw** |
 | v1.3 | tolerant-preserve（#23）：**開放演化層**（entry / person / library 頂層、`akashic` namespace）的未知欄位改為容忍 + 原樣保留寫回，取代 v1.2 的 throw |
-| — | `divergence:` 形狀（#71）：未決的同一性問題成為可記錄的一級事物，記錄與消歧是**兩個**動作：`akashic record-divergence` 記下未決的問題（id 由候選鍵的集合推出，同一組候選＝同一筆記錄；有判斷就必須有依據），`akashic resolve-divergence` 才是「合併 + 全庫參照重寫 + 刪檔」的原子操作。**記下判斷不等於做掉它**（#77 補上建立入口前，後者有 CLI 而前者沒有——於是「先記下來、之後再判斷」在使用層不成立）。**消歧的版控前提是 tracked + clean**（#73）：不只「store 在工作樹內」，而是**本次要刪的每個檔案**都已被 git 追蹤且無未提交修改。「在工作樹內」與「刪掉還找得回來」是兩件事——未 commit 的歧異記錄消歧後，`question` / `judgement` / `rests-on` 三者一起永久消失。**additive，不 bump format**——見 [store-format.md §5.8](docs/store-format.md) 與 #74 對相容性決定的討論 |
+| — | `divergence:` 形狀（#71）：未決的同一性問題成為可記錄的一級事物，記錄與消歧是**兩個**動作：`akashic record-divergence` 記下未決的問題（id 由候選鍵的集合推出，同一組候選＝同一筆記錄；有判斷就必須有依據）——**消歧改寫其他記錄的候選時 id 跟著重算**（#168；先前保留舊 id，於是同一組候選有兩筆記錄，而 #75 的三道判斷守衛全部 key 在那個不變式上，可被一串正常操作靜默繞過。重算會撞上既有記錄或另一筆遷移記錄時，**只有零損失才靜默合併**，否則拒絕整個消歧交人裁決），`akashic resolve-divergence` 才是「合併 + 全庫參照重寫 + 刪檔」的原子操作。**記下判斷不等於做掉它**（#77 補上建立入口前，後者有 CLI 而前者沒有——於是「先記下來、之後再判斷」在使用層不成立）。**消歧的版控前提是 tracked + clean**（#73）：不只「store 在工作樹內」，而是**本次要刪的每個檔案**都已被 git 追蹤且無未提交修改。「在工作樹內」與「刪掉還找得回來」是兩件事——未 commit 的歧異記錄消歧後，`question` / `judgement` / `rests-on` 三者一起永久消失。**additive，不 bump format**——見 [store-format.md §5.8](docs/store-format.md) 與 #74 對相容性決定的討論 |
 | format 5 | **對外可稱呼的名字由 `authorized` 指定**（#81）：`names` 的順序不再帶語意，`authorized` 是它的子集、每個書寫系統至多一個。書寫系統為**推導值不儲存**。**non-additive，MUST bump**——舊 binary 會繼續把 `names[0]` 當顯示名（按舊語意解讀新格式）。既有記錄用 `akashic authorize-names`（預設 dry-run，`--apply` 才寫）補；見 [store-format.md §3.1](docs/store-format.md) |
 | format 6 | **時間軸段的 `ended: true`＝已結束、時點未知**（#63）：`end` 缺席的預設語意（進行中）不變；退休名單只有「已退休」沒有年份這類一等知識狀態從此可表達，status 推導自動得 `retired`，`export-tables` 的 `researcher_timeline` 以 `valid_end_unknown` 欄攜帶（「進行中」的 SQL 判準是 `valid_end IS NULL AND valid_end_unknown IS NULL`）。**non-additive，MUST bump**——「看似 additive 其實不是」：tolerant-preserve 只涵蓋記錄頂層與 `akashic` namespace，時間軸**段內**的鍵是 strict，舊 binary 讀到 `ended:` 是**整檔 quarantine**（人檔消失）而非保留；見 [store-format.md §3](docs/store-format.md) |
 | — | **canonical serialization form**（#69）：記錄寫出的位元組形式由**單一權威**定義（三個 `encode` 函式），正規化即 `encode(decode(x))`——沒有第二份定義。時間軸的序列化順序改為「依 `range` 排序，`range` 相同時**保留寫入順序**」，與相等性用的全序**分離**（後者 `range` 相同時比 `value`，那是為了讓「同樣的段落、不同的儲存順序」判為相等）。動機：`Organization.names` 三筆全無 `range`，由值決勝會讓主名（中文正式名）被 ASCII 別名推到後面。`authors` / `attachments` 的順序**不參與排序**（位置即語意）。新增 `akashic fmt`（`--check` 只回報不寫檔）作為對齊入口；`validate` 不擋排版。**additive，不 bump format**；見 [store-format.md §3.4](docs/store-format.md) |
@@ -309,8 +378,7 @@ store 內容是**未信任的**——來自 Zotero 匯入（出版商與網頁�
 > 而守衛看不見（那六處無插值、無 token——正是上面那條「無插值裸綁」的機制）。
 >
 > 表格加上第四列 `StoreVersionError`（`errorDescription` ❌／throw 站點 ✅）：它的 `path`／`line` 原樣內插，政策與 `ServiceError` 同一列。
->
-> **守衛對「無插值的裸綁」結構上全盲**（#161 verify 181-3）。`scanViolations` 的候選
+>> **守衛對「無插值的裸綁」結構上全盲**（#161 verify 181-3）。`scanViolations` 的候選
 > 運算式**只**來自 `\( … )` 插值與 `"key": value` 的 dict 值；一行顯示呼叫若兩者皆無，
 > **抽出零個運算式**——`isSink` 判成 true 也沒有東西可檢。所以 `swiftUISinks` 那九個
 > **只在「該行剛好也有插值」時才起作用**：#161 擴充後抓到的三條全部含插值，而
@@ -363,6 +431,19 @@ tool result 進 LLM context，上限 8 MB，超過時報錯並指路 `--output`�
 swift build
 swift test
 ```
+
+### 改 code 之前值得知道的一條
+
+**新成員不得插進既有 API 的 doc comment／attribute 與其宣告之間。** 那會讓兩份文件
+對調——被孤兒化的 doc 掛到新成員頭上（對它每一句都是假的），原本的宣告零註解。
+實際發生過**七次**，其中一次是在寫下這條紀律的同一個 commit 裡，而第七例是在
+寫下前六例的那一週被獨立驗證席找到的——**那張表在提出時就已經不完整**。
+
+[docs/design-principles-and-philosophy.md §16](docs/design-principles-and-philosophy.md)
+是它的**正典計數**——完整清單、以及三次機械化嘗試的誤中量測（19 / 78 / 26，
+掃 5128 個宣告，全部太吵所以沒 ship）。原始碼裡的四處引用都指向那裡；**不要在
+原始碼裡各自重新計數**，那正是它一直過期的原因（每個數字在寫下的當時都對，之後
+再也沒人同步）。review 時的具體動作：**看新成員的上一行是不是別人的 doc。**
 
 **`swift test` 必須跑完整套，不得用 `--skip` 繞過。** 部分輸出很容易被誤讀成成功——測試
 程序若中途 fatal error 中止，畫面會停在「Executed N tests, 0 failures」，但 N 遠小於總數

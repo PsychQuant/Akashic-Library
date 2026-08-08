@@ -37,12 +37,16 @@ import AkashicStoreIO
 ///    先前只寫了 (b)，會讓讀者以為剩下的風險是時序問題（聽起來像併發細節）；
 ///    真正的風險是**構造紀律**，也就是 #125 本體。這一層提供了機制，事故現場
 ///    尚未啟用它。
-/// 2. **它擋不住 `GraphModel(store: LibraryStore(root:))`**——「registry 解析過的
-///    store」要成為型別事實需要 #125 的第三層（resolved-store wrapper），那會動
-///    **170 個構造點（production 12、tests 158）**——席位 R2 量到 169/11，我複核
-///    時是 170/12（差 1 在這輪的編輯本身）。數字會漂，重點是**比例**：production 只佔 12。
-///    先前寫「150+ 個站點」易被讀成 production 有 150 個；拆開之後第三層反而
-///    看起來**更可行**。屬另案。
+/// 2. ~~**它擋不住 `GraphModel(store: LibraryStore(root:))`**~~ ——**#125 已修**：
+///    本型別的 init 只收 `ResolvedStore`，那行現在編不過。
+///
+///    先前的估計是「動 170 個構造點（production 12、tests 158）」——那是全 repo
+///    的 `LibraryStore(` 總數。**實際只需要動 `GraphModel` 的 21 個**（production 2、
+///    tests 19），因為收工判準只關乎這一個型別。把 `ResolvedStore` 推廣到其他
+///    消費端仍是另案，但**那不是本判準要的東西**。
+///
+///    估計偏高 8 倍的原因值得記：它量的是「有多少地方建 store」，而要回答的是
+///    「有多少地方**把 store 交給會誤用它的東西**」。
 ///
 /// 為什麼不直接 hoist 成單一 binding（那才會讓保證生效）：`AppState.store` 是
 /// **computed property**，每次存取用當下的 `root`/`storeKey` 現造一顆，而那兩個是
@@ -61,15 +65,23 @@ public struct GraphModel {
 
     /// 構造時決定 store——之後的所有操作都用它（見型別 doc 的誠實邊界）。
     ///
-    /// **插入位置紀律**（#160 verify 160-4，**同型第四次**——#157 157-4、#136 F1、
-    /// #59）：這個 property 當初被插進 `rebuildIndex` 的 doc comment 與它的宣告
+    /// **插入位置紀律**（#160 verify 160-4（正典計數與三次機械化失敗的量測在 `docs/design-principles-and-philosophy.md` §16——**不要在原始碼裡各自重新計數**，那正是它一直過期的原因））：
+    /// 這個 property 當初被插進 `rebuildIndex` 的 doc comment 與它的宣告
     /// 之間，於是那段 doc 掛到了 property 上、方法自己零註解。被孤兒化的正是
     /// 「呼叫端一律用 `AppState.store`，不得自己 `LibraryStore(root:)`」——本型別
     /// 誠實邊界第 2 條所依賴的那句話。**新成員不得插進既有 API 的 doc 與宣告之間。**
     public let store: LibraryStore
 
-    public init(store: LibraryStore) {
-        self.store = store
+    /// **只收 `ResolvedStore`**（#125 第三層）。
+    ///
+    /// `GraphModel(store: LibraryStore(root: x))` 現在**編不過**——那正是 #125
+    /// issue body 那段事故程式碼的形狀，而它在 #160 之後仍然編得過、逐字重現同一個
+    /// 事故（keyless 重建在已註冊 store 裡長出 in-store index，query 開不了檔）。
+    ///
+    /// #101 之後靠的是一句註解（「呼叫端一律用 `AppState.store`」）。註解擋不住新的
+    /// 呼叫點，也擋不住重構。這個 init 把它變成型別事實。
+    public init(store: ResolvedStore) {
+        self.store = store.store
     }
 
     /// 外部變更後的索引重建（全庫掃描，不放在互動路徑上）。

@@ -248,6 +248,14 @@ public final class AkashicService {
         }.count
         d["orphaned"] = load.entries.filter { $0.provenance?.orphanedAt != nil }
             .map { displaySafe($0.citekey, max: 200) }
+        // #146：digest 形式的 source 殘留。**這一項是本檔案自己那條規矩的直接
+        // 應用**——「CLI doctor 的普查面 MCP 也要有，同一個 store 不得從兩個
+        // consumer 看到不同的事實」（#138 verify F3，見下方註解）。第一版只加了
+        // CLI 側，席位實測 MCP 的 doctor 回傳裡完全沒有 digest 相關項，而同一份
+        // store 的 CLI doctor 報 22。
+        d["digestSources"] = ProvenanceMigration.residualDigestSources(load: load)
+            .map { "\(displaySafe($0.record, max: 200)).\(displaySafe($0.field, max: 120))" }
+            .sorted()
         // #81 / #82 / #67（#138 verify F3）：CLI doctor 的普查面 MCP 也要有——
         // 「同一個 store 不得從兩個 consumer 看到不同的事實」是本 change 的主旨。
         let nameGaps = load.recordsWithoutAuthorizedName()

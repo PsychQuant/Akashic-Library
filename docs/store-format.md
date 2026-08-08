@@ -577,6 +577,36 @@ n 則說同一件事的警告。`.literal` 的 parents **MUST NOT** 計為邊—
 檔案**——store 內容未信任（#23）意味著環可能不是這台機器造出來的，所以「所有寫入點
 都擋」永遠不完整，需要一道檢查時的偵測。
 
+## 3.4 `incarnation`：store 的化身 id（normative，#130）
+
+store 根目錄可有一個名為 `incarnation` 的單行檔案，內容是一個 UUID。它回答
+**「這是不是同一個 store」**，不回答「內容新不新」——兩者混在一起會讓兩邊都說不清。
+
+- **生成**：`ensureLayout()` 於檔案缺席時補寫（`writeIfAbsent` 模式）。**既有的
+  一律不覆寫**——覆寫等於把一個 store 變成另一個化身，而那正是這個機制要偵測的事件。
+- **複製即同一化身**：id 隨檔案原樣搬移（cp／rsync／Dropbox／git）。它就是同一份
+  位元組，不需要特別設計。
+- **缺席**：讀到缺席回 `nil`，**MUST NOT** throw。既有 store 都沒有這個檔案，讓它
+  throw 等於把一個選配的加強變成載入的前置條件。
+
+**為什麼不放進 `store.yaml`**：`StoreVersion.read` 對任何非 `format:` 的有內容行
+**throw**。加一行進去，所有既有 binary 會拒絕開啟整個 store——不是忽略未知欄位，是
+連讀都不讀。**`store.yaml` 不在 tolerant-preserve 的涵蓋範圍內**（那是記錄層政策）。
+放根目錄而非 `.akashic/`：後者被 `.gitignore` 排除（衍生物的位置），而化身是 store 的
+**身分**，該進版控、該隨 clone 走。
+
+**index 檔名綁化身**：`<key>-<化身前 8 碼>.sqlite`（keyless 回落 `index-<8 碼>.sqlite`）。
+這把 TOCTOU 從「偵測」變成**不可表達**——驗證與開啟之間有多少檔案存取都無所謂，換掉的
+store 的 index 根本不叫這個名字。同路徑重生時新舊 index 是**不同檔案**，「舊 index 被
+誤信」的狀態不存在。`index_identity.store_id` 仍寫入，作為**縱深防禦**（擋人工改名）；
+它與化身檔皆缺席時退回純路徑比對——那是今日行為，不是退步。
+
+代價：重生後舊 index 成為孤兒。`doctor` **MUST** 報告它們，**MUST NOT** 自動刪
+（報告不動手；它們可能是另一台機器同步過來的）。
+
+**誠實邊界**：舊 binary 讀不到 `incarnation`，因此在同路徑重生情境下仍會誤信舊 index。
+這是刻意的取捨——替代方案是讓它們全部拒絕開啟，代價更大。
+
 ## 3.5 `references`：欄位層級的 provenance（normative，#66）
 
 person 與 organization 記錄可攜帶頂層 `references:` 清單——一筆 provenance 同時記
@@ -618,8 +648,25 @@ references:
    代價；正規化是詮釋，另案）。
 4. reference 清單內的鍵是 **strict**（未知鍵拒收）——未來加欄位是 **non-additive**
    （同時間軸段內鍵的教訓，#63/#74）。
-5. 既有 `TemporalValue.source`（時間段上的裸 URL）**不動**、不遷移、與 references
-   並存（#66 D7；遷移另案）。無 `references` 的既有記錄零 diff。
+5. 既有 `TemporalValue.source`（時間段上的**裸 URL**）**不動**、不遷移、與 references
+   並存（#66 D7）。無 `references` 的既有記錄零 diff。
+6. **`TemporalValue.source` 只放裸 URL；digest 屬 `references:`**（#146）。#66 落地前
+   的手工路徑曾把 `sha256:` 摘要塞進 `source`（實測 22 筆），使「provenance 記在
+   哪一層」有兩個答案。`akashic migrate-provenance` 搬它們，`akashic doctor` 報殘留——
+   **兩者分開存在**：遷移是一次性動作，而這條是要持續成立的不變式，新寫入隨時
+   可能再破壞它。遷移**不 bump 格式**（`§5.0` 的判準是「舊 binary 會不會誤讀」，
+   而 `references:` 自 #66 起就在契約內）。
+
+   遷移的目標種類是 **`judgement` 而非 `retrieval`**，判準來自資料不是型別：那 22 筆
+   的 `note` 全部以「由…推得」開頭（`note` 是斷言、digest 是依據），而擷取型也裝不下
+   它們——`retrieval` 要求 `url` 與 `status`，那些 blob 沒有 URL（「圖書館寄來的檔案」、
+   「以 DOI 逐筆查詢多個 API」都不是單一 URL）。
+
+   **`profile.contacts.*` 搬不了**：它不在 `validateReferenceAttachment` 的欄位白名單
+   內。加進去的後果是**該人檔被 quarantine**（`decode` throw 被 `load()` 的 per-file
+   catch 接住，`validate` 仍 exit 0）——**不是**整個 store 拒絕載入。但那筆人檔會從
+   所有查詢中消失，而 §5.0 的 format 6 與 7 正是因為這種整檔 quarantine 而 bump 的，
+   所以仍需格式 bump，不在本範圍。遷移對它**回報而不靜默略過**。
 
 ### 存檔佈局：`sources/`（內容定址，不進 remote）
 
@@ -1156,6 +1203,22 @@ shape 才遷移——鍵在不同形狀之間可以同名。遷移後候選少�
 `akashic rename` 同樣 **MUST** 遷移歧異記錄的 work 候選；改名會讓候選塌縮時 **MUST**
 拒絕——rename 沒有合併語意。
 
+**遷移後的 id MUST 重算**（#168）。id 由候選鍵的集合推出，所以改寫候選卻保留舊 id 會讓
+記錄與它的候選集脫鉤，而「同一組候選＝同一筆記錄」正是 `judgement` 三道守衛
+（`contradictsJudgement`、無判斷的重呼叫不得抹掉判斷、重錄不得抹掉 `prefers`）的**共同
+前提**——脫鉤之後，同一組候選有兩筆記錄，三道守衛全部去問了沒有判斷的那筆。實測：
+`record → resolve → 再 record → resolve` 這串**全部是正常操作**的序列，會讓帶判斷與
+`prefers` 的記錄被連帶刪除、判斷指名為正確的實體被合併掉，而 dry-run 與實跑**只警告不擋**
+（#159 之後會印一則連帶刪除的判斷警告），然後照樣 exit 0 完成不可逆刪除。
+
+重算 = 改名 = 刪舊建新，舊檔 **MUST** 與塌縮記錄同批處理（同一套可刪性前移檢查與失敗
+收容）。重算後撞上另一筆記錄時（撞既有記錄、或兩筆遷移記錄互撞），**只有零損失才
+MUST 靜默合併**（`candidates`、`question`、`judgement`、未知欄位**皆**相同）。
+`candidates` 必須在內：`forDivergence` 只雜湊候選的 **key**、不含 shape，而 key
+跨形狀同名是允許的——少了這一項，一筆 person 歧異會撞上候選 key 相同但 shape
+不同的既有記錄並被整筆丟掉（#168 verify 實測）；否則 **MUST 拒絕整個消歧**
+並指名將被犧牲的判斷。自動挑一邊活下來，正是這條規則要防的靜默毀損。
+
 **失敗語意**：參照重寫的單筆失敗**收容並繼續**，結束時報告清單並以非零碼退出；參照
 重寫**有任何失敗就不進入刪除**——歧異記錄是唯一能重跑的依據，先刪它再讓被併檔留著，
 比撕裂更糟。刪除階段自身的可預期失敗 **MUST** **前移**：動手前檢查每個要刪的檔案
@@ -1176,7 +1239,7 @@ I/O 錯誤）收容並回報——此時被併記錄**可能部分已刪**，但
 
 | 比對（doomed 有而 keeper 沒有／衝突 → 拒絕） | 刻意排除（不比） |
 |---|---|
-| `fields`（逐 key；同 key 不同值＝衝突）、`attachments`、`akashic`（tags／libraries／status／**出向 relations**／unknownFields——cites/related 的遷移只搬「別人指向被併者」的參照，被併者自己指出去的隨檔案消失）、`authors`（`.key` 是 resolve-people 歸戶的產物，work 合併不搬）、`date`、`unknownFields`、`provenance`（`zoteroKey`／`libraryID` 的**對**、`orphanedAt`） | `type`／`title`（要求相等會誤拒最常見形狀——同一篇的兩筆記錄 title 本來就會不同，keeper 的寫法**就是人選的 canonical form**）、`id`／`citekey`（身分，不隨合併移動） |
+| `fields`（逐 key；同 key 不同值＝衝突）、`attachments`、`akashic`（tags／libraries／status／**出向 relations**／unknownFields——cites/related 的遷移只搬「別人指向被併者」的參照，被併者自己指出去的隨檔案消失）、`authors`（`.key` 是 resolve-people 歸戶的產物，work 合併不搬）、`date`、`unknownFields`、`provenance`（`zoteroKey`／`libraryID` 的**對**、`orphanedAt`） | `type`／`title` — **只比缺席方向**（keeper 為空、被併者非空 → 拒絕；`""` 不是任何人選的 form，它是缺席）。兩邊都非空時**不擋**——要求相等會誤拒最常見形狀，keeper 的寫法**就是人選的 canonical form**。**`title` 另有不擋的提醒**（#169）：被併者嚴格包含倖存者、**且多出來的部分含詞字元**時進 `warnings`（少了後者，真 corpus 上 5 次觸發全部是 APA 句末句點、真實遺失 0 筆——尾端標點正好就是嚴格包含的形狀）。**`type` 不比**：它是封閉 token 集合，字串包含與完整度零相關（13 對標準 biblatex type 滿足包含，`book ⊂ inbook` 不是「較長版本」）。`id`／`citekey`（身分，不隨合併移動） |
 
 子集才放行——搬欄位是人的判斷，不自動合併。比對 7 + 排除 4 ＝ `Entry` 的 11 個儲存
 屬性（`akashic` 的五個子欄位**收合成一個屬性算**），由

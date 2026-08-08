@@ -100,9 +100,10 @@ final class EnsureLayoutTests: XCTestCase {
         try store.ensureLayout()
 
         XCTAssertTrue(exists(".akashic"), "未註冊 store 的 index 回落 in-store，目錄必須在")
-        XCTAssertEqual(store.indexURL.path,
-                       root.appendingPathComponent(".akashic")
-                           .appendingPathComponent("index.sqlite").path)
+        // #130：檔名帶化身前綴，斷言目錄
+        XCTAssertEqual(store.indexURL.deletingLastPathComponent().path,
+                       root.appendingPathComponent(".akashic").path)
+        XCTAssertTrue(store.indexURL.lastPathComponent.hasPrefix("index"))
     }
 
     // MARK: - marker 壞掉時建佈局要 fail-loud（#106）

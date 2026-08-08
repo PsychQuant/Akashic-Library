@@ -61,8 +61,8 @@ public struct GraphModel {
 
     /// 構造時決定 store——之後的所有操作都用它（見型別 doc 的誠實邊界）。
     ///
-    /// **插入位置紀律**（#160 verify 160-4，**同型第四次**——#157 157-4、#136 F1、
-    /// #59）：這個 property 當初被插進 `rebuildIndex` 的 doc comment 與它的宣告
+    /// **插入位置紀律**（#160 verify 160-4（正典計數與三次機械化失敗的量測在 `docs/design-principles-and-philosophy.md` §16——**不要在原始碼裡各自重新計數**，那正是它一直過期的原因））：
+    /// 這個 property 當初被插進 `rebuildIndex` 的 doc comment 與它的宣告
     /// 之間，於是那段 doc 掛到了 property 上、方法自己零註解。被孤兒化的正是
     /// 「呼叫端一律用 `AppState.store`，不得自己 `LibraryStore(root:)`」——本型別
     /// 誠實邊界第 2 條所依賴的那句話。**新成員不得插進既有 API 的 doc 與宣告之間。**

@@ -1,3 +1,11 @@
+
+/// #130：index 檔名帶化身前綴（`<key>-<8 碼>.sqlite` / `index-<8 碼>.sqlite`），
+/// 所以整合測試斷言的是「那個目錄裡有一個屬於這個 key 的 index」，不是確切檔名。
+/// 檔名綁化身是刻意的——它把 TOCTOU 從「偵測」變成「不可表達」。
+func hasIndex(in dir: URL, keyPrefix: String) -> Bool {
+    let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+    return names.contains { $0.hasPrefix(keyPrefix) && $0.hasSuffix(".sqlite") }
+}
 import XCTest
 
 /// CLI end-to-end：跑編譯出的 akashic binary，走 temp library 全流程。
@@ -97,8 +105,8 @@ final class CLIIntegrationTests: XCTestCase {
         let result = try runCLI(["doctor"] + lib)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stdout.contains("entries: 2"), result.stdout)
-        XCTAssertTrue(FileManager.default.fileExists(
-            atPath: libraryRoot.appendingPathComponent(".akashic/index.sqlite").path))
+        XCTAssertTrue(hasIndex(in: libraryRoot.appendingPathComponent(".akashic"),
+                               keyPrefix: "index"))
     }
 
     func testValidatePassesOnCleanLibrary() throws {
@@ -261,8 +269,8 @@ extension CLIIntegrationTests {
         XCTAssertEqual(r.status, 0, r.stderr)
 
         let fm = FileManager.default
-        XCTAssertTrue(fm.fileExists(atPath: home.appendingPathComponent("index/main.sqlite").path),
-                      "已註冊 store 的 index 必須寫到 <home>/index/<key>.sqlite")
+        XCTAssertTrue(hasIndex(in: home.appendingPathComponent("index"), keyPrefix: "main"),
+                      "已註冊 store 的 index 必須寫到 <home>/index/<key>-<化身>.sqlite")
         XCTAssertFalse(fm.fileExists(atPath: storeRoot.appendingPathComponent(".akashic").path),
                        "已註冊的 store 不該有 in-store 的 index 回落位置")
 
@@ -557,8 +565,8 @@ final class RegistryLookupCLITests: XCTestCase {
         XCTAssertEqual(r.status, 0, r.output)
 
         let fm = FileManager.default
-        XCTAssertTrue(fm.fileExists(atPath: home.appendingPathComponent("index/main.sqlite").path),
-                      "反查到 key 後 index 必須寫 home 的 index/main.sqlite")
+        XCTAssertTrue(hasIndex(in: home.appendingPathComponent("index"), keyPrefix: "main"),
+                      "反查到 key 後 index 必須寫 home 的 index/main-<化身>.sqlite")
         XCTAssertFalse(fm.fileExists(atPath: store.appendingPathComponent(".akashic").path),
                        "已註冊的 store 經 --library 開啟不得再建 in-store .akashic/")
     }

@@ -521,9 +521,17 @@ struct ResolveOrganizations: ParsableCommand {
         abstract: "列出 literal→organization 高信心候選；--apply 才寫入")
 
     @OptionGroup var options: LibraryOptions
-    @Flag(name: .long, help: "套用候選（顯式人工確認）；可用 --person / --org 收窄") var apply = false
-    @Option(name: .long, parsing: .upToNextOption,
-            help: "只套用這些 person key 的候選") var person: [String] = []
+    @Flag(name: .long, help: "套用候選（顯式人工確認）；可用 --holder / --org 收窄") var apply = false
+    /// #166：`--person` 更名為 `--holder`——候選的持有者現在可能是 organization
+    /// （parents 側），叫 `--person` 會讓「篩掉了什麼」與旗標名字不符。
+    /// **舊名保留為 alias**：它是既有使用者手上的指令，靜默移除會讓腳本壞掉。
+    /// **兩個命名空間混用**（#166 verify MEDIUM）：person key 與 org key 可以同名
+    /// （`Divergence.swift` 的 candidate doc 明載那是刻意的）。`--holder ntu` 會同時
+    /// 命中 person `ntu` 與 organization `ntu` 的候選。輸出區分得出（`person X` /
+    /// `org X`），旗標選不出來——help 明講，不假裝它能。
+    @Option(name: [.customLong("holder"), .customLong("person")], parsing: .upToNextOption,
+            help: "只套用這些持有者 key 的候選（person 或 organization；--person 為舊名）⚠ 兩個命名空間混用：同名的 person 與 organization 會一起命中")
+    var holder: [String] = []
     @Option(name: .long, parsing: .upToNextOption,
             help: "只套用指向這些 organization key 的候選") var org: [String] = []
 
@@ -531,23 +539,31 @@ struct ResolveOrganizations: ParsableCommand {
         let store = try options.openStore()
         let load = try store.load()
         let all = OrgResolver.candidates(people: load.people, organizations: load.organizations)
-        let pkSet = Set(person), okSet = Set(org)
+        let hkSet = Set(holder), okSet = Set(org)
         let candidates = all.filter {
-            (pkSet.isEmpty || pkSet.contains($0.personKey))
+            (hkSet.isEmpty || hkSet.contains($0.holder.key))
                 && (okSet.isEmpty || okSet.contains($0.orgKey))
         }
         guard !all.isEmpty else {
-            print("無候選（affiliation literal 皆無 org name 完全命中）")
+            print("無候選（affiliation／parents 的 literal 皆無 org name 完全命中）")
             return
         }
-        let selected = Set(candidates.map { "\($0.personKey)#\($0.literal)" })
+        // 持有者可能是 person 或 organization——**標出來**。少了它，兩類候選在
+        // 輸出裡長得一樣，而它們寫進的是不同記錄的不同欄位（#166）。
+        func label(_ h: OrgResolutionCandidate.Holder) -> String {
+            switch h {
+            case let .person(k): return "person \(displaySafe(k, max: 200))"
+            case let .organization(k): return "org \(displaySafe(k, max: 200))"
+            }
+        }
+        let selected = Set(candidates.map { "\($0.holder)#\($0.literal)" })
         for c in all {
-            let mark = (apply && !selected.contains("\(c.personKey)#\(c.literal)")) ? "  (skip) " : "  "
-            print("\(mark)\(displaySafe(c.personKey, max: 200)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
+            let mark = (apply && !selected.contains("\(c.holder)#\(c.literal)")) ? "  (skip) " : "  "
+            print("\(mark)\(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
         }
         if apply {
-            if !(person.isEmpty && org.isEmpty), candidates.isEmpty {
-                throw ValidationError("--person / --org 的篩選條件沒有命中任何候選")
+            if !(holder.isEmpty && org.isEmpty), candidates.isEmpty {
+                throw ValidationError("--holder / --org 的篩選條件沒有命中任何候選")
             }
             // #154 verify 154-8：per-item 收容 + 先報告再 rebuild + `✓` 只在全綠。
             //
@@ -557,30 +573,50 @@ struct ResolveOrganizations: ParsableCommand {
             // 落地。同一個檔案的 `ResolvePeople` 早為此修過三輪（R7/M21 per-item
             // 收容、R9/M8 先印再 rebuild、R8/L29 `✓` 只在全綠）——org 側三條全沒
             // 帶過來。這不是新設計，是把既有紀律平移。
-            let updated = OrgResolver.apply(candidates, to: load.people)
-            var written = 0
-            var failed: [(key: String, why: String)] = []
-            for p in updated where !load.people.contains(where: { $0 == p }) {
+            let updated = OrgResolver.apply(candidates, to: load.people,
+                                            organizations: load.organizations)
+            // **person 與 organization 分開計數**（#166 verify）：`written` 現在同時
+            // 累計兩者，而訊息仍寫「N 個 person」——沙箱實測「一個 person 都沒有」
+            // 時照樣印「改寫 1 個 person」。本 change 之前 `written` 只數 person，
+            // 那時是對的。同一個 block 的相鄰註解自己就寫著「報寫入數不是候選數
+            // ——先前用 candidates.count，失敗時誇報」。
+            var wroteP = 0, wroteO = 0
+            // 失敗清單也要**標類別**：person key 與 org key 可以同名，而這正是本
+            // change 在 30 行之上剛替候選列表修好的東西。
+            var failed: [(kind: String, key: String, why: String)] = []
+            for p in updated.people where !load.people.contains(where: { $0 == p }) {
                 do {
                     try store.writePerson(p)
-                    written += 1
+                    wroteP += 1
                 } catch {
-                    failed.append((key: p.key, why: "\(error)"))
+                    failed.append((kind: "person", key: p.key, why: "\(error)"))
+                }
+            }
+            // organization 側走**同一套** per-item 收容（#154 verify 154-8 的紀律；
+            // 那一輪的教訓正是「org 側三條全沒帶過來」——這次不要再漏一次）
+            for o in updated.organizations where !load.organizations.contains(where: { $0 == o }) {
+                do {
+                    try store.writeOrganization(o)
+                    wroteO += 1
+                } catch {
+                    failed.append((kind: "org", key: o.key, why: "\(error)"))
                 }
             }
             // **先報失敗**：rebuild 可能自己再擲一次，那會把上面的清單吞掉
             if !failed.isEmpty {
                 print("write failed（單筆寫入失敗，已略過續跑）: \(failed.count)")
                 for f in failed {
-                    print("  ✗ \(displaySafe(f.key, max: 200)) — \(displaySafe(f.why, max: 512))")
+                    print("  ✗ \(f.kind) \(displaySafe(f.key, max: 200)) — \(displaySafe(f.why, max: 512))")
                 }
             }
             _ = try LibraryIndex(store: store).rebuild()
             // `✓` 只在全綠。報**寫入數**不是候選數——先前用 candidates.count，失敗時誇報
             if failed.isEmpty {
-                print("✓ 歸戶 \(candidates.count) 筆、改寫 \(written) 個 person、index 已重建")
+                print("✓ 歸戶 \(candidates.count) 筆、改寫 \(wroteP) 個 person / "
+                      + "\(wroteO) 個 organization、index 已重建")
             } else {
-                print("⚠ 部分完成：改寫 \(written) 個 person、\(failed.count) 個失敗、index 已重建")
+                print("⚠ 部分完成：改寫 \(wroteP) 個 person / \(wroteO) 個 organization、"
+                      + "\(failed.count) 個失敗、index 已重建")
                 // **throw 必須在本次執行所有該印的東西之後**（#154 verify R4 Q2）。
                 // 這裡 `if apply` 區塊尾端目前沒有其他 print，所以就地 throw 成立；
                 // 但**下一次可能被違反的正是這裡**——有人在區塊尾端加一行 print

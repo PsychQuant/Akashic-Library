@@ -138,6 +138,20 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 （投報率優先）。**絕不自動合併**：正規化（NFKC／連字號家族／不可見字元）只住配對
 鍵，同一個正規化名對到 2 個以上實體即判歧義、整組排除，交人裁決。
 
+`resolve-organizations` 走**兩處** literal：person 的 `profile.affiliations` 與
+**organization 的 `parents`**（#166；先前只走前者，於是 `bootstrap-organizations`
+吃進去的 parents literal 進得去、出不來）。parents 側多兩道排除，因為那裡有 person
+側**不可表達**的錯誤形狀：
+
+- **自我父權**——literal 命中自己的別名。那不是歸戶，是把記錄變成自己的上級。
+- **環**——A→B 已存在時再讓 B 指回 A。**本 repo 沒有任何地方偵測 org 階層的環**
+  （載入不查、`crossRecordIssues` 不查），造出來會安靜存在到某個走 parents 的消費端
+  無限迴圈。判定含既有 `.key` 邊**與本輪已接受的候選**——只看既有邊會漏掉「兩個候選
+  各自無害、湊在一起成環」。
+
+篩選旗標 `--person` 改名為 `--holder`（持有者可能是 organization）；**舊名保留為
+alias**，既有腳本不會壞。
+
 **已知限制**：`bootstrap-organizations` 的 key 取機構名 **NFKC 正規化後**的 ASCII
 字母數字 token——雙語寫法（`國立臺灣大學 National Taiwan University`）用英文部分產
 key，全形拉丁（`Ｎａｔｉｏｎａｌ…`，CJK 輸入法下的常見產物）先折回 ASCII 再取。

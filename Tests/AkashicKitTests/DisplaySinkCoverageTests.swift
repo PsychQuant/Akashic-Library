@@ -99,7 +99,9 @@ final class DisplaySinkCoverageTests: XCTestCase {
     /// store 衍生（＝可能來自別的 binary / 別人 / Zotero 匯入的第三方內容）的識別字。
     /// `authors` 在列：entries 來自 `import-zotero`，而 Zotero 的資料來自出版商與網頁
     /// ——那不是使用者自撰內容。
-    private let taintedTokens = [
+    /// （`static` 是為了讓 `testEveryTaintedTokenIsLoadBearing` 能枚舉它——
+    /// 逐 token 的合成覆蓋見那條。）
+    static let taintedTokens = [
         "citekey", ".title", ".name", ".reason", ".file",
         ".literal", "personKey", "libraryKey", "authors",
         // #76：divergence 的未信任內容（#133 起可由 LLM 經 MCP 寫入——來源面擴大）
@@ -514,6 +516,99 @@ final class DisplaySinkCoverageTests: XCTestCase {
         XCTAssertEqual(scanViolations(name: "Synthetic.swift", text: clean).count, 0,
                        "包了就不該報")
     }
+    /// **部分退化**：拿掉判準的**任何一個**組成，都必須有測試變紅（#163）。
+    ///
+    /// 逐軸下限只偵測 classifier **整條**失效。席位實測部分退化四軸全漏：拿掉一個
+    /// disjunct、拿掉一個 error 型別、拿掉**任一**單一 tainted token（13 個逐一
+    /// 測過，最兇的 `citekey` 也只讓 strip-all 78→64，仍在 floor 之上）。
+    ///
+    /// ## 為什麼不是 issue 提的 oracle-delta
+    ///
+    /// 方向對，但席位實測的校準成本是 **delta 50**（寬鬆 oracle 64 vs 現行 14）。
+    /// **逐組成的合成覆蓋達成同一個目標而不必付那個成本**，而且它在 #161／#162
+    /// 已被證明是唯一殺得掉 mutation 的形式——那兩輪各有一個 mutation 在「掃真實
+    /// 原始碼」的測試下全綠，補上合成輸入才咬得住。理由相同：**修乾淨之後，
+    /// 「掃語料有沒有報東西」這個訊號恆為零**。
+    ///
+    /// **誠實邊界**：oracle-delta 仍有它獨有的價值（抓**新增**的盲區，不只既有
+    /// 組成的消失）。那部分沒有解決。
+    func testEveryDisplaySinkDisjunctIsLoadBearing() {
+        // **每一行只能被它自己那個組成觸發。** 第一版沒做到——`jsonString(` 的樣本
+        // 寫成 `jsonString(["a": entry.title])`，裡面的 `"a": ` 讓 `": ` 也命中，
+        // 於是拿掉 `jsonString(` 十條全綠。**輸入不隔離，逐組成覆蓋就退化成
+        // 「至少有一條 disjunct 活著」。**
+        let cases: [(name: String, line: String)] = [
+            ("print(",              #"print(oneValue)"#),
+            ("jsonString(",         #"try jsonString(oneValue)"#),
+            (#"d[""#,               #"d["x"] = oneValue"#),
+            (#"result[""#,          #"result["x"] = oneValue"#),
+            (#"": "#,               #"[k: oneValue, "j": second]"#),
+            (#"return ""#,          #"return "x""#),
+            ("FileHandle.standard", #"FileHandle.standardError.write(oneValue)"#),
+        ]
+        for c in cases {
+            XCTAssertTrue(Self.isDisplaySink(c.line),
+                          "組成「\(c.name)」認不得——它消失了守衛不會有任何訊號")
+        }
+
+        // **SwiftUI 那一組用獨立寫死的清單。** 第一版枚舉 `Self.swiftUISinks` 本身
+        // ——**自我指涉**：拿掉一項就連它的測試一起拿掉，mutation 永遠殺不掉。
+        // 這份是第二次獨立陳述，兩邊不一致才會紅。那正是 #163 要的 oracle-delta，
+        // 只是規模小到寫得起，而且它同時抓「被刪掉」與「悄悄新增」。
+        let expectedSwiftUI = ["Text(", "Label(", "LabeledContent(", "Button(",
+                               "ContentUnavailableView(", ".navigationTitle(", ".alert(",
+                               ".help(", ".confirmationDialog("]
+        XCTAssertEqual(Self.swiftUISinks, expectedSwiftUI,
+                       "SwiftUI sink 清單變了——刻意新增就加進本測試的期望清單；"
+                       + "被刪掉那是退化")
+        for sink in expectedSwiftUI {
+            XCTAssertTrue(Self.isDisplaySink("    \(sink)entry.title)"),
+                          "SwiftUI sink「\(sink)」認不得")
+        }
+
+        // 反面：不顯示的 API 不得誤中
+        for notSink in ["let x = entry.title", ".onChange(of: entry.title)",
+                        "if entry.title.isEmpty {"] {
+            XCTAssertFalse(Self.isDisplaySink(notSink), "「\(notSink)」不是顯示面")
+        }
+    }
+
+    /// error sink 的型別清單同理。
+    func testErrorSinkTypeListIsLoadBearing() {
+        for t in ["throw ServiceError.invalid(", "throw StoreVersionError.malformed("] {
+            XCTAssertTrue(Self.isErrorSinkLine(t),
+                          "「\(t)」的 errorDescription 不消毒 payload，throw 站點必須消毒")
+        }
+        // 另兩種**刻意不在**清單裡。這條反面斷言把那個決定釘住：有人「順手補回來」
+        // 會製造約 90 條需要 exempt 的誤中，正是 #162 論證過不該做的事。
+        for covered in ["throw StoreYAMLError.invalidField(", "throw StoreIOError.invalidInput("] {
+            XCTAssertFalse(Self.isErrorSinkLine(covered),
+                           "「\(covered)」的 payload 由 errorDescription 或輸出端 sink 消毒")
+        }
+    }
+
+    /// **每一個 tainted token 都要 load-bearing。**
+    ///
+    /// 拿掉**任一**單一 token，逐軸下限全部照過——下限量的是「這一軸還活著嗎」，
+    /// 量不到「清單裡少了一項」。
+    ///
+    /// **用獨立寫死的清單，不枚舉 `Self.taintedTokens`**：枚舉它本身是自我指涉，
+    /// 拿掉 `.literal` 之後迴圈就不再測 `.literal`。
+    func testEveryTaintedTokenIsLoadBearing() {
+        let expected = ["citekey", ".title", ".name", ".reason", ".file",
+                        ".literal", "personKey", "libraryKey", "authors",
+                        ".question", ".judgement", ".statement", "restsOn", ".key"]
+        XCTAssertEqual(Self.taintedTokens, expected,
+                       "tainted token 清單變了——刻意新增就加進本測試的期望清單；"
+                       + "被刪掉那是退化（逐軸下限量不到少一項）")
+        for token in expected {
+            let dot = token.hasPrefix(".") ? "" : "."
+            let line = #"print("\(record"# + dot + token + #")")"#
+            XCTAssertEqual(scanViolations(name: "Synthetic.swift", text: line).count, 1,
+                           "token「\(token)」從清單消失時守衛不會有任何訊號：\(line)")
+        }
+    }
+
     /// **subscript 指派也是 dict 值**（#156 verify 156-16）：`isSink` 一直認得
     /// `d["` 與 `result["`——那正是 `d["key"] = value` 的形狀——但抽取器只認**字面量**
     /// `"key": value`，對 subscript 指派抽出**空陣列**。於是那兩條 disjunct 是
@@ -668,7 +763,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
                    l.trimmingCharacters(in: .whitespaces).hasPrefix("case ") { continue }
 
                 for expr in interpolations(in: l) + dictValues(in: l) {
-                    let tokenMatched = taintedTokens.contains(where: { expr.contains($0) })
+                    let tokenMatched = Self.taintedTokens.contains(where: { expr.contains($0) })
                     guard isErrorSink || tokenMatched else { continue }
                     if expr.contains("displaySafe(") { continue }
                     // `.count` / `.isEmpty` 是數量不是內容；`!= nil` / `== nil` 是
@@ -858,7 +953,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
         let exprs = interpolations(in: bad)
         XCTAssertEqual(exprs.count, 2)
         XCTAssertTrue(exprs.allSatisfy { e in
-            taintedTokens.contains { e.contains($0) } && !e.contains("displaySafe(")
+            Self.taintedTokens.contains { e.contains($0) } && !e.contains("displaySafe(")
         }, "判準抓不到已知的壞樣式")
         // dict-value 形狀（#138 verify F2 的 mutation 靶）：值是裸表達式、無插值
         let badDict = #""question": d.question,"#

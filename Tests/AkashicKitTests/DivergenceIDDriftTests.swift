@@ -17,7 +17,9 @@ import Foundation
 ///
 /// id drift 讓同一組候選有**兩筆**記錄，於是三道守衛全部去問了沒有判斷的那筆。
 /// 席位實測：帶判斷與 `prefers` 的那筆被連帶刪除、判斷指名為正確的實體被合併掉，
-/// **dry-run 與實跑兩次都沒有一個字提到有判斷存在**，exit 0。
+/// **只警告不擋**：#159 之後 dry-run 與實跑都會印「連帶刪除的記錄帶有判斷」，
+/// 然後照樣 exit 0 完成不可逆刪除。（issue body 的「兩次都沒有一個字提到」在
+/// `cfe19c7` 上為真，在 merge base 上已不是。實質沒變。）
 ///
 /// 觸發路徑全部是正常操作：record → resolve → 再 record → resolve。
 final class DivergenceIDDriftTests: XCTestCase {
@@ -175,6 +177,99 @@ final class DivergenceIDDriftTests: XCTestCase {
         let after = try store.load().divergences
         XCTAssertEqual(after.count, 1, "兩筆合成一筆：\(after.map(\.id))")
         XCTAssertEqual(after.first?.id, idFor(["chen-a", "fann-b"]))
+    }
+
+    /// **跨形狀 id 碰撞不得被當成零損失**（#180 verify CRITICAL）。
+    ///
+    /// `forDivergence` 只雜湊候選的 **key**、不含 shape，而 key 跨形狀同名是明文
+    /// 允許的。少了 `candidates` 比對，一筆 person 歧異遷移後會撞上「key 相同、
+    /// shape 不同」的既有 org 歧異、被判零損失而**整筆丟掉**——席位實測 exit 0、
+    /// 無任何訊息，而 base 上那筆只是 id 漂移（可見、可修）。
+    func testCrossShapeCollisionIsRefusedNotSilentlyMerged() throws {
+        for k in ["alice", "alicia", "bob"] { try person(k) }
+        for k in ["alice", "bob"] {
+            try store.writeOrganization(Organization(key: k, names: TimelineOf([
+                TemporalValue(value: k.uppercased(), range: DateRange())])))
+        }
+        // org 歧異 {alice, bob}——與 person 歧異 {alice, bob} **同 id、不同 shape**
+        // **question 必須相同**，否則 `question` 那一項就會頂著，`candidates`
+        // 是否在合取式裡就分辨不出來（第一版的 fixture 用了不同 question，
+        // mutation 拿掉 `candidates` 十二條全綠）。judgement 兩邊都 nil 同理。
+        let orgD = try store.recordDivergence(
+            question: "同一個？",
+            candidates: ["alice", "bob"].map { (key: $0, shape: EntityKind.organization) },
+            judgement: nil, restsOn: [], prefers: nil)
+        _ = try record(["alicia", "bob"], question: "同一個？")   // 遷移後變 {alice, bob}
+        let main = try record(["alice", "alicia"], question: "同一個？")
+        GitFixture.commitAll(root, message: "seed")
+
+        XCTAssertThrowsError(try store.resolveDivergence(id: main.id, survivor: "alice")) { err in
+            guard case DivergenceResolveError.migrationCollision = err else {
+                return XCTFail("跨形狀碰撞必須拒絕，不得當成零損失：\(err)")
+            }
+        }
+        let after = try store.load().divergences
+        XCTAssertEqual(after.count, 3, "拒絕就不得刪任何記錄：\(after.map(\.id))")
+        XCTAssertTrue(after.contains { $0.id == orgD.id && $0.shape == .organization },
+                      "org 歧異必須原封不動")
+    }
+
+    /// **`sameContent` 的每個合取項各自 load-bearing。**
+    ///
+    /// 席位實測：三項**單獨**拿掉任一項，九條全綠——因為既有兩條碰撞測試的兩筆
+    /// 記錄 question 與 judgement **同時**不同，任一項消失都還有另一項頂著。
+    /// 而拿掉 `judgement` 那項可以在「question 相同、judgement 不同」時**摧毀判斷**
+    /// （席位用 mutated binary 實證：判斷文字在整個 store 內消失）。
+    func testEachSameContentConjunctIsIndividuallyLoadBearing() throws {
+        for k in ["chen-a", "fann-a", "fann-b"] { try person(k) }
+        let digest = "sha256:" + String(repeating: "ab", count: 32)
+
+        // (1) question 相同、**只有 judgement 不同** → 必須拒絕
+        _ = try record(["chen-a", "fann-a"], question: "同一人？")
+        _ = try store.recordDivergence(
+            question: "同一人？",
+            candidates: ["chen-a", "fann-b"].map { (key: $0, shape: EntityKind.person) },
+            judgement: "名冊確認 chen-a 才是正式寫法", restsOn: [digest], prefers: "chen-a")
+        let m1 = try record(["fann-a", "fann-b"])
+        GitFixture.commitAll(root, message: "seed1")
+        XCTAssertThrowsError(try store.resolveDivergence(id: m1.id, survivor: "fann-b")) { err in
+            guard case let DivergenceResolveError.migrationCollision(d) = err else {
+                return XCTFail("judgement 是唯一差異時也要擋——那正是 #75 要保護的東西：\(err)")
+            }
+            XCTAssertTrue(d.joined().contains("名冊確認"), "要指名將被犧牲的判斷：\(d)")
+        }
+        XCTAssertTrue(try store.load().divergences.contains { $0.judgement != nil },
+                      "判斷不得消失")
+    }
+
+    /// **question 是唯一差異時也要擋。**
+    ///
+    /// 席位實測：單獨拿掉 `a.question == b.question` 九條全綠——既有 fixture 讓
+    /// question 與 judgement 同時不同，任一項消失都還有另一項頂著。**要隔離出
+    /// 一項，其餘各項都必須相同。**
+    func testQuestionOnlyDifferenceIsRefused() throws {
+        for k in ["chen-a", "fann-a", "fann-b"] { try person(k) }
+        _ = try record(["chen-a", "fann-a"], question: "A 的問法")
+        _ = try record(["chen-a", "fann-b"], question: "B 的問法")   // 只有這裡不同
+        let m = try record(["fann-a", "fann-b"])
+        GitFixture.commitAll(root, message: "seedq")
+        XCTAssertThrowsError(try store.resolveDivergence(id: m.id, survivor: "fann-b"),
+                             "question 是人寫下的問題，不得靜默挑一個")
+    }
+
+    /// unknownFields 是唯一差異時同樣要擋（未來 binary 寫入的欄位不得被靜默丟棄）。
+    func testUnknownFieldsOnlyDifferenceIsAlsoRefused() throws {
+        for k in ["chen-a", "fann-a", "fann-b"] { try person(k) }
+        _ = try record(["chen-a", "fann-a"], question: "同一人？")
+        let target = try record(["chen-a", "fann-b"], question: "同一人？")
+        // 手寫一個未知欄位進既有那筆（模擬較新 binary 寫的）
+        let f = root.appendingPathComponent("entities/\(target.id.uuidString).yaml")
+        try (try String(contentsOf: f, encoding: .utf8) + "future-note: keep-me\n")
+            .write(to: f, atomically: true, encoding: .utf8)
+        let m = try record(["fann-a", "fann-b"])
+        GitFixture.commitAll(root, message: "seed2")
+        XCTAssertThrowsError(try store.resolveDivergence(id: m.id, survivor: "fann-b"),
+                             "帶未知欄位的那筆不得被當成零損失丟掉")
     }
 
     /// **碰撞 2：兩筆遷移記錄互撞。** 只比對既有記錄會漏掉這一種。

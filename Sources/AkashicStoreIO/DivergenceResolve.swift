@@ -763,7 +763,10 @@ extension LibraryStore {
     /// 「重錄不得抹掉 prefers」**三道全部 key 在那個不變式上**。席位五步實測
     /// （record → resolve → 再 record → resolve）：帶著判斷與 `prefers` 的那筆
     /// 記錄被連帶刪除、判斷指名為正確的那個實體被合併掉，dry-run 與實跑
-    /// **兩次都沒有一個字提到有判斷存在**，exit 0。
+    /// **只警告不擋**，exit 0。（issue body 寫「兩次都沒有一個字提到有判斷存在」
+    /// ——那在 `cfe19c7` 上為真，在本 change 的 merge base 上**已經不是**：#159 補了
+    /// 「連帶刪除的記錄帶有判斷」的警告。實質沒變：沒被擋、判斷指名為正確的實體
+    /// 被摧毀、exit 0。量詞照抄自 issue 是本 change 一度犯的錯，席位實測抓到。）
     ///
     /// ## 重算會撞上三種碰撞，兩種是這個修法新引入的
     ///
@@ -785,9 +788,23 @@ extension LibraryStore {
         var out = DivergenceMigration()
 
         /// 兩筆記錄除了 id 以外是否等值——零損失才可靜默合併。
+        /// 除了 id 以外等值——**零損失才可靜默合併**。
+        ///
+        /// **`candidates` 必須在內**（#180 verify CRITICAL）。`forDivergence` 只雜湊
+        /// 候選的 **key**、不含 shape，而 key 跨形狀同名是明文允許的
+        /// （`Divergence.swift` 的 candidate doc）。少了這一項，一筆 person 歧異
+        /// 遷移後會撞上「候選 key 相同但 shape 不同」的既有記錄、被判成零損失而
+        /// **整筆丟掉**——席位實測：org 歧異 `{alice,bob}` 原封不動，而 person 歧異
+        /// 「alice 與 bob 是同一人？」消失，exit 0、無任何訊息。
+        ///
+        /// **那是本 change 引入的**：base 上那筆只是 id 漂移（可見、可修）。把
+        /// 「id 漂移」換成「記錄被靜默摧毀」是嚴格的退步。
+        ///
+        /// 加進來之後跨形狀情形轉成 `migrationCollision` 拒絕——仍礙事，但不毀資料。
+        /// 根治要把 shape 納入 `forDivergence`，那是 format 級變更，不屬本 change。
         func sameContent(_ a: Divergence, _ b: Divergence) -> Bool {
-            a.question == b.question && a.judgement == b.judgement
-                && a.unknownFields == b.unknownFields
+            a.candidates == b.candidates && a.question == b.question
+                && a.judgement == b.judgement && a.unknownFields == b.unknownFields
         }
         func describe(_ d: Divergence) -> String {
             let j = d.judgement.map { "判斷「\($0.statement)」"

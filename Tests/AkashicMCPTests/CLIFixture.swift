@@ -49,17 +49,30 @@ enum CLIFixture {
         }
         let out = Pipe(), err = Pipe()
         p.standardOutput = out; p.standardError = err
-        // 大輸出要邊跑邊讀——pipe buffer 滿了會 deadlock（本 repo 的 96 KB
-        // 上限註解提過同一個坑）。
-        var outData = Data(), errData = Data()
-        out.fileHandleForReading.readabilityHandler = { outData.append($0.availableData) }
-        err.fileHandleForReading.readabilityHandler = { errData.append($0.availableData) }
         do { try p.run() } catch { return Result(status: -1, stdout: "", stderr: "\(error)") }
+
+        // **兩根管子各自在自己的執行緒讀到 EOF**（#171 複驗）。兩個約束同時要滿足：
+        //
+        // - **不能等 `waitUntilExit()` 之後才讀**：pipe buffer 滿了 child 會卡在
+        //   write、parent 卡在 wait——經典 deadlock。匯出全庫遠超 64 KB。
+        // - **不能用 `readabilityHandler` 累加到共享的 `var`**：handler 跑在
+        //   FileHandle 的私有佇列上，而 `readabilityHandler = nil` **不等** in-flight
+        //   block 結束，所以主執行緒在 wait 之後的收尾 append 可能與 handler 併發。
+        //   `Data.append` 非執行緒安全 → 重複／遺失／崩潰。第一版就是那樣寫的。
+        //
+        // `readDataToEndOfFile()` 各自阻塞到 EOF，沒有共享可變狀態，DispatchGroup
+        // 保證兩邊都讀完才回。（`CLITestHarness` 用同一個 API 而不需要這些，是因為
+        // 它把 stdout/stderr 併成一根管子——兩根照抄那個寫法會 deadlock。）
+        var outData = Data(), errData = Data()
+        let group = DispatchGroup()
+        DispatchQueue.global().async(group: group) {
+            outData = out.fileHandleForReading.readDataToEndOfFile()
+        }
+        DispatchQueue.global().async(group: group) {
+            errData = err.fileHandleForReading.readDataToEndOfFile()
+        }
         p.waitUntilExit()
-        out.fileHandleForReading.readabilityHandler = nil
-        err.fileHandleForReading.readabilityHandler = nil
-        outData.append(out.fileHandleForReading.availableData)
-        errData.append(err.fileHandleForReading.availableData)
+        group.wait()
         return Result(status: p.terminationStatus,
                       stdout: String(data: outData, encoding: .utf8) ?? "",
                       stderr: String(data: errData, encoding: .utf8) ?? "")

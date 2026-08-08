@@ -146,13 +146,22 @@ public final class AkashicService {
         // `BibWriter` 一個欄位一行，abstract 是常態欄位，4000 上限會把它截成
         // 大括號不閉合的無效 .bib，且靜默。
         func safe(_ s: String) throws -> String {
-            guard s.utf8.count <= Self.maxExportBytes else {
+            // **量消毒之後的長度**（#171 複驗 b′）：`documentSafe` 是 6 倍膨脹器
+            // （實測 1 MB 全 ESC → 6 MB），量 `s` 會讓最壞情況真正進 context 的是
+            // 48 MB 而不是 8 MB——「小到不會毀掉 context」在對抗性內容下不成立。
+            let out = documentSafe(s)
+            guard out.utf8.count <= Self.maxExportBytes else {
+                // **指路只能指呼叫端真的有的旋鈕**（#171 複驗 b）：`akashic_export`
+                // 的 schema 只有 `citekeys` 與 `format`——原本寫的 `--library`／`--tag`
+                // 這裡不存在，而 MCP client 一般也跑不了 CLI。三個建議裡兩個是假的。
                 throw ServiceError.invalid(
-                    "匯出 \(s.utf8.count / 1024) KB 超過 MCP 上限 "
-                    + "\(Self.maxExportBytes / 1024) KB——tool result 進的是 LLM context。"
-                    + "改用 CLI：akashic export-bib --output <path>（或先縮小 --library／--tag）")
+                    "匯出 \(out.utf8.count / 1024) KB 超過 MCP 上限 "
+                    + "\(Self.maxExportBytes / 1024) KB（本庫 \(entries.count) 筆）"
+                    + "——tool result 進的是 LLM context。改傳 citekeys 分批匯出"
+                    + "（本工具唯一的縮小方式）；要全庫請在終端跑 "
+                    + "akashic export-bib --output <path>")
             }
-            return documentSafe(s)
+            return out
         }
         switch format {
         case "bib": return try safe(BibExport.bibFile(entries: entries, people: load.people))
@@ -291,8 +300,13 @@ public final class AkashicService {
                  "path": displaySafe(config.files[k]!, max: 800),
                  "current": k == config.current]
             }
-            var out: [String: Any] = ["files": list, "active_root": root.path]
-            if let legacy = config.library { out["legacy_library"] = legacy }
+            // #171 複驗 (e)：**同一個函式的 `use` 分支已經包了** `displaySafe(root.path)`，
+            // 同一個 dict 裡的 `path` 也包了——只有這兩個沒有。config.yaml 的 path
+            // **值**是自由字串，只有 **key** 過 `StoreKey.isValid`（AkashicConfig:86），
+            // 值只過 `cleanValue`（剝引號／inline comment，不碰控制字元）。
+            var out: [String: Any] = ["files": list,
+                                      "active_root": displaySafe(root.path, max: 800)]
+            if let legacy = config.library { out["legacy_library"] = displaySafe(legacy, max: 800) }
             return try jsonString(out)
         case "use":
             guard let key, !key.isEmpty else {
@@ -340,7 +354,10 @@ public final class AkashicService {
             let co = try engine.coAuthors(of: key, library: library)
             // resolved 合著者的 name 給人讀的名字（people.names 首項），key 另放 person_key
             let nameByKey = Dictionary(uniqueKeysWithValues: load.people.map { ($0.key, $0.displayName(in: .latn)) })
-            var personDict: [String: Any] = ["key": key]
+            // #171 複驗 (g)：`record == nil` 但 `allPubs` 非空時（key 只出現在 entry 的
+            // `.key(...)` 參照、沒有 person 記錄），呼叫端的字串原樣回吐——而同一個
+            // 回應的 `publications[].authors` 裡那同一份字串是包了的。
+            var personDict: [String: Any] = ["key": displaySafe(key, max: 200)]
             if let record {
                 personDict["names"] = record.names.map { displaySafe($0, max: 200) }
                 if !record.unknownFields.isEmpty {   // #31
@@ -355,7 +372,10 @@ public final class AkashicService {
                 "co_authors": co.map { c -> [String: Any] in
                     var d: [String: Any] = ["count": c.count]
                     if let pk = c.personKey {
-                        d["person_key"] = pk
+                        // #171 複驗 (f)：**下一行**的 `name` fallback 就是 `pk` 本身且包了，
+                        // 同函式 :391 的另一個分支也包了。作者 key 讀寫兩端都沒有
+                        // StoreKey 驗證——與 171-5(b) 的 `relations.cites` 完全同源。
+                        d["person_key"] = displaySafe(pk, max: 200)
                         d["name"] = displaySafe(nameByKey[pk] ?? pk, max: 200)
                     } else {
                         d["name"] = displaySafe(c.name, max: 200)
@@ -535,7 +555,7 @@ public final class AkashicService {
         guard let selected = apply else {
             return try jsonString(withIDs.map { pair -> [String: Any] in
                 [
-                    "id": pair.id,   // display-safe-exempt: 本函式自產的序號／UUID，非 store 內容
+                    "id": pair.id,   // display-safe-exempt: 形如 "<citekey>:<index>"；citekey 受 load 端 StoreKey quarantine 把關（#171 複驗：原理由寫「本函式自產、非 store 內容」是錯的——citekey 就是 store 內容）
                     "citekey": displaySafe(pair.candidate.citekey, max: 200),
                     "authorIndex": pair.candidate.authorIndex,
                     "literal": displaySafe(pair.candidate.literal, max: 400),

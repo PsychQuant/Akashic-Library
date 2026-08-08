@@ -133,6 +133,26 @@ final class ExportBoundaryTests: XCTestCase {
         }
     }
 
+    /// **上限必須量消毒之後**（#171 複驗 b′）——`documentSafe` 是 6 倍膨脹器。
+    ///
+    /// 這條與上一條的差別**只在內容的性質**：上一條是良性的 `A`（消毒後長度不變），
+    /// 這一條是全 ESC（實測 1 MB → 6 MB）。原始 2 MB 遠低於 8 MB 上限、消毒後 12 MB
+    /// 遠超過——量錯地方的話最壞情況真正進 LLM context 的是 48 MB 而不是 8 MB。
+    ///
+    /// **良性內容量不出這個差別**，所以上一條不會紅、這一條會。對抗性輸入的上限
+    /// 要用對抗性輸入測。
+    func testOversizeIsMeasuredAfterSanitisationNotBefore() throws {
+        var e = Entry(id: UUID(), citekey: "expand2020", type: "article", title: "Expand")
+        e.fields = ["abstract": String(repeating: esc, count: 2_000_000)]
+        e.date = "2020"
+        try LibraryStore(root: root).writeEntry(e)
+        XCTAssertThrowsError(try service.export(citekeys: ["expand2020"], format: "bib")) { err in
+            let msg = (err as? LocalizedError)?.errorDescription ?? "\(err)"
+            XCTAssertTrue(msg.contains("citekeys"),
+                          "指路只能指呼叫端真的有的旋鈕——akashic_export 沒有 --library／--tag：\(msg)")
+        }
+    }
+
     /// **171-4：`graph` 是 `export-bib` 逐行對應的孿生**，三種格式都要消毒。
     ///
     /// 三個 renderer 各自的 escape 處理的是各自格式的 metacharacter，與 C0／bidi

@@ -846,6 +846,48 @@ extension ServiceTests {
         e.akashic.relations.related = ["rel\(hostileEcho)ated"]
         try LibraryStore(root: root).writeEntry(e)
         assertNoRawControls(try service.getEntry(citekey: "rel2020"), "entryDict 的 cites/related")
+        // **兩個 surface 都要真的走到**（#171 複驗 171-8）：這條原本只呼叫
+        // `getEntry`，卻在名字與 doc 裡宣稱蓋到 `link()`——只還原 `link()` 的消毒，
+        // 1023 條零紅。修法有效但可以被無聲刪除，而「測試名字宣稱了它沒驗的性質，
+        // 那比沒有測試更糟」是本 repo 已經記過的（`OrgBootstrapCLITests.swift:144`）。
+        assertNoRawControls(try service.link(citekey: "rel2020", kind: "cites",
+                                             add: [], remove: []),
+                            "link() 的 cites/related")
+    }
+
+    /// (e) `files` 的 `list` 分支 — **同一個函式的 `use` 分支已經包了**。
+    ///     config.yaml 的 path **值**是自由字串（只有 key 過 StoreKey）。
+    func testFilesListSanitisesRootPaths() throws {
+        let hostileRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ev\u{1B}[31m\u{202E}il-\(UUID().uuidString)")
+        try LibraryStore(root: hostileRoot).ensureLayout()
+        let cfg = AkashicConfig(library: hostileRoot.path,
+                                files: ["hostile": hostileRoot.path], current: "hostile")
+        try cfg.write(to: service.configURL)
+        let svc = AkashicService(root: hostileRoot, key: "hostile", configURL: service.configURL,
+                                 environment: ["AKASHIC_HOME": fakeHome.path])
+        assertNoRawControls(try svc.files(action: "list", key: nil),
+                            "files list 的 active_root / legacy_library")
+        try? FileManager.default.removeItem(at: hostileRoot)
+    }
+
+    /// (f)(g) `person()` 的 `co_authors[].person_key` 與 `personDict["key"]`。
+    ///
+    /// **作者 key 讀寫兩端都沒有 StoreKey 驗證**（`writeEntry` 只驗 `citekey` 與
+    /// `libraries`），與 (b) 的 `relations.cites` 同源。兩處都是「同一份字串在同一個
+    /// 回應裡兩種待遇」——`co_authors` 的 `name` fallback 就是 `person_key` 本身。
+    func testPersonKeyEchoesAreSanitised() throws {
+        let hostileKey = "ev\u{1B}[31m\u{202E}il-key"
+        var e = Entry(id: UUID(), citekey: "coauth2020", type: "article", title: "T")
+        e.date = "2020"
+        e.authors = [.key(hostileKey), .key("cheng-che")]
+        try LibraryStore(root: root).writeEntry(e)
+        // record == nil（沒有 person 檔）→ personDict 走 key 原樣回吐那條路徑
+        assertNoRawControls(try service.person(key: hostileKey, name: nil, library: nil),
+                            "personDict 的 key")
+        // 有 record 的一側則走 co_authors.person_key
+        assertNoRawControls(try service.person(key: "cheng-che", name: nil, library: nil),
+                            "co_authors 的 person_key")
     }
 
     /// (c) `addPerson` 回吐 `names` — 單一來回把呼叫端字串原樣送進 LLM context。

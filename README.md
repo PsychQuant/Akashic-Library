@@ -286,17 +286,20 @@ store 內容是**未信任的**——來自 Zotero 匯入（出版商與網頁�
 > `journal` 抓不到，#164）、以及**部分退化**（少一個 disjunct、少一個 token——逐軸
 > 下限只抓整條失效，#163）。
 >
-> 這不是理論缺口：**七次真洩漏全部是人工比對發現的，沒有一次是守衛抓到的，而且
-> 修好之後守衛依然看不見**（MCP 回應的作者 `literal`、`summaryDict` 的 `journal`、
+> 這不是理論缺口：**至今找到的每一條真洩漏都是人工比對發現的，沒有一條是守衛抓到
+> 的，而且修好之後守衛依然看不見**（作者 `literal`、`summaryDict` 的 `journal`、
 > `tags`／`status`、`Provenance.zoteroKey`、`relations.cites/related`、`addPerson`
-> 回吐的 `names`、`ImportReport.droppedFields` 的 key）。七次的共同形狀都是
-> **「同一份資料在同一個檔案裡兩種待遇」**——`zotero_key` 那條的下一行就是包了
-> `displaySafe` 的 `zotero_hash`，註解還寫著理由。那個不一致比守衛更早發現問題，
-> review 時值得優先看它。
+> 回吐的 `names`、`droppedFields` 的 key、`files list` 的 `active_root`／
+> `legacy_library`、`co_authors` 的 `person_key`、`personDict` 的 `key`）。共同形狀
+> 都是**「同一份資料在同一個檔案裡兩種待遇」**——`zotero_key` 那條的下一行就是包了
+> `displaySafe` 的 `zotero_hash`，註解還寫著理由；`person_key` 那條的下一行 fallback
+> 就是它自己。那個不一致比守衛更早發現問題，review 時值得優先看它。
 >
-> 另有一件同等重要的事：#164 一輪人工稽核掃出 47 條、我判定其中 3 條是真的並把
-> 「3」寫進文件，獨立的一輪在同一批裡**又找到 4 條**。**「稽核跑過了」不等於
-> 「稽核跑完了」**，而寫下的數字會被日後的人讀成「這一輪已經清乾淨」。
+> **不寫「總共 N 條」，因為那個數字每一輪都在變。** #164 一輪人工稽核掃出 47 條、
+> 判定 3 條是真的並把「3」寫進文件；獨立的一輪在同一批裡又找到 4 條；**再一輪又
+> 找到 3 條**。「稽核跑過了」不等於「稽核跑完了」，而第二輪的 recall 也不是 1.0——
+> 寫下確定數字會被日後的人讀成「這一輪已經清乾淨」。上面的清單是**已知的**，不是
+> **全部的**。
 
 ### 兩個消毒器：訊息邊界 vs 文件邊界
 

@@ -1461,7 +1461,20 @@ extension LibraryStore {
         // 代價講清楚：`hasPrefix` 同時放掉「keeper 在中間／尾端而 doomed 真的多了
         // 內容」的情形。取**窄而正確**——判準與訊息一致；寬而正確要算真正的前後
         // 兩段差異，那是另一個形狀的改動。
-        guard d.hasPrefix(k), d.count > k.count else { return [] }
+        // **前綴比對走 case-fold**（#169 verify F5，席位的論據比我原本的強）。
+        //
+        // 真 corpus 上 15/15 有差異的候選對**都是大小寫差異**（`A Mixture Model
+        // Combining…` vs `A mixture model combining…`）——也就是說這份 store 裡
+        // 「同一篇的兩筆記錄」幾乎必然在大小寫上不同。當一組**真的**帶副標題遺失
+        // 的配對出現時，它**同時**帶大小寫差異的機率高於不帶，而那組會被
+        // case-sensitive 判準整個漏掉。
+        //
+        // 而 case-fold 幾乎不帶進噪音：純大小寫差異等長 → `count >` 擋掉；
+        // 大小寫差異 ＋ 尾端句點 → extra 只有 `.` → 詞字元 guard 擋掉。
+        //
+        // **`extra` 必須從原始的 `d` 切**，不能從折疊後的字串切，否則訊息會印出
+        // 小寫化的內容——那是席位特別點名的實作陷阱。
+        guard d.lowercased().hasPrefix(k.lowercased()), d.count > k.count else { return [] }
 
         // **多出來的部分必須含詞字元**（#169 verify F2）。
         //

@@ -898,3 +898,28 @@ extension ServiceTests {
         assertNoRawControls(out, "addPerson 的 names echo")
     }
 }
+
+
+/// #146 verify G2/N1：**MCP 的 `digestSources` 可以整個刪掉而沒人發現**。
+///
+/// `AkashicService.doctor()` 自己的註解寫著「CLI doctor 的普查面 MCP 也要有——
+/// 同一個 store 不得從兩個 consumer 看到不同的事實」（#138 verify F3）。#146 的
+/// 第一版只加了 CLI 側；補上 MCP 之後**仍然零測試**，席位 mutation 刪掉那一行
+/// 1038 條全綠。
+extension ServiceTests {
+    func testMCPDoctorMirrorsDigestResidue() throws {
+        let digest = "sha256:" + String(repeating: "0a", count: 32)
+        var p = Person(key: "digest-holder", names: ["N"])
+        p.profile.affiliations = TimelineOf([
+            TemporalValue(value: OrgRef.key("iss"), source: digest, note: "由論文推得")])
+        try LibraryStore(root: root).writePerson(p)
+
+        let out = try service.doctor()
+        let d = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8))
+                                as? [String: Any])
+        let residue = try XCTUnwrap(d["digestSources"] as? [String],
+                                    "MCP doctor 少了 digestSources——同一個 store 從兩個"
+                                    + " consumer 看到不同的事實（#138 verify F3 的紀律）")
+        XCTAssertEqual(residue, ["digest-holder.profile.affiliations"])
+    }
+}

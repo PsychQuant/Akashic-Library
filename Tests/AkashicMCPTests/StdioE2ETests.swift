@@ -252,18 +252,40 @@ extension StdioE2ETests {
                              "arguments": ["key": "chen-h-y",
                                            "fields": ["profile": [hostile: []]],
                                            "dry_run": true]]])
-        let resp = try readResponse()
-        let text = String(describing: resp)
-        XCTAssertTrue(text.contains("不認得的維度") || text.contains("Error"),
-                      "應該是錯誤回應，否則這條沒走到被測的路徑：\(text.prefix(300))")
+        // **取出真正的字串，不要 `String(describing:)`**（#162 verify 182-4）。
+        //
+        // 對 JSON 反序列化出來的 `NSDictionary`，`String(describing:)` 會把所有
+        // 非 ASCII scalar 逐一跳脫成 `\Uxxxx`——於是兩條 `contains("\u{202E}")`
+        // **結構上不可能失敗**（席位實測：payload 換成只有 RLO、還原 catch 的消毒
+        // → 測試照樣通過），整條由 ESC（ASCII，不被跳脫）單獨扛著。
+        //
+        // 更糟的是「有沒有走到那條路徑」的護欄也是空的：`contains("不認得的維度")`
+        // 恆 false，於是 `|| contains("Error")` 被後者滿足——**任何**錯誤回應都過。
+        // fixture 的 person key 一旦改名，這條測試會安靜退回成它剛取代掉的那個
+        // 同義反覆，而且沒有訊號。
+        let text = try toolResultText(try readResponse())
+        XCTAssertTrue(text.contains("不認得的維度"),
+                      "必要條件，不能與「Error」做 `||`——那會讓任何錯誤回應都過：\(text.prefix(300))")
         XCTAssertFalse(text.contains("\u{1B}"), "raw ESC 抵達 tool result（進 LLM context）")
         XCTAssertFalse(text.contains("\u{202E}"), "raw U+202E 抵達 tool result")
 
         // 未知 tool 名同理——它也是 caller 給的字串
         try send(["jsonrpc": "2.0", "id": 3, "method": "tools/call",
                   "params": ["name": "akashic_\(hostile)", "arguments": [:]]])
-        let resp2 = String(describing: try readResponse())
-        XCTAssertFalse(resp2.contains("\u{1B}"), "Unknown tool 的名字也要消毒")
-        XCTAssertFalse(resp2.contains("\u{202E}"), "同上")
+        let text2 = try toolResultText(try readResponse())
+        XCTAssertTrue(text2.contains("Unknown tool"), "要走到那條路徑：\(text2.prefix(200))")
+        XCTAssertFalse(text2.contains("\u{1B}"), "Unknown tool 的名字也要消毒")
+        XCTAssertFalse(text2.contains("\u{202E}"), "同上")
+    }
+
+    /// 從 JSON-RPC 回應取出 `result.content[0].text` 的**真字串**。
+    ///
+    /// `String(describing:)` 對 `NSDictionary` 會跳脫非 ASCII，讓所有針對 bidi／
+    /// LS-PS 的斷言變成裝飾（#162 verify 182-4）。
+    private func toolResultText(_ resp: [String: Any]) throws -> String {
+        let result = try XCTUnwrap(resp["result"] as? [String: Any],
+                                   "回應沒有 result：\(resp)")
+        let content = try XCTUnwrap(result["content"] as? [[String: Any]])
+        return content.compactMap { $0["text"] as? String }.joined(separator: "\n")
     }
 }

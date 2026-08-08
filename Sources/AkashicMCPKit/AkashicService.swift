@@ -162,7 +162,7 @@ public final class AkashicService {
 
     public func doctor() throws -> String {
         let load = try store.load()
-        var d: [String: Any] = ["library": root.path]
+        var d: [String: Any] = ["library": displaySafe(root.path, max: 800)]   // #164：與同 dict 其他值對齊
 
         // #35（鏡射 CLI doctor 的順序；#138 verify F1）：跨記錄檢查必須在 rebuild
         // **之前**。重複 citekey / person key 時 rebuild 會撞 UNIQUE constraint——
@@ -247,7 +247,7 @@ public final class AkashicService {
                         "id": d.id.uuidString,
                         "question": displaySafe(d.question, max: 400),
                         "candidates": d.candidates.map {
-                            ["key": displaySafe($0.key, max: 200), "shape": $0.shape.rawValue]
+                            ["key": displaySafe($0.key, max: 200), "shape": $0.shape.rawValue]   // display-safe-exempt: shape 是 EntityKind 的 enum rawValue，值域封閉
                         },
                         "hasJudgement": d.judgement != nil,
                     ] as [String: Any]
@@ -264,7 +264,8 @@ public final class AkashicService {
         case "list":
             let config = try AkashicConfig.read(from: configURL)
             let list = config.files.keys.sorted().map { k -> [String: Any] in
-                ["key": k, "path": displaySafe(config.files[k]!, max: 800),
+                ["key": k,   // display-safe-exempt: registry key 受 StoreKey.isValid 雙重把關（AkashicConfig decode + FileCommands）
+                 "path": displaySafe(config.files[k]!, max: 800),
                  "current": k == config.current]
             }
             var out: [String: Any] = ["files": list, "active_root": root.path]
@@ -285,7 +286,8 @@ public final class AkashicService {
             }
             root = newRoot
             storeKey = key          // #37：index 必須跟著切，否則用舊 store 的 index 查新 store
-            return try jsonString(["active_root": root.path, "key": key] as [String: Any])
+            return try jsonString(["active_root": displaySafe(root.path, max: 800),
+                                   "key": key] as [String: Any])   // display-safe-exempt: key 受 StoreKey 約束
         default:
             throw ServiceError.invalid("未知 action「\(displaySafe(action, max: 120))」（list / use）")
         }
@@ -507,7 +509,8 @@ public final class AkashicService {
         guard let selected = apply else {
             return try jsonString(withIDs.map { pair -> [String: Any] in
                 [
-                    "id": pair.id, "citekey": displaySafe(pair.candidate.citekey, max: 200),
+                    "id": pair.id,   // display-safe-exempt: 本函式自產的序號／UUID，非 store 內容
+                    "citekey": displaySafe(pair.candidate.citekey, max: 200),
                     "authorIndex": pair.candidate.authorIndex,
                     "literal": displaySafe(pair.candidate.literal, max: 400),
                     "personKey": displaySafe(pair.candidate.personKey, max: 200),
@@ -718,7 +721,11 @@ public final class AkashicService {
 
     func summaryDict(_ s: EntrySummary) -> [String: Any] {
         var d: [String: Any] = [
-            "citekey": displaySafe(s.citekey, max: 200), "type": s.type,
+            // #164 第四方向抓到的：`type` 是 biblatex 型別，來自 Zotero 匯入的映射
+            // ——值域**看起來**封閉，但 `Entry.validate()` 只驗「不可為空」，沒有
+            // 白名單。與同一個 dict 裡已消毒的 citekey／title 同源。
+            "citekey": displaySafe(s.citekey, max: 200),
+            "type": displaySafe(s.type, max: 200),
             "title": displaySafe(s.title, max: 800),
             "authors": s.authors.map { displaySafe($0, max: 200) },
         ]
@@ -736,7 +743,7 @@ public final class AkashicService {
         var d: [String: Any] = [
             "id": entry.id.uuidString,
             "citekey": displaySafe(entry.citekey, max: 200),
-            "type": entry.type,
+            "type": displaySafe(entry.type, max: 200),   // 同上（#164）
             "title": displaySafe(entry.title, max: 800),
             "authors": entry.authors.map { author -> [String: String] in
                 switch author {

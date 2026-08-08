@@ -65,7 +65,7 @@ struct Query: ParsableCommand {
             let payload: [[String: Any]] = results.map { summary in
                 var dict: [String: Any] = [
                     "citekey": displaySafe(summary.citekey, max: 200),
-                    "type": summary.type,
+                    "type": displaySafe(summary.type, max: 200),   // #164：與 MCP 側 summaryDict 對齊
                     "title": displaySafe(summary.title, max: 800),
                     "authors": summary.authors.map { displaySafe($0, max: 200) },
                 ]

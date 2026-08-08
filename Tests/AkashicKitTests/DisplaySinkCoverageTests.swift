@@ -55,6 +55,31 @@ import Foundation
 /// - **switch `case` 短變數值**：`case .literal(let s): return ["literal": s]` 的
 ///   `s` 是短名、不含 token——那類站點靠人工消毒 + 功能測試。
 ///
+/// ### 試過並撤回：dict 內部一致性判準（#164 第四方向）
+///
+/// 三次真洩漏是同一形狀——同一個 dict、相鄰位置、一個包了一個沒包（`literal` vs
+/// `person_key`／`journal` vs `title`／`tags` vs `citekey`）。看起來是一條不需要
+/// taint 分析的好判準：「同一組值裡若有人消毒了，其餘字串值都必須有」。
+///
+/// **實作並量測後撤回**，兩種範圍都不行：
+///
+/// | 範圍 | 命中 | 真的 | 對三次歷史洩漏的 recall |
+/// |---|---|---|---|
+/// | 行內（同一行的 dict 值） | 4 | 1 | **0/3** |
+/// | 函式內（跨行、跨 `append`） | 47 | ~3（6%） | 3/3 |
+///
+/// **行內版的致命傷不是低 recall，是它的偵測依賴排版**：它唯一抓到的那條
+/// （`summaryDict` 的 `s.type`），在我為它加註解而把兩個 dict entry 拆成不同行之後
+/// **就再也抓不到了**。一個「偵測力取決於兩個 entry 恰好在同一行」的守衛不是守衛
+/// ——那正是 #162 記載的「消毒分佈跟著行寬走」的反面。
+///
+/// **函式版的 94% 誤中**則重演 156-14 的教訓：為了提高 recall 而放寬形狀規則，換來
+/// 一批需要 exempt 的誤中，而反射性加 exempt 比沒有守衛更糟。
+///
+/// **但函式版當一次性稽核工具有用**：那 47 條裡挑出了 3 個真的
+/// （`QueryCommands` 的 `summary.type`、`root.path` ×2），已修。這是「掃出來人工過一遍」
+/// 的價值，不是 CI gate 的價值——兩者不該混淆。
+///
 /// **`testGuardCatchesStrippedSanitisation`（#141）是對這個侷限的補償**：它不宣稱
 /// 守衛涵蓋每條路徑，而是量測「守衛確實在看真實的消毒站點」——拔光 displaySafe
 /// 後守衛必須報大量違規（實測 78）。守衛退化成空洞會讓那個下限失守。完整的
@@ -436,6 +461,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
                     if !isErrorSink && tokenMatched { axes.insert(.token) }
                     violations.append(Violation(text: "\(name):\(idx + 1)  \(expr)", axes: axes))
                 }
+
             }
         }
         return violations
@@ -571,9 +597,9 @@ final class DisplaySinkCoverageTests: XCTestCase {
         })
         let floors: [Axis: Int] = [.sink: 25, .errorThrow: 8, .caseReturn: 5, .token: 20]
         for axis in Axis.allCases {
-            XCTAssertGreaterThanOrEqual(byAxis[axis] ?? 0, floors[axis]!, """
+            XCTAssertGreaterThanOrEqual(byAxis[axis] ?? 0, floors[axis] ?? 0, """
                 strip-all 後 `\(axis.rawValue)` 軸只報 \(byAxis[axis] ?? 0) 條
-                （下限 \(floors[axis]!)）——這一軸的判準可能已整條失效。
+                （下限 \(floors[axis] ?? 0)）——這一軸的判準可能已整條失效。
                 全軸實測：\(Axis.allCases.map { "\($0.rawValue)=\(byAxis[$0] ?? 0)" }
                     .joined(separator: " "))（2026-08-07 baseline：68/21/14/54）。
                 若是消毒站點正常減少造成的，重新校準下限並更新上方的量測時點。

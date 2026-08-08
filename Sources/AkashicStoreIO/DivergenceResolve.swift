@@ -811,7 +811,6 @@ extension LibraryStore {
         let mergedShape = record.shape
         var out = DivergenceMigration()
 
-        /// 兩筆記錄除了 id 以外是否等值——零損失才可靜默合併。
         /// 除了 id 以外等值——**零損失才可靜默合併**。
         ///
         /// **`candidates` 必須在內**（#180 verify CRITICAL）。`forDivergence` 只雜湊
@@ -827,7 +826,22 @@ extension LibraryStore {
         /// 加進來之後跨形狀情形轉成 `migrationCollision` 拒絕——仍礙事，但不毀資料。
         /// 根治要把 shape 納入 `forDivergence`，那是 format 級變更，不屬本 change。
         func sameContent(_ a: Divergence, _ b: Divergence) -> Bool {
-            a.candidates == b.candidates && a.question == b.question
+            // **排序後比**（#168 verify HIGH）。Array `==` 是逐位置比較，而
+            // `Divergence.==` 自己的 doc 第一行就寫「相等性**不看** `candidates` 的
+            // 儲存順序」——先前這裡比型別自己宣告的相等性還嚴格。
+            //
+            // 而順序**真的會不同**：`DivergenceYAML.encode` 寫檔時把候選按
+            // `(shape, key)` 排序，但遷移是「既有位置上做鍵替換」，替換後就不再排序。
+            // 席位掃過三個鍵的全部 6 種相對順序：**2/6 被誤拒**（M 與 S 跨在 X
+            // 兩側的那兩種），而錯誤訊息說「內容不同」——那句在該路徑上確定為假。
+            // 候選愈多誤拒率愈高。
+            //
+            // shape 進排序鍵，所以跨形狀的 CRITICAL 仍然被擋。
+            func norm(_ d: Divergence) -> [[String]] {
+                d.candidates.map { [$0.shape.rawValue, $0.key] }
+                    .sorted { ($0[0], $0[1]) < ($1[0], $1[1]) }
+            }
+            return norm(a) == norm(b) && a.question == b.question
                 && a.judgement == b.judgement && a.unknownFields == b.unknownFields
         }
         func describe(_ d: Divergence) -> String {
@@ -1420,7 +1434,22 @@ extension LibraryStore {
         // 「這兩筆是不是同一篇」的問題，不是內容遺失。
         guard !keeper.title.isEmpty, !e.title.isEmpty else { return [] }
         let k = keeper.title, d = e.title
-        guard d.contains(k), d.count > k.count else { return [] }
+        // **`hasPrefix` 不是 `contains`**（#169 verify F9）。守衛用 `contains`
+        // （任意位置）而 `extra` 用 `dropFirst(k.count)` 算——那只在 `k` 是前綴時
+        // 正確。席位實測七種形狀，六種訊息在說假話：
+        //
+        //     Nature / The Nature of Space and Time  → 宣稱多了「ture of Space and Time」
+        //     Core   / The Core of It                → 把 keeper **已經有的** Core 報成「多了」
+        //     Learning / [Learning]                  → WARN（純標點，正是 F2 要消掉的那類）
+        //
+        // D/E/F（引號、方括號、前導標點）是 F2 修法的漏網：詞字元 guard 檢查的是
+        // **切歪之後**的字串，剛好含字母就過。而這個 feature 的全部價值就是「告訴
+        // 你什麼會消失」——訊息說假話比不提醒更糟。
+        //
+        // 代價講清楚：`hasPrefix` 同時放掉「keeper 在中間／尾端而 doomed 真的多了
+        // 內容」的情形。取**窄而正確**——判準與訊息一致；寬而正確要算真正的前後
+        // 兩段差異，那是另一個形狀的改動。
+        guard d.hasPrefix(k), d.count > k.count else { return [] }
 
         // **多出來的部分必須含詞字元**（#169 verify F2）。
         //

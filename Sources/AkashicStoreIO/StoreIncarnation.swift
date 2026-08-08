@@ -59,9 +59,38 @@ public enum StoreIncarnation {
     /// 選配的加強變成載入的前置條件。格式不符也回 `nil` 而不是 throw——那與
     /// 「任何模稜兩可一律當新的」一致（`nil` 退回路徑比對，不會誤信）。
     public static func read(root: URL) -> String? {
-        guard let text = try? String(contentsOf: url(in: root), encoding: .utf8) else { return nil }
+        try? readStrict(root: root)
+    }
+
+    /// 讀不到的三種原因，**分開**（#130 verify C）。
+    ///
+    /// `read()` 先前不區分「不存在」與「存在但讀失敗」，而 `writeIfAbsent` 只問
+    /// 它是否回 `nil`——於是**檔案存在但讀不到時，store 的身分被靜默覆寫**。
+    /// 席位實測三種情形：
+    ///
+    /// | 情形 | 先前的行為 |
+    /// |---|---|
+    /// | 截斷（Dropbox 半截同步）| id 換掉，舊 index 變孤兒 |
+    /// | `chmod 000`（online-only placeholder／權限）| `doctor` **exit 0、零訊息**，id 換掉 |
+    /// | 連續跑 | **每跑一次換一個新 id** |
+    ///
+    /// 不可讀那條最嚴重且連鎖：atomic replace **保留 000 權限**，所以新 id 也讀
+    /// 不到 → `indexURL` 退回無 tag 的舊檔名 → 整個機制靜默失效，而
+    /// `orphanedIndexFiles()` 在 tag 為 `nil` 時回 `[]`，連累積出來的孤兒都不報。
+    ///
+    /// 而 doc 自己寫著「既有的一律不覆寫——覆寫等於把一個 store 變成另一個化身，
+    /// 而那正是這個機制要偵測的事件」。實作在讀失敗時做的**正是那件事**。
+    /// **Dropbox 是文件自己點名要支援的情境**，所以這裡該 fail-loud。
+    public static func readStrict(root: URL) throws -> String? {
+        let u = url(in: root)
+        guard FileManager.default.fileExists(atPath: u.path) else { return nil }   // 真的缺席
+        let text: String
+        do { text = try String(contentsOf: u, encoding: .utf8) }
+        catch { throw StoreIncarnationError.unreadable(path: u.path, why: error.localizedDescription) }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard UUID(uuidString: trimmed) != nil else { return nil }
+        guard UUID(uuidString: trimmed) != nil else {
+            throw StoreIncarnationError.malformed(path: u.path, content: trimmed)
+        }
         return trimmed.uppercased()
     }
 
@@ -71,7 +100,8 @@ public enum StoreIncarnation {
     /// 這個機制要偵測的事件。
     @discardableResult
     public static func writeIfAbsent(root: URL, id: UUID = UUID()) throws -> String {
-        if let existing = read(root: root) { return existing }
+        // **走 strict**（#130 verify C）：讀失敗必須 throw，不能被當成缺席而覆寫。
+        if let existing = try readStrict(root: root) { return existing }
         let value = id.uuidString
         try (value + "\n").write(to: url(in: root), atomically: true, encoding: .utf8)
         return value
@@ -89,5 +119,25 @@ public enum StoreIncarnation {
     public static func shortTag(_ id: String?) -> String? {
         guard let id, id.count >= 8 else { return nil }
         return String(id.prefix(8)).lowercased()
+    }
+}
+
+/// 化身檔讀取失敗（#130 verify C）。**與「缺席」嚴格分開**——缺席回 `nil` 是正常的
+/// （既有 store 都沒有），讀失敗則必須 fail-loud，否則 `writeIfAbsent` 會覆寫掉一個
+/// 存在但暫時讀不到的身分。
+public enum StoreIncarnationError: Error, LocalizedError {
+    case unreadable(path: String, why: String)
+    case malformed(path: String, content: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .unreadable(path, why):
+            return "化身檔「\(displaySafe(path, max: 300))」存在但讀不到（\(displaySafe(why, max: 300))）"
+                + "——**不覆寫**：它是 store 的身分，覆寫等於把它變成另一個化身。"
+                + "修好權限／等同步完成後重試；確定要重新賦予身分請自行刪除該檔"
+        case let .malformed(path, content):
+            return "化身檔「\(displaySafe(path, max: 300))」的內容不是 UUID"
+                + "（實得「\(displaySafe(content, max: 120))」）——同樣不覆寫，理由同上"
+        }
     }
 }

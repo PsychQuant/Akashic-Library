@@ -222,6 +222,40 @@ final class ProvenanceMigrationTests: XCTestCase {
                        "不變式要持續守，不是遷移完就結束")
     }
 
+    /// **寫入失敗不得計入 `migrated`／`records`**（#146 verify G2/N4）。
+    ///
+    /// 席位 build mutated binary 實跑，同一份輸出**自相矛盾**：
+    ///
+    ///     ✓ 搬進 references: 22 筆，涉及 22 筆記錄
+    ///     寫入失敗 1 筆（…）
+    ///       實際成功寫入: 21 筆
+    ///
+    /// 而 1038 條全綠。這正是本 change 上一輪剛修好的病（報告誇報）在**新開的
+    /// 失敗路徑**上原樣復發——修的是 `guard` 那條，新的 `catch` 沒有對應的釘子。
+    func testWriteFailureIsNotCountedAsMigrated() throws {
+        try store.writePerson(personWithDigestAffiliation(key: "will-fail"))
+        try store.writePerson(personWithDigestAffiliation(key: "will-succeed"))
+        // 讓其中一筆寫不進去：把該檔設成 immutable
+        let load = try store.load()
+        let target = try XCTUnwrap(load.people.first { $0.key == "will-fail" })
+        let f = root.appendingPathComponent("entities/\(target.id.uuidString).yaml")
+        _ = try? Process.run(URL(fileURLWithPath: "/usr/bin/chflags"),
+                             arguments: ["uchg", f.path]).waitUntilExit()
+        defer {
+            _ = try? Process.run(URL(fileURLWithPath: "/usr/bin/chflags"),
+                                 arguments: ["nouchg", f.path]).waitUntilExit()
+        }
+        let report = try ProvenanceMigration.digestSourcesToReferences(store: store, dryRun: false)
+        guard !report.failures.isEmpty else {
+            throw XCTSkip("chflags 沒生效（容器／檔案系統不支援）——這條要真的寫失敗才驗得到")
+        }
+        XCTAssertEqual(report.migrated, 1, "只有成功的那筆算數：\(report)")
+        XCTAssertEqual(report.records, ["will-succeed"], "失敗的不得列進 records")
+        XCTAssertEqual(report.failures.count, 1)
+        XCTAssertFalse(report.failures[0].reason.contains("NSCocoaErrorDomain"),
+                       "訊息要是 localizedDescription 不是 NSError dump（G3）：\(report.failures)")
+    }
+
     /// **殘留檢查要掃到每一個維度。**
     ///
     /// 席位實測：residual 不掃 `ranks`／`administrative`／`appointments`／`fields`、

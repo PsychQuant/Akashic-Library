@@ -233,6 +233,72 @@ final class IndexIdentityTests: XCTestCase {
                        "store_id 不符＝別的化身建的，必須判 stale")
     }
 
+    /// **化身檔存在但讀不到 → fail-loud，絕不覆寫**（#130 verify C）。
+    ///
+    /// `read()` 先前不區分「不存在」與「存在但讀失敗」，而 `writeIfAbsent` 只問它
+    /// 是否回 nil——於是 store 的**身分**被靜默覆寫。席位實測三種情形（截斷、
+    /// `chmod 000`、連續跑每次換新 id），其中 000 那條最嚴重：atomic replace 保留
+    /// 000 權限，新 id 也讀不到 → `indexURL` 退回無 tag 的舊檔名 → 整個機制靜默
+    /// 失效，而 `orphanedIndexFiles()` 在 tag 為 nil 時回 `[]`，連孤兒都不報。
+    ///
+    /// doc 自己寫著「既有的一律不覆寫——覆寫等於把一個 store 變成另一個化身，
+    /// 而那正是這個機制要偵測的事件」。實作在讀失敗時做的正是那件事。
+    /// **Dropbox 是文件點名要支援的情境**，半截同步會踩到。
+    func testUnreadableIncarnationIsNotSilentlyOverwritten() throws {
+        let store = makeStore(root: root, key: "main")
+        try store.ensureLayout()
+        let original = try XCTUnwrap(store.incarnation)
+        let f = StoreIncarnation.url(in: root)
+
+        // 內容壞掉（截斷／半截同步）
+        try "not-a-uuid".write(to: f, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try StoreIncarnation.writeIfAbsent(root: root),
+                             "內容不是 UUID 時不得覆寫——那會換掉 store 的身分")
+        XCTAssertEqual(try String(contentsOf: f, encoding: .utf8)
+                        .trimmingCharacters(in: .whitespacesAndNewlines), "not-a-uuid",
+                       "拒絕就不得動檔案")
+
+        // 讀不到（權限／online-only placeholder）
+        try original.write(to: f, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: f.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644],
+                                                       ofItemAtPath: f.path) }
+        if (try? String(contentsOf: f, encoding: .utf8)) == nil {
+            XCTAssertThrowsError(try StoreIncarnation.writeIfAbsent(root: root),
+                                 "讀不到不等於缺席——covering 掉一個暫時讀不到的身分"
+                                 + "是不可逆的")
+        }
+    }
+
+    /// **孤兒偵測不得跨 key**（#130 verify A）。
+    ///
+    /// `StoreKey.pattern` 允許連字號，所以 `main-backup` 是合法的 registry key。
+    /// 先前只要 `hasPrefix("main-")`，於是 `main` 的 doctor 會把
+    /// `main-backup-33f46bce.sqlite`——**另一個已註冊 store 正在用的 index**——
+    /// 報成自己的孤兒，訊息還說「舊 index 不再使用」。照著做就刪掉別人的 live index。
+    ///
+    /// （`mainx-….sqlite` 不會誤報：連字號在 prefix 裡。誤報的是含連字號的 key
+    /// ——那是席位糾正我的，我原本擔心錯了方向。）
+    func testOrphanDetectionDoesNotCrossRegistryKeys() throws {
+        let store = makeStore(root: root, key: "main")
+        try store.ensureLayout()
+        let tag = String(try XCTUnwrap(store.incarnation).prefix(8)).lowercased()
+        let dir = store.indexURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for name in ["main-\(tag).sqlite",              // 本 store 當下的
+                     "main-deadbeef.sqlite",             // 本 store 的舊化身 → 是孤兒
+                     "main.sqlite",                      // 升級前的 → 是孤兒
+                     "main-backup-33f46bce.sqlite",      // **另一個 registry key 的 live index**
+                     "mainx-345632ab.sqlite",            // 另一個 key（無連字號）
+                     "main-nothex1.sqlite"] {            // tag 不是 hex → 不是本 store 的
+            FileManager.default.createFile(atPath: dir.appendingPathComponent(name).path,
+                                           contents: Data())
+        }
+        XCTAssertEqual(store.orphanedIndexFiles(), ["main-deadbeef.sqlite", "main.sqlite"],
+                       "只有本 key 的舊化身算孤兒——把別的 store 的 live index 報成"
+                       + "「可刪」是會造成資料遺失的誤報")
+    }
+
     /// **缺席退回純路徑比對，不判 stale。**
     ///
     /// 既有 index 與既有 store 都沒有這個欄位／檔案。讓缺席等於「不符」會把全部

@@ -48,7 +48,7 @@ struct AkashicCLI: ParsableCommand {
             ResolveDivergence.self, RecordDivergence.self, AuthorizeNames.self,
             BootstrapOrganizations.self, ResolveOrganizations.self,
             UpdatePersonCmd.self,
-            Fmt.self,
+            Fmt.self, ViewCmd.self,
         ])
 }
 

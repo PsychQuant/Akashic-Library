@@ -497,18 +497,30 @@ Akashic 是一個第二階語言遊戲：
 
 | # | issue | 被孤兒化的是什麼 |
 |---|---|---|
-| 1 | #59 | `writePerson` 的前科 |
-| 2 | #136 F1 | `assertStoreRoot` 的 `@discardableResult` 綁錯，`-warnings-as-errors` 下整個模組 build 失敗 |
+| 1a | #35 / #59 | `renameEntry` 的 doc **與** `@discardableResult` 一起被 `assertNoCrossRecordErrors` 奪走——最純的一例 |
+| 1b | #55 / #59 | `writePerson`（`AttributeBindingTests` 明寫「這個錯誤已經發生兩次」，#59 是那兩起的**修復 issue**，不是一次事故——先前壓成一列） |
+| 2 | #136 F1 | **`writeLibrary`** 掉了 doc「Library registry 寫入（#13）」與 `@discardableResult`；`assertStoreRoot` 是被插進去的那個新函式（先前把加害者寫進了「被孤兒化的是什麼」欄）。後果：`-warnings-as-errors` 下整個模組 build 失敗 |
 | 3 | #157 157-4 | person 版 `fieldsLostByMerging` 的 load-bearing 論證整段改嫁給 Entry 版 |
 | 4 | #160 160-4 | `GraphModel.rebuildIndex` 的「呼叫端不得自己 `LibraryStore(root:)`」——誠實邊界所依賴的那句 |
 | 5 | #157 R2 | `DivergenceHardeningTests` 的 person 覆蓋測試——**發生在寫下這條紀律的那個 commit 裡** |
 | 6 | #170 | `isInsideVersionedWorkTree`（pre-existing）——含「88% CPU 加 29 GB RSS」的效能論證整段接到 `doomedRelativePaths` 頭上 |
+| 7 | #114 | **`displaySafe`**——整段 doc（含 R12 三條更正）接到 `displaySafeMultiline` 頭上。R12 第 1 條的「`max: 200`」講的是被孤兒者的參數，多行版收的是 `maxLineLength`；而多行版自己的 doc 還把 `displaySafe` 當**別的東西**引用，卻頂著它的 doc。**由 #170 的驗證席在本表寫下的同一週找到**——那張表在提出時就已經不完整 |
 
 第 5 例是這一節的核心證據：**同一個 commit 一邊在原始碼寫下紀律、一邊在隔壁測試檔
 違反它。** 「再增加一條解釋規則的規則也不能終止問題，因為新規則同樣需要應用」——
 那不是抽象的擔憂，它在同一次提交裡當場發生。
 
-**機械化試過，做不到**（2026-08-07，掃 5128 個宣告）：
+**機械化試過，做不到**（2026-08-07）。
+
+> **量測不可重驗**：判準腳本沒有保存，本節也沒記下掃描範圍與「宣告」的定義。
+> 驗證席用幾種合理定義重數得 2543／3565／5539／6192，**沒有一個等於 5128**
+> （同量級，但無法確認是哪一種）。誤中數同理無法重跑。
+>
+> 這條的性質值得記：本節存在的目的就是防「寫下當時對、之後沒人同步」的陳述，
+> 而它自己收了一個**永遠無法重驗也無法反駁**的數字。留著是因為量級資訊仍有用，
+> 但它是**軼事而非證據**。
+
+掃描約 5000 個宣告：
 
 | 判準 | 誤中 |
 |---|---|

@@ -1342,11 +1342,12 @@ extension LibraryStore {
         return (p.terminationStatus, String(data: data, encoding: .utf8) ?? "")
     }
 
+    /// store 是否位於版本控制的工作樹內。
+    ///
     /// **本函式的 doc 曾經孤兒化**（#170，插入位置紀律的**第六例**，且是 pre-existing）：
     /// 下面這整段——含「88% CPU 加 29 GB RSS」那個效能論證——曾經無空行地接在
     /// `doomedRelativePaths` 頭上，而本宣告零註解。讀那段的人會以為它在講另一個函式。
     ///
-    /// store 是否位於版本控制的工作樹內。
     ///
     /// 從 store root 逐層往上找 `.git`——**目錄或檔案都算**（worktree 與 submodule 的
     /// `.git` 是一個指向真正 git 目錄的檔案）。不呼叫 `git` 執行檔：這裡要回答的是

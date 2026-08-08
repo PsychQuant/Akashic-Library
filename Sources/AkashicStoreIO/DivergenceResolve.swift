@@ -17,6 +17,8 @@ public enum DivergenceResolveError: Error, LocalizedError {
     /// #159 verify §6：記錄裡有本 binary 不理解的欄位——不可逆操作不在讀不懂的
     /// 記錄上執行。
     case recordHasUnknownFields(id: String, fields: [String])
+    /// #168：候選遷移後兩筆記錄會是同一組候選，但內容不同。
+    case migrationCollision(details: [String])
     /// #75 對一：記錄的判斷傾向另一個候選——消歧不對已寫下的判斷惰性。
     case contradictsJudgement(prefers: String, survivor: String, statement: String)
     /// #75 對一：`--force` 覆寫判斷但沒給理由——判斷的變更也是判斷。
@@ -41,6 +43,12 @@ public enum DivergenceResolveError: Error, LocalizedError {
                         .joined(separator: "\n")
                  + "\n消歧會刪掉被併記錄與歧異記錄本身，歷史託給版控而非 store。"
                  + "先 `git add` 並 `git commit` 這些檔案（或確認 entities/ 沒被 .gitignore 擋），再重跑同一個 id。"
+        case let .migrationCollision(details):
+            return "拒絕消歧：候選遷移後會有兩筆記錄指向同一組候選，而它們內容不同"
+                + "——「同一組候選＝同一筆記錄」是 judgement 與 prefers 三道守衛的"
+                + "共同前提，自動挑一邊活下來就是靜默毀損（#168）。\n"
+                + details.map { "  • " + $0 }.joined(separator: "\n")
+                + "\n先處理其中一筆（合併判斷、或刪掉不要的那筆）再重跑。"
         case let .recordHasUnknownFields(id, fields):
             return "歧異記錄 \(displaySafe(id, max: 80)) 帶有本 binary 不認得的欄位，"
                  + "消歧拒絕執行——這是**不可逆**操作（合併＋改寫參照＋刪檔），"
@@ -482,6 +490,13 @@ extension LibraryStore {
             throw DivergenceResolveError.recordHasUnknownFields(
                 id: d.id.uuidString, fields: d.unknownFields.map(\.key).sorted())
         }
+        // #168：id 重算後的碰撞。**位置在這裡而非 `commitResolution`**——它是
+        // 「所有拒絕條件都在動磁碟之前」的一員，而且 dry-run 必須看得到它
+        // （這條共用驗證段正是 preview 與實跑的共同入口）。
+        guard affectedMigration.collisions.isEmpty else {
+            throw DivergenceResolveError.migrationCollision(
+                details: affectedMigration.collisions)
+        }
 
         // #73：「在工作樹內」不等於「刪掉還找得回來」。D5 把 store 內的歷史全部
         // 拿掉（不做 tombstone、不留已解決狀態），整個回溯性押在版控上——那就必須
@@ -749,27 +764,125 @@ extension LibraryStore {
     /// 「key 與 person 同名是刻意的」），`shape:` 存進記錄的唯一理由就是這個。只比
     /// key 會把一筆機構歧異的候選改寫成指向 person 鍵，甚至讓它塌縮後被整筆刪除
     /// ——一個使用者從未回答、也與本次消歧無關的問題就這樣消失（#71 R1 verify）。
-    private func migrateOtherDivergences(record: Divergence, survivor: String,
-                                         mergedKeys: [String], snapshot: LibraryLoad)
-        -> (toWrite: [Divergence], collapsed: [Divergence]) {
+    struct DivergenceMigration {
+        /// 遷移後要寫的記錄，**id 已重算**。
+        var toWrite: [Divergence] = []
+        /// 候選塌縮到 <2，本次消歧已回答它們，刪。
+        var collapsed: [Divergence] = []
+        /// 因 id 重算而要刪的**舊**檔（改名 = 刪舊建新）。
+        var renamedFrom: [UUID] = []
+        /// 重算後撞上另一筆內容不同的記錄——**必須由人裁決**，見下方 doc。
+        var collisions: [String] = []
+    }
+
+    /// 其他歧異記錄的候選遷移。
+    ///
+    /// ## id 必須跟著候選走（#168）
+    ///
+    /// README 明寫「id 由候選鍵的集合推出，**同一組候選＝同一筆記錄**」，而
+    /// #168 之前這裡改寫候選卻**保留舊 id**，於是記錄與它的候選集脫鉤。
+    ///
+    /// 聽起來像潔癖，實際後果是 **#75 的整套護欄可以被一串正常操作繞過**——
+    /// `contradictsJudgement`、#133 F1「無判斷的重呼叫不得抹掉判斷」、159-4
+    /// 「重錄不得抹掉 prefers」**三道全部 key 在那個不變式上**。席位五步實測
+    /// （record → resolve → 再 record → resolve）：帶著判斷與 `prefers` 的那筆
+    /// 記錄被連帶刪除、判斷指名為正確的那個實體被合併掉，dry-run 與實跑
+    /// **只警告不擋**，exit 0。（issue body 寫「兩次都沒有一個字提到有判斷存在」
+    /// ——那在 `cfe19c7` 上為真，在本 change 的 merge base 上**已經不是**：#159 補了
+    /// 「連帶刪除的記錄帶有判斷」的警告。實質沒變：沒被擋、判斷指名為正確的實體
+    /// 被摧毀、exit 0。量詞照抄自 issue 是本 change 一度犯的錯，席位實測抓到。）
+    ///
+    /// ## 重算會撞上三種碰撞，兩種是這個修法新引入的
+    ///
+    /// 1. **撞既有記錄**（原本的 bug 場景）：遷移後的候選集已經有一筆記錄。
+    /// 2. **兩筆遷移記錄互撞**：`{a, x}` 與 `{a, y}` 在 x、y 都併入 z 之後同為
+    ///    `{a, z}`。只比對既有記錄會漏掉這一種。
+    /// 3. 撞正在被消歧的 `record` 本身——**結構上不可能**：`record` 的候選集必含
+    ///    至少一個被併鍵，而任何遷移後的集合都不含被併鍵。仍在下方一併處理，
+    ///    因為那個論證依賴 `mergedKeys` 非空，而那是別處的前提。
+    ///
+    /// 碰撞時**只有零損失才靜默合併**（question 與 judgement 皆相同）；否則
+    /// 收進 `collisions` 由呼叫端拒絕整個消歧。自動挑一邊的判斷活下來，正是
+    /// 本 issue 要修的那種靜默毀損。
+    func migrateOtherDivergences(record: Divergence, survivor: String,
+                                 mergedKeys: [String], snapshot: LibraryLoad)
+        -> DivergenceMigration {
         let merged = Set(mergedKeys)
         let mergedShape = record.shape
-        var toWrite: [Divergence] = []
-        var collapsed: [Divergence] = []
+        var out = DivergenceMigration()
+
+        /// 兩筆記錄除了 id 以外是否等值——零損失才可靜默合併。
+        /// 除了 id 以外等值——**零損失才可靜默合併**。
+        ///
+        /// **`candidates` 必須在內**（#180 verify CRITICAL）。`forDivergence` 只雜湊
+        /// 候選的 **key**、不含 shape，而 key 跨形狀同名是明文允許的
+        /// （`Divergence.swift` 的 candidate doc）。少了這一項，一筆 person 歧異
+        /// 遷移後會撞上「候選 key 相同但 shape 不同」的既有記錄、被判成零損失而
+        /// **整筆丟掉**——席位實測：org 歧異 `{alice,bob}` 原封不動，而 person 歧異
+        /// 「alice 與 bob 是同一人？」消失，exit 0、無任何訊息。
+        ///
+        /// **那是本 change 引入的**：base 上那筆只是 id 漂移（可見、可修）。把
+        /// 「id 漂移」換成「記錄被靜默摧毀」是嚴格的退步。
+        ///
+        /// 加進來之後跨形狀情形轉成 `migrationCollision` 拒絕——仍礙事，但不毀資料。
+        /// 根治要把 shape 納入 `forDivergence`，那是 format 級變更，不屬本 change。
+        func sameContent(_ a: Divergence, _ b: Divergence) -> Bool {
+            a.candidates == b.candidates && a.question == b.question
+                && a.judgement == b.judgement && a.unknownFields == b.unknownFields
+        }
+        func describe(_ d: Divergence) -> String {
+            let j = d.judgement.map { "判斷「\($0.statement)」"
+                + ($0.prefers.map { p in "、傾向「\(p)」" } ?? "") } ?? "無判斷"
+            return "\(d.id.uuidString)（\(j)）"
+        }
+
+        // 不參與遷移、也不會被刪的既有記錄——碰撞的對照組。
+        var claimed: [UUID: Divergence] = [:]
+        var migratingIDs: Set<UUID> = []
+
+        var pending: [(old: UUID, migrated: Divergence)] = []
         for var other in snapshot.divergences where other.id != record.id {
             let migrated = dedupeCandidates(other.candidates.map { c in
                 (merged.contains(c.key) && c.shape == mergedShape)
                     ? DivergenceCandidate(key: survivor, shape: c.shape) : c
             })
             guard migrated != other.candidates else { continue }
+            migratingIDs.insert(other.id)
             if migrated.count < 2 {
-                collapsed.append(other)
+                out.collapsed.append(other)
             } else {
+                let old = other.id
                 other.candidates = migrated
-                toWrite.append(other)
+                other.id = DeterministicUUID.forDivergence(candidateKeys: migrated.map(\.key))
+                pending.append((old: old, migrated: other))
             }
         }
-        return (toWrite, collapsed)
+        // 對照組：沒在遷移、也沒塌縮的既有記錄（含 `record` 本身——見上方第 3 點）
+        let collapsedIDs = Set(out.collapsed.map(\.id))
+        for d in snapshot.divergences
+        where !migratingIDs.contains(d.id) && !collapsedIDs.contains(d.id) {
+            claimed[d.id] = d
+        }
+
+        // **依舊 id 排序後依序處理**：兩筆互撞時留下哪一筆必須是決定性的，不隨
+        // `load()` 的回傳順序而變。
+        for (old, m) in pending.sorted(by: { $0.old.uuidString < $1.old.uuidString }) {
+            if let existing = claimed[m.id] {
+                guard sameContent(existing, m) else {
+                    out.collisions.append(
+                        "遷移後 \(describe(m))（原 \(old.uuidString)）與 \(describe(existing)) "
+                        + "會是同一組候選，但內容不同")
+                    continue
+                }
+                // 零損失：既有那筆留著，這筆只需刪掉舊檔
+                out.renamedFrom.append(old)
+                continue
+            }
+            claimed[m.id] = m
+            out.toWrite.append(m)
+            if m.id != old { out.renamedFrom.append(old) }
+        }
+        return out
     }
 
     // MARK: - 共用的落地
@@ -789,6 +902,9 @@ extension LibraryStore {
                                                 mergedKeys: mergedKeys, snapshot: snapshot)
         let otherToWrite = migration.toWrite
         let collapsed = migration.collapsed
+        // #168：id 跟著候選走 ⇒ 改名 = 刪舊建新。舊檔進刪除清單，與塌縮／本次記錄
+        // 同一批處理——它們的可刪性預檢、失敗收容、順序保證都該是同一套。
+        let renamedFrom = migration.renamedFrom
 
         // 動磁碟前的 encode 預檢（沿用 renameEntry 的紀律）：可預期的失敗全部先擋掉，
         // 剩下的只有磁碟層錯誤——那才是下面逐筆收容要處理的。
@@ -810,6 +926,7 @@ extension LibraryStore {
         // 收容路徑處理。
         let allDoomedURLs = doomedIDs.map { entityURL(id: $0) }
             + (collapsed + [record]).map { entityURL(id: $0.id) }
+            + renamedFrom.map { entityURL(id: $0) }
         let undeletable = allDoomedURLs.filter {
             FileManager.default.fileExists(atPath: $0.path) && !Self.isDeletableUpfront($0)
         }
@@ -887,6 +1004,33 @@ extension LibraryStore {
         // 收容後繼續，主記錄會在塌縮記錄刪失敗時被刪掉——重跑同一個 id 只得
         // recordNotFound，而失敗的塌縮記錄留在磁碟上、候選還是未遷移的舊鍵，
         // §5.8 的「歧異記錄 MUST 保留」變成假話。
+        // #168：id 重算 = 改名，舊檔要刪。**排在塌縮之前**是因為它與塌縮同屬
+        // 「歧異記錄的清理」，而下面那道 `hasFailures` 閘要能一起攔住它們。
+        //
+        // **不得刪到剛寫好的新檔**：A 從 X 改名到 Y、而 B 的舊 id 剛好是 Y 時，
+        // `renamedFrom = [X, Y]` 而 `toWrite` 裡有 id=Y 的 A——盲目刪 Y 會把
+        // 才寫進去的 A 毀掉。寫入永遠先於刪除。
+        //
+        // **現行不可達**（mutation 實測：拿掉 `!writtenIDs.contains` 九條全綠）。
+        // 論證：B 的舊 id 等於 A 的新 id ⇒ B 的原候選集等於 A 的遷移後候選集 ⇒
+        // B 不含任何被併鍵 ⇒ **B 不遷移**，於是 B 走的是碰撞路徑（`claimed`）
+        // 而不是改名路徑，`renamedFrom` 裡不會有它。
+        //
+        // 保留而非刪除，因為它釘的是「不遷移的記錄一定走碰撞路徑」這個前提；
+        // 日後若讓某些記錄同時走兩條路（例如塌縮後又改名），它就會活起來。
+        // **測試不得宣稱在驗它**——見 `DivergenceIDDriftTests` 對應那條的歸因。
+        let writtenIDs = Set(otherToWrite.map(\.id))
+        for old in renamedFrom.sorted(by: { $0.uuidString < $1.uuidString })
+        where !writtenIDs.contains(old) {
+            guard FileManager.default.fileExists(atPath: entityURL(id: old).path) else { continue }
+            do {
+                try FileManager.default.removeItem(at: entityURL(id: old))
+                report.removedDivergences.append(old.uuidString)
+            } catch {
+                report.failures.append("刪除改名前的歧異記錄 \(old.uuidString) 失敗："
+                    + ((error as? LocalizedError)?.errorDescription ?? String(describing: error)))
+            }
+        }
         for d in collapsed {
             guard FileManager.default.fileExists(atPath: entityURL(id: d.id).path) else { continue }
             do {

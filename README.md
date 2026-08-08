@@ -74,6 +74,23 @@ index 自帶**身分戳記**（#122）：記錄它是為哪個 store root 建的
 未註冊的 store（`--library <path>` 直指）則回落 in-store `.akashic/index.sqlite`，因為那種 store
 不在 registry 治理範圍內。
 
+**「有沒有 key」必須是被查過的事實，不是碰巧**（#125）。keyless 是**合法**狀態；壞的是
+「一個已註冊的 store 被當成 keyless」——那會在它裡面長出一個永遠用不到的 index，並且
+**重建錯的那個**。#101 修過兩個這樣的呼叫點並留下註解要人一律走 `AppState.store`，但
+**註解擋不住新的呼叫點，也擋不住重構**。
+
+所以 `AkashicStoreIO.ResolvedStore` 把它變成型別事實：`GraphModel` 只收 `ResolvedStore`，
+於是 `GraphModel(store: LibraryStore(root: x))` **編不過**。取得方式兩種，都要顯式：
+
+| 取得 | 意思 |
+|---|---|
+| `.resolved(store)` | 由 registry 解析而來（`AppState.resolvedStore` 走這條） |
+| `.unregistered(store, reason:)` | 顯式的 keyless opt-out，**理由必填**（同 `display-safe-exempt` 的哲學） |
+
+`.unregistered` 是**刻意留的洞**——keyless 合法，那條路徑必須存在，代價是它可以被誤用。
+生產程式碼不得走它，有測試釘住；同一組測試也釘住「`GraphModel` 只能有一個 init」——
+多一個收 `LibraryStore` 的 overload，閘門就形同虛設而所有既有測試照樣綠。
+
 ### 環境變數
 
 | 變數 | 作用 |

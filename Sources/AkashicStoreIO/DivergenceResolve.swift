@@ -105,6 +105,11 @@ public struct ResolveReport: Equatable {
     /// **不擋、但要說**的提醒（#75 對一）：有判斷卻沒有結構化的 `prefers` 時，
     /// 消歧無從機械比對——提醒人自行核對，而不是靜默當作沒有判斷。
     public var warnings: [String]
+    /// #169 verify F3：work 側算出的內容提醒，**暫存**到 `resolveDivergence` 於
+    /// `judgementWarnings` 之後接上——preview 的順序是「judgement 先、content 後」，
+    /// 在 work 函式內直接 append 會得到相反的順序，而 `==` 對 `warnings` 是順序
+    /// 敏感的陣列比較。回傳前一律清空，所以它不出現在任何對外的比較裡。
+    var pendingContentWarnings: [String] = []
     /// 倖存者是否已被改寫（別名合併已落地）。**失敗路徑也可能為 true**——它是
     /// 既成事實而非成功訊號；不說出來，`merged` 為空會讀成「什麼都沒發生」。
     public var survivorUpdated: Bool
@@ -331,6 +336,9 @@ extension LibraryStore {
             collapsed: migrateOtherDivergences(record: record, survivor: survivor,
                                                mergedKeys: mergedKeys,
                                                snapshot: snapshot).collapsed)
+        // #169 verify F3：content warnings 排在 judgement **之後**——與 preview 同序。
+        report.warnings += report.pendingContentWarnings
+        report.pendingContentWarnings = []
         return report
     }
 
@@ -720,8 +728,14 @@ extension LibraryStore {
                                     snapshot: snapshot, survivor: survivor,
                                     survivorNote: "倖存者的記錄已被重寫"
                                         + "（work 消歧不搬欄位，見 #75）")
-        // #169：與 preview 側取自**同一個** validateWorkPreconditions 回傳值
-        report.warnings += contentWarnings
+        // #169：與 preview 側取自**同一個** validateWorkPreconditions 回傳值。
+        //
+        // **不在這裡 append**（#169 verify F3）：`judgementWarnings` 是在
+        // `resolveDivergence` 於本函式**回傳之後**加的，所以在這裡加會得到
+        // 「content, judgement」而 preview 是「judgement, content」——`ResolveReport ==`
+        // 對 `warnings` 是順序敏感的陣列比較，兩邊在帶 judgement 的輸入上不相等。
+        // 存到 `pendingContentWarnings` 由呼叫端在 judgement 之後接上。
+        report.pendingContentWarnings = contentWarnings
         return report
     }
 
@@ -1249,19 +1263,37 @@ extension LibraryStore {
     /// 不同」。後者會對每一組大小寫／標點差異都出聲，把提醒變成噪音——而噪音會
     /// 讓人停止讀它，那比不提醒更糟。
     static func contentWarningsForMerging(_ e: Entry, into keeper: Entry) -> [String] {
-        var out: [String] = []
-        func longer(_ label: String, keeper k: String, doomed d: String) {
-            guard !k.isEmpty, !d.isEmpty, k != d else { return }   // 缺席方向歸 fieldsLostByMerging
-            // 只在被併者**嚴格包含**倖存者時出聲——那是「倖存者的版本較不完整」
-            // 這個判斷唯一機械可判定的形狀
-            guard d.contains(k), d.count > k.count else { return }
-            out.append("\(label)：倖存者的「\(displaySafe(k, max: 200))」比被併者的"
-                       + "「\(displaySafe(d, max: 300))」短——合併後較長的版本會消失"
-                       + "（不擋；確認 keeper 的寫法是你要的 canonical form）")
-        }
-        longer("title", keeper: keeper.title, doomed: e.title)
-        longer("type", keeper: keeper.type, doomed: e.type)
-        return out
+        // **只管 `title`。`type` 那一半已拿掉**（#169 verify F1）。
+        //
+        // `type` 是**封閉 token 集合**，字串包含與「完整度」零相關。窮舉 26 個常見
+        // biblatex type，**13 對**滿足嚴格包含（`book ⊂ inbook`／`collection ⊂
+        // incollection`／`proceedings ⊂ inproceedings`…），而真 store 裡 `book`(58)、
+        // `incollection`(6)、`inproceedings`(4) 都在——不是理論風險。訊息本身也是
+        // 假的：`inbook` 不是 `book` 的較長版本，是**不同的 entry type**，合併後
+        // 沒有任何「較長版本」消失。而且單向（keeper=`inbook` 時靜默）。
+        //
+        // `longer()` 的論證（包含關係＝倖存者的版本較不完整）對自由文字的 title
+        // 說得通，對封閉集合不成立。沒有替代判準——`type` 不同就是不同，那屬
+        // 「這兩筆是不是同一篇」的問題，不是內容遺失。
+        guard !keeper.title.isEmpty, !e.title.isEmpty else { return [] }
+        let k = keeper.title, d = e.title
+        guard d.contains(k), d.count > k.count else { return [] }
+
+        // **多出來的部分必須含詞字元**（#169 verify F2）。
+        //
+        // 席位在真 store 上量：78 組候選重複對、156 次判定，「兩者不同」觸發 32 次、
+        // 「嚴格包含」觸發 5 次——6 倍差距證實了噪音的顧慮。**但那 5 次全部是
+        // 「doomed 只多一個句點」**（APA 式句末句點），真實遺失 0 筆。
+        //
+        // 「嚴格包含沒有排除標點噪音——尾端標點正好就是嚴格包含的形狀。」原本的
+        // doc 寫「排除大小寫／標點差異」，實際只排除了大小寫。判準把自己論證要
+        // 避免的失敗模式製造了出來。
+        let extra = String(d.dropFirst(k.count))
+        guard extra.contains(where: { $0.isLetter || $0.isNumber }) else { return [] }
+
+        return ["title：被併的「\(displaySafe(e.citekey, max: 200))」比倖存者多了"
+                + "「\(displaySafe(extra, max: 300))」——合併後那段會消失"
+                + "（不擋；確認 keeper 的寫法是你要的 canonical form）"]
     }
 
     /// work 合併比對**刻意排除**的欄位（#157 verify 157-1 的取捨，明寫讓「排除」與

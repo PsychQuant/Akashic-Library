@@ -89,6 +89,53 @@ final class WorkContentWarningTests: XCTestCase {
             .contains { $0.contains("The Only Real Title") }, "缺席方向仍是拒絕")
     }
 
+    /// **`type` 不在範圍內**（#169 verify F1）。
+    ///
+    /// `type` 是封閉 token 集合，字串包含與完整度零相關。窮舉 26 個常見 biblatex
+    /// type，**13 對**滿足嚴格包含，而真 store 裡 `book`(58)／`incollection`(6)／
+    /// `inproceedings`(4) 都在。訊息本身也是假的：`inbook` 不是 `book` 的較長版本。
+    func testTypeIsNotComparedAtAll() {
+        let pairs = [("book", "inbook"), ("book", "bookinbook"), ("book", "mvbook"),
+                     ("collection", "incollection"), ("proceedings", "inproceedings"),
+                     ("reference", "inreference"), ("periodical", "suppperiodical")]
+        for (k, d) in pairs {
+            let keeper = Entry(id: UUID(), citekey: "k", type: k, title: "Same")
+            let doomed = Entry(id: UUID(), citekey: "d", type: d, title: "Same")
+            XCTAssertEqual(LibraryStore.contentWarningsForMerging(doomed, into: keeper), [],
+                           "「\(k) ⊂ \(d)」是兩個不同的 entry type，不是內容遺失")
+        }
+    }
+
+    /// **純標點／空白差異不出聲**（#169 verify F2）。
+    ///
+    /// 席位在真 store 上量：嚴格包含觸發 5 次，**5 次全部**是「doomed 只多一個
+    /// 句點」（APA 式句末句點），真實遺失 0 筆。尾端標點**正好就是**嚴格包含的
+    /// 形狀——原本的判準把自己論證要避免的噪音製造了出來。
+    func testTrailingPunctuationAndWhitespaceAreNotLoss() {
+        for d in ["Learned helplessness in children.", "Learned helplessness in children ",
+                  "Learned helplessness in children:", "Learned helplessness in children..."] {
+            XCTAssertEqual(warnings(keeperTitle: "Learned helplessness in children",
+                                    doomedTitle: d), [],
+                           "多出來的只有標點／空白，不是內容：\(d)")
+        }
+        // 而真的多了一段內容仍要說
+        XCTAssertEqual(warnings(keeperTitle: "Short",
+                                doomedTitle: "Short: A Real Subtitle").count, 1)
+    }
+
+    /// **提醒要指名被併者**（#169 verify F4）。
+    ///
+    /// 同檔兩條 sibling 路徑都指名（`wouldLoseFields` 帶 citekey、`judgementWarnings`
+    /// 帶 collapsed UUID，其 doc 明寫「事後才看到只剩裸 UUID 已經來不及了」）。
+    /// 多個 doomed 且 title 相同時，不指名會印出兩行**逐字相同**的 ⚠。
+    func testWarningNamesTheDoomedRecord() {
+        let keeper = Entry(id: UUID(), citekey: "k2020", type: "article", title: "Short")
+        let doomed = Entry(id: UUID(), citekey: "d2020", type: "article",
+                           title: "Short: A Real Subtitle")
+        let w = LibraryStore.contentWarningsForMerging(doomed, into: keeper)
+        XCTAssertTrue(w.first?.contains("d2020") == true, "要指名是哪一筆：\(w)")
+    }
+
     /// **preview 與實跑必須給同一組提醒**——提醒的價值在於它出現在還能反悔的時點。
     ///
     /// 兩邊都取自同一個 `validateWorkPreconditions` 回傳值，所以這條釘的是
@@ -100,18 +147,32 @@ final class WorkContentWarningTests: XCTestCase {
                            title: "Short: A Much Longer Subtitle")
         doomed.date = "2020"
         try store.writeEntry(keeper); try store.writeEntry(doomed)
+        // **帶 judgement**：那是唯一會讓 preview 與實跑順序分岔的形狀
         let d = Divergence(
             id: UUID(), question: "同一篇？",
             candidates: [DivergenceCandidate(key: "k2020", shape: .work),
-                         DivergenceCandidate(key: "d2020", shape: .work)])
+                         DivergenceCandidate(key: "d2020", shape: .work)],
+            // **prefers 指向被併者、survivor 選另一邊** → 走 override 路徑，
+            // 於是 judgement warning 與 content warning **同時**存在。那是唯一
+            // 會讓兩邊順序分岔的形狀；prefers 與 survivor 相符時只有一個 warning，
+            // 順序不可能分岔，`XCTAssertEqual(preview, actual)` 就是空跑
+            // （#169 verify F3）。
+            judgement: Judgement(statement: "名冊確認 d2020 是正式寫法",
+                                 restsOn: ["sha256:" + String(repeating: "ab", count: 32)],
+                                 prefers: "d2020"))
         try store.writeDivergence(d)
         GitFixture.commitAll(root, message: "seed")
 
         let preview = try store.previewResolveDivergence(
-            id: d.id, survivor: "k2020", overrideReason: nil)
+            id: d.id, survivor: "k2020", overrideReason: "名冊已更新，改採 k2020")
+        XCTAssertGreaterThanOrEqual(preview.warnings.count, 2,
+            "fixture 必須同時有 judgement 與 content 兩種 warning——只有一種時順序"
+            + "不可能分岔，下面那條 XCTAssertEqual 就是空跑（#169 verify F3）："
+            + "\(preview.warnings)")
         XCTAssertTrue(preview.warnings.contains { $0.contains("A Much Longer Subtitle") },
                       "dry-run 是唯一還能反悔的時點，提醒必須在那裡：\(preview.warnings)")
-        let actual = try store.resolveDivergence(id: d.id, survivor: "k2020")
+        let actual = try store.resolveDivergence(id: d.id, survivor: "k2020",
+                                                 overrideReason: "名冊已更新，改採 k2020")
         XCTAssertEqual(preview.warnings, actual.warnings,
                        "兩邊取自同一個共用點——不一致代表那個點被繞過了")
         XCTAssertEqual(actual.failures, [], "提醒不擋——合併仍要成功")

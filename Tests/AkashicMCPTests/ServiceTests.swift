@@ -807,3 +807,94 @@ extension ServiceTests {
         }
     }
 }
+
+/// #171 verify 171-5：**成功回傳**的 dict 值也是 tool result——四條漏網。
+///
+/// 前面兩個 extension 釘的是 **error** 路徑。這一組釘 **success** 路徑：同一個
+/// dict literal 裡有些值包了 `displaySafe`、有些沒有。`zotero_key` 最刺眼——
+/// **下一行**的 `zotero_hash` 包了，註解還寫著「Zotero 寫進來的自由字串」。
+///
+/// 這是本檔案第四次記錄同一個形狀（literal／journal／tags／本組）。守衛看不見
+/// 它們：`DisplaySinkCoverageTests` 的 dict-literal 判準對這些行不成立，而 #164
+/// 試過的兩種擴充一個 recall 0/3、一個誤中 94%（已撤回並記錄）。
+///
+/// **所以這裡是行為測試，不是再加一條掃描規則。** 值得記的是發現方式：四條全部
+/// 由「同一份資料在同一個檔案裡有兩種待遇」的人工比對找到，沒有一條是機械抓到的。
+extension ServiceTests {
+    private var hostileEcho: String { "ev\u{1B}[31m\u{202E}il" }
+
+    private func assertNoRawControls(_ s: String, _ ctx: String) {
+        XCTAssertFalse(s.contains("\u{1B}"), "\(ctx)：raw ESC 抵達 tool result")
+        XCTAssertFalse(s.contains("\u{202E}"), "\(ctx)：raw U+202E 抵達 tool result")
+    }
+
+    /// (a) `Provenance.zoteroKey` — 與同 dict 下一行的 `zotero_hash` 同源、同待遇缺口。
+    func testProvenanceZoteroKeyIsSanitised() throws {
+        var e = Entry(id: UUID(), citekey: "prov2020", type: "article", title: "T")
+        e.date = "2020"
+        e.provenance = Provenance(zoteroKey: "ABCD\(hostileEcho)EF", zoteroVersion: 3)
+        try LibraryStore(root: root).writeEntry(e)
+        assertNoRawControls(try service.getEntry(citekey: "prov2020"), "provenance.zotero_key")
+    }
+
+    /// (b) `relations.cites/related` — 讀寫兩端**都沒有** StoreKey 驗證，是自由字串。
+    ///     `link()` 與 `entryDict()` 兩個吐出點都要蓋到。
+    func testRelationKeysAreSanitisedOnBothSurfaces() throws {
+        var e = Entry(id: UUID(), citekey: "rel2020", type: "article", title: "T")
+        e.date = "2020"
+        e.akashic.relations.cites = ["other\(hostileEcho)key"]
+        e.akashic.relations.related = ["rel\(hostileEcho)ated"]
+        try LibraryStore(root: root).writeEntry(e)
+        assertNoRawControls(try service.getEntry(citekey: "rel2020"), "entryDict 的 cites/related")
+        // **兩個 surface 都要真的走到**（#171 複驗 171-8）：這條原本只呼叫
+        // `getEntry`，卻在名字與 doc 裡宣稱蓋到 `link()`——只還原 `link()` 的消毒，
+        // 1023 條零紅。修法有效但可以被無聲刪除，而「測試名字宣稱了它沒驗的性質，
+        // 那比沒有測試更糟」是本 repo 已經記過的（`OrgBootstrapCLITests.swift:144`）。
+        assertNoRawControls(try service.link(citekey: "rel2020", kind: "cites",
+                                             add: [], remove: []),
+                            "link() 的 cites/related")
+    }
+
+    /// (e) `files` 的 `list` 分支 — **同一個函式的 `use` 分支已經包了**。
+    ///     config.yaml 的 path **值**是自由字串（只有 key 過 StoreKey）。
+    func testFilesListSanitisesRootPaths() throws {
+        let hostileRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ev\u{1B}[31m\u{202E}il-\(UUID().uuidString)")
+        try LibraryStore(root: hostileRoot).ensureLayout()
+        let cfg = AkashicConfig(library: hostileRoot.path,
+                                files: ["hostile": hostileRoot.path], current: "hostile")
+        try cfg.write(to: service.configURL)
+        let svc = AkashicService(root: hostileRoot, key: "hostile", configURL: service.configURL,
+                                 environment: ["AKASHIC_HOME": fakeHome.path])
+        assertNoRawControls(try svc.files(action: "list", key: nil),
+                            "files list 的 active_root / legacy_library")
+        try? FileManager.default.removeItem(at: hostileRoot)
+    }
+
+    /// (f)(g) `person()` 的 `co_authors[].person_key` 與 `personDict["key"]`。
+    ///
+    /// **作者 key 讀寫兩端都沒有 StoreKey 驗證**（`writeEntry` 只驗 `citekey` 與
+    /// `libraries`），與 (b) 的 `relations.cites` 同源。兩處都是「同一份字串在同一個
+    /// 回應裡兩種待遇」——`co_authors` 的 `name` fallback 就是 `person_key` 本身。
+    func testPersonKeyEchoesAreSanitised() throws {
+        let hostileKey = "ev\u{1B}[31m\u{202E}il-key"
+        var e = Entry(id: UUID(), citekey: "coauth2020", type: "article", title: "T")
+        e.date = "2020"
+        e.authors = [.key(hostileKey), .key("cheng-che")]
+        try LibraryStore(root: root).writeEntry(e)
+        // record == nil（沒有 person 檔）→ personDict 走 key 原樣回吐那條路徑
+        assertNoRawControls(try service.person(key: hostileKey, name: nil, library: nil),
+                            "personDict 的 key")
+        // 有 record 的一側則走 co_authors.person_key
+        assertNoRawControls(try service.person(key: "cheng-che", name: nil, library: nil),
+                            "co_authors 的 person_key")
+    }
+
+    /// (c) `addPerson` 回吐 `names` — 單一來回把呼叫端字串原樣送進 LLM context。
+    ///     這正是 #156 verify R5 在 `setStatus` 上認定為真洩漏的同一形狀。
+    func testAddPersonDoesNotEchoRawNames() throws {
+        let out = try service.addPerson(key: "hostile-echo", names: ["Nice Name\(hostileEcho)"],
+                                        orcid: nil, openalex: nil)
+        assertNoRawControls(out, "addPerson 的 names echo")
+    }
+}

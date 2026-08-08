@@ -28,6 +28,17 @@ public enum ServiceError: Error, LocalizedError {
 /// akashic-mcp 的 handler 核心（可測試、不含 MCP 佈線）。
 /// 讀走 index（mtime stale 自動重建）；寫只碰衍生層，寫後重建 index。
 public final class AkashicService {
+    /// MCP 匯出的位元組上限（#171 verify 171-2 的附帶發現）。
+    ///
+    /// **CLI 沒有這個上限、MCP 有**，因為兩邊的下游不同：`export-bib > refs.bib`
+    /// 收 200 MB 沒問題，MCP 的 tool result 進的是 LLM context，200 MB 會炸掉
+    /// 任何 context 而且無從恢復。
+    ///
+    /// 超量的處置是**拒絕並指路**，不是截斷——截一半的 .bib 是壞掉的 .bib，
+    /// 而它壞得很安靜（大括號不閉合，下游解析器才報錯）。8 MB 遠大於任何
+    /// 正常書目庫（實測本 store 898 筆 ≈ 1.2 MB），小到不會毀掉 context。
+    static let maxExportBytes = 8 * 1024 * 1024
+
     /// #18 多檔案：use 切換時重指（session-scoped）；store/index 為 computed，全部跟隨。
     private(set) var root: URL
     /// #37：index 位置取決於 registry key。與 root 同生命週期——`use` 切換時
@@ -95,10 +106,12 @@ public final class AkashicService {
         try ensureFreshIndex()
         let builder = try GraphBuilder(indexPath: store.indexURL)
         let neighborhood = try builder.neighborhood(focus: focus, depth: depth)
+        // 與 `export` 同一個邊界（#171 verify 171-4）：整份圖當 tool result 回 LLM，
+        // 三個 renderer 的 escape 只管各自格式的 metacharacter，不管 C0／bidi。
         switch format {
-        case "mermaid": return GraphRenderer.mermaid(neighborhood)
-        case "dot": return GraphRenderer.dot(neighborhood)
-        case "graphml": return GraphRenderer.graphml(neighborhood)
+        case "mermaid": return documentSafe(GraphRenderer.mermaid(neighborhood))
+        case "dot": return documentSafe(GraphRenderer.dot(neighborhood))
+        case "graphml": return documentSafe(GraphRenderer.graphml(neighborhood))
         default: throw ServiceError.invalid("format 必須是 mermaid / dot / graphml")
         }
     }
@@ -114,9 +127,46 @@ public final class AkashicService {
                 throw ServiceError.notFound("citekeys：\(missing.sorted().map { displaySafe($0, max: 200) }.joined(separator: ", "))")
             }
         }
+        // #165：**這是本 repo 最強的威脅模型**——匯出全文當 MCP tool result 直接進
+        // LLM context。verify 席行為探針實測 `title`／`authors`／`fields` 裡的
+        // raw ESC、U+202E、U+2028 **原樣通過** biblatex 層——它跳脫的是 TeX specials
+        // （`{}` `\` `%` `&`），與 C0／bidi／LS-PS 是兩組**不相干的字元集**。
+        // 「跳脫由 biblatex 層負責」這句話字面成立、實質全假。
+        //
+        // 消毒住**輸出邊界**而非 `BibExport`／`CSLExport`：同一份內容，去**檔案**
+        // 時必須保真（消毒會破壞 .bib 的正確性，下游 BibTeX 引擎會壞），去**顯示**
+        // 時必須消毒。CLI 的 `--output` 分支同理不消毒、stdout 分支消毒。
+        //
+        // **用 `documentSafe` 不用 `displaySafe`**（#171 verify 171-2）：後者跳脫
+        // 反斜線（反偽造），而反斜線在 .bib 與 JSON 裡**是內容語法**——套上去會
+        // 讓 `\\textit{}` 變 `\\u{005C}textit{}`、讓 JSON 的 `\\"` 變成不合法。
+        //
+        // **超量就拒絕，不截斷**（171-3）：截一半的文件是壞掉的文件，而 MCP 的
+        // 回傳直接進 LLM context——200 MB 會炸掉任何 context。行長限制同樣拿掉：
+        // `BibWriter` 一個欄位一行，abstract 是常態欄位，4000 上限會把它截成
+        // 大括號不閉合的無效 .bib，且靜默。
+        func safe(_ s: String) throws -> String {
+            // **量消毒之後的長度**（#171 複驗 b′）：`documentSafe` 是 6 倍膨脹器
+            // （實測 1 MB 全 ESC → 6 MB），量 `s` 會讓最壞情況真正進 context 的是
+            // 48 MB 而不是 8 MB——「小到不會毀掉 context」在對抗性內容下不成立。
+            let out = documentSafe(s)
+            guard out.utf8.count <= Self.maxExportBytes else {
+                // **指路只能指呼叫端真的有的旋鈕**（#171 複驗 b）：`akashic_export`
+                // 的 schema 只有 `citekeys` 與 `format`——原本寫的 `--library`／`--tag`
+                // 這裡不存在，而 MCP client 一般也跑不了 CLI。三個建議裡兩個是假的。
+                throw ServiceError.invalid(
+                    "匯出 \(out.utf8.count / 1024) KB 超過 MCP 上限 "
+                    + "\(Self.maxExportBytes / 1024) KB（本庫 \(entries.count) 筆）"
+                    + "——tool result 進的是 LLM context。改傳 citekeys 分批匯出"
+                    + "（本工具唯一的縮小方式）；要全庫請在終端跑 "
+                    + "akashic export-bib --output <path>")
+            }
+            return out
+        }
         switch format {
-        case "bib": return BibExport.bibFile(entries: entries, people: load.people)
-        case "csl-json": return try CSLExport.cslJSON(entries: entries, people: load.people)
+        case "bib": return try safe(BibExport.bibFile(entries: entries, people: load.people))
+        case "csl-json":
+            return try safe(CSLExport.cslJSON(entries: entries, people: load.people))
         default: throw ServiceError.invalid("format 必須是 bib / csl-json")
         }
     }
@@ -144,7 +194,7 @@ public final class AkashicService {
 
     public func doctor() throws -> String {
         let load = try store.load()
-        var d: [String: Any] = ["library": root.path]
+        var d: [String: Any] = ["library": displaySafe(root.path, max: 800)]   // #164：與同 dict 其他值對齊
 
         // #35（鏡射 CLI doctor 的順序；#138 verify F1）：跨記錄檢查必須在 rebuild
         // **之前**。重複 citekey / person key 時 rebuild 會撞 UNIQUE constraint——
@@ -229,7 +279,7 @@ public final class AkashicService {
                         "id": d.id.uuidString,
                         "question": displaySafe(d.question, max: 400),
                         "candidates": d.candidates.map {
-                            ["key": displaySafe($0.key, max: 200), "shape": $0.shape.rawValue]
+                            ["key": displaySafe($0.key, max: 200), "shape": $0.shape.rawValue]   // display-safe-exempt: shape 是 EntityKind 的 enum rawValue，值域封閉
                         },
                         "hasJudgement": d.judgement != nil,
                     ] as [String: Any]
@@ -246,11 +296,17 @@ public final class AkashicService {
         case "list":
             let config = try AkashicConfig.read(from: configURL)
             let list = config.files.keys.sorted().map { k -> [String: Any] in
-                ["key": k, "path": displaySafe(config.files[k]!, max: 800),
+                ["key": k,   // display-safe-exempt: registry key 受 StoreKey.isValid 雙重把關（AkashicConfig decode + FileCommands）
+                 "path": displaySafe(config.files[k]!, max: 800),
                  "current": k == config.current]
             }
-            var out: [String: Any] = ["files": list, "active_root": root.path]
-            if let legacy = config.library { out["legacy_library"] = legacy }
+            // #171 複驗 (e)：**同一個函式的 `use` 分支已經包了** `displaySafe(root.path)`，
+            // 同一個 dict 裡的 `path` 也包了——只有這兩個沒有。config.yaml 的 path
+            // **值**是自由字串，只有 **key** 過 `StoreKey.isValid`（AkashicConfig:86），
+            // 值只過 `cleanValue`（剝引號／inline comment，不碰控制字元）。
+            var out: [String: Any] = ["files": list,
+                                      "active_root": displaySafe(root.path, max: 800)]
+            if let legacy = config.library { out["legacy_library"] = displaySafe(legacy, max: 800) }
             return try jsonString(out)
         case "use":
             guard let key, !key.isEmpty else {
@@ -267,7 +323,8 @@ public final class AkashicService {
             }
             root = newRoot
             storeKey = key          // #37：index 必須跟著切，否則用舊 store 的 index 查新 store
-            return try jsonString(["active_root": root.path, "key": key] as [String: Any])
+            return try jsonString(["active_root": displaySafe(root.path, max: 800),
+                                   "key": key] as [String: Any])   // display-safe-exempt: key 受 StoreKey 約束
         default:
             throw ServiceError.invalid("未知 action「\(displaySafe(action, max: 120))」（list / use）")
         }
@@ -297,7 +354,10 @@ public final class AkashicService {
             let co = try engine.coAuthors(of: key, library: library)
             // resolved 合著者的 name 給人讀的名字（people.names 首項），key 另放 person_key
             let nameByKey = Dictionary(uniqueKeysWithValues: load.people.map { ($0.key, $0.displayName(in: .latn)) })
-            var personDict: [String: Any] = ["key": key]
+            // #171 複驗 (g)：`record == nil` 但 `allPubs` 非空時（key 只出現在 entry 的
+            // `.key(...)` 參照、沒有 person 記錄），呼叫端的字串原樣回吐——而同一個
+            // 回應的 `publications[].authors` 裡那同一份字串是包了的。
+            var personDict: [String: Any] = ["key": displaySafe(key, max: 200)]
             if let record {
                 personDict["names"] = record.names.map { displaySafe($0, max: 200) }
                 if !record.unknownFields.isEmpty {   // #31
@@ -312,7 +372,10 @@ public final class AkashicService {
                 "co_authors": co.map { c -> [String: Any] in
                     var d: [String: Any] = ["count": c.count]
                     if let pk = c.personKey {
-                        d["person_key"] = pk
+                        // #171 複驗 (f)：**下一行**的 `name` fallback 就是 `pk` 本身且包了，
+                        // 同函式 :391 的另一個分支也包了。作者 key 讀寫兩端都沒有
+                        // StoreKey 驗證——與 171-5(b) 的 `relations.cites` 完全同源。
+                        d["person_key"] = displaySafe(pk, max: 200)
                         d["name"] = displaySafe(nameByKey[pk] ?? pk, max: 200)
                     } else {
                         d["name"] = displaySafe(c.name, max: 200)
@@ -474,8 +537,11 @@ public final class AkashicService {
         try writeAndReindex(entry)
         return try jsonString([
             "citekey": displaySafe(citekey, max: 200),
-            "cites": entry.akashic.relations.cites,
-            "related": entry.akashic.relations.related,
+            // #171 verify 171-5(b)：`cites`／`related` 讀寫兩端**都沒有** StoreKey
+            // 驗證（`load` 只驗 `citekey` 與 `libraries`，`writeEntry` 同樣），所以
+            // 是完全自由的字串。實測 raw U+202E 經 `link()` 逐字回到 tool result。
+            "cites": entry.akashic.relations.cites.map { displaySafe($0, max: 200) },
+            "related": entry.akashic.relations.related.map { displaySafe($0, max: 200) },
         ] as [String: Any])
     }
 
@@ -489,7 +555,8 @@ public final class AkashicService {
         guard let selected = apply else {
             return try jsonString(withIDs.map { pair -> [String: Any] in
                 [
-                    "id": pair.id, "citekey": displaySafe(pair.candidate.citekey, max: 200),
+                    "id": pair.id,   // display-safe-exempt: 形如 "<citekey>:<index>"；citekey 受 load 端 StoreKey quarantine 把關（#171 複驗：原理由寫「本函式自產、非 store 內容」是錯的——citekey 就是 store 內容）
+                    "citekey": displaySafe(pair.candidate.citekey, max: 200),
                     "authorIndex": pair.candidate.authorIndex,
                     "literal": displaySafe(pair.candidate.literal, max: 400),
                     "personKey": displaySafe(pair.candidate.personKey, max: 200),
@@ -575,7 +642,9 @@ public final class AkashicService {
         let person = Person(key: key, names: names, orcid: orcid, openalex: openalex)
         try store.writePerson(person)
         try LibraryIndex(store: store).rebuild()
-        return try jsonString(["key": key, "names": names])
+        // #171 verify 171-5(c)：單一 MCP 來回把呼叫端字串原樣吐回 LLM context——
+        // 這就是 #156 verify R5 在 `setStatus` 上認定為真洩漏並修掉的同一形狀。
+        return try jsonString(["key": key, "names": names.map { displaySafe($0, max: 200) }])
     }
 
     /// #77 層次 2：MCP 面的歧異記錄入口。LLM 驅動的補完流程遇到同一性疑問時
@@ -631,7 +700,10 @@ public final class AkashicService {
             "orphaned": report.orphaned.map { displaySafe($0, max: 200) },
             "orphanCleared": report.orphanCleared.map { displaySafe($0, max: 200) },
             "unchanged": report.unchanged,
-            "droppedFields": report.droppedFields,
+            // #171 verify 171-5(d)：key 是 Zotero 未映射的欄位名＝第三方字串，
+            // 而同一個 dict literal 裡其餘七個值全部消毒。
+            "droppedFields": Dictionary(uniqueKeysWithValues:
+                report.droppedFields.map { (displaySafe($0.key, max: 200), $0.value) }),
             "unnormalizedDates": report.unnormalizedDates.map { displaySafe($0, max: 200) },
             "skippedLinkedAttachments": report.skippedLinkedAttachments,
         ]
@@ -700,7 +772,11 @@ public final class AkashicService {
 
     func summaryDict(_ s: EntrySummary) -> [String: Any] {
         var d: [String: Any] = [
-            "citekey": displaySafe(s.citekey, max: 200), "type": s.type,
+            // #164 第四方向抓到的：`type` 是 biblatex 型別，來自 Zotero 匯入的映射
+            // ——值域**看起來**封閉，但 `Entry.validate()` 只驗「不可為空」，沒有
+            // 白名單。與同一個 dict 裡已消毒的 citekey／title 同源。
+            "citekey": displaySafe(s.citekey, max: 200),
+            "type": displaySafe(s.type, max: 200),
             "title": displaySafe(s.title, max: 800),
             "authors": s.authors.map { displaySafe($0, max: 200) },
         ]
@@ -718,7 +794,7 @@ public final class AkashicService {
         var d: [String: Any] = [
             "id": entry.id.uuidString,
             "citekey": displaySafe(entry.citekey, max: 200),
-            "type": entry.type,
+            "type": displaySafe(entry.type, max: 200),   // 同上（#164）
             "title": displaySafe(entry.title, max: 800),
             "authors": entry.authors.map { author -> [String: String] in
                 switch author {
@@ -738,7 +814,11 @@ public final class AkashicService {
             }
         }
         if let prov = entry.provenance {
-            var p: [String: Any] = ["zotero_key": prov.zoteroKey, "zotero_version": prov.zoteroVersion]
+            // #171 verify 171-5(a)：與**下一行**的 `zotero_hash` 同一個 struct、同一個
+            // 來源、同一個 dict——那行包了 displaySafe 而這行沒有。這正是本檔案已經
+            // 記錄過三次的形狀（literal／journal／tags）：同資料兩種待遇。
+            var p: [String: Any] = ["zotero_key": displaySafe(prov.zoteroKey, max: 200),
+                                    "zotero_version": prov.zoteroVersion]
             if let lid = prov.libraryID { p["library_id"] = lid }   // display-safe-exempt: Int
             // #156 verify R4：Zotero 來源的字串（雖為 hash 形狀，但本 binary 未驗證
             // 它真的是 hash——那是 Zotero 寫進來的自由字串）
@@ -761,8 +841,13 @@ public final class AkashicService {
         }
         if !entry.akashic.libraries.isEmpty { akashic["libraries"] = entry.akashic.libraries }
         if let status = entry.akashic.status { akashic["status"] = displaySafe(status, max: 200) }
-        if !entry.akashic.relations.cites.isEmpty { akashic["cites"] = entry.akashic.relations.cites }
-        if !entry.akashic.relations.related.isEmpty { akashic["related"] = entry.akashic.relations.related }
+        // 同 171-5(b)：`link()` 與 `entryDict()` 兩端都吐，兩端都要包。
+        if !entry.akashic.relations.cites.isEmpty {
+            akashic["cites"] = entry.akashic.relations.cites.map { displaySafe($0, max: 200) }
+        }
+        if !entry.akashic.relations.related.isEmpty {
+            akashic["related"] = entry.akashic.relations.related.map { displaySafe($0, max: 200) }
+        }
         d["akashic"] = akashic
         // #31：讀取面必須露出「這筆記錄有本 binary 不認得的欄位」。只給 key 不給值——
         // 值是未信任的逐字原文，灌進 LLM context 沒有意義且是注入面；key 足以讓使用者

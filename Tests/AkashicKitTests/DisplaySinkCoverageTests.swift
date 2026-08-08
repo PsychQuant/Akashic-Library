@@ -55,6 +55,40 @@ import Foundation
 /// - **switch `case` 短變數值**：`case .literal(let s): return ["literal": s]` 的
 ///   `s` 是短名、不含 token——那類站點靠人工消毒 + 功能測試。
 ///
+/// ### 試過並撤回：dict 內部一致性判準（#164 第四方向）
+///
+/// 三次真洩漏是同一形狀——同一個 dict、相鄰位置、一個包了一個沒包（`literal` vs
+/// `person_key`／`journal` vs `title`／`tags` vs `citekey`）。看起來是一條不需要
+/// taint 分析的好判準：「同一組值裡若有人消毒了，其餘字串值都必須有」。
+///
+/// **實作並量測後撤回**，兩種範圍都不行：
+///
+/// | 範圍 | 命中 | 真的 | 對三次歷史洩漏的 recall |
+/// |---|---|---|---|
+/// | 行內（同一行的 dict 值） | 4 | 1 | **0/3** |
+/// | 函式內（跨行、跨 `append`） | 47 | ~3（6%） | 3/3 |
+///
+/// **行內版的致命傷不是低 recall，是它的偵測依賴排版**：它唯一抓到的那條
+/// （`summaryDict` 的 `s.type`），在我為它加註解而把兩個 dict entry 拆成不同行之後
+/// **就再也抓不到了**。一個「偵測力取決於兩個 entry 恰好在同一行」的守衛不是守衛
+/// ——那正是 #162 記載的「消毒分佈跟著行寬走」的反面。
+///
+/// **函式版的 94% 誤中**則重演 156-14 的教訓：為了提高 recall 而放寬形狀規則，換來
+/// 一批需要 exempt 的誤中，而反射性加 exempt 比沒有守衛更糟。
+///
+/// **但函式版當一次性稽核工具有用**：那 47 條裡我挑出 3 個真的
+/// （`QueryCommands` 的 `summary.type`、`root.path` ×2）。
+///
+/// **那個「3 個」是錯的**（#171 verify 171-5）：獨立的一輪把同一批重過一遍，另外
+/// 找到 4 條——`Provenance.zoteroKey`、`Relations.cites/related`（兩個吐出點）、
+/// `addPerson` 回吐的 `names`、`ImportReport.droppedFields` 的 key，前三條有行為
+/// 證明（raw U+202E 抵達 tool result）。全部已修。
+///
+/// 這個更正本身是本段最重要的內容：**「稽核跑過了」不等於「稽核跑完了」**，而
+/// 寫下的量測數字會被日後的人讀成「這一輪已經清乾淨」。誰都可以漏——包括剛剛
+/// 論證完這種漏法長什麼樣的人。這是「掃出來人工過一遍」的價值，不是 CI gate 的
+/// 價值；兩者不該混淆，而人工那一遍的 recall 也不該被寫成確定數字。
+///
 /// **`testGuardCatchesStrippedSanitisation`（#141）是對這個侷限的補償**：它不宣稱
 /// 守衛涵蓋每條路徑，而是量測「守衛確實在看真實的消毒站點」——拔光 displaySafe
 /// 後守衛必須報大量違規（實測 78）。守衛退化成空洞會讓那個下限失守。完整的
@@ -436,6 +470,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
                     if !isErrorSink && tokenMatched { axes.insert(.token) }
                     violations.append(Violation(text: "\(name):\(idx + 1)  \(expr)", axes: axes))
                 }
+
             }
         }
         return violations
@@ -571,6 +606,10 @@ final class DisplaySinkCoverageTests: XCTestCase {
         })
         let floors: [Axis: Int] = [.sink: 25, .errorThrow: 8, .caseReturn: 5, .token: 20]
         for axis in Axis.allCases {
+            // **force-unwrap 是刻意的**（#171 verify 171-7）：`?? 0` 會讓「新增第五個
+            // Axis 但忘了給下限」安靜通過——那正是本測試在防的「守衛退化成空洞」。
+            // 實測：加一個無下限的 case，`?? 0` 版 passed、force-unwrap 版 crash。
+            // 響亮地壞掉勝過安靜地失效。
             XCTAssertGreaterThanOrEqual(byAxis[axis] ?? 0, floors[axis]!, """
                 strip-all 後 `\(axis.rawValue)` 軸只報 \(byAxis[axis] ?? 0) 條
                 （下限 \(floors[axis]!)）——這一軸的判準可能已整條失效。

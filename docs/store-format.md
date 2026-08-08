@@ -554,29 +554,6 @@ akashic fmt --check    # 只回報偏離並以非零碼退出，不寫任何檔�
 每次寫完都得先跑 `fmt` 才過驗證，摩擦大到會讓人繞過 `validate` 本身。`--check` 的
 語意與 `swift format --lint` 一致，給 CI 與外部 pipeline 當明確關卡。
 
-## 3.45 organization 階層的環（normative，#179）
-
-`organization.parents` 可以造出環（A 的 parent 是 B、B 的 parent 是 A，或自環）。
-`crossRecordIssues()` **MUST** 偵測並報告，severity 為 **warning**。
-
-**warning 而非 error**，與 `ISO8601Prefix` 的裁決同理：fail-closed 的內容驗證會讓一筆
-壞資料使整個 store 載入不了，而環是**可回溯的**（檔案都在版控裡）。升成 error 會讓
-`assertNoCrossRecordErrors` 鎖住整個寫入面。
-
-偵測 **MUST** 是 O(V+E) per start（持久的 visited 集合，不是「當前路徑」集合）——
-用後者會走遍所有**路徑**而非所有**節點**，實測 n=120 就要 543 秒，在 `doctor` 的
-路徑上等於功能不存在。報出來的環 **MUST NOT** 含通往它的前綴（`a→b`、`b→c`、
-`c→b` 報 `b → c → b`，`a` 不在內）。
-
-每個環 **MUST** 只報一次（取環上字典序最小的 key 當起點），否則 n 個節點的環會產生
-n 則說同一件事的警告。`.literal` 的 parents **MUST NOT** 計為邊——它還沒歸戶、指不到
-任何記錄。
-
-**為什麼寫入端擋不夠**：#166 已在歸戶端（`resolve-organizations`）排除會閉環的候選，
-那是製造環最容易的路徑。但它不涵蓋手寫 YAML、批次改寫、或**從別台機器同步進來的
-檔案**——store 內容未信任（#23）意味著環可能不是這台機器造出來的，所以「所有寫入點
-都擋」永遠不完整，需要一道檢查時的偵測。
-
 ## 3.4 `incarnation`：store 的化身 id（normative，#130）
 
 store 根目錄可有一個名為 `incarnation` 的單行檔案，內容是一個 UUID。它回答
@@ -606,6 +583,29 @@ store 的 index 根本不叫這個名字。同路徑重生時新舊 index 是**�
 
 **誠實邊界**：舊 binary 讀不到 `incarnation`，因此在同路徑重生情境下仍會誤信舊 index。
 這是刻意的取捨——替代方案是讓它們全部拒絕開啟，代價更大。
+
+## 3.45 organization 階層的環（normative，#179）
+
+`organization.parents` 可以造出環（A 的 parent 是 B、B 的 parent 是 A，或自環）。
+`crossRecordIssues()` **MUST** 偵測並報告，severity 為 **warning**。
+
+**warning 而非 error**，與 `ISO8601Prefix` 的裁決同理：fail-closed 的內容驗證會讓一筆
+壞資料使整個 store 載入不了，而環是**可回溯的**（檔案都在版控裡）。升成 error 會讓
+`assertNoCrossRecordErrors` 鎖住整個寫入面。
+
+偵測 **MUST** 是 O(V+E) per start（持久的 visited 集合，不是「當前路徑」集合）——
+用後者會走遍所有**路徑**而非所有**節點**，實測 n=120 就要 543 秒，在 `doctor` 的
+路徑上等於功能不存在。報出來的環 **MUST NOT** 含通往它的前綴（`a→b`、`b→c`、
+`c→b` 報 `b → c → b`，`a` 不在內）。
+
+每個環 **MUST** 只報一次（取環上字典序最小的 key 當起點），否則 n 個節點的環會產生
+n 則說同一件事的警告。`.literal` 的 parents **MUST NOT** 計為邊——它還沒歸戶、指不到
+任何記錄。
+
+**為什麼寫入端擋不夠**：#166 已在歸戶端（`resolve-organizations`）排除會閉環的候選，
+那是製造環最容易的路徑。但它不涵蓋手寫 YAML、批次改寫、或**從別台機器同步進來的
+檔案**——store 內容未信任（#23）意味著環可能不是這台機器造出來的，所以「所有寫入點
+都擋」永遠不完整，需要一道檢查時的偵測。
 
 ## 3.5 `references`：欄位層級的 provenance（normative，#66）
 

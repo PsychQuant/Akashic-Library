@@ -257,6 +257,51 @@ public struct Person: Equatable {
     }
 }
 
+/// 多行版 displaySafe（#114）：`displaySafe` 會跳脫 LF 且截 200 字——把它直接套在
+/// CLI 頂層錯誤輸出會毀掉合法的多行 usage/help。這裡按行分割、逐行消毒（行內
+/// 控制字元照舊跳脫）、保留換行重組；行數與行長設寬鬆上限（擋 2 MB 攻擊行、
+/// 不砍正常 usage）。
+public func displaySafeMultiline(_ s: String, maxLineLength: Int = 400,
+                                 maxLines: Int = 200,
+                                 maxTotal: Int = 96_000) -> String {
+    // **只有真 LF（含 CRLF 正規化）是分隔符**（#135 verify F2）：`isNewline` 會把
+    // VT/FF/CR/NEL/LS/PS 全當換行「轉成」真 LF——displaySafe 的 R12 fix #2 特地
+    // 跳脫 LS/PS（不得殘留真換行），wrapper 用 isNewline 等於把那道防線拆回來：
+    // 困在單一 YAML scalar 裡的內容（結構上不可能含 LF）會獲得多行輸出注入。
+    // 改為 CRLF→LF 正規化後只 split "\n"——其餘換行變體交給 displaySafe 逐行跳脫。
+    let normalized = s.replacingOccurrences(of: "\r\n", with: "\n")
+    let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
+    var out: [String] = []
+    var total = 0
+    for (i, line) in lines.enumerated() {
+        if i >= maxLines || total > maxTotal {
+            out.append("……（截斷：共 \(lines.count) 行）")
+            break
+        }
+        let safe = displaySafe(String(line), max: maxLineLength)
+        total += safe.count + 1
+        out.append(safe)
+    }
+    // 總量上限（#135 verify F3）：跳脫是 8 倍膨脹器——200 行 × 400 scalar 的
+    // 最壞形狀曾放大到 ~640 KB（比未消毒的 main 多 6.3 倍）。cap 在 96 KB：
+    // 訊息夠長、且刻意 > 64 KB pipe buffer（讓 harness 的 deadlock 修復可測）。
+    return out.joined(separator: "\n")
+}
+
+/// **本函式的 doc 曾經孤兒化**（#170 的**第七例**，由 #114 的 `f357e90` 引入，
+/// 就在 #170 量測的前一天）：下面這整段——含 R12 三條更正——曾經無空 `///` 行地
+/// 接在 `displaySafeMultiline` 頭上，而本宣告零註解。
+///
+/// 被孤兒化的每一句對接收者都是假的：R12 第 1 條的「`max: 200` 下原樣通過」講的是
+/// 本函式的 `max:` 參數（多行版收的是 `maxLineLength`／`maxLines`／`maxTotal`）；
+/// 第 3 條的「反斜線自身要跳脫」講的是本函式的 escaping 實作。而多行版自己的 doc
+/// 還明寫「`displaySafe` 會跳脫 LF 且截 200 字」——它把本函式當**別的東西**引用，
+/// 卻頂著本函式的 doc。
+///
+/// 那段是 load-bearing 的 security doc：`DisplaySinkCoverageTests` 的機械守衛契約、
+/// `// display-safe-exempt:` 的豁免規則、以及「三輪都憑記憶檢查 sink 清單、三輪都漏」
+/// 的教訓——全部掛錯地方。
+///
 /// 顯示層消毒。store 檔案依 #23 的前提可能由別的 binary、別人、Dropbox 同步
 /// 寫入，未知欄位 key、quarantine reason、以及**驗證失敗訊息裡被插值的原始 key**
 /// 都是未信任內容。
@@ -289,37 +334,6 @@ public struct Person: Equatable {
 ///    與 U+FEFF。
 /// 3. **反斜線自身要跳脫**，否則內容裡的字面 `\u{001B}` 與本函式的輸出無法區分
 ///    （消毒後的字串會變得可偽造）。
-/// 多行版 displaySafe（#114）：`displaySafe` 會跳脫 LF 且截 200 字——把它直接套在
-/// CLI 頂層錯誤輸出會毀掉合法的多行 usage/help。這裡按行分割、逐行消毒（行內
-/// 控制字元照舊跳脫）、保留換行重組；行數與行長設寬鬆上限（擋 2 MB 攻擊行、
-/// 不砍正常 usage）。
-public func displaySafeMultiline(_ s: String, maxLineLength: Int = 400,
-                                 maxLines: Int = 200,
-                                 maxTotal: Int = 96_000) -> String {
-    // **只有真 LF（含 CRLF 正規化）是分隔符**（#135 verify F2）：`isNewline` 會把
-    // VT/FF/CR/NEL/LS/PS 全當換行「轉成」真 LF——displaySafe 的 R12 fix #2 特地
-    // 跳脫 LS/PS（不得殘留真換行），wrapper 用 isNewline 等於把那道防線拆回來：
-    // 困在單一 YAML scalar 裡的內容（結構上不可能含 LF）會獲得多行輸出注入。
-    // 改為 CRLF→LF 正規化後只 split "\n"——其餘換行變體交給 displaySafe 逐行跳脫。
-    let normalized = s.replacingOccurrences(of: "\r\n", with: "\n")
-    let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
-    var out: [String] = []
-    var total = 0
-    for (i, line) in lines.enumerated() {
-        if i >= maxLines || total > maxTotal {
-            out.append("……（截斷：共 \(lines.count) 行）")
-            break
-        }
-        let safe = displaySafe(String(line), max: maxLineLength)
-        total += safe.count + 1
-        out.append(safe)
-    }
-    // 總量上限（#135 verify F3）：跳脫是 8 倍膨脹器——200 行 × 400 scalar 的
-    // 最壞形狀曾放大到 ~640 KB（比未消毒的 main 多 6.3 倍）。cap 在 96 KB：
-    // 訊息夠長、且刻意 > 64 KB pipe buffer（讓 harness 的 deadlock 修復可測）。
-    return out.joined(separator: "\n")
-}
-
 public func displaySafe(_ s: String, max: Int = 200) -> String {
     var out = String.UnicodeScalarView()
     out.reserveCapacity(Swift.min(s.unicodeScalars.count, max) + 16)

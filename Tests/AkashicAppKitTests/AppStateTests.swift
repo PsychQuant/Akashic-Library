@@ -217,11 +217,16 @@ final class AppStateRegistryKeyTests: XCTestCase {
         // 若有人只拿掉 `environment:` 而保留 `key:`，key 非 nil 所以不會建 `.akashic/`，
         // `storeKey == "main"` 也仍成立，測試照樣綠燈——而 index 會寫進**使用者真實的**
         // `~/.akashic/index/main.sqlite`。那正是本測試存在的原因（實際發生過一次）。
-        let expected = home.appendingPathComponent("index").appendingPathComponent("main.sqlite")
-        guard state.store.indexURL.path == expected.path else {
+        // **判準是「落在沙箱內」，不是「等於某個確切路徑」**。原本寫成路徑相等，
+        // 於是 #130 把檔名改成 `main-<化身>.sqlite` 之後，這條守衛在一個它不在乎的
+        // 維度上紅了——而它要抓的事故（environment 沒帶 → 寫進真實 home）完全沒變。
+        // 同檔的 `GraphModelTests` 同款守衛一直是 prefix 形式，這裡對齊它。
+        let indexDir = home.appendingPathComponent("index")
+        guard state.store.indexURL.path.hasPrefix(indexDir.path + "/"),
+              state.store.indexURL.lastPathComponent.hasPrefix("main") else {
             XCTFail("""
                 indexURL 指向沙箱外——中止以免覆寫真實資料。
-                expected: \(expected.path)
+                expected: \(indexDir.path)/main*.sqlite
                 actual:   \(state.store.indexURL.path)
                 """)
             return
@@ -230,8 +235,8 @@ final class AppStateRegistryKeyTests: XCTestCase {
         try state.load()
         try state.reindexAndReload()
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: expected.path),
-                      "已註冊 store 的 index 必須落在 <home>/index/<key>.sqlite")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: state.store.indexURL.path),
+                      "已註冊 store 的 index 必須落在 <home>/index/<key>-<化身>.sqlite")
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: root.appendingPathComponent(".akashic").path),
             "已註冊的 store 被 App reindex 之後不該長出 in-store 的 .akashic/")
@@ -275,9 +280,12 @@ final class AppStateRegistryKeyTests: XCTestCase {
         try state.load()
         try state.reindexAndReload()
 
+        // #130：index 檔名帶化身前綴。斷言「in-store 目錄裡有一個 index」，
+        // 不斷言確切檔名——檔名綁化身是刻意的（把 TOCTOU 變成不可表達）。
+        let inStore = (try? FileManager.default.contentsOfDirectory(
+            atPath: bare.appendingPathComponent(".akashic").path)) ?? []
         XCTAssertTrue(
-            FileManager.default.fileExists(
-                atPath: bare.appendingPathComponent(".akashic/index.sqlite").path),
+            inStore.contains { $0.hasPrefix("index") && $0.hasSuffix(".sqlite") },
             "未註冊的 store 仍回落 in-store index")
     }
 }

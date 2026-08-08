@@ -1,4 +1,5 @@
 import XCTest
+@testable import AkashicSQLite
 import Foundation
 @testable import AkashicCore
 
@@ -174,8 +175,10 @@ final class DisplaySinkCoverageTests: XCTestCase {
     ///
     /// 兩個教訓：
     /// 1. **「同上」繼承的是字面、不是意圖**——兩條 import 模組的理由改成各自為真。
-    /// 2. **理由裡出現「唯一／唯二／零／N 條」時，附上那條 grep**。R4 的三次打臉
-    ///    都只需要一行 `grep -c`。
+    /// 2. **理由裡出現量詞（零／唯一／唯二／全部／只有）時，要給「跑什麼會看到
+    ///    什麼」**——不只是行號。R4 的三次打臉都只需要一行 `grep -c`；而 R4 之後
+    ///    席位又指出：WoS 那條的「唯二」當時只給了行號、**沒給能證明只有兩條的
+    ///    指令**。行號證明「這兩條存在」，證明不了「沒有第三條」。
     ///
     /// R4 另外收回了「opt-out 模組不得含 `LocalizedError`」這個機械檢查的提案——
     /// 它是**用形式當性質的 proxy**（正是 `common-spec-prose-enumeration` 要防的）：
@@ -211,8 +214,9 @@ final class DisplaySinkCoverageTests: XCTestCase {
         "AkashicZoteroImport":
             "零輸出面：`grep -c 'print(\\|return \"\\|throw ' Sources/AkashicZoteroImport/*.swift` = 0",
         "AkashicWoSImport":
-            "唯二的 `return \"` 是 dedup key 構造（WoSImport.swift:206/208，`\"doi:…\"` 與 "
-            + "`\"ty:…\"`，回傳值只進 Dictionary 的鍵、不進輸出）；無 print(、無 throw 帶 payload",
+            "`grep -c 'return \"' Sources/AkashicWoSImport/*.swift` = 2，兩條都是 dedup key "
+            + "構造（`\"doi:…\"` 與 `\"ty:…\"`，回傳值只進 identity(_:) 的 Dictionary 鍵、"
+            + "不進輸出）；`grep -c 'print(\\|throw '` = 0",
     ]
 
     /// **不得 opt-out、且必須真的在掃描面裡**的模組。兩個條件用同一份清單
@@ -670,6 +674,33 @@ extension DisplaySinkCoverageTests {
                            "原始 ESC 不得進 errorDescription：\(msg.debugDescription)")
             XCTAssertTrue(msg.contains("u{001B}") || msg.contains("EVIL"),
                           "消毒後仍要可辨認：\(msg)")
+        }
+    }
+}
+
+/// #158 verify F1／LOW：`bindFailed` 的訊息內容。
+///
+/// 席位實測本 change 唯一的行為改動（補 `參數 #N`）**零測試覆蓋**——把它從訊息
+/// 拿掉，全套仍全綠。而 F1（`type(of: value)` 永遠印 `Optional<Any>`）**就是靠
+/// 「沒人跑過這條路徑」活下來的**：三處註解宣稱「收斂成型別名」，實際收斂成的是
+/// 一個常量字串。
+final class SQLiteBindMessageTests: XCTestCase {
+    func testBindFailureNamesTheParameterIndexAndTheRealType() throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bindmsg-\(UUID().uuidString).sqlite").path
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let db = try SQLiteDB(path: path, readOnly: false)
+        try db.execute("CREATE TABLE t(a, b, c)")
+
+        XCTAssertThrowsError(try db.execute("INSERT INTO t VALUES (?,?,?)",
+                                            bind: [1, 2, Date()])) { err in
+            let msg = (err as? LocalizedError)?.errorDescription ?? "\(err)"
+            XCTAssertTrue(msg.contains("參數 #3"),
+                          "要指出是第幾個參數——那是本 change 唯一有診斷價值的內容：\(msg)")
+            XCTAssertTrue(msg.contains("Date"),
+                          "要給**真的型別名**。`type(of: value)` 對 `Any?` 一律回 "
+                          + "`Optional<Any>`，那是常量、零診斷價值（#158 verify F1）：\(msg)")
+            XCTAssertFalse(msg.contains("Optional<Any>"), "沒 unwrap 就是這個症狀：\(msg)")
         }
     }
 }

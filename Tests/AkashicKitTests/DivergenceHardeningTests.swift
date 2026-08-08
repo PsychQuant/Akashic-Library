@@ -467,25 +467,13 @@ final class DivergenceHardeningTests: XCTestCase {
     /// 沒跟上時這條會紅。person 側有守衛、work 側先前沒有（同一個 feature 的
     /// 兩半不對稱，那正是 157-1 能發生的結構原因）。
     ///
-    /// **這條測試自己就是插入位置紀律的第五個受害者**：它當初被插進
+    /// **這條測試自己就是插入位置紀律的受害者之一**（第 5 例）：它當初被插進
     /// `testPersonFieldCoverageOfMergeCheck` 的 doc 與宣告之間，於是 person 版那段
     /// doc 掛到了它頭上——而那段話對它每一句都是假的，person 版則完全沒有 doc。
     /// 更難堪的是，**做這件事的 commit 正是在原始碼側寫下「插入位置紀律」的那個**。
-    /// 註解形式的紀律已經第五次擋不住。**試過機械化，做不到**——2026-08-07 實作並
-    /// 量測三種判準的誤中數（掃 5128 個宣告）：
     ///
-    /// | 判準 | 誤中 |
-    /// |---|---|
-    /// | doc 反覆提到別的識別字、完全沒提 owner | 19 |
-    /// | 無 doc 的 func 緊接在有 doc 的宣告之後 | 78 |
-    /// | 孤兒 doc 提到的詞出現在下一個無 doc 宣告的名字裡 | 26 |
-    ///
-    /// 三者的誤中都是**正常寫法**：doc 用鄰居的名字描述自己（`endedUnknown` 的 doc
-    /// 講 `end`、`Snapshot` 的 doc 講 `neighborhood`）在這個 codebase 是常態。帶 20+
-    /// 個豁免的守衛會訓練出反射性加豁免，比沒有守衛更糟，所以**不 ship**。
-    ///
-    /// 留給下一個嘗試的人：真正的訊號可能是「doc 提到型別 T、但宣告的 signature／
-    /// body 用的是型別 U」——本次沒實作，成本較高（要解析 signature）。
+    /// 完整的六例清單、以及三次機械化嘗試的誤中量測（掃 5128 個宣告），在
+    /// `docs/design-principles-and-philosophy.md` §16。**量測只留一份**——兩份會分岔。
     func testEntryFieldCoverageOfMergeCheck() throws {
         let n = Mirror(reflecting: Entry(id: UUID(), citekey: "x", type: "article",
                                          title: "T")).children.count

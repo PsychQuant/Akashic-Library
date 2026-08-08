@@ -45,9 +45,20 @@ struct Doctor: ParsableCommand {
             throw ExitCode(1)
         }
 
+        // #130：重生之後舊 index 成為孤兒（index 檔名綁化身，新舊是不同檔案）。
+        // **報告不動手刪**（#79 的形狀）——它們可能是另一台機器同步過來的、或
+        // 使用者還想比對的。排在 rebuild **之前**：rebuild 會建立當下化身的 index，
+        // 之後再數就把剛建好的那個也算進「同 key 的其他檔案」了。
+        let orphanIdx = store.orphanedIndexFiles()
+
         let stats = try LibraryIndex(store: store).rebuild()
 
         print("library: \(displaySafe(root.path, max: 800))")
+        if !orphanIdx.isEmpty {
+            print("孤兒 index 檔: \(orphanIdx.count)（本 store 的化身已更換，舊 index 不再使用）")
+            for f in orphanIdx.prefix(10) { print("  ⚠ \(displaySafe(f, max: 300))") }
+            if orphanIdx.count > 10 { print("  …另 \(orphanIdx.count - 10) 筆") }
+        }
         print("entries: \(stats.entries)")
         print("people: \(stats.people)")
         // 見上方 validate 的同一理由（#71）。index 不索引歧異記錄（它是短暫的、
@@ -62,6 +73,19 @@ struct Doctor: ParsableCommand {
             entry.authors.compactMap { if case .literal(let s) = $0 { return s } else { return nil } }
         }
         print("unresolved author literals: \(unresolved.count)")
+        // #146：`TemporalValue.source` 只放**裸 URL**，digest 屬 `references:`。
+        // **報告不是錯誤**——遷移由 `akashic migrate-provenance` 執行，而這條檢查
+        // 要持續存在：遷移是一次性動作，「source 只放 URL」卻是要一直成立的不變式，
+        // 新寫入隨時可能再破壞它（那正是這 22 筆當初的來由）。
+        let digestSources = ProvenanceMigration.residualDigestSources(load: load)
+        if !digestSources.isEmpty {
+            print("digest 形式的 source: \(digestSources.count)（應改記於 references:，#146）")
+            for s in digestSources.prefix(10) {
+                print("  ⚠ \(displaySafe(s.record, max: 200)).\(displaySafe(s.field, max: 120))")
+            }
+            if digestSources.count > 10 { print("  …另 \(digestSources.count - 10) 筆") }
+            print("  遷移：akashic migrate-provenance --dry-run")
+        }
         // #81：沒有指定對外名字的記錄。**報告不是錯誤**——修復需要的資訊無法自動取得，
         // 設成 validate 錯誤等於把不可自動化的工作變成載入的前置條件。
         let nameGaps = load.recordsWithoutAuthorizedName()
@@ -294,6 +318,71 @@ struct Migrate: ParsableCommand {
     }
 }
 
+/// #146：把 digest 形式的 `TemporalValue.source` 搬進 `references:`。
+///
+/// **與 `migrate` 分開是刻意的。** `migrate` 是**佈局格式**遷移——它 bump
+/// `StoreVersion`，之後舊 binary 一律拒絕開啟這個 store（#24）。本指令是**內容**
+/// 遷移，格式不變、舊 binary 讀得懂結果。把兩者塞進同一個指令會讓「跑了 migrate」
+/// 這句話同時意味著兩件後果差很多的事。
+struct MigrateProvenance: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "migrate-provenance",
+        abstract: "digest 形式的 source → references:（#146；不改 store format）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Flag(name: .long, help: "只回報會做什麼，不動磁碟")
+    var dryRun = false
+
+    func run() throws {
+        let store = try options.openStore()
+        let report = try ProvenanceMigration.digestSourcesToReferences(
+            store: store, dryRun: dryRun)
+        let prefix = dryRun ? "（dry-run）" : "✓"
+
+        if report.migrated == 0 && report.skipped.isEmpty {
+            print("沒有 digest 形式的 source——不需要遷移")
+            return
+        }
+        print("\(prefix) 搬進 references: \(report.migrated) 筆"
+              + "，涉及 \(report.records.count) 筆記錄")
+        for k in report.records.prefix(20) { print("  \(displaySafe(k, max: 200))") }
+        if report.records.count > 20 { print("  …另 \(report.records.count - 20) 筆") }
+
+        // **搬不動的要說出來。** 靜默略過會讓「遷移完成」與「遷移完成但有 N 筆
+        // 還在舊形式」看起來一樣，而 `doctor` 之後仍會報那些殘留——兩份訊息
+        // 對不上時，人會先懷疑 doctor 壞了。
+        if !report.skipped.isEmpty {
+            print("搬不動 \(report.skipped.count) 筆（留在原形式）：")
+            for s in report.skipped.prefix(20) {
+                print("  ⚠ \(displaySafe(s.record, max: 200)).\(displaySafe(s.field, max: 120))"
+                      + "——\(displaySafe(s.reason, max: 300))")
+            }
+            if report.skipped.count > 20 { print("  …另 \(report.skipped.count - 20) 筆") }
+        }
+        // **先報失敗再說成功**（同 ResolvePeople 的紀律）：中途失敗時 store 半新
+        // 半舊，不說出來的話使用者以為什麼都沒發生或全部完成。
+        if !report.failures.isEmpty {
+            print("寫入失敗 \(report.failures.count) 筆（其餘已落地，可修好後重跑——遷移是冪等的）：")
+            for f in report.failures.prefix(20) {
+                print("  ✗ \(displaySafe(f.record, max: 200)) — \(displaySafe(f.reason, max: 512))")
+            }
+        }
+        if dryRun {
+            print("  實際執行：akashic migrate-provenance")
+        } else {
+            // 這個遷移沒有消歧那種「tracked 且 clean」的 gate（它不刪檔），
+            // 所以可回溯性由使用者的版控負責——明講，不要讓人事後才發現。
+            // **印這個 store 的 format，不是 binary 的 supported**（#146 verify F5）：
+            // 真實 store 是 format 5，先前印 7——這句的唯一作用是讓使用者確認格式
+            // 沒變，卻報了一個這個 store 從來不是的數字。
+            let fmt = (try? StoreVersion.read(root: store.root)).map(String.init) ?? "未知"
+            print("  store format 不變（\(fmt)）；舊 binary 仍讀得懂")
+            print("  變更未經版控 gate——用 git diff 檢查後再 commit")
+        }
+    }
+}
+
 /// #34：從 literal 作者 bootstrap person 記錄。
 struct BootstrapPeople: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -443,9 +532,17 @@ struct ResolveOrganizations: ParsableCommand {
         abstract: "列出 literal→organization 高信心候選；--apply 才寫入")
 
     @OptionGroup var options: LibraryOptions
-    @Flag(name: .long, help: "套用候選（顯式人工確認）；可用 --person / --org 收窄") var apply = false
-    @Option(name: .long, parsing: .upToNextOption,
-            help: "只套用這些 person key 的候選") var person: [String] = []
+    @Flag(name: .long, help: "套用候選（顯式人工確認）；可用 --holder / --org 收窄") var apply = false
+    /// #166：`--person` 更名為 `--holder`——候選的持有者現在可能是 organization
+    /// （parents 側），叫 `--person` 會讓「篩掉了什麼」與旗標名字不符。
+    /// **舊名保留為 alias**：它是既有使用者手上的指令，靜默移除會讓腳本壞掉。
+    /// **兩個命名空間混用**（#166 verify MEDIUM）：person key 與 org key 可以同名
+    /// （`Divergence.swift` 的 candidate doc 明載那是刻意的）。`--holder ntu` 會同時
+    /// 命中 person `ntu` 與 organization `ntu` 的候選。輸出區分得出（`person X` /
+    /// `org X`），旗標選不出來——help 明講，不假裝它能。
+    @Option(name: [.customLong("holder"), .customLong("person")], parsing: .upToNextOption,
+            help: "只套用這些持有者 key 的候選（person 或 organization；--person 為舊名）⚠ 兩個命名空間混用：同名的 person 與 organization 會一起命中")
+    var holder: [String] = []
     @Option(name: .long, parsing: .upToNextOption,
             help: "只套用指向這些 organization key 的候選") var org: [String] = []
 
@@ -453,23 +550,31 @@ struct ResolveOrganizations: ParsableCommand {
         let store = try options.openStore()
         let load = try store.load()
         let all = OrgResolver.candidates(people: load.people, organizations: load.organizations)
-        let pkSet = Set(person), okSet = Set(org)
+        let hkSet = Set(holder), okSet = Set(org)
         let candidates = all.filter {
-            (pkSet.isEmpty || pkSet.contains($0.personKey))
+            (hkSet.isEmpty || hkSet.contains($0.holder.key))
                 && (okSet.isEmpty || okSet.contains($0.orgKey))
         }
         guard !all.isEmpty else {
-            print("無候選（affiliation literal 皆無 org name 完全命中）")
+            print("無候選（affiliation／parents 的 literal 皆無 org name 完全命中）")
             return
         }
-        let selected = Set(candidates.map { "\($0.personKey)#\($0.literal)" })
+        // 持有者可能是 person 或 organization——**標出來**。少了它，兩類候選在
+        // 輸出裡長得一樣，而它們寫進的是不同記錄的不同欄位（#166）。
+        func label(_ h: OrgResolutionCandidate.Holder) -> String {
+            switch h {
+            case let .person(k): return "person \(displaySafe(k, max: 200))"
+            case let .organization(k): return "org \(displaySafe(k, max: 200))"
+            }
+        }
+        let selected = Set(candidates.map { "\($0.holder)#\($0.literal)" })
         for c in all {
-            let mark = (apply && !selected.contains("\(c.personKey)#\(c.literal)")) ? "  (skip) " : "  "
-            print("\(mark)\(displaySafe(c.personKey, max: 200)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
+            let mark = (apply && !selected.contains("\(c.holder)#\(c.literal)")) ? "  (skip) " : "  "
+            print("\(mark)\(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
         }
         if apply {
-            if !(person.isEmpty && org.isEmpty), candidates.isEmpty {
-                throw ValidationError("--person / --org 的篩選條件沒有命中任何候選")
+            if !(holder.isEmpty && org.isEmpty), candidates.isEmpty {
+                throw ValidationError("--holder / --org 的篩選條件沒有命中任何候選")
             }
             // #154 verify 154-8：per-item 收容 + 先報告再 rebuild + `✓` 只在全綠。
             //
@@ -479,30 +584,50 @@ struct ResolveOrganizations: ParsableCommand {
             // 落地。同一個檔案的 `ResolvePeople` 早為此修過三輪（R7/M21 per-item
             // 收容、R9/M8 先印再 rebuild、R8/L29 `✓` 只在全綠）——org 側三條全沒
             // 帶過來。這不是新設計，是把既有紀律平移。
-            let updated = OrgResolver.apply(candidates, to: load.people)
-            var written = 0
-            var failed: [(key: String, why: String)] = []
-            for p in updated where !load.people.contains(where: { $0 == p }) {
+            let updated = OrgResolver.apply(candidates, to: load.people,
+                                            organizations: load.organizations)
+            // **person 與 organization 分開計數**（#166 verify）：`written` 現在同時
+            // 累計兩者，而訊息仍寫「N 個 person」——沙箱實測「一個 person 都沒有」
+            // 時照樣印「改寫 1 個 person」。本 change 之前 `written` 只數 person，
+            // 那時是對的。同一個 block 的相鄰註解自己就寫著「報寫入數不是候選數
+            // ——先前用 candidates.count，失敗時誇報」。
+            var wroteP = 0, wroteO = 0
+            // 失敗清單也要**標類別**：person key 與 org key 可以同名，而這正是本
+            // change 在 30 行之上剛替候選列表修好的東西。
+            var failed: [(kind: String, key: String, why: String)] = []
+            for p in updated.people where !load.people.contains(where: { $0 == p }) {
                 do {
                     try store.writePerson(p)
-                    written += 1
+                    wroteP += 1
                 } catch {
-                    failed.append((key: p.key, why: "\(error)"))
+                    failed.append((kind: "person", key: p.key, why: "\(error)"))
+                }
+            }
+            // organization 側走**同一套** per-item 收容（#154 verify 154-8 的紀律；
+            // 那一輪的教訓正是「org 側三條全沒帶過來」——這次不要再漏一次）
+            for o in updated.organizations where !load.organizations.contains(where: { $0 == o }) {
+                do {
+                    try store.writeOrganization(o)
+                    wroteO += 1
+                } catch {
+                    failed.append((kind: "org", key: o.key, why: "\(error)"))
                 }
             }
             // **先報失敗**：rebuild 可能自己再擲一次，那會把上面的清單吞掉
             if !failed.isEmpty {
                 print("write failed（單筆寫入失敗，已略過續跑）: \(failed.count)")
                 for f in failed {
-                    print("  ✗ \(displaySafe(f.key, max: 200)) — \(displaySafe(f.why, max: 512))")
+                    print("  ✗ \(f.kind) \(displaySafe(f.key, max: 200)) — \(displaySafe(f.why, max: 512))")
                 }
             }
             _ = try LibraryIndex(store: store).rebuild()
             // `✓` 只在全綠。報**寫入數**不是候選數——先前用 candidates.count，失敗時誇報
             if failed.isEmpty {
-                print("✓ 歸戶 \(candidates.count) 筆、改寫 \(written) 個 person、index 已重建")
+                print("✓ 歸戶 \(candidates.count) 筆、改寫 \(wroteP) 個 person / "
+                      + "\(wroteO) 個 organization、index 已重建")
             } else {
-                print("⚠ 部分完成：改寫 \(written) 個 person、\(failed.count) 個失敗、index 已重建")
+                print("⚠ 部分完成：改寫 \(wroteP) 個 person / \(wroteO) 個 organization、"
+                      + "\(failed.count) 個失敗、index 已重建")
                 // **throw 必須在本次執行所有該印的東西之後**（#154 verify R4 Q2）。
                 // 這裡 `if apply` 區塊尾端目前沒有其他 print，所以就地 throw 成立；
                 // 但**下一次可能被違反的正是這裡**——有人在區塊尾端加一行 print

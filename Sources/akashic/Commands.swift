@@ -62,6 +62,19 @@ struct Doctor: ParsableCommand {
             entry.authors.compactMap { if case .literal(let s) = $0 { return s } else { return nil } }
         }
         print("unresolved author literals: \(unresolved.count)")
+        // #146：`TemporalValue.source` 只放**裸 URL**，digest 屬 `references:`。
+        // **報告不是錯誤**——遷移由 `akashic migrate-provenance` 執行，而這條檢查
+        // 要持續存在：遷移是一次性動作，「source 只放 URL」卻是要一直成立的不變式，
+        // 新寫入隨時可能再破壞它（那正是這 22 筆當初的來由）。
+        let digestSources = ProvenanceMigration.residualDigestSources(load: load)
+        if !digestSources.isEmpty {
+            print("digest 形式的 source: \(digestSources.count)（應改記於 references:，#146）")
+            for s in digestSources.prefix(10) {
+                print("  ⚠ \(displaySafe(s.record, max: 200)).\(displaySafe(s.field, max: 120))")
+            }
+            if digestSources.count > 10 { print("  …另 \(digestSources.count - 10) 筆") }
+            print("  遷移：akashic migrate-provenance --dry-run")
+        }
         // #81：沒有指定對外名字的記錄。**報告不是錯誤**——修復需要的資訊無法自動取得，
         // 設成 validate 錯誤等於把不可自動化的工作變成載入的前置條件。
         let nameGaps = load.recordsWithoutAuthorizedName()
@@ -290,6 +303,59 @@ struct Migrate: ParsableCommand {
             }
         } catch {
             throw ValidationError((error as? LocalizedError)?.errorDescription ?? "\(error)")
+        }
+    }
+}
+
+/// #146：把 digest 形式的 `TemporalValue.source` 搬進 `references:`。
+///
+/// **與 `migrate` 分開是刻意的。** `migrate` 是**佈局格式**遷移——它 bump
+/// `StoreVersion`，之後舊 binary 一律拒絕開啟這個 store（#24）。本指令是**內容**
+/// 遷移，格式不變、舊 binary 讀得懂結果。把兩者塞進同一個指令會讓「跑了 migrate」
+/// 這句話同時意味著兩件後果差很多的事。
+struct MigrateProvenance: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "migrate-provenance",
+        abstract: "digest 形式的 source → references:（#146；不改 store format）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Flag(name: .long, help: "只回報會做什麼，不動磁碟")
+    var dryRun = false
+
+    func run() throws {
+        let store = try options.openStore()
+        let report = try ProvenanceMigration.digestSourcesToReferences(
+            store: store, dryRun: dryRun)
+        let prefix = dryRun ? "（dry-run）" : "✓"
+
+        if report.migrated == 0 && report.skipped.isEmpty {
+            print("沒有 digest 形式的 source——不需要遷移")
+            return
+        }
+        print("\(prefix) 搬進 references: \(report.migrated) 筆"
+              + "，涉及 \(report.records.count) 筆記錄")
+        for k in report.records.prefix(20) { print("  \(displaySafe(k, max: 200))") }
+        if report.records.count > 20 { print("  …另 \(report.records.count - 20) 筆") }
+
+        // **搬不動的要說出來。** 靜默略過會讓「遷移完成」與「遷移完成但有 N 筆
+        // 還在舊形式」看起來一樣，而 `doctor` 之後仍會報那些殘留——兩份訊息
+        // 對不上時，人會先懷疑 doctor 壞了。
+        if !report.skipped.isEmpty {
+            print("搬不動 \(report.skipped.count) 筆（留在原形式）：")
+            for s in report.skipped.prefix(20) {
+                print("  ⚠ \(displaySafe(s.record, max: 200)).\(displaySafe(s.field, max: 120))"
+                      + "——\(displaySafe(s.reason, max: 300))")
+            }
+            if report.skipped.count > 20 { print("  …另 \(report.skipped.count - 20) 筆") }
+        }
+        if dryRun {
+            print("  實際執行：akashic migrate-provenance")
+        } else {
+            // 這個遷移沒有消歧那種「tracked 且 clean」的 gate（它不刪檔），
+            // 所以可回溯性由使用者的版控負責——明講，不要讓人事後才發現。
+            print("  store format 不變（\(StoreVersion.supported)）；舊 binary 仍讀得懂")
+            print("  變更未經版控 gate——用 git diff 檢查後再 commit")
         }
     }
 }

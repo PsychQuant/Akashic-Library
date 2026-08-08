@@ -595,8 +595,23 @@ references:
    代價；正規化是詮釋，另案）。
 4. reference 清單內的鍵是 **strict**（未知鍵拒收）——未來加欄位是 **non-additive**
    （同時間軸段內鍵的教訓，#63/#74）。
-5. 既有 `TemporalValue.source`（時間段上的裸 URL）**不動**、不遷移、與 references
-   並存（#66 D7；遷移另案）。無 `references` 的既有記錄零 diff。
+5. 既有 `TemporalValue.source`（時間段上的**裸 URL**）**不動**、不遷移、與 references
+   並存（#66 D7）。無 `references` 的既有記錄零 diff。
+6. **`TemporalValue.source` 只放裸 URL；digest 屬 `references:`**（#146）。#66 落地前
+   的手工路徑曾把 `sha256:` 摘要塞進 `source`（實測 22 筆），使「provenance 記在
+   哪一層」有兩個答案。`akashic migrate-provenance` 搬它們，`akashic doctor` 報殘留——
+   **兩者分開存在**：遷移是一次性動作，而這條是要持續成立的不變式，新寫入隨時
+   可能再破壞它。遷移**不 bump 格式**（`§5.0` 的判準是「舊 binary 會不會誤讀」，
+   而 `references:` 自 #66 起就在契約內）。
+
+   遷移的目標種類是 **`judgement` 而非 `retrieval`**，判準來自資料不是型別：那 22 筆
+   的 `note` 全部以「由…推得」開頭（`note` 是斷言、digest 是依據），而擷取型也裝不下
+   它們——`retrieval` 要求 `url` 與 `status`，那些 blob 沒有 URL（「圖書館寄來的檔案」、
+   「以 DOI 逐筆查詢多個 API」都不是單一 URL）。
+
+   **`profile.contacts.*` 搬不了**：它不在 `validateReferenceAttachment` 的欄位白名單
+   內，而加進去會讓舊 binary **拒絕載入**整個 store（unknown field → throw）——那比
+   誤讀更嚴重，需要格式 bump。遷移對它**回報而不靜默略過**。
 
 ### 存檔佈局：`sources/`（內容定址，不進 remote）
 

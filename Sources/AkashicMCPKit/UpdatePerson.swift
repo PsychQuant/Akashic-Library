@@ -72,7 +72,7 @@ public extension AkashicService {
                 // updatableKeys 推導自 decoder；decoder 認得而這裡沒接的欄位
                 // **大聲說**，不靜默吞——推導超前實作時這是唯一的誠實出口
                 throw ServiceError.invalid(
-                    "欄位「\(k)」是 decoder 認得、但部分更新入口尚未支援的欄位")
+                    "欄位「\(displaySafe(k, max: 200))」是 decoder 認得、但部分更新入口尚未支援的欄位")
             }
         }
 

@@ -212,3 +212,80 @@ extension StdioE2ETests {
         XCTAssertTrue(process.isRunning)
     }
 }
+
+/// #162：**MCP 的 per-tool 錯誤出口**必須消毒——走真 binary、真 stdio。
+///
+/// CLI 早有單一消毒出口，而且那是明寫的裁決（`CLI.swift`：「逐條補 error 站點是
+/// 假性閉合——新增的 case 又會裸奔」）。**MCP 從沒拿到同樣處置**：`Main.swift`
+/// 消毒了啟動錯誤，`Server.swift` 的 per-tool catch 沒有。
+///
+/// 後果是全面的：`StoreYAMLError.invalidField` 的 `errorDescription` **刻意不消毒**
+/// payload（它自帶的 exempt 註解寫明策略是 sink-side，並承認「約 50 個跨行 throw
+/// 站點未消毒，靠 sink 兜底」）。缺了這個 sink，那些站點的 payload——檔案裡的未知
+/// 欄位名、YAML 鍵、值原文——逐字進 LLM context。
+///
+/// **必須走真 binary**：在測試裡重建 `let message = errorDescription ?? "\(error)"`
+/// 再自己包 `displaySafeMultiline` 是同義反覆——它會綠，但證明不了 `Server.swift`
+/// 那一行真的呼叫了它（#171 verify 171-1 的教訓）。
+extension StdioE2ETests {
+    func testToolErrorPayloadIsSanitisedAtTheMCPExit() throws {
+        try send(["jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": ["protocolVersion": "2024-11-05", "capabilities": [:],
+                             "clientInfo": ["name": "t", "version": "1"]]])
+        _ = try readResponse()
+        try send(["jsonrpc": "2.0", "method": "notifications/initialized"])
+
+        let hostile = "ev\u{1B}[31m\u{202E}il"
+
+        // **這條才是本 change 的主論證**（#162 verify 182-1）：一條**實際可達**的
+        // `StoreYAMLError` 折行 throw 站點。`update_person` 的未知維度名經
+        // `YAML.swift` 的 `throw StoreYAMLError.invalidField("person.profile",
+        // "不認得的維度「\(name)」…")`（折行、payload 全裸）→ `errorDescription`
+        // 依政策不消毒 → MCP 的 per-tool catch。
+        //
+        // 先前這裡用 `akashic_get_entry` 餵敵意 citekey——那是**同義反覆**：
+        // `ServiceError.notFound` 早在 throw 站點就 `displaySafe` 了，有沒有本
+        // change 的修法都不含 raw ESC。席位實測：只還原 catch 的消毒（保留
+        // `Unknown tool` 那處）→ **1029 條全綠**，主論證零回歸測試。
+        try send(["jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                  "params": ["name": "akashic_update_person",
+                             "arguments": ["key": "chen-h-y",
+                                           "fields": ["profile": [hostile: []]],
+                                           "dry_run": true]]])
+        // **取出真正的字串，不要 `String(describing:)`**（#162 verify 182-4）。
+        //
+        // 對 JSON 反序列化出來的 `NSDictionary`，`String(describing:)` 會把所有
+        // 非 ASCII scalar 逐一跳脫成 `\Uxxxx`——於是兩條 `contains("\u{202E}")`
+        // **結構上不可能失敗**（席位實測：payload 換成只有 RLO、還原 catch 的消毒
+        // → 測試照樣通過），整條由 ESC（ASCII，不被跳脫）單獨扛著。
+        //
+        // 更糟的是「有沒有走到那條路徑」的護欄也是空的：`contains("不認得的維度")`
+        // 恆 false，於是 `|| contains("Error")` 被後者滿足——**任何**錯誤回應都過。
+        // fixture 的 person key 一旦改名，這條測試會安靜退回成它剛取代掉的那個
+        // 同義反覆，而且沒有訊號。
+        let text = try toolResultText(try readResponse())
+        XCTAssertTrue(text.contains("不認得的維度"),
+                      "必要條件，不能與「Error」做 `||`——那會讓任何錯誤回應都過：\(text.prefix(300))")
+        XCTAssertFalse(text.contains("\u{1B}"), "raw ESC 抵達 tool result（進 LLM context）")
+        XCTAssertFalse(text.contains("\u{202E}"), "raw U+202E 抵達 tool result")
+
+        // 未知 tool 名同理——它也是 caller 給的字串
+        try send(["jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                  "params": ["name": "akashic_\(hostile)", "arguments": [:]]])
+        let text2 = try toolResultText(try readResponse())
+        XCTAssertTrue(text2.contains("Unknown tool"), "要走到那條路徑：\(text2.prefix(200))")
+        XCTAssertFalse(text2.contains("\u{1B}"), "Unknown tool 的名字也要消毒")
+        XCTAssertFalse(text2.contains("\u{202E}"), "同上")
+    }
+
+    /// 從 JSON-RPC 回應取出 `result.content[0].text` 的**真字串**。
+    ///
+    /// `String(describing:)` 對 `NSDictionary` 會跳脫非 ASCII，讓所有針對 bidi／
+    /// LS-PS 的斷言變成裝飾（#162 verify 182-4）。
+    private func toolResultText(_ resp: [String: Any]) throws -> String {
+        let result = try XCTUnwrap(resp["result"] as? [String: Any],
+                                   "回應沒有 result：\(resp)")
+        let content = try XCTUnwrap(result["content"] as? [[String: Any]])
+        return content.compactMap { $0["text"] as? String }.joined(separator: "\n")
+    }
+}

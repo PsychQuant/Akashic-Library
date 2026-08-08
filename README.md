@@ -393,12 +393,26 @@ store 內容是**未信任的**——來自 Zotero 匯入（出版商與網頁�
 > 而守衛看不見（那六處無插值、無 token——正是上面那條「無插值裸綁」的機制）。
 >
 > 表格加上第四列 `StoreVersionError`（`errorDescription` ❌／throw 站點 ✅）：它的 `path`／`line` 原樣內插，政策與 `ServiceError` 同一列。
->> **守衛對「無插值的裸綁」結構上全盲**（#161 verify 181-3）。`scanViolations` 的候選
-> 運算式**只**來自 `\( … )` 插值與 `"key": value` 的 dict 值；一行顯示呼叫若兩者皆無，
-> **抽出零個運算式**——`isSink` 判成 true 也沒有東西可檢。所以 `swiftUISinks` 那九個
-> **只在「該行剛好也有插值」時才起作用**：#161 擴充後抓到的三條全部含插值，而
-> `Text(entry.title)` 這種最常見的裸綁**仍然看不見**。這與下面的「裸變數名」是**不同
-> 的機制**（那是 token 清單抓不到，這是判準完全不參與）。
+>> **「無插值的裸綁」已補上**（#193；曾是 #161 verify 181-3 記錄的全盲區）。原本
+> `scanViolations` 的候選運算式**只**來自 `\( … )` 插值與 `"key": value` 的 dict 值，
+> 一行顯示呼叫若兩者皆無就**抽出零個運算式**——`isSink` 判成 true 也沒有東西可檢，
+> 於是 `swiftUISinks` 那九個**只在「該行剛好也有插值」時才起作用**，`Text(entry.title)`
+> 這種最常見的形狀看不見。現在多一個抽取器 `bareChains`：對 SwiftUI sink 取括號配對
+> 的引數，再拆成 `foo.bar` 的**成員存取鏈**。
+>
+> **拆成鏈而不是整個引數**，因為整條會踩共現洞——`Text(entry.title.isEmpty ? entry.citekey : entry.title)`
+> 整條含 `.isEmpty`，既有豁免會把 `entry.title` 一起放掉，而那正是 #193 的行為證明。
+> 拆鏈之後豁免只作用於它自己那一條。`displaySafe( … )` 的內容先**塗白**（不是整段
+> 跳過，那會重演同一個洞）。
+>
+> 行為證明（verify-181-182 的兩個 mutation，過去全綠）：`EntryViews.swift:13` 與
+> `AdjudicationViews` 的 OrphanView 換回裸欄位 → 現在各自變紅（`entry.title`、
+> `item.file`、`item.reason`）。
+>
+> **仍未涵蓋**：`print(foo.title)` 這種**非 SwiftUI** 的裸綁（同機制、不同面；掃描面
+> 上目前零命中，但那是實測不是保證。擴到全部 sink 會讓 error sink 的每個裸引數
+> 無條件入列——`isErrorSink` 繞過 token 比對——屬另一個量級的分類工作）。以及下面的
+> **裸變數名**，那是**不同的機制**（token 清單抓不到，不是判準不參與）。
 >
 > **守衛全綠 ≠ 這一面安全。** recall 實測 **31%**（210 個含 `displaySafe(` 的行只認得
 > 67）。已知盲區：**續行**（sink 標記在 N 行、payload 在 N+1 行，56 處，#162）、

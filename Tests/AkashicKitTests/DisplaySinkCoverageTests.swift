@@ -617,6 +617,109 @@ final class DisplaySinkCoverageTests: XCTestCase {
     /// 席位量到的怪事因此有了解釋：把 `d["` / `result["` 從 `isSink` 拿掉，總數
     /// 78→78 完全不動。而 `AkashicService.swift` 有一整批 `d["k"] = v` 的站點靠
     /// 這個缺口逃掉（含 156-15 那條真洩漏）。
+    /// 第三個抽取器（#193）：SwiftUI 呼叫的**裸引數**。
+    ///
+    /// 前兩個抽取器只認插值與 dict 值。一行 `Text(entry.title)` 兩者皆無 → 抽出
+    /// **零個**運算式 → `isDisplaySink` 判 `true` 也沒有東西可檢。#161 加了
+    /// `swiftUISinks` 與 `AkashicApp/Sources`，但那九個 sink 只在「該行剛好也有
+    /// 插值」時起作用；SwiftUI 面最常見的裸綁仍然看不見（verify-181-182 實測：
+    /// 把修好的投影換回裸欄位，全綠）。
+    ///
+    /// ## 抽的是**成員存取鏈**，不是整個引數
+    ///
+    /// 把整個引數當一條運算式會踩本檔已記過的**共現洞**（見 `taintedTokens` 的
+    /// `.key` 註解）：
+    ///
+    ///     Text(entry.title.isEmpty ? entry.citekey : entry.title)
+    ///
+    /// 整條含 `.isEmpty` → 既有豁免把**整條**放掉。而這正是 #193 用來當行為證明
+    /// 的那一行。拆成鏈之後 `entry.title.isEmpty` 自己被豁免（它確實只是 Bool
+    /// 測試），`entry.title` 單獨留下來被攔——豁免的作用域從「一行」縮到「一條
+    /// 鏈」，洞是結構上消失的，不是再加一條形狀規則。
+    ///
+    /// ## 誠實邊界
+    ///
+    /// - **只作用於 `swiftUISinks`**。`print(foo.title)` 這種非 SwiftUI 的裸綁同樣
+    ///   抽不到東西，本抽取器**不涵蓋**——同機制、不同面，掃描面上目前零命中
+    ///   （`grep -nE '\<print\(\s*[a-z][A-Za-z0-9_]*\.' Sources/`），但那是實測不是
+    ///   保證。擴到全部 sink 會讓 error sink 的每個裸引數都無條件入列（`isErrorSink`
+    ///   繞過 token 比對），那是另一個量級的分類工作。
+    /// - 只抽 `foo.bar` 這種**有點**的鏈。單一識別字（`Text(title)`，區域變數）抽不到
+    ///   ——那是 #164 的裸變數名盲區，不同機制。
+    /// - 字串字面量內的點（`Text("a.b")`）會被抽成鏈，但字面量不含 tainted token
+    ///   時無影響；含的話是報告雜訊而非假綠。
+    private func bareChains(in line: String) -> [String] {
+        var out: [String] = []
+        let chars = Array(line)
+        for sink in Self.swiftUISinks {
+            var searchFrom = line.startIndex
+            while let r = line.range(of: sink, range: searchFrom..<line.endIndex) {
+                searchFrom = r.upperBound
+                // 取這個呼叫的括號配對內容（sink 標記本身以 `(` 結尾）
+                var depth = 1
+                var j = line.distance(from: line.startIndex, to: r.upperBound)
+                var buf = ""
+                while j < chars.count, depth > 0 {
+                    if chars[j] == "(" { depth += 1 }
+                    if chars[j] == ")" { depth -= 1; if depth == 0 { break } }
+                    buf.append(chars[j])
+                    j += 1
+                }
+                out += Self.memberChains(in: Self.maskingSanitised(buf))
+            }
+        }
+        return out
+    }
+
+    /// 把 `displaySafe( … )` 的**內容**塗成空白，其餘原樣。
+    ///
+    /// 抽成鏈之後，鏈本身不再帶著外層的 `displaySafe(` 字樣，所以呼叫端那條
+    /// `expr.contains("displaySafe(")` 豁免對它失效——`Text(displaySafe(entry.title))`
+    /// 會抽出裸的 `entry.title` 而被誤報。這是拆鏈換來的代價，在這裡付掉。
+    ///
+    /// **用塗白而不是「整段含 displaySafe 就跳過」**：後者正是本抽取器要消滅的
+    /// 共現洞——`Text(displaySafe(a.reason) + entry.title)` 會被整段放掉。塗白只
+    /// 讓被包住的那一段消失，同一個引數裡沒被包的部分照常入列。
+    static func maskingSanitised(_ text: String) -> String {
+        var chars = Array(text)
+        let needle = Array("displaySafe(")
+        var i = 0
+        while i + needle.count <= chars.count {
+            guard Array(chars[i..<(i + needle.count)]) == needle else { i += 1; continue }
+            var depth = 1
+            var j = i + needle.count
+            while j < chars.count, depth > 0 {
+                if chars[j] == "(" { depth += 1 }
+                if chars[j] == ")" { depth -= 1; if depth == 0 { break } }
+                chars[j] = " "
+                j += 1
+            }
+            i = j
+        }
+        return String(chars)
+    }
+
+    /// 從一段文字抽出 `foo.bar` / `a.b.c` 形狀的成員存取鏈。
+    static func memberChains(in text: String) -> [String] {
+        var out: [String] = []
+        var buf = ""
+        func flush() {
+            if buf.contains(".") , buf.first?.isLetter == true || buf.first == "_" {
+                out.append(buf)
+            }
+            buf = ""
+        }
+        for ch in text {
+            if ch.isLetter || ch.isNumber || ch == "_" || ch == "." {
+                buf.append(ch)
+            } else {
+                flush()
+            }
+        }
+        flush()
+        return out
+    }
+
     private func dictValues(in line: String) -> [String] {
         var out: [String] = []
         // subscript 指派：`d["key"] = <expr>` / `result["key"] = <expr>`。取 `] = `
@@ -762,7 +865,11 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 if !isErrorSink,
                    l.trimmingCharacters(in: .whitespaces).hasPrefix("case ") { continue }
 
-                for expr in interpolations(in: l) + dictValues(in: l) {
+                // 去重：插值與裸鏈可能抽到同一段（`Text("\(entry.title)")` 兩邊都中）
+                var seen = Set<String>()
+                let candidates = (interpolations(in: l) + dictValues(in: l) + bareChains(in: l))
+                    .filter { seen.insert($0).inserted }
+                for expr in candidates {
                     let tokenMatched = Self.taintedTokens.contains(where: { expr.contains($0) })
                     guard isErrorSink || tokenMatched else { continue }
                     if expr.contains("displaySafe(") { continue }
@@ -962,6 +1069,68 @@ final class DisplaySinkCoverageTests: XCTestCase {
         // 消毒後同形狀必須通過；內部逗號不得被當成值邊界
         let goodDict = #""question": displaySafe(d.question, max: 400),"#
         XCTAssertEqual(dictValues(in: goodDict), ["displaySafe(d.question, max: 400)"])
+    }
+
+    // MARK: - #193：無插值的裸綁
+
+    /// 抽取器本身不得變成 no-op。**寫死預期，不枚舉 `swiftUISinks`**——枚舉它會
+    /// 讓「刪掉一個 sink」同時刪掉驗它的測試（本檔對 `taintedTokens` 已記過同一
+    /// 個自我指涉問題）。
+    func testBareChainExtraction() {
+        XCTAssertEqual(bareChains(in: "Text(entry.title)"), ["entry.title"])
+        XCTAssertEqual(bareChains(in: #"LabeledContent("Title", value: entry.displayTitle)"#),
+                       ["entry.displayTitle"])
+        // 已消毒的內容塗白 → 抽不到（否則鏈不帶 `displaySafe(` 字樣，呼叫端的
+        // 豁免對它失效，正確的程式碼會變成假紅）
+        XCTAssertEqual(bareChains(in: "Text(displaySafe(entry.title))"), [])
+        // 但塗白只吃被包住的那一段——同引數裡沒包的照常入列（不重演共現洞）
+        XCTAssertEqual(bareChains(in: "Text(displaySafe(a.reason) + entry.title)"),
+                       ["entry.title"])
+        // 單一識別字抽不到——那是 #164 的裸變數名盲區，不是這條負責的
+        XCTAssertEqual(bareChains(in: "Text(title)"), [])
+        // 不是 sink 的行不抽
+        XCTAssertEqual(bareChains(in: "let x = entry.title"), [])
+    }
+
+    /// **共現洞不得復活。** 整個引數當一條運算式時，`.isEmpty` 會把整條放掉——
+    /// 而 `entry.title` 就藏在同一條裡。拆成鏈之後豁免只作用於它自己那一條。
+    func testTernaryDoesNotExemptTheTaintedBranch() {
+        let chains = bareChains(in: "Text(entry.title.isEmpty ? entry.citekey : entry.title)")
+        XCTAssertEqual(chains, ["entry.title.isEmpty", "entry.citekey", "entry.title"])
+        // 中間那條是 Bool 測試、該被豁免；最後那條不是
+        XCTAssertTrue(chains[0].contains(".isEmpty"))
+        XCTAssertFalse(chains[2].contains(".isEmpty"),
+                       "tainted 的那一條不得繼承別條的豁免")
+    }
+
+    /// 端到端：合成一份 SwiftUI 原始碼，判準必須報出裸綁、且投影必須通過。
+    ///
+    /// 這是 verify-181-182 那兩個 mutation 的自足版本（`EntryViews.swift:13` 與
+    /// `AdjudicationViews.swift` 的 OrphanView 換回裸欄位時，#161 之後仍然全綠）。
+    func testBareBindingInSwiftUIIsCaught() {
+        let bare = """
+        struct V: View {
+            var body: some View {
+                Text(entry.title)
+                Text(item.reason)
+            }
+        }
+        """
+        let found = scanViolations(name: "Synthetic.swift", text: bare)
+        XCTAssertEqual(found.count, 2, "裸綁沒被抓到：\(found.map(\.text))")
+        XCTAssertTrue(found.allSatisfy { $0.axes.contains(.token) },
+                      "應該是靠 token 清單入列（非 error sink 路徑）")
+
+        let projected = """
+        struct V: View {
+            var body: some View {
+                Text(entry.displayTitleOrCitekey)
+                Text(item.displayReason)
+            }
+        }
+        """
+        XCTAssertEqual(scanViolations(name: "Synthetic.swift", text: projected).count, 0,
+                       "投影必須通過，否則整個 App 面會變成假紅")
     }
 }
 

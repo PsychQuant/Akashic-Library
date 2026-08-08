@@ -17,12 +17,13 @@ public enum SQLiteError: Error, LocalizedError {
         // 內插的是 `conditions` 陣列（全為程式字面片段 + `?`），值全走 bind。
         case .prepareFailed(let m, let sql): return "SQLite prepare 失敗：\(m)（\(sql)）"   // display-safe-exempt: m 是 errmsg；sql 見上方不變式
         case .stepFailed(let m, let sql): return "SQLite step 失敗：\(m)（\(sql)）"   // display-safe-exempt: 同 prepareFailed 的不變式
-        // #158 verify R4：**這條與上面三條不同**——`bindFailed` 的 payload 來自
-        // `SQLiteDB.swift:79` 的 `String(describing: value)`，`value` 是 **caller 傳進來
-        // 的 bind 值**，不是 errmsg 也不是 SQL。目前 unreachable（呼叫端只 bind 支援
-        // 型別），但「目前不可達」與「不含 caller payload」是兩件事——前一版的 opt-out
-        // 理由宣稱後者，那是假的。
-        case .bindFailed(let m): return "SQLite bind 失敗：\(m)"   // display-safe-exempt: payload 已在 :79 收斂成型別名（見該處）
+        // #158 verify R4：**這條與上面三條不同**——`bindFailed` 的 payload 曾經是
+        // **caller 傳進來的 bind 值**（`String(describing: value)`），不是 errmsg 也不是
+        // SQL。目前那條路徑已把 payload 收斂成型別名（見下方 `run(_:bind:)` 的 `default:` 分支）。
+        //
+        //（不寫死行號：R4 席位指出前一版指向的 `:79` 在我自己的修改之後就 stale 了。
+        // 「見下方某某分支」這種符號式引用不會隨行號漂移。）
+        case .bindFailed(let m): return "SQLite bind 失敗：\(m)"   // display-safe-exempt: payload 已在 bind 的 default: 分支收斂成型別名
         }
     }
 }
@@ -88,11 +89,41 @@ public final class SQLiteDB {
             default:
                 // #158 verify R4：**不要把值本身放進訊息**。原本是
                 // `String(describing: value)`——那是 caller 傳進來的任意值，會經
-                // errorDescription 流到使用者可見輸出。而訊息真正需要的是**型別**
-                // 不是值：「不支援的型別：Date」比「不支援的型別：2020-01-01」更有用。
-                // 收斂成型別名之後這條路徑結構上不可能帶 payload——比消毒更徹底，
-                // 也讓 AkashicSQLite 不必依賴 AkashicCore（C 綁定模組不該依賴 domain core）。
-                throw SQLiteError.bindFailed("不支援的型別：\(type(of: value))")
+                // errorDescription 流到使用者可見輸出。
+                //
+                // **為什麼拿掉值不是「型別比較有用」這種品味判斷**（R4 席位給的因果
+                // 版，比我原本的理由強）：會落進這個 `default:` 是因為**型別**不在
+                // `nil`/`Int`/`Int64`/`Double`/`String` 之列。對**絕大多數**型別，值
+                // 不影響落到哪個分支，所以值對「為什麼失敗」攜帶零診斷資訊。這擋得住
+                // 未來有人說「可是看到值也不錯啊」。
+                //
+                // **但那不是全稱句**（#158 verify F2）：`NSNumber` 的 `as?` 橋接走
+                // exact-value 語義——`NSNumber(3)` 走 `case let v as Int` 成功，
+                // `NSNumber(UInt64.max)` 落進這裡。**同一個靜態型別，值決定分支。**
+                // 那一族失敗的原因恰恰是值，而訊息只給型別名。無實害（codebase 沒有
+                // bind `NSNumber` 的呼叫端），且反洩漏的理由**完全不受影響**——
+                // 該修的是過強的因果句，不是那個決定。
+                //
+                // **`value!` 是必要的**（#158 verify F1）：`value` 的靜態型別是 `Any?`，
+                // `type(of: value)` 一律回 `Optional<Any>`——**每一次**，不只異質集合時。
+                // 席位實測 Date／Bool／Float／[Any]／Data 全部印 `Optional<Any>`，
+                // `type(of: value as Any)` 也一樣無效；**只有 unwrap 之後**才拿得到
+                // `Date` / `Bool` / `Array<Any>` / `__NSCFNumber`。`case nil:` 在上面，
+                // 所以這裡必非 nil。
+                //
+                // 三處註解宣稱「收斂成型別名」，而在修掉之前收斂成的是一個常量字串
+                // ——**改進點 4 正是「量詞要給『跑什麼會看到什麼』」，而改進點 2／3
+                // 的理由自己沒跑過**。
+                //
+                // 收斂成型別名讓 payload-free 成為**結構性質而非紀律**：AkashicSQLite
+                // 沒有 `displaySafe` 可用（C 綁定模組不該依賴 domain core），所以
+                // 「這裡不准放 payload」是編譯器層級的事實，不是靠人記得。
+                //
+                // **補 bind index**（R4 席位）：`idx` 是 `Int32`、結構上不可能帶 payload，
+                // 卻補回了值原本在偷偷代理的那個資訊——「是**哪一個**呼叫端」。異質
+                // 集合的 `type(of:)` 只給 `Array<Any>` 時，這是唯一能定位的線索。
+                throw SQLiteError.bindFailed(
+                    "參數 #\(idx) 不支援的型別：\(type(of: value!))")
             }
             guard rc == SQLITE_OK else {
                 throw SQLiteError.bindFailed(String(cString: sqlite3_errmsg(handle)))

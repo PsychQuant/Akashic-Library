@@ -44,7 +44,7 @@ attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox�
 │                                   靠 type 欄位分辨；檔名是不變的 UUID（#35）
 ├── libraries/                   ← canonical（版控）
 ├── config.yaml                  ← registry：files: {main: ~/.akashic} + current: main（gitignored）
-└── index/main.sqlite            ← 衍生 index，依 registry key 命名（gitignored）
+└── index/main-<8碼>.sqlite      ← 衍生 index，依 registry key + 化身命名（gitignored）
 ```
 
 **佈局依 format 而定，而且只建這個 store 實際會用到的目錄**（#101）：`ensureLayout()` 對
@@ -74,8 +74,23 @@ format ≥ 2 的 store 建 `entities/`、不建 legacy 的 `entries/`／`people/
 Dropbox / git 的東西——在同步樹裡放 live SQLite 是已知的毀檔風險（partial write、conflict copy）。
 index 自帶**身分戳記**（#122）：記錄它是為哪個 store root 建的，讀端比對身分不只 schema
 版本——registry 路徑被重新利用時，別的 store 建的 index 不再被誤當自己的。
-未註冊的 store（`--library <path>` 直指）則回落 in-store `.akashic/index.sqlite`，因為那種 store
+未註冊的 store（`--library <path>` 直指）則回落 in-store `.akashic/index-<8碼>.sqlite`，因為那種 store
 不在 registry 治理範圍內。
+
+**檔名帶 store 的化身**（#130）。store 根目錄有一個 `incarnation` 檔（單行 UUID，
+`ensureLayout()` 於缺席時補寫、隨檔案複製搬移），index 檔名綁它的前 8 碼。這把
+TOCTOU 從「偵測」變成**不可表達**——驗證與開啟之間有多少檔案存取都無所謂，換掉的
+store 的 index 根本不叫這個名字；同路徑重生時新舊 index 是**不同檔案**。
+
+**讀不到不等於缺席**（#130 verify C）。缺席回 `nil` 並退回純路徑比對（既有 store
+都沒有這個檔，那是正常的）；但檔案**存在而讀失敗**（截斷的 Dropbox 半截同步、
+online-only placeholder、權限）一律 **fail-loud、絕不覆寫**——覆寫等於把一個 store
+變成另一個化身，而那正是這個機制要偵測的事件。先前不分這兩者，實測 `chmod 000`
+之下 `doctor` exit 0 零訊息而 id 每跑一次換一個。
+
+代價：重生後舊 index 成孤兒。`doctor` 報告、**不自動刪**，而且只認**本 key 的**
+舊化身（`<key>-<8 小寫 hex>`）——`StoreKey` 允許連字號，所以 `main` 不得把
+`main-backup-….sqlite`（另一個已註冊 store 的 live index）報成自己的孤兒。
 
 ### View：判準是設定，外延是衍生（#54／#65）
 
@@ -133,7 +148,7 @@ akashic view show iss --keys-only   # 一行一個 key，給下游腳本吃
 
 | 變數 | 作用 |
 |---|---|
-| `AKASHIC_HOME` | 覆寫 akashic home（預設 `~/.akashic`）。**同時決定 registry（`config.yaml`）與衍生 index（`index/<key>.sqlite`）的位置**——兩者必須同源，否則會出現「registry 讀一個 home、index 寫另一個 home」的跨 profile 混用（#101 修正）。CLI / MCP / App 三面一致遵守 |
+| `AKASHIC_HOME` | 覆寫 akashic home（預設 `~/.akashic`）。**同時決定 registry（`config.yaml`）與衍生 index（`index/<key>-<化身>.sqlite`）的位置**——兩者必須同源，否則會出現「registry 讀一個 home、index 寫另一個 home」的跨 profile 混用（#101 修正）。CLI / MCP / App 三面一致遵守 |
 | `AKASHIC_LIBRARY` | 直接指定 library root，等同 `--library`。路徑已註冊時**反查 registry 帶 key**（#105）——同一個 store 不因開法不同而有兩份 index |
 
 Library root 的解析順序：`--library` → `$AKASHIC_LIBRARY` → `$AKASHIC_HOME/config.yaml`（`current` 指向的

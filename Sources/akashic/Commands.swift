@@ -380,6 +380,15 @@ struct MigrateProvenance: ParsableCommand {
             print("  store format 不變（\(fmt)）；舊 binary 仍讀得懂")
             print("  變更未經版控 gate——用 git diff 檢查後再 commit")
         }
+        // **部分失敗必須非零退出**（#146 verify G1）。我引的既有紀律有**三塊**，
+        // 而本 repo 四處都是三塊一起用的（`ResolvePeople`、`ImportZotero`、
+        // `FormatCommands`、`DivergenceCommands`）：per-item 收容、先報失敗、
+        // **然後 throw**。我只拿了前兩塊。
+        //
+        // 淨效果相對於修 F4 之前：人看的輸出好很多，**機器看的訊號嚴格變差**——
+        // 原本 exit 1，改完 exit 0。`&&` 串接、CI、`/loop` 會在一個半新半舊的
+        // store 上看到成功。
+        if !report.failures.isEmpty { throw ExitCode(1) }
     }
 }
 
@@ -515,7 +524,7 @@ struct BootstrapOrganizations: ParsableCommand {
         // #154 verify 154-9：**這個呼叫點先前零測試覆蓋**——刪掉它全套 965 綠。
         // `--apply` 是使用者最容易認定「做完了」的時刻，也是唯一留下永久痕跡的路徑。
         reportDropped()
-        print("  下一步：akashic resolve-organizations 把 affiliations 的 literal 歸戶")
+        print("  下一步：akashic resolve-organizations 把 affiliations 與 parents 的 literal 歸戶")
         // #154 verify 154-13：部分失敗時 exit 1，與 `resolve-organizations` 對齊。
         // 先前只有 resolve 側 throw——而 `--apply` 正是最常被 chain 的一步（輸出
         // 自己就寫著「下一步：…」），bootstrap 半途失敗時

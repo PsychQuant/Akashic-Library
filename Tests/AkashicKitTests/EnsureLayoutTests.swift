@@ -166,4 +166,26 @@ final class EnsureLayoutTests: XCTestCase {
                          "person 的 legacy 寫入路徑同理")
         XCTAssertTrue(exists("people"))
     }
+
+    /// **`layoutResidue` 的檔名文法要跟著 #130 走**（verify B）。
+    ///
+    /// in-store index 現在是 `index-<8 碼>.sqlite`、rebuild temp 是
+    /// `.index-<8 碼>.sqlite.rebuild-<UUID>`。先前白名單只認字面的 `index.sqlite`，
+    /// 於是**凡是在新 binary 下先 keyless 用過、之後才註冊的 store，`.akashic/` 的
+    /// 清理提示從此不出現**（origin/main 上會出現），崩掉的 rebuild 殘骸也沉默。
+    func testLayoutResidueRecognisesIncarnationTaggedIndexNames() throws {
+        let store = LibraryStore(root: root, key: "main",
+                                 environment: ["AKASHIC_HOME": root.appendingPathComponent("h").path])
+        try store.ensureLayout()
+        let ak = root.appendingPathComponent(".akashic")
+        try FileManager.default.createDirectory(at: ak, withIntermediateDirectories: true)
+        for n in ["index-bd0b7f59.sqlite", "index-bd0b7f59.sqlite-wal",
+                  ".index-bd0b7f59.sqlite.rebuild-\(UUID().uuidString)"] {
+            FileManager.default.createFile(atPath: ak.appendingPathComponent(n).path, contents: Data())
+        }
+        XCTAssertTrue(try store.layoutResidue().contains { $0.contains(".akashic") },
+                      "帶化身前綴的 in-store index 仍是可刪的衍生物——認不得它，"
+                      + "清理提示就從此消失而沒有訊號")
+    }
+
 }

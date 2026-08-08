@@ -57,6 +57,28 @@ final class WorkContentWarningTests: XCTestCase {
         XCTAssertTrue(w[0].contains("不擋"), "要說清楚這不是拒絕，避免被讀成錯誤")
     }
 
+    /// **只在倖存者是前綴時出聲**（#169 verify F9）。
+    ///
+    /// 守衛先前用 `contains`（任意位置）而 `extra` 用 `dropFirst(k.count)` 算，
+    /// 於是七種形狀裡**六種訊息在說假話**——最嚴重的是把 keeper **已經有的**
+    /// 內容報成「多了」。而引號／方括號／前導標點是 F2 修法的漏網：詞字元 guard
+    /// 檢查的是**切歪之後**的字串。
+    func testOnlyPrefixContainmentSpeaks() {
+        // keeper 在中間／尾端：訊息會從字中間切開 → 不說
+        XCTAssertEqual(warnings(keeperTitle: "Nature",
+                                doomedTitle: "The Nature of Space and Time"), [])
+        XCTAssertEqual(warnings(keeperTitle: "Space and Time",
+                                doomedTitle: "On Space and Time"), [])
+        // 最嚴重：把 keeper 已經有的內容報成「多了」
+        XCTAssertEqual(warnings(keeperTitle: "Core", doomedTitle: "The Core of It"), [])
+        // F2 的漏網：純標點包住
+        XCTAssertEqual(warnings(keeperTitle: "Learning", doomedTitle: "[Learning]"), [])
+        XCTAssertEqual(warnings(keeperTitle: "Learning", doomedTitle: ". Learning"), [])
+        // 真前綴仍要說
+        XCTAssertEqual(warnings(keeperTitle: "Short",
+                                doomedTitle: "Short: A Real Subtitle").count, 1)
+    }
+
     /// **一般的不同不說**——那會變成噪音，而噪音讓人停止讀提醒。
     func testUnrelatedTitleDifferencesAreSilent() {
         XCTAssertTrue(warnings(keeperTitle: "The Structure of X",

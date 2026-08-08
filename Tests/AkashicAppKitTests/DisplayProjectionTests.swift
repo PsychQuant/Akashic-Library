@@ -41,6 +41,19 @@ final class DisplayProjectionTests: XCTestCase {
         assertSanitised(ctrl.displayTitleOrCitekey, "只含控制字元的 title")
     }
 
+    /// **第六個投影**（#161 verify 181-7）。它是**為了修 181-4 而在加入這個測試檔
+    /// 的同一個 commit 裡新增**的，而測試只覆蓋原本那五個——只把它的 `displaySafe`
+    /// 拆掉，1032 條全綠。
+    ///
+    /// 諷刺處：本檔 docstring 第一句就是「#161 的核心產出是五個投影——而它們零
+    /// 測試覆蓋」。投影從五個變六個，測試沒跟上。
+    func testEntryDisplayAuthorsIsSanitised() {
+        var e = Entry(id: UUID(), citekey: "k2020", type: "article", title: "t")
+        e.authors = [.literal(hostile), .key("che-cheng")]
+        assertSanitised(e.displayAuthors, "displayAuthors")
+        XCTAssertTrue(e.displayAuthors.contains("che-cheng"), "非 literal 的部分照常呈現")
+    }
+
     func testLibraryProjections() {
         let l = Library(key: "main", name: hostile)
         assertSanitised(l.displayName, "displayName")

@@ -136,9 +136,22 @@ public final class LibraryStore {
             .deletingLastPathComponent()
         let current = "\(key)-\(tag).sqlite"
         let all = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        // **`key-` 之後必須正好是 8 個小寫 hex**（#130 verify A）。
+        //
+        // 先前只要 `hasPrefix("\(key)-")`，於是 registry key `main` 會把
+        // `main-backup-33f46bce.sqlite`——**另一個已註冊 store 正在用的 index**——
+        // 報成自己的孤兒。而 `StoreKey.pattern` 允許連字號，所以 `main-backup`
+        // 是合法的 key。訊息說「舊 index 不再使用」，照著做就刪掉別人的 live index。
+        //
+        // （`mainx-….sqlite` 不會誤報：連字號在 prefix 裡。誤報的是**含連字號的
+        // key**，那是席位糾正我的——我原本擔心錯了方向。）
+        func isOwnIncarnation(_ name: String) -> Bool {
+            guard name.hasSuffix(".sqlite"), name.hasPrefix("\(key)-") else { return false }
+            let tag = name.dropFirst(key.count + 1).dropLast(".sqlite".count)
+            return tag.count == 8 && tag.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+        }
         return all.filter {
-            $0 != current && $0.hasSuffix(".sqlite")
-                && ($0 == "\(key).sqlite" || $0.hasPrefix("\(key)-"))
+            $0 != current && ($0 == "\(key).sqlite" || isOwnIncarnation($0))
         }.sorted()
     }
 
@@ -271,15 +284,31 @@ public final class LibraryStore {
                     let u = akashicDir.appendingPathComponent(name)
                     guard let type = (try? fm.attributesOfItem(atPath: u.path))?[.type]
                             as? FileAttributeType, type == .typeRegular else { return false }
-                    switch name {
-                    case "index.sqlite", "index.sqlite-wal", "index.sqlite-shm",
-                         "index.sqlite-journal":
-                        return true
-                    default:
-                        let prefix = ".index.sqlite.rebuild-"
-                        guard name.hasPrefix(prefix) else { return false }
-                        return UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
+                    // **檔名文法要跟著 #130 走**（verify B）：in-store index 現在是
+                    // `index-<8 碼>.sqlite`，rebuild temp 是
+                    // `.index-<8 碼>.sqlite.rebuild-<UUID>`。先前白名單只認字面的
+                    // `index.sqlite`，於是**凡是在新 binary 下先 keyless 用過、之後
+                    // 才註冊的 store，`.akashic/` 的清理提示從此不出現**（origin/main
+                    // 上會出現），崩掉的 rebuild 殘骸也從此沉默。
+                    /// `index` 或 `index-<8 小寫 hex>`
+                    func isIndexStem(_ stem: Substring) -> Bool {
+                        if stem == "index" { return true }
+                        guard stem.hasPrefix("index-") else { return false }
+                        let tag = stem.dropFirst("index-".count)
+                        return tag.count == 8 && tag.allSatisfy { $0.isHexDigit && !$0.isUppercase }
                     }
+                    if name.hasPrefix(".") {
+                        // rebuild temp：`.<stem>.sqlite.rebuild-<UUID>`
+                        let body = name.dropFirst()
+                        guard let r = body.range(of: ".sqlite.rebuild-") else { return false }
+                        guard isIndexStem(body[body.startIndex..<r.lowerBound]) else { return false }
+                        return UUID(uuidString: String(body[r.upperBound...])) != nil
+                    }
+                    for suffix in [".sqlite", ".sqlite-wal", ".sqlite-shm", ".sqlite-journal"]
+                    where name.hasSuffix(suffix) {
+                        return isIndexStem(name.dropLast(suffix.count))
+                    }
+                    return false
                 }
                 if contents.allSatisfy(isDerivedArtifact) {
                     out.append(".akashic/（keyless 時期的孤兒 index——本 store 已註冊，"

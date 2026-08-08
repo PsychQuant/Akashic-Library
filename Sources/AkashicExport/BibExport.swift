@@ -7,18 +7,20 @@ import BiblatexAPA
 public enum BibExport {
     /// Entry.fields（已是 biblatex 欄位名）之外的一級欄位對映。
     public static func bibEntry(for entry: Entry, people: [String: Person]) -> BibEntry {
+        // 每個值都過 `braceSafe`（#176）。**逐個作者、不是 join 之後**——一個壞名字
+        // 不該把整串作者一起拖進逃脫（那會改掉同一筆裡其他機構名的 `{...}` 標記）。
         var fields = OrderedDict()
-        fields["title"] = entry.title
+        fields["title"] = braceSafe(entry.title)
         if !entry.authors.isEmpty {
             fields["author"] = entry.authors
-                .map { bibName(for: $0, people: people) }
+                .map { braceSafe(bibName(for: $0, people: people)) }
                 .joined(separator: " and ")
         }
         if let date = entry.date {
-            fields["date"] = date
+            fields["date"] = braceSafe(date)
         }
         for key in entry.fields.keys.sorted() {
-            fields[key] = entry.fields[key]
+            fields[key] = entry.fields[key].map(braceSafe)
         }
         return BibEntry(entryType: entry.type.uppercased(), key: entry.citekey,
                         fields: fields, rawText: "", lineNumber: 0)
@@ -53,5 +55,68 @@ public enum BibExport {
         let tokens = display.split(separator: " ").map(String.init)
         guard tokens.count >= 2, let family = tokens.last else { return nil }
         return (family: family, given: tokens.dropLast().joined(separator: " "))
+    }
+
+    // MARK: - 大括號注入（#176）
+
+    /// 值裡的大括號若**不平衡**，換成平衡的 LaTeX 命令。
+    ///
+    /// ## 為什麼守在這裡而不是只靠 writer
+    ///
+    /// 欄位值寫成 `{value}`。值裡有不平衡的 `}` 就提早關掉欄位，之後的內容被當成
+    /// bibtex 語法——一個 title 可以開出一整筆不存在的 entry，而下游（LaTeX build、
+    /// 文獻管理器、讀這份輸出的 LLM）分不出真假。
+    ///
+    /// `biblatex-apa-swift` 的 `BibWriter` 也有一份同樣的防護，**兩份不衝突**：平衡的
+    /// 值兩邊都原樣通過，所以這裡先做完之後那邊是 no-op。留兩份不是重複，是因為
+    /// **不受信任的內容源自 store，邊界的擁有者是這裡**——`BibWriter` 是共用的
+    /// canonical library，哪天換一個 writer、或它的規則改了，洞就回來。
+    ///
+    /// 上面 `bibName` 的 `#6` 又讓這件事非做不可：機構名的 `{...}` **刻意原樣輸出**。
+    /// 這個模組已經決定了「大括號要穿透」，那它就得負責穿透的是安全的形狀。
+    ///
+    /// ## `\}` 不是逃脫——量過的
+    ///
+    /// btparse（biber 背後的 parser，BibTeX 本尊亦然）**數大括號時不看 backslash**，
+    /// `\}` 照樣關掉欄位。真的 `biber --tool` 對同一個注入 payload：
+    ///
+    /// | 輸出成 | biber |
+    /// |---|---|
+    /// | 未處理 | 2 筆 entry，偽造的與真的無從分辨 |
+    /// | `\}` | **syntax error**，整檔零輸出／整筆被 skip |
+    /// | `\textbraceright{}` | 1 筆 entry，payload 留成文字，0 error |
+    ///
+    /// 所以判準是**輸出永遠平衡**（下面三個替換各自 `{`+`}` 成對），不是「有沒有加
+    /// backslash」。這是輸出的結構性質，對任何做括號計數的 parser 都成立。
+    ///
+    /// 同理，深度計數**刻意不跳過** `\{` / `\}`：它模仿的正是 btparse 自己的計數方式，
+    /// 把它們當成已逃脫會低估。
+    ///
+    /// **平衡的值原樣通過**：biblatex 用 `{DNA}` 保護大小寫、機構名用 `{...}` 標記，
+    /// 都是合法且常見的，動它們會改掉每一筆這種記錄的排版輸出。
+    static func braceSafe(_ value: String) -> String {
+        var depth = 0
+        for ch in value {
+            if ch == "{" { depth += 1 }
+            if ch == "}" {
+                depth -= 1
+                if depth < 0 { break }   // 關得比開的多
+            }
+        }
+        guard depth != 0 else { return value }
+
+        // 單次掃描。三個接續的 replacingOccurrences 會把本函式自己產生的大括號
+        // 再逃脫一次。
+        var out = ""
+        out.reserveCapacity(value.count + 32)
+        for ch in value {
+            switch ch {
+            case "{":  out += "\\textbraceleft{}"
+            case "}":  out += "\\textbraceright{}"
+            case "\\": out += "\\textbackslash{}"
+            default:   out.append(ch)
+            }
+        }
+        return out
     }
 }

@@ -2,6 +2,7 @@ import Foundation
 import MCP
 import AkashicMCPKit
 import AkashicStoreIO
+import AkashicCore
 
 /// akashic-mcp — Akashic-Library 的 MCP 工具面（Phase 2）。
 /// 讀走 index；寫只碰衍生層（akashic namespace／人物解析／庫外 entry／import 觸發）。
@@ -301,12 +302,30 @@ actor AkashicMCPServer {
                 output = try service.importZotero(zoteroDb: arg("zotero_db"),
                                                   libraryID: argInt("library_id"))
             default:
-                return CallTool.Result(content: [.text(text: "Unknown tool: \(params.name)", annotations: nil, _meta: nil)], isError: true)
+                return CallTool.Result(content: [.text(
+                    text: "Unknown tool: \(displaySafe(params.name, max: 200))",
+                    annotations: nil, _meta: nil)], isError: true)
             }
             return CallTool.Result(content: [.text(text: output, annotations: nil, _meta: nil)], isError: false)
         } catch {
+            // **MCP 的單一錯誤出口，統一消毒**（#162）。CLI 早就這樣做了，而且那是
+            // 明寫的裁決：「逐條補 error 站點是假性閉合——新增的 case 又會裸奔。
+            // 這裡取代合成的 main()，在唯一出口統一過 displaySafeMultiline」
+            // （`Sources/akashic/CLI.swift`）。**MCP 側從來沒有拿到同樣的處置**：
+            // `Main.swift` 消毒了啟動錯誤，這條 per-tool 的熱路徑沒有。
+            //
+            // 後果是全面的：`StoreYAMLError.invalidField` 的 `errorDescription`
+            // **刻意不消毒** payload（它的策略是「由輸出端 sink 消毒」，見該型別的
+            // display-safe-exempt 註解），所以每一個未消毒的 throw 站點——約 90 個，
+            // 多數是折行的——都經由這裡把檔案裡的未知欄位名、YAML 鍵、值原文
+            // 逐字送進 LLM context。這是 #142 明列的強威脅模型。
+            //
+            // 修在這裡而不是 90 個 throw 站點：那些站點的策略本來就是 sink-side，
+            // 缺的是 sink。補一個 sink 勝過補 90 個站點再等下一個新增的 case。
             let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
-            return CallTool.Result(content: [.text(text: "Error: \(message)", annotations: nil, _meta: nil)], isError: true)
+            return CallTool.Result(content: [.text(
+                text: "Error: \(displaySafeMultiline(message))",
+                annotations: nil, _meta: nil)], isError: true)
         }
     }
 }

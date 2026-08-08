@@ -212,3 +212,46 @@ extension StdioE2ETests {
         XCTAssertTrue(process.isRunning)
     }
 }
+
+/// #162：**MCP 的 per-tool 錯誤出口**必須消毒——走真 binary、真 stdio。
+///
+/// CLI 早有單一消毒出口，而且那是明寫的裁決（`CLI.swift`：「逐條補 error 站點是
+/// 假性閉合——新增的 case 又會裸奔」）。**MCP 從沒拿到同樣處置**：`Main.swift`
+/// 消毒了啟動錯誤，`Server.swift` 的 per-tool catch 沒有。
+///
+/// 後果是全面的：`StoreYAMLError.invalidField` 的 `errorDescription` **刻意不消毒**
+/// payload（它自帶的 exempt 註解寫明策略是 sink-side，並承認「約 50 個跨行 throw
+/// 站點未消毒，靠 sink 兜底」）。缺了這個 sink，那些站點的 payload——檔案裡的未知
+/// 欄位名、YAML 鍵、值原文——逐字進 LLM context。
+///
+/// **必須走真 binary**：在測試裡重建 `let message = errorDescription ?? "\(error)"`
+/// 再自己包 `displaySafeMultiline` 是同義反覆——它會綠，但證明不了 `Server.swift`
+/// 那一行真的呼叫了它（#171 verify 171-1 的教訓）。
+extension StdioE2ETests {
+    func testToolErrorPayloadIsSanitisedAtTheMCPExit() throws {
+        try send(["jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": ["protocolVersion": "2024-11-05", "capabilities": [:],
+                             "clientInfo": ["name": "t", "version": "1"]]])
+        _ = try readResponse()
+        try send(["jsonrpc": "2.0", "method": "notifications/initialized"])
+
+        // caller 給的 citekey 直接回到錯誤訊息裡（notFound 的 payload）
+        let hostile = "ev\u{1B}[31m\u{202E}il"
+        try send(["jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                  "params": ["name": "akashic_get_entry",
+                             "arguments": ["citekey": hostile]]])
+        let resp = try readResponse()
+        let text = String(describing: resp)
+        XCTAssertTrue(text.contains("Error") || text.contains("找不到"),
+                      "應該是錯誤回應，否則這條沒走到被測的路徑：\(text.prefix(300))")
+        XCTAssertFalse(text.contains("\u{1B}"), "raw ESC 抵達 tool result（進 LLM context）")
+        XCTAssertFalse(text.contains("\u{202E}"), "raw U+202E 抵達 tool result")
+
+        // 未知 tool 名同理——它也是 caller 給的字串
+        try send(["jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                  "params": ["name": "akashic_\(hostile)", "arguments": [:]]])
+        let resp2 = String(describing: try readResponse())
+        XCTAssertFalse(resp2.contains("\u{1B}"), "Unknown tool 的名字也要消毒")
+        XCTAssertFalse(resp2.contains("\u{202E}"), "同上")
+    }
+}

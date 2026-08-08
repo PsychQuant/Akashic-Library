@@ -226,6 +226,81 @@ final class DisplaySinkCoverageTests: XCTestCase {
             || swiftUISinks.contains(where: { l.contains($0) })
     }
 
+    /// 一行是不是 **error sink**（payload 最終進 `errorDescription` → 使用者可見）。
+    ///
+    /// 與 `isDisplaySink` 分開，因為**後續處理不同**：error sink 跳過 token 清單
+    /// （payload 常是 `k` / `w.key` 這種短的局部變數名，清單抓不到），普通 sink 不跳。
+    /// 續行必須繼承正確的那一種——第一版把續行一律當普通 sink，實測**零命中**，
+    /// 而 #162 量到 56 個。判準對了種類錯了，症狀與判準沒改一模一樣。
+    /// **型別感知**（#162）。三種 error 型別有三種**明寫的**政策，先前守衛對三者
+    /// 一視同仁，於是對其中兩種要求了架構明確拒絕的東西：
+    ///
+    /// | 型別 | `errorDescription` 消毒 payload？ | throw 站點要消毒？ |
+    /// |---|---|---|
+    /// | `StoreIOError` | ✅ 是（`invalidInput` 對 what/why 都包） | ❌ **不要**——會雙重跳脫 |
+    /// | `StoreYAMLError` | ❌ 否（自帶 exempt 註解說明策略是 sink-side） | ❌ 由輸出端 sink |
+    /// | `ServiceError` | ❌ `.invalid` 直接回 `why` | ✅ 要 |
+    ///
+    /// **這不是放寬，是修正歸屬。** 先前的守衛只看得見單行 throw，於是它對
+    /// `StoreYAMLError` 的要求落在「訊息短到放得下一行」這個與威脅無關的子集上——
+    /// `YAML.swift` 相鄰兩個 `if` 對同一個變數 `k` 做出兩個不同決定就是證據。
+    /// 加上續行偵測之後那個要求會擴張到約 90 個站點，而它們的策略本來就是 sink-side。
+    ///
+    /// **真正缺的是 sink，不是那 90 個站點的消毒**：`akashic-mcp/Server.swift` 的
+    /// per-tool 錯誤出口先前**沒有**消毒（CLI 早就有單一出口了，MCP 從沒拿到同樣
+    /// 處置），於是那 90 個站點的 payload 逐字進 LLM context。本 change 補上它。
+    static func isErrorSinkLine(_ l: String) -> Bool {
+        // `StoreYAMLError` / `StoreIOError` **不列入**——見上表。
+        l.contains("throw ServiceError")
+    }
+
+    enum SinkKind { case display, error }
+
+    static func parenBalance(_ l: String) -> Int {
+        l.filter { $0 == "(" }.count - l.filter { $0 == ")" }.count
+    }
+    static func opensMoreThanCloses(_ l: String) -> Bool { parenBalance(l) > 0 }
+
+    /// 每一行是不是某個**尚未收尾的 sink** 的續行，是的話屬哪一種（#162）。
+    ///
+    /// sink 標記在 N 行、payload 內插在 N+1 行時，行級掃描完全看不到。實測掃描面上
+    /// 有 56 個這樣的位置，而且**消毒的分佈跟著行寬走、不跟著威脅走**——`YAML.swift`
+    /// 相鄰兩個 `if` 對同一個變數 `k` 做了兩個不同決定：訊息長要折行的那個沒包、
+    /// 單行放得下的那個包了。同一個作者、相鄰兩行。
+    ///
+    /// 修法是**擴充判準**，不是遷就判準把程式碼改成單行——後者把判準的實作細節變成
+    /// 全 repo 的 coding rule，而它沒有 enforcement、違反時靜默（#155 對 `FileWatcher`
+    /// 就是那樣處置的，不可規模化）。
+    ///
+    /// **前向追蹤括號深度，不是回看一行**：一層回看漏掉 payload 在第三行以上的形狀
+    /// （`Provenance.swift` 的 `\(v)` 就是——`throw` 在 N、`\(r.field)` 在 N+1、
+    /// `\(v)` 在 N+2）。
+    ///
+    /// **誠實邊界**：字串字面量裡的括號會混淆深度計算。誤判成續行只是多掃幾行
+    /// （多出來的誤中要寫 exempt），誤判成非續行才會漏——偏誤在安全的一邊。
+    static func continuationKinds(_ lines: [String]) -> [SinkKind?] {
+        var out = [SinkKind?](repeating: nil, count: lines.count)
+        var open: SinkKind? = nil
+        var depth = 0
+        for (i, raw) in lines.enumerated() {
+            let l = raw.trimmingCharacters(in: .whitespaces)
+            if l.hasPrefix("//") { continue }
+            if open != nil {
+                out[i] = open
+                depth += parenBalance(raw)
+                if depth <= 0 { open = nil; depth = 0 }
+                continue
+            }
+            let kind: SinkKind? = isErrorSinkLine(raw) ? .error
+                : (isDisplaySink(raw) ? .display : nil)
+            if let kind, parenBalance(raw) > 0 {
+                open = kind
+                depth = parenBalance(raw)
+            }
+        }
+        return out
+    }
+
     static let swiftUISinks = [
         "Text(", "Label(", "LabeledContent(", "Button(",
         "ContentUnavailableView(", ".navigationTitle(", ".alert(",
@@ -358,6 +433,69 @@ final class DisplaySinkCoverageTests: XCTestCase {
         }
     }
 
+    /// 續行偵測本身（#162）。
+    ///
+    /// **必須直接餵合成的行**：把 6 個真站點修好之後，「掃真實原始碼有沒有報東西」
+    /// 恆為零——mutation 拿掉整個續行偵測，六條全綠。同 #161 的教訓，第二次遇到：
+    /// **守衛的偵測能力不能靠語料的乾淨程度來驗。**
+    func testContinuationDetectionSeesFoldedSinks() {
+        // 折行的 error sink：payload 在第二、第三行
+        let folded = [
+            "throw ServiceError.invalid(",
+            "    \"欄位「\\(k)」不支援\")",
+            "let x = 1",
+        ]
+        let kinds = Self.continuationKinds(folded)
+        XCTAssertEqual(kinds[0], nil, "開頭那行自己就是 sink，不算續行")
+        XCTAssertEqual(kinds[1], .error, "payload 行必須被認出是 error sink 的續行")
+        XCTAssertEqual(kinds[2], nil, "括號收掉之後就結束")
+
+        // 三層以上：一層回看會漏，前向追蹤不會
+        let deep = [
+            "throw ServiceError.invalid(",
+            "    what: \"x\",",
+            "    why: \"值「\\(v)」不合法\")",
+            "return",
+        ]
+        XCTAssertEqual(Self.continuationKinds(deep)[2], .error,
+                       "第三行也要看得到——`Provenance` 的 \\(v) 就是這個形狀")
+        XCTAssertEqual(Self.continuationKinds(deep)[3], nil)
+
+        // 顯示 sink 的續行要繼承 .display（種類不能混——error 才跳過 token 清單）
+        let display = ["print(", "    \"\\(entry.title)\")", "x()"]
+        XCTAssertEqual(Self.continuationKinds(display)[1], .display,
+                       "普通 sink 的續行不得被當成 error sink")
+
+        // 非 sink 的折行不得誤中
+        let notSink = ["let a = foo(", "    bar, baz)", "x()"]
+        XCTAssertEqual(Self.continuationKinds(notSink), [nil, nil, nil],
+                       "不是 sink 的呼叫折行不該進來——誤中要寫 exempt，那比沒守衛更糟")
+
+        // 註解行不開啟續行狀態
+        let comment = ["// throw ServiceError.invalid(", "let x = \"\\(k)\"", ""]
+        XCTAssertEqual(Self.continuationKinds(comment)[1], nil,
+                       "註解裡的 sink 不是 sink")
+
+        // **掃描迴圈真的用了它嗎。** 上面驗的是 `continuationKinds` 這個函式；
+        // 這一段驗 `scanViolations` 有把它接上——mutation 只改用法（把
+        // `continuations[idx] == .error` 換成 `false`）時，只測函式的斷言全綠。
+        // 判準對、函式對、沒接上，症狀與沒做一模一樣。
+        let corpus = """
+            func f() throws {
+                throw ServiceError.invalid(
+                    "欄位「\\(k)」不支援")
+            }
+            """
+        let found = scanViolations(name: "Synthetic.swift", text: corpus)
+        XCTAssertEqual(found.count, 1, "折行的 ServiceError payload 必須被掃到：\(found)")
+        XCTAssertTrue(found.first?.text.contains("k") == true, "要指出是哪個運算式：\(found)")
+
+        // 同一段包了 displaySafe 就不該報——否則守衛在製造誤中
+        let clean = corpus.replacingOccurrences(of: "\\(k)", with: "\\(displaySafe(k, max: 200))")
+        XCTAssertEqual(scanViolations(name: "Synthetic.swift", text: clean).count, 0,
+                       "包了就不該報")
+    }
+
     /// **subscript 指派也是 dict 值**（#156 verify 156-16）：`isSink` 一直認得
     /// `d["` 與 `result["`——那正是 `d["key"] = value` 的形狀——但抽取器只認**字面量**
     /// `"key": value`，對 subscript 指派抽出**空陣列**。於是那兩條 disjunct 是
@@ -469,6 +607,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
         var violations: [Violation] = []
         do {
             let allLines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            let continuations = Self.continuationKinds(allLines)
             for (idx, line) in allLines.enumerated() {
                 let l = String(line)
                 // 前一行是否為 `case …:` 結尾（ConfigError 的 case/return 跨兩行——
@@ -487,7 +626,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 if l.trimmingCharacters(in: .whitespaces).hasPrefix("//") { continue }
                 if l.contains("display-safe-exempt:") { continue }
                 // 只看真正的輸出面：print(…) 與 JSON dict 的字串值
-                let isSink = Self.isDisplaySink(l)
+                let isSink = Self.isDisplaySink(l) || continuations[idx] == .display
                 // #78-7：error 構造點是**無條件** sink——payload 最終進 errorDescription
                 // →使用者可見輸出，插值的任何內容（YAML 未知 key、原始值）都可疑，
                 // 不看 token 清單（局部變數名抓不到）。安全的插值加 exempt 注記
@@ -498,11 +637,8 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 let caseReturn = (l.trimmingCharacters(in: .whitespaces).hasPrefix("case ")
                         && l.contains("return \""))
                     || (prevIsCase && l.trimmingCharacters(in: .whitespaces).hasPrefix("return \""))
-                let isErrorSink = l.contains("throw StoreYAMLError")
-                    || l.contains("throw StoreVersionError")
-                    || l.contains("throw ServiceError")
-                    || l.contains("throw StoreIOError")
-                    || caseReturn
+                let isErrorSink = Self.isErrorSinkLine(l) || caseReturn
+                    || continuations[idx] == .error
                 guard isSink || isErrorSink else { continue }
                 // switch 的 `case "x": stmt` 不是 dict 值——冒號後是語句（#138 F2）。
                 // **誠實邊界**：這也豁免了 case 行內的真 dict（如

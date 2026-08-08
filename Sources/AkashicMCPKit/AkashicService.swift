@@ -155,8 +155,8 @@ public final class AkashicService {
                 // 的 schema 只有 `citekeys` 與 `format`——原本寫的 `--library`／`--tag`
                 // 這裡不存在，而 MCP client 一般也跑不了 CLI。三個建議裡兩個是假的。
                 throw ServiceError.invalid(
-                    "匯出 \(out.utf8.count / 1024) KB 超過 MCP 上限 "
-                    + "\(Self.maxExportBytes / 1024) KB（本庫 \(entries.count) 筆）"
+                    "匯出 \(out.utf8.count / 1024) KB 超過 MCP 上限 "   // display-safe-exempt: Int 算術
+                    + "\(Self.maxExportBytes / 1024) KB（本庫 \(entries.count) 筆）"   // display-safe-exempt: Int
                     + "——tool result 進的是 LLM context。改傳 citekeys 分批匯出"
                     + "（本工具唯一的縮小方式）；要全庫請在終端跑 "
                     + "akashic export-bib --output <path>")
@@ -590,7 +590,7 @@ public final class AkashicService {
         } catch {
             // R10（R9-verify L17）：附已改寫數——operator 才能對帳磁碟狀態
             throw ServiceError.invalid(
-                "index rebuild 失敗：\(error)（本批已改寫 \(written) 檔；writeFailed \(writeFailed.count) 筆：\(writeFailed.map { "\(displaySafe($0.key, max: 200))（\(displaySafe($0.value, max: 512))）" }.sorted().joined(separator: "; "))）")
+                "index rebuild 失敗：\(displaySafe(String(describing: error), max: 512))（本批已改寫 \(written) 檔；writeFailed \(writeFailed.count) 筆：\(writeFailed.map { "\(displaySafe($0.key, max: 200))（\(displaySafe($0.value, max: 512))）" }.sorted().joined(separator: "; "))）")   // display-safe-exempt: written 是 Int；error 與 writeFailed 同行已 displaySafe
         }
         // R8（R7-verify L15）：applied 不誇報——排除寫入失敗的候選
         let appliedActual = chosen.filter { writeFailed[$0.citekey] == nil }
@@ -658,7 +658,7 @@ public final class AkashicService {
             let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
             guard parts.count == 2, let shape = EntityKind(rawValue: parts[1]) else {
                 throw ServiceError.invalid(
-                    "候選格式為 `key:shape`（shape ∈ \(EntityKind.allCases.filter { $0 != .divergence }.map(\.rawValue).joined(separator: " / "))），得到「\(displaySafe(spec, max: 120))」")
+                    "候選格式為 `key:shape`（shape ∈ \(EntityKind.allCases.filter { $0 != .divergence }.map(\.rawValue).joined(separator: " / "))），得到「\(displaySafe(spec, max: 120))」")   // display-safe-exempt: EntityKind 是封閉列舉，rawValue 是編譯期字面量；spec 已 displaySafe
             }
             return (key: parts[0], shape: shape)
         }
@@ -692,7 +692,7 @@ public final class AkashicService {
             try LibraryIndex(store: store).rebuild()
         } catch {
             throw ServiceError.invalid(
-                "index rebuild 失敗：\(error)（本趟 import 已落地：created \(report.created.count)、updated \(report.updated.count)、orphaned \(report.orphaned.count)；writeFailed \(report.writeFailed.count) 筆：\(report.writeFailed.keys.sorted().map { displaySafe($0, max: 200) }.joined(separator: ", "))）")
+                "index rebuild 失敗：\(displaySafe(String(describing: error), max: 512))（本趟 import 已落地：created \(report.created.count)、updated \(report.updated.count)、orphaned \(report.orphaned.count)；writeFailed \(report.writeFailed.count) 筆：\(report.writeFailed.keys.sorted().map { displaySafe($0, max: 200) }.joined(separator: ", "))）")
         }
         var d: [String: Any] = [
             "created": report.created.map { displaySafe($0, max: 200) },

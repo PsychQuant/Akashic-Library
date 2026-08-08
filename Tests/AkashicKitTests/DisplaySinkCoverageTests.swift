@@ -1,4 +1,5 @@
 import XCTest
+@testable import AkashicSQLite
 import Foundation
 @testable import AkashicCore
 
@@ -634,6 +635,33 @@ extension DisplaySinkCoverageTests {
                            "原始 ESC 不得進 errorDescription：\(msg.debugDescription)")
             XCTAssertTrue(msg.contains("u{001B}") || msg.contains("EVIL"),
                           "消毒後仍要可辨認：\(msg)")
+        }
+    }
+}
+
+/// #158 verify F1／LOW：`bindFailed` 的訊息內容。
+///
+/// 席位實測本 change 唯一的行為改動（補 `參數 #N`）**零測試覆蓋**——把它從訊息
+/// 拿掉，全套仍全綠。而 F1（`type(of: value)` 永遠印 `Optional<Any>`）**就是靠
+/// 「沒人跑過這條路徑」活下來的**：三處註解宣稱「收斂成型別名」，實際收斂成的是
+/// 一個常量字串。
+final class SQLiteBindMessageTests: XCTestCase {
+    func testBindFailureNamesTheParameterIndexAndTheRealType() throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bindmsg-\(UUID().uuidString).sqlite").path
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let db = try SQLiteDB(path: path, readOnly: false)
+        try db.execute("CREATE TABLE t(a, b, c)")
+
+        XCTAssertThrowsError(try db.execute("INSERT INTO t VALUES (?,?,?)",
+                                            bind: [1, 2, Date()])) { err in
+            let msg = (err as? LocalizedError)?.errorDescription ?? "\(err)"
+            XCTAssertTrue(msg.contains("參數 #3"),
+                          "要指出是第幾個參數——那是本 change 唯一有診斷價值的內容：\(msg)")
+            XCTAssertTrue(msg.contains("Date"),
+                          "要給**真的型別名**。`type(of: value)` 對 `Any?` 一律回 "
+                          + "`Optional<Any>`，那是常量、零診斷價值（#158 verify F1）：\(msg)")
+            XCTAssertFalse(msg.contains("Optional<Any>"), "沒 unwrap 就是這個症狀：\(msg)")
         }
     }
 }

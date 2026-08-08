@@ -240,6 +240,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
     /// | `StoreIOError` | ✅ 是（`invalidInput` 對 what/why 都包） | ❌ **不要**——會雙重跳脫 |
     /// | `StoreYAMLError` | ❌ 否（自帶 exempt 註解說明策略是 sink-side） | ❌ 由輸出端 sink |
     /// | `ServiceError` | ❌ `.invalid` 直接回 `why` | ✅ 要 |
+    /// | `StoreVersionError` | ❌ 否（`path`／`line` 原樣內插） | ✅ 要 |
     ///
     /// **這不是放寬，是修正歸屬。** 先前的守衛只看得見單行 throw，於是它對
     /// `StoreYAMLError` 的要求落在「訊息短到放得下一行」這個與威脅無關的子集上——
@@ -251,7 +252,13 @@ final class DisplaySinkCoverageTests: XCTestCase {
     /// 處置），於是那 90 個站點的 payload 逐字進 LLM context。本 change 補上它。
     static func isErrorSinkLine(_ l: String) -> Bool {
         // `StoreYAMLError` / `StoreIOError` **不列入**——見上表。
-        l.contains("throw ServiceError")
+        //
+        // **`StoreVersionError` 要列入**（#162 verify 182-2）：它的
+        // `errorDescription` 把 `path` 與 `line` **原樣內插、不消毒**，真正保護它
+        // 的是 throw 站點的 `displaySafe`——政策與 `ServiceError` 同一列。第一版
+        // 把四種縮成一種時把它一起丟了，席位用合成 throw 站點證明：本 PR 版**漏掉**、
+        // 加回來**抓到**。縮小丟掉的不是現存站點，是對**新**站點的防護。
+        l.contains("throw ServiceError") || l.contains("throw StoreVersionError")
     }
 
     enum SinkKind { case display, error }
@@ -278,6 +285,11 @@ final class DisplaySinkCoverageTests: XCTestCase {
     ///
     /// **誠實邊界**：字串字面量裡的括號會混淆深度計算。誤判成續行只是多掃幾行
     /// （多出來的誤中要寫 exempt），誤判成非續行才會漏——偏誤在安全的一邊。
+    ///
+    /// **實測誤判 0/15006**（#162 verify）：把每一行的字串字面量整段抹掉後重跑
+    /// 分類器，**0 行分類改變**。134 行被判為續行，其中 16 行含插值；最長的續行
+    /// run 是 3 段 ≥ 6 行，全部落在真正的多行 `jsonString(` 內。這比抽象的警語有用
+    /// ——那句誠實邊界在原理上對，在這份 codebase 上目前無影響。
     static func continuationKinds(_ lines: [String]) -> [SinkKind?] {
         var out = [SinkKind?](repeating: nil, count: lines.count)
         var open: SinkKind? = nil

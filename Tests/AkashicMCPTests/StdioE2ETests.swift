@@ -235,14 +235,26 @@ extension StdioE2ETests {
         _ = try readResponse()
         try send(["jsonrpc": "2.0", "method": "notifications/initialized"])
 
-        // caller 給的 citekey 直接回到錯誤訊息裡（notFound 的 payload）
         let hostile = "ev\u{1B}[31m\u{202E}il"
+
+        // **這條才是本 change 的主論證**（#162 verify 182-1）：一條**實際可達**的
+        // `StoreYAMLError` 折行 throw 站點。`update_person` 的未知維度名經
+        // `YAML.swift` 的 `throw StoreYAMLError.invalidField("person.profile",
+        // "不認得的維度「\(name)」…")`（折行、payload 全裸）→ `errorDescription`
+        // 依政策不消毒 → MCP 的 per-tool catch。
+        //
+        // 先前這裡用 `akashic_get_entry` 餵敵意 citekey——那是**同義反覆**：
+        // `ServiceError.notFound` 早在 throw 站點就 `displaySafe` 了，有沒有本
+        // change 的修法都不含 raw ESC。席位實測：只還原 catch 的消毒（保留
+        // `Unknown tool` 那處）→ **1029 條全綠**，主論證零回歸測試。
         try send(["jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                  "params": ["name": "akashic_get_entry",
-                             "arguments": ["citekey": hostile]]])
+                  "params": ["name": "akashic_update_person",
+                             "arguments": ["key": "chen-h-y",
+                                           "fields": ["profile": [hostile: []]],
+                                           "dry_run": true]]])
         let resp = try readResponse()
         let text = String(describing: resp)
-        XCTAssertTrue(text.contains("Error") || text.contains("找不到"),
+        XCTAssertTrue(text.contains("不認得的維度") || text.contains("Error"),
                       "應該是錯誤回應，否則這條沒走到被測的路徑：\(text.prefix(300))")
         XCTAssertFalse(text.contains("\u{1B}"), "raw ESC 抵達 tool result（進 LLM context）")
         XCTAssertFalse(text.contains("\u{202E}"), "raw U+202E 抵達 tool result")

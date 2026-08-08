@@ -177,6 +177,18 @@ public extension Entry {
     var displayTitleOrCitekey: String { title.isEmpty ? citekey : displaySafe(title, max: 800) }
 }
 
+/// #161 verify 181-4：`Author.displayName` 是**一個 `display*` 前綴、卻不消毒**的
+/// 屬性——它對 `.literal` 原樣回傳 Zotero 作者原文，與裁決台上包起來的
+/// `ResolutionCandidate.literal` 同源。它不能就地改成消毒版（有非顯示的消費端），
+/// 所以給 View 一個明確的消毒投影，並在 `DisplayProjectionTests` 釘住那個矛盾。
+public extension Entry {
+    /// 作者清單的顯示形式。**不要在 View 裡寫 `authors.map(\.displayName)`**——
+    /// 那個 `displayName` 名字裡有 `display` 卻不消毒。
+    var displayAuthors: String {
+        authors.map { displaySafe($0.displayName, max: 300) }.joined(separator: "; ")
+    }
+}
+
 /// #161：`Library` 的 `name` 是自由字串（load 只驗 `key`）。
 public extension Library {
     var displayName: String { displaySafe(name, max: 300) }

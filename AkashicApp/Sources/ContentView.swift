@@ -121,8 +121,14 @@ struct SidebarView: View {
                     Button {
                         state.filterLibrary = library.key
                     } label: {
-                        Label("\(library.displayName)（\(memberCount(library.key))）",   // display-safe-exempt: memberCount 回傳 Int（數量不是內容），library.key 只是引數
-                              systemImage: "books.vertical.circle")
+                        // 同 181-2：`displayName` 與 `memberCount` 拆行，否則整行
+                        // exempt 會把前者也蓋掉（實測：換回 `library.name` 全綠）。
+                        Label {
+                            let n = memberCount(library.key)   // display-safe-exempt: 回傳 Int，key 只是引數
+                            Text("\(library.displayName)（\(n)）")
+                        } icon: {
+                            Image(systemName: "books.vertical.circle")
+                        }
                             .fontWeight(state.filterLibrary == library.key ? .semibold : .regular)
                     }
                     .buttonStyle(.plain)

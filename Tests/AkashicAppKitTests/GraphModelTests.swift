@@ -48,6 +48,14 @@ final class GraphModelTests: XCTestCase {
     /// keyless 也注入沙箱 home 而非 `[:]`（verify F8）：keyless 路徑今天確實不讀
     /// environment，但 `[:]` 不是安全網——`AkashicHome.directory(environment: [:])`
     /// 落到**真實** home。萬一將來哪條路徑讀了它，sentinel 要指向沙箱。
+    /// **key 已在 `sandboxStore(key:)` 顯式決定**——那就是「有沒有 key 這件事
+    /// 被查過」，所以是 `.resolved`。
+    ///
+    /// 不一律寫 `.unregistered(reason: "測試")`：那些 `sandboxStore(key: "main")`
+    /// 建出來的 store **有** key，標成「未註冊」是假理由。理由欄位存在的意義是
+    /// 可稽核，寫假的比不寫更糟——這與本 repo 一路在抓的「結論對、理由錯」同型。
+    private func resolved(_ store: LibraryStore) -> ResolvedStore { .resolved(store) }
+
     private func sandboxStore(key: String?) throws -> LibraryStore {
         let store = LibraryStore(root: root, key: key,
                                  environment: ["AKASHIC_HOME": home.path])
@@ -78,7 +86,7 @@ final class GraphModelTests: XCTestCase {
         XCTAssertTrue(store.indexURL.lastPathComponent.hasPrefix("main"),
                       "檔名要看得出屬於哪個 registry key")
 
-        try GraphModel(store: store).rebuildIndex()
+        try GraphModel(store: resolved(store)).rebuildIndex()
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.indexURL.path),
                       "帶 key 的 store：index 寫 <home>/index/<key>-<化身>.sqlite")
@@ -89,7 +97,7 @@ final class GraphModelTests: XCTestCase {
 
     func testRebuildIndexKeylessStoreFallsBackInStore() throws {
         let store = try sandboxStore(key: nil)
-        try GraphModel(store: store).rebuildIndex()
+        try GraphModel(store: resolved(store)).rebuildIndex()
         XCTAssertEqual(store.indexURL.deletingLastPathComponent().lastPathComponent, ".akashic",
                        "keyless store 回落 in-store .akashic/")
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.indexURL.path),
@@ -100,9 +108,9 @@ final class GraphModelTests: XCTestCase {
 
     func testQueryNeighborhoodContainsCitedEntryAtDepthOne() throws {
         let store = try sandboxStore(key: "main")
-        try GraphModel(store: store).rebuildIndex()
+        try GraphModel(store: resolved(store)).rebuildIndex()
 
-        let snap = try GraphModel(store: store).query(focus: "aaa2020first", depth: 1)
+        let snap = try GraphModel(store: resolved(store)).query(focus: "aaa2020first", depth: 1)
         // Neighborhood.focus 存的是 node id 形式（entry: 前綴），query 收的是裸 citekey
         XCTAssertEqual(snap.neighborhood.focus, "entry:aaa2020first")
         XCTAssertTrue(snap.neighborhood.nodes.contains { $0.id == "entry:aaa2020first" },
@@ -113,9 +121,9 @@ final class GraphModelTests: XCTestCase {
 
     func testQueryLayoutNodeSetMatchesNeighborhood() throws {
         let store = try sandboxStore(key: "main")
-        try GraphModel(store: store).rebuildIndex()
+        try GraphModel(store: resolved(store)).rebuildIndex()
 
-        let snap = try GraphModel(store: store).query(focus: "aaa2020first", depth: 1)
+        let snap = try GraphModel(store: resolved(store)).query(focus: "aaa2020first", depth: 1)
         XCTAssertEqual(Set(snap.layout.nodes.map(\.id)),
                        Set(snap.neighborhood.nodes.map(\.id)),
                        "layout 的節點集必須與鄰域一致——漏節點畫不出來、多節點是幽靈")
@@ -124,10 +132,10 @@ final class GraphModelTests: XCTestCase {
 
     func testQueryIsDeterministicForSameSeed() throws {
         let store = try sandboxStore(key: "main")
-        try GraphModel(store: store).rebuildIndex()
+        try GraphModel(store: resolved(store)).rebuildIndex()
 
-        let a = try GraphModel(store: store).query(focus: "aaa2020first", depth: 1)
-        let b = try GraphModel(store: store).query(focus: "aaa2020first", depth: 1)
+        let a = try GraphModel(store: resolved(store)).query(focus: "aaa2020first", depth: 1)
+        let b = try GraphModel(store: resolved(store)).query(focus: "aaa2020first", depth: 1)
         XCTAssertEqual(a.layout.nodes, b.layout.nodes,
                        "同 seed 的初始佈局必須決定性——rebuild 不得讓圖形隨機跳動")
     }
@@ -137,8 +145,8 @@ final class GraphModelTests: XCTestCase {
         // 邊有沒有進 layout。初始位置只依 (seed, 節點數)，**step 一次之後**引力才讓
         // 「帶邊」與「無邊」的佈局分岔。
         let store = try sandboxStore(key: "main")
-        try GraphModel(store: store).rebuildIndex()
-        let snap = try GraphModel(store: store).query(focus: "aaa2020first", depth: 1)
+        try GraphModel(store: resolved(store)).rebuildIndex()
+        let snap = try GraphModel(store: resolved(store)).query(focus: "aaa2020first", depth: 1)
         XCTAssertFalse(snap.neighborhood.edges.isEmpty, "前置：fixture 必須至少有一條邊")
 
         let ids = snap.neighborhood.nodes.map(\.id)
@@ -161,13 +169,13 @@ final class GraphModelTests: XCTestCase {
         // 或「把 focus 寫死成 fixture 的 citekey」的變異全綠。depth 0 的鄰域不含
         // cites 目標、第二個 focus 的鄰域以它自己為中心，兩個變異都被殺死。
         let store = try sandboxStore(key: "main")
-        try GraphModel(store: store).rebuildIndex()
+        try GraphModel(store: resolved(store)).rebuildIndex()
 
-        let d0 = try GraphModel(store: store).query(focus: "aaa2020first", depth: 0)
+        let d0 = try GraphModel(store: resolved(store)).query(focus: "aaa2020first", depth: 0)
         XCTAssertFalse(d0.neighborhood.nodes.contains { $0.id == "entry:bbb2021second" },
                        "depth 0 不含 cites 目標——depth 被寫死成 1 就會出現")
 
-        let other = try GraphModel(store: store).query(focus: "bbb2021second", depth: 0)
+        let other = try GraphModel(store: resolved(store)).query(focus: "bbb2021second", depth: 0)
         XCTAssertEqual(other.neighborhood.focus, "entry:bbb2021second",
                        "focus 參數真的被轉發——寫死 fixture citekey 就會回錯中心")
     }
@@ -176,13 +184,13 @@ final class GraphModelTests: XCTestCase {
         // verify F4：42 從 view 的字面量變成了預設參數——「可重複」不等於「值沒變」。
         // 初始佈局只依 (seed, 節點數)，預設值被silently改掉會讓每張圖搬家而無測試變紅。
         let store = try sandboxStore(key: "main")
-        try GraphModel(store: store).rebuildIndex()
+        try GraphModel(store: resolved(store)).rebuildIndex()
 
-        let defaulted = try GraphModel(store: store).query(focus: "aaa2020first", depth: 1)
-        let explicit = try GraphModel(store: store).query(focus: "aaa2020first", depth: 1, seed: 42)
+        let defaulted = try GraphModel(store: resolved(store)).query(focus: "aaa2020first", depth: 1)
+        let explicit = try GraphModel(store: resolved(store)).query(focus: "aaa2020first", depth: 1, seed: 42)
         XCTAssertEqual(defaulted.layout.nodes, explicit.layout.nodes,
                        "預設 seed 必須是文件化的 42")
-        let other = try GraphModel(store: store).query(focus: "aaa2020first", depth: 1, seed: 7)
+        let other = try GraphModel(store: resolved(store)).query(focus: "aaa2020first", depth: 1, seed: 7)
         XCTAssertNotEqual(other.layout.nodes, defaulted.layout.nodes,
                           "不同 seed 產生不同初始佈局——否則上面的相等斷言是空洞的")
     }
@@ -291,7 +299,7 @@ final class GraphModelTests: XCTestCase {
     /// 它殺得死的 mutation，既有的 #101 測試都殺得死。
     func testInstanceSharesStoreAcrossRebuildAndQuery() throws {
         let store = try sandboxStore(key: "main")
-        let model = GraphModel(store: store)
+        let model = GraphModel(store: resolved(store))
         try model.rebuildIndex()
         let snap = try model.query(focus: "aaa2020first", depth: 1)
         XCTAssertFalse(snap.neighborhood.nodes.isEmpty,

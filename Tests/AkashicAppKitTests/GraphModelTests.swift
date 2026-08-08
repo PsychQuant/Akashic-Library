@@ -69,14 +69,19 @@ final class GraphModelTests: XCTestCase {
         let store = try sandboxStore(key: "main")
         // **正面斷言目的地，而且在任何重建之前**（沙箱鐵律，同 AppStateRegistryKeyTests）：
         // 只斷言「沒長出 .akashic/」抓不到「environment 沒帶、index 寫進真實 home」的事故。
-        let expected = home.appendingPathComponent("index").appendingPathComponent("main.sqlite")
-        XCTAssertEqual(store.indexURL.path, expected.path,
+        // #130：檔名帶化身前綴（`main-<8 碼>.sqlite`），所以斷言**目錄與 key 前綴**，
+        // 不斷言確切檔名。仍然是正面斷言目的地——這條要抓的是「environment 沒帶、
+        // index 寫進真實 home」，那個性質不受檔名影響。
+        let indexDir = home.appendingPathComponent("index")
+        XCTAssertEqual(store.indexURL.deletingLastPathComponent().path, indexDir.path,
                        "帶 key 的 store：index 位置由注入的 AKASHIC_HOME 決定")
+        XCTAssertTrue(store.indexURL.lastPathComponent.hasPrefix("main"),
+                      "檔名要看得出屬於哪個 registry key")
 
         try GraphModel(store: store).rebuildIndex()
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: expected.path),
-                      "帶 key 的 store：index 寫 <home>/index/<key>.sqlite")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.indexURL.path),
+                      "帶 key 的 store：index 寫 <home>/index/<key>-<化身>.sqlite")
         XCTAssertFalse(FileManager.default.fileExists(
                            atPath: root.appendingPathComponent(".akashic").path),
                        "帶 key 的 store 不得長出 in-store .akashic/（#101 R2 的實證缺陷類）")
@@ -85,9 +90,10 @@ final class GraphModelTests: XCTestCase {
     func testRebuildIndexKeylessStoreFallsBackInStore() throws {
         let store = try sandboxStore(key: nil)
         try GraphModel(store: store).rebuildIndex()
-        XCTAssertTrue(FileManager.default.fileExists(
-                          atPath: root.appendingPathComponent(".akashic/index.sqlite").path),
-                      "keyless store 回落 in-store .akashic/index.sqlite")
+        XCTAssertEqual(store.indexURL.deletingLastPathComponent().lastPathComponent, ".akashic",
+                       "keyless store 回落 in-store .akashic/")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.indexURL.path),
+                      "檔案要真的建出來（#130：檔名帶化身前綴）")
     }
 
     // MARK: - 鄰域查詢 + layout

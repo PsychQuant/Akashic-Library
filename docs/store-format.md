@@ -554,6 +554,36 @@ akashic fmt --check    # 只回報偏離並以非零碼退出，不寫任何檔�
 每次寫完都得先跑 `fmt` 才過驗證，摩擦大到會讓人繞過 `validate` 本身。`--check` 的
 語意與 `swift format --lint` 一致，給 CI 與外部 pipeline 當明確關卡。
 
+## 3.4 `incarnation`：store 的化身 id（normative，#130）
+
+store 根目錄可有一個名為 `incarnation` 的單行檔案，內容是一個 UUID。它回答
+**「這是不是同一個 store」**，不回答「內容新不新」——兩者混在一起會讓兩邊都說不清。
+
+- **生成**：`ensureLayout()` 於檔案缺席時補寫（`writeIfAbsent` 模式）。**既有的
+  一律不覆寫**——覆寫等於把一個 store 變成另一個化身，而那正是這個機制要偵測的事件。
+- **複製即同一化身**：id 隨檔案原樣搬移（cp／rsync／Dropbox／git）。它就是同一份
+  位元組，不需要特別設計。
+- **缺席**：讀到缺席回 `nil`，**MUST NOT** throw。既有 store 都沒有這個檔案，讓它
+  throw 等於把一個選配的加強變成載入的前置條件。
+
+**為什麼不放進 `store.yaml`**：`StoreVersion.read` 對任何非 `format:` 的有內容行
+**throw**。加一行進去，所有既有 binary 會拒絕開啟整個 store——不是忽略未知欄位，是
+連讀都不讀。**`store.yaml` 不在 tolerant-preserve 的涵蓋範圍內**（那是記錄層政策）。
+放根目錄而非 `.akashic/`：後者被 `.gitignore` 排除（衍生物的位置），而化身是 store 的
+**身分**，該進版控、該隨 clone 走。
+
+**index 檔名綁化身**：`<key>-<化身前 8 碼>.sqlite`（keyless 回落 `index-<8 碼>.sqlite`）。
+這把 TOCTOU 從「偵測」變成**不可表達**——驗證與開啟之間有多少檔案存取都無所謂，換掉的
+store 的 index 根本不叫這個名字。同路徑重生時新舊 index 是**不同檔案**，「舊 index 被
+誤信」的狀態不存在。`index_identity.store_id` 仍寫入，作為**縱深防禦**（擋人工改名）；
+它與化身檔皆缺席時退回純路徑比對——那是今日行為，不是退步。
+
+代價：重生後舊 index 成為孤兒。`doctor` **MUST** 報告它們，**MUST NOT** 自動刪
+（報告不動手；它們可能是另一台機器同步過來的）。
+
+**誠實邊界**：舊 binary 讀不到 `incarnation`，因此在同路徑重生情境下仍會誤信舊 index。
+這是刻意的取捨——替代方案是讓它們全部拒絕開啟，代價更大。
+
 ## 3.5 `references`：欄位層級的 provenance（normative，#66）
 
 person 與 organization 記錄可攜帶頂層 `references:` 清單——一筆 provenance 同時記

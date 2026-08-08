@@ -139,7 +139,14 @@ public enum StoreVersion {
     public static func write(root: URL, format: Int) throws {
         let body = """
             # Akashic store format（#24）。只有 **non-additive** 變更才 bump——
-            # 新增欄位由 tolerant-preserve 涵蓋（#23），不 bump。
+            # 那條規則講的是**記錄層**（entities/ 底下的 YAML）：那裡未知欄位由
+            # tolerant-preserve 涵蓋（#23），加欄位不 bump。
+            #
+            # **本檔案本身不在那個涵蓋範圍內。** 這裡的 parser 對任何非 `format:`
+            # 的有內容行直接 throw——加一行進來，所有既有 binary 會拒絕開啟整個
+            # store，不是忽略它。要加 store 級的欄位請另開檔案（#130 的
+            # `incarnation` 就是這樣做的：根目錄獨立檔，舊 binary 完全容忍）。
+            #
             # 舊 binary 讀到比自己新的 format 會整體拒絕開啟，而不是按舊語意誤讀。
             format: \(format)
 

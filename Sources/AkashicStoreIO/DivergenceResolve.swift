@@ -941,8 +941,7 @@ extension LibraryStore {
     /// 兩者一直不一致而沒人發現）：`key` / `id`（身分，不隨合併移動）、
     /// `names`（別名，由合併搬移）、以及下列各項。
     ///
-    /// **插入位置紀律**（#157 verify 157-4，**同型第五次**——#59、#136 F1、#157
-    /// 本身、#160 160-4，以及**寫下這條紀律的那個 commit 自己在 test 檔又犯一次**）：
+    /// **插入位置紀律**（#157 verify 157-4（正典計數與三次機械化失敗的量測在 `docs/design-principles-and-philosophy.md` §16——**不要在原始碼裡各自重新計數**，那正是它一直過期的原因））：
     /// 新成員 **不得**插進既有 API 的 doc comment／attribute 與其宣告之間。那會讓兩份文件
     /// 對調——這段論證曾經整段掛到 Entry 版頭上，而它對 Entry 每一句都是假的
     /// （不是 Person、沒有那 8 個屬性、也不受 DivergenceHardeningTests.testPersonFieldCoverageOfMergeCheck 保護）。
@@ -1266,19 +1265,6 @@ extension LibraryStore {
 
     // MARK: - 小工具
 
-    /// store 是否位於版本控制的工作樹內。
-    ///
-    /// 從 store root 逐層往上找 `.git`——**目錄或檔案都算**（worktree 與 submodule 的
-    /// `.git` 是一個指向真正 git 目錄的檔案）。不呼叫 `git` 執行檔：這裡要回答的是
-    /// spec 寫的「store 是否落在版控工作樹內」，那是檔案系統事實，不需要外部程序。
-    ///
-    /// **誠實邊界**：工作樹內不等於已被追蹤——被 ignore 的路徑一樣通過。這條檢查擋
-    /// 的是「store 根本不在任何 repo 裡」這個真正不可逆的情況。
-    ///
-    /// **走字串而非 `URL.deletingLastPathComponent()`**：後者在根目錄不會停——它回傳
-    /// `/..`，再一次得 `/../..`，路徑無限成長。第一版就是這樣寫的，測試跑成 88% CPU
-    /// 加 29 GB RSS 的失控迴圈。`NSString` 的同名操作在 `/` 會回傳 `/`，加上明寫的
-    /// 根目錄出口，兩道保險。
     /// 本次消歧會刪掉哪些檔案（store 相對路徑）。
     ///
     /// **只含能在此刻確定的那些**：被併實體與本次的歧異記錄。因候選塌縮而一併被刪的
@@ -1356,6 +1342,24 @@ extension LibraryStore {
         return (p.terminationStatus, String(data: data, encoding: .utf8) ?? "")
     }
 
+    /// store 是否位於版本控制的工作樹內。
+    ///
+    /// **本函式的 doc 曾經孤兒化**（#170，插入位置紀律的**第六例**，且是 pre-existing）：
+    /// 下面這整段——含「88% CPU 加 29 GB RSS」那個效能論證——曾經無空行地接在
+    /// `doomedRelativePaths` 頭上，而本宣告零註解。讀那段的人會以為它在講另一個函式。
+    ///
+    ///
+    /// 從 store root 逐層往上找 `.git`——**目錄或檔案都算**（worktree 與 submodule 的
+    /// `.git` 是一個指向真正 git 目錄的檔案）。不呼叫 `git` 執行檔：這裡要回答的是
+    /// spec 寫的「store 是否落在版控工作樹內」，那是檔案系統事實，不需要外部程序。
+    ///
+    /// **誠實邊界**：工作樹內不等於已被追蹤——被 ignore 的路徑一樣通過。這條檢查擋
+    /// 的是「store 根本不在任何 repo 裡」這個真正不可逆的情況。
+    ///
+    /// **走字串而非 `URL.deletingLastPathComponent()`**：後者在根目錄不會停——它回傳
+    /// `/..`，再一次得 `/../..`，路徑無限成長。第一版就是這樣寫的，測試跑成 88% CPU
+    /// 加 29 GB RSS 的失控迴圈。`NSString` 的同名操作在 `/` 會回傳 `/`，加上明寫的
+    /// 根目錄出口，兩道保險。
     static func isInsideVersionedWorkTree(_ root: URL) -> Bool {
         var path = root.resolvingSymlinksInPath().standardizedFileURL.path
         while true {

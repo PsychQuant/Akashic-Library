@@ -1150,6 +1150,78 @@ public extension LibraryLoad {
                 message: "library key「\(displaySafe(k, max: 200))」重複"))
         }
 
+        // **organization 階層的環**（#179）。先前**沒有任何地方**偵測它：載入不查、
+        // 這裡不查、`validate`／`doctor` 不查、型別層當然也擋不住。環造出來會
+        // **安靜存在**，直到某個沿 parents 走的消費端無限迴圈或堆疊溢位。
+        //
+        // **warning 而非 error**，與 `ISO8601Prefix` 的既有裁決一致：fail-closed 的
+        // 內容驗證會讓一筆壞資料使整個 store 載入不了，而環是**可回溯的**（檔案都在
+        // 版控裡）。`assertNoCrossRecordErrors` 鎖住寫入面對這件事太重。
+        //
+        // #166 已在**歸戶端**（`resolve-organizations`）擋下會閉環的候選——那是製造
+        // 環最容易的路徑，防護放在製造點成本最低。但那不涵蓋手寫 YAML、批次改寫、
+        // 或**從別台機器同步進來的檔案**（#23 的前提：store 內容未信任）。最後一條
+        // 特別重要：環可能不是這台機器造出來的，所以「所有寫入點都擋」永遠不完整。
+        //
+        // 只報**每個環一次**（取環上字典序最小的 key 當代表），否則 n 個節點的環
+        // 會產生 n 則說同一件事的警告。
+        var parentEdges: [String: [String]] = [:]
+        for org in organizations {
+            parentEdges[org.key] = org.parents.entries.compactMap {
+                if case let .key(p) = $0.value { return p } else { return nil }
+            }
+        }
+        var cycleReported = Set<String>()
+
+        /// 從 `start` 沿 parents 找一條回到 `start` 的路徑（含自環）；找不到回 nil。
+        ///
+        /// **持久的 `visited` 集合，不是「當前路徑」集合。** 第一版用
+        /// `path.contains(node)`——那只擋**當前路徑**上的重訪，於是有分支的圖會走遍
+        /// 所有**路徑**而不是所有**節點**：實測 n=40 → 0.007s、n=80 → 2.3s、
+        /// **n=120 → 543s**，指數爆炸。
+        ///
+        /// 那是我把兩份狀態「收成一份」時**留錯了那一份**：先前同時有 `path` 陣列與
+        /// `onPath` 集合，mutation 顯示拿掉 `onPath.remove(node)` 全綠——我讀成「兩份
+        /// 冗餘」，但那個 survived mutation 其實揭露的是**正確且高效的版本**（不移除
+        /// ＝持久 visited）。對「start 能否走回 start」這個查詢，任何能到 start 的
+        /// 節點在它**唯一一次**被探索時就會發現，所以 visited 可以跨分支持久。
+        ///
+        /// 複雜度 O(V+E) per start。路徑用 BFS 的 predecessor 回溯，所以報出來的環
+        /// 不含通往它的前綴（`a→b`、`b→c`、`c→b` 報 `b → c → b`，`a` 不在內）。
+        func findCycle(from start: String) -> [String]? {
+            if (parentEdges[start] ?? []).contains(start) { return [start] }
+            var visited: Set<String> = [start]
+            var pred: [String: String] = [:]
+            var queue: [String] = []
+            for c in parentEdges[start] ?? [] where visited.insert(c).inserted {
+                pred[c] = start
+                queue.append(c)
+            }
+            var head = 0
+            while head < queue.count {
+                let node = queue[head]; head += 1
+                for next in parentEdges[node] ?? [] {
+                    if next == start {
+                        var chain = [node], cur = node
+                        while let p = pred[cur], p != start { chain.append(p); cur = p }
+                        return [start] + chain.reversed()
+                    }
+                    if visited.insert(next).inserted { pred[next] = node; queue.append(next) }
+                }
+            }
+            return nil
+        }
+
+        for start in organizations.map(\.key).sorted() where !cycleReported.contains(start) {
+            guard let cycle = findCycle(from: start) else { continue }
+            cycleReported.formUnion(cycle)
+            out.append(ValidationIssue(
+                severity: .warning,
+                message: "organization 階層有環：\(cycle.map { displaySafe($0, max: 200) }.joined(separator: " → "))"
+                       + " → \(displaySafe(start, max: 200))"
+                       + "——沿 parents 走的消費端會無限迴圈。改掉其中一條 parents 邊"))
+        }
+
         // 重複 DOI（#79）。**warning 而非 error**：重複本身不毀資料，而且「同一篇在
         // 個人庫與群組庫各一份」是真實且合理的狀態（Zotero 匯入器的身分是
         // `(library_id, zotero_key)`，兩筆依設計就是兩個 item）。用 error 會讓

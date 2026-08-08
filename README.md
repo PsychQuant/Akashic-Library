@@ -74,6 +74,41 @@ index 自帶**身分戳記**（#122）：記錄它是為哪個 store root 建的
 未註冊的 store（`--library <path>` 直指）則回落 in-store `.akashic/index.sqlite`，因為那種 store
 不在 registry 治理範圍內。
 
+### View：判準是設定，外延是衍生（#54／#65）
+
+「中研院的人」這種切片有名字了。**判準**（誰算在內）寫進 `~/.akashic/config.yaml`，
+**外延**（實際是哪些人與著作）現算、不保存：
+
+```yaml
+views:
+  iss:
+    description: 中研院統計所的人與其著作
+    person-affiliation: institute-of-statistical-science
+    work-has-author-in-view: true
+```
+
+```bash
+akashic view list              # 有哪些 view、判準是什麼
+akashic view show iss          # 外延（實測本 store：159 人 / 424 篇）
+akashic view show iss --keys-only   # 一行一個 key，給下游腳本吃
+```
+
+**view 不是 entity**（#54 的裁決）：不動 `EntityKind`、不新增形狀裸標籤、
+`entities/` 不會出現 `view:`。判準住 `config.yaml` 是因為**它是設定，不是知識**。
+
+沒有 `view create`——設定該用編輯器改，不是用 CLI 造。給一個寫入指令會讓那個區分
+在使用層被磨掉（與 `library create` 刻意不同：後者是 registry metadata、屬 store）。
+
+**缺這一半的代價**（#65 記錄的實例）：判準被推到 store 之外，由每個下游各自重新
+發明。storyline#5 的 `4AK_build_duckdb.R` 裡那段 filter 就是這裡該有的東西——只是
+它住在另一個 repo、另一種語言、另一個人維護的檔案裡。後果是判準不可稽核、會分岔、
+無法演化，而成員清單被迫用一份 `.txt` 代替（**外延被當成判準用**，方向反轉）。
+
+**兩個刻意的取捨**：`person-affiliation` 只收 organization **key** 不收 literal
+（未歸戶的 literal 拿來當判準會讓成員資格隨拼寫漂移——要納入就先 `resolve-organizations`）；
+成員資格**不比對時間範圍**（「現在還在不在」是另一個問題，`endedUnknown` 的語意未定，
+見 #63）——view 回答的是「屬於過」。
+
 ### 環境變數
 
 | 變數 | 作用 |

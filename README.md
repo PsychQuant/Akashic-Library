@@ -28,6 +28,9 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
 mcps/                            MCP server submodules（che-zotero-mcp、che-biblatex-mcp）
 repos/                           共用 library submodules（biblatex-apa-swift = canonical）
 docs/                            spec 與 store 格式規格書
+docs/design-principles-and-philosophy.md
+                                 建模的規範性原則（Part I）與哲學基礎（Part II）；
+                                 §16 另存原始碼慣例的正典計數（見下）
 docs/explainers/                 「為什麼」的說明（規格說 what，explainer 說 why）
 attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox）
 ```
@@ -297,6 +300,18 @@ store 內容是**未信任的**——來自 Zotero 匯入（出版商與網頁�
 swift build
 swift test
 ```
+
+### 改 code 之前值得知道的一條
+
+**新成員不得插進既有 API 的 doc comment／attribute 與其宣告之間。** 那會讓兩份文件
+對調——被孤兒化的 doc 掛到新成員頭上（對它每一句都是假的），原本的宣告零註解。
+實際發生過**六次**，其中一次是在寫下這條紀律的同一個 commit 裡。
+
+[docs/design-principles-and-philosophy.md §16](docs/design-principles-and-philosophy.md)
+是它的**正典計數**——完整六例清單、以及三次機械化嘗試的誤中量測（19 / 78 / 26，
+掃 5128 個宣告，全部太吵所以沒 ship）。原始碼裡的四處引用都指向那裡；**不要在
+原始碼裡各自重新計數**，那正是它一直過期的原因（每個數字在寫下的當時都對，之後
+再也沒人同步）。review 時的具體動作：**看新成員的上一行是不是別人的 doc。**
 
 **`swift test` 必須跑完整套，不得用 `--skip` 繞過。** 部分輸出很容易被誤讀成成功——測試
 程序若中途 fatal error 中止，畫面會停在「Executed N tests, 0 failures」，但 N 遠小於總數

@@ -214,6 +214,29 @@ final class DivergenceIDDriftTests: XCTestCase {
                       "org 歧異必須原封不動")
     }
 
+    /// **候選順序不得影響零損失判定**（#168 verify HIGH）。
+    ///
+    /// `Divergence.==` 自己的 doc 第一行寫「相等性**不看** `candidates` 的儲存
+    /// 順序」，而 `sameContent` 先前用 Array `==`（逐位置）——比型別自己宣告的
+    /// 相等性還嚴格。順序真的會不同：寫檔時排序，遷移是「既有位置上做鍵替換」。
+    ///
+    /// 席位掃過三個鍵的 6 種相對順序，**2/6 被誤拒**，而訊息說「內容不同」——
+    /// 那句在該路徑上確定為假（內容完全相同）。**先前沒有任何測試釘住順序不敏感，
+    /// 所以兩種寫法都能全綠。**
+    func testCandidateOrderDoesNotAffectZeroLossMerge() throws {
+        // 鍵序 S < X < M：席位實測會誤拒的兩種之一
+        for k in ["aaa-s", "mmm-x", "zzz-m"] { try person(k) }
+        _ = try record(["mmm-x", "zzz-m"], question: "同一個？")   // 遷移後 → {mmm-x, aaa-s}
+        _ = try record(["aaa-s", "mmm-x"], question: "同一個？")   // 磁碟上已排序
+        let main = try record(["aaa-s", "zzz-m"], question: "同一個？")
+        GitFixture.commitAll(root, message: "seed-order")
+
+        let report = try store.resolveDivergence(id: main.id, survivor: "aaa-s")
+        XCTAssertEqual(report.failures, [],
+                       "零損失卻被拒——`sameContent` 比 `Divergence.==` 還嚴格：\(report.failures)")
+        XCTAssertEqual(try store.load().divergences.count, 1, "兩筆該合成一筆")
+    }
+
     /// **`sameContent` 的每個合取項各自 load-bearing。**
     ///
     /// 席位實測：三項**單獨**拿掉任一項，九條全綠——因為既有兩條碰撞測試的兩筆

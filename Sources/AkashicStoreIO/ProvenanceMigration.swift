@@ -177,8 +177,14 @@ public enum ProvenanceMigration {
                 catch {
                     report.failures.append(Skip(
                         record: person.key, field: "(寫入)",
-                        reason: (error as? LocalizedError)?.errorDescription
-                                ?? String(describing: error)))
+                        // **`localizedDescription`，不是 `String(describing:)`**
+                        // （#146 verify G3）：Foundation 的 `NSError` **不**符合
+                        // `LocalizedError`，所以那個 `??` 一律走 fallback，印出
+                        // `Error Domain=NSCocoaErrorDomain Code=513 …UserInfo={…
+                        // NSFileNewItemLocationKey=….tmp-008F87F6…}` 的原始 dump，
+                        // 還在 512 字被截斷、把 atomicWrite 的暫存檔名漏出去。
+                        // 修 F4 **之前** ArgumentParser 印的是乾淨的一句話。
+                        reason: error.localizedDescription))
                     continue
                 }
             }
@@ -199,8 +205,14 @@ public enum ProvenanceMigration {
                 catch {
                     report.failures.append(Skip(
                         record: org.key, field: "(寫入)",
-                        reason: (error as? LocalizedError)?.errorDescription
-                                ?? String(describing: error)))
+                        // **`localizedDescription`，不是 `String(describing:)`**
+                        // （#146 verify G3）：Foundation 的 `NSError` **不**符合
+                        // `LocalizedError`，所以那個 `??` 一律走 fallback，印出
+                        // `Error Domain=NSCocoaErrorDomain Code=513 …UserInfo={…
+                        // NSFileNewItemLocationKey=….tmp-008F87F6…}` 的原始 dump，
+                        // 還在 512 字被截斷、把 atomicWrite 的暫存檔名漏出去。
+                        // 修 F4 **之前** ArgumentParser 印的是乾淨的一句話。
+                        reason: error.localizedDescription))
                     continue
                 }
             }

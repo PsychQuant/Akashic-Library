@@ -17,7 +17,7 @@ struct PeopleResolveView: View {
                     List(model.candidates, id: \.citekey) { candidate in
                         HStack {
                             VStack(alignment: .leading) {
-                                Text("「\(candidate.literal)」 → \(candidate.personKey)")
+                                Text("「\(candidate.displayLiteral)」 → \(candidate.personKey)")   // display-safe-exempt: personKey 是 person.key，load 端 quarantine 驗過 StoreKey
                                 Text("\(candidate.displayCitekey)［作者 #\(candidate.authorIndex)］·\(candidate.displayReason)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -64,8 +64,8 @@ struct OrphanView: View {
                     List(model.orphans, id: \.citekey) { entry in
                         HStack {
                             VStack(alignment: .leading) {
-                                Text(entry.title.isEmpty ? entry.citekey : entry.title).lineLimit(1)
-                                Text("\(entry.citekey) — Zotero 端已刪除")
+                                Text(entry.displayTitleOrCitekey).lineLimit(1)
+                                Text("\(entry.citekey) — Zotero 端已刪除")   // display-safe-exempt: citekey 過 load 端 quarantine（StoreKey）
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

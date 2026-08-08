@@ -100,7 +100,7 @@ struct SidebarView: View {
                         Button {
                             onSwitchFile(file.key)
                         } label: {
-                            Label(file.key, systemImage:
+                            Label(file.key, systemImage:   // display-safe-exempt: registry key，AkashicConfig decode 驗 StoreKey
                                     state.root.path == (file.path as NSString).expandingTildeInPath
                                     ? "externaldrive.fill" : "externaldrive")
                         }
@@ -121,7 +121,7 @@ struct SidebarView: View {
                     Button {
                         state.filterLibrary = library.key
                     } label: {
-                        Label("\(library.name)（\(memberCount(library.key))）",
+                        Label("\(library.displayName)（\(memberCount(library.key))）",   // display-safe-exempt: memberCount 回傳 Int（數量不是內容），library.key 只是引數
                               systemImage: "books.vertical.circle")
                             .fontWeight(state.filterLibrary == library.key ? .semibold : .regular)
                     }

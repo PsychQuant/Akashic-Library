@@ -280,6 +280,12 @@ store 內容是**未信任的**——來自 Zotero 匯入（出版商與網頁�
 手寫白名單：手寫清單有三個靜默失效路徑（打錯字、刪掉一項、新模組沒人加），實測全部
 成立。要排除必須寫進 `optOut` 並給理由。
 
+> **掃描面含 `AkashicApp/Sources`**（#161）。它不在 `Sources/` 底下（XcodeGen 專案，
+> `Package.swift` 對它零引用、`swift build` 從不編譯），所以枚舉掃不到，是**明列**進去
+> 的；而它正是**真正的 SwiftUI 顯示層**——`Sources/AkashicAppKit` 只差三個字，是 error
+> 型別所在的 library。#158 曾把目錄加進掃描而三條全綠：`isSink` 認不得 `Text(` /
+> `Label(` / `.navigationTitle(`。**加目錄不等於加保護，判準要一起改。**
+>
 > **守衛全綠 ≠ 這一面安全。** recall 實測 **31%**（210 個含 `displaySafe(` 的行只認得
 > 67）。已知盲區：**續行**（sink 標記在 N 行、payload 在 N+1 行，56 處，#162）、
 > **裸變數名**（token 是 `.title` 這種帶點形式，`if let journal = s.journal` 之後的

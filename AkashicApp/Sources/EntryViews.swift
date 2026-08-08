@@ -10,10 +10,10 @@ struct EntryListView: View {
         @Bindable var state = state
         List(state.filteredEntries, id: \.citekey, selection: $selectedCitekey) { entry in
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.title.isEmpty ? entry.citekey : entry.title)
+                Text(entry.displayTitleOrCitekey)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    Text(entry.citekey)
+                    Text(entry.citekey)   // display-safe-exempt: citekey 過 load 端 quarantine（StoreKey）
                         .font(.caption.monospaced())
                     if let date = entry.date {
                         Text(date)
@@ -55,7 +55,7 @@ struct EntryDetailView: View {
                 Section("書目（唯讀——過渡期歸 Zotero pull 管）") {
                     LabeledContent("Citekey") {
                         HStack {
-                            Text(entry.citekey).font(.body.monospaced())
+                            Text(entry.citekey).font(.body.monospaced())   // display-safe-exempt: 同上
                             Button("改名…") {
                                 renameTarget = entry.citekey
                                 showRename = true
@@ -63,8 +63,9 @@ struct EntryDetailView: View {
                         }
                     }
                     LabeledContent("Type", value: entry.type)
-                    LabeledContent("Title", value: entry.title)
-                    LabeledContent("Authors", value: entry.authors.map(\.displayName).joined(separator: "; "))
+                    LabeledContent("Title", value: entry.displayTitle)
+                    // `Author.displayName` 不消毒（#161 verify 181-4）——走投影
+                    LabeledContent("Authors", value: entry.displayAuthors)
                     if let date = entry.date { LabeledContent("Date", value: date) }
                     ForEach(entry.fields.keys.sorted(), id: \.self) { key in
                         LabeledContent(key, value: entry.fields[key] ?? "")
@@ -90,7 +91,7 @@ struct EntryDetailView: View {
                 }
             }
             .formStyle(.grouped)
-            .navigationTitle(entry.citekey)
+            .navigationTitle(entry.citekey)   // display-safe-exempt: 同上
             .alert("改名 citekey", isPresented: $showRename) {
                 TextField("新 citekey", text: $renameTarget)
                     .font(.body.monospaced())
@@ -107,7 +108,7 @@ struct EntryDetailView: View {
                 Text(errorMessage ?? "")
             }
         } else {
-            ContentUnavailableView("找不到 \(citekey)", systemImage: "questionmark.circle")
+            ContentUnavailableView("找不到 \(citekey)", systemImage: "questionmark.circle")   // display-safe-exempt: citekey 過 load 端 quarantine（LibraryStore.swift 的 StoreKey.isValid 檢查）
         }
     }
 
@@ -136,7 +137,7 @@ struct EntryDetailView: View {
                 } else {
                     Menu("加入…") {
                         ForEach(available, id: \.key) { lib in
-                            Button(lib.name.isEmpty ? lib.key : "\(lib.name)（\(lib.key)）") {
+                            Button(lib.name.isEmpty ? lib.key : "\(lib.displayName)（\(lib.key)）") {   // display-safe-exempt: lib.key 過 load 端 quarantine（key 不符 StoreKey 即整筆隔離）
                                 attempt {
                                     try state.addToLibrary(citekey: entry.citekey,
                                                            libraryKey: lib.key)

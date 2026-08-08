@@ -203,6 +203,38 @@ final class DisplaySinkCoverageTests: XCTestCase {
     ///   `SQLiteError` case、6 條 caseReturn。正確理由是 #155 issue 自己寫的那句。
     ///   差別不是措辭：「無輸出面」＝以後沒人需要回來看；「有輸出面但目前不含
     ///   caller payload」＝以後有人往裡面塞 `citekey` 時理由當場失效、會被發現。
+    /// SwiftUI 的輸出面（#161）。
+    ///
+    /// **這是封閉列舉，不得依性質相似類推。** 判準是「這個 API 會把字串**畫到
+    /// 螢幕上**」，而不是「它是 SwiftUI 的 API」——`.onChange(`、`.task(`、
+    /// `.id(` 收字串但不顯示，加進來只會製造誤中。
+    ///
+    /// 為什麼守衛先前對 App 層**結構上全盲**：`isSink` 只認 `print(` /
+    /// `jsonString(` / `d["` / `": ` / `return "` / `FileHandle.standard`，
+    /// 上面一個都不在。#158 verify 實測：把 `AkashicApp/Sources` 加進掃描目錄
+    /// → 三條全綠。**加目錄不等於加保護**，判準要一起改。
+    ///
+    /// 對照組同時證明目錄讀得到：同目錄插一條 `return "probe \(citekey)"`
+    /// 立刻被報出來——所以綠不是 `try?` 吞掉，是判準看不見那些形狀。
+    /// 一行是不是**顯示 sink**。
+    ///
+    /// **抽成函式而不是留在掃描迴圈裡**（#161）：留在迴圈裡就只能靠「掃真實
+    /// 原始碼有沒有報東西」間接驗，而修好之後那個訊號恆為零——mutation 實測
+    /// 拿掉 SwiftUI 那條 disjunct，六條全綠。**綠證明不了偵測有在看。**
+    /// 抽出來之後可以直接餵合成的行進去，那才咬得住。
+    static func isDisplaySink(_ l: String) -> Bool {
+        l.contains("print(") || l.contains("jsonString(")
+            || l.contains("d[\"") || l.contains("result[\"") || l.contains("\": ")
+            || l.contains("return \"") || l.contains("FileHandle.standard")
+            || swiftUISinks.contains(where: { l.contains($0) })
+    }
+
+    static let swiftUISinks = [
+        "Text(", "Label(", "LabeledContent(", "Button(",
+        "ContentUnavailableView(", ".navigationTitle(", ".alert(",
+        ".help(", ".confirmationDialog(",
+    ]
+
     static let optOut: [String: String] = [
         "AkashicTestGuard": "test-only target（Package.swift 只被 .testTarget 依賴），不進 release binary",
         "AkashicTestGuardLoader": "同上：test-only target，不進 release binary",
@@ -239,7 +271,14 @@ final class DisplaySinkCoverageTests: XCTestCase {
             at: sources, includingPropertiesForKeys: [.isDirectoryKey]))?
             .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
             .map(\.lastPathComponent).sorted() ?? []
-        return all.filter { optOut[$0] == nil }.map { "Sources/\($0)" }
+        // **`AkashicApp/Sources` 明列在此**（#161）：它不在 `Sources/` 底下
+        // （XcodeGen 專案，`Package.swift` 對它零引用、`swift build` 從不編譯），
+        // 所以枚舉 `Sources/` 永遠掃不到它。而它正是**真正的 SwiftUI 顯示層**——
+        // `Sources/AkashicAppKit` 只差三個字，是 error 型別所在的 library。
+        //
+        // 明列的代價是它回到「手寫清單」的失效模式（目錄改名 → 靜默不掃）。
+        // 由 `testAppSourcesAreActuallyScanned` 釘住：那個目錄必須存在且有 .swift。
+        return all.filter { optOut[$0] == nil }.map { "Sources/\($0)" } + ["AkashicApp/Sources"]
     }
 
     private var repoRoot: URL {
@@ -292,6 +331,37 @@ final class DisplaySinkCoverageTests: XCTestCase {
     /// `displaySafe` 後 U+202E 逐字回流 LLM）。值的邊界用括號深度感知的逗號
     /// 切分——`displaySafe($0.file, max: 300)` 內部的逗號不是邊界。
     ///
+    /// `AkashicApp/Sources` 是**明列**進掃描面的（它不在 `Sources/` 底下），
+    /// 所以它回到手寫清單的失效模式：目錄改名或搬走 → `try?` 貢獻 0 檔、靜默不掃。
+    ///
+    /// 這條把那個洞釘住——**兩件事都要驗**：目錄有 .swift 檔（不然掃了等於沒掃），
+    /// 以及**判準真的看得見那裡的形狀**（#161 的教訓：#158 曾把目錄加進去而三條
+    /// 全綠，因為 `isSink` 認不得 `Text(` / `Label(`。**加目錄不等於加保護**）。
+    func testAppSourcesAreActuallyScannedAndSwiftUIShapesAreVisible() throws {
+        let appDir = repoRoot.appendingPathComponent("AkashicApp/Sources")
+        let files = (try? FileManager.default.contentsOfDirectory(at: appDir,
+                                                                  includingPropertiesForKeys: nil))?
+            .filter { $0.pathExtension == "swift" } ?? []
+        XCTAssertFalse(files.isEmpty,
+                       "AkashicApp/Sources 沒有 .swift——目錄改名了？掃描面靜默失效")
+        XCTAssertTrue(Self.scannedDirs(repoRoot: repoRoot).contains("AkashicApp/Sources"),
+                      "App 顯示層必須在掃描面內")
+
+        // **判準要直接餵行進去驗**，不能靠「掃真實原始碼有沒有報東西」——修好
+        // 之後那個訊號恆為零（mutation 實測：拿掉 SwiftUI 判準六條全綠）。
+        for sink in Self.swiftUISinks {
+            XCTAssertTrue(Self.isDisplaySink("            \(sink)entry.title)"),
+                          "SwiftUI sink「\(sink)」認不得——那條路徑上的裸綁會全部漏掉")
+        }
+        // 反面：收字串但**不顯示**的 API 不得誤中（那會製造一批需要 exempt 的
+        // 誤中，而反射性加 exempt 比沒有守衛更糟）
+        for notSink in [".onChange(of: entry.title)", ".task { load(entry.citekey) }",
+                        ".id(entry.citekey)", "let t = entry.title"] {
+            XCTAssertFalse(Self.isDisplaySink(notSink),
+                           "「\(notSink)」不畫到螢幕上，不該被當 sink")
+        }
+    }
+
     /// **subscript 指派也是 dict 值**（#156 verify 156-16）：`isSink` 一直認得
     /// `d["` 與 `result["`——那正是 `d["key"] = value` 的形狀——但抽取器只認**字面量**
     /// `"key": value`，對 subscript 指派抽出**空陣列**。於是那兩條 disjunct 是
@@ -421,9 +491,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 if l.trimmingCharacters(in: .whitespaces).hasPrefix("//") { continue }
                 if l.contains("display-safe-exempt:") { continue }
                 // 只看真正的輸出面：print(…) 與 JSON dict 的字串值
-                let isSink = l.contains("print(") || l.contains("jsonString(")
-                    || l.contains("d[\"") || l.contains("result[\"") || l.contains("\": ")
-                    || l.contains("return \"") || l.contains("FileHandle.standard")
+                let isSink = Self.isDisplaySink(l)
                 // #78-7：error 構造點是**無條件** sink——payload 最終進 errorDescription
                 // →使用者可見輸出，插值的任何內容（YAML 未知 key、原始值）都可疑，
                 // 不看 token 清單（局部變數名抓不到）。安全的插值加 exempt 注記

@@ -17,7 +17,15 @@ struct PeopleResolveView: View {
                     List(model.candidates, id: \.citekey) { candidate in
                         HStack {
                             VStack(alignment: .leading) {
-                                Text("「\(candidate.literal)」 → \(candidate.personKey)")
+                                // **exempt 是整行生效**（#161 verify 181-2）：先前
+                                // 這一行同時有 `displayLiteral`（靠投影保護的自由
+                                // 字串）與 `personKey`（安全），而 exempt 理由只講
+                                // personKey 卻把兩者一起蓋掉——**保留 exempt、把
+                                // `displayLiteral` 換回 `literal`，守衛全綠**。
+                                // 那是本 change 造成的覆蓋倒退：修之前這行看得見。
+                                // 拆成兩行，各自只承載一種。
+                                Text("「\(candidate.displayLiteral)」 →")
+                                    + Text(" \(candidate.personKey)")   // display-safe-exempt: person.key，load 端 quarantine 驗過 StoreKey
                                 Text("\(candidate.displayCitekey)［作者 #\(candidate.authorIndex)］·\(candidate.displayReason)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -64,8 +72,8 @@ struct OrphanView: View {
                     List(model.orphans, id: \.citekey) { entry in
                         HStack {
                             VStack(alignment: .leading) {
-                                Text(entry.title.isEmpty ? entry.citekey : entry.title).lineLimit(1)
-                                Text("\(entry.citekey) — Zotero 端已刪除")
+                                Text(entry.displayTitleOrCitekey).lineLimit(1)
+                                Text("\(entry.citekey) — Zotero 端已刪除")   // display-safe-exempt: citekey 過 load 端 quarantine（StoreKey）
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

@@ -154,4 +154,43 @@ public extension QuarantinedFile {
 public extension ResolutionCandidate {
     var displayCitekey: String { displaySafe(citekey, max: 200) }
     var displayReason: String { displaySafe(reason, max: 300) }
+    /// #161：**`literal` 缺投影是 #28 那條規矩最尷尬的漏洞**——規矩寫在上面
+    /// （「View 一律用 `display*`」），而 `AdjudicationViews.swift:20` 直接綁
+    /// `literal` 的那一行，**下一行**就在用 `displayCitekey` / `displayReason`。
+    /// 規矩存在、對象不存在。
+    ///
+    /// `literal` 是 Zotero 匯入的作者原文——整個 store 裡最第三方的欄位之一，
+    /// 而且它出現的畫面正是**破壞性動作的確認畫面**（合併／丟垃圾桶）。
+    /// U+202E 能讓「人看著畫面按下去」這道最後防線本身被攻擊。
+    var displayLiteral: String { displaySafe(literal, max: 300) }
+    // `personKey` 刻意**不給**投影：它是 `person.key`，load 端 quarantine 驗過
+    // `StoreKey`（`^[a-z0-9][a-z0-9-]*$`），結構上不可能含控制字元。給它一個
+    // 投影會讓「有投影＝危險」這個訊號失真。
+}
+
+/// #161：`Entry` 的顯示投影。`title` 是自由字串（Zotero／出版商／網頁），
+/// `citekey` 則過 load 端的 `StoreKey` quarantine——**只有前者需要**。
+public extension Entry {
+    var displayTitle: String { displaySafe(title, max: 800) }
+    /// 清單常見的「有標題用標題、沒有就退回 citekey」。退回值不需消毒，
+    /// 但包成一個投影可以讓 View 端不必自己判斷哪一半危險。
+    var displayTitleOrCitekey: String { title.isEmpty ? citekey : displaySafe(title, max: 800) }
+}
+
+/// #161 verify 181-4：`Author.displayName` 是**一個 `display*` 前綴、卻不消毒**的
+/// 屬性——它對 `.literal` 原樣回傳 Zotero 作者原文，與裁決台上包起來的
+/// `ResolutionCandidate.literal` 同源。它不能就地改成消毒版（有非顯示的消費端），
+/// 所以給 View 一個明確的消毒投影，並在 `DisplayProjectionTests` 釘住那個矛盾。
+public extension Entry {
+    /// 作者清單的顯示形式。**不要在 View 裡寫 `authors.map(\.displayName)`**——
+    /// 那個 `displayName` 名字裡有 `display` 卻不消毒。
+    var displayAuthors: String {
+        authors.map { displaySafe($0.displayName, max: 300) }.joined(separator: "; ")
+    }
+}
+
+/// #161：`Library` 的 `name` 是自由字串（load 只驗 `key`）。
+public extension Library {
+    var displayName: String { displaySafe(name, max: 300) }
+    var displayNameOrKey: String { name.isEmpty ? key : displaySafe(name, max: 300) }
 }

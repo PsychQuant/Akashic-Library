@@ -304,8 +304,8 @@ public final class LibraryStore {
     /// 的所在（CLI 的 openStore 只保護 CLI；MCP/App/外部呼叫端走的就是這些 API）。
     /// 正常路徑零成本：ensureLayout／openOrCreateStore 都寫 marker。
     ///
-    /// ⚠️ 插入位置紀律（#136 verify F1——同型錯誤在本檔**第二次**發生，前科見
-    /// writePerson 的 #55/#59 註解）：在既有 API 的 attribute 與宣告之間插新函式，
+    /// ⚠️ 插入位置紀律（#136 verify F1（正典計數與三次機械化失敗的量測在 `docs/design-principles-and-philosophy.md` §16——**不要在原始碼裡各自重新計數**，那正是它一直過期的原因））：
+    /// 在既有 API 的 attribute 與宣告之間插新函式，
     /// attribute 會綁到新函式上（@discardableResult 綁 Void 函式＝warning，
     /// -warnings-as-errors 下整個模組 build 失敗，且原 API 掉 attribute 生出
     /// 七個呼叫端 warning）。

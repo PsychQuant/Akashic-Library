@@ -17,12 +17,13 @@ public enum SQLiteError: Error, LocalizedError {
         // 內插的是 `conditions` 陣列（全為程式字面片段 + `?`），值全走 bind。
         case .prepareFailed(let m, let sql): return "SQLite prepare 失敗：\(m)（\(sql)）"   // display-safe-exempt: m 是 errmsg；sql 見上方不變式
         case .stepFailed(let m, let sql): return "SQLite step 失敗：\(m)（\(sql)）"   // display-safe-exempt: 同 prepareFailed 的不變式
-        // #158 verify R4：**這條與上面三條不同**——`bindFailed` 的 payload 來自
-        // `SQLiteDB.swift:79` 的 `String(describing: value)`，`value` 是 **caller 傳進來
-        // 的 bind 值**，不是 errmsg 也不是 SQL。目前 unreachable（呼叫端只 bind 支援
-        // 型別），但「目前不可達」與「不含 caller payload」是兩件事——前一版的 opt-out
-        // 理由宣稱後者，那是假的。
-        case .bindFailed(let m): return "SQLite bind 失敗：\(m)"   // display-safe-exempt: payload 已在 :79 收斂成型別名（見該處）
+        // #158 verify R4：**這條與上面三條不同**——`bindFailed` 的 payload 曾經是
+        // **caller 傳進來的 bind 值**（`String(describing: value)`），不是 errmsg 也不是
+        // SQL。目前那條路徑已把 payload 收斂成型別名（見下方 `bind` 的 `default:` 分支）。
+        //
+        //（不寫死行號：R4 席位指出前一版指向的 `:79` 在我自己的修改之後就 stale 了。
+        // 「見下方某某分支」這種符號式引用不會隨行號漂移。）
+        case .bindFailed(let m): return "SQLite bind 失敗：\(m)"   // display-safe-exempt: payload 已在 bind 的 default: 分支收斂成型別名
         }
     }
 }
@@ -88,11 +89,24 @@ public final class SQLiteDB {
             default:
                 // #158 verify R4：**不要把值本身放進訊息**。原本是
                 // `String(describing: value)`——那是 caller 傳進來的任意值，會經
-                // errorDescription 流到使用者可見輸出。而訊息真正需要的是**型別**
-                // 不是值：「不支援的型別：Date」比「不支援的型別：2020-01-01」更有用。
-                // 收斂成型別名之後這條路徑結構上不可能帶 payload——比消毒更徹底，
-                // 也讓 AkashicSQLite 不必依賴 AkashicCore（C 綁定模組不該依賴 domain core）。
-                throw SQLiteError.bindFailed("不支援的型別：\(type(of: value))")
+                // errorDescription 流到使用者可見輸出。
+                //
+                // **為什麼拿掉值不是「型別比較有用」這種品味判斷**（R4 席位給的因果
+                // 版，比我原本的理由強）：會落進這個 `default:` 是因為**型別**不在
+                // `nil`/`Int`/`Int64`/`Double`/`String` 之列。**沒有任何值**能讓支援型別
+                // 落進來，也**沒有任何值**能讓不支援型別躲開——所以在這條路徑上，值
+                // 對「為什麼失敗」**攜帶零診斷資訊**。這擋得住未來有人說「可是看到值
+                // 也不錯啊」。
+                //
+                // 收斂成型別名讓 payload-free 成為**結構性質而非紀律**：AkashicSQLite
+                // 沒有 `displaySafe` 可用（C 綁定模組不該依賴 domain core），所以
+                // 「這裡不准放 payload」是編譯器層級的事實，不是靠人記得。
+                //
+                // **補 bind index**（R4 席位）：`idx` 是 `Int32`、結構上不可能帶 payload，
+                // 卻補回了值原本在偷偷代理的那個資訊——「是**哪一個**呼叫端」。異質
+                // 集合的 `type(of:)` 只給 `Array<Any>` 時，這是唯一能定位的線索。
+                throw SQLiteError.bindFailed(
+                    "參數 #\(idx) 不支援的型別：\(type(of: value))")
             }
             guard rc == SQLITE_OK else {
                 throw SQLiteError.bindFailed(String(cString: sqlite3_errmsg(handle)))

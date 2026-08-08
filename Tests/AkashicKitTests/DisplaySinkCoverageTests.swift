@@ -140,8 +140,10 @@ final class DisplaySinkCoverageTests: XCTestCase {
     ///
     /// 兩個教訓：
     /// 1. **「同上」繼承的是字面、不是意圖**——兩條 import 模組的理由改成各自為真。
-    /// 2. **理由裡出現「唯一／唯二／零／N 條」時，附上那條 grep**。R4 的三次打臉
-    ///    都只需要一行 `grep -c`。
+    /// 2. **理由裡出現量詞（零／唯一／唯二／全部／只有）時，要給「跑什麼會看到
+    ///    什麼」**——不只是行號。R4 的三次打臉都只需要一行 `grep -c`；而 R4 之後
+    ///    席位又指出：WoS 那條的「唯二」當時只給了行號、**沒給能證明只有兩條的
+    ///    指令**。行號證明「這兩條存在」，證明不了「沒有第三條」。
     ///
     /// R4 另外收回了「opt-out 模組不得含 `LocalizedError`」這個機械檢查的提案——
     /// 它是**用形式當性質的 proxy**（正是 `common-spec-prose-enumeration` 要防的）：
@@ -177,8 +179,9 @@ final class DisplaySinkCoverageTests: XCTestCase {
         "AkashicZoteroImport":
             "零輸出面：`grep -c 'print(\\|return \"\\|throw ' Sources/AkashicZoteroImport/*.swift` = 0",
         "AkashicWoSImport":
-            "唯二的 `return \"` 是 dedup key 構造（WoSImport.swift:206/208，`\"doi:…\"` 與 "
-            + "`\"ty:…\"`，回傳值只進 Dictionary 的鍵、不進輸出）；無 print(、無 throw 帶 payload",
+            "`grep -c 'return \"' Sources/AkashicWoSImport/*.swift` = 2，兩條都是 dedup key "
+            + "構造（`\"doi:…\"` 與 `\"ty:…\"`，回傳值只進 identity(_:) 的 Dictionary 鍵、"
+            + "不進輸出）；`grep -c 'print(\\|throw '` = 0",
     ]
 
     /// **不得 opt-out、且必須真的在掃描面裡**的模組。兩個條件用同一份清單

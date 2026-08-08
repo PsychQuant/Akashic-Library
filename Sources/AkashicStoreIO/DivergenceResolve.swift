@@ -325,7 +325,7 @@ extension LibraryStore {
     ///   變更也是判斷，不能無聲蓋過。
     public func resolveDivergence(id: UUID, survivor: String,
                                   overrideReason: String? = nil) throws -> ResolveReport {
-        let (record, shape, mergedKeys, snapshot) =
+        let (record, shape, mergedKeys, snapshot, migration) =
             try validateResolvePreconditions(id: id, survivor: survivor,
                                              overrideReason: overrideReason)
         var report: ResolveReport
@@ -341,9 +341,7 @@ extension LibraryStore {
         }
         report.warnings += Self.judgementWarnings(
             record: record, survivor: survivor, overrideReason: overrideReason,
-            collapsed: migrateOtherDivergences(record: record, survivor: survivor,
-                                               mergedKeys: mergedKeys,
-                                               snapshot: snapshot).collapsed)
+            collapsed: migration.collapsed)
         // #169 verify F3：content warnings 排在 judgement **之後**——與 preview 同序。
         report.warnings += report.pendingContentWarnings
         report.pendingContentWarnings = []
@@ -363,7 +361,13 @@ extension LibraryStore {
     /// 記錄癱瘓別人的消歧（同 quarantine blast radius 的顧慮）。
     static func judgementWarnings(record: Divergence, survivor: String,
                                   overrideReason: String?,
-                                  collapsed: [Divergence] = []) -> [String] {
+                                  // **不給預設值**（#173）：那正是 159-1 為
+                                  // `overrideReason` 拿掉的形狀，理由寫在同一個檔案
+                                  // 裡——省略一個選填參數就靜默關掉一整條警告，而
+                                  // 呼叫端不會有任何訊號。#157×#159 merge 時，拿掉
+                                  // 預設值讓編譯器抓出一個兩個 PR 各自開發時誰都不
+                                  // 知道的呼叫點；那是它第一次兌現。
+                                  collapsed: [Divergence]) -> [String] {
         var out: [String] = []
         for c in collapsed {
             guard let cj = c.judgement else { continue }
@@ -395,7 +399,8 @@ extension LibraryStore {
     private func validateResolvePreconditions(id: UUID, survivor: String,
                                               overrideReason: String?)
         throws -> (record: Divergence, shape: EntityKind,
-                   mergedKeys: [String], snapshot: LibraryLoad) {
+                   mergedKeys: [String], snapshot: LibraryLoad,
+                   migration: DivergenceMigration) {
         guard StoreKey.isValid(survivor) else {
             throw StoreIOError.invalidKey("survivor key", survivor)
         }
@@ -515,7 +520,17 @@ extension LibraryStore {
         guard unsafe.isEmpty else {
             throw DivergenceResolveError.deletionNotRecoverable(files: unsafe)
         }
-        return (record, shape, mergedKeys, snapshot)
+        // **把已經算好的那份交出去**（#173）。`migrateOtherDivergences` 先前在這條
+        // 路徑上被呼叫**三次**：這裡（unknown-field gate）、`judgementWarnings` 的
+        // 呼叫點、`commitResolution`。
+        //
+        // 第 1 與第 3 值得保留——「gate 的輸入與實際執行的輸入各自獨立算出、結果
+        // 必須相同」是一個隱含自檢。**第 2 沒有增加任何檢查**：它是同一份四參數
+        // 呼叫**逐字抄在 preview 與實跑各一處**，而那正是 159-1 的形狀（兩邊各自
+        // 準備輸入、各自可能改壞）。今天沒事靠
+        // `testPreviewCarriesJudgementWarnings` 的 `XCTAssertEqual`——**那是測試在
+        // 補結構的洞**。
+        return (record, shape, mergedKeys, snapshot, affectedMigration)
     }
 
     /// dry-run（#78-2）：跑與 `resolveDivergence` **相同的**拒絕條件、算出會發生什麼，
@@ -537,16 +552,14 @@ extension LibraryStore {
     /// 但無 prefers、無從機械核對」正是人最需要在按下去之前看到的那一條。
     public func previewResolveDivergence(id: UUID, survivor: String,
                                          overrideReason: String?) throws -> ResolveReport {
-        let (record, shape, mergedKeys, snapshot) =
+        let (record, shape, mergedKeys, snapshot, migration) =
             try validateResolvePreconditions(id: id, survivor: survivor,
                                              overrideReason: overrideReason)
         let merged = Set(mergedKeys)
         var report = ResolveReport()
         report.warnings += Self.judgementWarnings(
             record: record, survivor: survivor, overrideReason: overrideReason,
-            collapsed: migrateOtherDivergences(record: record, survivor: survivor,
-                                               mergedKeys: mergedKeys,
-                                               snapshot: snapshot).collapsed)
+            collapsed: migration.collapsed)
         report.merged = mergedKeys.sorted()
         switch shape {
         case .person:
@@ -576,8 +589,7 @@ extension LibraryStore {
         case .organization, .divergence:
             throw DivergenceResolveError.unsupportedShape(shape.rawValue)
         }
-        let migration = migrateOtherDivergences(record: record, survivor: survivor,
-                                                mergedKeys: mergedKeys, snapshot: snapshot)
+        // #173：preview 裡的**第四次**呼叫，同樣改用共用點的回傳值。
         report.rewritten.append(contentsOf: migration.toWrite.map { $0.id.uuidString })
         report.collapsedDetails = migration.collapsed
             .map { (id: $0.id.uuidString, question: $0.question) }

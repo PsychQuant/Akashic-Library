@@ -123,9 +123,19 @@ struct Graph: ParsableCommand {
         if let output {
             try content.write(toFile: (output as NSString).expandingTildeInPath,
                               atomically: true, encoding: .utf8)
-            print("寫出 \(neighborhood.nodes.count) nodes / \(neighborhood.edges.count) edges → \(output)")
+            // 路徑是使用者給的、進終端——與 `export-bib` 的對應行一致（#171 171-4 附註）
+            print("寫出 \(neighborhood.nodes.count) nodes / "
+                  + "\(neighborhood.edges.count) edges → \(displaySafe(output, max: 300))")
         } else {
-            print(content, terminator: "")
+            // **graph 與 export-bib 是逐行對應的孿生**（#171 verify 171-4）：都是
+            // `--output` 寫檔／否則 `print(content)`，都是 store 衍生的整份內容。
+            // #165 只修了 export-bib，這裡是同一個洞。
+            //
+            // 三個 renderer 各自的 escape（mermaid 換掉 `\ " CR LF`、`dotEscape`、
+            // `xmlEscape`）處理的都是**各自格式的 metacharacter**——與 C0／bidi／
+            // LS-PS 是兩組不相干的字元集。實測 graphml 輸出裡 ESC 與 U+202E 逐字
+            // 抵達終端。這正是 #165 用來反駁「跳脫交給下游」的同一個論證。
+            print(documentSafe(content), terminator: "")
         }
     }
 }

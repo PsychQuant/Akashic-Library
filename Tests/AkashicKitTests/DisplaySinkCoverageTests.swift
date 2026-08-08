@@ -76,9 +76,18 @@ import Foundation
 /// **函式版的 94% 誤中**則重演 156-14 的教訓：為了提高 recall 而放寬形狀規則，換來
 /// 一批需要 exempt 的誤中，而反射性加 exempt 比沒有守衛更糟。
 ///
-/// **但函式版當一次性稽核工具有用**：那 47 條裡挑出了 3 個真的
-/// （`QueryCommands` 的 `summary.type`、`root.path` ×2），已修。這是「掃出來人工過一遍」
-/// 的價值，不是 CI gate 的價值——兩者不該混淆。
+/// **但函式版當一次性稽核工具有用**：那 47 條裡我挑出 3 個真的
+/// （`QueryCommands` 的 `summary.type`、`root.path` ×2）。
+///
+/// **那個「3 個」是錯的**（#171 verify 171-5）：獨立的一輪把同一批重過一遍，另外
+/// 找到 4 條——`Provenance.zoteroKey`、`Relations.cites/related`（兩個吐出點）、
+/// `addPerson` 回吐的 `names`、`ImportReport.droppedFields` 的 key，前三條有行為
+/// 證明（raw U+202E 抵達 tool result）。全部已修。
+///
+/// 這個更正本身是本段最重要的內容：**「稽核跑過了」不等於「稽核跑完了」**，而
+/// 寫下的量測數字會被日後的人讀成「這一輪已經清乾淨」。誰都可以漏——包括剛剛
+/// 論證完這種漏法長什麼樣的人。這是「掃出來人工過一遍」的價值，不是 CI gate 的
+/// 價值；兩者不該混淆，而人工那一遍的 recall 也不該被寫成確定數字。
 ///
 /// **`testGuardCatchesStrippedSanitisation`（#141）是對這個侷限的補償**：它不宣稱
 /// 守衛涵蓋每條路徑，而是量測「守衛確實在看真實的消毒站點」——拔光 displaySafe
@@ -597,9 +606,13 @@ final class DisplaySinkCoverageTests: XCTestCase {
         })
         let floors: [Axis: Int] = [.sink: 25, .errorThrow: 8, .caseReturn: 5, .token: 20]
         for axis in Axis.allCases {
-            XCTAssertGreaterThanOrEqual(byAxis[axis] ?? 0, floors[axis] ?? 0, """
+            // **force-unwrap 是刻意的**（#171 verify 171-7）：`?? 0` 會讓「新增第五個
+            // Axis 但忘了給下限」安靜通過——那正是本測試在防的「守衛退化成空洞」。
+            // 實測：加一個無下限的 case，`?? 0` 版 passed、force-unwrap 版 crash。
+            // 響亮地壞掉勝過安靜地失效。
+            XCTAssertGreaterThanOrEqual(byAxis[axis] ?? 0, floors[axis]!, """
                 strip-all 後 `\(axis.rawValue)` 軸只報 \(byAxis[axis] ?? 0) 條
-                （下限 \(floors[axis] ?? 0)）——這一軸的判準可能已整條失效。
+                （下限 \(floors[axis]!)）——這一軸的判準可能已整條失效。
                 全軸實測：\(Axis.allCases.map { "\($0.rawValue)=\(byAxis[$0] ?? 0)" }
                     .joined(separator: " "))（2026-08-07 baseline：68/21/14/54）。
                 若是消毒站點正常減少造成的，重新校準下限並更新上方的量測時點。

@@ -646,14 +646,17 @@ struct ExportBib: ParsableCommand {
             // 層——biblatex 跳脫的是 TeX specials（`{}` `\` `%` `&`），與 C0／bidi／
             // LS-PS 是兩組不相干的字元集。「跳脫由 biblatex 層負責」字面成立、實質全假。
             //
-            // 上限取整份文件的量級（`max: 800` 是單一欄位的尺度，對整份 .bib 太小）。
-            // `displaySafeMultiline` 保留換行——.bib 的行結構是它的可讀性本身。
-            // 上限放寬到整份文件的量級——預設（200 行／96 KB）是為單筆記錄的
-            // 錯誤訊息設的，對全庫匯出會截斷成無效的 .bib。行長仍限制：單行超長
-            // 是終端的 DoS 面，而 .bib 的行本來就短。
-            print(displaySafeMultiline(content, maxLineLength: 4_000,
-                                       maxLines: 2_000_000, maxTotal: 200_000_000),
-                  terminator: "")
+            // **用 `documentSafe` 不用 `displaySafe`**（#171 verify 171-2）：後者
+            // 跳脫反斜線（反偽造），而反斜線在 .bib 與 JSON 裡**是內容語法**。
+            // `export-bib > refs.bib`／`| pbcopy`／`| bibtool` 全走 stdout，而
+            // stdout 是**預設**（`--output` 才是選項）——消毒破壞語法等於預設路徑
+            // 產出壞檔。Zotero 匯入的書目帶 LaTeX 跳脫是常態，不是攻擊面。
+            //
+            // **不設行長上限**（171-3）：`BibWriter` 一個欄位一行，abstract 是
+            // 常態欄位，4000 上限會把它截成大括號不閉合的無效 .bib，且靜默。
+            // 截斷一份文件永遠產生壞掉的文件；終端的量由 store 大小自然界定，
+            // 而那是使用者自己要的。MCP 側因為下游是 LLM context，改為拒絕。
+            print(documentSafe(content), terminator: "")
         }
     }
 }

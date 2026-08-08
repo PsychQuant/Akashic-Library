@@ -267,7 +267,7 @@ store 硬化範疇）。`create` 為 exclusive-create（並發同 key 恰一方�
 biblatex 面向唯讀——過渡期歸 Zotero pull 管。並發（MCP 與 CLI 並用）：per-file atomic
 write、last-wins、index 冪等重建（單人場景設計）。
 
-## 輸出消毒（`displaySafe`）與它的機械守衛
+## 輸出消毒（`displaySafe` / `documentSafe`）與它的機械守衛
 
 store 內容是**未信任的**——來自 Zotero 匯入（出版商與網頁）、別的 binary、以及 #133
 起可由 LLM 經 MCP 寫入的 divergence 判斷。任何把 store 衍生字串送進使用者可見輸出的
@@ -286,10 +286,36 @@ store 內容是**未信任的**——來自 Zotero 匯入（出版商與網頁�
 > `journal` 抓不到，#164）、以及**部分退化**（少一個 disjunct、少一個 token——逐軸
 > 下限只抓整條失效，#163）。
 >
-> 這不是理論缺口：**兩次真洩漏都是人工比對發現的，不是守衛抓到的，而且修好之後
-> 守衛依然看不見**（MCP 回應的作者 `literal`、`summaryDict` 的 `journal`）。兩次的
-> 共同形狀都是「同一份資料在同一個檔案裡兩種待遇」——**那個不一致比守衛更早發現
-> 問題**，review 時值得優先看它。
+> 這不是理論缺口：**七次真洩漏全部是人工比對發現的，沒有一次是守衛抓到的，而且
+> 修好之後守衛依然看不見**（MCP 回應的作者 `literal`、`summaryDict` 的 `journal`、
+> `tags`／`status`、`Provenance.zoteroKey`、`relations.cites/related`、`addPerson`
+> 回吐的 `names`、`ImportReport.droppedFields` 的 key）。七次的共同形狀都是
+> **「同一份資料在同一個檔案裡兩種待遇」**——`zotero_key` 那條的下一行就是包了
+> `displaySafe` 的 `zotero_hash`，註解還寫著理由。那個不一致比守衛更早發現問題，
+> review 時值得優先看它。
+>
+> 另有一件同等重要的事：#164 一輪人工稽核掃出 47 條、我判定其中 3 條是真的並把
+> 「3」寫進文件，獨立的一輪在同一批裡**又找到 4 條**。**「稽核跑過了」不等於
+> 「稽核跑完了」**，而寫下的數字會被日後的人讀成「這一輪已經清乾淨」。
+
+### 兩個消毒器：訊息邊界 vs 文件邊界
+
+| | `displaySafe` / `displaySafeMultiline` | `documentSafe` |
+|---|---|---|
+| 用在 | 錯誤訊息、識別字、單一欄位 | `.bib` / CSL-JSON / mermaid / dot / graphml 整份文件 |
+| 跳脫反斜線 | **是**——否則輸出可被內容偽造 | **否**——反斜線在那裡**是內容語法** |
+| 標記形式 | `\u{001B}` | `U+001B`（無反斜線／引號／角括號） |
+| 長度上限 | 有（訊息該短） | **無**——截斷一份文件永遠產生壞掉的文件 |
+
+分成兩個是因為 `displaySafe` 的反偽造設計套到文件上是**致命**的（#171）：實測
+`export-bib` 走 stdout 時 `\textit{}` 變成 `\u{005C}textit{}`、CSL-JSON 直接不能
+parse——而 stdout 是**預設**路徑（`> refs.bib`、`| pbcopy`、`| bibtool`），`--output`
+才是選項。同一份匯出走檔案是好的、走預設路徑是壞的。
+
+尺寸的處置只有兩種：**不設限**（CLI stdout——使用者自己要的）或**拒絕**（MCP——
+tool result 進 LLM context，上限 8 MB，超過時報錯並指路 `--output`）。沒有
+「截一半還能用」的中間選項：4000 字元的行長上限會把常態的 abstract 截成大括號
+不閉合的無效 `.bib`，而且靜默。
 
 ## Build & Test
 

@@ -349,6 +349,30 @@ final class DivergenceIDDriftTests: XCTestCase {
         }
     }
 
+    /// **`migrateOtherDivergences` 只該被呼叫兩次**（#173）。
+    ///
+    /// 先前是四次（gate、judgementWarnings ×2、commitResolution／preview）。
+    /// 第 1 與最後一次值得保留——「gate 的輸入與實際執行的輸入各自獨立算出、
+    /// 結果必須相同」是隱含自檢。中間兩次沒有增加任何檢查，是同一份四參數呼叫
+    /// **逐字抄在 preview 與實跑各一處**，正是 159-1 的形狀。
+    ///
+    /// 這條掃原始碼——「有幾個呼叫點」沒辦法用行為斷言表達，而抄本回來時不會有
+    /// 任何測試變紅（先前靠 `testPreviewCarriesJudgementWarnings` 的
+    /// `XCTAssertEqual` 兜，那是**測試在補結構的洞**）。
+    func testMigrationIsComputedOncePerPath() throws {
+        let src = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/AkashicStoreIO/DivergenceResolve.swift"),
+            encoding: .utf8)
+        let calls = src.components(separatedBy: "migrateOtherDivergences(record:").count - 1
+        XCTAssertEqual(calls, 2,
+                       "只該有兩處：`validateResolvePreconditions` 的 gate 與 "
+                       + "`commitResolution` 的實際執行。多出來的是抄本——"
+                       + "而抄本回來時不會有任何行為測試變紅（#173）")
+    }
+
     /// 塌縮（候選 <2）的路徑不受影響——它本來就刪，不走改名。
     func testCollapsedRecordsStillDeleted() throws {
         for k in ["fann-a", "fann-b"] { try person(k) }

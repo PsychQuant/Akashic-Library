@@ -563,6 +563,11 @@ akashic fmt --check    # 只回報偏離並以非零碼退出，不寫任何檔�
 壞資料使整個 store 載入不了，而環是**可回溯的**（檔案都在版控裡）。升成 error 會讓
 `assertNoCrossRecordErrors` 鎖住整個寫入面。
 
+偵測 **MUST** 是 O(V+E) per start（持久的 visited 集合，不是「當前路徑」集合）——
+用後者會走遍所有**路徑**而非所有**節點**，實測 n=120 就要 543 秒，在 `doctor` 的
+路徑上等於功能不存在。報出來的環 **MUST NOT** 含通往它的前綴（`a→b`、`b→c`、
+`c→b` 報 `b → c → b`，`a` 不在內）。
+
 每個環 **MUST** 只報一次（取環上字典序最小的 key 當起點），否則 n 個節點的環會產生
 n 則說同一件事的警告。`.literal` 的 parents **MUST NOT** 計為邊——它還沒歸戶、指不到
 任何記錄。

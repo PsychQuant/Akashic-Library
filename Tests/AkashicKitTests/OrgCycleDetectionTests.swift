@@ -122,6 +122,36 @@ final class OrgCycleDetectionTests: XCTestCase {
         XCTAssertEqual(try cycleIssues().count, 1, "只有尾端那一個環")
     }
 
+    /// **規模**：分支圖不得指數爆炸。
+    ///
+    /// 第一版用 `path.contains(node)`（只擋當前路徑上的重訪），於是有分支的圖會
+    /// 走遍所有**路徑**而不是所有**節點**——實測 n=40 → 0.007s、n=80 → 2.3s、
+    /// **n=120 → 543s**。改成持久的 `visited` 集合後 n=2000 只要 0.019s。
+    ///
+    /// **這條測試的存在理由**：正確性測試全部用 <10 個節點，完全量不到複雜度。
+    /// 一個對的答案花 543 秒算出來，在 `doctor` 的路徑上等於功能不存在。
+    func testBranchingGraphDoesNotBlowUp() throws {
+        let n = 300
+        for i in 0..<n {
+            var ps = ["n\(min(i + 1, n - 1))"]
+            if i % 3 == 0 { ps.append("n\(min(i + 7, n - 1))") }   // 寬扇出
+            if i % 50 == 49 { ps.append("n\(i - 49)") }            // 每 50 個一個環
+            try org("n\(i)", parents: ps)
+        }
+        let load = try store.load()
+        let t0 = Date()
+        let found = load.crossRecordIssues().filter { $0.message.contains("有環") }
+        let elapsed = -t0.timeIntervalSinceNow
+        // **不斷言確切環數**：`+7` 的扇出邊會與回邊組成額外的環，實得 33 而非我
+        // 預期的 6——那不是缺陷，是我對這張合成圖的拓撲算錯了。這條測試量的是
+        // **不爆炸**，把一個猜出來的數字寫死只會製造假紅。
+        XCTAssertGreaterThan(found.count, 0, "這張圖確實有環，偵測不到才是問題")
+        XCTAssertLessThan(found.count, n, "每個環只報一次——報到接近節點數就是重複報")
+        XCTAssertLessThan(elapsed, 5.0,
+                          "300 個節點的分支圖花了 \(elapsed)s——指數爆炸回來了"
+                          + "（第一版在 120 個節點就要 543s）")
+    }
+
     /// 指向不存在的 key 不成環、也不當機。
     func testDanglingParentDoesNotCrash() throws {
         try org("a", parents: ["nonexistent"])

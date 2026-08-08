@@ -1142,25 +1142,48 @@ public extension LibraryLoad {
             }
         }
         var cycleReported = Set<String>()
-        for start in organizations.map(\.key).sorted() where !cycleReported.contains(start) {
-            // 從 start 出發找回到 start 的路徑（含自環）
-            // **一份狀態，不是兩份。** 第一版同時維護 `path: [String]` 與
-            // `onPath: Set<String>`，而 mutation 顯示拿掉 `onPath.remove(node)`
-            // 八條全綠——兩份狀態可以分岔而沒人發現。對「start 能否沿 parents
-            // 走回 start」這個查詢，走過的節點集合就夠了（任何能到 start 的節點，
-            // 在它唯一一次被探索時就會發現），所以直接用 `path` 當唯一來源。
-            var path: [String] = []
-            var found: [String]? = nil
-            func walk(_ node: String) {
-                if found != nil { return }
-                if node == start, !path.isEmpty { found = path; return }
-                guard !path.contains(node) else { return }
-                path.append(node)
-                for next in parentEdges[node] ?? [] { walk(next) }
-                path.removeLast()
+
+        /// 從 `start` 沿 parents 找一條回到 `start` 的路徑（含自環）；找不到回 nil。
+        ///
+        /// **持久的 `visited` 集合，不是「當前路徑」集合。** 第一版用
+        /// `path.contains(node)`——那只擋**當前路徑**上的重訪，於是有分支的圖會走遍
+        /// 所有**路徑**而不是所有**節點**：實測 n=40 → 0.007s、n=80 → 2.3s、
+        /// **n=120 → 543s**，指數爆炸。
+        ///
+        /// 那是我把兩份狀態「收成一份」時**留錯了那一份**：先前同時有 `path` 陣列與
+        /// `onPath` 集合，mutation 顯示拿掉 `onPath.remove(node)` 全綠——我讀成「兩份
+        /// 冗餘」，但那個 survived mutation 其實揭露的是**正確且高效的版本**（不移除
+        /// ＝持久 visited）。對「start 能否走回 start」這個查詢，任何能到 start 的
+        /// 節點在它**唯一一次**被探索時就會發現，所以 visited 可以跨分支持久。
+        ///
+        /// 複雜度 O(V+E) per start。路徑用 BFS 的 predecessor 回溯，所以報出來的環
+        /// 不含通往它的前綴（`a→b`、`b→c`、`c→b` 報 `b → c → b`，`a` 不在內）。
+        func findCycle(from start: String) -> [String]? {
+            if (parentEdges[start] ?? []).contains(start) { return [start] }
+            var visited: Set<String> = [start]
+            var pred: [String: String] = [:]
+            var queue: [String] = []
+            for c in parentEdges[start] ?? [] where visited.insert(c).inserted {
+                pred[c] = start
+                queue.append(c)
             }
-            walk(start)
-            guard let cycle = found else { continue }
+            var head = 0
+            while head < queue.count {
+                let node = queue[head]; head += 1
+                for next in parentEdges[node] ?? [] {
+                    if next == start {
+                        var chain = [node], cur = node
+                        while let p = pred[cur], p != start { chain.append(p); cur = p }
+                        return [start] + chain.reversed()
+                    }
+                    if visited.insert(next).inserted { pred[next] = node; queue.append(next) }
+                }
+            }
+            return nil
+        }
+
+        for start in organizations.map(\.key).sorted() where !cycleReported.contains(start) {
+            guard let cycle = findCycle(from: start) else { continue }
             cycleReported.formUnion(cycle)
             out.append(ValidationIssue(
                 severity: .warning,

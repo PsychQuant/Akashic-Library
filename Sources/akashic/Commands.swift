@@ -634,11 +634,26 @@ struct ExportBib: ParsableCommand {
             ? try CSLExport.cslJSON(entries: entries, people: load.people)
             : BibExport.bibFile(entries: entries, people: load.people)
         if let output {
+            // **寫檔不消毒**（#165）：匯出檔是**資料**不是顯示——消毒會破壞 .bib／
+            // CSL-JSON 的正確性（下游 BibTeX 引擎讀到被截斷或跳脫過的內容會壞）。
+            // 這條路徑的原始位元組保真是刻意的。
             try content.write(toFile: (output as NSString).expandingTildeInPath,
                               atomically: true, encoding: .utf8)
-            print("寫出 \(entries.count) entries → \(output)")
+            print("寫出 \(entries.count) entries → \(displaySafe(output, max: 300))")
         } else {
-            print(content, terminator: "")
+            // **stdout 是顯示，要消毒**（#165）。verify 席行為探針實測：`title`／
+            // `authors`／`fields` 裡的 raw ESC、U+202E、U+2028 **原樣通過** biblatex
+            // 層——biblatex 跳脫的是 TeX specials（`{}` `\` `%` `&`），與 C0／bidi／
+            // LS-PS 是兩組不相干的字元集。「跳脫由 biblatex 層負責」字面成立、實質全假。
+            //
+            // 上限取整份文件的量級（`max: 800` 是單一欄位的尺度，對整份 .bib 太小）。
+            // `displaySafeMultiline` 保留換行——.bib 的行結構是它的可讀性本身。
+            // 上限放寬到整份文件的量級——預設（200 行／96 KB）是為單筆記錄的
+            // 錯誤訊息設的，對全庫匯出會截斷成無效的 .bib。行長仍限制：單行超長
+            // 是終端的 DoS 面，而 .bib 的行本來就短。
+            print(displaySafeMultiline(content, maxLineLength: 4_000,
+                                       maxLines: 2_000_000, maxTotal: 200_000_000),
+                  terminator: "")
         }
     }
 }

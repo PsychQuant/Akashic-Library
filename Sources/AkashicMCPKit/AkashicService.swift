@@ -114,9 +114,27 @@ public final class AkashicService {
                 throw ServiceError.notFound("citekeys：\(missing.sorted().map { displaySafe($0, max: 200) }.joined(separator: ", "))")
             }
         }
+        // #165：**這是本 repo 最強的威脅模型**——匯出全文當 MCP tool result 直接進
+        // LLM context。verify 席行為探針實測 `title`／`authors`／`fields` 裡的
+        // raw ESC、U+202E、U+2028 **原樣通過** biblatex 層——它跳脫的是 TeX specials
+        // （`{}` `\` `%` `&`），與 C0／bidi／LS-PS 是兩組**不相干的字元集**。
+        // 「跳脫由 biblatex 層負責」這句話字面成立、實質全假。
+        //
+        // 消毒住**輸出邊界**而非 `BibExport`／`CSLExport`：同一份內容，去**檔案**
+        // 時必須保真（消毒會破壞 .bib 的正確性，下游 BibTeX 引擎會壞），去**顯示**
+        // 時必須消毒。CLI 的 `--output` 分支同理不消毒、stdout 分支消毒。
+        //
+        // 上限取整份文件的量級——`displaySafeMultiline` 的預設（200 行／96 KB）是為
+        // 單筆記錄的錯誤訊息設的，對全庫匯出會截斷成無效的 .bib。行長仍限制：
+        // 單行超長是 context 的 DoS 面，而 .bib 的行本來就短。
+        func safe(_ s: String) -> String {
+            displaySafeMultiline(s, maxLineLength: 4_000,
+                                 maxLines: 2_000_000, maxTotal: 200_000_000)
+        }
         switch format {
-        case "bib": return BibExport.bibFile(entries: entries, people: load.people)
-        case "csl-json": return try CSLExport.cslJSON(entries: entries, people: load.people)
+        case "bib": return safe(BibExport.bibFile(entries: entries, people: load.people))
+        case "csl-json":
+            return safe(try CSLExport.cslJSON(entries: entries, people: load.people))
         default: throw ServiceError.invalid("format 必須是 bib / csl-json")
         }
     }

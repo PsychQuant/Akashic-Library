@@ -235,6 +235,9 @@ actor AkashicMCPServer {
                                            format: arg("format") ?? "mermaid")
             case "akashic_export":
                 let keys = argList("citekeys")
+                // #165：消毒住 `AkashicService.export()`（MCP 的輸出邊界）——
+                // Server 這層不 import AkashicCore，而且那裡才看得到「這份內容
+                // 是要回給 LLM」這個事實
                 output = try service.export(citekeys: keys.isEmpty ? nil : keys,
                                             format: arg("format") ?? "bib")
             case "akashic_people":

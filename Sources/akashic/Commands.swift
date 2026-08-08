@@ -45,9 +45,20 @@ struct Doctor: ParsableCommand {
             throw ExitCode(1)
         }
 
+        // #130：重生之後舊 index 成為孤兒（index 檔名綁化身，新舊是不同檔案）。
+        // **報告不動手刪**（#79 的形狀）——它們可能是另一台機器同步過來的、或
+        // 使用者還想比對的。排在 rebuild **之前**：rebuild 會建立當下化身的 index，
+        // 之後再數就把剛建好的那個也算進「同 key 的其他檔案」了。
+        let orphanIdx = store.orphanedIndexFiles()
+
         let stats = try LibraryIndex(store: store).rebuild()
 
         print("library: \(displaySafe(root.path, max: 800))")
+        if !orphanIdx.isEmpty {
+            print("孤兒 index 檔: \(orphanIdx.count)（本 store 的化身已更換，舊 index 不再使用）")
+            for f in orphanIdx.prefix(10) { print("  ⚠ \(displaySafe(f, max: 300))") }
+            if orphanIdx.count > 10 { print("  …另 \(orphanIdx.count - 10) 筆") }
+        }
         print("entries: \(stats.entries)")
         print("people: \(stats.people)")
         // 見上方 validate 的同一理由（#71）。index 不索引歧異記錄（它是短暫的、

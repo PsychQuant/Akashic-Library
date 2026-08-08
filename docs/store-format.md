@@ -610,8 +610,10 @@ references:
    「以 DOI 逐筆查詢多個 API」都不是單一 URL）。
 
    **`profile.contacts.*` 搬不了**：它不在 `validateReferenceAttachment` 的欄位白名單
-   內，而加進去會讓舊 binary **拒絕載入**整個 store（unknown field → throw）——那比
-   誤讀更嚴重，需要格式 bump。遷移對它**回報而不靜默略過**。
+   內。加進去的後果是**該人檔被 quarantine**（`decode` throw 被 `load()` 的 per-file
+   catch 接住，`validate` 仍 exit 0）——**不是**整個 store 拒絕載入。但那筆人檔會從
+   所有查詢中消失，而 §5.0 的 format 6 與 7 正是因為這種整檔 quarantine 而 bump 的，
+   所以仍需格式 bump，不在本範圍。遷移對它**回報而不靜默略過**。
 
 ### 存檔佈局：`sources/`（內容定址，不進 remote）
 

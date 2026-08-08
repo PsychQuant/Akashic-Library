@@ -349,12 +349,24 @@ struct MigrateProvenance: ParsableCommand {
             }
             if report.skipped.count > 20 { print("  …另 \(report.skipped.count - 20) 筆") }
         }
+        // **先報失敗再說成功**（同 ResolvePeople 的紀律）：中途失敗時 store 半新
+        // 半舊，不說出來的話使用者以為什麼都沒發生或全部完成。
+        if !report.failures.isEmpty {
+            print("寫入失敗 \(report.failures.count) 筆（其餘已落地，可修好後重跑——遷移是冪等的）：")
+            for f in report.failures.prefix(20) {
+                print("  ✗ \(displaySafe(f.record, max: 200)) — \(displaySafe(f.reason, max: 512))")
+            }
+        }
         if dryRun {
             print("  實際執行：akashic migrate-provenance")
         } else {
             // 這個遷移沒有消歧那種「tracked 且 clean」的 gate（它不刪檔），
             // 所以可回溯性由使用者的版控負責——明講，不要讓人事後才發現。
-            print("  store format 不變（\(StoreVersion.supported)）；舊 binary 仍讀得懂")
+            // **印這個 store 的 format，不是 binary 的 supported**（#146 verify F5）：
+            // 真實 store 是 format 5，先前印 7——這句的唯一作用是讓使用者確認格式
+            // 沒變，卻報了一個這個 store 從來不是的數字。
+            let fmt = (try? StoreVersion.read(root: store.root)).map(String.init) ?? "未知"
+            print("  store format 不變（\(fmt)）；舊 binary 仍讀得懂")
             print("  變更未經版控 gate——用 git diff 檢查後再 commit")
         }
     }

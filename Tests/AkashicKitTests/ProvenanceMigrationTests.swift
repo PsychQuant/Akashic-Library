@@ -114,14 +114,42 @@ final class ProvenanceMigrationTests: XCTestCase {
     }
 
     /// 形狀不合法的 digest 同樣跳過並報告——`references:` 拒收它，靜默丟棄更糟。
-    func testMalformedDigestIsSkippedWithReason() throws {
-        var p = personWithDigestAffiliation(key: "bad-digest")
-        p.profile.affiliations.entries[0].source = "sha256:NOTHEX"
+    ///
+    /// **fixture 必須讓同一人同時有可搬與不可搬的維度**（#146 verify F3）。第一版
+    /// 那個人**沒有任何可搬項**，於是 `guard !pending.isEmpty` 讓它根本不寫檔——
+    /// mutation「malformed 分支順手清 source」在該 fixture 下是惰性的，1036 條全綠。
+    ///
+    /// 那個 mutation 的實際後果是**報告與磁碟直接矛盾**：印「搬不動 1 筆（留在
+    /// 原形式）」，而磁碟上的 `source: sha256:NOTHEX` 已消失、之後 doctor 報 0。
+    /// 「skip 不得動原資料」這條在**沒有 note** 的分支本來就有釘（見上一條），
+    /// 在 malformed 分支沒有——既有測試的不對稱。
+    func testMalformedDigestIsSkippedWithoutTouchingTheOriginal() throws {
+        var p = personWithDigestAffiliation(key: "bad-digest")          // 可搬
+        p.profile.ranks = TimelineOf([                                   // 不可搬
+            TemporalValue(value: "研究員", source: "sha256:NOTHEX", note: "由聘書推得")])
         try store.writePerson(p)
         let report = try ProvenanceMigration.digestSourcesToReferences(store: store, dryRun: false)
-        XCTAssertEqual(report.migrated, 0)
+        XCTAssertEqual(report.migrated, 1, "可搬的那條要搬")
+        XCTAssertEqual(report.skipped.count, 1)
         XCTAssertTrue(report.skipped.first?.reason.contains("形狀不合法") == true,
                       "\(report.skipped)")
+        let after = try XCTUnwrap(try store.load().people.first)
+        XCTAssertEqual(after.profile.ranks.entries.first?.source, "sha256:NOTHEX",
+                       "報告說「留在原形式」，磁碟就必須真的留著")
+        XCTAssertEqual(after.profile.ranks.entries.first?.note, "由聘書推得", "note 同理")
+    }
+
+    /// **`report.records` 不得誇報。** 同型的病本 repo 記過多次（「報寫入數不是
+    /// 候選數——先前用 candidates.count，失敗時誇報」）。
+    ///
+    /// mutation 把 `records.append` 移到 `guard !pending.isEmpty` 之前 → 對真實
+    /// store 的 dry-run 會印「搬進 references: 22 筆，涉及 **867** 筆記錄」，
+    /// 而磁碟結果完全相同（#146 verify F3(a)）。
+    func testRecordsListOnlyContainsRecordsActuallyChanged() throws {
+        try store.writePerson(personWithDigestAffiliation(key: "has-digest"))
+        try store.writePerson(Person(key: "untouched", names: ["N"]))
+        let report = try ProvenanceMigration.digestSourcesToReferences(store: store, dryRun: false)
+        XCTAssertEqual(report.records, ["has-digest"], "沒被動到的記錄不得列進去")
     }
 
     // MARK: - 覆蓋面：不只 affiliations
@@ -147,8 +175,9 @@ final class ProvenanceMigrationTests: XCTestCase {
         // 「遷移完成」與「遷移完成但漏了一維」看起來一樣。
         XCTAssertEqual(report.skipped.count, 1, "contacts 要進 skipped：\(report.skipped)")
         XCTAssertEqual(report.skipped.first?.field, "profile.contacts.email")
-        XCTAssertTrue(report.skipped.first?.reason.contains("舊 binary") == true,
-                      "理由要說出為什麼不能直接加白名單：\(report.skipped)")
+        XCTAssertTrue(report.skipped.first?.reason.contains("quarantine") == true,
+                      "理由要說出為什麼不能直接加白名單，而且要說對——後果是**該人檔被"
+                      + "quarantine**，不是整個 store 拒絕載入（#146 verify 實測）：\(report.skipped)")
     }
 
     /// organization 的 `names` / `parents` 同樣要掃。
@@ -191,6 +220,35 @@ final class ProvenanceMigrationTests: XCTestCase {
         try store.writePerson(personWithDigestAffiliation(key: "later-breakage"))
         XCTAssertEqual(ProvenanceMigration.residualDigestSources(load: try store.load()).count, 1,
                        "不變式要持續守，不是遷移完就結束")
+    }
+
+    /// **殘留檢查要掃到每一個維度。**
+    ///
+    /// 席位實測：residual 不掃 `ranks`／`administrative`／`appointments`／`fields`、
+    /// 不掃整個 organization 迴圈、不掃 `contacts`——**三個 mutation 全部存活**，
+    /// 因為既有測試只覆蓋 `profile.affiliations` 一個維度。doctor 會漏報而沒有訊號。
+    func testResidualCheckCoversEveryDimension() throws {
+        var p = Person(key: "all-dims", names: ["N"])
+        p.profile.affiliations = TimelineOf([
+            TemporalValue(value: OrgRef.key("x"), source: digest, note: "n")])
+        p.profile.ranks = TimelineOf([TemporalValue(value: "研究員", source: digest, note: "n")])
+        p.profile.administrative = TimelineOf([TemporalValue(value: "所長", source: digest, note: "n")])
+        p.profile.appointments = TimelineOf([TemporalValue(value: "全職", source: digest, note: "n")])
+        p.profile.fields = TimelineOf([TemporalValue(value: "統計", source: digest, note: "n")])
+        p.profile.contacts = ["email": TimelineOf([
+            TemporalValue(value: "a@b.invalid", source: digest, note: "n")])]
+        try store.writePerson(p)
+        var o = Organization(key: "org-dims", names: TimelineOf([
+            TemporalValue(value: "O", source: digest, note: "n")]))
+        o.parents = TimelineOf([TemporalValue(value: OrgRef.key("y"), source: digest, note: "n")])
+        try store.writeOrganization(o)
+
+        let fields = Set(ProvenanceMigration.residualDigestSources(load: try store.load())
+                            .map(\.field))
+        XCTAssertEqual(fields, ["profile.affiliations", "profile.ranks", "profile.administrative",
+                                "profile.appointments", "profile.fields",
+                                "profile.contacts.email", "names", "parents"],
+                       "少掃任何一個維度，doctor 就會漏報而沒有訊號")
     }
 
     /// **冪等**：跑第二次不得重複建 reference。

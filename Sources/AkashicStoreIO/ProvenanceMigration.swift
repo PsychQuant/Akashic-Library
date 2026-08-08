@@ -32,15 +32,17 @@ import AkashicCore
 ///
 /// ## 不動的東西
 ///
-/// - **裸 URL 形式的 `source` 一律不動**（實測 137 筆）。#66 的 D7 Non-Goal 明列
+/// - **裸 URL 形式的 `source` 一律不動**（實測 138 筆——先前寫 137，漏算了一筆
+///   `openalex.org` 的，其餘 137 筆都在 `stat.sinica.edu.tw` 名冊頁）。#66 的 D7 Non-Goal 明列
 ///   不改 `TemporalValue.source` 的既有用法；本次只清掉**不屬於那個欄位**的形式。
 /// - **`sources/index.jsonl` 不動。** 它描述的是 **blob 本身**（bytes／media-type
 ///   ／取得方式），不是「某個欄位的 provenance」——那是**目錄**，與 `references:`
 ///   不是同一種東西。22 筆共用同一個 digest，把 blob 的描述複寫 22 次才是錯的。
 ///   它該從手工 sidecar 升格為設計內的產物，那是另一個 change（見 #146 收工說明）。
-/// - **格式不變。** `references:` 自 #66 起就在 format 7 的契約內，本遷移只搬內容，
-///   不 bump `StoreVersion`——舊 binary 讀得懂遷移後的檔案（`§5.0` 的判準是
-///   「舊 binary 會不會誤讀」，不是「後果多嚴重」）。
+/// - **格式不變。** `references:` 是 additive、**不屬於任何特定 format**（§5.0 的
+///   additive 準則：它沒有在版本對照表新增列，在任何 format 上都合法——實測
+///   format 5 的 store 遷移後舊 binary 讀得 0 quarantined）。本遷移只搬內容，
+///   不 bump `StoreVersion`。
 public enum ProvenanceMigration {
 
     public struct Skip: Equatable {
@@ -57,6 +59,9 @@ public enum ProvenanceMigration {
         /// **搬不動的，逐筆列出而不是靜默略過。** 靜默略過會讓「遷移完成」與
         /// 「遷移完成但有 N 筆還在舊形式」看起來一樣。
         public var skipped: [Skip] = []
+        /// **寫入失敗**（與 `skipped` 分開：那是「判斷後決定不搬」，這是「想搬但
+        /// 寫不進去」）。先前直接往外擲，report 隨之丟棄——使用者看不到已改幾筆。
+        public var failures: [Skip] = []
     }
 
     /// 一筆待搬的 digest source。
@@ -139,24 +144,46 @@ public enum ProvenanceMigration {
             drain(&person.profile.fields, field: "profile.fields", record: person.key,
                   display: { $0 }, into: &pending, skipped: &report.skipped)
             // **contacts 搬不了，而且不是疏漏。** `validateReferenceAttachment` 的
-            // 白名單沒有 `profile.contacts.*`，且**加進去會讓舊 binary 拒絕載入**
-            // 整個 store（unknown field → throw），那比誤讀更嚴重，需要格式 bump。
-            // 格式 bump 不在 #146 的範圍。真實資料裡 contacts 沒有 digest，所以
-            // 這是一條理論上的路徑——**但要報出來，不能靜默略過**。
+            // 白名單沒有 `profile.contacts.*`。
+            //
+            // **加進去的後果是「該人檔被 quarantine」，不是「整個 store 拒絕載入」**
+            // （#146 verify 實測，我原本寫錯）：`validateReferenceAttachment` 在
+            // `PersonYAML.decode` 內 throw，被 `LibraryStore.load()` 的 per-file
+            // catch 接住 → 單檔隔離、`validate` 仍 exit 0。**但那筆人檔從所有查詢
+            // 中消失**，而 §5.0 的 format 6 與 7 正是因為這種「整檔 quarantine」
+            // 而 bump 的——所以結論（需要格式 bump、不在 #146 範圍）不變。
+            //
+            // 真實資料裡 contacts 沒有 digest，所以這是理論路徑——**但要報出來**。
             for key in person.profile.contacts.keys.sorted() {
                 for e in person.profile.contacts[key]!.entries
                 where e.source?.hasPrefix("sha256:") == true {
                     report.skipped.append(Skip(
                         record: person.key, field: "profile.contacts.\(key)",
-                        reason: "references: 的欄位白名單不含 contacts——加進去會讓舊 binary "
-                                + "拒絕載入，需要格式 bump（見 #146 收工說明）"))
+                        reason: "references: 的欄位白名單不含 contacts——加進去會讓該人檔被"
+                                + " quarantine（從所有查詢中消失），需要格式 bump"))
                 }
             }
             guard !pending.isEmpty else { continue }
             person.references += try references(from: pending)
+            if !dryRun {
+                // **per-item 收容**（#146 verify F4）：先前直接 `try` 往外擲，而
+                // `report` 是 local 變數、隨 throw 丟棄——使用者拿到一句 Foundation
+                // 英文原訊息，看不到已改幾筆、也不知道 store 現在半新半舊。
+                // 同一個檔案的 `ResolvePeople`／`ResolveOrganizations` 為此修過三輪
+                // （#154 verify 154-8），這裡是把既有紀律平移。
+                //
+                // 可回復性不受影響：解鎖後重跑會補完剩下的（遷移是冪等的）。
+                do { try store.writePerson(person) }
+                catch {
+                    report.failures.append(Skip(
+                        record: person.key, field: "(寫入)",
+                        reason: (error as? LocalizedError)?.errorDescription
+                                ?? String(describing: error)))
+                    continue
+                }
+            }
             report.migrated += pending.count
             report.records.append(person.key)
-            if !dryRun { try store.writePerson(person) }
         }
 
         for var org in load.organizations {
@@ -167,9 +194,18 @@ public enum ProvenanceMigration {
                   display: { $0.displayName }, into: &pending, skipped: &report.skipped)
             guard !pending.isEmpty else { continue }
             org.references += try references(from: pending)
+            if !dryRun {
+                do { try store.writeOrganization(org) }
+                catch {
+                    report.failures.append(Skip(
+                        record: org.key, field: "(寫入)",
+                        reason: (error as? LocalizedError)?.errorDescription
+                                ?? String(describing: error)))
+                    continue
+                }
+            }
             report.migrated += pending.count
             report.records.append(org.key)
-            if !dryRun { try store.writeOrganization(org) }
         }
 
         report.records.sort()

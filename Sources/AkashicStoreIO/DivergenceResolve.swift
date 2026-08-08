@@ -537,8 +537,8 @@ extension LibraryStore {
                 return false
             }) { report.rewritten.append(e.citekey) }
         case .work:
-            _ = try validateWorkPreconditions(
-                survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
+            report.warnings += try validateWorkPreconditions(
+                survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot).warnings
             // 與實跑同：keeper 與被併記錄不進 rewritten（keeper 走獨立寫回、
             // doomed 走刪除）。
             let doomedIDs = Set(snapshot.entries
@@ -598,9 +598,12 @@ extension LibraryStore {
 
     /// work 側的 shape 專屬拒絕條件（#139 verify F1，與 person 側對稱）。
     /// work 側的欄位遺失比對就在下方 body（#75 對二已落地）——與 person 側對稱。
+    /// **warnings 也從這裡回傳**（#169）：preview 與實跑都經過本函式，把提醒接在
+    /// 這個共用點上，兩邊自然一致——不必在兩個呼叫端各算一次（那是 159-1 的形狀：
+    /// 兩邊各自準備輸入、各自可能改壞）。
     func validateWorkPreconditions(survivor: String, mergedKeys: [String],
                                    snapshot: LibraryLoad) throws
-        -> (keeper: Entry, doomed: [Entry]) {
+        -> (keeper: Entry, doomed: [Entry], warnings: [String]) {
         guard let keeper = snapshot.entries.first(where: { $0.citekey == survivor }) else {
             throw DivergenceResolveError.candidateMissing(key: survivor, shape: "work")
         }
@@ -622,7 +625,11 @@ extension LibraryStore {
                     merged: e.citekey, survivor: survivor, losses: losses)
             }
         }
-        return (keeper, doomed)
+        // #169：**不擋但要說**——`type`／`title` 刻意不比相等（見
+        // `contentWarningsForMerging` 的 doc），但倖存者的版本較短時要在**還能反悔
+        // 的時點**說出來。
+        let warnings = doomed.flatMap { Self.contentWarningsForMerging($0, into: keeper) }
+        return (keeper, doomed, warnings)
     }
 
     private func resolvePersonDivergence(record: Divergence, survivor: String,
@@ -667,7 +674,7 @@ extension LibraryStore {
     private func resolveWorkDivergence(record: Divergence, survivor: String,
                                        mergedKeys: [String],
                                        snapshot: LibraryLoad) throws -> ResolveReport {
-        let (keeper, doomed) = try validateWorkPreconditions(
+        let (keeper, doomed, contentWarnings) = try validateWorkPreconditions(
             survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
         let merged = Set(mergedKeys)
         let doomedIDs = Set(doomed.map(\.id))
@@ -705,7 +712,7 @@ extension LibraryStore {
             }
         }
         let keeperFinal = keeperRewritten
-        return try commitResolution(record: record,
+        var report = try commitResolution(record: record,
                                     keeperWrite: { try self.writeEntry(keeperFinal) },
                                     keeperEncode: { _ = try EntryYAML.encode(keeperFinal) },
                                     entriesToWrite: entriesToWrite,
@@ -713,6 +720,9 @@ extension LibraryStore {
                                     snapshot: snapshot, survivor: survivor,
                                     survivorNote: "倖存者的記錄已被重寫"
                                         + "（work 消歧不搬欄位，見 #75）")
+        // #169：與 preview 側取自**同一個** validateWorkPreconditions 回傳值
+        report.warnings += contentWarnings
+        return report
     }
 
     /// 其他歧異記錄的候選遷移計算（`commitResolution` 與 dry-run preview 共用）。
@@ -1212,6 +1222,46 @@ extension LibraryStore {
             }
         }
         return losses
+    }
+
+    /// work 合併**不擋、但要說**的內容差異（#169）。
+    ///
+    /// 與 `fieldsLostByMerging` 是**互補的兩份清單**，不是它的延伸：
+    ///
+    /// | | 問的問題 | 後果 |
+    /// |---|---|---|
+    /// | `fieldsLostByMerging` | 被併者帶有倖存者**沒有**的內容嗎 | 拒絕 |
+    /// | 本函式 | 兩邊**都有**但倖存者的比較少嗎 | 提醒 |
+    ///
+    /// `type`／`title` 刻意不擋（要求相等會重演 #71 R2 DA 的誤拒——同一篇的兩筆
+    /// 記錄 title 大小寫／副標題本來就會不同，而 keeper 的寫法**就是人選的
+    /// canonical form**）。但**「不擋」不蘊含「不說」**：
+    ///
+    ///     keeper: "Short"
+    ///     doomed: "Short: A Much Longer Subtitle That Only This Record Has"
+    ///     → 合併後副標題無聲消失，exit 0，`✓ 併入`
+    ///
+    /// 被刪檔在版控裡（gate 自己強制 tracked + clean），所以內容**可回溯**——這降低
+    /// 了嚴重度，但不改變「使用者在當下看不到」。提醒放在 preview 與實跑兩邊，
+    /// 讓它出現在**還能反悔的時點**。
+    ///
+    /// **判準：被併者的值是否嚴格包含倖存者的**（前綴或包含關係），而不是「兩者
+    /// 不同」。後者會對每一組大小寫／標點差異都出聲，把提醒變成噪音——而噪音會
+    /// 讓人停止讀它，那比不提醒更糟。
+    static func contentWarningsForMerging(_ e: Entry, into keeper: Entry) -> [String] {
+        var out: [String] = []
+        func longer(_ label: String, keeper k: String, doomed d: String) {
+            guard !k.isEmpty, !d.isEmpty, k != d else { return }   // 缺席方向歸 fieldsLostByMerging
+            // 只在被併者**嚴格包含**倖存者時出聲——那是「倖存者的版本較不完整」
+            // 這個判斷唯一機械可判定的形狀
+            guard d.contains(k), d.count > k.count else { return }
+            out.append("\(label)：倖存者的「\(displaySafe(k, max: 200))」比被併者的"
+                       + "「\(displaySafe(d, max: 300))」短——合併後較長的版本會消失"
+                       + "（不擋；確認 keeper 的寫法是你要的 canonical form）")
+        }
+        longer("title", keeper: keeper.title, doomed: e.title)
+        longer("type", keeper: keeper.type, doomed: e.type)
+        return out
     }
 
     /// work 合併比對**刻意排除**的欄位（#157 verify 157-1 的取捨，明寫讓「排除」與

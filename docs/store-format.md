@@ -1153,7 +1153,7 @@ I/O 錯誤）收容並回報——此時被併記錄**可能部分已刪**，但
 
 | 比對（doomed 有而 keeper 沒有／衝突 → 拒絕） | 刻意排除（不比） |
 |---|---|
-| `fields`（逐 key；同 key 不同值＝衝突）、`attachments`、`akashic`（tags／libraries／status／**出向 relations**／unknownFields——cites/related 的遷移只搬「別人指向被併者」的參照，被併者自己指出去的隨檔案消失）、`authors`（`.key` 是 resolve-people 歸戶的產物，work 合併不搬）、`date`、`unknownFields`、`provenance`（`zoteroKey`／`libraryID` 的**對**、`orphanedAt`） | `type`／`title`（要求相等會誤拒最常見形狀——同一篇的兩筆記錄 title 本來就會不同，keeper 的寫法**就是人選的 canonical form**）、`id`／`citekey`（身分，不隨合併移動） |
+| `fields`（逐 key；同 key 不同值＝衝突）、`attachments`、`akashic`（tags／libraries／status／**出向 relations**／unknownFields——cites/related 的遷移只搬「別人指向被併者」的參照，被併者自己指出去的隨檔案消失）、`authors`（`.key` 是 resolve-people 歸戶的產物，work 合併不搬）、`date`、`unknownFields`、`provenance`（`zoteroKey`／`libraryID` 的**對**、`orphanedAt`） | `type`／`title` — **只比缺席方向**（keeper 為空、被併者非空 → 拒絕；`""` 不是任何人選的 form，它是缺席）。兩邊都非空時**不擋**——要求相等會誤拒最常見形狀，keeper 的寫法**就是人選的 canonical form**；但**不擋不蘊含不說**，被併者嚴格包含倖存者時進 `warnings`（#169）。`id`／`citekey`（身分，不隨合併移動） |
 
 子集才放行——搬欄位是人的判斷，不自動合併。比對 7 + 排除 4 ＝ `Entry` 的 11 個儲存
 屬性（`akashic` 的五個子欄位**收合成一個屬性算**），由

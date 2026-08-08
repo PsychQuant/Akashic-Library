@@ -142,8 +142,8 @@ final class OrgBootstrapResolveTests: XCTestCase {
                           range: DateRange(start: "2003"), source: "roster"),
             TemporalValue(value: OrgRef.literal("別的機構"), range: DateRange())])
         let cands = OrgResolver.candidates(people: [p], organizations: [org])
-        let updated = OrgResolver.apply(cands, to: [p])
-        let affs = updated.first!.profile.affiliations.entries
+        let updated = OrgResolver.apply(cands, to: [p], organizations: [org])
+        let affs = updated.people.first!.profile.affiliations.entries
         XCTAssertEqual(affs.first?.value, .key("stat-sinica"), "命中的歸戶")
         XCTAssertEqual(affs.first?.range.start, "2003", "range 保留")
         XCTAssertEqual(affs.first?.source, "roster", "source 保留")
@@ -190,5 +190,141 @@ final class OrgBootstrapResolveTests: XCTestCase {
         XCTAssertEqual(result.candidates.count, 1, "ligature 與 ASCII 併成一組：\(result.candidates)")
         XCTAssertEqual(result.candidates.first?.key, "finance-institute")
         XCTAssertEqual(result.candidates.first?.names.count, 2, "兩種寫法都保留為 variant")
+    }
+}
+
+/// #166：兩步式流程的第二步對 `organization.parents` **結構上不存在**。
+///
+/// `bootstrap-organizations` 會**吃** parents 的 literal 並據此建 organization，
+/// 但 `candidates` 只走 person 的 affiliations——剛為它建出來的那個 organization
+/// 永遠配不上它。literal 進得去、出不來。
+///
+/// ## parents 側有 person 側沒有的兩個危害
+///
+/// person 的 affiliation 指向自己是**不可表達的**（型別不同），parents 則完全
+/// 可能。而環在本 repo **沒有任何地方偵測**（`crossRecordIssues` 不查、載入不查），
+/// 所以歸戶造出來的環不會有人擋——防護放在製造點。
+extension OrgBootstrapResolveTests {
+
+    private func org(_ key: String, names: [String] = [],
+                     parents: [OrgRef] = []) -> Organization {
+        var o = Organization(key: key)
+        o.names = TimelineOf(names.map { TemporalValue(value: $0, range: DateRange()) })
+        o.parents = TimelineOf(parents.map { TemporalValue(value: $0, range: DateRange()) })
+        return o
+    }
+
+    /// 核心缺口：parents 的 literal 要出得來。
+    func testParentsLiteralsProduceCandidates() {
+        let parent = org("academia-sinica", names: ["中央研究院"])
+        let child = org("stat-sinica", names: ["統計科學研究所"],
+                        parents: [.literal("中央研究院")])
+        let cands = OrgResolver.candidates(people: [], organizations: [parent, child])
+        XCTAssertEqual(cands.count, 1, "parents 的 literal 進得去也要出得來：\(cands)")
+        XCTAssertEqual(cands.first?.holder, .organization("stat-sinica"))
+        XCTAssertEqual(cands.first?.orgKey, "academia-sinica")
+        XCTAssertTrue(cands.first?.reason.contains("parents") == true,
+                      "理由要說出這是哪一條路徑——兩類候選寫進不同記錄的不同欄位")
+    }
+
+    /// `apply` 要能改 organization（先前只改 person）。
+    func testApplyMigratesOrganizationParents() {
+        let parent = org("academia-sinica", names: ["中央研究院"])
+        var child = org("stat-sinica", names: ["統計科學研究所"])
+        child.parents = TimelineOf([
+            TemporalValue(value: OrgRef.literal("中央研究院"),
+                          range: DateRange(start: "1947"), source: "所史", note: "n"),
+            TemporalValue(value: OrgRef.literal("別的機構"), range: DateRange())])
+        let cands = OrgResolver.candidates(people: [], organizations: [parent, child])
+        let out = OrgResolver.apply(cands, to: [], organizations: [parent, child])
+        let ps = out.organizations.first { $0.key == "stat-sinica" }!.parents.entries
+        XCTAssertEqual(ps.first?.value, .key("academia-sinica"), "命中的歸戶")
+        XCTAssertEqual(ps.first?.range.start, "1947", "range 保留")
+        XCTAssertEqual(ps.first?.source, "所史", "source 保留")
+        XCTAssertEqual(ps.first?.note, "n", "note 保留")
+        XCTAssertEqual(ps.last?.value, .literal("別的機構"), "未命中的不動")
+        XCTAssertEqual(out.organizations.first { $0.key == "academia-sinica" }, parent,
+                       "沒有候選指向它的記錄不得被動到")
+    }
+
+    /// **自我父權**：literal 命中自己的別名 → 不提名。那不是歸戶，是把記錄變成
+    /// 自己的上級。手工資料把同一機構的別名順手寫進自己的 parents 是常見的。
+    ///
+    /// **歸因**：實際擋下它的是環的檢查（`reaches` 含自身），不是那行專門的自我
+    /// 父權 guard——mutation 實測拿掉那行本條仍綠。那行是 defence-in-depth，
+    /// 釘的是「`reaches` 把自身算在內」這個前提。歸因寫錯會讓日後改 `reaches`
+    /// 的人以為這條還罩得住。
+    func testSelfParentIsNeverProposed() {
+        let o = org("stat-sinica", names: ["統計科學研究所", "統計所"],
+                    parents: [.literal("統計所")])
+        XCTAssertTrue(OrgResolver.candidates(people: [], organizations: [o]).isEmpty,
+                      "自我父權不是歸戶")
+    }
+
+    /// `apply` 也擋一次自我父權——它是 public 且收任何清單（手工組的、跨資料變動
+    /// 的舊清單）。不可逆寫入的防護不該只放在提名端。
+    func testApplyRefusesSelfParentEvenIfHandCrafted() {
+        let o = org("stat-sinica", names: ["統計所"], parents: [.literal("統計所")])
+        let hand = OrgResolutionCandidate(holder: .organization("stat-sinica"),
+                                          literal: "統計所", orgKey: "stat-sinica",
+                                          reason: "手工組的")
+        let out = OrgResolver.apply([hand], to: [], organizations: [o])
+        XCTAssertEqual(out.organizations.first?.parents.entries.first?.value, .literal("統計所"),
+                       "apply 端也要擋——提名端的排除不是唯一防線")
+    }
+
+    /// **環**：既有的 `.key` 邊 A→B，再讓 B 的 literal 指回 A 就成環。
+    ///
+    /// 本 repo 沒有任何地方偵測 org 階層的環，所以造出來就會安靜存在，直到某個
+    /// 走 parents 的消費端無限迴圈。
+    func testCycleThroughExistingKeyEdgeIsRefused() {
+        let a = org("a", names: ["A org"], parents: [.key("b")])
+        let b = org("b", names: ["B org"], parents: [.literal("A org")])
+        XCTAssertTrue(OrgResolver.candidates(people: [], organizations: [a, b]).isEmpty,
+                      "a→b 已存在，再加 b→a 就成環")
+    }
+
+    /// **兩個候選各自無害、湊在一起成環**——只看既有邊會漏掉這個。
+    func testCycleFormedByTwoCandidatesTogetherIsRefused() {
+        let a = org("a", names: ["A org"], parents: [.literal("B org")])
+        let b = org("b", names: ["B org"], parents: [.literal("A org")])
+        let cands = OrgResolver.candidates(people: [], organizations: [a, b])
+        XCTAssertEqual(cands.count, 1,
+                       "第一個可接受、第二個會閉環必須排除（本輪已接受的也算既有邊）：\(cands)")
+        XCTAssertEqual(cands.first?.holder, .organization("a"),
+                       "以 holder 排序後依序處理——哪一個被排除必須是決定性的")
+    }
+
+    /// 合法的深層階層不得被誤擋——環的判定不是「有祖先關係就拒」。
+    func testLegitimateDeepHierarchyIsAllowed() {
+        let top = org("top", names: ["Top"])
+        let mid = org("mid", names: ["Mid"], parents: [.key("top")])
+        let leaf = org("leaf", names: ["Leaf"], parents: [.literal("Mid")])
+        let cands = OrgResolver.candidates(people: [], organizations: [top, mid, leaf])
+        XCTAssertEqual(cands.count, 1, "leaf→mid→top 是合法的三層，不是環：\(cands)")
+        XCTAssertEqual(cands.first?.orgKey, "mid")
+    }
+
+    /// person 側的既有行為不得被改動——本 issue 是**缺口**不是回歸。
+    func testPersonSideBehaviourIsUnchanged() {
+        let o = org("stat-sinica", names: ["統計所"])
+        let p = personWith("a", affiliations: [.literal("統計所")])
+        let cands = OrgResolver.candidates(people: [p], organizations: [o])
+        XCTAssertEqual(cands.count, 1)
+        XCTAssertEqual(cands.first?.holder, .person("a"))
+        XCTAssertEqual(cands.first?.reason, "org name 完全命中",
+                       "person 側的理由字串不得改變——它出現在既有輸出裡")
+    }
+
+    /// person 與 org 候選並存時，**person 排在前**——既有輸出的順序不該因為多了
+    /// 一類就亂掉。
+    func testPersonCandidatesComeBeforeOrganisationOnes() {
+        let parent = org("academia-sinica", names: ["中央研究院"])
+        let child = org("stat-sinica", names: ["統計所"], parents: [.literal("中央研究院")])
+        let p = personWith("zzz-last-alphabetically", affiliations: [.literal("統計所")])
+        let cands = OrgResolver.candidates(people: [p], organizations: [parent, child])
+        XCTAssertEqual(cands.count, 2)
+        XCTAssertEqual(cands.first?.holder, .person("zzz-last-alphabetically"))
+        XCTAssertEqual(cands.last?.holder, .organization("stat-sinica"))
     }
 }

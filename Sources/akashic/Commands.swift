@@ -443,9 +443,13 @@ struct ResolveOrganizations: ParsableCommand {
         abstract: "列出 literal→organization 高信心候選；--apply 才寫入")
 
     @OptionGroup var options: LibraryOptions
-    @Flag(name: .long, help: "套用候選（顯式人工確認）；可用 --person / --org 收窄") var apply = false
-    @Option(name: .long, parsing: .upToNextOption,
-            help: "只套用這些 person key 的候選") var person: [String] = []
+    @Flag(name: .long, help: "套用候選（顯式人工確認）；可用 --holder / --org 收窄") var apply = false
+    /// #166：`--person` 更名為 `--holder`——候選的持有者現在可能是 organization
+    /// （parents 側），叫 `--person` 會讓「篩掉了什麼」與旗標名字不符。
+    /// **舊名保留為 alias**：它是既有使用者手上的指令，靜默移除會讓腳本壞掉。
+    @Option(name: [.customLong("holder"), .customLong("person")], parsing: .upToNextOption,
+            help: "只套用這些持有者 key 的候選（person 或 organization；--person 為舊名）")
+    var holder: [String] = []
     @Option(name: .long, parsing: .upToNextOption,
             help: "只套用指向這些 organization key 的候選") var org: [String] = []
 
@@ -453,23 +457,31 @@ struct ResolveOrganizations: ParsableCommand {
         let store = try options.openStore()
         let load = try store.load()
         let all = OrgResolver.candidates(people: load.people, organizations: load.organizations)
-        let pkSet = Set(person), okSet = Set(org)
+        let hkSet = Set(holder), okSet = Set(org)
         let candidates = all.filter {
-            (pkSet.isEmpty || pkSet.contains($0.personKey))
+            (hkSet.isEmpty || hkSet.contains($0.holder.key))
                 && (okSet.isEmpty || okSet.contains($0.orgKey))
         }
         guard !all.isEmpty else {
-            print("無候選（affiliation literal 皆無 org name 完全命中）")
+            print("無候選（affiliation／parents 的 literal 皆無 org name 完全命中）")
             return
         }
-        let selected = Set(candidates.map { "\($0.personKey)#\($0.literal)" })
+        // 持有者可能是 person 或 organization——**標出來**。少了它，兩類候選在
+        // 輸出裡長得一樣，而它們寫進的是不同記錄的不同欄位（#166）。
+        func label(_ h: OrgResolutionCandidate.Holder) -> String {
+            switch h {
+            case let .person(k): return "person \(displaySafe(k, max: 200))"
+            case let .organization(k): return "org \(displaySafe(k, max: 200))"
+            }
+        }
+        let selected = Set(candidates.map { "\($0.holder)#\($0.literal)" })
         for c in all {
-            let mark = (apply && !selected.contains("\(c.personKey)#\(c.literal)")) ? "  (skip) " : "  "
-            print("\(mark)\(displaySafe(c.personKey, max: 200)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
+            let mark = (apply && !selected.contains("\(c.holder)#\(c.literal)")) ? "  (skip) " : "  "
+            print("\(mark)\(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
         }
         if apply {
-            if !(person.isEmpty && org.isEmpty), candidates.isEmpty {
-                throw ValidationError("--person / --org 的篩選條件沒有命中任何候選")
+            if !(holder.isEmpty && org.isEmpty), candidates.isEmpty {
+                throw ValidationError("--holder / --org 的篩選條件沒有命中任何候選")
             }
             // #154 verify 154-8：per-item 收容 + 先報告再 rebuild + `✓` 只在全綠。
             //
@@ -479,15 +491,26 @@ struct ResolveOrganizations: ParsableCommand {
             // 落地。同一個檔案的 `ResolvePeople` 早為此修過三輪（R7/M21 per-item
             // 收容、R9/M8 先印再 rebuild、R8/L29 `✓` 只在全綠）——org 側三條全沒
             // 帶過來。這不是新設計，是把既有紀律平移。
-            let updated = OrgResolver.apply(candidates, to: load.people)
+            let updated = OrgResolver.apply(candidates, to: load.people,
+                                            organizations: load.organizations)
             var written = 0
             var failed: [(key: String, why: String)] = []
-            for p in updated where !load.people.contains(where: { $0 == p }) {
+            for p in updated.people where !load.people.contains(where: { $0 == p }) {
                 do {
                     try store.writePerson(p)
                     written += 1
                 } catch {
                     failed.append((key: p.key, why: "\(error)"))
+                }
+            }
+            // organization 側走**同一套** per-item 收容（#154 verify 154-8 的紀律；
+            // 那一輪的教訓正是「org 側三條全沒帶過來」——這次不要再漏一次）
+            for o in updated.organizations where !load.organizations.contains(where: { $0 == o }) {
+                do {
+                    try store.writeOrganization(o)
+                    written += 1
+                } catch {
+                    failed.append((key: o.key, why: "\(error)"))
                 }
             }
             // **先報失敗**：rebuild 可能自己再擲一次，那會把上面的清單吞掉

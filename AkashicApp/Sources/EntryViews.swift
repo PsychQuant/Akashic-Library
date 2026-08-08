@@ -64,7 +64,8 @@ struct EntryDetailView: View {
                     }
                     LabeledContent("Type", value: entry.type)
                     LabeledContent("Title", value: entry.displayTitle)
-                    LabeledContent("Authors", value: entry.authors.map(\.displayName).joined(separator: "; "))
+                    // `Author.displayName` 不消毒（#161 verify 181-4）——走投影
+                    LabeledContent("Authors", value: entry.displayAuthors)
                     if let date = entry.date { LabeledContent("Date", value: date) }
                     ForEach(entry.fields.keys.sorted(), id: \.self) { key in
                         LabeledContent(key, value: entry.fields[key] ?? "")

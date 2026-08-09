@@ -123,9 +123,16 @@ final class PropositionTests: XCTestCase {
 
     /// **誠實邊界，用測試釘住**：`authored` 目前**沒有任何輸入**會回 `.fails`。
     ///
-    /// `.fails` 需要正面反證，而 store 沒有欄位能表達「這篇的作者名單已完備」。
-    /// 型別留著 `.fails` 是因為答案空間需要它可被表達；規則產生不了它，是模型的
-    /// 真實極限。哪天加了「名單完備」的證言型別，這條會紅——那時該連同 doc 一起改。
+    /// `.fails` 需要正面反證，而 `PropositionModel` 本身沒有欄位能表達「這篇的
+    /// 作者名單已完備」。
+    ///
+    /// **#203 之後這句話要加限定詞**：`.fails` 現在**可達**了，但只透過
+    /// `AttestedModel`（帶 `AuthorListAttestation` 的模型）。走**這個型別**
+    /// （plain `PropositionModel`）仍然永遠不會 `.fails`——而那正是把證言做成
+    /// 獨立型別的理由：拿 `PropositionModel` 求值的呼叫端一眼就知道自己拿不到反證。
+    ///
+    /// 所以這條測試仍然成立，只是它現在守的是**兩個型別的分界**，不是「模型的
+    /// 極限」。
     func testAuthoredNeverReturnsFails() throws {
         let cases: [[AkashicCore.Author]] = [
             [], [.key(personKey)], [.key("other")], [.literal("Che Cheng")], [.literal("Someone")],

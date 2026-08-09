@@ -35,6 +35,14 @@ public enum WoSImport {
         /// 從兩欄配對出的 alias 組（每組是同一位作者的多種寫法）。
         public var aliasGroups: [[String]] = []
         public var skippedRows: [String] = []
+        /// **收不進 `fields` 的來源欄位名 → 次數**（#206 verify M1）。
+        /// 兩種成因：欄位名無法正規化成合法 biblatex 名、或正規化後撞上已對映的鍵。
+        /// 規則 §3 要求丟棄必須可見——這是它的落點。
+        public var droppedColumns: [String: Int] = [:]
+        /// 既有記錄**只補上缺的欄位**（共有欄位未動）——#206 的回填路徑。
+        /// 與 `conflicts` 分開：那個是「內容有實質分歧、留給人」，這個是
+        /// 「舊記錄少了殘餘欄位，補完即可」。
+        public var enriched: [String] = []
     }
 
     // MARK: - 解析
@@ -148,6 +156,18 @@ public enum WoSImport {
     /// 一列 → 一個 `Entry`。**作者全部落 `.literal`**——不自動歸戶，交給
     /// `PersonResolver` + App 裁決台（本 repo 的「絕不自動合併」鐵律）。
     public static func entry(from row: [String: String], taken: Set<String>) -> Entry? {
+        var ignored: [String] = []
+        return entry(from: row, taken: taken, dropped: &ignored)
+    }
+
+    /// 同上，但把**收不進去的欄位名**回報出來（#206 verify M1）。
+    ///
+    /// 規則 §3：「丟棄必須可見。靜默是最糟的形式——它讓『沒有這個欄位』與
+    /// 『這個來源沒給』變成同一個觀察，而那兩件事在事後完全無法區分。」
+    /// 第一版的註解宣稱撞鍵時「留給 report 的 `droppedColumns`」——那個欄位
+    /// **當時不存在**，`grep droppedColumns` 只命中那句註解本身。
+    public static func entry(from row: [String: String], taken: Set<String>,
+                             dropped: inout [String]) -> Entry? {
         let authors = splitAuthors(row["Authors"])
         let full = splitAuthors(row["Author Full Names"])
         // 顯示用全名優先——它是給人看的
@@ -181,12 +201,17 @@ public enum WoSImport {
         // 維護風險，由 `testEveryConsumedColumnIsDeclared` 釘住：那條測試對每個
         // 宣告的欄位餵值、斷言它**不會**同時出現在殘餘裡。漏宣告 → 該欄位重複出現
         // （一次對映、一次殘餘）→ 紅。
-        for (column, value) in row where !Self.consumedColumns.contains(column) {
-            guard !value.isEmpty, let key = FieldKey.normalized(column) else { continue }
+        // **依欄位名排序**（#206 verify M1）：`row` 是 Dictionary，迭代順序每個
+        // process 都不同，於是撞鍵時「誰勝出」會在同一份輸入的不同次執行間變動。
+        // 排序讓結果決定性——不可重現的匯入比欄位少更難查。
+        for column in row.keys.sorted() where !Self.consumedColumns.contains(column) {
+            guard let value = row[column], !value.isEmpty else { continue }
+            guard let key = FieldKey.normalized(column) else {
+                dropped.append(column); continue      // 欄位名無法表達成合法 biblatex 名
+            }
             // **不覆寫已對映的鍵。** 對映的結果是經過語意處理的（`pages` 是
-            // start--end 合成、`date` 併了年與日）；殘餘是原樣搬運。撞名時語意的
-            // 那份勝出，且**不靜默**——留給 report 的 `droppedColumns`。
-            if e.fields[key] != nil { continue }
+            // start--end 合成、`date` 併了年與日）；殘餘是原樣搬運，撞名時語意勝出。
+            if e.fields[key] != nil { dropped.append(column); continue }
             e.fields[key] = value
         }
         return e
@@ -256,16 +281,42 @@ public enum WoSImport {
                 var a = existing, b = probe
                 a.id = b.id; a.citekey = b.citekey
                 a.unknownFields = []; b.unknownFields = []
-                if a == b { report.unchanged.append(existing.citekey) }
-                else { report.conflicts.append(existing.citekey) }
+                if a == b { report.unchanged.append(existing.citekey); continue }
+
+                // **只多不少 → 回填，不算 conflict**（#206 verify H1）。
+                //
+                // 殘餘收集讓 probe 帶有舊 entry 沒有的欄位，於是**同一份 WoS 檔
+                // 重跑一次，每一筆都會從 `unchanged` 變成 `conflict`**——而 conflict
+                // 路徑刻意不覆寫，所以無損的好處**永遠到不了已匯入的記錄**。
+                //
+                // 回填是安全的，且與 conflict 不覆寫的理由一致：那條規則存在是因為
+                // 「WoS 的欄位比 store 窄，覆寫會把人工補的資訊洗掉」。**加一個原本
+                // 不存在的鍵洗不掉任何東西**——共有的鍵一個都不動，只補缺的。
+                var merged = existing
+                var addedKeys: [String] = []
+                for (k, v) in b.fields where merged.fields[k] == nil {
+                    merged.fields[k] = v; addedKeys.append(k)
+                }
+                // 除了「補上缺的欄位」之外還有別的差異 → 仍是 conflict，交給人
+                var probeCheck = b, mergedCheck = merged
+                probeCheck.unknownFields = []; mergedCheck.unknownFields = []
+                mergedCheck.id = probeCheck.id; mergedCheck.citekey = probeCheck.citekey
+                guard !addedKeys.isEmpty, mergedCheck == probeCheck else {
+                    report.conflicts.append(existing.citekey)
+                    continue
+                }
+                if !dryRun { try store.writeEntry(merged) }
+                report.enriched.append(existing.citekey)
                 continue
             }
 
             // 新的一篇——此時才做 citekey 碰撞避讓
-            guard let e = entry(from: row, taken: taken) else {
+            var dropped: [String] = []
+            guard let e = entry(from: row, taken: taken, dropped: &dropped) else {
                 report.skippedRows.append("第 \(i + 2) 列：citekey 碰撞無法解決")
                 continue
             }
+            for c in dropped { report.droppedColumns[c, default: 0] += 1 }
             taken.insert(e.citekey)
             if !dryRun { try store.writeEntry(e) }
             report.created.append(e.citekey)

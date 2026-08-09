@@ -1,5 +1,6 @@
 import XCTest
 @testable import AkashicCore
+@testable import AkashicStoreIO
 @testable import AkashicWoSImport
 @testable import AkashicZoteroImport
 
@@ -146,6 +147,89 @@ final class LosslessIntakeTests: XCTestCase {
                        "未來新增的欄位必須自動被收——這正是本規則的重點")
     }
 
+    // MARK: - 回填既有記錄（verify H1）
+
+    /// 舊 store（#206 之前匯入、沒有殘餘欄位）重跑同一份 WoS 檔：
+    /// **應該補上缺的欄位並記 `enriched`，不是整批變成 `conflicts`**。
+    ///
+    /// 沒有這條回填，同一份檔重跑會報 100% conflict，而 conflict 路徑刻意不覆寫
+    /// ——無損的好處永遠到不了已匯入的記錄。
+    func testReimportBackfillsMissingFieldsInsteadOfConflicting() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wos-backfill-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LibraryStore(root: root)
+        try store.ensureLayout()
+
+        let tsv = "Authors\tArticle Title\tPublication Year\tDOI\tResearch Areas\n"
+            + "Cheng, Che\tA Paper\t2025\t10.1/x\tPsychology\n"
+        _ = try WoSImport.run(text: tsv, store: store)
+        // 模擬「#206 之前匯入的記錄」：把殘餘欄位拿掉再寫回
+        var old = try XCTUnwrap(store.load().entries.first)
+        old.fields["research_areas"] = nil
+        try store.writeEntry(old)
+
+        let r = try WoSImport.run(text: tsv, store: store)
+        XCTAssertEqual(r.conflicts, [], "只多不少不該算 conflict")
+        XCTAssertEqual(r.enriched.count, 1, "應回填一筆")
+        let after = try XCTUnwrap(store.load().entries.first)
+        XCTAssertEqual(after.fields["research_areas"], "Psychology", "缺的欄位要補上")
+        XCTAssertEqual(after.fields["doi"], "10.1/x", "共有欄位不得受影響")
+    }
+
+    /// **真的內容分歧仍是 conflict。** 回填只放行「只多不少」，不得順手覆寫。
+    func testGenuineDifferenceStillConflicts() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wos-conflict-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LibraryStore(root: root)
+        try store.ensureLayout()
+        let tsv = "Authors\tArticle Title\tPublication Year\tDOI\tSource Title\n"
+            + "Cheng, Che\tA Paper\t2025\t10.1/x\tJournal A\n"
+        _ = try WoSImport.run(text: tsv, store: store)
+        var old = try XCTUnwrap(store.load().entries.first)
+        old.fields["journaltitle"] = "Hand-Corrected Journal"   // 人工改過
+        try store.writeEntry(old)
+
+        let r = try WoSImport.run(text: tsv, store: store)
+        XCTAssertEqual(r.enriched, [], "共有欄位有分歧不得回填")
+        XCTAssertEqual(r.conflicts.count, 1)
+        XCTAssertEqual(try XCTUnwrap(store.load().entries.first).fields["journaltitle"],
+                       "Hand-Corrected Journal", "人工修改不得被洗掉")
+    }
+
+    /// **丟棄必須可見**（規則 §3 / verify M1）：欄位名不可表達、或正規化後撞鍵，
+    /// 都要進 `report.droppedColumns`，不得靜默。
+    func testDroppedColumnsAreReported() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wos-dropped-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LibraryStore(root: root)
+        try store.ensureLayout()
+        // `###` 正規化後是 nil；`Research-Areas` 與 `Research Areas` 撞成同一個鍵
+        let tsv = "Authors\tArticle Title\tPublication Year\t###\tResearch Areas\tResearch-Areas\n"
+            + "Cheng, Che\tA Paper\t2025\tIMPORTANT\tAAA\tBBB\n"
+        let r = try WoSImport.run(text: tsv, store: store)
+        XCTAssertFalse(r.droppedColumns.isEmpty, "丟了東西就要報出來")
+        XCTAssertEqual(r.droppedColumns["###"], 1, "不可表達的欄位名要列出")
+        XCTAssertEqual(r.droppedColumns["Research-Areas"], 1, "撞鍵的輸家要列出")
+    }
+
+    /// 撞鍵的勝者必須是**決定性**的（依欄位名排序），不隨 Dictionary 的
+    /// per-process 雜湊種子變動——不可重現的匯入比欄位少更難查。
+    func testCollisionWinnerIsDeterministic() throws {
+        let row = ["Authors": "Cheng, Che", "Article Title": "T", "Publication Year": "2025",
+                   "Research Areas": "AAA", "Research-Areas": "BBB", "research areas": "CCC"]
+        var winners = Set<String>()
+        for _ in 0..<40 {
+            var dropped: [String] = []
+            if let e = WoSImport.entry(from: row, taken: [], dropped: &dropped) {
+                winners.insert(e.fields["research_areas"] ?? "?")
+            }
+        }
+        XCTAssertEqual(winners.count, 1, "同一份輸入必須每次得到同一個勝者，實際 \(winners)")
+    }
+
     // MARK: - Zotero 殘餘收集
 
     /// Zotero 的 item 依 type 有幾十種欄位，`fieldMap` 涵蓋不到的原本全部消失
@@ -163,6 +247,31 @@ final class LosslessIntakeTests: XCTestCase {
         XCTAssertEqual(entry.fields["meetingname"], "IMPS 2025")
         XCTAssertNotNil(entry.fields["place"] ?? entry.fields["location"],
                         "place 不論走 fieldMap 或殘餘，都不得消失")
+    }
+
+    /// **mappingHash 會因為殘餘欄位而改變——這是刻意的**（#206 verify M4）。
+    ///
+    /// `mappingHash` 是 Zotero re-import 的更新判準。殘餘欄位進了 hash，於是
+    /// **下一次 `import-zotero` 會對「任何帶有先前未對映欄位」的 item 觸發更新**
+    /// ——那正是回填的機制（Zotero 是 pull-based sync，store 跟隨 Zotero）。
+    ///
+    /// 釘住它是為了讓這個性質是**被測過的決定**而不是意外：若日後有人為了避免
+    /// churn 而把殘餘欄位排除在 hash 之外，這條會紅，並提醒他那樣做的代價是
+    /// 「殘餘欄位的變動永遠不會同步」。
+    ///
+    /// **已知副作用（本 change 未修，已開 follow-up）**：更新分支在沒有任何
+    /// 已歸戶 `.key` 作者時會用 Zotero 的作者覆寫 literal 作者。那是既有的 sync
+    /// 語意，不是本 change 引入的，但本 change 會讓它**一次性大範圍觸發**。
+    func testResidualFieldsAreInTheMappingHashOnPurpose() {
+        let base = ZoteroItem(key: "H1", version: 1, libraryID: 1, typeName: "journalArticle",
+                              fields: ["title": "T", "date": "2025"],
+                              authors: [], tags: [], attachmentPaths: [])
+        let withResidual = ZoteroItem(key: "H1", version: 1, libraryID: 1, typeName: "journalArticle",
+                                      fields: ["title": "T", "date": "2025", "extra": "PMID: 1"],
+                                      authors: [], tags: [], attachmentPaths: [])
+        XCTAssertNotEqual(ZoteroMapping.mappingHash(of: base),
+                          ZoteroMapping.mappingHash(of: withResidual),
+                          "殘餘欄位必須進 hash，否則它的變動永遠不會同步")
     }
 
     /// title／date 已抽成一級欄位，不得同時留在 `fields` 裡重複。

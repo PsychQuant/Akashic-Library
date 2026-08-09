@@ -51,9 +51,20 @@ public enum ZoteroMapping {
         typeMap[zoteroType] ?? "misc"
     }
 
-    /// 不在 fieldMap 的 Zotero 欄位（title/date 除外）——會被捨棄，
-    /// importer 記進 report.droppedFields，不靜默流失。
-    public static func unmappedFields(of item: ZoteroItem) -> [String] {
+    /// 不在 `fieldMap` 的 Zotero 欄位（title/date 除外）。
+    ///
+    /// **這些欄位現在會入庫**（#206）——以正規化後的原名收進 `fields`，不再捨棄。
+    /// 名稱與消費端的 `report.residualFields` 一起改過：舊名是 `droppedFields`，
+    /// CLI 印「未映射的 Zotero 欄位，**未入庫**」。
+    ///
+    /// **那句話在 #206 之後是假的**（verify H2）。更糟的是
+    /// `testUnmappedZoteroFieldsAreReportedNotSilentlyDropped` 仍然綠——套件
+    /// 因此**釘住了那個謊**：把 `ZoteroMapping` 改回靜默丟棄，27 條
+    /// `ZoteroImportTests` 全綠，只有 `LosslessIntakeTests` 會紅。
+    ///
+    /// 保留這個查詢是有用的（「哪些欄位沒有 canonical 對照」是編目訊號，值得看見），
+    /// 只是它的**語意從「丟了什麼」變成「以原名收了什麼」**。
+    public static func residualFields(of item: ZoteroItem) -> [String] {
         item.fields.keys.filter { $0 != "title" && $0 != "date" && fieldMap[$0] == nil }.sorted()
     }
 

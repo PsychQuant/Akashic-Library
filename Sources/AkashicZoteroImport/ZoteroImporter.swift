@@ -12,7 +12,10 @@ public struct ImportReport: Equatable {
     /// 解析過的作者被保留、未跟 Zotero 同步的 entries（資訊性）。
     public var authorsPreserved: [String] = []
     /// 未映射而被捨棄的 Zotero 欄位（欄位名 → 出現次數）。不靜默流失。
-    public var droppedFields: [String: Int] = [:]
+    /// 以**正規化後的原名**入庫的欄位（無 canonical 對照）。
+        /// #206 之前這叫 `droppedFields` 且真的丟掉；現在會入庫，名字跟著改，
+        /// 否則報告會說謊（verify H2）。
+        public var residualFields: [String: Int] = [:]
     /// 寫入目的檔是 quarantined 檔而被拒寫的 citekeys（損壞 store，人工處理）。
     public var quarantineConflicts: [String] = []
     /// 寫入時 encode/寫檔擲錯的 citekeys → 錯誤描述（R6 M9：encode 自 v1.3 起
@@ -103,8 +106,8 @@ public struct ZoteroImporter {
         var legacyMatched = Set<String>()   // 已被 item 認領的 legacy 裸 key
 
         for item in items {
-            for dropped in ZoteroMapping.unmappedFields(of: item) {
-                report.droppedFields[dropped, default: 0] += 1
+            for residual in ZoteroMapping.residualFields(of: item) {
+                report.residualFields[residual, default: 0] += 1
             }
             let itemHash = ZoteroMapping.mappingHash(of: item)
             var matched = byCompositeKey["\(item.libraryID):\(item.key)"]

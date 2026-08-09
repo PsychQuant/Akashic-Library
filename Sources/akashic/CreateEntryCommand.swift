@@ -96,6 +96,10 @@ struct CreateEntryCmd: ParsableCommand {
             for (t, e) in failed.prefix(10) {
                 print("  ! \(displaySafe(t, max: 80)) — \(e)")
             }
+            // **一筆都沒寫成必須非零退出**（#206 verify H3）。上面「解析出 0 筆」
+            // 已經因為「script 分不出成功與沉默」而刻意 throw；「寫成 0 筆」是同一
+            // 個處境，卻回 exit 0——`akashic create-entry … && next` 會照常往下走。
+            throw ExitCode(created == 0 ? 1 : 0)
         }
     }
 
@@ -122,18 +126,77 @@ struct CreateEntryCmd: ParsableCommand {
                   let title = o["title"] as? String, !title.isEmpty else {
                 throw ValidationError("每筆都必須有非空的 type 與 title")
             }
+            // **形狀不符一律報錯，不靜默降級**（#206 verify C2）。
+            //
+            // 第一版寫 `(o["authors"] as? [String]) ?? []`：Swift 的 `as? [String]`
+            // 在**任一**元素不是字串時整個陣列失敗，於是 `["A","B",2025]` 會靜默
+            // 變成**零個作者**、exit 0、無警告。同理 `o["date"] as? String` 對
+            // `"date": 2025`（JSON 數字）回 nil，`o["fields"] as? [String: Any]`
+            // 對陣列回 nil → 整個 fields 消失。
+            //
+            // 那正是本 change 所寫的規則要防的核心行為。貼 CSL-JSON 的作者物件
+            // （`{"family":…,"given":…}`）也會全滅——而那是最可能的貼上來源之一。
             var fields: [String: String] = [:]
-            if let f = o["fields"] as? [String: Any] {
-                for (k, v) in f {
-                    // 值一律轉字串（`Entry.fields` 是 [String: String]）。
-                    // 數字／布林在 JSON 裡合法，硬性要求字串會讓使用者為了型別
-                    // 重寫來源——那與「盡量接受資訊」相反。
-                    fields[k] = (v as? String) ?? String(describing: v)
+            if let f = o["fields"] {
+                guard let dict = f as? [String: Any] else {
+                    throw ValidationError("「\(title)」的 fields 必須是 object，實際是 \(Self.shapeName(f))")
+                }
+                for (k, v) in dict {
+                    // **JSON null 跳過，不寫成 "<null>"**（verify M5）。來源說「沒有值」，
+                    // 寫進一個字面 `<null>` 是**捏造**——store 會斷言一個來源沒說的東西。
+                    if v is NSNull { continue }
+                    if let s = v as? String { fields[k] = s; continue }
+                    if let n = v as? NSNumber {
+                        // Bool 判定先於數字：JSON 的 true/false 進 [String: Any] 是
+                        // NSNumber，`as? Int` 對它也成立（YAML 那邊踩過同一個坑）
+                        fields[k] = CFGetTypeID(n) == CFBooleanGetTypeID()
+                            ? (n.boolValue ? "true" : "false") : n.stringValue
+                        continue
+                    }
+                    // 巢狀 object／array：`String(describing:)` 會產出
+                    // `{\n a = 1;\n}` 這種 NSDictionary dump——技術上「沒丟」，
+                    // 實際不可讀也不可還原。報錯讓使用者自己決定要攤平成什麼。
+                    throw ValidationError(
+                        "「\(title)」的欄位 \(k) 是 \(Self.shapeName(v))，"
+                        + "無法無損轉成字串——請先在來源攤平成純量")
                 }
             }
-            return EntryDraft(type: type, title: title,
-                              authors: (o["authors"] as? [String]) ?? [],
-                              date: o["date"] as? String, fields: fields)
+            var authors: [String] = []
+            if let a = o["authors"] {
+                guard let arr = a as? [Any] else {
+                    throw ValidationError("「\(title)」的 authors 必須是陣列，實際是 \(Self.shapeName(a))")
+                }
+                for el in arr {
+                    guard let s = el as? String else {
+                        throw ValidationError(
+                            "「\(title)」的 authors 含非字串元素（\(Self.shapeName(el))）。"
+                            + "作者一律用顯示名字串；CSL-JSON 的 {family,given} 物件請先合併成一個字串")
+                    }
+                    authors.append(s)
+                }
+            }
+            var date: String?
+            if let d = o["date"], !(d is NSNull) {
+                if let s = d as? String { date = s }
+                else if let n = d as? NSNumber { date = n.stringValue }   // "date": 2025 很常見
+                else { throw ValidationError("「\(title)」的 date 必須是字串或數字，實際是 \(Self.shapeName(d))") }
+            }
+            return EntryDraft(type: type, title: title, authors: authors,
+                              date: date, fields: fields)
+        }
+    }
+
+    /// 錯誤訊息用的形狀名。訊息要說「實際是什麼」，否則使用者只知道錯了、
+    /// 不知道錯在哪個形狀。
+    static func shapeName(_ v: Any) -> String {
+        switch v {
+        case is NSNull: return "null"
+        case is String: return "字串"
+        case is [Any]: return "陣列"
+        case is [String: Any]: return "object"
+        case let n as NSNumber:
+            return CFGetTypeID(n) == CFBooleanGetTypeID() ? "布林" : "數字"
+        default: return String(describing: type(of: v))
         }
     }
 
@@ -172,17 +235,63 @@ struct CreateEntryCmd: ParsableCommand {
     ///
     /// **機構名（`{...}` 標記）不翻**——那是 #6 的既有約定，切開會產出
     /// 「Organization, World Health」這種錯誤輸出。
+    ///
+    /// **切分必須是 brace-aware 的**（#206 verify C3）。第一版先
+    /// `components(separatedBy: " and ")` 再檢查 `hasPrefix("{")`——順序反了：
+    /// 守衛在切完之後才跑，護不住已經被切斷的名字。`{Barnes and Noble Publishing}`
+    /// 會裂成 `{Barnes` 與 `Noble Publishing}`，接著 family/given 翻面對碎片生效，
+    /// round-trip 匯出 `\textbraceleft{}Barnes and Publishing\textbraceright{}, Noble`。
+    /// 真實輸入不罕見：`{Ministry of Health and Welfare}`、
+    /// `{Department of Health and Human Services}`。
+    ///
+    /// 原本的測試用 `{{World Health Organization, Europe}}`——**不含 `" and "`**，
+    /// 所以從來沒碰到這條路。
     static func splitBibAuthors(_ raw: String) -> [String] {
-        raw.components(separatedBy: " and ")
+        splitTopLevelAnd(raw)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .map { name in
-                if name.hasPrefix("{") || !name.contains(",") { return name }
-                let parts = name.split(separator: ",", maxSplits: 1).map {
-                    $0.trimmingCharacters(in: .whitespaces)
-                }
-                guard parts.count == 2, !parts[1].isEmpty else { return name }
-                return "\(parts[1]) \(parts[0])"
+            .map(flipFamilyGiven)
+    }
+
+    /// 只在**大括號深度 0** 處切 `" and "`。
+    static func splitTopLevelAnd(_ raw: String) -> [String] {
+        var out: [String] = []
+        var buf = ""
+        var depth = 0
+        let chars = Array(raw)
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if c == "{" { depth += 1 }
+            if c == "}" { depth = max(0, depth - 1) }
+            if depth == 0, c == " ", i + 4 < chars.count,
+               chars[i + 1] == "a", chars[i + 2] == "n", chars[i + 3] == "d", chars[i + 4] == " " {
+                out.append(buf); buf = ""; i += 5; continue
             }
+            buf.append(c); i += 1
+        }
+        out.append(buf)
+        return out
+    }
+
+    /// `Family, Given` → `Given Family`。機構名與無逗號的原樣。
+    static func flipFamilyGiven(_ name: String) -> String {
+        if name.hasPrefix("{") || !name.contains(",") { return name }
+        let parts = name.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        // **三段是 `Family, Suffix, Given`**（biblatex 的 `Smith, Jr., John`
+        // ＝「John Smith Jr.」）。第一版 `maxSplits: 1` 把它讀成
+        // `Jr., John` + `Smith` → 產出 `Jr., John Smith`（verify M6）。
+        switch parts.count {
+        // display-safe-exempt: 這兩行組的是**作者姓名本身**（會存進 Entry.authors），
+        // 不是給人看的訊息。消毒它等於把來源的名字改掉——同 #171 劃下的
+        // documentSafe/displaySafe 分界：內容面保真、訊息面消毒。守衛的 `return "`
+        // 判準分不出「回傳一個值」與「回傳一句話」，這是它的已知形狀。
+        case 2 where !parts[1].isEmpty:
+            return "\(parts[1]) \(parts[0])"   // display-safe-exempt: 見上——組的是姓名內容非訊息
+        case 3 where !parts[1].isEmpty && !parts[2].isEmpty:
+            return "\(parts[2]) \(parts[0]) \(parts[1])"   // display-safe-exempt: 同上
+        default:
+            return name   // 四段以上不猜——原樣保留比重組錯誤好
+        }
     }
 }

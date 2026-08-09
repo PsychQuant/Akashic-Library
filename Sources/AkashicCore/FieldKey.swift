@@ -53,8 +53,13 @@ public enum FieldKey {
         while out.hasSuffix("_") { out.removeLast() }
         while out.hasPrefix("_") { out.removeFirst() }
         guard !out.isEmpty else { return nil }
-        // `isNumber` 涵蓋非 ASCII 數字（如 `٣`），但那些已在上面被轉成 `_`；
-        // 這裡只可能是 ASCII 0-9。
+        // **非 ASCII 數字也留在 `out` 裡**（`٣`／`Ⅷ`／`²` 的 `isNumber` 都是 true，
+        // 所以上面的迴圈**保留**它們而非轉成 `_`）。前一版的註解宣稱「那些已在上面
+        // 被轉成 `_`，這裡只可能是 ASCII 0-9」——**那是錯的**（#206 verify L1）。
+        //
+        // 行為本身沒問題：`٣ Chars` → `x٣_chars`，前綴照樣補上，實測 biber 收
+        // `X٣_CHARS`／`XⅧ_VOLUME`／`X²ND` 皆 0 error。修的是那句會誤導下一個
+        // 編輯者的理由——錯的理由比沒有理由更危險，它讓人以為某個分支不可達。
         if let first = out.first, first.isNumber { out = digitPrefix + out }
         return out
     }

@@ -92,6 +92,23 @@
 
 追蹤：`PsychQuant/Akashic-Library#206`。
 
+## 回填：規則要及於**已經匯入**的記錄
+
+把 importer 改成無損之後，舊記錄仍然缺著當初被丟掉的欄位。若重跑匯入只報
+「conflict」而不補，這條規則對**既有資料**等於沒有生效——而既有資料才是大多數。
+
+所以兩個 importer 都要能回填，判準是**只多不少**：
+
+- 共有的欄位**一個都不動**（人工修改過的值不得被洗掉——那正是 conflict 路徑
+  當初不覆寫的理由）
+- 只補**原本不存在**的鍵。加一個不存在的鍵洗不掉任何東西
+- 除此之外的差異仍是 conflict，交給人
+
+WoS 走 `report.enriched`（與 `conflicts` 分開）。Zotero 走既有的 hash 比對——
+殘餘欄位進 `mappingHash`，所以下次 `import-zotero` 會自動更新。**代價是那次
+匯入會大範圍觸發更新**，而更新分支在沒有已歸戶 `.key` 作者時會用 Zotero 的作者
+覆寫 literal 作者（既有 sync 語意，非本規則引入，但會被它一次性放大）。
+
 ## 跟其他規則的關係
 
 - 全域 `common-spec-prose-enumeration.md`：本規則的「不收」是**封閉列舉**，

@@ -1,6 +1,7 @@
 import XCTest
 @testable import AkashicCore
 @testable import AkashicStoreIO
+@testable import akashic
 
 /// #206：CLI 的無損建檔入口。
 ///
@@ -166,6 +167,149 @@ final class CreateEntryCLITests: XCTestCase {
         XCTAssertEqual(r.status, 0, r.out)
         XCTAssertTrue(r.out.contains("dry-run"), r.out)
         XCTAssertEqual(try loadedEntries().count, 0, "dry-run 不得寫入")
+    }
+
+    // MARK: - verify 找到的洞（#206 verify C1/C2/C3/H3/M3/M5/M6）
+
+    /// **C1**：JSON 路徑的鍵沒過 `FieldKey`，於是帶空格／數字開頭的鍵原樣落進
+    /// store，`export-bib` 產出的整份 `.bib` biber 解析不了（一筆壞鍵 → 完全不
+    /// 產出檔）。修在 `AkashicService.createEntry`——那是 CLI 與 MCP 唯一的交會點，
+    /// 補在任一呼叫端都會留下另一個洞。
+    func testIllegalFieldKeyIsRejectedNotStored() throws {
+        let json = #"{"type":"article","title":"K","fields":{"Research Areas":"Psychology"}}"#
+        let r = try runCLI(["create-entry", "--format", "json"], stdin: json)
+        // 拒寫或正規化都可接受；**原樣存進去不行**
+        let stored = try loadedEntries().first?.fields.keys.sorted() ?? []
+        XCTAssertFalse(stored.contains("Research Areas"),
+                       "帶空格的鍵不得原樣入庫（會讓整份 export-bib 解析不了）：\(stored) / \(r.out)")
+    }
+
+    /// 同上的數字開頭形狀。WoS 真的有一欄叫 `29 Character Source Abbreviation`。
+    func testDigitLeadingFieldKeyIsNotStoredRaw() throws {
+        let json = #"{"type":"article","title":"K2","fields":{"29 Char Abbrev":"PSYCH"}}"#
+        _ = try runCLI(["create-entry", "--format", "json"], stdin: json)
+        let stored = try loadedEntries().first?.fields.keys.sorted() ?? []
+        XCTAssertFalse(stored.contains(where: { $0.first?.isNumber == true }),
+                       "數字開頭的鍵不得入庫：\(stored)")
+    }
+
+    /// **C2**：`as? [String]` 在任一元素非字串時整個陣列失敗 → 靜默零作者。
+    /// 現在必須**報錯**，不得 exit 0 悄悄少人。
+    func testMixedTypeAuthorsIsAnErrorNotSilentLoss() throws {
+        let json = #"{"type":"article","title":"A","authors":["Che Cheng","Hau-Hung Yang",2025]}"#
+        let r = try runCLI(["create-entry", "--format", "json"], stdin: json)
+        XCTAssertNotEqual(r.status, 0, "形狀不符必須報錯：\(r.out)")
+        XCTAssertEqual(try loadedEntries().count, 0, "報錯就不該寫進去")
+    }
+
+    /// CSL-JSON 的作者物件是最可能的貼上來源之一——不得靜默全滅。
+    func testCSLStyleAuthorObjectsAreRejectedLoudly() throws {
+        let json = #"{"type":"article","title":"A","authors":[{"family":"Cheng","given":"Che"}]}"#
+        let r = try runCLI(["create-entry", "--format", "json"], stdin: json)
+        XCTAssertNotEqual(r.status, 0, r.out)
+        XCTAssertTrue(r.out.contains("CSL-JSON") || r.out.contains("authors"), r.out)
+    }
+
+    /// `"date": 2025`（JSON 數字）很常見——原本會靜默沒有 date，citekey 退化成 `nd`。
+    func testNumericDateIsAcceptedNotDropped() throws {
+        let json = #"{"type":"article","title":"Numeric Date","authors":["Che Cheng"],"date":2025}"#
+        let r = try runCLI(["create-entry", "--format", "json"], stdin: json)
+        XCTAssertEqual(r.status, 0, r.out)
+        let e = try XCTUnwrap(loadedEntries().first)
+        XCTAssertEqual(e.date, "2025")
+        XCTAssertFalse(e.citekey.contains("nd"), "date 掉了會讓 citekey 變 nd：\(e.citekey)")
+    }
+
+    /// **M5**：JSON `null` 不得寫成字面 `<null>`——來源說「沒有值」，
+    /// 寫進一個值是**捏造**。
+    func testJSONNullIsSkippedNotFabricated() throws {
+        let json = #"{"type":"article","title":"N","fields":{"note":null,"doi":"10.1/x"}}"#
+        let r = try runCLI(["create-entry", "--format", "json"], stdin: json)
+        XCTAssertEqual(r.status, 0, r.out)
+        let e = try XCTUnwrap(loadedEntries().first)
+        XCTAssertNil(e.fields["note"], "null 不得變成值")
+        XCTAssertNotEqual(e.fields["note"], "<null>")
+        XCTAssertEqual(e.fields["doi"], "10.1/x")
+    }
+
+    /// **C3**：`{Barnes and Noble Publishing}` 被 `" and "` 切成兩半、再各自翻面，
+    /// store 裡留下不平衡的大括號。原本的測試用
+    /// `{{World Health Organization, Europe}}`——**不含 `" and "`**，從沒碰到這條路。
+    func testCorporateNameWithAndIsNotSplit() throws {
+        let bib = """
+        @BOOK{bn,
+          AUTHOR = {{Barnes and Noble Publishing}},
+          TITLE = {A Corporate Book},
+          DATE = 2020,
+        }
+        """
+        let r = try runCLI(["create-entry", "--format", "bib"], stdin: bib)
+        XCTAssertEqual(r.status, 0, r.out)
+        let e = try XCTUnwrap(loadedEntries().first)
+        XCTAssertEqual(e.authors.count, 1, "機構名不得被 \" and \" 切開：\(e.authors)")
+        if case let .literal(n) = e.authors[0] {
+            XCTAssertTrue(n.contains("Barnes and Noble Publishing"), n)
+            // 大括號必須平衡，否則 round-trip 匯出會壞
+            XCTAssertEqual(n.filter { $0 == "{" }.count, n.filter { $0 == "}" }.count,
+                           "大括號不平衡：\(n)")
+        } else { XCTFail("作者應為 literal") }
+    }
+
+    /// 真人作者與機構名混在同一個 AUTHOR 欄。
+    func testMixedHumanAndCorporateAuthors() throws {
+        let bib = """
+        @REPORT{m,
+          AUTHOR = {Cheng, Che and {Ministry of Health and Welfare}},
+          TITLE = {Mixed},
+          DATE = 2021,
+        }
+        """
+        let r = try runCLI(["create-entry", "--format", "bib"], stdin: bib)
+        XCTAssertEqual(r.status, 0, r.out)
+        let names = try loadedEntries().first!.authors.map { a -> String in
+            if case let .literal(n) = a { return n } else { return "" }
+        }
+        XCTAssertEqual(names.count, 2, "應為 2 位（人 + 機構）：\(names)")
+        XCTAssertEqual(names[0], "Che Cheng")
+        XCTAssertTrue(names[1].contains("Ministry of Health and Welfare"), names[1])
+    }
+
+    /// **M6**：`Family, Suffix, Given` — biblatex 的 `{Smith, Jr., John}`
+    /// 意思是「John Smith Jr.」。原本 `maxSplits: 1` 讀成 `Jr., John` + `Smith`。
+    func testFamilySuffixGivenIsReorderedCorrectly() {
+        XCTAssertEqual(CreateEntryCmd.flipFamilyGiven("Smith, Jr., John"), "John Smith Jr.")
+        XCTAssertEqual(CreateEntryCmd.flipFamilyGiven("Cheng, Che"), "Che Cheng")
+        XCTAssertEqual(CreateEntryCmd.flipFamilyGiven("Che Cheng"), "Che Cheng")
+        // 四段以上不猜——原樣比重組錯誤好
+        XCTAssertEqual(CreateEntryCmd.flipFamilyGiven("a, b, c, d"), "a, b, c, d")
+    }
+
+    /// **H3**：全部寫入失敗仍 exit 0——`create-entry … && next` 會照常往下走。
+    /// 同一支命令對「解析出 0 筆」刻意非零退出，理由正是 script 分不出成功與沉默。
+    func testAllWritesFailingExitsNonZero() throws {
+        // type 空字串 → service 拒絕；解析得出 1 筆但寫成 0 筆
+        let json = #"[{"type":"","title":"X"}]"#
+        let r = try runCLI(["create-entry", "--format", "json"], stdin: json)
+        XCTAssertNotEqual(r.status, 0, "寫成 0 筆必須非零退出：\(r.out)")
+    }
+
+    /// **M3**：`.bib` 路徑的 `FieldKey` 整合原本零覆蓋——所有 fixture 都用已合法的
+    /// 鍵（`EVENTTITLE`／`VENUE`），拿掉那次正規化呼叫，1169 條全綠。
+    func testBibPathNormalizesIllegalKeys() throws {
+        let bib = """
+        @ARTICLE{k,
+          TITLE = {T},
+          AUTHOR = {Cheng, Che},
+          DATE = 2025,
+          RESEARCH_AREAS = {Psychology},
+        }
+        """
+        let r = try runCLI(["create-entry", "--format", "bib"], stdin: bib)
+        XCTAssertEqual(r.status, 0, r.out)
+        let keys = try XCTUnwrap(loadedEntries().first).fields.keys.sorted()
+        XCTAssertTrue(keys.allSatisfy { $0.first?.isLetter == true },
+                      "所有鍵必須字母開頭：\(keys)")
+        XCTAssertTrue(keys.allSatisfy { !$0.contains(" ") }, "鍵不得含空格：\(keys)")
     }
 
     /// 這支命令必須真的註冊在 CLI 上——`--help` 看得到它。

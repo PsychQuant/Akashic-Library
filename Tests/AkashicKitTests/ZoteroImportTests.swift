@@ -210,11 +210,24 @@ extension ZoteroImportTests {
         XCTAssertNil(book.provenance?.orphanedAt)
     }
 
-    func testUnmappedZoteroFieldsAreReportedNotSilentlyDropped() throws {
+    /// #206：無 canonical 對照的欄位**現在會入庫**（以正規化後的原名）。
+    ///
+    /// 這條原名 `testUnmappedZoteroFieldsAreReportedNotSilentlyDropped`，斷言
+    /// `report.droppedFields["extra"] == 1` 並宣稱該欄位「未入庫」。殘餘收集落地
+    /// 之後那句話成了假話，而測試仍然綠——**套件因此釘住了那個謊**（verify H2）。
+    /// 席位實測：把 `ZoteroMapping` 改回靜默丟棄，27 條 ZoteroImportTests 全綠。
+    ///
+    /// 所以斷言改成兩件事一起驗：**有回報**（訊號還在）**且真的存進去了**
+    /// （報告與事實一致）。少了後半句，同一個謊可以再長回來。
+    func testUnmappedZoteroFieldsAreReportedAndStored() throws {
         try fixture.db.execute("INSERT INTO fields VALUES (8,'extra')")
         try fixture.addField(item: 10, field: 8, value: "PMID: 12345", valueID: 199)
         let report = try runImport()
-        XCTAssertEqual(report.droppedFields["extra"], 1)
+        XCTAssertEqual(report.residualFields["extra"], 1, "訊號要在")
+        let entries = try store.load().entries
+        let stored = entries.compactMap { $0.fields["extra"] }
+        XCTAssertEqual(stored, ["PMID: 12345"],
+                       "報告說收了就要真的收——報告與事實不一致比沒有報告更糟")
     }
 
     func testDeletedAttachmentChildIsExcluded() throws {

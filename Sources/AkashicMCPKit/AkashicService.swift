@@ -632,7 +632,35 @@ public final class AkashicService {
         }
         var entry = Entry(id: UUID(), citekey: citekey, type: type, title: title,
                           authors: authors.map { .literal($0) }, date: date)
-        entry.fields = fields
+        // **鍵在這一層正規化，不在呼叫端**（#206 verify C1）。
+        //
+        // `Entry.fields` 的鍵**直接**成為匯出的 biblatex 欄位名，所以一個帶空格或
+        // 數字開頭的鍵不是難看，是讓**整份** library 的 `export-bib` 產物 biber
+        // 解析不了（實測：一筆壞鍵 → `biber --tool` 報 syntax error 且完全不產出檔）。
+        //
+        // 第一版只在 CLI 的 `.bib` 路徑做正規化，於是 **JSON 路徑與整個 MCP 面**
+        // 都繞得過去——而 `akashic_create_entry` 正是 LLM 會呼叫的那支。修在 service
+        // 是因為這裡是**兩個介面唯一的交會點**；補在任一呼叫端都會留下另一個洞。
+        var normalized: [String: String] = [:]
+        var rejectedKeys: [String] = []
+        for key in fields.keys.sorted() {           // 排序 → 撞鍵時的勝者是決定性的
+            guard let value = fields[key] else { continue }
+            guard let k = FieldKey.normalized(key) else {
+                rejectedKeys.append(key); continue   // 無法表達成合法欄位名
+            }
+            if normalized[k] != nil { rejectedKeys.append(key); continue }  // 正規化後撞鍵
+            normalized[k] = value
+        }
+        // **不可表達的鍵一律拒寫，不靜默丟。**（#206 verify M1／規則 §3）
+        // 丟一個欄位而不說，會讓「store 沒有這個欄位」與「來源沒給」變成同一個
+        // 觀察——那兩件事事後完全無法區分，正是本 change 的規則要防的。
+        guard rejectedKeys.isEmpty else {
+            throw ServiceError.invalid(
+                "以下欄位名無法表達成合法的 biblatex 欄位（或正規化後與其他欄位相撞），"
+                + "已拒絕寫入整筆——請改名後重試："
+                + rejectedKeys.map { displaySafe($0, max: 80) }.joined(separator: "、"))
+        }
+        entry.fields = normalized
         try writeAndReindex(entry)
         return try jsonString(["citekey": displaySafe(citekey, max: 200),
                                "id": entry.id.uuidString])
@@ -710,8 +738,10 @@ public final class AkashicService {
             "unchanged": report.unchanged,
             // #171 verify 171-5(d)：key 是 Zotero 未映射的欄位名＝第三方字串，
             // 而同一個 dict literal 裡其餘七個值全部消毒。
-            "droppedFields": Dictionary(uniqueKeysWithValues:
-                report.droppedFields.map { (displaySafe($0.key, max: 200), $0.value) }),
+            // #206：欄位不再被丟棄，改以正規化後的原名入庫——鍵名跟著改，
+            // 否則 MCP 面回給 LLM 的仍是「dropped」這個假訊號（verify H2）
+            "residualFields": Dictionary(uniqueKeysWithValues:
+                report.residualFields.map { (displaySafe($0.key, max: 200), $0.value) }),
             "unnormalizedDates": report.unnormalizedDates.map { displaySafe($0, max: 200) },
             "skippedLinkedAttachments": report.skippedLinkedAttachments,
         ]

@@ -5,6 +5,22 @@ metadata 檔案化（per-entry YAML、git 版控）、附件外部化、Zotero �
 
 阿卡夏紀錄（Akashic records）＝記載一切知識的圖書館，本義使用。
 
+## 作者
+
+**鄭澈 / Che Cheng** — person entity `333E7920-EE1C-5ACD-B905-793A34720A1C`（`key: che-cheng`）。
+
+記成 UUID 而不是一個名字字串，是因為**這個系統對「人」的正典表示就是 person entity 的
+id**，而作者不該是那條規則的例外。名字會變（拼法、羅馬化、`Family, Given` vs
+`Given Family`——本 store 兩種都有）、`key` 也可能改；**id 不會**。想知道作者是誰、
+發表過什麼、隸屬哪裡，答案在那筆記錄裡而不是在這一行：
+
+```bash
+akashic query --author che-cheng          # 庫內的著作
+grep -rl '^key: che-cheng$' ~/.akashic/entities/   # 那筆記錄本身
+```
+
+這也是這個 repo 的一個小小的自指：**它的作者是它自己收藏的一筆記錄。**
+
 ## 結構
 
 ```

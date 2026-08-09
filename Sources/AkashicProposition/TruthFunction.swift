@@ -31,16 +31,22 @@ public extension Formula {
     static func atomKey(_ p: Proposition) -> String {
         switch p {
         case let .authored(person, work):
+            // **長度前綴，不是 `,` 分隔**（#204 verify F7）。前一版用
+            // `"authored(\(s(person)),\(s(work)))"`，於是
+            // `authored(l:"a", l:"b,l:c")` 與 `authored(l:"a,l:b", l:"c")`
+            // 編出**同一個鍵**——兩個相異命題塌成一個原子，`canonicalAtoms` 少一個，
+            // `x ∧ ¬y` 被判成矛盾。與 #202 F1 同一個根因。
+            //
             // display-safe-exempt: 這是**排序鍵**不是訊息——消毒會改變鍵的內容，
             // 讓「同一個原子」在消毒前後排到不同位置。鍵流進錯誤訊息的那一處
             // （TruthFunctionError.incompleteValuation）自己消毒。
             func s(_ r: EntityRef) -> String {
                 switch r {
-                case .key(let k): return "k:\(k)"   // display-safe-exempt: 排序鍵非訊息，見上
-                case .literal(let l): return "l:\(l)"   // display-safe-exempt: 同上
+                case .key(let k): return CanonicalEncoding.field("k", k)
+                case .literal(let l): return CanonicalEncoding.field("l", l)
                 }
             }
-            return "authored(\(s(person)),\(s(work)))"
+            return "authored" + CanonicalEncoding.record([s(person), s(work)])
         }
     }
 
@@ -99,20 +105,36 @@ public enum TruthFunctionError: Error, Equatable, LocalizedError {
 
 public extension Formula {
 
-    /// **古典二值求值。** 需要完整賦值。
+    /// 公式裡每個原子都合法。
+    ///
+    /// #205 的立場（非法命題不得被當正常命題處理）**也適用這一層**（verify F8）。
+    /// 前一版只在認識層 `validate()`，於是一個 malformed 的原子照樣算得出 truth
+    /// table、照樣被判成 tautology。那產生不了 `AcceptedFact`，但「對一個不合法
+    /// 的符號做真值函數」本身就沒有意義。
+    func validateAtoms() throws {
+        for a in atoms { try a.validate() }
+    }
+
+    /// **古典二值求值。** 需要完整賦值，且原子必須合法。
     func classicalValue(under v: ClassicalValuation) throws -> Bool {
+        try validateAtoms()
+        return try classicalValueUnchecked(under: v)
+    }
+
+    /// 遞迴本體。`classicalValue` 已在入口驗過，遞迴時不重複驗（O(n²)）。
+    private func classicalValueUnchecked(under v: ClassicalValuation) throws -> Bool {
         switch self {
         case .atom(let p):
             guard let b = v.value(of: p) else {
                 throw TruthFunctionError.incompleteValuation(missing: [Formula.atomKey(p)])
             }
             return b
-        case .not(let f):       return !(try f.classicalValue(under: v))
-        case let .and(a, b):    return try a.classicalValue(under: v) && b.classicalValue(under: v)
+        case .not(let f):       return !(try f.classicalValueUnchecked(under: v))
+        case let .and(a, b):    return try a.classicalValueUnchecked(under: v) && b.classicalValueUnchecked(under: v)
         case let .or(a, b):     return try a.classicalValue(under: v) || b.classicalValue(under: v)
         // 實質蘊含：`p → q` ≡ `¬p ∨ q`
-        case let .implies(a, b): return try !a.classicalValue(under: v) || b.classicalValue(under: v)
-        case let .nor(a, b):    return try !(a.classicalValue(under: v) || b.classicalValue(under: v))
+        case let .implies(a, b): return try !a.classicalValueUnchecked(under: v) || b.classicalValueUnchecked(under: v)
+        case let .nor(a, b):    return try !(a.classicalValueUnchecked(under: v) || b.classicalValueUnchecked(under: v))
         }
     }
 
@@ -121,6 +143,7 @@ public extension Formula {
     /// 有上限：n 個原子要 2^n 列，`limit` 預設 16（65536 列）。超過就**拒絕**
     /// 而非慢慢算——一個算不完的 truth table 對使用者是當機，不是結果。
     func truthTable(limit: Int = 16) throws -> [(valuation: ClassicalValuation, value: Bool)] {
+        try validateAtoms()
         let atoms = canonicalAtoms
         guard atoms.count <= limit else {
             throw TruthFunctionError.tooManyAtoms(count: atoms.count, limit: limit)
@@ -145,6 +168,8 @@ public extension Formula {
     ///
     /// 兩式的原子集合不同時，在**聯集**上比較——`p` 與 `p ∧ (q ∨ ¬q)` 等價。
     func isEquivalent(to other: Formula, limit: Int = 16) throws -> Bool {
+        try validateAtoms()
+        try other.validateAtoms()
         let union = Formula.and(self, other).canonicalAtoms
         guard union.count <= limit else {
             throw TruthFunctionError.tooManyAtoms(count: union.count, limit: limit)

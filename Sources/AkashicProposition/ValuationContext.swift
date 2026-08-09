@@ -84,17 +84,52 @@ extension PropositionModel {
                 switch a {
                 // display-safe-exempt: 這是 **hash 的輸入**不是訊息——消毒會改變
                 // revision，讓「同樣的內容得同樣的 revision」不再成立
-                case .key(let k): return "k:\(k)"   // display-safe-exempt: hash 輸入，見上
-                case .literal(let s): return "l:\(s)"   // display-safe-exempt: 同上
+                case .key(let k): return CanonicalEncoding.field("k", k)
+                case .literal(let s): return CanonicalEncoding.field("l", s)
                 }
             }
-            parts.append("e|\(key)|\(slots.joined(separator: ","))")
+            parts.append(CanonicalEncoding.record(["e", key] + slots))
         }
         for key in peopleByKey.keys.sorted() {
-            parts.append("p|\(key)|\(peopleByKey[key]!.names.sorted().joined(separator: ","))")
+            parts.append(CanonicalEncoding.record(["p", key] + peopleByKey[key]!.names.sorted()))
         }
-        let digest = SHA256.hash(data: Data(parts.joined(separator: "\n").utf8))
-        return digest.map { String(format: "%02x", $0) }.joined().prefix(16).description
+        return CanonicalEncoding.digest(parts)
+    }
+}
+
+/// **長度前綴編碼**——把任意字串序列變成無歧義的一條位元組串（#202 verify F1）。
+///
+/// 第一版用 `joined(separator: ",")`／`"\n"` 而**不逃脫分隔符**。那讓兩個不同的
+/// 世界得到同一個 revision，而本 repo 的資料**routinely** 觸發它：person 的 names
+/// 幾乎都是 `Family, Given` 形式（實測 `~/.akashic` 有 893 個 person 檔含逗號）。
+///
+/// 席位實測的碰撞用的是本 repo 自己的 fixture 名字：
+///
+///     A: names = ["Chen, H.-Y."]          → 求值 .undetermined(.supportingEvidenceUnresolved)
+///     B: names = ["Chen", "H.-Y."]        → 求值 .undetermined(.noSupportingEvidence)
+///     兩者 revision 相同 → 拿 A 的 revision 標 B 的求值，`revisionMismatch` 守衛放行
+///
+/// 也就是說「可重播」在**最常見**的資料形狀上是假的。而 doc 當時還寫著涵蓋範圍
+/// 「精確」——那句話是本 change 自己駁倒的。
+///
+/// 長度前綴（`<utf8 byte count>:<content>`）是**單射**的：不同的欄位序列不可能
+/// 編出同一條串，因為長度本身把邊界寫進了編碼，不依賴任何字元不出現在內容裡。
+enum CanonicalEncoding {
+    /// 一個帶標籤的欄位。
+    static func field(_ tag: String, _ value: String) -> String {
+        "\(tag)\(unit(value))"
+    }
+    /// 一個長度前綴的單元。
+    static func unit(_ s: String) -> String { "\(s.utf8.count):\(s)" }
+    /// 一筆記錄＝若干單元串接（每個都長度前綴，所以不需要分隔符）。
+    static func record(_ fields: [String]) -> String {
+        fields.map(unit).joined()
+    }
+    /// 記錄序列 → SHA-256 前 16 hex。
+    static func digest(_ records: [String]) -> String {
+        let joined = records.map(unit).joined()
+        let d = SHA256.hash(data: Data(joined.utf8))
+        return d.map { String(format: "%02x", $0) }.joined().prefix(16).description
     }
 }
 

@@ -71,6 +71,16 @@ public indirect enum Formula: Equatable {
         }
     }
 
+    /// **兩邊都未定時，回傳左邊的 reason**（#204 verify F9）。
+    ///
+    /// 真值分量是可交換的（`∧`／`∨` 的三值表本身對稱），但 `TruthValue` 帶著
+    /// `UndeterminedReason`，所以 `kleeneAnd(u1, u2) != kleeneAnd(u2, u1)`
+    /// 在 `Equatable` 下成立——**只有 reason 不同**。
+    ///
+    /// 這是刻意的：reason 是給人看的線索（「為什麼不知道」），左偏讓它決定性、
+    /// 不隨雜湊或求值順序漂移。要它可交換就得把 reason 合併成集合，那會讓最常見
+    /// 的單一原因情形變得囉嗦。**真值分量的可交換性由
+    /// `testTruthComponentIsCommutative` 釘住**，reason 的左偏是已記錄的行為。
     static func kleeneAnd(_ a: TruthValue, _ b: TruthValue) -> TruthValue {
         // 任一為假 → 假（不論另一個知不知道）
         if case .fails = a { return .fails }
@@ -167,14 +177,20 @@ extension PropositionModel {
     /// 附上完備性證言後的模型。
     ///
     /// 分成獨立型別而非塞進 `PropositionModel`，是為了讓「有沒有證言」在型別上
-    /// 看得見：拿 `PropositionModel` 求值的呼叫端**永遠不會**得到 `.fails`，
-    /// 而那正是它該知道的事。
+    /// 看得見：拿 `PropositionModel` 對一個 **`authored` 原子**求值的呼叫端
+    /// **永遠不會**得到 `.fails`，而那正是它該知道的事。
+    ///
+    /// **限定詞不能省**（#203 verify F3）：`Formula.not(.atom(p))` 在 plain model
+    /// 上當然可以是 `.fails`——那是 `p` 成立時 `¬p` 為假，與「原子的反證」是兩件
+    /// 不同的事。本檔自己的 `testNegationIsAPropositionNotAStance` 就斷言了它。
+    /// 前一版把這句寫成無限定的「永遠不會」，被自己的測試駁倒。
     public func attesting(_ attestations: [AuthorListAttestation]) throws -> AttestedModel {
         try AttestedModel(base: self, attestations: attestations)
     }
 }
 
-/// 帶完備性證言的模型。**只有這個型別能產生 `.fails`。**
+/// 帶完備性證言的模型。**只有這個型別能讓 `authored` 原子產生 `.fails`。**
+/// （複合式的 `.fails` 不需要證言——`¬p` 在 `p` 成立時就是假的。）
 public struct AttestedModel {
     public let base: PropositionModel
     public let attestationsByWork: [String: AuthorListAttestation]
@@ -190,6 +206,49 @@ public struct AttestedModel {
         }
         self.base = base
         self.attestationsByWork = byWork
+    }
+}
+
+extension AttestedModel {
+
+    /// **含證言的 revision**（#203 verify F2）。
+    ///
+    /// `AttestedModel` 原本沒有 revision，而證言**會改變真值**（那是它的全部作用）。
+    /// 於是 #203 的 `.fails` 路徑整個落在 #202 的保證之外：`AttestedModel.base`
+    /// 是 public，呼叫端最自然的動作就是拿 `base.contentRevision` 來標，而那個值
+    /// 對「有沒有證言」完全無感——同一個 revision 對應 `.fails` 與 `.undetermined`
+    /// 兩個世界。
+    ///
+    /// 更難堪的是 `testRevisionCoversEverythingEvaluationReads` 被 doc 稱作
+    /// 「機械提醒」，卻只檢查作者槽與 names，所以 #203 靜默廢掉了 #202 的核心
+    /// 不變式而沒有任何東西變紅。
+    public var contentRevision: String {
+        var parts = [base.contentRevision]
+        for key in attestationsByWork.keys.sorted() {
+            let a = attestationsByWork[key]!
+            parts.append(CanonicalEncoding.record(
+                ["att", a.workCitekey, a.attestedBy, a.attestedAt, a.basis]))
+        }
+        return CanonicalEncoding.digest(parts)
+    }
+}
+
+extension Proposition {
+
+    /// 帶 context 的求值，**證言版**（#203 verify F2）。
+    ///
+    /// 沒有這一支，`.fails` 就是一個產生得出來、卻無法被標記與重播的真值。
+    public func evaluate(in model: AttestedModel,
+                         context: ValuationContext) throws -> Valuation {
+        if context.validTime != nil, !supportsValidTime {
+            throw ValuationError.timeNotSupported(predicate: predicateName)
+        }
+        guard context.storeRevision == model.contentRevision else {
+            throw ValuationError.revisionMismatch(expected: model.contentRevision,
+                                                  got: context.storeRevision)
+        }
+        return Valuation(truth: try Formula.atom(self).evaluate(in: model),
+                         context: context, proposition: self)
     }
 }
 
@@ -218,6 +277,14 @@ extension Formula {
                 guard case let .key(workKey) = work, case .key = person,
                       model.attestationsByWork[workKey] != nil,
                       let entry = model.base.entriesByKey[workKey] else { return plain }
+                // **空名單不得成為反證**（#203 verify F4）。`allSatisfy` 對空陣列
+                // 是**空真**，所以前一版對「作者被壞掉的 re-import 清空」或「根本
+                // 沒匯入作者」的 work，會對**每一個人**回 `.fails`——那是**從缺席
+                // 製造反證**，正是本模組存在要擋的那個推論。
+                //
+                // 證言說的是「我核對過這份名單」；一份空名單沒有可核對的內容，
+                // 它證成不了任何人不在其中。
+                guard !entry.authors.isEmpty else { return plain }
                 // **完備 ≠ 已歸戶**：還有 literal 槽就仍然不知道那是不是他
                 let allResolved = entry.authors.allSatisfy {
                     if case .key = $0 { return true } else { return false }

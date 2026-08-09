@@ -84,10 +84,28 @@ public enum ZoteroMapping {
         entry.title = item.fields["title"] ?? ""
         entry.date = item.fields["date"].map { DateNormalizer.normalize($0) ?? $0 }
         var fields: [String: String] = [:]
+        // **殘餘收集**（#206）——`fieldMap` 命中就用 canonical biblatex 名，
+        // **沒命中的不再丟掉**，改用正規化後的原名收進來。
+        //
+        // 這一行原本是 `guard let bibField = fieldMap[zField] else { continue }`
+        // ——那個 `continue` 就是 `.claude/rules/lossless-intake.md` 點名的靜默丟棄。
+        // Zotero 的 item 依 type 有幾十種欄位（`presentationType`／`meetingName`／
+        // `repository`／`archiveLocation`…），`fieldMap` 涵蓋不到的一律消失。
+        //
+        // **對映優先於殘餘**：`fieldMap` 是語意對照（Zotero 名 → biblatex 正典名），
+        // 殘餘是原樣搬運。同一個 zField 只會走其中一條。
         for (zField, value) in item.fields {
             if zField == "title" || zField == "date" { continue }
-            guard let bibField = fieldMap[zField] else { continue }
-            fields[bibField] = value
+            guard let key = fieldMap[zField] ?? FieldKey.normalized(zField) else { continue }
+            guard !value.isEmpty else { continue }
+            // 對映後撞名（兩個 Zotero 欄位映到同一個 biblatex 名，或殘餘撞上對映）：
+            // **`fieldMap` 的結果勝出**，不靜默覆寫。`item.fields` 是 Dictionary、
+            // 迭代順序不定，所以不能靠順序決定——必須顯式讓對映優先。
+            if let existing = fields[key], fieldMap[zField] == nil {
+                _ = existing   // 殘餘不覆寫既有值
+                continue
+            }
+            fields[key] = value
         }
         entry.fields = fields
         // pool 附件是 Akashic 自有資料，保留；zotero reference 整批以 Zotero 為準

@@ -169,8 +169,39 @@ public enum WoSImport {
         if let g = row["Group Authors"], !g.isEmpty {
             e.authors += splitAuthors(g).map { .literal(CorporateName.mark($0)) }
         }
+        // **殘餘收集**（#206）——上面對映完之後，**其餘所有欄位原樣進 `fields`**。
+        //
+        // 這不是「順便多收一點」，是 `.claude/rules/lossless-intake.md` 的硬性要求：
+        // 沒收進來的欄位不是「資料缺一塊」，是那一族命題**永久不可判定**，而且沒有
+        // 任何跡象顯示它曾經可判定。實測一份 CV 的非期刊條目經此匯入會靜默丟掉 21 個
+        // 欄位（`eventtitle`／`venue`／`institution`／`eprint`…），對 presentation 而言
+        // 那些就是主要內容。
+        //
+        // **`consumedColumns` 與上面的對映是兩份會分岔的清單**——這是本段唯一的
+        // 維護風險，由 `testEveryConsumedColumnIsDeclared` 釘住：那條測試對每個
+        // 宣告的欄位餵值、斷言它**不會**同時出現在殘餘裡。漏宣告 → 該欄位重複出現
+        // （一次對映、一次殘餘）→ 紅。
+        for (column, value) in row where !Self.consumedColumns.contains(column) {
+            guard !value.isEmpty, let key = FieldKey.normalized(column) else { continue }
+            // **不覆寫已對映的鍵。** 對映的結果是經過語意處理的（`pages` 是
+            // start--end 合成、`date` 併了年與日）；殘餘是原樣搬運。撞名時語意的
+            // 那份勝出，且**不靜默**——留給 report 的 `droppedColumns`。
+            if e.fields[key] != nil { continue }
+            e.fields[key] = value
+        }
         return e
     }
+
+    /// 上面 `entry(from:taken:)` 已經**個別**處理掉的 WoS 欄位。
+    ///
+    /// 殘餘收集用它當補集的基準。**封閉列舉**——新增一個具名對映就要同步加進來，
+    /// 否則那個欄位會被收兩次（一次語意對映、一次原樣殘餘）。
+    /// `testEveryConsumedColumnIsDeclared` 是機械檢查。
+    static let consumedColumns: Set<String> = [
+        "Authors", "Author Full Names", "Article Title", "Publication Year",
+        "Publication Date", "Source Title", "Volume", "Issue", "DOI",
+        "Start Page", "End Page", "Group Authors",
+    ]
 
     // MARK: - 匯入
 

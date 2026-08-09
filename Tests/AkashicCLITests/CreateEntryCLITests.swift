@@ -312,6 +312,67 @@ final class CreateEntryCLITests: XCTestCase {
         XCTAssertTrue(keys.allSatisfy { !$0.contains(" ") }, "鍵不得含空格：\(keys)")
     }
 
+    // MARK: - #207 未終止的 entry
+
+    /// **半筆比缺欄位更糟**：它讓「這筆記錄只有兩個欄位」與「這個檔案壞了」
+    /// 變成同一個觀察。`BibParser` 的收集迴圈在 EOF 時退出但仍呼叫 `parseEntry`，
+    /// 於是截斷檔靜默產出半筆、exit 0。
+    func testUnterminatedEntryIsRefused() throws {
+        let bib = """
+        @ARTICLE{complete2025,
+          AUTHOR = {Cheng, Che},
+          TITLE = {A Complete Entry},
+          DATE = 2025,
+        }
+
+        @PRESENTATION{truncated2026,
+          AUTHOR = {Cheng, Che},
+          TITLE = {Cut Off Halfway},
+          EVENTTITLE = {IMPS 2026},
+        """
+        let r = try runCLI(["create-entry", "--format", "bib"], stdin: bib)
+        XCTAssertNotEqual(r.status, 0, "截斷檔必須被拒絕：\(r.out)")
+        XCTAssertTrue(r.out.contains("truncated2026"), "訊息要指出是哪一筆：\(r.out)")
+        XCTAssertEqual(try loadedEntries().count, 0, "**拒絕整份**——不得只收前面完整的那筆")
+    }
+
+    /// 完整檔不得誤擋。含大括號的合法值（保護大小寫、機構名）照常通過。
+    func testCompleteFileWithBracesIsNotFalselyRefused() throws {
+        let bib = """
+        @ARTICLE{ok2025,
+          AUTHOR = {{World Health Organization}},
+          TITLE = {A Study of {DNA} Sequencing},
+          DATE = 2025,
+        }
+        """
+        let r = try runCLI(["create-entry", "--format", "bib"], stdin: bib)
+        XCTAssertEqual(r.status, 0, r.out)
+        XCTAssertEqual(try loadedEntries().count, 1)
+    }
+
+    /// 註解行不參與大括號計數。
+    ///
+    /// **這是防禦性的，不是對已觀察資料的回應**——實測真實 CV（43 筆）的註解行
+    /// **0 條**大括號不平衡（檔頭那些 `% - Journal Articles (type = {Journal Article})`
+    /// 都是平衡的，計不計都一樣）。
+    ///
+    /// 所以 fixture 用一條**刻意不平衡**的註解：那是這個 skip 唯一會起作用的
+    /// 形狀，也是唯一能讓 mutation 見紅的形狀。用平衡的註解寫這條測試（第一版
+    /// 的作法）看起來合理，但拿掉 skip 之後照樣全綠——測不到它要測的東西。
+    func testUnbalancedBraceInCommentDoesNotCauseFalseRefusal() throws {
+        let bib = """
+        % TODO: 這裡原本想寫 { 但沒寫完
+        @ARTICLE{ok,
+          TITLE = {T},
+          AUTHOR = {Cheng, Che},
+          DATE = 2025,
+        }
+        """
+        let r = try runCLI(["create-entry", "--format", "bib"], stdin: bib)
+        XCTAssertEqual(r.status, 0, "註解裡的大括號不得造成誤擋：\(r.out)")
+        XCTAssertEqual(try loadedEntries().count, 1)
+    }
+
     /// 這支命令必須真的註冊在 CLI 上——`--help` 看得到它。
     /// （少了註冊那一行，上面所有測試會以「找不到命令」的形式失敗，但那個訊息
     /// 指向的是別的問題；這條讓根因直接可讀。）

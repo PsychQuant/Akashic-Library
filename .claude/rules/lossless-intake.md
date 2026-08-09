@@ -109,6 +109,25 @@ WoS 走 `report.enriched`（與 `conflicts` 分開）。Zotero 走既有的 hash
 匯入會大範圍觸發更新**，而更新分支在沒有已歸戶 `.key` 作者時會用 Zotero 的作者
 覆寫 literal 作者（既有 sync 語意，非本規則引入，但會被它一次性放大）。
 
+## 兩個 importer 的方向相反——這是刻意的，但必須說出來
+
+| | 既有記錄與來源不一致時 |
+|---|---|
+| `import-wos` | **拒絕覆寫**，記 `conflicts` 留給人 |
+| `import-zotero` | **跟隨上游**：Zotero 供給的欄位以 Zotero 為準；未歸戶的 literal 作者被覆寫 |
+
+各自都對：WoS 是一次性匯出檔（store 可能比它新），Zotero 是 pull-based sync
+（Zotero 是上游）。**危險的不是差異本身，是差異看不見**——使用者跑兩個命令會
+得到相反的資料保護等級。
+
+所以 Zotero 側把會蓋掉的東西**報出來**：`authorsOverwritten`（未歸戶作者被改成
+Zotero 版本）與 `fieldsRemovedByPull`（Zotero 這次沒給、整份替換後消失的欄位，
+含使用者手工補的）。已歸戶的 `.key` 作者永不被覆寫（`authorsPreserved`）。
+
+**尚未解決的部分**：`applyBiblatexFields` 整份替換 `fields`，所以 Zotero
+「沒給」與「說沒有」被當成同一件事。要分開需要 per-field provenance，那是
+更大的設計題（追蹤：#208）。目前的立場是**先讓它可見**——靜默才是真正的問題。
+
 ## 跟其他規則的關係
 
 - 全域 `common-spec-prose-enumeration.md`：本規則的「不收」是**封閉列舉**，

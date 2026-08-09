@@ -244,6 +244,19 @@ struct ImportZotero: ParsableCommand {
         if !report.authorsPreserved.isEmpty {
             print("authors preserved（已解析、未同步 Zotero 作者欄）: \(report.authorsPreserved.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
         }
+        if !report.authorsOverwritten.isEmpty {
+            // #208：pull-based sync 覆寫本地的未歸戶作者，**與 import-wos 相反**
+            //（後者對任何分歧一律拒絕覆寫）。至少要讓它可見。
+            print("authors overwritten（未歸戶 literal 作者已改為 Zotero 版本）: "
+                + "\(report.authorsOverwritten.count) 筆——"
+                + "已歸戶的 person key 不受影響（見 authors preserved）")
+        }
+        if !report.fieldsRemovedByPull.isEmpty {
+            let s = report.fieldsRemovedByPull.keys.sorted()
+                .map { "\(displaySafe($0, max: 100))×\(report.fieldsRemovedByPull[$0]!)" }
+                .joined(separator: ", ")
+            print("fields removed by pull（Zotero 這次沒給，整份替換後消失）: \(s)")
+        }
         if !report.residualFields.isEmpty {
             let summary = report.residualFields.keys.sorted()
                 .map { "\($0)×\(report.residualFields[$0]!)" }.joined(separator: ", ")

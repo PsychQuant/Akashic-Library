@@ -53,7 +53,20 @@ struct CreateEntryCmd: ParsableCommand {
         let drafts: [EntryDraft]
         switch format {
         case .json: drafts = try Self.parseJSON(raw)
-        case .bib:  drafts = Self.parseBib(text)
+        case .bib:
+            // **未終止的 entry 必須報出來**（#207）。`BibParser` 的收集迴圈是
+            // `while braceDepth > 0 && i + 1 < lines.count`——檔案在 entry 中途
+            // 結束時它因為第二個條件退出，而 `parseEntry` **照常被呼叫**，
+            // 產出一筆只含截斷點之前欄位的 entry，沒有任何錯誤。
+            //
+            // 半筆比缺欄位更糟：它讓「這筆記錄只有兩個欄位」與「這個檔案壞了」
+            // 變成同一個觀察。現實成因不罕見——下載中斷、複製到一半、編輯器
+            // 沒存完、`head -n` 之類的處理。
+            //
+            // 根因在 submodule，但**邊界的擁有者是這裡**（同 #176／#206 的立場）：
+            // 換一個 parser、或它的行為改了，這道檢查仍然成立。
+            try Self.refuseUnterminatedEntries(text)
+            drafts = Self.parseBib(text)
         }
         guard !drafts.isEmpty else {
             // **零筆不得靜默。**「解析成功但一筆都沒有」與「格式沒被辨識」是兩件事，
@@ -197,6 +210,40 @@ struct CreateEntryCmd: ParsableCommand {
         case let n as NSNumber:
             return CFGetTypeID(n) == CFBooleanGetTypeID() ? "布林" : "數字"
         default: return String(describing: type(of: v))
+        }
+    }
+
+    /// 掃描原始文字，找出**大括號沒有閉合**的 entry。
+    ///
+    /// 判準是每個 `@` 開頭的 entry 區塊自己的大括號要平衡。與 btparse 一樣
+    /// **不看 backslash**（#176 量過：btparse 數大括號時完全忽略 backslash，
+    /// 所以模仿它的計數才是對的）。字串字面量內的大括號同樣計數——biblatex 的
+    /// 引號值裡的大括號本來就參與配對。
+    static func refuseUnterminatedEntries(_ text: String) throws {
+        var depth = 0
+        var startLine: Int?
+        var startKey = ""
+        for (i, raw) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            let line = String(raw)
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("%") { continue }        // 註解行不計（BibParser 亦然）
+            if depth == 0, trimmed.hasPrefix("@") {
+                startLine = i + 1
+                startKey = trimmed.split(separator: "{").dropFirst().first
+                    .map { String($0.prefix(while: { $0 != "," })) } ?? "?"
+            }
+            for ch in line {
+                if ch == "{" { depth += 1 }
+                if ch == "}" { depth = max(0, depth - 1) }
+            }
+            if depth == 0 { startLine = nil }
+        }
+        guard depth == 0, startLine == nil else {
+            throw ValidationError(
+                "第 \(startLine.map(String.init) ?? "?") 行起的 entry"
+                + "「\(displaySafe(startKey, max: 80))」大括號未閉合——"
+                + "檔案可能被截斷。**拒絕整份匯入**：半筆記錄會讓「這筆只有幾個欄位」"
+                + "與「這個檔案壞了」變成同一個觀察，事後無法區分")
         }
     }
 

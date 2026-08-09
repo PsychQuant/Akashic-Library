@@ -13,6 +13,13 @@ import AkashicCore
 public indirect enum Formula: Equatable {
     case atom(Proposition)
     case not(Formula)
+    // #204：真值函數式組合。古典二值語意在 `TruthFunction.swift`，
+    // 認識面的三值組合在本檔下方——**兩層各自完整，互不冒充**。
+    case and(Formula, Formula)
+    case or(Formula, Formula)
+    case implies(Formula, Formula)
+    /// 共同否定（joint denial／NOR）。TLP 5.5 的完備基底。
+    case nor(Formula, Formula)
 
     /// 這個公式在模型下的真值。**三值，不是二值**——`¬p` 的未定仍是未定。
     ///
@@ -31,19 +38,66 @@ public indirect enum Formula: Equatable {
         case .atom(let p):
             return try p.evaluate(in: model)
         case .not(let inner):
-            switch try inner.evaluate(in: model) {
-            case .holds: return .fails
-            case .fails: return .holds
-            case .undetermined(let why): return .undetermined(why)
-            }
+            return Formula.kleeneNot(try inner.evaluate(in: model))
+        case let .and(a, b):
+            return Formula.kleeneAnd(try a.evaluate(in: model), try b.evaluate(in: model))
+        case let .or(a, b):
+            return Formula.kleeneOr(try a.evaluate(in: model), try b.evaluate(in: model))
+        case let .implies(a, b):
+            // p → q ≡ ¬p ∨ q，三值同樣照這個定義（Kleene）
+            return Formula.kleeneOr(Formula.kleeneNot(try a.evaluate(in: model)),
+                                    try b.evaluate(in: model))
+        case let .nor(a, b):
+            return Formula.kleeneNot(Formula.kleeneOr(try a.evaluate(in: model),
+                                                      try b.evaluate(in: model)))
         }
     }
 
-    /// 公式裡出現的所有原子命題（去重後依 predicate 與引數排序，決定性）。
+    // MARK: - Kleene 強三值運算子（認識面）
+    //
+    // **這不是命題 5 的二值真值函數**——它回答的是「以我們現在知道的，這個複合
+    // 主張的知識狀態是什麼」。古典二值那一層在 `TruthFunction.swift`。
+    //
+    // 「強」的意思是：只要**已知的部分足以決定結果**，就給出結果而不因為有未定
+    // 就一律未定。`false ∧ unknown` 是 false（不論那個 unknown 是什麼，合取都
+    // 為假）；`true ∨ unknown` 是 true。這比「有未定就未定」（弱三值）保守得少，
+    // 而且每一步都還是**只在證據足夠時**才宣稱真值——與本模組的立場一致。
+
+    static func kleeneNot(_ t: TruthValue) -> TruthValue {
+        switch t {
+        case .holds: return .fails
+        case .fails: return .holds
+        case .undetermined(let why): return .undetermined(why)
+        }
+    }
+
+    static func kleeneAnd(_ a: TruthValue, _ b: TruthValue) -> TruthValue {
+        // 任一為假 → 假（不論另一個知不知道）
+        if case .fails = a { return .fails }
+        if case .fails = b { return .fails }
+        if case .holds = a, case .holds = b { return .holds }
+        if case .undetermined(let w) = a { return .undetermined(w) }
+        if case .undetermined(let w) = b { return .undetermined(w) }
+        return .holds
+    }
+
+    static func kleeneOr(_ a: TruthValue, _ b: TruthValue) -> TruthValue {
+        // 任一為真 → 真
+        if case .holds = a { return .holds }
+        if case .holds = b { return .holds }
+        if case .fails = a, case .fails = b { return .fails }
+        if case .undetermined(let w) = a { return .undetermined(w) }
+        if case .undetermined(let w) = b { return .undetermined(w) }
+        return .fails
+    }
+
+    /// 公式裡出現的所有原子命題。
     public var atoms: [Proposition] {
         switch self {
         case .atom(let p): return [p]
         case .not(let f): return f.atoms
+        case let .and(a, b), let .or(a, b), let .implies(a, b), let .nor(a, b):
+            return a.atoms + b.atoms
         }
     }
 }
@@ -171,11 +225,17 @@ extension Formula {
                 return allResolved ? .fails : plain
             }
         case .not(let inner):
-            switch try inner.evaluate(in: model) {
-            case .holds: return .fails
-            case .fails: return .holds
-            case .undetermined(let why): return .undetermined(why)
-            }
+            return Formula.kleeneNot(try inner.evaluate(in: model))
+        case let .and(a, b):
+            return Formula.kleeneAnd(try a.evaluate(in: model), try b.evaluate(in: model))
+        case let .or(a, b):
+            return Formula.kleeneOr(try a.evaluate(in: model), try b.evaluate(in: model))
+        case let .implies(a, b):
+            return Formula.kleeneOr(Formula.kleeneNot(try a.evaluate(in: model)),
+                                    try b.evaluate(in: model))
+        case let .nor(a, b):
+            return Formula.kleeneNot(Formula.kleeneOr(try a.evaluate(in: model),
+                                                      try b.evaluate(in: model)))
         }
     }
 }

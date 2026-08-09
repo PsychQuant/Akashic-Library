@@ -82,8 +82,10 @@ extension PropositionModel {
             let e = entriesByKey[key]!
             let slots = e.authors.map { a -> String in
                 switch a {
-                case .key(let k): return "k:\(k)"
-                case .literal(let s): return "l:\(s)"
+                // display-safe-exempt: 這是 **hash 的輸入**不是訊息——消毒會改變
+                // revision，讓「同樣的內容得同樣的 revision」不再成立
+                case .key(let k): return "k:\(k)"   // display-safe-exempt: hash 輸入，見上
+                case .literal(let s): return "l:\(s)"   // display-safe-exempt: 同上
                 }
             }
             parts.append("e|\(key)|\(slots.joined(separator: ","))")
@@ -146,12 +148,10 @@ public enum ValuationError: Error, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .timeNotSupported(let p):
-            // display-safe-exempt: predicateName 來自封閉 enum，是程式字面量
-            return "predicate「\(p)」沒有時間維度，指定 validTime 會得到一個沒考慮時間的答案"
+            return "predicate「\(p)」沒有時間維度，指定 validTime 會得到一個沒考慮時間的答案"   // display-safe-exempt: predicateName 來自封閉 enum，是程式字面量
                 + "——明確拒絕而非靜默忽略"
         case let .revisionMismatch(expected, got):
-            // display-safe-exempt: 兩者都是本模組算出的 hex digest，非 store 內容
-            return "context 的 storeRevision（\(got)）與 model 實際內容（\(expected)）不符"
+            return "context 的 storeRevision（\(got)）與 model 實際內容（\(expected)）不符"   // display-safe-exempt: 兩者都是本模組算出的 hex digest（SHA-256 前 16 hex），非 store 內容
                 + "——標錯 revision 的結果不可重播"
         }
     }

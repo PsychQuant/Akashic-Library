@@ -36,8 +36,11 @@ public struct YesNoQuestion: Equatable {
     /// 對模型求答。回傳落在答案空間裡的**哪一個**，以及未定時的原因。
     ///
     /// **回傳 `Answer` 不是 `Bool`**：型別層讓「未定」無法被靜默壓成 false。
-    public func answer(in model: PropositionModel) -> (answer: Answer, truth: TruthValue) {
-        let t = subject.evaluate(in: model)
+    ///
+    /// **非法命題 throw**（#205）：一個 malformed 的主題不構成問句，回一個
+    /// `.undetermined` 等於假裝問過了。
+    public func answer(in model: PropositionModel) throws -> (answer: Answer, truth: TruthValue) {
+        let t = try subject.evaluate(in: model)
         switch t {
         case .holds: return (.yes, t)
         case .fails: return (.no, t)
@@ -127,7 +130,9 @@ public func adjudicate(_ assertion: Assertion, in model: PropositionModel,
     guard assertion.stance == .asserted else {
         throw AdjudicationRefusal.stanceIsNotAssertion(assertion.stance)
     }
-    let t = assertion.proposition.evaluate(in: model)
+    // 非法命題在這裡也擋一次——`adjudicate` 是 public 且產生的是不可逆的
+    // `AcceptedFact`，不該只靠 `evaluate` 的守衛（#205）。
+    let t = try assertion.proposition.evaluate(in: model)
     guard t == .holds else { throw AdjudicationRefusal.notEstablished(t) }
     return AcceptedFact(proposition: assertion.proposition, basis: assertion,
                         acceptedBy: acceptedBy, acceptedAt: acceptedAt)

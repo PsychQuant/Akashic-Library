@@ -187,6 +187,16 @@ public struct Person: Equatable {
     public var names: [String]
     /// 對外可稱呼的名字（#81）：`names` 的子集，每個書寫系統至多一個。
     ///
+    /// **`authorized` 是編目學的術語，不是權限**——RDA／MARC 的 *authorized access
+    /// point*（規範檢索點），相對於 `names` 的 *variant access point*（變異檢索點）。
+    /// 這個 repo 沒有任何 authz 概念，別把它讀成「有權限的」。
+    ///
+    /// **不要改名叫 `normalized`。** 那個詞屬於 `NameNormalization.matchingKey`——
+    /// #81 的三層是「正規化（可機械）／身分（要人判斷）／**正規形（要權威指定）**」，
+    /// 本欄位是第三層。共用名字會誘發 `authorized = names.map(normalize)`，而那個
+    /// 實作不可能正確：`Liang, Yu-Jen` 與 `Yu-Jen Liang` 的 matchingKey **不同**
+    /// （逗號＋語序），機械層連它們是同一個名字都看不出來，遑論挑出對外形式。
+    ///
     /// 空集合是合法的，意思是「還沒指定該怎麼稱呼他」——那時 `displayName` 退到 `key`，
     /// 讓缺口在輸出上看得見，而不是靜默印出索引系統產生的引用形。
     public var authorized: [String]

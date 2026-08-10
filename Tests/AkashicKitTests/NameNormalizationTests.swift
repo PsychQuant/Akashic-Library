@@ -114,3 +114,49 @@ extension NameNormalizationTests {
         }
     }
 }
+
+/// #221：**正規化的邊界**——`authorized` 為什麼不能改名叫 `normalized`。
+///
+/// `matchingKey` 只做可機械的那一層。同一個人的兩種語序（`Family, Given` vs
+/// `Given Family`）它**看不出來是同一個名字**——所以「哪一個對外」這件事在正規化層
+/// 根本不可表達，只能由 `authorized` 權威指定。
+///
+/// 這組測試釘住 `Person.authorized` 的 doc 主張。doc 說了什麼、這裡就驗什麼；
+/// 哪天有人「順手」讓 matchingKey 也吃語序，這裡會紅並逼他重讀那段 doc。
+extension NameNormalizationTests {
+
+    /// 語序差異**不塌縮**——正規化不做身分判斷。
+    func testNameOrderVariantsDoNotCollapse() {
+        let inverted = NameNormalization.matchingKey("Liang, Yu-Jen")
+        let direct   = NameNormalization.matchingKey("Yu-Jen Liang")
+        XCTAssertNotEqual(inverted, direct,
+                          "語序若塌縮，等於機械層做了身分判斷——違反「用於配對，永不用於判定」")
+        // 逐字釘住，避免哪天改成「塌縮成同一個新鍵」仍讓上面那條通過
+        XCTAssertEqual(inverted, "liang, yu-jen")
+        XCTAssertEqual(direct, "yu-jen liang")
+    }
+
+    /// 跨書寫系統更不塌縮——`梁佑任` 與任何羅馬化都是不同鍵。
+    ///
+    /// 這是 `authorized` 「每個書寫系統至多一個」那條規則存在的前提：若正規化能跨
+    /// 書寫系統配對，那條規則就該由機械執行而不是由人指定。
+    func testCrossScriptVariantsDoNotCollapse() {
+        let han = NameNormalization.matchingKey("梁佑任")
+        XCTAssertEqual(han, "梁佑任", "CJK 不受 lowercase／連字號映射影響")
+        for latin in ["Liang, Yu-Jen", "Yu-Jen Liang"] {
+            XCTAssertNotEqual(han, NameNormalization.matchingKey(latin))
+        }
+    }
+
+    /// 對照組：**該塌縮的仍然塌縮**——否則上面兩條可能只是因為正規化整個壞掉才通過。
+    func testMechanicalVariantsStillCollapse() {
+        let target = NameNormalization.matchingKey("Yu-Jen Liang")
+        for dirty in ["YU-JEN LIANG",            // 大小寫
+                      "Yu\u{2010}Jen Liang",     // U+2010 HYPHEN
+                      "Yu\u{2013}Jen Liang",     // U+2013 EN DASH
+                      "  Yu-Jen   Liang  "] {    // 空白收斂 + trim
+            XCTAssertEqual(NameNormalization.matchingKey(dirty), target,
+                           "\(dirty.debugDescription) 屬可機械的那一層，必須塌縮")
+        }
+    }
+}

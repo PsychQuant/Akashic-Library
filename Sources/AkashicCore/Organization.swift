@@ -52,6 +52,9 @@ public struct Organization: Equatable {
     public var names: TimelineOf<String>
     /// 對外可稱呼的名稱（#81）：從**當前有效**的名稱中指定，每個書寫系統至多一個。
     ///
+    /// 術語與命名紀律同 `Person.authorized`（RDA／MARC 的 *authorized access point*，
+    /// 不是權限；**不得改名叫 `normalized`**）——理由寫在那裡，此處不複製一份。
+    ///
     /// 與 `names` 的時間軸正交——改名記在時間軸上，「哪個名稱對外」記在這裡。空集合
     /// 合法，意思是還沒指定，此時 `displayName` 退回當前有效名稱。
     public var authorized: [String]

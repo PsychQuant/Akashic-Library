@@ -11,12 +11,15 @@ metadata 檔案化（per-entry YAML、git 版控）、附件外部化、Zotero �
 
 記成 UUID 而不是一個名字字串，是因為**這個系統對「人」的正典表示就是 person entity 的
 id**，而作者不該是那條規則的例外。名字會變（拼法、羅馬化、`Family, Given` vs
-`Given Family`——本 store 兩種都有）、`key` 也可能改；**id 不會**。想知道作者是誰、
-發表過什麼、隸屬哪裡，答案在那筆記錄裡而不是在這一行：
+`Given Family`——本 store 兩種都有）、`key` 也可能改；**id 不會**。
+
+「他是誰」「隸屬哪裡」在那筆記錄裡。**「他寫了什麼」不在**——那是 `work.authors` 的
+反向邊，由索引算出來的（#218）。person 記錄刻意不存著作：`work.authors` 已經是正典，
+存第二份就會分岔。
 
 ```bash
-akashic query --author che-cheng          # 庫內的著作
-grep -rl '^key: che-cheng$' ~/.akashic/entities/   # 那筆記錄本身
+akashic person che-cheng                  # 記錄 + 著作 + 合著者（著作為現算）
+akashic query --author che-cheng          # 只要庫內著作清單
 ```
 
 這也是這個 repo 的一個小小的自指：**它的作者是它自己收藏的一筆記錄。**

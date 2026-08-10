@@ -118,34 +118,77 @@ extension NameNormalizationTests {
 /// #221：**正規化的邊界**——`authorized` 為什麼不能改名叫 `normalized`。
 ///
 /// `matchingKey` 只做可機械的那一層。同一個人的兩種語序（`Family, Given` vs
-/// `Given Family`）它**看不出來是同一個名字**——所以「哪一個對外」這件事在正規化層
-/// 根本不可表達，只能由 `authorized` 權威指定。
+/// `Given Family`）它**看不出來是同一個名字**——注意這句只對 `matchingKey` 成立，
+/// 不對「機械層」整體成立（`PersonBootstrap.identity` 有做重排等價；見 #226）。
 ///
-/// 這組測試釘住 `Person.authorized` 的 doc 主張。doc 說了什麼、這裡就驗什麼；
-/// 哪天有人「順手」讓 matchingKey 也吃語序，這裡會紅並逼他重讀那段 doc。
+/// 這組測試釘住 `Person.authorized` 的 doc 主張。哪天有人「順手」讓 matchingKey
+/// 也吃語序，這裡會紅並逼他重讀那段 doc。
 extension NameNormalizationTests {
 
     /// 語序差異**不塌縮**——正規化不做身分判斷。
+    ///
+    /// **兩種形態都要釘**（#222 verify HIGH）。第一版只釘全寫形（`Liang, Yu-Jen`），
+    /// 但 `NameForm.isCitationForm` 的 doc 自己寫「全 store 1144 個 names 條目中
+    /// 872 筆（76.2%）是引用形」，主力是 `Family, Initial.`——而 DA 找到的那個
+    /// 「保留語序塌陷卻讓全檔綠燈」的 mutation（un-invert 只在 given 段含 `.` 時）
+    /// 正好只打縮寫形。少數形釘住、多數形留白，漏掉的那格剛好是唯一能過關的。
     func testNameOrderVariantsDoNotCollapse() {
-        let inverted = NameNormalization.matchingKey("Liang, Yu-Jen")
-        let direct   = NameNormalization.matchingKey("Yu-Jen Liang")
-        XCTAssertNotEqual(inverted, direct,
-                          "語序若塌縮，等於機械層做了身分判斷——違反「用於配對，永不用於判定」")
-        // 逐字釘住，避免哪天改成「塌縮成同一個新鍵」仍讓上面那條通過
-        XCTAssertEqual(inverted, "liang, yu-jen")
-        XCTAssertEqual(direct, "yu-jen liang")
+        for (inverted, direct) in [("Liang, Yu-Jen", "Yu-Jen Liang"),   // 全寫形
+                                   ("Chang, Y-H.", "Y-H. Chang")] {     // 縮寫形（store 的多數）
+            XCTAssertNotEqual(
+                NameNormalization.matchingKey(inverted),
+                NameNormalization.matchingKey(direct),
+                "\(inverted) / \(direct) 的語序塌縮了——等於機械層做了身分判斷，"
+                + "違反「用於配對，永不用於判定」")
+        }
+        // 逐字釘住，避免哪天改成「塌縮成同一個新鍵」仍讓上面通過。
+        // **這是 change-detector，不是語義守衛**——先前 PR 敘述把它當成後者引用
+        // （宣稱「strip-comma 會讓語義斷言變紅」，實測紅的只有這兩行）。
+        XCTAssertEqual(NameNormalization.matchingKey("Liang, Yu-Jen"), "liang, yu-jen")
+        XCTAssertEqual(NameNormalization.matchingKey("Yu-Jen Liang"), "yu-jen liang")
     }
 
-    /// 跨書寫系統更不塌縮——`梁佑任` 與任何羅馬化都是不同鍵。
+    /// 書寫系統的判定**是機械的**，而「每個書寫系統至多一個」正是靠它執行。
     ///
-    /// 這是 `authorized` 「每個書寫系統至多一個」那條規則存在的前提：若正規化能跨
-    /// 書寫系統配對，那條規則就該由機械執行而不是由人指定。
-    func testCrossScriptVariantsDoNotCollapse() {
-        let han = NameNormalization.matchingKey("梁佑任")
-        XCTAssertEqual(han, "梁佑任", "CJK 不受 lowercase／連字號映射影響")
-        for latin in ["Liang, Yu-Jen", "Yu-Jen Liang"] {
-            XCTAssertNotEqual(han, NameNormalization.matchingKey(latin))
-        }
+    /// 取代第一版的 `testCrossScriptVariantsDoNotCollapse`：那條斷言
+    /// `matchingKey("梁佑任") != matchingKey("Yu-Jen Liang")`，**沒有可達的
+    /// mutation 能讓它紅**（matchingKey 四個步驟沒有一步能把漢字映到拉丁），
+    /// 而前半段又與既有的 `testCJKIsNotMangled` 重複——淨新增訊號為零（#222 verify HIGH）。
+    ///
+    /// 改釘 `WritingSystem.of`：那才是 `AuthorizedNames.validate` 不變式 2 實際
+    /// 依賴的判定，而它的優先序規則是真的可能被改壞的。
+    func testWritingSystemClassificationDrivesTheOnePerScriptRule() {
+        XCTAssertEqual(WritingSystem.of("梁佑任"), .han)
+        XCTAssertEqual(WritingSystem.of("Liang, Yu-Jen"), .latn)
+        XCTAssertEqual(WritingSystem.of("Yu-Jen Liang"), .latn)
+        // 兩個拉丁形同時進 authorized → 不變式 2 必須報錯（那是「未決」不是「指定」）
+        let issues = AuthorizedNames.validate(
+            authorized: ["Liang, Yu-Jen", "Yu-Jen Liang"],
+            names: ["梁佑任", "Liang, Yu-Jen", "Yu-Jen Liang"], ownerKey: "probe")
+        XCTAssertFalse(issues.isEmpty, "同書寫系統兩個 authorized 應被 validate 擋下")
+    }
+
+    /// **`authorized = names.map(matchingKey)` 違反 schema**——本欄位禁令的主論據。
+    ///
+    /// 這條比語序差異強：與語序無關、與「兩個名字是不是同一人」無關，而且**不會被
+    /// 任何 bug fix 推翻**。先前 doc 掛在語序那個偶然事實上（#222 verify MEDIUM）。
+    func testNormalizedFormsWouldViolateTheAuthorizedSubsetInvariant() {
+        // **單一名字**，所以不變式 2（同書寫系統至多一個）不可能觸發——若用多個
+        // 拉丁形，`contains { .error }` 會因為不變式 2 而為真，測試就在**錯的理由**
+        // 上通過。第一版正是如此：拿掉不變式 1 的檢查它照樣綠（自測突變抓到）。
+        let names = ["Liang, Yu-Jen"]
+        let normalized = names.map(NameNormalization.matchingKey)   // ["liang, yu-jen"]
+        XCTAssertEqual(normalized, ["liang, yu-jen"], "前提：casefold 確實改變了字串")
+        XCTAssertFalse(Set(names).contains(normalized[0]), "前提：產出不在 names 內")
+
+        let issues = AuthorizedNames.validate(authorized: normalized, names: names,
+                                              ownerKey: "probe")
+        // 具名比對訊息，不是只看 severity——確保紅的是**子集**那條
+        XCTAssertTrue(
+            issues.contains { $0.severity == .error && $0.message.contains("不在 names 內") },
+            "casefold 後的字串不在 names 內，不變式 1 必須報 error——"
+            + "這就是 `authorized = names.map(normalize)` 不可行的機械證明。"
+            + "實際 issues：\(issues.map(\.message))")
     }
 
     /// 對照組：**該塌縮的仍然塌縮**——否則上面兩條可能只是因為正規化整個壞掉才通過。

@@ -187,15 +187,49 @@ public struct Person: Equatable {
     public var names: [String]
     /// 對外可稱呼的名字（#81）：`names` 的子集，每個書寫系統至多一個。
     ///
-    /// **`authorized` 是編目學的術語，不是權限**——RDA／MARC 的 *authorized access
-    /// point*（規範檢索點），相對於 `names` 的 *variant access point*（變異檢索點）。
-    /// 這個 repo 沒有任何 authz 概念，別把它讀成「有權限的」。
+    /// **`authorized` 是編目學的術語，不是權限**——RDA 的 *authorized access point*
+    /// （規範檢索點，RDA 9.19 / MARC authority 1XX）。與它成對的是 *variant access
+    /// point*（RDA 9.19.2 / MARC 4XX）。
     ///
-    /// **不要改名叫 `normalized`。** 那個詞屬於 `NameNormalization.matchingKey`——
-    /// #81 的三層是「正規化（可機械）／身分（要人判斷）／**正規形（要權威指定）**」，
-    /// 本欄位是第三層。共用名字會誘發 `authorized = names.map(normalize)`，而那個
-    /// 實作不可能正確：`Liang, Yu-Jen` 與 `Yu-Jen Liang` 的 matchingKey **不同**
-    /// （逗號＋語序），機械層連它們是同一個名字都看不出來，遑論挑出對外形式。
+    /// **注意對應關係**：`names` **不是** variant 那一側——本 repo 是**包含**而非
+    /// 互斥（`docs/store-format.md` §3.1 不變式 1：`authorized` ⊆ `names`）。
+    /// `names` 兼收兩者，**扣掉 `authorized` 的那些**才是 variant access point。
+    /// RDA 裡兩者互斥，這裡不是；把類比推到底會要求刪掉那條不變式。
+    ///
+    /// 本 package 的各 target 沒有任何 authz 概念，所以在這裡讀到「有權限的」是誤讀。
+    /// （這是**現在式**的觀察，不是永久保證——真的引進權限概念時，衝突的是那個新東西
+    /// 該換名字，不是這個欄位。）
+    ///
+    /// ## 不要改名叫 `normalized`
+    ///
+    /// 理由**不是**「那個字歸誰」——`NameNormalization` 裡根本沒有叫 `normalized` 的
+    /// 符號（只有 `matchingKey`），而該識別字實際被 `CanonicalFormat.normalized(_:)`
+    /// 佔著。理由是**兩層的 normal form 主詞不同**：
+    ///
+    /// | 層 | normal form 是什麼 | 誰產生 |
+    /// |---|---|---|
+    /// | 正規化（`matchingKey`）| 從字串**算出來**的比對鍵，**永不外洩成資料** | 機械 |
+    /// | 本欄位 | 由人**指定**的對外形，**就是資料** | 權威 |
+    ///
+    /// 共用名字會誘發 `authorized = names.map(normalize)`。**那個實作違反 schema**，
+    /// 而且是機械可驗的：`AuthorizedNames.validate` 不變式 1 要求 `authorized ⊆ names`，
+    /// 而 `matchingKey` 會 casefold 並收斂空白——`names` 裡只要有任何一筆含大寫或多重
+    /// 空白（實務上幾乎全部），產出的字串就不在 `names` 內，`validate` 當場報 `.error`。
+    ///
+    /// **這條反駁與語序無關、與「兩個名字是不是同一人」無關，也不會被任何 bug fix
+    /// 推翻**——先前這裡引的是「`Liang, Yu-Jen` 與 `Yu-Jen Liang` 的 matchingKey 不同」，
+    /// 那是關於兩個特定字串的偶然事實，而且措辭過寬（見下）。
+    ///
+    /// ### 一個曾經寫錯的宣稱（留著，因為它解釋了為什麼要換論證）
+    ///
+    /// 這段 doc 一度寫「**機械層**連它們是同一個名字都看不出來」。**那是假的**：
+    /// `PersonBootstrap.identity` 自陳「只做重排這一種**機械等價**」，而
+    /// `PersonBootstrapTests.testReorderedFormsMergeIntoOneCandidate` 現在就是綠的。
+    /// 正確的說法只能限定在 **`matchingKey`**：它不做語序等價。
+    ///
+    /// （順帶：`identity` 的重排等價其實只在「名的字典序 < 姓」時成立，真實 store
+    /// 有 55.5% 的引用形名字落在失效側——那是 **#226**，與本欄位的命名無關。當時把
+    /// 那個 bug 的表徵當成了設計原則。）
     ///
     /// 空集合是合法的，意思是「還沒指定該怎麼稱呼他」——那時 `displayName` 退到 `key`，
     /// 讓缺口在輸出上看得見，而不是靜默印出索引系統產生的引用形。

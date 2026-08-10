@@ -121,57 +121,58 @@ extension NameNormalizationTests {
 /// `Given Family`）它**看不出來是同一個名字**——注意這句只對 `matchingKey` 成立，
 /// 不對「機械層」整體成立（`PersonBootstrap.identity` 有做重排等價；見 #226）。
 ///
-/// 這組測試釘住 `Person.authorized` 的 doc 主張。哪天有人「順手」讓 matchingKey
-/// 也吃語序，這裡會紅並逼他重讀那段 doc。
+/// 這組測試釘住的是 **`matchingKey` 的行為邊界**，不是 `authorized` 禁令的論據——
+/// 那條禁令的根據是 `AuthorizedNameMigration` 的明文政策，與正規化無關（見
+/// `Person.authorized` 的 doc）。哪天有人「順手」讓 matchingKey 也吃語序，這裡會紅。
 extension NameNormalizationTests {
 
-    /// 語序差異**不塌縮**——正規化不做身分判斷。
+    /// `matchingKey` **逐段作用**——這才是「不重排語序」的正確編碼。
     ///
-    /// **兩種形態都要釘**（#222 verify HIGH）。第一版只釘全寫形（`Liang, Yu-Jen`），
-    /// 但 `NameForm.isCitationForm` 的 doc 自己寫「全 store 1144 個 names 條目中
-    /// 872 筆（76.2%）是引用形」，主力是 `Family, Initial.`——而 DA 找到的那個
-    /// 「保留語序塌陷卻讓全檔綠燈」的 mutation（un-invert 只在 given 段含 `.` 時）
-    /// 正好只打縮寫形。少數形釘住、多數形留白，漏掉的那格剛好是唯一能過關的。
-    func testNameOrderVariantsDoNotCollapse() {
-        for (inverted, direct) in [("Liang, Yu-Jen", "Yu-Jen Liang"),   // 全寫形
-                                   ("Chang, Y-H.", "Y-H. Chang")] {     // 縮寫形（store 的多數）
-            XCTAssertNotEqual(
-                NameNormalization.matchingKey(inverted),
-                NameNormalization.matchingKey(direct),
-                "\(inverted) / \(direct) 的語序塌縮了——等於機械層做了身分判斷，"
-                + "違反「用於配對，永不用於判定」")
+    /// ## 為什麼是同態，不是一張 pair 表
+    ///
+    /// 前兩版都用「釘住幾組 `(inverted, direct)` 不得同鍵」。**列舉關不上這個空間**：
+    /// verify 席對釘了兩組（全寫形 + 縮寫形）的版本仍找到**三個**保留語序塌陷卻讓
+    /// 全檔 1249 測試皆綠的 mutation——un-invert 只在 (M6) given 段不含 `-`、
+    /// (M7) family 段多 token、(M8) family 是漢字時發生。M6 讓 `Guan, Yongtao` ↔
+    /// `Yongtao Guan` 塌縮，而那是本 codebase 自己的常用範例。補一格，開三格。
+    ///
+    /// 而第三版一度寫成「輸出等於 `s.lowercased()` 的切分」——**那條是紅的**，因為
+    /// 它斷言的是「除了小寫與切分之外什麼都不做」，而 `matchingKey` 存在的理由正是
+    /// 連字號家族統一、NFKC、剝 Cf 這三件事（各自都有綠燈測試）。**那不是「性質這種
+    /// 形式不管用」，是那條性質寫錯了。**
+    ///
+    /// 同態說的才是要說的事：把兩段用空白接起來再正規化，等於各自正規化再接起來。
+    /// 任何重排或跨段合併都會讓它紅，而三種髒輸入全部通過——因為 `matchingKey`
+    /// 對它們的處理本來就是逐段的。側條件是**述詞**（兩段正規化後皆非空），不是列舉。
+    func testMatchingKeyActsSegmentwise() {
+        let parts = ["Liang", "Yu-Jen", "Chang,", "Y-H.", "Guan,", "Yongtao",
+                     "梁佑任", "謝復興", "Ｆｕｓｈｉｎｇ", "\u{FEFF}Chen",
+                     "Yu\u{2010}Jen", "van", "der", "Waals,", "O'Brien", "MCELROY"]
+        var killable = 0
+        for a in parts {
+            let ka = NameNormalization.matchingKey(a)
+            guard !ka.isEmpty else { continue }
+            for b in parts {
+                let kb = NameNormalization.matchingKey(b)
+                guard !kb.isEmpty else { continue }
+                XCTAssertEqual(NameNormalization.matchingKey(a + " " + b), ka + " " + kb,
+                               "matchingKey 必須逐段作用——重排或跨段合併等於讓身分判斷"
+                               + "偷渡進配對層，違反「用於配對，永不用於判定」：\(a) | \(b)")
+                if ka != kb { killable += 1 }
+            }
         }
-        // 逐字釘住，避免哪天改成「塌縮成同一個新鍵」仍讓上面通過。
-        // **這是 change-detector，不是語義守衛**——先前 PR 敘述把它當成後者引用
-        // （宣稱「strip-comma 會讓語義斷言變紅」，實測紅的只有這兩行）。
-        XCTAssertEqual(NameNormalization.matchingKey("Liang, Yu-Jen"), "liang, yu-jen")
-        XCTAssertEqual(NameNormalization.matchingKey("Yu-Jen Liang"), "yu-jen liang")
+        // 語序塌陷的 mutant 只有在兩段的鍵不同時才可能被抓到；記錄有效對數，
+        // 避免哪天 parts 被改成全同而讓斷言變成恆真。
+        XCTAssertGreaterThan(killable, 100, "有效判別對太少，這條已退化成恆真")
     }
 
-    /// 書寫系統的判定**是機械的**，而「每個書寫系統至多一個」正是靠它執行。
+    /// **`authorized = names.map(matchingKey)` 的一個機械後果**（非主論據）。
     ///
-    /// 取代第一版的 `testCrossScriptVariantsDoNotCollapse`：那條斷言
-    /// `matchingKey("梁佑任") != matchingKey("Yu-Jen Liang")`，**沒有可達的
-    /// mutation 能讓它紅**（matchingKey 四個步驟沒有一步能把漢字映到拉丁），
-    /// 而前半段又與既有的 `testCJKIsNotMangled` 重複——淨新增訊號為零（#222 verify HIGH）。
-    ///
-    /// 改釘 `WritingSystem.of`：那才是 `AuthorizedNames.validate` 不變式 2 實際
-    /// 依賴的判定，而它的優先序規則是真的可能被改壞的。
-    func testWritingSystemClassificationDrivesTheOnePerScriptRule() {
-        XCTAssertEqual(WritingSystem.of("梁佑任"), .han)
-        XCTAssertEqual(WritingSystem.of("Liang, Yu-Jen"), .latn)
-        XCTAssertEqual(WritingSystem.of("Yu-Jen Liang"), .latn)
-        // 兩個拉丁形同時進 authorized → 不變式 2 必須報錯（那是「未決」不是「指定」）
-        let issues = AuthorizedNames.validate(
-            authorized: ["Liang, Yu-Jen", "Yu-Jen Liang"],
-            names: ["梁佑任", "Liang, Yu-Jen", "Yu-Jen Liang"], ownerKey: "probe")
-        XCTAssertFalse(issues.isEmpty, "同書寫系統兩個 authorized 應被 validate 擋下")
-    }
-
-    /// **`authorized = names.map(matchingKey)` 違反 schema**——本欄位禁令的主論據。
-    ///
-    /// 這條比語序差異強：與語序無關、與「兩個名字是不是同一人」無關，而且**不會被
-    /// 任何 bug fix 推翻**。先前 doc 掛在語序那個偶然事實上（#222 verify MEDIUM）。
+    /// 禁令的根據是 `AuthorizedNameMigration` 的明文政策（「仍然多於一個 → 留空並
+    /// 報告」），與 `matchingKey` 無關——見 `Person.authorized` 的 doc。本條只釘住
+    /// 「連 schema 都擋得住」的那一小塊，**不足以獨立支撐禁令**：對 `names` 每筆都是
+    /// `matchingKey` 不動點的記錄（純漢字——`testCJKIsNotMangled` 就是），不變式 1
+    /// 根本不觸發。
     func testNormalizedFormsWouldViolateTheAuthorizedSubsetInvariant() {
         // **單一名字**，所以不變式 2（同書寫系統至多一個）不可能觸發——若用多個
         // 拉丁形，`contains { .error }` 會因為不變式 2 而為真，測試就在**錯的理由**

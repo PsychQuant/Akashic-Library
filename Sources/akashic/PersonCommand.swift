@@ -105,9 +105,14 @@ struct PersonCmd: ParsableCommand {
     ///
     /// 本函式的輸入是 `AkashicService.person()` 的回應，那裡**已經逐欄位消毒**
     /// （`summaryDict` 的 citekey／type／title／authors／journal、`personDict` 的
-    /// key／names／orcid／unknownFields、co_authors 的 name／person_key、
-    /// candidates 的 person_key／names／literal——`AkashicService.swift` 全部
-    /// 包在 `displaySafe(` 內）。本函式不從 store 另外讀任何東西。
+    /// key／names／orcid／unknownFields／**affiliations 的 organization_key／literal／
+    /// start／end／attested**、co_authors 的 name／person_key、candidates 的
+    /// person_key／names／literal——`AkashicService.swift` 全部包在 `displaySafe(` 內；
+    /// `affiliations.ended` 是 Bool，結構上帶不了 store 內容）。
+    /// 本函式不從 store 另外讀任何東西。
+    ///
+    /// **這份列舉就是唯一的控制**（R2 verify MEDIUM）：守衛對本檔多數行是盲的，
+    /// 所以新增欄位時**必須同步更新這一段**，否則下一個人無從查核。
     ///
     /// 而 **`displaySafe` 不冪等**：它把反斜線自身也逃脫（`Models.swift`
     /// 「`v == 0x5C`」那條）。對已消毒的字串再呼叫一次，會把第一次產生的
@@ -173,18 +178,35 @@ struct PersonCmd: ParsableCommand {
             // **隸屬**（verify #220 HIGH）。它是 `entity-backlink-completeness` 封閉
             // 列舉第 7 條、且**存在 person 自己身上**——漏掉它等於本 PR 新訂的規則
             // 被同一個 PR 的命令當天違反。README 的「隸屬哪裡」也靠這一段才成立。
-            if let affs = person["affiliations"] as? [[String: Any]], !affs.isEmpty {
-                print("  affiliations:")
-                for a in affs {
-                    let span = [a["start"] as? String, a["end"] as? String]
-                    let period = span.contains(where: { $0 != nil })
-                        ? "  [\(span[0] ?? "?")–\(span[1] ?? "")]" : ""
-                    // 已歸戶標 key，未歸戶只給字面——同候選與合著者的處置
-                    if let ok = a["organization_key"] as? String {
-                        print("    \(ok)\(period)")   // display-safe-exempt: 見本函式 doc
-                    } else {
-                        print("    \((a["literal"] as? String) ?? "?")\(period)   （未歸戶）")   // display-safe-exempt: 見本函式 doc
-                    }
+            let affs = (person["affiliations"] as? [[String: Any]]) ?? []
+            print("  affiliations（\(affs.count)）\(affs.isEmpty ? "：（無）" : "：")")
+            for a in affs {
+                // **四種時間狀態必須看得出差別**（R2 verify HIGH）。第一版只讀
+                // start/end，於是「已結束、時點未知」與「進行中」逐位元組相同——
+                // 那是對真人的假陳述，比 R1 的「完全沒顯示」更糟（缺席看得出來，
+                // 冒充看不出來）。
+                let start = a["start"] as? String
+                let end = a["end"] as? String
+                let ended = a["ended"] as? Bool ?? false
+                let attested = (a["attested"] as? [String]) ?? []
+                let period: String
+                if !attested.isEmpty {
+                    // #70：只有觀測點，起訖皆不明。**不可**呈現成區間
+                    period = "  （觀測：\(attested.joined(separator: ", "))）"
+                } else if let e = end {
+                    period = "  [\(start ?? "?")–\(e)]"
+                } else if ended {
+                    period = "  [\(start ?? "?")–? 已結束]"   // #63：已結束、時點未知
+                } else if let s = start {
+                    period = "  [\(s)– 進行中]"
+                } else {
+                    period = "  （無時間資訊）"
+                }
+                // 已歸戶標 key，未歸戶只給字面——同候選與合著者的處置
+                if let ok = a["organization_key"] as? String {
+                    print("    \(ok)\(period)")   // display-safe-exempt: 見本函式 doc
+                } else {
+                    print("    \((a["literal"] as? String) ?? "?")\(period)   （未歸戶）")   // display-safe-exempt: 見本函式 doc
                 }
             }
         }

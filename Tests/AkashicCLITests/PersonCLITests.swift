@@ -309,6 +309,11 @@ final class PersonCLITests: XCTestCase {
     // MARK: - 呈現面不變式（規則檔新訂的，先前零覆蓋）
 
     /// **隸屬要看得到**——規則封閉列舉第 7 條，且是存在 person 自己身上的邊。
+    ///
+    /// 第一版只斷言三個子字串出現，**對整個時間區間全盲**：刪掉 `period` 計算照樣
+    /// 全綠，而那正是 R2 四個 lens 報的 HIGH（`endedUnknown` 被折成現職）。
+    /// DA 的原話是「等作者補上 endedUnknown／attested 之後，仍然沒有任何測試能防止
+    /// 它再度退化」。所以本條現在斷言**期間本身**。
     func testAffiliationsAreShown() throws {
         let r = try cli(["person", "che-cheng"])
         XCTAssertEqual(r.status, 0, r.output)
@@ -318,6 +323,64 @@ final class PersonCLITests: XCTestCase {
                       "未歸戶的隸屬沒出現：\n\(r.output)")
         XCTAssertTrue(r.output.contains("（未歸戶）"),
                       "未歸戶者沒被標示——那會把 literal 冒充成 identity")
+        // **期間必須出現**：fixture 是 2015–2021，輸出不含 2021 就代表 period 沒印
+        XCTAssertTrue(r.output.contains("2021"),
+                      "隸屬的結束年沒出現——period 計算被拿掉了也會讓上面三條全綠：\n\(r.output)")
+    }
+
+    /// **`DateRange` 的四個時間狀態必須互相可辨**（R2 verify HIGH，四個 lens 命中）。
+    ///
+    /// `endedUnknown`（#63）與 `attested`（#70）是一等的知識狀態，不是裝飾。把
+    /// 「已結束、時點未知」印成跟「進行中」一樣，是對真人的**假陳述**——而且這個面
+    /// 同時是 CLI 與 MCP（直達 LLM）。`RelationalExport` 有輸出 `ended_unknown`，
+    /// 漏掉等於讓兩個衍生面對同一筆記錄互相矛盾。
+    func testAffiliationTemporalStatesAreDistinguishable() throws {
+        var p = Person(key: "four-states", names: ["Four States"])
+        p.profile.affiliations = TimelineOf([
+            TemporalValue(value: .key("org-ongoing"), range: DateRange(start: "2003")),
+            TemporalValue(value: .key("org-ended-unknown"),
+                          range: DateRange(start: "2003", endedUnknown: true)),
+            TemporalValue(value: .key("org-closed"),
+                          range: DateRange(start: "2003", end: "2008")),
+            TemporalValue(value: .key("org-attested"),
+                          range: DateRange(attested: ["2019", "2021"])),
+        ])
+        try LibraryStore(root: root).writePerson(p)
+
+        let out = try cli(["person", "four-states"]).output
+        func period(_ orgKey: String) -> String {
+            let line = out.split(separator: "\n").first { $0.contains(orgKey) } ?? ""
+            return String(line).replacingOccurrences(of: orgKey, with: "")
+                .trimmingCharacters(in: .whitespaces)
+        }
+        let ongoing = period("org-ongoing")
+        let endedUnknown = period("org-ended-unknown")
+        let closed = period("org-closed")
+        let attested = period("org-attested")
+
+        for (label, v) in [("ongoing", ongoing), ("ended-unknown", endedUnknown),
+                           ("closed", closed), ("attested", attested)] {
+            XCTAssertFalse(v.isEmpty, "\(label) 那一行沒有期間資訊：\n\(out)")
+        }
+        // **核心斷言**：四種狀態兩兩不同。任兩個相同 = 一個事實被冒充成另一個
+        XCTAssertEqual(Set([ongoing, endedUnknown, closed, attested]).count, 4,
+                       "四種時間狀態沒有互相區分——"
+                       + "ongoing=\(ongoing) endedUnknown=\(endedUnknown) "
+                       + "closed=\(closed) attested=\(attested)\n\(out)")
+        // 具名斷言：最危險的那一對（#63 的整個存在理由）
+        XCTAssertNotEqual(ongoing, endedUnknown,
+                          "「已結束、時點未知」與「進行中」逐字相同——那 43 位退休 PI "
+                          + "會被全部呈現成現職（DateRange.endedUnknown 的 doc 原話）")
+        XCTAssertTrue(attested.contains("2019") && attested.contains("2021"),
+                      "attested 的觀測點沒印出來：\(attested)")
+    }
+
+    /// 空的隸屬也要說出來（規則執行細節 4；同一輪剛把 co_authors 的省略判為 bug）。
+    func testEmptyAffiliationsSectionIsStatedNotOmitted() throws {
+        let r = try cli(["person", "solo-person"])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("affiliations（0）"),
+                      "整段消失 → 分辨不出「沒有隸屬記錄」與「這一段掉了」：\n\(r.output)")
     }
 
     /// **空集合要說出來**（規則執行細節 4）。獨著者也要看到「合著者（0）」。

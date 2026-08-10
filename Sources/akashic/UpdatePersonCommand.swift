@@ -34,8 +34,11 @@ struct UpdatePersonCmd: ParsableCommand {
         }
         let store = try options.openStore()
         // `key:` 不可省——見 `PersonCommand.swift` 的長註解（verify #220 HIGH）。
-        // 這兩支是寫入路徑、答案不取自 index，所以先前沒炸；但 keyless 一樣會
-        // 在已註冊的 store 裡建 in-store index，且形狀相同，一併修正。
+        // **先前的註解說「寫入路徑所以沒炸」——那是假的**（#218 R2 verify MEDIUM，
+        // regression 與 DA 兩個 lens 各自打臉）。這兩支同樣走 `ensureFreshIndex()`，
+        // 在已註冊的 store 裡會**建整份第二個 index**；`create-entry` 之後 `query`
+        // 看不到新資料，而且不自癒（query 的 `ensureCurrent()` 不看 mtime）。
+        // 差別只在它們的**主要產出**不取自 index，不是它們不碰 index。
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
         // 輸出是 service 的 JSON（已 displaySafe）——CLI 原樣轉印

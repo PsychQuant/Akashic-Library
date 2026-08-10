@@ -15,23 +15,49 @@
 
 ### 可以儲存關係的地方是封閉列舉
 
-以下 **8 條**是 store 裡**僅有的**關係邊。**封閉列舉，不得依性質相似類推第九條**：
+以下 **11 條**是 store 裡**僅有的**關係邊。**封閉列舉，不得依性質相似類推第十二條**：
 
 | # | 存在哪 | 指向 | 邊界條件 |
 |---|---|---|---|
 | 1 | `Entry.authors` | person | `.key` 已歸戶／`.literal` 未歸戶，兩者都合法 |
 | 2 | `Entry.akashic.relations.cites` | work | citekey |
-| 3 | `Entry.akashic.relations.related` | work | citekey |
+| 3 | `Entry.akashic.relations.related` | work | citekey；**對稱邊**，見下方「約定」 |
 | 4 | `Entry.akashic.tags` | tag | — |
 | 5 | `Entry.akashic.libraries` | library | registry key |
 | 6 | `Entry.attachments` | 檔案 | — |
 | 7 | `Person.profile.affiliations` | organization | `OrgRef`，時間軸；`.literal` 未歸戶合法 |
 | 8 | `Organization.parents` | organization | `OrgRef`，時間軸；與 7 **刻意不共用型別** |
+| 9 | `Divergence.candidates` | work／person／organization | `key` + `shape: EntityKind`；**短暫記錄**，消歧後即刪 |
+| 10 | `Divergence.judgement.prefers` | 本記錄的某個候選 | decode 時驗證存在性；同樣短暫 |
+| 11 | `Person.references` / `Organization.references` | `sources/` 的內容 | `ProvenanceReference`，content-addressed（`sha256:`）|
 
 **每一條邊只存一次，存在上表指定的那一側。反向一律現算。**
 
-新增第九條 = 改這張表 + 說明為什麼那個方向必須是正典。**不得**因為「這樣讀比較快」
+新增第十二條 = 改這張表 + 說明為什麼那個方向必須是正典。**不得**因為「這樣讀比較快」
 或「這樣呈現比較方便」而加——那兩個理由要的是索引或入口，不是欄位。
+
+#### 兩個必須寫出來的邊界（否則列舉的封閉性是假的）
+
+- **9／10 是短暫記錄。** `divergence` 是 `EntityKind` 的第四個成員、與 work／person／
+  organization 並列住在 `entities/`，所以它**是**關係邊、不能因為「感覺不像」而漏列。
+  但它的生命週期不同：消歧之後整筆刪除。呈現面的義務因此是「這個人牽涉哪些**未決**的
+  同一性問題」，而不是歷史。
+- **11 指向的不是 entity，是內容。** 第 6 條（`Entry.attachments → 檔案`）已經開了這個
+  先例——指向非 entity 的東西仍然是存下來的邊。把它列進來是為了封閉性，不是為了要求
+  呈現面顯示 digest。
+
+#### 對稱邊的約定（判準沉默的地方）
+
+第 3 條 `related` 是 **work ↔ work 的對稱關係**：刪掉任一端那條邊都消失，所以
+「哪一側存」的判準對它**不裁決**。現行存在 entry 側是**約定**，不是推導出來的。
+標出來是為了讓下一個人知道那不是判準的結論，不要拿它去類推。
+
+> **這張表曾經是錯的。** 第一版寫「8 條、store 裡僅有」，漏掉 9／10／11——因為作者只
+> grep 了 `Entry`／`Person`／`Organization` 三個型別就下了窮盡的結論。`common-spec-prose-enumeration.md`
+> 說封閉列舉的價值全在它真的封閉；**一份宣稱窮盡卻漏案例的列舉比沒有列舉更糟**，因為
+> 讀者會拿它去推導「divergence 的候選不是關係邊 → 不需要呈現 / 可以隨手改」。
+> 由 `PsychQuant/Akashic-Library#220` 的 verify 抓出（requirements 與 regression 兩個
+> lens 獨立命中）。**新增形狀時，先看 `EntityKind.allCases`，不要只 grep 你想得到的型別。**
 
 ### 不得儲存的（同一件事的另一面）
 
@@ -41,6 +67,8 @@
 - work 的 `citedBy:`（2 的反向）
 - organization 的 `members:`（7 的反向）
 - tag 的成員清單（4 的反向）
+- person／organization 的 `divergences:`（9 的反向）——「這個人牽涉哪些未決同一性
+  問題」由掃 divergence 記錄算出，不在被指涉的那一側存一份
 
 `PersonCLITests.testPersonRecordStoresNoWorks` 是第一條的機械防線。
 

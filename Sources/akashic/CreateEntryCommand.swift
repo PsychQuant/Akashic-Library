@@ -86,7 +86,10 @@ struct CreateEntryCmd: ParsableCommand {
         }
 
         let store = try options.openStore()
-        let service = AkashicService(root: store.root,
+        // `key:` 不可省——見 `PersonCommand.swift` 的長註解（verify #220 HIGH）。
+        // 這兩支是寫入路徑、答案不取自 index，所以先前沒炸；但 keyless 一樣會
+        // 在已註冊的 store 裡建 in-store index，且形狀相同，一併修正。
+        let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
         var created = 0
         var failed: [(String, String)] = []

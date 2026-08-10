@@ -33,7 +33,10 @@ struct UpdatePersonCmd: ParsableCommand {
             throw ValidationError("--fields 必須是 JSON object（或經 stdin 提供）")
         }
         let store = try options.openStore()
-        let service = AkashicService(root: store.root,
+        // `key:` 不可省——見 `PersonCommand.swift` 的長註解（verify #220 HIGH）。
+        // 這兩支是寫入路徑、答案不取自 index，所以先前沒炸；但 keyless 一樣會
+        // 在已註冊的 store 裡建 in-store index，且形狀相同，一併修正。
+        let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
         // 輸出是 service 的 JSON（已 displaySafe）——CLI 原樣轉印
         print(try service.updatePerson(key: key, fields: dict, dryRun: dryRun))

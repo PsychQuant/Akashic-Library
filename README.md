@@ -40,6 +40,7 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
                                  export-bib / export-tables / resolve-people /
                                  bootstrap-people / bootstrap-organizations /
                                  resolve-organizations / update-person /
+                                 person（讀取面，#218）/ create-entry（#206）/
                                  doctor / query / graph /
                                  rename / record-divergence（--prefers）/
                                  resolve-divergence（--override-reason）/

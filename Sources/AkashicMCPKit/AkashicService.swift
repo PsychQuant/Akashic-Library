@@ -373,6 +373,26 @@ public final class AkashicService {
                         record.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
                 }
                 if let orcid = record.orcid { personDict["orcid"] = displaySafe(orcid, max: 200) }
+                // **隸屬必須看得到**（#218 verify HIGH）。`profile.affiliations` 是
+                // `entity-backlink-completeness` 封閉列舉的第 7 條，而且是**存在 person
+                // 自己身上**的邊——連反向現算都不需要。先前這個聚合面沒有它，於是那條
+                // 規則被它自己舉為範例的命令當天違反，README 的「隸屬哪裡」也沒有入口。
+                //
+                // `.key` 與 `.literal` **分開兩個欄位**，不折成一欄：未歸戶不得冒充
+                // identity（同 `EntityRef` 的立場）。缺席即資訊——`RelationalExport`
+                // 已記過這個理由：不需要「是否已歸戶」的旗標，兩個欄位可以互相矛盾，
+                // 一個 sum type 不會。
+                let affs = record.profile.affiliations.sorted.map { seg -> [String: Any] in
+                    var d: [String: Any] = [:]
+                    switch seg.value {
+                    case .key(let k):     d["organization_key"] = displaySafe(k, max: 200)
+                    case .literal(let s): d["literal"] = displaySafe(s, max: 200)
+                    }
+                    if let st = seg.range.start { d["start"] = displaySafe(st, max: 40) }
+                    if let en = seg.range.end { d["end"] = displaySafe(en, max: 40) }
+                    return d
+                }
+                if !affs.isEmpty { personDict["affiliations"] = affs }
             }
             return try jsonString([
                 "person": personDict,

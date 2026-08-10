@@ -211,34 +211,31 @@ public struct Person: Equatable {
     /// | 正規化（`matchingKey`）| 從字串**算出來**的比對鍵，**永不外洩成資料** | 機械 |
     /// | 本欄位 | 由人**指定**的對外形，**就是資料** | 權威 |
     ///
-    /// 共用名字會誘發 `authorized = names.map(normalize)`。**本 repo 對這個決定已經
-    /// 有明文政策，而那個實作違反它**——見 `AuthorizedNameMigration.propose(names:)`
-    /// 的 doc：
+    /// 共用名字會誘發 `authorized = names.map(normalize)`。**schema 擋得住它，而且擋
+    /// 在不變式 2 上**——`openspec/specs/authorized-name/spec.md`：
     ///
-    /// > **`authorized` 是指定，不是推導。** 但提名可以機械化，而且**判斷只在候選
-    /// > 多於一個時才發生**：
-    /// >
-    /// > | 情況 | 處置 | 為什麼 |
-    /// > |---|---|---|
-    /// > | 某書寫系統只有一個候選 | 直接採用 | 沒有可挑的餘地，不構成判斷 |
-    /// > | 多個候選、恰一個非引用形 | 提名 | 引用形是索引系統的產物，不是他的名字 |
-    /// > | 仍然多於一個 | **留空並報告** | 那是真的要人判斷 |
+    /// > Within a single record, the authorized names SHALL be distinct in writing
+    /// > system. Two authorized names in the same writing system express an undecided
+    /// > question, not a designation, and SHALL be rejected.
     ///
-    /// `names.map(normalize)` 在第三列的情境**全部採用**，而政策是**留空並報告**。
-    /// 它把一個「要人判斷」的位置機械填掉，於是「還沒有人決定」與「決定是全部」
-    /// 在資料上再也分不出來。
+    /// `matchingKey` 只做 NFKC／連字號家族統一／剝 Cf／casefold／空白收斂，**從不轉寫
+    /// 書寫系統**（`WritingSystem.of` 只看 scalar 區間）。所以 `map` 同時保持基數與
+    /// 書寫系統：`names` 裡同書寫系統有 ≥2 筆時，產出就有 ≥2 個同書寫系統的
+    /// `authorized`，**不變式 2 必然報 `.error`——那筆記錄存不進去**。
     ///
-    /// **這條反駁與 `matchingKey` 的行為無關、與語序無關、與「兩個名字是不是同一人」
-    /// 無關**——先前這裡兩度想從 `matchingKey` 推出禁令（先是「兩個特定字串的鍵不同」，
-    /// 再是「casefold 後產出落在 `names` 外」），兩次都被反例打倒：前者是偶然事實，
-    /// 後者對「`names` 每筆都是 `matchingKey` 不動點」的記錄不成立（`testCJKIsNotMangled`
-    /// 就是現成的綠燈反例）。禁令的根據從來不在正規化那一層，而在**這個欄位記錄的是
-    /// 一個決定**。
+    /// 反過來，同書寫系統只有一個候選時，`map` 的產出要嘛與 `names` 逐字相同（該字串
+    /// 是 `matchingKey` 的不動點），要嘛只差 casefold 而被不變式 1 擋下。前者 schema
+    /// 合法，但它**什麼都沒決定**——那正是 spec 說的 "not a designation"。
     ///
-    /// 實測與政策一致：866 筆有 `authorized` 的 person 中，730 筆的 `names` 每個書寫
-    /// 系統都只有一個候選（第一列，`authorized == names`），另外 136 筆是真子集，而
-    /// 那 136 筆**恰好就是**同書寫系統有 ≥2 個候選、即 `validate` 不變式 2 會強迫做
-    /// 選擇的同一組記錄（集合相等）。零筆違反不變式 1。
+    /// **這條免疫於先前兩版被打倒的反例。** v1 引「`Liang, Yu-Jen` 與 `Yu-Jen Liang`
+    /// 的鍵不同」——關於兩個特定字串的偶然事實。v2 改引不變式 1（casefold 後產出落在
+    /// `names` 外）——對「`names` 每筆都是 `matchingKey` 不動點」的記錄不成立，純漢字
+    /// 即是（`testCJKIsNotMangled` 是現成的綠燈反例）。但**那類記錄照樣被不變式 2 擋
+    /// 下**，因為漢字名彼此仍是同一個書寫系統。不變式 2 不經過正規化那一層。
+    ///
+    /// `AuthorizedNameMigration` 的提名政策與此一致（「仍然多於一個」時**留空並報告**，
+    /// 而非全部採用），可作旁證——但**禁令的根據是上面那條 spec SHALL，不是那支工具**。
+    /// 工具的政策可以改而不動搖欄位語意；把工具註解當欄位規範是範疇錯誤。
     ///
     /// 空集合是合法的，意思是「還沒指定該怎麼稱呼他」——那時 `displayName` 退到 `key`，
     /// 讓缺口在輸出上看得見，而不是靜默印出索引系統產生的引用形。

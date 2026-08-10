@@ -142,34 +142,70 @@ extension NameNormalizationTests {
     /// 形式不管用」，是那條性質寫錯了。**
     ///
     /// 同態說的才是要說的事：把兩段用空白接起來再正規化，等於各自正規化再接起來。
-    /// 任何重排或跨段合併都會讓它紅，而三種髒輸入全部通過——因為 `matchingKey`
-    /// 對它們的處理本來就是逐段的。側條件是**述詞**（兩段正規化後皆非空），不是列舉。
+    /// 側條件是**述詞**（兩段正規化後皆非空），不是列舉的定義域。
+    ///
+    /// ## 但性質只看得到 `parts` 生成的輸入——這裡的列舉沒有消失，只是換了位置
+    ///
+    /// 第一版的 `parts` **16 個全是單 token**，於是 272 個受測輸入全都只有 1–2 token，
+    /// 而 M7／M8 的觸發條件（多 token family ＋ 逗號／漢字 family ＋ 逗號）在那個
+    /// 輸入空間裡**一次都踩不到**。實跑：M6 killed，**M7／M8 存活全套**（#222 R3）。
+    /// 三格只關上一格，而 doc 當時寫的是「任何重排都會讓它紅」——**那句是假的**。
+    ///
+    /// 所以真正要釘的不是「有效對數夠多」（那是劇場），而是**輸入空間裡真的含有
+    /// 每個已知突變需要的形狀**。下面的覆蓋自檢就是這件事：它會在有人把 `parts`
+    /// 縮回全單 token 時變紅。
     func testMatchingKeyActsSegmentwise() {
+        // 後四個是 R3 補上的：多 token family、多 token given、漢字 family——
+        // 少了它們，M7／M8／M9 在這個測試裡不可觸發。
         let parts = ["Liang", "Yu-Jen", "Chang,", "Y-H.", "Guan,", "Yongtao",
                      "梁佑任", "謝復興", "Ｆｕｓｈｉｎｇ", "\u{FEFF}Chen",
-                     "Yu\u{2010}Jen", "van", "der", "Waals,", "O'Brien", "MCELROY"]
-        var killable = 0
+                     "Yu\u{2010}Jen", "van", "der", "Waals,", "O'Brien", "MCELROY",
+                     "van der Waals,", "Grace S.", "Fu Shing", "梁,"]
+
+        /// 把正規化後的鍵拆成 `(family, given)`——與 `NameForm.isCitationForm` 同判準
+        /// （逗號兩側都有內容），語序塌陷的突變都是掛在這個形狀上的。
+        func citationParts(_ key: String) -> (family: String, given: String)? {
+            guard let c = key.firstIndex(of: ",") else { return nil }
+            let f = key[key.startIndex..<c].trimmingCharacters(in: .whitespaces)
+            let g = key[key.index(after: c)...].trimmingCharacters(in: .whitespaces)
+            return (f.isEmpty || g.isEmpty) ? nil : (f, g)
+        }
+
+        var reach = (multiTokenFamily: false, hanFamily: false,
+                     multiTokenGiven: false, hyphenlessGiven: false)
         for a in parts {
             let ka = NameNormalization.matchingKey(a)
             guard !ka.isEmpty else { continue }
             for b in parts {
                 let kb = NameNormalization.matchingKey(b)
                 guard !kb.isEmpty else { continue }
-                XCTAssertEqual(NameNormalization.matchingKey(a + " " + b), ka + " " + kb,
+
+                let joined = ka + " " + kb
+                XCTAssertEqual(NameNormalization.matchingKey(a + " " + b), joined,
                                "matchingKey 必須逐段作用——重排或跨段合併等於讓身分判斷"
                                + "偷渡進配對層，違反「用於配對，永不用於判定」：\(a) | \(b)")
-                if ka != kb { killable += 1 }
+
+                guard let p = citationParts(joined) else { continue }
+                if p.family.contains(" ")           { reach.multiTokenFamily = true }
+                if WritingSystem.of(p.family) == .han { reach.hanFamily = true }
+                if p.given.contains(" ")            { reach.multiTokenGiven = true }
+                if !p.given.contains("-")           { reach.hyphenlessGiven = true }
             }
         }
-        // 語序塌陷的 mutant 只有在兩段的鍵不同時才可能被抓到；記錄有效對數，
-        // 避免哪天 parts 被改成全同而讓斷言變成恆真。
-        XCTAssertGreaterThan(killable, 100, "有效判別對太少，這條已退化成恆真")
+        // 覆蓋自檢——每一項對應一個實測存活過的突變。全部為真才代表這條性質
+        // 「看得到」那些突變；否則它只是在一個太小的輸入空間上恆真。
+        XCTAssertTrue(reach.hyphenlessGiven,  "M6（given 段無連字號）在此輸入空間不可觸發")
+        XCTAssertTrue(reach.multiTokenFamily, "M7（family 段多 token）在此輸入空間不可觸發")
+        XCTAssertTrue(reach.hanFamily,        "M8（漢字 family）在此輸入空間不可觸發")
+        XCTAssertTrue(reach.multiTokenGiven,  "M9（given 段多 token）在此輸入空間不可觸發")
     }
 
-    /// **`authorized = names.map(matchingKey)` 的一個機械後果**（非主論據）。
+    /// **`authorized = names.map(matchingKey)` 被不變式 1 擋下的那一半**（非主論據）。
     ///
-    /// 禁令的根據是 `AuthorizedNameMigration` 的明文政策（「仍然多於一個 → 留空並
-    /// 報告」），與 `matchingKey` 無關——見 `Person.authorized` 的 doc。本條只釘住
+    /// 禁令的主論據是**不變式 2**（`openspec/specs/authorized-name/spec.md`：同書寫
+    /// 系統兩個 authorized 是 "an undecided question, not a designation"，SHALL be
+    /// rejected），因為 `matchingKey` 從不轉寫書寫系統——見 `Person.authorized` 的
+    /// doc。本條只釘住
     /// 「連 schema 都擋得住」的那一小塊，**不足以獨立支撐禁令**：對 `names` 每筆都是
     /// `matchingKey` 不動點的記錄（純漢字——`testCJKIsNotMangled` 就是），不變式 1
     /// 根本不觸發。
@@ -189,6 +225,35 @@ extension NameNormalizationTests {
             issues.contains { $0.severity == .error && $0.message.contains("不在 names 內") },
             "casefold 後的字串不在 names 內，不變式 1 必須報 error——"
             + "這就是 `authorized = names.map(normalize)` 不可行的機械證明。"
+            + "實際 issues：\(issues.map(\.message))")
+    }
+
+    /// **主論據**：不變式 1 漏掉的那一半，由不變式 2 接住。
+    ///
+    /// 殺死前一版論證的反例是「`names` 每筆都是 `matchingKey` 不動點」的記錄——純漢字
+    /// 即是，`map` 之後產出**逐字等於** `names`，不變式 1 完全靜默。這條釘住：**那類
+    /// 記錄照樣存不進去**，因為 `matchingKey` 從不轉寫書寫系統，兩個漢字名 `map` 完
+    /// 仍是兩個漢字名 → 不變式 2 報 `.error`。
+    ///
+    /// 這才是 `Person.authorized` 禁令的機械根據，也是 `openspec/specs/authorized-name/
+    /// spec.md` 的 SHALL（同書寫系統兩個 authorized 是 "an undecided question, not a
+    /// designation"）。**不經過正規化那一層，所以不動點反例對它無效。**
+    func testFixedPointNamesStillBlockedByTheOnePerScriptInvariant() {
+        let names = ["梁佑任", "梁佑仁"]                  // 兩個漢字名，同一人的兩種寫法
+        let normalized = names.map(NameNormalization.matchingKey)
+        // 前提一：不動點——不變式 1 在這裡沒有東西可抓
+        XCTAssertEqual(normalized, names, "前提：純漢字是 matchingKey 的不動點")
+        // 前提二：書寫系統沒有被轉寫（這是不變式 2 必然觸發的理由）
+        XCTAssertEqual(normalized.map(WritingSystem.of), [.han, .han],
+                       "前提：matchingKey 不轉寫書寫系統")
+
+        let issues = AuthorizedNames.validate(authorized: normalized, names: names,
+                                              ownerKey: "probe")
+        XCTAssertFalse(issues.contains { $0.message.contains("不在 names 內") },
+                       "不變式 1 不該觸發——若觸發，本測試就在錯的理由上通過")
+        XCTAssertTrue(
+            issues.contains { $0.severity == .error && $0.message.contains("han") },
+            "不變式 2 必須報 error：兩個漢字 authorized 是「未決」不是「指定」。"
             + "實際 issues：\(issues.map(\.message))")
     }
 

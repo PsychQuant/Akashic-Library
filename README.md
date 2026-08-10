@@ -22,6 +22,12 @@ akashic person che-cheng                  # 記錄 + 著作 + 合著者（著作
 akashic query --author che-cheng          # 只要庫內著作清單
 ```
 
+`akashic person` 目前**不顯示隸屬**——`profile.affiliations` 的四種時間狀態
+（進行中／已結束時點未知 #63／有結束日／僅觀測點 #70）必須互相可辨，否則「已離職」
+會被呈現成「現職」。那條呈現面拆在 **#225**；在它落地前，隸屬請直接讀記錄檔
+（`grep -rl '^key: che-cheng$' ~/.akashic/entities/`）或走 `export-tables`
+（有 `ended_unknown` 欄與 `affiliation_status`）。
+
 這也是這個 repo 的一個小小的自指：**它的作者是它自己收藏的一筆記錄。**
 
 ## 結構

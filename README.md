@@ -11,13 +11,22 @@ metadata 檔案化（per-entry YAML、git 版控）、附件外部化、Zotero �
 
 記成 UUID 而不是一個名字字串，是因為**這個系統對「人」的正典表示就是 person entity 的
 id**，而作者不該是那條規則的例外。名字會變（拼法、羅馬化、`Family, Given` vs
-`Given Family`——本 store 兩種都有）、`key` 也可能改；**id 不會**。想知道作者是誰、
-發表過什麼、隸屬哪裡，答案在那筆記錄裡而不是在這一行：
+`Given Family`——本 store 兩種都有）、`key` 也可能改；**id 不會**。
+
+「他是誰」「隸屬哪裡」在那筆記錄裡。**「他寫了什麼」不在**——那是 `work.authors` 的
+反向邊，由索引算出來的（#218）。person 記錄刻意不存著作：`work.authors` 已經是正典，
+存第二份就會分岔。
 
 ```bash
-akashic query --author che-cheng          # 庫內的著作
-grep -rl '^key: che-cheng$' ~/.akashic/entities/   # 那筆記錄本身
+akashic person che-cheng                  # 記錄 + 著作 + 合著者（著作為現算）
+akashic query --author che-cheng          # 只要庫內著作清單
 ```
+
+`akashic person` 目前**不顯示隸屬**——`profile.affiliations` 的四種時間狀態
+（進行中／已結束時點未知 #63／有結束日／僅觀測點 #70）必須互相可辨，否則「已離職」
+會被呈現成「現職」。那條呈現面拆在 **#225**；在它落地前，隸屬請直接讀記錄檔
+（`grep -rl '^key: che-cheng$' ~/.akashic/entities/`）或走 `export-tables`
+（有 `ended_unknown` 欄與 `affiliation_status`）。
 
 這也是這個 repo 的一個小小的自指：**它的作者是它自己收藏的一筆記錄。**
 
@@ -37,6 +46,7 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
                                  export-bib / export-tables / resolve-people /
                                  bootstrap-people / bootstrap-organizations /
                                  resolve-organizations / update-person /
+                                 person（讀取面，#218）/ create-entry（#206）/
                                  doctor / query / graph /
                                  rename / record-divergence（--prefers）/
                                  resolve-divergence（--override-reason）/

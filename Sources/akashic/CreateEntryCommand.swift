@@ -86,7 +86,13 @@ struct CreateEntryCmd: ParsableCommand {
         }
 
         let store = try options.openStore()
-        let service = AkashicService(root: store.root,
+        // `key:` 不可省——見 `PersonCommand.swift` 的長註解（verify #220 HIGH）。
+        // **先前的註解說「寫入路徑所以沒炸」——那是假的**（#218 R2 verify MEDIUM，
+        // regression 與 DA 兩個 lens 各自打臉）。這兩支同樣走 `ensureFreshIndex()`，
+        // 在已註冊的 store 裡會**建整份第二個 index**；`create-entry` 之後 `query`
+        // 看不到新資料，而且不自癒（query 的 `ensureCurrent()` 不看 mtime）。
+        // 差別只在它們的**主要產出**不取自 index，不是它們不碰 index。
+        let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
         var created = 0
         var failed: [(String, String)] = []

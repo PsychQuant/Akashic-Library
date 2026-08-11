@@ -57,6 +57,11 @@ public final class AkashicService {
     /// 整個 context。超出時回 `truncated: true` 與 `ambiguityTotal`，讓使用端知道
     /// 自己看到的不是全部——**靜默截斷會讓「沒有更多」與「沒給你更多」無法區分**。
     static let ambiguityLimit = 50
+    /// 單筆歧義最多回幾個 person ref。同名的人數**無上界**（實測一筆歧義 60 人），
+    /// 只限列數等於沒限 payload——見 `resolvePeople` 的三軸說明。
+    static let refsPerAmbiguity = 20
+    /// `people` 區塊最多幾筆。第三軸是「每筆多大」，由下方的 name 預算限制。
+    static let peopleLimit = 60
 
     public init(root: URL, key: String? = nil, configURL: URL? = nil,
                 environment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -576,12 +581,33 @@ public final class AkashicService {
             // 那個。陣列沒有地方放它，所以形狀必須改；`Server.swift` 的 tool description
             // 同步更新。
             let byKey = Dictionary(load.people.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
-            // 只回傳前 N 筆歧義；`people` 也只為**這些**建（否則上限只擋較瘦的一半）
+
+            // ## 上限必須量對軸（#236 R2）
+            //
+            // 第一版只限**列數**（50）。席位實測：**一筆**歧義即可產出 **758 KB**，
+            // 而回應同時聲稱 `truncated: false` / `ambiguityTotal: 1`——比完全沒有上限
+            // 更糟，因為那個 `false` 是會被 LLM 消費端信任的斷言。
+            //
+            // payload 有**三個**成長軸，列數只是其中一個：
+            //
+            // 1. **列數**：O(歧義位置數)
+            // 2. **列寬**：`personKeys` 長度 O(同名人數)，無上界（實測 60）
+            // 3. **每筆 people 的大小**：`names` × `displaySafe`，而 displaySafe 是
+            //    repo 自己文件化的 **8 倍膨脹器**——`max: 200` 可以輸出 1600 字元
+            //
+            // 三個都要限，而且 `truncated` 要反映**整個回應**、不只 ambiguities 陣列。
             let shown = Array(report.ambiguities.prefix(Self.ambiguityLimit))
+            // 每列的 ref 數也要限：同名的人可以有任意多個
+            let shownRefKeys = shown.map { Array($0.personKeys.prefix(Self.refsPerAmbiguity)) }
+            let anyRefsTruncated = zip(shown, shownRefKeys).contains { $0.personKeys.count > $1.count }
             // 不透明 ref：`p0`、`p1`…，依 **raw key** 排序指派 → 決定性、且生成即唯一。
             // 這是把「識別」與「顯示」分開的那一刀，見下方 `people` 的說明。
+            let refKeys = Array(Set(shownRefKeys.flatMap { $0 }).sorted().prefix(Self.peopleLimit))
             let refByKey = Dictionary(uniqueKeysWithValues:
-                Set(shown.flatMap(\.personKeys)).sorted().enumerated().map { ($0.element, "p\($0.offset)") })
+                refKeys.enumerated().map { ($0.element, "p\($0.offset)") })
+            let truncated = report.ambiguities.count > Self.ambiguityLimit
+                || anyRefsTruncated
+                || Set(shownRefKeys.flatMap { $0 }).count > refKeys.count
             return try jsonString([
                 "candidates": withIDs.map { pair -> [String: Any] in
                     [
@@ -622,19 +648,26 @@ public final class AkashicService {
                     refByKey.map { (raw, ref) -> (String, [String: Any]) in
                         var d: [String: Any] = [
                             "key": displaySafe(raw, max: 200),
-                            "names": (byKey[raw]?.names ?? []).prefix(8).map { displaySafe($0, max: 200) },
+                            // `names` 是**最弱**的區辨欄位（它們正規化後相同才會歧義），而 displaySafe
+                            // 是 8 倍膨脹器——`prefix(8) × max:200` 最壞 12800 字元/人。
+                            "names": (byKey[raw]?.names ?? []).prefix(2).map { displaySafe($0, max: 80) },
                         ]
                         // **缺席就不輸出**，不要送空字串——那會讓「沒有 ORCID」與
                         // 「ORCID 是空字串」在 JSON 上不再有分別（同本檔 :185／:375 的慣例）。
                         if let o = byKey[raw]?.orcid { d["orcid"] = displaySafe(o, max: 60) }
                         if let o = byKey[raw]?.openalex { d["openalex"] = displaySafe(o, max: 60) }
                         if let x = byKey[raw]?.died { d["died"] = displaySafe(x, max: 40) }
+                        // 同 CLI（#236 R2）：只看 current 會讓「只有已結束隸屬」的人
+                        // 看起來毫無隸屬資訊。`endedUnknown`(#63)／`attested`(#70) 被
+                        // `isOpen` 正確排除在現職外，但那不代表沒有資訊。
                         if let a = byKey[raw]?.profile.affiliations.current?.value {
-                            d["currentAffiliation"] = displaySafe(a.displayName, max: 200)
+                            d["currentAffiliation"] = displaySafe(a.displayName, max: 120)
+                        } else if let last = byKey[raw]?.profile.affiliations.entries.max() {
+                            d["formerAffiliation"] = displaySafe(last.value.displayName, max: 120)
                         }
                         return (ref, d)
                     }),
-                "ambiguities": shown.map { a -> [String: Any] in
+                "ambiguities": shown.enumerated().map { (i, a) -> [String: Any] in
                     [
                         "entryID": a.entryID.uuidString,   // display-safe-exempt: UUID 的 uuidString 恆為 [0-9A-F-]
                         "citekey": displaySafe(a.citekey, max: 200),
@@ -643,10 +676,11 @@ public final class AkashicService {
                         // ref 而非 key —— 見上方 `people` 的說明。送出的是**生成的**
                         // ref，store 衍生的 `personKeys` 只當查表鍵、不進輸出；key 的
                         // 顯示形只出現在 `people[ref]["key"]`，那裡有 displaySafe。
-                        "personRefs": a.personKeys.compactMap { refByKey[$0] },   // display-safe-exempt: 輸出是生成的 ref（`p0`/`p1`…，恆為 [a-z0-9]），非 store 內容
+                        "personRefs": shownRefKeys[i].compactMap { refByKey[$0] },   // display-safe-exempt: 輸出是生成的 ref（`p0`/`p1`…，恆為 [a-z0-9]），非 store 內容
                     ]
                 },
-                "truncated": report.ambiguities.count > Self.ambiguityLimit,
+                // **整個回應**的截斷旗標，不只 ambiguities 陣列——三軸任一被截都算
+                "truncated": truncated,
                 "ambiguityTotal": report.ambiguities.count,
             ])
         }

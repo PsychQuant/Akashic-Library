@@ -218,6 +218,46 @@ final class ServiceTests: XCTestCase {
                      "沒有 ORCID 時不該出現該鍵：\(byDisplayKey["amb-two"] ?? [:])")
     }
 
+    /// #236 R2：**上限要量對軸——限列數不等於限 payload。**
+    ///
+    /// 席位實測：**一筆**歧義即可產出 **758 KB**，而回應同時聲稱 `truncated: false`
+    /// / `ambiguityTotal: 1`。比完全沒有上限更糟——那個 `false` 是會被 LLM 消費端
+    /// 信任的斷言。
+    ///
+    /// payload 有三個成長軸，列數只是其一：
+    /// 1. 列數 O(歧義位置數)
+    /// 2. **列寬** `personKeys` 長度 O(同名人數)，無上界
+    /// 3. **每筆 people 的大小**：`names` × `displaySafe`（repo 自陳的 **8 倍膨脹器**）
+    ///
+    /// 這條直接量**序列化後的位元組**——不論日後哪一軸被改動，超標就紅。
+    func testResolvePeoplePayloadStaysBoundedOnAdversarialStore() throws {
+        let store = LibraryStore(root: root)
+        // 60 人共用同一個名字、每人多個長 name（席位重現 758 KB 的形狀）
+        let long = String(repeating: "x", count: 200)
+        for i in 0..<60 {
+            try store.writePerson(Person(key: "flood-\(i)",
+                                         names: ["Flood Same"] + (0..<8).map { "\(long)-\(i)-\($0)" }))
+        }
+        try store.writeEntry(Entry(id: UUID(), citekey: "flood2020", type: "article",
+                                   title: "X", authors: [.literal("Flood Same")], date: "2020"))
+
+        let raw = try service.resolvePeople(apply: nil)
+        XCTAssertLessThan(raw.utf8.count, 64 * 1024,
+                          "單筆歧義的 payload 必須有界——席位實測未設限時是 758 KB。"
+                          + "實際 \(raw.utf8.count) bytes")
+
+        let out = try json(raw) as! [String: Any]
+        // **截斷發生時就要說**，不論是哪一軸被截
+        XCTAssertEqual(out["truncated"] as? Bool, true,
+                       "ambiguityTotal 是 1 但 refs／people 被截了——truncated 必須為 true，"
+                       + "否則回應在對消費端說謊")
+        XCTAssertLessThanOrEqual((out["people"] as! [String: Any]).count, 60)
+        let refs = (out["ambiguities"] as! [[String: Any]]).first?["personRefs"] as! [String]
+        XCTAssertLessThanOrEqual(refs.count, 20, "單列的 ref 數也要有界")
+        XCTAssertTrue(refs.allSatisfy { (out["people"] as! [String: Any])[$0] != nil },
+                      "截斷後每個 ref 仍必須查得到——不得留下懸空引用")
+    }
+
     /// #236 R2 CRITICAL：**`displaySafe` 後的 key 碰撞會讓整個 MCP process trap。**
     ///
     /// 第一版把 `displaySafe(personKey)` 當 `people` 的 dictionary key。三個條件湊在

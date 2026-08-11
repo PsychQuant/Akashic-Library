@@ -550,6 +550,46 @@ struct BootstrapOrganizations: ParsableCommand {
 }
 
 /// #70 第二題：literal 機構名 → organization key 的高信心歸戶（絕不自動合併）。
+/// CLI 歧義段的顯示上限（#236 R2）。
+///
+/// **兩個面都要有**——先前只給 MCP 加。終端機灌爆與 LLM context 灌爆是同一類威脅
+/// （`TerminalOutputSafetyTests` 明文：「MCP/LLM context 的無上限灌注同型」），而
+/// 「修一個面就宣稱這一類關掉了」正是本 PR 前一輪被抓到的形狀。
+///
+/// 超出時**說出來**（印剩餘筆數）——靜默截斷會讓「沒有更多」與「沒給你更多」
+/// 無法區分。
+enum AmbiguityDisplayLimit {
+    static let rows = 50
+    /// 單筆歧義的候選數也無上界（同名的人可以有任意多個）。
+    static let refs = 20
+}
+
+/// 把 `DateRange` 的**四個**欄位都表示出來（#236 R2）。
+///
+/// `start`/`end` 之外還有 `endedUnknown`（#63：已結束但時點未知——43 位退休 PI 的
+/// 實際狀態）與 `attested`（#70：只有觀測點）。只讀前兩者會讓**已離職**與**現職**
+/// 印得逐位元組相同，而那正是 #63 被加進來要解決的事。
+///
+/// 回傳空字串代表「沒有任何時間資訊」——呼叫端據此決定要不要印括號。
+/// **消毒在這裡，呼叫端不得再包一次**——`displaySafe` 逃脫反斜線自身、**不冪等**
+/// （二次呼叫把 `\u{0009}` 變成 `\u{005C}u{0009}`），兩層會毀掉輸出。
+func rangeLabel(_ r: DateRange) -> String {
+    // **內聯 `displaySafe`，不用區域別名**——`DisplaySinkCoverageTests` 是文字掃描，
+    // 別名會讓它認不出消毒已經發生，於是守衛失效而程式看起來沒問題。
+    if !r.attested.isEmpty {
+        let pts = r.attested.prefix(4).map { displaySafe($0, max: 24) }.joined(separator: "、")
+        return "觀測:\(pts)\(r.attested.count > 4 ? "…" : "")"
+    }
+    switch (r.start, r.end, r.endedUnknown) {
+    case (nil, nil, false):     return ""
+    case (nil, nil, true):      return "已結束・時點未知"
+    case let (s?, nil, false):  return "\(displaySafe(s, max: 24))–"
+    case let (s?, nil, true):   return "\(displaySafe(s, max: 24))–已結束・時點未知"
+    case let (nil, e?, _):      return "–\(displaySafe(e, max: 24))"
+    case let (s?, e?, _):       return "\(displaySafe(s, max: 24))–\(displaySafe(e, max: 24))"
+    }
+}
+
 struct ResolveOrganizations: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "resolve-organizations",
@@ -596,27 +636,30 @@ struct ResolveOrganizations: ParsableCommand {
             let byKey = Dictionary(load.organizations.map { ($0.key, $0) },
                                    uniquingKeysWith: { a, _ in a })
             print("")
-            print("歧義（\(orgReport.ambiguities.count)）——同一個 literal 對到 2+ 個 org，**需要人判斷**：")
-            for a in orgReport.ambiguities {
+            let shownOrg = Array(orgReport.ambiguities.prefix(AmbiguityDisplayLimit.rows))
+            print("歧義（\(orgReport.ambiguities.count)"
+                  + (orgReport.ambiguities.count > shownOrg.count ? "，以下顯示前 \(shownOrg.count) 筆" : "")
+                  + "）——同一個 literal 對到 2+ 個 org，**需要人判斷**：")
+            for a in shownOrg {
                 // **段的效期要印**——同一 holder 的多段同名 literal 否則長得一模一樣，
                 // 使用者無法按時段分別判給不同機構（#236 R1）。
-                let s = a.range.start.map { displaySafe($0, max: 20) }
-                let e = a.range.end.map { displaySafe($0, max: 20) }
-                let span: String
-                switch (s, e) {
-                case (nil, nil):    span = ""
-                case let (x?, nil): span = "（\(x)–）"
-                case let (nil, y?): span = "（–\(y)）"
-                case let (x?, y?):  span = "（\(x)–\(y)）"
-                }
+                // **四個欄位都要看**（#236 R2，5 個 finding 命中同一處）。只讀
+                // (start, end) 會把 `endedUnknown`（#63：已結束、時點未知）印成
+                // 「x–」＝進行中，把**已離職**的隸屬顯示得與現職**逐位元組相同**。
+                // `attested`（#70：只有觀測點、起訖皆不明）同樣被吃掉。
+                // repo 對這個塌縮有明文事故紀錄——那正是 #63／#70 存在的理由。
+                let span = rangeLabel(a.range)   // display-safe-exempt: rangeLabel 內部已消毒；displaySafe 不冪等，不得再包
                 print("  \(label(a.holder)) 「\(displaySafe(a.literal, max: 200))」\(span)")
-                for k in a.orgKeys {
+                for k in a.orgKeys.prefix(AmbiguityDisplayLimit.refs) {
                     let o = byKey[k]
                     let founded = o?.founded.map { "  成立:\(displaySafe($0, max: 20))" } ?? ""
                     let dissolved = o?.dissolved.map { "  解散:\(displaySafe($0, max: 20))" } ?? ""
                     let name = o?.displayName ?? k
                     print("      → \(displaySafe(k, max: 200))  [\(displaySafe(name, max: 200))]\(founded)\(dissolved)")
                 }
+            }
+            if orgReport.ambiguities.count > shownOrg.count {
+                print("  …另 \(orgReport.ambiguities.count - shownOrg.count) 筆未顯示")
             }
             print("  兩種可能，處置相反：同名的不同機構＝各自歸戶（永不合併）；同一機構兩筆＝該合併。")
         }
@@ -898,10 +941,20 @@ struct ResolvePeople: ParsableCommand {
             guard !report.ambiguities.isEmpty else { return }
             let byKey = Dictionary(load.people.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
             print("")
-            print("歧義（\(report.ambiguities.count)）——同一個 literal 對到 2+ 個 person，**需要人判斷**：")
-            for a in report.ambiguities {
-                print("  \(displaySafe(a.citekey, max: 200))[\(a.authorIndex)] 「\(displaySafe(a.literal, max: 200))」")
-                for k in a.personKeys {
+            // **CLI 也要有上限**（#236 R2）。先前只給 MCP 加，而終端機灌爆的威脅
+            // repo 自己有明文（`TerminalOutputSafetyTests`）——修一個面就宣稱這一類
+            // 關掉了，正是本 PR 前一輪被抓的形狀。
+            let shownAmbig = Array(report.ambiguities.prefix(AmbiguityDisplayLimit.rows))
+            print("歧義（\(report.ambiguities.count)"
+                  + (report.ambiguities.count > shownAmbig.count ? "，以下顯示前 \(shownAmbig.count) 筆" : "")
+                  + "）——同一個 literal 對到 2+ 個 person，**需要人判斷**：")
+            for a in shownAmbig {
+                // **印 entryID**（#236 R2）：重複 citekey 是被支援的損壞態，此時兩筆
+                // 歧義在 `(citekey, authorIndex)` 上逐位元組相同。MCP 帶了它、CLI 沒帶
+                // ——而 CLI 才是人真正在讀的那個面。
+                print("  \(displaySafe(a.citekey, max: 200))[\(a.authorIndex)] 「\(displaySafe(a.literal, max: 200))」"
+                      + "  entry:\(a.entryID.uuidString.prefix(8))")
+                for k in a.personKeys.prefix(AmbiguityDisplayLimit.refs) {
                     let p = byKey[k]
                     // **`names` 不具區辨力**——它們之所以被比到一起，正是因為正規化後
                     // 相同。真正能分辨的是外部識別碼與時空不相容，所以那些一定要印。
@@ -909,13 +962,25 @@ struct ResolvePeople: ParsableCommand {
                     if let o = p?.orcid { bits.append("orcid:\(displaySafe(o, max: 40))") }
                     if let o = p?.openalex { bits.append("openalex:\(displaySafe(o, max: 40))") }
                     if let x = p?.died { bits.append("卒:\(displaySafe(x, max: 20))") }
-                    if let a2 = p?.profile.affiliations.current?.value {
-                        bits.append("隸屬:\(displaySafe(a2.displayName, max: 60))")
+                    // **不是只看 current**（#236 R2）。`isOpen` 正確地把
+                    // `endedUnknown`（#63）與 `attested`（#70）排除在「現職」外，
+                    // 但只印 current 會讓「只有已結束隸屬」的人看起來**毫無隸屬
+                    // 資訊**——甚至被判成「無任何區辨欄位」，而那是假的。
+                    // 沒有現職就退到最近一段，並把時間狀態標出來。
+                    if let cur = p?.profile.affiliations.current?.value {
+                        bits.append("隸屬:\(displaySafe(cur.displayName, max: 60))")
+                    } else if let last = p?.profile.affiliations.entries.max() {
+                        let when = rangeLabel(last.range)
+                        bits.append("曾隸屬:\(displaySafe(last.value.displayName, max: 60))"
+                                    + (when.isEmpty ? "" : "（\(when)）"))   // display-safe-exempt: rangeLabel 內部已消毒（不冪等，不得再包）
                     }
                     let names = (p?.names ?? []).prefix(4).map { displaySafe($0, max: 80) }.joined(separator: "、")
                     let extra = bits.isEmpty ? "  ⚠ 無任何區辨欄位" : "  " + bits.joined(separator: "  ")
                     print("      → \(displaySafe(k, max: 200))  [\(names)]\(extra)")
                 }
+            }
+            if report.ambiguities.count > shownAmbig.count {
+                print("  …另 \(report.ambiguities.count - shownAmbig.count) 筆未顯示（--json 或縮小範圍以取全部）")
             }
             print("  兩種可能，處置相反：同名的不同人＝各自歸屬（永不合併）；同一人兩筆＝該合併。")
         }

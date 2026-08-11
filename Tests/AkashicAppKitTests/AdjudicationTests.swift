@@ -114,4 +114,34 @@ final class AdjudicationTests: XCTestCase {
         try model.refresh()
         XCTAssertTrue(model.items.isEmpty)
     }
+
+    /// #236 R2：**裁決台是唯一還在靜默丟棄歧義的面**——而人就坐在這裡。
+    ///
+    /// CLI 與 MCP 都被接上了，唯獨這裡沒有：使用者看得到唯一命中，卻不知道系統
+    /// 另外找到 N 個**它知道需要人判斷**的位置。這與 #231 要修的是同一件事，
+    /// 只是發生在最不該發生的面。
+    func testAdjudicationSurfacesAmbiguities() throws {
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "amb-one", names: ["Ambi Guous"]))
+        var two = Person(key: "amb-two", names: ["Ambi Guous"])
+        two.orcid = "0000-0002-0000-0000"
+        try store.writePerson(two)
+        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: "article",
+                                   title: "X", authors: [.literal("Ambi Guous")]))
+        try state.load()
+
+        let model = PeopleResolveModel(state: state)
+        XCTAssertEqual(model.ambiguities.count, 1,
+                       "裁決台必須看得到歧義——它是唯一有人能解決它的地方")
+        XCTAssertEqual(model.ambiguities.first?.personKeys, ["amb-one", "amb-two"])
+
+        // 區辨欄位要拿得到，否則人也判不了
+        let d = model.discriminators(for: "amb-two")
+        XCTAssertEqual(d.orcid, "0000-0002-0000-0000")
+        XCTAssertEqual(d.names, ["Ambi Guous"])
+
+        // 歧義**不得**混進可 accept 的候選
+        XCTAssertFalse(model.candidates.contains { $0.citekey == "amb2020x" },
+                       "歧義套用不了——型別層就吃不進 apply")
+    }
 }

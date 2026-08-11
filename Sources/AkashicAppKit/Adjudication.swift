@@ -14,6 +14,14 @@ import AkashicIndex
 public final class PeopleResolveModel {
     let state: AppState
     public private(set) var candidates: [ResolutionCandidate] = []
+    /// 系統**知道**自己遇到了決定點，卻無法自行決定的位置（#231）。
+    ///
+    /// 這一面比 CLI 與 MCP 更需要它——**人就坐在這裡**。先前 CLI 與 MCP 都被接上了，
+    /// 唯獨裁決台沒有：使用者看得到唯一命中，卻不知道系統另外找到 N 個需要他判斷
+    /// 的位置。那與 #231 要修的「靜默丟棄」是同一件事，只是發生在最不該發生的面。
+    ///
+    /// **不可 accept**——`apply` 只吃 `candidates`，型別層就寫不出來。
+    public private(set) var ambiguities: [AmbiguousMatch] = []
 
     public init(state: AppState) {
         self.state = state
@@ -21,8 +29,25 @@ public final class PeopleResolveModel {
     }
 
     public func refresh() {
-        candidates = PersonResolver.candidates(entries: state.entries, people: state.people)
+        let report = PersonResolver.resolve(entries: state.entries, people: state.people)
+        candidates = report.candidates
             .filter { !state.skippedPeopleCandidates.contains(id(of: $0)) }
+        // 歧義**不參與 skip 集合**：skip 的語意是「這個候選我不要套用」，而歧義
+        // 本來就套用不了。它是待辦事項，不是候選。
+        ambiguities = report.ambiguities
+    }
+
+    /// 每個歧義候選的區辨欄位——**只給 key 的話人也判不了**。
+    ///
+    /// `names` 不具區辨力（它們正規化後相同才會歧義）；真正能分辨「兩個同名的人」
+    /// 與「同一人兩筆記錄」的是外部識別碼與時空不相容。
+    public func discriminators(for key: String) -> (names: [String], orcid: String?,
+                                                    openalex: String?, died: String?,
+                                                    affiliation: String?) {
+        let p = state.people.first { $0.key == key }
+        let aff = p?.profile.affiliations.current?.value.displayName
+            ?? p?.profile.affiliations.entries.max()?.value.displayName
+        return (p?.names ?? [], p?.orcid, p?.openalex, p?.died, aff)
     }
 
     public func accept(_ candidate: ResolutionCandidate) throws {

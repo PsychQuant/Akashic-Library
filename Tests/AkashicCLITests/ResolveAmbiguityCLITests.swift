@@ -137,4 +137,70 @@ final class ResolveAmbiguityCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("org-a") && r.output.contains("org-b"),
                       "兩個候選都要列：\n\(r.output)")
     }
+
+    /// **有候選時也要印歧義。** #236 R2：這兩個呼叫點零覆蓋——刪掉它們，1389 條
+    /// 測試逐字不變。先前的測試只涵蓋「無候選」分支，於是突變驗證只證明了**我測到
+    /// 的那條路徑**有守衛，沒證明所有路徑都有。
+    func testAmbiguityShownAlongsideCandidates() throws {
+        try writePerson(key: "solo", names: ["Solo Author"])          // 會出候選
+        try writePerson(key: "amb-one", names: ["Ambi Guous"])
+        try writePerson(key: "amb-two", names: ["Ambi Guous"])
+        try store.writeEntry(Entry(id: UUID(), citekey: "both2020", type: "article", title: "X",
+                                   authors: [.literal("Solo Author"), .literal("Ambi Guous")],
+                                   date: "2020"))
+
+        let r = try runCLI(["resolve-people"])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("solo"), "前提：確實有唯一候選：\n\(r.output)")
+        XCTAssertTrue(r.output.contains("歧義"),
+                      "**有候選時也必須印歧義**——這條分支先前零覆蓋：\n\(r.output)")
+        XCTAssertTrue(r.output.contains("amb-one") && r.output.contains("amb-two"), r.output)
+    }
+
+    /// `entryID` 要印在 **CLI** 上。重複 citekey 是被支援的損壞態，此時兩筆歧義在
+    /// `(citekey, authorIndex)` 上逐位元組相同——MCP 帶了 entryID，CLI 先前沒帶，
+    /// 而 CLI 才是人真正在讀的面（#236 R2）。
+    func testAmbiguityPrintsEntryIdentity() throws {
+        try writePerson(key: "amb-one", names: ["Ambi Guous"])
+        try writePerson(key: "amb-two", names: ["Ambi Guous"])
+        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: "article",
+                                   title: "X", authors: [.literal("Ambi Guous")], date: "2020"))
+        let r = try runCLI(["resolve-people"])
+        XCTAssertTrue(r.output.contains("entry:"),
+                      "要印 entry 身分，否則重複 citekey 下兩筆報告無法區分：\n\(r.output)")
+    }
+
+    /// CLI **也要有上限**——先前只給 MCP 加。而且截斷要說出來。
+    func testAmbiguityListIsCappedAndSaysSo() throws {
+        try writePerson(key: "many-one", names: ["Many Same"])
+        try writePerson(key: "many-two", names: ["Many Same"])
+        for i in 0..<60 {
+            try store.writeEntry(Entry(id: UUID(), citekey: "many\(i)", type: "article",
+                                       title: "T", authors: [.literal("Many Same")], date: "2020"))
+        }
+        let r = try runCLI(["resolve-people"])
+        XCTAssertTrue(r.output.contains("以下顯示前 50 筆"), "要說明只顯示了一部分：\n\(r.output)")
+        XCTAssertTrue(r.output.contains("另 10 筆未顯示"),
+                      "剩餘筆數要說出來——靜默截斷讓「沒有更多」與「沒給你更多」無法區分：\n\(r.output)")
+    }
+
+    /// org 側的 range 必須表示**四個**欄位。只讀 (start,end) 會把 `endedUnknown`
+    /// （#63：已結束、時點未知）印成進行中——**已離職與現職逐位元組相同**。
+    /// repo 對這個塌縮有明文事故紀錄（#63／#70 存在的理由）。
+    func testOrgAmbiguityRangeShowsEndedUnknown() throws {
+        for k in ["org-a", "org-b"] {
+            var o = Organization(key: k)
+            o.names = TimelineOf([TemporalValue(value: "Sinica", range: DateRange())])
+            try store.writeOrganization(o)
+        }
+        var p = Person(key: "p-one", names: ["P One"])
+        p.profile.affiliations = TimelineOf([TemporalValue(
+            value: OrgRef.literal("Sinica"),
+            range: DateRange(start: "2001", end: nil, endedUnknown: true))])
+        try store.writePerson(p)
+
+        let r = try runCLI(["resolve-organizations"])
+        XCTAssertTrue(r.output.contains("已結束"),
+                      "endedUnknown 必須顯示——否則已離職印得跟現職一樣：\n\(r.output)")
+    }
 }

@@ -60,7 +60,7 @@ final class EntryYAMLTests: XCTestCase {
         ]
         entry.attachments = [
             AttachmentRef(kind: .zotero, path: "storage/ABCD1234/paper.pdf"),
-            AttachmentRef(kind: .pool, path: "2025/cheng2025identifiability.pdf"),
+            AttachmentRef(kind: .zotero, path: "storage/ABCD1234/supplement.pdf"),
         ]
         entry.provenance = Provenance(zoteroKey: "ABCD1234", zoteroVersion: 123,
                                       importedAt: Date(timeIntervalSince1970: 1_753_000_000))
@@ -194,6 +194,43 @@ final class StrictSchemaTests: XCTestCase {
         XCTAssertEqual(entry.akashic.unknownFields.map(\.key), ["reading_progress"])
         let decoded = try EntryYAML.decode(try EntryYAML.encode(entry))
         XCTAssertEqual(decoded, entry)
+    }
+
+    // 附件鍵域是封閉集合，收窄為只剩 zotero 一種（#223）。未知種類走整檔拒絕，
+    // 不是 tolerant-preserve——鍵域 strict 正是 format 提升的依據。
+    func testPoolAttachmentKindIsRejected() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        attachments:
+          - pool: 2025/a2020b.pdf
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml)) { error in
+            guard case StoreYAMLError.invalidField(let field, let message) = error else {
+                return XCTFail("預期 invalidField，實得 \(error)")
+            }
+            XCTAssertEqual(field, "attachments")
+            XCTAssertFalse(
+                message.contains("pool"),
+                "錯誤訊息不得把 pool 呈現為合法值，否則讀者會以為只是打錯字：\(message)"
+            )
+        }
+    }
+
+    func testZoteroAttachmentKindStillAccepted() throws {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        attachments:
+          - zotero: storage/ABCD1234/paper.pdf
+        """
+        let entry = try EntryYAML.decode(yaml)
+        XCTAssertEqual(entry.attachments,
+                       [AttachmentRef(kind: .zotero, path: "storage/ABCD1234/paper.pdf")])
     }
 
     func testUnknownProvenanceKeyRejected() {

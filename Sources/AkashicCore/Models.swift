@@ -74,11 +74,16 @@ public struct UnknownField: Equatable {
 }
 
 public struct AttachmentRef: Equatable {
+    /// 鍵域是**封閉集合，且只剩一種**（#223）。可 ingest 的內容一律以 digest 引用
+    /// （見 `AkashicMeta.sources`），不以檔案系統路徑引用——路徑會因搬移或改名斷鏈，
+    /// 且無法偵測內容變更。
+    ///
+    /// 僅存的路徑型引用是指向**外部文獻管理器自有儲存**的過渡形式：它存在的理由是
+    /// 那個管理器持有本 store 尚未 ingest 的位元組。這是**一的封閉列舉**——不得因
+    /// 「形狀相似」而據以新增第二種路徑型引用。
     public enum Kind: String, Equatable {
         /// 相對 Zotero 資料目錄的 reference（storage/<KEY>/<file>）。
         case zotero
-        /// 相對 attachment pool 的路徑。
-        case pool
     }
 
     public var kind: Kind

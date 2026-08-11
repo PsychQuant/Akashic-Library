@@ -119,9 +119,9 @@ public enum ZoteroMapping {
             fields[key] = value
         }
         entry.fields = fields
-        // pool 附件是 Akashic 自有資料，保留；zotero reference 整批以 Zotero 為準
-        let poolAttachments = entry.attachments.filter { $0.kind == .pool }
+        // 鍵域收窄後只剩 zotero 一種，而它整批以 Zotero 為準（#223）。使用者自有的
+        // 副本引用改住 `akashic.sources`（以 digest 指涉），不經此路徑，所以這裡
+        // 不再需要過濾保留任何附件種類——namespace 契約已經擋住覆寫。
         entry.attachments = item.attachmentPaths.map { AttachmentRef(kind: .zotero, path: $0) }
-            + poolAttachments
     }
 }

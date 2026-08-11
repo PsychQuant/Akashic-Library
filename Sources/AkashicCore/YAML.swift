@@ -829,7 +829,7 @@ public enum EntryYAML {
                       let kindRaw = first.key.scalar?.string,
                       let kind = AttachmentRef.Kind(rawValue: kindRaw),
                       let path = first.value.scalar?.string else {
-                    throw StoreYAMLError.invalidField("attachments", "元素必須是 {zotero: path} 或 {pool: path}（鍵為字串 scalar）")
+                    throw StoreYAMLError.invalidField("attachments", "元素必須是 {zotero: path}（鍵為字串 scalar；鍵域為封閉集合，只接受這一種）")
                 }
                 return AttachmentRef(kind: kind, path: path)
             }

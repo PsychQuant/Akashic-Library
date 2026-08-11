@@ -697,8 +697,8 @@ propositions:
     project_relations:
       - status: partial
         mode: semantic_operation
-        claim_zh_tw: "Akashic 以 YesNoQuestion 對 bounded atom／not expression 明列 yes、no、undetermined；holds 建立 subject 本身，fails 則建立 not(subject) 的 holds valuation，而不把問答壓成檢索 Bool。"
-        rationale_zh_tw: "4.023 要求命題劃出可答是或否的 truth condition。現行 slice 已有顯式否定、遞迴 trace 與可達 no：authored 只有在 canonical author-list witness 證成 exact ordered authors 且排除目標 person 時才為 fails；普通資料缺席仍是 undetermined。這只覆蓋一個 predicate 的窄幅 bipolarity，沒有多原子 binary operators、truth table 或等價判定，因此維持 partial。"
+        claim_zh_tw: "Akashic 以 YesNoQuestion 對有界 atom／not／and／or／implies／nor expression 明列 yes、no、undetermined；holds 建立 subject 本身，fails 則建立 not(subject) 的 holds valuation，而不把問答壓成檢索 Bool。"
+        rationale_zh_tw: "4.023 要求命題劃出可答是或否的 truth condition。現行 slice 已有六種有界運算子、完整 classical truth table、語意等價、顯式否定、遞迴 trace 與可達 no；authored 只有在 canonical author-list witness 證成 exact ordered authors 且排除目標 person 時才為 fails，普通資料缺席仍是 undetermined。它仍只對固定館藏 predicates 與有限 classical assignment 建模，不等於完整現實描述，因此維持 partial。"
         evidence:
           - path: "Sources/AkashicProposition/Question.swift"
             kind: symbol
@@ -720,6 +720,10 @@ propositions:
             kind: test
             locator: "testUndeterminedAnswerHasNoEstablishedExpression"
             note_zh_tw: "測試確認沒有足夠證據時仍為 undetermined，且不捏造可主張的正負 expression。"
+          - path: "Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift"
+            kind: test
+            locator: "testEveryBinaryOperatorHasCompleteFourRowMatrix"
+            note_zh_tw: "測試直接釘住 and、or、implies、nor 的完整 classical 四列 truth condition。"
     history:
       - kind: commit
         reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
@@ -731,8 +735,8 @@ propositions:
         note_zh_tw: "此 issue 所追蹤的顯式否定、witness-backed fails／no 與負向 fact 窄幅路徑已有直接實作證據；它不等於完整 bipolar truth-condition calculus。"
       - kind: issue
         reference: "https://github.com/PsychQuant/Akashic-Library/issues/204"
-        disposition: retained
-        note_zh_tw: "binary operators、truth table 與 formula equivalence 不在本次 unary slice；保留既有 issue identity 作能力邊界。"
+        disposition: revised
+        note_zh_tw: "#214 已交付有界 binary operators、truth table 與 formula equivalence；本筆據此修訂，但有限模型不等於完整現實描述。"
 
   - id: "4.024"
     parent: "4.02"
@@ -1263,8 +1267,8 @@ propositions:
     project_relations:
       - status: partial
         mode: semantic_operation
-        claim_zh_tw: "Akashic 已以 context-bound evaluate(in:) 把 bounded atom／not expression 與固定 store identity、content revision 及 valid day 的不可變館藏 snapshot 比較，並以 structured valuation、canonical author-list witness 與 recursive EvidenceTrace 保存比較依據。"
-        rationale_zh_tw: "4.05 要求把命題與現實比較。現行 evaluator 已執行 predicate-specific model comparison：authored 可用綁定 work UUID 與 exact ordered authors 的 canonical witness 證成窄幅排除；affiliated 依 valid day 評估完整時間區段；否定只反轉 determinate truth 並逐層保留 operand trace、context 與 quarantine。然而 snapshot 仍是可重播的館藏模型，不是全部現實；沒有相應 witness 的作者缺席及隸屬缺席仍是 undetermined，因此維持 partial。"
+        claim_zh_tw: "Akashic 已以 context-bound evaluate(in:) 把有界 atom／not／binary expression 與固定 store identity、content revision 及 valid day 的不可變館藏 snapshot 比較，並以 structured valuation、canonical author-list witness 與完整 subformula EvidenceTrace 保存比較依據。"
+        rationale_zh_tw: "4.05 要求把命題與現實比較。現行 evaluator 已執行 predicate-specific model comparison：authored 可用綁定 work UUID 與 exact ordered authors 的 canonical witness 證成窄幅排除；affiliated 依 valid day 評估完整時間區段；有界複合式以 supervaluation 聚合 atom truth，並為每個 subformula 保留 context、quarantine 與結論。然而 snapshot 仍是可重播的館藏模型，不是全部現實；沒有相應 witness 的作者缺席及隸屬缺席仍是 undetermined，因此維持 partial。"
         evidence:
           - path: "docs/explainers/why-akashic-is-not-just-google.md"
             kind: heading
@@ -1343,8 +1347,8 @@ propositions:
     project_relations:
       - status: partial
         mode: semantic_operation
-        claim_zh_tw: "Akashic 只有在 typed atom 成功投射到正確 entity roles 後才進行 truth evaluation；canonical author-list witness 可使 authored atom 為 fails，bounded not 可遞迴導出相反的 determinate truth，不可投射者仍保持 undetermined。"
-        rationale_zh_tw: "4.06 把可真可假的條件連到命題對現實的圖像關係。現行 projector 以角色、身分與 entity kind 守住最小結構對應；witness-backed exact exclusion 與 explicit negation 已提供窄幅 false 路徑，且 recursive trace 可稽核每一層來源。這仍只是兩個館藏 predicate 加 unary not 的 model-relative 語意，不是完整圖像論或任意 formula calculus。"
+        claim_zh_tw: "Akashic 只有在 typed atom 成功投射到正確 entity roles 後才進行 truth evaluation；canonical author-list witness 可使 authored atom 為 fails，六種有界公式運算以 classical 或 supervaluation 語意組合真值，不可投射者仍保持 undetermined。"
+        rationale_zh_tw: "4.06 把可真可假的條件連到命題對現實的圖像關係。現行 projector 以角色、身分與 entity kind 守住最小結構對應；witness-backed exact exclusion、六種有界運算與完整 subformula trace 已提供可稽核的有限公式語意。它仍只比較兩個館藏 predicate 的 model-relative evidence，不是《邏輯哲學論》的完整圖像論、量化語意或現實完備性證明。"
         evidence:
           - path: "docs/explainers/why-akashic-is-not-just-google.md"
             kind: heading
@@ -1487,7 +1491,7 @@ propositions:
     project_relations:
       - status: not_applicable
         claim_zh_tw: "Akashic 目前不宣稱直接實作命題 4.0621 的哲學主張。"
-        rationale_zh_tw: "此命題的具體內容是：否定改變命題在邏輯空間中的方向，卻不命名一個「否定物」；不同記號規約也可能讓表面不同符號承載同一內容。 專案現有檔案、schema 與查詢行為不足以證成同一主張，硬套對應會誤導。"
+        rationale_zh_tw: "覆核 #214 後，專案雖已有結構式 not、雙重否定的 classical equivalence 與 exact trace，但這些工程語意不足以證成否定在現實中沒有對應物，亦不足以建立符號規約與邏輯位置的哲學主張，因此維持 not_applicable。"
         evidence: []
     history: []
 
@@ -1579,7 +1583,7 @@ propositions:
     project_relations:
       - status: not_applicable
         claim_zh_tw: "Akashic 目前不宣稱直接實作命題 4.064 的哲學主張。"
-        rationale_zh_tw: "此命題的具體內容是：斷言或否定作用於已形成的命題內容，不能把尚未成形的符號串藉一個判斷標記變成有意義。 專案現有檔案、schema 與查詢行為不足以證成同一主張，硬套對應會誤導。"
+        rationale_zh_tw: "覆核 #214 後，throwing factory 的確只讓已成形 expression 進入 not，雙重否定也保持結構；但型別安全不足以證成 sense 先於判斷記號或判斷記號不能賦予意義的哲學主張，因此維持 not_applicable。"
         evidence: []
     history: []
 
@@ -1626,7 +1630,7 @@ propositions:
     project_relations:
       - status: not_applicable
         claim_zh_tw: "Akashic 目前不宣稱直接實作命題 4.0641 的哲學主張。"
-        rationale_zh_tw: "此命題的具體內容是：否定不是刪除原命題，而是以原命題的 sense 界定另一邏輯位置；可重複否定證明其運算對象早已具有命題結構。 專案現有檔案、schema 與查詢行為不足以證成同一主張，硬套對應會誤導。"
+        rationale_zh_tw: "覆核 #214 後，nested not 的結構、trace 與 classical equivalence 均可機械驗證；但這仍不足以證成邏輯位置、sense 依賴或現實中不存在否定物等哲學主張，因此維持 not_applicable。"
         evidence: []
     history: []
   - id: "4.1"
@@ -2838,8 +2842,8 @@ propositions:
     project_relations:
       - status: partial
         mode: semantic_operation
-        claim_zh_tw: "對 authored，Akashic 已使一組窄幅 truth conditions 可執行：resolved author identity 為 holds；canonical witness 證成的 exact exclusion 為 fails；沒有 witness 或仍含 literal identity 問題則為 undetermined；bounded not 機械導出相反的 determinate truth。"
-        rationale_zh_tw: "4.2 以命題對事態成立／不成立可能性的符合關係界定 sense。現行 slice 已同時表示 atom 與 unary negation，並以 recursive EvidenceTrace 保存原子證據及每層結論；但它只涵蓋少數館藏 predicate，沒有多原子 binary operators、完整 truth-possibility space、truth table 或 formula equivalence，因此仍只是局部 truth-condition 實例。"
+        claim_zh_tw: "Akashic 已使有界 atom／not／and／or／implies／nor 的 truth conditions 可執行：classical layer 可列完整 truth table 與判定等價，snapshot layer 則以 supervaluation 保留 atomic unknown，authored 的 witnessed exclusion 才能成為 fails。"
+        rationale_zh_tw: "4.2 以命題對事態成立／不成立可能性的符合關係界定 sense。現行 slice 已能對有限 atom 集列舉完整 classical truth table、以 truth conditions 判定等價，並在 snapshot 語意中為每個 subformula 保存 supervaluation trace；但 atom 仍只涵蓋少數館藏 predicates，沒有量化、任意世界模型或現實完備性，因此仍只是局部 truth-condition 實例。"
         evidence:
           - path: "docs/explainers/why-akashic-is-not-just-google.md"
             kind: heading
@@ -2869,6 +2873,14 @@ propositions:
             kind: test
             locator: "testDoubleNegationKeepsTwoTraceNodesButRestoresTruth"
             note_zh_tw: "測試確認雙重否定保留兩個結構與 trace 節點，同時恢復 operand truth。"
+          - path: "Sources/AkashicProposition/ClassicalSemantics.swift"
+            kind: symbol
+            locator: "truthTable"
+            note_zh_tw: "`truthTable()` 依 canonical atom 與 row order 產生完整有限 truth-condition 表。"
+          - path: "Tests/AkashicPropositionTests/SupervaluationTests.swift"
+            kind: test
+            locator: "testEverySubformulaProducesOrderedContextBoundTrace"
+            note_zh_tw: "測試確認每個 subformula 都保留同一 snapshot context 與穩定順序的 trace。"
     history:
       - kind: commit
         reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
@@ -2880,8 +2892,8 @@ propositions:
         note_zh_tw: "此 issue 已交付明確否定與 canonical witness 證成的負向 authored 事態；普通資料缺席仍不得冒充反證。"
       - kind: issue
         reference: "https://github.com/PsychQuant/Akashic-Library/issues/204"
-        disposition: retained
-        note_zh_tw: "多原子 binary operators、truth-possibility table 與 formula equivalence 保留在既有能力邊界之外。"
+        disposition: revised
+        note_zh_tw: "#214 已交付多原子 binary operators、有限 truth table 與 formula equivalence；本筆據此修訂，量化與任意世界模型仍在範圍外。"
 
   - id: "4.21"
     parent: "4.2"
@@ -3654,8 +3666,8 @@ propositions:
     project_relations:
       - status: partial
         mode: semantic_operation
-        claim_zh_tw: "Akashic 已把 authored 的窄幅 truth conditions 寫成 bounded atom／not expression：resolved identity 為 holds、canonical witnessed exclusion 為 fails、其餘保留 undetermined，且 recursive trace 顯示每層否定如何由 operand truth 導出。"
-        rationale_zh_tw: "4.431 把命題視為其完整 truth conditions 的表達。現行 evaluator 已直接表達一個 atomic predicate 的正負條件與 unary negation，並避免把資料缺席混同於 truth-table 排除；然而它沒有多原子 binary operators、完整 truth-possibility table、normalization 或 truth-condition equivalence，因此不能宣稱完整實作。"
+        claim_zh_tw: "Akashic 已把有界 formula 的 truth conditions 寫成可重播資料：classical truthTable 列出全部有限 valuations，isClassicallyEquivalent 依輸出條件比較公式，snapshot supervaluation 則保留每個 subformula 的 evidence trace。"
+        rationale_zh_tw: "4.431 把命題視為其 truth conditions 的表達。現行 classical layer 已對有界 atom 集提供完整 truth table、semantic equivalence、tautology 與 contradiction；snapshot layer 以 supervaluation 避免把資料缺席混同於排除。它仍受固定 atom、row 與 node budget 限制，沒有量化或任意世界模型，因此維持 partial。"
         evidence:
           - path: "docs/explainers/why-akashic-is-not-just-google.md"
             kind: heading
@@ -3689,6 +3701,18 @@ propositions:
             kind: test
             locator: "testDoubleNegationKeepsTwoTraceNodesButRestoresTruth"
             note_zh_tw: "測試確認兩層否定不被結構化簡，但求值依 truth condition 恢復原 truth。"
+          - path: "Sources/AkashicProposition/ClassicalSemantics.swift"
+            kind: symbol
+            locator: "truthTable"
+            note_zh_tw: "`truthTable()` 以固定 atom／row 次序完整表達有限公式的 truth conditions。"
+          - path: "Sources/AkashicProposition/ClassicalSemantics.swift"
+            kind: symbol
+            locator: "isClassicallyEquivalent"
+            note_zh_tw: "`isClassicallyEquivalent` 依所有共有 valuation 的輸出比較語意，而非比較 AST 外形。"
+          - path: "Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift"
+            kind: test
+            locator: "testClassicalLawsUseSemanticEquivalence"
+            note_zh_tw: "測試以 semantic equivalence 驗證核心 classical laws。"
     history:
       - kind: commit
         reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
@@ -3696,8 +3720,8 @@ propositions:
         note_zh_tw: "e16c6f6 新增 authored 的明示成立條件，但沒有完整真值條件演算，故由 nonconformance 修訂為 partial。"
       - kind: issue
         reference: "https://github.com/PsychQuant/Akashic-Library/issues/204"
-        disposition: retained
-        note_zh_tw: "完整真值函數組合、truth table 與 truth-condition equivalence 由此 issue 追蹤。"
+        disposition: revised
+        note_zh_tw: "#214 已交付有界真值函數組合、truth table 與 truth-condition equivalence；本筆據此修訂，但不升為 implemented。"
 
   - id: "4.44"
     parent: "4.4"

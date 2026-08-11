@@ -3308,8 +3308,8 @@ propositions:
     project_relations:
       - status: partial
         mode: semantic_operation
-        claim_zh_tw: "Akashic 的 YesNoQuestion 保留 bounded PropositionExpression；yes 建立 subject 的 holds valuation，no 建立 not(subject) 的 holds valuation，undetermined 則不捏造 EstablishedAnswer，且問答本身不會自動寫成 AcceptedFact。"
-        rationale_zh_tw: "6.5 把可提出問題與可表達答案連在一起。現行 slice 已使 determinate 答案不只是 label：canonical author-list witness 可使 authored subject 為 fails 並實際到達 no，其可主張內容是帶完整 recursive trace 的 not(subject)；未知則明確沒有 established expression。這只是一個 bounded unary yes-no vertical slice，並非所有可表達問題的通用可答性理論，故維持狹窄 partial。"
+        claim_zh_tw: "Akashic 的 YesNoQuestion 保留任意有界 PropositionExpression；yes 建立 subject 的 holds valuation，no 建立 not(subject) 的 holds valuation，undetermined 則不捏造 EstablishedAnswer，且問答本身不會自動寫成 AcceptedFact。"
+        rationale_zh_tw: "6.5 把可提出問題與可表達答案連在一起。現行 slice 已使 determinate 答案不只是 label：任意合限的六運算子 expression 可由 supervaluation 回答，canonical author-list witness 可使 authored subject 實際到達 no，而 answer 保留完整 subformula trace 且不重算 atom；未知則沒有 established expression。它仍限於固定 predicates、運算子與資源預算，並非所有可表達問題的通用可答性理論，故維持 partial。"
         evidence:
           - path: "docs/explainers/logical-picture-future-and-questions.md"
             kind: heading

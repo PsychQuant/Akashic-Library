@@ -4654,13 +4654,14 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>partial</code> / <code>semantic_operation</code> — Akashic 以 YesNoQuestion 對 bounded atom／not expression 明列 yes、no、undetermined；holds 建立 subject 本身，fails 則建立 not(subject) 的 holds valuation，而不把問答壓成檢索 Bool。<br><small>理由：4.023 要求命題劃出可答是或否的 truth condition。現行 slice 已有顯式否定、遞迴 trace 與可達 no：authored 只有在 canonical author-list witness 證成 exact ordered authors 且排除目標 person 時才為 fails；普通資料缺席仍是 undetermined。這只覆蓋一個 predicate 的窄幅 bipolarity，沒有多原子 binary operators、truth table 或等價判定，因此維持 partial。</small>
+<li><code>partial</code> / <code>semantic_operation</code> — Akashic 以 YesNoQuestion 對有界 atom／not／and／or／implies／nor expression 明列 yes、no、undetermined；holds 建立 subject 本身，fails 則建立 not(subject) 的 holds valuation，而不把問答壓成檢索 Bool。<br><small>理由：4.023 要求命題劃出可答是或否的 truth condition。現行 slice 已有六種有界運算子、完整 classical truth table、語意等價、顯式否定、遞迴 trace 與可達 no；authored 只有在 canonical author-list witness 證成 exact ordered authors 且排除目標 person 時才為 fails，普通資料缺席仍是 undetermined。它仍只對固定館藏 predicates 與有限 classical assignment 建模，不等於完整現實描述，因此維持 partial。</small>
 <ul>
 <li><code>Sources/AkashicProposition/Question.swift</code>（symbol：<code>answerSpace</code>）— `answerSpace` 明列 yes、no 與 undetermined 三種答案。</li>
 <li><code>Sources/AkashicProposition/Question.swift</code>（symbol：<code>EstablishedAnswer</code>）— `EstablishedAnswer` 只保存 truth 為 holds 的完整 expression valuation；no 以 `not(subject)` 建立自己的可主張內容。</li>
 <li><code>Tests/AkashicPropositionTests/PropositionTests.swift</code>（test：<code>testAnswerSpaceIncludesUndetermined</code>）— 測試確認 yes-no 問句的答案空間保留 undetermined。</li>
 <li><code>Tests/AkashicPropositionTests/AuthorshipCompletenessPropositionTests.swift</code>（test：<code>testCanonicalWitnessProducesNoAndExactNegativeFact</code>）— 測試從 canonical witness-backed fails 走到 no、`not(subject)` 的 holds valuation 及 exact negative AcceptedFact。</li>
 <li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testUndeterminedAnswerHasNoEstablishedExpression</code>）— 測試確認沒有足夠證據時仍為 undetermined，且不捏造可主張的正負 expression。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testEveryBinaryOperatorHasCompleteFourRowMatrix</code>）— 測試直接釘住 and、or、implies、nor 的完整 classical 四列 truth condition。</li>
 </ul>
 </li>
 </ul>
@@ -4668,7 +4669,7 @@
 <ul>
 <li><code>commit</code> <code>e16c6f6e6d77f7cfe7e9d66323aecb174917872c</code> — <code>revised</code>：e16c6f6 當時新增三值 yes-no answer space但尚未交付可證成的 no；後續 bounded negation 與 canonical witness 已補上該窄幅路徑，整體仍因公式能力邊界而維持 partial。</li>
 <li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/203</code> — <code>revised</code>：此 issue 所追蹤的顯式否定、witness-backed fails／no 與負向 fact 窄幅路徑已有直接實作證據；它不等於完整 bipolar truth-condition calculus。</li>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：binary operators、truth table 與 formula equivalence 不在本次 unary slice；保留既有 issue identity 作能力邊界。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#214 已交付有界 binary operators、truth table 與 formula equivalence；本筆據此修訂，但有限模型不等於完整現實描述。</li>
 </ul>
 </td>
 </tr>
@@ -5056,7 +5057,7 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>partial</code> / <code>semantic_operation</code> — Akashic 已以 context-bound evaluate(in:) 把 bounded atom／not expression 與固定 store identity、content revision 及 valid day 的不可變館藏 snapshot 比較，並以 structured valuation、canonical author-list witness 與 recursive EvidenceTrace 保存比較依據。<br><small>理由：4.05 要求把命題與現實比較。現行 evaluator 已執行 predicate-specific model comparison：authored 可用綁定 work UUID 與 exact ordered authors 的 canonical witness 證成窄幅排除；affiliated 依 valid day 評估完整時間區段；否定只反轉 determinate truth 並逐層保留 operand trace、context 與 quarantine。然而 snapshot 仍是可重播的館藏模型，不是全部現實；沒有相應 witness 的作者缺席及隸屬缺席仍是 undetermined，因此維持 partial。</small>
+<li><code>partial</code> / <code>semantic_operation</code> — Akashic 已以 context-bound evaluate(in:) 把有界 atom／not／binary expression 與固定 store identity、content revision 及 valid day 的不可變館藏 snapshot 比較，並以 structured valuation、canonical author-list witness 與完整 subformula EvidenceTrace 保存比較依據。<br><small>理由：4.05 要求把命題與現實比較。現行 evaluator 已執行 predicate-specific model comparison：authored 可用綁定 work UUID 與 exact ordered authors 的 canonical witness 證成窄幅排除；affiliated 依 valid day 評估完整時間區段；有界複合式以 supervaluation 聚合 atom truth，並為每個 subformula 保留 context、quarantine 與結論。然而 snapshot 仍是可重播的館藏模型，不是全部現實；沒有相應 witness 的作者缺席及隸屬缺席仍是 undetermined，因此維持 partial。</small>
 <ul>
 <li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>## 3. 最簡單的反例：搜尋到一個句子，不等於句子是真的</code>）— 此節用可命中但為假的句子證明 retrieval 不等於 truth。</li>
 <li><code>Sources/AkashicStoreIO/LibrarySnapshot.swift</code>（symbol：<code>loadSnapshot</code>）— `loadSnapshot()` 只接受穩定 captured bytes，並以同一份 bytes 解碼館藏內容及計算 store revision。</li>
@@ -5093,7 +5094,7 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>partial</code> / <code>semantic_operation</code> — Akashic 只有在 typed atom 成功投射到正確 entity roles 後才進行 truth evaluation；canonical author-list witness 可使 authored atom 為 fails，bounded not 可遞迴導出相反的 determinate truth，不可投射者仍保持 undetermined。<br><small>理由：4.06 把可真可假的條件連到命題對現實的圖像關係。現行 projector 以角色、身分與 entity kind 守住最小結構對應；witness-backed exact exclusion 與 explicit negation 已提供窄幅 false 路徑，且 recursive trace 可稽核每一層來源。這仍只是兩個館藏 predicate 加 unary not 的 model-relative 語意，不是完整圖像論或任意 formula calculus。</small>
+<li><code>partial</code> / <code>semantic_operation</code> — Akashic 只有在 typed atom 成功投射到正確 entity roles 後才進行 truth evaluation；canonical author-list witness 可使 authored atom 為 fails，六種有界公式運算以 classical 或 supervaluation 語意組合真值，不可投射者仍保持 undetermined。<br><small>理由：4.06 把可真可假的條件連到命題對現實的圖像關係。現行 projector 以角色、身分與 entity kind 守住最小結構對應；witness-backed exact exclusion、六種有界運算與完整 subformula trace 已提供可稽核的有限公式語意。它仍只比較兩個館藏 predicate 的 model-relative evidence，不是《邏輯哲學論》的完整圖像論、量化語意或現實完備性證明。</small>
 <ul>
 <li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>## 3. 最簡單的反例：搜尋到一個句子，不等於句子是真的</code>）— 此節用可命中但為假的句子證明 retrieval 不等於 truth。</li>
 <li><code>Sources/AkashicProposition/Projection.swift</code>（symbol：<code>Projection</code>）— `Projection` 保存成功投射或具原因的不可投射結果。</li>
@@ -5190,7 +5191,7 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>not_applicable</code> — Akashic 目前不宣稱直接實作命題 4.0621 的哲學主張。<br><small>理由：此命題的具體內容是：否定改變命題在邏輯空間中的方向，卻不命名一個「否定物」；不同記號規約也可能讓表面不同符號承載同一內容。 專案現有檔案、schema 與查詢行為不足以證成同一主張，硬套對應會誤導。</small>
+<li><code>not_applicable</code> — Akashic 目前不宣稱直接實作命題 4.0621 的哲學主張。<br><small>理由：覆核 #214 後，專案雖已有結構式 not、雙重否定的 classical equivalence 與 exact trace，但這些工程語意不足以證成否定在現實中沒有對應物，亦不足以建立符號規約與邏輯位置的哲學主張，因此維持 not_applicable。</small>
 </li>
 </ul>
 </td>
@@ -5259,7 +5260,7 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>not_applicable</code> — Akashic 目前不宣稱直接實作命題 4.064 的哲學主張。<br><small>理由：此命題的具體內容是：斷言或否定作用於已形成的命題內容，不能把尚未成形的符號串藉一個判斷標記變成有意義。 專案現有檔案、schema 與查詢行為不足以證成同一主張，硬套對應會誤導。</small>
+<li><code>not_applicable</code> — Akashic 目前不宣稱直接實作命題 4.064 的哲學主張。<br><small>理由：覆核 #214 後，throwing factory 的確只讓已成形 expression 進入 not，雙重否定也保持結構；但型別安全不足以證成 sense 先於判斷記號或判斷記號不能賦予意義的哲學主張，因此維持 not_applicable。</small>
 </li>
 </ul>
 </td>
@@ -5295,7 +5296,7 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>not_applicable</code> — Akashic 目前不宣稱直接實作命題 4.0641 的哲學主張。<br><small>理由：此命題的具體內容是：否定不是刪除原命題，而是以原命題的 sense 界定另一邏輯位置；可重複否定證明其運算對象早已具有命題結構。 專案現有檔案、schema 與查詢行為不足以證成同一主張，硬套對應會誤導。</small>
+<li><code>not_applicable</code> — Akashic 目前不宣稱直接實作命題 4.0641 的哲學主張。<br><small>理由：覆核 #214 後，nested not 的結構、trace 與 classical equivalence 均可機械驗證；但這仍不足以證成邏輯位置、sense 依賴或現實中不存在否定物等哲學主張，因此維持 not_applicable。</small>
 </li>
 </ul>
 </td>
@@ -6225,7 +6226,7 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>partial</code> / <code>semantic_operation</code> — 對 authored，Akashic 已使一組窄幅 truth conditions 可執行：resolved author identity 為 holds；canonical witness 證成的 exact exclusion 為 fails；沒有 witness 或仍含 literal identity 問題則為 undetermined；bounded not 機械導出相反的 determinate truth。<br><small>理由：4.2 以命題對事態成立／不成立可能性的符合關係界定 sense。現行 slice 已同時表示 atom 與 unary negation，並以 recursive EvidenceTrace 保存原子證據及每層結論；但它只涵蓋少數館藏 predicate，沒有多原子 binary operators、完整 truth-possibility space、truth table 或 formula equivalence，因此仍只是局部 truth-condition 實例。</small>
+<li><code>partial</code> / <code>semantic_operation</code> — Akashic 已使有界 atom／not／and／or／implies／nor 的 truth conditions 可執行：classical layer 可列完整 truth table 與判定等價，snapshot layer 則以 supervaluation 保留 atomic unknown，authored 的 witnessed exclusion 才能成為 fails。<br><small>理由：4.2 以命題對事態成立／不成立可能性的符合關係界定 sense。現行 slice 已能對有限 atom 集列舉完整 classical truth table、以 truth conditions 判定等價，並在 snapshot 語意中為每個 subformula 保存 supervaluation trace；但 atom 仍只涵蓋少數館藏 predicates，沒有量化、任意世界模型或現實完備性，因此仍只是局部 truth-condition 實例。</small>
 <ul>
 <li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>## 3. 最簡單的反例：搜尋到一個句子，不等於句子是真的</code>）— 此節用可搜尋的假句子明確區分 retrieval 與 truth。</li>
 <li><code>Sources/AkashicProposition/Projection.swift</code>（symbol：<code>evaluate</code>）— `evaluate(in:)` 先驗整個 expression，求值一次 atom，再以同一 context 逐層導出 negation trace。</li>
@@ -6234,6 +6235,8 @@
 <li><code>Tests/AkashicPropositionTests/PropositionTests.swift</code>（test：<code>testAbsenceIsUndeterminedNotFalse</code>）— 測試確認缺少支持資料時維持 undetermined，而非推論為假。</li>
 <li><code>Tests/AkashicPropositionTests/AuthorshipCompletenessPropositionTests.swift</code>（test：<code>testAuthoredUsesFixedOpenWorldPrecedence</code>）— 測試釘住 holds、matching／other literal 未決、普通缺席未決及 exact witnessed exclusion 為 fails 的固定優先序。</li>
 <li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testDoubleNegationKeepsTwoTraceNodesButRestoresTruth</code>）— 測試確認雙重否定保留兩個結構與 trace 節點，同時恢復 operand truth。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— `truthTable()` 依 canonical atom 與 row order 產生完整有限 truth-condition 表。</li>
+<li><code>Tests/AkashicPropositionTests/SupervaluationTests.swift</code>（test：<code>testEverySubformulaProducesOrderedContextBoundTrace</code>）— 測試確認每個 subformula 都保留同一 snapshot context 與穩定順序的 trace。</li>
 </ul>
 </li>
 </ul>
@@ -6241,7 +6244,7 @@
 <ul>
 <li><code>commit</code> <code>e16c6f6e6d77f7cfe7e9d66323aecb174917872c</code> — <code>revised</code>：e16c6f6 讓 authored 的正向成立條件成為可執行規則，但沒有完整 truth-condition 空間，故修訂為 partial。</li>
 <li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/203</code> — <code>revised</code>：此 issue 已交付明確否定與 canonical witness 證成的負向 authored 事態；普通資料缺席仍不得冒充反證。</li>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：多原子 binary operators、truth-possibility table 與 formula equivalence 保留在既有能力邊界之外。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#214 已交付多原子 binary operators、有限 truth table 與 formula equivalence；本筆據此修訂，量化與任意世界模型仍在範圍外。</li>
 </ul>
 </td>
 </tr>
@@ -6793,7 +6796,7 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>partial</code> / <code>semantic_operation</code> — Akashic 已把 authored 的窄幅 truth conditions 寫成 bounded atom／not expression：resolved identity 為 holds、canonical witnessed exclusion 為 fails、其餘保留 undetermined，且 recursive trace 顯示每層否定如何由 operand truth 導出。<br><small>理由：4.431 把命題視為其完整 truth conditions 的表達。現行 evaluator 已直接表達一個 atomic predicate 的正負條件與 unary negation，並避免把資料缺席混同於 truth-table 排除；然而它沒有多原子 binary operators、完整 truth-possibility table、normalization 或 truth-condition equivalence，因此不能宣稱完整實作。</small>
+<li><code>partial</code> / <code>semantic_operation</code> — Akashic 已把有界 formula 的 truth conditions 寫成可重播資料：classical truthTable 列出全部有限 valuations，isClassicallyEquivalent 依輸出條件比較公式，snapshot supervaluation 則保留每個 subformula 的 evidence trace。<br><small>理由：4.431 把命題視為其 truth conditions 的表達。現行 classical layer 已對有界 atom 集提供完整 truth table、semantic equivalence、tautology 與 contradiction；snapshot layer 以 supervaluation 避免把資料缺席混同於排除。它仍受固定 atom、row 與 node budget 限制，沒有量化或任意世界模型，因此維持 partial。</small>
 <ul>
 <li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>## 3. 最簡單的反例：搜尋到一個句子，不等於句子是真的</code>）— 此節明確證明可搜尋與被收錄不等於句子為真。</li>
 <li><code>Sources/AkashicProposition/Projection.swift</code>（symbol：<code>TruthValue</code>）— `TruthValue` 明列 holds、fails 與 undetermined。</li>
@@ -6803,13 +6806,16 @@
 <li><code>Tests/AkashicPropositionTests/PropositionTests.swift</code>（test：<code>testAbsenceIsUndeterminedNotFalse</code>）— 測試確認缺少支持資料時維持 undetermined，而非推論為假。</li>
 <li><code>Tests/AkashicPropositionTests/AuthorshipCompletenessPropositionTests.swift</code>（test：<code>testAuthoredUsesFixedOpenWorldPrecedence</code>）— 測試釘住 positive、unresolved 與 canonical witnessed negative 三類 truth condition 的優先序。</li>
 <li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testDoubleNegationKeepsTwoTraceNodesButRestoresTruth</code>）— 測試確認兩層否定不被結構化簡，但求值依 truth condition 恢復原 truth。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— `truthTable()` 以固定 atom／row 次序完整表達有限公式的 truth conditions。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>isClassicallyEquivalent</code>）— `isClassicallyEquivalent` 依所有共有 valuation 的輸出比較語意，而非比較 AST 外形。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testClassicalLawsUseSemanticEquivalence</code>）— 測試以 semantic equivalence 驗證核心 classical laws。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
 <li><code>commit</code> <code>e16c6f6e6d77f7cfe7e9d66323aecb174917872c</code> — <code>revised</code>：e16c6f6 新增 authored 的明示成立條件，但沒有完整真值條件演算，故由 nonconformance 修訂為 partial。</li>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：完整真值函數組合、truth table 與 truth-condition equivalence 由此 issue 追蹤。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#214 已交付有界真值函數組合、truth table 與 truth-condition equivalence；本筆據此修訂，但不升為 implemented。</li>
 </ul>
 </td>
 </tr>
@@ -7366,20 +7372,22 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 已有唯一且 bounded 的 PropositionExpression，可由 typed atom 遞迴套用 unary not，並以 recursive EvidenceTrace 求值；由多個原子建立完整 classical truth-functions 仍是工程願景。<br><small>理由：命題 5 主張一切命題都是基本命題的真值函數，並把基本命題視為自身的恆等真值函數。現行 atom／not expression 已讓 determinate truth 逐層反轉、undetermined 原因保持不變，且雙重否定恢復 truth；但三值 epistemic 結果不是二值完備演算，專案也沒有 and／or／implies、任意多原子組合、truth table、normalization 或 truth-condition equivalence，因此仍維持 aspirational。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — Akashic 以單一 bounded PropositionExpression 表示 atom 與五種 truth-functional operators，並同時提供完整 classical truth table 與 epistemic supervaluation。<br><small>理由：命題 5 的核心工程切面已由六種 expression factory、二值 truth table 與語意等價直接承接；但能力只涵蓋最多 63 個原子、4,096 列的有限命題片段，不主張量化、無限真值函數或《邏輯哲學論》全部命題均已形式化。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
-<li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— `PropositionExpression` 是唯一 formula 型別，現階段提供 atom／not 與 64 層 operator budget。</li>
-<li><code>Sources/AkashicProposition/Projection.swift</code>（symbol：<code>EvidenceTrace</code>）— `EvidenceTrace` 以唯讀遞迴樹保存 atom evidence 與每層 negation operand／conclusion。</li>
-<li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testFactoryAccepts64OperatorsAndRejects65</code>）— 測試確認 unary formula 可遞迴但有明確 64／65 深度邊界。</li>
-<li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testDoubleNegationKeepsTwoTraceNodesButRestoresTruth</code>）— 測試確認雙重否定保留兩個結構節點並恢復 truth，沒有冒充完整公式等價。</li>
+<li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— 單一 opaque expression 型別封閉表示 atom、not、and、or、implies 與 nor。</li>
+<li><code>Tests/AkashicPropositionTests/ExpressionConstructionTests.swift</code>（test：<code>testOpaqueFactoriesCoverEveryOperatorAndPreserveStructuralIdentity</code>）— 測試釘住六種 operator、child order 與結構身分。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— truth table 依 canonical atom 與 row order 完整列舉。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testTruthTableAtomAndRowOrderIsDeterministic</code>）— 測試固定 atom、row 與 canonical bytes 的順序。</li>
+<li><code>Sources/AkashicProposition/Projection.swift</code>（symbol：<code>evaluate</code>）— epistemic evaluator 對未知 atom 的所有 bounded completions 作 supervaluation。</li>
+<li><code>Tests/AkashicPropositionTests/SupervaluationTests.swift</code>（test：<code>testUnknownExcludedMiddleHoldsAndUnknownContradictionFails</code>）— 測試未知 p 的排中式成立、矛盾式失敗，與 strong Kleene 明確分層。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>commit</code> <code>e16c6f6e6d77f7cfe7e9d66323aecb174917872c</code> — <code>retained</code>：e16c6f6 當時只新增 authored atom 的三值求值；後續 unary negation 擴張了 expression 與 trace，但未交付多原子 classical truth-function，故 aspirational 判定保留。</li>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：既有 issue identity 保留作 binary operators、遞迴多原子組合、truth table 與等價驗證的能力邊界；#213 的 bounded atom／not 不完成本關係。</li>
+<li><code>commit</code> <code>e16c6f6e6d77f7cfe7e9d66323aecb174917872c</code> — <code>revised</code>：此 commit 建立早期 proposition slice；後續 PR #210 與 #214 已以單一 bounded expression、classical table、supervaluation 與 NOR synthesis 取代當時的能力邊界。</li>
+<li><code>commit</code> <code>e821378372932004720961ba7a1a12dc6f10c331</code> — <code>revised</code>：PR #210 的 merge commit 是 formula/truth-function 歷史基準；本整合樹為其後代，current evidence 則只引用同樹中 #214 的正式 symbols 與 load-bearing tests。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -7396,15 +7404,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.01 的完整形式系統。<br><small>理由：專案文件要求未來能由原子判定組成複合真值，但目前只能據此標示方向，不能把現有資料讀取冒充為《邏輯哲學論》的真值運算。此命題的重點是：基本命題提供真值運算所作用的輸入位置，而不是另一種藏在命題背後的對象。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — Canonical atom table 把基本命題當作 truth function 的輸入位置，atom expression 本身在每個 assignment 下直接取該輸入值。<br><small>理由：現行 classicalValue 與 truthTable 已把 atom 視為自身的恆等二值函數，並讓複合 expression 在同一 canonical atom union 上求值；這是有界工程對照，不證成哲學上的基本命題分析已完備。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— 單一 opaque expression 型別封閉表示 atom、not、and、or、implies 與 nor。</li>
+<li><code>Tests/AkashicPropositionTests/ExpressionConstructionTests.swift</code>（test：<code>testOpaqueFactoriesCoverEveryOperatorAndPreserveStructuralIdentity</code>）— 測試釘住六種 operator、child order 與結構身分。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— truth table 依 canonical atom 與 row order 完整列舉。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testTruthTableAtomAndRowOrderIsDeterministic</code>）— 測試固定 atom、row 與 canonical bytes 的順序。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.01 所需的多原子 truth-argument 表示與輸入配置由此 issue 追蹤；單一 authored atom 尚不能構成該形式系統。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -7487,15 +7498,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.1 的完整形式系統。<br><small>理由：專案文件要求未來能由原子判定組成複合真值，但目前只能據此標示方向，不能把現有資料讀取冒充為《邏輯哲學論》的真值運算。此命題的重點是：真值條件之間可依形式關係排序，而機率可由這些真值可能性的包含與比例來刻畫。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — Akashic 可由完整 truth tables 比較有限公式的 truth conditions，並判定語意等價、恆真與矛盾。<br><small>理由：這提供形式關係與 truth-ground inclusion 所需的有限資料，但尚未實作命題 5.1 所述的機率定義或一般形式排序 calculus；因此只對 finite truth-condition layer 作窄幅 partial 對照。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>isClassicallyEquivalent</code>）— 語意等價以完整共同 assignment 的 truth conditions 判定。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testClassicalLawsUseSemanticEquivalence</code>）— 測試固定雙重否定、蘊涵與 De Morgan 等價律。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>isClassicalTautology</code>）— 完整 truth table 可判定 tautology 與 contradiction。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testTautologyAndContradictionAreDefinedByCompleteTruthTables</code>）— 測試以全列 truth conditions 判定恆真與矛盾。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.1 所需的有限真值配置排序與包含／排除關係由此 issue 追蹤；現行求值沒有可枚舉的 truth-possibility 空間。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -7620,15 +7634,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.101 的完整形式系統。<br><small>理由：專案文件要求未來能由原子判定組成複合真值，但目前只能據此標示方向，不能把現有資料讀取冒充為《邏輯哲學論》的真值運算。此命題的重點是：真值表窮盡 p、q 的所有可能配置；一個命題由哪些列取真值 T 所界定，那些列就是其真值根據。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — ClassicalTruthTable 依 canonical atom order 完整列出 p、q 的四個 assignment 與每列輸出。<br><small>理由：二元 operator 的四列矩陣、row index 與 bit significance 都有直接測試，因此可機械辨認哪些列構成 truth grounds；上限與 operator 集合固定，不能外推為無界邏輯語言。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— truth table 依 canonical atom 與 row order 完整列舉。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testTruthTableAtomAndRowOrderIsDeterministic</code>）— 測試固定 atom、row 與 canonical bytes 的順序。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— 完整二值 assignment 產生決定性 truth table。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testEveryBinaryOperatorHasCompleteFourRowMatrix</code>）— 測試逐格固定 and、or、implies 與 nor 的四列矩陣。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.101 所需的有限真值表、16 種二元函數與 truth-ground 表示由此 issue 追蹤；現行 authored evaluator 不能產生該表。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -8506,15 +8523,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.234 的完整形式系統。<br><small>理由：專案文件要求未來能由原子判定組成複合真值，但目前只能據此標示方向，不能把現有資料讀取冒充為真值運算。此命題的重點是：真值運算作用於基本命題，所得結果就是其真值函數。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — not、and、or、implies 與 nor 都是作用於既有 expression 的 truth operations，結果仍是同一 PropositionExpression。<br><small>理由：六個 throwing factories 讓 truth operation 對基本命題或複合命題封閉，classical evaluator 逐節點套用固定 truth rule；它只覆蓋本專案明列的有限 operators。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— 單一 opaque expression 型別封閉表示 atom、not、and、or、implies 與 nor。</li>
+<li><code>Tests/AkashicPropositionTests/ExpressionConstructionTests.swift</code>（test：<code>testOpaqueFactoriesCoverEveryOperatorAndPreserveStructuralIdentity</code>）— 測試釘住六種 operator、child order 與結構身分。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— 完整二值 assignment 產生決定性 truth table。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testEveryBinaryOperatorHasCompleteFourRowMatrix</code>）— 測試逐格固定 and、or、implies 與 nor 的四列矩陣。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.234 所需的 typed truth-operation 與由原子命題生成真值函數的契約由此 issue 追蹤；現行 TruthValue 只是求值結果。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -8543,15 +8563,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.2341 的完整形式系統。<br><small>理由：專案文件要求未來能由原子判定組成複合真值，但目前只能據此標示方向，不能把現有資料讀取冒充為真值運算。此命題的重點是：真值運算改變命題所容許與排除的真值可能性；否定尤其交換其成立與不成立的範圍。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — 每個 operator 都以 truth table 改變 operand 容許的 truth possibilities；not 交換 determinate truth，binary operators 使用完整四列矩陣。<br><small>理由：目前可直接重播 operator 對 truth possibilities 的改變，且 structural identity 與 semantic equivalence 分離；沒有因此把語法式子正規化成唯一形式。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— 完整二值 assignment 產生決定性 truth table。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testEveryBinaryOperatorHasCompleteFourRowMatrix</code>）— 測試逐格固定 and、or、implies 與 nor 的四列矩陣。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>isClassicallyEquivalent</code>）— 語意等價以完整共同 assignment 的 truth conditions 判定。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testClassicalLawsUseSemanticEquivalence</code>）— 測試固定雙重否定、蘊涵與 De Morgan 等價律。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.2341 所需的合取、選言、否定及其 truth-condition 轉換由此 issue 追蹤；現行 slice 尚無可組合運算。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -8856,15 +8879,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.3 的完整形式系統。<br><small>理由：專案文件要求未來能由原子判定組成複合真值，但目前只能據此標示方向，不能把現有資料讀取冒充為真值運算。此命題的重點是：真值運算對組合封閉：多層複合可以攤平成直接作用於基本命題的一個真值函數。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — 巢狀 PropositionExpression 對 truth-functional composition 封閉，truthTable 會攤平為共同 distinct atoms 的完整有限函數。<br><small>理由：expression children 可再包含任意已驗證 expression，classical table 依 canonical atom union 求值；固定 depth、node、atom 與 row budgets 使這仍是 finite bounded slice。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— 單一 opaque expression 型別封閉表示 atom、not、and、or、implies 與 nor。</li>
+<li><code>Tests/AkashicPropositionTests/ExpressionConstructionTests.swift</code>（test：<code>testOpaqueFactoriesCoverEveryOperatorAndPreserveStructuralIdentity</code>）— 測試釘住六種 operator、child order 與結構身分。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— truth table 依 canonical atom 與 row order 完整列舉。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testTruthTableAtomAndRowOrderIsDeterministic</code>）— 測試固定 atom、row 與 canonical bytes 的順序。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.3 所需的遞迴閉包、巢狀運算攤平與完備性驗證由此 issue 追蹤；單一 authored predicate 不足以證成。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -8887,18 +8913,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 的 bounded unary not 已可接受另一個 atom／not expression 作 operand，並迭代求到底層 atom；讓多個複合命題成為 binary truth-function 引數仍屬 aspirational。<br><small>理由：5.31 要求真值圖式可把本身已是 truth-functions 的 p、q 等複合命題作輸入。現行唯一 expression 型別確實支援最高 64 層 unary composition，且只求值底層 atom 一次；但沒有 and／or／NOR 等多輸入 operator，也沒有把不同複合公式攤平成共同基本命題 truth table 的能力，故不足以完成本命題。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — Binary factories 可直接接受本身已是 truth-functions 的複合 expression，並保存 ordered children 與共同 truth conditions。<br><small>理由：現行單一 AST 已能表示 and(not(p), nor(q,r)) 等巢狀形式，truth table 不把中間式誤作新 atom；但只涵蓋固定六種 operators 與硬上限。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
-<li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— `PropositionExpression.not` 可接同型 operand；validation 以 operator depth 封住 unary nesting。</li>
-<li><code>Sources/AkashicProposition/Projection.swift</code>（symbol：<code>evaluate</code>）— expression evaluator 迭代拆解 unary chain，只求值一次 atomic predicate，再由內向外建立結果。</li>
-<li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testFactoryAccepts64OperatorsAndRejects65</code>）— 測試釘住 nested expression 的 64 層接受與 65 層拒絕邊界。</li>
+<li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— 單一 opaque expression 型別封閉表示 atom、not、and、or、implies 與 nor。</li>
+<li><code>Tests/AkashicPropositionTests/ExpressionConstructionTests.swift</code>（test：<code>testOpaqueFactoriesCoverEveryOperatorAndPreserveStructuralIdentity</code>）— 測試釘住六種 operator、child order 與結構身分。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— truth table 依 canonical atom 與 row order 完整列舉。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testTruthTableAtomAndRowOrderIsDeterministic</code>）— 測試固定 atom、row 與 canonical bytes 的順序。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：unary compound operand 與遞迴求值已有窄幅實作；多輸入 compound truth arguments、binary composition 與 truth-table reduction 仍留在既有 issue 能力邊界。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -8915,15 +8941,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.32 的完整形式系統。<br><small>理由：專案文件要求未來能由原子判定組成複合真值，但目前只能據此標示方向，不能把現有資料讀取冒充為真值運算。此命題的重點是：任一有限真值函數都可由有限步的真值運算組合構成。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — BooleanFunctionTable 可表示至多 12 個原子的有限 Boolean function，並以 bounded DNF 加 NOR rewrite 合成對應 expression。<br><small>理由：二元全部 16 個函數與多列非對稱 fixtures 均可合成，證成有限 truth-functions 的構造片段；零元函數、13 個以上原子的列舉及無限值域明確拒絕。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/TruthFunctionSynthesis.swift</code>（symbol：<code>synthesizeUsingNor</code>）— BooleanFunctionTable 以 bounded balanced DNF 決定性合成 NOR-only expression。</li>
+<li><code>Tests/AkashicPropositionTests/TruthFunctionSynthesisTests.swift</code>（test：<code>testAllSixteenBinaryBooleanFunctionsSynthesizeToNor</code>）— 測試二元 16 個 Boolean functions 全部可合成並自我驗證。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— truth table 依 canonical atom 與 row order 完整列舉。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testTruthTableAtomAndRowOrderIsDeterministic</code>）— 測試固定 atom、row 與 canonical bytes 的順序。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.32 所需的有限步真值運算組合與有限真值函數覆蓋由此 issue 追蹤；目前沒有 composition API。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -8958,15 +8987,16 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.41 的完整形式系統。<br><small>理由：專案文件要求未來能由原子判定組成複合真值，但目前只能據此標示方向，不能把現有資料讀取冒充為真值運算。此命題的重點是：不同表面推導若給出相同真值條件，邏輯上就是同一結果。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — isClassicallyEquivalent 以共同 canonical atom assignments 的相同輸出判定有限公式的 truth-condition identity。<br><small>理由：結構不相等的雙重否定、蘊涵與 De Morgan 公式可判為語意等價，直接承接相同 truth result；這不宣稱哲學上的命題同一性已全部刻畫。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>isClassicallyEquivalent</code>）— 語意等價以完整共同 assignment 的 truth conditions 判定。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testClassicalLawsUseSemanticEquivalence</code>）— 測試固定雙重否定、蘊涵與 De Morgan 等價律。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.41 所需的 truth-condition equivalence 與不同公式正規化由此 issue 追蹤；現行 evaluator 無法比較複合公式。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -8995,15 +9025,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.42 的完整形式系統。<br><small>理由：專案文件要求未來能由原子判定組成複合真值，但目前只能據此標示方向，不能把現有資料讀取冒充為真值運算。此命題的重點是：邏輯聯結詞可互相定義，顯示其身分在共同真值運算，而非各自命名一種外在關係。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — 所有現行 operators 都可依固定 identity 重寫為 NOR-only expression，並以獨立 structural verifier 檢查。<br><small>理由：not、and、or、implies、nor 的互相可定義性在 bounded operator set 內已有精確結構 golden；未加入量化、同一性或其他邏輯記號。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/TruthFunctionSynthesis.swift</code>（symbol：<code>rewrittenUsingNor</code>）— 每種既有 operator 可依固定 identity 有界重寫為 atom／NOR。</li>
+<li><code>Tests/AkashicPropositionTests/TruthFunctionSynthesisTests.swift</code>（test：<code>testRewriteStructuralGoldensPinEveryOperator</code>）— 測試固定每個 operator 的 NOR 結構 golden。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>isClassicallyEquivalent</code>）— 語意等價以完整共同 assignment 的 truth conditions 判定。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testClassicalLawsUseSemanticEquivalence</code>）— 測試固定雙重否定、蘊涵與 De Morgan 等價律。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.42 所需的聯結詞可定義性與替代等價驗證由此 issue 追蹤；現行程式沒有 logical connective 層。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -9032,15 +9065,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.43 的完整形式系統。<br><small>理由：專案文件要求未來能由原子判定組成複合真值，但目前只能據此標示方向，不能把現有資料讀取冒充為真值運算。此命題的重點是：無限多種邏輯等價寫法不增加關於世界的內容；邏輯命題的必然性來自形式。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — 完整 truth table 可辨認 tautology、contradiction 與多種語法不同但 truth-condition 相同的公式。<br><small>理由：測試證明若所有 assignments 的結果相同，表面結構差異不增加 classical truth content；這是有限形式判定，不足以宣稱已實作邏輯必然性的全部哲學說明。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>isClassicallyEquivalent</code>）— 語意等價以完整共同 assignment 的 truth conditions 判定。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testClassicalLawsUseSemanticEquivalence</code>）— 測試固定雙重否定、蘊涵與 De Morgan 等價律。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>isClassicalTautology</code>）— 完整 truth table 可判定 tautology 與 contradiction。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testTautologyAndContradictionAreDefinedByCompleteTruthTables</code>）— 測試以全列 truth conditions 判定恆真與矛盾。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.43 所需的 tautology／contradiction 分類及其不增加經驗內容的檢查由此 issue 追蹤；現行 authored 求值沒有邏輯命題分類。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -9087,19 +9123,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 的 not 是 expression operator 而非資料實體；雙重否定保留兩個結構與 trace 節點，求值則恢復 operand truth。跨公式的語意等價與正規化仍屬 aspirational。<br><small>理由：5.44 強調否定不是命題所談論的質料對象，且 ~~p 與 p 有相同 truth condition。現行 AST／trace 把每層 not 表為 operator，沒有建立名為否定的 entity；測試也證明 double negation truth 恢復。然而結構 equality 刻意維持 p、~p、~~p 三者不同，系統尚不能宣告 p 與 ~~p truth-condition equivalent，更沒有涵蓋其他等價寫法，故維持 aspirational。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — not 是 expression operator 而非資料實體；p 與 not(not(p)) 結構不同，但 isClassicallyEquivalent 判定兩者 truth conditions 相同。<br><small>理由：雙重否定同時保留 exact syntax／trace 並在 classical layer 恢復 truth，現在可直接區分結構身分與語意等價；不做全域 normalization，也不把否定物化成 entity。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
-<li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— `not` 是唯一 formula 型別上的 operator；structural equality 不做雙重否定化簡。</li>
-<li><code>Sources/AkashicProposition/Projection.swift</code>（symbol：<code>EvidenceTrace</code>）— recursive trace 將 negation 保存為 operand／derived conclusion，而不是把否定當成 atomic evidence object。</li>
-<li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testDoubleNegationKeepsTwoTraceNodesButRestoresTruth</code>）— 測試確認 ~~p 的 truth 與 p 相同，但兩層 operator／trace 不被抹平。</li>
-<li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testAtomNegationAndDoubleNegationHaveDistinctStructuralIdentity</code>）— 測試明示 structural identity 不等於尚未實作的 truth-condition equivalence。</li>
+<li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— 單一 opaque expression 型別封閉表示 atom、not、and、or、implies 與 nor。</li>
+<li><code>Tests/AkashicPropositionTests/ExpressionConstructionTests.swift</code>（test：<code>testOpaqueFactoriesCoverEveryOperatorAndPreserveStructuralIdentity</code>）— 測試釘住六種 operator、child order 與結構身分。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>isClassicallyEquivalent</code>）— 語意等價以完整共同 assignment 的 truth conditions 判定。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testClassicalLawsUseSemanticEquivalence</code>）— 測試固定雙重否定、蘊涵與 De Morgan 等價律。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：operator 非對象化與 double-negation truth 已有窄幅證據；normalization、跨公式語意等價及 binary truth-functions 仍留在既有 issue 能力邊界。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -9116,15 +9151,15 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.441 的完整形式系統。<br><small>理由：專案文件要求未來能由原子判定組成複合真值，但目前只能據此標示方向，不能把現有資料讀取冒充為真值運算。此命題的重點是：量化或同一性記號在適當改寫中可不再顯現，而命題的真值條件保持不變。</small>
+<li><code>aspirational</code> / <code>formal_derivation</code> — Akashic 的 finite expression layer沒有量詞或同一性消去規則，不能直接對應本命題。<br><small>理由：覆核 #214 後仍只有有限 propositional operators；命題 5.441 所需的量化、同一性記號消去與其 truth-condition preservation 尚未實作，因此誠實維持 aspirational。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— 現行 opaque expression 的固定 kind 集合只涵蓋 propositional operators，直接顯示量詞與同一性消去仍在範圍外。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.441 所需的量化／同一性記號消去後 truth-condition 不變性由此 issue 的有限公式審核追蹤；完整量化演算不在現行實作宣稱內。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -9141,15 +9176,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.442 的完整形式系統。<br><small>理由：專案文件要求未來能由原子判定組成複合真值，但目前只能據此標示方向，不能把現有資料讀取冒充為真值運算。此命題的重點是：掌握命題的真值條件，就同時確定所有可由固定真值運算得到的結果。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — 在 complete ClassicalValuation 下，expression 的每個 truth-functional 結果由相同 atomic assignment 唯一決定。<br><small>理由：truthTable 與 semantic equivalence 使固定 truth operations 的所有結果可由輸入 truth conditions 重播；這不涵蓋 open-world epistemic 證據或無界函數族。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— 完整二值 assignment 產生決定性 truth table。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testEveryBinaryOperatorHasCompleteFourRowMatrix</code>）— 測試逐格固定 and、or、implies 與 nor 的四列矩陣。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— truth table 依 canonical atom 與 row order 完整列舉。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testTruthTableAtomAndRowOrderIsDeterministic</code>）— 測試固定 atom、row 與 canonical bytes 的順序。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.442 所需的固定真值運算結果可推導性由此 issue 追蹤；現行 authored atom 無可套用的組合運算。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -9790,15 +9828,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.5 的完整形式系統。<br><small>理由：專案文件只支撐真值組合的方向，尚不支撐這裡的共同否定完備性或完整形式推導。此命題的重點是：單一的共同否定運算可作為完備基底，藉反覆套用生成所有真值函數。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — 現行五種 operators 都可重寫成 binary NOR，BooleanFunctionTable 也可將 bounded finite functions 合成 NOR-only expression。<br><small>理由：NOR 在固定 operator／row／node budgets 內形成可機械驗證的 functionally-complete basis；不主張共同否定已擴張到任意或無限命題集合。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/TruthFunctionSynthesis.swift</code>（symbol：<code>rewrittenUsingNor</code>）— 每種既有 operator 可依固定 identity 有界重寫為 atom／NOR。</li>
+<li><code>Tests/AkashicPropositionTests/TruthFunctionSynthesisTests.swift</code>（test：<code>testRewriteStructuralGoldensPinEveryOperator</code>）— 測試固定每個 operator 的 NOR 結構 golden。</li>
+<li><code>Sources/AkashicProposition/TruthFunctionSynthesis.swift</code>（symbol：<code>synthesizeUsingNor</code>）— BooleanFunctionTable 以 bounded balanced DNF 決定性合成 NOR-only expression。</li>
+<li><code>Tests/AkashicPropositionTests/TruthFunctionSynthesisTests.swift</code>（test：<code>testAllSixteenBinaryBooleanFunctionsSynthesizeToNor</code>）— 測試二元 16 個 Boolean functions 全部可合成並自我驗證。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.5 所需的共同否定 N、遞迴生成與 truth-functional completeness 由此 issue 追蹤；現行 TruthValue enum 不是共同否定運算。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -9875,15 +9916,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.501 的完整形式系統。<br><small>理由：專案文件只支撐真值組合的方向，尚不支撐這裡的共同否定完備性或完整形式推導。此命題的重點是：變項值域必須可由列舉、函數或形式生成律確定；橫線記號把指定值域中的所有命題收束為運算輸入。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — BooleanFunctionTable 以 caller 明列的有限 atom value range 與完整 output vector 確定待合成函數。<br><small>理由：0 至 12 個 canonical atoms 的值域與 row order 可重播，並拒絕超界配置；一般函數值域、生成律與量化橫線記號未實作。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— truth table 依 canonical atom 與 row order 完整列舉。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testTruthTableAtomAndRowOrderIsDeterministic</code>）— 測試固定 atom、row 與 canonical bytes 的順序。</li>
+<li><code>Sources/AkashicProposition/TruthFunctionSynthesis.swift</code>（symbol：<code>synthesizeUsingNor</code>）— BooleanFunctionTable 以 bounded balanced DNF 決定性合成 NOR-only expression。</li>
+<li><code>Tests/AkashicPropositionTests/TruthFunctionSynthesisTests.swift</code>（test：<code>testAllSixteenBinaryBooleanFunctionsSynthesizeToNor</code>）— 測試二元 16 個 Boolean functions 全部可合成並自我驗證。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.501 所需的有限運算值域、列舉／函數式／生成律表示由此 issue 追蹤；現行模型沒有公式值域抽象。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -9906,15 +9950,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.502 的完整形式系統。<br><small>理由：專案文件只支撐真值組合的方向，尚不支撐這裡的共同否定完備性或完整形式推導。此命題的重點是：N 運算把指定集合中的每一命題一併否定，作為生成其他真值函數的單一運算。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — PropositionExpression.nor 直接表示 neither p nor q，且所有既有 operators 可重寫到同一 binary NOR 基底。<br><small>理由：binary NOR 的 truth matrix 與重寫規則已有直接證據；本專案沒有接受任意命題集合的 N operator，因此只對二元有限片段作 partial 對照。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— 完整二值 assignment 產生決定性 truth table。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testEveryBinaryOperatorHasCompleteFourRowMatrix</code>）— 測試逐格固定 and、or、implies 與 nor 的四列矩陣。</li>
+<li><code>Sources/AkashicProposition/TruthFunctionSynthesis.swift</code>（symbol：<code>rewrittenUsingNor</code>）— 每種既有 operator 可依固定 identity 有界重寫為 atom／NOR。</li>
+<li><code>Tests/AkashicPropositionTests/TruthFunctionSynthesisTests.swift</code>（test：<code>testRewriteStructuralGoldensPinEveryOperator</code>）— 測試固定每個 operator 的 NOR 結構 golden。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.502 所需的 N 運算輸入範圍與共同否定語意由此 issue 追蹤；現行 authored 評估沒有該運算。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -9931,15 +9978,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.503 的完整形式系統。<br><small>理由：專案文件只支撐真值組合的方向，尚不支撐這裡的共同否定完備性或完整形式推導。此命題的重點是：生成規則若號稱完備，就應精確刻畫合法命題的範圍，而不能只靠範例暗示。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — Opaque factories、固定 grammar 與 bounded synthesis 共同界定目前可構造的合法 finite expressions。<br><small>理由：合法 expression 只能由 atom/not/and/or/implies/nor factories 形成，任意 bounded BooleanFunctionTable 亦有合成路徑；這不是完整語言的遞迴生成律，且明確排除量化與無界公式。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— 單一 opaque expression 型別封閉表示 atom、not、and、or、implies 與 nor。</li>
+<li><code>Tests/AkashicPropositionTests/ExpressionConstructionTests.swift</code>（test：<code>testOpaqueFactoriesCoverEveryOperatorAndPreserveStructuralIdentity</code>）— 測試釘住六種 operator、child order 與結構身分。</li>
+<li><code>Sources/AkashicProposition/TruthFunctionSynthesis.swift</code>（symbol：<code>synthesizeUsingNor</code>）— BooleanFunctionTable 以 bounded balanced DNF 決定性合成 NOR-only expression。</li>
+<li><code>Tests/AkashicPropositionTests/TruthFunctionSynthesisTests.swift</code>（test：<code>testAllSixteenBinaryBooleanFunctionsSynthesizeToNor</code>）— 測試二元 16 個 Boolean functions 全部可合成並自我驗證。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.503 所需的完備公式生成規則與合法命題範圍驗證由此 issue 追蹤；現行封閉 predicate 只是一個垂直切片。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -9956,18 +10006,20 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 已實作單一 operand 的 bounded not，對 holds／fails 互換並保留 undetermined；把同一運算推廣成兩個以上輸入的共同否定 NOR 仍屬 aspirational。<br><small>理由：5.51 要求 N 在一個輸入時表 ordinary negation，在兩個輸入時表 neither p nor q。現行 PropositionExpression.not 與 recursive trace 已直接覆蓋前半的 unary case，且 witnessed authored fails 使兩個 determinate 方向都能實際執行；但 AST 沒有多輸入 N、and 或任何 binary operator，不能由 unary 成果推稱已具 NOR 完備性。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — 一個 operand 的 not 與兩個 operands 的 nor 都是同一 opaque expression layer 的直接 operators。<br><small>理由：unary not 與 binary neither-nor 均有完整 classical truth rules，且 epistemic evaluator 以所有 compatible completions 聚合；多元共同否定仍未提供。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
-<li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— `PropositionExpression` 現階段只有 atom 與單一 operand 的 not，沒有多輸入 N。</li>
-<li><code>Sources/AkashicProposition/Projection.swift</code>（symbol：<code>evaluate</code>）— 求值器可沿 unary chain 反轉 determinate truth，但沒有 binary operand collection。</li>
-<li><code>Tests/AkashicPropositionTests/AuthorshipCompletenessPropositionTests.swift</code>（test：<code>testCanonicalWitnessProducesNoAndExactNegativeFact</code>）— 測試讓 authored fails 成為可達 operand truth，並以單項 not 建立 holds 的負命題 valuation。</li>
+<li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— 單一 opaque expression 型別封閉表示 atom、not、and、or、implies 與 nor。</li>
+<li><code>Tests/AkashicPropositionTests/ExpressionConstructionTests.swift</code>（test：<code>testOpaqueFactoriesCoverEveryOperatorAndPreserveStructuralIdentity</code>）— 測試釘住六種 operator、child order 與結構身分。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— 完整二值 assignment 產生決定性 truth table。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testEveryBinaryOperatorHasCompleteFourRowMatrix</code>）— 測試逐格固定 and、or、implies 與 nor 的四列矩陣。</li>
+<li><code>Sources/AkashicProposition/Projection.swift</code>（symbol：<code>evaluate</code>）— epistemic evaluator 對未知 atom 的所有 bounded completions 作 supervaluation。</li>
+<li><code>Tests/AkashicPropositionTests/SupervaluationTests.swift</code>（test：<code>testUnknownExcludedMiddleHoldsAndUnknownContradictionFails</code>）— 測試未知 p 的排中式成立、矛盾式失敗，與 strong Kleene 明確分層。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：單項否定及可達的 witnessed fails 已有直接證據；多項 NOR、binary operators 與其完備性仍留在既有 issue 能力邊界。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -10038,19 +10090,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 的 explicit not 以共享求值規則反轉 operand 的 holds／fails、原樣保留 undetermined，並在 recursive trace 中保存 operand；辨認各種不同字形／公式為同一否定仍屬 aspirational。<br><small>理由：5.512 的第一步要求 ~p 在 p 為假時為真，後半更要求 ~p、~~~p、~p∨~p、~p．~p 等表面形式共享否定規則。現行 unary evaluator 已使 not(fails)=holds、not(holds)=fails，結論只能由 operand truth 導出，不能由 caller 偽造；但 expression equality 仍是結構式，且沒有 or／and、normalization 或 truth-condition equivalence，故只能證成前半的窄幅語意。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — not(p)、not(not(not(p))) 及由 and／or 重複 p 形成的公式可用完整 truth conditions 判定是否共享否定規則。<br><small>理由：classical equivalence 不依 AST equality，測試固定雙重否定與 Boolean laws；系統仍保留每個表面 syntax，沒有做 rewrite normalization 或宣稱所有字形同一。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
-<li><code>Sources/AkashicProposition/Projection.swift</code>（symbol：<code>EvidenceTrace</code>）— `EvidenceTrace` 公開唯讀 kind／operand／atomic views；raw constructors 留在 module 內，negation conclusion 必由 operand truth 導出。</li>
-<li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testTraceEqualityTraverses4096NodesAndDerivesEveryConclusion</code>）— 測試確認深層 recursive trace 以迭代 equality 安全比較，且每層 conclusion 都由 operand 機械導出。</li>
-<li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testNegationPreservesEveryUndeterminedReasonExactly</code>）— 測試確認共享否定規則不把 epistemic undetermined 偽造成 determinate truth。</li>
-<li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testExternalClientCannotConstructRawTraceNodes</code>）— 外部 non-@testable compile probe 證明 caller 只能稽核 trace，不能自行配對 operand 與任意 conclusion。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>isClassicallyEquivalent</code>）— 語意等價以完整共同 assignment 的 truth conditions 判定。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testClassicalLawsUseSemanticEquivalence</code>）— 測試固定雙重否定、蘊涵與 De Morgan 等價律。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— 完整二值 assignment 產生決定性 truth table。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testEveryBinaryOperatorHasCompleteFourRowMatrix</code>）— 測試逐格固定 and、or、implies 與 nor 的四列矩陣。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：explicit unary negation truth-condition 與 recursive trace 已有直接證據；不同 formula 的等價、字形無關 normalization 及 binary forms 仍留在既有 issue 能力邊界。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -10085,15 +10136,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.513 的完整形式系統。<br><small>理由：專案文件只支撐真值組合的方向，尚不支撐這裡的共同否定完備性或完整形式推導。此命題的重點是：合取、選言與否定由整類等價符號共享的真值根據界定；恆真式不為 q 增添內容。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — and、or、not 與 tautology／contradiction 都由完整 truth tables 和 semantic equivalence 共同界定。<br><small>理由：現行 evaluator 可驗 De Morgan、排中式與矛盾式，不把恆真式誤作 q 的額外資料證據；能力仍限 finite propositional layer。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>isClassicallyEquivalent</code>）— 語意等價以完整共同 assignment 的 truth conditions 判定。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testClassicalLawsUseSemanticEquivalence</code>）— 測試固定雙重否定、蘊涵與 De Morgan 等價律。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>isClassicalTautology</code>）— 完整 truth table 可判定 tautology 與 contradiction。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testTautologyAndContradictionAreDefinedByCompleteTruthTables</code>）— 測試以全列 truth conditions 判定恆真與矛盾。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.513 所需的合取、選言、否定、恆真式之 truth-ground 等價由此 issue 追蹤；現行求值不含這些複合式。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -10218,15 +10272,15 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.52 的完整形式系統。<br><small>理由：現有文件只支撐真值組合的方向，未實作本命題的函數值域共同否定或量化表示。此命題的重點是：共同否定涵蓋函數的整個值域時，便以量化形式表達「不存在滿足 f 的 x」。</small>
+<li><code>aspirational</code> / <code>formal_derivation</code> — Akashic 只有 bounded propositional NOR，沒有對函數整個值域施作共同否定的量化表示。<br><small>理由：覆核 #214 後可確認 binary NOR 與有限 BooleanFunctionTable 不等於命題 5.52 的量化 N；函數值域量化與「不存在滿足 f 的 x」仍未實作，故維持 aspirational。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>BooleanFunctionTable</code>）— 現行 table 明確是有限 propositional atom 的 Boolean function，不能冒充函數值域的量化。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.52 所需的共同否定跨函數完整值域與有界量化表達由此 issue 的 24 筆審核追蹤；完整量化語意仍不在現行 authored slice 的宣稱內。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -10756,15 +10810,18 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>aspirational</code> / <code>semantic_operation</code> — Akashic 把真值函數式組合作為非平凡語意層的最低目標之一；現行主線尚未實作命題 5.54 的完整形式系統。<br><small>理由：現有文件只支撐真值組合的方向，未實作本命題的命題嵌套或心理命題分析。此命題的重點是：一個命題嵌入另一命題時，其形式角色是接受真值運算，而非作為心理對象的關係項。</small>
+<li><code>partial</code> / <code>formal_derivation</code> — PropositionExpression 可把任意已驗證子公式嵌入另一個 truth-functional operator，並保留 ordered syntax tree。<br><small>理由：巢狀公式的 truth role 已有 opaque children、classical evaluation 與 exact trace；專案沒有分析心理命題或 belief relation，因此不把這個工程結構誇大為 5.54 的完整哲學分析。</small>
 <ul>
-<li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
+<li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— 單一 opaque expression 型別封閉表示 atom、not、and、or、implies 與 nor。</li>
+<li><code>Tests/AkashicPropositionTests/ExpressionConstructionTests.swift</code>（test：<code>testOpaqueFactoriesCoverEveryOperatorAndPreserveStructuralIdentity</code>）— 測試釘住六種 operator、child order 與結構身分。</li>
+<li><code>Sources/AkashicProposition/ClassicalSemantics.swift</code>（symbol：<code>truthTable</code>）— truth table 依 canonical atom 與 row order 完整列舉。</li>
+<li><code>Tests/AkashicPropositionTests/ClassicalSemanticsTests.swift</code>（test：<code>testTruthTableAtomAndRowOrderIsDeterministic</code>）— 測試固定 atom、row 與 canonical bytes 的順序。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>retained</code>：命題 5.54 所需的命題嵌套為 truth-operation base 由此 issue 的 nested formula 範圍追蹤；心理命題分析仍明確不宣稱已實作。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/204</code> — <code>revised</code>：#204 所追蹤的 bounded binary operators、classical truth tables、semantic equivalence 與 NOR rewrite/synthesis 已由 #214 交付；本條只按直接能力改為窄幅 disposition，剩餘哲學邊界仍明列於 rationale。</li>
 </ul>
 </td>
 </tr>
@@ -14324,7 +14381,7 @@
 <td colspan="4">
 <strong>Akashic 專案關係</strong>
 <ul>
-<li><code>partial</code> / <code>semantic_operation</code> — Akashic 的 YesNoQuestion 保留 bounded PropositionExpression；yes 建立 subject 的 holds valuation，no 建立 not(subject) 的 holds valuation，undetermined 則不捏造 EstablishedAnswer，且問答本身不會自動寫成 AcceptedFact。<br><small>理由：6.5 把可提出問題與可表達答案連在一起。現行 slice 已使 determinate 答案不只是 label：canonical author-list witness 可使 authored subject 為 fails 並實際到達 no，其可主張內容是帶完整 recursive trace 的 not(subject)；未知則明確沒有 established expression。這只是一個 bounded unary yes-no vertical slice，並非所有可表達問題的通用可答性理論，故維持狹窄 partial。</small>
+<li><code>partial</code> / <code>semantic_operation</code> — Akashic 的 YesNoQuestion 保留任意有界 PropositionExpression；yes 建立 subject 的 holds valuation，no 建立 not(subject) 的 holds valuation，undetermined 則不捏造 EstablishedAnswer，且問答本身不會自動寫成 AcceptedFact。<br><small>理由：6.5 把可提出問題與可表達答案連在一起。現行 slice 已使 determinate 答案不只是 label：任意合限的六運算子 expression 可由 supervaluation 回答，canonical author-list witness 可使 authored subject 實際到達 no，而 answer 保留完整 subformula trace 且不重算 atom；未知則沒有 established expression。它仍限於固定 predicates、運算子與資源預算，並非所有可表達問題的通用可答性理論，故維持 partial。</small>
 <ul>
 <li><code>docs/explainers/logical-picture-future-and-questions.md</code>（heading：<code>## 6. 質疑：一幅 picture 可以「問」未來嗎？</code>）— 此處是該專案關係目前可解析的直接文件證據，且未把生成文件當作承重來源。</li>
 <li><code>Sources/AkashicProposition/Question.swift</code>（symbol：<code>YesNoQuestion</code>）— `YesNoQuestion` 保存待回答的 expression，並預留一層可表示 no-answer 的 negation budget。</li>

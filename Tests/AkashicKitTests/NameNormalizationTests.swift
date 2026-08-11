@@ -121,9 +121,9 @@ extension NameNormalizationTests {
 /// `Given Family`）它**看不出來是同一個名字**——注意這句只對 `matchingKey` 成立，
 /// 不對「機械層」整體成立（`PersonBootstrap.identity` 有做重排等價；見 #226）。
 ///
-/// 這組測試釘住的是 **`matchingKey` 的行為邊界**，不是 `authorized` 禁令的論據——
-/// 那條禁令的根據是 `AuthorizedNameMigration` 的明文政策，與正規化無關（見
-/// `Person.authorized` 的 doc）。哪天有人「順手」讓 matchingKey 也吃語序，這裡會紅。
+/// 這組測試釘住的是 **`matchingKey` 的行為邊界**。`authorized` 禁令的論據不在這裡，
+/// 而在 `Person.authorized` 的 doc（`AuthorizedNames.validate` 的兩條不變式聯手，
+/// 缺一不可）。哪天有人「順手」讓 matchingKey 也吃語序，這裡會紅。
 extension NameNormalizationTests {
 
     /// `matchingKey` **逐段作用**——這才是「不重排語序」的正確編碼。
@@ -200,15 +200,12 @@ extension NameNormalizationTests {
         XCTAssertTrue(reach.multiTokenGiven,  "M9（given 段多 token）在此輸入空間不可觸發")
     }
 
-    /// **`authorized = names.map(matchingKey)` 被不變式 1 擋下的那一半**（非主論據）。
+    /// **`authorized = names.map(matchingKey)` 被不變式 1 擋下的那一半。**
     ///
-    /// 禁令的主論據是**不變式 2**（`openspec/specs/authorized-name/spec.md`：同書寫
-    /// 系統兩個 authorized 是 "an undecided question, not a designation"，SHALL be
-    /// rejected），因為 `matchingKey` 從不轉寫書寫系統——見 `Person.authorized` 的
-    /// doc。本條只釘住
-    /// 「連 schema 都擋得住」的那一小塊，**不足以獨立支撐禁令**：對 `names` 每筆都是
-    /// `matchingKey` 不動點的記錄（純漢字——`testCJKIsNotMangled` 就是），不變式 1
-    /// 根本不觸發。
+    /// 禁令由**兩條不變式聯手**成立，缺一不可（見 `Person.authorized` 的 doc）。
+    /// 這條釘住不變式 1 那一半：`matchingKey` 改變了字串時，產出落在 `names` 外。
+    /// 它**不足以獨立支撐禁令**——對 `names` 每筆都是不動點的記錄（純漢字，
+    /// `testCJKIsNotMangled` 就是），不變式 1 完全靜默；那一半由下一條測試接住。
     func testNormalizedFormsWouldViolateTheAuthorizedSubsetInvariant() {
         // **單一名字**，所以不變式 2（同書寫系統至多一個）不可能觸發——若用多個
         // 拉丁形，`contains { .error }` 會因為不變式 2 而為真，測試就在**錯的理由**
@@ -228,24 +225,25 @@ extension NameNormalizationTests {
             + "實際 issues：\(issues.map(\.message))")
     }
 
-    /// **主論據**：不變式 1 漏掉的那一半，由不變式 2 接住。
+    /// 不變式 1 漏掉的那一半，由不變式 2 接住。
     ///
-    /// 殺死前一版論證的反例是「`names` 每筆都是 `matchingKey` 不動點」的記錄——純漢字
-    /// 即是，`map` 之後產出**逐字等於** `names`，不變式 1 完全靜默。這條釘住：**那類
-    /// 記錄照樣存不進去**，因為 `matchingKey` 從不轉寫書寫系統，兩個漢字名 `map` 完
-    /// 仍是兩個漢字名 → 不變式 2 報 `.error`。
+    /// 反例形狀是「`names` 每筆都是 `matchingKey` 不動點」——純漢字即是，`map` 之後
+    /// 產出**逐字等於** `names`，不變式 1 完全靜默。這條釘住：**那類記錄仍被 validate
+    /// 判為 `.error`**，因為恆等 map 保留了書寫系統，兩個漢字名仍是兩個漢字名。
     ///
-    /// 這才是 `Person.authorized` 禁令的機械根據，也是 `openspec/specs/authorized-name/
-    /// spec.md` 的 SHALL（同書寫系統兩個 authorized 是 "an undecided question, not a
-    /// designation"）。**不經過正規化那一層，所以不動點反例對它無效。**
+    /// 這一半對應 `openspec/specs/authorized-name/spec.md` 的 SHALL（同書寫系統兩個
+    /// authorized 是 "an undecided question, not a designation"）。**兩條不變式各自
+    /// 都不足以獨立支撐禁令**，見 `Person.authorized` 的 doc 的兩列對照表。
     func testFixedPointNamesStillBlockedByTheOnePerScriptInvariant() {
         let names = ["梁佑任", "梁佑仁"]                  // 兩個漢字名，同一人的兩種寫法
         let normalized = names.map(NameNormalization.matchingKey)
         // 前提一：不動點——不變式 1 在這裡沒有東西可抓
         XCTAssertEqual(normalized, names, "前提：純漢字是 matchingKey 的不動點")
-        // 前提二：書寫系統沒有被轉寫（這是不變式 2 必然觸發的理由）
+        // 前提二：**因為是不動點所以**書寫系統不變。注意這不是通則——`matchingKey`
+        // 對非不動點的輸入**會**翻轉分類（`Ｆｕｓｈｉｎｇ` .other → `fushing` .latn，
+        // `⼀` U+2F00 .other → `一` .han）。見 `Person.authorized` 的 doc。
         XCTAssertEqual(normalized.map(WritingSystem.of), [.han, .han],
-                       "前提：matchingKey 不轉寫書寫系統")
+                       "前提：這兩個純漢字是不動點，故書寫系統不變")
 
         let issues = AuthorizedNames.validate(authorized: normalized, names: names,
                                               ownerKey: "probe")
@@ -255,6 +253,36 @@ extension NameNormalizationTests {
             issues.contains { $0.severity == .error && $0.message.contains("han") },
             "不變式 2 必須報 error：兩個漢字 authorized 是「未決」不是「指定」。"
             + "實際 issues：\(issues.map(\.message))")
+    }
+
+    /// 對稱的另一半：**`matchingKey` 會翻轉書寫系統**，此時輪到不變式 2 靜默。
+    ///
+    /// #222 v4 的 doc 寫「`matchingKey` 從不轉寫書寫系統」，並由此推出「同書寫系統
+    /// ≥2 筆 ⇒ 不變式 2 必然報錯」。**兩句都是假的**（#222 R4）：NFKC 是 scalar 置換，
+    /// 而 `WritingSystem.of` 只看 scalar 區間，所以置換必然可能翻轉分類。
+    ///
+    /// 這條把那個反例類釘住，讓「兩條不變式聯手、缺一不可」不再只是散文宣稱。
+    func testNormalizationCanFlipWritingSystemLeavingOnlyInvariantOne() {
+        // U+2F00 KANGXI RADICAL ONE —— NFKC 映到 U+4E00。康熙部首污染是 OCR／
+        // 舊編碼 CJK 資料的已知現象，不是人造輸入。
+        let names = ["Chen", "Chen \u{2F00}"]
+        XCTAssertEqual(names.map(WritingSystem.of), [.latn, .latn],
+                       "前提：正規化**之前**兩筆同屬拉丁")
+
+        let normalized = names.map(NameNormalization.matchingKey)
+        XCTAssertEqual(normalized, ["chen", "chen \u{4E00}"], "前提：NFKC 置換了 scalar")
+        XCTAssertEqual(normalized.map(WritingSystem.of), [.latn, .han],
+                       "**書寫系統被翻轉了**——「matchingKey 不轉寫書寫系統」為假")
+
+        let issues = AuthorizedNames.validate(authorized: normalized, names: names,
+                                              ownerKey: "probe")
+        // 不變式 2 在這裡完全靜默：產出已經分屬兩個書寫系統
+        XCTAssertFalse(issues.contains { $0.message.contains("han") && $0.message.contains("latn") },
+                       "不變式 2 不該觸發——這正是它擋不住的那一類")
+        // 擋住它的是不變式 1
+        XCTAssertTrue(
+            issues.contains { $0.severity == .error && $0.message.contains("不在 names 內") },
+            "不變式 1 必須報 error——這一類只有它擋得住。實際 issues：\(issues.map(\.message))")
     }
 
     /// 對照組：**該塌縮的仍然塌縮**——否則上面兩條可能只是因為正規化整個壞掉才通過。

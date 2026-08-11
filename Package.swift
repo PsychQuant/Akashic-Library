@@ -11,6 +11,8 @@ let package = Package(
         ]),
         .library(name: "AkashicAppKit", targets: ["AkashicAppKit"]),
         .executable(name: "akashic", targets: ["akashic"]),
+        .library(name: "TractatusDocs", targets: ["TractatusDocs"]),
+        .executable(name: "tractatus-doc", targets: ["tractatus-doc"]),
     ],
     dependencies: [
         .package(url: "https://github.com/jpsim/Yams.git", "5.0.0"..<"7.0.0"),
@@ -57,6 +59,14 @@ let package = Package(
             "AkashicMCPKit",
             .product(name: "MCP", package: "swift-sdk"),
         ]),
+        .target(name: "TractatusDocs", dependencies: [
+            "AkashicCore",
+            .product(name: "Yams", package: "Yams"),
+        ]),
+        .executableTarget(name: "tractatus-doc", dependencies: [
+            "TractatusDocs",
+            .product(name: "ArgumentParser", package: "swift-argument-parser"),
+        ]),
         // 測試 helper（只被 test targets 依賴，不經任何 product 對外）：
         // guard 本體 + C constructor loader（bundle 載入即啟用，#124 verify F1/F5）
         .target(name: "AkashicTestGuard", dependencies: ["AkashicTestGuardLoader"]),
@@ -70,5 +80,8 @@ let package = Package(
         .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp", "AkashicTestGuard", "AkashicQuery", "AkashicGraph", "AkashicStoreIO"]),
         .testTarget(name: "AkashicAppKitTests",
                     dependencies: ["AkashicAppKit", "AkashicCore", "AkashicStoreIO", "AkashicTestGuard"]),
+        .testTarget(name: "TractatusDocsTests", dependencies: [
+            "TractatusDocs", "tractatus-doc", "AkashicTestGuard",
+        ], resources: [.copy("Fixtures")]),
     ]
 )

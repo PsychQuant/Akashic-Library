@@ -1,0 +1,199 @@
+schema_version: 1
+volume: "1"
+propositions:
+  - id: "1"
+    texts:
+      de:
+        - "Die Welt ist alles, was der Fall ist."
+      en_ogden_ramsey_1922:
+        - "The world is everything that is the case."
+    edition_references:
+      en_pears_mcguinness: "1"
+    segments:
+      - id: "1.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "世界是所有實情。"
+        interpretation_zh_tw: "『世界』在此不先被界定為物件容器，而由一切實際成立者來界定；was der Fall ist 指向『情況確實如此』，不是單純存在物的集合。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 把世界當作記錄工作的視野，卻不把任何版本的館藏宣稱為世界本身。"
+        rationale_zh_tw: "專案可以追溯對實情的主張，但有限、可修訂的圖書館不可能成為『所有實情』；這只能是界定自我限制的哲學類比。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 18. 圖書館不能等同於世界"
+            note_zh_tw: "本節明載 Akashic 不以收錄所有真理或成為世界完整副本為目標。"
+    history: []
+
+  - id: "1.1"
+    parent: "1"
+    texts:
+      de:
+        - "Die Welt ist die Gesamtheit der Tatsachen, nicht der Dinge."
+      en_ogden_ramsey_1922:
+        - "The world is the totality of facts, not of things."
+    edition_references:
+      en_pears_mcguinness: "1.1"
+    segments:
+      - id: "1.1.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "世界是事實的總體，而不是事物的總體。"
+        interpretation_zh_tw: "命題把重心從有哪些東西移到東西如何配置而形成事實；同一批事物若關係不同，世界的情形也不同。"
+    project_relations:
+      - status: partial
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 的規範模型要求以事態、關係與主張表達世界如何成立，而不只保存一份 entity 清單。"
+        rationale_zh_tw: "relation／assertion record 落實了『不只是事物』的結構方向；但專案仍保存 entity 作穩定指涉，也不聲稱館藏等於全部事實，因此只能算部分實現。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 2. 世界的基本可記錄單位是事態，而不是欄位集合"
+            note_zh_tw: "本節以 Entity、state of affairs／assertion 與來源脈絡區分事物和事態。"
+    history: []
+
+  - id: "1.11"
+    parent: "1.1"
+    texts:
+      de:
+        - "Die Welt ist durch die Tatsachen bestimmt und dadurch, dass es *alle* Tatsachen sind."
+      en_ogden_ramsey_1922:
+        - "The world is determined by the facts, and by these being *all* the facts."
+    edition_references:
+      en_pears_mcguinness: "1.11"
+    segments:
+      - id: "1.11.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "世界由事實所決定，也由這些就是全部事實所決定。"
+        interpretation_zh_tw: "不只每項成立的事實重要，『全部』所形成的完備界線也重要；若尚漏掉一項事實，所界定的就還不是整個世界。"
+    project_relations:
+      - status: intentional_nonconformance
+        mode: declared_nonconformance
+        claim_zh_tw: "Akashic 刻意不宣稱館藏已包含決定世界所需的全部事實。"
+        rationale_zh_tw: "命題中的 *alle* 是完備性條件；Akashic 接受未觀察、未說出與未收錄的事實，因此有限 release 不會以封閉總體自居。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 18. 圖書館不能等同於世界"
+            note_zh_tw: "本節列出未觀察、未說出或未留下紀錄的事件，並拒絕完整世界副本目標。"
+    history: []
+
+  - id: "1.12"
+    parent: "1.1"
+    texts:
+      de:
+        - "Denn, die Gesamtheit der Tatsachen bestimmt, was der Fall ist und auch, was alles nicht der Fall ist."
+      en_ogden_ramsey_1922:
+        - "For the totality of facts determines both what is the case, and also all that is not the case."
+    edition_references:
+      en_pears_mcguinness: "1.12"
+    segments:
+      - id: "1.12.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "因為事實的總體既決定何者是實情，也決定一切何者不是實情。"
+        interpretation_zh_tw: "若事實總體真正完備，它同時劃定正面成立與未成立的全部可能；『沒有列入』只有在這種封閉總體中才足以支持否定。"
+    project_relations:
+      - status: intentional_nonconformance
+        mode: declared_nonconformance
+        claim_zh_tw: "Akashic 對館藏採非封閉理解：找不到一筆紀錄，不得直接推成相應事實不成立。"
+        rationale_zh_tw: "專案明載未知不等於不存在，也承認未留下紀錄的事件；因此不把資料缺席冒充命題所說的完備否定。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 19. 檔案倫理"
+            note_zh_tw: "本節明列『世界可以超出目前 schema；未知不等於不存在』。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "evaluate"
+            note_zh_tw: "`evaluate(in:)` 對投射結果執行 authored 的開放世界求值。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testAbsenceIsUndeterminedNotFalse"
+            note_zh_tw: "測試確認缺少支持資料時維持 undetermined，而非推論為假。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以 authored absence 回 undetermined 的可執行行為，保留並加強本筆非封閉世界判定。"
+
+  - id: "1.13"
+    parent: "1.1"
+    texts:
+      de:
+        - "Die Tatsachen im logischen Raum sind die Welt."
+      en_ogden_ramsey_1922:
+        - "The facts in logical space are the world."
+    edition_references:
+      en_pears_mcguinness: "1.13"
+    segments:
+      - id: "1.13.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "邏輯空間中的事實就是世界。"
+        interpretation_zh_tw: "『邏輯空間』是事實得以成立或不成立的可能性整體，不是物理容器；世界由這個空間中實際成立的事實構成。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 沒有可誠實等同於《邏輯哲學論》之邏輯空間的專案構件。"
+        rationale_zh_tw: "schema、索引或圖形檢視都只是有限工程表示；把它們稱作容納一切可能事實的邏輯空間，會把實用資料結構硬套成形上學架構。"
+        evidence: []
+    history: []
+
+  - id: "1.2"
+    parent: "1"
+    texts:
+      de:
+        - "Die Welt zerfällt in Tatsachen."
+      en_ogden_ramsey_1922:
+        - "The world divides into facts."
+    edition_references:
+      en_pears_mcguinness: "1.2"
+    segments:
+      - id: "1.2.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "世界分解為事實。"
+        interpretation_zh_tw: "『分解』指出世界可依成立的事實加以分析，而不是先以一團不可分的整體呈現；後續命題將進一步說明事實的結構。"
+    project_relations:
+      - status: partial
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 把可記錄內容拆成具有來源與脈絡的事態、關係或主張，而不是只保存一份整體敘述。"
+        rationale_zh_tw: "獨立記錄讓事實性主張得以個別追溯與修訂，與分析成事實有結構類似；但這只是資料建模策略，不證明世界本身必然如此分解。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 2. 世界的基本可記錄單位是事態，而不是欄位集合"
+            note_zh_tw: "本節把 state of affairs／assertion 定為表達世界如何成立的記錄單位。"
+    history: []
+
+  - id: "1.21"
+    parent: "1.2"
+    texts:
+      de:
+        - "Eines kann der Fall sein oder nicht der Fall sein und alles übrige gleich bleiben."
+      en_ogden_ramsey_1922:
+        - "Any one can either be the case or not be the case, and everything else remain the same."
+    edition_references:
+      en_pears_mcguinness: "1.21"
+    segments:
+      - id: "1.21.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "任一項事實都可能成立或不成立，而其餘一切仍保持不變。"
+        interpretation_zh_tw: "本句主張各項事實在邏輯上可彼此獨立：某一者成立與否，本身不迫使其他一切隨之改變；它並不否認經驗世界中的因果關聯。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 不保證任一紀錄所述事實可在其餘一切完全不變時獨立成立或不成立。"
+        rationale_zh_tw: "檔案可分開寫入、欄位可局部修改或 Git 可產生分支，都只是工程操作性；它們不能充當事實之邏輯獨立性的證據，硬套會混淆儲存隔離與形上學可能性。"
+        evidence: []
+    history: []

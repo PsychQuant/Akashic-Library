@@ -1,0 +1,49 @@
+schema_version: 1
+volume: "7"
+propositions:
+  - id: "7"
+    texts:
+      de:
+        - "Wovon man nicht sprechen kann, darüber muss man schweigen."
+      en_ogden_ramsey_1922:
+        - "Whereof one cannot speak, thereof one must be silent."
+    edition_references:
+      en_pears_mcguinness: "7"
+    segments:
+      - id: "7.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "凡不可說者，必須對之保持沉默。"
+        interpretation_zh_tw: "沉默界線限制可作有意義斷言之物；對資料系統而言，這要求不要把尚無表示規則或證據的內容冒充已裁決命題，並不禁止保存未知原文或未決狀態。"
+    project_relations:
+      - status: partial
+        mode: shown_constraint
+        claim_zh_tw: "Akashic 把可說／可表示的界線落在目前 schema 與裁決語言：無法可靠表示者不得冒充已知事實，但未知原文與未決狀態仍可保存。"
+        rationale_zh_tw: "命題 7 的沉默約束針對無根據的斷言，不是資料刪除；專案明定未知、歧義與衝突是正式知識狀態，並容許可演化區域保留未知欄位。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 8. 不確定性是正式資料狀態，不是髒資料"
+            note_zh_tw: "此節直接要求未知欄位 tolerant-preserve，避免把無法解讀誤作不存在。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "UnprojectableReason"
+            note_zh_tw: "`UnprojectableReason` 為無法可靠投射的情況保留可檢查原因。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "AdjudicationRefusal"
+            note_zh_tw: "`AdjudicationRefusal` 明示事實閘門的拒絕原因。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testUnprojectableNeverClaimsTruth"
+            note_zh_tw: "測試確認不可投射命題絕不宣稱 holds 或 fails。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testAdjudicationRefusesUndetermined"
+            note_zh_tw: "測試確認 undetermined assertion 不得升格為事實。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以具原因的 unprojectable／undetermined 及 adjudication refusal，提供本筆表示界線的現行實作證據。"

@@ -211,43 +211,31 @@ public struct Person: Equatable {
     /// | 正規化（`matchingKey`）| 從字串**算出來**的比對鍵，**永不外洩成資料** | 機械 |
     /// | 本欄位 | 由人**指定**的對外形，**就是資料** | 權威 |
     ///
-    /// 共用名字會誘發 `authorized = names.map(normalize)`。**那一手在 `names` 同書寫
-    /// 系統有 ≥2 筆時進不了合法狀態**——但擋住它的是**兩條不變式聯手，缺一不可**。
+    /// 共用名字會誘發 `authorized = names.map(normalize)`。**不要。**
     ///
-    /// `matchingKey` 是冪等的（`matchingKey(matchingKey(s)) == matchingKey(s)`）。
-    /// 對 `names` 裡任一筆 `n`：
+    /// 理由是**語意的**，不是機械的：這個欄位記錄的是一個**決定**——「這個人對外要
+    /// 怎麼稱呼」。算得出來的東西就不是決定。機械填入之後，「還沒有人決定」與「決定
+    /// 是全部」在資料上不再有分別，而前者是有意義的狀態（見本段最後：空集合讓缺口在
+    /// 輸出上看得見）。
     ///
-    /// 1. `matchingKey(n) ≠ n` → 產出要嘛**不在 `names` 內**（**不變式 1** 觸發），
-    ///    要嘛在 `names` 內、而那個元素本身是不動點——那表示 `map` 的產出出現**重複
-    ///    字串**，於是同書寫系統有 2 筆（**不變式 2** 觸發）。
-    /// 2. `names` 每筆都是不動點 → `map` 是恆等 → 書寫系統原樣保留 → 同書寫系統
-    ///    ≥2 筆直接讓**不變式 2** 觸發。
+    /// ### 不要指望 `validate` 幫你擋
     ///
-    /// 兩個極端各自只被其中一條擋住，所以**沒有主從之分**：
+    /// `AuthorizedNames.validate` 的兩條不變式會攔下**多數**機械嘗試，但**不是全部**。
+    /// 已知漏網類（`testNormalizedFormsCanEvadeBothInvariants` 釘住，`validate` 實測
+    /// 回傳 `[]`）：不變式 1 用 `Set.contains`，即 Swift `String ==`（**canonical
+    /// equivalence**）；不變式 2 走 `WritingSystem.of`，它**逐 scalar 讀固定區間**。
+    /// 兩者不是同一個等價關係——`"d" + U+0307` 與 `U+1E0B` 在 Swift 是同一個字串，
+    /// 但一個 `.latn`、一個 `.other`。於是值相等讓不變式 1 靜默、分類分家讓不變式 2
+    /// 靜默。
     ///
-    /// | 輸入 | 不變式 1 | 不變式 2 |
-    /// |---|---|---|
-    /// | `["梁佑任", "梁佑仁"]`（純漢字，皆不動點）| 靜默 | **觸發** |
-    /// | `["Chen", "Chen ⼀"]`（U+2F00 康熙部首）| **觸發** | 靜默 |
+    /// 執行面也不完整：兩條不變式**沒有 schema／decoder 層的表現**，只活在 `validate`。
+    /// `akashic validate` 報 `.error`（exit 非零）、MCP `update_person` 拒絕，但
+    /// `writePerson` 的多數呼叫端不驗（**#229**）。這類記錄寫得到磁碟、也載入得了。
     ///
-    /// > **不要寫「`matchingKey` 不轉寫書寫系統」——那是假的。** NFKC 就是 scalar 置換，
-    /// > 而 `WritingSystem.of` 只看 scalar 區間，所以置換必然可能翻轉分類：`Ｆｕｓｈｉｎｇ`
-    /// > （全形，`.other`）→ `fushing`（`.latn`）、`⼀`（U+2F00，`.other`）→ `一`（`.han`）、
-    /// > `Ⅷ` → `viii`、`ﬀ` → `ff`。#222 v4 把這句當成論據寫下，而反例就在同一次 diff
-    /// > 的測試 `parts` 陣列裡。「`of` 只看 scalar 區間」是**反證**，不是 warrant。
-    ///
-    /// 規範依據是 `openspec/specs/authorized-name/spec.md`：
-    ///
-    /// > Within a single record, the authorized names SHALL be distinct in writing
-    /// > system. Two authorized names in the same writing system express an undecided
-    /// > question, not a designation, and SHALL be rejected.
-    ///
-    /// **但 "SHALL be rejected" 目前只在部分入口成立。** 不變式 2 沒有 schema／decoder
-    /// 層的表現，只活在 `AuthorizedNames.validate`：`akashic validate` 會報 `.error`
-    /// 並讓 exit code 非零、MCP `update_person` 會拒絕（`UpdatePerson.swift`），但
-    /// `writePerson` 的六個呼叫端有五個完全不驗——包含 `AuthorizedNameMigration` 自己。
-    /// 這類記錄**寫得到磁碟上、也載入得了**。spec 與實作的這個落差是另一件事，不要
-    /// 因為這段 doc 說了「SHALL」就以為寫入路徑會擋。
+    /// > **所以這條禁令靠的是上面那段語意，不是靠 `validate`。** #222 曾五度嘗試從
+    /// > `validate` 推導出禁令（R1–R5），五個版本各自被一個反例打倒——因為「不要計算
+    /// > 這個欄位」是**設計決定，不是定理**，而機械層只是部分執行它。把規範主張寫成
+    /// > 機械證明，等於邀請別人用邊界輸入推翻一條本來成立的規則。
     ///
     /// 空集合是合法的，意思是「還沒指定該怎麼稱呼他」——那時 `displayName` 退到 `key`，
     /// 讓缺口在輸出上看得見，而不是靜默印出索引系統產生的引用形。

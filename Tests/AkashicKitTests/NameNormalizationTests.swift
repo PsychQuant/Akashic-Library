@@ -121,9 +121,9 @@ extension NameNormalizationTests {
 /// `Given Family`）它**看不出來是同一個名字**——注意這句只對 `matchingKey` 成立，
 /// 不對「機械層」整體成立（`PersonBootstrap.identity` 有做重排等價；見 #226）。
 ///
-/// 這組測試釘住的是 **`matchingKey` 的行為邊界**。`authorized` 禁令的論據不在這裡，
-/// 而在 `Person.authorized` 的 doc（`AuthorizedNames.validate` 的兩條不變式聯手，
-/// 缺一不可）。哪天有人「順手」讓 matchingKey 也吃語序，這裡會紅。
+/// 這組測試釘住的是 **`matchingKey` 的行為邊界**。`authorized` 禁令的論據**不在這裡，
+/// 也不在 `validate` 裡**——它是語意的（「決定不能被計算」），見 `Person.authorized`
+/// 的 doc。這裡只釘機械行為。哪天有人「順手」讓 matchingKey 也吃語序，這裡會紅。
 extension NameNormalizationTests {
 
     /// `matchingKey` **逐段作用**——這才是「不重排語序」的正確編碼。
@@ -202,10 +202,13 @@ extension NameNormalizationTests {
 
     /// **`authorized = names.map(matchingKey)` 被不變式 1 擋下的那一半。**
     ///
-    /// 禁令由**兩條不變式聯手**成立，缺一不可（見 `Person.authorized` 的 doc）。
-    /// 這條釘住不變式 1 那一半：`matchingKey` 改變了字串時，產出落在 `names` 外。
-    /// 它**不足以獨立支撐禁令**——對 `names` 每筆都是不動點的記錄（純漢字，
-    /// `testCJKIsNotMangled` 就是），不變式 1 完全靜默；那一半由下一條測試接住。
+    /// **這條記錄的是 `validate` 擋得住的那一部分，不是禁令的論據。** 禁令是語意的
+    /// （見 `Person.authorized` 的 doc）——`validate` 只攔下多數機械嘗試，且
+    /// `testNormalizedFormsCanEvadeBothInvariants` 證明兩條不變式**可以同時靜默**。
+    ///
+    /// 這一格：`matchingKey` 改變了字串時，產出落在 `names` 外 → 不變式 1 觸發。
+    /// 對 `names` 每筆都是不動點的記錄（純漢字，`testCJKIsNotMangled` 就是），
+    /// 不變式 1 完全靜默——那一格由下一條測試記錄。
     func testNormalizedFormsWouldViolateTheAuthorizedSubsetInvariant() {
         // **單一名字**，所以不變式 2（同書寫系統至多一個）不可能觸發——若用多個
         // 拉丁形，`contains { .error }` 會因為不變式 2 而為真，測試就在**錯的理由**
@@ -261,7 +264,8 @@ extension NameNormalizationTests {
     /// ≥2 筆 ⇒ 不變式 2 必然報錯」。**兩句都是假的**（#222 R4）：NFKC 是 scalar 置換，
     /// 而 `WritingSystem.of` 只看 scalar 區間，所以置換必然可能翻轉分類。
     ///
-    /// 這條把那個反例類釘住，讓「兩條不變式聯手、缺一不可」不再只是散文宣稱。
+    /// 這條記錄第三格：不變式 2 靜默、只有不變式 1 攔得住。三格合起來說明 `validate`
+    /// 的**覆蓋形狀**（哪一條在哪一類上生效），**不構成禁令的論據**——那是語意的。
     func testNormalizationCanFlipWritingSystemLeavingOnlyInvariantOne() {
         // U+2F00 KANGXI RADICAL ONE —— NFKC 映到 U+4E00。康熙部首污染是 OCR／
         // 舊編碼 CJK 資料的已知現象，不是人造輸入。
@@ -276,13 +280,58 @@ extension NameNormalizationTests {
 
         let issues = AuthorizedNames.validate(authorized: normalized, names: names,
                                               ownerKey: "probe")
-        // 不變式 2 在這裡完全靜默：產出已經分屬兩個書寫系統
-        XCTAssertFalse(issues.contains { $0.message.contains("han") && $0.message.contains("latn") },
-                       "不變式 2 不該觸發——這正是它擋不住的那一類")
-        // 擋住它的是不變式 1
+        // **窮舉，不要用「不含某子字串」當否定**。先前寫成
+        // `XCTAssertFalse(contains { message.contains("han") && message.contains("latn") })`——
+        // 而真實的不變式 2 訊息每則只插入**一個** `script.rawValue`，所以那個 predicate
+        // **恆為 false**，斷言對 validate 的行為完全不敏感（#222 R5）。
+        // 改成釘死總數與內容：兩筆產出都不在 names 內，故恰好兩則不變式 1 error。
+        XCTAssertEqual(issues.count, 2,
+                       "應恰有兩則（兩筆產出各一）。多出來的那則很可能就是不變式 2——"
+                       + "若如此，本測試的前提已不成立。實際：\(issues.map(\.message))")
         XCTAssertTrue(
-            issues.contains { $0.severity == .error && $0.message.contains("不在 names 內") },
-            "不變式 1 必須報 error——這一類只有它擋得住。實際 issues：\(issues.map(\.message))")
+            issues.allSatisfy { $0.severity == .error && $0.message.contains("不在 names 內") },
+            "兩則都必須是不變式 1——不變式 2 擋不住這一類（產出已分屬兩個書寫系統）。"
+            + "實際：\(issues.map(\.message))")
+    }
+
+    /// **執行邊界**：有一類輸入讓 `map(matchingKey)` 兩條不變式**同時靜默**。
+    ///
+    /// 這條測試存在的理由是釘住一個**否定**的事實：`Person.authorized` 的禁令**不能**
+    /// 靠 `validate` 執行。#222 曾五度嘗試從 `validate` 推出禁令，五次都被反例打倒；
+    /// 這是其中最根本的那個。
+    ///
+    /// ## 為什麼會漏
+    ///
+    /// 不變式 1 用 `Set(names).contains(_:)`，也就是 Swift `String ==`——**canonical
+    /// equivalence**。不變式 2 走 `WritingSystem.of`，它**逐 scalar 讀固定區間**
+    /// （`isLatinLetter` 只認 0x41–0x5A / 0x61–0x7A / 0xC0–0x24F）。
+    ///
+    /// **兩者不是同一個等價關係。** Latin Extended Additional（U+1E00–U+1EFF）落在
+    /// `isLatinLetter` 之外，所以 canonical 相等的字串可以分屬不同 bucket：
+    /// `"d" + U+0307` 與 `U+1E0B` 在 Swift 是**同一個字串**，但前者 `.latn`、後者 `.other`。
+    ///
+    /// 於是 `matchingKey` 的 NFKC 合成讓一筆名字「值不變、分類改變」：不變式 1 因為
+    /// 值相等而靜默，不變式 2 因為分類已分家而靜默。
+    func testNormalizedFormsCanEvadeBothInvariants() {
+        let names = ["d\u{0307}", "x"]                        // 皆 .latn
+        XCTAssertEqual(names.map(WritingSystem.of), [.latn, .latn],
+                       "前提：正規化前兩筆同屬拉丁——這是不變式 2 該咬的形狀")
+
+        let normalized = names.map(NameNormalization.matchingKey)
+        // Swift `==`：值沒變（canonical equivalence）→ 不變式 1 沒東西可抓
+        XCTAssertEqual(normalized, names, "前提：以 Swift String == 判定，這是不動點")
+        // 但 scalar 變了（U+0064 U+0307 → U+1E0B），於是分類跟著變
+        XCTAssertEqual(Array(normalized[0].unicodeScalars), ["\u{1E0B}"],
+                       "前提：NFKC 合成改變了 scalar 序列")
+        XCTAssertEqual(normalized.map(WritingSystem.of), [.other, .latn],
+                       "**分類分家了**——不變式 2 因此看到兩個各一筆的 bucket")
+
+        let issues = AuthorizedNames.validate(authorized: normalized, names: names,
+                                              ownerKey: "probe")
+        XCTAssertTrue(issues.isEmpty,
+                      "**兩條不變式同時靜默**——這就是為什麼禁令不能靠 validate 執行。"
+                      + "若這裡變紅，代表 validate 收緊了，`Person.authorized` 的 doc "
+                      + "要跟著改（那是好事，但 doc 不能落後）。實際 issues：\(issues.map(\.message))")
     }
 
     /// 對照組：**該塌縮的仍然塌縮**——否則上面兩條可能只是因為正規化整個壞掉才通過。

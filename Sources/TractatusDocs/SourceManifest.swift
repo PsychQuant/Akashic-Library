@@ -35,6 +35,11 @@ public struct SourceManifest: Decodable, Equatable, Sendable {
         schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
         scope = try container.decode(CanonicalScope.self, forKey: .scope)
         editions = try container.decode([SourceEdition].self, forKey: .editions)
+        try enforceCorpusLimit(
+            editions.count,
+            maximum: CorpusResourceLimits.maximumSourceEditions,
+            kind: "source-editions"
+        )
     }
 }
 
@@ -177,13 +182,40 @@ public enum SourceManifestYAMLDecoder {
 }
 
 public enum SourceManifestValidator {
+    private enum SnapshotCapture {
+        case data(Data)
+        case resourceLimit(String)
+        case unreadable
+    }
+
     public static func validate(
         _ manifest: SourceManifest,
         root: URL,
         volumes: [CorpusVolume]
     ) -> [CorpusDiagnostic] {
+        validate(
+            manifest,
+            root: root,
+            volumes: volumes,
+            snapshotLoader: { url in
+                try boundedFileData(
+                    contentsOf: url,
+                    maximumBytes: CorpusResourceLimits.maximumInlineSnapshotUTF8Bytes,
+                    kind: "inline-snapshot-utf8-bytes"
+                )
+            }
+        )
+    }
+
+    static func validate(
+        _ manifest: SourceManifest,
+        root: URL,
+        volumes: [CorpusVolume],
+        snapshotLoader: (URL) throws -> Data
+    ) -> [CorpusDiagnostic] {
         var diagnostics: [CorpusDiagnostic] = []
         var inlineSnapshots: [Int: Data] = [:]
+        var snapshotCaptureCache: [String: SnapshotCapture] = [:]
         for (editionIndex, edition) in manifest.editions.enumerated() {
             validateProvenance(edition, diagnostics: &diagnostics)
             switch edition.inclusionMode {
@@ -191,6 +223,8 @@ public enum SourceManifestValidator {
                 if let data = validateInline(
                     edition,
                     root: root,
+                    snapshotCaptureCache: &snapshotCaptureCache,
+                    snapshotLoader: snapshotLoader,
                     diagnostics: &diagnostics
                 ) {
                     inlineSnapshots[editionIndex] = data
@@ -260,6 +294,8 @@ public enum SourceManifestValidator {
     private static func validateInline(
         _ edition: SourceEdition,
         root: URL,
+        snapshotCaptureCache: inout [String: SnapshotCapture],
+        snapshotLoader: (URL) throws -> Data,
         diagnostics: inout [CorpusDiagnostic]
     ) -> Data? {
         guard let expectedDigest = edition.sha256,
@@ -314,21 +350,32 @@ public enum SourceManifestValidator {
             ))
             return nil
         }
+        let cacheKey = url.path
+        let capture: SnapshotCapture
+        if let cached = snapshotCaptureCache[cacheKey] {
+            capture = cached
+        } else {
+            do {
+                capture = .data(try snapshotLoader(url))
+            } catch let error as CorpusSchemaError {
+                capture = .resourceLimit(error.localizedDescription)
+            } catch {
+                capture = .unreadable
+            }
+            snapshotCaptureCache[cacheKey] = capture
+        }
         let data: Data
-        do {
-            data = try boundedFileData(
-                contentsOf: url,
-                maximumBytes: CorpusResourceLimits.maximumInlineSnapshotUTF8Bytes,
-                kind: "inline-snapshot-utf8-bytes"
-            )
-        } catch let error as CorpusSchemaError {
+        switch capture {
+        case let .data(captured):
+            data = captured
+        case let .resourceLimit(message):
             diagnostics.append(issue(
                 edition,
                 code: "resource-limit",
-                message: error.localizedDescription
+                message: message
             ))
             return nil
-        } catch {
+        case .unreadable:
             diagnostics.append(issue(
                 edition,
                 code: "broken-path",

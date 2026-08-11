@@ -211,6 +211,24 @@ final class CorpusReconciliationTests: XCTestCase {
         }
     }
 
+    func testHiddenCorpusEntriesStillCountTowardDirectoryWorkLimit() throws {
+        let root = try TractatusDiskFixture.make()
+        defer { TractatusDiskFixture.remove(root) }
+        let corpus = root.appendingPathComponent("corpus", isDirectory: true)
+        for index in 0...CorpusResourceLimits.maximumCorpusDirectoryEntries {
+            try Data().write(to: corpus.appendingPathComponent(".hidden-\(index)"))
+        }
+
+        XCTAssertThrowsError(
+            try CorpusValidationEngine.validate(root: root, allowIncomplete: false)
+        ) { error in
+            let failure = error as? TractatusValidationFailure
+            XCTAssertTrue(failure?.diagnostics.contains {
+                $0.path == "corpus" && $0.code == "resource-limit"
+            } == true)
+        }
+    }
+
     private func loadCanonicalVolumes() throws -> [CorpusVolume] {
         try CorpusValidationEngine.validate(
             root: repositoryRoot.appendingPathComponent("docs/tractatus"),

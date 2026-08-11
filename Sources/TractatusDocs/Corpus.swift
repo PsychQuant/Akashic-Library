@@ -41,6 +41,7 @@ public enum CorpusSchemaError: Error, Equatable, LocalizedError {
 enum CorpusResourceLimits {
     static let maximumVolumeUTF8Bytes = 1 * 1024 * 1024
     static let maximumSourceManifestUTF8Bytes = 256 * 1024
+    static let maximumSourceEditions = 16
     static let maximumInlineSnapshotUTF8Bytes = 2 * 1024 * 1024
     static let maximumAssetManifestUTF8Bytes = 256 * 1024
     static let maximumReferencedAssetBytes = 8 * 1024 * 1024

@@ -161,7 +161,7 @@ enum CorpusValidationEngine {
         let enumerator = FileManager.default.enumerator(
             at: corpusDirectory,
             includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+            options: [.skipsSubdirectoryDescendants]
         )
         var directoryEntryCount = 0
         var yamlURLs: [URL] = []
@@ -170,7 +170,7 @@ enum CorpusValidationEngine {
             if directoryEntryCount > CorpusResourceLimits.maximumCorpusDirectoryEntries {
                 break
             }
-            if url.pathExtension == "yaml" {
+            if !url.lastPathComponent.hasPrefix(".") && url.pathExtension == "yaml" {
                 yamlURLs.append(url)
                 if yamlURLs.count > CorpusResourceLimits.maximumCorpusYAMLFiles { break }
             }

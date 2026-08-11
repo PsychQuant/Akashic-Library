@@ -510,6 +510,61 @@ final class SourceManifestTests: XCTestCase {
         XCTAssertEqual(issues.map(\.recordID), ["de"])
     }
 
+    func testSourceEditionCountIsBoundedBeforeSnapshotCapture() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let yaml = fixture.manifestYAML
+        let inlineStart = try XCTUnwrap(yaml.range(of: "  - id: de\n"))
+        let externalStart = try XCTUnwrap(yaml.range(of: "  - id: en_pears_mcguinness\n"))
+        let inlineBlock = String(yaml[inlineStart.lowerBound..<externalStart.lowerBound])
+        let excessive = yaml.replacingCharacters(
+            in: inlineStart.lowerBound..<externalStart.lowerBound,
+            with: String(repeating: inlineBlock, count: CorpusResourceLimits.maximumSourceEditions)
+        )
+
+        XCTAssertThrowsError(try SourceManifestYAMLDecoder.decode(excessive)) { error in
+            XCTAssertEqual(
+                error as? CorpusSchemaError,
+                .resourceLimit(
+                    kind: "source-editions",
+                    actual: CorpusResourceLimits.maximumSourceEditions + 1,
+                    maximum: CorpusResourceLimits.maximumSourceEditions
+                )
+            )
+        }
+    }
+
+    func testCanonicalSnapshotPathIsCapturedOnlyOnceAcrossEditions() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let yaml = fixture.manifestYAML
+        let inlineStart = try XCTUnwrap(yaml.range(of: "  - id: de\n"))
+        let externalStart = try XCTUnwrap(yaml.range(of: "  - id: en_pears_mcguinness\n"))
+        let inlineBlock = String(yaml[inlineStart.lowerBound..<externalStart.lowerBound])
+        let duplicated = yaml.replacingCharacters(
+            in: externalStart.lowerBound..<externalStart.lowerBound,
+            with: inlineBlock.replacingOccurrences(of: "id: de", with: "id: de_duplicate")
+        )
+        let manifest = try SourceManifestYAMLDecoder.decode(duplicated)
+        var captureCount = 0
+
+        _ = SourceManifestValidator.validate(
+            manifest,
+            root: fixture.root,
+            volumes: [],
+            snapshotLoader: { url in
+                captureCount += 1
+                return try boundedFileData(
+                    contentsOf: url,
+                    maximumBytes: CorpusResourceLimits.maximumInlineSnapshotUTF8Bytes,
+                    kind: "inline-snapshot-utf8-bytes"
+                )
+            }
+        )
+
+        XCTAssertEqual(captureCount, 1)
+    }
+
     func testFixedScopeRejectsDuplicateEditionIDBeforeRendering() throws {
         let root = repositoryRoot.appendingPathComponent("docs/tractatus", isDirectory: true)
         let yaml = try String(

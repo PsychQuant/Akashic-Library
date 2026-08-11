@@ -159,11 +159,15 @@ code:
 ---
 ### Requirement: Evaluation SHALL preserve open-world uncertainty
 
-`TruthValue` SHALL provide holds, fails, and undetermined states. `PropositionExpression.evaluate(in: ValuationContext)` SHALL return a `Valuation` that retains the exact expression, truth value, context, and recursive evidence trace. Atomic authored SHALL return holds when the projected work contains the projected person key in an author slot; positive identity support SHALL take precedence over completeness evidence.
+`TruthValue` SHALL provide holds, fails, and undetermined states. `PropositionExpression.evaluate(in: ValuationContext)` SHALL return a `Valuation` that retains the exact expression, truth value, context, and complete recursive evidence trace. Before evaluating composite semantics, the evaluator SHALL rely on the expression's opaque validated-structure invariant, collect its cached distinct atoms in canonical order, and evaluate each distinct atom exactly once against the supplied immutable context.
 
-When no author key matches, a matching unresolved literal SHALL return `undetermined(supportingEvidenceUnresolved)`. Any other unresolved author literal SHALL return `undetermined(authorIdentityUnresolved)`. If every author slot is a resolved key, authored SHALL return fails only when the Entry contains a valid author-list completeness witness bound to that exact work and ordered author snapshot and the resolved list excludes the projected person. Without that witness it SHALL return `undetermined(noSupportingEvidence)`. An empty author list SHALL establish fails only when an exact valid witness attests that empty list. Malformed or stale witnesses SHALL be rejected before truth evaluation rather than treated as absence. Authored evaluation SHALL retain the context valid day while marking its predicate scope as snapshot-scoped and time-invariant.
+Atomic authored SHALL return holds when the projected work contains the projected person key in an author slot; positive identity support SHALL take precedence over completeness evidence. When no author key matches, a matching unresolved literal SHALL return `undetermined(supportingEvidenceUnresolved)`. Any other unresolved author literal SHALL return `undetermined(authorIdentityUnresolved)`. If every author slot is a resolved key, authored SHALL return fails only when the Entry contains a valid author-list completeness witness bound to that exact work and ordered author snapshot and the resolved list excludes the projected person. Without that witness it SHALL return `undetermined(noSupportingEvidence)`. An empty author list SHALL establish fails only when an exact valid witness attests that empty list. Malformed or stale witnesses SHALL be rejected before truth evaluation rather than treated as absence. Authored evaluation SHALL retain the context valid day while marking its predicate scope as snapshot-scoped and time-invariant.
 
-An unprojectable atom SHALL return `undetermined(notProjectable)`. Atomic affiliated SHALL preserve its existing valid-time open-world behavior and SHALL NOT produce fails because no affiliation-completeness witness exists. Expression negation SHALL apply only after atomic evaluation according to the recursive-negation requirement.
+An unprojectable atom SHALL return `undetermined(notProjectable)`. Atomic affiliated SHALL preserve its existing valid-time open-world behavior and SHALL NOT produce fails because no affiliation-completeness witness exists.
+
+Composite epistemic evaluation SHALL use bounded supervaluation over the already captured atomic valuations. Atomic holds SHALL be fixed to classical true, atomic fails SHALL be fixed to classical false, and each distinct undetermined atom SHALL be one shared Boolean variable in every compatible completion. The evaluator SHALL enumerate completions in canonical atom order with false before true. If every compatible completion makes a subexpression true, that subexpression SHALL conclude holds. If every completion makes it false, that subexpression SHALL conclude fails. If completions disagree, negation SHALL preserve its operand's exact undetermined reason and a binary subexpression SHALL conclude `undetermined(supervaluationInconclusive(atoms:))`, carrying the canonical ordered distinct atoms reachable through undetermined children that remain completion-dependent for that mixed conclusion. An unknown inside a child that has already collapsed to a tautology, contradiction, or absorbing determinate truth SHALL remain in its leaf trace but SHALL NOT be added to the parent's inconclusive aggregate. The typed atom payload SHALL remain complete, while human-readable rendering SHALL sanitize each atom and apply fixed item and final-length bounds. Supervaluation SHALL NOT use strong-Kleene operator tables.
+
+Completion enumeration SHALL take no caller-supplied limit. Exactly 4,096 compatible completions SHALL be accepted; an expression requiring more SHALL throw `PropositionEvaluationError.supervaluationCompletionLimitExceeded(undeterminedAtomCount:maximumCompletions:)` before shift, allocation, or atom re-evaluation. Truth-table and completion `2^n` cardinalities SHALL share one guarded internal helper; a rejected 13- or 63-variable request SHALL invoke an injected checked-shift operation zero times, and cardinality code SHALL contain no second bare-shift path. Guarded row-bit decoding remains permitted. Every operator SHALL compute both child traces even when its truth is already determined by an absorbing value.
 
 #### Scenario: Resolved supporting evidence establishes authored
 
@@ -172,11 +176,23 @@ An unprojectable atom SHALL return `undetermined(notProjectable)`. Atomic affili
 - **AND** it SHALL remain holds even when a valid completeness witness is present
 - **AND** its trace SHALL retain the matching author evidence
 
+##### Example: Matching resolved author
+
+| Query | Work author slots | Truth |
+| --- | --- | --- |
+| `authored(p,w)` | `[key(p)]` | holds |
+
 #### Scenario: Witnessed resolved exclusion refutes authored
 
 - **WHEN** a valid witness exactly attests a work author list containing only resolved keys and that list excludes the projected person
 - **THEN** the atomic authored valuation truth SHALL be fails
 - **AND** its trace SHALL retain the witness and full author list
+
+##### Example: Witnessed exclusion
+
+| Query | Attested author slots | Witness | Truth |
+| --- | --- | --- | --- |
+| `authored(p,w)` | `[key(q)]` | valid and exact | fails |
 
 #### Scenario: Unwitnessed absence is not false
 
@@ -189,6 +205,12 @@ An unprojectable atom SHALL return `undetermined(notProjectable)`. Atomic affili
 - **WHEN** any author slot is a literal and no resolved key supports the projected person
 - **THEN** the atomic valuation truth SHALL be an unresolved undetermined value
 - **AND** it SHALL NOT be fails regardless of whether the literal resembles the person's names
+
+##### Example: Literal blocks exclusion
+
+| Query person | Author slot | Truth |
+| --- | --- | --- |
+| `key(p)` | `literal("P")` | undetermined |
 
 #### Scenario: A matching literal is not accepted as identity
 
@@ -216,12 +238,62 @@ An unprojectable atom SHALL return `undetermined(notProjectable)`. Atomic affili
 - **AND** each valuation SHALL retain its distinct context valid day
 - **AND** each trace SHALL state that authored did not interpret a valid-time timeline
 
+##### Example: Two valid days, one snapshot fact
+
+| Valid day | Truth | Authored evidence |
+| --- | --- | --- |
+| `2026-01-01` | holds | `key(p)` slot |
+| `2026-12-31` | holds | same `key(p)` slot |
+
+#### Scenario: Excluded middle is supervaluation-valid
+
+- **GIVEN** atomic `p` is undetermined for any typed atomic reason
+- **WHEN** `or(p,not(p))` is evaluated
+- **THEN** every compatible completion SHALL make the expression true
+- **AND** its valuation truth SHALL be holds
+
+#### Scenario: Contradiction is supervaluation-false
+
+- **GIVEN** atomic `p` is undetermined for any typed atomic reason
+- **WHEN** `and(p,not(p))` is evaluated
+- **THEN** every compatible completion SHALL make the expression false
+- **AND** its valuation truth SHALL be fails
+
+#### Scenario: Implication and absorbing cases follow all completions
+
+- **GIVEN** `U(p)` and `U(q)` denote undetermined atomic valuations
+- **WHEN** the listed expressions are evaluated
+- **THEN** their results SHALL be:
+
+| Expression inputs | Expression | Result |
+| ----------------- | ---------- | ------ |
+| `U(p)` | `implies(p,p)` | `holds` |
+| `fails, U(q)` | `implies(p,q)` | `holds` |
+| `U(p), holds` | `implies(p,q)` | `holds` |
+| `holds, U(q)` | `implies(p,q)` | `undetermined(supervaluationInconclusive(atoms: [q]))` |
+| `U(p), fails` | `implies(p,q)` | `undetermined(supervaluationInconclusive(atoms: [p]))` |
+| `fails, U(q)` | `and(p,q)` | `fails` |
+| `holds, U(q)` | `or(p,q)` | `holds` |
+| `holds, U(q)` | `and(p,q)` | `undetermined(supervaluationInconclusive(atoms: [q]))` |
+| `fails, U(q)` | `or(p,q)` | `undetermined(supervaluationInconclusive(atoms: [q]))` |
+| `holds, U(q)` | `nor(p,q)` | `fails` |
+| `U(p)` | `nor(p,not(p))` | `fails` |
+| `U(p), U(q)` with canonical `p < q` | `implies(p,q)` | `undetermined(supervaluationInconclusive(atoms: [p, q]))` |
+
+#### Scenario: Completion enumeration is bounded
+
+- **WHEN** an expression contains twelve distinct undetermined atoms
+- **THEN** evaluation SHALL enumerate exactly 4,096 compatible completions
+- **WHEN** it contains thirteen distinct undetermined atoms
+- **THEN** evaluation SHALL throw `PropositionEvaluationError.supervaluationCompletionLimitExceeded(undeterminedAtomCount: 13, maximumCompletions: 4096)` without enumerating a partial result
+- **AND** an injected checked-shift operation and workspace allocator SHALL each be invoked zero times
+
 ---
 ### Requirement: Yes-no questions SHALL expose a tri-valued answer space
 
-`YesNoQuestion` SHALL retain a validated `PropositionExpression` subject and SHALL expose exactly yes, no, and undetermined as its exhaustive `Answer` cases. Its throwing initializer SHALL ensure both the subject and a possible `not(subject)` fit the expression depth budget. `answer(in: ValuationContext)` SHALL evaluate the subject exactly once and SHALL return an `AnswerResult` containing `subjectValuation` plus an optional `EstablishedAnswer` whose expression is obtained from its own holds valuation.
+`YesNoQuestion` SHALL retain a validated opaque `PropositionExpression` subject and SHALL expose exactly yes, no, and undetermined as its exhaustive `Answer` cases. Its throwing initializer SHALL rely on the subject's validated-structure invariant and SHALL construct a reserved negative answer expression through `PropositionExpression.not(subject)`, enforcing depth, node, and atom limits before storing the question. `answer(in: ValuationContext)` SHALL evaluate the complete subject exactly once and SHALL return an `AnswerResult` containing `subjectValuation` plus an optional `EstablishedAnswer` whose expression is obtained from its own holds valuation.
 
-For subject holds, answer SHALL be yes and the established-answer valuation SHALL equal the subject holds valuation. For subject fails, answer SHALL be no and the established-answer valuation SHALL be `not(subject)` with truth holds and a negation trace wrapping the subject fails trace. For every subject undetermined value, answer SHALL be undetermined and established answer SHALL be absent. The operation SHALL NOT flatten results to Bool or construct an expression without a matching valuation.
+For subject holds, answer SHALL be yes and the established-answer valuation SHALL equal the subject holds valuation. For subject fails, answer SHALL be no and the established-answer valuation SHALL be the reserved structural `not(subject)` with truth holds and a negation trace wrapping the complete subject fails trace. For every subject undetermined value, answer SHALL be undetermined and established answer SHALL be absent. The operation SHALL NOT flatten results to `Bool`, use classical equivalence in place of structural identity, re-evaluate any atom, or construct an expression without a matching valuation.
 
 #### Scenario: The answer space is exhaustive
 
@@ -231,13 +303,19 @@ For subject holds, answer SHALL be yes and the established-answer valuation SHAL
 
 #### Scenario: A yes answer retains an established subject
 
-- **WHEN** the subject valuation is holds
+- **WHEN** a compound subject valuation is holds
 - **THEN** answer SHALL be yes
-- **AND** subject and established-answer valuations SHALL be the same holds valuation
+- **AND** subject and established-answer valuations SHALL be the same occurrence-complete holds valuation
+
+##### Example: Established yes
+
+| Subject | Subject truth | Answer | Established expression |
+| --- | --- | --- | --- |
+| `and(p,q)` | holds | yes | `and(p,q)` |
 
 #### Scenario: A no answer retains an established negation
 
-- **WHEN** the subject valuation is fails
+- **WHEN** the complete subject valuation is fails
 - **THEN** answer SHALL be no
 - **AND** subject valuation SHALL remain the exact subject expression with fails
 - **AND** established-answer valuation SHALL be the structural `not(subject)` expression with holds
@@ -248,6 +326,13 @@ For subject holds, answer SHALL be yes and the established-answer valuation SHAL
 - **WHEN** the question subject is `not(p)` and its valuation is fails
 - **THEN** the no-answer established expression SHALL be `not(not(p))`
 - **AND** it SHALL NOT be normalized to `p`
+
+#### Scenario: A compound contradiction produces an established negative answer
+
+- **WHEN** the subject is `and(p,not(p))` and `p` is atomically undetermined
+- **THEN** supervaluation SHALL make the subject fails
+- **AND** the answer SHALL be no
+- **AND** the established expression SHALL be the structurally exact `not(and(p,not(p)))` with a complete holds trace
 
 #### Scenario: An undetermined answer is not assertible
 
@@ -261,29 +346,54 @@ For subject holds, answer SHALL be yes and the established-answer valuation SHAL
 | ------------- | ------ | ------------------ |
 | `holds` | `yes` | `subject / holds` |
 | `fails` | `no` | `not(subject) / holds` |
-| `undetermined(noSupportingEvidence)` | `undetermined` | absent |
+| `undetermined(supervaluationInconclusive(atoms: [p]))` | `undetermined` | absent |
+
+#### Scenario: Question construction reserves resource budget
+
+- **WHEN** a valid subject already consumes the maximum operator depth or total node count so that `not(subject)` would exceed a limit
+- **THEN** `YesNoQuestion` initialization SHALL throw the corresponding typed `PropositionExpressionError`
+- **AND** no question SHALL be returned
 
 #### Scenario: Answer propagation preserves audit context
 
-- **WHEN** a question is answered from a context-bound subject valuation
-- **THEN** snapshot identity, revision, valid day, atomic evidence, and complete quarantine SHALL be unchanged in subject and established-answer traces
+- **WHEN** a question is answered from a context-bound compound subject valuation
+- **THEN** snapshot identity, revision, valid day, every occurrence's atomic evidence or refusal, and complete quarantine SHALL be unchanged in subject and established-answer traces
+
+##### Example: Answer context propagation
+
+| Field | Subject valuation | Established valuation |
+| --- | --- | --- |
+| Snapshot revision | `r1` | `r1` |
+| Valid day | `2026-08-10` | `2026-08-10` |
 
 ---
 ### Requirement: Fact acceptance SHALL be gated from recorded assertions
 
-`Assertion` SHALL record a `PropositionExpression`, `Stance`, source, and `RecordedTime` without itself asserting truth. `AcceptedFact` SHALL be a distinct type whose construction is restricted to adjudication. Adjudication SHALL consume an existing `Valuation`, validate the complete assertion and valuation expressions, and verify exact structural expression equality before checking stance or truth. It SHALL accept only an asserted Assertion whose matching expression valuation truth is holds. It SHALL reject a mismatched expression, denied or questioned stance, and fails or undetermined truth. A successful fact SHALL retain the expression, assertion, acceptedBy, `AcceptedTime`, and complete recursive valuation. A `notEstablished` refusal SHALL retain the refused valuation.
+`Assertion` SHALL record a validated opaque `PropositionExpression`, `Stance`, source, and `RecordedTime` without itself asserting truth. `AcceptedFact` SHALL be a distinct type whose construction is restricted to adjudication. Assertion construction and adjudication SHALL rely on the expression's preserved validated-structure invariant; any new expression they construct SHALL pass through a bounded throwing factory. Adjudication SHALL consume an existing `Valuation` and verify exact structural expression equality before checking stance or truth. Classical semantic equivalence SHALL NOT satisfy this identity gate. Adjudication SHALL accept only an asserted Assertion whose structurally matching expression valuation truth is holds. It SHALL reject a mismatched expression, denied or questioned stance, and fails or undetermined truth. A successful fact SHALL retain the expression, assertion, acceptedBy, `AcceptedTime`, complete recursive valuation, every occurrence trace, context, evidence, refusal, and quarantine. A `notEstablished` refusal SHALL retain the refused valuation unchanged.
 
 #### Scenario: An established assertion becomes an accepted fact
 
-- **WHEN** an asserted Assertion is adjudicated with a structurally matching holds valuation
-- **THEN** adjudication SHALL return an AcceptedFact retaining the expression, assertion, and valuation
+- **WHEN** an asserted atomic or compound Assertion is adjudicated with a structurally matching holds valuation
+- **THEN** adjudication SHALL return an AcceptedFact retaining the expression, assertion, and complete valuation
 - **AND** the result SHALL record acceptedBy and typed acceptedAt
+
+##### Example: Accepted asserted expression
+
+| Stance | Matching truth | Result |
+| --- | --- | --- |
+| asserted | holds | AcceptedFact |
 
 #### Scenario: An asserted negation can become a negative fact
 
 - **WHEN** `asserted(not(p))` is adjudicated with the established `not(p) / holds` valuation from a no-answer
 - **THEN** adjudication SHALL return an AcceptedFact for the exact negated expression
 - **AND** its recursive trace SHALL retain the original `p / fails` evidence
+
+#### Scenario: A compound supervaluation conclusion can become a fact
+
+- **WHEN** `asserted(or(p,not(p)))` is adjudicated with its structurally matching holds valuation while atomic `p` is undetermined
+- **THEN** adjudication SHALL return an AcceptedFact for the exact disjunction
+- **AND** the fact SHALL retain both occurrences of `p`, the negation node, their undetermined atomic evidence, and the holds root conclusion
 
 #### Scenario: A failed positive expression cannot become a negative fact
 
@@ -309,10 +419,22 @@ For subject holds, answer SHALL be yes and the established-answer valuation SHAL
 - **THEN** adjudication SHALL throw `expressionMismatch`
 - **AND** no stance or truth result SHALL override that mismatch
 
+#### Scenario: Semantic equivalence does not replace recorded syntax
+
+- **WHEN** an assertion records `or(p,q)` and the supplied valuation records structurally different `or(q,p)`
+- **THEN** adjudication SHALL throw `expressionMismatch` even when classical equivalence returns true
+- **AND** no AcceptedFact SHALL be created
+
 #### Scenario: Fact retains three independent time roles
 
 - **WHEN** an assertion recorded on one day is evaluated for another valid day and accepted on a third day
 - **THEN** the AcceptedFact SHALL retain all three typed values through its basis and valuation
+
+##### Example: Independent time roles
+
+| RecordedTime | ValidDay | AcceptedTime |
+| --- | --- | --- |
+| `2026-08-01` | `2026-07-31` | `2026-08-10` |
 
 ---
 ### Requirement: Canonical proposition models SHALL reject ambiguous identity keys
@@ -348,24 +470,49 @@ For subject holds, answer SHALL be yes and the established-answer valuation SHAL
 ---
 ### Requirement: Truth-bearing proposition operations SHALL reject malformed syntax
 
-Every public operation that derives a projection, truth value, answer, or accepted fact SHALL validate the proposition before interpreting it against a model. `project(in:)`, `evaluate(in:)`, and `answer(in:)` SHALL propagate `PropositionError` through throwing APIs. `adjudicate` SHALL defensively propagate the same error and SHALL NOT produce `AcceptedFact` from malformed syntax. Syntax invalidity SHALL NOT be represented as `Projection.unprojectable`, `TruthValue.undetermined`, or another epistemic result. `PropositionError` localized, default, and debug string rendering SHALL use the same `displaySafe(max: 120)` summary and SHALL NOT reflect a raw malformed key.
+Every public operation that derives a projection, truth value, answer, established answer, or accepted fact from `PropositionExpression` SHALL accept only the opaque validated value produced by its throwing factories or read-only child views. `PropositionExpression.atom(_:)`, `Proposition.asExpression()`, and raw `Proposition` projection or evaluation entry points SHALL validate the atom before interpreting it against a model and SHALL propagate its original `PropositionError`. Higher expression factories, `YesNoQuestion`, `Assertion`, and `adjudicate` SHALL preserve the expression invariant and SHALL propagate any error produced while creating a new bounded expression. No operation SHALL produce a partial expression, trace, answer, or `AcceptedFact` after atom validation or candidate-budget failure. Syntax invalidity SHALL NOT be represented as `Projection.unprojectable`, `TruthValue.undetermined`, a classical value, or another epistemic result. `PropositionError` localized, default, and debug string rendering SHALL use the same `displaySafe(max: 120)` summary and SHALL NOT reflect a raw malformed key.
 
 #### Scenario: A direct empty literal is rejected across semantic operations
 
-- **WHEN** a caller directly constructs `authored(person: literal("   "), work: key("work-a"))`
-- **THEN** project, evaluate, answer, and adjudicate SHALL each throw `PropositionError.emptyLiteral`
-- **AND** none of those operations SHALL return an unprojectable or undetermined result
+- **WHEN** a caller passes `authored(person: literal("   "), work: key("work-a"))` to `PropositionExpression.atom(_:)`, `Proposition.asExpression()`, or a raw `Proposition` semantic entry point
+- **THEN** the attempted expression construction or raw semantic operation SHALL throw `PropositionError.emptyLiteral`
+- **AND** no expression SHALL exist for question construction, answer, assertion construction, or adjudication to turn into an unprojectable, undetermined, or successful result
 
 #### Scenario: A malformed key cannot be made true by a matching malformed model
 
-- **WHEN** a directly constructed proposition contains malformed key `Not A Key` and a hand-built unique model contains the same malformed person and author key
-- **THEN** evaluation SHALL throw `PropositionError.malformedKey("Not A Key")`
+- **WHEN** a proposition contains malformed key `Not A Key` and a hand-built unique model contains the same malformed person and author key
+- **THEN** `PropositionExpression.atom(_:)`, `Proposition.asExpression()`, and raw `Proposition` semantic entry points SHALL throw `PropositionError.malformedKey("Not A Key")`
 - **AND** adjudication SHALL NOT create an `AcceptedFact`
+
+#### Scenario: Malformed syntax inside a binary branch is rejected before evaluation
+
+- **WHEN** an external caller attempts to place a malformed raw atom in either branch of `and`, `or`, `implies`, or `nor`
+- **THEN** atom construction SHALL throw the original `PropositionError` before the enclosing factory can receive that branch
+- **AND** no sibling atom SHALL be interpreted against the context
+- **AND** no partial child trace SHALL be returned
+
+#### Scenario: Over-budget syntax is not uncertainty
+
+- **WHEN** a factory candidate would exceed depth, node, or distinct-atom limits
+- **THEN** the first applicable typed `PropositionExpressionError` SHALL be thrown before an expression exists
+- **AND** no operation SHALL translate that failure into any `undetermined(...)` value
+
+#### Scenario: External callers cannot bypass the expression invariant
+
+- **WHEN** a non-`@testable` client attempts to invoke recursive storage, raw node initializers, enum-style cases, or a factory overload with a caller-selected limit
+- **THEN** the client SHALL fail to compile
+- **AND** the only constructible expression values SHALL come from the bounded throwing factories or their read-only child views
+
+#### Scenario: Proposition and formula diagnostics do not reflect raw payloads
+
+- **WHEN** a proposition error, classical error, evaluation reason, or transformation error carries bounded but adversarial atom payloads
+- **THEN** default, localized, and debug rendering as applicable SHALL escape controls, show at most 5 atoms, and stop at 2048 Unicode scalars after escaping
+- **AND** the typed machine payload SHALL remain complete
 
 #### Scenario: Valid absence remains epistemically undetermined
 
-- **WHEN** a valid canonical proposition and unique model contain no matching author identity
-- **THEN** evaluation SHALL return `undetermined(noSupportingEvidence)`
+- **WHEN** a valid canonical atomic proposition and unique model contain no matching author identity
+- **THEN** atomic evaluation SHALL return `undetermined(noSupportingEvidence)`
 - **AND** it SHALL NOT throw a canonical-input error or return `fails`
 
 ---
@@ -400,7 +547,9 @@ Every public operation that derives a projection, truth value, answer, or accept
 ---
 ### Requirement: Valuation outcomes SHALL retain context and structured evidence
 
-`evaluate(in:)` SHALL return a `Valuation` containing the evaluated `PropositionExpression`, `TruthValue`, complete `ValuationContext`, and typed recursive `EvidenceTrace`. Atomic evidence SHALL identify predicate scope, projected identities, the supporting author slot, author-list completeness witness, or affiliation segment, temporal assessment, and the final undetermined reason. Snapshot quarantine warnings that affect the captured model view SHALL remain visible. A negation trace SHALL contain its complete operand trace and its own conclusion. Trace semantics SHALL NOT depend on parsing a human-readable description.
+`evaluate(in:)` SHALL return a `Valuation` containing the evaluated `PropositionExpression`, `TruthValue`, complete `ValuationContext`, and typed recursive `EvidenceTrace`. Every syntax occurrence SHALL produce one trace node with read-only `kind`, exact subexpression, exact context, ordered `children`, typed `atomicEvidence`, and derived `conclusion` views. Trace `Kind` SHALL use `atom`, `not`, `and`, `or`, `implies`, and `nor`. Atom nodes SHALL have no children and SHALL retain predicate scope, projection or refusal, supporting and excluding evidence, author-list completeness witness or affiliation segment, temporal assessment, final atomic undetermined reason, and the complete snapshot quarantine. Not nodes SHALL have one operand child. And, or, implies, and nor nodes SHALL have exactly two children ordered left then right. Composite nodes SHALL NOT fabricate atomic evidence or require parsing a human-readable description.
+
+The evaluator SHALL evaluate each distinct atom once per root evaluation while creating a separate atom trace node for every syntax occurrence. Repeated occurrence nodes SHALL retain the same immutable atomic valuation payload without reloading the store. Every composite conclusion SHALL be mechanically derived from bounded supervaluation over its complete child structure. Both binary children SHALL remain in the trace even when an absorbing truth value determines the parent. Public callers SHALL NOT receive constructors that pair arbitrary children, contexts, evidence, or conclusions. Trace equality SHALL use iterative traversal; this change SHALL NOT add `Hashable` conformance to `EvidenceTrace`.
 
 #### Scenario: Supported authorship retains its matching slot
 
@@ -408,11 +557,23 @@ Every public operation that derives a projection, truth value, answer, or accept
 - **THEN** the valuation trace SHALL identify the person key, work key, matching author slot, and any present completeness witness
 - **AND** it SHALL mark authored as snapshot-scoped and time-invariant
 
+##### Example: Positive trace fields
+
+| Person | Work | Matching slot | Scope |
+| --- | --- | --- | --- |
+| `p` | `w` | `key(p)` | snapshot-scoped |
+
 #### Scenario: Refuted authorship retains its complete exclusion evidence
 
 - **WHEN** atomic authored fails because a valid witness attests a fully resolved author snapshot that excludes the projected person
 - **THEN** the atomic trace SHALL retain the witness and every author slot assessment
-- **AND** a surrounding negation trace SHALL retain that atomic trace unchanged
+- **AND** every surrounding operator trace SHALL retain that atomic occurrence unchanged
+
+##### Example: Negative trace fields
+
+| Query | Attested slots | Retained witness | Truth |
+| --- | --- | --- | --- |
+| `authored(p,w)` | `[key(q),key(r)]` | exact author-list witness | fails |
 
 #### Scenario: Temporal support retains the complete segment
 
@@ -420,9 +581,29 @@ Every public operation that derives a projection, truth value, answer, or accept
 - **THEN** the valuation trace SHALL retain that segment value, `DateRange`, source, note, and temporal assessment
 - **AND** it SHALL mark affiliated as valid-time-scoped
 
+#### Scenario: Every syntax occurrence has an ordered trace node
+
+- **WHEN** `implies(and(p,p),nor(q,not(p)))` is evaluated
+- **THEN** the trace SHALL contain one node for every written atom and operator occurrence
+- **AND** the two occurrences of `p` under `and` SHALL be distinct trace nodes backed by one atomic evaluation
+- **AND** every binary node's children SHALL remain ordered left then right
+- **AND** the root conclusion SHALL equal the valuation truth
+
+#### Scenario: Absorbing truth does not short-circuit audit evidence
+
+- **WHEN** a known-false atom is conjoined with an undetermined atom containing projection refusal or quarantine evidence
+- **THEN** the conjunction conclusion SHALL be fails
+- **AND** both child nodes and the undetermined atom's complete refusal, evidence, context, and quarantine SHALL remain in the trace
+
+##### Example: Absorbing false with retained sibling
+
+| Left child | Right child | Parent | Retained children |
+| --- | --- | --- | --- |
+| fails | undetermined with refusal | fails | left and right |
+
 #### Scenario: A question answer retains subject and established valuations
 
-- **WHEN** `YesNoQuestion.answer(in:)` maps a subject valuation to yes, no, or undetermined
+- **WHEN** `YesNoQuestion.answer(in:)` maps a compound subject valuation to yes, no, or undetermined
 - **THEN** its `AnswerResult` SHALL retain the complete subject valuation
 - **AND** a determinate result SHALL retain a complete established-answer holds valuation
 - **AND** it SHALL NOT replace either valuation with a bare truth value
@@ -431,7 +612,7 @@ Every public operation that derives a projection, truth value, answer, or accept
 
 - **WHEN** adjudication accepts a holds valuation or refuses a non-holds valuation
 - **THEN** the `AcceptedFact` or `notEstablished` refusal SHALL retain that exact expression valuation
-- **AND** snapshot ID, valid day, and recursive evidence trace SHALL remain unchanged
+- **AND** snapshot ID, valid day, occurrence-complete evidence trace, and quarantine SHALL remain unchanged
 
 ---
 ### Requirement: Valuation time roles SHALL remain nominally distinct
@@ -501,14 +682,32 @@ A resolved matching organization segment with `TemporalContainment.definitelyCon
 ---
 ### Requirement: Proposition expressions SHALL represent bounded structural negation
 
-`Proposition` SHALL remain the closed atomic predicate type. `PropositionExpression` SHALL be the single public formula type and SHALL initially provide `atom(Proposition)` and `not(PropositionExpression)`. It SHALL implement structural `Equatable` and `Hashable`: an atom, its negation, and its double negation SHALL remain three distinct values when compared or inserted into a hashed collection. Hashing SHALL incorporate structural node tags and payloads while making no collision-freedom guarantee beyond Swift's `Hashable` contract. Semantic simplification SHALL NOT occur during construction, equality, or hashing.
+`Proposition` SHALL remain the closed atomic predicate type. `PropositionExpression` SHALL become the single opaque public formula value. Its recursive storage and raw node initializers SHALL NOT be public. It SHALL expose read-only `Kind` values `atom`, `not`, `and`, `or`, `implies`, and `nor`, together with read-only proposition and ordered children views appropriate to each kind.
 
-Expression validation SHALL inspect every nested atom and SHALL reject operator nesting greater than 64 with a typed error. Public evaluation, question answering, and adjudication SHALL repeat expression validation because public enum cases can bypass safe factories. Equality, hashing, validation, and evaluation SHALL use a traversal that does not recursively consume the call stack for an unvalidated unary chain.
+The primary public construction paths SHALL be the throwing factories `atom`, `not`, `and`, `or`, `implies`, and `nor`. `Proposition.asExpression()` SHALL validate its raw atomic proposition and forward to `PropositionExpression.atom(_:)`. The library SHALL retain deprecated `makeAtom` and `makeNot` wrappers as throwing safe forwarders to `atom` and `not`, and SHALL retain deprecated read-only `PropositionExpression.maximumOperatorDepth` as an alias of `PropositionLogicLimits.maximumOperatorDepth`; they SHALL NOT expose raw storage, bypass validation, add a nonthrowing construction path, or allow a caller-selected limit. Every atom factory SHALL validate its `Proposition`; every unary or binary factory SHALL combine only already-valid opaque operands and SHALL validate the complete candidate metrics before returning. A malformed atomic `Proposition` SHALL propagate its original `PropositionError` rather than be wrapped as a resource or epistemic error. No factory SHALL simplify, reorder, deduplicate, or short-circuit its operands.
+
+`PropositionExpression` SHALL implement syntax-sensitive structural `Equatable` and `Hashable`. An atom, its negation, its double negation, and any differently ordered binary tree SHALL remain distinct values. Its deterministic internal structural hash feed SHALL first include the complete canonical atom-table lengths and payloads, then every occurrence's structural node tag, child boundary, and atom index. `atom(p)` and `atom(q)` SHALL therefore have different feeds, while no collision-freedom guarantee is made for Swift's final `hashValue`. Equality, hashing, validation, and public inspection SHALL use bounded iterative traversal rather than recursively consuming the call stack.
+
+The library-owned hard limits SHALL be 4,096 raw and pinned-NFC normalized UTF-8 bytes per logical key or literal, operator depth 64, total syntax nodes 4,096, and distinct atoms 63. A repeated atom SHALL count once toward the distinct-atom limit and once per occurrence toward the node limit. The exact boundary values SHALL be accepted; byte 4,097, 65 operator levels, 4,097 nodes, or 64 distinct atoms SHALL throw the corresponding `PropositionError.referenceUTF8ByteCountExceeded(stage:minimumObserved:maximum:)`, `PropositionExpressionError.operatorDepthExceeded(actual: 65, maximum: 64)`, `nodeCountExceeded(actual: 4097, maximum: 4096)`, or `distinctAtomCountExceeded(actual: 64, maximum: 63)`. Public APIs SHALL NOT accept caller-supplied limit parameters. Shape metadata and checked arithmetic SHALL enforce each expression limit before storage allocation. Classical row enumeration, epistemic completion enumeration, and transformation output SHALL use their separate 4,096 hard limits and their respective `ClassicalSemanticsError`, `PropositionEvaluationError`, and `PropositionTransformationError` types.
+
+Every library-owned proposition-semantic entry point SHALL use early-exit UTF-8 counting for raw logical references before syntax validation, trimming, normalization, library-owned hashing, or canonical allocation. An overlong whitespace-only literal SHALL receive the raw resource error before `emptyLiteral`. Syntax SHALL use pinned Unicode 15.1.0 White_Space; source-order assigned-scalar validation SHALL follow syntax; a capped streaming pinned-NFC sink SHALL then stop at normalized byte 4097 without building a complete oversized buffer. Syntax error SHALL precede unsupported-scalar error, and unsupported scalar SHALL precede a later normalized overflow. Every factory-produced `PropositionExpression` SHALL carry the opaque validated-structure invariant and bounded cached metrics for its lifetime. Public evaluation, question construction and answering, classical operations, transformation, assertion construction, and adjudication SHALL consume that invariant rather than promise to reconstruct or revalidate inaccessible raw storage. Raw `Proposition` entry points, including `Proposition.asExpression()`, SHALL validate before an expression exists; library-owned hash and cache keys SHALL contain only validated expression atoms. No invalid raw proposition or over-budget candidate SHALL become an expression, `TruthValue.undetermined`, a classical result, or a partial trace.
 
 #### Scenario: Negation has structural identity
 
-- **WHEN** `p`, `not(p)`, and `not(not(p))` are compared and inserted into a hashed set
+- **WHEN** `p`, `not(p)`, and `not(not(p))` are constructed through factories, compared, and inserted into a hashed set
 - **THEN** all three SHALL remain distinct structural values
+
+#### Scenario: Structural hashing includes the atom table
+
+- **WHEN** `atom(p)` and `atom(q)` are constructed for distinct validated atoms
+- **THEN** their deterministic structural hash feeds SHALL differ in canonical atom-table payload
+- **AND** removing that payload, any node tag, or any child boundary SHALL fail a load-bearing test
+
+#### Scenario: The legacy depth constant remains a safe alias
+
+- **WHEN** existing source reads deprecated `PropositionExpression.maximumOperatorDepth`
+- **THEN** it SHALL receive `PropositionLogicLimits.maximumOperatorDepth`
+- **AND** it SHALL NOT gain a setter or a caller-controlled limit
 
 #### Scenario: Double negation is semantically equal but structurally distinct
 
@@ -519,36 +718,80 @@ Expression validation SHALL inspect every nested atom and SHALL reject operator 
 
 #### Scenario: Nested malformed atoms are rejected
 
-- **WHEN** a malformed key or empty literal occurs inside one or more `not` nodes
-- **THEN** evaluation, question answering, and adjudication SHALL throw the original typed proposition error
-- **AND** double-negation handling SHALL NOT erase or bypass atom validation
+- **WHEN** `PropositionExpression.atom(_:)` or `Proposition.asExpression()` receives a malformed key or empty literal
+- **THEN** it SHALL throw the original typed proposition error before returning an expression
+- **AND** an external caller SHALL NOT be able to raw-construct a malformed nested operand for `not`, `and`, `or`, `implies`, or `nor`
+
+#### Scenario: Overlong and unsupported logical references are rejected before expression storage
+
+- **WHEN** a raw key or literal reaches byte 4,097, a pinned-NFC result reaches byte 4,097, or a literal contains a scalar unassigned in Unicode 15.1.0
+- **THEN** `PropositionExpression.atom(_:)` and `Proposition.asExpression()` SHALL throw the corresponding typed `PropositionError`
+- **AND** syntax trimming, operating-system normalization, expression hashing, and canonical expression allocation SHALL NOT run after that failure
+- **AND** no enclosing operator SHALL receive a partial operand
+
+#### Scenario: Normalized output is capped while streaming
+
+- **WHEN** a syntax-valid raw-cap-compliant literal expands past 4096 pinned-NFC UTF-8 bytes
+- **THEN** the normalizer SHALL stop at observed byte 4097 and return `PropositionError.referenceUTF8ByteCountExceeded(stage: .normalizedUTF8, minimumObserved: 4097, maximum: 4096)`
+- **AND** it SHALL NOT build a complete oversized normalized buffer
+- **WHEN** an earlier unsupported scalar and a later normalized overflow coexist
+- **THEN** `PropositionError.unsupportedUnicodeScalar(value:normalizationVersion:)` SHALL win
 
 #### Scenario: Expression depth is bounded
 
-- **WHEN** an expression has 64 operator nodes
-- **THEN** expression validation SHALL succeed if its atom is valid
-- **WHEN** an expression has 65 operator nodes
-- **THEN** expression validation SHALL throw a typed depth error
+- **WHEN** an expression has 64 operator levels
+- **THEN** expression construction and validation SHALL succeed if every other limit and atom are valid
+- **WHEN** an expression would have 65 operator levels
+- **THEN** its factory SHALL throw `PropositionExpressionError.operatorDepthExceeded(actual: 65, maximum: 64)`
+
+#### Scenario: Node count is bounded independently of depth
+
+- **WHEN** a balanced expression contains exactly 4,096 total syntax occurrences without exceeding another limit
+- **THEN** validation SHALL succeed
+- **WHEN** a factory would create occurrence 4,097
+- **THEN** it SHALL throw `PropositionExpressionError.nodeCountExceeded(actual: 4097, maximum: 4096)` before allocating the invalid result
+
+#### Scenario: Distinct atom count has a safe machine boundary
+
+- **WHEN** a valid expression contains exactly 63 distinct atoms
+- **THEN** expression validation SHALL succeed even when a later truth-table operation exceeds its separate row limit
+- **WHEN** a factory would add a sixty-fourth distinct atom
+- **THEN** it SHALL throw `PropositionExpressionError.distinctAtomCountExceeded(actual: 64, maximum: 63)` without performing a bit shift
+
+#### Scenario: Binary child order remains structural
+
+- **WHEN** `and(p,q)` and `and(q,p)` are compared
+- **THEN** structural equality SHALL be false
+- **AND** semantic equivalence SHALL remain a separate throwing operation
 
 #### Scenario: A question reserves one representable negation
 
 - **WHEN** a caller constructs a yes-no question
-- **THEN** the throwing initializer SHALL validate both its subject and `not(subject)` within the 64-node limit
+- **THEN** the throwing initializer SHALL accept only a validated subject and SHALL construct `not(subject)` within depth, node, and atom limits
 - **AND** every determinate no-answer SHALL have a valid expression
 
 ---
 ### Requirement: Negation evaluation SHALL derive a recursive evidence trace
 
-Expression evaluation SHALL require a `ValuationContext` and SHALL produce a `Valuation` whose expression is the exact input expression. Atomic evaluation SHALL produce an `EvidenceTrace` atom node. Negation SHALL produce an `EvidenceTrace` negation node containing the complete operand trace and a conclusion equal to the negated operand truth. Public callers SHALL receive read-only trace kind, operand, conclusion, and atomic audit views; they SHALL NOT receive raw atom or negation constructors that can pair an operand with an arbitrary conclusion. Trace equality SHALL traverse node chains iteratively rather than use synthesized recursive equality. Negation SHALL exchange holds and fails; it SHALL preserve every `undetermined(reason)` value exactly. It SHALL preserve the same snapshot ID, valid day, atomic projection, evidence items, and complete quarantine list without reloading a store or recomputing a different model view. A context-free public truth-negation helper SHALL NOT exist.
+Expression evaluation SHALL require a `ValuationContext` and SHALL produce a `Valuation` whose expression is the exact input expression. Atomic evaluation SHALL produce an `EvidenceTrace` atom node. Every operator SHALL produce its corresponding not, and, or, implies, or nor trace node after all child nodes have been created. Public callers SHALL receive read-only kind, expression, context, children, atomic evidence, and conclusion views; they SHALL NOT receive raw constructors that combine a caller-selected conclusion with arbitrary children or evidence. Trace equality SHALL traverse iteratively rather than use synthesized recursive operations; `EvidenceTrace` SHALL remain non-`Hashable`.
+
+Negation SHALL exchange holds and fails and SHALL preserve every `undetermined(reason)` value exactly. Binary operator conclusions SHALL use bounded supervaluation, including determinate tautologies, contradictions, implications, and absorbing cases that strong-Kleene evaluation leaves undetermined. Every operator SHALL preserve the same snapshot ID, valid day, atomic projections, evidence items, refusals, and complete quarantine without reloading a store or recomputing a different model view. A context-free public epistemic truth helper SHALL NOT exist.
 
 #### Scenario: Determinate truth is inverted
 
-- **WHEN** an operand truth is holds or fails
+- **WHEN** a negation operand truth is holds or fails
 - **THEN** its negation truth SHALL be fails or holds respectively
+
+##### Example: Determinate negation
+
+| Operand | Negation |
+| --- | --- |
+| holds | fails |
+| fails | holds |
 
 #### Scenario: Every undetermined reason is preserved
 
-- **WHEN** an operand is undetermined because it is not projectable, lacks supporting evidence, contains unresolved support, contains unresolved author identity, has indeterminate temporal evidence, or has invalid temporal evidence
+- **WHEN** a negation operand is undetermined because it is not projectable, lacks supporting evidence, contains unresolved support, contains unresolved author identity, has indeterminate temporal evidence, has invalid temporal evidence, or is supervaluation-inconclusive
 - **THEN** its negation SHALL retain the exact same reason and payload
 - **AND** it SHALL NOT become holds or fails
 
@@ -562,32 +805,52 @@ Expression evaluation SHALL require a `ValuationContext` and SHALL produce a `Va
 
 #### Scenario: Negation retains its complete operand trace
 
-- **WHEN** a negated valuation is derived from an atomic authored or affiliated valuation
-- **THEN** the negation node SHALL contain the entire atomic operand trace
+- **WHEN** a negated valuation is derived from an atomic or compound operand valuation
+- **THEN** the negation node SHALL contain the complete operand trace
 - **AND** its final conclusion SHALL equal the valuation truth
-- **AND** snapshot ID, valid day, quarantine, projection, and evidence SHALL remain unchanged
+- **AND** snapshot ID, valid day, quarantine, projection, refusal, and evidence SHALL remain unchanged
+
+##### Example: Wrapped operand trace
+
+| Root kind | Child kind | Context identity | Evidence identity |
+| --- | --- | --- | --- |
+| not | atom | unchanged | unchanged |
+
+#### Scenario: Binary operators retain both child traces
+
+- **WHEN** conjunction, disjunction, implication, or joint denial has a child whose evidence does not affect the determinate parent truth
+- **THEN** the operator node SHALL retain both complete ordered children
+- **AND** it SHALL NOT short-circuit atom evaluation or trace construction
+
+##### Example: Ordered binary trace
+
+| Operator | Left child | Right child | Stored order |
+| --- | --- | --- | --- |
+| and | fails | undetermined | left, right |
 
 #### Scenario: Multiple negations are derived without re-evaluation
 
-- **WHEN** an expression has two or more negation nodes
-- **THEN** the evaluator SHALL evaluate the atom once against the supplied immutable context
-- **AND** it SHALL wrap the trace once per structural negation from inner to outer
+- **WHEN** an expression has two or more structural negation nodes, including `not(not(p))`
+- **THEN** the evaluator SHALL evaluate that distinct atom once against the supplied immutable context
+- **AND** it SHALL wrap the complete child trace once per structural negation from inner to outer
+- **AND** it SHALL preserve both negation occurrences without normalization
 
 #### Scenario: Trace construction and equality remain controlled
 
 - **WHEN** an external caller inspects an evaluated trace
-- **THEN** it SHALL be able to read each node kind, operand, conclusion, and atomic evidence
-- **AND** it SHALL NOT be able to construct a negation node with a caller-selected conclusion
-- **AND** equality of an internally assembled 32,768-node trace chain SHALL complete without recursively exhausting the call stack
+- **THEN** it SHALL be able to read each node kind, expression, context, ordered children, conclusion, and atomic evidence
+- **AND** it SHALL NOT be able to construct any node with a caller-selected conclusion
+- **AND** equality of two library-produced traces for a valid 4,096-node boundary expression SHALL complete without recursively exhausting the call stack
+- **AND** an external caller SHALL NOT be able to raw-construct an expression or trace with node 4,097
 
 ---
 ### Requirement: Denied stance SHALL remain distinct from asserted negation
 
-`Stance.denied` SHALL describe a source's meta-level stance toward the exact recorded expression. It SHALL NOT construct, imply, evaluate, or establish the negation of that expression. A negative proposition-level assertion SHALL use `Stance.asserted` with an explicit `PropositionExpression.not`. The API SHALL NOT provide an automatic denied-to-negation conversion.
+`Stance.denied` SHALL describe a source's meta-level stance toward the exact recorded expression. It SHALL NOT construct, imply, evaluate, or establish the negation of that expression. A negative proposition-level assertion SHALL use `Stance.asserted` with an explicit expression returned by `PropositionExpression.not(_:)`. The API SHALL NOT provide an automatic denied-to-negation conversion.
 
 #### Scenario: Denial is not an asserted negative proposition
 
-- **WHEN** one record is `denied(atom(p))` and another is `asserted(not(atom(p)))`
+- **WHEN** one record is `denied(p)` and another is `asserted(not(p))`
 - **THEN** they SHALL remain distinct Assertions
 - **AND** the denied record SHALL NOT supply the negative expression or its valuation
 
@@ -596,3 +859,177 @@ Expression evaluation SHALL require a `ValuationContext` and SHALL produce a `Va
 - **WHEN** a denied Assertion is adjudicated with any valuation
 - **THEN** adjudication SHALL throw `stanceIsNotAssertion`
 - **AND** it SHALL NOT convert the stance to asserted negation
+
+---
+### Requirement: Classical formula semantics SHALL be total, bivalent, bounded, and deterministic
+
+`ClassicalValuation` SHALL assign `Bool` values to proposition atoms. Its public throwing initializer SHALL accept `[(atom: Proposition, value: Bool)]`, not `[Proposition: Bool]`; it SHALL reject more than 63 entries before element work, validate every atom before library-owned hashing, and reject a duplicate validated atom with `ClassicalSemanticsError.duplicateValuationAtom(Proposition)`. `PropositionExpression.classicalValue(under:)` SHALL implement atom lookup, Boolean negation, conjunction, disjunction, material implication, and joint denial with the following definitions: `not(a) = !a`, `and(a,b) = a && b`, `or(a,b) = a || b`, `implies(a,b) = !a || b`, and `nor(a,b) = !(a || b)`. Classical evaluation SHALL reject a valuation that omits any distinct atom required by the expression with `ClassicalSemanticsError.incompleteValuation(missing:)`, whose missing atoms are in canonical order. Valid assignments for atoms outside the expression SHALL be permitted within the 63-assignment valuation limit and SHALL be ignored. Classical evaluation SHALL NOT interpret `TruthValue.undetermined` as a third classical truth value.
+
+`truthTable()` SHALL take no caller-supplied limit. It SHALL return a `ClassicalTruthTable` whose atom order is the ascending byte order of the canonical atom encoding and whose rows enumerate `false` before `true`, with the first atom changing slowest. Canonical atom encoding SHALL begin with a UInt64 length-framed ASCII versioned domain `akashic-proposition-atom-v1`; predicate tags SHALL be authored `0x00` and affiliated `0x01`, while `EntityRef` tags SHALL be key `0x00` and literal `0x01`. Expression tags SHALL be atom `0x00`, not `0x01`, `and` `0x02`, or `0x03`, implies `0x04`, and nor `0x05`, with left child before right child. Every admitted logical string identity SHALL use repository-bundled Unicode 15.1.0 NFC followed by UTF-8 and its UInt64 big-endian byte length. Swift-equal NFC and NFD spellings in that pinned admitted scalar set SHALL therefore produce identical canonical atom bytes. `ClassicalTruthTable.canonicalBytes` SHALL use the separate ASCII versioned domain `akashic-classical-truth-table-v1` and UInt64 big-endian length and count framing.
+
+Unicode v1 inputs SHALL include the five official normalization, composition, property, and conformance files named by `finite-truth-function-semantics`; an independently checked manifest SHALL pin every input SHA-256, generator SHA-256, runtime-normalizer source SHA-256, generated-table source SHA-256, Unicode version, White_Space property, and canonical domain. Offline regeneration, official normalization conformance, pinned White_Space fixtures, a production static source ban on Foundation／CoreFoundation normalization and whitespace APIs, and a domain-version gate SHALL fail if the data, manifest, generator, runtime, or generated source changes without a domain revision. Row-count arithmetic SHALL go through one guarded checked-power-of-two helper and SHALL be checked before invoking its shift operation, multiplication, allocation, or iteration. A table whose row count would exceed 4,096 SHALL throw `ClassicalSemanticsError.rowLimitExceeded(atomCount:maximumRows:)`; at most twelve distinct atoms SHALL be enumerated because twelve atoms produce exactly 4,096 rows and thirteen produce 8,192.
+
+#### Scenario: Every binary operator has a complete four-row matrix
+
+- **GIVEN** canonical atom order `[p, q]`
+- **WHEN** the four valuations are enumerated as `FF`, `FT`, `TF`, and `TT`
+- **THEN** the complete result matrix SHALL be:
+
+| p | q | `and(p,q)` | `or(p,q)` | `implies(p,q)` | `nor(p,q)` |
+| - | - | ---------- | --------- | -------------- | ---------- |
+| F | F | F | F | T | T |
+| F | T | F | T | T | F |
+| T | F | F | T | F | F |
+| T | T | T | T | T | F |
+
+#### Scenario: Negation has a complete two-row matrix
+
+- **WHEN** `not(p)` is evaluated under `p = false` and `p = true`
+- **THEN** the results SHALL be `true` and `false` respectively
+
+#### Scenario: Missing assignments fail closed
+
+- **WHEN** an expression contains distinct atoms `p` and `q` and a classical valuation assigns only `p`
+- **THEN** `classicalValue(under:)` SHALL throw `ClassicalSemanticsError.incompleteValuation(missing: [q])`
+- **AND** it SHALL NOT substitute `false`, consult a store, or return a partial value
+
+#### Scenario: Extra assignments do not change a classical result
+
+- **GIVEN** a valid classical valuation within the 63-assignment limit assigns every atom required by an expression
+- **WHEN** the valuation also assigns atoms outside that expression
+- **THEN** `classicalValue(under:)` SHALL ignore the extra assignments
+- **AND** it SHALL return the same result as the valuation restricted to the expression's atoms
+
+#### Scenario: Classical valuation validates an entry list before indexing
+
+- **WHEN** an in-bound entry list contains a malformed raw atom
+- **THEN** its original `PropositionError` SHALL be returned before library-owned hashing or indexing
+- **WHEN** an in-bound entry list repeats a validated atom
+- **THEN** `ClassicalSemanticsError.duplicateValuationAtom` SHALL be returned with no first-wins or last-wins result
+- **AND** no public initializer SHALL accept a raw-`Proposition` dictionary
+
+#### Scenario: Truth-table ordering is replay-stable
+
+- **WHEN** the same expression is used to produce a truth table in separate processes
+- **THEN** atom order, row order, assignments, and result values SHALL be identical
+- **AND** canonical encodings of both tables SHALL be byte-for-byte equal
+
+##### Example: Replayed implication table
+
+| Process | Atom order | Row order | Result vector |
+| --- | --- | --- | --- |
+| A | `[p,q]` | `FF,FT,TF,TT` | `TTFT` |
+| B | `[p,q]` | `FF,FT,TF,TT` | `TTFT` |
+
+#### Scenario: Unicode-equivalent atoms have one canonical encoding
+
+- **WHEN** Swift-equal atom payloads are supplied once in NFC spelling and once in NFD spelling
+- **THEN** their canonical atom bytes SHALL be identical NFC UTF-8 payloads
+- **AND** truth tables built from the logically equal expressions SHALL have byte-for-byte equal canonical encodings
+
+#### Scenario: Unicode v1 has a complete reproducible trust chain
+
+- **WHEN** the vendored UCD inputs, manifest, generator, runtime-normalizer source, and generated table source are verified and regenerated offline
+- **THEN** all independently fixed SHA-256 values and every official normalization conformance case SHALL match
+- **AND** pinned White_Space fixtures SHALL define empty-literal syntax
+- **AND** changing any trust-chain byte without changing the v1 canonical domain SHALL fail verification
+
+#### Scenario: Every expression tag and transformation representative is golden
+
+- **WHEN** atom, not, and, or, implies, nor, a non-symmetric nested child order, `not(p)` rewrite, and unary-not synthesis are encoded
+- **THEN** their node payload or full canonical bytes SHALL match the exact v1 golden vectors in `finite-truth-function-semantics`
+- **AND** neither tag remapping nor child reordering SHALL preserve the gate
+
+#### Scenario: Row enumeration is bounded before arithmetic
+
+- **WHEN** a table requires exactly 4,096 rows
+- **THEN** `truthTable()` SHALL succeed if all other expression limits are satisfied
+- **WHEN** a table requires 8,192 rows
+- **THEN** `truthTable()` SHALL throw `ClassicalSemanticsError.rowLimitExceeded(atomCount: 13, maximumRows: 4096)` before performing an overflowing shift or allocating rows
+- **AND** an injected checked-shift operation SHALL be invoked zero times on rejection
+
+---
+### Requirement: Classical equivalence and NOR transformation SHALL preserve bounded truth conditions
+
+`isClassicallyEquivalent(to:)` SHALL compare truth conditions over the canonical ordered union of both expressions' atoms and SHALL return a semantic result independent of structural equality. It SHALL take no caller-supplied limit and SHALL enforce the 4,096-row hard bound before enumeration. Structural `Equatable` and `Hashable` SHALL remain syntax-sensitive and SHALL NOT call semantic equivalence.
+
+`rewrittenUsingNor()` SHALL deterministically return a structurally valid `PropositionExpression` containing only atom and nor nodes. It SHALL enforce the expression limits and the 4,096 rewrite-node limit, then use an independent bounded rewrite-plan verifier to check exact rule, child-order, atom-identity, and NOR-only correspondence before returning it. The production self-check SHALL NOT require truth-row enumeration, so valid expressions with 13 through 63 atoms remain rewritable; enumerable rewrite identities SHALL also be verified by complete truth tables in tests. `BooleanFunctionTable` initialization SHALL accept zero through twelve valid distinct atoms and exactly `2^n` outputs within the 4,096-row bound; a zero-atom table SHALL contain exactly one output and SHALL remain a valid constant-function representation. `PropositionExpression.synthesizeUsingNor(_:)` SHALL accept a validated `BooleanFunctionTable` with one through twelve atoms, deterministically construct an atom/NOR expression within the same limits, and verify that the generated truth table has the same canonical atoms and result vector as the input table. Synthesis of a valid zero-atom table SHALL throw `PropositionTransformationError.zeroArityFunctionUnsupported`. Cross-type canonical bytes SHALL NOT be compared because `BooleanFunctionTable` SHALL use the distinct ASCII versioned domain `akashic-boolean-function-table-v1`. A rewrite whose planned output depth exceeds 64 SHALL throw `PropositionTransformationError.rewriteDepthLimitExceeded(minimumRequired:maximum:)`; one that exceeds its node budget SHALL throw `PropositionTransformationError.rewriteNodeLimitExceeded(minimumRequired:maximum:)`; a rewrite-plan mismatch SHALL throw `PropositionTransformationError.rewriteVerificationFailed`. Synthesis SHALL analogously throw `PropositionTransformationError.synthesisDepthLimitExceeded(minimumRequired:maximum:)` or `PropositionTransformationError.synthesisNodeLimitExceeded(minimumRequired:maximum:)`. A synthesis semantic mismatch SHALL throw `PropositionTransformationError.synthesisVerificationFailed`. Rewrite and synthesis verifiers SHALL expose only module-internal per-call fault injectors for load-bearing tests; public paths SHALL use fixed no-op injectors and no global mutable seam. Every verification failure SHALL return no expression.
+
+#### Scenario: Structural identity differs from semantic equivalence
+
+- **WHEN** `or(p,q)` is compared with `or(q,p)`
+- **THEN** structural equality SHALL be false
+- **AND** `isClassicallyEquivalent(to:)` SHALL return true
+
+#### Scenario: Core equivalence laws are executable
+
+- **WHEN** classical equivalence is checked for double negation, material implication, both De Morgan laws, and a NOR rewrite
+- **THEN** each of the following pairs SHALL be equivalent:
+  - `not(not(p))` and `p`
+  - `implies(p,q)` and `or(not(p),q)`
+  - `not(and(p,q))` and `or(not(p),not(q))`
+  - `not(or(p,q))` and `and(not(p),not(q))`
+  - `e.rewrittenUsingNor()` and `e`
+- **AND** no pair SHALL be required to compare as structurally equal
+
+##### Example: Semantic laws
+
+| Left | Right | Equivalent |
+| --- | --- | --- |
+| `not(not(p))` | `p` | true |
+| `implies(p,q)` | `or(not(p),q)` | true |
+
+#### Scenario: NOR rewrite contains only the complete basis
+
+- **WHEN** a bounded expression containing every public operator is rewritten using NOR
+- **THEN** every generated node SHALL have kind atom or nor
+- **AND** the generated expression SHALL be classically equivalent to the source expression
+- **AND** repeated rewrites of the same source SHALL be structurally equal
+
+##### Example: Implication rewrite
+
+| Source | Exact NOR-only result | Node kinds |
+| --- | --- | --- |
+| `implies(p,q)` | `nor(nor(nor(p,p),q),nor(nor(p,p),q))` | atom, nor |
+
+#### Scenario: Every rewrite operator has an exact structural golden
+
+- **WHEN** not, and, or, implies, and nor roots over ordered atoms are rewritten
+- **THEN** each result SHALL be structurally equal and byte-equal to its exact ordered NOR tree in `finite-truth-function-semantics`
+- **AND** a different semantically equivalent NOR tree SHALL NOT satisfy the transformation contract
+
+#### Scenario: All sixteen binary Boolean functions are synthesized
+
+- **GIVEN** canonical atoms `[p, q]` and row order `FF`, `FT`, `TF`, `TT`
+- **WHEN** `PropositionExpression.synthesizeUsingNor(_:)` is invoked for each of the sixteen possible four-bit result vectors from `0000` through `1111`
+- **THEN** all sixteen invocations SHALL return an expression containing only atom and nor nodes
+- **AND** each synthesized expression's truth table SHALL exactly equal its input vector
+- **AND** repeated synthesis of the same vector SHALL produce a structurally equal expression
+
+#### Scenario: Synthesis folds and constants have exact structural goldens
+
+- **WHEN** synthesis receives the single-minterm, three-atom `{1,3,6}` multirow, binary `0111`, `0000`, or `1111` fixture from `finite-truth-function-semantics`
+- **THEN** its pre-rewrite plan and final NOR expression SHALL match the specified exact structural and byte golden
+- **AND** semantic equivalence or replay stability alone SHALL NOT substitute for that structural match
+
+#### Scenario: Transformation limits fail closed
+
+- **WHEN** a rewrite or synthesis would create more than 4,096 nodes
+- **THEN** rewrite SHALL throw `PropositionTransformationError.rewriteNodeLimitExceeded(minimumRequired: 4097, maximum: 4096)` for a 4,097-node plan, and synthesis SHALL report its exact checked requirement, including `PropositionTransformationError.synthesisNodeLimitExceeded(minimumRequired: 4103, maximum: 4096)` for the fixed first reachable five-atom fixture
+- **AND** neither operation SHALL return or partially expose a generated expression
+
+#### Scenario: Transformation depth limits retain layered errors
+
+- **WHEN** a rewrite plan's checked output depth is 65
+- **THEN** rewrite SHALL throw `PropositionTransformationError.rewriteDepthLimitExceeded(minimumRequired: 65, maximum: 64)`
+- **WHEN** a synthesis plan's defensive checked output depth is 65
+- **THEN** synthesis SHALL throw `PropositionTransformationError.synthesisDepthLimitExceeded(minimumRequired: 65, maximum: 64)`
+- **AND** neither operation SHALL return or partially expose a generated expression
+
+#### Scenario: Transformation self-check faults fail closed
+
+- **WHEN** a module-internal per-call rewrite fault injector corrupts one materialized node
+- **THEN** rewrite SHALL throw `PropositionTransformationError.rewriteVerificationFailed` and return no expression
+- **WHEN** a module-internal per-call synthesis fault injector flips one candidate output
+- **THEN** synthesis SHALL throw `PropositionTransformationError.synthesisVerificationFailed` and return no expression
+- **AND** neither seam SHALL be public or global mutable state

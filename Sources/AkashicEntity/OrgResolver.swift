@@ -59,14 +59,24 @@ public struct OrgResolutionCandidate: Equatable {
 public struct OrgAmbiguousMatch: Equatable {
     public var holder: OrgResolutionCandidate.Holder
     public var literal: String
+    /// **這一段的效期。** 少了它，同一個 holder 的多段同名 literal 會產出完全相同、
+    /// 不可裁決的重複紀錄——例如某人 2000–2005 與 2010–2015 兩段 affiliation 都寫
+    /// `"Sinica"` 而它命中兩個 org 時，使用者無法**按時段**分別判給不同機構。
+    ///
+    /// `OrgResolutionCandidate` 刻意用**值**而非索引定位（段可能重排，且 `apply`
+    /// 按值遷移所有仍為該 literal 的段）——那對「要套用什麼」是對的。但歧義是給**人**
+    /// 看的報告，人需要知道是哪一段，所以這裡帶 range。
+    public var range: DateRange
     /// 命中的 org key，**已排序**且 `count >= 2`。
     public var orgKeys: [String]
 
     /// 少於兩個 key 回 `nil`——「歧義只有一個候選」在型別層不可表達。
-    public init?(holder: OrgResolutionCandidate.Holder, literal: String, orgKeys: Set<String>) {
+    public init?(holder: OrgResolutionCandidate.Holder, literal: String,
+                 range: DateRange, orgKeys: Set<String>) {
         guard orgKeys.count >= 2 else { return nil }
         self.holder = holder
         self.literal = literal
+        self.range = range
         self.orgKeys = orgKeys.sorted()
     }
 }
@@ -125,10 +135,12 @@ public enum OrgResolver {
         // helper 保持回 `String?`——parents 側的環偵測吃的就是這個型別，而那段邏輯與
         // 歧義無關、不該被牽動。歧義改寫進捕獲的陣列。
         var ambiguities: [OrgAmbiguousMatch] = []
-        func unambiguousMatch(_ literal: String, holder: OrgResolutionCandidate.Holder) -> String? {
+        func unambiguousMatch(_ literal: String, holder: OrgResolutionCandidate.Holder,
+                              range: DateRange) -> String? {
             guard let keys = nameMap[NameNormalization.matchingKey(literal)] else { return nil }
             if keys.count == 1 { return keys.first }
-            if let m = OrgAmbiguousMatch(holder: holder, literal: literal, orgKeys: keys) {
+            if let m = OrgAmbiguousMatch(holder: holder, literal: literal,
+                                         range: range, orgKeys: keys) {
                 ambiguities.append(m)
             }
             return nil
@@ -138,7 +150,7 @@ public enum OrgResolver {
         for person in people.sorted(by: { $0.key < $1.key }) {
             for seg in person.profile.affiliations.entries {
                 guard case let .literal(literal) = seg.value,
-                      let key = unambiguousMatch(literal, holder: .person(person.key))
+                      let key = unambiguousMatch(literal, holder: .person(person.key), range: seg.range)
                 else { continue }
                 result.append(OrgResolutionCandidate(
                     holder: .person(person.key), literal: literal, orgKey: key,
@@ -170,7 +182,7 @@ public enum OrgResolver {
         for org in organizations.sorted(by: { $0.key < $1.key }) {
             for seg in org.parents.entries {
                 guard case let .literal(literal) = seg.value,
-                      let key = unambiguousMatch(literal, holder: .organization(org.key))
+                      let key = unambiguousMatch(literal, holder: .organization(org.key), range: seg.range)
                 else { continue }
                 // **自我父權**。`reaches` 含自身，所以下一行其實也擋得住它——
                 // 席位 mutation 實測：拿掉這行 23 條全綠，**它現行不可達**。

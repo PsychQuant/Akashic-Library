@@ -90,9 +90,9 @@ final class EntityTests: XCTestCase {
 
     /// 「歧義只有一個候選」在型別層不可表達。
     func testAmbiguousMatchRefusesFewerThanTwoKeys() {
-        XCTAssertNil(AmbiguousMatch(citekey: "a", authorIndex: 0, literal: "X", personKeys: []))
-        XCTAssertNil(AmbiguousMatch(citekey: "a", authorIndex: 0, literal: "X", personKeys: ["one"]))
-        XCTAssertNotNil(AmbiguousMatch(citekey: "a", authorIndex: 0, literal: "X",
+        XCTAssertNil(AmbiguousMatch(entryID: UUID(), citekey: "a", authorIndex: 0, literal: "X", personKeys: []))
+        XCTAssertNil(AmbiguousMatch(entryID: UUID(), citekey: "a", authorIndex: 0, literal: "X", personKeys: ["one"]))
+        XCTAssertNotNil(AmbiguousMatch(entryID: UUID(), citekey: "a", authorIndex: 0, literal: "X",
                                        personKeys: ["one", "two"]))
     }
 

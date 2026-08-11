@@ -37,10 +37,21 @@ public struct ResolutionCandidate: Equatable {
 /// | (a) | 兩個真的不同的人剛好同名 | 每篇各自歸屬，**永遠不該合併** |
 /// | (b) | 同一個人有兩筆記錄 | **應該合併** |
 ///
-/// 兩者在這裡是**同一個表徵**，所以呈現層必須為每個 `personKeys` 成員一併帶出區辨
-/// 欄位（`orcid` / `openalex` / 當前隸屬 / `died`）。**本型別刻意只帶 key**——組那些
-/// 欄位要吃整個 `Person`，而這一層只吃 `names`，把 `Person` 拉進來會讓它不再純。
+/// 兩者在這裡是**同一個表徵**，所以呈現層要為每個 `personKeys` 成員帶出區辨欄位
+/// （`orcid` / `openalex` / 當前隸屬 / `died`）。**本型別刻意只帶 key**——組那些欄位
+/// 要吃整個 `Person`，而這一層只吃 `names`，把 `Person` 拉進來會讓它不再純。
+///
+/// > **`names` 本身不具區辨力**：它們之所以能被比對到一起，正是因為正規化後相同。
+/// > 它是歧義的**成因**，不是判準。真正能分辨的是 `orcid` / `openalex`（外部識別碼）
+/// > 與 `died` / 隸屬（時空不相容）。
 public struct AmbiguousMatch: Equatable {
+    /// **entry 的機器身分。** `citekey` 不足以定位——store 可能含重複 citekey
+    /// （`PersonResolver.apply` 的 `uniquingKeysWith` 明寫「損壞 store 出現重複
+    /// citekey 時不 trap」），此時兩筆歧義在 `(citekey, authorIndex)` 上完全相同。
+    ///
+    /// 誠實邊界：帶了 id 讓**報告**可定位，但 `apply` 仍只寫得到重複 citekey 的
+    /// 最後一筆——那是既有限制，不由本型別解決。
+    public var entryID: UUID
     public var citekey: String
     public var authorIndex: Int
     public var literal: String
@@ -50,8 +61,10 @@ public struct AmbiguousMatch: Equatable {
     public var personKeys: [String]
 
     /// 少於兩個 key 回 `nil`——**「歧義只有一個候選」在型別層不可表達**。
-    public init?(citekey: String, authorIndex: Int, literal: String, personKeys: Set<String>) {
+    public init?(entryID: UUID, citekey: String, authorIndex: Int,
+                 literal: String, personKeys: Set<String>) {
         guard personKeys.count >= 2 else { return nil }
+        self.entryID = entryID
         self.citekey = citekey
         self.authorIndex = authorIndex
         self.literal = literal
@@ -106,15 +119,23 @@ public enum PersonResolver {
                     candidates.append(ResolutionCandidate(
                         citekey: entry.citekey, authorIndex: i, literal: literal,
                         personKey: key, reason: "alias 完全命中"))
-                } else if let m = AmbiguousMatch(citekey: entry.citekey, authorIndex: i,
-                                                 literal: literal, personKeys: keys) {
+                } else if let m = AmbiguousMatch(entryID: entry.id, citekey: entry.citekey,
+                                                 authorIndex: i, literal: literal,
+                                                 personKeys: keys) {
                     ambiguities.append(m)
                 }
             }
         }
+        // ambiguities 用 `entryID` 打破 tie——重複 citekey 是被支援的損壞態，
+        // `(citekey, authorIndex)` 在那時不是全序，相等元素的相對順序未定義
+        // （Swift 的 sort 不保證穩定）。candidates 的排序是**既有行為**，不在本次
+        // 改動範圍內，刻意不動。
         return ResolutionReport(
             candidates: candidates.sorted { ($0.citekey, $0.authorIndex) < ($1.citekey, $1.authorIndex) },
-            ambiguities: ambiguities.sorted { ($0.citekey, $0.authorIndex) < ($1.citekey, $1.authorIndex) })
+            ambiguities: ambiguities.sorted {
+                ($0.citekey, $0.authorIndex, $0.entryID.uuidString)
+                    < ($1.citekey, $1.authorIndex, $1.entryID.uuidString)
+            })
     }
 
     /// 高信心候選：literal 與某人 alias 正規化後完全命中，且不歧義。

@@ -199,16 +199,50 @@ final class ServiceTests: XCTestCase {
         XCTAssertNotNil(hit, "歧義必須出現在 MCP 回應裡，不能只在 kit 內：\(ambs)")
         XCTAssertEqual(hit?["literal"] as? String, "Ambi Guous")
         XCTAssertEqual(hit?["authorIndex"] as? Int, 0)
+        XCTAssertNotNil(hit?["entryID"] as? String,
+                        "要帶 entry 身分——重複 citekey 下 (citekey, authorIndex) 不足以定位")
 
-        let keys = hit?["personKeys"] as! [[String: Any]]
-        XCTAssertEqual(keys.map { $0["key"] as? String }, ["amb-one", "amb-two"], "須排序")
-        XCTAssertEqual(keys.first?["names"] as? [String], ["Ambi Guous"], "區辨欄位：names")
-        XCTAssertEqual(keys.first?["orcid"] as? String, "0000-0001-2345-6789", "區辨欄位：orcid")
+        // **區辨欄位只送一次、依 key 索引**（#236 R1：先前每筆歧義內嵌完整 person
+        // 區塊，實測 201 筆產出 176 KB／約 44k tokens，其中 201 份是同一區塊的複本）
+        XCTAssertEqual(hit?["personKeys"] as? [String], ["amb-one", "amb-two"], "須排序")
+        let people = out["people"] as! [String: [String: Any]]
+        XCTAssertEqual(people["amb-one"]?["orcid"] as? String, "0000-0001-2345-6789")
+        XCTAssertEqual(people["amb-one"]?["names"] as? [String], ["Ambi Guous"])
+        // **缺席就不輸出**，不送空字串——否則「沒有 ORCID」與「ORCID 是空字串」
+        // 在 JSON 上不再有分別（同本檔既有慣例）
+        XCTAssertNil(people["amb-two"]?["orcid"],
+                     "沒有 ORCID 時不該出現該鍵：\(people["amb-two"] ?? [:])")
 
         // 歧義**不可**出現在 candidates（那條路是可 apply 的）
         let cands = out["candidates"] as! [[String: Any]]
         XCTAssertFalse(cands.contains { $0["citekey"] as? String == "amb2020x" },
                        "歧義絕不能混進可套用的候選")
+    }
+
+    /// #236 R1：payload 必須有上限，且**截斷要說出來**。
+    ///
+    /// MCP 結果直灌 LLM context——本 repo 明文的威脅模型（`TerminalOutputSafetyTests`：
+    /// 「MCP/LLM context 的無上限灌注同型」）。歧義筆數是 `O(出現次數)`，由 store 內容
+    /// 決定、無自然上界；席位用真 binary 實測 201 筆產出 176 KB。
+    ///
+    /// **靜默截斷會讓「沒有更多」與「沒給你更多」無法區分**，所以要有 `truncated`
+    /// 與 `ambiguityTotal`。
+    func testResolvePeopleCapsAmbiguitiesAndSaysSo() throws {
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "many-one", names: ["Many Same"]))
+        try store.writePerson(Person(key: "many-two", names: ["Many Same"]))
+        for i in 0..<60 {
+            try store.writeEntry(Entry(id: UUID(), citekey: "many\(i)", type: "article",
+                                       title: "T", authors: [.literal("Many Same")], date: "2020"))
+        }
+        let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
+        let ambs = out["ambiguities"] as! [[String: Any]]
+        XCTAssertEqual(ambs.count, 50, "要有上限（與 person() 的候選上限同值）")
+        XCTAssertEqual(out["truncated"] as? Bool, true, "截斷必須說出來")
+        XCTAssertEqual(out["ambiguityTotal"] as? Int, 60, "要給總數，否則使用端不知道漏了多少")
+        // 去重的證據：`people` 只有 2 筆，不隨歧義筆數增長
+        XCTAssertEqual((out["people"] as! [String: Any]).count, 2,
+                       "區辨欄位依 key 索引、只送一次——不得隨出現次數線性膨脹")
     }
 
     func testResolvePeopleListsAndAppliesSelectively() throws {

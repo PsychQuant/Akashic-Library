@@ -598,10 +598,24 @@ struct ResolveOrganizations: ParsableCommand {
             print("")
             print("歧義（\(orgReport.ambiguities.count)）——同一個 literal 對到 2+ 個 org，**需要人判斷**：")
             for a in orgReport.ambiguities {
-                print("  \(label(a.holder)) 「\(displaySafe(a.literal, max: 200))」")
+                // **段的效期要印**——同一 holder 的多段同名 literal 否則長得一模一樣，
+                // 使用者無法按時段分別判給不同機構（#236 R1）。
+                let s = a.range.start.map { displaySafe($0, max: 20) }
+                let e = a.range.end.map { displaySafe($0, max: 20) }
+                let span: String
+                switch (s, e) {
+                case (nil, nil):    span = ""
+                case let (x?, nil): span = "（\(x)–）"
+                case let (nil, y?): span = "（–\(y)）"
+                case let (x?, y?):  span = "（\(x)–\(y)）"
+                }
+                print("  \(label(a.holder)) 「\(displaySafe(a.literal, max: 200))」\(span)")
                 for k in a.orgKeys {
-                    let name = byKey[k]?.displayName ?? k
-                    print("      → \(displaySafe(k, max: 200))  [\(displaySafe(name, max: 200))]")
+                    let o = byKey[k]
+                    let founded = o?.founded.map { "  成立:\(displaySafe($0, max: 20))" } ?? ""
+                    let dissolved = o?.dissolved.map { "  解散:\(displaySafe($0, max: 20))" } ?? ""
+                    let name = o?.displayName ?? k
+                    print("      → \(displaySafe(k, max: 200))  [\(displaySafe(name, max: 200))]\(founded)\(dissolved)")
                 }
             }
             print("  兩種可能，處置相反：同名的不同機構＝各自歸戶（永不合併）；同一機構兩筆＝該合併。")
@@ -889,9 +903,18 @@ struct ResolvePeople: ParsableCommand {
                 print("  \(displaySafe(a.citekey, max: 200))[\(a.authorIndex)] 「\(displaySafe(a.literal, max: 200))」")
                 for k in a.personKeys {
                     let p = byKey[k]
-                    let names = (p?.names ?? []).map { displaySafe($0, max: 80) }.joined(separator: "、")
-                    let orcid = p?.orcid.map { "  orcid:\(displaySafe($0, max: 40))" } ?? ""
-                    print("      → \(displaySafe(k, max: 200))  [\(names)]\(orcid)")
+                    // **`names` 不具區辨力**——它們之所以被比到一起，正是因為正規化後
+                    // 相同。真正能分辨的是外部識別碼與時空不相容，所以那些一定要印。
+                    var bits: [String] = []
+                    if let o = p?.orcid { bits.append("orcid:\(displaySafe(o, max: 40))") }
+                    if let o = p?.openalex { bits.append("openalex:\(displaySafe(o, max: 40))") }
+                    if let x = p?.died { bits.append("卒:\(displaySafe(x, max: 20))") }
+                    if let a2 = p?.profile.affiliations.current?.value {
+                        bits.append("隸屬:\(displaySafe(a2.displayName, max: 60))")
+                    }
+                    let names = (p?.names ?? []).prefix(4).map { displaySafe($0, max: 80) }.joined(separator: "、")
+                    let extra = bits.isEmpty ? "  ⚠ 無任何區辨欄位" : "  " + bits.joined(separator: "  ")
+                    print("      → \(displaySafe(k, max: 200))  [\(names)]\(extra)")
                 }
             }
             print("  兩種可能，處置相反：同名的不同人＝各自歸屬（永不合併）；同一人兩筆＝該合併。")

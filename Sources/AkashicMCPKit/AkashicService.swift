@@ -49,6 +49,15 @@ public final class AkashicService {
     /// `~/.akashic/index/`（`testFilesUseSwitchesUniverseCompletely` 實際踩到）。
     let environment: [String: String]
 
+    /// `resolve_people` 歧義清單的上限（#231）。
+    ///
+    /// 與 `person()` 的候選上限（50）同值、同理由：**MCP 結果直灌 LLM context**，
+    /// 而歧義筆數是 `O(出現次數)`，由 store 內容決定、無自然上界。verify 席用真 binary
+    /// 實測：201 筆歧義未設限時產出 176 KB（約 44k tokens），單一次工具呼叫即可吃掉
+    /// 整個 context。超出時回 `truncated: true` 與 `ambiguityTotal`，讓使用端知道
+    /// 自己看到的不是全部——**靜默截斷會讓「沒有更多」與「沒給你更多」無法區分**。
+    static let ambiguityLimit = 50
+
     public init(root: URL, key: String? = nil, configURL: URL? = nil,
                 environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.root = root
@@ -578,23 +587,37 @@ public final class AkashicService {
                         "reason": displaySafe(pair.candidate.reason, max: 400),
                     ]
                 },
-                // 每個 key 一併帶區辨欄位——只給 key 的話，讀的人分不出「兩個同名的
-                // 人」（各自歸屬，永不合併）與「同一人兩筆記錄」（該合併），而那兩者
-                // 需要相反的行動。
-                "ambiguities": report.ambiguities.map { a -> [String: Any] in
+                // **區辨欄位只送一次，依 key 索引**（`people`），`ambiguities` 只帶 key
+                // 字串。先前每筆歧義都內嵌完整的 person 區塊——verify 席實測 201 筆歧義
+                // 產出 176 KB（約 44k tokens），其中 201 份是同一個 5 人區塊的逐字複本。
+                // MCP 結果直灌 LLM context，這是本 repo 明文的威脅模型
+                // （`TerminalOutputSafetyTests`：「MCP/LLM context 的無上限灌注同型」）。
+                "people": Dictionary(uniqueKeysWithValues:
+                    Set(report.ambiguities.flatMap(\.personKeys)).map { k -> (String, [String: Any]) in
+                        var d: [String: Any] = [
+                            "names": (byKey[k]?.names ?? []).prefix(8).map { displaySafe($0, max: 200) },
+                        ]
+                        // **缺席就不輸出**，不要送空字串——那會讓「沒有 ORCID」與
+                        // 「ORCID 是空字串」在 JSON 上不再有分別（同本檔 :185／:375 的慣例）。
+                        if let o = byKey[k]?.orcid { d["orcid"] = displaySafe(o, max: 60) }
+                        if let o = byKey[k]?.openalex { d["openalex"] = displaySafe(o, max: 60) }
+                        if let x = byKey[k]?.died { d["died"] = displaySafe(x, max: 40) }
+                        if let a = byKey[k]?.profile.affiliations.current?.value {
+                            d["currentAffiliation"] = displaySafe(a.displayName, max: 200)
+                        }
+                        return (displaySafe(k, max: 200), d)
+                    }),
+                "ambiguities": report.ambiguities.prefix(Self.ambiguityLimit).map { a -> [String: Any] in
                     [
+                        "entryID": a.entryID.uuidString,   // display-safe-exempt: UUID 的 uuidString 恆為 [0-9A-F-]
                         "citekey": displaySafe(a.citekey, max: 200),
                         "authorIndex": a.authorIndex,
                         "literal": displaySafe(a.literal, max: 400),
-                        "personKeys": a.personKeys.map { k -> [String: Any] in
-                            [
-                                "key": displaySafe(k, max: 200),
-                                "names": (byKey[k]?.names ?? []).map { displaySafe($0, max: 200) },
-                                "orcid": byKey[k]?.orcid.map { displaySafe($0, max: 60) } ?? "",
-                            ]
-                        },
+                        "personKeys": a.personKeys.map { displaySafe($0, max: 200) },
                     ]
                 },
+                "truncated": report.ambiguities.count > Self.ambiguityLimit,
+                "ambiguityTotal": report.ambiguities.count,
             ])
         }
         let byID = Dictionary(withIDs.map { ($0.id, $0.candidate) }, uniquingKeysWith: { first, _ in first })

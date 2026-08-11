@@ -842,7 +842,8 @@ struct ResolvePeople: ParsableCommand {
     func run() throws {
         let store = try options.openStore()
         let load = try store.load()
-        let all = PersonResolver.candidates(entries: load.entries, people: load.people)
+        let report = PersonResolver.resolve(entries: load.entries, people: load.people)
+        let all = report.candidates
         // 篩選只影響 **--apply**，列表一律顯示全部——否則使用者用 --citekey 收窄後
         // 會以為其他候選不存在。
         let ckSet = Set(citekey), pkSet = Set(person)
@@ -850,8 +851,33 @@ struct ResolvePeople: ParsableCommand {
             (ckSet.isEmpty || ckSet.contains($0.citekey))
                 && (pkSet.isEmpty || pkSet.contains($0.personKey))
         }
+
+        /// #231：歧義**不再靜默丟棄**。它與「沒人匹配」語意不同——後者是 `.literal`
+        /// 的合法長期狀態，前者是系統知道自己遇到了決定點。
+        ///
+        /// 每個候選一併印區辨欄位（names／orcid），否則讀的人分不出兩種需要**相反
+        /// 行動**的情況：(a) 兩個真的不同的人剛好同名（各自歸屬，永不合併）
+        /// vs (b) 同一個人有兩筆記錄（該合併）。
+        func printAmbiguities() {
+            guard !report.ambiguities.isEmpty else { return }
+            let byKey = Dictionary(load.people.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+            print("")
+            print("歧義（\(report.ambiguities.count)）——同一個 literal 對到 2+ 個 person，**需要人判斷**：")
+            for a in report.ambiguities {
+                print("  \(displaySafe(a.citekey, max: 200))[\(a.authorIndex)] 「\(displaySafe(a.literal, max: 200))」")
+                for k in a.personKeys {
+                    let p = byKey[k]
+                    let names = (p?.names ?? []).map { displaySafe($0, max: 80) }.joined(separator: "、")
+                    let orcid = p?.orcid.map { "  orcid:\(displaySafe($0, max: 40))" } ?? ""
+                    print("      → \(displaySafe(k, max: 200))  [\(names)]\(orcid)")
+                }
+            }
+            print("  兩種可能，處置相反：同名的不同人＝各自歸屬（永不合併）；同一人兩筆＝該合併。")
+        }
+
         guard !all.isEmpty else {
             print("無候選（literal 作者 \(load.entries.flatMap(\.authors).filter { if case .literal = $0 { return true } else { return false } }.count) 個，皆無 alias 完全命中）")
+            printAmbiguities()   // 沒有唯一候選時，歧義**更**該被看見
             return
         }
         let selected = Set(candidates.map { "\($0.citekey)#\($0.authorIndex)" })
@@ -860,6 +886,7 @@ struct ResolvePeople: ParsableCommand {
             let mark = (apply && !selected.contains("\(c.citekey)#\(c.authorIndex)")) ? "  (skip) " : "  "
             print("\(mark)\(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
         }
+        printAmbiguities()
         if apply {
             // 篩選條件寫了卻一個都沒中——多半是打錯 key，別靜默什麼都不做
             if !(citekey.isEmpty && person.isEmpty), candidates.isEmpty {

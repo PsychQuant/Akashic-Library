@@ -179,11 +179,44 @@ final class ServiceTests: XCTestCase {
         XCTAssertThrowsError(try service.link(citekey: "olsson1979maximum", kind: "bogus", add: ["x"], remove: []))
     }
 
+    /// #231：**歧義要走到 MCP 面**，不能只活在 kit 裡。
+    ///
+    /// 教訓來自先前的漏接：kit 全綠仍漏掉兩個入口——只有用真的 service 呼叫才看得見。
+    /// 這條同時驗兩件事：歧義有被回報、且每個 key 帶了區辨欄位（`names` / `orcid`）
+    /// ——否則讀的人分不出「兩個同名的人」（各自歸屬）與「同一人兩筆」（該合併）。
+    func testResolvePeopleSurfacesAmbiguitiesWithDiscriminators() throws {
+        let store = LibraryStore(root: root)
+        var a = Person(key: "amb-one", names: ["Ambi Guous"])
+        a.orcid = "0000-0001-2345-6789"
+        try store.writePerson(a)
+        try store.writePerson(Person(key: "amb-two", names: ["Ambi Guous"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: "article",
+                                   title: "X", authors: [.literal("Ambi Guous")], date: "2020"))
+
+        let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
+        let ambs = out["ambiguities"] as! [[String: Any]]
+        let hit = ambs.first { $0["citekey"] as? String == "amb2020x" }
+        XCTAssertNotNil(hit, "歧義必須出現在 MCP 回應裡，不能只在 kit 內：\(ambs)")
+        XCTAssertEqual(hit?["literal"] as? String, "Ambi Guous")
+        XCTAssertEqual(hit?["authorIndex"] as? Int, 0)
+
+        let keys = hit?["personKeys"] as! [[String: Any]]
+        XCTAssertEqual(keys.map { $0["key"] as? String }, ["amb-one", "amb-two"], "須排序")
+        XCTAssertEqual(keys.first?["names"] as? [String], ["Ambi Guous"], "區辨欄位：names")
+        XCTAssertEqual(keys.first?["orcid"] as? String, "0000-0001-2345-6789", "區辨欄位：orcid")
+
+        // 歧義**不可**出現在 candidates（那條路是可 apply 的）
+        let cands = out["candidates"] as! [[String: Any]]
+        XCTAssertFalse(cands.contains { $0["citekey"] as? String == "amb2020x" },
+                       "歧義絕不能混進可套用的候選")
+    }
+
     func testResolvePeopleListsAndAppliesSelectively() throws {
         let e3 = Entry(id: UUID(), citekey: "cheng2020analysis", type: "thesis",
                        title: "Analysis of growth curves", authors: [.literal("Che Cheng")], date: "2020")
         try LibraryStore(root: root).writeEntry(e3)
-        let list = try json(try service.resolvePeople(apply: nil)) as! [[String: Any]]
+        // #231：no-apply 回應由陣列改為 {candidates, ambiguities}
+        let list = (try json(try service.resolvePeople(apply: nil)) as! [String: Any])["candidates"] as! [[String: Any]]
         XCTAssertEqual(list.count, 1)
         let id = list.first?["id"] as? String ?? ""
         XCTAssertEqual(id, "cheng2020analysis:0")
@@ -581,7 +614,8 @@ extension ServiceTests {
         try (frozen + "\n").write(
             to: root.appendingPathComponent("entries/frozen3.yaml"),
             atomically: true, encoding: .utf8)
-        let list = try json(try service.resolvePeople(apply: nil)) as! [[String: Any]]
+        // #231：no-apply 回應由陣列改為 {candidates, ambiguities}
+        let list = (try json(try service.resolvePeople(apply: nil)) as! [String: Any])["candidates"] as! [[String: Any]]
         let ids = list.compactMap { $0["id"] as? String }
         XCTAssertTrue(ids.contains("frozen3:0"), "\(ids)")
         let out = try json(try service.resolvePeople(apply: ["frozen3:0"])) as! [String: Any]

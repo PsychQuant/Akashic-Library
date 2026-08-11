@@ -556,21 +556,46 @@ public final class AkashicService {
     /// apply=nil → 只列候選；apply=["citekey:index", …] → 逐候選套用（#5 的 MCP 面）。
     public func resolvePeople(apply: [String]?) throws -> String {
         let load = try store.load()
-        let candidates = PersonResolver.candidates(entries: load.entries, people: load.people)
+        let report = PersonResolver.resolve(entries: load.entries, people: load.people)
+        let candidates = report.candidates
         let withIDs = candidates.map { c -> (id: String, candidate: ResolutionCandidate) in
             ("\(c.citekey):\(c.authorIndex)", c)
         }
         guard let selected = apply else {
-            return try jsonString(withIDs.map { pair -> [String: Any] in
-                [
-                    "id": pair.id,   // display-safe-exempt: 形如 "<citekey>:<index>"；citekey 受 load 端 StoreKey quarantine 把關（#171 複驗：原理由寫「本函式自產、非 store 內容」是錯的——citekey 就是 store 內容）
-                    "citekey": displaySafe(pair.candidate.citekey, max: 200),
-                    "authorIndex": pair.candidate.authorIndex,
-                    "literal": displaySafe(pair.candidate.literal, max: 400),
-                    "personKey": displaySafe(pair.candidate.personKey, max: 200),
-                    "reason": displaySafe(pair.candidate.reason, max: 400),
-                ]
-            })
+            // **#231：回應形狀由「候選陣列」改為物件。** 歧義（同一 literal 對到 2+ 人）
+            // 先前與「沒人匹配」走同一條 continue，完全不留痕跡——而它才是需要人判斷的
+            // 那個。陣列沒有地方放它，所以形狀必須改；`Server.swift` 的 tool description
+            // 同步更新。
+            let byKey = Dictionary(load.people.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+            return try jsonString([
+                "candidates": withIDs.map { pair -> [String: Any] in
+                    [
+                        "id": pair.id,   // display-safe-exempt: 形如 "<citekey>:<index>"；citekey 受 load 端 StoreKey quarantine 把關（#171 複驗：原理由寫「本函式自產、非 store 內容」是錯的——citekey 就是 store 內容）
+                        "citekey": displaySafe(pair.candidate.citekey, max: 200),
+                        "authorIndex": pair.candidate.authorIndex,
+                        "literal": displaySafe(pair.candidate.literal, max: 400),
+                        "personKey": displaySafe(pair.candidate.personKey, max: 200),
+                        "reason": displaySafe(pair.candidate.reason, max: 400),
+                    ]
+                },
+                // 每個 key 一併帶區辨欄位——只給 key 的話，讀的人分不出「兩個同名的
+                // 人」（各自歸屬，永不合併）與「同一人兩筆記錄」（該合併），而那兩者
+                // 需要相反的行動。
+                "ambiguities": report.ambiguities.map { a -> [String: Any] in
+                    [
+                        "citekey": displaySafe(a.citekey, max: 200),
+                        "authorIndex": a.authorIndex,
+                        "literal": displaySafe(a.literal, max: 400),
+                        "personKeys": a.personKeys.map { k -> [String: Any] in
+                            [
+                                "key": displaySafe(k, max: 200),
+                                "names": (byKey[k]?.names ?? []).map { displaySafe($0, max: 200) },
+                                "orcid": byKey[k]?.orcid.map { displaySafe($0, max: 60) } ?? "",
+                            ]
+                        },
+                    ]
+                },
+            ])
         }
         let byID = Dictionary(withIDs.map { ($0.id, $0.candidate) }, uniquingKeysWith: { first, _ in first })
         let chosen = try selected.map { id -> ResolutionCandidate in

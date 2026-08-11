@@ -229,29 +229,15 @@ public struct Person: Equatable {
     /// 「還沒有人決定」與「已經決定了，而且就是這個」在資料上不再有分別。前者是有
     /// 意義的狀態（見本段最後：空集合讓缺口在輸出上看得見）。
     ///
-    /// > 這裡引用那支工具是拿它當**一致性測試**（「repo 裡有沒有合法路徑違反我這句
-    /// > 話」），不是拿它當規範依據——後者是 #222 v3 被打掉的範疇錯誤。規範依據是
-    /// > 上面那句語意；工具只是證明我的措辭沒有 over-reach。
+    /// **禁令靠的是上面那段語意，不是靠 `validate`。** 那兩條不變式攔得下多數機械
+    /// 嘗試，但**不是全部**——`testNormalizedFormsCanEvadeBothInvariants` 釘住一個
+    /// `validate` 回傳 `[]` 的輸入。而且它們沒有 schema／decoder 層的表現，`writePerson`
+    /// 的多數呼叫端也不驗（**#229**）。**不要因為這裡寫了禁令就以為寫入路徑會擋。**
     ///
-    /// ### 不要指望 `validate` 幫你擋
-    ///
-    /// `AuthorizedNames.validate` 的兩條不變式會攔下**多數**機械嘗試，但**不是全部**。
-    /// 已知漏網類（`testNormalizedFormsCanEvadeBothInvariants` 釘住，`validate` 實測
-    /// 回傳 `[]`）：不變式 1 用 `Set.contains`，即 Swift `String ==`（**canonical
-    /// equivalence**）；不變式 2 走 `WritingSystem.of`，它**逐 scalar 讀固定區間**。
-    /// 兩者不是同一個等價關係——`"d" + U+0307` 與 `U+1E0B` 在 Swift 是同一個字串，
-    /// 但一個 `.latn`、一個 `.other`。於是值相等讓不變式 1 靜默、分類分家讓不變式 2
-    /// 靜默。
-    ///
-    /// 執行面也不完整：兩條不變式**沒有 schema／decoder 層的表現**，只活在 `validate`。
-    /// `akashic validate` 報 `.error`（exit 非零）、MCP `update_person` 拒絕，但
-    /// `writePerson` 的多數呼叫端不驗（**#229**）。這類記錄寫得到磁碟、也載入得了。
-    ///
-    /// > **所以這條禁令靠的是上面那段語意，不是靠 `validate`。** #222 用了六個版本才
-    /// > 到這裡：三次從 `validate` 推導（不變式 1／不變式 2／兩條聯手），各被一個
-    /// > 邊界輸入推翻；另兩次分別掛在 `matchingKey` 的一個偶然事實、與一份 migration
-    /// > 工具的 doc（那次死於引用失格，不是反例）。**五次死因不同，共同點是把一個設計
-    /// > 決定寫成可被單一輸入推翻的機械命題。**
+    /// > 規範條文在 `openspec/specs/authorized-name/spec.md`。上面引 `AuthorizedNameMigration`
+    /// > 是拿它當**一致性測試**（「repo 裡有沒有合法路徑違反這句話」），不是當規範依據
+    /// > ——後者是 #222 v3 被打掉的範疇錯誤。這段論證的完整推導與五個被推翻的版本留在
+    /// > #222 的討論串，不複製進原始碼。
     ///
     /// 空集合是合法的，意思是「還沒指定該怎麼稱呼他」——那時 `displayName` 退到 `key`，
     /// 讓缺口在輸出上看得見，而不是靜默印出索引系統產生的引用形。

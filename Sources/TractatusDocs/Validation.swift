@@ -468,7 +468,7 @@ public enum CorpusValidator {
         var diagnostics: [CorpusDiagnostic] = []
         var fileCache: [String: String] = [:]
         var swiftCodeCache: [String: String] = [:]
-        var unreadablePaths: Set<String> = []
+        var fileReadFailures: [String: (code: String, message: String)] = [:]
         var commitCache: [String: Bool] = [:]
         var branchCache: [String: Bool] = [:]
 
@@ -511,7 +511,7 @@ public enum CorpusValidator {
                             projectRoot: projectRoot,
                             fileCache: &fileCache,
                             swiftCodeCache: &swiftCodeCache,
-                            unreadablePaths: &unreadablePaths,
+                            fileReadFailures: &fileReadFailures,
                             diagnostics: &diagnostics
                         )
                     }
@@ -542,7 +542,19 @@ public enum CorpusValidator {
         let assetsPrefix = assetsRoot.path.hasSuffix("/")
             ? assetsRoot.path
             : assetsRoot.path + "/"
-        let checksums = loadAssetChecksums(from: assetsRoot)
+        let checksums: [String: String]
+        do {
+            checksums = try loadAssetChecksums(from: assetsRoot)
+        } catch let error as CorpusSchemaError {
+            return [CorpusDiagnostic(
+                path: "source-assets/SHA256SUMS",
+                recordID: "manifest",
+                code: "resource-limit",
+                message: error.localizedDescription
+            )]
+        } catch {
+            checksums = [:]
+        }
         var diagnostics: [CorpusDiagnostic] = []
 
         for volume in volumes {
@@ -568,13 +580,36 @@ public enum CorpusValidator {
                         ))
                         continue
                     }
-                    guard let expectedDigest = checksums[reference],
-                          let data = try? Data(contentsOf: candidate) else {
+                    guard let expectedDigest = checksums[reference] else {
                         diagnostics.append(CorpusDiagnostic(
                             path: corpusPath,
                             recordID: proposition.id.rawValue,
                             code: "digest-mismatch",
                             message: "來源圖資未列入 source-assets/SHA256SUMS：\(reference)"
+                        ))
+                        continue
+                    }
+                    let data: Data
+                    do {
+                        data = try boundedFileData(
+                            contentsOf: candidate,
+                            maximumBytes: CorpusResourceLimits.maximumReferencedAssetBytes,
+                            kind: "referenced-asset-bytes"
+                        )
+                    } catch let error as CorpusSchemaError {
+                        diagnostics.append(CorpusDiagnostic(
+                            path: corpusPath,
+                            recordID: proposition.id.rawValue,
+                            code: "resource-limit",
+                            message: error.localizedDescription
+                        ))
+                        continue
+                    } catch {
+                        diagnostics.append(CorpusDiagnostic(
+                            path: corpusPath,
+                            recordID: proposition.id.rawValue,
+                            code: "digest-mismatch",
+                            message: "來源圖資無法讀取：\(reference)"
                         ))
                         continue
                     }
@@ -610,11 +645,13 @@ public enum CorpusValidator {
         return values
     }
 
-    private static func loadAssetChecksums(from assetsRoot: URL) -> [String: String] {
+    private static func loadAssetChecksums(from assetsRoot: URL) throws -> [String: String] {
         let url = assetsRoot.appendingPathComponent("SHA256SUMS")
-        guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
-            return [:]
-        }
+        let contents = try boundedUTF8FileContents(
+            of: url,
+            maximumBytes: CorpusResourceLimits.maximumAssetManifestUTF8Bytes,
+            kind: "asset-manifest-utf8-bytes"
+        )
         var checksums: [String: String] = [:]
         for line in contents.split(separator: "\n") {
             let fields = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
@@ -959,7 +996,7 @@ public enum CorpusValidator {
         projectRoot: URL,
         fileCache: inout [String: String],
         swiftCodeCache: inout [String: String],
-        unreadablePaths: inout Set<String>,
+        fileReadFailures: inout [String: (code: String, message: String)],
         diagnostics: inout [CorpusDiagnostic]
     ) {
         guard let fileURL = safeProjectURL(evidence.path, root: projectRoot) else {
@@ -1004,29 +1041,46 @@ public enum CorpusValidator {
         let contents: String
         if let cached = fileCache[cacheKey] {
             contents = cached
-        } else if unreadablePaths.contains(cacheKey) {
+        } else if let failure = fileReadFailures[cacheKey] {
             diagnostics.append(CorpusDiagnostic(
                 path: corpusPath,
                 recordID: propositionID.rawValue,
-                code: "broken-path",
-                message: "evidence path 不存在或不是可讀文字檔：\(evidence.path)"
+                code: failure.code,
+                message: failure.message
             ))
             return
-        } else if let loaded = try? boundedUTF8Contents(
-            of: fileURL,
-            maximumBytes: CorpusResourceLimits.maximumEvidenceFileUTF8Bytes
-        ) {
-            fileCache[cacheKey] = loaded
-            contents = loaded
         } else {
-            unreadablePaths.insert(cacheKey)
-            diagnostics.append(CorpusDiagnostic(
-                path: corpusPath,
-                recordID: propositionID.rawValue,
-                code: "broken-path",
-                message: "evidence path 不存在或不是可讀文字檔：\(evidence.path)"
-            ))
-            return
+            do {
+                let loaded = try boundedUTF8FileContents(
+                    of: fileURL,
+                    maximumBytes: CorpusResourceLimits.maximumEvidenceFileUTF8Bytes,
+                    kind: "evidence-file-utf8-bytes"
+                )
+                fileCache[cacheKey] = loaded
+                contents = loaded
+            } catch let error as CorpusSchemaError {
+                fileReadFailures[cacheKey] = (
+                    code: "resource-limit",
+                    message: error.localizedDescription
+                )
+                diagnostics.append(CorpusDiagnostic(
+                    path: corpusPath,
+                    recordID: propositionID.rawValue,
+                    code: "resource-limit",
+                    message: error.localizedDescription
+                ))
+                return
+            } catch {
+                let message = "evidence path 不存在或不是可讀文字檔：\(evidence.path)"
+                fileReadFailures[cacheKey] = (code: "broken-path", message: message)
+                diagnostics.append(CorpusDiagnostic(
+                    path: corpusPath,
+                    recordID: propositionID.rawValue,
+                    code: "broken-path",
+                    message: message
+                ))
+                return
+            }
         }
 
         let locator = evidence.locator.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1125,20 +1179,6 @@ public enum CorpusValidator {
                 options: .regularExpression
             ) != nil
         }
-    }
-
-    private static func boundedUTF8Contents(
-        of url: URL,
-        maximumBytes: Int
-    ) throws -> String {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        let data = try handle.read(upToCount: maximumBytes + 1) ?? Data()
-        guard data.count <= maximumBytes,
-              let contents = String(data: data, encoding: .utf8) else {
-            throw CocoaError(.fileReadInapplicableStringEncoding)
-        }
-        return contents
     }
 
     private enum SwiftLexicalMode {

@@ -130,6 +130,16 @@ public struct SourceEdition: Decodable, Equatable, Sendable {
 
 public enum SourceManifestYAMLDecoder {
     public static func decode(_ yaml: String) throws -> SourceManifest {
+        try enforceCorpusLimit(
+            yaml.utf8.count,
+            maximum: CorpusResourceLimits.maximumSourceManifestUTF8Bytes,
+            kind: "source-manifest-utf8-bytes"
+        )
+        try enforceCorpusAliasBudget(
+            yaml,
+            context: "tractatus source manifest",
+            kindPrefix: "source-manifest"
+        )
         do {
             return try YAMLDecoder().decode(SourceManifest.self, from: yaml)
         } catch {
@@ -139,7 +149,11 @@ public enum SourceManifestYAMLDecoder {
     }
 
     public static func decode(contentsOf url: URL) throws -> SourceManifest {
-        try decode(String(contentsOf: url, encoding: .utf8))
+        try decode(boundedUTF8FileContents(
+            of: url,
+            maximumBytes: CorpusResourceLimits.maximumSourceManifestUTF8Bytes,
+            kind: "source-manifest-utf8-bytes"
+        ))
     }
 
     private static func unwrapSchemaError(_ error: Error) -> CorpusSchemaError? {
@@ -169,11 +183,18 @@ public enum SourceManifestValidator {
         volumes: [CorpusVolume]
     ) -> [CorpusDiagnostic] {
         var diagnostics: [CorpusDiagnostic] = []
-        for edition in manifest.editions {
+        var inlineSnapshots: [Int: Data] = [:]
+        for (editionIndex, edition) in manifest.editions.enumerated() {
             validateProvenance(edition, diagnostics: &diagnostics)
             switch edition.inclusionMode {
             case .inline:
-                validateInline(edition, root: root, diagnostics: &diagnostics)
+                if let data = validateInline(
+                    edition,
+                    root: root,
+                    diagnostics: &diagnostics
+                ) {
+                    inlineSnapshots[editionIndex] = data
+                }
             case .externalReference:
                 validateExternal(
                     edition,
@@ -184,8 +205,8 @@ public enum SourceManifestValidator {
         }
         validateCorpusFidelity(
             manifest,
-            root: root,
             volumes: volumes,
+            inlineSnapshots: inlineSnapshots,
             diagnostics: &diagnostics
         )
         return diagnostics.sorted()
@@ -240,13 +261,13 @@ public enum SourceManifestValidator {
         _ edition: SourceEdition,
         root: URL,
         diagnostics: inout [CorpusDiagnostic]
-    ) {
+    ) -> Data? {
         guard let expectedDigest = edition.sha256,
               expectedDigest.count == 64,
               expectedDigest.allSatisfy({
                   $0.isASCII && $0.hexDigitValue != nil
               }) else {
-            return
+            return nil
         }
         guard edition.copyrightStatus != .copyrighted else {
             diagnostics.append(issue(
@@ -254,7 +275,7 @@ public enum SourceManifestValidator {
                 code: "license-violation",
                 message: "copyrighted edition 不得以 inline 模式重製。"
             ))
-            return
+            return nil
         }
         guard !edition.rightsNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             diagnostics.append(issue(
@@ -262,7 +283,7 @@ public enum SourceManifestValidator {
                 code: "license-violation",
                 message: "inline edition 缺少可稽核的 rights_note。"
             ))
-            return
+            return nil
         }
         if edition.copyrightStatus == .licensed {
             guard let evidence = edition.licenseEvidenceURL,
@@ -274,7 +295,7 @@ public enum SourceManifestValidator {
                     code: "license-violation",
                     message: "licensed inline edition 必須提供可稽核的 license_evidence_url。"
                 ))
-                return
+                return nil
             }
         }
         guard let snapshot = edition.snapshot else {
@@ -283,26 +304,47 @@ public enum SourceManifestValidator {
                 code: "license-violation",
                 message: "inline edition 必須指定本機 snapshot。"
             ))
-            return
+            return nil
         }
-        guard let url = safeSnapshotURL(snapshot, root: root),
-              let data = try? Data(contentsOf: url) else {
+        guard let url = safeSnapshotURL(snapshot, root: root) else {
             diagnostics.append(issue(
                 edition,
                 code: "broken-path",
                 message: "找不到或拒絕讀取 snapshot：\(snapshot)"
             ))
-            return
+            return nil
+        }
+        let data: Data
+        do {
+            data = try boundedFileData(
+                contentsOf: url,
+                maximumBytes: CorpusResourceLimits.maximumInlineSnapshotUTF8Bytes,
+                kind: "inline-snapshot-utf8-bytes"
+            )
+        } catch let error as CorpusSchemaError {
+            diagnostics.append(issue(
+                edition,
+                code: "resource-limit",
+                message: error.localizedDescription
+            ))
+            return nil
+        } catch {
+            diagnostics.append(issue(
+                edition,
+                code: "broken-path",
+                message: "找不到或拒絕讀取 snapshot：\(snapshot)"
+            ))
+            return nil
         }
         let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        guard actual == expectedDigest.lowercased() else {
+        if actual != expectedDigest.lowercased() {
             diagnostics.append(issue(
                 edition,
                 code: "digest-mismatch",
                 message: "snapshot SHA-256 與 manifest 不一致。"
             ))
-            return
         }
+        return data
     }
 
     private static func validateExternal(
@@ -346,14 +388,14 @@ public enum SourceManifestValidator {
 
     private static func validateCorpusFidelity(
         _ manifest: SourceManifest,
-        root: URL,
         volumes: [CorpusVolume],
+        inlineSnapshots: [Int: Data],
         diagnostics: inout [CorpusDiagnostic]
     ) {
-        for edition in manifest.editions where edition.inclusionMode == .inline {
-            guard let snapshot = edition.snapshot,
-                  let snapshotURL = safeSnapshotURL(snapshot, root: root),
-                  let text = try? String(contentsOf: snapshotURL, encoding: .utf8),
+        for (editionIndex, edition) in manifest.editions.enumerated()
+        where edition.inclusionMode == .inline {
+            guard let data = inlineSnapshots[editionIndex] else { continue }
+            guard let text = String(data: data, encoding: .utf8),
                   let parsed = sourcePassages(text, editionID: edition.id) else {
                 diagnostics.append(issue(
                     edition,

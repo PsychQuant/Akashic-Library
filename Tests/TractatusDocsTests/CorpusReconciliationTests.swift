@@ -195,6 +195,20 @@ final class CorpusReconciliationTests: XCTestCase {
                 )
             )
         }
+
+        var aliasBomb = "root: &a0 [x]\n"
+        for level in 1...7 {
+            let references = Array(repeating: "*a\(level - 1)", count: 9)
+                .joined(separator: ", ")
+            aliasBomb += "level\(level): &a\(level) [\(references)]\n"
+        }
+        XCTAssertThrowsError(try CorpusYAMLDecoder.decodeVolume(aliasBomb)) { error in
+            guard case let .resourceLimit(kind, actual, maximum) = error as? CorpusSchemaError else {
+                return XCTFail("預期 resource-limit，實際為 \(error)")
+            }
+            XCTAssertEqual(kind, "volume-alias-expanded-nodes")
+            XCTAssertGreaterThan(actual, maximum)
+        }
     }
 
     private func loadCanonicalVolumes() throws -> [CorpusVolume] {

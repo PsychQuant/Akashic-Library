@@ -467,6 +467,49 @@ final class SourceManifestTests: XCTestCase {
         }
     }
 
+    func testManifestResourceLimitsPrecedeYAMLCompositionAndSnapshotValidation() throws {
+        let oversizedManifest = String(
+            repeating: " ",
+            count: CorpusResourceLimits.maximumSourceManifestUTF8Bytes + 1
+        )
+        XCTAssertThrowsError(try SourceManifestYAMLDecoder.decode(oversizedManifest)) { error in
+            XCTAssertEqual(
+                error as? CorpusSchemaError,
+                .resourceLimit(
+                    kind: "source-manifest-utf8-bytes",
+                    actual: CorpusResourceLimits.maximumSourceManifestUTF8Bytes + 1,
+                    maximum: CorpusResourceLimits.maximumSourceManifestUTF8Bytes
+                )
+            )
+        }
+
+        var aliasBomb = "root: &a0 [x]\n"
+        for level in 1...7 {
+            let references = Array(repeating: "*a\(level - 1)", count: 9)
+                .joined(separator: ", ")
+            aliasBomb += "level\(level): &a\(level) [\(references)]\n"
+        }
+        XCTAssertThrowsError(try SourceManifestYAMLDecoder.decode(aliasBomb)) { error in
+            guard case let .resourceLimit(kind, actual, maximum) = error as? CorpusSchemaError else {
+                return XCTFail("預期 resource-limit，實際為 \(error)")
+            }
+            XCTAssertEqual(kind, "source-manifest-alias-expanded-nodes")
+            XCTAssertGreaterThan(actual, maximum)
+        }
+
+        let fixture = try makeFixture(
+            snapshot: String(
+                repeating: "x",
+                count: CorpusResourceLimits.maximumInlineSnapshotUTF8Bytes + 1
+            )
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let manifest = try SourceManifestYAMLDecoder.decode(fixture.manifestYAML)
+        let issues = SourceManifestValidator.validate(manifest, root: fixture.root, volumes: [])
+        XCTAssertEqual(issues.map(\.code), ["resource-limit"])
+        XCTAssertEqual(issues.map(\.recordID), ["de"])
+    }
+
     func testFixedScopeRejectsDuplicateEditionIDBeforeRendering() throws {
         let root = repositoryRoot.appendingPathComponent("docs/tractatus", isDirectory: true)
         let yaml = try String(

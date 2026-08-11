@@ -40,6 +40,10 @@ public enum CorpusSchemaError: Error, Equatable, LocalizedError {
 
 enum CorpusResourceLimits {
     static let maximumVolumeUTF8Bytes = 1 * 1024 * 1024
+    static let maximumSourceManifestUTF8Bytes = 256 * 1024
+    static let maximumInlineSnapshotUTF8Bytes = 2 * 1024 * 1024
+    static let maximumAssetManifestUTF8Bytes = 256 * 1024
+    static let maximumReferencedAssetBytes = 8 * 1024 * 1024
     static let maximumCorpusDirectoryEntries = 64
     static let maximumCorpusYAMLFiles = 8
     static let maximumPropositionsPerVolume = 256
@@ -51,7 +55,7 @@ enum CorpusResourceLimits {
     static let maximumEvidenceFileUTF8Bytes = 4 * 1024 * 1024
 }
 
-private func enforceCorpusLimit(
+func enforceCorpusLimit(
     _ actual: Int,
     maximum: Int,
     kind: String
@@ -62,6 +66,112 @@ private func enforceCorpusLimit(
             actual: actual,
             maximum: maximum
         )
+    }
+}
+
+func boundedFileData(
+    contentsOf url: URL,
+    maximumBytes: Int,
+    kind: String
+) throws -> Data {
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { try? handle.close() }
+    let sentinelCount = maximumBytes + 1
+    var data = Data()
+    data.reserveCapacity(sentinelCount)
+    while data.count < sentinelCount {
+        guard let chunk = try handle.read(upToCount: sentinelCount - data.count),
+              !chunk.isEmpty else { break }
+        data.append(chunk)
+    }
+    try enforceCorpusLimit(data.count, maximum: maximumBytes, kind: kind)
+    return data
+}
+
+func boundedUTF8FileContents(
+    of url: URL,
+    maximumBytes: Int,
+    kind: String
+) throws -> String {
+    let data = try boundedFileData(
+        contentsOf: url,
+        maximumBytes: maximumBytes,
+        kind: kind
+    )
+    guard let contents = String(data: data, encoding: .utf8) else {
+        throw CocoaError(.fileReadInapplicableStringEncoding)
+    }
+    return contents
+}
+
+func enforceCorpusAliasBudget(
+    _ yaml: String,
+    context: String,
+    kindPrefix: String
+) throws {
+    do {
+        try AliasEventBudget.check(yaml, context: context)
+    } catch let error as AliasBudgetError {
+        let resource: CorpusSchemaError?
+        switch error {
+        case let .expansionTooLarge(actual, maximum):
+            resource = .resourceLimit(
+                kind: "\(kindPrefix)-alias-expanded-nodes",
+                actual: actual,
+                maximum: maximum
+            )
+        case let .expandedBytesTooLarge(actual, maximum):
+            resource = .resourceLimit(
+                kind: "\(kindPrefix)-alias-expanded-bytes",
+                actual: actual,
+                maximum: maximum
+            )
+        case let .tooDeep(actual, maximum):
+            resource = .resourceLimit(
+                kind: "\(kindPrefix)-alias-expanded-depth",
+                actual: actual,
+                maximum: maximum
+            )
+        case let .fileTooLarge(actual, maximum):
+            resource = .resourceLimit(
+                kind: "\(kindPrefix)-alias-input-bytes",
+                actual: actual,
+                maximum: maximum
+            )
+        case let .contextual(_, kind):
+            switch kind {
+            case let .expansion(actual, maximum):
+                resource = .resourceLimit(
+                    kind: "\(kindPrefix)-alias-expanded-nodes",
+                    actual: actual,
+                    maximum: maximum
+                )
+            case let .bytes(actual, maximum):
+                resource = .resourceLimit(
+                    kind: "\(kindPrefix)-alias-expanded-bytes",
+                    actual: actual,
+                    maximum: maximum
+                )
+            case let .depth(actual, maximum):
+                resource = .resourceLimit(
+                    kind: "\(kindPrefix)-alias-expanded-depth",
+                    actual: actual,
+                    maximum: maximum
+                )
+            case let .size(actual, maximum):
+                resource = .resourceLimit(
+                    kind: "\(kindPrefix)-alias-input-bytes",
+                    actual: actual,
+                    maximum: maximum
+                )
+            case .parser:
+                resource = nil
+            }
+        case .parserUnavailable:
+            resource = nil
+        }
+        if let resource { throw resource }
+        throw error
     }
 }
 
@@ -455,7 +565,11 @@ public enum CorpusYAMLDecoder {
             maximum: CorpusResourceLimits.maximumVolumeUTF8Bytes,
             kind: "volume-utf8-bytes"
         )
-        try AliasEventBudget.check(yaml, context: "tractatus corpus volume")
+        try enforceCorpusAliasBudget(
+            yaml,
+            context: "tractatus corpus volume",
+            kindPrefix: "volume"
+        )
         do {
             return try YAMLDecoder().decode(CorpusVolume.self, from: yaml)
         } catch {
@@ -467,19 +581,11 @@ public enum CorpusYAMLDecoder {
     }
 
     public static func decodeVolume(contentsOf url: URL) throws -> CorpusVolume {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        let data = try handle.read(
-            upToCount: CorpusResourceLimits.maximumVolumeUTF8Bytes + 1
-        ) ?? Data()
-        try enforceCorpusLimit(
-            data.count,
-            maximum: CorpusResourceLimits.maximumVolumeUTF8Bytes,
+        let yaml = try boundedUTF8FileContents(
+            of: url,
+            maximumBytes: CorpusResourceLimits.maximumVolumeUTF8Bytes,
             kind: "volume-utf8-bytes"
         )
-        guard let yaml = String(data: data, encoding: .utf8) else {
-            throw CocoaError(.fileReadInapplicableStringEncoding)
-        }
         return try decodeVolume(yaml)
     }
 

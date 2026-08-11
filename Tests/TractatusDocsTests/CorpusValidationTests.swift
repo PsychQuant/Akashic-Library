@@ -1134,6 +1134,69 @@ final class CorpusValidationTests: XCTestCase {
         })
     }
 
+    func testAssetManifestAndReferencedImageHaveFixedByteLimits() throws {
+        let volume = try CorpusYAMLDecoder.decodeVolume("""
+        schema_version: 1
+        volume: "5"
+        propositions:
+          - id: "5"
+            texts:
+              de: ["![](images/proof.svg)"]
+              en_ogden_ramsey_1922: ["![](images/proof.svg)"]
+            edition_references:
+              en_pears_mcguinness: "5"
+            segments: []
+            project_relations: []
+        """)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tractatus-asset-limits-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = root.appendingPathComponent("source-assets", isDirectory: true)
+        let images = assets.appendingPathComponent("images", isDirectory: true)
+        try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
+        let checksumURL = assets.appendingPathComponent("SHA256SUMS")
+        let imageURL = images.appendingPathComponent("proof.svg")
+
+        try Data(repeating: 0x20, count: CorpusResourceLimits.maximumAssetManifestUTF8Bytes + 1)
+            .write(to: checksumURL)
+        try Data("proof".utf8).write(to: imageURL)
+        XCTAssertEqual(
+            CorpusValidator.validateAssets(volumes: [volume], root: root)
+                .map(\.code),
+            ["resource-limit"]
+        )
+
+        let zeros = String(repeating: "0", count: 64)
+        try Data("\(zeros)  images/proof.svg\n".utf8).write(to: checksumURL)
+        try Data(
+            repeating: 0x41,
+            count: CorpusResourceLimits.maximumReferencedAssetBytes + 1
+        ).write(to: imageURL)
+        XCTAssertEqual(
+            CorpusValidator.validateAssets(volumes: [volume], root: root)
+                .map(\.code),
+            ["resource-limit"]
+        )
+    }
+
+    func testOversizedCurrentEvidenceReportsResourceLimitNotBrokenPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tractatus-evidence-limit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(
+            repeating: 0x41,
+            count: CorpusResourceLimits.maximumEvidenceFileUTF8Bytes + 1
+        ).write(to: root.appendingPathComponent("proof.swift"))
+        let volume = try makeEvidenceVolume(path: "proof.swift", locator: "proof")
+
+        XCTAssertEqual(
+            CorpusValidator.validateEvidence(volumes: [volume], projectRoot: root)
+                .map(\.code),
+            ["resource-limit"]
+        )
+    }
+
     func testEveryRendererRichTextFieldReportsMissingImagesWithSpaces() throws {
         let volume = try CorpusYAMLDecoder.decodeVolume("""
         schema_version: 1

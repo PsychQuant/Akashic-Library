@@ -239,7 +239,11 @@ enum CorpusRenderEngine {
         let displayPath = relativeDisplayPath(output: output, root: root)
 
         if check {
-            guard let actual = try? Data(contentsOf: output), actual == expected else {
+            guard let actual = try? boundedFileData(
+                contentsOf: output,
+                maximumBytes: expected.count,
+                kind: "generated-output-bytes"
+            ), actual == expected else {
                 throw TractatusValidationFailure(diagnostics: [CorpusDiagnostic(
                     path: displayPath,
                     recordID: "generated",

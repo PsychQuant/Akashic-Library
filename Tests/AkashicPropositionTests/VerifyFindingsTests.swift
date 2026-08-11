@@ -43,7 +43,7 @@ final class VerifyFindingsTests: XCTestCase {
         // "Chen,Hui-Yun"，本來就相異，於是 mutation 不紅（自己的 fixture 沒對準）。
         let a = try plainModel([.literal("X")], names: ["Chen,Hui-Yun"])
         let b = try plainModel([.literal("X")], names: ["Chen", "Hui-Yun"])
-        XCTAssertNotEqual(try a.contentRevision, try b.contentRevision,
+        XCTAssertNotEqual(a.contentRevision, b.contentRevision,
                           "含逗號的單一 name 不得與拆開的兩個 name 撞 revision")
     }
 
@@ -53,7 +53,7 @@ final class VerifyFindingsTests: XCTestCase {
         let b = try plainModel([.literal("Chen,Hui-Yun")], names: ["Chen", "Hui-Yun"])
         let t1 = try p.evaluate(in: a), t2 = try p.evaluate(in: b)
         if t1 != t2 {
-            XCTAssertNotEqual(try a.contentRevision, try b.contentRevision,
+            XCTAssertNotEqual(a.contentRevision, b.contentRevision,
                               "兩個世界求值不同（\(t1) vs \(t2)）卻共用 revision")
         }
     }
@@ -62,7 +62,7 @@ final class VerifyFindingsTests: XCTestCase {
     func testCannotReplayIntoTheWrongWorld() throws {
         let a = try plainModel([.literal("Chen,Hui-Yun")], names: ["Chen,Hui-Yun"])
         let b = try plainModel([.literal("Chen,Hui-Yun")], names: ["Chen", "Hui-Yun"])
-        let ctxA = ValuationContext(storeKey: "m", storeRevision: try a.contentRevision)
+        let ctxA = ValuationContext(storeKey: "m", storeRevision: a.contentRevision)
         XCTAssertThrowsError(try p.evaluate(in: b, context: ctxA),
                              "拿 A 的 revision 標 B 的求值必須被拒絕")
     }
@@ -78,7 +78,7 @@ final class VerifyFindingsTests: XCTestCase {
         XCTAssertEqual(try Formula.atom(p).evaluate(in: without),
                        .undetermined(.noSupportingEvidence))
         XCTAssertEqual(try Formula.atom(p).evaluate(in: with), .fails)
-        XCTAssertNotEqual(try with.contentRevision, try without.contentRevision,
+        XCTAssertNotEqual(with.contentRevision, without.contentRevision,
                           "證言改變真值就必須改變 revision")
     }
 
@@ -90,16 +90,16 @@ final class VerifyFindingsTests: XCTestCase {
         let b = try base.attesting([try AuthorListAttestation(
             workCitekey: wk, attestedBy: "someone-else", attestedAt: "2026-08-09",
             basis: "另一份依據")])
-        XCTAssertNotEqual(try a.contentRevision, try b.contentRevision)
+        XCTAssertNotEqual(a.contentRevision, b.contentRevision)
     }
 
     /// `AttestedModel` 也要能產生帶 context 的 `Valuation`。
     func testAttestedModelCanProduceAValuation() throws {
         let m = try (try plainModel([.key("other")])).attesting([try attestation()])
         let v = try p.evaluate(in: m,
-            context: ValuationContext(storeKey: "m", storeRevision: try m.contentRevision))
+            context: ValuationContext(storeKey: "m", storeRevision: m.contentRevision))
         XCTAssertEqual(v.truth, .fails)
-        XCTAssertEqual(v.context.storeRevision, try m.contentRevision)
+        XCTAssertEqual(v.context.storeRevision, m.contentRevision)
     }
 
     // MARK: - F4：空名單不得製造反證

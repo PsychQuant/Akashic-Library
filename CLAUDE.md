@@ -47,3 +47,11 @@ propose ──→ park ──────────────→ apply ─�
 **規則**：park 只用於「今天不做、而且丟了也無所謂」的東西。任何要保留的設計——尤其是對應著仍開啟 issue 的——**不要停在 parked 狀態**。要暫時挪開就 `spectra unpark <name>` 搬回 `openspec/changes/`（那裡是 tracked）再 commit；`openspec/changes/` 裡有未完成的 change 不是問題，那本來就是它的用途。
 
 實際踩過：三個 change、18 檔、124 KB 的設計工作曾同時停在 parked（#72）。park 位置本身屬 Spectra.app 的行為，不在本 repo 可修範圍。
+
+## Rules
+
+`.claude/rules/` 下是本 repo 的規則，寫給會照著執行的人與模型看。
+
+| 規則 | 一句話 |
+|---|---|
+| [lossless-intake.md](.claude/rules/lossless-intake.md) | 匯入不得有損——來源給了什麼就收什麼；不收的只有秘密與隱私邊界兩類，且丟棄必須報出來 |

@@ -244,10 +244,25 @@ struct ImportZotero: ParsableCommand {
         if !report.authorsPreserved.isEmpty {
             print("authors preserved（已解析、未同步 Zotero 作者欄）: \(report.authorsPreserved.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
         }
-        if !report.droppedFields.isEmpty {
-            let summary = report.droppedFields.keys.sorted()
-                .map { "\($0)×\(report.droppedFields[$0]!)" }.joined(separator: ", ")
-            print("dropped fields（未映射的 Zotero 欄位，未入庫）: \(summary)")
+        if !report.authorsOverwritten.isEmpty {
+            // #208：pull-based sync 覆寫本地的未歸戶作者，**與 import-wos 相反**
+            //（後者對任何分歧一律拒絕覆寫）。至少要讓它可見。
+            print("authors overwritten（未歸戶 literal 作者已改為 Zotero 版本）: "
+                + "\(report.authorsOverwritten.count) 筆——"
+                + "已歸戶的 person key 不受影響（見 authors preserved）")
+        }
+        if !report.fieldsRemovedByPull.isEmpty {
+            let s = report.fieldsRemovedByPull.keys.sorted()
+                .map { "\(displaySafe($0, max: 100))×\(report.fieldsRemovedByPull[$0]!)" }
+                .joined(separator: ", ")
+            print("fields removed by pull（Zotero 這次沒給，整份替換後消失）: \(s)")
+        }
+        if !report.residualFields.isEmpty {
+            let summary = report.residualFields.keys.sorted()
+                .map { "\($0)×\(report.residualFields[$0]!)" }.joined(separator: ", ")
+            // #206：這些欄位**有入庫**（以正規化後的原名）。舊訊息寫「未入庫」，
+            // 在殘餘收集落地後就成了假話。
+            print("residual fields（無 canonical 對照，已以原名入庫）: \(summary)")
         }
         if !report.unnormalizedDates.isEmpty {
             print("unnormalized dates（date 保留原字串）: \(report.unnormalizedDates.count)（\(report.unnormalizedDates.prefix(8).map { displaySafe($0, max: 200) }.joined(separator: ", "))\(report.unnormalizedDates.count > 8 ? ", …" : "")）")
@@ -675,7 +690,8 @@ struct ImportWoS: ParsableCommand {
         let r = try WoSImport.run(text: text, store: store,
                                   separator: csv ? "," : "\t", dryRun: dryRun)
         let prefix = dryRun ? "（dry-run）" : "✓"
-        print("\(prefix) created \(r.created.count)、unchanged \(r.unchanged.count)")
+        print("\(prefix) created \(r.created.count)、unchanged \(r.unchanged.count)"
+            + (r.enriched.isEmpty ? "" : "、enriched \(r.enriched.count)（既有記錄補上缺的欄位）"))
         if !r.conflicts.isEmpty {
             // **不覆寫**：citekey 撞號且內容不同，可能是使用者手動改過的資料，
             // 而 WoS 的欄位比 store 的窄——覆寫會把人工補的資訊洗掉。
@@ -685,6 +701,14 @@ struct ImportWoS: ParsableCommand {
         if !r.skippedRows.isEmpty {
             print("skipped: \(r.skippedRows.count)")
             for s in r.skippedRows.prefix(5) { print("  - \(displaySafe(s, max: 300))") }
+        }
+        if !r.droppedColumns.isEmpty {
+            // #206 規則 §3：丟棄必須可見。這兩種成因（欄位名不可表達、正規化後
+            // 撞鍵）是殘餘收集**唯一**會漏掉東西的地方——不印就等於靜默。
+            let s = r.droppedColumns.keys.sorted()
+                .map { "\(displaySafe($0, max: 120))×\(r.droppedColumns[$0]!)" }
+                .joined(separator: ", ")
+            print("dropped columns（欄位名不可表達或撞鍵，未入庫）: \(s)")
         }
         if !r.aliasGroups.isEmpty {
             // 這是本 importer 的真正價值：兩欄同 index 對齊，免費得到每位作者的兩種寫法

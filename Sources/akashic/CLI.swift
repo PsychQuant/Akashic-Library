@@ -48,7 +48,8 @@ struct AkashicCLI: ParsableCommand {
             ResolveDivergence.self, RecordDivergence.self, AuthorizeNames.self,
             BootstrapOrganizations.self, ResolveOrganizations.self,
             UpdatePersonCmd.self,
-            Fmt.self, ViewCmd.self,
+            Fmt.self, ViewCmd.self, CreateEntryCmd.self,
+            PersonCmd.self,   // #218：person 的讀取面（寫入面是上面的 UpdatePersonCmd）
         ])
 }
 

@@ -12,7 +12,16 @@ public struct ImportReport: Equatable {
     /// 解析過的作者被保留、未跟 Zotero 同步的 entries（資訊性）。
     public var authorsPreserved: [String] = []
     /// 未映射而被捨棄的 Zotero 欄位（欄位名 → 出現次數）。不靜默流失。
-    public var droppedFields: [String: Int] = [:]
+    /// 以**正規化後的原名**入庫的欄位（無 canonical 對照）。
+        /// #206 之前這叫 `droppedFields` 且真的丟掉；現在會入庫，名字跟著改，
+        /// 否則報告會說謊（verify H2）。
+        public var residualFields: [String: Int] = [:]
+        /// pull 覆寫掉的**未歸戶** literal 作者（#208）。已歸戶的 `.key` 走
+        /// `authorsPreserved`，永不被覆寫。
+        public var authorsOverwritten: [String] = []
+        /// pull **移除**的欄位名 → 次數（#208）。成因是 `applyBiblatexFields`
+        /// 整份替換 `fields`：Zotero 這次沒給的欄位會消失，包含使用者手工補的。
+        public var fieldsRemovedByPull: [String: Int] = [:]
     /// 寫入目的檔是 quarantined 檔而被拒寫的 citekeys（損壞 store，人工處理）。
     public var quarantineConflicts: [String] = []
     /// 寫入時 encode/寫檔擲錯的 citekeys → 錯誤描述（R6 M9：encode 自 v1.3 起
@@ -103,8 +112,8 @@ public struct ZoteroImporter {
         var legacyMatched = Set<String>()   // 已被 item 認領的 legacy 裸 key
 
         for item in items {
-            for dropped in ZoteroMapping.unmappedFields(of: item) {
-                report.droppedFields[dropped, default: 0] += 1
+            for residual in ZoteroMapping.residualFields(of: item) {
+                report.residualFields[residual, default: 0] += 1
             }
             let itemHash = ZoteroMapping.mappingHash(of: item)
             var matched = byCompositeKey["\(item.libraryID):\(item.key)"]
@@ -141,12 +150,30 @@ public struct ZoteroImporter {
                     let hadResolvedAuthors = existing.authors.contains {
                         if case .key = $0 { return true } else { return false }
                     }
+                    // **記下 pull 會蓋掉什麼**（#208）。`applyBiblatexFields` 整份
+                    // 替換 `fields`，所以 Zotero **這次沒給**的欄位會消失——包含
+                    // 使用者手工補的、或別的 importer 寫的。Zotero 對它沒給的欄位
+                    // 沒有意見，卻因為整份替換而等同刪除了它們。
+                    //
+                    // 這個行為不是本 change 引入的，但 #206 讓 update 分支大範圍
+                    // 觸發，於是它從「偶爾」變成「下一次匯入就會發生」。
+                    // 先讓它**可見**——靜默才是真正的問題。
+                    let fieldsBefore = Set(existing.fields.keys)
+                    let authorsBefore = existing.authors
                     ZoteroMapping.applyBiblatexFields(from: item, to: &existing)
+                    let removed = fieldsBefore.subtracting(existing.fields.keys).sorted()
+                    for k in removed { report.fieldsRemovedByPull[k, default: 0] += 1 }
                     if hadResolvedAuthors {
                         // 解析成果（person key）是使用者確認過的衍生知識，pull 不摧毀
                         report.authorsPreserved.append(existing.citekey)
                     } else {
-                        existing.authors = item.authors.map { .literal($0.display) }
+                        let after = item.authors.map { AkashicCore.Author.literal($0.display) }
+                        // 未歸戶的 literal 作者會被 Zotero 版本覆寫。那是 pull-based
+                        // sync 的正常語意（Zotero 是上游），但**與 import-wos 相反**
+                        // ——後者對任何內容分歧一律拒絕覆寫。使用者跑兩個命令會得到
+                        // 相反的資料保護等級，所以至少要說出來。
+                        if after != authorsBefore { report.authorsOverwritten.append(existing.citekey) }
+                        existing.authors = after
                     }
                     existing.provenance = Provenance(
                         zoteroKey: item.key, zoteroVersion: item.version,
@@ -209,6 +236,7 @@ public struct ZoteroImporter {
         report.orphaned.sort()
         report.orphanCleared.sort()
         report.authorsPreserved.sort()
+        report.authorsOverwritten.sort()
         report.quarantineConflicts.sort()
         report.unnormalizedDates.sort()
         return report

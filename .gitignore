@@ -35,3 +35,6 @@ openspec/.vector-search.db*
 
 # IDD parallel worktree isolation (idd-worktree.sh #167) — not tracked in main tree
 .claude/worktrees/
+
+# IDD per-clone config（legacy 形式；現行 .claude/.idd/local.json 照常追蹤）
+.claude/issue-driven-dev.local.*

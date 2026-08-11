@@ -60,7 +60,8 @@ canonical path 一次擷取，同一份 bytes 同時供 digest 與
 fidelity 驗證，`SHA256SUMS` 最多 256 KiB，單一 referenced asset 最多 8 MiB，
 每次驗證最多掃描 4,096 次 referenced-image occurrence，unique canonical asset
 captures 合計最多 64 MiB；每次擷取前先套用剩餘總預算，不讀取越界 sentinel。
-`source-assets` 經 symlink 解析後也必須留在 corpus root 內。
+`source-assets` 經 symlink 解析後必須留在 corpus root 內，`SHA256SUMS` 本身也
+不得以 symlink 越出 asset trust root。
 所有 YAML 另先通過共用 alias-event expansion budget。超界一律以 `resource-limit`
 fail closed，不進入 path、composition、locator、digest 或 Git history 的無界工作。
 

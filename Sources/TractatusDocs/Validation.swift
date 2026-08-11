@@ -582,9 +582,20 @@ public enum CorpusValidator {
         let assetsPrefix = assetsRoot.path.hasSuffix("/")
             ? assetsRoot.path
             : assetsRoot.path + "/"
+        let checksumURL = assetsRoot.appendingPathComponent("SHA256SUMS")
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        guard checksumURL.path.hasPrefix(assetsPrefix) else {
+            return [CorpusDiagnostic(
+                path: "source-assets/SHA256SUMS",
+                recordID: "manifest",
+                code: "broken-path",
+                message: "SHA256SUMS 越出 source-assets trust root。"
+            )]
+        }
         let checksums: [String: String]
         do {
-            checksums = try loadAssetChecksums(from: assetsRoot)
+            checksums = try loadAssetChecksums(at: checksumURL)
         } catch let error as CorpusSchemaError {
             return [CorpusDiagnostic(
                 path: "source-assets/SHA256SUMS",
@@ -749,8 +760,7 @@ public enum CorpusValidator {
         return values
     }
 
-    private static func loadAssetChecksums(from assetsRoot: URL) throws -> [String: String] {
-        let url = assetsRoot.appendingPathComponent("SHA256SUMS")
+    private static func loadAssetChecksums(at url: URL) throws -> [String: String] {
         let contents = try boundedUTF8FileContents(
             of: url,
             maximumBytes: CorpusResourceLimits.maximumAssetManifestUTF8Bytes,

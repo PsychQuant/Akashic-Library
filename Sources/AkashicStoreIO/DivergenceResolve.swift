@@ -1606,6 +1606,18 @@ extension LibraryStore {
         return bad.map { (path: $0.0, why: $0.1) }
     }
 
+    /// 子程序環境：**剝除全部 `GIT_*`**（#239）。
+    ///
+    /// 本型別的每一處 git 呼叫問的都是「**`dir` 自己的** repo 怎麼說」，答案不該被
+    /// 呼叫者的環境改變。而 `-C <dir>` **擋不住 `GIT_DIR`**——後者優先權更高。任何
+    /// 從 git hook 執行的路徑（`.githooks/pre-push` 跑測試、或使用者在 hook 裡呼叫
+    /// CLI）都會讓這些檢查對**錯的 repo** 提問。
+    ///
+    /// 用前綴剝除而非列舉具名變數：git 版本會新增變數，列舉會隨時間漏掉。
+    static var scrubbedGitEnvironment: [String: String] {
+        ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
+    }
+
     /// 在 `dir` 跑一次 git。回傳 nil = 根本執行不起來（沒有 git、或 spawn 失敗）。
     ///
     /// 刻意**不**用 shell：參數直接進 `arguments`，路徑含空白或引號都不會被重新解析。
@@ -1613,6 +1625,7 @@ extension LibraryStore {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments = ["git", "-C", dir.path] + args
+        p.environment = scrubbedGitEnvironment
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = Pipe()

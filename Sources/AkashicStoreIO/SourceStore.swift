@@ -102,6 +102,36 @@ public extension LibraryStore {
     @discardableResult
     internal func assertSourcesExcluded(relativePath: String) throws -> Bool {
         guard Self.isInsideVersionedWorkTree(root) else { return false }
+
+        // **第二層（#239）：確認 git 回答的是「這個 store 的 repo」。**
+        //
+        // `Self.git` 已剝除 `GIT_*`，但那靠的是前綴規則——規則可能被未來的 git 或
+        // 某條沒想到的路徑繞過。而本閘的失效方向是 fail-**open**：若 git 被導向一個
+        // 碰巧會 ignore 該相對路徑的 repo，`check-ignore` 回 0，閘就放行，第三方
+        // 逐字位元組寫進一個真實 repo 並**不** ignore 的 store，隨下次 commit 外流。
+        // 外流不可逆，所以承重結構值得兩層：剝除讓它不會問錯，斷言讓它問錯時停住。
+        //
+        // 注意 `isInsideVersionedWorkTree` 是**檔案系統走訪**（找 `.git`），不受
+        // `GIT_DIR` 影響——所以「store 在工作樹內」這個前提本來就可信；不可信的是
+        // 接下來 git 會拿哪個 repo 回答。
+        guard let top = Self.git(["rev-parse", "--show-toplevel"], in: root),
+              top.status == 0 else {
+            throw StoreIOError.invalidInput(
+                what: "sources 版控排除",
+                why: "無法解析 store 所在工作樹的 toplevel——不確定 git 會拿哪個 repo "
+                    + "回答忽略狀態，拒絕寫入（外流不可逆）")
+        }
+        let resolvedTop = URL(fileURLWithPath: top.out.trimmingCharacters(in: .whitespacesAndNewlines))
+            .resolvingSymlinksInPath().standardizedFileURL.path
+        let resolvedRoot = root.resolvingSymlinksInPath().standardizedFileURL.path
+        guard resolvedRoot == resolvedTop || resolvedRoot.hasPrefix(resolvedTop + "/") else {
+            throw StoreIOError.invalidInput(
+                what: "sources 版控排除",
+                why: "git 回答的是另一個 repo（toplevel「\(resolvedTop)」不含 store "
+                    + "「\(resolvedRoot)」）——忽略狀態的判定不可信，拒絕寫入。"
+                    + "最可能的原因：環境仍帶著 GIT_*（例如從 git hook 裡執行）")
+        }
+
         guard let r = Self.git(["check-ignore", "-q", "--", relativePath], in: root) else {
             // git 執行不起來時 fail-closed——「不知道有沒有排除」不等於「排除了」
             throw StoreIOError.invalidInput(

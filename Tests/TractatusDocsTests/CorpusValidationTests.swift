@@ -1222,11 +1222,12 @@ final class CorpusValidationTests: XCTestCase {
             volumes: [volume],
             root: root,
             maximumTotalBytes: CorpusResourceLimits.maximumTotalReferencedAssetBytes,
-            assetLoader: { candidate in
+            maximumReferenceCount: CorpusResourceLimits.maximumReferencedAssetReferences,
+            assetLoader: { candidate, maximumBytes in
                 captureCount += 1
-                return try boundedFileData(
+                return try exactlyBoundedFileData(
                     contentsOf: candidate,
-                    maximumBytes: CorpusResourceLimits.maximumReferencedAssetBytes,
+                    maximumBytes: maximumBytes,
                     kind: "referenced-asset-bytes"
                 )
             }
@@ -1284,13 +1285,25 @@ final class CorpusValidationTests: XCTestCase {
 
         """.utf8).write(to: assets.appendingPathComponent("SHA256SUMS"))
         var captureCount = 0
+        var capturedByteCount = 0
+        var requestedLimits: [Int] = []
 
         let issues = CorpusValidator.validateAssets(
             volumes: [volume],
             root: root,
             maximumTotalBytes: 3,
-            assetLoader: { _ in
+            maximumReferenceCount: CorpusResourceLimits.maximumReferencedAssetReferences,
+            assetLoader: { _, maximumBytes in
                 captureCount += 1
+                requestedLimits.append(maximumBytes)
+                guard captured.count <= maximumBytes else {
+                    throw CorpusSchemaError.resourceLimit(
+                        kind: "referenced-asset-bytes",
+                        actual: captured.count,
+                        maximum: maximumBytes
+                    )
+                }
+                capturedByteCount += captured.count
                 return captured
             }
         )
@@ -1300,6 +1313,98 @@ final class CorpusValidationTests: XCTestCase {
             $0.message.contains("referenced-assets-total-bytes")
         })
         XCTAssertEqual(captureCount, 2)
+        XCTAssertEqual(capturedByteCount, 2)
+        XCTAssertEqual(requestedLimits, [3, 1])
+    }
+
+    func testReferencedImageCountFailsBeforeAnyPathOrAssetWork() throws {
+        let volume = try CorpusYAMLDecoder.decodeVolume("""
+        schema_version: 1
+        volume: "5"
+        propositions:
+          - id: "5"
+            texts:
+              de: ["![](images/a.svg) ![](images/b.svg) ![](images/c.svg)"]
+              en_ogden_ramsey_1922: ["bounded"]
+            edition_references:
+              en_pears_mcguinness: "5"
+            segments: []
+            project_relations: []
+        """)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tractatus-asset-reference-limit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = root.appendingPathComponent("source-assets", isDirectory: true)
+        let images = assets.appendingPathComponent("images", isDirectory: true)
+        try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
+        let data = Data("asset".utf8)
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        for name in ["a.svg", "b.svg", "c.svg"] {
+            try data.write(to: images.appendingPathComponent(name))
+        }
+        try Data("""
+        \(digest)  images/a.svg
+        \(digest)  images/b.svg
+        \(digest)  images/c.svg
+
+        """.utf8).write(to: assets.appendingPathComponent("SHA256SUMS"))
+        var captureCount = 0
+
+        let issues = CorpusValidator.validateAssets(
+            volumes: [volume],
+            root: root,
+            maximumTotalBytes: CorpusResourceLimits.maximumTotalReferencedAssetBytes,
+            maximumReferenceCount: 2,
+            assetLoader: { _, _ in
+                captureCount += 1
+                return data
+            }
+        )
+
+        XCTAssertEqual(issues.map(\.code), ["resource-limit"])
+        XCTAssertTrue(issues[0].message.contains("referenced-asset-references"))
+        XCTAssertEqual(captureCount, 0)
+    }
+
+    func testSourceAssetsRootCannotEscapeCorpusThroughSymlink() throws {
+        let volume = try CorpusYAMLDecoder.decodeVolume("""
+        schema_version: 1
+        volume: "5"
+        propositions:
+          - id: "5"
+            texts:
+              de: ["![](images/proof.svg)"]
+              en_ogden_ramsey_1922: ["proof"]
+            edition_references:
+              en_pears_mcguinness: "5"
+            segments: []
+            project_relations: []
+        """)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tractatus-asset-root-\(UUID().uuidString)")
+        let external = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tractatus-asset-external-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: external)
+        }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let images = external.appendingPathComponent("images", isDirectory: true)
+        try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
+        let data = Data("proof".utf8)
+        try data.write(to: images.appendingPathComponent("proof.svg"))
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        try Data("\(digest)  images/proof.svg\n".utf8)
+            .write(to: external.appendingPathComponent("SHA256SUMS"))
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("source-assets"),
+            withDestinationURL: external
+        )
+
+        let issues = CorpusValidator.validateAssets(volumes: [volume], root: root)
+
+        XCTAssertEqual(issues.map(\.code), ["broken-path"])
+        XCTAssertTrue(issues[0].message.contains("source-assets"))
     }
 
     func testOversizedCurrentEvidenceReportsResourceLimitNotBrokenPath() throws {

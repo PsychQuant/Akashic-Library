@@ -46,6 +46,7 @@ enum CorpusResourceLimits {
     static let maximumAssetManifestUTF8Bytes = 256 * 1024
     static let maximumReferencedAssetBytes = 8 * 1024 * 1024
     static let maximumTotalReferencedAssetBytes = 64 * 1024 * 1024
+    static let maximumReferencedAssetReferences = 4_096
     static let maximumCorpusDirectoryEntries = 64
     static let maximumCorpusYAMLFiles = 8
     static let maximumPropositionsPerVolume = 256
@@ -87,6 +88,44 @@ func boundedFileData(
         data.append(chunk)
     }
     try enforceCorpusLimit(data.count, maximum: maximumBytes, kind: kind)
+    return data
+}
+
+/// Captures a regular file without reading a sentinel byte beyond `maximumBytes`.
+///
+/// The open handle is sized before capture and checked again afterwards. This is
+/// used for the aggregate asset budget, where even a one-byte sentinel would
+/// exceed the promised total capture ceiling.
+func exactlyBoundedFileData(
+    contentsOf url: URL,
+    maximumBytes: Int,
+    kind: String
+) throws -> Data {
+    guard maximumBytes >= 0 else {
+        throw CorpusSchemaError.resourceLimit(
+            kind: kind,
+            actual: 0,
+            maximum: maximumBytes
+        )
+    }
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { try? handle.close() }
+    let initialSize = try handle.seekToEnd()
+    let boundedActual = initialSize > UInt64(Int.max) ? Int.max : Int(initialSize)
+    try enforceCorpusLimit(boundedActual, maximum: maximumBytes, kind: kind)
+    try handle.seek(toOffset: 0)
+
+    var data = Data()
+    data.reserveCapacity(boundedActual)
+    while data.count < boundedActual {
+        guard let chunk = try handle.read(upToCount: boundedActual - data.count),
+              !chunk.isEmpty else { break }
+        data.append(chunk)
+    }
+    let finalSize = try handle.seekToEnd()
+    guard finalSize == initialSize, data.count == boundedActual else {
+        throw CocoaError(.fileReadUnknown)
+    }
     return data
 }
 

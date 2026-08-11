@@ -546,10 +546,11 @@ public enum CorpusValidator {
             volumes: volumes,
             root: root,
             maximumTotalBytes: CorpusResourceLimits.maximumTotalReferencedAssetBytes,
-            assetLoader: { candidate in
-                try boundedFileData(
+            maximumReferenceCount: CorpusResourceLimits.maximumReferencedAssetReferences,
+            assetLoader: { candidate, maximumBytes in
+                try exactlyBoundedFileData(
                     contentsOf: candidate,
-                    maximumBytes: CorpusResourceLimits.maximumReferencedAssetBytes,
+                    maximumBytes: maximumBytes,
                     kind: "referenced-asset-bytes"
                 )
             }
@@ -560,11 +561,24 @@ public enum CorpusValidator {
         volumes: [CorpusVolume],
         root: URL,
         maximumTotalBytes: Int,
-        assetLoader: (URL) throws -> Data
+        maximumReferenceCount: Int,
+        assetLoader: (URL, Int) throws -> Data
     ) -> [CorpusDiagnostic] {
+        let canonicalRoot = root.standardizedFileURL.resolvingSymlinksInPath()
+        let rootPrefix = canonicalRoot.path.hasSuffix("/")
+            ? canonicalRoot.path
+            : canonicalRoot.path + "/"
         let assetsRoot = root.appendingPathComponent("source-assets", isDirectory: true)
             .standardizedFileURL
             .resolvingSymlinksInPath()
+        guard assetsRoot.path.hasPrefix(rootPrefix) else {
+            return [CorpusDiagnostic(
+                path: "source-assets",
+                recordID: "manifest",
+                code: "broken-path",
+                message: "source-assets 越出 corpus root。"
+            )]
+        }
         let assetsPrefix = assetsRoot.path.hasSuffix("/")
             ? assetsRoot.path
             : assetsRoot.path + "/"
@@ -585,14 +599,15 @@ public enum CorpusValidator {
         var captureCache: [String: AssetCapture] = [:]
         var totalCapturedBytes = 0
         var totalLimitMessage: String?
+        var totalReferenceCount = 0
 
-        func recordCapturedBytes(_ count: Int) -> String? {
+        func projectedTotalMessage(adding count: Int) -> String? {
             let (sum, overflow) = totalCapturedBytes.addingReportingOverflow(count)
-            totalCapturedBytes = overflow ? maximumTotalBytes + 1 : sum
-            guard totalCapturedBytes > maximumTotalBytes else { return nil }
+            let actual = overflow ? Int.max : sum
+            guard actual > maximumTotalBytes else { return nil }
             return CorpusSchemaError.resourceLimit(
                 kind: "referenced-assets-total-bytes",
-                actual: totalCapturedBytes,
+                actual: actual,
                 maximum: maximumTotalBytes
             ).localizedDescription
         }
@@ -602,8 +617,28 @@ public enum CorpusValidator {
             for proposition in volume.propositions {
                 var references: Set<String> = []
                 for value in rendererRichTextValues(in: proposition) {
-                    for reference in MarkdownImageReferenceParser.references(in: value) {
-                        references.insert(reference.path)
+                    let remainingReferences = maximumReferenceCount - totalReferenceCount
+                    do {
+                        let parsed = try MarkdownImageReferenceParser.references(
+                            in: value,
+                            maximumCount: max(0, remainingReferences)
+                        )
+                        totalReferenceCount += parsed.count
+                        for reference in parsed {
+                            references.insert(reference.path)
+                        }
+                    } catch {
+                        diagnostics.append(CorpusDiagnostic(
+                            path: corpusPath,
+                            recordID: proposition.id.rawValue,
+                            code: "resource-limit",
+                            message: CorpusSchemaError.resourceLimit(
+                                kind: "referenced-asset-references",
+                                actual: maximumReferenceCount + 1,
+                                maximum: maximumReferenceCount
+                            ).localizedDescription
+                        ))
+                        return diagnostics.sorted()
                     }
                 }
                 for reference in references.sorted() {
@@ -636,12 +671,18 @@ public enum CorpusValidator {
                         capture = .resourceLimit(message)
                         captureCache[candidate.path] = capture
                     } else {
+                        let remainingBytes = max(0, maximumTotalBytes - totalCapturedBytes)
+                        let captureLimit = min(
+                            CorpusResourceLimits.maximumReferencedAssetBytes,
+                            remainingBytes
+                        )
                         do {
-                            let data = try assetLoader(candidate)
-                            if let message = recordCapturedBytes(data.count) {
+                            let data = try assetLoader(candidate, captureLimit)
+                            if let message = projectedTotalMessage(adding: data.count) {
                                 totalLimitMessage = message
                                 capture = .resourceLimit(message)
                             } else {
+                                totalCapturedBytes += data.count
                                 let digest = SHA256.hash(data: data)
                                     .map { String(format: "%02x", $0) }
                                     .joined()
@@ -649,7 +690,7 @@ public enum CorpusValidator {
                             }
                         } catch let error as CorpusSchemaError {
                             if case let .resourceLimit(_, actual, _) = error,
-                               let message = recordCapturedBytes(actual) {
+                               let message = projectedTotalMessage(adding: actual) {
                                 totalLimitMessage = message
                                 capture = .resourceLimit(message)
                             } else {

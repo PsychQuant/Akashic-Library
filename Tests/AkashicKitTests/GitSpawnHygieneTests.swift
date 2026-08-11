@@ -3,29 +3,39 @@ import XCTest
 
 /// #239 的第二層：**架構測試**，不是 runtime 斷言。
 ///
-/// 產品程式碼每一處 spawn git 都必須剝除 `GIT_*`——`-C <dir>` 擋不住 `GIT_DIR`，
-/// 後者優先權更高。曾試圖在 `assertSourcesExcluded` 加 runtime containment 斷言，
-/// 兩個探針都不可用（見該處註解）；真正的復發風險本來就是靜態的：**新增一個
-/// 呼叫點時忘記剝除**。那用讀原始碼的測試驗，比在 runtime 再驗一次同一件事誠實。
+/// 每一處 spawn git 都必須剝除 `GIT_*`——`-C <dir>` 擋不住 `GIT_DIR`，後者優先權
+/// 更高。曾試圖在 `assertSourcesExcluded` 加 runtime containment 斷言，兩個探針都
+/// 不可用（見該處註解）；真正的復發風險本來就是靜態的：**新增一個呼叫點時忘記
+/// 剝除**。那用讀原始碼的測試驗，比在 runtime 再驗一次同一件事誠實。
+///
+/// **範圍含 `Sources/` 與 `Tests/`**（2026-08-12 擴大）。原本只走 `Sources/`——那條
+/// 線沒有理由，只是「產品程式碼要嚴謹」的直覺。而 #234 的原始 bug 就在 `Tests/`
+/// (`GitFixture`)，同類的第三處 (`CorpusValidationTests` 的兩個 helper) 正好被切在
+/// 範圍外，於是漏掉，直到完整套件在模擬 hook 環境下把三個 fixture commit 寫進目標
+/// repo 才現形。**測試碼的 git 呼叫危險性不低於產品碼**：它會 `init`／`commit`／
+/// `checkout -b`，都是寫入。
 ///
 /// 這個測試會在「有人新增 git 呼叫點」時變紅——那正是它的作用，不是誤報。
 /// 修法：讓新呼叫點走既有的剝除 helper，或在該型別加自己的 `scrubbedGitEnvironment`
 /// 並在此登記。
 final class GitSpawnHygieneTests: XCTestCase {
 
-    /// 從本檔位置往上找 repo root（含 `Sources/` 的那層）。
-    private var sourcesDirectory: URL {
+    /// 從本檔位置往上找 repo root（同時含 `Sources/` 與 `Tests/` 的那層）。
+    private var repoRoot: URL {
         var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while dir.path != "/" {
-            let candidate = dir.appendingPathComponent("Sources")
+            let fm = FileManager.default
             var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDir),
-               isDir.boolValue {
-                return candidate
-            }
+            let hasSources = fm.fileExists(
+                atPath: dir.appendingPathComponent("Sources").path, isDirectory: &isDir)
+                && isDir.boolValue
+            let hasTests = fm.fileExists(
+                atPath: dir.appendingPathComponent("Tests").path, isDirectory: &isDir)
+                && isDir.boolValue
+            if hasSources && hasTests { return dir }
             dir = dir.deletingLastPathComponent()
         }
-        XCTFail("找不到 Sources/ —— 測試無法定位原始碼樹")
+        XCTFail("找不到同時含 Sources/ 與 Tests/ 的目錄——測試無法定位原始碼樹")
         return URL(fileURLWithPath: "/nonexistent")
     }
 
@@ -34,38 +44,49 @@ final class GitSpawnHygieneTests: XCTestCase {
     /// 新增檔案到這裡之前，先確認它真的設了 `environment`——這份清單是「已檢視過」
     /// 的紀錄，不是豁免權。
     private let auditedFiles: Set<String> = [
-        "DivergenceResolve.swift",   // 共用 helper git(_:in:)；SourceStore 與刪除閘都走它
-        "Validation.swift",          // TractatusDocs 的歷史驗證（兩處）
+        // Sources/
+        "DivergenceResolve.swift",     // 共用 helper git(_:in:)；SourceStore 與刪除閘都走它
+        "Validation.swift",            // TractatusDocs 的歷史驗證（兩處）
+        // Tests/
+        "GitFixture.swift",            // #234 的原始現場
+        "CorpusValidationTests.swift", // history 測試的 runGit／gitOutput（#234 同類）
     ]
 
-    func testEveryGitSpawnInSourcesScrubsGitEnvironment() throws {
+    func testEveryGitSpawnScrubsGitEnvironment() throws {
         let fm = FileManager.default
-        let root = sourcesDirectory
-        guard let walker = fm.enumerator(at: root, includingPropertiesForKeys: nil) else {
-            return XCTFail("無法走訪 \(root.path)")
-        }
-
+        let root = repoRoot
         var offenders: [String] = []
         var found: Set<String> = []
 
-        for case let url as URL in walker where url.pathExtension == "swift" {
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            // spawn git 的判準：arguments 陣列裡出現 "git" 這個字面 argv[0]。
-            guard text.contains("\"git\",") || text.contains("[\"git\"]") else { continue }
-            found.insert(url.lastPathComponent)
-            if !text.contains("scrubbedGitEnvironment") {
-                offenders.append(url.lastPathComponent)
+        for treeName in ["Sources", "Tests"] {
+            let tree = root.appendingPathComponent(treeName)
+            guard let walker = fm.enumerator(at: tree, includingPropertiesForKeys: nil) else {
+                return XCTFail("無法走訪 \(tree.path)")
+            }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                // 本檔談論 spawn git 但自己不 spawn——排除，免得討論自己的字面值。
+                guard url.lastPathComponent != (#filePath as NSString).lastPathComponent else {
+                    continue
+                }
+                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                // spawn git 的判準：arguments 陣列裡出現 "git" 這個字面 argv[0]。
+                guard text.contains("\"git\",") || text.contains("[\"git\"]") else { continue }
+                found.insert(url.lastPathComponent)
+                if !text.contains("scrubbedGitEnvironment") {
+                    offenders.append("\(treeName)/…/\(url.lastPathComponent)")
+                }
             }
         }
 
         XCTAssertTrue(
             offenders.isEmpty,
             """
-            以下檔案 spawn git 但沒有剝除 `GIT_*`（#239）：\(offenders.sorted().joined(separator: "、"))
+            以下檔案 spawn git 但沒有剝除 `GIT_*`（#234／#239）：\(offenders.sorted().joined(separator: "、"))
 
             `-C <dir>` 擋不住 `GIT_DIR`——從 git hook 執行時，這些呼叫會對**錯的 repo**
-            提問。`sources/` 排除閘的失效方向是 fail-open（放行不該放行的寫入，且外流
-            不可逆）。讓新呼叫點走剝除環境的 helper。
+            動作。在 Sources/ 的後果是 `sources/` 排除閘 fail-open（放行不該放行的寫入，
+            外流不可逆）；在 Tests/ 的後果是 fixture 的 init／commit／checkout 寫進
+            使用者的真實 repo。讓新呼叫點走剝除環境的 helper。
             """
         )
 

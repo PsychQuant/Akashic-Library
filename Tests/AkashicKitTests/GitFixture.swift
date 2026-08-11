@@ -22,7 +22,7 @@ enum GitFixture {
     ///
     /// 用**前綴剝除**而非列舉具名變數：git 版本會新增變數，列舉會隨時間漏掉，
     /// 而 fixture 對任何 `GIT_*` 都沒有需求。
-    private static var scrubbedEnvironment: [String: String] {
+    private static var scrubbedGitEnvironment: [String: String] {
         ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
     }
 
@@ -31,7 +31,7 @@ enum GitFixture {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments = ["git", "-C", dir.path] + args
-        p.environment = scrubbedEnvironment
+        p.environment = scrubbedGitEnvironment
         p.standardOutput = Pipe()
         p.standardError = Pipe()
         do { try p.run() } catch { return -1 }
@@ -44,7 +44,7 @@ enum GitFixture {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments = ["git", "-C", dir.path] + args
-        p.environment = scrubbedEnvironment
+        p.environment = scrubbedGitEnvironment
         let out = Pipe()
         p.standardOutput = out
         p.standardError = Pipe()

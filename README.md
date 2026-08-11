@@ -64,7 +64,8 @@ docs/design-principles-and-philosophy.md
                                  §16 另存原始碼慣例的正典計數（見下）
 docs/explainers/                 「為什麼」的說明（規格說 what，explainer 說 why）
 docs/import-wos-mapping.md       import-wos 欄名對映正典（12 具名欄＋殘餘收集，#286）
-attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox）
+sources/                         內容定址的副本位元組（gitignore；fail-closed 版控排除）
+                                 entry 以 akashic.sources 的 digest 引用它（#223）
 ```
 
 **這個 repo 只有程式，不含資料。** 使用者的 store 住在 `~/.akashic/`（#37）：

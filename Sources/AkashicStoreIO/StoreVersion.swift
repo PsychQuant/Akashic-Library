@@ -56,7 +56,15 @@ public enum StoreVersion {
     ///   NEW-2/NEW-3 實測整條鏈）。write gate 對 format < 8 拒寫含 verdict 的記錄；
     ///   refuse-if-newer 的「請升級」取代 per-file quarantine。序列化形狀不變——
     ///   8 只是「這個 store 可以持有 verdict」的宣告。
-    public static let supported = 8
+    /// - **9** ＝ 附件鍵域收窄為只剩 `zotero`（移除 `pool`），並新增記錄側的副本
+    ///   引用 `akashic.sources`（#223）。**提升依據是鍵域的嚴格性，不是資料量**：
+    ///   `attachments` 元素鍵走 strict 驗證，未知種類導致**整檔 quarantine** 而非
+    ///   保留，所以縮減鍵域是 non-additive——一份帶 `pool` 附件的記錄被新 binary
+    ///   讀到會整檔消失。實際受影響資料為 0 筆，但那是**當下的巧合**，不是契約；
+    ///   把它當死碼移除而不 bump，會讓 refuse-if-newer 這道防線在下一次真的有
+    ///   資料時失效。write gate 對 format < 9 拒寫含 `akashic.sources` 的記錄。
+    ///   （原設計佔 8；rebase 時 8 已被 #232 佔用，順延為 9。）
+    public static let supported = 9
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，

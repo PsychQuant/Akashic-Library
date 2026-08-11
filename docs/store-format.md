@@ -97,8 +97,9 @@ in-store 的 `.akashic/index.sqlite`。
 > **呼叫端仍應先 `ensureLayout()` 或走 `openStore()`**；父目錄的保證只涵蓋「目錄」，
 > 不涵蓋「這個 root 是不是一個 store」。
 
-附件不在 library 內：PDF 進外部 attachment pool 或留在 Zotero storage，
-entry 只記 reference（見 §2.4）。
+附件不在 library 內。副本的**位元組**進內容定址區（`sources/`，版控排除），
+entry 以 digest 引用（`akashic.sources`）；尚未 ingest 的檔案留在外部文獻管理器
+自己的 storage，entry 記 `zotero:` reference（見 §2.4）。
 
 ## 2. Entry 檔（`entries/<citekey>.yaml`）
 
@@ -120,7 +121,6 @@ fields:                          # 其餘 biblatex 欄位（字串→字串）
   doi: 10.1017/psy.2025.1
 attachments:
   - zotero: storage/ABCD1234/paper.pdf    # 相對 Zotero 資料目錄
-  - pool: 2025/cheng2025identifiability.pdf  # 相對 attachment pool
 provenance:                      # Zotero namespace——pull 管理、可覆寫
   zotero_key: ABCD1234
   zotero_version: 123
@@ -174,8 +174,36 @@ akashic:                         # Akashic namespace——pull 絕不觸碰
 
 一律相對路徑，不記絕對路徑（換機器不斷鏈）：
 - `zotero:`＝相對 Zotero 資料目錄（`storage/<attachmentKey>/<檔名>`）。
-- `pool:`＝相對 attachment pool root。
 Phase 1 的 Zotero pull 只記 `zotero:` reference、不搬檔。
+
+**鍵域是一的封閉列舉（format 8 起，#223）。** 可 ingest 的內容一律以 digest 引用、
+不以檔案系統路徑引用——路徑會因搬移或改名斷鏈，且無法偵測內容變更。僅存的路徑型
+引用是指向外部文獻管理器自有儲存的**過渡形式**，它存在的理由是那個管理器持有本
+store 尚未 ingest 的位元組。**不得因「形狀相似」而據以新增第二種路徑型引用。**
+
+#### 2.4.1 `akashic.sources`：記錄側的副本引用（normative，#223）
+
+work 記錄可在 `akashic` namespace 下攜帶 digest 清單，宣告「這些已儲存內容是本
+記錄所描述之作品的副本」：
+
+```yaml
+akashic:
+  sources:
+    - sha256:0a9a79d3030c457b7a3f54ecc98c9fa11d60b8901ffd8e709b528d47f151125a
+```
+
+- 與**欄位層級**的 `references:`（§3.5）是不同的關係項：`references` 說「這個欄位
+  的值以那份內容為據」（值 ← 證據），`sources` 說「那些位元組是這篇作品的副本」
+  （作品 ← 副本）。兩者**不得合併**，副本引用也不得寫成指涉整筆記錄的欄位層級
+  reference。兩者只在**內容**處相遇：指向同一 digest 時各自保留、內容只存一份。
+- 連結存**記錄側**、反向現算：內容先被取得、記錄後被建立，所以內容抵達當下沒有
+  citekey 可填，而建立記錄時 digest 已存在——只有這一側能在對方尚未存在時誠實
+  記下。不另存內容側的反向索引（兩份會分岔）。
+- digest 文法沿用 §3.5 的 reference digest（`sha256:` + 64 個小寫十六進位字元），
+  不合文法於載入即拒絕。
+- 空清單與缺席等價，encode 不 emit 空鍵。
+- digest 合法但本機無存檔＝**載入成功 + 可回報缺席**，與「記錄格式損毀」是兩種
+  不同條件（同 §3.5 的既有契約）。
 
 ### 2.5 Namespace 契約（CRITICAL）
 
@@ -183,7 +211,7 @@ Phase 1 的 Zotero pull 只記 `zotero:` reference、不搬檔。
 |------|--------|-----------|
 | biblatex 面向（type/title/authors/date/fields/`zotero:` 附件） | Zotero（過渡期） | 版本較新時覆寫 |
 | `provenance` | pull 機制 | 覆寫 |
-| `akashic`、`pool:` 附件、`id`、`citekey` | Akashic/使用者 | **絕不觸碰** |
+| `akashic`（含 `sources` 副本引用）、`id`、`citekey` | Akashic/使用者 | **絕不觸碰** |
 
 特例：**已解析的作者**（`key:` 形式）是使用者確認過的衍生知識——pull 更新時
 若 entry 含任何 `key:` 作者，整個 authors 欄保持不動（import report 列於
@@ -936,6 +964,7 @@ index 一起被清掉。
 | 6 | 時間軸段內新增 `ended: true`（已結束、時點未知，#63）；null-face 對齊 | **段內鍵是 strict**——tolerant-preserve 的開放層只涵蓋記錄頂層與 `akashic` namespace，舊 binary 讀到 `ended` 是整檔 quarantine（人檔消失）而非保留。`writePerson` 對 format < 6 的 store 拒寫含 ended 段的記錄＋指路（#131） |
 | 7 | 時間軸段內新增 `attested: [觀測點]`（某時點成立、起訖皆不明——`ended` 的鏡像，#70）| 同 6：段內鍵 strict → 舊 binary 整檔 quarantine；write gate 對 format < 7 拒寫＋指路。`attested` 與 `start`/`end`/`ended` 並存是矛盾（encode/decode 兩端拒收）|
 | 8 | `references[].field` 白名單新增消解判定欄位對 `resolution-confirmed`／`resolution-rejected`（#232，見 §3.5 消解判定節）| 同 6/7 的「看似 additive 其實不是」：field 白名單是 strict → 舊 binary 讀到 verdict reference 是整檔 quarantine（記錄消失），且該檔可被 bootstrap 的決定性 UUID 安靜覆寫、判定史全滅（#232 verify 實測整條鏈）。write gate 對 format < 8 拒寫含 verdict 的記錄＋指路；序列化形狀不變——8 只是「這個 store 可以持有 verdict」的宣告 |
+| 9 | 附件鍵域收窄為只剩 `zotero`（移除 `pool`）；新增記錄側副本引用 `akashic.sources`（#223，見 §2.4／§2.4.1）| **提升依據是鍵域的嚴格性，不是資料量**：`attachments` 元素鍵走 strict 驗證，未知種類導致**整檔 quarantine** 而非保留，所以縮減鍵域是 non-additive——帶 `pool` 附件的記錄被新 binary 讀到會整檔消失。移除當下受影響資料為 0 筆，但那是**巧合而非契約**；當死碼移除而不 bump，會讓 refuse-if-newer 在下一次真的有資料時失效。`writeEntry` 對 format < 9 拒寫含 `akashic.sources` 的記錄＋指路（原佔 8，rebase 時已被 #232 佔用順延） |
 
 3 與 4 曾經發生而未回寫本表（#81 補齊）；6 曾漏補（#74 一併回寫）。**「資料鍵變保留字」同屬版本歸屬**：`divergence` 成為形狀標籤使同名頂層鍵在 ≥5 成為保留字——這與形狀標籤機制（format 3）的既有語意一致，不另立規則（#74 後果二）。`akashic migrate` 是使用者知情動作：它把 store 升到 supported 版本，升版後舊 binary 整庫拒開是 refuse-if-newer 的**預期**行為，不是 migrate 的缺陷（#74 後果三，文件化現況）。
 
@@ -953,8 +982,7 @@ index 一起被清掉。
    `doctor` 列出含未知欄位的檔案（`unknownFieldFiles`），提示升級 binary。
 
 **strict 保留層**（closed shape，未知欄位仍＝decode 錯誤）：`authors` 元素
-（key/literal 二態封閉）、**`attachments` 元素**（`{zotero: path}` / `{pool: path}`
-單鍵封閉——R6 補列：此層加新欄位會原地重演 #23 的失敗模式，演化必須與 binary
+（key/literal 二態封閉）、**`attachments` 元素**（`{zotero: path}` 單鍵封閉——R6 補列：此層加新欄位會原地重演 #23 的失敗模式，演化必須與 binary
 同步 + 版本訊號，見 #24）、`provenance`（Zotero namespace，mapping 與 binary 同步
 演化、pull 覆寫）、`akashic.relations`（新關係類別應為 `akashic` 層的新欄位，
 由該層容忍涵蓋），以及 `akashic.author-list-completeness` 的四鍵 mapping、
@@ -1504,7 +1532,7 @@ quarantine——而其中兩個正是「最可能的下一次演化位置」。�
   fail-closed——載入即 quarantine，可見、可救。已知邊界（記載）：
   顯式 core tag（`!!int 123:`）與 plain `123:` 在 resolved-tag 層不可區分，
   接受並正規化為 plain。attachments 元素鍵維持 str-tag 檢查——鍵域固定為
-  `zotero`/`pool` 兩個純字母字串、恆 resolve 為 str，無等冪問題（三層鍵規則
+  `zotero` 這個純字母字串、恆 resolve 為 str，無等冪問題（三層鍵規則
   不同是刻意的：各層鍵域不同）。字串面撞名仍 fail-closed。
 - **有損字元守衛（R8 拆成兩層、全部 decode 入口無條件執行）**：
   (i) **毀字通道——NEL (U+0085) 一律拒收**（所有 decode 入口，含純 known 檔

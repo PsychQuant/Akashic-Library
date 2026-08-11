@@ -1248,6 +1248,16 @@ extension LibraryStore {
         if !lostTags.isEmpty { losses.append("tags: " + lostTags.joined(separator: "、")) }
         let lostLibs = e.akashic.libraries.filter { !keeper.akashic.libraries.contains($0) }
         if !lostLibs.isEmpty { losses.append("libraries: " + lostLibs.joined(separator: "、")) }
+        // 副本引用（#223）：同 attachments／tags 的差集判準。被併者指向的已儲存內容
+        // 若不在倖存者身上，那份副本就**失去了唯一指向它的記錄**——blob 還在
+        // `sources/`，但沒有任何 work 說得出它是誰的副本（反向是現算的，記錄沒了就
+        // 算不出來）。digest 完整列出不截斷：截半的 digest 無法貼去查，訊息叫人
+        // 「把要保留的搬到倖存者身上」就不可執行。
+        let lostSources = e.akashic.sources.filter { !keeper.akashic.sources.contains($0) }
+        if !lostSources.isEmpty {
+            losses.append("akashic.sources: " + lostSources.prefix(3).joined(separator: "、")
+                + (lostSources.count > 3 ? "…（共 \(lostSources.count) 筆）" : ""))
+        }
         // 出向 relations（doomed 自己指出去的）——遷移迴圈不搬 doomed 的出向
         let lostCites = e.akashic.relations.cites.filter { !keeper.akashic.relations.cites.contains($0) }
         if !lostCites.isEmpty { losses.append("cites: " + lostCites.joined(separator: "、")) }

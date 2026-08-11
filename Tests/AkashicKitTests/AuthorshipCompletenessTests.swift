@@ -442,10 +442,15 @@ final class AuthorshipCompletenessStoreIOTests: XCTestCase {
     }
 
     /// Regression baseline：akashic tolerant namespace 的 additive optional field 不升版。
-    /// （8 來自 #232 的 verdict 欄位對，與 witness 無關——witness 落地時是 7、
-    /// 沒有推動任何 bump，本測試主張的就是這件事。）
+    /// （現值來自 #232 的 verdict 欄位對＋#223 的 sources——都與 witness 無關；
+    /// witness 落地時是 7、沒有推動任何 bump，本測試主張的就是這件事。）
+    ///
+    /// ⚠️ 這個斷言**耦合到與 witness 無關的 bump**：它想說的是「witness 沒有造成
+    /// 升版」，但寫法是釘住當下的 `supported` 值，於是任何**別的**理由的 bump 都會
+    /// 讓它變紅（#223 的 9 即是一次）。要真正表達原意，該斷言的是「帶 witness
+    /// 的記錄能寫進沒有為它升版的 store」，而不是一個數字。留待後續處理。
     func testOptionalWitnessDoesNotBumpStoreVersion() {
-        XCTAssertEqual(StoreVersion.supported, 8)
+        XCTAssertEqual(StoreVersion.supported, 9)
     }
 
     /// 會抓到的回歸：known keys 順序漂移、漏存 exact authors/provenance、加入自我參照

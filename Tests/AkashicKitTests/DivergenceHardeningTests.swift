@@ -494,10 +494,11 @@ final class DivergenceHardeningTests: XCTestCase {
     /// （`DateFieldReportTests` 用 `Mirror(reflecting: PersonProfile())` 釘住維度數）。
     func testNestedTypeFieldCoverageOfMergeCheck() throws {
         let meta = Mirror(reflecting: AkashicMeta()).children.count
-        XCTAssertEqual(meta, 6, """
+        XCTAssertEqual(meta, 7, """
             AkashicMeta 的儲存屬性數變了（\(meta)）——`fieldsLostByMerging` 的 Entry 版
             逐一比對 tags／libraries／status／relations／authorListCompleteness／
-            unknownFields，新增的那個會在合併時靜默消失。補上比對後再更新這個數字。
+            sources／unknownFields，新增的那個會在合併時靜默消失。補上比對後再更新
+            這個數字。
             """)
         let rel = Mirror(reflecting: Relations()).children.count
         XCTAssertEqual(rel, 2, "Relations 的儲存屬性數變了（\(rel)）——出向 relations 的比對要跟上")

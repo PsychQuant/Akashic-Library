@@ -42,9 +42,14 @@ public struct ProvenanceReference: Equatable {
     /// 形狀錯的 digest 永遠 resolve 不到內容——內容定址的根壞了，這筆 reference
     /// 的「內容」半邊就是假的。fail-fast 於寫入/載入，勝過存了一個永遠找不到的指涉。
     public static func isValidDigest(_ s: String) -> Bool {
-        guard s.hasPrefix("sha256:") else { return false }
-        let hex = s.dropFirst("sha256:".count)
-        return hex.count == 64 && hex.allSatisfy { $0.isHexDigit && ($0.isNumber || $0.isLowercase) }
+        let bytes = Array(s.utf8)
+        let prefix = Array("sha256:".utf8)
+        guard bytes.count == prefix.count + 64,
+              bytes.starts(with: prefix) else { return false }
+        return bytes.dropFirst(prefix.count).allSatisfy { byte in
+            (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
+                || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains(byte)
+        }
     }
 
     /// 從平面欄位建構（YAML decode 的入口）。**驗證住這裡**，decode 只搬運：
@@ -142,19 +147,41 @@ public enum ProvenanceYAML {
     /// 欄位輸出順序固定（同一份資料每次 encode 位元組相同）；清單順序保留
     /// ——references 的順序是使用者的敘事順序，不重排。
     public static func node(_ refs: [ProvenanceReference]) throws -> Node {
-        Node(refs.map { r -> Node in
-            var pairs: [(Node, Node)] = [(Node("field"), Node(r.field))]
-            if let v = r.value { pairs.append((Node("value"), Node(v))) }
+        node(refs, strictStrings: false)
+    }
+
+    /// Canonical closed shapes 可要求 string scalar 保持 `.str` tag；只有會被 YAML
+    /// resolver 判成 bool／int／null／timestamp 等型別的值才加雙引號，避免無謂 byte drift。
+    static func strictNode(_ refs: [ProvenanceReference]) throws -> Node {
+        node(refs, strictStrings: true)
+    }
+
+    static func strictStringNode(_ value: String) -> Node {
+        let plain = Node(value)
+        guard plain.tag != Tag(.str) else { return plain }
+        return Node(value, Tag(.str), .doubleQuoted)
+    }
+
+    private static func node(
+        _ refs: [ProvenanceReference],
+        strictStrings: Bool
+    ) -> Node {
+        func stringNode(_ value: String) -> Node {
+            strictStrings ? Self.strictStringNode(value) : Node(value)
+        }
+        return Node(refs.map { r -> Node in
+            var pairs: [(Node, Node)] = [(Node("field"), stringNode(r.field))]
+            if let v = r.value { pairs.append((Node("value"), stringNode(v))) }
             switch r.kind {
             case let .retrieval(url, retrieved, status, mediaType, content):
-                pairs.append((Node("url"), Node(url)))
-                pairs.append((Node("retrieved"), Node(retrieved)))
+                pairs.append((Node("url"), stringNode(url)))
+                pairs.append((Node("retrieved"), stringNode(retrieved)))
                 pairs.append((Node("status"), Node("\(status)", Tag(.int))))
-                if let mt = mediaType { pairs.append((Node("media-type"), Node(mt))) }
-                pairs.append((Node("content"), Node(content)))
+                if let mt = mediaType { pairs.append((Node("media-type"), stringNode(mt))) }
+                pairs.append((Node("content"), stringNode(content)))
             case let .judgement(statement, restsOn):
-                pairs.append((Node("judgement"), Node(statement)))
-                pairs.append((Node("rests-on"), Node(restsOn.map { Node($0) })))
+                pairs.append((Node("judgement"), stringNode(statement)))
+                pairs.append((Node("rests-on"), Node(restsOn.map(stringNode))))
             }
             return Node(pairs)
         })

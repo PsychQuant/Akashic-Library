@@ -96,6 +96,12 @@ final class ProvenanceTests: XCTestCase {
         XCTAssertFalse(ProvenanceReference.isValidDigest("md5:abc"))
         XCTAssertFalse(ProvenanceReference.isValidDigest(
             "sha256:" + String(repeating: "AB", count: 32)), "大寫 hex 不收——定址鍵只有一種寫法")
+        XCTAssertFalse(ProvenanceReference.isValidDigest(
+            "sha256:" + String(repeating: "ａ", count: 64)),
+            "Unicode 全形字母不是 SHA-256 ASCII hex")
+        XCTAssertFalse(ProvenanceReference.isValidDigest(
+            "sha256:" + String(repeating: "０", count: 64)),
+            "Unicode 全形數字不是 SHA-256 ASCII hex")
         XCTAssertTrue(ProvenanceReference.isValidDigest(digestA))
     }
 

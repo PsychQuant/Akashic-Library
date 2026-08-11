@@ -84,8 +84,19 @@ public enum StoreVersion {
     /// `split(separator: "\n")` 完全不分行）——換行符變體不是語意歧義。
     public static func read(root: URL) throws -> Int {
         let u = url(in: root)
-        guard FileManager.default.fileExists(atPath: u.path) else { return 1 }
-        let text = try String(contentsOf: u, encoding: .utf8)
+        guard FileManager.default.fileExists(atPath: u.path) else {
+            return try read(data: nil, path: u.path)
+        }
+        return try read(data: Data(contentsOf: u), path: u.path)
+    }
+
+    /// 與 filesystem API 共用的 bytes parser。snapshot 接受 capture 後只能走這條，
+    /// 不得為了解析 marker 再回頭讀磁碟。
+    static func read(data: Data?, path: String) throws -> Int {
+        guard let data else { return 1 }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw StoreVersionError.malformed(path: path, line: "(標記檔不是 UTF-8)")
+        }
         var found: Int?
         for raw in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
             let line = raw.trimmingCharacters(in: .whitespaces)
@@ -98,31 +109,31 @@ public enum StoreVersion {
             // CLI 頂層的 choke point 是 #114 的另一層，兩者互補不互代）。
             guard let first = raw.unicodeScalars.first,
                   !CharacterSet.whitespaces.contains(first) else {
-                throw StoreVersionError.malformed(path: u.path, line: displaySafe(String(raw)))
+                throw StoreVersionError.malformed(path: path, line: displaySafe(String(raw)))
             }
             guard line.hasPrefix("format:") else {
-                throw StoreVersionError.malformed(path: u.path, line: displaySafe(line))
+                throw StoreVersionError.malformed(path: path, line: displaySafe(line))
             }
             guard found == nil else {
-                throw StoreVersionError.malformed(path: u.path, line: "(第二個 format: 行——歧義)")
+                throw StoreVersionError.malformed(path: path, line: "(第二個 format: 行——歧義)")
             }
             let v = line.dropFirst("format:".count)
                 .trimmingCharacters(in: .whitespaces)
             let numeric = v.prefix { $0.isNumber }
             guard let n = Int(numeric), n >= 1 else {
-                throw StoreVersionError.malformed(path: u.path, line: displaySafe(line))
+                throw StoreVersionError.malformed(path: path, line: displaySafe(line))
             }
             // 值後面只能是註解（`format: 1  # v1.x`）——`format: 2 garbage` 與
             // `format: 2.5` 都不是「帶註解的整數」，不得取前綴當真
             let rest = v.dropFirst(numeric.count).trimmingCharacters(in: .whitespaces)
             guard rest.isEmpty || rest.hasPrefix("#") else {
-                throw StoreVersionError.malformed(path: u.path, line: displaySafe(line))
+                throw StoreVersionError.malformed(path: path, line: displaySafe(line))
             }
             found = n
         }
         guard let found else {
             // 檔案存在但沒有 format: 行——不猜，明說。
-            throw StoreVersionError.malformed(path: u.path, line: "(檔案內找不到 format: 行)")
+            throw StoreVersionError.malformed(path: path, line: "(檔案內找不到 format: 行)")
         }
         return found
     }

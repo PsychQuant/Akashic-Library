@@ -504,25 +504,92 @@ public final class LibraryStore {
         return dest
     }
 
+    private struct CanonicalLoadSource {
+        let markerData: Data?
+        let markerPath: String
+        let paths: (_ directory: String) throws -> [String]
+        let data: (_ relativePath: String) throws -> Data
+
+        func text(_ relativePath: String) throws -> String {
+            let bytes = try data(relativePath)
+            guard let text = String(data: bytes, encoding: .utf8) else {
+                throw StoreIOError.invalidInput(
+                    what: relativePath, why: "canonical YAML 不是 UTF-8")
+            }
+            return text
+        }
+    }
+
     /// 掃描整個 library。schema 不合的檔案進 quarantined 報告，不靜默略過、
     /// 也不讓單一壞檔中斷整批載入。
     public func load() throws -> LibraryLoad {
+        let markerURL = StoreVersion.url(in: root)
+        let markerData: Data?
+        if FileManager.default.fileExists(atPath: markerURL.path) {
+            markerData = try Data(contentsOf: markerURL)
+        } else {
+            markerData = nil
+        }
+        let source = CanonicalLoadSource(
+            markerData: markerData,
+            markerPath: markerURL.path,
+            paths: { [self] directory in
+                try yamlFiles(in: root.appendingPathComponent(directory)).map {
+                    "\(directory)/\($0.lastPathComponent)"
+                }
+            },
+            data: { [root] relativePath in
+                try Data(contentsOf: root.appendingPathComponent(relativePath))
+            })
+        return try load(from: source)
+    }
+
+    /// snapshot 接受 capture 後的純記憶體 decode seam；不得在這條路徑重新讀磁碟。
+    func decodeCaptured(_ captured: CapturedCanonicalStore) throws -> LibraryLoad {
+        // Swift String equality 會把 NFC/NFD 視為相等；filesystem 與 revision 的 path
+        // 身分則是 raw UTF-8。用 String 當 dictionary key，兩個可並存的 raw path 會在
+        // `uniqueKeysWithValues` 直接 precondition trap，也會與 digest 的身分邊界分叉。
+        let byRawPath = Dictionary(uniqueKeysWithValues: captured.yamlRecords.map {
+            (Data($0.path.utf8), $0.bytes)
+        })
+        let source = CanonicalLoadSource(
+            markerData: captured.markerBytes,
+            markerPath: StoreVersion.url(in: root).path,
+            paths: { directory in
+                Array(captured.yamlRecords.lazy
+                    .map(\.path)
+                    .filter { $0.hasPrefix("\(directory)/") })
+            },
+            data: { relativePath in
+                guard let bytes = byRawPath[Data(relativePath.utf8)] else {
+                    throw StoreIOError.invalidInput(
+                        what: relativePath, why: "accepted capture 缺少已列舉的 bytes")
+                }
+                return bytes
+            })
+        return try load(from: source)
+    }
+
+    private func load(from source: CanonicalLoadSource) throws -> LibraryLoad {
         // #24：refuse-if-newer 必須在**逐檔 decode 之前**。等到 decode 現場才發現
         // 不對，使用者拿到的是一堆難解的 per-file 錯誤，而不是一句「請升級 binary」。
-        try StoreVersion.check(root: root)
+        let format = try StoreVersion.read(data: source.markerData, path: source.markerPath)
+        guard format <= StoreVersion.supported else {
+            throw StoreVersionError.tooNew(found: format, supported: StoreVersion.supported)
+        }
         // 形狀標籤的嚴格度由 format 決定（見 EntityKind.peek 的 strict 參數）：
         // format ≥ 3 的檔案是標籤機制之後寫的，缺標籤即錯；舊格式須容忍，否則
         // `akashic migrate` 會連載入都做不到——它正是要來替那些檔貼標籤的。
-        let strictLabels = (try StoreVersion.read(root: root)) >= 3
+        let strictLabels = format >= 3
         var result = LibraryLoad()
 
         // #35：entities/ 是 format 2 的 canonical 目錄。**與 legacy 並存讀取**——
         // 遷移是一次性動作，但舊佈局的 store（含別人的 clone、未遷移的備份）必須照樣讀。
-        for url in try yamlFiles(in: entitiesDir) {
-            let name = "entities/\(url.lastPathComponent)"
+        for path in try source.paths("entities") {
+            let name = path
             do {
-                let text = try readUTF8(url)
-                let stem = url.deletingPathExtension().lastPathComponent
+                let text = try source.text(path)
+                let stem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
                 // 檔名即身分：stem 必須是合法 UUID 且與記錄的 id 相符。
                 // 不符時 quarantine——那代表有人手動改了檔名或 id，兩者都會讓引用錯位。
                 guard let stemUUID = UUID(uuidString: stem) else {
@@ -611,22 +678,23 @@ public final class LibraryStore {
             }
         }
 
-        for url in try yamlFiles(in: entriesDir) {
+        for path in try source.paths("entries") {
+            let name = path
             do {
-                let entry = try EntryYAML.decode(try readUTF8(url))
+                let entry = try EntryYAML.decode(try source.text(path))
                 // 語意驗證：decode 成功但 key 不合法／與檔名不符 → quarantine。
                 // 畸形 citekey 一旦進入 library，之後任何 entryURL 組合（rename 刪除、
                 // orphan trash）都是 path traversal 面；檔名不符則造成重複 entry 與錯位刪除。
-                let stem = url.deletingPathExtension().lastPathComponent
+                let stem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
                 guard StoreKey.isValid(entry.citekey) else {
                     result.quarantined.append(QuarantinedFile(
-                        file: "entries/\(url.lastPathComponent)",
+                        file: name,
                         reason: "citekey「\(entry.citekey)」不符合 \(StoreKey.pattern)"))
                     continue
                 }
                 guard stem == entry.citekey else {
                     result.quarantined.append(QuarantinedFile(
-                        file: "entries/\(url.lastPathComponent)",
+                        file: name,
                         reason: "檔名 stem「\(stem)」與 citekey「\(entry.citekey)」不符"))
                     continue
                 }
@@ -634,7 +702,7 @@ public final class LibraryStore {
                 // 寫入都會被 writeEntry 拒絕（看似可讀、實則鎖死）；重複 key 使計數失真
                 if let bad = entry.akashic.libraries.first(where: { !StoreKey.isValid($0) }) {
                     result.quarantined.append(QuarantinedFile(
-                        file: "entries/\(url.lastPathComponent)",
+                        file: name,
                         reason: "akashic.libraries key「\(bad)」不符合 \(StoreKey.pattern)"))
                     continue
                 }
@@ -645,64 +713,66 @@ public final class LibraryStore {
                 var seen = Set<String>()
                 entry2.akashic.libraries = entry.akashic.libraries.filter { seen.insert($0).inserted }
                 if !entry2.unknownFields.isEmpty || !entry2.akashic.unknownFields.isEmpty {
-                    result.unknownFieldFiles.append("entries/\(url.lastPathComponent)")
+                    result.unknownFieldFiles.append(name)
                 }
                 result.entries.append(entry2)
             } catch {
                 result.quarantined.append(QuarantinedFile(
-                    file: "entries/\(url.lastPathComponent)",
+                    file: name,
                     reason: String(describing: error)))
             }
         }
-        for url in try yamlFiles(in: peopleDir) {
+        for path in try source.paths("people") {
+            let name = path
             do {
-                let person = try PersonYAML.decode(try readUTF8(url))
-                let stem = url.deletingPathExtension().lastPathComponent
+                let person = try PersonYAML.decode(try source.text(path))
+                let stem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
                 guard StoreKey.isValid(person.key) else {
                     result.quarantined.append(QuarantinedFile(
-                        file: "people/\(url.lastPathComponent)",
+                        file: name,
                         reason: "person key「\(person.key)」不符合 \(StoreKey.pattern)"))
                     continue
                 }
                 guard stem == person.key else {
                     result.quarantined.append(QuarantinedFile(
-                        file: "people/\(url.lastPathComponent)",
+                        file: name,
                         reason: "檔名 stem「\(stem)」與 person key「\(person.key)」不符"))
                     continue
                 }
                 if !person.unknownFields.isEmpty {
-                    result.unknownFieldFiles.append("people/\(url.lastPathComponent)")
+                    result.unknownFieldFiles.append(name)
                 }
                 result.people.append(person)
             } catch {
                 result.quarantined.append(QuarantinedFile(
-                    file: "people/\(url.lastPathComponent)",
+                    file: name,
                     reason: String(describing: error)))
             }
         }
-        for url in try yamlFiles(in: librariesDir) {
+        for path in try source.paths("libraries") {
+            let name = path
             do {
-                let library = try LibraryYAML.decode(try readUTF8(url))
-                let stem = url.deletingPathExtension().lastPathComponent
+                let library = try LibraryYAML.decode(try source.text(path))
+                let stem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
                 guard StoreKey.isValid(library.key) else {
                     result.quarantined.append(QuarantinedFile(
-                        file: "libraries/\(url.lastPathComponent)",
+                        file: name,
                         reason: "library key「\(library.key)」不符合 \(StoreKey.pattern)"))
                     continue
                 }
                 guard stem == library.key else {
                     result.quarantined.append(QuarantinedFile(
-                        file: "libraries/\(url.lastPathComponent)",
+                        file: name,
                         reason: "檔名 stem「\(stem)」與 library key「\(library.key)」不符"))
                     continue
                 }
                 if !library.unknownFields.isEmpty {
-                    result.unknownFieldFiles.append("libraries/\(url.lastPathComponent)")
+                    result.unknownFieldFiles.append(name)
                 }
                 result.libraries.append(library)
             } catch {
                 result.quarantined.append(QuarantinedFile(
-                    file: "libraries/\(url.lastPathComponent)",
+                    file: name,
                     reason: String(describing: error)))
             }
         }
@@ -715,14 +785,25 @@ public final class LibraryStore {
 
     // MARK: - Internals
 
-    private func yamlFiles(in dir: URL) throws -> [URL] {
+    /// Internal listing seam 讓 tests 可在會正規化檔名的 macOS 上，仍以兩個 raw UTF-8
+    /// 不同但 canonical-equivalent 的 URL 驗證 production enumeration 邏輯。
+    func yamlFiles(
+        in dir: URL,
+        listing: ((URL) throws -> [URL])? = nil
+    ) throws -> [URL] {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: dir.path) else { return [] }
+        let urls: [URL]
+        if let listing {
+            urls = try listing(dir)
+        } else {
+            guard fm.fileExists(atPath: dir.path) else { return [] }
+            urls = try fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        }
         // 副檔名比對大小寫不敏感：macOS 檔案系統多為 case-insensitive，
         // `.YAML` 檔是寫入目的檔的別名，必須被枚舉（否則連 quarantine 都進不了）
-        return try fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        return urls
             .filter { $0.pathExtension.lowercased() == "yaml" && !$0.lastPathComponent.hasPrefix(".") }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .sorted { rawUTF8Less($0.lastPathComponent, $1.lastPathComponent) }
     }
 
     private func readUTF8(_ url: URL) throws -> String {

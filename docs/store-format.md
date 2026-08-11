@@ -135,6 +135,23 @@ akashic:                         # Akashic namespace——pull 絕不觸碰
   relations:
     cites: [olsson1979maximum]   # citekey 或 UUID；庫外引用允許
     related: [foldnes2019bivariate]
+  author-list-completeness:      # 選填；只證成這一筆 work 的 exact ordered authors
+    work-id: 7C1F6C2E-1A2B-4C3D-9E8F-000000000001
+    author-list-fingerprint: sha256:387ccc7ec01d41db3f3e703e6622e2a676a0411754eca775b9388fb2c57c3565
+    attested-authors:
+      - key: cheng-che
+      - literal: Hau-Hung Yang
+    references:
+      - field: authors
+        url: https://example.org/catalogue/cheng2025identifiability
+        retrieved: "2026-08-10"
+        status: 200
+        media-type: text/html
+        content: sha256:abababababababababababababababababababababababababababababababab
+      - field: authors
+        judgement: 此來源逐一列出本作品的完整作者清單
+        rests-on:
+          - sha256:abababababababababababababababababababababababababababababababab
 ```
 
 ### 2.2 必要欄位
@@ -177,7 +194,48 @@ Zotero 欄位只保留 `ZoteroMapping.fieldMap` 允許清單內的項目（title
 quarantined 檔（decode 失敗）**永不被 import 覆寫**：其 basename 佔住 citekey，
 新 entry 一律讓位取衝突後綴。
 
-### 2.5.1 v1.1 update 條件與身分（Phase 2）
+### 2.5.1 Canonical 作者清單完備性證言
+
+`akashic.author-list-completeness` 是**選填、由 Akashic 擁有、只綁一筆 Entry** 的
+canonical witness。它不是「館藏完備」旗標，也不把其他 predicate 或世界整體改成
+closed world；只有通過下列封閉契約的 witness，才可授權 `authored(person, work)` 對
+exact author list 作負向排除：
+
+1. mapping 的四個 known key 固定依 `work-id`、`author-list-fingerprint`、
+   `attested-authors`、`references` 輸出。四者皆必填；未知、重複、非字串或形狀不符的
+   key 一律拒收。`attested-authors` 保留 `authors` 的原始順序及每槽 `key`／`literal`
+   形狀；完備的空清單必須明寫 `[]`，不能靠欄位缺席暗示。
+2. `author-list-fingerprint` 是 `sha256:` 加 64 個小寫 hex。v1 framing 依序雜湊
+   ASCII domain `akashic-author-list-v1`、作者槽數的 UInt64 big-endian，接著對每槽雜湊
+   一 byte case tag（`key` = 0、`literal` = 1）、raw UTF-8 byte 長度的 UInt64
+   big-endian 與 raw UTF-8 bytes。順序、槽位邊界、key／literal case，以及 NFC／NFD
+   原始 bytes 都有語意；不得先串字串、排序或 Unicode 正規化。
+3. `references` 重用 §3.5 的 strict reference schema，但在 witness 內另加封閉條件：
+   每筆 `field` 必須恰為 `authors`、`value` 必須缺席；bundle 至少各有一筆 retrieval
+   與 judgement，且每個 judgement 的 `rests-on` digest 必須在同一 bundle 的 retrieval
+   `content` 中出現。只有 URL、只有 retrieval，或引用 bundle 外部 digest，都不構成
+   作者清單完備性證言。
+4. binding 同時驗 `work-id == Entry.id`、persisted fingerprint 可由
+   `attested-authors` 重算，且該 fingerprint 等於 Entry 當前 exact ordered raw
+   `authors`。`citekey` 刻意不在 binding 內，因此合法 rename 保留 witness；UUID、作者
+   增刪、順序、case 或 raw bytes 改變則使 witness stale。decode 遇 malformed／stale
+   witness 時整筆檔案 quarantine，不得把錯誤降成「witness 缺席」；程式內直接組出的
+   model 也在進入 proposition truth boundary 前重驗同一 binding。
+
+這是 `akashic` tolerant namespace 裡的 additive optional known field：witness 缺席時
+既有 canonical bytes 完全不變，也**不 bump store format**。較舊 binary 依 v1.3
+tolerant-preserve 將整個未知子樹逐字帶過；認得本欄位的 binary 則把其內部 mapping
+視為 strict closed shape。witness 本身不保存 `store-revision` 或 `snapshot-id`，避免
+自我參照；它的 canonical bytes 與同一 accepted filesystem capture 一起進入
+`StoreRevision`，所以只新增／修改 witness 會改變 revision 與 decoded snapshot，卻不改
+store identity 或 Entry UUID。
+
+work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被併者有 witness、
+倖存者缺席或持有另一筆 work-bound witness 時必須拒絕並指名
+`author-list-completeness`；只有同值 witness 才不構成遺失。不得採 keeper-wins、靜默
+丟棄或把一筆 work 的證言移植到另一個 UUID。
+
+### 2.5.2 v1.1 update 條件與身分（Phase 2）
 
 - **身分**＝`(library_id, zotero_key)` 複合鍵；**預設 pull 全部 libraries**（personal + groups；
   實庫驗證 group 文獻是真實使用）。`--library-id` 限縮時，orphan 判定只作用於該 library
@@ -609,7 +667,9 @@ n 則說同一件事的警告。`.literal` 的 parents **MUST NOT** 計為邊—
 
 ## 3.5 `references`：欄位層級的 provenance（normative，#66）
 
-person 與 organization 記錄可攜帶頂層 `references:` 清單——一筆 provenance 同時記
+person 與 organization 記錄可攜帶頂層 `references:` 清單；Entry 的
+`akashic.author-list-completeness.references` 也重用同一種 reference 形狀，並再受
+§2.5.1 的封閉 bundle 規則約束。一筆 provenance 同時記
 **取得路徑**（URL、擷取日期、HTTP 狀態）與**取得的內容**（SHA-256 定址的位元組）。
 只有 URL 不構成 provenance：URL 是通往內容的路徑，不是內容本身（實測兩個 host 回
 相同位元組、第三個 404）。
@@ -831,7 +891,11 @@ index 一起被清掉。
 單鍵封閉——R6 補列：此層加新欄位會原地重演 #23 的失敗模式，演化必須與 binary
 同步 + 版本訊號，見 #24）、`provenance`（Zotero namespace，mapping 與 binary 同步
 演化、pull 覆寫）、`akashic.relations`（新關係類別應為 `akashic` 層的新欄位，
-由該層容忍涵蓋）。
+由該層容忍涵蓋），以及 `akashic.author-list-completeness` 的四鍵 mapping、
+`attested-authors` 槽與 nested `references`。最後一項是 truth-bearing witness：未知或
+重複 key、null、stale binding 都必須 quarantine，不能由 tolerant-preserve 吸收成
+「沒有 witness」；只有不認得整個頂層 `author-list-completeness` key 的舊 binary 才把
+完整未知子樹逐字保留。
 
 **known 欄位的形狀演化不入 tolerant 範圍（normative，R6；R8 精確化）**：known
 key 存在但形狀不符（如 `names` 由 sequence 演化為 mapping、`tags` 變 mapping、
@@ -1249,12 +1313,14 @@ I/O 錯誤）收容並回報——此時被併記錄**可能部分已刪**，但
 
 | 比對（doomed 有而 keeper 沒有／衝突 → 拒絕） | 部分比對（只比缺席方向） | 排除（身分） |
 |---|---|---|
-| `fields`（逐 key；同 key 不同值＝衝突）、`attachments`、`akashic`（tags／libraries／status／**出向 relations**／unknownFields——cites/related 的遷移只搬「別人指向被併者」的參照，被併者自己指出去的隨檔案消失）、`authors`（`.key` 是 resolve-people 歸戶的產物，work 合併不搬）、`date`、`unknownFields`、`provenance`（`zoteroKey`／`libraryID` 的**對**、`orphanedAt`）——共 **7** | `type`／`title`——共 **2**。keeper 為空、被併者非空 → 拒絕（`""` 不是任何人選的 form，它是缺席）。兩邊都非空時**不擋**：要求相等會誤拒最常見形狀，keeper 的寫法**就是人選的 canonical form**。<br><br>**兩者不對稱**：只有 `title` 額外發不擋的提醒（#169）——被併者以 `title` 為前綴（case-fold）、且多出來的部分**含詞字元**時進 `warnings`。少了詞字元條件，真 corpus 上 5 次觸發**全部**是 APA 句末句點、真實遺失 0 筆。**`type` 不發**：它是封閉 token 集合，字串包含與完整度零相關（13 對標準 biblatex type 滿足包含，`book ⊂ inbook` 不是「較長版本」）。 | `id`／`citekey`——共 **2**。身分，不隨合併移動 |
+| `fields`（逐 key；同 key 不同值＝衝突）、`attachments`、`akashic`（tags／libraries／status／**出向 relations**／author-list-completeness／unknownFields——cites/related 的遷移只搬「別人指向被併者」的參照，被併者自己指出去的隨檔案消失；canonical witness 的專屬規則見 §2.5.1）、`authors`（`.key` 是 resolve-people 歸戶的產物，work 合併不搬）、`date`、`unknownFields`、`provenance`（`zoteroKey`／`libraryID` 的**對**、`orphanedAt`）——共 **7** | `type`／`title`——共 **2**。keeper 為空、被併者非空 → 拒絕（`""` 不是任何人選的 form，它是缺席）。兩邊都非空時**不擋**：要求相等會誤拒最常見形狀，keeper 的寫法**就是人選的 canonical form**。<br><br>**兩者不對稱**：只有 `title` 額外發不擋的提醒（#169）——被併者以 `title` 為前綴（case-fold）、且多出來的部分**含詞字元**時進 `warnings`。少了詞字元條件，真 corpus 上 5 次觸發**全部**是 APA 句末句點、真實遺失 0 筆。**`type` 不發**：它是封閉 token 集合，字串包含與完整度零相關（13 對標準 biblatex type 滿足包含，`book ⊂ inbook` 不是「較長版本」）。 | `id`／`citekey`——共 **2**。身分，不隨合併移動 |
 
 子集才放行——搬欄位是人的判斷，不自動合併。7 + 2 + 2 ＝ `Entry` 的 11 個儲存
-屬性（`akashic` 的五個子欄位**收合成一個屬性算**），由
+屬性（`akashic` 的六個子欄位**收合成一個屬性算**），由
 `testEntryFieldCoverageOfMergeCheck` 以反射釘住；巢狀型別（`AkashicMeta`／`Relations`／
-`Provenance`）另有各自的計數斷言——歷史上 schema 演化正是發生在 `akashic` 那層，
+`Provenance`）另有各自的計數斷言——`AkashicMeta` 現有 tags／libraries／status／
+relations／author-list-completeness／unknownFields 六個儲存子欄位；歷史上 schema 演化
+正是發生在 `akashic` 那層，
 只釘頂層對最會 rot 的地方失明（#157 verify 157-9）。
 
 兩個判準值得單獨寫明（#157 verify 157-6／157-7／157-8——第一版兩者都做錯，且真

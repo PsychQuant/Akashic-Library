@@ -121,17 +121,22 @@ public struct AkashicMeta: Equatable {
     public var libraries: [String]
     public var status: String?
     public var relations: Relations
+    /// Exact work UUID、ordered raw author snapshot 與封閉 provenance chain 的
+    /// optional canonical 完備性證言。缺席保留 open-world 語意。
+    public var authorListCompleteness: AuthorListCompletenessWitness?
     /// akashic namespace 內的未知欄位（tolerant-preserve，#23）——
     /// 歷史上 schema 演化就發生在這層（#13 的 `libraries` 即是）。
     public var unknownFields: [UnknownField]
 
     public init(tags: [String] = [], libraries: [String] = [],
                 status: String? = nil, relations: Relations = Relations(),
+                authorListCompleteness: AuthorListCompletenessWitness? = nil,
                 unknownFields: [UnknownField] = []) {
         self.tags = tags
         self.libraries = libraries
         self.status = status
         self.relations = relations
+        self.authorListCompleteness = authorListCompleteness
         self.unknownFields = unknownFields
     }
 
@@ -140,6 +145,7 @@ public struct AkashicMeta: Equatable {
     /// isEmpty 不再是 encode 的丟段防線，但語意上「有未知欄位 ≠ 空」仍須成立）。
     public var isEmpty: Bool {
         tags.isEmpty && libraries.isEmpty && status == nil && relations.isEmpty
+            && authorListCompleteness == nil
             && unknownFields.isEmpty
     }
 }

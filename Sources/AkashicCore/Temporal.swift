@@ -20,7 +20,7 @@ import Foundation
 /// 用**字串**而非 `Date`。來源資料是 `2003-01` 這種月精度，轉成 `Date` 得補一個
 /// 不存在的「日」，之後就再也分不出「1 月」與「1 月 1 日」。字串保留來源的精度，
 /// 比較用字典序（ISO 8601 的前綴特性讓它剛好正確）。
-public struct DateRange: Equatable, Comparable {
+public struct DateRange: Equatable, Hashable, Comparable, Sendable {
     /// ISO 8601 前綴：`2003`、`2003-01`、`2003-01-15`。
     public var start: String?
     /// `nil` 且未標 `endedUnknown` ＝ 仍在進行中（**不是**「未知」）。

@@ -122,8 +122,13 @@ extension NameNormalizationTests {
 /// 不對「機械層」整體成立（`PersonBootstrap.identity` 有做重排等價；見 #226）。
 ///
 /// 這組測試釘住的是 **`matchingKey` 的行為邊界**。`authorized` 禁令的論據**不在這裡，
-/// 也不在 `validate` 裡**——它是語意的（「決定不能被計算」），見 `Person.authorized`
-/// 的 doc。這裡只釘機械行為。哪天有人「順手」讓 matchingKey 也吃語序，這裡會紅。
+/// 也不在 `validate` 裡**——它是語意的（見 `Person.authorized` 的 doc）。這裡只釘
+/// 機械行為。
+///
+/// > **不要寫「有人讓 matchingKey 吃語序，這裡會紅」。** 那是未限定的全稱句，而
+/// > `testMatchingKeyActsSegmentwise` 的 doc 自己就記著三個曾經存活的語序塌陷突變
+/// > （#222 R3）。準確的說法是：**該測試的覆蓋自檢所列的那幾類會紅**——覆蓋範圍寫在
+/// > 它自己的斷言裡，不在這段標頭裡。
 extension NameNormalizationTests {
 
     /// `matchingKey` **逐段作用**——這才是「不重排語序」的正確編碼。
@@ -256,8 +261,11 @@ extension NameNormalizationTests {
                                               ownerKey: "probe")
         XCTAssertFalse(issues.contains { $0.message.contains("不在 names 內") },
                        "不變式 1 不該觸發——若觸發，本測試就在錯的理由上通過")
+        // 比對訊息裡的**格式片段**，不是裸 `"han"`——`WritingSystem` 的 rawValue 會被
+        // 插進 `在書寫系統 \(rawValue) 有`，而裸子字串會被名字本身命中：
+        // **`Chang` 就含 `han`**，且 `"Chang,"` 正寫在本檔上方的 `parts` 陣列裡（#222 R6）。
         XCTAssertTrue(
-            issues.contains { $0.severity == .error && $0.message.contains("han") },
+            issues.contains { $0.severity == .error && $0.message.contains("書寫系統 han 有") },
             "不變式 2 必須報 error：兩個漢字 authorized 是「未決」不是「指定」。"
             + "實際 issues：\(issues.map(\.message))")
     }

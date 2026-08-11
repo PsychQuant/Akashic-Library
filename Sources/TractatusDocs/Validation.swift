@@ -51,6 +51,12 @@ public struct TractatusValidationFailure: Error, LocalizedError, Sendable {
 }
 
 public enum CorpusValidator {
+    private enum AssetCapture {
+        case digest(String)
+        case resourceLimit(String)
+        case unreadable
+    }
+
     public static func validateStructure(
         manifest: SourceManifest,
         volumes: [CorpusVolume]
@@ -536,6 +542,26 @@ public enum CorpusValidator {
         volumes: [CorpusVolume],
         root: URL
     ) -> [CorpusDiagnostic] {
+        validateAssets(
+            volumes: volumes,
+            root: root,
+            maximumTotalBytes: CorpusResourceLimits.maximumTotalReferencedAssetBytes,
+            assetLoader: { candidate in
+                try boundedFileData(
+                    contentsOf: candidate,
+                    maximumBytes: CorpusResourceLimits.maximumReferencedAssetBytes,
+                    kind: "referenced-asset-bytes"
+                )
+            }
+        )
+    }
+
+    static func validateAssets(
+        volumes: [CorpusVolume],
+        root: URL,
+        maximumTotalBytes: Int,
+        assetLoader: (URL) throws -> Data
+    ) -> [CorpusDiagnostic] {
         let assetsRoot = root.appendingPathComponent("source-assets", isDirectory: true)
             .standardizedFileURL
             .resolvingSymlinksInPath()
@@ -556,6 +582,20 @@ public enum CorpusValidator {
             checksums = [:]
         }
         var diagnostics: [CorpusDiagnostic] = []
+        var captureCache: [String: AssetCapture] = [:]
+        var totalCapturedBytes = 0
+        var totalLimitMessage: String?
+
+        func recordCapturedBytes(_ count: Int) -> String? {
+            let (sum, overflow) = totalCapturedBytes.addingReportingOverflow(count)
+            totalCapturedBytes = overflow ? maximumTotalBytes + 1 : sum
+            guard totalCapturedBytes > maximumTotalBytes else { return nil }
+            return CorpusSchemaError.resourceLimit(
+                kind: "referenced-assets-total-bytes",
+                actual: totalCapturedBytes,
+                maximum: maximumTotalBytes
+            ).localizedDescription
+        }
 
         for volume in volumes {
             let corpusPath = "corpus/\(volume.volume).yaml"
@@ -589,22 +629,47 @@ public enum CorpusValidator {
                         ))
                         continue
                     }
-                    let data: Data
-                    do {
-                        data = try boundedFileData(
-                            contentsOf: candidate,
-                            maximumBytes: CorpusResourceLimits.maximumReferencedAssetBytes,
-                            kind: "referenced-asset-bytes"
-                        )
-                    } catch let error as CorpusSchemaError {
+                    let capture: AssetCapture
+                    if let cached = captureCache[candidate.path] {
+                        capture = cached
+                    } else if let message = totalLimitMessage {
+                        capture = .resourceLimit(message)
+                        captureCache[candidate.path] = capture
+                    } else {
+                        do {
+                            let data = try assetLoader(candidate)
+                            if let message = recordCapturedBytes(data.count) {
+                                totalLimitMessage = message
+                                capture = .resourceLimit(message)
+                            } else {
+                                let digest = SHA256.hash(data: data)
+                                    .map { String(format: "%02x", $0) }
+                                    .joined()
+                                capture = .digest(digest)
+                            }
+                        } catch let error as CorpusSchemaError {
+                            if case let .resourceLimit(_, actual, _) = error,
+                               let message = recordCapturedBytes(actual) {
+                                totalLimitMessage = message
+                                capture = .resourceLimit(message)
+                            } else {
+                                capture = .resourceLimit(error.localizedDescription)
+                            }
+                        } catch {
+                            capture = .unreadable
+                        }
+                        captureCache[candidate.path] = capture
+                    }
+                    switch capture {
+                    case let .resourceLimit(message):
                         diagnostics.append(CorpusDiagnostic(
                             path: corpusPath,
                             recordID: proposition.id.rawValue,
                             code: "resource-limit",
-                            message: error.localizedDescription
+                            message: message
                         ))
                         continue
-                    } catch {
+                    case .unreadable:
                         diagnostics.append(CorpusDiagnostic(
                             path: corpusPath,
                             recordID: proposition.id.rawValue,
@@ -612,17 +677,15 @@ public enum CorpusValidator {
                             message: "來源圖資無法讀取：\(reference)"
                         ))
                         continue
-                    }
-                    let actualDigest = SHA256.hash(data: data)
-                        .map { String(format: "%02x", $0) }
-                        .joined()
-                    if actualDigest != expectedDigest {
-                        diagnostics.append(CorpusDiagnostic(
-                            path: corpusPath,
-                            recordID: proposition.id.rawValue,
-                            code: "digest-mismatch",
-                            message: "來源圖資 SHA-256 與離線清單不符：\(reference)"
-                        ))
+                    case let .digest(actualDigest):
+                        if actualDigest != expectedDigest {
+                            diagnostics.append(CorpusDiagnostic(
+                                path: corpusPath,
+                                recordID: proposition.id.rawValue,
+                                code: "digest-mismatch",
+                                message: "來源圖資 SHA-256 與離線清單不符：\(reference)"
+                            ))
+                        }
                     }
                 }
             }

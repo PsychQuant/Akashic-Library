@@ -57,7 +57,8 @@ swift run tractatus-doc render --root docs/tractatus --output docs/tractatus/gen
 全次驗證最多 1,024 筆 evidence／512 筆 history；current-evidence 單檔最多讀 4 MiB。
 `sources.yaml` 最多 256 KiB／16 個 editions，inline snapshot 最多 2 MiB 且依
 canonical path 一次擷取，同一份 bytes 同時供 digest 與
-fidelity 驗證，`SHA256SUMS` 最多 256 KiB，單一 referenced asset 最多 8 MiB。
+fidelity 驗證，`SHA256SUMS` 最多 256 KiB，單一 referenced asset 最多 8 MiB，
+每次驗證的 unique canonical asset captures 合計最多 64 MiB。
 所有 YAML 另先通過共用 alias-event expansion budget。超界一律以 `resource-limit`
 fail closed，不進入 composition、locator、digest 或 Git history 的無界工作。
 

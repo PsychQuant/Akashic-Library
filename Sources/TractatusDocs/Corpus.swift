@@ -45,6 +45,7 @@ enum CorpusResourceLimits {
     static let maximumInlineSnapshotUTF8Bytes = 2 * 1024 * 1024
     static let maximumAssetManifestUTF8Bytes = 256 * 1024
     static let maximumReferencedAssetBytes = 8 * 1024 * 1024
+    static let maximumTotalReferencedAssetBytes = 64 * 1024 * 1024
     static let maximumCorpusDirectoryEntries = 64
     static let maximumCorpusYAMLFiles = 8
     static let maximumPropositionsPerVolume = 256

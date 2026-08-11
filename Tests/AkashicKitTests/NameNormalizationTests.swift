@@ -223,30 +223,34 @@ extension NameNormalizationTests {
         // 具名比對訊息，不是只看 severity——確保紅的是**子集**那條
         XCTAssertTrue(
             issues.contains { $0.severity == .error && $0.message.contains("不在 names 內") },
-            "casefold 後的字串不在 names 內，不變式 1 必須報 error——"
-            + "這就是 `authorized = names.map(normalize)` 不可行的機械證明。"
+            "casefold 後的字串不在 names 內，不變式 1 必須報 error。"
+            + "**這只是這個 fixture 被擋下**，不是禁令的證明——禁令是語意的。"
             + "實際 issues：\(issues.map(\.message))")
     }
 
-    /// 不變式 1 漏掉的那一半，由不變式 2 接住。
+    /// 第二格：兩個**同書寫系統**的不動點 → 不變式 1 靜默、不變式 2 觸發。
     ///
-    /// 反例形狀是「`names` 每筆都是 `matchingKey` 不動點」——純漢字即是，`map` 之後
-    /// 產出**逐字等於** `names`，不變式 1 完全靜默。這條釘住：**那類記錄仍被 validate
-    /// 判為 `.error`**，因為恆等 map 保留了書寫系統，兩個漢字名仍是兩個漢字名。
+    /// 注意範圍：條件是「皆為不動點」**且**「同書寫系統有 ≥2 筆」，**兩者缺一不可**。
+    /// 只說「不動點的記錄會被擋」是假的——`names = ["謝叔蓉"]`（單一漢字名）也是
+    /// 不動點，但 `byScript[.han]` 只有 1 筆，`validate` 回 `[]`。實測 866 筆有
+    /// `authorized` 的 person 中，**730 筆**每個書寫系統只有一個候選，全都不被擋。
     ///
-    /// 這一半對應 `openspec/specs/authorized-name/spec.md` 的 SHALL（同書寫系統兩個
-    /// authorized 是 "an undecided question, not a designation"）。**兩條不變式各自
-    /// 都不足以獨立支撐禁令**，見 `Person.authorized` 的 doc 的兩列對照表。
-    func testFixedPointNamesStillBlockedByTheOnePerScriptInvariant() {
+    /// 這一格對應 `openspec/specs/authorized-name/spec.md` 的 SHALL（同書寫系統兩個
+    /// authorized 是 "an undecided question, not a designation"）。
+    func testTwoHanFixedPointsAreBlockedByTheOnePerScriptInvariant() {
         let names = ["梁佑任", "梁佑仁"]                  // 兩個漢字名，同一人的兩種寫法
         let normalized = names.map(NameNormalization.matchingKey)
         // 前提一：不動點——不變式 1 在這裡沒有東西可抓
         XCTAssertEqual(normalized, names, "前提：純漢字是 matchingKey 的不動點")
-        // 前提二：**因為是不動點所以**書寫系統不變。注意這不是通則——`matchingKey`
-        // 對非不動點的輸入**會**翻轉分類（`Ｆｕｓｈｉｎｇ` .other → `fushing` .latn，
-        // `⼀` U+2F00 .other → `一` .han）。見 `Person.authorized` 的 doc。
+        // 前提二：**scalar 序列未被改變**，所以分類跟著不變。
+        // 這裡不能推「不動點 ⇒ 書寫系統不變」——那個蘊含是假的，
+        // `testNormalizedFormsCanEvadeBothInvariants` 就是反例（Swift `==` 相等
+        // 但 scalar 改變、分類翻轉）。要斷言的是 scalar 本身。
+        XCTAssertEqual(normalized.map { Array($0.unicodeScalars) },
+                       names.map { Array($0.unicodeScalars) },
+                       "前提：scalar 序列未變（不是靠 Swift == 推出來的）")
         XCTAssertEqual(normalized.map(WritingSystem.of), [.han, .han],
-                       "前提：這兩個純漢字是不動點，故書寫系統不變")
+                       "前提：scalar 沒變，故分類不變")
 
         let issues = AuthorizedNames.validate(authorized: normalized, names: names,
                                               ownerKey: "probe")
@@ -297,8 +301,9 @@ extension NameNormalizationTests {
     /// **執行邊界**：有一類輸入讓 `map(matchingKey)` 兩條不變式**同時靜默**。
     ///
     /// 這條測試存在的理由是釘住一個**否定**的事實：`Person.authorized` 的禁令**不能**
-    /// 靠 `validate` 執行。#222 曾五度嘗試從 `validate` 推出禁令，五次都被反例打倒；
-    /// 這是其中最根本的那個。
+    /// 靠 `validate` 執行。#222 有三個版本試著從 `validate` 推出禁令（不變式 1／
+    /// 不變式 2／兩條聯手），各被一個邊界輸入推翻；這是其中最根本的那個——它同時
+    /// 打掉三者，因為兩條不變式在這裡**都**靜默。
     ///
     /// ## 為什麼會漏
     ///

@@ -76,7 +76,7 @@ public enum PropositionError:
         case .emptyLiteral:
             return "命題引數的 literal 不可為空——空字串不是一個符號"
         case let .referenceUTF8ByteCountExceeded(stage, minimumObserved, maximum):
-            return "命題引數在 \(stage.rawValue) 階段至少有 \(minimumObserved) bytes，"
+            return "命題引數在 \(stage.rawValue) 階段至少有 \(minimumObserved) bytes，" // display-safe-exempt: stage 是封閉 enum，byte counts 是整數
                 + "超過固定上限 \(maximum)"
         case let .unsupportedUnicodeScalar(value, normalizationVersion):
             let scalar = String(value, radix: 16, uppercase: true)

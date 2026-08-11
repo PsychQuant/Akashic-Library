@@ -44,7 +44,7 @@ propositions:
             note_zh_tw: "`EvidenceTrace` 以唯讀遞迴樹保存 atom evidence 與每層 negation operand／conclusion。"
           - path: "Tests/AkashicPropositionTests/NegationTests.swift"
             kind: test
-            locator: "testValidationAccepts64OperatorsAndRejects65"
+            locator: "testFactoryAccepts64OperatorsAndRejects65"
             note_zh_tw: "測試確認 unary formula 可遞迴但有明確 64／65 深度邊界。"
           - path: "Tests/AkashicPropositionTests/NegationTests.swift"
             kind: test
@@ -2031,7 +2031,7 @@ propositions:
             note_zh_tw: "expression evaluator 迭代拆解 unary chain，只求值一次 atomic predicate，再由內向外建立結果。"
           - path: "Tests/AkashicPropositionTests/NegationTests.swift"
             kind: test
-            locator: "testValidationAccepts64OperatorsAndRejects65"
+            locator: "testFactoryAccepts64OperatorsAndRejects65"
             note_zh_tw: "測試釘住 nested expression 的 64 層接受與 65 層拒絕邊界。"
     history:
       - kind: issue
@@ -3563,7 +3563,7 @@ propositions:
             note_zh_tw: "`EvidenceTrace` 公開唯讀 kind／operand／atomic views；raw constructors 留在 module 內，negation conclusion 必由 operand truth 導出。"
           - path: "Tests/AkashicPropositionTests/NegationTests.swift"
             kind: test
-            locator: "testTraceEqualityTraverses32768NodesAndDerivesEveryConclusion"
+            locator: "testTraceEqualityTraverses4096NodesAndDerivesEveryConclusion"
             note_zh_tw: "測試確認深層 recursive trace 以迭代 equality 安全比較，且每層 conclusion 都由 operand 機械導出。"
           - path: "Tests/AkashicPropositionTests/NegationTests.swift"
             kind: test

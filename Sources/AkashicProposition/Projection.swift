@@ -77,7 +77,7 @@ public enum PropositionEvaluationError:
     public var description: String {
         switch self {
         case let .supervaluationCompletionLimitExceeded(actual, maximum):
-            return "supervaluation 含有 \(actual) 個未定原子，超過固定的 \(maximum) 個 completions 上限"
+            return "supervaluation 含有 \(actual) 個未定原子，超過固定的 \(maximum) 個 completions 上限" // display-safe-exempt: 兩項皆為 bounded 整數
         }
     }
 
@@ -88,7 +88,7 @@ private extension UndeterminedReason {
     var safeDescription: String {
         switch self {
         case .notProjectable(let reason):
-            return "notProjectable(\(reason.safeDescription))"
+            return "notProjectable(\(reason.safeDescription))" // display-safe-exempt: safeDescription 已逐欄以 displaySafe 限制
         case .noSupportingEvidence:
             return "noSupportingEvidence"
         case .supportingEvidenceUnresolved(let literal):
@@ -124,9 +124,9 @@ private extension UnprojectableReason {
 private func propositionTruthDisplay(_ proposition: Proposition) -> String {
     switch proposition {
     case let .authored(person, work):
-        return "authored(\(referenceTruthDisplay(person)), \(referenceTruthDisplay(work)))"
+        return "authored(\(referenceTruthDisplay(person)), \(referenceTruthDisplay(work)))" // display-safe-exempt: helper 已逐一以 displaySafe 限制 reference
     case let .affiliated(person, organization):
-        return "affiliated(\(referenceTruthDisplay(person)), \(referenceTruthDisplay(organization)))"
+        return "affiliated(\(referenceTruthDisplay(person)), \(referenceTruthDisplay(organization)))" // display-safe-exempt: helper 已逐一以 displaySafe 限制 reference
     }
 }
 

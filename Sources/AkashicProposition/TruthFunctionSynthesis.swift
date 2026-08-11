@@ -21,13 +21,13 @@ public enum PropositionTransformationError:
     public var description: String {
         switch self {
         case let .rewriteDepthLimitExceeded(minimumRequired, maximum):
-            return "NOR rewrite 至少需要 depth \(minimumRequired)，超過固定上限 \(maximum)"
+            return "NOR rewrite 至少需要 depth \(minimumRequired)，超過固定上限 \(maximum)" // display-safe-exempt: 兩項皆為 bounded 整數
         case let .rewriteNodeLimitExceeded(minimumRequired, maximum):
-            return "NOR rewrite 至少需要 \(minimumRequired) nodes，超過固定上限 \(maximum)"
+            return "NOR rewrite 至少需要 \(minimumRequired) nodes，超過固定上限 \(maximum)" // display-safe-exempt: 兩項皆為 bounded 整數
         case let .synthesisDepthLimitExceeded(minimumRequired, maximum):
-            return "NOR synthesis 至少需要 depth \(minimumRequired)，超過固定上限 \(maximum)"
+            return "NOR synthesis 至少需要 depth \(minimumRequired)，超過固定上限 \(maximum)" // display-safe-exempt: 兩項皆為 bounded 整數
         case let .synthesisNodeLimitExceeded(minimumRequired, maximum):
-            return "NOR synthesis 至少需要 \(minimumRequired) nodes，超過固定上限 \(maximum)"
+            return "NOR synthesis 至少需要 \(minimumRequired) nodes，超過固定上限 \(maximum)" // display-safe-exempt: 兩項皆為 bounded 整數
         case .zeroArityFunctionUnsupported:
             return "零元 Boolean function 沒有可用現有 atom syntax 表示的 expression"
         case .rewriteVerificationFailed:

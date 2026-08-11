@@ -7371,7 +7371,7 @@
 <li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
 <li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— `PropositionExpression` 是唯一 formula 型別，現階段提供 atom／not 與 64 層 operator budget。</li>
 <li><code>Sources/AkashicProposition/Projection.swift</code>（symbol：<code>EvidenceTrace</code>）— `EvidenceTrace` 以唯讀遞迴樹保存 atom evidence 與每層 negation operand／conclusion。</li>
-<li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testValidationAccepts64OperatorsAndRejects65</code>）— 測試確認 unary formula 可遞迴但有明確 64／65 深度邊界。</li>
+<li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testFactoryAccepts64OperatorsAndRejects65</code>）— 測試確認 unary formula 可遞迴但有明確 64／65 深度邊界。</li>
 <li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testDoubleNegationKeepsTwoTraceNodesButRestoresTruth</code>）— 測試確認雙重否定保留兩個結構節點並恢復 truth，沒有冒充完整公式等價。</li>
 </ul>
 </li>
@@ -8892,7 +8892,7 @@
 <li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
 <li><code>Sources/AkashicProposition/Expression.swift</code>（symbol：<code>PropositionExpression</code>）— `PropositionExpression.not` 可接同型 operand；validation 以 operator depth 封住 unary nesting。</li>
 <li><code>Sources/AkashicProposition/Projection.swift</code>（symbol：<code>evaluate</code>）— expression evaluator 迭代拆解 unary chain，只求值一次 atomic predicate，再由內向外建立結果。</li>
-<li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testValidationAccepts64OperatorsAndRejects65</code>）— 測試釘住 nested expression 的 64 層接受與 65 層拒絕邊界。</li>
+<li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testFactoryAccepts64OperatorsAndRejects65</code>）— 測試釘住 nested expression 的 64 層接受與 65 層拒絕邊界。</li>
 </ul>
 </li>
 </ul>
@@ -10042,7 +10042,7 @@
 <ul>
 <li><code>docs/explainers/why-akashic-is-not-just-google.md</code>（heading：<code>### 9.4 Truth-functional composition</code>）— 此節把真值函數式組合列為最低語意能力，並明示這是目標而非既成實作。</li>
 <li><code>Sources/AkashicProposition/Projection.swift</code>（symbol：<code>EvidenceTrace</code>）— `EvidenceTrace` 公開唯讀 kind／operand／atomic views；raw constructors 留在 module 內，negation conclusion 必由 operand truth 導出。</li>
-<li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testTraceEqualityTraverses32768NodesAndDerivesEveryConclusion</code>）— 測試確認深層 recursive trace 以迭代 equality 安全比較，且每層 conclusion 都由 operand 機械導出。</li>
+<li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testTraceEqualityTraverses4096NodesAndDerivesEveryConclusion</code>）— 測試確認深層 recursive trace 以迭代 equality 安全比較，且每層 conclusion 都由 operand 機械導出。</li>
 <li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testNegationPreservesEveryUndeterminedReasonExactly</code>）— 測試確認共享否定規則不把 epistemic undetermined 偽造成 determinate truth。</li>
 <li><code>Tests/AkashicPropositionTests/NegationTests.swift</code>（test：<code>testExternalClientCannotConstructRawTraceNodes</code>）— 外部 non-@testable compile probe 證明 caller 只能稽核 trace，不能自行配對 operand 與任意 conclusion。</li>
 </ul>

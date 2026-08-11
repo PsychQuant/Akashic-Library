@@ -133,6 +133,46 @@ final class OrgBootstrapResolveTests: XCTestCase {
                       "同名對 2+ org＝歧義，整組排除（絕不自動合併）")
     }
 
+    /// #231：排除之後**要留下痕跡**。org 側與 person 側同形。
+    ///
+    /// `holder` 是 org 側獨有的必要資訊——同一個 literal 可能住在 person 的
+    /// `affiliations`，也可能住在另一個 org 的 `parents`（#166）。少了它，報告
+    /// 說不出「是誰的哪一段 literal 歧義」。
+    func testResolveReportsAmbiguitiesWithHolder() {
+        var o1 = Organization(key: "org-a")
+        o1.names = TimelineOf([TemporalValue(value: "Sinica", range: DateRange())])
+        var o2 = Organization(key: "org-b")
+        o2.names = TimelineOf([TemporalValue(value: "Sinica", range: DateRange())])
+        // 第三個 org 的 parents 也寫著同一個歧義 literal → 兩個不同 holder
+        var child = Organization(key: "org-child")
+        child.names = TimelineOf([TemporalValue(value: "Child Institute", range: DateRange())])
+        child.parents = TimelineOf([TemporalValue(value: OrgRef.literal("Sinica"), range: DateRange())])
+        let people = [personWith("a", affiliations: [.literal("Sinica")])]
+
+        let r = OrgResolver.resolve(people: people, organizations: [o1, o2, child])
+        XCTAssertTrue(r.candidates.isEmpty, "行為未變：歧義仍不出候選")
+        XCTAssertEqual(r.ambiguities.count, 2, "person 的 affiliation 與 org 的 parents 各一")
+        XCTAssertEqual(r.ambiguities.map(\.holder),
+                       [.person("a"), .organization("org-child")],
+                       "holder 必須分得出來，且 people 先於 organizations")
+        XCTAssertTrue(r.ambiguities.allSatisfy { $0.literal == "Sinica" })
+        XCTAssertTrue(r.ambiguities.allSatisfy { $0.orgKeys == ["org-a", "org-b"] },
+                      "orgKeys 排序，輸出穩定")
+    }
+
+    /// `candidates` 是 `resolve` 的薄包裝，**不是第二支遍歷**——parents 側帶著
+    /// 自我父權與環的排除，兩支遍歷分岔時那些排除只會存在於其中一支。
+    func testOrgCandidatesIsExactlyResolveCandidates() {
+        var parent = Organization(key: "org-parent")
+        parent.names = TimelineOf([TemporalValue(value: "Academia", range: DateRange())])
+        var child = Organization(key: "org-child")
+        child.names = TimelineOf([TemporalValue(value: "Institute", range: DateRange())])
+        child.parents = TimelineOf([TemporalValue(value: OrgRef.literal("Academia"), range: DateRange())])
+        let people = [personWith("a", affiliations: [.literal("Academia")])]
+        XCTAssertEqual(OrgResolver.candidates(people: people, organizations: [parent, child]),
+                       OrgResolver.resolve(people: people, organizations: [parent, child]).candidates)
+    }
+
     func testApplyMigratesOnlyMatchingLiteralPreservingRange() throws {
         var org = Organization(key: "stat-sinica")
         org.names = TimelineOf([TemporalValue(value: "統計所", range: DateRange())])

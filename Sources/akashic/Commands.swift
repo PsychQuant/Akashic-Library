@@ -573,15 +573,12 @@ struct ResolveOrganizations: ParsableCommand {
     func run() throws {
         let store = try options.openStore()
         let load = try store.load()
-        let all = OrgResolver.candidates(people: load.people, organizations: load.organizations)
+        let orgReport = OrgResolver.resolve(people: load.people, organizations: load.organizations)
+        let all = orgReport.candidates
         let hkSet = Set(holder), okSet = Set(org)
         let candidates = all.filter {
             (hkSet.isEmpty || hkSet.contains($0.holder.key))
                 && (okSet.isEmpty || okSet.contains($0.orgKey))
-        }
-        guard !all.isEmpty else {
-            print("無候選（affiliation／parents 的 literal 皆無 org name 完全命中）")
-            return
         }
         // 持有者可能是 person 或 organization——**標出來**。少了它，兩類候選在
         // 輸出裡長得一樣，而它們寫進的是不同記錄的不同欄位（#166）。
@@ -591,11 +588,36 @@ struct ResolveOrganizations: ParsableCommand {
             case let .organization(k): return "org \(displaySafe(k, max: 200))"
             }
         }
+
+        /// #231：歧義不再靜默丟棄。每個候選 org 帶當前名稱，讓人能分辨
+        /// 「兩個真的不同的機構同名」與「同一機構兩筆記錄」。
+        func printOrgAmbiguities() {
+            guard !orgReport.ambiguities.isEmpty else { return }
+            let byKey = Dictionary(load.organizations.map { ($0.key, $0) },
+                                   uniquingKeysWith: { a, _ in a })
+            print("")
+            print("歧義（\(orgReport.ambiguities.count)）——同一個 literal 對到 2+ 個 org，**需要人判斷**：")
+            for a in orgReport.ambiguities {
+                print("  \(label(a.holder)) 「\(displaySafe(a.literal, max: 200))」")
+                for k in a.orgKeys {
+                    let name = byKey[k]?.displayName ?? k
+                    print("      → \(displaySafe(k, max: 200))  [\(displaySafe(name, max: 200))]")
+                }
+            }
+            print("  兩種可能，處置相反：同名的不同機構＝各自歸戶（永不合併）；同一機構兩筆＝該合併。")
+        }
+
+        guard !all.isEmpty else {
+            print("無候選（affiliation／parents 的 literal 皆無 org name 完全命中）")
+            printOrgAmbiguities()   // 沒有唯一候選時，歧義**更**該被看見
+            return
+        }
         let selected = Set(candidates.map { "\($0.holder)#\($0.literal)" })
         for c in all {
             let mark = (apply && !selected.contains("\(c.holder)#\(c.literal)")) ? "  (skip) " : "  "
             print("\(mark)\(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
         }
+        printOrgAmbiguities()
         if apply {
             if !(holder.isEmpty && org.isEmpty), candidates.isEmpty {
                 throw ValidationError("--holder / --org 的篩選條件沒有命中任何候選")

@@ -133,549 +133,153 @@ code:
 ---
 ### Requirement: Projection SHALL preserve identity resolution and role direction
 
-Proposition.project(in:) SHALL return Projection.projected only when the person argument resolves to a Person and the work argument resolves to an Entry in the supplied PropositionModel. It SHALL return Projection.unprojectable with a specific UnprojectableReason for an unresolved literal, an unknown identity, or a key that resolves to the wrong entity kind. Person and work roles SHALL NOT be interchangeable.
+`Proposition.project(in:)` SHALL require a `ValuationContext`. For authored, it SHALL return the authored projection only when the person argument resolves to a Person and the work argument resolves to an Entry in the context model. For affiliated, it SHALL return the affiliation projection only when the person argument resolves to a Person and the organization argument resolves to an Organization. It SHALL return `Projection.unprojectable` with a specific `UnprojectableReason` for an unresolved literal, unknown identity, or key that resolves to the wrong entity kind. Person, work, and organization roles SHALL NOT be interchangeable.
 
-#### Scenario: Both arguments resolve with the correct kinds
+#### Scenario: Authored arguments resolve with the correct kinds
 
 - **WHEN** authored refers to a known Person key in the person role and a known Entry key in the work role
 - **THEN** projection SHALL return the resolved Person and Entry
 
-##### Example: Fully resolved projection
+#### Scenario: Affiliation arguments resolve with the correct kinds
 
-- **GIVEN** Person `cheng-che` and Entry `cheng2025identifiability` in the model
-- **WHEN** those keys occupy the person and work roles respectively
-- **THEN** projection SHALL return projected(person: `cheng-che`, work: `cheng2025identifiability`)
+- **WHEN** affiliated refers to a known Person key in the person role and a known Organization key in the organization role
+- **THEN** projection SHALL return the resolved Person and Organization
 
 #### Scenario: A literal remains unresolved
 
-- **WHEN** either proposition role contains EntityRef.literal
+- **WHEN** any proposition role contains `EntityRef.literal`
 - **THEN** projection SHALL return unresolvedSymbol with that role and literal
 - **AND** projection SHALL NOT claim an identity match
 
-##### Example: Unresolved person symbol
-
-- **GIVEN** person literal `Che Cheng` and a resolved work key
-- **WHEN** the proposition is projected
-- **THEN** the reason SHALL be unresolvedSymbol(role: `person`, literal: `Che Cheng`)
-
 #### Scenario: Reversed entity kinds are diagnosed
 
-- **WHEN** an Entry key occupies the person role or a Person key occupies the work role
+- **WHEN** a key resolves to an Entry, Person, or Organization other than the kind required by its role
 - **THEN** projection SHALL return wrongEntityKind for the affected role
-
-##### Example: Work key in the person role
-
-- **GIVEN** `cheng2025identifiability` resolves only as an Entry
-- **WHEN** it occupies the person role
-- **THEN** the reason SHALL be wrongEntityKind(role: `person`, expected: `person`)
-
-
-<!-- @trace
-source: integrate-akashic-proposition-tractatus-map
-updated: 2026-08-09
-code:
-  - Sources/TractatusDocs/DocumentService.swift
-  - docs/tractatus/source-snapshots/de-wittgenstein-project.md
-  - Sources/tractatus-doc/main.swift
-  - Tests/AkashicPropositionTests/PropositionTests.swift
-  - Tests/TractatusDocsTests/CorpusSourceFidelityTests.swift
-  - Tests/TractatusDocsTests/SourceManifestTests.swift
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203b.png
-  - Sources/AkashicProposition/Projection.swift
-  - Tests/TractatusDocsTests/TractatusDiskFixture.swift
-  - Sources/TractatusDocs/Corpus.swift
-  - docs/tractatus/corpus/7.yaml
-  - Tests/TractatusDocsTests/TractatusInterfaceTests.swift
-  - docs/tractatus/source-assets/images/6dfd74305dc6480d900085f169502024845a873e4e905856bf37dbc80f3bb653.svg
-  - docs/tractatus/source-assets/images/2bdad2e773a893d516dedb66aae27db7901736d7838298078d42775abc368450.svg
-  - docs/tractatus/source-assets/images/2c3e0efa8931e01e650511958fc1f6d5b5cba8c4120db825866394563d645203.svg
-  - Tests/TractatusDocsTests/RenderingTests.swift
-  - docs/tractatus/source-assets/images/9bfe93c20fc75f7848141a5dc2cdd0308e48f56967903cda5e95d9574182253c.svg
-  - docs/tractatus/corpus/4.yaml
-  - docs/tractatus/corpus/preface.yaml
-  - Package.swift
-  - docs/tractatus/source-assets/images/109747f0cdbcfd62f1bce67d93eb51350f5f3835c6459539f96d2dc70d84420f.svg
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203e-en.png
-  - Tests/TractatusDocsTests/CorpusValidationTests.swift
-  - Sources/TractatusDocs/SourceManifest.swift
-  - docs/tractatus/source-assets/images/9a45f5fb107652caa2fff811b19eeb0547bb7389fade741c2bd6e8b866f47858.svg
-  - docs/tractatus/source-assets/images/fe681449dc8d64199e5d1bdbf8208df658a75a9e18932d30c9dfe7f01673531e.svg
-  - docs/tractatus/corpus/1.yaml
-  - docs/tractatus/source-assets/images/200px-TLP_6.1203e.png
-  - docs/tractatus/source-assets/images/300px-TLP_6.1203a-en.png
-  - .vscode/launch.json
-  - docs/tractatus/sources.yaml
-  - .github/workflows/ci.yml
-  - docs/tractatus/source-assets/images/250px-TLP_5.6331.png
-  - docs/tractatus/source-assets/images/3b27b08186c4d2531ace97a6a386ca76d9996f0b7f4701697fb39daebd242145.svg
-  - docs/tractatus/source-snapshots/en-ogden-ramsey-1922-wittgenstein-project.md
-  - docs/tractatus/source-assets/images/1bd88ac2bf5db57ea9040cc5e72c42410c17abe58b77c117e3bfb0772eaf1d77.svg
-  - Sources/TractatusDocs/Rendering.swift
-  - docs/tractatus/source-assets/images/2363c84eb861521de9141a1ef7e7f9b8e30ee559dbe0fdd98ebe96665b1cacc5.svg
-  - docs/tractatus/source-assets/images/6f5736dff9d73c6c95c36f30466ceb36b6191d4b51adec9af05bd29016ef01ea.svg
-  - docs/tractatus/generated/tractatus-project-map.md
-  - docs/tractatus/source-assets/images/120px-TLP_6.1203c.png
-  - docs/tractatus/source-assets/images/ea9e48f6e881e8a034e4cbc779a077ac01d2da54238fa332cfbe2255015dca69.svg
-  - docs/tractatus/source-assets/images/d61fa425857e85da7c94020ddafdf3f8038c3f33900d3f3c7e222856a8859af8.svg
-  - Sources/AkashicProposition/Question.swift
-  - Tests/TractatusDocsTests/Fixtures/rendering-expected.md
-  - Tests/TractatusDocsTests/TractatusValidationCLITests.swift
-  - docs/tractatus/source-assets/images/8972055d3850ecff6e47e1516fc07474dfcc4bf7f0095ed9bcf5389c004a6d07.svg
-  - docs/tractatus/corpus/6.yaml
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203a.png
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203d.png
-  - Sources/TractatusDocs/RichText.swift
-  - Sources/TractatusDocs/Validation.swift
-  - docs/tractatus/README.md
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203c-en.png
-  - docs/tractatus/source-assets/images/330px-TLP_6.36111.png
-  - docs/tractatus/corpus/5.yaml
-  - docs/tractatus/source-assets/images/300px-TLP_6.1203b-en.png
-  - docs/tractatus/source-assets/images/356a71ba81334c39be3a91a1d42c9d51eb9ad1ea7b726f750fd3a307d7947385.svg
-  - docs/tractatus/source-assets/images/22c545a9a90d2f7b95fb0636e2d79882d0cd328a78afb1e7c723da5b44a774bf.svg
-  - docs/tractatus/source-assets/images/531064e7807699e5544919383c09e44c0041e20bae70ec24417d5cc8e39fc4d6.svg
-  - docs/tractatus/source-assets/images/79fe9d279c0691bdeef7a6bf88e5f6a6364bd5b2dabfd79444199d7e0fb31ca7.svg
-  - docs/tractatus/source-assets/images/cbe2c1a200eb49c3a9b16c7105afbb9fbed122da767f2d37389ac28a9e93e102.svg
-  - docs/tractatus/source-assets/images/e5973c9367aeacc00f2830f165ecedfaa5664ca53875c29edf6be4ddffb89c18.svg
-  - docs/tractatus/corpus/2.yaml
-  - docs/tractatus/source-assets/images/250px-TLP_5.5423.png
-  - docs/tractatus/corpus/3.yaml
-  - docs/tractatus/source-assets/images/250px-TLP_5.6331en.png
-  - docs/tractatus/source-assets/images/300px-TLP_6.1203d-en.png
-  - docs/tractatus/source-assets/images/b62025c4a407e7eb826ef60301c7aba855768d91af1e7b6d3248a9d8c43658f1.svg
-  - docs/tractatus/source-assets/images/2f81698ca04ab3ce262aa94e5d57f69a5eaa2cadf033aba83d9dc9724869a8b0.svg
-  - docs/tractatus/source-assets/images/d1cf195aa1fb631bffe7b018f1114530b8c1bcc712299ba306fdef8ed6c55335.svg
-  - docs/tractatus/source-assets/SHA256SUMS
-  - docs/tractatus/source-assets/images/ddf71a60f25ff0e495d94d2bd39bcde1e3e20286201c7de357bfe8b3b1575a1a.svg
-  - Sources/AkashicProposition/Proposition.swift
-  - docs/tractatus/source-assets/images/eb37987510f581cb73f8db614bd71715f510cf605279d48188050d8b509b47ed.svg
-  - docs/tractatus/source-assets/images/336cae8a41089348ef601ba5dbe893d3758f7baa1841701bd587566e0f16d282.svg
-  - docs/tractatus/source-assets/images/b3394a04eba3cf3b36ede15e974e646aa098169220c2c60478507502e024c872.svg
--->
 
 ---
 ### Requirement: Evaluation SHALL preserve open-world uncertainty
 
-TruthValue SHALL provide holds, fails, and undetermined states. The authored evaluator SHALL return holds only when the projected work contains the projected person key in an author slot. An unprojectable proposition SHALL return undetermined with notProjectable. A matching unresolved author literal SHALL return undetermined with supportingEvidenceUnresolved. Absence of supporting author identity SHALL return undetermined with noSupportingEvidence. The current authored evaluator SHALL NOT produce fails because the model has no positive author-list completeness evidence.
+`TruthValue` SHALL provide holds, fails, and undetermined states. `evaluate(in: ValuationContext)` SHALL return a `Valuation` that retains the truth value, context, and evidence trace. The authored evaluator SHALL return holds only when the projected work contains the projected person key in an author slot. An unprojectable proposition SHALL return undetermined with notProjectable. A matching unresolved author literal SHALL return undetermined with supportingEvidenceUnresolved. Absence of supporting author identity SHALL return undetermined with noSupportingEvidence. The current authored evaluator SHALL NOT produce fails because the model has no positive author-list completeness evidence. Authored evaluation SHALL retain the context valid day while marking its predicate scope as snapshot-scoped and time-invariant.
 
 #### Scenario: Resolved supporting evidence establishes authored
 
 - **WHEN** the projected work contains an author key equal to the projected person key
-- **THEN** evaluate(in:) SHALL return holds
-
-##### Example: Matching author identity
-
-- **GIVEN** work `cheng2025identifiability` has author key `cheng-che`
-- **WHEN** authored(person: `cheng-che`, work: `cheng2025identifiability`) is evaluated
-- **THEN** the truth value SHALL be holds
+- **THEN** the valuation truth SHALL be holds
+- **AND** its trace SHALL retain the matching author evidence
 
 #### Scenario: Absence is not false
 
 - **WHEN** the work contains no matching resolved author key
-- **THEN** evaluate(in:) SHALL return undetermined
-- **AND** evaluate(in:) SHALL NOT return fails
-
-##### Example: Different author does not prove falsity
-
-- **GIVEN** the work contains only author key `someone-else`
-- **WHEN** the proposition asks whether `cheng-che` authored that work
-- **THEN** the truth value SHALL be undetermined(noSupportingEvidence)
+- **THEN** the valuation truth SHALL be `undetermined(noSupportingEvidence)`
+- **AND** it SHALL NOT be fails
 
 #### Scenario: A matching literal is not accepted as identity
 
 - **WHEN** an unresolved author literal normalizes to one of the person's names
-- **THEN** evaluate(in:) SHALL return supportingEvidenceUnresolved with the literal
-- **AND** evaluate(in:) SHALL NOT return holds
+- **THEN** the valuation truth SHALL be `undetermined(supportingEvidenceUnresolved)` with the literal
+- **AND** it SHALL NOT be holds
 
-##### Example: Name match without identity
+#### Scenario: Authored remains snapshot-scoped across valid days
 
-- **GIVEN** Person `cheng-che` has name `Che Cheng` and the work has author literal `Che Cheng`
-- **WHEN** authored is evaluated
-- **THEN** the truth value SHALL be undetermined(supportingEvidenceUnresolved(`Che Cheng`))
-
-
-<!-- @trace
-source: integrate-akashic-proposition-tractatus-map
-updated: 2026-08-09
-code:
-  - Sources/TractatusDocs/DocumentService.swift
-  - docs/tractatus/source-snapshots/de-wittgenstein-project.md
-  - Sources/tractatus-doc/main.swift
-  - Tests/AkashicPropositionTests/PropositionTests.swift
-  - Tests/TractatusDocsTests/CorpusSourceFidelityTests.swift
-  - Tests/TractatusDocsTests/SourceManifestTests.swift
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203b.png
-  - Sources/AkashicProposition/Projection.swift
-  - Tests/TractatusDocsTests/TractatusDiskFixture.swift
-  - Sources/TractatusDocs/Corpus.swift
-  - docs/tractatus/corpus/7.yaml
-  - Tests/TractatusDocsTests/TractatusInterfaceTests.swift
-  - docs/tractatus/source-assets/images/6dfd74305dc6480d900085f169502024845a873e4e905856bf37dbc80f3bb653.svg
-  - docs/tractatus/source-assets/images/2bdad2e773a893d516dedb66aae27db7901736d7838298078d42775abc368450.svg
-  - docs/tractatus/source-assets/images/2c3e0efa8931e01e650511958fc1f6d5b5cba8c4120db825866394563d645203.svg
-  - Tests/TractatusDocsTests/RenderingTests.swift
-  - docs/tractatus/source-assets/images/9bfe93c20fc75f7848141a5dc2cdd0308e48f56967903cda5e95d9574182253c.svg
-  - docs/tractatus/corpus/4.yaml
-  - docs/tractatus/corpus/preface.yaml
-  - Package.swift
-  - docs/tractatus/source-assets/images/109747f0cdbcfd62f1bce67d93eb51350f5f3835c6459539f96d2dc70d84420f.svg
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203e-en.png
-  - Tests/TractatusDocsTests/CorpusValidationTests.swift
-  - Sources/TractatusDocs/SourceManifest.swift
-  - docs/tractatus/source-assets/images/9a45f5fb107652caa2fff811b19eeb0547bb7389fade741c2bd6e8b866f47858.svg
-  - docs/tractatus/source-assets/images/fe681449dc8d64199e5d1bdbf8208df658a75a9e18932d30c9dfe7f01673531e.svg
-  - docs/tractatus/corpus/1.yaml
-  - docs/tractatus/source-assets/images/200px-TLP_6.1203e.png
-  - docs/tractatus/source-assets/images/300px-TLP_6.1203a-en.png
-  - .vscode/launch.json
-  - docs/tractatus/sources.yaml
-  - .github/workflows/ci.yml
-  - docs/tractatus/source-assets/images/250px-TLP_5.6331.png
-  - docs/tractatus/source-assets/images/3b27b08186c4d2531ace97a6a386ca76d9996f0b7f4701697fb39daebd242145.svg
-  - docs/tractatus/source-snapshots/en-ogden-ramsey-1922-wittgenstein-project.md
-  - docs/tractatus/source-assets/images/1bd88ac2bf5db57ea9040cc5e72c42410c17abe58b77c117e3bfb0772eaf1d77.svg
-  - Sources/TractatusDocs/Rendering.swift
-  - docs/tractatus/source-assets/images/2363c84eb861521de9141a1ef7e7f9b8e30ee559dbe0fdd98ebe96665b1cacc5.svg
-  - docs/tractatus/source-assets/images/6f5736dff9d73c6c95c36f30466ceb36b6191d4b51adec9af05bd29016ef01ea.svg
-  - docs/tractatus/generated/tractatus-project-map.md
-  - docs/tractatus/source-assets/images/120px-TLP_6.1203c.png
-  - docs/tractatus/source-assets/images/ea9e48f6e881e8a034e4cbc779a077ac01d2da54238fa332cfbe2255015dca69.svg
-  - docs/tractatus/source-assets/images/d61fa425857e85da7c94020ddafdf3f8038c3f33900d3f3c7e222856a8859af8.svg
-  - Sources/AkashicProposition/Question.swift
-  - Tests/TractatusDocsTests/Fixtures/rendering-expected.md
-  - Tests/TractatusDocsTests/TractatusValidationCLITests.swift
-  - docs/tractatus/source-assets/images/8972055d3850ecff6e47e1516fc07474dfcc4bf7f0095ed9bcf5389c004a6d07.svg
-  - docs/tractatus/corpus/6.yaml
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203a.png
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203d.png
-  - Sources/TractatusDocs/RichText.swift
-  - Sources/TractatusDocs/Validation.swift
-  - docs/tractatus/README.md
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203c-en.png
-  - docs/tractatus/source-assets/images/330px-TLP_6.36111.png
-  - docs/tractatus/corpus/5.yaml
-  - docs/tractatus/source-assets/images/300px-TLP_6.1203b-en.png
-  - docs/tractatus/source-assets/images/356a71ba81334c39be3a91a1d42c9d51eb9ad1ea7b726f750fd3a307d7947385.svg
-  - docs/tractatus/source-assets/images/22c545a9a90d2f7b95fb0636e2d79882d0cd328a78afb1e7c723da5b44a774bf.svg
-  - docs/tractatus/source-assets/images/531064e7807699e5544919383c09e44c0041e20bae70ec24417d5cc8e39fc4d6.svg
-  - docs/tractatus/source-assets/images/79fe9d279c0691bdeef7a6bf88e5f6a6364bd5b2dabfd79444199d7e0fb31ca7.svg
-  - docs/tractatus/source-assets/images/cbe2c1a200eb49c3a9b16c7105afbb9fbed122da767f2d37389ac28a9e93e102.svg
-  - docs/tractatus/source-assets/images/e5973c9367aeacc00f2830f165ecedfaa5664ca53875c29edf6be4ddffb89c18.svg
-  - docs/tractatus/corpus/2.yaml
-  - docs/tractatus/source-assets/images/250px-TLP_5.5423.png
-  - docs/tractatus/corpus/3.yaml
-  - docs/tractatus/source-assets/images/250px-TLP_5.6331en.png
-  - docs/tractatus/source-assets/images/300px-TLP_6.1203d-en.png
-  - docs/tractatus/source-assets/images/b62025c4a407e7eb826ef60301c7aba855768d91af1e7b6d3248a9d8c43658f1.svg
-  - docs/tractatus/source-assets/images/2f81698ca04ab3ce262aa94e5d57f69a5eaa2cadf033aba83d9dc9724869a8b0.svg
-  - docs/tractatus/source-assets/images/d1cf195aa1fb631bffe7b018f1114530b8c1bcc712299ba306fdef8ed6c55335.svg
-  - docs/tractatus/source-assets/SHA256SUMS
-  - docs/tractatus/source-assets/images/ddf71a60f25ff0e495d94d2bd39bcde1e3e20286201c7de357bfe8b3b1575a1a.svg
-  - Sources/AkashicProposition/Proposition.swift
-  - docs/tractatus/source-assets/images/eb37987510f581cb73f8db614bd71715f510cf605279d48188050d8b509b47ed.svg
-  - docs/tractatus/source-assets/images/336cae8a41089348ef601ba5dbe893d3758f7baa1841701bd587566e0f16d282.svg
-  - docs/tractatus/source-assets/images/b3394a04eba3cf3b36ede15e974e646aa098169220c2c60478507502e024c872.svg
--->
+- **WHEN** the same authored proposition is evaluated against the same snapshot at two different valid days
+- **THEN** both valuations SHALL have the same truth and authored evidence
+- **AND** each valuation SHALL retain its distinct context valid day
+- **AND** each trace SHALL state that authored did not interpret a valid-time timeline
 
 ---
 ### Requirement: Yes-no questions SHALL expose a tri-valued answer space
 
-YesNoQuestion SHALL retain its subject proposition and SHALL expose exactly yes, no, and undetermined as its exhaustive Answer cases. answer(in:) SHALL map TruthValue.holds to yes, TruthValue.fails to no, and every TruthValue.undetermined value to undetermined while preserving the full TruthValue alongside the answer. It SHALL NOT flatten the result to Bool.
+`YesNoQuestion` SHALL retain its subject proposition and SHALL expose exactly yes, no, and undetermined as its exhaustive `Answer` cases. `answer(in: ValuationContext)` SHALL map `TruthValue.holds` to yes, `TruthValue.fails` to no, and every `TruthValue.undetermined` to undetermined. It SHALL return an `AnswerResult` containing the complete originating `Valuation` and SHALL NOT flatten the result to Bool or a tuple containing only bare truth.
 
 #### Scenario: The answer space is exhaustive
 
-- **WHEN** a caller reads YesNoQuestion.answerSpace
+- **WHEN** a caller reads `YesNoQuestion.answerSpace`
 - **THEN** it SHALL contain yes, no, and undetermined exactly once
 - **AND** it SHALL equal the complete set of Answer cases
 
-##### Example: Three exhaustive labels
-
-- **GIVEN** any authored subject
-- **WHEN** answerSpace is read
-- **THEN** its value SHALL be `[yes, no, undetermined]`
-
 #### Scenario: Evaluation remains tri-valued
 
-- **WHEN** a subject evaluates to holds or undetermined
-- **THEN** answer(in:) SHALL return yes or undetermined respectively
-- **AND** it SHALL preserve the originating TruthValue
+- **WHEN** a subject valuation is holds, fails, or undetermined
+- **THEN** answer SHALL be yes, no, or undetermined respectively
+- **AND** `AnswerResult.valuation` SHALL equal the originating valuation
 
-##### Example: Supported and unsupported subjects
+##### Example: Tri-valued answer mapping
 
-| Subject truth | Answer |
-| ------------- | ------ |
+| Valuation truth | Answer |
+| --------------- | ------ |
 | `holds` | `yes` |
+| `fails` | `no` |
 | `undetermined(noSupportingEvidence)` | `undetermined` |
 
+#### Scenario: Answer propagation preserves audit context
 
-<!-- @trace
-source: integrate-akashic-proposition-tractatus-map
-updated: 2026-08-09
-code:
-  - Sources/TractatusDocs/DocumentService.swift
-  - docs/tractatus/source-snapshots/de-wittgenstein-project.md
-  - Sources/tractatus-doc/main.swift
-  - Tests/AkashicPropositionTests/PropositionTests.swift
-  - Tests/TractatusDocsTests/CorpusSourceFidelityTests.swift
-  - Tests/TractatusDocsTests/SourceManifestTests.swift
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203b.png
-  - Sources/AkashicProposition/Projection.swift
-  - Tests/TractatusDocsTests/TractatusDiskFixture.swift
-  - Sources/TractatusDocs/Corpus.swift
-  - docs/tractatus/corpus/7.yaml
-  - Tests/TractatusDocsTests/TractatusInterfaceTests.swift
-  - docs/tractatus/source-assets/images/6dfd74305dc6480d900085f169502024845a873e4e905856bf37dbc80f3bb653.svg
-  - docs/tractatus/source-assets/images/2bdad2e773a893d516dedb66aae27db7901736d7838298078d42775abc368450.svg
-  - docs/tractatus/source-assets/images/2c3e0efa8931e01e650511958fc1f6d5b5cba8c4120db825866394563d645203.svg
-  - Tests/TractatusDocsTests/RenderingTests.swift
-  - docs/tractatus/source-assets/images/9bfe93c20fc75f7848141a5dc2cdd0308e48f56967903cda5e95d9574182253c.svg
-  - docs/tractatus/corpus/4.yaml
-  - docs/tractatus/corpus/preface.yaml
-  - Package.swift
-  - docs/tractatus/source-assets/images/109747f0cdbcfd62f1bce67d93eb51350f5f3835c6459539f96d2dc70d84420f.svg
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203e-en.png
-  - Tests/TractatusDocsTests/CorpusValidationTests.swift
-  - Sources/TractatusDocs/SourceManifest.swift
-  - docs/tractatus/source-assets/images/9a45f5fb107652caa2fff811b19eeb0547bb7389fade741c2bd6e8b866f47858.svg
-  - docs/tractatus/source-assets/images/fe681449dc8d64199e5d1bdbf8208df658a75a9e18932d30c9dfe7f01673531e.svg
-  - docs/tractatus/corpus/1.yaml
-  - docs/tractatus/source-assets/images/200px-TLP_6.1203e.png
-  - docs/tractatus/source-assets/images/300px-TLP_6.1203a-en.png
-  - .vscode/launch.json
-  - docs/tractatus/sources.yaml
-  - .github/workflows/ci.yml
-  - docs/tractatus/source-assets/images/250px-TLP_5.6331.png
-  - docs/tractatus/source-assets/images/3b27b08186c4d2531ace97a6a386ca76d9996f0b7f4701697fb39daebd242145.svg
-  - docs/tractatus/source-snapshots/en-ogden-ramsey-1922-wittgenstein-project.md
-  - docs/tractatus/source-assets/images/1bd88ac2bf5db57ea9040cc5e72c42410c17abe58b77c117e3bfb0772eaf1d77.svg
-  - Sources/TractatusDocs/Rendering.swift
-  - docs/tractatus/source-assets/images/2363c84eb861521de9141a1ef7e7f9b8e30ee559dbe0fdd98ebe96665b1cacc5.svg
-  - docs/tractatus/source-assets/images/6f5736dff9d73c6c95c36f30466ceb36b6191d4b51adec9af05bd29016ef01ea.svg
-  - docs/tractatus/generated/tractatus-project-map.md
-  - docs/tractatus/source-assets/images/120px-TLP_6.1203c.png
-  - docs/tractatus/source-assets/images/ea9e48f6e881e8a034e4cbc779a077ac01d2da54238fa332cfbe2255015dca69.svg
-  - docs/tractatus/source-assets/images/d61fa425857e85da7c94020ddafdf3f8038c3f33900d3f3c7e222856a8859af8.svg
-  - Sources/AkashicProposition/Question.swift
-  - Tests/TractatusDocsTests/Fixtures/rendering-expected.md
-  - Tests/TractatusDocsTests/TractatusValidationCLITests.swift
-  - docs/tractatus/source-assets/images/8972055d3850ecff6e47e1516fc07474dfcc4bf7f0095ed9bcf5389c004a6d07.svg
-  - docs/tractatus/corpus/6.yaml
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203a.png
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203d.png
-  - Sources/TractatusDocs/RichText.swift
-  - Sources/TractatusDocs/Validation.swift
-  - docs/tractatus/README.md
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203c-en.png
-  - docs/tractatus/source-assets/images/330px-TLP_6.36111.png
-  - docs/tractatus/corpus/5.yaml
-  - docs/tractatus/source-assets/images/300px-TLP_6.1203b-en.png
-  - docs/tractatus/source-assets/images/356a71ba81334c39be3a91a1d42c9d51eb9ad1ea7b726f750fd3a307d7947385.svg
-  - docs/tractatus/source-assets/images/22c545a9a90d2f7b95fb0636e2d79882d0cd328a78afb1e7c723da5b44a774bf.svg
-  - docs/tractatus/source-assets/images/531064e7807699e5544919383c09e44c0041e20bae70ec24417d5cc8e39fc4d6.svg
-  - docs/tractatus/source-assets/images/79fe9d279c0691bdeef7a6bf88e5f6a6364bd5b2dabfd79444199d7e0fb31ca7.svg
-  - docs/tractatus/source-assets/images/cbe2c1a200eb49c3a9b16c7105afbb9fbed122da767f2d37389ac28a9e93e102.svg
-  - docs/tractatus/source-assets/images/e5973c9367aeacc00f2830f165ecedfaa5664ca53875c29edf6be4ddffb89c18.svg
-  - docs/tractatus/corpus/2.yaml
-  - docs/tractatus/source-assets/images/250px-TLP_5.5423.png
-  - docs/tractatus/corpus/3.yaml
-  - docs/tractatus/source-assets/images/250px-TLP_5.6331en.png
-  - docs/tractatus/source-assets/images/300px-TLP_6.1203d-en.png
-  - docs/tractatus/source-assets/images/b62025c4a407e7eb826ef60301c7aba855768d91af1e7b6d3248a9d8c43658f1.svg
-  - docs/tractatus/source-assets/images/2f81698ca04ab3ce262aa94e5d57f69a5eaa2cadf033aba83d9dc9724869a8b0.svg
-  - docs/tractatus/source-assets/images/d1cf195aa1fb631bffe7b018f1114530b8c1bcc712299ba306fdef8ed6c55335.svg
-  - docs/tractatus/source-assets/SHA256SUMS
-  - docs/tractatus/source-assets/images/ddf71a60f25ff0e495d94d2bd39bcde1e3e20286201c7de357bfe8b3b1575a1a.svg
-  - Sources/AkashicProposition/Proposition.swift
-  - docs/tractatus/source-assets/images/eb37987510f581cb73f8db614bd71715f510cf605279d48188050d8b509b47ed.svg
-  - docs/tractatus/source-assets/images/336cae8a41089348ef601ba5dbe893d3758f7baa1841701bd587566e0f16d282.svg
-  - docs/tractatus/source-assets/images/b3394a04eba3cf3b36ede15e974e646aa098169220c2c60478507502e024c872.svg
--->
+- **WHEN** a question is answered from a context-bound valuation
+- **THEN** snapshot identity, revision, valid day, and evidence trace SHALL be unchanged in the answer result
 
 ---
 ### Requirement: Fact acceptance SHALL be gated from recorded assertions
 
-Assertion SHALL record a proposition, a Stance, source, and recorded timestamp without itself asserting truth. AcceptedFact SHALL be a distinct type whose construction is restricted to adjudicate. adjudicate SHALL accept only an Assertion with stance asserted whose proposition evaluates to holds. It SHALL reject denied or questioned stances with stanceIsNotAssertion and SHALL reject fails or undetermined truth with notEstablished.
+`Assertion` SHALL record a proposition, a `Stance`, source, and `RecordedTime` without itself asserting truth. `AcceptedFact` SHALL be a distinct type whose construction is restricted to adjudication. Adjudication SHALL consume an existing `Valuation`, SHALL verify that its proposition equals the assertion proposition, and SHALL accept only an asserted assertion whose valuation truth is holds. It SHALL reject a mismatched valuation, denied or questioned stance, and fails or undetermined truth. A successful fact SHALL retain the assertion, acceptedBy, `AcceptedTime`, and complete valuation. A `notEstablished` refusal SHALL retain the refused valuation.
 
 #### Scenario: An established assertion becomes an accepted fact
 
-- **WHEN** an asserted Assertion evaluates to holds
-- **THEN** adjudicate SHALL return an AcceptedFact that retains the assertion as its basis
-- **AND** the result SHALL record acceptedBy and acceptedAt
-
-##### Example: Accepted supported assertion
-
-- **GIVEN** an asserted authored proposition that evaluates to holds
-- **WHEN** `che` adjudicates it at `2026-08-09`
-- **THEN** the fact SHALL retain that assertion, `che`, and `2026-08-09`
+- **WHEN** an asserted Assertion is adjudicated with a matching holds valuation
+- **THEN** adjudication SHALL return an AcceptedFact retaining the assertion and valuation
+- **AND** the result SHALL record acceptedBy and typed acceptedAt
 
 #### Scenario: A question or denial cannot become a fact
 
 - **WHEN** an Assertion has questioned or denied stance
-- **THEN** adjudicate SHALL throw stanceIsNotAssertion
+- **THEN** adjudication SHALL throw stanceIsNotAssertion
 - **AND** no AcceptedFact SHALL be created
-
-##### Example: Non-asserting stances
-
-| Stance | Expected refusal |
-| ------ | ---------------- |
-| `questioned` | `stanceIsNotAssertion(questioned)` |
-| `denied` | `stanceIsNotAssertion(denied)` |
 
 #### Scenario: Uncertainty cannot become a fact
 
-- **WHEN** an asserted Assertion evaluates to undetermined
-- **THEN** adjudicate SHALL throw notEstablished
+- **WHEN** an asserted Assertion is adjudicated with a matching undetermined valuation
+- **THEN** adjudication SHALL throw notEstablished with that valuation
 - **AND** no AcceptedFact SHALL be created
 
-##### Example: Missing support remains unaccepted
+#### Scenario: A valuation for another proposition is refused
 
-- **GIVEN** an asserted authored proposition with no supporting author identity
-- **WHEN** it is adjudicated
-- **THEN** the refusal SHALL be notEstablished(undetermined(noSupportingEvidence))
+- **WHEN** the supplied valuation proposition differs from the assertion proposition
+- **THEN** adjudication SHALL throw propositionMismatch
+- **AND** no stance or truth result SHALL override that mismatch
 
-<!-- @trace
-source: integrate-akashic-proposition-tractatus-map
-updated: 2026-08-09
-code:
-  - Sources/TractatusDocs/DocumentService.swift
-  - docs/tractatus/source-snapshots/de-wittgenstein-project.md
-  - Sources/tractatus-doc/main.swift
-  - Tests/AkashicPropositionTests/PropositionTests.swift
-  - Tests/TractatusDocsTests/CorpusSourceFidelityTests.swift
-  - Tests/TractatusDocsTests/SourceManifestTests.swift
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203b.png
-  - Sources/AkashicProposition/Projection.swift
-  - Tests/TractatusDocsTests/TractatusDiskFixture.swift
-  - Sources/TractatusDocs/Corpus.swift
-  - docs/tractatus/corpus/7.yaml
-  - Tests/TractatusDocsTests/TractatusInterfaceTests.swift
-  - docs/tractatus/source-assets/images/6dfd74305dc6480d900085f169502024845a873e4e905856bf37dbc80f3bb653.svg
-  - docs/tractatus/source-assets/images/2bdad2e773a893d516dedb66aae27db7901736d7838298078d42775abc368450.svg
-  - docs/tractatus/source-assets/images/2c3e0efa8931e01e650511958fc1f6d5b5cba8c4120db825866394563d645203.svg
-  - Tests/TractatusDocsTests/RenderingTests.swift
-  - docs/tractatus/source-assets/images/9bfe93c20fc75f7848141a5dc2cdd0308e48f56967903cda5e95d9574182253c.svg
-  - docs/tractatus/corpus/4.yaml
-  - docs/tractatus/corpus/preface.yaml
-  - Package.swift
-  - docs/tractatus/source-assets/images/109747f0cdbcfd62f1bce67d93eb51350f5f3835c6459539f96d2dc70d84420f.svg
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203e-en.png
-  - Tests/TractatusDocsTests/CorpusValidationTests.swift
-  - Sources/TractatusDocs/SourceManifest.swift
-  - docs/tractatus/source-assets/images/9a45f5fb107652caa2fff811b19eeb0547bb7389fade741c2bd6e8b866f47858.svg
-  - docs/tractatus/source-assets/images/fe681449dc8d64199e5d1bdbf8208df658a75a9e18932d30c9dfe7f01673531e.svg
-  - docs/tractatus/corpus/1.yaml
-  - docs/tractatus/source-assets/images/200px-TLP_6.1203e.png
-  - docs/tractatus/source-assets/images/300px-TLP_6.1203a-en.png
-  - .vscode/launch.json
-  - docs/tractatus/sources.yaml
-  - .github/workflows/ci.yml
-  - docs/tractatus/source-assets/images/250px-TLP_5.6331.png
-  - docs/tractatus/source-assets/images/3b27b08186c4d2531ace97a6a386ca76d9996f0b7f4701697fb39daebd242145.svg
-  - docs/tractatus/source-snapshots/en-ogden-ramsey-1922-wittgenstein-project.md
-  - docs/tractatus/source-assets/images/1bd88ac2bf5db57ea9040cc5e72c42410c17abe58b77c117e3bfb0772eaf1d77.svg
-  - Sources/TractatusDocs/Rendering.swift
-  - docs/tractatus/source-assets/images/2363c84eb861521de9141a1ef7e7f9b8e30ee559dbe0fdd98ebe96665b1cacc5.svg
-  - docs/tractatus/source-assets/images/6f5736dff9d73c6c95c36f30466ceb36b6191d4b51adec9af05bd29016ef01ea.svg
-  - docs/tractatus/generated/tractatus-project-map.md
-  - docs/tractatus/source-assets/images/120px-TLP_6.1203c.png
-  - docs/tractatus/source-assets/images/ea9e48f6e881e8a034e4cbc779a077ac01d2da54238fa332cfbe2255015dca69.svg
-  - docs/tractatus/source-assets/images/d61fa425857e85da7c94020ddafdf3f8038c3f33900d3f3c7e222856a8859af8.svg
-  - Sources/AkashicProposition/Question.swift
-  - Tests/TractatusDocsTests/Fixtures/rendering-expected.md
-  - Tests/TractatusDocsTests/TractatusValidationCLITests.swift
-  - docs/tractatus/source-assets/images/8972055d3850ecff6e47e1516fc07474dfcc4bf7f0095ed9bcf5389c004a6d07.svg
-  - docs/tractatus/corpus/6.yaml
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203a.png
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203d.png
-  - Sources/TractatusDocs/RichText.swift
-  - Sources/TractatusDocs/Validation.swift
-  - docs/tractatus/README.md
-  - docs/tractatus/source-assets/images/250px-TLP_6.1203c-en.png
-  - docs/tractatus/source-assets/images/330px-TLP_6.36111.png
-  - docs/tractatus/corpus/5.yaml
-  - docs/tractatus/source-assets/images/300px-TLP_6.1203b-en.png
-  - docs/tractatus/source-assets/images/356a71ba81334c39be3a91a1d42c9d51eb9ad1ea7b726f750fd3a307d7947385.svg
-  - docs/tractatus/source-assets/images/22c545a9a90d2f7b95fb0636e2d79882d0cd328a78afb1e7c723da5b44a774bf.svg
-  - docs/tractatus/source-assets/images/531064e7807699e5544919383c09e44c0041e20bae70ec24417d5cc8e39fc4d6.svg
-  - docs/tractatus/source-assets/images/79fe9d279c0691bdeef7a6bf88e5f6a6364bd5b2dabfd79444199d7e0fb31ca7.svg
-  - docs/tractatus/source-assets/images/cbe2c1a200eb49c3a9b16c7105afbb9fbed122da767f2d37389ac28a9e93e102.svg
-  - docs/tractatus/source-assets/images/e5973c9367aeacc00f2830f165ecedfaa5664ca53875c29edf6be4ddffb89c18.svg
-  - docs/tractatus/corpus/2.yaml
-  - docs/tractatus/source-assets/images/250px-TLP_5.5423.png
-  - docs/tractatus/corpus/3.yaml
-  - docs/tractatus/source-assets/images/250px-TLP_5.6331en.png
-  - docs/tractatus/source-assets/images/300px-TLP_6.1203d-en.png
-  - docs/tractatus/source-assets/images/b62025c4a407e7eb826ef60301c7aba855768d91af1e7b6d3248a9d8c43658f1.svg
-  - docs/tractatus/source-assets/images/2f81698ca04ab3ce262aa94e5d57f69a5eaa2cadf033aba83d9dc9724869a8b0.svg
-  - docs/tractatus/source-assets/images/d1cf195aa1fb631bffe7b018f1114530b8c1bcc712299ba306fdef8ed6c55335.svg
-  - docs/tractatus/source-assets/SHA256SUMS
-  - docs/tractatus/source-assets/images/ddf71a60f25ff0e495d94d2bd39bcde1e3e20286201c7de357bfe8b3b1575a1a.svg
-  - Sources/AkashicProposition/Proposition.swift
-  - docs/tractatus/source-assets/images/eb37987510f581cb73f8db614bd71715f510cf605279d48188050d8b509b47ed.svg
-  - docs/tractatus/source-assets/images/336cae8a41089348ef601ba5dbe893d3758f7baa1841701bd587566e0f16d282.svg
-  - docs/tractatus/source-assets/images/b3394a04eba3cf3b36ede15e974e646aa098169220c2c60478507502e024c872.svg
--->
+#### Scenario: Fact retains three independent time roles
+
+- **WHEN** an assertion recorded on one day is evaluated for another valid day and accepted on a third day
+- **THEN** the AcceptedFact SHALL retain all three typed values through its basis and valuation
 
 ---
 ### Requirement: Canonical proposition models SHALL reject ambiguous identity keys
 
-`PropositionModel.init(entries:people:)` SHALL reject construction before creating identity dictionaries when the supplied entries contain duplicate citekeys or the supplied people contain duplicate keys. The rejection SHALL report the complete deduplicated and ascending-sorted duplicate entry citekeys and duplicate person keys in one equatable error. Swift-equal canonical-equivalent spellings SHALL use a raw-UTF-8-stable representative so the machine payload bytes remain independent of input order. Its localized description and default Swift error rendering SHALL report each class total, display at most the first five ascending-sorted keys from each class, state the omitted count, and sanitize every displayed key with `displaySafe(max: 120)` without truncating either machine-readable payload. The implementation SHALL NOT select a first or last record for a duplicate key.
+`PropositionModel` SHALL reject construction before creating identity dictionaries when the supplied snapshot contains duplicate entry citekeys, duplicate person keys, or duplicate organization keys. The rejection SHALL report the complete deduplicated and ascending-sorted duplicate keys for all three classes in one equatable error. Its localized description SHALL report each class total, display at most the first five ascending-sorted keys from each class, state the omitted count, and sanitize every displayed key with `displaySafe(max: 120)` without truncating any machine-readable payload. The implementation SHALL NOT select a first or last record for a duplicate key. A production proposition model SHALL retain the `StoreSnapshotID` of the trusted `LibrarySnapshot` from which it was constructed.
 
-#### Scenario: Duplicate entry and person keys are rejected together
+#### Scenario: Entry person and organization duplicates are rejected together
 
-- **WHEN** model input contains two entries with citekey `work-a` and two people with key `person-a`
-- **THEN** construction SHALL throw an error with duplicate entry citekeys `["work-a"]` and duplicate person keys `["person-a"]`
+- **WHEN** snapshot input contains duplicate `work-a` entries, duplicate `person-a` people, and duplicate `org-a` organizations
+- **THEN** construction SHALL throw one error with entry `["work-a"]`, person `["person-a"]`, and organization `["org-a"]` payloads
 - **AND** no `PropositionModel` SHALL be created
-
-##### Example: Both duplicate classes are preserved
-
-| Entries | People | Expected error payload |
-| ------- | ------ | ---------------------- |
-| `[work-a, work-a]` | `[person-a, person-a]` | entries `[work-a]`, people `[person-a]` |
-| `[work-b, work-a, work-b, work-a]` | `[person-b, person-b]` | entries `[work-a, work-b]`, people `[person-b]` |
 
 #### Scenario: Duplicate rejection is independent of input order
 
-- **WHEN** the same conflicting entry or person records are supplied in forward and reverse order
+- **WHEN** the same conflicting entry, person, or organization records are supplied in forward and reverse order
 - **THEN** both constructions SHALL throw equal validation errors
 - **AND** neither order SHALL produce a truth-bearing model
 
-##### Example: Supporting and non-supporting duplicates
+#### Scenario: Unique snapshot identities remain accepted
 
-- **GIVEN** one `work-a` entry contains author `person-a` and another `work-a` entry contains no matching author
-- **WHEN** model construction receives `[supporting, non-supporting]` and `[non-supporting, supporting]`
-- **THEN** both attempts SHALL throw the same payload with duplicate entry citekeys `["work-a"]`
-
-#### Scenario: Unique identity keys remain accepted
-
-- **WHEN** every entry citekey is unique and every person key is unique
+- **WHEN** every entry citekey, person key, and organization key in a trusted snapshot is unique
 - **THEN** model construction SHALL succeed
 - **AND** each input SHALL be retrievable by its canonical key
-
-##### Example: One canonical work and person
-
-- **GIVEN** one entry with citekey `work-a` and one person with key `person-a`
-- **WHEN** model construction receives those inputs
-- **THEN** `entriesByKey["work-a"]` and `peopleByKey["person-a"]` SHALL contain the supplied values
+- **AND** the model SHALL retain the snapshot ID
 
 #### Scenario: Large duplicate sets retain complete payloads and bounded diagnostics
 
-- **WHEN** model input contains 20 distinct duplicate entry citekeys and 17 distinct duplicate person keys
-- **THEN** the validation error SHALL retain all 20 entry citekeys and all 17 person keys in its sorted machine-readable payloads
-- **AND** its localized description SHALL display only the first five keys from each class and SHALL state both total and omitted counts
-- **AND** caller-controlled control or direction characters in either displayed class SHALL be sanitized
-
-#### Scenario: Default error rendering cannot expose raw payloads
-
-- **WHEN** a duplicate-model error is rendered through `String(describing:)`, string interpolation, or debug reflection
-- **THEN** rendering SHALL equal the bounded localized description
-- **AND** it SHALL NOT expose raw direction characters or every machine-payload key
-
-#### Scenario: Canonical-equivalent duplicate spelling is byte-stable
-
-- **WHEN** a model receives canonically equivalent NFC and NFD spellings in forward and reverse order
-- **THEN** both errors SHALL retain one equal-class representative with identical UTF-8 bytes
-- **AND** neither input order SHALL determine the representative
+- **WHEN** snapshot input contains more than five distinct duplicate keys in every identity class
+- **THEN** the validation error SHALL retain every sorted key in all three machine-readable payloads
+- **AND** its localized description SHALL display only the first five keys from each class and state every total and omitted count
+- **AND** caller-controlled control or direction characters in any displayed class SHALL be sanitized
 
 ---
 ### Requirement: Truth-bearing proposition operations SHALL reject malformed syntax
@@ -699,3 +303,126 @@ Every public operation that derives a projection, truth value, answer, or accept
 - **WHEN** a valid canonical proposition and unique model contain no matching author identity
 - **THEN** evaluation SHALL return `undetermined(noSupportingEvidence)`
 - **AND** it SHALL NOT throw a canonical-input error or return `fails`
+
+---
+### Requirement: Valuation contexts SHALL bind an immutable model view to a valid day
+
+`PropositionModel` SHALL be publicly constructible from a trusted `LibrarySnapshot` and SHALL retain its `StoreSnapshotID`. `PropositionModel.context(validAt:)` SHALL create a `ValuationContext` that binds that exact immutable model, snapshot ID, and one validated `ValidDay`. `ValuationContext` SHALL NOT expose a public initializer that permits a caller to combine a model with a different snapshot ID. Truth-bearing APIs SHALL NOT provide an overload that omits context, reads a mutable current store, or substitutes the system clock.
+
+#### Scenario: A complete context is created from one snapshot
+
+- **WHEN** a caller loads one trusted library snapshot, constructs its proposition model, and requests valid day `2026-08-09`
+- **THEN** the context SHALL retain that snapshot store identity and revision
+- **AND** its valid day SHALL equal `2026-08-09`
+- **AND** its internal model SHALL be the model derived from that snapshot
+
+#### Scenario: A context cannot be assembled from unrelated parts
+
+- **WHEN** a caller has models and snapshot IDs from two different revisions
+- **THEN** the public API SHALL NOT permit construction of a context that pairs one model with the other revision
+
+#### Scenario: Evaluation requires explicit context
+
+- **WHEN** a caller invokes projection, evaluation, or question answering
+- **THEN** the public operation SHALL require a `ValuationContext`
+- **AND** it SHALL NOT infer a valid day or reload a current store
+
+#### Scenario: Two valid days preserve distinct contexts
+
+- **WHEN** two contexts use the same immutable snapshot and different valid days
+- **THEN** their snapshot IDs SHALL be equal
+- **AND** their contexts SHALL remain distinguishable by valid day
+
+---
+### Requirement: Valuation outcomes SHALL retain context and structured evidence
+
+`evaluate(in:)` SHALL return a `Valuation` containing the evaluated proposition, `TruthValue`, complete `ValuationContext`, and typed `EvidenceTrace`. Evidence SHALL identify predicate scope, projected identities, the supporting author slot or affiliation segment, temporal assessment, and the final undetermined or refusal reason. Snapshot quarantine warnings that affect the captured model view SHALL remain visible in the trace. Trace semantics SHALL NOT depend on parsing a human-readable description.
+
+#### Scenario: Supported authorship retains its matching slot
+
+- **WHEN** authored holds because one work author slot contains the projected person key
+- **THEN** the valuation trace SHALL identify the person key, work key, and matching author slot
+- **AND** it SHALL mark authored as snapshot-scoped and time-invariant
+
+#### Scenario: Temporal support retains the complete segment
+
+- **WHEN** affiliated holds because one affiliation segment definitely contains the context valid day
+- **THEN** the valuation trace SHALL retain that segment value, `DateRange`, source, note, and temporal assessment
+- **AND** it SHALL mark affiliated as valid-time-scoped
+
+#### Scenario: A question answer retains its originating valuation
+
+- **WHEN** `YesNoQuestion.answer(in:)` maps a valuation to yes, no, or undetermined
+- **THEN** its `AnswerResult` SHALL retain the complete originating valuation
+- **AND** it SHALL NOT replace the valuation with a bare truth value
+
+#### Scenario: Adjudication retains successful and refused valuations
+
+- **WHEN** adjudication accepts a holds valuation or refuses a non-holds valuation
+- **THEN** the `AcceptedFact` or `notEstablished` refusal SHALL retain that exact valuation
+- **AND** snapshot ID, valid day, and evidence trace SHALL remain unchanged
+
+---
+### Requirement: Valuation time roles SHALL remain nominally distinct
+
+`ValidDay`, `RecordedTime`, and `AcceptedTime` SHALL be distinct public value types rather than type aliases. Each SHALL accept only a real Gregorian day in ASCII `YYYY-MM-DD` form and SHALL preserve its canonical raw value. `Assertion` SHALL accept only `RecordedTime`; `ValuationContext` SHALL accept only `ValidDay`; adjudication SHALL accept only `AcceptedTime`. No truth-bearing API SHALL accept a raw time string.
+
+#### Scenario: Invalid Gregorian days are rejected
+
+- **WHEN** a caller constructs any time role with a year-only value, month-only value, impossible day, or non-ASCII digits
+- **THEN** construction SHALL throw a typed time validation error
+
+##### Example: Date validation boundaries
+
+| Input | Expected result |
+| ----- | --------------- |
+| `2024-02-29` | accepted |
+| `2023-02-29` | rejected |
+| `2026-08` | rejected |
+| `２０２６-０８-０９` | rejected |
+
+#### Scenario: Recorded valid and accepted days remain independent
+
+- **WHEN** an assertion is recorded on `2026-08-08`, evaluated at valid day `2020-01-01`, and accepted on `2026-08-09`
+- **THEN** all three typed values SHALL be retained without substitution
+
+#### Scenario: One time role cannot replace another
+
+- **WHEN** a caller has a `RecordedTime`
+- **THEN** the typed API SHALL NOT accept it where `ValidDay` or `AcceptedTime` is required
+
+---
+### Requirement: Temporal affiliation propositions SHALL evaluate person affiliation timelines
+
+`Proposition` SHALL include the closed typed predicate `affiliated(person:organization:)`. Both arguments SHALL pass canonical proposition validation and project to a `Person` and `Organization` in the context model with their declared role direction. Evaluation SHALL inspect only `Person.profile.affiliations`; organization containment or parent relations SHALL NOT satisfy person affiliation.
+
+A resolved matching organization segment with `TemporalContainment.definitelyContains` SHALL produce holds. A matching unresolved literal, temporal indeterminacy, or invalid temporal evidence SHALL produce a typed undetermined result and trace. No matching active segment SHALL produce `undetermined(noSupportingEvidence)`. The evaluator SHALL NOT produce fails because the snapshot has no positive affiliation-completeness evidence. If any matching segment definitely contains the day, that positive evidence SHALL establish holds while all other segment assessments remain in the trace.
+
+#### Scenario: The same affiliation differs across valid days
+
+- **WHEN** a resolved affiliation runs from `2020-01-01` through `2020-12-31`
+- **THEN** evaluation at `2020-06-15` SHALL return holds
+- **AND** evaluation at `2021-01-01` SHALL return `undetermined(noSupportingEvidence)`
+
+#### Scenario: An unresolved organization literal remains undetermined
+
+- **WHEN** a matching affiliation value is a literal rather than a resolved organization key
+- **THEN** evaluation SHALL return `undetermined(supportingEvidenceUnresolved)`
+- **AND** it SHALL NOT infer identity from a normalized organization name
+
+#### Scenario: Coarse or unknown temporal boundaries fail closed
+
+- **WHEN** a matching segment assessment is precision-indeterminate, unknown-start, or unknown-end
+- **THEN** evaluation SHALL return an undetermined result that retains that temporal reason
+- **AND** it SHALL NOT return holds or fails from that segment alone
+
+#### Scenario: Invalid temporal evidence remains visible
+
+- **WHEN** a matching segment has contradictory shape, an impossible Gregorian endpoint, or an end definitely earlier than its start
+- **THEN** evaluation SHALL return `undetermined(invalidTemporalEvidence)` unless another matching segment definitely contains the day
+- **AND** the invalid evidence SHALL remain in the trace
+
+#### Scenario: Organization containment does not establish affiliation
+
+- **WHEN** an organization has a parent relation to another organization but the person's affiliation timeline lacks the requested organization
+- **THEN** affiliated SHALL remain `undetermined(noSupportingEvidence)`

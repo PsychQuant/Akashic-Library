@@ -576,6 +576,12 @@ public final class AkashicService {
             // 那個。陣列沒有地方放它，所以形狀必須改；`Server.swift` 的 tool description
             // 同步更新。
             let byKey = Dictionary(load.people.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+            // 只回傳前 N 筆歧義；`people` 也只為**這些**建（否則上限只擋較瘦的一半）
+            let shown = Array(report.ambiguities.prefix(Self.ambiguityLimit))
+            // 不透明 ref：`p0`、`p1`…，依 **raw key** 排序指派 → 決定性、且生成即唯一。
+            // 這是把「識別」與「顯示」分開的那一刀，見下方 `people` 的說明。
+            let refByKey = Dictionary(uniqueKeysWithValues:
+                Set(shown.flatMap(\.personKeys)).sorted().enumerated().map { ($0.element, "p\($0.offset)") })
             return try jsonString([
                 "candidates": withIDs.map { pair -> [String: Any] in
                     [
@@ -587,33 +593,57 @@ public final class AkashicService {
                         "reason": displaySafe(pair.candidate.reason, max: 400),
                     ]
                 },
-                // **區辨欄位只送一次，依 key 索引**（`people`），`ambiguities` 只帶 key
-                // 字串。先前每筆歧義都內嵌完整的 person 區塊——verify 席實測 201 筆歧義
-                // 產出 176 KB（約 44k tokens），其中 201 份是同一個 5 人區塊的逐字複本。
-                // MCP 結果直灌 LLM context，這是本 repo 明文的威脅模型
-                // （`TerminalOutputSafetyTests`：「MCP/LLM context 的無上限灌注同型」）。
+                // **區辨欄位只送一次**（`people`），`ambiguities` 只帶 ref。先前每筆歧義
+                // 都內嵌完整的 person 區塊——verify 席實測 201 筆產出 176 KB（約 44k
+                // tokens），其中 201 份是同一區塊的逐字複本。MCP 結果直灌 LLM context，
+                // 這是本 repo 明文的威脅模型（`TerminalOutputSafetyTests`：「MCP/LLM
+                // context 的無上限灌注同型」）。
+                //
+                // ## 索引鍵是**不透明 ref**，不是消毒後的 person key
+                //
+                // 第一版用 `displaySafe(k)` 當 dictionary key —— **那會讓整個 MCP
+                // process trap**（#236 R2，三個 lens 各自重現）：
+                //
+                // - `Dictionary(uniqueKeysWithValues:)` 對重複鍵是 **precondition
+                //   failure（SIGTRAP）**，不是可捕捉的 error
+                // - `displaySafe` 在 `max` 處截斷 → **非單射**
+                // - `StoreKey.pattern` **沒有長度上限**
+                //
+                // 於是兩個共用 200 字元前綴的**合法** key 就能讓 server 崩潰，且只需
+                // 兩次 `akashic_add_person` + 一筆 entry 即可觸發，之後每次呼叫都再崩。
+                //
+                // 根因是把**消毒函數當成識別函數**——`displaySafe` 的目的是安全顯示，
+                // 不是保持區別，而這兩個目標在多對一的映射上直接衝突。ref 把兩者
+                // 分開：ref 負責識別（生成即唯一），`key` 欄位負責顯示（消毒後）。
+                //
+                // 只為**實際回傳**的那些歧義建 `people`（`shown`），不是全部——否則
+                // 上限只擋住較瘦的一半，而 `people` 條目比 `ambiguities` 條目肥。
                 "people": Dictionary(uniqueKeysWithValues:
-                    Set(report.ambiguities.flatMap(\.personKeys)).map { k -> (String, [String: Any]) in
+                    refByKey.map { (raw, ref) -> (String, [String: Any]) in
                         var d: [String: Any] = [
-                            "names": (byKey[k]?.names ?? []).prefix(8).map { displaySafe($0, max: 200) },
+                            "key": displaySafe(raw, max: 200),
+                            "names": (byKey[raw]?.names ?? []).prefix(8).map { displaySafe($0, max: 200) },
                         ]
                         // **缺席就不輸出**，不要送空字串——那會讓「沒有 ORCID」與
                         // 「ORCID 是空字串」在 JSON 上不再有分別（同本檔 :185／:375 的慣例）。
-                        if let o = byKey[k]?.orcid { d["orcid"] = displaySafe(o, max: 60) }
-                        if let o = byKey[k]?.openalex { d["openalex"] = displaySafe(o, max: 60) }
-                        if let x = byKey[k]?.died { d["died"] = displaySafe(x, max: 40) }
-                        if let a = byKey[k]?.profile.affiliations.current?.value {
+                        if let o = byKey[raw]?.orcid { d["orcid"] = displaySafe(o, max: 60) }
+                        if let o = byKey[raw]?.openalex { d["openalex"] = displaySafe(o, max: 60) }
+                        if let x = byKey[raw]?.died { d["died"] = displaySafe(x, max: 40) }
+                        if let a = byKey[raw]?.profile.affiliations.current?.value {
                             d["currentAffiliation"] = displaySafe(a.displayName, max: 200)
                         }
-                        return (displaySafe(k, max: 200), d)
+                        return (ref, d)
                     }),
-                "ambiguities": report.ambiguities.prefix(Self.ambiguityLimit).map { a -> [String: Any] in
+                "ambiguities": shown.map { a -> [String: Any] in
                     [
                         "entryID": a.entryID.uuidString,   // display-safe-exempt: UUID 的 uuidString 恆為 [0-9A-F-]
                         "citekey": displaySafe(a.citekey, max: 200),
                         "authorIndex": a.authorIndex,
                         "literal": displaySafe(a.literal, max: 400),
-                        "personKeys": a.personKeys.map { displaySafe($0, max: 200) },
+                        // ref 而非 key —— 見上方 `people` 的說明。送出的是**生成的**
+                        // ref，store 衍生的 `personKeys` 只當查表鍵、不進輸出；key 的
+                        // 顯示形只出現在 `people[ref]["key"]`，那裡有 displaySafe。
+                        "personRefs": a.personKeys.compactMap { refByKey[$0] },   // display-safe-exempt: 輸出是生成的 ref（`p0`/`p1`…，恆為 [a-z0-9]），非 store 內容
                     ]
                 },
                 "truncated": report.ambiguities.count > Self.ambiguityLimit,

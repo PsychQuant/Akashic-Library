@@ -202,16 +202,59 @@ final class ServiceTests: XCTestCase {
         XCTAssertNotNil(hit?["entryID"] as? String,
                         "要帶 entry 身分——重複 citekey 下 (citekey, authorIndex) 不足以定位")
 
-        // **區辨欄位只送一次、依 key 索引**（#236 R1：先前每筆歧義內嵌完整 person
-        // 區塊，實測 201 筆產出 176 KB／約 44k tokens，其中 201 份是同一區塊的複本）
-        XCTAssertEqual(hit?["personKeys"] as? [String], ["amb-one", "amb-two"], "須排序")
+        // **區辨欄位只送一次、依不透明 ref 索引**（#236 R1 是體積、R2 是崩潰——
+        // 見 testResolvePeopleSurvivesDisplaySafeKeyCollision）
+        let refs = hit?["personRefs"] as! [String]
         let people = out["people"] as! [String: [String: Any]]
-        XCTAssertEqual(people["amb-one"]?["orcid"] as? String, "0000-0001-2345-6789")
-        XCTAssertEqual(people["amb-one"]?["names"] as? [String], ["Ambi Guous"])
+        let byDisplayKey = Dictionary(uniqueKeysWithValues:
+            people.map { ($0.value["key"] as! String, $0.value) })
+        XCTAssertEqual(refs.compactMap { people[$0]?["key"] as? String },
+                       ["amb-one", "amb-two"], "須依 raw key 排序，且 ref 查得到")
+        XCTAssertEqual(byDisplayKey["amb-one"]?["orcid"] as? String, "0000-0001-2345-6789")
+        XCTAssertEqual(byDisplayKey["amb-one"]?["names"] as? [String], ["Ambi Guous"])
         // **缺席就不輸出**，不送空字串——否則「沒有 ORCID」與「ORCID 是空字串」
         // 在 JSON 上不再有分別（同本檔既有慣例）
-        XCTAssertNil(people["amb-two"]?["orcid"],
-                     "沒有 ORCID 時不該出現該鍵：\(people["amb-two"] ?? [:])")
+        XCTAssertNil(byDisplayKey["amb-two"]?["orcid"],
+                     "沒有 ORCID 時不該出現該鍵：\(byDisplayKey["amb-two"] ?? [:])")
+    }
+
+    /// #236 R2 CRITICAL：**`displaySafe` 後的 key 碰撞會讓整個 MCP process trap。**
+    ///
+    /// 第一版把 `displaySafe(personKey)` 當 `people` 的 dictionary key。三個條件湊在
+    /// 一起就是 SIGTRAP：
+    ///
+    /// 1. `Dictionary(uniqueKeysWithValues:)` 對重複鍵是 **precondition failure**，
+    ///    不是可捕捉的 error——`try` 接不住，整個 process 死
+    /// 2. `displaySafe` 在 `max` 處截斷 → **非單射**
+    /// 3. `StoreKey.pattern` = `\A[a-z0-9][a-z0-9-]*\z`，**沒有長度上限**
+    ///
+    /// 兩個共用 200 字元前綴的**合法** key 即可觸發，且只用出貨的 MCP 工具就做得到
+    /// （兩次 `add_person` + 一筆 entry）。`akashic validate` 對這種 store 回報
+    /// 「全部通過」——沒有任何地方警告。
+    ///
+    /// 根因是**把消毒函數當成識別函數**：`displaySafe` 的目的是安全顯示、不是保持
+    /// 區別，而這兩個目標在多對一的映射上直接衝突。修法是不透明 ref。
+    func testResolvePeopleSurvivesDisplaySafeKeyCollision() throws {
+        let store = LibraryStore(root: root)
+        let prefix = String(repeating: "a", count: 200)
+        try store.writePerson(Person(key: prefix + "b", names: ["Collide Me"]))
+        try store.writePerson(Person(key: prefix + "c", names: ["Collide Me"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "collide2020", type: "article",
+                                   title: "X", authors: [.literal("Collide Me")], date: "2020"))
+        // 前提：兩人都合法載入（不是被 quarantine 擋掉才沒事）
+        XCTAssertEqual(try store.load().people.filter { $0.key.hasPrefix(prefix) }.count, 2)
+
+        // 第一版在這一行 SIGTRAP：`Fatal error: Duplicate values for key: 'aaaa…（已截斷）'`
+        let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
+
+        let people = out["people"] as! [String: [String: Any]]
+        XCTAssertEqual(people.count, 2, "兩個不同的 person 必須是兩個條目，不得塌成一個")
+        let hit = (out["ambiguities"] as! [[String: Any]])
+            .first { $0["citekey"] as? String == "collide2020" }
+        let refs = hit?["personRefs"] as! [String]
+        XCTAssertEqual(refs.count, 2, "兩個 ref")
+        XCTAssertEqual(Set(refs).count, 2, "**兩個 ref 必須不同**——否則兩人的資料被靜默覆蓋")
+        XCTAssertTrue(refs.allSatisfy { people[$0] != nil }, "每個 ref 都查得到")
 
         // 歧義**不可**出現在 candidates（那條路是可 apply 的）
         let cands = out["candidates"] as! [[String: Any]]
@@ -241,8 +284,12 @@ final class ServiceTests: XCTestCase {
         XCTAssertEqual(out["truncated"] as? Bool, true, "截斷必須說出來")
         XCTAssertEqual(out["ambiguityTotal"] as? Int, 60, "要給總數，否則使用端不知道漏了多少")
         // 去重的證據：`people` 只有 2 筆，不隨歧義筆數增長
-        XCTAssertEqual((out["people"] as! [String: Any]).count, 2,
-                       "區辨欄位依 key 索引、只送一次——不得隨出現次數線性膨脹")
+        // `people` 只為**實際回傳**的那 50 筆建——否則上限只擋較瘦的一半
+        // （`people` 條目帶 names/orcid/openalex/died/隸屬，比 ambiguities 條目肥）
+        let shownRefs = Set(ambs.flatMap { $0["personRefs"] as! [String] })
+        XCTAssertEqual(Set((out["people"] as! [String: Any]).keys), shownRefs,
+                       "people 的鍵必須恰好等於回傳歧義引用到的 ref 聯集——"
+                       + "多了是孤兒 payload，少了是查不到")
     }
 
     func testResolvePeopleListsAndAppliesSelectively() throws {

@@ -6,6 +6,7 @@ public enum CorpusSchemaError: Error, Equatable, LocalizedError {
     case unknownKey(String)
     case invalidID(String)
     case invalidRelation(String)
+    case resourceLimit(kind: String, actual: Int, maximum: Int)
 
     public var errorDescription: String? {
         switch self {
@@ -15,6 +16,8 @@ public enum CorpusSchemaError: Error, Equatable, LocalizedError {
             return "invalid-id: 不合法的階層 ID \(displaySafe(id, max: 200))"
         case let .invalidRelation(value):
             return "invalid-relation: 不接受關係值 \(displaySafe(value, max: 200))"
+        case let .resourceLimit(kind, actual, maximum):
+            return "resource-limit: \(displaySafe(kind, max: 80)) 數量 \(actual) 超過上限 \(maximum)" // display-safe-exempt: actual 與 maximum 是程式產生的 Int 資源計數，不含 store 字串。
         }
     }
 
@@ -23,13 +26,42 @@ public enum CorpusSchemaError: Error, Equatable, LocalizedError {
         case .unknownKey: "unknown-key"
         case .invalidID: "invalid-id"
         case .invalidRelation: "invalid-relation"
+        case .resourceLimit: "resource-limit"
         }
     }
 
     public var diagnosticSubject: String {
         switch self {
         case let .unknownKey(value), let .invalidID(value), let .invalidRelation(value): value
+        case let .resourceLimit(kind, _, _): kind
         }
+    }
+}
+
+enum CorpusResourceLimits {
+    static let maximumVolumeUTF8Bytes = 1 * 1024 * 1024
+    static let maximumCorpusDirectoryEntries = 64
+    static let maximumCorpusYAMLFiles = 8
+    static let maximumPropositionsPerVolume = 256
+    static let maximumRelationsPerProposition = 8
+    static let maximumEvidencePerRelation = 32
+    static let maximumHistoryPerProposition = 32
+    static let maximumTotalEvidence = 1_024
+    static let maximumTotalHistory = 512
+    static let maximumEvidenceFileUTF8Bytes = 4 * 1024 * 1024
+}
+
+private func enforceCorpusLimit(
+    _ actual: Int,
+    maximum: Int,
+    kind: String
+) throws {
+    guard actual <= maximum else {
+        throw CorpusSchemaError.resourceLimit(
+            kind: kind,
+            actual: actual,
+            maximum: maximum
+        )
     }
 }
 
@@ -257,6 +289,11 @@ public struct CorpusVolume: Decodable, Equatable, Sendable {
         schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
         volume = try container.decode(String.self, forKey: .volume)
         propositions = try container.decode([PropositionRecord].self, forKey: .propositions)
+        try enforceCorpusLimit(
+            propositions.count,
+            maximum: CorpusResourceLimits.maximumPropositionsPerVolume,
+            kind: "propositions-per-volume"
+        )
     }
 }
 
@@ -298,6 +335,16 @@ public struct PropositionRecord: Decodable, Equatable, Sendable {
             forKey: .projectRelations
         ) ?? []
         history = try container.decodeIfPresent([HistoryReference].self, forKey: .history) ?? []
+        try enforceCorpusLimit(
+            projectRelations.count,
+            maximum: CorpusResourceLimits.maximumRelationsPerProposition,
+            kind: "relations-per-proposition"
+        )
+        try enforceCorpusLimit(
+            history.count,
+            maximum: CorpusResourceLimits.maximumHistoryPerProposition,
+            kind: "history-per-proposition"
+        )
     }
 }
 
@@ -347,6 +394,11 @@ public struct ProjectRelation: Decodable, Equatable, Sendable {
         claimZhTW = try container.decode(String.self, forKey: .claimZhTW)
         rationaleZhTW = try container.decode(String.self, forKey: .rationaleZhTW)
         evidence = try container.decodeIfPresent([CurrentEvidence].self, forKey: .evidence) ?? []
+        try enforceCorpusLimit(
+            evidence.count,
+            maximum: CorpusResourceLimits.maximumEvidencePerRelation,
+            kind: "evidence-per-relation"
+        )
     }
 }
 
@@ -398,6 +450,12 @@ public struct HistoryReference: Decodable, Equatable, Sendable {
 
 public enum CorpusYAMLDecoder {
     public static func decodeVolume(_ yaml: String) throws -> CorpusVolume {
+        try enforceCorpusLimit(
+            yaml.utf8.count,
+            maximum: CorpusResourceLimits.maximumVolumeUTF8Bytes,
+            kind: "volume-utf8-bytes"
+        )
+        try AliasEventBudget.check(yaml, context: "tractatus corpus volume")
         do {
             return try YAMLDecoder().decode(CorpusVolume.self, from: yaml)
         } catch {
@@ -409,7 +467,19 @@ public enum CorpusYAMLDecoder {
     }
 
     public static func decodeVolume(contentsOf url: URL) throws -> CorpusVolume {
-        let yaml = try String(contentsOf: url, encoding: .utf8)
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(
+            upToCount: CorpusResourceLimits.maximumVolumeUTF8Bytes + 1
+        ) ?? Data()
+        try enforceCorpusLimit(
+            data.count,
+            maximum: CorpusResourceLimits.maximumVolumeUTF8Bytes,
+            kind: "volume-utf8-bytes"
+        )
+        guard let yaml = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileReadInapplicableStringEncoding)
+        }
         return try decodeVolume(yaml)
     }
 

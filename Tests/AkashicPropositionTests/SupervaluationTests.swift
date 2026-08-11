@@ -176,6 +176,23 @@ final class SupervaluationTests: XCTestCase {
         )
     }
 
+    // Production mutation caught: 只聯集 mixed children 的 unknown，而沒有檢查該變數
+    // 是否真的能改變 root。q 出現在 syntax 中，但 p ∧ (p ∨ q) 對 q 不敏感。
+    func testInconclusiveReasonExcludesSemanticallyIrrelevantUnknownAtoms() throws {
+        let context = try context(atomCount: 2)
+        let p = try atom(0)
+        let q = try atom(1)
+        let expression = try PropositionExpression.and(
+            p,
+            PropositionExpression.or(p, q)
+        )
+
+        XCTAssertEqual(
+            try expression.evaluate(in: context).truth,
+            .undetermined(.supervaluationInconclusive(atoms: [proposition(0)]))
+        )
+    }
+
     // Production mutations caught: duplicate syntax occurrences are projected repeatedly or a
     // trace short-circuits after the first determinate branch.
     func testDuplicateAtomsAreEvaluatedOnceButEveryOccurrenceIsTraced() throws {

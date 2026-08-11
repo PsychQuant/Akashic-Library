@@ -158,12 +158,33 @@ enum CorpusValidationEngine {
         gaps: inout [ConstructionGap]
     ) -> (volumes: [CorpusVolume], filenames: Set<String>) {
         let corpusDirectory = root.appendingPathComponent("corpus", isDirectory: true)
-        let urls = (try? FileManager.default.contentsOfDirectory(
+        let enumerator = FileManager.default.enumerator(
             at: corpusDirectory,
             includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )) ?? []
-        let yamlURLs = urls.filter { $0.pathExtension == "yaml" }
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+        )
+        var directoryEntryCount = 0
+        var yamlURLs: [URL] = []
+        while let url = enumerator?.nextObject() as? URL {
+            directoryEntryCount += 1
+            if directoryEntryCount > CorpusResourceLimits.maximumCorpusDirectoryEntries {
+                break
+            }
+            if url.pathExtension == "yaml" {
+                yamlURLs.append(url)
+                if yamlURLs.count > CorpusResourceLimits.maximumCorpusYAMLFiles { break }
+            }
+        }
+        if directoryEntryCount > CorpusResourceLimits.maximumCorpusDirectoryEntries
+            || yamlURLs.count > CorpusResourceLimits.maximumCorpusYAMLFiles {
+            diagnostics.append(CorpusDiagnostic(
+                path: "corpus",
+                recordID: "inventory",
+                code: "resource-limit",
+                message: "corpus 目錄超過固定檔案／項目上限。"
+            ))
+        }
+        yamlURLs = Array(yamlURLs.prefix(CorpusResourceLimits.maximumCorpusYAMLFiles))
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
         let filenames = Set(yamlURLs.map(\.lastPathComponent))
 

@@ -18,7 +18,7 @@ final class CorpusReconciliationTests: XCTestCase {
     ]
 
     func testIssueHistorySetsAreExactAndAuditedSetHasThirtyFiveRecords() throws {
-        let volumes = try loadVolumes("4", "5", "6")
+        let volumes = try loadCanonicalVolumes()
         let records = Dictionary(uniqueKeysWithValues: volumes.flatMap(\.propositions).map {
             ($0.id.rawValue, $0)
         })
@@ -33,7 +33,14 @@ final class CorpusReconciliationTests: XCTestCase {
 
         XCTAssertEqual(actual203, issue203IDs)
         XCTAssertEqual(actual204, volumeFiveIssue204IDs)
-        XCTAssertEqual(issue203IDs.union(volumeFiveIssue204IDs).union(specialIDs).count, 35)
+        let actualSpecials = specialIDs.intersection(records.keys)
+        XCTAssertEqual(actualSpecials, specialIDs)
+        let actualAudited = actual203.union(actual204).union(actualSpecials)
+        XCTAssertEqual(
+            actualAudited,
+            issue203IDs.union(volumeFiveIssue204IDs).union(specialIDs)
+        )
+        XCTAssertEqual(actualAudited.count, 35)
         XCTAssertTrue(records["4.431"]?.history.contains { $0.reference == issue204 } == true)
     }
 
@@ -117,7 +124,7 @@ final class CorpusReconciliationTests: XCTestCase {
     }
 
     func testReconciliationPinsPR210BaselineAndAllLocatorsResolveInOneTree() throws {
-        let volumes = try loadVolumes("4", "5", "6")
+        let volumes = try loadCanonicalVolumes()
         XCTAssertTrue(volumes.flatMap(\.propositions).contains { record in
             record.history.contains { $0.kind == .commit && $0.reference == pr210Merge }
         })
@@ -125,6 +132,76 @@ final class CorpusReconciliationTests: XCTestCase {
             CorpusValidator.validateEvidence(volumes: volumes, projectRoot: repositoryRoot),
             []
         )
+    }
+
+    func testCorpusResourceLimitsRejectAliasAmplificationAndOversizedVolume() throws {
+        let evidence = """
+              - &e
+                path: Sources/AkashicProposition/Projection.swift
+                kind: symbol
+                locator: evaluate
+        """
+        let aliases = Array(
+            repeating: "      - *e",
+            count: CorpusResourceLimits.maximumEvidencePerRelation
+        ).joined(separator: "\n")
+        let yaml = """
+        schema_version: 1
+        volume: "1"
+        propositions:
+        - id: "1"
+          texts:
+            de: ["x"]
+            en: ["x"]
+          segments:
+          - id: "1.a"
+            alignment:
+              de: [0]
+              en: [0]
+            translation_zh_tw: "x"
+            interpretation_zh_tw: "x"
+          project_relations:
+          - status: partial
+            mode: instance
+            claim_zh_tw: "x"
+            rationale_zh_tw: "x"
+            evidence:
+        \(evidence)
+        \(aliases)
+        """
+
+        XCTAssertThrowsError(try CorpusYAMLDecoder.decodeVolume(yaml)) { error in
+            XCTAssertEqual(
+                error as? CorpusSchemaError,
+                .resourceLimit(
+                    kind: "evidence-per-relation",
+                    actual: CorpusResourceLimits.maximumEvidencePerRelation + 1,
+                    maximum: CorpusResourceLimits.maximumEvidencePerRelation
+                )
+            )
+        }
+
+        let oversized = String(
+            repeating: " ",
+            count: CorpusResourceLimits.maximumVolumeUTF8Bytes + 1
+        )
+        XCTAssertThrowsError(try CorpusYAMLDecoder.decodeVolume(oversized)) { error in
+            XCTAssertEqual(
+                error as? CorpusSchemaError,
+                .resourceLimit(
+                    kind: "volume-utf8-bytes",
+                    actual: CorpusResourceLimits.maximumVolumeUTF8Bytes + 1,
+                    maximum: CorpusResourceLimits.maximumVolumeUTF8Bytes
+                )
+            )
+        }
+    }
+
+    private func loadCanonicalVolumes() throws -> [CorpusVolume] {
+        try CorpusValidationEngine.validate(
+            root: repositoryRoot.appendingPathComponent("docs/tractatus"),
+            allowIncomplete: false
+        ).corpus.volumes
     }
 
     private func loadVolumes(_ names: String...) throws -> [CorpusVolume] {

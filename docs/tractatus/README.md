@@ -52,6 +52,12 @@ swift run tractatus-doc render --root docs/tractatus --output docs/tractatus/gen
 swift run tractatus-doc render --root docs/tractatus --output docs/tractatus/generated/tractatus-project-map.md --check
 ```
 
+驗證器的資源界線固定為：每卷 YAML 1 MiB、正典 YAML 8 檔／目錄項目 64、每卷
+256 個命題、每命題 8 個 project relations／32 筆 history、每 relation 32 筆 evidence，
+全次驗證最多 1,024 筆 evidence／512 筆 history；current-evidence 單檔最多讀 4 MiB。
+所有 YAML 另先通過共用 alias-event expansion budget。超界一律以 `resource-limit`
+fail closed，不進入 locator 或 Git history 的無界工作。
+
 若要人工複核來源快照與圖資的 digest：
 
 ```sh

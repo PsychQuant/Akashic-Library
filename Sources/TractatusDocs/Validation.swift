@@ -467,9 +467,37 @@ public enum CorpusValidator {
     ) -> [CorpusDiagnostic] {
         var diagnostics: [CorpusDiagnostic] = []
         var fileCache: [String: String] = [:]
+        var swiftCodeCache: [String: String] = [:]
         var unreadablePaths: Set<String> = []
         var commitCache: [String: Bool] = [:]
         var branchCache: [String: Bool] = [:]
+
+        let evidenceCount = volumes.flatMap(\.propositions).reduce(0) { total, record in
+            total + record.projectRelations.reduce(0) { $0 + $1.evidence.count }
+        }
+        let historyCount = volumes.flatMap(\.propositions).reduce(0) {
+            $0 + $1.history.count
+        }
+        if evidenceCount > CorpusResourceLimits.maximumTotalEvidence {
+            diagnostics.append(CorpusDiagnostic(
+                path: "corpus",
+                recordID: "evidence",
+                code: "resource-limit",
+                message: "current evidence 總數 \(evidenceCount) 超過上限 "
+                    + "\(CorpusResourceLimits.maximumTotalEvidence)。"
+            ))
+            return diagnostics
+        }
+        if historyCount > CorpusResourceLimits.maximumTotalHistory {
+            diagnostics.append(CorpusDiagnostic(
+                path: "corpus",
+                recordID: "history",
+                code: "resource-limit",
+                message: "history 總數 \(historyCount) 超過上限 "
+                    + "\(CorpusResourceLimits.maximumTotalHistory)。"
+            ))
+            return diagnostics
+        }
 
         for volume in volumes {
             let corpusPath = "corpus/\(volume.volume).yaml"
@@ -482,6 +510,7 @@ public enum CorpusValidator {
                             corpusPath: corpusPath,
                             projectRoot: projectRoot,
                             fileCache: &fileCache,
+                            swiftCodeCache: &swiftCodeCache,
                             unreadablePaths: &unreadablePaths,
                             diagnostics: &diagnostics
                         )
@@ -929,6 +958,7 @@ public enum CorpusValidator {
         corpusPath: String,
         projectRoot: URL,
         fileCache: inout [String: String],
+        swiftCodeCache: inout [String: String],
         unreadablePaths: inout Set<String>,
         diagnostics: inout [CorpusDiagnostic]
     ) {
@@ -982,7 +1012,10 @@ public enum CorpusValidator {
                 message: "evidence path 不存在或不是可讀文字檔：\(evidence.path)"
             ))
             return
-        } else if let loaded = try? String(contentsOf: fileURL, encoding: .utf8) {
+        } else if let loaded = try? boundedUTF8Contents(
+            of: fileURL,
+            maximumBytes: CorpusResourceLimits.maximumEvidenceFileUTF8Bytes
+        ) {
             fileCache[cacheKey] = loaded
             contents = loaded
         } else {
@@ -1006,11 +1039,24 @@ public enum CorpusValidator {
             ))
             return
         }
+        let swiftContents: String?
+        if normalizedPath.hasSuffix(".swift") {
+            if let cached = swiftCodeCache[cacheKey] {
+                swiftContents = cached
+            } else {
+                let lexical = swiftCodeView(contents)
+                swiftCodeCache[cacheKey] = lexical
+                swiftContents = lexical
+            }
+        } else {
+            swiftContents = nil
+        }
         guard locatorMatchesDeclaredKind(
             locator,
             kind: evidence.kind,
             path: normalizedPath,
-            contents: contents
+            contents: contents,
+            swiftContents: swiftContents
         ) else {
             diagnostics.append(CorpusDiagnostic(
                 path: corpusPath,
@@ -1026,7 +1072,8 @@ public enum CorpusValidator {
         _ locator: String,
         kind: EvidenceLocatorKind,
         path: String,
-        contents: String
+        contents: String,
+        swiftContents: String?
     ) -> Bool {
         switch kind {
         case .heading:
@@ -1047,7 +1094,7 @@ public enum CorpusValidator {
                 return false
             }
             let escaped = NSRegularExpression.escapedPattern(for: locator)
-            return swiftCodeView(contents).range(
+            return (swiftContents ?? "").range(
                 of: #"\b(?:actor|associatedtype|class|enum|func|let|macro|protocol|struct|typealias|var)\s+`?"#
                     + escaped
                     + #"`?(?![A-Za-z0-9_])"#,
@@ -1073,11 +1120,25 @@ public enum CorpusValidator {
                 return false
             }
             let escaped = NSRegularExpression.escapedPattern(for: locator)
-            return swiftCodeView(contents).range(
+            return (swiftContents ?? "").range(
                 of: "\\bfunc\\s+`?\(escaped)`?\\s*\\(",
                 options: .regularExpression
             ) != nil
         }
+    }
+
+    private static func boundedUTF8Contents(
+        of url: URL,
+        maximumBytes: Int
+    ) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: maximumBytes + 1) ?? Data()
+        guard data.count <= maximumBytes,
+              let contents = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileReadInapplicableStringEncoding)
+        }
+        return contents
     }
 
     private enum SwiftLexicalMode {

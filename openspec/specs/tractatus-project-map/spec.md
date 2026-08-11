@@ -853,7 +853,21 @@ code:
 ---
 ### Requirement: Validation SHALL be strict, deterministic, and actionable
 
-The `tractatus-doc validate` command SHALL perform schema, cross-volume, alignment, Chinese-content, relation, evidence, source-digest, image-digest, and license checks. Unknown YAML keys SHALL be rejected. Errors SHALL use `path:record-id:error-code: message`, SHALL use project-relative paths, and SHALL be sorted by path, record ID, and error code before output. Every diagnostic field SHALL escape control characters, bidirectional text controls, backslashes, and field separators so untrusted YAML values cannot forge terminal output. Construction gaps SHALL be sorted independently and rendered as `incomplete: KIND VALUE` before diagnostics, including when diagnostics make the command fail. Any error SHALL produce a non-zero exit status.
+The `tractatus-doc validate` command SHALL perform schema, cross-volume, alignment, Chinese-content, relation, evidence, source-digest, image-digest, and license checks. Unknown YAML keys SHALL be rejected. Before YAML composition, every canonical volume SHALL be limited to 1 MiB of UTF-8 and SHALL pass the shared alias-event expansion budget. The corpus directory SHALL accept at most eight canonical YAML files and sixty-four entries; each volume SHALL contain at most 256 propositions, each proposition at most eight project relations and thirty-two history references, and each relation at most thirty-two current-evidence items. A validation run SHALL process at most 1,024 current-evidence items and 512 history references, and SHALL read at most 4 MiB from any current-evidence file. Exceeding any fixed limit SHALL fail closed with a `resource-limit` diagnostic before unbounded locator or Git-history work. Swift lexical views SHALL be cached once per evidence file. Errors SHALL use `path:record-id:error-code: message`, SHALL use project-relative paths, and SHALL be sorted by path, record ID, and error code before output. Every diagnostic field SHALL escape control characters, bidirectional text controls, backslashes, and field separators so untrusted YAML values cannot forge terminal output. Construction gaps SHALL be sorted independently and rendered as `incomplete: KIND VALUE` before diagnostics, including when diagnostics make the command fail. Any error SHALL produce a non-zero exit status.
+
+#### Scenario: Alias-expanded evidence cannot amplify validation work without bound
+
+- **GIVEN** a syntactically valid corpus relation uses YAML aliases to expand beyond thirty-two current-evidence items
+- **WHEN** the canonical volume is decoded
+- **THEN** validation SHALL fail with `resource-limit`
+- **AND** no locator or Git-history subprocess SHALL run for the rejected payload
+
+#### Scenario: Oversized canonical volume is rejected before composition
+
+- **GIVEN** a canonical volume contains more than 1 MiB of UTF-8
+- **WHEN** validation reads the volume
+- **THEN** it SHALL read no more than the fixed limit plus one sentinel byte
+- **AND** it SHALL fail with `resource-limit` before YAML composition
 
 #### Scenario: Strict corpus passes
 

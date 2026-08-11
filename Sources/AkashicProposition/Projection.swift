@@ -1058,6 +1058,10 @@ extension PropositionExpression {
         var observedTrue = [Bool](repeating: false, count: nodes.count)
         var observedFalse = [Bool](repeating: false, count: nodes.count)
         var completionValues = [Bool](repeating: false, count: nodes.count)
+        let (outcomeCount, outcomeCountOverflow) = nodes.count
+            .multipliedReportingOverflow(by: completionCount)
+        precondition(!outcomeCountOverflow, "bounded node／completion product 必須可表示")
+        var completionOutcomes = [Bool](repeating: false, count: outcomeCount)
 
         func atomicValuation(for atom: Proposition) -> Valuation {
             guard let match = atomicValuations.first(where: { $0.atom == atom }) else {
@@ -1108,6 +1112,7 @@ extension PropositionExpression {
                         || completionValues[node.children[1]])
                 }
                 completionValues[nodeIndex] = value
+                completionOutcomes[completionIndex * nodes.count + nodeIndex] = value
                 observedTrue[nodeIndex] = observedTrue[nodeIndex] || value
                 observedFalse[nodeIndex] = observedFalse[nodeIndex] || !value
             }
@@ -1152,14 +1157,29 @@ extension PropositionExpression {
                     completionDependentAtoms[node.children[0]]
                 conclusion = .undetermined(reason)
             } else {
-                // 只回報會穿過 undetermined child 影響此 mixed 結論的 atoms。
-                // 已由 tautology／contradiction 收斂成 determinate 的 child 仍保留完整
-                // leaf trace，但其內部 unknown 不再冒充本節點 inconclusive 的原因。
-                let childCandidates = node.children.flatMap {
-                    completionDependentAtoms[$0]
-                }
+                // 對每個 unknown 比較只翻轉該 bit 的成對 completions。只有至少一對
+                // 會改變本節點結果時，該 atom 才是 mixed 結論的實際原因；單純出現在
+                // syntax／mixed child 裡但被吸收律消去的 atom 不得冒充 inconclusive。
                 let relevantUnknowns = node.expression.atoms.filter { candidate in
-                    childCandidates.contains(candidate)
+                    guard let unknownIndex = undeterminedAtoms.firstIndex(of: candidate) else {
+                        return false
+                    }
+                    let bitOffset = undeterminedAtoms.count - unknownIndex - 1
+                    guard let bitMask = productionCheckedPowerOfTwoShift(bitOffset) else {
+                        preconditionFailure("bounded completion bit 必須可表示")
+                    }
+                    for completionIndex in 0..<completionCount
+                    where completionIndex & bitMask == 0 {
+                        let pairedIndex = completionIndex | bitMask
+                        let value = completionOutcomes[
+                            completionIndex * nodes.count + nodeIndex
+                        ]
+                        let pairedValue = completionOutcomes[
+                            pairedIndex * nodes.count + nodeIndex
+                        ]
+                        if value != pairedValue { return true }
+                    }
+                    return false
                 }
                 completionDependentAtoms[nodeIndex] = relevantUnknowns
                 conclusion = .undetermined(.supervaluationInconclusive(

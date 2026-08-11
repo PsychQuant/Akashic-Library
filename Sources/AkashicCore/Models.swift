@@ -342,7 +342,10 @@ public func displaySafeMultiline(_ s: String, maxLineLength: Int = 400,
 ///    （消毒後的字串會變得可偽造）。
 public func displaySafe(_ s: String, max: Int = 200) -> String {
     var out = String.UnicodeScalarView()
-    out.reserveCapacity(Swift.min(s.unicodeScalars.count, max) + 16)
+    // `s` 是 caller-controlled；不能為了 reserve 先完整走過可能極大的 scalar view。
+    // `max` 才是本函式真正會接觸的上界，負值也收斂為空 budget。
+    let boundedMaximum = Swift.max(0, max)
+    out.reserveCapacity(Swift.min(boundedMaximum, 2_048))
     var emitted = 0
     var truncated = false
 
@@ -351,7 +354,7 @@ public func displaySafe(_ s: String, max: Int = 200) -> String {
     }
 
     for u in s.unicodeScalars {
-        if emitted >= max { truncated = true; break }
+        if emitted >= boundedMaximum { truncated = true; break }
         let v = u.value
         let escape =
             v < 0x20 || v == 0x7F                    // C0 + DEL（含 ESC / CR / LF / TAB）

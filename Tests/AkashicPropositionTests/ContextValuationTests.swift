@@ -180,19 +180,20 @@ final class ContextValuationTests: XCTestCase {
         let context = model.context(validAt: try day("2026-08-09"))
         let first = try authored.evaluate(in: context)
         let replay = try authored.evaluate(in: context)
+        let firstAtomic = try XCTUnwrap(first.trace.atomicEvidence)
 
         XCTAssertEqual(context.snapshotID, source.id)
         XCTAssertEqual(context.validAt.rawValue, "2026-08-09")
         XCTAssertEqual(first, replay)
         XCTAssertEqual(
-            first.trace.projection,
+            firstAtomic.projection,
             .authored(personKey: personKey, workKey: workKey)
         )
-        XCTAssertTrue(first.trace.evidence.contains(
+        XCTAssertTrue(firstAtomic.evidence.contains(
             .authorSlot(slot: .key(personKey), assessment: .supports)
         ))
         XCTAssertEqual(source.load.quarantined.count, 2)
-        XCTAssertEqual(first.trace.snapshotQuarantine, source.load.quarantined)
+        XCTAssertEqual(firstAtomic.snapshotQuarantine, source.load.quarantined)
         XCTAssertEqual(first.trace.conclusion, first.truth)
     }
 
@@ -226,8 +227,14 @@ final class ContextValuationTests: XCTestCase {
         XCTAssertEqual(early.truth, .holds)
         XCTAssertEqual(late.truth, .holds)
         XCTAssertNotEqual(early.context, late.context)
-        XCTAssertEqual(early.trace, late.trace)
-        XCTAssertEqual(early.trace.scope, .snapshotScopedTimeInvariant)
+        XCTAssertNotEqual(early.trace, late.trace)
+        XCTAssertEqual(early.trace.context, early.context)
+        XCTAssertEqual(late.trace.context, late.context)
+        XCTAssertEqual(early.trace.atomicEvidence, late.trace.atomicEvidence)
+        XCTAssertEqual(
+            try XCTUnwrap(early.trace.atomicEvidence).scope,
+            .snapshotScopedTimeInvariant
+        )
     }
 
     // 可攔截的 production mutation：affiliation 忽略 validAt、丟失 segment payload 或回 false。
@@ -246,12 +253,13 @@ final class ContextValuationTests: XCTestCase {
         let model = try PropositionModel(snapshot: source)
         let active = try affiliated.evaluate(in: model.context(validAt: day("2020-06-15")))
         let after = try affiliated.evaluate(in: model.context(validAt: day("2021-01-01")))
+        let activeAtomic = try XCTUnwrap(active.trace.atomicEvidence)
 
         XCTAssertEqual(active.truth, .holds)
         XCTAssertEqual(after.truth, .undetermined(.noSupportingEvidence))
         XCTAssertEqual(after.trace.conclusion, after.truth)
-        XCTAssertEqual(active.trace.scope, .validTimeScoped)
-        XCTAssertTrue(active.trace.evidence.contains(
+        XCTAssertEqual(activeAtomic.scope, .validTimeScoped)
+        XCTAssertTrue(activeAtomic.evidence.contains(
             .affiliationSegment(
                 segment: segment,
                 identity: .resolvedMatch,
@@ -282,7 +290,7 @@ final class ContextValuationTests: XCTestCase {
             valuation.truth,
             .undetermined(.supportingEvidenceUnresolved(literal: "中央研究院"))
         )
-        XCTAssertTrue(valuation.trace.evidence.contains(
+        XCTAssertTrue(try XCTUnwrap(valuation.trace.atomicEvidence).evidence.contains(
             .affiliationSegment(
                 segment: segment,
                 identity: .unresolvedCandidate,
@@ -354,7 +362,7 @@ final class ContextValuationTests: XCTestCase {
 
         XCTAssertEqual(valuation.truth, .undetermined(.invalidTemporalEvidence))
         XCTAssertEqual(
-            valuation.trace.evidence,
+            try XCTUnwrap(valuation.trace.atomicEvidence).evidence,
             [
                 .affiliationSegment(
                     segment: segment,
@@ -388,15 +396,16 @@ final class ContextValuationTests: XCTestCase {
         )
 
         XCTAssertEqual(valuation.truth, .holds)
-        XCTAssertEqual(valuation.trace.evidence.count, 2)
-        XCTAssertTrue(valuation.trace.evidence.contains(
+        let atomicEvidence = try XCTUnwrap(valuation.trace.atomicEvidence)
+        XCTAssertEqual(atomicEvidence.evidence.count, 2)
+        XCTAssertTrue(atomicEvidence.evidence.contains(
             .affiliationSegment(
                 segment: invalid,
                 identity: .resolvedMatch,
                 temporal: .invalidEvidence(.mixedAttestationAndRange)
             )
         ))
-        XCTAssertTrue(valuation.trace.evidence.contains(
+        XCTAssertTrue(atomicEvidence.evidence.contains(
             .affiliationSegment(
                 segment: supporting,
                 identity: .resolvedMatch,
@@ -428,14 +437,15 @@ final class ContextValuationTests: XCTestCase {
         )
 
         XCTAssertEqual(valuation.truth, .undetermined(.temporalEvidenceIndeterminate))
-        XCTAssertTrue(valuation.trace.evidence.contains(
+        let atomicEvidence = try XCTUnwrap(valuation.trace.atomicEvidence)
+        XCTAssertTrue(atomicEvidence.evidence.contains(
             .affiliationSegment(
                 segment: coarse,
                 identity: .resolvedMatch,
                 temporal: .indeterminate(.impreciseStart)
             )
         ))
-        XCTAssertTrue(valuation.trace.evidence.contains(
+        XCTAssertTrue(atomicEvidence.evidence.contains(
             .affiliationSegment(
                 segment: unknownEnd,
                 identity: .resolvedMatch,
@@ -559,9 +569,10 @@ final class ContextValuationTests: XCTestCase {
             snapshot: authoredSnapshot(authorSlots: [.key(personKey)],
                                         addQuarantinedYAML: true)
         ).context(validAt: day("2020-01-01"))
-        let result = try YesNoQuestion(authored.expression).answer(in: context)
+        let authoredExpression = try authored.asExpression()
+        let result = try YesNoQuestion(authoredExpression).answer(in: context)
         let assertion = Assertion(
-            expression: authored.expression,
+            expression: authoredExpression,
             stance: .asserted,
             source: "conversation",
             recorded: try RecordedTime("2026-08-08")
@@ -579,7 +590,9 @@ final class ContextValuationTests: XCTestCase {
         XCTAssertEqual(fact.basis.recorded.rawValue, "2026-08-08")
         XCTAssertEqual(fact.valuation.context.validAt.rawValue, "2020-01-01")
         XCTAssertEqual(fact.acceptedAt.rawValue, "2026-08-09")
-        XCTAssertFalse(fact.valuation.trace.snapshotQuarantine.isEmpty)
+        XCTAssertFalse(
+            try XCTUnwrap(fact.valuation.trace.atomicEvidence).snapshotQuarantine.isEmpty
+        )
     }
 
     // 可攔截的 production mutation：先檢 stance／truth，後檢 proposition identity。
@@ -590,8 +603,10 @@ final class ContextValuationTests: XCTestCase {
         let valuation = try authored.evaluate(in: context)
         let other = Proposition.authored(person: .key("somebody-else"),
                                          work: .key(workKey))
+        let otherExpression = try other.asExpression()
+        let authoredExpression = try authored.asExpression()
         let assertion = Assertion(
-            expression: other.expression,
+            expression: otherExpression,
             stance: .denied,
             source: "conversation",
             recorded: try RecordedTime("2026-08-08")
@@ -606,8 +621,8 @@ final class ContextValuationTests: XCTestCase {
             XCTAssertEqual(
                 error as? AdjudicationRefusal,
                 .expressionMismatch(
-                    assertion: other.expression,
-                    valuation: authored.expression
+                    assertion: otherExpression,
+                    valuation: authoredExpression
                 )
             )
         }
@@ -624,7 +639,7 @@ final class ContextValuationTests: XCTestCase {
             work: .key(workKey)
         )
         let assertion = Assertion(
-            expression: injected.expression,
+            expression: try injected.asExpression(),
             stance: .asserted,
             source: "conversation",
             recorded: try RecordedTime("2026-08-08")
@@ -649,7 +664,7 @@ final class ContextValuationTests: XCTestCase {
         }
 
         let matchingAssertion = Assertion(
-            expression: authored.expression,
+            expression: try authored.asExpression(),
             stance: .asserted,
             source: "conversation",
             recorded: try RecordedTime("2026-08-08")
@@ -679,7 +694,7 @@ final class ContextValuationTests: XCTestCase {
         ).context(validAt: day("2026-08-09"))
         let valuation = try authored.evaluate(in: context)
         let assertion = Assertion(
-            expression: authored.expression,
+            expression: try authored.asExpression(),
             stance: .asserted,
             source: "conversation",
             recorded: try RecordedTime("2026-08-08")

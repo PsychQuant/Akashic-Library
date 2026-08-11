@@ -18,13 +18,30 @@ public enum UnprojectableReason: Equatable {
 
 /// 開放世界真值。`authored` 只有在 exact canonical author-list completeness witness
 /// 授權 fully-resolved exclusion 時才能產生 `fails`；`affiliated` 仍沒有 negative gate。
-public enum TruthValue: Equatable {
+public enum TruthValue:
+    Equatable, CustomStringConvertible, CustomDebugStringConvertible
+{
     case holds
     case fails
     case undetermined(UndeterminedReason)
+
+    public var description: String {
+        switch self {
+        case .holds:
+            return "holds"
+        case .fails:
+            return "fails"
+        case .undetermined(let reason):
+            return boundedTruthRendering("undetermined(\(reason.safeDescription))")
+        }
+    }
+
+    public var debugDescription: String { description }
 }
 
-public enum UndeterminedReason: Equatable {
+public enum UndeterminedReason:
+    Equatable, CustomStringConvertible, CustomDebugStringConvertible
+{
     case notProjectable(UnprojectableReason)
     case noSupportingEvidence
     case supportingEvidenceUnresolved(literal: String)
@@ -32,6 +49,101 @@ public enum UndeterminedReason: Equatable {
     case authorIdentityUnresolved(literal: String)
     case temporalEvidenceIndeterminate
     case invalidTemporalEvidence
+    /// 相容 completions 對此 binary subformula 的結果不一致；payload 依 canonical
+    /// atom bytes 排序且保持完整，只有人類可見 rendering 受限。
+    case supervaluationInconclusive(atoms: [Proposition])
+
+    public var description: String {
+        boundedTruthRendering(safeDescription)
+    }
+
+    public var debugDescription: String { description }
+}
+
+public enum PropositionEvaluationError:
+    Error,
+    Equatable,
+    LocalizedError,
+    CustomStringConvertible,
+    CustomDebugStringConvertible
+{
+    case supervaluationCompletionLimitExceeded(
+        undeterminedAtomCount: Int,
+        maximumCompletions: Int
+    )
+
+    public var errorDescription: String? { description }
+
+    public var description: String {
+        switch self {
+        case let .supervaluationCompletionLimitExceeded(actual, maximum):
+            return "supervaluation 含有 \(actual) 個未定原子，超過固定的 \(maximum) 個 completions 上限"
+        }
+    }
+
+    public var debugDescription: String { description }
+}
+
+private extension UndeterminedReason {
+    var safeDescription: String {
+        switch self {
+        case .notProjectable(let reason):
+            return "notProjectable(\(reason.safeDescription))"
+        case .noSupportingEvidence:
+            return "noSupportingEvidence"
+        case .supportingEvidenceUnresolved(let literal):
+            return "supportingEvidenceUnresolved(\(displaySafe(literal, max: 120)))"
+        case .authorIdentityUnresolved(let literal):
+            return "authorIdentityUnresolved(\(displaySafe(literal, max: 120)))"
+        case .temporalEvidenceIndeterminate:
+            return "temporalEvidenceIndeterminate"
+        case .invalidTemporalEvidence:
+            return "invalidTemporalEvidence"
+        case .supervaluationInconclusive(let atoms):
+            let displayed = atoms.prefix(5).map(propositionTruthDisplay)
+                .joined(separator: "、")
+            let omitted = max(0, atoms.count - 5)
+            return "supervaluationInconclusive(atoms: [\(displayed)]，另 \(omitted) 個)"
+        }
+    }
+}
+
+private extension UnprojectableReason {
+    var safeDescription: String {
+        switch self {
+        case let .unresolvedSymbol(role, literal):
+            return "unresolvedSymbol(role: \(displaySafe(role, max: 40)), literal: \(displaySafe(literal, max: 120)))"
+        case let .unknownIdentity(role, key):
+            return "unknownIdentity(role: \(displaySafe(role, max: 40)), key: \(displaySafe(key, max: 120)))"
+        case let .wrongEntityKind(role, key, expected):
+            return "wrongEntityKind(role: \(displaySafe(role, max: 40)), key: \(displaySafe(key, max: 120)), expected: \(displaySafe(expected, max: 40)))"
+        }
+    }
+}
+
+private func propositionTruthDisplay(_ proposition: Proposition) -> String {
+    switch proposition {
+    case let .authored(person, work):
+        return "authored(\(referenceTruthDisplay(person)), \(referenceTruthDisplay(work)))"
+    case let .affiliated(person, organization):
+        return "affiliated(\(referenceTruthDisplay(person)), \(referenceTruthDisplay(organization)))"
+    }
+}
+
+private func referenceTruthDisplay(_ reference: EntityRef) -> String {
+    switch reference {
+    case .key(let value):
+        return "key(\(displaySafe(value, max: 120)))"
+    case .literal(let value):
+        return "literal(\(displaySafe(value, max: 120)))"
+    }
+}
+
+private func boundedTruthRendering(_ value: String) -> String {
+    let safe = displaySafe(value, max: 2_048)
+    let scalars = safe.unicodeScalars
+    guard scalars.count > 2_048 else { return safe }
+    return String(String.UnicodeScalarView(scalars.prefix(2_048)))
 }
 
 /// 將 Core binding issue 定位回 canonical Entry；citekey 只供診斷與排序，真正 binding
@@ -366,19 +478,52 @@ public struct AtomicEvidenceTrace: Equatable {
         self.snapshotQuarantine = snapshotQuarantine
         self.conclusion = conclusion
     }
+
+    /// Atomic uncertainty 的原始 typed refusal；operator aggregate 不會覆寫它。
+    public var refusal: UndeterminedReason? {
+        guard case .undetermined(let reason) = conclusion else { return nil }
+        return reason
+    }
 }
 
-/// Expression 的唯讀遞迴證據樹。外部 caller 可逐層稽核，但不能自行組裝假結論。
+public struct SupervaluationSummary: Equatable {
+    public let completionCount: Int
+    public let observedTrue: Bool
+    public let observedFalse: Bool
+
+    init(completionCount: Int, observedTrue: Bool, observedFalse: Bool) {
+        self.completionCount = completionCount
+        self.observedTrue = observedTrue
+        self.observedFalse = observedFalse
+    }
+}
+
+/// Expression 每個 syntax occurrence 的唯讀稽核樹。Storage／constructors 留在 module
+/// 內，外部 caller 不能把任意 conclusion 配到另一份 context 或 children。
 public struct EvidenceTrace: Equatable {
     public enum Kind: Equatable {
         case atom
-        case negation
+        case not
+        case and
+        case or
+        case implies
+        case nor
     }
 
-    /// Storage 與 constructor 都留在 module 內；public API 只回傳不可變的 value view。
     private indirect enum Storage {
-        case atom(AtomicEvidenceTrace)
-        case negation(operand: Storage, conclusion: TruthValue)
+        case atom(
+            expression: PropositionExpression,
+            context: ValuationContext,
+            evidence: AtomicEvidenceTrace
+        )
+        case operation(
+            kind: Kind,
+            expression: PropositionExpression,
+            context: ValuationContext,
+            children: [Storage],
+            summary: SupervaluationSummary,
+            conclusion: TruthValue
+        )
     }
 
     private let storage: Storage
@@ -387,71 +532,150 @@ public struct EvidenceTrace: Equatable {
         self.storage = storage
     }
 
-    static func atom(_ trace: AtomicEvidenceTrace) -> EvidenceTrace {
-        EvidenceTrace(storage: .atom(trace))
+    static func atom(
+        expression: PropositionExpression,
+        context: ValuationContext,
+        evidence: AtomicEvidenceTrace
+    ) -> EvidenceTrace {
+        EvidenceTrace(storage: .atom(
+            expression: expression,
+            context: context,
+            evidence: evidence
+        ))
     }
 
-    /// 結論只能由 operand 機械導出；沒有可傳入任意 conclusion 的 constructor。
-    static func negating(_ operand: EvidenceTrace) -> EvidenceTrace {
-        EvidenceTrace(storage: .negation(
-            operand: operand.storage,
-            conclusion: operand.conclusion.negatedForExpression
+    static func operation(
+        kind: Kind,
+        expression: PropositionExpression,
+        context: ValuationContext,
+        children: [EvidenceTrace],
+        summary: SupervaluationSummary,
+        conclusion: TruthValue
+    ) -> EvidenceTrace {
+        let expectedChildren = kind == .not ? 1 : 2
+        precondition(kind != .atom && children.count == expectedChildren)
+        precondition(children.allSatisfy { $0.context == context })
+        return EvidenceTrace(storage: .operation(
+            kind: kind,
+            expression: expression,
+            context: context,
+            children: children.map(\.storage),
+            summary: summary,
+            conclusion: conclusion
         ))
+    }
+
+    /// Question 的 no-answer 只包裝既有 subject trace，不重投射任何 atom。
+    static func negating(
+        _ operand: EvidenceTrace,
+        as expression: PropositionExpression
+    ) -> EvidenceTrace {
+        precondition(expression.kind == .not && expression.children == [operand.expression])
+        let operandSummary = operand.completionSummary ?? SupervaluationSummary(
+            completionCount: 1,
+            observedTrue: operand.conclusion == .holds,
+            observedFalse: operand.conclusion == .fails
+        )
+        let summary = SupervaluationSummary(
+            completionCount: operandSummary.completionCount,
+            observedTrue: operandSummary.observedFalse,
+            observedFalse: operandSummary.observedTrue
+        )
+        return operation(
+            kind: .not,
+            expression: expression,
+            context: operand.context,
+            children: [operand],
+            summary: summary,
+            conclusion: operand.conclusion.negatedForExpression
+        )
     }
 
     public var kind: Kind {
         switch storage {
         case .atom: return .atom
-        case .negation: return .negation
+        case .operation(let kind, _, _, _, _, _): return kind
         }
     }
 
+    public var expression: PropositionExpression {
+        switch storage {
+        case .atom(let expression, _, _),
+             .operation(_, let expression, _, _, _, _):
+            return expression
+        }
+    }
+
+    public var context: ValuationContext {
+        switch storage {
+        case .atom(_, let context, _),
+             .operation(_, _, let context, _, _, _):
+            return context
+        }
+    }
+
+    public var children: [EvidenceTrace] {
+        guard case .operation(_, _, _, let children, _, _) = storage else { return [] }
+        return children.map { EvidenceTrace(storage: $0) }
+    }
+
+    public var atomicEvidence: AtomicEvidenceTrace? {
+        guard case .atom(_, _, let evidence) = storage else { return nil }
+        return evidence
+    }
+
+    public var completionSummary: SupervaluationSummary? {
+        guard case .operation(_, _, _, _, let summary, _) = storage else { return nil }
+        return summary
+    }
+
+    @available(*, deprecated, message: "改用 children；operand 只適用 not node")
     public var operand: EvidenceTrace? {
-        guard case .negation(let operand, _) = storage else { return nil }
-        return EvidenceTrace(storage: operand)
+        guard kind == .not else { return nil }
+        return children.first
     }
-
-    /// 最內層 atomic evidence 的完整唯讀 view。
-    public var atomic: AtomicEvidenceTrace {
-        var current = storage
-        while case .negation(let operand, _) = current { current = operand }
-        guard case .atom(let trace) = current else {
-            preconditionFailure("EvidenceTrace storage 目前只有 atom／negation")
-        }
-        return trace
-    }
-
-    public var scope: PredicateScope { atomic.scope }
-    public var projection: EvidenceProjection { atomic.projection }
-    public var evidence: [EvidenceItem] { atomic.evidence }
-    public var snapshotQuarantine: [QuarantinedFile] { atomic.snapshotQuarantine }
 
     public var conclusion: TruthValue {
         switch storage {
-        case .atom(let trace): return trace.conclusion
-        case .negation(_, let conclusion): return conclusion
+        case .atom(_, _, let evidence): return evidence.conclusion
+        case .operation(_, _, _, _, _, let conclusion): return conclusion
         }
     }
 
-    /// 深鏈比較只移動 storage cursor，不使用 recursive enum 的 synthesized equality。
+    /// Equality 使用顯式 stack；不依賴 recursive enum 的 synthesized traversal。
     public static func == (lhs: EvidenceTrace, rhs: EvidenceTrace) -> Bool {
-        var left = lhs.storage
-        var right = rhs.storage
-        while true {
+        var pending: [(Storage, Storage)] = [(lhs.storage, rhs.storage)]
+        while let (left, right) = pending.popLast() {
             switch (left, right) {
-            case let (.atom(leftTrace), .atom(rightTrace)):
-                return leftTrace == rightTrace
             case let (
-                .negation(leftOperand, leftConclusion),
-                .negation(rightOperand, rightConclusion)
+                .atom(leftExpression, leftContext, leftEvidence),
+                .atom(rightExpression, rightContext, rightEvidence)
             ):
-                guard leftConclusion == rightConclusion else { return false }
-                left = leftOperand
-                right = rightOperand
-            case (.atom, .negation), (.negation, .atom):
+                guard leftExpression == rightExpression,
+                      leftContext == rightContext,
+                      leftEvidence == rightEvidence else { return false }
+            case let (
+                .operation(
+                    leftKind, leftExpression, leftContext, leftChildren,
+                    leftSummary, leftConclusion
+                ),
+                .operation(
+                    rightKind, rightExpression, rightContext, rightChildren,
+                    rightSummary, rightConclusion
+                )
+            ):
+                guard leftKind == rightKind,
+                      leftExpression == rightExpression,
+                      leftContext == rightContext,
+                      leftSummary == rightSummary,
+                      leftConclusion == rightConclusion,
+                      leftChildren.count == rightChildren.count else { return false }
+                pending.append(contentsOf: zip(leftChildren, rightChildren))
+            case (.atom, .operation), (.operation, .atom):
                 return false
             }
         }
+        return true
     }
 }
 
@@ -477,10 +701,11 @@ public struct Valuation: Equatable {
     /// 僅從既有 valuation 導出上一層 negation。
     func negated(as negatedExpression: PropositionExpression) -> Valuation {
         precondition(
-            negatedExpression == .not(expression),
+            negatedExpression.kind == .not
+                && negatedExpression.children == [expression],
             "negation valuation 的 expression 必須恰為 operand expression 的 not"
         )
-        let negatedTrace = EvidenceTrace.negating(trace)
+        let negatedTrace = EvidenceTrace.negating(trace, as: negatedExpression)
         return Valuation(
             expression: negatedExpression,
             truth: negatedTrace.conclusion,
@@ -572,7 +797,7 @@ extension Proposition {
         let projected = try project(in: context)
         if case .unprojectable(let reason) = projected {
             let truth = TruthValue.undetermined(.notProjectable(reason))
-            return valuation(
+            return try valuation(
                 truth: truth,
                 context: context,
                 scope: predicateScope,
@@ -583,9 +808,9 @@ extension Proposition {
 
         switch (self, projected) {
         case let (.authored, .authored(person, work)):
-            return evaluateAuthored(person: person, work: work, context: context)
+            return try evaluateAuthored(person: person, work: work, context: context)
         case let (.affiliated, .affiliated(person, organization)):
-            return evaluateAffiliated(
+            return try evaluateAffiliated(
                 person: person,
                 organization: organization,
                 context: context
@@ -606,7 +831,7 @@ extension Proposition {
         person: Person,
         work: Entry,
         context: ValuationContext
-    ) -> Valuation {
+    ) throws -> Valuation {
         var supportingLiteral: String?
         var unresolvedLiteral: String?
         var holds = false
@@ -647,7 +872,7 @@ extension Proposition {
         } else {
             truth = .undetermined(.noSupportingEvidence)
         }
-        return valuation(
+        return try valuation(
             truth: truth,
             context: context,
             scope: .snapshotScopedTimeInvariant,
@@ -660,7 +885,7 @@ extension Proposition {
         person: Person,
         organization: Organization,
         context: ValuationContext
-    ) -> Valuation {
+    ) throws -> Valuation {
         let candidateNames = Set(
             ([organization.key] + organization.authorized
                 + organization.names.entries.map(\.value))
@@ -727,7 +952,7 @@ extension Proposition {
         } else {
             truth = .undetermined(.noSupportingEvidence)
         }
-        return valuation(
+        return try valuation(
             truth: truth,
             context: context,
             scope: .validTimeScoped,
@@ -745,39 +970,246 @@ extension Proposition {
         scope: PredicateScope,
         projection: EvidenceProjection,
         evidence: [EvidenceItem]
-    ) -> Valuation {
-        Valuation(
-            expression: expression,
+    ) throws -> Valuation {
+        let atomExpression = try asExpression()
+        let atomicEvidence = AtomicEvidenceTrace(
+            scope: scope,
+            projection: projection,
+            evidence: evidence,
+            snapshotQuarantine: context.model.snapshotQuarantine,
+            conclusion: truth
+        )
+        return Valuation(
+            expression: atomExpression,
             truth: truth,
             context: context,
-            trace: .atom(AtomicEvidenceTrace(
-                scope: scope,
-                projection: projection,
-                evidence: evidence,
-                snapshotQuarantine: context.model.snapshotQuarantine,
-                conclusion: truth
-            ))
+            trace: .atom(
+                expression: atomExpression,
+                context: context,
+                evidence: atomicEvidence
+            )
         )
     }
 }
 
+private struct SupervaluationNode {
+    let expression: PropositionExpression
+    var children: [Int]
+}
+
 extension PropositionExpression {
-    /// 只透過明示的 snapshot／day context 求值。先以迭代 traversal 驗證完整 expression，
-    /// atom 僅投射／求值一次，再由內向外建立一層一層的 negation trace。
+    /// 只透過明示的 snapshot／day context 求值。每個 canonical atom 只投射一次；
+    /// operator 則在所有相容 completions 上求值，以 supervaluation 聚合結論。
     public func evaluate(in context: ValuationContext) throws -> Valuation {
-        let decomposition = try validatedAtomAndDepth()
-        var valuation = try decomposition.atom.evaluateAtom(in: context)
-        for _ in 0..<decomposition.depth {
-            valuation = valuation.negated(as: .not(valuation.expression))
+        try evaluate(
+            in: context,
+            shift: productionCheckedPowerOfTwoShift,
+            workspaceProbe: .noOp,
+            atomicObserver: { _ in }
+        )
+    }
+
+    /// Module-internal、per-call 的觀測縫只供承重測試；public path 固定使用安全 defaults。
+    func evaluate(
+        in context: ValuationContext,
+        shift: (_ exponent: Int) -> Int?,
+        workspaceProbe: EnumerationWorkspaceProbe,
+        atomicObserver: (Proposition) -> Void
+    ) throws -> Valuation {
+        let canonicalAtoms = atoms
+        var atomicValuations: [(atom: Proposition, valuation: Valuation)] = []
+        atomicValuations.reserveCapacity(canonicalAtoms.count)
+        for atom in canonicalAtoms {
+            atomicObserver(atom)
+            atomicValuations.append((atom, try atom.evaluateAtom(in: context)))
         }
-        return valuation
+
+        let undeterminedAtoms = atomicValuations.compactMap { item -> Proposition? in
+            if case .undetermined = item.valuation.truth { return item.atom }
+            return nil
+        }
+        guard let completionCount = checkedPowerOfTwoCount(
+            variableCount: undeterminedAtoms.count,
+            maximum: PropositionLogicLimits.maximumSupervaluationCompletions,
+            shift: shift
+        ) else {
+            throw PropositionEvaluationError.supervaluationCompletionLimitExceeded(
+                undeterminedAtomCount: undeterminedAtoms.count,
+                maximumCompletions: PropositionLogicLimits.maximumSupervaluationCompletions
+            )
+        }
+
+        var nodes: [SupervaluationNode] = []
+        nodes.reserveCapacity(nodeCount)
+        var pending: [(expression: PropositionExpression, parent: Int?)] = [(self, nil)]
+        while let item = pending.popLast() {
+            let nodeIndex = nodes.count
+            nodes.append(SupervaluationNode(expression: item.expression, children: []))
+            if let parent = item.parent {
+                nodes[parent].children.append(nodeIndex)
+            }
+            for child in item.expression.children.reversed() {
+                pending.append((child, nodeIndex))
+            }
+        }
+        precondition(nodes.count == nodeCount, "opaque expression node count 必須精確")
+
+        workspaceProbe.recordAllocation(elementCount: completionCount)
+        var observedTrue = [Bool](repeating: false, count: nodes.count)
+        var observedFalse = [Bool](repeating: false, count: nodes.count)
+        var completionValues = [Bool](repeating: false, count: nodes.count)
+
+        func atomicValuation(for atom: Proposition) -> Valuation {
+            guard let match = atomicValuations.first(where: { $0.atom == atom }) else {
+                preconditionFailure("expression atom 必須存在於 canonical valuation cache")
+            }
+            return match.valuation
+        }
+
+        for completionIndex in 0..<completionCount {
+            for nodeIndex in nodes.indices.reversed() {
+                let node = nodes[nodeIndex]
+                let value: Bool
+                switch node.expression.kind {
+                case .atom:
+                    guard let atom = node.expression.proposition else {
+                        preconditionFailure("atom node 缺少 proposition")
+                    }
+                    switch atomicValuation(for: atom).truth {
+                    case .holds:
+                        value = true
+                    case .fails:
+                        value = false
+                    case .undetermined:
+                        guard let unknownIndex = undeterminedAtoms.firstIndex(of: atom) else {
+                            preconditionFailure("undetermined atom 必須存在於 completion table")
+                        }
+                        let bitOffset = undeterminedAtoms.count - unknownIndex - 1
+                        value = ((completionIndex >> bitOffset) & 1) == 1
+                    }
+                case .not:
+                    precondition(node.children.count == 1)
+                    value = !completionValues[node.children[0]]
+                case .and:
+                    precondition(node.children.count == 2)
+                    value = completionValues[node.children[0]]
+                        && completionValues[node.children[1]]
+                case .or:
+                    precondition(node.children.count == 2)
+                    value = completionValues[node.children[0]]
+                        || completionValues[node.children[1]]
+                case .implies:
+                    precondition(node.children.count == 2)
+                    value = !completionValues[node.children[0]]
+                        || completionValues[node.children[1]]
+                case .nor:
+                    precondition(node.children.count == 2)
+                    value = !(completionValues[node.children[0]]
+                        || completionValues[node.children[1]])
+                }
+                completionValues[nodeIndex] = value
+                observedTrue[nodeIndex] = observedTrue[nodeIndex] || value
+                observedFalse[nodeIndex] = observedFalse[nodeIndex] || !value
+            }
+        }
+
+        var traces = [EvidenceTrace?](repeating: nil, count: nodes.count)
+        var conclusions = [TruthValue?](repeating: nil, count: nodes.count)
+        var completionDependentAtoms = [[Proposition]](
+            repeating: [],
+            count: nodes.count
+        )
+        for nodeIndex in nodes.indices.reversed() {
+            let node = nodes[nodeIndex]
+            if node.expression.kind == .atom {
+                guard let atom = node.expression.proposition else {
+                    preconditionFailure("atom node 缺少 proposition")
+                }
+                let atomic = atomicValuation(for: atom)
+                traces[nodeIndex] = atomic.trace
+                conclusions[nodeIndex] = atomic.truth
+                if case .undetermined = atomic.truth {
+                    completionDependentAtoms[nodeIndex] = [atom]
+                }
+                continue
+            }
+
+            let childTraces = node.children.map { childIndex -> EvidenceTrace in
+                guard let trace = traces[childIndex] else {
+                    preconditionFailure("operator child trace 必須先由內向外建立")
+                }
+                return trace
+            }
+            let conclusion: TruthValue
+            if observedTrue[nodeIndex] && !observedFalse[nodeIndex] {
+                conclusion = .holds
+            } else if observedFalse[nodeIndex] && !observedTrue[nodeIndex] {
+                conclusion = .fails
+            } else if node.expression.kind == .not,
+                      let childConclusion = conclusions[node.children[0]],
+                      case .undetermined(let reason) = childConclusion {
+                completionDependentAtoms[nodeIndex] =
+                    completionDependentAtoms[node.children[0]]
+                conclusion = .undetermined(reason)
+            } else {
+                // 只回報會穿過 undetermined child 影響此 mixed 結論的 atoms。
+                // 已由 tautology／contradiction 收斂成 determinate 的 child 仍保留完整
+                // leaf trace，但其內部 unknown 不再冒充本節點 inconclusive 的原因。
+                let childCandidates = node.children.flatMap {
+                    completionDependentAtoms[$0]
+                }
+                let relevantUnknowns = node.expression.atoms.filter { candidate in
+                    childCandidates.contains(candidate)
+                }
+                completionDependentAtoms[nodeIndex] = relevantUnknowns
+                conclusion = .undetermined(.supervaluationInconclusive(
+                    atoms: relevantUnknowns
+                ))
+            }
+
+            let traceKind: EvidenceTrace.Kind
+            switch node.expression.kind {
+            case .atom:
+                preconditionFailure("atom 已在前面分流")
+            case .not: traceKind = .not
+            case .and: traceKind = .and
+            case .or: traceKind = .or
+            case .implies: traceKind = .implies
+            case .nor: traceKind = .nor
+            }
+            let trace = EvidenceTrace.operation(
+                kind: traceKind,
+                expression: node.expression,
+                context: context,
+                children: childTraces,
+                summary: SupervaluationSummary(
+                    completionCount: completionCount,
+                    observedTrue: observedTrue[nodeIndex],
+                    observedFalse: observedFalse[nodeIndex]
+                ),
+                conclusion: conclusion
+            )
+            traces[nodeIndex] = trace
+            conclusions[nodeIndex] = conclusion
+        }
+
+        guard let rootTrace = traces.first ?? nil,
+              let rootConclusion = conclusions.first ?? nil else {
+            preconditionFailure("非空 expression 必須產生 root valuation")
+        }
+        return Valuation(
+            expression: self,
+            truth: rootConclusion,
+            context: context,
+            trace: rootTrace
+        )
     }
 }
 
 extension Proposition {
     /// Atomic convenience path；回傳值仍以 `.atom(self)` 作為完整 expression identity。
     public func evaluate(in context: ValuationContext) throws -> Valuation {
-        try expression.evaluate(in: context)
+        try asExpression().evaluate(in: context)
     }
 }
 

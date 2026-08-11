@@ -361,30 +361,17 @@ final class PropositionTests: XCTestCase {
             entries: [entry(citekey: "work-a")],
             people: [person(key: "person-a")]
         ).context(validAt: ValidDay("2026-08-09"))
-        let valid = try Proposition.authored(person: .key("person-a"), work: .key("work-a"))
-            .evaluate(in: model)
         let malformedCases = [
             Proposition.authored(person: .literal("   "), work: .key("work-a")),
             Proposition.authored(person: .key("person-a"), work: .literal("   ")),
         ]
 
         for malformed in malformedCases {
-            let assertion = Assertion(expression: malformed.expression, stance: .asserted,
-                                      source: "conversation",
-                                      recorded: try RecordedTime("2026-08-09"))
-
             assertPropositionError(.emptyLiteral) { try malformed.project(in: model) }
             assertPropositionError(.emptyLiteral) { try malformed.evaluate(in: model) }
+            assertPropositionError(.emptyLiteral) { try malformed.asExpression() }
             assertPropositionError(.emptyLiteral) {
-                try YesNoQuestion(malformed.expression)
-            }
-            assertPropositionError(.emptyLiteral) {
-                try adjudicate(
-                    assertion,
-                    valuation: valid,
-                    acceptedBy: "che",
-                    acceptedAt: AcceptedTime("2026-08-09")
-                )
+                try YesNoQuestion(malformed.asExpression())
             }
         }
     }
@@ -408,19 +395,7 @@ final class PropositionTests: XCTestCase {
             ),
         ]
 
-        let validContext = try rawModel(
-            entries: [entry(citekey: "valid-work", authors: [.key("valid-person")])],
-            people: [person(key: "valid-person")]
-        ).context(validAt: ValidDay("2026-08-09"))
-        let validValuation = try Proposition.authored(
-            person: .key("valid-person"), work: .key("valid-work")
-        ).evaluate(in: validContext)
-
         for (malformed, model) in cases {
-            let assertion = Assertion(expression: malformed.expression, stance: .asserted,
-                                      source: "conversation",
-                                      recorded: try RecordedTime("2026-08-09"))
-
             assertPropositionError(.malformedKey(malformedKey)) {
                 try malformed.project(in: model)
             }
@@ -428,15 +403,10 @@ final class PropositionTests: XCTestCase {
                 try malformed.evaluate(in: model)
             }
             assertPropositionError(.malformedKey(malformedKey)) {
-                try YesNoQuestion(malformed.expression)
+                try malformed.asExpression()
             }
             assertPropositionError(.malformedKey(malformedKey)) {
-                try adjudicate(
-                    assertion,
-                    valuation: validValuation,
-                    acceptedBy: "che",
-                    acceptedAt: AcceptedTime("2026-08-09")
-                )
+                try YesNoQuestion(malformed.asExpression())
             }
         }
     }
@@ -449,9 +419,6 @@ final class PropositionTests: XCTestCase {
             people: [validPerson],
             organizations: [Organization(key: "org-a")]
         ).context(validAt: ValidDay("2026-08-09"))
-        let fallback = try Proposition.authored(
-            person: .key("person-a"), work: .key("work-a")
-        ).evaluate(in: context)
         let cases: [(Proposition, PropositionError)] = [
             (
                 .affiliated(person: .key("Bad Person"), organization: .key("org-a")),
@@ -468,23 +435,10 @@ final class PropositionTests: XCTestCase {
         ]
 
         for (malformed, expected) in cases {
-            let assertion = Assertion(
-                expression: malformed.expression,
-                stance: .asserted,
-                source: "conversation",
-                recorded: try RecordedTime("2026-08-09")
-            )
             assertPropositionError(expected) { try malformed.project(in: context) }
             assertPropositionError(expected) { try malformed.evaluate(in: context) }
-            assertPropositionError(expected) { try YesNoQuestion(malformed.expression) }
-            assertPropositionError(expected) {
-                try adjudicate(
-                    assertion,
-                    valuation: fallback,
-                    acceptedBy: "che",
-                    acceptedAt: AcceptedTime("2026-08-09")
-                )
-            }
+            assertPropositionError(expected) { try malformed.asExpression() }
+            assertPropositionError(expected) { try YesNoQuestion(malformed.asExpression()) }
         }
     }
 
@@ -572,7 +526,7 @@ final class PropositionTests: XCTestCase {
 
     /// yes/no 問句有**三個**答案。少掉未定，問句就退化成「有沒有查到」。
     func testAnswerSpaceIncludesUndetermined() throws {
-        let q = try YesNoQuestion(authored.expression)
+        let q = try YesNoQuestion(authored.asExpression())
         XCTAssertEqual(q.answerSpace, [.yes, .no, .undetermined])
         XCTAssertEqual(Set(q.answerSpace).count, 3, "互斥")
         XCTAssertEqual(Set(YesNoQuestion.Answer.allCases), Set(q.answerSpace), "窮盡")
@@ -585,9 +539,9 @@ final class PropositionTests: XCTestCase {
             YesNoQuestion.Answer.mapped(from: .undetermined(.noSupportingEvidence)),
             .undetermined
         )
-        XCTAssertEqual(try YesNoQuestion(authored.expression)
+        XCTAssertEqual(try YesNoQuestion(authored.asExpression())
             .answer(in: model(authorSlots: [.key(personKey)])).answer, .yes)
-        XCTAssertEqual(try YesNoQuestion(authored.expression)
+        XCTAssertEqual(try YesNoQuestion(authored.asExpression())
             .answer(in: model(authorSlots: [])).answer, .undetermined)
     }
 
@@ -595,7 +549,7 @@ final class PropositionTests: XCTestCase {
 
     private func assertion(_ stance: Stance) throws -> Assertion {
         Assertion(
-            expression: authored.expression,
+            expression: try authored.asExpression(),
             stance: stance,
             source: "conversation",
             recorded: try RecordedTime("2026-08-09")
@@ -639,7 +593,7 @@ final class PropositionTests: XCTestCase {
             acceptedBy: "che",
             acceptedAt: AcceptedTime("2026-08-09")
         )
-        XCTAssertEqual(f.expression, authored.expression)
+        XCTAssertEqual(f.expression, try authored.asExpression())
         XCTAssertEqual(f.basis.stance, .asserted)
         XCTAssertEqual(f.acceptedBy, "che")
         XCTAssertEqual(f.valuation, valuation)

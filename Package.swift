@@ -68,6 +68,11 @@ let package = Package(
             "TractatusDocs",
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
         ]),
+        // Unicode v1 table 只能由檢入的 15.1.0 UCD 離線重播；production 不依賴此工具。
+        .executableTarget(
+            name: "UnicodeNormalizationGenerator",
+            path: "Tools/UnicodeNormalizationGenerator"
+        ),
         // 測試 helper（只被 test targets 依賴，不經任何 product 對外）：
         // guard 本體 + C constructor loader（bundle 載入即啟用，#124 verify F1/F5）
         .target(name: "AkashicTestGuard", dependencies: ["AkashicTestGuardLoader"]),
@@ -77,8 +82,11 @@ let package = Package(
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph", "AkashicSQLite",
             "AkashicWoSImport", "AkashicTestGuard",
         ]),
-        .testTarget(name: "AkashicPropositionTests",
-                    dependencies: ["AkashicProposition", "AkashicCore", "AkashicStoreIO"]),
+        .testTarget(
+            name: "AkashicPropositionTests",
+            dependencies: ["AkashicProposition", "AkashicCore", "AkashicStoreIO"],
+            resources: [.copy("Fixtures")]
+        ),
         .testTarget(name: "AkashicCLITests", dependencies: ["akashic", "AkashicTestGuard"]),
         .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp", "AkashicTestGuard", "AkashicQuery", "AkashicGraph", "AkashicStoreIO"]),
         .testTarget(name: "AkashicAppKitTests",

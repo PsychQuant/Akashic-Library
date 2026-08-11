@@ -244,7 +244,7 @@ final class AuthorshipCompletenessPropositionTests: XCTestCase {
         ]
 
         for example in examples {
-            let valuation = try atom.expression.evaluate(
+            let valuation = try atom.asExpression().evaluate(
                 in: context(authors: example.authors, witnessed: example.witnessed)
             )
             XCTAssertEqual(
@@ -263,10 +263,10 @@ final class AuthorshipCompletenessPropositionTests: XCTestCase {
             entries: [],
             organizations: [Organization(key: organizationKey)]
         )
-        let expression = Proposition.affiliated(
+        let expression = try Proposition.affiliated(
             person: .key(personKey),
             organization: .key(organizationKey)
-        ).expression
+        ).asExpression()
 
         let valuation = try expression.evaluate(
             in: model.context(validAt: ValidDay("2026-08-10"))
@@ -283,14 +283,14 @@ final class AuthorshipCompletenessPropositionTests: XCTestCase {
             .key("other-a"),
             .key("other-b"),
         ]
-        let valuation = try atom.expression.evaluate(
+        let valuation = try atom.asExpression().evaluate(
             in: context(authors: authors, witnessed: true)
         )
 
         XCTAssertEqual(valuation.truth, .fails)
         XCTAssertEqual(valuation.trace.conclusion, .fails)
         XCTAssertEqual(
-            valuation.trace.evidence,
+            try XCTUnwrap(valuation.trace.atomicEvidence).evidence,
             [
                 .authorSlot(slot: .key("other-a"), assessment: .doesNotSupport),
                 .authorSlot(slot: .key("other-b"), assessment: .doesNotSupport),
@@ -309,23 +309,23 @@ final class AuthorshipCompletenessPropositionTests: XCTestCase {
             .literal("Unknown"),
             .key(personKey),
         ]
-        let supported = try atom.expression.evaluate(
+        let supported = try atom.asExpression().evaluate(
             in: context(authors: supportedAuthors, witnessed: true)
         )
         XCTAssertEqual(supported.truth, .holds)
         XCTAssertEqual(
-            supported.trace.evidence.last,
+            try XCTUnwrap(supported.trace.atomicEvidence).evidence.last,
             .authorListCompleteness(
                 witness: try witness(workID: workID, authors: supportedAuthors)
             )
         )
 
         let literalAuthors: [AkashicCore.Author] = [.literal("Someone Else")]
-        let unresolved = try atom.expression.evaluate(
+        let unresolved = try atom.asExpression().evaluate(
             in: context(authors: literalAuthors, witnessed: true)
         )
         XCTAssertEqual(
-            unresolved.trace.evidence,
+            try XCTUnwrap(unresolved.trace.atomicEvidence).evidence,
             [
                 .authorSlot(
                     slot: .literal("Someone Else"),
@@ -387,7 +387,9 @@ final class AuthorshipCompletenessPropositionTests: XCTestCase {
 
         let snapshot = try store.loadSnapshot()
         let model = try PropositionModel(snapshot: snapshot)
-        let question = try YesNoQuestion(atom.expression)
+        let atomExpression = try atom.asExpression()
+        let negativeExpression = try PropositionExpression.not(atomExpression)
+        let question = try YesNoQuestion(atomExpression)
         let result = try question.answer(
             in: model.context(validAt: ValidDay("2026-08-10"))
         )
@@ -395,15 +397,15 @@ final class AuthorshipCompletenessPropositionTests: XCTestCase {
         XCTAssertEqual(result.answer, .no)
         XCTAssertEqual(result.subjectValuation.truth, .fails)
         let established = try XCTUnwrap(result.establishedAnswer)
-        XCTAssertEqual(established.expression, .not(atom.expression))
+        XCTAssertEqual(established.expression, negativeExpression)
         XCTAssertEqual(established.valuation.truth, .holds)
         XCTAssertEqual(established.valuation.trace.conclusion, .holds)
         XCTAssertEqual(established.valuation.context, result.subjectValuation.context)
-        XCTAssertEqual(established.valuation.trace.kind, .negation)
-        XCTAssertEqual(established.valuation.trace.operand, result.subjectValuation.trace)
+        XCTAssertEqual(established.valuation.trace.kind, .not)
+        XCTAssertEqual(established.valuation.trace.children, [result.subjectValuation.trace])
 
         let failedPositiveAssertion = Assertion(
-            expression: atom.expression,
+            expression: atomExpression,
             stance: .asserted,
             source: "reviewer",
             recorded: try RecordedTime("2026-08-10")
@@ -434,8 +436,8 @@ final class AuthorshipCompletenessPropositionTests: XCTestCase {
             acceptedBy: "curator",
             acceptedAt: try AcceptedTime("2026-08-10")
         )
-        XCTAssertEqual(fact.expression, .not(atom.expression))
+        XCTAssertEqual(fact.expression, negativeExpression)
         XCTAssertEqual(fact.valuation, established.valuation)
-        XCTAssertEqual(fact.valuation.trace.operand, result.subjectValuation.trace)
+        XCTAssertEqual(fact.valuation.trace.children, [result.subjectValuation.trace])
     }
 }

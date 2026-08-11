@@ -48,9 +48,26 @@ public enum EntityRef: Equatable, Hashable {
 
 /// 構造期就拒絕的錯誤。**錯誤的 arity 在型別層已不可表達**（enum 的 case 固定帶
 /// 兩個具名引數），所以這裡只剩型別擋不住的那些。
-public enum PropositionError: Error, Equatable, LocalizedError, CustomStringConvertible {
+public enum PropositionReferenceEncodingStage: String, Equatable, Sendable {
+    case rawUTF8
+    case normalizedUTF8
+}
+
+public enum PropositionError:
+    Error,
+    Equatable,
+    LocalizedError,
+    CustomStringConvertible,
+    CustomDebugStringConvertible
+{
     case malformedKey(String)
     case emptyLiteral
+    case referenceUTF8ByteCountExceeded(
+        stage: PropositionReferenceEncodingStage,
+        minimumObserved: Int,
+        maximum: Int
+    )
+    case unsupportedUnicodeScalar(value: UInt32, normalizationVersion: String)
 
     public var errorDescription: String? {
         switch self {
@@ -58,6 +75,13 @@ public enum PropositionError: Error, Equatable, LocalizedError, CustomStringConv
             return "命題引數的 key 不合法：'\(displaySafe(k, max: 120))'（須符合 ^[a-z0-9][a-z0-9-]*$）"
         case .emptyLiteral:
             return "命題引數的 literal 不可為空——空字串不是一個符號"
+        case let .referenceUTF8ByteCountExceeded(stage, minimumObserved, maximum):
+            return "命題引數在 \(stage.rawValue) 階段至少有 \(minimumObserved) bytes，"
+                + "超過固定上限 \(maximum)"
+        case let .unsupportedUnicodeScalar(value, normalizationVersion):
+            let scalar = String(value, radix: 16, uppercase: true)
+            return "命題引數含 Unicode \(displaySafe(normalizationVersion, max: 120)) "
+                + "未指派的 scalar U+\(scalar)"
         }
     }
 
@@ -65,6 +89,8 @@ public enum PropositionError: Error, Equatable, LocalizedError, CustomStringConv
     public var description: String {
         errorDescription ?? "命題引數不合法"
     }
+
+    public var debugDescription: String { description }
 }
 
 extension EntityRef {
@@ -74,13 +100,15 @@ extension EntityRef {
     /// 「未解析」而是**構造錯誤**——`literal` 才是表達「還不知道指誰」的方式。
     /// 兩者混用會讓「未知」與「壞掉」變成同一個狀態。
     public func validate() throws {
+        _ = try validatedReferenceV1()
+    }
+
+    func validatedReferenceV1() throws -> ValidatedReferenceV1 {
         switch self {
-        case .key(let k):
-            guard StoreKey.isValid(k) else { throw PropositionError.malformedKey(k) }
-        case .literal(let s):
-            guard !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw PropositionError.emptyLiteral
-            }
+        case .key(let key):
+            return try UnicodeNormalizationV1.validatedReference(key, syntax: .key)
+        case .literal(let literal):
+            return try UnicodeNormalizationV1.validatedReference(literal, syntax: .literal)
         }
     }
 }
@@ -108,14 +136,40 @@ extension Proposition {
     }
 
     public func validate() throws {
+        for argument in arguments { try argument.validate() }
+    }
+
+    /// v1 canonical atom surface。這是 module-internal 的單一 atom encoding 路徑；
+    /// opaque expression construction 會保存其結果，classical serializers 只重用它。
+    func canonicalBytesV1() throws -> Data {
+        let predicateTag: UInt8
+        let references: [EntityRef]
         switch self {
         case let .authored(person, work):
-            try person.validate()
-            try work.validate()
+            predicateTag = 0x00
+            references = [person, work]
         case let .affiliated(person, organization):
-            try person.validate()
-            try organization.validate()
+            predicateTag = 0x01
+            references = [person, organization]
         }
+
+        // 每個 reference 完整通過 raw→syntax→assigned→pinned NFC 後，才配置 atom Data。
+        let validated = try references.map { try $0.validatedReferenceV1() }
+        let domain = Array("akashic-proposition-atom-v1".utf8)
+        var bytes = Data()
+        bytes.reserveCapacity(
+            8 + domain.count + 1
+                + validated.reduce(0) { $0 + 9 + $1.normalizedUTF8.count }
+        )
+        bytes.appendUInt64BigEndian(UInt64(domain.count))
+        bytes.append(contentsOf: domain)
+        bytes.append(predicateTag)
+        for reference in validated {
+            bytes.append(reference.tag)
+            bytes.appendUInt64BigEndian(UInt64(reference.normalizedUTF8.count))
+            bytes.append(contentsOf: reference.normalizedUTF8)
+        }
+        return bytes
     }
 
     /// 這個命題的引數，依 predicate 定義的順序。
@@ -133,5 +187,12 @@ extension Proposition {
         case .authored: return "authored"
         case .affiliated: return "affiliated"
         }
+    }
+}
+
+private extension Data {
+    mutating func appendUInt64BigEndian(_ value: UInt64) {
+        var encoded = value.bigEndian
+        Swift.withUnsafeBytes(of: &encoded) { append(contentsOf: $0) }
     }
 }

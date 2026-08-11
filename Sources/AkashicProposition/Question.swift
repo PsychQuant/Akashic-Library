@@ -4,12 +4,13 @@ import AkashicCore
 /// 在開放世界模型中，yes/no 問句仍有三個窮盡的可能延續。
 public struct YesNoQuestion: Equatable {
     public let subject: PropositionExpression
+    private let reservedNegation: PropositionExpression
 
-    /// 同時保留一個可表示的 no-answer node，因此 subject 最多使用 63 層 operator。
+    /// 同時保留一個可表示的 no-answer node；超過 depth／node budget 時立即拒絕。
     public init(_ subject: PropositionExpression) throws {
-        try subject.validate()
-        try PropositionExpression.not(subject).validate()
+        let reservedNegation = try PropositionExpression.not(subject)
         self.subject = subject
+        self.reservedNegation = reservedNegation
     }
 
     public var answerSpace: [Answer] { [.yes, .no, .undetermined] }
@@ -33,6 +34,31 @@ public struct YesNoQuestion: Equatable {
     /// 映射單一 context-bound valuation，不攤平也不重建它的稽核紀錄。
     public func answer(in context: ValuationContext) throws -> AnswerResult {
         let subjectValuation = try subject.evaluate(in: context)
+        return answer(from: subjectValuation)
+    }
+
+    /// Module-internal deterministic seam；只把同一組 per-call probes 傳給 subject evaluator。
+    /// no-answer 仍只包裝該次 valuation，不會再次投射 atom。
+    func answer(
+        in context: ValuationContext,
+        shift: (_ exponent: Int) -> Int?,
+        workspaceProbe: EnumerationWorkspaceProbe,
+        atomicObserver: (_ proposition: Proposition) -> Void
+    ) throws -> AnswerResult {
+        let subjectValuation = try subject.evaluate(
+            in: context,
+            shift: shift,
+            workspaceProbe: workspaceProbe,
+            atomicObserver: atomicObserver
+        )
+        return answer(from: subjectValuation)
+    }
+
+    private func answer(from subjectValuation: Valuation) -> AnswerResult {
+        precondition(
+            subjectValuation.expression == subject,
+            "question answer 必須使用同一個 subject 的 valuation"
+        )
         let answer = Answer.mapped(from: subjectValuation.truth)
         let establishedAnswer: EstablishedAnswer?
         switch answer {
@@ -40,7 +66,7 @@ public struct YesNoQuestion: Equatable {
             establishedAnswer = EstablishedAnswer(valuation: subjectValuation)
         case .no:
             establishedAnswer = EstablishedAnswer(
-                valuation: subjectValuation.negated(as: .not(subject))
+                valuation: subjectValuation.negated(as: reservedNegation)
             )
         case .undetermined:
             establishedAnswer = nil
@@ -224,11 +250,6 @@ public func adjudicate(
     acceptedBy: String,
     acceptedAt: AcceptedTime
 ) throws -> AcceptedFact {
-    // Public expression enum case 可直接構造；即使 malformed expression 正常情況下無法
-    // 產生 public valuation，語意邊界仍須 fail closed。
-    try assertion.expression.validate()
-    try valuation.expression.validate()
-
     guard assertion.expression == valuation.expression else {
         throw AdjudicationRefusal.expressionMismatch(
             assertion: assertion.expression,

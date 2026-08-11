@@ -52,28 +52,46 @@ final class NegationTests: XCTestCase {
     private func wrapping(
         _ expression: PropositionExpression,
         count: Int
-    ) -> PropositionExpression {
-        (0..<count).reduce(expression) { partial, _ in .not(partial) }
+    ) throws -> PropositionExpression {
+        var result = expression
+        for _ in 0..<count {
+            result = try PropositionExpression.not(result)
+        }
+        return result
     }
 
     private func negationLayerCount(_ trace: EvidenceTrace) -> Int {
         var current = trace
         var count = 0
-        while current.kind == .negation {
-            guard let operand = current.operand else {
-                XCTFail("negation kind 必須提供 operand view")
+        while current.kind == .not {
+            guard current.children.count == 1 else {
+                XCTFail("not kind 必須提供一個 ordered child")
                 return count
             }
             count += 1
-            current = operand
+            current = current.children[0]
         }
         return count
     }
 
     private func atomLayerCount(_ trace: EvidenceTrace) -> Int {
-        var current = trace
-        while let operand = current.operand { current = operand }
-        return current.kind == .atom ? 1 : 0
+        var count = 0
+        var stack = [trace]
+        while let current = stack.popLast() {
+            if current.atomicEvidence != nil { count += 1 }
+            stack.append(contentsOf: current.children.reversed())
+        }
+        return count
+    }
+
+    private func boundaryExpression(
+        _ atom: PropositionExpression
+    ) throws -> PropositionExpression {
+        var expression = atom
+        for _ in 0..<11 {
+            expression = try PropositionExpression.and(expression, expression)
+        }
+        return try PropositionExpression.not(expression)
     }
 
     private func externalTypecheck(
@@ -138,15 +156,15 @@ final class NegationTests: XCTestCase {
 
     // Production mutation caught: Equatable simplifies double negation or Hashable omits node tags.
     func testAtomNegationAndDoubleNegationHaveDistinctStructuralIdentity() throws {
-        let p = try PropositionExpression.makeAtom(atom)
-        let notP = try PropositionExpression.makeNot(p)
-        let notNotP = try PropositionExpression.makeNot(notP)
+        let p = try PropositionExpression.atom(atom)
+        let notP = try PropositionExpression.not(p)
+        let notNotP = try PropositionExpression.not(notP)
 
         XCTAssertNotEqual(p, notP)
         XCTAssertNotEqual(p, notNotP)
         XCTAssertNotEqual(notP, notNotP)
         XCTAssertEqual(Set([p, notP, notNotP]).count, 3)
-        XCTAssertEqual(atom.expression, p)
+        XCTAssertEqual(try atom.asExpression(), p)
     }
 
     // Production mutation caught: public enum cases expose raw trace construction to clients.
@@ -189,106 +207,81 @@ final class NegationTests: XCTestCase {
         XCTAssertTrue(rawNegation.output.contains("negation"), rawNegation.output)
     }
 
-    // Production mutation caught: synthesized recursive equality overflows, or a caller supplies
-    // a conclusion instead of deriving it mechanically from the operand.
-    func testTraceEqualityTraverses32768NodesAndDerivesEveryConclusion() {
-        let projection = EvidenceProjection.authored(
-            personKey: personKey,
-            workKey: workKey
-        )
-        let atomic = AtomicEvidenceTrace(
-            scope: .snapshotScopedTimeInvariant,
-            projection: projection,
-            evidence: [],
-            snapshotQuarantine: [],
-            conclusion: .holds
-        )
-        let leftAtom = EvidenceTrace.atom(atomic)
-        let rightAtom = EvidenceTrace.atom(atomic)
+    // Production mutation caught: trace equality 遞迴爆 stack，或 operator conclusion
+    // 沒有從 bounded expression tree 機械導出。
+    func testTraceEqualityTraverses4096NodesAndDerivesEveryConclusion() throws {
+        let source = try context()
+        let expression = try boundaryExpression(atom.asExpression())
+        let left = try expression.evaluate(in: source)
+        let right = try expression.evaluate(in: source)
 
-        let once = EvidenceTrace.negating(leftAtom)
-        let twice = EvidenceTrace.negating(once)
-        XCTAssertEqual(once.kind, .negation)
-        XCTAssertEqual(once.operand, leftAtom)
-        XCTAssertEqual(once.conclusion, .fails)
-        XCTAssertEqual(twice.conclusion, .holds)
-        XCTAssertEqual(twice.atomic, atomic)
-
-        var left = leftAtom
-        var right = rightAtom
-        for _ in 0..<32_768 {
-            left = EvidenceTrace.negating(left)
-            right = EvidenceTrace.negating(right)
-        }
-
-        XCTAssertEqual(left.conclusion, .holds)
-        XCTAssertEqual(left, right)
+        XCTAssertEqual(expression.nodeCount, 4_096)
+        XCTAssertEqual(left.trace.kind, .not)
+        XCTAssertEqual(left.trace.conclusion, .fails)
+        XCTAssertEqual(left.trace.children.count, 1)
+        XCTAssertEqual(left.trace, right.trace)
     }
 
-    // Production mutation caught: synthesized recursive equality/hash walks an untrusted deep chain.
-    func testEqualityAndHashTraverseUnvalidatedChainsIteratively() {
-        let left = wrapping(.atom(atom), count: 4_096)
-        let right = wrapping(.atom(atom), count: 4_096)
-        let different = wrapping(
-            .atom(.authored(person: .key("someone-else"), work: .key(workKey))),
-            count: 4_096
-        )
+    // Production mutation caught: equality/hash 重走 recursive storage 而不是 bounded iterative feed。
+    func testEqualityAndHashTraverseValidated4096NodeTreesIteratively() throws {
+        let left = try boundaryExpression(atom.asExpression())
+        let right = try boundaryExpression(atom.asExpression())
+        let different = try boundaryExpression(Proposition.authored(
+            person: .key("someone-else"),
+            work: .key(workKey)
+        ).asExpression())
 
         XCTAssertEqual(left, right)
         XCTAssertEqual(left.hashValue, right.hashValue)
         XCTAssertNotEqual(left, different)
     }
 
-    // Production mutation caught: depth check uses >= instead of >, or validates only the root.
-    func testValidationAccepts64OperatorsAndRejects65() throws {
-        let p = try PropositionExpression.makeAtom(atom)
-        let depth64 = wrapping(p, count: 64)
-        let depth65 = wrapping(p, count: 65)
+    // Production mutation caught: factory depth check uses >= instead of >。
+    func testFactoryAccepts64OperatorsAndRejects65() throws {
+        let p = try PropositionExpression.atom(atom)
+        let depth64 = try wrapping(p, count: 64)
 
-        XCTAssertNoThrow(try depth64.validate())
-        XCTAssertThrowsError(try depth65.validate()) { error in
+        XCTAssertEqual(depth64.operatorDepth, 64)
+        XCTAssertThrowsError(try PropositionExpression.not(depth64)) { error in
             XCTAssertEqual(
                 error as? PropositionExpressionError,
-                .operatorDepthExceeded(maximum: 64)
+                .operatorDepthExceeded(actual: 65, maximum: 64)
             )
         }
     }
 
-    // Production mutation caught: validation stops at a not node and never reaches its atom.
+    // Production mutation caught: nested factory wraps或改寫 malformed atom 的原始 typed error。
     func testNestedMalformedAtomPreservesOriginalTypedError() throws {
-        let malformedKey = wrapping(
-            .atom(.authored(person: .key("Not A Key"), work: .key(workKey))),
-            count: 2
+        let malformedKey = Proposition.authored(
+            person: .key("Not A Key"),
+            work: .key(workKey)
         )
-        let emptyLiteral = wrapping(
-            .atom(.affiliated(person: .literal("  "), organization: .key("org-a"))),
-            count: 1
+        let emptyLiteral = Proposition.affiliated(
+            person: .literal("  "),
+            organization: .key("org-a")
         )
-        let source = try context()
 
-        XCTAssertThrowsError(try malformedKey.validate()) {
+        XCTAssertThrowsError(try PropositionExpression.not(malformedKey.asExpression())) {
             XCTAssertEqual($0 as? PropositionError, .malformedKey("Not A Key"))
         }
-        XCTAssertThrowsError(try malformedKey.evaluate(in: source)) {
+        XCTAssertThrowsError(try YesNoQuestion(malformedKey.asExpression())) {
             XCTAssertEqual($0 as? PropositionError, .malformedKey("Not A Key"))
         }
-        XCTAssertThrowsError(try YesNoQuestion(malformedKey)) {
-            XCTAssertEqual($0 as? PropositionError, .malformedKey("Not A Key"))
-        }
-        XCTAssertThrowsError(try emptyLiteral.evaluate(in: source)) {
+        XCTAssertThrowsError(try PropositionExpression.not(emptyLiteral.asExpression())) {
             XCTAssertEqual($0 as? PropositionError, .emptyLiteral)
         }
     }
 
     // Production mutation caught: question accepts depth 64 although a no answer needs one more node.
     func testQuestionReservesOneNegationNode() throws {
-        let p = try PropositionExpression.makeAtom(atom)
+        let p = try PropositionExpression.atom(atom)
 
         XCTAssertNoThrow(try YesNoQuestion(wrapping(p, count: 63)))
-        XCTAssertThrowsError(try YesNoQuestion(wrapping(p, count: 64))) { error in
+        let depthBoundary = try wrapping(p, count: 64)
+        XCTAssertThrowsError(try YesNoQuestion(depthBoundary)) { error in
             XCTAssertEqual(
                 error as? PropositionExpressionError,
-                .operatorDepthExceeded(maximum: 64)
+                .operatorDepthExceeded(actual: 65, maximum: 64)
             )
         }
     }
@@ -296,8 +289,8 @@ final class NegationTests: XCTestCase {
     // Production mutation caught: double negation is normalized or atom evaluation is duplicated.
     func testDoubleNegationKeepsTwoTraceNodesButRestoresTruth() throws {
         let source = try context()
-        let p = try PropositionExpression.makeAtom(atom)
-        let notNotP = try PropositionExpression.makeNot(.not(p))
+        let p = try PropositionExpression.atom(atom)
+        let notNotP = try PropositionExpression.not(PropositionExpression.not(p))
 
         let atomic = try p.evaluate(in: source)
         let doubled = try notNotP.evaluate(in: source)
@@ -307,12 +300,12 @@ final class NegationTests: XCTestCase {
         XCTAssertNotEqual(doubled.expression, atomic.expression)
         XCTAssertEqual(negationLayerCount(doubled.trace), 2)
         XCTAssertEqual(atomLayerCount(doubled.trace), 1)
-        XCTAssertEqual(doubled.trace.kind, .negation)
+        XCTAssertEqual(doubled.trace.kind, .not)
         XCTAssertEqual(doubled.trace.conclusion, .holds)
-        let inner = try XCTUnwrap(doubled.trace.operand)
-        XCTAssertEqual(inner.kind, .negation)
+        let inner = try XCTUnwrap(doubled.trace.children.first)
+        XCTAssertEqual(inner.kind, .not)
         XCTAssertEqual(inner.conclusion, .fails)
-        let operand = try XCTUnwrap(inner.operand)
+        let operand = try XCTUnwrap(inner.children.first)
         XCTAssertEqual(operand, atomic.trace)
     }
 
@@ -322,20 +315,23 @@ final class NegationTests: XCTestCase {
             QuarantinedFile(file: "entities/broken.yaml", reason: "malformed")
         ]
         let source = try context(quarantine: quarantine)
-        let p = try PropositionExpression.makeAtom(atom)
+        let p = try PropositionExpression.atom(atom)
         let atomic = try p.evaluate(in: source)
-        let negated = try PropositionExpression.makeNot(p).evaluate(in: source)
+        let notP = try PropositionExpression.not(p)
+        let negated = try notP.evaluate(in: source)
+        let atomicEvidence = try XCTUnwrap(atomic.trace.atomicEvidence)
+        let negatedLeaf = try XCTUnwrap(negated.trace.children.first?.atomicEvidence)
 
-        XCTAssertEqual(negated.expression, .not(p))
+        XCTAssertEqual(negated.expression, notP)
         XCTAssertEqual(negated.truth, .fails)
         XCTAssertEqual(negated.context, atomic.context)
-        XCTAssertEqual(negated.trace.scope, atomic.trace.scope)
-        XCTAssertEqual(negated.trace.projection, atomic.trace.projection)
-        XCTAssertEqual(negated.trace.evidence, atomic.trace.evidence)
-        XCTAssertEqual(negated.trace.snapshotQuarantine, quarantine)
+        XCTAssertEqual(negatedLeaf.scope, atomicEvidence.scope)
+        XCTAssertEqual(negatedLeaf.projection, atomicEvidence.projection)
+        XCTAssertEqual(negatedLeaf.evidence, atomicEvidence.evidence)
+        XCTAssertEqual(negatedLeaf.snapshotQuarantine, quarantine)
         XCTAssertEqual(negated.trace.conclusion, negated.truth)
-        XCTAssertEqual(negated.trace.kind, .negation)
-        let operand = try XCTUnwrap(negated.trace.operand)
+        XCTAssertEqual(negated.trace.kind, .not)
+        let operand = try XCTUnwrap(negated.trace.children.first)
         XCTAssertEqual(operand, atomic.trace)
         XCTAssertEqual(negated.trace.conclusion, .fails)
     }
@@ -343,7 +339,7 @@ final class NegationTests: XCTestCase {
     // Production mutation caught: an undetermined reason is collapsed or negated into determinate truth.
     func testNegationPreservesEveryUndeterminedReasonExactly() throws {
         let source = try context()
-        let expression = try PropositionExpression.makeAtom(atom)
+        let expression = try PropositionExpression.atom(atom)
         let projection = EvidenceProjection.authored(personKey: personKey, workKey: workKey)
         let reasons: [UndeterminedReason] = [
             .notProjectable(.unknownIdentity(role: "person", key: "missing")),
@@ -356,13 +352,18 @@ final class NegationTests: XCTestCase {
 
         for reason in reasons {
             let truth = TruthValue.undetermined(reason)
-            let trace = EvidenceTrace.atom(AtomicEvidenceTrace(
+            let evidence = AtomicEvidenceTrace(
                 scope: .snapshotScopedTimeInvariant,
                 projection: projection,
                 evidence: [],
                 snapshotQuarantine: [],
                 conclusion: truth
-            ))
+            )
+            let trace = EvidenceTrace.atom(
+                expression: expression,
+                context: source,
+                evidence: evidence
+            )
             let valuation = Valuation(
                 expression: expression,
                 truth: truth,
@@ -370,12 +371,13 @@ final class NegationTests: XCTestCase {
                 trace: trace
             )
 
-            let negated = valuation.negated(as: .not(expression))
+            let negatedExpression = try PropositionExpression.not(expression)
+            let negated = valuation.negated(as: negatedExpression)
             XCTAssertEqual(negated.truth, truth, "reason=\(reason)")
             XCTAssertEqual(negated.context, source, "reason=\(reason)")
             XCTAssertEqual(negated.trace.conclusion, truth, "reason=\(reason)")
-            XCTAssertEqual(negated.trace.kind, .negation, "reason=\(reason)")
-            let operand = try XCTUnwrap(negated.trace.operand, "reason=\(reason)")
+            XCTAssertEqual(negated.trace.kind, .not, "reason=\(reason)")
+            let operand = try XCTUnwrap(negated.trace.children.first, "reason=\(reason)")
             XCTAssertEqual(operand, trace, "reason=\(reason)")
             XCTAssertEqual(negated.trace.conclusion, truth, "reason=\(reason)")
         }
@@ -384,21 +386,23 @@ final class NegationTests: XCTestCase {
     // Production mutation caught: answer flattens subject or recomputes a second context/trace.
     func testYesAnswerRetainsItsCompleteEstablishedValuation() throws {
         let source = try context()
-        let question = try YesNoQuestion(atom.expression)
+        let expression = try atom.asExpression()
+        let question = try YesNoQuestion(expression)
         let result = try question.answer(in: source)
 
         XCTAssertEqual(result.answer, .yes)
-        XCTAssertEqual(result.subjectValuation.expression, atom.expression)
+        XCTAssertEqual(result.subjectValuation.expression, expression)
         XCTAssertEqual(result.subjectValuation.truth, .holds)
         XCTAssertEqual(result.establishedAnswer?.valuation, result.subjectValuation)
-        XCTAssertEqual(result.establishedAnswer?.expression, atom.expression)
+        XCTAssertEqual(result.establishedAnswer?.expression, expression)
     }
 
     // Production mutation caught: no reuses subject/fails valuation or normalizes ¬¬p to p.
     func testNegativeSubjectNoAnswerEstablishesStructuralDoubleNegation() throws {
         let source = try context()
-        let p = atom.expression
-        let negativeSubject = try PropositionExpression.makeNot(p)
+        let p = try atom.asExpression()
+        let negativeSubject = try PropositionExpression.not(p)
+        let doubleNegation = try PropositionExpression.not(negativeSubject)
         let result = try YesNoQuestion(negativeSubject).answer(in: source)
 
         XCTAssertEqual(result.answer, .no)
@@ -407,12 +411,12 @@ final class NegationTests: XCTestCase {
         guard let established = result.establishedAnswer else {
             return XCTFail("determinate no 必須有自己的 established valuation")
         }
-        XCTAssertEqual(established.expression, .not(negativeSubject))
+        XCTAssertEqual(established.expression, doubleNegation)
         XCTAssertEqual(established.valuation.truth, .holds)
         XCTAssertEqual(established.valuation.context, result.subjectValuation.context)
-        XCTAssertEqual(established.valuation.trace.kind, .negation)
+        XCTAssertEqual(established.valuation.trace.kind, .not)
         XCTAssertEqual(established.valuation.trace.conclusion, .holds)
-        let operand = try XCTUnwrap(established.valuation.trace.operand)
+        let operand = try XCTUnwrap(established.valuation.trace.children.first)
         XCTAssertEqual(operand, result.subjectValuation.trace)
 
         let assertion = Assertion(
@@ -427,14 +431,14 @@ final class NegationTests: XCTestCase {
             acceptedBy: "reviewer",
             acceptedAt: try AcceptedTime("2026-08-10")
         )
-        XCTAssertEqual(fact.expression, .not(negativeSubject))
+        XCTAssertEqual(fact.expression, doubleNegation)
         XCTAssertEqual(fact.valuation, established.valuation)
     }
 
     // Production mutation caught: unknown is given a fabricated expression that callers can assert.
     func testUndeterminedAnswerHasNoEstablishedExpression() throws {
         let source = try context(authors: [])
-        let result = try YesNoQuestion(atom.expression).answer(in: source)
+        let result = try YesNoQuestion(atom.asExpression()).answer(in: source)
 
         XCTAssertEqual(result.answer, .undetermined)
         XCTAssertEqual(
@@ -447,7 +451,7 @@ final class NegationTests: XCTestCase {
     // Production mutation caught: denied(p) is silently converted into asserted(¬p).
     func testDeniedExpressionRemainsARefusedStanceEvenWhenThatExpressionHolds() throws {
         let source = try context()
-        let expression = atom.expression
+        let expression = try atom.asExpression()
         let valuation = try expression.evaluate(in: source)
         let denied = Assertion(
             expression: expression,
@@ -466,38 +470,23 @@ final class NegationTests: XCTestCase {
         }
     }
 
-    // Production mutation caught: adjudication validates only the outer node or compares atoms only.
-    func testAdjudicationRevalidatesNestedExpressionAndUsesStructuralIdentity() throws {
+    // Production mutation caught: malformed atom 繞過 opaque factory，或 adjudication 只比較 atoms。
+    func testFactoryRejectsMalformedNestedExpressionAndAdjudicationUsesStructuralIdentity() throws {
         let source = try context()
-        let p = atom.expression
+        let p = try atom.asExpression()
         let holds = try p.evaluate(in: source)
-        let malformed = PropositionExpression.not(.atom(
-            .authored(person: .key("Not A Key"), work: .key(workKey))
-        ))
-        let malformedValuation = Valuation(
-            expression: malformed,
-            truth: .holds,
-            context: source,
-            trace: holds.trace
-        )
-        let malformedAssertion = Assertion(
-            expression: malformed,
-            stance: .asserted,
-            source: "source",
-            recorded: try RecordedTime("2026-08-09")
+        let malformed = Proposition.authored(
+            person: .key("Not A Key"),
+            work: .key(workKey)
         )
 
-        XCTAssertThrowsError(try adjudicate(
-            malformedAssertion,
-            valuation: malformedValuation,
-            acceptedBy: "reviewer",
-            acceptedAt: try AcceptedTime("2026-08-10")
-        )) {
+        XCTAssertThrowsError(try PropositionExpression.not(malformed.asExpression())) {
             XCTAssertEqual($0 as? PropositionError, .malformedKey("Not A Key"))
         }
 
+        let notP = try PropositionExpression.not(p)
         let negatedAssertion = Assertion(
-            expression: .not(p),
+            expression: notP,
             stance: .denied,
             source: "source",
             recorded: try RecordedTime("2026-08-09")
@@ -510,7 +499,7 @@ final class NegationTests: XCTestCase {
         )) { error in
             XCTAssertEqual(
                 error as? AdjudicationRefusal,
-                .expressionMismatch(assertion: .not(p), valuation: p),
+                .expressionMismatch(assertion: notP, valuation: p),
                 "expression mismatch 必須先於 denied stance"
             )
         }

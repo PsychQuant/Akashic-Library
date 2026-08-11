@@ -1,0 +1,13 @@
+{
+  "sha256": {
+    "unicode-normalization-v1.manifest.json": "bc76ee0802a87c074bc480db876e07cd63ce2fddae7041e8561d8d8db9bc4093",
+    "Tools/UnicodeNormalizationGenerator/main.swift": "c52fe7f7f1c209d14973ab1461df4cb8195a640dc9a0dd4ae7be6baf60cd5c6f",
+    "Sources/AkashicProposition/UnicodeNormalizationV1.swift": "a4b19c16dfe54f1a19c2ba3b5ab6f8436cf25835b2d3710658b3c1cc9e1965cd",
+    "Sources/AkashicProposition/Generated/UnicodeNormalizationTablesV1.swift": "87af39edb63b10ce8551e32e8cc67816dd8ceee821feb1869c68626db4ce8dbe",
+    "Vendor/Unicode/15.1.0/UnicodeData.txt": "2fc713e6a31a87c4850a37fe2caffa4218180fadb5de86b43a143ddb4581fb86",
+    "Vendor/Unicode/15.1.0/CompositionExclusions.txt": "59d2d9e3dfdf0a999cf9dae11d594f053631222679a2f5710315ea07f7fe82af",
+    "Vendor/Unicode/15.1.0/DerivedNormalizationProps.txt": "8875dccee2bc1a7c1fe568a3b502a9e78c9e0495afd96b6568b4294d0ed1f7e1",
+    "Vendor/Unicode/15.1.0/PropList.txt": "05672956317b6296bc2ec3d6cef1f6452b57ff4f2efc6dc55b0a19277d5fcfd1",
+    "Vendor/Unicode/15.1.0/NormalizationTest.txt": "871238e37e3be0696ec2bd0891119a041b052da1a84485eda05a5438724b223e"
+  }
+}

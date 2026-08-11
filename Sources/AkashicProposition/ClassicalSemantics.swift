@@ -70,14 +70,17 @@ public struct ClassicalValuation: Equatable {
         for assignment in assignments {
             try assignment.atom.validate()
             let bytes = try assignment.atom.canonicalBytesV1()
-            if validated.contains(where: { $0.atom == assignment.atom }) {
-                throw ClassicalSemanticsError.duplicateValuationAtom(assignment.atom)
-            }
             validated.append(Entry(
                 atom: assignment.atom,
                 value: assignment.value,
                 canonicalBytes: bytes
             ))
+        }
+
+        for index in validated.indices {
+            if validated[..<index].contains(where: { $0.atom == validated[index].atom }) {
+                throw ClassicalSemanticsError.duplicateValuationAtom(validated[index].atom)
+            }
         }
 
         validated.sort { canonicalBytesLess($0.canonicalBytes, $1.canonicalBytes) }
@@ -172,10 +175,13 @@ public struct BooleanFunctionTable: Equatable {
         for atom in callerAtoms {
             try atom.validate()
             let bytes = try atom.canonicalBytesV1()
-            if validated.contains(where: { $0.atom == atom }) {
-                throw ClassicalSemanticsError.duplicateFunctionAtom(atom)
-            }
             validated.append(CanonicalAtom(atom: atom, bytes: bytes))
+        }
+
+        for index in validated.indices {
+            if validated[..<index].contains(where: { $0.atom == validated[index].atom }) {
+                throw ClassicalSemanticsError.duplicateFunctionAtom(validated[index].atom)
+            }
         }
 
         guard let rowCount = checkedPowerOfTwoCount(

@@ -245,6 +245,51 @@ final class ClassicalSemanticsTests: XCTestCase {
         )
     }
 
+    // Production mutation caught: duplicate comparison is interleaved with validation, allowing
+    // an early duplicate to hide a later malformed atom after the container count guard passes.
+    func testClassicalValuationValidatesEveryAtomBeforeDuplicatePhase() throws {
+        let malformed = Proposition.authored(
+            person: .key("Not A Key"),
+            work: .key("work-valid")
+        )
+
+        XCTAssertThrowsError(
+            try ClassicalValuation(assignments: [
+                (atom: p, value: false),
+                (atom: p, value: true),
+                (atom: malformed, value: true),
+            ])
+        ) { error in
+            XCTAssertEqual(
+                error as? PropositionError,
+                .malformedKey("Not A Key"),
+                "count guard 後須先驗證全部 atoms；early duplicate 不得遮蔽 later malformed"
+            )
+        }
+    }
+
+    // Production mutation caught: function-table duplicate rejection runs before every atom has
+    // completed syntax validation and canonical-byte capture.
+    func testBooleanFunctionTableValidatesEveryAtomBeforeDuplicatePhase() throws {
+        let malformed = Proposition.authored(
+            person: .key("Not A Key"),
+            work: .key("work-valid")
+        )
+
+        XCTAssertThrowsError(
+            try BooleanFunctionTable(
+                atomsInInputBitOrder: [p, p, malformed],
+                outputsInInputBitRowOrder: Array(repeating: false, count: 8)
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? PropositionError,
+                .malformedKey("Not A Key"),
+                "arity guard 後須先驗證全部 atoms；early duplicate 不得遮蔽 later malformed"
+            )
+        }
+    }
+
     // Production mutation caught: extra values become an error or influence the result; limit is removed.
     func testClassicalValuationIgnoresExtraAssignmentsWithinFixedContainerLimit() throws {
         let atoms = numberedAtoms(64)

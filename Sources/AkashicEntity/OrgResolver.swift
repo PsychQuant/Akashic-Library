@@ -135,22 +135,38 @@ public enum OrgResolver {
         // helper 保持回 `String?`——parents 側的環偵測吃的就是這個型別，而那段邏輯與
         // 歧義無關、不該被牽動。歧義改寫進捕獲的陣列。
         var ambiguities: [OrgAmbiguousMatch] = []
-        /// `admissible` 把**呼叫端自己的排除規則**帶進來（#236 R3）。
+        /// **唯一性一律由原始命中集決定。** 過濾不得把「2+ 命中」變成「唯一命中」。
         ///
-        /// parents 側有兩道 guard（自我父權、成環，#166 刻意放在製造點）。第一版把
-        /// 歧義記錄寫在這裡、而 guard 跑在回傳之後——於是歧義清單會列出那兩道 guard
-        /// **會拒絕**的候選：把「自己」與「會成環的祖先」當成待你裁決的父機構。
+        /// R3 曾在這裡加一個 `admissible` 過濾器，理由是好的：parents 側有兩道 guard
+        /// （自我父權、成環，#166 放在製造點），而歧義報告會把那兩道 guard **會拒絕**
+        /// 的候選當成待人裁決的父機構。
         ///
-        /// 過濾後不足兩個就不是歧義（`init?` 也會拒絕）——那表示排除掉不可容許的
-        /// 之後其實沒得選，與 person 側「可容許候選集是不是單元素」同一個判準。
+        /// 但它是在**唯一性判定**上過濾，不只在報告上。R4 抓到兩個後果：
+        ///
+        /// 1. **`candidates()` 的行為變了**：base main 是「2+ 命中 → 不提名，交給人」，
+        ///    過濾後變成「排除掉不可容許的、剩一個就自動提名」。`--apply` 會據此
+        ///    **寫入**——而本 PR 的範圍是「讓歧義被看見」，不是改變消解語意。
+        /// 2. **與順序相關**：`admissible` 裡的 `reaches` 讀 `edges`，而 `edges` 正是
+        ///    這個迴圈在改的（`209` 行的「本輪已接受的也算數」是刻意的，環偵測需要
+        ///    它）。於是「要不要問人」取決於 org key 的字母順序——同一份邏輯 store
+        ///    換個 key 名字，答案就變。
+        ///
+        /// 第 2 點單獨就足以否決這個設計：**安全 guard 用會變動的 `edges` 是對的**
+        /// （它只會多拒絕），但拿它決定「這是不是歧義」會讓非決定性洩進使用者看到
+        /// 的東西。
+        ///
+        /// 因此回到原語意，代價是報告可能列出結構上不可能的候選（例如 holder 自己）。
+        /// 那是**報告品質**問題，讓人多看一眼；前者是**寫入正確性**問題。兩害相權，
+        /// 而且 `207`／`208` 兩道 guard 仍會擋住真的被套用的情形。
+        ///
+        /// 「自我父權該不該讓唯一性成立」是獨立的消解語意問題（它與順序無關，可以
+        /// 單獨成立），但那要它自己的 issue 與 review，不該搭本 PR 的便車。
         func unambiguousMatch(_ literal: String, holder: OrgResolutionCandidate.Holder,
-                              range: DateRange,
-                              admissible: (String) -> Bool = { _ in true }) -> String? {
+                              range: DateRange) -> String? {
             guard let raw = nameMap[NameNormalization.matchingKey(literal)] else { return nil }
-            let keys = raw.filter(admissible)
-            if keys.count == 1 { return keys.first }
+            if raw.count == 1 { return raw.first }
             if let m = OrgAmbiguousMatch(holder: holder, literal: literal,
-                                         range: range, orgKeys: keys) {
+                                         range: range, orgKeys: raw) {
                 ambiguities.append(m)
             }
             return nil
@@ -193,10 +209,7 @@ public enum OrgResolver {
             for seg in org.parents.entries {
                 guard case let .literal(literal) = seg.value,
                       let key = unambiguousMatch(
-                        literal, holder: .organization(org.key), range: seg.range,
-                        // 兩道 guard 的判準**同時**作用在候選集上——否則歧義報告會
-                        // 把它們會拒絕的候選當成待裁決項（#236 R3）
-                        admissible: { $0 != org.key && !reaches($0, org.key) })
+                        literal, holder: .organization(org.key), range: seg.range)
                 else { continue }
                 // **自我父權**。`reaches` 含自身，所以下一行其實也擋得住它——
                 // 席位 mutation 實測：拿掉這行 23 條全綠，**它現行不可達**。

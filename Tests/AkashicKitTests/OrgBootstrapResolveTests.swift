@@ -368,12 +368,17 @@ extension OrgBootstrapResolveTests {
         XCTAssertEqual(cands.last?.holder, .organization("stat-sinica"))
     }
 
-    /// #236 R3：歧義報告**不得**列出兩道 guard 會拒絕的候選。
+    /// #236 R4：**過濾不得把「2+ 命中」變成「唯一命中」。**
     ///
-    /// 歧義記錄先前寫在 `unambiguousMatch` 內，而自我父權與成環的 guard 跑在它
-    /// 回傳**之後**——於是報告會把「自己」與「會成環的祖先」當成待你裁決的父機構，
-    /// 繞過 #166 刻意放在製造點的兩道防護。
-    func testOrgAmbiguityExcludesSelfAndCycleCandidates() {
+    /// R3 曾讓 guard 的判準（自我父權／成環）先過濾候選集再判唯一性，理由是好的：
+    /// 不要拿結構上不可能的候選去煩人。但那把 `candidates()` 的語意從「2+ 命中就
+    /// 交給人」改成「剩一個就自動提名」——而 `--apply` 會據此**寫入**。更糟的是
+    /// 成環判準讀的 `edges` 正是同一個迴圈在改的，於是「要不要問人」取決於 org key
+    /// 的字母順序。
+    ///
+    /// 本測試釘住回退後的語意：**同名的兩個 org 就是歧義，即使其中一個是 holder
+    /// 自己**。報告多列一個明顯錯的候選，比安靜地改變寫入行為好。
+    func testFilteringNeverTurnsAmbiguityIntoAutoProposal() {
         // 兩個 org 共用名字 "Shared"，其中一個就是 holder 自己
         var me = Organization(key: "org-me")
         me.names = TimelineOf([TemporalValue(value: "Shared", range: DateRange())])
@@ -382,11 +387,48 @@ extension OrgBootstrapResolveTests {
         other.names = TimelineOf([TemporalValue(value: "Shared", range: DateRange())])
 
         let r = OrgResolver.resolve(people: [], organizations: [me, other])
-        // 過濾掉「自己」之後只剩一個可容許候選 → **不是歧義**，是唯一命中
-        XCTAssertTrue(r.ambiguities.isEmpty,
-                      "排除不可容許的候選之後沒得選，就不該報成歧義：\(r.ambiguities)")
-        XCTAssertEqual(r.candidates.map(\.orgKey), ["org-other"],
-                       "唯一的可容許候選應該直接出候選")
+        XCTAssertEqual(r.candidates.map(\.orgKey), [],
+                       "2+ 命中就**不提名**——過濾掉一個之後自動提名剩下的，"
+                       + "等於在一個「讓歧義被看見」的改動裡偷改了寫入語意")
+        XCTAssertEqual(r.ambiguities.count, 1, "它是歧義，要被看見")
+        XCTAssertEqual(r.ambiguities.first?.orgKeys, ["org-me", "org-other"],
+                       "列出原始命中集。holder 自己在裡面是刺眼但誠實的——"
+                       + "而且 207/208 兩道 guard 仍會擋住真的被套用的情形")
+    }
+
+    /// 順序無關性：同一份邏輯 store，**換 key 名字不得改變「要不要問人」**。
+    ///
+    /// parents 迴圈是 `organizations.sorted(by: key)`，所以處理順序由 key 的字母序
+    /// 決定。R3 的過濾器裡有 `reaches`，它讀的 `edges` 正是這個迴圈在累積的——
+    /// 環偵測需要那個累積（`209` 行「本輪已接受的也算數」是刻意的），但拿它決定
+    /// **歧義與否**，就把非決定性洩進了使用者看到的東西。
+    ///
+    /// fixture 必須讓「先處理誰」真的改變 `edges`，否則這條測試在舊程式碼上也會綠
+    /// （第一版就是這樣——差點成為本 PR 的第四個空洞守衛）：
+    ///
+    /// - `child` 的 parent literal 是 `"L"`，而 `"L"` 同時命中 `linker` 與 `third`
+    /// - `linker` 的 parent literal 唯一命中 `child` → 一旦 linker 先被處理，
+    ///   `edges[linker] ∋ child`，於是 `reaches(linker, child)` 成立、linker 變成
+    ///   不可容許 → 過濾後只剩 third → **自動提名**
+    /// - 反之若 child 先被處理，`edges` 還是空的 → 兩個都可容許 → **歧義**
+    func testAmbiguityVerdictDoesNotDependOnOrgKeyOrdering() {
+        func run(child: String, linker: String) -> (amb: Int, cands: [String]) {
+            let c = org(child, names: ["ChildName"], parents: [.literal("L")])
+            let l = org(linker, names: ["L"], parents: [.literal("ChildName")])
+            let t = org("third-org", names: ["L"])
+            let r = OrgResolver.resolve(people: [], organizations: [c, l, t])
+            // 比**角色**不比字面 key——兩次跑刻意用不同 key 名，直接比字串必不相等
+            let role = [child: "child", linker: "linker", "third-org": "third"]
+            return (r.ambiguities.count, r.candidates.map { role[$0.orgKey] ?? $0.orgKey }.sorted())
+        }
+        // 邏輯結構完全相同，只有 key 的字母序讓處理順序相反
+        let childFirst = run(child: "a-child", linker: "b-linker")
+        let linkerFirst = run(child: "z-child", linker: "a-linker")
+        XCTAssertEqual(childFirst.amb, linkerFirst.amb,
+                       "換個 key 名字就從『需要人判斷』變成『自動提名』——"
+                       + "child 先: \(childFirst)，linker 先: \(linkerFirst)")
+        XCTAssertEqual(childFirst.cands, linkerFirst.cands, "提名結果也必須一致")
+        XCTAssertEqual(childFirst.amb, 1, "「L」對到兩個 org，兩種順序都該是歧義")
     }
 
     /// #236 R3：`latestPastSegment` 不得用 `entries.max()`。

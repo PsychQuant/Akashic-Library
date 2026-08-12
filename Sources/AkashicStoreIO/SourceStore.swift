@@ -21,6 +21,40 @@ public extension LibraryStore {
     struct SourceReceipt {
         public let digest: String
         public let exclusionVerified: Bool
+        /// #224：這次呼叫有沒有**新增** index 條目。false = 同 digest 條目已存在
+        /// （冪等重存），不重複 append——呼叫端要能分辨「記了」與「早就記過」。
+        public let indexEntryCreated: Bool
+    }
+
+    /// #224：存 source 時**必須**一起提供的 provenance——blob 本身只是位元組，
+    /// 沒有這些欄位它什麼都不證明。欄位形狀以既有 `sources/index.jsonl` 的
+    /// 7 條手工條目為事實來源。
+    struct SourceProvenance {
+        public let mediaType: String
+        public let retrieved: String
+        public let origin: String
+        public let acquisition: String
+        public let note: String?
+
+        public init(mediaType: String, retrieved: String, origin: String,
+                    acquisition: String, note: String? = nil) {
+            self.mediaType = mediaType
+            self.retrieved = retrieved
+            self.origin = origin
+            self.acquisition = acquisition
+            self.note = note
+        }
+    }
+
+    /// #224：blob ↔ index 一致性報告。三類都要 loud——audit sidecar 的腐爛
+    /// 全靠這份報告變得可見。
+    struct SourceIndexAudit {
+        /// 有 blob、無 index 條目（digest 形式，排序）
+        public let orphanBlobs: [String]
+        /// 有 index 條目、無 blob（digest 形式，排序）
+        public let danglingEntries: [String]
+        /// 非 JSON 物件、或 `content` 缺席／形狀不合法的行（1-based 行號）
+        public let malformedLines: [Int]
     }
 
     /// digest → 存檔路徑。形狀錯回 nil（呼叫端決定 throw 與否）。
@@ -31,14 +65,119 @@ public extension LibraryStore {
             .appendingPathComponent(String(hex.dropFirst(2)))
     }
 
-    /// 存入一份擷取內容，回 digest（`sha256:` 前綴）。
+    /// #224：存 source 的**唯一**公開動作——blob 與它的 provenance 條目一起落地。
+    ///
+    /// 序：先 blob（含 fail-closed 排除驗證）、成功後 append index 條目。部分失敗
+    /// （blob 成功、append 失敗）throw 且留下的孤兒由 `auditSourceIndex` 兜底可見。
+    /// 同 digest 已有條目 → 不重複 append，`indexEntryCreated: false`（provenance
+    /// 以先到的為準；重存不覆寫既有敘述——append-only，index 永不重寫既有行）。
+    ///
+    /// 沒有「只存 blob、不記 provenance」的入口（no-compat-fallback：那條 default
+    /// 路徑正是 index 腐爛的來源——本 issue 之前的 7 個 blob 全靠手工補記）。
+    @discardableResult
+    func storeSource(_ data: Data, provenance: SourceProvenance) throws -> SourceReceipt {
+        let blob = try writeBlob(data)
+        if try indexedDigests().contains(blob.digest) {
+            return SourceReceipt(digest: blob.digest,
+                                 exclusionVerified: blob.exclusionVerified,
+                                 indexEntryCreated: false)
+        }
+        try appendIndexEntry(digest: blob.digest, bytes: data.count, provenance: provenance)
+        return SourceReceipt(digest: blob.digest,
+                             exclusionVerified: blob.exclusionVerified,
+                             indexEntryCreated: true)
+    }
+
+    var sourceIndexURL: URL { sourcesDir.appendingPathComponent("index.jsonl") }
+
+    /// JSON 字串字面量（含引號）。用 JSONEncoder 逃逸，不手寫 escape 表。
+    private func jsonLiteral(_ s: String) throws -> String {
+        let arr = String(data: try JSONEncoder().encode([s]), encoding: .utf8) ?? "[\"\"]"
+        return String(arr.dropFirst().dropLast())
+    }
+
+    /// append 一行 index 條目。欄位序固定（content→bytes→media-type→retrieved→
+    /// origin→acquisition→note），與既有手工條目同形；只 append、永不重寫既有行。
+    private func appendIndexEntry(digest: String, bytes: Int,
+                                  provenance p: SourceProvenance) throws {
+        var line = "{\"content\": \(try jsonLiteral(digest)), \"bytes\": \(bytes), "
+            + "\"media-type\": \(try jsonLiteral(p.mediaType)), "
+            + "\"retrieved\": \(try jsonLiteral(p.retrieved)), "
+            + "\"origin\": \(try jsonLiteral(p.origin)), "
+            + "\"acquisition\": \(try jsonLiteral(p.acquisition))"
+        if let note = p.note { line += ", \"note\": \(try jsonLiteral(note))" }
+        line += "}\n"
+        let url = sourceIndexURL
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if FileManager.default.fileExists(atPath: url.path) {
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data(line.utf8))
+        } else {
+            try Data(line.utf8).write(to: url, options: .atomic)
+        }
+    }
+
+    /// index 內既有條目的 digest 集合（寬鬆讀：只取 `content` 欄；malformed 行在
+    /// 這裡跳過——它們的**回報**歸 `auditSourceIndex`，重複檢查不需要為它們失敗）。
+    private func indexedDigests() throws -> Set<String> {
+        guard FileManager.default.fileExists(atPath: sourceIndexURL.path) else { return [] }
+        let text = try String(contentsOf: sourceIndexURL, encoding: .utf8)
+        var digests = Set<String>()
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            if let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+               let content = obj["content"] as? String,
+               ProvenanceReference.isValidDigest(content) {
+                digests.insert(content)
+            }
+        }
+        return digests
+    }
+
+    /// #224：blob ↔ index 的兩向一致性 + malformed 行回報。
+    func auditSourceIndex() throws -> SourceIndexAudit {
+        let fm = FileManager.default
+        // 磁碟上的 blob（只認 2-hex 目錄 / 62-hex 檔名的正規形；其他殘留歸 layoutResidue）
+        var diskDigests = Set<String>()
+        if let shards = try? fm.contentsOfDirectory(atPath: sourcesDir.path) {
+            for shard in shards where shard.count == 2 && shard.allSatisfy({ "0123456789abcdef".contains($0) }) {
+                let dir = sourcesDir.appendingPathComponent(shard)
+                for f in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []
+                where f.count == 62 && f.allSatisfy({ "0123456789abcdef".contains($0) }) {
+                    diskDigests.insert("sha256:\(shard)\(f)")
+                }
+            }
+        }
+        // index 條目 + malformed 行
+        var indexDigests = Set<String>()
+        var malformed: [Int] = []
+        if fm.fileExists(atPath: sourceIndexURL.path) {
+            let text = try String(contentsOf: sourceIndexURL, encoding: .utf8)
+            for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: true).enumerated() {
+                if let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                   let content = obj["content"] as? String,
+                   ProvenanceReference.isValidDigest(content) {
+                    indexDigests.insert(content)
+                } else {
+                    malformed.append(i + 1)
+                }
+            }
+        }
+        return SourceIndexAudit(
+            orphanBlobs: diskDigests.subtracting(indexDigests).sorted(),
+            danglingEntries: indexDigests.subtracting(diskDigests).sorted(),
+            malformedLines: malformed)
+    }
+
+    /// blob 原語（#224 起不再公開）：存入一份擷取內容，回 digest（`sha256:` 前綴）。
     ///
     /// - digest 算在**原始位元組**上（D3）：不正規化、不轉碼——判準必須客觀。
     /// - 同位元組冪等：已存在就不重寫（內容定址，兩份是不可能的）。
     /// - 寫入前驗證版控排除（見 `assertSourcesExcluded`）；驗證先於**任何**磁碟
     ///   寫入——拒寫時不留內容。
-    @discardableResult
-    func storeSourceContent(_ data: Data) throws -> SourceReceipt {
+    private func writeBlob(_ data: Data) throws -> SourceReceipt {
         let hex = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         let digest = "sha256:\(hex)"
         // 排除驗證問的必須是**即將寫入的那條路徑**（#145 verify F1）：曾用寫死的
@@ -56,7 +195,8 @@ public extension LibraryStore {
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: url, options: .atomic)
         }
-        return SourceReceipt(digest: digest, exclusionVerified: verified)
+        return SourceReceipt(digest: digest, exclusionVerified: verified,
+                             indexEntryCreated: false)
     }
 
     /// 讀回存檔。**缺席（nil）與格式錯（throw）是兩個條件**（task 4.5）：

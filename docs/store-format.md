@@ -743,6 +743,14 @@ sources` … `# END`；idempotent——標記已在（含手工版本）就不�
 **digest 缺席是預期狀態，不是損毀**：存檔不進 remote，clone 後必然缺席。載入
 **MUST** 照常成功，缺席以與格式錯誤**不同的**條件回報（`missingSourceDigests`）。
 
+**存一份 source 是一個動作**（#224）：blob 與它的 provenance 條目（`sources/
+index.jsonl`，欄位 `content`／`bytes`／`media-type`／`retrieved`／`origin`／
+`acquisition`／`note`）一起落地——沒有「只存 blob」的入口（blob 只是位元組，沒有
+條目它什麼都不證明）。index **append-only、永不重寫既有行**（含手工條目的未知
+欄位——lossless）；同 digest 不重複 append，回條回報 existing。`doctor` 檢出三類
+不一致並**只報告不動手**：孤兒 blob（有存檔無條目）、懸空條目（有條目無存檔）、
+無法解析的行。
+
 **存檔不是 entity**（兩個獨立理由，任一充分）：網頁不決定記錄形狀、不讓 loader
 分岔到不同 decoder；且內容定址的身分被位元組窮盡——entity 的判準之一是「改名後
 仍是同一物」，而位元組串改一個 byte 就是另一串。它沒有名字、沒有歷史、沒有生命

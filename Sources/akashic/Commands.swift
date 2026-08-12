@@ -39,6 +39,22 @@ struct Doctor: ParsableCommand {
             print("殘留：")
             residue.forEach { print("  ⚠ \(displaySafe($0, max: 300))") }
         }
+        // #224：blob ↔ index 一致性（audit 邏輯單一路徑在 SourceStore；此處只渲染，
+        // 與 MCP 面的 doctor 讀同一個結果）。三類皆空不出聲；有事必說、不動手刪。
+        let srcAudit = try store.auditSourceIndex()
+        if !srcAudit.orphanBlobs.isEmpty || !srcAudit.danglingEntries.isEmpty
+            || !srcAudit.malformedLines.isEmpty {
+            print("sources 一致性：")
+            for b in srcAudit.orphanBlobs {
+                print("  ⚠ 孤兒 blob（有存檔、index.jsonl 無條目）：\(b)")
+            }
+            for e in srcAudit.danglingEntries {
+                print("  ⚠ 懸空條目（index.jsonl 有、存檔缺席）：\(e)")
+            }
+            if !srcAudit.malformedLines.isEmpty {
+                print("  ✗ index.jsonl 無法解析的行：\(srcAudit.malformedLines.map(String.init).joined(separator: ", "))")
+            }
+        }
         if !fatalCross.isEmpty {
             print("library: \(displaySafe(root.path, max: 800))")
             print("entries: \(load.entries.count)（未重建 index——先修好上面的重複）")

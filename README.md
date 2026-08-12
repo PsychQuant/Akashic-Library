@@ -66,7 +66,8 @@ attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox�
 ├── config.yaml                  ← registry：files: {main: ~/.akashic} + current: main（gitignored）
 ├── sources/<2hex>/<62hex>       ← 內容定址存檔（gitignore 排除、fail-closed 驗證；#66）
 ├── sources/index.jsonl          ← 存檔的 provenance 條目——與 blob 同動作落地、
-│                                   append-only；doctor 檢出孤兒/懸空/malformed（#224）
+│                                   append-only（腐壞時拒寫、丟棄可見）；doctor 檢出
+│                                   孤兒/懸空/malformed/讀不到的 shard（#224）
 └── index/main-<8碼>.sqlite      ← 衍生 index，依 registry key + 化身命名（gitignored）
 ```
 

@@ -34,8 +34,10 @@ struct PeopleCmd: ParsableCommand {
             throw ValidationError("service 回應不是預期的 JSON 陣列")
         }
         if people.isEmpty {
-            // 「零筆」是結果不是錯誤——與 person --name 無候選同一立場
-            print("（無 person 記錄\(query.map { "符合「\($0)」" } ?? "")）")
+            // 「零筆」是結果不是錯誤——與 person --name 無候選同一立場。
+            // 不回顯 query（#219 verify F2 探針實證：argv 是未消毒的使用者輸入，
+            // 回顯會把 raw ESC／bidi 直送終端機；此處也拿不到 service 端的消毒器）
+            print(query == nil ? "（無 person 記錄）" : "（無符合過濾條件的 person 記錄）")
             return
         }
         for p in people {
@@ -43,7 +45,11 @@ struct PeopleCmd: ParsableCommand {
             let names = (p["names"] as? [String])?.joined(separator: "、") ?? ""
             var line = "\(key)\t\(names)"
             if let orcid = p["orcid"] as? String { line += "\torcid:\(orcid)" }
-            print(line)   // display-safe-exempt: 值取自 AkashicService.people（已逐欄位 displaySafe，含 #219 補上的 orcid），二次消毒非冪等
+            if let openalex = p["openalex"] as? String { line += "\topenalex:\(openalex)" }
+            if let unknown = p["unknownFields"] as? [String], !unknown.isEmpty {
+                line += "\tunknown:\(unknown.joined(separator: ","))"   // #31：只有鍵、無值
+            }
+            print(line)   // display-safe-exempt: 值取自 AkashicService.people（已逐欄位 displaySafe，含 #219 補上的 orcid/openalex），二次消毒非冪等
         }
     }
 }

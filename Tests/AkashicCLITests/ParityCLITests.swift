@@ -184,6 +184,90 @@ final class ParityCLITests: XCTestCase {
         XCTAssertNil(akashic?["status"])
     }
 
+    // MARK: 手寫 guard 的負向測試（#219 verify F3／Codex A：這些是 CLI adapter
+    // 自己新增、service 委派涵蓋不到的邏輯——guard 被刪掉時全套件仍會綠，除非在此釘住）
+
+    func testLinkWithoutAddOrRemoveIsRejected() throws {
+        let (status, _) = try cli(["link", "cheng2025alpha", "--kind", "cites"])
+        XCTAssertNotEqual(status, 0)
+    }
+
+    func testTagWithoutAddOrRemoveIsRejected() throws {
+        let (status, _) = try cli(["tag", "cheng2025alpha"])
+        XCTAssertNotEqual(status, 0)
+    }
+
+    func testSetStatusWithNeitherValueNorClearIsRejected() throws {
+        _ = try cli(["set-status", "cheng2025alpha", "read"])
+        let (status, _) = try cli(["set-status", "cheng2025alpha"])
+        XCTAssertNotEqual(status, 0, "漏值必須拒絕——靜默當 clear 會清掉既有狀態")
+        // 且既有狀態不能被動到
+        let entry = try json(try service().getEntry(citekey: "cheng2025alpha"))
+        let akashic = try XCTUnwrap(entry["akashic"] as? [String: Any])
+        XCTAssertEqual(akashic["status"] as? String, "read")
+    }
+
+    func testSetStatusWithBothValueAndClearIsRejected() throws {
+        let (status, _) = try cli(["set-status", "cheng2025alpha", "read", "--clear"])
+        XCTAssertNotEqual(status, 0)
+    }
+
+    // MARK: 過濾與消毒（#219 verify Codex B／F、security F1/F2）
+
+    /// query「鄭」只命中 names（che-cheng 的「鄭澈」），不含任何 key 子字串——
+    /// 實作退化成「只查 key」時本測試轉紅（Codex B：'che' 同時命中 key，抓不到）。
+    func testPeopleFilterMatchesNameNotJustKey() throws {
+        let (status, out) = try cli(["people", "鄭", "--json"])
+        XCTAssertEqual(status, 0, out)
+        XCTAssertTrue(out.contains("che-cheng"), out)
+        XCTAssertFalse(out.contains("solo-person"))
+    }
+
+    /// 零結果訊息不回顯 query（security F2 探針：argv 未消毒，回顯即 raw ESC 進終端機）。
+    func testZeroResultPeopleDoesNotEchoQuery() throws {
+        let (status, out) = try cli(["people", "zz\u{1B}[31mQ\u{202E}x"])
+        XCTAssertEqual(status, 0, out)
+        XCTAssertFalse(out.contains("\u{1B}"), "raw ESC 進了終端機")
+        XCTAssertFalse(out.contains("\u{202E}"), "raw bidi 進了終端機")
+    }
+
+    /// fields 的**鍵**是 quarantine 唯一不驗的裸格（verify D3）——entryDict 消毒後，
+    /// 人可讀與 --json 兩面都不得再有 raw ESC／bidi。
+    func testInjectedFieldKeyIsSanitizedInBothFaces() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "evil2026key", type: "article",
+                      title: "Evil", authors: [.literal("X")], date: "2026")
+        e.fields["\u{1B}[31mKEY\u{202E}BIDI"] = "benign-value"
+        try store.writeEntry(e)
+        for args in [["get-entry", "evil2026key"], ["get-entry", "evil2026key", "--json"]] {
+            let (status, out) = try cli(args)
+            XCTAssertEqual(status, 0, out)
+            XCTAssertFalse(out.contains("\u{1B}"), "\(args)：raw ESC 進了輸出")
+            XCTAssertFalse(out.contains("\u{202E}"), "\(args)：raw bidi 進了輸出")
+        }
+    }
+
+    /// orcid／openalex 消毒（本 change 對既有 MCP consumer 唯一的行為變更）：
+    /// 正常 identifier 逐字不變、legacy 髒值被消毒、person() 與 people() 一致。
+    func testPeopleIdentifierSanitization() throws {
+        let store = LibraryStore(root: root)
+        var clean = Person(key: "clean-person", names: ["Clean"])
+        clean.orcid = "0000-0002-1825-0097"
+        try store.writePerson(clean)
+        var dirty = Person(key: "dirty-person", names: ["Dirty"])
+        dirty.orcid = "\u{1B}[31mevil\u{202E}"
+        try store.writePerson(dirty)
+
+        let payload = try service().people(query: nil)
+        XCTAssertTrue(payload.contains("0000-0002-1825-0097"), "正常 ORCID 不得被改寫")
+        XCTAssertFalse(payload.contains("\u{1B}"), "legacy 髒 ORCID 的 raw ESC 進了 payload")
+        XCTAssertFalse(payload.contains("\u{202E}"))
+
+        // person() 與 people() 對同一人給同一個 identifier
+        let one = try service().person(key: "clean-person", name: nil, library: nil)
+        XCTAssertTrue(one.contains("0000-0002-1825-0097"))
+    }
+
     // MARK: index 不分岔（#220 教訓的機械防線，寫入格版）
 
     /// 寫入格經 `writeAndReindex`——key 被丟掉時 index 會落到 store root 的

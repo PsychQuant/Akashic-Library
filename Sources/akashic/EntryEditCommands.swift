@@ -97,6 +97,8 @@ struct SetStatusCmd: ParsableCommand {
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
-        print(try service.setStatus(citekey: citekey, status: clear ? nil : status))
+        // 守衛之後 clear=true 蘊含 status==nil，直接傳 status 即可（#219 verify F7：
+        // `clear ? nil : status` 的 nil 分支不可達、無法被測試覆蓋）
+        print(try service.setStatus(citekey: citekey, status: status))
     }
 }

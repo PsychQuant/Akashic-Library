@@ -44,6 +44,12 @@ struct GetEntryCmd: ParsableCommand {
         if let fields = d["fields"] as? [String: String] {
             for k in fields.keys.sorted() { print("field:\(k)\t\(fields[k] ?? "")") }   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
         }
+        if let attachments = d["attachments"] as? [[String: String]] {
+            // 封閉列舉第 6 條邊——JSON 面有的，人可讀面也要看得到（#219 verify F1）
+            for a in attachments {
+                for (kind, path) in a { print("attachment:\(kind)\t\(path)") }   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
+            }
+        }
         if let akashic = d["akashic"] as? [String: Any] {
             if let tags = akashic["tags"] as? [String] {
                 print("tags\t\(tags.joined(separator: ", "))")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
@@ -54,6 +60,10 @@ struct GetEntryCmd: ParsableCommand {
             }
             if let related = akashic["related"] as? [String] {
                 print("related\t\(related.joined(separator: ", "))")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
+            }
+            if let libraries = akashic["libraries"] as? [String] {
+                // 封閉列舉第 5 條邊；值由 load-time StoreKey 閘門保證（verify D4）
+                print("libraries\t\(libraries.joined(separator: ", "))")   // display-safe-exempt: StoreKey.pattern 結構上容不下控制字元（load-time quarantine）
             }
         }
     }

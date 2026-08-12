@@ -71,16 +71,96 @@ final class SourceStoreTests: XCTestCase {
     }
 
     /// lossless：既有手工條目（含未知欄位、非標準空白）**逐字**不動——append-only 永不重寫。
+    ///
+    /// **fixture 刻意不帶結尾換行**（verify D1／logic HIGH-2：手工檔常見狀態；
+    /// 無守衛時新行會黏進既有行、毀掉它的可解析性——這正是本測試要抓的）。
     func testExistingHandwrittenLinesAreNeverRewritten() throws {
         let handwritten = #"{"content": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bytes": 1,  "custom-field": "手工",   "note": "奇怪空白也要保留"}"#
         try FileManager.default.createDirectory(
             at: indexURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try (handwritten + "\n").write(to: indexURL, atomically: true, encoding: .utf8)
+        try handwritten.write(to: indexURL, atomically: true, encoding: .utf8)   // 無結尾 \n
 
         _ = try store.storeSource(Data("new entry".utf8), provenance: prov())
         let lines = try indexLines()
-        XCTAssertEqual(lines.count, 2)
+        XCTAssertEqual(lines.count, 2, "新條目必須落在**新的一行**，不得黏進既有行")
         XCTAssertEqual(lines[0], handwritten, "既有行必須逐字保留（含未知欄位與空白）")
+        // 兩行都必須各自可解析——吞併會讓其中一行變垃圾
+        for l in lines {
+            XCTAssertNotNil(try? JSONSerialization.jsonObject(with: Data(l.utf8)),
+                            "行必須可解析：\(l)")
+        }
+    }
+
+    /// verify Codex #4：sidecar 腐壞時不可判定冪等——fail-closed 拒寫，且不留孤兒 blob。
+    func testStoreSourceRefusesWhenIndexMalformed() throws {
+        try FileManager.default.createDirectory(
+            at: indexURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "not json at all\n".write(to: indexURL, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try store.storeSource(Data("blocked".utf8), provenance: prov())) { e in
+            let msg = (e as? LocalizedError)?.errorDescription ?? "\(e)"
+            XCTAssertTrue(msg.contains("修復") || msg.contains("doctor"), "錯誤要指路：\(msg)")
+        }
+        // 拒寫在任何磁碟寫入之前——不得留下新 blob
+        let shards = ((try? FileManager.default.contentsOfDirectory(
+            atPath: root.appendingPathComponent("sources").path)) ?? [])
+            .filter { $0.count == 2 }
+        XCTAssertTrue(shards.isEmpty, "拒寫時不得留孤兒 blob：\(shards)")
+    }
+
+    /// verify D2（lossless-intake「丟棄必須可見」）：冪等早退丟棄的 provenance 要在回條上。
+    func testIdempotentStoreReportsDiscardedProvenance() throws {
+        let data = Data("same".utf8)
+        let r1 = try store.storeSource(data, provenance: prov())
+        XCTAssertNil(r1.discardedProvenance)
+        let r2 = try store.storeSource(data, provenance: prov(note: "被丟的敘述"))
+        XCTAssertEqual(r2.discardedProvenance?.note, "被丟的敘述",
+                       "呼叫端必須看得到自己這份 provenance 沒被寫入")
+    }
+
+    /// verify req F2：malformed 行號必須是**實際檔案行號**（空行不位移編號、也不算 malformed）。
+    func testMalformedLineNumbersAccountForBlankLines() throws {
+        try FileManager.default.createDirectory(
+            at: indexURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let good = #"{"content": "sha256:\#(String(repeating: "e", count: 64))", "bytes": 1}"#
+        try "\(good)\n\ngarbage line\n".write(to: indexURL, atomically: true, encoding: .utf8)
+        let audit = try store.auditSourceIndex()
+        XCTAssertEqual(audit.malformedLines, [3], "空行（第 2 行）不算 malformed、也不得讓編號位移")
+    }
+
+    /// verify reg F1／sec HIGH-2：非法 UTF-8 不得殺死 audit——壞位元組落進 malformed 通道。
+    func testNonUTF8BytesFallIntoMalformedChannelNotThrow() throws {
+        try FileManager.default.createDirectory(
+            at: indexURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var bytes = Data("{\"content\": \"x".utf8)
+        bytes.append(contentsOf: [0xFF, 0xFE])
+        bytes.append(contentsOf: Data("\"}\n".utf8))
+        try bytes.write(to: indexURL)
+        let audit = try store.auditSourceIndex()   // 不得 throw
+        XCTAssertEqual(audit.malformedLines, [1])
+    }
+
+    /// verify reg F2：shard 讀不到 ≠ blob 缺席——不得捏造懸空條目。
+    func testUnreadableShardIsReportedNotFabricatedAsDangling() throws {
+        let receipt = try store.storeSource(Data("perm test".utf8), provenance: prov())
+        let shard = String(receipt.digest.dropFirst("sha256:".count).prefix(2))
+        let shardDir = root.appendingPathComponent("sources").appendingPathComponent(shard)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: shardDir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shardDir.path) }
+        let audit = try store.auditSourceIndex()
+        XCTAssertTrue(audit.danglingEntries.isEmpty,
+                      "讀不到的 shard 不得把好條目報成懸空：\(audit.danglingEntries)")
+        XCTAssertEqual(audit.unreadableShards, ["sources/\(shard)/"])
+    }
+
+    /// verify sec HIGH-1（#145 同形）：index.jsonl 自己的路徑必須過 fail-closed 閘——
+    /// `sources/*/` 這種窄規則放得過 blob、放不過 index，必須拒寫。
+    func testNarrowIgnoreRuleThatMissesIndexIsRefused() throws {
+        GitFixture.initRepo(root)
+        try store.ensureLayout()
+        try "sources/*/\n".write(to: root.appendingPathComponent(".gitignore"),
+                                 atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try store.storeSource(Data("half safe".utf8), provenance: prov()),
+                             "blob 被排除、index 沒被排除——同一次呼叫一半安全一半外流，必須拒絕")
     }
 
     // MARK: - #224 blob ↔ index 一致性 audit

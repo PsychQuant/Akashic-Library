@@ -747,9 +747,13 @@ sources` … `# END`；idempotent——標記已在（含手工版本）就不�
 index.jsonl`，欄位 `content`／`bytes`／`media-type`／`retrieved`／`origin`／
 `acquisition`／`note`）一起落地——沒有「只存 blob」的入口（blob 只是位元組，沒有
 條目它什麼都不證明）。index **append-only、永不重寫既有行**（含手工條目的未知
-欄位——lossless）；同 digest 不重複 append，回條回報 existing。`doctor` 檢出三類
-不一致並**只報告不動手**：孤兒 blob（有存檔無條目）、懸空條目（有條目無存檔）、
-無法解析的行。
+欄位——lossless；檔尾無換行時先補一個 `\n` 再 append，不動既有位元組）；同
+digest 不重複 append，回條回報 existing **並附上被丟棄的 provenance**（丟棄必須
+可見）。index 有無法解析的行時**拒絕**新寫入（腐壞的 sidecar 不可判定冪等——先修
+再存，且拒寫在任何磁碟寫入之前）。index.jsonl 自身的路徑同樣過 fail-closed 排除
+驗證（blob 的探測路徑不能代替它）。`doctor` 檢出四類並**只報告不動手**：孤兒
+blob（有存檔無條目）、懸空條目（有條目無存檔）、無法解析的行、讀不到的 shard
+（讀不到 ≠ 缺席，不得捏造懸空）；audit 自身失敗降級為警告、不中止報告。
 
 **存檔不是 entity**（兩個獨立理由，任一充分）：網頁不決定記錄形狀、不讓 loader
 分岔到不同 decoder；且內容定址的身分被位元組窮盡——entity 的判準之一是「改名後

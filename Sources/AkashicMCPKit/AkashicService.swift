@@ -62,6 +62,27 @@ public final class AkashicService {
     static let refsPerAmbiguity = 20
     /// `people` 區塊最多幾筆。第三軸是「每筆多大」，由下方的 name 預算限制。
     static let peopleLimit = 60
+    /// 歧義區塊的**位元組**預算（#236 R3）。
+    ///
+    /// 計數上限擋不住內容——`max:` 的單位是 scalar，而 `displaySafe` 逃脫後每個
+    /// scalar 在 JSON 裡最多 9 bytes。實測：三軸計數上限都設了，最壞仍 125 KB。
+    /// 位元組預算是唯一與內容無關的界。
+    static let ambiguityByteBudget = 48 * 1024
+
+    /// 一筆 `people` 條目消毒後的大致位元組數——**逐列累加預算用**。
+    /// 寧可高估：低估會讓預算失效，高估只是少印幾列。
+    static func personEntryBytes(_ p: Person?) -> Int {
+        guard let p else { return 64 }
+        var n = 64 + displaySafe(p.key, max: 200).utf8.count
+        n += p.names.prefix(2).reduce(0) { $0 + displaySafe($1, max: 80).utf8.count }
+        n += p.orcid.map { displaySafe($0, max: 60).utf8.count } ?? 0
+        n += p.openalex.map { displaySafe($0, max: 60).utf8.count } ?? 0
+        n += p.died.map { displaySafe($0, max: 40).utf8.count } ?? 0
+        if let a = p.profile.affiliations.current?.value ?? p.profile.affiliations.entries.max()?.value {
+            n += displaySafe(a.displayName, max: 120).utf8.count
+        }
+        return n
+    }
 
     public init(root: URL, key: String? = nil, configURL: URL? = nil,
                 environment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -596,18 +617,53 @@ public final class AkashicService {
             //    repo 自己文件化的 **8 倍膨脹器**——`max: 200` 可以輸出 1600 字元
             //
             // 三個都要限，而且 `truncated` 要反映**整個回應**、不只 ambiguities 陣列。
-            let shown = Array(report.ambiguities.prefix(Self.ambiguityLimit))
-            // 每列的 ref 數也要限：同名的人可以有任意多個
-            let shownRefKeys = shown.map { Array($0.personKeys.prefix(Self.refsPerAmbiguity)) }
-            let anyRefsTruncated = zip(shown, shownRefKeys).contains { $0.personKeys.count > $1.count }
-            // 不透明 ref：`p0`、`p1`…，依 **raw key** 排序指派 → 決定性、且生成即唯一。
-            // 這是把「識別」與「顯示」分開的那一刀，見下方 `people` 的說明。
-            let refKeys = Array(Set(shownRefKeys.flatMap { $0 }).sorted().prefix(Self.peopleLimit))
-            let refByKey = Dictionary(uniqueKeysWithValues:
-                refKeys.enumerated().map { ($0.element, "p\($0.offset)") })
+            // ## 預算按**列**分配，不按 key（#236 R3 CRITICAL）
+            //
+            // 第一版用全域排序後 `prefix(peopleLimit)` 取 key，再逐列 `compactMap` 查表。
+            // 後果：排序落在 60 名之後的列**refs 全被丟光，而列照樣印出來**——實測
+            // 50 列中 47 列 `personRefs: []`。一筆記錄說「這個名字對到 2+ 人、請你
+            // 判斷」，然後列出零個人。
+            //
+            // 更危險的是**恰好剩一個 ref** 的列：LLM 讀起來像「已解析的唯一命中」，
+            // 而那筆記錄標著「不可套用」。`AmbiguousMatch.init?` 拒絕 `count < 2` 正是
+            // 為了讓這個狀態在型別層不可表達——而序列化邊界把它又造了出來。
+            //
+            // 修法：**逐列吃預算，吃不下就整列不印**（計入截斷）。一列的 refs 要嘛
+            // 完整（至少 2 個）、要嘛整列不存在——不留「半截的歧義」。
+            // 三軸的**列數／列寬／筆數**都是計數，而真正要守的是**位元組**。
+            // `max:` 的單位是 scalar，但膨脹後每個 scalar 在 JSON 裡最多 9 bytes
+            // （`\u{XXXX}` 再被 JSON 逃脫反斜線）——靜態算計數永遠追不上內容。
+            // 實測：三軸都設了上限，最壞仍是 125 KB。所以**逐列累加實際位元組**，
+            // 超過預算就停——這是唯一與內容無關的界。
+            var refByKey: [String: String] = [:]
+            var rows: [(AmbiguousMatch, [String])] = []
+            var droppedRows = 0
+            var anyRefsTruncated = false
+            var bytes = 0
+            for a in report.ambiguities.prefix(Self.ambiguityLimit) {
+                let wanted = Array(a.personKeys.prefix(Self.refsPerAmbiguity))
+                if wanted.count < a.personKeys.count { anyRefsTruncated = true }
+                let newKeys = wanted.filter { refByKey[$0] == nil }
+                // 這一列會新增多少位元組：本列 + 它帶進來的新 person 條目
+                let cost = displaySafe(a.citekey, max: 200).utf8.count
+                    + displaySafe(a.literal, max: 400).utf8.count
+                    + wanted.count * 8 + 120
+                    + newKeys.reduce(0) { $0 + Self.personEntryBytes(byKey[$1]) }
+                guard refByKey.count + newKeys.count <= Self.peopleLimit,
+                      bytes + cost <= Self.ambiguityByteBudget else {
+                    droppedRows += 1   // 預算容不下這一列的**全部**候選 → 整列不印
+                    continue
+                }
+                bytes += cost
+                for k in newKeys { refByKey[k] = "p\(refByKey.count)" }
+                rows.append((a, wanted))
+            }
+            let shown = rows.map(\.0)
+            let shownRefKeys = rows.map(\.1)
+            let refKeys = refByKey.keys.sorted()
             let truncated = report.ambiguities.count > Self.ambiguityLimit
                 || anyRefsTruncated
-                || Set(shownRefKeys.flatMap { $0 }).count > refKeys.count
+                || droppedRows > 0
             return try jsonString([
                 "candidates": withIDs.map { pair -> [String: Any] in
                     [
@@ -645,7 +701,8 @@ public final class AkashicService {
                 // 只為**實際回傳**的那些歧義建 `people`（`shown`），不是全部——否則
                 // 上限只擋住較瘦的一半，而 `people` 條目比 `ambiguities` 條目肥。
                 "people": Dictionary(uniqueKeysWithValues:
-                    refByKey.map { (raw, ref) -> (String, [String: Any]) in
+                    refKeys.map { raw -> (String, [String: Any]) in
+                        let ref = refByKey[raw]!
                         var d: [String: Any] = [
                             "key": displaySafe(raw, max: 200),
                             // `names` 是**最弱**的區辨欄位（它們正規化後相同才會歧義），而 displaySafe
@@ -667,6 +724,7 @@ public final class AkashicService {
                         }
                         return (ref, d)
                     }),
+                "ambiguityRowsDropped": droppedRows,
                 "ambiguities": shown.enumerated().map { (i, a) -> [String: Any] in
                     [
                         "entryID": a.entryID.uuidString,   // display-safe-exempt: UUID 的 uuidString 恆為 [0-9A-F-]

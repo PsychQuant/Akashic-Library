@@ -37,6 +37,23 @@ public final class PeopleResolveModel {
         ambiguities = report.ambiguities
     }
 
+    /// 一行可顯示的區辨欄位（已消毒）。
+    ///
+    /// **組在 model 端不在 view 端**：view 內的長字串串接會讓 Swift 型別檢查器放棄
+    /// （實測 `unable to type-check this expression in reasonable time`），而
+    /// `AkashicApp/` 是獨立 XcodeGen 專案、不在 `Package.swift` 內——`swift build`
+    /// 與 pre-push 閘都不編它，只有 CI 會。錯誤會晚到 push 之後才浮現。
+    public func discriminatorLine(for key: String) -> String {
+        let d = discriminators(for: key)
+        var bits: [String] = []
+        if let o = d.orcid { bits.append("orcid:" + displaySafe(o, max: 40)) }
+        if let o = d.openalex { bits.append("openalex:" + displaySafe(o, max: 40)) }
+        if let x = d.died { bits.append("卒:" + displaySafe(x, max: 20)) }
+        if let a = d.affiliation { bits.append("隸屬:" + displaySafe(a, max: 60)) }
+        let tail = bits.isEmpty ? "⚠ 無任何區辨欄位" : bits.joined(separator: "  ")
+        return "→ " + displaySafe(key, max: 200) + "  " + tail
+    }
+
     /// 每個歧義候選的區辨欄位——**只給 key 的話人也判不了**。
     ///
     /// `names` 不具區辨力（它們正規化後相同才會歧義）；真正能分辨「兩個同名的人」

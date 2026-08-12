@@ -233,7 +233,11 @@ final class ServiceTests: XCTestCase {
     func testResolvePeoplePayloadStaysBoundedOnAdversarialStore() throws {
         let store = LibraryStore(root: root)
         // 60 人共用同一個名字、每人多個長 name（席位重現 758 KB 的形狀）
-        let long = String(repeating: "x", count: 200)
+        // **必須用會膨脹的字元**（#236 R3）。前一版用 `String(repeating: "x", …)`
+        // ——純 ASCII **不會膨脹**，`displaySafe` 只逃脫 C0/C1/LS/PS/bidi/BOM/反斜線。
+        // 於是測試量到 4,662 B 對上 65,536 B 的斷言：14 倍餘裕，什麼都沒約束到。
+        // 測試的 doc 自己寫著「displaySafe 是 8 倍膨脹器」，卻建了個觸發不了它的 store。
+        let long = String(repeating: "\u{202E}", count: 200)
         for i in 0..<60 {
             try store.writePerson(Person(key: "flood-\(i)",
                                          names: ["Flood Same"] + (0..<8).map { "\(long)-\(i)-\($0)" }))
@@ -254,8 +258,17 @@ final class ServiceTests: XCTestCase {
         XCTAssertLessThanOrEqual((out["people"] as! [String: Any]).count, 60)
         let refs = (out["ambiguities"] as! [[String: Any]]).first?["personRefs"] as! [String]
         XCTAssertLessThanOrEqual(refs.count, 20, "單列的 ref 數也要有界")
-        XCTAssertTrue(refs.allSatisfy { (out["people"] as! [String: Any])[$0] != nil },
-                      "截斷後每個 ref 仍必須查得到——不得留下懸空引用")
+        // **先斷言非空**——`[].allSatisfy` 是 `true`，前一版的守衛在它被寫來防的
+        // 那個失敗上恆真（#236 R3：實測 50 列中 47 列 refs 為空而測試全綠）。
+        for row in out["ambiguities"] as! [[String: Any]] {
+            let rowRefs = row["personRefs"] as! [String]
+            XCTAssertGreaterThanOrEqual(rowRefs.count, 2,
+                "**每一列都必須有 ≥2 個 ref**。`AmbiguousMatch.init?` 拒絕 count<2 正是"
+                + "為了讓「歧義只有一個候選」在型別層不可表達——序列化邊界不得把它造回來。"
+                + "列：\(row)")
+            XCTAssertTrue(rowRefs.allSatisfy { (out["people"] as! [String: Any])[$0] != nil },
+                          "每個 ref 都要查得到——不得留下懸空引用")
+        }
     }
 
     /// #236 R2 CRITICAL：**`displaySafe` 後的 key 碰撞會讓整個 MCP process trap。**
@@ -1076,5 +1089,33 @@ extension ServiceTests {
                                     "MCP doctor 少了 digestSources——同一個 store 從兩個"
                                     + " consumer 看到不同的事實（#138 verify F3 的紀律）")
         XCTAssertEqual(residue, ["digest-holder.profile.affiliations"])
+    }
+
+    /// #236 R3：**reviewer 量到的最壞形狀**——50 個不同 literal、每列 2 人、
+    /// 全部欄位用會膨脹的字元。前一版測試用「60 人共用一個名字」，量到 4.6 KB，
+    /// 而真正的最壞是 474 KB（`truncated: false`）。**測試的 store 形狀決定了它
+    /// 能發現什麼**，而我選的形狀恰好避開了最壞。
+    func testPayloadBoundedOnManyDistinctLiteralsWithExpandingChars() throws {
+        let store = LibraryStore(root: root)
+        let bidi = String(repeating: "\u{202E}", count: 80)
+        for i in 0..<50 {
+            for s in ["a", "b"] {
+                var p = Person(key: "wide-\(s)-\(i)", names: ["Wide \(i)", bidi, bidi])
+                p.orcid = bidi
+                p.openalex = bidi
+                try store.writePerson(p)
+            }
+            try store.writeEntry(Entry(id: UUID(), citekey: "wide\(i)", type: "article",
+                                       title: "T", authors: [.literal("Wide \(i)")], date: "2020"))
+        }
+        let raw = try service.resolvePeople(apply: nil)
+        XCTAssertLessThan(raw.utf8.count, 64 * 1024,
+                          "50 個不同 literal × 膨脹字元是 reviewer 量到 474 KB 的形狀。"
+                          + "實際 \(raw.utf8.count) bytes")
+        let out = try json(raw) as! [String: Any]
+        for row in out["ambiguities"] as! [[String: Any]] {
+            XCTAssertGreaterThanOrEqual((row["personRefs"] as! [String]).count, 2,
+                                        "每列仍須 ≥2 refs：\(row)")
+        }
     }
 }

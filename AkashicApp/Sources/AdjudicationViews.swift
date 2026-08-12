@@ -11,10 +11,49 @@ struct PeopleResolveView: View {
     var body: some View {
         Group {
             if let model {
-                if model.candidates.isEmpty {
+                if model.candidates.isEmpty && model.ambiguities.isEmpty {
                     ContentUnavailableView("沒有待解析候選", systemImage: "person.crop.circle.badge.checkmark")
                 } else {
-                    List(model.candidates, id: \.citekey) { candidate in
+                    List {
+                    // #231／#236 R3：**歧義要被看見**。裁決台是唯一有人能解決它的地方，
+                    // 而先前它是三個面裡唯一還在靜默丟棄的。
+                    //
+                    // 也是本 PR 自己踩過的坑的最後一格：R3 先在 model 加了 `ambiguities`，
+                    // **卻沒有任何 view 讀它**——機制存在、沒有人看得到，與原本的
+                    // `continue` 在效果上完全相同，只是位置更難察覺。
+                    if !model.ambiguities.isEmpty {
+                        Section("需要你判斷（\(model.ambiguities.count)）") {
+                            ForEach(model.ambiguities, id: \.entryID) { a in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("「\(displaySafe(a.literal, max: 200))」 對到 \(a.personKeys.count) 個人")
+                                        .font(.callout.weight(.medium))
+                                    Text(displaySafe(a.citekey, max: 200)
+                                         + "［作者 #\(a.authorIndex)］")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    ForEach(a.personKeys, id: \.self) { k in
+                                        // 區辨欄位——只給 key 的話人也判不了。`names` 不具
+                                        // 區辨力（它們正規化後相同才會歧義）。
+                                        //
+                                        // **組字串在 model 端**：先前寫成 view 內的長串
+                                        // 接，Swift 型別檢查器直接放棄
+                                        // （「unable to type-check this expression in
+                                        // reasonable time」）。而 `AkashicApp/` 是獨立的
+                                        // XcodeGen 專案、**不在 `Package.swift` 內**，
+                                        // `swift build` 與 pre-push 閘都不編它——只有 CI
+                                        // 會。本機 `xcodegen + xcodebuild` 才抓到。
+                                        Text(model.discriminatorLine(for: k))   // display-safe-exempt: model 端已逐欄消毒
+                                            .font(.caption.monospaced())
+                                    }
+                                    Text("同名的不同人＝各自歸屬（永不合併）；同一人兩筆＝該合併。"
+                                         + "**這裡不提供套用**——歧義套用不了。")
+                                        .font(.caption2).foregroundStyle(.tertiary)
+                                }
+                                .padding(.vertical, 2)
+                            }
+                        }
+                    }
+                    Section("可套用候選（\(model.candidates.count)）") {
+                    ForEach(model.candidates, id: \.citekey) { candidate in
                         HStack {
                             VStack(alignment: .leading) {
                                 // **exempt 是整行生效**（#161 verify 181-2）：先前
@@ -41,10 +80,14 @@ struct PeopleResolveView: View {
                         }
                         .padding(.vertical, 4)
                     }
+                    }
+                    }
                 }
             }
         }
-        .navigationTitle("人物解析（\(model?.candidates.count ?? 0)）")
+        .navigationTitle("人物解析（\(model?.candidates.count ?? 0)"
+                         + ((model?.ambiguities.count ?? 0) > 0
+                            ? "＋\(model!.ambiguities.count) 待判斷" : "") + "）")
         // 綁 reloadCount：外部變更（FileWatcher reload）後重算候選，
         // 不讓 stale 候選被 accept 到已變更的 entry 上
         .task(id: state.reloadCount) { model = PeopleResolveModel(state: state) }

@@ -20,18 +20,14 @@ import AkashicMCPKit
 ///
 /// **不要把這句話講過頭**（verify #220 LOW）：`akashic query --author <key>` 本來
 /// 就列得出那個人的著作。缺的不是「著作清單」，是**聚合檢視**——記錄本身
-/// （names／orcid）＋ 著作 ＋ 合著者在同一個回應裡，也就是 MCP 的
+/// （names／orcid／隸屬）＋ 著作 ＋ 合著者在同一個回應裡，也就是 MCP 的
 /// `akashic_person` 一直有、CLI 一直沒有的那個形狀。
-///
-/// **隸屬（`profile.affiliations`）本輪不顯示** —— 它有自己的時間語意問題
-/// （`endedUnknown` #63／`attested` #70 四種狀態必須互相可辨，否則「已離職」會被
-/// 呈現成「現職」），且會改動 MCP 回應形狀。拆到 **#225** 單獨處理。
 ///
 /// ## 著作不在記錄裡，而且不該在
 ///
 /// `Person` 沒有、也不會有 `works:` 欄位。`work.authors` 已經是正典；在 person
 /// 再存一份就是**第二份 canonical state**，歸戶／改名／刪除都要兩邊同步而它們會
-/// 分岔。方向是**衍生而非儲存**（討論見 #221；規則檔本身與隸屬呈現面拆到 #225）。
+/// 分岔。方向是**衍生而非儲存**——`entity-backlink-completeness` 規則寫的就是這件事。
 ///
 /// 這也不是一個 view：view 的成員資格由**判準**定義（住 `config.yaml`，見
 /// `ViewDefinition`），而「某人的著作」沒有判準可設，它就是把既有的邊反過來讀。
@@ -109,9 +105,11 @@ struct PersonCmd: ParsableCommand {
     ///
     /// 本函式的輸入是 `AkashicService.person()` 的回應，那裡**已經逐欄位消毒**
     /// （`summaryDict` 的 citekey／type／title／authors／journal、`personDict` 的
-    /// key／names／orcid／unknownFields、co_authors 的 name／person_key、
-    /// candidates 的 person_key／names／literal——`AkashicService.swift` 全部包在
-    /// `displaySafe(` 內）。本函式不從 store 另外讀任何東西。
+    /// key／names／orcid／unknownFields／**affiliations 的 organization_key／literal／
+    /// start／end／attested**、co_authors 的 name／person_key、candidates 的
+    /// person_key／names／literal——`AkashicService.swift` 全部包在 `displaySafe(` 內；
+    /// `affiliations.ended` 是 Bool，結構上帶不了 store 內容）。
+    /// 本函式不從 store 另外讀任何東西。
     ///
     /// **這份列舉就是唯一的控制**（R2 verify MEDIUM）：守衛對本檔多數行是盲的，
     /// 所以新增欄位時**必須同步更新這一段**，否則下一個人無從查核。
@@ -177,6 +175,40 @@ struct PersonCmd: ParsableCommand {
                 // 「保留了」這件事對 CLI 使用者不可見
                 print("  unknownFields: \(unknown.joined(separator: ", "))")   // display-safe-exempt: 見本函式 doc
             }
+            // **隸屬**（verify #220 HIGH）。它是 `entity-backlink-completeness` 封閉
+            // 列舉第 7 條、且**存在 person 自己身上**——漏掉它等於本 PR 新訂的規則
+            // 被同一個 PR 的命令當天違反。README 的「隸屬哪裡」也靠這一段才成立。
+            let affs = (person["affiliations"] as? [[String: Any]]) ?? []
+            print("  affiliations（\(affs.count)）\(affs.isEmpty ? "：（無）" : "：")")
+            for a in affs {
+                // **四種時間狀態必須看得出差別**（R2 verify HIGH）。第一版只讀
+                // start/end，於是「已結束、時點未知」與「進行中」逐位元組相同——
+                // 那是對真人的假陳述，比 R1 的「完全沒顯示」更糟（缺席看得出來，
+                // 冒充看不出來）。
+                let start = a["start"] as? String
+                let end = a["end"] as? String
+                let ended = a["ended"] as? Bool ?? false
+                let attested = (a["attested"] as? [String]) ?? []
+                let period: String
+                if !attested.isEmpty {
+                    // #70：只有觀測點，起訖皆不明。**不可**呈現成區間
+                    period = "  （觀測：\(attested.joined(separator: ", "))）"
+                } else if let e = end {
+                    period = "  [\(start ?? "?")–\(e)]"
+                } else if ended {
+                    period = "  [\(start ?? "?")–? 已結束]"   // #63：已結束、時點未知
+                } else if let s = start {
+                    period = "  [\(s)– 進行中]"
+                } else {
+                    period = "  （無時間資訊）"
+                }
+                // 已歸戶標 key，未歸戶只給字面——同候選與合著者的處置
+                if let ok = a["organization_key"] as? String {
+                    print("    \(ok)\(period)")   // display-safe-exempt: 見本函式 doc
+                } else {
+                    print("    \((a["literal"] as? String) ?? "?")\(period)   （未歸戶）")   // display-safe-exempt: 見本函式 doc
+                }
+            }
         }
 
         let pubs = (obj["publications"] as? [[String: Any]]) ?? []
@@ -203,7 +235,7 @@ struct PersonCmd: ParsableCommand {
             // **空集合要說出來**（verify #220 LOW）。第一版是 `if !co.isEmpty`，於是
             // 獨著者的輸出裡完全沒有「合著者」這個字——分辨不出「這個人沒有合著者」
             // 與「這一段掉了 / `co_authors` 欄位消失了」。而 `--json` 那側特地有測試
-            // 釘住 `co_authors` 不得消失；人可讀面卻讓它消失。「空集合要說出來」的紀律（#225 的規則檔會把它寫成規範）。
+            // 釘住 `co_authors` 不得消失；人可讀面卻讓它消失。同一份規則的執行細節 4。
             print("（無）")
         } else {
             for c in co {

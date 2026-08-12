@@ -57,6 +57,10 @@ public final class AkashicService {
     /// 整個 context。超出時回 `truncated: true` 與 `ambiguityTotal`，讓使用端知道
     /// 自己看到的不是全部——**靜默截斷會讓「沒有更多」與「沒給你更多」無法區分**。
     static let ambiguityLimit = 50
+    /// `candidates` 的列數上限。**與 `ambiguityLimit` 同值但不同決定**（#236 R4）：
+    /// 先前 candidates 直接借用上面那個常數，而它的 doc 講的是歧義清單——一個常數
+    /// 承載兩個決定，日後為了其中一個調數字就會安靜地改到另一個。
+    static let candidateLimit = 50
     /// 單筆歧義最多回幾個 person ref。同名的人數**無上界**（實測一筆歧義 60 人），
     /// 只限列數等於沒限 payload——見 `resolvePeople` 的三軸說明。
     static let refsPerAmbiguity = 20
@@ -736,7 +740,7 @@ public final class AkashicService {
             var candidateRows: [[String: Any]] = []
             var candidateBytes = 0
             var candidatesDropped = 0
-            for pair in withIDs.prefix(Self.ambiguityLimit) {
+            for pair in withIDs.prefix(Self.candidateLimit) {
                 let row: [String: Any] = [
                     "id": pair.id,   // display-safe-exempt: 形如 "<citekey>:<index>"；citekey 受 load 端 StoreKey quarantine 把關（#171）
                     "citekey": displaySafe(pair.candidate.citekey, max: 200),
@@ -803,7 +807,7 @@ public final class AkashicService {
                 // 位元組預算（兩半各自的），以及 candidates 的列數上限。
                 // 每次漏算一軸，這個 `false` 就是一句會被 LLM 消費端信任的假話。
                 "truncated": truncated
-                    || withIDs.count > Self.ambiguityLimit
+                    || withIDs.count > Self.candidateLimit
                     || candidatesDropped > 0,
                 "candidateTotal": withIDs.count,
                 "ambiguityTotal": report.ambiguities.count,

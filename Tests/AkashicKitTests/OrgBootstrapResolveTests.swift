@@ -447,6 +447,23 @@ extension OrgBootstrapResolveTests {
                        "**近時判準**要取真正最近結束的那段，不是無日期那段")
     }
 
+    /// #236 R4：`current` 犯的是與 `latestPastSegment` **一模一樣**的 `.max()` 誤用，
+    /// 而 R3 只修了 fallback 那一支。
+    ///
+    /// `.max()` 走 `DateRange.<`，`nil` start 排最後 → 起點未知的段贏過 `start:2020`
+    /// 的段。後果：一個只有無日期隸屬的人被報成有「現職」，而那個現職是按**值的
+    /// 字母序**選出來的——一個沒有根據的答案，卻長得像事實。
+    func testCurrentPrefersKnownStartOverUnknown() {
+        let tl = TimelineOf([
+            TemporalValue(value: "aaa-undated", range: DateRange()),          // 無 start，仍 open
+            TemporalValue(value: "zzz-since-2020", range: DateRange(start: "2020")),
+        ])
+        XCTAssertEqual(tl.entries.filter(\.range.isOpen).max()?.value, "aaa-undated",
+                       "前提：`.max()` 讓 nil start 勝出（且字母序決勝）")
+        XCTAssertEqual(tl.current?.value, "zzz-since-2020",
+                       "起點未知不能宣稱較晚——doc 寫的是「取 start 最晚的」")
+    }
+
     /// #236 R4：**觀測點不是結束**。第一版把 `end`／`start`／`attested` 塞進同一個
     /// 字串比大小，於是「2020 年被看到過」蓋掉「2010 年確實離開」——把「被看到」
     /// 誤當成「離開了」。

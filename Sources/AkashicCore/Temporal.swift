@@ -145,10 +145,25 @@ public struct TimelineOf<V: Equatable & Comparable>: Equatable {
 
     public var isEmpty: Bool { entries.isEmpty }
 
-    /// 目前生效的值（`end == nil` 的最新一段）。多段同時開放時取 `start` 最晚的——
-    /// 那是最近一次變更。
+    /// 目前生效的值。多段同時開放時取 `start` 最晚的——那是最近一次變更。
+    ///
+    /// **不用 `.max()`**（#236 R4）。`.max()` 走 `DateRange.<`，那是相等性用的全序，
+    /// 其中 `nil` start **排最後**——於是「起點未知」那段會贏過 `start: 2020` 那段，
+    /// 與上面這句 doc 直接矛盾。後果是一個只有無日期隸屬的人會被報成有「現職」，
+    /// 而那個現職是**按值的字母序**選出來的（`TemporalValue.<` 在 range 相等時比
+    /// `value`）——一個沒有任何根據的答案，卻長得像事實。
+    ///
+    /// 起點未知的段**不能宣稱較晚**，所以排在有 `start` 的段之後；全都沒有 `start`
+    /// 時取序列化順序較後者（穩定，不宣稱較近）。與 `latestPastSegment` 同一條紀律。
     public var current: TemporalValue<V>? {
-        entries.filter(\.range.isOpen).max()
+        entries.enumerated().filter(\.element.range.isOpen).max { a, b in
+            switch (a.element.range.start, b.element.range.start) {
+            case let (l?, r?): return l == r ? a.offset < b.offset : l < r
+            case (nil, _?):    return true       // 起點未知 < 起點已知
+            case (_?, nil):    return false
+            case (nil, nil):   return a.offset < b.offset
+            }
+        }?.element
     }
 
     /// 沒有現職時，用來顯示「過去」的那一段（#236 R3；分層規則 R4）。

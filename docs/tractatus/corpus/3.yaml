@@ -779,22 +779,26 @@ propositions:
         interpretation_zh_tw: "括號只確認重複字樣為同一記號；不同脈絡中的符號角色仍須另由用法判定。"
     project_relations:
       - status: not_applicable
-        claim_zh_tw: "Akashic 目前不主張命題 3.203 的哲學論旨具有直接的軟體實作對應。"
+        claim_zh_tw: "就 entity 層而言，Akashic 不主張命題 3.203 的哲學論旨具有直接的軟體實作對應。"
         rationale_zh_tw: "命題 3.203 直接主張「名稱意指對象。」，本卷並將其限制解讀為「名稱的角色是指向對象；它不把對象的全部性質或內部結構包含在字樣裡。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
       - status: analogy_only
         mode: structural_invariant
-        claim_zh_tw: "在來源存檔層，被儲存的位元組扮演對象的角色：sha256 digest 是它唯一的名，名住在記號層（entity 與 provenance 引用），位元組本身不承載名字。"
-        rationale_zh_tw: "#223 的 digest-not-path 判準把本命題讀作儲存層的結構類比：內容定址的存檔沒有名字、沒有歷史、沒有生命週期——它只能被 digest 指稱，一如對象只能被命名、名稱不把對象的內部結構包含在字樣裡。上一條 not_applicable 否定的是「Akashic entity 是簡單對象」；本條肯定的是另一件事——store 分層裡「位元組／指稱」的角色分配與名稱—對象關係同構。兩條相容並存，否定與肯定的對象不同。"
+        claim_zh_tw: "在來源存檔層，被儲存的位元組扮演類比中對象的角色：sha256 digest 是規範要求的 canonical content address，在本條類比裡站在「名」的位置——類比之名住在記號層（entity 與 provenance 引用），位元組本身不承載 entity 層的名字。"
+        rationale_zh_tw: "#223 的 digest-not-path 判準把本命題讀作儲存層的結構類比：內容定址的存檔沒有 entity 名、沒有歷史、沒有生命週期——它只能被 digest 指稱，與「名稱指向對象、不把對象內部結構包含在字樣裡」角色相似。「名」在此取記號層的指稱記號義；evidence note 說存檔「沒有名字」取 entity namespace 的鍵名義，兩義不同、不相斥。本條只取「身分被位元組窮盡——改一 byte 即另一串」這一結構相似，並不主張位元組是《論考》意義下的簡單對象（位元組串可分解；見 2.02／2.021 的 rejected），也不由本命題推導任何工程規範——digest 定址的規範理由在 #223 的裁決與 spec 條款自身，《論考》僅提供事後的結構類比。與其餘對照多落在語意／命題層不同，這是 corpus 首次把對照掛到位元組定址層，故以本句自我標明界線。同命題上一條 not_applicable 否定的是 entity 層的直接對應，本條肯定的是儲存層的有限類比，對象不同故相容並存。"
         evidence:
           - path: "Sources/AkashicStoreIO/SourceStore.swift"
             kind: symbol
             locator: "storeSourceContent"
-            note_zh_tw: "doc comment 明言存檔不是 entity——沒有名字、沒有歷史、沒有生命週期；digest 算在原始位元組上，判準客觀。"
+            note_zh_tw: "本函式自身的 doc comment 明言 digest 算在原始位元組上、判準客觀；其所在 extension 的檔首 doc comment 另明言存檔不是 entity——沒有名字、沒有歷史、沒有生命週期。"
           - path: "openspec/specs/provenance-reference/spec.md"
             kind: requirement
             locator: "Retrieved content SHALL be addressed by the digest of its bytes"
-            note_zh_tw: "digest 定址是 normative 條款：內容只能以位元組的 digest 指稱。"
-    history: []
+            note_zh_tw: "digest 定址是 normative 條款：內容以位元組的 digest 指稱。"
+    history:
+      - kind: issue
+        reference: "https://github.com/PsychQuant/Akashic-Library/issues/223"
+        disposition: retained
+        note_zh_tw: "#223 裁決 digest-not-path 判準（2026-08-10），#235 據以掛上 analogy_only 對照。evidence 現引 main 上的 provenance-reference；entry-source-reference 待 PR #249 合併後由 #252 補引——現行 evidence 是已知過渡態。"
   - id: "3.21"
     parent: "3.2"
     texts:
@@ -880,22 +884,26 @@ propositions:
         interpretation_zh_tw: "命題描繪對象的可能配置，而不把對象的形式本質當成另一項同類性質加以陳述。"
     project_relations:
       - status: not_applicable
-        claim_zh_tw: "Akashic 目前不主張命題 3.221 的哲學論旨具有直接的軟體實作對應。"
+        claim_zh_tw: "就 entity 層而言，Akashic 不主張命題 3.221 的哲學論旨具有直接的軟體實作對應。"
         rationale_zh_tw: "命題 3.221 直接主張「對象我只能加以命名。」，本卷並將其限制解讀為「名稱提供指涉位置，但不把對象本身轉成一串可以直接說出的內容。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
       - status: analogy_only
         mode: shown_constraint
-        claim_zh_tw: "庫內對存檔內容的一切觸及都是命名：entity 與 provenance 引用以 digest 代表位元組，庫不把位元組本身「說出來」——檔案系統路徑不是名，會漂移的指涉不被承認。"
-        rationale_zh_tw: "命題 3.221 說對象只能命名、記號代替它們；store 對應的約束是：blob 進庫後唯一合法的指稱方式是 digest（記號站到位元組的位置），而 blob 不佔 canonical entity namespace——庫只能「談論」它（記 provenance、掛引用），不能把它變成一筆有名字、有生命週期的記錄。這是 #223 裁決 digest-not-path 時的推導步驟：名住在別處，兩層之間的連結因此必須是 digest 引用。"
+        claim_zh_tw: "庫內對 sources/ 存檔內容的一切指稱都是命名：entity 與 provenance 引用以 digest 代表位元組——記號站到內容的位置；進入 sources/ 的內容，其檔案系統位置由 digest 推導、不作為指稱的輸入。"
+        rationale_zh_tw: "命題 3.221 說對象只能命名、記號代替它們；本條取其有限類比：sources/ 的 blob 不佔 canonical entity namespace，庫的記錄層只能「談論」它（記 provenance、掛 digest 引用），不把它變成一筆有名字、有生命週期的記錄——「不能說出」在此取命題表達義，不指 I/O 上不能讀取或傳回位元組。此類比只對 sources/ 存檔域成立，並不承諾 store 全域如此：entry 的 attachment 引用（AttachmentRef）現仍以路徑指涉、屬過渡期形狀，不在本條類比域內。digest 引用這個設計的規範理由在 #223 的裁決與 spec 條款自身；《論考》提供的是與該設計相呼應的結構類比，不構成推導或證成。mode 取 shown_constraint 的理由：被引的 SHALL 條款「說出」的是 namespace 的拒絕，而「名住在記號層」這件事不由任何單一條款說出、由 store 的分層結構顯示——以被說出的條款為「顯示」作證是 corpus 首例，故在此明說。同命題上一條 not_applicable 否定的是 entity 層的直接對應，本條肯定的是儲存層的有限類比，對象不同故相容並存。"
         evidence:
           - path: "openspec/specs/provenance-reference/spec.md"
             kind: requirement
             locator: "Stored content SHALL NOT occupy the canonical entity namespace"
-            note_zh_tw: "blob 不進 entity namespace 是 normative 條款：位元組層無名，名在記號層。"
+            note_zh_tw: "blob 不進 entity namespace 是 normative 條款：位元組層無 entity 名，指稱記號住在記錄層。"
           - path: "Sources/AkashicStoreIO/SourceStore.swift"
             kind: symbol
             locator: "sourceURL"
-            note_zh_tw: "由 digest（記號）解析到存檔位置的唯一通道；形狀不合法的 digest 直接回 nil。"
-    history: []
+            note_zh_tw: "由 digest 解析存檔 URL 的解析器（讀取面唯一）；形狀不合法的 digest 直接回 nil。寫入面的排除驗證另以字串重建同一路徑（#145 的承重設計），故不稱唯一通道。"
+    history:
+      - kind: issue
+        reference: "https://github.com/PsychQuant/Akashic-Library/issues/223"
+        disposition: retained
+        note_zh_tw: "#223 裁決 digest-not-path 判準（2026-08-10），#235 據以掛上 analogy_only 對照，並開 corpus 首次的 kind: requirement evidence 先例。entry-source-reference 待 PR #249 合併後由 #252 補引——現行 evidence 是已知過渡態。"
   - id: "3.23"
     parent: "3.2"
     texts:

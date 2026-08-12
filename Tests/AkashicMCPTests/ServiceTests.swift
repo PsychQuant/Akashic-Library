@@ -352,6 +352,44 @@ final class ServiceTests: XCTestCase {
                        + "多了是孤兒 payload，少了是查不到")
     }
 
+    /// **tool description 必須跟得上 payload**（#236 R4）。
+    ///
+    /// `akashic_resolve_people` 的 description 是 MCP 消費端（LLM）唯一的 schema 說明
+    /// ——payload 加了欄位而它沒跟上，消費端就不知道那些欄位存在，或更糟：**照著它
+    /// 描述的舊形狀去解析**。本輪就漂了兩次（`namesTotal`、`candidateRowsDropped`）。
+    ///
+    /// 這是結構性守衛而不是「記得同步更新」：只要 payload 多一個頂層鍵而 description
+    /// 沒提到它，這條就紅。
+    func testToolDescriptionCoversEveryTopLevelPayloadKey() throws {
+        // 讓兩半都非空，否則掃不到只在其中一半出現的鍵
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "desc-amb-1", names: ["Desc Same"]))
+        try store.writePerson(Person(key: "desc-amb-2", names: ["Desc Same"]))
+        try store.writePerson(Person(key: "desc-solo", names: ["Desc Solo"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "desc2020", type: "article", title: "T",
+                                   authors: [.literal("Desc Same"), .literal("Desc Solo")],
+                                   date: "2020"))
+        let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
+        XCTAssertFalse((out["candidates"] as! [Any]).isEmpty, "前提：candidates 非空")
+        XCTAssertFalse((out["ambiguities"] as! [Any]).isEmpty, "前提：ambiguities 非空")
+
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // AkashicMCPTests
+            .deletingLastPathComponent()   // Tests
+            .deletingLastPathComponent()   // repo root
+        let src = try String(contentsOf: repoRoot
+            .appendingPathComponent("Sources/akashic-mcp/Server.swift"), encoding: .utf8)
+        guard let toolRange = src.range(of: "akashic_resolve_people") else {
+            return XCTFail("找不到 akashic_resolve_people 的 Tool 宣告")
+        }
+        let decl = String(src[toolRange.lowerBound...].prefix(3000))
+
+        let missing = out.keys.filter { !decl.contains($0) }.sorted()
+        XCTAssertTrue(missing.isEmpty,
+                      "payload 有這些頂層鍵，但 tool description 沒提到：\(missing)。"
+                      + "消費端只看得到 description——它落後就等於這些欄位不存在")
+    }
+
     /// **candidates 那一半也要位元組上限**（#236 R4 CRITICAL）。
     ///
     /// 先前它只有列數上限（50）。`id` 是 `"<citekey>:<index>"`，而 citekey 是原始

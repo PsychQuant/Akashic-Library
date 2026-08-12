@@ -126,9 +126,7 @@ final class NegationTests: XCTestCase {
         )
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = [
-            "swiftc",
+        SwiftcProbe.configure(process, arguments: [
             "-typecheck",
             "-warnings-as-errors",
             "-I", modules.path,
@@ -136,15 +134,16 @@ final class NegationTests: XCTestCase {
             "-Xcc", "-I",
             "-Xcc", cyamlInclude.path,
             sourceURL.path,
-        ]
-        process.environment = ProcessInfo.processInfo.environment
+        ])
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
         let output = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        return (process.terminationStatus, String(decoding: output, as: UTF8.self))
+        let text = String(decoding: output, as: UTF8.self)
+        SwiftcProbe.assertToolchainMatched(text, process)
+        return (process.terminationStatus, text)
     }
 
     private var productsDirectory: URL {

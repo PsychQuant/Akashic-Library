@@ -1653,6 +1653,12 @@ public enum CorpusValidator {
         return candidate
     }
 
+    /// 子程序環境：剝除全部 `GIT_*`（#239）。`-C` 擋不住 `GIT_DIR`，而本型別問的
+    /// 都是「專案自己的歷史」，答案不該被呼叫者的環境改變。
+    private static var scrubbedGitEnvironment: [String: String] {
+        ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
+    }
+
     private static func gitCommitExists(_ reference: String, projectRoot: URL) -> Bool {
         guard (7...40).contains(reference.count),
               reference.allSatisfy({ $0.isASCII && $0.hexDigitValue != nil }) else {
@@ -1663,6 +1669,8 @@ public enum CorpusValidator {
         process.arguments = [
             "git", "-C", projectRoot.path, "cat-file", "-e", "\(reference)^{commit}",
         ]
+        // #239：`-C` 擋不住 `GIT_DIR`——問的必須是 projectRoot 自己的 repo
+        process.environment = Self.scrubbedGitEnvironment
         process.standardOutput = Pipe()
         process.standardError = Pipe()
         do {
@@ -1691,6 +1699,8 @@ public enum CorpusValidator {
                 "git", "-C", projectRoot.path,
                 "rev-parse", "--verify", "--quiet", "--end-of-options", "\(candidate)^{commit}",
             ]
+            // #239：同上
+            process.environment = Self.scrubbedGitEnvironment
             process.standardOutput = Pipe()
             process.standardError = Pipe()
             do {

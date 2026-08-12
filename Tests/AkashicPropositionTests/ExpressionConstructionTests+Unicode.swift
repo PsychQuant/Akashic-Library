@@ -482,6 +482,37 @@ extension ExpressionConstructionTests {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         let output = String(decoding: data, as: UTF8.self)
+
+        // **child 跑不起來 ≠ canonical bytes 不可重播**（#230 同族的教訓）。
+        //
+        // `xctest` 只能來自 Xcode（swiftly toolchain 不含它），但 bundle 連結的是
+        // **建置用 toolchain** 的 `@rpath/libTesting.dylib`。雙 toolchain 機器上
+        // （本機 swiftly 6.2.4 + Xcode 6.3.3）child 連 dlopen 都失敗，於是這個測試
+        // 因為**錯的理由**紅——而它驗的是 canonical bytes 的可重播性，跟 toolchain
+        // 毫無關係。
+        //
+        // 三條試過而行不通的橋接，記在這裡免得下一個人重走：
+        //
+        // 1. 從 `SWIFT_EXEC` 推 lib 路徑——要猜佈局，而實測猜錯（真實位置是
+        //    `usr/lib/swift/macosx/testing/`，不是 `usr/lib/swift/macosx/`）。
+        // 2. 問 dyld 這個進程自己從哪載入 `libTesting.dylib`，再用 `DYLD_LIBRARY_PATH`
+        //    傳給 child——路徑對了，但 **`/usr/bin/xcrun` 受 SIP 保護，macOS 在 exec 時
+        //    剝除所有 `DYLD_*`**，設了等於沒設。
+        // 3. child 改跑 `swift test --skip-build`——**死結**：child 仍要拿 `.build` 的
+        //    package 鎖，而 parent 正握著它。
+        //
+        // 所以在這個環境下這個測試**不可執行**，而不是失敗。明確 skip 並說出原因：
+        // 靜默 pass 會假裝驗過（那更糟），XCTFail 則把環境問題偽裝成正確性結論。
+        if output.contains("Library not loaded") || output.contains("無法載入套件") {
+            throw XCTSkip("""
+                child 進程無法載入測試 bundle——`xcrun xctest`（Xcode toolchain）與建置
+                bundle 的 toolchain 不一致，且無法用環境變數橋接（見上方三條）。
+                **本測試在此機器上不可執行，不是失敗**：它驗的是 canonical bytes 的
+                可重播性，與 toolchain 無關。單一 toolchain 的機器（含 CI）照常執行。
+                child 輸出：\(output.prefix(400))
+                """)
+        }
+
         XCTAssertEqual(process.terminationStatus, 0, output)
         let marker = "AKASHIC_CANONICAL_REPLAY:"
         guard let line = output.split(whereSeparator: \Character.isNewline)

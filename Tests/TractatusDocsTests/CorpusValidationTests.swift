@@ -1854,11 +1854,27 @@ final class CorpusValidationTests: XCTestCase {
         """)
     }
 
+    /// 子程序環境：**剝除全部 `GIT_*`**（#234／#239）。
+    ///
+    /// `-C <dir>` 不足以把 git 綁在 fixture 上——**`GIT_DIR` 的優先權高於 `-C`**。
+    /// 從 git hook（例如 `.githooks/pre-push`）裡跑測試時，git 會注入 `GIT_DIR`，
+    /// 於是這裡每一句 fixture git 都作用在**真實 repo** 上：`init`／`commit`／
+    /// `checkout -b` 全部寫進使用者的歷史。實測發生過（2026-08-12，這個檔案的
+    /// 三個 history 測試把 `main fixture`／`side fixture`／`remote branch fixture`
+    /// 三個 commit 與一個 `branch-audit-<uuid>` 分支寫進目標 repo）。
+    ///
+    /// 用**前綴剝除**而非列舉具名變數：git 版本會新增變數，列舉會隨時間漏掉，
+    /// 而 fixture 對任何 `GIT_*` 都沒有需求。
+    private static var scrubbedGitEnvironment: [String: String] {
+        ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
+    }
+
     @discardableResult
     private func runGit(_ arguments: [String], at root: URL) throws -> Int32 {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git", "-C", root.path] + arguments
+        process.environment = Self.scrubbedGitEnvironment
         process.standardOutput = Pipe()
         process.standardError = Pipe()
         try process.run()
@@ -1871,6 +1887,7 @@ final class CorpusValidationTests: XCTestCase {
         let output = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git", "-C", root.path] + arguments
+        process.environment = Self.scrubbedGitEnvironment
         process.standardOutput = output
         process.standardError = Pipe()
         try process.run()

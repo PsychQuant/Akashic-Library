@@ -49,7 +49,7 @@ public final class PeopleResolveModel {
         if let o = d.orcid { bits.append("orcid:" + displaySafe(o, max: 40)) }
         if let o = d.openalex { bits.append("openalex:" + displaySafe(o, max: 40)) }
         if let x = d.died { bits.append("卒:" + displaySafe(x, max: 20)) }
-        if let a = d.affiliation { bits.append("隸屬:" + displaySafe(a, max: 60)) }
+        if let a = d.affiliation { bits.append(displaySafe(a, max: 80)) }   // 已含 隸屬:/曾隸屬: 前綴
         let tail = bits.isEmpty ? "⚠ 無任何區辨欄位" : bits.joined(separator: "  ")
         return "→ " + displaySafe(key, max: 200) + "  " + tail
     }
@@ -62,8 +62,18 @@ public final class PeopleResolveModel {
                                                     openalex: String?, died: String?,
                                                     affiliation: String?) {
         let p = state.people.first { $0.key == key }
-        let aff = p?.profile.affiliations.current?.value.displayName
-            ?? p?.profile.affiliations.entries.max()?.value.displayName
+        // **current 與 former 不可塌成一個欄位**（#236 R3）：「現在在 X」與
+        // 「曾經在 X」對區辨的意義完全不同——後者配上時間才有辨別力，而把兩者
+        // 印成同一個「隸屬:X」會讓讀的人以為那是現職。
+        let aff: String?
+        if let cur = p?.profile.affiliations.current?.value.displayName {
+            aff = "隸屬:" + cur
+        } else if let last = p?.profile.affiliations.mostRecentlyEnded {
+            let when = last.range.end ?? (last.range.endedUnknown ? "時點未知" : last.range.attested.max())
+            aff = "曾隸屬:" + last.value.displayName + (when.map { "（–\($0)）" } ?? "")
+        } else {
+            aff = nil
+        }
         return (p?.names ?? [], p?.orcid, p?.openalex, p?.died, aff)
     }
 

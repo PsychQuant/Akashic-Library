@@ -78,7 +78,7 @@ public final class AkashicService {
         n += p.orcid.map { displaySafe($0, max: 60).utf8.count } ?? 0
         n += p.openalex.map { displaySafe($0, max: 60).utf8.count } ?? 0
         n += p.died.map { displaySafe($0, max: 40).utf8.count } ?? 0
-        if let a = p.profile.affiliations.current?.value ?? p.profile.affiliations.entries.max()?.value {
+        if let a = p.profile.affiliations.current?.value ?? p.profile.affiliations.mostRecentlyEnded?.value {
             n += displaySafe(a.displayName, max: 120).utf8.count
         }
         return n
@@ -665,7 +665,7 @@ public final class AkashicService {
                 || anyRefsTruncated
                 || droppedRows > 0
             return try jsonString([
-                "candidates": withIDs.map { pair -> [String: Any] in
+                "candidates": withIDs.prefix(Self.ambiguityLimit).map { pair -> [String: Any] in
                     [
                         "id": pair.id,   // display-safe-exempt: 形如 "<citekey>:<index>"；citekey 受 load 端 StoreKey quarantine 把關（#171 複驗：原理由寫「本函式自產、非 store 內容」是錯的——citekey 就是 store 內容）
                         "citekey": displaySafe(pair.candidate.citekey, max: 200),
@@ -719,8 +719,13 @@ public final class AkashicService {
                         // `isOpen` 正確排除在現職外，但那不代表沒有資訊。
                         if let a = byKey[raw]?.profile.affiliations.current?.value {
                             d["currentAffiliation"] = displaySafe(a.displayName, max: 120)
-                        } else if let last = byKey[raw]?.profile.affiliations.entries.max() {
+                        } else if let last = byKey[raw]?.profile.affiliations.mostRecentlyEnded {
                             d["formerAffiliation"] = displaySafe(last.value.displayName, max: 120)
+                            // **要帶時間**（#236 R3）：沒有效期的「曾隸屬」在區辨上幾乎
+                            // 無用——分辨兩個同名的人靠的正是時空不相容。
+                            if let e = last.range.end { d["formerAffiliationEnd"] = displaySafe(e, max: 40) }
+                            else if last.range.endedUnknown { d["formerAffiliationEnd"] = "unknown" }
+                            else if let a = last.range.attested.max() { d["formerAffiliationAttested"] = displaySafe(a, max: 40) }
                         }
                         return (ref, d)
                     }),
@@ -738,7 +743,10 @@ public final class AkashicService {
                     ]
                 },
                 // **整個回應**的截斷旗標，不只 ambiguities 陣列——三軸任一被截都算
-                "truncated": truncated,
+                // 含 candidates 那一半——先前只反映 ambiguities，而同一個回應裡的
+                // `candidates` 完全沒有上限，於是 `truncated:false` 在回應層級是假的（#236 R3）
+                "truncated": truncated || withIDs.count > Self.ambiguityLimit,
+                "candidateTotal": withIDs.count,
                 "ambiguityTotal": report.ambiguities.count,
             ])
         }

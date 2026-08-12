@@ -151,6 +151,25 @@ public struct TimelineOf<V: Equatable & Comparable>: Equatable {
         entries.filter(\.range.isOpen).max()
     }
 
+    /// 「最近**結束**的那一段」——給沒有現職時的回退顯示用（#236 R3）。
+    ///
+    /// **不要用 `entries.max()`。** 那走的是 `DateRange.<`，而它是**相等性用的全序**
+    /// （見下方 `sorted` 的警告），其中 `nil` start **排最後**——`.max()` 因此回傳
+    /// 「起點未知」那段，不是最近的一段。#236 R3 有五條 finding 命中這個誤用。
+    ///
+    /// 這裡用明確的近時判準：已知 `end` 的取最大 `end`；沒有就取已知 `start` 的最大
+    /// `start`；再沒有就取 `attested` 的最大觀測點。完全沒有日期的段**不參與**——
+    /// 它們無法宣稱「較近」，硬排會製造一個沒有根據的順序（#100 的同一個病）。
+    public var mostRecentlyEnded: TemporalValue<V>? {
+        func recencyKey(_ r: DateRange) -> String? {
+            if let e = r.end { return e }
+            if let s = r.start { return s }
+            return r.attested.max()
+        }
+        return entries.compactMap { e in recencyKey(e.range).map { (e, $0) } }
+            .max { $0.1 < $1.1 }?.0
+    }
+
     /// 依時間排序（全序：同區間時按值排）。**供相等性使用**——`==` 定義為
     /// `a.sorted == b.sorted`，要讓「同樣的段落、不同的儲存順序」判為相等就必須是全序，
     /// 因此需要在 `range` 相同時以 `value` 決勝。

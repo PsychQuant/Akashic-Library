@@ -203,4 +203,56 @@ final class ResolveAmbiguityCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("已結束"),
                       "endedUnknown 必須顯示——否則已離職印得跟現職一樣：\n\(r.output)")
     }
+
+    /// #236 R3 mutation (iv) 存活：`rangeLabel` 的 `attested` 分支（#70）零覆蓋。
+    func testOrgAmbiguityRangeShowsAttestedPoints() throws {
+        for k in ["org-a", "org-b"] {
+            var o = Organization(key: k)
+            o.names = TimelineOf([TemporalValue(value: "Sinica", range: DateRange())])
+            try store.writeOrganization(o)
+        }
+        var p = Person(key: "p-one", names: ["P One"])
+        p.profile.affiliations = TimelineOf([TemporalValue(
+            value: OrgRef.literal("Sinica"),
+            range: DateRange(attested: ["2011", "2014"]))])
+        try store.writePerson(p)
+
+        let r = try runCLI(["resolve-organizations"])
+        XCTAssertTrue(r.output.contains("觀測:"),
+                      "attested（#70：只有觀測點、起訖皆不明）必須顯示：\n\(r.output)")
+        XCTAssertTrue(r.output.contains("2011"), r.output)
+    }
+
+    /// #236 R3 mutation (v) 存活：「曾隸屬」回退零覆蓋。
+    ///
+    /// 只有已結束隸屬的人，先前會被判成「⚠ 無任何區辨欄位」——**而那是假的**。
+    func testFormerAffiliationIsShownWhenThereIsNoCurrentOne() throws {
+        var one = Person(key: "past-one", names: ["Past Same"])
+        one.profile.affiliations = TimelineOf([TemporalValue(
+            value: OrgRef.literal("Old Institute"),
+            range: DateRange(start: "1990", end: "1995"))])
+        try store.writePerson(one)
+        try writePerson(key: "past-two", names: ["Past Same"], orcid: "0000-0003-0000-0000")
+        try store.writeEntry(Entry(id: UUID(), citekey: "past2020", type: "article",
+                                   title: "X", authors: [.literal("Past Same")], date: "2020"))
+
+        let r = try runCLI(["resolve-people"])
+        XCTAssertTrue(r.output.contains("曾隸屬:Old Institute"),
+                      "沒有現職時要顯示最近結束的隸屬：\n\(r.output)")
+        XCTAssertFalse(r.output.contains("past-one") && r.output.contains("無任何區辨欄位"),
+                       "有已結束隸屬就不是「無任何區辨欄位」：\n\(r.output)")
+    }
+
+    /// #236 R3：兩個 key 在 `displaySafe` 後可能印得**逐位元組相同**（截斷）。
+    /// 列內序號讓人至少知道那是兩筆不同的記錄，而不是同一人被列了兩次。
+    func testAmbiguityRowsAreNumberedSoCollidingKeysStayDistinct() throws {
+        let prefix = String(repeating: "q", count: 200)
+        try writePerson(key: prefix + "b", names: ["Collide Me"])
+        try writePerson(key: prefix + "c", names: ["Collide Me"])
+        try store.writeEntry(Entry(id: UUID(), citekey: "coll2020", type: "article",
+                                   title: "X", authors: [.literal("Collide Me")], date: "2020"))
+        let r = try runCLI(["resolve-people"])
+        XCTAssertTrue(r.output.contains("1. ") && r.output.contains("2. "),
+                      "列內要編號——兩個 key 截斷後可能長得一樣：\n\(r.output)")
+    }
 }

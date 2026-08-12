@@ -367,4 +367,41 @@ extension OrgBootstrapResolveTests {
         XCTAssertEqual(cands.first?.holder, .person("zzz-last-alphabetically"))
         XCTAssertEqual(cands.last?.holder, .organization("stat-sinica"))
     }
+
+    /// #236 R3：歧義報告**不得**列出兩道 guard 會拒絕的候選。
+    ///
+    /// 歧義記錄先前寫在 `unambiguousMatch` 內，而自我父權與成環的 guard 跑在它
+    /// 回傳**之後**——於是報告會把「自己」與「會成環的祖先」當成待你裁決的父機構，
+    /// 繞過 #166 刻意放在製造點的兩道防護。
+    func testOrgAmbiguityExcludesSelfAndCycleCandidates() {
+        // 兩個 org 共用名字 "Shared"，其中一個就是 holder 自己
+        var me = Organization(key: "org-me")
+        me.names = TimelineOf([TemporalValue(value: "Shared", range: DateRange())])
+        me.parents = TimelineOf([TemporalValue(value: OrgRef.literal("Shared"), range: DateRange())])
+        var other = Organization(key: "org-other")
+        other.names = TimelineOf([TemporalValue(value: "Shared", range: DateRange())])
+
+        let r = OrgResolver.resolve(people: [], organizations: [me, other])
+        // 過濾掉「自己」之後只剩一個可容許候選 → **不是歧義**，是唯一命中
+        XCTAssertTrue(r.ambiguities.isEmpty,
+                      "排除不可容許的候選之後沒得選，就不該報成歧義：\(r.ambiguities)")
+        XCTAssertEqual(r.candidates.map(\.orgKey), ["org-other"],
+                       "唯一的可容許候選應該直接出候選")
+    }
+
+    /// #236 R3：`mostRecentlyEnded` 不得用 `entries.max()`。
+    ///
+    /// `DateRange.<` 是**相等性用的全序**，其中 `nil` start **排最後**——`.max()`
+    /// 回傳的是「起點未知」那段，不是最近的一段。五條 finding 命中這個誤用。
+    func testMostRecentlyEndedIsNotTheComparatorMax() {
+        let tl = TimelineOf([
+            TemporalValue(value: "old", range: DateRange(start: "1990", end: "1995")),
+            TemporalValue(value: "recent", range: DateRange(start: "2010", end: "2015")),
+            TemporalValue(value: "undated", range: DateRange()),      // nil start → `.max()` 取它
+        ])
+        XCTAssertEqual(tl.entries.max()?.value, "undated",
+                       "前提：`.max()` 走相等性全序，nil start 排最後")
+        XCTAssertEqual(tl.mostRecentlyEnded?.value, "recent",
+                       "**近時判準**要取真正最近結束的那段，不是無日期那段")
+    }
 }

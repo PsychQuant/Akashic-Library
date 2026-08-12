@@ -135,9 +135,19 @@ public enum OrgResolver {
         // helper 保持回 `String?`——parents 側的環偵測吃的就是這個型別，而那段邏輯與
         // 歧義無關、不該被牽動。歧義改寫進捕獲的陣列。
         var ambiguities: [OrgAmbiguousMatch] = []
+        /// `admissible` 把**呼叫端自己的排除規則**帶進來（#236 R3）。
+        ///
+        /// parents 側有兩道 guard（自我父權、成環，#166 刻意放在製造點）。第一版把
+        /// 歧義記錄寫在這裡、而 guard 跑在回傳之後——於是歧義清單會列出那兩道 guard
+        /// **會拒絕**的候選：把「自己」與「會成環的祖先」當成待你裁決的父機構。
+        ///
+        /// 過濾後不足兩個就不是歧義（`init?` 也會拒絕）——那表示排除掉不可容許的
+        /// 之後其實沒得選，與 person 側「可容許候選集是不是單元素」同一個判準。
         func unambiguousMatch(_ literal: String, holder: OrgResolutionCandidate.Holder,
-                              range: DateRange) -> String? {
-            guard let keys = nameMap[NameNormalization.matchingKey(literal)] else { return nil }
+                              range: DateRange,
+                              admissible: (String) -> Bool = { _ in true }) -> String? {
+            guard let raw = nameMap[NameNormalization.matchingKey(literal)] else { return nil }
+            let keys = raw.filter(admissible)
             if keys.count == 1 { return keys.first }
             if let m = OrgAmbiguousMatch(holder: holder, literal: literal,
                                          range: range, orgKeys: keys) {
@@ -182,7 +192,11 @@ public enum OrgResolver {
         for org in organizations.sorted(by: { $0.key < $1.key }) {
             for seg in org.parents.entries {
                 guard case let .literal(literal) = seg.value,
-                      let key = unambiguousMatch(literal, holder: .organization(org.key), range: seg.range)
+                      let key = unambiguousMatch(
+                        literal, holder: .organization(org.key), range: seg.range,
+                        // 兩道 guard 的判準**同時**作用在候選集上——否則歧義報告會
+                        // 把它們會拒絕的候選當成待裁決項（#236 R3）
+                        admissible: { $0 != org.key && !reaches($0, org.key) })
                 else { continue }
                 // **自我父權**。`reaches` 含自身，所以下一行其實也擋得住它——
                 // 席位 mutation 實測：拿掉這行 23 條全綠，**它現行不可達**。

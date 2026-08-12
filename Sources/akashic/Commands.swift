@@ -650,12 +650,15 @@ struct ResolveOrganizations: ParsableCommand {
                 // repo 對這個塌縮有明文事故紀錄——那正是 #63／#70 存在的理由。
                 let span = rangeLabel(a.range)   // display-safe-exempt: rangeLabel 內部已消毒；displaySafe 不冪等，不得再包
                 print("  \(label(a.holder)) 「\(displaySafe(a.literal, max: 200))」\(span)")
-                for k in a.orgKeys.prefix(AmbiguityDisplayLimit.refs) {
+                if a.orgKeys.count > AmbiguityDisplayLimit.refs {
+                    print("      （\(a.orgKeys.count) 個候選，以下顯示前 \(AmbiguityDisplayLimit.refs) 個）")
+                }
+                for (n, k) in a.orgKeys.prefix(AmbiguityDisplayLimit.refs).enumerated() {
                     let o = byKey[k]
                     let founded = o?.founded.map { "  成立:\(displaySafe($0, max: 20))" } ?? ""
                     let dissolved = o?.dissolved.map { "  解散:\(displaySafe($0, max: 20))" } ?? ""
                     let name = o?.displayName ?? k
-                    print("      → \(displaySafe(k, max: 200))  [\(displaySafe(name, max: 200))]\(founded)\(dissolved)")
+                    print("      \(n + 1). \(displaySafe(k, max: 200))  [\(displaySafe(name, max: 200))]\(founded)\(dissolved)")
                 }
             }
             if orgReport.ambiguities.count > shownOrg.count {
@@ -954,7 +957,13 @@ struct ResolvePeople: ParsableCommand {
                 // ——而 CLI 才是人真正在讀的那個面。
                 print("  \(displaySafe(a.citekey, max: 200))[\(a.authorIndex)] 「\(displaySafe(a.literal, max: 200))」"
                       + "  entry:\(a.entryID.uuidString.prefix(8))")
-                for k in a.personKeys.prefix(AmbiguityDisplayLimit.refs) {
+                if a.personKeys.count > AmbiguityDisplayLimit.refs {
+                    print("      （\(a.personKeys.count) 個候選，以下顯示前 \(AmbiguityDisplayLimit.refs) 個）")
+                }
+                // **加列內序號**（#236 R3）：`displaySafe` 會截斷，兩個共用長前綴的
+                // 合法 key 可以印得**逐位元組相同**。序號讓人至少知道這是兩個不同的
+                // 記錄——不然報告會看起來像同一個人被列了兩次。
+                for (n, k) in a.personKeys.prefix(AmbiguityDisplayLimit.refs).enumerated() {
                     let p = byKey[k]
                     // **`names` 不具區辨力**——它們之所以被比到一起，正是因為正規化後
                     // 相同。真正能分辨的是外部識別碼與時空不相容，所以那些一定要印。
@@ -969,18 +978,21 @@ struct ResolvePeople: ParsableCommand {
                     // 沒有現職就退到最近一段，並把時間狀態標出來。
                     if let cur = p?.profile.affiliations.current?.value {
                         bits.append("隸屬:\(displaySafe(cur.displayName, max: 60))")
-                    } else if let last = p?.profile.affiliations.entries.max() {
+                    } else if let last = p?.profile.affiliations.mostRecentlyEnded {
                         let when = rangeLabel(last.range)
                         bits.append("曾隸屬:\(displaySafe(last.value.displayName, max: 60))"
                                     + (when.isEmpty ? "" : "（\(when)）"))   // display-safe-exempt: rangeLabel 內部已消毒（不冪等，不得再包）
                     }
                     let names = (p?.names ?? []).prefix(4).map { displaySafe($0, max: 80) }.joined(separator: "、")
                     let extra = bits.isEmpty ? "  ⚠ 無任何區辨欄位" : "  " + bits.joined(separator: "  ")
-                    print("      → \(displaySafe(k, max: 200))  [\(names)]\(extra)")
+                    print("      \(n + 1). \(displaySafe(k, max: 200))  [\(names)]\(extra)")
                 }
             }
             if report.ambiguities.count > shownAmbig.count {
-                print("  …另 \(report.ambiguities.count - shownAmbig.count) 筆未顯示（--json 或縮小範圍以取全部）")
+                // **不要指不存在的旋鈕**（#236 R3）：`resolve-people` 沒有 `--json`，
+                // 也沒有分頁。指路只能指呼叫端真的有的東西——假的建議比沒有建議更糟。
+                print("  …另 \(report.ambiguities.count - shownAmbig.count) 筆未顯示"
+                      + "（目前沒有取回全部的旋鈕；縮小 store 範圍或先處理已列出的）")
             }
             print("  兩種可能，處置相反：同名的不同人＝各自歸屬（永不合併）；同一人兩筆＝該合併。")
         }

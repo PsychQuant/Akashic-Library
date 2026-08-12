@@ -345,6 +345,57 @@ final class ServiceTests: XCTestCase {
                        + "多了是孤兒 payload，少了是查不到")
     }
 
+    /// `people[ref].names` 的 `prefix(2)` 是第四種丟棄（#236 R4）。它先前**不算進**
+    /// `truncated`，於是「每人五個異名、只送兩個」的回應仍宣稱 `truncated: false`——
+    /// 而該旗標自稱是「整個回應」的截斷旗標。
+    ///
+    /// 本測試的價值全在**前置條件**：其餘三軸都必須沒被截，否則 `truncated: true`
+    /// 可能來自別處，這條就證明不了 names 那一軸。
+    func testResolvePeopleReportsDroppedNamesAndCountsThemAsTruncation() throws {
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "names-one",
+                                     names: ["Many Same", "Alias A", "Alias B", "Alias C", "Alias D"]))
+        try store.writePerson(Person(key: "names-two", names: ["Many Same", "Alias E", "Alias F"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "n1", type: "article",
+                                   title: "T", authors: [.literal("Many Same")], date: "2020"))
+        let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
+        let ambs = out["ambiguities"] as! [[String: Any]]
+
+        // 前置：其餘三軸皆未截
+        XCTAssertEqual(ambs.count, 1, "一筆歧義，遠低於上限 50——列數軸未截")
+        XCTAssertEqual(out["ambiguityTotal"] as? Int, 1)
+        XCTAssertEqual(out["ambiguityRowsDropped"] as? Int, 0, "位元組預算未觸發")
+        XCTAssertEqual((ambs[0]["personRefs"] as! [String]).count, 2, "ref 軸未截（上限 20）")
+        XCTAssertEqual(out["candidateTotal"] as? Int, 0, "候選軸未截")
+
+        let people = out["people"] as! [String: [String: Any]]
+        let one = people.values.first { $0["key"] as? String == "names-one" }!
+        XCTAssertEqual((one["names"] as! [String]).count, 2, "只送兩個")
+        XCTAssertEqual(one["namesTotal"] as? Int, 5, "要給總數——使用端要判斷的是有沒有看到全部，那需要分母")
+        let two = people.values.first { $0["key"] as? String == "names-two" }!
+        XCTAssertEqual(two["namesTotal"] as? Int, 3)
+
+        XCTAssertEqual(out["truncated"] as? Bool, true,
+                       "names 被丟也算截斷——否則旗標按自己的定義說謊")
+    }
+
+    /// 對偶：沒丟就不報、也不說截斷。缺了這條，「永遠 true」與「永遠輸出 namesTotal」
+    /// 兩種退化實作都能讓上面那條變綠。
+    func testResolvePeopleOmitsNamesTotalWhenNothingDropped() throws {
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "few-one", names: ["Few Same", "Alias A"]))
+        try store.writePerson(Person(key: "few-two", names: ["Few Same"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "f1", type: "article",
+                                   title: "T", authors: [.literal("Few Same")], date: "2020"))
+        let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
+        let people = out["people"] as! [String: [String: Any]]
+        XCTAssertEqual(people.count, 2)
+        for p in people.values {
+            XCTAssertNil(p["namesTotal"], "沒丟就不送——不要讓「沒丟」與「丟了 0 個」變成兩件事")
+        }
+        XCTAssertEqual(out["truncated"] as? Bool, false, "四軸皆未截")
+    }
+
     func testResolvePeopleListsAndAppliesSelectively() throws {
         let e3 = Entry(id: UUID(), citekey: "cheng2020analysis", type: "thesis",
                        title: "Analysis of growth curves", authors: [.literal("Che Cheng")], date: "2020")

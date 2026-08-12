@@ -68,13 +68,19 @@ public final class AkashicService {
     /// scalar 在 JSON 裡最多 9 bytes。實測：三軸計數上限都設了，最壞仍 125 KB。
     /// 位元組預算是唯一與內容無關的界。
     static let ambiguityByteBudget = 48 * 1024
+    /// 每人最多送幾個異名。`names` 是**最弱**的區辨欄位（正規化後相同才會歧義），
+    /// 而 `displaySafe` 是 8 倍膨脹器，所以壓得很低。
+    ///
+    /// 具名而非兩處各寫 `2`：預算估算（`personEntryBytes`）與實際輸出必須用同一個
+    /// 數，否則預算會安靜地估錯——而估低正是讓位元組預算失效的那個方向。
+    static let namesPerPerson = 2
 
     /// 一筆 `people` 條目消毒後的大致位元組數——**逐列累加預算用**。
     /// 寧可高估：低估會讓預算失效，高估只是少印幾列。
     static func personEntryBytes(_ p: Person?) -> Int {
         guard let p else { return 64 }
         var n = 64 + displaySafe(p.key, max: 200).utf8.count
-        n += p.names.prefix(2).reduce(0) { $0 + displaySafe($1, max: 80).utf8.count }
+        n += p.names.prefix(namesPerPerson).reduce(0) { $0 + displaySafe($1, max: 80).utf8.count }
         n += p.orcid.map { displaySafe($0, max: 60).utf8.count } ?? 0
         n += p.openalex.map { displaySafe($0, max: 60).utf8.count } ?? 0
         n += p.died.map { displaySafe($0, max: 40).utf8.count } ?? 0
@@ -661,9 +667,15 @@ public final class AkashicService {
             let shown = rows.map(\.0)
             let shownRefKeys = rows.map(\.1)
             let refKeys = refByKey.keys.sorted()
+            // 第四種丟棄：`people[ref]["names"]` 的 `prefix(2)`（#236 R4）。先前只算
+            // 三軸（rows／refs／candidates），於是一個「每人五個異名、全部只送兩個」
+            // 的回應仍宣稱 `truncated: false`——旗標按**自己的定義**說謊（下方 :745
+            // 寫的是「整個回應……任一被截都算」），與 R3 抓到的 candidates 同型。
+            let anyNamesDropped = refKeys.contains { (byKey[$0]?.names.count ?? 0) > Self.namesPerPerson }
             let truncated = report.ambiguities.count > Self.ambiguityLimit
                 || anyRefsTruncated
                 || droppedRows > 0
+                || anyNamesDropped
             return try jsonString([
                 "candidates": withIDs.prefix(Self.ambiguityLimit).map { pair -> [String: Any] in
                     [
@@ -703,12 +715,17 @@ public final class AkashicService {
                 "people": Dictionary(uniqueKeysWithValues:
                     refKeys.map { raw -> (String, [String: Any]) in
                         let ref = refByKey[raw]!
+                        let allNames = byKey[raw]?.names ?? []
                         var d: [String: Any] = [
                             "key": displaySafe(raw, max: 200),
                             // `names` 是**最弱**的區辨欄位（它們正規化後相同才會歧義），而 displaySafe
                             // 是 8 倍膨脹器——`prefix(8) × max:200` 最壞 12800 字元/人。
-                            "names": (byKey[raw]?.names ?? []).prefix(2).map { displaySafe($0, max: 80) },
+                            "names": allNames.prefix(Self.namesPerPerson).map { displaySafe($0, max: 80) },
                         ]
+                        // 丟了才報，而且報**總數**不報「丟了幾個」——使用端要判斷的是
+                        // 「我看到的是不是全部」，那需要分母。缺席即「沒丟」（同本檔
+                        // 的缺席慣例：不送 0 讓「沒丟」與「丟了 0 個」保持同一件事）。
+                        if allNames.count > Self.namesPerPerson { d["namesTotal"] = allNames.count }
                         // **缺席就不輸出**，不要送空字串——那會讓「沒有 ORCID」與
                         // 「ORCID 是空字串」在 JSON 上不再有分別（同本檔 :185／:375 的慣例）。
                         if let o = byKey[raw]?.orcid { d["orcid"] = displaySafe(o, max: 60) }

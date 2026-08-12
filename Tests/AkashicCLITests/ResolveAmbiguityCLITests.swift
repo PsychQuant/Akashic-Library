@@ -77,6 +77,29 @@ final class ResolveAmbiguityCLITests: XCTestCase {
                       "要說明兩種可能的處置相反，否則讀的人不知道要做什麼：\n\(r.output)")
     }
 
+    /// 異名被截斷時要**數出來**（#236 R4）。
+    ///
+    /// 先前是 `prefix(4)` 靜默截斷：「只有四個異名」與「有七個、你看到四個」在終端上
+    /// 逐位元組相同。在歧義判斷裡特別糟——使用者正是要靠異名分辨兩個同名的人，
+    /// 而被藏起來的那三個可能就是決定性的。
+    func testAmbiguityCountsDroppedAliases() throws {
+        try writePerson(key: "alias-one",
+                        names: ["Alias Same", "A1", "A2", "A3", "A4", "A5", "A6"])
+        try writePerson(key: "alias-two", names: ["Alias Same", "B1"])
+        try store.writeEntry(Entry(id: UUID(), citekey: "alias2020", type: "article",
+                                   title: "X", authors: [.literal("Alias Same")], date: "2020"))
+
+        let r = try runCLI(["resolve-people"])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("…+3"),
+                      "七個異名只印四個 → 要說出還有 3 個：\n\(r.output)")
+        XCTAssertFalse(r.output.contains("…+0"),
+                       "沒丟就不要印——「沒丟」與「丟了 0 個」不該變成兩件事：\n\(r.output)")
+        // 只印前四個的證據：第五個之後不得出現（否則 `…+3` 是對的但截斷沒發生）
+        XCTAssertFalse(r.output.contains("A5"),
+                       "超出上限的異名不應出現：\n\(r.output)")
+    }
+
     /// 一個區辨欄位都沒有時要**明說**——否則使用者以為系統沒查，其實是查了但沒東西。
     func testAmbiguityWarnsWhenNoDiscriminatorExists() throws {
         try writePerson(key: "bare-one", names: ["Bare Name"])

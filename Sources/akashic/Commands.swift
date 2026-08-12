@@ -562,6 +562,22 @@ enum AmbiguityDisplayLimit {
     static let rows = 50
     /// 單筆歧義的候選數也無上界（同名的人可以有任意多個）。
     static let refs = 20
+    /// 每人印幾個異名。丟掉的必須數出來——見 `namesLabel`。
+    static let names = 4
+}
+
+/// 印一個人的異名，**丟掉的要說出來**（#236 R4）。
+///
+/// 先前是 `prefix(4)` 直接截，於是「這人只有四個異名」與「有七個、你看到四個」
+/// 在終端上長得一模一樣。這在歧義判斷的情境特別糟：使用者正是要靠異名分辨兩個
+/// 同名的人，而被藏起來的那三個可能就是決定性的那個。
+///
+/// 與 MCP 的 `namesTotal` 同一個決定、不同的表達：那邊送分母讓程式判斷，這邊
+/// 印差額讓人一眼看到。
+func namesLabel(_ names: [String]) -> String {
+    let shown = names.prefix(AmbiguityDisplayLimit.names).map { displaySafe($0, max: 80) }
+    let dropped = names.count - shown.count
+    return shown.joined(separator: "、") + (dropped > 0 ? " …+\(dropped)" : "")
 }
 
 /// 把 `DateRange` 的**四個**欄位都表示出來（#236 R2）。
@@ -983,7 +999,7 @@ struct ResolvePeople: ParsableCommand {
                         bits.append("曾隸屬:\(displaySafe(last.value.displayName, max: 60))"
                                     + (when.isEmpty ? "" : "（\(when)）"))   // display-safe-exempt: rangeLabel 內部已消毒（不冪等，不得再包）
                     }
-                    let names = (p?.names ?? []).prefix(4).map { displaySafe($0, max: 80) }.joined(separator: "、")
+                    let names = namesLabel(p?.names ?? [])   // display-safe-exempt: namesLabel 內部已消毒（displaySafe 不冪等，不得再包）
                     let extra = bits.isEmpty ? "  ⚠ 無任何區辨欄位" : "  " + bits.joined(separator: "  ")
                     print("      \(n + 1). \(displaySafe(k, max: 200))  [\(names)]\(extra)")
                 }

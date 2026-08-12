@@ -139,7 +139,7 @@ actor AkashicMCPServer {
                 "add": strArray("要加的目標 citekeys"), "remove": strArray("要移除的目標"),
              ], required: ["citekey", "kind"])),
         Tool(name: "akashic_resolve_people",
-             description: "人物解析：不帶 apply 列出高信心候選（alias 完全命中、不歧義）；帶 apply（候選 id 陣列）逐候選套用。絕不自動合併。單筆寫入失敗記入 writeFailed 並續跑（applied 只列實際套用者）。",
+             description: "人物解析：不帶 apply 回 {candidates, candidateTotal, candidateRowsDropped, people, ambiguities, ambiguityTotal, ambiguityRowsDropped, truncated}——candidates 是高信心候選（alias 完全命中、不歧義，可套用）；ambiguities 是同一 literal 對到 2+ person 的位置，**不可套用、需要人判斷**，每筆帶 personRefs（不透明 ref，非 person key）；區辨欄位在 people[ref] 只送一次（key/names/namesTotal/orcid/openalex/died/currentAffiliation 或 formerAffiliation+formerAffiliationEnd|formerAffiliationAttested，缺席即不出現），以便分辨「兩個同名的人」（各自歸屬）與「同一人兩筆記錄」（該合併）。帶 apply（候選 id 陣列）逐候選套用。上限：兩半各 48 KB 位元組預算，歧義至多 50 筆／每筆至多 20 個 personRefs／people 至多 60 筆／每人至多 2 個異名（超出時給 namesTotal），candidates 至多 50 筆。吃不下預算的**整列不印**並計入 *RowsDropped；**任一軸被截**都會讓 truncated=true（*Total 給各自的總數）。絕不自動合併。單筆寫入失敗記入 writeFailed 並續跑（applied 只列實際套用者）。",
              inputSchema: obj(["apply": strArray("要套用的候選 id（形如 citekey:authorIndex）；省略＝只列候選")])),
         Tool(name: "akashic_create_entry",
              description: "建庫外手動文獻（無 Zotero provenance；citekey 自動生成）。",

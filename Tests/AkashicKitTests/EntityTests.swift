@@ -44,6 +44,58 @@ final class EntityTests: XCTestCase {
         XCTAssertTrue(PersonResolver.candidates(entries: entries, people: ambiguousPeople).isEmpty)
     }
 
+    // MARK: - #231：歧義不再被靜默丟棄
+
+    /// 三種結果**必須分得開**。#231 之前「沒人匹配」與「2+ 人匹配」走同一條
+    /// `continue`，而後者才是有情報價值的那個——系統知道自己遇到了決定點，卻什麼
+    ///都沒說。
+    func testResolveDistinguishesNoMatchUniqueAndAmbiguous() {
+        let ambiguousPeople = people + [Person(key: "cheng-che-2", names: ["Che Cheng"])]
+        let entries = [
+            entry("no2020", authors: [.literal("Nobody Here")]),      // 沒人匹配
+            entry("uniq2020", authors: [.literal("陳君厚")]),          // 唯一匹配
+            entry("amb2020", authors: [.literal("Che Cheng")]),       // 2+ 匹配
+        ]
+        let r = PersonResolver.resolve(entries: entries, people: ambiguousPeople)
+
+        // 唯一命中照舊進 candidates
+        XCTAssertEqual(r.candidates.map(\.citekey), ["uniq2020"])
+
+        // **2+ 命中現在被回報**，且帶齊定位資訊與所有候選
+        XCTAssertEqual(r.ambiguities.count, 1, "歧義必須被回報，不能靜默丟棄")
+        XCTAssertEqual(r.ambiguities.first?.citekey, "amb2020")
+        XCTAssertEqual(r.ambiguities.first?.authorIndex, 0)
+        XCTAssertEqual(r.ambiguities.first?.literal, "Che Cheng")
+        XCTAssertEqual(r.ambiguities.first?.personKeys, ["cheng-che", "cheng-che-2"],
+                       "personKeys 必須排序——同一份 store 兩次執行要給同一份報告")
+
+        // 「沒人匹配」**刻意不回報**：那是 `.literal` 的合法長期狀態。全部報出來會讓
+        // 報告被噪音淹沒，而被淹沒的報告等於沒有報告。
+        XCTAssertFalse(r.ambiguities.contains { $0.citekey == "no2020" })
+    }
+
+    /// `candidates` 是 `resolve` 的薄包裝——**不是第二支遍歷**。
+    ///
+    /// #140 的教訓：bootstrap 與 resolver 各留一份正規化，分裂後主流程對連字號變體
+    /// 從 2 候選掉到 0、完全靜默。兩支遍歷會分岔，而分岔的方式是安靜的。
+    func testCandidatesIsExactlyResolveCandidates() {
+        let ambiguousPeople = people + [Person(key: "cheng-che-2", names: ["Che Cheng"])]
+        let entries = [
+            entry("a2020b", authors: [.literal("Che Cheng"), .literal("陳君厚")]),
+            entry("c2021d", authors: [.literal("鄭澈")]),
+        ]
+        XCTAssertEqual(PersonResolver.candidates(entries: entries, people: ambiguousPeople),
+                       PersonResolver.resolve(entries: entries, people: ambiguousPeople).candidates)
+    }
+
+    /// 「歧義只有一個候選」在型別層不可表達。
+    func testAmbiguousMatchRefusesFewerThanTwoKeys() {
+        XCTAssertNil(AmbiguousMatch(entryID: UUID(), citekey: "a", authorIndex: 0, literal: "X", personKeys: []))
+        XCTAssertNil(AmbiguousMatch(entryID: UUID(), citekey: "a", authorIndex: 0, literal: "X", personKeys: ["one"]))
+        XCTAssertNotNil(AmbiguousMatch(entryID: UUID(), citekey: "a", authorIndex: 0, literal: "X",
+                                       personKeys: ["one", "two"]))
+    }
+
     func testResolvedKeyAuthorsAreNotCandidates() {
         let entries = [entry("a2020b", authors: [.key("cheng-che")])]
         XCTAssertTrue(PersonResolver.candidates(entries: entries, people: people).isEmpty)

@@ -179,11 +179,313 @@ final class ServiceTests: XCTestCase {
         XCTAssertThrowsError(try service.link(citekey: "olsson1979maximum", kind: "bogus", add: ["x"], remove: []))
     }
 
+    /// #231：**歧義要走到 MCP 面**，不能只活在 kit 裡。
+    ///
+    /// 教訓來自先前的漏接：kit 全綠仍漏掉兩個入口——只有用真的 service 呼叫才看得見。
+    /// 這條同時驗兩件事：歧義有被回報、且每個 key 帶了區辨欄位（`names` / `orcid`）
+    /// ——否則讀的人分不出「兩個同名的人」（各自歸屬）與「同一人兩筆」（該合併）。
+    func testResolvePeopleSurfacesAmbiguitiesWithDiscriminators() throws {
+        let store = LibraryStore(root: root)
+        var a = Person(key: "amb-one", names: ["Ambi Guous"])
+        a.orcid = "0000-0001-2345-6789"
+        try store.writePerson(a)
+        try store.writePerson(Person(key: "amb-two", names: ["Ambi Guous"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: "article",
+                                   title: "X", authors: [.literal("Ambi Guous")], date: "2020"))
+
+        let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
+        let ambs = out["ambiguities"] as! [[String: Any]]
+        let hit = ambs.first { $0["citekey"] as? String == "amb2020x" }
+        XCTAssertNotNil(hit, "歧義必須出現在 MCP 回應裡，不能只在 kit 內：\(ambs)")
+        XCTAssertEqual(hit?["literal"] as? String, "Ambi Guous")
+        XCTAssertEqual(hit?["authorIndex"] as? Int, 0)
+        XCTAssertNotNil(hit?["entryID"] as? String,
+                        "要帶 entry 身分——重複 citekey 下 (citekey, authorIndex) 不足以定位")
+
+        // **區辨欄位只送一次、依不透明 ref 索引**（#236 R1 是體積、R2 是崩潰——
+        // 見 testResolvePeopleSurvivesDisplaySafeKeyCollision）
+        let refs = hit?["personRefs"] as! [String]
+        let people = out["people"] as! [String: [String: Any]]
+        let byDisplayKey = Dictionary(uniqueKeysWithValues:
+            people.map { ($0.value["key"] as! String, $0.value) })
+        XCTAssertEqual(refs.compactMap { people[$0]?["key"] as? String },
+                       ["amb-one", "amb-two"], "須依 raw key 排序，且 ref 查得到")
+        XCTAssertEqual(byDisplayKey["amb-one"]?["orcid"] as? String, "0000-0001-2345-6789")
+        XCTAssertEqual(byDisplayKey["amb-one"]?["names"] as? [String], ["Ambi Guous"])
+        // **缺席就不輸出**，不送空字串——否則「沒有 ORCID」與「ORCID 是空字串」
+        // 在 JSON 上不再有分別（同本檔既有慣例）
+        XCTAssertNil(byDisplayKey["amb-two"]?["orcid"],
+                     "沒有 ORCID 時不該出現該鍵：\(byDisplayKey["amb-two"] ?? [:])")
+    }
+
+    /// #236 R2：**上限要量對軸——限列數不等於限 payload。**
+    ///
+    /// 席位實測：**一筆**歧義即可產出 **758 KB**，而回應同時聲稱 `truncated: false`
+    /// / `ambiguityTotal: 1`。比完全沒有上限更糟——那個 `false` 是會被 LLM 消費端
+    /// 信任的斷言。
+    ///
+    /// payload 有三個成長軸，列數只是其一：
+    /// 1. 列數 O(歧義位置數)
+    /// 2. **列寬** `personKeys` 長度 O(同名人數)，無上界
+    /// 3. **每筆 people 的大小**：`names` × `displaySafe`（repo 自陳的 **8 倍膨脹器**）
+    ///
+    /// 這條直接量**序列化後的位元組**——不論日後哪一軸被改動，超標就紅。
+    func testResolvePeoplePayloadStaysBoundedOnAdversarialStore() throws {
+        let store = LibraryStore(root: root)
+        // 60 人共用同一個名字、每人多個長 name（席位重現 758 KB 的形狀）
+        // **必須用會膨脹的字元**（#236 R3）。前一版用 `String(repeating: "x", …)`
+        // ——純 ASCII **不會膨脹**，`displaySafe` 只逃脫 C0/C1/LS/PS/bidi/BOM/反斜線。
+        // 於是測試量到 4,662 B 對上 65,536 B 的斷言：14 倍餘裕，什麼都沒約束到。
+        // 測試的 doc 自己寫著「displaySafe 是 8 倍膨脹器」，卻建了個觸發不了它的 store。
+        let long = String(repeating: "\u{202E}", count: 200)
+        for i in 0..<60 {
+            try store.writePerson(Person(key: "flood-\(i)",
+                                         names: ["Flood Same"] + (0..<8).map { "\(long)-\(i)-\($0)" }))
+        }
+        try store.writeEntry(Entry(id: UUID(), citekey: "flood2020", type: "article",
+                                   title: "X", authors: [.literal("Flood Same")], date: "2020"))
+
+        let raw = try service.resolvePeople(apply: nil)
+        XCTAssertLessThan(raw.utf8.count, 64 * 1024,
+                          "單筆歧義的 payload 必須有界——席位實測未設限時是 758 KB。"
+                          + "實際 \(raw.utf8.count) bytes")
+
+        let out = try json(raw) as! [String: Any]
+        // **這條測試涵蓋不到 candidates 那一半**，而且是**結構上**涵蓋不到：60 人同名
+        // → 全是歧義 → 一個候選都沒有。R4 指出它因此在 candidates 上恆真——同一個
+        // 「守衛在它要防的失敗上恆真」的教訓，在這個檔案裡這是第三次。
+        // 把前提寫成斷言，讓「形狀變了、覆蓋沒了」會紅，而不是安靜地繼續綠。
+        XCTAssertTrue((out["candidates"] as! [[String: Any]]).isEmpty,
+                      "前提：本 store 形狀產不出候選。candidates 那半由 "
+                      + "testResolvePeopleCandidatesHalfIsAlsoByteBounded 涵蓋")
+        // **截斷發生時就要說**，不論是哪一軸被截
+        XCTAssertEqual(out["truncated"] as? Bool, true,
+                       "ambiguityTotal 是 1 但 refs／people 被截了——truncated 必須為 true，"
+                       + "否則回應在對消費端說謊")
+        XCTAssertLessThanOrEqual((out["people"] as! [String: Any]).count, 60)
+        let refs = (out["ambiguities"] as! [[String: Any]]).first?["personRefs"] as! [String]
+        XCTAssertLessThanOrEqual(refs.count, 20, "單列的 ref 數也要有界")
+        // **先斷言非空**——`[].allSatisfy` 是 `true`，前一版的守衛在它被寫來防的
+        // 那個失敗上恆真（#236 R3：實測 50 列中 47 列 refs 為空而測試全綠）。
+        for row in out["ambiguities"] as! [[String: Any]] {
+            let rowRefs = row["personRefs"] as! [String]
+            XCTAssertGreaterThanOrEqual(rowRefs.count, 2,
+                "**每一列都必須有 ≥2 個 ref**。`AmbiguousMatch.init?` 拒絕 count<2 正是"
+                + "為了讓「歧義只有一個候選」在型別層不可表達——序列化邊界不得把它造回來。"
+                + "列：\(row)")
+            XCTAssertTrue(rowRefs.allSatisfy { (out["people"] as! [String: Any])[$0] != nil },
+                          "每個 ref 都要查得到——不得留下懸空引用")
+        }
+    }
+
+    /// #236 R2 CRITICAL：**`displaySafe` 後的 key 碰撞會讓整個 MCP process trap。**
+    ///
+    /// 第一版把 `displaySafe(personKey)` 當 `people` 的 dictionary key。三個條件湊在
+    /// 一起就是 SIGTRAP：
+    ///
+    /// 1. `Dictionary(uniqueKeysWithValues:)` 對重複鍵是 **precondition failure**，
+    ///    不是可捕捉的 error——`try` 接不住，整個 process 死
+    /// 2. `displaySafe` 在 `max` 處截斷 → **非單射**
+    /// 3. `StoreKey.pattern` = `\A[a-z0-9][a-z0-9-]*\z`，**沒有長度上限**
+    ///
+    /// 兩個共用 200 字元前綴的**合法** key 即可觸發，且只用出貨的 MCP 工具就做得到
+    /// （兩次 `add_person` + 一筆 entry）。`akashic validate` 對這種 store 回報
+    /// 「全部通過」——沒有任何地方警告。
+    ///
+    /// 根因是**把消毒函數當成識別函數**：`displaySafe` 的目的是安全顯示、不是保持
+    /// 區別，而這兩個目標在多對一的映射上直接衝突。修法是不透明 ref。
+    func testResolvePeopleSurvivesDisplaySafeKeyCollision() throws {
+        let store = LibraryStore(root: root)
+        let prefix = String(repeating: "a", count: 200)
+        try store.writePerson(Person(key: prefix + "b", names: ["Collide Me"]))
+        try store.writePerson(Person(key: prefix + "c", names: ["Collide Me"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "collide2020", type: "article",
+                                   title: "X", authors: [.literal("Collide Me")], date: "2020"))
+        // 前提：兩人都合法載入（不是被 quarantine 擋掉才沒事）
+        XCTAssertEqual(try store.load().people.filter { $0.key.hasPrefix(prefix) }.count, 2)
+
+        // 第一版在這一行 SIGTRAP：`Fatal error: Duplicate values for key: 'aaaa…（已截斷）'`
+        let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
+
+        let people = out["people"] as! [String: [String: Any]]
+        XCTAssertEqual(people.count, 2, "兩個不同的 person 必須是兩個條目，不得塌成一個")
+        let hit = (out["ambiguities"] as! [[String: Any]])
+            .first { $0["citekey"] as? String == "collide2020" }
+        let refs = hit?["personRefs"] as! [String]
+        XCTAssertEqual(refs.count, 2, "兩個 ref")
+        XCTAssertEqual(Set(refs).count, 2, "**兩個 ref 必須不同**——否則兩人的資料被靜默覆蓋")
+        XCTAssertTrue(refs.allSatisfy { people[$0] != nil }, "每個 ref 都查得到")
+
+        // 歧義**不可**出現在 candidates（那條路是可 apply 的）
+        let cands = out["candidates"] as! [[String: Any]]
+        XCTAssertFalse(cands.contains { $0["citekey"] as? String == "amb2020x" },
+                       "歧義絕不能混進可套用的候選")
+    }
+
+    /// #236 R1：payload 必須有上限，且**截斷要說出來**。
+    ///
+    /// MCP 結果直灌 LLM context——本 repo 明文的威脅模型（`TerminalOutputSafetyTests`：
+    /// 「MCP/LLM context 的無上限灌注同型」）。歧義筆數是 `O(出現次數)`，由 store 內容
+    /// 決定、無自然上界；席位用真 binary 實測 201 筆產出 176 KB。
+    ///
+    /// **靜默截斷會讓「沒有更多」與「沒給你更多」無法區分**，所以要有 `truncated`
+    /// 與 `ambiguityTotal`。
+    func testResolvePeopleCapsAmbiguitiesAndSaysSo() throws {
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "many-one", names: ["Many Same"]))
+        try store.writePerson(Person(key: "many-two", names: ["Many Same"]))
+        for i in 0..<60 {
+            try store.writeEntry(Entry(id: UUID(), citekey: "many\(i)", type: "article",
+                                       title: "T", authors: [.literal("Many Same")], date: "2020"))
+        }
+        let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
+        let ambs = out["ambiguities"] as! [[String: Any]]
+        XCTAssertEqual(ambs.count, 50, "要有上限（與 person() 的候選上限同值）")
+        XCTAssertEqual(out["truncated"] as? Bool, true, "截斷必須說出來")
+        XCTAssertEqual(out["ambiguityTotal"] as? Int, 60, "要給總數，否則使用端不知道漏了多少")
+        // 去重的證據：`people` 只有 2 筆，不隨歧義筆數增長
+        // `people` 只為**實際回傳**的那 50 筆建——否則上限只擋較瘦的一半
+        // （`people` 條目帶 names/orcid/openalex/died/隸屬，比 ambiguities 條目肥）
+        let shownRefs = Set(ambs.flatMap { $0["personRefs"] as! [String] })
+        XCTAssertEqual(Set((out["people"] as! [String: Any]).keys), shownRefs,
+                       "people 的鍵必須恰好等於回傳歧義引用到的 ref 聯集——"
+                       + "多了是孤兒 payload，少了是查不到")
+    }
+
+    /// **tool description 必須跟得上 payload**（#236 R4）。
+    ///
+    /// `akashic_resolve_people` 的 description 是 MCP 消費端（LLM）唯一的 schema 說明
+    /// ——payload 加了欄位而它沒跟上，消費端就不知道那些欄位存在，或更糟：**照著它
+    /// 描述的舊形狀去解析**。本輪就漂了兩次（`namesTotal`、`candidateRowsDropped`）。
+    ///
+    /// 這是結構性守衛而不是「記得同步更新」：只要 payload 多一個頂層鍵而 description
+    /// 沒提到它，這條就紅。
+    func testToolDescriptionCoversEveryTopLevelPayloadKey() throws {
+        // 讓兩半都非空，否則掃不到只在其中一半出現的鍵
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "desc-amb-1", names: ["Desc Same"]))
+        try store.writePerson(Person(key: "desc-amb-2", names: ["Desc Same"]))
+        try store.writePerson(Person(key: "desc-solo", names: ["Desc Solo"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "desc2020", type: "article", title: "T",
+                                   authors: [.literal("Desc Same"), .literal("Desc Solo")],
+                                   date: "2020"))
+        let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
+        XCTAssertFalse((out["candidates"] as! [Any]).isEmpty, "前提：candidates 非空")
+        XCTAssertFalse((out["ambiguities"] as! [Any]).isEmpty, "前提：ambiguities 非空")
+
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // AkashicMCPTests
+            .deletingLastPathComponent()   // Tests
+            .deletingLastPathComponent()   // repo root
+        let src = try String(contentsOf: repoRoot
+            .appendingPathComponent("Sources/akashic-mcp/Server.swift"), encoding: .utf8)
+        guard let toolRange = src.range(of: "akashic_resolve_people") else {
+            return XCTFail("找不到 akashic_resolve_people 的 Tool 宣告")
+        }
+        let decl = String(src[toolRange.lowerBound...].prefix(3000))
+
+        let missing = out.keys.filter { !decl.contains($0) }.sorted()
+        XCTAssertTrue(missing.isEmpty,
+                      "payload 有這些頂層鍵，但 tool description 沒提到：\(missing)。"
+                      + "消費端只看得到 description——它落後就等於這些欄位不存在")
+    }
+
+    /// **candidates 那一半也要位元組上限**（#236 R4 CRITICAL）。
+    ///
+    /// 先前它只有列數上限（50）。`id` 是 `"<citekey>:<index>"`，而 citekey 是原始
+    /// store 內容、`StoreKey.pattern` **沒有長度上限**——席位用真 binary 實測單列
+    /// 1,208,606 bytes，四軸上限全設好的情況下整個回應仍是 281,919 bytes。
+    ///
+    /// `id` 不能截斷（`--apply` 要拿它對回來），所以吃不下的整列不印並回報。
+    func testResolvePeopleCandidatesHalfIsAlsoByteBounded() throws {
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "solo-author", names: ["Solo Author"]))
+        // 三筆正常 + 五筆巨大 citekey（合法：`[a-z0-9][a-z0-9-]*`，無長度上限）
+        for i in 0..<3 {
+            try store.writeEntry(Entry(id: UUID(), citekey: "short\(i)", type: "article",
+                                       title: "T", authors: [.literal("Solo Author")], date: "2020"))
+        }
+        let huge = String(repeating: "a", count: 40_000)
+        for i in 0..<5 {
+            try store.writeEntry(Entry(id: UUID(), citekey: "\(huge)-\(i)", type: "article",
+                                       title: "T", authors: [.literal("Solo Author")], date: "2020"))
+        }
+
+        let raw = try service.resolvePeople(apply: nil)
+        let out = try json(raw) as! [String: Any]
+        // 前提：這個 store 形狀**真的**產得出候選——否則本測試與它要防的失敗無關
+        XCTAssertGreaterThan((out["candidates"] as! [[String: Any]]).count, 0,
+                             "前提：必須有候選，否則這條又是空洞守衛")
+        XCTAssertEqual(out["candidateTotal"] as? Int, 8)
+
+        XCTAssertLessThan(raw.utf8.count, 128 * 1024,
+                          "兩半各 48 KB 預算 → 整個回應必須有界。實際 \(raw.utf8.count) bytes")
+        XCTAssertGreaterThan(out["candidateRowsDropped"] as? Int ?? 0, 0,
+                             "巨大 citekey 的列吃不下 → 要丟，而且要說")
+        XCTAssertEqual(out["truncated"] as? Bool, true,
+                       "candidates 被丟也算截斷——旗標自稱涵蓋整個回應")
+        // 丟掉的必須是巨大的那些；短的照樣可用（否則等於整個功能被一筆壞資料癱瘓）
+        let ids = (out["candidates"] as! [[String: Any]]).compactMap { $0["id"] as? String }
+        XCTAssertTrue(ids.contains { $0.hasPrefix("short") }, "短 citekey 的候選要留著：\(ids.count) 筆")
+    }
+
+    /// `people[ref].names` 的 `prefix(2)` 是第四種丟棄（#236 R4）。它先前**不算進**
+    /// `truncated`，於是「每人五個異名、只送兩個」的回應仍宣稱 `truncated: false`——
+    /// 而該旗標自稱是「整個回應」的截斷旗標。
+    ///
+    /// 本測試的價值全在**前置條件**：其餘三軸都必須沒被截，否則 `truncated: true`
+    /// 可能來自別處，這條就證明不了 names 那一軸。
+    func testResolvePeopleReportsDroppedNamesAndCountsThemAsTruncation() throws {
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "names-one",
+                                     names: ["Many Same", "Alias A", "Alias B", "Alias C", "Alias D"]))
+        try store.writePerson(Person(key: "names-two", names: ["Many Same", "Alias E", "Alias F"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "n1", type: "article",
+                                   title: "T", authors: [.literal("Many Same")], date: "2020"))
+        let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
+        let ambs = out["ambiguities"] as! [[String: Any]]
+
+        // 前置：其餘三軸皆未截
+        XCTAssertEqual(ambs.count, 1, "一筆歧義，遠低於上限 50——列數軸未截")
+        XCTAssertEqual(out["ambiguityTotal"] as? Int, 1)
+        XCTAssertEqual(out["ambiguityRowsDropped"] as? Int, 0, "位元組預算未觸發")
+        XCTAssertEqual((ambs[0]["personRefs"] as! [String]).count, 2, "ref 軸未截（上限 20）")
+        XCTAssertEqual(out["candidateTotal"] as? Int, 0, "候選軸未截")
+
+        let people = out["people"] as! [String: [String: Any]]
+        let one = people.values.first { $0["key"] as? String == "names-one" }!
+        XCTAssertEqual((one["names"] as! [String]).count, 2, "只送兩個")
+        XCTAssertEqual(one["namesTotal"] as? Int, 5, "要給總數——使用端要判斷的是有沒有看到全部，那需要分母")
+        let two = people.values.first { $0["key"] as? String == "names-two" }!
+        XCTAssertEqual(two["namesTotal"] as? Int, 3)
+
+        XCTAssertEqual(out["truncated"] as? Bool, true,
+                       "names 被丟也算截斷——否則旗標按自己的定義說謊")
+    }
+
+    /// 對偶：沒丟就不報、也不說截斷。缺了這條，「永遠 true」與「永遠輸出 namesTotal」
+    /// 兩種退化實作都能讓上面那條變綠。
+    func testResolvePeopleOmitsNamesTotalWhenNothingDropped() throws {
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "few-one", names: ["Few Same", "Alias A"]))
+        try store.writePerson(Person(key: "few-two", names: ["Few Same"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "f1", type: "article",
+                                   title: "T", authors: [.literal("Few Same")], date: "2020"))
+        let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
+        let people = out["people"] as! [String: [String: Any]]
+        XCTAssertEqual(people.count, 2)
+        for p in people.values {
+            XCTAssertNil(p["namesTotal"], "沒丟就不送——不要讓「沒丟」與「丟了 0 個」變成兩件事")
+        }
+        XCTAssertEqual(out["truncated"] as? Bool, false, "四軸皆未截")
+    }
+
     func testResolvePeopleListsAndAppliesSelectively() throws {
         let e3 = Entry(id: UUID(), citekey: "cheng2020analysis", type: "thesis",
                        title: "Analysis of growth curves", authors: [.literal("Che Cheng")], date: "2020")
         try LibraryStore(root: root).writeEntry(e3)
-        let list = try json(try service.resolvePeople(apply: nil)) as! [[String: Any]]
+        // #231：no-apply 回應由陣列改為 {candidates, ambiguities}
+        let list = (try json(try service.resolvePeople(apply: nil)) as! [String: Any])["candidates"] as! [[String: Any]]
         XCTAssertEqual(list.count, 1)
         let id = list.first?["id"] as? String ?? ""
         XCTAssertEqual(id, "cheng2020analysis:0")
@@ -581,7 +883,8 @@ extension ServiceTests {
         try (frozen + "\n").write(
             to: root.appendingPathComponent("entries/frozen3.yaml"),
             atomically: true, encoding: .utf8)
-        let list = try json(try service.resolvePeople(apply: nil)) as! [[String: Any]]
+        // #231：no-apply 回應由陣列改為 {candidates, ambiguities}
+        let list = (try json(try service.resolvePeople(apply: nil)) as! [String: Any])["candidates"] as! [[String: Any]]
         let ids = list.compactMap { $0["id"] as? String }
         XCTAssertTrue(ids.contains("frozen3:0"), "\(ids)")
         let out = try json(try service.resolvePeople(apply: ["frozen3:0"])) as! [String: Any]
@@ -921,5 +1224,33 @@ extension ServiceTests {
                                     "MCP doctor 少了 digestSources——同一個 store 從兩個"
                                     + " consumer 看到不同的事實（#138 verify F3 的紀律）")
         XCTAssertEqual(residue, ["digest-holder.profile.affiliations"])
+    }
+
+    /// #236 R3：**reviewer 量到的最壞形狀**——50 個不同 literal、每列 2 人、
+    /// 全部欄位用會膨脹的字元。前一版測試用「60 人共用一個名字」，量到 4.6 KB，
+    /// 而真正的最壞是 474 KB（`truncated: false`）。**測試的 store 形狀決定了它
+    /// 能發現什麼**，而我選的形狀恰好避開了最壞。
+    func testPayloadBoundedOnManyDistinctLiteralsWithExpandingChars() throws {
+        let store = LibraryStore(root: root)
+        let bidi = String(repeating: "\u{202E}", count: 80)
+        for i in 0..<50 {
+            for s in ["a", "b"] {
+                var p = Person(key: "wide-\(s)-\(i)", names: ["Wide \(i)", bidi, bidi])
+                p.orcid = bidi
+                p.openalex = bidi
+                try store.writePerson(p)
+            }
+            try store.writeEntry(Entry(id: UUID(), citekey: "wide\(i)", type: "article",
+                                       title: "T", authors: [.literal("Wide \(i)")], date: "2020"))
+        }
+        let raw = try service.resolvePeople(apply: nil)
+        XCTAssertLessThan(raw.utf8.count, 64 * 1024,
+                          "50 個不同 literal × 膨脹字元是 reviewer 量到 474 KB 的形狀。"
+                          + "實際 \(raw.utf8.count) bytes")
+        let out = try json(raw) as! [String: Any]
+        for row in out["ambiguities"] as! [[String: Any]] {
+            XCTAssertGreaterThanOrEqual((row["personRefs"] as! [String]).count, 2,
+                                        "每列仍須 ≥2 refs：\(row)")
+        }
     }
 }

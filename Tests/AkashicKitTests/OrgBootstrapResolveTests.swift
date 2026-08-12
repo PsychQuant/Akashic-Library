@@ -133,6 +133,46 @@ final class OrgBootstrapResolveTests: XCTestCase {
                       "同名對 2+ org＝歧義，整組排除（絕不自動合併）")
     }
 
+    /// #231：排除之後**要留下痕跡**。org 側與 person 側同形。
+    ///
+    /// `holder` 是 org 側獨有的必要資訊——同一個 literal 可能住在 person 的
+    /// `affiliations`，也可能住在另一個 org 的 `parents`（#166）。少了它，報告
+    /// 說不出「是誰的哪一段 literal 歧義」。
+    func testResolveReportsAmbiguitiesWithHolder() {
+        var o1 = Organization(key: "org-a")
+        o1.names = TimelineOf([TemporalValue(value: "Sinica", range: DateRange())])
+        var o2 = Organization(key: "org-b")
+        o2.names = TimelineOf([TemporalValue(value: "Sinica", range: DateRange())])
+        // 第三個 org 的 parents 也寫著同一個歧義 literal → 兩個不同 holder
+        var child = Organization(key: "org-child")
+        child.names = TimelineOf([TemporalValue(value: "Child Institute", range: DateRange())])
+        child.parents = TimelineOf([TemporalValue(value: OrgRef.literal("Sinica"), range: DateRange())])
+        let people = [personWith("a", affiliations: [.literal("Sinica")])]
+
+        let r = OrgResolver.resolve(people: people, organizations: [o1, o2, child])
+        XCTAssertTrue(r.candidates.isEmpty, "行為未變：歧義仍不出候選")
+        XCTAssertEqual(r.ambiguities.count, 2, "person 的 affiliation 與 org 的 parents 各一")
+        XCTAssertEqual(r.ambiguities.map(\.holder),
+                       [.person("a"), .organization("org-child")],
+                       "holder 必須分得出來，且 people 先於 organizations")
+        XCTAssertTrue(r.ambiguities.allSatisfy { $0.literal == "Sinica" })
+        XCTAssertTrue(r.ambiguities.allSatisfy { $0.orgKeys == ["org-a", "org-b"] },
+                      "orgKeys 排序，輸出穩定")
+    }
+
+    /// `candidates` 是 `resolve` 的薄包裝，**不是第二支遍歷**——parents 側帶著
+    /// 自我父權與環的排除，兩支遍歷分岔時那些排除只會存在於其中一支。
+    func testOrgCandidatesIsExactlyResolveCandidates() {
+        var parent = Organization(key: "org-parent")
+        parent.names = TimelineOf([TemporalValue(value: "Academia", range: DateRange())])
+        var child = Organization(key: "org-child")
+        child.names = TimelineOf([TemporalValue(value: "Institute", range: DateRange())])
+        child.parents = TimelineOf([TemporalValue(value: OrgRef.literal("Academia"), range: DateRange())])
+        let people = [personWith("a", affiliations: [.literal("Academia")])]
+        XCTAssertEqual(OrgResolver.candidates(people: people, organizations: [parent, child]),
+                       OrgResolver.resolve(people: people, organizations: [parent, child]).candidates)
+    }
+
     func testApplyMigratesOnlyMatchingLiteralPreservingRange() throws {
         var org = Organization(key: "stat-sinica")
         org.names = TimelineOf([TemporalValue(value: "統計所", range: DateRange())])
@@ -326,5 +366,140 @@ extension OrgBootstrapResolveTests {
         XCTAssertEqual(cands.count, 2)
         XCTAssertEqual(cands.first?.holder, .person("zzz-last-alphabetically"))
         XCTAssertEqual(cands.last?.holder, .organization("stat-sinica"))
+    }
+
+    /// #236 R4：**過濾不得把「2+ 命中」變成「唯一命中」。**
+    ///
+    /// R3 曾讓 guard 的判準（自我父權／成環）先過濾候選集再判唯一性，理由是好的：
+    /// 不要拿結構上不可能的候選去煩人。但那把 `candidates()` 的語意從「2+ 命中就
+    /// 交給人」改成「剩一個就自動提名」——而 `--apply` 會據此**寫入**。更糟的是
+    /// 成環判準讀的 `edges` 正是同一個迴圈在改的，於是「要不要問人」取決於 org key
+    /// 的字母順序。
+    ///
+    /// 本測試釘住回退後的語意：**同名的兩個 org 就是歧義，即使其中一個是 holder
+    /// 自己**。報告多列一個明顯錯的候選，比安靜地改變寫入行為好。
+    func testFilteringNeverTurnsAmbiguityIntoAutoProposal() {
+        // 兩個 org 共用名字 "Shared"，其中一個就是 holder 自己
+        var me = Organization(key: "org-me")
+        me.names = TimelineOf([TemporalValue(value: "Shared", range: DateRange())])
+        me.parents = TimelineOf([TemporalValue(value: OrgRef.literal("Shared"), range: DateRange())])
+        var other = Organization(key: "org-other")
+        other.names = TimelineOf([TemporalValue(value: "Shared", range: DateRange())])
+
+        let r = OrgResolver.resolve(people: [], organizations: [me, other])
+        XCTAssertEqual(r.candidates.map(\.orgKey), [],
+                       "2+ 命中就**不提名**——過濾掉一個之後自動提名剩下的，"
+                       + "等於在一個「讓歧義被看見」的改動裡偷改了寫入語意")
+        XCTAssertEqual(r.ambiguities.count, 1, "它是歧義，要被看見")
+        XCTAssertEqual(r.ambiguities.first?.orgKeys, ["org-me", "org-other"],
+                       "列出原始命中集。holder 自己在裡面是刺眼但誠實的——"
+                       + "而且 207/208 兩道 guard 仍會擋住真的被套用的情形")
+    }
+
+    /// 順序無關性：同一份邏輯 store，**換 key 名字不得改變「要不要問人」**。
+    ///
+    /// parents 迴圈是 `organizations.sorted(by: key)`，所以處理順序由 key 的字母序
+    /// 決定。R3 的過濾器裡有 `reaches`，它讀的 `edges` 正是這個迴圈在累積的——
+    /// 環偵測需要那個累積（`209` 行「本輪已接受的也算數」是刻意的），但拿它決定
+    /// **歧義與否**，就把非決定性洩進了使用者看到的東西。
+    ///
+    /// fixture 必須讓「先處理誰」真的改變 `edges`，否則這條測試在舊程式碼上也會綠
+    /// （第一版就是這樣——差點成為本 PR 的第四個空洞守衛）：
+    ///
+    /// - `child` 的 parent literal 是 `"L"`，而 `"L"` 同時命中 `linker` 與 `third`
+    /// - `linker` 的 parent literal 唯一命中 `child` → 一旦 linker 先被處理，
+    ///   `edges[linker] ∋ child`，於是 `reaches(linker, child)` 成立、linker 變成
+    ///   不可容許 → 過濾後只剩 third → **自動提名**
+    /// - 反之若 child 先被處理，`edges` 還是空的 → 兩個都可容許 → **歧義**
+    func testAmbiguityVerdictDoesNotDependOnOrgKeyOrdering() {
+        func run(child: String, linker: String) -> (amb: Int, cands: [String]) {
+            let c = org(child, names: ["ChildName"], parents: [.literal("L")])
+            let l = org(linker, names: ["L"], parents: [.literal("ChildName")])
+            let t = org("third-org", names: ["L"])
+            let r = OrgResolver.resolve(people: [], organizations: [c, l, t])
+            // 比**角色**不比字面 key——兩次跑刻意用不同 key 名，直接比字串必不相等
+            let role = [child: "child", linker: "linker", "third-org": "third"]
+            return (r.ambiguities.count, r.candidates.map { role[$0.orgKey] ?? $0.orgKey }.sorted())
+        }
+        // 邏輯結構完全相同，只有 key 的字母序讓處理順序相反
+        let childFirst = run(child: "a-child", linker: "b-linker")
+        let linkerFirst = run(child: "z-child", linker: "a-linker")
+        XCTAssertEqual(childFirst.amb, linkerFirst.amb,
+                       "換個 key 名字就從『需要人判斷』變成『自動提名』——"
+                       + "child 先: \(childFirst)，linker 先: \(linkerFirst)")
+        XCTAssertEqual(childFirst.cands, linkerFirst.cands, "提名結果也必須一致")
+        XCTAssertEqual(childFirst.amb, 1, "「L」對到兩個 org，兩種順序都該是歧義")
+    }
+
+    /// #236 R3：`latestPastSegment` 不得用 `entries.max()`。
+    ///
+    /// `DateRange.<` 是**相等性用的全序**，其中 `nil` start **排最後**——`.max()`
+    /// 回傳的是「起點未知」那段，不是最近的一段。五條 finding 命中這個誤用。
+    func testMostRecentlyEndedIsNotTheComparatorMax() {
+        let tl = TimelineOf([
+            TemporalValue(value: "old", range: DateRange(start: "1990", end: "1995")),
+            TemporalValue(value: "recent", range: DateRange(start: "2010", end: "2015")),
+            TemporalValue(value: "undated", range: DateRange()),      // nil start → `.max()` 取它
+        ])
+        XCTAssertEqual(tl.entries.max()?.value, "undated",
+                       "前提：`.max()` 走相等性全序，nil start 排最後")
+        XCTAssertEqual(tl.latestPastSegment?.value, "recent",
+                       "**近時判準**要取真正最近結束的那段，不是無日期那段")
+    }
+
+    /// #236 R4：`current` 犯的是與 `latestPastSegment` **一模一樣**的 `.max()` 誤用，
+    /// 而 R3 只修了 fallback 那一支。
+    ///
+    /// `.max()` 走 `DateRange.<`，`nil` start 排最後 → 起點未知的段贏過 `start:2020`
+    /// 的段。後果：一個只有無日期隸屬的人被報成有「現職」，而那個現職是按**值的
+    /// 字母序**選出來的——一個沒有根據的答案，卻長得像事實。
+    func testCurrentPrefersKnownStartOverUnknown() {
+        let tl = TimelineOf([
+            TemporalValue(value: "aaa-undated", range: DateRange()),          // 無 start，仍 open
+            TemporalValue(value: "zzz-since-2020", range: DateRange(start: "2020")),
+        ])
+        XCTAssertEqual(tl.entries.filter(\.range.isOpen).max()?.value, "aaa-undated",
+                       "前提：`.max()` 讓 nil start 勝出（且字母序決勝）")
+        XCTAssertEqual(tl.current?.value, "zzz-since-2020",
+                       "起點未知不能宣稱較晚——doc 寫的是「取 start 最晚的」")
+    }
+
+    /// #236 R4：**觀測點不是結束**。第一版把 `end`／`start`／`attested` 塞進同一個
+    /// 字串比大小，於是「2020 年被看到過」蓋掉「2010 年確實離開」——把「被看到」
+    /// 誤當成「離開了」。
+    func testEndedSegmentOutranksLaterAttestedObservation() {
+        let tl = TimelineOf([
+            TemporalValue(value: "really-ended", range: DateRange(start: "2005", end: "2010")),
+            TemporalValue(value: "only-observed", range: DateRange(attested: ["2020"])),
+        ])
+        XCTAssertEqual(tl.latestPastSegment?.value, "really-ended",
+                       "第 1 層存在時第 3 層不參與——後者根本沒宣稱結束")
+    }
+
+    /// #236 R4 回歸：只有 `endedUnknown`（#63：已結束、時點未知）的段被**整個丟掉**，
+    /// 因為第一版的 `recencyKey` 對它回 `nil`、被 `compactMap` 濾除。
+    ///
+    /// 後果不是少印一行，是 CLI 印出**假話**：43 位退休 PI 會得到
+    /// 「⚠ 無任何區辨欄位」，而 store 裡明明記著他們的隸屬。
+    func testEndedUnknownWithNoDatesIsStillReturned() {
+        var r = DateRange()
+        r.endedUnknown = true
+        let tl = TimelineOf([TemporalValue(value: "retired-pi-affiliation", range: r)])
+        XCTAssertEqual(tl.latestPastSegment?.value, "retired-pi-affiliation",
+                       "已結束但時點未知＝有隸屬資訊，不是沒有")
+    }
+
+    /// 層內同分要**穩定**。先前靠 `max` 的未定行為決勝，兩個 `==` 相等的時間軸
+    /// 會報出不同的隸屬（R4 MEDIUM）。這裡只要求可重現，不宣稱哪一段「較近」。
+    func testTiesAreResolvedDeterministically() {
+        let mk = { TimelineOf([
+            TemporalValue(value: "a", range: DateRange(start: "2000", end: "2010")),
+            TemporalValue(value: "b", range: DateRange(start: "2001", end: "2010")),
+        ]) }
+        let first = mk().latestPastSegment?.value
+        XCTAssertNotNil(first)
+        for _ in 0..<20 {
+            XCTAssertEqual(mk().latestPastSegment?.value, first, "同一輸入必須每次同答案")
+        }
     }
 }

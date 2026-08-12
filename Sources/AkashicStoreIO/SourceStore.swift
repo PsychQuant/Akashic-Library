@@ -102,6 +102,22 @@ public extension LibraryStore {
     @discardableResult
     internal func assertSourcesExcluded(relativePath: String) throws -> Bool {
         guard Self.isInsideVersionedWorkTree(root) else { return false }
+
+        // **這道閘的失效方向是 fail-open（#239）**，與 `filesNotSafelyRecoverable`
+        // 相反：若 git 被導向另一個 repo，而**那個 repo 的 `.git/info/exclude` 或
+        // `core.excludesfile`** 涵蓋該相對路徑，`check-ignore` 回 0、閘放行，第三方
+        // 逐字位元組就寫進一個真實 repo 並**不**排除它的 store，隨下次 commit 外流。
+        // （另一個 repo 的 `.gitignore` **不是**向量——那讀自工作樹，而工作樹跟著 cwd。）
+        //
+        // 防線在 `Self.git` 的環境剝除。曾試圖在此加一道 runtime containment 斷言，
+        // **失敗且已移除**：`rev-parse --show-toplevel` 跟著 cwd 走，`GIT_DIR` 被覆寫
+        // 時它照樣回本地路徑——**恰好在攻擊成功時通過**，比沒有更糟；改用
+        // `--absolute-git-dir` 雖看得見覆寫，卻無法與合法的 `git worktree` 區分
+        // （worktree 的 git dir 本來就在主 repo 底下、不是 store 的祖先）。
+        //
+        // 第二層改由**架構測試**承擔（見 `GitSpawnHygieneTests`）：確保 Sources/ 底下
+        // 每一處 spawn git 都經過剝除環境的 helper。真正的復發風險是「新增呼叫點時
+        // 忘記剝除」，那是靜態可驗的；runtime 再驗一次同一件事只是同語反覆。
         guard let r = Self.git(["check-ignore", "-q", "--", relativePath], in: root) else {
             // git 執行不起來時 fail-closed——「不知道有沒有排除」不等於「排除了」
             throw StoreIOError.invalidInput(

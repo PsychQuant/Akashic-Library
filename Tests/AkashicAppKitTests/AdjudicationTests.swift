@@ -114,4 +114,97 @@ final class AdjudicationTests: XCTestCase {
         try model.refresh()
         XCTAssertTrue(model.items.isEmpty)
     }
+
+    /// #236 R2：**裁決台是唯一還在靜默丟棄歧義的面**——而人就坐在這裡。
+    ///
+    /// CLI 與 MCP 都被接上了，唯獨這裡沒有：使用者看得到唯一命中，卻不知道系統
+    /// 另外找到 N 個**它知道需要人判斷**的位置。這與 #231 要修的是同一件事，
+    /// 只是發生在最不該發生的面。
+    func testAdjudicationSurfacesAmbiguities() throws {
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "amb-one", names: ["Ambi Guous"]))
+        var two = Person(key: "amb-two", names: ["Ambi Guous"])
+        two.orcid = "0000-0002-0000-0000"
+        try store.writePerson(two)
+        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: "article",
+                                   title: "X", authors: [.literal("Ambi Guous")]))
+        try state.load()
+
+        let model = PeopleResolveModel(state: state)
+        XCTAssertEqual(model.ambiguities.count, 1,
+                       "裁決台必須看得到歧義——它是唯一有人能解決它的地方")
+        XCTAssertEqual(model.ambiguities.first?.personKeys, ["amb-one", "amb-two"])
+
+        // 區辨欄位要拿得到，否則人也判不了
+        let d = model.discriminators(for: "amb-two")
+        XCTAssertEqual(d.orcid, "0000-0002-0000-0000")
+        XCTAssertEqual(d.names, ["Ambi Guous"])
+
+        // 歧義**不得**混進可 accept 的候選
+        XCTAssertFalse(model.candidates.contains { $0.citekey == "amb2020x" },
+                       "歧義套用不了——型別層就吃不進 apply")
+    }
+
+    /// #236 R4：**觀測點不是終止日期**。裁決台先前對三種時間狀態一律套 `（–X）`，
+    /// 於是「2020 年被看到在這裡」被印成「2020 年結束」——那是捏造，而且捏造的正是
+    /// 使用者要拿來判斷「這兩個同名的人是不是同一個」的那個欄位。
+    ///
+    /// CLI（`rangeLabel`）與 MCP（`formerAffiliationAttested`）都分得開，只有這一面沒有。
+    func testAdjudicationDistinguishesThreePastTimeStates() throws {
+        var seq = 0
+        func aff(_ range: DateRange) throws -> String {
+            seq += 1
+            let key = "past-person-\(seq)"
+            var p = Person(key: key, names: ["Past Person \(seq)"])
+            p.profile.affiliations = TimelineOf([
+                TemporalValue(value: OrgRef.literal("Some Lab"), range: range)
+            ])
+            try LibraryStore(root: root).writePerson(p)
+            try state.load()
+            return PeopleResolveModel(state: state).discriminators(for: key).affiliation ?? ""
+        }
+
+        let ended = try aff(DateRange(start: "2005", end: "2015"))
+        XCTAssertTrue(ended.contains("–2015"), "確實結束 → 印終止日期：\(ended)")
+
+        var unknown = DateRange(start: "2005")
+        unknown.endedUnknown = true
+        let u = try aff(unknown)
+        XCTAssertTrue(u.contains("時點未知"), "#63 已結束但不知何時 → 明說未知：\(u)")
+        XCTAssertFalse(u.contains("–2005"), "start 不是 end，不得印成終止：\(u)")
+
+        let observed = try aff(DateRange(attested: ["2020"]))
+        XCTAssertTrue(observed.contains("觀測"), "#70 只有觀測點 → 標成觀測：\(observed)")
+        XCTAssertFalse(observed.contains("–2020"),
+                       "**不得**印成終止——沒有任何資料主張他 2020 年離開：\(observed)")
+    }
+
+    /// #236 R4：**一篇文獻可以有多個歧義作者／多個候選作者**，所以 `entryID` 與
+    /// `citekey` 單獨都不是唯一識別。
+    ///
+    /// 裁決台的 `ForEach(id:)` 先前分別綁 `\.entryID` 與 `\.citekey`——SwiftUI 對重複
+    /// 識別的行為是掉列或錯配，而錯配的那半是**帶 Accept 按鈕的**：按鈕可能套用到
+    /// 不是畫面上那一列的候選。
+    func testRowIDsAreUniqueWhenOneEntryHasSeveralAmbiguousAuthors() throws {
+        let store = LibraryStore(root: root)
+        for k in ["dup-a1", "dup-a2"] { try store.writePerson(Person(key: k, names: ["Dup One"])) }
+        for k in ["dup-b1", "dup-b2"] { try store.writePerson(Person(key: k, names: ["Dup Two"])) }
+        try store.writePerson(Person(key: "solo-x", names: ["Solo X"]))
+        try store.writePerson(Person(key: "solo-y", names: ["Solo Y"]))
+        // 一筆 entry：兩個歧義作者 + 兩個唯一命中的候選作者
+        try store.writeEntry(Entry(id: UUID(), citekey: "multi2020", type: "article", title: "T",
+                                   authors: [.literal("Dup One"), .literal("Dup Two"),
+                                             .literal("Solo X"), .literal("Solo Y")]))
+        try state.load()
+        let model = PeopleResolveModel(state: state)
+
+        let ambIDs = model.ambiguities.map(\.rowID)
+        XCTAssertEqual(ambIDs.count, 2, "前提：同一筆 entry 要有兩個歧義作者")
+        XCTAssertEqual(Set(ambIDs).count, 2, "兩列同 ID → SwiftUI 掉列：\(ambIDs)")
+
+        let candIDs = model.candidates.filter { $0.citekey == "multi2020" }.map(\.rowID)
+        XCTAssertEqual(candIDs.count, 2, "前提：同一筆 entry 要有兩個候選作者")
+        XCTAssertEqual(Set(candIDs).count, 2,
+                       "候選那半更危險——錯配的列帶著 Accept 按鈕：\(candIDs)")
+    }
 }

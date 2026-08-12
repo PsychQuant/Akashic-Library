@@ -23,7 +23,7 @@ struct PeopleResolveView: View {
                     // `continue` 在效果上完全相同，只是位置更難察覺。
                     if !model.ambiguities.isEmpty {
                         Section("需要你判斷（\(model.ambiguities.count)）") {
-                            ForEach(model.ambiguities, id: \.entryID) { a in
+                            ForEach(model.ambiguities, id: \.rowID) { a in
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("「\(displaySafe(a.literal, max: 200))」 對到 \(a.personKeys.count) 個人")
                                         .font(.callout.weight(.medium))
@@ -53,7 +53,7 @@ struct PeopleResolveView: View {
                         }
                     }
                     Section("可套用候選（\(model.candidates.count)）") {
-                    ForEach(model.candidates, id: \.citekey) { candidate in
+                    ForEach(model.candidates, id: \.rowID) { candidate in
                         HStack {
                             VStack(alignment: .leading) {
                                 // **exempt 是整行生效**（#161 verify 181-2）：先前

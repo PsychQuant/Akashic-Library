@@ -114,7 +114,7 @@ public final class PeopleResolveModel {
         refresh()
     }
 
-    private func id(of c: ResolutionCandidate) -> String { "\(c.citekey):\(c.authorIndex)" }
+    private func id(of c: ResolutionCandidate) -> String { c.rowID }   // 複合鍵住在型別上（#236 R4）
 }
 
 public enum AdjudicationError: Error, LocalizedError, Equatable {

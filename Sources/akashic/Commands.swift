@@ -564,6 +564,15 @@ enum AmbiguityDisplayLimit {
     static let refs = 20
     /// 每人印幾個異名。丟掉的必須數出來——見 `namesLabel`。
     static let names = 4
+    /// 歧義段的**位元組**上限（#236 R4）。
+    ///
+    /// 列數（`rows`）與 ref 數（`refs`）都是計數，而 `literal`／`key`／隸屬名各自
+    /// 可以吃滿自己的 `max:`，再被 `displaySafe` 膨脹 8 倍——席位實測列數與 ref 上限
+    /// 都在的情況下仍產出 **3,844,596 bytes**（org 側 447,377）。
+    ///
+    /// 128 KB：終端機可捲、但不會把 scrollback 沖掉。與 MCP 的 48 KB 不同值是刻意的
+    /// ——那邊的消費端是 LLM context（更貴），這邊是人的終端機。
+    static let bytes = 128 * 1024
 }
 
 /// 印一個人的異名，**丟掉的要說出來**（#236 R4）。
@@ -652,11 +661,12 @@ struct ResolveOrganizations: ParsableCommand {
             let byKey = Dictionary(load.organizations.map { ($0.key, $0) },
                                    uniquingKeysWith: { a, _ in a })
             print("")
-            let shownOrg = Array(orgReport.ambiguities.prefix(AmbiguityDisplayLimit.rows))
-            print("歧義（\(orgReport.ambiguities.count)"
-                  + (orgReport.ambiguities.count > shownOrg.count ? "，以下顯示前 \(shownOrg.count) 筆" : "")
-                  + "）——同一個 literal 對到 2+ 個 org，**需要人判斷**：")
-            for a in shownOrg {
+            // 位元組預算，同 person 側（#236 R4：org 側實測 447,377 bytes）
+            let cappedOrg = Array(orgReport.ambiguities.prefix(AmbiguityDisplayLimit.rows))
+            var orgLines: [String] = []
+            var orgBytes = 0
+            var orgBudgetDropped = 0
+            for a in cappedOrg {
                 // **段的效期要印**——同一 holder 的多段同名 literal 否則長得一模一樣，
                 // 使用者無法按時段分別判給不同機構（#236 R1）。
                 // **四個欄位都要看**（#236 R2，5 個 finding 命中同一處）。只讀
@@ -665,20 +675,41 @@ struct ResolveOrganizations: ParsableCommand {
                 // `attested`（#70：只有觀測點、起訖皆不明）同樣被吃掉。
                 // repo 對這個塌縮有明文事故紀錄——那正是 #63／#70 存在的理由。
                 let span = rangeLabel(a.range)   // display-safe-exempt: rangeLabel 內部已消毒；displaySafe 不冪等，不得再包
-                print("  \(label(a.holder)) 「\(displaySafe(a.literal, max: 200))」\(span)")
+                var row: [String] = []
+                row.append("  \(label(a.holder)) 「\(displaySafe(a.literal, max: 200))」\(span)")
                 if a.orgKeys.count > AmbiguityDisplayLimit.refs {
-                    print("      （\(a.orgKeys.count) 個候選，以下顯示前 \(AmbiguityDisplayLimit.refs) 個）")
+                    row.append("      （\(a.orgKeys.count) 個候選，以下顯示前 \(AmbiguityDisplayLimit.refs) 個）")
                 }
                 for (n, k) in a.orgKeys.prefix(AmbiguityDisplayLimit.refs).enumerated() {
                     let o = byKey[k]
                     let founded = o?.founded.map { "  成立:\(displaySafe($0, max: 20))" } ?? ""
                     let dissolved = o?.dissolved.map { "  解散:\(displaySafe($0, max: 20))" } ?? ""
                     let name = o?.displayName ?? k
-                    print("      \(n + 1). \(displaySafe(k, max: 200))  [\(displaySafe(name, max: 200))]\(founded)\(dissolved)")
+                    row.append("      \(n + 1). \(displaySafe(k, max: 200))  [\(displaySafe(name, max: 200))]\(founded)\(dissolved)")
+                }
+                let cost = row.reduce(0) { $0 + $1.utf8.count + 1 }
+                if orgBytes + cost <= AmbiguityDisplayLimit.bytes {
+                    orgBytes += cost
+                    orgLines.append(contentsOf: row)
+                } else {
+                    orgBudgetDropped += 1   // 吃不下的整列不印，不留半截
                 }
             }
-            if orgReport.ambiguities.count > shownOrg.count {
-                print("  …另 \(orgReport.ambiguities.count - shownOrg.count) 筆未顯示")
+            let orgShownCount = cappedOrg.count - orgBudgetDropped
+            let orgHeadline: String   // 同 person 側：預算跳過過大的列時，顯示的不是前綴
+            if orgReport.ambiguities.count <= orgShownCount { orgHeadline = "" }
+            else if orgBudgetDropped > 0 { orgHeadline = "，以下顯示 \(orgShownCount) 筆（非前綴：過大的整筆略過）" }
+            else { orgHeadline = "，以下顯示前 \(orgShownCount) 筆" }
+            print("歧義（\(orgReport.ambiguities.count)\(orgHeadline)）"
+                  + "——同一個 literal 對到 2+ 個 org，**需要人判斷**：")
+            for l in orgLines { print(l) }
+            let orgHidden = orgReport.ambiguities.count - orgShownCount
+            if orgHidden > 0 {
+                let byRows = orgReport.ambiguities.count - cappedOrg.count
+                var why: [String] = []
+                if byRows > 0 { why.append("\(byRows) 筆超過列數上限") }
+                if orgBudgetDropped > 0 { why.append("\(orgBudgetDropped) 筆內容過大、吃不下輸出預算") }
+                print("  …另 \(orgHidden) 筆未顯示（\(why.joined(separator: "；"))）")
             }
             print("  兩種可能，處置相反：同名的不同機構＝各自歸戶（永不合併）；同一機構兩筆＝該合併。")
         }
@@ -963,18 +994,35 @@ struct ResolvePeople: ParsableCommand {
             // **CLI 也要有上限**（#236 R2）。先前只給 MCP 加，而終端機灌爆的威脅
             // repo 自己有明文（`TerminalOutputSafetyTests`）——修一個面就宣稱這一類
             // 關掉了，正是本 PR 前一輪被抓的形狀。
-            let shownAmbig = Array(report.ambiguities.prefix(AmbiguityDisplayLimit.rows))
-            print("歧義（\(report.ambiguities.count)"
-                  + (report.ambiguities.count > shownAmbig.count ? "，以下顯示前 \(shownAmbig.count) 筆" : "")
-                  + "）——同一個 literal 對到 2+ 個 person，**需要人判斷**：")
-            for a in shownAmbig {
+            let capped = Array(report.ambiguities.prefix(AmbiguityDisplayLimit.rows))
+            // **列數上限擋不住內容**（#236 R4）。R2 加了列數與 ref 兩軸，實測仍可產出
+            // **3,844,596 bytes**——`literal`／`key`／隸屬名各自可到 `max:` 上限，而
+            // `displaySafe` 是 8 倍膨脹器。與 MCP 那半同一個結論：計數上限追不上內容，
+            // **位元組預算是唯一與內容無關的界**。
+            //
+            // 逐列累加：吃不下的整列不印（不留半截的歧義），並在結尾說出丟了幾筆。
+            var lines: [String] = []
+            var bytes = 0
+            var budgetDropped = 0
+            func emit(_ rows: [String]) -> Bool {
+                let cost = rows.reduce(0) { $0 + $1.utf8.count + 1 }
+                guard bytes + cost <= AmbiguityDisplayLimit.bytes else {
+                    budgetDropped += 1
+                    return false
+                }
+                bytes += cost
+                lines.append(contentsOf: rows)
+                return true
+            }
+            for a in capped {
                 // **印 entryID**（#236 R2）：重複 citekey 是被支援的損壞態，此時兩筆
                 // 歧義在 `(citekey, authorIndex)` 上逐位元組相同。MCP 帶了它、CLI 沒帶
                 // ——而 CLI 才是人真正在讀的那個面。
-                print("  \(displaySafe(a.citekey, max: 200))[\(a.authorIndex)] 「\(displaySafe(a.literal, max: 200))」"
-                      + "  entry:\(a.entryID.uuidString.prefix(8))")
+                var row: [String] = []
+                row.append("  \(displaySafe(a.citekey, max: 200))[\(a.authorIndex)] 「\(displaySafe(a.literal, max: 200))」"
+                           + "  entry:\(a.entryID.uuidString.prefix(8))")
                 if a.personKeys.count > AmbiguityDisplayLimit.refs {
-                    print("      （\(a.personKeys.count) 個候選，以下顯示前 \(AmbiguityDisplayLimit.refs) 個）")
+                    row.append("      （\(a.personKeys.count) 個候選，以下顯示前 \(AmbiguityDisplayLimit.refs) 個）")
                 }
                 // **加列內序號**（#236 R3）：`displaySafe` 會截斷，兩個共用長前綴的
                 // 合法 key 可以印得**逐位元組相同**。序號讓人至少知道這是兩個不同的
@@ -1001,14 +1049,34 @@ struct ResolvePeople: ParsableCommand {
                     }
                     let names = namesLabel(p?.names ?? [])   // display-safe-exempt: namesLabel 內部已消毒（displaySafe 不冪等，不得再包）
                     let extra = bits.isEmpty ? "  ⚠ 無任何區辨欄位" : "  " + bits.joined(separator: "  ")
-                    print("      \(n + 1). \(displaySafe(k, max: 200))  [\(names)]\(extra)")
+                    row.append("      \(n + 1). \(displaySafe(k, max: 200))  [\(names)]\(extra)")
                 }
+                _ = emit(row)
             }
-            if report.ambiguities.count > shownAmbig.count {
+            let shownCount = capped.count - budgetDropped
+            // **「前 N 筆」與「N 筆」不是同一句話。** 只有列數上限生效時，顯示的確實
+            // 是前綴；位元組預算會**跳過**過大的列而繼續收後面較小的，那時它不是前綴，
+            // 說「前 N 筆」就是假的。（不改成「遇到第一筆放不下就停」是因為：單獨一筆
+            // 就超過整個預算時，那會讓報告變成空的。）
+            let headline: String
+            if report.ambiguities.count <= shownCount { headline = "" }
+            else if budgetDropped > 0 { headline = "，以下顯示 \(shownCount) 筆（非前綴：過大的整筆略過）" }
+            else { headline = "，以下顯示前 \(shownCount) 筆" }
+            print("歧義（\(report.ambiguities.count)\(headline)）"
+                  + "——同一個 literal 對到 2+ 個 person，**需要人判斷**：")
+            for l in lines { print(l) }
+            let hidden = report.ambiguities.count - shownCount
+            if hidden > 0 {
+                // **兩種丟棄要分開講**：超過列數上限，與內容吃爆位元組預算，對使用者
+                // 的意義不同——後者表示「就算提高列數也看不到，那幾筆本身太大」。
+                let byRows = report.ambiguities.count - capped.count
+                var why: [String] = []
+                if byRows > 0 { why.append("\(byRows) 筆超過列數上限") }
+                if budgetDropped > 0 { why.append("\(budgetDropped) 筆內容過大、吃不下輸出預算") }
                 // **不要指不存在的旋鈕**（#236 R3）：`resolve-people` 沒有 `--json`，
                 // 也沒有分頁。指路只能指呼叫端真的有的東西——假的建議比沒有建議更糟。
-                print("  …另 \(report.ambiguities.count - shownAmbig.count) 筆未顯示"
-                      + "（目前沒有取回全部的旋鈕；縮小 store 範圍或先處理已列出的）")
+                print("  …另 \(hidden) 筆未顯示（\(why.joined(separator: "；"))；"
+                      + "目前沒有取回全部的旋鈕，縮小 store 範圍或先處理已列出的）")
             }
             print("  兩種可能，處置相反：同名的不同人＝各自歸屬（永不合併）；同一人兩筆＝該合併。")
         }

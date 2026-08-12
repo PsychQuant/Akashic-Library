@@ -82,6 +82,44 @@ final class ResolveAmbiguityCLITests: XCTestCase {
                       "要說明兩種可能的處置相反，否則讀的人不知道要做什麼：\n\(r.output)")
     }
 
+    /// **列數上限擋不住內容**（#236 R4）。
+    ///
+    /// R2 給 CLI 加了列數與 ref 兩軸，都是**計數**。席位用真 binary 實測：兩軸都在的
+    /// 情況下仍產出 **3,844,596 bytes**——`literal`／`key`／隸屬名各自吃滿自己的
+    /// `max:`，再被 `displaySafe` 膨脹 8 倍。
+    ///
+    /// **必須用會膨脹的字元**：純 ASCII 不會膨脹（`displaySafe` 只逃脫 C0/C1/LS/PS/
+    /// bidi/BOM/反斜線），用 `"x"` 建出來的 store 量到的數字對這條斷言毫無約束——
+    /// 那是本檔 R3 踩過的坑。
+    func testAmbiguitySectionIsByteBounded() throws {
+        // **每列的 ref 數也要吃滿**（上限 20）：第一版只給每個名字 2 個人，無預算時
+        // 只到 153,837 bytes，於是 256 KB 的斷言在變異下仍是綠的——那個界什麼都沒約束。
+        // 席位的 3.8 MB 來自「列數 × 每列 ref 數 × 每個 ref 的區辨欄位」三者相乘。
+        let long = String(repeating: "\u{202E}", count: 200)
+        for i in 0..<20 {
+            let nm = "\(long)-flood-\(i)"
+            for s in 0..<20 {
+                var p = Person(key: "flood-\(i)-\(s)", names: (0..<4).map { "\(long)-\(i)-\(s)-\($0)" })
+                p.names.append(nm)                       // 撞在一起的那個名字
+                try store.writePerson(p)
+            }
+            try store.writeEntry(Entry(id: UUID(), citekey: "flood\(i)", type: "article",
+                                       title: "T", authors: [.literal(nm)], date: "2020"))
+        }
+
+        let r = try runCLI(["resolve-people"])
+        XCTAssertEqual(r.status, 0, String(r.output.prefix(400)))
+        // 界貼著預算（128 KB）+ 表頭表尾，不是隨手挑一個大數字——寬鬆的界會讓
+        // 這條斷言在「預算被拿掉」時仍然綠（第一版就是這樣）。
+        XCTAssertLessThan(r.output.utf8.count, 140 * 1024,
+                          "歧義段必須有位元組界——席位實測未設限時 3,844,596 bytes。"
+                          + "實際 \(r.output.utf8.count) bytes")
+        // 前提：這個 store 真的撐爆了預算，否則上面那條斷言什麼都沒約束到
+        XCTAssertTrue(r.output.contains("吃不下輸出預算"),
+                      "被預算擋掉時要明說，而且要與『超過列數上限』分開講：\n"
+                      + String(r.output.suffix(400)))
+    }
+
     /// 異名被截斷時要**數出來**（#236 R4）。
     ///
     /// 先前是 `prefix(4)` 靜默截斷：「只有四個異名」與「有七個、你看到四個」在終端上
@@ -146,6 +184,35 @@ final class ResolveAmbiguityCLITests: XCTestCase {
 
     /// org 側同形，且 **`holder` 必須印**——同一個 literal 可能住在 person 的
     /// affiliations，也可能住在另一個 org 的 parents（#166）。
+    /// org 側的位元組界（#236 R4：席位實測未設限時 447,377 bytes）。
+    ///
+    /// 分開寫而不是「相信 person 側測過了」——席位同一輪抓到「org 側的歧義顯示整片
+    /// 零覆蓋：四項一起拿掉，1295 條全綠」。同型的兩個面各自需要自己的守衛。
+    func testOrgAmbiguitySectionIsByteBounded() throws {
+        let long = String(repeating: "\u{202E}", count: 200)
+        for i in 0..<20 {
+            let nm = "\(long)-org-\(i)"
+            for s in 0..<20 {
+                var o = Organization(key: "flood-org-\(i)-\(s)")
+                o.names = TimelineOf([TemporalValue(value: nm, range: DateRange())])
+                try store.writeOrganization(o)
+            }
+            var p = Person(key: "holder-\(i)", names: ["Holder \(i)"])
+            p.profile.affiliations = TimelineOf([
+                TemporalValue(value: OrgRef.literal(nm), range: DateRange())
+            ])
+            try store.writePerson(p)
+        }
+
+        let r = try runCLI(["resolve-organizations"])
+        XCTAssertEqual(r.status, 0, String(r.output.prefix(400)))
+        XCTAssertLessThan(r.output.utf8.count, 140 * 1024,
+                          "org 側同樣要有位元組界。實際 \(r.output.utf8.count) bytes")
+        XCTAssertTrue(r.output.contains("吃不下輸出預算"),
+                      "前提：這個 store 真的撐爆預算，否則上面那條沒約束到東西：\n"
+                      + String(r.output.suffix(300)))
+    }
+
     func testResolveOrganizationsPrintsAmbiguitySectionWithHolder() throws {
         for k in ["org-a", "org-b"] {
             var o = Organization(key: k)

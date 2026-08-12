@@ -16,6 +16,17 @@ public struct ResolutionCandidate: Equatable {
         self.personKey = personKey
         self.reason = reason
     }
+
+    /// 這筆候選在一次解析內的唯一識別：`"<citekey>:<authorIndex>"`。
+    ///
+    /// **`citekey` 單獨不唯一**——同一篇文獻可以有多個 literal 作者各自出候選。
+    /// 這個複合鍵先前在三個地方各寫一次（MCP 的 `withIDs`、AppKit 的 `id(of:)`、
+    /// 以及 `--apply` 的解析），而 App 的 `ForEach(id: \.citekey)` **漏掉了**——
+    /// 於是一篇兩個候選作者的文獻在 SwiftUI 產生兩列同 ID，掉列或錯配（#236 R4）。
+    ///
+    /// 定義在型別上而非各呼叫端：三份拷貝總有一天分岔，而這次分岔的方式是
+    /// 「其中一個呼叫端根本沒複製」。
+    public var rowID: String { "\(citekey):\(authorIndex)" }
 }
 
 /// 同一個 literal 在同一個作者位置對到 **2+ 個 person**——系統知道自己遇到了決定點。
@@ -70,6 +81,13 @@ public struct AmbiguousMatch: Equatable {
         self.literal = literal
         self.personKeys = personKeys.sorted()
     }
+
+    /// 這筆歧義的唯一識別：`"<entryID>:<authorIndex>"`。
+    ///
+    /// **`entryID` 單獨不唯一**——一篇論文可以有兩個歧義作者。App 的
+    /// `ForEach(id: \.entryID)` 因此在那種 entry 上產生重複 ID，SwiftUI 對重複
+    /// 識別的行為是掉列／錯配（#236 R4）。同 `ResolutionCandidate.rowID` 的理由。
+    public var rowID: String { "\(entryID.uuidString):\(authorIndex)" }
 }
 
 /// 一次解析的完整結果。

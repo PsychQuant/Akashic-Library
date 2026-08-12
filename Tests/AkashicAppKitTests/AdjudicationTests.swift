@@ -178,4 +178,33 @@ final class AdjudicationTests: XCTestCase {
         XCTAssertFalse(observed.contains("–2020"),
                        "**不得**印成終止——沒有任何資料主張他 2020 年離開：\(observed)")
     }
+
+    /// #236 R4：**一篇文獻可以有多個歧義作者／多個候選作者**，所以 `entryID` 與
+    /// `citekey` 單獨都不是唯一識別。
+    ///
+    /// 裁決台的 `ForEach(id:)` 先前分別綁 `\.entryID` 與 `\.citekey`——SwiftUI 對重複
+    /// 識別的行為是掉列或錯配，而錯配的那半是**帶 Accept 按鈕的**：按鈕可能套用到
+    /// 不是畫面上那一列的候選。
+    func testRowIDsAreUniqueWhenOneEntryHasSeveralAmbiguousAuthors() throws {
+        let store = LibraryStore(root: root)
+        for k in ["dup-a1", "dup-a2"] { try store.writePerson(Person(key: k, names: ["Dup One"])) }
+        for k in ["dup-b1", "dup-b2"] { try store.writePerson(Person(key: k, names: ["Dup Two"])) }
+        try store.writePerson(Person(key: "solo-x", names: ["Solo X"]))
+        try store.writePerson(Person(key: "solo-y", names: ["Solo Y"]))
+        // 一筆 entry：兩個歧義作者 + 兩個唯一命中的候選作者
+        try store.writeEntry(Entry(id: UUID(), citekey: "multi2020", type: "article", title: "T",
+                                   authors: [.literal("Dup One"), .literal("Dup Two"),
+                                             .literal("Solo X"), .literal("Solo Y")]))
+        try state.load()
+        let model = PeopleResolveModel(state: state)
+
+        let ambIDs = model.ambiguities.map(\.rowID)
+        XCTAssertEqual(ambIDs.count, 2, "前提：同一筆 entry 要有兩個歧義作者")
+        XCTAssertEqual(Set(ambIDs).count, 2, "兩列同 ID → SwiftUI 掉列：\(ambIDs)")
+
+        let candIDs = model.candidates.filter { $0.citekey == "multi2020" }.map(\.rowID)
+        XCTAssertEqual(candIDs.count, 2, "前提：同一筆 entry 要有兩個候選作者")
+        XCTAssertEqual(Set(candIDs).count, 2,
+                       "候選那半更危險——錯配的列帶著 Accept 按鈕：\(candIDs)")
+    }
 }

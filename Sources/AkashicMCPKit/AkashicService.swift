@@ -616,7 +616,7 @@ public final class AkashicService {
         let report = PersonResolver.resolve(entries: load.entries, people: load.people)
         let candidates = report.candidates
         let withIDs = candidates.map { c -> (id: String, candidate: ResolutionCandidate) in
-            ("\(c.citekey):\(c.authorIndex)", c)
+            (c.rowID, c)   // 複合鍵住在型別上（#236 R4）
         }
         guard let selected = apply else {
             // **#231：回應形狀由「候選陣列」改為物件。** 歧義（同一 literal 對到 2+ 人）

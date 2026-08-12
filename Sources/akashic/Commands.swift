@@ -427,13 +427,36 @@ struct BootstrapPeople: ParsableCommand {
     func run() throws {
         let store = try options.openStore()
         let load = try store.load()
-        var cands = PersonBootstrap.candidates(entries: load.entries, existing: load.people)
-            .filter { $0.occurrences >= minOccurrences }
+        let report = PersonBootstrap.resolve(entries: load.entries, existing: load.people)
+        var cands = report.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }
 
+        /// 產不出 ASCII key 的那些**必須被印出來**（#238）。
+        ///
+        /// 舊版把它們 `compactMap` 掉——實測真實 store 有 49 個作者位置就這樣消失，
+        /// 使用者以為那些作者不存在。**回報而非丟棄**，而回報的前提是真的有人印它：
+        /// 只在 model 端加欄位而沒有任何輸出讀它，與丟棄在效果上完全相同（#236 R3
+        /// 在 App 面踩過這個坑，位置更難察覺）。
+        func printUnkeyable() {
+            let shown = report.unkeyable.filter { $0.occurrences >= minOccurrences }
+            guard !shown.isEmpty else { return }
+            print("")
+            print("產不出 key、**需要你指定**（\(shown.count)）——不是不存在，是機器不該猜：")
+            for u in shown.prefix(AmbiguityDisplayLimit.rows) {
+                let aliases = u.names.map { displaySafe($0, max: 200) }.joined(separator: " ≡ ")
+                print("  ×\(u.occurrences)  \(aliases)")
+                print("      \(displaySafe(u.reason, max: 200))")
+            }
+            if shown.count > AmbiguityDisplayLimit.rows {
+                print("  …另 \(shown.count - AmbiguityDisplayLimit.rows) 筆未顯示")
+            }
+            print("  處置：用 akashic person add 指定 key（例如羅馬化或機構慣用寫法）。")
+        }
+
         guard !cands.isEmpty else {
             print("無候選（literal 作者皆已有對應 person，或全部低於門檻）")
+            printUnkeyable()   // 沒有候選時，這些**更**該被看見
             return
         }
         for c in cands.prefix(apply ? 0 : 20) {
@@ -442,6 +465,7 @@ struct BootstrapPeople: ParsableCommand {
         }
         if !apply {
             if total > 20 { print("  …共 \(total) 個（只列前 20）") }
+            printUnkeyable()
             print("（只列候選；要建立加 --apply）")
             return
         }
@@ -452,6 +476,7 @@ struct BootstrapPeople: ParsableCommand {
         }
         _ = try LibraryIndex(store: store).rebuild()
         print("✓ 建立 \(written) 個 person（共 \(total) 個候選）、index 已重建")
+        printUnkeyable()
         print("  下一步：akashic resolve-people 把 entries 的 literal 歸戶")
     }
 }

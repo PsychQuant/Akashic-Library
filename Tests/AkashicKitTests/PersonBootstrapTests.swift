@@ -110,6 +110,53 @@ final class PersonBootstrapTests: XCTestCase {
         XCTAssertEqual(cs.map(\.occurrences), [2, 1])
     }
 
+    // MARK: - 產不出 ASCII key 的作者（#238）
+
+    /// **變音符號的歐洲名是直接的 bug，不是限制。**
+    ///
+    /// `StoreKey.pattern` 是純 ASCII，而 `PersonBootstrap.slug` 保留任何 Unicode 字母，
+    /// 於是 `Jörg` → `jörg` → `isValid` 失敗 → 整組候選被 `compactMap` **靜默丟棄**。
+    ///
+    /// 而解法**已經在 repo 裡**：`Citekey.slug` 做 `.diacriticInsensitive` 摺疊。
+    /// 同一個 repo 有兩份 slug、行為不同，這是其中一份沒跟上。
+    func testDiacriticNamesProduceASCIIKeys() {
+        let cs = PersonBootstrap.candidates(
+            entries: [entry("a", ["Jörg Müller"]),
+                      entry("b", ["Hans Schneeweiß"]),
+                      entry("c", ["Patricia É. Brosseau-Liard"])],
+            existing: [])
+        XCTAssertEqual(cs.count, 3, "三個歐洲名都該產得出 key，實際：\(cs.map(\.key))")
+        for c in cs {
+            XCTAssertTrue(StoreKey.isValid(c.key),
+                          "key「\(c.key)」不符 StoreKey——摺疊沒做乾淨")
+        }
+    }
+
+    /// **CJK 是機械上無解，所以正確處置是「回報」不是「丟棄」。**
+    ///
+    /// `陳君厚` 沒有唯一正確的羅馬化——機器不該猜。但**靜默消失**與「需要你指定 key」
+    /// 是兩件完全不同的事：前者讓使用者以為那些作者不存在。
+    ///
+    /// 這與 #231 是同一個形狀：系統知道自己遇到了決定點，然後把那個知識丟掉。
+    func testUnkeyableNamesAreReportedNotDropped() {
+        let r = PersonBootstrap.resolve(
+            entries: [entry("a", ["陳君厚"]), entry("b", ["Che Cheng"])],
+            existing: [])
+        XCTAssertEqual(r.candidates.map(\.key), ["cheng-che"],
+                       "產得出 key 的照常出候選")
+        XCTAssertEqual(r.unkeyable.map(\.names), [["陳君厚"]],
+                       "產不出 key 的必須被回報，不是消失：\(r.unkeyable)")
+        XCTAssertEqual(r.unkeyable.first?.occurrences, 1)
+    }
+
+    /// `candidates()` 是 `resolve()` 的 thin wrapper——**不寫第二支遍歷**。
+    /// 兩支會分岔，而分岔的方式通常是其中一支忘了某個排除條件。
+    func testCandidatesIsAThinWrapperOverResolve() {
+        let es = [entry("a", ["陳君厚"]), entry("b", ["Che Cheng"]), entry("c", ["Jörg Müller"])]
+        XCTAssertEqual(PersonBootstrap.candidates(entries: es, existing: []),
+                       PersonBootstrap.resolve(entries: es, existing: []).candidates)
+    }
+
     /// 產出的 Person 直接可寫——names 就是這一組的所有寫法。
     func testPersonsForProducesUsableRecords() {
         let cs = PersonBootstrap.candidates(

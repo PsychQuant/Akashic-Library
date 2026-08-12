@@ -1,0 +1,2484 @@
+schema_version: 1
+volume: "2"
+propositions:
+  - id: "2"
+    texts:
+      de:
+        - "Was der Fall ist, die Tatsache, ist das Bestehen von Sachverhalten."
+      en_ogden_ramsey_1922:
+        - "What is the case, the fact, is the existence of atomic facts."
+    edition_references:
+      en_pears_mcguinness: "2"
+    segments:
+      - id: "2.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "事情之所以如此，即事實，就是事態的成立。"
+        interpretation_zh_tw: "本句把 Tatsache（事實）分析為 Sachverhalte（事態）的成立；Ogden／Ramsey 的 atomic facts 在此對應 Sachverhalte，不應與上位的 Tatsache 混作同一術語。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 的設計文件借用事態／事實之分，作為區分可表現配置與實際成立內容的概念工具。"
+        rationale_zh_tw: "這是明載來源的工程詮釋，不表示專案重建了《邏輯哲學論》的完整本體論。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "### 1.2 Tatsache 與 Sachverhalt 不宜混譯"
+            note_zh_tw: "此節明確區分 Tatsache／事實與 Sachverhalt／事態。"
+    history: []
+
+  - id: "2.01"
+    parent: "2"
+    texts:
+      de:
+        - "Der Sachverhalt ist eine Verbindung von Gegenständen."
+        - "(Sachen, Dingen.)"
+      en_ogden_ramsey_1922:
+        - "An atomic fact is a combination of objects (entities, things)."
+    edition_references:
+      en_pears_mcguinness: "2.01"
+    segments:
+      - id: "2.01.a"
+        alignment:
+          de: [0, 1]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "事態是對象（物、事物）的結合。"
+        interpretation_zh_tw: "Sachverhalt 譯為「事態」，Gegenstände 譯為「對象」；Ogden／Ramsey 在此以 atomic fact 與 entities 譯出，但其 entity 並非 Akashic 資料模型中的 entity。"
+    project_relations:
+      - status: rejected
+        mode: refusal
+        claim_zh_tw: "Akashic 明確拒絕把自己的 entity 記錄等同於本句的簡單對象。"
+        rationale_zh_tw: "Akashic entity 是有欄位、來源與變更史的複合記錄；若把它冒充 Tractatus 的 Gegenstand，會抹去兩者的型別與哲學層級差異。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "### 質疑一：Akashic entity 不是《邏輯哲學論》的 simple object"
+            note_zh_tw: "此節逐字明載兩者不相等。"
+    history: []
+
+  - id: "2.011"
+    parent: "2.01"
+    texts:
+      de:
+        - "Es ist dem Ding wesentlich, der Bestandteil eines Sachverhaltes sein zu können."
+      en_ogden_ramsey_1922:
+        - "It is essential to a thing that it can be a constituent part of an atomic fact."
+    edition_references:
+      en_pears_mcguinness: "2.011"
+    segments:
+      - id: "2.011.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "一個物能成為某個事態的構成部分，乃是它的本質。"
+        interpretation_zh_tw: "對象並非先有一個完全孤立的本質，再偶然進入事態；可結合性已屬於它之所以是該對象的條件。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "本專案沒有把任何資料型別宣告為必然能進入事態的 Tractatus 簡單對象。"
+        rationale_zh_tw: "Akashic 的型別可因規格演進而增加或移除關係欄位，這種可修改的工程能力不能充當本句所說的本質可能性。"
+    history: []
+
+  - id: "2.012"
+    parent: "2.01"
+    texts:
+      de:
+        - "In der Logik ist nichts zufällig: Wenn das Ding im Sachverhalt vorkommen *kann*, so muss die Möglichkeit des Sachverhaltes im Ding bereits präjudiziert sein."
+      en_ogden_ramsey_1922:
+        - "In logic nothing is accidental: if a thing *can* occur in an atomic fact the possibility of that atomic fact must already be prejudged in the thing."
+    edition_references:
+      en_pears_mcguinness: "2.012"
+    segments:
+      - id: "2.012.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "在邏輯中沒有任何事情是偶然的：如果一個物能出現在事態中，那麼該事態的可能性必已由這個物預先決定。"
+        interpretation_zh_tw: "這裡的「預先決定」不是時間上的預測，而是邏輯形式的內在限制：某種結合若可能，其可能性不能事後外加於對象。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 的 schema 相容性不是本句所主張的對象內在邏輯可能性。"
+        rationale_zh_tw: "schema 規則是可修訂的人造規範，不能據此斷言資料實體內含一切可能事態；硬套會把工程約定誤當邏輯必然性。"
+    history: []
+
+  - id: "2.0121"
+    parent: "2.012"
+    texts:
+      de:
+        - "Es erschiene gleichsam als Zufall, wenn dem Ding, das allein für sich bestehen könnte, nachträglich eine Sachlage passen würde."
+        - "Wenn die Dinge in Sachverhalten vorkommen können, so muss dies schon in ihnen liegen."
+        - '\(Etwas Logisches kann nicht nur-möglich sein.'
+        - 'Die Logik handelt von jeder Möglichkeit und alle Möglichkeiten sind ihre Tatsachen.)'
+        - "Wie wir uns räumliche Gegenstände überhaupt nicht ausserhalb des Raumes, zeitliche nicht ausserhalb der Zeit denken können, so können wir uns *keinen* Gegenstand ausserhalb der Möglichkeit seiner Verbindung mit anderen denken."
+        - "Wenn ich mir den Gegenstand im Verbande des Sachverhalts denken kann, so kann ich ihn nicht ausserhalb der *Möglichkeit* dieses Verbandes denken."
+      en_ogden_ramsey_1922:
+        - "It would, so to speak, appear as an accident, when to a thing that could exist alone on its own account, subsequently a state of affairs could be made to fit."
+        - "If things can occur in atomic facts, this possibility must already lie in them."
+        - '\(A logical entity cannot be merely possible.'
+        - 'Logic treats of every possibility, and all possibilities are its facts.)'
+        - "Just as we cannot think of spatial objects at all apart from space, or temporal objects apart from time, so we cannot think of *any* object apart from the possibility of its connexion with other things."
+        - "If I can think of an object in the context of an atomic fact, I cannot think of it apart from the *possibility* of this context."
+    edition_references:
+      en_pears_mcguinness: "2.0121"
+    segments:
+      - id: "2.0121.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "假如一個能夠獨自存在的物，事後才碰巧適合某種狀況，那看來就彷彿是偶然的。"
+        interpretation_zh_tw: "反事實式的開頭排除兩階段圖像：不能先有邏輯上全然孤立的物，再把可結合的形式偶然黏上去。"
+      - id: "2.0121.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "如果事物能出現在事態中，這種可能性必定早已存在於它們之中。"
+        interpretation_zh_tw: "「存在於其中」指對象的內在形式，而非某筆資料預先列舉了所有未來關係。"
+      - id: "2.0121.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "邏輯性的東西不能只是「可能如此」而已。"
+        interpretation_zh_tw: "邏輯可能性不是事後可有可無的偶然屬性；一旦某種形式在邏輯上可能，它就已位於可思的邏輯空間內。"
+      - id: "2.0121.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "邏輯處理每一種可能性，而所有可能性都是它的事實。"
+        interpretation_zh_tw: "邏輯的範圍涵蓋一切可能配置；這裡的「事實」不是只指實際世界已發生或資料庫已記錄的事件。"
+      - id: "2.0121.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "正如我們根本無法在空間之外思考空間對象，也無法在時間之外思考時間對象，我們同樣無法在一個對象與其他對象結合的可能性之外思考任何對象。"
+        interpretation_zh_tw: "空間與時間是類比：可結合空間之於一般對象，如空間之於空間對象；這不是說每個對象都實際與其他對象結合。"
+      - id: "2.0121.f"
+        alignment:
+          de: [5]
+          en_ogden_ramsey_1922: [5]
+        translation_zh_tw: "如果我能在事態的結合中思考一個對象，我就不能在這種結合的可能性之外思考它。"
+        interpretation_zh_tw: "句尾再次區分實際結合與結合的可能性；本段談的是形式條件，不是已成立的關係清單。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 不宣稱其 entity 在型別內部預含一切可形成關係的邏輯空間。"
+        rationale_zh_tw: "專案的關係能力由可變的 schema 與版本規格界定；把這種設計範圍當成對象不可分離的邏輯形式，會同時誤述原典與程式。"
+    history: []
+
+  - id: "2.0122"
+    parent: "2.012"
+    texts:
+      de:
+        - "Das Ding ist selbständig, insofern es in allen *möglichen* Sachlagen vorkommen kann, aber diese Form der Selbständigkeit ist eine Form des Zusammenhangs mit dem Sachverhalt, eine Form der Unselbständigkeit."
+        - "(Es ist unmöglich, dass Worte in zwei verschiedenen Weisen auftreten, allein und im Satz.)"
+      en_ogden_ramsey_1922:
+        - "The thing is independent, in so far as it can occur in all *possible* circumstances, but this form of independence is a form of connexion with the atomic fact, a form of dependence."
+        - "(It is impossible for words to occur in two different ways, alone and in the proposition.)"
+    edition_references:
+      en_pears_mcguinness: "2.0122"
+    segments:
+      - id: "2.0122.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "一個物之所以獨立，在於它能出現在所有可能的狀況中；但這種獨立形式正是一種與事態的聯繫，也就是一種不獨立的形式。"
+        interpretation_zh_tw: "獨立與依存在此不是矛盾：對象不依賴某一個實際事態，卻不能脫離進入事態的形式可能性。"
+      - id: "2.0122.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（語詞不可能以兩種不同方式出現：既能單獨出現，又能在命題中出現。）"
+        interpretation_zh_tw: "括號例子預告語詞的邏輯角色由命題脈絡界定；它不是替 Akashic 的字串欄位提出語法規則。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "資料記錄可否單獨存在與本句的對象獨立性不是同一問題。"
+        rationale_zh_tw: "Akashic 記錄的引用與驗證規則是工程生命週期的一部分，無法證成對象對所有可能事態的超驗依存關係。"
+    history: []
+
+  - id: "2.0123"
+    parent: "2.012"
+    texts:
+      de:
+        - "Wenn ich den Gegenstand kenne, so kenne ich auch sämtliche Möglichkeiten seines Vorkommens in Sachverhalten."
+        - '\(Jede solche Möglichkeit muss in der Natur des Gegenstandes liegen.)'
+        - "Es kann nicht nachträglich eine neue Möglichkeit gefunden werden."
+      en_ogden_ramsey_1922:
+        - "If I know an object, then I also know all the possibilities of its occurrence in atomic facts."
+        - '\(Every such possibility must lie in the nature of the object.)'
+        - "A new possibility cannot subsequently be found."
+    edition_references:
+      en_pears_mcguinness: "2.0123"
+    segments:
+      - id: "2.0123.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "如果我認識一個對象，我也就認識它出現在事態中的全部可能性。"
+        interpretation_zh_tw: "認識對象在此包含掌握其形式可能性，不只是取得一組外在描述。"
+      - id: "2.0123.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（每一種這樣的可能性都必須存在於對象的本性之中。）"
+        interpretation_zh_tw: "括號句把可能性定位為內在性質，排除由後來經驗偶然增補的讀法。"
+      - id: "2.0123.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "事後不可能發現一種新的可能性。"
+        interpretation_zh_tw: "若後來才出現真正新的邏輯可能性，就表示先前並未認識該對象；這不是否認經驗上發現新事實。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 不保證認識一筆 entity 就已知道它能參與的全部未來關係。"
+        rationale_zh_tw: "專案允許知識與 schema 演進；這種開放性與本句對完整形式知識的要求不同，不能假稱已符合。"
+    history: []
+
+  - id: "2.01231"
+    parent: "2.0123"
+    texts:
+      de:
+        - "Um einen Gegenstand zu kennen, muss ich zwar nicht seine externen – aber ich muss alle seine internen Eigenschaften kennen."
+      en_ogden_ramsey_1922:
+        - "In order to know an object, I must know not its external but all its internal qualities."
+    edition_references:
+      en_pears_mcguinness: "2.01231"
+    segments:
+      - id: "2.01231.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "要認識一個對象，我固然不必知道它的外在性質，卻必須知道它所有的內在性質。"
+        interpretation_zh_tw: "內在性質決定對象能進入哪些形式關係；外在性質則取決於它實際出現於何種事態。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 的欄位分類沒有實作本句的內在／外在性質二分。"
+        rationale_zh_tw: "資料欄位與關係可由版本規格調整，且不等於 Tractatus 對簡單對象的內在形式分析。"
+    history: []
+
+  - id: "2.0124"
+    parent: "2.012"
+    texts:
+      de:
+        - "Sind alle Gegenstände gegeben, so sind damit auch alle *möglichen* Sachverhalte gegeben."
+      en_ogden_ramsey_1922:
+        - "If all objects are given, then thereby are all *possible* atomic facts also given."
+    edition_references:
+      en_pears_mcguinness: "2.0124"
+    segments:
+      - id: "2.0124.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "若所有對象都已給定，那麼所有可能事態也隨之給定。"
+        interpretation_zh_tw: "因對象連同其形式可能性一起給定，可能事態的全域便不需額外的實質材料；這不表示每個事態都成立。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "即使 Akashic 收錄所有目前 entity，也不會因此窮盡所有可能關係或事態。"
+        rationale_zh_tw: "專案的實體集合不完整且 schema 可擴充，故以資料庫封閉性類比本句會做出沒有依據的全知宣稱。"
+    history: []
+
+  - id: "2.013"
+    parent: "2.01"
+    texts:
+      de:
+        - "Jedes Ding ist, gleichsam, in einem Raume möglicher Sachverhalte."
+        - "Diesen Raum kann ich mir leer denken, nicht aber das Ding ohne den Raum."
+      en_ogden_ramsey_1922:
+        - "Every thing is, as it were, in a space of possible atomic facts."
+        - "I can think of this space as empty, but not of the thing without the space."
+    edition_references:
+      en_pears_mcguinness: "2.013"
+    segments:
+      - id: "2.013.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "每一個物都彷彿處在一個由可能事態構成的空間裡。"
+        interpretation_zh_tw: "「空間」是可能結合的邏輯空間，不是儲存位置或資料索引。"
+      - id: "2.013.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "我可以設想這個空間是空的，卻不能設想那個物沒有這個空間。"
+        interpretation_zh_tw: "可以沒有任何實際成立的配置，卻不能有一個完全沒有可配置形式的對象。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 的查詢空間或儲存目錄不是本句的可能事態空間。"
+        rationale_zh_tw: "前者是可變的技術設施，後者是對象可思性的形式條件；把兩者等同會造成類別錯誤。"
+    history: []
+
+  - id: "2.0131"
+    parent: "2.013"
+    texts:
+      de:
+        - "Der räumliche Gegenstand muss im unendlichen Raume liegen."
+        - "(Der Raumpunkt ist eine Argumentstelle.)"
+        - "Der Fleck im Gesichtsfeld muss zwar nicht rot sein, aber eine Farbe muss er haben: er hat sozusagen den Farbenraum um sich."
+        - "Der Ton muss *eine* Höhe haben, der Gegenstand des Tastsinnes *eine* Härte u. s. w."
+      en_ogden_ramsey_1922:
+        - "A spatial object must lie in infinite space."
+        - "(A point in space is an argument place.)"
+        - "A speck in a visual field need not be red, but it must have a colour; it has, so to speak, a colour space round it."
+        - "A tone must have *a* pitch, the object of the sense of touch *a* hardness, etc."
+    edition_references:
+      en_pears_mcguinness: "2.0131"
+    segments:
+      - id: "2.0131.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "空間對象必須位於無限空間之中。"
+        interpretation_zh_tw: "例子說明對象種類帶著其可變化維度；空間對象不能脫離空間形式。"
+      - id: "2.0131.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（空間中的點是一個論元位置。）"
+        interpretation_zh_tw: "把點稱作論元位置，強調它在可能配置中的形式角色，而非一塊最小物質。"
+      - id: "2.0131.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "視野中的斑點固然不必是紅色，卻必須具有某種顏色；可以說，它周圍環繞著色彩空間。"
+        interpretation_zh_tw: "特定色彩是偶然的，但「有某種色彩」是該例中不能省去的形式維度。"
+      - id: "2.0131.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "一個音必須具有某種音高，觸覺的對象必須具有某種硬度，等等。"
+        interpretation_zh_tw: "音高與硬度延伸同一論點：可選的值與必須有一個值的形式要求要分開。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 的欄位型別限制不等同於本句以色彩、音高與硬度說明的對象形式。"
+        rationale_zh_tw: "欄位型別是專案可修訂的表示規則；沒有證據可把它提升為感知對象不可脫離的邏輯空間。"
+    history: []
+
+  - id: "2.014"
+    parent: "2.01"
+    texts:
+      de:
+        - "Die Gegenstände enthalten die Möglichkeit aller Sachlagen."
+      en_ogden_ramsey_1922:
+        - "Objects contain the possibility of all states of affairs."
+    edition_references:
+      en_pears_mcguinness: "2.014"
+    segments:
+      - id: "2.014.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "對象包含所有狀況的可能性。"
+        interpretation_zh_tw: "這裡的 Sachlagen 是對象可能排列成的狀況；「包含」表示形式容許條件，不是對象內存了一份情境資料表。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic entity 不被視為內含所有可能狀況的簡單對象。"
+        rationale_zh_tw: "其 entity 是有限且可演進的記錄，無法承擔「所有可能性」這項本體論主張。"
+    history: []
+
+  - id: "2.0141"
+    parent: "2.014"
+    texts:
+      de:
+        - "Die Möglichkeit seines Vorkommens in Sachverhalten, ist die Form des Gegenstandes."
+      en_ogden_ramsey_1922:
+        - "The possibility of its occurrence in atomic facts is the form of the object."
+    edition_references:
+      en_pears_mcguinness: "2.0141"
+    segments:
+      - id: "2.0141.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "一個對象出現在事態中的可能性，就是該對象的形式。"
+        interpretation_zh_tw: "形式不是外觀，而是對象能在何種事態中出現的可能性總體；Ogden 的 atomic facts 在本句仍對應 Sachverhalten。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 沒有將 entity 的 decoder 或 schema 宣告為 Tractatus 對象的形式。"
+        rationale_zh_tw: "decoder 描述可接受的資料形狀，但可隨版本變更；本句則把形式當作對象本身的邏輯可能性，兩者不可直接等同。"
+    history: []
+
+  - id: "2.02"
+    parent: "2"
+    texts:
+      de:
+        - "Der Gegenstand ist einfach."
+      en_ogden_ramsey_1922:
+        - "The object is simple."
+    edition_references:
+      en_pears_mcguinness: "2.02"
+    segments:
+      - id: "2.02.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "對象是簡單的。"
+        interpretation_zh_tw: "「簡單」意指不能再由其他對象組成；它是圖像論論證所需的分析終點，不等於軟體中的小型記錄。"
+    project_relations:
+      - status: rejected
+        mode: refusal
+        claim_zh_tw: "Akashic 不把任何 entity 型別宣告為不可再分析的簡單對象。"
+        rationale_zh_tw: "專案 entity 具有多個欄位、來源與歷史，是明顯的複合記錄；若以實作上的最小單位替代哲學上的簡單性，會產生錯誤同一化。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "### 質疑一：Akashic entity 不是《邏輯哲學論》的 simple object"
+            note_zh_tw: "專案文件明確拒絕 entity 與 simple object 的等同。"
+    history: []
+
+  - id: "2.0201"
+    parent: "2.02"
+    texts:
+      de:
+        - "Jede Aussage über Komplexe lässt sich in eine Aussage über deren Bestandteile und in diejenigen Sätze zerlegen, welche die Komplexe vollständig beschreiben."
+      en_ogden_ramsey_1922:
+        - "Every statement about complexes can be analysed into a statement about their constituent parts, and into those propositions which completely describe the complexes."
+    edition_references:
+      en_pears_mcguinness: "2.0201"
+    segments:
+      - id: "2.0201.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "每一個關於複合體的陳述，都能分析成關於其構成部分的陳述，以及那些完整描述該複合體的命題。"
+        interpretation_zh_tw: "複合體不是額外的簡單對象；談論它要能展開為構成部分與完整描述其組合的命題。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 沒有保證每一筆複合記錄都能依本句所要求的方式完全分析。"
+        rationale_zh_tw: "序列化欄位雖可拆解，卻不等於哲學上窮盡複合體的構成與描述；把可解析性當成完整分析會過度宣稱。"
+    history: []
+
+  - id: "2.021"
+    parent: "2.02"
+    texts:
+      de:
+        - "Die Gegenstände bilden die Substanz der Welt."
+        - "Darum können sie nicht zusammengesetzt sein."
+      en_ogden_ramsey_1922:
+        - "Objects form the substance of the world."
+        - "Therefore they cannot be compound."
+    edition_references:
+      en_pears_mcguinness: "2.021"
+    segments:
+      - id: "2.021.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "對象構成世界的實體。"
+        interpretation_zh_tw: "Substanz（實體）在此是世界無論事實如何變化都保有的形式基底，不是資料庫實體類別。"
+      - id: "2.021.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "因此，對象不能是複合的。"
+        interpretation_zh_tw: "若作為基底的對象仍可分解，固定形式還會依賴更深層構件，因而不能完成這段論證的工作。"
+    project_relations:
+      - status: rejected
+        mode: refusal
+        claim_zh_tw: "Akashic 不把其 entity 集合當作世界的不可分實體。"
+        rationale_zh_tw: "Akashic entity 是可分解且可修訂的文件記錄；專案只借用部分圖像論直覺，不接受這項形上學同一。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "### 質疑一：Akashic entity 不是《邏輯哲學論》的 simple object"
+            note_zh_tw: "文件明載 Akashic entity 並非 Tractatus 的簡單對象。"
+    history: []
+
+  - id: "2.0211"
+    parent: "2.021"
+    texts:
+      de:
+        - "Hätte die Welt keine Substanz, so würde, ob ein Satz Sinn hat, davon abhängen, ob ein anderer Satz wahr ist."
+      en_ogden_ramsey_1922:
+        - "If the world had no substance, then whether a proposition had sense would depend on whether another proposition was true."
+    edition_references:
+      en_pears_mcguinness: "2.0211"
+    segments:
+      - id: "2.0211.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "如果世界沒有實體，那麼一個命題是否有意義，就會取決於另一個命題是否為真。"
+        interpretation_zh_tw: "命題的意義必須能先於偶然真假而確定；否則是否描繪了一種可能狀況，竟要等待另一事實成立才知道。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 的記錄可解析性不被當作本句所論證的世界實體。"
+        rationale_zh_tw: "格式有效與內容真假在專案中確實分層，但這項工程區分不足以證明世界必有 Tractatus 意義下的簡單實體。"
+    history: []
+
+  - id: "2.0212"
+    parent: "2.021"
+    texts:
+      de:
+        - "Es wäre dann unmöglich, ein Bild der Welt (wahr oder falsch) zu entwerfen."
+      en_ogden_ramsey_1922:
+        - "It would then be impossible to form a picture of the world (true or false)."
+    edition_references:
+      en_pears_mcguinness: "2.0212"
+    segments:
+      - id: "2.0212.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "那麼，要構成一幅世界的圖像（無論真假）就會是不可能的。"
+        interpretation_zh_tw: "圖像必須在比較現實之前已有確定意義，才能真或假；若其構成依賴別的偶然真理，就無法先形成可比較的圖像。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 文件同樣區分格式良好的 assertion 與其真值裁決。"
+        rationale_zh_tw: "此類比只說明「可表現」先於「已判真」，並不承諾專案的記錄就是 Tractatus 世界圖像。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節明載真假是圖像與現實比較後的結果。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "Assertion"
+            note_zh_tw: "`Assertion` 將來源立場與 typed proposition 一併保存。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "adjudicate"
+            note_zh_tw: "`adjudicate` 只讓符合 stance 與求值條件的主張升格為事實。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testAdjudicationRefusesUndetermined"
+            note_zh_tw: "測試確認 undetermined assertion 不得升格為事實。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以 assertion 與裁決拒絕的分層，為本筆既有組合關係補上現行直接證據；原判定不變。"
+
+  - id: "2.022"
+    parent: "2.02"
+    texts:
+      de:
+        - "Es ist offenbar, dass auch eine von der wirklichen noch so verschieden gedachte Welt Etwas – eine Form – mit der wirklichen gemein haben muss."
+      en_ogden_ramsey_1922:
+        - "It is clear that however different from the real one an imagined world may be, it must have something—a form—in common with the real world."
+    edition_references:
+      en_pears_mcguinness: "2.022"
+    segments:
+      - id: "2.022.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "顯然，無論設想中的世界與現實世界多麼不同，它都必須與現實世界共有某種東西——一種形式。"
+        interpretation_zh_tw: "可想像的差異仍發生在共同形式之內；否則那個「世界」就無法被當作現實可能不同的方式來理解。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 沒有以分支、fixture 或替代資料集實作本句的可能世界共同形式。"
+        rationale_zh_tw: "軟體分支與測試資料是人工版本或樣本，不是完整世界；把它們當作 possible world 會擴張原典與專案的主張。"
+    history: []
+
+  - id: "2.023"
+    parent: "2.02"
+    texts:
+      de:
+        - "Diese feste Form besteht eben aus den Gegenständen."
+      en_ogden_ramsey_1922:
+        - "This fixed form consists of the objects."
+    edition_references:
+      en_pears_mcguinness: "2.023"
+    segments:
+      - id: "2.023.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "這個固定形式正是由對象構成。"
+        interpretation_zh_tw: "對象提供所有可能世界共有的固定形式，實際差異則由對象的不同配置形成。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "專案不把其 entity inventory 宣告為所有可能世界共有的固定形式。"
+        rationale_zh_tw: "inventory 會隨研究與匯入變動，且 entity 並非簡單對象；因此沒有可靠的直接對照。"
+    history: []
+
+  - id: "2.0231"
+    parent: "2.023"
+    texts:
+      de:
+        - "Die Substanz der Welt *kann* nur eine Form und keine materiellen Eigenschaften bestimmen."
+        - "Denn diese werden erst durch die Sätze dargestellt – erst durch die Konfiguration der Gegenstände gebildet."
+      en_ogden_ramsey_1922:
+        - "The substance of the world *can* only determine a form and not any material properties."
+        - "For these are first presented by the propositions—first formed by the configuration of the objects."
+    edition_references:
+      en_pears_mcguinness: "2.0231"
+    segments:
+      - id: "2.0231.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "世界的實體只能決定形式，不能決定任何質料性質。"
+        interpretation_zh_tw: "作為固定基底的實體只能限定可配置的形式；若也決定特定質料性質，偶然事實便被預先固定。"
+      - id: "2.0231.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "因為質料性質只有透過命題才被表現，也只有透過對象的配置才形成。"
+        interpretation_zh_tw: "具體性質屬於對象如何實際配置，而命題表現這些配置；它們不是孤立對象自帶的顏色或內容。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 的 schema／資料區分不能直接充當本句的形式／質料區分。"
+        rationale_zh_tw: "schema 與資料都是工程產物且會演進；沒有證據可將其提升為世界實體與質料性質的形上學結構。"
+    history: []
+
+  - id: "2.0232"
+    parent: "2.023"
+    texts:
+      de:
+        - "Beiläufig gesprochen: Die Gegenstände sind farblos."
+      en_ogden_ramsey_1922:
+        - "Roughly speaking: objects are colourless."
+    edition_references:
+      en_pears_mcguinness: "2.0232"
+    segments:
+      - id: "2.0232.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "粗略地說：對象是無色的。"
+        interpretation_zh_tw: "「無色」是對前句的簡寫：簡單對象不以某個實際配置才有的質料性質作為其固定形式。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic entity 的顯示色彩或內容欄位與本句的「無色對象」沒有可靠對應。"
+        rationale_zh_tw: "本句在說形式與質料性質的界線，不是在規定介面樣式或資料欄位；套用到視覺呈現會誤導。"
+    history: []
+
+  - id: "2.0233"
+    parent: "2.023"
+    texts:
+      de:
+        - "Zwei Gegenstände von der gleichen logischen Form sind – abgesehen von ihren externen Eigenschaften – von einander nur dadurch unterschieden, dass sie verschieden sind."
+      en_ogden_ramsey_1922:
+        - "Two objects of the same logical form are—apart from their external properties—only differentiated from one another in that they are different."
+    edition_references:
+      en_pears_mcguinness: "2.0233"
+    segments:
+      - id: "2.0233.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "兩個具有相同邏輯形式的對象——撇開它們的外在性質——彼此唯一的區別就在於它們是不同的對象。"
+        interpretation_zh_tw: "若形式與外在性質均不足以描述差異，剩下的是純粹數目上的不同；句子把可描述性與同一性問題推到極限。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 的 UUID 同一性不是本句所說的簡單對象數目差異。"
+        rationale_zh_tw: "UUID 是系統指定且有歷史規則的識別機制；它不能證成形上學上不可描述的純粹殊異。"
+    history: []
+
+  - id: "2.02331"
+    parent: "2.0233"
+    texts:
+      de:
+        - "Entweder ein Ding hat Eigenschaften, die kein anderes hat, dann kann man es ohneweiteres durch eine Beschreibung aus den anderen herausheben, und darauf hinweisen; oder aber, es gibt mehrere Dinge, die ihre sämtlichen Eigenschaften gemeinsam haben, dann ist es überhaupt unmöglich auf eines von ihnen zu zeigen."
+        - "Denn, ist das Ding durch nichts hervorgehoben, so kann ich es nicht hervorheben, denn sonst ist es eben hervorgehoben."
+      en_ogden_ramsey_1922:
+        - "Either a thing has properties which no other has, and then one can distinguish it straight away from the others by a description and refer to it; or, on the other hand, there are several things which have the totality of their properties in common, and then it is quite impossible to point to any one of them."
+        - "For if a thing is not distinguished by anything, I cannot distinguish it—for otherwise it would be distinguished."
+    edition_references:
+      en_pears_mcguinness: "2.02331"
+    segments:
+      - id: "2.02331.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "一個物若具有其他任何物都沒有的性質，我們便能毫不費力地用描述把它從其他物中區分出來並指向它；反之，若有數個物共享其全部性質，就根本不可能指向其中任何一個。"
+        interpretation_zh_tw: "這個二分檢驗描述能否挑出個體：有獨有性質即可描述性指認；完全不可分者則不能靠性質選定其中一個。"
+      - id: "2.02331.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "因為，如果一個物沒有任何突出之處，我就無法把它突出出來；否則它就已經有所突出。"
+        interpretation_zh_tw: "末句以反證收束：任何成功的指認本身都會提供區別，與「毫無區別」的前提衝突。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 的去重、授權名稱與 UUID 規則不實作本句的不可辨識對象論。"
+        rationale_zh_tw: "專案允許以來源、歷史與識別碼區分記錄；這些制度性標記正是本句抽象掉的外在差異，故不能硬套。"
+    history: []
+
+  - id: "2.024"
+    parent: "2.02"
+    texts:
+      de:
+        - "Die Substanz ist das, was unabhängig von dem was der Fall ist, besteht."
+      en_ogden_ramsey_1922:
+        - "Substance is what exists independently of what is the case."
+    edition_references:
+      en_pears_mcguinness: "2.024"
+    segments:
+      - id: "2.024.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "實體就是不依賴事情實際如何而持存的東西。"
+        interpretation_zh_tw: "實體提供跨越所有偶然事實的固定基底；「持存」不是指檔案永續保存，而是邏輯上不隨何者成立而改變。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 的持久化儲存不是本句的世界實體。"
+        rationale_zh_tw: "檔案是否存在依賴硬體、版本與維護，並不獨立於一切實際情況；以 durability 類比 substance 會混淆技術與形上學。"
+    history: []
+
+  - id: "2.025"
+    parent: "2.02"
+    texts:
+      de:
+        - "Sie ist Form und Inhalt."
+      en_ogden_ramsey_1922:
+        - "It is form and content."
+    edition_references:
+      en_pears_mcguinness: "2.025"
+    segments:
+      - id: "2.025.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "它是形式與內容。"
+        interpretation_zh_tw: "代名詞承接實體：對象既構成世界共享的形式，也提供事態配置所需的內容。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "專案的 schema 與 YAML 內容二分不等於本句的實體之形式與內容。"
+        rationale_zh_tw: "軟體兩層可以獨立改版並互相遷移，無法據此建立對象作為世界 substance 的主張。"
+    history: []
+
+  - id: "2.0251"
+    parent: "2.025"
+    texts:
+      de:
+        - "Raum, Zeit und Farbe (Färbigkeit) sind Formen der Gegenstände."
+      en_ogden_ramsey_1922:
+        - "Space, time and colour (colouredness) are forms of objects."
+    edition_references:
+      en_pears_mcguinness: "2.0251"
+    segments:
+      - id: "2.0251.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "空間、時間與色彩（有色性）是對象的形式。"
+        interpretation_zh_tw: "這些不是某個特定位置、時刻或顏色，而是相應對象能取得具體值的形式維度。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 的時間欄位或色彩顯示不被宣告為 Tractatus 對象的形式。"
+        rationale_zh_tw: "時間資料是專案的描述內容，介面色彩則是呈現選擇；兩者均不足以支持本句的形式本體論。"
+    history: []
+
+  - id: "2.026"
+    parent: "2.02"
+    texts:
+      de:
+        - "Nur wenn es Gegenstände gibt, kann es eine feste Form der Welt geben."
+      en_ogden_ramsey_1922:
+        - "Only if there are objects can there be a fixed form of the world."
+    edition_references:
+      en_pears_mcguinness: "2.026"
+    segments:
+      - id: "2.026.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "只有在有對象的情況下，世界才可能具有固定形式。"
+        interpretation_zh_tw: "固定形式不是脫離其承載者的抽象格子；在本體系中，它由簡單對象及其結合可能性提供。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 的型別集合不被視為世界固定形式的必要存在條件。"
+        rationale_zh_tw: "型別是專案治理下可變動的記法；沒有可靠證據可把它與簡單對象所構成的世界形式等同。"
+    history: []
+
+  - id: "2.027"
+    parent: "2.02"
+    texts:
+      de:
+        - "Das Feste, das Bestehende und der Gegenstand sind Eins."
+      en_ogden_ramsey_1922:
+        - "The fixed, the existent and the object are one."
+    edition_references:
+      en_pears_mcguinness: "2.027"
+    segments:
+      - id: "2.027.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "固定者、持存者與對象乃是一體。"
+        interpretation_zh_tw: "三個稱呼指向同一邏輯角色：對象是不隨實際配置改變、使世界形式保持固定的成分。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "專案沒有任何記錄同時承擔固定者、持存者與簡單對象的角色。"
+        rationale_zh_tw: "Akashic 記錄可修訂、合併或遷移，與本句所說的不變基底相反。"
+    history: []
+
+  - id: "2.0271"
+    parent: "2.027"
+    texts:
+      de:
+        - "Der Gegenstand ist das Feste, Bestehende; die Konfiguration ist das Wechselnde, Unbeständige."
+      en_ogden_ramsey_1922:
+        - "The object is the fixed, the existent; the configuration is the changing, the variable."
+    edition_references:
+      en_pears_mcguinness: "2.0271"
+    segments:
+      - id: "2.0271.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "對象是固定而持存的；配置則是變動而不持久的。"
+        interpretation_zh_tw: "句子把固定材料與可變排列分開：可能世界的差異在配置，而不是每次都換掉構成形式的對象。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 的 entity／relation 區分不等於固定對象／可變配置。"
+        rationale_zh_tw: "entity 與 relation 記錄本身都可隨證據修訂，且 entity 是複合記錄；因此只能看到表面相似，不能建立可靠對應。"
+    history: []
+
+  - id: "2.0272"
+    parent: "2.027"
+    texts:
+      de:
+        - "Die Konfiguration der Gegenstände bildet den Sachverhalt."
+      en_ogden_ramsey_1922:
+        - "The configuration of the objects forms the atomic fact."
+    edition_references:
+      en_pears_mcguinness: "2.0272"
+    segments:
+      - id: "2.0272.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "對象的配置形成事態。"
+        interpretation_zh_tw: "事態不是對象清單，而是對象以特定方式配置；Ogden／Ramsey 的 atomic fact 在此仍翻譯 Sachverhalt，而非 Tatsache。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 的哲學文件把 relation／assertion 視為元素配置，藉此避免把 entity 清單當成完整事態。"
+        rationale_zh_tw: "這是結構類比；Akashic entity 並非簡單對象，relation record 也不因此成為原典意義下的 Sachverhalt。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 14. 早期維根斯坦：圖書館作為世界的圖像"
+            note_zh_tw: "此節明列 Entity、Relation／assertion 與可能事態圖像的受限對照。"
+    history: []
+
+  - id: "2.03"
+    parent: "2"
+    texts:
+      de:
+        - "Im Sachverhalt hängen die Gegenstände ineinander, wie die Glieder einer Kette."
+      en_ogden_ramsey_1922:
+        - "In the atomic fact objects hang one in another, like the links of a chain."
+    edition_references:
+      en_pears_mcguinness: "2.03"
+    segments:
+      - id: "2.03.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "在事態中，對象彼此扣連，如同鏈條的環節。"
+        interpretation_zh_tw: "鏈條比喻強調對象不是靠額外黏著物集合，而是彼此的特定聯結本身構成事態。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 的關係記錄以端點角色表現項目如何聯結，而非只把項目放進無結構清單。"
+        rationale_zh_tw: "這只類比「關係配置承載意義」；端點 entity 仍不是 Tractatus 的簡單對象。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 3. 維根斯坦自己的例子，以及它們對 Akashic 的意義"
+            note_zh_tw: "此節以端點、relation 與方向說明配置的工程意義。"
+    history: []
+
+  - id: "2.031"
+    parent: "2.03"
+    texts:
+      de:
+        - "Im Sachverhalt verhalten sich die Gegenstände in bestimmter Art und Weise zueinander."
+      en_ogden_ramsey_1922:
+        - "In the atomic fact the objects are combined in a definite way."
+    edition_references:
+      en_pears_mcguinness: "2.031"
+    segments:
+      - id: "2.031.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "在事態中，對象以某種確定方式彼此相關。"
+        interpretation_zh_tw: "事態的內容取決於相關方式，而非僅取決於有哪些對象；換一種排列便是另一個可能事態。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 以具角色與方向的 relation／assertion 表現項目之間的確定關係。"
+        rationale_zh_tw: "此對照限於配置須有結構；它不主張資料關係已滿足 Tractatus 對事態的全部條件。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 3. 維根斯坦自己的例子，以及它們對 Akashic 的意義"
+            note_zh_tw: "此節說明端點、relation、方向與時間如何使配置可判讀。"
+          - path: "Sources/AkashicProposition/Proposition.swift"
+            kind: symbol
+            locator: "Proposition"
+            note_zh_tw: "`Proposition` 宣告 typed authored 命題的封閉結構。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testDirectionIsPartOfIdentity"
+            note_zh_tw: "測試確認交換 person／work 方向會形成不同命題。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以具方向的 typed Proposition 補強本筆配置順序的既有解讀；原判定不變。"
+
+  - id: "2.032"
+    parent: "2.03"
+    texts:
+      de:
+        - "Die Art und Weise, wie die Gegenstände im Sachverhalt zusammenhängen, ist die Struktur des Sachverhaltes."
+      en_ogden_ramsey_1922:
+        - "The way in which objects hang together in the atomic fact is the structure of the atomic fact."
+    edition_references:
+      en_pears_mcguinness: "2.032"
+    segments:
+      - id: "2.032.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "對象在事態中聯結的方式，就是該事態的結構。"
+        interpretation_zh_tw: "結構不是對象之外的另一個成分，而是對象實際如何聯結；Ogden 的 atomic fact 仍指 Sachverhalt。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 的關係形狀保留端點、角色與方向，使聯結方式能成為可檢查的結構。"
+        rationale_zh_tw: "工程結構只提供受限類比；它不把 entity 宣稱為 simple object，也不證明每筆記錄都是事態。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 3. 維根斯坦自己的例子，以及它們對 Akashic 的意義"
+            note_zh_tw: "此節具體說明符號配置與關係結構。"
+          - path: "Sources/AkashicProposition/Proposition.swift"
+            kind: symbol
+            locator: "arguments"
+            note_zh_tw: "`arguments` 依角色順序輸出 person 與 work 端點。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testDirectionIsPartOfIdentity"
+            note_zh_tw: "測試確認交換 person／work 方向會形成不同命題。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以 ordered arguments 與方向身分測試補強本筆構造關係；原判定不變。"
+
+  - id: "2.033"
+    parent: "2.03"
+    texts:
+      de:
+        - "Die Form ist die Möglichkeit der Struktur."
+      en_ogden_ramsey_1922:
+        - "The form is the possibility of the structure."
+    edition_references:
+      en_pears_mcguinness: "2.033"
+    segments:
+      - id: "2.033.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "形式是結構的可能性。"
+        interpretation_zh_tw: "形式界定哪些結構可能；結構則是某種可能性在特定事態中的實現，兩者不可混為同一層。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 文件以 schema／ontology 作為哪些記錄結構可表現的工程限制。"
+        rationale_zh_tw: "schema 的確限制可接受形狀，但它是可修改的規格，不是世界與圖像共享之邏輯形式的直接實作。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 14. 早期維根斯坦：圖書館作為世界的圖像"
+            note_zh_tw: "此節把 schema／ontology 列為可表現形式，並說明類比界線。"
+    history: []
+
+  - id: "2.034"
+    parent: "2.03"
+    texts:
+      de:
+        - "Die Struktur der Tatsache besteht aus den Strukturen der Sachverhalte."
+      en_ogden_ramsey_1922:
+        - "The structure of the fact consists of the structures of the atomic facts."
+    edition_references:
+      en_pears_mcguinness: "2.034"
+    segments:
+      - id: "2.034.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "事實的結構由各事態的結構構成。"
+        interpretation_zh_tw: "Tatsache（事實）與 Sachverhalte（事態）在同句清楚分層：整體事實的結構取決於其中成立之事態的結構。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 文件保留事實與事態的術語區分，避免用一個 fact 詞彙壓平兩層。"
+        rationale_zh_tw: "這是概念與翻譯上的採納，不代表專案已形式化全體事實如何由事態結構組成。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "### 1.2 Tatsache 與 Sachverhalt 不宜混譯"
+            note_zh_tw: "此節明確定義 Tatsache＝事實、Sachverhalt＝事態。"
+    history: []
+
+  - id: "2.04"
+    parent: "2"
+    texts:
+      de:
+        - "Die Gesamtheit der bestehenden Sachverhalte ist die Welt."
+      en_ogden_ramsey_1922:
+        - "The totality of existent atomic facts is the world."
+    edition_references:
+      en_pears_mcguinness: "2.04"
+    segments:
+      - id: "2.04.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "所有成立事態的總體就是世界。"
+        interpretation_zh_tw: "世界由哪些事態成立來界定，而不是由對象清單界定；Ogden 的 existent atomic facts 在此對應 bestehende Sachverhalte。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 的設計原則以事實／事態的總體，而非事物清單，說明其記錄觀。"
+        rationale_zh_tw: "這是文件中的結構直覺；有限的研究圖書館不等於世界，也不宣稱已收錄所有成立事態。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 14. 早期維根斯坦：圖書館作為世界的圖像"
+            note_zh_tw: "此節明載世界不是事物清單，而是事實／事態總體。"
+    history: []
+
+  - id: "2.05"
+    parent: "2"
+    texts:
+      de:
+        - "Die Gesamtheit der bestehenden Sachverhalte bestimmt auch, welche Sachverhalte nicht bestehen."
+      en_ogden_ramsey_1922:
+        - "The totality of existent atomic facts also determines which atomic facts do not exist."
+    edition_references:
+      en_pears_mcguinness: "2.05"
+    segments:
+      - id: "2.05.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "所有成立事態的總體也決定哪些事態不成立。"
+        interpretation_zh_tw: "在完整邏輯空間中，實際成立者的總體同時劃定未成立者；這裡預設的是完整世界描述，不是有限觀察。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 現有記錄不會藉由已收錄事態推定所有未收錄事態皆不成立。"
+        rationale_zh_tw: "圖書館的知識是開放且可能缺漏的；closed-world 推論會把「尚未記錄」誤寫成「不成立」，違反專案的知識界線。"
+    history: []
+
+  - id: "2.06"
+    parent: "2"
+    texts:
+      de:
+        - "Das Bestehen und Nichtbestehen von Sachverhalten ist die Wirklichkeit."
+        - '\(Das Bestehen von Sachverhalten nennen wir auch eine positive, das Nichtbestehen eine negative Tatsache.)'
+      en_ogden_ramsey_1922:
+        - "The existence and non-existence of atomic facts is the reality."
+        - '\(The existence of atomic facts we also call a positive fact, their non-existence a negative fact.)'
+    edition_references:
+      en_pears_mcguinness: "2.06"
+    segments:
+      - id: "2.06.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "事態的成立與不成立就是實在。"
+        interpretation_zh_tw: "Wirklichkeit（實在）包含正面的成立與負面的不成立，不只是目前被肯定的事實集合。"
+      - id: "2.06.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（我們也把事態的成立稱為正面事實，把事態的不成立稱為負面事實。）"
+        interpretation_zh_tw: "括號句界定正面／負面事實；它再次要求把 Sachverhalt 的成立狀態與 Tatsache 的層次分開。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 的說明文件以 assertion、truth status、evidence 與 adjudication 分層，避免把可描述內容直接當作已成立事實。"
+        rationale_zh_tw: "專案只有知識表述與裁決機制的類比，並不宣稱資料庫窮盡實在中的成立與不成立。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 3. 維根斯坦自己的例子，以及它們對 Akashic 的意義"
+            note_zh_tw: "此節明列 well-formed assertion、truth status、evidence 與 adjudication。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "Assertion"
+            note_zh_tw: "`Assertion` 將來源立場與 typed proposition 一併保存。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "AcceptedFact"
+            note_zh_tw: "`AcceptedFact` 與一般 assertion 分型，避免未裁決內容冒充事實。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testAdjudicationRefusesUndetermined"
+            note_zh_tw: "測試確認 undetermined assertion 不得升格為事實。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 將 assertion 與 accepted fact 分型，並拒絕未定內容升格；本筆既有界線判定保留。"
+
+  - id: "2.061"
+    parent: "2.06"
+    texts:
+      de:
+        - "Die Sachverhalte sind von einander unabhängig."
+      en_ogden_ramsey_1922:
+        - "Atomic facts are independent of one another."
+    edition_references:
+      en_pears_mcguinness: "2.061"
+    segments:
+      - id: "2.061.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "各事態彼此獨立。"
+        interpretation_zh_tw: "獨立性意指一個事態是否成立本身不以邏輯必然性決定另一事態是否成立；這不是說經驗事件沒有因果關聯。"
+    project_relations:
+      - status: intentional_nonconformance
+        mode: declared_nonconformance
+        claim_zh_tw: "Akashic 不把所有記錄事態設計成彼此獨立。"
+        rationale_zh_tw: "引用、身分、時間與證據規則會讓記錄彼此受限制；專案刻意保存這些依存關係，而不假裝每筆 assertion 都可任意組合。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 14. 早期維根斯坦：圖書館作為世界的圖像"
+            note_zh_tw: "該節將 relation／assertion 與 schema／ontology 都列入專案的表現結構。"
+    history: []
+
+  - id: "2.062"
+    parent: "2.06"
+    texts:
+      de:
+        - "Aus dem Bestehen oder Nichtbestehen eines Sachverhaltes kann nicht auf das Bestehen oder Nichtbestehen eines anderen geschlossen werden."
+      en_ogden_ramsey_1922:
+        - "From the existence or non-existence of an atomic fact we cannot infer the existence or non-existence of another."
+    edition_references:
+      en_pears_mcguinness: "2.062"
+    segments:
+      - id: "2.062.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "不能從一個事態的成立或不成立，推論另一個事態的成立或不成立。"
+        interpretation_zh_tw: "這是邏輯獨立性的推論結果：沒有額外命題或經驗法則時，一個基本事態的真值不蘊涵另一個。"
+    project_relations:
+      - status: intentional_nonconformance
+        mode: declared_nonconformance
+        claim_zh_tw: "Akashic 允許在明示規則與證據下，從記錄推導或限制其他記錄。"
+        rationale_zh_tw: "專案不是簡單事態的真值演算；引用完整性、時間一致性與裁決流程需要跨記錄推論，因此刻意不採用無條件獨立性。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 14. 早期維根斯坦：圖書館作為世界的圖像"
+            note_zh_tw: "該節呈現 Evidence／adjudication 作為圖像與世界的比較機制。"
+    history: []
+
+  - id: "2.063"
+    parent: "2.06"
+    texts:
+      de:
+        - "Die gesamte Wirklichkeit ist die Welt."
+      en_ogden_ramsey_1922:
+        - "The total reality is the world."
+    edition_references:
+      en_pears_mcguinness: "2.063"
+    segments:
+      - id: "2.063.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "整個實在就是世界。"
+        interpretation_zh_tw: "本句把前述成立與不成立事態所構成的完整實在，與「世界」收束為同一範圍。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic-Library 不宣稱其 corpus 或 canonical store 就是整個實在或世界。"
+        rationale_zh_tw: "專案只保存有來源、有限且可修訂的研究記錄；將其總體等同世界會嚴重越過資料與知識邊界。"
+    history: []
+
+  - id: "2.1"
+    parent: "2"
+    texts:
+      de:
+        - "Wir machen uns Bilder der Tatsachen."
+      en_ogden_ramsey_1922:
+        - "We make to ourselves pictures of facts."
+    edition_references:
+      en_pears_mcguinness: "2.1"
+    segments:
+      - id: "2.1.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我們為事實製作圖像。"
+        interpretation_zh_tw: "Bild 譯為「圖像」；它不只指視覺圖片，而是以可對應結構表現事實的模型。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 的設計哲學把記錄理解為對可能事態的圖像式表現。"
+        rationale_zh_tw: "這是專案明載的結構直覺，不表示每一筆資料都是原典定義下完備的 Bild。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 14. 早期維根斯坦：圖書館作為世界的圖像"
+            note_zh_tw: "此節明確陳述圖書館作為世界圖像的受限類比。"
+    history: []
+
+  - id: "2.11"
+    parent: "2.1"
+    texts:
+      de:
+        - "Das Bild stellt die Sachlage im logischen Raume, das Bestehen und Nichtbestehen von Sachverhalten vor."
+      en_ogden_ramsey_1922:
+        - "The picture presents the facts in logical space, the existence and non-existence of atomic facts."
+    edition_references:
+      en_pears_mcguinness: "2.11"
+    segments:
+      - id: "2.11.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像在邏輯空間中表現一種狀況，也就是事態的成立與不成立。"
+        interpretation_zh_tw: "Sachlage 在此指邏輯空間中的整體狀況；圖像同時劃出哪些事態成立、哪些不成立。英譯的 facts 壓縮了德文的術語層次。"
+    project_relations:
+      - status: analogy_only
+        mode: semantic_operation
+        claim_zh_tw: "Akashic 的 logical-picture 說明把記錄內容解作邏輯空間中的可能配置，而非只重畫已知事實。"
+        rationale_zh_tw: "專案使用此觀點整理 assertion 的意義與真值，但並未建立完整邏輯空間或封閉世界。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節區分 picture 的 sense 與其後的現實比較。"
+    history: []
+
+  - id: "2.12"
+    parent: "2.1"
+    texts:
+      de:
+        - "Das Bild ist ein Modell der Wirklichkeit."
+      en_ogden_ramsey_1922:
+        - "The picture is a model of reality."
+    edition_references:
+      en_pears_mcguinness: "2.12"
+    segments:
+      - id: "2.12.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像是實在的模型。"
+        interpretation_zh_tw: "模型之所以是 Bild，不在外觀相似，而在其元素與配置能依表現規則對應實在；Wirklichkeit 譯為「實在」，不縮成一筆已知事實。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 把 canonical record 視為可能事態的圖像式模型，並以證據與裁決同現實比較。"
+        rationale_zh_tw: "這是設計文件中的結構類比；canonical record 是複合且可修訂的資料模型，不是 Tractatus 圖像論的哲學實例證明。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 14. 早期維根斯坦：圖書館作為世界的圖像"
+            note_zh_tw: "此節以 Record、Evidence／adjudication 說明圖像模型的工程借用。"
+    history: []
+
+  - id: "2.13"
+    parent: "2.1"
+    texts:
+      de:
+        - "Den Gegenständen entsprechen im Bilde die Elemente des Bildes."
+      en_ogden_ramsey_1922:
+        - "To the objects correspond in the picture the elements of the picture."
+    edition_references:
+      en_pears_mcguinness: "2.13"
+    segments:
+      - id: "2.13.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "在圖像中，圖像的元素與對象相對應。"
+        interpretation_zh_tw: "圖像要能描繪，至少須有元素間的對應；對應不是說元素在材質或外形上等同於對象。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 文件以圖像元素與世界中被指涉項目的對應，說明記錄為何不只是無意義字串。"
+        rationale_zh_tw: "專案 entity 只在這個受限圖示中充當表現元素；它仍不等於 Tractatus simple object。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節的 Picture 結構逐項列出元素代表對象。"
+    history: []
+
+  - id: "2.131"
+    parent: "2.13"
+    texts:
+      de:
+        - "Die Elemente des Bildes vertreten im Bild die Gegenstände."
+      en_ogden_ramsey_1922:
+        - "The elements of the picture stand, in the picture, for the objects."
+    edition_references:
+      en_pears_mcguinness: "2.131"
+    segments:
+      - id: "2.131.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像的元素在圖像中代表對象。"
+        interpretation_zh_tw: "vertreten 是代表關係：元素在圖像內代理對象的角色，因而其排列才能表現對象的可能排列。"
+    project_relations:
+      - status: analogy_only
+        mode: semantic_operation
+        claim_zh_tw: "Akashic 的識別與引用機制讓記錄元素得以代表其所指項目。"
+        rationale_zh_tw: "這僅類比代表功能；識別碼與複合 entity 的制度性指涉，不是簡單圖像元素與簡單對象的直接同一。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節明列 e1 represents object o1 的代表關係。"
+    history: []
+
+  - id: "2.14"
+    parent: "2.1"
+    texts:
+      de:
+        - "Das Bild besteht darin, dass sich seine Elemente in bestimmter Art und Weise zu einander verhalten."
+      en_ogden_ramsey_1922:
+        - "The picture consists in the fact that its elements are combined with one another in a definite way."
+    edition_references:
+      en_pears_mcguinness: "2.14"
+    segments:
+      - id: "2.14.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像就在於它的元素以某種確定方式彼此相關。"
+        interpretation_zh_tw: "圖像不是元素的袋裝集合；使它成為圖像的是元素之間可辨識的配置方式。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 的 relation／assertion 形狀要求端點、角色與方向，讓元素配置而非元素清單承載意義。"
+        rationale_zh_tw: "這項結構對照受現有文件支持，但仍只是 picture-like 的工程功能，不是哲學同一。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 3. 維根斯坦自己的例子，以及它們對 Akashic 的意義"
+            note_zh_tw: "此節以 aRb 與端點／relation 結構說明配置。"
+          - path: "Sources/AkashicProposition/Proposition.swift"
+            kind: symbol
+            locator: "Proposition"
+            note_zh_tw: "`Proposition` 宣告 typed authored 命題的封閉結構。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testDirectionIsPartOfIdentity"
+            note_zh_tw: "測試確認交換 person／work 方向會形成不同命題。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以 typed authored proposition 的具方向結構補上現行證據；本筆 status 與解讀不變。"
+
+  - id: "2.141"
+    parent: "2.14"
+    texts:
+      de:
+        - "Das Bild ist eine Tatsache."
+      en_ogden_ramsey_1922:
+        - "The picture is a fact."
+    edition_references:
+      en_pears_mcguinness: "2.141"
+    segments:
+      - id: "2.141.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像是一個事實。"
+        interpretation_zh_tw: "圖像本身由實際存在且已配置的元素構成，所以它也是 Tatsache；它是否正確描繪另一事實，則是另一個問題。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 文件指出一筆表現記錄本身也可成為被描述的第二階事態。"
+        rationale_zh_tw: "此類比說明記錄既是表現媒介也是現存人工物；它不將所有 YAML 檔案自動認定為真實世界的正確圖像。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 3. 維根斯坦自己的例子，以及它們對 Akashic 的意義"
+            note_zh_tw: "此節討論圖像作為檔案史中的第二階事態。"
+    history: []
+
+  - id: "2.15"
+    parent: "2.1"
+    texts:
+      de:
+        - "Dass sich die Elemente des Bildes in bestimmter Art und Weise zu einander verhalten stellt vor, dass sich die Sachen so zu einander verhalten."
+        - "Dieser Zusammenhang der Elemente des Bildes heisse seine Struktur und ihre Möglichkeit seine Form der Abbildung."
+      en_ogden_ramsey_1922:
+        - "That the elements of the picture are combined with one another in a definite way, represents that the things are so combined with one another."
+        - "This connexion of the elements of the picture is called its structure, and the possibility of this structure is called the form of representation of the picture."
+    edition_references:
+      en_pears_mcguinness: "2.15"
+    segments:
+      - id: "2.15.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像元素以某種確定方式彼此相關，這件事表現了事物也以該種方式彼此相關。"
+        interpretation_zh_tw: "描繪發生在兩個配置之間：圖像內的元素事實，依投射關係表現對象可能有的相應事實。"
+      - id: "2.15.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "我們把圖像元素的這種聯繫稱為圖像的結構，並把這種結構的可能性稱為圖像的描繪形式。"
+        interpretation_zh_tw: "結構是實際元素聯繫，描繪形式則是此類結構何以可能並能對應現實的條件；兩層不可互換。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 以明示的端點配置與投射規則，讓記錄結構對應所主張的可能事態。"
+        rationale_zh_tw: "現有設計只在資料建模層採納這個最小結構；投射可能有損且 entity 並非簡單對象。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節逐項列出 elements、configuration、projection rule 與 sense。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "project"
+            note_zh_tw: "`project(in:)` 依端點身分與角色方向建立投射。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testFullyResolvedProjects"
+            note_zh_tw: "測試確認已解析且方向正確的端點可以完成投射。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testReversedArgumentsReportWrongEntityKind"
+            note_zh_tw: "測試確認反轉端點時會因實體種類錯誤而拒絕投射。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以具角色、具方向的 authored projector 提供現行實作證據；picture mapping 仍只標 analogy_only。"
+
+  - id: "2.151"
+    parent: "2.15"
+    texts:
+      de:
+        - "Die Form der Abbildung ist die Möglichkeit, dass sich die Dinge so zu einander verhalten, wie die Elemente des Bildes."
+      en_ogden_ramsey_1922:
+        - "The form of representation is the possibility that the things are combined with one another as are the elements of the picture."
+    edition_references:
+      en_pears_mcguinness: "2.151"
+    segments:
+      - id: "2.151.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "描繪形式，就是事物能夠如同圖像元素那樣彼此相關的可能性。"
+        interpretation_zh_tw: "圖像與所描繪者不需共享材質，但必須可能共享相應配置；這項可能性使投射不只是任意聯想。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 的 schema 與投射規則限定哪些記錄配置能對應到主張內容。"
+        rationale_zh_tw: "工程規則提供可檢查的對應，但它們是局部且可改版的，不能宣稱等同一切圖像與實在共享的形式。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節將 projection rule 列為圖像最小結構。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "project"
+            note_zh_tw: "`project(in:)` 依端點身分與角色方向建立投射。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testFullyResolvedProjects"
+            note_zh_tw: "測試確認已解析且方向正確的端點可以完成投射。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testUnresolvedSymbolIsNotProjectable"
+            note_zh_tw: "測試確認未解析字面值保持不可投射。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以可成功及不可成功的 typed projection 補強本筆對應規則；原有類比層級不變。"
+
+  - id: "2.1511"
+    parent: "2.151"
+    texts:
+      de:
+        - "Das Bild ist *so* mit der Wirklichkeit verknüpft; es reicht bis zu ihr."
+      en_ogden_ramsey_1922:
+        - "Thus the picture is linked with reality; it reaches up to it."
+    edition_references:
+      en_pears_mcguinness: "2.1511"
+    segments:
+      - id: "2.1511.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像正是這樣與實在聯結；它一直延伸到實在。"
+        interpretation_zh_tw: "「這樣」承接描繪形式：圖像藉元素對應與配置可能性觸及實在，而不是靠抽象相似感。"
+    project_relations:
+      - status: analogy_only
+        mode: semantic_operation
+        claim_zh_tw: "Akashic 以來源、識別與關係投射把記錄主張連回其所指涉的世界內容。"
+        rationale_zh_tw: "連回指涉對象仍依賴人為規則與證據，不保證記錄為真，也不證明共享完整邏輯形式。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節以 projection rule 與 reality comparison 說明圖像如何觸及實在。"
+          - path: "Sources/AkashicProposition/Proposition.swift"
+            kind: symbol
+            locator: "EntityRef"
+            note_zh_tw: "`EntityRef` 區分已解析 identity 與未解析字面值。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "project"
+            note_zh_tw: "`project(in:)` 依端點身分與角色方向建立投射。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testFullyResolvedProjects"
+            note_zh_tw: "測試確認已解析且方向正確的端點可以完成投射。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以 EntityRef 與成功投射補強名稱端點的現行工程對應；原判定不變。"
+
+  - id: "2.1512"
+    parent: "2.151"
+    texts:
+      de:
+        - "Es ist wie ein Massstab an die Wirklichkeit angelegt."
+      en_ogden_ramsey_1922:
+        - "It is like a scale applied to reality."
+    edition_references:
+      en_pears_mcguinness: "2.1512"
+    segments:
+      - id: "2.1512.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "它就像一把量尺貼在實在之上。"
+        interpretation_zh_tw: "量尺比喻凸顯圖像有一套刻度與對應方式；比較結果取決於它如何套用於現實，而非圖像孤立自證。"
+    project_relations:
+      - status: analogy_only
+        mode: semantic_operation
+        claim_zh_tw: "Akashic 透過證據與裁決把格式良好的主張拿去同外部資料比較。"
+        rationale_zh_tw: "證據流程近似把量尺套向現實，但它具有不確定性與制度判斷，不能被說成中性的邏輯量測。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 14. 早期維根斯坦：圖書館作為世界的圖像"
+            note_zh_tw: "此節把 Evidence／adjudication 描述為圖像與世界的比較機制。"
+    history: []
+
+  - id: "2.15121"
+    parent: "2.1512"
+    texts:
+      de:
+        - "Nur die äussersten Punkte der Teilstriche *berühren* den zu messenden Gegenstand."
+      en_ogden_ramsey_1922:
+        - "Only the outermost points of the dividing lines *touch* the object to be measured."
+    edition_references:
+      en_pears_mcguinness: "2.15121"
+    segments:
+      - id: "2.15121.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "只有刻度線最外端的點才會*接觸*被測量的對象。"
+        interpretation_zh_tw: "接觸不是整把尺與對象融為一體，而是特定對應點把表現結構連到所測內容；類比限制了「圖像像現實」的含混說法。"
+    project_relations:
+      - status: analogy_only
+        mode: shown_constraint
+        claim_zh_tw: "Akashic 的來源 locator 與識別參照只在明示接點上把記錄連到外部證據。"
+        rationale_zh_tw: "可解析 locator 類似有限接觸點，但技術引用不等於量尺比喻的完整邏輯關係。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 14. 早期維根斯坦：圖書館作為世界的圖像"
+            note_zh_tw: "此節把證據與裁決列為圖像同世界比較的接點。"
+    history: []
+
+  - id: "2.1513"
+    parent: "2.151"
+    texts:
+      de:
+        - "Nach dieser Auffassung gehört also zum Bilde auch noch die abbildende Beziehung, die es zum Bild macht."
+      en_ogden_ramsey_1922:
+        - "According to this view the representing relation which makes it a picture, also belongs to the picture."
+    edition_references:
+      en_pears_mcguinness: "2.1513"
+    segments:
+      - id: "2.1513.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "依照這種看法，使它成為圖像的描繪關係也屬於圖像。"
+        interpretation_zh_tw: "元素與配置尚不夠；哪些元素代表哪些對象的描繪關係也必須計入，否則同一排列可被任意解讀。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 的 picture-like 記錄需要明示投射規則，而不能只並列幾個值。"
+        rationale_zh_tw: "現有文件把投射規則列為必要條件；這證成工程類比，未證成所有記錄皆為哲學上的圖像。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節把 projection rule 放在 Picture 結構內。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "project"
+            note_zh_tw: "`project(in:)` 依端點身分與角色方向建立投射。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testUnresolvedSymbolIsNotProjectable"
+            note_zh_tw: "測試確認未解析字面值保持不可投射。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testReversedArgumentsReportWrongEntityKind"
+            note_zh_tw: "測試確認反轉端點時會因實體種類錯誤而拒絕投射。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以未解析與錯誤角色兩類投射拒絕補強本筆配置條件；原判定不變。"
+
+  - id: "2.1514"
+    parent: "2.151"
+    texts:
+      de:
+        - "Die abbildende Beziehung besteht aus den Zuordnungen der Elemente des Bildes und der Sachen."
+      en_ogden_ramsey_1922:
+        - "The representing relation consists of the co-ordinations of the elements of the picture and the things."
+    edition_references:
+      en_pears_mcguinness: "2.1514"
+    segments:
+      - id: "2.1514.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "描繪關係由圖像元素與事物之間的各項對應構成。"
+        interpretation_zh_tw: "描繪不是單一神祕關係，而可分析為元素到事物的逐項對應；這些對應共同支撐配置層的表現。"
+    project_relations:
+      - status: analogy_only
+        mode: semantic_operation
+        claim_zh_tw: "Akashic 透過識別參照、端點角色與欄位語意，明示記錄元素各自代表什麼。"
+        rationale_zh_tw: "這些制度性對應可稽核但可能修訂，僅能類比 abbildende Beziehung 的逐項結構。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節逐項列出圖像元素與對象的代表對應。"
+          - path: "Sources/AkashicProposition/Proposition.swift"
+            kind: symbol
+            locator: "EntityRef"
+            note_zh_tw: "`EntityRef` 區分已解析 identity 與未解析字面值。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "project"
+            note_zh_tw: "`project(in:)` 依端點身分與角色方向建立投射。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testUnresolvedSymbolIsNotProjectable"
+            note_zh_tw: "測試確認未解析字面值保持不可投射。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 讓 resolved key、unresolved literal 與角色投射成為可執行對應，保留本筆受限類比。"
+
+  - id: "2.1515"
+    parent: "2.151"
+    texts:
+      de:
+        - "Diese Zuordnungen sind gleichsam die Fühler der Bildelemente, mit denen das Bild die Wirklichkeit berührt."
+      en_ogden_ramsey_1922:
+        - "These co-ordinations are as it were the feelers of its elements with which the picture touches reality."
+    edition_references:
+      en_pears_mcguinness: "2.1515"
+    segments:
+      - id: "2.1515.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "這些對應彷彿是圖像元素的觸角，圖像藉它們接觸實在。"
+        interpretation_zh_tw: "觸角比喻把抽象對應具象化：圖像不直接變成現實，而以每一項代表關係伸向其所描繪者。"
+    project_relations:
+      - status: analogy_only
+        mode: semantic_operation
+        claim_zh_tw: "Akashic 的來源與識別參照可視為記錄元素接觸所指內容的有限工程接點。"
+        rationale_zh_tw: "接點使主張可追溯，卻不保證相符或真實；因此只採觸角比喻的稽核面向。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節將 elements 與 projection rule 連到 reality comparison。"
+    history: []
+
+  - id: "2.16"
+    parent: "2.1"
+    texts:
+      de:
+        - "Die Tatsache muss um Bild zu sein, etwas mit dem Abgebildeten gemeinsam haben."
+      en_ogden_ramsey_1922:
+        - "In order to be a picture a fact must have something in common with what it pictures."
+    edition_references:
+      en_pears_mcguinness: "2.16"
+    segments:
+      - id: "2.16.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "一個事實若要成為圖像，就必須與被描繪者共有某種東西。"
+        interpretation_zh_tw: "因圖像本身也是事實，它若要描繪另一者，兩邊必須有可支撐對應的共同條件；純粹任意配對不夠。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 只在記錄與所表現內容具有可檢查結構對應時，採用 picture-like 的說法。"
+        rationale_zh_tw: "共同處來自 schema、角色與投射規則，但這些工程規則是局部約定，不能直接等同邏輯形式。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節要求 configuration 與 projection rule，而不以表面相似作準。"
+    history: []
+
+  - id: "2.161"
+    parent: "2.16"
+    texts:
+      de:
+        - "In Bild und Abgebildetem muss etwas identisch sein, damit das eine überhaupt ein Bild des anderen sein kann."
+      en_ogden_ramsey_1922:
+        - "In the picture and the pictured there must be something identical in order that the one can be a picture of the other at all."
+    edition_references:
+      en_pears_mcguinness: "2.161"
+    segments:
+      - id: "2.161.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像與被描繪者之中必須有某種相同的東西，一方才可能真正成為另一方的圖像。"
+        interpretation_zh_tw: "「相同」所指不是元素本身同一，而是讓兩種配置可對應的形式；後續命題會將它明確化為描繪形式與邏輯形式。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 的 canonical record 與衍生表示只有在轉換保留相關結構時，才被視為同一內容的不同表現。"
+        rationale_zh_tw: "這是可測的結構保存類比；不同資料格式共享的 schema 關係並非哲學上唯一且普遍的邏輯形式。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 3. 維根斯坦自己的例子，以及它們對 Akashic 的意義"
+            note_zh_tw: "此節以 canonical record 與衍生格式的結構保存說明對應條件。"
+    history: []
+
+  - id: "2.17"
+    parent: "2.1"
+    texts:
+      de:
+        - "Was das Bild mit der Wirklichkeit gemein haben muss, um sie auf seine Art und Weise – richtig oder falsch – abbilden zu können, ist seine Form der Abbildung."
+      en_ogden_ramsey_1922:
+        - "What the picture must have in common with reality in order to be able to represent it after its manner—rightly or falsely—is its form of representation."
+    edition_references:
+      en_pears_mcguinness: "2.17"
+    segments:
+      - id: "2.17.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像為了能依其自身方式——正確或錯誤地——描繪實在，而必須與實在共有的，就是它的描繪形式。"
+        interpretation_zh_tw: "共同的描繪形式使真假皆可表現：錯誤圖像仍有形式與意義，只是其所表現狀況不符合實在。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 文件要求 picture-like 表示具有明確投射規則，且不把格式正確直接等同內容為真。"
+        rationale_zh_tw: "這與描繪形式的角色相似，但投射規則由專案設計且可能有損，故只標為類比。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節同時列出 projection rule 與獨立的 reality comparison。"
+    history: []
+
+  - id: "2.171"
+    parent: "2.17"
+    texts:
+      de:
+        - "Das Bild kann jede Wirklichkeit abbilden, deren Form es hat."
+        - "Das räumliche Bild alles Räumliche, das farbige alles Farbige, etc."
+      en_ogden_ramsey_1922:
+        - "The picture can represent every reality whose form it has."
+        - "The spatial picture, everything spatial, the coloured, everything coloured, etc."
+    edition_references:
+      en_pears_mcguinness: "2.171"
+    segments:
+      - id: "2.171.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像能描繪任何它所具有其形式的實在。"
+        interpretation_zh_tw: "圖像的描繪範圍由它具備何種形式決定；缺少相應形式的圖像不能跨域表現。"
+      - id: "2.171.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "空間圖像能描繪一切空間事物，有色圖像能描繪一切有色事物，等等。"
+        interpretation_zh_tw: "空間性與有色性是領域特定的描繪形式例子；它們不是所有圖像都必須共有的材質。"
+    project_relations:
+      - status: analogy_only
+        mode: shown_constraint
+        claim_zh_tw: "Akashic 的各種 export 只能保留其投射規則所涵蓋的內容面向。"
+        rationale_zh_tw: "衍生格式可能丟失 provenance、identity 或時間區分，故專案明確拒絕把任一表示視為可描繪所有內容。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 3. 維根斯坦自己的例子，以及它們對 Akashic 的意義"
+            note_zh_tw: "此節說明衍生格式只在投射保存相關結構時表現同一內容。"
+    history: []
+
+  - id: "2.172"
+    parent: "2.17"
+    texts:
+      de:
+        - "Seine Form der Abbildung aber, kann das Bild nicht abbilden; es weist sie auf."
+      en_ogden_ramsey_1922:
+        - "The picture, however, cannot represent its form of representation; it shows it forth."
+    edition_references:
+      en_pears_mcguinness: "2.172"
+    segments:
+      - id: "2.172.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "然而，圖像不能描繪自己的描繪形式；它把這形式顯示出來。"
+        interpretation_zh_tw: "圖像運用其形式來描繪，因而不能再站在同一形式之外把它當作一般對象描繪；形式在圖像能做什麼之中顯示。"
+    project_relations:
+      - status: analogy_only
+        mode: shown_constraint
+        claim_zh_tw: "Akashic 文件承認 schema 不能僅靠更多同層 schema 無限奠基自己的全部使用條件。"
+        rationale_zh_tw: "這是對「不能站到自身表現形式之外」的工程類比，不是宣稱程式限制與說／顯示區分完全相同。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 14. 早期維根斯坦：圖書館作為世界的圖像"
+            note_zh_tw: "此節直接討論圖像不能站到自身表現形式之外。"
+    history: []
+
+  - id: "2.173"
+    parent: "2.17"
+    texts:
+      de:
+        - "Das Bild stellt sein Objekt von ausserhalb dar (sein Standpunkt ist seine Form der Darstellung), darum stellt das Bild sein Objekt richtig oder falsch dar."
+      en_ogden_ramsey_1922:
+        - "The picture represents its object from without (its standpoint is its form of representation), therefore the picture represents its object rightly or falsely."
+    edition_references:
+      en_pears_mcguinness: "2.173"
+    segments:
+      - id: "2.173.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像從外部表現其對象（它的立足點就是它的表現形式），因此圖像會正確或錯誤地表現其對象。"
+        interpretation_zh_tw: "圖像有一個由表現形式決定的立足點，並不與對象合一；正因保持可比較距離，才有正確與錯誤之分。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 將記錄視為帶有 schema、來源與知識狀態之立足點的表現，而非事物自身。"
+        rationale_zh_tw: "這種外部表現使錯誤與修訂可見，但它是資料治理上的類比，並非原典立足點概念的完整實作。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 3. 維根斯坦自己的例子，以及它們對 Akashic 的意義"
+            note_zh_tw: "此節區分 well-formed assertion、truth status、evidence 與 adjudication。"
+    history: []
+
+  - id: "2.174"
+    parent: "2.17"
+    texts:
+      de:
+        - "Das Bild kann sich aber nicht ausserhalb seiner Form der Darstellung stellen."
+      en_ogden_ramsey_1922:
+        - "But the picture cannot place itself outside of its form of representation."
+    edition_references:
+      en_pears_mcguinness: "2.174"
+    segments:
+      - id: "2.174.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "但是，圖像不能把自己置於其表現形式之外。"
+        interpretation_zh_tw: "任何描繪都已在某種形式中運作；試圖從完全無形式的外部描述該形式，仍會使用另一種表現方式。"
+    project_relations:
+      - status: analogy_only
+        mode: shown_constraint
+        claim_zh_tw: "Akashic 的 schema 與文件只能從既有記法中說明其表現邊界，不能取得完全無記法的觀點。"
+        rationale_zh_tw: "此限制可提醒專案避免無限後設奠基，但不表示所有 schema 問題都只能顯示、不能文件化。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 14. 早期維根斯坦：圖書館作為世界的圖像"
+            note_zh_tw: "此節直接以 schema 類比不能站到自身表現形式之外。"
+    history: []
+
+  - id: "2.18"
+    parent: "2.1"
+    texts:
+      de:
+        - "Was jedes Bild, welcher Form immer, mit der Wirklichkeit gemein haben muss, um sie überhaupt – richtig oder falsch – abbilden zu können, ist die logische Form, das ist, die Form der Wirklichkeit."
+      en_ogden_ramsey_1922:
+        - "What every picture, of whatever form, must have in common with reality in order to be able to represent it at all—rightly or falsely—is the logical form, that is, the form of reality."
+    edition_references:
+      en_pears_mcguinness: "2.18"
+    segments:
+      - id: "2.18.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "任何圖像，不論具有何種形式，為了根本能正確或錯誤地描繪實在，而必須與實在共有的，就是邏輯形式，也就是實在的形式。"
+        interpretation_zh_tw: "空間、色彩等特定形式可以不同，但一切可描繪者仍須共享邏輯形式；否則連真假比較的共同空間都不存在。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 以結構可投射性說明不同表示如何可能指向同一內容。"
+        rationale_zh_tw: "專案沒有證明或實作普遍的「實在形式」；它只在各 schema 與 export 邊界內檢查局部結構保存。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節以 projection rule 說明結構對應的最低條件。"
+    history: []
+
+  - id: "2.181"
+    parent: "2.18"
+    texts:
+      de:
+        - "Ist die Form der Abbildung die logische Form, so heisst das Bild das logische Bild."
+      en_ogden_ramsey_1922:
+        - "If the form of representation is the logical form, then the picture is called a logical picture."
+    edition_references:
+      en_pears_mcguinness: "2.181"
+    segments:
+      - id: "2.181.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "如果描繪形式就是邏輯形式，那麼這幅圖像就稱為邏輯圖像。"
+        interpretation_zh_tw: "「邏輯圖像」不是另一種視覺媒材，而是以邏輯形式作為描繪形式、因而能表現可真可假的狀況之圖像。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "專案文件使用 logical picture 一詞描述具元素、配置、投射規則與意義的工程模型。"
+        rationale_zh_tw: "文件同時明言這是受維根斯坦啟發的工程詮釋，不主張 Akashic 完整實作其理論。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節直接定義專案所用 logical picture 的最小結構。"
+    history: []
+
+  - id: "2.182"
+    parent: "2.18"
+    texts:
+      de:
+        - "Jedes Bild ist *auch* ein logisches."
+        - "(Dagegen ist z. B. nicht jedes Bild ein räumliches.)"
+      en_ogden_ramsey_1922:
+        - "Every picture is *also* a logical picture."
+        - "(On the other hand, for example, not every picture is spatial.)"
+    edition_references:
+      en_pears_mcguinness: "2.182"
+    segments:
+      - id: "2.182.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "每一幅圖像也都是邏輯圖像。"
+        interpretation_zh_tw: "任何真正能描繪的圖像都至少共享邏輯形式；「也」表示它還可能具有空間、色彩等更特殊的形式。"
+      - id: "2.182.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（相反地，例如，並非每一幅圖像都是空間圖像。）"
+        interpretation_zh_tw: "括號例子區分普遍邏輯形式與特定媒介形式，避免把圖像限縮成視覺或空間相似物。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 文件容許自然語言、YAML、圖形邊與表格在保留結構時具有 picture-like 功能。"
+        rationale_zh_tw: "不同載體的工程互換不證明它們都符合原典的完整邏輯形式；類比只涵蓋媒介不限於視覺圖像。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 3. 維根斯坦自己的例子，以及它們對 Akashic 的意義"
+            note_zh_tw: "此節比較自然語言、YAML relation、圖形邊與 SQL row。"
+    history: []
+
+  - id: "2.19"
+    parent: "2.1"
+    texts:
+      de:
+        - "Das logische Bild kann die Welt abbilden."
+      en_ogden_ramsey_1922:
+        - "The logical picture can depict the world."
+    edition_references:
+      en_pears_mcguinness: "2.19"
+    segments:
+      - id: "2.19.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "邏輯圖像能描繪世界。"
+        interpretation_zh_tw: "因邏輯圖像具有一切圖像與實在必須共有的邏輯形式，它原則上能表現世界可能如何。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 的設計願景把圖書館看成世界的局部、可修訂圖像。"
+        rationale_zh_tw: "專案文件只說「作為世界的圖像」，不說它能完整描繪整個世界；有限來源與未知內容必須保留。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 14. 早期維根斯坦：圖書館作為世界的圖像"
+            note_zh_tw: "此 heading 明載圖書館作為世界圖像的設計直覺。"
+    history: []
+
+  - id: "2.2"
+    parent: "2"
+    texts:
+      de:
+        - "Das Bild hat mit dem Abgebildeten die logische Form der Abbildung gemein."
+      en_ogden_ramsey_1922:
+        - "The picture has the logical form of representation in common with what it pictures."
+    edition_references:
+      en_pears_mcguinness: "2.2"
+    segments:
+      - id: "2.2.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像與被描繪者共有邏輯的描繪形式。"
+        interpretation_zh_tw: "共同形式是圖像能對所描繪者有意義並可真可假的條件，不是兩者具有相同物質或外觀。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 以 schema 與投射規則維持記錄和主張內容之間的局部結構對應。"
+        rationale_zh_tw: "這些規則可失敗、可改版且各格式涵蓋不同，故不能宣稱已實作普遍邏輯形式。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節用 configuration 與 projection rule 明示共享結構。"
+    history: []
+
+  - id: "2.201"
+    parent: "2.2"
+    texts:
+      de:
+        - "Das Bild bildet die Wirklichkeit ab, indem es eine Möglichkeit des Bestehens und Nichtbestehens von Sachverhalten darstellt."
+      en_ogden_ramsey_1922:
+        - "The picture depicts reality by representing a possibility of the existence and non-existence of atomic facts."
+    edition_references:
+      en_pears_mcguinness: "2.201"
+    segments:
+      - id: "2.201.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像藉由表現事態成立與不成立的一種可能性，來描繪實在。"
+        interpretation_zh_tw: "圖像先提出實在可能如何，再由比較決定真假；它不只複製當下已知成立者。Ogden 的 atomic facts 仍對應 Sachverhalten。"
+    project_relations:
+      - status: analogy_only
+        mode: semantic_operation
+        claim_zh_tw: "Akashic 允許格式良好的 assertion 先表現一種可能配置，再另外保存真值狀態、證據與裁決。"
+        rationale_zh_tw: "這個分層與本句相似，但 assertion 是有來源的知識主張，不是對完整實在的無媒介描繪。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節明確區分 depicts、obtains 與真假結果。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "Assertion"
+            note_zh_tw: "`Assertion` 將來源立場與 typed proposition 一併保存。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "adjudicate"
+            note_zh_tw: "`adjudicate` 只讓符合 stance 與求值條件的主張升格為事實。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testAdjudicationAcceptsEstablishedAssertion"
+            note_zh_tw: "測試確認 established assertion 在 holds 時可通過事實裁決。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以 assertion 與成功裁決補強本筆既有事態比較類比；原判定不變。"
+
+  - id: "2.202"
+    parent: "2.2"
+    texts:
+      de:
+        - "Das Bild stellt eine mögliche Sachlage im logischen Raume dar."
+      en_ogden_ramsey_1922:
+        - "The picture represents a possible state of affairs in logical space."
+    edition_references:
+      en_pears_mcguinness: "2.202"
+    segments:
+      - id: "2.202.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像在邏輯空間中表現一種可能狀況。"
+        interpretation_zh_tw: "Sachlage 譯為「狀況」，以免與技術詞 Sachverhalt／事態完全混同；重點是圖像的意義是一種邏輯上可能的配置，尚不以其實際成立為前提。"
+    project_relations:
+      - status: analogy_only
+        mode: semantic_operation
+        claim_zh_tw: "Akashic 可用帶時間與知識狀態的 assertion 表現未來或尚未裁決的可能事態。"
+        rationale_zh_tw: "這使未來內容在不預稱為真的情況下可被描述；專案同時拒絕把 Git branch 當成完整 possible world。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 5. 質疑：未來還不是事實，logical picture 怎麼描繪它？"
+            note_zh_tw: "此節以 2.202 說明未來 assertion 如何表現可能事態並延後真值裁決。"
+    history:
+      - kind: commit
+        reference: "4c74860"
+        disposition: retained
+        note_zh_tw: "此 commit 建立 logical picture、未來命題與問句的解釋；main 保留其可能事態洞見，但不把 branch 當 possible world。"
+
+  - id: "2.203"
+    parent: "2.2"
+    texts:
+      de:
+        - "Das Bild enthält die Möglichkeit der Sachlage, die es darstellt."
+      en_ogden_ramsey_1922:
+        - "The picture contains the possibility of the state of affairs which it represents."
+    edition_references:
+      en_pears_mcguinness: "2.203"
+    segments:
+      - id: "2.203.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像包含它所表現之狀況的可能性。"
+        interpretation_zh_tw: "圖像的形式必須容許相應狀況，否則它無法給出那個狀況作為自己的意義；可能性內在於可描繪結構。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 的 assertion 形狀必須足以表現其端點、關係、時間與知識狀態所構成的可能內容。"
+        rationale_zh_tw: "schema 可檢查記法是否容許該內容，卻不證明內容成立，也不等同圖像所含的邏輯可能性。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 5. 質疑：未來還不是事實，logical picture 怎麼描繪它？"
+            note_zh_tw: "此節把未來內容建模為具 sense 的可能配置。"
+    history: []
+
+  - id: "2.21"
+    parent: "2.2"
+    texts:
+      de:
+        - "Das Bild stimmt mit der Wirklichkeit überein oder nicht; es ist richtig oder unrichtig, wahr oder falsch."
+      en_ogden_ramsey_1922:
+        - "The picture agrees with reality or not; it is right or wrong, true or false."
+    edition_references:
+      en_pears_mcguinness: "2.21"
+    segments:
+      - id: "2.21.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像與實在相符或不相符；它是正確或錯誤、為真或為假。"
+        interpretation_zh_tw: "真假是圖像的意義同實在是否符合，而不是圖像能否被解析；錯誤圖像仍然是有意義的圖像。"
+    project_relations:
+      - status: analogy_only
+        mode: semantic_operation
+        claim_zh_tw: "Akashic 明確分開 schema validation 與 reality comparison／truth adjudication。"
+        rationale_zh_tw: "格式驗證只確保 picture candidate 可解析，不自動證明世界與它相符；這是專案實際採納的限制。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 3. 維根斯坦自己的例子，以及它們對 Akashic 的意義"
+            note_zh_tw: "此節以假圖像說明 schema validation 不等於真值。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "TruthValue"
+            note_zh_tw: "`TruthValue` 明列 holds、fails 與 undetermined。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testSupportingEvidenceHolds"
+            note_zh_tw: "測試確認 model 的正面作者配置可使 authored 求值為 holds。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testAbsenceIsUndeterminedNotFalse"
+            note_zh_tw: "測試確認缺少支持資料時維持 undetermined，而非推論為假。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 新增與構造驗證分離的 model valuation；因 model 不等於完整實在，本筆仍保留 analogy_only。"
+
+  - id: "2.22"
+    parent: "2.2"
+    texts:
+      de:
+        - "Das Bild stellt dar, was es darstellt, unabhängig von seiner Wahr- oder Falschheit, durch die Form der Abbildung."
+      en_ogden_ramsey_1922:
+        - "The picture represents what it represents, independently of its truth or falsehood, through the form of representation."
+    edition_references:
+      en_pears_mcguinness: "2.22"
+    segments:
+      - id: "2.22.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像透過描繪形式表現它所表現的內容，而這與它為真或為假無關。"
+        interpretation_zh_tw: "描繪形式先確定圖像的意義；真假則是既有意義與實在比較的後續結果。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 的 assertion 可先由結構取得可判讀內容，而真值與裁決另行保存。"
+        rationale_zh_tw: "工程分層與本句同向，但專案的語意依賴規格、來源與使用慣例，不是純粹邏輯形式的直接實作。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節把 sense 與 reality comparison 分列。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "Assertion"
+            note_zh_tw: "`Assertion` 將來源立場與 typed proposition 一併保存。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "AcceptedFact"
+            note_zh_tw: "`AcceptedFact` 與一般 assertion 分型，避免未裁決內容冒充事實。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testAdjudicationAcceptsEstablishedAssertion"
+            note_zh_tw: "測試確認 established assertion 在 holds 時可通過事實裁決。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以不同型別承載 Assertion 與 AcceptedFact，保留本筆 sense／truth 分層類比。"
+
+  - id: "2.221"
+    parent: "2.22"
+    texts:
+      de:
+        - "Was das Bild darstellt, ist sein Sinn."
+      en_ogden_ramsey_1922:
+        - "What the picture represents is its sense."
+    edition_references:
+      en_pears_mcguinness: "2.221"
+    segments:
+      - id: "2.221.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像所表現的內容，就是它的意義。"
+        interpretation_zh_tw: "Sinn（意義）是圖像提出的可能狀況，不是它的真值；同一意義可以在符合實在時為真、不符合時為假。"
+    project_relations:
+      - status: analogy_only
+        mode: semantic_operation
+        claim_zh_tw: "Akashic 將 assertion 的內容與其 truth status 分層，讓未裁決或錯誤主張仍有可理解的意義。"
+        rationale_zh_tw: "這是知識模型的操作類比；專案不宣稱其 sense 欄位或資料結構窮盡哲學上的 Sinn。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節把 sense 定義為被描繪的可能事態。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "Assertion"
+            note_zh_tw: "`Assertion` 將來源立場與 typed proposition 一併保存。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "TruthValue"
+            note_zh_tw: "`TruthValue` 明列 holds、fails 與 undetermined。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testAdjudicationRefusesUndetermined"
+            note_zh_tw: "測試確認 undetermined assertion 不得升格為事實。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以 assertion、truth value 與未定拒絕補強本筆真假分層；原 status 不變。"
+
+  - id: "2.222"
+    parent: "2.22"
+    texts:
+      de:
+        - "In der Übereinstimmung oder Nichtübereinstimmung seines Sinnes mit der Wirklichkeit, besteht seine Wahrheit oder Falschheit."
+      en_ogden_ramsey_1922:
+        - "In the agreement or disagreement of its sense with reality, its truth or falsity consists."
+    edition_references:
+      en_pears_mcguinness: "2.222"
+    segments:
+      - id: "2.222.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖像的意義與實在相符或不相符，就構成它的真或假。"
+        interpretation_zh_tw: "真值不是附在圖像上的任意標籤，而由其已確定的意義同實在的比較關係構成。"
+    project_relations:
+      - status: analogy_only
+        mode: semantic_operation
+        claim_zh_tw: "Akashic 以 evidence 與 adjudication 支援主張內容同現實材料的比較。"
+        rationale_zh_tw: "裁決是可修訂且受來源限制的知識程序，不等於取得無誤的實在全貌；專案只採用分層比較的結構。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 14. 早期維根斯坦：圖書館作為世界的圖像"
+            note_zh_tw: "此節把 Evidence／adjudication 明列為圖像與世界的比較機制。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "adjudicate"
+            note_zh_tw: "`adjudicate` 只讓符合 stance 與求值條件的主張升格為事實。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testAdjudicationAcceptsEstablishedAssertion"
+            note_zh_tw: "測試確認 established assertion 在 holds 時可通過事實裁決。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testAdjudicationRefusesUndetermined"
+            note_zh_tw: "測試確認 undetermined assertion 不得升格為事實。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以 holds 才能裁決為 AcceptedFact 的閘門，提供本筆可修訂比較程序的現行證據。"
+
+  - id: "2.223"
+    parent: "2.22"
+    texts:
+      de:
+        - "Um zu erkennen, ob das Bild wahr oder falsch ist, müssen wir es mit der Wirklichkeit vergleichen."
+      en_ogden_ramsey_1922:
+        - "In order to discover whether the picture is true or false we must compare it with reality."
+    edition_references:
+      en_pears_mcguinness: "2.223"
+    segments:
+      - id: "2.223.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "要辨認圖像為真或為假，我們必須把它與實在比較。"
+        interpretation_zh_tw: "光理解圖像說了什麼還不夠判定真值；必須取得圖像之外的現實比較條件。"
+    project_relations:
+      - status: analogy_only
+        mode: semantic_operation
+        claim_zh_tw: "Akashic 要求以來源證據與裁決程序檢驗 assertion，而不從資料格式本身推出真值。"
+        rationale_zh_tw: "證據可能不完備且裁決可修訂，所以這只是可稽核比較的工程制度，不是保證觸及全部實在。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 3. 維根斯坦自己的例子，以及它們對 Akashic 的意義"
+            note_zh_tw: "此節以 truth status、evidence、adjudication 區分真值判定。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "evaluate"
+            note_zh_tw: "`evaluate(in:)` 對投射結果執行 authored 的開放世界求值。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "adjudicate"
+            note_zh_tw: "`adjudicate` 只讓符合 stance 與求值條件的主張升格為事實。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testAdjudicationAcceptsEstablishedAssertion"
+            note_zh_tw: "測試確認 established assertion 在 holds 時可通過事實裁決。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 將 projection／evaluation 與 adjudication 串成分離步驟，保留本筆現實比較的工程類比。"
+
+  - id: "2.224"
+    parent: "2.22"
+    texts:
+      de:
+        - "Aus dem Bild allein ist nicht zu erkennen, ob es wahr oder falsch ist."
+      en_ogden_ramsey_1922:
+        - "It cannot be discovered from the picture alone whether it is true or false."
+    edition_references:
+      en_pears_mcguinness: "2.224"
+    segments:
+      - id: "2.224.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "單憑圖像本身，無法辨認它為真或為假。"
+        interpretation_zh_tw: "圖像內部提供意義與真值條件，卻不提供現實是否符合的答案；這是語意完整與經驗證成的界線。"
+    project_relations:
+      - status: analogy_only
+        mode: shown_constraint
+        claim_zh_tw: "Akashic 的 schema validation 不會把可解析記錄自動升格為已證實事實。"
+        rationale_zh_tw: "驗證器只能檢查記法與內部限制，內容真值仍需要記錄外的來源、證據與裁決。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 3. 維根斯坦自己的例子，以及它們對 Akashic 的意義"
+            note_zh_tw: "此節明載 schema validation 不證明 reality agrees with assertion。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "adjudicate"
+            note_zh_tw: "`adjudicate` 只讓符合 stance 與求值條件的主張升格為事實。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testAdjudicationRefusesUndetermined"
+            note_zh_tw: "測試確認 undetermined assertion 不得升格為事實。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testQuestionedStanceCannotBecomeFact"
+            note_zh_tw: "測試確認 questioned stance 不得升格為 AcceptedFact。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以兩道 adjudication 閘門直接顯示構造或提問本身不能產生事實。"
+
+  - id: "2.225"
+    parent: "2.22"
+    texts:
+      de:
+        - "Ein a priori wahres Bild gibt es nicht."
+      en_ogden_ramsey_1922:
+        - "There is no picture which is a priori true."
+    edition_references:
+      en_pears_mcguinness: "2.225"
+    segments:
+      - id: "2.225.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "不存在先驗為真的圖像。"
+        interpretation_zh_tw: "只要是圖像，其真值就取決於與實在的符合，而不能僅由圖像形式預先保證；邏輯必然式在後文另有不同地位。"
+    project_relations:
+      - status: analogy_only
+        mode: shown_constraint
+        claim_zh_tw: "Akashic 不把格式有效、匯入成功或搜尋命中視為內容先驗為真。"
+        rationale_zh_tw: "資料管線只能建立可處理的主張；真值仍需外部證據與裁決，避免把系統輸出冒充世界事實。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 3. 維根斯坦自己的例子，以及它們對 Akashic 的意義"
+            note_zh_tw: "此節明示格式驗證與 truth status 必須分離。"
+          - path: "Sources/AkashicProposition/Proposition.swift"
+            kind: symbol
+            locator: "makeAuthored"
+            note_zh_tw: "`makeAuthored` 在便利建構邊界執行命題驗證。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "adjudicate"
+            note_zh_tw: "`adjudicate` 只讓符合 stance 與求值條件的主張升格為事實。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testAdjudicationRefusesUndetermined"
+            note_zh_tw: "測試確認 undetermined assertion 不得升格為事實。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 明示合法命題建構與接受為事實是兩個不同邊界，保留本筆限制。"

@@ -134,6 +134,13 @@ public enum EntryYAML {
             }
             a.append((Node("relations"), Node(r)))
         }
+        if let witness = entry.akashic.authorListCompleteness {
+            try witness.validateBinding(workID: entry.id, authors: entry.authors)
+            a.append((
+                Node("author-list-completeness"),
+                try AuthorListCompletenessYAML.node(witness)
+            ))
+        }
         // akashic 有 known 內容才進 serialize；它是 pairs 的最後一段——
         // 之後 append 的縮排 2 nested raw 區塊仍屬 akashic mapping（α 佈局不變式）
         if !a.isEmpty {
@@ -277,15 +284,18 @@ public enum EntryYAML {
         "id", "citekey", "type", "title", "authors", "date",
         "fields", "attachments", "provenance", "akashic",
     ]).union(EntityKind.knownLabels)
-    static let knownAkashicKeys: Set<String> = ["tags", "libraries", "status", "relations"]
+    static let knownAkashicKeys: Set<String> = [
+        "tags", "libraries", "status", "relations", "author-list-completeness",
+    ]
     static let knownRelationsKeys: Set<String> = ["cites", "related"]
     static let knownProvenanceKeys: Set<String> = [
         "zotero_key", "zotero_version", "library_id", "zotero_hash",
         "imported_at", "orphaned_at",
     ]
 
-    /// store-format §5 strict 策略（v1.3 起僅限 closed shape：authors / provenance /
-    /// akashic.relations）：未知欄位＝decode 錯誤。開放演化層（entry / person /
+    /// store-format §5 strict 策略（v1.3 起 closed shape：authors / attachments /
+    /// provenance / akashic.relations / akashic.author-list-completeness）：未知欄位＝
+    /// decode 錯誤。開放演化層（entry / person /
     /// library 頂層與 akashic namespace）改走 captureUnknownBlocks 逐字保留（α）。
     static func rejectUnknownKeys(_ map: Yams.Node.Mapping, known: Set<String>,
                                   context: String) throws {
@@ -881,6 +891,11 @@ public enum EntryYAML {
         if let akMap = try requireShape(map["akashic"], field: "akashic",
                                         expect: "mapping", nullIsAbsent: true, { $0.mapping }) {
             let akKeys = try keyStrings(akMap, known: knownAkashicKeys, context: "akashic")
+            guard akKeys.filter({ $0 == "author-list-completeness" }).count <= 1 else {
+                throw StoreYAMLError.invalidField(
+                    "akashic.author-list-completeness",
+                    "欄位重複——canonical witness 不採 first/last-wins")
+            }
             if akKeys.contains(where: { !knownAkashicKeys.contains($0) }) {
                 // 需要 akashic 區塊原文：由頂層切分取出（同樣計數校驗，fail-closed）
                 let topBlocks = try splitBlocks(yaml, indent: 0, context: "entry")
@@ -936,6 +951,12 @@ public enum EntryYAML {
                                               expect: "sequence", nullIsAbsent: true, { $0.sequence }) {
                     entry.akashic.relations.related = try stringList(seq, context: "akashic.relations.related")
                 }
+            }
+            if let witnessNode = akMap["author-list-completeness"] {
+                entry.akashic.authorListCompleteness = try AuthorListCompletenessYAML.decode(
+                    witnessNode,
+                    entryWorkID: entry.id,
+                    entryAuthors: entry.authors)
             }
         }
         return entry

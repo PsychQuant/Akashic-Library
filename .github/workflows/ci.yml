@@ -25,9 +25,11 @@ jobs:
     steps:
       # **submodules 必須一起 checkout。** Package.swift 用 path-based 依賴指向
       # repos/biblatex-apa-swift；沒有它 swift build 直接失敗。本機看不到這個問題
-      # ——submodule 早就在那裡了。這是 CI 的第一個回報，也是它存在的理由。
+      # ——submodule 早就在那裡了。Tractatus strict validation 也會解析歷史 commit，
+      # 所以 fetch-depth 必須為 0，不能使用 checkout 的單一 commit 預設值。
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Swift 版本
@@ -76,6 +78,17 @@ jobs:
             echo "::error::測試數 $N 低於下限 $MIN——是不是有整組測試沒被執行？"
             exit 1
           fi
+
+      # 《邏輯哲學論》正典只讀版控內的 sources.yaml、離線 snapshots 與分卷 YAML；
+      # CI 不連網抓原典。strict validate 擋缺卷、漏句、mega-segment、失效證據與權利
+      # 違規；render --check 擋 YAML 已更新但並排 Markdown 尚未重生的 drift。
+      - name: Tractatus 正典與並排文件
+        run: |
+          swift run tractatus-doc validate --root docs/tractatus
+          swift run tractatus-doc render \
+            --root docs/tractatus \
+            --output docs/tractatus/generated/tractatus-project-map.md \
+            --check
 
       # **AkashicApp 是 XcodeGen 專案，不是 SwiftPM target**（#109）——上面的
       # `swift build` / `swift test` 完全不編譯 `AkashicApp/Sources/`。#101 的

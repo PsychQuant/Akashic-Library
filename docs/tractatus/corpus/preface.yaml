@@ -1,0 +1,295 @@
+schema_version: 1
+volume: "preface"
+propositions:
+  - id: "preface.1"
+    texts:
+      de:
+        - "Dieses Buch wird vielleicht nur der verstehen, der die Gedanken, die darin ausgedrückt sind – oder doch ähnliche Gedanken – schon selbst einmal gedacht hat."
+        - "– Es ist also kein Lehrbuch."
+        - "– Sein Zweck wäre erreicht, wenn es Einem, der es mit Verständnis liest Vergnügen bereitete."
+      en_ogden_ramsey_1922:
+        - "This book will perhaps only be understood by those who have themselves already thought the thoughts which are expressed in it—or similar thoughts."
+        - "It is therefore not a text-book."
+        - "Its object would be attained if there were one person who read it with understanding and to whom it afforded pleasure."
+    edition_references:
+      en_pears_mcguinness: "Preface paragraph 1"
+    segments:
+      - id: "preface.1.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "這本書也許只有這樣的人才會理解：他自己已經想過書中所表達的思想——或至少想過類似的思想。"
+        interpretation_zh_tw: "理解被描述為讀者親自走過相近思想歷程後的辨認；這不是以神祕資格排除讀者，而是說本書不會從外部逐步灌輸其觀看方式。"
+      - id: "preface.1.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "——所以它不是一本教科書。"
+        interpretation_zh_tw: "這句否定作品的教科書體裁：它企圖澄清既有困惑，而不是按章節教授一套可照表操課的學說。"
+      - id: "preface.1.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "——只要有一位讀者能帶著理解閱讀它，並從中得到愉悅，它的目的就算達成。"
+        interpretation_zh_tw: "成功標準是至少一位讀者獲得理解與愉悅的質性轉變，而不是銷量、普遍同意或一套外部可量測的教學成果。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 不要求使用者先具有某種思想經驗，也不把閱讀愉悅當成系統正確性的條件。"
+        rationale_zh_tw: "序言談的是作者期待的讀者與作品目的；把這種閱讀條件硬套成軟體前置條件或驗收指標，會混淆哲學閱讀與工程行為。"
+        evidence: []
+    history: []
+
+  - id: "preface.2"
+    texts:
+      de:
+        - "Das Buch behandelt die philosophischen Probleme und zeigt – wie ich glaube – dass die Fragestellung dieser Probleme auf dem Missverständnis der Logik unserer Sprache beruht."
+        - "Man könnte den ganzen Sinn des Buches etwa in die Worte fassen: Was sich überhaupt sagen lässt, lässt sich klar sagen; und wovon man nicht reden kann, darüber muss man schweigen."
+      en_ogden_ramsey_1922:
+        - "The book deals with the problems of philosophy and shows, as I believe, that the method of formulating these problems rests on the misunderstanding of the logic of our language."
+        - "Its whole meaning could be summed up somewhat as follows: What can be said at all can be said clearly; and whereof one cannot speak thereof one must be silent."
+    edition_references:
+      en_pears_mcguinness: "Preface paragraph 2"
+    segments:
+      - id: "preface.2.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "這本書處理哲學問題，並且——如我所相信的——顯示：這些問題的提問方式奠基於對我們語言邏輯的誤解。"
+        interpretation_zh_tw: "診斷針對問題的形成方式，而不只針對某個答案真假；若困難源自語言邏輯的誤讀，哲學工作便可能是澄清並使問題消解。"
+      - id: "preface.2.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "本書的全部意旨大致可概括為：凡是完全能說的，都能清楚地說；而對於不能談論之事，就必須保持沉默。"
+        interpretation_zh_tw: "清楚言說與沉默標出有意義命題的界線；這不是禁止保存未知資料、情感或價值，而是要求別把無法形成命題意義的東西偽裝成可陳述知識。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 以明確 schema、型別與驗證器約束可表達內容，並在哲學文件中承認語言界線。"
+        rationale_zh_tw: "這是精確表達的工程類比，不表示驗證通過就等於解決哲學問題，也不把無法入 schema 的內容判成沒有價值。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 17. Frege 與維根斯坦：精確語言與語言界線"
+            note_zh_tw: "本節明載精確語言與語言界線對 Akashic 的雙重紀律。"
+    history: []
+
+  - id: "preface.3"
+    texts:
+      de:
+        - "Das Buch will also dem Denken eine Grenze ziehen, oder vielmehr – nicht dem Denken, sondern dem Ausdruck der Gedanken: Denn um dem Denken eine Grenze zu ziehen, müssten wir beide Seiten dieser Grenze denken können (wir müssten also denken können, was sich nicht denken lässt)."
+      en_ogden_ramsey_1922:
+        - "The book will, therefore, draw a limit to thinking, or rather—not to thinking, but to the expression of thoughts; for, in order to draw a limit to thinking we should have to be able to think both sides of this limit (we should therefore have to be able to think what cannot be thought)."
+    edition_references:
+      en_pears_mcguinness: "Preface paragraph 3"
+    segments:
+      - id: "preface.3.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "因此，本書要為思想劃出一道界線；或者更確切地說——不是為思想，而是為思想的表達劃界：因為若要為思想劃界，我們就必須能思考這道界線的兩側（也就是必須能思考不可被思考之物）。"
+        interpretation_zh_tw: "直接替思想本身劃界會陷入自我挫敗，因為辨認界外就已要求思考界外；因此可行的工作轉向檢視思想何時能取得有意義的語言表達。"
+    project_relations:
+      - status: analogy_only
+        mode: shown_constraint
+        claim_zh_tw: "Akashic 只替可由既有 schema 表達與驗證的紀錄劃定系統邊界，不宣稱替人的思考劃界。"
+        rationale_zh_tw: "型別與 schema 能顯示系統目前可表達什麼，卻不能證成其邊界就是思想或世界的邊界；對應僅止於表達限制。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 17. Frege 與維根斯坦：精確語言與語言界線"
+            note_zh_tw: "本節區分形式語言的精確性與實際使用所顯示的語言界線。"
+    history: []
+
+  - id: "preface.4"
+    texts:
+      de:
+        - "Die Grenze wird also nur in der Sprache gezogen werden können und was jenseits der Grenze liegt, wird einfach Unsinn sein."
+      en_ogden_ramsey_1922:
+        - "The limit can, therefore, only be drawn in language and what lies on the other side of the limit will be simply nonsense."
+    edition_references:
+      en_pears_mcguinness: "Preface paragraph 4"
+    segments:
+      - id: "preface.4.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "因此，界線只能在語言中劃出；而界線彼端之物將只是無意義。"
+        interpretation_zh_tw: "此處的 Unsinn 是缺乏可形成命題意義的語言位置，不等同於經驗上為假、荒唐可笑或尚未被資料庫收錄。"
+    project_relations:
+      - status: analogy_only
+        mode: shown_constraint
+        claim_zh_tw: "Akashic 讓 schema 顯示目前能合法表示的內容，同時明載未被表示者不因此不存在。"
+        rationale_zh_tw: "驗證失敗只表示內容不符合這套資料語言，不能推出界外內容在世界中毫無意義；這項保留避免把工程界線膨脹成形上學界線。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 18. 圖書館不能等同於世界"
+            note_zh_tw: "本節明言世界與有意義生活超出圖書館目前能保存的事實。"
+    history: []
+
+  - id: "preface.5"
+    texts:
+      de:
+        - "Wieweit meine Bestrebungen mit denen anderer Philosophen zusammenfallen, will ich nicht beurteilen."
+        - "Ja, was ich hier geschrieben habe macht im Einzelnen überhaupt nicht den Anspruch auf Neuheit; und darum gebe ich auch keine Quellen an, weil es mir gleichgültig ist, ob das was ich gedacht habe, vor mir schon ein anderer gedacht hat."
+      en_ogden_ramsey_1922:
+        - "How far my efforts agree with those of other philosophers I will not decide."
+        - "Indeed what I have here written makes no claim to novelty in points of detail; and therefore I give no sources, because it is indifferent to me whether what I have thought has already been thought before me by another."
+    edition_references:
+      en_pears_mcguinness: "Preface paragraph 5"
+    segments:
+      - id: "preface.5.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我的努力在多大程度上與其他哲學家的努力相合，我不打算判斷。"
+        interpretation_zh_tw: "作者暫不替自己的工作安排哲學史位置；這是對比較工作的節制，不等於否認思想之間確實可能有重疊或差異。"
+      - id: "preface.5.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "事實上，我在此所寫的細節根本不宣稱新穎；因此我也不列來源，因為在我之前是否已有別人想過我所想的，對我而言無關緊要。"
+        interpretation_zh_tw: "不主張細節新穎與不列來源是作者在此自述的優先次序；它既不證明思想沒有前例，也不能成為後來校勘或學術語料省略來源的通則。"
+    project_relations:
+      - status: intentional_nonconformance
+        mode: declared_nonconformance
+        claim_zh_tw: "Akashic 的《邏輯哲學論》語料刻意不沿用序言的『不列來源』做法，而要求版本、快照與權利狀態可稽核。"
+        rationale_zh_tw: "作者對思想優先權的淡然不能取代專案對逐字來源與重製權的責任；因此此處是有理由的明確不遵循。"
+        evidence:
+          - path: "docs/tractatus/README.md"
+            kind: heading
+            locator: "## 來源與權利"
+            note_zh_tw: "本節固定版本、revision、digest 與外部參照的權利界線。"
+    history: []
+
+  - id: "preface.6"
+    texts:
+      de:
+        - "Nur das will ich erwähnen, dass ich den grossartigen Werken Freges und den Arbeiten meines Freundes Herrn Bertrand Russell einen grossen Teil der Anregung zu meinen Gedanken schulde."
+      en_ogden_ramsey_1922:
+        - "I will only mention that to the great works of Frege and the writings of my friend Bertrand Russell I owe in large measure the stimulation of my thoughts."
+    edition_references:
+      en_pears_mcguinness: "Preface paragraph 6"
+    segments:
+      - id: "preface.6.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我只想提到：我的思想有很大一部分啟發，得自弗雷格的偉大著作，以及我的朋友伯特蘭・羅素先生的工作。"
+        interpretation_zh_tw: "這句補上具名的思想債務：即使作者不做逐項來源考證，弗雷格與羅素仍是理解本書問題背景的重要脈絡。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "弗雷格與羅素對維根斯坦的思想啟發是一項哲學史陳述，不是 Akashic 的執行期不變條件。"
+        rationale_zh_tw: "專案文件可以保存這項來源脈絡，但若把某位思想家的影響力直接映射成資料模型或程式行為，會把歷史關係誤說成工程同一性。"
+        evidence: []
+    history: []
+  - id: "preface.7"
+    texts:
+      de:
+        - "Wenn diese Arbeit einen Wert hat, so besteht er in Zweierlei."
+        - "Erstens darin, dass in ihr Gedanken ausgedrückt sind, und dieser Wert wird umso grösser sein, je besser die Gedanken ausgedrückt sind."
+        - "Je mehr der Nagel auf den Kopf getroffen ist."
+        - "– Hier bin ich mir bewusst, weit hinter dem Möglichen zurückgeblieben zu sein."
+        - "Einfach darum, weil meine Kraft zur Bewältigung der Aufgabe zu gering ist."
+        - "– Mögen andere kommen und es besser machen."
+      en_ogden_ramsey_1922:
+        - "If this work has a value it consists in two things."
+        - "First that in it thoughts are expressed, and this value will be the greater the better the thoughts are expressed."
+        - "The more the nail has been hit on the head."
+        - "—Here I am conscious that I have fallen far short of the possible."
+        - "Simply because my powers are insufficient to cope with the task."
+        - "—May others come and do it better."
+    edition_references:
+      en_pears_mcguinness: "Preface paragraph 7"
+    segments:
+      - id: "preface.7.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "如果這部作品有價值，那麼它的價值有兩方面。"
+        interpretation_zh_tw: "作者先區分兩種價值，為後文把表達品質與思想真理分開評估建立結構。"
+      - id: "preface.7.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "第一，在於其中表達了思想；而思想表達得越好，這項價值就越大。"
+        interpretation_zh_tw: "思想是否被表達，以及被表達得多精確，本身構成第一種價值；這使語句形式不是可忽略的外包裝。"
+      - id: "preface.7.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "也就是越能一針見血。"
+        interpretation_zh_tw: "『把釘子打中頭部』是命中問題要害的譬喻，衡量的是表達的準確與切中，而不是篇幅或修辭華麗。"
+      - id: "preface.7.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "——在這一點上，我自知遠遠未達到原可達成的程度。"
+        interpretation_zh_tw: "作者對第一種價值作自我限縮：即使相信思想內容，也承認現有表達沒有窮盡可能的清晰度。"
+      - id: "preface.7.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "原因很簡單：我的能力不足以完成這項任務。"
+        interpretation_zh_tw: "不足被歸於執行者的有限能力，而不是把未完成的表達反過來宣稱為問題本身不可澄清。"
+      - id: "preface.7.f"
+        alignment:
+          de: [5]
+          en_ogden_ramsey_1922: [5]
+        translation_zh_tw: "——但願後來有人能做得更好。"
+        interpretation_zh_tw: "邀請後來者改進，讓作品保持可校訂性；這與下一段對思想真理的強烈確信形成刻意張力。"
+    project_relations:
+      - status: partial
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 的語料格式把原文、工作譯文與哲學解讀分欄，使表達品質可以逐句校訂，也容許後來者做得更好。"
+        rationale_zh_tw: "可追溯欄位與逐句對齊落實了可複核、可改進的一部分精神；它們仍無法機械判定某個哲學表達是否真正一針見血。"
+        evidence:
+          - path: "docs/tractatus/README.md"
+            kind: heading
+            locator: "## YAML 編輯契約"
+            note_zh_tw: "本節要求原文單位、工作譯文與逐句解讀分開保存。"
+    history: []
+
+  - id: "preface.8"
+    texts:
+      de:
+        - "Dagegen scheint mir die *Wahrheit* der hier mitgeteilten Gedanken unantastbar und definitiv."
+        - "Ich bin also der Meinung, die Probleme im Wesentlichen endgültig gelöst zu haben."
+        - "Und wenn ich mich hierin nicht irre, so besteht nun der Wert dieser Arbeit zweitens darin, dass sie zeigt, wie wenig damit getan ist, dass diese Probleme gelöst sind."
+      en_ogden_ramsey_1922:
+        - "On the other hand the *truth* of the thoughts communicated here seems to me unassailable and definitive."
+        - "I am, therefore, of the opinion that the problems have in essentials been finally solved."
+        - "And if I am not mistaken in this, then the value of this work secondly consists in the fact that it shows how little has been done when these problems have been solved."
+    edition_references:
+      en_pears_mcguinness: "Preface paragraph 8"
+    segments:
+      - id: "preface.8.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "然而，我認為此處傳達的思想之真理是不可動搖而且確定的。"
+        interpretation_zh_tw: "語氣從上一段對表達不足的自省轉為對思想內容的極強確信；『在我看來』仍標明這是作者自評，而不是讀者無須檢驗的證明。"
+      - id: "preface.8.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "因此，我認為這些問題在本質上已獲得最終解決。"
+        interpretation_zh_tw: "所謂最終解決針對哲學問題的本質形態，承接前文將其根源診斷為語言邏輯的誤解；它不是宣稱所有經驗問題或人生難題皆已回答。"
+      - id: "preface.8.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "而且，如果我在這一點上沒有弄錯，那麼這部作品的第二種價值就在於：它顯示出，即使這些問題已經解決，所成就的仍然多麼少。"
+        interpretation_zh_tw: "第二種價值帶有反高潮：即便哲學困惑能被澄清，世界、生活與價值也不因此由一套命題代為完成。"
+    project_relations:
+      - status: intentional_nonconformance
+        mode: declared_nonconformance
+        claim_zh_tw: "Akashic 刻意不把任何現行 schema 或哲學對照宣稱為不可動搖、最終完成。"
+        rationale_zh_tw: "專案要求版本內規則明確，同時讓 ontology 保持可演化；這直接拒絕把本次語料或現況實作升格為終局真理。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 12. Schema 可以在版本內封閉，但不能宣稱窮盡未來"
+            note_zh_tw: "本節要求現行 schema 可驗證，但不得宣稱已完成世界的最終分類。"
+    history: []

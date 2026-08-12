@@ -84,14 +84,26 @@ public enum StoreIncarnation {
     public static func readStrict(root: URL) throws -> String? {
         let u = url(in: root)
         guard FileManager.default.fileExists(atPath: u.path) else { return nil }   // 真的缺席
-        let text: String
-        do { text = try String(contentsOf: u, encoding: .utf8) }
+        let data: Data
+        do { data = try Data(contentsOf: u) }
         catch { throw StoreIncarnationError.unreadable(path: u.path, why: error.localizedDescription) }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard UUID(uuidString: trimmed) != nil else {
-            throw StoreIncarnationError.malformed(path: u.path, content: trimmed)
+        return try parse(data: data, path: u.path)
+    }
+
+    /// 與 filesystem API 共用的 bytes parser。snapshot 只解析已接受的 capture，
+    /// 因此 identity 與 revision 看到的 incarnation 必定是同一份原始 bytes。
+    static func parse(data: Data?, path: String) throws -> String? {
+        guard let data else { return nil }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw StoreIncarnationError.unreadable(path: path, why: "內容不是 UTF-8")
         }
-        return trimmed.uppercased()
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count == 36,
+              let uuid = UUID(uuidString: trimmed),
+              uuid.uuidString.caseInsensitiveCompare(trimmed) == .orderedSame else {
+            throw StoreIncarnationError.malformed(path: path, content: trimmed)
+        }
+        return uuid.uuidString
     }
 
     /// 不存在才寫（沿用 `StoreVersion.writeIfAbsent` 的模式）。回傳最終的 id。

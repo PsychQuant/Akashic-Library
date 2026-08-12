@@ -1,0 +1,2339 @@
+schema_version: 1
+volume: "3"
+propositions:
+  - id: "3"
+    texts:
+      de:
+        - "Das logische Bild der Tatsachen ist der Gedanke."
+      en_ogden_ramsey_1922:
+        - "The logical picture of the facts is the thought."
+    edition_references:
+      en_pears_mcguinness: "3"
+    segments:
+      - id: "3.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "事實的邏輯圖像就是思想。"
+        interpretation_zh_tw: "思想在此不是單純的心理事件，而是能以與事實共有的邏輯形式來描繪事實的圖像。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3 直接主張「事實的邏輯圖像就是思想。」，本卷並將其限制解讀為「思想在此不是單純的心理事件，而是能以與事實共有的邏輯形式來描繪事實的圖像。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.001"
+    parent: "3"
+    texts:
+      de:
+        - "„Ein Sachverhalt ist denkbar“ heisst: Wir können uns ein Bild von ihm machen."
+      en_ogden_ramsey_1922:
+        - "“An atomic fact is thinkable”—means: we can imagine it."
+    edition_references:
+      en_pears_mcguinness: "3.001"
+    segments:
+      - id: "3.001.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "「一個事態是可思的」意即：我們能為它形成一幅圖像。"
+        interpretation_zh_tw: "可思性在此由可圖像化界定；重點是可能配置能被表現，不是它已經實際成立。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.001 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.001 直接主張「「一個事態是可思的」意即：我們能為它形成一幅圖像。」，本卷並將其限制解讀為「可思性在此由可圖像化界定；重點是可能配置能被表現，不是它已經實際成立。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.01"
+    parent: "3"
+    texts:
+      de:
+        - "Die Gesamtheit der wahren Gedanken sind ein Bild der Welt."
+      en_ogden_ramsey_1922:
+        - "The totality of true thoughts is a picture of the world."
+    edition_references:
+      en_pears_mcguinness: "3.01"
+    segments:
+      - id: "3.01.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "真思想的總體是世界的一幅圖像。"
+        interpretation_zh_tw: "每個真思想描繪一項成立的事態；其總體合成世界圖像，但仍不是世界本身。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.01 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.01 直接主張「真思想的總體是世界的一幅圖像。」，本卷並將其限制解讀為「每個真思想描繪一項成立的事態；其總體合成世界圖像，但仍不是世界本身。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.02"
+    parent: "3"
+    texts:
+      de:
+        - "Der Gedanke enthält die Möglichkeit der Sachlage die er denkt."
+        - "Was denkbar ist, ist auch möglich."
+      en_ogden_ramsey_1922:
+        - "The thought contains the possibility of the state of affairs which it thinks."
+        - "What is thinkable is also possible."
+    edition_references:
+      en_pears_mcguinness: "3.02"
+    segments:
+      - id: "3.02.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "思想包含它所思之狀況的可能性。"
+        interpretation_zh_tw: "思想的結構預先劃出它所描繪狀況的可能方式；這裡尚未判定該狀況實際成立。"
+      - id: "3.02.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "凡可思者亦可能。"
+        interpretation_zh_tw: "「可能」是邏輯上的可表現性，不是機率、可實作性或已獲證據支持。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.02 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.02 直接主張「思想包含它所思之狀況的可能性。」，本卷並將其限制解讀為「思想的結構預先劃出它所描繪狀況的可能方式；這裡尚未判定該狀況實際成立。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.03"
+    parent: "3"
+    texts:
+      de:
+        - "Wir können nichts Unlogisches denken, weil wir sonst unlogisch denken müssten."
+      en_ogden_ramsey_1922:
+        - "We cannot think anything unlogical, for otherwise we should have to think unlogically."
+    edition_references:
+      en_pears_mcguinness: "3.03"
+    segments:
+      - id: "3.03.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我們不能思考任何不合邏輯之物，否則我們就必須不合邏輯地思考。"
+        interpretation_zh_tw: "邏輯不是思想可以任意違反的外加規則；能成為思想的表現本身已受邏輯形式約束。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.03 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.03 直接主張「我們不能思考任何不合邏輯之物，否則我們就必須不合邏輯地思考。」，本卷並將其限制解讀為「邏輯不是思想可以任意違反的外加規則；能成為思想的表現本身已受邏輯形式約束。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.031"
+    parent: "3.03"
+    texts:
+      de:
+        - "Man sagte einmal, dass Gott alles schaffen könne, nur nichts, was den logischen Gesetzen zuwider wäre."
+        - "– Wir könnten nämlich von einer „unlogischen“ Welt nicht *sagen*, wie sie aussähe."
+      en_ogden_ramsey_1922:
+        - "It used to be said that God could create everything, except what was contrary to the laws of logic."
+        - "The truth is, we could not *say* of an “unlogical” world how it would look."
+    edition_references:
+      en_pears_mcguinness: "3.031"
+    segments:
+      - id: "3.031.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "曾有人說，上帝能創造一切，只不能創造違反邏輯法則之物。"
+        interpretation_zh_tw: "這個傳統說法把邏輯限制表述成創造能力的例外，下一句則把焦點轉回可說性的界線。"
+      - id: "3.031.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "——因為我們無法說出一個「不合邏輯」世界會是什麼樣子。"
+        interpretation_zh_tw: "問題不是缺少一幅罕見世界的描述，而是「不合邏輯」使描述本身無法形成可理解的樣貌。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.031 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.031 直接主張「曾有人說，上帝能創造一切，只不能創造違反邏輯法則之物。」，本卷並將其限制解讀為「這個傳統說法把邏輯限制表述成創造能力的例外，下一句則把焦點轉回可說性的界線。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.032"
+    parent: "3.03"
+    texts:
+      de:
+        - "Etwas „der Logik widersprechendes“ in der Sprache darstellen, kann man ebensowenig, wie in der Geometrie eine den Gesetzen des Raumes widersprechende Figur durch ihre Koordinaten darstellen; oder die Koordinaten eines Punktes angeben, welcher nicht existiert."
+      en_ogden_ramsey_1922:
+        - "To present in language anything which “contradicts logic” is as impossible as in geometry to present by its co-ordinates a figure which contradicts the laws of space; or to give the co-ordinates of a point which does not exist."
+    edition_references:
+      en_pears_mcguinness: "3.032"
+    segments:
+      - id: "3.032.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "在語言中表現「違反邏輯」之物，就如同在幾何學中以座標表現違反空間法則的圖形，或給出一個不存在之點的座標一樣不可能。"
+        interpretation_zh_tw: "座標例子說明表現系統的構成規則同時界定其可表現範圍；違反規則的項目不是另一個合法內容。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.032 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.032 直接主張「在語言中表現「違反邏輯」之物，就如同在幾何學中以座標表現違反空間法則的圖形，或給出一個不存在之點的座標一樣不可能。」，本卷並將其限制解讀為「座標例子說明表現系統的構成規則同時界定其可表現範圍；違反規則的項目不是另一個合法內容。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.0321"
+    parent: "3.032"
+    texts:
+      de:
+        - "Wohl können wir einen Sachverhalt räumlich darstellen, welcher den Gesetzen der Physik, aber keinen, der den Gesetzen der Geometrie zuwiderliefe."
+      en_ogden_ramsey_1922:
+        - "We could present spatially an atomic fact which contradicted the laws of physics, but not one which contradicted the laws of geometry."
+    edition_references:
+      en_pears_mcguinness: "3.0321"
+    segments:
+      - id: "3.0321.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我們固然能在空間中表現一個違反物理定律的事態，卻不能表現一個違反幾何法則的事態。"
+        interpretation_zh_tw: "物理定律限制何者實際可能，幾何形式則限制何者能在該空間表現中成為一個有結構的可能性。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.0321 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.0321 直接主張「我們固然能在空間中表現一個違反物理定律的事態，卻不能表現一個違反幾何法則的事態。」，本卷並將其限制解讀為「物理定律限制何者實際可能，幾何形式則限制何者能在該空間表現中成為一個有結構的可能性。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.04"
+    parent: "3"
+    texts:
+      de:
+        - "Ein a priori richtiger Gedanke wäre ein solcher, dessen Möglichkeit seine Wahrheit bedingte."
+      en_ogden_ramsey_1922:
+        - "An a priori true thought would be one whose possibility guaranteed its truth."
+    edition_references:
+      en_pears_mcguinness: "3.04"
+    segments:
+      - id: "3.04.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "一個先天地正確的思想，會是其可能性本身就保證其為真的思想。"
+        interpretation_zh_tw: "此條提出極強的條件：若僅由思想可被形成便推出真，可能性與真理就必須重合。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.04 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.04 直接主張「一個先天地正確的思想，會是其可能性本身就保證其為真的思想。」，本卷並將其限制解讀為「此條提出極強的條件：若僅由思想可被形成便推出真，可能性與真理就必須重合。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.05"
+    parent: "3"
+    texts:
+      de:
+        - "Nur so könnten wir a priori wissen, dass ein Gedanke wahr ist, wenn aus dem Gedanken selbst (ohne Vergleichsobjekt) seine Wahrheit zu erkennen wäre."
+      en_ogden_ramsey_1922:
+        - "Only if we could know a priori that a thought is true if its truth was to be recognized from the thought itself (without an object of comparison)."
+    edition_references:
+      en_pears_mcguinness: "3.05"
+    segments:
+      - id: "3.05.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "唯有當一個思想的真能從思想本身辨認出來（毋須比較對象），我們才能先天地知道它為真。"
+        interpretation_zh_tw: "通常思想必須與現實比較才判定真假；省略比較對象只可能發生在思想形式本身已排除為假的情況。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.05 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.05 直接主張「唯有當一個思想的真能從思想本身辨認出來（毋須比較對象），我們才能先天地知道它為真。」，本卷並將其限制解讀為「通常思想必須與現實比較才判定真假；省略比較對象只可能發生在思想形式本身已排除為假的情況。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.1"
+    parent: "3"
+    texts:
+      de:
+        - "Im Satz drückt sich der Gedanke sinnlich wahrnehmbar aus."
+      en_ogden_ramsey_1922:
+        - "In the proposition the thought is expressed perceptibly through the senses."
+    edition_references:
+      en_pears_mcguinness: "3.1"
+    segments:
+      - id: "3.1.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "思想在命題中以可由感官感知的方式表達出來。"
+        interpretation_zh_tw: "命題讓思想取得可聽或可見的載體；載體不是思想本身，卻使思想能被共同使用與檢驗。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.1 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.1 直接主張「思想在命題中以可由感官感知的方式表達出來。」，本卷並將其限制解讀為「命題讓思想取得可聽或可見的載體；載體不是思想本身，卻使思想能被共同使用與檢驗。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.11"
+    parent: "3.1"
+    texts:
+      de:
+        - "Wir benützen das sinnlich wahrnehmbare Zeichen (Laut- oder Schriftzeichen etc.) des Satzes als Projektion der möglichen Sachlage."
+        - "Die Projektionsmethode ist das Denken des Satz-Sinnes."
+      en_ogden_ramsey_1922:
+        - "We use the sensibly perceptible sign (sound or written sign, etc.) of the proposition as a projection of the possible state of affairs."
+        - "The method of projection is the thinking of the sense of the proposition."
+    edition_references:
+      en_pears_mcguinness: "3.11"
+    segments:
+      - id: "3.11.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我們把命題中可由感官感知的記號（聲音記號、書寫記號等），用作可能狀況的投射。"
+        interpretation_zh_tw: "Zeichen 譯為「記號」：它是可感知的載體；記號只有經由投射關係，才把自身配置連到可能狀況。"
+      - id: "3.11.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "投射方法就是對命題意義的思考。"
+        interpretation_zh_tw: "Projektionsmethode 譯為「投射方法」；它不是單純的圖形轉換，而是把命題記號理解為具有某一意義的活動。"
+    project_relations:
+      - status: analogy_only
+        mode: semantic_operation
+        claim_zh_tw: "專案文件以明確的 projection rule 說明記號配置如何對應到所描繪事態，作為投射方法的工程類比。"
+        rationale_zh_tw: "文件明載這是受維根斯坦啟發的工程詮釋；parser、schema 或轉換規則只顯式承擔部分投射工作，不等同於思想命題意義本身。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 2. logical picture 的最小結構"
+            note_zh_tw: "此節列出 elements、configuration、projection rule 與 sense 的分工。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "project"
+            note_zh_tw: "`project(in:)` 依端點身分與角色方向建立投射。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testFullyResolvedProjects"
+            note_zh_tw: "測試確認已解析且方向正確的端點可以完成投射。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以已解析 authored 端點的成功投射補強本筆既有圖像類比；原 status 不變。"
+  - id: "3.12"
+    parent: "3.1"
+    texts:
+      de:
+        - "Das Zeichen, durch welches wir den Gedanken ausdrücken, nenne ich das Satzzeichen."
+        - "Und der Satz ist das Satzzeichen in seiner projektiven Beziehung zur Welt."
+      en_ogden_ramsey_1922:
+        - "The sign through which we express the thought I call the propositional sign."
+        - "And the proposition is the propositional sign in its projective relation to the world."
+    edition_references:
+      en_pears_mcguinness: "3.12"
+    segments:
+      - id: "3.12.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我把我們用來表達思想的記號稱為命題記號。"
+        interpretation_zh_tw: "Satzzeichen 是可感知且有結構的命題載體；本句先命名記號層，尚未把它等同於完整命題。"
+      - id: "3.12.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "而命題，就是命題記號處於它與世界的投射關係之中。"
+        interpretation_zh_tw: "完整命題還包含記號如何對應世界的投射關係，故僅有字串或資料結構並不足夠。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 文件區分表示載體、配置與投射後的世界主張，類比命題記號必須置於投射關係中才成為命題。"
+        rationale_zh_tw: "這只說明專案文件如何避免把字串本身當成完整世界主張；它不宣稱 Akashic 資料模型就是《論考》的命題。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "### 3.2 `aRb`：不是符號列，而是符號之間真的有配置"
+            note_zh_tw: "此節明載符號配置、投射與世界層的區別。"
+          - path: "Sources/AkashicProposition/Proposition.swift"
+            kind: symbol
+            locator: "Proposition"
+            note_zh_tw: "`Proposition` 宣告 typed authored 命題的封閉結構。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "project"
+            note_zh_tw: "`project(in:)` 依端點身分與角色方向建立投射。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testFullyResolvedProjects"
+            note_zh_tw: "測試確認已解析且方向正確的端點可以完成投射。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以 typed proposition 與成功投射補強本筆配置投射的現行證據；原判定不變。"
+  - id: "3.13"
+    parent: "3.1"
+    texts:
+      de:
+        - "Zum Satz gehört alles, was zur Projektion gehört; aber nicht das Projizierte."
+        - "Also die Möglichkeit des Projizierten, aber nicht dieses selbst."
+        - "Im Satz ist also sein Sinn noch nicht enthalten, wohl aber die Möglichkeit ihn auszudrücken."
+        - "\\(„Der Inhalt des Satzes“ heisst der Inhalt des sinnvollen Satzes.)"
+        - "Im Satz ist die Form seines Sinnes enthalten, aber nicht dessen Inhalt."
+      en_ogden_ramsey_1922:
+        - "To the proposition belongs everything which belongs to the projection; but not what is projected."
+        - "Therefore the possibility of what is projected but not this itself."
+        - "In the proposition, therefore, its sense is not yet contained, but the possibility of expressing it."
+        - "\\(“The content of the proposition” means the content of the significant proposition.)"
+        - "In the proposition the form of its sense is contained, but not its content."
+    edition_references:
+      en_pears_mcguinness: "3.13"
+    segments:
+      - id: "3.13.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "一切屬於投射的，都屬於命題；但被投射者不屬於命題。"
+        interpretation_zh_tw: "命題包含使投射成立的形式條件，卻不把它所描繪的世界項目當作自身零件。"
+      - id: "3.13.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "因此，屬於命題的是被投射者的可能性，而不是被投射者本身。"
+        interpretation_zh_tw: "命題給出狀況可能如何，而不把實際狀況搬入符號載體之中。"
+      - id: "3.13.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "所以，命題尚未包含它的意義，卻包含表達該意義的可能性。"
+        interpretation_zh_tw: "命題記號的結構提供表達意義的能力；具體意義仍取決於投射的使用。"
+      - id: "3.13.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "（「命題的內容」意指有意義命題的內容。）"
+        interpretation_zh_tw: "括號限定避免把尚未建立意義的記號串也逕稱為有內容的命題。"
+      - id: "3.13.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "命題包含其意義的形式，而不包含其內容。"
+        interpretation_zh_tw: "形式是命題能表現某種可能配置的條件；內容則是依投射而被表現的那個配置。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.13 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.13 直接主張「一切屬於投射的，都屬於命題；但被投射者不屬於命題。」，本卷並將其限制解讀為「命題包含使投射成立的形式條件，卻不把它所描繪的世界項目當作自身零件。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.14"
+    parent: "3.1"
+    texts:
+      de:
+        - "Das Satzzeichen besteht darin, dass sich seine Elemente, die Wörter, in ihm auf bestimmte Art und Weise zu einander verhalten."
+        - "Das Satzzeichen ist eine Tatsache."
+      en_ogden_ramsey_1922:
+        - "The propositional sign consists in the fact that its elements, the words, are combined in it in a definite way."
+        - "The propositional sign is a fact."
+    edition_references:
+      en_pears_mcguinness: "3.14"
+    segments:
+      - id: "3.14.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "命題記號在於：它的元素——詞語——以某種確定方式彼此相互關聯。"
+        interpretation_zh_tw: "命題性不來自詞語被羅列，而來自詞語之間可辨認的配置。"
+      - id: "3.14.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "命題記號是一項事實。"
+        interpretation_zh_tw: "記號元素確實以某種方式排列，這個符號層的事實才能描繪世界層的可能事態。"
+    project_relations:
+      - status: partial
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 以封閉、具名且有順序的 Proposition 結構承載 authored 命題元素的配置；現行實作只涵蓋一個 predicate。"
+        rationale_zh_tw: "命題 3.14 把命題記號理解為元素實際以確定方式關聯，而不是詞語清單。Proposition 的固定 arity、具名角色與 ordered arguments 直接保存這項配置差異；但 Swift value 並不因此成為原典所說的命題記號事實，故只標為 partial。"
+        evidence:
+          - path: "Sources/AkashicProposition/Proposition.swift"
+            kind: symbol
+            locator: "Proposition"
+            note_zh_tw: "`Proposition` 宣告 typed authored 命題的封閉結構。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testDirectionIsPartOfIdentity"
+            note_zh_tw: "測試確認交換 person／work 方向會形成不同命題。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "PropositionModelValidationError"
+            note_zh_tw: "模型元素若有重複 identity key，會在形成可求值配置前以 aggregate error 拒絕。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testDuplicateEntryAndPersonKeysAreRejectedTogether"
+            note_zh_tw: "測試確認 entry 與 person 兩類重複配置會一起被拒絕。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: revised
+        note_zh_tw: "e16c6f6 以封閉、固定 arity 且具方向的 authored proposition，修訂先前無直接對應的判定；它仍不是完整命題記號理論。"
+      - kind: issue
+        reference: "https://github.com/PsychQuant/Akashic-Library/issues/205"
+        disposition: revised
+        note_zh_tw: "本次變更已在所有 truth-bearing 邊界驗證公開 enum case，並拒絕重複 model key；issue history 繼續保留供 IDD 驗證，且本筆仍只主張受限 partial。"
+  - id: "3.141"
+    parent: "3.14"
+    texts:
+      de:
+        - "Der Satz ist kein Wörtergemisch."
+        - "– (Wie das musikalische Thema kein Gemisch von Tönen.)"
+        - "Der Satz ist artikuliert."
+      en_ogden_ramsey_1922:
+        - "The proposition is not a mixture of words (just as the musical theme is not a mixture of tones)."
+        - "The proposition is articulate."
+    edition_references:
+      en_pears_mcguinness: "3.141"
+    segments:
+      - id: "3.141.a"
+        alignment:
+          de: [0, 1]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "命題不是詞語的混合物。（如同音樂主題不是音調的混合物。）"
+        interpretation_zh_tw: "德文把音樂類比另作一句，英譯嵌入同句，故採二對一；兩者都強調共同出現不等於有結構的命題。"
+      - id: "3.141.b"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "命題是有節理的。"
+        interpretation_zh_tw: "「有節理」表示構成部分及其關係可以分辨，與無結構的材料堆積相反。"
+    project_relations:
+      - status: partial
+        mode: structural_invariant
+        claim_zh_tw: "Akashic 的 authored proposition 不是無結構的 argument 集合：predicate、person role、work role 與順序由型別共同限定。"
+        rationale_zh_tw: "命題 3.141 以「有節理」對比詞語混合物。現行型別讓 arity 固定、角色具名，且交換 arguments 會得到不同命題；但它只證成 authored 的最小節理，不是一般命題組合論，故維持 partial。"
+        evidence:
+          - path: "Sources/AkashicProposition/Proposition.swift"
+            kind: symbol
+            locator: "arguments"
+            note_zh_tw: "`arguments` 依角色順序輸出 person 與 work 端點。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testWellFormedPropositionIsAccepted"
+            note_zh_tw: "測試確認符合角色與格式的 authored 命題可被建構。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testDirectionIsPartOfIdentity"
+            note_zh_tw: "測試確認交換 person／work 方向會形成不同命題。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "PropositionModel"
+            note_zh_tw: "`PropositionModel` 只有在每個角色的 identity key 唯一時才形成可求值結構。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testDuplicateEntryRejectionIsIndependentOfInputOrder"
+            note_zh_tw: "測試確認相同結構衝突不因輸入排列順序而得到不同模型。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: revised
+        note_zh_tw: "e16c6f6 讓 authored 的構成部分、順序與角色成為可檢查結構，因此把先前 not_applicable 修訂為受限 partial。"
+      - kind: issue
+        reference: "https://github.com/PsychQuant/Akashic-Library/issues/205"
+        disposition: revised
+        note_zh_tw: "本次變更已補上公開建構旁路的語意邊界驗證與模型唯一性拒絕；issue history 繼續保留，但本筆仍不把 authored 結構誇大為完整邏輯句法。"
+  - id: "3.142"
+    parent: "3.14"
+    texts:
+      de:
+        - "Nur Tatsachen können einen Sinn ausdrücken, eine Klasse von Namen kann es nicht."
+      en_ogden_ramsey_1922:
+        - "Only facts can express a sense, a class of names cannot."
+    edition_references:
+      en_pears_mcguinness: "3.142"
+    segments:
+      - id: "3.142.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "只有事實能表達意義，一群名稱不能。"
+        interpretation_zh_tw: "名稱清單欠缺元素間的配置；只有記號彼此構成一項事實時，才可能描繪另一項事態。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.142 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.142 直接主張「只有事實能表達意義，一群名稱不能。」，本卷並將其限制解讀為「名稱清單欠缺元素間的配置；只有記號彼此構成一項事實時，才可能描繪另一項事態。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.143"
+    parent: "3.14"
+    texts:
+      de:
+        - "Dass das Satzzeichen eine Tatsache ist, wird durch die gewöhnliche Ausdrucksform der Schrift oder des Druckes verschleiert."
+        - "Denn im gedruckten Satz z. B. sieht das Satzzeichen nicht wesentlich verschieden aus vom Wort."
+        - "\\(So war es möglich, dass Frege den Satz einen zusammengesetzten Namen nannte.)"
+      en_ogden_ramsey_1922:
+        - "That the propositional sign is a fact is concealed by the ordinary form of expression, written or printed."
+        - "\\(For in the printed proposition, for example, the sign of a proposition does not appear essentially different from a word."
+        - "Thus it was possible for Frege to call the proposition a compounded name.)"
+    edition_references:
+      en_pears_mcguinness: "3.143"
+    segments:
+      - id: "3.143.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "命題記號是一項事實，這一點被書寫或印刷的通常表達形式遮蔽了。"
+        interpretation_zh_tw: "線性文字讓整個命題看似與單一詞同類，因而容易忽略字詞的實際排列也是一項結構事實。"
+      - id: "3.143.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（例如，在印刷命題中，命題記號看來與詞並無本質差異。"
+        interpretation_zh_tw: "印刷外觀把命題的結構排列偽裝成單一詞的形狀；視覺相似不等於邏輯角色相同。"
+      - id: "3.143.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "因此，Frege 才可能把命題稱為複合名稱。）"
+        interpretation_zh_tw: "Frege 的稱法在此是前述遮蔽所造成的哲學誤讀：可真假的結構不能降成一個較長名稱。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.143 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.143 直接主張「命題記號是一項事實，這一點被書寫或印刷的通常表達形式遮蔽了。」，本卷並將其限制解讀為「線性文字讓整個命題看似與單一詞同類，因而容易忽略字詞的實際排列也是一項結構事實。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.1431"
+    parent: "3.143"
+    texts:
+      de:
+        - "Sehr klar wird das Wesen des Satzzeichens, wenn wir es uns, statt aus Schriftzeichen, aus räumlichen Gegenständen (etwa Tischen, Stühlen, Büchern) zusammengesetzt denken."
+        - "Die gegenseitige räumliche Lage dieser Dinge drückt dann den Sinn des Satzes aus."
+      en_ogden_ramsey_1922:
+        - "The essential nature of the propositional sign becomes very clear when we imagine it made up of spatial objects (such as tables, chairs, books) instead of written signs."
+        - "The mutual spatial position of these things then expresses the sense of the proposition."
+    edition_references:
+      en_pears_mcguinness: "3.1431"
+    segments:
+      - id: "3.1431.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "若不把命題記號想成由書寫記號，而想成由空間物件（例如桌子、椅子、書）組成，命題記號的本質就會變得非常清楚。"
+        interpretation_zh_tw: "換掉文字載體後，仍保留的是物件彼此的配置；這使「命題記號是一項事實」不再被字串外觀遮蔽。"
+      - id: "3.1431.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "這些東西彼此的空間位置，於是表達命題的意義。"
+        interpretation_zh_tw: "表意者不是各物件孤立存在，而是它們被安排成的關係；該關係再依投射方法對應到事態。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "專案解說以桌子、椅子與書的配置說明：承載意義的是元素關係，而非單一載體外觀。"
+        rationale_zh_tw: "解說直接採用 3.1431 作哲學例子，再以 relation instance 作受限工程類比；它沒有把 Akashic entity 冒充簡單對象。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "### 3.1 桌子、椅子與書：配置本身表達意義"
+            note_zh_tw: "此節逐條說明空間配置與 Akashic 關係實例的類比界線。"
+    history: []
+  - id: "3.1432"
+    parent: "3.143"
+    texts:
+      de:
+        - "Nicht: „Das komplexe Zeichen ‚*aRb*‘ sagt, dass *a* in der Beziehung *R* zu *b* steht“, sondern: *Dass* „*a*“ in einer gewissen Beziehung zu „*b*“ steht, sagt, *dass* *aRb*."
+      en_ogden_ramsey_1922:
+        - "We must not say, “The complex sign ‘*aRb*’ says ‘*a* stands in relation *R* to *b*’”; but we must say, “*That* ‘*a*’ stands in a certain relation to ‘*b*’ says *that aRb*”."
+    edition_references:
+      en_pears_mcguinness: "3.1432"
+    segments:
+      - id: "3.1432.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "不應說：「複合記號『*aRb*』說 *a* 與 *b* 處於關係 *R*」；而應說：「『*a*』與『*b*』處於某種關係這件事，說出了 *aRb*。」"
+        interpretation_zh_tw: "要點不是整串記號額外命名一項關係，而是記號 a 與 b 在命題記號中的實際配置，描繪了對象 a 與 b 的配置。"
+    project_relations:
+      - status: partial
+        mode: semantic_operation
+        claim_zh_tw: "Akashic 不把 authored(P,W) 保存成一個複合字串；P、W 的角色與配置由 typed proposition 表示，並由 project(in:) 分別投射到 Person 與 Entry。"
+        rationale_zh_tw: "3.1432 的要點是實際配置而非整串記號額外命名關係。現行 authored case 以具名位置保存配置，projector 又檢查方向與 entity kind；但這只是一個 predicate 的工程實例，不等同一般 aRb 圖像理論。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "### 3.2 `aRb`：不是符號列，而是符號之間真的有配置"
+            note_zh_tw: "此節直接討論 3.1432 與資料建模。"
+          - path: "Sources/AkashicProposition/Projection.swift"
+            kind: symbol
+            locator: "project"
+            note_zh_tw: "`project(in:)` 先驗證命題語法，再依端點身分與角色方向建立投射。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testReversedArgumentsReportWrongEntityKind"
+            note_zh_tw: "測試確認反轉端點時會因實體種類錯誤而拒絕投射。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testDirectEmptyLiteralIsRejectedAcrossSemanticOperations"
+            note_zh_tw: "測試確認非法命題元素在 project 入口直接拋錯，不會偽裝成可投射配置或知識未定。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: revised
+        note_zh_tw: "e16c6f6 將先前只有文件類比的端點配置落成 typed authored projection，因此關係升為 partial。"
+      - kind: issue
+        reference: "https://github.com/PsychQuant/Akashic-Library/issues/205"
+        disposition: revised
+        note_zh_tw: "投射入口現已對非 canonical 命題 fail closed，evaluate／answer／adjudicate 也逐層傳遞同一錯誤；issue history 保留供後續 IDD 驗證。"
+  - id: "3.144"
+    parent: "3.14"
+    texts:
+      de:
+        - "Sachlagen kann man beschreiben, nicht *benennen*."
+        - "\\(Namen gleichen Punkten, Sätze Pfeilen, sie haben Sinn.)"
+      en_ogden_ramsey_1922:
+        - "States of affairs can be described but not *named*."
+        - "\\(Names resemble points; propositions resemble arrows, they have sense.)"
+    edition_references:
+      en_pears_mcguinness: "3.144"
+    segments:
+      - id: "3.144.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "狀況可以被描述，不能被命名。"
+        interpretation_zh_tw: "描述以有結構的命題指出狀況如何；名稱只能代替對象，不能單獨承擔整個可真假的配置。"
+      - id: "3.144.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（名稱像點，命題像箭頭；命題具有意義。）"
+        interpretation_zh_tw: "點只標定所指，箭頭則帶有方向與結構；比喻用來凸顯命題超出單一命名的表現能力。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.144 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.144 直接主張「狀況可以被描述，不能被命名。」，本卷並將其限制解讀為「描述以有結構的命題指出狀況如何；名稱只能代替對象，不能單獨承擔整個可真假的配置。」。這裡處理思想、命題記號、投射或配置何以具有意義；Akashic 的檔案與欄位沒有因此取得相同的邏輯圖像地位。"
+    history: []
+  - id: "3.2"
+    parent: "3"
+    texts:
+      de:
+        - "Im Satze kann der Gedanke so ausgedrückt sein, dass den Gegenständen des Gedankens Elemente des Satzzeichens entsprechen."
+      en_ogden_ramsey_1922:
+        - "In propositions thoughts can be so expressed that to the objects of the thoughts correspond the elements of the propositional sign."
+    edition_references:
+      en_pears_mcguinness: "3.2"
+    segments:
+      - id: "3.2.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "思想可以在命題中表達成：思想中的對象各有命題記號的元素與之對應。"
+        interpretation_zh_tw: "命題的元素不是任意裝飾；它們在投射中分別代替思想所涉及的對象。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.2 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.2 直接主張「思想可以在命題中表達成：思想中的對象各有命題記號的元素與之對應。」，本卷並將其限制解讀為「命題的元素不是任意裝飾；它們在投射中分別代替思想所涉及的對象。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
+    history: []
+  - id: "3.201"
+    parent: "3.2"
+    texts:
+      de:
+        - "Diese Elemente nenne ich „einfache Zeichen“ und den Satz „vollständig analysiert“."
+      en_ogden_ramsey_1922:
+        - "These elements I call “simple signs” and the proposition “completely analysed”."
+    edition_references:
+      en_pears_mcguinness: "3.201"
+    segments:
+      - id: "3.201.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我把這些元素稱為「簡單記號」，並把該命題稱為「完全分析的」。"
+        interpretation_zh_tw: "完全分析是把命題分解到直接對應對象的簡單記號；這是《論考》的分析理想，不是一般檔案剖析的同義詞。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.201 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.201 直接主張「我把這些元素稱為「簡單記號」，並把該命題稱為「完全分析的」。」，本卷並將其限制解讀為「完全分析是把命題分解到直接對應對象的簡單記號；這是《論考》的分析理想，不是一般檔案剖析的同義詞。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
+    history: []
+  - id: "3.202"
+    parent: "3.2"
+    texts:
+      de:
+        - "Die im Satze angewandten einfachen Zeichen heissen Namen."
+      en_ogden_ramsey_1922:
+        - "The simple signs employed in propositions are called names."
+    edition_references:
+      en_pears_mcguinness: "3.202"
+    segments:
+      - id: "3.202.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "命題中所使用的簡單記號稱為名稱。"
+        interpretation_zh_tw: "名稱在此是完全分析後的簡單記號，術語範圍比日常所說的人名或欄位名稱更窄。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.202 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.202 直接主張「命題中所使用的簡單記號稱為名稱。」，本卷並將其限制解讀為「名稱在此是完全分析後的簡單記號，術語範圍比日常所說的人名或欄位名稱更窄。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
+    history: []
+  - id: "3.203"
+    parent: "3.2"
+    texts:
+      de:
+        - "Der Name bedeutet den Gegenstand."
+        - "Der Gegenstand ist seine Bedeutung."
+        - "(„*A*“ ist dasselbe Zeichen wie „*A*“.)"
+      en_ogden_ramsey_1922:
+        - "The name means the object."
+        - "The object is its meaning."
+        - "(“*A*” is the same sign as “*A*”.)"
+    edition_references:
+      en_pears_mcguinness: "3.203"
+    segments:
+      - id: "3.203.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "名稱意指對象。"
+        interpretation_zh_tw: "名稱的角色是指向對象；它不把對象的全部性質或內部結構包含在字樣裡。"
+      - id: "3.203.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "對象是名稱的指稱。"
+        interpretation_zh_tw: "Bedeutung 在此依名稱—對象關係譯作「指稱」，與命題的 Sinn／意義分開。"
+      - id: "3.203.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "（「*A*」與「*A*」是同一個記號。）"
+        interpretation_zh_tw: "括號只確認重複字樣為同一記號；不同脈絡中的符號角色仍須另由用法判定。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.203 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.203 直接主張「名稱意指對象。」，本卷並將其限制解讀為「名稱的角色是指向對象；它不把對象的全部性質或內部結構包含在字樣裡。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
+    history: []
+  - id: "3.21"
+    parent: "3.2"
+    texts:
+      de:
+        - "Der Konfiguration der einfachen Zeichen im Satzzeichen entspricht die Konfiguration der Gegenstände in der Sachlage."
+      en_ogden_ramsey_1922:
+        - "To the configuration of the simple signs in the propositional sign corresponds the configuration of the objects in the state of affairs."
+    edition_references:
+      en_pears_mcguinness: "3.21"
+    segments:
+      - id: "3.21.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "命題記號中簡單記號的配置，對應於狀況中對象的配置。"
+        interpretation_zh_tw: "圖像關係依賴兩邊的結構對應，而非僅把每個記號逐一貼到對象上。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.21 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.21 直接主張「命題記號中簡單記號的配置，對應於狀況中對象的配置。」，本卷並將其限制解讀為「圖像關係依賴兩邊的結構對應，而非僅把每個記號逐一貼到對象上。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
+    history: []
+  - id: "3.22"
+    parent: "3.2"
+    texts:
+      de:
+        - "Der Name vertritt im Satz den Gegenstand."
+      en_ogden_ramsey_1922:
+        - "In the proposition the name represents the object."
+    edition_references:
+      en_pears_mcguinness: "3.22"
+    segments:
+      - id: "3.22.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "名稱在命題中代替對象。"
+        interpretation_zh_tw: "代替功能只在命題脈絡內運作；名稱不是對象的縮小副本，也不把對象包含在字串裡。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.22 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.22 直接主張「名稱在命題中代替對象。」，本卷並將其限制解讀為「代替功能只在命題脈絡內運作；名稱不是對象的縮小副本，也不把對象包含在字串裡。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
+    history: []
+  - id: "3.221"
+    parent: "3.22"
+    texts:
+      de:
+        - "Die Gegenstände kann ich nur *nennen*."
+        - "Zeichen vertreten sie."
+        - "Ich kann nur *von* ihnen sprechen, *sie aussprechen* kann ich nicht."
+        - "Ein Satz kann nur sagen, *wie* ein Ding ist, nicht *was* es ist."
+      en_ogden_ramsey_1922:
+        - "Objects I can only *name*."
+        - "Signs represent them."
+        - "I can only speak *of* them."
+        - "I cannot *assert them*."
+        - "A proposition can only say *how* a thing is, not *what* it is."
+    edition_references:
+      en_pears_mcguinness: "3.221"
+    segments:
+      - id: "3.221.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "對象我只能加以命名。"
+        interpretation_zh_tw: "名稱提供指涉位置，但不把對象本身轉成一串可以直接說出的內容。"
+      - id: "3.221.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "記號代替它們。"
+        interpretation_zh_tw: "代替關係讓可感知記號在命題中站到對象的位置，並非宣稱兩者同一。"
+      - id: "3.221.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2, 3]
+        translation_zh_tw: "我只能談論它們，不能把它們本身說出來。"
+        interpretation_zh_tw: "英譯把德文同一句拆成兩句，故採一對二；兩版都區分談論對象與把對象本身作為斷言。"
+      - id: "3.221.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "命題只能說一個事物是如何，不能說它是什麼。"
+        interpretation_zh_tw: "命題描繪對象的可能配置，而不把對象的形式本質當成另一項同類性質加以陳述。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.221 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.221 直接主張「對象我只能加以命名。」，本卷並將其限制解讀為「名稱提供指涉位置，但不把對象本身轉成一串可以直接說出的內容。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
+    history: []
+  - id: "3.23"
+    parent: "3.2"
+    texts:
+      de:
+        - "Die Forderung der Möglichkeit der einfachen Zeichen ist die Forderung der Bestimmtheit des Sinnes."
+      en_ogden_ramsey_1922:
+        - "The postulate of the possibility of the simple signs is the postulate of the determinateness of the sense."
+    edition_references:
+      en_pears_mcguinness: "3.23"
+    segments:
+      - id: "3.23.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "要求簡單記號的可能性，就是要求意義的確定性。"
+        interpretation_zh_tw: "若分析永遠留下未定的複合指涉，命題在何種情況為真便不確定；簡單記號被提出來保障意義邊界。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.23 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.23 直接主張「要求簡單記號的可能性，就是要求意義的確定性。」，本卷並將其限制解讀為「若分析永遠留下未定的複合指涉，命題在何種情況為真便不確定；簡單記號被提出來保障意義邊界。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
+    history: []
+  - id: "3.24"
+    parent: "3.2"
+    texts:
+      de:
+        - "Der Satz, welcher vom Komplex handelt, steht in interner Beziehung zum Satze, der von dessen Bestandteil handelt."
+        - "Der Komplex kann nur durch seine Beschreibung gegeben sein, und diese wird stimmen oder nicht stimmen."
+        - "Der Satz, in welchem von einem Komplex die Rede ist, wird, wenn dieser nicht existiert, nicht unsinnig, sondern einfach falsch sein."
+        - "Dass ein Satzelement einen Komplex bezeichnet, kann man aus einer Unbestimmtheit in den Sätzen sehen, worin es vorkommt."
+        - "Wir *wissen*, durch diesen Satz ist noch nicht alles bestimmt."
+        - "(Die Allgemeinheitsbezeichnung *enthält* ja ein Urbild.)"
+        - "Die Zusammenfassung des Symbols eines Komplexes in ein einfaches Symbol kann durch eine Definition ausgedrückt werden."
+      en_ogden_ramsey_1922:
+        - "A proposition about a complex stands in internal relation to the proposition about its constituent part."
+        - "A complex can only be given by its description, and this will either be right or wrong."
+        - "The proposition in which there is mention of a complex, if this does not exist, becomes not nonsense but simply false."
+        - "That a propositional element signifies a complex can be seen from an indeterminateness in the propositions in which it occurs."
+        - "We *know* that everything is not yet determined by this proposition."
+        - "(The notation for generality *contains* a prototype.)"
+        - "The combination of the symbols of a complex in a simple symbol can be expressed by a definition."
+    edition_references:
+      en_pears_mcguinness: "3.24"
+    segments:
+      - id: "3.24.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "論及複合體的命題，與論及其構成部分的命題處於內在關係。"
+        interpretation_zh_tw: "複合體表現可依形式展開為構成部分的表現，兩種命題的關聯不是外加的偶然事實。"
+      - id: "3.24.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "複合體只能由其描述給出，而描述可能正確或不正確。"
+        interpretation_zh_tw: "描述提供複合體的真假條件，不需要先假定一個充當簡單名稱所指的複合對象。"
+      - id: "3.24.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "若命題談到一個不存在的複合體，它不會成為無意義，而只會是假的。"
+        interpretation_zh_tw: "不存在使描述不符合現實，卻不取消我們對何種情況會使該命題為真的理解。"
+      - id: "3.24.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "一個命題元素指示複合體，可從它所在命題中的某種未確定性看出。"
+        interpretation_zh_tw: "複合表達保留不同構成方式的餘地，這種未確定性顯示它並非不可再分析的名稱。"
+      - id: "3.24.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "我們知道，這個命題尚未決定一切。"
+        interpretation_zh_tw: "未決之處是描述仍容許多個值或配置，不是讀者缺少任意背景資料。"
+      - id: "3.24.f"
+        alignment:
+          de: [5]
+          en_ogden_ramsey_1922: [5]
+        translation_zh_tw: "（全稱記法本來就包含一個原型。）"
+        interpretation_zh_tw: "括號指出一般性記法已規定可代入項目的形式，因此其未確定性仍有結構。"
+      - id: "3.24.g"
+        alignment:
+          de: [6]
+          en_ogden_ramsey_1922: [6]
+        translation_zh_tw: "把複合體的符號組合收束成一個簡單符號，可以用定義表達。"
+        interpretation_zh_tw: "定義提供縮寫與展開規則，改變表面記法而不新增被描述的事態。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.24 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.24 直接主張「論及複合體的命題，與論及其構成部分的命題處於內在關係。」，本卷並將其限制解讀為「複合體表現可依形式展開為構成部分的表現，兩種命題的關聯不是外加的偶然事實。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
+    history: []
+  - id: "3.25"
+    parent: "3.2"
+    texts:
+      de:
+        - "Es gibt eine und nur eine vollständige Analyse des Satzes."
+      en_ogden_ramsey_1922:
+        - "There is one and only one complete analysis of the proposition."
+    edition_references:
+      en_pears_mcguinness: "3.25"
+    segments:
+      - id: "3.25.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "命題有且只有一種完全分析。"
+        interpretation_zh_tw: "在《論考》的框架內，完全分析須揭示唯一的基本結構；這是哲學主張，不是所有自然語言剖析都已有唯一演算法。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.25 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.25 直接主張「命題有且只有一種完全分析。」，本卷並將其限制解讀為「在《論考》的框架內，完全分析須揭示唯一的基本結構；這是哲學主張，不是所有自然語言剖析都已有唯一演算法。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
+    history: []
+  - id: "3.251"
+    parent: "3.25"
+    texts:
+      de:
+        - "Der Satz drückt auf bestimmte, klar angebbare Weise aus, was er ausdrückt: Der Satz ist artikuliert."
+      en_ogden_ramsey_1922:
+        - "The proposition expresses what it expresses in a definite and clearly specifiable way: the proposition is articulate."
+    edition_references:
+      en_pears_mcguinness: "3.251"
+    segments:
+      - id: "3.251.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "命題以確定且可清楚指明的方式表達它所表達的內容：命題是有節理的。"
+        interpretation_zh_tw: "意義的確定性要求命題元素及其關係可以指出；「有節理」再次排除無結構的詞語堆積。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.251 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.251 直接主張「命題以確定且可清楚指明的方式表達它所表達的內容：命題是有節理的。」，本卷並將其限制解讀為「意義的確定性要求命題元素及其關係可以指出；「有節理」再次排除無結構的詞語堆積。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
+    history: []
+  - id: "3.26"
+    parent: "3.2"
+    texts:
+      de:
+        - "Der Name ist durch keine Definition weiter zu zergliedern:"
+        - "er ist ein Urzeichen."
+      en_ogden_ramsey_1922:
+        - "The name cannot be analysed further by any definition."
+        - "It is a primitive sign."
+    edition_references:
+      en_pears_mcguinness: "3.26"
+    segments:
+      - id: "3.26.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "名稱不能再由任何定義分解。"
+        interpretation_zh_tw: "定義只能展開衍生記號；到了名稱便不能再以另一組記號分析其指稱方式。"
+      - id: "3.26.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "它是原初記號。"
+        interpretation_zh_tw: "Urzeichen 譯為「原初記號」；這是《論考》分析終點的角色，不表示軟體中未拆欄位者就是簡單對象。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.26 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.26 先說名稱不能再由定義分解，再把它定位為原初記號；這是《論考》分析終點的主張。Akashic entity 仍是可演化的工程紀錄，不能因某欄位目前未拆分，就冒充此處的簡單對象或原初記號。"
+    history: []
+  - id: "3.261"
+    parent: "3.26"
+    texts:
+      de:
+        - "Jedes definierte Zeichen bezeichnet *über* jene Zeichen, durch welche es definiert wurde; und die Definitionen weisen den Weg."
+        - "Zwei Zeichen, ein Urzeichen, und ein durch Urzeichen definiertes, können nicht auf dieselbe Art und Weise bezeichnen."
+        - "Namen *kann* man nicht durch Definitionen auseinanderlegen."
+        - "(Kein Zeichen, welches allein, selbständig eine Bedeutung hat.)"
+      en_ogden_ramsey_1922:
+        - "Every defined sign signifies *via* those signs by which it is defined, and the definitions show the way."
+        - "Two signs, one a primitive sign, and one defined by primitive signs, cannot signify in the same way."
+        - "Names *cannot* be taken to pieces by definition (nor any sign which alone and independently has a meaning)."
+    edition_references:
+      en_pears_mcguinness: "3.261"
+    segments:
+      - id: "3.261.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "每個被定義的記號，都是經由用來定義它的那些記號而指示；定義則指出這條路徑。"
+        interpretation_zh_tw: "衍生記號的指示方式可沿定義展開到較原初的記號，定義本身充當可追蹤的轉換規則。"
+      - id: "3.261.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "兩個記號——一個原初記號與一個由原初記號定義的記號——不能以同一方式指示。"
+        interpretation_zh_tw: "即使最終關聯到相同對象，原初指稱與經定義展開的符號角色仍不相同。"
+      - id: "3.261.c"
+        alignment:
+          de: [2, 3]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "名稱不能由定義拆解。（任何單獨且獨立具有指稱的記號也不能。）"
+        interpretation_zh_tw: "英譯把德文括號納入同句，故採二對一；共同重點是直接指稱者不是定義縮寫。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.261 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.261 直接主張「每個被定義的記號，都是經由用來定義它的那些記號而指示；定義則指出這條路徑。」，本卷並將其限制解讀為「衍生記號的指示方式可沿定義展開到較原初的記號，定義本身充當可追蹤的轉換規則。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
+    history: []
+  - id: "3.262"
+    parent: "3.26"
+    texts:
+      de:
+        - "Was in den Zeichen nicht zum Ausdruck kommt, das zeigt ihre Anwendung."
+        - "Was die Zeichen verschlucken, das spricht ihre Anwendung aus."
+      en_ogden_ramsey_1922:
+        - "What does not get expressed in the sign is shown by its application."
+        - "What the signs conceal, their application declares."
+    edition_references:
+      en_pears_mcguinness: "3.262"
+    segments:
+      - id: "3.262.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "未在記號中表達出來的，由其應用顯示。"
+        interpretation_zh_tw: "表面字形未明載的句法角色，會在記號實際可如何組合、替換與指示時顯現。"
+      - id: "3.262.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "記號所吞沒的，由其應用說出。"
+        interpretation_zh_tw: "記法省略的區別不必另藏在字串內；穩定的使用規則可以把它顯露出來。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.262 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.262 直接主張「未在記號中表達出來的，由其應用顯示。」，本卷並將其限制解讀為「表面字形未明載的句法角色，會在記號實際可如何組合、替換與指示時顯現。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
+    history: []
+  - id: "3.263"
+    parent: "3.26"
+    texts:
+      de:
+        - "Die Bedeutungen von Urzeichen können durch Erläuterungen erklärt werden."
+        - "Erläuterungen sind Sätze, welche die Urzeichen enthalten."
+        - "Sie können also nur verstanden werden, wenn die Bedeutungen dieser Zeichen bereits bekannt sind."
+      en_ogden_ramsey_1922:
+        - "The meanings of primitive signs can be explained by elucidations."
+        - "Elucidations are propositions which contain the primitive signs."
+        - "They can, therefore, only be understood when the meanings of these signs are already known."
+    edition_references:
+      en_pears_mcguinness: "3.263"
+    segments:
+      - id: "3.263.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "原初記號的指稱可以藉闡明來解釋。"
+        interpretation_zh_tw: "闡明協助使用者掌握記號如何被用來指稱，卻不是用另一名稱取代同一問題。"
+      - id: "3.263.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "闡明是包含原初記號的命題。"
+        interpretation_zh_tw: "解釋必須讓記號在有意義命題中實際運作，而非只提供孤立詞彙對照。"
+      - id: "3.263.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "因此，只有在這些記號的指稱已被知道時，闡明才能被理解。"
+        interpretation_zh_tw: "闡明無法從零奠定全部指稱；理解仍預設使用者已能把記號連到其對象。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.263 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.263 直接主張「原初記號的指稱可以藉闡明來解釋。」，本卷並將其限制解讀為「闡明協助使用者掌握記號如何被用來指稱，卻不是用另一名稱取代同一問題。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。"
+    history: []
+  - id: "3.3"
+    parent: "3"
+    texts:
+      de:
+        - "Nur der Satz hat Sinn; nur im Zusammenhange des Satzes hat ein Name Bedeutung."
+      en_ogden_ramsey_1922:
+        - "Only the proposition has sense; only in the context of a proposition has a name meaning."
+    edition_references:
+      en_pears_mcguinness: "3.3"
+    segments:
+      - id: "3.3.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "只有命題具有意義；名稱只有在命題脈絡中才有指稱。"
+        interpretation_zh_tw: "名稱的語意角色由它在可真假的命題配置中取得，孤立字樣不自帶完整用法。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.3 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.3 直接主張「只有命題具有意義；名稱只有在命題脈絡中才有指稱。」，本卷並將其限制解讀為「名稱的語意角色由它在可真假的命題配置中取得，孤立字樣不自帶完整用法。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.31"
+    parent: "3.3"
+    texts:
+      de:
+        - "Jeden Teil des Satzes, der seinen Sinn charakterisiert, nenne ich einen Ausdruck (ein Symbol)."
+        - "\\(Der Satz selbst ist ein Ausdruck.)"
+        - "Ausdruck ist alles, für den Sinn des Satzes wesentliche, was Sätze miteinander gemein haben können."
+        - "Der Ausdruck kennzeichnet eine Form und einen Inhalt."
+      en_ogden_ramsey_1922:
+        - "Every part of a proposition which characterizes its sense I call an expression (a symbol)."
+        - "\\(The proposition itself is an expression.)"
+        - "Expressions are everything—essential for the sense of the proposition—that propositions can have in common with one another."
+        - "An expression characterizes a form and a content."
+    edition_references:
+      en_pears_mcguinness: "3.31"
+    segments:
+      - id: "3.31.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我把命題中每個刻畫其意義的部分稱為表達式（符號）。"
+        interpretation_zh_tw: "Symbol 譯為「符號」；它不是單純可感知的記號，而是命題中由有意義用法所界定的表達部分。"
+      - id: "3.31.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（命題本身也是一個表達式。）"
+        interpretation_zh_tw: "表達式可涵蓋整個命題，因此不是只指詞彙或最小構件。"
+      - id: "3.31.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "表達式是命題之間可以共有、而且對命題意義而言重要的一切。"
+        interpretation_zh_tw: "同一表達式由跨命題保持的意義特徵辨認，不由字形相同單獨決定。"
+      - id: "3.31.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "表達式刻畫一種形式與一項內容。"
+        interpretation_zh_tw: "符號的角色同時限制它可進入何種命題形式，以及在那些形式中貢獻何種內容。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.31 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.31 直接主張「我把命題中每個刻畫其意義的部分稱為表達式（符號）。」，本卷並將其限制解讀為「Symbol 譯為「符號」；它不是單純可感知的記號，而是命題中由有意義用法所界定的表達部分。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.311"
+    parent: "3.31"
+    texts:
+      de:
+        - "Der Ausdruck setzt die Formen aller Sätze voraus, in welchen er vorkommen kann."
+        - "Er ist das gemeinsame charakteristische Merkmal einer Klasse von Sätzen."
+      en_ogden_ramsey_1922:
+        - "An expression presupposes the forms of all propositions in which it can occur."
+        - "It is the common characteristic mark of a class of propositions."
+    edition_references:
+      en_pears_mcguinness: "3.311"
+    segments:
+      - id: "3.311.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "表達式預設它可能出現於其中的所有命題之形式。"
+        interpretation_zh_tw: "理解表達式包含掌握其合法用法範圍，不只是辨認一段相同字樣。"
+      - id: "3.311.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "它是一類命題共有的特徵。"
+        interpretation_zh_tw: "共同特徵跨越多個具體命題，並由它們共享的符號角色確定。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.311 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.311 直接主張「表達式預設它可能出現於其中的所有命題之形式。」，本卷並將其限制解讀為「理解表達式包含掌握其合法用法範圍，不只是辨認一段相同字樣。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.312"
+    parent: "3.31"
+    texts:
+      de:
+        - "Er wird also dargestellt durch die allgemeine Form der Sätze, die er charakterisiert."
+        - "Und zwar wird in dieser Form der Ausdruck *konstant* und alles übrige *variabel* sein."
+      en_ogden_ramsey_1922:
+        - "It is therefore represented by the general form of the propositions which it characterizes."
+        - "And in this form the expression is *constant* and everything else *variable*."
+    edition_references:
+      en_pears_mcguinness: "3.312"
+    segments:
+      - id: "3.312.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "所以，表達式由它所刻畫之命題的一般形式來表現。"
+        interpretation_zh_tw: "一般形式把共享表達式保留下來，並抽離各命題不同的部分。"
+      - id: "3.312.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "而在這個形式中，表達式將是常項，其餘一切則是變項。"
+        interpretation_zh_tw: "常項標示被比較命題共有之處，變項則標示可替換的位置。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.312 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.312 直接主張「所以，表達式由它所刻畫之命題的一般形式來表現。」，本卷並將其限制解讀為「一般形式把共享表達式保留下來，並抽離各命題不同的部分。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.313"
+    parent: "3.31"
+    texts:
+      de:
+        - "Der Ausdruck wird also durch eine Variable dargestellt, deren Werte die Sätze sind, die den Ausdruck enthalten."
+        - "\\(Im Grenzfall wird die Variable zur Konstanten, der Ausdruck zum Satz.)"
+        - "Ich nenne eine solche Variable „Satzvariable“."
+      en_ogden_ramsey_1922:
+        - "An expression is thus presented by a variable, whose values are the propositions which contain the expression."
+        - "\\(In the limiting case the variable becomes constant, the expression a proposition.)"
+        - "I call such a variable a “propositional variable”."
+    edition_references:
+      en_pears_mcguinness: "3.313"
+    segments:
+      - id: "3.313.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "所以，表達式由一個變項來表現；該變項的值就是包含此表達式的命題。"
+        interpretation_zh_tw: "變項在此代表一整類可能命題，其取值範圍由共享表達式界定。"
+      - id: "3.313.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（在極限情況下，變項成為常項，表達式成為命題。）"
+        interpretation_zh_tw: "若不再留下任何可變位置，一般形式就收斂為單一具體命題。"
+      - id: "3.313.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "我把這種變項稱為「命題變項」。"
+        interpretation_zh_tw: "命題變項的值是命題，而非把一個資料欄位任意命名為 variable。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.313 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.313 直接主張「所以，表達式由一個變項來表現；該變項的值就是包含此表達式的命題。」，本卷並將其限制解讀為「變項在此代表一整類可能命題，其取值範圍由共享表達式界定。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.314"
+    parent: "3.31"
+    texts:
+      de:
+        - "Der Ausdruck hat nur im Satz Bedeutung."
+        - "Jede Variable lässt sich als Satzvariable auffassen."
+        - "\\(Auch der variable Name.)"
+      en_ogden_ramsey_1922:
+        - "An expression has meaning only in a proposition."
+        - "Every variable can be conceived as a propositional variable."
+        - "(Including the variable name.)"
+    edition_references:
+      en_pears_mcguinness: "3.314"
+    segments:
+      - id: "3.314.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "表達式只有在命題中才有指稱。"
+        interpretation_zh_tw: "表達式的功能由命題脈絡給出，孤立記號不足以確定其符號角色。"
+      - id: "3.314.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "每個變項都可被理解為命題變項。"
+        interpretation_zh_tw: "變項的取值可視為一類完整命題，因而應由命題形式來界定。"
+      - id: "3.314.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "（包括變項名稱。）"
+        interpretation_zh_tw: "即使名稱位置被變項化，它也仍在命題形式中取得角色；兩版原本段落界線不同，拆句後逐一對齊。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.314 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.314 直接主張「表達式只有在命題中才有指稱。」，本卷並將其限制解讀為「表達式的功能由命題脈絡給出，孤立記號不足以確定其符號角色。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.315"
+    parent: "3.31"
+    texts:
+      de:
+        - "Verwandeln wir einen Bestandteil eines Satzes in eine Variable, so gibt es eine Klasse von Sätzen, welche sämtlich Werte des so entstandenen variablen Satzes sind."
+        - "Diese Klasse hängt im allgemeinen noch davon ab, was wir, nach willkürlicher Übereinkunft, mit Teilen jenes Satzes meinen."
+        - "Verwandeln wir aber alle jene Zeichen, deren Bedeutung willkürlich bestimmt wurde, in Variable, so gibt es nun noch immer eine solche Klasse."
+        - "Diese aber ist nun von keiner Übereinkunft abhängig, sondern nur noch von der Natur des Satzes."
+        - "Sie entspricht einer logischen Form – einem logischen Urbild."
+      en_ogden_ramsey_1922:
+        - "If we change a constituent part of a proposition into a variable, there is a class of propositions which are all the values of the resulting variable proposition."
+        - "This class in general still depends on what, by arbitrary agreement, we mean by parts of that proposition."
+        - "But if we change all those signs, whose meaning was arbitrarily determined, into variables, there always remains such a class."
+        - "But this is now no longer dependent on any agreement; it depends only on the nature of the proposition."
+        - "It corresponds to a logical form, to a logical prototype."
+    edition_references:
+      en_pears_mcguinness: "3.315"
+    segments:
+      - id: "3.315.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "若把命題的一個構成部分改成變項，就會得到一類命題，它們全是所得變項命題的值。"
+        interpretation_zh_tw: "第一次變項化把一個位置開放為取值範圍，從單一命題形成一類相關命題。"
+      - id: "3.315.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "這一類通常仍取決於我們依任意約定如何理解原命題的部分。"
+        interpretation_zh_tw: "只抽換部分記號時，尚未移除語言共同體賦予其他記號的約定意義。"
+      - id: "3.315.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "但若把所有其指稱由任意約定決定的記號都改成變項，仍會剩下一類命題。"
+        interpretation_zh_tw: "更徹底的變項化企圖排除個別字彙約定，同時保留命題可具有的共同結構。"
+      - id: "3.315.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "此時它不再依賴任何約定，只依賴命題的本性。"
+        interpretation_zh_tw: "作者把剩餘共同性視為非任意形式；這是《論考》的哲學主張，不是資料模型可直接證成的事實。"
+      - id: "3.315.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "它對應一種邏輯形式——一個邏輯原型。"
+        interpretation_zh_tw: "邏輯原型是跨記法保持的可能結構，不能直接拿 Swift generic 或 schema template 充當。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.315 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.315 直接主張「若把命題的一個構成部分改成變項，就會得到一類命題，它們全是所得變項命題的值。」，本卷並將其限制解讀為「第一次變項化把一個位置開放為取值範圍，從單一命題形成一類相關命題。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.316"
+    parent: "3.31"
+    texts:
+      de:
+        - "Welche Werte die Satzvariable annehmen darf, wird festgesetzt."
+        - "Die Festsetzung der Werte *ist* die Variable."
+      en_ogden_ramsey_1922:
+        - "What values the propositional variable can assume *is* determined."
+        - "The determination of the values *is* the variable."
+    edition_references:
+      en_pears_mcguinness: "3.316"
+    segments:
+      - id: "3.316.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "命題變項可以取哪些值，是由規定確定的。"
+        interpretation_zh_tw: "變項的身分由其允許代入的命題範圍界定，不能只看變項字母。"
+      - id: "3.316.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "對值的規定就是這個變項。"
+        interpretation_zh_tw: "變項不是先存在再另附範圍；其取值規則構成它作為此變項的角色。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.316 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.316 直接主張「命題變項可以取哪些值，是由規定確定的。」，本卷並將其限制解讀為「變項的身分由其允許代入的命題範圍界定，不能只看變項字母。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.317"
+    parent: "3.31"
+    texts:
+      de:
+        - "Die Festsetzung der Werte der Satzvariablen ist die *Angabe der Sätze*, deren gemeinsames Merkmal die Variable ist."
+        - "Die Festsetzung ist eine Beschreibung dieser Sätze."
+        - "Die Festsetzung wird also nur von Symbolen, nicht von deren Bedeutung handeln."
+        - "Und *nur* dies ist der Festsetzung wesentlich, *dass sie nur eine Beschreibung von Symbolen ist und nichts über das Bezeichnete aussagt*."
+        - "Wie die Beschreibung der Sätze geschieht, ist unwesentlich."
+      en_ogden_ramsey_1922:
+        - "The determination of the values of the propositional variable is done by *indicating the propositions* whose common mark the variable is."
+        - "The determination is a description of these propositions."
+        - "The determination will therefore deal only with symbols not with their meaning."
+        - "And *only* this is essential to the determination, *that it is only a description of symbols and asserts nothing about what is symbolized.*"
+        - "The way in which we describe the propositions is not essential."
+    edition_references:
+      en_pears_mcguinness: "3.317"
+    segments:
+      - id: "3.317.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "命題變項之值的規定，是指出以該變項為共同特徵的那些命題。"
+        interpretation_zh_tw: "規定藉列示或刻畫一類命題，確立變項跨命題保持的共同位置。"
+      - id: "3.317.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "這項規定是對這些命題的描述。"
+        interpretation_zh_tw: "規定的對象是命題形式本身，而不是它們在世界中談論的事物。"
+      - id: "3.317.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "因此，這項規定只會處理符號，而不處理符號的指稱。"
+        interpretation_zh_tw: "句法層的取值描述應依符號形態與用法完成，不把對象層的內容偷渡進來。"
+      - id: "3.317.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "而且，對規定而言唯一本質之處是：它只是對符號的描述，並未斷言任何被指示之物。"
+        interpretation_zh_tw: "此句強化層次界線：描述表示式的範圍，不等於對其所表現世界作一項新主張。"
+      - id: "3.317.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "如何描述這些命題，並非本質。"
+        interpretation_zh_tw: "不同列示方式只要保留相同取值範圍，就不改變變項的邏輯角色。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.317 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.317 直接主張「命題變項之值的規定，是指出以該變項為共同特徵的那些命題。」，本卷並將其限制解讀為「規定藉列示或刻畫一類命題，確立變項跨命題保持的共同位置。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.318"
+    parent: "3.31"
+    texts:
+      de:
+        - "Den Satz fasse ich – wie Frege und Russell – als Funktion der in ihm enthaltenen Ausdrücke auf."
+      en_ogden_ramsey_1922:
+        - "I conceive the proposition—like Frege and Russell—as a function of the expressions contained in it."
+    edition_references:
+      en_pears_mcguinness: "3.318"
+    segments:
+      - id: "3.318.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我如同 Frege 與 Russell，把命題理解為其中所含表達式的函數。"
+        interpretation_zh_tw: "命題的整體意義隨其表達式而有系統地構成；此處的「函數」是邏輯分析概念，不是程式函式的直接定義。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.318 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.318 直接主張「我如同 Frege 與 Russell，把命題理解為其中所含表達式的函數。」，本卷並將其限制解讀為「命題的整體意義隨其表達式而有系統地構成；此處的「函數」是邏輯分析概念，不是程式函式的直接定義。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.32"
+    parent: "3.3"
+    texts:
+      de:
+        - "Das Zeichen ist das sinnlich Wahrnehmbare am Symbol."
+      en_ogden_ramsey_1922:
+        - "The sign is the part of the symbol perceptible by the senses."
+    edition_references:
+      en_pears_mcguinness: "3.32"
+    segments:
+      - id: "3.32.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "記號是符號中可由感官感知的部分。"
+        interpretation_zh_tw: "Zeichen＝記號，指可見或可聽載體；Symbol＝符號，還包含記號在有意義使用中的邏輯角色，兩者不可混用。"
+    project_relations:
+      - status: analogy_only
+        mode: meta_elucidation
+        claim_zh_tw: "專案文件以同一表面詞可承擔不同 predicate 角色的案例，類比說明記號與符號不可僅按字形混同。"
+        rationale_zh_tw: "這項文件紀律只要求依位置與用法辨認工程語意；它不把 Swift 字串或 YAML scalar 直接等同於 Zeichen 或 Symbol。"
+        evidence:
+          - path: "docs/explainers/entity-vs-view.md"
+            kind: heading
+            locator: "## 表層文法騙人的地方"
+            note_zh_tw: "此節具體拆分同一詞形所遮蔽的不同 predicate。"
+    history: []
+  - id: "3.321"
+    parent: "3.32"
+    texts:
+      de:
+        - "Zwei verschiedene Symbole können also das Zeichen (Schriftzeichen oder Lautzeichen etc.) miteinander gemein haben – sie bezeichnen dann auf verschiedene Art und Weise."
+      en_ogden_ramsey_1922:
+        - "Two different symbols can therefore have the sign (the written sign or the sound sign) in common—they then signify in different ways."
+    edition_references:
+      en_pears_mcguinness: "3.321"
+    segments:
+      - id: "3.321.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "因此，兩個不同的符號可以共有同一個記號（書寫記號、聲音記號等）——它們此時以不同方式指示。"
+        interpretation_zh_tw: "相同字形或聲音不保證相同符號；所屬命題脈絡與指示方式可以使其成為不同符號。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.321 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.321 直接主張「因此，兩個不同的符號可以共有同一個記號（書寫記號、聲音記號等）——它們此時以不同方式指示。」，本卷並將其限制解讀為「相同字形或聲音不保證相同符號；所屬命題脈絡與指示方式可以使其成為不同符號。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.322"
+    parent: "3.32"
+    texts:
+      de:
+        - "Es kann nie das gemeinsame Merkmal zweier Gegenstände anzeigen, dass wir sie mit demselben Zeichen, aber durch zwei verschiedene *Bezeichnungsweisen* bezeichnen."
+        - "Denn das Zeichen ist ja willkürlich."
+        - "Man könnte also auch zwei verschiedene Zeichen wählen, und wo bliebe dann das Gemeinsame in der Bezeichnung."
+      en_ogden_ramsey_1922:
+        - "It can never indicate the common characteristic of two objects that we symbolize them with the same signs but by different *methods of symbolizing*."
+        - "For the sign is arbitrary."
+        - "We could therefore equally well choose two different signs and where then would be what was common in the symbolization."
+    edition_references:
+      en_pears_mcguinness: "3.322"
+    segments:
+      - id: "3.322.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我們用相同記號、卻以兩種不同的指示方式指示兩個對象，絕不能顯示這兩個對象的共同特徵。"
+        interpretation_zh_tw: "共用字形只說明記法選擇，尤其當兩個用法屬於不同符號時，不能反推對象共有性質。"
+      - id: "3.322.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "因為記號是任意的。"
+        interpretation_zh_tw: "可感知載體可以依約定更換，所以它本身不是被指對象之內在共同性的證據。"
+      - id: "3.322.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "我們同樣可以選兩個不同記號，那麼指示中的共同之處又會在哪裡？"
+        interpretation_zh_tw: "替換字形而不改變符號功能的思想實驗，逼使共同性轉向指示方式與結構來說明。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.322 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.322 直接主張「我們用相同記號、卻以兩種不同的指示方式指示兩個對象，絕不能顯示這兩個對象的共同特徵。」，本卷並將其限制解讀為「共用字形只說明記法選擇，尤其當兩個用法屬於不同符號時，不能反推對象共有性質。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.323"
+    parent: "3.32"
+    texts:
+      de:
+        - "In der Umgangssprache kommt es ungemein häufig vor, dass dasselbe Wort auf verschiedene Art und Weise bezeichnet – also verschiedenen Symbolen angehört –, oder, dass zwei Wörter, die auf verschiedene Art und Weise bezeichnen, äusserlich in der gleichen Weise im Satze angewandt werden."
+        - "So erscheint das Wort „ist“ als Kopula, als Gleichheitszeichen und als Ausdruck der Existenz; „existieren“ als intransitives Zeitwort wie „gehen“; „identisch“ als Eigenschaftswort; wir reden von *Etwas*, aber auch davon, dass *etwas* geschieht."
+        - "\\(Im Satze „Grün ist grün“ – wo das erste Wort ein Personenname, das letzte ein Eigenschaftswort ist – haben diese Worte nicht einfach verschiedene Bedeutung, sondern es sind *verschiedene Symbole*.)"
+      en_ogden_ramsey_1922:
+        - "In the language of everyday life it very often happens that the same word signifies in two different ways—and therefore belongs to two different symbols—or that two words, which signify in different ways, are apparently applied in the same way in the proposition."
+        - "Thus the word “is” appears as the copula, as the sign of equality, and as the expression of existence; “to exist” as an intransitive verb like “to go”; “identical” as an adjective; we speak of *something* but also of the fact of *something* happening."
+        - "\\(In the proposition “Green is green”—where the first word is a proper name as the last an adjective—these words have not merely different meanings but they are *different symbols*.)"
+    edition_references:
+      en_pears_mcguinness: "3.323"
+    segments:
+      - id: "3.323.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "在日常語言中，同一個詞極常以不同方式指示——因而屬於不同符號；或者，兩個以不同方式指示的詞，在命題中表面上以相同方式使用。"
+        interpretation_zh_tw: "自然語言的表面文法會遮蔽邏輯角色：同字可以是不同符號，不同字也可能呈現相同外觀位置。"
+      - id: "3.323.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "例如，「是」可作繫詞、等號與存在的表達；「存在」可像「走」一樣作不及物動詞；「同一的」可作形容詞；我們既談論某個東西，也談論某件事發生。"
+        interpretation_zh_tw: "例子逐一拆開「是／存在／同一」的功能，說明日常詞形不能直接決定其符號類型。"
+      - id: "3.323.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "（在「綠是綠」這個命題中，第一個詞是人名，最後一個詞是形容詞；兩者不只指稱不同，而是不同的符號。）"
+        interpretation_zh_tw: "同一字樣「綠」因句法位置與用法不同而成為不同符號，正是記號相同不等於符號相同的人工檢查點。"
+    project_relations:
+      - status: partial
+        mode: meta_elucidation
+        claim_zh_tw: "Akashic 的設計文件已具體記錄：自然語言的同一個「隸屬」表面詞，實際涵蓋不同 predicate 與不同適用位置。"
+        rationale_zh_tw: "這直接支撐 3.323 所警告的表層文法歧義；目前支撐層是設計規範與分形狀欄位，不宣稱已建成無歧義的完整符號語言。"
+        evidence:
+          - path: "docs/explainers/entity-vs-view.md"
+            kind: heading
+            locator: "## 表層文法騙人的地方"
+            note_zh_tw: "此節逐列人員隸屬、機構隸屬與不存在的作品隸屬。"
+    history: []
+  - id: "3.324"
+    parent: "3.32"
+    texts:
+      de:
+        - "So entstehen leicht die fundamentalsten Verwechslungen (deren die ganze Philosophie voll ist)."
+      en_ogden_ramsey_1922:
+        - "Thus there easily arise the most fundamental confusions (of which the whole of philosophy is full)."
+    edition_references:
+      en_pears_mcguinness: "3.324"
+    segments:
+      - id: "3.324.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "最根本的混淆很容易由此產生（整個哲學充滿這類混淆）。"
+        interpretation_zh_tw: "哲學問題可能源於表面語法掩蓋符號差異，而不是源於一項待發現的世界事實。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.324 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.324 直接主張「最根本的混淆很容易由此產生（整個哲學充滿這類混淆）。」，本卷並將其限制解讀為「哲學問題可能源於表面語法掩蓋符號差異，而不是源於一項待發現的世界事實。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.325"
+    parent: "3.32"
+    texts:
+      de:
+        - "Um diesen Irrtümern zu entgehen, müssen wir eine Zeichensprache verwenden, welche sie ausschliesst, indem sie nicht das gleiche Zeichen in verschiedenen Symbolen, und Zeichen, welche auf verschiedene Art bezeichnen, nicht äusserlich auf die gleiche Art verwendet."
+        - "Eine Zeichensprache also, die der *logischen* Grammatik – der logischen Syntax – gehorcht."
+        - "\\(Die Begriffsschrift Frege’s und Russell’s ist eine solche Sprache, die allerdings noch nicht alle Fehler ausschliesst.)"
+      en_ogden_ramsey_1922:
+        - "In order to avoid these errors, we must employ a symbolism which excludes them, by not applying the same sign in different symbols and by not applying signs in the same way which signify in different ways."
+        - "A symbolism, that is to say, which obeys the rules of *logical* grammar—of logical syntax."
+        - "\\(The logical symbolism of Frege and Russell is such a language, which, however, does still not exclude all errors.)"
+    edition_references:
+      en_pears_mcguinness: "3.325"
+    segments:
+      - id: "3.325.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "為避免這些錯誤，我們必須使用一種排除它們的符號語言：不讓同一記號用於不同符號，也不讓以不同方式指示的記號在表面上以相同方式使用。"
+        interpretation_zh_tw: "目標是讓表面記法可靠顯出符號角色，降低 3.323 所列的同形異用與異形同用混淆。"
+      - id: "3.325.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "也就是一種服從邏輯文法——邏輯句法——的符號語言。"
+        interpretation_zh_tw: "logische Syntax 譯為「邏輯句法」；它不能直接等同於 Swift 型別系統或 YAML schema。"
+      - id: "3.325.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "（Frege 與 Russell 的概念文字是一種這樣的語言，但仍未排除所有錯誤。）"
+        interpretation_zh_tw: "形式化可以減少歧義，卻不保證完備無誤；括號句本身限制了工程類比可宣稱的程度。"
+    project_relations:
+      - status: analogy_only
+        mode: structural_invariant
+        claim_zh_tw: "專案以封閉 schema、型別與 validation 降低表層記法誤用，僅作服從明文文法的工程類比。"
+        rationale_zh_tw: "專案文件明載 schema 只是 projection grammar 的顯式部分，並非 logical form；因此不得把型別檢查直接稱為《論考》的邏輯句法。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "### 質疑三：schema 不等同於 logical form"
+            note_zh_tw: "此節明確限定 schema 類比的上限。"
+          - path: "Sources/AkashicProposition/Proposition.swift"
+            kind: symbol
+            locator: "PropositionError"
+            note_zh_tw: "`PropositionError` 明列構造階段可拒絕的格式錯誤。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testMalformedKeyIsRejectedAtConstruction"
+            note_zh_tw: "測試確認便利建構子拒絕格式錯誤的 canonical key。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testDirectionIsPartOfIdentity"
+            note_zh_tw: "測試確認交換 person／work 方向會形成不同命題。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: retained
+        note_zh_tw: "e16c6f6 以具型別角色與構造錯誤提供新的工程文法證據，但不把 Swift 型別系統稱為原典邏輯句法。"
+  - id: "3.326"
+    parent: "3.32"
+    texts:
+      de:
+        - "Um das Symbol am Zeichen zu erkennen, muss man auf den sinnvollen Gebrauch achten."
+      en_ogden_ramsey_1922:
+        - "In order to recognize the symbol in the sign we must consider the significant use."
+    edition_references:
+      en_pears_mcguinness: "3.326"
+    segments:
+      - id: "3.326.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "要從記號辨認出符號，必須注意它的有意義使用。"
+        interpretation_zh_tw: "辨認符號不能只比對字串；要看該記號在命題中如何組合、替換與指示。"
+    project_relations:
+      - status: partial
+        mode: meta_elucidation
+        claim_zh_tw: "專案以欄位位置與載入器實際用法判定 `view` 在何處有意義，而不只比對標籤字串。"
+        rationale_zh_tw: "這支撐「依有意義使用辨認符號」的受限工程做法；它仍不是對所有自然語言符號的完備分析。"
+        evidence:
+          - path: "docs/explainers/entity-vs-view.md"
+            kind: heading
+            locator: "### 維根斯坦真正用蘇格拉底舉的例子"
+            note_zh_tw: "此節以標籤在不同位置的用法說明意義差異。"
+    history: []
+  - id: "3.327"
+    parent: "3.32"
+    texts:
+      de:
+        - "Das Zeichen bestimmt erst mit seiner logisch-syntaktischen Verwendung zusammen eine logische Form."
+      en_ogden_ramsey_1922:
+        - "The sign determines a logical form only together with its logical syntactic application."
+    edition_references:
+      en_pears_mcguinness: "3.327"
+    segments:
+      - id: "3.327.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "記號只有連同其邏輯句法上的使用，才確定一種邏輯形式。"
+        interpretation_zh_tw: "可感知記號本身不足以決定形式；其合法位置與操作方式共同確定它扮演的符號角色。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.327 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.327 直接主張「記號只有連同其邏輯句法上的使用，才確定一種邏輯形式。」，本卷並將其限制解讀為「可感知記號本身不足以決定形式；其合法位置與操作方式共同確定它扮演的符號角色。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.328"
+    parent: "3.32"
+    texts:
+      de:
+        - "Wird ein Zeichen *nicht gebraucht*, so ist es bedeutungslos."
+        - "Das ist der Sinn der Devise Occams."
+        - "\\(Wenn sich alles so verhält als hätte ein Zeichen Bedeutung, dann hat es auch Bedeutung.)"
+      en_ogden_ramsey_1922:
+        - "If a sign is *not necessary* then it is meaningless."
+        - "That is the meaning of Occam’s razor."
+        - "\\(If everything in the symbolism works as though a sign had meaning, then it has meaning.)"
+    edition_references:
+      en_pears_mcguinness: "3.328"
+    segments:
+      - id: "3.328.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "若一個記號不被使用，它便沒有指稱。"
+        interpretation_zh_tw: "工作譯文依德文 *nicht gebraucht* 作「不被使用」；Ogden／Ramsey 的 *not necessary* 是版本差異，不能悄悄改寫原文。"
+      - id: "3.328.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "這就是 Occam 格言的意義。"
+        interpretation_zh_tw: "奧坎原則在此拒絕沒有任何符號作用的閒置記號，而不是一般性的程式效能準則。"
+      - id: "3.328.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "（若一切運作都如同某記號有指稱，那麼它也就有指稱。）"
+        interpretation_zh_tw: "指稱由整體符號實踐中的作用顯出，不必在有效作用之外再假定一個隱藏實體。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.328 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.328 直接主張「若一個記號不被使用，它便沒有指稱。」，本卷並將其限制解讀為「工作譯文依德文 *nicht gebraucht* 作「不被使用」；Ogden／Ramsey 的 *not necessary* 是版本差異，不能悄悄改寫原文。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.33"
+    parent: "3.3"
+    texts:
+      de:
+        - "In der logischen Syntax darf nie die Bedeutung eines Zeichens eine Rolle spielen; sie muss sich aufstellen lassen, ohne dass dabei von der *Bedeutung* eines Zeichens die Rede wäre, sie darf *nur* die Beschreibung der Ausdrücke voraussetzen."
+      en_ogden_ramsey_1922:
+        - "In logical syntax the meaning of a sign ought never to play a rôle; it must admit of being established without mention being thereby made of the *meaning* of a sign; it ought to presuppose *only* the description of the expressions."
+    edition_references:
+      en_pears_mcguinness: "3.33"
+    segments:
+      - id: "3.33.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "在邏輯句法中，記號的指稱絕不可扮演任何角色；邏輯句法必須能在不談記號指稱的情況下建立，而且只可預設對表達式的描述。"
+        interpretation_zh_tw: "此條要求句法規則保持在符號描述層，不能靠先偷看對象層語意才決定哪些組合合法。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.33 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.33 直接主張「在邏輯句法中，記號的指稱絕不可扮演任何角色；邏輯句法必須能在不談記號指稱的情況下建立，而且只可預設對表達式的描述。」，本卷並將其限制解讀為「此條要求句法規則保持在符號描述層，不能靠先偷看對象層語意才決定哪些組合合法。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.331"
+    parent: "3.33"
+    texts:
+      de:
+        - "Von dieser Bemerkung sehen wir in Russell’s „Theory of types“ hinüber:"
+        - "Der Irrtum Russell’s zeigt sich darin, dass er bei der Aufstellung der Zeichenregeln von der Bedeutung der Zeichen reden musste."
+      en_ogden_ramsey_1922:
+        - "From this observation we get a further view—into Russell’s *Theory of Types*."
+        - "Russell’s error is shown by the fact that in drawing up his symbolic rules he has to speak about the things his signs mean."
+    edition_references:
+      en_pears_mcguinness: "3.331"
+    segments:
+      - id: "3.331.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "由此可進一步看 Russell 的「類型論」。"
+        interpretation_zh_tw: "這句把前一命題的句法要求轉向 Russell 的案例，尚未把所有類型區分一概判錯。"
+      - id: "3.331.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "Russell 的錯誤顯現在：他建立記號規則時，不得不談論記號所指之物。"
+        interpretation_zh_tw: "具體批評是規則層必須訴諸記號所指的事物，因而沒有只靠表達式形式建立邏輯句法。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.331 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.331 以 Russell 類型論為案例，批評建立記號規則時仍須談所指之物；它針對句法規則混入對象層語意，不等於否定所有工程型別區分。Akashic 的型別與驗證規則因此不能冒充此處所要求的完整邏輯句法。"
+    history: []
+  - id: "3.332"
+    parent: "3.33"
+    texts:
+      de:
+        - "Kein Satz kann etwas über sich selbst aussagen, weil das Satzzeichen nicht in sich selbst enthalten sein kann, (das ist die ganze „Theory of types“)."
+      en_ogden_ramsey_1922:
+        - "No proposition can say anything about itself, because the propositional sign cannot be contained in itself (that is the “whole theory of types”)."
+    edition_references:
+      en_pears_mcguinness: "3.332"
+    segments:
+      - id: "3.332.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "任何命題都不能述說自身，因為命題記號不能包含於自身之中（這就是整個「類型論」）。"
+        interpretation_zh_tw: "自我述說會要求同一命題記號同時作為完整表達與自身構件，混合了表示層次。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.332 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.332 直接主張「任何命題都不能述說自身，因為命題記號不能包含於自身之中（這就是整個「類型論」）。」，本卷並將其限制解讀為「自我述說會要求同一命題記號同時作為完整表達與自身構件，混合了表示層次。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.333"
+    parent: "3.33"
+    texts:
+      de:
+        - "Eine Funktion kann darum nicht ihr eigenes Argument sein, weil das Funktionszeichen bereits das Urbild seines Arguments enthält und es sich nicht selbst enthalten kann."
+        - "Nehmen wir nämlich an, die Funktion *F* (*fx*) könnte ihr eigenes Argument sein; dann gäbe es also einen Satz: „*F* (*F* (*fx*))“ und in diesem müssen die äussere Funktion *F* und die innere Funktion *F* verschiedene Bedeutungen haben, denn die innere hat die Form *ϕ*(*fx*), die äussere, die Form *ψ*(*ϕ*(*fx*))."
+        - "Gemeinsam ist den beiden Funktionen nur der Buchstabe „*F* “, der aber allein nichts bezeichnet."
+        - "Dies wird sofort klar, wenn wir statt „*F* (*F* (*u*))“ schreiben „(∃*ϕ*) : *F* (*ϕu*) *. ϕu* = *Fu*“."
+        - "Hiermit erledigt sich Russell’s Paradox."
+      en_ogden_ramsey_1922:
+        - "A function cannot be its own argument, because the functional sign already contains the prototype of its own argument and it cannot contain itself."
+        - "If, for example, we suppose that the function *F*(*fx*) could be its own argument, then there would be a proposition “*F*(*F*(*fx*))”, and in this the outer function *F* and the inner function *F* must have different meanings; for the inner has the form *ϕ*(*fx*), the outer the form *ψ*(*ϕ*(*fx*))."
+        - "Common to both functions is only the letter “*F*”, which by itself signifies nothing."
+        - "This is at once clear, if instead of “*F*(*F*(*u*))” we write “(∃*ϕ*) : *F*(*ϕu*) . *ϕu* = *Fu*”."
+        - "Herewith Russell’s paradox vanishes."
+    edition_references:
+      en_pears_mcguinness: "3.333"
+    segments:
+      - id: "3.333.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "函數不能成為它自己的論元，因為函數記號已包含其論元的原型，而它不能包含自身。"
+        interpretation_zh_tw: "限制來自函數記號預先規定的論元形式；讓函數占據自己的論元位置會把不同邏輯角色壓成一層。"
+      - id: "3.333.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "例如，假定函數 *F*(*fx*) 能成為自己的論元，就會有命題「*F*(*F*(*fx*))」；其中外層函數 *F* 與內層函數 *F* 必須具有不同指稱，因為內層形式是 *ϕ*(*fx*)，外層形式是 *ψ*(*ϕ*(*fx*))。"
+        interpretation_zh_tw: "內外兩個 F 占據不同形式位置，故相同字母遮蔽了不同符號角色；這不是一般程式呼叫堆疊的敘述。"
+      - id: "3.333.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "兩函數共有的只有字母「*F*」，而該字母單獨並不指示任何東西。"
+        interpretation_zh_tw: "共同記號不足以建立共同符號；脫離內外層用法的字母 F 沒有獨立決定函數角色。"
+      - id: "3.333.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "若把「*F*(*F*(*u*))」改寫為「(∃*ϕ*) : *F*(*ϕu*) . *ϕu* = *Fu*」，這點立刻變得清楚。"
+        interpretation_zh_tw: "改寫用變項分開函數位置，顯露原式以同一字母掩蓋的形式差異；公式是邏輯闡明，不是程式碼範例。"
+      - id: "3.333.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "Russell 悖論由此得到處理。"
+        interpretation_zh_tw: "結論把悖論診斷為符號層次混淆；專案只在 view／entity 界線採用受限類比。"
+    project_relations:
+      - status: partial
+        mode: structural_invariant
+        claim_zh_tw: "專案明確拒絕讓 view 同時成為被選取的 entity 與選取工具，以避免同一項跨越兩個形式層次並匹配自身。"
+        rationale_zh_tw: "文件直接引用 3.333 論證這項層次禁令；它只支撐 view／entity 邊界，不推廣成程式函式不得遞迴或所有自我參照皆非法。"
+        evidence:
+          - path: "docs/explainers/entity-vs-view.md"
+            kind: heading
+            locator: "## 形式概念與真正的概念"
+            note_zh_tw: "此節直接說明 view 成為 entity 時會同時作為被選取者與選取工具。"
+    history: []
+  - id: "3.334"
+    parent: "3.33"
+    texts:
+      de:
+        - "Die Regeln der logischen Syntax müssen sich von selbst verstehen, wenn man nur weiss, wie ein jedes Zeichen bezeichnet."
+      en_ogden_ramsey_1922:
+        - "The rules of logical syntax must follow of themselves, if we only know how every single sign signifies."
+    edition_references:
+      en_pears_mcguinness: "3.334"
+    segments:
+      - id: "3.334.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "只要知道每個記號如何指示，邏輯句法的規則就必須自行明白。"
+        interpretation_zh_tw: "完整掌握記號的符號角色，應同時顯出其可合法組合方式；若還要外加所指物知識，句法描述便不純粹。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.334 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.334 直接主張「只要知道每個記號如何指示，邏輯句法的規則就必須自行明白。」，本卷並將其限制解讀為「完整掌握記號的符號角色，應同時顯出其可合法組合方式；若還要外加所指物知識，句法描述便不純粹。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.34"
+    parent: "3.3"
+    texts:
+      de:
+        - "Der Satz besitzt wesentliche und zufällige Züge."
+        - "Zufällig sind die Züge, die von der besonderen Art der Hervorbringung des Satzzeichens herrühren."
+        - "Wesentlich diejenigen, welche allein den Satz befähigen, seinen Sinn auszudrücken."
+      en_ogden_ramsey_1922:
+        - "A proposition possesses essential and accidental features."
+        - "Accidental are the features which are due to a particular way of producing the propositional sign."
+        - "Essential are those which alone enable the proposition to express its sense."
+    edition_references:
+      en_pears_mcguinness: "3.34"
+    segments:
+      - id: "3.34.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "命題具有本質特徵與偶然特徵。"
+        interpretation_zh_tw: "區分標準是某特徵是否關乎命題表達意義的能力，而不是它是否常見或方便。"
+      - id: "3.34.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "偶然特徵源於命題記號的特殊產生方式。"
+        interpretation_zh_tw: "字體、聲音、媒材與編碼方式可更換，只要相關表現結構仍被保存。"
+      - id: "3.34.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "本質特徵則是唯有它們使命題能表達其意義。"
+        interpretation_zh_tw: "移除本質特徵會破壞命題的投射能力，而非僅改變呈現外觀。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.34 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.34 直接主張「命題具有本質特徵與偶然特徵。」，本卷並將其限制解讀為「區分標準是某特徵是否關乎命題表達意義的能力，而不是它是否常見或方便。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.341"
+    parent: "3.34"
+    texts:
+      de:
+        - "Das Wesentliche am Satz ist also das, was allen Sätzen, welche den gleichen Sinn ausdrücken können, gemeinsam ist."
+        - "Und ebenso ist allgemein das Wesentliche am Symbol das, was alle Symbole, die denselben Zweck erfüllen können, gemeinsam haben."
+      en_ogden_ramsey_1922:
+        - "The essential in a proposition is therefore that which is common to all propositions which can express the same sense."
+        - "And in the same way in general the essential in a symbol is that which all symbols which can fulfil the same purpose have in common."
+    edition_references:
+      en_pears_mcguinness: "3.341"
+    segments:
+      - id: "3.341.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "因此，命題的本質，是所有能表達相同意義的命題所共有之物。"
+        interpretation_zh_tw: "同一意義可以有不同表面記法，本質要在跨載體仍保存的表現結構中尋找。"
+      - id: "3.341.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "同樣地，一般而言，符號的本質，是所有能達成同一目的的符號所共有之物。"
+        interpretation_zh_tw: "符號由其可履行的意義功能辨認；共同墨跡既非必要，也不足夠。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.341 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.341 直接主張「因此，命題的本質，是所有能表達相同意義的命題所共有之物。」，本卷並將其限制解讀為「同一意義可以有不同表面記法，本質要在跨載體仍保存的表現結構中尋找。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.3411"
+    parent: "3.341"
+    texts:
+      de:
+        - "Man könnte also sagen: Der eigentliche Name ist das, was alle Symbole, die den Gegenstand bezeichnen, gemeinsam haben."
+        - "Es würde sich so successive ergeben, dass keinerlei Zusammensetzung für den Namen wesentlich ist."
+      en_ogden_ramsey_1922:
+        - "One could therefore say the real name is that which all symbols, which signify an object, have in common."
+        - "It would then follow, step by step, that no sort of composition was essential for a name."
+    edition_references:
+      en_pears_mcguinness: "3.3411"
+    segments:
+      - id: "3.3411.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "因此可以說：真正的名稱，是所有指示該對象的符號所共有之物。"
+        interpretation_zh_tw: "名稱的共同核心在跨不同載體仍保存的指稱角色，不在某一特定拼寫。"
+      - id: "3.3411.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "如此逐步可知，名稱的任何組成都不是本質的。"
+        interpretation_zh_tw: "字母或聲音組成可以改變而維持指稱，因此不能把物理構成當作名稱的本質。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.3411 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.3411 直接主張「因此可以說：真正的名稱，是所有指示該對象的符號所共有之物。」，本卷並將其限制解讀為「名稱的共同核心在跨不同載體仍保存的指稱角色，不在某一特定拼寫。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.342"
+    parent: "3.34"
+    texts:
+      de:
+        - "An unseren Notationen ist zwar etwas willkürlich, aber *das* ist nicht willkürlich: Dass, *wenn* wir etwas willkürlich bestimmt haben, dann etwas anderes der Fall sein muss."
+        - "(Dies hängt von dem *Wesen* der Notation ab.)"
+      en_ogden_ramsey_1922:
+        - "In our notations there is indeed something arbitrary, but *this* is not arbitrary, namely that *if* we have determined anything arbitrarily, then something else *must* be the case."
+        - "(This results from the *essence* of the notation.)"
+    edition_references:
+      en_pears_mcguinness: "3.342"
+    segments:
+      - id: "3.342.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我們的記法固然有任意之處，但以下這點並不任意：一旦我們任意規定某事，另一些事情就必須隨之成立。"
+        interpretation_zh_tw: "約定可以選擇基本記號；選定後，由整套記法的關係產生的後果便不能再逐項任意決定。"
+      - id: "3.342.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（這取決於記法的本質。）"
+        interpretation_zh_tw: "必然後果來自記法作為整體的構造與替換規則，不來自某個字形本身。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.342 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.342 直接主張「我們的記法固然有任意之處，但以下這點並不任意：一旦我們任意規定某事，另一些事情就必須隨之成立。」，本卷並將其限制解讀為「約定可以選擇基本記號；選定後，由整套記法的關係產生的後果便不能再逐項任意決定。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.3421"
+    parent: "3.342"
+    texts:
+      de:
+        - "Eine besondere Bezeichnungsweise mag unwichtig sein, aber wichtig ist es immer, dass diese eine *mögliche* Bezeichnungsweise ist."
+        - "Und so verhält es sich in der Philosophie überhaupt: Das Einzelne erweist sich immer wieder als unwichtig, aber die Möglichkeit jedes Einzelnen gibt uns einen Aufschluss über das Wesen der Welt."
+      en_ogden_ramsey_1922:
+        - "A particular method of symbolizing may be unimportant, but it is always important that this is a *possible* method of symbolizing."
+        - "And this happens as a rule in philosophy: The single thing proves over and over again to be unimportant, but the possibility of every single thing reveals something about the nature of the world."
+    edition_references:
+      en_pears_mcguinness: "3.3421"
+    segments:
+      - id: "3.3421.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "某種特定指示方式也許不重要，但它必須是一種可能的指示方式，這點總是重要。"
+        interpretation_zh_tw: "哲學關注的不只是選了哪個字形，而是該記法是否能在邏輯結構中一致運作。"
+      - id: "3.3421.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "哲學中通常也是如此：個別事物一再顯得不重要，但每個個別事物的可能性會揭示世界本質的某些面向。"
+        interpretation_zh_tw: "由個例轉向其可能條件，才讓分析觸及世界可被表現的形式，而不是蒐集偶然特徵。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.3421 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.3421 直接主張「某種特定指示方式也許不重要，但它必須是一種可能的指示方式，這點總是重要。」，本卷並將其限制解讀為「哲學關注的不只是選了哪個字形，而是該記法是否能在邏輯結構中一致運作。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.343"
+    parent: "3.34"
+    texts:
+      de:
+        - "Definitionen sind Regeln der Übersetzung von einer Sprache in eine andere."
+        - "Jede richtige Zeichensprache muss sich in jede andere nach solchen Regeln übersetzen lassen:"
+        - "*Dies* ist, was sie alle gemeinsam haben."
+      en_ogden_ramsey_1922:
+        - "Definitions are rules for the translation of one language into another."
+        - "Every correct symbolism must be translatable into every other according to such rules."
+        - "It is *this* which all have in common."
+    edition_references:
+      en_pears_mcguinness: "3.343"
+    segments:
+      - id: "3.343.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "定義是從一種語言翻譯到另一種語言的規則。"
+        interpretation_zh_tw: "定義在此提供保存指示關係的轉換，不只是為同一字串附上一段說明文字。"
+      - id: "3.343.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "每一種正確的符號語言，都必須能依這類規則翻譯成任何另一種。"
+        interpretation_zh_tw: "可翻譯性要求轉換時保存相關的符號結構與作用，不只是輸出另一種可解析格式。"
+      - id: "3.343.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "這就是它們共有之處。"
+        interpretation_zh_tw: "共有者是受規則約束的可互譯結構，不是各種記法表面使用同一批字元。"
+    project_relations:
+      - status: analogy_only
+        mode: semantic_operation
+        claim_zh_tw: "專案文件把 YAML、Swift value 與匯出格式的轉換規則視為不同表示間的目的限定投射。"
+        rationale_zh_tw: "只有保存 identity、provenance 與時間區分的轉換才支撐結構類比；一般序列化函式不因此等同於兩種正確符號語言之間的完整翻譯。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "### 3.3 樂譜、唱片溝槽、聲波與音樂思想"
+            note_zh_tw: "此節列出 YAML、Swift value 與匯出格式並明載可逆性限制。"
+    history: []
+  - id: "3.344"
+    parent: "3.34"
+    texts:
+      de:
+        - "Das, was am Symbol bezeichnet, ist das Gemeinsame aller jener Symbole, durch die das erste den Regeln der logischen Syntax zufolge ersetzt werden kann."
+      en_ogden_ramsey_1922:
+        - "What signifies in the symbol is what is common to all those symbols by which it can be replaced according to the rules of logical syntax."
+    edition_references:
+      en_pears_mcguinness: "3.344"
+    segments:
+      - id: "3.344.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "符號中負責指示的，是所有能依邏輯句法規則取代原符號的那些符號之共同部分。"
+        interpretation_zh_tw: "允許替換而不改變意義的範圍，顯出符號的功能核心；它不是由單一字形孤立決定。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.344 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.344 直接主張「符號中負責指示的，是所有能依邏輯句法規則取代原符號的那些符號之共同部分。」，本卷並將其限制解讀為「允許替換而不改變意義的範圍，顯出符號的功能核心；它不是由單一字形孤立決定。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.3441"
+    parent: "3.344"
+    texts:
+      de:
+        - "Man kann z. B. das Gemeinsame aller Notationen für die Wahrheitsfunktionen so ausdrücken: Es ist ihnen gemeinsam, dass sich alle – z. B. – durch die Notation von „∼*p*“ („nicht *p*“) und „*p* ∨ *q*“ („*p* oder *q*“) *ersetzen lassen*."
+        - "\\(Hiermit ist die Art und Weise gekennzeichnet, wie eine spezielle mögliche Notation uns allgemeine Aufschlüsse geben kann.)"
+      en_ogden_ramsey_1922:
+        - "We can, for example, express what is common to all notations for the truth-functions as follows: It is common to them that they all, for example, *can be replaced* by the notations of “\\~*p*” (“not *p*”) and “*p* ∨ *q*” (“*p* or *q*”)."
+        - "\\(Herewith is indicated the way in which a special possible notation can give us general information.)"
+    edition_references:
+      en_pears_mcguinness: "3.3441"
+    segments:
+      - id: "3.3441.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "例如，所有真值函數記法的共同之處，可以這樣表達：它們全都可由「∼*p*」（「非 *p*」）與「*p* ∨ *q*」（「*p* 或 *q*」）這類記法取代。"
+        interpretation_zh_tw: "例子用可相互定義的基底說明記法表面不同，仍可能保存相同的真值函數能力。"
+      - id: "3.3441.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（這也刻畫了：一種特定的可能記法，如何能給我們一般性的洞見。）"
+        interpretation_zh_tw: "具體基底之所以有哲學價值，不在它是唯一寫法，而在它展示整類記法共有的替換結構。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.3441 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.3441 直接主張「例如，所有真值函數記法的共同之處，可以這樣表達：它們全都可由「∼*p*」（「非 *p*」）與「*p* ∨ *q*」（「*p* 或 *q*」）這類記法取代。」，本卷並將其限制解讀為「例子用可相互定義的基底說明記法表面不同，仍可能保存相同的真值函數能力。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.3442"
+    parent: "3.344"
+    texts:
+      de:
+        - "Das Zeichen des Komplexes löst sich auch bei der Analyse nicht willkürlich auf, so dass etwa seine Auflösung in jedem Satzgefüge eine andere wäre."
+      en_ogden_ramsey_1922:
+        - "The sign of the complex is not arbitrarily resolved in the analysis, in such a way that its resolution would be different in every propositional structure."
+    edition_references:
+      en_pears_mcguinness: "3.3442"
+    segments:
+      - id: "3.3442.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "複合體的記號即使在分析中也不會任意分解，以致它在每個命題結構中都有不同的分解方式。"
+        interpretation_zh_tw: "分析必須跨出現脈絡保持一致；若每次任意改拆，定義與替換就無法固定同一符號。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.3442 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.3442 直接主張「複合體的記號即使在分析中也不會任意分解，以致它在每個命題結構中都有不同的分解方式。」，本卷並將其限制解讀為「分析必須跨出現脈絡保持一致；若每次任意改拆，定義與替換就無法固定同一符號。」。這裡處理表達式、符號、用法與邏輯句法；專案的型別與使用規則只能作受限工程規範，不能冒充完整符號理論。"
+    history: []
+  - id: "3.4"
+    parent: "3"
+    texts:
+      de:
+        - "Der Satz bestimmt einen Ort im logischen Raum."
+        - "Die Existenz dieses logischen Ortes ist durch die Existenz der Bestandteile allein verbürgt, durch die Existenz des sinnvollen Satzes."
+      en_ogden_ramsey_1922:
+        - "The proposition determines a place in logical space:"
+        - "the existence of this logical place is guaranteed by the existence of the constituent parts alone, by the existence of the significant proposition."
+    edition_references:
+      en_pears_mcguinness: "3.4"
+    segments:
+      - id: "3.4.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "命題在邏輯空間中確定一個位置。"
+        interpretation_zh_tw: "命題劃出一種可能狀況的位置；定位本身尚未判定命題為真，仍須與現實比較。"
+      - id: "3.4.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "這個邏輯位置的存在，只由構成部分的存在、也就是有意義命題的存在所保證。"
+        interpretation_zh_tw: "有意義命題的構成部分已足以給出一個可能位置；此處不是以該狀況實際成立來保證位置。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.4 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.4 先說命題在邏輯空間中確定一個位置，再說有意義命題的構成部分已足以保證該位置可被給出；這不保證所描繪的狀況為真。Akashic 的索引位置是工程導覽結構，不具備同一哲學角色。"
+    history: []
+  - id: "3.41"
+    parent: "3.4"
+    texts:
+      de:
+        - "Das Satzzeichen und die logischen Koordinaten: Das ist der logische Ort."
+      en_ogden_ramsey_1922:
+        - "The propositional sign and the logical co-ordinates: that is the logical place."
+    edition_references:
+      en_pears_mcguinness: "3.41"
+    segments:
+      - id: "3.41.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "命題記號加上邏輯座標：這就是邏輯位置。"
+        interpretation_zh_tw: "可感知記號必須連同其在整個可能性系統中的定位，才確定一個命題所表現的位置。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.41 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.41 直接主張「命題記號加上邏輯座標：這就是邏輯位置。」，本卷並將其限制解讀為「可感知記號必須連同其在整個可能性系統中的定位，才確定一個命題所表現的位置。」。這裡處理命題在邏輯空間中的位置、座標或思想的可感知表達；專案索引與資料位置不具備同一哲學角色。"
+    history: []
+  - id: "3.411"
+    parent: "3.41"
+    texts:
+      de:
+        - "Der geometrische und der logische Ort stimmen darin überein, dass beide die Möglichkeit einer Existenz sind."
+      en_ogden_ramsey_1922:
+        - "The geometrical and the logical place agree in that each is the possibility of an existence."
+    edition_references:
+      en_pears_mcguinness: "3.411"
+    segments:
+      - id: "3.411.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "幾何位置與邏輯位置的共同點是：兩者都是某種存在的可能性。"
+        interpretation_zh_tw: "位置不是先斷言某物存在，而是指定若它存在會落在哪一組可能條件中。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.411 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.411 直接主張「幾何位置與邏輯位置的共同點是：兩者都是某種存在的可能性。」，本卷並將其限制解讀為「位置不是先斷言某物存在，而是指定若它存在會落在哪一組可能條件中。」。這裡處理命題在邏輯空間中的位置、座標或思想的可感知表達；專案索引與資料位置不具備同一哲學角色。"
+    history: []
+  - id: "3.42"
+    parent: "3.4"
+    texts:
+      de:
+        - "Obwohl der Satz nur einen Ort des logischen Raumes bestimmen darf, so muss doch durch ihn schon der ganze logische Raum gegeben sein."
+        - "\\(Sonst würden durch die Verneinung, die logische Summe, das logische Produkt, etc. immer neue Elemente – in Koordination – eingeführt.)"
+        - "\\(Das logische Gerüst um das Bild herum bestimmt den logischen Raum."
+        - "Der Satz durchgreift den ganzen logischen Raum.)"
+      en_ogden_ramsey_1922:
+        - "Although a proposition may only determine one place in logical space, the whole logical space must already be given by it."
+        - "\\(Otherwise denial, the logical sum, the logical product, etc., would always introduce new elements—in co-ordination.)"
+        - "\\(The logical scaffolding round the picture determines the logical space."
+        - "The proposition reaches through the whole logical space.)"
+    edition_references:
+      en_pears_mcguinness: "3.42"
+    segments:
+      - id: "3.42.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "雖然一個命題只可確定邏輯空間中的一個位置，整個邏輯空間卻必須已由它一併給出。"
+        interpretation_zh_tw: "理解一個位置要求同時掌握它與其他可能位置的系統關係，不能把命題意義孤立成單點。"
+      - id: "3.42.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（否則，否定、邏輯和、邏輯積等操作，每次都會引入彼此並列的新元素。）"
+        interpretation_zh_tw: "邏輯操作應在既有可能性空間中變換位置，而不是每次擴充新的對象種類。"
+      - id: "3.42.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "（圖像周圍的邏輯鷹架確定邏輯空間。"
+        interpretation_zh_tw: "「鷹架」指使命題可被否定與組合的整體形式關係，而不是圖像之外另有一件物體。"
+      - id: "3.42.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "命題貫穿整個邏輯空間。）"
+        interpretation_zh_tw: "即使只確定一個位置，命題的否定與組合可能性仍牽連整個空間；「貫穿」不是空間移動。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.42 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.42 直接主張「雖然一個命題只可確定邏輯空間中的一個位置，整個邏輯空間卻必須已由它一併給出。」，本卷並將其限制解讀為「理解一個位置要求同時掌握它與其他可能位置的系統關係，不能把命題意義孤立成單點。」。這裡處理命題在邏輯空間中的位置、座標或思想的可感知表達；專案索引與資料位置不具備同一哲學角色。"
+    history: []
+  - id: "3.5"
+    parent: "3"
+    texts:
+      de:
+        - "Das angewandte, gedachte, Satzzeichen ist der Gedanke."
+      en_ogden_ramsey_1922:
+        - "The applied, thought, propositional sign, is the thought."
+    edition_references:
+      en_pears_mcguinness: "3.5"
+    segments:
+      - id: "3.5.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "被應用、被思考的命題記號，就是思想。"
+        interpretation_zh_tw: "只有當命題記號實際依某種投射被理解時，它才不只是墨跡，而成為具有意義的思想。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 3.5 的哲學論旨具有直接的軟體實作對應。"
+        rationale_zh_tw: "命題 3.5 直接主張「被應用、被思考的命題記號，就是思想。」，本卷並將其限制解讀為「只有當命題記號實際依某種投射被理解時，它才不只是墨跡，而成為具有意義的思想。」。這裡處理命題在邏輯空間中的位置、座標或思想的可感知表達；專案索引與資料位置不具備同一哲學角色。"
+    history: []

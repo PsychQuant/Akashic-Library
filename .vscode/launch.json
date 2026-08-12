@@ -39,6 +39,26 @@
             "target": "akashic-mcp",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release akashic-mcp"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Akashic-Library}",
+            "name": "Debug tractatus-doc",
+            "target": "tractatus-doc",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug tractatus-doc"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Akashic-Library}",
+            "name": "Release tractatus-doc",
+            "target": "tractatus-doc",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release tractatus-doc"
         }
     ]
 }

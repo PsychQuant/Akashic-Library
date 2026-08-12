@@ -6,10 +6,19 @@
 # 測試程序的 exit code——crash 的 run 經管線回報 0。
 set -eo pipefail
 
+# Git 會把本次 push 的 repository-local 環境傳給 hook。若直接讓測試繼承，測試內
+# 為 fixture 執行的 `git -C <temp>` 仍會被外層 GIT_DIR／GIT_INDEX_FILE 劫持，最壞
+# 情況會把 fixture commit 寫回真正的 repository。先由 Git 自己列出完整 local env，
+# 再逐一移除；PATH、credential 與一般程序環境不受影響。
+git_local_env_vars="$(git rev-parse --local-env-vars)"
+for git_local_env_var in $git_local_env_vars; do
+    unset "$git_local_env_var"
+done
+
 echo "pre-push: swift build -Xswiftc -warnings-as-errors"
 swift build -Xswiftc -warnings-as-errors
 
-echo "pre-push: swift test（全套；判讀看最後一行總數——#56 的教訓）"
-swift test
+echo "pre-push: swift test -Xswiftc -warnings-as-errors（全套；判讀看最後一行總數——#56 的教訓）"
+swift test -Xswiftc -warnings-as-errors
 
 echo "pre-push: ✓ 全部通過"

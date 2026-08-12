@@ -121,17 +121,22 @@ public struct AkashicMeta: Equatable {
     public var libraries: [String]
     public var status: String?
     public var relations: Relations
+    /// Exact work UUID、ordered raw author snapshot 與封閉 provenance chain 的
+    /// optional canonical 完備性證言。缺席保留 open-world 語意。
+    public var authorListCompleteness: AuthorListCompletenessWitness?
     /// akashic namespace 內的未知欄位（tolerant-preserve，#23）——
     /// 歷史上 schema 演化就發生在這層（#13 的 `libraries` 即是）。
     public var unknownFields: [UnknownField]
 
     public init(tags: [String] = [], libraries: [String] = [],
                 status: String? = nil, relations: Relations = Relations(),
+                authorListCompleteness: AuthorListCompletenessWitness? = nil,
                 unknownFields: [UnknownField] = []) {
         self.tags = tags
         self.libraries = libraries
         self.status = status
         self.relations = relations
+        self.authorListCompleteness = authorListCompleteness
         self.unknownFields = unknownFields
     }
 
@@ -140,6 +145,7 @@ public struct AkashicMeta: Equatable {
     /// isEmpty 不再是 encode 的丟段防線，但語意上「有未知欄位 ≠ 空」仍須成立）。
     public var isEmpty: Bool {
         tags.isEmpty && libraries.isEmpty && status == nil && relations.isEmpty
+            && authorListCompleteness == nil
             && unknownFields.isEmpty
     }
 }
@@ -388,7 +394,10 @@ public func displaySafeMultiline(_ s: String, maxLineLength: Int = 400,
 ///    （消毒後的字串會變得可偽造）。
 public func displaySafe(_ s: String, max: Int = 200) -> String {
     var out = String.UnicodeScalarView()
-    out.reserveCapacity(Swift.min(s.unicodeScalars.count, max) + 16)
+    // `s` 是 caller-controlled；不能為了 reserve 先完整走過可能極大的 scalar view。
+    // `max` 才是本函式真正會接觸的上界，負值也收斂為空 budget。
+    let boundedMaximum = Swift.max(0, max)
+    out.reserveCapacity(Swift.min(boundedMaximum, 2_048))
     var emitted = 0
     var truncated = false
 
@@ -397,7 +406,7 @@ public func displaySafe(_ s: String, max: Int = 200) -> String {
     }
 
     for u in s.unicodeScalars {
-        if emitted >= max { truncated = true; break }
+        if emitted >= boundedMaximum { truncated = true; break }
         let v = u.value
         let escape =
             v < 0x20 || v == 0x7F                    // C0 + DEL（含 ESC / CR / LF / TAB）

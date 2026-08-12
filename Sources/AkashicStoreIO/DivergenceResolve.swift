@@ -1257,6 +1257,17 @@ extension LibraryStore {
         if let s = e.akashic.status, !s.isEmpty, keeper.akashic.status != s {
             losses.append("status: \(s)")
         }
+        // Canonical authorship completeness 是 truth-bearing claim，不是可由 keeper-wins
+        // 靜默捨棄的同步狀態。實際 work 消歧中兩筆合法 witness 的 work UUID 必然
+        // 不同，因此 keeper 缺席與兩邊不同都要交回人工裁決；同值才是不會遺失。
+        if let witness = e.akashic.authorListCompleteness,
+           keeper.akashic.authorListCompleteness != witness {
+            if keeper.akashic.authorListCompleteness == nil {
+                losses.append("author-list-completeness（倖存者缺席 canonical witness）")
+            } else {
+                losses.append("author-list-completeness（兩邊都有但不同，需選一個）")
+            }
+        }
         // authors（#157 verify 157-1）：doomed 的 `.key(...)` 是 resolve-people 歸戶的
         // **產物**——person 側的 names 由合併搬移，但 work 的 authors **不搬**（實測
         // keeper 併完是 0 作者）。丟掉的是人做過的判斷，不是重複資料。
@@ -1511,7 +1522,7 @@ extension LibraryStore {
     ///
     /// | 比對（7） | **部分比對**（2） | 排除（2） |
     /// |---|---|---|
-    /// | `fields`、`attachments`、`akashic`（tags／libraries／status／relations／unknownFields 五個子欄位都在裡面，**收合成一個屬性算**）、`authors`、`date`、`unknownFields`、`provenance` | `type`、`title`——**只比缺席方向**（見下） | `id`、`citekey` |
+    /// | `fields`、`attachments`、`akashic`（tags／libraries／status／relations／authorListCompleteness／unknownFields 六個子欄位都在裡面，**收合成一個屬性算**）、`authors`、`date`、`unknownFields`、`provenance` | `type`、`title`——**只比缺席方向**（見下） | `id`、`citekey` |
     ///
     /// 7 + 2 + 2 = 11，由 `testEntryFieldCoverageOfMergeCheck` 以反射釘住。
     ///

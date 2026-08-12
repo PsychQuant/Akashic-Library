@@ -1,0 +1,3549 @@
+schema_version: 1
+volume: "6"
+propositions:
+  - id: "6"
+    texts:
+      de:
+        - "Die allgemeine Form der Wahrheitsfunktion ist: ![{ [ \\bar{p}, \\bar{\\xi}, N (\\bar{\\xi}) ] }](images/336cae8a41089348ef601ba5dbe893d3758f7baa1841701bd587566e0f16d282.svg)\\ ."
+        - "Dies ist die allgemeine Form des Satzes."
+      en_ogden_ramsey_1922:
+        - "The general form of truth-function is: ![{ [ \\bar{p}, \\bar{\\xi}, N (\\bar{\\xi}) ] }](images/336cae8a41089348ef601ba5dbe893d3758f7baa1841701bd587566e0f16d282.svg)\\ ."
+        - "This is the general form of proposition."
+    edition_references:
+      en_pears_mcguinness: "6"
+    segments:
+      - id: "6.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "真值函數的一般形式是來源所列的三項式。"
+        interpretation_zh_tw: "公式以基本命題、命題值的選取與否定運算概括真值函數；它不是程式函式簽章。"
+      - id: "6.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "這就是命題的一般形式。"
+        interpretation_zh_tw: "第二句把前式提升為一切命題的形式主張，不是某類經驗句的範本。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6 的直接論旨是「真值函數的一般形式是來源所列的三項式。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.001"
+    parent: "6"
+    texts:
+      de:
+        - "Dies sagt nichts anderes, als dass jeder Satz ein Resultat der successiven Anwendung der Operation ![{ N' (\\bar{\\xi}) }](images/6f5736dff9d73c6c95c36f30466ceb36b6191d4b51adec9af05bd29016ef01ea.svg)\\  auf die Elementarsätze ist."
+      en_ogden_ramsey_1922:
+        - "This says nothing else than that every proposition is the result of successive applications of the operation ![{ N (\\bar{\\xi}) }](images/eb37987510f581cb73f8db614bd71715f510cf605279d48188050d8b509b47ed.svg)\\  to the elementary propositions."
+    edition_references:
+      en_pears_mcguinness: "6.001"
+    segments:
+      - id: "6.001.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "這無非是說，每一命題都是把運算 N 逐次施用於基本命題所得的結果。"
+        interpretation_zh_tw: "「逐次施用」描述真值函數的生成；不能只因軟體也有反覆運算，就宣稱兩者相同。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.001 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.001 的直接論旨是「這無非是說，每一命題都是把運算 N 逐次施用於基本命題所得的結果。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.002"
+    parent: "6"
+    texts:
+      de:
+        - "Ist die allgemeine Form gegeben, wie ein Satz gebaut ist, so ist damit auch schon die allgemeine Form davon gegeben, wie aus einem Satz durch eine Operation ein anderer erzeugt werden kann."
+      en_ogden_ramsey_1922:
+        - "If we are given the general form of the way in which a proposition is constructed, then thereby we are also given the general form of the way in which by an operation out of one proposition another can be created."
+    edition_references:
+      en_pears_mcguinness: "6.002"
+    segments:
+      - id: "6.002.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "一旦給出命題如何構成的一般形式，也就同時給出了如何藉運算從一個命題產生另一個命題的一般形式。"
+        interpretation_zh_tw: "命題構成與運算生成在此共同受邏輯形式規定，不是一般資料轉換流程。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.002 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.002 的直接論旨是「一旦給出命題如何構成的一般形式，也就同時給出了如何藉運算從一個命題產生另一個命題的一般形式。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.01"
+    parent: "6"
+    texts:
+      de:
+        - "Die allgemeine Form der Operation ![{ \\Omega ' (\\bar{\\eta}) }](images/ea9e48f6e881e8a034e4cbc779a077ac01d2da54238fa332cfbe2255015dca69.svg)\\  ist also: ![{ [\\bar{\\xi}, N(\\bar{\\xi})]' (\\bar{\\eta}) (= [ \\bar{\\eta}, \\bar{\\xi}, N (\\bar{\\xi}) ]) }](images/d1cf195aa1fb631bffe7b018f1114530b8c1bcc712299ba306fdef8ed6c55335.svg)\\ ."
+        - "Das ist die allgemeinste Form des Überganges von einem Satz zum anderen."
+      en_ogden_ramsey_1922:
+        - "The general form of the operation ![{ \\Omega ' (\\bar{\\eta}) }](images/ea9e48f6e881e8a034e4cbc779a077ac01d2da54238fa332cfbe2255015dca69.svg)\\  is therefore: ![{ [\\bar{\\xi}, N(\\bar{\\xi})]' (\\bar{\\eta}) (= [ \\bar{\\eta}, \\bar{\\xi}, N (\\bar{\\xi}) ]) }](images/d1cf195aa1fb631bffe7b018f1114530b8c1bcc712299ba306fdef8ed6c55335.svg)\\ ."
+        - "This is the most general form of transition from one proposition to another."
+    edition_references:
+      en_pears_mcguinness: "6.01"
+    segments:
+      - id: "6.01.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "因此，運算 Ω′ 的一般形式如來源公式所示。"
+        interpretation_zh_tw: "公式描述運算如何作用於命題值，其抽象層次高於具體程式操作。"
+      - id: "6.01.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "這是從一個命題過渡到另一個命題的最一般形式。"
+        interpretation_zh_tw: "「最一般」限於《論考》的命題生成架構，不能直接移植成 Akashic API。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.01 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.01 的直接論旨是「因此，運算 Ω′ 的一般形式如來源公式所示。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.02"
+    parent: "6"
+    texts:
+      de:
+        - "Und so kommen wir zu den Zahlen:"
+        - "Ich definiere\n![{ x = \\Omega^{0 \\prime} x \\text{ Def.} }](images/2c3e0efa8931e01e650511958fc1f6d5b5cba8c4120db825866394563d645203.svg)\\  und\n![{ \\Omega^{\\prime} \\Omega^{\\nu \\prime} x = \\Omega^{\\nu + 1 \\prime} x \\text{ Def.} }](images/1bd88ac2bf5db57ea9040cc5e72c42410c17abe58b77c117e3bfb0772eaf1d77.svg)\\"
+        - "Nach diesen Zeichenregeln schreiben wir also die Reihe ![{ x, \\Omega ' x, \\Omega ' \\Omega ' x, \\Omega ' \\Omega ' \\Omega ' x, ..... }](images/2bdad2e773a893d516dedb66aae27db7901736d7838298078d42775abc368450.svg)\\"
+        - "so: ![{ \\Omega^{0 \\prime} x, \\Omega^{0+1 \\prime} x, \\Omega^{0 + 1 + 1 \\prime} x, \\Omega^{0 + 1 + 1 + 1 \\prime} x, ..... }](images/2363c84eb861521de9141a1ef7e7f9b8e30ee559dbe0fdd98ebe96665b1cacc5.svg)\\"
+        - "Also schreibe ich statt „![{ [ x, \\xi, \\Omega ' \\xi ] }](images/356a71ba81334c39be3a91a1d42c9d51eb9ad1ea7b726f750fd3a307d7947385.svg)\\ “:"
+        - "„![{ [ \\Omega^{0 \\prime} x, \\Omega^{\\nu \\prime} x, \\Omega^{\\nu + 1 \\prime} x ] }](images/6dfd74305dc6480d900085f169502024845a873e4e905856bf37dbc80f3bb653.svg)\\ “."
+        - "Und definiere:"
+        - "![{ 0 + 1 = 1 \\text{ Def.} }](images/9bfe93c20fc75f7848141a5dc2cdd0308e48f56967903cda5e95d9574182253c.svg)\\"
+        - "![{ 0 + 1 + 1 = 2 \\text{ Def.} }](images/fe681449dc8d64199e5d1bdbf8208df658a75a9e18932d30c9dfe7f01673531e.svg)\\"
+        - "![{ 0 + 1 + 1 + 1 = 3 \\text{ Def.} }](images/79fe9d279c0691bdeef7a6bf88e5f6a6364bd5b2dabfd79444199d7e0fb31ca7.svg)\\"
+        - "\\(u. s. f.)"
+      en_ogden_ramsey_1922:
+        - "And thus we come to numbers:"
+        - "I define\n![{ x = \\Omega^{0 \\prime} x \\text{ Def.} }](images/2c3e0efa8931e01e650511958fc1f6d5b5cba8c4120db825866394563d645203.svg)\\  and\n![{ \\Omega^{\\prime} \\Omega^{ \\nu \\prime} x = \\Omega^{ \\nu + 1 \\prime} x \\text{ Def.} }](images/2f81698ca04ab3ce262aa94e5d57f69a5eaa2cadf033aba83d9dc9724869a8b0.svg)\\"
+        - "According, then, to these symbolic rules we write the series ![{ x, \\Omega ' x, \\Omega ' \\Omega ' x, \\Omega ' \\Omega ' \\Omega ' x, ..... }](images/2bdad2e773a893d516dedb66aae27db7901736d7838298078d42775abc368450.svg)\\"
+        - "as: ![{ \\Omega^{0 \\prime} x, \\Omega^{0+1 \\prime} x, \\Omega^{0 + 1 + 1 \\prime} x, \\Omega^{0 + 1 + 1 + 1 \\prime} x, ..... }](images/2363c84eb861521de9141a1ef7e7f9b8e30ee559dbe0fdd98ebe96665b1cacc5.svg)\\"
+        - "Therefore I write in place of “![{ [ x, \\xi, \\Omega ' \\xi ] }](images/356a71ba81334c39be3a91a1d42c9d51eb9ad1ea7b726f750fd3a307d7947385.svg)\\ ”,"
+        - "“![{ [ \\Omega^{0 \\prime} x, \\Omega^{ \\nu \\prime} x, \\Omega^{ \\nu + 1 \\prime} x ] }](images/cbe2c1a200eb49c3a9b16c7105afbb9fbed122da767f2d37389ac28a9e93e102.svg)\\ ”."
+        - "And I define:"
+        - "![{ 0 + 1 = 1 \\text{ Def.} }](images/9bfe93c20fc75f7848141a5dc2cdd0308e48f56967903cda5e95d9574182253c.svg)\\"
+        - "![{ 0 + 1 + 1 = 2 \\text{ Def.} }](images/fe681449dc8d64199e5d1bdbf8208df658a75a9e18932d30c9dfe7f01673531e.svg)\\"
+        - "![{ 0 + 1 + 1 + 1 = 3 \\text{ Def.} }](images/79fe9d279c0691bdeef7a6bf88e5f6a6364bd5b2dabfd79444199d7e0fb31ca7.svg)\\"
+        - "\\(and so on.)"
+    edition_references:
+      en_pears_mcguinness: "6.02"
+    segments:
+      - id: "6.02.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "於是我們來到數。"
+        interpretation_zh_tw: "這個過渡把前述運算序列轉入數的討論；它尚未把數當成另添的一類對象。"
+      - id: "6.02.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "我作如下定義：第一式把 x 定為 Ω 的零次施用，第二式把再施用一次 Ω 定為指數的後繼。"
+        interpretation_zh_tw: "兩條遞迴式分別給出基底與後繼，必須合讀為同一個定義步驟，並非兩項經驗等式。"
+      - id: "6.02.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "依這些記號規則，我們把 x、Ω′x、Ω′Ω′x 等寫成一個序列。"
+        interpretation_zh_tw: "原序列把反覆操作直接展開。"
+      - id: "6.02.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "也就是把它們改寫成以零與連續加一標示的指數序列。"
+        interpretation_zh_tw: "新記法以指數記錄反覆次數，讓數的位置可見。"
+      - id: "6.02.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "所以我以含 x、ξ 與 Ω′ξ 的序列記法為起點，改用下一式。"
+        interpretation_zh_tw: "這句說明被替換的舊序列形式。"
+      - id: "6.02.f"
+        alignment:
+          de: [5]
+          en_ogden_ramsey_1922: [5]
+        translation_zh_tw: "改寫後的序列以 Ω 的零次、ν 次與 ν 加一次施用表示。"
+        interpretation_zh_tw: "此式是新記法的通式，不是經驗等式。"
+      - id: "6.02.g"
+        alignment:
+          de: [6]
+          en_ogden_ramsey_1922: [6]
+        translation_zh_tw: "並作如下定義。"
+        interpretation_zh_tw: "接下來只是為常用數字命名。"
+      - id: "6.02.h"
+        alignment:
+          de: [7]
+          en_ogden_ramsey_1922: [7]
+        translation_zh_tw: "零加一被定義為一。"
+        interpretation_zh_tw: "「一」記錄一次後繼。"
+      - id: "6.02.i"
+        alignment:
+          de: [8]
+          en_ogden_ramsey_1922: [8]
+        translation_zh_tw: "零連加兩次一被定義為二。"
+        interpretation_zh_tw: "「二」記錄兩次後繼。"
+      - id: "6.02.j"
+        alignment:
+          de: [9]
+          en_ogden_ramsey_1922: [9]
+        translation_zh_tw: "零連加三次一被定義為三。"
+        interpretation_zh_tw: "「三」記錄三次後繼。"
+      - id: "6.02.k"
+        alignment:
+          de: [10]
+          en_ogden_ramsey_1922: [10]
+        translation_zh_tw: "如此類推。"
+        interpretation_zh_tw: "省略號延伸同一規則，未引入新的數學對象。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.02 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.02 從運算序列過渡到數，並以零次施用與後繼式定義其記法；這是《論考》的數與運算形式，不是程式整數型別或一般遞迴 API。Akashic 的 schema 與程式運算只規範專案資料，不能冒充相同的邏輯形式。"
+    history: []
+  - id: "6.021"
+    parent: "6.02"
+    texts:
+      de:
+        - "Die Zahl ist der Exponent einer Operation."
+      en_ogden_ramsey_1922:
+        - "A number is the exponent of an operation."
+    edition_references:
+      en_pears_mcguinness: "6.021"
+    segments:
+      - id: "6.021.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "數是運算的指數。"
+        interpretation_zh_tw: "數被理解為運算施行多少次的標誌；這是《論考》的數概念，不等於程式整數型別。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.021 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.021 的直接論旨是「數是運算的指數。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.022"
+    parent: "6.02"
+    texts:
+      de:
+        - "Der Zahlbegriff ist nichts anderes, als das Gemeinsame aller Zahlen, die allgemeine Form der Zahl."
+        - "Der Zahlbegriff ist die variable Zahl."
+        - "Und der Begriff der Zahlengleichheit ist die allgemeine Form aller speziellen Zahlengleichheiten."
+      en_ogden_ramsey_1922:
+        - "The concept number is nothing else than that which is common to all numbers, the general form of number."
+        - "The concept number is the variable number."
+        - "And the concept of equality of numbers is the general form of all special equalities of numbers."
+    edition_references:
+      en_pears_mcguinness: "6.022"
+    segments:
+      - id: "6.022.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "數概念無非是所有數的共同點，也就是數的一般形式。"
+        interpretation_zh_tw: "共同形式而非個別數值構成「數」的概念。"
+      - id: "6.022.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "數概念就是可變的數。"
+        interpretation_zh_tw: "可變數表示能由不同數值占據的形式位置。"
+      - id: "6.022.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "數相等的概念則是所有特殊數等式的一般形式。"
+        interpretation_zh_tw: "數相等也由各具體等式共有的形式界定。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.022 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.022 的直接論旨是「數概念無非是所有數的共同點，也就是數的一般形式。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.03"
+    parent: "6"
+    texts:
+      de:
+        - "Die allgemeine Form der ganzen Zahl ist: ![{ [ 0, \\xi, \\xi + 1] }](images/b62025c4a407e7eb826ef60301c7aba855768d91af1e7b6d3248a9d8c43658f1.svg)\\ ."
+      en_ogden_ramsey_1922:
+        - "The general form of the cardinal number is: [0, *ξ*, *ξ* + 1]."
+    edition_references:
+      en_pears_mcguinness: "6.03"
+    segments:
+      - id: "6.03.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "基數的一般形式是來源所列的零、任意數與後繼三項式。"
+        interpretation_zh_tw: "這個三項式表示自然數序列的形式，不是宣稱所有數學只需一個資料結構。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.03 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.03 的直接論旨是「基數的一般形式是來源所列的零、任意數與後繼三項式。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.031"
+    parent: "6.03"
+    texts:
+      de:
+        - "Die Theorie der Klassen ist in der Mathematik ganz überflüssig."
+        - "Dies hängt damit zusammen, dass die Allgemeinheit, welche wir in der Mathematik brauchen, nicht die *zufällige* ist."
+      en_ogden_ramsey_1922:
+        - "The theory of classes is altogether superfluous in mathematics."
+        - "This is connected with the fact that the generality which we need in mathematics is not the *accidental* one."
+    edition_references:
+      en_pears_mcguinness: "6.031"
+    segments:
+      - id: "6.031.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "類別理論在數學中完全是多餘的。"
+        interpretation_zh_tw: "這是維根斯坦對當時基礎論的強主張，不是現代數學的中立共識。"
+      - id: "6.031.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "這與數學所需的普遍性不是偶然普遍性有關。"
+        interpretation_zh_tw: "他把數學普遍性理解為形式必要，而非碰巧涵蓋所有個案。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.031 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.031 的直接論旨是「類別理論在數學中完全是多餘的。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1"
+    parent: "6"
+    texts:
+      de:
+        - "Die Sätze der Logik sind Tautologien."
+      en_ogden_ramsey_1922:
+        - "The propositions of logic are tautologies."
+    edition_references:
+      en_pears_mcguinness: "6.1"
+    segments:
+      - id: "6.1.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "邏輯命題是重言式。"
+        interpretation_zh_tw: "重言式不排除任何可能事態，因此不報導世界中的一項偶然事實。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1 的直接論旨是「邏輯命題是重言式。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.11"
+    parent: "6.1"
+    texts:
+      de:
+        - "Die Sätze der Logik sagen also Nichts."
+        - "(Sie sind die analytischen Sätze.)"
+      en_ogden_ramsey_1922:
+        - "The propositions of logic therefore say nothing."
+        - "(They are the analytical propositions.)"
+    edition_references:
+      en_pears_mcguinness: "6.11"
+    segments:
+      - id: "6.11.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "所以邏輯命題什麼也不說。"
+        interpretation_zh_tw: "「什麼也不說」指重言式不切分可能事態，不是字串空白。"
+      - id: "6.11.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（它們是分析命題。）"
+        interpretation_zh_tw: "括號把這種無經驗內容的地位稱為分析性。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.11 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.11 的直接論旨是「所以邏輯命題什麼也不說。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.111"
+    parent: "6.11"
+    texts:
+      de:
+        - "Theorien, die einen Satz der Logik gehaltvoll erscheinen lassen, sind immer falsch."
+        - "Man könnte z. B. glauben, dass die Worte „wahr“ und „falsch“ zwei Eigenschaften unter anderen Eigenschaften bezeichnen, und da erschiene es als eine merkwürdige Tatsache, dass jeder Satz eine dieser Eigenschaften besitzt."
+        - "Das scheint nun nichts weniger als selbstverständlich zu sein, ebensowenig selbstverständlich, wie etwa der Satz, „alle Rosen sind entweder gelb oder rot“ klänge, auch wenn er wahr wäre."
+        - "Ja, jener Satz bekommt nun ganz den Charakter eines naturwissenschaftlichen Satzes und dies ist das sichere Anzeichen dafür, dass er falsch aufgefasst wurde."
+      en_ogden_ramsey_1922:
+        - "Theories which make a proposition of logic appear substantial are always false."
+        - "One could *e.g.* believe that the words “true” and “false” signify two properties among other properties, and then it would appear as a remarkable fact that every proposition possesses one of these properties."
+        - "This now by no means appears self-evident, no more so than the proposition “All roses are either yellow or red” would sound even if it were true."
+        - "Indeed our proposition now gets quite the character of a proposition of natural science and this is a certain symptom of its being falsely understood."
+    edition_references:
+      en_pears_mcguinness: "6.111"
+    segments:
+      - id: "6.111.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "任何使邏輯命題看似有實質內容的理論總是錯的。"
+        interpretation_zh_tw: "邏輯真不是另一項可觀察性質。"
+      - id: "6.111.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "人們可能以為「真」與「假」像其他性質一樣，於是每個命題具有其中一種性質就顯得奇特。"
+        interpretation_zh_tw: "把真假當普通謂詞，會把形式條件誤作經驗分類。"
+      - id: "6.111.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "這絲毫不比「所有玫瑰不是黃的就是紅的」更不證自明，即使後者為真。"
+        interpretation_zh_tw: "玫瑰例是偶然概括，不能說明重言式的必然性。"
+      - id: "6.111.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "當邏輯命題因此呈現自然科學命題的性格時，正顯示它已被誤解。"
+        interpretation_zh_tw: "自然科學式讀法需要經驗內容，恰與邏輯命題的角色衝突。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.111 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.111 的直接論旨是「任何使邏輯命題看似有實質內容的理論總是錯的。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.112"
+    parent: "6.11"
+    texts:
+      de:
+        - "Die richtige Erklärung der logischen Sätze muss ihnen eine einzigartige Stellung unter allen Sätzen geben."
+      en_ogden_ramsey_1922:
+        - "The correct explanation of logical propositions must give them a peculiar position among all propositions."
+    edition_references:
+      en_pears_mcguinness: "6.112"
+    segments:
+      - id: "6.112.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "對邏輯命題的正確說明，必須使它們在所有命題中占有獨特地位。"
+        interpretation_zh_tw: "獨特性來自形式與真值條件，不是較高權威或特殊資料標籤。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.112 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.112 的直接論旨是「對邏輯命題的正確說明，必須使它們在所有命題中占有獨特地位。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.113"
+    parent: "6.11"
+    texts:
+      de:
+        - "Es ist das besondere Merkmal der logischen Sätze, dass man am Symbol allein erkennen kann, dass sie wahr sind, und diese Tatsache schliesst die ganze Philosophie der Logik in sich."
+        - "Und so ist es auch eine der wichtigsten Tatsachen, dass sich die Wahrheit oder Falschheit der nicht-logischen Sätze *nicht* am Satz allein erkennen lässt."
+      en_ogden_ramsey_1922:
+        - "It is the characteristic mark of logical propositions that one can perceive in the symbol alone that they are true; and this fact contains in itself the whole philosophy of logic."
+        - "And so also it is one of the most important facts that the truth or falsehood of non-logical propositions can *not* be recognized from the propositions alone."
+    edition_references:
+      en_pears_mcguinness: "6.113"
+    segments:
+      - id: "6.113.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "邏輯命題的特徵，是只看符號本身就能認出它為真；這一事實包含整個邏輯哲學。"
+        interpretation_zh_tw: "邏輯命題由符號形式顯示其重言性。"
+      - id: "6.113.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "同樣重要的是，非邏輯命題的真假不能只由命題本身認出。"
+        interpretation_zh_tw: "非邏輯命題仍須與現實比較，不能從句形直接讀出真假。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.113 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.113 的直接論旨是「邏輯命題的特徵，是只看符號本身就能認出它為真；這一事實包含整個邏輯哲學。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.12"
+    parent: "6.1"
+    texts:
+      de:
+        - "Dass die Sätze der Logik Tautologien sind, das *zeigt* die formalen – logischen – Eigenschaften der Sprache, der Welt."
+        - "Dass ihre Bestandteile *so* verknüpft eine Tautologie ergeben, das charakterisiert die Logik ihrer Bestandteile."
+        - "Damit Sätze, auf bestimmte Art und Weise verknüpft, eine Tautologie ergeben, dazu müssen sie bestimmte Eigenschaften der Struktur haben."
+        - "Dass sie *so* verbunden eine Tautologie ergeben, zeigt also, dass sie diese Eigenschaften der Struktur besitzen."
+      en_ogden_ramsey_1922:
+        - "The fact that the propositions of logic are tautologies *shows* the formal—logical—properties of language, of the world."
+        - "That its constituent parts connected together *in this way* give a tautology characterizes the logic of its constituent parts."
+        - "In order that propositions connected together in a definite way may give a tautology they must have definite properties of structure."
+        - "That they give a tautology when *so* connected shows therefore that they possess these properties of structure."
+    edition_references:
+      en_pears_mcguinness: "6.12"
+    segments:
+      - id: "6.12.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "邏輯命題是重言式這件事，顯示了語言與世界的形式——邏輯——性質。"
+        interpretation_zh_tw: "重言式不敘述形式性質，而由自身結構顯示它們。"
+      - id: "6.12.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "其組成部分如此連結而形成重言式，刻畫了這些部分的邏輯。"
+        interpretation_zh_tw: "連結方式揭露組成命題間的邏輯關係。"
+      - id: "6.12.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "命題以特定方式連結要形成重言式，就必須具有特定結構性質。"
+        interpretation_zh_tw: "形成重言式的可能性依賴論元結構。"
+      - id: "6.12.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "它們如此連結而成為重言式，正顯示它們具有這些結構性質。"
+        interpretation_zh_tw: "最後一句以「顯示」取代另一層後設命題。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.12 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.12 的直接論旨是「邏輯命題是重言式這件事，顯示了語言與世界的形式——邏輯——性質。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1201"
+    parent: "6.12"
+    texts:
+      de:
+        - "Dass z. B. die Sätze „*p*“ und „∼*p*“ in der Verbindung „∼(*p.*∼*p*)“ eine Tautologie ergeben, zeigt, dass sie einander widersprechen."
+        - "Dass die Sätze „*p* ⊃ *q*“, „*p*“ und „*q*“ in der Form „(*p* ⊃ *q*)*.*(*p*) : ⊃ : (*q*)“ miteinander verbunden eine Tautologie ergeben, zeigt, dass *q* aus *p* und *p* ⊃ *q* folgt."
+        - "Dass „(*x*) *. fx* : ⊃ : *fa*“ eine Tautologie ist, dass *fa* aus (*x*) *. fx* folgt. etc. etc."
+      en_ogden_ramsey_1922:
+        - "That *e.g.* the propositions “*p*” and “\\~*p*” in the connexion “\\~(*p* . \\~*p*)” give a tautology shows that they contradict one another."
+        - "That the propositions “*p* ⊃ *q*”, “*p*” and “*q*” connected together in the form “(*p* ⊃ *q*) . (*p*) : ⊃ : (*q*)” give a tautology shows that “*q*” follows from “*p*” and “*p* ⊃ *q*”."
+        - "That “(*x*) . *fx* : ⊃ : *fa*” is a tautology shows that *fa* follows from (*x*) . *fx*, etc. etc."
+    edition_references:
+      en_pears_mcguinness: "6.1201"
+    segments:
+      - id: "6.1201.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "例如，p 與 ∼p 在來源所列連結中形成重言式，顯示兩者互相矛盾。"
+        interpretation_zh_tw: "第一個真值形式呈現矛盾關係，不靠經驗反例。"
+      - id: "6.1201.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "p ⊃ q、p 與 q 依來源所列形式結合為重言式，顯示 q 可由前兩者推出。"
+        interpretation_zh_tw: "第二式把肯定前件推論顯示成重言式。"
+      - id: "6.1201.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "全稱式與 fa 所成的重言式，則顯示 fa 可由全稱命題推出，等等。"
+        interpretation_zh_tw: "第三式展示全稱實例化；末尾省略的是同類形式例。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1201 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1201 的直接論旨是「例如，p 與 ∼p 在來源所列連結中形成重言式，顯示兩者互相矛盾。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1202"
+    parent: "6.12"
+    texts:
+      de:
+        - "Es ist klar, dass man zu demselben Zweck statt der Tautologien auch die Kontradiktionen verwenden könnte."
+      en_ogden_ramsey_1922:
+        - "It is clear that we could have used for this purpose contradictions instead of tautologies."
+    edition_references:
+      en_pears_mcguinness: "6.1202"
+    segments:
+      - id: "6.1202.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "顯然，為了同一目的，也可以用矛盾式取代重言式。"
+        interpretation_zh_tw: "重言式與矛盾式都由極端真值結構顯露邏輯關係。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1202 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1202 的直接論旨是「顯然，為了同一目的，也可以用矛盾式取代重言式。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1203"
+    parent: "6.12"
+    texts:
+      de:
+        - "Um eine Tautologie als solche zu erkennen, kann man sich, in den Fällen, in welchen in der Tautologie keine Allgemeinheitsbezeichnung vorkommt, folgender anschaulichen Methode bedienen:"
+        - "Ich schreibe statt „*p*“, „*q*“, „*r*“ etc. „W*p*F“, „W*q*F“, „W*r*F“ etc."
+        - "Die Wahrheitskombinationen drücke ich durch Klammern aus."
+        - "z. B.:\n![](images/250px-TLP_6.1203a.png)\\"
+        - "und die Zuordnung der Wahr- oder Falschheit des ganzen Satzes und der Wahrheitskombinationen der Wahrheitsargumente durch Striche auf folgende Weise:\n![](images/250px-TLP_6.1203b.png)\\"
+        - "Dies Zeichen würde also z. B. den Satz *p* ⊃ *q* darstellen."
+        - "Nun will ich z. B. den Satz ∼(*p .* ∼*p*) (Gesetz des Widerspruchs) daraufhin untersuchen, ob er eine Tautologie ist."
+        - "Die Form „∼*ξ*“ wird in unserer Notation\n![](images/120px-TLP_6.1203c.png)\\\ngeschrieben;"
+        - "die Form „*ξ . η*“ so:\n![](images/250px-TLP_6.1203d.png)\\"
+        - "Daher lautet der Satz ∼(*p .* ∼*q*) so:\n![](images/200px-TLP_6.1203e.png)\\"
+        - "Setzen wir hier statt „*q*“ „*p*“ ein und untersuchen die Verbindung der äussersten W und F mit den innersten, so ergibt sich, dass die Wahrheit des ganzen Satzes *allen* Wahrheitskombinationen seines Argumentes, seine Falschheit keiner der Wahrheitskombinationen zugeordnet ist."
+      en_ogden_ramsey_1922:
+        - "In order to recognize a tautology as such, we can, in cases in which no sign of generality occurs in the tautology, make use of the following intuitive method:"
+        - "I write instead of “*p*”, “*q*”, “*r*”, etc., “*T p F*”, “*T q F*”, “*T r F*”, etc."
+        - "The truth-combinations I express by brackets,"
+        - "*e.g.*:\n![](images/300px-TLP_6.1203a-en.png)\\"
+        - "and the co-ordination of the truth or falsity of the whole proposition with the truth-combinations of the truth-arguments by lines in the following way:\n![](images/300px-TLP_6.1203b-en.png)\\"
+        - "This sign, for example, would therefore present the proposition “*p* ⊃ *q*”."
+        - "Now I will proceed to inquire whether such a proposition as \\~(*p* . \\~*p*) (The Law of Contradiction) is a tautology."
+        - "The form “\\~*ξ*” is written in our notation\n![](images/250px-TLP_6.1203c-en.png)\\"
+        - "the form “*ξ* . *η*” thus:—\n![](images/300px-TLP_6.1203d-en.png)\\"
+        - "Hence the proposition \\~(*p* . \\~*q*) runs thus:—\n![](images/250px-TLP_6.1203e-en.png)\\"
+        - "If here we put “*p*” instead of “*q*” and examine the combination of the outermost T and F with the innermost, it is seen that the truth of the whole proposition is co-ordinated with *all* the truth-combinations of its argument, its falsity with none of the truth-combinations."
+    edition_references:
+      en_pears_mcguinness: "6.1203"
+    segments:
+      - id: "6.1203.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "要辨認不含普遍性記號的式子是否為重言式，可用以下直觀方法。"
+        interpretation_zh_tw: "這項圖表法只處理沒有普遍性記號的情形；它不是對所有邏輯式都不加限制的判定程序。"
+      - id: "6.1203.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "我以 WpF、WqF、WrF 等取代 p、q、r 等命題字母。"
+        interpretation_zh_tw: "這一步把每個命題字母改寫成可見的真假兩端，只更換記法，沒有改變命題內容。"
+      - id: "6.1203.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "我用括號表示真值組合。"
+        interpretation_zh_tw: "括號負責分組論元的可能真值配置，尚未指定整個命題在各配置下的真值。"
+      - id: "6.1203.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "例如第一圖所示。"
+        interpretation_zh_tw: "第一圖是括號分組的具體例示；圖像本身承接前句所說的配置方式，不是裝飾。"
+      - id: "6.1203.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "整個命題的真假與真值論元組合，再用線條依第二圖配對。"
+        interpretation_zh_tw: "線條把整體真值規則與論元配置連起來。"
+      - id: "6.1203.f"
+        alignment:
+          de: [5]
+          en_ogden_ramsey_1922: [5]
+        translation_zh_tw: "這個記號例如表示 p ⊃ q。"
+        interpretation_zh_tw: "蘊涵式是前兩幅圖表如何合讀的示例，不是由圖形外觀自行產生意義。"
+      - id: "6.1203.g"
+        alignment:
+          de: [6]
+          en_ogden_ramsey_1922: [6]
+        translation_zh_tw: "現在檢查矛盾律形式是否為重言式。"
+        interpretation_zh_tw: "檢查目標是該形式是否在所有真值配置下皆真，而不是用經驗觀察確認它。"
+      - id: "6.1203.h"
+        alignment:
+          de: [7]
+          en_ogden_ramsey_1922: [7]
+        translation_zh_tw: "否定形式依第三圖寫下。"
+        interpretation_zh_tw: "第三圖提供否定運算的局部真值規則。"
+      - id: "6.1203.i"
+        alignment:
+          de: [8]
+          en_ogden_ramsey_1922: [8]
+        translation_zh_tw: "合取形式依第四圖寫下。"
+        interpretation_zh_tw: "第四圖提供合取運算的局部真值規則。"
+      - id: "6.1203.j"
+        alignment:
+          de: [9]
+          en_ogden_ramsey_1922: [9]
+        translation_zh_tw: "所以待檢查的命題成為第五圖。"
+        interpretation_zh_tw: "第五圖把前述否定與合取規則組合起來，仍只是形式表示。"
+      - id: "6.1203.k"
+        alignment:
+          de: [10]
+          en_ogden_ramsey_1922: [10]
+        translation_zh_tw: "以 p 取代 q，再比較最外與最內的真假，可見整體的真對應所有論元組合，而假不對應任何組合。"
+        interpretation_zh_tw: "所有配置皆配到真，才是重言式；圖表是辨認輔具，不增添經驗證據。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1203 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1203 提出一套限於無普遍性記號情形的圖表法，依序改寫命題字母、列出配置並檢查所有真值組合；這是重言式辨認程序。Akashic 的 schema 與程式驗證只規範專案資料，不能據此冒充相同的形式證明。"
+    history: []
+  - id: "6.121"
+    parent: "6.12"
+    texts:
+      de:
+        - "Die Sätze der Logik demonstrieren die logischen Eigenschaften der Sätze, indem sie sie zu nichtssagenden Sätzen verbinden."
+        - "Diese Methode könnte man auch eine Nullmethode nennen."
+        - "Im logischen Satz werden Sätze miteinander ins Gleichgewicht gebracht und der Zustand des Gleichgewichts zeigt dann an, wie diese Sätze logisch beschaffen sein müssen."
+      en_ogden_ramsey_1922:
+        - "The propositions of logic demonstrate the logical properties of propositions, by combining them into propositions which say nothing."
+        - "This method could be called a zero-method."
+        - "In a logical proposition propositions are brought into equilibrium with one another, and the state of equilibrium then shows how these propositions must be logically constructed."
+    edition_references:
+      en_pears_mcguinness: "6.121"
+    segments:
+      - id: "6.121.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "邏輯命題藉由把命題結合成不說任何事的命題，展示命題的邏輯性質。"
+        interpretation_zh_tw: "無經驗內容的組合反而展示形式關係。"
+      - id: "6.121.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "這種方法也可稱為零方法。"
+        interpretation_zh_tw: "「零」比喻真值結果不隨論元配置而改變。"
+      - id: "6.121.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "在邏輯命題中，各命題被置於平衡；平衡狀態顯示它們在邏輯上必須如何構成。"
+        interpretation_zh_tw: "平衡不是物理狀態，而是重言式的形式恆定。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.121 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.121 的直接論旨是「邏輯命題藉由把命題結合成不說任何事的命題，展示命題的邏輯性質。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.122"
+    parent: "6.12"
+    texts:
+      de:
+        - "Daraus ergibt sich, dass wir auch ohne die logischen Sätze auskommen können, da wir ja in einer entsprechenden Notation die formalen Eigenschaften der Sätze durch das blosse Ansehen dieser Sätze erkennen können."
+      en_ogden_ramsey_1922:
+        - "Whence it follows that we can get on without logical propositions, for we can recognize in an adequate notation the formal properties of the propositions by mere inspection."
+    edition_references:
+      en_pears_mcguinness: "6.122"
+    segments:
+      - id: "6.122.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "由此可知，我們也能不靠邏輯命題：在適當記法中，只需查看命題便能認出其形式性質。"
+        interpretation_zh_tw: "理想記法應讓邏輯關係可見；這不表示工程系統可省略驗證。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.122 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.122 的直接論旨是「由此可知，我們也能不靠邏輯命題：在適當記法中，只需查看命題便能認出其形式性質。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1221"
+    parent: "6.122"
+    texts:
+      de:
+        - "Ergeben z. B. zwei Sätze „*p*“ und „*q*“ in der Verbindung „*p* ⊃ *q*“ eine Tautologie, so ist klar, dass *q* aus *p* folgt."
+        - "Dass z. B. „*q*“ aus „*p* ⊃ *q . p*“ folgt, ersehen wir aus diesen beiden Sätzen selbst, aber wir können es auch *so* zeigen, indem wir sie zu „*p* ⊃ *q . p* : ⊃ : *q*“ verbinden und nun zeigen, dass dies eine Tautologie ist."
+      en_ogden_ramsey_1922:
+        - "If for example two propositions “*p*” and “*q*” give a tautology in the connexion “*p* ⊃ *q*”, then it is clear that “*q*” follows from “*p*”."
+        - "E.g. that “*q*” follows from “*p* ⊃ *q* . *p*” we see from these two propositions themselves, but we can also show it by combining them to “*p* ⊃ *q* . *p* : ⊃ : *q*” and then showing that this is a tautology."
+    edition_references:
+      en_pears_mcguinness: "6.1221"
+    segments:
+      - id: "6.1221.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "例如，p 與 q 在 p ⊃ q 的連結中形成重言式，就可知 q 由 p 推出。"
+        interpretation_zh_tw: "重言式提供推論關係的形式判準。"
+      - id: "6.1221.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "q 由 p ⊃ q 與 p 推出，既可由兩式本身看出，也可合成來源所列式並顯示它是重言式。"
+        interpretation_zh_tw: "第二種展示把可直接看出的推論改寫成單一重言式。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1221 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1221 的直接論旨是「例如，p 與 q 在 p ⊃ q 的連結中形成重言式，就可知 q 由 p 推出。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1222"
+    parent: "6.122"
+    texts:
+      de:
+        - "Dies wirft ein Licht auf die Frage, warum die logischen Sätze nicht durch die Erfahrung bestätigt werden können, ebenso wenig, wie sie durch die Erfahrung widerlegt werden können."
+        - "Nicht nur muss ein Satz der Logik durch keine mögliche Erfahrung widerlegt werden können, sondern er darf auch nicht durch eine solche bestätigt werden können."
+      en_ogden_ramsey_1922:
+        - "This throws light on the question why logical propositions can no more be empirically confirmed than they can be empirically refuted."
+        - "Not only must a proposition of logic be incapable of being contradicted by any possible experience, but it must also be incapable of being confirmed by any such."
+    edition_references:
+      en_pears_mcguinness: "6.1222"
+    segments:
+      - id: "6.1222.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "這說明為何邏輯命題既不能由經驗確認，也不能由經驗反駁。"
+        interpretation_zh_tw: "經驗材料不決定重言式的真。"
+      - id: "6.1222.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "邏輯命題不只不能被任何可能經驗反駁，也不能被任何可能經驗確認。"
+        interpretation_zh_tw: "若可能經驗能提高其可信度，它就不是此處所說的邏輯命題。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1222 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1222 的直接論旨是「這說明為何邏輯命題既不能由經驗確認，也不能由經驗反駁。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1223"
+    parent: "6.122"
+    texts:
+      de:
+        - "Nun wird klar, warum man oft fühlte, als wären die „logischen Wahrheiten“ von uns zu „*fordern*“:"
+        - "Wir können sie nämlich insofern fordern, als wir eine genügende Notation fordern können."
+      en_ogden_ramsey_1922:
+        - "It now becomes clear why we often feel as though “logical truths” must be “*postulated*” by us."
+        - "We can in fact postulate them in so far as we can postulate an adequate notation."
+    edition_references:
+      en_pears_mcguinness: "6.1223"
+    segments:
+      - id: "6.1223.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "現在可明白，為何人們常覺得必須由我們「要求」邏輯真理。"
+        interpretation_zh_tw: "這句提出需要說明的感受：邏輯真理看似必須由人加以要求或設定。"
+      - id: "6.1223.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "我們能要求它們，只因我們能要求一套充分的記法。"
+        interpretation_zh_tw: "後句把要求邏輯真理重解為要求記法充分；可選的是記法，不是任意立法真理。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1223 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1223 先指出邏輯真理似乎須由人要求的感受，再把可要求者限縮為充分記法；它沒有把邏輯真理變成人為政策。Akashic 可選 schema 記法，卻不能因此聲稱其規則就是同一套邏輯形式。"
+    history: []
+  - id: "6.1224"
+    parent: "6.122"
+    texts:
+      de:
+        - "Es wird jetzt auch klar, warum die Logik die Lehre von den Formen und vom Schliessen genannt wurde."
+      en_ogden_ramsey_1922:
+        - "It also becomes clear why logic has been called the theory of forms and of inference."
+    edition_references:
+      en_pears_mcguinness: "6.1224"
+    segments:
+      - id: "6.1224.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "現在也可明白，為何邏輯被稱為形式與推論的學說。"
+        interpretation_zh_tw: "形式與推論在符號結構中顯示，不是自然科學的額外對象。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1224 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1224 的直接論旨是「現在也可明白，為何邏輯被稱為形式與推論的學說。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.123"
+    parent: "6.12"
+    texts:
+      de:
+        - "Es ist klar: Die logischen Gesetze dürfen nicht selbst wieder logischen Gesetzen unterstehen."
+        - "\\(Es gibt nicht, wie Russell meinte, für jede „Type“ ein eigenes Gesetz des Widerspruches, sondern Eines genügt, da es auf sich selbst nicht angewendet wird.)"
+      en_ogden_ramsey_1922:
+        - "It is clear that the laws of logic cannot themselves obey further logical laws."
+        - "\\(There is not, as Russell supposed, for every “type” a special law of contradiction; but one is sufficient, since it is not applied to itself.)"
+    edition_references:
+      en_pears_mcguinness: "6.123"
+    segments:
+      - id: "6.123.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "顯然，邏輯法則本身不能再服從更多邏輯法則。"
+        interpretation_zh_tw: "否則規範邏輯法則的層級會無止境後退。"
+      - id: "6.123.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（並非如羅素所想，每個型別各有一條矛盾律；一條就夠了，因為它不施用於自身。）"
+        interpretation_zh_tw: "括號批評羅素的方案，不能改讀成程式型別可任意自我套用。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.123 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.123 的直接論旨是「顯然，邏輯法則本身不能再服從更多邏輯法則。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1231"
+    parent: "6.123"
+    texts:
+      de:
+        - "Das Anzeichen des logischen Satzes ist *nicht* die Allgemeingültigkeit."
+        - "Allgemein sein, heisst ja nur: Zufälligerweise für alle Dinge gelten."
+        - "Ein unverallgemeinerter Satz kann ja ebensowohl tautologisch sein, als ein verallgemeinerter."
+      en_ogden_ramsey_1922:
+        - "The mark of logical propositions is not their general validity."
+        - "To be general is only to be accidentally valid for all things."
+        - "An ungeneralized proposition can be tautologous just as well as a generalized one."
+    edition_references:
+      en_pears_mcguinness: "6.1231"
+    segments:
+      - id: "6.1231.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "邏輯命題的標誌不是普遍有效性。"
+        interpretation_zh_tw: "全稱量化不是邏輯性的充分條件。"
+      - id: "6.1231.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "普遍只表示碰巧適用於所有事物。"
+        interpretation_zh_tw: "「所有」也可能只是經驗上無例外。"
+      - id: "6.1231.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "未普遍化的命題同樣可能是重言式。"
+        interpretation_zh_tw: "有無量詞與是否重言須分開判定。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1231 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1231 的直接論旨是「邏輯命題的標誌不是普遍有效性。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1232"
+    parent: "6.123"
+    texts:
+      de:
+        - "Die logische Allgemeingültigkeit könnte man wesentlich nennen, im Gegensatz zu jener zufälligen, etwa des Satzes „alle Menschen sind sterblich“."
+        - "Sätze, wie Russells „Axiom of reducibility“ sind nicht logische Sätze, und dies erklärt unser Gefühl: Dass sie, wenn wahr, so doch nur durch einen günstigen Zufall wahr sein könnten."
+      en_ogden_ramsey_1922:
+        - "Logical general validity, we could call essential as opposed to accidental general validity, *e.g.* of the proposition “all men are mortal”."
+        - "Propositions like Russell’s “axiom of reducibility” are not logical propositions, and this explains our feeling that, if true, they can only be true by a happy chance."
+    edition_references:
+      en_pears_mcguinness: "6.1232"
+    segments:
+      - id: "6.1232.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "邏輯普遍有效性可稱為本質的，與「所有人都會死」這類偶然普遍性相對。"
+        interpretation_zh_tw: "本質有效不能由資料集中零反例建立。"
+      - id: "6.1232.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "羅素的可化約公理不是邏輯命題；即使為真，也只能是幸運巧合。"
+        interpretation_zh_tw: "可設想公理不成立，顯示其地位不同於重言式。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1232 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1232 的直接論旨是「邏輯普遍有效性可稱為本質的，與「所有人都會死」這類偶然普遍性相對。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1233"
+    parent: "6.123"
+    texts:
+      de:
+        - "Es lässt sich eine Welt denken, in der das Axiom of reducibility nicht gilt."
+        - "Es ist aber klar, dass die Logik nichts mit der Frage zu schaffen hat, ob unsere Welt wirklich so ist oder nicht."
+      en_ogden_ramsey_1922:
+        - "We can imagine a world in which the axiom of reducibility is not valid."
+        - "But it is clear that logic has nothing to do with the question whether our world is really of this kind or not."
+    edition_references:
+      en_pears_mcguinness: "6.1233"
+    segments:
+      - id: "6.1233.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "可以設想一個可化約公理不成立的世界。"
+        interpretation_zh_tw: "可設想其失敗，便表示它不是邏輯必然。"
+      - id: "6.1233.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "但邏輯不處理我們的世界實際是否如此。"
+        interpretation_zh_tw: "世界實際採何種結構是經驗問題。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1233 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1233 的直接論旨是「可以設想一個可化約公理不成立的世界。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.124"
+    parent: "6.12"
+    texts:
+      de:
+        - "Die logischen Sätze beschreiben das Gerüst der Welt, oder vielmehr, sie stellen es dar."
+        - "Sie „handeln“ von nichts."
+        - "Sie setzen voraus, dass Namen Bedeutung, und Elementarsätze Sinn haben:"
+        - "Und dies ist ihre Verbindung mit der Welt."
+        - "Es ist klar, dass es etwas über die Welt anzeigen muss, dass gewisse Verbindungen von Symbolen – welche wesentlich einen bestimmten Charakter haben – Tautologien sind."
+        - "Hierin liegt das Entscheidende."
+        - "Wir sagten, manches an den Symbolen, die wir gebrauchen, wäre willkürlich, manches nicht."
+        - "In der Logik drückt nur dieses aus: Dass heisst aber, in der Logik drücken nicht *wir* mit Hilfe der Zeichen aus, was wir wollen, sondern in der Logik sagt die Natur der naturnotwendigen Zeichen selbst aus:"
+        - "Wenn wir die logische Syntax irgend einer Zeichensprache kennen, dann sind bereits alle Sätze der Logik gegeben."
+      en_ogden_ramsey_1922:
+        - "The logical propositions describe the scaffolding of the world, or rather they present it."
+        - "They “treat” of nothing."
+        - "They presuppose that names have meaning, and that elementary propositions have sense."
+        - "And this is their connexion with the world."
+        - "It is clear that it must show something about the world that certain combinations of symbols—which essentially have a definite character—are tautologies."
+        - "Herein lies the decisive point."
+        - "We said that in the symbols which we use something is arbitrary, something not."
+        - "In logic only this expresses: but this means that in logic it is not *we* who express, by means of signs, what we want, but in logic the nature of the essentially necessary signs itself asserts."
+        - "That is to say, if we know the logical syntax of any sign language, then all the propositions of logic are already given."
+    edition_references:
+      en_pears_mcguinness: "6.124"
+    segments:
+      - id: "6.124.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "邏輯命題描述世界的骨架，更確切地說，是呈現它。"
+        interpretation_zh_tw: "「骨架」是形式條件，不是另一組世界事實。"
+      - id: "6.124.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "它們不談論任何事。"
+        interpretation_zh_tw: "邏輯命題不以某個對象為題材。"
+      - id: "6.124.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "它們預設名稱有指涉，而且基本命題有意義。"
+        interpretation_zh_tw: "邏輯命題不描述對象，卻以名稱能指涉、基本命題能有意義為運作前提。"
+      - id: "6.124.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "這便是它們與世界的聯繫。"
+        interpretation_zh_tw: "聯繫不在邏輯命題另述一項事實，而在其符號預設已具有指涉與意義。"
+      - id: "6.124.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "具有本質特徵的符號組合會成為重言式，必然顯示世界的某些東西。"
+        interpretation_zh_tw: "重言式的可能組合顯示不可任意的結構。"
+      - id: "6.124.f"
+        alignment:
+          de: [5]
+          en_ogden_ramsey_1922: [5]
+        translation_zh_tw: "這就是關鍵。"
+        interpretation_zh_tw: "短句強調前述區分是論證核心。"
+      - id: "6.124.g"
+        alignment:
+          de: [6]
+          en_ogden_ramsey_1922: [6]
+        translation_zh_tw: "所用符號有些成分可任意選擇，有些不可任意。"
+        interpretation_zh_tw: "記號外形可約定，邏輯關係不能任意指定。"
+      - id: "6.124.h"
+        alignment:
+          de: [7]
+          en_ogden_ramsey_1922: [7]
+        translation_zh_tw: "邏輯中不是我們藉記號表達任意所欲，而是本質上必然的記號之本性自行表達。"
+        interpretation_zh_tw: "此處把邏輯形式的不可任意性歸於記號的必然結構，不是使用者偏好或格式約定。"
+      - id: "6.124.i"
+        alignment:
+          de: [8]
+          en_ogden_ramsey_1922: [8]
+        translation_zh_tw: "只要知道任何一種記號語言的邏輯句法，所有邏輯命題便已給定。"
+        interpretation_zh_tw: "結論主張完整邏輯句法已決定邏輯命題；它不授權把任何軟體 schema 稱作這種完整句法。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.124 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.124 的直接論旨是「邏輯命題描述世界的骨架，更確切地說，是呈現它。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.125"
+    parent: "6.12"
+    texts:
+      de:
+        - "Es ist möglich, und zwar auch nach der alten Auffassung der Logik, von vornherein eine Beschreibung aller „wahren“ logischen Sätze zu geben."
+      en_ogden_ramsey_1922:
+        - "It is possible, also with the old conception of logic, to give at the outset a description of all “true” logical propositions."
+    edition_references:
+      en_pears_mcguinness: "6.125"
+    segments:
+      - id: "6.125.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "即使依舊有的邏輯觀，也能一開始就描述所有「真的」邏輯命題。"
+        interpretation_zh_tw: "邏輯命題可由形式辨認；引號提醒此處的真不同於經驗真。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.125 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.125 的直接論旨是「即使依舊有的邏輯觀，也能一開始就描述所有「真的」邏輯命題。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1251"
+    parent: "6.125"
+    texts:
+      de:
+        - "Darum kann es in der Logik auch *nie* Überraschungen geben."
+      en_ogden_ramsey_1922:
+        - "Hence there can *never* be surprises in logic."
+    edition_references:
+      en_pears_mcguinness: "6.1251"
+    segments:
+      - id: "6.1251.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "所以邏輯中永遠不會有驚奇。"
+        interpretation_zh_tw: "推演只展開形式中已有的關係；不等於人不會在計算時意外。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1251 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1251 的直接論旨是「所以邏輯中永遠不會有驚奇。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.126"
+    parent: "6.12"
+    texts:
+      de:
+        - "Ob ein Satz der Logik angehört, kann man berechnen, indem man die logischen Eigenschaften des *Symbols* berechnet."
+        - "Und dies tun wir, wenn wir einen logischen Satz „beweisen“."
+        - "Denn, ohne uns um einen Sinn und eine Bedeutung zu kümmern, bilden wir den logischen Satz aus anderen nach blossen *Zeichenregeln*."
+        - "Der Beweis der logischen Sätze besteht darin, dass wir sie aus anderen logischen Sätzen durch successive Anwendung gewisser Operationen entstehen lassen, die aus den ersten immer wieder Tautologien erzeugen."
+        - "(Und zwar *folgen* aus einer Tautologie nur Tautologien.)"
+        - "Natürlich ist diese Art zu zeigen, dass ihre Sätze Tautologien sind, der Logik durchaus unwesentlich."
+        - "Schon darum, weil die Sätze, von welchen der Beweis ausgeht, ja ohne Beweis zeigen müssen, dass sie Tautologien sind."
+      en_ogden_ramsey_1922:
+        - "Whether a proposition belongs to logic can be calculated by calculating the logical properties of the *symbol*."
+        - "And this we do when we prove a logical proposition."
+        - "For without troubling ourselves about a sense and a meaning, we form the logical propositions out of others by mere *symbolic rules*."
+        - "We prove a logical proposition by creating it out of other logical propositions by applying in succession certain operations, which again generate tautologies out of the first."
+        - "(And from a tautology only tautologies *follow*.)"
+        - "Naturally this way of showing that its propositions are tautologies is quite unessential to logic."
+        - "Because the propositions, from which the proof starts, must show without proof that they are tautologies."
+    edition_references:
+      en_pears_mcguinness: "6.126"
+    segments:
+      - id: "6.126.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "一個命題是否屬於邏輯，可藉計算符號的邏輯性質來判定。"
+        interpretation_zh_tw: "判定對象是符號形式，不是命題的經驗內容。"
+      - id: "6.126.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "我們「證明」邏輯命題時正是如此。"
+        interpretation_zh_tw: "引號表示此處證明主要是辨認過程。"
+      - id: "6.126.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "我們不問意義與指涉，而依純粹記號規則由其他命題形成它。"
+        interpretation_zh_tw: "記號規則保持形式，不新增世界事實。"
+      - id: "6.126.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "邏輯證明以連續施行運算，從其他邏輯命題再產生重言式。"
+        interpretation_zh_tw: "運算鏈只能在重言式範圍內展開。"
+      - id: "6.126.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "（重言式只推出重言式。）"
+        interpretation_zh_tw: "括號明說推演不會產生有內容命題。"
+      - id: "6.126.f"
+        alignment:
+          de: [5]
+          en_ogden_ramsey_1922: [5]
+        translation_zh_tw: "這種顯示命題為重言式的方法，對邏輯並非本質。"
+        interpretation_zh_tw: "機械證明協助辨認，卻不使重言式因而成真。"
+      - id: "6.126.g"
+        alignment:
+          de: [6]
+          en_ogden_ramsey_1922: [6]
+        translation_zh_tw: "因為證明起點本身必須無需證明就顯示其為重言式。"
+        interpretation_zh_tw: "起點仍須由自身形式顯示，避免把證明權威無限上推。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.126 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.126 的直接論旨是「一個命題是否屬於邏輯，可藉計算符號的邏輯性質來判定。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1261"
+    parent: "6.126"
+    texts:
+      de:
+        - "In der Logik sind Prozess und Resultat äquivalent."
+        - "(Darum keine Überraschung.)"
+      en_ogden_ramsey_1922:
+        - "In logic process and result are equivalent."
+        - "(Therefore no surprises.)"
+    edition_references:
+      en_pears_mcguinness: "6.1261"
+    segments:
+      - id: "6.1261.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "在邏輯中，過程與結果等價。"
+        interpretation_zh_tw: "過程沒有加入經驗內容，結果只展開原有形式。"
+      - id: "6.1261.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（因此沒有驚奇。）"
+        interpretation_zh_tw: "括號不表示一般程式執行不會失敗或產生副作用。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1261 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1261 的直接論旨是「在邏輯中，過程與結果等價。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1262"
+    parent: "6.126"
+    texts:
+      de:
+        - "Der Beweis in der Logik ist nur ein mechanisches Hilfsmittel zum leichteren Erkennen der Tautologie, wo sie kompliziert ist."
+      en_ogden_ramsey_1922:
+        - "Proof in logic is only a mechanical expedient to facilitate the recognition of tautology, where it is complicated."
+    edition_references:
+      en_pears_mcguinness: "6.1262"
+    segments:
+      - id: "6.1262.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "邏輯中的證明，只是在重言式複雜時便於辨認它的機械輔具。"
+        interpretation_zh_tw: "證明協助人辨認，卻不使重言式因被證明才成真。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1262 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1262 的直接論旨是「邏輯中的證明，只是在重言式複雜時便於辨認它的機械輔具。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1263"
+    parent: "6.126"
+    texts:
+      de:
+        - "Es wäre ja auch zu merkwürdig, wenn man einen sinnvollen Satz *logisch* aus anderen beweisen könnte, und einen logischen Satz *auch*."
+        - "Es ist von vornherein klar, dass der logische Beweis eines sinnvollen Satzes und der Beweis *in* der Logik zwei ganz verschiedene Dinge sein müssen."
+      en_ogden_ramsey_1922:
+        - "It would be too remarkable, if one could prove a significant proposition *logically* from another, and a logical proposition *also*."
+        - "It is clear from the beginning that the logical proof of a significant proposition and the proof *in* logic must be two quite different things."
+    edition_references:
+      en_pears_mcguinness: "6.1263"
+    segments:
+      - id: "6.1263.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "若有意義命題與邏輯命題都以同一方式從其他命題證明，那就太奇怪了。"
+        interpretation_zh_tw: "前者關乎結論如何由前提成立，後者關乎辨認重言式。"
+      - id: "6.1263.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "從一開始就清楚：有意義命題的邏輯證明，與邏輯內部的證明，是兩件完全不同的事。"
+        interpretation_zh_tw: "相同的「證明」字樣不能抹平兩種邏輯角色。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1263 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1263 的直接論旨是「若有意義命題與邏輯命題都以同一方式從其他命題證明，那就太奇怪了。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1264"
+    parent: "6.126"
+    texts:
+      de:
+        - "Der sinnvolle Satz sagt etwas aus, und sein Beweis zeigt, dass es so ist; in der Logik ist jeder Satz die Form eines Beweises."
+        - "Jeder Satz der Logik ist ein in Zeichen dargestellter modus ponens."
+        - "(Und den modus ponens kann man nicht durch einen Satz ausdrücken.)"
+      en_ogden_ramsey_1922:
+        - "The significant proposition asserts something, and its proof shows that it is so; in logic every proposition is the form of a proof."
+        - "Every proposition of logic is a modus ponens presented in signs."
+        - "(And the modus ponens can not be expressed by a proposition.)"
+    edition_references:
+      en_pears_mcguinness: "6.1264"
+    segments:
+      - id: "6.1264.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "有意義命題說出某事，其證明顯示事情確是如此；在邏輯中，每個命題都是證明的形式。"
+        interpretation_zh_tw: "經驗內容的證明與邏輯形式的展示被區分。"
+      - id: "6.1264.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "每個邏輯命題都是以記號呈現的肯定前件式。"
+        interpretation_zh_tw: "推論規則由記號關係顯示。"
+      - id: "6.1264.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "（肯定前件式不能由一個命題說出。）"
+        interpretation_zh_tw: "括號拒絕把推論規則再當同層次內容命題。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1264 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1264 的直接論旨是「有意義命題說出某事，其證明顯示事情確是如此；在邏輯中，每個命題都是證明的形式。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1265"
+    parent: "6.126"
+    texts:
+      de:
+        - "Immer kann man die Logik so auffassen, dass jeder Satz sein eigener Beweis ist."
+      en_ogden_ramsey_1922:
+        - "Logic can always be conceived to be such that every proposition is its own proof."
+    edition_references:
+      en_pears_mcguinness: "6.1265"
+    segments:
+      - id: "6.1265.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "總可以把邏輯理解成每個命題都是自身的證明。"
+        interpretation_zh_tw: "邏輯命題的形式已顯示其重言性，故不依賴外部證據鏈。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1265 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1265 的直接論旨是「總可以把邏輯理解成每個命題都是自身的證明。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.127"
+    parent: "6.12"
+    texts:
+      de:
+        - "Alle Sätze der Logik sind gleichberechtigt, es gibt unter ihnen nicht wesentlich Grundgesetze und abgeleitete Sätze."
+        - "Jede Tautologie zeigt selbst, dass sie eine Tautologie ist."
+      en_ogden_ramsey_1922:
+        - "All propositions of logic are of equal rank; there are not some which are essentially primitive and others deduced from these."
+        - "Every tautology itself shows that it is a tautology."
+    edition_references:
+      en_pears_mcguinness: "6.127"
+    segments:
+      - id: "6.127.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "所有邏輯命題地位相等；其中沒有本質上的基本法則與衍生法則。"
+        interpretation_zh_tw: "基本／衍生之分可服務演算，但不構成重言式的本質等級。"
+      - id: "6.127.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "每個重言式都自行顯示它是重言式。"
+        interpretation_zh_tw: "形式本身就是重言性的判準。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.127 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.127 的直接論旨是「所有邏輯命題地位相等；其中沒有本質上的基本法則與衍生法則。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.1271"
+    parent: "6.127"
+    texts:
+      de:
+        - "Es ist klar, dass die Anzahl der „logischen Grundgesetze“ willkürlich ist, denn man könnte die Logik ja aus Einem Grundgesetz ableiten, indem man einfach z. B. aus Freges Grundgesetzen das logische Produkt bildet."
+        - "(Frege würde vielleicht sagen, dass dieses Grundgesetz nun nicht mehr unmittelbar einleuchte."
+        - "Aber es ist merkwürdig, dass ein so exakter Denker wie Frege sich auf den Grad des Einleuchtens als Kriterium des logischen Satzes berufen hat.)"
+      en_ogden_ramsey_1922:
+        - "It is clear that the number of “primitive propositions of logic” is arbitrary, for we could deduce logic from one primitive proposition by simply forming, for example, the logical product of Frege’s primitive propositions."
+        - "(Frege would perhaps say that this would no longer be immediately self-evident."
+        - "But it is remarkable that so exact a thinker as Frege should have appealed to the degree of self-evidence as the criterion of a logical proposition.)"
+    edition_references:
+      en_pears_mcguinness: "6.1271"
+    segments:
+      - id: "6.1271.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "邏輯基本法則的數量顯然是任意的，因為可把弗雷格各基本法則取邏輯積，從一條法則導出整套邏輯。"
+        interpretation_zh_tw: "公理如何分組是記法與演算選擇。"
+      - id: "6.1271.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（弗雷格或許會說，這條法則不再直接自明。"
+        interpretation_zh_tw: "第二句提出可能的自明性反對。"
+      - id: "6.1271.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "但如此精確的思想家竟訴諸自明程度作為邏輯命題的判準，實在奇怪。）"
+        interpretation_zh_tw: "最後拒絕以主觀自明感取代形式判準。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.1271 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.1271 的直接論旨是「邏輯基本法則的數量顯然是任意的，因為可把弗雷格各基本法則取邏輯積，從一條法則導出整套邏輯。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+  - id: "6.13"
+    parent: "6.1"
+    texts:
+      de:
+        - "Die Logik ist keine Lehre, sondern ein Spiegelbild der Welt."
+        - "Die Logik ist transcendental."
+      en_ogden_ramsey_1922:
+        - "Logic is not a theory but a reflexion of the world."
+        - "Logic is transcendental."
+    edition_references:
+      en_pears_mcguinness: "6.13"
+    segments:
+      - id: "6.13.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "邏輯不是一門學說，而是世界的映像。"
+        interpretation_zh_tw: "邏輯不與其他理論並列描述某類事實，而表現可描述世界的形式。"
+      - id: "6.13.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "邏輯是超驗的。"
+        interpretation_zh_tw: "「超驗」指可能經驗的形式條件，不能簡化成超自然。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前不主張命題 6.13 關於邏輯命題、真值運算或形式證明的論旨具有直接軟體實作對應。"
+        rationale_zh_tw: "命題 6.13 的直接論旨是「邏輯不是一門學說，而是世界的映像。」；這句處理真值函數、重言式、符號形式或邏輯證明；Akashic 的 schema 與程式運算只規範專案資料，不能據此冒充相同的邏輯形式。"
+    history: []
+# 數學、等式與替換方法
+  - id: "6.2"
+    parent: "6"
+    texts:
+      de:
+        - "Die Mathematik ist eine logische Methode."
+        - "Die Sätze der Mathematik sind Gleichungen also Scheinsätze."
+      en_ogden_ramsey_1922:
+        - "Mathematics is a logical method."
+        - "The propositions of mathematics are equations, and therefore pseudo-propositions."
+    edition_references:
+      en_pears_mcguinness: "6.2"
+    segments:
+      - id: "6.2.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "數學是一種邏輯方法。"
+        interpretation_zh_tw: "數學在此被放進形式操作，而非經驗描述。"
+      - id: "6.2.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "數學命題是等式，因此是擬命題。"
+        interpretation_zh_tw: "「擬命題」表示等式不描繪偶然事態，不是說數學句子為假。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.2 所論的「數學是一種邏輯方法。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.2 的直接論旨是「數學是一種邏輯方法。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.21"
+    parent: "6.2"
+    texts:
+      de:
+        - "Der Satz der Mathematik drückt keinen Gedanken aus."
+      en_ogden_ramsey_1922:
+        - "Mathematical propositions express no thoughts."
+    edition_references:
+      en_pears_mcguinness: "6.21"
+    segments:
+      - id: "6.21.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "數學命題不表達思想。"
+        interpretation_zh_tw: "依本書用法，思想是有意義命題的邏輯圖像；這不表示數學沒有認知價值。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.21 所論的「數學命題不表達思想。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.21 的直接論旨是「數學命題不表達思想。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.211"
+    parent: "6.21"
+    texts:
+      de:
+        - "Im Leben ist es ja nie der mathematische Satz, den wir brauchen, sondern wir benützen den mathematischen Satz *nur*, um aus Sätzen, welche nicht der Mathematik angehören, auf andere zu schliessen, welche gleichfalls nicht der Mathematik angehören."
+        - "\\(In der Philosophie führt die Frage „wozu gebrauchen wir eigentlich jenes Wort, jenen Satz“ immer wieder zu wertvollen Einsichten.)"
+      en_ogden_ramsey_1922:
+        - "In life it is never a mathematical proposition which we need, but we use mathematical propositions *only* in order to infer from propositions which do not belong to mathematics to others which equally do not belong to mathematics."
+        - "\\(In philosophy the question “Why do we really use that word, that proposition?” constantly leads to valuable results.)"
+    edition_references:
+      en_pears_mcguinness: "6.211"
+    segments:
+      - id: "6.211.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "生活中需要的從來不是數學命題本身；我們只用它從非數學命題推到其他非數學命題。"
+        interpretation_zh_tw: "數學命題在生活推論中充當形式中介，而不是待比對的生活事實。"
+      - id: "6.211.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（在哲學中，反覆追問我們究竟拿某個詞或命題做什麼，總會帶來有價值的洞見。）"
+        interpretation_zh_tw: "括號把注意力轉向語句使用，是方法提醒而非使用頻率統計。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.211 所論的「生活中需要的從來不是數學命題本身；我們只用它從非數學命題推到其他非數學命題。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.211 的直接論旨是「生活中需要的從來不是數學命題本身；我們只用它從非數學命題推到其他非數學命題。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.22"
+    parent: "6.2"
+    texts:
+      de:
+        - "Die Logik der Welt, die die Sätze der Logik in den Tautologien zeigen, zeigt die Mathematik in den Gleichungen."
+      en_ogden_ramsey_1922:
+        - "The logic of the world which the propositions of logic show in tautologies, mathematics shows in equations."
+    edition_references:
+      en_pears_mcguinness: "6.22"
+    segments:
+      - id: "6.22.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "邏輯命題在重言式中顯示的世界邏輯，數學在等式中顯示。"
+        interpretation_zh_tw: "等式與重言式都以形式展示關係，而非描述偶然事態。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.22 所論的「邏輯命題在重言式中顯示的世界邏輯，數學在等式中顯示。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.22 的直接論旨是「邏輯命題在重言式中顯示的世界邏輯，數學在等式中顯示。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.23"
+    parent: "6.2"
+    texts:
+      de:
+        - "Wenn zwei Ausdrücke durch das Gleichheitszeichen verbunden werden, so heisst das, sie sind durch einander ersetzbar."
+        - "Ob dies aber der Fall ist muss sich an den beiden Ausdrücken selbst zeigen."
+        - "Es charakterisiert die logische Form zweier Ausdrücke, dass sie durch einander ersetzbar sind."
+      en_ogden_ramsey_1922:
+        - "If two expressions are connected by the sign of equality, this means that they can be substituted for one another."
+        - "But whether this is the case must show itself in the two expressions themselves."
+        - "It characterizes the logical form of two expressions, that they can be substituted for one another."
+    edition_references:
+      en_pears_mcguinness: "6.23"
+    segments:
+      - id: "6.23.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "兩個表達式以等號連結，意即它們可以互相替換。"
+        interpretation_zh_tw: "等號標示可替換性，卻不憑空授予它。"
+      - id: "6.23.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "但是否確實如此，必須由兩個表達式本身顯示。"
+        interpretation_zh_tw: "可替換性須由兩式的形式成立。"
+      - id: "6.23.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "能互相替換，刻畫了兩個表達式的邏輯形式。"
+        interpretation_zh_tw: "這是形式徵候，不表示兩個字串在所有層面相同。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.23 所論的「兩個表達式以等號連結，意即它們可以互相替換。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.23 的直接論旨是「兩個表達式以等號連結，意即它們可以互相替換。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.231"
+    parent: "6.23"
+    texts:
+      de:
+        - "Es ist eine Eigenschaft der Bejahung, dass man sie als doppelte Verneinung auffassen kann."
+        - "Es ist eine Eigenschaft von „1 + 1 + 1 + 1“, dass man es als „(1 + 1) + (1 + 1)“ auffassen kann."
+      en_ogden_ramsey_1922:
+        - "It is a property of affirmation that it can be conceived as double denial."
+        - "It is a property of “1 + 1 + 1 + 1” that it can be conceived as “(1 + 1) + (1 + 1)”."
+    edition_references:
+      en_pears_mcguinness: "6.231"
+    segments:
+      - id: "6.231.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "肯定的一項性質，是可以把它理解成雙重否定。"
+        interpretation_zh_tw: "第一例顯示不同運算表達可有同一結果。"
+      - id: "6.231.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "一加一加一加一的一項性質，是可把它理解成兩組一加一之和。"
+        interpretation_zh_tw: "重新分組說明等式所呈現的可替換形式。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.231 所論的「肯定的一項性質，是可以把它理解成雙重否定。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.231 的直接論旨是「肯定的一項性質，是可以把它理解成雙重否定。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.232"
+    parent: "6.23"
+    texts:
+      de:
+        - "Frege sagt, die beiden Ausdrücke haben dieselbe Bedeutung, aber verschiedenen Sinn."
+        - "Das Wesentliche an der Gleichung ist aber, dass sie nicht notwendig ist, um zu zeigen, dass die beiden Ausdrücke, die das Gleichheitszeichen verbindet, dieselbe Bedeutung haben, da sich dies aus den beiden Ausdrücken selbst ersehen lässt."
+      en_ogden_ramsey_1922:
+        - "Frege says that these expressions have the same meaning but different senses."
+        - "But what is essential about equation is that it is not necessary in order to show that both expressions, which are connected by the sign of equality, have the same meaning: for this can be perceived from the two expressions themselves."
+    edition_references:
+      en_pears_mcguinness: "6.232"
+    segments:
+      - id: "6.232.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "弗雷格說，兩個表達式有相同指涉，卻有不同意義。"
+        interpretation_zh_tw: "第一句保留意義與指涉的區分。"
+      - id: "6.232.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "然而要顯示等號兩側指涉相同，等式並非必要，因為這可由兩個表達式本身看出。"
+        interpretation_zh_tw: "維根斯坦把等式的角色放在記法與觀點，而非新增一項事實。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.232 所論的「弗雷格說，兩個表達式有相同指涉，卻有不同意義。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.232 的直接論旨是「弗雷格說，兩個表達式有相同指涉，卻有不同意義。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.2321"
+    parent: "6.232"
+    texts:
+      de:
+        - "Und, dass die Sätze der Mathematik bewiesen werden können, heisst ja nichts anderes, als dass ihre Richtigkeit einzusehen ist, ohne dass das, was sie ausdrücken, selbst mit den Tatsachen auf seine Richtigkeit hin verglichen werden muss."
+      en_ogden_ramsey_1922:
+        - "And, that the propositions of mathematics can be proved means nothing else than that their correctness can be seen without our having to compare what they express with the facts as regards correctness."
+    edition_references:
+      en_pears_mcguinness: "6.2321"
+    segments:
+      - id: "6.2321.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "數學命題能被證明，無非是說：不必把它所表達者拿去與事實比較，就能看出其正確性。"
+        interpretation_zh_tw: "數學正確性在形式中判定，不靠經驗比對；這不表示計算實作無需測試。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.2321 所論的「數學命題能被證明，無非是說：不必把它所表達者拿去與事實比較，就能看出其正確性。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.2321 的直接論旨是「數學命題能被證明，無非是說：不必把它所表達者拿去與事實比較，就能看出其正確性。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.2322"
+    parent: "6.232"
+    texts:
+      de:
+        - "Die Identität der Bedeutung zweier Ausdrücke lässt sich nicht *behaupten*."
+        - "Denn um etwas von ihrer Bedeutung behaupten zu können, muss ich ihre Bedeutung kennen: und indem ich ihre Bedeutung kenne, weiss ich, ob sie dasselbe oder verschiedenes bedeuten."
+      en_ogden_ramsey_1922:
+        - "The identity of the meaning of two expressions cannot be *asserted*."
+        - "For in order to be able to assert anything about their meaning, I must know their meaning, and if I know their meaning, I know whether they mean the same or something different."
+    edition_references:
+      en_pears_mcguinness: "6.2322"
+    segments:
+      - id: "6.2322.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "兩個表達式指涉相同，不能被斷言。"
+        interpretation_zh_tw: "同一指涉不是另一項待報導的經驗事實。"
+      - id: "6.2322.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "因為要斷言關於其指涉的事，我必須先知道其指涉；一旦知道，就已知道兩者指涉相同或不同。"
+        interpretation_zh_tw: "論證依賴先理解表達式，不能以等號補足未知指涉。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.2322 所論的「兩個表達式指涉相同，不能被斷言。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.2322 的直接論旨是「兩個表達式指涉相同，不能被斷言。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.2323"
+    parent: "6.232"
+    texts:
+      de:
+        - "Die Gleichung kennzeichnet nur den Standpunkt, von welchem ich die beiden Ausdrücke betrachte, nämlich vom Standpunkte ihrer Bedeutungsgleichheit."
+      en_ogden_ramsey_1922:
+        - "The equation characterizes only the standpoint from which I consider the two expressions, that is to say the standpoint of their equality of meaning."
+    edition_references:
+      en_pears_mcguinness: "6.2323"
+    segments:
+      - id: "6.2323.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "等式只標示我看待兩個表達式的觀點，也就是從它們指涉相同的觀點來看。"
+        interpretation_zh_tw: "等式選定比較層次，不宣稱兩式在字形、意義或一切用法上相同。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.2323 所論的「等式只標示我看待兩個表達式的觀點，也就是從它們指涉相同的觀點來看。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.2323 的直接論旨是「等式只標示我看待兩個表達式的觀點，也就是從它們指涉相同的觀點來看。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.233"
+    parent: "6.23"
+    texts:
+      de:
+        - "Die Frage, ob man zur Lösung der mathematischen Probleme die Anschauung brauche, muss dahin beantwortet werden, dass eben die Sprache hier die nötige Anschauung liefert."
+      en_ogden_ramsey_1922:
+        - "To the question whether we need intuition for the solution of mathematical problems it must be answered that language itself here supplies the necessary intuition."
+    edition_references:
+      en_pears_mcguinness: "6.233"
+    segments:
+      - id: "6.233.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "至於解數學問題是否需要直觀，答案是：語言本身在此提供所需的直觀。"
+        interpretation_zh_tw: "符號操作提供可查看的結構；「直觀」不是額外的感官實驗。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.233 所論的「至於解數學問題是否需要直觀，答案是：語言本身在此提供所需的直觀。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.233 的直接論旨是「至於解數學問題是否需要直觀，答案是：語言本身在此提供所需的直觀。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.2331"
+    parent: "6.233"
+    texts:
+      de:
+        - "Der Vorgang des *Rechnens* vermittelt eben diese Anschauung."
+        - "Die Rechnung ist kein Experiment."
+      en_ogden_ramsey_1922:
+        - "The process of *calculation* brings about just this intuition."
+        - "Calculation is not an experiment."
+    edition_references:
+      en_pears_mcguinness: "6.2331"
+    segments:
+      - id: "6.2331.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "計算的過程正提供這種直觀。"
+        interpretation_zh_tw: "演算步驟讓形式關係可見。"
+      - id: "6.2331.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "計算不是實驗。"
+        interpretation_zh_tw: "結果不靠對自然事件取樣，故不同於經驗實驗。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.2331 所論的「計算的過程正提供這種直觀。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.2331 的直接論旨是「計算的過程正提供這種直觀。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.234"
+    parent: "6.23"
+    texts:
+      de:
+        - "Die Mathematik ist eine Methode der Logik."
+      en_ogden_ramsey_1922:
+        - "Mathematics is a method of logic."
+    edition_references:
+      en_pears_mcguinness: "6.234"
+    segments:
+      - id: "6.234.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "數學是邏輯的一種方法。"
+        interpretation_zh_tw: "這重申數學在《論考》體系中的形式角色，不是數值計算 API 的規格。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.234 所論的「數學是邏輯的一種方法。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.234 的直接論旨是「數學是邏輯的一種方法。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.2341"
+    parent: "6.234"
+    texts:
+      de:
+        - "Das Wesentliche der mathematischen Methode ist es, mit Gleichungen zu arbeiten."
+        - "Auf dieser Methode beruht es nämlich, dass jeder Satz der Mathematik sich von selbst verstehen muss."
+      en_ogden_ramsey_1922:
+        - "The essential of mathematical method is working with equations."
+        - "On this method depends the fact that every proposition of mathematics must be self-intelligible."
+    edition_references:
+      en_pears_mcguinness: "6.2341"
+    segments:
+      - id: "6.2341.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "數學方法的要點是使用等式。"
+        interpretation_zh_tw: "等式使替換步驟可見。"
+      - id: "6.2341.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "每個數學命題必須能由自身被理解，正奠基於此。"
+        interpretation_zh_tw: "自足性指形式可判定，不是文件可省略定義。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.2341 所論的「數學方法的要點是使用等式。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.2341 的直接論旨是「數學方法的要點是使用等式。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.24"
+    parent: "6.2"
+    texts:
+      de:
+        - "Die Methode der Mathematik, zu ihren Gleichungen zu kommen, ist die Substitutionsmethode."
+        - "Denn die Gleichungen drücken die Ersetzbarkeit zweier Ausdrücke aus und wir schreiten von einer Anzahl von Gleichungen zu neuen Gleichungen vor, indem wir, den Gleichungen entsprechend, Ausdrücke durch andere ersetzen."
+      en_ogden_ramsey_1922:
+        - "The method by which mathematics arrives at its equations is the method of substitution."
+        - "For equations express the substitutability of two expressions, and we proceed from a number of equations to new equations, replacing expressions by others in accordance with the equations."
+    edition_references:
+      en_pears_mcguinness: "6.24"
+    segments:
+      - id: "6.24.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "數學取得等式的方法是替換法。"
+        interpretation_zh_tw: "替換是等式演算的核心操作。"
+      - id: "6.24.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "等式表達兩式的可替換性；依等式以一式替換另一式，便可從已有等式進到新等式。"
+        interpretation_zh_tw: "推演保持指涉相等，不是改寫世界中的對象。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.24 所論的「數學取得等式的方法是替換法。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.24 的直接論旨是「數學取得等式的方法是替換法。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+  - id: "6.241"
+    parent: "6.24"
+    texts:
+      de:
+        - "So lautet der Beweis des Satzes 2 × 2 = 4:"
+        - "![{ ( \\Omega^{\\nu} )^{\\mu \\prime} x = \\Omega^{\\nu \\times \\mu \\prime} x \\text{ Def.} }](images/3b27b08186c4d2531ace97a6a386ca76d9996f0b7f4701697fb39daebd242145.svg)\\"
+        - "![{ \\Omega^{2 \\times 2 \\prime} x = (\\Omega^2 )^{2 \\prime} x = ( \\Omega^2 )^{1+1 \\prime} x = \\Omega^{2 \\prime} \\Omega^{2 \\prime} x = \\Omega^{1 + 1 \\prime} \\Omega^{1 + 1 \\prime} x }](images/d61fa425857e85da7c94020ddafdf3f8038c3f33900d3f3c7e222856a8859af8.svg)\\"
+        - "![{ (\\Omega ' \\Omega)^{\\prime} (\\Omega ' \\Omega)^{\\prime} x = \\Omega ' \\Omega ' \\Omega ' \\Omega ' x = \\Omega^{1 + 1 + 1 + 1 \\prime} x = \\Omega^{4 \\prime} x }](images/e5973c9367aeacc00f2830f165ecedfaa5664ca53875c29edf6be4ddffb89c18.svg)\\"
+      en_ogden_ramsey_1922:
+        - "Thus the proof of the proposition 2 × 2 = 4 runs:"
+        - "![{ ( \\Omega^{ \\nu} )^{\\mu \\prime} x = \\Omega^{ \\nu \\times \\mu \\prime} x \\text{ Def.} }](images/ddf71a60f25ff0e495d94d2bd39bcde1e3e20286201c7de357bfe8b3b1575a1a.svg)\\"
+        - "![{ \\Omega^{2 \\times 2 \\prime} x = (\\Omega^2 )^{2 \\prime} x = ( \\Omega^2 )^{1+1 \\prime} x = \\Omega^{2 \\prime} \\Omega^{2 \\prime} x = \\Omega^{1 + 1 \\prime} \\Omega^{1 + 1 \\prime} x }](images/d61fa425857e85da7c94020ddafdf3f8038c3f33900d3f3c7e222856a8859af8.svg)\\"
+        - "![{ (\\Omega ' \\Omega)^{\\prime} (\\Omega ' \\Omega)^{\\prime} x = \\Omega ' \\Omega ' \\Omega ' \\Omega ' x = \\Omega^{1 + 1 + 1 + 1 \\prime} x = \\Omega^{4 \\prime} x }](images/e5973c9367aeacc00f2830f165ecedfaa5664ca53875c29edf6be4ddffb89c18.svg)\\"
+    edition_references:
+      en_pears_mcguinness: "6.241"
+    segments:
+      - id: "6.241.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "命題二乘二等於四的證明如下。"
+        interpretation_zh_tw: "引言宣告接下來是形式推演。"
+      - id: "6.241.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "第一式定義運算指數的乘法。"
+        interpretation_zh_tw: "第一式提供後續替換所需定義。"
+      - id: "6.241.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "第二式把二乘二次運算逐步展開為兩組二次運算。"
+        interpretation_zh_tw: "第二式依定義重寫，不靠量測實物。"
+      - id: "6.241.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "第三式再展開為四次 Ω，最後得到四次運算。"
+        interpretation_zh_tw: "末式完成正規化，示範替換法而非經驗驗證。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.241 所論的「命題二乘二等於四的證明如下。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.241 的直接論旨是「命題二乘二等於四的證明如下。」；這句處理等式、可替換性或數學演算的形式地位；Akashic 的數值運算不會因表面相似就成為該數學方法的哲學實例。"
+    history: []
+# 自然科學、因果性與邏輯可能性
+  - id: "6.3"
+    parent: "6"
+    texts:
+      de:
+        - "Die Erforschung der Logik bedeutet die Erforschung *aller Gesetzmässigkeit*."
+        - "Und ausserhalb der Logik ist alles Zufall."
+      en_ogden_ramsey_1922:
+        - "Logical research means the investigation of *all regularity*."
+        - "And outside logic all is accident."
+    edition_references:
+      en_pears_mcguinness: "6.3"
+    segments:
+      - id: "6.3.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "研究邏輯，就是研究一切合規律性。"
+        interpretation_zh_tw: "這裡的規律性是邏輯形式，不是統計規律。"
+      - id: "6.3.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "而在邏輯之外，一切都是偶然的。"
+        interpretation_zh_tw: "「偶然」意指非邏輯必然，不等於沒有因果或無法解釋。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.3 所論的「研究邏輯，就是研究一切合規律性。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.3 的直接論旨是「研究邏輯，就是研究一切合規律性。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.31"
+    parent: "6.3"
+    texts:
+      de:
+        - "Das sogenannte Gesetz der Induktion kann jedenfalls kein logisches Gesetz sein, denn es ist offenbar ein sinnvoller Satz."
+        - "– Und darum kann es auch kein Gesetz a priori sein."
+      en_ogden_ramsey_1922:
+        - "The so-called law of induction cannot in any case be a logical law, for it is obviously a significant proposition."
+        - "—And therefore it cannot be a law a priori either."
+    edition_references:
+      en_pears_mcguinness: "6.31"
+    segments:
+      - id: "6.31.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "所謂歸納律無論如何都不可能是邏輯法則，因為它顯然是有意義命題。"
+        interpretation_zh_tw: "歸納律會排除某些可能情況，因而具有實質內容；它的成立不能只由邏輯形式保證。"
+      - id: "6.31.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "——因此，它也不可能是先天法則。"
+        interpretation_zh_tw: "後句把前述有實質內容的理由推到先天地位：若須由經驗評估，就不是此處所說的先天法則。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.31 對歸納律之非邏輯、非先天地位的主張設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.31 因歸納律是有實質內容的命題，而否定它是邏輯或先天法則；這是在劃分經驗規律與邏輯形式。Akashic 的模型與驗證規則同樣不能把經驗假設升格為邏輯必然，但這項警戒不是形式邏輯實作。"
+    history: []
+  - id: "6.32"
+    parent: "6.3"
+    texts:
+      de:
+        - "Das Kausalitätsgesetz ist kein Gesetz, sondern die Form eines Gesetzes."
+      en_ogden_ramsey_1922:
+        - "The law of causality is not a law but the form of a law."
+    edition_references:
+      en_pears_mcguinness: "6.32"
+    segments:
+      - id: "6.32.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "因果律不是一條法則，而是一種法則的形式。"
+        interpretation_zh_tw: "「因果律」標示一族經驗法則的形式，不能當成包辦所有事件的單一邏輯命題。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.32 所論的「因果律不是一條法則，而是一種法則的形式。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.32 的直接論旨是「因果律不是一條法則，而是一種法則的形式。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.321"
+    parent: "6.32"
+    texts:
+      de:
+        - "„Kausalitätsgesetz“, das ist ein Gattungsname."
+        - "Und wie es in der Mechanik, sagen wir, Minimum-Gesetze gibt, – etwa der kleinsten Wirkung – so gibt es in der Physik Kausalitätsgesetze, Gesetze von der Kausalitätsform."
+      en_ogden_ramsey_1922:
+        - "“Law of Causality” is a class name."
+        - "And as in mechanics there are, for instance, minimum-laws, such as that of least action, so in physics there are causal laws, laws of the causality form."
+    edition_references:
+      en_pears_mcguinness: "6.321"
+    segments:
+      - id: "6.321.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "「因果律」是一個類名。"
+        interpretation_zh_tw: "類名統攝多條具體法則，名稱本身不是額外自然律。"
+      - id: "6.321.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "正如力學有最小作用量等極小律，物理學也有各種具有因果形式的法則。"
+        interpretation_zh_tw: "具體物理內容仍須分別陳述與檢驗。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.321 所論的「「因果律」是一個類名。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.321 的直接論旨是「「因果律」是一個類名。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.3211"
+    parent: "6.321"
+    texts:
+      de:
+        - "Man hat ja auch davon eine Ahnung gehabt, dass es *ein* „Gesetz der kleinsten Wirkung“ geben müsse, ehe man genau wusste, wie es lautete."
+        - "(Hier, wie immer, stellt sich das a priori Gewisse als etwas rein Logisches heraus.)"
+      en_ogden_ramsey_1922:
+        - "Men had indeed an idea that there must be *a* “law of least action”, before they knew exactly how it ran."
+        - "(Here, as always, the a priori certain proves to be something purely logical.)"
+    edition_references:
+      en_pears_mcguinness: "6.3211"
+    segments:
+      - id: "6.3211.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "人們在確切知道最小作用量定律如何表述前，已預感必定有某一條這樣的定律。"
+        interpretation_zh_tw: "預感法則形式不等於先知其物理內容。"
+      - id: "6.3211.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（在此一如往常，先天確定的只是純邏輯之物。）"
+        interpretation_zh_tw: "括號把先天確定性限制在可能形式。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.3211 所論的「人們在確切知道最小作用量定律如何表述前，已預感必定有某一條這樣的定律。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.3211 的直接論旨是「人們在確切知道最小作用量定律如何表述前，已預感必定有某一條這樣的定律。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.33"
+    parent: "6.3"
+    texts:
+      de:
+        - "Wir *glauben* nicht a priori an ein Erhaltungsgesetz, sondern wir *wissen* a priori die Möglichkeit einer logischen Form."
+      en_ogden_ramsey_1922:
+        - "We do not *believe* a priori in a law of conservation, but we *know* a priori the possibility of a logical form."
+    edition_references:
+      en_pears_mcguinness: "6.33"
+    segments:
+      - id: "6.33.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我們並非先天地相信一條守恆律，而是先天地知道某種邏輯形式的可能性。"
+        interpretation_zh_tw: "守恆律是否成立需經驗支持；先天部分只涉及可表達形式。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.33 所論的「我們並非先天地相信一條守恆律，而是先天地知道某種邏輯形式的可能性。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.33 的直接論旨是「我們並非先天地相信一條守恆律，而是先天地知道某種邏輯形式的可能性。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.34"
+    parent: "6.3"
+    texts:
+      de:
+        - "Alle jene Sätze, wie der Satz vom Grunde, von der Kontinuität in der Natur, vom kleinsten Aufwande in der Natur etc. etc., alle diese sind Einsichten a priori über die mögliche Formgebung der Sätze der Wissenschaft."
+      en_ogden_ramsey_1922:
+        - "All propositions, such as the law of causation, the law of continuity in nature, the law of least expenditure in nature, etc. etc., all these are a priori intuitions of possible forms of the propositions of science."
+    edition_references:
+      en_pears_mcguinness: "6.34"
+    segments:
+      - id: "6.34.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "因果律、自然連續律、自然最小耗費律等，都是對科學命題可能形式的先天洞見。"
+        interpretation_zh_tw: "這些原則規定描述網格，不預先決定世界實際填入的內容。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.34 所論的「因果律、自然連續律、自然最小耗費律等，都是對科學命題可能形式的先天洞見。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.34 的直接論旨是「因果律、自然連續律、自然最小耗費律等，都是對科學命題可能形式的先天洞見。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.341"
+    parent: "6.34"
+    texts:
+      de:
+        - "Die Newtonsche Mechanik z. B. bringt die Weltbeschreibung auf eine einheitliche Form."
+        - "Denken wir uns eine weisse Fläche, auf der unregelmässige schwarze Flecken wären."
+        - "Wir sagen nun: Was für ein Bild immer hierdurch entsteht, immer kann ich seiner Beschreibung beliebig nahe kommen, indem ich die Fläche mit einem entsprechend feinen quadratischen Netzwerk bedecke und nun von jedem Quadrat sage, dass es weiss oder schwarz ist."
+        - "Ich werde auf diese Weise die Beschreibung der Fläche auf eine einheitliche Form gebracht haben."
+        - "Diese Form ist beliebig, denn ich hätte mit dem gleichen Erfolge ein Netz aus dreieckigen oder sechseckigen Maschen verwenden können."
+        - "Es kann sein, dass die Beschreibung mit Hilfe eines Dreiecks-Netzes einfacher geworden wäre; das heisst, dass wir die Fläche mit einem gröberen Dreiecks-Netz genauer beschreiben könnten, als mit einem feineren quadratischen (oder umgekehrt) u. s. w."
+        - "Den verschiedenen Netzen entsprechen verschiedene Systeme der Weltbeschreibung."
+        - "Die Mechanik bestimmt eine Form der Weltbeschreibung, indem sie sagt: Alle Sätze der Weltbeschreibung müssen aus einer Anzahl gegebener Sätze – den mechanischen Axiomen – auf eine gegebene Art und Weise erhalten werden."
+        - "Hierdurch liefert sie die Bausteine zum Bau des wissenschaftlichen Gebäudes und sagt: Welches Gebäude immer du aufführen willst, jedes musst du irgendwie mit diesen und nur diesen Bausteinen zusammenbringen."
+        - "\\(Wie man mit dem Zahlensystem jede beliebige Anzahl, so muss man mit dem System der Mechanik jeden beliebigen Satz der Physik hinschreiben können.)"
+      en_ogden_ramsey_1922:
+        - "Newtonian mechanics, for example, brings the description of the universe to a unified form."
+        - "Let us imagine a white surface with irregular black spots."
+        - "We now say: Whatever kind of picture these make I can always get as near as I like to its description, if I cover the surface with a sufficiently fine square network and now say of every square that it is white or black."
+        - "In this way I shall have brought the description of the surface to a unified form."
+        - "This form is arbitrary, because I could have applied with equal success a net with a triangular or hexagonal mesh."
+        - "It can happen that the description would have been simpler with the aid of a triangular mesh; that is to say we might have described the surface more accurately with a triangular, and coarser, than with the finer square mesh, or vice versa, and so on."
+        - "To the different networks correspond different systems of describing the world."
+        - "Mechanics determine a form of description by saying: All propositions in the description of the world must be obtained in a given way from a number of given propositions—the mechanical axioms."
+        - "It thus provides the bricks for building the edifice of science, and says: Whatever building thou wouldst erect, thou shalt construct it in some manner with these bricks and these alone."
+        - "\\(As with the system of numbers one must be able to write down any arbitrary number, so with the system of mechanics one must be able to write down any arbitrary physical proposition.)"
+    edition_references:
+      en_pears_mcguinness: "6.341"
+    segments:
+      - id: "6.341.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "牛頓力學把世界描述帶入統一形式。"
+        interpretation_zh_tw: "第一句把力學定位成統一表示系統。"
+      - id: "6.341.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "設想白底上有不規則黑斑。"
+        interpretation_zh_tw: "黑斑是待描述內容，不是理論自身。"
+      - id: "6.341.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "無論圖像如何，只要覆上夠細的方格並逐格說明黑白，就能任意逼近其描述。"
+        interpretation_zh_tw: "方格示範形式如何容納任意內容。"
+      - id: "6.341.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "如此便把平面描述帶入統一形式。"
+        interpretation_zh_tw: "統一性來自共同網格，不代表圖像相同。"
+      - id: "6.341.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "這種形式是任意的，也可採三角形或六角形網格。"
+        interpretation_zh_tw: "網格形狀可選，故描述形式含約定成分。"
+      - id: "6.341.f"
+        alignment:
+          de: [5]
+          en_ogden_ramsey_1922: [5]
+        translation_zh_tw: "三角網格有時可能以較粗網目得到比細方格更簡潔準確的描述，反之亦然。"
+        interpretation_zh_tw: "簡潔度與所描述圖像相關，不能由網格形式單獨決定。"
+      - id: "6.341.g"
+        alignment:
+          de: [6]
+          en_ogden_ramsey_1922: [6]
+        translation_zh_tw: "不同網格對應不同世界描述系統。"
+        interpretation_zh_tw: "不同理論可形成不同描述座標。"
+      - id: "6.341.h"
+        alignment:
+          de: [7]
+          en_ogden_ramsey_1922: [7]
+        translation_zh_tw: "力學規定描述形式：世界描述命題須以指定方式由力學公理構成。"
+        interpretation_zh_tw: "公理規定可接受描述如何生成。"
+      - id: "6.341.i"
+        alignment:
+          de: [8]
+          en_ogden_ramsey_1922: [8]
+        translation_zh_tw: "它提供科學建築的磚塊，要求任何建築都只用這些磚塊組合。"
+        interpretation_zh_tw: "磚塊比喻說的是表達限制，不保證建成的命題為真。"
+      - id: "6.341.j"
+        alignment:
+          de: [9]
+          en_ogden_ramsey_1922: [9]
+        translation_zh_tw: "（如同數系應能寫出任意數，力學系統也應能寫出任意物理命題。）"
+        interpretation_zh_tw: "括號要求表示完備性，仍不決定哪個物理命題符合世界。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.341 所論的「牛頓力學把世界描述帶入統一形式。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.341 的直接論旨是「牛頓力學把世界描述帶入統一形式。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.342"
+    parent: "6.34"
+    texts:
+      de:
+        - "Und nun sehen wir die gegenseitige Stellung von Logik und Mechanik."
+        - "(Man könnte das Netz auch aus verschiedenartigen Figuren etwa aus Dreiecken und Sechsecken bestehen lassen.)"
+        - "Dass sich ein Bild, wie das vorhin erwähnte, durch ein Netz von gegebener Form beschreiben lässt, sagt über das Bild *nichts* aus."
+        - "(Denn dies gilt für jedes Bild dieser Art.)"
+        - "*Das* aber charakterisiert das Bild, dass es sich durch ein bestimmtes Netz von *bestimmter* Feinheit *vollständig* beschreiben lässt."
+        - "So auch sagt es nichts über die Welt aus, dass sie sich durch die Newtonsche Mechanik beschreiben lässt; wohl aber, dass sie sich *so* durch jene beschreiben lässt, wie dies eben der Fall ist."
+        - "Auch das sagt etwas über die Welt, dass sie sich durch die eine Mechanik einfacher beschreiben lässt, als durch die andere."
+      en_ogden_ramsey_1922:
+        - "And now we see the relative position of logic and mechanics."
+        - "(We could construct the network out of figures of different kinds, as out of triangles and hexagons together.)"
+        - "That a picture like that instanced above can be described by a network of a given form asserts *nothing* about the picture."
+        - "(For this holds of every picture of this kind.)"
+        - "But *this* does characterize the picture, the fact, namely, that it can be *completely* described by a definite net of *definite* fineness."
+        - "So too the fact that it can be described by Newtonian mechanics asserts nothing about the world; but *this* asserts something, namely, that it can be described in that particular way in which as a matter of fact it is described."
+        - "The fact, too, that it can be described more simply by one system of mechanics than by another says something about the world."
+    edition_references:
+      en_pears_mcguinness: "6.342"
+    segments:
+      - id: "6.342.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "由此可看見邏輯與力學的相對位置。"
+        interpretation_zh_tw: "第一句開始區分普遍形式與經驗內容。"
+      - id: "6.342.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（網格也可混用三角形與六角形。）"
+        interpretation_zh_tw: "混合網格再次顯示形式選擇可約定。"
+      - id: "6.342.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "一幅圖能被某種形狀的網格描述，本身對圖像什麼也沒說。"
+        interpretation_zh_tw: "僅能套用框架不構成關於資料的資訊。"
+      - id: "6.342.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "（因為同類圖像都可如此。）"
+        interpretation_zh_tw: "括號說明該能力對所有同類圖像都成立。"
+      - id: "6.342.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "真正刻畫圖像的是它能被某種特定形狀、特定細度的網格完整描述。"
+        interpretation_zh_tw: "具體網格與細度才反映圖像結構。"
+      - id: "6.342.f"
+        alignment:
+          de: [5]
+          en_ogden_ramsey_1922: [5]
+        translation_zh_tw: "世界可由牛頓力學描述本身沒說什麼；它實際以何種方式被描述才說出東西。"
+        interpretation_zh_tw: "理論可用性不同於世界實際呈現的參數。"
+      - id: "6.342.g"
+        alignment:
+          de: [6]
+          en_ogden_ramsey_1922: [6]
+        translation_zh_tw: "某一力學比另一力學能更簡潔描述世界，也說出了世界的某些東西。"
+        interpretation_zh_tw: "相對簡潔性可能成為關於世界的線索，但不是邏輯真理。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.342 所論的「由此可看見邏輯與力學的相對位置。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.342 的直接論旨是「由此可看見邏輯與力學的相對位置。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.343"
+    parent: "6.34"
+    texts:
+      de:
+        - "Die Mechanik ist ein Versuch, alle *wahren* Sätze, die wir zur Weltbeschreibung brauchen, nach Einem Plane zu konstruieren."
+      en_ogden_ramsey_1922:
+        - "Mechanics is an attempt to construct according to a single plan all *true* propositions which we need for the description of the world."
+    edition_references:
+      en_pears_mcguinness: "6.343"
+    segments:
+      - id: "6.343.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "力學企圖依單一計畫，構造描述世界所需的所有真命題。"
+        interpretation_zh_tw: "計畫提供統一生成方式；個別命題之真仍取決於世界。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.343 所論的「力學企圖依單一計畫，構造描述世界所需的所有真命題。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.343 的直接論旨是「力學企圖依單一計畫，構造描述世界所需的所有真命題。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.3431"
+    parent: "6.343"
+    texts:
+      de:
+        - "Durch den ganzen logischen Apparat hindurch sprechen die physikalischen Gesetze doch von den Gegenständen der Welt."
+      en_ogden_ramsey_1922:
+        - "Through their whole logical apparatus the physical laws still speak of the objects of the world."
+    edition_references:
+      en_pears_mcguinness: "6.3431"
+    segments:
+      - id: "6.3431.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "物理法則縱使穿過整套邏輯裝置，終究仍談論世界中的對象。"
+        interpretation_zh_tw: "形式化不會把經驗法則變成純邏輯。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.3431 所論的「物理法則縱使穿過整套邏輯裝置，終究仍談論世界中的對象。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.3431 的直接論旨是「物理法則縱使穿過整套邏輯裝置，終究仍談論世界中的對象。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.3432"
+    parent: "6.343"
+    texts:
+      de:
+        - "Wir dürfen nicht vergessen, dass die Weltbeschreibung durch die Mechanik immer die ganz allgemeine ist."
+        - "Es ist in ihr z. B. nie von *bestimmten* materiellen Punkten die Rede, sondern immer nur von *irgend welchen*."
+      en_ogden_ramsey_1922:
+        - "We must not forget that the description of the world by mechanics is always quite general."
+        - "There is, for example, never any mention of *particular* material points in it, but always only of *some points or other*."
+    edition_references:
+      en_pears_mcguinness: "6.3432"
+    segments:
+      - id: "6.3432.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "不可忘記，力學的世界描述總是極一般的。"
+        interpretation_zh_tw: "理論給一般形式。"
+      - id: "6.3432.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "其中從不談特定物質點，只談某些物質點。"
+        interpretation_zh_tw: "個別對象與初始條件仍須另外指定。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.3432 所論的「不可忘記，力學的世界描述總是極一般的。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.3432 的直接論旨是「不可忘記，力學的世界描述總是極一般的。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.35"
+    parent: "6.3"
+    texts:
+      de:
+        - "Obwohl die Flecke in unserem Bild geometrische Figuren sind, so kann doch selbstverständlich die Geometrie gar nichts über ihre tatsächliche Form und Lage sagen."
+        - "Das Netz aber ist *rein* geometrisch, alle seine Eigenschaften können a priori angegeben werden."
+        - "Gesetze, wie der Satz vom Grunde, etc., handeln vom Netz, nicht von dem, was das Netz beschreibt."
+      en_ogden_ramsey_1922:
+        - "Although the spots in our picture are geometrical figures, geometry can obviously say nothing about their actual form and position."
+        - "But the network is *purely* geometrical, and all its properties can be given a priori."
+        - "Laws, like the law of causation, etc., treat of the network and not of what the network describes."
+    edition_references:
+      en_pears_mcguinness: "6.35"
+    segments:
+      - id: "6.35.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "圖中的斑點雖是幾何圖形，幾何學卻無法說出它們實際的形狀與位置。"
+        interpretation_zh_tw: "形式科學不決定偶然配置。"
+      - id: "6.35.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "網格是純幾何的，其全部性質都可先天給定。"
+        interpretation_zh_tw: "描述框架的性質可先天分析。"
+      - id: "6.35.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "因果律等法則談的是網格，不是網格所描述的內容。"
+        interpretation_zh_tw: "把法則放在網格一側，可避免誤認它已解釋具體現象。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.35 所論的「圖中的斑點雖是幾何圖形，幾何學卻無法說出它們實際的形狀與位置。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.35 的直接論旨是「圖中的斑點雖是幾何圖形，幾何學卻無法說出它們實際的形狀與位置。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.36"
+    parent: "6.3"
+    texts:
+      de:
+        - "Wenn es ein Kausalitätsgesetz gäbe, so könnte es lauten: „Es gibt Naturgesetze“."
+        - "Aber freilich kann man das nicht sagen: es zeigt sich."
+      en_ogden_ramsey_1922:
+        - "If there were a law of causality, it might run: “There are natural laws”."
+        - "But that can clearly not be said: it shows itself."
+    edition_references:
+      en_pears_mcguinness: "6.36"
+    segments:
+      - id: "6.36.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "假使有一條因果律，它或許會說：「有自然律。」"
+        interpretation_zh_tw: "「有規律」是可描述性的背景，不是另一條同層次法則。"
+      - id: "6.36.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "但這不能被說出；它顯示自身。"
+        interpretation_zh_tw: "第二句延續說出／顯示的界線。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.36 所論的「假使有一條因果律，它或許會說：「有自然律。」」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.36 的直接論旨是「假使有一條因果律，它或許會說：「有自然律。」」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.361"
+    parent: "6.36"
+    texts:
+      de:
+        - "In der Ausdrucksweise Hertz’s könnte man sagen: Nur *gesetzmässige* Zusammenhänge sind *denkbar*."
+      en_ogden_ramsey_1922:
+        - "In the terminology of Hertz we might say: Only *uniform* connexions are *thinkable*."
+    edition_references:
+      en_pears_mcguinness: "6.361"
+    segments:
+      - id: "6.361.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "用赫茲的說法，只有合乎法則的關聯才是可思的。"
+        interpretation_zh_tw: "可描述事件須落在某種規則形式中；不表示我們已知正確經驗法則。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.361 所論的「用赫茲的說法，只有合乎法則的關聯才是可思的。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.361 的直接論旨是「用赫茲的說法，只有合乎法則的關聯才是可思的。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.3611"
+    parent: "6.361"
+    texts:
+      de:
+        - "Wir können keinen Vorgang mit dem „Ablauf der Zeit“ vergleichen – diesen gibt es nicht –, sondern nur mit einem anderen Vorgang (etwa mit dem Gang des Chronometers)."
+        - "Daher ist die Beschreibung des zeitlichen Verlaufs nur so möglich, dass wir uns auf einen anderen Vorgang stützen."
+        - "Ganz Analoges gilt für den Raum."
+        - "Wo man z. B. sagt, es könne keines von zwei Ereignissen (die sich gegenseitig ausschliessen) eintreten, weil *keine Ursache* vorhanden sei, warum das eine eher als das andere eintreten solle, da handelt es sich in Wirklichkeit darum, dass man gar nicht *eines* der beiden Ereignisse beschreiben kann, wenn nicht irgend eine Asymmetrie vorhanden ist."
+        - "Und *wenn* eine solche Asymmetrie vorhanden *ist*, so können wir diese als *Ursache* des Eintreffens des einen und Nicht-Eintreffens des anderen auffassen."
+      en_ogden_ramsey_1922:
+        - "We cannot compare any process with the “passage of time”—there is no such thing—but only with another process (say, with the movement of the chronometer)."
+        - "Hence the description of the temporal sequence of events is only possible if we support ourselves on another process."
+        - "It is exactly analogous for space."
+        - "When, for example, we say that neither of two events (which mutually exclude one another) can occur, because there is *no cause* why the one should occur rather than the other, it is really a matter of our being unable to describe *one* of the two events unless there is some sort of asymmetry."
+        - "And if there *is* such an asymmetry, we can regard this as the *cause* of the occurrence of the one and of the non-occurrence of the other."
+    edition_references:
+      en_pears_mcguinness: "6.3611"
+    segments:
+      - id: "6.3611.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我們不能把任何過程與「時間流逝」比較，因為沒有這種獨立過程；只能把它與另一過程比較，例如計時器運行。"
+        interpretation_zh_tw: "時間量測依事件間比較，不依名為時間流的額外對象。"
+      - id: "6.3611.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "所以描述時間進程只能依靠另一個過程。"
+        interpretation_zh_tw: "量測基準本身也是一個過程。"
+      - id: "6.3611.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "空間也完全類似。"
+        interpretation_zh_tw: "空間描述同樣需要關係基準。"
+      - id: "6.3611.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "若兩個互斥事件都因沒有原因偏向其一而被說成不能發生，真正問題是：缺少不對稱時，根本無法描述其中一個事件。"
+        interpretation_zh_tw: "這句以可描述性重新分析所謂無原因的對稱情況。"
+      - id: "6.3611.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "若有不對稱，就可把它視為一者發生而另一者不發生的原因。"
+        interpretation_zh_tw: "不對稱可作原因描述，但不是說任何差異都已構成充分因果證據。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.3611 所論的「我們不能把任何過程與「時間流逝」比較，因為沒有這種獨立過程；只能把它與另一過程比較，例如計時器運行。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.3611 的直接論旨是「我們不能把任何過程與「時間流逝」比較，因為沒有這種獨立過程；只能把它與另一過程比較，例如計時器運行。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.36111"
+    parent: "6.3611"
+    texts:
+      de:
+        - "Das Kant’sche Problem von der rechten und linken Hand, die man nicht zur Deckung bringen kann, besteht schon in der Ebene, ja im eindimensionalen Raum, wo die beiden kongruenten Figuren *a* und *b* auch nicht zur Deckung gebracht werden können, ohne aus diesem Raum herausbewegt zu werden."
+        - "Rechte und linke Hand sind tatsächlich vollkommen kongruent."
+        - "Und dass man sie nicht zur Deckung bringen kann, hat damit nichts zu tun."
+        - "![](images/330px-TLP_6.36111.png)\\"
+        - "Den rechten Handschuh könnte man an die linke Hand ziehen, wenn man ihn im vierdimensionalen Raum umdrehen könnte."
+      en_ogden_ramsey_1922:
+        - "The Kantian problem of the right and left hand which cannot be made to cover one another already exists in the plane, and even in one-dimensional space; where the two congruent figures *a* and *b* cannot be made to cover one another without moving them out of this space."
+        - "The right and left hand are in fact completely congruent."
+        - "And the fact that they cannot be made to cover one another has nothing to do with it."
+        - "![](images/330px-TLP_6.36111.png)\\"
+        - "A right-hand glove could be put on a left hand if it could be turned round in four-dimensional space."
+    edition_references:
+      en_pears_mcguinness: "6.36111"
+    segments:
+      - id: "6.36111.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "康德的左右手問題在平面甚至一維空間中便已出現：全等圖形若不移出該空間，也不能重合。"
+        interpretation_zh_tw: "第一句把問題定位為空間內可重合性。"
+      - id: "6.36111.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "左右手其實完全全等。"
+        interpretation_zh_tw: "全等只比較形狀尺度。"
+      - id: "6.36111.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "它們不能重合，與全等與否無關。"
+        interpretation_zh_tw: "可否重合還涉及定向與允許的運動。"
+      - id: "6.36111.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "來源圖示呈現這種定向差異。"
+        interpretation_zh_tw: "圖像是幾何說明，不是另一項論證前提。"
+      - id: "6.36111.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "右手手套若能在四維空間中翻轉，就可套到左手上。"
+        interpretation_zh_tw: "四維翻轉展示增加維度如何解除定向障礙，與資料欄位交換無關。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.36111 所論的「康德的左右手問題在平面甚至一維空間中便已出現：全等圖形若不移出該空間，也不能重合。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.36111 的直接論旨是「康德的左右手問題在平面甚至一維空間中便已出現：全等圖形若不移出該空間，也不能重合。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.362"
+    parent: "6.36"
+    texts:
+      de:
+        - "Was sich beschreiben lässt, das kann auch geschehen, und was das Kausalitätsgesetz ausschliessen soll, das lässt sich auch nicht beschreiben."
+      en_ogden_ramsey_1922:
+        - "What can be described can happen too, and what is excluded by the law of causality cannot be described."
+    edition_references:
+      en_pears_mcguinness: "6.362"
+    segments:
+      - id: "6.362.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "凡可描述者也能發生；因果律意圖排除者，也無法被描述。"
+        interpretation_zh_tw: "可能性由可描述的邏輯形式界定；不能把模型目前未表示者逕判為物理不可能。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.362 所論的「凡可描述者也能發生；因果律意圖排除者，也無法被描述。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.362 的直接論旨是「凡可描述者也能發生；因果律意圖排除者，也無法被描述。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.363"
+    parent: "6.36"
+    texts:
+      de:
+        - "Der Vorgang der Induktion besteht darin, dass wir das *einfachste* Gesetz annehmen, das mit unseren Erfahrungen in Einklang zu bringen ist."
+      en_ogden_ramsey_1922:
+        - "The process of induction is the process of assuming the *simplest* law that can be made to harmonize with our experience."
+    edition_references:
+      en_pears_mcguinness: "6.363"
+    segments:
+      - id: "6.363.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "歸納的過程，在於採取能與經驗相符的最簡單法則。"
+        interpretation_zh_tw: "「最簡單」是受經驗約束的選模原則，不是邏輯推出的真理。"
+    project_relations:
+      - status: partial
+        mode: shown_constraint
+        claim_zh_tw: "Akashic 的未來圖像解說把歸納明列為與經驗相容的選模，而不是邏輯演繹。"
+        rationale_zh_tw: "文件只要求模型標示其經驗假設與相對性；它沒有宣稱已實作通用歸納引擎。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 7. 質疑：既然現在已有 picture，是否可以從現在讀出未來？"
+            note_zh_tw: "此節直接區分歸納假設、模型限制、邏輯必然與事實裁決。"
+    history: []
+  - id: "6.3631"
+    parent: "6.363"
+    texts:
+      de:
+        - "Dieser Vorgang hat aber keine logische, sondern nur eine psychologische Begründung."
+        - "Es ist klar, dass kein Grund vorhanden ist, zu glauben, es werde nun auch wirklich der einfachste Fall eintreten."
+      en_ogden_ramsey_1922:
+        - "This process, however, has no logical foundation but only a psychological one."
+        - "It is clear that there are no grounds for believing that the simplest course of events will really happen."
+    edition_references:
+      en_pears_mcguinness: "6.3631"
+    segments:
+      - id: "6.3631.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "這個過程沒有邏輯根據，只有心理根據。"
+        interpretation_zh_tw: "歸納偏好不能提供邏輯必然。"
+      - id: "6.3631.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "沒有理由相信最簡單的事態進程就會實際發生。"
+        interpretation_zh_tw: "模型簡潔性也不能替代未來證據。"
+    project_relations:
+      - status: partial
+        mode: shown_constraint
+        claim_zh_tw: "Akashic 拒絕把模型簡潔性當成未來事件的邏輯保證。"
+        rationale_zh_tw: "這項現況只是一條建模限制，沒有把心理上的歸納偏好實作成真理判準。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 7. 質疑：既然現在已有 picture，是否可以從現在讀出未來？"
+            note_zh_tw: "此節直接區分歸納假設、模型限制、邏輯必然與事實裁決。"
+    history: []
+  - id: "6.36311"
+    parent: "6.3631"
+    texts:
+      de:
+        - "Dass die Sonne morgen aufgehen wird, ist eine Hypothese; und das heisst: wir *wissen* nicht, ob sie aufgehen wird."
+      en_ogden_ramsey_1922:
+        - "That the sun will rise to-morrow, is an hypothesis; and that means that we do not *know* whether it will rise."
+    edition_references:
+      en_pears_mcguinness: "6.36311"
+    segments:
+      - id: "6.36311.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "明天太陽會升起是一項假設；也就是說，我們並不知道它是否會升起。"
+        interpretation_zh_tw: "過往規律可支持預期，卻不能把未來事件變成由現在邏輯推出的知識。"
+    project_relations:
+      - status: partial
+        mode: shown_constraint
+        claim_zh_tw: "Akashic 把未來陳述保留為 hypothesis 或 assertion，直到證據與裁決使它成為已接受事實。"
+        rationale_zh_tw: "專案沒有把排程、預測或所有模型分支都滿足誤稱為已知；這正對應明日太陽升起仍是假設的限制。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 7. 質疑：既然現在已有 picture，是否可以從現在讀出未來？"
+            note_zh_tw: "此節直接區分歸納假設、模型限制、邏輯必然與事實裁決。"
+    history: []
+  - id: "6.37"
+    parent: "6.3"
+    texts:
+      de:
+        - "Einen Zwang, nach dem Eines geschehen müsste, weil etwas anderes geschehen ist, gibt es nicht."
+        - "Es gibt nur eine *logische* Notwendigkeit."
+      en_ogden_ramsey_1922:
+        - "A necessity for one thing to happen because another has happened does not exist."
+        - "There is only *logical* necessity."
+    edition_references:
+      en_pears_mcguinness: "6.37"
+    segments:
+      - id: "6.37.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "不存在因某事已發生、另一事就必須發生的強制。"
+        interpretation_zh_tw: "事件先後不自動構成邏輯蘊涵。"
+      - id: "6.37.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "只有邏輯必然性。"
+        interpretation_zh_tw: "因果預期、模型必然與邏輯必然必須分開。"
+    project_relations:
+      - status: partial
+        mode: shown_constraint
+        claim_zh_tw: "Akashic 文件區分 logical necessity、model-necessity、因果預期、排程與已發生事實。"
+        rationale_zh_tw: "這落實 6.37 的核心警戒，但只是語意與建模界線，不是完整模態邏輯系統。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "### 回應：三種「必然」必須拆開"
+            note_zh_tw: "此節直接區分歸納假設、模型限制、邏輯必然與事實裁決。"
+    history: []
+  - id: "6.371"
+    parent: "6.37"
+    texts:
+      de:
+        - "Der ganzen modernen Weltanschauung liegt die Täuschung zugrunde, dass die sogenannten Naturgesetze die Erklärungen der Naturerscheinungen seien."
+      en_ogden_ramsey_1922:
+        - "At the basis of the whole modern view of the world lies the illusion that the so-called laws of nature are the explanations of natural phenomena."
+    edition_references:
+      en_pears_mcguinness: "6.371"
+    segments:
+      - id: "6.371.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "現代世界觀的根本錯覺，是把自然律當成自然現象的解釋。"
+        interpretation_zh_tw: "自然律可統整與預測，卻不因此成為世界整體的最終理由。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.371 所論的「現代世界觀的根本錯覺，是把自然律當成自然現象的解釋。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.371 的直接論旨是「現代世界觀的根本錯覺，是把自然律當成自然現象的解釋。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.372"
+    parent: "6.37"
+    texts:
+      de:
+        - "So bleiben sie bei den Naturgesetzen als bei etwas Unantastbarem stehen, wie die Älteren bei Gott und dem Schicksal."
+        - "Und sie haben ja beide Recht, und Unrecht."
+        - "Die Alten sind allerdings insofern klarer, als sie einen klaren Abschluss anerkennen, während es bei dem neuen System scheinen soll, als sei *alles* erklärt."
+      en_ogden_ramsey_1922:
+        - "So people stop short at natural laws as at something unassailable, as did the ancients at God and Fate."
+        - "And they both are right and wrong."
+        - "But the ancients were clearer, in so far as they recognized one clear terminus, whereas the modern system makes it appear as though *everything* were explained."
+    edition_references:
+      en_pears_mcguinness: "6.372"
+    segments:
+      - id: "6.372.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "人們停在自然律前，把它視為不可觸碰之物，就像古人停在上帝與命運前。"
+        interpretation_zh_tw: "不同時代都可能把解釋鏈終點實體化。"
+      - id: "6.372.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "兩者既對又錯。"
+        interpretation_zh_tw: "兩者都看見界線，也都可能誤認界線是解釋。"
+      - id: "6.372.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "古人較清楚，因為承認明確終點；現代體系卻使人以為一切都已解釋。"
+        interpretation_zh_tw: "批評針對科學語言掩飾自身界線，不是否定自然律的實用性。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.372 所論的「人們停在自然律前，把它視為不可觸碰之物，就像古人停在上帝與命運前。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.372 的直接論旨是「人們停在自然律前，把它視為不可觸碰之物，就像古人停在上帝與命運前。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.373"
+    parent: "6.37"
+    texts:
+      de:
+        - "Die Welt ist unabhängig von meinem Willen."
+      en_ogden_ramsey_1922:
+        - "The world is independent of my will."
+    edition_references:
+      en_pears_mcguinness: "6.373"
+    segments:
+      - id: "6.373.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "世界獨立於我的意志。"
+        interpretation_zh_tw: "願望不構成事實成立條件；這不否定行動能以因果方式改變世界。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.373 所論的「世界獨立於我的意志。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.373 的直接論旨是「世界獨立於我的意志。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.374"
+    parent: "6.37"
+    texts:
+      de:
+        - "Auch wenn alles, was wir wünschen, geschähe, so wäre dies doch nur, sozusagen, eine Gnade des Schicksals, denn es ist kein *logischer* Zusammenhang zwischen Willen und Welt, der dies verbürgte, und den angenommenen physikalischen Zusammenhang könnten wir doch nicht selbst wieder wollen."
+      en_ogden_ramsey_1922:
+        - "Even if everything we wished were to happen, this would only be, so to speak, a favour of fate, for there is no *logical* connexion between will and world, which would guarantee this, and the assumed physical connexion itself we could not again will."
+    edition_references:
+      en_pears_mcguinness: "6.374"
+    segments:
+      - id: "6.374.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "即使所願一切都發生，也只是命運的恩惠；意志與世界間沒有保證此事的邏輯關聯，而假定的物理關聯也不能再由我們意欲它成立。"
+        interpretation_zh_tw: "意志不能藉邏輯必然支配世界；願望實現仍是偶然事實。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.374 所論的「即使所願一切都發生，也只是命運的恩惠；意志與世界間沒有保證此事的邏輯關聯，而假定的物理關聯也不能再由我們意欲它成立。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.374 的直接論旨是「即使所願一切都發生，也只是命運的恩惠；意志與世界間沒有保證此事的邏輯關聯，而假定的物理關聯也不能再由我們意欲它成立。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.375"
+    parent: "6.37"
+    texts:
+      de:
+        - "Wie es nur eine *logische* Notwendigkeit gibt, so gibt es auch nur eine *logische* Unmöglichkeit."
+      en_ogden_ramsey_1922:
+        - "As there is only a *logical* necessity, so there is only a *logical* impossibility."
+    edition_references:
+      en_pears_mcguinness: "6.375"
+    segments:
+      - id: "6.375.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "如同只有邏輯必然，也只有邏輯不可能。"
+        interpretation_zh_tw: "工程限制或低機率事件不能自動稱為邏輯不可能。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.375 所論的「如同只有邏輯必然，也只有邏輯不可能。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.375 的直接論旨是「如同只有邏輯必然，也只有邏輯不可能。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+  - id: "6.3751"
+    parent: "6.375"
+    texts:
+      de:
+        - "Dass z. B. zwei Farben zugleich an einem Ort des Gesichtsfeldes sind, ist unmöglich und zwar logisch unmöglich, denn es ist durch die logische Struktur der Farbe ausgeschlossen."
+        - "Denken wir daran, wie sich dieser Widerspruch in der Physik darstellt:"
+        - "Ungefähr so, dass ein Teilchen nicht zu gleicher Zeit zwei Geschwindigkeiten haben kann; das heisst, dass es nicht zu gleicher Zeit an zwei Orten sein kann; das heisst, dass Teilchen an verschiedenen Orten zu Einer Zeit nicht identisch sein können."
+        - "\\(Es ist klar, dass das logische Produkt zweier Elementarsätze weder eine Tautologie noch eine Kontradiktion sein kann."
+        - "Die Aussage, dass ein Punkt des Gesichtsfeldes zu gleicher Zeit zwei verschiedene Farben hat, ist eine Kontradiktion.)"
+      en_ogden_ramsey_1922:
+        - "For two colours, *e.g.* to be at one place in the visual field, is impossible, logically impossible, for it is excluded by the logical structure of colour."
+        - "Let us consider how this contradiction presents itself in physics."
+        - "Somewhat as follows: That a particle cannot at the same time have two velocities, *i.e.* that at the same time it cannot be in two places, *i.e.* that particles in different places at the same time cannot be identical."
+        - "\\(It is clear that the logical product of two elementary propositions can neither be a tautology nor a contradiction."
+        - "The assertion that a point in the visual field has two different colours at the same time, is a contradiction.)"
+    edition_references:
+      en_pears_mcguinness: "6.3751"
+    segments:
+      - id: "6.3751.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "同一視野位置同時有兩種顏色，是由顏色邏輯結構排除的邏輯不可能。"
+        interpretation_zh_tw: "本節把顏色排斥放進邏輯形式，是早期體系中具爭議的例子。"
+      - id: "6.3751.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "讓我們想想這個矛盾在物理學中如何呈現。"
+        interpretation_zh_tw: "這句只把顏色排斥轉向物理案例，尚未把兩種領域宣稱為同一種對象。"
+      - id: "6.3751.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "大致如下：粒子不能同時有兩種速度，也就是不能同時位於兩處；同一時刻位於不同位置的粒子不能是同一個。"
+        interpretation_zh_tw: "物理展開把速度、位置與同一性的排斥串起來；它是早期邏輯分析中的類比，不是現代物理定理。"
+      - id: "6.3751.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "（兩個基本命題的邏輯積既不能是重言式也不能是矛盾式。"
+        interpretation_zh_tw: "括號先重申基本命題獨立性的要求。"
+      - id: "6.3751.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "但「視野中一點同時有兩種顏色」是一個矛盾。）"
+        interpretation_zh_tw: "末句顯示顏色命題對該要求造成張力，不能拿來替軟體型別排他性背書。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.3751 所論的「同一視野位置同時有兩種顏色，是由顏色邏輯結構排除的邏輯不可能。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.3751 的直接論旨是「同一視野位置同時有兩種顏色，是由顏色邏輯結構排除的邏輯不可能。」；這句處理科學描述、因果形式或邏輯可能性的界線；Akashic 的模型與驗證規則不能把經驗假設升格為邏輯必然。"
+    history: []
+# 倫理、價值、生命意義與神祕界線
+  - id: "6.4"
+    parent: "6"
+    texts:
+      de:
+        - "Alle Sätze sind gleichwertig."
+      en_ogden_ramsey_1922:
+        - "All propositions are of equal value."
+    edition_references:
+      en_pears_mcguinness: "6.4"
+    segments:
+      - id: "6.4.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "所有命題都具有同等價值。"
+        interpretation_zh_tw: "此處意指事實命題不能由自身承載較高倫理價值，不是要求工程系統取消證據、嚴重度或規範優先級。"
+    project_relations:
+      - status: rejected
+        mode: refusal
+        claim_zh_tw: "Akashic 拒絕把「所有命題同等價值」直接當成工程政策；它必須區分證據、裁決、錯誤嚴重度與規範優先級。"
+        rationale_zh_tw: "這不是反駁 6.4 的倫理脈絡，而是拒絕把其哲學用語錯置成所有紀錄與驗證結果一律同權。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 19. 檔案倫理"
+            note_zh_tw: "此處是該專案關係目前可解析的直接文件證據，且未把生成文件當作承重來源。"
+    history: []
+  - id: "6.41"
+    parent: "6.4"
+    texts:
+      de:
+        - "Der Sinn der Welt muss ausserhalb ihrer liegen."
+        - "In der Welt ist alles wie es ist und geschieht alles wie es geschieht;"
+        - "es gibt *in* ihr keinen Wert – und wenn es ihn gäbe, so hätte er keinen Wert."
+        - "Wenn es einen Wert gibt, der Wert hat, so muss er ausserhalb alles Geschehens und So-Seins liegen."
+        - "Denn alles Geschehen und So-Sein ist zufällig."
+        - "Was es nicht-zufällig macht, kann nicht *in* der Welt liegen, denn sonst wäre dies wieder zufällig."
+        - "Es muss ausserhalb der Welt liegen."
+      en_ogden_ramsey_1922:
+        - "The sense of the world must lie outside the world."
+        - "In the world everything is as it is and happens as it does happen."
+        - "*In* it there is no value—and if there were, it would be of no value."
+        - "If there is a value which is of value, it must lie outside all happening and being-so."
+        - "For all happening and being-so is accidental."
+        - "What makes it non-accidental cannot lie *in* the world, for otherwise this would again be accidental."
+        - "It must lie outside the world."
+    edition_references:
+      en_pears_mcguinness: "6.41"
+    segments:
+      - id: "6.41.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "世界的意義必須在世界之外。"
+        interpretation_zh_tw: "第一句把意義與事實總體分層。"
+      - id: "6.41.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "世界中一切如其所是地存在、如其所發生地發生。"
+        interpretation_zh_tw: "這句只陳述世界內事實如何存在與發生，沒有由事實本身導出價值排序。"
+      - id: "6.41.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "其中沒有價值；即使有，也不會有價值。"
+        interpretation_zh_tw: "價值若只是世界內另一項偶然事實，就無法取得此處所要求的無條件地位。"
+      - id: "6.41.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "若真有有價值的價值，它必須在一切發生與如此存在之外。"
+        interpretation_zh_tw: "無條件價值不能只是事件鏈中的一項。"
+      - id: "6.41.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "因為一切發生與如此存在都是偶然的。"
+        interpretation_zh_tw: "這句提供排除世界內根基的理由。"
+      - id: "6.41.f"
+        alignment:
+          de: [5]
+          en_ogden_ramsey_1922: [5]
+        translation_zh_tw: "使它成為非偶然者的東西不能在世界中，否則它又會偶然。"
+        interpretation_zh_tw: "非偶然性的來源不能再是偶然事實。"
+      - id: "6.41.g"
+        alignment:
+          de: [6]
+          en_ogden_ramsey_1922: [6]
+        translation_zh_tw: "它必須在世界之外。"
+        interpretation_zh_tw: "「之外」是邏輯界線用語，不是另一個可定位空間。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.41 所論的「世界的意義必須在世界之外。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.41 的直接論旨是「世界的意義必須在世界之外。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.42"
+    parent: "6.4"
+    texts:
+      de:
+        - "Darum kann es auch keine Sätze der Ethik geben."
+        - "Sätze können nichts Höheres ausdrücken."
+      en_ogden_ramsey_1922:
+        - "Hence also there can be no ethical propositions."
+        - "Propositions cannot express anything higher."
+    edition_references:
+      en_pears_mcguinness: "6.42"
+    segments:
+      - id: "6.42.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "因此，不可能有倫理命題。"
+        interpretation_zh_tw: "依《論考》的命題觀，倫理價值不能像事實那樣被描繪。"
+      - id: "6.42.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "命題無法表達較高之物。"
+        interpretation_zh_tw: "「較高」不構成另一類可由更多欄位捕捉的事實。"
+    project_relations:
+      - status: intentional_nonconformance
+        mode: declared_nonconformance
+        claim_zh_tw: "Akashic 刻意保留可明文表述的檔案倫理與 MUST／MUST NOT 規範，不採「不可有倫理命題」作文件政策。"
+        rationale_zh_tw: "工程規範必須可審查與執行；此不遵循只描述專案實務，並不宣稱駁倒 6.42 的命題觀。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 19. 檔案倫理"
+            note_zh_tw: "此處是該專案關係目前可解析的直接文件證據，且未把生成文件當作承重來源。"
+    history: []
+  - id: "6.421"
+    parent: "6.42"
+    texts:
+      de:
+        - "Es ist klar, dass sich die Ethik nicht aussprechen lässt."
+        - "Die Ethik ist transcendental."
+        - "\\(Ethik und Aesthetik sind Eins.)"
+      en_ogden_ramsey_1922:
+        - "It is clear that ethics cannot be expressed."
+        - "Ethics is transcendental."
+        - "\\(Ethics and aesthetics are one.)"
+    edition_references:
+      en_pears_mcguinness: "6.421"
+    segments:
+      - id: "6.421.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "倫理顯然不能被說出。"
+        interpretation_zh_tw: "第一句承接命題只能描繪事實的限制。"
+      - id: "6.421.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "倫理是超驗的。"
+        interpretation_zh_tw: "「超驗」指倫理不在世界事實之列，不是超自然資料。"
+      - id: "6.421.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "（倫理與美學是一體的。）"
+        interpretation_zh_tw: "括號是本書對倫理與美學地位的主張，不是軟體分類建議。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.421 所論的「倫理顯然不能被說出。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.421 的直接論旨是「倫理顯然不能被說出。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.422"
+    parent: "6.42"
+    texts:
+      de:
+        - "Der erste Gedanke bei der Aufstellung eines ethischen Gesetzes von der Form „du sollst *. . . .*“ ist: Und was dann, wenn ich es nicht tue?"
+        - "Es ist aber klar, dass die Ethik nichts mit Strafe und Lohn im gewöhnlichen Sinne zu tun hat."
+        - "Also muss diese Frage nach den *Folgen* einer Handlung belanglos sein."
+        - "– Zum Mindesten dürfen diese Folgen nicht Ereignisse sein."
+        - "Denn etwas muss doch an jener Fragestellung richtig sein."
+        - "Es muss zwar eine Art von ethischem Lohn und ethischer Strafe geben, aber diese müssen in der Handlung selbst liegen."
+        - "\\(Und das ist auch klar, dass der Lohn etwas Angenehmes, die Strafe etwas Unangenehmes sein muss.)"
+      en_ogden_ramsey_1922:
+        - "The first thought in setting up an ethical law of the form “thou shalt…” is: And what if I do not do it?"
+        - "But it is clear that ethics has nothing to do with punishment and reward in the ordinary sense."
+        - "This question as to the *consequences* of an action must therefore be irrelevant."
+        - "At least these consequences will not be events."
+        - "For there must be something right in that formulation of the question."
+        - "There must be some sort of ethical reward and ethical punishment, but this must lie in the action itself."
+        - "\\(And this is clear also that the reward must be something acceptable, and the punishment something unacceptable.)"
+    edition_references:
+      en_pears_mcguinness: "6.422"
+    segments:
+      - id: "6.422.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "制定「你應當……」形式的倫理法則時，首先會想：若我不照做會怎樣？"
+        interpretation_zh_tw: "第一句提出以外在後果理解規範的直覺。"
+      - id: "6.422.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "但倫理顯然與通常意義的獎懲無關。"
+        interpretation_zh_tw: "本節拒絕把倫理化約成一般獎懲機制。"
+      - id: "6.422.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "所以行動的事件性後果無關緊要。"
+        interpretation_zh_tw: "因而不能以結果事件單獨定義倫理價值。"
+      - id: "6.422.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "至少這些後果不能是事件。"
+        interpretation_zh_tw: "這句把倫理後果排除於事實序列。"
+      - id: "6.422.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "然而這種問法必有某種正確之處。"
+        interpretation_zh_tw: "維根斯坦仍保留問句中對規範力的要求。"
+      - id: "6.422.f"
+        alignment:
+          de: [5]
+          en_ogden_ramsey_1922: [5]
+        translation_zh_tw: "必有某種倫理獎懲，但它們必須位於行動本身。"
+        interpretation_zh_tw: "倫理價值被移回行動自身，而非外部事件。"
+      - id: "6.422.g"
+        alignment:
+          de: [6]
+          en_ogden_ramsey_1922: [6]
+        translation_zh_tw: "（獎賞必為可悅者，懲罰必為不可悅者。）"
+        interpretation_zh_tw: "括號描述價值感受，不是權限或錯誤碼設計。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.422 所論的「制定「你應當……」形式的倫理法則時，首先會想：若我不照做會怎樣？」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.422 的直接論旨是「制定「你應當……」形式的倫理法則時，首先會想：若我不照做會怎樣？」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.423"
+    parent: "6.42"
+    texts:
+      de:
+        - "Vom Willen als dem Träger des Ethischen kann nicht gesprochen werden."
+        - "Und der Wille als Phänomen interessiert nur die Psychologie."
+      en_ogden_ramsey_1922:
+        - "Of the will as the subject of the ethical we cannot speak."
+        - "And the will as a phenomenon is only of interest to psychology."
+    edition_references:
+      en_pears_mcguinness: "6.423"
+    segments:
+      - id: "6.423.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "作為倫理承載者的意志，不能被談論。"
+        interpretation_zh_tw: "倫理主體不屬於可描繪的世界事實。"
+      - id: "6.423.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "作為現象的意志，只與心理學有關。"
+        interpretation_zh_tw: "一旦把意志當可觀察現象，它成為心理學對象，而非超驗主體。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.423 所論的「作為倫理承載者的意志，不能被談論。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.423 的直接論旨是「作為倫理承載者的意志，不能被談論。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.43"
+    parent: "6.4"
+    texts:
+      de:
+        - "Wenn das gute oder böse Wollen die Welt ändert, so kann es nur die Grenzen der Welt ändern, nicht die Tatsachen; nicht das, was durch die Sprache ausgedrückt werden kann."
+        - "Kurz, die Welt muss dann dadurch überhaupt eine andere werden."
+        - "Sie muss sozusagen als Ganzes abnehmen oder zunehmen."
+        - "Die Welt des Glücklichen ist eine andere als die des Unglücklichen."
+      en_ogden_ramsey_1922:
+        - "If good or bad willing changes the world, it can only change the limits of the world, not the facts; not the things that can be expressed in language."
+        - "In brief, the world must thereby become quite another."
+        - "It must so to speak wax or wane as a whole."
+        - "The world of the happy is quite another than that of the unhappy."
+    edition_references:
+      en_pears_mcguinness: "6.43"
+    segments:
+      - id: "6.43.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "若善或惡的意志改變世界，它只能改變世界的界線，而非事實，也不是語言可表達之物。"
+        interpretation_zh_tw: "倫理改變被置於主體與世界之界線，不是事件清單改寫。"
+      - id: "6.43.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "簡言之，世界整體會因此成為另一個世界。"
+        interpretation_zh_tw: "「另一個世界」指觀看與生活的整體界線。"
+      - id: "6.43.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "它彷彿作為整體縮小或擴大。"
+        interpretation_zh_tw: "縮放是整體比喻，不是資料量變化。"
+      - id: "6.43.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "幸福者的世界不同於不幸者的世界。"
+        interpretation_zh_tw: "這句不是 Git branch 或資料庫副本的可能世界模型。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.43 所論的「若善或惡的意志改變世界，它只能改變世界的界線，而非事實，也不是語言可表達之物。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.43 的直接論旨是「若善或惡的意志改變世界，它只能改變世界的界線，而非事實，也不是語言可表達之物。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.431"
+    parent: "6.43"
+    texts:
+      de:
+        - "Wie auch beim Tod die Welt sich nicht ändert, sondern aufhört."
+      en_ogden_ramsey_1922:
+        - "As in death, too, the world does not change, but ceases."
+    edition_references:
+      en_pears_mcguinness: "6.431"
+    segments:
+      - id: "6.431.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "死亡時，世界也不是改變，而是終止。"
+        interpretation_zh_tw: "死亡不被描繪成世界中再發生的一個人生事件，而是該主體世界的終止。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.431 所論的「死亡時，世界也不是改變，而是終止。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.431 的直接論旨是「死亡時，世界也不是改變，而是終止。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.4311"
+    parent: "6.431"
+    texts:
+      de:
+        - "Der Tod ist kein Ereignis des Lebens."
+        - "Den Tod erlebt man nicht."
+        - "Wenn man unter Ewigkeit nicht unendliche Zeitdauer, sondern Unzeitlichkeit versteht, dann lebt der ewig, der in der Gegenwart lebt."
+        - "Unser Leben ist ebenso endlos, wie unser Gesichtsfeld grenzenlos ist."
+      en_ogden_ramsey_1922:
+        - "Death is not an event of life."
+        - "Death is not lived through."
+        - "If by eternity is understood not endless temporal duration but timelessness, then he lives eternally who lives in the present."
+        - "Our life is endless in the way that our visual field is without limit."
+    edition_references:
+      en_pears_mcguinness: "6.4311"
+    segments:
+      - id: "6.4311.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "死亡不是生命中的事件。"
+        interpretation_zh_tw: "死亡不是主體可回顧的一段經驗。"
+      - id: "6.4311.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "人不會經歷死亡。"
+        interpretation_zh_tw: "第二句排除把死亡當成被經歷狀態。"
+      - id: "6.4311.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "若永恆不是無限時間延續，而是無時間性，活在當下者便永恆地活著。"
+        interpretation_zh_tw: "永恆被重解為無時間性，不是無限長紀錄。"
+      - id: "6.4311.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "我們的生命無盡，正如視野沒有可見邊界。"
+        interpretation_zh_tw: "視野比喻說明界線不等於視野內的一個物件。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.4311 所論的「死亡不是生命中的事件。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.4311 的直接論旨是「死亡不是生命中的事件。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.4312"
+    parent: "6.431"
+    texts:
+      de:
+        - "Die zeitliche Unsterblichkeit der Seele des Menschen, das heisst also ihr ewiges Fortleben auch nach dem Tode, ist nicht nur auf keine Weise verbürgt, sondern vor allem leistet diese Annahme gar nicht das, was man immer mit ihr erreichen wollte."
+        - "Wird denn dadurch ein Rätsel gelöst, dass ich ewig fortlebe?"
+        - "Ist denn dieses ewige Leben dann nicht ebenso rätselhaft wie das gegenwärtige?"
+        - "Die Lösung des Rätsels des Lebens in Raum und Zeit liegt *ausserhalb* von Raum und Zeit."
+        - "\\(Nicht Probleme der Naturwissenschaft sind ja zu lösen.)"
+      en_ogden_ramsey_1922:
+        - "The temporal immortality of the human soul, that is to say, its eternal survival after death, is not only in no way guaranteed, but this assumption in the first place will not do for us what we always tried to make it do."
+        - "Is a riddle solved by the fact that I survive for ever?"
+        - "Is this eternal life not as enigmatic as our present one?"
+        - "The solution of the riddle of life in space and time lies *outside* space and time."
+        - "\\(It is not problems of natural science which have to be solved.)"
+    edition_references:
+      en_pears_mcguinness: "6.4312"
+    segments:
+      - id: "6.4312.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "人的靈魂死後在時間中永遠延續，不只毫無保證，也不能完成我們一向寄望它完成的事。"
+        interpretation_zh_tw: "第一句既不證成來世，也指出延長時間不是意義解答。"
+      - id: "6.4312.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "我永遠活著就解開謎題了嗎？"
+        interpretation_zh_tw: "單純延續不會改變問題的邏輯形狀。"
+      - id: "6.4312.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "永生不會和當下生命同樣難解嗎？"
+        interpretation_zh_tw: "永生仍可保留同一困惑。"
+      - id: "6.4312.d"
+        alignment:
+          de: [3]
+          en_ogden_ramsey_1922: [3]
+        translation_zh_tw: "生命在時空中的謎題，其解答位於時空之外。"
+        interpretation_zh_tw: "「之外」標示問題不屬於更多時空事實。"
+      - id: "6.4312.e"
+        alignment:
+          de: [4]
+          en_ogden_ramsey_1922: [4]
+        translation_zh_tw: "（要解決的並不是自然科學問題。）"
+        interpretation_zh_tw: "括號明確區分生命意義與自然科學可解題。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.4312 所論的「人的靈魂死後在時間中永遠延續，不只毫無保證，也不能完成我們一向寄望它完成的事。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.4312 的直接論旨是「人的靈魂死後在時間中永遠延續，不只毫無保證，也不能完成我們一向寄望它完成的事。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.432"
+    parent: "6.43"
+    texts:
+      de:
+        - "*Wie* die Welt ist, ist für das Höhere vollkommen gleichgültig."
+        - "Gott offenbart sich nicht *in* der Welt."
+      en_ogden_ramsey_1922:
+        - "*How* the world is, is completely indifferent for what is higher."
+        - "God does not reveal himself *in* the world."
+    edition_references:
+      en_pears_mcguinness: "6.432"
+    segments:
+      - id: "6.432.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "世界如何存在，對較高之物完全無關。"
+        interpretation_zh_tw: "經驗配置不能單獨決定價值意義。"
+      - id: "6.432.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "上帝不在世界中顯現自身。"
+        interpretation_zh_tw: "這是宗教與語言界線主張，軟體語料不應裁決其真假。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.432 所論的「世界如何存在，對較高之物完全無關。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.432 的直接論旨是「世界如何存在，對較高之物完全無關。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.4321"
+    parent: "6.432"
+    texts:
+      de:
+        - "Die Tatsachen gehören alle nur zur Aufgabe, nicht zur Lösung."
+      en_ogden_ramsey_1922:
+        - "The facts all belong only to the task and not to its performance."
+    edition_references:
+      en_pears_mcguinness: "6.4321"
+    segments:
+      - id: "6.4321.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "所有事實都只屬於問題，而不屬於解答。"
+        interpretation_zh_tw: "把事實收集得更完整，仍不等於解決價值與生命意義問題；這不貶低事實對經驗問題的作用。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.4321 所論的「所有事實都只屬於問題，而不屬於解答。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.4321 的直接論旨是「所有事實都只屬於問題，而不屬於解答。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.44"
+    parent: "6.4"
+    texts:
+      de:
+        - "Nicht *wie* die Welt ist, ist das Mystische, sondern *dass* sie ist."
+      en_ogden_ramsey_1922:
+        - "Not *how* the world is, is the mystical, but *that* it is."
+    edition_references:
+      en_pears_mcguinness: "6.44"
+    segments:
+      - id: "6.44.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "神祕的不是世界如何存在，而是世界竟然存在。"
+        interpretation_zh_tw: "神祕感指向世界之存在本身，不是仍缺少的科學機制。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.44 所論的「神祕的不是世界如何存在，而是世界竟然存在。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.44 的直接論旨是「神祕的不是世界如何存在，而是世界竟然存在。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.45"
+    parent: "6.4"
+    texts:
+      de:
+        - "Die Anschauung der Welt sub specie aeterni ist ihre Anschauung als – begrenztes – Ganzes."
+        - "Das Gefühl der Welt als begrenztes Ganzes ist das mystische."
+      en_ogden_ramsey_1922:
+        - "The contemplation of the world sub specie aeterni is its contemplation as a limited whole."
+        - "The feeling of the world as a limited whole is the mystical feeling."
+    edition_references:
+      en_pears_mcguinness: "6.45"
+    segments:
+      - id: "6.45.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "從永恆觀點觀看世界，就是把它看成一個有界限的整體。"
+        interpretation_zh_tw: "永恆觀點把世界作整體觀看，不是加入無限時間軸。"
+      - id: "6.45.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "感受世界為一個有界限的整體，就是神祕感。"
+        interpretation_zh_tw: "神祕感是整體感受，不能轉成可驗證資料欄位。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.45 所論的「從永恆觀點觀看世界，就是把它看成一個有界限的整體。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.45 的直接論旨是「從永恆觀點觀看世界，就是把它看成一個有界限的整體。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.5"
+    parent: "6"
+    texts:
+      de:
+        - "Zu einer Antwort, die man nicht aussprechen kann, kann man auch die Frage nicht aussprechen."
+        - "*Das Rätsel* gibt es nicht."
+        - "Wenn sich eine Frage überhaupt stellen lässt, so *kann* sie auch beantwortet werden."
+      en_ogden_ramsey_1922:
+        - "For an answer which cannot be expressed the question too cannot be expressed."
+        - "The *riddle* does not exist."
+        - "If a question can be put at all, then it *can* also be answered."
+    edition_references:
+      en_pears_mcguinness: "6.5"
+    segments:
+      - id: "6.5.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "對於不能說出的答案，問題也不能說出。"
+        interpretation_zh_tw: "可表達問題與答案共享表示條件；不表示當下已有資料可回答。"
+      - id: "6.5.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "並不存在「謎」。"
+        interpretation_zh_tw: "「謎不存在」針對超出可說界線的假問題，不否認生活困惑。"
+      - id: "6.5.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "只要一個問題能被提出，它也就能被回答。"
+        interpretation_zh_tw: "「能回答」指答案可表達，不保證容易、可計算或已知。"
+    project_relations:
+      - status: partial
+        mode: semantic_operation
+        claim_zh_tw: "Akashic 的 YesNoQuestion 保留任意有界 PropositionExpression；yes 建立 subject 的 holds valuation，no 建立 not(subject) 的 holds valuation，undetermined 則不捏造 EstablishedAnswer，且問答本身不會自動寫成 AcceptedFact。"
+        rationale_zh_tw: "6.5 把可提出問題與可表達答案連在一起。現行 slice 已使 determinate 答案不只是 label：任意合限的六運算子 expression 可由 supervaluation 回答，canonical author-list witness 可使 authored subject 實際到達 no，而 answer 保留完整 subformula trace 且不重算 atom；未知則沒有 established expression。它仍限於固定 predicates、運算子與資源預算，並非所有可表達問題的通用可答性理論，故維持 partial。"
+        evidence:
+          - path: "docs/explainers/logical-picture-future-and-questions.md"
+            kind: heading
+            locator: "## 6. 質疑：一幅 picture 可以「問」未來嗎？"
+            note_zh_tw: "此處是該專案關係目前可解析的直接文件證據，且未把生成文件當作承重來源。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "YesNoQuestion"
+            note_zh_tw: "`YesNoQuestion` 保存待回答的 expression，並預留一層可表示 no-answer 的 negation budget。"
+          - path: "Sources/AkashicProposition/Question.swift"
+            kind: symbol
+            locator: "EstablishedAnswer"
+            note_zh_tw: "`EstablishedAnswer` 將 determinate 答案綁在其確切 holds expression valuation，而非只留 yes／no label。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testAnswerSpaceIncludesUndetermined"
+            note_zh_tw: "測試確認 yes-no 問句的答案空間保留 undetermined。"
+          - path: "Tests/AkashicPropositionTests/PropositionTests.swift"
+            kind: test
+            locator: "testQuestionedStanceCannotBecomeFact"
+            note_zh_tw: "測試確認 questioned stance 不得升格為 AcceptedFact。"
+          - path: "Tests/AkashicPropositionTests/AuthorshipCompletenessPropositionTests.swift"
+            kind: test
+            locator: "testCanonicalWitnessProducesNoAndExactNegativeFact"
+            note_zh_tw: "測試確認 canonical witnessed exclusion 可達 no，並建立 `not(subject)` 的 holds valuation 與 exact negative fact。"
+          - path: "Tests/AkashicPropositionTests/NegationTests.swift"
+            kind: test
+            locator: "testNegativeSubjectNoAnswerEstablishesStructuralDoubleNegation"
+            note_zh_tw: "測試確認負向 subject 的 no 仍以結構式 `not(subject)` 表達，不把雙重否定偷化簡。"
+          - path: "Tests/AkashicPropositionTests/NegationTests.swift"
+            kind: test
+            locator: "testUndeterminedAnswerHasNoEstablishedExpression"
+            note_zh_tw: "測試確認 undetermined 不會獲得可被後續斷言的虛構答案 expression。"
+    history:
+      - kind: commit
+        reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
+        disposition: revised
+        note_zh_tw: "e16c6f6 將文件中的問句／答案分層落成 typed yes-no vertical slice；後續 EstablishedAnswer 與 canonical witness-backed no 又補上可表達的負答案，整體仍維持 partial。"
+      - kind: issue
+        reference: "https://github.com/PsychQuant/Akashic-Library/issues/203"
+        disposition: revised
+        note_zh_tw: "此 issue 所追蹤的 typed negative answer、witness-backed no 與 recursive trace 已有直接證據；通用 formula 問答仍不在此 slice。"
+  - id: "6.51"
+    parent: "6.5"
+    texts:
+      de:
+        - "Skeptizismus ist *nicht* unwiderleglich, sondern offenbar unsinnig, wenn er bezweifeln will, wo nicht gefragt werden kann."
+        - "Denn Zweifel kann nur bestehen, wo eine Frage besteht; eine Frage nur, wo eine Antwort besteht, und diese nur, wo etwas *gesagt* werden *kann*."
+      en_ogden_ramsey_1922:
+        - "Scepticism is *not* irrefutable, but palpably senseless, if it would doubt where a question cannot be asked."
+        - "For doubt can only exist where there is a question; a question only where there is an answer, and this only where something *can be said*."
+    edition_references:
+      en_pears_mcguinness: "6.51"
+    segments:
+      - id: "6.51.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "懷疑論若想在無法提問之處懷疑，便不是不可反駁，而是顯然無意義。"
+        interpretation_zh_tw: "有意義的懷疑需要可區分的答案條件。"
+      - id: "6.51.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "只有有問題之處才有懷疑；有答案之處才有問題；而只有某物能被說出之處才有答案。"
+        interpretation_zh_tw: "本句建立可說、答案、問題與懷疑的依存鏈，不要求系統隱藏未決狀態。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.51 所論的「懷疑論若想在無法提問之處懷疑，便不是不可反駁，而是顯然無意義。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.51 的直接論旨是「懷疑論若想在無法提問之處懷疑，便不是不可反駁，而是顯然無意義。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.52"
+    parent: "6.5"
+    texts:
+      de:
+        - "Wir fühlen, dass selbst, wenn alle *möglichen* wissenschaftlichen Fragen beantwortet sind, unsere Lebensprobleme noch gar nicht berührt sind."
+        - "Freilich bleibt dann eben keine Frage mehr; und eben dies ist die Antwort."
+      en_ogden_ramsey_1922:
+        - "We feel that even if *all possible* scientific questions be answered, the problems of life have still not been touched at all."
+        - "Of course there is then no question left, and just this is the answer."
+    edition_references:
+      en_pears_mcguinness: "6.52"
+    segments:
+      - id: "6.52.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "即使所有可能的科學問題都已回答，生命問題仍完全未被觸及。"
+        interpretation_zh_tw: "科學完整性與生命意義分屬不同層次。"
+      - id: "6.52.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "那時當然已沒有問題留下；這本身就是答案。"
+        interpretation_zh_tw: "問題消失不是新添一項科學答案。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.52 所論的「即使所有可能的科學問題都已回答，生命問題仍完全未被觸及。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.52 的直接論旨是「即使所有可能的科學問題都已回答，生命問題仍完全未被觸及。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.521"
+    parent: "6.52"
+    texts:
+      de:
+        - "Die Lösung des Problems des Lebens merkt man am Verschwinden dieses Problems."
+        - "\\(Ist nicht dies der Grund, warum Menschen, denen der Sinn des Lebens nach langen Zweifeln klar wurde, warum diese dann nicht sagen konnten, worin dieser Sinn bestand.)"
+      en_ogden_ramsey_1922:
+        - "The solution of the problem of life is seen in the vanishing of this problem."
+        - "\\(Is not this the reason why men to whom after long doubting the sense of life became clear, could not then say wherein this sense consisted?)"
+    edition_references:
+      en_pears_mcguinness: "6.521"
+    segments:
+      - id: "6.521.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "生命問題的解答，可從這個問題的消失看出。"
+        interpretation_zh_tw: "解答不以新增一條內容命題呈現，而表現在問題不再逼迫人。"
+      - id: "6.521.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（那些長久懷疑後明白生命意義的人，仍說不出意義何在，不正是因此嗎？）"
+        interpretation_zh_tw: "括號是說／顯示之別的例示，不是心理學定律。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.521 所論的「生命問題的解答，可從這個問題的消失看出。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.521 的直接論旨是「生命問題的解答，可從這個問題的消失看出。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.522"
+    parent: "6.52"
+    texts:
+      de:
+        - "Es gibt allerdings Unaussprechliches."
+        - "Dies *zeigt* sich, es ist das Mystische."
+      en_ogden_ramsey_1922:
+        - "There is indeed the inexpressible."
+        - "This *shows* itself; it is the mystical."
+    edition_references:
+      en_pears_mcguinness: "6.522"
+    segments:
+      - id: "6.522.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "確實有不可說之物。"
+        interpretation_zh_tw: "「不可說」不等於不存在。"
+      - id: "6.522.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "它顯示自身，它就是神祕者。"
+        interpretation_zh_tw: "也不能因此把任何缺乏證據的斷言升格為神祕真理。"
+    project_relations:
+      - status: not_applicable
+        claim_zh_tw: "Akashic 目前沒有把命題 6.522 所論的「確實有不可說之物。」設為直接軟體行為。"
+        rationale_zh_tw: "命題 6.522 的直接論旨是「確實有不可說之物。」；這句處理倫理、價值、生命意義或神祕界線；Akashic 只能聲明自身表示限制，不能把資料模型冒充對該論旨的實作或裁決。"
+    history: []
+  - id: "6.53"
+    parent: "6.5"
+    texts:
+      de:
+        - "Die richtige Methode der Philosophie wäre eigentlich die: Nichts zu sagen, als was sich sagen lässt, also Sätze der Naturwissenschaft – also etwas, was mit Philosophie nichts zu tun hat –, und dann immer, wenn ein anderer etwas Metaphysisches sagen wollte, ihm nachzuweisen, dass er gewissen Zeichen in seinen Sätzen keine Bedeutung gegeben hat."
+        - "Diese Methode wäre für den anderen unbefriedigend – er hätte nicht das Gefühl, dass wir ihn Philosophie lehrten – aber *sie* wäre die einzig streng richtige."
+      en_ogden_ramsey_1922:
+        - "The right method of philosophy would be this."
+        - "To say nothing except what can be said, *i.e.* the propositions of natural science, *i.e.* something that has nothing to do with philosophy: and then always, when someone else wished to say something metaphysical, to demonstrate to him that he had given no meaning to certain signs in his propositions."
+        - "This method would be unsatisfying to the other—he would not have the feeling that we were teaching him philosophy—but it would be the only strictly correct method."
+    edition_references:
+      en_pears_mcguinness: "6.53"
+    segments:
+      - id: "6.53.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0, 1]
+        translation_zh_tw: "哲學的正確方法是只說可說之物，也就是自然科學命題；有人想說形上學之物時，就指出其命題某些記號沒有指涉。"
+        interpretation_zh_tw: "德文第一句對應英譯兩句，將哲學定位為意義澄清而非競爭性理論。"
+      - id: "6.53.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "這方法會令對方不滿，但它是唯一嚴格正確的方法。"
+        interpretation_zh_tw: "方法的嚴格性來自守住記號意義界線，不來自讓對方滿意。"
+    project_relations:
+      - status: intentional_nonconformance
+        mode: declared_nonconformance
+        claim_zh_tw: "Akashic 刻意保留規範性設計與哲學解說，不把可寫文件限縮為自然科學命題。"
+        rationale_zh_tw: "專案以哲學作概念澄清並與經驗事實分層；這不把形上學句子寫入 canonical store 當事實。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "# Part II：哲學基礎"
+            note_zh_tw: "此處是該專案關係目前可解析的直接文件證據，且未把生成文件當作承重來源。"
+    history: []
+  - id: "6.54"
+    parent: "6.5"
+    texts:
+      de:
+        - "Meine Sätze erläutern dadurch, dass sie der, welcher mich versteht, am Ende als unsinnig erkennt, wenn er durch sie – auf ihnen – über sie hinausgestiegen ist."
+        - "(Er muss sozusagen die Leiter wegwerfen, nachdem er auf ihr hinaufgestiegen ist.)"
+        - "Er muss diese Sätze überwinden, dann sieht er die Welt richtig."
+      en_ogden_ramsey_1922:
+        - "My propositions are elucidatory in this way: he who understands me finally recognizes them as senseless, when he has climbed out through them, on them, over them."
+        - "(He must so to speak throw away the ladder, after he has climbed up on it.)"
+        - "He must surmount these propositions; then he sees the world rightly."
+    edition_references:
+      en_pears_mcguinness: "6.54"
+    segments:
+      - id: "6.54.a"
+        alignment:
+          de: [0]
+          en_ogden_ramsey_1922: [0]
+        translation_zh_tw: "我的命題作為闡明：理解者最後會認出它們無意義，因為他已穿過、踏在其上並越過它們。"
+        interpretation_zh_tw: "闡明語句完成工作後不再被當成世界事實；「無意義」不是說它們毫無用途。"
+      - id: "6.54.b"
+        alignment:
+          de: [1]
+          en_ogden_ramsey_1922: [1]
+        translation_zh_tw: "（他爬上梯子後，必須把梯子丟掉。）"
+        interpretation_zh_tw: "梯子是閱讀方法比喻，不是刪除來源或版本歷史的指令。"
+      - id: "6.54.c"
+        alignment:
+          de: [2]
+          en_ogden_ramsey_1922: [2]
+        translation_zh_tw: "他必須克服這些命題，然後才會正確地看世界。"
+        interpretation_zh_tw: "「克服」是哲學閱讀終點，不授權把所得世界觀當成新資料事實。"
+    project_relations:
+      - status: intentional_nonconformance
+        mode: declared_nonconformance
+        claim_zh_tw: "Akashic 不把「丟掉梯子」採作刪除規格、來源或修訂脈絡的工程政策；有意義的理解變化必須可稽核。"
+        rationale_zh_tw: "梯子比喻處理闡明命題的哲學地位，不是版本控制指令；專案因此刻意保留形成理解所需的文件歷史。"
+        evidence:
+          - path: "docs/design-principles-and-philosophy.md"
+            kind: heading
+            locator: "## 6. 有意義的變化必須保存歷史"
+            note_zh_tw: "此處是該專案關係目前可解析的直接文件證據，且未把生成文件當作承重來源。"
+    history: []

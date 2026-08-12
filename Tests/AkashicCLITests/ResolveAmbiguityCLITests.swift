@@ -61,7 +61,12 @@ final class ResolveAmbiguityCLITests: XCTestCase {
     ///
     /// `names` 不具區辨力——它們之所以被比到一起，正是因為正規化後相同。真正能分辨
     /// 「兩個同名的人」（各自歸屬）與「同一人兩筆記錄」（該合併）的是外部識別碼與
-    /// 時空不相容。#236 R1 實測：把區辨欄位塌成 `personKeys[0]`，1382 條測試零新增失敗。
+    /// 時空不相容。#236 R1 實測：把區辨欄位塌成 `personKeys[0]`，零新增失敗。
+    ///
+    /// 那次的條數（1382）來自 **verify 席的工作樹**，含當時尚未併入本分支的工作，
+    /// 與此處 `swift test` 的條數對不上——記在這裡是為了不讓後人以為那個數字應該
+    /// 重現得出來。該變異**現在會被本檔抓到**（這些測試正是為此而加），所以它是
+    /// 一次不可重測的歷史量測，不是可驗證的現況。
     func testAmbiguityCarriesDiscriminators() throws {
         try writePerson(key: "amb-one", names: ["Ambi Guous"], orcid: "0000-0001-2345-6789")
         try writePerson(key: "amb-two", names: ["Ambi Guous"], died: "2001")
@@ -161,9 +166,11 @@ final class ResolveAmbiguityCLITests: XCTestCase {
                       "兩個候選都要列：\n\(r.output)")
     }
 
-    /// **有候選時也要印歧義。** #236 R2：這兩個呼叫點零覆蓋——刪掉它們，1389 條
-    /// 測試逐字不變。先前的測試只涵蓋「無候選」分支，於是突變驗證只證明了**我測到
-    /// 的那條路徑**有守衛，沒證明所有路徑都有。
+    /// **有候選時也要印歧義。** #236 R2：這兩個呼叫點零覆蓋——刪掉它們，整套測試
+    /// 逐字不變。先前的測試只涵蓋「無候選」分支，於是突變驗證只證明了**我測到的
+    /// 那條路徑**有守衛，沒證明所有路徑都有。
+    ///
+    /// （原文寫「1389 條」，同上一則的理由：那是 verify 席工作樹的條數，不是本分支的。）
     func testAmbiguityShownAlongsideCandidates() throws {
         try writePerson(key: "solo", names: ["Solo Author"])          // 會出候選
         try writePerson(key: "amb-one", names: ["Ambi Guous"])

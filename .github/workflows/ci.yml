@@ -45,8 +45,8 @@ jobs:
       # `@discardableResult` 後 14 個站點變成 unused-result **warning**，`swift test`
       # 照樣 0 failures，而 warning 在一般 build 輸出裡很容易被淹沒。
       #
-      # 只對 build 開、不對 test 開：測試碼常有刻意的未使用結果（斷言只看有沒有擲錯），
-      # 把它們一起擋會逼出一堆 `_ =` 噪音，而那不是本守衛要防的東西。
+      # build 與 test target 都開啟：測試碼本身若因 API 轉為 nonthrowing 而留下
+      # 多餘 `try`，也會讓可重現驗證與實際 merge tree 分歧（#215）。
       - name: Build（warnings 視為錯誤）
         run: swift build -Xswiftc -warnings-as-errors
 
@@ -55,7 +55,7 @@ jobs:
       - name: Test
         run: |
           set -o pipefail
-          swift test 2>&1 | tee /tmp/test.log
+          swift test -Xswiftc -warnings-as-errors 2>&1 | tee /tmp/test.log
 
       # 測試「跑到一半崩掉」由 exit code 擋（fatal error 會讓程序非零退出）。
       # 這一步擋的是**另一種**失敗：測試靜默地不再被執行——整個 suite 沒編進

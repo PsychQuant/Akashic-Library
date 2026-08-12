@@ -2864,6 +2864,12 @@
 <ul>
 <li><code>not_applicable</code> — Akashic 目前不主張命題 3.203 的哲學論旨具有直接的軟體實作對應。<br><small>理由：命題 3.203 直接主張「名稱意指對象。」，本卷並將其限制解讀為「名稱的角色是指向對象；它不把對象的全部性質或內部結構包含在字樣裡。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。</small>
 </li>
+<li><code>analogy_only</code> / <code>structural_invariant</code> — 在來源存檔層，被儲存的位元組扮演對象的角色：sha256 digest 是它唯一的名，名住在記號層（entity 與 provenance 引用），位元組本身不承載名字。<br><small>理由：#223 的 digest-not-path 判準把本命題讀作儲存層的結構類比：內容定址的存檔沒有名字、沒有歷史、沒有生命週期——它只能被 digest 指稱，一如對象只能被命名、名稱不把對象的內部結構包含在字樣裡。上一條 not_applicable 否定的是「Akashic entity 是簡單對象」；本條肯定的是另一件事——store 分層裡「位元組／指稱」的角色分配與名稱—對象關係同構。兩條相容並存，否定與肯定的對象不同。</small>
+<ul>
+<li><code>Sources/AkashicStoreIO/SourceStore.swift</code>（symbol：<code>storeSourceContent</code>）— doc comment 明言存檔不是 entity——沒有名字、沒有歷史、沒有生命週期；digest 算在原始位元組上，判準客觀。</li>
+<li><code>openspec/specs/provenance-reference/spec.md</code>（requirement：<code>Retrieved content SHALL be addressed by the digest of its bytes</code>）— digest 定址是 normative 條款：內容只能以位元組的 digest 指稱。</li>
+</ul>
+</li>
 </ul>
 </td>
 </tr>
@@ -2935,6 +2941,12 @@
 <strong>Akashic 專案關係</strong>
 <ul>
 <li><code>not_applicable</code> — Akashic 目前不主張命題 3.221 的哲學論旨具有直接的軟體實作對應。<br><small>理由：命題 3.221 直接主張「對象我只能加以命名。」，本卷並將其限制解讀為「名稱提供指涉位置，但不把對象本身轉成一串可以直接說出的內容。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。</small>
+</li>
+<li><code>analogy_only</code> / <code>shown_constraint</code> — 庫內對存檔內容的一切觸及都是命名：entity 與 provenance 引用以 digest 代表位元組，庫不把位元組本身「說出來」——檔案系統路徑不是名，會漂移的指涉不被承認。<br><small>理由：命題 3.221 說對象只能命名、記號代替它們；store 對應的約束是：blob 進庫後唯一合法的指稱方式是 digest（記號站到位元組的位置），而 blob 不佔 canonical entity namespace——庫只能「談論」它（記 provenance、掛引用），不能把它變成一筆有名字、有生命週期的記錄。這是 #223 裁決 digest-not-path 時的推導步驟：名住在別處，兩層之間的連結因此必須是 digest 引用。</small>
+<ul>
+<li><code>openspec/specs/provenance-reference/spec.md</code>（requirement：<code>Stored content SHALL NOT occupy the canonical entity namespace</code>）— blob 不進 entity namespace 是 normative 條款：位元組層無名，名在記號層。</li>
+<li><code>Sources/AkashicStoreIO/SourceStore.swift</code>（symbol：<code>sourceURL</code>）— 由 digest（記號）解析到存檔位置的唯一通道；形狀不合法的 digest 直接回 nil。</li>
+</ul>
 </li>
 </ul>
 </td>

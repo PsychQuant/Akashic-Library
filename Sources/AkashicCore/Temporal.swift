@@ -151,23 +151,63 @@ public struct TimelineOf<V: Equatable & Comparable>: Equatable {
         entries.filter(\.range.isOpen).max()
     }
 
-    /// 「最近**結束**的那一段」——給沒有現職時的回退顯示用（#236 R3）。
+    /// 沒有現職時，用來顯示「過去」的那一段（#236 R3；分層規則 R4）。
     ///
     /// **不要用 `entries.max()`。** 那走的是 `DateRange.<`，而它是**相等性用的全序**
     /// （見下方 `sorted` 的警告），其中 `nil` start **排最後**——`.max()` 因此回傳
     /// 「起點未知」那段，不是最近的一段。#236 R3 有五條 finding 命中這個誤用。
     ///
-    /// 這裡用明確的近時判準：已知 `end` 的取最大 `end`；沒有就取已知 `start` 的最大
-    /// `start`；再沒有就取 `attested` 的最大觀測點。完全沒有日期的段**不參與**——
-    /// 它們無法宣稱「較近」，硬排會製造一個沒有根據的順序（#100 的同一個病）。
-    public var mostRecentlyEnded: TemporalValue<V>? {
-        func recencyKey(_ r: DateRange) -> String? {
-            if let e = r.end { return e }
-            if let s = r.start { return s }
-            return r.attested.max()
+    /// ## 分層挑選，不混池
+    ///
+    /// 三種時間狀態是**不同性質的量**，不可比大小：
+    ///
+    /// | 層 | 條件 | 層內比較 |
+    /// |---|---|---|
+    /// | 1 | 有已知 `end` | 最大 `end` |
+    /// | 2 | `endedUnknown`（#63：已結束、時點未知）| 最大 `start`；無 `start` 者排後 |
+    /// | 3 | 只有 `attested` 觀測點（#70）| 最大觀測點 |
+    ///
+    /// **高層存在時低層完全不參與**：第 1 層 2010 年的結束勝過第 3 層 2020 年的觀測，
+    /// 因為後者根本沒有宣稱結束。R3 的第一版把三者塞進同一個字串比大小，於是觀測點
+    /// 會蓋掉真正的結束（R4 HIGH）——那是把「被看到過」誤當成「離開了」。
+    ///
+    /// 第 2 層在第一版被**整個丟掉**（`recencyKey` 對它回 `nil`，`compactMap` 濾除），
+    /// 使 #63 的 43 位退休 PI 在 CLI 上印出**假的**「⚠ 無任何區辨欄位」。那是 R3 引入
+    /// 的回歸，R4 抓到。
+    ///
+    /// ## 呼叫端的義務
+    ///
+    /// **必須自己看 `range` 決定措辭。** 把第 3 層印成終止日期是捏造——那個人沒有
+    /// 任何資料主張他何時離開（R4 HIGH：App 印成「（–2020）」）。
+    ///
+    /// ## 兩個刻意的限制
+    ///
+    /// 日期比較沿用**字串序**，與同檔 `DateRange.<` 一致。刻意不另立精度感知的第二套
+    /// 順序，即使那表示混精度時 `2004` 會輸給 `2004-01`（`2004` 的語意是「2004 年結束」，
+    /// 應勝）。**一個檔案裡有兩種「誰比較晚」的答案，比這個已知偏差更糟。**
+    ///
+    /// 層內同分時取**序列化順序較後者**——這只是為了讓結果穩定可重現，
+    /// **不宣稱它較近**。先前靠 `max` 的未定行為決勝，兩個 `==` 相等的時間軸會報出
+    /// 不同的隸屬（R4 MEDIUM）。
+    public var latestPastSegment: TemporalValue<V>? {
+        /// 層內挑選：有 key 的優先，key 相同或皆無 key 時取索引較後者。
+        func pick(_ xs: [(TemporalValue<V>, String?)]) -> TemporalValue<V>? {
+            xs.enumerated().max { a, b in
+                switch (a.element.1, b.element.1) {
+                case let (l?, r?): return l == r ? a.offset < b.offset : l < r
+                case (nil, _?):    return true       // 無 key < 有 key
+                case (_?, nil):    return false
+                case (nil, nil):   return a.offset < b.offset
+                }
+            }?.element.0
         }
-        return entries.compactMap { e in recencyKey(e.range).map { (e, $0) } }
-            .max { $0.1 < $1.1 }?.0
+        let ended = entries.filter { $0.range.end != nil }
+        if !ended.isEmpty { return pick(ended.map { ($0, $0.range.end) }) }
+        let unknown = entries.filter(\.range.endedUnknown)
+        if !unknown.isEmpty { return pick(unknown.map { ($0, $0.range.start) }) }
+        let attested = entries.filter { !$0.range.attested.isEmpty }
+        if !attested.isEmpty { return pick(attested.map { ($0, $0.range.attested.max()) }) }
+        return nil
     }
 
     /// 依時間排序（全序：同區間時按值排）。**供相等性使用**——`==` 定義為

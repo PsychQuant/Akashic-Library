@@ -144,4 +144,38 @@ final class AdjudicationTests: XCTestCase {
         XCTAssertFalse(model.candidates.contains { $0.citekey == "amb2020x" },
                        "歧義套用不了——型別層就吃不進 apply")
     }
+
+    /// #236 R4：**觀測點不是終止日期**。裁決台先前對三種時間狀態一律套 `（–X）`，
+    /// 於是「2020 年被看到在這裡」被印成「2020 年結束」——那是捏造，而且捏造的正是
+    /// 使用者要拿來判斷「這兩個同名的人是不是同一個」的那個欄位。
+    ///
+    /// CLI（`rangeLabel`）與 MCP（`formerAffiliationAttested`）都分得開，只有這一面沒有。
+    func testAdjudicationDistinguishesThreePastTimeStates() throws {
+        var seq = 0
+        func aff(_ range: DateRange) throws -> String {
+            seq += 1
+            let key = "past-person-\(seq)"
+            var p = Person(key: key, names: ["Past Person \(seq)"])
+            p.profile.affiliations = TimelineOf([
+                TemporalValue(value: OrgRef.literal("Some Lab"), range: range)
+            ])
+            try LibraryStore(root: root).writePerson(p)
+            try state.load()
+            return PeopleResolveModel(state: state).discriminators(for: key).affiliation ?? ""
+        }
+
+        let ended = try aff(DateRange(start: "2005", end: "2015"))
+        XCTAssertTrue(ended.contains("–2015"), "確實結束 → 印終止日期：\(ended)")
+
+        var unknown = DateRange(start: "2005")
+        unknown.endedUnknown = true
+        let u = try aff(unknown)
+        XCTAssertTrue(u.contains("時點未知"), "#63 已結束但不知何時 → 明說未知：\(u)")
+        XCTAssertFalse(u.contains("–2005"), "start 不是 end，不得印成終止：\(u)")
+
+        let observed = try aff(DateRange(attested: ["2020"]))
+        XCTAssertTrue(observed.contains("觀測"), "#70 只有觀測點 → 標成觀測：\(observed)")
+        XCTAssertFalse(observed.contains("–2020"),
+                       "**不得**印成終止——沒有任何資料主張他 2020 年離開：\(observed)")
+    }
 }

@@ -251,6 +251,13 @@ final class ServiceTests: XCTestCase {
                           + "實際 \(raw.utf8.count) bytes")
 
         let out = try json(raw) as! [String: Any]
+        // **這條測試涵蓋不到 candidates 那一半**，而且是**結構上**涵蓋不到：60 人同名
+        // → 全是歧義 → 一個候選都沒有。R4 指出它因此在 candidates 上恆真——同一個
+        // 「守衛在它要防的失敗上恆真」的教訓，在這個檔案裡這是第三次。
+        // 把前提寫成斷言，讓「形狀變了、覆蓋沒了」會紅，而不是安靜地繼續綠。
+        XCTAssertTrue((out["candidates"] as! [[String: Any]]).isEmpty,
+                      "前提：本 store 形狀產不出候選。candidates 那半由 "
+                      + "testResolvePeopleCandidatesHalfIsAlsoByteBounded 涵蓋")
         // **截斷發生時就要說**，不論是哪一軸被截
         XCTAssertEqual(out["truncated"] as? Bool, true,
                        "ambiguityTotal 是 1 但 refs／people 被截了——truncated 必須為 true，"
@@ -343,6 +350,45 @@ final class ServiceTests: XCTestCase {
         XCTAssertEqual(Set((out["people"] as! [String: Any]).keys), shownRefs,
                        "people 的鍵必須恰好等於回傳歧義引用到的 ref 聯集——"
                        + "多了是孤兒 payload，少了是查不到")
+    }
+
+    /// **candidates 那一半也要位元組上限**（#236 R4 CRITICAL）。
+    ///
+    /// 先前它只有列數上限（50）。`id` 是 `"<citekey>:<index>"`，而 citekey 是原始
+    /// store 內容、`StoreKey.pattern` **沒有長度上限**——席位用真 binary 實測單列
+    /// 1,208,606 bytes，四軸上限全設好的情況下整個回應仍是 281,919 bytes。
+    ///
+    /// `id` 不能截斷（`--apply` 要拿它對回來），所以吃不下的整列不印並回報。
+    func testResolvePeopleCandidatesHalfIsAlsoByteBounded() throws {
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "solo-author", names: ["Solo Author"]))
+        // 三筆正常 + 五筆巨大 citekey（合法：`[a-z0-9][a-z0-9-]*`，無長度上限）
+        for i in 0..<3 {
+            try store.writeEntry(Entry(id: UUID(), citekey: "short\(i)", type: "article",
+                                       title: "T", authors: [.literal("Solo Author")], date: "2020"))
+        }
+        let huge = String(repeating: "a", count: 40_000)
+        for i in 0..<5 {
+            try store.writeEntry(Entry(id: UUID(), citekey: "\(huge)-\(i)", type: "article",
+                                       title: "T", authors: [.literal("Solo Author")], date: "2020"))
+        }
+
+        let raw = try service.resolvePeople(apply: nil)
+        let out = try json(raw) as! [String: Any]
+        // 前提：這個 store 形狀**真的**產得出候選——否則本測試與它要防的失敗無關
+        XCTAssertGreaterThan((out["candidates"] as! [[String: Any]]).count, 0,
+                             "前提：必須有候選，否則這條又是空洞守衛")
+        XCTAssertEqual(out["candidateTotal"] as? Int, 8)
+
+        XCTAssertLessThan(raw.utf8.count, 128 * 1024,
+                          "兩半各 48 KB 預算 → 整個回應必須有界。實際 \(raw.utf8.count) bytes")
+        XCTAssertGreaterThan(out["candidateRowsDropped"] as? Int ?? 0, 0,
+                             "巨大 citekey 的列吃不下 → 要丟，而且要說")
+        XCTAssertEqual(out["truncated"] as? Bool, true,
+                       "candidates 被丟也算截斷——旗標自稱涵蓋整個回應")
+        // 丟掉的必須是巨大的那些；短的照樣可用（否則等於整個功能被一筆壞資料癱瘓）
+        let ids = (out["candidates"] as! [[String: Any]]).compactMap { $0["id"] as? String }
+        XCTAssertTrue(ids.contains { $0.hasPrefix("short") }, "短 citekey 的候選要留著：\(ids.count) 筆")
     }
 
     /// `people[ref].names` 的 `prefix(2)` 是第四種丟棄（#236 R4）。它先前**不算進**

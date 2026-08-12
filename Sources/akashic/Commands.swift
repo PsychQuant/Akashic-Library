@@ -994,7 +994,7 @@ struct ResolvePeople: ParsableCommand {
                     // 沒有現職就退到最近一段，並把時間狀態標出來。
                     if let cur = p?.profile.affiliations.current?.value {
                         bits.append("隸屬:\(displaySafe(cur.displayName, max: 60))")
-                    } else if let last = p?.profile.affiliations.mostRecentlyEnded {
+                    } else if let last = p?.profile.affiliations.latestPastSegment {
                         let when = rangeLabel(last.range)
                         bits.append("曾隸屬:\(displaySafe(last.value.displayName, max: 60))"
                                     + (when.isEmpty ? "" : "（\(when)）"))   // display-safe-exempt: rangeLabel 內部已消毒（不冪等，不得再包）

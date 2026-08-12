@@ -389,7 +389,7 @@ extension OrgBootstrapResolveTests {
                        "唯一的可容許候選應該直接出候選")
     }
 
-    /// #236 R3：`mostRecentlyEnded` 不得用 `entries.max()`。
+    /// #236 R3：`latestPastSegment` 不得用 `entries.max()`。
     ///
     /// `DateRange.<` 是**相等性用的全序**，其中 `nil` start **排最後**——`.max()`
     /// 回傳的是「起點未知」那段，不是最近的一段。五條 finding 命中這個誤用。
@@ -401,7 +401,46 @@ extension OrgBootstrapResolveTests {
         ])
         XCTAssertEqual(tl.entries.max()?.value, "undated",
                        "前提：`.max()` 走相等性全序，nil start 排最後")
-        XCTAssertEqual(tl.mostRecentlyEnded?.value, "recent",
+        XCTAssertEqual(tl.latestPastSegment?.value, "recent",
                        "**近時判準**要取真正最近結束的那段，不是無日期那段")
+    }
+
+    /// #236 R4：**觀測點不是結束**。第一版把 `end`／`start`／`attested` 塞進同一個
+    /// 字串比大小，於是「2020 年被看到過」蓋掉「2010 年確實離開」——把「被看到」
+    /// 誤當成「離開了」。
+    func testEndedSegmentOutranksLaterAttestedObservation() {
+        let tl = TimelineOf([
+            TemporalValue(value: "really-ended", range: DateRange(start: "2005", end: "2010")),
+            TemporalValue(value: "only-observed", range: DateRange(attested: ["2020"])),
+        ])
+        XCTAssertEqual(tl.latestPastSegment?.value, "really-ended",
+                       "第 1 層存在時第 3 層不參與——後者根本沒宣稱結束")
+    }
+
+    /// #236 R4 回歸：只有 `endedUnknown`（#63：已結束、時點未知）的段被**整個丟掉**，
+    /// 因為第一版的 `recencyKey` 對它回 `nil`、被 `compactMap` 濾除。
+    ///
+    /// 後果不是少印一行，是 CLI 印出**假話**：43 位退休 PI 會得到
+    /// 「⚠ 無任何區辨欄位」，而 store 裡明明記著他們的隸屬。
+    func testEndedUnknownWithNoDatesIsStillReturned() {
+        var r = DateRange()
+        r.endedUnknown = true
+        let tl = TimelineOf([TemporalValue(value: "retired-pi-affiliation", range: r)])
+        XCTAssertEqual(tl.latestPastSegment?.value, "retired-pi-affiliation",
+                       "已結束但時點未知＝有隸屬資訊，不是沒有")
+    }
+
+    /// 層內同分要**穩定**。先前靠 `max` 的未定行為決勝，兩個 `==` 相等的時間軸
+    /// 會報出不同的隸屬（R4 MEDIUM）。這裡只要求可重現，不宣稱哪一段「較近」。
+    func testTiesAreResolvedDeterministically() {
+        let mk = { TimelineOf([
+            TemporalValue(value: "a", range: DateRange(start: "2000", end: "2010")),
+            TemporalValue(value: "b", range: DateRange(start: "2001", end: "2010")),
+        ]) }
+        let first = mk().latestPastSegment?.value
+        XCTAssertNotNil(first)
+        for _ in 0..<20 {
+            XCTAssertEqual(mk().latestPastSegment?.value, first, "同一輸入必須每次同答案")
+        }
     }
 }

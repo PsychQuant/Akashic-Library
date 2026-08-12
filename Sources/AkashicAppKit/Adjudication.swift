@@ -68,9 +68,18 @@ public final class PeopleResolveModel {
         let aff: String?
         if let cur = p?.profile.affiliations.current?.value.displayName {
             aff = "隸屬:" + cur
-        } else if let last = p?.profile.affiliations.mostRecentlyEnded {
-            let when = last.range.end ?? (last.range.endedUnknown ? "時點未知" : last.range.attested.max())
-            aff = "曾隸屬:" + last.value.displayName + (when.map { "（–\($0)）" } ?? "")
+        } else if let last = p?.profile.affiliations.latestPastSegment {
+            // **三種時間狀態不可共用一種措辭**（#236 R4）。先前一律套 `（–X）`，
+            // 於是 `attested:[2020]`（只是「2020 年被看到在這裡」）被印成
+            // 「（–2020）」＝「2020 年結束」——**那是捏造**：那個人沒有任何資料
+            // 主張他何時離開。CLI 與 MCP 都分得開，只有這一面把它們塌在一起。
+            let r = last.range
+            let when: String
+            if let e = r.end { when = "（–\(e)）" }                       // 確實結束於 e
+            else if r.endedUnknown { when = "（已結束・時點未知）" }        // #63
+            else if let a = r.attested.max() { when = "（觀測:\(a)）" }     // #70：不是終止
+            else { when = "" }
+            aff = "曾隸屬:" + last.value.displayName + when
         } else {
             aff = nil
         }

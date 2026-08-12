@@ -373,6 +373,51 @@ public final class AkashicService {
                         record.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
                 }
                 if let orcid = record.orcid { personDict["orcid"] = displaySafe(orcid, max: 200) }
+                // **隸屬必須看得到**（#218 verify HIGH）。`profile.affiliations` 是
+                // `entity-backlink-completeness` 封閉列舉的第 7 條，而且是**存在 person
+                // 自己身上**的邊——連反向現算都不需要。先前這個聚合面沒有它，於是那條
+                // 規則被它自己舉為範例的命令當天違反，README 的「隸屬哪裡」也沒有入口。
+                //
+                // `.key` 與 `.literal` **分開兩個欄位**，不折成一欄：未歸戶不得冒充
+                // identity（同 `EntityRef` 的立場）。缺席即資訊——`RelationalExport`
+                // 已記過這個理由：不需要「是否已歸戶」的旗標，兩個欄位可以互相矛盾，
+                // 一個 sum type 不會。
+                //
+                // **`DateRange` 有四個欄位，四個都要帶**（#218 R2 verify HIGH，四個 lens
+                // 獨立命中）。第一版只搬 `start`／`end`，於是：
+                //
+                //   start:2003, end:nil, ended:false（在職）      → {start:"2003"}
+                //   start:2003, end:nil, ended:true （已離職）    → **逐位元組相同**
+                //   attested:[2019,2021]（僅觀測點）              → {} 與「無時間資訊」同形
+                //
+                // `endedUnknown` 的 doc 指名的正是這個失效：「43 位退休 PI 只有『已退休』
+                // 的事實、沒有年份——`end: nil` 的既有語意（進行中）會把整批算成現職」。
+                // 而 `RelationalExport` 有輸出它（`ended_unknown` 欄、`affiliation_status
+                // = retired`），所以漏掉等於讓兩個衍生面對同一筆記錄互相矛盾。
+                //
+                // **缺席看得出來，冒充看不出來** ——R1 的缺口是可見的，這一版若照舊
+                // 就是對真人的假陳述，而且同時出現在 CLI 與直達 LLM 的 MCP 回應裡。
+                //
+                // 順序用 `inSerializationOrder` 而非 `sorted`：後者是**相等性比較器**，
+                // `Temporal.swift:158` 逐字寫著「**不要拿它當序列化順序**（#69）」——
+                // 它在無日期段上完全由 `value` 決勝（#69 的實例：主名被推到英文名之後）。
+                let affs = record.profile.affiliations.inSerializationOrder.map { seg -> [String: Any] in
+                    var d: [String: Any] = [:]
+                    switch seg.value {
+                    case .key(let k):     d["organization_key"] = displaySafe(k, max: 200)
+                    case .literal(let s): d["literal"] = displaySafe(s, max: 200)
+                    }
+                    if let st = seg.range.start { d["start"] = displaySafe(st, max: 40) }
+                    if let en = seg.range.end { d["end"] = displaySafe(en, max: 40) }
+                    if seg.range.endedUnknown { d["ended"] = true }   // display-safe-exempt: Bool
+                    if !seg.range.attested.isEmpty {
+                        d["attested"] = seg.range.attested.map { displaySafe($0, max: 40) }
+                    }
+                    return d
+                }
+                // **空集合也要出現**（規則執行細節 4，同一輪剛把 co_authors 的省略判為 bug）：
+                // 缺席時分辨不出「這個人沒有隸屬記錄」與「這個欄位掉了」。
+                personDict["affiliations"] = affs
             }
             return try jsonString([
                 "person": personDict,

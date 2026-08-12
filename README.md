@@ -41,6 +41,8 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
                                  bootstrap-people / bootstrap-organizations /
                                  resolve-organizations / update-person /
                                  person（讀取面，#218）/ create-entry（#206）/
+                                 people / get-entry / link / tag / set-status（#219，
+                                 與 MCP 同名 tool 共用 AkashicService 同一函式）/
                                  doctor / query / graph /
                                  rename / record-divergence（--prefers）/
                                  resolve-divergence（--override-reason）/

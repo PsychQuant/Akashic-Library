@@ -46,10 +46,16 @@ final class GitSpawnHygieneTests: XCTestCase {
     private let auditedFiles: Set<String> = [
         // Sources/
         "DivergenceResolve.swift",     // 共用 helper git(_:in:)；SourceStore 與刪除閘都走它
-        "Validation.swift",            // TractatusDocs 的歷史驗證（兩處）
         // Tests/
         "GitFixture.swift",            // #234 的原始現場
-        "CorpusValidationTests.swift", // history 測試的 runGit／gitOutput（#234 同類）
+        // **`Validation.swift` 與 `CorpusValidationTests.swift` 刻意不在此列**：
+        // 它們屬於 TractatusDocs，目前只存在於 PR #237 的分支、不在 main 上。原始
+        // 修法（`idd/230-xcrun-toolchain`）同時含那兩處，本 branch 抽出時把它們留給
+        // #237——**該 PR 合併時必須把這兩行加回來**，否則 TractatusDocs 的兩處
+        // git 呼叫會落在本守衛的視野之外。
+        //
+        // 這條清單是封閉列舉：多了會紅（stale），少了也會紅（offender 未列）。
+        // 上面那句提醒之所以必要，是因為「少了」只有在檔案真的進 main 之後才會紅。
     ]
 
     func testEveryGitSpawnScrubsGitEnvironment() throws {

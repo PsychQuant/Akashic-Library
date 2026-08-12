@@ -49,6 +49,63 @@ public final class AkashicService {
     /// `~/.akashic/index/`（`testFilesUseSwitchesUniverseCompletely` 實際踩到）。
     let environment: [String: String]
 
+    /// `resolve_people` 歧義清單的上限（#231）。
+    ///
+    /// 與 `person()` 的候選上限（50）同值、同理由：**MCP 結果直灌 LLM context**，
+    /// 而歧義筆數是 `O(出現次數)`，由 store 內容決定、無自然上界。verify 席用真 binary
+    /// 實測：201 筆歧義未設限時產出 176 KB（約 44k tokens），單一次工具呼叫即可吃掉
+    /// 整個 context。超出時回 `truncated: true` 與 `ambiguityTotal`，讓使用端知道
+    /// 自己看到的不是全部——**靜默截斷會讓「沒有更多」與「沒給你更多」無法區分**。
+    static let ambiguityLimit = 50
+    /// `candidates` 的列數上限。**與 `ambiguityLimit` 同值但不同決定**（#236 R4）：
+    /// 先前 candidates 直接借用上面那個常數，而它的 doc 講的是歧義清單——一個常數
+    /// 承載兩個決定，日後為了其中一個調數字就會安靜地改到另一個。
+    static let candidateLimit = 50
+    /// 單筆歧義最多回幾個 person ref。同名的人數**無上界**（實測一筆歧義 60 人），
+    /// 只限列數等於沒限 payload——見 `resolvePeople` 的三軸說明。
+    static let refsPerAmbiguity = 20
+    /// `people` 區塊最多幾筆。第三軸是「每筆多大」，由下方的 name 預算限制。
+    static let peopleLimit = 60
+    /// 歧義區塊的**位元組**預算（#236 R3）。
+    ///
+    /// 計數上限擋不住內容——`max:` 的單位是 scalar，而 `displaySafe` 逃脫後每個
+    /// scalar 在 JSON 裡最多 9 bytes。實測：三軸計數上限都設了，最壞仍 125 KB。
+    /// 位元組預算是唯一與內容無關的界。
+    static let ambiguityByteBudget = 48 * 1024
+    /// 每人最多送幾個異名。`names` 是**最弱**的區辨欄位（正規化後相同才會歧義），
+    /// 而 `displaySafe` 是 8 倍膨脹器，所以壓得很低。
+    ///
+    /// 具名而非兩處各寫 `2`：預算估算（`personEntryBytes`）與實際輸出必須用同一個
+    /// 數，否則預算會安靜地估錯——而估低正是讓位元組預算失效的那個方向。
+    static let namesPerPerson = 2
+
+    /// `candidates` 那一半的位元組預算（#236 R4 CRITICAL）。
+    ///
+    /// 先前它**只有列數上限、沒有位元組上限**，於是四軸都設好之後真 binary 仍吐出
+    /// 281,919 bytes；而 `candidates[].id` 是 `"<citekey>:<index>"`、citekey 是原始
+    /// store 內容而 `StoreKey.pattern` **沒有長度上限**——單一列實測 1,208,606 bytes。
+    ///
+    /// `id` 不能截斷：它是 `--apply` 要送回來的把手，截了就再也對不回去。所以改成
+    /// **吃不下的整列不印**，並在 `candidateRowsDropped` 說出來——與 ambiguities 那
+    /// 半同一種處置。代價是那筆候選在 MCP 這條路上套用不了（CLI 仍可），這比回一個
+    /// 對不回去的 id、或回一個 1.2 MB 的 payload 誠實。
+    static let candidateByteBudget = 48 * 1024
+
+    /// 一個 JSON 值序列化後的**實際**位元組數。
+    ///
+    /// **不要手寫估算式。** 先前這裡是 `personEntryBytes`——一條手維護的加總；本輪
+    /// 加了 `formerAffiliationEnd`／`formerAffiliationAttested`／`namesTotal` 卻沒同步
+    /// 更新它，實測**低估達 5.9 倍**、48 KB 的預算被超出 15%（#236 R4 HIGH）。
+    ///
+    /// 估算式與被估的東西是**兩份會各自演化的規格**，而漂移是安靜的：預算看起來還在，
+    /// 只是不再守住任何東西。直接量輸出的那一份就不可能漂——這是型別／結構層的解，
+    /// 不是「記得同步更新」的紀律層的解。
+    ///
+    /// 包成陣列再量：任何 JSON 值都可序列化，多出的 2 bytes 是保守方向。
+    static func jsonBytes(_ v: Any) -> Int {
+        (try? JSONSerialization.data(withJSONObject: [v], options: []))?.count ?? 0
+    }
+
     public init(root: URL, key: String? = nil, configURL: URL? = nil,
                 environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.root = root
@@ -601,21 +658,205 @@ public final class AkashicService {
     /// apply=nil → 只列候選；apply=["citekey:index", …] → 逐候選套用（#5 的 MCP 面）。
     public func resolvePeople(apply: [String]?) throws -> String {
         let load = try store.load()
-        let candidates = PersonResolver.candidates(entries: load.entries, people: load.people)
+        let report = PersonResolver.resolve(entries: load.entries, people: load.people)
+        let candidates = report.candidates
         let withIDs = candidates.map { c -> (id: String, candidate: ResolutionCandidate) in
-            ("\(c.citekey):\(c.authorIndex)", c)
+            (c.rowID, c)   // 複合鍵住在型別上（#236 R4）
         }
         guard let selected = apply else {
-            return try jsonString(withIDs.map { pair -> [String: Any] in
+            // **#231：回應形狀由「候選陣列」改為物件。** 歧義（同一 literal 對到 2+ 人）
+            // 先前與「沒人匹配」走同一條 continue，完全不留痕跡——而它才是需要人判斷的
+            // 那個。陣列沒有地方放它，所以形狀必須改；`Server.swift` 的 tool description
+            // 同步更新。
+            let byKey = Dictionary(load.people.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+
+            // ## 上限必須量對軸（#236 R2）
+            //
+            // 第一版只限**列數**（50）。席位實測：**一筆**歧義即可產出 **758 KB**，
+            // 而回應同時聲稱 `truncated: false` / `ambiguityTotal: 1`——比完全沒有上限
+            // 更糟，因為那個 `false` 是會被 LLM 消費端信任的斷言。
+            //
+            // payload 有**三個**成長軸，列數只是其中一個：
+            //
+            // 1. **列數**：O(歧義位置數)
+            // 2. **列寬**：`personKeys` 長度 O(同名人數)，無上界（實測 60）
+            // 3. **每筆 people 的大小**：`names` × `displaySafe`，而 displaySafe 是
+            //    repo 自己文件化的 **8 倍膨脹器**——`max: 200` 可以輸出 1600 字元
+            //
+            // 三個都要限，而且 `truncated` 要反映**整個回應**、不只 ambiguities 陣列。
+            // ## 預算按**列**分配，不按 key（#236 R3 CRITICAL）
+            //
+            // 第一版用全域排序後 `prefix(peopleLimit)` 取 key，再逐列 `compactMap` 查表。
+            // 後果：排序落在 60 名之後的列**refs 全被丟光，而列照樣印出來**——實測
+            // 50 列中 47 列 `personRefs: []`。一筆記錄說「這個名字對到 2+ 人、請你
+            // 判斷」，然後列出零個人。
+            //
+            // 更危險的是**恰好剩一個 ref** 的列：LLM 讀起來像「已解析的唯一命中」，
+            // 而那筆記錄標著「不可套用」。`AmbiguousMatch.init?` 拒絕 `count < 2` 正是
+            // 為了讓這個狀態在型別層不可表達——而序列化邊界把它又造了出來。
+            //
+            // 修法：**逐列吃預算，吃不下就整列不印**（計入截斷）。一列的 refs 要嘛
+            // 完整（至少 2 個）、要嘛整列不存在——不留「半截的歧義」。
+            // 三軸的**列數／列寬／筆數**都是計數，而真正要守的是**位元組**。
+            // `max:` 的單位是 scalar，但膨脹後每個 scalar 在 JSON 裡最多 9 bytes
+            // （`\u{XXXX}` 再被 JSON 逃脫反斜線）——靜態算計數永遠追不上內容。
+            // 實測：三軸都設了上限，最壞仍是 125 KB。所以**逐列累加實際位元組**，
+            // 超過預算就停——這是唯一與內容無關的界。
+            // 一筆 person 條目——**建一次，量測與輸出共用同一份**。先前是「估算式」
+            // 與「輸出」兩份規格各自演化，本輪就漂了 5.9 倍（見 `jsonBytes`）。
+            var entryCache: [String: [String: Any]] = [:]
+            func personEntry(_ raw: String) -> [String: Any] {
+                if let e = entryCache[raw] { return e }
+                let p = byKey[raw]
+                let allNames = p?.names ?? []
+                var d: [String: Any] = [
+                    "key": displaySafe(raw, max: 200),
+                    // `names` 是**最弱**的區辨欄位（正規化後相同才會歧義），而 displaySafe
+                    // 是 8 倍膨脹器，所以壓得很低。
+                    "names": allNames.prefix(Self.namesPerPerson).map { displaySafe($0, max: 80) },
+                ]
+                // 丟了才報，而且報**總數**不報「丟了幾個」——使用端要判斷的是「我看到的
+                // 是不是全部」，那需要分母。缺席即「沒丟」。
+                if allNames.count > Self.namesPerPerson { d["namesTotal"] = allNames.count }
+                // **缺席就不輸出**，不要送空字串——那會讓「沒有 ORCID」與「ORCID 是
+                // 空字串」在 JSON 上不再有分別（同本檔 :185／:375 的慣例）。
+                if let o = p?.orcid { d["orcid"] = displaySafe(o, max: 60) }
+                if let o = p?.openalex { d["openalex"] = displaySafe(o, max: 60) }
+                if let x = p?.died { d["died"] = displaySafe(x, max: 40) }
+                // 只看 current 會讓「只有已結束隸屬」的人看起來毫無隸屬資訊。
+                // `endedUnknown`(#63)／`attested`(#70) 被 `isOpen` 正確排除在現職外，
+                // 但那不代表沒有資訊。三種過去狀態**各自有自己的欄位名**——把觀測點
+                // 叫成 end 是捏造（#236 R4）。
+                if let a = p?.profile.affiliations.current?.value {
+                    d["currentAffiliation"] = displaySafe(a.displayName, max: 120)
+                } else if let last = p?.profile.affiliations.latestPastSegment {
+                    d["formerAffiliation"] = displaySafe(last.value.displayName, max: 120)
+                    if let e = last.range.end { d["formerAffiliationEnd"] = displaySafe(e, max: 40) }
+                    else if last.range.endedUnknown { d["formerAffiliationEnd"] = "unknown" }
+                    else if let a = last.range.attested.max() { d["formerAffiliationAttested"] = displaySafe(a, max: 40) }
+                }
+                entryCache[raw] = d
+                return d
+            }
+            func ambiguityRow(_ a: AmbiguousMatch, _ refs: [String]) -> [String: Any] {
                 [
-                    "id": pair.id,   // display-safe-exempt: 形如 "<citekey>:<index>"；citekey 受 load 端 StoreKey quarantine 把關（#171 複驗：原理由寫「本函式自產、非 store 內容」是錯的——citekey 就是 store 內容）
+                    "entryID": a.entryID.uuidString,   // display-safe-exempt: UUID 的 uuidString 恆為 [0-9A-F-]
+                    "citekey": displaySafe(a.citekey, max: 200),
+                    "authorIndex": a.authorIndex,
+                    "literal": displaySafe(a.literal, max: 400),
+                    // ref 而非 key —— 見 `people` 的說明。送出的是**生成的** ref，
+                    // store 衍生的 `personKeys` 只當查表鍵、不進輸出。
+                    "personRefs": refs,   // display-safe-exempt: 生成的 ref（`p0`/`p1`…，恆為 [a-z0-9]）
+                ]
+            }
+
+            var refByKey: [String: String] = [:]
+            var rows: [(AmbiguousMatch, [String])] = []
+            var droppedRows = 0
+            var anyRefsTruncated = false
+            var bytes = 0
+            for a in report.ambiguities.prefix(Self.ambiguityLimit) {
+                let wanted = Array(a.personKeys.prefix(Self.refsPerAmbiguity))
+                if wanted.count < a.personKeys.count { anyRefsTruncated = true }
+                let newKeys = wanted.filter { refByKey[$0] == nil }
+                // 暫定 ref：與下方真正指派用同一條規則，讓量到的就是會送出去的那份
+                var provisional = refByKey
+                for (i, k) in newKeys.enumerated() { provisional[k] = "p\(refByKey.count + i)" }
+                let cost = Self.jsonBytes(ambiguityRow(a, wanted.compactMap { provisional[$0] }))
+                    + newKeys.reduce(0) { $0 + Self.jsonBytes(personEntry($1)) }
+                guard refByKey.count + newKeys.count <= Self.peopleLimit,
+                      bytes + cost <= Self.ambiguityByteBudget else {
+                    droppedRows += 1   // 預算容不下這一列的**全部**候選 → 整列不印
+                    continue
+                }
+                bytes += cost
+                refByKey = provisional
+                rows.append((a, wanted))
+            }
+            let shown = rows.map(\.0)
+            let shownRefKeys = rows.map(\.1)
+            let refKeys = refByKey.keys.sorted()
+
+            // ## candidates 那一半也要位元組預算（#236 R4 CRITICAL）
+            //
+            // 先前只有列數上限。`id` 是 `"<citekey>:<index>"`，citekey 是原始 store
+            // 內容而 `StoreKey.pattern` 沒有長度上限——單列實測 1,208,606 bytes。
+            // `id` 不能截斷（那是 `--apply` 的把手），所以吃不下的**整列不印**。
+            var candidateRows: [[String: Any]] = []
+            var candidateBytes = 0
+            var candidatesDropped = 0
+            for pair in withIDs.prefix(Self.candidateLimit) {
+                let row: [String: Any] = [
+                    "id": pair.id,   // display-safe-exempt: 形如 "<citekey>:<index>"；citekey 受 load 端 StoreKey quarantine 把關（#171）
                     "citekey": displaySafe(pair.candidate.citekey, max: 200),
                     "authorIndex": pair.candidate.authorIndex,
                     "literal": displaySafe(pair.candidate.literal, max: 400),
                     "personKey": displaySafe(pair.candidate.personKey, max: 200),
                     "reason": displaySafe(pair.candidate.reason, max: 400),
                 ]
-            })
+                let cost = Self.jsonBytes(row)
+                guard candidateBytes + cost <= Self.candidateByteBudget else {
+                    candidatesDropped += 1
+                    continue
+                }
+                candidateBytes += cost
+                candidateRows.append(row)
+            }
+            // 第四種丟棄：`people[ref]["names"]` 的 `prefix(2)`（#236 R4）。先前只算
+            // 三軸（rows／refs／candidates），於是一個「每人五個異名、全部只送兩個」
+            // 的回應仍宣稱 `truncated: false`——旗標按**自己的定義**說謊（下方 :745
+            // 寫的是「整個回應……任一被截都算」），與 R3 抓到的 candidates 同型。
+            let anyNamesDropped = refKeys.contains { (byKey[$0]?.names.count ?? 0) > Self.namesPerPerson }
+            let truncated = report.ambiguities.count > Self.ambiguityLimit
+                || anyRefsTruncated
+                || droppedRows > 0
+                || anyNamesDropped
+            return try jsonString([
+                "candidates": candidateRows,
+                "candidateRowsDropped": candidatesDropped,
+                // **區辨欄位只送一次**（`people`），`ambiguities` 只帶 ref。先前每筆歧義
+                // 都內嵌完整的 person 區塊——verify 席實測 201 筆產出 176 KB（約 44k
+                // tokens），其中 201 份是同一區塊的逐字複本。MCP 結果直灌 LLM context，
+                // 這是本 repo 明文的威脅模型（`TerminalOutputSafetyTests`：「MCP/LLM
+                // context 的無上限灌注同型」）。
+                //
+                // ## 索引鍵是**不透明 ref**，不是消毒後的 person key
+                //
+                // 第一版用 `displaySafe(k)` 當 dictionary key —— **那會讓整個 MCP
+                // process trap**（#236 R2，三個 lens 各自重現）：
+                //
+                // - `Dictionary(uniqueKeysWithValues:)` 對重複鍵是 **precondition
+                //   failure（SIGTRAP）**，不是可捕捉的 error
+                // - `displaySafe` 在 `max` 處截斷 → **非單射**
+                // - `StoreKey.pattern` **沒有長度上限**
+                //
+                // 於是兩個共用 200 字元前綴的**合法** key 就能讓 server 崩潰，且只需
+                // 兩次 `akashic_add_person` + 一筆 entry 即可觸發，之後每次呼叫都再崩。
+                //
+                // 根因是把**消毒函數當成識別函數**——`displaySafe` 的目的是安全顯示，
+                // 不是保持區別，而這兩個目標在多對一的映射上直接衝突。ref 把兩者
+                // 分開：ref 負責識別（生成即唯一），`key` 欄位負責顯示（消毒後）。
+                //
+                // 只為**實際回傳**的那些歧義建 `people`（`shown`），不是全部——否則
+                // 上限只擋住較瘦的一半，而 `people` 條目比 `ambiguities` 條目肥。
+                // 條目由上方的 `personEntry` 建（**量測與輸出同一份**），這裡只做
+                // ref→條目的對應。ref 由生成器發，彼此必不同，故 `uniqueKeysWithValues`
+                // 安全——用 `displaySafe(key)` 當鍵才會 trap。
+                "people": Dictionary(uniqueKeysWithValues:
+                    refKeys.map { (refByKey[$0]!, personEntry($0)) }),
+                "ambiguityRowsDropped": droppedRows,
+                "ambiguities": shown.enumerated().map { (i, a) in
+                    ambiguityRow(a, shownRefKeys[i].compactMap { refByKey[$0] })
+                },
+                // **整個回應**的截斷旗標。任一軸被截都算——列數／每列 ref 數／異名數／
+                // 位元組預算（兩半各自的），以及 candidates 的列數上限。
+                // 每次漏算一軸，這個 `false` 就是一句會被 LLM 消費端信任的假話。
+                "truncated": truncated
+                    || withIDs.count > Self.candidateLimit
+                    || candidatesDropped > 0,
+                "candidateTotal": withIDs.count,
+                "ambiguityTotal": report.ambiguities.count,
+            ])
         }
         let byID = Dictionary(withIDs.map { ($0.id, $0.candidate) }, uniquingKeysWith: { first, _ in first })
         let chosen = try selected.map { id -> ResolutionCandidate in

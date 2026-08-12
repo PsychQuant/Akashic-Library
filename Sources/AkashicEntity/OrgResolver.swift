@@ -48,6 +48,51 @@ public struct OrgResolutionCandidate: Equatable {
     }
 }
 
+/// 同一個 literal 對到 **2+ 個 organization**——需要人判斷（#231）。
+///
+/// 與 person 側的 `AmbiguousMatch` 同形，但多帶 `holder`：org 的 literal 可能住在
+/// person 的 `affiliations`，也可能住在另一個 org 的 `parents`（#166）。少了它，
+/// 報告說不出「是誰的哪一段 literal 歧義」。
+///
+/// **與「沒有任何 org 匹配」語意不同**：後者是 `.literal` 的合法長期狀態（§8），
+/// 前者是系統知道自己遇到了決定點。
+public struct OrgAmbiguousMatch: Equatable {
+    public var holder: OrgResolutionCandidate.Holder
+    public var literal: String
+    /// **這一段的效期。** 少了它，同一個 holder 的多段同名 literal 會產出完全相同、
+    /// 不可裁決的重複紀錄——例如某人 2000–2005 與 2010–2015 兩段 affiliation 都寫
+    /// `"Sinica"` 而它命中兩個 org 時，使用者無法**按時段**分別判給不同機構。
+    ///
+    /// `OrgResolutionCandidate` 刻意用**值**而非索引定位（段可能重排，且 `apply`
+    /// 按值遷移所有仍為該 literal 的段）——那對「要套用什麼」是對的。但歧義是給**人**
+    /// 看的報告，人需要知道是哪一段，所以這裡帶 range。
+    public var range: DateRange
+    /// 命中的 org key，**已排序**且 `count >= 2`。
+    public var orgKeys: [String]
+
+    /// 少於兩個 key 回 `nil`——「歧義只有一個候選」在型別層不可表達。
+    public init?(holder: OrgResolutionCandidate.Holder, literal: String,
+                 range: DateRange, orgKeys: Set<String>) {
+        guard orgKeys.count >= 2 else { return nil }
+        self.holder = holder
+        self.literal = literal
+        self.range = range
+        self.orgKeys = orgKeys.sorted()
+    }
+}
+
+/// 一次 org 解析的完整結果。**兩個欄位而非 sum type**——`apply` 只吃 `candidates`，
+/// 於是「不小心 apply 一個歧義」在型別層寫不出來。
+public struct OrgResolutionReport: Equatable {
+    public var candidates: [OrgResolutionCandidate]
+    public var ambiguities: [OrgAmbiguousMatch]
+
+    public init(candidates: [OrgResolutionCandidate], ambiguities: [OrgAmbiguousMatch]) {
+        self.candidates = candidates
+        self.ambiguities = ambiguities
+    }
+}
+
 public enum OrgResolver {
     /// 高信心候選：literal 與某 org 的 name variant 正規化後完全命中、且不歧義。
     ///
@@ -70,24 +115,69 @@ public enum OrgResolver {
     /// `load()` 的回傳順序或 Set 的雜湊擾動而變。
     public static func candidates(people: [Person],
                                   organizations: [Organization]) -> [OrgResolutionCandidate] {
-        // 正規化 org name variant → org keys（同名對 2+ org＝歧義，整組排除）
+        resolve(people: people, organizations: organizations).candidates
+    }
+
+    /// 單一 traversal，`candidates` 與 `ambiguities` 的 source of truth（#231）。
+    ///
+    /// 與 person 側同理由：**不寫第二支遍歷**。這裡尤其重要——本函式的 parents 側
+    /// 帶著自我父權與環的排除，兩支遍歷分岔時那些排除只會存在於其中一支。
+    public static func resolve(people: [Person],
+                               organizations: [Organization]) -> OrgResolutionReport {
+        // 正規化 org name variant → org keys（同名對 2+ org＝歧義）
         var nameMap: [String: Set<String>] = [:]
         for org in organizations {
             for seg in org.names.entries {
                 nameMap[NameNormalization.matchingKey(seg.value), default: []].insert(org.key)
             }
         }
-        func unambiguousMatch(_ literal: String) -> String? {
-            guard let keys = nameMap[NameNormalization.matchingKey(literal)],
-                  keys.count == 1 else { return nil }
-            return keys.first
+        // #231：歧義先前在這裡被靜默丟棄（`keys.count == 1 else { return nil }`）。
+        // helper 保持回 `String?`——parents 側的環偵測吃的就是這個型別，而那段邏輯與
+        // 歧義無關、不該被牽動。歧義改寫進捕獲的陣列。
+        var ambiguities: [OrgAmbiguousMatch] = []
+        /// **唯一性一律由原始命中集決定。** 過濾不得把「2+ 命中」變成「唯一命中」。
+        ///
+        /// R3 曾在這裡加一個 `admissible` 過濾器，理由是好的：parents 側有兩道 guard
+        /// （自我父權、成環，#166 放在製造點），而歧義報告會把那兩道 guard **會拒絕**
+        /// 的候選當成待人裁決的父機構。
+        ///
+        /// 但它是在**唯一性判定**上過濾，不只在報告上。R4 抓到兩個後果：
+        ///
+        /// 1. **`candidates()` 的行為變了**：base main 是「2+ 命中 → 不提名，交給人」，
+        ///    過濾後變成「排除掉不可容許的、剩一個就自動提名」。`--apply` 會據此
+        ///    **寫入**——而本 PR 的範圍是「讓歧義被看見」，不是改變消解語意。
+        /// 2. **與順序相關**：`admissible` 裡的 `reaches` 讀 `edges`，而 `edges` 正是
+        ///    這個迴圈在改的（`209` 行的「本輪已接受的也算數」是刻意的，環偵測需要
+        ///    它）。於是「要不要問人」取決於 org key 的字母順序——同一份邏輯 store
+        ///    換個 key 名字，答案就變。
+        ///
+        /// 第 2 點單獨就足以否決這個設計：**安全 guard 用會變動的 `edges` 是對的**
+        /// （它只會多拒絕），但拿它決定「這是不是歧義」會讓非決定性洩進使用者看到
+        /// 的東西。
+        ///
+        /// 因此回到原語意，代價是報告可能列出結構上不可能的候選（例如 holder 自己）。
+        /// 那是**報告品質**問題，讓人多看一眼；前者是**寫入正確性**問題。兩害相權，
+        /// 而且 `207`／`208` 兩道 guard 仍會擋住真的被套用的情形。
+        ///
+        /// 「自我父權該不該讓唯一性成立」是獨立的消解語意問題（它與順序無關，可以
+        /// 單獨成立），但那要它自己的 issue 與 review，不該搭本 PR 的便車。
+        func unambiguousMatch(_ literal: String, holder: OrgResolutionCandidate.Holder,
+                              range: DateRange) -> String? {
+            guard let raw = nameMap[NameNormalization.matchingKey(literal)] else { return nil }
+            if raw.count == 1 { return raw.first }
+            if let m = OrgAmbiguousMatch(holder: holder, literal: literal,
+                                         range: range, orgKeys: raw) {
+                ambiguities.append(m)
+            }
+            return nil
         }
 
         var result: [OrgResolutionCandidate] = []
         for person in people.sorted(by: { $0.key < $1.key }) {
             for seg in person.profile.affiliations.entries {
                 guard case let .literal(literal) = seg.value,
-                      let key = unambiguousMatch(literal) else { continue }
+                      let key = unambiguousMatch(literal, holder: .person(person.key), range: seg.range)
+                else { continue }
                 result.append(OrgResolutionCandidate(
                     holder: .person(person.key), literal: literal, orgKey: key,
                     reason: "org name 完全命中"))
@@ -118,7 +208,9 @@ public enum OrgResolver {
         for org in organizations.sorted(by: { $0.key < $1.key }) {
             for seg in org.parents.entries {
                 guard case let .literal(literal) = seg.value,
-                      let key = unambiguousMatch(literal) else { continue }
+                      let key = unambiguousMatch(
+                        literal, holder: .organization(org.key), range: seg.range)
+                else { continue }
                 // **自我父權**。`reaches` 含自身，所以下一行其實也擋得住它——
                 // 席位 mutation 實測：拿掉這行 23 條全綠，**它現行不可達**。
                 // 保留而非刪除，因為它釘的是「`reaches` 把自身算在內」這個前提；
@@ -133,7 +225,10 @@ public enum OrgResolver {
                     reason: "org name 完全命中（parents）"))
             }
         }
-        return result
+        // ambiguities 不排序：holder 的走訪順序已經是決定性的（people 依 key 排序、
+        // 再 organizations 依 key 排序），而同一 holder 內依 timeline 段的既有順序。
+        // 加一層排序會覆蓋掉那個既有的、有意義的順序。
+        return OrgResolutionReport(candidates: result, ambiguities: ambiguities)
     }
 
     /// 套用結果。people 與 organizations **各自回傳新副本**，不動原陣列。

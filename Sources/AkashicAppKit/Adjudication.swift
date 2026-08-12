@@ -14,6 +14,14 @@ import AkashicIndex
 public final class PeopleResolveModel {
     let state: AppState
     public private(set) var candidates: [ResolutionCandidate] = []
+    /// 系統**知道**自己遇到了決定點，卻無法自行決定的位置（#231）。
+    ///
+    /// 這一面比 CLI 與 MCP 更需要它——**人就坐在這裡**。先前 CLI 與 MCP 都被接上了，
+    /// 唯獨裁決台沒有：使用者看得到唯一命中，卻不知道系統另外找到 N 個需要他判斷
+    /// 的位置。那與 #231 要修的「靜默丟棄」是同一件事，只是發生在最不該發生的面。
+    ///
+    /// **不可 accept**——`apply` 只吃 `candidates`，型別層就寫不出來。
+    public private(set) var ambiguities: [AmbiguousMatch] = []
 
     public init(state: AppState) {
         self.state = state
@@ -21,8 +29,61 @@ public final class PeopleResolveModel {
     }
 
     public func refresh() {
-        candidates = PersonResolver.candidates(entries: state.entries, people: state.people)
+        let report = PersonResolver.resolve(entries: state.entries, people: state.people)
+        candidates = report.candidates
             .filter { !state.skippedPeopleCandidates.contains(id(of: $0)) }
+        // 歧義**不參與 skip 集合**：skip 的語意是「這個候選我不要套用」，而歧義
+        // 本來就套用不了。它是待辦事項，不是候選。
+        ambiguities = report.ambiguities
+    }
+
+    /// 一行可顯示的區辨欄位（已消毒）。
+    ///
+    /// **組在 model 端不在 view 端**：view 內的長字串串接會讓 Swift 型別檢查器放棄
+    /// （實測 `unable to type-check this expression in reasonable time`），而
+    /// `AkashicApp/` 是獨立 XcodeGen 專案、不在 `Package.swift` 內——`swift build`
+    /// 與 pre-push 閘都不編它，只有 CI 會。錯誤會晚到 push 之後才浮現。
+    public func discriminatorLine(for key: String) -> String {
+        let d = discriminators(for: key)
+        var bits: [String] = []
+        if let o = d.orcid { bits.append("orcid:" + displaySafe(o, max: 40)) }
+        if let o = d.openalex { bits.append("openalex:" + displaySafe(o, max: 40)) }
+        if let x = d.died { bits.append("卒:" + displaySafe(x, max: 20)) }
+        if let a = d.affiliation { bits.append(displaySafe(a, max: 80)) }   // 已含 隸屬:/曾隸屬: 前綴
+        let tail = bits.isEmpty ? "⚠ 無任何區辨欄位" : bits.joined(separator: "  ")
+        return "→ " + displaySafe(key, max: 200) + "  " + tail
+    }
+
+    /// 每個歧義候選的區辨欄位——**只給 key 的話人也判不了**。
+    ///
+    /// `names` 不具區辨力（它們正規化後相同才會歧義）；真正能分辨「兩個同名的人」
+    /// 與「同一人兩筆記錄」的是外部識別碼與時空不相容。
+    public func discriminators(for key: String) -> (names: [String], orcid: String?,
+                                                    openalex: String?, died: String?,
+                                                    affiliation: String?) {
+        let p = state.people.first { $0.key == key }
+        // **current 與 former 不可塌成一個欄位**（#236 R3）：「現在在 X」與
+        // 「曾經在 X」對區辨的意義完全不同——後者配上時間才有辨別力，而把兩者
+        // 印成同一個「隸屬:X」會讓讀的人以為那是現職。
+        let aff: String?
+        if let cur = p?.profile.affiliations.current?.value.displayName {
+            aff = "隸屬:" + cur
+        } else if let last = p?.profile.affiliations.latestPastSegment {
+            // **三種時間狀態不可共用一種措辭**（#236 R4）。先前一律套 `（–X）`，
+            // 於是 `attested:[2020]`（只是「2020 年被看到在這裡」）被印成
+            // 「（–2020）」＝「2020 年結束」——**那是捏造**：那個人沒有任何資料
+            // 主張他何時離開。CLI 與 MCP 都分得開，只有這一面把它們塌在一起。
+            let r = last.range
+            let when: String
+            if let e = r.end { when = "（–\(e)）" }                       // 確實結束於 e
+            else if r.endedUnknown { when = "（已結束・時點未知）" }        // #63
+            else if let a = r.attested.max() { when = "（觀測:\(a)）" }     // #70：不是終止
+            else { when = "" }
+            aff = "曾隸屬:" + last.value.displayName + when
+        } else {
+            aff = nil
+        }
+        return (p?.names ?? [], p?.orcid, p?.openalex, p?.died, aff)
     }
 
     public func accept(_ candidate: ResolutionCandidate) throws {
@@ -53,7 +114,7 @@ public final class PeopleResolveModel {
         refresh()
     }
 
-    private func id(of c: ResolutionCandidate) -> String { "\(c.citekey):\(c.authorIndex)" }
+    private func id(of c: ResolutionCandidate) -> String { c.rowID }   // 複合鍵住在型別上（#236 R4）
 }
 
 public enum AdjudicationError: Error, LocalizedError, Equatable {

@@ -550,6 +550,71 @@ struct BootstrapOrganizations: ParsableCommand {
 }
 
 /// #70 第二題：literal 機構名 → organization key 的高信心歸戶（絕不自動合併）。
+/// CLI 歧義段的顯示上限（#236 R2）。
+///
+/// **兩個面都要有**——先前只給 MCP 加。終端機灌爆與 LLM context 灌爆是同一類威脅
+/// （`TerminalOutputSafetyTests` 明文：「MCP/LLM context 的無上限灌注同型」），而
+/// 「修一個面就宣稱這一類關掉了」正是本 PR 前一輪被抓到的形狀。
+///
+/// 超出時**說出來**（印剩餘筆數）——靜默截斷會讓「沒有更多」與「沒給你更多」
+/// 無法區分。
+enum AmbiguityDisplayLimit {
+    static let rows = 50
+    /// 單筆歧義的候選數也無上界（同名的人可以有任意多個）。
+    static let refs = 20
+    /// 每人印幾個異名。丟掉的必須數出來——見 `namesLabel`。
+    static let names = 4
+    /// 歧義段的**位元組**上限（#236 R4）。
+    ///
+    /// 列數（`rows`）與 ref 數（`refs`）都是計數，而 `literal`／`key`／隸屬名各自
+    /// 可以吃滿自己的 `max:`，再被 `displaySafe` 膨脹 8 倍——席位實測列數與 ref 上限
+    /// 都在的情況下仍產出 **3,844,596 bytes**（org 側 447,377）。
+    ///
+    /// 128 KB：終端機可捲、但不會把 scrollback 沖掉。與 MCP 的 48 KB 不同值是刻意的
+    /// ——那邊的消費端是 LLM context（更貴），這邊是人的終端機。
+    static let bytes = 128 * 1024
+}
+
+/// 印一個人的異名，**丟掉的要說出來**（#236 R4）。
+///
+/// 先前是 `prefix(4)` 直接截，於是「這人只有四個異名」與「有七個、你看到四個」
+/// 在終端上長得一模一樣。這在歧義判斷的情境特別糟：使用者正是要靠異名分辨兩個
+/// 同名的人，而被藏起來的那三個可能就是決定性的那個。
+///
+/// 與 MCP 的 `namesTotal` 同一個決定、不同的表達：那邊送分母讓程式判斷，這邊
+/// 印差額讓人一眼看到。
+func namesLabel(_ names: [String]) -> String {
+    let shown = names.prefix(AmbiguityDisplayLimit.names).map { displaySafe($0, max: 80) }
+    let dropped = names.count - shown.count
+    return shown.joined(separator: "、") + (dropped > 0 ? " …+\(dropped)" : "")
+}
+
+/// 把 `DateRange` 的**四個**欄位都表示出來（#236 R2）。
+///
+/// `start`/`end` 之外還有 `endedUnknown`（#63：已結束但時點未知——43 位退休 PI 的
+/// 實際狀態）與 `attested`（#70：只有觀測點）。只讀前兩者會讓**已離職**與**現職**
+/// 印得逐位元組相同，而那正是 #63 被加進來要解決的事。
+///
+/// 回傳空字串代表「沒有任何時間資訊」——呼叫端據此決定要不要印括號。
+/// **消毒在這裡，呼叫端不得再包一次**——`displaySafe` 逃脫反斜線自身、**不冪等**
+/// （二次呼叫把 `\u{0009}` 變成 `\u{005C}u{0009}`），兩層會毀掉輸出。
+func rangeLabel(_ r: DateRange) -> String {
+    // **內聯 `displaySafe`，不用區域別名**——`DisplaySinkCoverageTests` 是文字掃描，
+    // 別名會讓它認不出消毒已經發生，於是守衛失效而程式看起來沒問題。
+    if !r.attested.isEmpty {
+        let pts = r.attested.prefix(4).map { displaySafe($0, max: 24) }.joined(separator: "、")
+        return "觀測:\(pts)\(r.attested.count > 4 ? "…" : "")"
+    }
+    switch (r.start, r.end, r.endedUnknown) {
+    case (nil, nil, false):     return ""
+    case (nil, nil, true):      return "已結束・時點未知"
+    case let (s?, nil, false):  return "\(displaySafe(s, max: 24))–"
+    case let (s?, nil, true):   return "\(displaySafe(s, max: 24))–已結束・時點未知"
+    case let (nil, e?, _):      return "–\(displaySafe(e, max: 24))"
+    case let (s?, e?, _):       return "\(displaySafe(s, max: 24))–\(displaySafe(e, max: 24))"
+    }
+}
+
 struct ResolveOrganizations: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "resolve-organizations",
@@ -573,15 +638,12 @@ struct ResolveOrganizations: ParsableCommand {
     func run() throws {
         let store = try options.openStore()
         let load = try store.load()
-        let all = OrgResolver.candidates(people: load.people, organizations: load.organizations)
+        let orgReport = OrgResolver.resolve(people: load.people, organizations: load.organizations)
+        let all = orgReport.candidates
         let hkSet = Set(holder), okSet = Set(org)
         let candidates = all.filter {
             (hkSet.isEmpty || hkSet.contains($0.holder.key))
                 && (okSet.isEmpty || okSet.contains($0.orgKey))
-        }
-        guard !all.isEmpty else {
-            print("無候選（affiliation／parents 的 literal 皆無 org name 完全命中）")
-            return
         }
         // 持有者可能是 person 或 organization——**標出來**。少了它，兩類候選在
         // 輸出裡長得一樣，而它們寫進的是不同記錄的不同欄位（#166）。
@@ -591,11 +653,78 @@ struct ResolveOrganizations: ParsableCommand {
             case let .organization(k): return "org \(displaySafe(k, max: 200))"
             }
         }
+
+        /// #231：歧義不再靜默丟棄。每個候選 org 帶當前名稱，讓人能分辨
+        /// 「兩個真的不同的機構同名」與「同一機構兩筆記錄」。
+        func printOrgAmbiguities() {
+            guard !orgReport.ambiguities.isEmpty else { return }
+            let byKey = Dictionary(load.organizations.map { ($0.key, $0) },
+                                   uniquingKeysWith: { a, _ in a })
+            print("")
+            // 位元組預算，同 person 側（#236 R4：org 側實測 447,377 bytes）
+            let cappedOrg = Array(orgReport.ambiguities.prefix(AmbiguityDisplayLimit.rows))
+            var orgLines: [String] = []
+            var orgBytes = 0
+            var orgBudgetDropped = 0
+            for a in cappedOrg {
+                // **段的效期要印**——同一 holder 的多段同名 literal 否則長得一模一樣，
+                // 使用者無法按時段分別判給不同機構（#236 R1）。
+                // **四個欄位都要看**（#236 R2，5 個 finding 命中同一處）。只讀
+                // (start, end) 會把 `endedUnknown`（#63：已結束、時點未知）印成
+                // 「x–」＝進行中，把**已離職**的隸屬顯示得與現職**逐位元組相同**。
+                // `attested`（#70：只有觀測點、起訖皆不明）同樣被吃掉。
+                // repo 對這個塌縮有明文事故紀錄——那正是 #63／#70 存在的理由。
+                let span = rangeLabel(a.range)   // display-safe-exempt: rangeLabel 內部已消毒；displaySafe 不冪等，不得再包
+                var row: [String] = []
+                row.append("  \(label(a.holder)) 「\(displaySafe(a.literal, max: 200))」\(span)")
+                if a.orgKeys.count > AmbiguityDisplayLimit.refs {
+                    row.append("      （\(a.orgKeys.count) 個候選，以下顯示前 \(AmbiguityDisplayLimit.refs) 個）")
+                }
+                for (n, k) in a.orgKeys.prefix(AmbiguityDisplayLimit.refs).enumerated() {
+                    let o = byKey[k]
+                    let founded = o?.founded.map { "  成立:\(displaySafe($0, max: 20))" } ?? ""
+                    let dissolved = o?.dissolved.map { "  解散:\(displaySafe($0, max: 20))" } ?? ""
+                    let name = o?.displayName ?? k
+                    row.append("      \(n + 1). \(displaySafe(k, max: 200))  [\(displaySafe(name, max: 200))]\(founded)\(dissolved)")
+                }
+                let cost = row.reduce(0) { $0 + $1.utf8.count + 1 }
+                if orgBytes + cost <= AmbiguityDisplayLimit.bytes {
+                    orgBytes += cost
+                    orgLines.append(contentsOf: row)
+                } else {
+                    orgBudgetDropped += 1   // 吃不下的整列不印，不留半截
+                }
+            }
+            let orgShownCount = cappedOrg.count - orgBudgetDropped
+            let orgHeadline: String   // 同 person 側：預算跳過過大的列時，顯示的不是前綴
+            if orgReport.ambiguities.count <= orgShownCount { orgHeadline = "" }
+            else if orgBudgetDropped > 0 { orgHeadline = "，以下顯示 \(orgShownCount) 筆（非前綴：過大的整筆略過）" }
+            else { orgHeadline = "，以下顯示前 \(orgShownCount) 筆" }
+            print("歧義（\(orgReport.ambiguities.count)\(orgHeadline)）"
+                  + "——同一個 literal 對到 2+ 個 org，**需要人判斷**：")
+            for l in orgLines { print(l) }
+            let orgHidden = orgReport.ambiguities.count - orgShownCount
+            if orgHidden > 0 {
+                let byRows = orgReport.ambiguities.count - cappedOrg.count
+                var why: [String] = []
+                if byRows > 0 { why.append("\(byRows) 筆超過列數上限") }
+                if orgBudgetDropped > 0 { why.append("\(orgBudgetDropped) 筆內容過大、吃不下輸出預算") }
+                print("  …另 \(orgHidden) 筆未顯示（\(why.joined(separator: "；"))）")
+            }
+            print("  兩種可能，處置相反：同名的不同機構＝各自歸戶（永不合併）；同一機構兩筆＝該合併。")
+        }
+
+        guard !all.isEmpty else {
+            print("無候選（affiliation／parents 的 literal 皆無 org name 完全命中）")
+            printOrgAmbiguities()   // 沒有唯一候選時，歧義**更**該被看見
+            return
+        }
         let selected = Set(candidates.map { "\($0.holder)#\($0.literal)" })
         for c in all {
             let mark = (apply && !selected.contains("\(c.holder)#\(c.literal)")) ? "  (skip) " : "  "
             print("\(mark)\(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
         }
+        printOrgAmbiguities()
         if apply {
             if !(holder.isEmpty && org.isEmpty), candidates.isEmpty {
                 throw ValidationError("--holder / --org 的篩選條件沒有命中任何候選")
@@ -842,7 +971,8 @@ struct ResolvePeople: ParsableCommand {
     func run() throws {
         let store = try options.openStore()
         let load = try store.load()
-        let all = PersonResolver.candidates(entries: load.entries, people: load.people)
+        let report = PersonResolver.resolve(entries: load.entries, people: load.people)
+        let all = report.candidates
         // 篩選只影響 **--apply**，列表一律顯示全部——否則使用者用 --citekey 收窄後
         // 會以為其他候選不存在。
         let ckSet = Set(citekey), pkSet = Set(person)
@@ -850,8 +980,110 @@ struct ResolvePeople: ParsableCommand {
             (ckSet.isEmpty || ckSet.contains($0.citekey))
                 && (pkSet.isEmpty || pkSet.contains($0.personKey))
         }
+
+        /// #231：歧義**不再靜默丟棄**。它與「沒人匹配」語意不同——後者是 `.literal`
+        /// 的合法長期狀態，前者是系統知道自己遇到了決定點。
+        ///
+        /// 每個候選一併印區辨欄位（names／orcid），否則讀的人分不出兩種需要**相反
+        /// 行動**的情況：(a) 兩個真的不同的人剛好同名（各自歸屬，永不合併）
+        /// vs (b) 同一個人有兩筆記錄（該合併）。
+        func printAmbiguities() {
+            guard !report.ambiguities.isEmpty else { return }
+            let byKey = Dictionary(load.people.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+            print("")
+            // **CLI 也要有上限**（#236 R2）。先前只給 MCP 加，而終端機灌爆的威脅
+            // repo 自己有明文（`TerminalOutputSafetyTests`）——修一個面就宣稱這一類
+            // 關掉了，正是本 PR 前一輪被抓的形狀。
+            let capped = Array(report.ambiguities.prefix(AmbiguityDisplayLimit.rows))
+            // **列數上限擋不住內容**（#236 R4）。R2 加了列數與 ref 兩軸，實測仍可產出
+            // **3,844,596 bytes**——`literal`／`key`／隸屬名各自可到 `max:` 上限，而
+            // `displaySafe` 是 8 倍膨脹器。與 MCP 那半同一個結論：計數上限追不上內容，
+            // **位元組預算是唯一與內容無關的界**。
+            //
+            // 逐列累加：吃不下的整列不印（不留半截的歧義），並在結尾說出丟了幾筆。
+            var lines: [String] = []
+            var bytes = 0
+            var budgetDropped = 0
+            func emit(_ rows: [String]) -> Bool {
+                let cost = rows.reduce(0) { $0 + $1.utf8.count + 1 }
+                guard bytes + cost <= AmbiguityDisplayLimit.bytes else {
+                    budgetDropped += 1
+                    return false
+                }
+                bytes += cost
+                lines.append(contentsOf: rows)
+                return true
+            }
+            for a in capped {
+                // **印 entryID**（#236 R2）：重複 citekey 是被支援的損壞態，此時兩筆
+                // 歧義在 `(citekey, authorIndex)` 上逐位元組相同。MCP 帶了它、CLI 沒帶
+                // ——而 CLI 才是人真正在讀的那個面。
+                var row: [String] = []
+                row.append("  \(displaySafe(a.citekey, max: 200))[\(a.authorIndex)] 「\(displaySafe(a.literal, max: 200))」"
+                           + "  entry:\(a.entryID.uuidString.prefix(8))")
+                if a.personKeys.count > AmbiguityDisplayLimit.refs {
+                    row.append("      （\(a.personKeys.count) 個候選，以下顯示前 \(AmbiguityDisplayLimit.refs) 個）")
+                }
+                // **加列內序號**（#236 R3）：`displaySafe` 會截斷，兩個共用長前綴的
+                // 合法 key 可以印得**逐位元組相同**。序號讓人至少知道這是兩個不同的
+                // 記錄——不然報告會看起來像同一個人被列了兩次。
+                for (n, k) in a.personKeys.prefix(AmbiguityDisplayLimit.refs).enumerated() {
+                    let p = byKey[k]
+                    // **`names` 不具區辨力**——它們之所以被比到一起，正是因為正規化後
+                    // 相同。真正能分辨的是外部識別碼與時空不相容，所以那些一定要印。
+                    var bits: [String] = []
+                    if let o = p?.orcid { bits.append("orcid:\(displaySafe(o, max: 40))") }
+                    if let o = p?.openalex { bits.append("openalex:\(displaySafe(o, max: 40))") }
+                    if let x = p?.died { bits.append("卒:\(displaySafe(x, max: 20))") }
+                    // **不是只看 current**（#236 R2）。`isOpen` 正確地把
+                    // `endedUnknown`（#63）與 `attested`（#70）排除在「現職」外，
+                    // 但只印 current 會讓「只有已結束隸屬」的人看起來**毫無隸屬
+                    // 資訊**——甚至被判成「無任何區辨欄位」，而那是假的。
+                    // 沒有現職就退到最近一段，並把時間狀態標出來。
+                    if let cur = p?.profile.affiliations.current?.value {
+                        bits.append("隸屬:\(displaySafe(cur.displayName, max: 60))")
+                    } else if let last = p?.profile.affiliations.latestPastSegment {
+                        let when = rangeLabel(last.range)
+                        bits.append("曾隸屬:\(displaySafe(last.value.displayName, max: 60))"
+                                    + (when.isEmpty ? "" : "（\(when)）"))   // display-safe-exempt: rangeLabel 內部已消毒（不冪等，不得再包）
+                    }
+                    let names = namesLabel(p?.names ?? [])   // display-safe-exempt: namesLabel 內部已消毒（displaySafe 不冪等，不得再包）
+                    let extra = bits.isEmpty ? "  ⚠ 無任何區辨欄位" : "  " + bits.joined(separator: "  ")
+                    row.append("      \(n + 1). \(displaySafe(k, max: 200))  [\(names)]\(extra)")
+                }
+                _ = emit(row)
+            }
+            let shownCount = capped.count - budgetDropped
+            // **「前 N 筆」與「N 筆」不是同一句話。** 只有列數上限生效時，顯示的確實
+            // 是前綴；位元組預算會**跳過**過大的列而繼續收後面較小的，那時它不是前綴，
+            // 說「前 N 筆」就是假的。（不改成「遇到第一筆放不下就停」是因為：單獨一筆
+            // 就超過整個預算時，那會讓報告變成空的。）
+            let headline: String
+            if report.ambiguities.count <= shownCount { headline = "" }
+            else if budgetDropped > 0 { headline = "，以下顯示 \(shownCount) 筆（非前綴：過大的整筆略過）" }
+            else { headline = "，以下顯示前 \(shownCount) 筆" }
+            print("歧義（\(report.ambiguities.count)\(headline)）"
+                  + "——同一個 literal 對到 2+ 個 person，**需要人判斷**：")
+            for l in lines { print(l) }
+            let hidden = report.ambiguities.count - shownCount
+            if hidden > 0 {
+                // **兩種丟棄要分開講**：超過列數上限，與內容吃爆位元組預算，對使用者
+                // 的意義不同——後者表示「就算提高列數也看不到，那幾筆本身太大」。
+                let byRows = report.ambiguities.count - capped.count
+                var why: [String] = []
+                if byRows > 0 { why.append("\(byRows) 筆超過列數上限") }
+                if budgetDropped > 0 { why.append("\(budgetDropped) 筆內容過大、吃不下輸出預算") }
+                // **不要指不存在的旋鈕**（#236 R3）：`resolve-people` 沒有 `--json`，
+                // 也沒有分頁。指路只能指呼叫端真的有的東西——假的建議比沒有建議更糟。
+                print("  …另 \(hidden) 筆未顯示（\(why.joined(separator: "；"))；"
+                      + "目前沒有取回全部的旋鈕，縮小 store 範圍或先處理已列出的）")
+            }
+            print("  兩種可能，處置相反：同名的不同人＝各自歸屬（永不合併）；同一人兩筆＝該合併。")
+        }
+
         guard !all.isEmpty else {
             print("無候選（literal 作者 \(load.entries.flatMap(\.authors).filter { if case .literal = $0 { return true } else { return false } }.count) 個，皆無 alias 完全命中）")
+            printAmbiguities()   // 沒有唯一候選時，歧義**更**該被看見
             return
         }
         let selected = Set(candidates.map { "\($0.citekey)#\($0.authorIndex)" })
@@ -860,6 +1092,7 @@ struct ResolvePeople: ParsableCommand {
             let mark = (apply && !selected.contains("\(c.citekey)#\(c.authorIndex)")) ? "  (skip) " : "  "
             print("\(mark)\(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
         }
+        printAmbiguities()
         if apply {
             // 篩選條件寫了卻一個都沒中——多半是打錯 key，別靜默什麼都不做
             if !(citekey.isEmpty && person.isEmpty), candidates.isEmpty {

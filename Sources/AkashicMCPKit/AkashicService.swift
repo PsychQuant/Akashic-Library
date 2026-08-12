@@ -239,8 +239,10 @@ public final class AkashicService {
         let dicts = people.map { person -> [String: Any] in
             var d: [String: Any] = ["key": displaySafe(person.key, max: 200),
                                     "names": person.names.map { displaySafe($0, max: 200) }]
-            if let orcid = person.orcid { d["orcid"] = orcid }
-            if let openalex = person.openalex { d["openalex"] = openalex }
+            // #219：與 person() 的 personDict 同待遇——orcid/openalex 雖有寫入面
+            // 格式驗證，讀取面仍一律消毒（同一 payload 進 MCP tool result 與 CLI）
+            if let orcid = person.orcid { d["orcid"] = displaySafe(orcid, max: 200) }
+            if let openalex = person.openalex { d["openalex"] = displaySafe(openalex, max: 200) }
             if !person.unknownFields.isEmpty {   // #31：同 entryDict，只給 key
                 d["unknownFields"] = person.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
             }

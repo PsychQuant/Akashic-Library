@@ -15,7 +15,7 @@
 
 ### 可以儲存關係的地方是封閉列舉
 
-以下 **12 條**是 store 裡**僅有的**關係邊。**封閉列舉，不得依性質相似類推下一條**：
+以下 **13 條**是 store 裡**僅有的**關係邊。**封閉列舉，不得依性質相似類推下一條**：
 
 | # | 存在哪 | 指向 | 邊界條件 |
 |---|---|---|---|
@@ -31,6 +31,7 @@
 | 10 | `Divergence.judgement.prefers` | 本記錄的某個候選 | decode 時驗證存在性；同樣短暫 |
 | 11 | `Person.references` / `Organization.references` | `sources/` 的內容 | `ProvenanceReference`，content-addressed（`sha256:`）|
 | 12 | `Divergence.judgement.restsOn` | `sources/` 的內容 | 同 11 的定址法；**與 10 同一筆記錄的另一條邊** |
+| 13 | `Person.references` / `Organization.references` 中 verdict 欄位對的 `value` | work／person／organization（by key） | **僅限封閉欄位對** `resolution-confirmed`／`resolution-rejected`（#232）；value 文法 `<kind>:<key> :: <literal>`。正典側是**被判定的記錄**：verdict 是關於它的同一性的事實，存在 entry 側會讓 work 長出無上界的 per-person 清單，且 reject 依規格不動 entry。與 11 **不同條**：11 指向存檔內容（content-addressed），13 是 `ProvenanceReference.value` 首次成為跨 entity 指標（by key）——`rename` 因此必須遷移 `work:` value（#232 verify NEW-1 實測不遷移＝否決安靜變回待判） |
 
 **每一條邊只存一次，存在上表指定的那一側。反向一律現算。**
 
@@ -92,6 +93,13 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
 >
 > 兩次的共同點：**作者相信自己窮舉過**。所以現在的防線不是更嚴厲的告誡，是上面那段
 > **可執行的稽核程序**——它不需要相信任何人。
+>
+> **第三次**（#232，2026-08-13）：這次不是「宣稱窮盡卻漏列」，是**新增了一條邊
+> （verdict `value`）而沒有同步改表**——實作 commit 未動本檔，由 verify 的
+> requirements 席跑上面的稽核程序抓出（第 ③ 步對 verdict value 答「是」而表裡沒有）。
+> 稽核程序第一次以「抓到真缺口」的方式證明了自己的價值；第 13 條隨修正補入，
+> 並附帶行為後果（rename 遷移）——漏列不只是文件不完整，是**沒有任何遷移路徑
+> 知道這條邊存在**的原因。
 
 ### 不得儲存的（同一件事的另一面）
 

@@ -29,7 +29,12 @@ public final class PeopleResolveModel {
     }
 
     public func refresh() {
-        let report = PersonResolver.resolve(entries: state.entries, people: state.people)
+        // #232 verify REG-3：App 面曾因 resolver 的 `rejected: = []` 預設值而
+        // **完全略過否決史**——CLI/MCP 否決過的配對在裁決台照樣出現。三個面
+        // 必須吃同一份 ledger；參數改必填後這裡是編譯器逼著接上的。
+        let report = PersonResolver.resolve(
+            entries: state.entries, people: state.people,
+            rejected: ResolutionLedger.rejectedPairings(people: state.people))
         candidates = report.candidates
             .filter { !state.skippedPeopleCandidates.contains(id(of: $0)) }
         // 歧義**不參與 skip 集合**：skip 的語意是「這個候選我不要套用」，而歧義
@@ -91,9 +96,30 @@ public final class PeopleResolveModel {
         // R7（R6-verify M21）：per-item 收容——先寫完能寫的、reindex 保持一致，
         // 再把第一個失敗往上拋給 UI（不留「部分改寫 + index stale」）
         var firstFailure: Error?
+        var entryWritten = false
         for (before, after) in zip(state.entries, applied) where before != after {
             do {
                 try state.store.writeEntry(after)
+                entryWritten = true
+            } catch {
+                if firstFailure == nil { firstFailure = error }
+            }
+        }
+        // #232 design D6：accept 的同一動作內寫 resolution-confirmed（entry 寫入
+        // 成功才寫——誇報 verdict 比漏寫更糟）。verify REG-3：App 面先前完全沒寫，
+        // 裁決台的每一次 accept 在校準計數裡永遠是 pending。
+        // format < 8 的 store 跳過 verdict（同 AkashicService 的降級——writePerson
+        // 的 v8 gate 會拒寫，這裡先判避免把 accept 本身變成錯誤）。
+        let storeFormat = (try? StoreVersion.read(root: state.store.root)) ?? 1
+        if entryWritten, storeFormat >= 8,
+           var p = state.people.first(where: { $0.key == candidate.personKey }) {
+            ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+                .confirmed, holderKind: .work,
+                holder: candidate.citekey, literal: candidate.literal,
+                rule: ResolutionLedger.personRule,
+                statement: "裁決台 accept：使用者確認歸戶"), to: &p.references)
+            do {
+                try state.store.writePerson(p)
             } catch {
                 if firstFailure == nil { firstFailure = error }
             }

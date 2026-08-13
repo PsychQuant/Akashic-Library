@@ -737,31 +737,49 @@ references:
 ```yaml
 references:
 - field: resolution-rejected
-  value: "cheng2025alpha :: Cheng, C."   # <holder> :: <literal>，見下
+  value: "work:cheng2025alpha :: Cheng, C."   # <kind>:<key> :: <literal>，見下
   judgement: 查過本人網頁，非本人 [rule: author-name-exact]
-  rests-on: []                           # verdict 例外：允許空（見下）
+  rests-on: []                                # verdict 例外：允許空（見下）
 ```
 
 **與 §3.5 一般規則的三個刻意偏離**（各有理由，皆為 normative）：
 
-1. **`value` 必填但不做集合成員檢查**。一般清單欄位的 `value` 以值定位記錄自己的
-   清單；verdict 的 `value` 定位的是**配對**——格式 `<holder> :: <literal>`（以
-   **第一個** ` :: ` 切分；literal 其餘內容原樣保留）。person 族的 holder 是 entry
-   citekey、organization 族是持有 literal 的 person／organization key——它們都不是
-   本記錄的欄位值，所以成員檢查對它不適用；缺 `value` 拒收（verdict 沒有配對即無錨）。
+1. **`value` 必填、必須可解析、不做集合成員檢查**。一般清單欄位的 `value` 以值
+   定位記錄自己的清單；verdict 的 `value` 定位的是**配對**——**單一文法**
+   `<kind>:<key> :: <literal>`（以**第一個** ` :: ` 切分、holder token 再以第一個
+   `:` 切出 kind；literal 其餘內容原樣保留）。kind ∈ `work`／`person`／`org`
+   且**必填**：person 族的 holder 是 entry citekey（`work:`）、organization 族是
+   持有 literal 的 person／organization key（`person:`／`org:`）——person 與 org
+   的 key 可合法同名（#166），沒有 kind，一筆 org 側否決會連帶抑制同名 person 的
+   配對。它們都不是本記錄的欄位值，所以成員檢查不適用；解析不了的 value 拒收
+   （verdict 沒有可解析的配對即無錨——malformed 進不了 store，手改壞的檔在載入
+   時整筆 quarantine，loud）。解析器住 `ProvenanceReference.VerdictPairingValue`，
+   store 閘與 `ResolutionLedger` 共用同一個。
 2. **允許空 `rests-on`**。裁決本身即一階證據（人看過、判了）；有外部依據時照常
    以 digest 指名。非 verdict 欄位的判斷型維持「`rests-on` 非空」不變——例外不外溢。
-3. **`judgement` 尾註 `[rule: <name>]` 標記證據類別**（今日恰一類
-   `author-name-exact`）。tolerant 解析：尾註缺席計入 `author-name-exact`。這是
-   typed slot 被 #247（format bump 前置）擋住的 v1 妥協；格式解封後遷移為 typed 欄位。
+3. **`judgement` 尾註 `[rule: <name>]` 標記證據類別**（person 族
+   `author-name-exact`、organization 族 `org-name-exact`——兩族的校準歷史分開計）。
+   tolerant 解析：尾註缺席依 kind 計入該族預設。這是 typed slot 的 v1 妥協；
+   格式再演化時遷移為 typed 欄位。
 
 三態計數（confirmed／rejected／pending）一律**現算、絕不儲存**——store 內沒有任何
 counter 欄位；「還沒查」與「查過了不是他」由 verdict 存在與否區分。
 
-**相容性（明記的降級）**：本欄位對**不 bump format**——verdict 只是新寫入的
-reference，形狀完全是既有的判斷型。代價：**舊 binary 讀到帶 verdict reference 的
-記錄，會以「不合法欄位」quarantine 該筆**（loud、可修復——升級 binary 即癒）。
-format bump 被 #247 擋住，兩害取其輕，此降級為已知且可接受。
+**verdict 是一條邊，生命週期有防線**（#232 verify）：`value` 內嵌 citekey／key，
+`akashic rename` 會一併遷移 person 記錄上的 `work:` verdict（`RenameReport.verdictValuesRewritten`
+報出）；`bootstrap-people`／`bootstrap-organizations` 對**已存在的目的檔**（含
+quarantined 檔——決定性 UUID 使同 key 落同檔名）一律跳過並報告，絕不覆寫。
+
+**相容性（format 8 write gate）**：verdict 的序列化形狀完全是既有的判斷型（無新
+形狀），但 `references[].field` 白名單是 **strict** 層——舊 binary 讀到 verdict
+reference 是**整檔 quarantine（記錄消失）**，不是 tolerant 保留。與 §5.0 的 v6
+（`ended`）／v7（`attested`）同型的「看似 additive 其實不是」，同一套補救：
+**寫入含 verdict 的記錄要求 store format ≥ 8**（`writePerson`／`writeOrganization`
+的 v8 gate，拒絕而非自動 bump、訊息指路）；format 8 的 store 讓舊 binary 走
+refuse-if-newer 的一句「請升級」，取代 per-file quarantine。format < 8 的 store：
+`reject` 不可用（硬擋、指路），`apply` 照常歸戶但 verdict 跳過並以
+`verdictsSkipped` 揭露。實際 bump store marker 的程序見 #247（先同步 distribution
+再改 marker）。
 
 ### 存檔佈局：`sources/`（內容定址，不進 remote）
 
@@ -905,6 +923,7 @@ index 一起被清掉。
 | 5 | 廢除「`names` 第一個是顯示名」，改由 `authorized` 指定（#81，見 §3.1）；**`divergence` 形狀歸屬本版**（#71 引入、#74 回填歸屬） | **欄位語意變更**。`authorized` 對舊 binary 是未知欄位、會被保留，但保留不等於遵守——舊 binary 仍會把 `names[0]` 當顯示名，並在一次 read-modify-write 裡重排 `names` 而不自知。`divergence:` 形狀標籤對 ≤4 世代 binary 是整檔 quarantine（形狀標籤是 strict——#131 判準重評，曾誤標 additive）；`writeDivergence` 對 format < 5 的 store 拒寫＋指路（#74） |
 | 6 | 時間軸段內新增 `ended: true`（已結束、時點未知，#63）；null-face 對齊 | **段內鍵是 strict**——tolerant-preserve 的開放層只涵蓋記錄頂層與 `akashic` namespace，舊 binary 讀到 `ended` 是整檔 quarantine（人檔消失）而非保留。`writePerson` 對 format < 6 的 store 拒寫含 ended 段的記錄＋指路（#131） |
 | 7 | 時間軸段內新增 `attested: [觀測點]`（某時點成立、起訖皆不明——`ended` 的鏡像，#70）| 同 6：段內鍵 strict → 舊 binary 整檔 quarantine；write gate 對 format < 7 拒寫＋指路。`attested` 與 `start`/`end`/`ended` 並存是矛盾（encode/decode 兩端拒收）|
+| 8 | `references[].field` 白名單新增消解判定欄位對 `resolution-confirmed`／`resolution-rejected`（#232，見 §3.5 消解判定節）| 同 6/7 的「看似 additive 其實不是」：field 白名單是 strict → 舊 binary 讀到 verdict reference 是整檔 quarantine（記錄消失），且該檔可被 bootstrap 的決定性 UUID 安靜覆寫、判定史全滅（#232 verify 實測整條鏈）。write gate 對 format < 8 拒寫含 verdict 的記錄＋指路；序列化形狀不變——8 只是「這個 store 可以持有 verdict」的宣告 |
 
 3 與 4 曾經發生而未回寫本表（#81 補齊）；6 曾漏補（#74 一併回寫）。**「資料鍵變保留字」同屬版本歸屬**：`divergence` 成為形狀標籤使同名頂層鍵在 ≥5 成為保留字——這與形狀標籤機制（format 3）的既有語意一致，不另立規則（#74 後果二）。`akashic migrate` 是使用者知情動作：它把 store 升到 supported 版本，升版後舊 binary 整庫拒開是 refuse-if-newer 的**預期**行為，不是 migrate 的缺陷（#74 後果三，文件化現況）。
 

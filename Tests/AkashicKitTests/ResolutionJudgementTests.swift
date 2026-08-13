@@ -12,7 +12,7 @@ final class ResolutionJudgementTests: XCTestCase {
         (error as? LocalizedError)?.errorDescription ?? String(describing: error)
     }
 
-    private func verdictRef(_ field: String, value: String? = "cheng2025alpha :: Cheng, C.",
+    private func verdictRef(_ field: String, value: String? = "work:cheng2025alpha :: Cheng, C.",
                             restsOn: [String] = []) -> ProvenanceReference {
         ProvenanceReference(field: field, value: value,
                             kind: .judgement(statement: "查過本人網頁，判定 [rule: author-name-exact]",
@@ -28,8 +28,8 @@ final class ResolutionJudgementTests: XCTestCase {
 
         var org = Organization(key: "stat-sinica")
         org.names = TimelineOf([TemporalValue(value: "統計所", range: DateRange(start: "1987"))])
-        org.references = [verdictRef("resolution-confirmed", value: "che-cheng :: 統計科學研究所"),
-                          verdictRef("resolution-rejected", value: "che-cheng :: 統計科學研究所")]
+        org.references = [verdictRef("resolution-confirmed", value: "person:che-cheng :: 統計科學研究所"),
+                          verdictRef("resolution-rejected", value: "person:che-cheng :: 統計科學研究所")]
         XCTAssertNoThrow(try org.validateReferenceAttachment())
     }
 
@@ -92,7 +92,7 @@ final class ResolutionJudgementTests: XCTestCase {
 
         var org = Organization(key: "stat-sinica")
         org.names = TimelineOf([TemporalValue(value: "統計所", range: DateRange(start: "1987"))])
-        org.references = [verdictRef("resolution-rejected", value: "x-person :: 統計所籌備處")]
+        org.references = [verdictRef("resolution-rejected", value: "person:x-person :: 統計所籌備處")]
         let e2 = try OrganizationYAML.encode(org)
         XCTAssertEqual(try OrganizationYAML.encode(try OrganizationYAML.decode(e2)), e2)
     }

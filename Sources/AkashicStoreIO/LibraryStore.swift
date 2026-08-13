@@ -455,6 +455,16 @@ public final class LibraryStore {
                     "升級方式見 writePerson 同型訊息", org.key)
             }
         }
+        // v8-only（resolution verdict，#232）——同 writePerson 的 v8 gate
+        if org.references.contains(where: {
+            ProvenanceReference.resolutionVerdictFields.contains($0.field) }) {
+            let format = try StoreVersion.read(root: root)
+            guard format >= 8 else {
+                throw StoreIOError.invalidKey(
+                    "organization（含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)）——" +
+                    "升級方式見 writePerson 同型訊息", org.key)
+            }
+        }
         let yaml = try OrganizationYAML.encode(org)
         let dest = entityURL(id: org.id)
         try atomicWrite(yaml, to: dest)
@@ -496,6 +506,20 @@ public final class LibraryStore {
                     "person（含 attested 段，需要 store format ≥ 7；本 store 是 \(format)）——" +
                     "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
                     "format: 改成 7（v7 只新增語法，既有資料不變）", person.key)
+            }
+        }
+        // v8-only 語法的 format gate（#232 verify NEW-2/NEW-3，同 6/7 的機制與理由）：
+        // verdict 欄位對 field 白名單是 strict——舊 binary 讀到是整檔 quarantine，
+        // 且 quarantine 檔可被 bootstrap 的決定性 UUID 安靜覆寫、判定史全滅。
+        // 這道閘是 verdict 寫入與「第二台機器上安靜銷毀 ledger」之間唯一的東西。
+        if person.references.contains(where: {
+            ProvenanceReference.resolutionVerdictFields.contains($0.field) }) {
+            let format = try StoreVersion.read(root: root)
+            guard format >= 8 else {
+                throw StoreIOError.invalidKey(
+                    "person（含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)）——" +
+                    "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                    "format: 改成 8（v8 只新增 references 欄位對，既有資料不變）", person.key)
             }
         }
         let yaml = try PersonYAML.encode(person)
@@ -864,11 +888,15 @@ public struct RenameReport: Equatable {
     public var relationsRewritten: [String]
     /// 候選有跟著改名的歧異記錄 id（#71）。
     public var divergenceCandidatesRewritten: [String]
+    /// verdict reference 的 value 有跟著改名的 person key（#232 verify NEW-1）。
+    public var verdictValuesRewritten: [String]
 
     public init(relationsRewritten: [String] = [],
-                divergenceCandidatesRewritten: [String] = []) {
+                divergenceCandidatesRewritten: [String] = [],
+                verdictValuesRewritten: [String] = []) {
         self.relationsRewritten = relationsRewritten
         self.divergenceCandidatesRewritten = divergenceCandidatesRewritten
+        self.verdictValuesRewritten = verdictValuesRewritten
     }
 }
 
@@ -1038,6 +1066,44 @@ extension LibraryStore {
             divergencesToRewrite.append(d)
         }
 
+        // #232 verify NEW-1：verdict reference 的 value 內嵌 citekey（`work:<citekey>
+        // :: <literal>`，掛在被判定的 person 上）——rename 不遷移的話，一次否決會
+        // 安靜變回待判：否決不再抑制、沉底列消失、同一配對同時計入 rejected 與
+        // pending。這打破 #232 自己的「Rejection SHALL be distinct from absence」。
+        // 文法解析與 store 閘同源（`VerdictPairingValue`），不另寫第二份。
+        var peopleToRewrite: [Person] = []
+        for var p in load.people {
+            var changed = false
+            var migrated: [ProvenanceReference] = []
+            var seenVerdicts = Set<String>()
+            for r in p.references {
+                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
+                      let v = r.value,
+                      let pairing = ProvenanceReference.VerdictPairingValue.parse(v) else {
+                    migrated.append(r)
+                    continue
+                }
+                var out = r
+                if pairing.holderKind == .work, pairing.holder == oldKey {
+                    out = ProvenanceReference(
+                        field: r.field,
+                        value: ProvenanceReference.VerdictPairingValue(
+                            holderKind: .work, holder: newKey,
+                            literal: pairing.literal).encoded,
+                        kind: r.kind)
+                    changed = true
+                }
+                // 遷移後與既有 verdict 同 (field, value) → 收攏成一筆（寫入邊界
+                // 冪等的鏡射——store 永不持有重複 verdict）
+                guard seenVerdicts.insert("\(out.field)\u{0}\(out.value ?? "")").inserted else {
+                    changed = true
+                    continue
+                }
+                migrated.append(out)
+            }
+            if changed { p.references = migrated; peopleToRewrite.append(p) }
+        }
+
         _ = try EntryYAML.encode(entry)
         for other in toRewrite { _ = try EntryYAML.encode(other) }
         // **完整鏡射寫入端的前置條件**，不只 encode。只鏡射一半就是 R2 DA 實測到的
@@ -1047,6 +1113,7 @@ extension LibraryStore {
             try assertDivergenceWritable(d)
             _ = try DivergenceYAML.encode(d)
         }
+        for p in peopleToRewrite { _ = try PersonYAML.encode(p) }
         // 3. 寫記錄本身。
         //
         // **#35：format 2 下 rename 不搬檔案。** 檔名是 UUID，而 rename 不改 UUID——
@@ -1070,12 +1137,18 @@ extension LibraryStore {
             try writeDivergence(d)
             divergenceIDs.append(d.id.uuidString)
         }
+        var verdictKeys: [String] = []
+        for p in peopleToRewrite {
+            try writePerson(p)
+            verdictKeys.append(p.key)
+        }
         // 4. 刪舊檔（僅 legacy 佈局——format 2 沒有舊檔，見上）
         if !usesEntitiesLayout {
             try FileManager.default.removeItem(at: entryURL(citekey: oldKey))
         }
         return RenameReport(relationsRewritten: rewritten.sorted(),
-                            divergenceCandidatesRewritten: divergenceIDs.sorted())
+                            divergenceCandidatesRewritten: divergenceIDs.sorted(),
+                            verdictValuesRewritten: verdictKeys.sorted())
     }
 
     private func store_loadForRename() throws -> LibraryLoad {

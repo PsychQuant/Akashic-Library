@@ -91,11 +91,8 @@ final class AttestedRangeTests: XCTestCase {
         XCTAssertNoThrow(try store.writePerson(p), "format 7 放行")
     }
 
-    /// 目前的精確 format 值（#131 verify 慣例：釘精確值防「意外多 bump 一次」，
-    /// 每次刻意 bump 隨新 format 的測試搬家——本次從 EndedUnknownTests 搬來，#70）。
-    func testCurrentSupportedFormatIsExactlySeven() {
-        XCTAssertEqual(StoreVersion.supported, 7)
-    }
+    // 精確 format 值的 pin 隨最新 format 的測試搬家（#131 verify 慣例）——
+    // 現住 VerdictFormatGateTests（format 8，#232）。
 
     /// 無 attested 的既有記錄零 diff（向後相容——canary 面自動涵蓋，這裡顯式釘）。
     func testRecordsWithoutAttestedUnchanged() throws {

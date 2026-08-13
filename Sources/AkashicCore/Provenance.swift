@@ -20,6 +20,51 @@ public struct ProvenanceReference: Equatable {
         "resolution-confirmed", "resolution-rejected",
     ]
 
+    /// #232 verify（DA）：verdict `value` 的**單一文法**——`<kind>:<key> :: <literal>`。
+    ///
+    /// kind token **必填**且**兩族統一**：person 與 organization 的 key 可合法同名
+    /// （#166），沒有 kind，一筆 org 側否決會連帶抑制同名 person 的配對；而「person
+    /// 族免 token、靠掛載記錄推斷」是兩套文法靠脈絡區辨——D3 已自認過的
+    /// grammar-in-string 漂移，不再開第二個。文法住 AkashicCore：store 閘
+    /// （`validateReferenceAttachment`）與 `ResolutionLedger` 共用**同一個**解析器。
+    public enum VerdictHolderKind: String, CaseIterable, Sendable {
+        case work      // entry citekey（person-resolution 的 holder）
+        case person    // 持有 affiliations literal 的 person key（org-resolution）
+        case org       // 持有 parents literal 的 organization key（org-resolution）
+    }
+
+    /// 解析後的配對定位。encode／parse 是彼此的反函數；holder key 受 StoreKey
+    /// 約束（`[a-z0-9-]`，無 `:`、無空白），literal 任意（含 ` :: ` 也能 round-trip
+    /// ——切分一律取**第一個**分隔）。
+    public struct VerdictPairingValue: Equatable, Sendable {
+        public let holderKind: VerdictHolderKind
+        public let holder: String
+        public let literal: String
+
+        public init(holderKind: VerdictHolderKind, holder: String, literal: String) {
+            self.holderKind = holderKind
+            self.holder = holder
+            self.literal = literal
+        }
+
+        public var encoded: String { "\(holderKind.rawValue):\(holder) :: \(literal)" }
+
+        /// 回 nil＝malformed——呼叫端必須 loud（store 閘拒收、ledger 進 malformed）。
+        /// kind token 缺席**不是**舊格式（verdict 欄位對自 #232 才存在，沒有舊資料）
+        /// ——不設回退（no-compat-fallback）。
+        public static func parse(_ value: String) -> VerdictPairingValue? {
+            guard let sep = value.range(of: " :: ") else { return nil }
+            let holderToken = String(value[..<sep.lowerBound])
+            guard let colon = holderToken.firstIndex(of: ":"),
+                  let kind = VerdictHolderKind(rawValue: String(holderToken[..<colon]))
+            else { return nil }
+            let holder = String(holderToken[holderToken.index(after: colon)...])
+            guard !holder.isEmpty, !holder.contains(" ") else { return nil }
+            return VerdictPairingValue(holderKind: kind, holder: holder,
+                                       literal: String(value[sep.upperBound...]))
+        }
+    }
+
     /// 擷取型 vs 判斷型——互斥的兩種（D6）。
     public enum Kind: Equatable {
         /// 單次擷取：路徑 + 內容。`content` 是 `sha256:` 前綴的 digest。
@@ -316,12 +361,21 @@ extension Person {
                         "記錄的 \(r.field) 是空的——reference 指名的欄位必須存在")
                 }
             case _ where ProvenanceReference.resolutionVerdictFields.contains(r.field):
-                // #232：verdict 虛欄位（封閉對）——value 定位配對（citekey :: literal），
-                // 不屬任何集合、不做成員檢查；缺 value 的 verdict 無錨、拒收
-                guard r.value != nil else {
+                // #232：verdict 虛欄位（封閉對）——value 定位配對（<kind>:<key> ::
+                // <literal>），不屬任何集合、不做成員檢查。malformed 在**寫入邊界**
+                // 拒收（verify DA fix-7）：一筆解析不了的 verdict 既不計數也不抑制，
+                // 讓它進 store 等於允許一個靜默 no-op 的判定。
+                guard case .judgement = r.kind else {
                     throw StoreYAMLError.invalidField(
                         "person.references(field: \(r.field))",
-                        "\(r.field) 必須帶 value 定位被判定的配對——verdict 沒有配對即無錨")
+                        "verdict 必須是判斷型（judgement）——擷取型帶不動人為裁決")
+                }
+                guard let v = r.value,
+                      ProvenanceReference.VerdictPairingValue.parse(v) != nil else {
+                    throw StoreYAMLError.invalidField(
+                        "person.references(field: \(r.field))",
+                        "\(r.field) 的 value 必須是「<kind>:<key> :: <literal>」"
+                        + "（kind ∈ work/person/org）——verdict 沒有可解析的配對即無錨")
                 }
             default:
                 throw StoreYAMLError.invalidField(
@@ -385,11 +439,18 @@ extension Organization {
                         "記錄的 parents 是空的——reference 指名的欄位必須存在")
                 }
             case _ where ProvenanceReference.resolutionVerdictFields.contains(r.field):
-                // #232：同 person 側——封閉對、value 必填、無成員檢查
-                guard r.value != nil else {
+                // #232：同 person 側——封閉對、judgement 必須、value 必須可解析
+                guard case .judgement = r.kind else {
                     throw StoreYAMLError.invalidField(
                         "organization.references(field: \(r.field))",
-                        "\(r.field) 必須帶 value 定位被判定的配對——verdict 沒有配對即無錨")
+                        "verdict 必須是判斷型（judgement）——擷取型帶不動人為裁決")
+                }
+                guard let v = r.value,
+                      ProvenanceReference.VerdictPairingValue.parse(v) != nil else {
+                    throw StoreYAMLError.invalidField(
+                        "organization.references(field: \(r.field))",
+                        "\(r.field) 的 value 必須是「<kind>:<key> :: <literal>」"
+                        + "（kind ∈ work/person/org）——verdict 沒有可解析的配對即無錨")
                 }
             default:
                 throw StoreYAMLError.invalidField(

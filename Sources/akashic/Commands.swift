@@ -447,13 +447,32 @@ struct BootstrapPeople: ParsableCommand {
             return
         }
         var written = 0
+        var skippedExisting: [String] = []
         for p in PersonBootstrap.personsFor(cands) {
+            // quarantine 覆寫防護（#232 verify NEW-3）：決定性 UUID 讓「同 key 再
+            // bootstrap」落到**同一個檔名**。被舊 binary quarantine 的記錄不在
+            // load.people 裡，其 literal 因此會被再次提名——直接覆寫會安靜銷毀
+            // 原記錄的全部內容（含判定史），退出狀態還是 ✓。既有檔不歸 bootstrap
+            // 管：跳過並報告（同 addPerson「不覆寫 quarantined 檔」的既有立場）。
+            let dest = store.usesEntitiesLayout
+                ? store.entityURL(id: p.id) : store.personURL(key: p.key)
+            guard !FileManager.default.fileExists(atPath: dest.path) else {
+                skippedExisting.append(p.key)
+                continue
+            }
             try store.writePerson(p)
             written += 1
+        }
+        if !skippedExisting.isEmpty {
+            print("⚠ 跳過 \(skippedExisting.count) 個：目的檔已存在（可能是 quarantined 記錄"
+                  + "——先看 doctor 報告處理，不覆寫）")
+            for k in skippedExisting.prefix(10) { print("  ⚠ \(displaySafe(k, max: 200))") }
         }
         _ = try LibraryIndex(store: store).rebuild()
         print("✓ 建立 \(written) 個 person（共 \(total) 個候選）、index 已重建")
         print("  下一步：akashic resolve-people 把 entries 的 literal 歸戶")
+        // 跳過（目的檔已存在）＝有事要人處理——exit 1 讓 && chain 不若無其事往下走
+        if !skippedExisting.isEmpty { throw ExitCode(1) }
     }
 }
 
@@ -512,7 +531,13 @@ struct BootstrapOrganizations: ParsableCommand {
         // 的既有紀律）——中途失敗不得讓其餘候選連試都沒試，也不得吞掉已建立的清單。
         var written = 0
         var failed: [(key: String, why: String)] = []
+        var skippedExisting: [String] = []
         for o in OrgBootstrap.organizationsFor(cands) {
+            // quarantine 覆寫防護（#232 verify NEW-3）——同 bootstrap-people
+            guard !FileManager.default.fileExists(atPath: store.entityURL(id: o.id).path) else {
+                skippedExisting.append(o.key)
+                continue
+            }
             do {
                 try store.writeOrganization(o)
                 // #154 verify 附帶：apply 時列出建了什麼（先前一筆都不印）
@@ -523,6 +548,11 @@ struct BootstrapOrganizations: ParsableCommand {
                 failed.append((key: o.key, why: "\(error)"))
             }
         }
+        if !skippedExisting.isEmpty {
+            print("⚠ 跳過 \(skippedExisting.count) 個：目的檔已存在（可能是 quarantined 記錄"
+                  + "——先看 doctor 報告處理，不覆寫）")
+            for k in skippedExisting.prefix(10) { print("  ⚠ \(displaySafe(k, max: 200))") }
+        }
         if !failed.isEmpty {
             print("write failed（單筆寫入失敗，已略過續跑）: \(failed.count)")
             for f in failed {
@@ -530,8 +560,10 @@ struct BootstrapOrganizations: ParsableCommand {
             }
         }
         _ = try LibraryIndex(store: store).rebuild()
-        if failed.isEmpty {
+        if failed.isEmpty, skippedExisting.isEmpty {
             print("✓ 建立 \(written) 個 organization（共 \(total) 個候選）、index 已重建")
+        } else if failed.isEmpty {
+            print("⚠ 部分完成：建立 \(written) 個、跳過 \(skippedExisting.count) 個既有檔、index 已重建")
         } else {
             print("⚠ 部分完成：建立 \(written) 個、\(failed.count) 個失敗、index 已重建")
         }
@@ -546,7 +578,7 @@ struct BootstrapOrganizations: ParsableCommand {
         // 自己就寫著「下一步：…」），bootstrap 半途失敗時
         // `bootstrap-organizations --apply && resolve-organizations --apply`
         // 會若無其事往下走。**放在 reportDropped 與「下一步」之後**，否則會吞掉它們。
-        if !failed.isEmpty { throw ExitCode(1) }
+        if !failed.isEmpty || !skippedExisting.isEmpty { throw ExitCode(1) }
     }
 }
 
@@ -671,6 +703,15 @@ struct ResolveOrganizations: ParsableCommand {
             case let .organization(k): return "org \(displaySafe(k, max: 200))"
             }
         }
+        // Holder → verdict 的 kind token（#232：kind 屬配對身分——person/org key
+        // 可合法同名，見 ResolutionPairing 的 doc）
+        func pairingKind(_ h: OrgResolutionCandidate.Holder)
+            -> ProvenanceReference.VerdictHolderKind {
+            switch h {
+            case .person: return .person
+            case .organization: return .org
+            }
+        }
 
         /// #231：歧義不再靜默丟棄。每個候選 org 帶當前名稱，讓人能分辨
         /// 「兩個真的不同的機構同名」與「同一機構兩筆記錄」。
@@ -735,19 +776,26 @@ struct ResolveOrganizations: ParsableCommand {
         // #232 design D7：三態計數與已否決沉底——名單與計數同 MCP 來源
         // （ResolutionLedger），CLI 只排版。
         func printOrgCountsAndSunk() {
-            for s in ResolutionLedger.observedRejections(pairings: orgRejected,
-                                                         people: load.people,
-                                                         organizations: load.organizations) {
-                let kind = s.holderIsPerson ? "person" : "org"
-                print("  (已否決) \(kind) \(displaySafe(s.holder, max: 200)) 「\(displaySafe(s.literal, max: 200))」 ↛ \(displaySafe(s.judgedKey, max: 200))")
+            // holder 的 kind 來自 verdict value 的 kind token（verify C-3——
+            // 同名 person／org 各自的配對各自呈現，不再「先猜 person」）
+            for s in ResolutionLedger.observedRejections(organizations: load.organizations,
+                                                         people: load.people) {
+                print("  (已否決) \(s.holderKind.rawValue) \(displaySafe(s.holder, max: 200)) 「\(displaySafe(s.literal, max: 200))」 ↛ \(displaySafe(s.judgedKey, max: 200))")
+            }
+            for m in ResolutionLedger.malformedVerdicts(people: [],
+                                                        organizations: load.organizations)
+                .prefix(20) {
+                print("  ⚠ malformed verdict（不計數、不抑制）：\(displaySafe(m, max: 300))")
             }
             let triples = all.map {
-                ResolutionPairing(holder: $0.holder.key, literal: $0.literal, judgedKey: $0.orgKey)
+                ResolutionPairing(holderKind: pairingKind($0.holder),
+                                  holder: $0.holder.key, literal: $0.literal,
+                                  judgedKey: $0.orgKey)
             }
             let c = ResolutionLedger.counts(organizations: load.organizations,
                                             candidatePairings: triples)[
-                ResolutionLedger.defaultRule] ?? (0, 0, 0)
-            print("三態計數（\(ResolutionLedger.defaultRule)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／未處理 \(c.pending)")
+                ResolutionLedger.orgRule] ?? (0, 0, 0)
+            print("三態計數（\(ResolutionLedger.orgRule)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／未處理 \(c.pending)")
         }
 
         // reject（#232 design D6）：對收窄後的候選寫 verdict，holder 記錄**不動**
@@ -762,10 +810,13 @@ struct ResolveOrganizations: ParsableCommand {
             var grouped: [String: Organization] = [:]
             for c in candidates {
                 guard var o = grouped[c.orgKey] ?? orgByKey[c.orgKey] else { continue }
-                o.references.append(ResolutionLedger.record(
-                    .rejected, holder: c.holder.key, literal: c.literal,
-                    rule: ResolutionLedger.defaultRule,
-                    statement: "resolve reject：使用者否決此配對"))
+                // appendIfAbsent：同 holder 兩段同名 affiliation 產出兩筆相同候選時，
+                // verdict 只落一筆——計數不灌水（verify F(a)）
+                ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+                    .rejected, holderKind: pairingKind(c.holder),
+                    holder: c.holder.key, literal: c.literal,
+                    rule: ResolutionLedger.orgRule,
+                    statement: "resolve reject：使用者否決此配對"), to: &o.references)
                 grouped[c.orgKey] = o
             }
             var wrote = 0
@@ -816,18 +867,6 @@ struct ResolveOrganizations: ParsableCommand {
             // 帶過來。這不是新設計，是把既有紀律平移。
             let updated = OrgResolver.apply(candidates, to: load.people,
                                             organizations: load.organizations)
-            // #232 design D6 對稱：apply 的**同一動作**內寫 resolution-confirmed
-            // verdict 到被判定的 organization（person 面在 AkashicService 做同一件事）
-            var updatedOrgs = updated.organizations
-            let orgIdx = Dictionary(updatedOrgs.enumerated().map { ($0.element.key, $0.offset) },
-                                    uniquingKeysWith: { a, _ in a })
-            for c in candidates {
-                guard let i = orgIdx[c.orgKey] else { continue }
-                updatedOrgs[i].references.append(ResolutionLedger.record(
-                    .confirmed, holder: c.holder.key, literal: c.literal,
-                    rule: ResolutionLedger.defaultRule,
-                    statement: "resolve apply：使用者確認歸戶"))
-            }
             // **person 與 organization 分開計數**（#166 verify）：`written` 現在同時
             // 累計兩者，而訊息仍寫「N 個 person」——沙箱實測「一個 person 都沒有」
             // 時照樣印「改寫 1 個 person」。本 change 之前 `written` 只數 person，
@@ -847,6 +886,7 @@ struct ResolveOrganizations: ParsableCommand {
             }
             // organization 側走**同一套** per-item 收容（#154 verify 154-8 的紀律；
             // 那一輪的教訓正是「org 側三條全沒帶過來」——這次不要再漏一次）
+            var updatedOrgs = updated.organizations
             for o in updatedOrgs where !load.organizations.contains(where: { $0 == o }) {
                 do {
                     try store.writeOrganization(o)
@@ -855,6 +895,37 @@ struct ResolveOrganizations: ParsableCommand {
                     failed.append((kind: "org", key: o.key, why: "\(error)"))
                 }
             }
+            // #232 design D6 對稱：apply 的**同一動作**內寫 resolution-confirmed
+            // verdict 到被判定的 organization——但**只寫 holder 記錄改寫成功的那些**
+            // （verify C-2：誇報 verdict 比漏寫更糟，person 面在 AkashicService 有
+            // 同一道閘）。第二輪獨立寫入、獨立回報，排在 rebuild 之前。
+            let failedHolderKeys = Set(failed.map { "\($0.kind):\($0.key)" })
+            func holderFailed(_ h: OrgResolutionCandidate.Holder) -> Bool {
+                switch h {
+                case let .person(k): return failedHolderKeys.contains("person:\(k)")
+                case let .organization(k): return failedHolderKeys.contains("org:\(k)")
+                }
+            }
+            let orgIdx = Dictionary(updatedOrgs.enumerated().map { ($0.element.key, $0.offset) },
+                                    uniquingKeysWith: { a, _ in a })
+            var confirmTargets = Set<String>()
+            for c in candidates where !holderFailed(c.holder) {
+                guard let i = orgIdx[c.orgKey] else { continue }
+                if ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+                    .confirmed, holderKind: pairingKind(c.holder),
+                    holder: c.holder.key, literal: c.literal,
+                    rule: ResolutionLedger.orgRule,
+                    statement: "resolve apply：使用者確認歸戶"),
+                    to: &updatedOrgs[i].references) {
+                    confirmTargets.insert(c.orgKey)
+                }
+            }
+            var confirmFailed: [(String, String)] = []
+            for key in confirmTargets.sorted() {
+                guard let i = orgIdx[key] else { continue }
+                do { try store.writeOrganization(updatedOrgs[i]) }
+                catch { confirmFailed.append((key, "\(error)")) }
+            }
             // **先報失敗**：rebuild 可能自己再擲一次，那會把上面的清單吞掉
             if !failed.isEmpty {
                 print("write failed（單筆寫入失敗，已略過續跑）: \(failed.count)")
@@ -862,11 +933,20 @@ struct ResolveOrganizations: ParsableCommand {
                     print("  ✗ \(f.kind) \(displaySafe(f.key, max: 200)) — \(displaySafe(f.why, max: 512))")
                 }
             }
+            if !confirmFailed.isEmpty {
+                print("confirmed verdict 寫入失敗（歸戶已落地、verdict 未落地）: \(confirmFailed.count)")
+                for (k, why) in confirmFailed {
+                    print("  ✗ org \(displaySafe(k, max: 200)) — \(displaySafe(why, max: 512))")
+                }
+            }
             _ = try LibraryIndex(store: store).rebuild()
             // `✓` 只在全綠。報**寫入數**不是候選數——先前用 candidates.count，失敗時誇報
-            if failed.isEmpty {
+            if failed.isEmpty, confirmFailed.isEmpty {
                 print("✓ 歸戶 \(candidates.count) 筆、改寫 \(wroteP) 個 person / "
                       + "\(wroteO) 個 organization、index 已重建")
+            } else if failed.isEmpty {
+                print("⚠ 歸戶完成但 \(confirmFailed.count) 筆 confirmed verdict 未落地、index 已重建")
+                throw ExitCode(1)
             } else {
                 print("⚠ 部分完成：改寫 \(wroteP) 個 person / \(wroteO) 個 organization、"
                       + "\(failed.count) 個失敗、index 已重建")
@@ -1199,17 +1279,23 @@ struct ResolvePeople: ParsableCommand {
         // #232 design D7：三態計數（derived）與已否決沉底——名單與計數都來自
         // ResolutionLedger（與 MCP 同一來源），CLI 只負責排版。
         func printCountsAndSunk() {
-            for s in ResolutionLedger.observedRejections(pairings: rejectedSet,
+            // 同 entry 同 literal 的每個位置各一列（verify C-4）；malformed verdict
+            // 一併報出（lossless-intake：丟棄必須可見）
+            for s in ResolutionLedger.observedRejections(people: load.people,
                                                          entries: load.entries) {
                 print("  (已否決) \(displaySafe(s.citekey, max: 200))[\(s.authorIndex)] 「\(displaySafe(s.literal, max: 200))」 ↛ \(displaySafe(s.judgedKey, max: 200))")
             }
+            for m in ResolutionLedger.malformedVerdicts(people: load.people).prefix(20) {
+                print("  ⚠ malformed verdict（不計數、不抑制）：\(displaySafe(m, max: 300))")
+            }
             let triples = all.map {
-                ResolutionPairing(holder: $0.citekey, literal: $0.literal, judgedKey: $0.personKey)
+                ResolutionPairing(holderKind: .work, holder: $0.citekey,
+                                  literal: $0.literal, judgedKey: $0.personKey)
             }
             let c = ResolutionLedger.counts(people: load.people, candidatePairings: triples)[
-                ResolutionLedger.defaultRule] ?? (0, 0, 0)
+                ResolutionLedger.personRule] ?? (0, 0, 0)
             // 計數不報比率（分母含 censoring，比率會邀請錯誤推論）——未處理量必須可見
-            print("三態計數（\(ResolutionLedger.defaultRule)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／未處理 \(c.pending)")
+            print("三態計數（\(ResolutionLedger.personRule)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／未處理 \(c.pending)")
         }
 
         guard !all.isEmpty else {
@@ -1239,7 +1325,7 @@ struct ResolvePeople: ParsableCommand {
             // verdict（design D6）。CLI 只把 JSON 排成人可讀。
             let service = AkashicService(root: store.root, key: store.key,
                                          environment: ProcessInfo.processInfo.environment)
-            let ids = candidates.map { "\($0.citekey):\($0.authorIndex)" }
+            let ids = candidates.map(\.rowID)   // 複合鍵住在型別上（#236 R4）——不手拼第四份
             let out = try service.resolvePeople(apply: ids)
             let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
             let written = parsed?["entriesRewritten"] as? Int ?? 0
@@ -1254,6 +1340,8 @@ struct ResolvePeople: ParsableCommand {
                 print("confirmed verdict 寫入失敗（entry 已改寫、verdict 未落地）: \(confirmFailed.count)")
                 for (key, msg) in confirmFailed.sorted(by: { $0.key < $1.key }) { print("  ✗ \(key) — \(msg)") }
             }
+            // format < 8 的 store：verdict 被跳過必須說出來（service 已揭露，CLI 轉印）
+            if let note = parsed?["verdictsSkipped"] as? String { print("⚠ \(note)") }   // service 端常數模板，已安全
             // 成功行不誇報（R8）：✓ 只在全數成功時
             if writeFailed.isEmpty, confirmFailed.isEmpty {
                 print("✓ 套用 \(candidates.count) 個候選、改寫 \(written) 檔、index 已重建")
@@ -1288,6 +1376,10 @@ struct Rename: ParsableCommand {
         // 不印等於沒發生過（#71 R3 DA 新 5）。
         if !report.divergenceCandidatesRewritten.isEmpty {
             print("歧異候選已遷移：\(report.divergenceCandidatesRewritten.joined(separator: ", "))")
+        }
+        // verdict value 同理（#232 verify NEW-1）——判定史跟著 citekey 走
+        if !report.verdictValuesRewritten.isEmpty {
+            print("消解判定已遷移：\(report.verdictValuesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
         }
     }
 }

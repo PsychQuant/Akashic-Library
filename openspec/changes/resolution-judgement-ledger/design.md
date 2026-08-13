@@ -23,9 +23,9 @@
 
 ### D2
 
-**value 編碼配對：`<citekey> :: <literal>`。**
+**value 編碼配對：`<kind>:<key> :: <literal>`（verify 修訂——kind token 必填、兩族統一）。**
 
-判定的對象是「entry 的某個 author literal ↔ 這個 person」配對。value slot（D2 慣例「以值定位」）承載 `<citekey> :: <literal>`（分隔符 ` :: `；citekey 是 StoreKey 字元集不含空白，literal 內出現 ` :: ` 的機率以 round-trip 測試釘住——encode/decode 只在 `ResolutionLedger` 內，單一封裝點，慣例改動不外溢）。
+判定的對象是「literal 所在記錄的某個 literal ↔ 被判定的 person/org」配對。value slot 承載單一文法 `<kind>:<key> :: <literal>`，kind ∈ `work`（entry citekey，person 族）／`person`／`org`（org 族的 literal 持有者）。原設計（`<citekey> :: <literal>`，無 kind）在 verify 被推翻兩處：(a) person 與 org 的 key 可合法同名（#166），無 kind 時一筆 org 側否決會連帶抑制同名 person 的配對（C-3/S-3 實測）；(b) 兩族兩套文法靠「掛在哪種記錄」的脈絡區辨，是 D3 自認過的 grammar-in-string 漂移再開一個（DA (b)）。分隔一律取第一個 ` :: `、holder token 取第一個 `:`；key 是 StoreKey 字元集（無空白無冒號），literal 任意可 round-trip。解析器住 `ProvenanceReference.VerdictPairingValue`（AkashicCore）——store 閘與 `ResolutionLedger` 共用同一個實作。
 
 ### D3
 
@@ -57,13 +57,13 @@ resolver 排除的是**被否決的 (citekey, literal, personKey) 三元組**—
 
 **reject 是顯式人為動作，與 apply 對稱。**
 
-`resolvePeople(apply:reject:)`：reject 收 rowID 陣列（複合鍵同 apply，#236 R4 慣例）。reject 寫 `resolution-rejected` reference 到該候選 person；apply 在改寫 entry 的同一動作內寫 `resolution-confirmed`。兩者都經 `writePerson`（既有寫入閘）。無任何自動 reject 路徑。
+`resolvePeople(apply:reject:)`：reject 收 rowID 陣列（複合鍵同 apply，#236 R4 慣例）。reject 寫 `resolution-rejected` reference 到該候選 person；apply 在改寫 entry 的同一動作內寫 `resolution-confirmed`。兩者都經 `writePerson`（既有寫入閘）。無任何自動 reject 路徑。**apply 與 reject 不可同一次呼叫**（verify A，4/4 席 + DA 確認）：兩腿寫同一批 person 檔，曾以 stale 快照互相蓋寫——reject 剛寫的 verdict 被 confirm 的整檔改寫抹掉、回應照樣宣稱成功；組合語意需要按腿回報部分失敗的回應形狀，是它自己的設計題，v1 禁止。rowID 去重（保序）＋ `appendIfAbsent` 寫入邊界冪等——store 永不持有重複 verdict，計數就能誠實地數原始 refs（DA (d)）。
 
 ### D7
 
-**呈現形狀。**
+**呈現形狀（verify 修訂——已否決獨立成段）。**
 
-候選物件增 `counts: {confirmed, rejected, pending}`（該候選所屬 rule 的計數）與 `verdict: rejected?`（本配對已否決時標記）。排序：已否決配對沉底；其餘維持既有序。頂層增 `pendingTotal`（未處理量可見——censoring 不可隱藏）。**無比率欄位**——形狀上就不給。
+候選物件增 `counts: {confirmed, rejected, pending}`（該候選所屬 rule 的計數）。已否決配對**獨立為頂層 `rejected` 陣列**（排在 candidates 之後閱讀；帶 `verdict: "rejected"`、無 id）——原設計「沉底附在 candidates 內」在 verify 被推翻：列數超過文件宣稱的上限（實測 317 列）、`candidateTotal` 小於陣列長度、沉底列缺 id/reason 使消費端無條件讀取即炸（C-7/S-7/REG-6），且共用預算讓「記載人類決定的那段」最先被擠掉（DA (c)）。獨立段有自己的 50 列上限、48 KB 預算、`rejectedTotal` 與 `rejectedRowsDropped`。頂層 `pendingTotal`（未處理量可見——censoring 不可隱藏）；`verdictMalformed` 僅在偵測到解析不了的 verdict 時出現。**無比率欄位**——形狀上就不給。
 
 ### D8
 
@@ -77,7 +77,9 @@ resolver 排除的是**被否決的 (citekey, literal, personKey) 三元組**—
 
 ## Migration Plan
 
-無資料遷移（新欄位對只出現在新寫入的 references；既有記錄不動）。程式遷移：`validateReferenceAttachment` 兩個封閉表各加一個 case——舊 binary 讀新記錄會拒（refuse-if-newer 的既有語意由 store format 管；本 change 不 bump format，舊 binary 讀到 verdict reference 會以「不合法欄位」quarantine 該筆——**這是已知且可接受的降級**：quarantine 是 loud 的，且 format bump 被 #247 擋住，兩害取其輕，明記於 spec）。
+無資料遷移（新欄位對只出現在新寫入的 references；既有記錄不動）。程式遷移：`validateReferenceAttachment` 兩個封閉表各加一個 case。
+
+**（verify 修訂——原「可接受的 quarantine 降級」被推翻，NEW-2/NEW-3）**：原設計主張「不 bump format，舊 binary quarantine 該筆是 loud 且可接受」。verify 實測整條毀損鏈推翻了它：舊 binary quarantine 整筆 person → 該記錄不在 load.people → 例行 `bootstrap-people --apply` 對同 key 提名 → 決定性 UUID 落同檔名 → **安靜覆寫、判定史全滅、exit ✓**。且 `docs/store-format.md` §5.0 對同型情況（v6 `ended`）已有 normative 裁決：「refuse-if-newer 的一句『請升級』遠比 per-file quarantine 誠實」。修法照 v6/v7 既有 gate 範式：**format 8** + `writePerson`／`writeOrganization` 對 format < 8 拒寫含 verdict 的記錄（拒絕而非自動 bump、訊息指路）；bootstrap 對既有目的檔一律跳過並報告（覆寫防護獨立成立）；`rename` 遷移 `work:` verdict value（NEW-1——外鍵完整性）。實際 bump 真實 store 的 marker 走 #247 的程序（先同步 distribution）。這不與「無新序列化形狀」矛盾——8 只是「此 store 可持有 verdict」的宣告。
 
 ## Open Questions
 

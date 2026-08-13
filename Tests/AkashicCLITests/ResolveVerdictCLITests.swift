@@ -47,7 +47,7 @@ final class ResolveVerdictCLITests: XCTestCase {
         let load = try reload()
         let p = load.people.first { $0.key == "cheng-che" }!
         XCTAssertTrue(p.references.contains {
-            $0.field == "resolution-rejected" && $0.value == "a2020x :: Che Cheng"
+            $0.field == "resolution-rejected" && $0.value == "work:a2020x :: Che Cheng"
         }, "verdict 要落 YAML：\(p.references)")
         // entry 不動
         let e = load.entries.first { $0.citekey == "a2020x" }!
@@ -78,7 +78,7 @@ final class ResolveVerdictCLITests: XCTestCase {
         let load = try reload()
         let p = load.people.first { $0.key == "cheng-che" }!
         XCTAssertTrue(p.references.contains {
-            $0.field == "resolution-confirmed" && $0.value == "a2020x :: Che Cheng"
+            $0.field == "resolution-confirmed" && $0.value == "work:a2020x :: Che Cheng"
         }, "CLI apply 也要寫 confirmed（parity）：\(p.references)")
         let e = load.entries.first { $0.citekey == "a2020x" }!
         XCTAssertEqual(e.authors, [.key("cheng-che")], "apply 的既有行為不變")
@@ -111,7 +111,7 @@ final class ResolveVerdictCLITests: XCTestCase {
         let load = try reload()
         let org = load.organizations.first { $0.key == "stat-sinica" }!
         XCTAssertTrue(org.references.contains {
-            $0.field == "resolution-rejected" && $0.value == "che-cheng :: 統計科學研究所"
+            $0.field == "resolution-rejected" && $0.value == "person:che-cheng :: 統計科學研究所"
         }, "org verdict 要落 YAML：\(org.references)")
         // person 的 affiliation 不動（reject 不是套用）
         let p = load.people.first { $0.key == "che-cheng" }!

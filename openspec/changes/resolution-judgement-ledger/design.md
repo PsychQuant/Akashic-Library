@@ -65,6 +65,10 @@ resolver 排除的是**被否決的 (citekey, literal, personKey) 三元組**—
 
 候選物件增 `counts: {confirmed, rejected, pending}`（該候選所屬 rule 的計數）與 `verdict: rejected?`（本配對已否決時標記）。排序：已否決配對沉底；其餘維持既有序。頂層增 `pendingTotal`（未處理量可見——censoring 不可隱藏）。**無比率欄位**——形狀上就不給。
 
+### D8
+
+**verdict 的 judgement 允許空 restsOn（僅限封閉欄位對）。** 實作揭露的修正：既有規則「judgement SHALL name digests」在 init 層強制非空，但 verdict 是**一階人為裁決**——「查過了，不是他」常沒有可指的 store 內 digest（看的是外部 PDF／記憶）。強制附 digest 會讓 reject 不可用，分母問題原地復發。例外綁同一封閉欄位對、有證據時 SHOULD 附。
+
 ## Risks / Trade-offs
 
 - **statement 尾註是文法-in-string**（D3 自認）：以封閉值域（今日一值）+ tolerant 預設 + 測試釘住；風險上限是計數歸錯類，不是資料損失。

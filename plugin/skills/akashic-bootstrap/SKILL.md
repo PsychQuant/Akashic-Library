@@ -1,6 +1,6 @@
 ---
 name: akashic-bootstrap
-description: 把資料補進 Akashic library——給一個人名、citekey、DOI、一份匯出檔或一批任何形式的參照，找出 store 裡已有什麼、外部查得到什麼，驗證後補齊。涵蓋建立缺少的 person／work 實體、歸戶裸字串作者、補 DOI 與書目欄位、蒐集作者機構。當使用者說「把這些補進去」「查一下這個人的所有著作」「這批論文缺 DOI」「這份名單建成實體」「補完某人的 CV」，或給了一份 xlsx/CSV/BibTeX 說要進 Akashic 時使用。也涵蓋純查詢：「找某位作者的所有文章」「這個人跟誰合作過」——查詢是補完的第一步，同一條路徑。不要求使用者預先說明那是 person 還是 work，看內容判斷。
+description: 把資料補進 Akashic library——給一個人名、citekey、DOI、一份匯出檔或一批任何形式的參照，找出 store 裡已有什麼、外部查得到什麼，驗證後補齊。涵蓋建立缺少的 person／work 實體、歸戶裸字串作者（「這個 literal 是不是這個人」的身分判定與 verdict 落地屬 akashic-person-verify，本 skill 負責把判定後的資料寫進 store）、補 DOI 與書目欄位、蒐集作者機構。當使用者說「把這些補進去」「查一下這個人的所有著作」「這批論文缺 DOI」「這份名單建成實體」「補完某人的 CV」，或給了一份 xlsx/CSV/BibTeX 說要進 Akashic 時使用。也涵蓋純查詢：「找某位作者的所有文章」「這個人跟誰合作過」——查詢是補完的第一步，同一條路徑。不要求使用者預先說明那是 person 還是 work，看內容判斷。
 ---
 
 # 把資料補進 Akashic library

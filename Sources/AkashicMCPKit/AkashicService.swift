@@ -277,6 +277,24 @@ public final class AkashicService {
         if !residue.isEmpty {
             d["layoutResidue"] = residue.map { displaySafe($0, max: 300) }
         }
+        // #224：blob ↔ index 一致性（audit 邏輯單一路徑在 SourceStore；此處只渲染）。
+        // 四類皆空才不出現——沉默即健康；有事必須說（audit sidecar 的腐爛全靠這裡可見）。
+        // audit 自身失敗不得吞掉整份報告（d 到最後才序列化——中途 throw 連已算好的
+        // crossRecordIssues 都會消失，MCP 面比 CLI 面更慘；verify reg F1 實測）。
+        do {
+            let srcAudit = try store.auditSourceIndex()
+            if !srcAudit.orphanBlobs.isEmpty || !srcAudit.danglingEntries.isEmpty
+                || !srcAudit.malformedLines.isEmpty || !srcAudit.unreadableShards.isEmpty {
+                d["sources"] = [
+                    "orphanBlobs": srcAudit.orphanBlobs,          // digest 形（StoreKey 同級安全字元）
+                    "danglingIndexEntries": srcAudit.danglingEntries,
+                    "malformedIndexLines": srcAudit.malformedLines,
+                    "unreadableShards": srcAudit.unreadableShards.map { displaySafe($0, max: 120) },
+                ] as [String: Any]
+            }
+        } catch {
+            d["sourcesAuditError"] = displaySafe(String(describing: error), max: 300)
+        }
         // #76：divergence 計數無條件給（0 也是資訊）；同樣在 fatal 早退之前。
         d["divergences"] = load.divergences.count
         if !load.quarantined.isEmpty {

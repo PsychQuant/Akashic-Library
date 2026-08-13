@@ -39,7 +39,7 @@
 | `akashic_search` | `query`（filter flags）| ✅ 功能重疊 |
 | `akashic_relations` | `query`（relation flags）| ✅ 功能重疊 |
 | `akashic_graph` | `graph` | ✅ |
-| `akashic_export` | `export-bib`／`export-tables` | ✅ 功能重疊 |
+| `akashic_export` | `export-bib`／`export-tables` | ✅ 功能重疊（tables 面與 #274 的 `--view` 為 **CLI-only**：匯出物是檔案樹，MCP 的回傳形狀未定；CLI→MCP 方向的裁決屬 #259——此註記讓沉默有記錄）|
 | `akashic_doctor` | `doctor` | ✅ |
 | `akashic_files` | `file` | ✅ |
 | `akashic_libraries` | `library` | ✅ |

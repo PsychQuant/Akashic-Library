@@ -1058,14 +1058,33 @@ struct ExportTables: ParsableCommand {
     @Option(name: .shortAndLong, help: "輸出目錄")
     var output: String
 
+    @Option(name: .long, help: "只匯出這個 view 的外延（判準在 ~/.akashic/config.yaml；被引用的合著者與機構閉包一併保留，維持外鍵完整）")
+    var view: String?
+
     func run() throws {
         let store = try options.openStore()
         let load = try store.load()
         let dir = URL(fileURLWithPath: (output as NSString).expandingTildeInPath)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        let tables = RelationalExport.tables(entries: load.entries, people: load.people,
-                                            organizations: load.organizations)
+        var entries = load.entries
+        var people = load.people
+        var organizations = load.organizations
+        if let viewKey = view {
+            let config = try AkashicConfig.read(from: AkashicHome.configURL())
+            guard let def = config.views[viewKey] else {
+                throw ValidationError("config.yaml 沒有 view「\(displaySafe(viewKey, max: 200))」"
+                                      + "（`akashic view list` 看有哪些）")
+            }
+            let ext = def.extension_(in: load)
+            (entries, people, organizations) = ext.scope(load)
+            // 空外延是合法結果（判準無人命中），不是錯誤——照常匯出空表
+            print("view \(displaySafe(viewKey, max: 200))：person \(ext.people.count)、"
+                  + "work \(ext.works.count)（researcher 表另含被引用的合著者 "
+                  + "\(people.count - ext.people.count) 位）")
+        }
+        let tables = RelationalExport.tables(entries: entries, people: people,
+                                            organizations: organizations)
         for t in tables.all {
             let url = dir.appendingPathComponent("\(t.name).csv")
             try RelationalExport.csv(t).write(to: url, atomically: true, encoding: .utf8)

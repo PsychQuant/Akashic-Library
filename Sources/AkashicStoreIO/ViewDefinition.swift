@@ -57,6 +57,54 @@ public struct ViewExtension: Equatable {
     public let works: [String]
 }
 
+public extension ViewExtension {
+    /// 依外延把一份 load 收斂成匯出用的子集（#274）。**純函式**——不碰磁碟。
+    ///
+    /// 收斂語意（FK 完整性優先，三條都是為了讓下游關聯表不出現懸空外鍵）：
+    /// - `entries`：citekey 在 `works` 內。
+    /// - `people`：外延成員 **∪ 被保留著作引用的 `.key` 作者**。合著者若被濾掉，
+    ///   `RelationalExport` 會把已歸戶的 `.key` 退化成 `researcher_id IS NULL` ＋
+    ///   name_full 印 key 字串——那把「已歸戶但非成員」與「未歸戶」折成同一個觀察，
+    ///   事後無法區分。view 的語意是「這些著作與相關的人」，合著者屬於相關的人。
+    /// - `organizations`：被保留 person 的隸屬時間軸引用的 `.key` 機構，
+    ///   加上其 `parents` 的**遞移閉包**（organization 表的 parent_id 外鍵）。
+    ///   `.literal` 與懸空 `.key` 本來就由 `RelationalExport` 回 NULL，不在此補。
+    func scope(_ load: LibraryLoad) -> (entries: [Entry], people: [Person],
+                                        organizations: [Organization]) {
+        let workSet = Set(works)
+        let entries = load.entries.filter { workSet.contains($0.citekey) }
+
+        var personKeys = Set(people)
+        for e in entries {
+            for a in e.authors {
+                if case let .key(k) = a { personKeys.insert(k) }
+            }
+        }
+        let keptPeople = load.people.filter { personKeys.contains($0.key) }
+
+        // 機構閉包：隸屬引用起步，沿 parents 走到頂（worklist；懸空的 .key 走不動，
+        // 自然終止——不造 id 的立場與 RelationalExport 一致）
+        let orgByKey = Dictionary(load.organizations.map { ($0.key, $0) },
+                                  uniquingKeysWith: { a, _ in a })
+        var orgKeys = Set<String>()
+        var worklist: [String] = []
+        for p in keptPeople {
+            for v in p.profile.affiliations.entries {
+                if case let .key(k) = v.value { worklist.append(k) }
+            }
+        }
+        while let k = worklist.popLast() {
+            guard !orgKeys.contains(k), let org = orgByKey[k] else { continue }
+            orgKeys.insert(k)
+            for v in org.parents.entries {
+                if case let .key(pk) = v.value { worklist.append(pk) }
+            }
+        }
+        let keptOrgs = load.organizations.filter { orgKeys.contains($0.key) }
+        return (entries, keptPeople, keptOrgs)
+    }
+}
+
 public extension ViewDefinition {
     /// 算出外延。**純函式**——輸入是一份 `LibraryLoad`，不碰磁碟。
     ///

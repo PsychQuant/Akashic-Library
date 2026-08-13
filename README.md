@@ -142,6 +142,9 @@ views:
 akashic view list              # 有哪些 view、判準是什麼
 akashic view show iss          # 外延（實測本 store：159 人 / 424 篇）
 akashic view show iss --keys-only   # 一行一個 key，給下游腳本吃
+akashic export-tables --view iss -o out/   # view-scoped 關聯表匯出（#274）——
+                               # 外延過濾後走同一條 RelationalExport；被引用的
+                               # 合著者與機構閉包一併保留，維持外鍵完整
 ```
 
 **view 不是 entity**（#54 的裁決）：不動 `EntityKind`、不新增形狀裸標籤、

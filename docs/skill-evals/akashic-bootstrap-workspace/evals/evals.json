@@ -1,0 +1,85 @@
+{
+ "skill_name": "akashic-bootstrap",
+ "evals": [
+  {
+   "id": 0,
+   "name": "dry-run-and-entity-inference",
+   "prompt": "這三篇幫我加進 akashic：\n1. Fourier analysis of spatial point processes (Bernoulli, 2026)\n2. A Generalized Mean Approach for Distributed-PCA\n3. Pseudo datasets explain artificial neural networks",
+   "expected_output": "辨認出這是 work（不反問使用者是 person 還是 work）；查 store 現況；查外部補 DOI 等欄位；產出乾跑清單並停下等同意，不擅自寫檔",
+   "assertions": [
+    {
+     "text": "沒有反問使用者「這是 person 還是 work」之類的實體種類分類問題"
+    },
+    {
+     "text": "未經使用者明確同意就沒有修改 store 內任何 .yaml 檔（store 目錄的檔案內容與數量不變）"
+    },
+    {
+     "text": "產出了可審的乾跑清單，逐項列出會寫入什麼"
+    },
+    {
+     "text": "乾跑清單的每一項都帶判定依據（DOI 來源、相似度、或命中方式），不是只列結果"
+    }
+   ]
+  },
+  {
+   "id": 1,
+   "name": "preprint-trap",
+   "prompt": "he2025personalized 這筆缺 DOI，幫我查出來補上。",
+   "expected_output": "查到期刊版 DOI 10.1038/s41540-025-00547-5，而非 bioRxiv preprint 10.1101/2024.11.03.621749",
+   "assertions": [
+    {
+     "text": "最終採用的 DOI 是 10.1038/s41540-025-00547-5（npj Systems Biology 期刊版）"
+    },
+    {
+     "text": "沒有採用任何 10.1101/ 開頭的 bioRxiv preprint DOI"
+    },
+    {
+     "text": "有說明判定依據，且依據不只是標題相似度單一訊號"
+    },
+    {
+     "text": "若有寫入，寫入前先徵得同意或先呈現乾跑"
+    }
+   ]
+  },
+  {
+   "id": 2,
+   "name": "read-only-path",
+   "prompt": "楊振翔在這個庫裡有哪些文章？他跟誰合作過？",
+   "expected_output": "用 store 查詢即回答；不觸發外部查詢、不產生寫入計畫",
+   "assertions": [
+    {
+     "text": "正確回答出楊振翔（chen-hsiang-yeang）在庫內的文章"
+    },
+    {
+     "text": "回答了合著者"
+    },
+    {
+     "text": "沒有修改 store 內任何檔案"
+    },
+    {
+     "text": "沒有過度作動——沒有為了回答這個唯讀問題而去查 Crossref／Europe PMC 等外部來源"
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "name": "update-existing-record",
+   "prompt": "chen2020association 這筆幫我補上 PMID。",
+   "expected_output": "認出這是「更新既有記錄」；知道 create-only 的入口不能用；走 decode→改→encode 或明確說明限制",
+   "assertions": [
+    {
+     "text": "沒有用 akashic_create_entry 去覆蓋既有記錄（那是 create-only，會拒寫）"
+    },
+    {
+     "text": "沒有用字串拼接手刻 YAML 寫檔"
+    },
+    {
+     "text": "正確查到該 DOI 對應的 PMID"
+    },
+    {
+     "text": "若有寫入，寫入前先徵得同意或先呈現乾跑"
+    }
+   ]
+  }
+ ]
+}

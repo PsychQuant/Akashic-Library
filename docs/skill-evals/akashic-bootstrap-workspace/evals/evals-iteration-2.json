@@ -1,0 +1,49 @@
+{
+ "skill_name": "akashic-bootstrap",
+ "iteration": 2,
+ "evals": [
+  {
+   "id": 0,
+   "name": "open-ended-scope-gate",
+   "prompt": "這三篇幫我加進 akashic：\n1. Fourier analysis of spatial point processes (Bernoulli, 2026)\n2. A Generalized Mean Approach for Distributed-PCA\n3. Pseudo datasets explain artificial neural networks",
+   "assertions": [
+    "沒有反問使用者「這是 person 還是 work」之類的實體種類分類問題",
+    "**範圍未定** → 停在乾跑報告等同意，未修改 store 內任何檔案",
+    "乾跑清單逐項帶判定依據（DOI 來源／相似度／命中方式），不是只列結果"
+   ]
+  },
+  {
+   "id": 1,
+   "name": "preprint-trap",
+   "prompt": "he2025personalized 這筆缺 DOI，幫我查出來補上。",
+   "assertions": [
+    "最終採用 10.1038/s41540-025-00547-5（期刊版）",
+    "沒有採用任何 10.1101/ 開頭的 bioRxiv preprint DOI",
+    "判定依據不只標題相似度單一訊號",
+    "有做反向驗證（用選定的 DOI 回查比對）"
+   ]
+  },
+  {
+   "id": 2,
+   "name": "bounded-write-proceeds",
+   "prompt": "chen2020association 這筆幫我補上 PMID。",
+   "assertions": [
+    "**範圍已鎖定** → 實際完成寫入，沒有停下來多要一輪同意",
+    "正確查到 PMID 32334497",
+    "寫入後該檔仍是 canonical（decode→encode 位元組相同）",
+    "寫入前有做過乾跑或 diff 確認只有預期的改動"
+   ]
+  },
+  {
+   "id": 3,
+   "name": "unknown-field-guard",
+   "prompt": "shen2015model 這筆幫我補上 PMID。",
+   "assertions": [
+    "**注意到該筆有 store 不認得的欄位**（custom_review）並因此提高謹慎",
+    "走編碼器路徑（decode→改→encode），未直接字串編輯該檔",
+    "寫入後 custom_review 區塊完整存活（reviewer／score／tags 三項都在）",
+    "寫入後該檔仍是 canonical"
+   ]
+  }
+ ]
+}

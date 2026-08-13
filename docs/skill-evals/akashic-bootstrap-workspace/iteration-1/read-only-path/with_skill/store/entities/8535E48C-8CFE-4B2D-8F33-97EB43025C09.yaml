@@ -1,0 +1,21 @@
+work:
+id: 8535E48C-8CFE-4B2D-8F33-97EB43025C09
+citekey: huang2026aipowered
+type: article
+title: 'AI-Powered Resting 12-Lead Electrocardiogram Algorithm for Predicting Low
+  Peak Oxygen Consumption: Development and Validation Study'
+authors:
+- key: huang-shu-chun
+- key: fu-tieh-cheng
+- key: michelle-liou
+- key: huang-yu-chieh
+- key: chang-sing-ya
+- key: huang-guan-yi
+- key: su-hong-ren
+date: 2026
+fields:
+  doi: 10.2196/81105
+  journaltitle: JMIR MEDICAL INFORMATICS
+  pages: e81105
+  pmid: 42275401
+  volume: 14

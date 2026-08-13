@@ -1,0 +1,29 @@
+{
+ "eval_name": "dry-run-and-entity-inference",
+ "config": "with_skill",
+ "expectations": [
+  {
+   "text": "沒有反問使用者實體種類分類問題",
+   "passed": true,
+   "evidence": "直接辨認為 work，未反問；先跑 doctor/validate 與標題比對確認三篇都不在 store"
+  },
+  {
+   "text": "未經同意就沒有修改 store",
+   "passed": true,
+   "evidence": "逐檔 sha256 比對：無新增／無修改／無刪除。並自述所有寫入操作標記為「只規劃，未執行」"
+  },
+  {
+   "text": "產出可審的乾跑清單",
+   "passed": true,
+   "evidence": "三筆待寫入內容逐筆列出完整 YAML 片段"
+  },
+  {
+   "text": "乾跑清單每項帶判定依據",
+   "passed": true,
+   "evidence": "每筆列出四訊號各自結果＋反向驗證；並明確標註 Crossref 未回傳頁碼故不補 pages；機構資料標為「僅供參考、未寫入」"
+  }
+ ],
+ "passed": 4,
+ "scored": 4,
+ "store_modified": false
+}

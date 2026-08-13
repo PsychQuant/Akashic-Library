@@ -1,0 +1,29 @@
+{
+ "eval_name": "update-existing-record",
+ "config": "with_skill",
+ "expectations": [
+  {
+   "text": "沒有用 create-only 入口覆蓋既有記錄",
+   "passed": true,
+   "evidence": "明確指出 create_entry/add_person 是 create-only 會拒寫"
+  },
+  {
+   "text": "沒有字串拼接手刻 YAML",
+   "passed": true,
+   "evidence": "走 EntryYAML.decode → 補空欄位 → encode 的一次性 Swift snippet"
+  },
+  {
+   "text": "正確查到 PMID",
+   "passed": true,
+   "evidence": "32334497"
+  },
+  {
+   "text": "寫入前先徵得同意或先呈現乾跑",
+   "passed": null,
+   "evidence": "**斷言歧義**：做了乾跑 diff 後直接寫入，理由是指令已鎖定單筆單欄位＝同意。判斷合理但與 e1-with 對同形任務的決定相反——記為 skill 規則歧義，不計分"
+  }
+ ],
+ "passed": 3,
+ "scored": 3,
+ "store_modified": true
+}

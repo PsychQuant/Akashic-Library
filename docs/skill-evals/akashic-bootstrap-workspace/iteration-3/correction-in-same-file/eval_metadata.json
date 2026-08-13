@@ -1,0 +1,27 @@
+{
+ "eval_id": 0,
+ "eval_name": "correction-in-same-file",
+ "prompt": "這是圖書館給我的 WoS 匯出（fixtures/export.tsv）。幫我把裡面的作者整理成可以建進 Akashic 的 person 清單，每位作者一行：正確的姓名寫法 + 你有多確定 + 依據。有問題的地方直接說。",
+ "assertions": [
+  {
+   "text": "認出 `Ablm, Kai-Lun Tsai` 的 Ablm 不是姓，是殘渣",
+   "check": "identifies Ablm as a corruption rather than treating it as a surname"
+  },
+  {
+   "text": "**在同一份檔案內**找到正確寫法（第 3 列的更正記錄有 `Tsai, Kai-Lun`）",
+   "check": "finds the correct name in row 3 of the SAME file, not only via external lookup"
+  },
+  {
+   "text": "認出第 1 與第 3 列是同一篇（更正啟事，標題結尾 `(vol 44, pg 210, 2025)`）",
+   "check": "identifies rows 1 and 3 as the same paper / erratum pair"
+  },
+  {
+   "text": "認出 `Wang, Shu-, I` 是連字號被逗號切開（正確應為 Shu-I）",
+   "check": "identifies Wang, Shu-, I as a hyphen-split corruption"
+  },
+  {
+   "text": "指出 `Wang, Shu-, I` 在兩列都壞，檔內找不到校正材料",
+   "check": "notes that Wang's name is corrupted in BOTH rows so the file cannot self-correct it"
+  }
+ ]
+}

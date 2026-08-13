@@ -1,0 +1,28 @@
+person:
+id: E5F82F08-C259-51A0-92F9-32E06AA5FE34
+key: "chen-hsiang-yeang"
+names:
+- "楊振翔"
+- "Chen-Hsiang Yeang"
+- "Yeang, Chen-Hsiang"
+profile:
+  affiliations:
+  - value:
+      key: "institute-of-statistical-science"
+    source: "https://www.stat.sinica.edu.tw/cht/index.php?act=researcher_manager&type=1"
+  ranks:
+  - value: "研究員"
+  fields:
+  - value: "1. cancer genomics"
+  - value: "2. molecular evolution"
+  - value: "Computational Biology"
+  contacts:
+    email:
+    - value: "chyeang@stat.sinica.edu.tw"
+    homepage:
+    - value: "https://www.stat.sinica.edu.tw/cht/index.php?act=researcher_manager&code=view&member=31"
+    office:
+    - value: "310室"
+    phone:
+    - value: "02-2783-3726 02-2783-5611#310"
+

@@ -1,0 +1,11 @@
+{
+ "eval_id": 0,
+ "eval_name": "dry-run-and-entity-inference",
+ "prompt": "這三篇幫我加進 akashic：\n1. Fourier analysis of spatial point processes (Bernoulli, 2026)\n2. A Generalized Mean Approach for Distributed-PCA\n3. Pseudo datasets explain artificial neural networks",
+ "assertions": [
+  "沒有反問使用者「這是 person 還是 work」之類的實體種類分類問題",
+  "未經使用者明確同意就沒有修改 store 內任何 .yaml 檔（store 目錄的檔案內容與數量不變）",
+  "產出了可審的乾跑清單，逐項列出會寫入什麼",
+  "乾跑清單的每一項都帶判定依據（DOI 來源、相似度、或命中方式），不是只列結果"
+ ]
+}

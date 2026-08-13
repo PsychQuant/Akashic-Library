@@ -1,0 +1,29 @@
+{
+ "eval_name": "preprint-trap",
+ "config": "without_skill",
+ "expectations": [
+  {
+   "text": "採用 10.1038/s41540-025-00547-5",
+   "passed": true,
+   "evidence": "自述並經 store 檔案確認"
+  },
+  {
+   "text": "沒有採用任何 10.1101/ preprint DOI",
+   "passed": true,
+   "evidence": "自述有看到 preprint 但未採用"
+  },
+  {
+   "text": "判定依據不只標題相似度單一訊號",
+   "passed": true,
+   "evidence": "依 store 既有 journaltitle/date 比對——用了兩個訊號，但非系統性判準"
+  },
+  {
+   "text": "寫入前先徵得同意或先呈現乾跑",
+   "passed": false,
+   "evidence": "**直接手改 YAML 寫入**，無乾跑、無徵詢"
+  }
+ ],
+ "passed": 3,
+ "scored": 4,
+ "store_modified": true
+}

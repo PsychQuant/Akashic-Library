@@ -1,0 +1,18 @@
+work:
+id: 3AD71A3A-1259-4C84-8D89-DF1F47BC0420
+citekey: chu2025pseudo
+type: article
+title: Pseudo datasets explain artificial neural networks
+authors:
+- literal: Yi-Chi Chu
+- literal: Yi-Hau Chen
+- literal: Chao-Yu Guo
+date: 2025-08
+fields:
+  journaltitle: International Journal of Data Science and Analytics
+  volume: "20"
+  number: "2"
+  pages: 1263-1304
+  doi: 10.1007/s41060-024-00526-9
+  issn: "2364-415X"
+  url: https://doi.org/10.1007/s41060-024-00526-9

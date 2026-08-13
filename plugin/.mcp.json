@@ -1,0 +1,7 @@
+{
+  "akashic": {
+    "type": "stdio",
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/akashic-mcp-wrapper.sh",
+    "description": "Akashic-Library canonical literature store（查詢/關係/圖形/衍生層寫入/Zotero pull）"
+  }
+}

@@ -1,0 +1,11 @@
+{
+ "eval_id": 2,
+ "eval_name": "read-only-path",
+ "prompt": "楊振翔在這個庫裡有哪些文章？他跟誰合作過？",
+ "assertions": [
+  "正確回答出楊振翔（chen-hsiang-yeang）在庫內的文章",
+  "回答了合著者",
+  "沒有修改 store 內任何檔案",
+  "沒有過度作動——沒有為了回答這個唯讀問題而去查 Crossref／Europe PMC 等外部來源"
+ ]
+}

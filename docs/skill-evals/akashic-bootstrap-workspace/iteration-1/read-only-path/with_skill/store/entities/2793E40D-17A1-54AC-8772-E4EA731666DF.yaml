@@ -1,0 +1,25 @@
+person:
+id: 2793E40D-17A1-54AC-8772-E4EA731666DF
+key: "michelle-liou"
+names:
+- "劉長萱"
+- "Michelle Liou"
+- "Liou, Michelle"
+orcid: 0000-0002-0590-7977
+profile:
+  affiliations:
+  - value:
+      key: "institute-of-statistical-science"
+    start: "1985-07"
+    end: "2023-05"
+    source: "https://www.stat.sinica.edu.tw/cht/index.php?act=directory&code=retired"
+  ranks:
+  - value: "研究員"
+  contacts:
+    homepage:
+    - value: "https://sites.stat.sinica.edu.tw/mliou/"
+    office:
+    - value: "環變6F-6017室"
+    phone:
+    - value: "02-2787-5742"
+

@@ -1,0 +1,94 @@
+{
+  "skill_name": "akashic-bootstrap",
+  "iteration": 1,
+  "configurations": [
+    {
+      "name": "with_skill",
+      "pass_rate": 1.0,
+      "passed": 15,
+      "scored": 15
+    },
+    {
+      "name": "without_skill",
+      "pass_rate": 0.625,
+      "passed": 10,
+      "scored": 16
+    }
+  ],
+  "delta_pass_rate": 0.375,
+  "runs": [
+    {
+      "eval_name": "dry-run-and-entity-inference",
+      "config": "with_skill",
+      "passed": 4,
+      "scored": 4,
+      "pass_rate": 1.0,
+      "store_modified": false
+    },
+    {
+      "eval_name": "dry-run-and-entity-inference",
+      "config": "without_skill",
+      "passed": 1,
+      "scored": 4,
+      "pass_rate": 0.25,
+      "store_modified": true
+    },
+    {
+      "eval_name": "preprint-trap",
+      "config": "with_skill",
+      "passed": 4,
+      "scored": 4,
+      "pass_rate": 1.0,
+      "store_modified": false
+    },
+    {
+      "eval_name": "preprint-trap",
+      "config": "without_skill",
+      "passed": 3,
+      "scored": 4,
+      "pass_rate": 0.75,
+      "store_modified": true
+    },
+    {
+      "eval_name": "read-only-path",
+      "config": "with_skill",
+      "passed": 4,
+      "scored": 4,
+      "pass_rate": 1.0,
+      "store_modified": false
+    },
+    {
+      "eval_name": "read-only-path",
+      "config": "without_skill",
+      "passed": 4,
+      "scored": 4,
+      "pass_rate": 1.0,
+      "store_modified": false
+    },
+    {
+      "eval_name": "update-existing-record",
+      "config": "with_skill",
+      "passed": 3,
+      "scored": 3,
+      "pass_rate": 1.0,
+      "store_modified": true
+    },
+    {
+      "eval_name": "update-existing-record",
+      "config": "without_skill",
+      "passed": 2,
+      "scored": 4,
+      "pass_rate": 0.5,
+      "store_modified": true
+    }
+  ],
+  "analyst_notes": [
+    "eval-0/with_skill 最終完成（先前卡住）：4/4 全過，停在乾跑報告。它獨立指出了本輪的 eval 設計缺陷——環境禁用 MCP 而 CLI 無 create-entry 等效指令，故該環境下沒有任何合規寫入路徑。",
+    "read-only-path 兩個 config 全過（4/4 對 4/4）——**該 eval 不具鑑別力**，baseline 本來就會純查詢、零外部呼叫。下一輪應換掉。",
+    "update-existing-record/without_skill 的『手刻 YAML』判為 fail 是**機制**不合規，但實測其輸出仍為 canonical（decode→encode 比對 byte-identical）。只看機制會誇大 skill 價值。",
+    "update-existing-record/without_skill 的**查證比 with_skill 更紮實**（PubMed esearch+esummary 逐欄核對 vs Crossref 單次）。skill 沒有讓查證變好，只讓機制變合規。",
+    "e1-with 與 e3-with 面對結構相同的單筆指令做出**相反決定**（停在乾跑 vs 直接寫）——skill 的乾跑規則有歧義，這是本輪最有價值的發現。該條斷言已標為不計分。",
+    "eval-0 的機制類斷言受 eval 設計污染：為安全禁用 MCP，但 skill 推薦的建立入口正是 MCP 的 create_entry（CLI 無對應）。紀律類斷言不受影響。",
+    "三個寫入型任務中 baseline 一律未經同意即寫（新增 3 筆／改 1 筆／改 1 筆），with_skill 中唯一寫入的 e3-with 事前做了乾跑 diff。這是兩者最穩定的差異。"
+  ]
+}

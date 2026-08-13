@@ -1,0 +1,18 @@
+work:
+id: 1FB9AB0A-FFCC-449D-BA60-62B825869241
+citekey: jou2025generalized
+type: article
+title: A Generalized Mean Approach for Distributed-PCA
+authors:
+- literal: Zhi-Yu Jou
+- literal: Su-Yun Huang
+- literal: Hung Hung
+- literal: Shinto Eguchi
+date: 2025-10-24
+fields:
+  doi: 10.1080/10618600.2025.2561234
+  journaltitle: Journal of Computational and Graphical Statistics
+  number: 2
+  pages: 685-693
+  url: http://dx.doi.org/10.1080/10618600.2025.2561234
+  volume: 35

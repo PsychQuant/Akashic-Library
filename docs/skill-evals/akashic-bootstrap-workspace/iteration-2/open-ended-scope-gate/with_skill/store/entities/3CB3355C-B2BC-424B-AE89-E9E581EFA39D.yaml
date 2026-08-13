@@ -1,0 +1,18 @@
+work:
+id: 3CB3355C-B2BC-424B-AE89-E9E581EFA39D
+citekey: chu2024pseudo
+type: article
+title: Pseudo datasets explain artificial neural networks
+authors:
+- literal: Yi-Chi Chu
+- literal: Yi-Hau Chen
+- literal: Chao-Yu Guo
+date: 2024-04-10
+fields:
+  abstract: Machine learning enhances predictive ability in various research compared to conventional statistical approaches. However, the advantage of the regression model is that it can effortlessly interpret the effect of each predictor. Therefore, interpretable machine-learning models are desirable as the deep-learning technique advances. Although many studies have proposed ways to explain neural networks, this research suggests an intuitive and feasible algorithm to interpret any set of input features of artificial neural networks at the population-mean level changes. The new algorithm provides a novel concept of generating pseudo datasets and evaluating the impact due to changes in the input features. Our approach can accurately obtain the effect estimate from single to multiple input neurons and depict the association between the predictive and outcome variables. According to computer simulation studies, the explanatory effects of the predictors derived by the neural network as a particular case could approximate the general linear model estimates. Besides, we applied the new method to three real-life analyzes. The results demonstrated that the new algorithm could obtain similar effect estimates from the neural networks and regression models. Besides, it yields better predictive errors than the conventional regression models. Again, it is worth noting that the new pipeline is much less computationally intensive than the SHapley Additive exPlanations (SHAP), which could not simultaneously measure the impact due to two or more inputs while adjusting for other features.
+  doi: 10.1007/s41060-024-00526-9
+  journaltitle: International Journal of Data Science and Analytics
+  number: 2
+  pages: 1263-1304
+  url: http://dx.doi.org/10.1007/s41060-024-00526-9
+  volume: 20

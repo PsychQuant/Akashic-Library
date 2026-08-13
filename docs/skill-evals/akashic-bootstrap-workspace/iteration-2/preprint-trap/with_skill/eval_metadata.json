@@ -1,0 +1,11 @@
+{
+ "eval_id": 1,
+ "eval_name": "preprint-trap",
+ "prompt": "he2025personalized 這筆缺 DOI，幫我查出來補上。",
+ "assertions": [
+  "最終採用 10.1038/s41540-025-00547-5（期刊版）",
+  "沒有採用任何 10.1101/ 開頭的 bioRxiv preprint DOI",
+  "判定依據不只標題相似度單一訊號",
+  "有做反向驗證（用選定的 DOI 回查比對）"
+ ]
+}

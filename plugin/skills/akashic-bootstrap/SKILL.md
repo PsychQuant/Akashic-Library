@@ -9,6 +9,8 @@ description: 把資料補進 Akashic library——給一個人名、citekey、DO
 
 **不要求使用者預先分類。** 「這是 person 還是 work」是看內容就能判斷的事；把它外包給使用者只會讓人卡在自己不該回答的問題上。
 
+**與 akashic-person-verify 的分工**：本 skill 補資料進 store；「這個 literal 是不是這個人」的**身分判定**（含 verdict 落地）是 [akashic-person-verify](../akashic-person-verify/SKILL.md) 的事。查證得出的新事實（ORCID、任期、異名）回到本 skill 寫入。
+
 ## 為什麼需要紀律
 
 補資料看起來是「呼叫 API、寫檔」，但 store 是 canonical——寫進去的錯誤沒有上游可以對照修正。實測踩過的三類坑：

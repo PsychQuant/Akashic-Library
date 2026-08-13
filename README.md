@@ -41,6 +41,8 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
                                  bootstrap-people / bootstrap-organizations /
                                  resolve-organizations / update-person /
                                  person（讀取面，#218）/ create-entry（#206）/
+                                 people / get-entry / link / tag / set-status（#219，
+                                 與 MCP 同名 tool 共用 AkashicService 同一函式）/
                                  doctor / query / graph /
                                  rename / record-divergence（--prefers）/
                                  resolve-divergence（--override-reason）/
@@ -64,6 +66,10 @@ attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox�
 │                                   靠 type 欄位分辨；檔名是不變的 UUID（#35）
 ├── libraries/                   ← canonical（版控）
 ├── config.yaml                  ← registry：files: {main: ~/.akashic} + current: main（gitignored）
+├── sources/<2hex>/<62hex>       ← 內容定址存檔（gitignore 排除、fail-closed 驗證；#66）
+├── sources/index.jsonl          ← 存檔的 provenance 條目——與 blob 同動作落地、
+│                                   append-only（腐壞時拒寫、丟棄可見）；doctor 檢出
+│                                   孤兒/懸空/malformed/讀不到的 shard（#224）
 └── index/main-<8碼>.sqlite      ← 衍生 index，依 registry key + 化身命名（gitignored）
 ```
 

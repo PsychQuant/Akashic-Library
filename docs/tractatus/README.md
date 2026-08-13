@@ -33,6 +33,7 @@ Pears／McGuinness 採 Routledge 2001 第二版（ISBN 9780415254083）作外部
 - `project_relations`：對 Akashic 現況的明確 `status`／`mode`、主張、理由與必要證據；不適用時應誠實標為 `not_applicable`。
 - evidence `kind` 會實際驗證 heading／test／requirement／symbol 的結構；corpus、snapshot 與 generated 文件不得循環證成自身關係。
 - `history`：branch、commit、issue 的歷史脈絡；不得替代 `main` 上的現況證據。
+- 非《論考》文本者不得成為正典命題；應用層對照以既有命題的 `project_relations` 承載。找不到貼合的命題時不掛——寧可留在 issue 記錄，不製造牽強類比（#235 確立）。
 
 不得使用空字串、`<unfinished>`、`<unreviewed>`、`TODO：命題號`、`TBD：命題號` 或其他裝飾過的佔位文字。卷內 `volume` 必須與實際檔名一致；evidence 路徑會先正規化再套用禁止循環引用的規則。德文的 `Gegenstand`、`Sachverhalt`、`Bild` 與英文版本的術語差異應在解讀中保留，不可把 Akashic 的 entity 直接宣稱為《邏輯哲學論》的 simple object。
 

@@ -51,5 +51,9 @@ ID，再用 ID 過濾作者／著作；隸屬史看 `authors` 端點的 affiliat
 - **每一源記 URL＋取得日期**——查證結論落 verdict 時，這些是 provenance 的素材
 - **ORCID 覆蓋率實測約三分之一**（某批 42 位已知作者只有 15 位查得到）——
   「ORCID 查無此人」不是「此人不存在」的證據
+- **Europe PMC 覆蓋偏生醫**（統計／數學／CS／環境期刊實測 0/4 收錄，見
+  [work-sources.md](../../akashic-bootstrap/references/work-sources.md)）——
+  第 1 源空手不是「此人無著作」的證據，直接推進 OpenAlex
 - **請求節流**：對同一網域連發數十請求會觸發 403，且被擋看起來像「頁面不存在」
-  （細節見 person-sources.md 的抓取禮儀段）
+  （細節見 [person-sources.md](../../akashic-bootstrap/references/person-sources.md)
+  的抓取禮儀段）

@@ -18,7 +18,7 @@ description: 歸戶查證——判定「這個 literal 作者是不是這個人�
 ### 0. 先看 store 現況
 
 ```
-akashic_resolve_people（不帶參數）      # 候選（可 apply）、歧義（要人判斷）、已否決沉底列、三態計數
+akashic_resolve_people（不帶參數）      # 候選（apply 的合法目標——仍須查證＋確認）、歧義（要人判斷）、已否決沉底列、三態計數
 akashic_person / akashic_people        # 這個 person 已記錄的 names / affiliations / 著作
 ```
 
@@ -31,11 +31,13 @@ akashic_person / akashic_people        # 這個 person 已記錄的 names / affi
 | # | 來源 | 查什麼 | 端點 |
 |---|---|---|---|
 | 1 | **Europe PMC** | 這個名字的著作軌跡（機構欄隨年份的變化） | `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=AUTH:"<姓名>"&format=json` |
-| 2 | **ORCID** | employment（自報、只列現職——見 traps）＋本人簽名的著作 | 見 akashic-bootstrap 的 [person-sources.md](../akashic-bootstrap/references/person-sources.md)（端點、暱稱陷阱、employment 不回填歷史） |
+| 2 | **ORCID** | employment（自報、只列現職——見 person-sources.md）＋本人簽名的著作 | 見 akashic-bootstrap 的 [person-sources.md](../akashic-bootstrap/references/person-sources.md)（端點、暱稱陷阱、employment 不回填歷史） |
 | 3 | **OpenAlex** | 隸屬**史**（依著作聚合的 institution 時間軸——ORCID 缺歷史時的主要救援） | `https://api.openalex.org/authors?search=<姓名>`；機構過濾用 institution ID 不用字串（見 traps） |
 | 4 | **出版商頁** | 逐作者機構綁定（破 Crossref 扁平陣列錯位的唯一辦法） | 論文 DOI 落地頁；同團隊姊妹作的出版商頁也可佐證 |
 
 **什麼時候可以停**：判定所需的是「足以區分候選」的證據，不是全部四源。第 1、2 源已經一致且無反證 → 可以組 timeline 了；有衝突或歧義（同名兩人）→ 繼續往下查到能區分為止。
+
+**「一致」有一個結構性假象要防**：store 只列一個候選 ≠ 世界上只有一個同名者——人物庫還沒記錄第二個人時，resolver 的歧義偵測不會觸發（bootstrap 有同一條警告）；而 AUTH 搜尋的結果也可能把同名者的著作混成同一條軌跡（CJK 姓名碰撞面實測：93/724 個「姓＋首字母」鍵對到 2+ 人）。兩源在**混同的軌跡**上照樣「一致且無反證」。timeline 出現不連貫的領域／機構／地理跳躍時，當歧義處理——不要硬拼成一條線。
 
 ### 2. 組 affiliation timeline
 
@@ -51,7 +53,15 @@ akashic_person / akashic_people        # 這個 person 已記錄的 names / affi
 
 ### 3. 判定建議 → 使用者確認 → 落 verdict
 
-給出建議與依據（「timeline 與 work 的年份／機構相符，建議 confirm」），然後**問使用者**。確認後：
+查證報告的形狀（給使用者裁決用；仿 bootstrap 乾跑報告「每列帶判定依據」的紀律）：
+
+1. affiliation timeline（Step 2 的產物）
+2. 判定建議＋依據（「timeline 與 work 的年份／機構相符，建議 confirm」）
+3. **逐來源證據清單**——每一源一列：URL＋取得日期＋它支撐 timeline 的哪一段。
+   查證結果只留在對話裡就會蒸發（下次同一配對整套重查）；這份清單是「查一次
+   記一次」在報告層的落地形式
+
+給出報告，然後**問使用者**。確認後：
 
 ```
 akashic_resolve_people apply:["<citekey>:<index>", …]     # 確認歸戶——同動作寫 resolution-confirmed
@@ -68,5 +78,6 @@ akashic_resolve_people reject:["<citekey>:<index>", …]    # 查過了不是他
 ## 邊界
 
 - **歧義列（同 literal 對到 2+ person）不可 apply**——查證到能區分後，先用 bootstrap 把區辨欄位（ORCID／隸屬）補進正確的 person 記錄，再重跑 resolve
+- **配對不在 candidates 列時沒有 apply 把手**（使用者直接指名的 literal 若未 alias 完全命中，就不會成為候選；resolver 對不在列的 id 直接拒絕）——先用 bootstrap 把該 literal 補成 person 的 alias（或補區辨欄位），重跑 resolve 讓配對成為候選，再走 apply
 - **查不出來是合法結果**。「證據不足以判定」就說證據不足，讓配對留在 pending——pending 可見是設計，不是待消滅的數字
-- 判定所依據的網頁內容要不要存檔（`sources/` content-addressed），依 akashic-bootstrap 的 [writing-to-the-store.md](../akashic-bootstrap/references/writing-to-the-store.md) 慣例
+- **承重頁面要存檔**：判定所依據的網頁內容存進 `sources/`（content-addressed）、經 bootstrap 寫入 person 的 `references`——寫法依 [writing-to-the-store.md](../akashic-bootstrap/references/writing-to-the-store.md)。非承重的佐證列 URL 即可。（verdict 本身目前不攜 rests-on 槽——工具面缺口記錄於 Akashic-Library#280）

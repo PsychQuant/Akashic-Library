@@ -230,7 +230,11 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 provenance reference，落在被判定的 person／organization 上。已否決的配對不再被
 提名（同 literal 在別的 entry 是另一次觀察，照提），列表沉底標示而非隱藏；三態
 計數（已確認／已否決／未處理）從 verdict 現算、絕不儲存，**只報計數不報比率**
-——未處理量（censoring）永遠可見。
+——未處理量（censoring）永遠可見。判定跟著記錄走：`rename` 會一併遷移 verdict、
+`bootstrap-*` 絕不覆寫既有檔（含 quarantined）。**verdict 需要 store format ≥ 8**
+（同 `ended`／`attested` 的 write-gate 範式；舊 binary 對含 verdict 的記錄是整檔
+quarantine，升 marker 前 `--reject` 不可用、`--apply` 照常歸戶但跳過 verdict 並
+明白告知——升級程序見 #247）。
 
 `resolve-organizations` 走**兩處** literal：person 的 `profile.affiliations` 與
 **organization 的 `parents`**（#166；先前只走前者，於是 `bootstrap-organizations`

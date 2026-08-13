@@ -239,8 +239,10 @@ public final class AkashicService {
         let dicts = people.map { person -> [String: Any] in
             var d: [String: Any] = ["key": displaySafe(person.key, max: 200),
                                     "names": person.names.map { displaySafe($0, max: 200) }]
-            if let orcid = person.orcid { d["orcid"] = orcid }
-            if let openalex = person.openalex { d["openalex"] = openalex }
+            // #219：與 person() 的 personDict 同待遇——orcid/openalex 雖有寫入面
+            // 格式驗證，讀取面仍一律消毒（同一 payload 進 MCP tool result 與 CLI）
+            if let orcid = person.orcid { d["orcid"] = displaySafe(orcid, max: 200) }
+            if let openalex = person.openalex { d["openalex"] = displaySafe(openalex, max: 200) }
             if !person.unknownFields.isEmpty {   // #31：同 entryDict，只給 key
                 d["unknownFields"] = person.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
             }
@@ -1128,8 +1130,16 @@ public final class AkashicService {
                 case .literal(let s): return ["literal": displaySafe(s, max: 400)]
                 }
             },
-            // fields 值是 biblatex 第三方內容（journal、booktitle…）——與 title 同源
-            "fields": entry.fields.mapValues { displaySafe($0, max: 800) },
+            // fields 的**值**是 biblatex 第三方內容（journal、booktitle…）——與 title
+            // 同源；**鍵**同樣是第三方輸入（import-wos 殘餘收集會照收未知欄位名），且
+            // 是 load-time quarantine 唯一不檢查的裸格（#219 verify D3：citekey／
+            // libraries 有 StoreKey 閘門，欄位鍵兩層皆空）——鍵值都要包。碰撞處置：
+            // 消毒後兩個不同鍵可能撞同一字串，先依原始鍵排序再取第一個，避免
+            // uniqueKeysWithValues trap 且結果決定性。
+            "fields": Dictionary(
+                entry.fields.sorted { $0.key < $1.key }
+                    .map { (displaySafe($0.key, max: 200), displaySafe($0.value, max: 800)) },
+                uniquingKeysWith: { first, _ in first }),
         ]
         if let date = entry.date { d["date"] = displaySafe(date, max: 200) }
         if !entry.attachments.isEmpty {
@@ -1163,6 +1173,9 @@ public final class AkashicService {
         if !entry.akashic.tags.isEmpty {
             akashic["tags"] = entry.akashic.tags.map { displaySafe($0, max: 200) }
         }
+        // libraries 刻意**不**包 displaySafe（#219 verify D4 探針證實安全）：load-time
+        // quarantine 以 StoreKey.pattern 逐項驗證，結構上容不下控制字元／bidi；包了
+        // 反而讓 key 被跳脫成不再等於 registry key 的字串，--json 消費者對不上 registry
         if !entry.akashic.libraries.isEmpty { akashic["libraries"] = entry.akashic.libraries }
         if let status = entry.akashic.status { akashic["status"] = displaySafe(status, max: 200) }
         // 同 171-5(b)：`link()` 與 `entryDict()` 兩端都吐，兩端都要包。

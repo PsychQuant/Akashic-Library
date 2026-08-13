@@ -50,6 +50,9 @@ struct AkashicCLI: ParsableCommand {
             UpdatePersonCmd.self,
             Fmt.self, ViewCmd.self, CreateEntryCmd.self,
             PersonCmd.self,   // #218：person 的讀取面（寫入面是上面的 UpdatePersonCmd）
+            // #219：parity 家族其餘五格——讀取聚合 ×2 + 關係／狀態寫入 ×3
+            PeopleCmd.self, GetEntryCmd.self,
+            LinkCmd.self, TagCmd.self, SetStatusCmd.self,
         ])
 }
 

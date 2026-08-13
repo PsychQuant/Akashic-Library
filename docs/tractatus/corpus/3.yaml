@@ -788,8 +788,8 @@ propositions:
         evidence:
           - path: "Sources/AkashicStoreIO/SourceStore.swift"
             kind: symbol
-            locator: "storeSourceContent"
-            note_zh_tw: "本函式自身的 doc comment 明言 digest 算在原始位元組上、判準客觀；其所在 extension 的檔首 doc comment 另明言存檔不是 entity——沒有名字、沒有歷史、沒有生命週期。"
+            locator: "storeSource"
+            note_zh_tw: "本函式自身的 doc comment 明言 digest 算在原始位元組上、判準客觀；其所在 extension 的檔首 doc comment 另明言存檔不是 entity——沒有名字、沒有歷史、沒有生命週期。（原錨 storeSourceContent 於 #224 改名為 storeSource——兩個 PR 各自綠、合上 main 才撞的 cross-PR 漂移，#232 merge 時修正。）"
           - path: "openspec/specs/provenance-reference/spec.md"
             kind: requirement
             locator: "Retrieved content SHALL be addressed by the digest of its bytes"

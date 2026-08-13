@@ -210,9 +210,10 @@ final class PersonCLITests: XCTestCase {
                               + "會被當成 keyless 而長出第二份 index（#220 HIGH）：\(line.trimmingCharacters(in: .whitespaces))")
             }
         }
-        XCTAssertEqual(constructions, 8,
+        XCTAssertEqual(constructions, 10,
                        "預期 person／update-person／create-entry + #219 五格"
-                       + "（people／get-entry／link／tag／set-status）共八處；實際 \(constructions) 處——"
+                       + "（people／get-entry／link／tag／set-status）+ #232 的 "
+                       + "resolve-people reject 與 apply，共十處；實際 \(constructions) 處——"
                        + "多出來的新呼叫點請一併確認有帶 key，然後更新這個數字")
     }
 

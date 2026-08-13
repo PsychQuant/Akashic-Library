@@ -48,7 +48,15 @@ public enum StoreVersion {
     /// - **7** ＝ 時間軸段新增 `attested`（觀測點列表——「某時點成立、起訖皆不明」，
     ///   #70）。與 6 同型：段內鍵 strict → non-additive，write gate 對 format < 7
     ///   拒寫含 attested 的記錄。
-    public static let supported = 7
+    /// - **8** ＝ `references[].field` 白名單新增消解判定欄位對
+    ///   `resolution-confirmed`／`resolution-rejected`（#232）。與 6/7 同型的
+    ///   「看似 additive 其實不是」：field 白名單是 strict（未列拒收）→ 舊 binary
+    ///   讀到 verdict reference 是**整檔 quarantine（人檔／org 檔消失）**，且該檔
+    ///   隨後可被 bootstrap 的決定性 UUID 安靜覆寫、判定史全滅（#232 verify
+    ///   NEW-2/NEW-3 實測整條鏈）。write gate 對 format < 8 拒寫含 verdict 的記錄；
+    ///   refuse-if-newer 的「請升級」取代 per-file quarantine。序列化形狀不變——
+    ///   8 只是「這個 store 可以持有 verdict」的宣告。
+    public static let supported = 8
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，

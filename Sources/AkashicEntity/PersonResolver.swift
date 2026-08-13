@@ -116,7 +116,16 @@ public enum PersonResolver {
     /// 各留一份正規化，分裂後文件化主流程對連字號變體從 2 候選掉到 0、**完全靜默**
     /// （`testBootstrapAndResolverShareNormalization` 是那次的 regression 守衛）。
     /// 兩支遍歷會分岔，而分岔的方式是安靜的。
-    public static func resolve(entries: [Entry], people: [Person]) -> ResolutionReport {
+    /// `rejected`：已否決配對（#232 design D5）。呼叫端從 verdict references 算出
+    /// （`ResolutionLedger.rejectedPairings`）後傳入——resolver 保持純函式，不讀 store。
+    /// 排除的是**恰為** (work, citekey, literal, personKey) 的配對：同 literal 在
+    /// 別的 entry 是另一次觀察，照提。
+    ///
+    /// **刻意無預設值**（verify DA fix-10）：`= []` 曾讓 App 面（Adjudication）
+    /// 靜默編過而完全略過否決史——位置決定了誰會走它，required 讓「第四個呼叫面
+    /// 忘了帶」變成編譯錯誤而不是安靜的行為分岔。
+    public static func resolve(entries: [Entry], people: [Person],
+                               rejected: Set<ResolutionPairing>) -> ResolutionReport {
         // 正規化 alias → person keys
         var aliasMap: [String: Set<String>] = [:]
         for person in people {
@@ -134,6 +143,9 @@ public enum PersonResolver {
                 // 報告被噪音淹沒，而被淹沒的報告等於沒有報告。
                 guard let keys = aliasMap[normalize(literal)] else { continue }
                 if keys.count == 1, let key = keys.first {
+                    guard !rejected.contains(ResolutionPairing(
+                        holderKind: .work, holder: entry.citekey,
+                        literal: literal, judgedKey: key)) else { continue }
                     candidates.append(ResolutionCandidate(
                         citekey: entry.citekey, authorIndex: i, literal: literal,
                         personKey: key, reason: "alias 完全命中"))
@@ -158,9 +170,10 @@ public enum PersonResolver {
 
     /// 高信心候選：literal 與某人 alias 正規化後完全命中，且不歧義。
     ///
-    /// 薄包裝——**行為與簽名皆未改變**。歧義走 `resolve`。
-    public static func candidates(entries: [Entry], people: [Person]) -> [ResolutionCandidate] {
-        resolve(entries: entries, people: people).candidates
+    /// 薄包裝。`rejected` 同 `resolve`——刻意必填。
+    public static func candidates(entries: [Entry], people: [Person],
+                                  rejected: Set<ResolutionPairing>) -> [ResolutionCandidate] {
+        resolve(entries: entries, people: people, rejected: rejected).candidates
     }
 
     /// 把已確認的候選套用到 entries（回傳新副本，不動原陣列）。

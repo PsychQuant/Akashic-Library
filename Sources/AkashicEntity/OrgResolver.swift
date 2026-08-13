@@ -114,16 +114,21 @@ public enum OrgResolver {
     /// 處理，所以「A→B 與 B→A 只能留一個」時留下的是哪一個是決定性的——不隨
     /// `load()` 的回傳順序或 Set 的雜湊擾動而變。
     public static func candidates(people: [Person],
-                                  organizations: [Organization]) -> [OrgResolutionCandidate] {
-        resolve(people: people, organizations: organizations).candidates
+                                  organizations: [Organization],
+                                  rejected: Set<ResolutionPairing>) -> [OrgResolutionCandidate] {
+        resolve(people: people, organizations: organizations, rejected: rejected).candidates
     }
 
     /// 單一 traversal，`candidates` 與 `ambiguities` 的 source of truth（#231）。
     ///
     /// 與 person 側同理由：**不寫第二支遍歷**。這裡尤其重要——本函式的 parents 側
     /// 帶著自我父權與環的排除，兩支遍歷分岔時那些排除只會存在於其中一支。
+    /// `rejected`：已否決配對（#232 design D5，語意同 `PersonResolver.resolve`）。
+    /// holder 是持有 literal 的 person／organization key，judgedKey 是被判定的 org。
+    /// **刻意無預設值**（同 `PersonResolver.resolve`——verify DA fix-10）。
     public static func resolve(people: [Person],
-                               organizations: [Organization]) -> OrgResolutionReport {
+                               organizations: [Organization],
+                               rejected: Set<ResolutionPairing>) -> OrgResolutionReport {
         // 正規化 org name variant → org keys（同名對 2+ org＝歧義）
         var nameMap: [String: Set<String>] = [:]
         for org in organizations {
@@ -178,6 +183,9 @@ public enum OrgResolver {
                 guard case let .literal(literal) = seg.value,
                       let key = unambiguousMatch(literal, holder: .person(person.key), range: seg.range)
                 else { continue }
+                guard !rejected.contains(ResolutionPairing(
+                    holderKind: .person, holder: person.key,
+                    literal: literal, judgedKey: key)) else { continue }
                 result.append(OrgResolutionCandidate(
                     holder: .person(person.key), literal: literal, orgKey: key,
                     reason: "org name 完全命中"))
@@ -219,6 +227,9 @@ public enum OrgResolver {
                 // 是被下一行擋下的（同 `ISO8601Prefix.compatible` 的分隔點檢查）。
                 guard key != org.key else { continue }
                 guard !reaches(key, org.key) else { continue }  // 會成環（含自身）
+                guard !rejected.contains(ResolutionPairing(
+                    holderKind: .org, holder: org.key,
+                    literal: literal, judgedKey: key)) else { continue }
                 edges[org.key, default: []].insert(key)         // 本輪已接受的也算數
                 result.append(OrgResolutionCandidate(
                     holder: .organization(org.key), literal: literal, orgKey: key,

@@ -116,7 +116,7 @@ final class OrgBootstrapResolveTests: XCTestCase {
         org.names = TimelineOf([TemporalValue(value: "中央研究院統計科學研究所", range: DateRange())])
         // literal 用不同空白——matchingKey 命中
         let people = [personWith("a", affiliations: [.literal("中央研究院統計科學研究所")])]
-        let cands = OrgResolver.candidates(people: people, organizations: [org])
+        let cands = OrgResolver.candidates(people: people, organizations: [org], rejected: [])
         XCTAssertEqual(cands.count, 1)
         XCTAssertEqual(cands.first?.orgKey, "stat-sinica")
         // 輸出保留原 literal
@@ -129,7 +129,7 @@ final class OrgBootstrapResolveTests: XCTestCase {
         var o2 = Organization(key: "org-b")
         o2.names = TimelineOf([TemporalValue(value: "Sinica", range: DateRange())])
         let people = [personWith("a", affiliations: [.literal("Sinica")])]
-        XCTAssertTrue(OrgResolver.candidates(people: people, organizations: [o1, o2]).isEmpty,
+        XCTAssertTrue(OrgResolver.candidates(people: people, organizations: [o1, o2], rejected: []).isEmpty,
                       "同名對 2+ org＝歧義，整組排除（絕不自動合併）")
     }
 
@@ -149,7 +149,7 @@ final class OrgBootstrapResolveTests: XCTestCase {
         child.parents = TimelineOf([TemporalValue(value: OrgRef.literal("Sinica"), range: DateRange())])
         let people = [personWith("a", affiliations: [.literal("Sinica")])]
 
-        let r = OrgResolver.resolve(people: people, organizations: [o1, o2, child])
+        let r = OrgResolver.resolve(people: people, organizations: [o1, o2, child], rejected: [])
         XCTAssertTrue(r.candidates.isEmpty, "行為未變：歧義仍不出候選")
         XCTAssertEqual(r.ambiguities.count, 2, "person 的 affiliation 與 org 的 parents 各一")
         XCTAssertEqual(r.ambiguities.map(\.holder),
@@ -169,8 +169,8 @@ final class OrgBootstrapResolveTests: XCTestCase {
         child.names = TimelineOf([TemporalValue(value: "Institute", range: DateRange())])
         child.parents = TimelineOf([TemporalValue(value: OrgRef.literal("Academia"), range: DateRange())])
         let people = [personWith("a", affiliations: [.literal("Academia")])]
-        XCTAssertEqual(OrgResolver.candidates(people: people, organizations: [parent, child]),
-                       OrgResolver.resolve(people: people, organizations: [parent, child]).candidates)
+        XCTAssertEqual(OrgResolver.candidates(people: people, organizations: [parent, child], rejected: []),
+                       OrgResolver.resolve(people: people, organizations: [parent, child], rejected: []).candidates)
     }
 
     func testApplyMigratesOnlyMatchingLiteralPreservingRange() throws {
@@ -181,7 +181,7 @@ final class OrgBootstrapResolveTests: XCTestCase {
             TemporalValue(value: OrgRef.literal("統計所"),
                           range: DateRange(start: "2003"), source: "roster"),
             TemporalValue(value: OrgRef.literal("別的機構"), range: DateRange())])
-        let cands = OrgResolver.candidates(people: [p], organizations: [org])
+        let cands = OrgResolver.candidates(people: [p], organizations: [org], rejected: [])
         let updated = OrgResolver.apply(cands, to: [p], organizations: [org])
         let affs = updated.people.first!.profile.affiliations.entries
         XCTAssertEqual(affs.first?.value, .key("stat-sinica"), "命中的歸戶")
@@ -259,7 +259,7 @@ extension OrgBootstrapResolveTests {
         let parent = org("academia-sinica", names: ["中央研究院"])
         let child = org("stat-sinica", names: ["統計科學研究所"],
                         parents: [.literal("中央研究院")])
-        let cands = OrgResolver.candidates(people: [], organizations: [parent, child])
+        let cands = OrgResolver.candidates(people: [], organizations: [parent, child], rejected: [])
         XCTAssertEqual(cands.count, 1, "parents 的 literal 進得去也要出得來：\(cands)")
         XCTAssertEqual(cands.first?.holder, .organization("stat-sinica"))
         XCTAssertEqual(cands.first?.orgKey, "academia-sinica")
@@ -275,7 +275,7 @@ extension OrgBootstrapResolveTests {
             TemporalValue(value: OrgRef.literal("中央研究院"),
                           range: DateRange(start: "1947"), source: "所史", note: "n"),
             TemporalValue(value: OrgRef.literal("別的機構"), range: DateRange())])
-        let cands = OrgResolver.candidates(people: [], organizations: [parent, child])
+        let cands = OrgResolver.candidates(people: [], organizations: [parent, child], rejected: [])
         let out = OrgResolver.apply(cands, to: [], organizations: [parent, child])
         let ps = out.organizations.first { $0.key == "stat-sinica" }!.parents.entries
         XCTAssertEqual(ps.first?.value, .key("academia-sinica"), "命中的歸戶")
@@ -297,7 +297,7 @@ extension OrgBootstrapResolveTests {
     func testSelfParentIsNeverProposed() {
         let o = org("stat-sinica", names: ["統計科學研究所", "統計所"],
                     parents: [.literal("統計所")])
-        XCTAssertTrue(OrgResolver.candidates(people: [], organizations: [o]).isEmpty,
+        XCTAssertTrue(OrgResolver.candidates(people: [], organizations: [o], rejected: []).isEmpty,
                       "自我父權不是歸戶")
     }
 
@@ -320,7 +320,7 @@ extension OrgBootstrapResolveTests {
     func testCycleThroughExistingKeyEdgeIsRefused() {
         let a = org("a", names: ["A org"], parents: [.key("b")])
         let b = org("b", names: ["B org"], parents: [.literal("A org")])
-        XCTAssertTrue(OrgResolver.candidates(people: [], organizations: [a, b]).isEmpty,
+        XCTAssertTrue(OrgResolver.candidates(people: [], organizations: [a, b], rejected: []).isEmpty,
                       "a→b 已存在，再加 b→a 就成環")
     }
 
@@ -328,7 +328,7 @@ extension OrgBootstrapResolveTests {
     func testCycleFormedByTwoCandidatesTogetherIsRefused() {
         let a = org("a", names: ["A org"], parents: [.literal("B org")])
         let b = org("b", names: ["B org"], parents: [.literal("A org")])
-        let cands = OrgResolver.candidates(people: [], organizations: [a, b])
+        let cands = OrgResolver.candidates(people: [], organizations: [a, b], rejected: [])
         XCTAssertEqual(cands.count, 1,
                        "第一個可接受、第二個會閉環必須排除（本輪已接受的也算既有邊）：\(cands)")
         XCTAssertEqual(cands.first?.holder, .organization("a"),
@@ -340,7 +340,7 @@ extension OrgBootstrapResolveTests {
         let top = org("top", names: ["Top"])
         let mid = org("mid", names: ["Mid"], parents: [.key("top")])
         let leaf = org("leaf", names: ["Leaf"], parents: [.literal("Mid")])
-        let cands = OrgResolver.candidates(people: [], organizations: [top, mid, leaf])
+        let cands = OrgResolver.candidates(people: [], organizations: [top, mid, leaf], rejected: [])
         XCTAssertEqual(cands.count, 1, "leaf→mid→top 是合法的三層，不是環：\(cands)")
         XCTAssertEqual(cands.first?.orgKey, "mid")
     }
@@ -349,7 +349,7 @@ extension OrgBootstrapResolveTests {
     func testPersonSideBehaviourIsUnchanged() {
         let o = org("stat-sinica", names: ["統計所"])
         let p = personWith("a", affiliations: [.literal("統計所")])
-        let cands = OrgResolver.candidates(people: [p], organizations: [o])
+        let cands = OrgResolver.candidates(people: [p], organizations: [o], rejected: [])
         XCTAssertEqual(cands.count, 1)
         XCTAssertEqual(cands.first?.holder, .person("a"))
         XCTAssertEqual(cands.first?.reason, "org name 完全命中",
@@ -362,7 +362,7 @@ extension OrgBootstrapResolveTests {
         let parent = org("academia-sinica", names: ["中央研究院"])
         let child = org("stat-sinica", names: ["統計所"], parents: [.literal("中央研究院")])
         let p = personWith("zzz-last-alphabetically", affiliations: [.literal("統計所")])
-        let cands = OrgResolver.candidates(people: [p], organizations: [parent, child])
+        let cands = OrgResolver.candidates(people: [p], organizations: [parent, child], rejected: [])
         XCTAssertEqual(cands.count, 2)
         XCTAssertEqual(cands.first?.holder, .person("zzz-last-alphabetically"))
         XCTAssertEqual(cands.last?.holder, .organization("stat-sinica"))
@@ -386,7 +386,7 @@ extension OrgBootstrapResolveTests {
         var other = Organization(key: "org-other")
         other.names = TimelineOf([TemporalValue(value: "Shared", range: DateRange())])
 
-        let r = OrgResolver.resolve(people: [], organizations: [me, other])
+        let r = OrgResolver.resolve(people: [], organizations: [me, other], rejected: [])
         XCTAssertEqual(r.candidates.map(\.orgKey), [],
                        "2+ 命中就**不提名**——過濾掉一個之後自動提名剩下的，"
                        + "等於在一個「讓歧義被看見」的改動裡偷改了寫入語意")
@@ -416,7 +416,7 @@ extension OrgBootstrapResolveTests {
             let c = org(child, names: ["ChildName"], parents: [.literal("L")])
             let l = org(linker, names: ["L"], parents: [.literal("ChildName")])
             let t = org("third-org", names: ["L"])
-            let r = OrgResolver.resolve(people: [], organizations: [c, l, t])
+            let r = OrgResolver.resolve(people: [], organizations: [c, l, t], rejected: [])
             // 比**角色**不比字面 key——兩次跑刻意用不同 key 名，直接比字串必不相等
             let role = [child: "child", linker: "linker", "third-org": "third"]
             return (r.ambiguities.count, r.candidates.map { role[$0.orgKey] ?? $0.orgKey }.sorted())

@@ -656,19 +656,61 @@ public final class AkashicService {
     }
 
     /// apply=nil → 只列候選；apply=["citekey:index", …] → 逐候選套用（#5 的 MCP 面）。
-    public func resolvePeople(apply: [String]?) throws -> String {
+    ///
+    /// reject=["citekey:index", …] → 對候選寫 `resolution-rejected` verdict（#232
+    /// design D6）——entry **不動**。apply 在改寫 entry 的同一動作內寫
+    /// `resolution-confirmed`。兩者都是顯式人為動作；無 rowID 不發生任何寫入。
+    public func resolvePeople(apply: [String]?, reject: [String]? = nil) throws -> String {
         let load = try store.load()
-        let report = PersonResolver.resolve(entries: load.entries, people: load.people)
+        // #232 design D5：已否決配對從 verdict references 現算（never stored），
+        // resolver 在候選生成層排除**恰為**該三元組——同 literal 他 entry 照提。
+        let rejectedPairings = ResolutionLedger.rejectedPairings(people: load.people)
+        let report = PersonResolver.resolve(entries: load.entries, people: load.people,
+                                            rejected: rejectedPairings)
         let candidates = report.candidates
         let withIDs = candidates.map { c -> (id: String, candidate: ResolutionCandidate) in
             (c.rowID, c)   // 複合鍵住在型別上（#236 R4）
         }
+        let byID = Dictionary(withIDs.map { ($0.id, $0.candidate) }, uniquingKeysWith: { first, _ in first })
+        let byKey = Dictionary(load.people.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+
+        // reject（design D6）：**先驗證全部 rowID 再寫**——半批寫入比整批失敗更難對帳。
+        var rejectResult: [String: Any]?
+        if let rejectIDs = reject, !rejectIDs.isEmpty {
+            if let ap = apply, !Set(ap).isDisjoint(with: Set(rejectIDs)) {
+                throw ServiceError.invalid("同一候選不可同時 apply 與 reject——那是兩個相反的 verdict")
+            }
+            let chosen = try rejectIDs.map { id -> ResolutionCandidate in
+                guard let c = byID[id] else {
+                    throw ServiceError.notFound("候選 id「\(displaySafe(id, max: 200))」（先不帶 apply 列出候選）")
+                }
+                return c
+            }
+            // 同 person 多筆 verdict 收攏成一次寫入——writePerson 是整檔改寫
+            var grouped: [String: Person] = [:]
+            for c in chosen {
+                guard var p = grouped[c.personKey] ?? byKey[c.personKey] else {
+                    throw ServiceError.notFound("person「\(displaySafe(c.personKey, max: 200))」")
+                }
+                p.references.append(ResolutionLedger.record(
+                    .rejected, holder: c.citekey, literal: c.literal,
+                    rule: ResolutionLedger.defaultRule,
+                    statement: "resolve reject：使用者否決此配對"))
+                grouped[c.personKey] = p
+            }
+            for key in grouped.keys.sorted() { try store.writePerson(grouped[key]!) }
+            try LibraryIndex(store: store).rebuild()
+            rejectResult = [
+                "rejected": chosen.map { "\(displaySafe($0.citekey, max: 200)):\($0.authorIndex)" },
+                "personsRewritten": grouped.count,
+            ]
+        }
         guard let selected = apply else {
+            if let r = rejectResult { return try jsonString(r) }
             // **#231：回應形狀由「候選陣列」改為物件。** 歧義（同一 literal 對到 2+ 人）
             // 先前與「沒人匹配」走同一條 continue，完全不留痕跡——而它才是需要人判斷的
             // 那個。陣列沒有地方放它，所以形狀必須改；`Server.swift` 的 tool description
             // 同步更新。
-            let byKey = Dictionary(load.people.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
 
             // ## 上限必須量對軸（#236 R2）
             //
@@ -782,6 +824,19 @@ public final class AkashicService {
             // 先前只有列數上限。`id` 是 `"<citekey>:<index>"`，citekey 是原始 store
             // 內容而 `StoreKey.pattern` 沒有長度上限——單列實測 1,208,606 bytes。
             // `id` 不能截斷（那是 `--apply` 的把手），所以吃不下的**整列不印**。
+            // #232 design D7：三態計數（derived, never stored）。counts 掛在每個
+            // 候選列上（該列所屬 rule 的計數——v1 恰一類 author-name-exact），
+            // pendingTotal 頂層可見（censoring 不可隱藏）。**無比率欄位**——校準
+            // 報計數不報比率，形狀上就不給（WoS/Crossref 不獨立，比率邀請貝氏相乘）。
+            let activeTriples = candidates.map {
+                ResolutionPairing(holder: $0.citekey, literal: $0.literal, judgedKey: $0.personKey)
+            }
+            let countsByRule = ResolutionLedger.counts(
+                people: load.people, candidatePairings: activeTriples)
+            func countsJSON(_ rule: String) -> [String: Any] {
+                let c = countsByRule[rule] ?? (confirmed: 0, rejected: 0, pending: 0)
+                return ["confirmed": c.confirmed, "rejected": c.rejected, "pending": c.pending]
+            }
             var candidateRows: [[String: Any]] = []
             var candidateBytes = 0
             var candidatesDropped = 0
@@ -793,10 +848,34 @@ public final class AkashicService {
                     "literal": displaySafe(pair.candidate.literal, max: 400),
                     "personKey": displaySafe(pair.candidate.personKey, max: 200),
                     "reason": displaySafe(pair.candidate.reason, max: 400),
+                    "counts": countsJSON(ResolutionLedger.defaultRule),
                 ]
                 let cost = Self.jsonBytes(row)
                 guard candidateBytes + cost <= Self.candidateByteBudget else {
                     candidatesDropped += 1
+                    continue
+                }
+                candidateBytes += cost
+                candidateRows.append(row)
+            }
+            // 已否決沉底**不隱藏**（design D7）：仍在觀測中的已否決配對列在最後、
+            // 帶 verdict 標記、**不帶 id**——沉底列不是 apply 把手（resolver 已
+            // 排除它，重新確認不在 v1 範圍）。名單由 `observedRejections` 給——
+            // CLI 面用同一個來源（mcp-cli-parity：兩條各自 join 會分岔）。
+            var rejectedRowsDropped = 0
+            for sunk in ResolutionLedger.observedRejections(pairings: rejectedPairings,
+                                                            entries: load.entries) {
+                let row: [String: Any] = [
+                    "citekey": displaySafe(sunk.citekey, max: 200),
+                    "authorIndex": sunk.authorIndex,
+                    "literal": displaySafe(sunk.literal, max: 400),
+                    "personKey": displaySafe(sunk.judgedKey, max: 200),
+                    "verdict": "rejected",   // display-safe-exempt: 常數
+                    "counts": countsJSON(ResolutionLedger.defaultRule),
+                ]
+                let cost = Self.jsonBytes(row)
+                guard candidateBytes + cost <= Self.candidateByteBudget else {
+                    rejectedRowsDropped += 1   // 沉底列共用候選預算——沉底者先被擠掉
                     continue
                 }
                 candidateBytes += cost
@@ -814,6 +893,10 @@ public final class AkashicService {
             return try jsonString([
                 "candidates": candidateRows,
                 "candidateRowsDropped": candidatesDropped,
+                "rejectedRowsDropped": rejectedRowsDropped,
+                // 未處理量頂層可見（design D7）——「還沒查」是 censoring，藏起來
+                // 會讓計數看起來比實際完整。
+                "pendingTotal": countsByRule.values.reduce(0) { $0 + $1.pending },
                 // **區辨欄位只送一次**（`people`），`ambiguities` 只帶 ref。先前每筆歧義
                 // 都內嵌完整的 person 區塊——verify 席實測 201 筆產出 176 KB（約 44k
                 // tokens），其中 201 份是同一區塊的逐字複本。MCP 結果直灌 LLM context，
@@ -853,12 +936,12 @@ public final class AkashicService {
                 // 每次漏算一軸，這個 `false` 就是一句會被 LLM 消費端信任的假話。
                 "truncated": truncated
                     || withIDs.count > Self.candidateLimit
-                    || candidatesDropped > 0,
+                    || candidatesDropped > 0
+                    || rejectedRowsDropped > 0,
                 "candidateTotal": withIDs.count,
                 "ambiguityTotal": report.ambiguities.count,
             ])
         }
-        let byID = Dictionary(withIDs.map { ($0.id, $0.candidate) }, uniquingKeysWith: { first, _ in first })
         let chosen = try selected.map { id -> ResolutionCandidate in
             guard let c = byID[id] else {
                 throw ServiceError.notFound("候選 id「\(displaySafe(id, max: 200))」（先不帶 apply 列出候選）")
@@ -878,6 +961,25 @@ public final class AkashicService {
                 writeFailed[after.citekey] = displaySafe(String(describing: error), max: 512)
             }
         }
+        // #232 design D6：apply 的**同一動作**內寫 resolution-confirmed——只寫
+        // entry 改寫成功的那些（誇報 verdict 比漏寫更糟：ledger 會宣稱一次沒有
+        // 發生的歸戶）。verdict 落在被判定的 person 上，經既有 writePerson 閘。
+        var confirmWriteFailed: [String: String] = [:]
+        var confirmGrouped: [String: Person] = [:]
+        for c in chosen where writeFailed[c.citekey] == nil {
+            guard var p = confirmGrouped[c.personKey] ?? byKey[c.personKey] else { continue }
+            p.references.append(ResolutionLedger.record(
+                .confirmed, holder: c.citekey, literal: c.literal,
+                rule: ResolutionLedger.defaultRule,
+                statement: "resolve apply：使用者確認歸戶"))
+            confirmGrouped[c.personKey] = p
+        }
+        for key in confirmGrouped.keys.sorted() {
+            do { try store.writePerson(confirmGrouped[key]!) } catch {
+                confirmWriteFailed[displaySafe(key, max: 200)] =
+                    displaySafe(String(describing: error), max: 512)
+            }
+        }
         // R9（R8-verify M8）：rebuild 擲錯不得吞掉 writeFailed 報告
         do {
             try LibraryIndex(store: store).rebuild()
@@ -891,6 +993,10 @@ public final class AkashicService {
             .map { "\(displaySafe($0.citekey, max: 200)):\($0.authorIndex)" }
         var result: [String: Any] = ["applied": appliedActual, "entriesRewritten": written]
         if !writeFailed.isEmpty { result["writeFailed"] = Dictionary(uniqueKeysWithValues: writeFailed.map { (displaySafe($0.key, max: 200), displaySafe($0.value, max: 512)) }) }
+        // verdict 寫入失敗**獨立回報**——entry 已改寫成功、只有 confirmed ref 沒落地
+        // 的狀態必須可見（靜默會讓 ledger 少算一筆已發生的歸戶）。
+        if !confirmWriteFailed.isEmpty { result["confirmWriteFailed"] = confirmWriteFailed }
+        if let r = rejectResult { for (k, v) in r { result[k] = v } }
         return try jsonString(result)
     }
 

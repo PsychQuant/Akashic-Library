@@ -225,6 +225,13 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 （投報率優先）。**絕不自動合併**：正規化（NFKC／連字號家族／不可見字元）只住配對
 鍵，同一個正規化名對到 2 個以上實體即判歧義、整組排除，交人裁決。
 
+判定會被**記住**（#232）：`--apply` 在同一動作內寫 `resolution-confirmed`、
+`--reject` 寫 `resolution-rejected`（entry／holder 不動）——兩者都是判斷型
+provenance reference，落在被判定的 person／organization 上。已否決的配對不再被
+提名（同 literal 在別的 entry 是另一次觀察，照提），列表沉底標示而非隱藏；三態
+計數（已確認／已否決／未處理）從 verdict 現算、絕不儲存，**只報計數不報比率**
+——未處理量（censoring）永遠可見。
+
 `resolve-organizations` 走**兩處** literal：person 的 `profile.affiliations` 與
 **organization 的 `parents`**（#166；先前只走前者，於是 `bootstrap-organizations`
 吃進去的 parents literal 進得去、出不來）。parents 側多兩道排除，因為那裡有 person

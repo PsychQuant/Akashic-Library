@@ -728,6 +728,41 @@ references:
    所有查詢中消失，而 §5.0 的 format 6 與 7 正是因為這種整檔 quarantine 而 bump 的，
    所以仍需格式 bump，不在本範圍。遷移對它**回報而不靜默略過**。
 
+### 消解判定欄位對：`resolution-confirmed`／`resolution-rejected`（#232）
+
+人工消解判定（「這個 literal 就是他」／「查過了，不是他」）以**判斷型 reference**
+落在**被判定的記錄**上（person 或 organization），欄位名是**封閉對**——只有
+`resolution-confirmed` 與 `resolution-rejected` 兩值，不得依性質相似類推第三個：
+
+```yaml
+references:
+- field: resolution-rejected
+  value: "cheng2025alpha :: Cheng, C."   # <holder> :: <literal>，見下
+  judgement: 查過本人網頁，非本人 [rule: author-name-exact]
+  rests-on: []                           # verdict 例外：允許空（見下）
+```
+
+**與 §3.5 一般規則的三個刻意偏離**（各有理由，皆為 normative）：
+
+1. **`value` 必填但不做集合成員檢查**。一般清單欄位的 `value` 以值定位記錄自己的
+   清單；verdict 的 `value` 定位的是**配對**——格式 `<holder> :: <literal>`（以
+   **第一個** ` :: ` 切分；literal 其餘內容原樣保留）。person 族的 holder 是 entry
+   citekey、organization 族是持有 literal 的 person／organization key——它們都不是
+   本記錄的欄位值，所以成員檢查對它不適用；缺 `value` 拒收（verdict 沒有配對即無錨）。
+2. **允許空 `rests-on`**。裁決本身即一階證據（人看過、判了）；有外部依據時照常
+   以 digest 指名。非 verdict 欄位的判斷型維持「`rests-on` 非空」不變——例外不外溢。
+3. **`judgement` 尾註 `[rule: <name>]` 標記證據類別**（今日恰一類
+   `author-name-exact`）。tolerant 解析：尾註缺席計入 `author-name-exact`。這是
+   typed slot 被 #247（format bump 前置）擋住的 v1 妥協；格式解封後遷移為 typed 欄位。
+
+三態計數（confirmed／rejected／pending）一律**現算、絕不儲存**——store 內沒有任何
+counter 欄位；「還沒查」與「查過了不是他」由 verdict 存在與否區分。
+
+**相容性（明記的降級）**：本欄位對**不 bump format**——verdict 只是新寫入的
+reference，形狀完全是既有的判斷型。代價：**舊 binary 讀到帶 verdict reference 的
+記錄，會以「不合法欄位」quarantine 該筆**（loud、可修復——升級 binary 即癒）。
+format bump 被 #247 擋住，兩害取其輕，此降級為已知且可接受。
+
 ### 存檔佈局：`sources/`（內容定址，不進 remote）
 
 擷取的位元組住 `<store>/sources/<digest 前 2 字元>/<其餘 62 字元>`，**無副檔名**

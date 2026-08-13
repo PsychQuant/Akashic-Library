@@ -13,6 +13,13 @@ import Foundation
 /// throwing 建構器驗證，混合即拒。
 public struct ProvenanceReference: Equatable {
 
+    /// #232：resolution verdict 欄位的**封閉對**——僅此二值，不得類推第三個。
+    /// init 的空 restsOn 例外、person／organization 的 validateReferenceAttachment、
+    /// ResolutionLedger 四處都引這一個列舉（單一來源，不留漂移面）。
+    public static let resolutionVerdictFields: Set<String> = [
+        "resolution-confirmed", "resolution-rejected",
+    ]
+
     /// 擷取型 vs 判斷型——互斥的兩種（D6）。
     public enum Kind: Equatable {
         /// 單次擷取：路徑 + 內容。`content` 是 `sha256:` 前綴的 digest。
@@ -117,7 +124,9 @@ public struct ProvenanceReference: Equatable {
                 throw StoreYAMLError.missingField(
                     "reference(field: \(safeField)).judgement——沒有斷言的依據不知道在支持什麼")
             }
-            guard !restsOn.isEmpty else {
+            // #232 design D8：verdict 是一階人為裁決、非對既有證據的推理——
+            // 僅對封閉欄位對允許空 rests-on（有證據時 SHOULD 附）；其他欄位維持拒收
+            guard !restsOn.isEmpty || Self.resolutionVerdictFields.contains(field) else {
                 throw StoreYAMLError.missingField(
                     "reference(field: \(safeField)).rests-on——沒有依據的斷言不是判斷")
             }
@@ -306,12 +315,21 @@ extension Person {
                         "person.references(field: \(r.field))",
                         "記錄的 \(r.field) 是空的——reference 指名的欄位必須存在")
                 }
+            case _ where ProvenanceReference.resolutionVerdictFields.contains(r.field):
+                // #232：verdict 虛欄位（封閉對）——value 定位配對（citekey :: literal），
+                // 不屬任何集合、不做成員檢查；缺 value 的 verdict 無錨、拒收
+                guard r.value != nil else {
+                    throw StoreYAMLError.invalidField(
+                        "person.references(field: \(r.field))",
+                        "\(r.field) 必須帶 value 定位被判定的配對——verdict 沒有配對即無錨")
+                }
             default:
                 throw StoreYAMLError.invalidField(
                     "person.references(field: \(r.field))",
                     "person 沒有可附著 reference 的欄位「\(r.field)」（合法：names、authorized、"
                     + "orcid、openalex、died、note、profile.affiliations、profile.ranks、"
-                    + "profile.administrative、profile.appointments、profile.fields）")
+                    + "profile.administrative、profile.appointments、profile.fields、"
+                    + "resolution-confirmed、resolution-rejected）")
             }
         }
     }
@@ -366,11 +384,19 @@ extension Organization {
                         "organization.references(field: parents)",
                         "記錄的 parents 是空的——reference 指名的欄位必須存在")
                 }
+            case _ where ProvenanceReference.resolutionVerdictFields.contains(r.field):
+                // #232：同 person 側——封閉對、value 必填、無成員檢查
+                guard r.value != nil else {
+                    throw StoreYAMLError.invalidField(
+                        "organization.references(field: \(r.field))",
+                        "\(r.field) 必須帶 value 定位被判定的配對——verdict 沒有配對即無錨")
+                }
             default:
                 throw StoreYAMLError.invalidField(
                     "organization.references(field: \(r.field))",
                     "organization 沒有可附著 reference 的欄位「\(r.field)」"
-                    + "（合法：names、authorized、founded、dissolved、note、parents）")
+                    + "（合法：names、authorized、founded、dissolved、note、parents、"
+                    + "resolution-confirmed、resolution-rejected）")
             }
         }
     }

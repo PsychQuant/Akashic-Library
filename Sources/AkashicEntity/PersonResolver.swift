@@ -116,7 +116,12 @@ public enum PersonResolver {
     /// 各留一份正規化，分裂後文件化主流程對連字號變體從 2 候選掉到 0、**完全靜默**
     /// （`testBootstrapAndResolverShareNormalization` 是那次的 regression 守衛）。
     /// 兩支遍歷會分岔，而分岔的方式是安靜的。
-    public static func resolve(entries: [Entry], people: [Person]) -> ResolutionReport {
+    /// `rejected`：已否決配對（#232 design D5）。呼叫端從 verdict references 算出
+    /// （`ResolutionLedger.rejectedPairings`）後傳入——resolver 保持純函式，不讀 store。
+    /// 排除的是**恰為** (citekey, literal, personKey) 的三元組：同 literal 在別的
+    /// entry 是另一次觀察，照提。
+    public static func resolve(entries: [Entry], people: [Person],
+                               rejected: Set<ResolutionPairing> = []) -> ResolutionReport {
         // 正規化 alias → person keys
         var aliasMap: [String: Set<String>] = [:]
         for person in people {
@@ -134,6 +139,8 @@ public enum PersonResolver {
                 // 報告被噪音淹沒，而被淹沒的報告等於沒有報告。
                 guard let keys = aliasMap[normalize(literal)] else { continue }
                 if keys.count == 1, let key = keys.first {
+                    guard !rejected.contains(ResolutionPairing(
+                        holder: entry.citekey, literal: literal, judgedKey: key)) else { continue }
                     candidates.append(ResolutionCandidate(
                         citekey: entry.citekey, authorIndex: i, literal: literal,
                         personKey: key, reason: "alias 完全命中"))

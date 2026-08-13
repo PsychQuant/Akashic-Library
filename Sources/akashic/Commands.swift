@@ -7,6 +7,7 @@ import AkashicZoteroImport
 import AkashicWoSImport
 import AkashicExport
 import AkashicIndex
+import AkashicMCPKit
 
 struct Doctor: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -635,10 +636,27 @@ struct ResolveOrganizations: ParsableCommand {
     @Option(name: .long, parsing: .upToNextOption,
             help: "只套用指向這些 organization key 的候選") var org: [String] = []
 
+    /// #232 design D6 的 org 族。person 面用 rowID（citekey:authorIndex），這裡沒有
+    /// 對應的穩定把手（候選定位是 holder × timeline 段），所以沿用**本命令既有的**
+    /// 選取機制：--reject 對收窄後的候選寫 verdict，且**必須**帶收窄條件——
+    /// 全庫盲掃否決是把一次判斷放大成批次動作。
+    @Flag(name: .long,
+          help: "否決收窄後的候選（寫 resolution-rejected verdict 到被判定的 organization；必須帶 --holder / --org）")
+    var reject = false
+
     func run() throws {
+        if apply, reject {
+            throw ValidationError("--apply 與 --reject 不可同用（相反的 verdict）——分兩次呼叫")
+        }
+        if reject, holder.isEmpty, org.isEmpty {
+            throw ValidationError("--reject 必須帶 --holder / --org 收窄——否決是逐配對的判斷，不是批次動作")
+        }
         let store = try options.openStore()
         let load = try store.load()
-        let orgReport = OrgResolver.resolve(people: load.people, organizations: load.organizations)
+        // #232 design D5：已否決配對從 organization 的 verdict references 現算
+        let orgRejected = ResolutionLedger.rejectedPairings(organizations: load.organizations)
+        let orgReport = OrgResolver.resolve(people: load.people, organizations: load.organizations,
+                                            rejected: orgRejected)
         let all = orgReport.candidates
         let hkSet = Set(holder), okSet = Set(org)
         let candidates = all.filter {
@@ -714,8 +732,66 @@ struct ResolveOrganizations: ParsableCommand {
             print("  兩種可能，處置相反：同名的不同機構＝各自歸戶（永不合併）；同一機構兩筆＝該合併。")
         }
 
+        // #232 design D7：三態計數與已否決沉底——名單與計數同 MCP 來源
+        // （ResolutionLedger），CLI 只排版。
+        func printOrgCountsAndSunk() {
+            for s in ResolutionLedger.observedRejections(pairings: orgRejected,
+                                                         people: load.people,
+                                                         organizations: load.organizations) {
+                let kind = s.holderIsPerson ? "person" : "org"
+                print("  (已否決) \(kind) \(displaySafe(s.holder, max: 200)) 「\(displaySafe(s.literal, max: 200))」 ↛ \(displaySafe(s.judgedKey, max: 200))")
+            }
+            let triples = all.map {
+                ResolutionPairing(holder: $0.holder.key, literal: $0.literal, judgedKey: $0.orgKey)
+            }
+            let c = ResolutionLedger.counts(organizations: load.organizations,
+                                            candidatePairings: triples)[
+                ResolutionLedger.defaultRule] ?? (0, 0, 0)
+            print("三態計數（\(ResolutionLedger.defaultRule)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／未處理 \(c.pending)")
+        }
+
+        // reject（#232 design D6）：對收窄後的候選寫 verdict，holder 記錄**不動**
+        // （reject 不是套用）。寫入落被判定的 organization，per-item 收容同 apply。
+        if reject {
+            if candidates.isEmpty {
+                throw ValidationError("--holder / --org 的篩選條件沒有命中任何候選"
+                    + "（共 \(all.count) 個候選）——先不帶 --reject 列出候選確認 key")
+            }
+            let orgByKey = Dictionary(load.organizations.map { ($0.key, $0) },
+                                      uniquingKeysWith: { a, _ in a })
+            var grouped: [String: Organization] = [:]
+            for c in candidates {
+                guard var o = grouped[c.orgKey] ?? orgByKey[c.orgKey] else { continue }
+                o.references.append(ResolutionLedger.record(
+                    .rejected, holder: c.holder.key, literal: c.literal,
+                    rule: ResolutionLedger.defaultRule,
+                    statement: "resolve reject：使用者否決此配對"))
+                grouped[c.orgKey] = o
+            }
+            var wrote = 0
+            var failed: [(String, String)] = []
+            for key in grouped.keys.sorted() {
+                do { try store.writeOrganization(grouped[key]!); wrote += 1 }
+                catch { failed.append((key, "\(error)")) }
+            }
+            // 先報失敗再 rebuild（R9/M8 紀律）：rebuild 擲錯不得吞掉清單
+            if !failed.isEmpty {
+                print("write failed（單筆寫入失敗，已略過續跑）: \(failed.count)")
+                for (k, why) in failed { print("  ✗ org \(displaySafe(k, max: 200)) — \(displaySafe(why, max: 512))") }
+            }
+            _ = try LibraryIndex(store: store).rebuild()
+            if failed.isEmpty {
+                print("✓ 否決 \(candidates.count) 筆配對、改寫 \(wrote) 個 organization、index 已重建")
+            } else {
+                print("⚠ 部分完成：改寫 \(wrote) 個 organization、\(failed.count) 個失敗、index 已重建")
+                throw ExitCode(1)
+            }
+            return
+        }
+
         guard !all.isEmpty else {
             print("無候選（affiliation／parents 的 literal 皆無 org name 完全命中）")
+            printOrgCountsAndSunk()   // 沒有候選 ≠ 沒有歷史——已否決與計數照樣要看得見
             printOrgAmbiguities()   // 沒有唯一候選時，歧義**更**該被看見
             return
         }
@@ -724,6 +800,7 @@ struct ResolveOrganizations: ParsableCommand {
             let mark = (apply && !selected.contains("\(c.holder)#\(c.literal)")) ? "  (skip) " : "  "
             print("\(mark)\(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
         }
+        printOrgCountsAndSunk()
         printOrgAmbiguities()
         if apply {
             if !(holder.isEmpty && org.isEmpty), candidates.isEmpty {
@@ -739,6 +816,18 @@ struct ResolveOrganizations: ParsableCommand {
             // 帶過來。這不是新設計，是把既有紀律平移。
             let updated = OrgResolver.apply(candidates, to: load.people,
                                             organizations: load.organizations)
+            // #232 design D6 對稱：apply 的**同一動作**內寫 resolution-confirmed
+            // verdict 到被判定的 organization（person 面在 AkashicService 做同一件事）
+            var updatedOrgs = updated.organizations
+            let orgIdx = Dictionary(updatedOrgs.enumerated().map { ($0.element.key, $0.offset) },
+                                    uniquingKeysWith: { a, _ in a })
+            for c in candidates {
+                guard let i = orgIdx[c.orgKey] else { continue }
+                updatedOrgs[i].references.append(ResolutionLedger.record(
+                    .confirmed, holder: c.holder.key, literal: c.literal,
+                    rule: ResolutionLedger.defaultRule,
+                    statement: "resolve apply：使用者確認歸戶"))
+            }
             // **person 與 organization 分開計數**（#166 verify）：`written` 現在同時
             // 累計兩者，而訊息仍寫「N 個 person」——沙箱實測「一個 person 都沒有」
             // 時照樣印「改寫 1 個 person」。本 change 之前 `written` 只數 person，
@@ -758,7 +847,7 @@ struct ResolveOrganizations: ParsableCommand {
             }
             // organization 側走**同一套** per-item 收容（#154 verify 154-8 的紀律；
             // 那一輪的教訓正是「org 側三條全沒帶過來」——這次不要再漏一次）
-            for o in updated.organizations where !load.organizations.contains(where: { $0 == o }) {
+            for o in updatedOrgs where !load.organizations.contains(where: { $0 == o }) {
                 do {
                     try store.writeOrganization(o)
                     wroteO += 1
@@ -968,10 +1057,36 @@ struct ResolvePeople: ParsableCommand {
             help: "只套用指向這些 person key 的候選（可重複；與 --citekey 取交集）")
     var person: [String] = []
 
+    /// #232 design D6：reject 是顯式人為動作。rowID 同 MCP（citekey:authorIndex）。
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "否決這些候選（rowID 形如 citekey:authorIndex）——寫 resolution-rejected verdict 到該 person，entry 不動；之後該配對不再被提名（同 literal 他 entry 照提）")
+    var reject: [String] = []
+
     func run() throws {
+        // 同一次呼叫不可同時 apply 與 reject——那是兩個相反的 verdict
+        if apply, !reject.isEmpty {
+            throw ValidationError("--apply 與 --reject 不可同用（相反的 verdict）——分兩次呼叫")
+        }
         let store = try options.openStore()
+
+        // verdict 寫入走 **AkashicService**——與 MCP `akashic_resolve_people` 同一條
+        // 實作路徑（mcp-cli-parity：兩條各自寫會分岔）。`key:` 不可省（#220 HIGH：
+        // keyless 會分岔出第二份 index）。
+        if !reject.isEmpty {
+            let service = AkashicService(root: store.root, key: store.key,
+                                         environment: ProcessInfo.processInfo.environment)
+            let out = try service.resolvePeople(apply: nil, reject: reject)
+            let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
+            let n = (parsed?["rejected"] as? [Any])?.count ?? reject.count
+            print("✓ 否決 \(n) 個配對、改寫 \(parsed?["personsRewritten"] as? Int ?? 0) 筆 person 記錄、index 已重建")
+            return
+        }
+
         let load = try store.load()
-        let report = PersonResolver.resolve(entries: load.entries, people: load.people)
+        // #232 design D5：已否決配對從 verdict references 現算，resolver 不再提名
+        let rejectedSet = ResolutionLedger.rejectedPairings(people: load.people)
+        let report = PersonResolver.resolve(entries: load.entries, people: load.people,
+                                            rejected: rejectedSet)
         let all = report.candidates
         // 篩選只影響 **--apply**，列表一律顯示全部——否則使用者用 --citekey 收窄後
         // 會以為其他候選不存在。
@@ -1081,8 +1196,25 @@ struct ResolvePeople: ParsableCommand {
             print("  兩種可能，處置相反：同名的不同人＝各自歸屬（永不合併）；同一人兩筆＝該合併。")
         }
 
+        // #232 design D7：三態計數（derived）與已否決沉底——名單與計數都來自
+        // ResolutionLedger（與 MCP 同一來源），CLI 只負責排版。
+        func printCountsAndSunk() {
+            for s in ResolutionLedger.observedRejections(pairings: rejectedSet,
+                                                         entries: load.entries) {
+                print("  (已否決) \(displaySafe(s.citekey, max: 200))[\(s.authorIndex)] 「\(displaySafe(s.literal, max: 200))」 ↛ \(displaySafe(s.judgedKey, max: 200))")
+            }
+            let triples = all.map {
+                ResolutionPairing(holder: $0.citekey, literal: $0.literal, judgedKey: $0.personKey)
+            }
+            let c = ResolutionLedger.counts(people: load.people, candidatePairings: triples)[
+                ResolutionLedger.defaultRule] ?? (0, 0, 0)
+            // 計數不報比率（分母含 censoring，比率會邀請錯誤推論）——未處理量必須可見
+            print("三態計數（\(ResolutionLedger.defaultRule)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／未處理 \(c.pending)")
+        }
+
         guard !all.isEmpty else {
             print("無候選（literal 作者 \(load.entries.flatMap(\.authors).filter { if case .literal = $0 { return true } else { return false } }.count) 個，皆無 alias 完全命中）")
+            printCountsAndSunk()   // 沒有候選 ≠ 沒有歷史——已否決與計數照樣要看得見
             printAmbiguities()   // 沒有唯一候選時，歧義**更**該被看見
             return
         }
@@ -1092,6 +1224,7 @@ struct ResolvePeople: ParsableCommand {
             let mark = (apply && !selected.contains("\(c.citekey)#\(c.authorIndex)")) ? "  (skip) " : "  "
             print("\(mark)\(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
         }
+        printCountsAndSunk()
         printAmbiguities()
         if apply {
             // 篩選條件寫了卻一個都沒中——多半是打錯 key，別靜默什麼都不做
@@ -1100,31 +1233,32 @@ struct ResolvePeople: ParsableCommand {
                     "--citekey / --person 的篩選條件沒有命中任何候選"
                     + "（共 \(all.count) 個候選）——請對照上面的清單確認 key 是否正確")
             }
-            let applied = PersonResolver.apply(candidates, to: load.entries)
-            var written = 0
-            var writeFailed: [(String, String)] = []
-            // R7（R6-verify M21）：encode 自 v1.3 起可拒寫——多檔迴圈 per-item
-            // 收容，index 照 rebuild，不留「部分改寫 + index stale」的撕裂
-            for (before, after) in zip(load.entries, applied) where before != after {
-                do {
-                    try store.writeEntry(after)
-                    written += 1
-                } catch {
-                    writeFailed.append((after.citekey, displaySafe(String(describing: error), max: 512)))
-                }
-            }
-            // R9（R8-verify M8）：writeFailed 先印再 rebuild——rebuild 擲錯
-            // 不得吞掉已發生的寫入失敗報告
+            // #232：apply 改走 **AkashicService**（與 MCP 同一條實作路徑）——
+            // service 端做 per-item 收容（R7/M21）、先報失敗再 rebuild（R9/M8）、
+            // applied 不誇報（R8/L15），並在**同一動作**內寫 resolution-confirmed
+            // verdict（design D6）。CLI 只把 JSON 排成人可讀。
+            let service = AkashicService(root: store.root, key: store.key,
+                                         environment: ProcessInfo.processInfo.environment)
+            let ids = candidates.map { "\($0.citekey):\($0.authorIndex)" }
+            let out = try service.resolvePeople(apply: ids)
+            let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
+            let written = parsed?["entriesRewritten"] as? Int ?? 0
+            let writeFailed = parsed?["writeFailed"] as? [String: String] ?? [:]
+            let confirmFailed = parsed?["confirmWriteFailed"] as? [String: String] ?? [:]
             if !writeFailed.isEmpty {
                 print("write failed（單筆寫入失敗，已略過）: \(writeFailed.count)")
-                for (key, msg) in writeFailed { print("  ✗ \(displaySafe(key, max: 200)) — \(displaySafe(msg, max: 512))") }
+                // service 的輸出已逐值 displaySafe——不再包一次（displaySafe 不冪等）
+                for (key, msg) in writeFailed.sorted(by: { $0.key < $1.key }) { print("  ✗ \(key) — \(msg)") }
             }
-            _ = try LibraryIndex(store: store).rebuild()
-            // R8（R7-verify L29/L15）：成功行不誇報（✓ 只在全數成功時）
-            if writeFailed.isEmpty {
+            if !confirmFailed.isEmpty {
+                print("confirmed verdict 寫入失敗（entry 已改寫、verdict 未落地）: \(confirmFailed.count)")
+                for (key, msg) in confirmFailed.sorted(by: { $0.key < $1.key }) { print("  ✗ \(key) — \(msg)") }
+            }
+            // 成功行不誇報（R8）：✓ 只在全數成功時
+            if writeFailed.isEmpty, confirmFailed.isEmpty {
                 print("✓ 套用 \(candidates.count) 個候選、改寫 \(written) 檔、index 已重建")
             } else {
-                print("部分套用：改寫 \(written) 檔、失敗 \(writeFailed.count) 檔、index 已重建")
+                print("部分套用：改寫 \(written) 檔、失敗 \(writeFailed.count + confirmFailed.count) 筆、index 已重建")
                 throw ExitCode(1)
             }
         } else {

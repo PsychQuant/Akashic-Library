@@ -1,0 +1,29 @@
+{
+ "eval_name": "read-only-path",
+ "config": "with_skill",
+ "expectations": [
+  {
+   "text": "正確答出庫內文章",
+   "passed": true,
+   "evidence": "he2025personalized"
+  },
+  {
+   "text": "答出合著者",
+   "passed": true,
+   "evidence": "四位，且標明皆已歸戶為 person"
+  },
+  {
+   "text": "沒有修改任何檔案",
+   "passed": true,
+   "evidence": "逐檔 sha256 未變"
+  },
+  {
+   "text": "沒有為唯讀問題查外部",
+   "passed": true,
+   "evidence": "actions.md 自述零外部查詢"
+  }
+ ],
+ "passed": 4,
+ "scored": 4,
+ "store_modified": false
+}

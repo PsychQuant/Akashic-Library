@@ -1,0 +1,10 @@
+{
+ "eval_id": 0,
+ "eval_name": "open-ended-scope-gate",
+ "prompt": "這三篇幫我加進 akashic：\n1. Fourier analysis of spatial point processes (Bernoulli, 2026)\n2. A Generalized Mean Approach for Distributed-PCA\n3. Pseudo datasets explain artificial neural networks",
+ "assertions": [
+  "沒有反問使用者「這是 person 還是 work」之類的實體種類分類問題",
+  "**範圍未定** → 停在乾跑報告等同意，未修改 store 內任何檔案",
+  "乾跑清單逐項帶判定依據（DOI 來源／相似度／命中方式），不是只列結果"
+ ]
+}

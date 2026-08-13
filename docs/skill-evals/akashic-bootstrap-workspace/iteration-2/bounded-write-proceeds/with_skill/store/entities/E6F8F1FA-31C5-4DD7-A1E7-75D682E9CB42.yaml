@@ -1,0 +1,45 @@
+work:
+id: E6F8F1FA-31C5-4DD7-A1E7-75D682E9CB42
+citekey: yang2017composite
+type: article
+title: Composite marginal quantile regression analysis for longitudinal adolescent
+  body mass index data
+authors:
+- literal: Chi‐Chuan Yang
+- literal: Yi‐Hau Chen
+- literal: Hsing‐Yi Chang
+date: 2017-06-02
+fields:
+  abstract: <jats:p>Childhood and adolescenthood overweight or obesity, which may
+    be quantified through the body mass index (BMI), is strongly associated with adult
+    obesity and other health problems. Motivated by the child and adolescent behaviors
+    in long‐term evolution (CABLE) study, we are interested in individual, family,
+    and school factors associated with marginal quantiles of longitudinal adolescent
+    BMI values. We propose a new method for composite marginal quantile regression
+    analysis for longitudinal outcome data, which performs marginal quantile regressions
+    at multiple quantile levels simultaneously. The proposed method extends the quantile
+    regression coefficient modeling method introduced by Frumento and Bottai (<jats:italic>Biometrics</jats:italic>
+    2016; <jats:bold>72</jats:bold>:74–84) to longitudinal data accounting suitably
+    for the correlation structure in longitudinal observations. A goodness‐of‐fit
+    test for the proposed modeling is also developed. Simulation results show that
+    the proposed method can be much more efficient than the analysis without taking
+    correlation into account and the analysis performing separate quantile regressions
+    at different quantile levels. The application to the longitudinal adolescent BMI
+    data from the CABLE study demonstrates the practical utility of our proposal.
+    Copyright © 2017 John Wiley &amp; Sons, Ltd.</jats:p>
+  doi: 10.1002/sim.7355
+  journaltitle: Statistics in Medicine
+  number: 21
+  pages: 3380-3397
+  url: http://dx.doi.org/10.1002/sim.7355
+  volume: 36
+provenance:
+  zotero_key: AE7Z7569
+  zotero_version: 271
+  library_id: 1
+  zotero_hash: 524524c6ae04220c3e86af80ec8ab21eeb858b05dbc3e9e36418edec404997b0
+  imported_at: 2026-07-22T05:02:58Z
+akashic:
+  tags:
+  - CV import
+  - Yi-Hau Chen

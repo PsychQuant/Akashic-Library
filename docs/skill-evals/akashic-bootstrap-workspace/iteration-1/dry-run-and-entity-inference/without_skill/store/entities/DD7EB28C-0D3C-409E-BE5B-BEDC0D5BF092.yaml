@@ -1,0 +1,41 @@
+work:
+id: DD7EB28C-0D3C-409E-BE5B-BEDC0D5BF092
+citekey: cohon2010hume
+type: incollection
+title: Hume's Moral Philosophy
+authors:
+- literal: Rachel Cohon
+date: 2010
+fields:
+  abstract: 'Hume''s position in ethics, which is based on his empiricist theory of
+    the mind, is best known for asserting four theses: (1) Reason alonecannot be a
+    motive to the will, but rather is the “slave of the passions” (see Section 3)   (2)
+    Moral distinctions are not derived from reason (see Section 4). (3) Moral distinctions
+    are derived from the moral sentiments: feelings ofapproval (esteem, praise) and
+    disapproval (blame) felt by spectatorswho contemplate a character trait or action
+    (see Section 7).  (4) While some virtues and vices are natural (see Section 13),
+    others, including justice, are artificial (see Section 9). There is heated debate
+    about what Hume intends by each of thesetheses and how he argues for them. He
+    articulates and defends them within the broader context of his metaethics and
+    his ethic of virtue andvice., Hume''s main ethical writings are Book 3 of his
+    Treatise of HumanNature, “Of Morals” (which builds on Book 2, “Ofthe Passions”),
+    his Enquiry concerning the Principles ofMorals, and some of his Essays. In part
+    the moralEnquiry simply recasts central ideas from the moral part ofthe Treatise
+    in a more accessible style; but there areimportant differences. The ethical positions
+    and arguments of theTreatise are set out below, noting where the moralEnquiry
+    agrees; differences between the Enquiry andthe Treatise are discussed afterwards.'
+  booktitle: The Stanford Encyclopedia of Philosophy
+  edition: Fall 2010
+  url: http://plato.stanford.edu/archives/fall2010/entries/hume-moral/
+attachments:
+- zotero: storage/JZPHG7EC/hume-moral.html
+provenance:
+  zotero_key: RCKNHI29
+  zotero_version: 24
+  library_id: 1
+  zotero_hash: aa1de762f5b2e3180d0e7c8f50f6ff0192e1ca845a8d374fc6740df6bda3fe27
+  imported_at: 2026-07-22T05:02:58Z
+akashic:
+  tags:
+  - Hume, David
+  - property and ownership

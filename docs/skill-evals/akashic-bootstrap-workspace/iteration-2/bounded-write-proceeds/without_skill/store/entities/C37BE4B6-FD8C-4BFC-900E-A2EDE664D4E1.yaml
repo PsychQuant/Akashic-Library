@@ -1,0 +1,62 @@
+work:
+id: C37BE4B6-FD8C-4BFC-900E-A2EDE664D4E1
+citekey: chen2020association
+type: article
+title: The Association between Depression and Gastroesophageal Reflux based on Phylogenetic
+  Analysis of miRNA Biomarkers
+authors:
+- literal: Yi-Hau Chen
+- literal: Hsiuying Wang
+date: 2020-11-12
+fields:
+  abstract: '<jats:sec>
+
+    <jats:title/>
+
+    <jats:p>A number of clinical studies have revealed that there is an association
+    between major
+
+    depression (MD) and gastroesophageal reflux disease (GERD). Both the diseases
+    are
+
+    shown to affect a large proportion of the global population. More advanced studies
+    for understanding
+
+    the comorbidity mechanism of these two diseases can shed light on developing new
+
+    therapies of both diseases. To the best of our knowledge, there has not been any
+    research
+
+    work in the literature investigating the relationship between MD and GERD using
+    their
+
+    miRNA biomarkers. We adopt a phylogenetic analysis to analyze their miRNA biomarkers.
+
+    From our analyzed results, the association between these two diseases can be explored
+
+    through miRNA phylogeny. In addition to evidence from the phylogenetic analysis,
+    we also
+
+    demonstrate epidemiological evidence for the relationship between MD and GERD
+    based on
+
+    Taiwan biobank data.</jats:p>
+
+    </jats:sec>'
+  doi: 10.2174/0929867327666200425214906
+  journaltitle: Current Medicinal Chemistry
+  number: 38
+  pages: 6536-6547
+  pmid: '32334497'
+  url: http://dx.doi.org/10.2174/0929867327666200425214906
+  volume: 27
+provenance:
+  zotero_key: AH9K79IT
+  zotero_version: 281
+  library_id: 1
+  zotero_hash: 57cc598880831ccfd1ed990b8ed5e809793880108af2a8a8bc07177bdd718567
+  imported_at: 2026-07-22T05:02:58Z
+akashic:
+  tags:
+  - CV import
+  - Yi-Hau Chen

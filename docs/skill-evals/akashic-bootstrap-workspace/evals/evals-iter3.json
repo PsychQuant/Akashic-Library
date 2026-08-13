@@ -1,0 +1,14 @@
+{
+  "skill_name": "akashic-bootstrap",
+  "evals": [
+    {"id": 0, "name": "correction-in-same-file",
+     "prompt": "這是圖書館給我的 WoS 匯出（fixtures/export.tsv）。幫我把裡面的作者整理成可以建進 Akashic 的 person 清單，每位作者一行：正確的姓名寫法 + 你有多確定 + 依據。有問題的地方直接說。",
+     "files": ["fixtures/export.tsv"]},
+    {"id": 1, "name": "affiliation-string-trap",
+     "prompt": "fixtures/affiliations.json 是一篇論文的作者機構字串。我要判斷哪幾位是中研院統計所（Institute of Statistical Science）的人，好把隸屬記進他們的 person 記錄。逐位給我判定與理由。",
+     "files": ["fixtures/affiliations.json"]},
+    {"id": 2, "name": "duplicate-vs-lineage",
+     "prompt": "fixtures/store_records.tsv 是我 store 裡的六筆 work 記錄。幫我找出哪些是重複的、該合併掉，哪些不是。逐組說明你的判斷依據。",
+     "files": ["fixtures/store_records.tsv"]}
+  ]
+}

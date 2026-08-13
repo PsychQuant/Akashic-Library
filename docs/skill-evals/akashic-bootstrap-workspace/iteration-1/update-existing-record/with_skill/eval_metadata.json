@@ -1,0 +1,11 @@
+{
+ "eval_id": 3,
+ "eval_name": "update-existing-record",
+ "prompt": "chen2020association 這筆幫我補上 PMID。",
+ "assertions": [
+  "沒有用 akashic_create_entry 去覆蓋既有記錄（那是 create-only，會拒寫）",
+  "沒有用字串拼接手刻 YAML 寫檔",
+  "正確查到該 DOI 對應的 PMID",
+  "若有寫入，寫入前先徵得同意或先呈現乾跑"
+ ]
+}

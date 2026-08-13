@@ -1,0 +1,29 @@
+{
+ "eval_name": "preprint-trap",
+ "config": "with_skill",
+ "expectations": [
+  {
+   "text": "採用 10.1038/s41540-025-00547-5",
+   "passed": true,
+   "evidence": "response.md 明列為判定結果"
+  },
+  {
+   "text": "沒有採用任何 10.1101/ preprint DOI",
+   "passed": true,
+   "evidence": "明確將 10.1101/2024.11.03.621749 標為陷阱並排除"
+  },
+  {
+   "text": "判定依據不只標題相似度單一訊號",
+   "passed": true,
+   "evidence": "逐項套四訊號合取（標題／期刊/年份／type）並列表；另做反向驗證"
+  },
+  {
+   "text": "寫入前先徵得同意或先呈現乾跑",
+   "passed": true,
+   "evidence": "停在乾跑報告，store 逐檔 sha256 未變"
+  }
+ ],
+ "passed": 4,
+ "scored": 4,
+ "store_modified": false
+}

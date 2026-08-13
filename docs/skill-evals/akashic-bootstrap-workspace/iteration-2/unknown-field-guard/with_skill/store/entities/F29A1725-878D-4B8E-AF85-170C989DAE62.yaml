@@ -1,0 +1,34 @@
+work:
+id: F29A1725-878D-4B8E-AF85-170C989DAE62
+citekey: shen2015model
+type: article
+title: Model selection for marginal regression analysis of longitudinal data with
+  missing observations and covariate measurement error
+authors:
+- literal: Chung-Wei Shen
+- literal: Yi-Hau Chen
+date: 2015-05-26
+fields:
+  doi: 10.1093/biostatistics/kxv024
+  journaltitle: Biostatistics
+  number: 4
+  pages: 740-753
+  pmid: 26012353
+  url: http://dx.doi.org/10.1093/biostatistics/kxv024
+  volume: 16
+provenance:
+  zotero_key: DNZVNA5W
+  zotero_version: 257
+  library_id: 1
+  zotero_hash: 239adbc182ecab792860bfac1133abd69dd1bd9a707c83a26dc9480064122b6c
+  imported_at: 2026-07-22T05:02:58Z
+akashic:
+  tags:
+  - CV import
+  - Yi-Hau Chen
+custom_review:
+  reviewer: 內部審閱
+  score: 4
+  tags:
+  - 方法學
+  - 待覆核

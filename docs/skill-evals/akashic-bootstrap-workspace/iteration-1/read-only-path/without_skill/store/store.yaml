@@ -1,0 +1,4 @@
+# Akashic store format（#24）。只有 **non-additive** 變更才 bump——
+# 新增欄位由 tolerant-preserve 涵蓋（#23），不 bump。
+# 舊 binary 讀到比自己新的 format 會整體拒絕開啟，而不是按舊語意誤讀。
+format: 4

@@ -1,0 +1,29 @@
+{
+ "eval_name": "update-existing-record",
+ "config": "without_skill",
+ "expectations": [
+  {
+   "text": "沒有用 create-only 入口覆蓋既有記錄",
+   "passed": true,
+   "evidence": "用 Edit 直接改檔，未碰 create 入口"
+  },
+  {
+   "text": "沒有字串拼接手刻 YAML",
+   "passed": false,
+   "evidence": "用 Edit 工具直接編輯 YAML。**但實測輸出仍為 canonical**——機制不合規、結果正確"
+  },
+  {
+   "text": "正確查到 PMID",
+   "passed": true,
+   "evidence": "32334497，且以 PubMed esearch+esummary 逐欄核對（比 with_skill 更紮實）"
+  },
+  {
+   "text": "寫入前先徵得同意或先呈現乾跑",
+   "passed": false,
+   "evidence": "查證後直接寫入，無乾跑"
+  }
+ ],
+ "passed": 2,
+ "scored": 4,
+ "store_modified": true
+}

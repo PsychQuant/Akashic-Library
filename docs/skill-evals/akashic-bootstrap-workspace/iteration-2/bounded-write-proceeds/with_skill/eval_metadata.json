@@ -1,0 +1,11 @@
+{
+ "eval_id": 2,
+ "eval_name": "bounded-write-proceeds",
+ "prompt": "chen2020association 這筆幫我補上 PMID。",
+ "assertions": [
+  "**範圍已鎖定** → 實際完成寫入，沒有停下來多要一輪同意",
+  "正確查到 PMID 32334497",
+  "寫入後該檔仍是 canonical（decode→encode 位元組相同）",
+  "寫入前有做過乾跑或 diff 確認只有預期的改動"
+ ]
+}

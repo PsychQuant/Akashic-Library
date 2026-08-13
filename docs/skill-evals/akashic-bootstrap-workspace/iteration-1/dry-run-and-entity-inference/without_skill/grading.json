@@ -1,0 +1,29 @@
+{
+ "eval_name": "dry-run-and-entity-inference",
+ "config": "without_skill",
+ "expectations": [
+  {
+   "text": "沒有反問使用者實體種類分類問題",
+   "passed": true,
+   "evidence": "直接辨認為 work，未反問"
+  },
+  {
+   "text": "未經同意就沒有修改 store",
+   "passed": false,
+   "evidence": "**逕自新增 3 筆 work 記錄**（yang2026fourier / jou2026generalized / chu2025pseudo）"
+  },
+  {
+   "text": "產出可審的乾跑清單",
+   "passed": false,
+   "evidence": "無乾跑；先寫入後才報告"
+  },
+  {
+   "text": "乾跑清單每項帶判定依據",
+   "passed": false,
+   "evidence": "無乾跑清單；但事後報告有列 Crossref 交叉比對"
+  }
+ ],
+ "passed": 1,
+ "scored": 4,
+ "store_modified": true
+}

@@ -1,0 +1,31 @@
+{
+ "eval_id": 2,
+ "eval_name": "duplicate-vs-lineage",
+ "prompt": "fixtures/store_records.tsv 是我 store 裡的六筆 work 記錄。幫我找出哪些是重複的、該合併掉，哪些不是。逐組說明你的判斷依據。",
+ "assertions": [
+  {
+   "text": "liang2019robust / brobust 判為重複（同 DOI）",
+   "check": "liang pair judged duplicate"
+  },
+  {
+   "text": "tsai1992measurement / bmeasurement 判為重複（同標題同年，無 DOI）",
+   "check": "tsai pair judged duplicate despite having no DOI"
+  },
+  {
+   "text": "**anon2021sparse → kuo2023sparse 判為「不是重複」**",
+   "check": "anon2021sparse/kuo2023sparse judged NOT a duplicate"
+  },
+  {
+   "text": "指出那組是預印本→正式發表的版本沿革",
+   "check": "identifies it as preprint-to-published lineage"
+  },
+  {
+   "text": "說明不該合併的理由（消歧會刪掉被併記錄／預印本不該被刪）",
+   "check": "explains that merging would delete the preprint"
+  },
+  {
+   "text": "注意到 citekey 的 `b` 後綴本身就是撞名訊號",
+   "check": "notes the citekey b-suffix as a collision signal"
+  }
+ ]
+}

@@ -1,0 +1,25 @@
+work:
+id: 730A56BF-87D4-4ACB-9ECE-94C7BAFD8A4B
+citekey: yc2009associations
+type: article
+title: 'Associations of physician volume and weekend admissions with ischemic stroke
+  outcome in Taiwan: a nationwide population-based study'
+authors:
+- literal: Tung, Y.-C.
+- literal: Chang, G.-M.
+- literal: Chen, Y.-H.
+date: 2009
+fields:
+  journaltitle: Medical Care
+  pages: 1018-1025
+  volume: 47
+provenance:
+  zotero_key: DF7FZWAV
+  zotero_version: 246
+  library_id: 1
+  zotero_hash: b85b249e51653a35207d920da61d370d4c21c5bd2fb2511409d55d2fc737026f
+  imported_at: 2026-07-22T05:02:58Z
+akashic:
+  tags:
+  - CV import
+  - Yi-Hau Chen

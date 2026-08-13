@@ -1,0 +1,16 @@
+work:
+id: 83B552E8-16A7-4330-874A-E1296027E343
+citekey: yang2026fourier
+type: article
+title: Fourier analysis of spatial point processes
+authors:
+- literal: Junho Yang
+- literal: Yongtao Guan
+date: 2026-02-01
+fields:
+  journaltitle: Bernoulli
+  volume: "32"
+  number: "1"
+  doi: 10.3150/25-bej1862
+  issn: "1350-7265"
+  url: https://doi.org/10.3150/25-bej1862

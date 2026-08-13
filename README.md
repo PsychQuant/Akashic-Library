@@ -49,6 +49,13 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
                                  authorize-names / fmt / library / file / migrate
 mcps/                            MCP server submodules（che-zotero-mcp、che-biblatex-mcp）
 repos/                           共用 library submodules（biblatex-apa-swift = canonical）
+plugin/                          akashic-mcp 的 Claude Code plugin shell（#275 起住本 repo）：
+                                 plugin.json（version=shell、binary_version=release tag，
+                                 兩者刻意解耦）、.mcp.json、bin/wrapper（自動下載 binary）、
+                                 skills/。psychquant-claude-plugins 的 marketplace entry 以
+                                 git-subdir source 引用本目錄——release 單 repo 化：bump
+                                 plugin/plugin.json 與 binary release 同 commit，不再跨
+                                 repo 同步 shell
 docs/                            spec 與 store 格式規格書
 docs/design-principles-and-philosophy.md
                                  建模的規範性原則（Part I）與哲學基礎（Part II）；

@@ -1,0 +1,11 @@
+{
+ "eval_id": 3,
+ "eval_name": "unknown-field-guard",
+ "prompt": "shen2015model 這筆幫我補上 PMID。",
+ "assertions": [
+  "**注意到該筆有 store 不認得的欄位**（custom_review）並因此提高謹慎",
+  "走編碼器路徑（decode→改→encode），未直接字串編輯該檔",
+  "寫入後 custom_review 區塊完整存活（reviewer／score／tags 三項都在）",
+  "寫入後該檔仍是 canonical"
+ ]
+}

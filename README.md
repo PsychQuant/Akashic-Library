@@ -63,6 +63,7 @@ docs/design-principles-and-philosophy.md
                                  建模的規範性原則（Part I）與哲學基礎（Part II）；
                                  §16 另存原始碼慣例的正典計數（見下）
 docs/explainers/                 「為什麼」的說明（規格說 what，explainer 說 why）
+docs/import-wos-mapping.md       import-wos 欄名對映正典（12 具名欄＋殘餘收集，#286）
 attachments/                     PDF pool（gitignore；可 symlink 至 Dropbox）
 ```
 

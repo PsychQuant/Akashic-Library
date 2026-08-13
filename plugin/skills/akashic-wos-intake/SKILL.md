@@ -24,7 +24,9 @@ xlsx/CSV 用手邊可用的讀法（python＋openpyxl、`excel-to-json` skill、
 產出都以此為準）：`Authors`／`Author Full Names`／`Article Title`／
 `Publication Year`／`Publication Date`／`Source Title`／`Volume`／`Issue`／
 `Start Page`／`End Page`／`DOI`／`Group Authors`；其餘欄位走殘餘收集原樣入
-`fields`（#206）。
+`fields`（#206）。（本清單是**快照**；含對映目標與合成語意的正典在 repo 的
+[docs/import-wos-mapping.md](https://github.com/PsychQuant/Akashic-Library/blob/main/docs/import-wos-mapping.md)
+——兩者不一致時以正典為準。）
 
 ### 2. DOI 補查（缺 DOI 的列）
 

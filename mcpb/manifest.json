@@ -1,8 +1,8 @@
 {
   "manifest_version": "0.3",
   "name": "akashic-mcp",
-  "version": "0.4.0",
-  "description": "Akashic-Library MCP server — file-based canonical literature store: search, relations, graph, derived-layer writes (tags/status/links/person updates), person & organization resolution, divergence recording with judgement, Zotero one-way pull. Store format 7.",
+  "version": "0.5.0",
+  "description": "Akashic-Library MCP server — file-based canonical literature store: search, relations, graph, derived-layer writes (tags/status/links/person updates), person & organization resolution, divergence recording with judgement, Zotero one-way pull. resolution verdicts (confirm/reject with three-state counts). Store format 8.",
   "author": {
     "name": "Che Cheng"
   },

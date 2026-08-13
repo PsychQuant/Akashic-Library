@@ -52,7 +52,9 @@ repos/                           共用 library submodules（biblatex-apa-swift 
 plugin/                          akashic-mcp 的 Claude Code plugin shell（#275 起住本 repo）：
                                  plugin.json（version=shell、binary_version=release tag，
                                  兩者刻意解耦）、.mcp.json、bin/wrapper（自動下載 binary）、
-                                 skills/。psychquant-claude-plugins 的 marketplace entry 以
+                                 skills/（akashic-bootstrap 補完、akashic-person-verify
+                                 歸戶查證 #276、akashic-wos-intake 清單 QA 閘 #277）。
+                                 psychquant-claude-plugins 的 marketplace entry 以
                                  git-subdir source 引用本目錄——release 單 repo 化：bump
                                  plugin/plugin.json 與 binary release 同 commit，不再跨
                                  repo 同步 shell

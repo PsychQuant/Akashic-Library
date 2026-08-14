@@ -451,7 +451,7 @@ struct BootstrapPeople: ParsableCommand {
             if shown.count > AmbiguityDisplayLimit.rows {
                 print("  …另 \(shown.count - AmbiguityDisplayLimit.rows) 筆未顯示")
             }
-            print("  處置：用 akashic person add 指定 key（例如羅馬化或機構慣用寫法）。")
+            print("  處置：用 akashic add-person <key> --name <名> 指定 key（例如羅馬化或機構慣用寫法）。")
         }
 
         guard !cands.isEmpty else {

@@ -52,8 +52,8 @@
 | `akashic_people` | `people` | ✅（#219）|
 | `akashic_get_entry` | `get-entry` | ✅（#219）|
 | `akashic_link` | `link` | ✅（#219）|
-| `akashic_tag` | `tag` | ✅（#219；兩面呼叫契約小異：MCP 零參數 no-op、CLI 拒絕——見 #258）|
-| `akashic_set_status` | `set-status` | ✅（#219；**兩面呼叫契約分岔**：MCP 省略 status＝靜默清除、CLI 拒絕——追蹤 #258）|
+| `akashic_tag` | `tag` | ✅（#219；契約已收斂——零參數兩面皆拒，守衛下沉 service 單一路徑，#258）|
+| `akashic_set_status` | `set-status` | ✅（#219；契約已收斂——省略拒絕、清除須顯式（CLI `--clear`／MCP `clear:true`），守衛下沉 service，#258）|
 | `akashic_add_person` | ❌ 無 | **未決**——#250 |
 | `akashic_divergences` | ❌ 無 | **未決**——#250 |
 

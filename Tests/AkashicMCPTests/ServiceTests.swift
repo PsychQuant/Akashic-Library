@@ -171,6 +171,35 @@ final class ServiceTests: XCTestCase {
         XCTAssertEqual(entry.akashic.tags, ["polychoric"])
     }
 
+    // #258：三態契約下沉 service——兩面（CLI/MCP）共用同一份判準。
+    // 先前 MCP schema 明文「省略＝清除」、DA 實測靜默清空成功；從此省略被拒。
+
+    func testSetStatusOmissionIsRefusedNotClear() throws {
+        _ = try service.setStatus(citekey: "olsson1979maximum", status: "reading")
+        XCTAssertThrowsError(try service.setStatus(citekey: "olsson1979maximum",
+                                                   status: nil, clear: false),
+                             "省略 status 不是清除——打錯字的呼叫不得安靜清掉既有狀態")
+        let entry = try LibraryStore(root: root).load().entries.first { $0.citekey == "olsson1979maximum" }!
+        XCTAssertEqual(entry.akashic.status, "reading", "被拒的呼叫不得產生任何寫入")
+    }
+
+    func testSetStatusValueAndClearAreMutuallyExclusive() throws {
+        XCTAssertThrowsError(try service.setStatus(citekey: "olsson1979maximum",
+                                                   status: "read", clear: true))
+    }
+
+    func testSetStatusExplicitClearClears() throws {
+        _ = try service.setStatus(citekey: "olsson1979maximum", status: "reading")
+        _ = try service.setStatus(citekey: "olsson1979maximum", status: nil, clear: true)
+        let entry = try LibraryStore(root: root).load().entries.first { $0.citekey == "olsson1979maximum" }!
+        XCTAssertNil(entry.akashic.status)
+    }
+
+    func testTagWithNoArgsIsRefused() throws {
+        // 原 MCP 面零參數是 no-op「成功」——與 CLI 的拒絕分岔；收斂到拒絕
+        XCTAssertThrowsError(try service.tag(citekey: "olsson1979maximum", add: [], remove: []))
+    }
+
     func testLinkAddRemove() throws {
         _ = try service.link(citekey: "olsson1979maximum", kind: "related",
                              add: ["cheng2025identifiability"], remove: [])

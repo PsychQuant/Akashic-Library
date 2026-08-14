@@ -57,9 +57,7 @@ struct TagCmd: ParsableCommand {
     var remove: [String] = []
 
     func run() throws {
-        guard !add.isEmpty || !remove.isEmpty else {
-            throw ValidationError("--add 與 --remove 至少要給一個")
-        }
+        // 「至少給一個」的守衛在 service（#258 下沉——兩面共用同一份判準）
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
@@ -84,21 +82,11 @@ struct SetStatusCmd: ParsableCommand {
     var clear: Bool = false
 
     func run() throws {
-        // 「沒給值也沒給 --clear」不設預設——靜默把 nil 當 clear 會讓打錯字的
-        // 呼叫安靜清掉既有狀態
-        switch (status, clear) {
-        case (nil, false):
-            throw ValidationError("要嘛給狀態值，要嘛給 --clear")
-        case (.some, true):
-            throw ValidationError("狀態值與 --clear 互斥")
-        default:
-            break
-        }
+        // 三態守衛（缺席拒絕、互斥拒絕）在 service（#258 下沉——原本只有 CLI 有
+        // 這層、MCP 面「省略＝清除」，危害最大的面恰無守衛；單一判準兩面共用）
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
-        // 守衛之後 clear=true 蘊含 status==nil，直接傳 status 即可（#219 verify F7：
-        // `clear ? nil : status` 的 nil 分支不可達、無法被測試覆蓋）
-        print(try service.setStatus(citekey: citekey, status: status))
+        print(try service.setStatus(citekey: citekey, status: status, clear: clear))
     }
 }

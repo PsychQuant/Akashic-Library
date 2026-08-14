@@ -121,9 +121,12 @@ actor AkashicMCPServer {
                 "citekey": str("目標 entry（add/remove 必填）"),
              ], required: ["action"])),
         Tool(name: "akashic_set_status",
-             description: "設定 entry 的 akashic.status（衍生層；如 reading / read / to-read）。不給 status 則清除。",
+             description: "設定／清除 entry 的 akashic.status（衍生層；如 reading / read / to-read）。"
+                        + "給 status 設定；清除要顯式 clear:true。省略 status 不是清除——會被拒絕（#258）。",
              inputSchema: obj([
-                "citekey": str("citekey"), "status": str("狀態字串；省略＝清除"),
+                "citekey": str("citekey"), "status": str("狀態字串（與 clear 互斥）"),
+                "clear": .object(["type": .string("boolean"),
+                                  "description": .string("true＝清除既有狀態（與 status 互斥）")]),
              ], required: ["citekey"])),
         Tool(name: "akashic_tag",
              description: "增刪 entry 的 akashic.tags（衍生層）。",
@@ -258,7 +261,10 @@ actor AkashicMCPServer {
                     action: arg("action") ?? "", key: arg("key"), name: arg("name"),
                     description: arg("description"), citekey: arg("citekey"))
             case "akashic_set_status":
-                output = try service.setStatus(citekey: arg("citekey") ?? "", status: arg("status"))
+                let clearFlag: Bool
+                if case .bool(let b)? = params.arguments?["clear"] { clearFlag = b } else { clearFlag = false }
+                output = try service.setStatus(citekey: arg("citekey") ?? "",
+                                               status: arg("status"), clear: clearFlag)
             case "akashic_tag":
                 output = try service.tag(citekey: arg("citekey") ?? "",
                                          add: argList("add"), remove: argList("remove"))

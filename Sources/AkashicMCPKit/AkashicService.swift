@@ -620,7 +620,19 @@ public final class AkashicService {
         }
     }
 
-    public func setStatus(citekey: String, status: String?) throws -> String {
+    public func setStatus(citekey: String, status: String?, clear: Bool = false) throws -> String {
+        // #258：三態守衛住 service——CLI 與 MCP 共用同一份判準（單一實作路徑，
+        // entity-backlink 執行細節 2）。守衛原只在 CLI 側（#219），MCP schema 卻寫
+        // 「省略＝清除」——LLM 產 JSON、省略即 valid 的那個面恰無守衛，DA 實測
+        // 靜默清空成功。從此省略不再有語意：要嘛給 status、要嘛顯式 clear。
+        switch (status, clear) {
+        case (nil, false):
+            throw ServiceError.invalid("要嘛給 status，要嘛給 clear——省略不是清除（#258）")
+        case (.some, true):
+            throw ServiceError.invalid("status 與 clear 互斥")
+        default:
+            break
+        }
         var entry = try requireEntry(citekey)
         entry.akashic.status = status
         try writeAndReindex(entry)
@@ -635,6 +647,11 @@ public final class AkashicService {
     }
 
     public func tag(citekey: String, add: [String], remove: [String]) throws -> String {
+        // #258 同形第二例：MCP 零參數原是 no-op 成功、CLI 拒絕——契約收斂到拒絕
+        //（守衛同樣下沉 service，兩面共用）
+        guard !add.isEmpty || !remove.isEmpty else {
+            throw ServiceError.invalid("add 與 remove 至少要給一個")
+        }
         var entry = try requireEntry(citekey)
         for t in add where !entry.akashic.tags.contains(t) {
             entry.akashic.tags.append(t)

@@ -93,6 +93,62 @@ public enum PersonBootstrap {
         return min(n, normalize(swapped))
     }
 
+    /// ASCII slug：**先摺疊變音符號**，再把非 `[a-z0-9]` 轉 `-` 並收斂（#238）。
+    ///
+    /// 舊版是 `map { $0.isLetter || $0.isNumber ? $0 : "-" }`——`isLetter` 對**任何**
+    /// Unicode 字母為真，於是 `Jörg` → `jörg`，而 `StoreKey.pattern` 是純 ASCII，
+    /// `isValid` 失敗 → 整組候選被 `compactMap` **靜默丟棄**。實測真實 store 有 49 個
+    /// 作者位置落在這條路上，其中約 33 個是本可自動處理的變音符號歐洲名。
+    ///
+    /// 摺疊的做法與 `Citekey.slug` 一致——**同一個 repo 不該有兩份行為不同的 slug**，
+    /// 而那正是本 bug 的根因：解法已經在 repo 裡，只是這一份沒跟上。
+    ///
+    /// 與 `Citekey.slug` 的差別只在**連字號**：person key 是 `chen-yi-hau` 這種多段
+    /// 形式，需要保留分隔；citekey 不需要。所以不能直接呼叫它，只能沿用它的摺疊。
+    ///
+    /// CJK 摺疊後仍是 CJK（`.diacriticInsensitive` 不做羅馬化），全部轉 `-` 後收斂成
+    /// 空字串 → `suggestedKey` 回 `nil` → 由 `resolve` 記進 `unkeyable`。**那是對的**：
+    /// `陳君厚` 沒有唯一正確的羅馬化，機器不該猜。
+    static func asciiSlug(_ s: String) -> String {
+        let folded = s.folding(options: [.diacriticInsensitive, .caseInsensitive],
+                               locale: Locale(identifier: "en_US")).lowercased()
+        let mapped = folded.map { ch -> Character in
+            (ch.isASCII && (ch.isLetter || ch.isNumber)) ? ch : "-"
+        }
+        return String(mapped).split(separator: "-").joined(separator: "-")
+    }
+
+    /// 產不出 ASCII key 的一組名字——**回報，不丟棄**（#238）。
+    ///
+    /// 與「沒有作者」語意完全不同：這是「系統知道有這個人，但需要你指定 key」。
+    /// 靜默丟棄讓使用者以為那些作者不存在——與 #231 的歧義同一個形狀。
+    public struct UnkeyableGroup: Equatable {
+        /// 這一組的所有寫法。
+        public var names: [String]
+        /// 出現次數。
+        public var occurrences: Int
+        /// 為什麼產不出 key（給人看，已是可直接顯示的說明）。
+        public var reason: String
+
+        public init(names: [String], occurrences: Int, reason: String) {
+            self.names = names
+            self.occurrences = occurrences
+            self.reason = reason
+        }
+    }
+
+    /// 一次 bootstrap 的完整結果。**兩個欄位而非 sum type**——`personsFor` 只吃
+    /// `candidates`，於是「不小心替一個 unkeyable 建 person」在型別層寫不出來。
+    public struct BootstrapReport: Equatable {
+        public var candidates: [Candidate]
+        public var unkeyable: [UnkeyableGroup]
+
+        public init(candidates: [Candidate], unkeyable: [UnkeyableGroup]) {
+            self.candidates = candidates
+            self.unkeyable = unkeyable
+        }
+    }
+
     /// 建議的 person key：`<姓氏>-<名>` 小寫、非字母轉 `-`。
     static func suggestedKey(from name: String, taken: Set<String>) -> String? {
         let display = reordered(name) ?? name
@@ -101,10 +157,7 @@ public enum PersonBootstrap {
         // 姓在後（已重排成 First Last）
         let surname = tokens.last!
         let given = tokens.dropLast().joined(separator: "-")
-        func slug(_ s: String) -> String {
-            let mapped = s.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
-            return String(mapped).split(separator: "-").joined(separator: "-")
-        }
+        func slug(_ s: String) -> String { Self.asciiSlug(s) }
         let base = given.isEmpty ? slug(surname) : "\(slug(surname))-\(slug(given))"
         guard !base.isEmpty, StoreKey.isValid(base) else { return nil }
         if !taken.contains(base) { return base }
@@ -119,6 +172,15 @@ public enum PersonBootstrap {
     /// **已存在的 person 不重複產出**——它們的 alias 已在 `PersonResolver` 的比對範圍內，
     /// 再造一個新 person 就是在製造重複。
     public static func candidates(entries: [Entry], existing: [Person]) -> [Candidate] {
+        resolve(entries: entries, existing: existing).candidates
+    }
+
+    /// 單一 traversal，`candidates` 與 `unkeyable` 的 source of truth（#238）。
+    ///
+    /// 與 `PersonResolver.resolve` / `OrgResolver.resolve` 同理由：**不寫第二支遍歷**。
+    /// 兩支會分岔，而分岔的方式通常是其中一支忘了某個排除條件（機構名、已存在的
+    /// alias、空字串）。
+    public static func resolve(entries: [Entry], existing: [Person]) -> BootstrapReport {
         let knownAliases = Set(existing.flatMap { $0.names.map(identity) })
         var takenKeys = Set(existing.map(\.key))
 
@@ -142,11 +204,21 @@ public enum PersonBootstrap {
         // 出現次數多的先——處理它們的投報率最高
         return groups.sorted { a, b in
             a.value.count == b.value.count ? a.key < b.key : a.value.count > b.value.count
-        }.compactMap { (_, g) in
+        }.reduce(into: BootstrapReport(candidates: [], unkeyable: [])) { report, pair in
+            let g = pair.value
             let sortedNames = g.names.sorted()
-            guard let key = suggestedKey(from: sortedNames[0], taken: takenKeys) else { return nil }
+            guard let key = suggestedKey(from: sortedNames[0], taken: takenKeys) else {
+                // **回報，不丟棄**（#238）。舊版是 `compactMap { … return nil }`——
+                // 整組候選消失且不留任何痕跡，使用者以為那些作者不存在。
+                report.unkeyable.append(UnkeyableGroup(
+                    names: sortedNames, occurrences: g.count,
+                    reason: asciiSlug(sortedNames[0]).isEmpty
+                        ? "名字摺疊成 ASCII 後是空的（例如 CJK）——沒有唯一正確的羅馬化，需要人指定 key"
+                        : "產不出未被占用的合法 key（同名已達 99 個上限）"))
+                return
+            }
             takenKeys.insert(key)
-            return Candidate(key: key, names: sortedNames, occurrences: g.count)
+            report.candidates.append(Candidate(key: key, names: sortedNames, occurrences: g.count))
         }
     }
 

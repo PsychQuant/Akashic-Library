@@ -83,3 +83,17 @@ Reject and apply SHALL be explicit human actions, and no automatic rejection, au
 
 - **WHEN** a candidate's evidence class has many rejections historically
 - **THEN** the candidate is still proposed (ordered lower) and no verdict is written without an explicit action
+
+### Requirement: Verdict references SHALL NOT carry rests-on; evidence carriers are assigned by lifecycle
+
+A resolution verdict reference SHALL NOT carry a rests-on slot (#280 ruling, 2026-08-14). Evidence supporting resolution work has exactly two carriers, assigned by the lifecycle stage of the question: for a **decided** pairing (confirmed or rejected), the load-bearing evidence SHALL live in the judged person's or organization's `references` (entity level, written via the bootstrap path, content-addressed into `sources/`); for an **undecided** pairing (investigated but insufficient), the collected evidence SHALL live in a divergence record's `judgement.restsOn`. The verdict itself stays lightweight — this preserves the batch character of apply/reject (#232's design; a per-pairing digest requirement would degrade batch resolution into per-item resolution) and the link between a verdict and its evidence is the judged entity itself, not a per-verdict binding. This is a deliberate design ruling, not a gap; reversing it later is an additive schema change with no migration cost.
+
+#### Scenario: Evidence for a confirmed pairing
+
+- **WHEN** a user confirms a pairing after collecting load-bearing evidence
+- **THEN** the evidence SHALL be recorded as `references` on the person (not on the verdict), and the verdict SHALL be written without any evidence pointer
+
+#### Scenario: Evidence for an undecidable pairing
+
+- **WHEN** investigation ends without sufficient evidence to decide
+- **THEN** no verdict SHALL be written; the collected evidence SHALL be recorded in a divergence record's `judgement.restsOn` so the next investigator resumes from it

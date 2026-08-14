@@ -84,4 +84,4 @@ akashic_resolve_people reject:["<citekey>:<index>", …]    # 查過了不是他
 - **歧義列（同 literal 對到 2+ person）不可 apply**——查證到能區分後，先用 bootstrap 把區辨欄位（ORCID／隸屬）補進正確的 person 記錄，再重跑 resolve
 - **配對不在 candidates 列時沒有 apply 把手**（使用者直接指名的 literal 若未 alias 完全命中，就不會成為候選；resolver 對不在列的 id 直接拒絕）——先用 bootstrap 把該 literal 補成 person 的 alias（或補區辨欄位），重跑 resolve 讓配對成為候選，再走 apply
 - **查不出來是合法結果**。「證據不足以判定」就說證據不足，讓配對留在 pending **並記 divergence**（Step 3 的第三個出口）——pending 可見是設計，不是待消滅的數字
-- **承重頁面要存檔**：判定所依據的網頁內容存進 `sources/`（content-addressed）、經 bootstrap 寫入 person 的 `references`——寫法依 [writing-to-the-store.md](../akashic-bootstrap/references/writing-to-the-store.md)。非承重的佐證列 URL 即可。（verdict 本身目前不攜 rests-on 槽——工具面缺口記錄於 Akashic-Library#280）
+- **承重頁面要存檔**：判定所依據的網頁內容存進 `sources/`（content-addressed）、經 bootstrap 寫入 person 的 `references`——寫法依 [writing-to-the-store.md](../akashic-bootstrap/references/writing-to-the-store.md)。非承重的佐證列 URL 即可。（verdict **刻意**不攜 rests-on——設計裁決見 Akashic-Library#280：已判定的證據住 person `references`、未判定的住 divergence `restsOn`，兩載體依生命週期分工）

@@ -55,4 +55,4 @@ propose ──→ park ──────────────→ apply ─�
 | 規則 | 一句話 |
 |---|---|
 | [lossless-intake.md](.claude/rules/lossless-intake.md) | 匯入不得有損——來源給了什麼就收什麼；不收的只有秘密與隱私邊界兩類，且丟棄必須報出來 |
-| [mcp-cli-parity.md](.claude/rules/mcp-cli-parity.md) | 新增 MCP 工具時必須同時裁決 CLI 面——封閉裁決表 + 機械稽核，缺口不得安靜累積 |
+| [mcp-cli-parity.md](.claude/rules/mcp-cli-parity.md) | 新增任一面（MCP／CLI）的能力時必須裁決另一面——雙封閉裁決表 + 機械稽核（#259 起雙向），缺口不得安靜累積 |

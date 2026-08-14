@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.5.5] - 2026-08-14
+
+- **#280 裁決落地（選項 2）**：resolution verdict 刻意不攜 rests-on——證據載體依生命週期分工（已判定 → person `references`；未判定 → divergence `restsOn`）。person-verify skill 的「工具面缺口」註記改為設計裁決；規格 requirement 與 entity-backlink 規則同步。shell-only bump（binary 仍 0.5.0）。
+
 ## [0.5.4] - 2026-08-14
 
 - **更正 `akashic-wos-intake` 邊界段**（#281）：0.5.3 的「doctor 不查 DOI 共用」為誤——doctor 自 #94 即有兩道檢查（正規化 DOI 共用組＋同標題同年不同 DOI），敘述改回正確指向。

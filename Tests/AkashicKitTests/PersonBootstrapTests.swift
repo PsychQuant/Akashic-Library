@@ -118,4 +118,63 @@ final class PersonBootstrapTests: XCTestCase {
         XCTAssertEqual(ps.count, 1)
         XCTAssertEqual(ps[0].names.count, 2, "兩種寫法都要成為 alias")
     }
+
+    /// #226：**重排等價不得取決於姓名的字典序。**
+    ///
+    /// `identity` 宣稱做「重排這一種機械等價」，但舊版只在逗號形上呼叫 `reordered`，
+    /// 於是兩種輸入產生**不同的候選集**：
+    ///
+    /// - 逗號形 `Liang, Yu-Jen` → `min("liang, yu-jen", "yu-jen liang")` = `"liang, yu-jen"`
+    ///   ——**含逗號的那個**，而直式永遠產不出它
+    /// - 直式 `Yu-Jen Liang` → 只有 `"yu-jen liang"`
+    ///
+    /// 兩者相等的條件是 `mk(直式) < mk(逗號形)`，也就是「名的字典序 < 姓的字典序」。
+    /// 那是巧合不是不變式——真實 store 869 個 `Family, Given` 形有 **482 個（55.5%）**
+    /// 落在失效側，`bootstrap-people` 為同一個人靜默建出兩個候選。
+    ///
+    /// 這些 fixture **不是隨手挑的**：`Cheng` / `Hsieh` 兩組在舊版就會過（名 < 姓），
+    /// 其餘四組是 issue 從真實 store 量出來的失效側。同時放進來，才能讓「只修一半」
+    /// 的實作被抓到。
+    func testIdentityIsSymmetricRegardlessOfNameOrdering() {
+        let pairs = [
+            ("Cheng, Che", "Che Cheng"),          // 舊版已過（che… < cheng…）
+            ("Hsieh, Fushing", "Fushing Hsieh"),  // 舊版已過
+            ("Liang, Yu-Jen", "Yu-Jen Liang"),    // 舊版失敗
+            ("Chang, Y-H.", "Y-H. Chang"),        // 舊版失敗
+            ("Guan, Yongtao", "Yongtao Guan"),    // 舊版失敗
+            ("Huang, Su-Yun", "Su-Yun Huang"),    // 舊版失敗
+        ]
+        for (inverted, direct) in pairs {
+            XCTAssertEqual(PersonBootstrap.identity(inverted), PersonBootstrap.identity(direct),
+                           "「\(inverted)」與「\(direct)」是同一個名字的兩種寫法，"
+                           + "identity 必須相等——而不是取決於誰的字典序比較小")
+        }
+    }
+
+    /// 對偶：**不同的人不得因為這個修法而被合併**。
+    ///
+    /// 放寬等價判準最容易的失敗方式是放寬過頭。姓名互換後恰好撞到另一個真人是
+    /// 可能的（`Chen Wei` / `Wei Chen` 可以是兩個人），但那是**這條等價本來就有的
+    /// 代價**（舊版在字典序有利時也會合併），不是本次新增的。這裡釘住的是：
+    /// 完全無關的名字不得合併。
+    func testIdentityStillSeparatesUnrelatedNames() {
+        XCTAssertNotEqual(PersonBootstrap.identity("Che Cheng"),
+                          PersonBootstrap.identity("Fushing Hsieh"))
+        XCTAssertNotEqual(PersonBootstrap.identity("Guan, Yongtao"),
+                          PersonBootstrap.identity("Huang, Su-Yun"))
+        // 單一 token（無姓名可換）不得與任何雙 token 名字碰撞
+        XCTAssertNotEqual(PersonBootstrap.identity("鄭澈"),
+                          PersonBootstrap.identity("Che Cheng"))
+    }
+
+    /// 端到端：兩種寫法必須併成**一個**候選，而不是兩個。
+    func testBootstrapDoesNotSplitOneAuthorIntoTwoCandidates() {
+        let cs = PersonBootstrap.candidates(
+            entries: [entry("a", ["Guan, Yongtao"]), entry("b", ["Yongtao Guan"])],
+            existing: [])
+        XCTAssertEqual(cs.count, 1,
+                       "同一個人的兩種寫法裂成 \(cs.count) 個候選："
+                       + "\(cs.map(\.names))")
+        XCTAssertEqual(cs.first?.names.count, 2, "兩種寫法都要成為 alias")
+    }
 }

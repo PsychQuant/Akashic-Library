@@ -55,11 +55,42 @@ public enum PersonBootstrap {
         return "\(first) \(last)"
     }
 
+    /// `"Che Cheng"` → `"Cheng Che"`：把**最後一個 token 當姓**移到最前面。
+    ///
+    /// 與 `reordered` 互補——後者只認逗號形。少於兩個 token 回 `nil`（沒有可換的）。
+    static func swappedOrder(_ s: String) -> String? {
+        let tokens = s.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard tokens.count >= 2 else { return nil }
+        return ([tokens.last!] + tokens.dropLast()).joined(separator: " ")
+    }
+
     /// 身分鍵：同一鍵的名字視為同一人。**只做重排這一種機械等價。**
+    ///
+    /// ## 兩種輸入形式必須產生**同一組**候選（#226）
+    ///
+    /// 舊版只在逗號形上呼叫 `reordered`，於是候選集不對稱：
+    ///
+    /// | 輸入 | 候選集 |
+    /// |---|---|
+    /// | `Liang, Yu-Jen` | `{"liang, yu-jen", "yu-jen liang"}` → min = **`"liang, yu-jen"`** |
+    /// | `Yu-Jen Liang` | `{"yu-jen liang"}` → **`"yu-jen liang"`** |
+    ///
+    /// 逗號形的 min 選中了**含逗號的那個**，而直式永遠產不出它。兩者要相等的條件是
+    /// `mk(直式) < mk(逗號形)`，也就是「名的字典序 < 姓的字典序」——那是巧合，
+    /// 不是不變式。真實 store 869 個 `Family, Given` 形有 **482 個（55.5%）**落在
+    /// 失效側，`bootstrap-people` 為同一個人靜默建出兩個候選。
+    ///
+    /// 修法：**先把逗號形攤成空白形**（含逗號的字串從此不進候選集），再對空白形生成
+    /// 兩種順序。這樣兩種輸入走到同一個空白形，候選集逐元素相同，min 必然相同。
+    ///
+    /// **不是**「兩邊都加 `reordered`」——那治不了病：直式沒有逗號，`reordered` 對它
+    /// 恆回 nil。病灶是候選集裡混進了一個只有其中一種輸入產得出的元素。
     static func identity(_ s: String) -> String {
-        let n = normalize(s)
-        if let r = reordered(s) { return min(n, normalize(r)) }
-        return n
+        // 逗號形先攤平：候選集只以空白形表示，杜絕「只有一邊產得出」的元素
+        let spaced = reordered(s) ?? s
+        let n = normalize(spaced)
+        guard let swapped = swappedOrder(spaced) else { return n }
+        return min(n, normalize(swapped))
     }
 
     /// 建議的 person key：`<姓氏>-<名>` 小寫、非字母轉 `-`。

@@ -10,9 +10,20 @@ name: CI
 # .githooks/pre-push（本機全套）+ verify 紀律承擔；CI 保留「乾淨環境」的
 # 獨特價值（#109 的教訓：submodule/DerivedData 殘留只有乾淨 checkout 抓得到），
 # 在每次 merge 後驗一次。
+#
+# 二次止血（2026-08-14）：改制後額度仍於 8 月中用罄——單日 6 次 main push
+# 幾乎全為 docs-only（skill／README／規則），卻每次點一台 macOS runner。
+# 加 paths-ignore：改動**全部**落在下列路徑才跳過（混有 code 的 push 照跑）。
+# 忽略清單刻意不含 docs/tractatus/**——corpus YAML 是測試的輸入（strict
+# validation 解析 locator，#266 的跨 PR 破壞即實例），.md 與 plugin shell 則
+# 沒有任何測試讀取。本機 pre-push 全套仍是每次 push 的主閘，此處只省 CI 面。
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "plugin/**"
+      - ".claude/**"
 
 concurrency:
   # 同一個 PR 連推數次時，只留最後一次——省掉排隊中的過期 run。

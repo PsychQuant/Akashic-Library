@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0] - 2026-08-15
+
+- **⚠️ `akashic_set_status` 呼叫契約變更**（#258）：省略 `status` 不再是清除——會被**拒絕**；清除要顯式 `clear:true`（與 CLI `--clear` 逐條對應）。`akashic_tag` 零參數同步由 no-op 改拒絕。守衛下沉 `AkashicService`，CLI／MCP 共用同一份判準（先前「省略＝清除」對 LLM 消費者是 footgun：省略即 valid 的面恰無守衛）。
+- CLI 新增 `add-person`（單筆建 person——unkeyable 作者指定 key 的入口）與 `divergences`（列未決歧異；`--json`＋人可讀同源）——parity 最後兩格（#250）。
+- 歸戶修正隨同出貨：識別重排等價對稱化（#226，55.5% 分裂收斂）、變音符號作者自動摺疊＋CJK 作者回報不丟棄（#238）。
+- `export-tables --view <key>`：view-scoped 關聯表匯出（#274）。
+- binary：signed＋notarized universal（`akashic-mcp-v0.6.0`）。
+
 ## [0.5.5] - 2026-08-14
 
 - **#280 裁決落地（選項 2）**：resolution verdict 刻意不攜 rests-on——證據載體依生命週期分工（已判定 → person `references`；未判定 → divergence `restsOn`）。person-verify skill 的「工具面缺口」註記改為設計裁決；規格 requirement 與 entity-backlink 規則同步。shell-only bump（binary 仍 0.5.0）。

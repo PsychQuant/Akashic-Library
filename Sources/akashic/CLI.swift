@@ -53,6 +53,7 @@ struct AkashicCLI: ParsableCommand {
             // #219：parity 家族其餘五格——讀取聚合 ×2 + 關係／狀態寫入 ×3
             PeopleCmd.self, GetEntryCmd.self,
             LinkCmd.self, TagCmd.self, SetStatusCmd.self,
+            AddPersonCmd.self, DivergencesCmd.self,
         ])
 }
 

@@ -24,7 +24,9 @@ xlsx/CSV 用手邊可用的讀法（python＋openpyxl、`excel-to-json` skill、
 產出都以此為準）：`Authors`／`Author Full Names`／`Article Title`／
 `Publication Year`／`Publication Date`／`Source Title`／`Volume`／`Issue`／
 `Start Page`／`End Page`／`DOI`／`Group Authors`；其餘欄位走殘餘收集原樣入
-`fields`（#206）。
+`fields`（#206）。（本清單是**快照**；含對映目標與合成語意的正典在 repo 的
+[docs/import-wos-mapping.md](https://github.com/PsychQuant/Akashic-Library/blob/main/docs/import-wos-mapping.md)
+——兩者不一致時以正典為準。）
 
 ### 2. DOI 補查（缺 DOI 的列）
 
@@ -92,9 +94,8 @@ link），絕不靜默丟列。確認後的交接是**檔案**，不是口頭：
 - 本 skill 管**清單層**（列 vs 列）；單篇的欄位補完、作者歸戶是
   [akashic-bootstrap](../akashic-bootstrap/SKILL.md) 與
   [akashic-person-verify](../akashic-person-verify/SKILL.md) 的事，常接續使用
-- 匯入後的 store 內重複（跨批次共用 DOI）**目前沒有自動偵測**——doctor 的
-  cross-record 檢查只涵蓋 UUID／citekey／person key／library key，不含 DOI
-  （缺口記錄於 Akashic-Library#281）；現行做法是 work-sources.md「找 store 內部
-  的重複」的人工程序。本 skill 是匯入**前**的閘——別把不存在的事後安全網當理由
-  放行「無法分類」的組
+- 匯入後的 store 內重複由 `akashic doctor` 負責（#94 起兩道檢查：正規化 DOI
+  共用組——全前綴變體、大小寫不敏感——＋同標題同年不同 DOI；warning 報告不合併、
+  指向 record-divergence）。本 skill 是匯入**前**的閘，兩者互補：事後安全網只能
+  **報告**、不能替你在匯入前定分母——「無法分類」的組仍要在本閘交人，別留給事後
 - 清單欄位 → store 欄位的對映屬 `import-wos` 本體（無損契約），本 skill 不重述

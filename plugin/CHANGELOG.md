@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]（隨 0.7.0 binary release 出貨）
+
+- **`akashic_import_wos`**（#290）：WoS 匯入的 MCP 面——與 CLI `import-wos` 同一條無損路徑（#206：具名對映＋殘餘收集＋`droppedColumns` 可見）；`path`／`csv`／`dry_run`，形照 `akashic_import_zotero`。
+- **store format 9**（#223）：附件鍵域收窄（移除 `pool`）＋記錄側副本引用 `akashic.sources`；真實 store 升 9 前 sources 寫入被 gate 拒絕指路。
+
 ## [0.6.0] - 2026-08-15
 
 - **⚠️ `akashic_set_status` 呼叫契約變更**（#258）：省略 `status` 不再是清除——會被**拒絕**；清除要顯式 `clear:true`（與 CLI `--clear` 逐條對應）。`akashic_tag` 零參數同步由 no-op 改拒絕。守衛下沉 `AkashicService`，CLI／MCP 共用同一份判準（先前「省略＝清除」對 LLM 消費者是 footgun：省略即 valid 的面恰無守衛）。

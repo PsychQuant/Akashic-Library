@@ -555,6 +555,68 @@ final class ServiceTests: XCTestCase {
     func testImportZoteroMissingDBFailsLoud() {
         XCTAssertThrowsError(try service.importZotero(zoteroDb: "/nonexistent/z.sqlite", libraryID: nil))
     }
+
+    // MARK: - importWoS（#290——#206 鏡像的 MCP 匯入面）
+
+    private func wosTSV(_ rows: [[String: String]]) throws -> String {
+        let cols = ["Authors", "Article Title", "Publication Year", "Source Title", "DOI", "☃♥"]
+        var lines = [cols.joined(separator: "\t")]
+        for r in rows { lines.append(cols.map { r[$0] ?? "" }.joined(separator: "\t")) }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wos-\(UUID().uuidString).txt")
+        try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return url.path
+    }
+
+    func testImportWoSCreatesFromTSV() throws {
+        let path = try wosTSV([["Authors": "Hsu, Y-F", "Article Title": "Weber Study",
+                                "Publication Year": "2021", "Source Title": "JMP",
+                                "DOI": "10.1/abc"]])
+        let obj = try json(try service.importWoS(path: path, csv: false, dryRun: false)) as! [String: Any]
+        XCTAssertEqual((obj["created"] as? [String])?.count, 1, "\(obj)")
+        let e = try LibraryStore(root: root).load().entries.first {
+            ($0.fields["doi"]) == "10.1/abc" }
+        XCTAssertNotNil(e, "匯入的 entry 要在 store 裡且 DOI 對映到 fields")
+    }
+
+    func testImportWoSDryRunWritesNothing() throws {
+        let before = try LibraryStore(root: root).load().entries.count
+        let path = try wosTSV([["Authors": "Lay, K-L", "Article Title": "Attachment",
+                                "Publication Year": "2020", "Source Title": "DevPsy",
+                                "DOI": "10.2/dry"]])
+        let obj = try json(try service.importWoS(path: path, csv: false, dryRun: true)) as! [String: Any]
+        XCTAssertEqual(obj["dryRun"] as? Bool, true)
+        XCTAssertEqual((obj["created"] as? [String])?.count, 1, "乾跑要預告會建什麼")
+        XCTAssertEqual(try LibraryStore(root: root).load().entries.count, before,
+                       "dry_run 不得寫入任何 entry")
+    }
+
+    func testImportWoSIsIdempotent() throws {
+        let path = try wosTSV([["Authors": "Chen, C-H", "Article Title": "Twice",
+                                "Publication Year": "2019", "Source Title": "Psychometrika",
+                                "DOI": "10.3/twice"]])
+        _ = try service.importWoS(path: path, csv: false, dryRun: false)
+        let obj = try json(try service.importWoS(path: path, csv: false, dryRun: false)) as! [String: Any]
+        XCTAssertEqual((obj["created"] as? [String])?.count ?? 0, 0)
+        XCTAssertEqual((obj["unchanged"] as? [String])?.count, 1, "同檔重跑＝unchanged，不建重複")
+    }
+
+    func testImportWoSReportsDroppedColumnsVisibly() throws {
+        // 「☃♥」正規化為空（純符號）→ droppedColumns（丟棄必須可見，#206 §3）。
+        // 注意 CJK 欄名**不會**被丟——isLetter 對 CJK 為真，會照 #206 收進 fields
+        let path = try wosTSV([["Authors": "Wen, C-C", "Article Title": "Dropped",
+                                "Publication Year": "2018", "Source Title": "SIM",
+                                "DOI": "10.4/drop", "☃♥": "值"]])
+        let obj = try json(try service.importWoS(path: path, csv: false, dryRun: false)) as! [String: Any]
+        let dropped = obj["droppedColumns"] as? [String: Int]
+        XCTAssertEqual(dropped?.count, 1, "收不進 fields 的欄位名必須出現在報告：\(obj)")
+    }
+
+    func testImportWoSMissingFileFailsLoud() {
+        XCTAssertThrowsError(try service.importWoS(path: "/nonexistent/wos.txt",
+                                                   csv: false, dryRun: false))
+    }
 }
 
 // ── Verify R1 修復（#9）──

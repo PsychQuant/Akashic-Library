@@ -3,6 +3,7 @@ import AkashicCore
 import AkashicStoreIO
 import AkashicEntity
 import AkashicZoteroImport
+import AkashicWoSImport
 import AkashicExport
 import AkashicIndex
 import AkashicQuery
@@ -1268,6 +1269,54 @@ public final class AkashicService {
         if !report.authorsPreserved.isEmpty { d["authorsPreserved"] = report.authorsPreserved.map { displaySafe($0, max: 200) } }
         if !report.quarantineConflicts.isEmpty { d["quarantineConflicts"] = report.quarantineConflicts.map { displaySafe($0, max: 200) } }
         if !report.writeFailed.isEmpty { d["writeFailed"] = Dictionary(uniqueKeysWithValues: report.writeFailed.map { (displaySafe($0.key, max: 200), displaySafe($0.value, max: 512)) }) }
+        return try jsonString(d)
+    }
+
+    /// WoS 匯入的 MCP 面（#290——#259 CLI-only 盤點唯一「需要」格；#206 鏡像：
+    /// 無損匯入不該取決於面）。與 CLI `import-wos` 走 `WoSImport.run` 同一路徑：
+    /// 具名對映＋殘餘收集、idempotent（citekey＋內容）、conflicts 不覆寫、
+    /// enriched 只多不少、`droppedColumns` 可見（規則 §3）。
+    ///
+    /// `path` 是 **server 本機路徑**（stdio 同機前提，與 `importZotero` 一致），
+    /// 不是內容上傳。
+    public func importWoS(path: String, csv: Bool, dryRun: Bool) throws -> String {
+        let expanded = (path as NSString).expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: expanded) else {
+            throw ServiceError.notFound("WoS 匯出檔：\(displaySafe(expanded, max: 300))")
+        }
+        let text = try String(contentsOf: URL(fileURLWithPath: expanded), encoding: .utf8)
+        try store.ensureLayout()
+        let report = try WoSImport.run(text: text, store: store,
+                                       separator: csv ? "," : "\t", dryRun: dryRun)
+        // rebuild 擲錯不得吞掉整份 import report（同 importZotero 的 R10 裁決）
+        if !dryRun, !report.created.isEmpty {
+            do {
+                try LibraryIndex(store: store).rebuild()
+            } catch {
+                throw ServiceError.invalid(
+                    "index rebuild 失敗：\(displaySafe(String(describing: error), max: 512))"
+                    + "（本趟 import 已落地：created \(report.created.count)、"
+                    + "enriched \(report.enriched.count)）")
+            }
+        }
+        var d: [String: Any] = [
+            "dryRun": dryRun,
+            "created": report.created.map { displaySafe($0, max: 200) },
+            "unchanged": report.unchanged.map { displaySafe($0, max: 200) },
+            "enriched": report.enriched.map { displaySafe($0, max: 200) },
+            "conflicts": report.conflicts.map { displaySafe($0, max: 200) },
+        ]
+        if !report.aliasGroups.isEmpty {
+            d["aliasGroups"] = report.aliasGroups.map { g in g.map { displaySafe($0, max: 200) } }
+        }
+        if !report.skippedRows.isEmpty {
+            d["skippedRows"] = report.skippedRows.map { displaySafe($0, max: 300) }
+        }
+        if !report.droppedColumns.isEmpty {
+            // 欄位名是第三方字串——鍵值都消毒（同 importZotero 的 residualFields 慣例）
+            d["droppedColumns"] = Dictionary(uniqueKeysWithValues:
+                report.droppedColumns.map { (displaySafe($0.key, max: 200), $0.value) })
+        }
         return try jsonString(d)
     }
 

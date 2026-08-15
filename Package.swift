@@ -53,6 +53,7 @@ let package = Package(
         ]),
         .target(name: "AkashicMCPKit", dependencies: [
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
+            "AkashicWoSImport",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
             .product(name: "Yams", package: "Yams"),
         ]),

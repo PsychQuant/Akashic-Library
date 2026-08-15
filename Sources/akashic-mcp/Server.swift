@@ -196,6 +196,20 @@ actor AkashicMCPServer {
                 "zotero_db": str("zotero.sqlite 路徑（預設 ~/Zotero/zotero.sqlite）"),
                 "library_id": int("只拉此 libraryID（省略＝全部 libraries）"),
              ])),
+        Tool(name: "akashic_import_wos",
+             description: "匯入 Web of Science 匯出檔（tab-delimited；csv:true 改逗號分隔）。"
+                        + "無損匯入（#206）：12 具名欄對映＋其餘欄位殘餘收集原樣入 fields；"
+                        + "idempotent（citekey＋內容）、既有記錄只補缺欄（enriched）、內容分歧不覆寫（conflicts）。"
+                        + "回傳完整 report（created/unchanged/enriched/conflicts/aliasGroups/skippedRows/droppedColumns——丟棄必須可見）。"
+                        + "path 是 server 本機路徑（非內容上傳）。建議先 dry_run:true 看報告再寫入"
+                        + "（清單層 QA——DOI 補查、同篇雙列、分母定案——見 akashic-wos-intake skill）。",
+             inputSchema: obj([
+                "path": str("WoS 匯出檔路徑（server 本機；~ 可用）"),
+                "csv": .object(["type": .string("boolean"),
+                                "description": .string("true＝來源是逗號分隔（預設 tab）")]),
+                "dry_run": .object(["type": .string("boolean"),
+                                    "description": .string("true＝只回報會做什麼，不寫檔（預設 false）")]),
+             ], required: ["path"])),
     ]
 
     // MARK: - Dispatch
@@ -313,6 +327,13 @@ actor AkashicMCPServer {
             case "akashic_import_zotero":
                 output = try service.importZotero(zoteroDb: arg("zotero_db"),
                                                   libraryID: argInt("library_id"))
+            case "akashic_import_wos":
+                let csvFlag: Bool
+                if case .bool(let v)? = params.arguments?["csv"] { csvFlag = v } else { csvFlag = false }
+                let dryRunFlag: Bool
+                if case .bool(let v)? = params.arguments?["dry_run"] { dryRunFlag = v } else { dryRunFlag = false }
+                output = try service.importWoS(path: arg("path") ?? "",
+                                               csv: csvFlag, dryRun: dryRunFlag)
             default:
                 return CallTool.Result(content: [.text(
                     text: "Unknown tool: \(displaySafe(params.name, max: 200))",

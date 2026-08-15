@@ -34,7 +34,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 
 （#206 對匯入面的原話：「能不能無損匯入，不該取決於使用者會不會寫 script。」）
 
-## 裁決史（封閉列舉——現有 20 工具，一格不多一格不少）
+## 裁決史（封閉列舉——現有 21 工具，一格不多一格不少）
 
 | MCP 工具 | CLI 對應 | 裁決 |
 |---|---|---|
@@ -46,6 +46,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 | `akashic_files` | `file` | ✅ |
 | `akashic_libraries` | `library` | ✅ |
 | `akashic_import_zotero` | `import-zotero` | ✅ |
+| `akashic_import_wos` | `import-wos` | ✅（#290；#259 CLI-only 盤點唯一「需要」格的補齊——#206 鏡像判準）|
 | `akashic_resolve_people` | `resolve-people` | ✅ |
 | `akashic_record_divergence` | `record-divergence` | ✅ |
 | `akashic_update_person` | `update-person` | ✅（#68）|
@@ -67,7 +68,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 不要相信作者窮舉過（`entity-backlink-completeness` 的表錯過兩次，教訓同形）：
 
 ```bash
-# ① MCP 面的全部工具名（實測：恰 20，與表零差集）
+# ① MCP 面的全部工具名（實測：恰 21，與表零差集）
 grep -oE 'Tool\(name: "akashic_[a-z_]+"' Sources/akashic-mcp/Server.swift | sort -u
 # ② CLI 面的全部註冊型別（取 subcommands 陣列整段，不靠型別命名慣例——
 #    第一版寫 '[A-Za-z]+Cmd?\.self' 只命中 11/30：`Cmd?` 是「Cm+可選 d」，
@@ -79,7 +80,7 @@ sed -n '/subcommands: \[/,/\])/p' Sources/akashic/CLI.swift | grep -oE '[A-Za-z]
 #    或讀 configuration 的測試，見 #259 的討論）
 ```
 
-## CLI-only 裁決表（封閉列舉——#259 一次性補裁；12 命令＋1 旗標，一格不多一格不少）
+## CLI-only 裁決表（封閉列舉——#259 一次性補裁；11 命令＋1 旗標，一格不多一格不少；`import-wos` 於 #290 補 MCP 面後移列 MCP 表）
 
 新增 CLI subcommand = 在這張表加一列（或補 MCP 面後在 MCP 表加一列）。兩個
 裁決用語：**維運例外**＝要求操作者在檔案系統與版控旁（git 退路、人工
@@ -89,7 +90,6 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 
 | CLI 能力 | 裁決 | 理由 |
 |---|---|---|
-| `import-wos` | **需要 MCP 面**——實作追蹤 #290 | #206 鏡像判準直接命中：無損匯入不該取決於面（`akashic_import_zotero` 先例）|
 | `view`（list／show） | 候補缺席 | 外延查詢對 agent 有潛在價值，但目前無 MCP 端消費流程 |
 | `resolve-divergence` | 有理由缺席 | in-code 既有裁決（`AkashicService.recordDivergence` doc）：消歧含合併＋全庫改寫＋刪檔，tracked+clean 前提與人工確認屬 CLI／App 互動面 |
 | `resolve-organizations` | 候補缺席 | 與 `resolve-people`（有 MCP 面）同判準，但 store 現僅 2 org、無 agent 流程 |

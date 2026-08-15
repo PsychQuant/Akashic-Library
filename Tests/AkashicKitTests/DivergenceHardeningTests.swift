@@ -2,6 +2,7 @@ import XCTest
 import Foundation
 @testable import AkashicCore
 @testable import AkashicStoreIO
+@testable import AkashicEntity
 
 /// 6-AI verify（#71 R1）指出的 blocking findings 的回歸測試。
 ///
@@ -622,5 +623,113 @@ final class DivergenceHardeningTests: XCTestCase {
         let e = try XCTUnwrap(try store.load().entries.first { $0.citekey == "shen2015model" })
         XCTAssertEqual(e.akashic.relations.cites, ["z2019q", "z2019q", "a2020x"],
                        "沒命中被併鍵就不該改動 keeper 自己的參照：\(e.akashic.relations.cites)")
+    }
+}
+
+// MARK: - #271：merge 路徑把 verdict 當一等邊
+
+extension DivergenceHardeningTests {
+    /// person merge：被併者的 verdict 自動遷移到倖存者——判定史不隨檔案消失，
+    /// 且不再因 verdict 差異被 wouldLoseFields 拒絕（先前例行去重必卡）。
+    func testPersonMergeMigratesVerdictReferences() throws {
+        var keeper = Person(key: "fann-cathy-s-j"); keeper.names = ["Fann, Cathy S-J"]
+        var doomed = Person(key: "fann-cathy-s-j-2"); doomed.names = ["Fann, Cathy S. J."]
+        _ = ResolutionLedger.appendIfAbsent(
+            ResolutionLedger.record(.rejected, holderKind: .work, holder: "x2020y",
+                                    literal: "Fann, C.", rule: ResolutionLedger.personRule,
+                                    statement: "s"), to: &doomed.references)
+        try store.writePerson(keeper)
+        try store.writePerson(doomed)
+        let d = Divergence(id: UUID(), question: "同一人？",
+                           candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),
+                                        DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(store.root)
+        let report = try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")
+        XCTAssertFalse(report.hasFailures, "\(report.failures)")
+        XCTAssertEqual(report.verdictReferencesMigrated.count, 1, "遷移要在報告可見")
+        let survivor = try store.load().people.first { $0.key == "fann-cathy-s-j" }!
+        let (vs, _) = ResolutionLedger.verdicts(references: survivor.references)
+        XCTAssertEqual(vs.count, 1, "verdict 要在倖存者身上")
+        XCTAssertEqual(vs.first?.holder, "x2020y")
+    }
+
+    /// 同 (field, value) 的 verdict 兩造都有 → 冪等收攏成一筆，不重複。
+    func testPersonMergeDedupesIdenticalVerdicts() throws {
+        var keeper = Person(key: "a-person"); keeper.names = ["A"]
+        var doomed = Person(key: "a-person-2"); doomed.names = ["A."]
+        let ref = ResolutionLedger.record(.confirmed, holderKind: .work, holder: "w2020z",
+                                          literal: "A", rule: ResolutionLedger.personRule,
+                                          statement: "s")
+        _ = ResolutionLedger.appendIfAbsent(ref, to: &keeper.references)
+        _ = ResolutionLedger.appendIfAbsent(ref, to: &doomed.references)
+        try store.writePerson(keeper)
+        try store.writePerson(doomed)
+        let d = Divergence(id: UUID(), question: "同一人？",
+                           candidates: [DivergenceCandidate(key: "a-person", shape: .person),
+                                        DivergenceCandidate(key: "a-person-2", shape: .person)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(store.root)
+        let report = try store.resolveDivergence(id: d.id, survivor: "a-person")
+        XCTAssertFalse(report.hasFailures, "\(report.failures)")
+        XCTAssertTrue(report.verdictReferencesMigrated.isEmpty, "同 (field,value) 不算遷移")
+        let survivor = try store.load().people.first { $0.key == "a-person" }!
+        XCTAssertEqual(survivor.references.count, 1, "store 永不持有重複 verdict")
+    }
+
+    /// work merge：citekey 退役時 person 身上的 `work:` verdict value 跟著改寫
+    /// ——rename 已修（#232 NEW-1）、merge 的同型（#271 下半）。
+    func testWorkMergeRewritesVerdictValuesOnPersons() throws {
+        try store.writeEntry(Entry(id: UUID(), citekey: "keep2020a", type: "article",
+                                   title: "K", authors: [.literal("Fann, C.")], date: "2020"))
+        try store.writeEntry(Entry(id: UUID(), citekey: "gone2020b", type: "article",
+                                   title: "G", authors: [.literal("Fann, C.")], date: "2020"))
+        var p = Person(key: "fann-cathy-s-j"); p.names = ["Fann, Cathy S-J"]
+        _ = ResolutionLedger.appendIfAbsent(
+            ResolutionLedger.record(.rejected, holderKind: .work, holder: "gone2020b",
+                                    literal: "Fann, C.", rule: ResolutionLedger.personRule,
+                                    statement: "s"), to: &p.references)
+        try store.writePerson(p)
+        let d = Divergence(id: UUID(), question: "同一篇？",
+                           candidates: [DivergenceCandidate(key: "keep2020a", shape: .work),
+                                        DivergenceCandidate(key: "gone2020b", shape: .work)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(store.root)
+        let report = try store.resolveDivergence(id: d.id, survivor: "keep2020a")
+        XCTAssertFalse(report.hasFailures, "\(report.failures)")
+        XCTAssertEqual(report.verdictValuesRewritten, ["fann-cathy-s-j"], "改寫要在報告可見")
+        let back = try store.load().people.first { $0.key == "fann-cathy-s-j" }!
+        let (vs, malformed) = ResolutionLedger.verdicts(references: back.references)
+        XCTAssertTrue(malformed.isEmpty)
+        XCTAssertEqual(vs.first?.holder, "keep2020a",
+                       "否決不得因 citekey 退役安靜變回待判（rejection ≠ absence）")
+    }
+
+    /// work merge 後兩個 pairing 撞同 (field, value)（同 literal 對 keeper 已有判定）
+    /// → 冪等收攏，不產生重複。
+    func testWorkMergeVerdictRewriteDedupes() throws {
+        try store.writeEntry(Entry(id: UUID(), citekey: "keep2021c", type: "article",
+                                   title: "K", authors: [.literal("B, X.")], date: "2021"))
+        try store.writeEntry(Entry(id: UUID(), citekey: "gone2021d", type: "article",
+                                   title: "G", authors: [.literal("B, X.")], date: "2021"))
+        var p = Person(key: "b-person"); p.names = ["B"]
+        _ = ResolutionLedger.appendIfAbsent(
+            ResolutionLedger.record(.rejected, holderKind: .work, holder: "keep2021c",
+                                    literal: "B, X.", rule: ResolutionLedger.personRule,
+                                    statement: "s"), to: &p.references)
+        _ = ResolutionLedger.appendIfAbsent(
+            ResolutionLedger.record(.rejected, holderKind: .work, holder: "gone2021d",
+                                    literal: "B, X.", rule: ResolutionLedger.personRule,
+                                    statement: "s"), to: &p.references)
+        try store.writePerson(p)
+        let d = Divergence(id: UUID(), question: "同一篇？",
+                           candidates: [DivergenceCandidate(key: "keep2021c", shape: .work),
+                                        DivergenceCandidate(key: "gone2021d", shape: .work)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(store.root)
+        let report = try store.resolveDivergence(id: d.id, survivor: "keep2021c")
+        XCTAssertFalse(report.hasFailures, "\(report.failures)")
+        let back = try store.load().people.first { $0.key == "b-person" }!
+        XCTAssertEqual(back.references.count, 1, "撞同 pairing 要收攏成一筆")
     }
 }

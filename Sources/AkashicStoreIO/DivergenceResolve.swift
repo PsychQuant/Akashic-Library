@@ -110,6 +110,11 @@ public struct ResolveReport: Equatable {
     public var collapsedDetails: [(id: String, question: String)]
     /// 單筆寫入失敗的訊息。非空即代表結束時該以非零碼退出。
     public var failures: [String]
+    /// #271：person merge 時自動遷移到倖存者的 verdict（pairing value 清單）。
+    public var verdictReferencesMigrated: [String] = []
+    /// #271：work merge 時 citekey 退役、value 被改寫的 person key 清單
+    /// （鏡射 rename 的 `verdictValuesRewritten`）。
+    public var verdictValuesRewritten: [String] = []
     /// **不擋、但要說**的提醒（#75 對一）：有判斷卻沒有結構化的 `prefers` 時，
     /// 消歧無從機械比對——提醒人自行核對，而不是靜默當作沒有判斷。
     public var warnings: [String]
@@ -675,6 +680,19 @@ extension LibraryStore {
         // 別名併入倖存者：被併者的寫法保留，否則下次遇到那個寫法又會重新分割一次。
         keeper.names = dedupePreservingOrder(keeper.names + doomed.flatMap(\.names))
 
+        // #271：被併者的 verdict references 自動遷移——判定史不隨檔案消失。
+        // (field, value) 冪等（寫入邊界的鏡射：store 永不持有重複 verdict）。
+        var verdictsMigrated: [String] = []
+        for d in doomed {
+            for r in d.references
+            where ProvenanceReference.resolutionVerdictFields.contains(r.field) {
+                guard !keeper.references.contains(where: {
+                    $0.field == r.field && $0.value == r.value }) else { continue }
+                keeper.references.append(r)
+                verdictsMigrated.append(r.value ?? "")
+            }
+        }
+
         let merged = Set(mergedKeys)
         var entriesToWrite: [Entry] = []
         for var e in snapshot.entries {
@@ -695,13 +713,15 @@ extension LibraryStore {
             }
         }
         let keeperFinal = keeper
-        return try commitResolution(record: record,
+        var report = try commitResolution(record: record,
                                     keeperWrite: { try self.writePerson(keeperFinal) },
                                     keeperEncode: { _ = try PersonYAML.encode(keeperFinal) },
                                     entriesToWrite: entriesToWrite,
                                     doomedIDs: doomed.map(\.id), mergedKeys: mergedKeys,
                                     snapshot: snapshot, survivor: survivor,
                                     survivorNote: "倖存者的別名合併已經落地（磁碟上不是原狀）")
+        report.verdictReferencesMigrated = verdictsMigrated
+        return report
     }
 
     // MARK: - work
@@ -755,6 +775,43 @@ extension LibraryStore {
                                     snapshot: snapshot, survivor: survivor,
                                     survivorNote: "倖存者的記錄已被重寫"
                                         + "（work 消歧不搬欄位，見 #75）")
+        // #271（下半）：citekey 退役＝改名的一種——person 身上 `work:<被併鍵>` 的
+        // verdict value 不遷移就安靜變 stale（rename 已修 #232、merge 漏了同型）。
+        // 機制鏡射 renameEntry：同 VerdictPairingValue 文法、同 (field, value) 冪等。
+        for var person in snapshot.people {
+            var changed = false
+            var migrated: [ProvenanceReference] = []
+            var seen = Set<String>()
+            for r in person.references {
+                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
+                      let v = r.value,
+                      let pairing = ProvenanceReference.VerdictPairingValue.parse(v),
+                      pairing.holderKind == .work, merged.contains(pairing.holder) else {
+                    migrated.append(r)
+                    continue
+                }
+                let out = ProvenanceReference(
+                    field: r.field,
+                    value: ProvenanceReference.VerdictPairingValue(
+                        holderKind: .work, holder: survivor,
+                        literal: pairing.literal).encoded,
+                    kind: r.kind)
+                changed = true
+                guard seen.insert("\(out.field)\u{0}\(out.value ?? "")").inserted,
+                      !migrated.contains(where: {
+                          $0.field == out.field && $0.value == out.value }) else { continue }
+                migrated.append(out)
+            }
+            guard changed else { continue }
+            person.references = migrated
+            do {
+                try writePerson(person)
+                report.verdictValuesRewritten.append(person.key)
+            } catch {
+                report.failures.append(
+                    "person「\(person.key)」的 verdict value 遷移寫入失敗：\(error)")
+            }
+        }
         // #169：與 preview 側取自**同一個** validateWorkPreconditions 回傳值。
         //
         // **不在這裡 append**（#169 verify F3）：`judgementWarnings` 是在
@@ -1175,7 +1232,14 @@ extension LibraryStore {
         // 更難察覺（資料錯了看得出來，依據沒了要等下次質疑才發現）。不做自動搬移：
         // reference 的 field/value 指向被併者的欄位，搬過去可能指到倖存者沒有的值
         // ——那正是 validateReferenceAttachment 要擋的孤兒。
-        let lostRefs = p.references.filter { !keeper.references.contains($0) }
+        // #271：verdict references **不計入 loss**——它們的 value 是配對（work:citekey
+        // :: literal），不屬於任何 record collection（#232 規格明文），搬到倖存者不會
+        // 產生孤兒；person merge 會自動遷移（見 resolvePersonDivergence）。上面那段
+        // 「搬過去可能指到倖存者沒有的值」的理由只對 field references 成立，維持不動。
+        let lostRefs = p.references.filter {
+            !keeper.references.contains($0)
+                && !ProvenanceReference.resolutionVerdictFields.contains($0.field)
+        }
         if !lostRefs.isEmpty {
             losses.append("references（\(lostRefs.count) 筆，欄位："
                 + lostRefs.map(\.field).joined(separator: "、") + "）")

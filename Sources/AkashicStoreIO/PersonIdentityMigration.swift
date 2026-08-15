@@ -60,11 +60,12 @@ public enum PersonIdentityMigration {
             case .legacyLayout:
                 return "store 是 legacy 佈局（people/<key>.yaml）——先跑 akashic migrate 升佈局，再跑本遷移"
             case .noRecoveryPath(let d):
-                return "store 不在可用的 git 工作樹內（\(d)）——本遷移不可逆，git 是它的回復路徑；"
-                     + "先把 store 納入版控再 --apply"
+                return "store 不在可用的 git 工作樹內（\(displaySafe(d, max: 200))）"
+                     + "——本遷移不可逆，git 是它的回復路徑；先把 store 納入版控再 --apply"
             case .dirtyWorktree(let d):
+                // d 是 git status 的路徑列——store 衍生內容，消毒後才可見
                 return "store 工作樹有未提交變更——在其上重寫檔名會讓 git checkout 救不回來。"
-                     + "請先 commit（或 stash）再 --apply。未提交的路徑：\(d)"
+                     + "請先 commit（或 stash）再 --apply。未提交的路徑：\(displaySafe(d, max: 400))"
             }
         }
     }

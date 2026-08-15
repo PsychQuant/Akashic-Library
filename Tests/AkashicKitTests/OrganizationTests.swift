@@ -53,7 +53,7 @@ final class OrganizationTests: XCTestCase {
         XCTAssertEqual(load.people.count, 1)
         // 同一個 key 在兩個形狀下必須推出不同 UUID，否則兩筆會撞成同一個檔。
         XCTAssertNotEqual(DeterministicUUID.forOrganization(key: "iss"),
-                          DeterministicUUID.forPerson(key: "iss"))
+                          DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "iss"))
     }
 
     /// 機構改名後，既有的人指向它的參照**不需重寫**——參照走 identity 而非名稱。

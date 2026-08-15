@@ -290,9 +290,9 @@ public struct PersonNames: Equatable, ExpressibleByArrayLiteral {
 
 /// 人物實體（people/<person-key>.yaml）。
 public struct Person: Equatable {
-    /// 不變的身分（#35）。legacy `people/<key>.yaml` 沒有這個欄位——decode 時由
-    /// `DeterministicUUID.forPerson(key:)` 推出，**每次都相同**，所以 index 的
-    /// primary key 與 entry 的作者引用不會漂。
+    /// 不變的身分（#35／#241）：建立時發放的 v4，隨檔攜帶（`id:` 是必要欄位，
+    /// decode 對缺席 fail-closed）。不由任何屬性推導——身分是名字的函數時，
+    /// 名字撞、被改、或因 import 順序拿到不同後綴，身分就跟著漂。
     public var id: UUID
     public var key: String
     /// 這個人的名字（#227 巢狀化）：`authorized` 與 `variant` 兩個分割，聯集為

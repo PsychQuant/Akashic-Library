@@ -56,13 +56,13 @@
 
 實作 spec `record-identity` 的 **A record's human-readable key SHALL NOT be recomputed after assignment**。
 
-- [ ] 7.1 RED：加測試——對一個記錄已帶 key 的 store 再跑一次 key 指派，**沒有任何既有 key 改變**；並釘住「撞名後綴是關於指派順序的事實，不是關於該記錄的資訊」（後綴不得被任何判斷邏輯讀取）。
-- [ ] 7.2 GREEN（實作 A record's human-readable key SHALL NOT be recomputed after assignment）：讓 key 指派路徑在記錄已有 key 時直接沿用，不重新推導。範圍限於「不再重算」，**不改**既有 key 的值、也不改撞名後綴的生成策略（那是 design **Out of scope** 明列的另案）。
+- [x] 7.1 RED：加測試——對一個記錄已帶 key 的 store 再跑一次 key 指派，**沒有任何既有 key 改變**；並釘住「撞名後綴是關於指派順序的事實，不是關於該記錄的資訊」（後綴不得被任何判斷邏輯讀取）。
+- [x] 7.2 GREEN（實作 A record's human-readable key SHALL NOT be recomputed after assignment）：讓 key 指派路徑在記錄已有 key 時直接沿用，不重新推導。範圍限於「不再重算」，**不改**既有 key 的值、也不改撞名後綴的生成策略（那是 design **Out of scope** 明列的另案）。
 
 ## 8. 退場與驗收
 
 對應 design 的 **Acceptance criteria**，並完成 **D4** 要求的退場動作。
 
-- [ ] 8.1 移除 Sources/AkashicCore/DeterministicUUID.swift 的 person 推導函式，確認 Sources/ 內無生產呼叫端（遷移後補值用途歸零；依 no-compat-fallback 第 3 條，退場後刪掉不留著當保險）。若遷移本身仍需它定位舊檔，改為遷移內部的 private helper。
+- [x] 8.1 移除 Sources/AkashicCore/DeterministicUUID.swift 的 person 推導函式，確認 Sources/ 內無生產呼叫端（遷移後補值用途歸零；依 no-compat-fallback 第 3 條，退場後刪掉不留著當保險）。若遷移本身仍需它定位舊檔，改為遷移內部的 private helper。
 - [ ] 8.2 對真實 store 的**複本**（複製到暫存目錄，不動原始 store）跑一次寫入，之後執行 validate 與 doctor，確認無新增錯誤、search 結果筆數與遷移前相同。三個數字記進 PR 說明。
 - [ ] 8.3 全套 `swift test` 與 `swift build -Xswiftc -warnings-as-errors` 通過；逐條 mutation 驗證新增測試（還原對應實作時必須轉紅），不是只看綠燈。

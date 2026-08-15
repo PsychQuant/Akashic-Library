@@ -28,15 +28,16 @@ final class EntitiesLayoutTests: XCTestCase {
         return LibraryStore(root: root)
     }
 
-    // MARK: - 確定性身分
+    // MARK: - 確定性身分（v5 機制——#241 起 person 無生產推導，機制仍服務 org／divergence）
 
-    /// 同一個 person key **永遠**推出同一個 UUID。若不然，index 的 primary key、
-    /// entry 的作者引用、graph 的節點每次載入都會漂。
+    /// v5 的確定性：同 namespace + name 永遠推出同一個 UUID。person 的推導函式已
+    /// 退場（#241），這裡以 personNamespace 釘住**機制本身**——測試 fabricate 舊
+    /// fixture 與 org／divergence 的推導都靠它。
     func testPersonUUIDIsDeterministic() {
-        let a = DeterministicUUID.forPerson(key: "cheng-che")
-        let b = DeterministicUUID.forPerson(key: "cheng-che")
+        let a = DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "cheng-che")
+        let b = DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "cheng-che")
         XCTAssertEqual(a, b)
-        XCTAssertNotEqual(a, DeterministicUUID.forPerson(key: "cheng-chi"))
+        XCTAssertNotEqual(a, DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "cheng-chi"))
         // 必須是合法的 UUIDv5（version 5、RFC 4122 variant）——否則別的工具會當它壞掉
         let s = a.uuidString
         XCTAssertEqual(s[s.index(s.startIndex, offsetBy: 14)], "5", "version nibble 非 5：\(s)")
@@ -54,11 +55,10 @@ final class EntitiesLayoutTests: XCTestCase {
                         .lowercased(),
                        "886313e1-3b8a-5372-9b90-0c9aee199e5d")
         // 本專案的 namespace，對照同一個獨立實作
-        XCTAssertEqual(DeterministicUUID.forPerson(key: "cheng-che").uuidString.lowercased(),
+        XCTAssertEqual(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "cheng-che").uuidString.lowercased(),
                        "7a7f0a53-9d44-5f61-8b54-e3b8b791c7f8")
     }
 
-    /// legacy person 檔沒有 `id`——decode 必須補出**同一個**值，不是隨機值。
     // MARK: - record-identity（#241）：身分只有一個產生事件
 
     /// spec `record-identity`「Two records with identical attributes receive different

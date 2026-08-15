@@ -80,7 +80,7 @@ final class PersonDeceasedTests: XCTestCase {
                       "\"\\t\"", "\"\\n\"", "\" \\t\\n \""] {
             let p = try PersonYAML.decode("""
             person:
-            id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+            id: \(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "k").uuidString)
             key: k
             names:
               variant:
@@ -95,7 +95,7 @@ final class PersonDeceasedTests: XCTestCase {
     func testANormalisedEmptyValueIsNotWrittenBack() throws {
         let p = try PersonYAML.decode("""
         person:
-        id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+        id: \(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "k").uuidString)
         key: k
         names:
           variant:
@@ -162,7 +162,7 @@ final class PersonDeceasedTests: XCTestCase {
     func testANonScalarValueIsRejectedByFieldName() throws {
         let yaml = """
         person:
-        id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+        id: \(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "k").uuidString)
         key: k
         names:
           variant:
@@ -179,7 +179,7 @@ final class PersonDeceasedTests: XCTestCase {
     func testAMappingValueIsAlsoRejectedByFieldName() throws {
         let yaml = """
         person:
-        id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+        id: \(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "k").uuidString)
         key: k
         names:
           variant:
@@ -200,7 +200,7 @@ final class PersonDeceasedTests: XCTestCase {
     func testTheFieldIsRegisteredSoItIsNotEmittedTwice() throws {
         let yaml = """
         person:
-        id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+        id: \(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "k").uuidString)
         key: k
         names:
           variant:

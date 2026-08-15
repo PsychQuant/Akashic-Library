@@ -114,7 +114,7 @@ final class AuthorizedNameTests: XCTestCase {
     func testPersonAuthorizedAbsentDecodesToEmpty() throws {
         let yaml = """
         person:
-        id: \(DeterministicUUID.forPerson(key: "guan-yongtao").uuidString)
+        id: \(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "guan-yongtao").uuidString)
         key: guan-yongtao
         names:
           variant:
@@ -129,7 +129,7 @@ final class AuthorizedNameTests: XCTestCase {
         // 靜默剝除會讓一次舊 binary 的 read-modify-write 把指定整段吃掉。
         let yaml = """
         person:
-        id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+        id: \(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "k").uuidString)
         key: k
         names:
           authorized:

@@ -18,8 +18,13 @@ import CryptoKit
 /// 在別的工具眼裡是壞掉的 UUID，而 store 的檔名要能被任何人用一般工具檢查。
 public enum DeterministicUUID {
 
-    /// Akashic person 的 namespace。任意選定但**永久固定**——換掉它等於讓所有既有
-    /// person 的身分改變，那會把 entry 的作者引用全部打斷。
+    /// Akashic person 的 namespace（**歷史常數**，#241 起無生產推導）。
+    ///
+    /// v5(personNamespace, key) 曾是 legacy 補值與 `Person.init` 的預設——#241 裁決
+    /// 「識別子只能有一個產生事件」後，person id 一律建立時發 v4，推導函式
+    /// `forPerson` 已退場（no-compat-fallback 第 3 條：退場後刪掉，不留著當保險）。
+    /// 常數保留給測試 fabricate 舊形狀 fixture 與歷史對照；**不得**再出現任何以它
+    /// 推導 person id 的生產呼叫端。
     public static let personNamespace = UUID(uuidString: "6b2f1d3e-9c47-4a58-8b21-0f5e7c9a4d16")!
 
     /// UUIDv5（SHA-1 based，RFC 4122 §4.3）。
@@ -38,11 +43,6 @@ public enum DeterministicUUID {
                  digest[6], digest[7], digest[8], digest[9], digest[10], digest[11],
                  digest[12], digest[13], digest[14], digest[15])
         return UUID(uuid: u)
-    }
-
-    /// legacy person（`people/<key>.yaml`，無 `id` 欄位）的身分。
-    public static func forPerson(key: String) -> UUID {
-        v5(namespace: personNamespace, name: key)
     }
 
     /// Organization 的 namespace。與 person 分開——同一個 key 字串在兩個形狀下

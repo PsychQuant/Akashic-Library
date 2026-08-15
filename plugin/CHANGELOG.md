@@ -2,6 +2,9 @@
 
 ## [Unreleased]（隨 0.7.0 binary release 出貨）
 
+- **`akashic_resolve_people` 組合呼叫解禁**（#272）：apply+reject 同呼叫改兩段式（reject 先完整提交、apply 以新狀態重解析），回應 `legs.{reject,apply}` 按腿回報；同列兩邊點到以 `skippedBecauseRejected` 回報。單腿呼叫形狀不變。
+- **`akashic_person` 增 verdicts 段**（#270）：判定列舉（observed/stale 標示）——stale verdict 首次有列舉面。
+- divergence merge 把 verdict 當一等邊（#271）：person merge 自動遷移、work merge 的 citekey 退役改寫 value。
 - **`akashic_import_wos`**（#290）：WoS 匯入的 MCP 面——與 CLI `import-wos` 同一條無損路徑（#206：具名對映＋殘餘收集＋`droppedColumns` 可見）；`path`／`csv`／`dry_run`，形照 `akashic_import_zotero`。
 - **store format 9**（#223）：附件鍵域收窄（移除 `pool`）＋記錄側副本引用 `akashic.sources`；真實 store 升 9 前 sources 寫入被 gate 拒絕指路。
 

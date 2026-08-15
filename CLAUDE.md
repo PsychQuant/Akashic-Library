@@ -56,3 +56,6 @@ propose ──→ park ──────────────→ apply ─�
 |---|---|
 | [lossless-intake.md](.claude/rules/lossless-intake.md) | 匯入不得有損——來源給了什麼就收什麼；不收的只有秘密與隱私邊界兩類，且丟棄必須報出來 |
 | [mcp-cli-parity.md](.claude/rules/mcp-cli-parity.md) | 新增任一面（MCP／CLI）的能力時必須裁決另一面——雙封閉裁決表 + 機械稽核（#259 起雙向），缺口不得安靜累積 |
+| [entity-backlink-completeness.md](.claude/rules/entity-backlink-completeness.md) | 呈現 entity 時所有相關 entity 都要看得到——反向一律現算不儲存；可儲存的關係邊是 13 條封閉列舉＋可執行稽核 |
+| [no-compat-fallback.md](.claude/rules/no-compat-fallback.md) | 不留相容 fallback——要改格式就一次改完全部；例外須離開 default 位置、附退場量測、退場即刪 |
+| [replace-endnote-and-zotero.md](.claude/rules/replace-endnote-and-zotero.md) | 目標是完全取代 EndNote 與 Zotero——檔案住 Akashic、位元組複製進 store、對 Zotero 的 pull 是過渡、能力缺口記 issue 不得靠「回去用 Zotero」帶過 |

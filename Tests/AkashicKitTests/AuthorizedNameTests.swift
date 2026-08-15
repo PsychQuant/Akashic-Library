@@ -530,4 +530,84 @@ final class AuthorizedNameTests: XCTestCase {
                        "新問法看得到：指定的就是索引系統的變換，缺的是名字本身")
         try? FileManager.default.removeItem(at: root)
     }
+
+    // MARK: - 不變式住在寫入邊界（#229）
+
+    /// spec 寫的是 `SHALL be rejected`，但兩條不變式先前只活在 `validate()`，
+    /// 而 **`writePerson` 不跑它**——於是 rejected 只在「呼叫端剛好記得驗」時成立。
+    ///
+    /// 實測 7 個 `writePerson` 呼叫端，只有 `UpdatePerson` 顯式補了 `person.validate()`
+    /// （它的註解自陳這是為了補洞）。`addPerson` / `bootstrap-people --apply` /
+    /// `ProvenanceMigration` / `AuthorizedNameMigration` / `DivergenceResolve` 都沒有。
+    ///
+    /// **不變式必須住在所有路徑的交會處**，不是靠每個呼叫端記得。與本 repo 今日的
+    /// 其他修法同型（`jsonBytes` 取代手寫估算式、`rowID` 取代三份拷貝）：把紀律換成
+    /// 結構。
+    func testWritePersonRejectsAuthorizedNotSubsetOfNames() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-229-\(UUID().uuidString)")
+        let store = LibraryStore(root: root)
+        try store.ensureLayout()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let bad = Person(key: "subset-violator", names: ["Che Cheng"],
+                         authorized: ["鄭澈"])   // names 裡沒有這個字串
+        XCTAssertThrowsError(try store.writePerson(bad)) { e in
+            XCTAssertTrue("\(e)".contains("authorized"),
+                          "錯誤訊息要說得出是哪條不變式：\(e)")
+        }
+        XCTAssertNil(try? store.load().people.first { $0.key == "subset-violator" },
+                     "拒絕就是不得落盤——不是寫了再報")
+    }
+
+    /// 第二條：同書寫系統兩個 authorized 是**未決的問題**，不是指定。
+    func testWritePersonRejectsTwoAuthorizedInSameScript() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-229b-\(UUID().uuidString)")
+        let store = LibraryStore(root: root)
+        try store.ensureLayout()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let bad = Person(key: "script-violator",
+                         names: ["Che Cheng", "C. Cheng", "鄭澈"],
+                         authorized: ["Che Cheng", "C. Cheng"])   // 兩個都是 latn
+        XCTAssertThrowsError(try store.writePerson(bad))
+        XCTAssertNil(try? store.load().people.first { $0.key == "script-violator" })
+    }
+
+    /// **對偶（承重）：`.warning` 不得擋寫入。**
+    ///
+    /// 拒絕的判準是**嚴重度**，不是「validate 回了東西」。tolerant-preserve（#23）
+    /// 是明文功能：較新 schema 寫入的未知欄位必須被保留而非拒收。若這裡改成
+    /// 「issues 非空就拒絕」，未知欄位的記錄會突然寫不進去——那會把一個相容性
+    /// 功能靜默換成硬錯誤。
+    func testWritePersonStillAcceptsWarningLevelIssues() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-229c-\(UUID().uuidString)")
+        let store = LibraryStore(root: root)
+        try store.ensureLayout()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var p = Person(key: "tolerant-ok", names: ["Che Cheng"], authorized: ["Che Cheng"])
+        p.unknownFields = [UnknownField(key: "fromNewerVersion", raw: "fromNewerVersion: 42\n")]
+        XCTAssertFalse(p.validate().isEmpty, "前提：這筆記錄確實有 issue（warning 等級）")
+        XCTAssertTrue(p.validate().allSatisfy { $0.severity == .warning },
+                      "前提：只有 warning，沒有 error")
+        XCTAssertNoThrow(try store.writePerson(p), "warning 不得擋寫入——那是 tolerant-preserve")
+        XCTAssertNotNil(try store.load().people.first { $0.key == "tolerant-ok" })
+    }
+
+    /// org 側同一條不變式、同一個閘。少了它，「哪個名字對外」會有兩套答案。
+    func testWriteOrganizationRejectsAuthorizedNotSubsetOfNames() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-229d-\(UUID().uuidString)")
+        let store = LibraryStore(root: root)
+        try store.ensureLayout()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var o = Organization(key: "org-violator")
+        o.names = TimelineOf([TemporalValue(value: "Academia Sinica", range: DateRange())])
+        o.authorized = ["Academia Sinca"]   // 拼錯，不在 names 內
+        XCTAssertThrowsError(try store.writeOrganization(o))
+    }
 }

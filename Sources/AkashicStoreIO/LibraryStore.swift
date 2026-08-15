@@ -475,6 +475,8 @@ public final class LibraryStore {
                     "升級方式見 writePerson 同型訊息", org.key)
             }
         }
+        // 同 writePerson 的閘（#229）——「哪個名字對外」是同一個問題，不該有兩套答案
+        try Self.assertNoErrors(org.validate(), what: "organization", key: org.key)
         let yaml = try OrganizationYAML.encode(org)
         let dest = entityURL(id: org.id)
         try atomicWrite(yaml, to: dest)
@@ -532,10 +534,37 @@ public final class LibraryStore {
                     "format: 改成 8（v8 只新增 references 欄位對，既有資料不變）", person.key)
             }
         }
+        try Self.assertNoErrors(person.validate(), what: "person", key: person.key)
         let yaml = try PersonYAML.encode(person)
         let dest = usesEntitiesLayout ? entityURL(id: person.id) : personURL(key: person.key)
         try atomicWrite(yaml, to: dest)
         return dest
+    }
+
+    /// **`.error` 等級的不變式住在寫入邊界**（#229）。
+    ///
+    /// `authorized ⊆ names` 與「每書寫系統至多一個」在 spec 是 `SHALL be rejected`，
+    /// 但先前只活在 `validate()`——而 `validate()` 由呼叫端自行決定要不要跑。實測 7 個
+    /// `writePerson` 呼叫端只有 `UpdatePerson` 補了它（其註解自陳是為了補洞），
+    /// `addPerson` / `bootstrap-people --apply` / `ProvenanceMigration` /
+    /// `AuthorizedNameMigration` / `DivergenceResolve` 都沒有。
+    ///
+    /// 不變式必須住在**所有路徑的交會處**，不是靠每個呼叫端記得——與本 repo 的
+    /// `jsonBytes`（實測取代手寫估算式）、`rowID`（單一定義取代三份拷貝）同一條紀律：
+    /// 把「記得做」換成「做不到不做」。
+    ///
+    /// ## 判準是嚴重度，不是「validate 回了東西」
+    ///
+    /// `.warning` **不得**擋寫入。`unknownFields` 產生 warning，而 tolerant-preserve
+    /// （#23）是明文功能：較新 schema 寫入的欄位必須被保留而非拒收。若改成「issues
+    /// 非空就拒絕」，含未知欄位的記錄會突然寫不進去——那是把相容性功能靜默換成硬錯誤。
+    static func assertNoErrors(_ issues: [ValidationIssue], what: String, key: String) throws {
+        let errors = issues.filter { $0.severity == .error }
+        guard errors.isEmpty else {
+            throw StoreIOError.invalidInput(
+                what: "\(what) '\(displaySafe(key, max: 120))'",
+                why: errors.map(\.message).joined(separator: "；"))
+        }
     }
 
     private struct CanonicalLoadSource {

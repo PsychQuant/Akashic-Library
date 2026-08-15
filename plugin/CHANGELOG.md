@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]（隨 0.7.0 binary release 出貨）
+## [0.7.0] - 2026-08-15
 
 - **`akashic_resolve_people` 組合呼叫解禁**（#272）：apply+reject 同呼叫改兩段式（reject 先完整提交、apply 以新狀態重解析），回應 `legs.{reject,apply}` 按腿回報；同列兩邊點到以 `skippedBecauseRejected` 回報。單腿呼叫形狀不變。
 - **`akashic_person` 增 verdicts 段**（#270）：判定列舉（observed/stale 標示）——stale verdict 首次有列舉面。

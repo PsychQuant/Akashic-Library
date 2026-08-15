@@ -585,9 +585,18 @@ final class AuthorizedNameTests: XCTestCase {
         XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true)) { e in
             let m = (e as? LocalizedError)?.errorDescription ?? "\(e)"
             XCTAssertTrue(m.contains("migrate-person-identity"), "訊息要指路遷移：\(m)")
+            XCTAssertTrue(m.contains("doctor"), "先指路 doctor（quarantine 未必是 person）：\(m)")
+            XCTAssertTrue(m.contains("marker"), "apply 模式要說 marker 後果：\(m)")
         }
         XCTAssertEqual(try StoreVersion.read(root: root), 9,
                        "marker 不得被 bump——那會鎖死唯一還讀得懂資料的舊 binary")
+        // R2 C7：dry-run 同樣拒，但訊息說的是**它的**真實後果（報告不完整），
+        // 不得聲稱「跑完會升 marker」——dry-run 不升。
+        XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: false)) { e in
+            let m = (e as? LocalizedError)?.errorDescription ?? "\(e)"
+            XCTAssertTrue(m.contains("不完整"), "dry-run 的後果是報告不完整：\(m)")
+            XCTAssertFalse(m.contains("升到"), "dry-run 不得聲稱會升 marker：\(m)")
+        }
     }
 
     /// migration 把唯一候選直接採用之後，「沒有指定」的計數會掉到接近 0——但那些人

@@ -12,6 +12,10 @@ import AkashicGraph
 public enum ServiceError: Error, LocalizedError {
     case notFound(String)
     case invalid(String)
+    /// #227 verify R2 C6：store 有讀不進來的檔時，「存在性」**無法判定**——這不是
+    /// `notFound`（那是確定的否），拋錯類型與訊息前綴都不得宣稱不存在，否則依
+    /// 錯誤種類或「找不到」字面分支的呼叫端（含 LLM）會把未知當成否。
+    case undeterminable(String)
 
     public var errorDescription: String? {
         switch self {
@@ -22,6 +26,7 @@ public enum ServiceError: Error, LocalizedError {
         // 在掃描面內）保證新 throw 站點的 caller payload 都消毒。
         case .notFound(let what): return "找不到：\(what)"   // display-safe-exempt: what 由 throw 站點消毒（見上方註解）
         case .invalid(let why): return why
+        case .undeterminable(let what): return "無法判定：\(what)"   // display-safe-exempt: 同 notFound——what 由 throw 站點消毒
         }
     }
 }
@@ -435,15 +440,15 @@ public final class AkashicService {
             // 存在性判準用全集（scoped 過濾不可誤報 notFound——person 可能只是不在該 library）
             let allPubs = try engine.personPublications(key: key, library: nil)
             guard record != nil || !allPubs.isEmpty else {
-                // #227 verify R-4：「查不到」與「讀不進來」是兩件事（entity-backlink-
-                // completeness 執行細節 4）。store 有 quarantined 檔時，這個 key 很可能
-                // 就在其中（未遷移的舊形狀）——訊息必須說出來，否則 LLM 呼叫端會斷言
-                // 這個人不存在。
+                // #227 verify R-4／R2 C6：「查不到」與「讀不進來」是兩件事（entity-
+                // backlink-completeness 執行細節 4）。store 有 quarantined 檔時，
+                // 存在性**無法判定**——擲 undeterminable（不是 notFound），錯誤類型
+                // 與「無法判定」前綴讓機器與人都不會把未知當成否。
                 if !load.quarantined.isEmpty {
-                    throw ServiceError.notFound(
-                        "person「\(displaySafe(key, max: 200))」（另有 \(load.quarantined.count) 個檔"
-                        + " quarantined——可能是未遷移的舊形狀，該 key 或許在其中；"
-                        + "見 akashic doctor / migrate-person-identity）")
+                    throw ServiceError.undeterminable(
+                        "person「\(displaySafe(key, max: 200))」——store 另有 "
+                        + "\(load.quarantined.count) 個檔 quarantined（可能是未遷移的舊形狀，"
+                        + "該 key 或許在其中）；見 akashic doctor / migrate-person-identity")
                 }
                 throw ServiceError.notFound("person「\(displaySafe(key, max: 200))」")
             }

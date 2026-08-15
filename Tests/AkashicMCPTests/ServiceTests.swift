@@ -143,6 +143,25 @@ final class ServiceTests: XCTestCase {
     }
 
     // #23 tolerant-preserve：doctor 對含未知欄位（較新 schema）的檔案給計數提示
+    /// #227 verify R2 C6：store 有 quarantined 檔時，person 查無的語意是**無法判定**
+    /// ——錯誤類型是 undeterminable、訊息前綴「無法判定」，不是 notFound／「找不到」。
+    /// 依錯誤種類或字面分支的呼叫端（含 LLM）不得把未知讀成否。
+    func testPersonLookupWithQuarantineIsUndeterminableNotNotFound() throws {
+        let qid = UUID()
+        try "person:\nid: \(qid.uuidString)\nkey: old-shape\nnames:\n- Old Shape\n".write(
+            to: root.appendingPathComponent("entities/\(qid.uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try service.person(key: "nobody-here", name: nil,
+                                                library: nil)) { error in
+            guard case ServiceError.undeterminable = error else {
+                return XCTFail("錯誤類型必須是 undeterminable，實得 \(error)")
+            }
+            let msg = (error as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertTrue(msg.hasPrefix("無法判定"), "前綴不得是「找不到」：\(msg)")
+            XCTAssertTrue(msg.contains("quarantined"), "要說明原因：\(msg)")
+        }
+    }
+
     func testDoctorReportsUnknownFieldFiles() throws {
         let f = root.appendingPathComponent("people/future-person.yaml")
         try """

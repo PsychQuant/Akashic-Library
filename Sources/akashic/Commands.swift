@@ -470,9 +470,21 @@ struct MigratePersonIdentity: ParsableCommand {
             }
             if report.failed.count > 20 { print("  …另 \(report.failed.count - 20) 筆") }
         }
-        if apply, !report.migrated.isEmpty {
-            print("下一步：akashic doctor 重建 index、akashic validate 驗證；"
-                  + "確認所有 binary 已升級後，手動把 store.yaml 的 format: 改成 10")
+        // R2 C5：升 marker 的指示必須以「零失敗」為前提——有 failed 時升 10 會把
+        // 修不完的記錄整批 quarantine（重演 S1 的鎖死）；legacy 佈局另有 akashic
+        // migrate 一步在前，跳過它直接升 10 會讓 people/ 的資料讀不到。
+        if apply, !report.failed.isEmpty {
+            print("⚠ 有失敗記錄——**不得**升 store.yaml 的 format。修復上列失敗並重跑，"
+                  + "failed 歸零後才進下一步")
+        } else if apply, !report.migrated.isEmpty {
+            if report.legacyLayout {
+                print("下一步：本遷移是就地改寫（people/ 佈局不變）——先跑 akashic migrate "
+                      + "搬移佈局到 entities，再 akashic doctor / validate；全部完成且"
+                      + "確認所有 binary 已升級後，才手動把 store.yaml 的 format: 改成 10")
+            } else {
+                print("下一步：akashic doctor 重建 index、akashic validate 驗證；"
+                      + "確認所有 binary 已升級後，手動把 store.yaml 的 format: 改成 10")
+            }
         }
     }
 }

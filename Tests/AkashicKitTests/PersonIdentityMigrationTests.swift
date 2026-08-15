@@ -276,20 +276,148 @@ final class PersonIdentityMigrationTests: XCTestCase {
                       "拒絕的記錄保持原狀（prior state）")
     }
 
-    /// S2：工作樹「乾淨」對被 **ignore** 的內容是空話——`status --porcelain` 不列
-    /// ignored 檔（可見的未追蹤檔會以 `??` 被髒樹閘抓，ignored 連 `??` 都沒有），
-    /// 兩道舊閘都過而 git 根本救不回。有檔案卻零 git 追蹤時必須拒寫。
-    func testIgnoredContentRefusesApply() throws {
-        try writeOldShapePerson(key: "wang-x", names: ["Wang, X."])
+    /// S2／R2 C4：工作樹「乾淨」對被 **ignore** 的檔是空話——porcelain 不列 ignored、
+    /// 目錄級「有 tracked 檔」也不構成**特定**檔案的回復保證。判準是 **per-file**：
+    /// 只有自己被 git 追蹤的檔才可改寫，未追蹤的計入 failed 點名、已追蹤的照常遷移。
+    func testPartiallyTrackedStoreMigratesTrackedAndFailsIgnoredPerFile() throws {
+        let trackedURL = try writeOldShapePerson(key: "tracked-p", names: ["Tracked P"])
         GitFixture.initRepo(root)
-        try "entities/\nstore.yaml\n".write(
+        GitFixture.commitAll(root, message: "tracked seed")
+        // 之後才建的檔、被 file-specific gitignore 排除——porcelain 全程乾淨
+        let ignoredURL = try writeOldShapePerson(key: "ghost-p", names: ["Ghost P"])
+        try "entities/\(ignoredURL.lastPathComponent)\n.gitignore\n".write(
             to: root.appendingPathComponent(".gitignore"),
             atomically: true, encoding: .utf8)
-        GitFixture.commitAll(root, message: "gitignore only")   // entities 被 ignore → porcelain 乾淨
-        XCTAssertThrowsError(try PersonIdentityMigration.run(store: store, apply: true)) { e in
-            let m = (e as? LocalizedError)?.errorDescription ?? "\(e)"
-            XCTAssertTrue(m.contains("追蹤"), "訊息要說明未被追蹤：\(m)")
+        let ignoredBytes = try Data(contentsOf: ignoredURL)
+
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertEqual(report.migrated, ["tracked-p"], "\(report.failed)")
+        XCTAssertEqual(report.failed.count, 1)
+        XCTAssertTrue(report.failed[0].file.contains(ignoredURL.lastPathComponent))
+        XCTAssertTrue(report.failed[0].reason.contains("追蹤"),
+                      "未追蹤檔要點名原因：\(report.failed)")
+        XCTAssertEqual(try Data(contentsOf: ignoredURL), ignoredBytes,
+                       "git 看不見的檔一個位元組都不得動")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: trackedURL.path),
+                       "已追蹤的檔照常遷移（舊檔已刪）")
+    }
+
+    // MARK: - R2 blocking（C1/C2/C3——Codex 抓到的收斂與順序缺口）
+
+    /// C1a：**巢狀+v5 id** 的中斷殘留（decodable 分支）同樣要收斂——不得發第三個 id。
+    func testNestedV5ResidueWithExistingV4TwinConverges() throws {
+        let v4ID = UUID()
+        try """
+        person:
+        id: \(v4ID.uuidString)
+        key: liang-yu-jen
+        names:
+          variant:
+          - Liang, Yu-Jen
+        """.write(to: root.appendingPathComponent("entities/\(v4ID.uuidString).yaml"),
+                  atomically: true, encoding: .utf8)
+        let v5ID = DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace,
+                                        name: "liang-yu-jen")
+        try """
+        person:
+        id: \(v5ID.uuidString)
+        key: liang-yu-jen
+        names:
+          variant:
+          - Liang, Yu-Jen
+        """.write(to: root.appendingPathComponent("entities/\(v5ID.uuidString).yaml"),
+                  atomically: true, encoding: .utf8)
+        commitAll()
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertTrue(report.migrated.isEmpty, "巢狀 v5 殘留不得再發 id：\(report.migrated)")
+        XCTAssertEqual(report.skipped, ["liang-yu-jen"])
+        XCTAssertEqual(report.failed.count, 1)
+        XCTAssertTrue(report.failed[0].file.contains(v5ID.uuidString), "\(report.failed)")
+        XCTAssertTrue(report.failed[0].reason.contains("重複"), "\(report.failed)")
+        XCTAssertEqual(try entityFiles().count, 2, "兩檔保持原狀")
+    }
+
+    /// C1b：兩個 v4 檔同 key——不得被 Set 吞成雙雙 skipped，必須報重複交給人。
+    func testTwoV4FilesSameKeyReportedAsDuplicateNotDoubleSkipped() throws {
+        for _ in 0..<2 {
+            let id = UUID()
+            try """
+            person:
+            id: \(id.uuidString)
+            key: chen-wei
+            names:
+              variant:
+              - Chen Wei
+            """.write(to: root.appendingPathComponent("entities/\(id.uuidString).yaml"),
+                      atomically: true, encoding: .utf8)
         }
+        commitAll()
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertTrue(report.skipped.isEmpty, "重複不得偽裝成 skipped：\(report.skipped)")
+        XCTAssertEqual(report.failed.count, 2, "兩檔都要點名：\(report.failed)")
+        XCTAssertTrue(report.failed.allSatisfy { $0.reason.contains("chen-wei") })
+        XCTAssertEqual(try entityFiles().count, 2, "不自動刪任何一個")
+    }
+
+    /// C2：v4-skip 也要先過 validate——巢狀+v4 但驗證失敗的記錄不得謊稱「已是新形狀」。
+    func testV4RecordWithValidationErrorIsFailedNotSkipped() throws {
+        let id = UUID()
+        try """
+        person:
+        id: \(id.uuidString)
+        key: dup-script
+        names:
+          authorized:
+          - Alpha One
+          - Beta Two
+          variant:
+          - 甲乙
+        """.write(to: root.appendingPathComponent("entities/\(id.uuidString).yaml"),
+                  atomically: true, encoding: .utf8)
+        commitAll()
+        let before = try Data(contentsOf:
+            root.appendingPathComponent("entities/\(id.uuidString).yaml"))
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertTrue(report.skipped.isEmpty, "\(report.skipped)")
+        XCTAssertEqual(report.failed.count, 1)
+        XCTAssertTrue(report.failed[0].reason.contains("latn"), "\(report.failed)")
+        XCTAssertEqual(try Data(contentsOf:
+            root.appendingPathComponent("entities/\(id.uuidString).yaml")), before,
+            "非本遷移的形狀問題——檔案不動，交給人修")
+    }
+
+    /// C3：**巢狀 names + 缺 id**——補 id 必須先於摺疊嘗試（先摺會對巢狀塊誤擲
+    /// 「非 canonical」，補 id 程式碼不可達）。
+    func testNestedNamesMissingIDGetsBackfilled() throws {
+        let fname = UUID().uuidString
+        try """
+        person:
+        key: half-migrated
+        names:
+          variant:
+          - Half Migrated
+        """.write(to: root.appendingPathComponent("entities/\(fname).yaml"),
+                  atomically: true, encoding: .utf8)
+        commitAll()
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertEqual(report.migrated, ["half-migrated"], "\(report.failed)")
+        XCTAssertTrue(report.failed.isEmpty)
+        let load = try store.load()
+        XCTAssertEqual(load.people.map(\.key), ["half-migrated"])
+        XCTAssertTrue(load.quarantined.isEmpty)
+    }
+
+    /// C5 的 report 面：legacy 佈局要在 Report 上可辨（CLI 據此分流下一步指示）。
+    func testReportMarksLegacyLayout() throws {
+        let legacyRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-idmig-ll-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: legacyRoot) }
+        try FileManager.default.createDirectory(
+            at: legacyRoot.appendingPathComponent("people"), withIntermediateDirectories: true)
+        try StoreVersion.write(root: legacyRoot, format: 1)
+        let r1 = try PersonIdentityMigration.run(store: LibraryStore(root: legacyRoot))
+        XCTAssertTrue(r1.legacyLayout)
+        XCTAssertFalse(try PersonIdentityMigration.run(store: store).legacyLayout)
     }
 
     /// helper：自訂 body 的舊形檔。

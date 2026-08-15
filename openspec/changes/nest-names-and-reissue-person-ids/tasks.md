@@ -25,15 +25,15 @@
 
 實作 design **Interface / data shape** 定義的 YAML 形狀，以及 spec `authorized-name` 的 **Removing the positional convention SHALL bump the store format marker** 中「舊形狀不得被靜默接受」那一半。
 
-- [ ] 3.1 RED：加測試——巢狀形狀 round-trip 位元組相同；每個名字在序列化結果中恰好出現一次；讀到**平坦**的 `names` 陣列時擲錯且訊息點名欄位（不得靜默視為空的 authorized）。
-- [ ] 3.2 GREEN：在 Sources/AkashicCore/YAML.swift 改 `PersonYAML` 的 encode／decode 走巢狀形狀，decoder 對平坦陣列 fail-closed。沿用該檔既有的 `requireShape` 紀律。
+- [x] 3.1 RED：加測試——巢狀形狀 round-trip 位元組相同；每個名字在序列化結果中恰好出現一次；讀到**平坦**的 `names` 陣列時擲錯且訊息點名欄位（不得靜默視為空的 authorized）。
+- [x] 3.2 GREEN：在 Sources/AkashicCore/YAML.swift 改 `PersonYAML` 的 encode／decode 走巢狀形狀，decoder 對平坦陣列 fail-closed。沿用該檔既有的 `requireShape` 紀律。
 
 ## 4. 身分：id 改為獨立 v4
 
 實作 spec `record-identity` 的 **A record's stable identifier SHALL have exactly one origin event**；依 design **D4：`id` 的產生事件只有一個**。
 
-- [ ] 4.1 RED：加測試——不帶 id 建立的兩個 `Person`（即使 key 相同）取得**不同**的 id；新建 person 的 id 不等於既有推導函式對同一 key 的輸出。
-- [ ] 4.2 GREEN（實作 A record's stable identifier SHALL have exactly one origin event）：把 Sources/AkashicCore/Models.swift 的 `Person.init` 預設值改為 `id ?? UUID()`，並確認 design 的 Behavior 一節所述「同名的兩個人不再共用 id」成立。
+- [x] 4.1 RED：加測試——不帶 id 建立的兩個 `Person`（即使 key 相同）取得**不同**的 id；新建 person 的 id 不等於既有推導函式對同一 key 的輸出。
+- [x] 4.2 GREEN（實作 A record's stable identifier SHALL have exactly one origin event）：把 Sources/AkashicCore/Models.swift 的 `Person.init` 預設值改為 `id ?? UUID()`，並確認 design 的 Behavior 一節所述「同名的兩個人不再共用 id」成立。
 
 ## 5. 寫入邊界的兩道閘
 

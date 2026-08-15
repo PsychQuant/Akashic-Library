@@ -87,10 +87,13 @@ final class AuthorizedNameTests: XCTestCase {
     }
 
     func testPersonEqualityAccountsForAuthorized() {
+        // #241：id 是隨機 v4——相等性比較必須釘同一個顯式 id，否則比的是 id 不是指定
+        let id = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
         let designated = PersonNames(authorized: ["謝叔蓉"], variant: ["Shwu-Rong Grace Shieh"])
-        let a = Person(key: "k", names: designated)
-        let b = Person(key: "k", names: designated)
-        let c = Person(key: "k", names: PersonNames(variant: ["謝叔蓉", "Shwu-Rong Grace Shieh"]))
+        let a = Person(key: "k", names: designated, id: id)
+        let b = Person(key: "k", names: designated, id: id)
+        let c = Person(key: "k", names: PersonNames(variant: ["謝叔蓉", "Shwu-Rong Grace Shieh"]),
+                       id: id)
         XCTAssertEqual(a, b)
         XCTAssertNotEqual(a, c, "指定與不指定是不同的記錄——相等性必須看得見這件事")
     }
@@ -135,6 +138,64 @@ final class AuthorizedNameTests: XCTestCase {
         XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
             XCTAssertTrue("\(error)".contains("authorized"),
                           "錯誤訊息要點名欄位，否則 quarantine 之後沒人知道是哪一欄")
+        }
+    }
+
+    // MARK: - 巢狀序列化（nest-names-and-reissue-person-ids task 3.1）
+
+    /// spec `authorized-name`「The serialized form carries each name once」的 Example：
+    /// authorized 梁佑任／Yu-Jen Liang、variant Liang, Yu-Jen——各出現恰好一次，
+    /// 且不跨分割重複。
+    func testSerializedFormCarriesEachNameExactlyOnce() throws {
+        let p = Person(key: "liang-yu-jen",
+                       names: PersonNames(authorized: ["梁佑任", "Yu-Jen Liang"],
+                                          variant: ["Liang, Yu-Jen"]))
+        let yaml = try PersonYAML.encode(p)
+        for name in ["梁佑任", "Yu-Jen Liang", "Liang, Yu-Jen"] {
+            XCTAssertEqual(yaml.components(separatedBy: name).count - 1, 1,
+                           "「\(name)」必須在序列化結果中恰好出現一次：\(yaml)")
+        }
+        XCTAssertTrue(yaml.contains("authorized:") && yaml.contains("variant:"),
+                      "兩個分割各有自己的子鍵：\(yaml)")
+        let back = try PersonYAML.decode(yaml)
+        XCTAssertEqual(back, p)
+        XCTAssertEqual(try PersonYAML.encode(back), yaml, "round-trip 位元組相同")
+    }
+
+    /// spec「The flat shape is not silently accepted」：平坦 names 陣列擲錯、訊息
+    /// 點名欄位——**不得靜默視為空的 authorized**。舊形狀只能經遷移路徑進來。
+    func testFlatNamesSequenceIsRefusedNamingTheField() {
+        let yaml = """
+        person:
+        id: 11111111-1111-4111-8111-111111111111
+        key: guan-yongtao
+        names:
+        - Guan, Yongtao
+        """
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
+            let m = "\(error)"
+            XCTAssertTrue(m.contains("person.names"), "訊息要點名欄位：\(m)")
+            XCTAssertTrue(m.contains("migrate-person-identity"), "訊息要指路遷移：\(m)")
+        }
+    }
+
+    /// 舊頂層 `authorized:` 同樣拒絕——把它當未知欄位保留，會讓舊指定與新分割
+    /// 並存成兩個可矛盾的真相。
+    func testOldTopLevelAuthorizedKeyIsRefused() {
+        let yaml = """
+        person:
+        id: 11111111-1111-4111-8111-111111111111
+        key: k
+        names:
+          variant:
+          - 謝叔蓉
+        authorized:
+        - 謝叔蓉
+        """
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
+            let m = "\(error)"
+            XCTAssertTrue(m.contains("person.authorized"), "訊息要點名欄位：\(m)")
+            XCTAssertTrue(m.contains("migrate-person-identity"), "訊息要指路遷移：\(m)")
         }
     }
 

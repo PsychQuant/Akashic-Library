@@ -88,11 +88,13 @@ final class UnknownFieldVisibilityTests: XCTestCase {
     /// person 與 library 兩層同樣要帶（讀取面三型別一致）。
     func testPersonAndLibraryCarryUnknownFields() throws {
         try write("people/p-one.yaml", """
+            id: 11111111-1111-4111-8111-111111111111
             key: p-one
             names: {variant: [Someone]}
             futureAffiliation: ISS
             """)
         try write("libraries/lib.yaml", """
+            id: 11111111-1111-4111-8111-111111111111
             key: lib
             name: L
             futureFacet: x

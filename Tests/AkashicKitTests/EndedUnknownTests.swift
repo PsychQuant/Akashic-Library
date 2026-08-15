@@ -75,6 +75,7 @@ final class EndedUnknownTests: XCTestCase {
     /// 無法判斷哪個是真話。拒絕，不猜。
     func testEndWithEndedTrueIsRejected() throws {
         let yaml = """
+            id: 11111111-1111-4111-8111-111111111111
             key: bad-person
             names: {variant: [Bad]}
             profile:
@@ -94,6 +95,7 @@ final class EndedUnknownTests: XCTestCase {
     func testEndedFalseIsTolerated() throws {
         // `ended: false` 冗餘但無矛盾（等同缺席）——寬容讀入、不寫出
         let yaml = """
+            id: 11111111-1111-4111-8111-111111111111
             key: ok-person
             names: {variant: [Ok]}
             profile:
@@ -111,7 +113,7 @@ final class EndedUnknownTests: XCTestCase {
     /// 只收裸寫 true/false；引號版與 YAML 1.1 變體一律拒絕（fail-closed）。
     func testEndedBooleanFormsAreStrict() throws {
         func person(_ ended: String) -> String {
-            "key: b\nnames: {variant: [B]}\nprofile:\n  ranks:\n  - value: r\n    start: \"2010\"\n    ended: \(ended)\n"
+            "id: 11111111-1111-4111-8111-111111111111\nkey: b\nnames: {variant: [B]}\nprofile:\n  ranks:\n  - value: r\n    start: \"2010\"\n    ended: \(ended)\n"
         }
         XCTAssertNoThrow(try PersonYAML.decode(person("true")))
         XCTAssertNoThrow(try PersonYAML.decode(person("false")))
@@ -125,6 +127,7 @@ final class EndedUnknownTests: XCTestCase {
     /// 對齊——先前 ranks 已如此、affiliations 卻存成字串 "null"）。文件化 + 釘住。
     func testAffiliationStartNullFaceIsAbsence() throws {
         let yaml = """
+            id: 11111111-1111-4111-8111-111111111111
             key: n-person
             names: {variant: [N]}
             profile:

@@ -36,7 +36,7 @@ final class AliasEventBudgetTests: XCTestCase {
     /// PR #42 的四條繞道——文字掃描全破，event level 全擋。
     func testPR42BypassesAreCaught() {
         // 裸 `>` 讓文字掃描把後續行當 block scalar 而整段跳過
-        var gt = "key: a\nnames: {variant: [A]}\nbomb:\n  - k: x > y\n"
+        var gt = "id: 11111111-1111-4111-8111-111111111111\nkey: a\nnames: {variant: [A]}\nbomb:\n  - k: x > y\n"
         for l in bomb(levels: 14, fanout: 2, tail: "*a12: 1\n")
                     .split(separator: "\n") { gt += "    " + l + "\n" }
         assertRefused(gt, "`>` 致盲")

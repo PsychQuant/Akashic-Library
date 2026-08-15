@@ -60,6 +60,7 @@ final class CLIIntegrationTests: XCTestCase {
                   atomically: true, encoding: .utf8)
 
         try """
+        id: 11111111-1111-4111-8111-111111111111
         key: cheng-che
         names:
           variant:
@@ -119,6 +120,7 @@ final class CLIIntegrationTests: XCTestCase {
     // validate 給 warning 但 exit 0（availability 優先）、doctor 列 unknown-field files
     func testValidateToleratesFutureSchemaWithWarning() throws {
         try """
+        id: 11111111-1111-4111-8111-111111111111
         key: future-one
         names:
           variant:
@@ -395,6 +397,7 @@ extension CLIIntegrationTests {
     /// 寫一筆 person 到 fixture library。`affiliationEnd` 為 nil ＝ 隸屬段仍開著。
     private func writePerson(_ key: String, died: String?, affiliationEnd: String?) throws {
         var yaml = """
+        id: 11111111-1111-4111-8111-111111111111
         key: \(key)
         names:
           variant:

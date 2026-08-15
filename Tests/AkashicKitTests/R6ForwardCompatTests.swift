@@ -37,6 +37,7 @@ final class R6ForwardCompatTests: XCTestCase {
     /// （v1.2 級保護，檔案原封不動）。
     func testShapeEvolvedNamesFailsClosed() {
         let yaml = """
+        id: 11111111-1111-4111-8111-111111111111
         key: cheng-che
         names:
           primary: 鄭澈
@@ -81,7 +82,7 @@ final class R6ForwardCompatTests: XCTestCase {
             head + "\nakashic:\n  relations:\n    cites: {a: b}\n"))
         XCTAssertThrowsError(try EntryYAML.decode(
             head + "\nprovenance:\n  zotero_key: K\n  zotero_version: 1\n  imported_at: 不是時間\n"))
-        XCTAssertThrowsError(try PersonYAML.decode("key: a\norcid: {x: y}\n"))
+        XCTAssertThrowsError(try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\nkey: a\norcid: {x: y}\n"))
     }
 
     // MARK: - F3：tagged shadow key（M5/M8）
@@ -90,11 +91,11 @@ final class R6ForwardCompatTests: XCTestCase {
     /// ——R5 寫回即靜默剝除且 canary 看不見。R6 fail-closed。
     func testCustomTagShadowKnownKeyRejected() {
         XCTAssertThrowsError(
-            try PersonYAML.decode("key: a\n!foo note: decoy\nnote: real\n")) { error in
+            try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\nkey: a\n!foo note: decoy\nnote: real\n")) { error in
             XCTAssertTrue(String(describing: error).contains("非字串 tag"))
         }
         // 無 plain 同名鍵的單獨 shadow 同樣拒收（單獨存在也讀不到、也會被剝）
-        XCTAssertThrowsError(try PersonYAML.decode("key: a\n!foo note: x\n"))
+        XCTAssertThrowsError(try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\nkey: a\n!foo note: x\n"))
         XCTAssertThrowsError(try EntryYAML.decode("""
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
@@ -108,7 +109,7 @@ final class R6ForwardCompatTests: XCTestCase {
     /// 自訂 tag 的 unknown 鍵不受限——切分/oracle/寫回走文件序 index，
     /// tag 在 raw 內逐字保真。
     func testCustomTagUnknownKeyPreserved() throws {
-        let person = try PersonYAML.decode("key: a\n!foo weird: 1\n")
+        let person = try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\nkey: a\n!foo weird: 1\n")
         XCTAssertEqual(person.unknownFields.map(\.key), ["weird"])
         XCTAssertEqual(person.unknownFields.first?.raw, "!foo weird: 1\n")
         let out = try PersonYAML.encode(person)
@@ -144,13 +145,13 @@ final class R6ForwardCompatTests: XCTestCase {
 
     func testStreamMarkerVariantsTolerated() throws {
         // 尾隨空白的文件結束標記
-        let p1 = try PersonYAML.decode("key: a\nnames: {variant: [A]}\nextra: 1\n... \n")
+        let p1 = try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\nkey: a\nnames: {variant: [A]}\nextra: 1\n... \n")
         XCTAssertEqual(p1.unknownFields.map(\.key), ["extra"])
         // 帶註解的結束標記
-        let p2 = try PersonYAML.decode("key: a\nnames: {variant: [A]}\nextra: 1\n... # done\n")
+        let p2 = try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\nkey: a\nnames: {variant: [A]}\nextra: 1\n... # done\n")
         XCTAssertEqual(p2.unknownFields.map(\.key), ["extra"])
         // %YAML directive + 帶註解的 --- 開頭
-        let p3 = try PersonYAML.decode("%YAML 1.1\n--- # header\nkey: a\nextra: 1\n")
+        let p3 = try PersonYAML.decode("%YAML 1.1\n--- # header\nid: 11111111-1111-4111-8111-111111111111\nkey: a\nextra: 1\n")
         XCTAssertEqual(p3.unknownFields.map(\.key), ["extra"])
         // 變體標記剝除後 round-trip 乾淨（不把 stream token 吸進 raw）
         let out = try PersonYAML.encode(p1)

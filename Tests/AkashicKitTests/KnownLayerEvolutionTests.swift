@@ -76,7 +76,7 @@ final class KnownLayerEvolutionTests: XCTestCase {
     func testShapeMismatchIsFailLoudNotSilentStrip() throws {
         // fixture 手寫原始檔進 legacy 的 people/，需自己建目錄（#101）
         try FileManager.default.createDirectory(at: store.peopleDir, withIntermediateDirectories: true)
-        try "key: p-one\nnames: \"不是 sequence\"\norcid: \"0000-0001-2345-6789\"\n".write(
+        try "id: 11111111-1111-4111-8111-111111111111\nkey: p-one\nnames: \"不是 sequence\"\norcid: \"0000-0001-2345-6789\"\n".write(
             to: store.peopleDir.appendingPathComponent("p-one.yaml"),
             atomically: true, encoding: .utf8)
         let load = try store.load()

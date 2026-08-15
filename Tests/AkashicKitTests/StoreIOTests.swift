@@ -111,6 +111,7 @@ final class StoreIOTests: XCTestCase {
     func testLoadToleratesFutureSchemaPersonFile() throws {
         let f = root.appendingPathComponent("people/future-one.yaml")
         try """
+        id: 11111111-1111-4111-8111-111111111111
         key: future-one
         names:
           variant:
@@ -129,6 +130,7 @@ final class StoreIOTests: XCTestCase {
         try useLegacyLayout()   // 斷言檔名 == key（#56）
         let f = root.appendingPathComponent("people/future-two.yaml")
         try """
+        id: 11111111-1111-4111-8111-111111111111
         key: future-two
         names:
           variant:
@@ -864,7 +866,7 @@ extension StoreIOTests {
     func testUnknownFieldFilesReportsActualFilename() throws {
         try FileManager.default.createDirectory(
             at: store.root.appendingPathComponent("people"), withIntermediateDirectories: true)
-        try "key: fut1\nextra: 1\n".write(
+        try "id: 11111111-1111-4111-8111-111111111111\nkey: fut1\nextra: 1\n".write(
             to: store.root.appendingPathComponent("people/fut1.YAML"),
             atomically: true, encoding: .utf8)
         let load = try store.load()

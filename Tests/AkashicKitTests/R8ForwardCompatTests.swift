@@ -16,7 +16,7 @@ final class R8ForwardCompatTests: XCTestCase {
 
     func testPureKnownFileWithNELQuarantines() {
         // R7 的守衛只長在切分路徑——純 known 檔被 libyaml 靜默摺疊毀字後寫回
-        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: {variant: ['Attention\u{85}Is All']}\n")) {
+        XCTAssertThrowsError(try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\nkey: a\nnames: {variant: ['Attention\u{85}Is All']}\n")) {
             XCTAssertTrue(String(describing: $0).contains("NEL"), "\($0)")
         }
     }
@@ -25,7 +25,7 @@ final class R8ForwardCompatTests: XCTestCase {
     /// lone-CR 行尾檔 v1.2 可無損載入，必須維持可讀；quoted 內 CR 摺疊 ≡ LF
     /// 摺疊（spec 語意）。純 known 檔的 entry 守衛只擋 NEL。
     func testClassicMacLoneCRLineEndingsStillLoad() throws {
-        let p = try PersonYAML.decode("key: a\rnames: {variant: [A]}\r")
+        let p = try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\rkey: a\rnames: {variant: [A]}\r")
         XCTAssertEqual(p.key, "a")
         XCTAssertEqual(p.names, ["A"])
     }
@@ -33,14 +33,14 @@ final class R8ForwardCompatTests: XCTestCase {
     /// v1.2 相容的關鍵反向面（DA R7 (b)）：CRLF **行尾**在純 known 檔由 libyaml
     /// 正規化為 LF、無資料損失——良性 CRLF 檔必須仍可讀。
     func testPureKnownCRLFFileStillLoads() throws {
-        let p = try PersonYAML.decode("key: a\r\nnames: {variant: [A]}\r\n")
+        let p = try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\r\nkey: a\r\nnames: {variant: [A]}\r\n")
         XCTAssertEqual(p.key, "a")
         XCTAssertEqual(p.names, ["A"])
     }
 
     /// 帶未知欄位時 CRLF 仍全面拒收（切分行模型分歧——結構性理由不變）
     func testCRLFWithUnknownFieldStillRejected() {
-        XCTAssertThrowsError(try PersonYAML.decode("key: a\r\nnames: {variant: [A]}\r\nextra: 1\r\n"))
+        XCTAssertThrowsError(try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\r\nkey: a\r\nnames: {variant: [A]}\r\nextra: 1\r\n"))
     }
 
     // MARK: - M2：fields / attachments 的鍵層 guard
@@ -67,7 +67,7 @@ final class R8ForwardCompatTests: XCTestCase {
         // RMW round-trip：null 行以「欄位不存在」重寫，無資料損失
         let rd = try EntryYAML.decode(try EntryYAML.encode(e))
         XCTAssertEqual(rd, e)
-        let p = try PersonYAML.decode("key: a\nnames:\n")
+        let p = try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\nkey: a\nnames:\n")
         XCTAssertEqual(p.names, [])
     }
 
@@ -98,7 +98,7 @@ final class R8ForwardCompatTests: XCTestCase {
 
     /// 檔案裡的 `note: ~` RMW 後不得被靜默刪行（R8-verify HIGH (b)）。
     func testNullFaceOptionalScalarSurvivesRMW() throws {
-        let p = try PersonYAML.decode("key: a\nnote: ~\n")
+        let p = try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\nkey: a\nnote: ~\n")
         XCTAssertEqual(p.note, "~")
         let out = try PersonYAML.encode(p)
         XCTAssertEqual(try PersonYAML.decode(out).note, "~")
@@ -162,7 +162,7 @@ extension R8ForwardCompatTests {
     /// 判別式另一面：全檔無 LF ⇒ CR 是 classic-Mac 行尾，無損載入
     /// （testClassicMacLoneCRLineEndingsStillLoad 已覆蓋，此處 pin 值無損性）。
     func testLoneCRFileValuesLossless() throws {
-        let p = try PersonYAML.decode("key: a\rnames: {variant: [Alpha Beta]}\rnote: intact\r")
+        let p = try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\rkey: a\rnames: {variant: [Alpha Beta]}\rnote: intact\r")
         XCTAssertEqual(p.names, ["Alpha Beta"])
         XCTAssertEqual(p.note, "intact")
     }

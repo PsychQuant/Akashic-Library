@@ -59,12 +59,32 @@ final class EntitiesLayoutTests: XCTestCase {
     }
 
     /// legacy person 檔沒有 `id`——decode 必須補出**同一個**值，不是隨機值。
-    func testLegacyPersonWithoutIDGetsStableIdentity() throws {
+    // MARK: - record-identity（#241）：身分只有一個產生事件
+
+    /// spec `record-identity`「Two records with identical attributes receive different
+    /// identifiers」：同 key 的兩筆新記錄不得共用身分——兩個不同 library 各自叫
+    /// `chen-wei` 的**不同的人**，合併時必須仍可區分（v5(key) 會讓它們安靜熔成一筆）。
+    func testNewPersonsWithSameKeyGetDistinctIDs() {
+        let a = Person(key: "chen-wei")
+        let b = Person(key: "chen-wei")
+        XCTAssertNotEqual(a.id, b.id, "身分不得是名字（key）的函數")
+    }
+
+    /// 新建 person 的 id 不得等於舊推導函式對同一 key 的輸出——推導預設已退場。
+    func testNewPersonIDIsNotDerivedFromKey() {
+        let derived = DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace,
+                                           name: "chen-wei")
+        XCTAssertNotEqual(Person(key: "chen-wei").id, derived)
+    }
+
+    /// 缺 `id:` 的 person 檔 fail-closed——decode 不得推導（那是 default 位置的
+    /// compat fallback，#241 裁決退場）也不得隨機發（同檔每次載入不同身分，index
+    /// 主鍵與引用全漂）。舊檔只能經遷移路徑進來，與平坦 names 的拒絕同紀律。
+    func testPersonFileWithoutIDIsRefused() {
         let yaml = "key: p-one\nnames: {variant: [A]}\n"
-        let a = try PersonYAML.decode(yaml)
-        let b = try PersonYAML.decode(yaml)
-        XCTAssertEqual(a.id, b.id)
-        XCTAssertEqual(a.id, DeterministicUUID.forPerson(key: "p-one"))
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
+            XCTAssertTrue("\(error)".contains("person.id"), "訊息要點名欄位：\(error)")
+        }
     }
 
     /// `id` 在場但格式錯 → fail-closed。**不猜**：亂猜會讓引用安靜地對不上。

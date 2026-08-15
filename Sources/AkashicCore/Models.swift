@@ -341,7 +341,13 @@ public struct Person: Equatable {
     /// 頂層未知欄位（tolerant-preserve，#23）。
     public var unknownFields: [UnknownField]
 
-    /// `id` 省略時由 `key` 推出（確定性）——呼叫端不必為既有流程補一個 UUID。
+    /// `id` 省略時**發一個新的 v4**（#241）——身分只有一個產生事件：建立。
+    ///
+    /// 不再是 `v5(key)`：那讓身分成為名字的函數，而名字會撞、會被改、會因 import
+    /// 順序拿到不同後綴；兩個不同 library 裡同 key 的**不同的人**會在合併時安靜
+    /// 熔成一筆（不可逆）。legacy 補值（決定性推導）已退場——磁碟上全部記錄都帶
+    /// `id:`，舊檔只能經 migrate-person-identity 進來（`.claude/rules/
+    /// no-compat-fallback.md`：退場後刪掉，不留著當保險）。
     public init(key: String, names: PersonNames = [],
                 orcid: String? = nil,
                 openalex: String? = nil, died: String? = nil, note: String? = nil,
@@ -351,7 +357,7 @@ public struct Person: Equatable {
                 unknownFields: [UnknownField] = []) {
         self.profile = profile
         self.references = references
-        self.id = id ?? DeterministicUUID.forPerson(key: key)
+        self.id = id ?? UUID()
         self.key = key
         self.names = names
         self.orcid = orcid

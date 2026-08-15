@@ -146,6 +146,7 @@ final class ServiceTests: XCTestCase {
     func testDoctorReportsUnknownFieldFiles() throws {
         let f = root.appendingPathComponent("people/future-person.yaml")
         try """
+        id: 11111111-1111-4111-8111-111111111111
         key: future-person
         names:
           variant:

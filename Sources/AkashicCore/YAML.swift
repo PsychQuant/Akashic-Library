@@ -1175,9 +1175,10 @@ public enum PersonYAML {
                                                    expect: "scalar", { $0.scalar?.string }) else {
             throw StoreYAMLError.missingField("key")
         }
-        // #35：`id` 缺席 → 由 key 確定性推出（legacy `people/<key>.yaml` 沒有這個欄位）。
-        // 在場但格式錯 → fail-closed，**不猜**：亂猜一個 id 會讓這筆記錄與別處的引用
-        // 對不上，而且錯得很安靜。
+        // #241：`id` 是必要欄位——缺席 fail-closed。decode 不得推導（那是 default
+        // 位置的 compat fallback，已退場）也不得隨機發（同檔每次載入不同身分，
+        // index 主鍵與引用全漂）。舊檔（缺 id 的 legacy `people/<key>.yaml`）只能
+        // 經遷移路徑進來。在場但格式錯同樣 fail-closed，**不猜**。
         var explicitID: UUID?
         if let raw = try EntryYAML.requireShape(map["id"], field: "person.id",
                                                 expect: "scalar", nullIsAbsent: true,
@@ -1186,6 +1187,12 @@ public enum PersonYAML {
                 throw StoreYAMLError.invalidField("person.id", "不是合法的 UUID")
             }
             explicitID = u
+        }
+        guard let explicitID else {
+            throw StoreYAMLError.invalidField(
+                "person.id",
+                "缺 id——身分在建立時發放、隨檔攜帶，decode 不推導也不補發。"
+                + "缺 id 的舊記錄請以 migrate-person-identity 遷移整個 store")
         }
         // `type` 在 entities 佈局用來分辨記錄種類；person 檔只接受 "person"。
         if let t = try EntryYAML.requireShape(map["type"], field: "person.type",

@@ -47,10 +47,10 @@
 
 實作 spec `record-identity` 的 **Identifier reassignment SHALL keep the record locatable at every point** 與 **An irreversible reassignment SHALL require a working recovery path**；依 design **D5：遷移三件事必須原子** 與 **D6：遷移預設 dry-run，且要求 store 工作樹乾淨**。對應 design **Failure modes** 表的後三列。
 
-- [ ] 6.1 RED：新增 Tests/AkashicKitTests/PersonIdentityMigrationTests.swift，涵蓋五條——dry-run 不寫任何檔；檔名與 `id` 遷移後一致（不一致會進 quarantine，這是首要風險）；工作樹不乾淨時寫入被拒；重跑安全（已是新形狀者計入「跳過」）；單筆失敗不中止整批且 report 點名。
-- [ ] 6.2 GREEN（實作 Identifier reassignment SHALL keep the record locatable at every point）：新增 Sources/AkashicStoreIO/PersonIdentityMigration.swift，提供 `run(store:apply:)` 回傳含「已遷移／已跳過／失敗及原因」的 report。每筆的三件事（發新 v4 id、以新 id 寫新檔、刪舊檔）依此順序，使中斷留下可偵測的重複而非資料遺失。
-- [ ] 6.3 實作 An irreversible reassignment SHALL require a working recovery path：在寫入路徑加入「store 工作樹必須乾淨」的前置檢查——store 是 git repo，那是本次不可逆遷移的回復路徑。不乾淨時拒絕並說明要先 commit。
-- [ ] 6.4 [P] 在 Sources/akashic/Commands.swift 新增 `migrate-person-identity` 子命令，預設 dry-run，另有明確旗標才寫入，輸出沿用既有遷移命令的呈現形狀。
+- [x] 6.1 RED：新增 Tests/AkashicKitTests/PersonIdentityMigrationTests.swift，涵蓋五條——dry-run 不寫任何檔；檔名與 `id` 遷移後一致（不一致會進 quarantine，這是首要風險）；工作樹不乾淨時寫入被拒；重跑安全（已是新形狀者計入「跳過」）；單筆失敗不中止整批且 report 點名。
+- [x] 6.2 GREEN（實作 Identifier reassignment SHALL keep the record locatable at every point）：新增 Sources/AkashicStoreIO/PersonIdentityMigration.swift，提供 `run(store:apply:)` 回傳含「已遷移／已跳過／失敗及原因」的 report。每筆的三件事（發新 v4 id、以新 id 寫新檔、刪舊檔）依此順序，使中斷留下可偵測的重複而非資料遺失。
+- [x] 6.3 實作 An irreversible reassignment SHALL require a working recovery path：在寫入路徑加入「store 工作樹必須乾淨」的前置檢查——store 是 git repo，那是本次不可逆遷移的回復路徑。不乾淨時拒絕並說明要先 commit。
+- [x] 6.4 [P] 在 Sources/akashic/Commands.swift 新增 `migrate-person-identity` 子命令，預設 dry-run，另有明確旗標才寫入，輸出沿用既有遷移命令的呈現形狀。
 
 ## 7. key 的重算退場
 

@@ -80,7 +80,7 @@ sed -n '/subcommands: \[/,/\])/p' Sources/akashic/CLI.swift | grep -oE '[A-Za-z]
 #    或讀 configuration 的測試，見 #259 的討論）
 ```
 
-## CLI-only 裁決表（封閉列舉——#259 一次性補裁；11 命令＋1 旗標，一格不多一格不少；`import-wos` 於 #290 補 MCP 面後移列 MCP 表）
+## CLI-only 裁決表（封閉列舉——#259 一次性補裁；12 命令＋1 旗標，一格不多一格不少；`import-wos` 於 #290 補 MCP 面後移列 MCP 表；`migrate-person-identity` 於 #227/#241 新增時當場裁決）
 
 新增 CLI subcommand = 在這張表加一列（或補 MCP 面後在 MCP 表加一列）。兩個
 裁決用語：**維運例外**＝要求操作者在檔案系統與版控旁（git 退路、人工
@@ -98,6 +98,7 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 | `fmt` | 有理由缺席 | 全庫改寫＝維運例外 |
 | `migrate` | 有理由缺席 | 格式遷移＝維運例外 |
 | `migrate-provenance` | 有理由缺席 | 同上 |
+| `migrate-person-identity`（#227/#241） | 有理由缺席 | 格式遷移＝維運例外（同 `migrate`／`migrate-provenance`）；且不可逆、要求 store 工作樹乾淨的人工 pre-flight，MCP 的 LLM 消費者不是該角色 |
 | `validate` | 有理由缺席 | 讀取檢查由 `akashic_doctor` 覆蓋（功能重疊）|
 | `rename` | 有理由缺席 | 高風險身分操作（citekey 遷移含 verdict value 重寫，#232）＝維運例外 |
 | `authorize-names` | 有理由缺席 | 批次策展＝操作者規模 |

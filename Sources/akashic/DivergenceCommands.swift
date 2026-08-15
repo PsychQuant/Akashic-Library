@@ -77,6 +77,15 @@ struct ResolveDivergence: ParsableCommand {
         if !report.removedDivergences.isEmpty {
             print("已刪除歧異記錄：\(report.removedDivergences.joined(separator: ", "))")
         }
+        // #271：判定史的遷移要說出來——靜默搬移與靜默丟棄一樣不可稽核
+        if !report.verdictReferencesMigrated.isEmpty {
+            print("verdict 已隨合併遷移到倖存者：\(report.verdictReferencesMigrated.count) 筆"
+                + "（\(report.verdictReferencesMigrated.map { displaySafe($0, max: 200) }.joined(separator: "；"))）")
+        }
+        if !report.verdictValuesRewritten.isEmpty {
+            print("verdict value 已隨 citekey 退役改寫（person）："
+                + report.verdictValuesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))
+        }
         for w in report.warnings {   // #75 對一：不擋但要說
             print("  ⚠ \(w)")
         }

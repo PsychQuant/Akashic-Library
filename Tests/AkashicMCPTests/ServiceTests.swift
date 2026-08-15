@@ -5,6 +5,7 @@ import XCTest
 @testable import AkashicSQLite
 @testable import AkashicQuery
 @testable import AkashicGraph
+@testable import AkashicEntity
 
 final class ServiceTests: XCTestCase {
     var root: URL!
@@ -616,6 +617,47 @@ final class ServiceTests: XCTestCase {
     func testImportWoSMissingFileFailsLoud() {
         XCTAssertThrowsError(try service.importWoS(path: "/nonexistent/wos.txt",
                                                    csv: false, dryRun: false))
+    }
+
+    // MARK: - person 檢視的 verdict 面（#270——第 13 條邊的列舉入口）
+
+    func testPersonPayloadListsVerdictsWithObservedAndStaleStates() throws {
+        let store = LibraryStore(root: root)
+        let e = Entry(id: UUID(), citekey: "hsu2021weber", type: "article", title: "W",
+                      authors: [.literal("Hsu, Y.-F.")], date: "2021")
+        try store.writeEntry(e)
+        var p = Person(key: "hsu-yung-fong", names: ["Hsu, Yung-Fong"])
+        // observed：holder entry 存在且 literal 仍在作者列
+        _ = ResolutionLedger.appendIfAbsent(
+            ResolutionLedger.record(.confirmed, holderKind: .work, holder: "hsu2021weber",
+                                    literal: "Hsu, Y.-F.", rule: ResolutionLedger.personRule,
+                                    statement: "s"), to: &p.references)
+        // stale：holder entry 不存在（rename 前／已刪）
+        _ = ResolutionLedger.appendIfAbsent(
+            ResolutionLedger.record(.rejected, holderKind: .work, holder: "gone2000x",
+                                    literal: "Hsu, Y.", rule: ResolutionLedger.personRule,
+                                    statement: "s"), to: &p.references)
+        try store.writePerson(p)
+        // 不需顯式 rebuild——service.person 的 ensureFreshIndex 依 mtime 自動重建
+
+        let obj = try json(try service.person(key: "hsu-yung-fong", name: nil, library: nil)) as! [String: Any]
+        let person = obj["person"] as! [String: Any]
+        let vs = person["verdicts"] as? [[String: Any]]
+        XCTAssertEqual(vs?.count, 2, "verdict 是掛在記錄上的邊——檢視要看得到：\(person)")
+        let byHolder = Dictionary(uniqueKeysWithValues: (vs ?? []).map { ($0["holder"] as! String, $0) })
+        XCTAssertEqual(byHolder["hsu2021weber"]?["state"] as? String, "observed")
+        XCTAssertEqual(byHolder["gone2000x"]?["state"] as? String, "stale",
+                       "holder 不存在的 verdict 要標 stale——resolver 沉底段列不出它，這裡是唯一列舉面")
+        XCTAssertEqual(byHolder["gone2000x"]?["kind"] as? String, "resolution-rejected")
+    }
+
+    func testPersonPayloadVerdictsEmptyIsExplicit() throws {
+        let store = LibraryStore(root: root)
+        try store.writePerson(Person(key: "no-verdicts", names: ["N"]))
+        let obj = try json(try service.person(key: "no-verdicts", name: nil, library: nil)) as! [String: Any]
+        let person = obj["person"] as! [String: Any]
+        XCTAssertNotNil(person["verdicts"], "空集合也要出現——缺席分辨不出「無判定」與「欄位掉了」")
+        XCTAssertEqual((person["verdicts"] as? [[String: Any]])?.count, 0)
     }
 }
 

@@ -123,13 +123,50 @@ final class ResolutionVerdictServiceTests: XCTestCase {
         }
     }
 
-    /// verify A（4/4 席 + DA）：apply 與 reject 同呼叫曾以 stale 快照互相蓋寫——
-    /// reject 剛寫的 verdict 被 confirm 的整檔改寫抹掉，回應還宣稱兩者都成功。
-    /// 修法是禁止（DA (a)：組合語意要能按腿回報部分失敗，是它自己的設計題）。
-    func testApplyAndRejectInOneCallIsRefused() throws {
-        XCTAssertThrowsError(try service.resolvePeople(apply: ["b2021y:0"],
-                                                       reject: ["a2020x:0"]))
-        XCTAssertTrue(try person().references.isEmpty, "拒絕時不得有任何寫入")
+    /// #272 解禁（原 verify A 的禁令）：組合呼叫改兩段式——reject 腿完整提交後
+    /// apply 腿重載重解析。**原事故形（stale 蓋寫）是本測試的核心斷言**：reject
+    /// 剛寫的 verdict 必須在 apply 腿之後仍在（v1 的 bug 正是它被抹掉）。
+    func testApplyAndRejectInOneCallReportsPerLeg() throws {
+        let out = try json(try service.resolvePeople(apply: ["b2021y:0"],
+                                                     reject: ["a2020x:0"]))
+        let legs = out["legs"] as? [String: Any]
+        XCTAssertNotNil(legs, "組合呼叫要按腿回報：\(out)")
+        let rejectLeg = legs?["reject"] as? [String: Any]
+        let applyLeg = legs?["apply"] as? [String: Any]
+        XCTAssertEqual(rejectLeg?["rejected"] as? [String], ["a2020x:0"])
+        XCTAssertEqual(applyLeg?["applied"] as? [String], ["b2021y:0"])
+        // 原事故形不再現：兩個 verdict 都在（reject 沒被 apply 的整檔改寫抹掉）
+        let (vs, _) = ResolutionLedger.verdicts(references: try person().references)
+        XCTAssertEqual(vs.count, 2, "reject 與 confirm 都要存活：\(vs)")
+        XCTAssertTrue(vs.contains { $0.kind == .rejected && $0.holder == "a2020x" })
+        XCTAssertTrue(vs.contains { $0.kind == .confirmed && $0.holder == "b2021y" })
+    }
+
+    /// 同一列兩邊都點到：reject 腿贏（先提交），apply 腿以 skippedBecauseRejected
+    /// 回報——不是錯誤（LLM 一次 triage 常見）。
+    func testSameRowInBothLegsIsSkippedNotError() throws {
+        let out = try json(try service.resolvePeople(apply: ["a2020x:0"],
+                                                     reject: ["a2020x:0"]))
+        let legs = out["legs"] as! [String: Any]
+        let applyLeg = legs["apply"] as! [String: Any]
+        XCTAssertEqual(applyLeg["skippedBecauseRejected"] as? [String], ["a2020x:0"])
+        XCTAssertEqual((applyLeg["applied"] as? [String]) ?? [], [])
+        let (vs, _) = ResolutionLedger.verdicts(references: try person().references)
+        XCTAssertEqual(vs.count, 1)
+        XCTAssertEqual(vs.first?.kind, .rejected, "reject 腿先提交、apply 不得覆蓋")
+    }
+
+    /// apply 腿失敗不得掩蓋 reject 已提交的事實——錯誤收容進 legs.apply.error。
+    func testApplyLegFailureDoesNotHideCommittedReject() throws {
+        let out = try json(try service.resolvePeople(apply: ["stale-id:9"],
+                                                     reject: ["a2020x:0"]))
+        let legs = out["legs"] as! [String: Any]
+        XCTAssertEqual((legs["reject"] as? [String: Any])?["rejected"] as? [String],
+                       ["a2020x:0"], "reject 已提交")
+        let applyLeg = legs["apply"] as! [String: Any]
+        XCTAssertNotNil(applyLeg["error"], "apply 腿的失敗要按腿收容：\(applyLeg)")
+        let (vs, _) = ResolutionLedger.verdicts(references: try person().references)
+        XCTAssertEqual(vs.first?.kind, .rejected, "reject 的寫入不受 apply 失敗影響")
     }
 
     /// verify F／S-6：重複 rowID 曾寫出 N 筆相同 verdict、計數灌水 N 倍。

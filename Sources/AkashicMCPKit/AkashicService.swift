@@ -496,6 +496,28 @@ public final class AkashicService {
                 // **空集合也要出現**（規則執行細節 4，同一輪剛把 co_authors 的省略判為 bug）：
                 // 缺席時分辨不出「這個人沒有隸屬記錄」與「這個欄位掉了」。
                 personDict["affiliations"] = affs
+                // **verdict 是掛在這筆記錄上的邊（第 13 條）——檢視就要看得到**（#270）。
+                // resolver 沉底段按建構只列仍可觀測的配對；stale 的（rename 前、entry 已刪、
+                // literal 已移位）在這裡才有列舉面。observed/stale 判定：holder entry 仍存在
+                // 且該 literal 仍出現在其作者列 → observed；否則 stale。
+                let (vs, malformed) = ResolutionLedger.verdicts(references: record.references)
+                personDict["verdicts"] = vs.map { v -> [String: Any] in
+                    let observed: Bool = {
+                        guard v.holderKind == .work,
+                              let e = load.entries.first(where: { $0.citekey == v.holder })
+                        else { return v.holderKind != .work }   // org 族：不對 entry 判 stale
+                        return e.authors.contains { if case .literal(let s) = $0 { return s == v.literal }; return false }
+                    }()
+                    return ["kind": v.kind.rawValue,   // display-safe-exempt: VerdictKind 是封閉列舉 rawValue
+                            "holder_kind": v.holderKind.rawValue,   // display-safe-exempt: 同上
+                            "holder": displaySafe(v.holder, max: 200),
+                            "literal": displaySafe(v.literal, max: 200),
+                            "rule": displaySafe(v.rule, max: 200),
+                            "state": observed ? "observed" : "stale"]
+                }
+                if !malformed.isEmpty {
+                    personDict["verdictMalformed"] = malformed.map { displaySafe($0, max: 300) }
+                }
             }
             return try jsonString([
                 "person": personDict,
@@ -699,14 +721,42 @@ public final class AkashicService {
     /// design D6）——entry **不動**。apply 在改寫 entry 的同一動作內寫
     /// `resolution-confirmed`。兩者都是顯式人為動作；無 rowID 不發生任何寫入。
     ///
-    /// **apply 與 reject 不可同呼叫**（verify DA (a)）：兩腿寫同一批 person 檔，
-    /// 曾以 stale 快照互相蓋寫——reject 剛寫入的 verdict 被 confirm 的整檔改寫
-    /// 抹掉，而回應照樣宣稱兩者都成功。組合語意（部分失敗要能按腿回報）是它
-    /// 自己的設計題；在那之前，禁止是唯一不說謊的形狀。CLI 同此。
+    /// **apply 與 reject 的組合呼叫是兩段式**（#272 解禁；原 verify DA (a) 禁令）：
+    /// v1 禁組合是因為兩腿以同一 stale 快照寫同批 person 檔互相蓋寫。解禁的三前置
+    /// 由構造滿足——(1) reject 腿**完整提交**（含 rebuild）後，(2) apply 腿以遞迴
+    /// 呼叫重新 load＋重解析（rejected 集合已含剛寫入的否決、候選表重推導），
+    /// (3) 回應按腿分段（`legs.reject`／`legs.apply`），apply 腿的錯誤被收容進
+    /// `legs.apply.error`——reject 已提交的事實不會被 apply 的失敗掩蓋。
+    /// 剛被 reject 腿否決的 apply id 以 `skippedBecauseRejected` 回報（不是錯誤——
+    /// LLM 一次 triage 常兩邊都點到同一列）。單腿呼叫回應形狀**不變**。
     public func resolvePeople(apply: [String]?, reject: [String]? = nil) throws -> String {
         if let ap = apply, !ap.isEmpty, let rj = reject, !rj.isEmpty {
-            throw ServiceError.invalid(
-                "apply 與 reject 不可同一次呼叫——分兩次（相反的 verdict 各自有各自的失敗語意）")
+            func parsed(_ s: String) throws -> [String: Any] {
+                (try JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any]) ?? [:]
+            }
+            // 腿 1：reject 完整提交（失敗即整體 throw——什麼都還沒動到 apply）
+            let rejectDict = try parsed(try resolvePeople(apply: nil, reject: rj))
+            let justRejected = Set(rejectDict["rejected"] as? [String] ?? [])
+            let applyIDs = ap.filter { !justRejected.contains($0) }
+            let skipped = ap.filter { justRejected.contains($0) }
+            // 腿 2：在寫入後的新快照上跑（遞迴呼叫從 store.load() 重來）
+            var applyDict: [String: Any]
+            if applyIDs.isEmpty {
+                applyDict = ["applied": [String]()]
+            } else {
+                do {
+                    applyDict = try parsed(try resolvePeople(apply: applyIDs, reject: nil))
+                } catch {
+                    applyDict = [
+                        "error": displaySafe(String(describing: error), max: 512),
+                        "note": "reject 腿已提交（見 legs.reject）——本錯誤只屬 apply 腿",
+                    ]
+                }
+            }
+            if !skipped.isEmpty {
+                applyDict["skippedBecauseRejected"] = skipped.map { displaySafe($0, max: 200) }
+            }
+            return try jsonString(["legs": ["reject": rejectDict, "apply": applyDict]])
         }
         let load = try store.load()
         // #232 design D5：已否決配對從 verdict references 現算（never stored），

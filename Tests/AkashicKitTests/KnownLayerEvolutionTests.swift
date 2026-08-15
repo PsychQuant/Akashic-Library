@@ -105,30 +105,30 @@ final class KnownLayerEvolutionTests: XCTestCase {
         XCTAssertEqual(try store.load().entries.count, 0, "作者的 shape 未知必須 fail-closed")
     }
 
-    // MARK: - v8-only 語法的 format gate（#223）
+    // MARK: - v9-only 語法的 format gate（#223）
 
     /// 同 ended（v6）／attested（v7）gate 的機制與理由：新語法在舊 store 上寫入即拒絕，
     /// 錯誤訊息要同時說出「需要幾」與「現在是幾」，否則使用者不知道要改什麼。
-    func testCopyReferenceRefusedOnPreV8Store() throws {
-        try StoreVersion.write(root: root, format: 7)
+    func testCopyReferenceRefusedOnPreV9Store() throws {
+        try StoreVersion.write(root: root, format: 8)
         var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
         e.akashic.sources = ["sha256:" + String(repeating: "ab", count: 32)]
         XCTAssertThrowsError(try store.writeEntry(e)) { error in
             let msg = "\(error)"
-            XCTAssertTrue(msg.contains("8"), "要指出所需 format：\(msg)")
-            XCTAssertTrue(msg.contains("7"), "也要說出本 store 現在是幾：\(msg)")
+            XCTAssertTrue(msg.contains("9"), "要指出所需 format：\(msg)")
+            XCTAssertTrue(msg.contains("8"), "也要說出本 store 現在是幾：\(msg)")
         }
     }
 
-    func testCopyReferenceAcceptedOnV8Store() throws {
-        try StoreVersion.write(root: root, format: 8)
+    func testCopyReferenceAcceptedOnV9Store() throws {
+        try StoreVersion.write(root: root, format: 9)
         var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
         e.akashic.sources = ["sha256:" + String(repeating: "ab", count: 32)]
         XCTAssertNoThrow(try store.writeEntry(e))
     }
 
     /// 沒有副本清單的記錄不受 gate 影響——gate 只擋新語法，不改既有寫入路徑。
-    func testEntryWithoutCopyReferenceStillWritesOnPreV8Store() throws {
+    func testEntryWithoutCopyReferenceStillWritesOnPreV9Store() throws {
         try StoreVersion.write(root: root, format: 7)
         let e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
         XCTAssertNoThrow(try store.writeEntry(e))
@@ -136,7 +136,7 @@ final class KnownLayerEvolutionTests: XCTestCase {
 
     /// 目前的精確 format 值（#131 verify 慣例：釘精確值防「意外多 bump 一次」，
     /// 每次刻意 bump 隨新 format 的測試搬家——本次從 AttestedRangeTests 搬來，#223）。
-    func testCurrentSupportedFormatIsExactlyEight() {
-        XCTAssertEqual(StoreVersion.supported, 8)
+    func testCurrentSupportedFormatIsExactlyNine() {
+        XCTAssertEqual(StoreVersion.supported, 9)
     }
 }

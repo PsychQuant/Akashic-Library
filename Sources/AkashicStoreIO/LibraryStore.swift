@@ -406,14 +406,14 @@ public final class LibraryStore {
             throw StoreIOError.invalidKey("akashic.libraries（重複）",
                                           entry.akashic.libraries.joined(separator: ","))
         }
-        // v8-only 語法的 format gate（#223，同 ended/attested gate 的機制與理由）
+        // v9-only 語法的 format gate（#223，同 ended/attested gate 的機制與理由）
         if !entry.akashic.sources.isEmpty {
             let format = try StoreVersion.read(root: root)
-            guard format >= 8 else {
+            guard format >= 9 else {
                 throw StoreIOError.invalidKey(
-                    "entry（含 akashic.sources 副本引用，需要 store format ≥ 8；本 store 是 \(format)）——" +
+                    "entry（含 akashic.sources 副本引用，需要 store format ≥ 9；本 store 是 \(format)）——" +
                     "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
-                    "format: 改成 8", entry.citekey)
+                    "format: 改成 9", entry.citekey)
             }
         }
         let yaml = try EntryYAML.encode(entry)

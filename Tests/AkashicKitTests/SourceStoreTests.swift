@@ -378,7 +378,7 @@ final class SourceStoreTests: XCTestCase {
     /// 契約（#223）：digest 合法但本機無存檔＝**載入成功 + 可回報**，
     /// 與「記錄格式損毀」是兩種不同條件，不可混為一談。
     func testEntryWithAbsentCopyDigestLoadsAndReportsMissing() throws {
-        let present = try store.storeSourceContent(Data("copy".utf8)).digest
+        let present = try store.storeSource(Data("copy".utf8), provenance: prov()).digest
         let absent = "sha256:" + String(repeating: "dd", count: 32)
         var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
         e.akashic.sources = [present, absent]
@@ -397,7 +397,7 @@ final class SourceStoreTests: XCTestCase {
     /// 即使目前無需產品程式碼即通過，仍保留為回歸鎖：日後若有人「順手」把兩者
     /// 合併成一個欄位，這個測試會擋下來。
     func testCopyReferenceAndFieldReferenceCoexistOverSameContent() throws {
-        let shared = try store.storeSourceContent(Data("shared bytes".utf8)).digest
+        let shared = try store.storeSource(Data("shared bytes".utf8), provenance: prov()).digest
 
         var work = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
         work.akashic.sources = [shared]

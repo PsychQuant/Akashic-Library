@@ -282,7 +282,16 @@ public extension LibraryStore {
 
     /// 全庫 references 指名、但本機沒有存檔的 digest（排序去重）。
     /// 「回報缺席」的可用面——doctor/CLI 接線屬後續 issue（Out of scope）。
-    func missingSourceDigests(_ load: LibraryLoad) -> [String] {
+    ///
+    /// **讀不到 ≠ 缺席**（#265，同 auditSourceIndex 的 verify reg F2）：digest 所屬
+    /// shard 目錄存在但列不出來（權限、半截同步）→ 該 digest **不判缺席**、shard
+    /// 進 `unreadableShards`——fileExists 對讀不到的父目錄同樣回 false，直接信它
+    /// 會把好好的存檔捏造成「缺席」。
+    ///
+    /// **divergence 的 `judgement.restsOn` 在掃描範圍**（#251，第 12 條邊）——
+    /// 先前只掃 people/organizations 的 references，報告對消歧證據鏈全盲。
+    func missingSourceDigests(_ load: LibraryLoad)
+        -> (missing: [String], unreadableShards: [String]) {
         var digests = Set<String>()
         func collect(_ refs: [ProvenanceReference]) {
             for r in refs {
@@ -294,13 +303,29 @@ public extension LibraryStore {
         }
         for p in load.people { collect(p.references) }
         for o in load.organizations { collect(o.references) }
+        for d in load.divergences {   // #251：judgement 的依據也是指名的存檔
+            if let j = d.judgement { digests.formUnion(j.restsOn) }
+        }
         // 記錄側副本引用（#223）：關係項與欄位層級 references 不同，但**指向同一個
         // 內容儲存區**，所以缺席語意共用這一條路徑——不新增第二套判定。
         for e in load.entries { digests.formUnion(e.akashic.sources) }
-        return digests.filter { d in
-            guard let url = sourceURL(digest: d) else { return true }
-            return !FileManager.default.fileExists(atPath: url.path)
-        }.sorted()
+        let fm = FileManager.default
+        var missing: [String] = []
+        var unreadable = Set<String>()
+        for d in digests.sorted() {
+            guard let url = sourceURL(digest: d) else { missing.append(d); continue }
+            if fm.fileExists(atPath: url.path) { continue }
+            // 判缺席前先確認 shard 可列——列不出來是「讀不到」，不是「缺席」（#265）
+            let shardDir = url.deletingLastPathComponent()
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: shardDir.path, isDirectory: &isDir), isDir.boolValue,
+               (try? fm.contentsOfDirectory(atPath: shardDir.path)) == nil {
+                unreadable.insert("sources/\(shardDir.lastPathComponent)/")
+                continue
+            }
+            missing.append(d)
+        }
+        return (missing, unreadable.sorted())
     }
 
     /// 版控排除的 fail-closed 驗證（D5）。

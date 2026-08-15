@@ -72,9 +72,9 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
   > **刻意不攜 rests-on**——證據載體依生命週期分工：已判定 → 被判實體的 `references`
   > （第 11 條）；未判定 → divergence 的 `judgement.restsOn`（第 12 條）。這是設計不是
   > 缺口；不得因「verdict 也該綁證據」而給第 13 條長出第二個內容指標。
-  > 實際後果：`SourceStore.missingSourceDigests` 只掃 `people` 與 `organizations` 的
-  > `references`，**不掃 divergence 的 judgement** ——「指名但本機缺存檔」這份報告對
-  > judgement 的依據是全盲的。那是既有缺口，本規則不修它，但列舉必須看得見它。
+  > 實際後果（已修，#251）：`SourceStore.missingSourceDigests` 曾只掃 `people` 與
+  > `organizations` 的 `references`、不掃 divergence 的 judgement——報告對消歧證據
+  > 鏈全盲。2026-08-15 起第 12 條邊在掃描範圍；同輪修掉「讀不到折成缺席」（#265）。
 
 #### 對稱邊的約定（判準沉默的地方）
 

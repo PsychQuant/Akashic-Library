@@ -370,7 +370,7 @@ final class SourceStoreTests: XCTestCase {
         let load = try store.load()
         XCTAssertEqual(load.people.count, 1, "缺席 digest 不阻擋載入")
         XCTAssertEqual(load.quarantined.count, 0)
-        XCTAssertEqual(store.missingSourceDigests(load), [absent],
+        XCTAssertEqual(store.missingSourceDigests(load).missing, [absent],
                        "缺席清單只含真的不在本機的（present 不在列）")
     }
 
@@ -386,7 +386,7 @@ final class SourceStoreTests: XCTestCase {
         let load = try store.load()
         XCTAssertEqual(load.entries.count, 1, "缺席 digest 不阻擋載入")
         XCTAssertEqual(load.quarantined.count, 0, "缺席不是損毀——不得進 quarantine")
-        XCTAssertEqual(store.missingSourceDigests(load), [absent],
+        XCTAssertEqual(store.missingSourceDigests(load).missing, [absent],
                        "缺席清單只含真的不在本機的（present 不在列）")
     }
 
@@ -420,9 +420,53 @@ final class SourceStoreTests: XCTestCase {
                        "欄位層級 reference 不得被改寫成副本引用")
         XCTAssertEqual(load.people.first?.references.first?.field, "orcid",
                        "欄位層級 reference 仍綁在具名欄位上")
-        XCTAssertEqual(store.missingSourceDigests(load), [],
+        XCTAssertEqual(store.missingSourceDigests(load).missing, [],
                        "共用的內容存在本機，兩邊都不該被回報為缺席")
         XCTAssertNotNil(try store.sourceContent(digest: shared),
                         "同位元組只存一份，兩個關係項共用它")
+    }
+}
+
+// MARK: - #251／#265：missingSourceDigests 的掃描範圍與讀不到語意
+
+extension SourceStoreTests {
+    /// #251：divergence 的 judgement.restsOn（第 12 條邊）在掃描範圍——
+    /// 消歧判斷的依據缺存檔時報告不得全盲。
+    func testMissingScanCoversDivergenceRestsOn() throws {
+        let absent = "sha256:" + String(repeating: "ee", count: 32)
+        try store.writePerson(Person(key: "p-one", names: ["P"]))
+        try store.writePerson(Person(key: "p-two", names: ["P2"]))
+        var d = Divergence(id: UUID(), question: "q",
+                           candidates: [DivergenceCandidate(key: "p-one", shape: .person),
+                                        DivergenceCandidate(key: "p-two", shape: .person)])
+        d.judgement = Judgement(statement: "s", restsOn: [absent])
+        try store.writeDivergence(d)
+        let load = try store.load()
+        XCTAssertEqual(store.missingSourceDigests(load).missing, [absent],
+                       "judgement 的依據缺存檔要被報出來——先前對這條邊全盲")
+    }
+
+    /// #265：shard 目錄存在但列不出來（權限）→ digest 不判缺席、shard 進
+    /// unreadableShards——fileExists 對讀不到的父目錄回 false，直接信它是捏造缺席。
+    func testUnreadableShardIsNotReportedAsMissing() throws {
+        // 真的存一份（blob 落地），再把 shard 目錄鎖成不可讀
+        let receipt = try store.storeSource(Data("locked".utf8), provenance: prov())
+        var p = Person(key: "p-locked", names: ["L"])
+        p.orcid = "0000-0002-1825-0097"   // reference 指名的欄位必須存在
+        p.references = [ProvenanceReference(
+            field: "orcid", value: nil,
+            kind: .retrieval(url: "https://example.org", retrieved: "2026-08-15",
+                             status: 200, mediaType: nil, content: receipt.digest))]
+        try store.writePerson(p)
+        let hex = String(receipt.digest.dropFirst("sha256:".count))
+        let shardDir = root.appendingPathComponent("sources").appendingPathComponent(String(hex.prefix(2)))
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: shardDir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shardDir.path) }
+        let load = try store.load()
+        let out = store.missingSourceDigests(load)
+        XCTAssertFalse(out.missing.contains(receipt.digest),
+                       "讀不到不得判缺席（存檔明明在）：\(out.missing)")
+        XCTAssertEqual(out.unreadableShards, ["sources/\(String(hex.prefix(2)))/"],
+                       "讀不到要有自己的通道，不是靜默")
     }
 }

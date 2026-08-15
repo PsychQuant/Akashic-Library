@@ -623,7 +623,7 @@ final class ServiceTests: XCTestCase {
 
     func testPersonPayloadListsVerdictsWithObservedAndStaleStates() throws {
         let store = LibraryStore(root: root)
-        var e = Entry(id: UUID(), citekey: "hsu2021weber", type: "article", title: "W",
+        let e = Entry(id: UUID(), citekey: "hsu2021weber", type: "article", title: "W",
                       authors: [.literal("Hsu, Y.-F.")], date: "2021")
         try store.writeEntry(e)
         var p = Person(key: "hsu-yung-fong", names: ["Hsu, Yung-Fong"])

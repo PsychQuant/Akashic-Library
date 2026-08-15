@@ -64,5 +64,5 @@
 對應 design 的 **Acceptance criteria**，並完成 **D4** 要求的退場動作。
 
 - [x] 8.1 移除 Sources/AkashicCore/DeterministicUUID.swift 的 person 推導函式，確認 Sources/ 內無生產呼叫端（遷移後補值用途歸零；依 no-compat-fallback 第 3 條，退場後刪掉不留著當保險）。若遷移本身仍需它定位舊檔，改為遷移內部的 private helper。
-- [ ] 8.2 對真實 store 的**複本**（複製到暫存目錄，不動原始 store）跑一次寫入，之後執行 validate 與 doctor，確認無新增錯誤、search 結果筆數與遷移前相同。三個數字記進 PR 說明。
+- [x] 8.2 對真實 store 的**複本**（複製到暫存目錄，不動原始 store）跑一次寫入，之後執行 validate 與 doctor，確認無新增錯誤、search 結果筆數與遷移前相同。三個數字記進 PR 說明。
 - [ ] 8.3 全套 `swift test` 與 `swift build -Xswiftc -warnings-as-errors` 通過；逐條 mutation 驗證新增測試（還原對應實作時必須轉紅），不是只看綠燈。

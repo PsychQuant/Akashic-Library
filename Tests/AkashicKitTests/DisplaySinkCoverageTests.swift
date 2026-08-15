@@ -1145,7 +1145,8 @@ extension DisplaySinkCoverageTests {
         id: 33333333-4444-5555-6666-777777777777
         key: dirty-contact
         names:
-        - D
+          variant:
+          - D
         profile:
           contacts:
             "email\\u001B[31mEVIL":

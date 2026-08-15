@@ -164,11 +164,11 @@ actor AkashicMCPServer {
              description: "建人物實體（people/<key>.yaml；aliases、ORCID、OpenAlex）。",
              inputSchema: obj([
                 "key": str("kebab-case person key"),
-                "names": strArray("aliases（顯示名由 authorized 指定——#81 起 names 順序不帶語意）"),
+                "names": strArray("aliases——全部進 variant 分割（#227：對外名字之後由 names.authorized 指定，建檔不偽造指定）"),
                 "orcid": str("ORCID（可選）"), "openalex": str("OpenAlex author ID（可選）"),
              ], required: ["key", "names"])),
         Tool(name: "akashic_update_person",
-             description: "person 的部分更新（#68）：提及的欄位整個換、未提及一律不動。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names/authorized 收字串陣列（全量替換）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）；注意 contacts 是**一個**維度——提及它＝整個 contacts map 替換，未提及的子鍵（email/phone…）會消失。dry_run 時零寫入、回報會改什麼 + format gate 預演。",
+             description: "person 的部分更新（#68）：提及的欄位整個換、未提及一律不動。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names 收 {authorized:[…], variant:[…]} object（全量替換；#227 巢狀化後平坦陣列拒收，頂層 authorized 鍵不存在）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）；注意 contacts 是**一個**維度——提及它＝整個 contacts map 替換，未提及的子鍵（email/phone…）會消失。dry_run 時零寫入、回報會改什麼 + format gate 預演。",
              inputSchema: obj([
                 "key": str("person key"),
                 "fields": .object([

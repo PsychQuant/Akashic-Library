@@ -20,7 +20,7 @@ final class RelationalExportTests: XCTestCase {
     /// 不需要「是否已歸戶」的旗標——缺席本身就是資訊，`IS NULL` 就是查詢。
     func testAuthorSumTypeMapsToNullableFK() {
         // #81：`names` 的順序不再帶語意——要出現在匯出裡的名字必須被 `authorized` 指定。
-        let p = Person(key: "cheng-che", names: ["Che Cheng"], authorized: ["Che Cheng"])
+        let p = Person(key: "cheng-che", names: PersonNames(authorized: ["Che Cheng"]))
         let e = entry("a2020a", authors: [.key("cheng-che"), .literal("Someone Else")])
         let t = RelationalExport.tables(entries: [e], people: [p]).publicationAuthor
         XCTAssertEqual(t.rows.count, 2)

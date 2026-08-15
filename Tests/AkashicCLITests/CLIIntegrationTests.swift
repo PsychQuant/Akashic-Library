@@ -62,6 +62,7 @@ final class CLIIntegrationTests: XCTestCase {
         try """
         key: cheng-che
         names:
+          variant:
           - Che Cheng
           - 鄭澈
         """.write(to: people.appendingPathComponent("cheng-che.yaml"),
@@ -120,6 +121,7 @@ final class CLIIntegrationTests: XCTestCase {
         try """
         key: future-one
         names:
+          variant:
           - Future One
         affiliations:
           - organization: ISS
@@ -395,6 +397,7 @@ extension CLIIntegrationTests {
         var yaml = """
         key: \(key)
         names:
+          variant:
           - \(key)
         """
         if let died { yaml += "\ndied: '\(died)'" }

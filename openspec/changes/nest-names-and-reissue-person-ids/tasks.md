@@ -1,19 +1,25 @@
 > 每組標明它實作哪條 requirement 與哪個設計決策，讓覆蓋關係可機械追溯。
 
+> **ASSUMPTION（2026-08-15，unattended apply）**：本檔與 design.md 所稱「format 8」
+> 於實作時已被佔用——8 = verdict references（#232）、9 = attachments 鍵域收窄（#223，
+> 2026-08-15 renumber 落地）。specs 只要求 SHALL raise the marker、未寫死數字，故本次
+> 實作採 **format 10**。與 StoreVersion.swift 對 9 的既有註記同型（「原設計佔 8；rebase
+> 時 8 已被 #232 佔用，順延為 9」）。下文任務描述中的「8」一律讀作「10」。
+
 ## 1. 型別：PersonNames
 
 實作 spec `authorized-name` 的 **An entity SHALL designate which of its names are addressed outward**；依 design 的 **D1：`PersonNames` 是兩個分割，聯集為 computed** 與 **D3：`ExpressibleByArrayLiteral` 不是 compat fallback**。
 
-- [ ] 1.1 RED：在 Tests/AkashicKitTests/AuthorizedNameTests.swift 加測試釘住 `PersonNames` 的契約——`all` 是 `authorized + variant` 的串接（authorized 在前）、array literal 建出「全部是 variant」、`Equatable` 對兩個分割都敏感。型別此時不存在，不編譯即為 RED。
-- [ ] 1.2 GREEN（實作 An entity SHALL designate which of its names are addressed outward）：在 Sources/AkashicCore/Models.swift 新增 `PersonNames`，含 `authorized: [String]`、`variant: [String]`、computed `all: [String]`，實作 `ExpressibleByArrayLiteral`（字面量全部進 `variant`）。`all` 不得成為儲存屬性。doc 寫明 design 的 **Risks / Trade-offs** 記下的隱性契約：`displayName` 的 fallback 依賴 authorized 在前。
+- [x] 1.1 RED：在 Tests/AkashicKitTests/AuthorizedNameTests.swift 加測試釘住 `PersonNames` 的契約——`all` 是 `authorized + variant` 的串接（authorized 在前）、array literal 建出「全部是 variant」、`Equatable` 對兩個分割都敏感。型別此時不存在，不編譯即為 RED。
+- [x] 1.2 GREEN（實作 An entity SHALL designate which of its names are addressed outward）：在 Sources/AkashicCore/Models.swift 新增 `PersonNames`，含 `authorized: [String]`、`variant: [String]`、computed `all: [String]`，實作 `ExpressibleByArrayLiteral`（字面量全部進 `variant`）。`all` 不得成為儲存屬性。doc 寫明 design 的 **Risks / Trade-offs** 記下的隱性契約：`displayName` 的 fallback 依賴 authorized 在前。
 
 ## 2. Person 的欄位改型
 
 同樣實作 **An entity SHALL designate which of its names are addressed outward**（結構層的「子集不可表達」由此成立）。
 
-- [ ] 2.1 把 Sources/AkashicCore/Models.swift 的 `Person.names` 型別由 `[String]` 改為 `PersonNames`，**移除** `Person.authorized` 欄位，`displayName` 改讀 `names.authorized.first ?? key`。編譯錯誤即為待修清單。
-- [ ] 2.2 修正因 2.1 而編譯失敗的生產程式碼呼叫端（`.names` 48 處 / 18 檔、`.authorized` 22 處 / 8 檔）。判準：要「全部名字」的改讀 `names.all`；要「對外名字」的改讀 `names.authorized`。**逐一判斷，不得整批取代**——兩者語意不同，替換錯了會靜默改變行為。
-- [ ] 2.3 修正測試中 15 個同時傳 `names:` 與 `authorized:` 的建構點（純陣列的 167 處由 array literal 吸收）。改完確認 `swift build -Xswiftc -warnings-as-errors` 通過。
+- [x] 2.1 把 Sources/AkashicCore/Models.swift 的 `Person.names` 型別由 `[String]` 改為 `PersonNames`，**移除** `Person.authorized` 欄位，`displayName` 改讀 `names.authorized.first ?? key`。編譯錯誤即為待修清單。
+- [x] 2.2 修正因 2.1 而編譯失敗的生產程式碼呼叫端（`.names` 48 處 / 18 檔、`.authorized` 22 處 / 8 檔）。判準：要「全部名字」的改讀 `names.all`；要「對外名字」的改讀 `names.authorized`。**逐一判斷，不得整批取代**——兩者語意不同，替換錯了會靜默改變行為。
+- [x] 2.3 修正測試中 15 個同時傳 `names:` 與 `authorized:` 的建構點（純陣列的 167 處由 array literal 吸收）。改完確認 `swift build -Xswiftc -warnings-as-errors` 通過。
 
 ## 3. 序列化
 

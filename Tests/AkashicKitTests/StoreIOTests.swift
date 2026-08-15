@@ -113,6 +113,7 @@ final class StoreIOTests: XCTestCase {
         try """
         key: future-one
         names:
+          variant:
           - Future One
         affiliations:
           - organization: ISS
@@ -130,6 +131,7 @@ final class StoreIOTests: XCTestCase {
         try """
         key: future-two
         names:
+          variant:
           - Future Two
         facts:
           - kind: rank

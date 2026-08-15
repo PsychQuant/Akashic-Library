@@ -1216,7 +1216,7 @@ public extension LibraryLoad {
     ///
     /// 回傳的 key 依字典序排序，讓報告在不同機器上一致。
     func recordsWithoutAuthorizedName() -> (people: [String], organizations: [String]) {
-        (people: people.filter { $0.authorized.isEmpty }.map(\.key).sorted(),
+        (people: people.filter { $0.names.authorized.isEmpty }.map(\.key).sorted(),
          organizations: organizations.filter { $0.authorized.isEmpty }.map(\.key).sorted())
     }
 
@@ -1229,7 +1229,8 @@ public extension LibraryLoad {
     /// 這條把訊號找回來：缺的不是指定，是**名字本身**。
     func recordsAuthorizedOnlyByCitationForm() -> [String] {
         people.filter { p in
-            !p.authorized.isEmpty && p.authorized.allSatisfy { NameForm.isCitationForm($0) }
+            !p.names.authorized.isEmpty
+                && p.names.authorized.allSatisfy { NameForm.isCitationForm($0) }
         }.map(\.key).sorted()
     }
 

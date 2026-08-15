@@ -20,8 +20,8 @@ final class UpdatePersonTests: XCTestCase {
             .appendingPathComponent("akashic-up-\(UUID().uuidString)")
         let store = LibraryStore(root: root)
         try store.ensureLayout()
-        var p = Person(key: "cheng-che", names: ["Che Cheng", "鄭澈"],
-                       authorized: ["Che Cheng", "鄭澈"])
+        var p = Person(key: "cheng-che",
+                       names: PersonNames(authorized: ["Che Cheng", "鄭澈"]))
         p.orcid = "0000-0003-4038-9439"
         p.note = "既有備註"
         p.profile.ranks = Timeline([
@@ -50,7 +50,7 @@ final class UpdatePersonTests: XCTestCase {
         XCTAssertEqual(p.note, "新備註")
         // 未提及的一律不動
         XCTAssertEqual(p.orcid, "0000-0003-4038-9439")
-        XCTAssertEqual(p.names, ["Che Cheng", "鄭澈"])
+        XCTAssertEqual(p.names, PersonNames(authorized: ["Che Cheng", "鄭澈"]))
         XCTAssertEqual(p.profile.ranks.entries.count, 1)
     }
 
@@ -61,10 +61,13 @@ final class UpdatePersonTests: XCTestCase {
     }
 
     func testListFieldIsFullReplacement() throws {
+        // #227：names 收巢狀 object，全量替換整個 names 結構
         _ = try service.updatePerson(
             key: "cheng-che",
-            fields: ["names": ["Che Cheng", "鄭澈", "Cheng, C."]], dryRun: false)
-        XCTAssertEqual(try load().names, ["Che Cheng", "鄭澈", "Cheng, C."])
+            fields: ["names": ["authorized": ["Che Cheng", "鄭澈"],
+                               "variant": ["Cheng, C."]]], dryRun: false)
+        XCTAssertEqual(try load().names,
+                       PersonNames(authorized: ["Che Cheng", "鄭澈"], variant: ["Cheng, C."]))
     }
 
     func testProfileDimensionIsFullReplacementPerDimension() throws {
@@ -110,23 +113,25 @@ final class UpdatePersonTests: XCTestCase {
         }
     }
 
-    /// #148 verify F4：names 全量替換讓 authorized 懸空 → error 等級拒絕，
-    /// dry-run 一併預演。
-    func testNamesReplacementLeavingAuthorizedDanglingRefused() throws {
-        _ = try service.updatePerson(
-            key: "cheng-che", fields: ["authorized": ["Che Cheng"]], dryRun: false)
-        // 換掉 names、不提 authorized——"Che Cheng" 懸空
-        let fields: [String: Any] = ["names": ["鄭澈", "Cheng, C."]]
-        let dry = try service.updatePerson(key: "cheng-che", fields: fields, dryRun: true)
-        XCTAssertTrue(dry.contains("blockedByValidation"),
-                      "dry-run 必須預演驗證拒絕：\(dry)")
+    /// #227：#148 F4 的「authorized 懸空」在巢狀結構下**不可表達**，原測試由本
+    /// 測試取代——平坦陣列拒收（與 decoder 同紀律）、舊頂層 authorized 鍵已不在
+    /// 可更新集合，且拒絕不落盤。
+    func testFlatNamesArrayAndOldAuthorizedKeyRefused() throws {
         XCTAssertThrowsError(try service.updatePerson(
-            key: "cheng-che", fields: fields, dryRun: false)) { error in
+            key: "cheng-che", fields: ["names": ["鄭澈", "Cheng, C."]],
+            dryRun: false)) { error in
             let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
-            XCTAssertTrue(msg.contains("authorized") || msg.contains("驗證"), msg)
+            XCTAssertTrue(msg.contains("authorized") && msg.contains("variant"),
+                          "訊息要指出新形狀：\(msg)")
+        }
+        XCTAssertThrowsError(try service.updatePerson(
+            key: "cheng-che", fields: ["authorized": ["Che Cheng"]],
+            dryRun: false)) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(msg.contains("不認得的欄位"), msg)
         }
         // 檔案未被改動
-        XCTAssertEqual(try load().names, ["Che Cheng", "鄭澈"])
+        XCTAssertEqual(try load().names, PersonNames(authorized: ["Che Cheng", "鄭澈"]))
     }
 
     /// #148 verify F7：contacts 是「值為子鍵 map」的維度——維度級覆寫＝整個

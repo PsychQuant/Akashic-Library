@@ -181,7 +181,8 @@ public enum PersonBootstrap {
     /// 兩支會分岔，而分岔的方式通常是其中一支忘了某個排除條件（機構名、已存在的
     /// alias、空字串）。
     public static func resolve(entries: [Entry], existing: [Person]) -> BootstrapReport {
-        let knownAliases = Set(existing.flatMap { $0.names.map(identity) })
+        // #227：已知 alias 是**全部**名字的聯集——排除條件不看指定與否。
+        let knownAliases = Set(existing.flatMap { $0.names.all.map(identity) })
         var takenKeys = Set(existing.map(\.key))
 
         var groups: [String: (names: [String], count: Int)] = [:]
@@ -225,6 +226,8 @@ public enum PersonBootstrap {
     /// 把候選寫成 person 記錄。**不改 entries**——歸戶是 `resolve-people` 的工作，
     /// 兩步分開讓每一步都可單獨檢查。
     public static func personsFor(_ candidates: [Candidate]) -> [Person] {
-        candidates.map { Person(key: $0.key, names: $0.names) }
+        // #227：bootstrap 產出的是**尚未指定對外名字**的候選——全部進 variant，
+        // authorized 留空（「還沒指定」是有意義的狀態，不得由機械偽造指定）。
+        candidates.map { Person(key: $0.key, names: PersonNames(variant: $0.names)) }
     }
 }

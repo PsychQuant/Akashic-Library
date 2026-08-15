@@ -1311,7 +1311,7 @@ struct ResolvePeople: ParsableCommand {
                         bits.append("曾隸屬:\(displaySafe(last.value.displayName, max: 60))"
                                     + (when.isEmpty ? "" : "（\(when)）"))   // display-safe-exempt: rangeLabel 內部已消毒（不冪等，不得再包）
                     }
-                    let names = namesLabel(p?.names ?? [])   // display-safe-exempt: namesLabel 內部已消毒（displaySafe 不冪等，不得再包）
+                    let names = namesLabel(p?.names.all ?? [])   // display-safe-exempt: namesLabel 內部已消毒（displaySafe 不冪等，不得再包）
                     let extra = bits.isEmpty ? "  ⚠ 無任何區辨欄位" : "  " + bits.joined(separator: "  ")
                     row.append("      \(n + 1). \(displaySafe(k, max: 200))  [\(names)]\(extra)")
                 }

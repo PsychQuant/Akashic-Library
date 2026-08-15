@@ -1080,13 +1080,20 @@ public enum PersonYAML {
         var pairs: [(Node, Node)] = [(Node(EntityKind.person.rawValue), Node("")),
                                      (Node("id"), Node(person.id.uuidString)),
                                      (Node("key"), Node(person.key))]
-        if !person.names.isEmpty {
-            pairs.append((Node("names"), Node(person.names.map { Node($0) })))
-        }
-        // #81：對外可稱呼的名字。空的不序列化——既有記錄多數尚未指定，寫出空序列只是
-        // 讓每個檔多一行雜訊。緊接 names 之後是因為它是 names 的子集，讀的人要能對照。
-        if !person.authorized.isEmpty {
-            pairs.append((Node("authorized"), Node(person.authorized.map { Node($0) })))
+        // #227：names 是含 authorized / variant 兩個分割的 mapping——每個名字恰好
+        // 出現一次，「哪個對外」由分割的成員資格表達。空分割不寫出（與其他空集合
+        // 同慣例：寫出空序列只是讓每個檔多一行雜訊）；兩個都空則整個 names 鍵缺席。
+        if !person.names.all.isEmpty {
+            var nameParts: [(Node, Node)] = []
+            if !person.names.authorized.isEmpty {
+                nameParts.append((Node("authorized"),
+                                  Node(person.names.authorized.map { Node($0) })))
+            }
+            if !person.names.variant.isEmpty {
+                nameParts.append((Node("variant"),
+                                  Node(person.names.variant.map { Node($0) })))
+            }
+            pairs.append((Node("names"), Node(nameParts)))
         }
         if let orcid = person.orcid { pairs.append((Node("orcid"), Node(orcid))) }
         if let openalex = person.openalex { pairs.append((Node("openalex"), Node(openalex))) }
@@ -1117,7 +1124,6 @@ public enum PersonYAML {
             if a.id != b.id { bad.append("id") }
             if a.key != b.key { bad.append("key") }
             if a.names != b.names { bad.append("names") }
-            if a.authorized != b.authorized { bad.append("authorized") }
             if a.orcid != b.orcid { bad.append("orcid") }
             if a.openalex != b.openalex { bad.append("openalex") }
             if a.died != b.died { bad.append("died") }
@@ -1142,7 +1148,10 @@ public enum PersonYAML {
     /// `type: person` 被 tolerant-preserve 當成未知欄位保存下來、並在寫回時重新產生，
     /// 與「停止寫出形狀名」的目的相反。留在已知鍵內＝讀得到、忽略其值、不寫回。
     /// 形狀裸標籤同理必須列入。
-    static let knownPersonKeys: Set<String> = Set(["id", "type", "key", "names", "authorized",
+    // #227：頂層 `authorized` 不在本 format 的 known keys——它是 format < 10 的舊形狀
+    // 標記，decode 對它**顯式拒絕**（不是 tolerant-preserve 的未知欄位；把舊指定當
+    // 未知欄位保留，會讓它與新分割並存成兩個可矛盾的真相）。
+    static let knownPersonKeys: Set<String> = Set(["id", "type", "key", "names",
                                                    "orcid", "openalex", "died", "note", "profile",
                                                    "references"])
         .union(EntityKind.knownLabels)
@@ -1186,17 +1195,29 @@ public enum PersonYAML {
         }
         var person = Person(key: key, id: explicitID)
         person.unknownFields = unknowns
-        // R6（DA R5 HIGH 實測案例即 person.names）：形狀不符 fail-closed
-        if let seq = try EntryYAML.requireShape(map["names"], field: "person.names",
-                                                expect: "sequence", nullIsAbsent: true, { $0.sequence }) {
-            person.names = try EntryYAML.stringList(seq, context: "person.names")
+        // #227：names 是巢狀 mapping（authorized / variant 兩個分割）。
+        // **平坦 sequence 是 format < 10 的舊形狀——拒絕，不得靜默視為空的 authorized**：
+        // 舊格式只能經 migrate-person-identity 進來，decoder 順便相容正是
+        // no-compat-fallback 封閉列舉的第一類（缺欄位推導）要擋的路。
+        if map["names"]?.sequence != nil {
+            throw StoreYAMLError.invalidField(
+                "person.names",
+                "names 是平坦陣列——那是 format < 10 的舊形狀（authorized 由兄弟欄位表達）。"
+                + "本 binary 不讀舊形狀：請以 migrate-person-identity 遷移整個 store")
         }
-        // #81：對外可稱呼的名字。**形狀不符 fail-closed**（與 names 同）——`authorized:`
-        // 若被寫成 mapping（例如誤以為要以書寫系統為鍵），靜默剝除會讓一次舊 binary 的
-        // read-modify-write 把整段指定吃掉。
-        if let seq = try EntryYAML.requireShape(map["authorized"], field: "person.authorized",
-                                                expect: "sequence", nullIsAbsent: true, { $0.sequence }) {
-            person.authorized = try EntryYAML.stringList(seq, context: "person.authorized")
+        // R6（DA R5 HIGH 實測案例即 person.names）：known 欄位形狀不符 fail-closed
+        if let nm = try EntryYAML.requireShape(map["names"], field: "person.names",
+                                               expect: "mapping", nullIsAbsent: true,
+                                               { $0.mapping }) {
+            person.names = try PersonYAML.decodeNames(nm)
+        }
+        // 舊頂層 `authorized:` 同理拒絕——它已折進 names.authorized。把它當未知欄位
+        // 靜默保留，會讓「舊指定」與「新分割」在同一檔並存成兩個可矛盾的真相。
+        if map["authorized"] != nil {
+            throw StoreYAMLError.invalidField(
+                "person.authorized",
+                "頂層 authorized 是 format < 10 的舊形狀，已折進 names.authorized。"
+                + "本 binary 不讀舊形狀：請以 migrate-person-identity 遷移整個 store")
         }
         // #20：profile。**形狀不符 fail-closed**（與 names 同——known 欄位的形狀演化
         // 不入 tolerant 範圍，見 §5）。
@@ -1563,6 +1584,26 @@ extension PersonYAML {
             "不認得的維度「\(name)」——合法維度："
             + (timelineKeys.map(\.0) + ["affiliations", "contacts"]).sorted()
                 .joined(separator: "、"))
+    }
+
+    /// #227：names mapping 的兩個分割。**段內鍵 strict**（與 profile／timeline 同
+    /// 紀律）——tolerant-preserve 的開放層只涵蓋記錄頂層與 akashic namespace，
+    /// 段內未知鍵靜默保留會讓一次 RMW 吃掉半段指定。
+    static func decodeNames(_ m: Node.Mapping) throws -> PersonNames {
+        try EntryYAML.rejectUnknownKeys(m, known: ["authorized", "variant"],
+                                        context: "person.names")
+        var names = PersonNames(authorized: [], variant: [])
+        if let seq = try EntryYAML.requireShape(m["authorized"], field: "person.names.authorized",
+                                                expect: "sequence", nullIsAbsent: true,
+                                                { $0.sequence }) {
+            names.authorized = try EntryYAML.stringList(seq, context: "person.names.authorized")
+        }
+        if let seq = try EntryYAML.requireShape(m["variant"], field: "person.names.variant",
+                                                expect: "sequence", nullIsAbsent: true,
+                                                { $0.sequence }) {
+            names.variant = try EntryYAML.stringList(seq, context: "person.names.variant")
+        }
+        return names
     }
 
     static func decodeProfile(_ m: Node.Mapping) throws -> PersonProfile {

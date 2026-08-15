@@ -24,7 +24,7 @@ final class FormatCommandTests: XCTestCase {
     /// 寫一筆 canonical 記錄（經 encoder，依定義即 canonical）。
     @discardableResult
     private func writeCanonicalPerson(_ key: String) throws -> URL {
-        var p = Person(key: key, names: ["N"], authorized: ["N"])
+        var p = Person(key: key, names: PersonNames(authorized: ["N"]))
         p.profile.ranks = Timeline([
             TemporalValue(value: "助研究員", range: DateRange(start: "2003", end: "2013")),
             TemporalValue(value: "研究員", range: DateRange(start: "2013")),
@@ -42,9 +42,8 @@ final class FormatCommandTests: XCTestCase {
         id: \(id.uuidString)
         key: \(key)
         names:
-        - N
-        authorized:
-        - N
+          authorized:
+          - N
         profile:
           affiliations:
           - value:

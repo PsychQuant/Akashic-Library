@@ -843,7 +843,8 @@ extension Proposition {
             case .key:
                 return .authorSlot(slot: slot, assessment: .doesNotSupport)
             case .literal(let literal):
-                let candidate = person.names.contains {
+                // #227：身分比對看**全部**名字——candidate 資格不因指定與否而異。
+                let candidate = person.names.all.contains {
                     NameNormalization.matchingKey($0)
                         == NameNormalization.matchingKey(literal)
                 }

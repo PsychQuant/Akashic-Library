@@ -46,7 +46,7 @@ final class PropositionTests: XCTestCase {
         e.fields = [:]
         return try rawModel(
             entries: [e],
-            people: [Person(key: personKey, names: personNames)]
+            people: [Person(key: personKey, names: PersonNames(variant: personNames))]
         ).context(validAt: ValidDay("2026-08-09"))
     }
 

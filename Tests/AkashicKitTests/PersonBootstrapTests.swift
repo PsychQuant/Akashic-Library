@@ -163,7 +163,7 @@ final class PersonBootstrapTests: XCTestCase {
             entries: [entry("a", ["Che Cheng"]), entry("b", ["Cheng, Che"])], existing: [])
         let ps = PersonBootstrap.personsFor(cs)
         XCTAssertEqual(ps.count, 1)
-        XCTAssertEqual(ps[0].names.count, 2, "兩種寫法都要成為 alias")
+        XCTAssertEqual(ps[0].names.all.count, 2, "兩種寫法都要成為 alias")
     }
 
     /// #226：**重排等價不得取決於姓名的字典序。**

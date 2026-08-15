@@ -56,7 +56,7 @@ final class R7ForwardCompatTests: XCTestCase {
 
     func testNELInKnownValueWithUnknownFieldQuarantines() {
         // quoted NEL：libyaml 讀取時摺疊毀字——R6 移除守衛後變靜默毀損，R7 回歸 fail-closed
-        let yaml = "key: a\nnames: ['Attention\u{85}Is All']\nextra: 1\n"
+        let yaml = "key: a\nnames: {variant: ['Attention\u{85}Is All']}\nextra: 1\n"
         XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
             XCTAssertTrue(String(describing: error).contains("NEL"), "\(error)")
         }

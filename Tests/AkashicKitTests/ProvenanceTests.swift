@@ -136,7 +136,8 @@ final class ProvenanceTests: XCTestCase {
         id: 11111111-2222-3333-4444-555555555555
         key: chen-h-y
         names:
-        - Chen, H-Y.
+          variant:
+          - Chen, H-Y.
         \(references)
         """
     }
@@ -221,7 +222,8 @@ extension ProvenanceTests {
         id: 22222222-3333-4444-5555-666666666666
         key: cheng-legacy
         names:
-        - Cheng, L.
+          variant:
+          - Cheng, L.
         profile:
           affiliations:
           - value:

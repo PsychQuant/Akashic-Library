@@ -262,7 +262,7 @@ final class StrictSchemaTests: XCTestCase {
     }
 
     func testUnknownPersonKeyToleratedAndPreserved() throws {
-        let person = try PersonYAML.decode("key: a\nnames: [A]\nemail: x@y.z\n")
+        let person = try PersonYAML.decode("key: a\nnames: {variant: [A]}\nemail: x@y.z\n")
         XCTAssertEqual(person.unknownFields.map(\.key), ["email"])
         let decoded = try PersonYAML.decode(try PersonYAML.encode(person))
         XCTAssertEqual(decoded, person)
@@ -276,6 +276,7 @@ final class ForwardCompatTests: XCTestCase {
         let yaml = """
         key: cheng-ching-shui
         names:
+          variant:
           - 鄭清水
         affiliations:
           - organization: 中央研究院統計科學研究所
@@ -340,7 +341,7 @@ final class ForwardCompatTests: XCTestCase {
     // verify R1 F1（#23）：implicit-null 未知欄位（`foo:` 空值）必須可 round-trip——
     // 先前 decode 成功但 encode throw，讓該筆記錄「讀得到但永遠寫不回」
     func testImplicitNullUnknownFieldRoundTrips() throws {
-        let person = try PersonYAML.decode("key: a\nnames: [A]\naffiliations:\n")
+        let person = try PersonYAML.decode("key: a\nnames: {variant: [A]}\naffiliations:\n")
         XCTAssertEqual(person.unknownFields.map(\.key), ["affiliations"])
         let reencoded = try PersonYAML.encode(person)          // 先前在此 throw
         let decoded = try PersonYAML.decode(reencoded)
@@ -365,7 +366,7 @@ final class ForwardCompatTests: XCTestCase {
     // 放大在結構上不存在）；**病態深炸彈**超出 oracle 驗證預算 → quarantine
     // （fail-closed，檔案原封不動——資料完整性優先於病態檔案的可用性）
     func testAliasSubtreePreservedVerbatimWithoutExpansion() throws {
-        var yaml = "key: a\nnames: [A]\nbomb:\n  a0: &a0 [x, x, x, x, x, x, x, x, x]\n"
+        var yaml = "key: a\nnames: {variant: [A]}\nbomb:\n  a0: &a0 [x, x, x, x, x, x, x, x, x]\n"
         for i in 1...3 {
             yaml += "  a\(i): &a\(i) [*a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1)]\n"
         }
@@ -380,7 +381,7 @@ final class ForwardCompatTests: XCTestCase {
     }
 
     func testDeepAliasBombExceedsOracleBudgetAndQuarantines() {
-        var yaml = "key: a\nnames: [A]\nbomb:\n  a0: &a0 [x, x, x, x, x, x, x, x, x]\n"
+        var yaml = "key: a\nnames: {variant: [A]}\nbomb:\n  a0: &a0 [x, x, x, x, x, x, x, x, x]\n"
         for i in 1...8 {
             yaml += "  a\(i): &a\(i) [*a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1), *a\(i-1)]\n"
         }
@@ -391,7 +392,7 @@ final class ForwardCompatTests: XCTestCase {
     // α CRITICAL regression（R2 DA 實測毀檔路徑）：文字相同、型別不同的兩個 key
     // （'123' 是 str、123 是 int）必須逐字寫回為兩行不同文字，re-decode 成功
     func testTypedKeysSurviveWriteBack() throws {
-        let yaml = "key: a\nnames: [A]\n'123': first\n123: second\n"
+        let yaml = "key: a\nnames: {variant: [A]}\n'123': first\n123: second\n"
         let person = try PersonYAML.decode(yaml)
         XCTAssertEqual(person.unknownFields.map(\.key), ["123", "123"])
         let reencoded = try PersonYAML.encode(person)
@@ -405,7 +406,7 @@ final class ForwardCompatTests: XCTestCase {
     func testUnknownBlockVerbatimFidelity() throws {
         let yaml = """
         key: a
-        names: [A]
+        names: {variant: [A]}
         payload: !!binary R0lGODlh
         notes_block: |
           第一行
@@ -424,14 +425,14 @@ final class ForwardCompatTests: XCTestCase {
 
     // α fail-closed：切分無法與 compose 對齊（complex key）→ throw → load 層 quarantine
     func testComplexKeyFileRejected() {
-        let yaml = "key: a\nnames: [A]\n? complex\n: value\n"
+        let yaml = "key: a\nnames: {variant: [A]}\n? complex\n: value\n"
         XCTAssertThrowsError(try PersonYAML.decode(yaml))
     }
 
     // 多文件 YAML：root compose 本身就拒收（單文件 stream 假設）——
     // 不需要（也不再有）文字層守衛（R3 finding 6/7：守衛只會誤傷 block scalar 內容）
     func testMultiDocumentFileRejected() {
-        let yaml = "key: a\nnames: [A]\nextra: 1\n---\nkey: b\n"
+        let yaml = "key: a\nnames: {variant: [A]}\nextra: 1\n---\nkey: b\n"
         XCTAssertThrowsError(try PersonYAML.decode(yaml))
     }
 
@@ -441,15 +442,15 @@ final class ForwardCompatTests: XCTestCase {
     //     不論 anchor 在已知或未知欄位側，寫回都會產生 dangling / 倒置 alias。
     //     同一區塊內自足的 anchor/alias 由 testSelfContainedAnchorPreserved 覆蓋。
     func testCrossBoundaryAliasQuarantinedAtLoad() {
-        XCTAssertThrowsError(try PersonYAML.decode("key: &k a\nnames: [A]\nextra: *k\n"),
+        XCTAssertThrowsError(try PersonYAML.decode("key: &k a\nnames: {variant: [A]}\nextra: *k\n"),
                              "alias 指向已知欄位的 anchor → quarantine")
-        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [A]\ntitle_note: &t Shared\nextra: *t\n"),
+        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: {variant: [A]}\ntitle_note: &t Shared\nextra: *t\n"),
                              "兩個未知區塊之間的 anchor/alias 引用同樣 quarantine（fail-closed）")
     }
 
     // (1b) 自足的 anchor/alias（同一個未知區塊內）仍然容忍且逐字保留
     func testSelfContainedAnchorPreserved() throws {
-        let yaml = "key: a\nnames: [A]\nbomb:\n  base: &b [x, y]\n  mirror: *b\n"
+        let yaml = "key: a\nnames: {variant: [A]}\nbomb:\n  base: &b [x, y]\n  mirror: *b\n"
         let person = try PersonYAML.decode(yaml)
         XCTAssertEqual(person.unknownFields.map(\.key), ["bomb"])
         let re = try PersonYAML.encode(person)
@@ -477,7 +478,7 @@ final class ForwardCompatTests: XCTestCase {
 
     // (3) CRLF / 混合行尾：Swift 行模型與 libyaml 分歧 → 顯式 reject（fail-closed）
     func testCRLFWithUnknownFieldsQuarantined() {
-        let mixed = "extra: 1\r\nkey: i-mix\nnames: [\nA]\n"
+        let mixed = "extra: 1\r\nkey: i-mix\nnames: {variant: [\nA]}\n"
         XCTAssertThrowsError(try PersonYAML.decode(mixed))
     }
 
@@ -485,21 +486,21 @@ final class ForwardCompatTests: XCTestCase {
     // Swift 把 \r\n 當單一 grapheme，`contains("\r")` 對 CRLF 恆 false（死碼守衛）。
     // 本案例（folded scalar 內 CRLF）在 R4 前會「良性通過」oracle——守衛修好後必擋。
     func testCRLFGuardActuallyFiresOnGraphemePairs() {
-        let benign = "key: a\nnames: [A]\nextra: >\r\n  folded content\n"
+        let benign = "key: a\nnames: {variant: [A]}\nextra: >\r\n  folded content\n"
         XCTAssertThrowsError(try PersonYAML.decode(benign),
                              "CRLF 必須被 scalar 層守衛擋下，不得依賴 oracle 碰巧攔截")
         // NEL 與 CR 同族（libyaml 讀取有損、emitter 會 escape）——R7 回歸守衛，
         // R8 起由 decode 入口的毀字守衛更早攔下（純 known 檔也涵蓋）
-        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [A]\nextra: v\u{85}more: 1\n")) {
+        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: {variant: [A]}\nextra: v\u{85}more: 1\n")) {
             XCTAssertTrue(String(describing: $0).contains("NEL"), "\($0)")
         }
         // 裸 LS 在 plain scalar：libyaml 當 break 多切出 key → 不走守衛、由
         // 切分計數 oracle fail-closed（R6-verify [20] 更正——非「compose 不過」）
-        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [A]\nextra: v\u{2028}more: 1\n")) {
+        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: {variant: [A]}\nextra: v\u{2028}more: 1\n")) {
             XCTAssertTrue(String(describing: $0).contains("無法可靠切分"), "\($0)")
         }
         // 孤立 CR（classic-Mac）照舊擋
-        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: [A]\nextra: 1\rmore: 2\n"))
+        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnames: {variant: [A]}\nextra: 1\rmore: 2\n"))
     }
 
     // R4 HIGH regression：column-0 的 `...`/`---`（stream-scoped token）被吸進
@@ -552,7 +553,7 @@ final class ForwardCompatTests: XCTestCase {
 
     // (5) 檔尾空行：只除 split artifact，`|+` keep-chomping 的尾空行逐字保真
     func testKeepChompingTrailingBlanksPreserved() throws {
-        let yaml = "key: a\nnames: [A]\nnotes: |+\n  content\n\n\n"
+        let yaml = "key: a\nnames: {variant: [A]}\nnotes: |+\n  content\n\n\n"
         let person = try PersonYAML.decode(yaml)
         XCTAssertEqual(person.unknownFields.map(\.key), ["notes"])
         XCTAssertTrue(person.unknownFields[0].raw.hasSuffix("content\n\n\n"),
@@ -573,7 +574,7 @@ final class ForwardCompatTests: XCTestCase {
 
     // verify R1 F2（#23）：merge key `<<` 語意在 parser 間分歧，不入 tolerant 範圍
     func testMergeKeyUnknownFieldRejected() {
-        let yaml = "key: a\nnames: [A]\n<<: {orcid: smuggled}\n"
+        let yaml = "key: a\nnames: {variant: [A]}\n<<: {orcid: smuggled}\n"
         XCTAssertThrowsError(try PersonYAML.decode(yaml))
     }
 
@@ -586,7 +587,7 @@ final class ForwardCompatTests: XCTestCase {
     }
 
     func testPersonValidateWarnsOnUnknownFields() throws {
-        let person = try PersonYAML.decode("key: a\nnames: [A]\nemail: x@y.z\n")
+        let person = try PersonYAML.decode("key: a\nnames: {variant: [A]}\nemail: x@y.z\n")
         let issues = person.validate()
         XCTAssertTrue(issues.contains { $0.severity == .warning && $0.message.contains("email") })
         XCTAssertFalse(issues.contains { $0.severity == .error })
@@ -695,7 +696,7 @@ extension StrictSchemaTests {
     }
 
     func testPlainScalarFaceAcceptedInPersonNames() throws {
-        XCTAssertEqual(try PersonYAML.decode("key: a\nnames: [123]\n").names, ["123"])
+        XCTAssertEqual(try PersonYAML.decode("key: a\nnames: {variant: [123]}\n").names, ["123"])
     }
 
     // 非 scalar 元素仍拒收（字串面只對 scalar 有定義）

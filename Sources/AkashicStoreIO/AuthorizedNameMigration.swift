@@ -83,11 +83,11 @@ public enum AuthorizedNameMigration {
         var report = Report()
         report.total = load.people.count
         for person in load.people {
-            guard person.authorized.isEmpty else {
+            guard person.names.authorized.isEmpty else {
                 report.alreadyDesignated += 1
                 continue
             }
-            let plan = propose(names: person.names)
+            let plan = propose(names: person.names.all)
             report.adopted += plan.adopted.count
             report.nominated += plan.nominated.count
             // 互斥分類：歧義優先（有歧義就算歧義，即使別的書寫系統已指定），
@@ -103,7 +103,10 @@ public enum AuthorizedNameMigration {
             }
             guard apply, !plan.authorized.isEmpty else { continue }
             var updated = person
-            updated.authorized = plan.authorized
+            // #227：指定是把名字**搬進** authorized 分割，不是複製——同一字串留在
+            // variant 會在序列化裡出現兩次，違反「每個名字恰好出現一次」。
+            updated.names.authorized = plan.authorized
+            updated.names.variant = updated.names.variant.filter { !plan.authorized.contains($0) }
             _ = try store.writePerson(updated)
         }
         report.undecidedKeys.sort()

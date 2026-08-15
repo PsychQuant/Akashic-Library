@@ -35,7 +35,8 @@ final class OrgBootstrapCLITests: XCTestCase {
         id: \(id.uuidString)
         key: \(key)
         names:
-        - \(key)
+          variant:
+          - \(key)
         profile:
           affiliations:
         \(segs)

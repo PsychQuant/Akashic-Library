@@ -122,7 +122,7 @@ final class TemporalPersonTests: XCTestCase {
                     "profile:\n  ranks: \"不是 sequence\"\n",
                     "profile:\n  ranks:\n    - novalue: x\n",
                     "profile:\n  unknownDimension: []\n"] {
-            XCTAssertThrowsError(try PersonYAML.decode("key: p\nnames: [A]\n" + bad),
+            XCTAssertThrowsError(try PersonYAML.decode("key: p\nnames: {variant: [A]}\n" + bad),
                                  bad.debugDescription)
         }
     }

@@ -29,7 +29,7 @@ final class ContextValuationTests: XCTestCase {
         affiliations: [TemporalValue<OrgRef>] = [],
         id: UUID = UUID()
     ) -> Person {
-        Person(key: key, names: names, id: id,
+        Person(key: key, names: PersonNames(variant: names), id: id,
                profile: PersonProfile(affiliations: TimelineOf(affiliations)))
     }
 

@@ -45,7 +45,9 @@ final class R6ForwardCompatTests: XCTestCase {
           - organization: 中央研究院統計科學研究所
         """
         XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
-            XCTAssertTrue(String(describing: error).contains("形狀不符"))
+            // #227：names 已是 mapping（authorized/variant 兩分割），未知分割鍵走
+            // strict-schema 拒絕——fail-closed 的保護不變，訊息點名 names。
+            XCTAssertTrue(String(describing: error).contains("person.names"))
         }
     }
 
@@ -131,7 +133,7 @@ final class R6ForwardCompatTests: XCTestCase {
     }
 
     func testCRLFStillRejectedWithHonestMessage() {
-        let yaml = "key: a\r\nnames: [A]\r\nextra: 1\r\n"
+        let yaml = "key: a\r\nnames: {variant: [A]}\r\nextra: 1\r\n"
         XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
             let msg = String(describing: error)
             XCTAssertTrue(msg.contains("CR/CRLF"), "訊息應指向行尾：\(msg)")
@@ -142,10 +144,10 @@ final class R6ForwardCompatTests: XCTestCase {
 
     func testStreamMarkerVariantsTolerated() throws {
         // 尾隨空白的文件結束標記
-        let p1 = try PersonYAML.decode("key: a\nnames: [A]\nextra: 1\n... \n")
+        let p1 = try PersonYAML.decode("key: a\nnames: {variant: [A]}\nextra: 1\n... \n")
         XCTAssertEqual(p1.unknownFields.map(\.key), ["extra"])
         // 帶註解的結束標記
-        let p2 = try PersonYAML.decode("key: a\nnames: [A]\nextra: 1\n... # done\n")
+        let p2 = try PersonYAML.decode("key: a\nnames: {variant: [A]}\nextra: 1\n... # done\n")
         XCTAssertEqual(p2.unknownFields.map(\.key), ["extra"])
         // %YAML directive + 帶註解的 --- 開頭
         let p3 = try PersonYAML.decode("%YAML 1.1\n--- # header\nkey: a\nextra: 1\n")

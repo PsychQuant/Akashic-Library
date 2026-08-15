@@ -40,8 +40,8 @@ final class ServiceTests: XCTestCase {
         e2.fields["journaltitle"] = "Psychometrika"
         try store.writeEntry(e2)
         // #81：對外顯示名由 `authorized` 指定，`names` 的順序不再帶語意。
-        try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng", "鄭澈"],
-                                     authorized: ["Che Cheng", "鄭澈"]))
+        try store.writePerson(Person(key: "cheng-che",
+                                     names: PersonNames(authorized: ["Che Cheng", "鄭澈"])))
         service = AkashicService(root: root, environment: env)
     }
 
@@ -148,6 +148,7 @@ final class ServiceTests: XCTestCase {
         try """
         key: future-person
         names:
+          variant:
           - Future Person
         affiliations:
           - organization: ISS
@@ -270,7 +271,7 @@ final class ServiceTests: XCTestCase {
         let long = String(repeating: "\u{202E}", count: 200)
         for i in 0..<60 {
             try store.writePerson(Person(key: "flood-\(i)",
-                                         names: ["Flood Same"] + (0..<8).map { "\(long)-\(i)-\($0)" }))
+                                         names: PersonNames(variant: ["Flood Same"] + (0..<8).map { "\(long)-\(i)-\($0)" })))
         }
         try store.writeEntry(Entry(id: UUID(), citekey: "flood2020", type: "article",
                                    title: "X", authors: [.literal("Flood Same")], date: "2020"))
@@ -908,8 +909,8 @@ extension ServiceTests {
     func testPersonResolvedCoAuthorNameIsHumanReadable() throws {
         // 讓 cheng-che 與另一個 resolved person 合著
         let store = LibraryStore(root: root)
-        try store.writePerson(Person(key: "yang-hau-hung", names: ["Hau-Hung Yang"],
-                                     authorized: ["Hau-Hung Yang"]))
+        try store.writePerson(Person(key: "yang-hau-hung",
+                                     names: PersonNames(authorized: ["Hau-Hung Yang"])))
         var e = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
         e.authors = [.key("cheng-che"), .key("yang-hau-hung")]
         try store.writeEntry(e)

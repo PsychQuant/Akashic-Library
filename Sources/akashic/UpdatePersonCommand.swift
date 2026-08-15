@@ -14,8 +14,9 @@ struct UpdatePersonCmd: ParsableCommand {
     @Option(name: .long, help: "person key") var key: String
     @Option(name: .long, help: ArgumentHelp(
         "結構化欄位值（JSON object；缺席時讀 stdin）",
-        discussion: "純量欄位收字串或 null（null＝清除）；names/authorized 收字串陣列"
-            + "（全量替換）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/"
+        discussion: "純量欄位收字串或 null（null＝清除）；names 收 {authorized:[…], "
+            + "variant:[…]} object（全量替換；#227 巢狀化後平坦陣列拒收）；profile 收"
+            + "維度 object（維度級覆寫，段形狀同 YAML：value/"
             + "start/end/ended/source/note）"))
     var fields: String?
     @Flag(name: .long, help: "只預告會改什麼（含 format gate 預演），不寫入")

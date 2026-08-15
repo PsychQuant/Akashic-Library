@@ -54,7 +54,8 @@ final class EntityShapeLabelTests: XCTestCase {
             id: \(id.uuidString)
             key: chen-che
             names:
-            - 鄭澈
+              variant:
+              - 鄭澈
             """, id: id)
         let load = try LibraryStore(root: root).load()
         XCTAssertEqual(load.quarantined.count, 0, "\(load.quarantined)")
@@ -166,7 +167,8 @@ final class EntityShapeLabelTests: XCTestCase {
             type: person
             key: chen-che
             names:
-            - 鄭澈
+              variant:
+              - 鄭澈
             """, id: id)
         let load = try LibraryStore(root: root).load()
         XCTAssertEqual(load.quarantined.count, 0, "\(load.quarantined)")

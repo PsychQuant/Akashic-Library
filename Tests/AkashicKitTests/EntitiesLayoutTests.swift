@@ -60,7 +60,7 @@ final class EntitiesLayoutTests: XCTestCase {
 
     /// legacy person 檔沒有 `id`——decode 必須補出**同一個**值，不是隨機值。
     func testLegacyPersonWithoutIDGetsStableIdentity() throws {
-        let yaml = "key: p-one\nnames: [A]\n"
+        let yaml = "key: p-one\nnames: {variant: [A]}\n"
         let a = try PersonYAML.decode(yaml)
         let b = try PersonYAML.decode(yaml)
         XCTAssertEqual(a.id, b.id)
@@ -69,7 +69,7 @@ final class EntitiesLayoutTests: XCTestCase {
 
     /// `id` 在場但格式錯 → fail-closed。**不猜**：亂猜會讓引用安靜地對不上。
     func testMalformedPersonIDIsRejected() {
-        XCTAssertThrowsError(try PersonYAML.decode("id: not-a-uuid\nkey: p\nnames: [A]\n"))
+        XCTAssertThrowsError(try PersonYAML.decode("id: not-a-uuid\nkey: p\nnames: {variant: [A]}\n"))
     }
 
     // MARK: - 佈局選擇由 format 決定

@@ -76,7 +76,7 @@ final class EndedUnknownTests: XCTestCase {
     func testEndWithEndedTrueIsRejected() throws {
         let yaml = """
             key: bad-person
-            names: [Bad]
+            names: {variant: [Bad]}
             profile:
               ranks:
               - value: 研究員
@@ -95,7 +95,7 @@ final class EndedUnknownTests: XCTestCase {
         // `ended: false` 冗餘但無矛盾（等同缺席）——寬容讀入、不寫出
         let yaml = """
             key: ok-person
-            names: [Ok]
+            names: {variant: [Ok]}
             profile:
               ranks:
               - value: 研究員
@@ -111,7 +111,7 @@ final class EndedUnknownTests: XCTestCase {
     /// 只收裸寫 true/false；引號版與 YAML 1.1 變體一律拒絕（fail-closed）。
     func testEndedBooleanFormsAreStrict() throws {
         func person(_ ended: String) -> String {
-            "key: b\nnames: [B]\nprofile:\n  ranks:\n  - value: r\n    start: \"2010\"\n    ended: \(ended)\n"
+            "key: b\nnames: {variant: [B]}\nprofile:\n  ranks:\n  - value: r\n    start: \"2010\"\n    ended: \(ended)\n"
         }
         XCTAssertNoThrow(try PersonYAML.decode(person("true")))
         XCTAssertNoThrow(try PersonYAML.decode(person("false")))
@@ -126,7 +126,7 @@ final class EndedUnknownTests: XCTestCase {
     func testAffiliationStartNullFaceIsAbsence() throws {
         let yaml = """
             key: n-person
-            names: [N]
+            names: {variant: [N]}
             profile:
               affiliations:
               - value: {literal: 某機構}

@@ -35,7 +35,7 @@ final class ProvenanceMigrationTests: XCTestCase {
                       + "Statistical Science。統計所是該學程的 host institute；此為學程關係、"
                       + "非所內研究人員任用，未宣稱任期區間"
     ) -> Person {
-        var p = Person(key: key, names: ["Chen, Pao-Yang"], authorized: ["Chen, Pao-Yang"])
+        var p = Person(key: key, names: PersonNames(authorized: ["Chen, Pao-Yang"]))
         p.profile.affiliations = TimelineOf([
             TemporalValue(value: OrgRef.key("institute-of-statistical-science"),
                           source: digest, note: note)
@@ -75,7 +75,7 @@ final class ProvenanceMigrationTests: XCTestCase {
 
     /// **裸 URL 一律不動**——#66 的 D7 Non-Goal，本次只清不屬於那個欄位的形式。
     func testPlainURLSourcesAreUntouched() throws {
-        var p = Person(key: "url-person", names: ["N"], authorized: ["N"])
+        var p = Person(key: "url-person", names: PersonNames(authorized: ["N"]))
         p.profile.affiliations = TimelineOf([
             TemporalValue(value: OrgRef.literal("Academia Sinica"),
                           source: "https://www.stat.sinica.edu.tw/", note: "所網頁")
@@ -157,7 +157,7 @@ final class ProvenanceMigrationTests: XCTestCase {
     /// **每條 timeline 都要掃。** 真實資料目前只有 `affiliations` 有 digest，
     /// 但那是今天的事實不是不變式——只處理它會留下靜默缺口。
     func testAllTimelinesAreScannedNotJustAffiliations() throws {
-        var p = Person(key: "many-fields", names: ["N"], authorized: ["N"])
+        var p = Person(key: "many-fields", names: PersonNames(authorized: ["N"]))
         p.profile.ranks = TimelineOf([TemporalValue(value: "研究員", source: digest, note: "由聘書推得")])
         p.profile.administrative = TimelineOf([TemporalValue(value: "所長", source: digest, note: "由公告推得")])
         p.profile.appointments = TimelineOf([TemporalValue(value: "全職", source: digest, note: "由名冊推得")])

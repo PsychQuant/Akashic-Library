@@ -87,7 +87,7 @@ extension NameNormalizationTests {
                        "連字號變體必須聚成一組——兩組＝bootstrap 還有自己的舊正規化：\(groups)")
         // 端到端：建出的 person 讓 resolver 對兩筆 entry 都提名
         var p = Person(key: "chang-y-h")
-        p.names = groups.first?.names ?? []
+        p.names = PersonNames(variant: groups.first?.names ?? [])
         let found = PersonResolver.candidates(entries: [ascii, u2010], people: [p], rejected: [])
         XCTAssertEqual(found.count, 2,
                        "主流程端到端：兩筆 entry 都應提名（曾掉到 0——塌縮歧義誤判）")

@@ -25,7 +25,7 @@ final class R11ForwardCompatTests: XCTestCase {
     func testExplicitMergeTagOnArbitraryKeyRejected() throws {
         let yaml = """
         key: p
-        names: [A]
+        names: {variant: [A]}
         !!merge foo: {orcid: SMUGGLED}
         """
         XCTAssertThrowsError(try PersonYAML.decode(yaml)) { err in
@@ -40,7 +40,7 @@ final class R11ForwardCompatTests: XCTestCase {
     func testExplicitValueTagKeyRejected() throws {
         let yaml = """
         key: p
-        names: [A]
+        names: {variant: [A]}
         !!value bar: x
         """
         XCTAssertThrowsError(try PersonYAML.decode(yaml))
@@ -50,7 +50,7 @@ final class R11ForwardCompatTests: XCTestCase {
     func testPlainMergeKeyStillRejected() throws {
         let yaml = """
         key: p
-        names: [A]
+        names: {variant: [A]}
         <<: {orcid: X}
         """
         XCTAssertThrowsError(try PersonYAML.decode(yaml))
@@ -61,7 +61,7 @@ final class R11ForwardCompatTests: XCTestCase {
     func testQuotedMergeFaceKeyIsOrdinaryString() throws {
         let yaml = """
         key: p
-        names: [A]
+        names: {variant: [A]}
         '<<': ordinary-string-key
         """
         let person = try PersonYAML.decode(yaml)

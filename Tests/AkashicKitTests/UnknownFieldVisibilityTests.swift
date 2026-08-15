@@ -89,7 +89,7 @@ final class UnknownFieldVisibilityTests: XCTestCase {
     func testPersonAndLibraryCarryUnknownFields() throws {
         try write("people/p-one.yaml", """
             key: p-one
-            names: [Someone]
+            names: {variant: [Someone]}
             futureAffiliation: ISS
             """)
         try write("libraries/lib.yaml", """

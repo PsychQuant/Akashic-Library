@@ -411,6 +411,7 @@ final class LibrarySnapshotTests: XCTestCase {
             """
             key: future-one
             names:
+              variant:
               - Future One
             affiliations:
               - organization: ISS

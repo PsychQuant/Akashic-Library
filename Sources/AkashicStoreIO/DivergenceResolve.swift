@@ -678,7 +678,11 @@ extension LibraryStore {
         var (keeper, doomed) = try validatePersonPreconditions(
             survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
         // 別名併入倖存者：被併者的寫法保留，否則下次遇到那個寫法又會重新分割一次。
-        keeper.names = dedupePreservingOrder(keeper.names + doomed.flatMap(\.names))
+        // #227：併入的一律進 **variant**——被併者的 authorized 指定不能靠聯集救回來
+        // （兩邊各指定同書寫系統時聯集會違反「每書寫系統至多一個」），loss 警告在
+        // 下方 contentWarnings 讓人看見並重新指定。
+        let incoming = doomed.flatMap { $0.names.all }.filter { !keeper.names.all.contains($0) }
+        keeper.names.variant = dedupePreservingOrder(keeper.names.variant + incoming)
 
         // #271：被併者的 verdict references 自動遷移——判定史不隨檔案消失。
         // (field, value) 冪等（寫入邊界的鏡射：store 永不持有重複 verdict）。
@@ -1187,10 +1191,10 @@ extension LibraryStore {
     /// `DivergenceHardeningTests.testPersonFieldCoverageOfMergeCheck`：它用反射數 `Person` 的儲存屬性，與本函式聲明涵蓋的
     /// 數量不符就紅。加欄位而忘了這裡，測試會說話——不是靠註解提醒，也不是靠記憶。
     ///
-    /// 涵蓋 `Person` 的 **11** 個儲存屬性（#157 verify 157-10：原本寫 8，是過時的
-    /// 舊數字——`personFieldsCoveredByMergeCheck = 11` 才是反射守衛實際釘住的值，
-    /// 兩者一直不一致而沒人發現）：`key` / `id`（身分，不隨合併移動）、
-    /// `names`（別名，由合併搬移）、以及下列各項。
+    /// 涵蓋 `Person` 的 **10** 個儲存屬性（#227 起 `authorized` 併入 `names` 的
+    /// `PersonNames` 分割，屬性數 11 → 10；#157 verify 157-10 曾抓到 doc 寫 8 而
+    /// 常數是 11 的長期不一致）：`key` / `id`（身分，不隨合併移動）、
+    /// `names`（別名聯集由合併搬移；authorized 分割的損失另行檢查）、以及下列各項。
     ///
     /// **插入位置紀律**（#157 verify 157-4（正典計數與三次機械化失敗的量測在 `docs/design-principles-and-philosophy.md` §16——**不要在原始碼裡各自重新計數**，那正是它一直過期的原因））：
     /// 新成員 **不得**插進既有 API 的 doc comment／attribute 與其宣告之間。那會讓兩份文件
@@ -1214,7 +1218,7 @@ extension LibraryStore {
         // 會消失。`names` 本身由既有的合併流程處理（別名聯集），但「哪個名字對外」是
         // 一個判斷，不能靠聯集救回來：兩邊各指定一個同書寫系統的名字時，聯集會違反
         // 「每個書寫系統至多一個」的不變式，所以必須讓人看見並選一個。
-        let lostAuthorized = p.authorized.filter { !keeper.authorized.contains($0) }
+        let lostAuthorized = p.names.authorized.filter { !keeper.names.authorized.contains($0) }
         if !lostAuthorized.isEmpty {
             losses.append("authorized: " + lostAuthorized.joined(separator: "、"))
         }
@@ -1626,7 +1630,7 @@ extension LibraryStore {
     }
 
     /// 本函式涵蓋的 `Person` 儲存屬性數。`DivergenceHardeningTests.testPersonFieldCoverageOfMergeCheck` 拿它與反射比對。
-    static let personFieldsCoveredByMergeCheck = 11
+    static let personFieldsCoveredByMergeCheck = 10
 
     // MARK: - 小工具
 

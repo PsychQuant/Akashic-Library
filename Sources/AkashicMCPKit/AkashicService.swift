@@ -721,14 +721,42 @@ public final class AkashicService {
     /// design D6）——entry **不動**。apply 在改寫 entry 的同一動作內寫
     /// `resolution-confirmed`。兩者都是顯式人為動作；無 rowID 不發生任何寫入。
     ///
-    /// **apply 與 reject 不可同呼叫**（verify DA (a)）：兩腿寫同一批 person 檔，
-    /// 曾以 stale 快照互相蓋寫——reject 剛寫入的 verdict 被 confirm 的整檔改寫
-    /// 抹掉，而回應照樣宣稱兩者都成功。組合語意（部分失敗要能按腿回報）是它
-    /// 自己的設計題；在那之前，禁止是唯一不說謊的形狀。CLI 同此。
+    /// **apply 與 reject 的組合呼叫是兩段式**（#272 解禁；原 verify DA (a) 禁令）：
+    /// v1 禁組合是因為兩腿以同一 stale 快照寫同批 person 檔互相蓋寫。解禁的三前置
+    /// 由構造滿足——(1) reject 腿**完整提交**（含 rebuild）後，(2) apply 腿以遞迴
+    /// 呼叫重新 load＋重解析（rejected 集合已含剛寫入的否決、候選表重推導），
+    /// (3) 回應按腿分段（`legs.reject`／`legs.apply`），apply 腿的錯誤被收容進
+    /// `legs.apply.error`——reject 已提交的事實不會被 apply 的失敗掩蓋。
+    /// 剛被 reject 腿否決的 apply id 以 `skippedBecauseRejected` 回報（不是錯誤——
+    /// LLM 一次 triage 常兩邊都點到同一列）。單腿呼叫回應形狀**不變**。
     public func resolvePeople(apply: [String]?, reject: [String]? = nil) throws -> String {
         if let ap = apply, !ap.isEmpty, let rj = reject, !rj.isEmpty {
-            throw ServiceError.invalid(
-                "apply 與 reject 不可同一次呼叫——分兩次（相反的 verdict 各自有各自的失敗語意）")
+            func parsed(_ s: String) throws -> [String: Any] {
+                (try JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any]) ?? [:]
+            }
+            // 腿 1：reject 完整提交（失敗即整體 throw——什麼都還沒動到 apply）
+            let rejectDict = try parsed(try resolvePeople(apply: nil, reject: rj))
+            let justRejected = Set(rejectDict["rejected"] as? [String] ?? [])
+            let applyIDs = ap.filter { !justRejected.contains($0) }
+            let skipped = ap.filter { justRejected.contains($0) }
+            // 腿 2：在寫入後的新快照上跑（遞迴呼叫從 store.load() 重來）
+            var applyDict: [String: Any]
+            if applyIDs.isEmpty {
+                applyDict = ["applied": [String]()]
+            } else {
+                do {
+                    applyDict = try parsed(try resolvePeople(apply: applyIDs, reject: nil))
+                } catch {
+                    applyDict = [
+                        "error": displaySafe(String(describing: error), max: 512),
+                        "note": "reject 腿已提交（見 legs.reject）——本錯誤只屬 apply 腿",
+                    ]
+                }
+            }
+            if !skipped.isEmpty {
+                applyDict["skippedBecauseRejected"] = skipped.map { displaySafe($0, max: 200) }
+            }
+            return try jsonString(["legs": ["reject": rejectDict, "apply": applyDict]])
         }
         let load = try store.load()
         // #232 design D5：已否決配對從 verdict references 現算（never stored），

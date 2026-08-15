@@ -227,9 +227,10 @@ final class UpdatePersonTests: XCTestCase {
         let old = LibraryStore(root: oldRoot)
         try FileManager.default.createDirectory(
             at: oldRoot.appendingPathComponent("entities"), withIntermediateDirectories: true)
-        try StoreVersion.write(root: oldRoot, format: 5)
+        try StoreVersion.write(root: oldRoot, format: 10)   // #227：seed 需過 v10 names 閘
         let p = Person(key: "wang-x", names: ["Wang, X."])
         try old.writePerson(p)
+        try StoreVersion.write(root: oldRoot, format: 5)    // 再降 marker 模擬 v5 store
         let oldService = AkashicService(root: oldRoot,
                                         environment: ["AKASHIC_HOME": fakeHome.path])
 

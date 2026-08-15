@@ -234,7 +234,10 @@ final class EntitiesLayoutTests: XCTestCase {
         let store = try legacyStore()
         try store.writeEntry(entry("a2020a"))
         try store.writeEntry(entry("b2021b"))
-        try store.writePerson(Person(key: "p-one", names: ["A"]))
+        // #227：legacy 具名寫入被 v10 閘拒——fixture 手寫檔案（migration 只搬檔）
+        try "id: 11111111-1111-4111-8111-111111111111\nkey: p-one\nnames: {variant: [A]}\n".write(
+            to: store.peopleDir.appendingPathComponent("p-one.yaml"),
+            atomically: true, encoding: .utf8)
 
         let report = try StoreMigration.toEntities(store: store)
         XCTAssertEqual(report.entriesMoved, 2)
@@ -326,9 +329,12 @@ final class EntitiesLayoutTests: XCTestCase {
     /// 涵蓋不到，必須由遷移自己檢查。
     func testMigrationRefusesEntryPersonUUIDCollision() throws {
         let store = try legacyStore()
-        let p = Person(key: "p-one", names: ["A"])
-        try store.writePerson(p)
-        try store.writeEntry(entry("a2020a", id: p.id))
+        // #227：同上，手寫 legacy person 檔；entry 撞同一個 UUID
+        let pid = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
+        try "id: \(pid.uuidString)\nkey: p-one\nnames: {variant: [A]}\n".write(
+            to: store.peopleDir.appendingPathComponent("p-one.yaml"),
+            atomically: true, encoding: .utf8)
+        try store.writeEntry(entry("a2020a", id: pid))
         XCTAssertThrowsError(try StoreMigration.toEntities(store: store)) { err in
             guard case StoreMigration.MigrationError.duplicateDestination = err else {
                 return XCTFail("跨型別的 UUID 碰撞必須擋下，實得 \(err)")

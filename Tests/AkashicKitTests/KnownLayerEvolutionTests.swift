@@ -136,7 +136,7 @@ final class KnownLayerEvolutionTests: XCTestCase {
 
     /// 目前的精確 format 值（#131 verify 慣例：釘精確值防「意外多 bump 一次」，
     /// 每次刻意 bump 隨新 format 的測試搬家——本次從 AttestedRangeTests 搬來，#223）。
-    func testCurrentSupportedFormatIsExactlyNine() {
-        XCTAssertEqual(StoreVersion.supported, 9)
+    func testCurrentSupportedFormatIsExactlyTen() {
+        XCTAssertEqual(StoreVersion.supported, 10)
     }
 }

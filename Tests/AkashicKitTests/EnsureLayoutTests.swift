@@ -161,9 +161,8 @@ final class EnsureLayoutTests: XCTestCase {
         XCTAssertTrue(exists("entries"))
 
         XCTAssertFalse(exists("people"), "前置條件：people/ 尚未建立")
-        XCTAssertNoThrow(try store.writePerson(
-            Person(key: "cheng-che", names: ["鄭澈", "Che Cheng"])),
-                         "person 的 legacy 寫入路徑同理")
+        XCTAssertNoThrow(try store.writePerson(Person(key: "cheng-che")),
+                         "person 的 legacy 寫入路徑同理（空 names——具名寫入受 #227 v10 閘）")
         XCTAssertTrue(exists("people"))
     }
 

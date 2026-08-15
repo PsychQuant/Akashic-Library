@@ -585,9 +585,10 @@ extension Person {
         }
         // #81／#227：對外名字的內容不變式（每書寫系統至多一個）。與 organization 共用
         // 同一份檢查——「哪個名字對外」是同一個問題，不該有兩套答案。子集那條已由
-        // `PersonNames` 的結構承擔，不在執行期檢查之列。
-        issues += AuthorizedNames.validate(authorized: names.authorized, names: names.all,
-                                           ownerKey: key)
+        // `PersonNames` 的結構承擔，**刻意不呼叫** `validate(authorized:names:)`——
+        // 留一條恆真檢查會讓下一個讀的人以為它還在防什麼（design D2）。
+        issues += AuthorizedNames.validateWritingSystems(authorized: names.authorized,
+                                                         ownerKey: key)
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
                 message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))

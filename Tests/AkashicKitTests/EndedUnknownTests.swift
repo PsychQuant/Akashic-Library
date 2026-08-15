@@ -166,7 +166,9 @@ final class EndedUnknownTests: XCTestCase {
         try store.ensureLayout()
         try StoreVersion.write(root: root, format: 5)   // 模擬既有 v5 store
 
-        var p = Person(key: "gate-person", names: ["G"])
+        // #227：空 names——本測試釘的是 ended 閘的閾值（6），具名 person 另受
+        // v10 names 閘管（AuthorizedNameTests 的 v10 gate 測試）
+        var p = Person(key: "gate-person")
         p.profile.ranks = Timeline([
             TemporalValue(value: "研究員", range: DateRange(start: "1990", endedUnknown: true)),
         ])
@@ -180,7 +182,7 @@ final class EndedUnknownTests: XCTestCase {
         XCTAssertNoThrow(try store.writePerson(p))
         // 無 ended 的 person 在 v5 store 照常寫（gate 只擋 v6-only 語法）
         try StoreVersion.write(root: root, format: 5)
-        XCTAssertNoThrow(try store.writePerson(Person(key: "plain-p", names: ["P"])))
+        XCTAssertNoThrow(try store.writePerson(Person(key: "plain-p")))
     }
 
     /// P0-4：純字串 timeline（rank）的 ended round-trip——先前只測了 affiliations。

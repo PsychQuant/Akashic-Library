@@ -534,6 +534,20 @@ public final class LibraryStore {
                     "format: 改成 8（v8 只新增 references 欄位對，既有資料不變）", person.key)
             }
         }
+        // v10-only 形狀的 format gate（#227，同 6/7/8/9 的機制與理由）：巢狀 names
+        // 對 v9 binary 是 known 欄位形狀不符 → **整檔 quarantine（人檔消失）**，
+        // refuse-if-newer 必須在寫入端先 fire。空 names 的記錄不受此閘——檔上沒有
+        // names 鍵，兩代 binary 都讀得懂。
+        if !person.names.all.isEmpty {
+            let format = try StoreVersion.read(root: root)
+            guard format >= 10 else {
+                throw StoreIOError.invalidKey(
+                    "person（含巢狀 names，需要 store format ≥ 10；本 store 是 \(format)）——" +
+                    "確認會碰這個 store 的 CLI/MCP/App 都已升級後，先以 migrate-person-identity " +
+                    "遷移既有記錄，再把 store.yaml 的 format: 改成 10（v10 改變 names 的形狀）",
+                    person.key)
+            }
+        }
         try Self.assertNoErrors(person.validate(), what: "person", key: person.key)
         let yaml = try PersonYAML.encode(person)
         let dest = usesEntitiesLayout ? entityURL(id: person.id) : personURL(key: person.key)

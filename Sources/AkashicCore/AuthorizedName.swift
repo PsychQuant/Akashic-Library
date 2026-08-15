@@ -90,28 +90,19 @@ public enum NameForm {
 
 extension AuthorizedNames {}
 
-/// `authorized` 的不變式（#81）。person 與 organization **共用**——「哪個名字對外」是
-/// 同一個問題，兩種實體不該有兩套答案。
+/// `authorized` 的不變式（#81）。person 與 organization **共用**內容約束——
+/// 「哪個名字對外」是同一個問題，兩種實體不該有兩套答案。
 public enum AuthorizedNames {
 
-    /// 兩條不變式：
+    /// **內容**約束（person + organization 共用）：每個書寫系統至多一個——
+    /// 同書寫系統兩個 authorized 是**未決的問題**，不是指定。結構管不到內容，
+    /// 這條永遠在執行期。
     ///
-    /// 1. `authorized` ⊆ `names` —— 指定的是**已記錄的名字**，不是新引進的字串。
-    /// 2. 每個書寫系統至多一個 —— 同書寫系統兩個 authorized 是**未決的問題**，不是指定。
-    ///
-    /// `ownerKey` 只用於訊息：錯誤要說得出「是誰的哪個字串」，否則在 868 筆記錄裡沒人
-    /// 找得到出問題的那一筆。
-    public static func validate(authorized: [String], names: [String],
-                                ownerKey: String) -> [ValidationIssue] {
+    /// `ownerKey` 只用於訊息：錯誤要說得出「是誰的哪個字串」，否則在 868 筆記錄裡
+    /// 沒人找得到出問題的那一筆。
+    public static func validateWritingSystems(authorized: [String],
+                                              ownerKey: String) -> [ValidationIssue] {
         var issues: [ValidationIssue] = []
-        let known = Set(names)
-        for a in authorized where !known.contains(a) {
-            issues.append(ValidationIssue(
-                severity: .error,
-                message: "'\(displaySafe(ownerKey, max: 120))' 的 authorized 含不在 names 內的名字"
-                       + "「\(displaySafe(a, max: 120))」——對外名字是從已記錄的名字裡**指定**，"
-                       + "不是另外引進一個字串"))
-        }
         var byScript: [WritingSystem: [String]] = [:]
         for a in authorized { byScript[WritingSystem.of(a), default: []].append(a) }
         for (script, candidates) in byScript.sorted(by: { $0.key.rawValue < $1.key.rawValue })
@@ -123,6 +114,30 @@ public enum AuthorizedNames {
                        + "\(candidates.count) 個 authorized（\(listed)）"
                        + "——那是未決的問題，不是指定；請選一個"))
         }
+        return issues
+    }
+
+    /// 兩條不變式（**organization 專用**，#227 起）：
+    ///
+    /// 1. `authorized` ⊆ `names` —— 指定的是**已記錄的名字**，不是新引進的字串。
+    ///    **person 不再走這條**：`PersonNames` 的分割讓子集關係成為結構恆真，
+    ///    留一條永遠為真的檢查會讓下一個讀的人以為它還在防什麼（design D2）。
+    ///    org 的 names 是**時間軸**（改名有效期），不巢狀化——把 authorized 塞進
+    ///    時間軸會讓「對外名字」變成時變的——所以 org 的子集仍需執行期驗證。
+    ///    **這個不對稱是刻意的**（design Non-Goals）。
+    /// 2. 每個書寫系統至多一個 —— 委派 `validateWritingSystems`。
+    public static func validate(authorized: [String], names: [String],
+                                ownerKey: String) -> [ValidationIssue] {
+        var issues: [ValidationIssue] = []
+        let known = Set(names)
+        for a in authorized where !known.contains(a) {
+            issues.append(ValidationIssue(
+                severity: .error,
+                message: "'\(displaySafe(ownerKey, max: 120))' 的 authorized 含不在 names 內的名字"
+                       + "「\(displaySafe(a, max: 120))」——對外名字是從已記錄的名字裡**指定**，"
+                       + "不是另外引進一個字串"))
+        }
+        issues += validateWritingSystems(authorized: authorized, ownerKey: ownerKey)
         return issues
     }
 }

@@ -580,6 +580,33 @@ final class AuthorizedNameTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    // MARK: - v10 format gate（nest-names-and-reissue-person-ids task 5.1）
+
+    /// spec「Writing the partitioned shape to an older store is refused」：巢狀 names
+    /// 對 v9 binary 是形狀不符 → 整檔 quarantine（人檔消失）——refuse-if-newer 必須
+    /// 在寫入端先 fire。訊息沿用 ended/attested/verdict gate 的形狀：說明前置條件、
+    /// 指路手動升 marker（升 marker 是使用者知情的動作，不是寫入的副作用）。
+    func testWritingPartitionedNamesToOlderStoreIsRefused() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-v10gate-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("entities"), withIntermediateDirectories: true)
+        try "format: 9\n".write(to: StoreVersion.url(in: root), atomically: true, encoding: .utf8)
+        let store = LibraryStore(root: root)
+
+        let p = Person(key: "x-person", names: PersonNames(authorized: ["X Person"]))
+        XCTAssertThrowsError(try store.writePerson(p)) { e in
+            let m = "\(e)"
+            XCTAssertTrue(m.contains("10") && m.contains("9"),
+                          "訊息要同時點名需要的 format 與現值：\(m)")
+            XCTAssertTrue(m.contains("升級"), "訊息要說明升級前置：\(m)")
+        }
+
+        // 空 names 的記錄不受此閘——檔上沒有 names 鍵，兩代 binary 都讀得懂。
+        XCTAssertNoThrow(try store.writePerson(Person(key: "empty-names")))
+    }
+
     // MARK: - 不變式住在寫入邊界（#229）
 
     // #227（task 5.1(c)）：person 的 write-gate 子集測試（testWritePersonRejects-

@@ -39,9 +39,9 @@
 
 實作 spec `authorized-name` 的 **At most one name per writing system SHALL be authorized**（含「每條寫入路徑都要擋」）與 **Removing the positional convention SHALL bump the store format marker**；依 design **D2：`authorized ⊆ names` 這條不變式消失，第二條留下**。對應 design **Failure modes** 表的前兩列。
 
-- [ ] 5.1 RED：加測試——(a) 含巢狀 names 的 person 寫入 format < 8 的 store 被拒且訊息說明升級前置；(b) 同書寫系統兩個 authorized 仍被拒，且**每條寫入路徑**都擋；(c) 確認「authorized 不在 names 內」的舊測試已**移除**而非改成恆真（結構上已不可表達）。
-- [ ] 5.2 GREEN（實作 At most one name per writing system SHALL be authorized）：在 Sources/AkashicStoreIO/LibraryStore.swift 的 `writePerson` 加 format 8 gate（沿用既有 gate 的訊息形狀），並把 Sources/AkashicCore/AuthorizedName.swift 的 `AuthorizedNames.validate` 縮小到只檢查書寫系統那條——移除子集檢查，doc 說明它已由結構承擔。
-- [ ] 5.3 實作 Removing the positional convention SHALL bump the store format marker：在 Sources/AkashicStoreIO/StoreVersion.swift 把 `supported` 提升到 8，並在 docs/store-format.md 記錄 v8 的形狀變更與升級前置條件。
+- [x] 5.1 RED：加測試——(a) 含巢狀 names 的 person 寫入 format < 8 的 store 被拒且訊息說明升級前置；(b) 同書寫系統兩個 authorized 仍被拒，且**每條寫入路徑**都擋；(c) 確認「authorized 不在 names 內」的舊測試已**移除**而非改成恆真（結構上已不可表達）。
+- [x] 5.2 GREEN（實作 At most one name per writing system SHALL be authorized）：在 Sources/AkashicStoreIO/LibraryStore.swift 的 `writePerson` 加 format 8 gate（沿用既有 gate 的訊息形狀），並把 Sources/AkashicCore/AuthorizedName.swift 的 `AuthorizedNames.validate` 縮小到只檢查書寫系統那條——移除子集檢查，doc 說明它已由結構承擔。
+- [x] 5.3 實作 Removing the positional convention SHALL bump the store format marker：在 Sources/AkashicStoreIO/StoreVersion.swift 把 `supported` 提升到 8，並在 docs/store-format.md 記錄 v8 的形狀變更與升級前置條件。
 
 ## 6. 遷移
 

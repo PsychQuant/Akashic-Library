@@ -63,7 +63,7 @@ extension DivergenceFormatGateTests {
             .appendingPathComponent("akashic-divgate-torn-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
             at: dir.appendingPathComponent("entities"), withIntermediateDirectories: true)
-        try StoreVersion.write(root: dir, format: 5)
+        try StoreVersion.write(root: dir, format: 10)   // #227：seed 需過 v10 names 閘
         addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
         let store = LibraryStore(root: dir)
         for k in ["fann-a", "fann-b", "fann-c"] {
@@ -79,7 +79,7 @@ extension DivergenceFormatGateTests {
             candidates: [("fann-b", .person), ("fann-c", .person)],
             judgement: nil, restsOn: [])
         GitFixture.initRepo(dir)
-        GitFixture.commitAll(dir, message: "seed at format 5")
+        GitFixture.commitAll(dir, message: "seed at format 10")
         try StoreVersion.write(root: dir, format: 4)   // 降 marker
         GitFixture.commitAll(dir, message: "downgrade marker")
 

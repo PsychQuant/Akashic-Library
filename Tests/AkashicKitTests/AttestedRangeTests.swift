@@ -92,7 +92,8 @@ final class AttestedRangeTests: XCTestCase {
     }
 
     // 精確 format 值的 pin 隨最新 format 的測試搬家（#131 verify 慣例）——
-    // 現住 VerdictFormatGateTests（format 8，#232）。
+    // 現住 KnownLayerEvolutionTests（format 9，#223）。
+
 
     /// 無 attested 的既有記錄零 diff（向後相容——canary 面自動涵蓋，這裡顯式釘）。
     func testRecordsWithoutAttestedUnchanged() throws {

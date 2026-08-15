@@ -373,4 +373,56 @@ final class SourceStoreTests: XCTestCase {
         XCTAssertEqual(store.missingSourceDigests(load), [absent],
                        "缺席清單只含真的不在本機的（present 不在列）")
     }
+
+    /// 記錄側副本引用（`akashic.sources`）的缺席語意，與 person references 同一條
+    /// 契約（#223）：digest 合法但本機無存檔＝**載入成功 + 可回報**，
+    /// 與「記錄格式損毀」是兩種不同條件，不可混為一談。
+    func testEntryWithAbsentCopyDigestLoadsAndReportsMissing() throws {
+        let present = try store.storeSource(Data("copy".utf8), provenance: prov()).digest
+        let absent = "sha256:" + String(repeating: "dd", count: 32)
+        var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        e.akashic.sources = [present, absent]
+        _ = try store.writeEntry(e)
+        let load = try store.load()
+        XCTAssertEqual(load.entries.count, 1, "缺席 digest 不阻擋載入")
+        XCTAssertEqual(load.quarantined.count, 0, "缺席不是損毀——不得進 quarantine")
+        XCTAssertEqual(store.missingSourceDigests(load), [absent],
+                       "缺席清單只含真的不在本機的（present 不在列）")
+    }
+
+    /// 兩個關係項只在**內容**處相遇，不得因此被合併（#223）。
+    /// work 記錄的副本引用（作品 ← 副本）與 person 記錄的欄位層級 provenance
+    /// （值 ← 證據）指向同一份 digest 時，兩者各自保留、內容只存一份。
+    ///
+    /// 即使目前無需產品程式碼即通過，仍保留為回歸鎖：日後若有人「順手」把兩者
+    /// 合併成一個欄位，這個測試會擋下來。
+    func testCopyReferenceAndFieldReferenceCoexistOverSameContent() throws {
+        let shared = try store.storeSource(Data("shared bytes".utf8), provenance: prov()).digest
+
+        var work = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        work.akashic.sources = [shared]
+        _ = try store.writeEntry(work)
+
+        var p = Person(key: "chen-h-y")
+        p.names = ["Chen, H-Y."]
+        p.orcid = "0000-0003-4038-9439"
+        p.references = [
+            ProvenanceReference(field: "orcid", kind: .retrieval(
+                url: "https://example.org/a", retrieved: "2026-08-11", status: 200,
+                mediaType: nil, content: shared)),
+        ]
+        try store.writePerson(p)
+
+        let load = try store.load()
+        XCTAssertEqual(load.entries.first?.akashic.sources, [shared],
+                       "副本引用不得被改寫成欄位層級 reference")
+        XCTAssertEqual(load.people.first?.references.count, 1,
+                       "欄位層級 reference 不得被改寫成副本引用")
+        XCTAssertEqual(load.people.first?.references.first?.field, "orcid",
+                       "欄位層級 reference 仍綁在具名欄位上")
+        XCTAssertEqual(store.missingSourceDigests(load), [],
+                       "共用的內容存在本機，兩邊都不該被回報為缺席")
+        XCTAssertNotNil(try store.sourceContent(digest: shared),
+                        "同位元組只存一份，兩個關係項共用它")
+    }
 }

@@ -60,7 +60,7 @@ final class EntryYAMLTests: XCTestCase {
         ]
         entry.attachments = [
             AttachmentRef(kind: .zotero, path: "storage/ABCD1234/paper.pdf"),
-            AttachmentRef(kind: .pool, path: "2025/cheng2025identifiability.pdf"),
+            AttachmentRef(kind: .zotero, path: "storage/ABCD1234/supplement.pdf"),
         ]
         entry.provenance = Provenance(zoteroKey: "ABCD1234", zoteroVersion: 123,
                                       importedAt: Date(timeIntervalSince1970: 1_753_000_000))
@@ -194,6 +194,43 @@ final class StrictSchemaTests: XCTestCase {
         XCTAssertEqual(entry.akashic.unknownFields.map(\.key), ["reading_progress"])
         let decoded = try EntryYAML.decode(try EntryYAML.encode(entry))
         XCTAssertEqual(decoded, entry)
+    }
+
+    // 附件鍵域是封閉集合，收窄為只剩 zotero 一種（#223）。未知種類走整檔拒絕，
+    // 不是 tolerant-preserve——鍵域 strict 正是 format 提升的依據。
+    func testPoolAttachmentKindIsRejected() {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        attachments:
+          - pool: 2025/a2020b.pdf
+        """
+        XCTAssertThrowsError(try EntryYAML.decode(yaml)) { error in
+            guard case StoreYAMLError.invalidField(let field, let message) = error else {
+                return XCTFail("預期 invalidField，實得 \(error)")
+            }
+            XCTAssertEqual(field, "attachments")
+            XCTAssertFalse(
+                message.contains("pool"),
+                "錯誤訊息不得把 pool 呈現為合法值，否則讀者會以為只是打錯字：\(message)"
+            )
+        }
+    }
+
+    func testZoteroAttachmentKindStillAccepted() throws {
+        let yaml = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        attachments:
+          - zotero: storage/ABCD1234/paper.pdf
+        """
+        let entry = try EntryYAML.decode(yaml)
+        XCTAssertEqual(entry.attachments,
+                       [AttachmentRef(kind: .zotero, path: "storage/ABCD1234/paper.pdf")])
     }
 
     func testUnknownProvenanceKeyRejected() {
@@ -774,5 +811,57 @@ extension LibraryModelTests {
           nested: nope
         """
         XCTAssertThrowsError(try LibraryYAML.decode(yaml))
+    }
+}
+
+// #223：work 記錄以 digest 指向「是本作品副本」的已儲存內容。與欄位層級的
+// `references` 是不同的關係項——references 說「這個欄位的值以那份內容為據」，
+// sources 說「那些位元組是這篇作品的副本」。兩者不得合併。
+final class EntrySourceReferenceTests: XCTestCase {
+    private let digest =
+        "sha256:0a9a79d3030c457b7a3f54ecc98c9fa11d60b8901ffd8e709b528d47f151125a"
+
+    private func yaml(akashicBody: String) -> String {
+        """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        akashic:
+        \(akashicBody)
+        """
+    }
+
+    private let bare = """
+        id: 7C1F6C2E-0000-0000-0000-000000000001
+        citekey: a2020b
+        type: article
+        title: T
+        """
+
+    func testCopyListRoundTripsVerbatim() throws {
+        let entry = try EntryYAML.decode(yaml(akashicBody: "  sources:\n    - \(digest)"))
+        XCTAssertEqual(entry.akashic.sources, [digest])
+        let decoded = try EntryYAML.decode(try EntryYAML.encode(entry))
+        XCTAssertEqual(decoded.akashic.sources, [digest], "digest 必須逐字保留，不得正規化")
+        XCTAssertEqual(decoded, entry)
+    }
+
+    func testEmptyCopyListIsIndistinguishableFromAbsent() throws {
+        let withEmpty = try EntryYAML.decode(yaml(akashicBody: "  sources: []"))
+        let absent = try EntryYAML.decode(bare)
+        XCTAssertEqual(withEmpty.akashic.sources, [])
+        XCTAssertEqual(withEmpty, absent, "空清單與缺席在行為上必須不可區分")
+    }
+
+    func testMalformedDigestIsRejectedNamingTheField() {
+        let yamlText = yaml(akashicBody: "  sources:\n    - sha256:notahexdigest")
+        XCTAssertThrowsError(try EntryYAML.decode(yamlText)) { error in
+            guard case StoreYAMLError.invalidField(let field, _) = error else {
+                return XCTFail("預期 invalidField，實得 \(error)")
+            }
+            XCTAssertEqual(field, "akashic.sources",
+                           "錯誤訊息要指名欄位，否則使用者不知道是哪一段壞了")
+        }
     }
 }

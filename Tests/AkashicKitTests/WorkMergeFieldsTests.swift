@@ -57,7 +57,7 @@ final class WorkMergeFieldsTests: XCTestCase {
     func testRefusesWhenDoomedHasAttachmentsTagsLibraries() throws {
         for (label, mutate) in [
             ("attachments", { (e: inout Entry) in
-                e.attachments = [AttachmentRef(kind: .pool, path: "x.pdf")] }),
+                e.attachments = [AttachmentRef(kind: .zotero, path: "storage/XXXX/x.pdf")] }),
             ("tags", { (e: inout Entry) in e.akashic.tags = ["unread"] }),
             ("libraries", { (e: inout Entry) in e.akashic.libraries = ["sinica"] }),
         ] {
@@ -378,7 +378,7 @@ final class WorkMergeFieldsTests: XCTestCase {
     func testAttachmentLossNamesTheFile() {
         let keeper = Entry(id: UUID(), citekey: "k", type: "article", title: "T")
         var doomed = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
-        doomed.attachments = [AttachmentRef(kind: .pool, path: "supplementary-appendix.pdf")]
+        doomed.attachments = [AttachmentRef(kind: .zotero, path: "storage/YYYY/supplementary-appendix.pdf")]
         let losses = LibraryStore.fieldsLostByMerging(doomed, into: keeper)
         XCTAssertTrue(losses.contains { $0.contains("supplementary-appendix.pdf") },
                       "要說出是哪個檔，否則指示不可執行：\(losses)")

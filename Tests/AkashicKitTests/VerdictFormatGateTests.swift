@@ -32,10 +32,11 @@ final class VerdictFormatGateTests: XCTestCase {
         return p
     }
 
-    /// 目前的精確 format 值（#131 verify 慣例：釘精確值防「意外多 bump 一次」，
-    /// 每次刻意 bump 隨新 format 的測試搬家——本次從 AttestedRangeTests 搬來，#232）。
-    func testCurrentSupportedFormatIsExactlyEight() {
-        XCTAssertEqual(StoreVersion.supported, 8)
+    // 精確 format 值的 pin 隨最新 format 的測試搬家（#131 verify 慣例）——
+    // 現住 KnownLayerEvolutionTests（format 9，#223）。verdict gate 自身只要求 ≥ 8。
+    func testVerdictGateFormatFloorHolds() {
+        XCTAssertGreaterThanOrEqual(StoreVersion.supported, 8,
+                                    "verdict 欄位對需要 format ≥ 8（#232）")
     }
 
     func testWritePersonWithVerdictRequiresFormatEight() throws {

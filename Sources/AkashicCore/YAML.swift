@@ -141,6 +141,11 @@ public enum EntryYAML {
                 try AuthorListCompletenessYAML.node(witness)
             ))
         }
+        // 空清單不 emit——空與缺席在行為上不可區分（#223），emit 空鍵會讓讀者
+        // 以為那是「刻意宣告沒有副本」而非「還沒掛」。
+        if !entry.akashic.sources.isEmpty {
+            a.append((Node("sources"), Node(entry.akashic.sources.map { Node($0) })))
+        }
         // akashic 有 known 內容才進 serialize；它是 pairs 的最後一段——
         // 之後 append 的縮排 2 nested raw 區塊仍屬 akashic mapping（α 佈局不變式）
         if !a.isEmpty {
@@ -286,6 +291,7 @@ public enum EntryYAML {
     ]).union(EntityKind.knownLabels)
     static let knownAkashicKeys: Set<String> = [
         "tags", "libraries", "status", "relations", "author-list-completeness",
+        "sources",
     ]
     static let knownRelationsKeys: Set<String> = ["cites", "related"]
     static let knownProvenanceKeys: Set<String> = [
@@ -829,7 +835,7 @@ public enum EntryYAML {
                       let kindRaw = first.key.scalar?.string,
                       let kind = AttachmentRef.Kind(rawValue: kindRaw),
                       let path = first.value.scalar?.string else {
-                    throw StoreYAMLError.invalidField("attachments", "元素必須是 {zotero: path} 或 {pool: path}（鍵為字串 scalar）")
+                    throw StoreYAMLError.invalidField("attachments", "元素必須是 {zotero: path}（鍵為字串 scalar；鍵域為封閉集合，只接受這一種）")
                 }
                 return AttachmentRef(kind: kind, path: path)
             }
@@ -937,6 +943,19 @@ public enum EntryYAML {
                                              expect: "sequence", nullIsAbsent: true,
                                              { $0.sequence }) {
                 entry.akashic.libraries = try stringList(libSeq, context: "akashic.libraries")
+            }
+            if let srcSeq = try requireShape(akMap["sources"], field: "akashic.sources",
+                                             expect: "sequence", nullIsAbsent: true,
+                                             { $0.sequence }) {
+                let digests = try stringList(srcSeq, context: "akashic.sources")
+                // 形狀錯的 digest 永遠 resolve 不到內容——fail-fast 於載入，勝過存了
+                // 一個永遠找不到的副本指涉（同 ProvenanceReference 的既有理由）。
+                for d in digests where !ProvenanceReference.isValidDigest(d) {
+                    throw StoreYAMLError.invalidField(
+                        "akashic.sources",
+                        "「\(d)」不是合法的內容 digest（須為 sha256: 加 64 個小寫十六進位字元）")
+                }
+                entry.akashic.sources = digests
             }
             entry.akashic.status = try requireShape(akMap["status"], field: "akashic.status",
                                                     expect: "scalar") { $0.scalar?.string }

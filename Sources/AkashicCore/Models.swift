@@ -74,11 +74,16 @@ public struct UnknownField: Equatable {
 }
 
 public struct AttachmentRef: Equatable {
+    /// 鍵域是**封閉集合，且只剩一種**（#223）。可 ingest 的內容一律以 digest 引用
+    /// （見 `AkashicMeta.sources`），不以檔案系統路徑引用——路徑會因搬移或改名斷鏈，
+    /// 且無法偵測內容變更。
+    ///
+    /// 僅存的路徑型引用是指向**外部文獻管理器自有儲存**的過渡形式：它存在的理由是
+    /// 那個管理器持有本 store 尚未 ingest 的位元組。這是**一的封閉列舉**——不得因
+    /// 「形狀相似」而據以新增第二種路徑型引用。
     public enum Kind: String, Equatable {
         /// 相對 Zotero 資料目錄的 reference（storage/<KEY>/<file>）。
         case zotero
-        /// 相對 attachment pool 的路徑。
-        case pool
     }
 
     public var kind: Kind
@@ -124,6 +129,19 @@ public struct AkashicMeta: Equatable {
     /// Exact work UUID、ordered raw author snapshot 與封閉 provenance chain 的
     /// optional canonical 完備性證言。缺席保留 open-world 語意。
     public var authorListCompleteness: AuthorListCompletenessWitness?
+    /// 宣告「這些已儲存內容是本記錄所描述之作品的副本」的 digest 清單（#223）。
+    ///
+    /// 與**欄位層級**的 `references` 是不同的關係項：`references` 說「這個欄位的值
+    /// 以那份內容為據」（值 ← 證據），本欄位說「那些位元組是這篇作品的副本」
+    /// （作品 ← 副本）。兩者不得合併，副本引用也不得寫成指涉整筆記錄的
+    /// 欄位層級 reference。
+    ///
+    /// 連結存在**記錄側**、反向現算：內容先被取得、記錄後被建立，所以內容抵達
+    /// 當下沒有 citekey 可填，而建立記錄時 digest 已存在——只有這一側能在對方
+    /// 尚未存在時誠實記下。不另存內容側的反向索引（兩份會分岔）。
+    ///
+    /// 空陣列與缺席等價。digest 文法沿用 `ProvenanceReference.isValidDigest`。
+    public var sources: [String]
     /// akashic namespace 內的未知欄位（tolerant-preserve，#23）——
     /// 歷史上 schema 演化就發生在這層（#13 的 `libraries` 即是）。
     public var unknownFields: [UnknownField]
@@ -131,12 +149,14 @@ public struct AkashicMeta: Equatable {
     public init(tags: [String] = [], libraries: [String] = [],
                 status: String? = nil, relations: Relations = Relations(),
                 authorListCompleteness: AuthorListCompletenessWitness? = nil,
+                sources: [String] = [],
                 unknownFields: [UnknownField] = []) {
         self.tags = tags
         self.libraries = libraries
         self.status = status
         self.relations = relations
         self.authorListCompleteness = authorListCompleteness
+        self.sources = sources
         self.unknownFields = unknownFields
     }
 
@@ -146,6 +166,7 @@ public struct AkashicMeta: Equatable {
     public var isEmpty: Bool {
         tags.isEmpty && libraries.isEmpty && status == nil && relations.isEmpty
             && authorListCompleteness == nil
+            && sources.isEmpty
             && unknownFields.isEmpty
     }
 }

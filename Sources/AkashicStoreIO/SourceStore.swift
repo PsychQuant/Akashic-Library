@@ -294,6 +294,9 @@ public extension LibraryStore {
         }
         for p in load.people { collect(p.references) }
         for o in load.organizations { collect(o.references) }
+        // 記錄側副本引用（#223）：關係項與欄位層級 references 不同，但**指向同一個
+        // 內容儲存區**，所以缺席語意共用這一條路徑——不新增第二套判定。
+        for e in load.entries { digests.formUnion(e.akashic.sources) }
         return digests.filter { d in
             guard let url = sourceURL(digest: d) else { return true }
             return !FileManager.default.fileExists(atPath: url.path)

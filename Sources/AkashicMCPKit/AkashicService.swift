@@ -496,6 +496,28 @@ public final class AkashicService {
                 // **空集合也要出現**（規則執行細節 4，同一輪剛把 co_authors 的省略判為 bug）：
                 // 缺席時分辨不出「這個人沒有隸屬記錄」與「這個欄位掉了」。
                 personDict["affiliations"] = affs
+                // **verdict 是掛在這筆記錄上的邊（第 13 條）——檢視就要看得到**（#270）。
+                // resolver 沉底段按建構只列仍可觀測的配對；stale 的（rename 前、entry 已刪、
+                // literal 已移位）在這裡才有列舉面。observed/stale 判定：holder entry 仍存在
+                // 且該 literal 仍出現在其作者列 → observed；否則 stale。
+                let (vs, malformed) = ResolutionLedger.verdicts(references: record.references)
+                personDict["verdicts"] = vs.map { v -> [String: Any] in
+                    let observed: Bool = {
+                        guard v.holderKind == .work,
+                              let e = load.entries.first(where: { $0.citekey == v.holder })
+                        else { return v.holderKind != .work }   // org 族：不對 entry 判 stale
+                        return e.authors.contains { if case .literal(let s) = $0 { return s == v.literal }; return false }
+                    }()
+                    return ["kind": v.kind.rawValue,   // display-safe-exempt: VerdictKind 是封閉列舉 rawValue
+                            "holder_kind": v.holderKind.rawValue,   // display-safe-exempt: 同上
+                            "holder": displaySafe(v.holder, max: 200),
+                            "literal": displaySafe(v.literal, max: 200),
+                            "rule": displaySafe(v.rule, max: 200),
+                            "state": observed ? "observed" : "stale"]
+                }
+                if !malformed.isEmpty {
+                    personDict["verdictMalformed"] = malformed.map { displaySafe($0, max: 300) }
+                }
             }
             return try jsonString([
                 "person": personDict,

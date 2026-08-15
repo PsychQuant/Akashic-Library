@@ -209,6 +209,20 @@ struct PersonCmd: ParsableCommand {
                     print("    \((a["literal"] as? String) ?? "?")\(period)   （未歸戶）")   // display-safe-exempt: 見本函式 doc
                 }
             }
+
+            // **verdict（#270）**：掛在這筆記錄上的消解判定（第 13 條邊）——
+            // resolver 沉底段只列仍可觀測的配對，stale 的只有這裡有列舉面。
+            // 空集合明說（規則執行細節 4）。
+            let verdicts = (person["verdicts"] as? [[String: Any]]) ?? []
+            print("  verdicts（\(verdicts.count)）\(verdicts.isEmpty ? "：（無）" : "：")")
+            for v in verdicts {
+                let kind = (v["kind"] as? String) == "resolution-rejected" ? "✗ rejected " : "✓ confirmed"
+                let state = (v["state"] as? String) == "stale" ? "   （stale——配對已不可觀測）" : ""
+                print("    \(kind)  \((v["holder_kind"] as? String) ?? "?"):\((v["holder"] as? String) ?? "?") :: \((v["literal"] as? String) ?? "?")\(state)")   // display-safe-exempt: 見本函式 doc（值取自 service，已逐欄位消毒；kind/holder_kind 是封閉列舉）
+            }
+            if let vm = person["verdictMalformed"] as? [String], !vm.isEmpty {
+                print("  （verdict 解析異常 \(vm.count) 筆——詳見 --json）")
+            }
         }
 
         let pubs = (obj["publications"] as? [[String: Any]]) ?? []

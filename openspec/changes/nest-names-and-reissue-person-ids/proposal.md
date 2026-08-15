@@ -48,7 +48,7 @@ v5 當初是對的：舊格式的 `people/<key>.yaml` 沒有 `id` 欄位，兩�
 
 ### store format
 
-新結構需要 format 8。寫入 format < 8 的 store 時拒絕，沿用既有的 format gate 機制與訊息形狀。
+新結構需要 format 8（**實作時順延為 10**——8/9 已被 #232／#223 佔用，見 tasks.md／design.md 的 ASSUMPTION）。寫入低於該 format 的 store 時拒絕，沿用既有的 format gate 機制與訊息形狀。
 
 ## Non-Goals
 

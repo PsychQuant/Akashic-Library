@@ -140,6 +140,168 @@ final class PersonIdentityMigrationTests: XCTestCase {
         XCTAssertEqual(try entityFiles(), filesAfterFirst, "第二輪必須是 no-op")
     }
 
+    // MARK: - verify R1 補洞（#227/#241 cluster verify 抓到的遷移可達性族）
+
+    /// F2：legacy 佈局（people/<key>.yaml，format 1）必須有遷移路徑——先前三個指令
+    /// 互指成循環。就地摺疊＋補發 id（檔名即 key，不改名）；佈局搬移仍歸 akashic migrate。
+    func testLegacyLayoutIsMigratedInPlace() throws {
+        let legacyRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-idmig-legacy-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: legacyRoot) }
+        try FileManager.default.createDirectory(
+            at: legacyRoot.appendingPathComponent("people"), withIntermediateDirectories: true)
+        try StoreVersion.write(root: legacyRoot, format: 1)
+        // legacy 檔：無形狀標籤、無 id、平坦 names + 兄弟 authorized
+        try "key: guan-yongtao\nnames:\n- Guan, Yongtao\nauthorized:\n- Guan, Yongtao\n"
+            .write(to: legacyRoot.appendingPathComponent("people/guan-yongtao.yaml"),
+                   atomically: true, encoding: .utf8)
+        GitFixture.initRepo(legacyRoot)
+        GitFixture.commitAll(legacyRoot, message: "seed legacy")
+        let legacyStore = LibraryStore(root: legacyRoot)
+
+        let report = try PersonIdentityMigration.run(store: legacyStore, apply: true)
+        XCTAssertEqual(report.migrated, ["guan-yongtao"], "\(report.failed)")
+
+        let text = try String(contentsOf:
+            legacyRoot.appendingPathComponent("people/guan-yongtao.yaml"), encoding: .utf8)
+        let person = try PersonYAML.decode(text)
+        XCTAssertEqual(person.names.authorized, ["Guan, Yongtao"], "摺疊完成")
+        let s = person.id.uuidString
+        XCTAssertEqual(s[s.index(s.startIndex, offsetBy: 14)], "4", "補發的 id 是 v4")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(
+            atPath: legacyRoot.appendingPathComponent("people").path), ["guan-yongtao.yaml"],
+            "就地覆寫——檔名即 key，不改名、不留舊檔")
+    }
+
+    /// F2 自我指涉分支：entities 檔缺 id → 補發（one-time backfill），不再把記錄記成
+    /// 「失敗，理由是請跑本工具」。
+    func testMissingIDGetsBackfilledNotSelfReferentialFailure() throws {
+        let id = UUID()
+        try "person:\nkey: no-id-person\nnames:\n- No Id\n".write(
+            to: root.appendingPathComponent("entities/\(id.uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        commitAll()
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertEqual(report.migrated, ["no-id-person"], "\(report.failed)")
+        XCTAssertTrue(report.failed.isEmpty)
+        let load = try store.load()
+        XCTAssertEqual(load.people.map(\.key), ["no-id-person"])
+        XCTAssertTrue(load.quarantined.isEmpty)
+    }
+
+    /// L7：format-2 的 `type: person` 檔（無裸標籤）不得被靜默跳過——先前不進任何
+    /// 一欄、CLI 報「沒有 person 記錄」，操作者照指示 bump 後整批 quarantine。
+    func testFormatTwoTypePersonFileIsMigratedNotSilentlySkipped() throws {
+        let id = DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace,
+                                      name: "fmt2-person")
+        try "type: person\nid: \(id.uuidString)\nkey: fmt2-person\nnames:\n- Fmt Two\n".write(
+            to: root.appendingPathComponent("entities/\(id.uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        commitAll()
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertEqual(report.migrated, ["fmt2-person"],
+                       "type: person 是 format 2 的合法形狀，不得靜默跳過：\(report.failed)")
+    }
+
+    /// NEW-2：flow-style `names: [..]`——簡單純量要能摺；帶引號／巢狀的要**點名**
+    /// 「無法辨識的寫法」，不得讓 decoder 的泛用訊息形成「請跑本工具」的循環建議。
+    func testFlowStyleNamesFoldsOrFailsWithNamedReason() throws {
+        try writeOldShapePersonText(key: "flow-simple",
+                                    body: "names: [Flow Simple, Simple Flow]\n")
+        try writeOldShapePersonText(key: "flow-quoted",
+                                    body: "names: [\"Quoted, Name\"]\n")
+        commitAll()
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertEqual(report.migrated, ["flow-simple"], "\(report.failed)")
+        XCTAssertEqual(report.failed.count, 1)
+        XCTAssertTrue(report.failed[0].reason.contains("無法辨識"),
+                      "帶引號的 flow style 要點名寫法問題，不是循環建議：\(report.failed)")
+        XCTAssertFalse(report.failed[0].reason.contains("migrate-person-identity"),
+                       "失敗理由不得叫使用者跑剛失敗的這個工具")
+    }
+
+    /// L6：中斷殘留（同 key 新舊檔並存）重跑必須**收斂**——不得發第三個 id，
+    /// 舊檔計入 failed 並點名重複。
+    func testRerunAfterInterruptionConvergesInsteadOfIssuingThirdID() throws {
+        // 模擬中斷：新形檔（v4）與舊形檔（v5）同 key 並存
+        let newID = UUID()
+        try """
+        person:
+        id: \(newID.uuidString)
+        key: liang-yu-jen
+        names:
+          variant:
+          - Liang, Yu-Jen
+        """.write(to: root.appendingPathComponent("entities/\(newID.uuidString).yaml"),
+                  atomically: true, encoding: .utf8)
+        try writeOldShapePerson(key: "liang-yu-jen", names: ["Liang, Yu-Jen"])
+        commitAll()
+
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertTrue(report.migrated.isEmpty, "不得替殘留舊檔發新 id：\(report.migrated)")
+        XCTAssertEqual(report.skipped, ["liang-yu-jen"])
+        XCTAssertEqual(report.failed.count, 1)
+        XCTAssertTrue(report.failed[0].reason.contains("重複"),
+                      "舊檔要以重複點名交給人：\(report.failed)")
+        XCTAssertEqual(try entityFiles().count, 2, "兩檔保持原狀——不自動裁決刪誰")
+    }
+
+    /// L8：v4 id + 平坦 names 的半套檔——摺 names 但**保留**既有獨立 id
+    /// （spec：already independent → left unchanged）。
+    func testHalfMigratedFileKeepsItsV4ID() throws {
+        let keepID = UUID()
+        try "person:\nid: \(keepID.uuidString)\nkey: half-state\nnames:\n- Half State\n".write(
+            to: root.appendingPathComponent("entities/\(keepID.uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        commitAll()
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertEqual(report.migrated, ["half-state"], "\(report.failed)")
+        let load = try store.load()
+        XCTAssertEqual(load.people.first?.id, keepID, "已是 v4 的 id 不得重發")
+    }
+
+    /// L2/S3：遷移不得繞過 validate——同書寫系統兩個 authorized 的舊記錄計入 failed
+    /// 並點名，不落盤（「每條寫入路徑都擋」對遷移同樣成立）。
+    func testMigrationRoutesValidateErrorsToFailedInsteadOfWriting() throws {
+        let url = try writeOldShapePerson(key: "dup-script",
+                                          names: ["Alpha One", "Beta Two"],
+                                          authorized: ["Alpha One", "Beta Two"])
+        commitAll()
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertTrue(report.migrated.isEmpty, "\(report.migrated)")
+        XCTAssertEqual(report.failed.count, 1)
+        XCTAssertTrue(report.failed[0].reason.contains("latn"),
+                      "理由要含 validate 的訊息：\(report.failed)")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path),
+                      "拒絕的記錄保持原狀（prior state）")
+    }
+
+    /// S2：工作樹「乾淨」對被 **ignore** 的內容是空話——`status --porcelain` 不列
+    /// ignored 檔（可見的未追蹤檔會以 `??` 被髒樹閘抓，ignored 連 `??` 都沒有），
+    /// 兩道舊閘都過而 git 根本救不回。有檔案卻零 git 追蹤時必須拒寫。
+    func testIgnoredContentRefusesApply() throws {
+        try writeOldShapePerson(key: "wang-x", names: ["Wang, X."])
+        GitFixture.initRepo(root)
+        try "entities/\nstore.yaml\n".write(
+            to: root.appendingPathComponent(".gitignore"),
+            atomically: true, encoding: .utf8)
+        GitFixture.commitAll(root, message: "gitignore only")   // entities 被 ignore → porcelain 乾淨
+        XCTAssertThrowsError(try PersonIdentityMigration.run(store: store, apply: true)) { e in
+            let m = (e as? LocalizedError)?.errorDescription ?? "\(e)"
+            XCTAssertTrue(m.contains("追蹤"), "訊息要說明未被追蹤：\(m)")
+        }
+    }
+
+    /// helper：自訂 body 的舊形檔。
+    @discardableResult
+    private func writeOldShapePersonText(key: String, body: String) throws -> URL {
+        let id = DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: key)
+        let text = "person:\nid: \(id.uuidString)\nkey: \(key)\n" + body
+        let url = root.appendingPathComponent("entities/\(id.uuidString).yaml")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
     // MARK: - (5) 單筆失敗不中止整批，report 點名
 
     func testSingleFailureDoesNotAbortBatch() throws {

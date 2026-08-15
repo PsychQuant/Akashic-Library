@@ -260,9 +260,11 @@ public struct PersonNames: Equatable, ExpressibleByArrayLiteral {
     /// 的做法是**留空並報告**，而那正是對的——機械挑一個會把一個決定偽造出來，讓
     /// 「還沒有人決定」與「已經決定了，而且就是這個」在資料上不再有分別。
     ///
-    /// **禁令靠的是上面那段語意，不是靠 `validate`。** 書寫系統那條攔得下多數機械
-    /// 嘗試，但不是全部，且**不要因為這裡寫了禁令就以為每條寫入路徑都會擋**（#229
-    /// 之後寫入邊界有閘，直接改欄位仍不經過它）。
+    /// **禁令靠的是上面那段語意，不是靠 `validate`。** person 側現存的執行期守衛
+    /// 只有兩條**內容**約束：每書寫系統至多一個、兩分割互斥（#227 verify R1 補）——
+    /// 舊的子集牆（不變式 1）已由結構承擔而不復存在。它們攔得下多數機械嘗試，但
+    /// 不是全部，且**不要因為這裡寫了禁令就以為每條寫入路徑都會擋**（#229 之後
+    /// 寫入邊界有閘，直接改欄位仍不經過它）。
     ///
     /// > 規範條文在 `openspec/specs/authorized-name/spec.md`。上面引 `AuthorizedNameMigration`
     /// > 是拿它當**一致性測試**（「repo 裡有沒有合法路徑違反這句話」），不是當規範依據
@@ -589,6 +591,12 @@ extension Person {
         // 留一條恆真檢查會讓下一個讀的人以為它還在防什麼（design D2）。
         issues += AuthorizedNames.validateWritingSystems(authorized: names.authorized,
                                                          ownerKey: key)
+        // #227 verify R1：分割互斥——同一字串在兩個分割 = 序列化出現兩次（spec
+        // 「occupy exactly one partition」）。經 writePerson 的 assertNoErrors
+        // 落在所有寫入路徑的交會處。
+        issues += AuthorizedNames.validateDisjointPartitions(authorized: names.authorized,
+                                                             variant: names.variant,
+                                                             ownerKey: key)
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
                 message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))

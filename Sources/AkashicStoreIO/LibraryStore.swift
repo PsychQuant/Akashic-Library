@@ -541,11 +541,16 @@ public final class LibraryStore {
         if !person.names.all.isEmpty {
             let format = try StoreVersion.read(root: root)
             guard format >= 10 else {
-                throw StoreIOError.invalidKey(
-                    "person（含巢狀 names，需要 store format ≥ 10；本 store 是 \(format)）——" +
-                    "確認會碰這個 store 的 CLI/MCP/App 都已升級後，先以 migrate-person-identity " +
-                    "遷移既有記錄，再把 store.yaml 的 format: 改成 10（v10 改變 names 的形狀）",
-                    person.key)
+                // #227 verify S5：用 invalidInput 不用 invalidKey——後者的框架是
+                // 「不符合 key 正規式」，對合法 key 是假斷言，會把 LLM 呼叫端引去
+                // 清洗 key（#133 立 invalidInput 防的正是這形；v6/7/8 舊 gate 沿用
+                // 舊形屬既有債，另計）。
+                throw StoreIOError.invalidInput(
+                    what: "person「\(displaySafe(person.key, max: 120))」",
+                    why: "含巢狀 names，需要 store format ≥ 10；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，先以 " +
+                         "migrate-person-identity 遷移既有記錄，再把 store.yaml 的 " +
+                         "format: 改成 10（v10 改變 names 的形狀）")
             }
         }
         try Self.assertNoErrors(person.validate(), what: "person", key: person.key)

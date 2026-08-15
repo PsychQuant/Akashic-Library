@@ -80,6 +80,18 @@ public enum AuthorizedNameMigration {
     @discardableResult
     public static func run(store: LibraryStore, apply: Bool = false) throws -> Report {
         let load = try store.load()
+        // #227 verify S1：quarantined 檔在 → 本工具**看不見**那些人（load 已把它們
+        // 排除），迭代 0 人、回報成功、末尾把 marker bump 到 supported——在未遷移的
+        // store 上那會鎖死唯一還讀得懂資料的舊 binary，而且**回報成功**。fail-fast，
+        // 兩種模式都擋（dry-run 的報告對看不見的記錄同樣是誤導）。
+        guard load.quarantined.isEmpty else {
+            throw StoreIOError.invalidInput(
+                what: "authorize-names",
+                why: "store 有 \(load.quarantined.count) 個讀不進來的檔（可能是未遷移的"
+                   + "舊形狀 person）——本工具看不見它們，跑完會誤把 marker 升到 "
+                   + "\(StoreVersion.supported)。先跑 akashic migrate-person-identity，"
+                   + "再跑本工具（akashic doctor 可看每個檔的原因）")
+        }
         var report = Report()
         report.total = load.people.count
         for person in load.people {

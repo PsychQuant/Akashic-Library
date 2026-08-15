@@ -561,6 +561,35 @@ final class AuthorizedNameTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    /// #227 verify S1：store 有 quarantined 檔（未遷移的舊形狀）時，authorize-names
+    /// **看不見**那些人——迭代 0 人、回報成功、把 marker bump 到 supported，鎖死唯一
+    /// 還讀得懂資料的舊 binary。必須 fail-fast 指路遷移，marker 不得被動。
+    func testAuthorizeNamesRefusesQuarantinedStoreAndDoesNotBumpMarker() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-anq-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("entities"), withIntermediateDirectories: true)
+        try StoreVersion.write(root: root, format: 9)
+        // 舊形狀 person 檔（平坦 names）→ 現行 decoder quarantine
+        try """
+        person:
+        id: 11111111-1111-4111-8111-111111111111
+        key: old-shape
+        names:
+        - Old Shape
+        """.write(to: root.appendingPathComponent("entities/11111111-1111-4111-8111-111111111111.yaml"),
+                  atomically: true, encoding: .utf8)
+        let store = LibraryStore(root: root)
+
+        XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true)) { e in
+            let m = (e as? LocalizedError)?.errorDescription ?? "\(e)"
+            XCTAssertTrue(m.contains("migrate-person-identity"), "訊息要指路遷移：\(m)")
+        }
+        XCTAssertEqual(try StoreVersion.read(root: root), 9,
+                       "marker 不得被 bump——那會鎖死唯一還讀得懂資料的舊 binary")
+    }
+
     /// migration 把唯一候選直接採用之後，「沒有指定」的計數會掉到接近 0——但那些人
     /// **仍然沒有真正的名字**。缺口報告必須換一個問法才看得見。
     func testDoctorSurfacesCitationFormOnlyDesignations() throws {
@@ -682,6 +711,44 @@ final class AuthorizedNameTests: XCTestCase {
         let b = PersonNames(authorized: [], variant: ["謝叔蓉", "Shieh, Grace S."])
         XCTAssertNotEqual(a, b, "分割不同即不等，即使字串聯集相同")
         XCTAssertEqual(a, PersonNames(authorized: ["謝叔蓉"], variant: ["Shieh, Grace S."]))
+    }
+
+    /// spec「A name SHALL occupy exactly one partition」／Example「no name SHALL
+    /// appear in both subsections」（#227 verify R1）：同一字串同時落在兩個分割是
+    /// 「同時對外又不對外」的矛盾態——validate 必須報 error（經 writePerson 的
+    /// assertNoErrors 落在所有寫入路徑），decoder 對檔上矛盾同樣 fail-closed。
+    func testSameNameInBothPartitionsIsRejectedEverywhere() throws {
+        let p = Person(key: "dup-person",
+                       names: PersonNames(authorized: ["謝叔蓉"], variant: ["謝叔蓉"]))
+        let errs = p.validate().filter { $0.severity == .error }
+        XCTAssertEqual(errs.count, 1, "\(errs.map(\.message))")
+        XCTAssertTrue(errs[0].message.contains("謝叔蓉") && errs[0].message.contains("分割"),
+                      "訊息要點名字串與分割語意：\(errs[0].message)")
+
+        // 寫入邊界（所有路徑的交會處）
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-dup-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LibraryStore(root: root)
+        try store.ensureLayout()
+        XCTAssertThrowsError(try store.writePerson(p))
+        XCTAssertNil(try? store.load().people.first { $0.key == "dup-person" },
+                     "拒絕就是不得落盤")
+
+        // 讀取面：檔上矛盾 fail-closed（不得讀進來等下一次 RMW 寫回）
+        let yaml = """
+        person:
+        id: 11111111-1111-4111-8111-111111111111
+        key: dup-person
+        names:
+          authorized:
+          - 謝叔蓉
+          variant:
+          - 謝叔蓉
+        """
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { e in
+            XCTAssertTrue("\(e)".contains("person.names"), "\(e)")
+        }
     }
 
     /// 空分割合法：authorized 空 = 「還沒指定該怎麼稱呼他」（#81 的既有語意）。

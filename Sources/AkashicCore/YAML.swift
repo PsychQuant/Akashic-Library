@@ -1610,6 +1610,16 @@ extension PersonYAML {
                                                 { $0.sequence }) {
             names.variant = try EntryYAML.stringList(seq, context: "person.names.variant")
         }
+        // #227 verify R1：分割互斥在讀取面同樣 fail-closed——檔上同一字串出現在兩個
+        // 分割即是「同時對外又不對外」的矛盾態，spec：no name SHALL appear in both
+        // subsections。靜默收下會讓矛盾在下一次 RMW 被寫回。
+        let overlap = names.authorized.filter(Set(names.variant).contains)
+        if let dup = overlap.first {
+            throw StoreYAMLError.invalidField(
+                "person.names",
+                "「\(displaySafe(dup, max: 120))」同時出現在 authorized 與 variant——"
+                + "一個名字只屬於一個分割")
+        }
         return names
     }
 

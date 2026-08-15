@@ -435,6 +435,16 @@ public final class AkashicService {
             // 存在性判準用全集（scoped 過濾不可誤報 notFound——person 可能只是不在該 library）
             let allPubs = try engine.personPublications(key: key, library: nil)
             guard record != nil || !allPubs.isEmpty else {
+                // #227 verify R-4：「查不到」與「讀不進來」是兩件事（entity-backlink-
+                // completeness 執行細節 4）。store 有 quarantined 檔時，這個 key 很可能
+                // 就在其中（未遷移的舊形狀）——訊息必須說出來，否則 LLM 呼叫端會斷言
+                // 這個人不存在。
+                if !load.quarantined.isEmpty {
+                    throw ServiceError.notFound(
+                        "person「\(displaySafe(key, max: 200))」（另有 \(load.quarantined.count) 個檔"
+                        + " quarantined——可能是未遷移的舊形狀，該 key 或許在其中；"
+                        + "見 akashic doctor / migrate-person-identity）")
+                }
                 throw ServiceError.notFound("person「\(displaySafe(key, max: 200))」")
             }
             let pubs = library == nil ? allPubs

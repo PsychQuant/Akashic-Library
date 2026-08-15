@@ -153,6 +153,12 @@ public extension AkashicService {
                     "names 只有 authorized 與 variant 兩個分割，不認得「\(displaySafe(kk, max: 120))」")
             }
         }
+        // #227 verify R1：分割互斥在入口早擋（validate 也會擋，但這裡能給更準的訊息）
+        if let dup = names.authorized.first(where: Set(names.variant).contains) {
+            throw ServiceError.invalid(
+                "「\(displaySafe(dup, max: 120))」同時出現在 authorized 與 variant——"
+                + "一個名字只屬於一個分割；指定是搬移，不是複製")
+        }
         return names
     }
 

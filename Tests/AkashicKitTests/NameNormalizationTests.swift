@@ -207,8 +207,13 @@ extension NameNormalizationTests {
 
     /// **`authorized = names.map(matchingKey)` 被不變式 1 擋下的那一半。**
     ///
+    /// **#227 起本組測試量的是 organization-only 入口**（`AuthorizedNames.validate`
+    /// ——person 已巢狀化、子集牆由結構承擔而不復存在，person 側僅剩書寫系統與
+    /// 分割互斥兩條內容約束）。覆蓋地圖對 org 仍逐格成立；對 person 這幾格的
+    /// 執行期防護已整個消失，是**結構**接手，不是沒人管。
+    ///
     /// **這條記錄的是 `validate` 擋得住的那一部分，不是禁令的論據。** 禁令是語意的
-    /// （見 `Person.authorized` 的 doc）——`validate` 只攔下多數機械嘗試，且
+    /// （見 `PersonNames.authorized` 的 doc）——`validate` 只攔下多數機械嘗試，且
     /// `testNormalizedFormsCanEvadeBothInvariants` 證明兩條不變式**可以同時靜默**。
     ///
     /// 這一格：`matchingKey` 改變了字串時，產出落在 `names` 外 → 不變式 1 觸發。

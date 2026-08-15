@@ -79,13 +79,16 @@ public enum DivergenceResolveError: Error, LocalizedError {
                  + losses.map { displaySafe($0, max: 300) }.joined(separator: "；")
                  + "。先把要保留的搬到倖存者身上（或確認可以丟棄後手動清除），再消歧。"
         case let .quarantinedPresent(files):
-            return "store 有 \(files.count) 個讀不進來的檔，消歧拒絕執行——"
-                 + "它們可能正指著要被刪掉的實體，而讀不到就改寫不到，刪除後會留下"
-                 + "藏在工具看不見處的永久懸空參照："
-                 + files.prefix(3).map { displaySafe($0, max: 200) }.joined(separator: "、")
-                 + (files.count > 3 ? "…" : "")
-                 + "。跑 akashic doctor 看每個檔的原因，然後手動修好或移出 store 再試"
-                 + "（doctor 只診斷、不修）。"
+            let listed = files.prefix(3).map { displaySafe($0, max: 200) }
+                .joined(separator: "、") + (files.count > 3 ? "…" : "")
+            var msg = "store 有 \(files.count) 個讀不進來的檔，消歧拒絕執行——"
+            msg += "它們可能正指著要被刪掉的實體，而讀不到就改寫不到，刪除後會留下"
+            msg += "藏在工具看不見處的永久懸空參照：\(listed)"
+            msg += "。跑 akashic doctor 看每個檔的原因，然後手動修好或移出 store 再試"
+            msg += "（doctor 只診斷、不修）。若這些是未遷移的舊形狀 person 檔"
+            msg += "（#227/#241 之後每個未遷移 store 的常態），先跑 "
+            msg += "akashic migrate-person-identity。"
+            return msg
         case let .candidateNotInEntities(key, expected):
             return "候選「\(displaySafe(key, max: 200))」的記錄不在 "
                  + "\(displaySafe(expected, max: 300))——store 的佈局不一致"
@@ -679,8 +682,12 @@ extension LibraryStore {
             survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
         // 別名併入倖存者：被併者的寫法保留，否則下次遇到那個寫法又會重新分割一次。
         // #227：併入的一律進 **variant**——被併者的 authorized 指定不能靠聯集救回來
-        // （兩邊各指定同書寫系統時聯集會違反「每書寫系統至多一個」），loss 警告在
-        // 下方 contentWarnings 讓人看見並重新指定。
+        // （兩邊各指定同書寫系統時聯集會違反「每書寫系統至多一個」）。防護在**前置**：
+        // `validatePersonPreconditions` 的 `fieldsLostByMerging` 對「被併者有、倖存者
+        // 沒有的 authorized」直接拒絕合併（`wouldLoseFields`）——走到這行時被併者的
+        // 指定已確認是倖存者 authorized 的子集，折進 variant 不失去任何指定。
+        // （verify R1 曾抓到本註解點名不存在的 contentWarnings——那是 work 路徑的
+        // 機制名，person 的防護是上面那道拒絕，不是警告。）
         let incoming = doomed.flatMap { $0.names.all }.filter { !keeper.names.all.contains($0) }
         keeper.names.variant = dedupePreservingOrder(keeper.names.variant + incoming)
 

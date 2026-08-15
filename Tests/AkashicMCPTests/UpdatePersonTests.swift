@@ -134,6 +134,21 @@ final class UpdatePersonTests: XCTestCase {
         XCTAssertEqual(try load().names, PersonNames(authorized: ["Che Cheng", "鄭澈"]))
     }
 
+    /// #227 verify R1：同一字串同時給 authorized 與 variant → 入口即拒（訊息點名
+    /// 分割語意），不落盤。
+    func testOverlappingPartitionsRefused() throws {
+        XCTAssertThrowsError(try service.updatePerson(
+            key: "cheng-che",
+            fields: ["names": ["authorized": ["Che Cheng"],
+                               "variant": ["Che Cheng", "Cheng, C."]]],
+            dryRun: false)) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(msg.contains("分割"), "訊息要說出分割互斥：\(msg)")
+        }
+        XCTAssertEqual(try load().names, PersonNames(authorized: ["Che Cheng", "鄭澈"]),
+                       "拒絕不落盤")
+    }
+
     /// #148 verify F7：contacts 是「值為子鍵 map」的維度——維度級覆寫＝整個
     /// contacts map 替換（未提及的子鍵會消失），釘住這個容易被誤讀的形狀。
     func testContactsDimensionReplacesWholeMap() throws {

@@ -365,50 +365,6 @@ struct Migrate: ParsableCommand {
 /// `StoreVersion`，之後舊 binary 一律拒絕開啟這個 store（#24）。本指令是**內容**
 /// 遷移，格式不變、舊 binary 讀得懂結果。把兩者塞進同一個指令會讓「跑了 migrate」
 /// 這句話同時意味著兩件後果差很多的事。
-/// #241／#227：person 身分重發（v5→v4）+ names 巢狀化的一次性遷移。
-///
-/// **預設 dry-run**（design D6）——不可逆操作的預設是預演；`--apply` 才寫入，且
-/// 要求 store 工作樹乾淨（git 是回復路徑）。輸出沿用 migrate-provenance 的呈現形狀。
-struct MigratePersonIdentity: ParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "migrate-person-identity",
-        abstract: "person 身分重發（v4）+ names 巢狀化（#227/#241；需另手動 bump format 至 10）")
-
-    @OptionGroup var options: LibraryOptions
-
-    @Flag(name: .long, help: "實際寫入（預設只預演；要求 store 工作樹乾淨）")
-    var apply = false
-
-    func run() throws {
-        let store = try options.openStore()
-        let report = try PersonIdentityMigration.run(store: store, apply: apply)
-        let prefix = apply ? "✓" : "（dry-run）"
-
-        if report.migrated.isEmpty && report.skipped.isEmpty && report.failed.isEmpty {
-            print("沒有 person 記錄——不需要遷移")
-            return
-        }
-        print("\(prefix) \(apply ? "已遷移" : "將遷移") \(report.migrated.count) 筆"
-              + "，已是新形狀（跳過）\(report.skipped.count) 筆")
-        for k in report.migrated.prefix(20) { print("  \(displaySafe(k, max: 200))") }
-        if report.migrated.count > 20 { print("  …另 \(report.migrated.count - 20) 筆") }
-
-        // **先報失敗**（同 migrate-provenance 的紀律）：單筆失敗不中止整批，
-        // 不說出來的話使用者以為全部完成。
-        if !report.failed.isEmpty {
-            print("處理失敗 \(report.failed.count) 筆（其餘照常；修好後重跑——遷移是冪等的）：")
-            for f in report.failed.prefix(20) {
-                print("  ⚠ \(displaySafe(f.file, max: 200))——\(displaySafe(f.reason, max: 300))")
-            }
-            if report.failed.count > 20 { print("  …另 \(report.failed.count - 20) 筆") }
-        }
-        if apply, !report.migrated.isEmpty {
-            print("下一步：akashic doctor 重建 index、akashic validate 驗證；"
-                  + "確認所有 binary 已升級後，手動把 store.yaml 的 format: 改成 10")
-        }
-    }
-}
-
 struct MigrateProvenance: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "migrate-provenance",
@@ -474,6 +430,50 @@ struct MigrateProvenance: ParsableCommand {
         // 原本 exit 1，改完 exit 0。`&&` 串接、CI、`/loop` 會在一個半新半舊的
         // store 上看到成功。
         if !report.failures.isEmpty { throw ExitCode(1) }
+    }
+}
+
+/// #241／#227：person 身分重發（v5→v4）+ names 巢狀化的一次性遷移。
+///
+/// **預設 dry-run**（design D6）——不可逆操作的預設是預演；`--apply` 才寫入，且
+/// 要求 store 工作樹乾淨（git 是回復路徑）。輸出沿用 migrate-provenance 的呈現形狀。
+struct MigratePersonIdentity: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "migrate-person-identity",
+        abstract: "person 身分重發（v4）+ names 巢狀化（#227/#241；需另手動 bump format 至 10）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Flag(name: .long, help: "實際寫入（預設只預演；要求 store 工作樹乾淨）")
+    var apply = false
+
+    func run() throws {
+        let store = try options.openStore()
+        let report = try PersonIdentityMigration.run(store: store, apply: apply)
+        let prefix = apply ? "✓" : "（dry-run）"
+
+        if report.migrated.isEmpty && report.skipped.isEmpty && report.failed.isEmpty {
+            print("沒有 person 記錄——不需要遷移")
+            return
+        }
+        print("\(prefix) \(apply ? "已遷移" : "將遷移") \(report.migrated.count) 筆"
+              + "，已是新形狀（跳過）\(report.skipped.count) 筆")
+        for k in report.migrated.prefix(20) { print("  \(displaySafe(k, max: 200))") }
+        if report.migrated.count > 20 { print("  …另 \(report.migrated.count - 20) 筆") }
+
+        // **先報失敗**（同 migrate-provenance 的紀律）：單筆失敗不中止整批，
+        // 不說出來的話使用者以為全部完成。
+        if !report.failed.isEmpty {
+            print("處理失敗 \(report.failed.count) 筆（其餘照常；修好後重跑——遷移是冪等的）：")
+            for f in report.failed.prefix(20) {
+                print("  ⚠ \(displaySafe(f.file, max: 200))——\(displaySafe(f.reason, max: 300))")
+            }
+            if report.failed.count > 20 { print("  …另 \(report.failed.count - 20) 筆") }
+        }
+        if apply, !report.migrated.isEmpty {
+            print("下一步：akashic doctor 重建 index、akashic validate 驗證；"
+                  + "確認所有 binary 已升級後，手動把 store.yaml 的 format: 改成 10")
+        }
     }
 }
 

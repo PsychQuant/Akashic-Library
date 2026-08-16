@@ -23,6 +23,10 @@ public enum ResolutionLedger {
     /// **分開命名**（verify REG-7）：兩條規則的校準歷史本來就該分開計。
     public static let orgRule = "org-name-exact"
 
+    /// venue 族的證據類別（「venue name 完全命中且不歧義」，#304）。同上，
+    /// 分開命名讓三條規則的校準歷史分開計。
+    public static let venueRule = "venue-name-exact"
+
     /// 判定種類——與 verdict 欄位對一一對應。
     public enum VerdictKind: String, CaseIterable {
         case confirmed = "resolution-confirmed"
@@ -131,6 +135,18 @@ public enum ResolutionLedger {
             for v in verdicts(references: o.references).verdicts where v.kind == .rejected {
                 set.insert(ResolutionPairing(holderKind: v.holderKind, holder: v.holder,
                                              literal: v.literal, judgedKey: o.key))
+            }
+        }
+        return set
+    }
+
+    /// venue 族的已否決配對（#304——family 第三員，同構）。
+    public static func rejectedPairings(venues: [Venue]) -> Set<ResolutionPairing> {
+        var set = Set<ResolutionPairing>()
+        for v in venues {
+            for verdict in verdicts(references: v.references).verdicts where verdict.kind == .rejected {
+                set.insert(ResolutionPairing(holderKind: verdict.holderKind, holder: verdict.holder,
+                                             literal: verdict.literal, judgedKey: v.key))
             }
         }
         return set

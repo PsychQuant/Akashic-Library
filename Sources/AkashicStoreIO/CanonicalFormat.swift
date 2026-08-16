@@ -86,6 +86,7 @@ public enum CanonicalFormat {
         case .person:       return try PersonYAML.encode(try PersonYAML.decode(yaml))
         case .organization: return try OrganizationYAML.encode(try OrganizationYAML.decode(yaml))
         case .divergence:   return try DivergenceYAML.encode(try DivergenceYAML.decode(yaml))
+        case .venue:        return try VenueYAML.encode(try VenueYAML.decode(yaml))
         }
     }
 

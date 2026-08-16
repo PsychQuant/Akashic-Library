@@ -10,6 +10,11 @@ public struct Entry: Equatable {
     public var type: String
     public var title: String
     public var authors: [Author]
+    /// 發表載體的二態指涉（#304，有序——主要載體在前）。作品側是正典側
+    /// （#300 六理由同構）；反向（venue → 文章編年）一律現算。匯入端只產生
+    /// `.literal`（`literal-first-then-key` 規則）；`fields` 內的 journaltitle
+    /// 等字串照舊保留——ref 是升格不是取代（lossless-intake）。
+    public var venues: [VenueRef]
     public var date: String?
     /// 其餘 biblatex 欄位（journaltitle / volume / doi / …）。
     public var fields: [String: String]
@@ -22,7 +27,7 @@ public struct Entry: Equatable {
     public var unknownFields: [UnknownField]
 
     public init(id: UUID, citekey: String, type: String, title: String,
-                authors: [Author] = [], date: String? = nil,
+                authors: [Author] = [], venues: [VenueRef] = [], date: String? = nil,
                 fields: [String: String] = [:], attachments: [AttachmentRef] = [],
                 provenance: Provenance? = nil, akashic: AkashicMeta = AkashicMeta(),
                 unknownFields: [UnknownField] = []) {
@@ -31,6 +36,7 @@ public struct Entry: Equatable {
         self.type = type
         self.title = title
         self.authors = authors
+        self.venues = venues
         self.date = date
         self.fields = fields
         self.attachments = attachments

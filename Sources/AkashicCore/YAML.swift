@@ -80,6 +80,16 @@ public enum EntryYAML {
             }
             pairs.append((Node("authors"), Node(authorNodes)))
         }
+        // #304：發表載體二態 ref，緊接 authors（同族的指涉欄位相鄰）。空集合省略。
+        if !entry.venues.isEmpty {
+            let venueNodes: [Node] = entry.venues.map { ref in
+                switch ref {
+                case .key(let k): return Node([(Node("key"), Node(k))] as [(Node, Node)])
+                case .literal(let s): return Node([(Node("literal"), Node(s))] as [(Node, Node)])
+                }
+            }
+            pairs.append((Node("venues"), Node(venueNodes)))
+        }
         if let date = entry.date {
             pairs.append((Node("date"), Node(date)))
         }
@@ -215,6 +225,7 @@ public enum EntryYAML {
         if a.type != b.type { bad.append("type") }
         if a.title != b.title { bad.append("title") }
         if a.authors != b.authors { bad.append("authors") }
+        if a.venues != b.venues { bad.append("venues") }
         if a.date != b.date { bad.append("date") }
         if a.fields != b.fields { bad.append("fields") }
         if a.attachments != b.attachments { bad.append("attachments") }
@@ -286,7 +297,7 @@ public enum EntryYAML {
     /// **形狀裸標籤也算已知鍵。** 不列入的話，tolerant-preserve 會把它當未知欄位
     /// 逐字保留並在寫回時重新產生——舊的 `type: person` 也是同理，見 `knownPersonKeys`。
     static let knownTopLevelKeys: Set<String> = Set([
-        "id", "citekey", "type", "title", "authors", "date",
+        "id", "citekey", "type", "title", "authors", "venues", "date",
         "fields", "attachments", "provenance", "akashic",
     ]).union(EntityKind.knownLabels)
     static let knownAkashicKeys: Set<String> = [
@@ -780,6 +791,24 @@ public enum EntryYAML {
                 case (nil, let s?): return .literal(s)
                 default:
                     throw StoreYAMLError.invalidField("authors", "必須恰好有 key 或 literal 其一")
+                }
+            }
+        }
+        // #304：venues——形同 authors 的二態 ref（獨立 VenueRef 型別，定義域不同）。
+        if let venueSeq = try requireShape(map["venues"], field: "venues",
+                                           expect: "sequence", nullIsAbsent: true, { $0.sequence }) {
+            entry.venues = try venueSeq.map { node in
+                guard let m = node.mapping else {
+                    throw StoreYAMLError.invalidField("venues", "元素不是 mapping")
+                }
+                try rejectUnknownKeys(m, known: ["key", "literal"], context: "venues")
+                let key = try m["key"].map { try scalarString($0, context: "venues.key") }
+                let literal = try m["literal"].map { try scalarString($0, context: "venues.literal") }
+                switch (key, literal) {
+                case (let k?, nil): return .key(k)
+                case (nil, let s?): return .literal(s)
+                default:
+                    throw StoreYAMLError.invalidField("venues", "必須恰好有 key 或 literal 其一")
                 }
             }
         }
@@ -1309,6 +1338,11 @@ public enum EntityKind: String, CaseIterable {
     /// 對照被同一個測試拒絕的 `view`：view 選不出任何形狀，載入器只會把它當成某個
     /// 既有形狀來讀。
     case divergence
+    /// 發表載體（#304：期刊／會議／出版社，封閉 `type` 三值）。它決定自己的欄位
+    /// （type / 刊名沿革時間軸），通過 §11 判別測試——第五種形狀。
+    /// venue 記錄自身的 `type:` 是 VenueType（journal/…），值域不與形狀名相交，
+    /// 故 `checkNoContradiction` 的 work 書目類型檢查不受影響。
+    case venue
 
     /// 封閉集合。不在其中的裸標籤 → quarantine，不猜。
     public static let knownLabels: Set<String> = Set(allCases.map(\.rawValue))
@@ -1831,6 +1865,98 @@ public enum OrganizationYAML {
         }
         try org.validateReferenceAttachment()
         return org
+    }
+}
+
+// MARK: - Venue ↔ YAML（#304）
+
+/// 發表載體的編解碼。沿用 organization 的慣例：形狀裸標籤在最前、names 時間軸
+/// （刊名沿革）、authorized、未知欄位 tolerant-preserve、encode 後自檢（canary）。
+public enum VenueYAML {
+    static let knownKeys: Set<String> = Set(["id", "key", "type", "names", "authorized",
+                                             "note", "references"])
+        .union(EntityKind.knownLabels)
+
+    public static func encode(_ v: Venue) throws -> String {
+        var pairs: [(Node, Node)] = [(Node(EntityKind.venue.rawValue), Node("")),
+                                     (Node("id"), Node(v.id.uuidString)),
+                                     (Node("key"), Node(v.key)),
+                                     (Node("type"), Node(v.type.rawValue))]
+        if !v.names.isEmpty {
+            try pairs.append((Node("names"), PersonYAML.timelineNode(v.names)))
+        }
+        if !v.authorized.isEmpty {
+            pairs.append((Node("authorized"), Node(v.authorized.map { Node($0) })))
+        }
+        if let n = v.note { pairs.append((Node("note"), Node(n))) }
+        if !v.references.isEmpty {
+            try pairs.append((Node("references"), ProvenanceYAML.node(v.references)))
+        }
+        var text = try Yams.serialize(node: Node(pairs), allowUnicode: true)
+        try EntryYAML.appendRawBlocks(v.unknownFields, to: &text, targetIndent: 0,
+                                      context: "venue")
+        let back = try decode(text)
+        guard back == v else {
+            throw StoreYAMLError.invalidField("venue", "encode 自檢失敗：讀回的值與原值不符")
+        }
+        return text
+    }
+
+    public static func decode(_ yaml: String) throws -> Venue {
+        let yaml = EntryYAML.stripLeadingBOM(yaml)
+        try EntryYAML.assertNoLossyContentChars(yaml, context: "venue")
+        try AliasEventBudget.check(yaml, context: "library")
+        guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
+            throw StoreYAMLError.notAMapping
+        }
+        var oracleBudget = 200_000
+        let keys = try EntryYAML.keyStrings(map, known: knownKeys, context: "venue")
+        let unknowns = try EntryYAML.captureUnknownBlocks(
+            text: yaml, map: map, keys: keys, known: knownKeys,
+            indent: 0, context: "venue", budget: &oracleBudget)
+        guard let key = try EntryYAML.requireShape(map["key"], field: "venue.key",
+                                                   expect: "scalar", { $0.scalar?.string }) else {
+            throw StoreYAMLError.missingField("key")
+        }
+        // type：封閉三值，缺席或未知值都整檔拒讀——不猜（#304 裁決三的封閉性）。
+        guard let rawType = try EntryYAML.requireShape(map["type"], field: "venue.type",
+                                                       expect: "scalar", nullIsAbsent: true,
+                                                       { $0.scalar?.string }) else {
+            throw StoreYAMLError.missingField("type")
+        }
+        guard let vtype = VenueType(rawValue: rawType) else {
+            throw StoreYAMLError.invalidField(
+                "venue.type",
+                "'\(displaySafe(rawType, max: 60))' 不在封閉列舉（journal / conference / publisher）")
+        }
+        var explicitID: UUID?
+        if let raw = try EntryYAML.requireShape(map["id"], field: "venue.id",
+                                                expect: "scalar", nullIsAbsent: true,
+                                                { $0.scalar?.string }) {
+            guard let u = UUID(uuidString: raw) else {
+                throw StoreYAMLError.invalidField("venue.id", "不是合法的 UUID")
+            }
+            explicitID = u
+        }
+        var v = Venue(key: key, type: vtype, id: explicitID)
+        v.unknownFields = unknowns
+        if let n = map["names"] {
+            v.names = try PersonYAML.decodeTimeline(n, context: "venue.names")
+        }
+        if let seq = try EntryYAML.requireShape(map["authorized"], field: "venue.authorized",
+                                                expect: "sequence", nullIsAbsent: true,
+                                                { $0.sequence }) {
+            v.authorized = try EntryYAML.stringList(seq, context: "venue.authorized")
+        }
+        v.note = try EntryYAML.requireShape(map["note"], field: "venue.note",
+                                            expect: "scalar", nullIsAbsent: true,
+                                            { $0.scalar?.string })
+        if let rn = try EntryYAML.requireShape(map["references"], field: "venue.references",
+                                               expect: "sequence", nullIsAbsent: true,
+                                               { $0.sequence != nil ? $0 : nil }) {
+            v.references = try ProvenanceYAML.decode(rn, context: "venue")
+        }
+        return v
     }
 }
 

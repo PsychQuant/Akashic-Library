@@ -25,7 +25,9 @@ public struct LibraryIndex {
     /// 讀端先 isCurrent 檢查、stale 就 rebuild，不靠 mtime。
     /// **3**＝新增 `index_identity`（#122）：bump 讓所有無身分戳記的舊 index
     /// 判 stale、升級後第一次使用自動重建一次。
-    public static let schemaVersion: Int32 = 3
+    /// **4**＝新增 `venue_refs`／`venues`（#304）：Entry.venues 二態 ref 的反向索引
+    /// （編年查詢的資料面）。
+    public static let schemaVersion: Int32 = 4
 
     let store: LibraryStore
 
@@ -131,8 +133,13 @@ public struct LibraryIndex {
             "CREATE TABLE entry_libraries(entry_uuid TEXT, library_key TEXT)",
             "CREATE TABLE relations(from_uuid TEXT, kind TEXT, target TEXT)",
             "CREATE TABLE people(key TEXT PRIMARY KEY, names TEXT)",
+            // #304：venue 反向索引——邊存作品側，反向一律現算（第 14 條邊）
+            "CREATE TABLE venue_refs(entry_uuid TEXT, position INT, venue_key TEXT, literal TEXT)",
+            "CREATE TABLE venues(key TEXT PRIMARY KEY, type TEXT, names TEXT)",
             "CREATE INDEX idx_authors_entry ON authors(entry_uuid)",
             "CREATE INDEX idx_authors_key ON authors(person_key)",
+            "CREATE INDEX idx_venue_refs_entry ON venue_refs(entry_uuid)",
+            "CREATE INDEX idx_venues_key ON venue_refs(venue_key)",
             "CREATE INDEX idx_tags_entry ON tags(entry_uuid)",
             "CREATE INDEX idx_entry_libraries_key ON entry_libraries(library_key)",
             "CREATE INDEX idx_relations_from ON relations(from_uuid)",
@@ -142,7 +149,7 @@ public struct LibraryIndex {
             // 前綴，換掉的 store 的 index 根本不叫這個名字）。這一欄擋的是人工
             // 改名。可空：既有 store 沒有 incarnation 檔。
             "CREATE TABLE index_identity(only_row INT PRIMARY KEY CHECK (only_row = 1), store_root TEXT NOT NULL, store_id TEXT, built_at TEXT NOT NULL, entry_count INT NOT NULL)",
-            "PRAGMA user_version = 3",   // = schemaVersion；同步遞增
+            "PRAGMA user_version = 4",   // = schemaVersion；同步遞增
         ] {
             try db.execute(sql)
         }
@@ -177,6 +184,16 @@ public struct LibraryIndex {
                                    bind: [entry.id.uuidString, i, s])
                 }
             }
+            for (i, ref) in entry.venues.enumerated() {
+                switch ref {
+                case .key(let k):
+                    try db.execute("INSERT INTO venue_refs VALUES (?,?,?,NULL)",
+                                   bind: [entry.id.uuidString, i, k])
+                case .literal(let s):
+                    try db.execute("INSERT INTO venue_refs VALUES (?,?,NULL,?)",
+                                   bind: [entry.id.uuidString, i, s])
+                }
+            }
             for tag in entry.akashic.tags {
                 try db.execute("INSERT INTO tags VALUES (?,?)", bind: [entry.id.uuidString, tag])
             }
@@ -194,6 +211,12 @@ public struct LibraryIndex {
                                bind: [entry.id.uuidString, rel])
                 relationCount += 1
             }
+        }
+        for venue in load.venues {
+            // 收全部名字（時間軸各段）——檢索不因沿革段落而異（同 people 的紀律）。
+            try db.execute("INSERT INTO venues VALUES (?,?,?)",
+                           bind: [venue.key, venue.type.rawValue,
+                                  venue.names.entries.map(\.value).joined(separator: "\n")])
         }
         for person in load.people {
             // #227：index 是搜尋用衍生層——收**全部**名字（authorized + variant），

@@ -34,7 +34,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 
 （#206 對匯入面的原話：「能不能無損匯入，不該取決於使用者會不會寫 script。」）
 
-## 裁決史（封閉列舉——現有 21 工具，一格不多一格不少）
+## 裁決史（封閉列舉——現有 27 工具，一格不多一格不少）
 
 | MCP 工具 | CLI 對應 | 裁決 |
 |---|---|---|
@@ -59,6 +59,12 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 | `akashic_set_status` | `set-status` | ✅（#219；契約已收斂——省略拒絕、清除須顯式（CLI `--clear`／MCP `clear:true`），守衛下沉 service，#258）|
 | `akashic_add_person` | `add-person` | ✅（#250；寫入面封閉例外形。實證需求：#238 對 unkeyable 作者的處置就是單筆指定 key）|
 | `akashic_divergences` | `divergences` | ✅（#250；讀取面 `--json`＋人可讀同源。#218 同形：能寫不能讀的格）|
+| `akashic_venue` | `venue` | ✅（#304 venue change；讀取面 `--json`＋人可讀同源；編年 list 由反向邊現算）|
+| `akashic_venues` | `venues` | ✅（#304 venue change；讀取面同源）|
+| `akashic_add_venue` | `add-venue` | ✅（#304 venue change；寫入面封閉例外形，同 `add-person`）|
+| `akashic_resolve_venues` | `resolve-venues` | ✅（#304 venue change；兩面契約差異同 #272：MCP 允許 apply+reject 組合、CLI 分兩次呼叫）|
+| `akashic_add_organization` | 無（單筆建檔 MCP-only；批次面 `bootstrap-organizations` 維持 CLI-only，見 CLI-only 表）| ✅ 有理由的單面（#304 移轉裁決：org 重啟後單筆建檔是 #303 campaign 的 LLM 消費流程；操作者規模的批次建檔另有 CLI 面）|
+| `akashic_resolve_organizations` | `resolve-organizations` | ✅（#304 移轉；CLI-only 表「候補缺席（重啟訊號已觸發）」格的補齊——同 `import-wos`／#290 的移列形）|
 
 新增下一個工具 = 在這張表加一列。**不得依性質相似類推**「這個工具顯然不用 CLI」
 ——那個判斷要寫成表裡的一列（含理由或 issue 編號），不能只存在腦中。
@@ -68,7 +74,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 不要相信作者窮舉過（`entity-backlink-completeness` 的表錯過兩次，教訓同形）：
 
 ```bash
-# ① MCP 面的全部工具名（實測：恰 21，與表零差集）
+# ① MCP 面的全部工具名（實測：恰 27，與表零差集）
 grep -oE 'Tool\(name: "akashic_[a-z_]+"' Sources/akashic-mcp/Server.swift | sort -u
 # ② CLI 面的全部註冊型別（取 subcommands 陣列整段，不靠型別命名慣例——
 #    第一版寫 '[A-Za-z]+Cmd?\.self' 只命中 11/30：`Cmd?` 是「Cm+可選 d」，
@@ -80,7 +86,7 @@ sed -n '/subcommands: \[/,/\])/p' Sources/akashic/CLI.swift | grep -oE '[A-Za-z]
 #    或讀 configuration 的測試，見 #259 的討論）
 ```
 
-## CLI-only 裁決表（封閉列舉——#259 一次性補裁；12 命令＋1 旗標，一格不多一格不少；`import-wos` 於 #290 補 MCP 面後移列 MCP 表；`migrate-person-identity` 於 #227/#241 新增時當場裁決）
+## CLI-only 裁決表（封閉列舉——#259 一次性補裁；12 命令＋1 旗標，一格不多一格不少；`import-wos` 於 #290、`resolve-organizations` 於 #304 venue change 補 MCP 面後移列 MCP 表；`migrate-person-identity` 於 #227/#241、`migrate-venues` 於 #304 venue change 新增時當場裁決）
 
 新增 CLI subcommand = 在這張表加一列（或補 MCP 面後在 MCP 表加一列）。兩個
 裁決用語：**維運例外**＝要求操作者在檔案系統與版控旁（git 退路、人工
@@ -92,13 +98,13 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 |---|---|---|
 | `view`（list／show） | 候補缺席 | 外延查詢對 agent 有潛在價值，但目前無 MCP 端消費流程 |
 | `resolve-divergence` | 有理由缺席 | in-code 既有裁決（`AkashicService.recordDivergence` doc）：消歧含合併＋全庫改寫＋刪檔，tracked+clean 前提與人工確認屬 CLI／App 互動面 |
-| `resolve-organizations` | 候補缺席（**重啟訊號已觸發**，#304） | 與 `resolve-people`（有 MCP 面）同判準。#304（2026-08-16）裁決 org 建模重啟、歸屬性單位全開（首批 TIGP／DSSCC，store 現 4 org），org 空間將隨 #303 campaign 成長——MCP 面的補齊裁決**併入 venue 域 Spectra change 的 scope**（使用者已拍板「需要的 skill 與 MCP 都要做」），不在本表就地裁決 |
 | `bootstrap-people` | 有理由缺席 | 批次建檔屬操作者規模；單筆由 `akashic_add_person` 覆蓋（#250）|
-| `bootstrap-organizations` | 有理由缺席（前提已變，#304） | 批次建檔屬操作者規模（同 `bootstrap-people`）。原第二理由「org 建模先停（#63／#70）」已由 #304（2026-08-16）裁決**廢止**——org 重啟、歸屬性單位全開；批次面維持 CLI-only，單筆 org 建檔的 MCP 面（`akashic_add_organization` 之類）併入 venue 域 Spectra change 裁決 |
+| `bootstrap-organizations` | 有理由缺席 | 批次建檔屬操作者規模（同 `bootstrap-people`）。原第二理由「org 建模先停（#63／#70）」已由 #304（2026-08-16）廢止——org 重啟後**單筆**建檔的 MCP 面已於 venue change 補齊（`akashic_add_organization`，見 MCP 表）；批次面維持 CLI-only |
 | `fmt` | 有理由缺席 | 全庫改寫＝維運例外 |
 | `migrate` | 有理由缺席 | 格式遷移＝維運例外 |
 | `migrate-provenance` | 有理由缺席 | 同上 |
 | `migrate-person-identity`（#227/#241） | 有理由缺席 | 格式遷移＝維運例外（同 `migrate`／`migrate-provenance`）；且不可逆、要求 store 工作樹乾淨的人工 pre-flight，MCP 的 LLM 消費者不是該角色 |
+| `migrate-venues`（#304 venue change） | 有理由缺席 | 格式遷移＝維運例外（同 `migrate` 族）；per-file trackedness pre-flight＋部署鏈（release → migrate → validate → 手動 bump format 11）屬操作者角色 |
 | `validate` | 有理由缺席 | 讀取檢查由 `akashic_doctor` 覆蓋（功能重疊）|
 | `rename` | 有理由缺席 | 高風險身分操作（citekey 遷移含 verdict value 重寫，#232）＝維運例外 |
 | `authorize-names` | 有理由缺席 | 批次策展＝操作者規模 |

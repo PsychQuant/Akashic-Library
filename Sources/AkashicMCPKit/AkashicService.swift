@@ -1554,6 +1554,340 @@ public final class AkashicService {
         return d
     }
 
+    // MARK: - Venue（#304）
+
+    /// venue 檢視：記錄＋刊名沿革＋**文章編年 list**（依年升冪；裁決五a）。
+    /// 空集合顯式報零篇（零篇 ≠ 查無——entity-backlink 執行細節 4）；store 有
+    /// quarantined 檔且查無時擲 undeterminable（同 person 的 #227 紀律）。
+    public func venue(key rawKey: String) throws -> String {
+        let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { throw ServiceError.invalid("key 不可為空白") }
+        let load = try store.load()
+        guard let record = load.venues.first(where: { $0.key == key }) else {
+            if !load.quarantined.isEmpty {
+                throw ServiceError.undeterminable(
+                    "venue「\(displaySafe(key, max: 200))」——store 另有 "
+                    + "\(load.quarantined.count) 個檔 quarantined；見 akashic doctor")
+            }
+            throw ServiceError.notFound("venue「\(displaySafe(key, max: 200))」")
+        }
+        let engine = try freshEngine()
+        let works = try engine.venueWorks(key: key)
+        var d: [String: Any] = [
+            "key": displaySafe(key, max: 200),
+            "type": record.type.rawValue,
+            // 沿革：時間軸各段（序列化順序；四個時間欄位全帶——#218 R2 的教訓）
+            "names": record.names.inSerializationOrder.map { seg -> [String: Any] in
+                var n: [String: Any] = ["value": displaySafe(seg.value, max: 200)]
+                if let st = seg.range.start { n["start"] = displaySafe(st, max: 40) }
+                if let en = seg.range.end { n["end"] = displaySafe(en, max: 40) }
+                if seg.range.endedUnknown { n["ended"] = true }   // display-safe-exempt: Bool
+                if !seg.range.attested.isEmpty {
+                    n["attested"] = seg.range.attested.map { displaySafe($0, max: 40) }
+                }
+                return n
+            },
+            // 編年（依年升冪；QueryEngine 排序）——空陣列也要出現（零篇是答案不是缺席）
+            "works": works.map { w -> [String: Any] in
+                var e: [String: Any] = ["citekey": displaySafe(w.citekey, max: 200),
+                                        "title": displaySafe(w.title, max: 500)]
+                if let y = w.year { e["year"] = y }   // display-safe-exempt: Int
+                return e
+            },
+            "workCount": works.count,   // display-safe-exempt: Int
+        ]
+        if !record.authorized.isEmpty {
+            d["authorized"] = record.authorized.map { displaySafe($0, max: 200) }
+        }
+        if let note = record.note { d["note"] = displaySafe(note, max: 500) }
+        if !record.unknownFields.isEmpty {
+            d["unknownFields"] = record.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
+        }
+        return try jsonString(d)
+    }
+
+    /// venue 列舉（key／type／顯示名／文章數）。
+    public func venues() throws -> String {
+        let load = try store.load()
+        let engine = try freshEngine()
+        let rows = try load.venues.sorted { $0.key < $1.key }.map { v -> [String: Any] in
+            ["key": displaySafe(v.key, max: 200),
+             "type": v.type.rawValue,
+             "name": displaySafe(v.displayName, max: 200),
+             "workCount": try engine.venueWorks(key: v.key).count]   // display-safe-exempt: Int
+        }
+        return try jsonString(["venues": rows, "count": rows.count])   // display-safe-exempt: Int
+    }
+
+    /// venue 單筆建檔（同 addPerson 形：寫入面封閉例外、key 已存在拒絕）。
+    /// names 全部進時間軸（無時間段）；authorized 留空——指定是人的判斷。
+    public func addVenue(key: String, names: [String], type rawType: String,
+                         note: String? = nil) throws -> String {
+        guard let vtype = VenueType(rawValue: rawType) else {
+            throw ServiceError.invalid(
+                "type「\(displaySafe(rawType, max: 60))」不在封閉列舉（journal / conference / publisher）")
+        }
+        let load = try store.load()
+        guard !load.venues.contains(where: { $0.key == key }) else {
+            throw ServiceError.invalid("venue key「\(displaySafe(key, max: 200))」已存在")
+        }
+        let venue = Venue(key: key, type: vtype,
+                          names: Timeline(names.map { TemporalValue(value: $0) }),
+                          note: note)
+        try store.writeVenue(venue)
+        try LibraryIndex(store: store).rebuild()
+        return try jsonString(["key": key, "type": vtype.rawValue,
+                               "names": names.map { displaySafe($0, max: 200) }])
+    }
+
+    /// venue 消歧（resolve-people 契約形，#304）：無參數＝列候選與歧義；
+    /// apply＝literal 升格 key＋confirmed verdict；reject＝rejected verdict；
+    /// apply+reject 同呼叫＝兩段式（reject 先完整提交，apply 以新快照重解析）。
+    public func resolveVenues(apply: [String]?, reject: [String]? = nil) throws -> String {
+        if let ap = apply, !ap.isEmpty, let rj = reject, !rj.isEmpty {
+            func parsed(_ s: String) throws -> [String: Any] {
+                (try JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any]) ?? [:]
+            }
+            let rejectDict = try parsed(try resolveVenues(apply: nil, reject: rj))
+            let justRejected = Set(rejectDict["rejected"] as? [String] ?? [])
+            let applyIDs = ap.filter { !justRejected.contains($0) }
+            let skipped = ap.filter { justRejected.contains($0) }
+            var applyDict: [String: Any]
+            if applyIDs.isEmpty {
+                applyDict = ["applied": [String]()]
+            } else {
+                do { applyDict = try parsed(try resolveVenues(apply: applyIDs, reject: nil)) }
+                catch {
+                    applyDict = ["error": displaySafe(String(describing: error), max: 512),
+                                 "note": "reject 腿已提交——本錯誤只屬 apply 腿"]
+                }
+            }
+            if !skipped.isEmpty {
+                applyDict["skippedBecauseRejected"] = skipped.map { displaySafe($0, max: 200) }
+            }
+            return try jsonString(["legs": ["reject": rejectDict, "apply": applyDict]])
+        }
+        let load = try store.load()
+        let rejectedPairings = ResolutionLedger.rejectedPairings(venues: load.venues)
+        let report = VenueResolver.resolve(entries: load.entries, venues: load.venues,
+                                           rejected: rejectedPairings)
+        let byID = Dictionary(report.candidates.map { ($0.rowID, $0) },
+                              uniquingKeysWith: { first, _ in first })
+        let byKey = Dictionary(load.venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        func dedupe(_ ids: [String]) -> [String] {
+            var seen = Set<String>()
+            return ids.filter { seen.insert($0).inserted }
+        }
+        let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
+        if let rejectIDs = reject, !rejectIDs.isEmpty {
+            guard storeFormat >= 11 else {
+                throw ServiceError.invalid(
+                    "venue verdict 需要 store format ≥ 11（本 store 是 \(storeFormat)）")   // display-safe-exempt: Int
+            }
+            let chosen = try dedupe(rejectIDs).map { id -> VenueResolutionCandidate in
+                guard let c = byID[id] else {
+                    throw ServiceError.notFound("候選 id「\(displaySafe(id, max: 200))」（先不帶 apply 列出候選）")
+                }
+                return c
+            }
+            var grouped: [String: Venue] = [:]
+            for c in chosen {
+                guard var v = grouped[c.venueKey] ?? byKey[c.venueKey] else {
+                    throw ServiceError.notFound("venue「\(displaySafe(c.venueKey, max: 200))」")
+                }
+                ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+                    .rejected, holderKind: .work, holder: c.citekey, literal: c.literal,
+                    rule: ResolutionLedger.venueRule,
+                    statement: "resolve reject：使用者否決此配對"), to: &v.references)
+                grouped[c.venueKey] = v
+            }
+            var writeFailed: [String: String] = [:]
+            for key in grouped.keys.sorted() {
+                do { try store.writeVenue(grouped[key]!) } catch {
+                    writeFailed[displaySafe(key, max: 200)] =
+                        displaySafe(String(describing: error), max: 512)
+                }
+            }
+            var result: [String: Any] = [
+                "rejected": chosen.filter { writeFailed[displaySafe($0.venueKey, max: 200)] == nil }
+                    .map { $0.rowID },
+                "venuesRewritten": grouped.count - writeFailed.count,   // display-safe-exempt: Int
+            ]
+            if !writeFailed.isEmpty { result["rejectWriteFailed"] = writeFailed }
+            try LibraryIndex(store: store).rebuild()
+            return try jsonString(result)
+        }
+        guard let selected = apply, !selected.isEmpty else {
+            return try jsonString([
+                "candidates": report.candidates.map { c -> [String: Any] in
+                    ["id": c.rowID,
+                     "citekey": displaySafe(c.citekey, max: 200),
+                     "literal": displaySafe(c.literal, max: 200),
+                     "venueKey": displaySafe(c.venueKey, max: 200),
+                     "reason": displaySafe(c.reason, max: 400)]
+                },
+                "ambiguities": report.ambiguities.map { m -> [String: Any] in
+                    ["id": m.rowID,
+                     "citekey": displaySafe(m.citekey, max: 200),
+                     "literal": displaySafe(m.literal, max: 200),
+                     "venueKeys": m.venueKeys.map { displaySafe($0, max: 200) }]
+                },
+                "note": "apply 帶候選 id 升格；reject 帶候選 id 否決（verdict 落 venue 記錄）",
+            ] as [String: Any])
+        }
+        guard storeFormat >= 11 else {
+            throw ServiceError.invalid(
+                "venue 歸戶需要 store format ≥ 11（本 store 是 \(storeFormat)）")   // display-safe-exempt: Int
+        }
+        let chosen = try dedupe(selected).map { id -> VenueResolutionCandidate in
+            guard let c = byID[id] else {
+                throw ServiceError.notFound("候選 id「\(displaySafe(id, max: 200))」（先不帶 apply 列出候選）")
+            }
+            return c
+        }
+        let updatedEntries = VenueResolver.apply(chosen, to: load.entries)
+        let changed = zip(load.entries, updatedEntries).filter { $0.0 != $0.1 }.map(\.1)
+        for entry in changed { try store.writeEntry(entry) }
+        // confirmed verdict 落被判定的 venue 記錄（第 13 條邊的 venue 面）
+        var grouped: [String: Venue] = [:]
+        for c in chosen {
+            guard var v = grouped[c.venueKey] ?? byKey[c.venueKey] else { continue }
+            ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+                .confirmed, holderKind: .work, holder: c.citekey, literal: c.literal,
+                rule: ResolutionLedger.venueRule,
+                statement: "resolve apply：alias 完全命中，使用者確認"), to: &v.references)
+            grouped[c.venueKey] = v
+        }
+        for key in grouped.keys.sorted() { try store.writeVenue(grouped[key]!) }
+        try LibraryIndex(store: store).rebuild()
+        return try jsonString([
+            "applied": chosen.map { $0.rowID },
+            "entriesRewritten": changed.count,   // display-safe-exempt: Int
+            "venuesRewritten": grouped.count,    // display-safe-exempt: Int
+        ] as [String: Any])
+    }
+
+    // MARK: - Organization MCP 面（#304 parity 移轉）
+
+    /// org 單筆建檔（addPerson 形；parent 選填、以 key 指涉——literal parent 由
+    /// bootstrap 面處理，單筆面收窄為已知 parent）。
+    public func addOrganization(key: String, names: [String],
+                                parentKey: String? = nil, note: String? = nil) throws -> String {
+        let load = try store.load()
+        guard !load.organizations.contains(where: { $0.key == key }) else {
+            throw ServiceError.invalid("organization key「\(displaySafe(key, max: 200))」已存在")
+        }
+        if let pk = parentKey, !load.organizations.contains(where: { $0.key == pk }) {
+            throw ServiceError.notFound("parent organization「\(displaySafe(pk, max: 200))」")
+        }
+        var org = Organization(key: key,
+                               names: Timeline(names.map { TemporalValue(value: $0) }),
+                               id: UUID())
+        if let pk = parentKey {
+            org.parents = TimelineOf([TemporalValue(value: .key(pk))])
+        }
+        org.note = note
+        try store.writeOrganization(org)
+        try LibraryIndex(store: store).rebuild()
+        return try jsonString(["key": key, "names": names.map { displaySafe($0, max: 200) }])
+    }
+
+    /// org 消歧（OrgResolver 包裝；apply/reject 與 verdict 紀律同 venue 面）。
+    /// 候選 id 格式 `<holderKey>:<literal 前 40 字>` 不穩定，故用 rowID 慣例：
+    /// holder key + literal 的複合（OrgResolver 未定義 rowID——這裡以
+    /// `<holderKey>::<literal>` 為 id，冒號雙分隔避開 key 內容）。
+    public func resolveOrganizations(apply: [String]?, reject: [String]? = nil) throws -> String {
+        let load = try store.load()
+        let rejected = ResolutionLedger.rejectedPairings(organizations: load.organizations)
+        let report = OrgResolver.resolve(people: load.people,
+                                         organizations: load.organizations,
+                                         rejected: rejected)
+        func rowID(_ c: OrgResolutionCandidate) -> String { "\(c.holder.key)::\(c.literal)" }
+        let byID = Dictionary(report.candidates.map { (rowID($0), $0) },
+                              uniquingKeysWith: { first, _ in first })
+        let byKey = Dictionary(load.organizations.map { ($0.key, $0) },
+                               uniquingKeysWith: { a, _ in a })
+        let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
+        func dedupe(_ ids: [String]) -> [String] {
+            var seen = Set<String>()
+            return ids.filter { seen.insert($0).inserted }
+        }
+        if let rejectIDs = reject, !rejectIDs.isEmpty {
+            guard storeFormat >= 8 else {
+                throw ServiceError.invalid(
+                    "resolution verdict 需要 store format ≥ 8（本 store 是 \(storeFormat)）")   // display-safe-exempt: Int
+            }
+            let chosen = try dedupe(rejectIDs).map { id -> OrgResolutionCandidate in
+                guard let c = byID[id] else {
+                    throw ServiceError.notFound("候選 id「\(displaySafe(id, max: 200))」（先不帶 apply 列出候選）")
+                }
+                return c
+            }
+            var grouped: [String: Organization] = [:]
+            for c in chosen {
+                guard var o = grouped[c.orgKey] ?? byKey[c.orgKey] else {
+                    throw ServiceError.notFound("organization「\(displaySafe(c.orgKey, max: 200))」")
+                }
+                let holderKind: ProvenanceReference.VerdictHolderKind =
+                    { if case .person = c.holder { return .person } else { return .org } }()
+                ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+                    .rejected, holderKind: holderKind, holder: c.holder.key, literal: c.literal,
+                    rule: ResolutionLedger.orgRule,
+                    statement: "resolve reject：使用者否決此配對"), to: &o.references)
+                grouped[c.orgKey] = o
+            }
+            for key in grouped.keys.sorted() { try store.writeOrganization(grouped[key]!) }
+            try LibraryIndex(store: store).rebuild()
+            return try jsonString(["rejected": chosen.map { rowID($0) },
+                                   "organizationsRewritten": grouped.count] as [String: Any])   // display-safe-exempt: Int
+        }
+        guard let selected = apply, !selected.isEmpty else {
+            return try jsonString([
+                "candidates": report.candidates.map { c -> [String: Any] in
+                    ["id": rowID(c),
+                     "holder": displaySafe(c.holder.key, max: 200),
+                     "literal": displaySafe(c.literal, max: 200),
+                     "orgKey": displaySafe(c.orgKey, max: 200)]
+                },
+                "ambiguities": report.ambiguities.map { m -> [String: Any] in
+                    ["holder": displaySafe(m.holder.key, max: 200),
+                     "literal": displaySafe(m.literal, max: 200),
+                     "orgKeys": m.orgKeys.map { displaySafe($0, max: 200) }]
+                },
+                "note": "apply 帶候選 id 歸戶；reject 帶候選 id 否決",
+            ] as [String: Any])
+        }
+        let chosen = try dedupe(selected).map { id -> OrgResolutionCandidate in
+            guard let c = byID[id] else {
+                throw ServiceError.notFound("候選 id「\(displaySafe(id, max: 200))」（先不帶 apply 列出候選）")
+            }
+            return c
+        }
+        let applied = OrgResolver.apply(chosen, to: load.people,
+                                        organizations: load.organizations)
+        for p in applied.people { try store.writePerson(p) }
+        for o in applied.organizations { try store.writeOrganization(o) }
+        // confirmed verdicts
+        var grouped: [String: Organization] = [:]
+        let byKeyAfter = Dictionary((applied.organizations.isEmpty ? load.organizations : applied.organizations)
+            .map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        for c in chosen {
+            guard var o = grouped[c.orgKey] ?? byKeyAfter[c.orgKey] ?? byKey[c.orgKey] else { continue }
+            let holderKind: ProvenanceReference.VerdictHolderKind =
+                { if case .person = c.holder { return .person } else { return .org } }()
+            ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+                .confirmed, holderKind: holderKind, holder: c.holder.key, literal: c.literal,
+                rule: ResolutionLedger.orgRule,
+                statement: "resolve apply：org name 完全命中，使用者確認"), to: &o.references)
+            grouped[c.orgKey] = o
+        }
+        for key in grouped.keys.sorted() { try store.writeOrganization(grouped[key]!) }
+        try LibraryIndex(store: store).rebuild()
+        return try jsonString(["applied": chosen.map { rowID($0) },
+                               "peopleRewritten": applied.people.count,        // display-safe-exempt: Int
+                               "organizationsRewritten": grouped.count] as [String: Any])   // display-safe-exempt: Int
+    }
+
     func jsonString(_ obj: Any) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
         return String(decoding: data, as: UTF8.self)

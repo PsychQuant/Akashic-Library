@@ -344,7 +344,7 @@ extension LibraryStore {
         case .work:
             report = try resolveWorkDivergence(record: record, survivor: survivor,
                                                mergedKeys: mergedKeys, snapshot: snapshot)
-        case .organization, .divergence:
+        case .organization, .divergence, .venue:
             throw DivergenceResolveError.unsupportedShape(shape.rawValue)
         }
         report.warnings += Self.judgementWarnings(
@@ -594,7 +594,7 @@ extension LibraryStore {
                 else { continue }
                 report.rewritten.append(e.citekey)
             }
-        case .organization, .divergence:
+        case .organization, .divergence, .venue:
             throw DivergenceResolveError.unsupportedShape(shape.rawValue)
         }
         // #173：preview 裡的**第四次**呼叫，同樣改用共用點的回傳值。
@@ -1338,6 +1338,18 @@ extension LibraryStore {
         if !lostCites.isEmpty { losses.append("cites: " + lostCites.joined(separator: "、")) }
         let lostRel = e.akashic.relations.related.filter { !keeper.akashic.relations.related.contains($0) }
         if !lostRel.isEmpty { losses.append("related: " + lostRel.joined(separator: "、")) }
+        // venues（#304）：同 authors 的理由——doomed 的 `.key(...)` 是 resolve-venues
+        // 歸戶的**產物**，合併不搬 venues，丟掉的是人做過的判斷；`.literal` 是待消歧
+        // 的觀察，消失即「這篇的載體查過沒」永久不可判定。差集判準、指名。
+        let lostVenues = e.venues.filter { !keeper.venues.contains($0) }
+        if !lostVenues.isEmpty {
+            losses.append("venues: " + lostVenues.map { ref -> String in
+                switch ref {
+                case .key(let k): return "key:\(displaySafe(k, max: 200))"
+                case .literal(let l): return displaySafe(l, max: 200)
+                }
+            }.joined(separator: "、"))
+        }
         // status：被併有、倖存無或不同
         if let s = e.akashic.status, !s.isEmpty, keeper.akashic.status != s {
             losses.append("status: \(s)")
@@ -1601,21 +1613,21 @@ extension LibraryStore {
     ///   先前漏了這一格，造成本函式唯一的 **fail-open**（唯一的真標題靜默消失）。
     /// - `id` / `citekey`：身分，不隨合併移動（同 person 側的 key/id）。
     ///
-    /// **逐一對到 `Entry` 的 11 個儲存屬性**（#157 verify 157-10：原本寫「這五個 +
+    /// **逐一對到 `Entry` 的 12 個儲存屬性**（#157 verify 157-10：原本寫「這五個 +
     /// 上方的六類 = 11」，兩個數都錯，只是 5+6 湊巧等於 11——排除項是 4 個、比對
     /// 的是 7 個。湊得出總數不代表對得上）：
     ///
-    /// | 比對（7） | **部分比對**（2） | 排除（2） |
+    /// | 比對（8） | **部分比對**（2） | 排除（2） |
     /// |---|---|---|
-    /// | `fields`、`attachments`、`akashic`（tags／libraries／status／relations／authorListCompleteness／unknownFields 六個子欄位都在裡面，**收合成一個屬性算**）、`authors`、`date`、`unknownFields`、`provenance` | `type`、`title`——**只比缺席方向**（見下） | `id`、`citekey` |
+    /// | `fields`、`attachments`、`akashic`（tags／libraries／status／relations／authorListCompleteness／unknownFields 六個子欄位都在裡面，**收合成一個屬性算**）、`authors`、`venues`（#304，差集判準同 authors 的理由）、`date`、`unknownFields`、`provenance` | `type`、`title`——**只比缺席方向**（見下） | `id`、`citekey` |
     ///
-    /// 7 + 2 + 2 = 11，由 `testEntryFieldCoverageOfMergeCheck` 以反射釘住。
+    /// 8 + 2 + 2 = 12，由 `testEntryFieldCoverageOfMergeCheck` 以反射釘住。
     ///
     /// **反射只釘頂層**（#157 verify 157-9）：`AkashicMeta`／`Relations`／`Provenance`
     /// 的巢狀屬性另有各自的計數斷言——歷史上 schema 演化正是發生在 `akashic` 那層
     /// （`Models.swift` 自己這麼寫，#13 的 `libraries` 即是），只釘頂層等於對最會
     /// rot 的地方失明。
-    static let entryFieldsCoveredByMergeCheck = 11
+    static let entryFieldsCoveredByMergeCheck = 12
 
     /// `p` 的哪些 profile 維度**不是** `keeper` 的子集。空 = 合併不會失去任何時間軸。
     private static func profileDimensionsNotCovered(
@@ -1656,7 +1668,7 @@ extension LibraryStore {
                 if let p = snapshot.people.first(where: { $0.key == key }) { ids.append(p.id) }
             case .work:
                 if let e = snapshot.entries.first(where: { $0.citekey == key }) { ids.append(e.id) }
-            case .organization, .divergence:
+            case .organization, .divergence, .venue:
                 continue                      // 上游已擋，這裡不猜
             }
         }

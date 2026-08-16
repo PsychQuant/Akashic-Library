@@ -214,6 +214,9 @@ public enum WoSImport {
             if e.fields[key] != nil { dropped.append(column); continue }
             e.fields[key] = value
         }
+        // #304：載體二態 ref——殘餘收集完成後（fields 已齊）從字串欄位推導 literal。
+        // 只產生 .literal（literal-first-then-key）；對映唯一來源在 VenueDerivation。
+        e.venues = VenueDerivation.literals(for: e)
         return e
     }
 
@@ -241,6 +244,10 @@ public enum WoSImport {
         var report = Report()
         let load = try store.load()
         var taken = Set(load.entries.map(\.citekey))
+        // #304：venue 派生 gate——format < 11 的 store 表達不了 `venues`（writeEntry
+        // 會拒），匯入不派生。**不是有損**：journaltitle 等字串照樣進 `fields`，
+        // bump 後 `migrate-venues` 冪等回填。讀不到 format 視同不具備（保守側）。
+        let venueCapable = ((try? StoreVersion.read(root: store.root)) ?? 0) >= 11
 
         // **零列不得靜默。** 「匯入成功但一筆都沒進」與「檔案格式不被辨識」在
         // created/unchanged 都是 0 時輸出完全相同——#89 的 CRLF bug 就是靠這個
@@ -269,10 +276,11 @@ public enum WoSImport {
         for (i, row) in rows(from: text, separator: separator).enumerated() {
             let groups = aliasGroups(abbreviated: row["Authors"], full: row["Author Full Names"])
             // 先用「不避讓」的方式生一個試探性 entry，只為了算出身分
-            guard let probe = entry(from: row, taken: []) else {
+            guard var probe = entry(from: row, taken: []) else {
                 report.skippedRows.append("第 \(i + 2) 列：缺第一作者姓氏或年份，無法生成 citekey")
                 continue
             }
+            if !venueCapable { probe.venues = [] }
             report.aliasGroups += groups.filter { $0.count > 1 }
 
             if let existing = byIdentity[identity(probe)] {
@@ -281,6 +289,11 @@ public enum WoSImport {
                 var a = existing, b = probe
                 a.id = b.id; a.citekey = b.citekey
                 a.unknownFields = []; b.unknownFields = []
+                // #304：venues 由 store 勝出——既有 venues 非空即不比（`.key` 升格後
+                // probe 的 `.literal` 必然不同，那是歸戶進度不是衝突；WoS 永不覆寫
+                // venues，同 `.key` 作者紀律）；既有為空才由 probe 回填（下方 additive
+                // 路徑，同 migrate-venues 語意）。
+                if !a.venues.isEmpty { b.venues = a.venues }
                 if a == b { report.unchanged.append(existing.citekey); continue }
 
                 // **只多不少 → 回填，不算 conflict**（#206 verify H1）。
@@ -297,11 +310,17 @@ public enum WoSImport {
                 for (k, v) in b.fields where merged.fields[k] == nil {
                     merged.fields[k] = v; addedKeys.append(k)
                 }
+                // #304：venues 的回填面——只在既有為空時整組補入（additive；元素級
+                // 混補不做，因為 venues 是有序邊、位置即語意）
+                var addedVenues = false
+                if merged.venues.isEmpty, !b.venues.isEmpty {
+                    merged.venues = b.venues; addedVenues = true
+                }
                 // 除了「補上缺的欄位」之外還有別的差異 → 仍是 conflict，交給人
                 var probeCheck = b, mergedCheck = merged
                 probeCheck.unknownFields = []; mergedCheck.unknownFields = []
                 mergedCheck.id = probeCheck.id; mergedCheck.citekey = probeCheck.citekey
-                guard !addedKeys.isEmpty, mergedCheck == probeCheck else {
+                guard !addedKeys.isEmpty || addedVenues, mergedCheck == probeCheck else {
                     report.conflicts.append(existing.citekey)
                     continue
                 }
@@ -312,10 +331,11 @@ public enum WoSImport {
 
             // 新的一篇——此時才做 citekey 碰撞避讓
             var dropped: [String] = []
-            guard let e = entry(from: row, taken: taken, dropped: &dropped) else {
+            guard var e = entry(from: row, taken: taken, dropped: &dropped) else {
                 report.skippedRows.append("第 \(i + 2) 列：citekey 碰撞無法解決")
                 continue
             }
+            if !venueCapable { e.venues = [] }
             for c in dropped { report.droppedColumns[c, default: 0] += 1 }
             taken.insert(e.citekey)
             if !dryRun { try store.writeEntry(e) }

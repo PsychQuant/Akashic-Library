@@ -126,6 +126,24 @@ public struct QueryEngine {
         return try summaries(sql, bind: bind)
     }
 
+    /// #304 venue 檢索：某 venue 的文章**編年 list**（依年升冪，同年依 citekey；
+    /// 裁決五a）。空集合是合法答案（該 venue 零篇），與「查無此 venue」由呼叫端
+    /// 以 venue 記錄存在與否區分——本查詢只回邊的反向。
+    public func venueWorks(key: String, library: String? = nil) throws -> [EntrySummary] {
+        var sql = """
+            SELECT DISTINCT e.* FROM entries e
+            JOIN venue_refs v ON v.entry_uuid = e.uuid
+            WHERE v.venue_key = ?
+            """
+        var bind: [Any?] = [key]
+        if let library {
+            sql += " AND e.uuid IN (SELECT entry_uuid FROM entry_libraries WHERE library_key = ?)"
+            bind.append(library)
+        }
+        sql += " ORDER BY e.year ASC, e.citekey ASC"
+        return try summaries(sql, bind: bind)
+    }
+
     public struct CoAuthor: Equatable {
         public var personKey: String?
         public var name: String

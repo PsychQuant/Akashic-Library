@@ -160,6 +160,42 @@ actor AkashicMCPServer {
                     "description": .string("其餘 biblatex 欄位（journaltitle/doi/…；值必須是字串）"),
                 ]),
              ], required: ["type", "title"])),
+        Tool(name: "akashic_venue",
+             description: "看一個發表載體（#304）：記錄＋刊名沿革（names 時間軸）＋文章**編年 list**（依年升冪；反向邊現算，不存在記錄裡）。零篇是合法答案（workCount: 0），與查無此 venue（notFound）分開；store 有 quarantined 檔且查無時回「無法判定」。",
+             inputSchema: obj([
+                "key": str("venue key（kebab-case）"),
+             ], required: ["key"])),
+        Tool(name: "akashic_venues",
+             description: "列出全部 venue（key/type/顯示名/文章數）。",
+             inputSchema: obj([:])),
+        Tool(name: "akashic_add_venue",
+             description: "建發表載體實體（venue:）。type 是封閉三值（journal / conference / publisher）；names 全進沿革時間軸（無時間段）、authorized 留空——指定是人的判斷。需 store format ≥ 11。",
+             inputSchema: obj([
+                "key": str("kebab-case venue key"),
+                "names": strArray("名稱變體（正式刊名、縮寫、WoS 大寫形）"),
+                "type": str("journal | conference | publisher"),
+                "note": str("備註（選填）"),
+             ], required: ["key", "names", "type"])),
+        Tool(name: "akashic_resolve_venues",
+             description: "venue 解析（resolve-people 契約形，#304）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 venue name 完全命中且不歧義的 literal（正規化含 lowercase：WoS 全大寫形因此命中正式刊名）；ambiguities 是同一 literal 對到 2+ venue、需要人判斷。帶 apply（候選 id，形如 citekey:venueIndex）把 literal 升格為 key 並寫 resolution-confirmed verdict 到該 venue；帶 reject 寫 resolution-rejected（entry 不動）。組合呼叫兩段式（reject 腿先提交）。需 store format ≥ 11。絕不自動配對（literal-first-then-key）。",
+             inputSchema: obj([
+                "apply": strArray("要套用的候選 id（citekey:venueIndex）；省略＝只列候選"),
+                "reject": strArray("要否決的候選 id（同形）"),
+             ])),
+        Tool(name: "akashic_add_organization",
+             description: "建機構實體（organization:；#304 org 重啟後的單筆 MCP 面）。parent 以既有 org key 指涉（選填；literal parent 屬 bootstrap 面）。",
+             inputSchema: obj([
+                "key": str("kebab-case organization key"),
+                "names": strArray("名稱變體（中文名、英文名、縮寫）"),
+                "parent_key": str("上級機構的 key（選填，需已存在）"),
+                "note": str("備註（選填）"),
+             ], required: ["key", "names"])),
+        Tool(name: "akashic_resolve_organizations",
+             description: "org 解析（#304 parity 移轉）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 person affiliations／org parents 的 literal 與某 org name 完全命中且不歧義者。帶 apply（候選 id，形如 holderKey::literal）歸戶並寫 confirmed verdict；帶 reject 寫 rejected verdict。需 store format ≥ 8（verdict）。",
+             inputSchema: obj([
+                "apply": strArray("要套用的候選 id（holderKey::literal）；省略＝只列候選"),
+                "reject": strArray("要否決的候選 id（同形）"),
+             ])),
         Tool(name: "akashic_add_person",
              description: "建人物實體（people/<key>.yaml；aliases、ORCID、OpenAlex）。",
              inputSchema: obj([
@@ -297,6 +333,28 @@ actor AkashicMCPServer {
                 output = try service.createEntry(
                     type: arg("type") ?? "", title: arg("title") ?? "",
                     authors: argList("authors"), date: arg("date"), fields: argDict("fields"))
+            case "akashic_venue":
+                output = try service.venue(key: arg("key") ?? "")
+            case "akashic_venues":
+                output = try service.venues()
+            case "akashic_add_venue":
+                output = try service.addVenue(key: arg("key") ?? "", names: argList("names"),
+                                              type: arg("type") ?? "", note: arg("note"))
+            case "akashic_resolve_venues":
+                let vApplyProvided = params.arguments?["apply"] != nil
+                let vRejectProvided = params.arguments?["reject"] != nil
+                output = try service.resolveVenues(
+                    apply: vApplyProvided ? argList("apply") : nil,
+                    reject: vRejectProvided ? argList("reject") : nil)
+            case "akashic_add_organization":
+                output = try service.addOrganization(key: arg("key") ?? "", names: argList("names"),
+                                                     parentKey: arg("parent_key"), note: arg("note"))
+            case "akashic_resolve_organizations":
+                let oApplyProvided = params.arguments?["apply"] != nil
+                let oRejectProvided = params.arguments?["reject"] != nil
+                output = try service.resolveOrganizations(
+                    apply: oApplyProvided ? argList("apply") : nil,
+                    reject: oRejectProvided ? argList("reject") : nil)
             case "akashic_add_person":
                 output = try service.addPerson(key: arg("key") ?? "", names: argList("names"),
                                                orcid: arg("orcid"), openalex: arg("openalex"))

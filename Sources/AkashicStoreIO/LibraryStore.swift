@@ -55,6 +55,8 @@ public struct LibraryLoad {
     /// 未決的同一性問題（#71，標籤 `divergence:`）。**短暫**——消歧完成即刪除，
     /// 歷史託給版本控制。載入時與其他形狀並列，但它不是被指涉的對象。
     public var divergences: [Divergence]
+    /// 發表載體（第五種一級實體形狀，標籤 `venue:`，#304）。
+    public var venues: [Venue]
     /// Library registry（#13 membership views）；成員關係在各 entry 的 akashic.libraries
     public var libraries: [Library]
     public var quarantined: [QuarantinedFile]
@@ -67,12 +69,14 @@ public struct LibraryLoad {
     public init(entries: [Entry] = [], people: [Person] = [],
                 organizations: [Organization] = [],
                 divergences: [Divergence] = [],
+                venues: [Venue] = [],
                 libraries: [Library] = [], quarantined: [QuarantinedFile] = [],
                 unknownFieldFiles: [String] = []) {
         self.entries = entries
         self.people = people
         self.organizations = organizations
         self.divergences = divergences
+        self.venues = venues
         self.libraries = libraries
         self.quarantined = quarantined
         self.unknownFieldFiles = unknownFieldFiles
@@ -416,6 +420,18 @@ public final class LibraryStore {
                     "format: 改成 9", entry.citekey)
             }
         }
+        // v11-only 語法的 format gate（#304）：venues ref 邊。舊 binary 對 entry 的
+        // venues 鍵走 tolerant-preserve（保留不解讀）——反向查詢靜默漏資料，故仍 gate。
+        if !entry.venues.isEmpty {
+            let format = try StoreVersion.read(root: root)
+            guard format >= 11 else {
+                throw StoreIOError.invalidInput(
+                    what: "entry「\(displaySafe(entry.citekey, max: 120))」",
+                    why: "含 venues 引用，需要 store format ≥ 11；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，先以 migrate-venues " +
+                         "遷移既有記錄，再把 store.yaml 的 format: 改成 11")
+            }
+        }
         let yaml = try EntryYAML.encode(entry)
         // #35：format 2 走 entities/<uuid>.yaml，legacy 走 entries/<citekey>.yaml
         let dest = usesEntitiesLayout ? entityURL(id: entry.id) : entryURL(citekey: entry.citekey)
@@ -435,6 +451,30 @@ public final class LibraryStore {
         let yaml = try EntryYAML.encode(entry)
         let dest = usesEntitiesLayout ? entityURL(id: entry.id) : entryURL(citekey: entry.citekey)
         try atomicWrite(yaml, to: dest, mustCreate: true)
+        return dest
+    }
+
+    /// 發表載體只存在於 entities 佈局（format 11 起，#304）。
+    @discardableResult
+    public func writeVenue(_ v: Venue) throws -> URL {
+        try assertStoreRoot()
+        guard StoreKey.isValid(v.key) else {
+            throw StoreIOError.invalidKey("venue key", v.key)
+        }
+        // v11 形狀 gate：舊 binary 對未知頂層形狀是**整檔 quarantine**（2026-08-16
+        // 實測，見 StoreVersion doc）——refuse-if-newer 必須在寫入端先 fire。
+        let format = try StoreVersion.read(root: root)
+        guard format >= 11 else {
+            throw StoreIOError.invalidInput(
+                what: "venue「\(displaySafe(v.key, max: 120))」",
+                why: "venue 是 format 11 的新形狀；本 store 是 \(format)——" +
+                     "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                     "format: 改成 11（舊 binary 讀到 venue 檔會整檔 quarantine）")
+        }
+        try Self.assertNoErrors(v.validate(), what: "venue", key: v.key)
+        let yaml = try VenueYAML.encode(v)
+        let dest = entityURL(id: v.id)
+        try atomicWrite(yaml, to: dest)
         return dest
     }
 
@@ -710,6 +750,22 @@ public final class LibraryStore {
                     }
                     if !org.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
                     result.organizations.append(org)
+                case .venue:
+                    let v = try VenueYAML.decode(text)
+                    guard v.id == stemUUID else {
+                        result.quarantined.append(QuarantinedFile(
+                            file: name,
+                            reason: "檔名 UUID 與 venue.id「\(v.id.uuidString)」不符"))
+                        continue
+                    }
+                    guard StoreKey.isValid(v.key) else {
+                        result.quarantined.append(QuarantinedFile(
+                            file: name,
+                            reason: "venue key「\(v.key)」不符合 \(StoreKey.pattern)"))
+                        continue
+                    }
+                    if !v.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
+                    result.venues.append(v)
                 case .divergence:
                     let d = try DivergenceYAML.decode(text)
                     guard d.id == stemUUID else {

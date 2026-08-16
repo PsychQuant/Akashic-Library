@@ -454,6 +454,41 @@ final class PersonIdentityMigrationTests: XCTestCase {
                       "\(report.failed)")
     }
 
+    /// R4 NEW-R4-1：key 擷取採**保守文法**——引號形／行內註解／重複 key: 行一律
+    /// 視同取不到 key → 全域抑制。「引號包著的同 key」不得被誤判成不同 key 而繞過
+    /// 同 key 裁決（Codex R4 的 HIGH 繞法）。
+    func testNonCanonicalKeyInUnparsableFileTriggersGlobalSuppression() throws {
+        // 可讀的巢狀 v5 檔（本來會 reissue）
+        let v5 = DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace,
+                                      name: "same-key")
+        try """
+        person:
+        id: \(v5.uuidString)
+        key: same-key
+        names:
+          variant:
+          - Same Key
+        """.write(to: root.appendingPathComponent("entities/\(v5.uuidString).yaml"),
+                  atomically: true, encoding: .utf8)
+        // 同 key 但引號形 + 損壞 names——解不開，且 key 文法非 canonical → keyless
+        let bad = UUID()
+        try "person:\nid: \(bad.uuidString)\nkey: \"same-key\"\nnames: [故意損壞\n".write(
+            to: root.appendingPathComponent("entities/\(bad.uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        commitAll()
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertTrue(report.migrated.isEmpty,
+                      "引號形 key 的盲區檔必須觸發全域抑制：\(report.migrated)")
+        XCTAssertEqual(try entityFiles().count, 2, "兩檔原狀")
+
+        // 文法單元：引號／註解／CRLF／重複行
+        XCTAssertNil(PersonIdentityMigration.extractTopLevelKey("key: \"x\"\n"))
+        XCTAssertNil(PersonIdentityMigration.extractTopLevelKey("key: x # c\n"))
+        XCTAssertNil(PersonIdentityMigration.extractTopLevelKey("key: a\nkey: b\n"))
+        XCTAssertEqual(PersonIdentityMigration.extractTopLevelKey("key: some-key\r\n"),
+                       "some-key", "CRLF 行尾要剝")
+    }
+
     /// R3 NEW-4：目錄不存在＝合法空 store；不得偽裝成功也不得炸。
     func testMissingPeopleDirIsLegitimatelyEmpty() throws {
         let r = FileManager.default.temporaryDirectory

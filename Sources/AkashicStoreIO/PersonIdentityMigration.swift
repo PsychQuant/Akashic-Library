@@ -121,13 +121,16 @@ public enum PersonIdentityMigration {
         report.legacyLayout = !entitiesMode
         let dir = entitiesMode ? store.entitiesDir : store.peopleDir
         let dirName = dir.lastPathComponent
-        // R3 NEW-4：列舉錯誤不得偽裝成「空 store 成功」——目錄不存在是合法空
-        // （legacy 空 store 可能沒建 people/），存在但讀不了必須 throw。
+        // R3 NEW-4／R4 NEW-R4-2：列舉錯誤不得偽裝成「空 store 成功」。直接列舉、
+        // 只在 underlying error 確為「不存在」時視為合法空（legacy 空 store 可能沒建
+        // people/）；其餘（EACCES、I/O…）原樣 throw。不用 fileExists probe——它把
+        // 一切查詢錯誤折成 false，且與列舉之間有 TOCTOU。
         let files: [String]
-        if fm.fileExists(atPath: dir.path) {
+        do {
             files = try fm.contentsOfDirectory(atPath: dir.path)
                 .filter { $0.hasSuffix(".yaml") }.sorted()
-        } else {
+        } catch let e as NSError
+            where e.domain == NSCocoaErrorDomain && e.code == NSFileReadNoSuchFileError {
             files = []
         }
         if apply {
@@ -366,13 +369,25 @@ public enum PersonIdentityMigration {
              + "確認所有 binary 已升級後，手動把 store.yaml 的 format: 改成 10"
     }
 
-    /// 文字層取頂層 `key: ` 值（R3 NEW-1 的盲區偵測用）。找不到回 nil。
+    /// 文字層取頂層 `key: ` 值（R3 NEW-1 的盲區偵測用）。
+    ///
+    /// **保守文法**（R4 NEW-R4-1）：只接受 canonical plain scalar——RHS 必須整段
+    /// 落在 StoreKey 值域（`[a-z0-9][a-z0-9-]*`）。引號形（`"same-key"`）、行內
+    /// 註解、tag、alias、任何其他 scalar 寫法一律回 nil；**多個** `key:` 行＝歧義
+    /// 也回 nil。回 nil 的後果是 keyless → 全域抑制重發——寧可保守擋下，不可把
+    /// 「引號包著的同 key」誤判成不同 key 而繞過裁決。CRLF 的行尾 `\r` 先剝。
     static func extractTopLevelKey(_ text: String) -> String? {
-        for line in text.components(separatedBy: "\n") where line.hasPrefix("key: ") {
-            let v = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-            if !v.isEmpty { return v }
+        var found: String?
+        for raw in text.components(separatedBy: "\n") {
+            var line = raw
+            if line.hasSuffix("\r") { line = String(line.dropLast()) }
+            guard line.hasPrefix("key: ") else { continue }
+            let v = String(line.dropFirst(5))
+            guard StoreKey.isValid(v) else { return nil }   // 非 canonical → keyless（保守）
+            if found != nil { return nil }                   // 重複 key: 行＝歧義 → keyless
+            found = v
         }
-        return nil
+        return found
     }
 
     /// 排程尾段：validate（R1 L2/S3）→ encode → 進 work 佇列。

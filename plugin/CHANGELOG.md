@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0] - 2026-08-16
+
+- **store format 10**（#227／#241）：person `names` 巢狀化（`authorized`／`variant` 分區——子集關係成為結構性事實）＋ `id` 改為獨立 v4 UUID（單一來源事件發放、永不由名字重算），既有 867 筆一次性換發。舊 binary 讀巢狀 names 整檔 quarantine；新 binary 讀舊格式 fail-closed 指向 `akashic migrate-person-identity`（dry-run 預設）。org 刻意不巢狀化。
+- `akashic_update_person` 收巢狀 `names` 物件（平面陣列拒絕、分區重疊拒絕）；讀取面一律 `names.all`。
+- `akashic_person` 對 quarantine 歧義查詢回「無法判定」（`undeterminable`）而非 not-found；name-lookup 零候選時附 `quarantined`／`note` 欄位。
+- binary：signed＋notarized universal（`akashic-mcp-v0.8.0`）。
+
 ## [0.7.0] - 2026-08-15
 
 - **`akashic_resolve_people` 組合呼叫解禁**（#272）：apply+reject 同呼叫改兩段式（reject 先完整提交、apply 以新狀態重解析），回應 `legs.{reject,apply}` 按腿回報；同列兩邊點到以 `skippedBecauseRejected` 回報。單腿呼叫形狀不變。

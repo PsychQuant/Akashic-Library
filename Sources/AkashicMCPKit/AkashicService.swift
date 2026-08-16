@@ -593,6 +593,14 @@ public final class AkashicService {
             let capped = Array(candidates.prefix(50))
             var out: [String: Any] = ["candidates": capped]
             if candidates.count > 50 { out["truncated"] = true }
+            // R3 C6 缺口：name 查找是回清單不擲錯的契約——但零候選 + quarantine 非空
+            // 時，「空清單」是無法判定不是否。additive 欄位把不確定性說出來。
+            if capped.isEmpty, !load.quarantined.isEmpty {
+                out["quarantined"] = load.quarantined.count
+                out["note"] = "零候選但 store 有 \(load.quarantined.count) 個檔 quarantined"
+                    + "（可能是未遷移的舊形狀）——該名字或許在其中，存在性無法判定；"
+                    + "見 akashic doctor / migrate-person-identity"
+            }
             return try jsonString(out)
         }
         throw ServiceError.invalid("person 需要 key 或 name 至少其一")

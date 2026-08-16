@@ -121,16 +121,29 @@ public enum PersonIdentityMigration {
         report.legacyLayout = !entitiesMode
         let dir = entitiesMode ? store.entitiesDir : store.peopleDir
         let dirName = dir.lastPathComponent
-        let files = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? [])
-            .filter { $0.hasSuffix(".yaml") }.sorted()
+        // R3 NEW-4：列舉錯誤不得偽裝成「空 store 成功」——目錄不存在是合法空
+        // （legacy 空 store 可能沒建 people/），存在但讀不了必須 throw。
+        let files: [String]
+        if fm.fileExists(atPath: dir.path) {
+            files = try fm.contentsOfDirectory(atPath: dir.path)
+                .filter { $0.hasSuffix(".yaml") }.sorted()
+        } else {
+            files = []
+        }
         if apply {
             try assertWorktreeUsable(root: store.root)
         }
-        // per-file trackedness 集合（R2 C4）：apply 時查一次，寫入階段逐檔比對。
-        let trackedRelPaths: Set<String> = apply ? trackedFiles(root: store.root, dirName: dirName) : []
+        // per-file trackedness 集合（R2 C4／R3 NEW-2）：apply 時查一次，寫入階段
+        // 逐檔以 **UTF-8 位元組** 比對——Swift String 相等是 canonical equivalence，
+        // NFC/NFD 雙生檔名會讓未追蹤檔冒充 tracked 檔。查詢失敗 throw（fail-safe
+        // 但原因要對：查不到 ≠ 未追蹤）。
+        let trackedRelPaths: Set<Data> = apply
+            ? try trackedFiles(root: store.root, dirName: dirName) : []
 
         // ── Pass A：逐檔解讀（零寫入、零裁決）──
         var classified: [Classified] = []
+        var unparsedKeys: [String: [String]] = [:]   // 解不開但取得到 key 的檔（R3 NEW-1）
+        var keylessUnparsed: [String] = []           // 連 key 都取不到的檔（→ 抑制全部重發）
         for file in files {
             let url = dir.appendingPathComponent(file)
             let relFile = "\(dirName)/\(file)"
@@ -169,6 +182,15 @@ public enum PersonIdentityMigration {
             } catch {
                 let reason = (error as? LocalizedError)?.errorDescription ?? "\(error)"
                 report.failed.append((file: relFile, reason: reason))
+                // R3 NEW-1：解不開的檔仍可能與別的檔同 key——它必須**參與**裁決，
+                // 否則隱藏重複會讓 singleton 誤判、照樣重發 id。文字層取頂層 key；
+                // 連 key 都取不到 → 記入「盲區」，抑制本輪**全部**重發（保守：
+                // 無法排除任何 key 的隱藏重複）。
+                if let k = extractTopLevelKey(text) {
+                    unparsedKeys[k, default: []].append(relFile)
+                } else {
+                    keylessUnparsed.append(relFile)
+                }
             }
         }
 
@@ -178,6 +200,16 @@ public enum PersonIdentityMigration {
 
         var work: [WorkItem] = []
         for (key, group) in byKey.sorted(by: { $0.key < $1.key }) {
+            // R3 NEW-1：同 key 有解不開的檔 → 整組不得重發（隱藏重複無法排除），
+            // 可讀的那些也計入 failed 互相點名。
+            if let blind = unparsedKeys[key] {
+                for c in group {
+                    report.failed.append((file: c.relFile,
+                        reason: "同 key「\(key)」另有無法解讀的檔（\(blind.joined(separator: "、"))）"
+                              + "——修復該檔前不重發 id（隱藏重複無法排除）"))
+                }
+                continue
+            }
             if group.count > 1 {
                 adjudicateDuplicates(key: key, group: group, report: &report)
                 continue
@@ -210,6 +242,20 @@ public enum PersonIdentityMigration {
             }
         }
 
+        // R3 NEW-1（保守全域抑制）：有 person 形但連 key 都取不到的檔在——
+        // 任何重發都可能撞上它的隱藏 key。撤回全部排程，逐筆點名原因。
+        if !keylessUnparsed.isEmpty {
+            let blind = keylessUnparsed.joined(separator: "、")
+            for item in work {
+                if let idx = report.migrated.firstIndex(of: item.key) {
+                    report.migrated.remove(at: idx)
+                }
+                report.failed.append((file: item.relFile,
+                    reason: "store 有無法解讀且取不到 key 的 person 檔（\(blind)）——"
+                          + "修復它之前不重發任何 id（隱藏重複無法排除）"))
+            }
+            work.removeAll()
+        }
         report.migrated.sort()
         report.skipped.sort()
         report.failed.sort { $0.file < $1.file }
@@ -219,7 +265,7 @@ public enum PersonIdentityMigration {
         for item in work {
             // R2 C4：**這個檔自己**必須被 git 追蹤——目錄級非空放行會讓被
             // .gitignore 排除的檔（git 零歷史）被靜默改寫，不可回復。
-            guard trackedRelPaths.contains(item.relFile) else {
+            guard trackedRelPaths.contains(Data(item.relFile.utf8)) else {
                 if let idx = report.migrated.firstIndex(of: item.key) {
                     report.migrated.remove(at: idx)
                 }
@@ -265,34 +311,68 @@ public enum PersonIdentityMigration {
 
     /// 同 key 多筆的裁決（R2 C1）：恰一筆 v4 → 它 skipped（仍過 validate）、其餘
     /// failed 點名殘留；否則全部 failed 互相點名。工具永不發第三個 id、永不自動刪誰。
+    /// R3 NEW-2：檔案身分用**陣列 index**，不用 relFile 字串比對（String 相等是
+    /// canonical equivalence，NFC/NFD 雙生檔名會被誤判為同一檔）。
     private static func adjudicateDuplicates(key: String, group: [Classified],
                                              report: inout Report) {
-        let others = { (me: Classified) in
-            group.filter { $0.relFile != me.relFile }.map(\.relFile).joined(separator: "、")
+        let othersOf = { (me: Int) in
+            group.indices.filter { $0 != me }.map { group[$0].relFile }.joined(separator: "、")
         }
-        let v4s = group.filter { $0.kind == .newShape }
-        if v4s.count == 1 {
-            let keeper = v4s[0]
+        let v4Indices = group.indices.filter { group[$0].kind == .newShape }
+        if v4Indices.count == 1 {
+            let ki = v4Indices[0]
+            let keeper = group[ki]
             let errors = keeper.person.validate().filter { $0.severity == .error }
             if errors.isEmpty {
                 report.skipped.append(key)
             } else {
+                // R3 NEW-5：keeper 自己也要交叉點名同 key 的其他檔——multi-file
+                // group 的互相點名規則對它同樣成立。
                 let msgs = errors.prefix(3).map(\.message).joined(separator: "；")
                 report.failed.append((file: keeper.relFile,
-                    reason: "已是新形狀但驗證失敗（檔案不動，請手動修復）：\(msgs)"))
+                    reason: "已是新形狀但驗證失敗（檔案不動，請手動修復）：\(msgs)"
+                          + "（另有同 key 檔：\(othersOf(ki))）"))
             }
-            for c in group where c.relFile != keeper.relFile {
-                report.failed.append((file: c.relFile,
+            for i in group.indices where i != ki {
+                report.failed.append((file: group[i].relFile,
                     reason: "重複（中斷殘留）：同 key「\(key)」的新形檔已存在"
                           + "（\(keeper.relFile)）——請人工確認內容一致後刪除本檔，不自動裁決"))
             }
         } else {
-            for c in group {
-                report.failed.append((file: c.relFile,
-                    reason: "同 key「\(key)」有 \(group.count) 個檔（另：\(others(c))）"
+            for i in group.indices {
+                report.failed.append((file: group[i].relFile,
+                    reason: "同 key「\(key)」有 \(group.count) 個檔（另：\(othersOf(i))）"
                           + "——重複的裁決屬於人；不發新 id、不自動刪任何一個"))
             }
         }
+    }
+
+    /// R2 C5／R3 NEW-3：CLI 下一步指示的**唯一**成功判準是「apply 且零失敗」——
+    /// migrated 非空不是條件（全 skipped 的重跑、空 store 同樣需要出口）。
+    /// 純函式住這裡（executable target 不可測），CLI 只負責 print。
+    public static func nextStep(report: Report, apply: Bool) -> String? {
+        guard apply else { return nil }
+        if !report.failed.isEmpty {
+            return "⚠ 有失敗記錄——**不得**升 store.yaml 的 format。修復上列失敗並重跑，"
+                 + "failed 歸零後才進下一步"
+        }
+        if report.legacyLayout {
+            return "下一步：本遷移是就地改寫（people/ 佈局不變）——先跑 akashic migrate "
+                 + "搬移佈局到 entities（它會把 marker 設為 2），再 akashic doctor / "
+                 + "validate；全部完成且確認所有 binary 已升級後，才手動把 store.yaml 的 "
+                 + "format: 改成 10"
+        }
+        return "下一步：akashic doctor 重建 index、akashic validate 驗證；"
+             + "確認所有 binary 已升級後，手動把 store.yaml 的 format: 改成 10"
+    }
+
+    /// 文字層取頂層 `key: ` 值（R3 NEW-1 的盲區偵測用）。找不到回 nil。
+    static func extractTopLevelKey(_ text: String) -> String? {
+        for line in text.components(separatedBy: "\n") where line.hasPrefix("key: ") {
+            let v = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            if !v.isEmpty { return v }
+        }
+        return nil
     }
 
     /// 排程尾段：validate（R1 L2/S3）→ encode → 進 work 佇列。
@@ -335,12 +415,17 @@ public enum PersonIdentityMigration {
         }
     }
 
-    /// 被追蹤檔案集合（相對 store root）。R2 C4：寫入階段逐檔比對——目錄級
-    /// 「有任何 tracked 檔」不構成任何**特定**檔案的回復保證。
-    private static func trackedFiles(root: URL, dirName: String) -> Set<String> {
+    /// 被追蹤檔案集合（相對 store root，UTF-8 位元組）。R2 C4：寫入階段逐檔比對
+    /// ——目錄級「有任何 tracked 檔」不構成任何**特定**檔案的回復保證。
+    /// R3 NEW-2：以 Data 存（byte-exact）避開 String 的 canonical equivalence；
+    /// 查詢失敗 throw——折成空集合雖 fail-safe，但會把「git 壞了」誤報成
+    /// 「全部未追蹤」。
+    private static func trackedFiles(root: URL, dirName: String) throws -> Set<Data> {
         guard let out = LibraryStore.git(["ls-files", "-z", "--", dirName], in: root),
-              out.status == 0 else { return [] }
-        return Set(out.out.split(separator: "\0").map(String.init))
+              out.status == 0 else {
+            throw MigrationError.noRecoveryPath(detail: "git ls-files 無法執行——無從確認追蹤狀態")
+        }
+        return Set(out.out.split(separator: "\0").map { Data($0.utf8) })
     }
 
     // MARK: - 形狀判定與摺疊

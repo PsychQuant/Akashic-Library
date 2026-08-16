@@ -27,6 +27,10 @@ Branch `idd/227-241-nest-names-reissue-ids`。單一 Spectra change 合併兩個
 
 ## 驗證
 
-6-AI cluster verify 三輪（R1: 4×opus lens + DA；R2/R3: sonnet + Codex
-gpt-5.6-sol）；1702 tests；mutation 12/12；真 store 複本演練 867/867 冪等。
-Follow-ups：#294–#297。
+6-AI cluster verify 四輪（R1: 4×opus lens + DA；R2–R4: sonnet + Codex
+gpt-5.6-sol）；1707 tests；mutation 12/12；真 store 複本演練 867/867 冪等。
+R3/R4 補強：盲區 key 裁決（解不開的檔參與收斂、取不到 key 即保守抑制全部
+重發）、byte-exact 檔案身分（NFC/NFD 雙生）、目錄列舉誠實、keeper 交叉點名、
+next-step 以零失敗為唯一判準、name 查找面的 quarantine 可見性、
+migrate CLI 回顯目標 store（防 registry 解析誤傷——2026-08-16 事故的即時緩解）。
+Follow-ups：#294–#297、#298（LibraryLocator CWD 零感知 + 破壞性 apply 無確認）。

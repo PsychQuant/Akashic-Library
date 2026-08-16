@@ -449,42 +449,33 @@ struct MigratePersonIdentity: ParsableCommand {
 
     func run() throws {
         let store = try options.openStore()
+        // 席 A NEW-3 的即時緩解：破壞性遷移**先回顯目標**——LibraryLocator 對 CWD
+        // 零感知（registry current 決定目標），不印出來的話「在 scratch 目錄執行」
+        // 會給人錯誤的安全感（2026-08-16 事故的根因情境）。
+        print("目標 store：\(displaySafe(store.root.path, max: 300))")
         let report = try PersonIdentityMigration.run(store: store, apply: apply)
         let prefix = apply ? "✓" : "（dry-run）"
 
         if report.migrated.isEmpty && report.skipped.isEmpty && report.failed.isEmpty {
             print("沒有 person 記錄——不需要遷移")
-            return
-        }
-        print("\(prefix) \(apply ? "已遷移" : "將遷移") \(report.migrated.count) 筆"
-              + "，已是新形狀（跳過）\(report.skipped.count) 筆")
-        for k in report.migrated.prefix(20) { print("  \(displaySafe(k, max: 200))") }
-        if report.migrated.count > 20 { print("  …另 \(report.migrated.count - 20) 筆") }
+        } else {
+            print("\(prefix) \(apply ? "已遷移" : "將遷移") \(report.migrated.count) 筆"
+                  + "，已是新形狀（跳過）\(report.skipped.count) 筆")
+            for k in report.migrated.prefix(20) { print("  \(displaySafe(k, max: 200))") }
+            if report.migrated.count > 20 { print("  …另 \(report.migrated.count - 20) 筆") }
 
-        // **先報失敗**（同 migrate-provenance 的紀律）：單筆失敗不中止整批，
-        // 不說出來的話使用者以為全部完成。
-        if !report.failed.isEmpty {
-            print("處理失敗 \(report.failed.count) 筆（其餘照常；修好後重跑——遷移是冪等的）：")
-            for f in report.failed.prefix(20) {
-                print("  ⚠ \(displaySafe(f.file, max: 200))——\(displaySafe(f.reason, max: 300))")
+            // **先報失敗**（同 migrate-provenance 的紀律）：單筆失敗不中止整批，
+            // 不說出來的話使用者以為全部完成。
+            if !report.failed.isEmpty {
+                print("處理失敗 \(report.failed.count) 筆（其餘照常；修好後重跑——遷移是冪等的）：")
+                for f in report.failed.prefix(20) {
+                    print("  ⚠ \(displaySafe(f.file, max: 200))——\(displaySafe(f.reason, max: 300))")
+                }
+                if report.failed.count > 20 { print("  …另 \(report.failed.count - 20) 筆") }
             }
-            if report.failed.count > 20 { print("  …另 \(report.failed.count - 20) 筆") }
         }
-        // R2 C5：升 marker 的指示必須以「零失敗」為前提——有 failed 時升 10 會把
-        // 修不完的記錄整批 quarantine（重演 S1 的鎖死）；legacy 佈局另有 akashic
-        // migrate 一步在前，跳過它直接升 10 會讓 people/ 的資料讀不到。
-        if apply, !report.failed.isEmpty {
-            print("⚠ 有失敗記錄——**不得**升 store.yaml 的 format。修復上列失敗並重跑，"
-                  + "failed 歸零後才進下一步")
-        } else if apply, !report.migrated.isEmpty {
-            if report.legacyLayout {
-                print("下一步：本遷移是就地改寫（people/ 佈局不變）——先跑 akashic migrate "
-                      + "搬移佈局到 entities，再 akashic doctor / validate；全部完成且"
-                      + "確認所有 binary 已升級後，才手動把 store.yaml 的 format: 改成 10")
-            } else {
-                print("下一步：akashic doctor 重建 index、akashic validate 驗證；"
-                      + "確認所有 binary 已升級後，手動把 store.yaml 的 format: 改成 10")
-            }
+        if let step = PersonIdentityMigration.nextStep(report: report, apply: apply) {
+            print(step)
         }
     }
 }

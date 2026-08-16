@@ -407,6 +407,110 @@ final class PersonIdentityMigrationTests: XCTestCase {
         XCTAssertTrue(load.quarantined.isEmpty)
     }
 
+    // MARK: - R3 verify（Codex NEW-1/4/5——盲區裁決、列舉誠實、keeper 交叉點名）
+
+    /// R3 NEW-1a：解不開但**取得到 key** 的檔要參與裁決——同 key 的可讀檔不得
+    /// 被當 singleton 重發 id。
+    func testUnparsableFileWithExtractableKeyBlocksItsKeyGroup() throws {
+        // 可讀的巢狀 v5 檔（本來會 reissue）
+        let v5 = DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace,
+                                      name: "same-key")
+        try """
+        person:
+        id: \(v5.uuidString)
+        key: same-key
+        names:
+          variant:
+          - Same Key
+        """.write(to: root.appendingPathComponent("entities/\(v5.uuidString).yaml"),
+                  atomically: true, encoding: .utf8)
+        // 同 key、帶引號 flow style（fold 拒收 → 解不開，但 key 取得到）
+        let bad = UUID()
+        try "person:\nid: \(bad.uuidString)\nkey: same-key\nnames: [\"Quoted, Same\"]\n".write(
+            to: root.appendingPathComponent("entities/\(bad.uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        commitAll()
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertTrue(report.migrated.isEmpty,
+                      "隱藏重複無法排除——不得對 same-key 重發：\(report.migrated)")
+        XCTAssertTrue(report.failed.contains { $0.file.contains(v5.uuidString)
+                        && $0.reason.contains("無法解讀") },
+                      "可讀檔要點名同 key 的盲區檔：\(report.failed)")
+        XCTAssertEqual(try entityFiles().count, 2, "兩檔原狀")
+    }
+
+    /// R3 NEW-1b：連 key 都取不到的 person 形檔 → 保守抑制**全部**重發。
+    func testKeylessUnparsableFileSuppressesAllReissues() throws {
+        try writeOldShapePerson(key: "innocent-p", names: ["Innocent P"])
+        let bad = UUID()
+        try "person:\nid: \(bad.uuidString)\nnames: 不是清單\n".write(
+            to: root.appendingPathComponent("entities/\(bad.uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        commitAll()
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertTrue(report.migrated.isEmpty,
+                      "盲區在——任何重發都可能撞隱藏 key：\(report.migrated)")
+        XCTAssertTrue(report.failed.contains { $0.reason.contains("取不到 key") },
+                      "\(report.failed)")
+    }
+
+    /// R3 NEW-4：目錄不存在＝合法空 store；不得偽裝成功也不得炸。
+    func testMissingPeopleDirIsLegitimatelyEmpty() throws {
+        let r = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-idmig-nodir-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: r) }
+        try FileManager.default.createDirectory(at: r, withIntermediateDirectories: true)
+        try StoreVersion.write(root: r, format: 1)   // legacy、無 people/
+        let report = try PersonIdentityMigration.run(store: LibraryStore(root: r))
+        XCTAssertTrue(report.migrated.isEmpty && report.skipped.isEmpty && report.failed.isEmpty)
+        XCTAssertTrue(report.legacyLayout)
+    }
+
+    /// R3 NEW-5：唯一 v4 keeper 自己驗證失敗時，reason 也要交叉點名同 key 其他檔。
+    func testInvalidKeeperCrossReferencesItsDuplicates() throws {
+        let v4 = UUID()
+        try """
+        person:
+        id: \(v4.uuidString)
+        key: dup-k
+        names:
+          authorized:
+          - Alpha One
+          - Beta Two
+        """.write(to: root.appendingPathComponent("entities/\(v4.uuidString).yaml"),
+                  atomically: true, encoding: .utf8)
+        try writeOldShapePerson(key: "dup-k", names: ["Dup K"])
+        commitAll()
+        let report = try PersonIdentityMigration.run(store: store, apply: true)
+        XCTAssertTrue(report.skipped.isEmpty)
+        let keeperEntry = report.failed.first { $0.file.contains(v4.uuidString) }
+        XCTAssertNotNil(keeperEntry)
+        XCTAssertTrue(keeperEntry!.reason.contains("驗證失敗")
+                        && keeperEntry!.reason.contains("同 key"),
+                      "keeper 要同時說驗證失敗與交叉點名：\(keeperEntry!.reason)")
+    }
+
+    /// R3 NEW-3：下一步指示的唯一成功判準是「apply 且零失敗」——全 skipped 的重跑
+    /// 與空 store 同樣要有出口；有 failed 一律禁升；legacy 先指路 akashic migrate。
+    func testNextStepCoversAllBranches() {
+        var r = PersonIdentityMigration.Report()
+        XCTAssertNil(PersonIdentityMigration.nextStep(report: r, apply: false), "dry-run 無指示")
+        // 空 store／全 skipped：仍要有出口
+        XCTAssertTrue(PersonIdentityMigration.nextStep(report: r, apply: true)!
+            .contains("format: 改成 10"))
+        r.skipped = ["a"]
+        XCTAssertTrue(PersonIdentityMigration.nextStep(report: r, apply: true)!
+            .contains("format: 改成 10"), "全 skipped 的重跑也要有下一步")
+        // 有 failed：禁升
+        r.failed = [(file: "x", reason: "y")]
+        XCTAssertTrue(PersonIdentityMigration.nextStep(report: r, apply: true)!
+            .contains("不得"), "有失敗必須明說禁升 marker")
+        // legacy：先 migrate
+        r.failed = []; r.legacyLayout = true
+        let legacy = PersonIdentityMigration.nextStep(report: r, apply: true)!
+        XCTAssertTrue(legacy.contains("akashic migrate"), "\(legacy)")
+    }
+
     /// C5 的 report 面：legacy 佈局要在 Report 上可辨（CLI 據此分流下一步指示）。
     func testReportMarksLegacyLayout() throws {
         let legacyRoot = FileManager.default.temporaryDirectory

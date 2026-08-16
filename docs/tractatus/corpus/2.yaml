@@ -918,6 +918,10 @@ propositions:
             locator: "testDirectionIsPartOfIdentity"
             note_zh_tw: "測試確認交換 person／work 方向會形成不同命題。"
     history:
+      - kind: issue
+        reference: "https://github.com/PsychQuant/Akashic-Library/issues/300"
+        disposition: retained
+        note_zh_tw: "#300 審議以 2.03 的鏈環類比檢視三元組 reification 提案：把 authorship 抽成獨立事實記錄形同把關係實體化為第三項，裁定不採；端點配置的類比維持原有劃界。"
       - kind: commit
         reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
         disposition: retained

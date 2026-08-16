@@ -645,6 +645,10 @@ propositions:
             locator: "testDirectEmptyLiteralIsRejectedAcrossSemanticOperations"
             note_zh_tw: "測試確認非法命題元素在 project 入口直接拋錯，不會偽裝成可投射配置或知識未定。"
     history:
+      - kind: issue
+        reference: "https://github.com/PsychQuant/Akashic-Library/issues/300"
+        disposition: retained
+        note_zh_tw: "#300 審議重申：authored(P,W) 的配置由作品側 authors 序列與 typed proposition 表達；正典側裁定為作品側（六理由記於 entity-backlink 規則），本筆主張不變。"
       - kind: commit
         reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
         disposition: revised
@@ -1726,7 +1730,15 @@ propositions:
             kind: test
             locator: "testDirectionIsPartOfIdentity"
             note_zh_tw: "測試確認交換 person／work 方向會形成不同命題。"
+          - path: ".claude/rules/entity-backlink-completeness.md"
+            kind: heading
+            locator: "### 哲學補強（#300 審議，2026-08-16）：好記法該讓矛盾寫不出來"
+            note_zh_tw: "entity-backlink 規則引 3.325 的工程類比：單側儲存讓雙 copy 矛盾在記法文法上不可表達；措辭維持受稽核類比的劃界。"
     history:
+      - kind: issue
+        reference: "https://github.com/PsychQuant/Akashic-Library/issues/300"
+        disposition: retained
+        note_zh_tw: "#300 審議裁定：3.325 類比寫進 entity-backlink 規則「為什麼」段；Tractatus 對照維持受稽核工程類比地位，不升格為規範判準。"
       - kind: commit
         reference: "e16c6f6e6d77f7cfe7e9d66323aecb174917872c"
         disposition: retained

@@ -787,8 +787,11 @@ public final class AkashicService {
         // #232 design D5：已否決配對從 verdict references 現算（never stored），
         // resolver 在候選生成層排除**恰為**該配對——同 literal 他 entry 照提。
         let rejectedPairings = ResolutionLedger.rejectedPairings(people: load.people)
+        // #303 design D3：confirmed 配對同源現算——confirmed-elsewhere tier 的資料源
+        let confirmedPairings = ResolutionLedger.confirmedPairings(people: load.people)
         let report = PersonResolver.resolve(entries: load.entries, people: load.people,
-                                            rejected: rejectedPairings)
+                                            rejected: rejectedPairings,
+                                            confirmed: confirmedPairings)
         let candidates = report.candidates
         let withIDs = candidates.map { c -> (id: String, candidate: ResolutionCandidate) in
             (c.rowID, c)   // 複合鍵住在型別上（#236 R4）
@@ -945,6 +948,8 @@ public final class AkashicService {
                     // ref 而非 key —— 見 `people` 的說明。送出的是**生成的** ref，
                     // store 衍生的 `personKeys` 只當查表鍵、不進輸出。
                     "personRefs": refs,   // display-safe-exempt: 生成的 ref（`p0`/`p1`…，恆為 [a-z0-9]）
+                    // #303：碰撞發生在哪個提名層（initials 碰撞 ≠ exact 同名）
+                    "tier": a.tier.rawValue,   // display-safe-exempt: 封閉 enum rawValue
                 ]
             }
 
@@ -1005,6 +1010,8 @@ public final class AkashicService {
                     "literal": displaySafe(pair.candidate.literal, max: 400),
                     "personKey": displaySafe(pair.candidate.personKey, max: 200),
                     "reason": displaySafe(pair.candidate.reason, max: 400),
+                    // #303 design D4：提名層（additive）——rawValue 是封閉四值的固定字面
+                    "tier": pair.candidate.tier.rawValue,   // display-safe-exempt: 封閉 enum rawValue，非 store 衍生
                     "counts": countsJSON(ResolutionLedger.personRule),
                 ]
                 let cost = Self.jsonBytes(row)

@@ -34,7 +34,8 @@ public final class PeopleResolveModel {
         // 必須吃同一份 ledger；參數改必填後這裡是編譯器逼著接上的。
         let report = PersonResolver.resolve(
             entries: state.entries, people: state.people,
-            rejected: ResolutionLedger.rejectedPairings(people: state.people))
+            rejected: ResolutionLedger.rejectedPairings(people: state.people),
+            confirmed: ResolutionLedger.confirmedPairings(people: state.people))
         candidates = report.candidates
             .filter { !state.skippedPeopleCandidates.contains(id(of: $0)) }
         // 歧義**不參與 skip 集合**：skip 的語意是「這個候選我不要套用」，而歧義

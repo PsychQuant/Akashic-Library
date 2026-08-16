@@ -260,7 +260,7 @@ final class PersonBootstrapTests: XCTestCase {
             Person(key: "chen-wei-2", names: PersonNames(variant: ["Chen Wei"])),
         ]
         let r = PersonResolver.resolve(
-            entries: [entry("x", ["Chen Wei"])], people: existing, rejected: [])
+            entries: [entry("x", ["Chen Wei"])], people: existing, rejected: [], confirmed: [])
         XCTAssertTrue(r.candidates.isEmpty,
                       "兩個同名記錄不得自動歸戶到其中一個：\(r.candidates)")
         XCTAssertEqual(r.ambiguities.count, 1, "必須以歧義呈現、交給人判斷")

@@ -65,7 +65,11 @@ struct PeopleResolveView: View {
                                 // 拆成兩行，各自只承載一種。
                                 Text("「\(candidate.displayLiteral)」 →")
                                     + Text(" \(candidate.personKey)")   // display-safe-exempt: person.key，load 端 quarantine 驗過 StoreKey
-                                Text("\(candidate.displayCitekey)［作者 #\(candidate.authorIndex)］·\(candidate.displayReason)")
+                                // #303：tier 標示（信心層）。`tier.rawValue` 是封閉 enum 的
+                                // 固定字面（exact/confirmed-elsewhere/reorder/initials），
+                                // 非 store 衍生——同 `personKey` 的理由不給 display* 投影，
+                                // 免得「有投影＝危險」的訊號失真。
+                                Text("\(candidate.displayCitekey)［作者 #\(candidate.authorIndex)］·\(candidate.tier.rawValue)·\(candidate.displayReason)")   // display-safe-exempt: tier.rawValue 封閉 enum；其餘欄位已投影
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

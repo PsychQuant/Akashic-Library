@@ -1,20 +1,44 @@
 import Foundation
 import AkashicCore
 
+/// 提名的信心層（#303 design D2）。**封閉四值，信心降冪**——不得依性質相似類推第五值；
+/// 羅馬化異拼刻意不在任何 tier（spec person-resolution 的 closed-enumeration requirement）。
+///
+/// rawValue 即三面（CLI／MCP／App）的對外字串——單一定義，不讓序列化端各寫一份。
+public enum ResolutionTier: String, CaseIterable, Comparable, Equatable {
+    /// alias 正規化後完全命中（既有行為）
+    case exact
+    /// 同 literal 已在他處經 confirmed verdict 判給同一人（design D3）
+    case confirmedElsewhere = "confirmed-elsewhere"
+    /// token 重排相等（`Hsu, Yung-Fong` ↔ `Yung-Fong Hsu`）
+    case reorder
+    /// 姓＋首字母相等（`Chen, Y.-H.` ↔ `Chen, Yi-Hau`）——證據最弱，apply 前必查證
+    case initials
+
+    /// 信心降冪的全序（`exact` 最先）。給排序與「最高 tier 抑制」用。
+    public static func < (a: ResolutionTier, b: ResolutionTier) -> Bool {
+        let order = ResolutionTier.allCases
+        return order.firstIndex(of: a)! < order.firstIndex(of: b)!
+    }
+}
+
 public struct ResolutionCandidate: Equatable {
     public var citekey: String
     public var authorIndex: Int
     public var literal: String
     public var personKey: String
     public var reason: String
+    /// 提名層（#303）。預設 `.exact` 讓既有建構端不變——resolver 一律顯式傳。
+    public var tier: ResolutionTier
 
     public init(citekey: String, authorIndex: Int, literal: String,
-                personKey: String, reason: String) {
+                personKey: String, reason: String, tier: ResolutionTier = .exact) {
         self.citekey = citekey
         self.authorIndex = authorIndex
         self.literal = literal
         self.personKey = personKey
         self.reason = reason
+        self.tier = tier
     }
 
     /// 這筆候選在一次解析內的唯一識別：`"<citekey>:<authorIndex>"`。
@@ -70,16 +94,20 @@ public struct AmbiguousMatch: Equatable {
     ///
     /// 排序是為了輸出穩定（同一份 store 兩次執行給同一份報告，不隨 `Set` 的雜湊擾動）。
     public var personKeys: [String]
+    /// 碰撞發生在哪個提名層（#303）。initials 碰撞（93/724 的「姓＋首字母」共鍵）
+    /// 與 exact 同名是不同的情報，呈現面要分得出來。
+    public var tier: ResolutionTier
 
     /// 少於兩個 key 回 `nil`——**「歧義只有一個候選」在型別層不可表達**。
     public init?(entryID: UUID, citekey: String, authorIndex: Int,
-                 literal: String, personKeys: Set<String>) {
+                 literal: String, personKeys: Set<String>, tier: ResolutionTier = .exact) {
         guard personKeys.count >= 2 else { return nil }
         self.entryID = entryID
         self.citekey = citekey
         self.authorIndex = authorIndex
         self.literal = literal
         self.personKeys = personKeys.sorted()
+        self.tier = tier
     }
 
     /// 這筆歧義的唯一識別：`"<entryID>:<authorIndex>"`。
@@ -123,17 +151,31 @@ public enum PersonResolver {
     ///
     /// **刻意無預設值**（verify DA fix-10）：`= []` 曾讓 App 面（Adjudication）
     /// 靜默編過而完全略過否決史——位置決定了誰會走它，required 讓「第四個呼叫面
-    /// 忘了帶」變成編譯錯誤而不是安靜的行為分岔。
+    /// 忘了帶」變成編譯錯誤而不是安靜的行為分岔。`confirmed`（#303 design D3）
+    /// 同一條理由必填：缺省＝confirmed-elsewhere tier 靜默消失。
     public static func resolve(entries: [Entry], people: [Person],
-                               rejected: Set<ResolutionPairing>) -> ResolutionReport {
-        // 正規化 alias → person keys
-        var aliasMap: [String: Set<String>] = [:]
+                               rejected: Set<ResolutionPairing>,
+                               confirmed: Set<ResolutionPairing>) -> ResolutionReport {
+        // 各 tier 的比對地圖在同一次 people 遍歷建好（#140：不為任何 tier 另寫遍歷）。
+        // #227：alias 對照要的是**全部**名字（authorized + variant）——歸戶比對
+        // 不因指定與否而異；三個 tier 的鍵空間都吃 `names.all`。
+        var exactMap: [String: Set<String>] = [:]
+        var reorderMap: [String: Set<String>] = [:]
+        var initialsMap: [String: Set<String>] = [:]
         for person in people {
-            // #227：alias 對照要的是**全部**名字（authorized + variant）——歸戶比對
-            // 不因指定與否而異。
             for name in person.names.all {
-                aliasMap[normalize(name), default: []].insert(person.key)
+                exactMap[normalize(name), default: []].insert(person.key)
+                reorderMap[LooseNameKey.reorderKey(name), default: []].insert(person.key)
+                for k in LooseNameKey.initialsKeys(name) {
+                    initialsMap[k, default: []].insert(person.key)
+                }
             }
+        }
+        // confirmed verdicts → 正規化 literal → keys（design D3：verdict 知識再利用——
+        // 同字串已在他處判給某人，別處的同字串值得以該知識提名）
+        var confirmedByLiteral: [String: Set<String>] = [:]
+        for pairing in confirmed {
+            confirmedByLiteral[normalize(pairing.literal), default: []].insert(pairing.judgedKey)
         }
 
         var candidates: [ResolutionCandidate] = []
@@ -141,29 +183,52 @@ public enum PersonResolver {
         for entry in entries {
             for (i, author) in entry.authors.enumerated() {
                 guard case .literal(let literal) = author else { continue }
-                // 沒有任何人叫這個名字＝合法長期狀態，**不回報**——把它也報出來會讓
-                // 報告被噪音淹沒，而被淹沒的報告等於沒有報告。
-                guard let keys = aliasMap[normalize(literal)] else { continue }
-                if keys.count == 1, let key = keys.first {
-                    guard !rejected.contains(ResolutionPairing(
-                        holderKind: .work, holder: entry.citekey,
-                        literal: literal, judgedKey: key)) else { continue }
-                    candidates.append(ResolutionCandidate(
-                        citekey: entry.citekey, authorIndex: i, literal: literal,
-                        personKey: key, reason: "alias 完全命中"))
-                } else if let m = AmbiguousMatch(entryID: entry.id, citekey: entry.citekey,
-                                                 authorIndex: i, literal: literal,
-                                                 personKeys: keys) {
-                    ambiguities.append(m)
+                let norm = normalize(literal)
+                // tier 依信心降冪逐層評估，**第一個有存活命中的 tier 提名、其餘抑制**
+                // （spec: highest matching tier）。每 tier 先剔除已否決配對——被否決的
+                // 是**配對**不是 literal：exact 命中被否決時，低 tier 若命中**別人**
+                // 仍是合法提名；同人同配對在低 tier 同樣被剔除。
+                //
+                // 沒有任何 tier 命中＝合法長期狀態，**不回報**——報出來會讓報告被
+                // 噪音淹沒，而被淹沒的報告等於沒有報告。
+                let tiers: [(ResolutionTier, Set<String>, String)] = [
+                    (.exact, exactMap[norm] ?? [], "alias 完全命中"),
+                    (.confirmedElsewhere, confirmedByLiteral[norm] ?? [],
+                     "同 literal 已於他處 confirmed"),
+                    (.reorder, reorderMap[LooseNameKey.reorderKey(literal)] ?? [],
+                     "token 重排命中"),
+                    (.initials,
+                     Set(LooseNameKey.initialsKeys(literal).flatMap { initialsMap[$0] ?? [] }),
+                     "姓＋首字母命中"),
+                ]
+                for (tier, rawHits, reason) in tiers {
+                    let hits = rawHits.filter { key in
+                        !rejected.contains(ResolutionPairing(
+                            holderKind: .work, holder: entry.citekey,
+                            literal: literal, judgedKey: key))
+                    }
+                    guard !hits.isEmpty else { continue }
+                    if hits.count == 1, let key = hits.first {
+                        candidates.append(ResolutionCandidate(
+                            citekey: entry.citekey, authorIndex: i, literal: literal,
+                            personKey: key, reason: reason, tier: tier))
+                    } else if let m = AmbiguousMatch(entryID: entry.id, citekey: entry.citekey,
+                                                     authorIndex: i, literal: literal,
+                                                     personKeys: hits, tier: tier) {
+                        ambiguities.append(m)
+                    }
+                    break   // 最高命中 tier 之後全部抑制——同配對不重複出現
                 }
             }
         }
         // ambiguities 用 `entryID` 打破 tie——重複 citekey 是被支援的損壞態，
         // `(citekey, authorIndex)` 在那時不是全序，相等元素的相對順序未定義
-        // （Swift 的 sort 不保證穩定）。candidates 的排序是**既有行為**，不在本次
-        // 改動範圍內，刻意不動。
+        // （Swift 的 sort 不保證穩定）。candidates 自 #303 起以 tier（信心降冪）
+        // 為第一鍵（design D4）——高信心批次浮上來，campaign 從上往下收。
         return ResolutionReport(
-            candidates: candidates.sorted { ($0.citekey, $0.authorIndex) < ($1.citekey, $1.authorIndex) },
+            candidates: candidates.sorted {
+                ($0.tier, $0.citekey, $0.authorIndex) < ($1.tier, $1.citekey, $1.authorIndex)
+            },
             ambiguities: ambiguities.sorted {
                 ($0.citekey, $0.authorIndex, $0.entryID.uuidString)
                     < ($1.citekey, $1.authorIndex, $1.entryID.uuidString)
@@ -172,10 +237,12 @@ public enum PersonResolver {
 
     /// 高信心候選：literal 與某人 alias 正規化後完全命中，且不歧義。
     ///
-    /// 薄包裝。`rejected` 同 `resolve`——刻意必填。
+    /// 薄包裝。`rejected`／`confirmed` 同 `resolve`——刻意必填。
     public static func candidates(entries: [Entry], people: [Person],
-                                  rejected: Set<ResolutionPairing>) -> [ResolutionCandidate] {
-        resolve(entries: entries, people: people, rejected: rejected).candidates
+                                  rejected: Set<ResolutionPairing>,
+                                  confirmed: Set<ResolutionPairing>) -> [ResolutionCandidate] {
+        resolve(entries: entries, people: people,
+                rejected: rejected, confirmed: confirmed).candidates
     }
 
     /// 把已確認的候選套用到 entries（回傳新副本，不動原陣列）。

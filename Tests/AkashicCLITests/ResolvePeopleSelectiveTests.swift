@@ -66,6 +66,32 @@ final class ResolvePeopleSelectiveTests: XCTestCase {
         try String(contentsOf: root.appendingPathComponent("entries/\(ck).yaml"), encoding: .utf8)
     }
 
+    /// #303 task 3.2：候選按 tier 分組列印——exact 段先於 reorder 段，
+    /// initials 段標頭自帶查證義務（design D4 的 CLI 半邊）。
+    func testOutputGroupsCandidatesByTier() throws {
+        // 本測試自備一筆 token 重排形（不動共用 fixture）：「Cheng Che」↔ alias「Che Cheng」
+        try """
+        id: 00000009-1111-1111-1111-111111111111
+        citekey: d2023d
+        type: article
+        title: TD
+        authors:
+          - literal: "Cheng Che"
+        date: "2023"
+
+        """.write(to: root.appendingPathComponent("entries/d2023d.yaml"),
+                  atomically: true, encoding: .utf8)
+        let r = try runCLI(["resolve-people"])
+        XCTAssertEqual(r.status, 0, r.err)
+        let exactHeader = r.out.range(of: "〔exact——alias 完全命中〕")
+        let reorderHeader = r.out.range(of: "〔reorder——token 重排命中〕")
+        XCTAssertNotNil(exactHeader, r.out)
+        XCTAssertNotNil(reorderHeader, r.out)
+        XCTAssertTrue(exactHeader!.lowerBound < reorderHeader!.lowerBound,
+                      "exact 段排在 reorder 段之前（信心降冪）")
+        XCTAssertTrue(r.out.contains("d2023d"), "reorder 候選要列出")
+    }
+
     /// 不加 --apply 時只列候選（既有行為，不得回歸）。
     func testListOnlyByDefault() throws {
         let r = try runCLI(["resolve-people"])

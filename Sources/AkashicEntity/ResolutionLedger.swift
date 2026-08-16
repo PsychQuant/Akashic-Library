@@ -124,6 +124,21 @@ public enum ResolutionLedger {
         return set
     }
 
+    /// 已確認配對的集合（#303 design D3，`rejectedPairings` 的鏡像）——
+    /// resolver 的 `confirmedElsewhere` tier 資料源：同 literal 已在他處判給某人，
+    /// 別的 entry 的同字串值得以該知識提名。**只提名不 apply**，且不寫 alias——
+    /// verdict 的 value 文法本身就記著配對，比 variant alias 多了 provenance。
+    public static func confirmedPairings(people: [Person]) -> Set<ResolutionPairing> {
+        var set = Set<ResolutionPairing>()
+        for p in people {
+            for v in verdicts(references: p.references).verdicts where v.kind == .confirmed {
+                set.insert(ResolutionPairing(holderKind: v.holderKind, holder: v.holder,
+                                             literal: v.literal, judgedKey: p.key))
+            }
+        }
+        return set
+    }
+
     /// organization 族的已否決配對（task 3.2——family 一次涵蓋）。
     public static func rejectedPairings(organizations: [Organization]) -> Set<ResolutionPairing> {
         var set = Set<ResolutionPairing>()

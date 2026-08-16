@@ -39,6 +39,20 @@ final class AdjudicationTests: XCTestCase {
         XCTAssertTrue(model.candidates.isEmpty)
     }
 
+    /// #303 task 3.3：resolver 的 tier 原樣進到裁決台的候選列（顯示面消費新欄）。
+    func testPeopleResolveCandidatesCarryTier() throws {
+        // 追加一筆 token 重排形：「Cheng Che」↔ alias「Che Cheng」
+        try LibraryStore(root: root).writeEntry(
+            Entry(id: UUID(), citekey: "c2022re", type: "article",
+                  title: "R", authors: [.literal("Cheng Che")]))
+        try state.load()
+        let model = PeopleResolveModel(state: state)
+        let tierByCitekey = Dictionary(uniqueKeysWithValues:
+            model.candidates.map { ($0.citekey, $0.tier) })
+        XCTAssertEqual(tierByCitekey["a2020paper"], .exact)
+        XCTAssertEqual(tierByCitekey["c2022re"], .reorder)
+    }
+
     func testPeopleResolveSkipIsSessionOnly() throws {
         let model = PeopleResolveModel(state: state)
         model.skip(model.candidates[0])

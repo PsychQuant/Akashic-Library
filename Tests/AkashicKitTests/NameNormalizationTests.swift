@@ -53,7 +53,7 @@ final class NameNormalizationTests: XCTestCase {
         p.names = ["Chang, Y-H."]
         let entry = Entry(id: UUID(), citekey: "chang2020x", type: "article",
                           title: "X", authors: [.literal("Chang, Y\u{2010}H.")], date: "2020")
-        let found = PersonResolver.candidates(entries: [entry], people: [p], rejected: [])
+        let found = PersonResolver.candidates(entries: [entry], people: [p], rejected: [], confirmed: [])
         XCTAssertEqual(found.count, 1, "連字號變體必須經正規化命中")
         // **輸出是原字串**：literal 保持 U+2010 原樣——正規化永不外洩成資料
         XCTAssertEqual(found.first?.literal, "Chang, Y\u{2010}H.")
@@ -66,7 +66,7 @@ final class NameNormalizationTests: XCTestCase {
         var b = Person(key: "lee-b"); b.names = ["Lee, J\u{2010}H."]
         let entry = Entry(id: UUID(), citekey: "lee2021y", type: "article",
                           title: "Y", authors: [.literal("Lee, J-H.")], date: "2021")
-        let found = PersonResolver.candidates(entries: [entry], people: [a, b], rejected: [])
+        let found = PersonResolver.candidates(entries: [entry], people: [a, b], rejected: [], confirmed: [])
         XCTAssertTrue(found.isEmpty,
                       "正規化製造的塌縮是歧義訊號，不是合併授權：\(found)")
     }
@@ -88,7 +88,7 @@ extension NameNormalizationTests {
         // 端到端：建出的 person 讓 resolver 對兩筆 entry 都提名
         var p = Person(key: "chang-y-h")
         p.names = PersonNames(variant: groups.first?.names ?? [])
-        let found = PersonResolver.candidates(entries: [ascii, u2010], people: [p], rejected: [])
+        let found = PersonResolver.candidates(entries: [ascii, u2010], people: [p], rejected: [], confirmed: [])
         XCTAssertEqual(found.count, 2,
                        "主流程端到端：兩筆 entry 都應提名（曾掉到 0——塌縮歧義誤判）")
     }

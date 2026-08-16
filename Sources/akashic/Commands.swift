@@ -1281,8 +1281,9 @@ struct ResolvePeople: ParsableCommand {
         let load = try store.load()
         // #232 design D5：已否決配對從 verdict references 現算，resolver 不再提名
         let rejectedSet = ResolutionLedger.rejectedPairings(people: load.people)
+        let confirmedSet = ResolutionLedger.confirmedPairings(people: load.people)
         let report = PersonResolver.resolve(entries: load.entries, people: load.people,
-                                            rejected: rejectedSet)
+                                            rejected: rejectedSet, confirmed: confirmedSet)
         let all = report.candidates
         // 篩選只影響 **--apply**，列表一律顯示全部——否則使用者用 --citekey 收窄後
         // 會以為其他候選不存在。
@@ -1415,13 +1416,26 @@ struct ResolvePeople: ParsableCommand {
         }
 
         guard !all.isEmpty else {
-            print("無候選（literal 作者 \(load.entries.flatMap(\.authors).filter { if case .literal = $0 { return true } else { return false } }.count) 個，皆無 alias 完全命中）")
+            print("無候選（literal 作者 \(load.entries.flatMap(\.authors).filter { if case .literal = $0 { return true } else { return false } }.count) 個，任何提名層皆無命中）")
             printCountsAndSunk()   // 沒有候選 ≠ 沒有歷史——已否決與計數照樣要看得見
             printAmbiguities()   // 沒有唯一候選時，歧義**更**該被看見
             return
         }
         let selected = Set(candidates.map { "\($0.citekey)#\($0.authorIndex)" })
+        // #303 design D4：按 tier 分組列印（resolver 已依信心降冪排序，分組只加標頭）。
+        // tier 越低證據越弱——initials 段的標頭直接把查證義務講出來，讀的人不必翻文件。
+        let tierHeadline: [ResolutionTier: String] = [
+            .exact: "exact——alias 完全命中",
+            .confirmedElsewhere: "confirmed-elsewhere——同 literal 已於他處 confirmed",
+            .reorder: "reorder——token 重排命中",
+            .initials: "initials——姓＋首字母命中（證據最弱，apply 前必查證）",
+        ]
+        var printedTier: ResolutionTier? = nil
         for c in all {
+            if c.tier != printedTier {
+                print("〔\(tierHeadline[c.tier] ?? c.tier.rawValue)〕")   // display-safe-exempt: 封閉 enum 的固定字面
+                printedTier = c.tier
+            }
             // 被篩掉的候選仍列出，但標明不會套用——收窄範圍不等於「其他不存在」
             let mark = (apply && !selected.contains("\(c.citekey)#\(c.authorIndex)")) ? "  (skip) " : "  "
             print("\(mark)\(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（\(displaySafe(c.reason, max: 300))）")

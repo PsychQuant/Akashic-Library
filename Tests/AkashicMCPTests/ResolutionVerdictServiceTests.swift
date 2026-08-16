@@ -45,6 +45,24 @@ final class ResolutionVerdictServiceTests: XCTestCase {
         try LibraryStore(root: root).load().people.first { $0.key == "cheng-che" }!
     }
 
+    // MARK: - #303 task 3.1：tier 欄（design D4，additive）
+
+    func testCandidateRowsCarryTierAndSortByConfidence() throws {
+        // 追加一筆 token 重排形：alias「Che Cheng」↔ literal「Cheng Che」
+        try LibraryStore(root: root).writeEntry(
+            Entry(id: UUID(), citekey: "c2022z", type: "article",
+                  title: "V", authors: [.literal("Cheng Che")], date: "2022"))
+        let out = try json(try service.resolvePeople(apply: nil))
+        let rows = out["candidates"] as! [[String: Any]]
+        let tierByCitekey = Dictionary(uniqueKeysWithValues:
+            rows.map { ($0["citekey"] as! String, $0["tier"] as! String) })
+        XCTAssertEqual(tierByCitekey["a2020x"], "exact")
+        XCTAssertEqual(tierByCitekey["c2022z"], "reorder")
+        // 信心降冪：exact 列全部排在 reorder 列之前（design D4）
+        let tiers = rows.map { $0["tier"] as! String }
+        XCTAssertEqual(tiers, ["exact", "exact", "reorder"])
+    }
+
     // MARK: - task 4.1：reject 寫 verdict、entry 不動；apply 同動作寫 confirmed
 
     func testRejectWritesVerdictAndLeavesEntryUntouched() throws {

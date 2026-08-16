@@ -381,9 +381,12 @@ public enum PersonIdentityMigration {
         for raw in text.components(separatedBy: "\n") {
             var line = raw
             if line.hasSuffix("\r") { line = String(line.dropLast()) }
-            guard line.hasPrefix("key: ") else { continue }
+            // 候選掃描認 `key:` 前綴（**不含**空格）——R5 NEW-R5-1：空 RHS（`key:`）
+            // 或 tab 分隔（`key:\t…`）的行也是頂層 key mapping，只認 `key: ` 會讓
+            // 它們躲過歧義偵測、殘留 decoy 繞過。
+            guard line.hasPrefix("key:") else { continue }
             let v = String(line.dropFirst(5))
-            guard StoreKey.isValid(v) else { return nil }   // 非 canonical → keyless（保守）
+            guard line.hasPrefix("key: "), StoreKey.isValid(v) else { return nil }
             if found != nil { return nil }                   // 重複 key: 行＝歧義 → keyless
             found = v
         }

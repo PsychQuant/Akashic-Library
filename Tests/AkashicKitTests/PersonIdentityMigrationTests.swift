@@ -487,6 +487,10 @@ final class PersonIdentityMigrationTests: XCTestCase {
         XCTAssertNil(PersonIdentityMigration.extractTopLevelKey("key: a\nkey: b\n"))
         XCTAssertEqual(PersonIdentityMigration.extractTopLevelKey("key: some-key\r\n"),
                        "some-key", "CRLF 行尾要剝")
+        // R5 NEW-R5-1：空 RHS／tab 分隔的 `key:` 行也要入歧義偵測——decoy 不得存活
+        XCTAssertNil(PersonIdentityMigration.extractTopLevelKey("key: decoy\nkey:\n"))
+        XCTAssertNil(PersonIdentityMigration.extractTopLevelKey("key: decoy\nkey:\t\"same-key\"\n"))
+        XCTAssertNil(PersonIdentityMigration.extractTopLevelKey("key:\n"), "單獨空 RHS 也是非 canonical")
     }
 
     /// R3 NEW-4：目錄不存在＝合法空 store；不得偽裝成功也不得炸。

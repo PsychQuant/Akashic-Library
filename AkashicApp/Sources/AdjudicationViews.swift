@@ -25,7 +25,8 @@ struct PeopleResolveView: View {
                         Section("需要你判斷（\(model.ambiguities.count)）") {
                             ForEach(model.ambiguities, id: \.rowID) { a in
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("「\(displaySafe(a.literal, max: 200))」 對到 \(a.personKeys.count) 個人")
+                                    // R1-fix B6：碰撞層可見（tier.rawValue 封閉 enum）
+                                    Text("〔\(a.tier.rawValue)〕「\(displaySafe(a.literal, max: 200))」 對到 \(a.personKeys.count) 個人")   // display-safe-exempt: tier.rawValue 封閉 enum；literal 已消毒
                                         .font(.callout.weight(.medium))
                                     Text(displaySafe(a.citekey, max: 200)
                                          + "［作者 #\(a.authorIndex)］")
@@ -44,8 +45,13 @@ struct PeopleResolveView: View {
                                         Text(model.discriminatorLine(for: k))   // display-safe-exempt: model 端已逐欄消毒
                                             .font(.caption.monospaced())
                                     }
-                                    Text("同名的不同人＝各自歸屬（永不合併）；同一人兩筆＝該合併。"
-                                         + "**這裡不提供套用**——歧義套用不了。")
+                                    // R1-fix B6：指引依碰撞層分開——exact 的兩難框架
+                                    // 對縮寫／重排共鍵是錯誤指引（那通常是不同的人）
+                                    Text(a.tier == .exact
+                                         ? "同名的不同人＝各自歸屬（永不合併）；同一人兩筆＝該合併。"
+                                           + "**這裡不提供套用**——歧義套用不了。"
+                                         : "縮寫／重排共鍵通常是不同的人——不歸戶也不合併；"
+                                           + "補區辨欄位（ORCID／隸屬）後重跑。**這裡不提供套用**。")
                                         .font(.caption2).foregroundStyle(.tertiary)
                                 }
                                 .padding(.vertical, 2)

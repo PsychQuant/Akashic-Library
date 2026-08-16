@@ -54,6 +54,22 @@ final class LooseNameKeyTests: XCTestCase {
             .isDisjoint(with: LooseNameKey.initialsKeys("Chen, Y.-H.")))
     }
 
+    func testDotSeparatedInitialsWithoutHyphenKeepAllLetters() {
+        // R1-fix B5：`.` 與 `-` 同為分段界——`Chen, Y.H.` 曾塌成 `chen y`
+        XCTAssertEqual(LooseNameKey.initialsKeys("Chen, Y.H."), ["chen yh"])
+        XCTAssertEqual(LooseNameKey.initialsKeys("Smith, J.A."), ["smith ja"])
+        // 真 store 錯提名的重現案例：`L.W. Wang` 不得再撞 `Wang, Limei`（`wang l`）
+        XCTAssertFalse(LooseNameKey.initialsKeys("L.W. Wang")
+            .contains("wang l"), "\(LooseNameKey.initialsKeys("L.W. Wang"))")
+        XCTAssertTrue(LooseNameKey.initialsKeys("L.W. Wang").contains("wang lw"))
+    }
+
+    func testDottedAndHyphenatedFormsShareReorderKey() {
+        // 同一修正的 reorder 面：`Y.H.` 與 `Y.-H.` 是同一寫法的兩種標點
+        XCTAssertEqual(LooseNameKey.reorderKey("Chen, Y.H."),
+                       LooseNameKey.reorderKey("Chen, Y.-H."))
+    }
+
     func testMultipleGivenTokensConcatenateInitials() {
         XCTAssertEqual(LooseNameKey.initialsKeys("Smith, Mary Jane"), ["smith mj"])
     }

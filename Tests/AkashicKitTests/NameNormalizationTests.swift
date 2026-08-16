@@ -82,7 +82,7 @@ extension NameNormalizationTests {
         let u2010 = Entry(id: UUID(), citekey: "b2021y", type: "article",
                           title: "Y", authors: [.literal("Chang, Y\u{2010}H.")], date: "2021")
         // bootstrap 對兩種寫法必須聚成**一組**（同一人的兩個寫法），不是兩個 person
-        let groups = PersonBootstrap.candidates(entries: [ascii, u2010], existing: [])
+        let groups = PersonBootstrap.candidates(entries: [ascii, u2010], existing: [], rejected: [])
         XCTAssertEqual(groups.count, 1,
                        "連字號變體必須聚成一組——兩組＝bootstrap 還有自己的舊正規化：\(groups)")
         // 端到端：建出的 person 讓 resolver 對兩筆 entry 都提名

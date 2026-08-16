@@ -137,15 +137,30 @@ public enum PersonBootstrap {
         }
     }
 
-    /// 一次 bootstrap 的完整結果。**兩個欄位而非 sum type**——`personsFor` 只吃
-    /// `candidates`，於是「不小心替一個 unkeyable 建 person」在型別層寫不出來。
+    /// 寬鬆鍵命中既有 person 的 literal 群（R1-fix B4／DA-2）——**先消歧、不建檔**。
+    /// 建了會在既有記錄旁鑄造重複身分（`Chen, Y.-H.`×27 對 `chen-yi-hau` 的實例）；
+    /// 全部配對經 reject 否決後，群組回到 `candidates`（生命週期閉環）。
+    public struct PendingResolutionGroup: Equatable {
+        public var names: [String]
+        public var occurrences: Int
+        /// 命中的既有 person key（排序）——給操作者看「跟誰撞」。
+        public var matchedKeys: [String]
+    }
+
+    /// 一次 bootstrap 的完整結果。**分欄位而非 sum type**——`personsFor` 只吃
+    /// `candidates`，於是「不小心替一個 unkeyable／pending 建 person」在型別層寫不出來。
     public struct BootstrapReport: Equatable {
         public var candidates: [Candidate]
         public var unkeyable: [UnkeyableGroup]
+        /// 寬鬆鍵命中既有 person、待 resolve 流程消歧的群（回報不丟棄——
+        /// lossless-intake §3：靜默是最糟的形式）。
+        public var pendingResolution: [PendingResolutionGroup]
 
-        public init(candidates: [Candidate], unkeyable: [UnkeyableGroup]) {
+        public init(candidates: [Candidate], unkeyable: [UnkeyableGroup],
+                    pendingResolution: [PendingResolutionGroup] = []) {
             self.candidates = candidates
             self.unkeyable = unkeyable
+            self.pendingResolution = pendingResolution
         }
     }
 
@@ -171,8 +186,9 @@ public enum PersonBootstrap {
     ///
     /// **已存在的 person 不重複產出**——它們的 alias 已在 `PersonResolver` 的比對範圍內，
     /// 再造一個新 person 就是在製造重複。
-    public static func candidates(entries: [Entry], existing: [Person]) -> [Candidate] {
-        resolve(entries: entries, existing: existing).candidates
+    public static func candidates(entries: [Entry], existing: [Person],
+                                  rejected: Set<ResolutionPairing>) -> [Candidate] {
+        resolve(entries: entries, existing: existing, rejected: rejected).candidates
     }
 
     /// 單一 traversal，`candidates` 與 `unkeyable` 的 source of truth（#238）。
@@ -180,12 +196,34 @@ public enum PersonBootstrap {
     /// 與 `PersonResolver.resolve` / `OrgResolver.resolve` 同理由：**不寫第二支遍歷**。
     /// 兩支會分岔，而分岔的方式通常是其中一支忘了某個排除條件（機構名、已存在的
     /// alias、空字串）。
-    public static func resolve(entries: [Entry], existing: [Person]) -> BootstrapReport {
+    /// `rejected`：已否決配對（R1-fix B4）。**刻意必填**（同 `PersonResolver.resolve`
+    /// 的理由）——resolver 擴到寬鬆鍵空間後（#303），「已存在的 person 不重複產出」
+    /// 這條不變式的排除面必須跟上；而否決史決定哪些寬鬆命中已經出清、literal 何時
+    /// 回到可建檔。
+    public static func resolve(entries: [Entry], existing: [Person],
+                               rejected: Set<ResolutionPairing>) -> BootstrapReport {
         // #227：已知 alias 是**全部**名字的聯集——排除條件不看指定與否。
         let knownAliases = Set(existing.flatMap { $0.names.all.map(identity) })
         var takenKeys = Set(existing.map(\.key))
+        // R1-fix B4：既有 person 的寬鬆鍵空間（reorder＋initials；exact 由
+        // knownAliases 涵蓋）。命中者不建新 person——那是 resolve 流程的工作。
+        var looseSpace: [String: Set<String>] = [:]
+        for p in existing {
+            for n in p.names.all {
+                looseSpace[LooseNameKey.reorderKey(n), default: []].insert(p.key)
+                for k in LooseNameKey.initialsKeys(n) {
+                    looseSpace[k, default: []].insert(p.key)
+                }
+            }
+        }
+        // 否決比對與 resolver 同一套正規化（R1-fix I1 的一致性）
+        var rejectedNorm = Set<String>()
+        for pairing in rejected where pairing.holderKind == .work {
+            rejectedNorm.insert("\(pairing.holder)|\(normalize(pairing.literal))|\(pairing.judgedKey)")
+        }
 
         var groups: [String: (names: [String], count: Int)] = [:]
+        var pendingGroups: [String: (names: [String], count: Int, keys: Set<String>)] = [:]
         for e in entries {
             for a in e.authors {
                 guard case let .literal(raw) = a else { continue }
@@ -195,17 +233,40 @@ public enum PersonBootstrap {
                 guard !name.isEmpty else { continue }
                 let id = identity(name)
                 guard !knownAliases.contains(id) else { continue }
+                // 寬鬆命中（且該配對未被否決）→ pending，不進建檔候選
+                var hits = looseSpace[LooseNameKey.reorderKey(name)] ?? []
+                for k in LooseNameKey.initialsKeys(name) { hits.formUnion(looseSpace[k] ?? []) }
+                let surviving = hits.filter {
+                    !rejectedNorm.contains("\(e.citekey)|\(normalize(name))|\($0)")
+                }
+                if !surviving.isEmpty {
+                    var g = pendingGroups[id] ?? ([], 0, [])
+                    if !g.names.contains(name) { g.names.append(name) }
+                    g.count += 1
+                    g.keys.formUnion(surviving)
+                    pendingGroups[id] = g
+                    continue
+                }
                 var g = groups[id] ?? ([], 0)
                 if !g.names.contains(name) { g.names.append(name) }
                 g.count += 1
                 groups[id] = g
             }
         }
+        let pending = pendingGroups.values.map {
+            PendingResolutionGroup(names: $0.names.sorted(), occurrences: $0.count,
+                                   matchedKeys: $0.keys.sorted())
+        }.sorted { a, b in
+            a.occurrences == b.occurrences
+                ? a.names.first ?? "" < b.names.first ?? ""
+                : a.occurrences > b.occurrences
+        }
 
         // 出現次數多的先——處理它們的投報率最高
         return groups.sorted { a, b in
             a.value.count == b.value.count ? a.key < b.key : a.value.count > b.value.count
-        }.reduce(into: BootstrapReport(candidates: [], unkeyable: [])) { report, pair in
+        }.reduce(into: BootstrapReport(candidates: [], unkeyable: [],
+                                       pendingResolution: pending)) { report, pair in
             let g = pair.value
             let sortedNames = g.names.sorted()
             guard let key = suggestedKey(from: sortedNames[0], taken: takenKeys) else {

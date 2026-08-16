@@ -17,7 +17,7 @@ final class EntityTests: XCTestCase {
         let candidates = PersonResolver.candidates(entries: entries, people: people, rejected: [], confirmed: [])
         XCTAssertEqual(candidates, [ResolutionCandidate(
             citekey: "a2020b", authorIndex: 0, literal: "Che Cheng",
-            personKey: "cheng-che", reason: "alias 完全命中")])
+            personKey: "cheng-che", reason: "alias 完全命中", tier: .exact)])
     }
 
     func testMatchIsCaseAndWhitespaceInsensitive() {
@@ -90,10 +90,10 @@ final class EntityTests: XCTestCase {
 
     /// 「歧義只有一個候選」在型別層不可表達。
     func testAmbiguousMatchRefusesFewerThanTwoKeys() {
-        XCTAssertNil(AmbiguousMatch(entryID: UUID(), citekey: "a", authorIndex: 0, literal: "X", personKeys: []))
-        XCTAssertNil(AmbiguousMatch(entryID: UUID(), citekey: "a", authorIndex: 0, literal: "X", personKeys: ["one"]))
+        XCTAssertNil(AmbiguousMatch(entryID: UUID(), citekey: "a", authorIndex: 0, literal: "X", personKeys: [], tier: .exact))
+        XCTAssertNil(AmbiguousMatch(entryID: UUID(), citekey: "a", authorIndex: 0, literal: "X", personKeys: ["one"], tier: .exact))
         XCTAssertNotNil(AmbiguousMatch(entryID: UUID(), citekey: "a", authorIndex: 0, literal: "X",
-                                       personKeys: ["one", "two"]))
+                                       personKeys: ["one", "two"], tier: .exact))
     }
 
     func testResolvedKeyAuthorsAreNotCandidates() {

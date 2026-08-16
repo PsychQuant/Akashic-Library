@@ -500,7 +500,10 @@ struct BootstrapPeople: ParsableCommand {
     func run() throws {
         let store = try options.openStore()
         let load = try store.load()
-        let report = PersonBootstrap.resolve(entries: load.entries, existing: load.people)
+        // R1-fix B4：否決史決定 pending literal 何時回到可建檔
+        let report = PersonBootstrap.resolve(
+            entries: load.entries, existing: load.people,
+            rejected: ResolutionLedger.rejectedPairings(people: load.people))
         var cands = report.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }
@@ -511,6 +514,24 @@ struct BootstrapPeople: ParsableCommand {
         /// 使用者以為那些作者不存在。**回報而非丟棄**，而回報的前提是真的有人印它：
         /// 只在 model 端加欄位而沒有任何輸出讀它，與丟棄在效果上完全相同（#236 R3
         /// 在 App 面踩過這個坑，位置更難察覺）。
+        /// 寬鬆鍵命中既有 person 的群（R1-fix B4）——先消歧、不建檔。同 unkeyable
+        /// 的理由：model 端有欄位而沒人印＝效果上的丟棄。
+        func printPendingResolution() {
+            let shown = report.pendingResolution.filter { $0.occurrences >= minOccurrences }
+            guard !shown.isEmpty else { return }
+            print("")
+            print("與既有 person 寬鬆共鍵、**先消歧再說**（\(shown.count)）——建檔會鑄造重複身分：")
+            for g in shown.prefix(AmbiguityDisplayLimit.rows) {
+                let aliases = g.names.map { displaySafe($0, max: 200) }.joined(separator: " ≡ ")
+                print("  ×\(g.occurrences)  \(aliases)  ↔ 既有：\(g.matchedKeys.map { displaySafe($0, max: 200) }.joined(separator: "、"))")
+            }
+            if shown.count > AmbiguityDisplayLimit.rows {
+                print("  …另 \(shown.count - AmbiguityDisplayLimit.rows) 筆未顯示")
+            }
+            print("  處置：跑 akashic resolve-people 看候選／歧義，查證後 apply 或 reject；"
+                  + "全部否決後這些名字會回到本命令的建檔候選。")
+        }
+
         func printUnkeyable() {
             let shown = report.unkeyable.filter { $0.occurrences >= minOccurrences }
             guard !shown.isEmpty else { return }
@@ -538,6 +559,7 @@ struct BootstrapPeople: ParsableCommand {
         }
         if !apply {
             if total > 20 { print("  …共 \(total) 個（只列前 20）") }
+        printPendingResolution()
             printUnkeyable()
             print("（只列候選；要建立加 --apply）")
             return
@@ -566,6 +588,7 @@ struct BootstrapPeople: ParsableCommand {
         }
         _ = try LibraryIndex(store: store).rebuild()
         print("✓ 建立 \(written) 個 person（共 \(total) 個候選）、index 已重建")
+        printPendingResolution()
         printUnkeyable()
         print("  下一步：akashic resolve-people 把 entries 的 literal 歸戶")
         // 跳過（目的檔已存在）＝有事要人處理——exit 1 讓 && chain 不若無其事往下走
@@ -1253,6 +1276,12 @@ struct ResolvePeople: ParsableCommand {
             help: "只套用指向這些 person key 的候選（可重複；與 --citekey 取交集）")
     var person: [String] = []
 
+    /// R1-fix B1：#303 之後候選含四個信心層，裸 `--apply` 的爆炸半徑從
+    /// exact-only 擴到全部——`--tier` 是把它收回來的把手。
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "只套用這些提名層（exact / confirmed-elsewhere / reorder / initials，可重複；與其他篩選取交集）")
+    var tier: [String] = []
+
     /// #232 design D6：reject 是顯式人為動作。rowID 同 MCP（citekey:authorIndex）。
     @Option(name: .long, parsing: .upToNextOption,
             help: "否決這些候選（rowID 形如 citekey:authorIndex）——寫 resolution-rejected verdict 到該 person，entry 不動；之後該配對不再被提名（同 literal 他 entry 照提）")
@@ -1288,9 +1317,32 @@ struct ResolvePeople: ParsableCommand {
         // 篩選只影響 **--apply**，列表一律顯示全部——否則使用者用 --citekey 收窄後
         // 會以為其他候選不存在。
         let ckSet = Set(citekey), pkSet = Set(person)
+        // --tier 值域驗證（fail-loud：typo 靜默變成「不篩」比失敗糟——#205 同判準）
+        let tierSet = try Set(tier.map { raw -> ResolutionTier in
+            guard let t = ResolutionTier(rawValue: raw) else {
+                throw ValidationError("--tier「\(raw)」不是提名層——合法值：" +
+                    ResolutionTier.allCases.map(\.rawValue).joined(separator: " / "))
+            }
+            return t
+        })
         let candidates = all.filter {
             (ckSet.isEmpty || ckSet.contains($0.citekey))
                 && (pkSet.isEmpty || pkSet.contains($0.personKey))
+                && (tierSet.isEmpty || tierSet.contains($0.tier))
+        }
+        // R1-fix B1：裸 `--apply`（無任何收窄）在候選含寬鬆 tier 時拒絕——
+        // #303 之前「全套用」安全是因為候選恆為 exact；現在一發可套上百筆
+        // initials（skill 明文要求 initials apply 前必查證）。要全套用寬鬆層，
+        // 把意圖說出來：`--tier` 顯式列出要套的層。
+        if apply, ckSet.isEmpty, pkSet.isEmpty, tierSet.isEmpty,
+           candidates.contains(where: { $0.tier != .exact }) {
+            let breakdown = Dictionary(grouping: candidates, by: \.tier)
+                .map { "\($0.key.rawValue) \($0.value.count)" }.sorted().joined(separator: "、")
+            throw ValidationError(
+                "裸 --apply 拒絕：候選含寬鬆提名層（\(breakdown)）。"
+                + "用 --tier exact 只套完全命中，或顯式列出要套用的層"
+                + "（--tier reorder 等；initials 層 apply 前必查證），"
+                + "或用 --citekey / --person 收窄。")
         }
 
         /// #231：歧義**不再靜默丟棄**。它與「沒人匹配」語意不同——後者是 `.literal`
@@ -1331,7 +1383,8 @@ struct ResolvePeople: ParsableCommand {
                 // 歧義在 `(citekey, authorIndex)` 上逐位元組相同。MCP 帶了它、CLI 沒帶
                 // ——而 CLI 才是人真正在讀的那個面。
                 var row: [String] = []
-                row.append("  \(displaySafe(a.citekey, max: 200))[\(a.authorIndex)] 「\(displaySafe(a.literal, max: 200))」"
+                // R1-fix B6：碰撞層可見——initials 碰撞（縮寫共鍵）≠ exact 同名
+                row.append("  〔\(a.tier.rawValue)〕\(displaySafe(a.citekey, max: 200))[\(a.authorIndex)] 「\(displaySafe(a.literal, max: 200))」"   // display-safe-exempt: tier.rawValue 封閉 enum；其餘已消毒
                            + "  entry:\(a.entryID.uuidString.prefix(8))")
                 if a.personKeys.count > AmbiguityDisplayLimit.refs {
                     row.append("      （\(a.personKeys.count) 個候選，以下顯示前 \(AmbiguityDisplayLimit.refs) 個）")
@@ -1390,7 +1443,15 @@ struct ResolvePeople: ParsableCommand {
                 print("  …另 \(hidden) 筆未顯示（\(why.joined(separator: "；"))；"
                       + "目前沒有取回全部的旋鈕，縮小 store 範圍或先處理已列出的）")
             }
-            print("  兩種可能，處置相反：同名的不同人＝各自歸屬（永不合併）；同一人兩筆＝該合併。")
+            // R1-fix B6：指引依碰撞層分開——exact 的兩難框架對縮寫共鍵是錯誤指引
+            let shownTiers = Set(capped.map(\.tier))
+            if shownTiers.contains(.exact) {
+                print("  〔exact〕兩種可能，處置相反：同名的不同人＝各自歸屬（永不合併）；同一人兩筆＝該合併。")
+            }
+            if !shownTiers.subtracting([.exact]).isEmpty {
+                print("  〔寬鬆層〕縮寫／重排共鍵通常是**不同的人**——不歸戶也不合併；"
+                      + "用區辨欄位（ORCID／隸屬）補進正確的 person 記錄後重跑 resolve。")
+            }
         }
 
         // #232 design D7：三態計數（derived）與已否決沉底——名單與計數都來自
@@ -1405,14 +1466,21 @@ struct ResolvePeople: ParsableCommand {
             for m in ResolutionLedger.malformedVerdicts(people: load.people).prefix(20) {
                 print("  ⚠ malformed verdict（不計數、不抑制）：\(displaySafe(m, max: 300))")
             }
-            let triples = all.map {
-                ResolutionPairing(holderKind: .work, holder: $0.citekey,
-                                  literal: $0.literal, judgedKey: $0.personKey)
+            let triples = all.map { c in
+                (pairing: ResolutionPairing(holderKind: .work, holder: c.citekey,
+                                            literal: c.literal, judgedKey: c.personKey),
+                 rule: ResolutionLedger.personRule(for: c.tier))
             }
-            let c = ResolutionLedger.counts(people: load.people, candidatePairings: triples)[
-                ResolutionLedger.personRule] ?? (0, 0, 0)
-            // 計數不報比率（分母含 censoring，比率會邀請錯誤推論）——未處理量必須可見
-            print("三態計數（\(ResolutionLedger.personRule)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／未處理 \(c.pending)")
+            // R1-fix B2：逐 rule 一行——四 tier 的校準史各自可見，不折成單一類
+            let byRule = ResolutionLedger.counts(people: load.people, candidates: triples)
+            let personRules = [ResolutionTier.exact, .confirmedElsewhere, .reorder, .initials]
+                .map { ResolutionLedger.personRule(for: $0) }
+            for rule in personRules {
+                guard let c = byRule[rule], c.confirmed + c.rejected + c.pending > 0
+                    || rule == ResolutionLedger.personRule else { continue }
+                // 計數不報比率（分母含 censoring，比率會邀請錯誤推論）——未處理量必須可見
+                print("三態計數（\(rule)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／未處理 \(c.pending)")
+            }
         }
 
         guard !all.isEmpty else {

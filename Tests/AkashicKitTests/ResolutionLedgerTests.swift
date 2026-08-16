@@ -122,6 +122,34 @@ final class ResolutionLedgerTests: XCTestCase {
         return p
     }
 
+    /// R1-fix B2：verdict rule 由 tier 導出——寬鬆 tier 的校準史與 exact 分開計。
+    func testPersonRuleForTierIsClosedMapping() throws {
+        XCTAssertEqual(ResolutionLedger.personRule(for: .exact), "author-name-exact")
+        XCTAssertEqual(ResolutionLedger.personRule(for: .confirmedElsewhere),
+                       "author-name-confirmed-elsewhere")
+        XCTAssertEqual(ResolutionLedger.personRule(for: .reorder), "author-name-reorder")
+        XCTAssertEqual(ResolutionLedger.personRule(for: .initials), "author-name-initials")
+        // 封閉四值全覆蓋（新 tier 忘了配 rule 會在這裡紅）
+        for tier in ResolutionTier.allCases {
+            XCTAssertFalse(ResolutionLedger.personRule(for: tier).isEmpty)
+        }
+    }
+
+    func testPendingBucketsByPerCandidateRule() throws {
+        let p = person("che-cheng")
+        let exact = ResolutionPairing(holderKind: .work, holder: "a1",
+                                      literal: "Che Cheng", judgedKey: "che-cheng")
+        let loose = ResolutionPairing(holderKind: .work, holder: "b2",
+                                      literal: "C. Cheng", judgedKey: "che-cheng")
+        let c = ResolutionLedger.counts(people: [p], candidates: [
+            (pairing: exact, rule: ResolutionLedger.personRule(for: .exact)),
+            (pairing: loose, rule: ResolutionLedger.personRule(for: .initials)),
+        ])
+        XCTAssertEqual(c["author-name-exact"]?.pending, 1)
+        XCTAssertEqual(c["author-name-initials"]?.pending, 1,
+                       "initials 的 pending 不得混進 exact 的校準史")
+    }
+
     /// #303 design D3：confirmed 側的鏡像——與 rejected 對稱、互不相含。
     func testConfirmedPairingsMirrorRejectedSide() throws {
         let p = person("che-cheng", refs: [
@@ -171,7 +199,7 @@ final class ResolutionLedgerTests: XCTestCase {
             ResolutionPairing(holderKind: .work, holder: "a2", literal: "L", judgedKey: "che-cheng"),
             ResolutionPairing(holderKind: .work, holder: "a3", literal: "L", judgedKey: "che-cheng"),
         ]
-        let c = ResolutionLedger.counts(people: [p], candidatePairings: candidates)
+        let c = ResolutionLedger.counts(people: [p], candidates: candidates.map { ($0, ResolutionLedger.personRule) })
         let rule = c[ResolutionLedger.personRule]
         XCTAssertEqual(rule?.confirmed, 1)
         XCTAssertEqual(rule?.rejected, 1)
@@ -301,7 +329,7 @@ final class ResolutionLedgerTests: XCTestCase {
                                     rule: ResolutionLedger.personRule, statement: "s"),
         ])
         XCTAssertTrue(ResolutionLedger.observedRejections(people: [p], entries: [e]).isEmpty)
-        let counts = ResolutionLedger.counts(people: [p], candidatePairings: [])
+        let counts = ResolutionLedger.counts(people: [p], candidates: [])
         XCTAssertEqual(counts[ResolutionLedger.personRule]?.rejected, 1, "計數照算歷史")
     }
 
@@ -347,12 +375,12 @@ final class ResolutionLedgerTests: XCTestCase {
     /// derived：加一筆 verdict 後重算即反映——沒有任何 stored counter 可以過期。
     func testCountsAreRecomputedNotStored() throws {
         var p = person("k")
-        let before = ResolutionLedger.counts(people: [p], candidatePairings: [])
+        let before = ResolutionLedger.counts(people: [p], candidates: [])
         XCTAssertNil(before[ResolutionLedger.personRule])
         p.references.append(ResolutionLedger.record(
             .confirmed, holderKind: .work, holder: "x1", literal: "L",
             rule: ResolutionLedger.personRule, statement: "s"))
-        let after = ResolutionLedger.counts(people: [p], candidatePairings: [])
+        let after = ResolutionLedger.counts(people: [p], candidates: [])
         XCTAssertEqual(after[ResolutionLedger.personRule]?.confirmed, 1)
     }
 }

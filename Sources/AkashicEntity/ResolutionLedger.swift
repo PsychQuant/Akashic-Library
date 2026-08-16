@@ -23,6 +23,20 @@ public enum ResolutionLedger {
     /// **分開命名**（verify REG-7）：兩條規則的校準歷史本來就該分開計。
     public static let orgRule = "org-name-exact"
 
+    /// tier → person 族校準規則名（#303 R1-fix B2）。**封閉映射**——寬鬆 tier 的
+    /// 判定與 exact 的校準史分開計（REG-7 的同一條理由換到 tier 軸）；verdict 寫入
+    /// 前由候選的 tier 導出，寫入面不得再寫死 `personRule`。exact 沿用既有字面，
+    /// 讓 #232 以來的歷史不需遷移；legacy 無尾註 verdict 依 `ruleTail` 的族預設
+    /// 落回 `personRule`——它們全是 exact 時代寫的，語意正確。
+    public static func personRule(for tier: ResolutionTier) -> String {
+        switch tier {
+        case .exact: return personRule
+        case .confirmedElsewhere: return "author-name-confirmed-elsewhere"
+        case .reorder: return "author-name-reorder"
+        case .initials: return "author-name-initials"
+        }
+    }
+
     /// 判定種類——與 verdict 欄位對一一對應。
     public enum VerdictKind: String, CaseIterable {
         case confirmed = "resolution-confirmed"
@@ -177,11 +191,13 @@ public enum ResolutionLedger {
     /// - pending：`candidatePairings` 中**無任何 verdict** 者——「還沒查」與
     ///   「查過了不是他」由 verdict 存在與否區分（spec「Rejection SHALL be
     ///   distinct from absence」），pending 歸入該族的預設 rule。
+    /// pending 依**每個候選自己的 rule** 分桶（#303 R1-fix B2）——四 tier 的
+    /// 待判量各自可見，不混進 exact 的校準史。
     public static func counts(people: [Person],
-                              candidatePairings: [ResolutionPairing])
+                              candidates: [(pairing: ResolutionPairing, rule: String)])
         -> [String: (confirmed: Int, rejected: Int, pending: Int)] {
         countsCore(judged: people.map { ($0.key, $0.references) },
-                   candidatePairings: candidatePairings, pendingRule: personRule)
+                   candidates: candidates)
     }
 
     /// organization 族的三態計數——同一個 core，只換被判定的記錄集合與 pending 歸屬。
@@ -189,12 +205,11 @@ public enum ResolutionLedger {
                               candidatePairings: [ResolutionPairing])
         -> [String: (confirmed: Int, rejected: Int, pending: Int)] {
         countsCore(judged: organizations.map { ($0.key, $0.references) },
-                   candidatePairings: candidatePairings, pendingRule: orgRule)
+                   candidates: candidatePairings.map { ($0, orgRule) })
     }
 
     private static func countsCore(judged sets: [(key: String, references: [ProvenanceReference])],
-                                   candidatePairings: [ResolutionPairing],
-                                   pendingRule: String)
+                                   candidates: [(pairing: ResolutionPairing, rule: String)])
         -> [String: (confirmed: Int, rejected: Int, pending: Int)] {
         var result: [String: (confirmed: Int, rejected: Int, pending: Int)] = [:]
         var judged = Set<ResolutionPairing>()
@@ -210,10 +225,10 @@ public enum ResolutionLedger {
                                                 literal: v.literal, judgedKey: s.key))
             }
         }
-        for c in candidatePairings where !judged.contains(c) {
-            var entry = result[pendingRule] ?? (0, 0, 0)
+        for (c, rule) in candidates where !judged.contains(c) {
+            var entry = result[rule] ?? (0, 0, 0)
             entry.pending += 1
-            result[pendingRule] = entry
+            result[rule] = entry
         }
         return result
     }

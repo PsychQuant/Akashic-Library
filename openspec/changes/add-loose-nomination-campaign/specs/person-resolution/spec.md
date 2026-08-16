@@ -81,7 +81,9 @@ The resolver SHALL accept the set of previously confirmed pairings, derived from
 
 ### Requirement: Rejected pairings SHALL be suppressed across all tiers
 
-A pairing rejected by verdict SHALL NOT be re-nominated at any tier. The same literal in a different entry is a distinct observation and SHALL be nominated normally.
+A pairing rejected by verdict SHALL NOT be re-nominated at any tier. Suppression matching SHALL use the same normalization as nomination — a rejection recorded with a normalization-equivalent variant of the literal suppresses the pairing. The same literal in a different entry is a distinct observation and SHALL be nominated normally.
+
+Hits within a tier are counted after rejected pairings are removed. Two consequences are normative, not incidental: (a) when removal leaves exactly one hit, that survivor is nominated as a candidate, and its reason SHALL disclose that same-key candidates were eliminated by rejection; (b) when removal empties a tier, evaluation falls through to lower tiers, and a nomination produced this way carries the same disclosure.
 
 #### Scenario: Rejection suppresses loose re-nomination
 
@@ -89,6 +91,60 @@ A pairing rejected by verdict SHALL NOT be re-nominated at any tier. The same li
 - **AND** literal L would match person P at reorder tier
 - **WHEN** resolution runs
 - **THEN** no candidate for (X, L, P) appears, while the same literal in entry Y still nominates P
+
+#### Scenario: Rejection recorded with a punctuation variant still suppresses
+
+- **GIVEN** a rejection recorded with literal "Cheng–Der Fuh" (EN DASH)
+- **AND** the entry carries literal "Cheng-Der Fuh" (ASCII hyphen)
+- **WHEN** resolution runs
+- **THEN** the pairing is suppressed — normalization applies to suppression exactly as it applies to nomination
+
+#### Scenario: Elimination survivor is disclosed
+
+- **GIVEN** two persons both matching a literal at the exact tier, one of whose pairings is rejected
+- **WHEN** resolution runs
+- **THEN** the other person is nominated as a candidate and the reason discloses the eliminated same-key candidate
+
+### Requirement: Confirmed-pairing nomination SHALL consume only work-holder verdicts
+
+The confirmed-elsewhere tier SHALL derive its knowledge exclusively from `resolution-confirmed` verdicts whose pairing holder kind is a work. Verdicts held for other pairing families SHALL NOT feed person nomination.
+
+#### Scenario: Organization-family verdict does not nominate a person
+
+- **GIVEN** a confirmed pairing whose holder kind is a person (an organization-family verdict)
+- **WHEN** resolution runs against an entry carrying the same literal
+- **THEN** no confirmed-elsewhere candidate is produced
+
+### Requirement: Verdicts SHALL record the nominating tier's calibration class
+
+Applying or rejecting a candidate SHALL write a verdict whose rule name is derived from the candidate's tier, drawn from a closed mapping (exact → `author-name-exact`; confirmed-elsewhere → `author-name-confirmed-elsewhere`; reorder → `author-name-reorder`; initials → `author-name-initials`). Calibration counts SHALL bucket pending candidates by each candidate's own tier-derived rule. Legacy verdicts without a rule tail default to the exact rule — they predate loose tiers and the default is semantically correct.
+
+#### Scenario: Loose-tier apply is traceable afterwards
+
+- **GIVEN** a reorder-tier candidate
+- **WHEN** it is applied
+- **THEN** the stored verdict's rule reads `author-name-reorder`, and the exact tier's calibration history is unchanged
+
+### Requirement: Apply SHALL address a nominated pairing, not a position
+
+Candidate identifiers listed for apply SHALL pin the nominated person (`citekey:authorIndex:personKey`). When an identifier's pinned person no longer matches the current nomination at that position, apply SHALL fail explicitly, naming both persons, and SHALL NOT write anything. A two-segment legacy identifier remains accepted only while the position's nomination is the unique one it had when listed.
+
+#### Scenario: Retargeted nomination refuses a stale pinned id
+
+- **GIVEN** a listed identifier pinned to person A at some position
+- **AND** the nomination at that position now targets person B
+- **WHEN** apply is invoked with the stale identifier
+- **THEN** the call fails naming A and B, and no entry or verdict is written
+
+### Requirement: Bulk apply SHALL NOT cross tiers implicitly
+
+A face that offers unscoped bulk apply SHALL refuse when the candidate set spans looser-than-exact tiers, directing the operator to scope explicitly (by tier, entry, or person). Applying loose-tier candidates requires naming the tier.
+
+#### Scenario: Bare bulk apply refuses on mixed tiers
+
+- **GIVEN** a candidate set containing reorder- and initials-tier rows
+- **WHEN** an unscoped bulk apply is invoked
+- **THEN** the face refuses with the tier breakdown and no write occurs
 
 ### Requirement: Every reported row SHALL disclose its tier on all faces
 

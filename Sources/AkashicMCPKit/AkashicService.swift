@@ -793,11 +793,37 @@ public final class AkashicService {
                                             rejected: rejectedPairings,
                                             confirmed: confirmedPairings)
         let candidates = report.candidates
+        // R1-fix B8：id 釘 person——`citekey:authorIndex` 不含 key，而 apply/reject
+        // 在**新的一次解析**上憑 id 找候選：confirmed-elsewhere 讓提名成為 apply 的
+        // 不動點後，兩次呼叫之間同一位置的提名可能改指**別人**，舊 id 會安靜套到
+        // 新對象上。列出的 id 自此為三段 `citekey:authorIndex:personKey`；apply/reject
+        // 收兩段（legacy，僅當該位置的提名仍唯一存在）或三段（釘住——person 不符
+        // 即拒絕並指名兩造）。StoreKey 文法無冒號，三段切分無歧義。
         let withIDs = candidates.map { c -> (id: String, candidate: ResolutionCandidate) in
-            (c.rowID, c)   // 複合鍵住在型別上（#236 R4）
+            ("\(c.rowID):\(c.personKey)", c)   // 複合鍵住在型別上（#236 R4）＋pin
         }
         let byID = Dictionary(withIDs.map { ($0.id, $0.candidate) }, uniquingKeysWith: { first, _ in first })
+        let byRowID = Dictionary(candidates.map { ($0.rowID, $0) }, uniquingKeysWith: { first, _ in first })
         let byKey = Dictionary(load.people.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+
+        /// id → 候選（B8 的唯一解析點）。三段：byID 直查，miss 時若同位置存在
+        /// 不同 person 的提名 → 顯式「提名已改指」錯誤；兩段：legacy 直查 rowID。
+        func candidate(for id: String) throws -> ResolutionCandidate {
+            if let c = byID[id] { return c }
+            let parts = id.split(separator: ":")
+            if parts.count == 3 {
+                let rowID = "\(parts[0]):\(parts[1])"
+                if let now = byRowID[rowID] {
+                    throw ServiceError.invalid(
+                        "候選 id「\(displaySafe(id, max: 200))」的提名已改指："
+                        + "該位置現在提名的是「\(displaySafe(now.personKey, max: 200))」"
+                        + "（tier \(now.tier.rawValue)）——重新列出候選後再決定")   // display-safe-exempt: tier.rawValue 封閉 enum
+                }
+            } else if parts.count == 2, let c = byRowID[id] {
+                return c   // legacy 兩段形——位置仍有唯一提名時等價於未釘
+            }
+            throw ServiceError.notFound("候選 id「\(displaySafe(id, max: 200))」（先不帶 apply 列出候選）")
+        }
 
         /// rowID 去重（保序）——LLM 消費端送重複 id 相當合理，而重複 id 曾把
         /// 同一配對的 verdict 寫成 N 筆、計數灌水 N 倍（verify F/S-6）。
@@ -820,12 +846,7 @@ public final class AkashicService {
                     + "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 "
                     + "format: 改成 8")
             }
-            let chosen = try dedupe(rejectIDs).map { id -> ResolutionCandidate in
-                guard let c = byID[id] else {
-                    throw ServiceError.notFound("候選 id「\(displaySafe(id, max: 200))」（先不帶 apply 列出候選）")
-                }
-                return c
-            }
+            let chosen = try dedupe(rejectIDs).map { try candidate(for: $0) }   // B8：釘 person
             // 同 person 多筆 verdict 收攏成一次寫入——writePerson 是整檔改寫。
             // appendIfAbsent：寫入邊界冪等，store 永不持有重複 verdict。
             var grouped: [String: Person] = [:]
@@ -836,7 +857,7 @@ public final class AkashicService {
                 }
                 ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
                     .rejected, holderKind: .work, holder: c.citekey, literal: c.literal,
-                    rule: ResolutionLedger.personRule,
+                    rule: ResolutionLedger.personRule(for: c.tier),
                     statement: "resolve reject：使用者否決此配對"), to: &p.references)
                 grouped[c.personKey] = p
                 rejectedByPerson[c.personKey, default: []].append(c)
@@ -989,12 +1010,15 @@ public final class AkashicService {
             // 候選列上（該列所屬 rule 的計數——v1 恰一類 author-name-exact），
             // pendingTotal 頂層可見（censoring 不可隱藏）。**無比率欄位**——校準
             // 報計數不報比率，形狀上就不給（WoS/Crossref 不獨立，比率邀請貝氏相乘）。
-            let activeTriples = candidates.map {
-                ResolutionPairing(holderKind: .work, holder: $0.citekey,
-                                  literal: $0.literal, judgedKey: $0.personKey)
+            // R1-fix B2：pending 依候選自己的 tier-rule 分桶——四 tier 的待判量
+            // 各自可見，不混進 exact 的校準史
+            let activeTriples = candidates.map { c in
+                (pairing: ResolutionPairing(holderKind: .work, holder: c.citekey,
+                                            literal: c.literal, judgedKey: c.personKey),
+                 rule: ResolutionLedger.personRule(for: c.tier))
             }
             let countsByRule = ResolutionLedger.counts(
-                people: load.people, candidatePairings: activeTriples)
+                people: load.people, candidates: activeTriples)
             func countsJSON(_ rule: String) -> [String: Any] {
                 let c = countsByRule[rule] ?? (confirmed: 0, rejected: 0, pending: 0)
                 return ["confirmed": c.confirmed, "rejected": c.rejected, "pending": c.pending]
@@ -1012,7 +1036,7 @@ public final class AkashicService {
                     "reason": displaySafe(pair.candidate.reason, max: 400),
                     // #303 design D4：提名層（additive）——rawValue 是封閉四值的固定字面
                     "tier": pair.candidate.tier.rawValue,   // display-safe-exempt: 封閉 enum rawValue，非 store 衍生
-                    "counts": countsJSON(ResolutionLedger.personRule),
+                    "counts": countsJSON(ResolutionLedger.personRule(for: pair.candidate.tier)),
                 ]
                 let cost = Self.jsonBytes(row)
                 guard candidateBytes + cost <= Self.candidateByteBudget else {
@@ -1131,12 +1155,7 @@ public final class AkashicService {
             }
             return try jsonString(payload)
         }
-        let chosen = try selected.map { id -> ResolutionCandidate in
-            guard let c = byID[id] else {
-                throw ServiceError.notFound("候選 id「\(displaySafe(id, max: 200))」（先不帶 apply 列出候選）")
-            }
-            return c
-        }
+        let chosen = try selected.map { try candidate(for: $0) }   // B8：釘 person
         let applied = PersonResolver.apply(chosen, to: load.entries)
         var written = 0
         var writeFailed: [String: String] = [:]
@@ -1169,7 +1188,7 @@ public final class AkashicService {
             }
             ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
                 .confirmed, holderKind: .work, holder: c.citekey, literal: c.literal,
-                rule: ResolutionLedger.personRule,
+                rule: ResolutionLedger.personRule(for: c.tier),
                 statement: "resolve apply：使用者確認歸戶"), to: &p.references)
             confirmGrouped[c.personKey] = p
         }

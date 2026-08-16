@@ -92,6 +92,53 @@ final class ResolvePeopleSelectiveTests: XCTestCase {
         XCTAssertTrue(r.out.contains("d2023d"), "reorder 候選要列出")
     }
 
+    /// R1-fix B1：裸 `--apply` 在候選含寬鬆 tier 時拒絕（爆炸半徑收回）。
+    func testBareApplyRefusesWhenLooseTierCandidatesPresent() throws {
+        try """
+        id: 00000009-1111-1111-1111-111111111111
+        citekey: d2023d
+        type: article
+        title: TD
+        authors:
+          - literal: "Cheng Che"
+        date: "2023"
+
+        """.write(to: root.appendingPathComponent("entries/d2023d.yaml"),
+                  atomically: true, encoding: .utf8)
+        let r = try runCLI(["resolve-people", "--apply"])
+        XCTAssertNotEqual(r.status, 0, "裸 --apply 面對寬鬆 tier 候選必須拒絕")
+        XCTAssertTrue(r.err.contains("--tier"), r.err)
+        // 什麼都沒寫
+        XCTAssertTrue(try body("a2020a").contains("literal:"), "拒絕時不得有任何套用")
+        XCTAssertTrue(try body("d2023d").contains("literal:"))
+    }
+
+    /// `--tier exact` 只套完全命中，寬鬆列標 (skip) 不套。
+    func testTierFilterAppliesOnlySelectedTier() throws {
+        try """
+        id: 00000009-1111-1111-1111-111111111111
+        citekey: d2023d
+        type: article
+        title: TD
+        authors:
+          - literal: "Cheng Che"
+        date: "2023"
+
+        """.write(to: root.appendingPathComponent("entries/d2023d.yaml"),
+                  atomically: true, encoding: .utf8)
+        let r = try runCLI(["resolve-people", "--apply", "--tier", "exact"])
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertTrue(try body("a2020a").contains("key: cheng-che"), "exact 列要套用")
+        XCTAssertTrue(try body("d2023d").contains("literal:"), "reorder 列不得被套用")
+    }
+
+    /// `--tier` 值域 fail-loud：typo 不得靜默變成「不篩」。
+    func testTierFilterRejectsUnknownValue() throws {
+        let r = try runCLI(["resolve-people", "--apply", "--tier", "exactt"])
+        XCTAssertNotEqual(r.status, 0)
+        XCTAssertTrue(r.err.contains("initials"), "錯誤要列合法值：\(r.err)")
+    }
+
     /// 不加 --apply 時只列候選（既有行為，不得回歸）。
     func testListOnlyByDefault() throws {
         let r = try runCLI(["resolve-people"])

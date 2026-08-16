@@ -23,3 +23,15 @@
 ## 5. 收尾
 
 - [x] 5.1 全套 `swift test` 綠＋真 store `resolve-people`（read-only、不 apply）實測候選數 > 0 並記錄各 tier 分布——Implementation Contract 驗收第三條。驗收：swift test 輸出＋候選數記錄於 commit message 或 #303
+
+## 6. R1 verify 修正輪（2026-08-17，8 blocking＋in-scope——事後審計記錄，實作先於本節）
+
+- [x] 6.1 B5 `LooseNameKey` 句點分段（`.` 與 `-` 同界；`L.W. Wang` 假陽性除；reorder 鍵一致受益）。驗收：LooseNameKeyTests 13 綠
+- [x] 6.2 B7＋I1＋I2 resolver 語意成文：淘汰揭露、否決正規化抑制、confirmed 只吃 work-holder——spec 新增 3 requirement＋4 scenario。驗收：PersonResolverTests 14 綠
+- [x] 6.3 B2 verdict rule 依 tier 導出（`personRule(for:)` 封閉映射）＋pending 按 rule 分桶＋三寫入點＋CLI 逐 rule 計數。驗收：ledger／verdict-service 測試綠、真 store 計數分層
+- [x] 6.4 B8 apply id 三段釘 person（改指顯式拒絕、兩段 legacy 收）。驗收：ResolutionVerdictServiceTests 釘 id 案例
+- [x] 6.5 B1 CLI `--tier` 篩選＋裸 `--apply` 對寬鬆 tier 拒絕。驗收：ResolvePeopleSelectiveTests 3 新案例
+- [x] 6.6 B6 CLI／App 歧義帶 tier＋指引分層（exact 兩難 vs 寬鬆共鍵）。驗收：swiftc typecheck App view 0 error
+- [x] 6.7 B4 bootstrap `pendingResolution` 桶（寬鬆共鍵不建檔、否決後回歸）＋CLI 列印。驗收：PersonBootstrapTests 2 新案例
+- [x] 6.8 B3＋I5＋I7 campaign skill 重寫（三因分辨階梯、initials 逐 entry、資料非指令條款）；I4 census（glob.escape＋自檢＋口徑＋org-parents 域）。驗收：census 對 metachar root exit 3、四域輸出
+- [x] 6.9 I6 記錄更正（427→175 errata PATCH）＋parity 列改「有記錄的變更」＋design D7 追加裁決。驗收：全套 swift test 綠、真 store 重測 62 reorder＋114 initials

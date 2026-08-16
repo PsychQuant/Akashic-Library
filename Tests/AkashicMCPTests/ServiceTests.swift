@@ -539,7 +539,7 @@ final class ServiceTests: XCTestCase {
         let list = (try json(try service.resolvePeople(apply: nil)) as! [String: Any])["candidates"] as! [[String: Any]]
         XCTAssertEqual(list.count, 1)
         let id = list.first?["id"] as? String ?? ""
-        XCTAssertEqual(id, "cheng2020analysis:0")
+        XCTAssertEqual(id, "cheng2020analysis:0:cheng-che")   // B8：id 釘 person
         _ = try service.resolvePeople(apply: [id])
         let entry = try LibraryStore(root: root).load().entries.first { $0.citekey == "cheng2020analysis" }!
         XCTAssertEqual(entry.authors, [.key("cheng-che")])
@@ -1040,7 +1040,7 @@ extension ServiceTests {
         // #231：no-apply 回應由陣列改為 {candidates, ambiguities}
         let list = (try json(try service.resolvePeople(apply: nil)) as! [String: Any])["candidates"] as! [[String: Any]]
         let ids = list.compactMap { $0["id"] as? String }
-        XCTAssertTrue(ids.contains("frozen3:0"), "\(ids)")
+        XCTAssertTrue(ids.contains("frozen3:0:cheng-che"), "\(ids)")   // B8
         let out = try json(try service.resolvePeople(apply: ["frozen3:0"])) as! [String: Any]
         // 收容：不 throw、writeFailed 記錄、applied 不誇報
         let failed = out["writeFailed"] as? [String: String]

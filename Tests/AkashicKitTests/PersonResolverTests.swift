@@ -132,6 +132,70 @@ final class PersonResolverTests: XCTestCase {
         XCTAssertEqual(r.candidates.first?.tier, .reorder)
     }
 
+    // MARK: - R1-fix B7：reject-then-count 的兩個後果顯式 spec 化＋揭露
+
+    func testRejectionCollapsesTwoHitTierToDisclosedSurvivor() {
+        // exact 2-hit 其一被否決 → 另一人成為可 apply 候選，但 reason 揭露淘汰史
+        let rejected: Set<ResolutionPairing> = [
+            ResolutionPairing(holderKind: .work, holder: "x2025",
+                              literal: "Che Cheng", judgedKey: "cheng-che")]
+        let r = PersonResolver.resolve(
+            entries: [entry("x2025", literal: "Che Cheng")],
+            people: [person("cheng-che", names: ["Che Cheng"]),
+                     person("cheng-che-2", names: ["Che Cheng"])],
+            rejected: rejected, confirmed: [])
+        XCTAssertEqual(r.candidates.map(\.personKey), ["cheng-che-2"])
+        XCTAssertEqual(r.candidates.first?.tier, .exact)
+        XCTAssertTrue(r.candidates.first?.reason.contains("已被否決") == true,
+                      "淘汰而得的唯一命中必須留痕：\(r.candidates.first?.reason ?? "")")
+        XCTAssertTrue(r.ambiguities.isEmpty)
+    }
+
+    func testRejectionFallThroughNominationIsDisclosed() {
+        // 否決 exact 唯一命中 → 低 tier 為**另一個人**造出的新提名也要留痕
+        let rejected: Set<ResolutionPairing> = [
+            ResolutionPairing(holderKind: .work, holder: "e1",
+                              literal: "Chen, Yi-Hau", judgedKey: "chen-yi-hau")]
+        let r = PersonResolver.resolve(
+            entries: [entry("e1", literal: "Chen, Yi-Hau")],
+            people: [person("chen-yi-hau", names: ["Chen, Yi-Hau"]),
+                     person("chen-yu-hsuan", names: ["Chen, Yu-Hsuan"])],
+            rejected: rejected, confirmed: [])
+        XCTAssertEqual(r.candidates.map(\.personKey), ["chen-yu-hsuan"])
+        XCTAssertEqual(r.candidates.first?.tier, .initials)
+        XCTAssertTrue(r.candidates.first?.reason.contains("已被否決") == true,
+                      "\(r.candidates.first?.reason ?? "")")
+    }
+
+    // MARK: - R1-fix I1：否決比對與提名同一套正規化
+
+    func testRejectionSuppressionMatchesNormalizedLiteral() {
+        // verdict 記的是 EN DASH（U+2013）、entry 是 ASCII 連字號——同一寫法，
+        // 否決必須壓得住（正規化不對稱曾讓否決失效而確認生效）
+        let rejected: Set<ResolutionPairing> = [
+            ResolutionPairing(holderKind: .work, holder: "f1",
+                              literal: "Cheng\u{2013}Der Fuh", judgedKey: "fuh-cheng-der")]
+        let r = PersonResolver.resolve(
+            entries: [entry("f1", literal: "Cheng-Der Fuh")],
+            people: [person("fuh-cheng-der", names: ["Cheng-Der Fuh"])],
+            rejected: rejected, confirmed: [])
+        XCTAssertTrue(r.candidates.isEmpty, "\(r.candidates)")
+    }
+
+    // MARK: - R1-fix I2：confirmed 提名只吃 work-holder 的 verdict
+
+    func testConfirmedElsewhereIgnoresNonWorkHolders() {
+        let confirmed: Set<ResolutionPairing> = [
+            ResolutionPairing(holderKind: .person, holder: "some-one",
+                              literal: "Yung-Fong Hsu", judgedKey: "hsu-yung-fong")]
+        let r = PersonResolver.resolve(
+            entries: [entry("y2024", literal: "Yung-Fong Hsu")],
+            people: [person("hsu-yung-fong", names: ["徐永豐"])],
+            rejected: [], confirmed: confirmed)
+        XCTAssertTrue(r.candidates.isEmpty,
+                      "org/person-holder 的 verdict 不得餵 person 提名：\(r.candidates)")
+    }
+
     // MARK: - 絕不自動合併
 
     func testNominationLeavesEntriesUnchanged() {

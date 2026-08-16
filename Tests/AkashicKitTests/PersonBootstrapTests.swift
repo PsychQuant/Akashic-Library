@@ -14,9 +14,37 @@ final class PersonBootstrapTests: XCTestCase {
     // MARK: - 安全方向：寧可分割，絕不合併
 
     /// **機械可判的重排才合併。** `Last, First` ↔ `First Last` 是字串操作，不是猜測。
+    // MARK: - R1-fix B4（DA-2）：寬鬆鍵命中的 literal 不建新 person——路由 pendingResolution
+
+    func testInitialsHitAgainstExistingPersonRoutesToPendingResolution() {
+        let existing = [Person(key: "chen-yi-hau",
+                               names: PersonNames(variant: ["Chen, Yi-Hau"]))]
+        var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        e.authors = [.literal("Chen, Y.-H.")]
+        let r = PersonBootstrap.resolve(entries: [e], existing: existing, rejected: [])
+        XCTAssertTrue(r.candidates.isEmpty,
+                      "initials 命中既有 person 的 literal 不得被提案成新 person：\(r.candidates)")
+        XCTAssertEqual(r.pendingResolution.count, 1)
+        XCTAssertEqual(r.pendingResolution.first?.matchedKeys, ["chen-yi-hau"])
+    }
+
+    func testRejectedLoosePairingReturnsLiteralToBootstrap() {
+        // 全部寬鬆配對都被否決後，literal 回到可建檔——生命週期閉環
+        let existing = [Person(key: "chen-yi-hau",
+                               names: PersonNames(variant: ["Chen, Yi-Hau"]))]
+        var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        e.authors = [.literal("Chen, Y.-H.")]
+        let rejected: Set<ResolutionPairing> = [
+            ResolutionPairing(holderKind: .work, holder: "x2025",
+                              literal: "Chen, Y.-H.", judgedKey: "chen-yi-hau")]
+        let r = PersonBootstrap.resolve(entries: [e], existing: existing, rejected: rejected)
+        XCTAssertTrue(r.pendingResolution.isEmpty)
+        XCTAssertEqual(r.candidates.count, 1, "\(r)")
+    }
+
     func testReorderedFormsMergeIntoOneCandidate() {
         let cs = PersonBootstrap.candidates(
-            entries: [entry("a", ["Che Cheng"]), entry("b", ["Cheng, Che"])], existing: [])
+            entries: [entry("a", ["Che Cheng"]), entry("b", ["Cheng, Che"])], existing: [], rejected: [])
         XCTAssertEqual(cs.count, 1)
         XCTAssertEqual(cs[0].names.sorted(), ["Che Cheng", "Cheng, Che"])
         XCTAssertEqual(cs[0].occurrences, 2)
@@ -26,7 +54,7 @@ final class PersonBootstrapTests: XCTestCase {
     /// 過度合併不可回復——兩個人被併成一個，區別就此消失且沒有任何訊號。
     func testAbbreviationDoesNotMergeWithFullName() {
         let cs = PersonBootstrap.candidates(
-            entries: [entry("a", ["Cheng, Che"]), entry("b", ["Cheng, C"])], existing: [])
+            entries: [entry("a", ["Cheng, Che"]), entry("b", ["Cheng, C"])], existing: [], rejected: [])
         XCTAssertEqual(cs.count, 2, "縮寫與全名必須分開，讓人決定：\(cs)")
     }
 
@@ -35,7 +63,7 @@ final class PersonBootstrapTests: XCTestCase {
     func testHyphenVariantsDoNotMerge() {
         let cs = PersonBootstrap.candidates(
             entries: [entry("a", ["Jeng-Min Chiou"]), entry("b", ["Jeng Min Chiou"])],
-            existing: [])
+            existing: [], rejected: [])
         XCTAssertEqual(cs.count, 2)
     }
 
@@ -43,7 +71,7 @@ final class PersonBootstrapTests: XCTestCase {
     func testCaseAndWhitespaceVariantsMerge() {
         let cs = PersonBootstrap.candidates(
             entries: [entry("a", ["Chun-Houh Chen"]), entry("b", ["chun-houh  chen"])],
-            existing: [])
+            existing: [], rejected: [])
         XCTAssertEqual(cs.count, 1)
         XCTAssertEqual(cs[0].occurrences, 2)
     }
@@ -55,7 +83,7 @@ final class PersonBootstrapTests: XCTestCase {
     func testExistingPersonIsNotProposedAgain() {
         let cs = PersonBootstrap.candidates(
             entries: [entry("a", ["Che Cheng"])],
-            existing: [Person(key: "cheng-che", names: ["Che Cheng", "鄭澈"])])
+            existing: [Person(key: "cheng-che", names: ["Che Cheng", "鄭澈"])], rejected: [])
         XCTAssertTrue(cs.isEmpty, "\(cs)")
     }
 
@@ -63,7 +91,7 @@ final class PersonBootstrapTests: XCTestCase {
     func testAnyExistingAliasSuppresses() {
         let cs = PersonBootstrap.candidates(
             entries: [entry("a", ["Cheng, Che"])],
-            existing: [Person(key: "cheng-che", names: ["鄭澈", "Che Cheng"])])
+            existing: [Person(key: "cheng-che", names: ["鄭澈", "Che Cheng"])], rejected: [])
         XCTAssertTrue(cs.isEmpty, "重排形式也要被既有 alias 吸收：\(cs)")
     }
 
@@ -71,14 +99,14 @@ final class PersonBootstrapTests: XCTestCase {
     func testCorporateNamesAreNotPeople() {
         let cs = PersonBootstrap.candidates(
             entries: [entry("a", [CorporateName.mark("World Health Organization")])],
-            existing: [])
+            existing: [], rejected: [])
         XCTAssertTrue(cs.isEmpty, "\(cs)")
     }
 
     // MARK: - key 生成
 
     func testSuggestedKeyIsSurnameFirst() {
-        let cs = PersonBootstrap.candidates(entries: [entry("a", ["Yi-Hau Chen"])], existing: [])
+        let cs = PersonBootstrap.candidates(entries: [entry("a", ["Yi-Hau Chen"])], existing: [], rejected: [])
         XCTAssertEqual(cs[0].key, "chen-yi-hau")
     }
 
@@ -86,7 +114,7 @@ final class PersonBootstrapTests: XCTestCase {
     /// （`Chen, Y-H` 與 `Chen, YH`），那正是需要人看的情形。
     func testKeyCollisionGetsSuffixNotMerge() {
         let cs = PersonBootstrap.candidates(
-            entries: [entry("a", ["Yi-Hau Chen"]), entry("b", ["Yi Hau Chen"])], existing: [])
+            entries: [entry("a", ["Yi-Hau Chen"]), entry("b", ["Yi Hau Chen"])], existing: [], rejected: [])
         XCTAssertEqual(cs.count, 2)
         XCTAssertEqual(Set(cs.map(\.key)).count, 2, "key 必須唯一：\(cs.map(\.key))")
     }
@@ -94,7 +122,7 @@ final class PersonBootstrapTests: XCTestCase {
     func testKeyAvoidsExistingPersonKeys() {
         let cs = PersonBootstrap.candidates(
             entries: [entry("a", ["Che Cheng"])],
-            existing: [Person(key: "cheng-che", names: ["別人"])])
+            existing: [Person(key: "cheng-che", names: ["別人"])], rejected: [])
         XCTAssertEqual(cs.count, 1)
         XCTAssertNotEqual(cs[0].key, "cheng-che", "不得與既有 key 相同")
     }
@@ -106,7 +134,7 @@ final class PersonBootstrapTests: XCTestCase {
         let cs = PersonBootstrap.candidates(
             entries: [entry("a", ["Rare Person"]),
                       entry("b", ["Common Person"]), entry("c", ["Common Person"])],
-            existing: [])
+            existing: [], rejected: [])
         XCTAssertEqual(cs.map(\.occurrences), [2, 1])
     }
 
@@ -124,7 +152,7 @@ final class PersonBootstrapTests: XCTestCase {
             entries: [entry("a", ["Jörg Müller"]),
                       entry("b", ["Hans Schneeweiß"]),
                       entry("c", ["Patricia É. Brosseau-Liard"])],
-            existing: [])
+            existing: [], rejected: [])
         XCTAssertEqual(cs.count, 3, "三個歐洲名都該產得出 key，實際：\(cs.map(\.key))")
         for c in cs {
             XCTAssertTrue(StoreKey.isValid(c.key),
@@ -141,7 +169,7 @@ final class PersonBootstrapTests: XCTestCase {
     func testUnkeyableNamesAreReportedNotDropped() {
         let r = PersonBootstrap.resolve(
             entries: [entry("a", ["陳君厚"]), entry("b", ["Che Cheng"])],
-            existing: [])
+            existing: [], rejected: [])
         XCTAssertEqual(r.candidates.map(\.key), ["cheng-che"],
                        "產得出 key 的照常出候選")
         XCTAssertEqual(r.unkeyable.map(\.names), [["陳君厚"]],
@@ -153,14 +181,14 @@ final class PersonBootstrapTests: XCTestCase {
     /// 兩支會分岔，而分岔的方式通常是其中一支忘了某個排除條件。
     func testCandidatesIsAThinWrapperOverResolve() {
         let es = [entry("a", ["陳君厚"]), entry("b", ["Che Cheng"]), entry("c", ["Jörg Müller"])]
-        XCTAssertEqual(PersonBootstrap.candidates(entries: es, existing: []),
-                       PersonBootstrap.resolve(entries: es, existing: []).candidates)
+        XCTAssertEqual(PersonBootstrap.candidates(entries: es, existing: [], rejected: []),
+                       PersonBootstrap.resolve(entries: es, existing: [], rejected: []).candidates)
     }
 
     /// 產出的 Person 直接可寫——names 就是這一組的所有寫法。
     func testPersonsForProducesUsableRecords() {
         let cs = PersonBootstrap.candidates(
-            entries: [entry("a", ["Che Cheng"]), entry("b", ["Cheng, Che"])], existing: [])
+            entries: [entry("a", ["Che Cheng"]), entry("b", ["Cheng, Che"])], existing: [], rejected: [])
         let ps = PersonBootstrap.personsFor(cs)
         XCTAssertEqual(ps.count, 1)
         XCTAssertEqual(ps[0].names.all.count, 2, "兩種寫法都要成為 alias")
@@ -218,7 +246,7 @@ final class PersonBootstrapTests: XCTestCase {
     func testBootstrapDoesNotSplitOneAuthorIntoTwoCandidates() {
         let cs = PersonBootstrap.candidates(
             entries: [entry("a", ["Guan, Yongtao"]), entry("b", ["Yongtao Guan"])],
-            existing: [])
+            existing: [], rejected: [])
         XCTAssertEqual(cs.count, 1,
                        "同一個人的兩種寫法裂成 \(cs.count) 個候選："
                        + "\(cs.map(\.names))")
@@ -238,12 +266,12 @@ final class PersonBootstrapTests: XCTestCase {
         ]
         let es = [entry("a", ["Chen Wei"]), entry("b", ["Wei Chen"]),
                   entry("c", ["Brand New Author"])]
-        let report = PersonBootstrap.resolve(entries: es, existing: existing)
+        let report = PersonBootstrap.resolve(entries: es, existing: existing, rejected: [])
         XCTAssertEqual(report.candidates.map(\.key), ["author-brand-new"],
                        "已歸戶的名字不得再產出候選——那等於對既有記錄重新指派")
         // 第二輪（模擬候選已建檔）：零新候選、既有 key 集合不變
         let applied = existing + PersonBootstrap.personsFor(report.candidates)
-        let second = PersonBootstrap.resolve(entries: es, existing: applied)
+        let second = PersonBootstrap.resolve(entries: es, existing: applied, rejected: [])
         XCTAssertTrue(second.candidates.isEmpty, "\(second.candidates.map(\.key))")
         XCTAssertEqual(Set(applied.map(\.key)),
                        ["chen-wei", "chen-wei-2", "author-brand-new"],

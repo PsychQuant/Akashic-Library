@@ -38,6 +38,15 @@
 
 不新增工具，既有 `akashic_resolve_people`／`resolve-people` 列的契約描述增 tier 語意——依 parity 規則「修改既有能力時重新確認對應列」，實作時更新該列註記。
 
+### D7 — R1 verify 後的四個追加裁決（2026-08-17）
+
+R1 verify（6-AI，FAIL：8 blocking）後定案，spec 已同步成文：
+
+- **D7a 淘汰語意成文**（B7）：rejected 過濾先於計數——「否決後餘一」照提但 reason 揭露；跨 tier fall-through 同揭露。替代案「回退到 singleton-only 過濾」否決：否決本來就是消歧的推進器，藏住倖存者反而讓進度停滯，揭露即可。
+- **D7b verdict rule 分層**（B2）：`personRule(for:)` 封閉映射；exact 沿用既有字面（#232 史零遷移）、legacy 無尾註預設 exact（語意正確）。
+- **D7c apply id 釘 person**（B8）：三段 id；App 面傳值物件本就免疫，MCP/CLI 的兩呼叫窗由 pin 關閉。替代案「apply 時整包重驗 literal+person」否決：id 內嵌 pin 讓錯誤在解析層顯形，不用比對快照。
+- **D7d bootstrap 排除面跟上**（B4）：寬鬆共鍵 literal 路由 `pendingResolution`（回報不丟棄）；`rejected:` 必填讓否決史決定回歸建檔的時點。
+
 ## Risks / Trade-offs
 
 - **initials 碰撞面**（93/724「姓＋首字母」鍵對 2+ 人）→ 湧出的是 ambiguity 列（回報不解決）與弱證據 candidates；防線＝tier 可見＋campaign 逐 distinct 查證紀律，契約不禁止 apply

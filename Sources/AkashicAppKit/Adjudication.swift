@@ -119,7 +119,7 @@ public final class PeopleResolveModel {
             ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
                 .confirmed, holderKind: .work,
                 holder: candidate.citekey, literal: candidate.literal,
-                rule: ResolutionLedger.personRule,
+                rule: ResolutionLedger.personRule(for: candidate.tier),
                 statement: "裁決台 accept：使用者確認歸戶"), to: &p.references)
             do {
                 try state.store.writePerson(p)

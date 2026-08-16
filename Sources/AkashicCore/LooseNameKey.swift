@@ -56,12 +56,24 @@ public enum LooseNameKey {
         cleanTokens(NameNormalization.matchingKey(s))
     }
 
+    /// `.` 映成 `-` 而非刪除（R1-fix B5）：刪除會把 `Y.H.` 塌成單段 `yh`、initials
+    /// 只取到 `y`——與 `Y.-H.`（`y-h`→`yh`）分岔，真 store 曾因此錯提名
+    /// （`L.W. Wang` 的 `l` 撞上 `Wang, Limei` 的 `wang l`）。映成 `-` 讓句點與
+    /// 連字號同為分段界；隨後逐 token 收斂連續 `-` 並修剪首尾，`y.-h.` 與 `y.h.`
+    /// 同歸 `y-h`——reorder 與 initials 兩個鍵空間一致受益。
     private static func cleanTokens(_ s: String) -> [String] {
         s.replacingOccurrences(of: ",", with: " ")
-            .replacingOccurrences(of: ".", with: "")
+            .replacingOccurrences(of: ".", with: "-")
             .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
-            .filter { !$0.isEmpty }
+            .compactMap { raw -> String? in
+                var collapsed = ""
+                for ch in raw {
+                    if ch == "-", collapsed.last == "-" { continue }
+                    collapsed.append(ch)
+                }
+                let trimmed = collapsed.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+                return trimmed.isEmpty ? nil : trimmed
+            }
     }
 
     /// `<family> <initials>`；given 的 initials 為空（無拉丁字母）→ 不生鍵。

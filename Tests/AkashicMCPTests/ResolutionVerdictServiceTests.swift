@@ -63,6 +63,41 @@ final class ResolutionVerdictServiceTests: XCTestCase {
         XCTAssertEqual(tiers, ["exact", "exact", "reorder"])
     }
 
+    // MARK: - R1-fix B8：id 釘 person（3-part），改指必須顯式失敗
+
+    func testListedIDsArePinnedWithPersonKey() throws {
+        let out = try json(try service.resolvePeople(apply: nil))
+        let ids = (out["candidates"] as! [[String: Any]]).map { $0["id"] as! String }
+        XCTAssertTrue(ids.contains("a2020x:0:cheng-che"), "\(ids)")
+    }
+
+    func testStalePinnedIDRefusesWhenNominationRetargeted() throws {
+        // 釘住的 person 與現行提名不符 → 顯式拒絕、指名兩造（不安靜套到新對象）
+        XCTAssertThrowsError(
+            try service.resolvePeople(apply: ["a2020x:0:someone-else"])) { err in
+            let msg = String(describing: err)
+            XCTAssertTrue(msg.contains("已改指") && msg.contains("cheng-che"), msg)
+        }
+        // 沒有任何寫入發生
+        let e = try LibraryStore(root: root).load().entries.first { $0.citekey == "a2020x" }!
+        XCTAssertEqual(e.authors, [.literal("Che Cheng")])
+    }
+
+    // MARK: - R1-fix B2：loose-tier verdict 帶 tier 導出的 rule
+
+    func testLooseTierApplyWritesTierDerivedRule() throws {
+        try LibraryStore(root: root).writeEntry(
+            Entry(id: UUID(), citekey: "c2022z", type: "article",
+                  title: "V", authors: [.literal("Cheng Che")], date: "2022"))
+        _ = try service.resolvePeople(apply: ["c2022z:0"])
+        let p = try person()
+        let ref = try XCTUnwrap(p.references.first {
+            $0.field == "resolution-confirmed" && ($0.value ?? "").contains("c2022z") })
+        guard case .judgement(let statement, _) = ref.kind else { return XCTFail() }
+        XCTAssertTrue(statement.hasSuffix("[rule: author-name-reorder]"),
+                      "reorder tier 的 apply 不得寫進 exact 的校準史：\(statement)")
+    }
+
     // MARK: - task 4.1：reject 寫 verdict、entry 不動；apply 同動作寫 confirmed
 
     func testRejectWritesVerdictAndLeavesEntryUntouched() throws {
@@ -77,7 +112,7 @@ final class ResolutionVerdictServiceTests: XCTestCase {
         // 沉底進頂層 `rejected` 陣列（verify 修訂：獨立成段，candidates 形狀均勻）
         let out = try json(try service.resolvePeople(apply: nil))
         let active = out["candidates"] as! [[String: Any]]
-        XCTAssertEqual(active.map { $0["id"] as? String }, ["b2021y:0"])
+        XCTAssertEqual(active.map { $0["id"] as? String }, ["b2021y:0:cheng-che"])   // B8：id 釘 person
         let sunk = out["rejected"] as! [[String: Any]]
         XCTAssertEqual(sunk.map { $0["citekey"] as? String }, ["a2020x"])
     }

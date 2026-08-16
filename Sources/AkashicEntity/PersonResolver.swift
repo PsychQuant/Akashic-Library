@@ -28,11 +28,13 @@ public struct ResolutionCandidate: Equatable {
     public var literal: String
     public var personKey: String
     public var reason: String
-    /// 提名層（#303）。預設 `.exact` 讓既有建構端不變——resolver 一律顯式傳。
+    /// 提名層（#303）。**刻意無預設值**（R1-fix I3）——預設 `.exact` 是往最高
+    /// 信心值 fail-open，與同檔 `rejected`／`confirmed` 必填的裁決同一條理由：
+    /// 位置決定了誰會走它，required 讓「忘了帶 tier」變成編譯錯誤。
     public var tier: ResolutionTier
 
     public init(citekey: String, authorIndex: Int, literal: String,
-                personKey: String, reason: String, tier: ResolutionTier = .exact) {
+                personKey: String, reason: String, tier: ResolutionTier) {
         self.citekey = citekey
         self.authorIndex = authorIndex
         self.literal = literal
@@ -100,7 +102,7 @@ public struct AmbiguousMatch: Equatable {
 
     /// 少於兩個 key 回 `nil`——**「歧義只有一個候選」在型別層不可表達**。
     public init?(entryID: UUID, citekey: String, authorIndex: Int,
-                 literal: String, personKeys: Set<String>, tier: ResolutionTier = .exact) {
+                 literal: String, personKeys: Set<String>, tier: ResolutionTier) {
         guard personKeys.count >= 2 else { return nil }
         self.entryID = entryID
         self.citekey = citekey
@@ -172,10 +174,20 @@ public enum PersonResolver {
             }
         }
         // confirmed verdicts → 正規化 literal → keys（design D3：verdict 知識再利用——
-        // 同字串已在他處判給某人，別處的同字串值得以該知識提名）
+        // 同字串已在他處判給某人，別處的同字串值得以該知識提名）。
+        // **只吃 work-holder**（R1-fix I2）：org 域 verdict（holderKind: .person）
+        // 餵進 person 提名是類別錯誤——今天 benign（org verdict 住 org 記錄），
+        // 但手改 store／合併外庫時就不是。
         var confirmedByLiteral: [String: Set<String>] = [:]
-        for pairing in confirmed {
+        for pairing in confirmed where pairing.holderKind == .work {
             confirmedByLiteral[normalize(pairing.literal), default: []].insert(pairing.judgedKey)
+        }
+        // 否決比對用**與提名同一套正規化**（R1-fix I1）：verdict 記原始字串
+        // （lossless），但抑制若比原始位元組，EN DASH 變體的否決壓不住 ASCII 連字號
+        // 的同一寫法——否決失效而確認生效的不對稱，方向正好是危險的那邊。
+        var rejectedNorm = Set<String>()
+        for pairing in rejected where pairing.holderKind == .work {
+            rejectedNorm.insert("\(pairing.holder)|\(normalize(pairing.literal))|\(pairing.judgedKey)")
         }
 
         var candidates: [ResolutionCandidate] = []
@@ -203,15 +215,20 @@ public enum PersonResolver {
                 ]
                 for (tier, rawHits, reason) in tiers {
                     let hits = rawHits.filter { key in
-                        !rejected.contains(ResolutionPairing(
-                            holderKind: .work, holder: entry.citekey,
-                            literal: literal, judgedKey: key))
+                        !rejectedNorm.contains("\(entry.citekey)|\(norm)|\(key)")
                     }
                     guard !hits.isEmpty else { continue }
                     if hits.count == 1, let key = hits.first {
+                        // **淘汰而得的唯一命中要留痕**（R1-fix B7）：同 tier 曾有
+                        // 同名候選被否決時，這一筆是「否決後餘一」而非天然唯一——
+                        // 讀報告的人（與 LLM 批次 triage）要能分辨兩者。
+                        let removed = rawHits.count - hits.count
+                        let disclosed = removed > 0
+                            ? reason + "（同 tier \(removed) 個同名候選已被否決）"
+                            : reason
                         candidates.append(ResolutionCandidate(
                             citekey: entry.citekey, authorIndex: i, literal: literal,
-                            personKey: key, reason: reason, tier: tier))
+                            personKey: key, reason: disclosed, tier: tier))
                     } else if let m = AmbiguousMatch(entryID: entry.id, citekey: entry.citekey,
                                                      authorIndex: i, literal: literal,
                                                      personKeys: hits, tier: tier) {

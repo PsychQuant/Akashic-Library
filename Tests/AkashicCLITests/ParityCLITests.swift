@@ -40,8 +40,8 @@ final class ParityCLITests: XCTestCase {
         try store.writeEntry(Entry(id: UUID(), citekey: "olsson1979max", type: "article",
                                    title: "Max", authors: [.literal("Ulf Olsson")], date: "1979"))
 
-        try store.writePerson(Person(key: "che-cheng", names: ["Cheng, Che", "鄭澈"],
-                                     authorized: ["Cheng, Che"]))
+        try store.writePerson(Person(key: "che-cheng", names: PersonNames(
+            authorized: ["Cheng, Che"], variant: ["鄭澈"])))
         try store.writePerson(Person(key: "solo-person", names: ["Solo Author"]))
         try registerStore()
     }

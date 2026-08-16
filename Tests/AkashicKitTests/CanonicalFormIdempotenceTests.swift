@@ -25,9 +25,8 @@ final class CanonicalFormIdempotenceTests: XCTestCase {
         id: 11111111-1111-4111-8111-111111111111
         key: cheng-ching-shui
         names:
-        - Cheng, Ching-Shui
-        authorized:
-        - Cheng, Ching-Shui
+          authorized:
+          - Cheng, Ching-Shui
         profile:
           affiliations:
           - value:
@@ -50,7 +49,7 @@ final class CanonicalFormIdempotenceTests: XCTestCase {
     /// 不動點性質對**已經 canonical** 的輸入同樣成立（f(x) == x）。
     /// 與上一個測試互補：那個測「會收斂」，這個測「收斂後不再動」。
     func testAlreadyCanonicalInputIsUnchanged() throws {
-        var p = Person(key: "cheng", names: ["C"], authorized: ["C"])
+        var p = Person(key: "cheng", names: PersonNames(authorized: ["C"]))
         p.profile.ranks = Timeline([
             TemporalValue(value: "助研究員", range: DateRange(start: "2003", end: "2013")),
             TemporalValue(value: "研究員", range: DateRange(start: "2013")),

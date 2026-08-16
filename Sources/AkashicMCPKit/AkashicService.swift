@@ -12,6 +12,10 @@ import AkashicGraph
 public enum ServiceError: Error, LocalizedError {
     case notFound(String)
     case invalid(String)
+    /// #227 verify R2 C6：store 有讀不進來的檔時，「存在性」**無法判定**——這不是
+    /// `notFound`（那是確定的否），拋錯類型與訊息前綴都不得宣稱不存在，否則依
+    /// 錯誤種類或「找不到」字面分支的呼叫端（含 LLM）會把未知當成否。
+    case undeterminable(String)
 
     public var errorDescription: String? {
         switch self {
@@ -22,6 +26,7 @@ public enum ServiceError: Error, LocalizedError {
         // 在掃描面內）保證新 throw 站點的 caller payload 都消毒。
         case .notFound(let what): return "找不到：\(what)"   // display-safe-exempt: what 由 throw 站點消毒（見上方註解）
         case .invalid(let why): return why
+        case .undeterminable(let what): return "無法判定：\(what)"   // display-safe-exempt: 同 notFound——what 由 throw 站點消毒
         }
     }
 }
@@ -234,12 +239,14 @@ public final class AkashicService {
         if let q = query?.lowercased(), !q.isEmpty {
             people = people.filter { person in
                 person.key.lowercased().contains(q)
-                    || person.names.contains { $0.lowercased().contains(q) }
+                    || person.names.all.contains { $0.lowercased().contains(q) }
             }
         }
         let dicts = people.map { person -> [String: Any] in
+            // #227：讀取面的 "names" 維持**聯集**（舊 names 欄位本來就是聯集）——
+            // 讀取契約零變更；指定資訊的呈現面另計（非本 change 範圍）。
             var d: [String: Any] = ["key": displaySafe(person.key, max: 200),
-                                    "names": person.names.map { displaySafe($0, max: 200) }]
+                                    "names": person.names.all.map { displaySafe($0, max: 200) }]
             // #219：與 person() 的 personDict 同待遇——orcid/openalex 雖有寫入面
             // 格式驗證，讀取面仍一律消毒（同一 payload 進 MCP tool result 與 CLI）
             if let orcid = person.orcid { d["orcid"] = displaySafe(orcid, max: 200) }
@@ -433,6 +440,16 @@ public final class AkashicService {
             // 存在性判準用全集（scoped 過濾不可誤報 notFound——person 可能只是不在該 library）
             let allPubs = try engine.personPublications(key: key, library: nil)
             guard record != nil || !allPubs.isEmpty else {
+                // #227 verify R-4／R2 C6：「查不到」與「讀不進來」是兩件事（entity-
+                // backlink-completeness 執行細節 4）。store 有 quarantined 檔時，
+                // 存在性**無法判定**——擲 undeterminable（不是 notFound），錯誤類型
+                // 與「無法判定」前綴讓機器與人都不會把未知當成否。
+                if !load.quarantined.isEmpty {
+                    throw ServiceError.undeterminable(
+                        "person「\(displaySafe(key, max: 200))」——store 另有 "
+                        + "\(load.quarantined.count) 個檔 quarantined（可能是未遷移的舊形狀，"
+                        + "該 key 或許在其中）；見 akashic doctor / migrate-person-identity")
+                }
                 throw ServiceError.notFound("person「\(displaySafe(key, max: 200))」")
             }
             let pubs = library == nil ? allPubs
@@ -445,7 +462,7 @@ public final class AkashicService {
             // 回應的 `publications[].authors` 裡那同一份字串是包了的。
             var personDict: [String: Any] = ["key": displaySafe(key, max: 200)]
             if let record {
-                personDict["names"] = record.names.map { displaySafe($0, max: 200) }
+                personDict["names"] = record.names.all.map { displaySafe($0, max: 200) }
                 if !record.unknownFields.isEmpty {   // #31
                     personDict["unknownFields"] =
                         record.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
@@ -559,10 +576,10 @@ public final class AkashicService {
                 for s in seenLiterals { literalCounts[s, default: 0] += 1 }
             }
             var candidates: [[String: Any]] = []
-            for p in load.people where p.names.contains(where: { $0.lowercased().contains(needle) })
+            for p in load.people where p.names.all.contains(where: { $0.lowercased().contains(needle) })
                 || p.key.lowercased().contains(needle) {
                 candidates.append(["person_key": displaySafe(p.key, max: 200),
-                                   "names": p.names.map { displaySafe($0, max: 200) },
+                                   "names": p.names.all.map { displaySafe($0, max: 200) },
                                    "publications": keyPubCount[p.key] ?? 0])   // display-safe-exempt: dict 查找，值是 Int 計數
             }
             for (literal, count) in literalCounts.sorted(by: { $0.key < $1.key }) {
@@ -576,6 +593,14 @@ public final class AkashicService {
             let capped = Array(candidates.prefix(50))
             var out: [String: Any] = ["candidates": capped]
             if candidates.count > 50 { out["truncated"] = true }
+            // R3 C6 缺口：name 查找是回清單不擲錯的契約——但零候選 + quarantine 非空
+            // 時，「空清單」是無法判定不是否。additive 欄位把不確定性說出來。
+            if capped.isEmpty, !load.quarantined.isEmpty {
+                out["quarantined"] = load.quarantined.count
+                out["note"] = "零候選但 store 有 \(load.quarantined.count) 個檔 quarantined"
+                    + "（可能是未遷移的舊形狀）——該名字或許在其中，存在性無法判定；"
+                    + "見 akashic doctor / migrate-person-identity"
+            }
             return try jsonString(out)
         }
         throw ServiceError.invalid("person 需要 key 或 name 至少其一")
@@ -881,7 +906,7 @@ public final class AkashicService {
             func personEntry(_ raw: String) -> [String: Any] {
                 if let e = entryCache[raw] { return e }
                 let p = byKey[raw]
-                let allNames = p?.names ?? []
+                let allNames = p?.names.all ?? []
                 var d: [String: Any] = [
                     "key": displaySafe(raw, max: 200),
                     // `names` 是**最弱**的區辨欄位（正規化後相同才會歧義），而 displaySafe
@@ -1031,7 +1056,7 @@ public final class AkashicService {
             // 三軸（rows／refs／candidates），於是一個「每人五個異名、全部只送兩個」
             // 的回應仍宣稱 `truncated: false`——旗標按**自己的定義**說謊（下方 :745
             // 寫的是「整個回應……任一被截都算」），與 R3 抓到的 candidates 同型。
-            let anyNamesDropped = refKeys.contains { (byKey[$0]?.names.count ?? 0) > Self.namesPerPerson }
+            let anyNamesDropped = refKeys.contains { (byKey[$0]?.names.all.count ?? 0) > Self.namesPerPerson }
             let truncated = report.ambiguities.count > Self.ambiguityLimit
                 || anyRefsTruncated
                 || droppedRows > 0
@@ -1246,7 +1271,10 @@ public final class AkashicService {
         guard !FileManager.default.fileExists(atPath: store.personURL(key: key).path) else {
             throw ServiceError.invalid("people/\(displaySafe(key, max: 200)).yaml 已存在（可能是 quarantined 檔），不覆寫")
         }
-        let person = Person(key: key, names: names, orcid: orcid, openalex: openalex)
+        // #227：add_person 產生的是尚未指定對外名字的記錄——全部進 variant，
+        // authorized 留空（指定是人的判斷，不由建檔機械偽造）。
+        let person = Person(key: key, names: PersonNames(variant: names),
+                            orcid: orcid, openalex: openalex)
         try store.writePerson(person)
         try LibraryIndex(store: store).rebuild()
         // #171 verify 171-5(c)：單一 MCP 來回把呼叫端字串原樣吐回 LLM context——

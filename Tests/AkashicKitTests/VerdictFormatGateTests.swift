@@ -25,7 +25,9 @@ final class VerdictFormatGateTests: XCTestCase {
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
 
     private func verdictPerson() -> Person {
-        var p = Person(key: "cheng-che", names: ["Che Cheng"])
+        // #227：空 names——本 fixture 釘的是 verdict 閘的閾值（8）；具名 person
+        // 另受 v10 names 閘管，帶 names 會讓 format 8/9 的放行斷言誤紅
+        var p = Person(key: "cheng-che")
         p.references = [ResolutionLedger.record(
             .rejected, holderKind: .work, holder: "a2020x", literal: "Che Cheng",
             rule: ResolutionLedger.personRule, statement: "s")]
@@ -68,7 +70,7 @@ final class VerdictFormatGateTests: XCTestCase {
     /// 無 verdict 的記錄不受 gate 影響——例外不外溢。
     func testPersonWithoutVerdictUnaffectedByGate() throws {
         try StoreVersion.write(root: root, format: 7)
-        XCTAssertNoThrow(try store.writePerson(Person(key: "k", names: ["N"])))
+        XCTAssertNoThrow(try store.writePerson(Person(key: "k")))   // 空 names（#227 v10 閘另計）
     }
 
     // MARK: - rename 遷移（verify NEW-1）

@@ -202,26 +202,31 @@ public struct Relations: Equatable {
     public var isEmpty: Bool { cites.isEmpty && related.isEmpty }
 }
 
-/// 人物實體（people/<person-key>.yaml）。
-public struct Person: Equatable {
-    /// 不變的身分（#35）。legacy `people/<key>.yaml` 沒有這個欄位——decode 時由
-    /// `DeterministicUUID.forPerson(key:)` 推出，**每次都相同**，所以 index 的
-    /// primary key 與 entry 的作者引用不會漂。
-    public var id: UUID
-    public var key: String
-    /// 這個人的名字變體。**順序不帶語意**（#81）——「哪個名字對外」由 `authorized`
-    /// 指定，不由陣列位置決定。
-    public var names: [String]
-    /// 對外可稱呼的名字（#81）：`names` 的子集，每個書寫系統至多一個。
+/// 一個人的名字，分成兩個**分割**（#227）：`authorized`（對外稱呼的指定）與
+/// `variant`（其餘變體）。RDA 的術語本身就是階層的——*authorized* access point 與
+/// *variant* access point 都是 access point 的一種；這個型別讓 `names.authorized`
+/// 逐字讀作 "authorized names"。
+///
+/// **`all` 是 computed，不儲存。** 依 `OrgRef` doc 記下的原則：「兩個欄位可以互相
+/// 矛盾，一個 sum type 不會」——存三個欄位就是三個可互相矛盾的真相。舊結構的
+/// `authorized ⊆ names` 不變式在這裡是**恆真**：指定一個名字就是把它放進 authorized
+/// 分割，不存在「authorized 含 names 沒有的字串」的可表達狀態。
+///
+/// **順序是隱性契約**：`all` 是 authorized 在前、variant 在後的串接。`displayName`
+/// 的 fallback（取第一個 authorized，缺席時退到 key）依賴這個順序——改動串接順序
+/// 會靜默改變對外顯示的名字。`authorized` 內部的順序有語意（fallback 取 first）；
+/// `variant` 的順序不帶語意（#81 原意）。
+public struct PersonNames: Equatable, ExpressibleByArrayLiteral {
+    /// 對外可稱呼的名字。空集合合法：「還沒指定該怎麼稱呼他」——那時 `displayName`
+    /// 退到 `key`，讓缺口在輸出上看得見，而不是靜默印出索引系統產生的引用形。
+    /// 每書寫系統至多一個——那是**內容**約束，結構管不到，仍由寫入邊界的
+    /// `AuthorizedNames.validate` 執行。
     ///
     /// **`authorized` 是編目學的術語，不是權限**——RDA 的 *authorized access point*
     /// （規範檢索點，RDA 9.19 / MARC authority 1XX）。與它成對的是 *variant access
-    /// point*（RDA 9.19.2 / MARC 4XX）。
-    ///
-    /// **注意對應關係**：`names` **不是** variant 那一側——本 repo 是**包含**而非
-    /// 互斥（`docs/store-format.md` §3.1 不變式 1：`authorized` ⊆ `names`）。
-    /// `names` 兼收兩者，**扣掉 `authorized` 的那些**才是 variant access point。
-    /// RDA 裡兩者互斥，這裡不是；把類比推到底會要求刪掉那條不變式。
+    /// point*（RDA 9.19.2 / MARC 4XX）。巢狀化（#227）之後兩個分割與 RDA 的兩個
+    /// 術語**逐一對應**——舊結構的 `names` 是聯集、沒有 variant 的位置，文件只能拿
+    /// `names` 頂替（#222 修過的那個誤植正是這個結構缺口的症狀）。
     ///
     /// 本 package 的各 target 沒有任何 authz 概念，所以在這裡讀到「有權限的」是誤讀。
     /// （這是**現在式**的觀察，不是永久保證——真的引進權限概念時，衝突的是那個新東西
@@ -238,7 +243,7 @@ public struct Person: Equatable {
     /// | 正規化（`matchingKey`）| 從字串**算出來**的比對鍵，**永不外洩成資料** | 機械 |
     /// | 本欄位 | 由人**指定**的對外形，**就是資料** | 權威 |
     ///
-    /// 共用名字會誘發 `authorized = names.map(normalize)`。**不要。**
+    /// 共用名字會誘發 `authorized = all.map(normalize)`。**不要。**
     ///
     /// 理由是**語意的**，不是機械的：這個欄位記錄的是一個**決定**，而決定只在
     /// **還有得選**的時候發生。判準是「**可容許候選集是不是單元素**」——不是
@@ -253,22 +258,51 @@ public struct Person: Equatable {
     ///
     /// 被禁的是第三格：**排除非候選之後仍有多個，卻機械挑一個**。那支工具在這一格
     /// 的做法是**留空並報告**，而那正是對的——機械挑一個會把一個決定偽造出來，讓
-    /// 「還沒有人決定」與「已經決定了，而且就是這個」在資料上不再有分別。前者是有
-    /// 意義的狀態（見本段最後：空集合讓缺口在輸出上看得見）。
+    /// 「還沒有人決定」與「已經決定了，而且就是這個」在資料上不再有分別。
     ///
-    /// **禁令靠的是上面那段語意，不是靠 `validate`。** 那兩條不變式攔得下多數機械
-    /// 嘗試，但**不是全部**——`testNormalizedFormsCanEvadeBothInvariants` 釘住一個
-    /// `validate` 回傳 `[]` 的輸入。而且它們沒有 schema／decoder 層的表現，`writePerson`
-    /// 的多數呼叫端也不驗（**#229**）。**不要因為這裡寫了禁令就以為寫入路徑會擋。**
+    /// **禁令靠的是上面那段語意，不是靠 `validate`。** person 側現存的執行期守衛
+    /// 只有兩條**內容**約束：每書寫系統至多一個、兩分割互斥（#227 verify R1 補）——
+    /// 舊的子集牆（不變式 1）已由結構承擔而不復存在。它們攔得下多數機械嘗試，但
+    /// 不是全部，且**不要因為這裡寫了禁令就以為每條寫入路徑都會擋**（#229 之後
+    /// 寫入邊界有閘，直接改欄位仍不經過它）。
     ///
     /// > 規範條文在 `openspec/specs/authorized-name/spec.md`。上面引 `AuthorizedNameMigration`
     /// > 是拿它當**一致性測試**（「repo 裡有沒有合法路徑違反這句話」），不是當規範依據
     /// > ——後者是 #222 v3 被打掉的範疇錯誤。這段論證的完整推導與五個被推翻的版本留在
     /// > #222 的討論串，不複製進原始碼。
-    ///
-    /// 空集合是合法的，意思是「還沒指定該怎麼稱呼他」——那時 `displayName` 退到 `key`，
-    /// 讓缺口在輸出上看得見，而不是靜默印出索引系統產生的引用形。
     public var authorized: [String]
+    /// 其餘名字變體（RDA variant access point）。順序不帶語意（#81）。
+    public var variant: [String]
+    /// 聯集：authorized 在前、variant 在後。**不得改為儲存屬性**（見型別 doc）。
+    public var all: [String] { authorized + variant }
+
+    public init(authorized: [String] = [], variant: [String] = []) {
+        self.authorized = authorized
+        self.variant = variant
+    }
+
+    /// 字面量的意義是「全部是 variant，沒有指定」。這是**型別轉換**，不是讀舊資料的
+    /// compat fallback——no-compat-fallback 的封閉列舉是「為了讀舊資料而保留的路徑」
+    /// 三類，array literal 不讀舊資料、不在其內（design D3）。反面界線由 decoder 守：
+    /// 平坦陣列在序列化層 fail-closed，舊格式只能經遷移進來。
+    public init(arrayLiteral elements: String...) {
+        self.init(variant: elements)
+    }
+}
+
+/// 人物實體（people/<person-key>.yaml）。
+public struct Person: Equatable {
+    /// 不變的身分（#35／#241）：建立時發放的 v4，隨檔攜帶（`id:` 是必要欄位，
+    /// decode 對缺席 fail-closed）。不由任何屬性推導——身分是名字的函數時，
+    /// 名字撞、被改、或因 import 順序拿到不同後綴，身分就跟著漂。
+    public var id: UUID
+    public var key: String
+    /// 這個人的名字（#227 巢狀化）：`authorized` 與 `variant` 兩個分割，聯集為
+    /// `names.all`。「哪個名字對外」由 authorized 分割的**成員資格**指定，不由
+    /// 位置決定（#81）；「authorized ⊆ 全部名字」由結構保證，不再需要執行期驗證。
+    /// 術語（RDA access point）與「不要改名叫 normalized」的禁令見 `PersonNames`
+    /// 與其 `authorized` 屬性的 doc。
+    public var names: PersonNames
     public var orcid: String?
     public var openalex: String?
     /// 逝世日期（#67）。ISO 8601 前綴：`2004`、`2004-11`、`2004-11-18`——與
@@ -309,8 +343,14 @@ public struct Person: Equatable {
     /// 頂層未知欄位（tolerant-preserve，#23）。
     public var unknownFields: [UnknownField]
 
-    /// `id` 省略時由 `key` 推出（確定性）——呼叫端不必為既有流程補一個 UUID。
-    public init(key: String, names: [String] = [], authorized: [String] = [],
+    /// `id` 省略時**發一個新的 v4**（#241）——身分只有一個產生事件：建立。
+    ///
+    /// 不再是 `v5(key)`：那讓身分成為名字的函數，而名字會撞、會被改、會因 import
+    /// 順序拿到不同後綴；兩個不同 library 裡同 key 的**不同的人**會在合併時安靜
+    /// 熔成一筆（不可逆）。legacy 補值（決定性推導）已退場——磁碟上全部記錄都帶
+    /// `id:`，舊檔只能經 migrate-person-identity 進來（`.claude/rules/
+    /// no-compat-fallback.md`：退場後刪掉，不留著當保險）。
+    public init(key: String, names: PersonNames = [],
                 orcid: String? = nil,
                 openalex: String? = nil, died: String? = nil, note: String? = nil,
                 id: UUID? = nil,
@@ -319,10 +359,9 @@ public struct Person: Equatable {
                 unknownFields: [UnknownField] = []) {
         self.profile = profile
         self.references = references
-        self.id = id ?? DeterministicUUID.forPerson(key: key)
+        self.id = id ?? UUID()
         self.key = key
         self.names = names
-        self.authorized = authorized
         self.orcid = orcid
         self.openalex = openalex
         // #67：空值正規化成缺席——空字串永遠不是合法的 ISO 8601 前綴，而它的兩種可能
@@ -533,10 +572,10 @@ extension Person {
     /// 沒有指定就是「不知道該怎麼稱呼他」，用醜的 key 讓缺口在輸出上**看得見**，比靜默
     /// 印出索引系統的引用形誠實。實測 868 筆記錄中 734 筆（84.6%）目前會走到這一步。
     public func displayName(in script: WritingSystem? = nil) -> String {
-        if let script, let hit = authorized.first(where: { WritingSystem.of($0) == script }) {
+        if let script, let hit = names.authorized.first(where: { WritingSystem.of($0) == script }) {
             return hit
         }
-        return authorized.first ?? key
+        return names.authorized.first ?? key
     }
 
     public func validate() -> [ValidationIssue] {
@@ -546,9 +585,18 @@ extension Person {
                 severity: .error,
                 message: "person key '\(displaySafe(key, max: 120))' 不符合 \(StoreKey.pattern)"))
         }
-        // #81：對外名字的兩條不變式（子集、每書寫系統至多一個）。與 organization 共用
-        // 同一份檢查——「哪個名字對外」是同一個問題，不該有兩套答案。
-        issues += AuthorizedNames.validate(authorized: authorized, names: names, ownerKey: key)
+        // #81／#227：對外名字的內容不變式（每書寫系統至多一個）。與 organization 共用
+        // 同一份檢查——「哪個名字對外」是同一個問題，不該有兩套答案。子集那條已由
+        // `PersonNames` 的結構承擔，**刻意不呼叫** `validate(authorized:names:)`——
+        // 留一條恆真檢查會讓下一個讀的人以為它還在防什麼（design D2）。
+        issues += AuthorizedNames.validateWritingSystems(authorized: names.authorized,
+                                                         ownerKey: key)
+        // #227 verify R1：分割互斥——同一字串在兩個分割 = 序列化出現兩次（spec
+        // 「occupy exactly one partition」）。經 writePerson 的 assertNoErrors
+        // 落在所有寫入路徑的交會處。
+        issues += AuthorizedNames.validateDisjointPartitions(authorized: names.authorized,
+                                                             variant: names.variant,
+                                                             ownerKey: key)
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
                 message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))

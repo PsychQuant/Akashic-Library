@@ -32,8 +32,7 @@ final class PersonDeceasedTests: XCTestCase {
 
     func testARecordedDeathSurvivesAStoreRoundTrip() throws {
         _ = try store.writePerson(Person(key: "ching-zong-wei",
-                                         names: ["魏慶榮", "Ching-Zong Wei"],
-                                         authorized: ["魏慶榮", "Ching-Zong Wei"],
+                                         names: PersonNames(authorized: ["魏慶榮", "Ching-Zong Wei"]),
                                          died: "2004-11-18"))
         let load = try store.load()
         XCTAssertEqual(load.quarantined.count, 0, "\(load.quarantined)")
@@ -46,14 +45,14 @@ final class PersonDeceasedTests: XCTestCase {
     /// 沒有任何來源說過的日子。
     func testEachAdmissiblePrecisionIsPreservedByteForByte() throws {
         for value in ["2004", "2004-11", "2004-11-18"] {
-            let p = Person(key: "k", names: ["N"], authorized: ["N"], died: value)
+            let p = Person(key: "k", names: PersonNames(authorized: ["N"]), died: value)
             let back = try PersonYAML.decode(try PersonYAML.encode(p))
             XCTAssertEqual(back.died, value, "精度被改動：寫入 \(value)，讀回 \(back.died ?? "nil")")
         }
     }
 
     func testYearPrecisionIsNotCompletedIntoAFullDate() throws {
-        let p = Person(key: "k", names: ["N"], authorized: ["N"], died: "2004")
+        let p = Person(key: "k", names: PersonNames(authorized: ["N"]), died: "2004")
         let back = try PersonYAML.decode(try PersonYAML.encode(p))
         XCTAssertEqual(back.died, "2004")
         XCTAssertNotEqual(back.died, "2004-01-01", "補上一個沒有來源說過的日")
@@ -64,7 +63,7 @@ final class PersonDeceasedTests: XCTestCase {
     /// 右設限不是一個「有內容的觀測」，所以檔案裡不該有它的位置。空字串或 `null`
     /// 佔位會讓「尚未觀察到」看起來像「觀察到了一個空值」。
     func testAnUnrecordedDeathWritesNoKeyAtAll() throws {
-        let yaml = try PersonYAML.encode(Person(key: "k", names: ["N"], authorized: ["N"]))
+        let yaml = try PersonYAML.encode(Person(key: "k", names: PersonNames(authorized: ["N"])))
         XCTAssertFalse(yaml.contains("died"), yaml)
     }
 
@@ -81,10 +80,11 @@ final class PersonDeceasedTests: XCTestCase {
                       "\"\\t\"", "\"\\n\"", "\" \\t\\n \""] {
             let p = try PersonYAML.decode("""
             person:
-            id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+            id: \(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "k").uuidString)
             key: k
             names:
-            - N
+              variant:
+              - N
             died: \(blank)
             """)
             XCTAssertNil(p.died, "空值 \(blank) 被讀成一筆已知死亡")
@@ -95,10 +95,11 @@ final class PersonDeceasedTests: XCTestCase {
     func testANormalisedEmptyValueIsNotWrittenBack() throws {
         let p = try PersonYAML.decode("""
         person:
-        id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+        id: \(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "k").uuidString)
         key: k
         names:
-        - N
+          variant:
+          - N
         died: ''
         """)
         XCTAssertFalse(try PersonYAML.encode(p).contains("died"))
@@ -161,9 +162,10 @@ final class PersonDeceasedTests: XCTestCase {
     func testANonScalarValueIsRejectedByFieldName() throws {
         let yaml = """
         person:
-        id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+        id: \(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "k").uuidString)
         key: k
         names:
+          variant:
           - N
         died:
           - 2004
@@ -177,9 +179,10 @@ final class PersonDeceasedTests: XCTestCase {
     func testAMappingValueIsAlsoRejectedByFieldName() throws {
         let yaml = """
         person:
-        id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+        id: \(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "k").uuidString)
         key: k
         names:
+          variant:
           - N
         died:
           year: 2004
@@ -197,9 +200,10 @@ final class PersonDeceasedTests: XCTestCase {
     func testTheFieldIsRegisteredSoItIsNotEmittedTwice() throws {
         let yaml = """
         person:
-        id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+        id: \(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "k").uuidString)
         key: k
         names:
+          variant:
           - N
         died: 2004-11-18
         """
@@ -244,7 +248,7 @@ final class PersonDeceasedTests: XCTestCase {
         profile.affiliations = TimelineOf([
             TemporalValue(value: OrgRef.literal("Institute of Statistical Science"),
                           range: affiliation)])
-        return Person(key: key, names: [key], authorized: [key], died: died, profile: profile)
+        return Person(key: key, names: PersonNames(authorized: [key]), died: died, profile: profile)
     }
 
     private func status(of p: Person) -> String? {

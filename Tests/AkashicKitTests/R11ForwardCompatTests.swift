@@ -24,8 +24,9 @@ final class R11ForwardCompatTests: XCTestCase {
     /// 檔案會展開成另一份記錄（可注入 known 欄位）。
     func testExplicitMergeTagOnArbitraryKeyRejected() throws {
         let yaml = """
+        id: 11111111-1111-4111-8111-111111111111
         key: p
-        names: [A]
+        names: {variant: [A]}
         !!merge foo: {orcid: SMUGGLED}
         """
         XCTAssertThrowsError(try PersonYAML.decode(yaml)) { err in
@@ -39,8 +40,9 @@ final class R11ForwardCompatTests: XCTestCase {
     /// 顯式 `!!value` 同理（R10-verify DA 實測頂層 `=` 被收下並原樣寫回）。
     func testExplicitValueTagKeyRejected() throws {
         let yaml = """
+        id: 11111111-1111-4111-8111-111111111111
         key: p
-        names: [A]
+        names: {variant: [A]}
         !!value bar: x
         """
         XCTAssertThrowsError(try PersonYAML.decode(yaml))
@@ -49,8 +51,9 @@ final class R11ForwardCompatTests: XCTestCase {
     /// 裸 `<<` 仍然要擋（plain scalar resolve 成 merge tag）——修復不得放寬這條。
     func testPlainMergeKeyStillRejected() throws {
         let yaml = """
+        id: 11111111-1111-4111-8111-111111111111
         key: p
-        names: [A]
+        names: {variant: [A]}
         <<: {orcid: X}
         """
         XCTAssertThrowsError(try PersonYAML.decode(yaml))
@@ -60,8 +63,9 @@ final class R11ForwardCompatTests: XCTestCase {
     /// 修復前的字串比對把它一起擋掉了（過擋）。
     func testQuotedMergeFaceKeyIsOrdinaryString() throws {
         let yaml = """
+        id: 11111111-1111-4111-8111-111111111111
         key: p
-        names: [A]
+        names: {variant: [A]}
         '<<': ordinary-string-key
         """
         let person = try PersonYAML.decode(yaml)

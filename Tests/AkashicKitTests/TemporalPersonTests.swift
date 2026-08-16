@@ -101,7 +101,9 @@ final class TemporalPersonTests: XCTestCase {
     /// **輸出必須決定性**——同一份資料每次 encode 的順序相同，否則產生假 diff。
     func testEncodingIsDeterministicRegardlessOfInputOrder() throws {
         func make(_ order: [Int]) -> Person {
-            var p = Person(key: "p-one", names: ["A"])
+            // #241：id 是隨機 v4——determinism 斷言必須釘同一個顯式 id
+            var p = Person(key: "p-one", names: ["A"],
+                           id: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!)
             let vs = [
                 TemporalValue(value: "A", range: DateRange(start: "2010")),
                 TemporalValue(value: "B", range: DateRange(start: "2005", end: "2010")),
@@ -122,7 +124,7 @@ final class TemporalPersonTests: XCTestCase {
                     "profile:\n  ranks: \"不是 sequence\"\n",
                     "profile:\n  ranks:\n    - novalue: x\n",
                     "profile:\n  unknownDimension: []\n"] {
-            XCTAssertThrowsError(try PersonYAML.decode("key: p\nnames: [A]\n" + bad),
+            XCTAssertThrowsError(try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\nkey: p\nnames: {variant: [A]}\n" + bad),
                                  bad.debugDescription)
         }
     }

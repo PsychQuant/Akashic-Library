@@ -67,30 +67,33 @@ final class AuthorizedNameTests: XCTestCase {
         XCTAssertFalse(NameForm.isCitationForm(""))
     }
 
-    // MARK: - Person 的 authorized 欄位（task 3.1）
+    // MARK: - Person 的 authorized 分割（task 3.1；#227 巢狀化後為 names.authorized）
     //
-    // 形狀是**字串序列**（`names` 的子集），不是以書寫系統為鍵的 mapping：map 的鍵可以
+    // 形狀是**字串序列**（names 的一個分割），不是以書寫系統為鍵的 mapping：map 的鍵可以
     // 與值的實際書寫系統不一致（有人會寫 `{latn: 謝叔蓉}`），憑空多一類不一致要驗。
     // list 形式下 script 是算出來的，不可能與值衝突。
 
     func testPersonDefaultsToNoAuthorizedName() {
         let p = Person(key: "guan-yongtao", names: ["Guan, Yongtao"])
-        XCTAssertTrue(p.authorized.isEmpty, "沒有指定就是沒有指定——不預設挑第一個")
+        XCTAssertTrue(p.names.authorized.isEmpty, "沒有指定就是沒有指定——不預設挑第一個")
     }
 
     func testPersonAuthorizedIsASequenceNotAMap() {
         let p = Person(key: "shwu-rong-grace-shieh",
-                       names: ["謝叔蓉", "Shwu-Rong Grace Shieh", "Shieh, Grace S."],
-                       authorized: ["謝叔蓉", "Shwu-Rong Grace Shieh"])
-        XCTAssertEqual(p.authorized, ["謝叔蓉", "Shwu-Rong Grace Shieh"],
+                       names: PersonNames(authorized: ["謝叔蓉", "Shwu-Rong Grace Shieh"],
+                                          variant: ["Shieh, Grace S."]))
+        XCTAssertEqual(p.names.authorized, ["謝叔蓉", "Shwu-Rong Grace Shieh"],
                        "順序保留即可——不變式保證每個書寫系統至多一個，所以順序不帶語意")
     }
 
     func testPersonEqualityAccountsForAuthorized() {
-        let names = ["謝叔蓉", "Shwu-Rong Grace Shieh"]
-        let a = Person(key: "k", names: names, authorized: ["謝叔蓉"])
-        let b = Person(key: "k", names: names, authorized: ["謝叔蓉"])
-        let c = Person(key: "k", names: names, authorized: [])
+        // #241：id 是隨機 v4——相等性比較必須釘同一個顯式 id，否則比的是 id 不是指定
+        let id = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
+        let designated = PersonNames(authorized: ["謝叔蓉"], variant: ["Shwu-Rong Grace Shieh"])
+        let a = Person(key: "k", names: designated, id: id)
+        let b = Person(key: "k", names: designated, id: id)
+        let c = Person(key: "k", names: PersonNames(variant: ["謝叔蓉", "Shwu-Rong Grace Shieh"]),
+                       id: id)
         XCTAssertEqual(a, b)
         XCTAssertNotEqual(a, c, "指定與不指定是不同的記錄——相等性必須看得見這件事")
     }
@@ -99,8 +102,8 @@ final class AuthorizedNameTests: XCTestCase {
 
     func testPersonAuthorizedRoundTripsByteIdentically() throws {
         let p = Person(key: "shwu-rong-grace-shieh",
-                       names: ["謝叔蓉", "Shwu-Rong Grace Shieh", "Shieh, Grace S."],
-                       authorized: ["謝叔蓉", "Shwu-Rong Grace Shieh"])
+                       names: PersonNames(authorized: ["謝叔蓉", "Shwu-Rong Grace Shieh"],
+                                          variant: ["Shieh, Grace S."]))
         let yaml = try PersonYAML.encode(p)
         XCTAssertTrue(yaml.contains("authorized:"), "指定必須落到檔案上，否則它不是 canonical")
         let back = try PersonYAML.decode(yaml)
@@ -111,13 +114,14 @@ final class AuthorizedNameTests: XCTestCase {
     func testPersonAuthorizedAbsentDecodesToEmpty() throws {
         let yaml = """
         person:
-        id: \(DeterministicUUID.forPerson(key: "guan-yongtao").uuidString)
+        id: \(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "guan-yongtao").uuidString)
         key: guan-yongtao
         names:
-        - Guan, Yongtao
+          variant:
+          - Guan, Yongtao
         """
-        XCTAssertTrue(try PersonYAML.decode(yaml).authorized.isEmpty,
-                      "既有的 868 筆記錄都沒有這個欄位——缺席必須是良構的空集合")
+        XCTAssertTrue(try PersonYAML.decode(yaml).names.authorized.isEmpty,
+                      "authorized 分割缺席必須是良構的空集合——「還沒指定」是合法狀態")
     }
 
     func testPersonAuthorizedWrongShapeFailsClosed() {
@@ -125,16 +129,73 @@ final class AuthorizedNameTests: XCTestCase {
         // 靜默剝除會讓一次舊 binary 的 read-modify-write 把指定整段吃掉。
         let yaml = """
         person:
-        id: \(DeterministicUUID.forPerson(key: "k").uuidString)
+        id: \(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "k").uuidString)
         key: k
         names:
-        - 謝叔蓉
-        authorized:
-          han: 謝叔蓉
+          authorized:
+            han: 謝叔蓉
         """
         XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
             XCTAssertTrue("\(error)".contains("authorized"),
                           "錯誤訊息要點名欄位，否則 quarantine 之後沒人知道是哪一欄")
+        }
+    }
+
+    // MARK: - 巢狀序列化（nest-names-and-reissue-person-ids task 3.1）
+
+    /// spec `authorized-name`「The serialized form carries each name once」的 Example：
+    /// authorized 梁佑任／Yu-Jen Liang、variant Liang, Yu-Jen——各出現恰好一次，
+    /// 且不跨分割重複。
+    func testSerializedFormCarriesEachNameExactlyOnce() throws {
+        let p = Person(key: "liang-yu-jen",
+                       names: PersonNames(authorized: ["梁佑任", "Yu-Jen Liang"],
+                                          variant: ["Liang, Yu-Jen"]))
+        let yaml = try PersonYAML.encode(p)
+        for name in ["梁佑任", "Yu-Jen Liang", "Liang, Yu-Jen"] {
+            XCTAssertEqual(yaml.components(separatedBy: name).count - 1, 1,
+                           "「\(name)」必須在序列化結果中恰好出現一次：\(yaml)")
+        }
+        XCTAssertTrue(yaml.contains("authorized:") && yaml.contains("variant:"),
+                      "兩個分割各有自己的子鍵：\(yaml)")
+        let back = try PersonYAML.decode(yaml)
+        XCTAssertEqual(back, p)
+        XCTAssertEqual(try PersonYAML.encode(back), yaml, "round-trip 位元組相同")
+    }
+
+    /// spec「The flat shape is not silently accepted」：平坦 names 陣列擲錯、訊息
+    /// 點名欄位——**不得靜默視為空的 authorized**。舊形狀只能經遷移路徑進來。
+    func testFlatNamesSequenceIsRefusedNamingTheField() {
+        let yaml = """
+        person:
+        id: 11111111-1111-4111-8111-111111111111
+        key: guan-yongtao
+        names:
+        - Guan, Yongtao
+        """
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
+            let m = "\(error)"
+            XCTAssertTrue(m.contains("person.names"), "訊息要點名欄位：\(m)")
+            XCTAssertTrue(m.contains("migrate-person-identity"), "訊息要指路遷移：\(m)")
+        }
+    }
+
+    /// 舊頂層 `authorized:` 同樣拒絕——把它當未知欄位保留，會讓舊指定與新分割
+    /// 並存成兩個可矛盾的真相。
+    func testOldTopLevelAuthorizedKeyIsRefused() {
+        let yaml = """
+        person:
+        id: 11111111-1111-4111-8111-111111111111
+        key: k
+        names:
+          variant:
+          - 謝叔蓉
+        authorized:
+        - 謝叔蓉
+        """
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
+            let m = "\(error)"
+            XCTAssertTrue(m.contains("person.authorized"), "訊息要點名欄位：\(m)")
+            XCTAssertTrue(m.contains("migrate-person-identity"), "訊息要指路遷移：\(m)")
         }
     }
 
@@ -198,27 +259,15 @@ final class AuthorizedNameTests: XCTestCase {
         issues.filter { $0.severity == .error }.map(\.message)
     }
 
-    func testAuthorizedMustBeASubsetOfNames() {
-        let p = Person(key: "shwu-rong-grace-shieh",
-                       names: ["謝叔蓉", "Shwu-Rong Grace Shieh"],
-                       authorized: ["Grace Shieh"])
-        let msgs = errors(p.validate())
-        XCTAssertEqual(msgs.count, 1)
-        XCTAssertTrue(msgs[0].contains("Grace Shieh"), "訊息要點名那個字串：\(msgs)")
-        XCTAssertTrue(msgs[0].contains("shwu-rong-grace-shieh"), "以及它屬於誰：\(msgs)")
-    }
-
-    func testSubsetInvariantAcceptsAMemberOfNames() {
-        let p = Person(key: "k", names: ["謝叔蓉", "Shwu-Rong Grace Shieh"],
-                       authorized: ["謝叔蓉"])
-        XCTAssertTrue(errors(p.validate()).isEmpty)
-    }
+    // #227（task 5.1(c)）：person 的「authorized ⊆ names」測試已**移除**而非改寫——
+    // 巢狀化後該違反狀態**不可表達**（指定一個名字就是把它放進 authorized 分割），
+    // 改成恆真的測試只會假裝還在防什麼。organization 未巢狀化，其子集測試保留（下方）。
 
     func testAtMostOneAuthorizedPerWritingSystem() {
         // 同一個書寫系統兩個 authorized ＝ 未決的問題，不是指定。
         let p = Person(key: "k",
-                       names: ["Shwu-Rong Grace Shieh", "Shieh, Grace S."],
-                       authorized: ["Shwu-Rong Grace Shieh", "Shieh, Grace S."])
+                       names: PersonNames(authorized: ["Shwu-Rong Grace Shieh",
+                                                      "Shieh, Grace S."]))
         let msgs = errors(p.validate())
         XCTAssertEqual(msgs.count, 1)
         XCTAssertTrue(msgs[0].contains("latn"), "訊息要點名書寫系統：\(msgs)")
@@ -227,8 +276,8 @@ final class AuthorizedNameTests: XCTestCase {
     }
 
     func testDifferentWritingSystemsAreAccepted() {
-        let p = Person(key: "k", names: ["謝叔蓉", "Shwu-Rong Grace Shieh"],
-                       authorized: ["謝叔蓉", "Shwu-Rong Grace Shieh"])
+        let p = Person(key: "k",
+                       names: PersonNames(authorized: ["謝叔蓉", "Shwu-Rong Grace Shieh"]))
         XCTAssertTrue(errors(p.validate()).isEmpty)
     }
 
@@ -272,15 +321,14 @@ final class AuthorizedNameTests: XCTestCase {
 
     func testPersonResolvesRequestedWritingSystem() {
         let p = Person(key: "shwu-rong-grace-shieh",
-                       names: ["謝叔蓉", "Shwu-Rong Grace Shieh", "Shieh, Grace S."],
-                       authorized: ["謝叔蓉", "Shwu-Rong Grace Shieh"])
+                       names: PersonNames(authorized: ["謝叔蓉", "Shwu-Rong Grace Shieh"],
+                                          variant: ["Shieh, Grace S."]))
         XCTAssertEqual(p.displayName(in: .han), "謝叔蓉")
         XCTAssertEqual(p.displayName(in: .latn), "Shwu-Rong Grace Shieh")
     }
 
     func testPersonFallsBackToAnyAuthorizedWhenScriptUnavailable() {
-        let p = Person(key: "k", names: ["Shwu-Rong Grace Shieh"],
-                       authorized: ["Shwu-Rong Grace Shieh"])
+        let p = Person(key: "k", names: PersonNames(authorized: ["Shwu-Rong Grace Shieh"]))
         XCTAssertEqual(p.displayName(in: .han), "Shwu-Rong Grace Shieh",
                        "沒有漢字名就退到任一 authorized——那仍然是他的名字")
     }
@@ -359,7 +407,7 @@ final class AuthorizedNameTests: XCTestCase {
             .appendingPathComponent("akashic-doc-\(UUID().uuidString)")
         let store = LibraryStore(root: root)
         try store.ensureLayout()
-        try store.writePerson(Person(key: "designated", names: ["謝叔蓉"], authorized: ["謝叔蓉"]))
+        try store.writePerson(Person(key: "designated", names: PersonNames(authorized: ["謝叔蓉"])))
         try store.writePerson(Person(key: "undesignated", names: ["Guan, Yongtao"]))
         try store.writeOrganization(Organization(
             key: "org-undesignated", names: Timeline([TemporalValue(value: "統計所")])))
@@ -408,8 +456,9 @@ final class AuthorizedNameTests: XCTestCase {
         let e = Entry(id: UUID(uuidString: "7C1F6C2E-0000-0000-0000-0000000000A2")!,
                       citekey: "shieh2020x", type: "article", title: "A paper",
                       authors: [.key("shieh")], date: "2020")
-        let p = Person(key: "shieh", names: ["謝叔蓉", "Shwu-Rong Grace Shieh", "Shieh, Grace S."],
-                       authorized: ["謝叔蓉", "Shwu-Rong Grace Shieh"])
+        let p = Person(key: "shieh",
+                       names: PersonNames(authorized: ["謝叔蓉", "Shwu-Rong Grace Shieh"],
+                                          variant: ["Shieh, Grace S."]))
         let bib = BibExport.bibFile(entries: [e], people: [p])
         // biblatex 的資料模型**要求** `Family, Given`，所以 `.bib` 裡出現逗號是格式正確，
         // 不是引用形洩漏。差別在**來源**：這裡的 "Shieh, Shwu-Rong Grace" 是由 authorized
@@ -459,7 +508,7 @@ final class AuthorizedNameTests: XCTestCase {
     func testMigrationAdoptsTheOnlyCandidate() {
         // 沒有可挑的餘地，不構成判斷。實測 868 筆裡 734 筆是這一類。
         let p = Person(key: "guan-yongtao", names: ["Guan, Yongtao"])
-        let plan = AuthorizedNameMigration.propose(names: p.names)
+        let plan = AuthorizedNameMigration.propose(names: p.names.all)
         XCTAssertEqual(plan.adopted, ["Guan, Yongtao"])
         XCTAssertTrue(plan.nominated.isEmpty)
         XCTAssertTrue(plan.undecided.isEmpty)
@@ -504,12 +553,50 @@ final class AuthorizedNameTests: XCTestCase {
                        "沒給寫入指示就不能動 store")
 
         _ = try AuthorizedNameMigration.run(store: store, apply: true)
-        XCTAssertEqual(try store.load().people.first?.authorized, ["Guan, Yongtao"])
+        XCTAssertEqual(try store.load().people.first?.names.authorized, ["Guan, Yongtao"])
 
         // 寫入後 store 帶著新語意 → marker 必須跟上，否則舊 binary 會載入它並繼續把
         // `names[0]` 當顯示名（按舊語意解讀新格式）。
         XCTAssertEqual(try StoreVersion.read(root: root), StoreVersion.supported)
         try? FileManager.default.removeItem(at: root)
+    }
+
+    /// #227 verify S1：store 有 quarantined 檔（未遷移的舊形狀）時，authorize-names
+    /// **看不見**那些人——迭代 0 人、回報成功、把 marker bump 到 supported，鎖死唯一
+    /// 還讀得懂資料的舊 binary。必須 fail-fast 指路遷移，marker 不得被動。
+    func testAuthorizeNamesRefusesQuarantinedStoreAndDoesNotBumpMarker() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-anq-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("entities"), withIntermediateDirectories: true)
+        try StoreVersion.write(root: root, format: 9)
+        // 舊形狀 person 檔（平坦 names）→ 現行 decoder quarantine
+        try """
+        person:
+        id: 11111111-1111-4111-8111-111111111111
+        key: old-shape
+        names:
+        - Old Shape
+        """.write(to: root.appendingPathComponent("entities/11111111-1111-4111-8111-111111111111.yaml"),
+                  atomically: true, encoding: .utf8)
+        let store = LibraryStore(root: root)
+
+        XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true)) { e in
+            let m = (e as? LocalizedError)?.errorDescription ?? "\(e)"
+            XCTAssertTrue(m.contains("migrate-person-identity"), "訊息要指路遷移：\(m)")
+            XCTAssertTrue(m.contains("doctor"), "先指路 doctor（quarantine 未必是 person）：\(m)")
+            XCTAssertTrue(m.contains("marker"), "apply 模式要說 marker 後果：\(m)")
+        }
+        XCTAssertEqual(try StoreVersion.read(root: root), 9,
+                       "marker 不得被 bump——那會鎖死唯一還讀得懂資料的舊 binary")
+        // R2 C7：dry-run 同樣拒，但訊息說的是**它的**真實後果（報告不完整），
+        // 不得聲稱「跑完會升 marker」——dry-run 不升。
+        XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: false)) { e in
+            let m = (e as? LocalizedError)?.errorDescription ?? "\(e)"
+            XCTAssertTrue(m.contains("不完整"), "dry-run 的後果是報告不完整：\(m)")
+            XCTAssertFalse(m.contains("升到"), "dry-run 不得聲稱會升 marker：\(m)")
+        }
     }
 
     /// migration 把唯一候選直接採用之後，「沒有指定」的計數會掉到接近 0——但那些人
@@ -519,10 +606,10 @@ final class AuthorizedNameTests: XCTestCase {
             .appendingPathComponent("akashic-cf-\(UUID().uuidString)")
         let store = LibraryStore(root: root)
         try store.ensureLayout()
-        try store.writePerson(Person(key: "guan-yongtao", names: ["Guan, Yongtao"],
-                                     authorized: ["Guan, Yongtao"]))
-        try store.writePerson(Person(key: "real-name", names: ["Fushing Hsieh"],
-                                     authorized: ["Fushing Hsieh"]))
+        try store.writePerson(Person(key: "guan-yongtao",
+                                     names: PersonNames(authorized: ["Guan, Yongtao"])))
+        try store.writePerson(Person(key: "real-name",
+                                     names: PersonNames(authorized: ["Fushing Hsieh"])))
         let load = try store.load()
         XCTAssertTrue(load.recordsWithoutAuthorizedName().people.isEmpty,
                       "兩筆都有指定——舊問法看不到問題")
@@ -531,36 +618,43 @@ final class AuthorizedNameTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    // MARK: - 不變式住在寫入邊界（#229）
+    // MARK: - v10 format gate（nest-names-and-reissue-person-ids task 5.1）
 
-    /// spec 寫的是 `SHALL be rejected`，但兩條不變式先前只活在 `validate()`，
-    /// 而 **`writePerson` 不跑它**——於是 rejected 只在「呼叫端剛好記得驗」時成立。
-    ///
-    /// 實測 7 個 `writePerson` 呼叫端，只有 `UpdatePerson` 顯式補了 `person.validate()`
-    /// （它的註解自陳這是為了補洞）。`addPerson` / `bootstrap-people --apply` /
-    /// `ProvenanceMigration` / `AuthorizedNameMigration` / `DivergenceResolve` 都沒有。
-    ///
-    /// **不變式必須住在所有路徑的交會處**，不是靠每個呼叫端記得。與本 repo 今日的
-    /// 其他修法同型（`jsonBytes` 取代手寫估算式、`rowID` 取代三份拷貝）：把紀律換成
-    /// 結構。
-    func testWritePersonRejectsAuthorizedNotSubsetOfNames() throws {
+    /// spec「Writing the partitioned shape to an older store is refused」：巢狀 names
+    /// 對 v9 binary 是形狀不符 → 整檔 quarantine（人檔消失）——refuse-if-newer 必須
+    /// 在寫入端先 fire。訊息沿用 ended/attested/verdict gate 的形狀：說明前置條件、
+    /// 指路手動升 marker（升 marker 是使用者知情的動作，不是寫入的副作用）。
+    func testWritingPartitionedNamesToOlderStoreIsRefused() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("akashic-229-\(UUID().uuidString)")
-        let store = LibraryStore(root: root)
-        try store.ensureLayout()
+            .appendingPathComponent("akashic-v10gate-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("entities"), withIntermediateDirectories: true)
+        try "format: 9\n".write(to: StoreVersion.url(in: root), atomically: true, encoding: .utf8)
+        let store = LibraryStore(root: root)
 
-        let bad = Person(key: "subset-violator", names: ["Che Cheng"],
-                         authorized: ["鄭澈"])   // names 裡沒有這個字串
-        XCTAssertThrowsError(try store.writePerson(bad)) { e in
-            XCTAssertTrue("\(e)".contains("authorized"),
-                          "錯誤訊息要說得出是哪條不變式：\(e)")
+        let p = Person(key: "x-person", names: PersonNames(authorized: ["X Person"]))
+        XCTAssertThrowsError(try store.writePerson(p)) { e in
+            let m = "\(e)"
+            XCTAssertTrue(m.contains("10") && m.contains("9"),
+                          "訊息要同時點名需要的 format 與現值：\(m)")
+            XCTAssertTrue(m.contains("升級"), "訊息要說明升級前置：\(m)")
         }
-        XCTAssertNil(try? store.load().people.first { $0.key == "subset-violator" },
-                     "拒絕就是不得落盤——不是寫了再報")
+
+        // 空 names 的記錄不受此閘——檔上沒有 names 鍵，兩代 binary 都讀得懂。
+        XCTAssertNoThrow(try store.writePerson(Person(key: "empty-names")))
     }
 
-    /// 第二條：同書寫系統兩個 authorized 是**未決的問題**，不是指定。
+    // MARK: - 不變式住在寫入邊界（#229）
+
+    // #227（task 5.1(c)）：person 的 write-gate 子集測試（testWritePersonRejects-
+    // AuthorizedNotSubsetOfNames）已**移除**——「authorized 含 names 沒有的字串」在
+    // 巢狀結構下不可表達，寫入邊界無此輸入可拒。organization 側的同型測試保留（下方
+    // testWriteOrganizationRejectsAuthorizedNotSubsetOfNames）。
+
+    /// 內容約束（結構管不到的那條）：同書寫系統兩個 authorized 是**未決的問題**，
+    /// 不是指定。#229 的紀律不變——不變式住在所有寫入路徑的交會處（writePerson），
+    /// 不是靠每個呼叫端記得驗。
     func testWritePersonRejectsTwoAuthorizedInSameScript() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-229b-\(UUID().uuidString)")
@@ -569,8 +663,8 @@ final class AuthorizedNameTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let bad = Person(key: "script-violator",
-                         names: ["Che Cheng", "C. Cheng", "鄭澈"],
-                         authorized: ["Che Cheng", "C. Cheng"])   // 兩個都是 latn
+                         names: PersonNames(authorized: ["Che Cheng", "C. Cheng"],   // 兩個都是 latn
+                                            variant: ["鄭澈"]))
         XCTAssertThrowsError(try store.writePerson(bad))
         XCTAssertNil(try? store.load().people.first { $0.key == "script-violator" })
     }
@@ -588,13 +682,89 @@ final class AuthorizedNameTests: XCTestCase {
         try store.ensureLayout()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        var p = Person(key: "tolerant-ok", names: ["Che Cheng"], authorized: ["Che Cheng"])
+        var p = Person(key: "tolerant-ok", names: PersonNames(authorized: ["Che Cheng"]))
         p.unknownFields = [UnknownField(key: "fromNewerVersion", raw: "fromNewerVersion: 42\n")]
         XCTAssertFalse(p.validate().isEmpty, "前提：這筆記錄確實有 issue（warning 等級）")
         XCTAssertTrue(p.validate().allSatisfy { $0.severity == .warning },
                       "前提：只有 warning，沒有 error")
         XCTAssertNoThrow(try store.writePerson(p), "warning 不得擋寫入——那是 tolerant-preserve")
         XCTAssertNotNil(try store.load().people.first { $0.key == "tolerant-ok" })
+    }
+
+    // MARK: - PersonNames 的分割契約（nest-names-and-reissue-person-ids task 1.1）
+    //
+    // `names` 巢狀化（#227）：authorized / variant 是兩個**分割**，聯集 `all` 是
+    // computed——存三個欄位就是三個可互相矛盾的真相（`OrgRef` doc 的既有原則）。
+
+    /// `all` 的順序是隱性契約：authorized 在前，`displayName` 的 fallback
+    /// （取 `all.first`）才會優先拿到指定的名字，不需要另一條規則。
+    func testPersonNamesAllIsAuthorizedThenVariant() {
+        let n = PersonNames(authorized: ["謝叔蓉", "Shwu-Rong Grace Shieh"],
+                            variant: ["Shieh, Grace S."])
+        XCTAssertEqual(n.all, ["謝叔蓉", "Shwu-Rong Grace Shieh", "Shieh, Grace S."],
+                       "all 是 authorized 在前、variant 在後的串接")
+    }
+
+    /// 字面量的意義是「全部是 variant，沒有指定」——這是型別轉換，不是讀舊資料的
+    /// compat fallback（design D3；no-compat-fallback 的三類封閉列舉不含它）。
+    func testPersonNamesArrayLiteralIsAllVariant() {
+        let n: PersonNames = ["Guan, Yongtao", "Yongtao Guan"]
+        XCTAssertEqual(n.authorized, [], "字面量不得偽造任何指定")
+        XCTAssertEqual(n.variant, ["Guan, Yongtao", "Yongtao Guan"])
+    }
+
+    /// 同一批字串、不同分割 = 不同值。指定本身是資料，Equatable 必須看得見；
+    /// 只比 `all` 會讓「已指定」與「未指定」在比較上熔成同一個東西。
+    func testPersonNamesEquatableIsSensitiveToBothPartitions() {
+        let a = PersonNames(authorized: ["謝叔蓉"], variant: ["Shieh, Grace S."])
+        let b = PersonNames(authorized: [], variant: ["謝叔蓉", "Shieh, Grace S."])
+        XCTAssertNotEqual(a, b, "分割不同即不等，即使字串聯集相同")
+        XCTAssertEqual(a, PersonNames(authorized: ["謝叔蓉"], variant: ["Shieh, Grace S."]))
+    }
+
+    /// spec「A name SHALL occupy exactly one partition」／Example「no name SHALL
+    /// appear in both subsections」（#227 verify R1）：同一字串同時落在兩個分割是
+    /// 「同時對外又不對外」的矛盾態——validate 必須報 error（經 writePerson 的
+    /// assertNoErrors 落在所有寫入路徑），decoder 對檔上矛盾同樣 fail-closed。
+    func testSameNameInBothPartitionsIsRejectedEverywhere() throws {
+        let p = Person(key: "dup-person",
+                       names: PersonNames(authorized: ["謝叔蓉"], variant: ["謝叔蓉"]))
+        let errs = p.validate().filter { $0.severity == .error }
+        XCTAssertEqual(errs.count, 1, "\(errs.map(\.message))")
+        XCTAssertTrue(errs[0].message.contains("謝叔蓉") && errs[0].message.contains("分割"),
+                      "訊息要點名字串與分割語意：\(errs[0].message)")
+
+        // 寫入邊界（所有路徑的交會處）
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-dup-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LibraryStore(root: root)
+        try store.ensureLayout()
+        XCTAssertThrowsError(try store.writePerson(p))
+        XCTAssertNil(try? store.load().people.first { $0.key == "dup-person" },
+                     "拒絕就是不得落盤")
+
+        // 讀取面：檔上矛盾 fail-closed（不得讀進來等下一次 RMW 寫回）
+        let yaml = """
+        person:
+        id: 11111111-1111-4111-8111-111111111111
+        key: dup-person
+        names:
+          authorized:
+          - 謝叔蓉
+          variant:
+          - 謝叔蓉
+        """
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { e in
+            XCTAssertTrue("\(e)".contains("person.names"), "\(e)")
+        }
+    }
+
+    /// 空分割合法：authorized 空 = 「還沒指定該怎麼稱呼他」（#81 的既有語意）。
+    func testPersonNamesEmptyPartitionsAreLegal() {
+        let n = PersonNames(authorized: [], variant: ["Guan, Yongtao"])
+        XCTAssertEqual(n.all, ["Guan, Yongtao"])
+        XCTAssertEqual(PersonNames(authorized: [], variant: []).all, [])
     }
 
     /// org 側同一條不變式、同一個閘。少了它，「哪個名字對外」會有兩套答案。

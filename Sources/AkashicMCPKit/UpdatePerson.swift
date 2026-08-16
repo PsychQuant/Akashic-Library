@@ -16,7 +16,8 @@ public extension AkashicService {
 
     /// - Parameters:
     ///   - fields: 結構化欄位值（JSON object）。純量欄位收 String 或 null（null＝
-    ///     清除，與「未提及」不同）；`names`/`authorized` 收字串陣列（全量替換）；
+    ///     清除，與「未提及」不同）；`names` 收 `{authorized:[…], variant:[…]}` object
+    ///     （全量替換；#227 巢狀化後平坦陣列拒收）；
     ///     `profile` 收維度 object（**維度級**覆寫——提及的維度全量替換、未提及的
     ///     維度保留），段的形狀與 YAML 相同（value/start/end/ended/source/note）。
     ///   - dryRun: true 時零寫入，回報會改什麼 + gate 預演。
@@ -52,10 +53,9 @@ public extension AkashicService {
                 person.note = try scalarOrNull(raw, field: k)
                 changes[k] = raw
             case "names":
-                person.names = try stringList(raw, field: k)
-                changes[k] = raw
-            case "authorized":
-                person.authorized = try stringList(raw, field: k)
+                // #227：巢狀形狀（{authorized:[…], variant:[…]}，全量替換）。平坦
+                // 陣列是舊形狀——與 decoder 同紀律，拒絕而非靜默解讀。
+                person.names = try personNames(raw, field: k)
                 changes[k] = raw
             case "profile":
                 guard let dims = raw as? [String: Any] else {
@@ -128,6 +128,38 @@ public extension AkashicService {
             throw ServiceError.invalid("欄位「\(field)」必須是字串或 null")   // display-safe-exempt: field 是呼叫端已過 updatable/switch 白名單的字面量，非 store 內容
         }
         return s
+    }
+
+    /// #227：names 的巢狀形狀。平坦陣列給出**點名新形狀**的錯誤——與 YAML decoder
+    /// 對平坦 `names:` 的拒絕同紀律，兩個入口不得有兩套答案。
+    private func personNames(_ v: Any, field: String) throws -> PersonNames {
+        if v is [Any] {
+            throw ServiceError.invalid(
+                "欄位「\(field)」收 object（{authorized:[…], variant:[…]}，全量替換）"   // display-safe-exempt: field 是白名單字面量
+                + "——平坦字串陣列是 format < 10 的舊形狀，不靜默解讀")
+        }
+        guard let dict = v as? [String: Any] else {
+            throw ServiceError.invalid("欄位「\(field)」必須是 object（{authorized:[…], variant:[…]}）")   // display-safe-exempt: 同上
+        }
+        var names = PersonNames(authorized: [], variant: [])
+        for (kk, vv) in dict.sorted(by: { $0.key < $1.key }) {
+            switch kk {
+            case "authorized":
+                names.authorized = try stringList(vv, field: "\(field).authorized")
+            case "variant":
+                names.variant = try stringList(vv, field: "\(field).variant")
+            default:
+                throw ServiceError.invalid(
+                    "names 只有 authorized 與 variant 兩個分割，不認得「\(displaySafe(kk, max: 120))」")
+            }
+        }
+        // #227 verify R1：分割互斥在入口早擋（validate 也會擋，但這裡能給更準的訊息）
+        if let dup = names.authorized.first(where: Set(names.variant).contains) {
+            throw ServiceError.invalid(
+                "「\(displaySafe(dup, max: 120))」同時出現在 authorized 與 variant——"
+                + "一個名字只屬於一個分割；指定是搬移，不是複製")
+        }
+        return names
     }
 
     private func stringList(_ v: Any, field: String) throws -> [String] {

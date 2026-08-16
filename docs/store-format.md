@@ -965,6 +965,7 @@ index 一起被清掉。
 | 7 | 時間軸段內新增 `attested: [觀測點]`（某時點成立、起訖皆不明——`ended` 的鏡像，#70）| 同 6：段內鍵 strict → 舊 binary 整檔 quarantine；write gate 對 format < 7 拒寫＋指路。`attested` 與 `start`/`end`/`ended` 並存是矛盾（encode/decode 兩端拒收）|
 | 8 | `references[].field` 白名單新增消解判定欄位對 `resolution-confirmed`／`resolution-rejected`（#232，見 §3.5 消解判定節）| 同 6/7 的「看似 additive 其實不是」：field 白名單是 strict → 舊 binary 讀到 verdict reference 是整檔 quarantine（記錄消失），且該檔可被 bootstrap 的決定性 UUID 安靜覆寫、判定史全滅（#232 verify 實測整條鏈）。write gate 對 format < 8 拒寫含 verdict 的記錄＋指路；序列化形狀不變——8 只是「這個 store 可以持有 verdict」的宣告 |
 | 9 | 附件鍵域收窄為只剩 `zotero`（移除 `pool`）；新增記錄側副本引用 `akashic.sources`（#223，見 §2.4／§2.4.1）| **提升依據是鍵域的嚴格性，不是資料量**：`attachments` 元素鍵走 strict 驗證，未知種類導致**整檔 quarantine** 而非保留，所以縮減鍵域是 non-additive——帶 `pool` 附件的記錄被新 binary 讀到會整檔消失。移除當下受影響資料為 0 筆，但那是**巧合而非契約**；當死碼移除而不 bump，會讓 refuse-if-newer 在下一次真的有資料時失效。`writeEntry` 對 format < 9 拒寫含 `akashic.sources` 的記錄＋指路（原佔 8，rebase 時已被 #232 佔用順延） |
+| 10 | person 的 `names` 巢狀化為 `authorized`／`variant` 兩個分割（頂層 `authorized` 欄位移除）；`id` 改為建立時發放的獨立 v4、缺 `id:` 的檔 fail-closed（#227／#241）| **known 欄位的形狀演化不入 tolerant 範圍**（同 6/7 的機制）：巢狀 `names` 對 v9 binary 是形狀不符 → 整檔 quarantine（人檔消失）。v10 binary 對平坦 `names` 與頂層 `authorized` 同樣 fail-closed——舊形狀只能經 `migrate-person-identity`，decoder 順便相容是 no-compat-fallback 要擋的第一類。子集不變式「`authorized` ⊆ `names`」由結構承擔（矛盾狀態不可表達）、執行期檢查退場；**內容**約束兩條留在執行期：「每書寫系統至多一個」與「兩分割互斥」（同一字串不得同時在 `authorized` 與 `variant`——結構表達不了跨陣列值域，#227 verify R1 補；decode 對檔上矛盾 fail-closed、`writePerson` 經 validate 擋所有寫入路徑）。`migrate-person-identity` 是舊形狀唯一的進入路徑，涵蓋面是封閉列舉（entities 裸標籤／format-2 `type: person`／legacy `people/` 佈局就地遷移／缺 `id:` 補發／簡單 flow-style 摺疊），error 級記錄一律先過 validate、失敗進 failed 不落盤（含已是新形的 skip 候選）；中斷重跑以 **key 級**分組收斂（任何形狀組合的同 key 殘留都點名交人、永不發第三個 id）；`--apply` 要求每個將被改寫的檔**自身**被 git 追蹤（目錄級不夠——被 ignore 的檔 git 零歷史，改寫即不可回復）。`writePerson` 對 format < 10 拒寫含 names 的 person＋指路。**升級前置**：先確認會碰 store 的 CLI/MCP/App 都已升到 v10 世代，跑 `migrate-person-identity --apply`（一併重發全部 person id 為 v4、檔名同步），驗證後手動把 `store.yaml` 的 `format:` 改成 10。organization 不變（其 names 是時間軸；不對稱是刻意的）（原佔 8，實作時 8/9 已被 #232／#223 佔用順延） |
 
 3 與 4 曾經發生而未回寫本表（#81 補齊）；6 曾漏補（#74 一併回寫）。**「資料鍵變保留字」同屬版本歸屬**：`divergence` 成為形狀標籤使同名頂層鍵在 ≥5 成為保留字——這與形狀標籤機制（format 3）的既有語意一致，不另立規則（#74 後果二）。`akashic migrate` 是使用者知情動作：它把 store 升到 supported 版本，升版後舊 binary 整庫拒開是 refuse-if-newer 的**預期**行為，不是 migrate 的缺陷（#74 後果三，文件化現況）。
 
@@ -1166,7 +1167,7 @@ encode/decode 等冪。
   |---|---|
   | 真實 corpus 最大檔（536 檔實測） | **180** |
   | 45 位作者 + 40 個大欄位的 entry | 230 |
-  | **#20 的 temporal person，1400 段時間軸** | **15,857** |
+  | **#20 的 temporal person，1400 段時間軸** | **15,859** |
   | fanout 2 × 12 層（**compose 僅 0.01 s，不痛**） | 135,158 |
   | **真正會痛的**：fanout 9 × 7 層（357 B、compose **4.8 s**） | **超過門檻** |
 

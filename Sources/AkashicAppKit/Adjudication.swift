@@ -88,7 +88,9 @@ public final class PeopleResolveModel {
         } else {
             aff = nil
         }
-        return (p?.names ?? [], p?.orcid, p?.openalex, p?.died, aff)
+        // #227：呈現面列**全部**名字（authorized + variant）——這裡是身分判斷的
+        // 佐證資訊，缺一個變體就少一條線索。
+        return (p?.names.all ?? [], p?.orcid, p?.openalex, p?.died, aff)
     }
 
     public func accept(_ candidate: ResolutionCandidate) throws {

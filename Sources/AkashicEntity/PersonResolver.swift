@@ -129,7 +129,9 @@ public enum PersonResolver {
         // 正規化 alias → person keys
         var aliasMap: [String: Set<String>] = [:]
         for person in people {
-            for name in person.names {
+            // #227：alias 對照要的是**全部**名字（authorized + variant）——歸戶比對
+            // 不因指定與否而異。
+            for name in person.names.all {
                 aliasMap[normalize(name), default: []].insert(person.key)
             }
         }

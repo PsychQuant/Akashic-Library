@@ -1,3 +1,7 @@
+> **ASSUMPTION（2026-08-15，實作時落地）**：本檔所稱「format 8」於實作時已被佔用
+> （8 = verdict references #232、9 = attachments 鍵域 #223），實際落地為 **format 10**
+> ——下文的「8」一律讀作「10」。正當性核對與細節見 tasks.md 頂部同名註記。
+
 ## Context
 
 `Person` 目前有兩處把「識別」與「名字」混在一起：
@@ -172,7 +176,7 @@ Organization 的名字結構、entry 的作者引用形式、既有 key 的值�
 3. 跑 dry-run，檢視 report
 4. `--apply`，之後 `akashic doctor` 重建 index
 5. 驗證：`akashic validate`、`akashic search` 結果數與遷移前一致
-6. 把 `store.yaml` 的 `format:` 改為 8
+6. 把 `store.yaml` 的 `format:` 改為 **10**（原文寫 8——見頂部 ASSUMPTION）
 
 ## Open Questions
 

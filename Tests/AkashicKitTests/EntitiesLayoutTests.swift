@@ -28,15 +28,16 @@ final class EntitiesLayoutTests: XCTestCase {
         return LibraryStore(root: root)
     }
 
-    // MARK: - 確定性身分
+    // MARK: - 確定性身分（v5 機制——#241 起 person 無生產推導，機制仍服務 org／divergence）
 
-    /// 同一個 person key **永遠**推出同一個 UUID。若不然，index 的 primary key、
-    /// entry 的作者引用、graph 的節點每次載入都會漂。
+    /// v5 的確定性：同 namespace + name 永遠推出同一個 UUID。person 的推導函式已
+    /// 退場（#241），這裡以 personNamespace 釘住**機制本身**——測試 fabricate 舊
+    /// fixture 與 org／divergence 的推導都靠它。
     func testPersonUUIDIsDeterministic() {
-        let a = DeterministicUUID.forPerson(key: "cheng-che")
-        let b = DeterministicUUID.forPerson(key: "cheng-che")
+        let a = DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "cheng-che")
+        let b = DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "cheng-che")
         XCTAssertEqual(a, b)
-        XCTAssertNotEqual(a, DeterministicUUID.forPerson(key: "cheng-chi"))
+        XCTAssertNotEqual(a, DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "cheng-chi"))
         // 必須是合法的 UUIDv5（version 5、RFC 4122 variant）——否則別的工具會當它壞掉
         let s = a.uuidString
         XCTAssertEqual(s[s.index(s.startIndex, offsetBy: 14)], "5", "version nibble 非 5：\(s)")
@@ -54,22 +55,41 @@ final class EntitiesLayoutTests: XCTestCase {
                         .lowercased(),
                        "886313e1-3b8a-5372-9b90-0c9aee199e5d")
         // 本專案的 namespace，對照同一個獨立實作
-        XCTAssertEqual(DeterministicUUID.forPerson(key: "cheng-che").uuidString.lowercased(),
+        XCTAssertEqual(DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace, name: "cheng-che").uuidString.lowercased(),
                        "7a7f0a53-9d44-5f61-8b54-e3b8b791c7f8")
     }
 
-    /// legacy person 檔沒有 `id`——decode 必須補出**同一個**值，不是隨機值。
-    func testLegacyPersonWithoutIDGetsStableIdentity() throws {
-        let yaml = "key: p-one\nnames: [A]\n"
-        let a = try PersonYAML.decode(yaml)
-        let b = try PersonYAML.decode(yaml)
-        XCTAssertEqual(a.id, b.id)
-        XCTAssertEqual(a.id, DeterministicUUID.forPerson(key: "p-one"))
+    // MARK: - record-identity（#241）：身分只有一個產生事件
+
+    /// spec `record-identity`「Two records with identical attributes receive different
+    /// identifiers」：同 key 的兩筆新記錄不得共用身分——兩個不同 library 各自叫
+    /// `chen-wei` 的**不同的人**，合併時必須仍可區分（v5(key) 會讓它們安靜熔成一筆）。
+    func testNewPersonsWithSameKeyGetDistinctIDs() {
+        let a = Person(key: "chen-wei")
+        let b = Person(key: "chen-wei")
+        XCTAssertNotEqual(a.id, b.id, "身分不得是名字（key）的函數")
+    }
+
+    /// 新建 person 的 id 不得等於舊推導函式對同一 key 的輸出——推導預設已退場。
+    func testNewPersonIDIsNotDerivedFromKey() {
+        let derived = DeterministicUUID.v5(namespace: DeterministicUUID.personNamespace,
+                                           name: "chen-wei")
+        XCTAssertNotEqual(Person(key: "chen-wei").id, derived)
+    }
+
+    /// 缺 `id:` 的 person 檔 fail-closed——decode 不得推導（那是 default 位置的
+    /// compat fallback，#241 裁決退場）也不得隨機發（同檔每次載入不同身分，index
+    /// 主鍵與引用全漂）。舊檔只能經遷移路徑進來，與平坦 names 的拒絕同紀律。
+    func testPersonFileWithoutIDIsRefused() {
+        let yaml = "key: p-one\nnames: {variant: [A]}\n"
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
+            XCTAssertTrue("\(error)".contains("person.id"), "訊息要點名欄位：\(error)")
+        }
     }
 
     /// `id` 在場但格式錯 → fail-closed。**不猜**：亂猜會讓引用安靜地對不上。
     func testMalformedPersonIDIsRejected() {
-        XCTAssertThrowsError(try PersonYAML.decode("id: not-a-uuid\nkey: p\nnames: [A]\n"))
+        XCTAssertThrowsError(try PersonYAML.decode("id: not-a-uuid\nkey: p\nnames: {variant: [A]}\n"))
     }
 
     // MARK: - 佈局選擇由 format 決定
@@ -214,7 +234,10 @@ final class EntitiesLayoutTests: XCTestCase {
         let store = try legacyStore()
         try store.writeEntry(entry("a2020a"))
         try store.writeEntry(entry("b2021b"))
-        try store.writePerson(Person(key: "p-one", names: ["A"]))
+        // #227：legacy 具名寫入被 v10 閘拒——fixture 手寫檔案（migration 只搬檔）
+        try "id: 11111111-1111-4111-8111-111111111111\nkey: p-one\nnames: {variant: [A]}\n".write(
+            to: store.peopleDir.appendingPathComponent("p-one.yaml"),
+            atomically: true, encoding: .utf8)
 
         let report = try StoreMigration.toEntities(store: store)
         XCTAssertEqual(report.entriesMoved, 2)
@@ -306,9 +329,12 @@ final class EntitiesLayoutTests: XCTestCase {
     /// 涵蓋不到，必須由遷移自己檢查。
     func testMigrationRefusesEntryPersonUUIDCollision() throws {
         let store = try legacyStore()
-        let p = Person(key: "p-one", names: ["A"])
-        try store.writePerson(p)
-        try store.writeEntry(entry("a2020a", id: p.id))
+        // #227：同上，手寫 legacy person 檔；entry 撞同一個 UUID
+        let pid = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
+        try "id: \(pid.uuidString)\nkey: p-one\nnames: {variant: [A]}\n".write(
+            to: store.peopleDir.appendingPathComponent("p-one.yaml"),
+            atomically: true, encoding: .utf8)
+        try store.writeEntry(entry("a2020a", id: pid))
         XCTAssertThrowsError(try StoreMigration.toEntities(store: store)) { err in
             guard case StoreMigration.MigrationError.duplicateDestination = err else {
                 return XCTFail("跨型別的 UUID 碰撞必須擋下，實得 \(err)")

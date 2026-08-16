@@ -196,8 +196,10 @@ public struct LibraryIndex {
             }
         }
         for person in load.people {
+            // #227：index 是搜尋用衍生層——收**全部**名字（authorized + variant），
+            // 檢索不因指定與否而異。
             try db.execute("INSERT INTO people VALUES (?,?)",
-                           bind: [person.key, person.names.joined(separator: "\n")])
+                           bind: [person.key, person.names.all.joined(separator: "\n")])
         }
         try db.execute("COMMIT")
         db.closeForHandoff()   // 換位前必須關閉——SQLite 對已開啟檔案的搬移無定義行為

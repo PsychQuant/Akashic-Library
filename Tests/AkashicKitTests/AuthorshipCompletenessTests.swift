@@ -450,7 +450,9 @@ final class AuthorshipCompletenessStoreIOTests: XCTestCase {
     /// 讓它變紅（#223 的 9 即是一次）。要真正表達原意，該斷言的是「帶 witness
     /// 的記錄能寫進沒有為它升版的 store」，而不是一個數字。留待後續處理。
     func testOptionalWitnessDoesNotBumpStoreVersion() {
-        XCTAssertEqual(StoreVersion.supported, 9)
+        // witness 是 additive（unknown-key 容忍層），不 bump——精確 pin 住在
+        // KnownLayerEvolutionTests（#131 verify 慣例：pin 隨最新 format 的測試搬家）
+        XCTAssertGreaterThanOrEqual(StoreVersion.supported, 9)
     }
 
     /// 會抓到的回歸：known keys 順序漂移、漏存 exact authors/provenance、加入自我參照

@@ -163,7 +163,7 @@ final class PersonBootstrapTests: XCTestCase {
             entries: [entry("a", ["Che Cheng"]), entry("b", ["Cheng, Che"])], existing: [])
         let ps = PersonBootstrap.personsFor(cs)
         XCTAssertEqual(ps.count, 1)
-        XCTAssertEqual(ps[0].names.count, 2, "兩種寫法都要成為 alias")
+        XCTAssertEqual(ps[0].names.all.count, 2, "兩種寫法都要成為 alias")
     }
 
     /// #226：**重排等價不得取決於姓名的字典序。**
@@ -223,5 +223,49 @@ final class PersonBootstrapTests: XCTestCase {
                        "同一個人的兩種寫法裂成 \(cs.count) 個候選："
                        + "\(cs.map(\.names))")
         XCTAssertEqual(cs.first?.names.count, 2, "兩種寫法都要成為 alias")
+    }
+
+    // MARK: - record-identity（#241 task 7.1）：key 配發後永不重算
+
+    /// spec「Re-running key assignment does not change existing keys」：對記錄已帶
+    /// key 的 store 再跑一次指派——既有 key 一個都不變、已歸戶的名字不再產出候選。
+    /// 指派只發生在**新**候選身上（key MAY 在配發當下由內容推導，此後沿用）。
+    func testRerunningAssignmentDoesNotChangeExistingKeys() {
+        // 帶後綴的 key 是前一輪指派順序的產物——重跑也不得動它
+        let existing = [
+            Person(key: "chen-wei", names: PersonNames(variant: ["Chen Wei"])),
+            Person(key: "chen-wei-2", names: PersonNames(variant: ["Wei Chen"])),
+        ]
+        let es = [entry("a", ["Chen Wei"]), entry("b", ["Wei Chen"]),
+                  entry("c", ["Brand New Author"])]
+        let report = PersonBootstrap.resolve(entries: es, existing: existing)
+        XCTAssertEqual(report.candidates.map(\.key), ["author-brand-new"],
+                       "已歸戶的名字不得再產出候選——那等於對既有記錄重新指派")
+        // 第二輪（模擬候選已建檔）：零新候選、既有 key 集合不變
+        let applied = existing + PersonBootstrap.personsFor(report.candidates)
+        let second = PersonBootstrap.resolve(entries: es, existing: applied)
+        XCTAssertTrue(second.candidates.isEmpty, "\(second.candidates.map(\.key))")
+        XCTAssertEqual(Set(applied.map(\.key)),
+                       ["chen-wei", "chen-wei-2", "author-brand-new"],
+                       "沒有任何既有 key 改變")
+    }
+
+    /// spec「A collision suffix is a fact about assignment order, not about the
+    /// record」：後綴不得被任何判斷邏輯讀取——同一個 literal 對到 `chen-wei` 與
+    /// `chen-wei-2` 時是**歧義**（交給人），不得因「無後綴看起來比較正宗」自動挑
+    /// base key。
+    func testCollisionSuffixCarriesNoJudgmentWeight() {
+        let existing = [
+            Person(key: "chen-wei", names: PersonNames(variant: ["Chen Wei"])),
+            Person(key: "chen-wei-2", names: PersonNames(variant: ["Chen Wei"])),
+        ]
+        let r = PersonResolver.resolve(
+            entries: [entry("x", ["Chen Wei"])], people: existing, rejected: [])
+        XCTAssertTrue(r.candidates.isEmpty,
+                      "兩個同名記錄不得自動歸戶到其中一個：\(r.candidates)")
+        XCTAssertEqual(r.ambiguities.count, 1, "必須以歧義呈現、交給人判斷")
+        XCTAssertEqual(Set(r.ambiguities.first?.personKeys ?? []),
+                       ["chen-wei", "chen-wei-2"],
+                       "兩個候選並列，後綴不構成任何排序或偏好")
     }
 }

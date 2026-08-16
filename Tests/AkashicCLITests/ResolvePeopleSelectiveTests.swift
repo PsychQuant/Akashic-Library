@@ -39,10 +39,10 @@ final class ResolvePeopleSelectiveTests: XCTestCase {
             try fm.createDirectory(at: root.appendingPathComponent(d),
                                    withIntermediateDirectories: true)
         }
-        try "key: cheng-che\nnames: [Che Cheng]\n".write(
+        try "id: 11111111-1111-4111-8111-111111111111\nkey: cheng-che\nnames: {variant: [Che Cheng]}\n".write(
             to: root.appendingPathComponent("people/cheng-che.yaml"),
             atomically: true, encoding: .utf8)
-        try "key: olsson-ulf\nnames: [Ulf Olsson]\n".write(
+        try "id: 11111111-1111-4111-8111-111111111111\nkey: olsson-ulf\nnames: {variant: [Ulf Olsson]}\n".write(
             to: root.appendingPathComponent("people/olsson-ulf.yaml"),
             atomically: true, encoding: .utf8)
         for (i, (ck, au)) in [("a2020a", "Che Cheng"), ("b2021b", "Ulf Olsson"),

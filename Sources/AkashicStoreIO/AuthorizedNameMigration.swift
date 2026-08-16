@@ -80,14 +80,30 @@ public enum AuthorizedNameMigration {
     @discardableResult
     public static func run(store: LibraryStore, apply: Bool = false) throws -> Report {
         let load = try store.load()
+        // #227 verify S1：quarantined 檔在 → 本工具**看不見**那些人（load 已把它們
+        // 排除），迭代 0 人、apply 末尾還會把 marker bump 到 supported——在未遷移的
+        // store 上那會鎖死唯一還讀得懂資料的舊 binary，而且**回報成功**。fail-fast，
+        // 兩種模式都擋；訊息依模式說各自真實的後果（R2 C7——dry-run 不升 marker，
+        // 它的問題是報告對看不見的記錄不完整），並先指路 doctor（quarantine 未必是
+        // 舊形狀 person——可能是損壞的 work/org，先看原因再決定跑哪支）。
+        guard load.quarantined.isEmpty else {
+            let consequence = apply
+                ? "跑完會誤把 marker 升到 \(StoreVersion.supported)、鎖死仍讀得懂資料的舊 binary"
+                : "報告會漏掉它們（誤導性的不完整）"
+            throw StoreIOError.invalidInput(
+                what: "authorize-names",
+                why: "store 有 \(load.quarantined.count) 個讀不進來的檔——本工具看不見它們，"
+                   + "\(consequence)。先跑 akashic doctor 看每個檔的原因；"
+                   + "若是未遷移的舊形狀 person，跑 akashic migrate-person-identity 後再回來")
+        }
         var report = Report()
         report.total = load.people.count
         for person in load.people {
-            guard person.authorized.isEmpty else {
+            guard person.names.authorized.isEmpty else {
                 report.alreadyDesignated += 1
                 continue
             }
-            let plan = propose(names: person.names)
+            let plan = propose(names: person.names.all)
             report.adopted += plan.adopted.count
             report.nominated += plan.nominated.count
             // 互斥分類：歧義優先（有歧義就算歧義，即使別的書寫系統已指定），
@@ -103,7 +119,10 @@ public enum AuthorizedNameMigration {
             }
             guard apply, !plan.authorized.isEmpty else { continue }
             var updated = person
-            updated.authorized = plan.authorized
+            // #227：指定是把名字**搬進** authorized 分割，不是複製——同一字串留在
+            // variant 會在序列化裡出現兩次，違反「每個名字恰好出現一次」。
+            updated.names.authorized = plan.authorized
+            updated.names.variant = updated.names.variant.filter { !plan.authorized.contains($0) }
             _ = try store.writePerson(updated)
         }
         report.undecidedKeys.sort()

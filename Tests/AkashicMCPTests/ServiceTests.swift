@@ -40,8 +40,8 @@ final class ServiceTests: XCTestCase {
         e2.fields["journaltitle"] = "Psychometrika"
         try store.writeEntry(e2)
         // #81：對外顯示名由 `authorized` 指定，`names` 的順序不再帶語意。
-        try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng", "鄭澈"],
-                                     authorized: ["Che Cheng", "鄭澈"]))
+        try store.writePerson(Person(key: "cheng-che",
+                                     names: PersonNames(authorized: ["Che Cheng", "鄭澈"])))
         service = AkashicService(root: root, environment: env)
     }
 
@@ -143,11 +143,32 @@ final class ServiceTests: XCTestCase {
     }
 
     // #23 tolerant-preserve：doctor 對含未知欄位（較新 schema）的檔案給計數提示
+    /// #227 verify R2 C6：store 有 quarantined 檔時，person 查無的語意是**無法判定**
+    /// ——錯誤類型是 undeterminable、訊息前綴「無法判定」，不是 notFound／「找不到」。
+    /// 依錯誤種類或字面分支的呼叫端（含 LLM）不得把未知讀成否。
+    func testPersonLookupWithQuarantineIsUndeterminableNotNotFound() throws {
+        let qid = UUID()
+        try "person:\nid: \(qid.uuidString)\nkey: old-shape\nnames:\n- Old Shape\n".write(
+            to: root.appendingPathComponent("entities/\(qid.uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try service.person(key: "nobody-here", name: nil,
+                                                library: nil)) { error in
+            guard case ServiceError.undeterminable = error else {
+                return XCTFail("錯誤類型必須是 undeterminable，實得 \(error)")
+            }
+            let msg = (error as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertTrue(msg.hasPrefix("無法判定"), "前綴不得是「找不到」：\(msg)")
+            XCTAssertTrue(msg.contains("quarantined"), "要說明原因：\(msg)")
+        }
+    }
+
     func testDoctorReportsUnknownFieldFiles() throws {
         let f = root.appendingPathComponent("people/future-person.yaml")
         try """
+        id: 11111111-1111-4111-8111-111111111111
         key: future-person
         names:
+          variant:
           - Future Person
         affiliations:
           - organization: ISS
@@ -270,7 +291,7 @@ final class ServiceTests: XCTestCase {
         let long = String(repeating: "\u{202E}", count: 200)
         for i in 0..<60 {
             try store.writePerson(Person(key: "flood-\(i)",
-                                         names: ["Flood Same"] + (0..<8).map { "\(long)-\(i)-\($0)" }))
+                                         names: PersonNames(variant: ["Flood Same"] + (0..<8).map { "\(long)-\(i)-\($0)" })))
         }
         try store.writeEntry(Entry(id: UUID(), citekey: "flood2020", type: "article",
                                    title: "X", authors: [.literal("Flood Same")], date: "2020"))
@@ -908,8 +929,8 @@ extension ServiceTests {
     func testPersonResolvedCoAuthorNameIsHumanReadable() throws {
         // 讓 cheng-che 與另一個 resolved person 合著
         let store = LibraryStore(root: root)
-        try store.writePerson(Person(key: "yang-hau-hung", names: ["Hau-Hung Yang"],
-                                     authorized: ["Hau-Hung Yang"]))
+        try store.writePerson(Person(key: "yang-hau-hung",
+                                     names: PersonNames(authorized: ["Hau-Hung Yang"])))
         var e = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
         e.authors = [.key("cheng-che"), .key("yang-hau-hung")]
         try store.writeEntry(e)

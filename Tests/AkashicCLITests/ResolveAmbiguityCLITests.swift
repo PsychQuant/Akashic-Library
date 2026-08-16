@@ -34,7 +34,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
 
     private func writePerson(key: String, names: [String],
                              orcid: String? = nil, died: String? = nil) throws {
-        var p = Person(key: key, names: names)
+        var p = Person(key: key, names: PersonNames(variant: names))
         p.orcid = orcid
         p.died = died
         try store.writePerson(p)
@@ -99,8 +99,9 @@ final class ResolveAmbiguityCLITests: XCTestCase {
         for i in 0..<20 {
             let nm = "\(long)-flood-\(i)"
             for s in 0..<20 {
-                var p = Person(key: "flood-\(i)-\(s)", names: (0..<4).map { "\(long)-\(i)-\(s)-\($0)" })
-                p.names.append(nm)                       // 撞在一起的那個名字
+                var p = Person(key: "flood-\(i)-\(s)",
+                               names: PersonNames(variant: (0..<4).map { "\(long)-\(i)-\(s)-\($0)" }))
+                p.names.variant.append(nm)                       // 撞在一起的那個名字
                 try store.writePerson(p)
             }
             try store.writeEntry(Entry(id: UUID(), citekey: "flood\(i)", type: "article",

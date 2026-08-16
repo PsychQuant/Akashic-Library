@@ -409,8 +409,10 @@ final class LibrarySnapshotTests: XCTestCase {
         try write("entry: [broken", relativePath: "entries/broken.yaml", in: store)
         try write(
             """
+            id: 11111111-1111-4111-8111-111111111111
             key: future-one
             names:
+              variant:
               - Future One
             affiliations:
               - organization: ISS

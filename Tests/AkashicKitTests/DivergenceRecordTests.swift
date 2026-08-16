@@ -25,7 +25,8 @@ final class DivergenceRecordTests: XCTestCase {
     }
 
     private func person(_ key: String, _ names: [String]) throws {
-        _ = try store.writePerson(Person(key: key, names: names, authorized: [names[0]]))
+        _ = try store.writePerson(Person(key: key, names: PersonNames(
+            authorized: [names[0]], variant: Array(names.dropFirst()))))
     }
 
     // MARK: - id 的推導

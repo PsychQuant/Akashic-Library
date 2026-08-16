@@ -93,7 +93,11 @@ final class StoreIOTests: XCTestCase {
 
     func testWriteAndLoadPerson() throws {
         try useLegacyLayout()   // 斷言檔名 == key（#56）
-        let person = Person(key: "chen-chun-houh", names: ["Chun-Houh Chen", "陳君厚"])
+        // #227：巢狀 names 需要 format ≥ 10——legacy（format 1）store 拒寫具名 person
+        XCTAssertThrowsError(try store.writePerson(
+            Person(key: "chen-chun-houh", names: ["Chun-Houh Chen", "陳君厚"])))
+        // 空 names 不受 v10 閘：legacy 寫入路徑與檔名 == key（#56）仍成立
+        let person = Person(key: "chen-chun-houh")
         let url = try store.writePerson(person)
         XCTAssertEqual(url.lastPathComponent, "chen-chun-houh.yaml")
         let load = try store.load()
@@ -111,8 +115,10 @@ final class StoreIOTests: XCTestCase {
     func testLoadToleratesFutureSchemaPersonFile() throws {
         let f = root.appendingPathComponent("people/future-one.yaml")
         try """
+        id: 11111111-1111-4111-8111-111111111111
         key: future-one
         names:
+          variant:
           - Future One
         affiliations:
           - organization: ISS
@@ -125,11 +131,15 @@ final class StoreIOTests: XCTestCase {
 
     // #23：容忍的另一半——read-modify-write 不得剝掉未知欄位（資料毀損防線）
     func testWritePersonPreservesUnknownFieldsOnDisk() throws {
-        try useLegacyLayout()   // 斷言檔名 == key（#56）
-        let f = root.appendingPathComponent("people/future-two.yaml")
+        // #227：改用現行 entities 佈局——legacy 的具名寫入已由 v10 閘拒絕，
+        // tolerant-preserve 的 RMW 契約在現行佈局上驗
+        let f = root.appendingPathComponent("entities/11111111-1111-4111-8111-111111111111.yaml")
         try """
+        person:
+        id: 11111111-1111-4111-8111-111111111111
         key: future-two
         names:
+          variant:
           - Future Two
         facts:
           - kind: rank
@@ -862,7 +872,7 @@ extension StoreIOTests {
     func testUnknownFieldFilesReportsActualFilename() throws {
         try FileManager.default.createDirectory(
             at: store.root.appendingPathComponent("people"), withIntermediateDirectories: true)
-        try "key: fut1\nextra: 1\n".write(
+        try "id: 11111111-1111-4111-8111-111111111111\nkey: fut1\nextra: 1\n".write(
             to: store.root.appendingPathComponent("people/fut1.YAML"),
             atomically: true, encoding: .utf8)
         let load = try store.load()

@@ -36,7 +36,7 @@ final class AliasEventBudgetTests: XCTestCase {
     /// PR #42 的四條繞道——文字掃描全破，event level 全擋。
     func testPR42BypassesAreCaught() {
         // 裸 `>` 讓文字掃描把後續行當 block scalar 而整段跳過
-        var gt = "key: a\nnames: [A]\nbomb:\n  - k: x > y\n"
+        var gt = "id: 11111111-1111-4111-8111-111111111111\nkey: a\nnames: {variant: [A]}\nbomb:\n  - k: x > y\n"
         for l in bomb(levels: 14, fanout: 2, tail: "*a12: 1\n")
                     .split(separator: "\n") { gt += "    " + l + "\n" }
         assertRefused(gt, "`>` 致盲")
@@ -142,7 +142,7 @@ final class AliasEventBudgetTests: XCTestCase {
         e.akashic.relations.cites = ["b2020b"]
         XCTAssertEqual(try AliasEventBudget.estimate(try EntryYAML.encode(e)).maxDepthSeen, 5)
 
-        var p = Person(key: "big", names: (0..<30).map { "A\($0)" })
+        var p = Person(key: "big", names: PersonNames(variant: (0..<30).map { "A\($0)" }))
         let tl = Timeline((0..<200).map {
             TemporalValue(value: "v\($0)", range: DateRange(start: "2000", end: "2001"),
                           source: "s", note: "n")
@@ -303,7 +303,7 @@ final class AliasEventBudgetTests: XCTestCase {
     /// 所以把數字釘進測試：**文件改了而實測沒跟上，測試就失敗。**
     func testDocumentedMeasurementsMatchReality() throws {
         // 合法最壞情形（#20 的 temporal person）
-        var p = Person(key: "big", names: (0..<30).map { "A\($0)" })
+        var p = Person(key: "big", names: PersonNames(variant: (0..<30).map { "A\($0)" }))
         let tl = Timeline((0..<200).map {
             TemporalValue(value: "v\($0)",
                           range: DateRange(start: "20\($0 % 90)", end: "20\(($0 + 1) % 90)"),
@@ -320,7 +320,7 @@ final class AliasEventBudgetTests: XCTestCase {
         p.profile.appointments = tl; p.profile.fields = tl
         p.profile.contacts = ["email": tl, "phone": tl]
         let worst = try AliasEventBudget.estimate(try PersonYAML.encode(p))
-        XCTAssertEqual(worst.expandedNodes, 15_857, "§5 記載的合法最壞情形變了，文件要同步")
+        XCTAssertEqual(worst.expandedNodes, 15_859, "§5 記載的合法最壞情形變了，文件要同步")
 
         // 已知最小 bomb
         var b = "a0: &a0 [x,x,x,x,x,x,x,x,x]\n"
@@ -372,7 +372,7 @@ final class AliasEventBudgetTests: XCTestCase {
     /// 而 #20 明說「全部維度都要記錄歷史」。門檻若貼著現況設，這種記錄會被誤殺，
     /// 而誤殺代表**永久寫不回**（encode canary 也走這道守衛）。
     func testLegitimateTemporalPersonHasWideMargin() throws {
-        var p = Person(key: "big-person", names: (0..<30).map { "Alias \($0)" })
+        var p = Person(key: "big-person", names: PersonNames(variant: (0..<30).map { "Alias \($0)" }))
         let tl = Timeline((0..<200).map {
             TemporalValue(value: "v\($0)",
                           range: DateRange(start: "20\($0 % 90)", end: "20\(($0 + 1) % 90)"),

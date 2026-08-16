@@ -56,7 +56,7 @@ final class R7ForwardCompatTests: XCTestCase {
 
     func testNELInKnownValueWithUnknownFieldQuarantines() {
         // quoted NEL：libyaml 讀取時摺疊毀字——R6 移除守衛後變靜默毀損，R7 回歸 fail-closed
-        let yaml = "key: a\nnames: ['Attention\u{85}Is All']\nextra: 1\n"
+        let yaml = "id: 11111111-1111-4111-8111-111111111111\nkey: a\nnames: {variant: ['Attention\u{85}Is All']}\nextra: 1\n"
         XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
             XCTAssertTrue(String(describing: error).contains("NEL"), "\(error)")
         }
@@ -115,7 +115,7 @@ final class R7ForwardCompatTests: XCTestCase {
         }
         XCTAssertThrowsError(try EntryYAML.decode(head + "\ndate:\n  =: 2020\n"))
         XCTAssertThrowsError(try EntryYAML.decode(head + "\nakashic:\n  status:\n    =: read\n"))
-        XCTAssertThrowsError(try PersonYAML.decode("key: a\nnote:\n  =: hello\n"))
+        XCTAssertThrowsError(try PersonYAML.decode("id: 11111111-1111-4111-8111-111111111111\nkey: a\nnote:\n  =: hello\n"))
         XCTAssertThrowsError(try EntryYAML.decode(head + "\nfields:\n  journal:\n    =: JASA\n"))
         XCTAssertThrowsError(try EntryYAML.decode(head + """
 

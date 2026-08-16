@@ -76,7 +76,7 @@ final class KnownLayerEvolutionTests: XCTestCase {
     func testShapeMismatchIsFailLoudNotSilentStrip() throws {
         // fixture 手寫原始檔進 legacy 的 people/，需自己建目錄（#101）
         try FileManager.default.createDirectory(at: store.peopleDir, withIntermediateDirectories: true)
-        try "key: p-one\nnames: \"不是 sequence\"\norcid: \"0000-0001-2345-6789\"\n".write(
+        try "id: 11111111-1111-4111-8111-111111111111\nkey: p-one\nnames: \"不是 sequence\"\norcid: \"0000-0001-2345-6789\"\n".write(
             to: store.peopleDir.appendingPathComponent("p-one.yaml"),
             atomically: true, encoding: .utf8)
         let load = try store.load()
@@ -136,7 +136,7 @@ final class KnownLayerEvolutionTests: XCTestCase {
 
     /// 目前的精確 format 值（#131 verify 慣例：釘精確值防「意外多 bump 一次」，
     /// 每次刻意 bump 隨新 format 的測試搬家——本次從 AttestedRangeTests 搬來，#223）。
-    func testCurrentSupportedFormatIsExactlyNine() {
-        XCTAssertEqual(StoreVersion.supported, 9)
+    func testCurrentSupportedFormatIsExactlyTen() {
+        XCTAssertEqual(StoreVersion.supported, 10)
     }
 }

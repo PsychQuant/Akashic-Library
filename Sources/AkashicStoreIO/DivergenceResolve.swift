@@ -79,13 +79,16 @@ public enum DivergenceResolveError: Error, LocalizedError {
                  + losses.map { displaySafe($0, max: 300) }.joined(separator: "；")
                  + "。先把要保留的搬到倖存者身上（或確認可以丟棄後手動清除），再消歧。"
         case let .quarantinedPresent(files):
-            return "store 有 \(files.count) 個讀不進來的檔，消歧拒絕執行——"
-                 + "它們可能正指著要被刪掉的實體，而讀不到就改寫不到，刪除後會留下"
-                 + "藏在工具看不見處的永久懸空參照："
-                 + files.prefix(3).map { displaySafe($0, max: 200) }.joined(separator: "、")
-                 + (files.count > 3 ? "…" : "")
-                 + "。跑 akashic doctor 看每個檔的原因，然後手動修好或移出 store 再試"
-                 + "（doctor 只診斷、不修）。"
+            let listed = files.prefix(3).map { displaySafe($0, max: 200) }
+                .joined(separator: "、") + (files.count > 3 ? "…" : "")
+            var msg = "store 有 \(files.count) 個讀不進來的檔，消歧拒絕執行——"
+            msg += "它們可能正指著要被刪掉的實體，而讀不到就改寫不到，刪除後會留下"
+            msg += "藏在工具看不見處的永久懸空參照：\(listed)"
+            msg += "。跑 akashic doctor 看每個檔的原因，然後手動修好或移出 store 再試"
+            msg += "（doctor 只診斷、不修）。若這些是未遷移的舊形狀 person 檔"
+            msg += "（#227/#241 之後每個未遷移 store 的常態），先跑 "
+            msg += "akashic migrate-person-identity。"
+            return msg
         case let .candidateNotInEntities(key, expected):
             return "候選「\(displaySafe(key, max: 200))」的記錄不在 "
                  + "\(displaySafe(expected, max: 300))——store 的佈局不一致"
@@ -678,7 +681,15 @@ extension LibraryStore {
         var (keeper, doomed) = try validatePersonPreconditions(
             survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
         // 別名併入倖存者：被併者的寫法保留，否則下次遇到那個寫法又會重新分割一次。
-        keeper.names = dedupePreservingOrder(keeper.names + doomed.flatMap(\.names))
+        // #227：併入的一律進 **variant**——被併者的 authorized 指定不能靠聯集救回來
+        // （兩邊各指定同書寫系統時聯集會違反「每書寫系統至多一個」）。防護在**前置**：
+        // `validatePersonPreconditions` 的 `fieldsLostByMerging` 對「被併者有、倖存者
+        // 沒有的 authorized」直接拒絕合併（`wouldLoseFields`）——走到這行時被併者的
+        // 指定已確認是倖存者 authorized 的子集，折進 variant 不失去任何指定。
+        // （verify R1 曾抓到本註解點名不存在的 contentWarnings——那是 work 路徑的
+        // 機制名，person 的防護是上面那道拒絕，不是警告。）
+        let incoming = doomed.flatMap { $0.names.all }.filter { !keeper.names.all.contains($0) }
+        keeper.names.variant = dedupePreservingOrder(keeper.names.variant + incoming)
 
         // #271：被併者的 verdict references 自動遷移——判定史不隨檔案消失。
         // (field, value) 冪等（寫入邊界的鏡射：store 永不持有重複 verdict）。
@@ -1187,10 +1198,10 @@ extension LibraryStore {
     /// `DivergenceHardeningTests.testPersonFieldCoverageOfMergeCheck`：它用反射數 `Person` 的儲存屬性，與本函式聲明涵蓋的
     /// 數量不符就紅。加欄位而忘了這裡，測試會說話——不是靠註解提醒，也不是靠記憶。
     ///
-    /// 涵蓋 `Person` 的 **11** 個儲存屬性（#157 verify 157-10：原本寫 8，是過時的
-    /// 舊數字——`personFieldsCoveredByMergeCheck = 11` 才是反射守衛實際釘住的值，
-    /// 兩者一直不一致而沒人發現）：`key` / `id`（身分，不隨合併移動）、
-    /// `names`（別名，由合併搬移）、以及下列各項。
+    /// 涵蓋 `Person` 的 **10** 個儲存屬性（#227 起 `authorized` 併入 `names` 的
+    /// `PersonNames` 分割，屬性數 11 → 10；#157 verify 157-10 曾抓到 doc 寫 8 而
+    /// 常數是 11 的長期不一致）：`key` / `id`（身分，不隨合併移動）、
+    /// `names`（別名聯集由合併搬移；authorized 分割的損失另行檢查）、以及下列各項。
     ///
     /// **插入位置紀律**（#157 verify 157-4（正典計數與三次機械化失敗的量測在 `docs/design-principles-and-philosophy.md` §16——**不要在原始碼裡各自重新計數**，那正是它一直過期的原因））：
     /// 新成員 **不得**插進既有 API 的 doc comment／attribute 與其宣告之間。那會讓兩份文件
@@ -1214,7 +1225,7 @@ extension LibraryStore {
         // 會消失。`names` 本身由既有的合併流程處理（別名聯集），但「哪個名字對外」是
         // 一個判斷，不能靠聯集救回來：兩邊各指定一個同書寫系統的名字時，聯集會違反
         // 「每個書寫系統至多一個」的不變式，所以必須讓人看見並選一個。
-        let lostAuthorized = p.authorized.filter { !keeper.authorized.contains($0) }
+        let lostAuthorized = p.names.authorized.filter { !keeper.names.authorized.contains($0) }
         if !lostAuthorized.isEmpty {
             losses.append("authorized: " + lostAuthorized.joined(separator: "、"))
         }
@@ -1626,7 +1637,7 @@ extension LibraryStore {
     }
 
     /// 本函式涵蓋的 `Person` 儲存屬性數。`DivergenceHardeningTests.testPersonFieldCoverageOfMergeCheck` 拿它與反射比對。
-    static let personFieldsCoveredByMergeCheck = 11
+    static let personFieldsCoveredByMergeCheck = 10
 
     // MARK: - 小工具
 

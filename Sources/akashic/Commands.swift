@@ -433,6 +433,53 @@ struct MigrateProvenance: ParsableCommand {
     }
 }
 
+/// #241／#227：person 身分重發（v5→v4）+ names 巢狀化的一次性遷移。
+///
+/// **預設 dry-run**（design D6）——不可逆操作的預設是預演；`--apply` 才寫入，且
+/// 要求 store 工作樹乾淨（git 是回復路徑）。輸出沿用 migrate-provenance 的呈現形狀。
+struct MigratePersonIdentity: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "migrate-person-identity",
+        abstract: "person 身分重發（v4）+ names 巢狀化（#227/#241；需另手動 bump format 至 10）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Flag(name: .long, help: "實際寫入（預設只預演；要求 store 工作樹乾淨）")
+    var apply = false
+
+    func run() throws {
+        let store = try options.openStore()
+        // 席 A NEW-3 的即時緩解：破壞性遷移**先回顯目標**——LibraryLocator 對 CWD
+        // 零感知（registry current 決定目標），不印出來的話「在 scratch 目錄執行」
+        // 會給人錯誤的安全感（2026-08-16 事故的根因情境）。
+        print("目標 store：\(displaySafe(store.root.path, max: 300))")
+        let report = try PersonIdentityMigration.run(store: store, apply: apply)
+        let prefix = apply ? "✓" : "（dry-run）"
+
+        if report.migrated.isEmpty && report.skipped.isEmpty && report.failed.isEmpty {
+            print("沒有 person 記錄——不需要遷移")
+        } else {
+            print("\(prefix) \(apply ? "已遷移" : "將遷移") \(report.migrated.count) 筆"
+                  + "，已是新形狀（跳過）\(report.skipped.count) 筆")
+            for k in report.migrated.prefix(20) { print("  \(displaySafe(k, max: 200))") }
+            if report.migrated.count > 20 { print("  …另 \(report.migrated.count - 20) 筆") }
+
+            // **先報失敗**（同 migrate-provenance 的紀律）：單筆失敗不中止整批，
+            // 不說出來的話使用者以為全部完成。
+            if !report.failed.isEmpty {
+                print("處理失敗 \(report.failed.count) 筆（其餘照常；修好後重跑——遷移是冪等的）：")
+                for f in report.failed.prefix(20) {
+                    print("  ⚠ \(displaySafe(f.file, max: 200))——\(displaySafe(f.reason, max: 300))")
+                }
+                if report.failed.count > 20 { print("  …另 \(report.failed.count - 20) 筆") }
+            }
+        }
+        if let step = PersonIdentityMigration.nextStep(report: report, apply: apply) {
+            print(step)
+        }
+    }
+}
+
 /// #34：從 literal 作者 bootstrap person 記錄。
 struct BootstrapPeople: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -1311,7 +1358,7 @@ struct ResolvePeople: ParsableCommand {
                         bits.append("曾隸屬:\(displaySafe(last.value.displayName, max: 60))"
                                     + (when.isEmpty ? "" : "（\(when)）"))   // display-safe-exempt: rangeLabel 內部已消毒（不冪等，不得再包）
                     }
-                    let names = namesLabel(p?.names ?? [])   // display-safe-exempt: namesLabel 內部已消毒（displaySafe 不冪等，不得再包）
+                    let names = namesLabel(p?.names.all ?? [])   // display-safe-exempt: namesLabel 內部已消毒（displaySafe 不冪等，不得再包）
                     let extra = bits.isEmpty ? "  ⚠ 無任何區辨欄位" : "  " + bits.joined(separator: "  ")
                     row.append("      \(n + 1). \(displaySafe(k, max: 200))  [\(names)]\(extra)")
                 }

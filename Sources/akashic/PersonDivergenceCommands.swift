@@ -24,7 +24,7 @@ struct AddPersonCmd: ParsableCommand {
     var key: String
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "名字（可多個；display 名放第一個）")
+            help: "名字（可多個；#227 起全部進 variant——對外名字之後由 update-person 指定 authorized）")
     var name: [String]
 
     @Option(name: .long, help: "ORCID iD（可選）")

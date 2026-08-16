@@ -75,8 +75,9 @@ final class EndedUnknownTests: XCTestCase {
     /// 無法判斷哪個是真話。拒絕，不猜。
     func testEndWithEndedTrueIsRejected() throws {
         let yaml = """
+            id: 11111111-1111-4111-8111-111111111111
             key: bad-person
-            names: [Bad]
+            names: {variant: [Bad]}
             profile:
               ranks:
               - value: 研究員
@@ -94,8 +95,9 @@ final class EndedUnknownTests: XCTestCase {
     func testEndedFalseIsTolerated() throws {
         // `ended: false` 冗餘但無矛盾（等同缺席）——寬容讀入、不寫出
         let yaml = """
+            id: 11111111-1111-4111-8111-111111111111
             key: ok-person
-            names: [Ok]
+            names: {variant: [Ok]}
             profile:
               ranks:
               - value: 研究員
@@ -111,7 +113,7 @@ final class EndedUnknownTests: XCTestCase {
     /// 只收裸寫 true/false；引號版與 YAML 1.1 變體一律拒絕（fail-closed）。
     func testEndedBooleanFormsAreStrict() throws {
         func person(_ ended: String) -> String {
-            "key: b\nnames: [B]\nprofile:\n  ranks:\n  - value: r\n    start: \"2010\"\n    ended: \(ended)\n"
+            "id: 11111111-1111-4111-8111-111111111111\nkey: b\nnames: {variant: [B]}\nprofile:\n  ranks:\n  - value: r\n    start: \"2010\"\n    ended: \(ended)\n"
         }
         XCTAssertNoThrow(try PersonYAML.decode(person("true")))
         XCTAssertNoThrow(try PersonYAML.decode(person("false")))
@@ -125,8 +127,9 @@ final class EndedUnknownTests: XCTestCase {
     /// 對齊——先前 ranks 已如此、affiliations 卻存成字串 "null"）。文件化 + 釘住。
     func testAffiliationStartNullFaceIsAbsence() throws {
         let yaml = """
+            id: 11111111-1111-4111-8111-111111111111
             key: n-person
-            names: [N]
+            names: {variant: [N]}
             profile:
               affiliations:
               - value: {literal: 某機構}
@@ -163,7 +166,9 @@ final class EndedUnknownTests: XCTestCase {
         try store.ensureLayout()
         try StoreVersion.write(root: root, format: 5)   // 模擬既有 v5 store
 
-        var p = Person(key: "gate-person", names: ["G"])
+        // #227：空 names——本測試釘的是 ended 閘的閾值（6），具名 person 另受
+        // v10 names 閘管（AuthorizedNameTests 的 v10 gate 測試）
+        var p = Person(key: "gate-person")
         p.profile.ranks = Timeline([
             TemporalValue(value: "研究員", range: DateRange(start: "1990", endedUnknown: true)),
         ])
@@ -177,7 +182,7 @@ final class EndedUnknownTests: XCTestCase {
         XCTAssertNoThrow(try store.writePerson(p))
         // 無 ended 的 person 在 v5 store 照常寫（gate 只擋 v6-only 語法）
         try StoreVersion.write(root: root, format: 5)
-        XCTAssertNoThrow(try store.writePerson(Person(key: "plain-p", names: ["P"])))
+        XCTAssertNoThrow(try store.writePerson(Person(key: "plain-p")))
     }
 
     /// P0-4：純字串 timeline（rank）的 ended round-trip——先前只測了 affiliations。

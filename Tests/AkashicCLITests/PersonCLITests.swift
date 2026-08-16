@@ -58,8 +58,8 @@ final class PersonCLITests: XCTestCase {
         try store.writeEntry(Entry(id: UUID(), citekey: "olsson1979max", type: "article",
                                    title: "Max", authors: [.literal("Ulf Olsson")], date: "1979"))
 
-        var p = Person(key: "che-cheng", names: ["Cheng, Che", "鄭澈"],
-                       authorized: ["Cheng, Che"])
+        var p = Person(key: "che-cheng", names: PersonNames(
+            authorized: ["Cheng, Che"], variant: ["鄭澈"]))
         // 一個已歸戶、一個未歸戶——隸屬的兩種狀態都要被呈現面覆蓋
         p.profile.affiliations = TimelineOf([
             TemporalValue(value: .key("national-taiwan-university"),

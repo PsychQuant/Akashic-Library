@@ -30,9 +30,8 @@ final class RefuseIfNewerGateTests: XCTestCase {
         id: \(id.uuidString)
         key: p-one
         names:
-        - P
-        authorized:
-        - P
+          authorized:
+          - P
         profile:
           affiliations:
           - value:

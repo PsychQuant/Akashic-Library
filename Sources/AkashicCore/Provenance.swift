@@ -312,7 +312,9 @@ extension Person {
         for r in references {
             switch r.field {
             case "names", "authorized":
-                let pool = r.field == "names" ? names : authorized
+                // #227 巢狀化後：field "names" 指名任一名字（聯集）、"authorized"
+                // 指名對外名字（分割）。authorized ⊆ all 由結構保證。
+                let pool = r.field == "names" ? names.all : names.authorized
                 guard let v = r.value else {
                     throw StoreYAMLError.invalidField(
                         "person.references(field: \(r.field))",

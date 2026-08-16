@@ -534,6 +534,25 @@ public final class LibraryStore {
                     "format: 改成 8（v8 只新增 references 欄位對，既有資料不變）", person.key)
             }
         }
+        // v10-only 形狀的 format gate（#227，同 6/7/8/9 的機制與理由）：巢狀 names
+        // 對 v9 binary 是 known 欄位形狀不符 → **整檔 quarantine（人檔消失）**，
+        // refuse-if-newer 必須在寫入端先 fire。空 names 的記錄不受此閘——檔上沒有
+        // names 鍵，兩代 binary 都讀得懂。
+        if !person.names.all.isEmpty {
+            let format = try StoreVersion.read(root: root)
+            guard format >= 10 else {
+                // #227 verify S5：用 invalidInput 不用 invalidKey——後者的框架是
+                // 「不符合 key 正規式」，對合法 key 是假斷言，會把 LLM 呼叫端引去
+                // 清洗 key（#133 立 invalidInput 防的正是這形；v6/7/8 舊 gate 沿用
+                // 舊形屬既有債，另計）。
+                throw StoreIOError.invalidInput(
+                    what: "person「\(displaySafe(person.key, max: 120))」",
+                    why: "含巢狀 names，需要 store format ≥ 10；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，先以 " +
+                         "migrate-person-identity 遷移既有記錄，再把 store.yaml 的 " +
+                         "format: 改成 10（v10 改變 names 的形狀）")
+            }
+        }
         try Self.assertNoErrors(person.validate(), what: "person", key: person.key)
         let yaml = try PersonYAML.encode(person)
         let dest = usesEntitiesLayout ? entityURL(id: person.id) : personURL(key: person.key)
@@ -1216,7 +1235,7 @@ public extension LibraryLoad {
     ///
     /// 回傳的 key 依字典序排序，讓報告在不同機器上一致。
     func recordsWithoutAuthorizedName() -> (people: [String], organizations: [String]) {
-        (people: people.filter { $0.authorized.isEmpty }.map(\.key).sorted(),
+        (people: people.filter { $0.names.authorized.isEmpty }.map(\.key).sorted(),
          organizations: organizations.filter { $0.authorized.isEmpty }.map(\.key).sorted())
     }
 
@@ -1229,7 +1248,8 @@ public extension LibraryLoad {
     /// 這條把訊號找回來：缺的不是指定，是**名字本身**。
     func recordsAuthorizedOnlyByCitationForm() -> [String] {
         people.filter { p in
-            !p.authorized.isEmpty && p.authorized.allSatisfy { NameForm.isCitationForm($0) }
+            !p.names.authorized.isEmpty
+                && p.names.authorized.allSatisfy { NameForm.isCitationForm($0) }
         }.map(\.key).sorted()
     }
 

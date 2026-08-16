@@ -64,7 +64,15 @@ public enum StoreVersion {
     ///   把它當死碼移除而不 bump，會讓 refuse-if-newer 這道防線在下一次真的有
     ///   資料時失效。write gate 對 format < 9 拒寫含 `akashic.sources` 的記錄。
     ///   （原設計佔 8；rebase 時 8 已被 #232 佔用，順延為 9。）
-    public static let supported = 9
+    /// - **10** ＝ person 的 `names` 巢狀化為 `authorized`／`variant` 兩個分割，
+    ///   頂層 `authorized` 欄位移除；`id` 改為獨立 v4（#227／#241）。**兩者都是
+    ///   non-additive**：巢狀 names 對 v9 binary 是 known 欄位形狀不符 → 整檔
+    ///   quarantine（人檔消失）；v10 binary 對平坦 names 與頂層 authorized 同樣
+    ///   fail-closed（舊形狀只能經 migrate-person-identity，decoder 不順便相容）。
+    ///   write gate 對 format < 10 拒寫含 names 的 person。organization 不變
+    ///   （其 names 是時間軸，巢狀化是另一個設計題——刻意的不對稱）。
+    ///   （原設計佔 8；實作時 8/9 已被 #232／#223 佔用，順延為 10。）
+    public static let supported = 10
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，

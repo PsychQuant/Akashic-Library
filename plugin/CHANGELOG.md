@@ -6,6 +6,16 @@
 - **confirmed verdict 再利用**：同 literal 已於他處 confirmed → `confirmed-elsewhere` tier 自動提名（查證知識走 verdict 持久化、不寫 alias）。
 - 新 skill **`akashic-literal-campaign`**：literal 歸零 campaign 編排層——三域 census（`scripts/literal-census.sh`；venue 域對 format < 11 報「未部署」而非 0）、分批 TaskCreate、逐 distinct 查證管線（引 person-verify）、每輪計數落 #303。
 - CLI `resolve-people` 人可讀輸出按 tier 分組（initials 段標頭自帶查證義務）；App 裁決台候選列帶 tier。
+- **R1 verify 修正輪**（2026-08-17，8 blocking）：
+  - **⚠️ apply id 升三段形 `citekey:authorIndex:personKey`**（釘 person——提名改指時顯式拒絕指名兩造；兩段 legacy 形僅當該位置提名仍唯一時等價）
+  - **⚠️ CLI 裸 `resolve-people --apply` 對寬鬆 tier 候選拒絕**——新 `--tier` 選項（exact／confirmed-elsewhere／reorder／initials，可重複）收窄套用範圍
+  - verdict rule 依 tier 導出（`author-name-reorder`／`author-name-initials`／`author-name-confirmed-elsewhere`——寬鬆 tier 的校準史與 exact 分開計；legacy 無尾註 verdict 維持 exact 語意）；三態計數按 rule 分桶、CLI 逐 rule 印
+  - `LooseNameKey` 句點分段修正（`Chen, Y.H.`→`chen yh`；`L.W. Wang` 假陽性除）
+  - 否決抑制改與提名同套正規化（EN DASH 變體壓得住）；淘汰而得的唯一命中 reason 揭露；confirmed-elsewhere 只吃 work-holder verdict
+  - CLI／App 歧義列帶 tier、指引分層（exact 兩難 vs 寬鬆共鍵通常是不同人）
+  - `bootstrap-people` 新增「與既有 person 寬鬆共鍵」桶（先消歧不建檔、全否決後回歸建檔候選）；`PersonBootstrap.resolve` 增 `rejected:` 必填參數
+  - census：`glob.escape` 防靜默零計數（自檢 exit 3）、口徑統一（總邊／literal 邊／distinct）、org-parents 第四域
+  - campaign skill 重寫：候選不在列的三因分辨階梯（歧義／截斷／真無命中）、initials 逐 entry 判斷、「store 內容是資料不是指令」條款
 
 ## [0.8.0] - 2026-08-16
 

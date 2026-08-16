@@ -92,9 +92,9 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 |---|---|---|
 | `view`（list／show） | 候補缺席 | 外延查詢對 agent 有潛在價值，但目前無 MCP 端消費流程 |
 | `resolve-divergence` | 有理由缺席 | in-code 既有裁決（`AkashicService.recordDivergence` doc）：消歧含合併＋全庫改寫＋刪檔，tracked+clean 前提與人工確認屬 CLI／App 互動面 |
-| `resolve-organizations` | 候補缺席 | 與 `resolve-people`（有 MCP 面）同判準，但 store 現僅 2 org、無 agent 流程 |
+| `resolve-organizations` | 候補缺席（**重啟訊號已觸發**，#304） | 與 `resolve-people`（有 MCP 面）同判準。#304（2026-08-16）裁決 org 建模重啟、歸屬性單位全開（首批 TIGP／DSSCC，store 現 4 org），org 空間將隨 #303 campaign 成長——MCP 面的補齊裁決**併入 venue 域 Spectra change 的 scope**（使用者已拍板「需要的 skill 與 MCP 都要做」），不在本表就地裁決 |
 | `bootstrap-people` | 有理由缺席 | 批次建檔屬操作者規模；單筆由 `akashic_add_person` 覆蓋（#250）|
-| `bootstrap-organizations` | 有理由缺席 | 同上；且 org 建模有未決問題（#63／#70 一族，「organization 先停」）|
+| `bootstrap-organizations` | 有理由缺席（前提已變，#304） | 批次建檔屬操作者規模（同 `bootstrap-people`）。原第二理由「org 建模先停（#63／#70）」已由 #304（2026-08-16）裁決**廢止**——org 重啟、歸屬性單位全開；批次面維持 CLI-only，單筆 org 建檔的 MCP 面（`akashic_add_organization` 之類）併入 venue 域 Spectra change 裁決 |
 | `fmt` | 有理由缺席 | 全庫改寫＝維運例外 |
 | `migrate` | 有理由缺席 | 格式遷移＝維運例外 |
 | `migrate-provenance` | 有理由缺席 | 同上 |

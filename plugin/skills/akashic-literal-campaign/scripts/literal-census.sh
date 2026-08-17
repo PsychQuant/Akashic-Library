@@ -12,8 +12,8 @@
 # 報 0 會把「還沒部署」與「查完了」折成同一個觀察——缺席與零必須可區分。
 set -euo pipefail
 ROOT="${1:-$HOME/.akashic}"
-if [ ! -d "$ROOT/entities" ]; then
-  echo "✗ 「${ROOT}」不是 Akashic store（缺 entities/）" >&2
+if [ ! -d "$ROOT/entities" ] && [ ! -d "$ROOT/entries" ] && [ ! -d "$ROOT/people" ]; then
+  echo "✗ 「${ROOT}」不是 Akashic store（entities/／entries/／people/ 皆缺）" >&2
   exit 2
 fi
 python3 - "$ROOT" <<'EOF'
@@ -40,12 +40,14 @@ org_distinct = collections.Counter()
 # glob.escape（R1-fix I4）：root 含 glob metacharacter（`[a]` 等）時，未跳脫的
 # pattern 會靜默匹配零檔——輸出與「查完歸零」無法區分，正是本檔 header 對 venue
 # 域禁止的那種折疊。
-# legacy 佈局（entries/／people/）一併掃——半遷移 store 只掃 entities/ 會
-# 靜默少算（缺席被折進零，本檔 header 對 venue 域禁止的同一種折疊）
-files = glob.glob(glob.escape(root) + "/entities/*.yaml") \
-      + glob.glob(glob.escape(root) + "/entries/*.yaml") \
-      + glob.glob(glob.escape(root) + "/people/*.yaml")
-if not files and os.listdir(f"{root}/entities"):
+# 佈局模式**切換**不合併（R4-8——loader 的 usesEntitiesLayout 同語意）：
+# entities/ 有檔 → 只掃 entities/（合併掃描會把半遷移 store 的同一記錄雙計）；
+# 否則掃 legacy（entries/＋people/）。
+entity_files = glob.glob(glob.escape(root) + "/entities/*.yaml")
+files = entity_files if entity_files else (
+    glob.glob(glob.escape(root) + "/entries/*.yaml")
+    + glob.glob(glob.escape(root) + "/people/*.yaml"))
+if not files and os.path.isdir(f"{root}/entities") and os.listdir(f"{root}/entities"):
     print(f"✗ entities/ 非空但匹配不到任何 .yaml——路徑或權限異常，拒絕輸出計數", file=sys.stderr)
     sys.exit(3)
 for f in files:

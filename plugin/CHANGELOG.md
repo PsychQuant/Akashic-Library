@@ -6,9 +6,10 @@
 - **confirmed verdict 再利用**：同 literal 已於他處 confirmed → `confirmed-elsewhere` tier 自動提名（查證知識走 verdict 持久化、不寫 alias）。
 - 新 skill **`akashic-literal-campaign`**：literal 歸零 campaign 編排層——三域 census（`scripts/literal-census.sh`；venue 域對 format < 11 報「未部署」而非 0）、分批 TaskCreate、逐 distinct 查證管線（引 person-verify）、每輪計數落 #303。
 - CLI `resolve-people` 人可讀輸出按 tier 分組（initials 段標頭自帶查證義務）；App 裁決台候選列帶 tier。
+- **R2／R3 verify 修正輪**（2026-08-17）：兩腿協調改以內部未截斷配對（超長 citekey 不再打斷批次；同列 reject A＋apply B 正確進 apply 腿）；淘汰揭露計數去重（1 筆否決不再報 3）；tier 閘不豁免 `--citekey`／`--person` 收窄（訊息同步）；bootstrap 提名空間與 resolver 同構（逐 tier 查找＋吃 confirmed——幽靈 pending 與 confirmed 盲鑄修除）＋`confirmed:` 必填；`rejected`／`applied` 回音統一三段 pinned 形；歧義出口指引四面重寫（alias-provenance 升 exact；第三人走 `add-person`；`update_person.names` 整組替換警語；provenance 寫入面缺口誠實記錄）；person-verify skill 同步（三段 id、#272 組合呼叫、出口改正）；census 佈局模式切換（半遷移不雙計、純 legacy 不誤拒）；App skip 改 pinned 鍵。
 - **R1 verify 修正輪**（2026-08-17，8 blocking）：
   - **⚠️ apply id 升三段形 `citekey:authorIndex:personKey`**（釘 person——提名改指時顯式拒絕指名兩造；兩段 legacy 形僅當該位置提名仍唯一時等價）
-  - **⚠️ CLI 裸 `resolve-people --apply` 對寬鬆 tier 候選拒絕**——新 `--tier` 選項（exact／confirmed-elsewhere／reorder／initials，可重複）收窄套用範圍
+  - **⚠️ CLI `resolve-people --apply`（篩選式批次）對寬鬆 tier 候選拒絕、`--tier` 具名才放行**——新 `--tier` 選項（exact／confirmed-elsewhere／reorder／initials，可重複）收窄套用範圍
   - verdict rule 依 tier 導出（`author-name-reorder`／`author-name-initials`／`author-name-confirmed-elsewhere`——寬鬆 tier 的校準史與 exact 分開計；legacy 無尾註 verdict 維持 exact 語意）；三態計數按 rule 分桶、CLI 逐 rule 印
   - `LooseNameKey` 句點分段修正（`Chen, Y.H.`→`chen yh`；`L.W. Wang` 假陽性除）
   - 否決抑制改與提名同套正規化（EN DASH 變體壓得住）；淘汰而得的唯一命中 reason 揭露；confirmed-elsewhere 只吃 work-holder verdict

@@ -503,7 +503,8 @@ struct BootstrapPeople: ParsableCommand {
         // R1-fix B4：否決史決定 pending literal 何時回到可建檔
         let report = PersonBootstrap.resolve(
             entries: load.entries, existing: load.people,
-            rejected: ResolutionLedger.rejectedPairings(people: load.people))
+            rejected: ResolutionLedger.rejectedPairings(people: load.people),
+            confirmed: ResolutionLedger.confirmedPairings(people: load.people))
         var cands = report.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }
@@ -528,8 +529,10 @@ struct BootstrapPeople: ParsableCommand {
             if shown.count > AmbiguityDisplayLimit.rows {
                 print("  …另 \(shown.count - AmbiguityDisplayLimit.rows) 筆未顯示")
             }
-            print("  處置：跑 akashic resolve-people 看候選／歧義，查證後 apply 或 reject；"
-                  + "全部否決後這些名字會回到本命令的建檔候選。")
+            print("  處置：跑 akashic resolve-people 看候選／歧義。查證後——是清單中某人 → "
+                  + "補 variant alias（帶 provenance；update-person 的 names 整組回寫，先讀再附加）"
+                  + "升 exact 再 apply；是第三個人 → add-person 以該寫法為 name 建檔（exact 單命中"
+                  + "優先於寬鬆碰撞）再 apply；配對確定錯誤 → reject。候選全數出清後名字回到本命令。")
         }
 
         func printUnkeyable() {
@@ -549,7 +552,8 @@ struct BootstrapPeople: ParsableCommand {
         }
 
         guard !cands.isEmpty else {
-            print("無候選（literal 作者皆已有對應 person，或全部低於門檻）")
+            print("無建檔候選（可能：literal 已有對應 person／低於 --min-occurrences 門檻／"
+                  + "與既有 person 寬鬆共鍵而在下方 pending 清單）")
             printPendingResolution()   // R2-fix R3-8：零建檔候選時 pending 更該被看見
             printUnkeyable()   // 沒有候選時，這些**更**該被看見
             return
@@ -1340,10 +1344,10 @@ struct ResolvePeople: ParsableCommand {
             let breakdown = Dictionary(grouping: candidates, by: \.tier)
                 .map { "\($0.key.rawValue) \($0.value.count)" }.sorted().joined(separator: "、")
             throw ValidationError(
-                "裸 --apply 拒絕：候選含寬鬆提名層（\(breakdown)）。"
-                + "用 --tier exact 只套完全命中，或顯式列出要套用的層"
-                + "（--tier reorder 等；initials 層 apply 前必查證），"
-                + "或用 --citekey / --person 收窄。")
+                "--apply 拒絕：套用集含寬鬆提名層（\(breakdown)）。"
+                + "寬鬆層一律要 --tier 具名——用 --tier exact 只套完全命中，"
+                + "或顯式列出要套的層（--tier reorder 等；initials 層 apply 前必查證）。"
+                + "收窄（--citekey／--person）不豁免此要求。")
         }
 
         /// #231：歧義**不再靜默丟棄**。它與「沒人匹配」語意不同——後者是 `.literal`
@@ -1521,8 +1525,9 @@ struct ResolvePeople: ParsableCommand {
         printCountsAndSunk()
         printAmbiguities()
         if apply {
-            // 篩選條件寫了卻一個都沒中——多半是打錯 key，別靜默什麼都不做
-            if !(citekey.isEmpty && person.isEmpty), candidates.isEmpty {
+            // 篩選條件寫了卻一個都沒中——多半是打錯 key，別靜默什麼都不做。
+            // R4-8：--tier 也算篩選條件（R3 抓到 --tier reorder 零命中印 ✓ exit 0）
+            if !(citekey.isEmpty && person.isEmpty && tier.isEmpty), candidates.isEmpty {
                 throw ValidationError(
                     "--citekey / --person 的篩選條件沒有命中任何候選"
                     + "（共 \(all.count) 個候選）——請對照上面的清單確認 key 是否正確")

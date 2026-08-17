@@ -187,8 +187,10 @@ public enum PersonBootstrap {
     /// **已存在的 person 不重複產出**——它們的 alias 已在 `PersonResolver` 的比對範圍內，
     /// 再造一個新 person 就是在製造重複。
     public static func candidates(entries: [Entry], existing: [Person],
-                                  rejected: Set<ResolutionPairing>) -> [Candidate] {
-        resolve(entries: entries, existing: existing, rejected: rejected).candidates
+                                  rejected: Set<ResolutionPairing>,
+                                  confirmed: [ResolutionPairing: String]) -> [Candidate] {
+        resolve(entries: entries, existing: existing,
+                rejected: rejected, confirmed: confirmed).candidates
     }
 
     /// 單一 traversal，`candidates` 與 `unkeyable` 的 source of truth（#238）。
@@ -196,25 +198,37 @@ public enum PersonBootstrap {
     /// 與 `PersonResolver.resolve` / `OrgResolver.resolve` 同理由：**不寫第二支遍歷**。
     /// 兩支會分岔，而分岔的方式通常是其中一支忘了某個排除條件（機構名、已存在的
     /// alias、空字串）。
-    /// `rejected`：已否決配對（R1-fix B4）。**刻意必填**（同 `PersonResolver.resolve`
-    /// 的理由）——resolver 擴到寬鬆鍵空間後（#303），「已存在的 person 不重複產出」
-    /// 這條不變式的排除面必須跟上；而否決史決定哪些寬鬆命中已經出清、literal 何時
-    /// 回到可建檔。
+    /// `rejected`／`confirmed`：與 `PersonResolver.resolve` 同源同義，**刻意必填**
+    /// ——resolver 擴到寬鬆鍵空間後（#303），「已存在的 person 不重複產出」的排除面
+    /// 必須跟上；R3 verify 抓到本檔曾持有提名空間的**第二份不同構拷貝**（reorder＋
+    /// initials 鍵空間合併查找 → 幽靈 pending；不吃 confirmed → resolver 正提名的
+    /// literal 被鑄成重複 person）——#140「不寫第二支遍歷」的教訓在空間定義層重演。
+    /// 修法：逐 tier 查找與 resolver 同構，confirmed 同源餵入。
     public static func resolve(entries: [Entry], existing: [Person],
-                               rejected: Set<ResolutionPairing>) -> BootstrapReport {
+                               rejected: Set<ResolutionPairing>,
+                               confirmed: [ResolutionPairing: String]) -> BootstrapReport {
         // #227：已知 alias 是**全部**名字的聯集——排除條件不看指定與否。
         let knownAliases = Set(existing.flatMap { $0.names.all.map(identity) })
         var takenKeys = Set(existing.map(\.key))
-        // R1-fix B4：既有 person 的寬鬆鍵空間（reorder＋initials；exact 由
-        // knownAliases 涵蓋）。命中者不建新 person——那是 resolve 流程的工作。
-        var looseSpace: [String: Set<String>] = [:]
+        // R1-fix B4＋R3-fix R4-6：既有 person 的寬鬆鍵空間，**逐 tier 分開**
+        // （與 resolver 同構——合併成一張表會讓 literal 的 reorder 鍵撞上某名字的
+        // initials 鍵，產生 resolver 永不提名的幽靈 pending）。exact 由 knownAliases
+        // 涵蓋。命中者不建新 person——那是 resolve 流程的工作。
+        var reorderSpace: [String: Set<String>] = [:]
+        var initialsSpace: [String: Set<String>] = [:]
         for p in existing {
             for n in p.names.all {
-                looseSpace[LooseNameKey.reorderKey(n), default: []].insert(p.key)
+                reorderSpace[LooseNameKey.reorderKey(n), default: []].insert(p.key)
                 for k in LooseNameKey.initialsKeys(n) {
-                    looseSpace[k, default: []].insert(p.key)
+                    initialsSpace[k, default: []].insert(p.key)
                 }
             }
+        }
+        // confirmed 同源（R4-6）：resolver 以 confirmed-elsewhere 提名中的 literal
+        // 不得被鑄成新 person
+        var confirmedByLiteral: [String: Set<String>] = [:]
+        for (pairing, _) in confirmed where pairing.holderKind == .work {
+            confirmedByLiteral[normalize(pairing.literal), default: []].insert(pairing.judgedKey)
         }
         // 否決比對與 resolver 同一套正規化（R1-fix I1 的一致性）
         var rejectedNorm = Set<String>()
@@ -237,8 +251,9 @@ public enum PersonBootstrap {
                 guard !name.isEmpty else { continue }
                 let id = identity(name)
                 guard !knownAliases.contains(id) else { continue }
-                var hits = looseSpace[LooseNameKey.reorderKey(name)] ?? []
-                for k in LooseNameKey.initialsKeys(name) { hits.formUnion(looseSpace[k] ?? []) }
+                var hits = reorderSpace[LooseNameKey.reorderKey(name)] ?? []
+                for k in LooseNameKey.initialsKeys(name) { hits.formUnion(initialsSpace[k] ?? []) }
+                hits.formUnion(confirmedByLiteral[normalize(name)] ?? [])
                 let surviving = hits.filter {
                     !rejectedNorm.contains("\(e.citekey)|\(normalize(name))|\($0)")
                 }

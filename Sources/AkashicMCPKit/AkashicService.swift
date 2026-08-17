@@ -759,20 +759,28 @@ public final class AkashicService {
             func parsed(_ s: String) throws -> [String: Any] {
                 (try JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any]) ?? [:]
             }
-            // 腿 1：reject 完整提交（失敗即整體 throw——什麼都還沒動到 apply）
-            let rejectDict = try parsed(try resolvePeople(apply: nil, reject: rj))
-            // R2-fix R3-1：跨腿比對以 **rowID 前綴**（citekey:authorIndex）為準——
-            // 列表自 B8 起發三段 id、reject 回音是呼叫端字串，逐字比對在三段形下
-            // 永不命中 → skippedBecauseRejected 死亡、被否決列灌進 apply 腿、
-            // all-or-nothing 讓同批合法 apply 全滅（R2 五方收斂的 headline）。
-            // 只動比對點：單腿回應形狀是文件宣告的不變式，不改。
-            func rowPrefix(_ id: String) -> String {
-                let parts = id.split(separator: ":")
-                return parts.count >= 2 ? "\(parts[0]):\(parts[1])" : id
+            // 腿 1：reject 完整提交（失敗即整體 throw——什麼都還沒動到 apply）。
+            // R3-fix R4-1：跨腿協調用 **內部未截斷的配對**（rowID＋personKey，經
+            // inout 回傳），不用 JSON 回音——回音經 displaySafe 截斷（max 200），
+            // 超長 citekey 會讓比對失效、重演 R2-1 全滅（`rename` 收 210 字元
+            // citekey，一個出貨命令之遙）。配對級比對同時修 L1：同列
+            // 「reject A＋apply B（pinned）」不再誤標 skipped——B 進 apply 腿，
+            // 在寫入後快照上重解析、成立則落地。
+            var rejectedRows: [(rowID: String, personKey: String)] = []
+            let rejectDict = try parsed(resolvePeopleCore(apply: nil, reject: rj,
+                                                          rejectedRowsOut: &rejectedRows))
+            func splitID(_ id: String) -> (row: String, person: String?) {
+                let parts = id.split(separator: ":").map(String.init)
+                return parts.count >= 3 ? ("\(parts[0]):\(parts[1])", parts[2]) : (id, nil)
             }
-            let justRejected = Set((rejectDict["rejected"] as? [String] ?? []).map(rowPrefix))
-            let applyIDs = ap.filter { !justRejected.contains(rowPrefix($0)) }
-            let skipped = ap.filter { justRejected.contains(rowPrefix($0)) }
+            func isRejected(_ id: String) -> Bool {
+                let (row, person) = splitID(id)
+                return rejectedRows.contains {
+                    $0.rowID == row && (person == nil || person == $0.personKey)
+                }
+            }
+            let applyIDs = ap.filter { !isRejected($0) }
+            let skipped = ap.filter { isRejected($0) }
             // 腿 2：在寫入後的新快照上跑（遞迴呼叫從 store.load() 重來）
             var applyDict: [String: Any]
             if applyIDs.isEmpty {
@@ -792,6 +800,15 @@ public final class AkashicService {
             }
             return try jsonString(["legs": ["reject": rejectDict, "apply": applyDict]])
         }
+        var ignored: [(rowID: String, personKey: String)] = []
+        return try resolvePeopleCore(apply: apply, reject: reject, rejectedRowsOut: &ignored)
+    }
+
+    /// 單腿本體（R4-1 抽出）。`rejectedRowsOut`：reject 腿實際否決的配對
+    /// （**未截斷**的 rowID＋personKey）——combined 分支的跨腿協調吃這個，
+    /// 不吃經消毒截斷的 JSON 回音。
+    private func resolvePeopleCore(apply: [String]?, reject: [String]?,
+                                   rejectedRowsOut: inout [(rowID: String, personKey: String)]) throws -> String {
         let load = try store.load()
         // #232 design D5：已否決配對從 verdict references 現算（never stored），
         // resolver 在候選生成層排除**恰為**該配對——同 literal 他 entry 照提。
@@ -856,6 +873,7 @@ public final class AkashicService {
                     + "format: 改成 8")
             }
             let chosen = try dedupe(rejectIDs).map { try candidate(for: $0) }   // B8：釘 person
+            rejectedRowsOut = chosen.map { ($0.rowID, $0.personKey) }   // R4-1：協調用未截斷配對
             // 同 person 多筆 verdict 收攏成一次寫入——writePerson 是整檔改寫。
             // appendIfAbsent：寫入邊界冪等，store 永不持有重複 verdict。
             var grouped: [String: Person] = [:]
@@ -880,8 +898,10 @@ public final class AkashicService {
             }
             var result: [String: Any] = [
                 // 不誇報：只列 verdict 真的落地的配對（R8 紀律）
+                // R4-8：rejected 回音同列表用三段 pinned 形——spec 明令 faces 不得
+                // 發 legacy 形（LLM 重用回音 id 會拿到無 pin 的 id）
                 "rejected": chosen.filter { rejectWriteFailed[displaySafe($0.personKey, max: 200)] == nil }
-                    .map { "\(displaySafe($0.citekey, max: 200)):\($0.authorIndex)" },
+                    .map { "\(displaySafe($0.citekey, max: 200)):\($0.authorIndex):\(displaySafe($0.personKey, max: 200))" },
                 "personsRewritten": grouped.count - rejectWriteFailed.count,
             ]
             if !rejectWriteFailed.isEmpty { result["rejectWriteFailed"] = rejectWriteFailed }

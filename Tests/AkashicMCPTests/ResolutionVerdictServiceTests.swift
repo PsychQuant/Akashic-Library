@@ -186,7 +186,7 @@ final class ResolutionVerdictServiceTests: XCTestCase {
         XCTAssertNotNil(legs, "組合呼叫要按腿回報：\(out)")
         let rejectLeg = legs?["reject"] as? [String: Any]
         let applyLeg = legs?["apply"] as? [String: Any]
-        XCTAssertEqual(rejectLeg?["rejected"] as? [String], ["a2020x:0"])
+        XCTAssertEqual(rejectLeg?["rejected"] as? [String], ["a2020x:0:cheng-che"])   // R4-8 pinned 回音
         XCTAssertEqual(applyLeg?["applied"] as? [String], ["b2021y:0:cheng-che"])   // R3-1：applied 回音同列表用 pinned 形
         // 原事故形不再現：兩個 verdict 都在（reject 沒被 apply 的整檔改寫抹掉）
         let (vs, _) = ResolutionLedger.verdicts(references: try person().references)
@@ -197,6 +197,25 @@ final class ResolutionVerdictServiceTests: XCTestCase {
 
     /// 同一列兩邊都點到：reject 腿贏（先提交），apply 腿以 skippedBecauseRejected
     /// 回報——不是錯誤（LLM 一次 triage 常見）。
+    /// R3-fix R4-1a：同列「reject A＋apply B（pinned 到不同 person）」——B 不得
+    /// 被誤標 skipped；apply 腿在寫入後快照重解析，B 成立即落地。
+    func testSameRowRejectAAndApplyBIsNotSkipped() throws {
+        // A（cheng-che）exact 可達；B（cheng-che-2）僅 reorder 可達——
+        // 初始提名是 A；reject A 後 fall-through 提名 B，同列 apply B 應落地
+        try LibraryStore(root: root).writePerson(
+            Person(key: "cheng-che-2", names: ["Cheng Che"]))
+        let out = try json(try service.resolvePeople(
+            apply: ["a2020x:0:cheng-che-2"],
+            reject: ["a2020x:0:cheng-che"]))
+        let legs = out["legs"] as! [String: Any]
+        let applyLeg = legs["apply"] as! [String: Any]
+        XCTAssertNil(applyLeg["skippedBecauseRejected"],
+                     "pinned 到不同 person 的同列 apply 不是同一配對：\(applyLeg)")
+        XCTAssertEqual((applyLeg["applied"] as? [String])?.count, 1, "\(applyLeg)")
+        let e = try LibraryStore(root: root).load().entries.first { $0.citekey == "a2020x" }!
+        XCTAssertEqual(e.authors, [.key("cheng-che-2")])
+    }
+
     /// R2-fix R3-1：三段 pinned id 下兩腿協調照常——跨腿比對以 rowID 前綴為準。
     func testCombinedLegsWorkWithPinnedIDs() throws {
         let out = try json(try service.resolvePeople(
@@ -230,7 +249,7 @@ final class ResolutionVerdictServiceTests: XCTestCase {
                                                      reject: ["a2020x:0"]))
         let legs = out["legs"] as! [String: Any]
         XCTAssertEqual((legs["reject"] as? [String: Any])?["rejected"] as? [String],
-                       ["a2020x:0"], "reject 已提交")
+                       ["a2020x:0:cheng-che"], "reject 已提交（R4-8：回音三段 pinned 形）")
         let applyLeg = legs["apply"] as! [String: Any]
         XCTAssertNotNil(applyLeg["error"], "apply 腿的失敗要按腿收容：\(applyLeg)")
         let (vs, _) = ResolutionLedger.verdicts(references: try person().references)

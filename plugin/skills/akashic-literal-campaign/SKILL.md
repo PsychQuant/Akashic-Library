@@ -38,12 +38,13 @@ candidates 依 tier 信心降冪。讀法：
 | `initials` | 姓＋首字母（`Chen, Y.-H.`） | **逐 entry 判斷、逐筆查證**——初雜訊率近半（R2 verify 獨立量測：50/114 ≈ 44% 為 full↔full 形——兩個全寫名靠首字母共鍵，零證據），單命中只是店裡「今天」只有一個同鍵者 |
 
 - **apply 的 id 是三段形 `citekey:authorIndex:personKey`**（釘 person）——提名改指時 apply 顯式失敗，重新列出再決定，不要改手拼 id
+- **MCP 面的 apply 沒有 tier 閘**（per-id 顯式；閘只在 CLI 的篩選式批次）——LLM 走 MCP 批次時**自律等同 --tier**：一次呼叫只送同一 tier 的 id，initials 逐筆附查證
 - CLI 批次套用**必帶 `--tier`**（裸 `--apply` 面對寬鬆 tier 會拒絕）：`akashic resolve-people --apply --tier exact` 是安全的第一刀
 - reason 帶「已被否決」字樣的候選是**淘汰而得的唯一命中**——不是天然唯一，查證標準從嚴
 
 ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，**通常是不同的人**；`exact` 同名才是「各自歸屬 vs 該合併」的兩難判斷（person-verify 的兩種相反處置）。
 
-**歧義的出口（R2 定案）**：resolver 只比 `names`——補 ORCID／隸屬**不會**改變提名（區辨欄位是給你判斷用的，不是給機器的）。查證確定歸屬後，把該寫法補成正確 person 的 **variant alias 並帶 provenance reference**（查證依據落 person 記錄——bootstrap 既有紀律，這就是判斷的痕跡），重跑 resolve 讓該列升 exact 候選，再顯式 apply。這條升格是**設計的出口**不是漏洞：alias＋provenance 就是驗證記錄，exact verdict 因此誠實。
+**歧義的出口（R2 定案）**：resolver 只比 `names`——補 ORCID／隸屬**不會**改變提名（區辨欄位是給你判斷用的，不是給機器的）。查證確定歸屬後，把該寫法補成正確 person 的 **variant alias 並帶 provenance reference**（查證依據落 person 記錄——bootstrap 既有紀律，這就是判斷的痕跡），重跑 resolve 讓該列升 exact 候選，再顯式 apply。這條升格是**設計的出口**不是漏洞：alias＋provenance 合起來才是驗證記錄——**誠實邊界**：provenance reference 目前沒有任何 MCP／CLI 寫入面（`update_person` 拒收 `references`），要照 [writing-to-the-store.md](../akashic-bootstrap/references/writing-to-the-store.md) 的 decode→改→encode 路徑落檔；寫入面缺口已列 follow-up。⚠ `update_person` 的 `names` 是**整組替換**——先讀出現有 names、附加後整組回寫，只送新 alias 會刪光其他名字。**第三人情形**（都不是清單中的人）：`add-person` 以該寫法為 name 建檔——exact 單命中優先於寬鬆碰撞，該列直接升 exact 候選。
 
 ### 2. 分批（TaskCreate 編排）
 

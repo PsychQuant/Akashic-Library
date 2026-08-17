@@ -47,6 +47,14 @@ R1 verify（6-AI，FAIL：8 blocking）後定案，spec 已同步成文：
 - **D7c apply id 釘 person**（B8）：三段 id；App 面傳值物件本就免疫，MCP/CLI 的兩呼叫窗由 pin 關閉。替代案「apply 時整包重驗 literal+person」否決：id 內嵌 pin 讓錯誤在解析層顯形，不用比對快照。
 - **D7d bootstrap 排除面跟上**（B4）：寬鬆共鍵 literal 路由 `pendingResolution`（回報不丟棄）；`rejected:` 必填讓否決史決定回歸建檔的時點。
 
+### D8 — R2／R3 verify 後的裁決（2026-08-17）
+
+- **D8a tier 閘範圍**（使用者裁決「不豁免」＋R3 DA 仲裁）：受閘面封閉列舉＝CLI 篩選式批次 apply；`--citekey`／`--person` 不豁免。MCP per-id apply 刻意不在閘內（id 顯式＋tier 可見＋skill 分 tier 批次紀律），tier-acknowledgment 參數列 follow-up——spec 不寫全稱句（R2→R3 的教訓：undefined「bulk apply」總括詞）。
+- **D8b 歧義出口**（使用者裁決 alias-provenance 路）：清單中人 → variant alias＋provenance 升 exact；**第三人 → `add-person` 以該寫法為 name**（exact 單命中優先於寬鬆碰撞——最高 tier 抑制即出口，無需新機制）。誠實邊界成文：provenance 現無 MCP/CLI 寫入面（follow-up）；`update_person.names` 整組替換——指引一律寫「先讀再附加整組回寫」。
+- **D8c 兩腿協調**：以內部未截斷配對（rowID＋personKey）協調，不用消毒截斷的 JSON 回音；配對級比對讓「同列 reject A＋apply B」進 apply 腿重解析。
+- **D8d 淘汰計數**：去重 person key 集合——同一否決跨多鍵空間計一次。
+- **D8e bootstrap 空間同構**：逐 tier 查找＋confirmed 同源必填——不留 resolver 提名空間的第二份拷貝（#140 在空間定義層的重演）。
+
 ## Risks / Trade-offs
 
 - **initials 碰撞面**（93/724「姓＋首字母」鍵對 2+ 人）→ 湧出的是 ambiguity 列（回報不解決）與弱證據 candidates；防線＝tier 可見＋campaign 逐 distinct 查證紀律，契約不禁止 apply

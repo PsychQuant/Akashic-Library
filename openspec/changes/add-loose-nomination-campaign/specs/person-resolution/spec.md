@@ -140,7 +140,9 @@ Candidate identifiers listed for apply — and the identifiers every shipped fac
 
 ### Requirement: Bulk apply SHALL NOT cross tiers implicitly
 
-Applying any looser-than-exact candidate in bulk SHALL require naming the tier explicitly. Scoping by entry or person SHALL NOT exempt this requirement — entry/person scoping narrows the set but does not attest tier awareness, and person scoping in particular selects exactly the co-keyed rows a name-collision defect produces. A face SHALL refuse a bulk apply whose selected set contains looser-than-exact rows unless the tier filter names them.
+The gated surface is a **closed enumeration of one**: the CLI's filter-driven bulk apply (`resolve-people --apply`, whose apply set is produced by filters rather than by naming identifiers). On that surface, applying any looser-than-exact candidate SHALL require naming the tier explicitly, and scoping by entry or person SHALL NOT exempt the requirement — narrowing does not attest tier awareness, and person scoping in particular selects exactly the co-keyed rows a name-collision defect produces.
+
+The MCP apply is **deliberately outside this gate**: its apply set is a list of explicit per-row identifiers, each row's tier is disclosed in the listing, and the campaign skill binds its operators to per-tier batching discipline. This asymmetry is recorded in `mcp-cli-parity.md`; a tier-acknowledgment parameter for the MCP face is tracked as a follow-up, not silently absent. Do not generalize this requirement to "every face" — that unqualified form was the R2→R3 defect (an undefined blanket term whose reach exceeded the enumerated surfaces).
 
 #### Scenario: Bare bulk apply refuses on mixed tiers
 

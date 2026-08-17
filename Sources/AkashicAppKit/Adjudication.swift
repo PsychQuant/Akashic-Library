@@ -143,7 +143,7 @@ public final class PeopleResolveModel {
         refresh()
     }
 
-    private func id(of c: ResolutionCandidate) -> String { c.rowID }   // 複合鍵住在型別上（#236 R4）
+    private func id(of c: ResolutionCandidate) -> String { c.pinnedID }   // 複合鍵＋pin 住型別上（#236 R4／R4-8：skip 也釘 person——同列改指後不再誤 skip）
 }
 
 public enum AdjudicationError: Error, LocalizedError, Equatable {

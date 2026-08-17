@@ -67,11 +67,12 @@ akashic_person（key:）                 # 單人聚合：names / affiliations /
 給出報告，然後**問使用者**。動手寫入前先確認 store 有退路（`git status` 乾淨或先 commit）——批次寫入沒有內建復原（理由見 bootstrap 的對等段落，不複製）。確認後：
 
 ```
-akashic_resolve_people apply:["<citekey>:<index>", …]     # 確認歸戶——同動作寫 resolution-confirmed
-akashic_resolve_people reject:["<citekey>:<index>", …]    # 查過了不是他——寫 resolution-rejected，entry 不動
+akashic_resolve_people apply:["<citekey>:<index>:<personKey>", …]   # 確認歸戶——同動作寫 confirmed（rule 依 tier 分開記）
+akashic_resolve_people reject:["<citekey>:<index>:<personKey>", …]  # 查過了不是他——寫 rejected，entry 不動
 ```
 
-- apply 與 reject **不可同一次呼叫**（相反的 verdict 各自有失敗語意）——分兩次
+- id 用**列表給的三段形**（#303 起釘 person——提名改指時顯式拒絕；不要手拼）
+- apply 與 reject **可同一次呼叫**（#272 起兩段式：reject 腿先完整提交、apply 腿在新快照重解析、按腿回報）；CLI 面維持分兩次
 - reject 之後該配對不再被提名；**同 literal 在別的 entry 是另一次觀察**，照提、照查
 - **第三個出口——查不出來**：證據不足以判定時，用 `akashic_record_divergence` 把進度落地（question＝這個配對的同一性問題、candidates＝兩造、rests_on＝已蒐集的 URL＋取得日期）再停手。pending 是現算的缺席、什麼都不記；divergence 才是「查過什麼、查到哪、為何停」的載體，下次接手從那裡續查
 - verdict 需要 store format ≥ 8；format 不足時 reject 會硬擋指路、apply 照常歸戶但跳過 verdict 並明說（**不必預查 format**——兩個失敗模式都會自己說話，直接動手即可）
@@ -81,7 +82,7 @@ akashic_resolve_people reject:["<citekey>:<index>", …]    # 查過了不是他
 
 ## 邊界
 
-- **歧義列（同 literal 對到 2+ person）不可 apply**——查證到能區分後，先用 bootstrap 把區辨欄位（ORCID／隸屬）補進正確的 person 記錄，再重跑 resolve
-- **配對不在 candidates 列時沒有 apply 把手**（使用者直接指名的 literal 若未 alias 完全命中，就不會成為候選；resolver 對不在列的 id 直接拒絕）——先用 bootstrap 把該 literal 補成 person 的 alias（或補區辨欄位），重跑 resolve 讓配對成為候選，再走 apply
+- **歧義列（同 literal 對到 2+ person）不可 apply**。出口（#303 R2/R3 定案）：**補區辨欄位不會改變提名**（resolver 只比 names——ORCID／隸屬是給你判斷用的）。查證確定歸屬後：(a) 是清單中某人 → 把該寫法補成其 **variant alias 並帶 provenance reference** → 該列升 exact 候選 → 顯式 apply；(b) 是**第三個人** → `add-person` 以該寫法為 name 建檔 → exact 單命中優先於寬鬆碰撞 → 顯式 apply。⚠ alias 補寫用 `update_person` 時 `names` 是**整組替換**——先讀出現有 names、附加後整組回寫，直接送單一 alias 會刪光其他名字
+- **配對不在 candidates 列時沒有 apply 把手**——同上：先讓配對能以 exact 成為候選（補 alias 或建檔），重跑 resolve 再 apply
 - **查不出來是合法結果**。「證據不足以判定」就說證據不足，讓配對留在 pending **並記 divergence**（Step 3 的第三個出口）——pending 可見是設計，不是待消滅的數字
 - **承重頁面要存檔**：判定所依據的網頁內容存進 `sources/`（content-addressed）、經 bootstrap 寫入 person 的 `references`——寫法依 [writing-to-the-store.md](../akashic-bootstrap/references/writing-to-the-store.md)。非承重的佐證列 URL 即可。（verdict **刻意**不攜 rests-on——設計裁決見 Akashic-Library#280：已判定的證據住 person `references`、未判定的住 divergence `restsOn`，兩載體依生命週期分工）

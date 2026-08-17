@@ -223,30 +223,39 @@ public enum PersonResolver {
                 // 跨 tier 淘汰累計（R2-fix R3-6，spec R7 後果 b）：高 tier 的命中
                 // 被否決**清空**而 fall-through 時，低 tier 的提名同樣要留痕——
                 // 「使用者的 no 變成對別人的 yes」不分層都要可見。
-                var eliminatedAbove = 0
+                // R3-fix R4-2：以**去重的 person key 集合**計淘汰——同一筆否決的
+                // 對象幾乎必然同時住在多個鍵空間（exact 命中者的名字也在 reorder／
+                // initials map 裡），逐 tier 累加會把 1 筆否決報成 3（R3 實測同畫面
+                // 自相矛盾：reason 說 3、沉底列與三態計數說 1）。
+                var eliminated = Set<String>()
                 for (tier, rawHits, baseReason) in tiers {
                     let hits = rawHits.filter { key in
                         !rejectedNorm.contains("\(entry.citekey)|\(norm)|\(key)")
                     }
-                    guard !hits.isEmpty else {
-                        eliminatedAbove += rawHits.count - hits.count
-                        continue
-                    }
+                    eliminated.formUnion(rawHits.subtracting(hits))
+                    guard !hits.isEmpty else { continue }
                     if hits.count == 1, let key = hits.first {
                         var reason = baseReason
                         // R3-7：confirmed-elsewhere 的弱血統可見——exact 血統不加噪音
                         if tier == .confirmedElsewhere,
                            let rules = confirmedByLiteral[norm]?[key] {
-                            let weak = rules.filter { $0 != ResolutionLedger.personRule }.sorted()
+                            // R4-8：rule 尾註是 store 衍生自由文字——只 verbatim 已知
+                            // 封閉形（^[a-z][a-z-]*$），異形夾住並標記，防偽造揭露樣式
+                            // 混進 reason（R3 security 的 forged-disclosure probe）
+                            let weak = rules.filter { $0 != ResolutionLedger.personRule }
+                                .map { r -> String in
+                                    r.range(of: "^[a-z][a-z-]{0,60}$",
+                                            options: .regularExpression) != nil
+                                        ? r : "非標準rule"
+                                }.sorted()
                             if !weak.isEmpty {
                                 reason += "（rule: \(weak.joined(separator: "、"))）"
                             }
                         }
                         // **淘汰而得的唯一命中要留痕**（R1-fix B7）：同 tier 餘一
-                        // 與高 tier 全滅 fall-through 兩種來源都算
-                        let removed = (rawHits.count - hits.count) + eliminatedAbove
-                        if removed > 0 {
-                            reason += "（此位置 \(removed) 個候選配對已被否決）"
+                        // 與高 tier 全滅 fall-through 兩種來源都算——去重後計人
+                        if !eliminated.isEmpty {
+                            reason += "（此位置 \(eliminated.count) 個候選配對已被否決）"
                         }
                         candidates.append(ResolutionCandidate(
                             citekey: entry.citekey, authorIndex: i, literal: literal,

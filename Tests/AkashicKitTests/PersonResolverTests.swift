@@ -169,6 +169,24 @@ final class PersonResolverTests: XCTestCase {
                       "\(r.candidates.first?.reason ?? "")")
     }
 
+    // MARK: - R3-fix R4-2：淘汰計數去重（1 筆否決不得報成 3）
+
+    func testEliminationCountIsDeduplicatedAcrossTiers() {
+        // 被否決者的名字同時住 exact／reorder／initials 三個鍵空間——計人不計 tier
+        let rejected: Set<ResolutionPairing> = [
+            ResolutionPairing(holderKind: .work, holder: "x2025",
+                              literal: "Che Cheng", judgedKey: "cheng-che")]
+        let r = PersonResolver.resolve(
+            entries: [entry("x2025", literal: "Che Cheng")],
+            people: [person("cheng-che", names: ["Che Cheng"]),
+                     person("cheng-che-2", names: ["Che Cheng"])],
+            rejected: rejected, confirmed: [:])
+        let reason = r.candidates.first?.reason ?? ""
+        XCTAssertTrue(reason.contains("1 個候選配對已被否決"),
+                      "同一否決跨多鍵空間只計一次：\(reason)")
+        XCTAssertFalse(reason.contains("2 個") || reason.contains("3 個"), reason)
+    }
+
     // MARK: - R1-fix I1：否決比對與提名同一套正規化
 
     func testRejectionSuppressionMatchesNormalizedLiteral() {

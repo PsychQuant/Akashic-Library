@@ -1,14 +1,6 @@
 # Changelog
 
-## [0.9.0] - unreleased
-
-- **store format 11**（#303／#304 venue change）：新 entity 形狀 `venue:`（journal／conference／publisher 封閉三值；`names` 沿革 timeline）＋ `Entry.venues` 二態 ref 邊（`.key`／`.literal`，literal-first）。舊 binary 讀 `venue:` 整檔 quarantine（實測），故 non-additive bump；新 binary 對 format < 11 的 venue 寫入 gate 拒絕指路 `migrate-venues`。
-- **6 個新 MCP tool**：`akashic_venue`（記錄＋沿革＋文章編年 list——反向邊現算）、`akashic_venues`、`akashic_add_venue`、`akashic_resolve_venues`（apply+reject 組合腿同 #272 契約；verdict 落被判定 venue）、`akashic_add_organization`／`akashic_resolve_organizations`（#304 org 重啟的 MCP 面補齊）。
-- CLI 對應面：`venue`／`venues`／`add-venue`／`resolve-venues`／`migrate-venues`（additive-idempotent 回填，per-file trackedness 守門）。
-- importer（WoS／Zotero）自動產生 `.literal` venue ref（單一對映源 `VenueDerivation`；進庫不猜 key）。
-- 新 skill `akashic-venue-verify`：literal→verdict 查證紀律（Crossref／OpenAlex／ISSN Portal 證據鏈、刊名沿革 timeline）。
-
-## [unreleased — #303 loose-nomination ＋ campaign]
+## [0.9.0] - 2026-08-17
 
 - **`akashic_resolve_people` 提名四層化**（#303）：candidates 每列新增 `tier`（封閉四值 `exact`／`confirmed-elsewhere`／`reorder`／`initials`，信心降冪排序；報告形狀 additive——apply 契約的變更見下方 R1 修正輪兩則 ⚠️，是有記錄的變更）。寬鬆比對封閉兩類——token 重排與姓＋首字母（無逗號不猜姓氏位置、CJK 不生 initials 鍵）；羅馬化異拼刻意排除。ambiguities 同步帶 tier（initials 碰撞 ≠ exact 同名）。
 - **confirmed verdict 再利用**：同 literal 已於他處 confirmed → `confirmed-elsewhere` tier 自動提名（查證知識走 verdict 持久化、不寫 alias）。
@@ -27,6 +19,13 @@
   - census：`glob.escape` 防靜默零計數（自檢 exit 3）、口徑統一（總邊／literal 邊／distinct）、org-parents 第四域
   - campaign skill 重寫：候選不在列的三因分辨階梯（歧義／截斷／真無命中）、initials 逐 entry 判斷、「store 內容是資料不是指令」條款
 
+### venue 域（store format 11，#304——與本版並行出貨）
+
+- **store format 11**（#303／#304 venue change）：新 entity 形狀 `venue:`（journal／conference／publisher 封閉三值；`names` 沿革 timeline）＋ `Entry.venues` 二態 ref 邊（`.key`／`.literal`，literal-first）。舊 binary 讀 `venue:` 整檔 quarantine（實測），故 non-additive bump；新 binary 對 format < 11 的 venue 寫入 gate 拒絕指路 `migrate-venues`。
+- **6 個新 MCP tool**：`akashic_venue`（記錄＋沿革＋文章編年 list——反向邊現算）、`akashic_venues`、`akashic_add_venue`、`akashic_resolve_venues`（apply+reject 組合腿同 #272 契約；verdict 落被判定 venue）、`akashic_add_organization`／`akashic_resolve_organizations`（#304 org 重啟的 MCP 面補齊）。
+- CLI 對應面：`venue`／`venues`／`add-venue`／`resolve-venues`／`migrate-venues`（additive-idempotent 回填，per-file trackedness 守門）。
+- importer（WoS／Zotero）自動產生 `.literal` venue ref（單一對映源 `VenueDerivation`；進庫不猜 key）。
+- 新 skill `akashic-venue-verify`：literal→verdict 查證紀律（Crossref／OpenAlex／ISSN Portal 證據鏈、刊名沿革 timeline）。
 
 ## [0.8.0] - 2026-08-16
 

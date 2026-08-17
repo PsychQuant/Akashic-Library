@@ -72,7 +72,15 @@ public enum StoreVersion {
     ///   write gate 對 format < 10 拒寫含 names 的 person。organization 不變
     ///   （其 names 是時間軸，巢狀化是另一個設計題——刻意的不對稱）。
     ///   （原設計佔 8；實作時 8/9 已被 #232／#223 佔用，順延為 10。）
-    public static let supported = 10
+    /// - **11** ＝ 新一級形狀 `venue:`（期刊／會議／出版社，#304）＋ entry 的
+    ///   `venues:` 二態 ref 邊。**non-additive，實測依據**（2026-08-16，format-10
+    ///   binary 對含 `venue:` 檔的 store）：未知頂層形狀 → **整檔 quarantine**
+    ///   （「頂層的無值鍵 『venue』 不是已知形狀」——記錄從計數與查詢中消失，
+    ///   與 format 6 的 ended 前例同型）；entry 的 `venues:` 鍵雖落在
+    ///   tolerant-preserve 層（舊 binary 保留不解讀），但「保留而不解讀」對
+    ///   ref 邊即反向查詢靜默漏資料。write gate 對 format < 11 拒寫 venue 記錄
+    ///   與含 `venues` 的 entry。
+    public static let supported = 11
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，

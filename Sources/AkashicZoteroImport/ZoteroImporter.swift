@@ -54,6 +54,10 @@ public struct ZoteroImporter {
         let readResult = try ZoteroReader.readItems(dbPath: zoteroDB.path, libraryID: libraryID)
         let items = readResult.items
         let load = try store.load()
+        // #304：venue 派生 gate——format < 11 的 store 表達不了 `venues`（writeEntry
+        // 會拒），匯入不派生。**這不是有損**：journaltitle 等字串照樣進 `fields`，
+        // bump 後 `migrate-venues` 從那裡冪等回填。讀不到 format 視同不具備（保守側）。
+        let venueCapable = ((try? StoreVersion.read(root: store.root)) ?? 0) >= 11
 
         var report = ImportReport()
         report.skippedLinkedAttachments = readResult.skippedLinkedAttachments
@@ -161,6 +165,7 @@ public struct ZoteroImporter {
                     let fieldsBefore = Set(existing.fields.keys)
                     let authorsBefore = existing.authors
                     ZoteroMapping.applyBiblatexFields(from: item, to: &existing)
+                    if !venueCapable { existing.venues = [] }
                     let removed = fieldsBefore.subtracting(existing.fields.keys).sorted()
                     for k in removed { report.fieldsRemovedByPull[k, default: 0] += 1 }
                     if hadResolvedAuthors {
@@ -197,6 +202,7 @@ public struct ZoteroImporter {
                 existingCitekeys.insert(citekey)
                 var entry = Entry(id: UUID(), citekey: citekey, type: "misc", title: "")
                 ZoteroMapping.applyBiblatexFields(from: item, to: &entry)
+                if !venueCapable { entry.venues = [] }
                 entry.authors = item.authors.map { .literal($0.display) }
                 entry.provenance = Provenance(
                     zoteroKey: item.key, zoteroVersion: item.version,

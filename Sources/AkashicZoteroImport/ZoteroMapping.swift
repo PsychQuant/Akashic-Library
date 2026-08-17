@@ -119,6 +119,13 @@ public enum ZoteroMapping {
             fields[key] = value
         }
         entry.fields = fields
+        // #304：載體二態 ref。**只在 venues 為空時推導**——已歸戶的 `.key` 或先前
+        // 的 literal 一律不覆寫（Zotero pull 對 fields 跟隨上游，但 venues 的歸戶
+        // 判定不是 Zotero 供給的資料，同 `.key` 作者永不被覆寫的既有紀律）。
+        // 對映唯一來源在 VenueDerivation（與 WoS／migration 共用）。
+        if entry.venues.isEmpty {
+            entry.venues = VenueDerivation.literals(for: entry)
+        }
         // 鍵域收窄後只剩 zotero 一種，而它整批以 Zotero 為準（#223）。使用者自有的
         // 副本引用改住 `akashic.sources`（以 digest 指涉），不經此路徑，所以這裡
         // 不再需要過濾保留任何附件種類——namespace 契約已經擋住覆寫。

@@ -15,7 +15,7 @@
 
 ### 可以儲存關係的地方是封閉列舉
 
-以下 **13 條**是 store 裡**僅有的**關係邊。**封閉列舉，不得依性質相似類推下一條**：
+以下 **14 條**是 store 裡**僅有的**關係邊。**封閉列舉，不得依性質相似類推下一條**：
 
 | # | 存在哪 | 指向 | 邊界條件 |
 |---|---|---|---|
@@ -29,9 +29,10 @@
 | 8 | `Organization.parents` | organization | `OrgRef`，時間軸；與 7 **刻意不共用型別** |
 | 9 | `Divergence.candidates` | work／person／organization | `key` + `shape: EntityKind`；**短暫記錄**，消歧後即刪 |
 | 10 | `Divergence.judgement.prefers` | 本記錄的某個候選 | decode 時驗證存在性；同樣短暫 |
-| 11 | `Person.references` / `Organization.references` | `sources/` 的內容 | `ProvenanceReference`，content-addressed（`sha256:`）|
+| 11 | `Person.references` / `Organization.references` / `Venue.references` | `sources/` 的內容 | `ProvenanceReference`，content-addressed（`sha256:`）；`Venue.references` 於 #304 venue change 隨形狀新增——同型別、同定址法，列入以維持封閉性 |
 | 12 | `Divergence.judgement.restsOn` | `sources/` 的內容 | 同 11 的定址法；**與 10 同一筆記錄的另一條邊** |
-| 13 | `Person.references` / `Organization.references` 中 verdict 欄位對的 `value` | work／person／organization（by key） | **僅限封閉欄位對** `resolution-confirmed`／`resolution-rejected`（#232）；value 文法 `<kind>:<key> :: <literal>`。正典側是**被判定的記錄**：verdict 是關於它的同一性的事實，存在 entry 側會讓 work 長出無上界的 per-person 清單，且 reject 依規格不動 entry。與 11 **不同條**：11 指向存檔內容（content-addressed），13 是 `ProvenanceReference.value` 首次成為跨 entity 指標（by key）——`rename` 因此必須遷移 `work:` value（#232 verify NEW-1 實測不遷移＝否決安靜變回待判） |
+| 13 | `Person.references` / `Organization.references` / `Venue.references` 中 verdict 欄位對的 `value` | work／person／organization／venue（by key） | **僅限封閉欄位對** `resolution-confirmed`／`resolution-rejected`（#232）；value 文法 `<kind>:<key> :: <literal>`。正典側是**被判定的記錄**：verdict 是關於它的同一性的事實，存在 entry 側會讓 work 長出無上界的 per-person 清單，且 reject 依規格不動 entry。與 11 **不同條**：11 指向存檔內容（content-addressed），13 是 `ProvenanceReference.value` 首次成為跨 entity 指標（by key）——`rename` 因此必須遷移 `work:` value（#232 verify NEW-1 實測不遷移＝否決安靜變回待判）。`resolve-venues` 的 verdict 落被判定的 venue 記錄（#304，同一欄位對、同文法） |
+| 14 | `Entry.venues` | venue | `.key` 已歸戶／`.literal` 未歸戶，兩者都合法（與第 1 條同二態形；#304。作品側正典的六理由同適用——刊名沿革中舊文章掛舊刊名即第 4 條可表達性的 venue 版；編年 list 由本邊反向現算，venue 記錄**不存**文章清單） |
 
 **每一條邊只存一次，存在上表指定的那一側。反向一律現算。**
 
@@ -52,7 +53,7 @@
 # ① 有哪些形狀（不要只 grep 你想得到的型別——這是第一次出錯的原因）
 grep -n "case " Sources/AkashicCore/YAML.swift   # EntityKind.allCases
 # ② 每個形狀的每個欄位（第二次出錯的原因：補了形狀、沒窮舉它的欄位）
-grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Temporal,Provenance}.swift
+grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Temporal,Provenance,Venue}.swift
 # ③ 逐欄位問：它會被序列化嗎？它的值指涉另一個實體或一份存檔嗎？
 ```
 
@@ -115,6 +116,8 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
 - tag 的成員清單（4 的反向）
 - person／organization 的 `divergences:`（9 的反向）——「這個人牽涉哪些未決同一性
   問題」由掃 divergence 記錄算出，不在被指涉的那一側存一份
+- venue 記錄的 `works:`／文章清單（14 的反向）——編年 list 由 `venue_refs` 索引
+  現算（`QueryEngine.venueWorks`），期刊的「編年期刊 list」是呈現不是欄位（#304 裁決五a）
 
 `PersonCLITests.testPersonTypeHasNoWorksMember`（型別反射）與
 `testHandWrittenWorksFieldLandsInUnknownFields`（tolerant-preserve 反向）是第一條的機械防線。

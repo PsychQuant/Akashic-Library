@@ -31,22 +31,24 @@ final class PersonBootstrapTests: XCTestCase {
     /// R3-fix R4-6a：鍵空間逐 tier 查找——literal 的 reorder 鍵撞上某名字的
     /// initials 鍵**不是**命中（resolver 不會提名），不得產生幽靈 pending。
     func testCrossSpaceKeyCollisionDoesNotCreatePhantomPending() {
-        // 「Chen Ch」的 reorder 鍵 "ch chen"…重點：其 reorder 鍵不等於任何名字的
-        // reorder 鍵、initials 鍵也不共鍵時，即使字串巧合撞上對方 initials 空間
-        // 的鍵值，也不算命中
-        let existing = [Person(key: "chen-chun-houh",
-                               names: PersonNames(variant: ["Chen, Chun-Houh"]))]
+        // R5 換上可鑑別 fixture（R4 抓到原 fixture 兩邊皆假、斷言退化 false==false）：
+        // literal「Yh Chen」的 **reorder 鍵**（"chen yh"）恰等於 person
+        // 「Chen, Yi-Hau」的 **initials 鍵**——合併空間實作會幽靈命中（bootstrap
+        // pending 而 resolver 靜默），分空間實作兩面同構（皆無命中 → 建檔候選）。
+        let existing = [Person(key: "chen-yi-hau",
+                               names: PersonNames(variant: ["Chen, Yi-Hau"]))]
         var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
-        e.authors = [.literal("Chen Ch")]   // reorder 鍵 "ch chen"＝該名字 initials 鍵？
+        e.authors = [.literal("Yh Chen")]
         let r = PersonBootstrap.resolve(entries: [e], existing: existing,
                                         rejected: [], confirmed: [:])
-        // resolver 對此 literal 的提名（同構檢查）：
         let rr = PersonResolver.resolve(entries: [e], people: existing,
                                         rejected: [], confirmed: [:])
         let resolverNominates = !rr.candidates.isEmpty || !rr.ambiguities.isEmpty
         XCTAssertEqual(!r.pendingResolution.isEmpty, resolverNominates,
                        "bootstrap pending ⟺ resolver 有提名——兩份空間不得分岔：" +
                        "pending=\(r.pendingResolution)，resolver=\(rr)")
+        XCTAssertFalse(resolverNominates, "本 fixture 的預期：兩面皆無命中")
+        XCTAssertEqual(r.candidates.count, 1, "無命中 → 建檔候選：\(r)")
     }
 
     /// R3-fix R4-6b：resolver 正以 confirmed-elsewhere 提名的 literal，bootstrap
@@ -65,6 +67,27 @@ final class PersonBootstrapTests: XCTestCase {
         XCTAssertTrue(r.candidates.isEmpty,
                       "confirmed-elsewhere 提名中的 literal 不得建檔：\(r.candidates)")
         XCTAssertEqual(r.pendingResolution.first?.matchedKeys, ["hsu-yung-fong"])
+    }
+
+    /// R5（R4L-2）：identity 命中但非 normalize 相等（重排形）→ pending 而非隱形；
+    /// 否決後回歸建檔（先前是兩面皆不可行動的死路）。
+    func testReorderEquivalentLiteralRoutesToPendingNotInvisible() {
+        let existing = [Person(key: "cheng-che",
+                               names: PersonNames(variant: ["Che Cheng"]))]
+        var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        e.authors = [.literal("Cheng Che")]   // 重排形：identity 相等、normalize 不等
+        let r = PersonBootstrap.resolve(entries: [e], existing: existing,
+                                        rejected: [], confirmed: [:])
+        XCTAssertTrue(r.candidates.isEmpty)
+        XCTAssertEqual(r.pendingResolution.first?.matchedKeys, ["cheng-che"],
+                       "重排等價要以 pending 可見，不得隱形：\(r)")
+        // 否決該配對後回歸建檔候選（死路解除）
+        let rejected: Set<ResolutionPairing> = [
+            ResolutionPairing(holderKind: .work, holder: "x2025",
+                              literal: "Cheng Che", judgedKey: "cheng-che")]
+        let r2 = PersonBootstrap.resolve(entries: [e], existing: existing,
+                                         rejected: rejected, confirmed: [:])
+        XCTAssertEqual(r2.candidates.count, 1, "全否決後回歸建檔：\(r2)")
     }
 
     /// R2-fix R3-4：部分否決**不**讓同一 literal 分裂成「建檔候選＋pending 並排」。

@@ -40,13 +40,13 @@ org_distinct = collections.Counter()
 # glob.escape（R1-fix I4）：root 含 glob metacharacter（`[a]` 等）時，未跳脫的
 # pattern 會靜默匹配零檔——輸出與「查完歸零」無法區分，正是本檔 header 對 venue
 # 域禁止的那種折疊。
-# 佈局模式**切換**不合併（R4-8——loader 的 usesEntitiesLayout 同語意）：
-# entities/ 有檔 → 只掃 entities/（合併掃描會把半遷移 store 的同一記錄雙計）；
-# 否則掃 legacy（entries/＋people/）。
-entity_files = glob.glob(glob.escape(root) + "/entities/*.yaml")
-files = entity_files if entity_files else (
-    glob.glob(glob.escape(root) + "/entries/*.yaml")
-    + glob.glob(glob.escape(root) + "/people/*.yaml"))
+# 合併掃描（R5 更正 R4-8 的「切換」誤修）：loader 的 load() 本來就**並存讀取**
+# entities/＋entries/＋people/（LibraryStore doc「與 legacy 並存讀取」；中斷遷移
+# 的 store 在 loader 眼中就是兩筆）——census 與 loader 同語意才不會在混合佈局
+# 報假零（R4 實測：legacy＋1 個 entities 檔 → 切換版報 0，doctor 報 2）。
+files = (glob.glob(glob.escape(root) + "/entities/*.yaml")
+         + glob.glob(glob.escape(root) + "/entries/*.yaml")
+         + glob.glob(glob.escape(root) + "/people/*.yaml"))
 if not files and os.path.isdir(f"{root}/entities") and os.listdir(f"{root}/entities"):
     print(f"✗ entities/ 非空但匹配不到任何 .yaml——路徑或權限異常，拒絕輸出計數", file=sys.stderr)
     sys.exit(3)
@@ -93,7 +93,7 @@ def row(label, key, lit, distinct):
     print(f"{label:<14} 總邊 {total:>5}｜literal 邊 {lit}（佔 {pct}）｜key {key}"
           f"｜distinct literal {distinct}")
 
-print(f"store: {root}（format {fmt}）")
+print(f"store: {root}（format {fmt if fmt else 'markerless≈1'}）")
 row("author", a_key, a_lit, len(a_distinct))
 if fmt >= 11:
     row("venue", v_key, v_lit, len(v_distinct))

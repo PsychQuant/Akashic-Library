@@ -1458,9 +1458,10 @@ struct ResolvePeople: ParsableCommand {
                 // names）。設計的出口：查證後把正確寫法補成 variant alias（帶
                 // provenance），該列升 exact 候選再顯式 apply。
                 print("  〔寬鬆層〕縮寫／重排共鍵通常是**不同的人**——不歸戶也不合併。"
-                      + "出口：查證確定歸屬後，把這個寫法補成該 person 的 variant alias"
-                      + "（帶 provenance reference，走 bootstrap 紀律）→ 重跑 resolve"
-                      + " → 該列升 exact 候選 → 顯式 apply。")
+                      + "出口：查證後——是清單中某人 → 補 variant alias（帶 provenance；"
+                      + "⚠ update-person 的 names 是整組替換，先讀出現有 names 附加後回寫）"
+                      + "→ 該列升 exact 再 apply；是第三個人 → add-person 以該寫法為 name 建檔"
+                      + "（exact 單命中優先於寬鬆碰撞）再 apply。")
             }
         }
 
@@ -1492,8 +1493,13 @@ struct ResolvePeople: ParsableCommand {
                 let c = byRule[rule] ?? (confirmed: 0, rejected: 0, pending: 0)
                 let nonZero = c.confirmed + c.rejected + c.pending > 0
                 guard nonZero || rule == ResolutionLedger.personRule else { continue }
+                // R5：標籤過文法夾（同 resolver reason 的夾法）——rule 尾註是 store
+                // 衍生自由文字，不夾的話手改 verdict 可在標籤裡偽造整行計數樣式
+                let label = rule.range(of: "^[a-z][a-z-]{0,60}$",
+                                       options: .regularExpression) != nil
+                    ? rule : "非標準rule（\(displaySafe(rule, max: 60))）"
                 // 計數不報比率（分母含 censoring，比率會邀請錯誤推論）——未處理量必須可見
-                print("三態計數（\(displaySafe(rule, max: 100))）：已確認 \(c.confirmed)／已否決 \(c.rejected)／未處理 \(c.pending)")
+                print("三態計數（\(label)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／未處理 \(c.pending)")
             }
         }
 
@@ -1529,7 +1535,7 @@ struct ResolvePeople: ParsableCommand {
             // R4-8：--tier 也算篩選條件（R3 抓到 --tier reorder 零命中印 ✓ exit 0）
             if !(citekey.isEmpty && person.isEmpty && tier.isEmpty), candidates.isEmpty {
                 throw ValidationError(
-                    "--citekey / --person 的篩選條件沒有命中任何候選"
+                    "--citekey / --person / --tier 的篩選條件沒有命中任何候選"
                     + "（共 \(all.count) 個候選）——請對照上面的清單確認 key 是否正確")
             }
             // #232：apply 改走 **AkashicService**（與 MCP 同一條實作路徑）——

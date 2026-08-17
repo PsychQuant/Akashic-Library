@@ -209,6 +209,18 @@ public enum PersonBootstrap {
                                confirmed: [ResolutionPairing: String]) -> BootstrapReport {
         // #227：已知 alias 是**全部**名字的聯集——排除條件不看指定與否。
         let knownAliases = Set(existing.flatMap { $0.names.all.map(identity) })
+        // R5（R4L-2）：identity() 比 resolver 的 exact 鍵寬（它另做重排攤平）——
+        // 「identity 命中但非 normalize 相等」的 literal 在 resolver 是 reorder 級
+        // 提名，先前被本檔 continue 成隱形：否決該提名後兩面皆不可行動（死路）。
+        // 拆兩層：normalize 相等（真 exact）照舊 continue；僅 identity 相等者
+        // 路由 pending（同一否決回歸機制涵蓋）。
+        let exactAliases = Set(existing.flatMap { $0.names.all.map(normalize) })
+        var identityMap: [String: Set<String>] = [:]
+        for p in existing {
+            for n in p.names.all {
+                identityMap[identity(n), default: []].insert(p.key)
+            }
+        }
         var takenKeys = Set(existing.map(\.key))
         // R1-fix B4＋R3-fix R4-6：既有 person 的寬鬆鍵空間，**逐 tier 分開**
         // （與 resolver 同構——合併成一張表會讓 literal 的 reorder 鍵撞上某名字的
@@ -250,10 +262,13 @@ public enum PersonBootstrap {
                 let name = raw.trimmingCharacters(in: .whitespaces)
                 guard !name.isEmpty else { continue }
                 let id = identity(name)
-                guard !knownAliases.contains(id) else { continue }
+                // 真 exact（normalize 相等）→ resolver 會以 exact 提名，這裡照舊隱形
+                guard !exactAliases.contains(normalize(name)) else { continue }
                 var hits = reorderSpace[LooseNameKey.reorderKey(name)] ?? []
                 for k in LooseNameKey.initialsKeys(name) { hits.formUnion(initialsSpace[k] ?? []) }
                 hits.formUnion(confirmedByLiteral[normalize(name)] ?? [])
+                // 僅 identity 相等（重排攤平才命中）→ 併入 loose hits（R4L-2）
+                if knownAliases.contains(id) { hits.formUnion(identityMap[id] ?? []) }
                 let surviving = hits.filter {
                     !rejectedNorm.contains("\(e.citekey)|\(normalize(name))|\($0)")
                 }

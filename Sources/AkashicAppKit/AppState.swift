@@ -50,7 +50,7 @@ public final class AppState {
     public var filterJournal: String?
     /// 選定的 library view（#13）；nil＝全集
     public var filterLibrary: String?
-    /// People 裁決台 session 內 skip 的候選 id（`citekey:authorIndex`）。
+    /// People 裁決台 session 內 skip 的候選 id（三段 pinned 形 `citekey:authorIndex:personKey`，R4-8 起）。
     /// 放這裡（session 生命週期）而非 PeopleResolveModel——model 會被
     /// `.task(id: reloadCount)` 重建，集合放 model 內會在每次 reload 後歸零。
     public var skippedPeopleCandidates = Set<String>()

@@ -23,7 +23,7 @@ akashic_people（query:）               # 找 key／確認實體存在——回
 akashic_person（key:）                 # 單人聚合：names / affiliations / 著作（現算）
 ```
 
-要查證的配對通常來自這裡：candidates 列的 `id`（`citekey:authorIndex`）就是之後 apply/reject 的把手。**先確認配對還在**——resolver 已排除的（已否決）不會重列。
+要查證的配對通常來自這裡：candidates 列的 `id`（三段形 `citekey:authorIndex:personKey`——釘 person）就是之後 apply/reject 的把手。**先確認配對還在**——resolver 已排除的（已否決）不會重列。
 
 ### 1. 證據鏈（依序查，每一源記 URL＋取得日期）
 

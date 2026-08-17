@@ -532,8 +532,9 @@ tolerant-preserve 原樣保留 `died`，**不會按舊語意誤讀新格式**，
 
 ## 3.3 解析紀律
 
-解析紀律：**絕不自動合併**。`akashic resolve-people` 只列 alias 完全命中的
-高信心候選（同 alias 對到 2+ 人＝歧義、不出候選），`--apply` 是顯式第二步。
+解析紀律：**絕不自動合併**。`akashic resolve-people` 依信心分四層提名
+（exact／confirmed-elsewhere／reorder／initials，#303；同層對到 2+ 人＝歧義、
+不出候選），`--apply` 是顯式第二步——套用集含寬鬆層時必帶 `--tier` 具名。
 
 ## 3.4 Canonical form：寫出去的位元組形式（normative，#69）
 

@@ -172,18 +172,23 @@ final class PersonResolverTests: XCTestCase {
     // MARK: - R3-fix R4-2：淘汰計數去重（1 筆否決不得報成 3）
 
     func testEliminationCountIsDeduplicatedAcrossTiers() {
-        // 被否決者的名字同時住 exact／reorder／initials 三個鍵空間——計人不計 tier
+        // R5 換上可鑑別 fixture（R4 抓到原 fixture 走 exact 內淘汰、eliminatedAbove
+        // 路徑沒被踩到——舊的逐 tier 累加實作同過）：被否決者 pp 同時住 exact／
+        // reorder／initials 三空間；qq 只在 initials 可達——否決 pp 後 fall-through
+        // 提名 qq，揭露必須計 1（人）而非 3（tier）。
         let rejected: Set<ResolutionPairing> = [
             ResolutionPairing(holderKind: .work, holder: "x2025",
                               literal: "Che Cheng", judgedKey: "cheng-che")]
         let r = PersonResolver.resolve(
             entries: [entry("x2025", literal: "Che Cheng")],
             people: [person("cheng-che", names: ["Che Cheng"]),
-                     person("cheng-che-2", names: ["Che Cheng"])],
+                     person("cheng-chun-erh", names: ["Cheng, C."])],
             rejected: rejected, confirmed: [:])
+        XCTAssertEqual(r.candidates.map(\.personKey), ["cheng-chun-erh"])
+        XCTAssertEqual(r.candidates.first?.tier, .initials)
         let reason = r.candidates.first?.reason ?? ""
         XCTAssertTrue(reason.contains("1 個候選配對已被否決"),
-                      "同一否決跨多鍵空間只計一次：\(reason)")
+                      "同一否決跨多鍵空間只計一次（人不計 tier）：\(reason)")
         XCTAssertFalse(reason.contains("2 個") || reason.contains("3 個"), reason)
     }
 

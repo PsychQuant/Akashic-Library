@@ -873,7 +873,9 @@ public final class AkashicService {
                     + "format: 改成 8")
             }
             let chosen = try dedupe(rejectIDs).map { try candidate(for: $0) }   // B8：釘 person
-            rejectedRowsOut = chosen.map { ($0.rowID, $0.personKey) }   // R4-1：協調用未截斷配對
+            // R4-1 協調用未截斷配對；R5：賦值移到寫入迴圈後（此處清空）——
+            // 寫入失敗的配對不算「已否決」，讓同列 apply 被標 skipped 是假理由
+            rejectedRowsOut = []
             // 同 person 多筆 verdict 收攏成一次寫入——writePerson 是整檔改寫。
             // appendIfAbsent：寫入邊界冪等，store 永不持有重複 verdict。
             var grouped: [String: Person] = [:]
@@ -896,12 +898,15 @@ public final class AkashicService {
                         displaySafe(String(describing: error), max: 512)
                 }
             }
+            // R5：協調配對在寫入之後、以落地者為準（過濾 rejectWriteFailed）
+            let landed = chosen.filter { rejectWriteFailed[displaySafe($0.personKey, max: 200)] == nil }
+            rejectedRowsOut = landed.map { ($0.rowID, $0.personKey) }
             var result: [String: Any] = [
                 // 不誇報：只列 verdict 真的落地的配對（R8 紀律）
-                // R4-8：rejected 回音同列表用三段 pinned 形——spec 明令 faces 不得
-                // 發 legacy 形（LLM 重用回音 id 會拿到無 pin 的 id）
-                "rejected": chosen.filter { rejectWriteFailed[displaySafe($0.personKey, max: 200)] == nil }
-                    .map { "\(displaySafe($0.citekey, max: 200)):\($0.authorIndex):\(displaySafe($0.personKey, max: 200))" },
+                // R4-8 三段 pinned 形；R5 raw 不截斷——citekey/personKey 受 load 端
+                // StoreKey quarantine 把關（列表 id 同一 exempt 理由），截斷會讓
+                // 超長 citekey 的回音 id 不可重用
+                "rejected": landed.map { "\($0.citekey):\($0.authorIndex):\($0.personKey)" },   // display-safe-exempt: StoreKey 受 quarantine 把關（#171）
                 "personsRewritten": grouped.count - rejectWriteFailed.count,
             ]
             if !rejectWriteFailed.isEmpty { result["rejectWriteFailed"] = rejectWriteFailed }
@@ -1238,10 +1243,10 @@ public final class AkashicService {
                 "index rebuild 失敗：\(displaySafe(String(describing: error), max: 512))（本批已改寫 \(written) 檔；writeFailed \(writeFailed.count) 筆：\(writeFailed.map { "\(displaySafe($0.key, max: 200))（\($0.value)）" }.sorted().joined(separator: "; "))；confirmWriteFailed \(confirmWriteFailed.count) 筆：\(confirmWriteFailed.keys.sorted().joined(separator: "、"))）")   // display-safe-exempt: written 是 Int；writeFailed 值與 confirmWriteFailed 鍵在插入時已 displaySafe（不冪等，不再包）
         }
         // R8（R7-verify L15）：applied 不誇報——排除寫入失敗的候選
-        // R3-1 附帶：applied 回音同列表用三段 pinned 形——同一 payload 不出現
-        // 兩種 id 表示（skippedBecauseRejected 是呼叫端字串回音，本欄是列表形）
+        // R3-1 附帶：applied 回音同列表三段 pinned 形；R5 raw 不截斷（同 rejected
+        // 回音理由——StoreKey 受 quarantine 把關）
         let appliedActual = chosen.filter { writeFailed[$0.citekey] == nil }
-            .map { "\(displaySafe($0.citekey, max: 200)):\($0.authorIndex):\(displaySafe($0.personKey, max: 200))" }
+            .map { "\($0.citekey):\($0.authorIndex):\($0.personKey)" }   // display-safe-exempt: StoreKey 受 quarantine 把關（#171）
         var result: [String: Any] = ["applied": appliedActual, "entriesRewritten": written]
         // subscript 賦值建字典——**不用** `Dictionary(uniqueKeysWithValues:)`：
         // displaySafe 截斷非單射，兩個共 200 字元前綴的合法 citekey 會碰撞成同鍵，

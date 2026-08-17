@@ -53,8 +53,20 @@
 - [x] 8.1 R4-1 兩腿協調改內部未截斷配對（inout 回傳；超長 citekey 不再全滅、同列 reject A＋apply B 進 apply 腿）。驗收：testSameRowRejectAAndApplyBIsNotSkipped
 - [x] 8.2 R4-2 淘汰計數去重（1 筆否決跨鍵空間計一次）。驗收：testEliminationCountIsDeduplicatedAcrossTiers
 - [x] 8.3 R4-6 bootstrap 空間同構：逐 tier 查找＋confirmed 必填（幽靈 pending／confirmed 盲鑄修除）。驗收：同構檢查測試×2
-- [x] 8.4 R4-4 person-verify skill 第四面修正（三段 id、#272、出口改正）＋repo-wide 無效指引 grep 稽核歸零
+- [x] 8.4 R4-4 person-verify skill 第四面修正（三段 id、#272、出口改正）＋「補區辨欄位」pattern 的 repo-wide grep 稽核歸零（R4 抓到該稽核只掃單一 pattern——writing-to-the-store／store-format 的「只認 exact」舊語意於 R5 批補正）
 - [x] 8.5 R4-3/5 訊息真話化：pending 處置雙出口（alias-provenance／第三人 add-person）、無建檔候選三因、update_person 整組替換警語（skill/CLI/App 四面）；provenance 無寫入面誠實記錄
 - [x] 8.6 R4-7 spec R11 封閉列舉化（受閘面＝CLI 篩選式批次；MCP 刻意不閘＋parity 裁決）；design D8（五裁決）
 - [x] 8.7 R4-8 批次：rejected/applied 回音統一 pinned 形、--tier 進零命中閘、rule-tail 文法夾、census 佈局切換、App skip pinned 鍵、CHANGELOG R2/R3 條目、tier 閘訊息尾修正
 - [x] 8.8 Follow-up issues：#307（MCP tier-acknowledgment）、#308（provenance 寫入面）、#309（HOME 隔離陷阱）
+
+## 9. R4 verify 收斂批（R5，2026-08-17——事後審計記錄）
+
+- [x] 9.1 census 恢復合併掃描（與 loader load() 同語意；混合佈局假零修除——probe：mix-store 正確報 1）
+- [x] 9.2 rejectedRowsOut 移寫入後、過濾 rejectWriteFailed（skippedBecauseRejected 不再說假話）
+- [x] 9.3 rejected/applied 回音改 raw 三段（StoreKey quarantine exempt；超長 citekey 回音可重用）
+- [x] 9.4 counts 標籤過文法夾（偽造計數行樣式關閉）
+- [x] 9.5 兩個空轉守衛換可鑑別 fixture（同構：Yh Chen／Chen, Yi-Hau；去重：pp 三空間＋qq initials-only）
+- [x] 9.6 歧義頁尾第五面補雙出口＋names 整組替換警語；--tier 進零命中訊息
+- [x] 9.7 spec R10 改配對級協調語意；AppState 註解；person-verify L26 三段形
+- [x] 9.8 writing-to-the-store／store-format 舊語意更正；tasks 8.4 宣稱真話化；CHANGELOG R5 條目＋holder 閘相容性註記
+- [x] 9.9 R4L-2：identity 命中非 normalize 相等 → pending 路由（否決回歸；死路解除，含生命週期測試）

@@ -2955,6 +2955,7 @@
 <li><code>openspec/specs/provenance-reference/spec.md</code>（requirement：<code>Stored content SHALL NOT occupy the canonical entity namespace</code>）— blob 不進 entity namespace 是 normative 條款：位元組層無 entity 名，指稱記號住在記錄層。</li>
 <li><code>Sources/AkashicStoreIO/SourceStore.swift</code>（symbol：<code>sourceURL</code>）— 由 digest 解析存檔 URL 的解析器（模組內讀取面皆經此）；形狀不合法的 digest 直接回 nil。寫入面的排除驗證另以字串重建同一路徑（刻意設計，見該處註解），故不稱唯一通道。</li>
 <li><code>openspec/specs/entry-source-reference/spec.md</code>（requirement：<code>Content the store is able to ingest SHALL be referenced by digest rather than by file-system path</code>）— 本條「只能命名」的類比依據：可 ingest 的內容一律以 digest 指稱、路徑不得作為新的指涉形式。同一 requirement 並明文處置 AttachmentRef——保留的路徑形式恰為一種、稱其為 transition mechanism、且宣告為 closed enumeration of one form，這正是 rationale 把它劃在類比域外的規範根據（不再只是觀察）。</li>
+<li><code>openspec/specs/entry-source-reference/spec.md</code>（requirement：<code>The set of accepted attachment kinds SHALL contain exactly one kind</code>）— rationale 括號內「附件鍵域收窄到只剩它」的 normative 來源：接受的附件種類恰為一種（外部文獻管理器自身儲存的引用），其餘一律載入時拒收。補引此條是 #252 verify 的發現——該括號原本只以 store format 9 的史實支撐，規範依據缺在 evidence 之外。</li>
 </ul>
 </li>
 </ul>

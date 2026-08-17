@@ -146,6 +146,7 @@ actor AkashicMCPServer {
              inputSchema: obj([
                 "apply": strArray("要套用的候選 id（三段形 citekey:authorIndex:personKey——#303 起 id 釘 person，提名改指時顯式拒絕；兩段 legacy 形僅當該位置提名仍唯一時等價）；省略＝只列候選"),
                 "reject": strArray("要否決的候選 id（同 apply 的三段形）——寫 resolution-rejected verdict（rule 依該候選的 tier 導出），entry 不動；省略＝不否決"),
+                "confirm_tiers": strArray("顯式承認要套用的寬鬆提名層（reorder / initials / confirmed-elsewhere，可多個）——apply 集含寬鬆層候選而該層未列於此＝整批拒絕零寫入（#307）；exact 免承認"),
              ])),
         Tool(name: "akashic_create_entry",
              description: "建庫外手動文獻（無 Zotero provenance；citekey 自動生成）。",
@@ -176,6 +177,14 @@ actor AkashicMCPServer {
                 "type": str("journal | conference | publisher"),
                 "note": str("備註（選填）"),
              ], required: ["key", "names", "type"])),
+        Tool(name: "akashic_update_venue",
+             description: "venue 異名補寫（#306）——append 語意：add_names 只附加不重複的異名（整組替換刻意不提供）；note／type 替換（選填）。沿革補全直接擴大 resolve_venues 的命中面（resolver 對沿革各段都配對）。需 store format ≥ 11。",
+             inputSchema: obj([
+                "key": str("既有 venue key"),
+                "add_names": strArray("要附加的名稱變體（重複自動略過，以 namesAdded 回報）"),
+                "note": str("備註（替換；選填）"),
+                "type": str("journal | conference | publisher（替換；選填）"),
+             ], required: ["key"])),
         Tool(name: "akashic_resolve_venues",
              description: "venue 解析（resolve-people 契約形，#304）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 venue name 完全命中且不歧義的 literal（正規化含 lowercase：WoS 全大寫形因此命中正式刊名）；ambiguities 是同一 literal 對到 2+ venue、需要人判斷。帶 apply（候選 id，形如 citekey:venueIndex）把 literal 升格為 key 並寫 resolution-confirmed verdict 到該 venue；帶 reject 寫 resolution-rejected（entry 不動）。組合呼叫兩段式（reject 腿先提交）。需 store format ≥ 11。絕不自動配對（literal-first-then-key）。",
              inputSchema: obj([
@@ -204,7 +213,7 @@ actor AkashicMCPServer {
                 "orcid": str("ORCID（可選）"), "openalex": str("OpenAlex author ID（可選）"),
              ], required: ["key", "names"])),
         Tool(name: "akashic_update_person",
-             description: "person 的部分更新（#68）：提及的欄位整個換、未提及一律不動。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names 收 {authorized:[…], variant:[…]} object（全量替換；#227 巢狀化後平坦陣列拒收，頂層 authorized 鍵不存在）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）；注意 contacts 是**一個**維度——提及它＝整個 contacts map 替換，未提及的子鍵（email/phone…）會消失。dry_run 時零寫入、回報會改什麼 + format gate 預演。",
+             description: "person 的部分更新（#68）：提及的欄位整個換、未提及一律不動。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names 收 {authorized:[…], variant:[…]} object（全量替換；#227 巢狀化後平坦陣列拒收，頂層 authorized 鍵不存在）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）；注意 contacts 是**一個**維度——提及它＝整個 contacts map 替換，未提及的子鍵（email/phone…）會消失。dry_run 時零寫入、回報會改什麼 + format gate 預演。；references 收 object 陣列（**append-only**——與其他欄位的替換語意刻意不同：references 持有 resolution verdict，全量替換會洗判定史；每項 {field, value?, kind: retrieval{url,retrieved,status,media_type,content}|judgement{statement,rests_on}}，(field,value,kind) 冪等；verdict 欄位對拒收——只能經 resolve 流程寫；#308）",
              inputSchema: obj([
                 "key": str("person key"),
                 "fields": .object([
@@ -327,8 +336,11 @@ actor AkashicMCPServer {
                 let apply = argList("apply")
                 let rejectProvided = params.arguments?["reject"] != nil
                 let reject = argList("reject")
+                let confirmProvided = params.arguments?["confirm_tiers"] != nil
+                let confirmTiers = argList("confirm_tiers")
                 output = try service.resolvePeople(apply: applyProvided ? apply : nil,
-                                                   reject: rejectProvided ? reject : nil)
+                                                   reject: rejectProvided ? reject : nil,
+                                                   confirmTiers: confirmProvided ? confirmTiers : nil)
             case "akashic_create_entry":
                 output = try service.createEntry(
                     type: arg("type") ?? "", title: arg("title") ?? "",
@@ -340,6 +352,12 @@ actor AkashicMCPServer {
             case "akashic_add_venue":
                 output = try service.addVenue(key: arg("key") ?? "", names: argList("names"),
                                               type: arg("type") ?? "", note: arg("note"))
+            case "akashic_update_venue":
+                let addNamesProvided = params.arguments?["add_names"] != nil
+                output = try service.updateVenue(
+                    key: arg("key") ?? "",
+                    addNames: addNamesProvided ? argList("add_names") : nil,
+                    note: arg("note"), type: arg("type"))
             case "akashic_resolve_venues":
                 let vApplyProvided = params.arguments?["apply"] != nil
                 let vRejectProvided = params.arguments?["reject"] != nil

@@ -21,6 +21,52 @@ public extension AkashicService {
     ///     `profile` 收維度 object（**維度級**覆寫——提及的維度全量替換、未提及的
     ///     維度保留），段的形狀與 YAML 相同（value/start/end/ended/source/note）。
     ///   - dryRun: true 時零寫入，回報會改什麼 + gate 預演。
+    /// #308：JSON 陣列 → ProvenanceReference 逐筆 append（冪等；verdict 欄位對拒收）。
+    /// 回傳實際附加筆數。
+    private func appendReferences(_ raw: Any, to person: inout Person) throws -> Int {
+        guard let arr = raw as? [[String: Any]] else {
+            throw ServiceError.invalid("references 必須是 object 陣列（append-only）")
+        }
+        var added = 0
+        for item in arr {
+            guard let field = item["field"] as? String, !field.isEmpty else {
+                throw ServiceError.invalid("reference 缺 field")
+            }
+            guard !ProvenanceReference.resolutionVerdictFields.contains(field) else {
+                throw ServiceError.invalid(
+                    "欄位對「\(displaySafe(field, max: 60))」是 resolution verdict——"
+                    + "只能經 resolve 流程（apply／reject）寫，不收手供")
+            }
+            let value = item["value"] as? String
+            let kind: ProvenanceReference.Kind
+            switch item["kind"] as? String {
+            case "retrieval":
+                guard let url = item["url"] as? String,
+                      let retrieved = item["retrieved"] as? String,
+                      let content = item["content"] as? String else {
+                    throw ServiceError.invalid("retrieval reference 需 url／retrieved／content（sha256: digest）")
+                }
+                kind = .retrieval(url: url, retrieved: retrieved,
+                                  status: item["status"] as? Int ?? 200,
+                                  mediaType: item["media_type"] as? String,
+                                  content: content)
+            case "judgement":
+                guard let statement = item["statement"] as? String else {
+                    throw ServiceError.invalid("judgement reference 需 statement")
+                }
+                kind = .judgement(statement: statement,
+                                  restsOn: item["rests_on"] as? [String] ?? [])
+            default:
+                throw ServiceError.invalid("reference kind 需 retrieval 或 judgement")
+            }
+            let ref = ProvenanceReference(field: field, value: value, kind: kind)
+            guard !person.references.contains(where: { $0.field == ref.field && $0.value == ref.value && $0.kind == ref.kind }) else { continue }
+            person.references.append(ref)
+            added += 1
+        }
+        return added
+    }
+
     func updatePerson(key: String, fields: [String: Any], dryRun: Bool) throws -> String {
         let load = try store.load()   // 寫前重讀（同 AppState.mutate 的防 lost-update 語意）
         guard var person = load.people.first(where: { $0.key == key }) else {
@@ -68,6 +114,13 @@ public extension AkashicService {
                     try PersonYAML.decodeProfileDimension(dim, node: node, into: &person.profile)
                     changes["profile.\(dim)"] = segs
                 }
+            case "references":
+                // #308：**append-only**——與其他欄位「提及即整換」的契約刻意不同，
+                // 因為 references 同時持有 resolution verdict（封閉欄位對 #232）：
+                // 全量替換等於洗掉判定史。verdict 欄位對在此拒收（只能經 resolve
+                // 流程寫）；append 以 (field, value) 冪等（appendIfAbsent 同款）。
+                let added = try appendReferences(raw, to: &person)
+                changes[k] = "append \(added)"
             default:
                 // updatableKeys 推導自 decoder；decoder 認得而這裡沒接的欄位
                 // **大聲說**，不靜默吞——推導超前實作時這是唯一的誠實出口

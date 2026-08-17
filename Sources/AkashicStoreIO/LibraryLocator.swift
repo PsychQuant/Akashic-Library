@@ -45,16 +45,27 @@ public enum LibraryLocator {
         // ——測試注入 fake env 時 registry 仍解析到真實 home，正是 #110 要消滅的
         // 「兩個答案」的同構殘留。預設值改為由同一份 environment 推導。
         let configURL = configURL ?? AkashicHome.configURL(environment: environment)
+        // **`~` 依注入的 HOME 展開**（#309）：`expandingTildeInPath` 走
+        // NSHomeDirectory()（getpwuid）、無視 `$HOME`——注入 fake home 的測試／
+        // 排練裡 configURL 隔離了、registry **值**卻展開到真 home，R2 verify 的
+        // probe 因此把三個寫入命令落進真 store。environment 有 HOME 就用它。
+        func expand(_ path: String) -> String {
+            if let home = environment["HOME"], !home.isEmpty {
+                if path == "~" { return home }
+                if path.hasPrefix("~/") { return home + String(path.dropFirst(1)) }
+            }
+            return (path as NSString).expandingTildeInPath
+        }
         // **explicit / env 路徑反查 registry**（#105，使用者拍板）：`--library` 的語意是
         // 「指定一個 store」不是「繞過 registry」。路徑已註冊就把 key 帶回來——同一個
         // store 不因開法不同而有兩份會漂移的 index（#101 實測過的病）。未註冊或 config
         // 缺失 → 維持 keyless fallback。
         if let explicit, !explicit.isEmpty {
-            return Resolved(root: URL(fileURLWithPath: (explicit as NSString).expandingTildeInPath),
+            return Resolved(root: URL(fileURLWithPath: expand(explicit)),
                             key: try AkashicConfig.key(forPath: explicit, configURL: configURL))
         }
         if let env = environment["AKASHIC_LIBRARY"], !env.isEmpty {
-            return Resolved(root: URL(fileURLWithPath: (env as NSString).expandingTildeInPath),
+            return Resolved(root: URL(fileURLWithPath: expand(env)),
                             key: try AkashicConfig.key(forPath: env, configURL: configURL))
         }
         let config = try AkashicConfig.read(from: configURL)
@@ -63,11 +74,11 @@ public enum LibraryLocator {
             guard let path = config.files[current] else {
                 throw ConfigError.invalidCurrent(current)
             }
-            return Resolved(root: URL(fileURLWithPath: (path as NSString).expandingTildeInPath),
+            return Resolved(root: URL(fileURLWithPath: expand(path)),
                             key: current)
         }
         if let path = config.library, !path.isEmpty {
-            return Resolved(root: URL(fileURLWithPath: (path as NSString).expandingTildeInPath),
+            return Resolved(root: URL(fileURLWithPath: expand(path)),
                             key: nil)
         }
         throw LocatorError.notConfigured

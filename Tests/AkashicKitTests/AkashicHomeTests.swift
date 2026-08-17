@@ -125,6 +125,26 @@ extension AkashicHomeTests {
     /// `resolveDetailed` 的 `configURL` 預設必須由**同一份** `environment:` 推導——
     /// 舊預設讀 process env，測試注入 fake env 時 registry 仍解析到真實 home
     /// （#110 的「兩個答案」同構殘留）。
+    /// #309：registry 值（`~/.akashic`）的 tilde 展開必須跟著注入的 HOME——
+    /// R2 verify 事故的根因：`HOME=fake` 下 configURL 隔離了、registry **值**
+    /// 卻仍經 NSHomeDirectory() 展開到真 home，三個寫入命令落進真 store。
+    func testRegistryTildeExpansionFollowsInjectedHome() throws {
+        let fake = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-309-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: fake) }
+        let home = fake.appendingPathComponent("home")
+        let akashic = home.appendingPathComponent(".akashic")
+        try FileManager.default.createDirectory(at: akashic, withIntermediateDirectories: true)
+        try "files:\n  main: ~/.akashic\ncurrent: main\n".write(
+            to: akashic.appendingPathComponent("config.yaml"),
+            atomically: true, encoding: .utf8)
+        let env = ["AKASHIC_HOME": akashic.path, "HOME": home.path]
+        let r = try LibraryLocator.resolveDetailed(explicit: nil, environment: env)
+        XCTAssertEqual(r.root.standardizedFileURL.path,
+                       akashic.standardizedFileURL.path,
+                       "registry 的 ~ 必須依注入的 HOME 展開，不得落到真 home：\(r.root.path)")
+    }
+
     func testResolveDetailedDefaultConfigFollowsInjectedEnvironment() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-locenv-\(UUID().uuidString)")

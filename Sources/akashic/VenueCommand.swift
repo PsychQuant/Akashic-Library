@@ -130,6 +130,36 @@ struct AddVenueCmd: ParsableCommand {
     }
 }
 
+struct UpdateVenueCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "update-venue",
+        abstract: "venue 異名補寫（#306）——append 語意：--add-name 只附加不重複的異名（整組替換刻意不提供）；--note／--type 替換")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Argument(help: "既有 venue key")
+    var key: String
+
+    @Option(name: .long, parsing: .upToNextOption, help: "要附加的名稱變體（可多個；重複自動略過）")
+    var addName: [String] = []
+
+    @Option(name: .long, help: "備註（替換；選填）")
+    var note: String?
+
+    @Option(name: .long, help: "journal | conference | publisher（替換；選填）")
+    var type: String?
+
+    func run() throws {
+        let store = try options.openStore()
+        let service = AkashicService(root: store.root, key: store.key,
+                                     environment: ProcessInfo.processInfo.environment)
+        // 寫入面封閉例外形：只回 service payload（mcp-cli-parity 的既有裁決）
+        print(try service.updateVenue(key: key,
+                                      addNames: addName.isEmpty ? nil : addName,
+                                      note: note, type: type))
+    }
+}
+
 struct ResolveVenuesCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "resolve-venues",

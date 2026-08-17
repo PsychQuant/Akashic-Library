@@ -83,13 +83,77 @@ final class ResolutionVerdictServiceTests: XCTestCase {
         XCTAssertEqual(e.authors, [.literal("Che Cheng")])
     }
 
+    // MARK: - #308：references 的 append-only 寫入面
+
+    func testUpdatePersonAppendsRetrievalReference() throws {
+        let refs: [[String: Any]] = [[
+            "field": "orcid",
+            "kind": "retrieval",
+            "url": "https://orcid.org/0000-0001-2345-6789",
+            "retrieved": "2026-08-17",
+            "status": 200,
+            "content": "sha256:" + String(repeating: "ab", count: 32),
+        ]]
+        _ = try service.updatePerson(
+            key: "cheng-che",
+            fields: ["orcid": "0000-0001-2345-6789", "references": refs], dryRun: false)
+        let p = try person()
+        XCTAssertEqual(p.references.count, 1)
+        XCTAssertEqual(p.references.first?.field, "orcid")
+        // 冪等：同一筆再 append 不重複
+        _ = try service.updatePerson(key: "cheng-che",
+                                     fields: ["references": refs], dryRun: false)   // orcid 已在
+        XCTAssertEqual(try person().references.count, 1, "append 冪等")
+    }
+
+    func testUpdatePersonRefusesVerdictFieldReferences() throws {
+        let refs: [[String: Any]] = [[
+            "field": "resolution-confirmed",
+            "value": "work:a2020x :: Che Cheng",
+            "kind": "judgement",
+            "statement": "偽造判定",
+        ]]
+        XCTAssertThrowsError(try service.updatePerson(
+            key: "cheng-che", fields: ["references": refs], dryRun: false)) { err in
+            XCTAssertTrue(String(describing: err).contains("resolve"),
+                          "verdict 欄位對只能經 resolve 流程寫：\(err)")
+        }
+        XCTAssertTrue(try person().references.isEmpty)
+    }
+
+    // MARK: - #307：MCP apply 的 tier-acknowledgment
+
+    func testLooseTierApplyRequiresTierAcknowledgment() throws {
+        try LibraryStore(root: root).writeEntry(
+            Entry(id: UUID(), citekey: "c2022z", type: "article",
+                  title: "V", authors: [.literal("Cheng Che")], date: "2022"))
+        // 寬鬆 tier（reorder）候選、未帶 confirmTiers → 拒絕並指名缺席 tier
+        XCTAssertThrowsError(
+            try service.resolvePeople(apply: ["c2022z:0:cheng-che"])) { err in
+            let msg = String(describing: err)
+            XCTAssertTrue(msg.contains("reorder") && msg.contains("confirm_tiers"), msg)
+        }
+        // 零寫入
+        let e = try LibraryStore(root: root).load().entries.first { $0.citekey == "c2022z" }!
+        XCTAssertEqual(e.authors, [.literal("Cheng Che")])
+        // 帶承認 → 落地
+        let out = try json(try service.resolvePeople(
+            apply: ["c2022z:0:cheng-che"], confirmTiers: ["reorder"]))
+        XCTAssertEqual(out["applied"] as? [String], ["c2022z:0:cheng-che"])
+    }
+
+    func testExactApplyNeedsNoAcknowledgment() throws {
+        let out = try json(try service.resolvePeople(apply: ["a2020x:0:cheng-che"]))
+        XCTAssertEqual((out["applied"] as? [String])?.count, 1, "\(out)")
+    }
+
     // MARK: - R1-fix B2：loose-tier verdict 帶 tier 導出的 rule
 
     func testLooseTierApplyWritesTierDerivedRule() throws {
         try LibraryStore(root: root).writeEntry(
             Entry(id: UUID(), citekey: "c2022z", type: "article",
                   title: "V", authors: [.literal("Cheng Che")], date: "2022"))
-        _ = try service.resolvePeople(apply: ["c2022z:0"])
+        _ = try service.resolvePeople(apply: ["c2022z:0"], confirmTiers: ["reorder"])
         let p = try person()
         let ref = try XCTUnwrap(p.references.first {
             $0.field == "resolution-confirmed" && ($0.value ?? "").contains("c2022z") })
@@ -206,7 +270,8 @@ final class ResolutionVerdictServiceTests: XCTestCase {
             Person(key: "cheng-che-2", names: ["Cheng Che"]))
         let out = try json(try service.resolvePeople(
             apply: ["a2020x:0:cheng-che-2"],
-            reject: ["a2020x:0:cheng-che"]))
+            reject: ["a2020x:0:cheng-che"],
+            confirmTiers: ["reorder"]))   // #307：B 是 reorder 提名，顯式承認
         let legs = out["legs"] as! [String: Any]
         let applyLeg = legs["apply"] as! [String: Any]
         XCTAssertNil(applyLeg["skippedBecauseRejected"],

@@ -108,6 +108,35 @@ final class VenueServiceTests: XCTestCase {
         XCTAssertEqual(try store.load().entries[0].venues, [.literal("Psychometrika")])
     }
 
+    // MARK: - #306：update-venue（異名補寫——append 語意）
+
+    func testUpdateVenueAppendsNamesWithoutClobbering() throws {
+        _ = try service.addVenue(key: "psychometrika", names: ["Psychometrika"],
+                                 type: "journal", note: nil)
+        let out = try json(try service.updateVenue(
+            key: "psychometrika", addNames: ["PSYCHOMETRIKA", "Psychometrika"],
+            note: nil, type: nil))
+        XCTAssertEqual(out["namesAdded"] as? [String], ["PSYCHOMETRIKA"],
+                       "重複異名不重加：\(out)")
+        let v = try XCTUnwrap(try store.load().venues.first)
+        XCTAssertEqual(Set(v.names.entries.map(\.value)),
+                       ["Psychometrika", "PSYCHOMETRIKA"], "既有名字不得被洗掉")
+        // 沿革補全後 resolver 立即受益：WoS 大寫形 exact 命中
+        var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        e.venues = [.literal("PSYCHOMETRIKA")]
+        _ = try store.writeEntry(e)
+        let list = try json(try service.resolveVenues(apply: nil))
+        XCTAssertEqual((list["candidates"] as? [[String: Any]])?.count, 1)
+    }
+
+    func testUpdateVenueRejectsUnknownKeyAndBadType() throws {
+        XCTAssertThrowsError(try service.updateVenue(
+            key: "nope", addNames: ["X"], note: nil, type: nil))
+        _ = try service.addVenue(key: "v1", names: ["V"], type: "journal", note: nil)
+        XCTAssertThrowsError(try service.updateVenue(
+            key: "v1", addNames: nil, note: nil, type: "series"))
+    }
+
     // MARK: - org MCP 面（#304 移轉）
 
     func testAddOrganizationWithParent() throws {

@@ -34,7 +34,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 
 （#206 對匯入面的原話：「能不能無損匯入，不該取決於使用者會不會寫 script。」）
 
-## 裁決史（封閉列舉——現有 27 工具，一格不多一格不少）
+## 裁決史（封閉列舉——現有 28 工具，一格不多一格不少）
 
 | MCP 工具 | CLI 對應 | 裁決 |
 |---|---|---|
@@ -62,6 +62,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 | `akashic_venue` | `venue` | ✅（#304 venue change；讀取面 `--json`＋人可讀同源；編年 list 由反向邊現算）|
 | `akashic_venues` | `venues` | ✅（#304 venue change；讀取面同源）|
 | `akashic_add_venue` | `add-venue` | ✅（#304 venue change；寫入面封閉例外形，同 `add-person`）|
+| `akashic_update_venue` | `update-venue` | ✅（#306；寫入面封閉例外形；append 語意——整組替換刻意不提供，R3F-2 教訓）|
 | `akashic_resolve_venues` | `resolve-venues` | ✅（#304 venue change；兩面契約差異同 #272：MCP 允許 apply+reject 組合、CLI 分兩次呼叫）|
 | `akashic_add_organization` | 無（單筆建檔 MCP-only；批次面 `bootstrap-organizations` 維持 CLI-only，見 CLI-only 表）| ✅ 有理由的單面（#304 移轉裁決：org 重啟後單筆建檔是 #303 campaign 的 LLM 消費流程；操作者規模的批次建檔另有 CLI 面）|
 | `akashic_resolve_organizations` | `resolve-organizations` | ✅（#304 移轉；CLI-only 表「候補缺席（重啟訊號已觸發）」格的補齊——同 `import-wos`／#290 的移列形）|
@@ -74,7 +75,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 不要相信作者窮舉過（`entity-backlink-completeness` 的表錯過兩次，教訓同形）：
 
 ```bash
-# ① MCP 面的全部工具名（實測：恰 27，與表零差集）
+# ① MCP 面的全部工具名（實測：恰 28，與表零差集）
 grep -oE 'Tool\(name: "akashic_[a-z_]+"' Sources/akashic-mcp/Server.swift | sort -u
 # ② CLI 面的全部註冊型別（取 subcommands 陣列整段，不靠型別命名慣例——
 #    第一版寫 '[A-Za-z]+Cmd?\.self' 只命中 11/30：`Cmd?` 是「Cm+可選 d」，

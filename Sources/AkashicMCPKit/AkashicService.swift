@@ -754,7 +754,8 @@ public final class AkashicService {
     /// `legs.apply.error`——reject 已提交的事實不會被 apply 的失敗掩蓋。
     /// 剛被 reject 腿否決的 apply id 以 `skippedBecauseRejected` 回報（不是錯誤——
     /// LLM 一次 triage 常兩邊都點到同一列）。單腿呼叫回應形狀**不變**。
-    public func resolvePeople(apply: [String]?, reject: [String]? = nil) throws -> String {
+    public func resolvePeople(apply: [String]?, reject: [String]? = nil,
+                              confirmTiers: [String]? = nil) throws -> String {
         if let ap = apply, !ap.isEmpty, let rj = reject, !rj.isEmpty {
             func parsed(_ s: String) throws -> [String: Any] {
                 (try JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any]) ?? [:]
@@ -787,7 +788,7 @@ public final class AkashicService {
                 applyDict = ["applied": [String]()]
             } else {
                 do {
-                    applyDict = try parsed(try resolvePeople(apply: applyIDs, reject: nil))
+                    applyDict = try parsed(try resolvePeople(apply: applyIDs, reject: nil, confirmTiers: confirmTiers))
                 } catch {
                     applyDict = [
                         "error": displaySafe(String(describing: error), max: 512),
@@ -801,13 +802,15 @@ public final class AkashicService {
             return try jsonString(["legs": ["reject": rejectDict, "apply": applyDict]])
         }
         var ignored: [(rowID: String, personKey: String)] = []
-        return try resolvePeopleCore(apply: apply, reject: reject, rejectedRowsOut: &ignored)
+        return try resolvePeopleCore(apply: apply, reject: reject,
+                                     confirmTiers: confirmTiers, rejectedRowsOut: &ignored)
     }
 
     /// 單腿本體（R4-1 抽出）。`rejectedRowsOut`：reject 腿實際否決的配對
     /// （**未截斷**的 rowID＋personKey）——combined 分支的跨腿協調吃這個，
     /// 不吃經消毒截斷的 JSON 回音。
     private func resolvePeopleCore(apply: [String]?, reject: [String]?,
+                                   confirmTiers: [String]? = nil,
                                    rejectedRowsOut: inout [(rowID: String, personKey: String)]) throws -> String {
         let load = try store.load()
         // #232 design D5：已否決配對從 verdict references 現算（never stored），
@@ -1190,6 +1193,23 @@ public final class AkashicService {
             return try jsonString(payload)
         }
         let chosen = try selected.map { try candidate(for: $0) }   // B8：釘 person
+        // #307：寬鬆 tier 的顯式承認——per-id 顯式不等於 tier 覺察（id 可手構、
+        // 可從舊列表複製），apply 集含寬鬆 tier 候選時該 tier 必須列在
+        // confirm_tiers，否則整批拒絕（零寫入）並指名缺席 tier。exact 免承認。
+        let acknowledged = Set((confirmTiers ?? []).compactMap { ResolutionTier(rawValue: $0) })
+        if let bad = (confirmTiers ?? []).first(where: { ResolutionTier(rawValue: $0) == nil }) {
+            throw ServiceError.invalid(
+                "confirm_tiers「\(displaySafe(bad, max: 60))」不是提名層——合法值："
+                + ResolutionTier.allCases.map(\.rawValue).joined(separator: " / "))
+        }
+        let unacknowledged = Set(chosen.map(\.tier))
+            .subtracting([.exact]).subtracting(acknowledged)
+        if !unacknowledged.isEmpty {
+            let need = unacknowledged.map(\.rawValue).sorted().joined(separator: "、")
+            throw ServiceError.invalid(
+                "apply 集含寬鬆提名層（\(need)）——請在 confirm_tiers 列出以顯式承認"   // display-safe-exempt: 封閉 enum rawValue
+                + "（寬鬆層 apply 前必查證；exact 免承認）")
+        }
         let applied = PersonResolver.apply(chosen, to: load.entries)
         var written = 0
         var writeFailed: [String: String] = [:]
@@ -1700,6 +1720,40 @@ public final class AkashicService {
         try LibraryIndex(store: store).rebuild()
         return try jsonString(["key": key, "type": vtype.rawValue,
                                "names": names.map { displaySafe($0, max: 200) }])
+    }
+
+    /// venue 異名補寫（#306）——**append 語意**：`addNames` 只附加不重複的
+    /// variant（整組替換是 R3F-2 教訓的 footgun，本入口在設計上排除它）；
+    /// `note`／`type` 為替換語意（可選）。沿革補全直接擴大 resolve-venues
+    /// 的 exact 命中面（resolver 對沿革各段都配對）。
+    public func updateVenue(key: String, addNames: [String]?,
+                            note: String?, type rawType: String?) throws -> String {
+        let load = try store.load()
+        guard var venue = load.venues.first(where: { $0.key == key }) else {
+            throw ServiceError.notFound("venue「\(displaySafe(key, max: 200))」")
+        }
+        var added: [String] = []
+        if let names = addNames {
+            let existing = Set(venue.names.entries.map(\.value))
+            for n in names where !n.trimmingCharacters(in: .whitespaces).isEmpty {
+                guard !existing.contains(n), !added.contains(n) else { continue }
+                venue.names = Timeline(venue.names.entries + [TemporalValue(value: n)])
+                added.append(n)
+            }
+        }
+        if let rawType {
+            guard let vtype = VenueType(rawValue: rawType) else {
+                throw ServiceError.invalid(
+                    "type「\(displaySafe(rawType, max: 60))」不在封閉列舉（journal / conference / publisher）")
+            }
+            venue.type = vtype
+        }
+        if let note { venue.note = note }
+        try store.writeVenue(venue)
+        try LibraryIndex(store: store).rebuild()
+        return try jsonString(["key": key,
+                               "namesAdded": added.map { displaySafe($0, max: 200) },
+                               "namesTotal": venue.names.entries.count])
     }
 
     /// venue 消歧（resolve-people 契約形，#304）：無參數＝列候選與歧義；

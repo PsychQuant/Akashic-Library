@@ -51,7 +51,7 @@ struct PeopleResolveView: View {
                                          ? "同名的不同人＝各自歸屬（永不合併）；同一人兩筆＝該合併。"
                                            + "**這裡不提供套用**——歧義套用不了。"
                                          : "縮寫／重排共鍵通常是不同的人——不歸戶也不合併；"
-                                           + "補區辨欄位（ORCID／隸屬）後重跑。**這裡不提供套用**。")
+                                           + "查證後補 variant alias（帶 provenance）再重跑。**這裡不提供套用**。")
                                         .font(.caption2).foregroundStyle(.tertiary)
                                 }
                                 .padding(.vertical, 2)

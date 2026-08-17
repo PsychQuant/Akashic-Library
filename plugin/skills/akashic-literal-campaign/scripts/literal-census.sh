@@ -13,7 +13,7 @@
 set -euo pipefail
 ROOT="${1:-$HOME/.akashic}"
 if [ ! -d "$ROOT/entities" ]; then
-  echo "✗ 「$ROOT」不是 Akashic store（缺 entities/）" >&2
+  echo "✗ 「${ROOT}」不是 Akashic store（缺 entities/）" >&2
   exit 2
 fi
 python3 - "$ROOT" <<'EOF'
@@ -40,13 +40,21 @@ org_distinct = collections.Counter()
 # glob.escape（R1-fix I4）：root 含 glob metacharacter（`[a]` 等）時，未跳脫的
 # pattern 會靜默匹配零檔——輸出與「查完歸零」無法區分，正是本檔 header 對 venue
 # 域禁止的那種折疊。
-files = glob.glob(glob.escape(root) + "/entities/*.yaml")
+# legacy 佈局（entries/／people/）一併掃——半遷移 store 只掃 entities/ 會
+# 靜默少算（缺席被折進零，本檔 header 對 venue 域禁止的同一種折疊）
+files = glob.glob(glob.escape(root) + "/entities/*.yaml") \
+      + glob.glob(glob.escape(root) + "/entries/*.yaml") \
+      + glob.glob(glob.escape(root) + "/people/*.yaml")
 if not files and os.listdir(f"{root}/entities"):
     print(f"✗ entities/ 非空但匹配不到任何 .yaml——路徑或權限異常，拒絕輸出計數", file=sys.stderr)
     sys.exit(3)
 for f in files:
     t = open(f, encoding="utf-8", errors="replace").read()
-    if t.startswith("work:"):
+    # legacy 佈局檔無形狀前綴——依目錄判 kind（entries/=work、people/=person）
+    parent = os.path.basename(os.path.dirname(f))
+    is_work = t.startswith("work:") or (parent == "entries" and not t.startswith(("person:", "organization:")))
+    is_person = t.startswith("person:") or (parent == "people" and not t.startswith(("work:", "organization:")))
+    if is_work:
         m = re.search(r"\nauthors:\n((?:- (?:key|literal): .*\n(?:  .*\n)*)*)", t)
         blk = m.group(1) if m else ""
         a_key += len(re.findall(r"^- key: ", blk, re.M))
@@ -68,7 +76,7 @@ for f in files:
             for x in re.findall(r"value:\n\s+literal: (.*)$", blk, re.M):
                 org_lit += 1
                 org_distinct[x.strip()] += 1
-    elif t.startswith("person:"):
+    elif is_person:
         m = re.search(r"\n  affiliations:\n(.*?)(?=\n  [a-z]|\nprofile|\Z)", t, re.S)
         if m:
             blk = m.group(1)

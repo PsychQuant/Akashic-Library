@@ -113,6 +113,26 @@ final class ResolvePeopleSelectiveTests: XCTestCase {
         XCTAssertTrue(try body("d2023d").contains("literal:"))
     }
 
+    /// R2-fix R3-3（使用者裁決：不豁免）：`--person` 收窄照樣要 `--tier` 具名。
+    func testPersonScopedApplyStillRequiresTierForLooseCandidates() throws {
+        try """
+        id: 00000009-1111-1111-1111-111111111111
+        citekey: d2023d
+        type: article
+        title: TD
+        authors:
+          - literal: "Cheng Che"
+        date: "2023"
+
+        """.write(to: root.appendingPathComponent("entries/d2023d.yaml"),
+                  atomically: true, encoding: .utf8)
+        let r = try runCLI(["resolve-people", "--apply", "--person", "cheng-che"])
+        XCTAssertNotEqual(r.status, 0, "--person 收窄不得豁免 tier 閘")
+        XCTAssertTrue(r.err.contains("--tier"), r.err)
+        XCTAssertTrue(try body("d2023d").contains("literal:"), "拒絕時零寫入")
+        XCTAssertTrue(try body("a2020a").contains("literal:"))
+    }
+
     /// `--tier exact` 只套完全命中，寬鬆列標 (skip) 不套。
     func testTierFilterAppliesOnlySelectedTier() throws {
         try """

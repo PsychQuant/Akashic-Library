@@ -761,9 +761,18 @@ public final class AkashicService {
             }
             // 腿 1：reject 完整提交（失敗即整體 throw——什麼都還沒動到 apply）
             let rejectDict = try parsed(try resolvePeople(apply: nil, reject: rj))
-            let justRejected = Set(rejectDict["rejected"] as? [String] ?? [])
-            let applyIDs = ap.filter { !justRejected.contains($0) }
-            let skipped = ap.filter { justRejected.contains($0) }
+            // R2-fix R3-1：跨腿比對以 **rowID 前綴**（citekey:authorIndex）為準——
+            // 列表自 B8 起發三段 id、reject 回音是呼叫端字串，逐字比對在三段形下
+            // 永不命中 → skippedBecauseRejected 死亡、被否決列灌進 apply 腿、
+            // all-or-nothing 讓同批合法 apply 全滅（R2 五方收斂的 headline）。
+            // 只動比對點：單腿回應形狀是文件宣告的不變式，不改。
+            func rowPrefix(_ id: String) -> String {
+                let parts = id.split(separator: ":")
+                return parts.count >= 2 ? "\(parts[0]):\(parts[1])" : id
+            }
+            let justRejected = Set((rejectDict["rejected"] as? [String] ?? []).map(rowPrefix))
+            let applyIDs = ap.filter { !justRejected.contains(rowPrefix($0)) }
+            let skipped = ap.filter { justRejected.contains(rowPrefix($0)) }
             // 腿 2：在寫入後的新快照上跑（遞迴呼叫從 store.load() 重來）
             var applyDict: [String: Any]
             if applyIDs.isEmpty {
@@ -800,7 +809,7 @@ public final class AkashicService {
         // 收兩段（legacy，僅當該位置的提名仍唯一存在）或三段（釘住——person 不符
         // 即拒絕並指名兩造）。StoreKey 文法無冒號，三段切分無歧義。
         let withIDs = candidates.map { c -> (id: String, candidate: ResolutionCandidate) in
-            ("\(c.rowID):\(c.personKey)", c)   // 複合鍵住在型別上（#236 R4）＋pin
+            (c.pinnedID, c)   // 複合鍵與 pin 都住在型別上（#236 R4／R3-5）
         }
         let byID = Dictionary(withIDs.map { ($0.id, $0.candidate) }, uniquingKeysWith: { first, _ in first })
         let byRowID = Dictionary(candidates.map { ($0.rowID, $0) }, uniquingKeysWith: { first, _ in first })
@@ -1028,7 +1037,7 @@ public final class AkashicService {
             var candidatesDropped = 0
             for pair in withIDs.prefix(Self.candidateLimit) {
                 let row: [String: Any] = [
-                    "id": pair.id,   // display-safe-exempt: 形如 "<citekey>:<index>"；citekey 受 load 端 StoreKey quarantine 把關（#171）
+                    "id": pair.id,   // display-safe-exempt: 三段形 "<citekey>:<index>:<personKey>"——citekey 與 personKey 都受 load 端 StoreKey quarantine 把關（#171／R3-5）
                     "citekey": displaySafe(pair.candidate.citekey, max: 200),
                     "authorIndex": pair.candidate.authorIndex,
                     "literal": displaySafe(pair.candidate.literal, max: 400),
@@ -1209,8 +1218,10 @@ public final class AkashicService {
                 "index rebuild 失敗：\(displaySafe(String(describing: error), max: 512))（本批已改寫 \(written) 檔；writeFailed \(writeFailed.count) 筆：\(writeFailed.map { "\(displaySafe($0.key, max: 200))（\($0.value)）" }.sorted().joined(separator: "; "))；confirmWriteFailed \(confirmWriteFailed.count) 筆：\(confirmWriteFailed.keys.sorted().joined(separator: "、"))）")   // display-safe-exempt: written 是 Int；writeFailed 值與 confirmWriteFailed 鍵在插入時已 displaySafe（不冪等，不再包）
         }
         // R8（R7-verify L15）：applied 不誇報——排除寫入失敗的候選
+        // R3-1 附帶：applied 回音同列表用三段 pinned 形——同一 payload 不出現
+        // 兩種 id 表示（skippedBecauseRejected 是呼叫端字串回音，本欄是列表形）
         let appliedActual = chosen.filter { writeFailed[$0.citekey] == nil }
-            .map { "\(displaySafe($0.citekey, max: 200)):\($0.authorIndex)" }
+            .map { "\(displaySafe($0.citekey, max: 200)):\($0.authorIndex):\(displaySafe($0.personKey, max: 200))" }
         var result: [String: Any] = ["applied": appliedActual, "entriesRewritten": written]
         // subscript 賦值建字典——**不用** `Dictionary(uniqueKeysWithValues:)`：
         // displaySafe 截斷非單射，兩個共 200 字元前綴的合法 citekey 會碰撞成同鍵，

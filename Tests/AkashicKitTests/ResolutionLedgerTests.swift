@@ -164,9 +164,10 @@ final class ResolutionLedgerTests: XCTestCase {
         XCTAssertEqual(confirmed, [ResolutionPairing(holderKind: .work,
                                                      holder: "cheng2024beta",
                                                      literal: "Cheng, C.",
-                                                     judgedKey: "che-cheng")])
+                                                     judgedKey: "che-cheng"):
+                                       ResolutionLedger.personRule])
         // 對稱且互斥：同一份 refs，兩側各取各的 kind，無交集
-        XCTAssertTrue(confirmed.isDisjoint(with:
+        XCTAssertTrue(Set(confirmed.keys).isDisjoint(with:
             ResolutionLedger.rejectedPairings(people: [p])))
     }
 
@@ -227,7 +228,7 @@ final class ResolutionLedgerTests: XCTestCase {
             ResolutionPairing(holderKind: .work, holder: "a2020x",
                               literal: "Cheng, C.", judgedKey: "che-cheng")
         ]
-        let report = PersonResolver.resolve(entries: [e1], people: [p], rejected: rejected, confirmed: [])
+        let report = PersonResolver.resolve(entries: [e1], people: [p], rejected: rejected, confirmed: [:])
         XCTAssertTrue(report.candidates.isEmpty,
                       "已否決配對不得重新提名：\(report.candidates)")
     }
@@ -242,7 +243,7 @@ final class ResolutionLedgerTests: XCTestCase {
             ResolutionPairing(holderKind: .work, holder: "a2020x",
                               literal: "Cheng, C.", judgedKey: "che-cheng")
         ]
-        let report = PersonResolver.resolve(entries: [e1, e2], people: [p], rejected: rejected, confirmed: [])
+        let report = PersonResolver.resolve(entries: [e1, e2], people: [p], rejected: rejected, confirmed: [:])
         XCTAssertEqual(report.candidates.map(\.citekey), ["b2021y"],
                        "同 literal 在另一個 entry 是另一次觀察，照提")
     }

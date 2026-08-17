@@ -59,7 +59,11 @@ public struct ProvenanceReference: Equatable {
                   let kind = VerdictHolderKind(rawValue: String(holderToken[..<colon]))
             else { return nil }
             let holder = String(holderToken[holderToken.index(after: colon)...])
-            guard !holder.isEmpty, !holder.contains(" ") else { return nil }
+            // holder 過 StoreKey 文法（R2-fix，logic N6 的根修）：holder 恆為
+            // citekey／entity key，兩者都受 StoreKey 約束——不驗的話，含 `|` 等
+            // 任意字元的 holder 會流進下游以複合字串鍵做的比對（resolver 的
+            // rejectedNorm）。在唯一解析點擋掉，比在每個消費端防禦便宜。
+            guard StoreKey.isValid(holder) else { return nil }
             return VerdictPairingValue(holderKind: kind, holder: holder,
                                        literal: String(value[sep.upperBound...]))
         }

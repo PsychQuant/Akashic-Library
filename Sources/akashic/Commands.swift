@@ -550,6 +550,7 @@ struct BootstrapPeople: ParsableCommand {
 
         guard !cands.isEmpty else {
             print("無候選（literal 作者皆已有對應 person，或全部低於門檻）")
+            printPendingResolution()   // R2-fix R3-8：零建檔候選時 pending 更該被看見
             printUnkeyable()   // 沒有候選時，這些**更**該被看見
             return
         }
@@ -1284,7 +1285,7 @@ struct ResolvePeople: ParsableCommand {
 
     /// #232 design D6：reject 是顯式人為動作。rowID 同 MCP（citekey:authorIndex）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "否決這些候選（rowID 形如 citekey:authorIndex）——寫 resolution-rejected verdict 到該 person，entry 不動；之後該配對不再被提名（同 literal 他 entry 照提）")
+            help: "否決這些候選（三段形 citekey:authorIndex:personKey——釘 person，提名改指時顯式拒絕；兩段 legacy 形僅當該位置提名仍唯一時等價）——寫 resolution-rejected verdict 到該 person，entry 不動；之後該配對不再被提名（同 literal 他 entry 照提）")
     var reject: [String] = []
 
     func run() throws {
@@ -1330,11 +1331,11 @@ struct ResolvePeople: ParsableCommand {
                 && (pkSet.isEmpty || pkSet.contains($0.personKey))
                 && (tierSet.isEmpty || tierSet.contains($0.tier))
         }
-        // R1-fix B1：裸 `--apply`（無任何收窄）在候選含寬鬆 tier 時拒絕——
-        // #303 之前「全套用」安全是因為候選恆為 exact；現在一發可套上百筆
-        // initials（skill 明文要求 initials apply 前必查證）。要全套用寬鬆層，
-        // 把意圖說出來：`--tier` 顯式列出要套的層。
-        if apply, ckSet.isEmpty, pkSet.isEmpty, tierSet.isEmpty,
+        // R1-fix B1＋R2-fix R3-3（使用者裁決：不豁免）：套用集含寬鬆 tier 時，
+        // **不論怎麼收窄**都要 `--tier` 具名——`--person` 恰是同名碰撞問題最糟的
+        // 收窄軸（它選中的正是同鍵列；R2 live probe：--person 一發寫 5 筆 initials
+        // verdict、4 筆錯配），`--citekey` 收窄也不代表你知道那列是弱證據層。
+        if apply, tierSet.isEmpty,
            candidates.contains(where: { $0.tier != .exact }) {
             let breakdown = Dictionary(grouping: candidates, by: \.tier)
                 .map { "\($0.key.rawValue) \($0.value.count)" }.sorted().joined(separator: "、")
@@ -1449,8 +1450,13 @@ struct ResolvePeople: ParsableCommand {
                 print("  〔exact〕兩種可能，處置相反：同名的不同人＝各自歸屬（永不合併）；同一人兩筆＝該合併。")
             }
             if !shownTiers.subtracting([.exact]).isEmpty {
-                print("  〔寬鬆層〕縮寫／重排共鍵通常是**不同的人**——不歸戶也不合併；"
-                      + "用區辨欄位（ORCID／隸屬）補進正確的 person 記錄後重跑 resolve。")
+                // R2-fix R3-2（DA probe：補 ORCID／隸屬對 resolver 無效——鍵空間只有
+                // names）。設計的出口：查證後把正確寫法補成 variant alias（帶
+                // provenance），該列升 exact 候選再顯式 apply。
+                print("  〔寬鬆層〕縮寫／重排共鍵通常是**不同的人**——不歸戶也不合併。"
+                      + "出口：查證確定歸屬後，把這個寫法補成該 person 的 variant alias"
+                      + "（帶 provenance reference，走 bootstrap 紀律）→ 重跑 resolve"
+                      + " → 該列升 exact 候選 → 顯式 apply。")
             }
         }
 
@@ -1471,15 +1477,19 @@ struct ResolvePeople: ParsableCommand {
                                             literal: c.literal, judgedKey: c.personKey),
                  rule: ResolutionLedger.personRule(for: c.tier))
             }
-            // R1-fix B2：逐 rule 一行——四 tier 的校準史各自可見，不折成單一類
+            // R1-fix B2＋R2-fix R3-8：逐 rule 一行——四 tier 校準史各自可見。
+            // exact **恆印**（歷史基線；R2 抓到 guard-let 綁定短路讓這個意圖失效）；
+            // 名單之外的 rule（手改／外庫匯入）殿後照印——靜默消失＝計數說謊。
             let byRule = ResolutionLedger.counts(people: load.people, candidates: triples)
             let personRules = [ResolutionTier.exact, .confirmedElsewhere, .reorder, .initials]
                 .map { ResolutionLedger.personRule(for: $0) }
-            for rule in personRules {
-                guard let c = byRule[rule], c.confirmed + c.rejected + c.pending > 0
-                    || rule == ResolutionLedger.personRule else { continue }
+            let foreign = byRule.keys.filter { !personRules.contains($0) }.sorted()
+            for rule in personRules + foreign {
+                let c = byRule[rule] ?? (confirmed: 0, rejected: 0, pending: 0)
+                let nonZero = c.confirmed + c.rejected + c.pending > 0
+                guard nonZero || rule == ResolutionLedger.personRule else { continue }
                 // 計數不報比率（分母含 censoring，比率會邀請錯誤推論）——未處理量必須可見
-                print("三態計數（\(rule)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／未處理 \(c.pending)")
+                print("三態計數（\(displaySafe(rule, max: 100))）：已確認 \(c.confirmed)／已否決 \(c.rejected)／未處理 \(c.pending)")
             }
         }
 
@@ -1523,7 +1533,7 @@ struct ResolvePeople: ParsableCommand {
             // verdict（design D6）。CLI 只把 JSON 排成人可讀。
             let service = AkashicService(root: store.root, key: store.key,
                                          environment: ProcessInfo.processInfo.environment)
-            let ids = candidates.map(\.rowID)   // 複合鍵住在型別上（#236 R4）——不手拼第四份
+            let ids = candidates.map(\.pinnedID)   // R3-5：CLI 也釘 person——與 service 列表同一個型別定義   // 複合鍵住在型別上（#236 R4）——不手拼第四份
             let out = try service.resolvePeople(apply: ids)
             let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
             let written = parsed?["entriesRewritten"] as? Int ?? 0

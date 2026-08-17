@@ -89,7 +89,7 @@ final class VerdictFormatGateTests: XCTestCase {
         // 否決仍然抑制（rename 前後同一個真實配對）——這正是 NEW-1 的傷害面
         let rejected = ResolutionLedger.rejectedPairings(people: load.people)
         let resolveReport = PersonResolver.resolve(entries: load.entries, people: load.people,
-                                                   rejected: rejected, confirmed: [])
+                                                   rejected: rejected, confirmed: [:])
         XCTAssertTrue(resolveReport.candidates.isEmpty,
                       "rename 之後否決不得安靜變回待判：\(resolveReport.candidates)")
         // 沉底列也跟著新 citekey

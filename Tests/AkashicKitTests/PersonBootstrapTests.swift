@@ -28,6 +28,26 @@ final class PersonBootstrapTests: XCTestCase {
         XCTAssertEqual(r.pendingResolution.first?.matchedKeys, ["chen-yi-hau"])
     }
 
+    /// R2-fix R3-4：部分否決**不**讓同一 literal 分裂成「建檔候選＋pending 並排」。
+    func testPartialRejectionKeepsWholeGroupPending() {
+        let existing = [Person(key: "chen-yi-hau",
+                               names: PersonNames(variant: ["Chen, Yi-Hau"]))]
+        var e1 = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        e1.authors = [.literal("Chen, Y.-H.")]
+        var e2 = Entry(id: UUID(), citekey: "y2024", type: "article", title: "U")
+        e2.authors = [.literal("Chen, Y.-H.")]
+        // 只否決 x2025 那筆配對——y2024 的配對仍未出清
+        let rejected: Set<ResolutionPairing> = [
+            ResolutionPairing(holderKind: .work, holder: "x2025",
+                              literal: "Chen, Y.-H.", judgedKey: "chen-yi-hau")]
+        let r = PersonBootstrap.resolve(entries: [e1, e2], existing: existing,
+                                        rejected: rejected)
+        XCTAssertTrue(r.candidates.isEmpty,
+                      "部分否決不得產生建檔候選：\(r.candidates)")
+        XCTAssertEqual(r.pendingResolution.count, 1)
+        XCTAssertEqual(r.pendingResolution.first?.occurrences, 2, "整組扣住")
+    }
+
     func testRejectedLoosePairingReturnsLiteralToBootstrap() {
         // 全部寬鬆配對都被否決後，literal 回到可建檔——生命週期閉環
         let existing = [Person(key: "chen-yi-hau",
@@ -288,7 +308,7 @@ final class PersonBootstrapTests: XCTestCase {
             Person(key: "chen-wei-2", names: PersonNames(variant: ["Chen Wei"])),
         ]
         let r = PersonResolver.resolve(
-            entries: [entry("x", ["Chen Wei"])], people: existing, rejected: [], confirmed: [])
+            entries: [entry("x", ["Chen Wei"])], people: existing, rejected: [], confirmed: [:])
         XCTAssertTrue(r.candidates.isEmpty,
                       "兩個同名記錄不得自動歸戶到其中一個：\(r.candidates)")
         XCTAssertEqual(r.ambiguities.count, 1, "必須以歧義呈現、交給人判斷")

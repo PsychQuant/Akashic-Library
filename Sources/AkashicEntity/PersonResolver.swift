@@ -53,6 +53,11 @@ public struct ResolutionCandidate: Equatable {
     /// 定義在型別上而非各呼叫端：三份拷貝總有一天分岔，而這次分岔的方式是
     /// 「其中一個呼叫端根本沒複製」。
     public var rowID: String { "\(citekey):\(authorIndex)" }
+
+    /// 釘 person 的三段 id（R1-fix B8／R2-fix R3-5）：apply/reject 的把手。
+    /// **住在型別上**——service 列表與 CLI 送出必須是同一個定義（#236 R4 的
+    /// 三份拷貝分岔教訓；R2 實測 CLI 自組 rowID 送出＝pin 整面失效）。
+    public var pinnedID: String { "\(rowID):\(personKey)" }
 }
 
 /// 同一個 literal 在同一個作者位置對到 **2+ 個 person**——系統知道自己遇到了決定點。
@@ -157,7 +162,7 @@ public enum PersonResolver {
     /// 同一條理由必填：缺省＝confirmed-elsewhere tier 靜默消失。
     public static func resolve(entries: [Entry], people: [Person],
                                rejected: Set<ResolutionPairing>,
-                               confirmed: Set<ResolutionPairing>) -> ResolutionReport {
+                               confirmed: [ResolutionPairing: String]) -> ResolutionReport {
         // 各 tier 的比對地圖在同一次 people 遍歷建好（#140：不為任何 tier 另寫遍歷）。
         // #227：alias 對照要的是**全部**名字（authorized + variant）——歸戶比對
         // 不因指定與否而異；三個 tier 的鍵空間都吃 `names.all`。
@@ -178,9 +183,11 @@ public enum PersonResolver {
         // **只吃 work-holder**（R1-fix I2）：org 域 verdict（holderKind: .person）
         // 餵進 person 提名是類別錯誤——今天 benign（org verdict 住 org 記錄），
         // 但手改 store／合併外庫時就不是。
-        var confirmedByLiteral: [String: Set<String>] = [:]
-        for pairing in confirmed where pairing.holderKind == .work {
-            confirmedByLiteral[normalize(pairing.literal), default: []].insert(pairing.judgedKey)
+        // norm literal → person key → 來源 rules（R3-7：ancestry 隨提名可見）
+        var confirmedByLiteral: [String: [String: Set<String>]] = [:]
+        for (pairing, rule) in confirmed where pairing.holderKind == .work {
+            confirmedByLiteral[normalize(pairing.literal), default: [:]][pairing.judgedKey, default: []]
+                .insert(rule)
         }
         // 否決比對用**與提名同一套正規化**（R1-fix I1）：verdict 記原始字串
         // （lossless），但抑制若比原始位元組，EN DASH 變體的否決壓不住 ASCII 連字號
@@ -205,7 +212,7 @@ public enum PersonResolver {
                 // 噪音淹沒，而被淹沒的報告等於沒有報告。
                 let tiers: [(ResolutionTier, Set<String>, String)] = [
                     (.exact, exactMap[norm] ?? [], "alias 完全命中"),
-                    (.confirmedElsewhere, confirmedByLiteral[norm] ?? [],
+                    (.confirmedElsewhere, Set(confirmedByLiteral[norm]?.keys ?? [:].keys),
                      "同 literal 已於他處 confirmed"),
                     (.reorder, reorderMap[LooseNameKey.reorderKey(literal)] ?? [],
                      "token 重排命中"),
@@ -213,22 +220,37 @@ public enum PersonResolver {
                      Set(LooseNameKey.initialsKeys(literal).flatMap { initialsMap[$0] ?? [] }),
                      "姓＋首字母命中"),
                 ]
-                for (tier, rawHits, reason) in tiers {
+                // 跨 tier 淘汰累計（R2-fix R3-6，spec R7 後果 b）：高 tier 的命中
+                // 被否決**清空**而 fall-through 時，低 tier 的提名同樣要留痕——
+                // 「使用者的 no 變成對別人的 yes」不分層都要可見。
+                var eliminatedAbove = 0
+                for (tier, rawHits, baseReason) in tiers {
                     let hits = rawHits.filter { key in
                         !rejectedNorm.contains("\(entry.citekey)|\(norm)|\(key)")
                     }
-                    guard !hits.isEmpty else { continue }
+                    guard !hits.isEmpty else {
+                        eliminatedAbove += rawHits.count - hits.count
+                        continue
+                    }
                     if hits.count == 1, let key = hits.first {
-                        // **淘汰而得的唯一命中要留痕**（R1-fix B7）：同 tier 曾有
-                        // 同名候選被否決時，這一筆是「否決後餘一」而非天然唯一——
-                        // 讀報告的人（與 LLM 批次 triage）要能分辨兩者。
-                        let removed = rawHits.count - hits.count
-                        let disclosed = removed > 0
-                            ? reason + "（同 tier \(removed) 個同名候選已被否決）"
-                            : reason
+                        var reason = baseReason
+                        // R3-7：confirmed-elsewhere 的弱血統可見——exact 血統不加噪音
+                        if tier == .confirmedElsewhere,
+                           let rules = confirmedByLiteral[norm]?[key] {
+                            let weak = rules.filter { $0 != ResolutionLedger.personRule }.sorted()
+                            if !weak.isEmpty {
+                                reason += "（rule: \(weak.joined(separator: "、"))）"
+                            }
+                        }
+                        // **淘汰而得的唯一命中要留痕**（R1-fix B7）：同 tier 餘一
+                        // 與高 tier 全滅 fall-through 兩種來源都算
+                        let removed = (rawHits.count - hits.count) + eliminatedAbove
+                        if removed > 0 {
+                            reason += "（此位置 \(removed) 個候選配對已被否決）"
+                        }
                         candidates.append(ResolutionCandidate(
                             citekey: entry.citekey, authorIndex: i, literal: literal,
-                            personKey: key, reason: disclosed, tier: tier))
+                            personKey: key, reason: reason, tier: tier))
                     } else if let m = AmbiguousMatch(entryID: entry.id, citekey: entry.citekey,
                                                      authorIndex: i, literal: literal,
                                                      personKeys: hits, tier: tier) {
@@ -257,7 +279,7 @@ public enum PersonResolver {
     /// 薄包裝。`rejected`／`confirmed` 同 `resolve`——刻意必填。
     public static func candidates(entries: [Entry], people: [Person],
                                   rejected: Set<ResolutionPairing>,
-                                  confirmed: Set<ResolutionPairing>) -> [ResolutionCandidate] {
+                                  confirmed: [ResolutionPairing: String]) -> [ResolutionCandidate] {
         resolve(entries: entries, people: people,
                 rejected: rejected, confirmed: confirmed).candidates
     }

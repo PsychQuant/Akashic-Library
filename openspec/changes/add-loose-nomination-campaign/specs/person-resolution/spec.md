@@ -46,6 +46,8 @@ For each literal occurrence, the resolver SHALL evaluate tiers in descending con
 
 When the nominating tier yields two or more distinct person keys, the resolver SHALL report an ambiguity carrying that tier instead of any candidate. Ambiguities SHALL NOT be applicable.
 
+The sanctioned exit for an ambiguity is verified alias promotion: after human verification, the literal's correct spelling is recorded as a variant alias on the right person **together with a provenance reference documenting the verification**, whereupon the occurrence nominates at the exact tier and is applied explicitly. Guidance surfaces SHALL NOT direct operators to add discriminator fields (ORCID, affiliation) as a way to change nomination — the matching key space is names only, and discriminators inform the human, not the resolver.
+
 #### Scenario: Initials collision becomes ambiguity
 
 - **GIVEN** a literal "C-H Chen" and two persons whose aliases reduce to the same family-plus-initials key
@@ -127,7 +129,7 @@ Applying or rejecting a candidate SHALL write a verdict whose rule name is deriv
 
 ### Requirement: Apply SHALL address a nominated pairing, not a position
 
-Candidate identifiers listed for apply SHALL pin the nominated person (`citekey:authorIndex:personKey`). When an identifier's pinned person no longer matches the current nomination at that position, apply SHALL fail explicitly, naming both persons, and SHALL NOT write anything. A two-segment legacy identifier remains accepted only while the position's nomination is the unique one it had when listed.
+Candidate identifiers listed for apply — and the identifiers every shipped face sends — SHALL pin the nominated person (`citekey:authorIndex:personKey`). When an identifier's pinned person no longer matches the current nomination at that position, apply SHALL fail explicitly, naming both persons, and SHALL NOT write anything. A two-segment legacy identifier is accepted and resolves to the position's current unique nomination — it carries no pin, so hand-typed legacy ids trade retarget protection for brevity; faces SHALL NOT emit the legacy form. In a combined apply+reject call, cross-leg coordination SHALL match rows by their `citekey:authorIndex` prefix so pinned and legacy forms coordinate identically, and single-leg response shapes remain unchanged.
 
 #### Scenario: Retargeted nomination refuses a stale pinned id
 
@@ -138,7 +140,7 @@ Candidate identifiers listed for apply SHALL pin the nominated person (`citekey:
 
 ### Requirement: Bulk apply SHALL NOT cross tiers implicitly
 
-A face that offers unscoped bulk apply SHALL refuse when the candidate set spans looser-than-exact tiers, directing the operator to scope explicitly (by tier, entry, or person). Applying loose-tier candidates requires naming the tier.
+Applying any looser-than-exact candidate in bulk SHALL require naming the tier explicitly. Scoping by entry or person SHALL NOT exempt this requirement — entry/person scoping narrows the set but does not attest tier awareness, and person scoping in particular selects exactly the co-keyed rows a name-collision defect produces. A face SHALL refuse a bulk apply whose selected set contains looser-than-exact rows unless the tier filter names them.
 
 #### Scenario: Bare bulk apply refuses on mixed tiers
 
@@ -146,9 +148,15 @@ A face that offers unscoped bulk apply SHALL refuse when the candidate set spans
 - **WHEN** an unscoped bulk apply is invoked
 - **THEN** the face refuses with the tier breakdown and no write occurs
 
+#### Scenario: Person-scoped bulk apply still requires the tier
+
+- **GIVEN** a bulk apply scoped to one person whose selected rows include an initials-tier candidate
+- **WHEN** it is invoked without a tier filter
+- **THEN** the face refuses and no write occurs
+
 ### Requirement: Every reported row SHALL disclose its tier on all faces
 
-Candidates and ambiguities SHALL carry their tier in the resolver report, and every consuming face (CLI, MCP, App) SHALL surface it. The addition SHALL be additive: existing fields, row identity, and apply semantics remain unchanged.
+Candidates and ambiguities SHALL carry their tier in the resolver report, and every consuming face (CLI, MCP, App) SHALL surface it. Existing fields remain; the recorded contract changes accompanying the tier work (three-segment pinned identifiers, tier-derived verdict rules, normalized rejection suppression, elimination disclosure, and the bulk-apply tier gate) are deliberate and documented — the report shape is additive, the apply contract is not.
 
 #### Scenario: MCP report carries tier
 

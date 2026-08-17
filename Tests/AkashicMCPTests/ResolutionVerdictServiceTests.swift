@@ -187,7 +187,7 @@ final class ResolutionVerdictServiceTests: XCTestCase {
         let rejectLeg = legs?["reject"] as? [String: Any]
         let applyLeg = legs?["apply"] as? [String: Any]
         XCTAssertEqual(rejectLeg?["rejected"] as? [String], ["a2020x:0"])
-        XCTAssertEqual(applyLeg?["applied"] as? [String], ["b2021y:0"])
+        XCTAssertEqual(applyLeg?["applied"] as? [String], ["b2021y:0:cheng-che"])   // R3-1：applied 回音同列表用 pinned 形
         // 原事故形不再現：兩個 verdict 都在（reject 沒被 apply 的整檔改寫抹掉）
         let (vs, _) = ResolutionLedger.verdicts(references: try person().references)
         XCTAssertEqual(vs.count, 2, "reject 與 confirm 都要存活：\(vs)")
@@ -197,6 +197,21 @@ final class ResolutionVerdictServiceTests: XCTestCase {
 
     /// 同一列兩邊都點到：reject 腿贏（先提交），apply 腿以 skippedBecauseRejected
     /// 回報——不是錯誤（LLM 一次 triage 常見）。
+    /// R2-fix R3-1：三段 pinned id 下兩腿協調照常——跨腿比對以 rowID 前綴為準。
+    func testCombinedLegsWorkWithPinnedIDs() throws {
+        let out = try json(try service.resolvePeople(
+            apply: ["a2020x:0:cheng-che", "b2021y:0:cheng-che"],
+            reject: ["a2020x:0:cheng-che"]))
+        let legs = out["legs"] as! [String: Any]
+        let applyLeg = legs["apply"] as! [String: Any]
+        XCTAssertEqual(applyLeg["skippedBecauseRejected"] as? [String],
+                       ["a2020x:0:cheng-che"], "\(applyLeg)")
+        XCTAssertEqual(applyLeg["applied"] as? [String], ["b2021y:0:cheng-che"],
+                       "同批其他合法 apply 必須落地——R2 headline 的回歸守衛")
+        let e = try LibraryStore(root: root).load().entries.first { $0.citekey == "b2021y" }!
+        XCTAssertEqual(e.authors, [.key("cheng-che")])
+    }
+
     func testSameRowInBothLegsIsSkippedNotError() throws {
         let out = try json(try service.resolvePeople(apply: ["a2020x:0"],
                                                      reject: ["a2020x:0"]))

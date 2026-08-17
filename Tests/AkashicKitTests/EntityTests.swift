@@ -14,7 +14,7 @@ final class EntityTests: XCTestCase {
 
     func testExactAliasMatchYieldsCandidate() {
         let entries = [entry("a2020b", authors: [.literal("Che Cheng")])]
-        let candidates = PersonResolver.candidates(entries: entries, people: people, rejected: [], confirmed: [])
+        let candidates = PersonResolver.candidates(entries: entries, people: people, rejected: [], confirmed: [:])
         XCTAssertEqual(candidates, [ResolutionCandidate(
             citekey: "a2020b", authorIndex: 0, literal: "Che Cheng",
             personKey: "cheng-che", reason: "alias 完全命中", tier: .exact)])
@@ -22,26 +22,26 @@ final class EntityTests: XCTestCase {
 
     func testMatchIsCaseAndWhitespaceInsensitive() {
         let entries = [entry("a2020b", authors: [.literal("  che   cheng ")])]
-        let candidates = PersonResolver.candidates(entries: entries, people: people, rejected: [], confirmed: [])
+        let candidates = PersonResolver.candidates(entries: entries, people: people, rejected: [], confirmed: [:])
         XCTAssertEqual(candidates.first?.personKey, "cheng-che")
     }
 
     func testCJKAliasMatches() {
         let entries = [entry("a2020b", authors: [.literal("陳君厚")])]
-        let candidates = PersonResolver.candidates(entries: entries, people: people, rejected: [], confirmed: [])
+        let candidates = PersonResolver.candidates(entries: entries, people: people, rejected: [], confirmed: [:])
         XCTAssertEqual(candidates.first?.personKey, "chen-chun-houh")
     }
 
     func testNoMatchYieldsNothing() {
         let entries = [entry("a2020b", authors: [.literal("Somebody Else")])]
-        XCTAssertTrue(PersonResolver.candidates(entries: entries, people: people, rejected: [], confirmed: []).isEmpty)
+        XCTAssertTrue(PersonResolver.candidates(entries: entries, people: people, rejected: [], confirmed: [:]).isEmpty)
     }
 
     func testAmbiguousAliasIsExcluded() {
         // 兩個人共用同名 alias → 同名不同人地雷，不出候選
         let ambiguousPeople = people + [Person(key: "cheng-che-2", names: ["Che Cheng"])]
         let entries = [entry("a2020b", authors: [.literal("Che Cheng")])]
-        XCTAssertTrue(PersonResolver.candidates(entries: entries, people: ambiguousPeople, rejected: [], confirmed: []).isEmpty)
+        XCTAssertTrue(PersonResolver.candidates(entries: entries, people: ambiguousPeople, rejected: [], confirmed: [:]).isEmpty)
     }
 
     // MARK: - #231：歧義不再被靜默丟棄
@@ -56,7 +56,7 @@ final class EntityTests: XCTestCase {
             entry("uniq2020", authors: [.literal("陳君厚")]),          // 唯一匹配
             entry("amb2020", authors: [.literal("Che Cheng")]),       // 2+ 匹配
         ]
-        let r = PersonResolver.resolve(entries: entries, people: ambiguousPeople, rejected: [], confirmed: [])
+        let r = PersonResolver.resolve(entries: entries, people: ambiguousPeople, rejected: [], confirmed: [:])
 
         // 唯一命中照舊進 candidates
         XCTAssertEqual(r.candidates.map(\.citekey), ["uniq2020"])
@@ -84,8 +84,8 @@ final class EntityTests: XCTestCase {
             entry("a2020b", authors: [.literal("Che Cheng"), .literal("陳君厚")]),
             entry("c2021d", authors: [.literal("鄭澈")]),
         ]
-        XCTAssertEqual(PersonResolver.candidates(entries: entries, people: ambiguousPeople, rejected: [], confirmed: []),
-                       PersonResolver.resolve(entries: entries, people: ambiguousPeople, rejected: [], confirmed: []).candidates)
+        XCTAssertEqual(PersonResolver.candidates(entries: entries, people: ambiguousPeople, rejected: [], confirmed: [:]),
+                       PersonResolver.resolve(entries: entries, people: ambiguousPeople, rejected: [], confirmed: [:]).candidates)
     }
 
     /// 「歧義只有一個候選」在型別層不可表達。
@@ -98,12 +98,12 @@ final class EntityTests: XCTestCase {
 
     func testResolvedKeyAuthorsAreNotCandidates() {
         let entries = [entry("a2020b", authors: [.key("cheng-che")])]
-        XCTAssertTrue(PersonResolver.candidates(entries: entries, people: people, rejected: [], confirmed: []).isEmpty)
+        XCTAssertTrue(PersonResolver.candidates(entries: entries, people: people, rejected: [], confirmed: [:]).isEmpty)
     }
 
     func testApplyConvertsOnlyListedCandidates() {
         let e = entry("a2020b", authors: [.literal("Che Cheng"), .literal("Somebody Else")])
-        let candidates = PersonResolver.candidates(entries: [e], people: people, rejected: [], confirmed: [])
+        let candidates = PersonResolver.candidates(entries: [e], people: people, rejected: [], confirmed: [:])
         let applied = PersonResolver.apply(candidates, to: [e])
         XCTAssertEqual(applied.first?.authors,
                        [.key("cheng-che"), .literal("Somebody Else")])

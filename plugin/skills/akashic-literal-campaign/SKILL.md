@@ -35,13 +35,15 @@ candidates 依 tier 信心降冪。讀法：
 | `exact` | alias 完全命中 | 查證後成批 apply |
 | `confirmed-elsewhere` | 同 literal 已於他處人工 confirmed | 高信心，但**仍要確認脈絡**（同字串跨 entry 可能是不同人——縮寫形尤其）再 apply |
 | `reorder` | token 重排（`Yung-Fong Hsu`↔`Hsu, Yung-Fong`） | 查證後 apply；同名重排碰撞留意 ambiguities |
-| `initials` | 姓＋首字母（`Chen, Y.-H.`） | **逐 entry 判斷、逐筆查證**——初雜訊率近半（R1 實測 47% full↔full 假陽性），單命中只是店裡「今天」只有一個同鍵者 |
+| `initials` | 姓＋首字母（`Chen, Y.-H.`） | **逐 entry 判斷、逐筆查證**——初雜訊率近半（R2 verify 獨立量測：50/114 ≈ 44% 為 full↔full 形——兩個全寫名靠首字母共鍵，零證據），單命中只是店裡「今天」只有一個同鍵者 |
 
 - **apply 的 id 是三段形 `citekey:authorIndex:personKey`**（釘 person）——提名改指時 apply 顯式失敗，重新列出再決定，不要改手拼 id
 - CLI 批次套用**必帶 `--tier`**（裸 `--apply` 面對寬鬆 tier 會拒絕）：`akashic resolve-people --apply --tier exact` 是安全的第一刀
 - reason 帶「已被否決」字樣的候選是**淘汰而得的唯一命中**——不是天然唯一，查證標準從嚴
 
-ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，**通常是不同的人**——用區辨欄位（ORCID／隸屬）補進正確記錄後重跑；`exact` 同名才是「各自歸屬 vs 該合併」的兩難判斷（person-verify 的兩種相反處置）。
+ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，**通常是不同的人**；`exact` 同名才是「各自歸屬 vs 該合併」的兩難判斷（person-verify 的兩種相反處置）。
+
+**歧義的出口（R2 定案）**：resolver 只比 `names`——補 ORCID／隸屬**不會**改變提名（區辨欄位是給你判斷用的，不是給機器的）。查證確定歸屬後，把該寫法補成正確 person 的 **variant alias 並帶 provenance reference**（查證依據落 person 記錄——bootstrap 既有紀律，這就是判斷的痕跡），重跑 resolve 讓該列升 exact 候選，再顯式 apply。這條升格是**設計的出口**不是漏洞：alias＋provenance 就是驗證記錄，exact verdict 因此誠實。
 
 ### 2. 分批（TaskCreate 編排）
 
@@ -68,7 +70,7 @@ ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，*
 
 **候選不在列時，先分辨三種原因再行動**（順序固定，跳過任一步都可能鑄造重複身分）：
 
-1. **在 ambiguities 裡嗎？**（同 literal 對到 2+ person）→ 走歧義處置（補區辨欄位重跑），**不建檔**
+1. **在 ambiguities 裡嗎？**（同 literal 對到 2+ person）→ 走歧義出口（查證後補 variant alias 帶 provenance、升 exact 再 apply——見上），**不建檔**
 2. **被截斷了嗎？**（MCP `truncated`／`candidateTotal` 大於列出數）→ 用 CLI 全列表或 `--citekey` 收窄重看，**不建檔**
 3. **真的無任何命中**（CLI 全列表與 ambiguities 都沒有）→ 先 `akashic_people query:` 按名字搜一次確認店裡沒有近似記錄，才走 `bootstrap-people`／`add-person` 建檔，重跑 resolve 讓配對成為候選
 

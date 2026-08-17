@@ -142,15 +142,19 @@ public enum ResolutionLedger {
     /// resolver 的 `confirmedElsewhere` tier 資料源：同 literal 已在他處判給某人，
     /// 別的 entry 的同字串值得以該知識提名。**只提名不 apply**，且不寫 alias——
     /// verdict 的 value 文法本身就記著配對，比 variant alias 多了 provenance。
-    public static func confirmedPairings(people: [Person]) -> Set<ResolutionPairing> {
-        var set = Set<ResolutionPairing>()
+    /// 回傳「配對 → 來源 rule」（R2-fix R3-7）：confirmed verdict 餵提名層時，
+    /// 弱血統（initials／reorder 判定寫下的 confirmed）要在提名 reason 可見——
+    /// 照餵（人確認過的配對就是確認）但不隱藏出身。同配對重複 verdict 在寫入
+    /// 邊界已被 `appendIfAbsent` 擋掉，實務上 rule 唯一；極端情形取後者。
+    public static func confirmedPairings(people: [Person]) -> [ResolutionPairing: String] {
+        var out: [ResolutionPairing: String] = [:]
         for p in people {
             for v in verdicts(references: p.references).verdicts where v.kind == .confirmed {
-                set.insert(ResolutionPairing(holderKind: v.holderKind, holder: v.holder,
-                                             literal: v.literal, judgedKey: p.key))
+                out[ResolutionPairing(holderKind: v.holderKind, holder: v.holder,
+                                      literal: v.literal, judgedKey: p.key)] = v.rule
             }
         }
-        return set
+        return out
     }
 
     /// organization 族的已否決配對（task 3.2——family 一次涵蓋）。

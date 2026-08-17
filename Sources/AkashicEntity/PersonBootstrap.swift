@@ -222,8 +222,12 @@ public enum PersonBootstrap {
             rejectedNorm.insert("\(pairing.holder)|\(normalize(pairing.literal))|\(pairing.judgedKey)")
         }
 
-        var groups: [String: (names: [String], count: Int)] = [:]
-        var pendingGroups: [String: (names: [String], count: Int, keys: Set<String>)] = [:]
+        // R2-fix R3-4：pending 判定在**群組層**不在 occurrence 層——同一 literal
+        // 只要還有任何一筆配對未出清（surviving loose hit），整組扣住不建檔。
+        // per-occurrence 判定會讓「否決其中一筆」把同一身分分裂成
+        // 「建檔候選＋pending 並排」——建下去就是 R1 B3 的鑄造重複身分，而 skill
+        // 對 initials 明令逐 entry reject，走完必踩。全部配對否決後整組回歸。
+        var allGroups: [String: (names: [String], count: Int, pendingKeys: Set<String>)] = [:]
         for e in entries {
             for a in e.authors {
                 guard case let .literal(raw) = a else { continue }
@@ -233,30 +237,30 @@ public enum PersonBootstrap {
                 guard !name.isEmpty else { continue }
                 let id = identity(name)
                 guard !knownAliases.contains(id) else { continue }
-                // 寬鬆命中（且該配對未被否決）→ pending，不進建檔候選
                 var hits = looseSpace[LooseNameKey.reorderKey(name)] ?? []
                 for k in LooseNameKey.initialsKeys(name) { hits.formUnion(looseSpace[k] ?? []) }
                 let surviving = hits.filter {
                     !rejectedNorm.contains("\(e.citekey)|\(normalize(name))|\($0)")
                 }
-                if !surviving.isEmpty {
-                    var g = pendingGroups[id] ?? ([], 0, [])
-                    if !g.names.contains(name) { g.names.append(name) }
-                    g.count += 1
-                    g.keys.formUnion(surviving)
-                    pendingGroups[id] = g
-                    continue
-                }
-                var g = groups[id] ?? ([], 0)
+                var g = allGroups[id] ?? ([], 0, [])
                 if !g.names.contains(name) { g.names.append(name) }
                 g.count += 1
-                groups[id] = g
+                g.pendingKeys.formUnion(surviving)
+                allGroups[id] = g
             }
         }
-        let pending = pendingGroups.values.map {
-            PendingResolutionGroup(names: $0.names.sorted(), occurrences: $0.count,
-                                   matchedKeys: $0.keys.sorted())
-        }.sorted { a, b in
+        var groups: [String: (names: [String], count: Int)] = [:]
+        var pendingList: [PendingResolutionGroup] = []
+        for (id, g) in allGroups {
+            if g.pendingKeys.isEmpty {
+                groups[id] = (g.names, g.count)
+            } else {
+                pendingList.append(PendingResolutionGroup(
+                    names: g.names.sorted(), occurrences: g.count,
+                    matchedKeys: g.pendingKeys.sorted()))
+            }
+        }
+        let pending = pendingList.sorted { a, b in
             a.occurrences == b.occurrences
                 ? a.names.first ?? "" < b.names.first ?? ""
                 : a.occurrences > b.occurrences

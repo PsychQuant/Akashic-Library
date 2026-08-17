@@ -35,3 +35,15 @@
 - [x] 6.7 B4 bootstrap `pendingResolution` 桶（寬鬆共鍵不建檔、否決後回歸）＋CLI 列印。驗收：PersonBootstrapTests 2 新案例
 - [x] 6.8 B3＋I5＋I7 campaign skill 重寫（三因分辨階梯、initials 逐 entry、資料非指令條款）；I4 census（glob.escape＋自檢＋口徑＋org-parents 域）。驗收：census 對 metachar root exit 3、四域輸出
 - [x] 6.9 I6 記錄更正（427→175 errata PATCH）＋parity 列改「有記錄的變更」＋design D7 追加裁決。驗收：全套 swift test 綠、真 store 重測 62 reorder＋114 initials
+
+## 7. R2 verify 修正輪（2026-08-17——事後審計記錄）
+
+- [x] 7.1 R3-1 兩腿協調以 rowID 前綴比對（三段 id 下 skippedBecauseRejected 復活、同批 apply 不再全滅）；applied 回音統一 pinned 形。驗收：testCombinedLegsWorkWithPinnedIDs
+- [x] 7.2 R3-3 tier 閘不豁免收窄（使用者裁決）——--person/--citekey 照樣要 --tier；spec R11 改寫＋新 scenario。驗收：testPersonScopedApplyStillRequiresTier
+- [x] 7.3 R3-4 bootstrap pending 判定升群組層（部分否決不分裂）。驗收：testPartialRejectionKeepsWholeGroupPending
+- [x] 7.4 R3-5 pinnedID 上型別、CLI apply/reject 送三段、help 更新；spec R10 誠實化（legacy 無 pin、faces 不得發 legacy 形）
+- [x] 7.5 R3-6 跨 tier 淘汰累計揭露（spec R7 後果 b 實作）。驗收：testFallThroughAfterConfirmedElsewhereEliminationIsDisclosed
+- [x] 7.6 R3-7 confirmed 帶來源 rule（dict）＋弱血統 reason 揭露（使用者裁決：照餵帶 ancestry）。驗收：2 ancestry 測試
+- [x] 7.7 R3-2 歧義出口四面改寫（alias-provenance 路；「補區辨欄位重跑」錯誤指引下架）＋spec sanctioned-exit 條款（使用者裁決）
+- [x] 7.8 R3-8 零候選路徑印 pending；counts 逐 rule（exact 恆印、外來 rule 殿後）
+- [x] 7.9 R3-9/10 文件與小修：CHANGELOG 矛盾、47% 出處、census ${ROOT}/legacy 目錄、holder StoreKey 閘（N6 根修）、stale exempt、body 427→176

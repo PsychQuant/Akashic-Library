@@ -798,11 +798,19 @@ propositions:
             kind: requirement
             locator: "Retrieved content SHALL be addressed by the digest of its bytes"
             note_zh_tw: "digest 定址是 normative 條款：內容以位元組的 digest 指稱。"
+          - path: "openspec/specs/entry-source-reference/spec.md"
+            kind: requirement
+            locator: "Content the store is able to ingest SHALL be referenced by digest rather than by file-system path"
+            note_zh_tw: "digest-not-path 判準的另一份 normative 來源，且它明寫理由：路徑在檔案被移動或改名時失效、且不攜帶任何偵測位元組已變的手段，而 digest 是 store 對已存內容既有的身分。本條類比之「名」取的正是此定址義——名指向內容而不把內容的內部結構包進字樣。"
     history:
       - kind: issue
         reference: "https://github.com/PsychQuant/Akashic-Library/issues/223"
         disposition: revised
-        note_zh_tw: "#223 裁決 digest-not-path 判準（2026-08-10），#235 據以掛上 analogy_only 對照；裁決本身有效。本筆標 revised：evidence 為已知過渡態——entry-source-reference 待 PR #249 合併後由 #252 補引並重讀 rationale。"
+        note_zh_tw: "#223 裁決 digest-not-path 判準（2026-08-10），#235 據以掛上 analogy_only 對照；裁決本身有效。本筆標 revised：evidence 曾為已知過渡態——判準的另一份 normative 來源 entry-source-reference 當時活在未合併的 PR #249，而 validator 要求 evidence path 存在於專案內。"
+      - kind: issue
+        reference: "https://github.com/PsychQuant/Akashic-Library/issues/252"
+        disposition: revised
+        note_zh_tw: "PR #249 已於 2026-08-15 合併、entry-source-reference spec 進入專案內，#252 據此補引其 digest-not-path requirement 並重讀 rationale 全文。evidence 的過渡態至此關閉。"
   - id: "3.21"
     parent: "3.2"
     texts:
@@ -893,7 +901,7 @@ propositions:
       - status: analogy_only
         mode: meta_elucidation
         claim_zh_tw: "在本條有限類比中，sources/ 存檔內容的 digest 指稱扮演「命名」的角色：記錄層的 provenance 引用以 digest 代表位元組——記號站到內容的位置；進入 sources/ 的內容，其檔案系統位置由 digest 推導、不作為指稱的輸入。"
-        rationale_zh_tw: "命題 3.221 說對象只能命名、記號代替它們；本條取其有限類比：sources/ 的 blob 不佔 canonical entity namespace，庫的記錄層只能「談論」它（記 provenance、掛 digest 引用），不把它變成一筆有名字、有生命週期的記錄——「不能說出」在此取命題表達義，不指 I/O 上不能讀取或傳回位元組。此類比只對 sources/ 存檔域成立，並不承諾 store 全域如此：entry 的 attachment 引用（AttachmentRef）現仍以路徑指涉、屬過渡期形狀，不在本條類比域內。digest 引用這個設計的規範理由在 #223 的裁決與 spec 條款自身；《論考》提供的是與該設計相呼應的結構類比，不構成推導或證成。同命題上一條 not_applicable 的否定理由在 entity 層（Akashic entity 不是《論考》的簡單對象），本條肯定的是儲存指稱層的有限類比，兩者對象不同、相容並存。"
+        rationale_zh_tw: "命題 3.221 說對象只能命名、記號代替它們；本條取其有限類比：sources/ 的 blob 不佔 canonical entity namespace，庫的記錄層只能「談論」它（記 provenance、掛 digest 引用），不把它變成一筆有名字、有生命週期的記錄——「不能說出」在此取命題表達義，不指 I/O 上不能讀取或傳回位元組。此類比只對 sources/ 存檔域成立，並不承諾 store 全域如此：entry 的 attachment 引用（AttachmentRef）是規範明文保留的唯一一種路徑指涉形式——entry-source-reference 稱該形式為 transition mechanism、並宣告它是 closed enumeration of one form（format 9 已把附件鍵域收窄到只剩它），故仍以路徑指涉、屬過渡期形狀，不在本條類比域內。digest 引用這個設計的規範理由在 #223 的裁決與 spec 條款自身；《論考》提供的是與該設計相呼應的結構類比，不構成推導或證成。同命題上一條 not_applicable 的否定理由在 entity 層（Akashic entity 不是《論考》的簡單對象），本條肯定的是儲存指稱層的有限類比，兩者對象不同、相容並存。"
         evidence:
           - path: "openspec/specs/provenance-reference/spec.md"
             kind: requirement
@@ -903,11 +911,19 @@ propositions:
             kind: symbol
             locator: "sourceURL"
             note_zh_tw: "由 digest 解析存檔 URL 的解析器（模組內讀取面皆經此）；形狀不合法的 digest 直接回 nil。寫入面的排除驗證另以字串重建同一路徑（刻意設計，見該處註解），故不稱唯一通道。"
+          - path: "openspec/specs/entry-source-reference/spec.md"
+            kind: requirement
+            locator: "Content the store is able to ingest SHALL be referenced by digest rather than by file-system path"
+            note_zh_tw: "本條「只能命名」的類比依據：可 ingest 的內容一律以 digest 指稱、路徑不得作為新的指涉形式。同一 requirement 並明文處置 AttachmentRef——保留的路徑形式恰為一種、稱其為 transition mechanism、且宣告為 closed enumeration of one form，這正是 rationale 把它劃在類比域外的規範根據（不再只是觀察）。"
     history:
       - kind: issue
         reference: "https://github.com/PsychQuant/Akashic-Library/issues/223"
         disposition: revised
-        note_zh_tw: "#223 裁決 digest-not-path 判準（2026-08-10），#235 據以掛上 analogy_only 對照；裁決本身有效。本筆標 revised：evidence 為已知過渡態——entry-source-reference 待 PR #249 合併後由 #252 補引並重讀 rationale（含 AttachmentRef 過渡期一句）。"
+        note_zh_tw: "#223 裁決 digest-not-path 判準（2026-08-10），#235 據以掛上 analogy_only 對照；裁決本身有效。本筆標 revised：evidence 曾為已知過渡態——判準的另一份 normative 來源 entry-source-reference 當時活在未合併的 PR #249，而 validator 要求 evidence path 存在於專案內。"
+      - kind: issue
+        reference: "https://github.com/PsychQuant/Akashic-Library/issues/252"
+        disposition: revised
+        note_zh_tw: "PR #249 已於 2026-08-15 合併，#252 據此補引 entry-source-reference 的 digest-not-path requirement 並重讀 rationale 全文。AttachmentRef 那句一併精確化：原文寫「現仍以路徑指涉、屬過渡期形狀」，複查後發現該 requirement 自己就寫著 transition mechanism 與 closed enumeration of one form——核心真值成立，改為引述規範措辭而非僅陳述觀察。"
   - id: "3.23"
     parent: "3.2"
     texts:

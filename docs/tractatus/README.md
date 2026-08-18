@@ -29,7 +29,7 @@ Pears／McGuinness 採 Routledge 2001 第二版（ISBN 9780415254083）作外部
 - `segments`：來源索引的多對多對齊、臺灣正體中文工作譯文、逐句哲學解讀。為避免 mega-segment 只在形式上覆蓋原文，只允許 1↔1，或為容納德英句界差異而使用 2↔1／1↔2；2↔2 與任一版本三個以上來源單位會回報 `alignment-granularity`。
 - alignment 索引必須逐版本嚴格依序；若 1↔1 兩側各自把多個明顯完整句子塞進單一 `texts[]`，會回報 `source-unit-granularity`。2↔1／1↔2 的單一側也不得偷藏多個完整句子，多單位側不得以單字中央等任意切點偽造句界差異。縮寫、公式與真實版本句界仍以逐卷人工稽核處理。
 - `interpretation_zh_tw` 必須直接說明該句的哲學作用、術語、歧義或界線；只用「建立論證起點／推進到／收束命題」包住譯文的建構樣板會回報 `generic-interpretation`。
-- `project_relations`：每條命題都要獨立判斷與專案的關係；`rationale_zh_tw` 必須針對該命題撰寫，不同命題不得共用空白正規化後完全相同的理由，否則回報 `duplicate-rationale`。
+- `project_relations`：每條命題都要獨立判斷與專案的關係；`rationale_zh_tw` 必須依該 relation 自身的論證撰寫；空白正規化後完全相同的理由**不得被任何其他 relation 重用**——跨命題與**同一命題內的兩條 relation** 皆然（#254），否則回報 `duplicate-rationale`。
 - `project_relations`：對 Akashic 現況的明確 `status`／`mode`、主張、理由與必要證據；不適用時應誠實標為 `not_applicable`。
 - evidence `kind` 會實際驗證 heading／test／requirement／symbol 的結構；corpus、snapshot 與 generated 文件不得循環證成自身關係。
 - `history`：branch、commit、issue 的歷史脈絡；不得替代 `main` 上的現況證據。

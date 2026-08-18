@@ -26,6 +26,71 @@ public enum BibExport {
                         fields: fields, rawText: "", lineNumber: 0)
     }
 
+    // MARK: - APA7 完整性報告（#326）
+
+    /// 一筆 APA7 必要／建議欄位的缺漏。
+    ///
+    /// 與 `AkashicCore.ValidationIssue` 同名不同物——那個管 store schema，這個管
+    /// **書目正確性**。兩者刻意不合併：語法正確（大括號平衡、可被 LaTeX 讀）與書目
+    /// 正確（參考文獻印得出來）是兩件事，先前只有前者有守衛。
+    public struct APA7Issue: Equatable {
+        public enum Severity: String, Equatable { case error, warning }
+        public let citekey: String
+        public let severity: Severity
+        public let message: String
+    }
+
+    /// `apa7Report` 的結果。
+    ///
+    /// **`uncheckedCitekeys` 是這個型別存在的理由。** `BibValidator` 的必要欄位表只
+    /// 涵蓋 7 個 entry type（ARTICLE／PRESENTATION／REPORT／BOOK／INCOLLECTION／
+    /// INPROCEEDINGS／THESIS），而 store 另有 `online`／`unpublished`／`misc` 等值
+    /// （實測 47 筆）。對那些 type，validator 回空陣列——若只回 `issues`，「沒被檢查」
+    /// 與「檢查過且乾淨」在輸出上**完全一樣**，而那正是本專案反覆記錄的靜默失敗形狀
+    /// （`lossless-intake` 執行細節 3：「靜默是最糟的形式」）。
+    ///
+    /// type 值域的收斂是 #325 的範圍；本型別的責任只是**不假裝檢查過**。
+    public struct APA7Report: Equatable {
+        public let issues: [APA7Issue]
+        public let uncheckedCitekeys: [String]
+
+        /// 有沒有 error 級缺漏（warning 不算——它們是 recommended 欄位）。
+        public var hasErrors: Bool { issues.contains { $0.severity == .error } }
+    }
+
+    /// biblatex-apa 的 `BibValidator` 涵蓋的 entry type（大寫正規化形）。
+    ///
+    /// **這份清單是對方的實作細節的鏡像**，會隨 dependency 演進而過期。它只用於
+    /// 判定「這個 type 有沒有被檢查」，判錯的方向是**多報 unchecked**（保守、可見），
+    /// 不是漏報 issue。
+    private static let apa7CheckedTypes: Set<String> = [
+        "ARTICLE", "PRESENTATION", "REPORT", "BOOK",
+        "INCOLLECTION", "INPROCEEDINGS", "THESIS",
+    ]
+
+    /// 對每筆 entry 跑 APA7 必要欄位檢查，回報缺漏與**未被涵蓋的 type**。
+    ///
+    /// 不改變 `.bib` 內容——本函式是純讀取的旁路檢查（warn-only，#326 裁決）。
+    public static func apa7Report(entries: [Entry], people: [Person]) -> APA7Report {
+        let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
+        var issues: [APA7Issue] = []
+        var unchecked: [String] = []
+        for entry in entries.sorted(by: { $0.citekey < $1.citekey }) {
+            let bib = bibEntry(for: entry, people: peopleByKey)
+            guard apa7CheckedTypes.contains(entry.type.uppercased()) else {
+                unchecked.append(entry.citekey)
+                continue
+            }
+            for issue in BibValidator.validate(entry: bib) {
+                issues.append(APA7Issue(
+                    citekey: entry.citekey,
+                    severity: issue.severity == .error ? .error : .warning,
+                    message: issue.message))
+            }
+        }
+        return APA7Report(issues: issues, uncheckedCitekeys: unchecked)
+    }
+
     public static func bibFile(entries: [Entry], people: [Person]) -> String {
         let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
         return entries

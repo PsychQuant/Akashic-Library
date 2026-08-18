@@ -60,4 +60,4 @@ propose ──→ park ──────────────→ apply ─�
 | [entity-backlink-completeness.md](.claude/rules/entity-backlink-completeness.md) | 呈現 entity 時所有相關 entity 都要看得到——反向一律現算不儲存；可儲存的關係邊是一張封閉列舉表＋可執行稽核（條數見該檔，摘要刻意不複述——複述過的數字會與表分岔） |
 | [no-compat-fallback.md](.claude/rules/no-compat-fallback.md) | 不留相容 fallback——要改格式就一次改完全部；例外須離開 default 位置、附退場量測、退場即刪 |
 | [replace-endnote-and-zotero.md](.claude/rules/replace-endnote-and-zotero.md) | 目標是完全取代 EndNote 與 Zotero——檔案住 Akashic、位元組複製進 store、對 Zotero 的 pull 是過渡、能力缺口記 issue 不得靠「回去用 Zotero」帶過 |
-| [apa7-is-the-work-floor.md](.claude/rules/apa7-is-the-work-floor.md) | 一筆 work 的資訊下限是「能產出正確的 APA7 參考文獻」——ch10 的 113 例是驗收矩陣、16 節是 `Entry.type` 的值域權威；下限不是上限，來源給更多就收更多 |
+| [apa7-is-the-work-floor.md](.claude/rules/apa7-is-the-work-floor.md) | 一筆 work 的資訊下限是「能產出正確的 APA7 參考文獻」——ch10 的 113 例是驗收矩陣、`Entry.type` 的值域須**細分**（非等於）ch10 的 16 節；下限不是上限，分類可更細不可更粗 |

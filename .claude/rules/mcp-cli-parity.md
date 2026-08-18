@@ -82,9 +82,27 @@ grep -oE 'Tool\(name: "akashic_[a-z_]+"' Sources/akashic-mcp/Server.swift | sort
 #    #219 verify 三個 lens 獨立抓到。稽核程序自己也要被稽核）
 sed -n '/subcommands: \[/,/\])/p' Sources/akashic/CLI.swift | grep -oE '[A-Za-z]+\.self'
 # ③ 逐一比對上表：①有而表沒有 → 表壞了；表標 ✅ 而②對不到 → 表壞了。
-#    注意 ② 吐的是**型別名**（FileCmd）而表用**命令名**（file）——對照時開該型別的
-#    CommandConfiguration.commandName 核對，這一步是人工的（要全機械化需 manifest
-#    或讀 configuration 的測試，見 #259 的討論）
+#    ② 吐的是**型別名**（FileCmd）而表用**命令名**（file）。這一步過去是人工的
+#    （#259 當時判斷「要全機械化需 manifest 或讀 configuration 的測試」）——實測
+#    過於保守：從各型別的 CommandConfiguration 純文字抽 commandName 就夠，39/39
+#    全解析（#318）。以下把型別名翻成命令名，再拿命令名去對表。
+#    **失敗模式已驗**：抽不到 commandName 的型別印 `<未解析>` 而**不是靜默跳過**
+#    ——只在 happy path 正確的稽核命令，會在真正需要它時安靜少報一列，那正是 ②
+#    第一版 11/30 的形狀。
+sed -n '/subcommands: \[/,/\])/p' Sources/akashic/CLI.swift \
+  | grep -oE '[A-Za-z]+\.self' | sed 's/\.self$//' | sort -u \
+  | while read -r t; do
+      n=$(awk -v t="$t" '
+            FNR==1 { f=0 }
+            $0 ~ ("struct[[:space:]]+" t "[[:space:]]*:") { f=1 }
+            f && /commandName:/ {
+              sub(/.*commandName:[[:space:]]*"/, ""); sub(/".*/, ""); print; exit
+            }' Sources/akashic/*.swift)
+      printf '%-30s %s\n' "$t" "${n:-<未解析>}"
+    done
+#    誠實邊界：純文字抽取與「讀 configuration 的測試」不等價——前者對宣告寫法改變
+#    脆弱（同 ② 的既有教訓）。本步只主張它足以取代**人工逐一開檔**，不主張它是終局
+#    形狀。真正的不脆弱版本仍是那個測試，#259 的討論在這一點上沒有過期。
 # ④ CLI 面的全部**橫切選項**（#310）：`ParsableArguments` 不是 subcommand，所以 ②
 #    在結構上枚舉不到它——這是 ② 的盲點，不是它漏了一項。輸出的每一項都必須出現在
 #    下方「CLI 橫切選項裁決表」；查無即是零裁決格。

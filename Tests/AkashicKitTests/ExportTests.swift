@@ -25,6 +25,38 @@ final class ExportTests: XCTestCase {
         [Person(key: "cheng-che", names: PersonNames(authorized: ["Che Cheng", "鄭澈"]))]
     }
 
+    // MARK: - APA7 完整性報告（#326）
+
+    /// 缺 APA7 必要欄位要**報出來**——語法完美但書目殘缺的 entry 先前會通過所有檢查。
+    func testExportReportsMissingAPA7RequiredField() throws {
+        var entry = makeEntry()
+        entry.fields.removeValue(forKey: "journaltitle")   // ARTICLE 的必要欄位
+        let report = BibExport.apa7Report(entries: [entry], people: people)
+        XCTAssertTrue(report.issues.contains {
+            $0.citekey == "cheng2025identifiability" && $0.message.contains("JOURNALTITLE")
+        }, "缺 JOURNALTITLE 必須被報出，實際：\(report.issues)")
+    }
+
+    /// 欄位齊全者不得被誤報。
+    func testExportReportsNothingWhenAPA7FieldsComplete() throws {
+        let report = BibExport.apa7Report(entries: [makeEntry()], people: people)
+        XCTAssertTrue(report.issues.filter { $0.severity == .error }.isEmpty,
+                      "完整 entry 不該有 error，實際：\(report.issues)")
+    }
+
+    /// **「沒被檢查」不得長得像「通過」**：validator 的必要欄位表只涵蓋 7 個 type，
+    /// store 另有 online／unpublished／misc 等值不在表內。那些必須明確列為未涵蓋，
+    /// 否則使用者會把「零 issue」讀成「已驗過」。
+    func testExportSurfacesTypesNotCoveredByValidator() throws {
+        var entry = makeEntry()
+        entry = Entry(id: entry.id, citekey: "anon2018wiki", type: "misc",
+                      title: "Wiki", authors: [], date: "2018")
+        let report = BibExport.apa7Report(entries: [entry], people: people)
+        XCTAssertTrue(report.uncheckedCitekeys.contains("anon2018wiki"),
+                      "type=misc 不在 validator 的必要欄位表內，必須列為未涵蓋")
+        XCTAssertTrue(report.issues.isEmpty, "未涵蓋者不該產生 issue（那會是假陽性）")
+    }
+
     func testBibExportRendersBiblatex() throws {
         let bib = BibExport.bibFile(entries: [makeEntry()], people: people)
         XCTAssertTrue(bib.contains("@ARTICLE{cheng2025identifiability,"))

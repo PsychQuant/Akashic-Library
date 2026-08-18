@@ -1233,6 +1233,21 @@ struct ExportBib: ParsableCommand {
         let content: String = cslJson
             ? try CSLExport.cslJSON(entries: entries, people: load.people)
             : BibExport.bibFile(entries: entries, people: load.people)
+        // #326：APA7 完整性報告（warn-only，不改變匯出內容）。走 stderr，讓 stdout
+        // 的 `.bib` 仍可被管線直接吃。CSL 路徑不跑——`BibValidator` 驗的是 biblatex
+        // 欄位名。
+        if !cslJson {
+            let report = BibExport.apa7Report(entries: entries, people: load.people)
+            for issue in report.issues {
+                FileHandle.standardError.write(Data(
+                    "[\(issue.severity.rawValue.uppercased())] \(displaySafe(issue.citekey, max: 200)): \(displaySafe(issue.message, max: 300))\n".utf8))
+            }
+            if !report.uncheckedCitekeys.isEmpty {
+                // **「沒被檢查」必須說出來**——否則零 issue 會被讀成「已驗過」。
+                FileHandle.standardError.write(Data(
+                    "note: \(report.uncheckedCitekeys.count) 筆的 entry type 不在 APA7 必要欄位表內，未經檢查（見 #325）\n".utf8))
+            }
+        }
         if let output {
             // **寫檔不消毒**（#165）：匯出檔是**資料**不是顯示——消毒會破壞 .bib／
             // CSL-JSON 的正確性（下游 BibTeX 引擎讀到被截斷或跳脫過的內容會壞）。

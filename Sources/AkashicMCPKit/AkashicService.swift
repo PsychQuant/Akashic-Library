@@ -227,7 +227,24 @@ public final class AkashicService {
             return out
         }
         switch format {
-        case "bib": return try safe(BibExport.bibFile(entries: entries, people: load.people))
+        case "bib":
+            // #326：APA7 完整性報告。MCP 沒有 stderr 通道（CLI 走那裡），所以報告以
+            // biblatex 註解（`%`）前置——輸出仍是合法 `.bib`，而 LLM 消費端看得到缺漏。
+            // 兩面**載體不同、能力相同**，屬 `mcp-cli-parity` 允許的有記錄差異
+            // （同 `resolve-people` 的兩面契約差異）。
+            let report = BibExport.apa7Report(entries: entries, people: load.people)
+            var header = ""
+            for issue in report.issues {
+                header += "% [\(issue.severity.rawValue.uppercased())] "
+                    + "\(displaySafe(issue.citekey, max: 200)): "
+                    + "\(displaySafe(issue.message, max: 300))\n"
+            }
+            if !report.uncheckedCitekeys.isEmpty {
+                header += "% note: \(report.uncheckedCitekeys.count) 筆的 entry type "   // display-safe-exempt: Int
+                    + "不在 APA7 必要欄位表內，未經檢查（見 #325）\n"
+            }
+            if !header.isEmpty { header += "\n" }
+            return try safe(header + BibExport.bibFile(entries: entries, people: load.people))
         case "csl-json":
             return try safe(CSLExport.cslJSON(entries: entries, people: load.people))
         default: throw ServiceError.invalid("format 必須是 bib / csl-json")

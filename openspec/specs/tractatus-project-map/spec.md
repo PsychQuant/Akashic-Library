@@ -579,7 +579,7 @@ code:
 ### Requirement: Every proposition SHALL state at least one explicit project relation
 
 Every proposition SHALL contain at least one project relation. Its status SHALL be one of implemented, partial, aspirational, analogy_only, rejected, not_applicable, or intentional_nonconformance. Its mode, when applicable, SHALL be one of instance, structural_invariant, semantic_operation, formal_derivation, refusal, shown_constraint, meta_elucidation, or declared_nonconformance. Every relation SHALL contain a Traditional Chinese claim and rationale.
-Each rationale SHALL be proposition-specific: after whitespace normalization, a rationale SHALL NOT be reused by a different proposition.
+Each rationale SHALL be relation-specific: after whitespace normalization, a rationale SHALL NOT be reused by any other relation — whether that relation belongs to a different proposition or to the same one. Two relations on one proposition argue different layers (a not_applicable relation denies a correspondence that an analogy_only relation affirms at another layer), so sharing one rationale means one of them carries no argument of its own.
 Every aspirational relation SHALL be backed by at least one proposition history item whose kind is issue and whose reference is a complete GitHub issue URL of the exact path form `https://github.com/{owner}/{repo}/issues/{positive-integer}`. Extra path components, issue number zero, and negative issue numbers SHALL be rejected. The same issue SHALL be reusable only for relations that identify the same concrete engineering gap. Offline validation SHALL verify this structural trace without querying GitHub.
 
 #### Scenario: Honest absence of a project mapping
@@ -605,17 +605,25 @@ Every aspirational relation SHALL be backed by at least one proposition history 
 - **WHEN** strict validation runs
 - **THEN** it SHALL report `6.5:invalid-relation`
 
-#### Scenario: A generic relation rationale is reused across propositions
+#### Scenario: A generic relation rationale is reused
 
-- **WHEN** two different proposition records contain the same rationale after whitespace normalization
+- **WHEN** two relations contain the same rationale after whitespace normalization, whether they belong to different proposition records or to the same one
 - **THEN** validation SHALL fail with duplicate-rationale
-- **AND** the diagnostic SHALL direct the editor to explain each proposition's concrete philosophical content
+- **AND** the diagnostic SHALL direct the editor to explain each relation's concrete philosophical content
+- **AND** the diagnostic SHALL distinguish the two cases, so a same-proposition report does not read as a record duplicating itself
 
-##### Example: Reused explanation
+##### Example: Reused explanation across propositions
 
 - **GIVEN** records `5` and `5.1` contain the same whitespace-normalized rationale
 - **WHEN** strict validation runs
 - **THEN** both affected records SHALL be reported with `duplicate-rationale`
+
+##### Example: Reused explanation within one proposition
+
+- **GIVEN** record `3.203` carries a `not_applicable` relation and an `analogy_only` relation whose rationales are identical after whitespace normalization
+- **WHEN** strict validation runs
+- **THEN** the record SHALL be reported with `duplicate-rationale`
+- **AND** the message SHALL name the same-proposition case rather than citing the record as the other owner
 
 #### Scenario: An aspirational relation has no issue trace
 

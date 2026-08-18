@@ -1148,6 +1148,7 @@
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/300</code> — <code>retained</code>：#300 審議以 2.03 的鏈環類比檢視三元組 reification 提案：把 authorship 抽成獨立事實記錄形同把關係實體化為第三項，裁定不採；端點配置的類比維持原有劃界。</li>
 <li><code>commit</code> <code>e16c6f6e6d77f7cfe7e9d66323aecb174917872c</code> — <code>retained</code>：e16c6f6 以具方向的 typed Proposition 補強本筆配置順序的既有解讀；原判定不變。</li>
 </ul>
 </td>
@@ -2754,6 +2755,7 @@
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/300</code> — <code>retained</code>：#300 審議重申：authored(P,W) 的配置由作品側 authors 序列與 typed proposition 表達；正典側裁定為作品側（六理由記於 entity-backlink 規則），本筆主張不變。</li>
 <li><code>commit</code> <code>e16c6f6e6d77f7cfe7e9d66323aecb174917872c</code> — <code>revised</code>：e16c6f6 將先前只有文件類比的端點配置落成 typed authored projection，因此關係升為 partial。</li>
 <li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/205</code> — <code>revised</code>：投射入口現已對非 canonical 命題 fail closed，evaluate／answer／adjudicate 也逐層傳遞同一錯誤；issue history 保留供後續 IDD 驗證。</li>
 </ul>
@@ -2866,14 +2868,16 @@
 </li>
 <li><code>analogy_only</code> / <code>meta_elucidation</code> — 在來源存檔層，被儲存的位元組扮演類比中對象的角色：digest（實作採 sha256）是規範所要求的內容定址，在本條類比裡站在「名」的位置——類比之名住在記號層（記錄層的 provenance 引用），位元組本身不承載 entity 層的名字。<br><small>理由：#223 的 digest-not-path 判準把本命題讀作儲存層的結構類比：內容定址的存檔沒有 entity 名、沒有歷史、沒有生命週期——它只能被 digest 指稱，與「名稱指向對象、不把對象內部結構包含在字樣裡」角色相似。「名」在此取記號層的指稱記號義；evidence note 說存檔「沒有名字」取 entity namespace 的鍵名義，兩義不同、不相斥。本條只取「身分被位元組窮盡——改一 byte 即另一串」這一結構相似，界線有三：並不主張位元組是《論考》意義下的簡單對象（位元組串可分解；見 2.02／2.021 的 rejected）；亦不主張 digest 具備記號的任意性——digest 由內容計算而得、不可依約定更換，與 3.322「記號是任意的」所述相異，此為本類比已知的不相似處；也不由本命題推導任何工程規範——digest 定址的規範理由在 #223 的裁決與 spec 條款自身，《論考》僅提供事後的結構類比。同命題上一條 not_applicable 的否定理由在 entity 層（Akashic entity 不是《論考》的簡單對象），本條肯定的是儲存定址層的有限類比，兩者對象不同、相容並存。</small>
 <ul>
-<li><code>Sources/AkashicStoreIO/SourceStore.swift</code>（symbol：<code>storeSourceContent</code>）— 本函式自身的 doc comment 明言 digest 算在原始位元組上、判準客觀；其所在 extension 的檔首 doc comment 另明言存檔不是 entity——沒有名字、沒有歷史、沒有生命週期。</li>
+<li><code>Sources/AkashicStoreIO/SourceStore.swift</code>（symbol：<code>storeSource</code>）— 本函式自身的 doc comment 明言 digest 算在原始位元組上、判準客觀；其所在 extension 的檔首 doc comment 另明言存檔不是 entity——沒有名字、沒有歷史、沒有生命週期。（原錨 storeSourceContent 於 #224 改名為 storeSource——兩個 PR 各自綠、合上 main 才撞的 cross-PR 漂移，#232 merge 時修正。）</li>
 <li><code>openspec/specs/provenance-reference/spec.md</code>（requirement：<code>Retrieved content SHALL be addressed by the digest of its bytes</code>）— digest 定址是 normative 條款：內容以位元組的 digest 指稱。</li>
+<li><code>openspec/specs/entry-source-reference/spec.md</code>（requirement：<code>Content the store is able to ingest SHALL be referenced by digest rather than by file-system path</code>）— digest-not-path 判準的另一份 normative 來源，且它明寫理由：路徑在檔案被移動或改名時失效、且不攜帶任何偵測位元組已變的手段，而 digest 是 store 對已存內容既有的身分。本條類比之「名」取的正是此定址義——名指向內容而不把內容的內部結構包進字樣。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/223</code> — <code>revised</code>：#223 裁決 digest-not-path 判準（2026-08-10），#235 據以掛上 analogy_only 對照；裁決本身有效。本筆標 revised：evidence 為已知過渡態——entry-source-reference 待 PR #249 合併後由 #252 補引並重讀 rationale。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/223</code> — <code>revised</code>：#223 裁決 digest-not-path 判準（2026-08-10），#235 據以掛上 analogy_only 對照；裁決本身有效。本筆標 revised：evidence 曾為已知過渡態——判準的另一份 normative 來源 entry-source-reference 當時活在未合併的 PR #249，而 validator 要求 evidence path 存在於專案內。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/252</code> — <code>revised</code>：PR #249 已於 2026-08-15 合併、entry-source-reference spec 進入專案內，#252 據此補引其 digest-not-path requirement 並重讀 rationale 全文。evidence 的過渡態至此關閉。</li>
 </ul>
 </td>
 </tr>
@@ -2946,16 +2950,19 @@
 <ul>
 <li><code>not_applicable</code> — Akashic 目前不主張命題 3.221 的哲學論旨具有直接的軟體實作對應。<br><small>理由：命題 3.221 直接主張「對象我只能加以命名。」，本卷並將其限制解讀為「名稱提供指涉位置，但不把對象本身轉成一串可以直接說出的內容。」。這裡處理名稱、簡單記號、分析與對象的表現關係；Akashic entity 不是《論考》的簡單對象，schema 分解也不是唯一的完整分析。</small>
 </li>
-<li><code>analogy_only</code> / <code>meta_elucidation</code> — 在本條有限類比中，sources/ 存檔內容的 digest 指稱扮演「命名」的角色：記錄層的 provenance 引用以 digest 代表位元組——記號站到內容的位置；進入 sources/ 的內容，其檔案系統位置由 digest 推導、不作為指稱的輸入。<br><small>理由：命題 3.221 說對象只能命名、記號代替它們；本條取其有限類比：sources/ 的 blob 不佔 canonical entity namespace，庫的記錄層只能「談論」它（記 provenance、掛 digest 引用），不把它變成一筆有名字、有生命週期的記錄——「不能說出」在此取命題表達義，不指 I/O 上不能讀取或傳回位元組。此類比只對 sources/ 存檔域成立，並不承諾 store 全域如此：entry 的 attachment 引用（AttachmentRef）現仍以路徑指涉、屬過渡期形狀，不在本條類比域內。digest 引用這個設計的規範理由在 #223 的裁決與 spec 條款自身；《論考》提供的是與該設計相呼應的結構類比，不構成推導或證成。同命題上一條 not_applicable 的否定理由在 entity 層（Akashic entity 不是《論考》的簡單對象），本條肯定的是儲存指稱層的有限類比，兩者對象不同、相容並存。</small>
+<li><code>analogy_only</code> / <code>meta_elucidation</code> — 在本條有限類比中，sources/ 存檔內容的 digest 指稱扮演「命名」的角色：記錄層的 provenance 引用以 digest 代表位元組——記號站到內容的位置；進入 sources/ 的內容，其檔案系統位置由 digest 推導、不作為指稱的輸入。<br><small>理由：命題 3.221 說對象只能命名、記號代替它們；本條取其有限類比：sources/ 的 blob 不佔 canonical entity namespace，庫的記錄層只能「談論」它（記 provenance、掛 digest 引用），不把它變成一筆有名字、有生命週期的記錄——「不能說出」在此取命題表達義，不指 I/O 上不能讀取或傳回位元組。此類比只對 sources/ 存檔域成立，並不承諾 store 全域如此：entry 的 attachment 引用（AttachmentRef）是規範明文保留的唯一一種路徑指涉形式——entry-source-reference 稱該形式為 transition mechanism、並宣告它是 closed enumeration of one form（format 9 已把附件鍵域收窄到只剩它），故仍以路徑指涉、屬過渡期形狀，不在本條類比域內。digest 引用這個設計的規範理由在 #223 的裁決與 spec 條款自身；《論考》提供的是與該設計相呼應的結構類比，不構成推導或證成。同命題上一條 not_applicable 的否定理由在 entity 層（Akashic entity 不是《論考》的簡單對象），本條肯定的是儲存指稱層的有限類比，兩者對象不同、相容並存。</small>
 <ul>
 <li><code>openspec/specs/provenance-reference/spec.md</code>（requirement：<code>Stored content SHALL NOT occupy the canonical entity namespace</code>）— blob 不進 entity namespace 是 normative 條款：位元組層無 entity 名，指稱記號住在記錄層。</li>
 <li><code>Sources/AkashicStoreIO/SourceStore.swift</code>（symbol：<code>sourceURL</code>）— 由 digest 解析存檔 URL 的解析器（模組內讀取面皆經此）；形狀不合法的 digest 直接回 nil。寫入面的排除驗證另以字串重建同一路徑（刻意設計，見該處註解），故不稱唯一通道。</li>
+<li><code>openspec/specs/entry-source-reference/spec.md</code>（requirement：<code>Content the store is able to ingest SHALL be referenced by digest rather than by file-system path</code>）— 本條「只能命名」的類比依據：可 ingest 的內容一律以 digest 指稱、路徑不得作為新的指涉形式。同一 requirement 並明文處置 AttachmentRef——保留的路徑形式恰為一種、稱其為 transition mechanism、且宣告為 closed enumeration of one form，這正是 rationale 把它劃在類比域外的規範根據（不再只是觀察）。</li>
+<li><code>openspec/specs/entry-source-reference/spec.md</code>（requirement：<code>The set of accepted attachment kinds SHALL contain exactly one kind</code>）— rationale 括號內「附件鍵域收窄到只剩它」的 normative 來源：接受的附件種類恰為一種（外部文獻管理器自身儲存的引用），其餘一律載入時拒收。補引此條是 #252 verify 的發現——該括號原本只以 store format 9 的史實支撐，規範依據缺在 evidence 之外。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
-<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/223</code> — <code>revised</code>：#223 裁決 digest-not-path 判準（2026-08-10），#235 據以掛上 analogy_only 對照；裁決本身有效。本筆標 revised：evidence 為已知過渡態——entry-source-reference 待 PR #249 合併後由 #252 補引並重讀 rationale（含 AttachmentRef 過渡期一句）。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/223</code> — <code>revised</code>：#223 裁決 digest-not-path 判準（2026-08-10），#235 據以掛上 analogy_only 對照；裁決本身有效。本筆標 revised：evidence 曾為已知過渡態——判準的另一份 normative 來源 entry-source-reference 當時活在未合併的 PR #249，而 validator 要求 evidence path 存在於專案內。</li>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/252</code> — <code>revised</code>：PR #249 已於 2026-08-15 合併，#252 據此補引 entry-source-reference 的 digest-not-path requirement 並重讀 rationale 全文。AttachmentRef 那句一併精確化：原文寫「現仍以路徑指涉、屬過渡期形狀」，複查後發現該 requirement 自己就寫著 transition mechanism 與 closed enumeration of one form——核心真值成立，改為引述規範措辭而非僅陳述觀察。</li>
 </ul>
 </td>
 </tr>
@@ -3614,11 +3621,13 @@
 <li><code>Sources/AkashicProposition/Proposition.swift</code>（symbol：<code>PropositionError</code>）— `PropositionError` 明列構造階段可拒絕的格式錯誤。</li>
 <li><code>Tests/AkashicPropositionTests/PropositionTests.swift</code>（test：<code>testMalformedKeyIsRejectedAtConstruction</code>）— 測試確認便利建構子拒絕格式錯誤的 canonical key。</li>
 <li><code>Tests/AkashicPropositionTests/PropositionTests.swift</code>（test：<code>testDirectionIsPartOfIdentity</code>）— 測試確認交換 person／work 方向會形成不同命題。</li>
+<li><code>.claude/rules/entity-backlink-completeness.md</code>（heading：<code>### 哲學補強（#300 審議，2026-08-16）：好記法該讓矛盾寫不出來</code>）— entity-backlink 規則引 3.325 的工程類比：單側儲存讓雙 copy 矛盾在記法文法上不可表達；措辭維持受稽核類比的劃界。</li>
 </ul>
 </li>
 </ul>
 <strong>歷史脈絡</strong>
 <ul>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/300</code> — <code>retained</code>：#300 審議裁定：3.325 類比寫進 entity-backlink 規則「為什麼」段；Tractatus 對照維持受稽核工程類比地位，不升格為規範判準。</li>
 <li><code>commit</code> <code>e16c6f6e6d77f7cfe7e9d66323aecb174917872c</code> — <code>retained</code>：e16c6f6 以具型別角色與構造錯誤提供新的工程文法證據，但不把 Swift 型別系統稱為原典邏輯句法。</li>
 </ul>
 </td>

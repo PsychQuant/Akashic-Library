@@ -85,6 +85,14 @@ sed -n '/subcommands: \[/,/\])/p' Sources/akashic/CLI.swift | grep -oE '[A-Za-z]
 #    注意 ② 吐的是**型別名**（FileCmd）而表用**命令名**（file）——對照時開該型別的
 #    CommandConfiguration.commandName 核對，這一步是人工的（要全機械化需 manifest
 #    或讀 configuration 的測試，見 #259 的討論）
+# ④ CLI 面的全部**橫切選項**（#310）：`ParsableArguments` 不是 subcommand，所以 ②
+#    在結構上枚舉不到它——這是 ② 的盲點，不是它漏了一項。輸出的每一項都必須出現在
+#    下方「CLI 橫切選項裁決表」；查無即是零裁決格。
+#    **假陰性方向（寫出來而非假裝沒有）**：本式只認**宣告式**上的 conformance，
+#    多重 conformance 的兩種順序都命中，但以 extension 追加 conformance 的寫法掃不到
+#    ——與 ② 第一版 regex 只命中 11/30 同型。漏報比誤報安全，但漏報仍是漏報。
+grep -rhoE 'struct [A-Za-z]+:[^{]*\bParsableArguments\b' Sources/akashic/ \
+  | sed -E 's/^struct ([A-Za-z]+):.*/\1/' | sort -u
 ```
 
 ## CLI-only 裁決表（封閉列舉——#259 一次性補裁；12 命令＋1 旗標，一格不多一格不少；`import-wos` 於 #290、`resolve-organizations` 於 #304 venue change 補 MCP 面後移列 MCP 表；`migrate-person-identity` 於 #227/#241、`migrate-venues` 於 #304 venue change 新增時當場裁決）
@@ -114,6 +122,47 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 **機械檢查（CLI→MCP 方向）**：上方稽核程序的 ② 枚舉 CLI 全部註冊型別後，
 每個命令必須出現在 **MCP 表的「CLI 對應」欄**或**本表**其中之一——兩處都
 查無即是新長出的零裁決格（正是 #259 修掉的形狀）。
+
+## CLI 橫切選項裁決表（封閉列舉——#310 一次性補裁；恰 2 項，一格不多一格不少。**不得依性質相似類推第三項**）
+
+前兩張表的行分別是「MCP tool」與「CLI subcommand」。**橫切選項兩者皆非**——它是
+`ParsableArguments`，被所有帶它的 subcommand 共享，不屬於其中任何一個。所以問題從來
+不是「該填哪張表」，是**沒有表可填**：`--library` 因此從未被裁決過，而稽核程序的 ②
+（枚舉 subcommands 陣列）在結構上也讀不出這件事。這是收錄機制的洞，不是漏填一列。
+
+新增橫切 `ParsableArguments` = 在這張表加一列。**「未決」同樣不是選項**（與前兩張表
+一致）。裁決用語沿用 CLI-only 表的定義。
+
+| CLI 能力 | 裁決 | 理由 |
+|---|---|---|
+| `--library`（`LibraryOptions`，橫切 42 個 subcommand）| 有理由缺席（#310）| **MCP 已有對等能力，只是粒度不同**：`akashic_files` 的 `use` action 是 session 級切換（改寫 `AkashicService` 的 `root`／`storeKey`，其後所有 tool 作用在新 universe；`testFilesUseSwitchesUniverseCompletely` 已斷言「舊 universe 內容不得洩入」），與 App 的 `AppState.switchFile(key:)` 同形。per-invocation 形式適合 CLI，是因為每次呼叫都是獨立 process、沒有可承載選擇的 session；MCP 與 App 都是長 session，**MCP 對齊的是 App 不是 CLI**。不補 per-call 參數的三個理由：(a) 對等能力已存在（上述）；(b) 選填參數對 LLM 消費端是**淨負**——省略即靜默落到預設 store，寫入類 tool 可能在呼叫者毫無察覺下寫錯，而 CLI 省略 `--library` 的人正看著自己的 shell；(c) 命名衝突（見下方註）使新參數必須另取名字，於是同一個 tool 並存兩個意義相近而所指不同的參數 |
+| `--config`（`FileConfigOptions`，`file` 家族 4 個 subcommand）| 有理由缺席（#310）| **部署層決定，非呼叫層**：registry 檔的位置由 MCP server 的啟動環境（`AKASHIC_HOME`）決定；讓個別 tool 呼叫改指另一份 registry，等於讓 LLM 消費者改寫部署決定。與 `--library` 不同的是**這裡連 session 級的對等物都不需要**——切 registry 不是切 universe，是換掉一整組 universe 的名冊 |
+
+> **命名衝突（#315）**：`library` 這個字在兩面**意義不同**——CLI 的 `--library` 指
+> **store root 路徑**；MCP 的 `library` 參數（`akashic_search`／`akashic_person` 等）
+> 指 **store 內的 membership 分類**（#13）。所以就算日後推翻上表第一列的裁決，新參數
+> 也**不能**叫 `library`。
+
+**機械檢查**：稽核程序的 ④ 枚舉全部橫切 `ParsableArguments` 後，輸出的每一項都必須
+出現在本表——查無即是新長出的零裁決格。
+
+### 由上表衍生的一則事實：MCP 的 active store 是 session 狀態
+
+上表第一列的裁決把一件事固定下來，而下游設計會需要它，所以在此寫成可直接引用的形式
+（引用者不必回頭讀原始碼）：
+
+> **MCP 面的 active store 是 session 狀態。** 它由 server 啟動時解析一次，並可在
+> session **中途**經 `akashic_files` 的 `use` action 改變（改變後所有後續 tool 呼叫
+> 都作用在新 store）。**呼叫端不會在每次呼叫時重新宣告它** —— 依上表裁決，MCP tool
+> 沒有、也不會有 per-invocation 的 store 參數。
+
+**直接後果**：任何以「**本次呼叫有沒有顯式指定 store**」為判準的機制，在 MCP 面
+**恆為否**，因此不可作為判準。若某個閘門以此為條件，它在 MCP 面只會退化成兩種都錯的
+結果——一律擋（所有寫入類 tool 失效）或一律豁免（LLM 消費面完全不設防，而它的呼叫量
+與誤呼叫機率都高於人工 CLI）。
+
+**這則事實不裁決替代方案。** 它只說明「顯式性」為什麼不能用；該用什麼判準屬於提出該
+閘門的變更（#298）的範圍，不在本規則內。
 
 ## 為什麼：缺口是安靜累積的
 

@@ -5223,6 +5223,10 @@
 <li><code>not_applicable</code> — Akashic 目前不宣稱直接實作命題 4.0621 的哲學主張。<br><small>理由：覆核 #214 後，專案雖已有結構式 not、雙重否定的 classical equivalence 與 exact trace，但這些工程語意不足以證成否定在現實中沒有對應物，亦不足以建立符號規約與邏輯位置的哲學主張，因此維持 not_applicable。</small>
 </li>
 </ul>
+<strong>歷史脈絡</strong>
+<ul>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/214</code> — <code>revised</code>：#214 交付了結構式 not、雙重否定的 classical equivalence 與 exact trace；覆核後認定這些工程語意不足以證成「否定在現實中沒有對應物」與符號規約／邏輯位置的哲學主張，故 relation 內容按覆核結果改寫、判定維持 not_applicable。</li>
+</ul>
 </td>
 </tr>
 <tr id="proposition-4-063">
@@ -5292,6 +5296,10 @@
 <li><code>not_applicable</code> — Akashic 目前不宣稱直接實作命題 4.064 的哲學主張。<br><small>理由：覆核 #214 後，throwing factory 的確只讓已成形 expression 進入 not，雙重否定也保持結構；但型別安全不足以證成 sense 先於判斷記號或判斷記號不能賦予意義的哲學主張，因此維持 not_applicable。</small>
 </li>
 </ul>
+<strong>歷史脈絡</strong>
+<ul>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/214</code> — <code>revised</code>：#214 交付的 throwing factory 只讓已成形 expression 進入 not、雙重否定亦保持結構；覆核後認定型別安全不足以證成「sense 先於判斷記號」與「判斷記號不能賦予意義」，故 relation 內容按覆核結果改寫、判定維持 not_applicable。</li>
+</ul>
 </td>
 </tr>
 <tr id="proposition-4-0641">
@@ -5327,6 +5335,10 @@
 <ul>
 <li><code>not_applicable</code> — Akashic 目前不宣稱直接實作命題 4.0641 的哲學主張。<br><small>理由：覆核 #214 後，nested not 的結構、trace 與 classical equivalence 均可機械驗證；但這仍不足以證成邏輯位置、sense 依賴或現實中不存在否定物等哲學主張，因此維持 not_applicable。</small>
 </li>
+</ul>
+<strong>歷史脈絡</strong>
+<ul>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/214</code> — <code>revised</code>：#214 交付後 nested not 的結構、trace 與 classical equivalence 均可機械驗證；覆核後認定這仍不足以證成邏輯位置、sense 依賴與「現實中不存在否定物」，故 relation 內容按覆核結果改寫、判定維持 not_applicable。</li>
 </ul>
 </td>
 </tr>

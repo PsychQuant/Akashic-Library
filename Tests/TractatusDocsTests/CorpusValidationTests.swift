@@ -692,6 +692,119 @@ final class CorpusValidationTests: XCTestCase {
         XCTAssertEqual(CorpusValidator.validateRelations(volumes: [volume]), [])
     }
 
+    // MARK: - #253：issue-history 守衛擴及所有 status（判準：rationale 是否引用 issue）
+
+    func testRelationCitingIssueInRationaleRequiresIssueHistoryRegardlessOfStatus() throws {
+        // #253：守衛原本的前件是 `status == .aspirational`，於是 rationale 引 issue 的
+        // `not_applicable` relation 完全不被檢查——corpus 中 4.0621／4.064／4.0641 三筆
+        // 即此形。spec.md:732 要求的是「issue references SHALL live under history」，
+        // 與 status 無關。
+        let volume = try makeIssueCitingRelationVolume(
+            status: "not_applicable",
+            rationale: "覆核 #214 後仍不足以證成該哲學主張，維持 not_applicable。",
+            historyReference: nil
+        )
+
+        let diagnostic = try XCTUnwrap(
+            CorpusValidator.validateRelations(volumes: [volume]).first {
+                $0.code == "invalid-relation" && $0.recordID == "4.9001"
+            },
+            "rationale 引用 issue 但 history 為空，應被 flag"
+        )
+        XCTAssertTrue(diagnostic.message.contains("issue"), diagnostic.formatted)
+    }
+
+    func testRelationCitingIssueWithCompleteIssueHistoryPasses() throws {
+        let volume = try makeIssueCitingRelationVolume(
+            status: "not_applicable",
+            rationale: "覆核 #214 後仍不足以證成該哲學主張，維持 not_applicable。",
+            historyReference: "https://github.com/PsychQuant/Akashic-Library/issues/214"
+        )
+
+        XCTAssertEqual(CorpusValidator.validateRelations(volumes: [volume]), [])
+    }
+
+    func testRationaleWithNonIssueHashIsNotTreatedAsIssueCitation() throws {
+        // 防誤判：偵測式是散文啟發式。`#` 後不接數字（如 C#）、或數字串過長
+        // （版本雜湊之類）都不該被當成 issue 引用而要求 history。
+        for rationale in [
+            "此處以 C# 的型別系統為對照，不涉及任何 issue。",
+            "建置編號 #12345678 僅為內部序號，不是 issue 引用。",
+        ] {
+            let volume = try makeIssueCitingRelationVolume(
+                status: "not_applicable",
+                rationale: rationale,
+                historyReference: nil
+            )
+            XCTAssertEqual(
+                CorpusValidator.validateRelations(volumes: [volume]), [],
+                "不該把「\(rationale)」判成 issue 引用"
+            )
+        }
+    }
+
+    // MARK: - #254：duplicate-rationale 擴及同命題
+
+    func testTwoRelationsInTheSamePropositionSharingRationaleAreFlagged() throws {
+        // #254：守衛原本的前件是 `firstOwner != proposition.id`，於是同命題內共用
+        // rationale 不觸發。spec 要求每條 relation「依自身哲學內容說明專案關係」——
+        // 同命題的兩條 relation 論證不同層次，共用等於其中一條沒有自己的論證。
+        let volume = try makeRelationVolume("""
+        - status: not_applicable
+          claim_zh_tw: "本專案不主張此命題有直接實作對應。"
+          rationale_zh_tw: "兩條 relation 共用的同一段論證。"
+        - status: analogy_only
+          mode: meta_elucidation
+          claim_zh_tw: "在儲存層有一個有限類比。"
+          rationale_zh_tw: "兩條 relation 共用的同一段論證。"
+        """)
+
+        let diagnostic = try XCTUnwrap(
+            CorpusValidator.validateRelations(volumes: [volume]).first {
+                $0.code == "duplicate-rationale"
+            },
+            "同命題內兩條 relation 共用 rationale，應被 flag"
+        )
+        // 訊息不得讀成「與自己重複」——同命題情形要有自己的措辭。
+        XCTAssertFalse(
+            diagnostic.message.contains("與命題 1 重複"),
+            "同命題重複的訊息不該指向自己：\(diagnostic.formatted)"
+        )
+    }
+
+    func testCrossPropositionDuplicateRationaleStillFlagged() throws {
+        // 回歸保護：#254 的擴大不得弱化既有的跨命題檢查。
+        let volume = try CorpusYAMLDecoder.decodeVolume("""
+        schema_version: 1
+        volume: "1"
+        propositions:
+          - id: "1"
+            texts: {}
+            segments: []
+            project_relations:
+              - status: not_applicable
+                claim_zh_tw: "命題一不主張直接實作對應。"
+                rationale_zh_tw: "跨命題共用的同一段論證。"
+            history: []
+          - id: "1.1"
+            parent: "1"
+            texts: {}
+            segments: []
+            project_relations:
+              - status: not_applicable
+                claim_zh_tw: "命題一點一不主張直接實作對應。"
+                rationale_zh_tw: "跨命題共用的同一段論證。"
+            history: []
+        """)
+
+        XCTAssertTrue(
+            CorpusValidator.validateRelations(volumes: [volume]).contains {
+                $0.code == "duplicate-rationale" && $0.recordID == "1.1"
+            },
+            "跨命題共用 rationale 仍應被 flag"
+        )
+    }
+
     func testRelationRejectsUnknownStatusAsInvalidRelation() throws {
         let yaml = try relationVolumeYAML("""
           - status: metaphysically_identical
@@ -1827,6 +1940,39 @@ final class CorpusValidationTests: XCTestCase {
                   - path: Sources/TractatusDocs/Validation.swift
                     kind: symbol
                     locator: CorpusValidator
+            history: \(history)
+        """)
+    }
+
+    /// #253：rationale 引用 issue 的 relation（status 可變），history 可有可無。
+    /// 用來驗證 issue-history 守衛的前件已從 status 改為「rationale 是否引用 issue」。
+    private func makeIssueCitingRelationVolume(
+        status: String,
+        rationale: String,
+        historyReference: String?
+    ) throws -> CorpusVolume {
+        let history: String
+        if let historyReference {
+            history = "\n      - kind: issue"
+                + "\n        reference: \"\(historyReference)\""
+                + "\n        disposition: revised"
+                + "\n        note_zh_tw: \"覆核後維持原判定。\""
+        } else {
+            history = "[]"
+        }
+
+        return try CorpusYAMLDecoder.decodeVolume("""
+        schema_version: 1
+        volume: "4"
+        propositions:
+          - id: "4.9001"
+            parent: "4.9"
+            texts: {}
+            segments: []
+            project_relations:
+              - status: \(status)
+                claim_zh_tw: "本專案不主張此命題有直接的軟體實作對應。"
+                rationale_zh_tw: "\(rationale)"
             history: \(history)
         """)
     }

@@ -408,28 +408,60 @@ public enum CorpusValidator {
                     ))
                     continue
                 }
-                if proposition.projectRelations.contains(where: { $0.status == .aspirational })
+                // #253：spec.md 的「Current evidence and historical context SHALL remain
+                // separate」要求 issue references 住 `history`，**與 status 無關**。本守衛
+                // 原本的前件只有 `status == .aspirational`，於是 rationale 引 issue 的
+                // not_applicable relation 完全不被檢查（4.0621／4.064／4.0641 三筆即此形）。
+                //
+                // 修法是**擴及**、不是取代——兩個前件是不同的規則，必須 OR：
+                //   (a) aspirational relation → 該命題要有 issue history（既有規則；「還沒
+                //       做完的事」本來就該被 issue 追蹤，與 rationale 寫了什麼無關）
+                //   (b) 任一 relation 的 rationale 引用了 issue → 同樣要有（本次新增）
+                // 第一版實作誤把 (a) 換成 (b)，被既有回歸測試
+                // `testAspirationalRelationRejectsMissingOrIncompleteGitHubIssueHistory`
+                // 當場擋下——它的 fixture 是 aspirational 但 rationale 不引 issue。
+                //
+                // (b) 的前件刻意是「rationale 引用了 issue」而非「任一 relation」：後者會
+                // flag 上百條（絕大多數 relation 根本不提 issue），那是把條文讀成它沒說的
+                // 意思。實測 (b) 恰好命中上述三筆，零附帶損害。
+                let hasAspirational = proposition.projectRelations
+                    .contains { $0.status == .aspirational }
+                let citesIssueInRationale = proposition.projectRelations
+                    .contains { citesIssue($0.rationaleZhTW) }
+                if (hasAspirational || citesIssueInRationale)
                     && !proposition.history.contains(where: {
                         $0.kind == .issue && isGitHubIssueURL($0.reference)
                     }) {
+                    let subject = hasAspirational
+                        ? "aspirational relation"
+                        : "rationale 引用了 issue 的 relation"
                     diagnostics.append(CorpusDiagnostic(
                         path: path,
                         recordID: proposition.id.rawValue,
                         code: "invalid-relation",
-                        message: "aspirational relation 必須由完整 GitHub issue URL 的 issue history 追蹤。"
+                        message: "\(subject) 必須由完整 GitHub issue URL 的 issue history 追蹤。"
                     ))
                 }
                 for relation in proposition.projectRelations {
                     let normalizedRationale = relation.rationaleZhTW
                         .split(whereSeparator: \Character.isWhitespace)
                         .joined(separator: " ")
-                    if let firstOwner = rationaleOwners[normalizedRationale],
-                       firstOwner != proposition.id {
+                    // #254：前件原為 `firstOwner != proposition.id`，於是**同命題內**兩條
+                    // relation 共用 rationale 不觸發。spec 要求每條 relation「依自身哲學內容
+                    // 說明專案關係」——同命題的兩條 relation 論證不同層次（如 not_applicable
+                    // 否定 entity 層、analogy_only 肯定儲存層的有限類比），共用等於其中一條
+                    // 沒有自己的論證。
+                    if let firstOwner = rationaleOwners[normalizedRationale] {
+                        // 訊息必須分支：同命題時 firstOwner 就是自己，沿用跨命題措辭會讀成
+                        // 「與自己重複」。
+                        let message = firstOwner == proposition.id
+                            ? "同一命題內有兩條 relation 共用 rationale；每條 relation 必須依自身論證說明專案關係。"
+                            : "relation rationale 與命題 \(firstOwner.rawValue) 重複；每條命題必須依自身哲學內容說明專案關係。"
                         diagnostics.append(CorpusDiagnostic(
                             path: path,
                             recordID: proposition.id.rawValue,
                             code: "duplicate-rationale",
-                            message: "relation rationale 與命題 \(firstOwner.rawValue) 重複；每條命題必須依自身哲學內容說明專案關係。"
+                            message: message
                         ))
                     } else if !normalizedRationale.isEmpty {
                         rationaleOwners[normalizedRationale] = proposition.id
@@ -1712,6 +1744,26 @@ public enum CorpusValidator {
             } catch {
                 return false
             }
+        }
+        return false
+    }
+
+    /// 散文裡是否引用了 issue（`#` 後接 1–5 位 ASCII 數字，且數字串未被更長的數字截斷）。
+    ///
+    /// 這是**啟發式**——它讀的是自由文字，不是結構化欄位。界定位數是為了不把版本號、
+    /// 章節號、內部序號誤判成 issue 引用；`#` 後不接數字（如 `C#`）同樣不算。
+    /// 實測全 corpus 的 rationale 只出現 `#223` 與 `#214`，皆為真實 issue 號。
+    private static func citesIssue(_ text: String) -> Bool {
+        let chars = Array(text)
+        var i = 0
+        while i < chars.count {
+            guard chars[i] == "#" else { i += 1; continue }
+            var j = i + 1
+            while j < chars.count, chars[j].isASCII, chars[j].isNumber { j += 1 }
+            let digits = j - (i + 1)
+            // 1–5 位才算；`j` 已停在第一個非數字（或字串結尾），故無需再檢查後綴。
+            if digits >= 1 && digits <= 5 { return true }
+            i = j > i ? j : i + 1
         }
         return false
     }

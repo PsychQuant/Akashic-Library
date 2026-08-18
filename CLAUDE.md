@@ -61,3 +61,4 @@ propose ──→ park ──────────────→ apply ─�
 | [no-compat-fallback.md](.claude/rules/no-compat-fallback.md) | 不留相容 fallback——要改格式就一次改完全部；例外須離開 default 位置、附退場量測、退場即刪 |
 | [replace-endnote-and-zotero.md](.claude/rules/replace-endnote-and-zotero.md) | 目標是完全取代 EndNote 與 Zotero——檔案住 Akashic、位元組複製進 store、對 Zotero 的 pull 是過渡、能力缺口記 issue 不得靠「回去用 Zotero」帶過 |
 | [apa7-is-the-work-floor.md](.claude/rules/apa7-is-the-work-floor.md) | 一筆 work 的資訊下限是「能產出正確的 APA7 參考文獻」——ch10 的 113 例是驗收矩陣、`Entry.type` 的值域須**細分**（非等於）ch10 的 16 節；下限不是上限，分類可更細不可更粗 |
+| [zero-instance-guards.md](.claude/rules/zero-instance-guards.md) | 為「還沒發生過的形狀」寫守衛是一列一列裁決出來的——封閉決策表＋理由欄同列，刻意不給總括判準（那會在邊界上長出沒人同意的答案）|

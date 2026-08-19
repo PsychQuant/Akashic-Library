@@ -21,10 +21,17 @@ public struct OrgResolutionCandidate: Equatable {
     public enum Holder: Equatable {
         case person(String)
         case organization(String)
+        /// **作者位的團體 literal**（#378）：`entries/<citekey>` 的第 n 個作者。
+        ///
+        /// 需要索引而不只是 citekey——同一筆可以有多個團體作者，而 `Author` 是
+        /// 位置序列（#69 特地不排序 `authors`）。用 literal 字串比對會在同一筆有
+        /// 兩個同名團體時改錯位置。
+        case work(citekey: String, authorIndex: Int)
 
         public var key: String {
             switch self {
             case let .person(k), let .organization(k): return k
+            case let .work(citekey, _): return citekey
             }
         }
     }
@@ -115,8 +122,10 @@ public enum OrgResolver {
     /// `load()` 的回傳順序或 Set 的雜湊擾動而變。
     public static func candidates(people: [Person],
                                   organizations: [Organization],
-                                  rejected: Set<ResolutionPairing>) -> [OrgResolutionCandidate] {
-        resolve(people: people, organizations: organizations, rejected: rejected).candidates
+                                  rejected: Set<ResolutionPairing>,
+                                  entries: [Entry] = []) -> [OrgResolutionCandidate] {
+        resolve(people: people, organizations: organizations, rejected: rejected,
+                entries: entries).candidates
     }
 
     /// 單一 traversal，`candidates` 與 `ambiguities` 的 source of truth（#231）。
@@ -128,7 +137,8 @@ public enum OrgResolver {
     /// **刻意無預設值**（同 `PersonResolver.resolve`——verify DA fix-10）。
     public static func resolve(people: [Person],
                                organizations: [Organization],
-                               rejected: Set<ResolutionPairing>) -> OrgResolutionReport {
+                               rejected: Set<ResolutionPairing>,
+                               entries: [Entry] = []) -> OrgResolutionReport {
         // 正規化 org name variant → org keys（同名對 2+ org＝歧義）
         var nameMap: [String: Set<String>] = [:]
         for org in organizations {
@@ -192,6 +202,37 @@ public enum OrgResolver {
             }
         }
 
+        // #378：**作者位的團體 literal**。判準是大括號標記（`CorporateName.isMarked`）
+        // ——WoS 的 `Group Authors` 與 biblatex 的 `author = {{Group Name}}` 共用的
+        // **顯式**慣例（`Author` 型別的註解已載明）。不帶標記的 author literal 是人名，
+        // 歸 `PersonResolver` 管，這裡一律不碰。
+        //
+        // 比對用**去標記後**的名字：organization 記錄的 `names` 不帶大括號（標記是
+        // 傳輸慣例、不是名字的一部分），帶著它比對永遠不會命中。
+        //
+        // **range 傳空**：作者位沒有時間窗。affiliations 需要 range 是因為同一個
+        // person 可能有多段同名 literal 要按時段分判（見 `OrgAmbiguousMatch.range`
+        // 的 doc）；作者位的區辨是**索引**，而它已經在 holder 裡。
+        //
+        // citekey 排序：與 person 側同理由——輸出順序不隨 `load()` 的回傳順序擾動。
+        for entry in entries.sorted(by: { $0.citekey < $1.citekey }) {
+            for (i, author) in entry.authors.enumerated() {
+                guard case let .literal(raw) = author,
+                      CorporateName.isMarked(raw) else { continue }
+                let literal = CorporateName.unmark(raw)
+                let holder = OrgResolutionCandidate.Holder.work(citekey: entry.citekey,
+                                                                authorIndex: i)
+                guard let key = unambiguousMatch(literal, holder: holder,
+                                                 range: DateRange()) else { continue }
+                guard !rejected.contains(ResolutionPairing(
+                    holderKind: .work, holder: entry.citekey,
+                    literal: literal, judgedKey: key)) else { continue }
+                result.append(OrgResolutionCandidate(
+                    holder: holder, literal: literal, orgKey: key,
+                    reason: "org name 完全命中（作者位的團體名）"))
+            }
+        }
+
         // 既有的 `.key` parents 邊：child → parents
         var edges: [String: Set<String>] = [:]
         for org in organizations {
@@ -246,6 +287,8 @@ public enum OrgResolver {
     public struct Applied: Equatable {
         public var people: [Person]
         public var organizations: [Organization]
+        /// 作者位被歸戶的 entry（#378）。呼叫端沒傳 `entries` 時是空陣列。
+        public var entries: [Entry] = []
     }
 
     /// 把已確認的候選套用到 people 與 organizations。
@@ -255,7 +298,8 @@ public enum OrgResolver {
     /// 使用者的確認時間。
     public static func apply(_ candidates: [OrgResolutionCandidate],
                              to people: [Person],
-                             organizations: [Organization]) -> Applied {
+                             organizations: [Organization],
+                             entries: [Entry] = []) -> Applied {
         var byPerson = Dictionary(people.map { ($0.key, $0) }, uniquingKeysWith: { _, last in last })
         var byOrg = Dictionary(organizations.map { ($0.key, $0) },
                                uniquingKeysWith: { _, last in last })
@@ -278,8 +322,22 @@ public enum OrgResolver {
             return changed ? TimelineOf(out) : nil
         }
 
+        var byCitekey = Dictionary(entries.map { ($0.citekey, $0) },
+                                   uniquingKeysWith: { _, last in last })
+
         for c in candidates {
             switch c.holder {
+            case let .work(citekey, index):
+                // 作者位（#378）。三道保守側檢查，任一不成立就跳過：
+                // 記錄還在／索引還有效／那個位置**仍然是**當初提名的那個 literal。
+                // 第三道是關鍵——候選清單可能跨越資料變動（`apply` 是 public），
+                // 而作者是位置序列，索引在別人插入後會指到另一個人。
+                guard var entry = byCitekey[citekey], index < entry.authors.count,
+                      case let .literal(s) = entry.authors[index],
+                      CorporateName.unmark(s) == CorporateName.unmark(c.literal)
+                else { continue }
+                entry.authors[index] = .organization(c.orgKey)
+                byCitekey[citekey] = entry
             case let .person(key):
                 guard var person = byPerson[key],
                       let migrated = migrate(person.profile.affiliations,
@@ -298,6 +356,7 @@ public enum OrgResolver {
             }
         }
         return Applied(people: people.map { byPerson[$0.key] ?? $0 },
-                       organizations: organizations.map { byOrg[$0.key] ?? $0 })
+                       organizations: organizations.map { byOrg[$0.key] ?? $0 },
+                       entries: entries.map { byCitekey[$0.citekey] ?? $0 })
     }
 }

@@ -2177,8 +2177,16 @@ public final class AkashicService {
         let rejected = ResolutionLedger.rejectedPairings(organizations: load.organizations)
         let report = OrgResolver.resolve(people: load.people,
                                          organizations: load.organizations,
-                                         rejected: rejected)
-        func rowID(_ c: OrgResolutionCandidate) -> String { "\(c.holder.key)::\(c.literal)" }
+                                         rejected: rejected, entries: load.entries)
+        // #378：`.work` 的 key 是 citekey，而同一筆可以有多個團體作者位——
+        // 少了索引，兩個位置會共用同一個 id 而無法分別 apply。
+        // 這兩行**刻意不消毒**：rowID 產的是 apply 的回程把手，呼叫端要逐字送回來，
+        // 消毒會讓它對不上（且 `displaySafe` 不冪等——二次呼叫會逃脫自己的反斜線）。
+        // 控制字元由 JSON 編碼處理；CLI 面的人可讀輸出走 `label(…)`，那裡有消毒。
+        func rowID(_ c: OrgResolutionCandidate) -> String {
+            if case let .work(citekey, i) = c.holder { return "\(citekey)[\(i)]::\(c.literal)" }   // display-safe-exempt: 回程把手須逐字
+            return "\(c.holder.key)::\(c.literal)"   // display-safe-exempt: 同上（本行語意與 #378 前相同——先前寫成隱式 return 而未被守衛看見）
+        }
         let byID = Dictionary(report.candidates.map { (rowID($0), $0) },
                               uniquingKeysWith: { first, _ in first })
         let byKey = Dictionary(load.organizations.map { ($0.key, $0) },
@@ -2240,17 +2248,31 @@ public final class AkashicService {
             return c
         }
         let applied = OrgResolver.apply(chosen, to: load.people,
-                                        organizations: load.organizations)
+                                        organizations: load.organizations,
+                                        entries: load.entries)
         for p in applied.people { try store.writePerson(p) }
         for o in applied.organizations { try store.writeOrganization(o) }
+        // #378：作者位歸戶會改寫 entry
+        for e in applied.entries where !load.entries.contains(where: { $0 == e }) {
+            try store.writeEntry(e)
+        }
         // confirmed verdicts
         var grouped: [String: Organization] = [:]
         let byKeyAfter = Dictionary((applied.organizations.isEmpty ? load.organizations : applied.organizations)
             .map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         for c in chosen {
             guard var o = grouped[c.orgKey] ?? byKeyAfter[c.orgKey] ?? byKey[c.orgKey] else { continue }
-            let holderKind: ProvenanceReference.VerdictHolderKind =
-                { if case .person = c.holder { return .person } else { return .org } }()
+            // **窮盡 switch，不是兩路判斷**（#378）：原本是
+            // `if case .person … else return .org`，而 `.work` 會被靜默算成 `.org`
+            // ——verdict 的 kind 屬配對身分（person／org key 可合法同名，見
+            // `ResolutionPairing` 的 doc），算錯會讓否決比對永遠對不上。
+            let holderKind: ProvenanceReference.VerdictHolderKind = {
+                switch c.holder {
+                case .person: return .person
+                case .organization: return .org
+                case .work: return .work
+                }
+            }()
             ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
                 .confirmed, holderKind: holderKind, holder: c.holder.key, literal: c.literal,
                 rule: ResolutionLedger.orgRule,

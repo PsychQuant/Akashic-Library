@@ -15,6 +15,19 @@
 
 ### 可以儲存關係的地方是封閉列舉
 
+> **這張表是序列化主張，不是建模主張（#221）。** 它說的是「這條邊寫在哪個實體的 YAML
+> 檔裡」——**不是**「世界上只有這 14 種關係」。在查詢層「哪一側」已經沒有意義：
+> `LibraryIndex` 把 authorship 存成 join 表並在兩端建 index，所以整體架構是
+> **canonical 是 document、derived 是 relational projection**。
+>
+> 這個區分要寫出來，是因為「可儲存的關係邊」這個說法聽起來像建模主張，而
+> `docs/explainers/entity-vs-view.md` 已經抓過同一個病一次——**「是記法先犯的錯」**。
+>
+> **另見 [`docs/explainers/which-side-does-a-relation-live-on.md`](../../docs/explainers/which-side-does-a-relation-live-on.md)**
+> ——面對一條新關係時的兩步提問（可表達性／存在依賴），含**兩步不一致時怎麼辦**。
+> 那份文件明寫它是**思考輔助不是裁決程序**：它的輸出必須落回下表，不允許讀者拿它
+> 自行類推出沒寫下的邊。本規則只引用它、不複製（複製 = 兩份會分岔的規格）。
+
 以下 **14 條**是 store 裡**僅有的**關係邊。**封閉列舉，不得依性質相似類推下一條**：
 
 | # | 存在哪 | 指向 | 邊界條件 |

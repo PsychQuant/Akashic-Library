@@ -46,6 +46,42 @@ Institute of Statistical Science）——只比新名會漏掉整個 1980s 的�
 **處置**：先 `https://api.openalex.org/institutions?search=<名稱>` 解析出 institution
 ID，再用 ID 過濾作者／著作；隸屬史看 `authors` 端點的 affiliations 時間軸。
 
+## 兩個「看起來像互相印證、其實同源」的陷阱（2026-08-20 實測）
+
+這兩個是同一個病的兩種形狀：**拿一份按名字做的消歧結果，去驗另一份按名字做的消歧結果。**
+兩邊會一起錯，而輸出看起來像交叉驗證通過。
+
+### ORCID 的著作清單多半是機器灌的
+
+`works` 的每一筆有 `work-summary[].source.source-name.value`。實測兩位當事人：
+
+```
+陳君厚 0000-0003-0899-7477 → Scopus 64、Crossref 10、本人 0
+程毅豪 0000-0003-4038-9439 → Scopus 71、本人 20、Crossref 14、MDPI 1
+```
+
+Scopus／Crossref 那些是廠商按名字聚合出來的。**只有 `source` 是本人姓名的條目算自報。**
+
+**處置**：把 ORCID works 當證據前先看 `source`；要當**決定性**證據，只採本人那一批。
+（`employment` 是另一回事——那個確實是自報，但只列現職、不回填歷史。）
+
+### OpenAlex 的作者實體會把 CJK 縮寫名過度合併
+
+實測：17 筆「C-H Chen」的作者位**全部**被 OpenAlex 掛上同一個 ORCID
+（陳君厚）。改看**該作者位登記的機構**後，只有 2 筆真的在中研院，其餘 15 筆分屬慈濟、
+長庚、馬偕、UC Davis、國衛院、UCSD、陸軍軍醫大學、北榮、北醫、高醫。
+
+**分界很乾淨**：
+
+| 欄位 | 來源 | 可信？ |
+|---|---|---|
+| `authorships[i].institutions`／`.raw_affiliation_strings` | **論文自己**登記的 affiliation | ✅ |
+| `authorships[i].author.orcid`／`.id` | OpenAlex **自己的**作者消歧 | ❌ 對 CJK 縮寫名不可單獨採信 |
+
+**處置**：有 DOI 時走
+`https://api.openalex.org/works/doi:<DOI>` 取該作者位的機構。用索引取之前先驗位置沒錯位
+——該位置的作者名，其「姓＋首字母」必須與 literal 相同。
+
 ## 通用紀律
 
 - **每一源記 URL＋取得日期**——查證結論落 verdict 時，這些是 provenance 的素材

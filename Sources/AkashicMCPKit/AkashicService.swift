@@ -147,9 +147,49 @@ public final class AkashicService {
     public func getEntry(citekey: String) throws -> String {
         let load = try store.load()
         guard let entry = load.entries.first(where: { $0.citekey == citekey }) else {
+            // 「查不到」與「讀不進來」是兩件事（#294 的同一條紀律）。
+            if !load.quarantined.isEmpty {
+                throw ServiceError.undeterminable(
+                    "citekey「\(displaySafe(citekey, max: 200))」——store 另有 "
+                    + "\(load.quarantined.count) 個檔 quarantined（可能是未遷移的舊形狀，"   // display-safe-exempt: count 是 Int
+                    + "該 citekey 或許在其中）；見 akashic doctor")
+            }
             throw ServiceError.notFound("citekey「\(displaySafe(citekey, max: 200))」")
         }
-        return try jsonString(entryDict(entry))
+        var d = entryDict(entry)
+
+        // **反向邊在這裡加，不在 `entryDict` 裡**（#260）。
+        //
+        // `entryDict` 的職責是「這筆 entry 身上**存了**什麼」；反向邊依
+        // `entity-backlink-completeness` 是**現算不儲存**的。分在兩個函式，讓那條
+        // 紀律在程式碼結構上看得見——而不是靠註解說「這幾個鍵是算出來的」。
+        //
+        // 兩條衍生鏈**都已存在**（`QueryEngine` 走 SQLite 的 `relations` 表），修法
+        // 純粹是接線。這與該規則失敗史的原句同形：「衍生鏈完整，但只有 MCP 接上去」。
+        let engine = try freshEngine()
+
+        // `citedBy` ＝ 封閉列舉第 2 條邊（`cites`）的反向。
+        let citedBy = try engine.citedBy(entry.citekey)
+        if !citedBy.isEmpty {
+            d["citedBy"] = citedBy.map { displaySafe($0.citekey, max: 200) }.sorted()
+        }
+
+        // `related` 是**對稱邊**（封閉列舉第 3 條）。規則明文：「存在 entry 側是
+        // **約定**、非推導」——所以只顯示本側的那一半是實作巧合，不是語意。
+        // `QueryEngine.related(to:)` 的 SQL 已同時查兩個方向，直接用。
+        //
+        // 覆蓋 `entryDict` 寫入的單向 `related`：兩者同名而後者是完整集合，留兩個鍵
+        // 會讓消費端得猜哪個才算數。
+        let related = try engine.related(to: entry.citekey)
+        var akashic = (d["akashic"] as? [String: Any]) ?? [:]
+        if related.isEmpty {
+            akashic.removeValue(forKey: "related")
+        } else {
+            akashic["related"] = related.map { displaySafe($0.citekey, max: 200) }.sorted()
+        }
+        if !akashic.isEmpty { d["akashic"] = akashic }
+
+        return try jsonString(d)
     }
 
     public func relations(citekey: String, kind: String) throws -> String {

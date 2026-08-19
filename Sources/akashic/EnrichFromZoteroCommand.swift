@@ -1,0 +1,121 @@
+import ArgumentParser
+import Foundation
+import AkashicCore
+import AkashicStoreIO
+import AkashicZoteroImport
+
+/// 逐筆從 Zotero 補**缺著的**書目欄位（#340）。
+///
+/// 與 `import-zotero` 的差別寫在 `ZoteroEnrichment` 的型別註解裡（那是 canonical
+/// 說明，此處不複製一份會分岔的副本）。這裡只記 CLI 面的兩個決定：
+///
+/// 1. **`--citekeys` 必填、無篩選式批次**。作用半徑由呼叫者逐筆指名，所以 #298
+///    那個「破壞性 `--apply` 掃過整個 store」的形狀在這個命令上不存在。
+///    （`--apply` 仍走 `assertDestructiveTargetNamed`——閘的成本是一行，
+///    而豁免一個寫入命令需要的理由比加上它多。）
+/// 2. **dry-run 是預設**，且 dry-run 印的就是 apply 會寫的那份計畫。
+struct EnrichFromZotero: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "enrich-from-zotero",
+        abstract: "逐筆從 Zotero 補缺著的書目欄位（只加不覆寫；不動 type／作者／venues）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Option(name: .long, help: "要補值的 citekeys（逗號分隔，必填——本命令不做篩選式批次）")
+    var citekeys: String
+
+    @Option(name: .long, help: "zotero.sqlite 路徑（預設 ~/Zotero/zotero.sqlite）")
+    var zoteroDb: String = "~/Zotero/zotero.sqlite"
+
+    @Option(name: .long, help: "只讀這個 Zotero libraryID（預設全部）")
+    var libraryId: Int?
+
+    @Flag(name: .long, help: "實際寫入（預設只列出計畫）")
+    var apply = false
+
+    func run() throws {
+        if apply { try options.assertDestructiveTargetNamed("enrich-from-zotero") }
+        let keys = citekeys.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard !keys.isEmpty else {
+            throw ValidationError("--citekeys 不得為空——本命令刻意不提供「全部」的寫法")
+        }
+
+        let dbURL = URL(fileURLWithPath: (zoteroDb as NSString).expandingTildeInPath)
+        guard FileManager.default.fileExists(atPath: dbURL.path) else {
+            throw ValidationError("找不到 zotero.sqlite：\(dbURL.path)")
+        }
+
+        let store = try options.openStore()
+        let load = try store.load()
+        let read = try ZoteroReader.readItems(dbPath: dbURL.path, libraryID: libraryId)
+        let plan = ZoteroEnrichment.plan(entries: load.entries, items: read.items, citekeys: keys)
+
+        print("指名 \(keys.count) 筆；可補 \(plan.additions.count)、"
+              + "上游也沒有 \(plan.unchanged.count)、"
+              + "無 zotero_key \(plan.noProvenance.count)、"
+              + "Zotero 查無 \(plan.zoteroMissing.count)、"
+              + "不在 store \(plan.notInStore.count)")
+
+        for a in plan.additions.sorted(by: { $0.citekey < $1.citekey }) {
+            print("")
+            print("  \(displaySafe(a.citekey, max: 200))")
+            if let d = a.addedDate {
+                print("    + date = \(displaySafe(d, max: 200))")
+            }
+            for (k, v) in a.addedFields.sorted(by: { $0.key < $1.key }) {
+                print("    + \(displaySafe(k, max: 80)) = \(displaySafe(v, max: 160))")
+            }
+        }
+
+        /// 四類「沒補到」都要印出來。**只印可補的那一半，會讓「查過、上游沒有」
+        /// 與「根本沒查」在輸出上完全一樣**——那是 `lossless-intake` 執行細節 3
+        /// 的靜默形式，只是換到報告面。
+        func section(_ title: String, _ keys: [String]) {
+            guard !keys.isEmpty else { return }
+            print("")
+            print("\(title)（\(keys.count)）：")
+            for k in keys.sorted().prefix(AmbiguityDisplayLimit.rows) {
+                print("  \(displaySafe(k, max: 200))")
+            }
+            if keys.count > AmbiguityDisplayLimit.rows {
+                print("  …另 \(keys.count - AmbiguityDisplayLimit.rows) 筆未顯示")
+            }
+        }
+        section("Zotero 端也沒有缺著的那些欄位——需外部查證", plan.unchanged)
+        section("無 provenance.zotero_key——無從查起", plan.noProvenance)
+        section("有 zotero_key 但 Zotero 查無此 item", plan.zoteroMissing)
+        section("citekey 不在 store 裡", plan.notInStore)
+
+        guard apply else {
+            print("")
+            print("（dry-run）加 --apply 實際寫入。"
+                  + "**只加原本不存在的鍵**——既有值、type、作者、venues 一律不動。")
+            return
+        }
+
+        var byCitekey: [String: Entry] = [:]
+        for e in load.entries { byCitekey[e.citekey] = e }
+        var written = 0
+        var failed: [String: String] = [:]
+        for a in plan.additions {
+            guard let entry = byCitekey[a.citekey] else { continue }
+            do {
+                try store.writeEntry(ZoteroEnrichment.applied(a, to: entry))
+                written += 1
+            } catch {
+                // per-item 隔離：單筆寫入失敗不把整趟變成「部分套用且沒人知道哪些」
+                failed[a.citekey] = String(describing: error)
+            }
+        }
+        print("")
+        print("已寫入 \(written) 筆。")
+        if !failed.isEmpty {
+            print("寫入失敗 \(failed.count) 筆：")
+            for (k, e) in failed.sorted(by: { $0.key < $1.key }) {
+                print("  \(displaySafe(k, max: 200)): \(displaySafe(e, max: 200))")
+            }
+        }
+    }
+}

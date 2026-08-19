@@ -26,6 +26,26 @@ public enum ZoteroMapping {
         "manuscript": .unpublishedWork,
         "presentation": .conferenceSession,
         "document": .webpage,
+        // #340：`encyclopediaArticle` 先前**不在表內**，落 fallback `.webpage`。
+        //
+        // 那不是「粗一點」，是**落錯節**：百科條目是 10.3（Entries in Reference
+        // Works），而 `.webpage` 是 10.16。10.3 的 source element 是
+        // 「In *Title of reference work*」——落到 10.16 之後那個元素在渲染時
+        // 根本沒有位置，於是這筆記錄在 `apa7-is-the-work-floor` 的意義下
+        // **由構造保證跌破下限**，不是資料缺漏。
+        //
+        // 另有一個潛伏的回歸：#325 的遷移已把這 14 筆訂為 `wikipedia-entry`，
+        // 而 `applyBiblatexFields` 每次 pull 都會重設 `entry.type`——只要有人
+        // 跑一次 `import-zotero`，那 14 筆就會被**降回** `webpage`。表裡缺一列
+        // 的代價不是「這次沒對映到」，是「上次對的會被改錯」。
+        //
+        // **誠實邊界**：`.wikipediaEntry` 這個名字對非維基的參考書（大英百科…）
+        // 是過度宣稱。實測本庫的 `encyclopediaArticle` 恰 14 筆、`encyclopediaTitle`
+        // 只有兩個相異值（`Wikipedia, the free encyclopedia`／`維基百科，自由的
+        // 百科全書`），`dictionaryEntry` 零筆——所以目前**每一個實例都真的是維基**。
+        // 出現非維基的參考書條目時，該補的是一個更廣的 10.3-entry 型別，那是那時
+        // 的裁決（`zero-instance-guards` 的立場：還沒發生的形狀不現在猜）。
+        "encyclopediaArticle": .wikipediaEntry,
     ]
 
     /// Zotero fieldName → biblatex 欄位名。title/date 由 Entry 一級欄位承接，不進 fields。
@@ -33,6 +53,29 @@ public enum ZoteroMapping {
         "publicationTitle": "journaltitle",
         "bookTitle": "booktitle",
         "proceedingsTitle": "booktitle",
+        // #340：APA7 10.3 的 source element 是「In *Title of reference work*」，
+        // 在 `biblatex-apa` 的 `@INREFERENCE` 就是 `BOOKTITLE`。與上面兩列同類
+        // ——都是「載體標題」映到 `booktitle`，只是 Zotero 依 itemType 換了名字。
+        //
+        // 沒有這一列時它會走殘餘路徑、以 `encyclopediatitle` 入庫（#206 起不再
+        // 丟棄），**資料在、但 APA7 仍然報缺**——殘餘保住了資訊，沒保住可引用性。
+        // 這一列補的正是這段落差。
+        "encyclopediaTitle": "booktitle",
+        // #340／#359：APA7 10.5 的 template 把 Source 欄寫成「**Conference Name,
+        // Location.**」——**會議名稱就是 source element**，在 `@PRESENTATION` 是
+        // `EVENTTITLE`。手冊的四個編號例（60–63）無一例外都帶它
+        // （`APA7GoldenTests.testEverySection105ExampleCarriesTheConferenceName`）。
+        //
+        // #359 把「缺 EVENTTITLE 的會議發表跌破下限」記成 known gap 時，量到 25 筆
+        // 受影響。**那 25 筆的會議名稱其實一直在 Zotero 裡**（實測 21 筆 presentation
+        // 全部帶 `meetingName`），只是走殘餘路徑以 `meetingname` 入庫——
+        // 與 `encyclopediaTitle` 完全同型的落差：資訊沒丟，可引用性丟了。
+        "meetingName": "eventtitle",
+        // 方括號內的類型標籤（手冊：「Include a label in square brackets after the
+        // title that matches how the presentation was described at the conference」）。
+        // Zotero 的值就是會議自己的描述（`Poster presentation`／`Oral presentation`），
+        // 正是手冊要的那個「matches how it was described」。
+        "presentationType": "titleaddon",
         "volume": "volume",
         "issue": "number",
         "pages": "pages",

@@ -234,17 +234,37 @@ final class LosslessIntakeTests: XCTestCase {
 
     /// Zotero 的 item 依 type 有幾十種欄位，`fieldMap` 涵蓋不到的原本全部消失
     /// （那行 `guard let bibField = fieldMap[zField] else { continue }`）。
+    ///
+    /// **例子換過（#340）**：本測試原本拿 `presentationType`／`meetingName` 當「未對映」
+    /// 的示範。那兩個欄位在 #340 進了 `fieldMap`（→ `titleaddon`／`eventtitle`，
+    /// APA7 §10.5 的 source element），所以它們不再是這條要示範的東西。
+    ///
+    /// **殘餘收集的價值沒有因此變小，反而被界定得更清楚**：殘餘保證「來源給的都收」，
+    /// 但收進來的鍵名若不是 export 面認得的那個，APA7 下限仍然跌破——那正是 #340 補
+    /// 對映的理由。兩件事都要測，所以下面**兩種都斷言**。
     func testZoteroKeepsUnmappedFields() {
         var entry = Entry(id: UUID(), citekey: "z1", type: .webpage, title: "")
         let item = ZoteroItem(
             key: "K1", version: 1, libraryID: 1, typeName: "presentation",
             fields: ["title": "T", "date": "2025",
                      "presentationType": "Oral", "meetingName": "IMPS 2025",
-                     "place": "Seoul"],
+                     "place": "Seoul",
+                     // `fieldMap` 沒有這三個——它們是本測試真正的主題
+                     "libraryCatalog": "Zotero", "rights": "CC BY", "archiveLocation": "box 3"],
             authors: [], tags: [], attachmentPaths: [])
         ZoteroMapping.applyBiblatexFields(from: item, to: &entry)
-        XCTAssertEqual(entry.fields["presentationtype"], "Oral")
-        XCTAssertEqual(entry.fields["meetingname"], "IMPS 2025")
+
+        // 主題：未對映的欄位**以正規化後的原名入庫**，不再被丟棄
+        XCTAssertEqual(entry.fields["librarycatalog"], "Zotero")
+        XCTAssertEqual(entry.fields["rights"], "CC BY")
+        XCTAssertEqual(entry.fields["archivelocation"], "box 3")
+
+        // 對照：有對映的走 canonical 名，**不得**同時留一份殘餘（兩個鍵會分岔）
+        XCTAssertEqual(entry.fields["titleaddon"], "Oral", "#340：presentationType → titleaddon")
+        XCTAssertEqual(entry.fields["eventtitle"], "IMPS 2025", "#340：meetingName → eventtitle")
+        XCTAssertNil(entry.fields["presentationtype"])
+        XCTAssertNil(entry.fields["meetingname"])
+
         XCTAssertNotNil(entry.fields["place"] ?? entry.fields["location"],
                         "place 不論走 fieldMap 或殘餘，都不得消失")
     }

@@ -94,7 +94,7 @@ final class StdioE2ETests: XCTestCase {
         try send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
         let listResponse = try readResponse()
         let tools = ((listResponse["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
-        XCTAssertEqual(tools.count, 29)   // #13/#14/#18/#77 歷次擴充；#76: + akashic_divergences；#68: + akashic_update_person；#290: + akashic_import_wos；#304: + venue×4 + org×2
+        XCTAssertEqual(tools.count, 30)   // #13/#14/#18/#77 歷次擴充；#76: + akashic_divergences；#68: + akashic_update_person；#290: + akashic_import_wos；#304: + venue×4 + org×2；#340: + akashic_enrich_from_zotero
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_record_divergence" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_import_wos" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_divergences" })
@@ -186,7 +186,7 @@ extension StdioE2ETests {
         try send(["jsonrpc": "2.0", "id": 8, "method": "tools/list", "params": [:]])
         let listResp = try readResponse()
         let tools = ((listResp["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
-        XCTAssertEqual(tools.count, 29, "深度炸彈之後 server 必須照常服務：\(listResp)")
+        XCTAssertEqual(tools.count, 30, "深度炸彈之後 server 必須照常服務：\(listResp)")
         XCTAssertTrue(process.isRunning, "進程必須存活")
     }
 

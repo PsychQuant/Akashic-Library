@@ -34,7 +34,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 
 （#206 對匯入面的原話：「能不能無損匯入，不該取決於使用者會不會寫 script。」）
 
-## 裁決史（封閉列舉——現有 29 工具，一格不多一格不少）
+## 裁決史（封閉列舉——現有 30 工具，一格不多一格不少）
 
 | MCP 工具 | CLI 對應 | 裁決 |
 |---|---|---|
@@ -67,6 +67,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 | `akashic_add_organization` | 無（單筆建檔 MCP-only；批次面 `bootstrap-organizations` 維持 CLI-only，見 CLI-only 表）| ✅ 有理由的單面（#304 移轉裁決：org 重啟後單筆建檔是 #303 campaign 的 LLM 消費流程；操作者規模的批次建檔另有 CLI 面）|
 | `akashic_resolve_organizations` | `resolve-organizations` | ✅（#304 移轉；CLI-only 表「候補缺席（重啟訊號已觸發）」格的補齊——同 `import-wos`／#290 的移列形）|
 | `akashic_store_source` | `store-source` | ✅（#264；**讀取面慣例**而非寫入面封閉例外——receipt 的 `discardedProvenance` 攜帶「你這份敘述沒被寫入」，人需要看得懂，故 `--json` 原樣轉印＋人可讀同源。收**檔案路徑**不收 base64／stdin：MCP 面無 stdin 會讓兩面分岔，base64 把二進位塞進 JSON 會膨脹並整份進 context（#165 的既有威脅模型）。`SourceStore.storeSource` 的寫入面防護 #224 已完成，本格只補呼叫端——先前全樹零 production 呼叫端，能力只有寫 Swift 的人做得到，#206 判準的同形）|
+| `akashic_enrich_from_zotero` | `enrich-from-zotero` | ✅（#340；**#206／#290 判準的第三次套用**——那句原話是「能不能無損匯入，不該取決於使用者會不會寫 script」，在這裡是「能不能把一筆跌破下限的記錄補回下限，不該取決於面」。兩面同走 `ZoteroEnrichment.plan`。**契約有記錄的差異**：CLI 的 `--apply`走 #298 的破壞性閘、MCP 面用 `dry_run` 且**不設閘**——該閘擋的是「篩選式批次寫入未指名目標」，而本 tool 收的是逐筆顯式指名的 citekey 清單，與 `resolve-people` 的 tier 閘同型不對稱。**與 `akashic_import_zotero` 刻意不同語意**：那是 pull（整份替換 `fields`、重設 `type`、覆寫未歸戶作者），這是 add-only；同一個 store 上兩種語意並存是設計，不是重複）|
 
 新增下一個工具 = 在這張表加一列。**不得依性質相似類推**「這個工具顯然不用 CLI」
 ——那個判斷要寫成表裡的一列（含理由或 issue 編號），不能只存在腦中。
@@ -76,7 +77,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 不要相信作者窮舉過（`entity-backlink-completeness` 的表錯過兩次，教訓同形）：
 
 ```bash
-# ① MCP 面的全部工具名（實測：恰 29，與表零差集）
+# ① MCP 面的全部工具名（實測：恰 30，與表零差集）
 grep -oE 'Tool\(name: "akashic_[a-z_]+"' Sources/akashic-mcp/Server.swift | sort -u
 # ② CLI 面的全部註冊型別（取 subcommands 陣列整段，不靠型別命名慣例——
 #    第一版寫 '[A-Za-z]+Cmd?\.self' 只命中 11/30：`Cmd?` 是「Cm+可選 d」，

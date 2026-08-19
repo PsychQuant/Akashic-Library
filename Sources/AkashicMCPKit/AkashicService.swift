@@ -1589,6 +1589,77 @@ public final class AkashicService {
         return try jsonString(d)
     }
 
+    /// 逐筆 Zotero 補值的 MCP 面（#340）。
+    ///
+    /// 與 CLI `enrich-from-zotero` 走同一條 `ZoteroEnrichment.plan`——對映邏輯
+    /// 只有一份（`entity-backlink-completeness` 執行細節 2）。
+    ///
+    /// **parity 判準的直接套用**：#206 的原話是「能不能無損匯入，不該取決於使用者
+    /// 會不會寫 script」，#290 把它鏡像到 `import-wos`。同一句話在這裡是「能不能把
+    /// 一筆跌破下限的記錄補回下限，不該取決於使用者用的是 MCP 還是 CLI」。
+    ///
+    /// **#298 的閘刻意不在這一面**：那個閘擋的是「篩選式批次寫入未指名目標」，
+    /// 而本 tool 收的是**逐筆顯式指名**的 citekey 清單——與 `resolve-people` 的
+    /// tier 閘同型不對稱（`mcp-cli-parity` 已載明）。
+    public func enrichFromZotero(citekeys: [String], zoteroDb: String?,
+                                 libraryID: Int?, dryRun: Bool) throws -> String {
+        guard !citekeys.isEmpty else {
+            throw ServiceError.invalid("citekeys 不得為空——本 tool 刻意不提供「全部」的寫法")
+        }
+        let path = ((zoteroDb ?? "~/Zotero/zotero.sqlite") as NSString).expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: path) else {
+            throw ServiceError.notFound("zotero.sqlite：\(displaySafe(path, max: 300))")
+        }
+        let load = try store.load()
+        let read = try ZoteroReader.readItems(dbPath: path, libraryID: libraryID)
+        let plan = ZoteroEnrichment.plan(entries: load.entries, items: read.items,
+                                         citekeys: citekeys)
+
+        var byCitekey: [String: Entry] = [:]
+        for e in load.entries { byCitekey[e.citekey] = e }
+        var written: [String] = []
+        var writeFailed: [String: String] = [:]
+        if !dryRun {
+            for a in plan.additions {
+                guard let entry = byCitekey[a.citekey] else { continue }
+                do {
+                    try store.writeEntry(ZoteroEnrichment.applied(a, to: entry))
+                    written.append(a.citekey)
+                } catch {
+                    writeFailed[a.citekey] = String(describing: error)
+                }
+            }
+            if !written.isEmpty { try LibraryIndex(store: store).rebuild() }
+        }
+
+        // 四類「沒補到」全部回報。只回可補的那一半，會讓「查過、上游沒有」與
+        // 「根本沒查」在輸出上變成同一件事（`lossless-intake` 執行細節 3）。
+        var d: [String: Any] = [
+            "dryRun": dryRun,
+            "additions": plan.additions.sorted { $0.citekey < $1.citekey }.map { a -> [String: Any] in
+                var one: [String: Any] = [
+                    "citekey": displaySafe(a.citekey, max: 200),
+                    "addedFields": Dictionary(uniqueKeysWithValues: a.addedFields.map {
+                        (displaySafe($0.key, max: 80), displaySafe($0.value, max: 512))
+                    }),
+                ]
+                if let dt = a.addedDate { one["addedDate"] = displaySafe(dt, max: 200) }
+                return one
+            },
+            "unchanged": plan.unchanged.sorted().map { displaySafe($0, max: 200) },
+            "noProvenance": plan.noProvenance.sorted().map { displaySafe($0, max: 200) },
+            "zoteroMissing": plan.zoteroMissing.sorted().map { displaySafe($0, max: 200) },
+            "notInStore": plan.notInStore.sorted().map { displaySafe($0, max: 200) },
+        ]
+        if !dryRun { d["written"] = written.sorted().map { displaySafe($0, max: 200) } }
+        if !writeFailed.isEmpty {
+            d["writeFailed"] = Dictionary(uniqueKeysWithValues: writeFailed.map {
+                (displaySafe($0.key, max: 200), displaySafe($0.value, max: 512))
+            })
+        }
+        return try jsonString(d)
+    }
+
     /// WoS 匯入的 MCP 面（#290——#259 CLI-only 盤點唯一「需要」格；#206 鏡像：
     /// 無損匯入不該取決於面）。與 CLI `import-wos` 走 `WoSImport.run` 同一路徑：
     /// 具名對映＋殘餘收集、idempotent（citekey＋內容）、conflicts 不覆寫、

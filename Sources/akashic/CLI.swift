@@ -52,6 +52,7 @@ struct AkashicCLI: ParsableCommand {
             ResolveDivergence.self, RecordDivergence.self, AuthorizeNames.self,
             BootstrapOrganizations.self, ResolveOrganizations.self,
             BootstrapVenues.self,
+            EnrichFromZotero.self,   // #340：逐筆補值（add-only；與 pull 語意刻意不同）
             UpdatePersonCmd.self,
             Fmt.self, ViewCmd.self, CreateEntryCmd.self,
             PersonCmd.self,   // #218：person 的讀取面（寫入面是上面的 UpdatePersonCmd）

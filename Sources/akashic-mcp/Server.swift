@@ -262,6 +262,23 @@ actor AkashicMCPServer {
                 "zotero_db": str("zotero.sqlite 路徑（預設 ~/Zotero/zotero.sqlite）"),
                 "library_id": int("只拉此 libraryID（省略＝全部 libraries）"),
              ])),
+        Tool(name: "akashic_enrich_from_zotero",
+             description: "逐筆從 Zotero 補**缺著的**書目欄位（#340）。與 akashic_import_zotero 的 pull 語意刻意不同："
+                        + "只加原本不存在的鍵，既有值一個都不動；type／title／authors／venues／attachments 一律不碰。"
+                        + "四類「沒補到」全部回報（unchanged＝上游也沒有、noProvenance、zoteroMissing、notInStore）——"
+                        + "「查過但上游沒有」與「根本沒查」必須分得開。建議先 dry_run:true 看計畫。"
+                        + "zotero_db 是 server 本機路徑（非內容上傳）。",
+             inputSchema: obj([
+                "citekeys": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")]),
+                    "description": .string("要補值的 citekeys（必填——本 tool 刻意不提供「全部」）"),
+                ]),
+                "zotero_db": str("zotero.sqlite 路徑（預設 ~/Zotero/zotero.sqlite）"),
+                "library_id": int("只讀此 libraryID（省略＝全部）"),
+                "dry_run": .object(["type": .string("boolean"),
+                                    "description": .string("true＝只回計畫不寫入")]),
+             ])),
         Tool(name: "akashic_import_wos",
              description: "匯入 Web of Science 匯出檔（tab-delimited；csv:true 改逗號分隔）。"
                         + "無損匯入（#206）：12 具名欄對映＋其餘欄位殘餘收集原樣入 fields；"
@@ -429,6 +446,18 @@ actor AkashicMCPServer {
             case "akashic_import_zotero":
                 output = try service.importZotero(zoteroDb: arg("zotero_db"),
                                                   libraryID: argInt("library_id"))
+            case "akashic_enrich_from_zotero":
+                var enrichKeys: [String] = []
+                if case .array(let arr)? = params.arguments?["citekeys"] {
+                    for v in arr { if case .string(let s) = v { enrichKeys.append(s) } }
+                }
+                let enrichDryRun: Bool
+                if case .bool(let v)? = params.arguments?["dry_run"] { enrichDryRun = v }
+                else { enrichDryRun = false }
+                output = try service.enrichFromZotero(citekeys: enrichKeys,
+                                                      zoteroDb: arg("zotero_db"),
+                                                      libraryID: argInt("library_id"),
+                                                      dryRun: enrichDryRun)
             case "akashic_import_wos":
                 let csvFlag: Bool
                 if case .bool(let v)? = params.arguments?["csv"] { csvFlag = v } else { csvFlag = false }

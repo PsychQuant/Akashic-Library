@@ -199,6 +199,9 @@ struct MigrateVenues: ParsableCommand {
     var apply = false
 
     func run() throws {
+        // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
+        // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
+        if apply { try options.assertDestructiveTargetNamed("migrate-venues") }
         let store = try options.openStore()
         // 同 migrate-person-identity 的席 A NEW-3 緩解：破壞性/批次遷移**先回顯目標**
         // ——LibraryLocator 對 CWD 零感知（registry current 決定目標）。

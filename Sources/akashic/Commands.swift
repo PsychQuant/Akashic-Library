@@ -448,6 +448,9 @@ struct MigratePersonIdentity: ParsableCommand {
     var apply = false
 
     func run() throws {
+        // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
+        // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
+        if apply { try options.assertDestructiveTargetNamed("migrate-person-identity") }
         let store = try options.openStore()
         // 席 A NEW-3 的即時緩解：破壞性遷移**先回顯目標**——LibraryLocator 對 CWD
         // 零感知（registry current 決定目標），不印出來的話「在 scratch 目錄執行」
@@ -498,6 +501,9 @@ struct BootstrapPeople: ParsableCommand {
     var limit: Int?
 
     func run() throws {
+        // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
+        // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
+        if apply { try options.assertDestructiveTargetNamed("bootstrap-people") }
         let store = try options.openStore()
         let load = try store.load()
         // R1-fix B4：否決史決定 pending literal 何時回到可建檔
@@ -613,6 +619,9 @@ struct BootstrapOrganizations: ParsableCommand {
     @Option(name: .long, help: "最多處理前 N 個") var limit: Int?
 
     func run() throws {
+        // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
+        // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
+        if apply { try options.assertDestructiveTargetNamed("bootstrap-organizations") }
         let store = try options.openStore()
         let load = try store.load()
         let result = OrgBootstrap.result(people: load.people, organizations: load.organizations)
@@ -802,6 +811,9 @@ struct ResolveOrganizations: ParsableCommand {
     var reject = false
 
     func run() throws {
+        // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
+        // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
+        if apply { try options.assertDestructiveTargetNamed("resolve-organizations") }
         if apply, reject {
             throw ValidationError("--apply 與 --reject 不可同用（相反的 verdict）——分兩次呼叫")
         }
@@ -1308,6 +1320,9 @@ struct ResolvePeople: ParsableCommand {
     var reject: [String] = []
 
     func run() throws {
+        // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
+        // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
+        if apply { try options.assertDestructiveTargetNamed("resolve-people") }
         // 同一次呼叫不可同時 apply 與 reject——那是兩個相反的 verdict
         if apply, !reject.isEmpty {
             throw ValidationError("--apply 與 --reject 不可同用（相反的 verdict）——分兩次呼叫")

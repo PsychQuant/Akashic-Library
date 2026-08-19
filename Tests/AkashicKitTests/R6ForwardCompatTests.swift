@@ -14,7 +14,7 @@ final class R6ForwardCompatTests: XCTestCase {
     /// 次秒精度 Date + 未知欄位——R5 的 identity canary 對此必拒寫
     /// （Zotero pull 主線 `now: Date()` 幾乎必然次秒非零）。
     func testSubSecondDateWithUnknownFieldEncodes() throws {
-        var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle, title: "T")
         e.provenance = Provenance(zoteroKey: "K", zoteroVersion: 1,
                                   importedAt: Date(timeIntervalSince1970: 1_753_000_000.987),
                                   orphanedAt: Date(timeIntervalSince1970: 1_753_100_000.5))
@@ -58,7 +58,7 @@ final class R6ForwardCompatTests: XCTestCase {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         akashic:
           tags:
@@ -72,7 +72,7 @@ final class R6ForwardCompatTests: XCTestCase {
         let head = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         """
         XCTAssertThrowsError(try EntryYAML.decode(head + "\ndate: [2020]\n"))
@@ -99,7 +99,7 @@ final class R6ForwardCompatTests: XCTestCase {
         XCTAssertThrowsError(try EntryYAML.decode("""
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         !foo akashic:
           x: 1
@@ -122,7 +122,7 @@ final class R6ForwardCompatTests: XCTestCase {
     /// 常見產物），round-trip 無損。R5 的全文掃描把「帶未知欄位 + known 值含
     /// U+2028」的檔整份 quarantine 且永久不可寫。R6：讀寫皆正常。
     func testLineSeparatorInKnownValueWithUnknownFieldSurvives() throws {
-        var e = Entry(id: UUID(), citekey: "a2020b", type: "article",
+        var e = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle,
                       title: "Attention\u{2028}Is All You Need")
         e.unknownFields = [UnknownField(key: "rating", raw: "rating: 5\n")]
         let out = try EntryYAML.encode(e)
@@ -168,7 +168,7 @@ final class R6ForwardCompatTests: XCTestCase {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         akashic:
             tags:
@@ -192,7 +192,7 @@ final class R6ForwardCompatTests: XCTestCase {
         var yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         bigfield:
         """

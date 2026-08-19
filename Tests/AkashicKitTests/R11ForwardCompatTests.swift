@@ -13,7 +13,7 @@ final class R11ForwardCompatTests: XCTestCase {
     private let entryHead = """
     id: 7C1F6C2E-0000-0000-0000-000000000001
     citekey: a2020b
-    type: article
+    type: periodical-article
     title: T
     """
 

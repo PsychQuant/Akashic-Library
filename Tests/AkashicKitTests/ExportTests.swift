@@ -6,7 +6,7 @@ final class ExportTests: XCTestCase {
     private func makeEntry() -> Entry {
         var entry = Entry(
             id: UUID(uuidString: "7C1F6C2E-0000-0000-0000-000000000001")!,
-            citekey: "cheng2025identifiability", type: "article",
+            citekey: "cheng2025identifiability", type: .periodicalArticle,
             title: "Identifiability of polychoric models",
             authors: [.key("cheng-che"), .literal("Hau-Hung Yang")], date: "2025-04-01")
         entry.fields = [
@@ -81,7 +81,7 @@ final class ExportTests: XCTestCase {
     /// 否則使用者會把「零 issue」讀成「已驗過」。
     func testExportSurfacesTypesNotCoveredByValidator() throws {
         var entry = makeEntry()
-        entry = Entry(id: entry.id, citekey: "anon2018wiki", type: "misc",
+        entry = Entry(id: entry.id, citekey: "anon2018wiki", type: .webpage,
                       title: "Wiki", authors: [], date: "2018")
         let report = BibExport.apa7Report(entries: [entry], people: people)
         XCTAssertTrue(report.uncheckedCitekeys.contains("anon2018wiki"),
@@ -101,7 +101,7 @@ final class ExportTests: XCTestCase {
     }
 
     func testBibExportCJKAuthorPassesThrough() throws {
-        var entry = Entry(id: UUID(), citekey: "chen2004matrix", type: "book",
+        var entry = Entry(id: UUID(), citekey: "chen2004matrix", type: .book,
                           title: "矩陣視覺化", authors: [.literal("陳君厚")], date: "2004")
         entry.fields["publisher"] = "Academia Sinica"
         let bib = BibExport.bibFile(entries: [entry], people: [])

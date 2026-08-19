@@ -7,7 +7,7 @@ import Foundation
 final class PersonBootstrapTests: XCTestCase {
 
     private func entry(_ ck: String, _ authors: [String]) -> Entry {
-        Entry(id: UUID(), citekey: ck, type: "article", title: "T",
+        Entry(id: UUID(), citekey: ck, type: .periodicalArticle, title: "T",
               authors: authors.map { .literal($0) }, date: "2020")
     }
 
@@ -19,7 +19,7 @@ final class PersonBootstrapTests: XCTestCase {
     func testInitialsHitAgainstExistingPersonRoutesToPendingResolution() {
         let existing = [Person(key: "chen-yi-hau",
                                names: PersonNames(variant: ["Chen, Yi-Hau"]))]
-        var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
         e.authors = [.literal("Chen, Y.-H.")]
         let r = PersonBootstrap.resolve(entries: [e], existing: existing, rejected: [], confirmed: [:])
         XCTAssertTrue(r.candidates.isEmpty,
@@ -37,7 +37,7 @@ final class PersonBootstrapTests: XCTestCase {
         // pending 而 resolver 靜默），分空間實作兩面同構（皆無命中 → 建檔候選）。
         let existing = [Person(key: "chen-yi-hau",
                                names: PersonNames(variant: ["Chen, Yi-Hau"]))]
-        var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
         e.authors = [.literal("Yh Chen")]
         let r = PersonBootstrap.resolve(entries: [e], existing: existing,
                                         rejected: [], confirmed: [:])
@@ -56,7 +56,7 @@ final class PersonBootstrapTests: XCTestCase {
     func testConfirmedElsewhereLiteralIsNotMintedAsNewPerson() {
         let existing = [Person(key: "hsu-yung-fong",
                                names: PersonNames(variant: ["徐永豐"]))]
-        var e = Entry(id: UUID(), citekey: "y2024", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "y2024", type: .periodicalArticle, title: "T")
         e.authors = [.literal("Yung-Fong Hsu")]
         let confirmed: [ResolutionPairing: String] = [
             ResolutionPairing(holderKind: .work, holder: "x2020",
@@ -74,7 +74,7 @@ final class PersonBootstrapTests: XCTestCase {
     func testReorderEquivalentLiteralRoutesToPendingNotInvisible() {
         let existing = [Person(key: "cheng-che",
                                names: PersonNames(variant: ["Che Cheng"]))]
-        var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
         e.authors = [.literal("Cheng Che")]   // 重排形：identity 相等、normalize 不等
         let r = PersonBootstrap.resolve(entries: [e], existing: existing,
                                         rejected: [], confirmed: [:])
@@ -94,9 +94,9 @@ final class PersonBootstrapTests: XCTestCase {
     func testPartialRejectionKeepsWholeGroupPending() {
         let existing = [Person(key: "chen-yi-hau",
                                names: PersonNames(variant: ["Chen, Yi-Hau"]))]
-        var e1 = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        var e1 = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
         e1.authors = [.literal("Chen, Y.-H.")]
-        var e2 = Entry(id: UUID(), citekey: "y2024", type: "article", title: "U")
+        var e2 = Entry(id: UUID(), citekey: "y2024", type: .periodicalArticle, title: "U")
         e2.authors = [.literal("Chen, Y.-H.")]
         // 只否決 x2025 那筆配對——y2024 的配對仍未出清
         let rejected: Set<ResolutionPairing> = [
@@ -114,7 +114,7 @@ final class PersonBootstrapTests: XCTestCase {
         // 全部寬鬆配對都被否決後，literal 回到可建檔——生命週期閉環
         let existing = [Person(key: "chen-yi-hau",
                                names: PersonNames(variant: ["Chen, Yi-Hau"]))]
-        var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
         e.authors = [.literal("Chen, Y.-H.")]
         let rejected: Set<ResolutionPairing> = [
             ResolutionPairing(holderKind: .work, holder: "x2025",

@@ -60,7 +60,7 @@ final class CreateEntryCLITests: XCTestCase {
 
     func testJSONKeepsEveryField() throws {
         let json = """
-        {"type":"presentation","title":"Validity Evidence for the Joint Thurstonian Models",
+        {"type":"conference-session","title":"Validity Evidence for the Joint Thurstonian Models",
          "authors":["Che Cheng","Hau-Hung Yang"],"date":"2026",
          "fields":{"eventtitle":"IMPS 2026","venue":"Seoul, South Korea",
                    "eventdate":"2026-07-20/2026-07-24","titleaddon":"Oral presentation"}}
@@ -68,7 +68,7 @@ final class CreateEntryCLITests: XCTestCase {
         let r = try runCLI(["create-entry", "--format", "json"], stdin: json)
         XCTAssertEqual(r.status, 0, r.out)
         let e = try XCTUnwrap(loadedEntries().first)
-        XCTAssertEqual(e.type, "presentation")
+        XCTAssertEqual(e.type.rawValue, "conference-session")
         // **四個欄位一個都不能少**——這正是 import-wos 會丟掉的那一族
         XCTAssertEqual(e.fields["eventtitle"], "IMPS 2026")
         XCTAssertEqual(e.fields["venue"], "Seoul, South Korea")
@@ -162,7 +162,7 @@ final class CreateEntryCLITests: XCTestCase {
 
     /// `--dry-run` 零寫入。
     func testDryRunWritesNothing() throws {
-        let json = #"{"type":"misc","title":"X","fields":{"note":"n"}}"#
+        let json = #"{"type":"webpage","title":"X","fields":{"note":"n"}}"#
         let r = try runCLI(["create-entry", "--format", "json", "--dry-run"], stdin: json)
         XCTAssertEqual(r.status, 0, r.out)
         XCTAssertTrue(r.out.contains("dry-run"), r.out)
@@ -176,7 +176,7 @@ final class CreateEntryCLITests: XCTestCase {
     /// 產出檔）。修在 `AkashicService.createEntry`——那是 CLI 與 MCP 唯一的交會點，
     /// 補在任一呼叫端都會留下另一個洞。
     func testIllegalFieldKeyIsRejectedNotStored() throws {
-        let json = #"{"type":"article","title":"K","fields":{"Research Areas":"Psychology"}}"#
+        let json = #"{"type":"periodical-article","title":"K","fields":{"Research Areas":"Psychology"}}"#
         let r = try runCLI(["create-entry", "--format", "json"], stdin: json)
         // 拒寫或正規化都可接受；**原樣存進去不行**
         let stored = try loadedEntries().first?.fields.keys.sorted() ?? []
@@ -186,7 +186,7 @@ final class CreateEntryCLITests: XCTestCase {
 
     /// 同上的數字開頭形狀。WoS 真的有一欄叫 `29 Character Source Abbreviation`。
     func testDigitLeadingFieldKeyIsNotStoredRaw() throws {
-        let json = #"{"type":"article","title":"K2","fields":{"29 Char Abbrev":"PSYCH"}}"#
+        let json = #"{"type":"periodical-article","title":"K2","fields":{"29 Char Abbrev":"PSYCH"}}"#
         _ = try runCLI(["create-entry", "--format", "json"], stdin: json)
         let stored = try loadedEntries().first?.fields.keys.sorted() ?? []
         XCTAssertFalse(stored.contains(where: { $0.first?.isNumber == true }),
@@ -196,7 +196,7 @@ final class CreateEntryCLITests: XCTestCase {
     /// **C2**：`as? [String]` 在任一元素非字串時整個陣列失敗 → 靜默零作者。
     /// 現在必須**報錯**，不得 exit 0 悄悄少人。
     func testMixedTypeAuthorsIsAnErrorNotSilentLoss() throws {
-        let json = #"{"type":"article","title":"A","authors":["Che Cheng","Hau-Hung Yang",2025]}"#
+        let json = #"{"type":"periodical-article","title":"A","authors":["Che Cheng","Hau-Hung Yang",2025]}"#
         let r = try runCLI(["create-entry", "--format", "json"], stdin: json)
         XCTAssertNotEqual(r.status, 0, "形狀不符必須報錯：\(r.out)")
         XCTAssertEqual(try loadedEntries().count, 0, "報錯就不該寫進去")
@@ -204,7 +204,7 @@ final class CreateEntryCLITests: XCTestCase {
 
     /// CSL-JSON 的作者物件是最可能的貼上來源之一——不得靜默全滅。
     func testCSLStyleAuthorObjectsAreRejectedLoudly() throws {
-        let json = #"{"type":"article","title":"A","authors":[{"family":"Cheng","given":"Che"}]}"#
+        let json = #"{"type":"periodical-article","title":"A","authors":[{"family":"Cheng","given":"Che"}]}"#
         let r = try runCLI(["create-entry", "--format", "json"], stdin: json)
         XCTAssertNotEqual(r.status, 0, r.out)
         XCTAssertTrue(r.out.contains("CSL-JSON") || r.out.contains("authors"), r.out)
@@ -212,7 +212,7 @@ final class CreateEntryCLITests: XCTestCase {
 
     /// `"date": 2025`（JSON 數字）很常見——原本會靜默沒有 date，citekey 退化成 `nd`。
     func testNumericDateIsAcceptedNotDropped() throws {
-        let json = #"{"type":"article","title":"Numeric Date","authors":["Che Cheng"],"date":2025}"#
+        let json = #"{"type":"periodical-article","title":"Numeric Date","authors":["Che Cheng"],"date":2025}"#
         let r = try runCLI(["create-entry", "--format", "json"], stdin: json)
         XCTAssertEqual(r.status, 0, r.out)
         let e = try XCTUnwrap(loadedEntries().first)
@@ -223,7 +223,7 @@ final class CreateEntryCLITests: XCTestCase {
     /// **M5**：JSON `null` 不得寫成字面 `<null>`——來源說「沒有值」，
     /// 寫進一個值是**捏造**。
     func testJSONNullIsSkippedNotFabricated() throws {
-        let json = #"{"type":"article","title":"N","fields":{"note":null,"doi":"10.1/x"}}"#
+        let json = #"{"type":"periodical-article","title":"N","fields":{"note":null,"doi":"10.1/x"}}"#
         let r = try runCLI(["create-entry", "--format", "json"], stdin: json)
         XCTAssertEqual(r.status, 0, r.out)
         let e = try XCTUnwrap(loadedEntries().first)

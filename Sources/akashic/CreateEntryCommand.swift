@@ -265,8 +265,15 @@ struct CreateEntryCmd: ParsableCommand {
                 fields[FieldKey.normalized(lower) ?? lower] = v
             }
             let authorRaw = e.fields.caseInsensitiveValue(forKey: "AUTHOR") ?? ""
+            // #325 階段二：`.bib` 帶的是 **biblatex 詞彙**（`@ARTICLE`），要讀回模型
+            // 詞彙（`periodical-article`）。有損逆向的判準與原像選擇見
+            // `WorkType.init?(biblatexEntryType:fields:)`；對映不到就原樣往下傳，
+            // 由 `AkashicService.createEntry` 產出列出值域的拒絕訊息——**守衛只留
+            // 一份**（`entity-backlink-completeness` 執行細節 2 的同一個立場：
+            // 兩處各判一次就是兩條會分岔的路徑）。
+            let mapped = WorkType(biblatexEntryType: e.entryType, fields: fields)
             return EntryDraft(
-                type: e.entryType.lowercased(),
+                type: mapped?.rawValue ?? e.entryType.lowercased(),
                 title: e.fields.caseInsensitiveValue(forKey: "TITLE") ?? "",
                 authors: splitBibAuthors(authorRaw),
                 date: e.fields.caseInsensitiveValue(forKey: "DATE")

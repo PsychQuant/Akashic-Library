@@ -34,7 +34,7 @@ final class NegationTests: XCTestCase {
         let entry = Entry(
             id: UUID(uuidString: "2D0C1EA4-A457-4189-8B29-000000000213")!,
             citekey: workKey,
-            type: "article",
+            type: .periodicalArticle,
             title: "T",
             authors: authors,
             date: "2026"

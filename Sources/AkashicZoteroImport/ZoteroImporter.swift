@@ -200,7 +200,7 @@ public struct ZoteroImporter {
                     title: item.fields["title"],
                     existing: existingCitekeys)
                 existingCitekeys.insert(citekey)
-                var entry = Entry(id: UUID(), citekey: citekey, type: "misc", title: "")
+                var entry = Entry(id: UUID(), citekey: citekey, type: .webpage, title: "")
                 ZoteroMapping.applyBiblatexFields(from: item, to: &entry)
                 if !venueCapable { entry.venues = [] }
                 entry.authors = item.authors.map { .literal($0.display) }

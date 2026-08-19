@@ -24,11 +24,11 @@ final class GraphModelTests: XCTestCase {
         let store = LibraryStore(root: root, key: "main",
                                  environment: ["AKASHIC_HOME": home.path])
         try store.ensureLayout()
-        var e1 = Entry(id: UUID(), citekey: "aaa2020first", type: "article",
+        var e1 = Entry(id: UUID(), citekey: "aaa2020first", type: .periodicalArticle,
                        title: "First", authors: [.key("cheng-che")], date: "2020")
         e1.akashic.relations.cites = ["bbb2021second"]
         try store.writeEntry(e1)
-        try store.writeEntry(Entry(id: UUID(), citekey: "bbb2021second", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "bbb2021second", type: .periodicalArticle,
                                    title: "Second", authors: [.literal("Ulf Olsson")], date: "2021"))
         try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng"]))
     }

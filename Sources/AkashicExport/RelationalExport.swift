@@ -124,7 +124,7 @@ public enum RelationalExport {
         let sortedEntries = entries.sorted { $0.citekey < $1.citekey }
 
         let publicationRows: [[String?]] = sortedEntries.map { e in
-            [e.id.uuidString, e.citekey, e.type, e.title,
+            [e.id.uuidString, e.citekey, e.type.rawValue, e.title,
              e.date, year(of: e.date).map(String.init),
              e.fields["journaltitle"] ?? e.fields["journal"],
              e.fields["doi"], e.akashic.status]

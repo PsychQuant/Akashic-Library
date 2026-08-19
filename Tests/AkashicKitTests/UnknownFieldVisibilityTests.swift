@@ -31,7 +31,7 @@ final class UnknownFieldVisibilityTests: XCTestCase {
         try write("entries/oddcase.YAML", """
             id: 11111111-1111-1111-1111-111111111111
             citekey: oddcase
-            type: article
+            type: periodical-article
             title: T
             authors:
               - literal: X
@@ -48,7 +48,7 @@ final class UnknownFieldVisibilityTests: XCTestCase {
         try write("entries/ok.yaml", """
             id: 11111111-1111-1111-1111-111111111111
             citekey: ok
-            type: article
+            type: periodical-article
             title: T
             authors:
               - literal: X
@@ -71,7 +71,7 @@ final class UnknownFieldVisibilityTests: XCTestCase {
         try write("entries/good.yaml", """
             id: 11111111-1111-1111-1111-111111111111
             citekey: good
-            type: article
+            type: periodical-article
             title: T
             authors:
               - literal: X

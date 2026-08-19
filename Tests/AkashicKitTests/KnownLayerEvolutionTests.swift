@@ -27,7 +27,7 @@ final class KnownLayerEvolutionTests: XCTestCase {
         try """
         id: 11111111-1111-1111-1111-111111111111
         citekey: \(name)
-        type: article
+        type: periodical-article
         title: T
         authors:
           - literal: X
@@ -95,7 +95,7 @@ final class KnownLayerEvolutionTests: XCTestCase {
         try """
         id: 22222222-2222-2222-2222-222222222222
         citekey: auth2020e
-        type: article
+        type: periodical-article
         title: T
         authors:
           - futureshape: someone
@@ -111,7 +111,7 @@ final class KnownLayerEvolutionTests: XCTestCase {
     /// 錯誤訊息要同時說出「需要幾」與「現在是幾」，否則使用者不知道要改什麼。
     func testCopyReferenceRefusedOnPreV9Store() throws {
         try StoreVersion.write(root: root, format: 8)
-        var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle, title: "T")
         e.akashic.sources = ["sha256:" + String(repeating: "ab", count: 32)]
         XCTAssertThrowsError(try store.writeEntry(e)) { error in
             let msg = "\(error)"
@@ -122,7 +122,7 @@ final class KnownLayerEvolutionTests: XCTestCase {
 
     func testCopyReferenceAcceptedOnV9Store() throws {
         try StoreVersion.write(root: root, format: 9)
-        var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle, title: "T")
         e.akashic.sources = ["sha256:" + String(repeating: "ab", count: 32)]
         XCTAssertNoThrow(try store.writeEntry(e))
     }
@@ -130,7 +130,7 @@ final class KnownLayerEvolutionTests: XCTestCase {
     /// 沒有副本清單的記錄不受 gate 影響——gate 只擋新語法，不改既有寫入路徑。
     func testEntryWithoutCopyReferenceStillWritesOnPreV9Store() throws {
         try StoreVersion.write(root: root, format: 7)
-        let e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        let e = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle, title: "T")
         XCTAssertNoThrow(try store.writeEntry(e))
     }
 

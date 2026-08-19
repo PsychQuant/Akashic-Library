@@ -32,7 +32,7 @@ final class EnsureLayoutTests: XCTestCase {
     }
 
     private func makeEntry(_ citekey: String = "cheng2025identifiability") -> Entry {
-        Entry(id: UUID(), citekey: citekey, type: "article",
+        Entry(id: UUID(), citekey: citekey, type: .periodicalArticle,
               title: "Identifiability of polychoric models",
               authors: [.literal("Che Cheng")], date: "2025")
     }

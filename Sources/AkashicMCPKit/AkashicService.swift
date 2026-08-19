@@ -1329,7 +1329,14 @@ public final class AkashicService {
         guard !FileManager.default.fileExists(atPath: store.entryURL(citekey: citekey).path) else {
             throw ServiceError.invalid("目的檔已存在：entries/\(displaySafe(citekey, max: 200)).yaml（可能是 quarantined 檔）")
         }
-        var entry = Entry(id: UUID(), citekey: citekey, type: type, title: title,
+        // #325 階段二：type 是封閉列舉。**這是新資料入口**——LLM 呼叫端給的字串
+        // 若不在值域，必須當場拒絕並列出值域，否則它會反覆猜。
+        guard let workType = WorkType(rawValue: type) else {
+            throw ServiceError.invalid(
+                "type「\(displaySafe(type, max: 80))」不在封閉列舉"
+                + "（\(WorkType.domainDescription)）")   // display-safe-exempt: 由 allCases 生成，編譯期常量
+        }
+        var entry = Entry(id: UUID(), citekey: citekey, type: workType, title: title,
                           authors: authors.map { .literal($0) }, date: date)
         // **鍵在這一層正規化，不在呼叫端**（#206 verify C1）。
         //
@@ -1582,7 +1589,7 @@ public final class AkashicService {
         var d: [String: Any] = [
             "id": entry.id.uuidString,
             "citekey": displaySafe(entry.citekey, max: 200),
-            "type": displaySafe(entry.type, max: 200),   // 同上（#164）
+            "type": entry.type.rawValue,   // display-safe-exempt: 封閉列舉的 rawValue，編譯期常量（#325）
             "title": displaySafe(entry.title, max: 800),
             "authors": entry.authors.map { author -> [String: String] in
                 switch author {

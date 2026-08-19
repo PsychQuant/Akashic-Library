@@ -37,13 +37,13 @@ final class EntityShapeLabelTests: XCTestCase {
             work:
             id: \(id.uuidString)
             citekey: chen2020
-            type: article
+            type: periodical-article
             title: T
             """, id: id)
         let load = try LibraryStore(root: root).load()
         XCTAssertEqual(load.quarantined.count, 0, "\(load.quarantined)")
         XCTAssertEqual(load.entries.count, 1)
-        XCTAssertEqual(load.entries.first?.type, "article", "書目類型不得被標籤取代")
+        XCTAssertEqual(load.entries.first?.type, .periodicalArticle, "書目類型不得被標籤取代")
     }
 
     /// person 標籤同樣有效，且**不需要** `type: person`。
@@ -143,8 +143,20 @@ final class EntityShapeLabelTests: XCTestCase {
         XCTAssertTrue(q.reason.contains("矛盾"), "\(q.reason)")
     }
 
-    /// 未見過的書目類型仍正常載入——值域是開放的，不引入白名單。
-    func testUnfamiliarBibliographicTypeStillLoads() throws {
+    /// 未見過的書目類型**被拒絕，且訊息指路**（#325 階段二）。
+    ///
+    /// **這條測試是反轉來的**，不是壞掉後改對。原本寫「未見過的書目類型仍正常載入
+    /// ——值域是開放的，不引入白名單」，而 #325 正是刻意推翻那個決定：值域改為封閉
+    /// 列舉（依 `.claude/rules/apa7-is-the-work-floor.md`，細分 APA7 ch10）。反轉的
+    /// 理由留在這裡，免得日後有人看到「拒絕未知 type」以為是回歸而放寬回去。
+    ///
+    /// 反轉後它守的東西比原本多一項：**拒絕訊息必須指向遷移命令**。遇到舊自由字串
+    /// 的人多半是「升了 binary 但還沒跑 `migrate-work-types`」，不指路的話他只會看到
+    /// 一個不知怎麼修的錯——那正是兩階段部署的風險視窗。
+    ///
+    /// 「標籤不得取代書目類型」這個原始關切由
+    /// `testSingleKnownLabelSelectsShape` 覆蓋，未隨反轉失去。
+    func testUnfamiliarBibliographicTypeIsRefusedWithAMigrationPointer() throws {
         let id = UUID()
         _ = try writeEntity("""
             work:
@@ -154,8 +166,12 @@ final class EntityShapeLabelTests: XCTestCase {
             title: T
             """, id: id)
         let load = try LibraryStore(root: root).load()
-        XCTAssertEqual(load.quarantined.count, 0, "\(load.quarantined)")
-        XCTAssertEqual(load.entries.first?.type, "dataset")
+        XCTAssertEqual(load.entries.count, 0, "封閉列舉之外的值不得載入")
+        let q = try XCTUnwrap(load.quarantined.first)
+        XCTAssertTrue(q.reason.contains("migrate-work-types"),
+                      "拒絕訊息必須指路到遷移命令，否則使用者不知怎麼修：\(q.reason)")
+        XCTAssertTrue(q.reason.contains("data-set"),
+                      "訊息要列出值域，讓使用者看得到正確的那個值：\(q.reason)")
     }
 
     /// legacy `type: person` 與 person 標籤並存 → 載入為 person，且重新編碼時該欄位消失。
@@ -187,7 +203,7 @@ final class EntityShapeLabelTests: XCTestCase {
             work:
             id: \(good.uuidString)
             citekey: ok2020
-            type: article
+            type: periodical-article
             title: T
             """, id: good)
         _ = try writeEntity("""
@@ -213,7 +229,7 @@ final class EntityShapeLabelTests: XCTestCase {
         XCTAssertEqual(once, twice, "往返不穩定")
         XCTAssertTrue(once.hasPrefix("person:\n"), "標籤形式應為裸鍵：\n\(once)")
 
-        let e = Entry(id: UUID(), citekey: "x2020", type: "article", title: "T",
+        let e = Entry(id: UUID(), citekey: "x2020", type: .periodicalArticle, title: "T",
                       authors: [.literal("A")], date: "2020")
         let eo = try EntryYAML.encode(e)
         XCTAssertEqual(eo, try EntryYAML.encode(try EntryYAML.decode(eo)))
@@ -243,7 +259,7 @@ final class ShapeLabelMigrationTests: XCTestCase {
         let body = work ? """
             id: \(id.uuidString)
             citekey: ck\(abs(id.hashValue % 100000))
-            type: article
+            type: periodical-article
             title: T
             """ : """
             id: \(id.uuidString)

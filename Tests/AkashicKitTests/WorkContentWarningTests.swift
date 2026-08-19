@@ -42,8 +42,8 @@ final class WorkContentWarningTests: XCTestCase {
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
 
     private func warnings(keeperTitle: String, doomedTitle: String) -> [String] {
-        let keeper = Entry(id: UUID(), citekey: "k2020", type: "article", title: keeperTitle)
-        let doomed = Entry(id: UUID(), citekey: "d2020", type: "article", title: doomedTitle)
+        let keeper = Entry(id: UUID(), citekey: "k2020", type: .periodicalArticle, title: keeperTitle)
+        let doomed = Entry(id: UUID(), citekey: "d2020", type: .periodicalArticle, title: doomedTitle)
         return LibraryStore.contentWarningsForMerging(doomed, into: keeper)
     }
 
@@ -125,26 +125,36 @@ final class WorkContentWarningTests: XCTestCase {
         XCTAssertTrue(warnings(keeperTitle: "", doomedTitle: "The Only Real Title").isEmpty,
                       "缺席由 fieldsLostByMerging 拒絕，本函式不重複出聲")
         // 而那條確實會拒絕
-        let keeper = Entry(id: UUID(), citekey: "k", type: "article", title: "")
-        let doomed = Entry(id: UUID(), citekey: "d", type: "article", title: "The Only Real Title")
+        let keeper = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "")
+        let doomed = Entry(id: UUID(), citekey: "d", type: .periodicalArticle, title: "The Only Real Title")
         XCTAssertTrue(LibraryStore.fieldsLostByMerging(doomed, into: keeper)
             .contains { $0.contains("The Only Real Title") }, "缺席方向仍是拒絕")
     }
 
     /// **`type` 不在範圍內**（#169 verify F1）。
     ///
-    /// `type` 是封閉 token 集合，字串包含與完整度零相關。窮舉 26 個常見 biblatex
-    /// type，**13 對**滿足嚴格包含，而真 store 裡 `book`(58)／`incollection`(6)／
-    /// `inproceedings`(4) 都在。訊息本身也是假的：`inbook` 不是 `book` 的較長版本。
+    /// `type` 是封閉 token 集合，字串包含與完整度零相關。原始版本窮舉 26 個常見
+    /// biblatex type，**13 對**滿足嚴格包含，而真 store 裡 `book`(58)／
+    /// `incollection`(6)／`inproceedings`(4) 都在。訊息本身也是假的：`inbook`
+    /// 不是 `book` 的較長版本。
+    ///
+    /// **#325 階段二起 pair 清單從 `allCases` 現算**，不再寫死 biblatex 名字（那些
+    /// 值已不在 `WorkType` 的值域裡）。這也讓測試隨值域自動成長——日後新增一個
+    /// rawValue 與既有值互為子字串的 case，這條守衛立刻涵蓋它，不必有人記得回來補。
+    /// 現行值域恰有一對：`book` ⊂ `book-chapter`。
     func testTypeIsNotComparedAtAll() {
-        let pairs = [("book", "inbook"), ("book", "bookinbook"), ("book", "mvbook"),
-                     ("collection", "incollection"), ("proceedings", "inproceedings"),
-                     ("reference", "inreference"), ("periodical", "suppperiodical")]
+        let pairs: [(WorkType, WorkType)] = WorkType.allCases.flatMap { a in
+            WorkType.allCases.compactMap { b in
+                (a != b && b.rawValue.contains(a.rawValue)) ? (a, b) : nil
+            }
+        }
+        XCTAssertFalse(pairs.isEmpty, "值域裡至少該有一對嚴格包含（book ⊂ book-chapter），"
+                       + "否則這條測試變成 vacuous pass")
         for (k, d) in pairs {
             let keeper = Entry(id: UUID(), citekey: "k", type: k, title: "Same")
             let doomed = Entry(id: UUID(), citekey: "d", type: d, title: "Same")
             XCTAssertEqual(LibraryStore.contentWarningsForMerging(doomed, into: keeper), [],
-                           "「\(k) ⊂ \(d)」是兩個不同的 entry type，不是內容遺失")
+                           "「\(k.rawValue) ⊂ \(d.rawValue)」是兩個不同的 type，不是內容遺失")
         }
     }
 
@@ -171,8 +181,8 @@ final class WorkContentWarningTests: XCTestCase {
     /// 帶 collapsed UUID，其 doc 明寫「事後才看到只剩裸 UUID 已經來不及了」）。
     /// 多個 doomed 且 title 相同時，不指名會印出兩行**逐字相同**的 ⚠。
     func testWarningNamesTheDoomedRecord() {
-        let keeper = Entry(id: UUID(), citekey: "k2020", type: "article", title: "Short")
-        let doomed = Entry(id: UUID(), citekey: "d2020", type: "article",
+        let keeper = Entry(id: UUID(), citekey: "k2020", type: .periodicalArticle, title: "Short")
+        let doomed = Entry(id: UUID(), citekey: "d2020", type: .periodicalArticle,
                            title: "Short: A Real Subtitle")
         let w = LibraryStore.contentWarningsForMerging(doomed, into: keeper)
         XCTAssertTrue(w.first?.contains("d2020") == true, "要指名是哪一筆：\(w)")
@@ -183,9 +193,9 @@ final class WorkContentWarningTests: XCTestCase {
     /// 兩邊都取自同一個 `validateWorkPreconditions` 回傳值，所以這條釘的是
     /// 「那個共用點沒有被繞過」（159-1 的形狀：兩邊各自準備輸入、各自可能改壞）。
     func testPreviewAndActualCarrySameWarnings() throws {
-        var keeper = Entry(id: UUID(), citekey: "k2020", type: "article", title: "Short")
+        var keeper = Entry(id: UUID(), citekey: "k2020", type: .periodicalArticle, title: "Short")
         keeper.date = "2020"
-        var doomed = Entry(id: UUID(), citekey: "d2020", type: "article",
+        var doomed = Entry(id: UUID(), citekey: "d2020", type: .periodicalArticle,
                            title: "Short: A Much Longer Subtitle")
         doomed.date = "2020"
         try store.writeEntry(keeper); try store.writeEntry(doomed)

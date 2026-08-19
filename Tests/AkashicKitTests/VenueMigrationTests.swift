@@ -29,7 +29,7 @@ final class VenueMigrationTests: XCTestCase {
     }
 
     private func writeArticle(_ ck: String, journal: String?) throws -> Entry {
-        var e = Entry(id: UUID(), citekey: ck, type: "article", title: "T-\(ck)")
+        var e = Entry(id: UUID(), citekey: ck, type: .periodicalArticle, title: "T-\(ck)")
         if let journal { e.fields["journaltitle"] = journal }
         _ = try store.writeEntry(e)
         return e
@@ -69,7 +69,7 @@ final class VenueMigrationTests: XCTestCase {
     }
 
     func testExistingVenuesUntouched() throws {
-        var e = Entry(id: UUID(), citekey: "keep2020", type: "article", title: "K")
+        var e = Entry(id: UUID(), citekey: "keep2020", type: .periodicalArticle, title: "K")
         e.fields["journaltitle"] = "Ignored Because Present"
         e.venues = [.key("some-venue")]
         _ = try store.writeEntry(e)
@@ -80,7 +80,7 @@ final class VenueMigrationTests: XCTestCase {
     }
 
     func testProceedingsBooktitleAndPublisher() throws {
-        var e = Entry(id: UUID(), citekey: "p2019", type: "inproceedings", title: "P")
+        var e = Entry(id: UUID(), citekey: "p2019", type: .conferenceSession, title: "P")
         e.fields["booktitle"] = "Proc. of Great Conf"
         e.fields["publisher"] = "Some Press"
         _ = try store.writeEntry(e)

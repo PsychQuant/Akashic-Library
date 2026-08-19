@@ -7,7 +7,11 @@ public struct Entry: Equatable {
     /// 人類可讀、可改名的引用鍵。
     public var citekey: String
     /// biblatex entry type（article / book / incollection / …）。
-    public var type: String
+    /// 作品類型（#325 階段二：自由 `String` → 封閉列舉）。
+    ///
+    /// **decode 對未知值嚴格**——但那要求 `migrate-work-types`（階段一）**已經跑完**。
+    /// 兩階段部署的理由見 `WorkType` 的 doc 與 `WorkTypeMigration`。
+    public var type: WorkType
     public var title: String
     public var authors: [Author]
     /// 發表載體的二態指涉（#304，有序——主要載體在前）。作品側是正典側
@@ -26,7 +30,7 @@ public struct Entry: Equatable {
     /// 頂層未知欄位（tolerant-preserve，#23）。
     public var unknownFields: [UnknownField]
 
-    public init(id: UUID, citekey: String, type: String, title: String,
+    public init(id: UUID, citekey: String, type: WorkType, title: String,
                 authors: [Author] = [], venues: [VenueRef] = [], date: String? = nil,
                 fields: [String: String] = [:], attachments: [AttachmentRef] = [],
                 provenance: Provenance? = nil, akashic: AkashicMeta = AkashicMeta(),
@@ -555,9 +559,10 @@ extension Entry {
                 severity: .error,
                 message: "citekey '\(displaySafe(citekey, max: 120))' 不符合 ^[a-z0-9][a-z0-9-]*$"))
         }
-        if type.trimmingCharacters(in: .whitespaces).isEmpty {
-            issues.append(ValidationIssue(severity: .error, message: "type 不可為空"))
-        }
+        // #325 階段二：`type` 是封閉列舉，「空 type」在型別層就寫不出來——
+        // 原本的 `trimmingCharacters(...).isEmpty` 檢查隨自由字串一起退場。
+        // 這是把驗證從執行期移到編譯期的直接收益：不是多一層檢查，是**一整類錯誤
+        // 變得寫不出來**（同 `Author` 三態讓「org 冒充 person」寫不出來）。
         if title.trimmingCharacters(in: .whitespaces).isEmpty {
             issues.append(ValidationIssue(severity: .warning, message: "title 為空"))
         }

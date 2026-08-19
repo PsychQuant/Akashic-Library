@@ -8,7 +8,7 @@ final class R8ForwardCompatTests: XCTestCase {
     private let head = """
     id: 7C1F6C2E-0000-0000-0000-000000000001
     citekey: a2020b
-    type: article
+    type: periodical-article
     title: T
     """
 
@@ -74,7 +74,7 @@ final class R8ForwardCompatTests: XCTestCase {
     /// R8-verify CRITICAL 的直接 regression：Zotero 無標題 item
     /// （`entry.title = fields["title"] ?? ""`）必須寫得進 store、讀得回來。
     func testEmptyTitleRoundTripsThroughEncode() throws {
-        let e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "")
+        let e = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle, title: "")
         let out = try EntryYAML.encode(e)
         XCTAssertEqual(try EntryYAML.decode(out), e)
     }
@@ -83,11 +83,11 @@ final class R8ForwardCompatTests: XCTestCase {
     /// 為字面值——R8 把它 quarantine 是 #23 失敗模式的鏡像復發。
     func testNullFaceScalarValuesReadAsStringFace() throws {
         let e = try EntryYAML.decode(
-            "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: article\ntitle: Null\ndate:\n")
+            "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: periodical-article\ntitle: Null\ndate:\n")
         XCTAssertEqual(e.title, "Null")
         XCTAssertEqual(e.date, "")   // scalar 欄位：null-face 的字串面
         // optional scalar：status/note 的 null-face 值可寫可讀（等冪）
-        var e2 = Entry(id: UUID(), citekey: "b2020c", type: "article", title: "T")
+        var e2 = Entry(id: UUID(), citekey: "b2020c", type: .periodicalArticle, title: "T")
         e2.akashic.status = ""
         XCTAssertEqual(try EntryYAML.decode(try EntryYAML.encode(e2)), e2)
         var p = Person(key: "a", note: "~")
@@ -125,7 +125,7 @@ final class R8ForwardCompatTests: XCTestCase {
             XCTAssertTrue(String(describing: error).contains("形狀不符"), "\(error)")
         }
         XCTAssertThrowsError(try EntryYAML.decode(
-            "id: not-a-uuid\ncitekey: a2020b\ntype: article\ntitle: T\n")) { error in
+            "id: not-a-uuid\ncitekey: a2020b\ntype: periodical-article\ntitle: T\n")) { error in
             XCTAssertTrue(String(describing: error).contains("不是 UUID"), "\(error)")
         }
     }
@@ -154,7 +154,7 @@ extension R8ForwardCompatTests {
     /// 全綠、一次良性寫入即靜默摺成空白。R8 擋、R9 誤拆、R10 以 LF 判別式回歸。
     func testBareCRInsideQuotedScalarOfLFFileQuarantines() {
         XCTAssertThrowsError(try EntryYAML.decode(
-            "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: article\ntitle: \"Attention\ris all\"\n")) {
+            "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: periodical-article\ntitle: \"Attention\ris all\"\n")) {
             XCTAssertTrue(String(describing: $0).contains("裸 CR"), "\($0)")
         }
     }
@@ -170,10 +170,10 @@ extension R8ForwardCompatTests {
     /// R9-verify M4/M8：merge 面（`<<`）與 value 面（`=`）鍵不入 fields——
     /// 本 PR 各層明文拒收 merge；R9 的 namespace 前綴判準誤放行且會 emit。
     func testMergeAndValueFaceFieldsKeysRejected() {
-        let head = "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: article\ntitle: T\n"
+        let head = "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: periodical-article\ntitle: T\n"
         XCTAssertThrowsError(try EntryYAML.decode(head + "fields:\n  <<: x\n"))
         XCTAssertThrowsError(try EntryYAML.decode(head + "fields:\n  =: x\n"))
-        var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle, title: "T")
         e.fields = ["<<": "v"]
         XCTAssertThrowsError(try EntryYAML.encode(e), "encode 側同樣拒絕（canary 反射）")
     }
@@ -181,13 +181,13 @@ extension R8ForwardCompatTests {
     /// R9-verify L14：帶內容的顯式 !!null 不入 face 白名單（collection 欄位）
     func testExplicitNullWithContentNotAbsorbed() {
         XCTAssertThrowsError(try EntryYAML.decode(
-            "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: article\ntitle: T\nakashic: !!null foo\n"))
+            "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: periodical-article\ntitle: T\nakashic: !!null foo\n"))
     }
 
     /// R9-verify M12：missingField 的等價 pin（R9 刪了唯一測試）
     func testAbsentTitleReportsMissingField() {
         XCTAssertThrowsError(try EntryYAML.decode(
-            "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: article\n")) {
+            "id: 7C1F6C2E-0000-0000-0000-000000000001\ncitekey: a2020b\ntype: periodical-article\n")) {
             XCTAssertEqual($0 as? StoreYAMLError, .missingField("title"))
         }
     }

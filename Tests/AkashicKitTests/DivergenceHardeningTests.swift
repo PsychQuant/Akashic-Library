@@ -194,9 +194,9 @@ final class DivergenceHardeningTests: XCTestCase {
 
     /// 倖存者原本引用被併作品時，合併後不得變成引用自己。
     func testWorkMergeDoesNotCreateSelfReference() throws {
-        var keeper = Entry(id: UUID(), citekey: "shen2015model", type: "article", title: "M")
+        var keeper = Entry(id: UUID(), citekey: "shen2015model", type: .periodicalArticle, title: "M")
         keeper.akashic.relations.cites = ["shen2015model-dup"]
-        let dup = Entry(id: UUID(), citekey: "shen2015model-dup", type: "article", title: "M dup")
+        let dup = Entry(id: UUID(), citekey: "shen2015model-dup", type: .periodicalArticle, title: "M dup")
         try store.writeEntry(keeper)
         try store.writeEntry(dup)
         let d = Divergence(id: UUID(), question: "同一篇？",
@@ -303,7 +303,7 @@ final class DivergenceHardeningTests: XCTestCase {
         try store.writeDivergence(d)
         // 一個檔名 UUID 與內容 id 不符的檔 → load() 會 quarantine 它。
         let stray = root.appendingPathComponent("entities/\(UUID().uuidString).yaml")
-        try "work:\nid: \(UUID().uuidString)\ncitekey: ghost\ntype: article\ntitle: G\n"
+        try "work:\nid: \(UUID().uuidString)\ncitekey: ghost\ntype: periodical-article\ntitle: G\n"
             .write(to: stray, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(try store.load().quarantined.isEmpty, "前提：該檔應被 quarantine")
@@ -324,7 +324,7 @@ final class DivergenceHardeningTests: XCTestCase {
         var other = Person(key: "someone-else"); other.names = ["S"]
         try store.writePerson(keeper); try store.writePerson(doomed); try store.writePerson(other)
         // 這筆與本次消歧無關，但它自己有重複作者。
-        var unrelated = Entry(id: UUID(), citekey: "unrelated2020", type: "article", title: "U")
+        var unrelated = Entry(id: UUID(), citekey: "unrelated2020", type: .periodicalArticle, title: "U")
         unrelated.authors = [.key("someone-else"), .key("someone-else")]
         try store.writeEntry(unrelated)
         let d = Divergence(id: UUID(), question: "同一人？",
@@ -346,9 +346,9 @@ final class DivergenceHardeningTests: XCTestCase {
     /// `rename` 遷移歧異記錄的 work 候選，否則那筆歧異永遠無法被消歧。
     func testRenameMigratesDivergenceCandidates() throws {
         try store.writeEntry(Entry(id: UUID(), citekey: "jou2025generalized",
-                                   type: "article", title: "G"))
+                                   type: .periodicalArticle, title: "G"))
         try store.writeEntry(Entry(id: UUID(), citekey: "jou2026generalized",
-                                   type: "article", title: "G2"))
+                                   type: .periodicalArticle, title: "G2"))
         let d = Divergence(id: UUID(), question: "同一篇？",
                            candidates: [DivergenceCandidate(key: "jou2025generalized", shape: .work),
                                         DivergenceCandidate(key: "jou2026generalized", shape: .work)])
@@ -363,7 +363,7 @@ final class DivergenceHardeningTests: XCTestCase {
 
     /// 改名會讓兩個候選塌縮成一個時，`rename` 拒絕——它沒有合併語意。
     func testRenameRefusesWhenItWouldCollapseADivergence() throws {
-        try store.writeEntry(Entry(id: UUID(), citekey: "chu2024pseudo", type: "article", title: "P"))
+        try store.writeEntry(Entry(id: UUID(), citekey: "chu2024pseudo", type: .periodicalArticle, title: "P"))
         let d = Divergence(id: UUID(), question: "同一篇？",
                            candidates: [DivergenceCandidate(key: "chu2024pseudo", shape: .work),
                                         DivergenceCandidate(key: "chu2025pseudo", shape: .work)])
@@ -476,7 +476,7 @@ final class DivergenceHardeningTests: XCTestCase {
     /// 完整的六例清單、以及三次機械化嘗試的誤中量測（掃 5128 個宣告），在
     /// `docs/design-principles-and-philosophy.md` §16。**量測只留一份**——兩份會分岔。
     func testEntryFieldCoverageOfMergeCheck() throws {
-        let n = Mirror(reflecting: Entry(id: UUID(), citekey: "x", type: "article",
+        let n = Mirror(reflecting: Entry(id: UUID(), citekey: "x", type: .periodicalArticle,
                                          title: "T")).children.count
         XCTAssertEqual(n, LibraryStore.entryFieldsCoveredByMergeCheck,
                        "Entry 的儲存屬性數變了（\(n)）——請同步更新 "
@@ -609,9 +609,9 @@ final class DivergenceHardeningTests: XCTestCase {
 
     /// keeper 自己既存的重複／自我參照不得被順手折掉。
     func testKeeperOwnRelationsUntouchedWhenNoHit() throws {
-        var keeper = Entry(id: UUID(), citekey: "shen2015model", type: "article", title: "M")
+        var keeper = Entry(id: UUID(), citekey: "shen2015model", type: .periodicalArticle, title: "M")
         keeper.akashic.relations.cites = ["z2019q", "z2019q", "a2020x"]
-        let dup = Entry(id: UUID(), citekey: "shen2015model-dup", type: "article", title: "D")
+        let dup = Entry(id: UUID(), citekey: "shen2015model-dup", type: .periodicalArticle, title: "D")
         try store.writeEntry(keeper); try store.writeEntry(dup)
         let d = Divergence(id: UUID(), question: "同一篇？",
                            candidates: [DivergenceCandidate(key: "shen2015model", shape: .work),
@@ -680,9 +680,9 @@ extension DivergenceHardeningTests {
     /// work merge：citekey 退役時 person 身上的 `work:` verdict value 跟著改寫
     /// ——rename 已修（#232 NEW-1）、merge 的同型（#271 下半）。
     func testWorkMergeRewritesVerdictValuesOnPersons() throws {
-        try store.writeEntry(Entry(id: UUID(), citekey: "keep2020a", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "keep2020a", type: .periodicalArticle,
                                    title: "K", authors: [.literal("Fann, C.")], date: "2020"))
-        try store.writeEntry(Entry(id: UUID(), citekey: "gone2020b", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "gone2020b", type: .periodicalArticle,
                                    title: "G", authors: [.literal("Fann, C.")], date: "2020"))
         var p = Person(key: "fann-cathy-s-j"); p.names = ["Fann, Cathy S-J"]
         _ = ResolutionLedger.appendIfAbsent(
@@ -708,9 +708,9 @@ extension DivergenceHardeningTests {
     /// work merge 後兩個 pairing 撞同 (field, value)（同 literal 對 keeper 已有判定）
     /// → 冪等收攏，不產生重複。
     func testWorkMergeVerdictRewriteDedupes() throws {
-        try store.writeEntry(Entry(id: UUID(), citekey: "keep2021c", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "keep2021c", type: .periodicalArticle,
                                    title: "K", authors: [.literal("B, X.")], date: "2021"))
-        try store.writeEntry(Entry(id: UUID(), citekey: "gone2021d", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "gone2021d", type: .periodicalArticle,
                                    title: "G", authors: [.literal("B, X.")], date: "2021"))
         var p = Person(key: "b-person"); p.names = ["B"]
         _ = ResolutionLedger.appendIfAbsent(

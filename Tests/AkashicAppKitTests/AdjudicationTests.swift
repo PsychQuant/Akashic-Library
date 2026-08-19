@@ -15,9 +15,9 @@ final class AdjudicationTests: XCTestCase {
         // fixture 手寫壞掉的原始檔進 entries/，需自己宣告 legacy 目錄（#101）
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent("entries"), withIntermediateDirectories: true)
-        try store.writeEntry(Entry(id: UUID(), citekey: "a2020paper", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "a2020paper", type: .periodicalArticle,
                                    title: "T", authors: [.literal("Che Cheng")]))
-        var orphan = Entry(id: UUID(), citekey: "b2019gone", type: "article", title: "Gone")
+        var orphan = Entry(id: UUID(), citekey: "b2019gone", type: .periodicalArticle, title: "Gone")
         orphan.provenance = Provenance(zoteroKey: "K", zoteroVersion: 1,
                                        orphanedAt: Date(timeIntervalSince1970: 1))
         try store.writeEntry(orphan)
@@ -43,7 +43,7 @@ final class AdjudicationTests: XCTestCase {
     func testPeopleResolveCandidatesCarryTier() throws {
         // 追加一筆 token 重排形：「Cheng Che」↔ alias「Che Cheng」
         try LibraryStore(root: root).writeEntry(
-            Entry(id: UUID(), citekey: "c2022re", type: "article",
+            Entry(id: UUID(), citekey: "c2022re", type: .periodicalArticle,
                   title: "R", authors: [.literal("Cheng Che")]))
         try state.load()
         let model = PeopleResolveModel(state: state)
@@ -140,7 +140,7 @@ final class AdjudicationTests: XCTestCase {
         var two = Person(key: "amb-two", names: ["Ambi Guous"])
         two.orcid = "0000-0002-0000-0000"
         try store.writePerson(two)
-        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Ambi Guous")]))
         try state.load()
 
@@ -206,7 +206,7 @@ final class AdjudicationTests: XCTestCase {
         try store.writePerson(Person(key: "solo-x", names: ["Solo X"]))
         try store.writePerson(Person(key: "solo-y", names: ["Solo Y"]))
         // 一筆 entry：兩個歧義作者 + 兩個唯一命中的候選作者
-        try store.writeEntry(Entry(id: UUID(), citekey: "multi2020", type: "article", title: "T",
+        try store.writeEntry(Entry(id: UUID(), citekey: "multi2020", type: .periodicalArticle, title: "T",
                                    authors: [.literal("Dup One"), .literal("Dup Two"),
                                              .literal("Solo X"), .literal("Solo Y")]))
         try state.load()

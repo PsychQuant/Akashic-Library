@@ -35,7 +35,7 @@ final class BibBraceInjectionTests: XCTestCase {
                        fields: [String: String] = [:],
                        authors: [AkashicCore.Author] = []) -> Entry {
         var e = Entry(id: UUID(uuidString: "7C1F6C2E-0000-0000-0000-0000000001A1")!,
-                      citekey: "genuine2025", type: "article",
+                      citekey: "genuine2025", type: .periodicalArticle,
                       title: title, authors: authors, date: "2025")
         e.fields = fields
         return e

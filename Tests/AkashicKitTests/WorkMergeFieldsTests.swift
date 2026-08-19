@@ -38,7 +38,7 @@ final class WorkMergeFieldsTests: XCTestCase {
     }
 
     private func work(_ citekey: String) -> Entry {
-        Entry(id: UUID(), citekey: citekey, type: "article", title: "T")
+        Entry(id: UUID(), citekey: citekey, type: .periodicalArticle, title: "T")
     }
 
     func testRefusesWhenDoomedHasFieldKeeperLacks() throws {
@@ -237,7 +237,7 @@ final class WorkMergeFieldsTests: XCTestCase {
         var keeper = work("l2020"); keeper.title = "Short"
         var doomed = work("l2020dup")
         doomed.title = "Short: A Much Longer Subtitle"
-        doomed.type = "misc"
+        doomed.type = .webpage
         let d = try seed(keeper: keeper, doomed: doomed)
         let report = try store.resolveDivergence(id: d.id, survivor: "l2020")
         XCTAssertEqual(report.failures, [], "type/title 差異刻意不擋")
@@ -252,9 +252,9 @@ final class WorkMergeFieldsTests: XCTestCase {
     /// 為假 → 閘不報 → 席位真 binary 實測 `2020-03-15` 永久消失。專案內明文慣例：
     /// 「空值視同缺席……同一個概念不該有兩套判準」（`LibraryStore.swift:997`）。
     func testEmptyKeeperDateDoesNotMaskDoomedDate() {
-        var keeper = Entry(id: UUID(), citekey: "k2020", type: "article", title: "T")
+        var keeper = Entry(id: UUID(), citekey: "k2020", type: .periodicalArticle, title: "T")
         keeper.date = ""
-        var doomed = Entry(id: UUID(), citekey: "d2020", type: "article", title: "T")
+        var doomed = Entry(id: UUID(), citekey: "d2020", type: .periodicalArticle, title: "T")
         doomed.date = "2020-03-15"
         let losses = LibraryStore.fieldsLostByMerging(doomed, into: keeper)
         XCTAssertTrue(losses.contains { $0.contains("2020-03-15") },
@@ -269,9 +269,9 @@ final class WorkMergeFieldsTests: XCTestCase {
         // **對稱的另一半**（#157 verify 157-13）：先前只釘住 keeper 側，doomed 側的
         // 折疊 mutation 是**存活**的（966 全綠）。doomed 空、keeper 有真值時不得
         // 報任何 date 遺失——那是「被併者沒帶」，不是衝突。
-        var k2 = Entry(id: UUID(), citekey: "k2", type: "article", title: "T")
+        var k2 = Entry(id: UUID(), citekey: "k2", type: .periodicalArticle, title: "T")
         k2.date = "2020"
-        var d2 = Entry(id: UUID(), citekey: "d2", type: "article", title: "T")
+        var d2 = Entry(id: UUID(), citekey: "d2", type: .periodicalArticle, title: "T")
         d2.date = ""
         XCTAssertFalse(LibraryStore.fieldsLostByMerging(d2, into: k2)
             .contains { $0.hasPrefix("date") },
@@ -285,9 +285,9 @@ final class WorkMergeFieldsTests: XCTestCase {
     /// 不同日期「是對『這兩筆是不是同一個』的反證，或至少是必須有人裁決的來源衝突」。
     func testMutuallyExclusiveDatesAreReportedButPrecisionIsNot() {
         func losses(keeper k: String, doomed d: String) -> [String] {
-            var keeper = Entry(id: UUID(), citekey: "k", type: "article", title: "T")
+            var keeper = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
             keeper.date = k
-            var doomed = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
+            var doomed = Entry(id: UUID(), citekey: "d", type: .periodicalArticle, title: "T")
             doomed.date = d
             return LibraryStore.fieldsLostByMerging(doomed, into: keeper)
         }
@@ -312,7 +312,7 @@ final class WorkMergeFieldsTests: XCTestCase {
     /// person 版（`:816-826`）早就是三分的，這是「宣稱對稱但沒真的對稱」。
     func testSameUnknownFieldKeyWithDifferentValueIsAConflict() {
         func make(_ raw: String) -> Entry {
-            var e = Entry(id: UUID(), citekey: "x", type: "article", title: "T")
+            var e = Entry(id: UUID(), citekey: "x", type: .periodicalArticle, title: "T")
             e.unknownFields = [UnknownField(key: "peer_review_status", raw: raw)]
             e.akashic.unknownFields = [UnknownField(key: "cohort", raw: raw)]
             return e
@@ -334,9 +334,9 @@ final class WorkMergeFieldsTests: XCTestCase {
     /// 方向都錯，而且真 binary 在一則訊息裡吐兩句假話。
     func testEmptyValuesAreAbsentForFieldsToo() {
         func losses(keeper kv: String?, doomed dv: String?) -> [String] {
-            var keeper = Entry(id: UUID(), citekey: "k", type: "article", title: "T")
+            var keeper = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
             if let kv { keeper.fields["doi"] = kv }
-            var doomed = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
+            var doomed = Entry(id: UUID(), citekey: "d", type: .periodicalArticle, title: "T")
             if let dv { doomed.fields["doi"] = dv }
             return LibraryStore.fieldsLostByMerging(doomed, into: keeper)
         }
@@ -357,10 +357,10 @@ final class WorkMergeFieldsTests: XCTestCase {
     /// 失去（倖存者已有較完整的值），卻擋下合併且「搬到倖存者身上」無物可搬。
     func testAbsentLibraryIDIsNotAConflict() {
         func losses(keeperLib: Int?, doomedLib: Int?) -> [String] {
-            var keeper = Entry(id: UUID(), citekey: "k", type: "article", title: "T")
+            var keeper = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
             keeper.provenance = Provenance(zoteroKey: "ABCD", zoteroVersion: 1,
                                            libraryID: keeperLib)
-            var doomed = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
+            var doomed = Entry(id: UUID(), citekey: "d", type: .periodicalArticle, title: "T")
             doomed.provenance = Provenance(zoteroKey: "ABCD", zoteroVersion: 1,
                                            libraryID: doomedLib)
             return LibraryStore.fieldsLostByMerging(doomed, into: keeper)
@@ -376,8 +376,8 @@ final class WorkMergeFieldsTests: XCTestCase {
     /// **157-18**：attachments 要指名。「先把要保留的搬到倖存者身上」對「1 筆」
     /// 不可執行。
     func testAttachmentLossNamesTheFile() {
-        let keeper = Entry(id: UUID(), citekey: "k", type: "article", title: "T")
-        var doomed = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
+        let keeper = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
+        var doomed = Entry(id: UUID(), citekey: "d", type: .periodicalArticle, title: "T")
         doomed.attachments = [AttachmentRef(kind: .zotero, path: "storage/YYYY/supplementary-appendix.pdf")]
         let losses = LibraryStore.fieldsLostByMerging(doomed, into: keeper)
         XCTAssertTrue(losses.contains { $0.contains("supplementary-appendix.pdf") },
@@ -387,9 +387,9 @@ final class WorkMergeFieldsTests: XCTestCase {
     /// **157-19**：同一組作者但順序不同 → 需人裁決。work 的作者順序帶語意
     /// （`Person.names` 的 doc 明寫順序不帶語意，`Entry.authors` 沒有對應聲明）。
     func testAuthorOrderDifferenceIsReported() {
-        var keeper = Entry(id: UUID(), citekey: "k", type: "article", title: "T")
+        var keeper = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
         keeper.authors = [.literal("A"), .literal("B")]
-        var doomed = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
+        var doomed = Entry(id: UUID(), citekey: "d", type: .periodicalArticle, title: "T")
         doomed.authors = [.literal("B"), .literal("A")]
         XCTAssertTrue(LibraryStore.fieldsLostByMerging(doomed, into: keeper)
             .contains { $0.contains("順序") }, "同集合不同序要報")
@@ -408,9 +408,9 @@ final class WorkMergeFieldsTests: XCTestCase {
     ///（`testUnrelatedRecordWithDuplicateAuthorsLeftAlone`：「消歧不是清理工具」）。
     func testDuplicateAuthorsInKeeperAreNotReportedAsOrderDifference() {
         func l(keeper ka: [Author], doomed da: [Author]) -> [String] {
-            var keeper = Entry(id: UUID(), citekey: "k", type: "article", title: "T")
+            var keeper = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
             keeper.authors = ka
-            var doomed = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
+            var doomed = Entry(id: UUID(), citekey: "d", type: .periodicalArticle, title: "T")
             doomed.authors = da
             return LibraryStore.fieldsLostByMerging(doomed, into: keeper)
         }
@@ -427,8 +427,8 @@ final class WorkMergeFieldsTests: XCTestCase {
     /// 系統早就知道，合併閘卻不看——與 157-7 的結構同構。
     func testEmptyKeeperTitleDoesNotSwallowDoomedTitle() {
         func losses(keeperTitle kt: String, doomedTitle dt: String) -> [String] {
-            let keeper = Entry(id: UUID(), citekey: "k", type: "article", title: kt)
-            let doomed = Entry(id: UUID(), citekey: "d", type: "article", title: dt)
+            let keeper = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: kt)
+            let doomed = Entry(id: UUID(), citekey: "d", type: .periodicalArticle, title: dt)
             return LibraryStore.fieldsLostByMerging(doomed, into: keeper)
         }
         XCTAssertTrue(losses(keeperTitle: "", doomedTitle: "The Only Real Title")
@@ -436,11 +436,11 @@ final class WorkMergeFieldsTests: XCTestCase {
             "keeper 空標題不得吞掉被併者的唯一標題")
         XCTAssertTrue(losses(keeperTitle: "Short", doomedTitle: "Short: A Longer Subtitle").isEmpty,
                       "兩邊都非空的 title 差異仍**刻意不擋**（#71 R2 DA 的誤拒教訓）")
-        // type 同一格
-        var k = Entry(id: UUID(), citekey: "k", type: "", title: "T")
-        k.type = ""
-        let d = Entry(id: UUID(), citekey: "d", type: "article", title: "T")
-        XCTAssertTrue(LibraryStore.fieldsLostByMerging(d, into: k)
-            .contains { $0.hasPrefix("type:") }, "type 的空值同理")
+        // **type 不再同一格**（#325 階段二）：`title` 仍是 `String`（可空），而 `type`
+        // 是封閉列舉——「空 type」在型別層就寫不出來，所以「keeper 空 type 從對方補」
+        // 這條檢查隨自由字串一起退場（實作側同步移除）。
+        //
+        // 不改成「兩個不同 type 應報 loss」——那是實作**刻意不做**的事（同 title 的
+        // #71 R2 DA 誤拒教訓：只補缺席、不判衝突）。
     }
 }

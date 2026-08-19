@@ -2,22 +2,30 @@ import CryptoKit
 import Foundation
 import AkashicCore
 
-/// Zotero → biblatex 的對映表。
+/// Zotero → Akashic 的對映表。
 public enum ZoteroMapping {
-    public static let typeMap: [String: String] = [
-        "journalArticle": "article",
-        "magazineArticle": "article",
-        "newspaperArticle": "article",
-        "book": "book",
-        "bookSection": "incollection",
-        "conferencePaper": "inproceedings",
-        "thesis": "thesis",
-        "report": "report",
-        "preprint": "online",
-        "webpage": "online",
-        "manuscript": "unpublished",
-        "presentation": "unpublished",
-        "document": "misc",
+    /// Zotero itemType → `WorkType`（#325 階段二：目標由自由字串改為封閉列舉）。
+    ///
+    /// 更名順帶修掉兩個舊值域的實際損失：
+    /// - `presentation` 先前壓成 `unpublished`，但它明明是 **10.5 Conference
+    ///   Session**——那正是 store 裡 21 筆「欄位全空的 unpublished」的來源。
+    /// - `magazineArticle`／`newspaperArticle` 先前壓成 `article`。壓縮本身沒錯
+    ///   （APA7 的 periodical 就涵蓋這三者），錯的是舊名字掩蓋了它——新值域叫
+    ///   `periodical-article` 就名副其實。
+    public static let typeMap: [String: WorkType] = [
+        "journalArticle": .periodicalArticle,
+        "magazineArticle": .periodicalArticle,
+        "newspaperArticle": .periodicalArticle,
+        "book": .book,
+        "bookSection": .bookChapter,
+        "conferencePaper": .conferenceSession,
+        "thesis": .thesis,
+        "report": .report,
+        "preprint": .unpublishedWork,
+        "webpage": .webpage,
+        "manuscript": .unpublishedWork,
+        "presentation": .conferenceSession,
+        "document": .webpage,
     ]
 
     /// Zotero fieldName → biblatex 欄位名。title/date 由 Entry 一級欄位承接，不進 fields。
@@ -47,8 +55,14 @@ public enum ZoteroMapping {
         "numPages": "pagetotal",
     ]
 
-    public static func biblatexType(for zoteroType: String) -> String {
-        typeMap[zoteroType] ?? "misc"
+    /// Zotero itemType → `WorkType`。
+    ///
+    /// **fallback 是 `.webpage` 不是「雜項」**（#325 階段二）：舊值域的 `misc` 是
+    /// catch-all，而實測那 14 筆全是線上百科條目——catch-all 的名字說「雜項」，內容
+    /// 說「沒人給它們正確的格子」。新值域沒有雜項格，未知 itemType 落最接近的
+    /// 10.16 Webpages，讓它在 APA7 匯出時仍是可產出的。
+    public static func workType(for zoteroType: String) -> WorkType {
+        typeMap[zoteroType] ?? .webpage
     }
 
     /// 不在 `fieldMap` 的 Zotero 欄位（title/date 除外）。
@@ -72,11 +86,22 @@ public enum ZoteroMapping {
     /// update 條件之一：hash 不同 → re-apply（涵蓋本機未同步修改與 mapping 邏輯演進）。
     /// 涵蓋範圍＝pull 管的一切：type/title/normalized date/mapped fields/authors/attachments。
     public static func mappingHash(of item: ZoteroItem) -> String {
-        var probe = Entry(id: UUID(), citekey: "probe", type: "misc", title: "")
+        var probe = Entry(id: UUID(), citekey: "probe", type: .webpage, title: "")
         applyBiblatexFields(from: item, to: &probe)
         // JSON 序列化（sortedKeys）保證結構性——串接式 canonical 曾被構造出碰撞（verify R1）
+        //
+        // **`.rawValue` 是必要的**（#325 階段二）：`[String: Any]` 是去型別化邊界，
+        // 直接放 `WorkType` 會通過編譯、在 `JSONSerialization` 才炸
+        // （`Invalid type in JSON write (__SwiftValue)`）。封閉列舉在 `switch` 上的
+        // 窮盡保證到 `Any` 就失效——這種點只有測試接得住。
+        //
+        // **已知且刻意的後果**：值域更名（`article` → `periodical-article`）會改變
+        // 每一筆 Zotero 來源記錄的 hash，所以部署後第一次 `import-zotero` 會把它們
+        // 全部視為「已變更」而重新套用。這是**可見的**大批更新，不是安靜的——
+        // `lossless-intake` 要求 pull 覆寫回報 `authorsOverwritten` 與
+        // `fieldsRemovedByPull`，那條路照常走。
         let canonical: [String: Any] = [
-            "type": probe.type,
+            "type": probe.type.rawValue,
             "title": probe.title,
             "date": probe.date ?? "",
             "fields": probe.fields,
@@ -91,7 +116,7 @@ public enum ZoteroMapping {
     /// 把 ZoteroItem 的 biblatex 面向填進 Entry（不動 id/citekey/akashic）。
     /// date 經 DateNormalizer；解析不了保留原字串（importer 另行 report）。
     public static func applyBiblatexFields(from item: ZoteroItem, to entry: inout Entry) {
-        entry.type = biblatexType(for: item.typeName)
+        entry.type = workType(for: item.typeName)
         entry.title = item.fields["title"] ?? ""
         entry.date = item.fields["date"].map { DateNormalizer.normalize($0) ?? $0 }
         var fields: [String: String] = [:]

@@ -40,7 +40,7 @@ final class SupervaluationTests: XCTestCase {
                     )
                 )!,
                 citekey: String(format: "work-%02d", $0),
-                type: "article",
+                type: .periodicalArticle,
                 title: "W\($0)",
                 authors: [],
                 date: "2026"
@@ -67,7 +67,7 @@ final class SupervaluationTests: XCTestCase {
         let entry = Entry(
             id: UUID(uuidString: "21400000-0000-4000-8002-000000000001")!,
             citekey: "work-00",
-            type: "article",
+            type: .periodicalArticle,
             title: "Audited",
             authors: [.key("person-00")],
             date: "2026"

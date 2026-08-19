@@ -76,7 +76,7 @@ final class VerdictFormatGateTests: XCTestCase {
     // MARK: - rename 遷移（verify NEW-1）
 
     func testRenameMigratesVerdictValues() throws {
-        try store.writeEntry(Entry(id: UUID(), citekey: "a2020x", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "a2020x", type: .periodicalArticle,
                                    title: "T", authors: [.literal("Che Cheng")], date: "2020"))
         try store.writePerson(verdictPerson())
         let report = try store.renameEntry(from: "a2020x", to: "b2021y")
@@ -100,7 +100,7 @@ final class VerdictFormatGateTests: XCTestCase {
 
     /// 不相干的 verdict（別的 citekey／org 族）不被 rename 動到。
     func testRenameLeavesUnrelatedVerdictsAlone() throws {
-        try store.writeEntry(Entry(id: UUID(), citekey: "a2020x", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "a2020x", type: .periodicalArticle,
                                    title: "T", authors: [.literal("Che Cheng")], date: "2020"))
         var p = Person(key: "cheng-che", names: ["Che Cheng"])
         p.references = [

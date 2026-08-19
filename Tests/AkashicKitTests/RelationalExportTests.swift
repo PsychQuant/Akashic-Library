@@ -8,7 +8,7 @@ final class RelationalExportTests: XCTestCase {
 
     private func entry(_ ck: String, authors: [Author], date: String? = "2020",
                        id: UUID = UUID()) -> Entry {
-        var e = Entry(id: id, citekey: ck, type: "article", title: "T",
+        var e = Entry(id: id, citekey: ck, type: .periodicalArticle, title: "T",
                       authors: authors, date: date)
         e.fields["journaltitle"] = "J"
         return e

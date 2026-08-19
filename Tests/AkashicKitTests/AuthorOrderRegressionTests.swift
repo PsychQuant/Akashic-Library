@@ -22,7 +22,7 @@ final class AuthorOrderRegressionTests: XCTestCase {
             .key("aaa-first-alphabetically"),
             .literal("Møller, Jesper"),
         ]
-        var e = Entry(id: UUID(), citekey: "zelterman1988homogeneity", type: "article",
+        var e = Entry(id: UUID(), citekey: "zelterman1988homogeneity", type: .periodicalArticle,
                       title: "Homogeneity Tests against Central-Mixture Alternatives",
                       authors: authored, date: "1988")
         e.fields["journaltitle"] = "JASA"

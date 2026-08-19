@@ -624,7 +624,10 @@ struct BootstrapOrganizations: ParsableCommand {
         if apply { try options.assertDestructiveTargetNamed("bootstrap-organizations") }
         let store = try options.openStore()
         let load = try store.load()
-        let result = OrgBootstrap.result(people: load.people, organizations: load.organizations)
+        // #378：作者位的團體 literal 也是機構名的來源
+        let result = OrgBootstrap.result(people: load.people,
+                                         organizations: load.organizations,
+                                         entries: load.entries)
         var cands = result.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }
@@ -825,7 +828,7 @@ struct ResolveOrganizations: ParsableCommand {
         // #232 design D5：已否決配對從 organization 的 verdict references 現算
         let orgRejected = ResolutionLedger.rejectedPairings(organizations: load.organizations)
         let orgReport = OrgResolver.resolve(people: load.people, organizations: load.organizations,
-                                            rejected: orgRejected)
+                                            rejected: orgRejected, entries: load.entries)
         let all = orgReport.candidates
         let hkSet = Set(holder), okSet = Set(org)
         let candidates = all.filter {
@@ -838,6 +841,9 @@ struct ResolveOrganizations: ParsableCommand {
             switch h {
             case let .person(k): return "person \(displaySafe(k, max: 200))"
             case let .organization(k): return "org \(displaySafe(k, max: 200))"
+            // #378：作者位——**帶索引**，因為同一筆可能有多個團體作者，
+            // 而少了它使用者無法知道要看哪一個位置。
+            case let .work(citekey, i): return "work \(displaySafe(citekey, max: 200))[\(i)]"   // display-safe-exempt: i 是 Int 陣列索引、非 store 字串；citekey 已消毒
             }
         }
         // Holder → verdict 的 kind token（#232：kind 屬配對身分——person/org key
@@ -847,6 +853,9 @@ struct ResolveOrganizations: ParsableCommand {
             switch h {
             case .person: return .person
             case .organization: return .org
+            // #378：`VerdictHolderKind` 已有 `.work`（person-resolution 的 holder
+            // 就是 entry citekey），值域不必動——作者位的 holder 本來就是 work。
+            case .work: return .work
             }
         }
 
@@ -1003,7 +1012,8 @@ struct ResolveOrganizations: ParsableCommand {
             // 收容、R9/M8 先印再 rebuild、R8/L29 `✓` 只在全綠）——org 側三條全沒
             // 帶過來。這不是新設計，是把既有紀律平移。
             let updated = OrgResolver.apply(candidates, to: load.people,
-                                            organizations: load.organizations)
+                                            organizations: load.organizations,
+                                            entries: load.entries)
             // **person 與 organization 分開計數**（#166 verify）：`written` 現在同時
             // 累計兩者，而訊息仍寫「N 個 person」——沙箱實測「一個 person 都沒有」
             // 時照樣印「改寫 1 個 person」。本 change 之前 `written` 只數 person，
@@ -1019,6 +1029,18 @@ struct ResolveOrganizations: ParsableCommand {
                     wroteP += 1
                 } catch {
                     failed.append((kind: "person", key: p.key, why: "\(error)"))
+                }
+            }
+            // entry 側（#378 的作者位歸戶）走**同一套** per-item 收容。
+            // #154 verify 154-8 的教訓是「org 側三條全沒帶過來」；新增第三種寫入
+            // 目標時同樣不能漏——所以這裡不是新設計，是第三次平移同一套紀律。
+            var wroteE = 0
+            for e in updated.entries where !load.entries.contains(where: { $0 == e }) {
+                do {
+                    try store.writeEntry(e)
+                    wroteE += 1
+                } catch {
+                    failed.append((kind: "work", key: e.citekey, why: "\(error)"))
                 }
             }
             // organization 側走**同一套** per-item 收容（#154 verify 154-8 的紀律；
@@ -1041,6 +1063,7 @@ struct ResolveOrganizations: ParsableCommand {
                 switch h {
                 case let .person(k): return failedHolderKeys.contains("person:\(k)")
                 case let .organization(k): return failedHolderKeys.contains("org:\(k)")
+                case let .work(citekey, _): return failedHolderKeys.contains("work:\(citekey)")
                 }
             }
             let orgIdx = Dictionary(updatedOrgs.enumerated().map { ($0.element.key, $0.offset) },
@@ -1079,14 +1102,17 @@ struct ResolveOrganizations: ParsableCommand {
             _ = try LibraryIndex(store: store).rebuild()
             // `✓` 只在全綠。報**寫入數**不是候選數——先前用 candidates.count，失敗時誇報
             if failed.isEmpty, confirmFailed.isEmpty {
+                // #378：**三種寫入目標都要報**。少報一種就是 `lossless-intake`
+                // 執行細節 3 的靜默形式——實測第一次跑時 4 筆 entry 已寫入，
+                // 而訊息印「改寫 0 個 person / 0 個 organization」，看起來什麼都沒做。
                 print("✓ 歸戶 \(candidates.count) 筆、改寫 \(wroteP) 個 person / "
-                      + "\(wroteO) 個 organization、index 已重建")
+                      + "\(wroteO) 個 organization / \(wroteE) 個 work、index 已重建")
             } else if failed.isEmpty {
                 print("⚠ 歸戶完成但 \(confirmFailed.count) 筆 confirmed verdict 未落地、index 已重建")
                 throw ExitCode(1)
             } else {
-                print("⚠ 部分完成：改寫 \(wroteP) 個 person / \(wroteO) 個 organization、"
-                      + "\(failed.count) 個失敗、index 已重建")
+                print("⚠ 部分完成：改寫 \(wroteP) 個 person / \(wroteO) 個 organization / "
+                      + "\(wroteE) 個 work、\(failed.count) 個失敗、index 已重建")
                 // **throw 必須在本次執行所有該印的東西之後**（#154 verify R4 Q2）。
                 // 這裡 `if apply` 區塊尾端目前沒有其他 print，所以就地 throw 成立；
                 // 但**下一次可能被違反的正是這裡**——有人在區塊尾端加一行 print

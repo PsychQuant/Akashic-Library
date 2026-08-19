@@ -98,9 +98,28 @@ public enum OrgBootstrap {
         }
     }
 
-    /// 全部 literal 機構名的來源走訪（person affiliations + org parents）。
+    /// 全部 literal 機構名的來源走訪：person affiliations ＋ org parents
+    /// ＋ **entry 作者位的團體 literal**（#378）。
+    ///
+    /// ## 為什麼作者位也算一個來源
+    ///
+    /// `Author` 的第三態 `.organization` 存在（#323），但先前**沒有任何元件會把作者位的
+    /// literal 提名成 organization**——`resolve-people` 只比人名，本型別與 `OrgResolver`
+    /// 只走 affiliations／parents。於是團體作者結構上卡在 literal 態，而
+    /// `literal-first-then-key` 的終局是「所有 literal 都轉成 key，**不限於人**」。
+    ///
+    /// ## 判準是大括號標記，不是猜
+    ///
+    /// `CorporateName.isMarked` ——WoS 的 `Group Authors` 欄位與 biblatex 的
+    /// `author = {{Group Name}}` 共用這個**顯式**慣例（`Author` 型別的註解已載明）。
+    /// 不帶標記的 author literal 是人名，歸 `bootstrap-people` 管，這裡一律不碰。
+    ///
+    /// 收進來的是**去標記後**的名字：`{Taiwan Cancer Moonshot Program}` →
+    /// `Taiwan Cancer Moonshot Program`。標記是傳輸慣例不是名字的一部分，
+    /// organization 記錄裡不該帶著它（否則 `names` 比對與 key 產生都會被大括號污染）。
     private static func literalOrgNames(people: [Person],
-                                        organizations: [Organization]) -> [String] {
+                                        organizations: [Organization],
+                                        entries: [Entry]) -> [String] {
         var out: [String] = []
         for p in people {
             for seg in p.profile.affiliations.entries {
@@ -112,6 +131,13 @@ public enum OrgBootstrap {
                 if case let .literal(s) = seg.value { out.append(s) }
             }
         }
+        for e in entries {
+            for a in e.authors {
+                if case let .literal(s) = a, CorporateName.isMarked(s) {
+                    out.append(CorporateName.unmark(s))
+                }
+            }
+        }
         return out
     }
 
@@ -121,14 +147,16 @@ public enum OrgBootstrap {
     /// ——兩份會漂移，而且漂移的方向恰好是「`candidates` 靜默丟、`result` 有記錄」，
     /// 也就是這個 issue 本來要修的病。收斂成單一來源。
     public static func candidates(people: [Person],
-                                  organizations: [Organization]) -> [Candidate] {
-        result(people: people, organizations: organizations).candidates
+                                  organizations: [Organization],
+                                  entries: [Entry] = []) -> [Candidate] {
+        result(people: people, organizations: organizations, entries: entries).candidates
     }
 
     /// 候選 + 丟棄清單（#154 verify 154-1）：產不出 key 的機構名要能被 CLI 說出來，
     /// 不是靜默消失。這是分組與 key 產生的**唯一**實作。
     public static func result(people: [Person],
-                              organizations: [Organization]) -> Result {
+                              organizations: [Organization],
+                              entries: [Entry] = []) -> Result {
         // 既有 org 的所有寫法（正規化）——已在 resolve 的比對範圍內，不重造
         let known = Set(organizations.flatMap { org in
             org.names.entries.map { NameNormalization.matchingKey($0.value) }
@@ -136,7 +164,7 @@ public enum OrgBootstrap {
         var takenKeys = Set(organizations.map(\.key))
 
         var groups: [String: (names: [String], count: Int)] = [:]
-        for raw in literalOrgNames(people: people, organizations: organizations) {
+        for raw in literalOrgNames(people: people, organizations: organizations, entries: entries) {
             let name = CorporateName.unmark(raw).trimmingCharacters(in: .whitespaces)
             guard !name.isEmpty else { continue }
             let id = NameNormalization.matchingKey(name)

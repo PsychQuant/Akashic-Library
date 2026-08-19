@@ -502,4 +502,93 @@ extension OrgBootstrapResolveTests {
             XCTAssertEqual(mk().latestPastSegment?.value, first, "同一輸入必須每次同答案")
         }
     }
+
+    // MARK: - 作者位的團體 literal（#378）
+
+    private func work(_ citekey: String, authors: [Author]) -> Entry {
+        var e = Entry(id: UUID(), citekey: citekey, type: .periodicalArticle, title: "T")
+        e.authors = authors
+        return e
+    }
+
+    /// bootstrap 從**作者位**收團體名——判準是大括號標記，且收的是**去標記後**的名字。
+    ///
+    /// 標記是 WoS `Group Authors` 與 biblatex `author = {{Group Name}}` 共用的傳輸慣例，
+    /// 不是名字的一部分；帶著它建檔會讓 `names` 比對與 key 產生都被大括號污染。
+    func testBootstrapCollectsBraceMarkedAuthorLiterals() {
+        let e = work("w1", authors: [.literal("Che Cheng"),
+                                     .literal("{Taiwan Cancer Moonshot Program}")])
+        let r = OrgBootstrap.result(people: [], organizations: [], entries: [e])
+        XCTAssertEqual(r.candidates.flatMap(\.names), ["Taiwan Cancer Moonshot Program"],
+                       "只收帶標記的；不帶標記的是人名，歸 bootstrap-people 管")
+    }
+
+    /// **反面斷言**：不帶標記的作者 literal 不得被當成機構。
+    func testPlainAuthorLiteralsAreNotTreatedAsOrganizations() {
+        let e = work("w1", authors: [.literal("Che Cheng"), .literal("Keng-Ling Lay")])
+        let r = OrgBootstrap.result(people: [], organizations: [], entries: [e])
+        XCTAssertTrue(r.candidates.isEmpty, "人名不是機構：\(r.candidates.flatMap(\.names))")
+    }
+
+    /// resolve 提名作者位的團體 literal，holder 帶**索引**。
+    func testResolveNominatesAuthorPositionGroupLiterals() {
+        var org = Organization(key: "taiwan-cancer-moonshot-program")
+        org.names = TimelineOf([TemporalValue(value: "Taiwan Cancer Moonshot Program",
+                                              range: DateRange())])
+        let e = work("w1", authors: [.literal("Che Cheng"),
+                                     .literal("{Taiwan Cancer Moonshot Program}")])
+        let c = OrgResolver.candidates(people: [], organizations: [org],
+                                       rejected: [], entries: [e])
+        XCTAssertEqual(c.count, 1)
+        XCTAssertEqual(c.first?.holder, .work(citekey: "w1", authorIndex: 1),
+                       "索引必須是 1——第 0 個是人名")
+        XCTAssertEqual(c.first?.orgKey, "taiwan-cancer-moonshot-program")
+    }
+
+    /// apply 把作者位換成 `.organization`，**其餘作者一個都不動**。
+    func testApplyConvertsOnlyTheNominatedAuthorPosition() {
+        var org = Organization(key: "g")
+        org.names = TimelineOf([TemporalValue(value: "Group", range: DateRange())])
+        let e = work("w1", authors: [.literal("Che Cheng"), .literal("{Group}"),
+                                     .key("someone")])
+        let c = OrgResolver.candidates(people: [], organizations: [org],
+                                       rejected: [], entries: [e])
+        let applied = OrgResolver.apply(c, to: [], organizations: [org], entries: [e])
+        XCTAssertEqual(applied.entries.first?.authors,
+                       [.literal("Che Cheng"), .organization("g"), .key("someone")])
+    }
+
+    /// **同一筆的兩個團體作者各自歸戶**——索引定位的理由就在這裡。
+    ///
+    /// 若用 literal 字串定位，兩個位置會互相干擾；用值比對的 `migrate`（affiliations
+    /// 那條路）在這裡也不適用，因為作者是位置序列不是時間軸。
+    func testTwoGroupAuthorsInOneWorkResolveIndependently() {
+        var a = Organization(key: "a"); a.names = TimelineOf([TemporalValue(value: "A", range: DateRange())])
+        var b = Organization(key: "b"); b.names = TimelineOf([TemporalValue(value: "B", range: DateRange())])
+        let e = work("w1", authors: [.literal("{A}"), .literal("Che Cheng"), .literal("{B}")])
+        let c = OrgResolver.candidates(people: [], organizations: [a, b],
+                                       rejected: [], entries: [e])
+        // `Holder` 刻意不給 Hashable（同它刻意不給 Comparable 的理由），故比陣列
+        XCTAssertEqual(c.map(\.holder),
+                       [.work(citekey: "w1", authorIndex: 0),
+                        .work(citekey: "w1", authorIndex: 2)])
+        let applied = OrgResolver.apply(c, to: [], organizations: [a, b], entries: [e])
+        XCTAssertEqual(applied.entries.first?.authors,
+                       [.organization("a"), .literal("Che Cheng"), .organization("b")])
+    }
+
+    /// **保守側**：候選跨越資料變動時不得改錯位置。
+    ///
+    /// 作者是位置序列，索引在別人插入後會指到另一個作者——所以 apply 除了索引有效，
+    /// 還要求那個位置**仍然是**當初提名的那個 literal。
+    func testApplySkipsWhenThePositionNoLongerHoldsThatLiteral() {
+        var org = Organization(key: "g")
+        org.names = TimelineOf([TemporalValue(value: "Group", range: DateRange())])
+        let planned = [OrgResolutionCandidate(holder: .work(citekey: "w1", authorIndex: 0),
+                                              literal: "Group", orgKey: "g", reason: "r")]
+        // 計畫之後有人在前面插了一個作者，索引 0 現在是別人
+        let now = work("w1", authors: [.literal("Someone Else"), .literal("{Group}")])
+        let applied = OrgResolver.apply(planned, to: [], organizations: [org], entries: [now])
+        XCTAssertEqual(applied.entries.first?.authors, now.authors, "位置對不上就不動")
+    }
 }

@@ -636,6 +636,38 @@ setUp 就寫入記錄的 suite（如 `RenameTests`）改成 `seed(format:)`，�
 `testRenameMovesFileMigratesRelationsKeepsUUID` 斷言 `entries/old2020key.yaml` 不存在，而
 在 entities 佈局下那個路徑從來就沒存在過。判斷覆蓋要看斷言的內容，不是看有沒有變紅。
 
+### 「library」承載三義，而最危險的一對是相鄰的（#315）
+
+| 介面 | 意思 | 值域 |
+|---|---|---|
+| **CLI `--library`** | **開哪個 store** | 檔案系統路徑 |
+| **MCP `library` 參數** | store **內**的 membership 分類 | `StoreKey`（`libraries/` 的 key）|
+| registry 的 `files:` 鍵 | registry 中的 store 條目 | registry key |
+
+前兩者**同名、鄰接、不同型別、不同語意，而錯用不會報錯** —— 只會 scope 到錯的東西，然後
+回一個看起來完全合理的空集合或子集。這種缺陷不會被任何測試抓到，因為兩邊各自都「正確地」
+執行了被要求的事。
+
+**危害已經實體化，不是假設的。** #315 量測時發現**同一個 skill 的兩份文件**分別用了兩個
+意思，而沒有任何一處提醒讀者它們不同：
+
+- `plugin/skills/akashic-bootstrap/SKILL.md` → `akashic_person(key: …, library: "sinica")`（membership 義）
+- `.../references/writing-to-the-store.md` → `akashic doctor --library <暫存路徑>`（store root 義）
+
+現況採 **option (2)：保留名稱、強化描述**（零成本下限）。四處都明寫「它不是什麼」：
+CLI help、兩個 MCP tool 的 schema、兩份 skill 文件。issue 指出這個選項的弱點是
+「保證只來自文字」—— `LibraryTermDisambiguationTests` 把那個保證變成機械的。
+
+#### 一個反直覺的方向（若日後裁定改名）
+
+issue 的 option (1) 預設要改的是 **MCP 參數**。但 store 自己的目錄叫 **`libraries/`**
+—— membership 那個意思才是 store 的**原生詞彙**，CLI 的 `--library`（store root）反而是
+異類。
+
+所以若裁定改名，該改的很可能是 **CLI 旗標**而不是 MCP 參數 —— 而那是使用者手打的介面、
+橫跨 42 個 subcommand，成本高得多。`testStoreDirectoryForMembershipIsStillNamedLibraries`
+把這個分析的**前提**（目錄名）釘住：目錄哪天改名，那條會紅，提醒重新檢視整個結論。
+
 ### APA7 的合法形式不得被報成缺漏（#350）
 
 三類 APA7 認可的形式先前被報成缺欄位。它們的處置各不相同，而**分界線是同一條**：

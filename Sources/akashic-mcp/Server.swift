@@ -68,7 +68,11 @@ actor AkashicMCPServer {
                 "type": str("biblatex entry type（article/book/…）"),
                 "year_from": int("起始年"),
                 "year_to": int("結束年"),
-                "library": str("library key 篩選（#13 membership views；省略＝全集）"),
+                // #315：明寫它**不是** store root。CLI 的 `--library` 是那個意思，
+                // 而兩者同名、鄰接、錯用不會報錯（只回一個合理的錯子集）。
+                "library": str("store **內**的 membership 分類 key 篩選（#13 membership "
+                               + "views；省略＝全集）。**不是** store root——store 由伺服器"
+                               + "啟動時決定，可用 akashic_files 的 use action 切換（#310）"),
              ])),
         Tool(name: "akashic_get_entry",
              description: "以 citekey 取完整 entry（含 akashic namespace 與 provenance）。",
@@ -109,7 +113,9 @@ actor AkashicMCPServer {
              inputSchema: obj([
                 "key": str("person key（與 name 互斥；直查聚合）"),
                 "name": str("模糊姓名（與 key 互斥；回候選，上限 50）"),
-                "library": str("library key 過濾（選填，僅 key 直查時生效）"),
+                // #315：同上——這是 store 內的分類，不是 store root。
+                "library": str("store **內**的 membership 分類 key 過濾（選填，僅 key "
+                               + "直查時生效）。**不是** store root（見 #310／#315）"),
              ])),
         Tool(name: "akashic_libraries",
              description: "具名 library（成員集合視角，#13）：list 列表含成員數；create 建 registry；add/remove 改 entry 的 akashic.libraries（衍生層）。store 是全集，library 不分割資料。",

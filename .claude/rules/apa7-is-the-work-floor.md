@@ -95,6 +95,34 @@ Entries in Reference Works），與編著章節同節。但在本專案它是獨
 - **113 例零覆蓋**（#327）：`export-bib` 的測試驗序列化正確性（大括號平衡、注入防護），不驗
   書目正確性——一筆語法完美但缺 volume 的 journal article 會通過所有測試
 
+## 下限的機械檢查目前**不含** `EVENTTITLE`（#359，2026-08-19 量測）
+
+`export-bib` 的 APA7 報告用 `APADataModel.requiredFields`（#353 換表），而那張表把
+`PRESENTATION` 的 `EVENTTITLE` 列為 **recommended 而非 required**。
+
+**但手冊說它是 source element。** §10.5 的 template 把 Source 欄寫成：
+
+> **Conference Name, Location.**
+
+而該節的四個編號例（60 Conference session／61 Paper presentation／62 Poster
+presentation／63 Symposium contribution）**全部帶會議名稱**，無一例外
+（`APA7GoldenTests.testEverySection105ExampleCarriesTheConferenceName` 釘住這件事）。
+
+所以一筆缺 `EVENTTITLE` 的會議發表**沒有來源可印** —— 那是本規則定義的**下限違反**，
+而 `APA7Report.hasErrors` 現在抓不到它（只有 warning 級）。實測 store 有 **25 筆**。
+
+**這一格是 known gap，不是 known good。** 記在這裡的理由：本規則說「113 例是驗收矩陣」，
+若不明寫這個缺口，讀者會以為矩陣全綠＝下限全達。矩陣確實全綠 —— 因為它的 fixture 都是
+**完整的**手冊例子，而缺口在**不完整的**記錄上，那些記錄矩陣裡沒有。
+
+`APA7GoldenTests.testRemovingEventTitleIsOnlyAWarningToday` 用一個**斷言現況**的守衛把
+缺口釘住：它會在缺口被修好時變紅，提醒回來更新這一節。
+
+**為什麼不直接在 Akashic 側把它加回 required**：那會製造**第三張**必要欄位表
+（`BibValidator` 的、`APADataModel` 的、我們自己的），而三張會各自分岔。#354 的補充表
+之所以可以存在，是因為它補的是依賴**沒有意見**的型別；這裡是**反轉依賴刻意設定的值**，
+兩者不同類。裁決留在 #359。
+
 ## 一個誠實的邊界（別把下限當成品質保證）
 
 通過 113 例是**必要條件不是充分條件**。把所有東西塞進 `fields` 的自由字典也能讓 113 例通過

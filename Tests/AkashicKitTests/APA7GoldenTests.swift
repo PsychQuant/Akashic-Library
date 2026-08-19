@@ -66,6 +66,7 @@ final class APA7GoldenTests: XCTestCase {
         "10.2":  .book,
         "10.3":  .bookChapter,
         "10.4":  .report,
+        "10.5":  .conferenceSession,   // #359 補入
         "10.6":  .thesis,
         "10.9":  .dataSet,
         "10.10": .software,
@@ -80,7 +81,6 @@ final class APA7GoldenTests: XCTestCase {
     /// 這張表存在的唯一理由是**讓缺席可見**。沒有它，「這個節沒被測」與「這個節沒有
     /// 問題」在測試輸出上完全一樣（`lossless-intake` 執行細節 3：靜默是最糟的形式）。
     private static let sectionsWithoutFixtures: [String: String] = [
-        "10.5":  "會議發表（conference session）——來源 domain 無範例",
         "10.7":  "書評／影評（reviews）——來源 domain 無範例",
         "10.8":  "未刊稿與非正式出版——來源 domain 無範例",
         "10.11": "測驗、量表與問卷——來源 domain 無範例（而這正是 #325 記錄的零實例節）",
@@ -327,7 +327,7 @@ final class APA7GoldenTests: XCTestCase {
     /// 改成 manifest 而不是刪掉，是因為要斷言的東西沒變、只是值變了：**覆蓋率的任何
     /// 改變都必須有人看見**。表用精確相等，所以兩個方向都會紅。
     private static let expectedCheckedSections: Set<String> = [
-        "10.1", "10.2", "10.3", "10.4", "10.6",
+        "10.1", "10.2", "10.3", "10.4", "10.5", "10.6",
         "10.9", "10.10", "10.12", "10.13", "10.15", "10.16",
     ]
 
@@ -430,6 +430,61 @@ final class APA7GoldenTests: XCTestCase {
                 XCTAssertNotNil(url, "已出版形態是靠 URL 判定的")
             }
         }
+    }
+
+    // MARK: - §10.5 與 EVENTTITLE 的下限問題（#359）
+
+    /// **#359 的決定性斷言**：手冊 §10.5 的四個編號例**全部帶會議名稱**。
+    ///
+    /// 手冊的 template 把 Source 欄寫成「**Conference Name, Location.**」——**會議名稱就是
+    /// source element**。所以一筆缺 `EVENTTITLE` 的會議發表**沒有來源可印**，那是
+    /// `apa7-is-the-work-floor` 定義的下限違反，不是可有可無的推薦欄位。
+    ///
+    /// 這條把那個判斷從「誰的直覺對」變成「手冊的例子長什麼樣」。
+    func testEverySection105ExampleCarriesTheConferenceName() throws {
+        let sessions = try Self.loadExamples().filter { $0.section == "10.5" }
+        XCTAssertEqual(sessions.count, 4, "§10.5 的編號例是 60–63，共四個")
+        for example in sessions {
+            XCTAssertNotNil(example.entry.fields["eventtitle"],
+                            "\(example.storeCitekey) 缺 eventtitle——而手冊 §10.5 的 "
+                            + "template 把會議名稱放在 Source 欄，四個例子無一例外")
+            XCTAssertNotNil(example.entry.fields["venue"],
+                            "\(example.storeCitekey) 缺 venue（地點是 source element 的後半）")
+        }
+    }
+
+    /// **移除 `EVENTTITLE` 之後，現行的檢查抓不到** —— 這就是 #359 記錄的偵測力缺口。
+    ///
+    /// `APADataModel` 把 `PRESENTATION` 的 `EVENTTITLE` 列為 recommended 而非 required，
+    /// 所以拿掉它只會降級成 warning，`hasErrors` 為 false。
+    ///
+    /// 這條**斷言現況**（而非期望），所以它是一個**會在缺口被修好時變紅**的守衛：
+    /// 哪天 `EVENTTITLE` 回到 required，它會紅，提醒把 #359 的裁決落回這裡。
+    func testRemovingEventTitleIsOnlyAWarningToday() throws {
+        guard let example = try Self.loadExamples().first(where: { $0.section == "10.5" })
+        else { return XCTFail("§10.5 應有 fixture") }
+        var stripped = example.entry
+        stripped.fields.removeValue(forKey: "eventtitle")
+        let report = BibExport.apa7Report(entries: [stripped], people: [])
+
+        XCTAssertFalse(report.hasErrors,
+                       "現況：拿掉 eventtitle 只是 warning，hasErrors 為 false。"
+                       + "**這條變紅代表 #359 的缺口被修好了** —— 那時請更新本測試與 "
+                       + "apa7-is-the-work-floor 的記載")
+        XCTAssertTrue(report.issues.contains {
+            $0.severity == .warning && $0.message.contains("EVENTTITLE")
+        }, "至少要有 warning —— 若連 warning 都沒有，那筆缺漏就完全不可見了：\(report.issues)")
+    }
+
+    /// 齊備的 §10.5 例子不得有 error（矩陣的核心斷言在本節的實例）。
+    func testCompleteSection105ExamplesProduceNoErrors() throws {
+        let sessions = try Self.loadExamples().filter { $0.section == "10.5" }
+        let report = BibExport.apa7Report(entries: sessions.map(\.entry), people: [])
+        let errors = report.issues.filter { $0.severity == .error }
+        XCTAssertTrue(errors.isEmpty,
+                      "手冊 §10.5 的例子不該有 error：\n"
+                      + errors.map { "  \($0.citekey): \($0.message)" }
+                              .sorted().joined(separator: "\n"))
     }
 
     /// 每個 `WorkType` 的 `apa7Section` 必須與它在本矩陣被指派到的節一致。

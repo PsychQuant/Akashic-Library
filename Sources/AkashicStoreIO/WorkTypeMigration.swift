@@ -61,23 +61,33 @@ public enum WorkTypeMigration {
         }
     }
 
-    /// 舊自由字串 → APA7 ch10 值域。**封閉列舉，不得依性質相似類推**。
-    ///
-    /// 每一列的 APA7 節號是它的依據；新增一列要寫出節號，否則那個值沒有判準。
-    public static let mapping: [String: String] = [
-        "article":       "journal-article",     // 10.1 Periodicals
-        "book":          "book",                // 10.2 Books and Reference Works
-        "incollection":  "book-chapter",        // 10.3 Edited Book Chapters
-        "report":        "report",              // 10.4 Reports and Gray Literature
-        "inproceedings": "conference-session",  // 10.5 Conference Sessions
-        "presentation":  "conference-session",  // 10.5（同上——APA7 不分這兩者）
-        "thesis":        "thesis",              // 10.6 Dissertations and Theses
-        "online":        "webpage",             // 10.16 Webpages and Websites
-    ]
+    // **對映表不住在這裡**——它是 `WorkType.init?(biblatexEntryType:fields:)`。
+    //
+    // 遷移的來源值域**就是** biblatex entry type：舊的自由字串 `Entry.type` 裝的
+    // 正是 `article` / `incollection` / `inproceedings` 那些。所以「遷移表」與
+    // 「讀 `.bib` 用的逆向表」不是兩張長得像的表，是**同一張表**。
+    //
+    // 第一版真的寫了兩份（這裡一份 `mapping` + `conditionalTarget`，`WorkType` 那邊
+    // 一份逆向）。兩份會分岔，而且分岔是**安靜的**：階段二把 `journal-article` 更名為
+    // `periodical-article` 時，這裡沒跟著改，於是遷移會產出一個階段二拒收的值——
+    // 部署後才炸，而且炸在「已經改寫完 937 個檔」之後。
+    //
+    // 折成一份之後那個分岔**無處可寫**，不是被測試擋住。這與
+    // `entity-backlink-completeness` 的「一個讀取面只有一條實作路徑」同一個立場，
+    // 以及它引的 3.325：好的記法讓矛盾在文法上寫不出來。
+    //
+    // 條件式細分（`misc` 帶 `url` → wikipedia-entry；`unpublished` 帶 `location`
+    // → conference-session）也一併住在那個 initializer 裡，同一個理由。
 
-    /// 已是新值域的值（idempotency 判定用）。
-    public static let migratedValues: Set<String> = Set(mapping.values)
-        .union(["wikipedia-entry"])
+    /// 這個值是否已經是新值域（idempotency 判定）。
+    ///
+    /// 注意 `book` / `report` / `thesis` **同時**是合法 biblatex type 與合法
+    /// `WorkType` rawValue。先判「已遷移」再判「可遷移」是對的：那三個值兩條路
+    /// 的答案相同（都是它自己），所以順序在此不改變結果，但寫死順序讓它不依賴
+    /// 這個巧合。
+    public static func isAlreadyMigrated(_ type: String) -> Bool {
+        WorkType(rawValue: type) != nil
+    }
 
     /// 條件對映：值域相同但需要看 `fields` 才知道落哪一格。
     ///
@@ -86,16 +96,7 @@ public enum WorkTypeMigration {
     /// - `unpublished` → `conference-session`（10.5）：實測 21/21 帶 `fields.location`
     ///   ＝ APA7 §9.31「works with specific locations」的 source 要素；10.8
     ///   Unpublished Works **不需要地點**。
-    static func conditionalTarget(_ entry: Entry) -> String? {
-        switch entry.type {
-        case "misc":
-            return entry.fields["url"] != nil ? "wikipedia-entry" : nil
-        case "unpublished":
-            return entry.fields["location"] != nil ? "conference-session" : nil
-        default:
-            return nil
-        }
-    }
+
 
     public static func run(store: LibraryStore, apply: Bool = false) throws -> Report {
         var report = Report()
@@ -114,11 +115,12 @@ public enum WorkTypeMigration {
         }
 
         for entry in load.entries.sorted(by: { $0.citekey < $1.citekey }) {
-            if migratedValues.contains(entry.type) {
+            if isAlreadyMigrated(entry.type) {
                 report.alreadyMigrated.append(entry.citekey)
                 continue
             }
-            guard let target = mapping[entry.type] ?? conditionalTarget(entry) else {
+            guard let target = WorkType(biblatexEntryType: entry.type,
+                                        fields: entry.fields)?.rawValue else {
                 report.unmapped.append(Failed(
                     citekey: entry.citekey,
                     reason: "type「\(displaySafe(entry.type, max: 80))」不在對映表，"

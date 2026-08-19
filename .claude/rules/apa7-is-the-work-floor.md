@@ -109,7 +109,19 @@ presentation／63 Symposium contribution）**全部帶會議名稱**，無一例
 （`APA7GoldenTests.testEverySection105ExampleCarriesTheConferenceName` 釘住這件事）。
 
 所以一筆缺 `EVENTTITLE` 的會議發表**沒有來源可印** —— 那是本規則定義的**下限違反**，
-而 `APA7Report.hasErrors` 現在抓不到它（只有 warning 級）。實測 store 有 **25 筆**。
+而 `APA7Report.hasErrors` 現在抓不到它（只有 warning 級）。#359 當日實測 store 有 **25 筆**。
+
+**同日稍後降到 4 筆（#340）——而降下來的方式值得記住。** 那 21 筆的會議名稱**一直在
+Zotero 裡**（`meetingName`，21 筆 presentation 全部都有），只是 `ZoteroMapping.fieldMap`
+沒有它，於是走殘餘路徑以 `meetingname` 入庫：**資訊沒有丟，可引用性丟了**。
+
+這是本規則與 `lossless-intake` 的**交界形狀**，值得單獨標出來：殘餘收集（#206）保證了
+「來源給的都收」，但收進來的鍵名若不是 export 面認得的那個，下限仍然跌破。兩條規則各自
+滿足、合起來仍有洞——**「有這個資訊」與「能產出參考文獻」是兩個不同的命題**。
+
+同一輪還有一個完全同型的：`encyclopediaTitle` → `booktitle`（14 筆，APA7 10.3 的
+source element）。兩次都是「殘餘裡躺著答案」。查缺口時先問一句**「上游是不是其實有，
+只是我們用別的鍵名收了？」**，比直接去外部查證便宜得多。
 
 **這一格是 known gap，不是 known good。** 記在這裡的理由：本規則說「113 例是驗收矩陣」，
 若不明寫這個缺口，讀者會以為矩陣全綠＝下限全達。矩陣確實全綠 —— 因為它的 fixture 都是

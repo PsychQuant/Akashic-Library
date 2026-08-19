@@ -59,6 +59,7 @@ enum DestructiveTargetGate {
         "bootstrap-venues",
         "resolve-people",
         "resolve-organizations",
+        "enrich-from-zotero",
     ]
 
     /// 呼叫者有沒有指名目標 store。**只在真的要寫的時候呼叫**——dry-run 不得被擋

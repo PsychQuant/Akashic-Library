@@ -57,7 +57,8 @@ struct AkashicCLI: ParsableCommand {
             // #219：parity 家族其餘五格——讀取聚合 ×2 + 關係／狀態寫入 ×3
             PeopleCmd.self, GetEntryCmd.self,
             LinkCmd.self, TagCmd.self, SetStatusCmd.self,
-            AddPersonCmd.self, DivergencesCmd.self,
+            AddPersonCmd.self,
+        StoreSourceCmd.self, DivergencesCmd.self,
             // #304：venue 四能力（讀取 ×2 + 建檔 + 消歧）＋ migrate-venues；
             // MCP 對應面在同一 change 落表（mcp-cli-parity）
             VenueCmd.self, VenuesCmd.self, AddVenueCmd.self, UpdateVenueCmd.self, ResolveVenuesCmd.self,

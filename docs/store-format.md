@@ -883,6 +883,74 @@ digest 不重複 append，回條回報 existing **並附上被丟棄的 provenan
 blob（有存檔無條目）、懸空條目（有條目無存檔）、無法解析的行、讀不到的 shard
 （讀不到 ≠ 缺席，不得捏造懸空）；audit 自身失敗降級為警告、不中止報告。
 
+#### `index.jsonl` 的版控處置（#262 裁決一，2026-08-19）
+
+**裁定：`index.jsonl` SHOULD 被追蹤；blob MUST NOT。** 兩者的處置不同類，而先前是被
+**同一條整目錄規則連帶**涵蓋的。
+
+判準來自 store 自己 `.gitignore` 的註解（原文）：
+
+> 判準不是 repo 公開/私密（private repo 的內容仍在 GitHub 伺服器上），
+> 而是「**原始第三方材料**」vs「**自己加工過的衍生產物**」。
+
+`index.jsonl` 的條目是 digest ＋ `origin` 敘述 ＋ `retrieved` ＋ `media-type`
+——**全部是自己寫的指涉紀錄**，不含任何第三方位元組。所以依那條註解自己的判準，
+它屬於**可追蹤**的一側。它被排除只是因為規則寫成了容器（`sources/`）而非對象。
+
+> 這與 #295 記載的形狀同構：為某類對象寫的規則用「容器」表達，把不同類的對象一起
+> 涵蓋，而理由對後者不成立。
+
+**遷移寫法（重要——issue 原本提議的寫法無效）**：
+
+```gitignore
+# ❌ 無效：git 無法 re-include 已被排除目錄底下的檔案
+sources/
+!sources/index.jsonl
+
+# ✅ 正確：排除目錄的**內容**而非目錄本身
+sources/*
+!sources/index.jsonl
+```
+
+git 的規則原文：*It is not possible to re-include a file if a parent directory of
+that file is excluded.* 照 ❌ 那樣寫會**以為追蹤了但其實沒有**——靜默失敗。
+
+**對承重閘的影響：實測為零。** `SourceStore` 的 fail-closed 是**逐一路徑**問
+`git check-ignore -q <blob 的相對路徑>`。在暫存 repo 實測四種寫法：
+
+| `.gitignore` | blob（`sources/ab/<62>`）| `index.jsonl` |
+|---|---|---|
+| `sources/`（現況）| **已排除** | 已排除 |
+| `sources/` ＋ `!sources/index.jsonl` | **已排除** | 仍被排除（提案無效）|
+| `sources/*` ＋ `!sources/index.jsonl` | **已排除** | **未排除** |
+
+blob 仍被 `sources/*` 涵蓋（`sources/ab` 這個子目錄被排除，其下內容連帶排除），
+所以**放寬承重閘的風險不存在**——前提是用正確寫法。
+
+**為什麼值得追蹤**：`index.jsonl` 目前是**單一副本、無歷史**。append-only 擋得住
+in-process 重寫，擋不住截斷、誤覆寫、磁碟損壞；clone 之後從零開始。而它是
+`missingSourceDigests` 與 `doctor` 四類檢查的**唯一**依據——沒有它，「有存檔無條目」
+與「從來沒存過」不可分辨。
+
+**store 端的實際變更不由本 repo 執行**：`.gitignore` 住在使用者的 store
+（`~/.akashic/.gitignore`），改它是資料工作。本節是裁決與遷移說明。
+
+#### `retrieved` 的格式契約（#262 裁決二）
+
+**`retrieved` MUST 是 ISO 8601 且帶 UTC offset**（例：`2026-08-19T14:30:00+08:00`）。
+
+裸日期（`2026-08-19`）**不合契約**：它被讀成什麼時刻取決於讀的人在哪個時區，而
+provenance 的用途正是「在什麼時候看到的」——一個會隨讀者漂移的時刻答不了那個問題。
+全域規則（`~/.claude/CLAUDE.md` 的時區節）對此有具名的踩坑實例：無 offset 的時間值
+被當成 UTC 解讀，實際生效時間與預期差 8 小時。
+
+**現況與成本**：實測 store 的 `index.jsonl` 有 **7 條** `retrieved`，**全部是裸日期**
+（`2026-07-19` ×1、`2026-08-04` ×6），零個帶 offset。`provenance-reference` 的 spec
+先前對格式**未表態**（只說 SHALL record the retrieval date）。
+
+**7 條是目前成本，這個契約現在最便宜**——條目數只會增加，而回填成本隨之放大。
+既有 7 條的回填是資料工作（同上，store 端）。
+
 **存檔不是 entity**（兩個獨立理由，任一充分）：網頁不決定記錄形狀、不讓 loader
 分岔到不同 decoder；且內容定址的身分被位元組窮盡——entity 的判準之一是「改名後
 仍是同一物」，而位元組串改一個 byte 就是另一串。它沒有名字、沒有歷史、沒有生命

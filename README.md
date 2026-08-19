@@ -673,6 +673,73 @@ setUp 就寫入記錄的 suite（如 `RenameTests`）改成 `seed(format:)`，�
 `testRenameMovesFileMigratesRelationsKeepsUUID` 斷言 `entries/old2020key.yaml` 不存在，而
 在 entities 佈局下那個路徑從來就沒存在過。判斷覆蓋要看斷言的內容，不是看有沒有變紅。
 
+### `sources/index.jsonl` 該不該進版控（#262 裁決一）
+
+**裁定：`index.jsonl` SHOULD 被追蹤；blob MUST NOT。** 兩者不同類，而先前是被**同一條整
+目錄規則連帶**涵蓋的。
+
+判準來自 store 自己 `.gitignore` 的註解（原文）：
+
+> 判準不是 repo 公開/私密（private repo 的內容仍在 GitHub 伺服器上），而是
+> 「**原始第三方材料**」vs「**自己加工過的衍生產物**」。
+
+`index.jsonl` 的條目是 digest ＋ `origin` 敘述 ＋ `retrieved` ＋ `media-type` —— **全部是
+自己寫的指涉紀錄**，不含任何第三方位元組。依那條註解自己的判準，它屬**可追蹤**的一側。
+它被排除只是因為規則寫成了容器（`sources/`）而非對象。
+
+#### issue 原本提議的寫法**無效**（實測發現）
+
+```gitignore
+# ❌ 無效：git 無法 re-include 已被排除目錄底下的檔案
+sources/
+!sources/index.jsonl
+
+# ✅ 正確：排除目錄的**內容**而非目錄本身
+sources/*
+!sources/index.jsonl
+```
+
+git 的規則：*It is not possible to re-include a file if a parent directory of that file is
+excluded.* 照 ❌ 那樣寫會**以為追蹤了但其實沒有** —— 靜默失敗。
+
+#### 對承重閘的影響：**實測為零**
+
+`SourceStore` 的 fail-closed 是**逐一路徑**問 `git check-ignore -q`。在暫存 repo 實測：
+
+| `.gitignore` | blob（`sources/ab/<62>`）| `index.jsonl` |
+|---|---|---|
+| `sources/`（現況）| **已排除** | 已排除 |
+| `sources/` ＋ `!sources/index.jsonl` | **已排除** | 仍被排除（提案無效）|
+| `sources/*` ＋ `!sources/index.jsonl` | **已排除** | **未排除** |
+
+blob 仍被涵蓋（`sources/ab` 這個子目錄被排除，其下內容連帶排除），所以**放寬承重閘的風險
+不存在** —— 前提是用正確寫法。診斷把這列為「唯一真風險」且要求實測，實測結果是否證。
+
+### `retrieved` 的格式契約（#262 裁決二）
+
+**`retrieved` MUST 是 ISO 8601 且帶 UTC offset**（`2026-08-19T14:30:00+08:00`）。
+
+裸日期被讀成什麼時刻取決於**讀的人在哪個時區**，而 provenance 的用途正是「在什麼時候看到
+的」—— 一個會隨讀者漂移的時刻答不了那個問題。
+
+**加了時分秒不等於加了時區**：全域規則記載的踩坑實例正是 `2027-02-01T00:00:00`（無 offset）
+被當成 UTC，實際生效時間差 8 小時。
+
+#### 契約**刻意不**做成 decode 的硬閘
+
+實測 store 的 `index.jsonl` 有 **7 條** `retrieved`、**全部是裸日期**。做成硬閘會讓那 7 條
+把整個 store 鎖在門外 —— **用一條新契約把既有資料擋掉**，而那些資料本身沒問題（只是格式舊）。
+
+所以契約先以**可驗證的函式 ＋ 文件**存在（`RetrievedFormatContractTests`），硬閘等回填完成
+後再上。**退場條件是可執行的**：
+
+```bash
+python3 -c "import json; [print(json.loads(l).get('retrieved')) for l in open('$HOME/.akashic/sources/index.jsonl')]" | grep -cv '+\|Z'
+```
+
+回 0 即可上硬閘。而 `testBareDateStillDecodesForNow` 釘住「現在還不能上」—— 沒有它，日後
+有人「順手」接上就會鎖門，而那個後果在測試裡看不到（測試用的是自己造的資料，不是真 store）。
+
 ### 「被收錄於」這條邊：暫不新增，但觸發條件是可執行的（#339）
 
 一章收錄於哪本編著，目前靠 `fields.booktitle` 的**純量字串**。同一本書被多章引用時，

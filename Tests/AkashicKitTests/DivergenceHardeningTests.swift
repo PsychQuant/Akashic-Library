@@ -287,12 +287,11 @@ final class DivergenceHardeningTests: XCTestCase {
 
     // MARK: - R2：讀不到的檔可能正指著要被刪掉的東西
 
-    /// store 有任何 quarantined 檔時，消歧拒絕執行。
+    /// 共用 fixture：兩個候選 person + 一筆 divergence + 一個 quarantined 檔。
     ///
-    /// quarantined 檔沒進 `snapshot.entries`，它的參照永遠不會被改寫，卻擋不住刪除
-    /// ——留下一筆藏在工具讀不到的檔案裡、`crossRecordIssues()` 也掃不到的永久懸空
-    /// 參照。與本檔對 legacy 佈局的立場（拒絕比部分支援誠實）是同一條理由。
-    func testQuarantinedFileBlocksResolve() throws {
+    /// `strayBody` 決定那個讀不進來的檔**有沒有**指向將被刪除的 `fann-cathy-s-j-2`
+    /// ——那正是收窄後 gate 的唯一判準（#295）。
+    private func quarantineFixture(strayBody: String) throws -> Divergence {
         var keeper = Person(key: "fann-cathy-s-j"); keeper.names = ["F"]
         var doomed = Person(key: "fann-cathy-s-j-2"); doomed.names = ["F2"]
         try store.writePerson(keeper)
@@ -301,18 +300,46 @@ final class DivergenceHardeningTests: XCTestCase {
                            candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),
                                         DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
         try store.writeDivergence(d)
-        // 一個檔名 UUID 與內容 id 不符的檔 → load() 會 quarantine 它。
+        // 檔名 UUID 與內容 id 不符 → load() 會 quarantine 它。
         let stray = root.appendingPathComponent("entities/\(UUID().uuidString).yaml")
-        try "work:\nid: \(UUID().uuidString)\ncitekey: ghost\ntype: periodical-article\ntitle: G\n"
-            .write(to: stray, atomically: true, encoding: .utf8)
-
+        try strayBody.write(to: stray, atomically: true, encoding: .utf8)
         XCTAssertFalse(try store.load().quarantined.isEmpty, "前提：該檔應被 quarantine")
         GitFixture.commitAll(store.root)
+        return d
+    }
+
+    /// **指向被刪 key** 的 quarantined 檔仍然擋下消歧。
+    ///
+    /// gate 的理由沒變：quarantined 檔沒進 `snapshot.entries`，它的參照永遠不會被
+    /// 改寫，卻擋不住刪除——留下一筆藏在工具讀不到的檔案裡、`crossRecordIssues()`
+    /// 也掃不到的永久懸空參照。
+    func testQuarantinedFileReferencingDoomedKeyBlocksResolve() throws {
+        let d = try quarantineFixture(strayBody:
+            "work:\nid: \(UUID().uuidString)\ncitekey: ghost\ntype: periodical-article\n"
+            + "title: G\nauthors:\n- key: fann-cathy-s-j-2\n")
+
         XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")) { e in
             let msg = (e as? LocalizedError)?.errorDescription ?? "\(e)"
             XCTAssertTrue(msg.contains("讀不進來"), "錯誤須說明理由：\(msg)")
         }
         XCTAssertEqual(try store.load().people.count, 2, "拒絕後不得有任何刪除")
+    }
+
+    /// **不指向被刪 key** 的 quarantined 檔**不再**擋下消歧（#295 修的過寬）。
+    ///
+    /// 舊版按目錄前綴過濾，而 #227／#241 的佈局遷移把 person 檔搬進 `entities/`
+    /// ——被擋的前綴——之後，「至少一個 quarantined 檔」成了常態，gate 從罕見邊角
+    /// 變成常態摩擦，擋在**最需要消歧的 store 狀態**（多來源、半遷移）上。
+    ///
+    /// 收窄的判準直接對應 gate 自己的理由：位元組裡沒有被刪的 key，就不可能有指向
+    /// 它的參照，也就沒有懸空參照可言。
+    func testQuarantinedFileNotReferencingDoomedKeyDoesNotBlock() throws {
+        let d = try quarantineFixture(strayBody:
+            "work:\nid: \(UUID().uuidString)\ncitekey: ghost\ntype: periodical-article\ntitle: G\n")
+
+        XCTAssertNoThrow(try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j"),
+                         "與本次消歧無關的 quarantine 不該擋")
+        XCTAssertEqual(try store.load().people.count, 1, "消歧應實際執行")
     }
 
     // MARK: - R2：消歧不是清理工具

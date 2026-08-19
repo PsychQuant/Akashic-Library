@@ -457,6 +457,71 @@ public final class AkashicService {
 
     /// #18 多檔案：registry 檢視與 session 內切換（互不相通——切換即整個 universe 換掉）。
     /// use 不寫 config（server 是讀者；持久預設由 CLI file use 管）。
+    /// 存一份 source 的位元組（#264）。
+    ///
+    /// `SourceStore.storeSource` 的寫入面防護在 #224 就完成了（換行守衛、O_APPEND、
+    /// index 過閘、腐壞拒寫），但**全樹零 production 呼叫端**——「存一份 source」這個
+    /// 能力先前只有寫 Swift 的人做得到。與 #206 對匯入面的判準同形：能不能做，不該
+    /// 取決於使用者會不會寫 script。
+    ///
+    /// ## D1：收檔案路徑，不收 stdin、不收 base64
+    ///
+    /// MCP 面沒有 stdin，所以 stdin 會讓兩面分岔成不同輸入形狀；base64 把二進位塞進
+    /// JSON 會膨脹 4/3 倍且整份進 LLM context（`export` 的既有威脅模型，#165）。
+    /// 檔案路徑兩面都成立，也與 `akashic_files` 的既有形狀一致。
+    ///
+    /// ## D2：`retrieved` 必填，入口不填 `now()`
+    ///
+    /// 它的語意是「呼叫端**何時取得**這份內容」，不是「何時存進來」。自動填會讓
+    /// 「三個月前抓的檔案今天才入庫」給出錯誤答案。
+    ///
+    /// ## D3：`exclusionVerified` 只回報，不重複判斷
+    ///
+    /// `SourceStore` 已在寫入前用 git 自身的忽略判定確認、未生效即拒寫
+    /// （`replace-endnote-and-zotero`：「不得為了任何便利放寬它」）。入口自己再判一次
+    /// 會製造兩處會分岔的判斷，而這道閘是**承重**的。
+    public func storeSource(path: String, mediaType: String, retrieved: String,
+                            origin: String, acquisition: String,
+                            note: String? = nil) throws -> String {
+        // 必填欄位**具名**拒絕——「參數不足」不告訴呼叫端該補哪個。
+        for (label, value) in [("mediaType", mediaType), ("retrieved", retrieved),
+                               ("origin", origin), ("acquisition", acquisition)] {
+            guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ServiceError.invalid("\(label) 不可為空")   // display-safe-exempt: label 是編譯期字面
+            }
+        }
+        let url = URL(fileURLWithPath: path)
+        guard let data = try? Data(contentsOf: url) else {
+            throw ServiceError.invalid("讀不到 \(displaySafe(path, max: 800))")
+        }
+        // SourceStore 擲出的錯（index 腐壞、排除未驗證）**原樣往上傳**，不吞——那些是
+        // 承重的 fail-closed 判斷，包裝過會弄丟指路訊息。
+        let receipt = try store.storeSource(
+            data, provenance: LibraryStore.SourceProvenance(
+                mediaType: mediaType, retrieved: retrieved, origin: origin,
+                acquisition: acquisition, note: note))
+
+        var d: [String: Any] = [
+            "digest": receipt.digest,                       // display-safe-exempt: SHA-256 十六進位，由本 binary 計算
+            "exclusionVerified": receipt.exclusionVerified,  // display-safe-exempt: Bool
+            "indexEntryCreated": receipt.indexEntryCreated,  // display-safe-exempt: Bool
+        ]
+        // **冪等早退時交來卻沒被寫入的敘述必須可見**（`lossless-intake`「丟棄必須可見」）。
+        // 回的是**呼叫端這次交來**的內容，不是既有條目的——後者無法讓呼叫端分辨
+        // 「早已記過」與「你這份敘述沒被寫入」。
+        if let discarded = receipt.discardedProvenance {
+            var dp: [String: Any] = [
+                "mediaType": displaySafe(discarded.mediaType, max: 200),
+                "retrieved": displaySafe(discarded.retrieved, max: 200),
+                "origin": displaySafe(discarded.origin, max: 800),
+                "acquisition": displaySafe(discarded.acquisition, max: 800),
+            ]
+            if let n = discarded.note { dp["note"] = displaySafe(n, max: 800) }
+            d["discardedProvenance"] = dp
+        }
+        return try jsonString(d)
+    }
+
     public func files(action: String, key: String?) throws -> String {
         switch action {
         case "list":

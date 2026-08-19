@@ -205,6 +205,21 @@ actor AkashicMCPServer {
                 "apply": strArray("要套用的候選 id（holderKey::literal）；省略＝只列候選"),
                 "reject": strArray("要否決的候選 id（同形）"),
              ])),
+        Tool(name: "akashic_store_source",
+             description: "存一份 source 的位元組進 sources/（內容定址，#264）。收**檔案路徑**"
+                 + "不收 base64——二進位塞進 JSON 會膨脹且整份進 context。冪等：同 digest 不重複"
+                 + "建 index 條目，但這次交來卻**沒被寫入**的敘述會以 discardedProvenance 回報"
+                 + "（分辨「早已記過」與「你這份敘述沒被寫入」）。retrieved 必填且是「你何時取得"
+                 + "這份內容」，不是「何時存進來」。exclusionVerified=false 時本呼叫會被拒絕"
+                 + "——sources/ 不進版控 remote 是承重約束。",
+             inputSchema: obj([
+                "path": str("要存入的檔案路徑（本機）"),
+                "media_type": str("內容的 media type，如 application/pdf"),
+                "retrieved": str("**你何時取得**這份內容（ISO 8601），非存入時間"),
+                "origin": str("來源（URL 或可辨識的出處敘述）"),
+                "acquisition": str("取得方式，如 browser-download / api / scan"),
+                "note": str("補充敘述（可選）"),
+             ], required: ["path", "media_type", "retrieved", "origin", "acquisition"])),
         Tool(name: "akashic_add_person",
              description: "建人物實體（people/<key>.yaml；aliases、ORCID、OpenAlex）。",
              inputSchema: obj([
@@ -373,6 +388,11 @@ actor AkashicMCPServer {
                 output = try service.resolveOrganizations(
                     apply: oApplyProvided ? argList("apply") : nil,
                     reject: oRejectProvided ? argList("reject") : nil)
+            case "akashic_store_source":
+                output = try service.storeSource(
+                    path: arg("path") ?? "", mediaType: arg("media_type") ?? "",
+                    retrieved: arg("retrieved") ?? "", origin: arg("origin") ?? "",
+                    acquisition: arg("acquisition") ?? "", note: arg("note"))
             case "akashic_add_person":
                 output = try service.addPerson(key: arg("key") ?? "", names: argList("names"),
                                                orcid: arg("orcid"), openalex: arg("openalex"))

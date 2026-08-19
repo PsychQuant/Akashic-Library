@@ -14,8 +14,18 @@ import AkashicCore
 /// 本型別走另一條紀律，與 `import-wos` 的 `enriched` 同形：
 ///
 /// - **只加原本不存在的鍵**。既有值一個都不動——人工修改過的值不得被洗掉。
-/// - **不動 `type` / `title` / `authors` / `venues` / `attachments`**。它們各自有
-///   自己的裁決路徑（`resolve-people`／`resolve-venues`／#325 的遷移），補值不越界。
+/// - **不動 `type` / `title` / `venues` / `attachments`**。它們各自有自己的裁決路徑
+///   （`resolve-venues`／#325 的遷移），補值不越界。
+/// - **`authors` 預設也不動**，但有一個顯式的例外（`includeAbsentAuthors`，#340）：
+///   當 store 的 `authors` **完全為空**時，可從 Zotero 補 `.literal` 作者。
+///
+///   **為什麼這個例外是一致的而非破口**：排除 authors 的理由是「它有自己的裁決路徑
+///   （`resolve-people`）」——而**空的 authors 沒有東西可裁決**。`literal-first-then-key`
+///   要求「來源給的字串以 `.literal` 原樣進庫，再經顯式消歧升格」；不補等於那條消歧
+///   路徑永遠看不到它們。所以補 literal 是**啟用**該路徑，不是繞過它。
+///
+///   **絕不覆寫**：只要 `authors` 非空（哪怕只有一個 `.literal`），一律不動——已歸戶的
+///   `.key` 更不可能被碰到。旗標必須顯式傳入，預設關閉。
 /// - **作用半徑由呼叫端逐筆指名**。沒有篩選式批次掃蕩，所以 #298 那個「破壞性
 ///   `--apply` 未指名目標」的風險形狀在這裡不存在。
 ///
@@ -34,11 +44,16 @@ public enum ZoteroEnrichment {
         public let addedFields: [String: String]
         /// 原本 `date` 為 nil／空、而 Zotero 有值時的補值（已過 `DateNormalizer`）。
         public let addedDate: String?
+        /// 原本 `authors` **完全為空**、而 Zotero 有作者時的補值（一律 `.literal`，#340）。
+        /// 空陣列＝沒有補（`authors` 非空，或呼叫端未開旗標）。
+        public let addedAuthors: [Author]
 
-        public init(citekey: String, addedFields: [String: String], addedDate: String?) {
+        public init(citekey: String, addedFields: [String: String], addedDate: String?,
+                    addedAuthors: [Author] = []) {
             self.citekey = citekey
             self.addedFields = addedFields
             self.addedDate = addedDate
+            self.addedAuthors = addedAuthors
         }
     }
 
@@ -68,7 +83,8 @@ public enum ZoteroEnrichment {
     /// 讀的是同一份計畫（`entity-backlink-completeness` 執行細節 2 的同一條實作路徑）。
     public static func plan(entries: [Entry],
                             items: [ZoteroItem],
-                            citekeys: [String]) -> Result {
+                            citekeys: [String],
+                            includeAbsentAuthors: Bool = false) -> Result {
         var byCitekey: [String: Entry] = [:]
         for e in entries { byCitekey[e.citekey] = e }
 
@@ -112,12 +128,22 @@ public enum ZoteroEnrichment {
             if (entry.date ?? "").isEmpty, let d = probe.date, !d.isEmpty {
                 addedDate = d
             }
+            // #340：只在 `authors` **完全為空**時補，且一律 `.literal`
+            //（`literal-first-then-key`：進庫不猜 key）。非空一律不動。
+            var addedAuthors: [Author] = []
+            if includeAbsentAuthors, entry.authors.isEmpty {
+                addedAuthors = item.authors
+                    .map(\.display)
+                    .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                    .map { Author.literal($0) }
+            }
 
-            if added.isEmpty && addedDate == nil {
+            if added.isEmpty && addedDate == nil && addedAuthors.isEmpty {
                 result.unchanged.append(citekey)
             } else {
                 result.additions.append(
-                    Addition(citekey: citekey, addedFields: added, addedDate: addedDate))
+                    Addition(citekey: citekey, addedFields: added, addedDate: addedDate,
+                             addedAuthors: addedAuthors))
             }
         }
         return result
@@ -134,6 +160,10 @@ public enum ZoteroEnrichment {
             out.fields[k] = v
         }
         if (out.date ?? "").isEmpty, let d = addition.addedDate { out.date = d }
+        // 同一條保守側紀律：計畫之後 store 若已長出作者，一律不動。
+        if out.authors.isEmpty, !addition.addedAuthors.isEmpty {
+            out.authors = addition.addedAuthors
+        }
         return out
     }
 }

@@ -74,14 +74,34 @@ public enum ZoteroReader {
             fieldsByItem[itemID, default: [:]][name] = value
         }
 
+        // 作者位的 creator type **由 Zotero 自己宣告**，不寫死 `'author'`（#340）。
+        //
+        // `itemTypeCreatorTypes.primaryField = 1` 是 Zotero schema 對每個 item type 指定
+        // 的「主要 creator」。實測本庫：`presentation` → **`presenter`**，其餘 → `author`。
+        //
+        // **先前寫死 `ct.creatorType = 'author'` 的後果**：所有會議發表在匯入時**掉了
+        // 全部發表人**（實測 64 個 `presenter` creator row、21 筆記錄的 `authors` 整塊
+        // 消失）。而 APA7 §10.5 把發表人放在作者位——所以那不是「少一個欄位」，
+        // 是那筆記錄**無法被引用**（`apa7-is-the-work-floor` 的下限違反）。
+        //
+        // 這與 `meetingName`／`encyclopediaTitle` 同型：**資料一直在 Zotero，是我們的
+        // 對映不接受它**。差別是那兩個走殘餘路徑至少留了值，這個是整塊丟掉。
+        //
+        // **`editor` 刻意不納入**：Zotero 對 `bookSection` 的 primary 是 `author`，
+        // editor 是次要 creator——它在 APA7 走 `EDITOR` 欄位而非作者位（#354 的
+        // `authorPositionAlternatives`）。用 primaryField 判定自動得到這個正確結果，
+        // 不需要另寫一張排除清單。
         var authorsByItem: [Int: [(Int, String, String)]] = [:]   // (orderIndex, display, family)
         for row in try db.query("""
             SELECT ic.itemID AS itemID, ic.orderIndex AS orderIndex,
                    c.firstName AS firstName, c.lastName AS lastName, c.fieldMode AS fieldMode
             FROM itemCreators ic
             JOIN creators c ON ic.creatorID = c.creatorID
-            JOIN creatorTypes ct ON ic.creatorTypeID = ct.creatorTypeID
-            WHERE ct.creatorType = 'author'
+            JOIN items i2 ON i2.itemID = ic.itemID
+            JOIN itemTypeCreatorTypes itct
+                 ON itct.itemTypeID = i2.itemTypeID
+                AND itct.creatorTypeID = ic.creatorTypeID
+                AND itct.primaryField = 1
             """) {
             guard let itemID = row["itemID"] as? Int else { continue }
             let order = row["orderIndex"] as? Int ?? 0

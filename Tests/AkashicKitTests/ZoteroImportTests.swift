@@ -22,6 +22,11 @@ struct ZoteroFixture {
             "CREATE TABLE creators(creatorID INTEGER PRIMARY KEY, firstName TEXT, lastName TEXT, fieldMode INT)",
             "CREATE TABLE creatorTypes(creatorTypeID INTEGER PRIMARY KEY, creatorType TEXT)",
             "CREATE TABLE itemCreators(itemID INT, creatorID INT, creatorTypeID INT, orderIndex INT)",
+            // #340：作者位的 creator type 由 Zotero 自己宣告（`primaryField = 1`），
+            // 而 `ZoteroReader` 現在讀這張表。**fixture 少了它就等於在測一個
+            // 我們不會遇到的 schema**——先前這張表缺席，於是 21 筆會議發表在真庫掉了
+            // 全部發表人而套件全綠。
+            "CREATE TABLE itemTypeCreatorTypes(itemTypeID INT, creatorTypeID INT, primaryField INT)",
             "CREATE TABLE deletedItems(itemID INT)",
             "CREATE TABLE itemAttachments(itemID INT, parentItemID INT, path TEXT, contentType TEXT)",
             "CREATE TABLE tags(tagID INTEGER PRIMARY KEY, name TEXT)",
@@ -29,8 +34,16 @@ struct ZoteroFixture {
         ] {
             try db.execute(sql)
         }
-        try db.execute("INSERT INTO itemTypes VALUES (1,'journalArticle'),(2,'book'),(3,'attachment'),(4,'note')")
-        try db.execute("INSERT INTO creatorTypes VALUES (1,'author'),(2,'editor')")
+        try db.execute("INSERT INTO itemTypes VALUES (1,'journalArticle'),(2,'book'),(3,'attachment'),(4,'note'),(5,'presentation')")
+        try db.execute("INSERT INTO creatorTypes VALUES (1,'author'),(2,'editor'),(3,'presenter')")
+        // 對照真 Zotero 的 schema：journalArticle／book 的 primary 是 author，
+        // **presentation 的 primary 是 presenter**；editor 對任何型別都不是 primary。
+        try db.execute("""
+            INSERT INTO itemTypeCreatorTypes VALUES
+              (1,1,1),(1,2,0),
+              (2,1,1),(2,2,0),
+              (5,3,1),(5,1,0)
+            """)
         try db.execute("INSERT INTO fields VALUES (1,'title'),(2,'date'),(3,'publicationTitle'),(4,'volume'),(5,'issue'),(6,'DOI'),(7,'pages')")
     }
 
@@ -170,6 +183,54 @@ final class ZoteroImportTests: XCTestCase {
         // 再跑一次不重複 orphan
         let report2 = try runImport()
         XCTAssertEqual(report2.orphaned, [])
+    }
+
+    /// **presentation 的作者位是 `presenter`，不是 `author`**（#340 的回歸測試）。
+    ///
+    /// 這條釘住的是一個**已經發生過的資料損失**：`ZoteroReader` 原本硬寫
+    /// `WHERE ct.creatorType = 'author'`，於是真庫的 21 筆會議發表在匯入時
+    /// **整塊掉了全部發表人**（實測 64 個 `presenter` creator row）。而 APA7 §10.5
+    /// 把發表人放在作者位——那不是少一個欄位，是那筆記錄**無法被引用**。
+    ///
+    /// **為什麼套件當時全綠**：fixture 只有 `journalArticle`／`book`（primary 都是
+    /// `author`），所以寫死 `'author'` 與讀 `primaryField` 在測試上不可區分。
+    /// 這條測試連同 fixture 的 `presentation` 一起，把那個不可區分性消掉。
+    func testPresentationCreatorsComeFromThePrimaryTypeNotHardcodedAuthor() throws {
+        try fixture.db.execute("INSERT INTO items VALUES (40,5,'KEYPRES1',7,1)")
+        try fixture.addField(item: 40, field: 1, value: "Two are better than one", valueID: 400)
+        try fixture.addField(item: 40, field: 2, value: "2024", valueID: 401)
+        try fixture.db.execute("INSERT INTO creators VALUES (40,'Che','Cheng',0),(41,'Keng-Ling','Lay',0)")
+        // creatorTypeID 3 ＝ presenter（presentation 的 primary）
+        try fixture.db.execute("INSERT INTO itemCreators VALUES (40,40,3,0),(40,41,3,1)")
+
+        let result = try ZoteroReader.readItems(dbPath: fixture.dbURL.path)
+        guard let item = result.items.first(where: { $0.key == "KEYPRES1" }) else {
+            return XCTFail("讀不到 presentation item")
+        }
+        XCTAssertEqual(item.authors.map(\.display), ["Che Cheng", "Keng-Ling Lay"],
+                       "presenter 必須被當成作者位讀出來——寫死 'author' 會讓這裡是空的")
+        XCTAssertEqual(item.authors.map(\.family), ["Cheng", "Lay"])
+    }
+
+    /// 反面：`editor` 對任何型別都不是 primary，**不得**被讀成作者。
+    ///
+    /// APA7 讓編者滿足編著作品的作者位（#354 的 `authorPositionAlternatives`），
+    /// 但那是**匯出層**的事——store 側不該把 editor 混進 `authors`。
+    /// 用 `primaryField` 判定自動得到這個結果，不需要另寫排除清單。
+    func testEditorsAreNotReadAsAuthors() throws {
+        try fixture.db.execute("INSERT INTO items VALUES (41,2,'KEYEDIT1',7,1)")
+        try fixture.addField(item: 41, field: 1, value: "An edited volume", valueID: 410)
+        try fixture.db.execute("INSERT INTO creators VALUES (50,'Ed','Editor',0)")
+        // creatorTypeID 2 ＝ editor（book 的 primary 是 author，故 editor 非 primary）
+        try fixture.db.execute("INSERT INTO itemCreators VALUES (41,50,2,0)")
+
+        let result = try ZoteroReader.readItems(dbPath: fixture.dbURL.path)
+        guard let item = result.items.first(where: { $0.key == "KEYEDIT1" }) else {
+            return XCTFail("讀不到 book item")
+        }
+        XCTAssertTrue(item.authors.isEmpty,
+                      "editor 不是作者位——讀成作者會讓編著作品的作者欄變成編者："
+                      + "\(item.authors.map(\.display))")
     }
 
     func testResolvedAuthorsArePreservedOnUpdate() throws {

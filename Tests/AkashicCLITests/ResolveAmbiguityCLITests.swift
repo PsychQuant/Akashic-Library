@@ -139,9 +139,19 @@ final class ResolveAmbiguityCLITests: XCTestCase {
                       "七個異名只印四個 → 要說出還有 3 個：\n\(r.output)")
         XCTAssertFalse(r.output.contains("…+0"),
                        "沒丟就不要印——「沒丟」與「丟了 0 個」不該變成兩件事：\n\(r.output)")
-        // 只印前四個的證據：第五個之後不得出現（否則 `…+3` 是對的但截斷沒發生）
-        XCTAssertFalse(r.output.contains("A5"),
-                       "超出上限的異名不應出現：\n\(r.output)")
+        // 只印前四個的證據：第五個之後不得出現（否則 `…+3` 是對的但截斷沒發生）。
+        //
+        // **只看異名那一列，不看整份輸出。** 先前是 `r.output.contains("A5")`——而輸出
+        // 裡另有 entry 的 UUID 前綴（`entry:AAA54C33`），八個十六進位字元隨機命中
+        // `A5` 的機率約 2–3%。於是這條斷言會**隨機變紅**，而紅的原因與它要測的東西
+        // 完全無關（實測一次：異名列表正確截斷成四個、`…+3` 也印了，是 UUID 撞上）。
+        //
+        // 短字串比對整份輸出是這類 flake 的通用形狀：比對面越大，撞上無關內容的機率
+        // 越高。修法是縮小比對面到斷言真正談的那一行。
+        let aliasLine = r.output.split(separator: "\n").first { $0.contains("alias-one") }
+        XCTAssertNotNil(aliasLine, "找不到 alias-one 那一列：\n\(r.output)")
+        XCTAssertFalse(aliasLine?.contains("A5") ?? true,
+                       "超出上限的異名不應出現在異名列表裡：\n\(r.output)")
     }
 
     /// 一個區辨欄位都沒有時要**明說**——否則使用者以為系統沒查，其實是查了但沒東西。

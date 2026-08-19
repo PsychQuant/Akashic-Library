@@ -137,6 +137,57 @@ Some assertions rest on reasoning over other evidence rather than on a single re
 - **THEN** the store SHALL reject the record, because a judgement is not a retrieval and has no bytes of its own
 
 ---
+### Requirement: The truthfulness of a provenance description SHALL rest with the writer, not with the audit
+
+A digest guarantees that the stored bytes have not changed. It does not guarantee that the
+prose description of how those bytes were obtained is true. These are different claims, and
+only the first is mechanically checkable.
+
+The audit over stored content SHALL therefore be defined as a check of form: that every index
+entry corresponds to stored bytes, that every referenced digest resolves, and that no stored
+blob is unreferenced. The audit SHALL NOT be described, in output or in documentation, as
+establishing that a description is accurate.
+
+Responsibility for the accuracy of a description rests with whoever wrote it at the moment of
+writing. A reader who needs that accuracy re-established SHALL do so out of band; the store
+offers no mechanism for it.
+
+A mechanism that re-fetches a source and compares digests SHALL NOT be presented as
+establishing the truthfulness of a description. Where stored bytes are an aggregate of
+several queries against a live service, a re-fetch is not expected to reproduce them, so a
+digest mismatch does not distinguish a false description from an upstream change — and the
+latter case is already covered by the requirement that changed content yields a second
+digest. A mechanism that cannot separate the two does not constitute a truth check.
+
+Nor SHALL such a mechanism be presented as covering the store while any entry records an
+acquisition route that cannot be revisited. Coverage claimed over a subset, stated as
+coverage of the whole, reports an assurance the store does not have.
+
+#### Scenario: The audit passes on an entry whose description is wrong
+
+- **GIVEN** an index entry whose stored bytes resolve and whose digest matches, and whose
+  description names a source the bytes did not come from
+- **WHEN** the audit runs
+- **THEN** the audit SHALL report the entry as consistent, and SHALL NOT be read as
+  confirming the description
+
+#### Scenario: An entry records an acquisition path that cannot be revisited
+
+- **GIVEN** an entry whose content was obtained by a route that cannot be repeated, such as a
+  copy supplied by a library
+- **WHEN** any re-verification is considered
+- **THEN** that entry SHALL be recognised as structurally outside the reach of
+  re-verification, and a mechanism covering only the remaining entries SHALL NOT be presented
+  as covering the store
+
+#### Scenario: A caller asks whether the store can attest a description
+
+- **GIVEN** a store holding provenance references
+- **WHEN** a caller asks whether the recorded descriptions have been verified
+- **THEN** the answer SHALL be that they have not, and that the store's guarantee covers byte
+  identity and entry correspondence only
+
+
 ### Requirement: Existing records SHALL remain loadable
 
 Records carrying no references SHALL load unchanged. The existing per-segment source field SHALL continue to be accepted and SHALL NOT be rewritten by this change.

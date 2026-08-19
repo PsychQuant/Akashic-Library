@@ -30,6 +30,12 @@ public struct AuthorListFingerprint: Equatable, Hashable, Sendable {
             case .key(let key):
                 tag = 0
                 value = key
+            case .organization(let key):
+                // **tag 2 是新值，不重用 0/1**（#323）：若團體作者沿用 tag 0，
+                // `.key("x")` 與 `.organization("x")` 會雜湊成同一值——見證的用途正是
+                // 分辨作者清單有沒有變，把兩種不同的歸戶混為一談會讓變更靜默通過。
+                tag = 2
+                value = key
             case .literal(let literal):
                 tag = 1
                 value = literal
@@ -229,7 +235,8 @@ public struct AuthorListCompletenessWitness: Equatable {
     ) throws {
         for (index, author) in attestedAuthors.enumerated() {
             switch author {
-            case .key(let key):
+            case .key(let key), .organization(let key):
+                // organization key 與 person key 同樣受 StoreKey 約束（#323）。
                 guard StoreKey.isValid(key) else {
                     throw AuthorshipCompletenessValidationError(
                         reason: .authorKey(index: index), detail: key)
@@ -341,9 +348,13 @@ public struct AuthorListCompletenessWitness: Equatable {
         return zip(lhs, rhs).allSatisfy { left, right in
             switch (left, right) {
             case let (.key(leftValue), .key(rightValue)),
+                 let (.organization(leftValue), .organization(rightValue)),
                  let (.literal(leftValue), .literal(rightValue)):
                 return leftValue.utf8.elementsEqual(rightValue.utf8)
-            case (.key, .literal), (.literal, .key):
+            // **跨態一律不等**（#323）：同一個字串在不同態下是不同的事實
+            // （`.key("x")` ＝已判定為人；`.organization("x")` ＝已判定為團體；
+            // `.literal("x")` ＝未判定）。混為相等會讓歸戶動作在見證上看不出來。
+            case (.key, _), (.organization, _), (.literal, _):
                 return false
             }
         }
@@ -362,6 +373,10 @@ enum AuthorListCompletenessYAML {
             case .key(let key):
                 return Node([
                     (Node("key"), ProvenanceYAML.strictStringNode(key)),
+                ] as [(Node, Node)])
+            case .organization(let key):
+                return Node([
+                    (Node("organization"), ProvenanceYAML.strictStringNode(key)),
                 ] as [(Node, Node)])
             case .literal(let literal):
                 return Node([

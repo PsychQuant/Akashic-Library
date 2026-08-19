@@ -432,6 +432,22 @@ public final class LibraryStore {
                          "遷移既有記錄，再把 store.yaml 的 format: 改成 11")
             }
         }
+        // v12-only 語法的 format gate（#323）：organization 作者。舊 binary 對 authors
+        // 的未知鍵是 `rejectUnknownKeys` 擲錯 → 上層轉**整檔 quarantine**（實測 rc=0
+        // 且該筆整個消失、無訊息，只有 doctor 看得到）。比 venues 的 tolerant-preserve
+        // 更嚴重，故同樣 gate。
+        if entry.authors.contains(where: { if case .organization = $0 { return true }
+                                           else { return false } }) {
+            let format = try StoreVersion.read(root: root)
+            guard format >= 12 else {
+                throw StoreIOError.invalidInput(
+                    what: "entry「\(displaySafe(entry.citekey, max: 120))」",
+                    why: "含 organization 作者，需要 store format ≥ 12；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                         "format: 改成 12（format-11 binary 讀到會整檔 quarantine，" +
+                         "且 query 不會報錯）")
+            }
+        }
         let yaml = try EntryYAML.encode(entry)
         // #35：format 2 走 entities/<uuid>.yaml，legacy 走 entries/<citekey>.yaml
         let dest = usesEntitiesLayout ? entityURL(id: entry.id) : entryURL(citekey: entry.citekey)
@@ -454,6 +470,13 @@ public final class LibraryStore {
         return dest
     }
 
+    /// format 11 的 `VenueType` 值域（#324 之前的三值）。**寫死是刻意的**——它記錄的是
+    /// 一個**歷史事實**（format 11 的 binary 認得哪些值），不會隨當前列舉演進；用
+    /// `allCases` 反而會讓 gate 隨新增值自動放行，等於沒有 gate。
+    private static let venueTypesReadableAtFormat11: Set<VenueType> = [
+        .conference, .publisher,
+    ]
+
     /// 發表載體只存在於 entities 佈局（format 11 起，#304）。
     @discardableResult
     public func writeVenue(_ v: Venue) throws -> URL {
@@ -470,6 +493,15 @@ public final class LibraryStore {
                 why: "venue 是 format 11 的新形狀；本 store 是 \(format)——" +
                      "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
                      "format: 改成 11（舊 binary 讀到 venue 檔會整檔 quarantine）")
+        }
+        // #324：format 11 只認得三值。新值域（periodical 等）要 format 12——
+        // format-11 binary 的 VenueType decode 對未知值**整檔拒讀**。
+        if !Self.venueTypesReadableAtFormat11.contains(v.type), format < 12 {
+            throw StoreIOError.invalidInput(
+                what: "venue「\(displaySafe(v.key, max: 120))」的 type「\(v.type.rawValue)」",   // display-safe-exempt: rawValue 是編譯期常量
+                why: "該值是 format 12 的新值域（#324）；本 store 是 \(format)——" +
+                     "把 store.yaml 的 format: 改成 12（format-11 binary 讀到未知 " +
+                     "venue type 會整檔拒讀）")
         }
         try Self.assertNoErrors(v.validate(), what: "venue", key: v.key)
         let yaml = try VenueYAML.encode(v)

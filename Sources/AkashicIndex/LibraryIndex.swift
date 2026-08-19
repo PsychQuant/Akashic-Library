@@ -27,7 +27,7 @@ public struct LibraryIndex {
     /// 判 stale、升級後第一次使用自動重建一次。
     /// **4**＝新增 `venue_refs`／`venues`（#304）：Entry.venues 二態 ref 的反向索引
     /// （編年查詢的資料面）。
-    public static let schemaVersion: Int32 = 4
+    public static let schemaVersion: Int32 = 5
 
     let store: LibraryStore
 
@@ -128,7 +128,11 @@ public struct LibraryIndex {
                 uuid TEXT PRIMARY KEY, citekey TEXT UNIQUE, type TEXT, title TEXT,
                 year INT, journal TEXT, status TEXT, orphaned INT)
             """,
-            "CREATE TABLE authors(entry_uuid TEXT, position INT, person_key TEXT, literal TEXT)",
+            // #323：三態作者。**加欄而非重用 person_key**——把 organization 塞 person_key
+            // 會讓 `idx_authors_key` 的反向查詢（personPublications）把團體當人回傳；
+            // 塞 literal 則會讓 #303 的 literal 歸零 campaign 永遠把它算成待處理。
+            // schema 是二態時兩個都錯，所以欄位集合要跟上正典邊的態數。
+            "CREATE TABLE authors(entry_uuid TEXT, position INT, person_key TEXT, organization_key TEXT, literal TEXT)",
             "CREATE TABLE tags(entry_uuid TEXT, tag TEXT)",
             "CREATE TABLE entry_libraries(entry_uuid TEXT, library_key TEXT)",
             "CREATE TABLE relations(from_uuid TEXT, kind TEXT, target TEXT)",
@@ -149,7 +153,7 @@ public struct LibraryIndex {
             // 前綴，換掉的 store 的 index 根本不叫這個名字）。這一欄擋的是人工
             // 改名。可空：既有 store 沒有 incarnation 檔。
             "CREATE TABLE index_identity(only_row INT PRIMARY KEY CHECK (only_row = 1), store_root TEXT NOT NULL, store_id TEXT, built_at TEXT NOT NULL, entry_count INT NOT NULL)",
-            "PRAGMA user_version = 4",   // = schemaVersion；同步遞增
+            "PRAGMA user_version = 5",   // = schemaVersion；同步遞增
         ] {
             try db.execute(sql)
         }
@@ -177,10 +181,13 @@ public struct LibraryIndex {
             for (i, author) in entry.authors.enumerated() {
                 switch author {
                 case .key(let k):
-                    try db.execute("INSERT INTO authors VALUES (?,?,?,NULL)",
+                    try db.execute("INSERT INTO authors VALUES (?,?,?,NULL,NULL)",
+                                   bind: [entry.id.uuidString, i, k])
+                case .organization(let k):
+                    try db.execute("INSERT INTO authors VALUES (?,?,NULL,?,NULL)",
                                    bind: [entry.id.uuidString, i, k])
                 case .literal(let s):
-                    try db.execute("INSERT INTO authors VALUES (?,?,NULL,?)",
+                    try db.execute("INSERT INTO authors VALUES (?,?,NULL,NULL,?)",
                                    bind: [entry.id.uuidString, i, s])
                 }
             }

@@ -80,7 +80,23 @@ public enum StoreVersion {
     ///   tolerant-preserve 層（舊 binary 保留不解讀），但「保留而不解讀」對
     ///   ref 邊即反向查詢靜默漏資料。write gate 對 format < 11 拒寫 venue 記錄
     ///   與含 `venues` 的 entry。
-    public static let supported = 11
+    /// - **12** ＝ `Author` 三態（#323，新增 `organization:` 鍵）＋ `VenueType` 的
+    ///   APA7 值域（#324，`journal` → `periodical` 並加四值）。**non-additive，實測
+    ///   依據**（2026-08-19）：
+    ///   - **#323**：format-11 binary 讀含 `authors: [{organization: …}]` 的 entry →
+    ///     `rejectUnknownKeys` 擲錯，被上層轉成**整檔 quarantine**。實測
+    ///     `akashic query` 回 **rc=0 且該筆整個消失、無任何訊息**；只有主動跑
+    ///     `doctor` 才看得到 `quarantined: 1`。與 format 11 的 venue 前例同型。
+    ///   - **#324**：`VenueType` 的 decode 對未知值**整檔拒讀**（該型別的 doc 明載），
+    ///     舊 binary 讀到 `type: periodical` 直接拒絕整個檔案。
+    ///   write gate 對 format < 12 拒寫「含 organization 作者的 entry」與「type 不在
+    ///   format 11 值域內的 venue」。
+    ///
+    ///   **`Entry.type` 的封閉列舉（#325）刻意不在此列**：`type` 是自由 `String` 且
+    ///   decode 不驗，舊 binary 讀到新值會照 tolerant-preserve 原樣保留——那是
+    ///   **additive**，依本檔頂部的判準表不該 bump（「bump 會讓每個 additive 演化都逼
+    ///   所有 binary 同步升級，等於白做 #23」）。
+    public static let supported = 12
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，

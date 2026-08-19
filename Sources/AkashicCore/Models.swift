@@ -27,6 +27,11 @@ public struct Entry: Equatable {
     public var provenance: Provenance?
     /// Akashic 自有 namespace——pull 絕不觸碰。
     public var akashic: AkashicMeta
+    /// 學位論文專屬事實（#335）。`nil` ＝ 這不是學位論文，或還沒查。
+    ///
+    /// **刻意不在型別層綁定 `type == .thesis`**——那需要把 `Entry` 變成 per-type 的
+    /// 和類型，改動遠大於本題。「非學位論文帶 thesis 事實」由 `validate` 報診斷。
+    public var thesis: ThesisFacts?
     /// 頂層未知欄位（tolerant-preserve，#23）。
     public var unknownFields: [UnknownField]
 
@@ -34,6 +39,7 @@ public struct Entry: Equatable {
                 authors: [Author] = [], venues: [VenueRef] = [], date: String? = nil,
                 fields: [String: String] = [:], attachments: [AttachmentRef] = [],
                 provenance: Provenance? = nil, akashic: AkashicMeta = AkashicMeta(),
+                thesis: ThesisFacts? = nil,
                 unknownFields: [UnknownField] = []) {
         self.id = id
         self.citekey = citekey
@@ -46,6 +52,7 @@ public struct Entry: Equatable {
         self.attachments = attachments
         self.provenance = provenance
         self.akashic = akashic
+        self.thesis = thesis
         self.unknownFields = unknownFields
     }
 }

@@ -154,6 +154,52 @@ akashic:                         # Akashic namespace——pull 絕不觸碰
           - sha256:abababababababababababababababababababababababababababababababab
 ```
 
+### 2.1.1 `thesis:`——學位論文的 APA7 §10.6 事實（#335，additive）
+
+只在 `type: thesis` 的記錄上出現。**封閉鍵域**：`degree`／`availability`／
+`repository`／`repository_url`。
+
+```yaml
+type: thesis
+title: Paradigmatic Decisions for Measuring Choice
+fields:
+  institution: National Taiwan University
+thesis:
+  degree: doctoral              # 封閉三值：doctoral / masters / undergraduate
+  availability: published       # 封閉二值：unpublished / published
+  repository: ProQuest Dissertations and Theses Global   # 僅 published；可缺
+  repository_url: https://…                              # 選填
+```
+
+**為什麼需要這個區塊。** APA7 §10.6 有兩張 template，差別不只是字串：未出版時授予機構
+落在句末的 source element，已出版時落在**標題後的方括號內**、而 source element 換成典藏庫。
+所以 `fields.institution` 有值也不夠——**該把它放哪取決於「已出版與否」**，而那個事實
+先前完全不可表達。這是下限違反（`apa7-is-the-work-floor`），不是美觀問題。
+
+**三條非顯而易見的規則**：
+
+1. **兩個欄位都可缺，缺席＝未查，且不得折成預設值。** 把缺席的 `availability` 當成
+   `unpublished` 會渲染出 `[Unpublished doctoral dissertation]`——那是一個**可能為假的
+   斷言**，不是缺資訊。實測（2026-08-19）5 筆 thesis 的 `availability` 全部缺席。
+2. **`availability: unpublished` 不得帶 `repository`／`repository_url`**，decode 拒讀。
+   依 §10.6，未出版的論文「必須直接向該校以紙本索取」——沒有典藏庫可指。Swift 側用關聯值
+   讓這個組合寫不出來，YAML 側因此也要擋，否則會出現型別接不住的檔案。
+3. **`availability: published` 的 `repository` 可缺。** 手冊例 65／66 就是已出版（有典藏
+   URL）卻沒有典藏庫名的形狀。要求必帶會讓遇到那種記錄的人只剩「丟掉已知事實」或
+   「編造典藏庫名」兩條路。
+
+**空區塊**（`thesis: {}`）讀成缺席，不報錯——它不矛盾，只是沒內容。反向：`ThesisFacts`
+的 init 是 failable，所以兩個事實都沒有的事實物件在型別層不存在，也就寫不出空區塊。
+
+**版本**：**additive，不 bump format**。舊 binary 讀到 `thesis:` 走 tolerant-preserve
+逐字保留（同 `Entry.type` 封閉列舉的先例，#325）。
+
+**匯出**：`degree` → biblatex `type` 欄位，token 由依賴指定
+（`phdthesis`／`mathesis`／`bathesis`）；`published` 的 `repository` → `eprint`、URL → `url`。
+**誠實邊界**：biblatex-apa 對「已出版 vs 未出版的學位論文」**沒有任何機制**（全樹搜尋只
+命中節名字串），所以 §10.6 兩形態的**渲染**是上游缺口。模型持有這個事實是下限要求；
+渲染保真度是另一件事，且本專案沒有 LaTeX 往返測試可驗。
+
 ### 2.2 必要欄位
 
 `id`（UUID，不可變）、`citekey`、`type`、`title`。其餘皆可省略；空集合不寫出。

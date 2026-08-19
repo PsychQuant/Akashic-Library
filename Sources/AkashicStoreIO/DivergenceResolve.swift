@@ -1393,6 +1393,29 @@ extension LibraryStore {
         if let s = e.akashic.status, !s.isEmpty, keeper.akashic.status != s {
             losses.append("status: \(s)")
         }
+        // 學位論文事實（#335）：整塊當一個值比，不逐欄位拆。
+        //
+        // 理由是那兩個事實**互相依賴**——`availability: published` 帶著典藏庫，
+        // 而 `unpublished` 依 §10.6 沒有典藏庫可帶。逐欄位比會產生「取 doomed 的
+        // availability ＋ keeper 的 degree」這種**沒人裁決過的混合**，而那個組合
+        // 可能在 APA7 上是錯的（例如把碩論的取得途徑掛到博論上）。
+        //
+        // 整塊比 ＋ 指名（訊息結尾叫人「把要保留的搬到倖存者身上」，只說「不同」
+        // 不可執行）。判準同 `check`：缺席／同值／衝突三態。
+        if let th = e.thesis, keeper.thesis != th {
+            var parts: [String] = []
+            if let d = th.degree { parts.append("degree=\(d.rawValue)") }
+            switch th.availability {
+            case nil: break
+            case .unpublished: parts.append("availability=unpublished")
+            case .published(let repository, let url):
+                parts.append("availability=published")
+                if let repository { parts.append("repository=\(displaySafe(repository, max: 200))") }
+                if let url { parts.append("repository_url=\(displaySafe(url, max: 200))") }
+            }
+            let suffix = keeper.thesis == nil ? "" : "（兩邊都有但不同，需選一個）"
+            losses.append("thesis: " + parts.joined(separator: "、") + suffix)
+        }
         // Canonical authorship completeness 是 truth-bearing claim，不是可由 keeper-wins
         // 靜默捨棄的同步狀態。實際 work 消歧中兩筆合法 witness 的 work UUID 必然
         // 不同，因此 keeper 缺席與兩邊不同都要交回人工裁決；同值才是不會遺失。
@@ -1660,17 +1683,17 @@ extension LibraryStore {
     /// 上方的六類 = 11」，兩個數都錯，只是 5+6 湊巧等於 11——排除項是 4 個、比對
     /// 的是 7 個。湊得出總數不代表對得上）：
     ///
-    /// | 比對（8） | **部分比對**（2） | 排除（2） |
+    /// | 比對（9） | **部分比對**（2） | 排除（2） |
     /// |---|---|---|
-    /// | `fields`、`attachments`、`akashic`（tags／libraries／status／relations／authorListCompleteness／unknownFields 六個子欄位都在裡面，**收合成一個屬性算**）、`authors`、`venues`（#304，差集判準同 authors 的理由）、`date`、`unknownFields`、`provenance` | `type`、`title`——**只比缺席方向**（見下） | `id`、`citekey` |
+    /// | `fields`、`attachments`、`akashic`（tags／libraries／status／relations／authorListCompleteness／unknownFields 六個子欄位都在裡面，**收合成一個屬性算**）、`authors`、`venues`（#304，差集判準同 authors 的理由）、`date`、`unknownFields`、`provenance`、`thesis`（#335，**整塊比不逐欄位拆**——兩個事實互相依賴，逐欄位比會產生沒人裁決過的混合） | `type`、`title`——**只比缺席方向**（見下） | `id`、`citekey` |
     ///
-    /// 8 + 2 + 2 = 12，由 `testEntryFieldCoverageOfMergeCheck` 以反射釘住。
+    /// 9 + 2 + 2 = 13，由 `testEntryFieldCoverageOfMergeCheck` 以反射釘住。
     ///
     /// **反射只釘頂層**（#157 verify 157-9）：`AkashicMeta`／`Relations`／`Provenance`
     /// 的巢狀屬性另有各自的計數斷言——歷史上 schema 演化正是發生在 `akashic` 那層
     /// （`Models.swift` 自己這麼寫，#13 的 `libraries` 即是），只釘頂層等於對最會
     /// rot 的地方失明。
-    static let entryFieldsCoveredByMergeCheck = 12
+    static let entryFieldsCoveredByMergeCheck = 13
 
     /// `p` 的哪些 profile 維度**不是** `keeper` 的子集。空 = 合併不會失去任何時間軸。
     private static func profileDimensionsNotCovered(

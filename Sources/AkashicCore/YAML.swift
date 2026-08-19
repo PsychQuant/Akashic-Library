@@ -128,6 +128,25 @@ public enum EntryYAML {
             }
             pairs.append((Node("provenance"), Node(p)))
         }
+        // 學位論文事實（#335）。不需要 `isEmpty` 分支——`ThesisFacts` 的 init 是
+        // failable，空事實在文法上不存在。
+        if let th = entry.thesis {
+            var t: [(Node, Node)] = []
+            if let degree = th.degree {
+                t.append((Node("degree"), Node(degree.rawValue)))
+            }
+            switch th.availability {
+            case nil:
+                break
+            case .unpublished:
+                t.append((Node("availability"), Node("unpublished")))
+            case .published(let repository, let url):
+                t.append((Node("availability"), Node("published")))
+                if let repository { t.append((Node("repository"), Node(repository))) }
+                if let url { t.append((Node("repository_url"), Node(url))) }
+            }
+            pairs.append((Node("thesis"), Node(t)))
+        }
         var a: [(Node, Node)] = []
         if !entry.akashic.tags.isEmpty {
             a.append((Node("tags"), Node(entry.akashic.tags.map { Node($0) })))
@@ -233,6 +252,7 @@ public enum EntryYAML {
         if a.date != b.date { bad.append("date") }
         if a.fields != b.fields { bad.append("fields") }
         if a.attachments != b.attachments { bad.append("attachments") }
+        if a.thesis != b.thesis { bad.append("thesis") }
         if a.provenance != b.provenance { bad.append("provenance") }
         if a.akashic != b.akashic { bad.append("akashic") }
         return bad.isEmpty
@@ -302,13 +322,19 @@ public enum EntryYAML {
     /// 逐字保留並在寫回時重新產生——舊的 `type: person` 也是同理，見 `knownPersonKeys`。
     static let knownTopLevelKeys: Set<String> = Set([
         "id", "citekey", "type", "title", "authors", "venues", "date",
-        "fields", "attachments", "provenance", "akashic",
+        "fields", "attachments", "provenance", "akashic", "thesis",
     ]).union(EntityKind.knownLabels)
     static let knownAkashicKeys: Set<String> = [
         "tags", "libraries", "status", "relations", "author-list-completeness",
         "sources",
     ]
     static let knownRelationsKeys: Set<String> = ["cites", "related"]
+    /// `thesis:` 的封閉鍵域（#335）。`repository`／`repository_url` 只在
+    /// `availability: published` 時合法——decode 端強制這一點，因為關聯值型別
+    /// 在 Swift 側已經讓它寫不出來，YAML 側不擋就會出現型別接不住的檔案。
+    static let knownThesisKeys: Set<String> = [
+        "degree", "availability", "repository", "repository_url",
+    ]
     static let knownProvenanceKeys: Set<String> = [
         "zotero_key", "zotero_version", "library_id", "zotero_hash",
         "imported_at", "orphaned_at",
@@ -890,6 +916,63 @@ public enum EntryYAML {
                 }
                 return AttachmentRef(kind: kind, path: path)
             }
+        }
+        if let thMap = try requireShape(map["thesis"], field: "thesis",
+                                        expect: "mapping", nullIsAbsent: true, { $0.mapping }) {
+            try rejectUnknownKeys(thMap, known: knownThesisKeys, context: "thesis")
+            var decodedDegree: ThesisFacts.Degree?
+            var decodedAvailability: ThesisFacts.Availability?
+            if let raw = try requireShape(thMap["degree"], field: "thesis.degree",
+                                         expect: "scalar", nullIsAbsent: true,
+                                         { $0.scalar?.string }) {
+                // 未知值**整檔拒讀**，同 `VenueType` 的既有立場（#324）：驅動 APA7
+                // 排版的封閉值域不容忍猜測，而「靜默忽略」會讓打錯的值看起來像沒填。
+                guard let degree = ThesisFacts.Degree(rawValue: raw) else {
+                    throw StoreYAMLError.invalidField(
+                        "thesis.degree",
+                        "未知的學位別「\(raw)」——值域是封閉三值 "
+                        + ThesisFacts.Degree.allCases.map(\.rawValue).joined(separator: "／"))
+                }
+                decodedDegree = degree
+            }
+            let repository = try requireShape(thMap["repository"], field: "thesis.repository",
+                                              expect: "scalar", nullIsAbsent: true,
+                                              { $0.scalar?.string })
+            let repositoryURL = try requireShape(thMap["repository_url"],
+                                                 field: "thesis.repository_url",
+                                                 expect: "scalar", nullIsAbsent: true,
+                                                 { $0.scalar?.string })
+            if let raw = try requireShape(thMap["availability"], field: "thesis.availability",
+                                          expect: "scalar", nullIsAbsent: true,
+                                          { $0.scalar?.string }) {
+                switch raw {
+                case "unpublished":
+                    // 未出版的論文依 §10.6 沒有典藏庫可指——帶了就是矛盾的檔案，
+                    // 而 Swift 側的關聯值型別接不住它。fail-closed。
+                    guard repository == nil, repositoryURL == nil else {
+                        throw StoreYAMLError.invalidField(
+                            "thesis",
+                            "availability: unpublished 不得帶 repository／repository_url"
+                            + "——未出版的論文依 APA7 §10.6 必須直接向該校索取，沒有典藏庫")
+                    }
+                    decodedAvailability = .unpublished
+                case "published":
+                    // repository 可缺——手冊例 65／66 就是已出版卻無典藏庫名的形狀。
+                    decodedAvailability = .published(repository: repository,
+                                                    url: repositoryURL)
+                default:
+                    throw StoreYAMLError.invalidField(
+                        "thesis.availability",
+                        "未知的取得途徑「\(raw)」——值域是封閉二值 unpublished／published")
+                }
+            } else if repository != nil || repositoryURL != nil {
+                // 只有典藏庫而沒說是否已出版——那個組合在 Swift 側寫不出來。
+                throw StoreYAMLError.invalidField(
+                    "thesis", "有 repository／repository_url 卻缺 availability")
+            }
+            // failable init 回 nil ＝ 檔案裡有 `thesis:` 但兩個事實都沒給。那是空區塊，
+            // 語意等同沒有——不報錯（它不矛盾，只是沒內容），但也不留一個空殼。
+            entry.thesis = ThesisFacts(degree: decodedDegree, availability: decodedAvailability)
         }
         if let provMap = try requireShape(map["provenance"], field: "provenance",
                                           expect: "mapping", nullIsAbsent: true, { $0.mapping }) {

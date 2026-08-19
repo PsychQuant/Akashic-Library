@@ -69,7 +69,17 @@ struct AkashicCLI: ParsableCommand {
 /// library root 解析：--library flag → $AKASHIC_LIBRARY → ~/.akashic/config.yaml。
 /// 全 config 驅動，無寫死個人路徑（發布餘地）。
 struct LibraryOptions: ParsableArguments {
-    @Option(name: .long, help: "library root（預設 $AKASHIC_LIBRARY 或 ~/.akashic/config.yaml 的 library:）")
+    // #315：「library」在本專案承載三義，而**最危險的一對就在這裡與 MCP 之間**：
+    // 這個旗標是「開哪個 store」（檔案系統路徑），MCP 的同名參數是「在這個 store 裡篩
+    // 哪個 membership 分類」（`StoreKey`）。同名、鄰接、不同型別、不同語意，而**錯用
+    // 不會報錯**——只會 scope 到錯的東西，然後回一個看起來完全合理的子集。
+    //
+    // help 文字因此明寫它**不是**什麼。這是 #315 的 option (2)（零成本下限）；改名
+    // （option 1）需要裁決，而裁決本身有一個反直覺的方向：store 自己的目錄叫
+    // `libraries/`，所以 membership 那個意思才是 store 的原生詞彙——**本旗標才是異類**。
+    @Option(name: .long, help: """
+        store root 路徑（預設 $AKASHIC_LIBRARY 或 ~/.akashic/config.yaml 的 library:）。        **不是** membership 分類——那是 MCP tool 的同名參數（見 #315）
+        """)
     var library: String?
 
     /// 破壞性 `--apply` 的知情同意（#298）。

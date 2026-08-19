@@ -77,6 +77,13 @@ if out != input { try out.write(to: url, atomically: true, encoding: .utf8) }
 
 **限定範圍的作法**：另建一個只含目標記錄的暫存 store，在那裡跑，再把產出的實體檔複製回主 store。
 
+> ⚠️ **下面的 `--library` 是「開哪個 store」，不是 membership 分類（#315）。** 同名的
+> MCP 參數（`akashic_person(library:)`）指的是 store **內**的分類——見 `SKILL.md`。
+> 兩者同名、不同型別、**錯用不會報錯**。
+>
+> 另外：`--apply` 屬破壞性寫入，未指定 `--library` 時會**拒絕執行**並說出它解析到的
+> store（#298）。下面的例子每條都帶 `--library`，所以不會撞到那個閘。
+
 ```bash
 akashic doctor --library <暫存路徑>          # 建立佈局
 # 把目標 work 的 YAML 複製進 <暫存路徑>/entities/

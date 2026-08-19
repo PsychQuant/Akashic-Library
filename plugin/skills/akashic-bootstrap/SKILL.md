@@ -56,7 +56,12 @@ akashic_person(key: "cheng-che")      # 確定的人 → 著作 + 合著者
 
 **候選永遠交給使用者挑，絕不自動選第一個。** 同名不同人在人物庫還沒記錄第二個人時，歧義偵測不會觸發——那正是自動選定會出錯而且看起來沒出錯的情境。
 
-限定 library 視角：`akashic_person(key: …, library: "sinica")`。未指定＝全集。
+限定 membership 視角：`akashic_person(key: …, library: "sinica")`。未指定＝全集。
+
+> ⚠️ **`library` 這個參數名承載兩個不同的意思（#315）。** 這裡的 `library:` 是
+> **store 內的 membership 分類**（`libraries/` 目錄裡的 key）；而 CLI 的 `--library`
+> 是**開哪個 store**（檔案系統路徑，見 `references/writing-to-the-store.md`）。
+> **錯用不會報錯**——只會 scope 到錯的東西，然後回一個看起來完全合理的子集。
 
 查無此人（`notFound`）**不等於**資料庫壞了——很可能那個人存在但還是未歸戶的 literal。退一步用 `name:` 模糊查再看一次。
 

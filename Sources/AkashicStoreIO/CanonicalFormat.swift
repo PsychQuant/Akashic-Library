@@ -83,7 +83,23 @@ public enum CanonicalFormat {
     static func normalized(_ yaml: String) throws -> String {
         switch try EntityKind.peek(yaml, strict: true) {
         case .work:         return try EntryYAML.encode(try EntryYAML.decode(yaml))
-        case .person:       return try PersonYAML.encode(try PersonYAML.decode(yaml))
+        case .person:
+            // **語意驗證，不只 canonical encode**（#297 item 2）。
+            //
+            // `fmt --apply` 走 `store.atomicWrite` 直接落盤，**繞過 `writePerson`**
+            // ——而語意約束（`authorized` ⊆ `names`、每書寫系統至多一個、兩分割互斥）
+            // 只活在 `person.validate()` 裡，由呼叫端自行決定要不要跑。
+            //
+            // 這是與遷移同族的「第二條繞過寫入邊界的路」：遷移已在 #227 R1 修復納管，
+            // `fmt` 當時漏了。沒有這道驗證，一個語意矛盾的 person 檔會被 `fmt` 原樣
+            // 重排後寫回——排版對齊了，矛盾還在，而且現在看起來像是工具背書過的。
+            //
+            // 驗在這裡而非呼叫端：`normalized()` 是「解出型別值」與「寫回位元組」
+            // 之間**唯一的交會點**，也是 `fmt` 對每個檔必經之處。放呼叫端就會有
+            // 第三條繞過路。
+            let person = try PersonYAML.decode(yaml)
+            try LibraryStore.assertNoErrors(person.validate(), what: "person", key: person.key)
+            return try PersonYAML.encode(person)
         case .organization: return try OrganizationYAML.encode(try OrganizationYAML.decode(yaml))
         case .divergence:   return try DivergenceYAML.encode(try DivergenceYAML.decode(yaml))
         case .venue:        return try VenueYAML.encode(try VenueYAML.decode(yaml))

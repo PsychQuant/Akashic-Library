@@ -20,7 +20,10 @@ struct AkashicCLI: ParsableCommand {
             try command.run()
         } catch {
             let full = fullMessage(for: error)
-            let safe = displaySafeMultiline(full)
+            // #297 item 1：頂層用不跳脫反斜線的變體——否則帶合法反斜線的常量
+            // （`StoreKey.pattern`）與已消毒片段的 `\u{...}` 都會被弄壞。
+            // 終端安全不受影響（控制字元／bidi 等仍全部跳脫），理由見該函式 doc。
+            let safe = displaySafeAssembled(full)
             if !safe.isEmpty {
                 let code = exitCode(for: error)
                 // help/CleanExit 走 stdout（exit 0 的訊息是輸出不是錯誤），其餘 stderr。

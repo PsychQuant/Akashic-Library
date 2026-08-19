@@ -104,9 +104,17 @@ final class APA7GoldenTests: XCTestCase {
     /// 2. **合法的無日期**——APA7 有 `(n.d.)`。表要求 `DATE` 存在
     /// 3. **合法的無個人作者**——維基百科條目的作者位置不是個人。表要求 `AUTHOR` 存在
     private static let knownValidatorGaps: [String: String] = [
-        "apa7-10-2-24":  "編著書只有 EDITOR（APA7 的作者位置＝編者），BOOK 表只認 AUTHOR",
-        "apa7-10-3-47":  "編著作品只有 EDITOR，INCOLLECTION 表只認 AUTHOR",
-        "apa7-10-4-55":  "來源本身無日期（APA7 印 n.d.），REPORT 表要求 DATE 存在",
+        // `apa7-10-2-24`（編著書只有 EDITOR）與 `apa7-10-3-47`（編著作品只有 EDITOR）
+        // **已由 #350 修掉**：APA7 對編著作品把編者放在作者位置，所以 `EDITOR` 現在滿足
+        // `AUTHOR` 的要求（`BibExport.authorPositionAlternatives`，只涵蓋 BOOK 與
+        // INCOLLECTION 兩型）。兩列因此刪除——這正是精確相等斷言逼出來的動作。
+        //
+        // `apa7-10-4-55` **仍在**，而它的理由變了：#350 加了 `n.d.` sentinel 讓「確認
+        // 無日期」可表達，但**這個 fixture 沒有那個 sentinel**——來源 `.bib` 只是單純
+        // 沒寫 DATE，而那在模型裡是「還沒查」。所以它現在報 error 是**正確的**：
+        // 若要讓它通過，該做的是在 fixture 補 `n.d.`，而那會是在改手冊的資料。
+        "apa7-10-4-55":  "來源沒寫 DATE，而模型把「沒寫」讀成「還沒查」（#350 的 n.d. "
+                       + "sentinel 需要顯式標記，fixture 沒有）",
         // `apa7-10-10-76` 曾在此列（維基條目無個人作者）。**#352 之後它不再報 error，
         // 但原因不是缺口被解決**——10.10 的 `WorkType` 從 `REPORT` 改對映到 `SOFTWARE`，
         // 而 `SOFTWARE` 不在 `BibValidator` 的表內，所以它變成「未檢查」。

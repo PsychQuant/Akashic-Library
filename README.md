@@ -275,7 +275,7 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 
 - **Phase 1（完結）**：store 地基 — 格式規格、AkashicKit、Zotero 單向 pull、CLI。
   Spec：[docs/specs/2026-07-21-akashic-library-phase1-design.md](docs/specs/2026-07-21-akashic-library-phase1-design.md)
-- **Phase 2（本階段）**：MCP 整合 — schema hash 機制、`akashic-mcp`（19 tools）、發布統一。
+- **Phase 2（本階段）**：MCP 整合 — schema hash 機制、`akashic-mcp`（30 tools）、發布統一。
   Spec：[docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md](docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md)
 - **Phase 3（本階段）**：原生 App — 管理工作台（人工裁決 GUI）+ Canvas 關係圖。
   Spec：[docs/specs/2026-07-22-akashic-library-phase3-app-design.md](docs/specs/2026-07-22-akashic-library-phase3-app-design.md)
@@ -463,7 +463,7 @@ store 永遠是全集——library 只是視角，成員關係存在 entry 的 `
 ⚠ 並發限制：對**同一 entry** 並發執行 membership 寫入（CLI 與 MCP 同時 `library add/remove`）
 不保證安全——read-modify-write 無跨程序鎖，後寫者可能靜默蓋掉先寫者（跨程序鎖為 #7
 store 硬化範疇）。`create` 為 exclusive-create（並發同 key 恰一方成功）。單一操作者依序使用不受影響。
-工具面：19 tools——9 讀（search/get_entry/relations/graph/export/people/person/doctor/divergences 列歧異）+ akashic_files（list/use——多檔案切換）+ akashic_libraries（list/create/add/remove）+
+工具面：**30 tools**（實測 `grep -oE 'Tool\(name: "akashic_[a-z_]+"' Sources/akashic-mcp/Server.swift | sort -u | wc -l`；逐格裁決見 `.claude/rules/mcp-cli-parity.md` 的封閉列舉）——9 讀（search/get_entry/relations/graph/export/people/person/doctor/divergences 列歧異）+ akashic_files（list/use——多檔案切換）+ akashic_libraries（list/create/add/remove）+
 8 寫（**只碰衍生層**：set_status/tag/link/resolve_people 逐候選/create_entry 庫外/add_person/import_zotero/record_divergence 記歧異**不**消歧——消歧屬人工）。
 biblatex 面向唯讀——過渡期歸 Zotero pull 管。並發（MCP 與 CLI 並用）：per-file atomic
 write、last-wins、index 冪等重建（單人場景設計）。
@@ -1133,6 +1133,46 @@ fixture 的 BibEntry ──→ 我們的 Entry ──→ bibEntry(for:) ──�
 
    三張表都用**精確相等**斷言。永遠紅的測試會被無視；精確相等讓紅燈永遠代表「有一件事
    變了」。這與 `uncheckedCitekeys`（#326）同一條紀律：不讓「沒被檢查」冒充「檢查過且乾淨」。
+
+### 逐筆從 Zotero 補值：與 pull 刻意不同的第二種語意（#340）
+
+`import-zotero` 是 **pull**：Zotero 是上游，`applyBiblatexFields` **整份替換** `fields`、
+重設 `type`、覆寫未歸戶的 literal 作者。那個語意對「同步一個由 Zotero 維護的書目」是對的，
+但用來修跌破 APA7 下限的記錄時，作用半徑是**整個 store**、而且會蓋掉人工補過的值。
+
+`enrich-from-zotero`（CLI）／`akashic_enrich_from_zotero`（MCP）走另一條紀律：
+
+| | pull | 逐筆補值 |
+|---|---|---|
+| `fields` | 整份替換 | **只加原本不存在的鍵** |
+| `type`／`title`／`authors`／`venues`／`attachments` | 重設／可能覆寫 | **一律不動** |
+| 作用半徑 | 整個 store | 呼叫端**逐筆指名**（`--citekeys`，無「全部」的寫法）|
+
+**四類「沒補到」全部回報**（`unchanged` ＝上游也沒有／`noProvenance`／`zoteroMissing`／
+`notInStore`）——「查過但上游沒有」與「根本沒查」必須分得開，折成同一個輸出正是
+`lossless-intake` 執行細節 3 說的靜默形式，只是換到報告面。
+
+對映邏輯**只有一份**：`plan` 借 `applyBiblatexFields` 算出 Zotero 會產生什麼，再從中只取
+缺著的鍵。自己重寫一份對映＝兩份會分岔的規格。
+
+**它解決的問題比預期的有趣**：issue 的前提是「store 沒有可用資訊，必然要外部查證」。
+實測 73 筆有 `zotero_key` 的 error 記錄後，**35 筆的答案一直在 Zotero 裡**——只是
+`fieldMap` 沒有 `encyclopediaTitle`／`meetingName`，於是它們走殘餘路徑以別的鍵名入庫。
+**殘餘收集保證「來源給的都收」，但收進來的鍵名若不是 export 面認得的那個，下限仍然跌破。**
+
+### 補欄位讓分類器算對節，什麼時候可以（#355）
+
+ch10 有三節不由 entry type 單獨決定，需要一個欄位配合。判準不是「送不送得出」，
+是**這個值對這個型別是不是定義上為真**：
+
+| 情形 | 裁決 |
+|---|---|
+| `review` → `RELATEDTYPE = reviewof` | ✅ **送**——`.review` 的意思就是「這是一篇評論」 |
+| `testInstrument` → `ENTRYSUBTYPE: Database record` | ❌ 它斷言記錄**來自 PsycTESTS** |
+| `socialMediaPost` → `EPRINT: Twitter` | ❌ 它斷言**平台** |
+
+**可以送型別已經聲明的東西，不可以送記錄的出處。** 完整論證與上游限制（依賴的社群平台
+清單是寫死的封閉列舉，Mastodon 不在其中）見 `.claude/rules/apa7-is-the-work-floor.md`。
 
 ## CI
 

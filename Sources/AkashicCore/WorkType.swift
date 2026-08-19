@@ -129,7 +129,17 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
         // 這裡刻意停在「型別最接近、節不同意」的狀態，並由
         // `WorkTypeSectionAgreementTests.sectionDisagreementsNeedingFields` 具名記錄。
         // 裁決追蹤：#355。
-        case .review:            return "UNPUBLISHED" // 節不同意（10.7 需 RELATEDTYPE）
+        // #355：改送 ARTICLE。依賴的 `classifySection` 對 `ARTICLE` ＋
+        // `RELATEDTYPE = reviewof` 回 10.7，而 `RELATEDTYPE` 由 `BibExport.bibEntry`
+        // **無條件補上**——那不是編造：`.review` 這個型別的意思就是「這是一篇評論」，
+        // 「評論某物」是它的定義而非某筆記錄碰巧具備的性質。
+        //
+        // **誠實邊界（載體與關係的混同）**：APA7 §10.7 的渲染是「宿主參考文獻 ＋
+        // 一個 Review of the … 元素」，也就是「是一篇評論」本質上是**關係**不是載體
+        // 種類。而 `.review` 目前同時承擔兩者：送 `ARTICLE` 等於預設載體是期刊。
+        // 對線上影評／影片評論會是錯的載體。零實例，所以現在不拆；出現非期刊的評論
+        // 時必須重新裁決（正確形狀屬 #339 的 work → work 關係那一族）。
+        case .review:            return "ARTICLE"
         case .testInstrument:    return "SOFTWARE"     // 節不同意（10.11 需 ENTRYSUBTYPE）
         case .socialMediaPost:   return "ONLINE"       // 節不同意（10.15 需 EPRINT 平台名）
 

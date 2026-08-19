@@ -999,6 +999,54 @@ Crossref REST（18 篇）」）。對活的 API 重跑同一組查詢，**不預
 仍是同一物」，而位元組串改一個 byte 就是另一串。它沒有名字、沒有歷史、沒有生命
 週期，在構造上不可能是 entity（詳見 design-principles 的對應節）。
 
+### `fields.type` 與頂層 `type:` 同名，但它們是兩件事（#357 裁決，2026-08-19）
+
+`fields:` 底下的鍵是 **biblatex 欄位名**，而 biblatex 有一個欄位就叫 `type`。它與頂層的
+`type:`（`WorkType` 的封閉列舉，#325）**毫無關係**：
+
+| | 頂層 `type:` | `fields.type` |
+|---|---|---|
+| 是什麼 | 這筆 work 是哪一種（封閉列舉） | biblatex 的 `type` 欄位（自由字串） |
+| 誰消費 | `biblatexEntryType`／`apa7Section` 的來源 | 直接寫進 `.bib`，由 biblatex 排版 |
+| 例 | `report`、`thesis` | `Research Grant`、`manual`、`phdthesis` |
+
+**同名是 biblatex 的既定命名，不是本專案的失誤**，而依賴明確期待它
+（`APADataModel.recommendedFields["THESIS"] = ["TYPE"]`）。所以**不改名、不刪除**——
+改名會讓匯出寫出 biblatex 不認得的欄位。
+
+#### 為什麼不對它發診斷
+
+考慮過在 decode 端對 `fields.type` 報一句「這個鍵與頂層 `type` 同名，容易誤讀」。**否決。**
+實測 23 筆裡，`report` 的 7 筆與 `thesis` 的 2 筆是**正確且被依賴期待**的用法——對它們
+發診斷等於對正確資料報警，而被忽略的檢查比沒有檢查更糟（它讓人以為已經檢查過）。
+
+同名造成的是**讀 YAML 的人**的困惑，那是文件問題，本節就是它的解。
+
+#### 23 筆的逐類裁決（實測 2026-08-19，937 筆全庫）
+
+| `WorkType` | 筆數 | `fields.type` | 裁決 |
+|---|---:|---|---|
+| `conference-session` | 12 | `Conference Presentation` | **保留**。與 `WorkType` 冗餘，但刪掉不會多出任何資訊，反而失去「來源這麼寫過」這件事。同筆另有更精確的 `titleaddon: Poster presentation`（§10.5 要的那個標籤） |
+| `report` | 7 | `Research Grant` ×5／`manual` ×2 | **保留**。這正是 biblatex `@REPORT` 的 `type` 欄位；`manual` 兩筆逐字來自 Zotero 的 `reportType`（R 套件手冊），`Research Grant` 五筆是國科會計畫 |
+| `thesis` | 2 | `phdthesis`／`Master's Thesis` | **已由 #335 處理**：遷入結構化的 `thesis.degree`（封閉三值），匯出時結構化欄位勝過殘留值 |
+| `webpage` | 2 | `Preprint` | **型別是錯的**，已改為 `unpublished-work`（見下） |
+
+> **本表更正了 #357 issue 內的分布表**：該表把 `report` 的值寫成 `Research Grant`／
+> `Preprint`、把 `webpage` 的寫成 `manual` —— **兩列對調了**。實測是 `report` → `manual`、
+> `webpage` → `Preprint`。這個對調不只是筆誤：它反轉了裁決方向。照 issue 的說法
+> 「`webpage` 的 `manual` 疑似錯置」會讓人去查 R 套件手冊那兩筆（它們沒問題），
+> 而真正錯置的預印本反而被歸進「真的子類型資訊」而不會被檢查。
+
+#### 兩筆預印本的型別修正
+
+`cheng2024bexistence`／`yang2024parametric` 原標 `webpage`（宣稱 §10.16），但**四個獨立
+訊號一致指向預印本**：PsyArXiv 的 DOI 前綴（`10.31234/osf.io/…`）、`keywords: preprint`、
+`organization: PsyArXiv`、`fields.type: Preprint`。APA7 §10.8（Unpublished and Informally
+Published Works）涵蓋預印本，所以已改為 `unpublished-work`。
+
+**只改頂層 `type:`**，`fields.type: Preprint` 保留——它是來源給的，`lossless-intake`
+管的是不丟。
+
 ## 4. 衍生物
 
 - `.akashic/index.sqlite`：查詢/圖形用 index，`doctor`/import 尾端全刪重建。

@@ -53,6 +53,18 @@ public enum BibExport {
                 if let url { fields["url"] = braceSafe(url) }
             }
         }
+        // #355：`.review` 無條件帶 `RELATEDTYPE = reviewof`。
+        //
+        // **這不是為了讓分類器高興而編造欄位**——判準是「這個值對這個型別是不是定義上
+        // 為真」。`.review` 的意思就是「這是一篇評論」，而「評論某物」是它的定義，
+        // 不是某筆記錄碰巧具備的性質。對照 #355 否決掉的另外兩個：
+        // `ENTRYSUBTYPE: Database record` 對非 PsycTESTS 的量表為假、
+        // `EPRINT: Twitter` 對 Mastodon 貼文為假——那兩個是斷言記錄的**出處**，會錯。
+        //
+        // 既有值優先：若記錄自己帶了 `relatedtype`（例如來源就這麼寫），不覆寫。
+        if entry.type == .review, fields["relatedtype"] == nil, fields["RELATEDTYPE"] == nil {
+            fields["relatedtype"] = "reviewof"
+        }
         return BibEntry(entryType: entry.type.biblatexEntryType, key: entry.citekey,
                         fields: fields, rawText: "", lineNumber: 0)
     }

@@ -636,6 +636,65 @@ setUp 就寫入記錄的 suite（如 `RenameTests`）改成 `seed(format:)`，�
 `testRenameMovesFileMigratesRelationsKeepsUUID` 斷言 `entries/old2020key.yaml` 不存在，而
 在 entities 佈局下那個路徑從來就沒存在過。判斷覆蓋要看斷言的內容，不是看有沒有變紅。
 
+### `bootstrap-venues`：缺的是鏈條的第一環（#367）
+
+venue 域先前**沒有批次建檔的路徑**。person 與 organization 都有，venue 沒有：
+
+| 域 | 從 literal 批次建實體 | 單筆建檔 | 消歧 |
+|---|---|---|---|
+| person | ✅ `bootstrap-people` | ✅ `add-person` | ✅ `resolve-people` |
+| organization | ✅ `bootstrap-organizations` | ✅ `add-organization`（MCP）| ✅ `resolve-organizations` |
+| venue | **❌ 先前無** → ✅ `bootstrap-venues` | ✅ `add-venue` | ✅ `resolve-venues` |
+
+```
+migrate-venues ──→ 803 筆 literal ──→ ??? ──→ venue entity ──→ resolve-venues
+     ✅ 已做            ✅ 已有        ❌ 缺        ❌ 0 個         ✅ 已實作但空轉
+```
+
+**每一個零件都正常** —— `migrate-venues` 跑完回填了 803 筆、`resolve-venues` 存在且可執行、
+`akashic venues` 也正常回應（回「0 個」）。缺的是它們**之間的一段**，而現有的機械稽核抓不到
+它：`mcp-cli-parity` 查的是「每個命令有沒有被裁決」，查不到「**某個域少了一個命令**」。
+
+發現它的路徑值得記：`resolve-venues` 的 dry-run **回零候選** —— 那不是 bug，它的工作是拿
+literal 去比對**既有的** venue entity，而 entity 有 0 個。所以「消歧一次都沒跑過」不是使用
+怠惰，是**結構上跑不出東西**。
+
+#### `VenueType` 從哪來 —— 讀它從哪個欄位來，不是猜
+
+`VenueType` 是封閉值域（#324），批次建檔必須給每個 venue 一個值。
+
+答案是 **`VenueDerivation.literals(for:)` 的來源欄位**：`journaltitle` → `.periodical`、
+`booktitle`（僅會議發表）→ `.conference`、`publisher` → `.publisher`。literal 從哪個欄位
+來，那個欄位的**意思**就決定了載體種類 —— 這是讀出來的事實，不是啟發式。
+
+> **`journaltitle` 對到的是 `.periodical` 不是 `.journal`。** #324 把 journal 併進
+> periodical（APA7 的 periodical 涵蓋 journal／magazine／newspaper／newsletter／blog，
+> **索取同一組欄位**）。**biblatex 的欄位名與我們的值域不是同一套詞彙**，照字面對映會錯。
+
+實測（937 筆全庫）：**402 個候選**、**5 筆產不出 ASCII key**（純 CJK：`天下雜誌出版`／
+`管理學報`…，明列不靜默丟）、**0 個型別衝突**。
+
+大小寫變體的分組正確：`Journal of Personality and Social Psychology ≡ …Social psychology ≡
+…social psychology` 收成一筆而**三個寫法都留著**（WoS 全大寫形同理）—— 只留一個寫法的話，
+下次遇到另一個寫法又會重新分割一次。
+
+#### 一個零實例守衛（`zero-instance-guards` 第 4 列）
+
+同名來自**不同種類**的來源欄位時**不建檔，交人裁**。目前零實例，但它與前三列的理由不同：
+
+> 前三列的代價都落在「看不見」；這一列的代價是**看得見但看起來是對的**。`VenueType` 決定
+> 哪些欄位存在，所以取錯 type 不是標籤錯而是**整組欄位需求錯** —— 而那筆記錄會通過所有
+> 檢查，因為它確實滿足了（錯的）那一組。
+
+#### 稽核自己的脆弱，被同一個 PR 抓到
+
+`DestructiveTargetGateTests`（#298）掃的是**寫死的兩個檔名**。新命令住在新檔案裡，於是三條
+稽核同時紅 —— 而紅的原因不是它們要抓的缺陷，是**稽核自己的涵蓋範圍**。
+
+這與 `mcp-cli-parity` 記載的教訓同型（第一版 regex 只命中 11/30，該檔的結論是「**稽核程序
+自己也要被稽核**」）。已改成掃整個 `Sources/akashic/` 目錄：**寫死的檔名清單與寫死的 regex
+是同一種脆弱** —— 它們在新增東西時失效，而新增正是稽核最該發揮作用的時刻。
+
 ### 「library」承載三義，而最危險的一對是相鄰的（#315）
 
 | 介面 | 意思 | 值域 |

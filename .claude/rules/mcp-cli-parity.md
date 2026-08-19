@@ -114,7 +114,7 @@ grep -rhoE 'struct [A-Za-z]+:[^{]*\bParsableArguments\b' Sources/akashic/ \
   | sed -E 's/^struct ([A-Za-z]+):.*/\1/' | sort -u
 ```
 
-## CLI-only 裁決表（封閉列舉——#259 一次性補裁；12 命令＋1 旗標，一格不多一格不少；`import-wos` 於 #290、`resolve-organizations` 於 #304 venue change 補 MCP 面後移列 MCP 表；`migrate-person-identity` 於 #227/#241、`migrate-venues` 於 #304 venue change 新增時當場裁決）
+## CLI-only 裁決表（封閉列舉——#259 一次性補裁；12 命令＋1 旗標，`bootstrap-venues` 於 #367 新增時當場裁決，一格不多一格不少；`import-wos` 於 #290、`resolve-organizations` 於 #304 venue change 補 MCP 面後移列 MCP 表；`migrate-person-identity` 於 #227/#241、`migrate-venues` 於 #304 venue change 新增時當場裁決）
 
 新增 CLI subcommand = 在這張表加一列（或補 MCP 面後在 MCP 表加一列）。兩個
 裁決用語：**維運例外**＝要求操作者在檔案系統與版控旁（git 退路、人工
@@ -128,6 +128,7 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 | `resolve-divergence` | 有理由缺席 | in-code 既有裁決（`AkashicService.recordDivergence` doc）：消歧含合併＋全庫改寫＋刪檔，tracked+clean 前提與人工確認屬 CLI／App 互動面 |
 | `bootstrap-people` | 有理由缺席 | 批次建檔屬操作者規模；單筆由 `akashic_add_person` 覆蓋（#250）|
 | `bootstrap-organizations` | 有理由缺席 | 批次建檔屬操作者規模（同 `bootstrap-people`）。原第二理由「org 建模先停（#63／#70）」已由 #304（2026-08-16）廢止——org 重啟後**單筆**建檔的 MCP 面已於 venue change 補齊（`akashic_add_organization`，見 MCP 表）；批次面維持 CLI-only |
+| `bootstrap-venues`（#367） | 有理由缺席 | 批次建檔屬操作者規模（同 `bootstrap-people`／`bootstrap-organizations` 的既有裁決）。**三個 bootstrap 命令的裁決一致不是巧合**：它們的共同形狀是「掃全庫的 literal、按門檻建實體、dry-run 供人審」，而那個規模與審閱動作屬操作者，不是 LLM 消費面。單筆建檔的 MCP 面已有 `akashic_add_venue`（見 MCP 表） |
 | `fmt` | 有理由缺席 | 全庫改寫＝維運例外 |
 | `migrate` | 有理由缺席 | 格式遷移＝維運例外 |
 | `migrate-provenance` | 有理由缺席 | 同上 |

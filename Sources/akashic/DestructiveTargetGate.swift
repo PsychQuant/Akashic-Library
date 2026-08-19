@@ -56,6 +56,7 @@ enum DestructiveTargetGate {
         "migrate-venues",
         "bootstrap-people",
         "bootstrap-organizations",
+        "bootstrap-venues",
         "resolve-people",
         "resolve-organizations",
     ]

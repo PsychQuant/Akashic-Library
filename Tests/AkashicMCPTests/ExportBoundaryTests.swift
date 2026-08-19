@@ -51,7 +51,7 @@ final class ExportBoundaryTests: XCTestCase {
     /// 三種各自不同的威脅：ANSI escape injection、RTL override、行結構注入。
     private func dirtyEntry() -> Entry {
         let dirty = "Evil\(esc)[31m\(rtl)gnihsihp\(lineSep)line2"
-        var e = Entry(id: UUID(), citekey: "dirty2020", type: "article", title: dirty)
+        var e = Entry(id: UUID(), citekey: "dirty2020", type: .periodicalArticle, title: dirty)
         e.authors = [.literal(dirty)]
         e.fields = ["journaltitle": dirty]
         e.date = "2020"
@@ -60,7 +60,7 @@ final class ExportBoundaryTests: XCTestCase {
 
     /// **正常的書目內容**，不是攻擊面——Zotero 匯入的書目帶 LaTeX 跳脫是常態。
     private func latexEntry() -> Entry {
-        var e = Entry(id: UUID(), citekey: "latex2020", type: "article",
+        var e = Entry(id: UUID(), citekey: "latex2020", type: .periodicalArticle,
                       title: #"Emphasis \textit{word}, 100% & caf\'{e}"#)
         e.fields = ["journaltitle": #"Journal of \LaTeX{} Studies"#]
         e.date = "2020"
@@ -103,7 +103,7 @@ final class ExportBoundaryTests: XCTestCase {
     ///
     /// `BibWriter.serialize` 把每個欄位放單一行，所以「.bib 的行本來就短」不成立。
     func testLongAbstractIsNotTruncated() throws {
-        var e = Entry(id: UUID(), citekey: "long2020", type: "article", title: "Long")
+        var e = Entry(id: UUID(), citekey: "long2020", type: .periodicalArticle, title: "Long")
         let abstract = String(repeating: "A", count: 5_000)
         e.fields = ["abstract": abstract]
         e.date = "2020"
@@ -122,7 +122,7 @@ final class ExportBoundaryTests: XCTestCase {
         let store = LibraryStore(root: root)
         let chunk = String(repeating: "A", count: 3_000_000)
         for i in 0..<4 {
-            var e = Entry(id: UUID(), citekey: "huge\(i)y2020", type: "article", title: "Huge \(i)")
+            var e = Entry(id: UUID(), citekey: "huge\(i)y2020", type: .periodicalArticle, title: "Huge \(i)")
             e.fields = ["abstract": chunk]
             e.date = "2020"
             try store.writeEntry(e)
@@ -142,7 +142,7 @@ final class ExportBoundaryTests: XCTestCase {
     /// **良性內容量不出這個差別**，所以上一條不會紅、這一條會。對抗性輸入的上限
     /// 要用對抗性輸入測。
     func testOversizeIsMeasuredAfterSanitisationNotBefore() throws {
-        var e = Entry(id: UUID(), citekey: "expand2020", type: "article", title: "Expand")
+        var e = Entry(id: UUID(), citekey: "expand2020", type: .periodicalArticle, title: "Expand")
         e.fields = ["abstract": String(repeating: esc, count: 2_000_000)]
         e.date = "2020"
         try LibraryStore(root: root).writeEntry(e)

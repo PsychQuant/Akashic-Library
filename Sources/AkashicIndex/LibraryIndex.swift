@@ -172,7 +172,7 @@ public struct LibraryIndex {
             try db.execute(
                 "INSERT INTO entries VALUES (?,?,?,?,?,?,?,?)",
                 bind: [
-                    entry.id.uuidString, entry.citekey, entry.type, entry.title,
+                    entry.id.uuidString, entry.citekey, entry.type.rawValue, entry.title,
                     entry.date.flatMap(Self.extractYear),
                     entry.fields["journaltitle"],
                     entry.akashic.status,

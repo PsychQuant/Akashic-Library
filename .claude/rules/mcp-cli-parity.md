@@ -132,7 +132,7 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 | `migrate-provenance` | 有理由缺席 | 同上 |
 | `migrate-person-identity`（#227/#241） | 有理由缺席 | 格式遷移＝維運例外（同 `migrate`／`migrate-provenance`）；且不可逆、要求 store 工作樹乾淨的人工 pre-flight，MCP 的 LLM 消費者不是該角色 |
 | `migrate-venues`（#304 venue change） | 有理由缺席 | 格式遷移＝維運例外（同 `migrate` 族）；per-file trackedness pre-flight＋部署鏈（release → migrate → validate → 手動 bump format 11）屬操作者角色 |
-| `migrate-work-types`（#325） | 有理由缺席 | 格式遷移＝維運例外（同 `migrate` 族）；不可逆、要求檔案受 git 追蹤的人工 pre-flight，且屬兩階段部署鏈的第一階（migrate → 下一版才把 `Entry.type` 收為封閉列舉），MCP 的 LLM 消費者不是該角色 |
+| ~~`migrate-work-types`~~（#325，**已退場**） | 有理由缺席 → 退場 | 格式遷移＝維運例外（同 `migrate` 族）；不可逆、要求檔案受 git 追蹤的人工 pre-flight，MCP 的 LLM 消費者不是該角色。**#325 階段二起命令不存在**——它讀不到舊值（舊值在階段二的 decode 就被拒），留著只會是一個永遠無事可做卻看似可用的命令（`no-compat-fallback` 的「退場即刪」）。列保留但劃掉：刪掉會丟失裁決史，而那正是本檔存在的理由 |
 | `validate` | 有理由缺席 | 讀取檢查由 `akashic_doctor` 覆蓋（功能重疊）|
 | `rename` | 有理由缺席 | 高風險身分操作（citekey 遷移含 verdict value 重寫，#232）＝維運例外 |
 | `authorize-names` | 有理由缺席 | 批次策展＝操作者規模 |
@@ -141,6 +141,22 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 **機械檢查（CLI→MCP 方向）**：上方稽核程序的 ② 枚舉 CLI 全部註冊型別後，
 每個命令必須出現在 **MCP 表的「CLI 對應」欄**或**本表**其中之一——兩處都
 查無即是新長出的零裁決格（正是 #259 修掉的形狀）。
+
+**機械檢查（表→命令方向，#325 補）**：前兩個方向都問「命令有沒有裁決」，
+都抓不到**命令退場後留下的孤兒列**——一列描述著一個已不存在的命令的裁決，
+讀起來與有效裁決毫無區別。第三個方向反過來問：
+
+```bash
+# 本表與 MCP 表「CLI 對應」欄提到的每個命令名，是否仍在 ② 的枚舉裡？
+# 不在 → 該列必須標記退場（劃掉 + 寫明退場理由與 issue），**不是刪除**：
+#   刪掉會丟失裁決史，而保留失敗史正是本檔存在的理由
+#   （見全域 `common-spec-prose-enumeration` 執行細節 3）。
+```
+
+觸發過的實例：#325 階段二刪除 `migrate-work-types`（退場即刪，
+`no-compat-fallback`），本表的那一列因此在同一個變更裡改為劃掉標記。
+**這個方向是 #325 才補的**——#259 雙向化時只想到「命令長出來」，沒想到
+「命令退場」，因為當時還沒有任何命令退場過。
 
 ## CLI 橫切選項裁決表（封閉列舉——#310 一次性補裁；恰 2 項，一格不多一格不少。**不得依性質相似類推第三項**）
 

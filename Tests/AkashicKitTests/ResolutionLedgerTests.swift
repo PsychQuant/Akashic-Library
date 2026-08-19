@@ -221,7 +221,7 @@ final class ResolutionLedgerTests: XCTestCase {
     // MARK: - task 3.1/3.2：resolver 跳過（design D5——恰跳同配對）
 
     func testRejectedPairingIsNotReproposed() throws {
-        let e1 = Entry(id: UUID(), citekey: "a2020x", type: "article",
+        let e1 = Entry(id: UUID(), citekey: "a2020x", type: .periodicalArticle,
                        title: "T", authors: [.literal("Cheng, C.")], date: "2020")
         var p = person("che-cheng"); p.names = ["Cheng, C."]
         let rejected: Set<ResolutionPairing> = [
@@ -234,9 +234,9 @@ final class ResolutionLedgerTests: XCTestCase {
     }
 
     func testRejectionDoesNotBanLiteralGlobally() throws {
-        let e1 = Entry(id: UUID(), citekey: "a2020x", type: "article",
+        let e1 = Entry(id: UUID(), citekey: "a2020x", type: .periodicalArticle,
                        title: "T", authors: [.literal("Cheng, C.")], date: "2020")
-        let e2 = Entry(id: UUID(), citekey: "b2021y", type: "article",
+        let e2 = Entry(id: UUID(), citekey: "b2021y", type: .periodicalArticle,
                        title: "U", authors: [.literal("Cheng, C.")], date: "2021")
         var p = person("che-cheng"); p.names = ["Cheng, C."]
         let rejected: Set<ResolutionPairing> = [
@@ -307,7 +307,7 @@ final class ResolutionLedgerTests: XCTestCase {
 
     /// verify C-4：同 entry 同 literal 的每個作者位置各一列。
     func testObservedRejectionsListEveryMatchingAuthorIndex() throws {
-        let e = Entry(id: UUID(), citekey: "dup2020", type: "article", title: "T",
+        let e = Entry(id: UUID(), citekey: "dup2020", type: .periodicalArticle, title: "T",
                       authors: [.literal("Che Cheng"), .literal("Che Cheng")], date: "2020")
         let p = person("cheng-che", refs: [
             ResolutionLedger.record(.rejected, holderKind: .work, holder: "dup2020",
@@ -322,7 +322,7 @@ final class ResolutionLedgerTests: XCTestCase {
 
     /// stale 否決（literal 已從 entry 移除）不列——ledger 仍記得、計數照算。
     func testStaleRejectionIsNotObserved() throws {
-        let e = Entry(id: UUID(), citekey: "a2020x", type: "article", title: "T",
+        let e = Entry(id: UUID(), citekey: "a2020x", type: .periodicalArticle, title: "T",
                       authors: [.literal("Someone Else")], date: "2020")
         let p = person("cheng-che", refs: [
             ResolutionLedger.record(.rejected, holderKind: .work, holder: "a2020x",

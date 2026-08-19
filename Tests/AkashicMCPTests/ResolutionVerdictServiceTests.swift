@@ -24,9 +24,9 @@ final class ResolutionVerdictServiceTests: XCTestCase {
                 at: root.appendingPathComponent(sub), withIntermediateDirectories: true)
         }
         // 兩個候選：a2020x 與 b2021y 都有 literal "Che Cheng" → 各對到 cheng-che
-        try store.writeEntry(Entry(id: UUID(), citekey: "a2020x", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "a2020x", type: .periodicalArticle,
                                    title: "T", authors: [.literal("Che Cheng")], date: "2020"))
-        try store.writeEntry(Entry(id: UUID(), citekey: "b2021y", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "b2021y", type: .periodicalArticle,
                                    title: "U", authors: [.literal("Che Cheng")], date: "2021"))
         try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng"]))
         service = AkashicService(root: root, environment: env)
@@ -50,7 +50,7 @@ final class ResolutionVerdictServiceTests: XCTestCase {
     func testCandidateRowsCarryTierAndSortByConfidence() throws {
         // 追加一筆 token 重排形：alias「Che Cheng」↔ literal「Cheng Che」
         try LibraryStore(root: root).writeEntry(
-            Entry(id: UUID(), citekey: "c2022z", type: "article",
+            Entry(id: UUID(), citekey: "c2022z", type: .periodicalArticle,
                   title: "V", authors: [.literal("Cheng Che")], date: "2022"))
         let out = try json(try service.resolvePeople(apply: nil))
         let rows = out["candidates"] as! [[String: Any]]
@@ -125,7 +125,7 @@ final class ResolutionVerdictServiceTests: XCTestCase {
 
     func testLooseTierApplyRequiresTierAcknowledgment() throws {
         try LibraryStore(root: root).writeEntry(
-            Entry(id: UUID(), citekey: "c2022z", type: "article",
+            Entry(id: UUID(), citekey: "c2022z", type: .periodicalArticle,
                   title: "V", authors: [.literal("Cheng Che")], date: "2022"))
         // 寬鬆 tier（reorder）候選、未帶 confirmTiers → 拒絕並指名缺席 tier
         XCTAssertThrowsError(
@@ -151,7 +151,7 @@ final class ResolutionVerdictServiceTests: XCTestCase {
 
     func testLooseTierApplyWritesTierDerivedRule() throws {
         try LibraryStore(root: root).writeEntry(
-            Entry(id: UUID(), citekey: "c2022z", type: "article",
+            Entry(id: UUID(), citekey: "c2022z", type: .periodicalArticle,
                   title: "V", authors: [.literal("Cheng Che")], date: "2022"))
         _ = try service.resolvePeople(apply: ["c2022z:0"], confirmTiers: ["reorder"])
         let p = try person()

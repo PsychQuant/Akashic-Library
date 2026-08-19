@@ -32,7 +32,7 @@ final class CLIIntegrationTests: XCTestCase {
         try """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: cheng2025identifiability
-        type: article
+        type: periodical-article
         title: Identifiability of polychoric models
         authors:
           - key: cheng-che
@@ -49,7 +49,7 @@ final class CLIIntegrationTests: XCTestCase {
         try """
         id: 7C1F6C2E-0000-0000-0000-000000000002
         citekey: olsson1979maximum
-        type: article
+        type: periodical-article
         title: Maximum likelihood estimation of the polychoric correlation
         authors:
           - literal: Che Cheng

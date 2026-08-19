@@ -9,7 +9,7 @@ final class EntityTests: XCTestCase {
     ]
 
     private func entry(_ citekey: String, authors: [Author]) -> Entry {
-        Entry(id: UUID(), citekey: citekey, type: "article", title: "T", authors: authors)
+        Entry(id: UUID(), citekey: citekey, type: .periodicalArticle, title: "T", authors: authors)
     }
 
     func testExactAliasMatchYieldsCandidate() {

@@ -39,12 +39,12 @@ final class VenueImporterTests: XCTestCase {
                               typeName: "journalArticle",
                               fields: ["title": "T", "publicationTitle": "Psychometrika"],
                               authors: [], tags: [], attachmentPaths: [])
-        var entry = Entry(id: UUID(), citekey: "x2025", type: "article", title: "")
+        var entry = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "")
         ZoteroMapping.applyBiblatexFields(from: item, to: &entry)
         XCTAssertEqual(entry.venues, [.literal("Psychometrika")])
 
         // 已歸戶（.key）者：pull 更新不得覆寫
-        var resolved = Entry(id: UUID(), citekey: "y2025", type: "article", title: "")
+        var resolved = Entry(id: UUID(), citekey: "y2025", type: .periodicalArticle, title: "")
         resolved.venues = [.key("psychometrika")]
         ZoteroMapping.applyBiblatexFields(from: item, to: &resolved)
         XCTAssertEqual(resolved.venues, [.key("psychometrika")],

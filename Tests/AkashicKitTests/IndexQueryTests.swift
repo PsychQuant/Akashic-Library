@@ -9,7 +9,7 @@ import XCTest
 /// key/literal 作者、同期刊、cites/related、orphan。
 enum QueryFixture {
     static func populate(_ store: LibraryStore) throws {
-        var e1 = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article",
+        var e1 = Entry(id: UUID(), citekey: "cheng2025identifiability", type: .periodicalArticle,
                        title: "Identifiability of polychoric models",
                        authors: [.key("cheng-che"), .literal("Hau-Hung Yang")], date: "2025-04-01")
         e1.fields["journaltitle"] = "Psychometrika"
@@ -18,23 +18,23 @@ enum QueryFixture {
         e1.akashic.relations.related = ["foldnes2019bivariate"]
         try store.writeEntry(e1)
 
-        var e2 = Entry(id: UUID(), citekey: "olsson1979maximum", type: "article",
+        var e2 = Entry(id: UUID(), citekey: "olsson1979maximum", type: .periodicalArticle,
                        title: "Maximum likelihood estimation of the polychoric correlation",
                        authors: [.literal("Ulf Olsson")], date: "1979")
         e2.fields["journaltitle"] = "Psychometrika"
         try store.writeEntry(e2)
 
-        var e3 = Entry(id: UUID(), citekey: "foldnes2019bivariate", type: "article",
+        var e3 = Entry(id: UUID(), citekey: "foldnes2019bivariate", type: .periodicalArticle,
                        title: "On the bivariate normality assumption",
                        authors: [.literal("Njål Foldnes")], date: "2019")
         e3.fields["journaltitle"] = "Structural Equation Modeling"
         try store.writeEntry(e3)
 
-        let e4 = Entry(id: UUID(), citekey: "chen2004matrix", type: "book",
+        let e4 = Entry(id: UUID(), citekey: "chen2004matrix", type: .book,
                        title: "Matrix Visualization", authors: [.key("chen-chun-houh")], date: "2004")
         try store.writeEntry(e4)
 
-        let e5 = Entry(id: UUID(), citekey: "chen2010gap", type: "article",
+        let e5 = Entry(id: UUID(), citekey: "chen2010gap", type: .periodicalArticle,
                        title: "Generalized association plots", authors: [.key("chen-chun-houh")], date: "2010")
         try store.writeEntry(e5)
 
@@ -138,7 +138,7 @@ final class IndexQueryTests: XCTestCase {
 
 extension IndexQueryTests {
     func testSameAuthorLiteralIsCaseInsensitive() throws {
-        var e6 = Entry(id: UUID(), citekey: "olsson1985more", type: "article",
+        var e6 = Entry(id: UUID(), citekey: "olsson1985more", type: .periodicalArticle,
                        title: "More on polychorics", authors: [.literal("ULF OLSSON")], date: "1985")
         e6.fields["journaltitle"] = "Applied Psych Measurement"
         try store.writeEntry(e6)
@@ -172,16 +172,16 @@ final class LibraryQueryTests: XCTestCase {
         try store.ensureLayout()
         try store.writeLibrary(Library(key: "sinica", name: "中研院"))
         try store.writeLibrary(Library(key: "psychology", name: "心理學"))
-        var e1 = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article",
+        var e1 = Entry(id: UUID(), citekey: "cheng2025identifiability", type: .periodicalArticle,
                        title: "Identifiability", date: "2025")
         e1.akashic.libraries = ["sinica"]
         e1.akashic.tags = ["identifiability"]
         try store.writeEntry(e1)
-        var e2 = Entry(id: UUID(), citekey: "chen2004matrix", type: "book",
+        var e2 = Entry(id: UUID(), citekey: "chen2004matrix", type: .book,
                        title: "Matrix Visualization", date: "2004")
         e2.akashic.libraries = ["sinica", "psychology"]
         try store.writeEntry(e2)
-        try store.writeEntry(Entry(id: UUID(), citekey: "olsson1979maximum", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "olsson1979maximum", type: .periodicalArticle,
                                    title: "MLE", date: "1979"))
         _ = try LibraryIndex(store: store).rebuild()
     }
@@ -230,7 +230,7 @@ final class IndexSchemaVersionTests: XCTestCase {
         let store = LibraryStore(root: root)
         try store.ensureLayout()
         try store.writeLibrary(Library(key: "sinica", name: "中研院"))
-        var e = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "cheng2025identifiability", type: .periodicalArticle, title: "T")
         e.akashic.libraries = ["sinica"]
         try store.writeEntry(e)
         _ = try LibraryIndex(store: store).rebuild()

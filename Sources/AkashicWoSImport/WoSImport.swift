@@ -176,7 +176,7 @@ public enum WoSImport {
         let year = row["Publication Year"]
         guard let ck = citekey(firstAuthor: display.first, year: year, title: title,
                                taken: taken) else { return nil }
-        var e = Entry(id: UUID(), citekey: ck, type: "article",
+        var e = Entry(id: UUID(), citekey: ck, type: .periodicalArticle,
                       title: title ?? "", authors: display.map { .literal($0) },
                       date: row["Publication Date"].map { "\(year ?? "") \($0)"
                           .trimmingCharacters(in: .whitespaces) } ?? year)

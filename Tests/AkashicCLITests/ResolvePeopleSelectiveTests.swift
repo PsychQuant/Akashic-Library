@@ -50,7 +50,7 @@ final class ResolvePeopleSelectiveTests: XCTestCase {
             try """
             id: \(String(format: "%08d", i + 1))-1111-1111-1111-111111111111
             citekey: \(ck)
-            type: article
+            type: periodical-article
             title: T\(i)
             authors:
               - literal: "\(au)"
@@ -73,7 +73,7 @@ final class ResolvePeopleSelectiveTests: XCTestCase {
         try """
         id: 00000009-1111-1111-1111-111111111111
         citekey: d2023d
-        type: article
+        type: periodical-article
         title: TD
         authors:
           - literal: "Cheng Che"
@@ -97,7 +97,7 @@ final class ResolvePeopleSelectiveTests: XCTestCase {
         try """
         id: 00000009-1111-1111-1111-111111111111
         citekey: d2023d
-        type: article
+        type: periodical-article
         title: TD
         authors:
           - literal: "Cheng Che"
@@ -118,7 +118,7 @@ final class ResolvePeopleSelectiveTests: XCTestCase {
         try """
         id: 00000009-1111-1111-1111-111111111111
         citekey: d2023d
-        type: article
+        type: periodical-article
         title: TD
         authors:
           - literal: "Cheng Che"
@@ -138,7 +138,7 @@ final class ResolvePeopleSelectiveTests: XCTestCase {
         try """
         id: 00000009-1111-1111-1111-111111111111
         citekey: d2023d
-        type: article
+        type: periodical-article
         title: TD
         authors:
           - literal: "Cheng Che"

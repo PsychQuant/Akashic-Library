@@ -137,7 +137,7 @@ final class StoreVersionTests: XCTestCase {
     func testLoadOpensNormallyAtSupportedVersion() throws {
         let store = LibraryStore(root: root)
         try store.ensureLayout()
-        try store.writeEntry(Entry(id: UUID(), citekey: "a2020b", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle,
                                    title: "T", authors: [.literal("X")], date: "2020"))
         let load = try store.load()
         XCTAssertEqual(load.entries.count, 1)

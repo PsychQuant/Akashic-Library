@@ -136,7 +136,7 @@ final class AliasEventBudgetTests: XCTestCase {
     /// 門檻 512 留了 85–100× 餘裕。`d + openStack.count` 不得灌水——若這裡的數字變大，
     /// 代表會計方式出了問題。
     func testOrdinaryRecordsHaveShallowDepth() throws {
-        var e = Entry(id: UUID(), citekey: "a2020a", type: "article", title: "T",
+        var e = Entry(id: UUID(), citekey: "a2020a", type: .periodicalArticle, title: "T",
                       authors: [.literal("X"), .key("p-one")], date: "2020")
         e.fields["journaltitle"] = "J"; e.akashic.tags = ["t1", "t2"]
         e.akashic.relations.cites = ["b2020b"]
@@ -162,7 +162,7 @@ final class AliasEventBudgetTests: XCTestCase {
     /// 所以 512 是下界；真實書目資料是個位數。
     func testLegitimateNestingDepthPasses() throws {
         // 真實形狀：tolerant-preserve 的未知子樹，10 層已遠超實際
-        var s = "id: 11111111-1111-1111-1111-111111111111\ncitekey: a2020a\ntype: article\n"
+        var s = "id: 11111111-1111-1111-1111-111111111111\ncitekey: a2020a\ntype: periodical-article\n"
         s += "title: T\nauthors:\n  - literal: X\nextra:\n"
         var indent = "  "
         for i in 0..<10 { s += "\(indent)level\(i):\n"; indent += "  " }
@@ -358,7 +358,7 @@ final class AliasEventBudgetTests: XCTestCase {
                   "Science &amp; Nature &amp; Society",
                   "Human Female *Achievement *Motivation *Learning *Memory",
                   "&anchor *alias &more *refs &yet *again"] {
-            var e = Entry(id: UUID(), citekey: "corp2020a", type: "article",
+            var e = Entry(id: UUID(), citekey: "corp2020a", type: .periodicalArticle,
                           title: v, authors: [.literal(v)], date: "2020")
             e.fields["abstract"] = v + "\n\n" + v
             let yaml = try EntryYAML.encode(e)
@@ -391,7 +391,7 @@ final class AliasEventBudgetTests: XCTestCase {
 
     /// 45 位作者（真實 corpus 的實際最大值）+ 大量欄位。
     func testLargeAuthorListHasWideMargin() throws {
-        var e1 = Entry(id: UUID(), citekey: "big2020a", type: "article",
+        var e1 = Entry(id: UUID(), citekey: "big2020a", type: .periodicalArticle,
                        title: String(repeating: "Long title ", count: 40),
                        authors: (0..<45).map { .literal("Author Number \($0) With A Long Name") },
                        date: "2020")
@@ -415,7 +415,7 @@ final class AliasEventBudgetTests: XCTestCase {
         for t in [long, "R&D and *emphasis*", "&anchor", "*alias", "? explicit",
                   "A & B & C & D & E", "* * * * * *", String(repeating: "k", count: 200),
                   "line1\nline2\nline3", "「中文」與 & 和 *"] {
-            var e = Entry(id: UUID(), citekey: "test2020a", type: "article",
+            var e = Entry(id: UUID(), citekey: "test2020a", type: .periodicalArticle,
                           title: t, authors: [.literal(t)], date: "2020")
             e.fields["note"] = t
             e.fields["abstract"] = long

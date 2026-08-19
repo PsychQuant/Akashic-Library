@@ -32,9 +32,9 @@ final class ResolveVerdictCLITests: XCTestCase {
 
     private func seedPersonCandidate() throws {
         try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng"]))
-        try store.writeEntry(Entry(id: UUID(), citekey: "a2020x", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "a2020x", type: .periodicalArticle,
                                    title: "T", authors: [.literal("Che Cheng")], date: "2020"))
-        try store.writeEntry(Entry(id: UUID(), citekey: "b2021y", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "b2021y", type: .periodicalArticle,
                                    title: "U", authors: [.literal("Che Cheng")], date: "2021"))
     }
 

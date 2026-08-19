@@ -23,7 +23,7 @@ final class StdioE2ETests: XCTestCase {
             .appendingPathComponent("akashic-e2e-\(UUID().uuidString)")
         let store = LibraryStore(root: root)
         try store.ensureLayout()
-        var e1 = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article",
+        var e1 = Entry(id: UUID(), citekey: "cheng2025identifiability", type: .periodicalArticle,
                        title: "Identifiability of polychoric models",
                        authors: [.literal("Che Cheng")], date: "2025")
         e1.fields["journaltitle"] = "Psychometrika"

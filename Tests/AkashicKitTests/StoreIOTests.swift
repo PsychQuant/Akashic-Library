@@ -30,7 +30,7 @@ final class StoreIOTests: XCTestCase {
     }
 
     private func makeEntry(_ citekey: String = "cheng2025identifiability") -> Entry {
-        Entry(id: UUID(), citekey: citekey, type: "article",
+        Entry(id: UUID(), citekey: citekey, type: .periodicalArticle,
               title: "Identifiability of polychoric models",
               authors: [.literal("Che Cheng")], date: "2025")
     }
@@ -158,7 +158,7 @@ final class StoreIOTests: XCTestCase {
 extension StoreIOTests {
     // path traversal 防護：write-time 強制 key 格式（security lens HIGH）
     func testWriteEntryRejectsTraversalCitekey() {
-        let entry = Entry(id: UUID(), citekey: "../../evil", type: "article", title: "T")
+        let entry = Entry(id: UUID(), citekey: "../../evil", type: .periodicalArticle, title: "T")
         XCTAssertThrowsError(try store.writeEntry(entry))
     }
 
@@ -257,11 +257,11 @@ final class RenameTests: XCTestCase {
         try StoreVersion.write(root: root, format: format)
         store = LibraryStore(root: root)
         try store.ensureLayout()
-        var e1 = Entry(id: UUID(), citekey: "old2020key", type: "article", title: "T1",
+        var e1 = Entry(id: UUID(), citekey: "old2020key", type: .periodicalArticle, title: "T1",
                        authors: [.literal("A")], date: "2020")
         e1.akashic.relations.cites = ["other2019ref"]
         try store.writeEntry(e1)
-        var e2 = Entry(id: UUID(), citekey: "citing2021paper", type: "article", title: "T2")
+        var e2 = Entry(id: UUID(), citekey: "citing2021paper", type: .periodicalArticle, title: "T2")
         e2.akashic.relations.cites = ["old2020key"]          // 引用即將被 rename 的 entry
         e2.akashic.relations.related = ["old2020key"]
         try store.writeEntry(e2)
@@ -318,7 +318,7 @@ final class RenameTests: XCTestCase {
         work:
         id: \(contentUUID.uuidString)
         citekey: qtarget
-        type: article
+        type: periodical-article
         title: Q
         date: '2020'
         """ + "\n"
@@ -403,11 +403,11 @@ final class RenameTests: XCTestCase {
     }
 
     private func assertSelfReferenceAndDuplicatesMigrate() throws {
-        var selfRef = Entry(id: UUID(), citekey: "loop2020self", type: "article", title: "S")
+        var selfRef = Entry(id: UUID(), citekey: "loop2020self", type: .periodicalArticle, title: "S")
         selfRef.akashic.relations.cites = ["loop2020self", "other2019ref"]
         selfRef.akashic.relations.related = ["loop2020self"]
         try store.writeEntry(selfRef)
-        var dup = Entry(id: UUID(), citekey: "dup2021refs", type: "article", title: "D")
+        var dup = Entry(id: UUID(), citekey: "dup2021refs", type: .periodicalArticle, title: "D")
         dup.akashic.relations.cites = ["loop2020self", "x2000y", "loop2020self"]   // 重複引用
         try store.writeEntry(dup)
 
@@ -428,7 +428,7 @@ final class RenameTests: XCTestCase {
         let outside = root.appendingPathComponent("outside.yaml")
         try "sentinel".write(to: outside, atomically: true, encoding: .utf8)
         let seedURL = try store.writeEntry(
-            Entry(id: UUID(), citekey: "victim2020x", type: "article", title: "V"))
+            Entry(id: UUID(), citekey: "victim2020x", type: .periodicalArticle, title: "V"))
         let evil = try String(contentsOf: seedURL, encoding: .utf8)
             .replacingOccurrences(of: "citekey: victim2020x", with: "citekey: ../outside")
         try evil.write(to: store.entriesDir.appendingPathComponent("evil.yaml"),
@@ -463,7 +463,7 @@ final class LoadIntegrityTests: XCTestCase {
 
     func testLoadQuarantinesMalformedCitekey() throws {
         let seedURL = try store.writeEntry(
-            Entry(id: UUID(), citekey: "victim2020x", type: "article", title: "V"))
+            Entry(id: UUID(), citekey: "victim2020x", type: .periodicalArticle, title: "V"))
         let evil = try String(contentsOf: seedURL, encoding: .utf8)
             .replacingOccurrences(of: "citekey: victim2020x", with: "citekey: ../victim")
         try evil.write(to: store.entriesDir.appendingPathComponent("evil.yaml"),
@@ -477,7 +477,7 @@ final class LoadIntegrityTests: XCTestCase {
 
     func testLoadQuarantinesFilenameStemMismatch() throws {
         let url = try store.writeEntry(
-            Entry(id: UUID(), citekey: "other2020key", type: "article", title: "O"))
+            Entry(id: UUID(), citekey: "other2020key", type: .periodicalArticle, title: "O"))
         try FileManager.default.copyItem(
             at: url, to: store.entriesDir.appendingPathComponent("alias2020copy.yaml"))
 
@@ -541,7 +541,7 @@ final class LibraryRegistryStoreTests: XCTestCase {
     }
 
     func testEntryLibrariesMembershipPersists() throws {
-        var e = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "cheng2025identifiability", type: .periodicalArticle, title: "T")
         e.akashic.libraries = ["sinica"]
         try store.writeEntry(e)
         let load = try store.load()
@@ -558,18 +558,18 @@ extension LibraryRegistryStoreTests {
     }
 
     func testWriteEntryRejectsDuplicateMembership() {
-        var e = Entry(id: UUID(), citekey: "dup2020test", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "dup2020test", type: .periodicalArticle, title: "T")
         e.akashic.libraries = ["sinica", "sinica"]
         XCTAssertThrowsError(try store.writeEntry(e), "重複 membership 拒寫")
     }
 
     func testLoadQuarantinesEntriesWithBadOrDuplicateMembership() throws {
         _ = try store.writeEntry(
-            Entry(id: UUID(), citekey: "seed2020a", type: "article", title: "A"))
+            Entry(id: UUID(), citekey: "seed2020a", type: .periodicalArticle, title: "A"))
         let badYAML = """
         id: 7C1F6C2E-0000-0000-0000-00000000AAAA
         citekey: badmember2020x
-        type: article
+        type: periodical-article
         title: Bad member
         akashic:
           libraries:
@@ -580,7 +580,7 @@ extension LibraryRegistryStoreTests {
         let dupYAML = """
         id: 7C1F6C2E-0000-0000-0000-00000000BBBB
         citekey: dupmember2020x
-        type: article
+        type: periodical-article
         title: Dup member
         akashic:
           libraries:
@@ -835,14 +835,14 @@ extension MultiFileConfigTests {
 extension RenameTests {
     /// L32：preflight encode 失敗 → rename 完全不動磁碟（無半遷移）。
     func testRenamePreflightAbortsBeforeTouchingDisk() throws {
-        var a = Entry(id: UUID(), citekey: "aaa1", type: "article", title: "A")
+        var a = Entry(id: UUID(), citekey: "aaa1", type: .periodicalArticle, title: "A")
         a.akashic.relations.cites = []
         try store.writeEntry(a)
         // 手寫一個「decode 容忍、encode 拒寫」的凍結記錄，relations 引用 aaa1
         let frozen = """
         id: 7C1F6C2E-0000-0000-0000-00000000BB01
         citekey: frozen2
-        type: article
+        type: periodical-article
         title: T
         akashic:
             relations:

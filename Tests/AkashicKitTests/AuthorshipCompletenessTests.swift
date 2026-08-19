@@ -389,7 +389,7 @@ final class AuthorshipCompletenessStoreIOTests: XCTestCase {
         var entry = Entry(
             id: workID,
             citekey: citekey,
-            type: "article",
+            type: .periodicalArticle,
             title: "Witnessed",
             authors: authors)
         entry.akashic.authorListCompleteness = try witness(authors: authors)
@@ -423,7 +423,7 @@ final class AuthorshipCompletenessStoreIOTests: XCTestCase {
         let entry = Entry(
             id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
             citekey: "witness2026entry",
-            type: "article",
+            type: .periodicalArticle,
             title: "Witness-free",
             authors: [.key("author-a")])
 
@@ -433,7 +433,7 @@ final class AuthorshipCompletenessStoreIOTests: XCTestCase {
             work:
             id: 11111111-1111-1111-1111-111111111111
             citekey: witness2026entry
-            type: article
+            type: periodical-article
             title: Witness-free
             authors:
             - key: author-a
@@ -585,7 +585,7 @@ final class AuthorshipCompletenessStoreIOTests: XCTestCase {
         var ambiguous = Entry(
             id: workID,
             citekey: "ambiguous2026entry",
-            type: "article",
+            type: .periodicalArticle,
             title: "Ambiguous scalars",
             authors: authors)
         ambiguous.akashic.authorListCompleteness = try AuthorListCompletenessWitness(

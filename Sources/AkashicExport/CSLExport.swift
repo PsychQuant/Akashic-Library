@@ -3,17 +3,6 @@ import AkashicCore
 
 /// CSL-JSON 輸出（pandoc / Zotero 互通格式）。同 `.bib`——衍生產物。
 public enum CSLExport {
-    static let typeMap: [String: String] = [
-        "article": "article-journal",
-        "book": "book",
-        "incollection": "chapter",
-        "inproceedings": "paper-conference",
-        "thesis": "thesis",
-        "report": "report",
-        "online": "webpage",
-        "unpublished": "manuscript",
-        "misc": "document",
-    ]
 
     public static func cslJSON(entries: [Entry], people: [Person],
                                organizations: [Organization] = []) throws -> String {
@@ -28,7 +17,7 @@ public enum CSLExport {
                 // tool result），修在這裡會破壞匯出檔的正確性。追蹤於 #165。
                 var item: [String: Any] = [
                     "id": entry.citekey,   // display-safe-exempt: 序列化面，消毒屬輸出邊界（#165）
-                    "type": typeMap[entry.type] ?? "document",
+                    "type": entry.type.cslType,
                     "title": entry.title,   // display-safe-exempt: 同上（#165）
                 ]
                 if !entry.authors.isEmpty {

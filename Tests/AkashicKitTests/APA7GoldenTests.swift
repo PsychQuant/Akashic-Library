@@ -44,7 +44,7 @@ final class APA7GoldenTests: XCTestCase {
 
     private func entry(_ f: (id: String, manual: String, title: String,
                             journal: String, date: String)) -> Entry {
-        var e = Entry(id: UUID(), citekey: f.id, type: "article",
+        var e = Entry(id: UUID(), citekey: f.id, type: .periodicalArticle,
                       title: f.title, authors: [.literal("Author, A. A.")], date: f.date)
         e.fields = ["journaltitle": f.journal]
         return e

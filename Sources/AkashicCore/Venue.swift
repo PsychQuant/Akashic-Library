@@ -175,7 +175,10 @@ public struct Venue: Equatable {
 public enum VenueDerivation {
     /// booktitle 視為會議載體的 entry type（proceedings 族，封閉列舉）——
     /// incollection 的 booktitle 是書名，不在此列。
-    public static let proceedingsTypes: Set<String> = ["inproceedings", "proceedings", "conference"]
+    public static // #325 階段二：三個字串猜測（"inproceedings"／"proceedings"／"conference"）
+        // 收斂成**一個列舉值**。實測舊值域只出現過 `inproceedings`（4 筆），另兩個
+        // 從未被任何 importer 寫入——它們是防禦性猜測，而封閉列舉讓猜測不再必要。
+        let proceedingsTypes: Set<WorkType> = [.conferenceSession]
 
     public static func literals(for entry: Entry) -> [VenueRef] {
         var out: [String] = []

@@ -135,7 +135,7 @@ final class VenueTests: XCTestCase {
     // MARK: - Entry.venues 二態 ref（task 1.3）
 
     func testEntryVenuesRoundTrip() throws {
-        var e = Entry(id: UUID(), citekey: "cheng2025universal", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "cheng2025universal", type: .periodicalArticle, title: "T")
         e.venues = [.literal("JOURNAL OF STATISTICS"), .key("jcgs")]
         let text = try EntryYAML.encode(e)
         let back = try EntryYAML.decode(text)
@@ -145,7 +145,7 @@ final class VenueTests: XCTestCase {
     }
 
     func testEntryVenuesRejectsUnknownElementKey() throws {
-        var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
         e.venues = [.key("jcgs")]
         var text = try EntryYAML.encode(e)
         text = text.replacingOccurrences(of: "- key: jcgs", with: "- name: jcgs")
@@ -154,7 +154,7 @@ final class VenueTests: XCTestCase {
 
     func testEntryWithoutVenuesUnchanged() throws {
         // 既有 entry（無 venues 鍵）round-trip 零 diff——additive 契約。
-        let e = Entry(id: UUID(), citekey: "old2020", type: "article", title: "Old")
+        let e = Entry(id: UUID(), citekey: "old2020", type: .periodicalArticle, title: "Old")
         let text = try EntryYAML.encode(e)
         XCTAssertFalse(text.contains("venues"))
         XCTAssertEqual(try EntryYAML.decode(text).venues, [])

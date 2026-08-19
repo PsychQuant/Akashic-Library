@@ -47,7 +47,7 @@ final class EntryYAMLTests: XCTestCase {
         var entry = Entry(
             id: UUID(uuidString: "7C1F6C2E-0000-0000-0000-000000000001")!,
             citekey: "cheng2025identifiability",
-            type: "article",
+            type: .periodicalArticle,
             title: "Identifiability of polychoric models with latent elliptical distributions",
             authors: [.key("cheng-che"), .literal("Hau-Hung Yang"), .literal("Yung-Fong Hsu")],
             date: "2025"
@@ -88,7 +88,7 @@ final class EntryYAMLTests: XCTestCase {
     }
 
     func testCJKContentSurvivesRoundTrip() throws {
-        var entry = Entry(id: UUID(), citekey: "chen2026matrix", type: "article",
+        var entry = Entry(id: UUID(), citekey: "chen2026matrix", type: .periodicalArticle,
                           title: "矩陣視覺化與廣義關聯圖", authors: [.literal("陳君厚")], date: "2026")
         entry.fields["journaltitle"] = "中國統計學報"
         let decoded = try EntryYAML.decode(try EntryYAML.encode(entry))
@@ -97,7 +97,7 @@ final class EntryYAMLTests: XCTestCase {
     }
 
     func testMinimalEntryRoundTrip() throws {
-        let entry = Entry(id: UUID(), citekey: "anon2020entry", type: "misc",
+        let entry = Entry(id: UUID(), citekey: "anon2020entry", type: .webpage,
                           title: "Untitled note", authors: [], date: nil)
         let decoded = try EntryYAML.decode(try EntryYAML.encode(entry))
         XCTAssertEqual(decoded, entry)
@@ -106,7 +106,7 @@ final class EntryYAMLTests: XCTestCase {
     func testDecodeRejectsMissingCitekey() {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
-        type: article
+        type: periodical-article
         title: Foo
         """
         XCTAssertThrowsError(try EntryYAML.decode(yaml))
@@ -116,7 +116,7 @@ final class EntryYAMLTests: XCTestCase {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: foo2020bar
-        type: article
+        type: periodical-article
         title: Foo
         authors:
           - key: someone
@@ -128,19 +128,19 @@ final class EntryYAMLTests: XCTestCase {
 
 final class ValidationTests: XCTestCase {
     func testValidEntryHasNoErrors() {
-        let entry = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article",
+        let entry = Entry(id: UUID(), citekey: "cheng2025identifiability", type: .periodicalArticle,
                           title: "T", authors: [.key("cheng-che")], date: "2025")
         XCTAssertTrue(entry.validate().filter { $0.severity == .error }.isEmpty)
     }
 
     func testBadCitekeyIsError() {
-        let entry = Entry(id: UUID(), citekey: "Bad Key!", type: "article",
+        let entry = Entry(id: UUID(), citekey: "Bad Key!", type: .periodicalArticle,
                           title: "T", authors: [], date: nil)
         XCTAssertTrue(entry.validate().contains { $0.severity == .error })
     }
 
     func testEmptyTitleIsWarning() {
-        let entry = Entry(id: UUID(), citekey: "a2020b", type: "article",
+        let entry = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle,
                           title: "", authors: [], date: nil)
         let issues = entry.validate()
         XCTAssertTrue(issues.contains { $0.severity == .warning })
@@ -170,7 +170,7 @@ final class StrictSchemaTests: XCTestCase {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         rating: 5
         """
@@ -184,7 +184,7 @@ final class StrictSchemaTests: XCTestCase {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         akashic:
           tags: [x]
@@ -202,7 +202,7 @@ final class StrictSchemaTests: XCTestCase {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         attachments:
           - pool: 2025/a2020b.pdf
@@ -223,7 +223,7 @@ final class StrictSchemaTests: XCTestCase {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         attachments:
           - zotero: storage/ABCD1234/paper.pdf
@@ -237,7 +237,7 @@ final class StrictSchemaTests: XCTestCase {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         provenance:
           zotero_key: K
@@ -251,7 +251,7 @@ final class StrictSchemaTests: XCTestCase {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         akashic:
           relations:
@@ -324,7 +324,7 @@ final class ForwardCompatTests: XCTestCase {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         akashic:
             tags: [x]
@@ -351,7 +351,7 @@ final class ForwardCompatTests: XCTestCase {
         let eYaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         rating:
         akashic:
@@ -468,7 +468,7 @@ final class ForwardCompatTests: XCTestCase {
         let akFlow = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         akashic: {
           tags: [x], status: read,
@@ -512,7 +512,7 @@ final class ForwardCompatTests: XCTestCase {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         rating: 5
         akashic:
@@ -541,7 +541,7 @@ final class ForwardCompatTests: XCTestCase {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         !!str akashic: {status: decoy}
         akashic:
@@ -599,7 +599,7 @@ final class ForwardCompatTests: XCTestCase {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         rating: 5
         akashic:
@@ -618,7 +618,7 @@ extension StrictSchemaTests {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         authors:
           - literal: Ada Lovelace
@@ -631,7 +631,7 @@ extension StrictSchemaTests {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         akashic:
           tags:
@@ -656,7 +656,7 @@ extension StrictSchemaTests {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         akashic:
           tags: [ok, 123, true]
@@ -668,7 +668,7 @@ extension StrictSchemaTests {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         akashic:
           tags: ["123"]
@@ -679,7 +679,7 @@ extension StrictSchemaTests {
     // DA R5 更正二的實測案例：Zotero 使用者標籤「2026」建檔 seed 後，encode
     // 寫出 plain `- 2026`——R6 前這筆記錄下次 load 即 quarantine（自我毒化）。
     func testNumericFaceTagsRoundTripIdempotent() throws {
-        var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle, title: "T")
         e.akashic.tags = ["2026", "null", "yes", "10.5"]
         let out = try EntryYAML.encode(e)
         XCTAssertEqual(try EntryYAML.decode(out), e)
@@ -689,7 +689,7 @@ extension StrictSchemaTests {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         authors:
           - key: 123
@@ -706,7 +706,7 @@ extension StrictSchemaTests {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         akashic:
           tags: [[nested]]
@@ -718,7 +718,7 @@ extension StrictSchemaTests {
 extension StrictSchemaTests {
     // Phase 2（#9）：provenance 新欄位 round-trip；strict set 同步擴充
     func testProvenanceLibraryIDAndHashRoundTrip() throws {
-        var entry = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        var entry = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle, title: "T")
         entry.provenance = Provenance(zoteroKey: "K", zoteroVersion: 1,
                                       libraryID: 1, zoteroHash: "abc123")
         let decoded = try EntryYAML.decode(try EntryYAML.encode(entry))
@@ -732,7 +732,7 @@ extension StrictSchemaTests {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         provenance:
           zotero_key: K
@@ -750,7 +750,7 @@ extension StrictSchemaTests {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         provenance:
           zotero_key: K
@@ -764,7 +764,7 @@ extension StrictSchemaTests {
 /// #13 多 library：akashic.libraries 衍生層欄位 + Library registry model 的 strict YAML。
 final class LibraryModelTests: XCTestCase {
     func testAkashicLibrariesRoundTrip() throws {
-        var e = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "cheng2025identifiability", type: .periodicalArticle, title: "T")
         e.akashic.libraries = ["sinica", "psychology"]
         let yaml = try EntryYAML.encode(e)
         XCTAssertTrue(yaml.contains("libraries"), "非空 libraries 要序列化")
@@ -774,7 +774,7 @@ final class LibraryModelTests: XCTestCase {
     }
 
     func testEmptyLibrariesNotSerialized() throws {
-        let e = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article", title: "T")
+        let e = Entry(id: UUID(), citekey: "cheng2025identifiability", type: .periodicalArticle, title: "T")
         let yaml = try EntryYAML.encode(e)
         XCTAssertFalse(yaml.contains("libraries"), "空 libraries 不序列化（與 tags 同慣例）")
     }
@@ -797,7 +797,7 @@ extension LibraryModelTests {
         let yaml = """
         id: 7C1F6C2E-0000-0000-0000-00000000CCCC
         citekey: scalar2020x
-        type: article
+        type: periodical-article
         title: T
         akashic:
           libraries: sinica
@@ -829,7 +829,7 @@ final class EntrySourceReferenceTests: XCTestCase {
         """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         akashic:
         \(akashicBody)
@@ -839,7 +839,7 @@ final class EntrySourceReferenceTests: XCTestCase {
     private let bare = """
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title: T
         """
 

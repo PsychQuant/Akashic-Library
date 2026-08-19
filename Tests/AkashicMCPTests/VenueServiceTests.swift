@@ -58,9 +58,9 @@ final class VenueServiceTests: XCTestCase {
     func testChronologicalWorksInVenueView() throws {
         _ = try service.addVenue(key: "psychometrika", names: ["Psychometrika"],
                                  type: "periodical", note: nil)
-        var e1 = Entry(id: UUID(), citekey: "b2020", type: "article", title: "後")
+        var e1 = Entry(id: UUID(), citekey: "b2020", type: .periodicalArticle, title: "後")
         e1.venues = [.key("psychometrika")]; e1.date = "2020"
-        var e2 = Entry(id: UUID(), citekey: "a2015", type: "article", title: "前")
+        var e2 = Entry(id: UUID(), citekey: "a2015", type: .periodicalArticle, title: "前")
         e2.venues = [.key("psychometrika")]; e2.date = "2015"
         _ = try store.writeEntry(e1); _ = try store.writeEntry(e2)
         try LibraryIndex(store: store).rebuild()
@@ -72,7 +72,7 @@ final class VenueServiceTests: XCTestCase {
     func testResolveVenuesFullCycle() throws {
         _ = try service.addVenue(key: "psychometrika", names: ["Psychometrika"],
                                  type: "periodical", note: nil)
-        var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
         e.venues = [.literal("PSYCHOMETRIKA")]   // WoS 大寫形——正規化命中
         _ = try store.writeEntry(e)
         // 候選列舉
@@ -97,7 +97,7 @@ final class VenueServiceTests: XCTestCase {
     func testResolveVenuesRejectSuppressesCandidate() throws {
         _ = try service.addVenue(key: "psychometrika", names: ["Psychometrika"],
                                  type: "periodical", note: nil)
-        var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
         e.venues = [.literal("Psychometrika")]
         _ = try store.writeEntry(e)
         _ = try service.resolveVenues(apply: nil, reject: ["x2025:0"])
@@ -122,7 +122,7 @@ final class VenueServiceTests: XCTestCase {
         XCTAssertEqual(Set(v.names.entries.map(\.value)),
                        ["Psychometrika", "PSYCHOMETRIKA"], "既有名字不得被洗掉")
         // 沿革補全後 resolver 立即受益：WoS 大寫形 exact 命中
-        var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
         e.venues = [.literal("PSYCHOMETRIKA")]
         _ = try store.writeEntry(e)
         let list = try json(try service.resolveVenues(apply: nil))

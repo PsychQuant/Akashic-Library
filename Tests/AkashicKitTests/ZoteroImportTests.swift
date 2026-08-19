@@ -110,7 +110,7 @@ final class ZoteroImportTests: XCTestCase {
 
         let load = try store.load()
         let article = load.entries.first { $0.citekey == "cheng2025identifiability" }!
-        XCTAssertEqual(article.type, "article")
+        XCTAssertEqual(article.type.rawValue, "periodical-article")
         XCTAssertEqual(article.title, "Identifiability of polychoric models")
         XCTAssertEqual(article.authors, [.literal("Che Cheng"), .literal("Hau-Hung Yang")])
         XCTAssertEqual(article.date, "2025-04-01")
@@ -124,7 +124,7 @@ final class ZoteroImportTests: XCTestCase {
         XCTAssertEqual(article.akashic.tags, ["identifiability"])  // 建檔 seed
 
         let book = load.entries.first { $0.citekey == "chen2004matrix" }!
-        XCTAssertEqual(book.type, "book")
+        XCTAssertEqual(book.type.rawValue, "book")
         XCTAssertEqual(book.authors, [.literal("Chun-Houh Chen")])  // fieldMode 1
     }
 
@@ -522,7 +522,7 @@ extension ZoteroImportTests {
         let existing = """
         id: 7C1F6C2E-0000-0000-0000-00000000AA02
         citekey: prior1
-        type: article
+        type: periodical-article
         title: Old
         provenance:
           zotero_key: KEYART01
@@ -550,7 +550,7 @@ extension ZoteroImportTests {
         let frozen = """
         id: 7C1F6C2E-0000-0000-0000-00000000AA01
         citekey: frozen1
-        type: article
+        type: periodical-article
         title: T
         provenance:
           zotero_key: KEYART01

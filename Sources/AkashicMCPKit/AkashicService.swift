@@ -139,7 +139,9 @@ public final class AkashicService {
         filter.yearFrom = yearFrom
         filter.yearTo = yearTo
         filter.library = library
-        return try jsonString(try engine.find(filter).map(summaryDict))
+        let hits = try engine.find(filter)
+        if hits.isEmpty { try assertEmptinessIsDeterminable("search") }
+        return try jsonString(hits.map(summaryDict))
     }
 
     public func getEntry(citekey: String) throws -> String {
@@ -162,6 +164,7 @@ public final class AkashicService {
         default:
             throw ServiceError.invalid("kind 必須是 same-journal / same-author / cites / cited-by / related")
         }
+        if result.isEmpty { try assertEmptinessIsDeterminable("relations") }
         return try jsonString(result.map(summaryDict))
     }
 
@@ -187,9 +190,21 @@ public final class AkashicService {
             entries = entries.filter { wantedSet.contains($0.citekey) }
             let missing = wantedSet.subtracting(entries.map(\.citekey))
             guard missing.isEmpty else {
-                throw ServiceError.notFound("citekeys：\(missing.sorted().map { displaySafe($0, max: 200) }.joined(separator: ", "))")
+                let names = missing.sorted().map { displaySafe($0, max: 200) }.joined(separator: ", ")
+                // 與 `person()` 完全同型（#294）：**指名的 citekey 查無，而 store 另有
+                // 讀不進來的檔——存在性無法判定**。先前一律擲 `notFound`，依 error kind
+                // 分支的呼叫端會把「或許在 quarantine 裡」當成「確定不存在」。
+                if !load.quarantined.isEmpty {
+                    throw ServiceError.undeterminable(
+                        "citekeys：\(names)——store 另有 \(load.quarantined.count) 個檔 "   // display-safe-exempt: names 在上方建構時已逐項 displaySafe(max: 200)；displaySafe 不冪等，再包一次會逃脫反斜線自身。count 是 Int
+                        + "quarantined（可能是未遷移的舊形狀，該 citekey 或許在其中）；"
+                        + "見 akashic doctor")
+                }
+                throw ServiceError.notFound("citekeys：\(names)")   // display-safe-exempt: 同上——names 已逐項 displaySafe
             }
         }
+        // 未指名 citekey（匯出全庫）而結果為空——同一條紀律的列表面。
+        if citekeys == nil, entries.isEmpty { try assertEmptinessIsDeterminable("export") }
         // #165：**這是本 repo 最強的威脅模型**——匯出全文當 MCP tool result 直接進
         // LLM context。verify 席行為探針實測 `title`／`authors`／`fields` 裡的
         // raw ESC、U+202E、U+2028 **原樣通過** biblatex 層——它跳脫的是 TeX specials
@@ -273,6 +288,7 @@ public final class AkashicService {
             }
             return d
         }
+        if dicts.isEmpty { try assertEmptinessIsDeterminable("people") }
         return try jsonString(dicts)
     }
 
@@ -1150,6 +1166,10 @@ public final class AkashicService {
                 || anyRefsTruncated
                 || droppedRows > 0
                 || anyNamesDropped
+            // 零候選 + 有 quarantine ＝ 無法判定（#294）。本 payload 已有
+            // `candidateRowsDropped`／`rejectedTotal` 這類「我看到的是不是全部」的
+            // 欄位——同一條紀律，只是先前漏了「讀不進來」這個來源。
+            if candidateRows.isEmpty { try assertEmptinessIsDeterminable("resolve-people") }
             var payload: [String: Any] = [
                 "candidates": candidateRows,
                 "candidateRowsDropped": candidatesDropped,
@@ -1563,6 +1583,36 @@ public final class AkashicService {
     func freshEngine() throws -> QueryEngine {
         try ensureFreshIndex()
         return try QueryEngine(indexPath: store.indexURL)
+    }
+
+    /// 空結果 + 有 quarantined 檔 ＝ **無法判定**，不是「沒有」（#294）。
+    ///
+    /// `person()`／`venue()` 早有這條紀律（#227 verify R-4／R2 C6）：單筆查無時若
+    /// store 另有讀不進來的檔，擲 `undeterminable` 而非 `notFound`。本函式把同一條
+    /// 紀律推廣到**列表面**——它們先前把「讀不進來」折成「空」，於是
+    /// `akashic people` 回「無 person 記錄」、MCP 回 `[]` + `isError:false`，
+    /// **LLM 消費端會據此斷言 library 是空的**。
+    ///
+    /// 依 `entity-backlink-completeness` 執行細節 4：「『這個人零篇著作』與『查不到
+    /// 這個人』是兩件事……折成同一個輸出會讓使用者無法分辨。」
+    ///
+    /// **只在結果為空時呼叫**——判準需要 quarantine 計數而 `load()` 有成本，非空
+    /// 路徑因此零開銷。
+    ///
+    /// ## 誠實邊界：非空但不完整的情況本函式不管
+    ///
+    /// 回傳 500 筆而另有 3 筆讀不進來時，結果是**不完整**（而非誤導），本函式放行。
+    /// 要讓那個情況也可見需要在 payload 加欄位——四面都回 JSON 字串，附註文字會破壞
+    /// 解析，而加欄位會動 published MCP contract。那是另一個範圍的裁決，已在 #294
+    /// 的結案摘要具名交出，不在此靜默略過。
+    func assertEmptinessIsDeterminable(_ what: String) throws {
+        let load = try store.load()
+        guard load.quarantined.isEmpty else {
+            throw ServiceError.undeterminable(
+                "\(what)——查詢結果為空，但 store 另有 \(load.quarantined.count) 個檔 "   // display-safe-exempt: what 是呼叫端的編譯期字面（"search"／"people"／…），非 store 衍生；count 是 Int
+                + "quarantined（可能是未遷移的舊形狀，答案或許在其中）；"
+                + "見 akashic doctor")
+        }
     }
 
     func summaryDict(_ s: EntrySummary) -> [String: Any] {

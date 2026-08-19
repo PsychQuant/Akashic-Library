@@ -162,6 +162,72 @@ final class ServiceTests: XCTestCase {
         }
     }
 
+    // MARK: - #294：四個列表面不得把「讀不進來」折成「空」
+
+    /// 種一個舊形狀 person 檔 → `load()` 會 quarantine 它。
+    ///
+    /// 與 `testPersonLookupWithQuarantineIsUndeterminableNotNotFound` 同一種 fixture
+    /// ——那條驗**單筆查詢**，以下四條驗**列表面**（#294 修的就是後者停在錯的行為）。
+    private func seedQuarantinedFile() throws {
+        let qid = UUID()
+        try "person:\nid: \(qid.uuidString)\nkey: old-shape\nnames:\n- Old Shape\n".write(
+            to: root.appendingPathComponent("entities/\(qid.uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        XCTAssertFalse(try LibraryStore(root: root).load().quarantined.isEmpty,
+                       "前提：該檔應被 quarantine")
+    }
+
+    private func assertUndeterminable(_ label: String,
+                                      _ body: () throws -> String) {
+        XCTAssertThrowsError(try body(), label) { error in
+            guard case ServiceError.undeterminable = error else {
+                return XCTFail("\(label)：錯誤類型必須是 undeterminable，實得 \(error)")
+            }
+            let msg = (error as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertTrue(msg.hasPrefix("無法判定"), "\(label)：前綴不得是「找不到」：\(msg)")
+            XCTAssertTrue(msg.contains("quarantined"), "\(label)：要說明原因：\(msg)")
+        }
+    }
+
+    /// `people()` 零結果 + 有 quarantine → 無法判定。
+    ///
+    /// 先前回 `[]` + `isError:false`，**LLM 消費端會據此斷言 library 是空的**
+    /// ——這正是 #294 具名的失敗。
+    func testPeopleEmptyWithQuarantineIsUndeterminable() throws {
+        try seedQuarantinedFile()
+        assertUndeterminable("people") { try self.service.people(query: "no-such-person-xyz") }
+    }
+
+    /// `search()` 零結果 + 有 quarantine → 無法判定。
+    func testSearchEmptyWithQuarantineIsUndeterminable() throws {
+        try seedQuarantinedFile()
+        assertUndeterminable("search") {
+            try self.service.search(author: "no-such-author-xyz")
+        }
+    }
+
+    /// `export()` **指名的 citekey 查無** + 有 quarantine → 無法判定，不是 notFound。
+    ///
+    /// 與 `person()` 完全同型：該 citekey 或許就在讀不進來的那個檔裡。
+    func testExportMissingCitekeyWithQuarantineIsUndeterminable() throws {
+        try seedQuarantinedFile()
+        assertUndeterminable("export") {
+            try self.service.export(citekeys: ["no-such-citekey-xyz"], format: "biblatex")
+        }
+    }
+
+    /// 沒有 quarantine 時，行為**不變**——查無仍是 `notFound`。
+    ///
+    /// 這條防的是過度觸發：把所有查無都改成「無法判定」會讓錯誤類型失去分辨力。
+    func testExportMissingCitekeyWithoutQuarantineStaysNotFound() throws {
+        XCTAssertThrowsError(try service.export(citekeys: ["no-such-citekey-xyz"],
+                                                format: "biblatex")) { error in
+            guard case ServiceError.notFound = error else {
+                return XCTFail("無 quarantine 時必須維持 notFound，實得 \(error)")
+            }
+        }
+    }
+
     func testDoctorReportsUnknownFieldFiles() throws {
         let f = root.appendingPathComponent("people/future-person.yaml")
         try """

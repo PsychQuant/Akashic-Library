@@ -28,9 +28,9 @@ final class VenueServiceTests: XCTestCase {
 
     func testAddVenueThenViewWithZeroWorks() throws {
         _ = try service.addVenue(key: "psychometrika", names: ["Psychometrika"],
-                                 type: "journal", note: nil)
+                                 type: "periodical", note: nil)
         let d = try json(try service.venue(key: "psychometrika"))
-        XCTAssertEqual(d["type"] as? String, "journal")
+        XCTAssertEqual(d["type"] as? String, "periodical")
         XCTAssertEqual(d["workCount"] as? Int, 0, "零篇是答案不是缺席")
         XCTAssertNotNil(d["works"], "空陣列也要出現")
     }
@@ -57,7 +57,7 @@ final class VenueServiceTests: XCTestCase {
 
     func testChronologicalWorksInVenueView() throws {
         _ = try service.addVenue(key: "psychometrika", names: ["Psychometrika"],
-                                 type: "journal", note: nil)
+                                 type: "periodical", note: nil)
         var e1 = Entry(id: UUID(), citekey: "b2020", type: "article", title: "後")
         e1.venues = [.key("psychometrika")]; e1.date = "2020"
         var e2 = Entry(id: UUID(), citekey: "a2015", type: "article", title: "前")
@@ -71,7 +71,7 @@ final class VenueServiceTests: XCTestCase {
 
     func testResolveVenuesFullCycle() throws {
         _ = try service.addVenue(key: "psychometrika", names: ["Psychometrika"],
-                                 type: "journal", note: nil)
+                                 type: "periodical", note: nil)
         var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
         e.venues = [.literal("PSYCHOMETRIKA")]   // WoS 大寫形——正規化命中
         _ = try store.writeEntry(e)
@@ -96,7 +96,7 @@ final class VenueServiceTests: XCTestCase {
 
     func testResolveVenuesRejectSuppressesCandidate() throws {
         _ = try service.addVenue(key: "psychometrika", names: ["Psychometrika"],
-                                 type: "journal", note: nil)
+                                 type: "periodical", note: nil)
         var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
         e.venues = [.literal("Psychometrika")]
         _ = try store.writeEntry(e)
@@ -112,7 +112,7 @@ final class VenueServiceTests: XCTestCase {
 
     func testUpdateVenueAppendsNamesWithoutClobbering() throws {
         _ = try service.addVenue(key: "psychometrika", names: ["Psychometrika"],
-                                 type: "journal", note: nil)
+                                 type: "periodical", note: nil)
         let out = try json(try service.updateVenue(
             key: "psychometrika", addNames: ["PSYCHOMETRIKA", "Psychometrika"],
             note: nil, type: nil))
@@ -132,7 +132,7 @@ final class VenueServiceTests: XCTestCase {
     func testUpdateVenueRejectsUnknownKeyAndBadType() throws {
         XCTAssertThrowsError(try service.updateVenue(
             key: "nope", addNames: ["X"], note: nil, type: nil))
-        _ = try service.addVenue(key: "v1", names: ["V"], type: "journal", note: nil)
+        _ = try service.addVenue(key: "v1", names: ["V"], type: "periodical", note: nil)
         XCTAssertThrowsError(try service.updateVenue(
             key: "v1", addNames: nil, note: nil, type: "series"))
     }

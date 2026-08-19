@@ -25,6 +25,38 @@ final class ExportTests: XCTestCase {
         [Person(key: "cheng-che", names: PersonNames(authorized: ["Che Cheng", "鄭澈"]))]
     }
 
+    // MARK: - 團體作者（#323）
+
+    /// `Author` 是三態：已歸戶為人／已歸戶為團體／未歸戶。
+    ///
+    /// **三態不是「人／團體／字串」** —— `.literal` 仍表示**未歸戶**（不論它最終是人
+    /// 或團體）。若把三態讀成「進庫時就分人與團體」，那是 `literal-first-then-key`
+    /// 規則第 1 段禁止的「進庫時猜」。
+    func testAuthorHasThreeStates() {
+        let person: AkashicCore.Author = .key("cheng-che")
+        let group: AkashicCore.Author = .organization("taiwan-cancer-moonshot")
+        let unresolved: AkashicCore.Author = .literal("{Taiwan Cancer Moonshot Program}")
+        XCTAssertEqual(person.displayName, "cheng-che")
+        XCTAssertEqual(group.displayName, "taiwan-cancer-moonshot")
+        XCTAssertEqual(unresolved.displayName, "{Taiwan Cancer Moonshot Program}")
+        XCTAssertNotEqual(person, group)
+    }
+
+    /// 團體作者匯出成 biblatex 的**雙大括號**（APA7 §8.13／8.17／8.21 的慣例）。
+    ///
+    /// 雙大括號讓 BibTeX 不把團體名當成人名拆解「姓, 名」。WoS 匯出的
+    /// `{Taiwan Cancer Moonshot Program}` 用的就是同一個慣例——那 3 條 literal 不是
+    /// 髒資料，是模型先前接不住的正規表述。
+    func testOrganizationAuthorRendersDoubleBraced() throws {
+        var e = makeEntry()
+        e.authors = [.organization("taiwan-cancer-moonshot")]
+        let orgs = [Organization(key: "taiwan-cancer-moonshot",
+                                 authorized: ["Taiwan Cancer Moonshot Program"])]
+        let bib = BibExport.bibFile(entries: [e], people: people, organizations: orgs)
+        XCTAssertTrue(bib.contains("AUTHOR = {{Taiwan Cancer Moonshot Program}}"),
+                      "團體作者必須雙大括號，實得：\(bib)")
+    }
+
     // MARK: - APA7 完整性報告（#326）
 
     /// 缺 APA7 必要欄位要**報出來**——語法完美但書目殘缺的 entry 先前會通過所有檢查。

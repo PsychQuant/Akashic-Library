@@ -842,6 +842,11 @@ extension Proposition {
                 return .authorSlot(slot: slot, assessment: .supports)
             case .key:
                 return .authorSlot(slot: slot, assessment: .doesNotSupport)
+            case .organization:
+                // #323：團體作者槽對「**某人**著有這篇」永遠不支持——它已判定為
+                // organization，不是任何 person。**不落 `unresolvedLiteral`**：那一格
+                // 的語意是「還沒判定、可能是這個人」，而團體作者已經判定過了。
+                return .authorSlot(slot: slot, assessment: .doesNotSupport)
             case .literal(let literal):
                 // #227：身分比對看**全部**名字——candidate 資格不因指定與否而異。
                 let candidate = person.names.all.contains {

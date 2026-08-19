@@ -6,14 +6,16 @@ import BiblatexAPA
 /// 永遠不是資料庫本體（spec ADR #10）。
 public enum BibExport {
     /// Entry.fields（已是 biblatex 欄位名）之外的一級欄位對映。
-    public static func bibEntry(for entry: Entry, people: [String: Person]) -> BibEntry {
+    public static func bibEntry(for entry: Entry, people: [String: Person],
+                                organizations: [String: Organization] = [:]) -> BibEntry {
         // 每個值都過 `braceSafe`（#176）。**逐個作者、不是 join 之後**——一個壞名字
         // 不該把整串作者一起拖進逃脫（那會改掉同一筆裡其他機構名的 `{...}` 標記）。
         var fields = OrderedDict()
         fields["title"] = braceSafe(entry.title)
         if !entry.authors.isEmpty {
             fields["author"] = entry.authors
-                .map { braceSafe(bibName(for: $0, people: people)) }
+                .map { braceSafe(bibName(for: $0, people: people,
+                                         organizations: organizations)) }
                 .joined(separator: " and ")
         }
         if let date = entry.date {
@@ -71,12 +73,14 @@ public enum BibExport {
     /// 對每筆 entry 跑 APA7 必要欄位檢查，回報缺漏與**未被涵蓋的 type**。
     ///
     /// 不改變 `.bib` 內容——本函式是純讀取的旁路檢查（warn-only，#326 裁決）。
-    public static func apa7Report(entries: [Entry], people: [Person]) -> APA7Report {
+    public static func apa7Report(entries: [Entry], people: [Person],
+                                  organizations: [Organization] = []) -> APA7Report {
         let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
+        let orgsByKey = Dictionary(uniqueKeysWithValues: organizations.map { ($0.key, $0) })
         var issues: [APA7Issue] = []
         var unchecked: [String] = []
         for entry in entries.sorted(by: { $0.citekey < $1.citekey }) {
-            let bib = bibEntry(for: entry, people: peopleByKey)
+            let bib = bibEntry(for: entry, people: peopleByKey, organizations: orgsByKey)
             guard apa7CheckedTypes.contains(entry.type.uppercased()) else {
                 unchecked.append(entry.citekey)
                 continue
@@ -91,22 +95,35 @@ public enum BibExport {
         return APA7Report(issues: issues, uncheckedCitekeys: unchecked)
     }
 
-    public static func bibFile(entries: [Entry], people: [Person]) -> String {
+    public static func bibFile(entries: [Entry], people: [Person],
+                               organizations: [Organization] = []) -> String {
         let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
+        let orgsByKey = Dictionary(uniqueKeysWithValues: organizations.map { ($0.key, $0) })
         return entries
             .sorted { $0.citekey < $1.citekey }
-            .map { BibWriter.serialize(bibEntry(for: $0, people: peopleByKey)) }
+            .map { BibWriter.serialize(bibEntry(for: $0, people: peopleByKey,
+                                                organizations: orgsByKey)) }
             .joined(separator: "\n\n") + "\n"
     }
 
     /// 顯示名 → biblatex「Family, Given」。無空格（CJK 全名）整體視為 family。
-    static func bibName(for author: AkashicCore.Author, people: [String: Person]) -> String {
+    static func bibName(for author: AkashicCore.Author, people: [String: Person],
+                        organizations: [String: Organization] = [:]) -> String {
         let display: String
         switch author {
         // #81：對外名字由 `authorized` 指定，不由 `names` 的位置決定。書目是**羅馬化
         // 脈絡**，所以請求 latn；沒有指定時解析退到 key，讓缺口在書目上看得見而不是
         // 靜默印出索引系統產生的引用形（實測 84.6% 的記錄目前會走到這一步）。
         case .key(let k): display = people[k]?.displayName(in: .latn) ?? k
+        // #323：團體作者。**直接回傳雙大括號形，不走下方的 familyGiven 分支**——
+        // APA7 §9.11／biblatex 的 `author = {{Group Name}}` 慣例讓 BibTeX 不把團體名
+        // 拆成「姓, 名」。這條路徑先前靠 `CorporateName.isMarked` 偵測 `{...}` 標記
+        // （#6），現在有**型別保證**：不是猜這串像不像機構，是這個槽已判定為機構。
+        case .organization(let k):
+            let name = organizations[k]?.displayName ?? k
+            // 已帶標記就不重複包——`{{{X}}}` 會讓 biblatex 多一層 group。
+            return CorporateName.isMarked(name) ? "{\(CorporateName.unmark(name))}"
+                                                : "{\(name)}"
         case .literal(let s): display = s
         }
         // #6：機構名（`{...}` 標記）原樣輸出——biblatex 的大括號本來就是「別動它」，

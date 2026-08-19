@@ -585,6 +585,10 @@ public final class AkashicService {
                 for author in entry.authors {
                     switch author {
                     case .key(let k): seenKeys.insert(k)
+                    // #323：團體作者**不計入 person 的著作數**——這個計數餵的是
+                    // people 搜尋的 publications 欄位，把 organization 算進去會讓
+                    // 某個人的著作數包含他沒參與的團體掛名。
+                    case .organization: break
                     case .literal(let s):
                         if s.lowercased().contains(needle) { seenLiterals.insert(s) }
                     }
@@ -1583,6 +1587,8 @@ public final class AkashicService {
             "authors": entry.authors.map { author -> [String: String] in
                 switch author {
                 case .key(let k): return ["key": displaySafe(k, max: 200)]
+                // #323：團體作者。key 受 StoreKey 約束但仍消毒——與 person key 同待遇
+                case .organization(let k): return ["organization": displaySafe(k, max: 200)]
                 // literal 是 Zotero 匯入的第三方原文——掃描器對 case 行的短變數
                 // 值是盲點（見 DisplaySinkCoverageTests doc），此站點靠人工 + 測試釘
                 case .literal(let s): return ["literal": displaySafe(s, max: 400)]
@@ -1724,7 +1730,7 @@ public final class AkashicService {
                          note: String? = nil) throws -> String {
         guard let vtype = VenueType(rawValue: rawType) else {
             throw ServiceError.invalid(
-                "type「\(displaySafe(rawType, max: 60))」不在封閉列舉（journal / conference / publisher）")
+                "type「\(displaySafe(rawType, max: 60))」不在封閉列舉（\(VenueType.domainDescription)）")   // display-safe-exempt: domainDescription 由 VenueType.allCases 的 rawValue 組成，那些是 Swift 原始碼裡的識別字（編譯期常量），不含使用者資料
         }
         let load = try store.load()
         guard !load.venues.contains(where: { $0.key == key }) else {
@@ -1761,7 +1767,7 @@ public final class AkashicService {
         if let rawType {
             guard let vtype = VenueType(rawValue: rawType) else {
                 throw ServiceError.invalid(
-                    "type「\(displaySafe(rawType, max: 60))」不在封閉列舉（journal / conference / publisher）")
+                    "type「\(displaySafe(rawType, max: 60))」不在封閉列舉（\(VenueType.domainDescription)）")   // display-safe-exempt: domainDescription 由 VenueType.allCases 的 rawValue 組成，那些是 Swift 原始碼裡的識別字（編譯期常量），不含使用者資料
             }
             venue.type = vtype
         }

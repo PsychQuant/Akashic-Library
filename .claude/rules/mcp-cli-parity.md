@@ -132,6 +132,7 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 | `migrate-provenance` | 有理由缺席 | 同上 |
 | `migrate-person-identity`（#227/#241） | 有理由缺席 | 格式遷移＝維運例外（同 `migrate`／`migrate-provenance`）；且不可逆、要求 store 工作樹乾淨的人工 pre-flight，MCP 的 LLM 消費者不是該角色 |
 | `migrate-venues`（#304 venue change） | 有理由缺席 | 格式遷移＝維運例外（同 `migrate` 族）；per-file trackedness pre-flight＋部署鏈（release → migrate → validate → 手動 bump format 11）屬操作者角色 |
+| `migrate-work-types`（#325） | 有理由缺席 | 格式遷移＝維運例外（同 `migrate` 族）；不可逆、要求檔案受 git 追蹤的人工 pre-flight，且屬兩階段部署鏈的第一階（migrate → 下一版才把 `Entry.type` 收為封閉列舉），MCP 的 LLM 消費者不是該角色 |
 | `validate` | 有理由缺席 | 讀取檢查由 `akashic_doctor` 覆蓋（功能重疊）|
 | `rename` | 有理由缺席 | 高風險身分操作（citekey 遷移含 verdict value 重寫，#232）＝維運例外 |
 | `authorize-names` | 有理由缺席 | 批次策展＝操作者規模 |

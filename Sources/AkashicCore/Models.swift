@@ -46,14 +46,42 @@ public struct Entry: Equatable {
     }
 }
 
-/// 作者二態：已解析（引用 people/ 的 person key）或未解析裸字串。
+/// 作者**三態**（#323）：已歸戶為人／已歸戶為團體／未歸戶。
+///
+/// ## 三態不是「人／團體／字串」
+///
+/// `.literal` 仍表示**未歸戶**——不論那個字串最終指的是人或團體。若把三態讀成「進庫時
+/// 就分人與團體」，那是 `.claude/rules/literal-first-then-key.md` 第 1 段禁止的
+/// 「進庫時猜」：寧漏勿誤，漏（literal 待消歧）可逆，誤（錯誤歸戶）不可逆。
+///
+/// ## 為什麼需要第三態
+///
+/// WoS 匯出的**團體作者**（consortium／study group）以大括號標記，例如
+/// `{Taiwan Cancer Moonshot Program}`。二態下它們只能永久停在 `.literal`——因為
+/// `.key` 的語意（doc comment 與 `entity-backlink-completeness` 封閉列舉第 1 條）
+/// 是 person。於是 #303 的 literal 歸零 campaign 對這一類**結構上不可能達成終局**。
+///
+/// 而硬把 organization key 塞進 `.key` 會**通過型別檢查、通過 validate、通過所有
+/// 守衛**——裸字串沒有 kind 標記——只是庫裡多出「作者是 person」的假斷言，且沒有任何
+/// 機制會抓到。第三態讓那件事**寫不出來**，而不是靠紀律不去寫。
+///
+/// ## 與 APA7／biblatex 的對應
+///
+/// APA7 §9.11 Group Authors 的 biblatex 慣例是 `author = {{Group Name}}`（雙大括號，
+/// 讓 BibTeX 不把團體名當人名拆解「姓, 名」）。WoS 的大括號標記與它是**同一個慣例**
+/// ——那些 literal 不是髒資料，是模型先前接不住的正規表述。
 public enum Author: Equatable {
+    /// 已歸戶為 `entities/` 裡的 person。
     case key(String)
+    /// 已歸戶為 `entities/` 裡的 organization（#323）。
+    case organization(String)
+    /// 未歸戶的裸字串（可能是人、可能是團體——**尚未判定**）。
     case literal(String)
 
     public var displayName: String {
         switch self {
         case .key(let k): return k
+        case .organization(let k): return k
         case .literal(let s): return s
         }
     }

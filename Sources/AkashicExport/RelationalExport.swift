@@ -143,6 +143,11 @@ public enum RelationalExport {
                 case let .key(k):
                     authorRows.append([e.id.uuidString, String(i), idByKey[k],
                                        people.first { $0.key == k }?.displayName(in: .latn) ?? k])
+                // #323：團體作者。**person_id 欄位留 nil**——那一欄的外鍵指向 people
+                // 表，指進去會是假的外鍵；顯示名照樣寫出，讓它在關聯表裡看得見。
+                case let .organization(k):
+                    authorRows.append([e.id.uuidString, String(i), nil,
+                                       organizations.first { $0.key == k }?.displayName ?? k])
                 case let .literal(s):
                     authorRows.append([e.id.uuidString, String(i), nil, s])
                 }

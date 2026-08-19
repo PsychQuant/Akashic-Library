@@ -75,6 +75,10 @@ public enum EntryYAML {
             let authorNodes: [Node] = entry.authors.map { author in
                 switch author {
                 case .key(let k): return Node([(Node("key"), Node(k))] as [(Node, Node)])
+                // #323：團體作者。**新鍵而非重用 `key`**——裸字串沒有 kind 標記，
+                // 共用一個鍵會讓「作者是 person」的假斷言寫得出來且無人可查。
+                case .organization(let k):
+                    return Node([(Node("organization"), Node(k))] as [(Node, Node)])
                 case .literal(let s): return Node([(Node("literal"), Node(s))] as [(Node, Node)])
                 }
             }
@@ -783,14 +787,21 @@ public enum EntryYAML {
                 guard let m = node.mapping else {
                     throw StoreYAMLError.invalidField("authors", "元素不是 mapping")
                 }
-                try rejectUnknownKeys(m, known: ["key", "literal"], context: "authors")
+                try rejectUnknownKeys(m, known: ["key", "organization", "literal"],
+                                      context: "authors")
                 let key = try m["key"].map { try scalarString($0, context: "authors.key") }
+                let org = try m["organization"].map {
+                    try scalarString($0, context: "authors.organization")
+                }
                 let literal = try m["literal"].map { try scalarString($0, context: "authors.literal") }
-                switch (key, literal) {
-                case (let k?, nil): return .key(k)
-                case (nil, let s?): return .literal(s)
+                // **恰好一個**——三態互斥。兩個以上或零個都是壞資料，不猜。
+                switch (key, org, literal) {
+                case (let k?, nil, nil): return .key(k)
+                case (nil, let o?, nil): return .organization(o)
+                case (nil, nil, let s?): return .literal(s)
                 default:
-                    throw StoreYAMLError.invalidField("authors", "必須恰好有 key 或 literal 其一")
+                    throw StoreYAMLError.invalidField(
+                        "authors", "必須恰好有 key／organization／literal 其一")
                 }
             }
         }
@@ -1927,7 +1938,7 @@ public enum VenueYAML {
         guard let vtype = VenueType(rawValue: rawType) else {
             throw StoreYAMLError.invalidField(
                 "venue.type",
-                "'\(displaySafe(rawType, max: 60))' 不在封閉列舉（journal / conference / publisher）")
+                "'\(displaySafe(rawType, max: 60))' 不在封閉列舉（\(VenueType.domainDescription)）")
         }
         var explicitID: UUID?
         if let raw = try EntryYAML.requireShape(map["id"], field: "venue.id",

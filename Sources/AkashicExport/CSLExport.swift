@@ -15,8 +15,11 @@ public enum CSLExport {
         "misc": "document",
     ]
 
-    public static func cslJSON(entries: [Entry], people: [Person]) throws -> String {
+    public static func cslJSON(entries: [Entry], people: [Person],
+                               organizations: [Organization] = []) throws -> String {
         let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
+        let organizationsByKey = Dictionary(
+            uniqueKeysWithValues: organizations.map { ($0.key, $0) })
         let items: [[String: Any]] = entries
             .sorted { $0.citekey < $1.citekey }
             .map { entry in
@@ -33,6 +36,11 @@ public enum CSLExport {
                         let display: String
                         switch author {
                         case .key(let k): display = peopleByKey[k]?.displayName(in: .latn) ?? k
+                        // #323：團體作者**直接回傳 CSL 的 `literal` name variant**——
+                        // 那正是 CSL 對機構名的標準表述，且不必經過下方的
+                        // `CorporateName.isMarked` 字串偵測（型別已經判定了）。
+                        case .organization(let k):
+                            return ["literal": organizationsByKey[k]?.displayName ?? k]
                         case .literal(let s): display = s
                         }
                         // #6：CSL 的 `literal` name variant 正好對應機構名——

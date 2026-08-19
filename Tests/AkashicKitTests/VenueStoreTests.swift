@@ -21,7 +21,7 @@ final class VenueStoreTests: XCTestCase {
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
 
     private func sampleVenue() -> Venue {
-        var v = Venue(key: "jcgs", type: .journal)
+        var v = Venue(key: "jcgs", type: .periodical)
         v.names = Timeline([TemporalValue(value: "Journal of Computational and Graphical Statistics")])
         return v
     }
@@ -70,7 +70,7 @@ final class VenueStoreTests: XCTestCase {
     }
 
     func testVenueBadKeyRefused() throws {
-        XCTAssertThrowsError(try store.writeVenue(Venue(key: "Bad Key!", type: .journal)))
+        XCTAssertThrowsError(try store.writeVenue(Venue(key: "Bad Key!", type: .periodical)))
     }
 
     // MARK: - 反向編年（task 2.3）

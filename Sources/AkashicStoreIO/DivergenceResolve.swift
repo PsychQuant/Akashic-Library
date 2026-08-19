@@ -1379,6 +1379,7 @@ extension LibraryStore {
         func identity(_ a: Author) -> String {
             switch a {
             case let .key(k): return "key:\(k)"       // display-safe-exempt: 比對鍵，不進輸出
+            case let .organization(k): return "org:\(k)"  // display-safe-exempt: 同上（#323）
             case let .literal(s): return "literal:\(s)"   // display-safe-exempt: 同上
             }
         }
@@ -1388,6 +1389,7 @@ extension LibraryStore {
         func display(_ a: Author) -> String {
             switch a {
             case let .key(k): return "已歸戶 \(k)"     // display-safe-exempt: 進 losses，下游整批 displaySafe
+            case let .organization(k): return "已歸戶團體 \(k)"  // display-safe-exempt: 同上（#323）
             case let .literal(s): return s
             }
         }

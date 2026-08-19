@@ -85,12 +85,16 @@ final class APA7SupplementalFieldsTests: XCTestCase {
     /// **仍然未涵蓋的型別要保持可見。**
     ///
     /// 補充表只補了 `INREFERENCE`，因為 `IMAGE`（`visualWork`）與 `UNPUBLISHED`
-    /// （`review`／`unpublishedWork`）在 store 目前**零實例**——沒有量測就不該猜它們的
+    /// （`unpublishedWork`）在 store 目前**零實例**——沒有量測就不該猜它們的
     /// 必要欄位（`zero-instance-guards` 的紀律：一列一列裁決，不依性質相似類推）。
     ///
     /// 這條把「還沒補」釘住，讓它們哪天有了實例時不會靜默通過。
+    ///
+    /// **`.review` 於 #355 離開這份清單**——它改送 `ARTICLE`（因為 10.7 的達成條件是
+    /// `ARTICLE`／`VIDEO`／`ONLINE` ＋ `RELATEDTYPE`），而 `ARTICLE` 本來就在依賴的
+    /// 必要欄位表內。見下一條的正面斷言。
     func testStillUncoveredTypesRemainVisible() {
-        for type in [WorkType.visualWork, .review, .unpublishedWork] {
+        for type in [WorkType.visualWork, .unpublishedWork] {
             let entry = Entry(id: UUID(), citekey: "probe\(type.rawValue.filter(\.isLetter))",
                               type: type, title: "Probe", authors: [], date: "2020")
             let report = BibExport.apa7Report(entries: [entry], people: [])
@@ -98,5 +102,24 @@ final class APA7SupplementalFieldsTests: XCTestCase {
                            "\(type.rawValue)（送 \(type.biblatexEntryType)）目前零實例、"
                            + "未補必要欄位，必須列為未涵蓋而非靜默通過")
         }
+    }
+
+    /// **#355 的附帶效果：`.review` 從「未涵蓋」變成「有下限」。**
+    ///
+    /// 改送 `ARTICLE` 不只修好了節（10.8 → 10.7），也讓它落進依賴的必要欄位表——
+    /// 一筆缺 `JOURNALTITLE` 的書評現在會報 error，而先前它連檢查都沒被檢查。
+    ///
+    /// 這條是正面斷言：只把 `.review` 從上一條的清單裡拿掉，只證明「它不再未涵蓋」，
+    /// **不證明它被檢查到對的東西**。
+    func testReviewIsNowCoveredWithTheJournalArticleFloor() {
+        let bare = Entry(id: UUID(), citekey: "probereview", type: .review,
+                         title: "Review of Something", authors: [], date: "2020")
+        let report = BibExport.apa7Report(entries: [bare], people: [])
+        XCTAssertTrue(report.uncheckedCitekeys.isEmpty,
+                      "`.review` 送 ARTICLE，已被依賴的必要欄位表涵蓋："
+                      + "\(report.uncheckedCitekeys)")
+        let missing = report.issues.filter { $0.severity == .error }.map(\.message)
+        XCTAssertTrue(missing.contains { $0.contains("JOURNALTITLE") },
+                      "期刊書評的下限含 JOURNALTITLE（§10.7 的宿主是期刊文章）：\(missing)")
     }
 }

@@ -135,6 +135,57 @@ source element）。兩次都是「殘餘裡躺著答案」。查缺口時先問
 之所以可以存在，是因為它補的是依賴**沒有意見**的型別；這裡是**反轉依賴刻意設定的值**，
 兩者不同類。裁決留在 #359。
 
+## 為了讓分類器算對節而補欄位，什麼時候可以（#355，2026-08-19）
+
+ch10 有三節**不由 entry type 單獨決定**——依賴的 `classifySection` 要看 entry type
+**＋一個欄位**：10.7 Reviews（`RELATEDTYPE = reviewof`）、10.11 Tests/Scales
+（`ENTRYSUBTYPE` 或 title 關鍵字）、10.15 Social Media（`EPRINT` ＝平台名）。
+
+送出那些欄位就能讓守衛全綠。問題從來不是「送不送得出」，是**送出去會不會說謊**。
+
+### 判準：這個值對這個型別是不是**定義上為真**
+
+| 情形 | 裁決 | 為什麼 |
+|---|---|---|
+| `review` → `RELATEDTYPE = reviewof` | ✅ **送**（無條件） | `.review` 的意思**就是**「這是一篇評論」；「評論某物」是型別的定義，不是某筆記錄碰巧具備的性質 |
+| `testInstrument` → `ENTRYSUBTYPE: Database record` | ❌ **不送** | 它斷言記錄**來自 PsycTESTS**。對別處來的量表為假 |
+| `socialMediaPost` → `EPRINT: Twitter` | ❌ **不送** | 它斷言**平台**。對 Mastodon 貼文為假 |
+
+一句話：**可以送型別已經聲明的東西，不可以送記錄的出處。** 出處是事實、會錯；型別的
+定義不會——它是那個格子的意思本身。
+
+這與 `not_applicable` 的 claim 限定詞紀律同型（`docs/tractatus/README.md`）：限定詞
+**逐字取自該條 rationale 已經寫下的字**，所以限縮不引入任何新斷言。這裡也一樣：
+`reviewof` 逐字取自 `.review` 這個型別已經聲明的意思。
+
+### 不送不等於做不到——`fields` 是原樣轉出的
+
+`BibExport.bibEntry` 把 `entry.fields` 逐鍵轉出。所以一份 store 裡**真的**持有
+`eprint = Twitter` 的貼文，其 `.bib` 會帶著它、依賴自然算出 10.15；一份標題真的含
+`Inventory` 的量表也會自然命中 10.11。**我們不偽造訊號，也不替依賴二次猜測。**
+
+同一個 `WorkType` 的記錄會依標題文字落到不同節——那是依賴的分類器行為，不是我們的
+選擇。要根治需要上游給 10.11 一個專屬 entry type。
+
+### 一個實測發現的上游限制（本輪由測試抓到）
+
+「如實轉寫就夠」**只對依賴認得的平台成立**。`classifyOnline` 用一份**寫死的封閉平台
+清單**（twitter／facebook／instagram／reddit／tumblr／linkedin／tiktok），一則
+Mastodon／Threads／Bluesky 貼文即使 `eprint` 完全屬實仍落 10.16
+（`WorkTypeSectionAgreementTests.testAPlatformOutsideTheDependencyListStillMissesTenFifteenToday`
+斷言現況，上游擴充時會變紅）。
+
+**這反而強化了「不送」**：連如實轉寫都不保證命中，那麼為了命中而編造 `EPRINT: Twitter`
+就更不可接受——那會讓一則 Mastodon 貼文的參考文獻**說它來自 Twitter**，錯誤從分類層
+下沉到內容層。
+
+### 附帶的模型缺陷（記錄，未修）
+
+`.review` 同時承擔**載體**與**關係**：APA7 §10.7 的渲染是「宿主參考文獻 ＋ 一個
+Review of the … 元素」，也就是「是一篇評論」本質上是關係不是載體種類。送 `ARTICLE`
+等於預設載體是期刊，對線上影評／影片評論會是錯的載體。**零實例，所以現在不拆**；
+出現非期刊的評論時必須重新裁決（正確形狀屬 #339 的 work → work 關係那一族）。
+
 ## 一個誠實的邊界（別把下限當成品質保證）
 
 通過 113 例是**必要條件不是充分條件**。把所有東西塞進 `fields` 的自由字典也能讓 113 例通過

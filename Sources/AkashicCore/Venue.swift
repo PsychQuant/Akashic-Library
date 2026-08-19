@@ -32,12 +32,59 @@ public enum VenueRef: Equatable, Comparable {
     }
 }
 
-/// 發表載體的種類。**封閉列舉三值**（#304 裁決三：期刊＋會議＋出版社一次到位）；
-/// 擴充第四類（series 等）＝修 spec 的顯式動作，decode 對未知值整檔拒讀、不猜。
+/// 發表載體的種類。**封閉列舉六值**，值域**細分** APA7 §9.23–9.33 的 source 類型學
+/// （#324）；decode 對未知值整檔拒讀、不猜。
+///
+/// ## 判準（為什麼是這六個）
+///
+/// APA7 的分類不是按「載體長什麼樣」，而是按**這個載體要向參考文獻貢獻哪一組欄位**
+/// ——§9.24：「The source element has **one or two parts, depending on the reference
+/// category**」。這與本檔 `Venue` 的 §11 判準（「它決定了哪些欄位存在」）同源，所以
+/// 兩者可以疊起來用。
+///
+/// | APA7 § | 值 | 索取的欄位組 |
+/// |---|---|---|
+/// | 9.25–9.27 | `periodical` | title, volume, issue, pages／article number |
+/// | 9.29 | `publisher` | publisher 名（**明文不含地點**）|
+/// | 9.30 | `database` | database／archive 名 |
+/// | 9.31 | `conference` | 會議名＋地點資訊 |
+/// | 9.32 | `socialMedia` | site 名 |
+/// | 9.33 | `website` | site 名 |
+///
+/// ## 為什麼 `journal` 更名為 `periodical`
+///
+/// APA7 的 periodical 涵蓋 journal／magazine／newspaper／newsletter／blog——它們
+/// **索取同一組欄位**，是同一類。叫 `journal` 會讓下一個人以為報紙要另立一格，那正是
+/// 判準缺席造成的爭議（#304 的原始三值以「一次到位」收錄，不是判準）。
+///
+/// ## 為什麼**沒有** APA7 的第七類（§9.28 edited book / reference work）
+///
+/// 一本編著**有編者、書名、版次、出版社**，而 `Venue` 的全部欄位是
+/// `id / key / type / names / authorized / note / references / unknownFields`——**一個
+/// 都裝不下**。它是 **work**，其容器關係是 work→work；它的 *publisher* 才是 venue。
+/// store 早就這樣存了：`incollection` 的 `venues:` 放出版社、書名放 `fields.booktitle`
+/// （正是 §9.28 描述的兩部分 source）。硬把它塞進本列舉會製造一個結構上無法持有 APA7
+/// 要求欄位的 venue——把「模型接不住」搬個位置而不是修掉。
+///
+/// ## 細分關係，不是相等
+///
+/// 依 `.claude/rules/apa7-is-the-work-floor.md`：專案的值域**可以更細、不能更粗**。
+/// 本列舉目前與 APA7 的六類一一對應，但將來若要把 `periodical` 再拆（例如
+/// `newspaper` 另立），只要它仍對映回 §9.25 即合法。
 public enum VenueType: String, CaseIterable, Equatable {
-    case journal
+    case periodical
     case conference
     case publisher
+    case database
+    case socialMedia
+    case website
+
+    /// 給錯誤訊息用的值域字串。**從 `allCases` 生成，不得寫死**——#324 改值域時
+    /// 發現三處錯誤訊息各自寫死「journal / conference / publisher」，值域改了而訊息
+    /// 還在報舊值，會直接誤導使用者去試一個不存在的值。
+    public static var domainDescription: String {
+        allCases.map(\.rawValue).joined(separator: " / ")
+    }
 }
 
 /// 發表載體（`entities/<uuid>.yaml`，形狀標籤 `venue:`）。

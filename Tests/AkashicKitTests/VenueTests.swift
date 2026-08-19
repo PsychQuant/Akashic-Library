@@ -10,27 +10,40 @@ final class VenueTests: XCTestCase {
 
     // MARK: - 型別與 validate（task 1.1）
 
-    func testVenueTypeIsClosedEnumeration() {
+    /// 值域細分 APA7 §9.23–9.33 的 source 類型學（#324）。
+    ///
+    /// **六值，不是七值**：APA7 的第七類「edited book / reference work」（§9.28）
+    /// 不在此——一本編著有編者、書名、版次，`Venue` 一個欄位都裝不下，它是 **work**
+    /// 而非 venue（其 publisher 才是 venue）。詳見 #324 的更正 comment。
+    func testVenueTypeRefinesAPA7SourceTaxonomy() {
         XCTAssertEqual(VenueType.allCases.map(\.rawValue).sorted(),
-                       ["conference", "journal", "publisher"])
+                       ["conference", "database", "periodical",
+                        "publisher", "socialMedia", "website"])
+    }
+
+    /// `journal` 已更名為 `periodical`——APA7 的 periodical 涵蓋 journal／magazine／
+    /// newspaper／newsletter／blog，它們索取同一組欄位，是同一類。舊名不得復活。
+    func testJournalRawValueIsGone() {
+        XCTAssertNil(VenueType(rawValue: "journal"),
+                     "`journal` 是 #324 更名前的舊值，不該再被接受")
     }
 
     func testNewVenueGetsRandomV4ID() {
         // #241 doctrine：id 是單一來源事件的 v4，不由名字推導。
         // 同 key 兩次建構必須得到不同 id——決定性推導正是被廢除的行為。
-        let a = Venue(key: "jcgs", type: .journal)
-        let b = Venue(key: "jcgs", type: .journal)
+        let a = Venue(key: "jcgs", type: .periodical)
+        let b = Venue(key: "jcgs", type: .periodical)
         XCTAssertNotEqual(a.id, b.id)
     }
 
     func testValidateRejectsBadKey() {
-        let v = Venue(key: "Bad Key!", type: .journal)
+        let v = Venue(key: "Bad Key!", type: .periodical)
         XCTAssertTrue(v.validate().contains { $0.severity == .error })
     }
 
     func testNameTimelineSegments() throws {
         // 改名史：舊刊名帶 end、現刊名帶 start——兩者並存，現行名可推導。
-        var v = Venue(key: "jcgs", type: .journal)
+        var v = Venue(key: "jcgs", type: .periodical)
         v.names = Timeline([
             TemporalValue(value: "Old Journal Title", range: DateRange(end: "2003")),
             TemporalValue(value: "Journal of Computational and Graphical Statistics",
@@ -42,7 +55,7 @@ final class VenueTests: XCTestCase {
     }
 
     func testDisplayNamePrefersAuthorized() {
-        var v = Venue(key: "jcgs", type: .journal)
+        var v = Venue(key: "jcgs", type: .periodical)
         v.names = Timeline([TemporalValue(value: "JCGS")])
         v.authorized = ["Journal of Computational and Graphical Statistics"]
         XCTAssertEqual(v.displayName,
@@ -53,7 +66,7 @@ final class VenueTests: XCTestCase {
 
     func testVenueRoundTripsCanonically() throws {
         var v = Venue(key: "journal-of-computational-and-graphical-statistics",
-                      type: .journal)
+                      type: .periodical)
         v.names = Timeline([
             TemporalValue(value: "Journal of Computational and Graphical Statistics"),
             TemporalValue(value: "JCGS"),
@@ -76,8 +89,16 @@ final class VenueTests: XCTestCase {
         type: series
         """
         XCTAssertThrowsError(try VenueYAML.decode(yaml)) { err in
-            XCTAssertTrue(String(describing: err).contains("journal"),
-                          "錯誤訊息必須點名封閉列舉，實得：\(err)")
+            // 斷言訊息**含當前值域**，而非寫死某個值——#324 改值域時發現三處訊息
+            // 各自寫死舊值域，值域改了訊息還在報舊值。現在訊息從 `allCases` 生成，
+            // 測試也跟著從 `allCases` 取期望值，兩者不會再分岔。
+            let msg = String(describing: err)
+            XCTAssertTrue(msg.contains(VenueType.domainDescription),
+                          "錯誤訊息必須點名當前封閉列舉，實得：\(err)")
+            for c in VenueType.allCases {
+                XCTAssertTrue(msg.contains(c.rawValue),
+                              "訊息漏了值 \(c.rawValue)：\(err)")
+            }
         }
     }
 
@@ -101,7 +122,7 @@ final class VenueTests: XCTestCase {
     }
 
     func testUnknownFieldsTolerantPreserved() throws {
-        var v = Venue(key: "jcgs", type: .journal)
+        var v = Venue(key: "jcgs", type: .periodical)
         v.names = Timeline([TemporalValue(value: "JCGS")])
         var text = try VenueYAML.encode(v)
         text += "future_field: hello\n"

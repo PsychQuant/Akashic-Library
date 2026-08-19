@@ -1724,7 +1724,7 @@ public final class AkashicService {
                          note: String? = nil) throws -> String {
         guard let vtype = VenueType(rawValue: rawType) else {
             throw ServiceError.invalid(
-                "type「\(displaySafe(rawType, max: 60))」不在封閉列舉（journal / conference / publisher）")
+                "type「\(displaySafe(rawType, max: 60))」不在封閉列舉（\(VenueType.domainDescription)）")   // display-safe-exempt: domainDescription 由 VenueType.allCases 的 rawValue 組成，那些是 Swift 原始碼裡的識別字（編譯期常量），不含使用者資料
         }
         let load = try store.load()
         guard !load.venues.contains(where: { $0.key == key }) else {
@@ -1761,7 +1761,7 @@ public final class AkashicService {
         if let rawType {
             guard let vtype = VenueType(rawValue: rawType) else {
                 throw ServiceError.invalid(
-                    "type「\(displaySafe(rawType, max: 60))」不在封閉列舉（journal / conference / publisher）")
+                    "type「\(displaySafe(rawType, max: 60))」不在封閉列舉（\(VenueType.domainDescription)）")   // display-safe-exempt: domainDescription 由 VenueType.allCases 的 rawValue 組成，那些是 Swift 原始碼裡的識別字（編譯期常量），不含使用者資料
             }
             venue.type = vtype
         }

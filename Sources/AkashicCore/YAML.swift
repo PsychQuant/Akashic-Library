@@ -1927,7 +1927,7 @@ public enum VenueYAML {
         guard let vtype = VenueType(rawValue: rawType) else {
             throw StoreYAMLError.invalidField(
                 "venue.type",
-                "'\(displaySafe(rawType, max: 60))' 不在封閉列舉（journal / conference / publisher）")
+                "'\(displaySafe(rawType, max: 60))' 不在封閉列舉（\(VenueType.domainDescription)）")
         }
         var explicitID: UUID?
         if let raw = try EntryYAML.requireShape(map["id"], field: "venue.id",

@@ -159,7 +159,7 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 **這個方向是 #325 才補的**——#259 雙向化時只想到「命令長出來」，沒想到
 「命令退場」，因為當時還沒有任何命令退場過。
 
-## CLI 橫切選項裁決表（封閉列舉——#310 一次性補裁；恰 2 項，一格不多一格不少。**不得依性質相似類推第三項**）
+## CLI 橫切選項裁決表（封閉列舉——#310 一次性補裁 2 項、#298 增第 3 項；恰 3 項，一格不多一格不少。**不得依性質相似類推第四項**）
 
 前兩張表的行分別是「MCP tool」與「CLI subcommand」。**橫切選項兩者皆非**——它是
 `ParsableArguments`，被所有帶它的 subcommand 共享，不屬於其中任何一個。所以問題從來
@@ -173,6 +173,7 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 |---|---|---|
 | `--library`（`LibraryOptions`，橫切 42 個 subcommand）| 有理由缺席（#310）| **MCP 已有對等能力，只是粒度不同**：`akashic_files` 的 `use` action 是 session 級切換（改寫 `AkashicService` 的 `root`／`storeKey`，其後所有 tool 作用在新 universe；`testFilesUseSwitchesUniverseCompletely` 已斷言「舊 universe 內容不得洩入」），與 App 的 `AppState.switchFile(key:)` 同形。per-invocation 形式適合 CLI，是因為每次呼叫都是獨立 process、沒有可承載選擇的 session；MCP 與 App 都是長 session，**MCP 對齊的是 App 不是 CLI**。不補 per-call 參數的三個理由：(a) 對等能力已存在（上述）；(b) 選填參數對 LLM 消費端是**淨負**——省略即靜默落到預設 store，寫入類 tool 可能在呼叫者毫無察覺下寫錯，而 CLI 省略 `--library` 的人正看著自己的 shell；(c) 命名衝突（見下方註）使新參數必須另取名字，於是同一個 tool 並存兩個意義相近而所指不同的參數 |
 | `--config`（`FileConfigOptions`，`file` 家族 4 個 subcommand）| 有理由缺席（#310）| **部署層決定，非呼叫層**：registry 檔的位置由 MCP server 的啟動環境（`AKASHIC_HOME`）決定；讓個別 tool 呼叫改指另一份 registry，等於讓 LLM 消費者改寫部署決定。與 `--library` 不同的是**這裡連 session 級的對等物都不需要**——切 registry 不是切 universe，是換掉一整組 universe 的名冊 |
+| `--yes`（`LibraryOptions`，只對 6 個破壞性 subcommand 生效）| 有理由缺席（#298）| **閘門本身不作用於 MCP，所以它的出路也不需要**。`--yes` 是「破壞性 `--apply` 未指名目標 store 時的知情同意」的出路（#298 D4），而該閘門刻意只擋 CLI：CLI 的 `--apply` 是**篩選式批次掃蕩**，MCP 的 apply 收**逐 id 顯式指名**的清單——與本表上方 `resolve-people` 列已記錄的 tier 閘同型不對稱。#310 的「顯式性在 MCP 面恆為否」因此不綁：閘門不在那一面。若日後 MCP 長出篩選式批次寫入，該閘門與本旗標的 MCP 面須一併重新裁決 |
 
 > **命名衝突（#315）**：`library` 這個字在兩面**意義不同**——CLI 的 `--library` 指
 > **store root 路徑**；MCP 的 `library` 參數（`akashic_search`／`akashic_person` 等）

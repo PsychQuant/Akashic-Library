@@ -72,6 +72,25 @@ struct LibraryOptions: ParsableArguments {
     @Option(name: .long, help: "library root（預設 $AKASHIC_LIBRARY 或 ~/.akashic/config.yaml 的 library:）")
     var library: String?
 
+    /// 破壞性 `--apply` 的知情同意（#298）。
+    ///
+    /// 語意**不是**「跳過確認」而是「**我已確認目標就是 registry 解析到的那個**」
+    /// ——它的安全性來自拒絕訊息**先說出了目標**，使用者是看過之後才加上它的。
+    @Flag(name: .long,
+          help: "破壞性 --apply 專用：我已確認目標是 registry 解析到的那個 store（未指定 --library 時必須）")
+    var yes = false
+
+    /// 破壞性寫入前的目標確認（#298）。**只在真的要寫時呼叫**——dry-run 不得被擋。
+    ///
+    /// 2026-08-16 的事故：在 scratch 目錄執行無 `--library` 的 `--apply`，解析循
+    /// registry 打到真 store，867 個 person 檔被改名重發 id。核心不是解析錯了，是
+    /// **呼叫者以為自己在 scratch**，而沒有任何東西告訴他。
+    func assertDestructiveTargetNamed(_ command: String) throws {
+        try DestructiveTargetGate.assertTargetNamed(
+            command: command, explicitLibrary: library, yes: yes,
+            resolved: try resolved().root)
+    }
+
     /// 開 library，佈局不存在就建（`doctor` / `import-zotero` 用）。
     ///
     /// **必須經由這裡，不要自己 `LibraryStore(root:)`**（#101）。它與 `openStore()` 的

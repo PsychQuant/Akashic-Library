@@ -11571,6 +11571,17 @@
 <ul>
 <li><code>not_applicable</code> — Akashic 目前不宣稱直接實作命題 5.632 的哲學主張。<br><small>理由：此命題的具體內容是：形上主體不是世界中與其他物並列的實體，而是可經驗世界具有視點的邊界條件。專案現有 schema、資料與查詢行為不足以證成同一主張，硬套對應會誤導。</small>
 </li>
+<li><code>analogy_only</code> / <code>structural_invariant</code> — 在 store 的記法裡，person 不作為「持有著作清單的實體」存在——著作邊只記在作品側，反向清單一律現算。此為記法層的結構類比，不主張與本命題的形上主體同一。<br><small>理由：這是關於記法的可查證事實，不是哲學斷言：entity-backlink 規則的封閉列舉裡沒有任何 person → work 邊（第 1 條的方向是 Entry.authors → person），而「person 記錄的 works:」被明文列在不得儲存之列。所以在這個記法中，一個作者確實不是「裡面裝著作品清單」的那種東西。但該設計的證成來自作品側正典的六條理由（有界／事實與出處同在／序即結構／未歸戶作者的可表達性／存在依賴方向／變更頻率局部性），不是來自本命題——呼應與證成是兩件事，混同會重演 #300 已裁決過的界線問題。此條刻意不成為那六條的第七條。</small>
+<ul>
+<li><code>.claude/rules/entity-backlink-completeness.md</code>（heading：<code>### 不得儲存的（同一件事的另一面）</code>）— 「person 記錄的 works:」在此被明文列為不得儲存，反向由掃描現算。</li>
+<li><code>.claude/rules/entity-backlink-completeness.md</code>（heading：<code>## 為什麼正典側是**作品側**（#300 裁決，2026-08-16）</code>）— 六條理由在此；本 relation 不增列第七條，只指出記法層的呼應。</li>
+<li><code>Tests/AkashicCLITests/PersonCLITests.swift</code>（test：<code>testPersonTypeHasNoWorksMember</code>）— 型別反射確認 person 型別上沒有 works 成員——記法層事實有機械防線。</li>
+</ul>
+</li>
+</ul>
+<strong>歷史脈絡</strong>
+<ul>
+<li><code>issue</code> <code>https://github.com/PsychQuant/Akashic-Library/issues/302</code> — <code>revised</code>：#302 裁決（#300 的 residue）：作者身分的存在論維度不進 spec、不升格為規範判準；以 analogy_only 記在本命題，並在規則檔只加「另見」指標。三個合法結局中選「進 corpus」而非「記錄後關閉」，理由是該問題已觀察到回歸一次（#221，2026-08-10 以「為什麼 person 記錄裡沒有 works」的形式），有具名條目可讓下一次回歸落在既有位置。</li>
 </ul>
 </td>
 </tr>

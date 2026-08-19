@@ -108,6 +108,56 @@ final class NowQualifierCensusTests: XCTestCase {
         XCTAssertEqual(c.template + c.otherWithNow, 356, "帶「目前」的合計變了")
     }
 
+    // MARK: - #267／#302 的裁決存續守衛
+
+    /// #267 的裁決節必須**還在**，而且仍保留三個承重句。
+    ///
+    /// 那一節裁定「具名的第二讀者」為承載機制，並明寫另兩個候選為什麼不是。
+    /// 三個句子各自不可省：
+    ///
+    /// - 「都只降低機率、都不保證」——沒有它，本節自己會變成錯誤安全感的來源
+    /// - 「不能靠作者自己再讀一遍」——這是否決 (a) 的全部理由（跨模型盲驗的實測）
+    /// - 「沒有那次量測就不該動手」——這是否決 (c) 的重啟條件，刪掉就變成永久否決
+    func testReadmeKeepsThePhilosophicalConsistencyRuling() throws {
+        let readme = try String(
+            contentsOf: try repoRoot().appendingPathComponent("docs/tractatus/README.md"),
+            encoding: .utf8)
+        XCTAssertTrue(readme.contains("哲學一致性由誰守"), "#267 的裁決節標題不見了")
+        XCTAssertTrue(readme.contains("三個候選都只降低機率、都不保證"),
+                      "「不保證」這句必須留著——沒有它，本節會被讀成「已經有機制了」")
+        XCTAssertTrue(readme.contains("不能靠作者自己再讀一遍"),
+                      "否決作者自審 checklist 的理由必須留著，否則下一個人會把它加回來"
+                      + "當成承重機制")
+        XCTAssertTrue(readme.contains("沒有那個數字就"),
+                      "機械化的重啟條件（先量假陽性率）必須留著——刪掉會讓 (c) 從"
+                      + "「條件未滿足」變成「已永久否決」")
+    }
+
+    /// #302 的裁決：`analogy_only` 記在 5.632，且規則檔只加「另見」、**不是第七條理由**。
+    ///
+    /// 這條守的是**劃界措辭本身**。`entity-backlink-completeness` 的六條理由是封閉列舉；
+    /// 一條哲學呼應若被讀成第七條，就是 #300 同案明文禁止的「升格為規範判準」。
+    /// 而那個升格的發生方式很安靜：只要有人把「另見」那段的免責句刪掉，剩下的文字
+    /// 讀起來就像第七條。
+    func testAuthorshipOntologyStaysAnAnalogyNotASeventhReason() throws {
+        let root = try repoRoot()
+        let corpus = try String(
+            contentsOf: root.appendingPathComponent("docs/tractatus/corpus/5.yaml"),
+            encoding: .utf8)
+        XCTAssertTrue(corpus.contains("持有著作清單的實體"),
+                      "5.632 的 analogy_only relation 不見了（#302 的產出）")
+        XCTAssertTrue(corpus.contains("呼應與證成是兩件事"),
+                      "該 relation 的劃界句必須留著——它是 analogy_only 與 spec 的分界")
+
+        let rule = try String(
+            contentsOf: root.appendingPathComponent(
+                ".claude/rules/entity-backlink-completeness.md"),
+            encoding: .utf8)
+        XCTAssertTrue(rule.contains("這不是第七條理由"),
+                      "「另見」指標的免責句不見了——沒有它，那段會被讀成第七條理由，"
+                      + "而那正是 #300 裁定不得發生的升格")
+    }
+
     /// README 那一節必須**還在**，而且仍明說「沒有機制在追蹤」。
     ///
     /// 這一節是本 issue 的全部產出：它把一個沉默的事實變成記錄下來的事實。若有人「精簡」

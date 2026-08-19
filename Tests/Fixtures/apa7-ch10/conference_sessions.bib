@@ -1,0 +1,86 @@
+% ================================================
+% Conference Sessions and Presentations (APA 10.5)
+% APA 7th Edition Section 10.5 — Examples 60–63
+% ================================================
+%
+% 來源：APA7 手冊 §10.5 的四個編號例，逐字轉寫自
+% che-axiom-systems/domains/apa7-style/06_reference/APA7manual.md:7576-7640
+%
+% **為什麼這個檔案是後來補的**（#359）：apa7-style domain 的
+% 02_Reference_Types/*.bib 沒有 §10.5 —— 那不是遺漏，是那批 .bib 本來就沒涵蓋這一節。
+% 而 §10.5 的缺席讓一個問題無法機械回答：「一筆會議發表缺 EVENTTITLE 時，能不能產出
+% 正確的參考文獻？」
+%
+% 手冊的 template 直接給了答案。Source 欄寫的是：
+%
+%     Conference Name, Location.
+%
+% **會議名稱就是 source element。** 沒有它，那筆參考文獻沒有來源可印 —— 這不是誰的
+% 直覺，是手冊的 template 本身。
+%
+% 欄位對映（依 biblatex-apa 的 @PRESENTATION）：
+%   TITLEADDON  ← 方括號內的類型標籤（[Conference session] / [Paper presentation] …）
+%                 手冊原文：「Include a label in square brackets after the title that
+%                 matches how the presentation was described at the conference」
+%   EVENTTITLE  ← 會議名稱（source element 的前半）
+%   VENUE       ← 會議地點（source element 的後半）
+%   MAINTITLE   ← 僅例 63：symposium 的標題（「In C. C. Chairperson (Chair),
+%                 Title of symposium [Symposium]」）
+%   EDITOR      ← 僅例 63：symposium 的 chairs
+%
+% DATE 用手冊的完整會期（原文：「The date should match the date(s) of the full
+% conference to help readers find the source, even though a session or presentation
+% likely occurred on only one day」）——所以是區間不是單日。
+
+% (APA 10.5 Example 60)
+@PRESENTATION{10.5:60,
+  AUTHOR         = {A. Fistek and E. Jester and K. Sonnenberg},
+  TITLE          = {Everybody's got a little music in them},
+  SUBTITLE       = {Using music therapy to connect, engage, and motivate},
+  TITLEADDON     = {Conference session},
+  EVENTTITLE     = {Autism Society National Conference},
+  VENUE          = {Milwaukee, WI, United States},
+  EVENTDATE      = {2017-07-12/2017-07-15},
+  DATE           = {2017},
+  URL            = {https://asa.confex.com/asa/2017/webprogramarchives/Session9517.html}
+}
+
+% (APA 10.5 Example 61)
+@PRESENTATION{10.5:61,
+  AUTHOR         = {S. Maddox and J. Hurling and E. Stewart and A. Edwards},
+  TITLE          = {If mama ain't happy, nobody's happy},
+  SUBTITLE       = {The effect of parental depression on mood dysregulation in children},
+  TITLEADDON     = {Paper presentation},
+  EVENTTITLE     = {Southeastern Psychological Association 62nd Annual Meeting},
+  VENUE          = {New Orleans, LA, United States},
+  EVENTDATE      = {2016-03-30/2016-04-02},
+  DATE           = {2016}
+}
+
+% (APA 10.5 Example 62)
+@PRESENTATION{10.5:62,
+  AUTHOR         = {J. Pearson},
+  TITLE          = {Fat talk and its effects on state-based body image in women},
+  TITLEADDON     = {Poster presentation},
+  EVENTTITLE     = {Australian Psychological Society Congress},
+  VENUE          = {Sydney, NSW, Australia},
+  EVENTDATE      = {2018-09-27/2018-09-30},
+  DATE           = {2018},
+  URL            = {http://bit.ly/2XGSThP}
+}
+
+% (APA 10.5 Example 63) — symposium contribution
+% 這一例的 source element 多一層：貢獻本身在一個 symposium 裡，而 symposium 在一個
+% 會議裡。MAINTITLE 承載 symposium 標題、EDITOR 承載 chairs。
+@PRESENTATION{10.5:63,
+  AUTHOR         = {D. {De Boer} and T. LaFavor},
+  TITLE          = {The art and significance of successfully identifying resilient individuals},
+  SUBTITLE       = {A person-focused approach},
+  MAINTITLE      = {Perspectives on resilience: Conceptualization, measurement, and enhancement},
+  TITLEADDON     = {Symposium},
+  EDITOR         = {A. M. Schmidt and A. Kryvanos},
+  EVENTTITLE     = {Western Psychological Association 98th Annual Convention},
+  VENUE          = {Portland, OR, United States},
+  EVENTDATE      = {2018-04-26/2018-04-29},
+  DATE           = {2018}
+}

@@ -104,7 +104,10 @@ public enum AuthorizedNames {
     /// ——本 change R1 verify 抓到的正是三個呼叫端手動去重、第四個忘了的形狀。
     public static func validateDisjointPartitions(authorized: [String], variant: [String],
                                                   ownerKey: String) -> [ValidationIssue] {
-        let overlap = authorized.filter(Set(variant).contains)
+        // #296：判定用 `NameIdentity`，不用精確 `String ==`——只差前後空白的近重複
+        // （`"謝叔蓉"` vs `"謝叔蓉 "`）先前可分居兩個分割、穿透本守衛。
+        let variantKeys = Set(variant.map(NameIdentity.canonical))
+        let overlap = authorized.filter { variantKeys.contains(NameIdentity.canonical($0)) }
         guard !overlap.isEmpty else { return [] }
         let listed = overlap.map { displaySafe($0, max: 80) }.joined(separator: "、")
         return [ValidationIssue(
@@ -112,6 +115,35 @@ public enum AuthorizedNames {
             message: "'\(displaySafe(ownerKey, max: 120))' 的名字「\(listed)」同時出現在 "
                    + "authorized 與 variant 兩個分割——一個名字只屬於一個分割；"
                    + "指定是把名字**搬進** authorized，不是複製")]
+    }
+
+    /// **內容**約束：`matchingKey` 相同但判定不同的兩個名字是**未決的問題**（#296）。
+    ///
+    /// 這兩個名字既不能自動收斂（那是判定越界，違反「絕不自動合併」鐵律），也不能
+    /// 靜默留成兩個——那正是 #296 的缺口。所以：**報出來，不擋寫入**。
+    ///
+    /// 嚴重度是 `warning` 而非 `error`：那兩個名字**可能真的不同**（`matchingKey`
+    /// 容許假陽性正是為此）。擋寫入等於把「值得問一下」升級成「你錯了」。與既有的
+    /// 「同書寫系統兩個 authorized 是**未決的問題**，不是指定」同型。
+    public static func validateNearDuplicates(names: [String],
+                                              ownerKey: String) -> [ValidationIssue] {
+        var issues: [ValidationIssue] = []
+        // 兩兩比較。名字數是個位數量級（每人幾個別名），O(n²) 不是問題。
+        for i in names.indices {
+            for j in names.indices where j > i {
+                let a = names[i], b = names[j]
+                guard NameNormalization.matchingKey(a) == NameNormalization.matchingKey(b),
+                      !NameIdentity.same(a, b) else { continue }
+                issues.append(ValidationIssue(
+                    severity: .warning,
+                    message: "'\(displaySafe(ownerKey, max: 120))' 的名字「"
+                        + "\(displaySafe(a, max: 80))」與「\(displaySafe(b, max: 80))」"
+                        + "是**近重複**——配對判準視為同一、判定判準視為不同。"
+                        + "可能是同一個名字的兩種寫法，也可能真的是兩個名字；"
+                        + "**工具不代為決定**，請人裁決後留下一個或明確保留兩個"))
+            }
+        }
+        return issues
     }
 
     /// **內容**約束（person + organization 共用）：每個書寫系統至多一個——

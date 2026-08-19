@@ -688,6 +688,9 @@ extension Person {
         issues += AuthorizedNames.validateDisjointPartitions(authorized: names.authorized,
                                                              variant: names.variant,
                                                              ownerKey: key)
+        // #296：近重複——配對判準視為同一、判定判準視為不同的兩個名字是**未決的問題**。
+        // warning 級：不擋寫入（它們可能真的不同），但不得靜默。
+        issues += AuthorizedNames.validateNearDuplicates(names: names.all, ownerKey: key)
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
                 message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))

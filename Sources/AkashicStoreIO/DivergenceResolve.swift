@@ -723,7 +723,11 @@ extension LibraryStore {
         // 指定已確認是倖存者 authorized 的子集，折進 variant 不失去任何指定。
         // （verify R1 曾抓到本註解點名不存在的 contentWarnings——那是 work 路徑的
         // 機制名，person 的防護是上面那道拒絕，不是警告。）
-        let incoming = doomed.flatMap { $0.names.all }.filter { !keeper.names.all.contains($0) }
+        // #296：判定用 `NameIdentity`，不用精確 `String ==`——去重是**判定**
+        // （斷言同一並丟棄），而 `"Li  Ming"` 與 `"Li Ming"` 只差重複空白。
+        let keeperKeys = Set(keeper.names.all.map(NameIdentity.canonical))
+        let incoming = doomed.flatMap { $0.names.all }
+            .filter { !keeperKeys.contains(NameIdentity.canonical($0)) }
         keeper.names.variant = dedupePreservingOrder(keeper.names.variant + incoming)
 
         // #271：被併者的 verdict references 自動遷移——判定史不隨檔案消失。

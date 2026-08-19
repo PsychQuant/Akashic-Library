@@ -46,12 +46,15 @@ public enum BibExport {
     ///
     /// **`uncheckedCitekeys` 是這個型別存在的理由。** `BibValidator` 的必要欄位表只
     /// 涵蓋 7 個 entry type（ARTICLE／PRESENTATION／REPORT／BOOK／INCOLLECTION／
-    /// INPROCEEDINGS／THESIS），而 store 另有 `online`／`unpublished`／`misc` 等值
-    /// （實測 47 筆）。對那些 type，validator 回空陣列——若只回 `issues`，「沒被檢查」
+    /// INPROCEEDINGS／THESIS），而 `WorkType` 有 7 個值對映到 `UNPUBLISHED`／`ONLINE`
+    /// （`review`／`unpublishedWork`／`audiovisualWork`／`audioWork`／`visualWork`／
+    /// `socialMediaPost`／`webpage`）。對那些 type，validator 回空陣列——若只回 `issues`，「沒被檢查」
     /// 與「檢查過且乾淨」在輸出上**完全一樣**，而那正是本專案反覆記錄的靜默失敗形狀
     /// （`lossless-intake` 執行細節 3：「靜默是最糟的形式」）。
     ///
-    /// type 值域的收斂是 #325 的範圍；本型別的責任只是**不假裝檢查過**。
+    /// type 值域的收斂已由 #325 完成（`Entry.type` 是封閉的 `WorkType`），但**涵蓋缺口
+    /// 仍在**——收斂的是我們這一側的值域，不是對方的必要欄位表。本型別的責任只是
+    /// **不假裝檢查過**。哪些節因此驗不出東西，由 `APA7GoldenTests` 逐節斷言（#327）。
     public struct APA7Report: Equatable {
         public let issues: [APA7Issue]
         public let uncheckedCitekeys: [String]

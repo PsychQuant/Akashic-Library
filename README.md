@@ -636,6 +636,49 @@ setUp 就寫入記錄的 suite（如 `RenameTests`）改成 `seed(format:)`，�
 `testRenameMovesFileMigratesRelationsKeepsUUID` 斷言 `entries/old2020key.yaml` 不存在，而
 在 entities 佈局下那個路徑從來就沒存在過。判斷覆蓋要看斷言的內容，不是看有沒有變紅。
 
+### APA7 完整性報告讀哪張表（#353）
+
+`repos/biblatex-apa-swift` 有**兩張**必要欄位表，而它們對同一個型別會給出**相反**的答案。
+`apa7Report` 原本用的是較舊、較粗的那張。
+
+| | `BibValidator.requiredFields`（舊用） | `APADataModel.requiredFields`（現用）|
+|---|---|---|
+| 涵蓋型別 | 7 | **15** |
+| 來源 | 手寫 | **`apa.dbx`**（biblatex-apa 的 LaTeX 資料模型）|
+| `ONLINE` | 不在表內 → 整批 unchecked | `[TITLE, DATE]`，**AUTHOR 不要求** |
+| `VIDEO`／`AUDIO`／`SOFTWARE`／`DATASET` | 不在表內 | 各為 `[TITLE, DATE]` |
+| `PRESENTATION` 的 `EVENTTITLE` | **required** | 只是 recommended |
+
+選 `APADataModel` 的理由不是「它比較大」，是**它比較權威**：值域來自 `apa.dbx`，而依賴
+自己較新的路徑（`APARuleEngine.fix` 的 Phase 7）也在用它。
+
+**實測效果**（937 筆全庫，三個階段）：
+
+| | #340 開立時 | #352 後（修對映）| **#353 後（換表）** |
+|---|---:|---:|---:|
+| `[ERROR]` 條數 | 143 | 94 | **78** |
+| distinct 記錄 | 97 | 71 | **76** |
+| unchecked 筆數 | 12 | 26 | **14** |
+
+`#353` 的 `−16` 拆開來是 **−25 ＋ 9**：25 筆 `EVENTTITLE` 降級成 warning（見下），
+9 筆新納入檢查的 `ONLINE` 記錄**真的**缺 `DATE`（先前完全不被檢查）。
+
+**兩個順帶消除的結構性風險**：
+
+1. **手維護的鏡像沒了。** `apa7CheckedTypes` 原本是寫死的 7 個型別的 `Set`，doc 自己寫著
+   「會隨 dependency 演進而過期」——而它就是那樣過期的。現在改成現算
+   （`APADataModel.requiredFields[type] != nil`），漂移在結構上不可能發生。golden 矩陣側
+   的同一份鏡像也一起刪掉。
+2. **一條測試的偵測力被救回來。** `testExportSurfacesTypesNotCoveredByValidator` 原本用
+   `.webpage`（→`ONLINE`）當「未涵蓋」的探針。換表後 `ONLINE` **有**表了，那條測試會
+   繼續通過，只因為它斷言的那件事不再成立 —— 那是最壞的一種綠燈。改用 `.visualWork`
+   （→`IMAGE`，目前確實不在表內的三個型別之一）。
+
+**明寫的代價（#359）**：`EVENTTITLE` 的降級不是無害的。依 §10.5，會議發表的 source
+element **就是**會議名稱 —— 沒有它那筆參考文獻印不出來，所以那 25 筆是**下限違反**，而
+`hasErrors` 現在抓不到。資訊沒消失（`[WARNING]` 行照印），失去的是嚴重度分級的偵測力。
+**刻意不在 Akashic 側把它加回 required**：那會製造第三張必要欄位表，而三張會各自分岔。
+
 ### 學位論文的三個一級事實：`thesis:`（#335）
 
 APA7 §10.6 有**兩張** template，而差別不只是字串：

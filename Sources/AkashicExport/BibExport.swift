@@ -331,11 +331,44 @@ public enum BibExport {
         // #6：機構名（`{...}` 標記）原樣輸出——biblatex 的大括號本來就是「別動它」，
         // 切成 Family, Given 會產生 "Organization, World Health" 這種錯誤輸出。
         if CorporateName.isMarked(display) { return display }
-        return familyGiven(display).map { "\($0.family), \($0.given)" } ?? display
+        guard let split = familyGiven(display) else { return display }
+        // given 為空（例如來源只寫了姓、或尾隨逗號）時不要輸出「Chang, 」
+        return split.given.isEmpty ? split.family : "\(split.family), \(split.given)"
     }
 
     /// 「Che Cheng」→ (family: Cheng, given: Che)；無空格回 nil（整體當 family）。
+    ///
+    /// ## 兩種輸入形，由**逗號**區分（#377）
+    ///
+    /// | 輸入 | 判定 | 輸出 |
+    /// |---|---|---|
+    /// | `Chang, Ya-Hsuan` | 已是 `Family, Given` | 原樣 `(Chang, Ya-Hsuan)` |
+    /// | `Che Cheng` | `Given Family` | `(Cheng, Che)` |
+    ///
+    /// **逗號是顯式記號，不是啟發式。** biblatex 與 WoS 的 `Author Full Names`
+    /// 共用「姓, 名」這個慣例，所以判準已經在資料裡——不需要猜「哪個 token 像姓」。
+    ///
+    /// ### 先前的缺陷（實測 730 筆）
+    ///
+    /// 原本一律取最後一個空格分隔 token 當姓。對 `Chang, Ya-Hsuan` 會得到
+    /// family=`Ya-Hsuan`、given=`Chang,` —— **姓名顛倒且多一個逗號**，biblatex 印成
+    /// 「Ya-Hsuan, C.」而非「Chang, Y.-H.」。`Reeves, Gillian K.` 更糟：`K., Reeves, Gillian`。
+    ///
+    /// 那 730 筆是 `import-wos` 依 `lossless-intake` 原樣收下的 WoS `Author Full Names`
+    /// ——**入庫是對的，錯的是 export 端假設一律為「名 姓」**。
+    ///
+    /// 逗號形另有一個空格法做不到的好處：多 token 的姓（`van der Berg, Jan`）自動正確。
     static func familyGiven(_ display: String) -> (family: String, given: String)? {
+        // 逗號形：第一個逗號之前是姓，之後是名。
+        if let comma = display.firstIndex(of: ",") {
+            let family = display[..<comma].trimmingCharacters(in: .whitespaces)
+            let given = display[display.index(after: comma)...]
+                .trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: ","))
+                .trimmingCharacters(in: .whitespaces)
+            guard !family.isEmpty else { return nil }
+            return (family: family, given: given)
+        }
         let tokens = display.split(separator: " ").map(String.init)
         guard tokens.count >= 2, let family = tokens.last else { return nil }
         return (family: family, given: tokens.dropLast().joined(separator: " "))

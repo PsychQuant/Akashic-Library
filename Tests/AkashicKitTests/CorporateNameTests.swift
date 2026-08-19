@@ -93,6 +93,63 @@ final class CorporateNameTests: XCTestCase {
         XCTAssertEqual(authors[0]["given"] as? String, "Che")
     }
 
+    // MARK: - 姓名順序（#377）
+
+    /// **已是 `Family, Given` 形的名字不得被重排。**
+    ///
+    /// 實測 730 筆 person 的 authorized 名字是這個形（WoS 的 `Author Full Names` 格式，
+    /// `import-wos` 依 `lossless-intake` 原樣收下——入庫是對的）。原本 `familyGiven`
+    /// 一律取最後一個空格分隔 token 當姓，於是 `Chang, Ya-Hsuan` 變成
+    /// family=`Ya-Hsuan`、given=`Chang,`，biblatex 印成「Ya-Hsuan, C.」。
+    ///
+    /// **逗號是顯式記號不是啟發式**：biblatex 與 WoS 共用「姓, 名」這個慣例。
+    func testCommaFormNamesAreNotReordered() {
+        let cases: [(String, family: String, given: String)] = [
+            ("Chang, Ya-Hsuan", family: "Chang", given: "Ya-Hsuan"),
+            // 三個 token、逗號在第一個之後——先前輸出 `K., Reeves, Gillian`
+            ("Reeves, Gillian K.", family: "Reeves", given: "Gillian K."),
+            // 多 token 的姓：空格法做不到，逗號法自動正確
+            ("van der Berg, Jan", family: "van der Berg", given: "Jan"),
+            ("Chen, Yan Si", family: "Chen", given: "Yan Si"),
+        ]
+        for (input, family, given) in cases {
+            let got = BibExport.familyGiven(input)
+            XCTAssertEqual(got?.family, family, "\(input) 的姓")
+            XCTAssertEqual(got?.given, given, "\(input) 的名")
+        }
+    }
+
+    /// 無逗號的形照舊：最後一個 token 當姓。
+    func testSpaceFormStillSplitsOnTheLastToken() {
+        let got = BibExport.familyGiven("Che Cheng")
+        XCTAssertEqual(got?.family, "Cheng")
+        XCTAssertEqual(got?.given, "Che")
+    }
+
+    /// **`.bib` 的實際輸出**——這條才是使用者看得到的東西。
+    func testBibOutputKeepsFamilyGivenOrderForCommaFormNames() {
+        var p = Person(key: "chang-ya-hsuan",
+                       names: PersonNames(authorized: ["Chang, Ya-Hsuan"]))
+        p.id = UUID()
+        var e = Entry(id: UUID(), citekey: "chang2026a", type: .periodicalArticle,
+                      title: "T", authors: [.key("chang-ya-hsuan")], date: "2026")
+        e.fields["journaltitle"] = "J"
+        let bib = BibExport.bibEntry(for: e, people: ["chang-ya-hsuan": p])
+        XCTAssertEqual(bib.fields["author"], "Chang, Ya-Hsuan",
+                       "先前是「Ya-Hsuan, Chang,」——姓名顛倒且多一個逗號")
+    }
+
+    /// given 為空時不留尾隨逗號（來源只寫了姓，或字串本身以逗號結尾）。
+    func testEmptyGivenDoesNotLeaveATrailingComma() {
+        var p = Person(key: "chang", names: PersonNames(authorized: ["Chang,"]))
+        p.id = UUID()
+        var e = Entry(id: UUID(), citekey: "chang2026b", type: .periodicalArticle,
+                      title: "T", authors: [.key("chang")], date: "2026")
+        e.fields["journaltitle"] = "J"
+        let bib = BibExport.bibEntry(for: e, people: ["chang": p])
+        XCTAssertEqual(bib.fields["author"], "Chang")
+    }
+
     /// 標記只是普通字串——**strict 的 authors 層完全不受影響**，
     /// 舊 binary 照常讀（只是它們的 export 仍會切錯，可用性退化非資料毀損）。
     func testMarkedNameIsJustAStringInStore() throws {

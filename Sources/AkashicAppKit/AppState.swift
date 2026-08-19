@@ -36,6 +36,13 @@ public final class AppState {
     /// 「這個檔**正常載入且完整保留**，只是本 binary 看不懂其中一部分」。
     /// 合併會讓使用者以為資料出事了。
     public private(set) var unknownFieldFiles: [String] = []
+
+    /// store 的唯讀健康事實（#263）。`nil` ＝ 還沒 load 過。
+    ///
+    /// **與 `doctor()` 共用同一條實作路徑**（`LibraryStore.health(from:)`）。App 是
+    /// 取代 Zotero 的主要 UI（`replace-endnote-and-zotero`）——只用 App 的使用者
+    /// 先前永遠不會知道 audit trail 正在腐爛。
+    public private(set) var health: StoreHealth?
     /// 每次 load() 遞增。App 層 model（People/Quarantine/Graph）以此為
     /// re-create 訊號，外部變更（FileWatcher reload）才會反映到快取清單。
     public private(set) var reloadCount: Int = 0
@@ -146,6 +153,14 @@ public final class AppState {
         libraries = loaded.libraries
         quarantined = loaded.quarantined
         unknownFieldFiles = loaded.unknownFieldFiles
+        // #263：健康事實走**同一條路徑**（`StoreHealth`），不再由 App 自行推導。
+        //
+        // 先前 App 完全不呼叫 `doctor()`，六個數字全是自己算的——那不是 doctor 的
+        // 子集而是**第三條獨立實作路徑**。子集只會少，獨立路徑會**分岔**：App 可能
+        // 顯示健康數字而 `doctor` 對同一 store 報問題，使用者沒有線索知道哪個對。
+        //
+        // 用**同一份 `loaded` 快照**算，不重新 load——兩份快照可能不一致。
+        health = store.health(from: loaded)
         // registry 同步刷新（config 讀不到→空清單；App 不因 config 壞而擋 load）
         if let config = try? AkashicConfig.read(from: configURL) {
             availableFiles = config.files.keys.sorted().map {

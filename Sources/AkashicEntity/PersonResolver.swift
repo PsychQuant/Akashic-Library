@@ -52,12 +52,12 @@ public struct ResolutionCandidate: Equatable {
     ///
     /// 定義在型別上而非各呼叫端：三份拷貝總有一天分岔，而這次分岔的方式是
     /// 「其中一個呼叫端根本沒複製」。
-    public var rowID: String { "\(citekey):\(authorIndex)" }
+    public var rowID: String { "\(citekey):\(authorIndex)" }   // display-safe-exempt: 回程把手須逐字，消毒會讓 apply 對不上（且 displaySafe 不冪等）
 
     /// 釘 person 的三段 id（R1-fix B8／R2-fix R3-5）：apply/reject 的把手。
     /// **住在型別上**——service 列表與 CLI 送出必須是同一個定義（#236 R4 的
     /// 三份拷貝分岔教訓；R2 實測 CLI 自組 rowID 送出＝pin 整面失效）。
-    public var pinnedID: String { "\(rowID):\(personKey)" }
+    public var pinnedID: String { "\(rowID):\(personKey)" }   // display-safe-exempt: 回程把手須逐字，消毒會讓 apply 對不上（且 displaySafe 不冪等）
 }
 
 /// 同一個 literal 在同一個作者位置對到 **2+ 個 person**——系統知道自己遇到了決定點。

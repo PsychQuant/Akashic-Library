@@ -92,7 +92,7 @@ import Foundation
 ///
 /// **`testGuardCatchesStrippedSanitisation`（#141）是對這個侷限的補償**：它不宣稱
 /// 守衛涵蓋每條路徑，而是量測「守衛確實在看真實的消毒站點」——拔光 displaySafe
-/// 後守衛必須報大量違規（實測 78）。守衛退化成空洞會讓那個下限失守。完整的
+/// 後守衛必須報大量違規（2026-08-19 實測 406；#141 當時 78）。守衛退化成空洞會讓那個下限失守。完整的
 /// 型別感知覆蓋屬另案（需要 SwiftSyntax 級的分析，非本測試的體量）。
 final class DisplaySinkCoverageTests: XCTestCase {
 
@@ -229,6 +229,30 @@ final class DisplaySinkCoverageTests: XCTestCase {
             || l.contains("d[\"") || l.contains("result[\"") || l.contains("\": ")
             || l.contains("return \"") || l.contains("FileHandle.standard")
             || swiftUISinks.contains(where: { l.contains($0) })
+    }
+
+    /// 一行是不是**隱式 return 的字串本體**（#381）。
+    ///
+    /// Swift 的單表達式函式／閉包可以省略 `return`，於是語意完全相同的兩種寫法
+    /// 只有後者被 `isDisplaySink` 的 `return "` 命中：
+    ///
+    /// ```swift
+    /// func f() -> String { "\(x)" }            // 掃不到（本函式補的就是它）
+    /// func f() -> String { return "\(x)" }     // 掃得到
+    /// ```
+    ///
+    /// **兩種形狀**：單行 `… { "…"`；以及多行——前一個非空非註解行以 `{` 結尾、
+    /// 而本行以 `"` 開頭。後者需要 `prevOpensBlock`，由呼叫端回看算出（與
+    /// `prevIsCase` 同一段回看，理由見那裡：註解夾層會擋掉回看）。
+    ///
+    /// **誠實邊界**：這是文字掃描，不是語法分析。`{ "` 也會命中 `map { "\(x)" }`
+    /// 那種產生字串的閉包——那與 `return "` 同類（都在造使用者可能看到的字串），
+    /// 所以一併收是一致的，不是誤中。真正掃不到的仍有：跨多行的插值本體、
+    /// 以 `if`／`switch` 表達式當本體者。要根除得換 `SwiftSyntax`（見 #381 討論）。
+    static func isImplicitReturnStringBody(_ l: String, prevOpensBlock: Bool) -> Bool {
+        if l.contains("{ \"") { return true }
+        if prevOpensBlock && l.trimmingCharacters(in: .whitespaces).hasPrefix("\"") { return true }
+        return false
     }
 
     /// 一行是不是 **error sink**（payload 最終進 `errorDescription` → 使用者可見）。
@@ -810,6 +834,8 @@ final class DisplaySinkCoverageTests: XCTestCase {
         case caseReturn
         /// 靠 `taintedTokens` 命中而入列（非 error sink 的那條路徑）
         case token
+        /// 隱式 return 的字串本體——#381 的盲區（`{ "…" }` 沒有 `return` 可比對）
+        case implicitReturn
     }
 
     struct Violation {
@@ -831,11 +857,13 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 // return 之間常夾說明註解——愈認真解釋為什麼要消毒，愈把守衛的
                 // 回看擋掉；StoreIOError.invalidKey 正是這樣漏掉的）。
                 var prevIsCase = false
+                var prevOpensBlock = false      // #381：多行隱式 return 的前件
                 var k = idx - 1
                 while k >= 0 {
                     let prev = allLines[k].trimmingCharacters(in: .whitespaces)
                     if prev.isEmpty || prev.hasPrefix("//") { k -= 1; continue }
                     prevIsCase = prev.hasPrefix("case ") && prev.hasSuffix(":")
+                    prevOpensBlock = prev.hasSuffix("{")
                     break
                 }
                 // 註解行不算輸出
@@ -843,7 +871,10 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 if l.contains("display-safe-exempt:") { continue }
                 // 只看真正的輸出面：print(…) 與 JSON dict 的字串值
 
+                let implicitReturn = Self.isImplicitReturnStringBody(
+                    l, prevOpensBlock: prevOpensBlock)
                 let isSink = Self.isDisplaySink(l) || continuations[idx] == .display
+                    || implicitReturn
                 // #78-7：error 構造點是**無條件** sink——payload 最終進 errorDescription
                 // →使用者可見輸出，插值的任何內容（YAML 未知 key、原始值）都可疑，
                 // 不看 token 清單（局部變數名抓不到）。安全的插值加 exempt 注記
@@ -893,6 +924,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
                     // `.token` 只在「不是靠 errorSink 免檢入列」時成立——那才證明
                     // token 清單真的有在做事（清空清單時這一軸歸零）
                     if !isErrorSink && tokenMatched { axes.insert(.token) }
+                    if implicitReturn { axes.insert(.implicitReturn) }
                     violations.append(Violation(text: "\(name):\(idx + 1)  \(expr)", axes: axes))
                 }
 
@@ -1029,7 +1061,21 @@ final class DisplaySinkCoverageTests: XCTestCase {
         let byAxis = Dictionary(uniqueKeysWithValues: Axis.allCases.map { axis in
             (axis, stripped.filter { $0.axes.contains(axis) }.count)
         })
-        let floors: [Axis: Int] = [.sink: 25, .errorThrow: 8, .caseReturn: 5, .token: 20]
+        // #381 新增 `.implicitReturn`，下限 **2**，而它低得反常——理由要寫出來，
+        // 否則下一個人會以為是校準失誤而「順手調高」。
+        //
+        // strip-all 只拔 `displaySafe(`，**不拔 `display-safe-exempt:` 註解**（而掃描
+        // 在最前面就跳過帶那個註解的行）。所以**被豁免的站點對本測試永遠不可見**。
+        // 這一軸加進來時實測 14 條，逐條裁決後 11 條是豁免（rowID／pinnedID 是 apply
+        // 的回程把手、Equatable 的比較鍵、內部 Set 的成員判定鍵），只有 1 條是真違規
+        //（`DivergenceResolve.describe` → `migrationCollision` 的 errorDescription）
+        // ——於是 strip-all 只剩 3。
+        //
+        // **這不是軸沒用，是它的價值不落在這個量測上**：它的產出是那 11 條被逼出來的
+        // 具名理由，而那些理由按定義不會出現在「消毒站點」的計數裡。下限在這裡只做
+        // 一件事——偵測判準整條死掉（歸零）。2 仍然做得到。
+        let floors: [Axis: Int] = [.sink: 25, .errorThrow: 8, .caseReturn: 5,
+                                   .token: 20, .implicitReturn: 2]
         for axis in Axis.allCases {
             // **force-unwrap 是刻意的**（#171 verify 171-7）：`?? 0` 會讓「新增第五個
             // Axis 但忘了給下限」安靜通過——那正是本測試在防的「守衛退化成空洞」。
@@ -1039,7 +1085,10 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 strip-all 後 `\(axis.rawValue)` 軸只報 \(byAxis[axis] ?? 0) 條
                 （下限 \(floors[axis]!)）——這一軸的判準可能已整條失效。
                 全軸實測：\(Axis.allCases.map { "\($0.rawValue)=\(byAxis[$0] ?? 0)" }
-                    .joined(separator: " "))（2026-08-07 baseline：68/21/14/54）。
+                    .joined(separator: " "))（2026-08-19 baseline：
+                sink=172 errorThrow=48 caseReturn=57 token=115 implicitReturn=3
+                （implicitReturn 逐條裁決前是 14，見上方 floors 的註解）；
+                2026-08-07 的舊 baseline 68/21/14/54 只有四軸且已過期）。
                 若是消毒站點正常減少造成的，重新校準下限並更新上方的量測時點。
                 """)
         }
@@ -1047,6 +1096,39 @@ final class DisplaySinkCoverageTests: XCTestCase {
             拔光 displaySafe 後守衛只報 \(stripped.count) 條（總數下限 60、量測時
             baseline 78）。逐軸檢查是主判準，這條只是粗篩。
             """)
+    }
+
+    /// 隱式 return 與顯式 return **必須**被同等看待（#381）。
+    ///
+    /// 這條是 mutation 靶：把 `isImplicitReturnStringBody` 改成永遠回 `false`，
+    /// 兩個 `隱式` 斷言就紅。若只留「顯式」那半，守衛回到 #381 之前的狀態而測試全綠
+    /// ——那正是這個盲區能存活這麼久的原因。
+    ///
+    /// **失敗史**：#380 把一個一直未消毒的 `rowID` 從單行閉包改寫成多行顯式 return，
+    /// 守衛「突然」報出兩條違規。語意沒變、風險沒變，只有**寫法**變了。
+    func testImplicitAndExplicitReturnAreScannedAlike() {
+        // 一對只差 `return` 的等價寫法
+        let implicitBody = #"    func f() -> String { "\(entry.title)" }"#
+        let explicitBody = #"    func f() -> String { return "\(entry.title)" }"#
+        for (label, text) in [("隱式", implicitBody), ("顯式", explicitBody)] {
+            let v = scanViolations(name: "probe.swift", text: text)
+            XCTAssertEqual(v.count, 1, "\(label) return 應報 1 條，實得 \(v.map(\.text))")
+        }
+
+        // 多行形狀：前一行以 `{` 結尾、本行以 `"` 開頭
+        let multiline = """
+            var description: String {
+                "\\(entry.title) 之類"
+            }
+            """
+        XCTAssertEqual(scanViolations(name: "probe.swift", text: multiline).count, 1,
+                       "多行隱式 return 也要掃到")
+
+        // **反面**：不是隱式 return 的 `{ "` 不該無限擴張判準——這裡釘的是
+        // 「豁免註解仍然有效」，而非某個特定形狀被排除
+        let exempt = #"    func f() -> String { "\(entry.title)" }   // display-safe-exempt: 測試用"#
+        XCTAssertTrue(scanViolations(name: "probe.swift", text: exempt).isEmpty,
+                      "帶理由的豁免必須讓新軸也閉嘴")
     }
 
     /// 守衛自身要可證偽：掃描範圍不得為空，判準不得永遠成立。

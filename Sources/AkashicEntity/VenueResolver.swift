@@ -24,7 +24,7 @@ public struct VenueResolutionCandidate: Equatable {
 
     /// 唯一識別：`"<citekey>:<venueIndex>"`（同 `ResolutionCandidate.rowID` 的理由——
     /// 複合鍵住在型別上，不讓三個呼叫端各寫一次）。
-    public var rowID: String { "\(citekey):\(venueIndex)" }
+    public var rowID: String { "\(citekey):\(venueIndex)" }   // display-safe-exempt: 回程把手須逐字，消毒會讓 apply 對不上（且 displaySafe 不冪等）
 }
 
 /// 同一個 literal 對到 2+ 個 venue——需要人判斷（同 `AmbiguousMatch` 的立場：

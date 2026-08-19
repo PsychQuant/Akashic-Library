@@ -150,8 +150,8 @@ public struct ResolveReport: Equatable {
         a.rewritten == b.rewritten && a.merged == b.merged
             && a.removedDivergences == b.removedDivergences && a.failures == b.failures
             && a.warnings == b.warnings
-            && a.collapsedDetails.map { "\($0.id)|\($0.question)" }
-                == b.collapsedDetails.map { "\($0.id)|\($0.question)" }
+            && a.collapsedDetails.map { "\($0.id)|\($0.question)" }   // display-safe-exempt: Equatable 的比較鍵，不進任何輸出面
+                == b.collapsedDetails.map { "\($0.id)|\($0.question)" }   // display-safe-exempt: Equatable 的比較鍵，不進任何輸出面
             && a.survivorUpdated == b.survivorUpdated
     }
 }
@@ -963,10 +963,15 @@ extension LibraryStore {
             return norm(a) == norm(b) && a.question == b.question
                 && a.judgement == b.judgement && a.unknownFields == b.unknownFields
         }
+        // #381：這段的產物經 `out.collisions` → `migrationCollision(details:)` →
+        // `errorDescription` 直達使用者。**store 內容要在這裡消毒**——相鄰的
+        // `deletionNotRecoverable` 對 `$0.path` 就是這麼做的，本條先前漏了，
+        // 而守衛看不見它（隱式 return，#381 的盲區）。
         func describe(_ d: Divergence) -> String {
-            let j = d.judgement.map { "判斷「\($0.statement)」"
-                + ($0.prefers.map { p in "、傾向「\(p)」" } ?? "") } ?? "無判斷"
-            return "\(d.id.uuidString)（\(j)）"
+            let j = d.judgement.map { "判斷「\(displaySafe($0.statement, max: 800))」"
+                + ($0.prefers.map { p in "、傾向「\(displaySafe(p, max: 200))」" } ?? "") }
+                ?? "無判斷"
+            return "\(d.id.uuidString)（\(j)）"   // display-safe-exempt: uuidString 是 UUID 的正規形，不含 store 內容
         }
 
         // 不參與遷移、也不會被刪的既有記錄——碰撞的對照組。

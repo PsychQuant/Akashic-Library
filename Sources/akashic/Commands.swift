@@ -992,7 +992,7 @@ struct ResolveOrganizations: ParsableCommand {
             printOrgAmbiguities()   // 沒有唯一候選時，歧義**更**該被看見
             return
         }
-        let selected = Set(candidates.map { "\($0.holder)#\($0.literal)" })
+        let selected = Set(candidates.map { "\($0.holder)#\($0.literal)" })   // display-safe-exempt: 內部 Set 的成員判定鍵，不進輸出面
         for c in all {
             let mark = (apply && !selected.contains("\(c.holder)#\(c.literal)")) ? "  (skip) " : "  "
             print("\(mark)\(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
@@ -1058,7 +1058,7 @@ struct ResolveOrganizations: ParsableCommand {
             // verdict 到被判定的 organization——但**只寫 holder 記錄改寫成功的那些**
             // （verify C-2：誇報 verdict 比漏寫更糟，person 面在 AkashicService 有
             // 同一道閘）。第二輪獨立寫入、獨立回報，排在 rebuild 之前。
-            let failedHolderKeys = Set(failed.map { "\($0.kind):\($0.key)" })
+            let failedHolderKeys = Set(failed.map { "\($0.kind):\($0.key)" })   // display-safe-exempt: 內部 Set 的成員判定鍵，不進輸出面
             func holderFailed(_ h: OrgResolutionCandidate.Holder) -> Bool {
                 switch h {
                 case let .person(k): return failedHolderKeys.contains("person:\(k)")
@@ -1398,7 +1398,7 @@ struct ResolvePeople: ParsableCommand {
         if apply, tierSet.isEmpty,
            candidates.contains(where: { $0.tier != .exact }) {
             let breakdown = Dictionary(grouping: candidates, by: \.tier)
-                .map { "\($0.key.rawValue) \($0.value.count)" }.sorted().joined(separator: "、")
+                .map { "\($0.key.rawValue) \($0.value.count)" }.sorted().joined(separator: "、")   // display-safe-exempt: $0.key 是封閉 enum ResolutionTier，rawValue 是程式字面量；count 是數量
             throw ValidationError(
                 "--apply 拒絕：套用集含寬鬆提名層（\(breakdown)）。"
                 + "寬鬆層一律要 --tier 具名——用 --tier exact 只套完全命中，"
@@ -1565,7 +1565,7 @@ struct ResolvePeople: ParsableCommand {
             printAmbiguities()   // 沒有唯一候選時，歧義**更**該被看見
             return
         }
-        let selected = Set(candidates.map { "\($0.citekey)#\($0.authorIndex)" })
+        let selected = Set(candidates.map { "\($0.citekey)#\($0.authorIndex)" })   // display-safe-exempt: 內部 Set 的成員判定鍵，不進輸出面
         // #303 design D4：按 tier 分組列印（resolver 已依信心降冪排序，分組只加標頭）。
         // tier 越低證據越弱——initials 段的標頭直接把查證義務講出來，讀的人不必翻文件。
         let tierHeadline: [ResolutionTier: String] = [

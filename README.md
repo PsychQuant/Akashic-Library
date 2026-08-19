@@ -86,6 +86,8 @@ docs/design-principles-and-philosophy.md
                                  建模的規範性原則（Part I）與哲學基礎（Part II）；
                                  §16 另存原始碼慣例的正典計數（見下）
 docs/explainers/                 「為什麼」的說明（規格說 what，explainer 說 why）
+                                 **逐份索引見下方「Explainers」一節**——五份各自回答一個
+                                 反覆出現的問題，其中兩份是**動手前該讀**的判準
 docs/import-wos-mapping.md       import-wos 欄名對映正典（12 具名欄＋殘餘收集，#286）
 sources/                         內容定址的副本位元組（gitignore；fail-closed 版控排除）
                                  entry 以 akashic.sources 的 digest 引用它（#223）
@@ -233,6 +235,41 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 > 永不列入）。已註冊的路徑不會再長出來——`--library <路徑>` 與 `$AKASHIC_LIBRARY`
 > 現在都反查 registry 帶 key（#105）；只有**真的未註冊**的 store 仍以 keyless 開啟並寫
 > in-store `.akashic/`，那是它的正常回落位置，不是殘留。
+
+## Explainers
+
+`docs/explainers/` 下是「**為什麼**」的說明——規格說 what，explainer 說 why。它們與
+`.claude/rules/` 的分工：規則是**要照做的**（封閉列舉、稽核程序），explainer 是
+**要理解的**（判準的由來、被否決的替代方案）。
+
+| Explainer | 一句話 | 什麼時候讀 |
+|---|---|---|
+| [**which-side-does-a-relation-live-on**](docs/explainers/which-side-does-a-relation-live-on.md) | 一條新關係該存在哪一側——**兩步提問**（可表達性／存在依賴），含兩步不一致時怎麼辦 | **要新增任何關係邊之前** |
+| [entity-vs-view](docs/explainers/entity-vs-view.md) | entity 與 view 的分界；view 的判準住 `config.yaml` 而非 store | 要新增「某某清單」之前 |
+| [why-akashic-is-not-just-google](docs/explainers/why-akashic-is-not-just-google.md) | 為什麼不是「搜尋就好」 | 質疑這個專案存在理由時 |
+| [logical-picture-future-and-questions](docs/explainers/logical-picture-future-and-questions.md) | 圖像論的工程類比與未決問題（3.1432：不要把配置實體化）| 要把關係「物件化」之前 |
+| [yaml-alias-dos](docs/explainers/yaml-alias-dos.md) | YAML alias 的 DoS 面與為什麼文字層守衛全數失敗 | 碰 YAML 解析時 |
+
+### 兩步提問（最常用的那一份，摘要）
+
+新增一條關係邊時，**先問這兩題**：
+
+| 步驟 | 問題 | 判準 |
+|---|---|---|
+| **一（可表達性）** | 這條事實在**對方的記錄還不存在時**，能不能被誠實地記下來？ | 能的那一側是正典 |
+| **二（存在依賴）** | 把其中一筆記錄**整個刪掉**，這條邊還是不是庫裡的一個事實？ | 事實隨誰消失，邊就住誰身上 |
+
+**「可衍生性」不能當判準**——`person.works` 可從 `work.authors` 算出，而反向同樣成立。
+兩個方向都可衍生，所以「能算就算」推不出任何結論。**「查詢方便」也不是**——那是索引的職責。
+
+**兩步不一致時，程序沒有答案**，必須當成新裁決來做並寫下「另一步指向相反方向」。兩步問的
+不是同一件事：第一步是**認識論的**（我們能不能誠實記下手上有的東西），第二步是**本體論的**
+（那個事實依賴誰存在）。它們目前一致是**經驗事實，不是邏輯必然**。
+
+> ⚠️ **這是思考輔助，不是裁決程序。** 它的輸出必須落回
+> [`entity-backlink-completeness`](.claude/rules/entity-backlink-completeness.md) 的封閉
+> 列舉表——**不允許拿兩步自行類推出沒寫進表裡的邊**。完整版（含「其餘四條理由為什麼不
+> 升格為程序」）見上表的第一份。
 
 ## 狀態
 
@@ -635,6 +672,51 @@ setUp 就寫入記錄的 suite（如 `RenameTests`）改成 `seed(format:)`，�
 **反過來也要小心：「換佈局後仍通過」不等於「該佈局有覆蓋」。** 斷言可能空洞為真——
 `testRenameMovesFileMigratesRelationsKeepsUUID` 斷言 `entries/old2020key.yaml` 不存在，而
 在 entities 佈局下那個路徑從來就沒存在過。判斷覆蓋要看斷言的內容，不是看有沒有變紅。
+
+### 「被收錄於」這條邊：暫不新增，但觸發條件是可執行的（#339）
+
+一章收錄於哪本編著，目前靠 `fields.booktitle` 的**純量字串**。同一本書被多章引用時，
+在 store 裡是多個彼此無關的字串 —— 問「這本書收錄了哪幾章」沒有機制答得出來。
+
+**方向不是問題，規模才是。** 套
+[兩步提問](docs/explainers/which-side-does-a-relation-live-on.md)，兩步同向指向**章側**
+（那本書還不存在時只有章側記得下來；刪書則章仍記著字串、刪章則事實消失）—— 也就是
+`fields.booktitle` **已經在對的那一側**。剩下的問題只是「純量該不該升格為 ref」。
+
+**裁決：暫不升格**，三個理由：
+
+1. **實測 6 筆**，其中只有 1 個容器被共用（`The Stanford Encyclopedia of Philosophy` ×3）。
+   新增一條封閉列舉的邊要付：封閉列舉表＋merge 閘＋反射守衛計數＋YAML 編解碼與封閉鍵域＋
+   `resolve-*` 一族＋index 反向查詢＋literal 歸零 campaign＋parity 裁決 —— **兩個中型
+   issue 的量級**。
+2. **APA7 下限已達**：`INCOLLECTION` 的必要欄位含 `BOOKTITLE` 而它在場。這不是破底，
+   是**表達力**問題。
+3. **venue 那條路已被 #324 關掉**：不得把 edited book 塞進 `VenueType`。
+
+#### 「暫時」不會變成「永遠」——觸發條件寫成可執行的
+
+```bash
+grep -h '^  booktitle:' ~/.akashic/entities/*.yaml | sort | uniq -c | sort -rn | head
+```
+
+**≥ 20 筆**或**單一容器被 ≥ 5 筆共用**即重新裁決。
+
+另一個觸發：#354 讓 `INREFERENCE` 的必要欄位含 `BOOKTITLE`（參考工具書名），而實測那 3 筆
+SEP 條目目前是 `bookChapter` —— 它們與 14 筆維基條目**是同一種東西**（參考工具書中的條目）。
+若那 17 筆被統一分類，容器需求的規模一次跳到 17+。
+
+> **順帶記一個相鄰發現**：`WorkType.wikipediaEntry` 的名字可能過窄 —— 它實際承擔的是
+> 「參考工具書中的條目」，而 SEP 不是 Wikipedia。那屬 `Entry.type` 值域的問題（#325 家族），
+> 不是關係邊的問題。
+
+#### 守衛守的是**前提**不是結論
+
+不存在的邊測不出來，所以 `ContainerRelationDeferralTests` 釘住的是**當初據以裁決的事實**：
+`booktitle` 仍是自由字串、`Entry` 沒有容器語意的成員（**用反射列名，抓得到任何名字**）、
+`VenueType` 沒有 edited book 值。
+
+任一前提不再成立 → 紅 → 提醒重做裁決。這與 #315 的
+`testStoreDirectoryForMembershipIsStillNamedLibraries` 同形。
 
 ### `bootstrap-venues`：缺的是鏈條的第一環（#367）
 

@@ -135,6 +135,58 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
 `PersonCLITests.testPersonTypeHasNoWorksMember`（型別反射）與
 `testHandWrittenWorksFieldLandsInUnknownFields`（tolerant-preserve 反向）是第一條的機械防線。
 
+### 考慮過但**暫不新增**的邊（附觸發條件）
+
+被提議、經裁決**暫時不加**的邊記在這裡。留著是為了讓下一個人不必重新發現缺口，也不必
+重新推導一次結論——而**每一列都要附一個可檢查的觸發條件**，否則「暫時」會變成「永遠」
+而沒有人知道。
+
+#### work → work 的「被收錄於」（#339，2026-08-19 裁決：暫不新增）
+
+**問題**：一章收錄於哪本編著，目前只能靠 `fields.booktitle` 的純量字串表達。同一本書被
+多章引用時，在 store 裡是**多個彼此無關的字串**——改一個不影響其他；問「這本書收錄了
+哪幾章」沒有機制答得出來。
+
+**方向不是問題，規模才是。** 套
+[`docs/explainers/which-side-does-a-relation-live-on.md`](../../docs/explainers/which-side-does-a-relation-live-on.md)
+的兩步提問，兩步同向指向**章側**：
+
+| 步驟 | 問 | 答 |
+|---|---|---|
+| 一（可表達性）| 那本書的記錄還不存在時，能誠實記下來嗎？ | 章側可（`booktitle` literal）；書側連檔案都沒有 |
+| 二（存在依賴）| 刪掉一端，事實還在嗎？ | 刪書 → 章仍記著字串；刪章 → 沒了 |
+
+也就是說 `fields.booktitle` **已經在對的那一側**了。問題只剩「純量該不該升格為 ref」。
+
+**裁決：暫不升格。** 三個理由：
+
+1. **實測 6 筆**，而其中只有 1 個容器被共用（`The Stanford Encyclopedia of Philosophy`
+   ×3）。新增一條封閉列舉的邊要付的代價是：本表加一列＋merge 閘＋反射守衛計數＋YAML
+   編解碼與封閉鍵域＋`resolve-*` 一族（提名／verdict／tier）＋index 反向查詢＋
+   `literal-first-then-key` 的 campaign 納入＋MCP/CLI parity 裁決。那是兩個中型 issue
+   的量級。
+2. **APA7 下限已達**：`INCOLLECTION` 的必要欄位含 `BOOKTITLE`，而它在場。所以這不是
+   `apa7-is-the-work-floor` 的破底，是**表達力**問題。
+3. **venue 那條路已被 #324 關掉**：不得把 edited book 塞進 `VenueType`——那會製造一個
+   結構上無法持有 APA7 要求欄位的 venue，是把「模型接不住」搬個位置而不是修掉。
+
+**觸發條件（任一成立即重新裁決）**：
+
+- 帶 `fields.booktitle` 的記錄 **≥ 20 筆**，或**單一容器被 ≥ 5 筆共用**
+  ```bash
+  grep -h '^  booktitle:' ~/.akashic/entities/*.yaml | sort | uniq -c | sort -rn | head
+  ```
+- 或 **`INREFERENCE` 一族的容器需求浮現**：#354 讓 `INREFERENCE` 必要欄位含 `BOOKTITLE`
+  （參考工具書名）。實測那 3 筆 SEP 條目目前是 `bookChapter`，而它們與 14 筆維基條目
+  **是同一種東西**（參考工具書中的條目）。若那 17 筆被統一分類，容器需求的規模一次跳到
+  17+，本裁決應重做。
+
+  > **順帶記一個相鄰發現**（不在本裁決範圍）：`WorkType.wikipediaEntry` 的名字可能過窄
+  > ——它實際承擔的是「參考工具書中的條目」，而 SEP 不是 Wikipedia。是否更名／推廣屬
+  > `Entry.type` 值域的問題（#325 家族），不是關係邊的問題。
+
+
+
 ## 為什麼：不對稱（與 `lossless-intake` 同形，方向相反）
 
 | 選擇 | 代價 |

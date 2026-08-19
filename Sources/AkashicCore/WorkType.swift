@@ -86,27 +86,54 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
     /// 兩者的名字，所以沒人發現。封閉列舉一來就分開了——`journal-article` 是
     /// APA7 10.1 的**書目分類**，`@ARTICLE` 是 **LaTeX 的排版指令**。
     ///
-    /// 多對一是預期的：`wikipediaEntry` 與 `bookChapter` 都輸出 `INCOLLECTION`，
-    /// 因為 biblatex 沒有維基條目的專屬 entry type——那個區分活在 APA7 層。
+    /// 多對一仍然可能（`socialMediaPost` 與 `webpage` 都輸出 `ONLINE`），但**不該用
+    /// 「biblatex 沒有專屬型別」當理由而不查**。#352 實測：先前的對映把 `dataSet`／
+    /// `software`／`testInstrument` 全收成 `REPORT`、把三種影音作品全收成 `ONLINE`，
+    /// 註解寫「biblatex 無專屬型，REPORT 最近」——而 `DATASET`／`SOFTWARE`／`VIDEO`／
+    /// `AUDIO`／`IMAGE`／`INREFERENCE`／`PRESENTATION` **全都**在 `apa.dbx` 的型別清單裡。
+    /// 收窄的代價不只是欄位需求對不上：`biblatex-apa` 會**從 entry type 反算 APA7 節**，
+    /// 所以送錯型別＝整筆參考文獻被當成另一個類別排版（`REPORT` → 10.4 而非 10.9／10.10）。
+    ///
+    /// `WorkTypeSectionAgreementTests` 用依賴自己的 `classifySection` 釘住這件事。
     public var biblatexEntryType: String {
         switch self {
         case .periodicalArticle: return "ARTICLE"
         case .book:              return "BOOK"
-        case .bookChapter,
-             .wikipediaEntry:    return "INCOLLECTION"
-        case .report,
-             .dataSet,
-             .software,
-             .testInstrument:    return "REPORT"      // biblatex 無專屬型，REPORT 最近
-        case .conferenceSession: return "INPROCEEDINGS"
+        case .bookChapter:       return "INCOLLECTION"
+        // `INREFERENCE` ＝參考工具書中的條目，語意上正是維基條目（APA7 10.3 例 49）。
+        // **這一處不是節守衛強制的**——`INCOLLECTION` 與 `INREFERENCE` 都被依賴算成
+        // 10.3。改的理由與代價都要寫出來：
+        //   得：`INCOLLECTION` 要求 `AUTHOR`，而維基條目依 APA7 本來就沒有個人作者
+        //       ——實測消除 14 筆假陽性（那種假陽性會驅動「替維基條目編一個作者」）。
+        //   失：`INREFERENCE` **不在任何一張必要欄位表內**（`BibValidator` 與
+        //       `APADataModel` 都沒有），所以那 14 筆變成 unchecked，連 #353 換表也
+        //       救不回。因此「缺參考工具書名（`booktitle` ＝ Wikipedia）」這個**正當**
+        //       訊號也一起失去了。
+        // 取捨的依據：假陽性會驅動錯誤的資料修改（不可逆），unchecked 只是暫時看不到
+        // （而且 `export-bib` 的 note 行會報出未檢查筆數，#326）。追蹤：#354。
+        case .wikipediaEntry:    return "INREFERENCE"
+        case .report:            return "REPORT"
+        case .dataSet:           return "DATASET"
+        case .software:          return "SOFTWARE"
+        case .conferenceSession: return "PRESENTATION" // 未出版的發表（#352）
         case .thesis:            return "THESIS"
-        case .review,
-             .unpublishedWork:   return "UNPUBLISHED"
-        case .audiovisualWork,
-             .audioWork,
-             .visualWork,
-             .socialMediaPost,
-             .webpage:           return "ONLINE"
+        case .audiovisualWork:   return "VIDEO"
+        case .audioWork:         return "AUDIO"
+        case .visualWork:        return "IMAGE"
+        case .unpublishedWork:   return "UNPUBLISHED"
+
+        // 以下三個型別**送不出**能讓 biblatex-apa 算對節的 entry type——那三節
+        // （10.7／10.11／10.15）在 `apa.dbx` 的模型裡不是由 entry type 決定，而是由
+        // entry type ＋ 一個欄位決定（`RELATEDTYPE=reviewof`／`ENTRYSUBTYPE`／
+        // `EPRINT`＝平台名）。送出那些欄位等於**為了讓分類器高興而編造資料**，所以
+        // 這裡刻意停在「型別最接近、節不同意」的狀態，並由
+        // `WorkTypeSectionAgreementTests.sectionDisagreementsNeedingFields` 具名記錄。
+        // 裁決追蹤：#355。
+        case .review:            return "UNPUBLISHED" // 節不同意（10.7 需 RELATEDTYPE）
+        case .testInstrument:    return "SOFTWARE"     // 節不同意（10.11 需 ENTRYSUBTYPE）
+        case .socialMediaPost:   return "ONLINE"       // 節不同意（10.15 需 EPRINT 平台名）
+
+        case .webpage:           return "ONLINE"       // 依賴對 ONLINE 的預設節即 10.16
         }
     }
 

@@ -636,6 +636,45 @@ setUp 就寫入記錄的 suite（如 `RenameTests`）改成 `seed(format:)`，�
 `testRenameMovesFileMigratesRelationsKeepsUUID` 斷言 `entries/old2020key.yaml` 不存在，而
 在 entities 佈局下那個路徑從來就沒存在過。判斷覆蓋要看斷言的內容，不是看有沒有變紅。
 
+### `WorkType` 的兩個下游對映必須互相同意（#352）
+
+`WorkType` 同時宣稱兩件事，而它們**可以互相矛盾而沒有任何跡象**：
+
+| 屬性 | 宣稱什麼 |
+|---|---|
+| `apa7Section` | 這個型別在 APA7 手冊 ch10 的哪一節 |
+| `biblatexEntryType` | 匯出 `.bib` 時寫哪個 entry type |
+
+關鍵事實：**`biblatex-apa` 自己也會從 entry type 反算 APA7 節**
+（`APADataModel.classifySection`，邏輯來自 `apa.dbx`）。所以送出去的 entry type
+**隱含**了一個節，那個節必須與我們自己宣稱的節相同。
+
+送錯型別不只是欄位需求對不上——是**整筆參考文獻被當成另一個類別排版**，而那個錯誤在
+`.bib` 語法層完全合法、在必要欄位檢查裡也可能通過。
+
+`WorkTypeSectionAgreementTests` 用**依賴自己的分類器**釘住這件事。它的價值在於**不寫
+期望值**：一般測試斷言「我期望 X」，而期望值是作者寫的，所以作者的誤解會一起寫進斷言；
+這條守衛拿兩個獨立來源互相對照。實測（#352）：人工盤點出 4 個矛盾，守衛抓到 **8 個**。
+
+#352 修掉的收窄（原註解寫「biblatex 無專屬型，REPORT 最近」——**那句話是錯的**）：
+
+| `WorkType` | 舊 | 新 | 依賴算出的節 |
+|---|---|---|---|
+| `dataSet` | `REPORT` | `DATASET` | 10.4 → **10.9** |
+| `software` | `REPORT` | `SOFTWARE` | 10.4 → **10.10** |
+| `audiovisualWork` | `ONLINE` | `VIDEO` | 10.16 → **10.12** |
+| `audioWork` | `ONLINE` | `AUDIO` | 10.16 → **10.13** |
+| `visualWork` | `ONLINE` | `IMAGE` | 10.16 → **10.14** |
+| `conferenceSession` | `INPROCEEDINGS` | `PRESENTATION` | 10.5（節本來就對，但欄位需求錯：要 `BOOKTITLE` 而非 `EVENTTITLE`）|
+| `wikipediaEntry` | `INCOLLECTION` | `INREFERENCE` | 10.3（節本來就對；改的理由是消除假陽性，代價見 #354）|
+
+**實測效果**（937 筆全庫）：`[ERROR]` 143 → 94、error 記錄 97 → 71。帳目對得上：
+26 筆停止報錯 ＝ 14 筆變 unchecked（維基條目）＋ 12 筆變乾淨（有 `eventtitle` 的會議發表）。
+
+**三節仍不同意，且刻意不修**（10.7／10.11／10.15）：那三節在 `apa.dbx` 的模型裡不是由
+entry type 決定，而是由 entry type ＋一個欄位決定。送出那些欄位就能讓守衛全綠，但
+`ENTRYSUBTYPE: Database record` 對一份不是來自 PsycTESTS 的量表**是假的**。裁決見 #355。
+
 ### 外部權威 fixture：APA7 手冊 ch10 的 golden 矩陣（#327）
 
 `Tests/Fixtures/apa7-ch10/`（8 個 `.bib`、ch10 的 11 個節、**111 筆**）是 APA7 手冊的編號

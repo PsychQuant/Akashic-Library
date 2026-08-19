@@ -34,11 +34,24 @@ import BiblatexAPA
 ///
 /// ## 覆蓋率有結構性上界（不是偷懶）
 ///
-/// `BibValidator.requiredFields` 只涵蓋 7 個 biblatex type。ch10 有 7 個節的 `WorkType`
-/// 對映到 `UNPUBLISHED`／`ONLINE`——那兩個 type 不在表內，所以那些節的例子**驗不出
-/// 東西**，只會落進 `uncheckedCitekeys`。本矩陣**把這件事斷言出來**（見
-/// `testUncoveredSectionsAreReportedUnchecked`）而不是省略它們：省略的話，日後有人替
-/// `ONLINE` 補了必要欄位表，矩陣不會有任何反應。
+/// `BibValidator.requiredFields` 只涵蓋 7 個 biblatex type，而 `WorkType` 送出的型別比
+/// 那 7 個多——不在表內的節**驗不出東西**，只會落進 `uncheckedCitekeys`。本矩陣
+/// **把這件事斷言出來**（見 `testUncoveredSectionsAreReportedUnchecked`）而不是省略
+/// 它們：省略的話，日後有人補了必要欄位表，矩陣不會有任何反應。
+///
+/// ### #352 之後覆蓋數字**下降**了，而那是改善
+///
+/// 修正型別對映（#352）後，可驗證的例子從 **85 降到 68**（−17）：10.9（6 筆）與
+/// 10.10（11 筆）從 `REPORT` 改對映到 `DATASET`／`SOFTWARE`，而後兩者不在
+/// `BibValidator` 的表內。
+///
+/// **先前那 17 筆是假覆蓋。** 它們被拿 `REPORT`（＝APA7 10.4 Reports and Gray
+/// Literature）的欄位需求去驗，而它們是資料集與軟體（10.9／10.10）。用錯的類別規則
+/// 通過檢查不算被檢查過——它只是沒被正確地檢查而看起來像通過。
+///
+/// 覆蓋率這個數字因此**不能單獨當進度指標**：它同時受「對映對不對」與「表夠不夠大」
+/// 影響，而兩者的改善方向相反。#353（改用 `APADataModel` 的 15 型表，它有 `DATASET`
+/// 與 `SOFTWARE`）會恢復這 17 筆的**真**覆蓋。
 final class APA7GoldenTests: XCTestCase {
 
     // MARK: - 節 → WorkType
@@ -94,7 +107,12 @@ final class APA7GoldenTests: XCTestCase {
         "apa7-10-2-24":  "編著書只有 EDITOR（APA7 的作者位置＝編者），BOOK 表只認 AUTHOR",
         "apa7-10-3-47":  "編著作品只有 EDITOR，INCOLLECTION 表只認 AUTHOR",
         "apa7-10-4-55":  "來源本身無日期（APA7 印 n.d.），REPORT 表要求 DATE 存在",
-        "apa7-10-10-76": "維基百科條目無個人作者（APA7 的作者位置是條目本身），表要求 AUTHOR",
+        // `apa7-10-10-76` 曾在此列（維基條目無個人作者）。**#352 之後它不再報 error，
+        // 但原因不是缺口被解決**——10.10 的 `WorkType` 從 `REPORT` 改對映到 `SOFTWARE`，
+        // 而 `SOFTWARE` 不在 `BibValidator` 的表內，所以它變成「未檢查」。
+        // 誠實的說法是：那個假陽性消失了，代價是那一筆現在完全沒被檢查。
+        // #353（換用 `APADataModel` 的表，它有 `SOFTWARE`）會讓它回到被檢查的狀態，
+        // 屆時要重新判斷它是否再次落入本表。
     ]
 
     /// `BibValidator` 涵蓋的 biblatex type（`BibExport.apa7CheckedTypes` 的鏡像）。

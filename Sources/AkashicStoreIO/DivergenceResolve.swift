@@ -420,22 +420,6 @@ extension LibraryStore {
         // `store_loadForRename()` 繞開的是同一件事）。
         let snapshot = try load()
         try assertNoCrossRecordErrors(snapshot, action: "resolve-divergence")
-        // **讀不到的檔可能正指著要被刪掉的東西。** spec 要求改寫「store 內每一個」
-        // 指名被併實體的參照，而 quarantined 檔根本沒進 `snapshot.entries`——它的
-        // 參照永遠不會被改寫，卻擋不住刪除，留下一筆藏在工具讀不到的檔案裡、
-        // `crossRecordIssues()` 也掃不到的永久懸空參照。這與本檔對 legacy 佈局採取的
-        // 立場（拒絕比部分支援誠實）是同一條理由，不該一邊拒絕一邊靜默放行。
-        //
-        // **只擋得住持有實體參照的那些目錄。** gate 的理由是「讀不到就改寫不到」，
-        // 而 `people/` 與 `libraries/` 的記錄結構上不可能指向被併的 work 或 person
-        // （person 不引用 person，library 只有 metadata）。把它們一起擋，理由對它們
-        // 就是假的——而擋在最需要消歧的 store 狀態（多來源、半遷移）上（#71 R2 DA）。
-        let blocking = snapshot.quarantined
-            .filter { $0.file.hasPrefix("entities/") || $0.file.hasPrefix("entries/") }
-        guard blocking.isEmpty else {
-            throw DivergenceResolveError.quarantinedPresent(files: blocking.map(\.file).sorted())
-        }
-
         guard let record = snapshot.divergences.first(where: { $0.id == id }) else {
             throw DivergenceResolveError.recordNotFound(id)
         }
@@ -467,6 +451,57 @@ extension LibraryStore {
             throw DivergenceResolveError.outsideVersionControl(root: root.path)
         }
         let mergedKeys = candidateKeys.filter { $0 != survivor }
+
+        // **讀不到的檔可能正指著要被刪掉的東西。** spec 要求改寫「store 內每一個」
+        // 指名被併實體的參照，而 quarantined 檔根本沒進 `snapshot.entries`——它的
+        // 參照永遠不會被改寫，卻擋不住刪除，留下一筆藏在工具讀不到的檔案裡、
+        // `crossRecordIssues()` 也掃不到的永久懸空參照。這與本檔對 legacy 佈局採取的
+        // 立場（拒絕比部分支援誠實）是同一條理由，不該一邊拒絕一邊靜默放行。
+        //
+        // ## 為什麼判準是「位元組含不含被刪的 key」而不是目錄前綴（#295）
+        //
+        // 舊版按目錄前綴過濾（擋 `entities/`／`entries/`，放行 `people/`／
+        // `libraries/`），註解說後兩者「結構上不可能指向被併實體」。**那個理由是為
+        // legacy 佈局寫的**——佈局遷移（#227／#241）把 person 檔搬進 `entities/` 之後，
+        // 目錄名與該性質的對應就斷了：person 檔正住在明確被擋的前綴下，而放行清單
+        // 指向的兩個目錄在新佈局幾乎是空的。**保護範圍實質反轉**，gate 從罕見邊角
+        // 變成常態摩擦（#71 R2 DA 已註記過寬，#227 cluster verify DA NEW-1 實測重現）。
+        //
+        // 收窄後的判準直接對應 gate 自己的理由。**封閉定義**：
+        //
+        // > 本次消歧的引用集合 ＝ 所有 quarantined 檔中，**原始位元組含有任一
+        // > `mergedKeys` 之字面**的那些。
+        //
+        // 依據：對 key K 的參照必然把 K 的字面序列化進檔案某處（`StoreKey.pattern`
+        // 是 `[a-z0-9][a-z0-9-]*`，純 ASCII，本專案的 encoder 從不對它逃脫）。
+        // 位元組裡沒有 K，就不可能有指向 K 的參照。
+        //
+        // 方向是 fail-closed 的那一側：字面比對會有**偽陽性**（K 出現在 note 裡也算，
+        // 於是多擋一筆），但**不可能偽陰性**——不會放行一個真的持有懸空參照的檔。
+        //
+        // **已知且接受的限制**：YAML 允許雙引號字串用 `\x` / `\u` 逃脫，所以手工
+        // 構造的檔可以寫成 `"\x63he-cheng"` 而躲過字面比對。不加「見到反斜線就擋」
+        // 的保守規則，因為那會把大量含 LaTeX 標題／路徑的合法檔重新擋回來——正是
+        // 本次要修的過寬。對單人本機 store 而言，能手工構造逃脫序列的人也能直接
+        // 改 survivor，這道 gate 本來就不是對抗惡意的防線。
+        let doomedKeyBytes = mergedKeys.map { Array($0.utf8) }
+        let blocking = snapshot.quarantined.filter { q in
+            guard let data = try? Data(contentsOf: root.appendingPathComponent(q.file))
+            else {
+                // 連讀都讀不到（權限／競態）——**擋**。判不準時選比較嚴的那邊。
+                return true
+            }
+            let bytes = Array(data)
+            return doomedKeyBytes.contains { needle in
+                bytes.indices.contains { i in
+                    i + needle.count <= bytes.count
+                        && Array(bytes[i..<(i + needle.count)]) == needle
+                }
+            }
+        }
+        guard blocking.isEmpty else {
+            throw DivergenceResolveError.quarantinedPresent(files: blocking.map(\.file).sorted())
+        }
 
         // #159 verify §6 + 159-12：**不可逆操作不在自己讀不懂的記錄上執行。**
         //

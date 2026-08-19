@@ -636,6 +636,44 @@ setUp 就寫入記錄的 suite（如 `RenameTests`）改成 `seed(format:)`，�
 `testRenameMovesFileMigratesRelationsKeepsUUID` 斷言 `entries/old2020key.yaml` 不存在，而
 在 entities 佈局下那個路徑從來就沒存在過。判斷覆蓋要看斷言的內容，不是看有沒有變紅。
 
+### 學位論文的三個一級事實：`thesis:`（#335）
+
+APA7 §10.6 有**兩張** template，而差別不只是字串：
+
+| | 未出版（例 64） | 已出版（例 65／66） |
+|---|---|---|
+| 方括號 | `[Unpublished doctoral dissertation]` | `[Doctoral dissertation, 機構名]` |
+| 授予機構的位置 | **句末的 source element** | **標題後的方括號內** |
+| source element | 機構名 | **典藏庫**（＋URL）|
+
+所以 `fields.institution` 有值也不夠 —— **該把它放哪取決於「已出版與否」**，而那個事實
+先前完全不可表達。這是下限違反（`apa7-is-the-work-floor`），不是美觀問題。
+
+結構化欄位落在 `thesis:`（封閉鍵域，見 [store-format.md §2.1.1](docs/store-format.md)）。
+三件維護時會用到的判準：
+
+1. **為什麼是欄位而不是 `WorkType` 的細分值。** 規則的判準是「這個區分改變的是**索取哪組
+   欄位**，還是只改變**渲染字串**」。學位別只改方括號內的字串（author／title／institution／
+   date 一模一樣）→ 欄位。而「已出版與否」更直接：規則的「不進值域」封閉列舉第 1 類
+   **逐字點名了「出版狀態」**。壓進類別的具體代價是笛卡兒積 —— 3 學位 × 2 狀態 ＝ 6 個值，
+   而它們索取的欄位組只有兩種。
+2. **兩個欄位都可缺，缺席＝未查，不得折成預設值。** 把缺席的 `availability` 當成
+   `unpublished` 會渲染出 `[Unpublished doctoral dissertation]` —— 那是一個**可能為假的
+   斷言**，不是缺資訊。實測 5 筆 thesis 的 `availability` 全部缺席。
+3. **兩個「讓錯誤寫不出來」的設計。** `availability` 帶關聯值，所以「未出版卻有典藏庫」
+   在文法上不存在（依 §10.6，未出版的論文必須直接向該校索取）；`ThesisFacts` 的 init 是
+   **failable**，所以「兩個事實都沒有的事實物件」也不存在 —— 那個狀態的編碼是有損的，
+   而 `EntryYAML.encode` 的語意自檢會拒絕寫出它（開發時實際撞到）。
+
+**fixture 反過來修正了設計。** 原本要求 `published` 必帶 `repository`。ch10 的手冊例
+65／66 揭露那是過嚴的 —— 它們是已出版（有典藏 URL）卻**沒有典藏庫名**的形狀，於是遇到
+那種記錄的人只剩「丟掉已知事實」或「編造典藏庫名」兩條路，兩者都是 `lossless-intake`
+禁止的折疊。放寬它**不弱化**真正要防的那件事（`unpublished` 仍然沒有帶 `repository` 的形式）。
+
+**誠實邊界**：`degree` 匯出成 biblatex `type`（token 由依賴指定），但 biblatex-apa 對
+「已出版 vs 未出版的學位論文」**沒有任何機制** —— §10.6 兩形態的**渲染**是上游缺口，
+且本專案沒有 LaTeX 往返測試可驗。模型持有這個事實是下限要求；渲染保真度是另一件事。
+
 ### `WorkType` 的兩個下游對映必須互相同意（#352）
 
 `WorkType` 同時宣稱兩件事，而它們**可以互相矛盾而沒有任何跡象**：

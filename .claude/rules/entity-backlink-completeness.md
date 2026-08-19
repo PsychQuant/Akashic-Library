@@ -201,9 +201,29 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
    `idx_authors_key ON authors(person_key)`。新增反向呈現面前先看索引有沒有；
    沒有就加索引，**不是**加欄位。
 
-2. **一個 entity kind 的讀取面只能有一條實作路徑。** CLI 與 MCP 必須落到同一個
-   函式（`AkashicService.*`）。兩邊各自查一次 = 兩條會分岔的路徑，那是本規則在
-   儲存層禁止的事在讀取層重演。
+2. **一個 entity kind 的讀取面只能有一條實作路徑。** **三個面**——CLI、MCP、**App**
+   ——必須落到同一個函式。兩邊各自查一次 = 兩條會分岔的路徑，那是本規則在儲存層
+   禁止的事在讀取層重演。
+
+   > **App 是 #263 補上的第三個面。** 這條先前只點名 CLI 與 MCP，而 App 在結構上
+   > 同位置卻不在列舉內——於是它長成**第三條獨立實作路徑**而沒有違反任何寫下來的
+   > 規則：健康總覽的六個數字全由 `AppState` 自行推導，**完全不呼叫**
+   > `AkashicService.doctor()`（實測全樹唯一命中是一行註解）。
+   >
+   > 失敗模式的差別很實：**子集只會少，獨立路徑會分岔**——App 可能顯示健康數字而
+   > `doctor` 對同一 store 報問題，而使用者沒有任何線索知道哪個對。而 App 是取代
+   > Zotero 的主要 UI（`replace-endnote-and-zotero`），只用 App 的人永遠不會知道
+   > audit trail 正在腐爛。
+   >
+   > **落到同一個函式不等於落到同一個入口。** `doctor()` 會 `rebuild()` index
+   > ——**它不是唯讀的**，所以 App 每次刷新都呼叫它是不可接受的副作用。#263 的解法
+   > 是把**唯讀的**事實抽成 `StoreHealth`（`LibraryStore.health(from:)`），兩面各自
+   > 渲染它；`doctor()` 在其上額外做 rebuild 與統計。共用的部分只有一條路徑，各自
+   > 獨有的部分是各自的職責。
+   >
+   > 機械防線是 `StoreHealthSurfaceTests`：以**反射**取 `StoreHealth` 的全部欄位，
+   > 逐一要求兩個消費面都提到它。人工清單會與型別分岔——那正是本檔的表錯過三次的
+   > 形狀。
 
 3. **未歸戶的要照樣顯示，且不得冒充 identity。** `.literal` 是誠實狀態不是壞掉的
    `.key`（同 `EntityRef` 的立場）。呈現時給名字、不給 key——讓使用者看得出哪些

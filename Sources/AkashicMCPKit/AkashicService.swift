@@ -341,8 +341,15 @@ public final class AkashicService {
         // consumer 拿到的是 SQLite 內部錯誤，而不是「你有兩筆同 citekey 的記錄」。
         // 診斷工具在這種狀態下正是最該說話的時候，不是最該掛掉的時候。
         // severity 逐條攜帶（#138 verify F3）：✗/⚠ 之別在 CLI 面有、MCP 面就不能丟。
-        let cross = load.crossRecordIssues()
-        let fatalCross = cross.filter { $0.severity == .error }
+        // #263：健康事實的**單一來源**是 `StoreHealth`——App 的健康總覽讀同一個型別。
+        // 先前 App 完全不呼叫本函式、六個數字自己算，那是第三條獨立實作路徑（會分岔），
+        // 而非 doctor 的子集（只會少）。
+        //
+        // rebuild 與其後的統計**仍是本函式的職責**——`doctor()` 不是唯讀的，那正是
+        // App 不能直接呼叫它的原因（每次刷新都重建 index 不可接受）。
+        let health = store.health(from: load)
+        let cross = health.crossRecordIssues
+        let fatalCross = health.fatalCrossRecordIssues
         if !cross.isEmpty {
             d["crossRecordIssues"] = [
                 "count": cross.count,
@@ -354,7 +361,7 @@ public final class AkashicService {
         }
         // #107：佈局殘留（報告不動手刪）。與 CLI 同：排在 fatal 早退之前——
         // 重複 citekey 的 store 正是最需要看清全貌的時候。
-        let residue = try store.layoutResidue()
+        let residue = health.layoutResidue
         if !residue.isEmpty {
             d["layoutResidue"] = residue.map { displaySafe($0, max: 300) }
         }
@@ -362,8 +369,7 @@ public final class AkashicService {
         // 四類皆空才不出現——沉默即健康；有事必須說（audit sidecar 的腐爛全靠這裡可見）。
         // audit 自身失敗不得吞掉整份報告（d 到最後才序列化——中途 throw 連已算好的
         // crossRecordIssues 都會消失，MCP 面比 CLI 面更慘；verify reg F1 實測）。
-        do {
-            let srcAudit = try store.auditSourceIndex()
+        if let srcAudit = health.sourcesAudit {
             if !srcAudit.orphanBlobs.isEmpty || !srcAudit.danglingEntries.isEmpty
                 || !srcAudit.malformedLines.isEmpty || !srcAudit.unreadableShards.isEmpty {
                 d["sources"] = [
@@ -373,21 +379,22 @@ public final class AkashicService {
                     "unreadableShards": srcAudit.unreadableShards.map { displaySafe($0, max: 120) },
                 ] as [String: Any]
             }
-        } catch {
-            d["sourcesAuditError"] = displaySafe(String(describing: error), max: 300)
+        }
+        if let auditError = health.sourcesAuditError {
+            d["sourcesAuditError"] = auditError   // display-safe-exempt: StoreHealth 已 displaySafe
         }
         // #76：divergence 計數無條件給（0 也是資訊）；同樣在 fatal 早退之前。
-        d["divergences"] = load.divergences.count
-        if !load.quarantined.isEmpty {
+        d["divergences"] = health.divergenceCount
+        if !health.quarantined.isEmpty {
             // R11（R10-verify M19）：reason 含 Yams 展開的逐字檔案內容且不截斷——
             // MCP 情境下是直接灌進 LLM context 的無上限未信任字串。
-            d["quarantined"] = load.quarantined.map {
+            d["quarantined"] = health.quarantined.map {
                 ["file": displaySafe($0.file, max: 300), "reason": displaySafe($0.reason, max: 512)]
             }
         }
         // #23 tolerant-preserve：較新 schema 的檔案可用但應提示升級
-        if !load.unknownFieldFiles.isEmpty {
-            d["unknownFieldFiles"] = load.unknownFieldFiles.map { displaySafe($0, max: 200) }
+        if !health.unknownFieldFiles.isEmpty {
+            d["unknownFieldFiles"] = health.unknownFieldFiles.map { displaySafe($0, max: 200) }
         }
         guard fatalCross.isEmpty else {
             d["entries"] = load.entries.count
@@ -401,11 +408,8 @@ public final class AkashicService {
         d["entries"] = stats.entries
         d["people"] = stats.people
         d["relations"] = stats.relations
-        d["unresolvedAuthorLiterals"] = load.entries.flatMap { entry in
-            entry.authors.compactMap { if case .literal = $0 { return 1 } else { return nil } }
-        }.count
-        d["orphaned"] = load.entries.filter { $0.provenance?.orphanedAt != nil }
-            .map { displaySafe($0.citekey, max: 200) }
+        d["unresolvedAuthorLiterals"] = health.unresolvedAuthorLiterals
+        d["orphaned"] = health.orphanedCitekeys.map { displaySafe($0, max: 200) }
         // #146：digest 形式的 source 殘留。**這一項是本檔案自己那條規矩的直接
         // 應用**——「CLI doctor 的普查面 MCP 也要有，同一個 store 不得從兩個
         // consumer 看到不同的事實」（#138 verify F3，見下方註解）。第一版只加了

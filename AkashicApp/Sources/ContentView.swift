@@ -83,6 +83,41 @@ struct SidebarView: View {
                               + "但升級 CLI / akashic-mcp / App 才看得到它們。")
                 }
             }
+            // #263：健康總覽走**同一條路徑**（`AppState.health` ← `StoreHealth`）。
+            //
+            // 先前這裡的六個數字全由 `AppState` 自行推導、**完全不呼叫**
+            // `AkashicService.doctor()`——那是第三條獨立實作路徑，會與 doctor **分岔**
+            // （App 顯示健康而 doctor 報問題，使用者無線索知道哪個對）。App 是取代
+            // Zotero 的主要 UI，只用 App 的人先前永遠不會知道 audit trail 正在腐爛。
+            //
+            // **沉默即健康**：`hasFindings` 為 false 時整段不出現，避免噪音（同上方
+            // 「較新欄位」0 時不顯示的既有慣例）。
+            if let health = state.health, health.hasFindings {
+                Section("健康") {
+                    if !health.crossRecordIssues.isEmpty {
+                        LabeledContent("跨記錄問題", value: "\(health.crossRecordIssues.count)")
+                            .help("重複 citekey／person key 等。含 severity=error 時 index "
+                                  + "無法重建——那是最該先修的。")
+                    }
+                    if !health.layoutResidue.isEmpty {
+                        LabeledContent("佈局殘留", value: "\(health.layoutResidue.count)")
+                            .help("依 format／key 不該存在的檔案。")
+                    }
+                    if let audit = health.sourcesAudit {
+                        let n = audit.orphanBlobs.count + audit.danglingEntries.count
+                            + audit.malformedLines.count + audit.unreadableShards.count
+                        if n > 0 {
+                            LabeledContent("sources 不一致", value: "\(n)")
+                                .help("blob 與 index 對不上。audit sidecar 的腐爛只會從"
+                                      + "這裡看得到——它不會自己修好。")
+                        }
+                    }
+                    if let err = health.sourcesAuditError {
+                        LabeledContent("sources audit 失敗", value: "!")
+                            .help(err)
+                    }
+                }
+            }
             // 外部變更同步提示（spec §6 的 write-through 落地：沒有草稿緩衝可遺失，
             // 但外部剛更新畫面時要讓使用者知道）
             if let syncedAt = state.lastExternalSyncAt {

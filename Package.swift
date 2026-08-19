@@ -82,6 +82,9 @@ let package = Package(
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph", "AkashicSQLite",
             "AkashicWoSImport", "AkashicTestGuard",
+            // APA7GoldenTests（#327）用對方的 BibParser 解析 ch10 fixture——顯式宣告，
+            // 不靠 AkashicExport 的傳遞依賴（那能編過但會隨對方的依賴調整而斷）。
+            .product(name: "BiblatexAPA", package: "biblatex-apa-swift"),
         ]),
         .testTarget(
             name: "AkashicPropositionTests",

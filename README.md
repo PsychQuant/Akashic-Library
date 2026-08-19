@@ -636,6 +636,47 @@ setUp 就寫入記錄的 suite（如 `RenameTests`）改成 `seed(format:)`，�
 `testRenameMovesFileMigratesRelationsKeepsUUID` 斷言 `entries/old2020key.yaml` 不存在，而
 在 entities 佈局下那個路徑從來就沒存在過。判斷覆蓋要看斷言的內容，不是看有沒有變紅。
 
+### 外部權威 fixture：APA7 手冊 ch10 的 golden 矩陣（#327）
+
+`Tests/Fixtures/apa7-ch10/`（8 個 `.bib`、ch10 的 11 個節、**111 筆**）是 APA7 手冊的編號
+範例，來源是 `che-axiom-systems` 的 `apa7-style` domain。它與其他 fixture 的**方向相反**：
+
+| | 一般 fixture | 本批 |
+|---|---|---|
+| 誰寫的 | 我們 | APA 官方（手冊印出來的正確參考文獻）|
+| 測試在驗 | 實作對不對 | **我們的模型夠不夠** |
+| 紅燈的意思 | 程式壞了 | 手冊接不進來——是我們不足，不是它錯 |
+
+這批 fixture 是 [`apa7-is-the-work-floor`](.claude/rules/apa7-is-the-work-floor.md) 那條規則
+指定的驗收矩陣（「一筆 work 的資訊下限是能產出正確的 APA7 參考文獻」）。測的是**往返**：
+
+```
+fixture 的 BibEntry ──→ 我們的 Entry ──→ bibEntry(for:) ──→ BibValidator
+       （手冊）          （受測的模型）      （匯出路徑）        （書目正確性）
+```
+
+中間那一步是重點——模型持有不了的東西會在那裡掉，然後 validator 報缺欄位。
+
+**三件維護時會踩到的事**：
+
+1. **fixture 是複製的檔案，不是抄成 Swift 陣列。** 第一批 10 筆是手抄的，改掉了：手抄會
+   掉欄位（抄的人只抄他認為必要的），而且離開來源檔就再也對不回去。手冊編號直接編碼在
+   citekey（`10.2:20` ＝ 節號:例號）——**不要改成連續編號**，那會把對映弄丟。
+2. **例號不是整數。** 手冊有子例（`75a`／`75b`／…），111 筆裡 **42 筆**帶字母後綴。用
+   `Int()` 解析會把它們整批**靜默**丟掉（第一版就是這樣只看到 69 筆而沒有任何錯誤訊息）。
+3. **覆蓋率有結構性上界，且三張表把它釘住。** `BibValidator.requiredFields` 只涵蓋 7 個
+   biblatex type，所以對映到 `UNPUBLISHED`／`ONLINE` 的 7 個節驗不出東西。矩陣不省略它們，
+   而是斷言它們落在 `uncheckedCitekeys`：
+
+   | 表 | 內容 | 它變紅代表 |
+   |---|---|---|
+   | `knownValidatorGaps` | 4 筆手冊例報 error 的具名原因（編者代作者／`n.d.`／無個人作者，見 #350）| 缺口被修好（刪列）或新缺口出現（裁決）|
+   | `sectionsWithoutFixtures` | 來源無範例的 5 節（10.5／10.7／10.8／10.11／10.14）| ch10 有節既沒 fixture 也沒具名 |
+   | `checkedBiblatexTypes` | validator 涵蓋範圍的鏡像 | 對方的涵蓋範圍變了 |
+
+   三張表都用**精確相等**斷言。永遠紅的測試會被無視；精確相等讓紅燈永遠代表「有一件事
+   變了」。這與 `uncheckedCitekeys`（#326）同一條紀律：不讓「沒被檢查」冒充「檢查過且乾淨」。
+
 ## CI
 
 `.github/workflows/ci.yml`，macOS runner，觸發限 **push to main**（2026-08-07 改制：

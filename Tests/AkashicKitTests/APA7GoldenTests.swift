@@ -136,6 +136,8 @@ final class APA7GoldenTests: XCTestCase {
         let entry: Entry
     }
 
+    // MARK: - 10.6 的三個事實（#335）
+
     private static func fixtureDirectory() throws -> URL {
         var dir = URL(fileURLWithPath: #filePath)
         for _ in 0..<10 {
@@ -187,6 +189,32 @@ final class APA7GoldenTests: XCTestCase {
                     fields[lower] = value
                 }
 
+                // 10.6 的三個事實（#335）散在來源的**兩處**：學位別在 entry type
+                // （`@PHDTHESIS`／`@MASTERSTHESIS`），取得途徑在 `TYPE` 欄位的英文片語
+                // （`Unpublished doctoral dissertation` vs `Doctoral dissertation`）
+                // ——那正是 §10.6 兩張 template 的差別。不接上去就等於把 fixture 攜帶的
+                // 資訊丟掉，矩陣也就測不到 `ThesisFacts`。
+                var thesisFacts: ThesisFacts?
+                if type == .thesis {
+                    let degree: ThesisFacts.Degree? = {
+                        switch bib.normalizedType {
+                        case "PHDTHESIS":     return .doctoral
+                        case "MASTERSTHESIS": return .masters
+                        default:              return nil
+                        }
+                    }()
+                    let typePhrase = bib.fields.caseInsensitiveValue(forKey: "TYPE") ?? ""
+                    let url = bib.fields.caseInsensitiveValue(forKey: "URL")
+                    let availability: ThesisFacts.Availability? = {
+                        if typePhrase.lowercased().hasPrefix("unpublished") { return .unpublished }
+                        // 已出版：手冊例 65／66 有典藏 URL 但**沒有典藏庫名**——所以
+                        // `repository` 傳 nil 而不是編一個。這正是那個欄位可選的原因。
+                        if url != nil { return .published(repository: nil, url: url) }
+                        return nil
+                    }()
+                    thesisFacts = ThesisFacts(degree: degree, availability: availability)
+                }
+
                 var entry = Entry(id: UUID(),
                                   citekey: storeCitekey(section: section, number: number),
                                   type: type,
@@ -196,7 +224,8 @@ final class APA7GoldenTests: XCTestCase {
                                       .map { $0.trimmingCharacters(in: .whitespaces) }
                                       .filter { !$0.isEmpty }
                                       .map { .literal($0) },
-                                  date: bib.date)
+                                  date: bib.date,
+                                  thesis: thesisFacts)
                 entry.fields = fields
                 out.append(Example(section: section, number: number,
                                    storeCitekey: entry.citekey, type: type, entry: entry))
@@ -313,6 +342,45 @@ final class APA7GoldenTests: XCTestCase {
             XCTAssertEqual(parts.count, 3, "\(example.storeCitekey) 應可還原成 節-節-例 三段")
             XCTAssertEqual("\(parts[0]).\(parts[1])", example.section)
             XCTAssertEqual(String(parts[2]), example.number)
+        }
+    }
+
+    /// 10.6 的 fixture 必須攜帶學位別，且輸出成依賴指定的 biblatex token（#335）。
+    ///
+    /// 這條把 fixture 與 `ThesisFacts` 綁在一起：來源用 `@PHDTHESIS`／`@MASTERSTHESIS`
+    /// 編碼學位別，若 loader 丟掉它（第一版就是這樣），這條會紅。
+    func testSection106FixturesCarryDegreeAndEmitBiblatexToken() throws {
+        let theses = try Self.loadExamples().filter { $0.section == "10.6" }
+        XCTAssertFalse(theses.isEmpty, "10.6 應有 fixture")
+        for example in theses {
+            let degree = example.entry.thesis?.degree
+            XCTAssertNotNil(degree, "\(example.storeCitekey) 應有學位別"
+                            + "（來源以 @PHDTHESIS／@MASTERSTHESIS 編碼）")
+            guard let degree else { continue }
+            let bib = BibExport.bibEntry(for: example.entry, people: [:])
+            XCTAssertEqual(bib.fields.caseInsensitiveValue(forKey: "type"),
+                           degree.biblatexToken,
+                           "\(example.storeCitekey) 的 type 欄位應是依賴指定的 token")
+        }
+    }
+
+    /// 10.6 的取得途徑必須從 `TYPE` 片語推出，且**兩種形態都要出現在 fixture 裡**。
+    ///
+    /// §10.6 的兩張 template 就是照這條軸分的，所以只覆蓋一邊等於沒測到那條軸。
+    func testSection106CoversBothAvailabilityForms() throws {
+        let theses = try Self.loadExamples().filter { $0.section == "10.6" }
+        let forms = theses.compactMap { $0.entry.thesis?.availability }
+        XCTAssertTrue(forms.contains(.unpublished),
+                      "fixture 應含未出版形態（例 64 的 TYPE 以 Unpublished 開頭）")
+        XCTAssertTrue(forms.contains { if case .published = $0 { return true } else { return false } },
+                      "fixture 應含已出版形態（例 65／66 有典藏 URL）")
+        // 已出版的例子**沒有典藏庫名**——記在測試裡，因為那是 `repository` 可選的理由。
+        for form in forms {
+            if case .published(let repository, let url) = form {
+                XCTAssertNil(repository,
+                             "手冊例 65／66 沒有典藏庫名；有值代表 loader 編造了東西")
+                XCTAssertNotNil(url, "已出版形態是靠 URL 判定的")
+            }
         }
     }
 

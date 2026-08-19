@@ -24,6 +24,27 @@ public enum BibExport {
         for key in entry.fields.keys.sorted() {
             fields[key] = entry.fields[key].map(braceSafe)
         }
+        // 學位論文事實（#335）。**在 `fields` 之後寫**，所以結構化欄位勝過自由字典裡
+        // 同名的殘留值——遷移把 `fields.type` 搬進 `thesis.degree` 之後那個殘留不該
+        // 存在，但若存在，結構化的那個才是正典（`no-compat-fallback`：不留兩條讀法）。
+        if let th = entry.thesis {
+            if let degree = th.degree {
+                // token 由依賴指定（`APADataModel.suggestTypeUpgrade`），非自創慣例。
+                fields["type"] = braceSafe(degree.biblatexToken)
+            }
+            if case .published(let repository, let url) = th.availability {
+                // `eprint` ＝來源平台／典藏庫，沿用依賴自己的慣例（`classifyOnline`
+                // 讀 `EPRINT` 判平台；ch10 fixture 的維基條目也用 `EPRINT = {Wikipedia}`）。
+                //
+                // **誠實邊界**：biblatex-apa 是否真的把它渲染成 §10.6 已出版形態的
+                // source element，**未經 LaTeX 往返實測**——本專案沒有那種測試。依賴
+                // 對「已出版 vs 未出版的學位論文」沒有任何機制（全樹搜尋只命中節名
+                // 字串），所以 §10.6 兩形態的**渲染**是上游缺口。模型持有這個事實是
+                // 下限要求（`apa7-is-the-work-floor`），渲染保真度是另一件事。
+                if let repository { fields["eprint"] = braceSafe(repository) }
+                if let url { fields["url"] = braceSafe(url) }
+            }
+        }
         return BibEntry(entryType: entry.type.biblatexEntryType, key: entry.citekey,
                         fields: fields, rawText: "", lineNumber: 0)
     }

@@ -636,6 +636,43 @@ setUp 就寫入記錄的 suite（如 `RenameTests`）改成 `seed(format:)`，�
 `testRenameMovesFileMigratesRelationsKeepsUUID` 斷言 `entries/old2020key.yaml` 不存在，而
 在 entities 佈局下那個路徑從來就沒存在過。判斷覆蓋要看斷言的內容，不是看有沒有變紅。
 
+### 必要欄位補充表與它的退場守衛（#354）
+
+`INREFERENCE`（`wikipediaEntry` 送出的型別）在依賴的**兩張表裡都沒有** ——
+`allEntryTypes` 認得它、`classifySection` 算得出 10.3，但沒有必要欄位。所以 #352 之後那
+14 筆維基條目變成 unchecked：假陽性消失了，代價是完全不被檢查。
+
+`BibExport` 因此有一張**暫時的**補充表，補依賴**沒有意見**的型別。它滿足
+[`no-compat-fallback`](.claude/rules/no-compat-fallback.md) 對例外的三條要求：
+
+| 要求 | 怎麼滿足 |
+|---|---|
+| 不住 default 位置 | 具名的補充表；`requiredFields(for:)` 明確地**先問依賴、再問補充表** |
+| 寫下退場條件與量測 | 「當 `APADataModel.requiredFields["INREFERENCE"] != nil` 就刪」——`testSupplementOnlyCoversTypesTheDependencyLacks` 會在那一刻變紅 |
+| 退場即刪 | 那條測試的訊息直接寫「請刪掉那一列」，不留著當保險 |
+
+**值從哪裡讀出來。** APA7 §10.3 的參考工具書條目（例 49 維基百科）：
+「條目名。(年, 月 日)。In《工具書名》。URL」—— **條目名佔作者位置**，所以 `AUTHOR` 不是
+必要的（那正是 #352 改對映的理由）；工具書名（`BOOKTITLE`）是必要的。同節另有帶團體作者
+的例子，所以 `AUTHOR` 是 **recommended 而非禁止**。
+
+**為什麼是本地補充而不是改上游。** 上游是同一個 owner 的 repo，但**它完全沒有 Tests
+目錄** —— 在一個沒有測試基礎設施的**共用** canonical library 裡加必要欄位語意，會讓多個
+consumer 的行為改變而沒有任何守衛，比一個自我刪除的本地補充更糟。
+
+這也是本表與 **#359** 的分界：#359 要**反轉依賴刻意設定的值**（`EVENTTITLE`
+required ↔ recommended 是一個判斷），本表只**補上依賴沒有意見的型別**。前者需要 ch10 的
+證據來裁決誰對，後者的值手冊直接寫著。
+
+**實測**（937 筆全庫）：`unchecked` **14 → 0** —— 每一筆都被檢查過了。error 78 → 101，
+`+23` 拆開是 **14 筆真缺漏**（維基條目缺工具書名）＋ **9 筆是 `anonnd*`**（citekey 自己
+寫著 `nd`，合法無日期，屬 #350 第 2 類的量尺缺口）。
+
+**一個測試側的分岔，順手修掉。** golden 矩陣的 `isChecked` 原本自己讀 `APADataModel`。
+補充表一加，它立刻與受測者分岔 —— 而且**空洞地通過**：唯一受影響的型別沒有 fixture，
+所以那條斷言對空集合為真。改成走 `BibExport.requiredFields(for:)` 同一個入口。這是 #353
+剛消除的形狀在測試側重現：一個「以為在守某件事、其實在守自己那份副本」的守衛。
+
 ### APA7 完整性報告讀哪張表（#353）
 
 `repos/biblatex-apa-swift` 有**兩張**必要欄位表，而它們對同一個型別會給出**相反**的答案。

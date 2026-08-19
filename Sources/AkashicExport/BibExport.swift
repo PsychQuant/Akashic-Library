@@ -126,7 +126,69 @@ public enum BibExport {
     /// （`entity-backlink-completeness`：反向與衍生一律現算，存一份就是製造第二個會分岔
     /// 的來源）。
     private static func isCheckedByAPA7Table(_ entryType: String) -> Bool {
-        APADataModel.requiredFields[entryType] != nil
+        requiredFields(for: entryType) != nil
+    }
+
+    /// **暫時的補充表**：依賴對這些 entry type **完全沒有意見**（兩張表都沒有它們），
+    /// 而它們的必要欄位可以直接從 APA7 手冊讀出來（#354）。
+    ///
+    /// ## 這是 `no-compat-fallback` 明文允許的例外，三條都滿足
+    ///
+    /// 1. **不住 default 位置**——它是一張具名的補充表，`requiredFields(for:)` 明確地
+    ///    先問依賴、再問這裡。`grep` 得出誰在走它。
+    /// 2. **退場條件與量測**：當 `APADataModel.requiredFields["INREFERENCE"] != nil` 時
+    ///    刪掉該列。`testSupplementOnlyCoversTypesTheDependencyLacks` 會在那一刻變紅。
+    /// 3. **退場即刪**——不留著當保險。
+    ///
+    /// ## 為什麼是本地補充而不是改上游
+    ///
+    /// 先前傾向改上游（`repos/biblatex-apa-swift` 是同一個 owner 的 repo）。實地一看
+    /// **那個 repo 完全沒有 Tests 目錄**——在一個沒有測試基礎設施的**共用** canonical
+    /// library 裡加必要欄位語意，會讓多個 consumer 的行為改變而沒有任何守衛，比一個
+    /// 自我刪除的本地補充更糟。
+    ///
+    /// 這也是本表與 #359 的分界：#359 要**反轉依賴刻意設定的值**（`EVENTTITLE`
+    /// required ↔ recommended 是一個判斷），本表只**補上依賴沒有意見的型別**。
+    /// 前者需要 ch10 的證據來裁決誰對，後者的值手冊直接寫著。
+    ///
+    /// ## `INREFERENCE` 的值從哪裡讀出來
+    ///
+    /// APA7 §10.3 的參考工具書條目（例 49 維基百科）：
+    ///
+    /// ```
+    /// 條目名。(年, 月 日)。In 《工具書名》。URL
+    /// ```
+    ///
+    /// **條目名佔作者位置**，所以 `AUTHOR` 不是必要的——這正是 #352 把 `wikipediaEntry`
+    /// 從 `INCOLLECTION`（要求 `AUTHOR`）改對映到 `INREFERENCE` 的理由。但工具書名
+    /// （`BOOKTITLE`）是必要的：沒有它，那筆參考文獻無法說出條目出自哪裡。
+    ///
+    /// 同節另有帶團體作者的例子（`American Psychological Association. (n.d.).
+    /// Positive transference. In APA dictionary of psychology.`），所以 `AUTHOR` 是
+    /// **recommended 而非禁止**。
+    private static let supplementalRequiredFields: [String: [String]] = [
+        "INREFERENCE": ["TITLE", "BOOKTITLE", "DATE"],
+    ]
+
+    /// 同上的 recommended 補充。
+    private static let supplementalRecommendedFields: [String: [String]] = [
+        "INREFERENCE": ["AUTHOR", "URL"],
+    ]
+
+    /// 必要欄位：**依賴優先**，補充表只在依賴沒有意見時生效。
+    ///
+    /// 順序是這張表的全部安全性所在——反過來就變成「用我們的意見覆寫依賴的」，
+    /// 那是 #359 拒絕做的事。
+    static func requiredFields(for entryType: String) -> [String]? {
+        APADataModel.requiredFields[entryType] ?? supplementalRequiredFields[entryType]
+    }
+
+    /// 同上，recommended 面。
+    private static func recommendedFields(for entryType: String) -> [String] {
+        if let fromDependency = APADataModel.recommendedFields[entryType] {
+            return fromDependency
+        }
+        return supplementalRecommendedFields[entryType] ?? []
     }
 
     /// 對每筆 entry 跑 APA7 必要欄位檢查，回報缺漏與**未被涵蓋的 type**。
@@ -155,7 +217,7 @@ public enum BibExport {
             //
             // 所以這裡只借那張表，檢查迴圈自己寫（約十行）。表是唯一的知識來源，迴圈
             // 不是知識。
-            for field in APADataModel.requiredFields[entryType] ?? [] {
+            for field in requiredFields(for: entryType) ?? [] {
                 if bib.fields.caseInsensitiveValue(forKey: field) == nil {
                     issues.append(APA7Issue(citekey: entry.citekey, severity: .error,
                                             message: "Missing required field: \(field)"))
@@ -166,7 +228,7 @@ public enum BibExport {
             let recommended: [String] = entryType == "PRESENTATION"
                 ? APADataModel.presentationRecommendedFields(
                     hasMainTitle: bib.fields.caseInsensitiveValue(forKey: "MAINTITLE") != nil)
-                : (APADataModel.recommendedFields[entryType] ?? [])
+                : recommendedFields(for: entryType)
             for field in recommended {
                 if bib.fields.caseInsensitiveValue(forKey: field) == nil {
                     issues.append(APA7Issue(citekey: entry.citekey, severity: .warning,

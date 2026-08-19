@@ -124,7 +124,17 @@ final class APA7GoldenTests: XCTestCase {
     /// 現算則讓分岔不可能發生，而**真正該紅的東西改由下方的分割 manifest 釘住**：
     /// 哪些節被檢查、哪些沒有，各自具名。
     private static func isChecked(_ type: WorkType) -> Bool {
-        APADataModel.requiredFields[type.biblatexEntryType] != nil
+        // **走 `BibExport` 的同一個入口，不直接讀 `APADataModel`。**
+        //
+        // 這裡原本是 `APADataModel.requiredFields[...] != nil`。#354 加了一張補充表
+        // （補依賴沒有意見的型別）之後，那個寫法立刻與受測者分岔——而且**空洞地通過**：
+        // 唯一受影響的型別 `wikipediaEntry` 沒有 fixture，所以
+        // `testUncoveredTypesHaveNoFixtures` 對一個空集合斷言，全綠。
+        //
+        // 這是 #353 剛消除的同一個形狀在測試側重現：一個「以為在守某件事、其實在守自己
+        // 那份副本」的守衛。`entity-backlink-completeness` 執行細節 2 的紀律
+        // （一個讀取面只有一條實作路徑）在測試與實作之間同樣適用。
+        BibExport.requiredFields(for: type.biblatexEntryType) != nil
     }
 
     // MARK: - Fixture 載入

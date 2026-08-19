@@ -17,7 +17,7 @@ import AkashicZoteroImport
 struct EnrichFromZotero: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "enrich-from-zotero",
-        abstract: "逐筆從 Zotero 補缺著的書目欄位（只加不覆寫；不動 type／作者／venues）")
+        abstract: "逐筆從 Zotero 補缺著的書目欄位（只加不覆寫；不動 type／venues；作者需 --include-absent-authors 且僅在完全為空時）")
 
     @OptionGroup var options: LibraryOptions
 
@@ -32,6 +32,9 @@ struct EnrichFromZotero: ParsableCommand {
 
     @Flag(name: .long, help: "實際寫入（預設只列出計畫）")
     var apply = false
+
+    @Flag(name: .long, help: "`authors` 完全為空時，從 Zotero 補 literal 作者（#340；非空一律不動）")
+    var includeAbsentAuthors = false
 
     func run() throws {
         if apply { try options.assertDestructiveTargetNamed("enrich-from-zotero") }
@@ -50,7 +53,9 @@ struct EnrichFromZotero: ParsableCommand {
         let store = try options.openStore()
         let load = try store.load()
         let read = try ZoteroReader.readItems(dbPath: dbURL.path, libraryID: libraryId)
-        let plan = ZoteroEnrichment.plan(entries: load.entries, items: read.items, citekeys: keys)
+        let plan = ZoteroEnrichment.plan(entries: load.entries, items: read.items,
+                                         citekeys: keys,
+                                         includeAbsentAuthors: includeAbsentAuthors)
 
         print("指名 \(keys.count) 筆；可補 \(plan.additions.count)、"
               + "上游也沒有 \(plan.unchanged.count)、"
@@ -66,6 +71,14 @@ struct EnrichFromZotero: ParsableCommand {
             }
             for (k, v) in a.addedFields.sorted(by: { $0.key < $1.key }) {
                 print("    + \(displaySafe(k, max: 80)) = \(displaySafe(v, max: 160))")
+            }
+            if !a.addedAuthors.isEmpty {
+                let names = a.addedAuthors.map { author -> String in
+                    if case .literal(let n) = author { return displaySafe(n, max: 120) }
+                    return "?"
+                }
+                print("    + authors（literal ×\(a.addedAuthors.count)）= "
+                      + names.joined(separator: "、"))
             }
         }
 
@@ -91,7 +104,8 @@ struct EnrichFromZotero: ParsableCommand {
         guard apply else {
             print("")
             print("（dry-run）加 --apply 實際寫入。"
-                  + "**只加原本不存在的鍵**——既有值、type、作者、venues 一律不動。")
+                  + "**只加原本不存在的鍵**——既有值、type、venues 一律不動；"
+                  + "作者僅在 --include-absent-authors 且 authors 完全為空時補。")
             return
         }
 

@@ -122,6 +122,77 @@ final class ZoteroEnrichmentTests: XCTestCase {
                        "計畫之後有人填了這個")
     }
 
+    // MARK: - 空 authors 的顯式補值（#340）
+
+    /// 旗標**預設關閉**——不傳就完全不碰 `authors`（原契約不變）。
+    func testAuthorsAreUntouchedWithoutTheFlag() {
+        let e = entry("a", fields: ["journaltitle": "J"])
+        var i = item(key: "ZK1", fields: ["volume": "3", "title": "T"])
+        i.authors = [(display: "Zotero, A.", family: "Zotero")]
+        let plan = ZoteroEnrichment.plan(entries: [e], items: [i], citekeys: ["a"])
+        XCTAssertEqual(plan.additions.first?.addedAuthors, [],
+                       "未開旗標時 authors 一律不進計畫")
+    }
+
+    /// 開旗標且 `authors` **完全為空** → 補 `.literal`（不是 `.key`）。
+    ///
+    /// `literal-first-then-key`：進庫不猜 key。補 literal 是**啟用** `resolve-people`
+    /// 那條消歧路徑，不是繞過它——不補的話那條路徑永遠看不到這些作者。
+    func testAbsentAuthorsAreFilledAsLiteralsWithTheFlag() {
+        var e = entry("a")
+        e.authors = []
+        var i = item(key: "ZK1", fields: ["title": "T"])
+        i.authors = [(display: "Steer, Robert A.", family: "Steer"),
+                     (display: "Beck, Aaron T.", family: "Beck")]
+        let plan = ZoteroEnrichment.plan(entries: [e], items: [i], citekeys: ["a"],
+                                         includeAbsentAuthors: true)
+        XCTAssertEqual(plan.additions.first?.addedAuthors,
+                       [.literal("Steer, Robert A."), .literal("Beck, Aaron T.")])
+        let after = ZoteroEnrichment.applied(plan.additions[0], to: e)
+        XCTAssertEqual(after.authors, [.literal("Steer, Robert A."), .literal("Beck, Aaron T.")])
+    }
+
+    /// **反面斷言（本例外的全部安全性都在這裡）**：`authors` 只要非空——哪怕只有一個
+    /// `.literal`——一律不動。已歸戶的 `.key` 更不可能被碰到。
+    func testNonEmptyAuthorsAreNeverTouchedEvenWithTheFlag() {
+        for existing in [[Author.literal("人工填的")], [Author.key("che-cheng")]] {
+            var e = entry("a")
+            e.authors = existing
+            var i = item(key: "ZK1", fields: ["title": "T"])
+            i.authors = [(display: "Zotero, A.", family: "Zotero")]
+            let plan = ZoteroEnrichment.plan(entries: [e], items: [i], citekeys: ["a"],
+                                             includeAbsentAuthors: true)
+            XCTAssertEqual(plan.additions.first?.addedAuthors ?? [], [],
+                           "authors 非空（\(existing)）時不得進補值計畫")
+            if let a = plan.additions.first {
+                XCTAssertEqual(ZoteroEnrichment.applied(a, to: e).authors, existing,
+                               "套用也不得改動既有作者")
+            }
+        }
+    }
+
+    /// `applied` 的保守側防呆：計畫算出來之後 store 若已長出作者，一律不動。
+    func testAppliedSkipsAuthorsThatAppearedSincePlanning() {
+        let planned = ZoteroEnrichment.Addition(
+            citekey: "a", addedFields: [:], addedDate: nil,
+            addedAuthors: [.literal("計畫時算出的")])
+        var now = entry("a")
+        now.authors = [.literal("計畫之後有人填了這個")]
+        XCTAssertEqual(ZoteroEnrichment.applied(planned, to: now).authors,
+                       [.literal("計畫之後有人填了這個")])
+    }
+
+    /// 空白名字不入庫（同 `testEmptyZoteroValuesAreNotAdded` 的紀律）。
+    func testBlankZoteroAuthorNamesAreNotAdded() {
+        var e = entry("a")
+        e.authors = []
+        var i = item(key: "ZK1", fields: ["title": "T"])
+        i.authors = [(display: "  ", family: ""), (display: "Real, Name", family: "Real")]
+        let plan = ZoteroEnrichment.plan(entries: [e], items: [i], citekeys: ["a"],
+                                         includeAbsentAuthors: true)
+        XCTAssertEqual(plan.additions.first?.addedAuthors, [.literal("Real, Name")])
+    }
+
     // MARK: - #340 的兩個對映修正
 
     /// `encyclopediaArticle` 先前不在 `typeMap`，fallback 到 `.webpage`（10.16）。

@@ -18,9 +18,17 @@ public enum BibExport {
                                          organizations: organizations)) }
                 .joined(separator: " and ")
         }
-        if let date = entry.date {
+        if let date = entry.date, !entry.dateIsConfirmedAbsent {
             fields["date"] = braceSafe(date)
         }
+        // `n.d.` sentinel **不寫進 .bib**（#350 第 2 類）。依賴自己的
+        // `APACitationParser` 對 `n.d.` 的處理就是「無日期」並省略欄位，而 biblatex-apa
+        // 對缺席的 date 印 `(n.d.)`——那正是 APA7 要的輸出。寫 `date = {n.d.}` 反而會
+        // 讓 date parser 拿到一個不是日期的字串。
+        //
+        // 所以「確認無日期」在 store 裡是一個值、在 `.bib` 裡是欄位缺席。兩邊的表達方式
+        // 不同是刻意的：store 要能區分「查過沒有」與「還沒查」，`.bib` 不需要（它只需要
+        // 印對）。
         for key in entry.fields.keys.sorted() {
             fields[key] = entry.fields[key].map(braceSafe)
         }
@@ -175,6 +183,43 @@ public enum BibExport {
         "INREFERENCE": ["AUTHOR", "URL"],
     ]
 
+    /// **作者位置的合法替代**（#350 第 1 類）。
+    ///
+    /// APA7 對編著作品把**編者放在作者位置**（`(Ed.)`／`(Eds.)`），所以一筆只有 `EDITOR`
+    /// 的編著書**不是缺作者**——那是它的正確形式。必要欄位表只認 `AUTHOR`，於是把正確的
+    /// 資料報成缺漏。
+    ///
+    /// 這條與 #359 的差別（同一條界線，第三次用到）：#359 要反轉依賴刻意設定的
+    /// **required／recommended 判斷**；這裡不動任何欄位的必要性，只承認 APA7 允許
+    /// **另一個欄位填同一個位置**。手冊的 template 直接寫著，不是判斷題。
+    ///
+    /// 值域刻意窄：只有 APA7 明確把編者放在作者位置的兩個型別。**不得依性質相似類推**
+    /// ——`ARTICLE` 的編者不填作者位置（期刊文章的作者就是作者），`PRESENTATION` 同理。
+    private static let authorPositionAlternatives: [String: [String]] = [
+        "BOOK": ["EDITOR"],            // §10.2 編著書：Editor, E. E. (Ed.).
+        "INCOLLECTION": ["EDITOR"],    // §10.3 整本編著作品被當條目引用時同形
+    ]
+
+    /// 這個必要欄位有沒有被滿足——**含 APA7 允許的替代形式**。
+    ///
+    /// 兩條替代規則，各自有手冊依據，且都**不是**放寬檢查：它們是修正檢查對「滿足」的
+    /// 定義。缺真的缺的東西照樣報。
+    private static func isSatisfied(_ field: String, in bib: BibEntry,
+                                    entry: Entry, entryType: String) -> Bool {
+        if bib.fields.caseInsensitiveValue(forKey: field) != nil { return true }
+        // (1) 確認無日期：APA7 印 (n.d.)，那是合法形式而非缺漏。**注意這裡讀的是
+        //     `entry.dateIsConfirmedAbsent` 而不是 `bib` 的欄位**——sentinel 刻意不寫進
+        //     `.bib`（見 `bibEntry(for:)`），所以只有模型側知道「查過，沒有日期」。
+        //     `date: nil`（還沒查）照樣報 error，這是兩者唯一被區分開的地方。
+        if field.uppercased() == "DATE", entry.dateIsConfirmedAbsent { return true }
+        // (2) 作者位置的合法替代（編者）。
+        if let alternatives = authorPositionAlternatives[entryType],
+           field.uppercased() == "AUTHOR" {
+            return alternatives.contains { bib.fields.caseInsensitiveValue(forKey: $0) != nil }
+        }
+        return false
+    }
+
     /// 必要欄位：**依賴優先**，補充表只在依賴沒有意見時生效。
     ///
     /// 順序是這張表的全部安全性所在——反過來就變成「用我們的意見覆寫依賴的」，
@@ -218,10 +263,11 @@ public enum BibExport {
             // 所以這裡只借那張表，檢查迴圈自己寫（約十行）。表是唯一的知識來源，迴圈
             // 不是知識。
             for field in requiredFields(for: entryType) ?? [] {
-                if bib.fields.caseInsensitiveValue(forKey: field) == nil {
-                    issues.append(APA7Issue(citekey: entry.citekey, severity: .error,
-                                            message: "Missing required field: \(field)"))
+                guard !isSatisfied(field, in: bib, entry: entry, entryType: entryType) else {
+                    continue
                 }
+                issues.append(APA7Issue(citekey: entry.citekey, severity: .error,
+                                        message: "Missing required field: \(field)"))
             }
             // recommended 是 warning。`PRESENTATION` 另有 context-aware 的一組
             // （依 `MAINTITLE` 在不在），由依賴自己的函式決定——不在這裡重寫那個判斷。

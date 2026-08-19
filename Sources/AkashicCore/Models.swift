@@ -27,6 +27,39 @@ public struct Entry: Equatable {
     public var provenance: Provenance?
     /// Akashic 自有 namespace——pull 絕不觸碰。
     public var akashic: AkashicMeta
+    /// **確認無日期**的 sentinel（#350 第 2 類）。
+    ///
+    /// `date` 有三種狀態，而先前只能表達兩種：
+    ///
+    /// | `date` | 意思 |
+    /// |---|---|
+    /// | `"2020-04-01"` | 有日期 |
+    /// | `Entry.noDateSentinel`（`"n.d."`） | **查過了，這筆作品確實沒有日期** |
+    /// | `nil` | **還沒查** |
+    ///
+    /// 中間那一格先前不存在，於是「確實沒有」被折進 `nil`——而那正是 `lossless-intake`
+    /// 執行細節 4 禁止的折疊（「還沒查」與「確實沒有」折成同一個觀察，事後完全無法區分）。
+    ///
+    /// 實測（2026-08-19）：store 有 **20 筆**確認無日期的記錄，而它們的 citekey 自己就寫著
+    /// ——`anonndbbs`／`anonndbentry`／…／`mediandentry`（Zotero 快速入門指南）。citekey
+    /// 產生器把 `nd` 編進鍵裡，但**模型讀不到那個資訊**。
+    ///
+    /// ## 為什麼是 sentinel 而不是另一個布林欄位
+    ///
+    /// `dateIsAbsent: Bool` 會讓「`date: 2020` ＋ `dateIsAbsent: true`」這個矛盾寫得出來。
+    /// sentinel 佔用同一個格子，所以矛盾在文法上不存在——同 `ThesisFacts.Availability`
+    /// 用關聯值的理由。
+    ///
+    /// ## 為什麼字面值是 `n.d.`
+    ///
+    /// 那是 APA7 自己的詞（手冊對無日期作品印 `(n.d.)`），也是依賴自己認的形式
+    /// （`APACitationParser` 對 `dateStr == "n.d."` 的處理就是「無日期」）。用領域自己的
+    /// 術語當 sentinel，讀 YAML 的人不需要查表。
+    public static let noDateSentinel = "n.d."
+
+    /// 這筆作品**確認沒有日期**（而不是還沒查）。
+    public var dateIsConfirmedAbsent: Bool { date == Entry.noDateSentinel }
+
     /// 學位論文專屬事實（#335）。`nil` ＝ 這不是學位論文，或還沒查。
     ///
     /// **刻意不在型別層綁定 `type == .thesis`**——那需要把 `Entry` 變成 per-type 的

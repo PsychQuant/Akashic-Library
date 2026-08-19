@@ -22,6 +22,26 @@ final class DestructiveTargetGateTests: XCTestCase {
         try String(contentsOf: try repoRoot().appendingPathComponent(rel), encoding: .utf8)
     }
 
+    /// `Sources/akashic/` 底下**所有** Swift 檔的內容串起來。
+    ///
+    /// **不得寫死檔名清單。** 第一版寫死了 `Commands.swift` 與 `VenueCommand.swift`
+    /// 兩個檔，於是 #367 新增的 `BootstrapVenuesCommand.swift`（新檔）整個掃不到
+    /// ——三條稽核同時紅，而紅的原因不是它們要抓的缺陷，是**稽核自己的涵蓋範圍**。
+    ///
+    /// 這與 `mcp-cli-parity` 記載的同型教訓一致：那裡的第一版 regex 只命中 11/30，
+    /// 而該檔的結論是「**稽核程序自己也要被稽核**」。寫死的檔名清單與寫死的 regex
+    /// 是同一種脆弱：它們在**新增東西**時失效，而新增正是稽核最該發揮作用的時刻。
+    private func allCommandSources() throws -> String {
+        let dir = try repoRoot().appendingPathComponent("Sources/akashic")
+        let files = try FileManager.default.contentsOfDirectory(at: dir,
+                                                                includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        XCTAssertFalse(files.isEmpty, "Sources/akashic/ 沒有 Swift 檔？")
+        return try files.map { try String(contentsOf: $0, encoding: .utf8) }
+            .joined(separator: "\n")
+    }
+
     /// 封閉列舉恰好六個，且各自具名。
     ///
     /// 數字寫死是刻意的（同本 repo 其他「一格不多一格不少」的守衛）：新增破壞性命令
@@ -29,7 +49,8 @@ final class DestructiveTargetGateTests: XCTestCase {
     func testEnumerationIsClosed() throws {
         let src = try source("Sources/akashic/DestructiveTargetGate.swift")
         for name in ["migrate-person-identity", "migrate-venues", "bootstrap-people",
-                     "bootstrap-organizations", "resolve-people", "resolve-organizations"] {
+                     "bootstrap-organizations", "bootstrap-venues",
+                     "resolve-people", "resolve-organizations"] {
             XCTAssertTrue(src.contains("\"\(name)\""), "封閉列舉缺 \(name)")
         }
     }
@@ -40,20 +61,18 @@ final class DestructiveTargetGateTests: XCTestCase {
     /// 38 個 subcommand 完全等價，所以漏掉不會有任何編譯期跡象。
     func testEveryApplyCommandIsEnumerated() throws {
         let gate = try source("Sources/akashic/DestructiveTargetGate.swift")
-        for rel in ["Sources/akashic/Commands.swift", "Sources/akashic/VenueCommand.swift"] {
-            let src = try source(rel)
-            var currentCommand: String?
-            for line in src.split(separator: "\n", omittingEmptySubsequences: false) {
-                if let r = line.range(of: "commandName: \"") {
-                    let rest = line[r.upperBound...]
-                    currentCommand = String(rest.prefix(while: { $0 != "\"" }))
-                }
-                guard line.contains("var apply = false"), let cmd = currentCommand else { continue }
-                XCTAssertTrue(gate.contains("\"\(cmd)\""),
-                              "\(rel) 的 `\(cmd)` 有 --apply 但不在 destructiveCommands 內"
-                              + "——新增破壞性命令必須在同一個變更裡加進封閉列舉（#298 D3）")
-                currentCommand = nil
+        let src = try allCommandSources()
+        var currentCommand: String?
+        for line in src.split(separator: "\n", omittingEmptySubsequences: false) {
+            if let r = line.range(of: "commandName: \"") {
+                let rest = line[r.upperBound...]
+                currentCommand = String(rest.prefix(while: { $0 != "\"" }))
             }
+            guard line.contains("var apply = false"), let cmd = currentCommand else { continue }
+            XCTAssertTrue(gate.contains("\"\(cmd)\""),
+                          "`\(cmd)` 有 --apply 但不在 destructiveCommands 內"
+                          + "——新增破壞性命令必須在同一個變更裡加進封閉列舉（#298 D3）")
+            currentCommand = nil
         }
     }
 
@@ -62,10 +81,10 @@ final class DestructiveTargetGateTests: XCTestCase {
     /// 反向這條防的是**孤兒列**——命令改名或退場後，列舉留著一個永遠對不到東西的
     /// 名字，讀起來與有效裁決毫無區別。（同 `mcp-cli-parity` 第三個稽核方向的教訓。）
     func testEveryEnumeratedNameExists() throws {
-        let commands = try source("Sources/akashic/Commands.swift")
-            + (try source("Sources/akashic/VenueCommand.swift"))
+        let commands = try allCommandSources()
         for name in ["migrate-person-identity", "migrate-venues", "bootstrap-people",
-                     "bootstrap-organizations", "resolve-people", "resolve-organizations"] {
+                     "bootstrap-organizations", "bootstrap-venues",
+                     "resolve-people", "resolve-organizations"] {
             XCTAssertTrue(commands.contains("commandName: \"\(name)\""),
                           "列舉裡的 `\(name)` 對不到任何 subcommand——命令退場後留下的孤兒列")
         }
@@ -76,10 +95,10 @@ final class DestructiveTargetGateTests: XCTestCase {
     /// 沒有這條，列舉可以是完整的而閘門一次都沒被呼叫——那正是 #264 的
     /// `storeSource`（API 完整、零 production 呼叫端）的形狀。
     func testEveryEnumeratedCommandActuallyCallsTheGate() throws {
-        let combined = try source("Sources/akashic/Commands.swift")
-            + (try source("Sources/akashic/VenueCommand.swift"))
+        let combined = try allCommandSources()
         for name in ["migrate-person-identity", "migrate-venues", "bootstrap-people",
-                     "bootstrap-organizations", "resolve-people", "resolve-organizations"] {
+                     "bootstrap-organizations", "bootstrap-venues",
+                     "resolve-people", "resolve-organizations"] {
             XCTAssertTrue(
                 combined.contains("if apply { try options.assertDestructiveTargetNamed(\"\(name)\") }"),
                 "`\(name)` 沒有呼叫閘門，或呼叫條件不是 `apply`——"

@@ -69,7 +69,7 @@ public enum EntryYAML {
         pairs.append((Node(EntityKind.work.rawValue), Node("")))
         pairs.append((Node("id"), Node(entry.id.uuidString)))
         pairs.append((Node("citekey"), Node(entry.citekey)))
-        pairs.append((Node("type"), Node(entry.type)))
+        pairs.append((Node("type"), Node(entry.type.rawValue)))
         pairs.append((Node("title"), Node(entry.title)))
         if !entry.authors.isEmpty {
             let authorNodes: [Node] = entry.authors.map { author in
@@ -777,7 +777,18 @@ public enum EntryYAML {
             throw StoreYAMLError.missingField("title")
         }
 
-        var entry = Entry(id: id, citekey: citekey, type: type, title: title)
+        // #325 階段二：`type` 是封閉列舉，decode 對未知值**嚴格拒絕**。
+        //
+        // **訊息必須指路**——遇到舊自由字串的人多半是「升了 binary 但還沒跑遷移」，
+        // 而那正是兩階段部署要防的視窗。不指路的話他只會看到一個他不知怎麼修的錯。
+        guard let workType = WorkType(rawValue: type) else {
+            throw StoreYAMLError.invalidField(
+                "type",
+                "'\(displaySafe(type, max: 80))' 不在封閉列舉"
+                + "（\(WorkType.domainDescription)）"   // display-safe-exempt: 由 allCases 生成，編譯期常量
+                + "——若這是遷移前的舊值，先跑 `akashic migrate-work-types --apply`（#325）")
+        }
+        var entry = Entry(id: id, citekey: citekey, type: workType, title: title)
         entry.unknownFields = topUnknowns
         entry.date = try requireShape(map["date"], field: "date", expect: "scalar") { $0.scalar?.string }
 

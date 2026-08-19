@@ -149,7 +149,7 @@ final class OrganizationTests: XCTestCase {
             work:
             id: \(id.uuidString)
             citekey: x2020
-            type: article
+            type: periodical-article
             title: T
             affiliations:
             - value:

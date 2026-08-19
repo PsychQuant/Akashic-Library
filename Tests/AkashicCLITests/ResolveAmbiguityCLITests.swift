@@ -46,7 +46,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
     func testResolvePeoplePrintsAmbiguitySection() throws {
         try writePerson(key: "amb-one", names: ["Ambi Guous"], orcid: "0000-0001-2345-6789")
         try writePerson(key: "amb-two", names: ["Ambi Guous"], died: "2001")
-        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Ambi Guous")], date: "2020"))
 
         let r = try runCLI(["resolve-people"])
@@ -70,7 +70,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
     func testAmbiguityCarriesDiscriminators() throws {
         try writePerson(key: "amb-one", names: ["Ambi Guous"], orcid: "0000-0001-2345-6789")
         try writePerson(key: "amb-two", names: ["Ambi Guous"], died: "2001")
-        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Ambi Guous")], date: "2020"))
 
         let r = try runCLI(["resolve-people"])
@@ -104,7 +104,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
                 p.names.variant.append(nm)                       // 撞在一起的那個名字
                 try store.writePerson(p)
             }
-            try store.writeEntry(Entry(id: UUID(), citekey: "flood\(i)", type: "article",
+            try store.writeEntry(Entry(id: UUID(), citekey: "flood\(i)", type: .periodicalArticle,
                                        title: "T", authors: [.literal(nm)], date: "2020"))
         }
 
@@ -130,7 +130,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
         try writePerson(key: "alias-one",
                         names: ["Alias Same", "A1", "A2", "A3", "A4", "A5", "A6"])
         try writePerson(key: "alias-two", names: ["Alias Same", "B1"])
-        try store.writeEntry(Entry(id: UUID(), citekey: "alias2020", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "alias2020", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Alias Same")], date: "2020"))
 
         let r = try runCLI(["resolve-people"])
@@ -148,7 +148,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
     func testAmbiguityWarnsWhenNoDiscriminatorExists() throws {
         try writePerson(key: "bare-one", names: ["Bare Name"])
         try writePerson(key: "bare-two", names: ["Bare Name"])
-        try store.writeEntry(Entry(id: UUID(), citekey: "bare2020", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "bare2020", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Bare Name")], date: "2020"))
 
         let r = try runCLI(["resolve-people"])
@@ -160,7 +160,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
     func testAmbiguityShownEvenWhenThereAreNoCandidates() throws {
         try writePerson(key: "amb-one", names: ["Ambi Guous"])
         try writePerson(key: "amb-two", names: ["Ambi Guous"])
-        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Ambi Guous")], date: "2020"))
 
         let r = try runCLI(["resolve-people"])
@@ -172,7 +172,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
     /// 沒有歧義時**不得**印歧義段（不要為了修上一條讓正常情境變吵）。
     func testNoAmbiguitySectionWhenThereIsNone() throws {
         try writePerson(key: "solo", names: ["Solo Author"])
-        try store.writeEntry(Entry(id: UUID(), citekey: "solo2020", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "solo2020", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Solo Author")], date: "2020"))
 
         let r = try runCLI(["resolve-people"])
@@ -243,7 +243,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
         try writePerson(key: "solo", names: ["Solo Author"])          // 會出候選
         try writePerson(key: "amb-one", names: ["Ambi Guous"])
         try writePerson(key: "amb-two", names: ["Ambi Guous"])
-        try store.writeEntry(Entry(id: UUID(), citekey: "both2020", type: "article", title: "X",
+        try store.writeEntry(Entry(id: UUID(), citekey: "both2020", type: .periodicalArticle, title: "X",
                                    authors: [.literal("Solo Author"), .literal("Ambi Guous")],
                                    date: "2020"))
 
@@ -261,7 +261,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
     func testAmbiguityPrintsEntryIdentity() throws {
         try writePerson(key: "amb-one", names: ["Ambi Guous"])
         try writePerson(key: "amb-two", names: ["Ambi Guous"])
-        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Ambi Guous")], date: "2020"))
         let r = try runCLI(["resolve-people"])
         XCTAssertTrue(r.output.contains("entry:"),
@@ -273,7 +273,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
         try writePerson(key: "many-one", names: ["Many Same"])
         try writePerson(key: "many-two", names: ["Many Same"])
         for i in 0..<60 {
-            try store.writeEntry(Entry(id: UUID(), citekey: "many\(i)", type: "article",
+            try store.writeEntry(Entry(id: UUID(), citekey: "many\(i)", type: .periodicalArticle,
                                        title: "T", authors: [.literal("Many Same")], date: "2020"))
         }
         let r = try runCLI(["resolve-people"])
@@ -331,7 +331,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
             range: DateRange(start: "1990", end: "1995"))])
         try store.writePerson(one)
         try writePerson(key: "past-two", names: ["Past Same"], orcid: "0000-0003-0000-0000")
-        try store.writeEntry(Entry(id: UUID(), citekey: "past2020", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "past2020", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Past Same")], date: "2020"))
 
         let r = try runCLI(["resolve-people"])
@@ -347,7 +347,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
         let prefix = String(repeating: "q", count: 200)
         try writePerson(key: prefix + "b", names: ["Collide Me"])
         try writePerson(key: prefix + "c", names: ["Collide Me"])
-        try store.writeEntry(Entry(id: UUID(), citekey: "coll2020", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "coll2020", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Collide Me")], date: "2020"))
         let r = try runCLI(["resolve-people"])
         XCTAssertTrue(r.output.contains("1. ") && r.output.contains("2. "),

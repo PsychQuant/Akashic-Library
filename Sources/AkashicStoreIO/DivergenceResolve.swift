@@ -1448,7 +1448,9 @@ extension LibraryStore {
         //
         // **兩邊都非空的 title 差異仍刻意不擋**（#71 R2 DA 的誤拒教訓），只補缺席方向。
         if keeper.title.isEmpty, !e.title.isEmpty { losses.append("title: \(e.title)") }
-        if keeper.type.isEmpty, !e.type.isEmpty { losses.append("type: \(e.type)") }
+        // #325 階段二：`type` 是封閉列舉，**沒有「缺席」這個態**——原本的
+        // 「keeper 缺 type 就從對方補」隨自由字串一起退場。兩邊 type 不同時
+        // 仍不擋（同 title 的 #71 R2 DA 誤拒教訓：只補缺席、不判衝突）。
         // date 用同一個三態骨架，但衝突判定換成前綴相容（見 ISO8601Prefix.compatible）。
         // **訊息不宣稱「互斥」**（#157 verify 157-12）：`2003/2004` 是 EDTF 區間、
         // 包含 2003，`2020-03-15T10:00` 是同一時點的更高精度——`compatible` 對它們

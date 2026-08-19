@@ -43,19 +43,19 @@ final class PersonCLITests: XCTestCase {
         let store = LibraryStore(root: root)
         try store.ensureLayout()
 
-        var e1 = Entry(id: UUID(), citekey: "cheng2025alpha", type: "article",
+        var e1 = Entry(id: UUID(), citekey: "cheng2025alpha", type: .periodicalArticle,
                        title: "Alpha", authors: [.key("che-cheng"), .literal("Hau-Hung Yang")],
                        date: "2025")
         e1.fields["journaltitle"] = "Psychometrika"
         try store.writeEntry(e1)
 
-        var e2 = Entry(id: UUID(), citekey: "cheng2024beta", type: "article",
+        var e2 = Entry(id: UUID(), citekey: "cheng2024beta", type: .periodicalArticle,
                        title: "Beta", authors: [.key("che-cheng")], date: "2024")
         e2.fields["journaltitle"] = "BJMSP"
         try store.writeEntry(e2)
 
         // 第三筆**不含**本人——防「回傳全庫」這種假綠
-        try store.writeEntry(Entry(id: UUID(), citekey: "olsson1979max", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "olsson1979max", type: .periodicalArticle,
                                    title: "Max", authors: [.literal("Ulf Olsson")], date: "1979"))
 
         var p = Person(key: "che-cheng", names: PersonNames(
@@ -69,7 +69,7 @@ final class PersonCLITests: XCTestCase {
         try store.writePerson(p)
         // 獨著者：合著者為空的呈現面要能被測
         try store.writePerson(Person(key: "solo-person", names: ["Solo Author"]))
-        try store.writeEntry(Entry(id: UUID(), citekey: "solo2020only", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "solo2020only", type: .periodicalArticle,
                                    title: "Only", authors: [.key("solo-person")], date: "2020"))
     }
 
@@ -165,7 +165,7 @@ final class PersonCLITests: XCTestCase {
 
         // ② 繞過 CLI 直接寫第三筆——index 因此過期
         try LibraryStore(root: root).writeEntry(
-            Entry(id: UUID(), citekey: "cheng2026gamma", type: "article",
+            Entry(id: UUID(), citekey: "cheng2026gamma", type: .periodicalArticle,
                   title: "Gamma", authors: [.key("che-cheng")], date: "2026"))
 
         // ③ person 會依 mtime 重建它讀的那份 index

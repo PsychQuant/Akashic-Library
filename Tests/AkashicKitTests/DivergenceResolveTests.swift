@@ -45,7 +45,7 @@ final class DivergenceResolveTests: XCTestCase {
         try s.writePerson(survivor)
         try s.writePerson(merged)
 
-        var work = Entry(id: UUID(), citekey: "shen2015model", type: "article",
+        var work = Entry(id: UUID(), citekey: "shen2015model", type: .periodicalArticle,
                          title: "Model selection")
         work.authors = [.literal("Shen, Tzu-Jung"), .key("fann-cathy-s-j-2")]
         try s.writeEntry(work)
@@ -190,7 +190,7 @@ final class DivergenceResolveTests: XCTestCase {
         // 第二筆引用被併鍵的 work，把它的檔案設成 immutable：**讀得到、寫不進去**。
         // 這正是要模擬的情境——記錄照常載入並進入改寫清單，落地時才失敗。
         // （用「把檔案換成目錄」會連 load() 都讀不到它，那模擬的是別的故障。）
-        var other = Entry(id: UUID(), citekey: "chen2020assoc", type: "article", title: "Assoc")
+        var other = Entry(id: UUID(), citekey: "chen2020assoc", type: .periodicalArticle, title: "Assoc")
         other.authors = [.key("fann-cathy-s-j-2")]
         try store.writeEntry(other)
         let blocked = store.entityURL(id: other.id)
@@ -356,8 +356,8 @@ final class DivergenceResolveTests: XCTestCase {
     /// #139 R2 複驗的 R1：work 側 preview 驗證的 regression——person 側有測試守著、
     /// work 側沒有＝留著 F1（兩條路徑分開維護）的復發面。
     func testWorkPreviewRejectsCandidateMissingSameAsActual() throws {
-        let e1 = Entry(id: UUID(), citekey: "w2020a", type: "article", title: "A")
-        let e2 = Entry(id: UUID(), citekey: "w2021b", type: "article", title: "B")
+        let e1 = Entry(id: UUID(), citekey: "w2020a", type: .periodicalArticle, title: "A")
+        let e2 = Entry(id: UUID(), citekey: "w2021b", type: .periodicalArticle, title: "B")
         try store.writeEntry(e1)
         try store.writeEntry(e2)
         let d = Divergence(

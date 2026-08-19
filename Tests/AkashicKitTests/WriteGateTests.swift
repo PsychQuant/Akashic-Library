@@ -22,7 +22,7 @@ final class WriteGateTests: XCTestCase {
     }
 
     private func entry(_ citekey: String) -> Entry {
-        Entry(id: UUID(), citekey: citekey, type: "article",
+        Entry(id: UUID(), citekey: citekey, type: .periodicalArticle,
               title: "T", authors: [.literal("X")], date: "2020")
     }
 
@@ -52,7 +52,7 @@ final class WriteGateTests: XCTestCase {
         let store = LibraryStore(root: ghost, key: nil, environment: [:])
         try store.ensureLayout()   // 會標 format 1（legacy 有內容判定在 writeIfAbsent）
         try FileManager.default.removeItem(at: StoreVersion.url(in: ghost))   // 模擬 pre-#24
-        try "id: \(UUID().uuidString)\ncitekey: old2000x\ntype: article\ntitle: T\n".write(
+        try "id: \(UUID().uuidString)\ncitekey: old2000x\ntype: periodical-article\ntitle: T\n".write(
             to: ghost.appendingPathComponent("entries/old2000x.yaml"),
             atomically: true, encoding: .utf8)
         XCTAssertNoThrow(try store.writeEntry(entry("new2021yyy")),

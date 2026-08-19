@@ -51,7 +51,7 @@ final class NameNormalizationTests: XCTestCase {
         // 正規化前不命中（#81 的病），正規化後提名
         var p = Person(key: "chang-y-h")
         p.names = ["Chang, Y-H."]
-        let entry = Entry(id: UUID(), citekey: "chang2020x", type: "article",
+        let entry = Entry(id: UUID(), citekey: "chang2020x", type: .periodicalArticle,
                           title: "X", authors: [.literal("Chang, Y\u{2010}H.")], date: "2020")
         let found = PersonResolver.candidates(entries: [entry], people: [p], rejected: [], confirmed: [:])
         XCTAssertEqual(found.count, 1, "連字號變體必須經正規化命中")
@@ -64,7 +64,7 @@ final class NameNormalizationTests: XCTestCase {
         // 正規化讓兩個人的不同寫法塌縮到同鍵 → 歧義，整組排除（絕不自動合併）
         var a = Person(key: "lee-a"); a.names = ["Lee, J-H."]
         var b = Person(key: "lee-b"); b.names = ["Lee, J\u{2010}H."]
-        let entry = Entry(id: UUID(), citekey: "lee2021y", type: "article",
+        let entry = Entry(id: UUID(), citekey: "lee2021y", type: .periodicalArticle,
                           title: "Y", authors: [.literal("Lee, J-H.")], date: "2021")
         let found = PersonResolver.candidates(entries: [entry], people: [a, b], rejected: [], confirmed: [:])
         XCTAssertTrue(found.isEmpty,
@@ -77,9 +77,9 @@ final class NameNormalizationTests: XCTestCase {
 /// 從 2 候選掉到 0，完全靜默。
 extension NameNormalizationTests {
     func testBootstrapAndResolverShareNormalization() {
-        let ascii = Entry(id: UUID(), citekey: "a2020x", type: "article",
+        let ascii = Entry(id: UUID(), citekey: "a2020x", type: .periodicalArticle,
                           title: "X", authors: [.literal("Chang, Y-H.")], date: "2020")
-        let u2010 = Entry(id: UUID(), citekey: "b2021y", type: "article",
+        let u2010 = Entry(id: UUID(), citekey: "b2021y", type: .periodicalArticle,
                           title: "Y", authors: [.literal("Chang, Y\u{2010}H.")], date: "2021")
         // bootstrap 對兩種寫法必須聚成**一組**（同一人的兩個寫法），不是兩個 person
         let groups = PersonBootstrap.candidates(entries: [ascii, u2010], existing: [], rejected: [], confirmed: [:])

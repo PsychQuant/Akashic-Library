@@ -12,13 +12,13 @@ final class AppStateTests: XCTestCase {
             .appendingPathComponent("akashic-app-\(UUID().uuidString)")
         let store = LibraryStore(root: root)
         try store.ensureLayout()
-        var e1 = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article",
+        var e1 = Entry(id: UUID(), citekey: "cheng2025identifiability", type: .periodicalArticle,
                        title: "Identifiability of polychoric models",
                        authors: [.key("cheng-che")], date: "2025")
         e1.fields["journaltitle"] = "Psychometrika"
         e1.akashic.tags = ["identifiability"]
         try store.writeEntry(e1)
-        var e2 = Entry(id: UUID(), citekey: "olsson1979maximum", type: "article",
+        var e2 = Entry(id: UUID(), citekey: "olsson1979maximum", type: .periodicalArticle,
                        title: "Maximum likelihood estimation",
                        authors: [.literal("Ulf Olsson")], date: "1979")
         e2.provenance = Provenance(zoteroKey: "K", zoteroVersion: 1,
@@ -121,7 +121,7 @@ extension AppStateTests {
             .appendingPathComponent("akashic-app-file-\(UUID().uuidString)")
         let store = LibraryStore(root: url)
         try store.ensureLayout()
-        try store.writeEntry(Entry(id: UUID(), citekey: citekey, type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: citekey, type: .periodicalArticle,
                                    title: citekey, authors: [.literal("X")], date: "2020"))
         return url
     }

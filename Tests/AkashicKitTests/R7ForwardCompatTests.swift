@@ -12,7 +12,7 @@ final class R7ForwardCompatTests: XCTestCase {
     private let head = """
     id: 7C1F6C2E-0000-0000-0000-000000000001
     citekey: a2020b
-    type: article
+    type: periodical-article
     title: T
     """
 
@@ -64,7 +64,7 @@ final class R7ForwardCompatTests: XCTestCase {
 
     func testEmitterEscapesNELSoSelfWrittenFilesUnaffected() throws {
         // 自家產物永不含 raw NEL（emitter escape 成 \N）→ 守衛零誤殺
-        var e = Entry(id: UUID(), citekey: "a2020b", type: "article",
+        var e = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle,
                       title: "alpha\u{85}beta")
         e.unknownFields = [UnknownField(key: "rating", raw: "rating: 5\n")]
         let out = try EntryYAML.encode(e)
@@ -107,7 +107,7 @@ final class R7ForwardCompatTests: XCTestCase {
         XCTAssertThrowsError(try EntryYAML.decode("""
         id: 7C1F6C2E-0000-0000-0000-000000000001
         citekey: a2020b
-        type: article
+        type: periodical-article
         title:
           =: real
         """)) { error in
@@ -146,7 +146,7 @@ final class R7ForwardCompatTests: XCTestCase {
     /// re-parse resolve 成 int——core-schema 鍵必須以字串面收下，encode/decode
     /// 等冪（str-tag 檢查會讓自家產物寫得出、讀不回）。
     func testNumericFaceFieldsKeyRoundTrips() throws {
-        var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle, title: "T")
         e.fields = ["2026": "hello", "no": "bool-face", "1.5": "float-face"]
         let out = try EntryYAML.encode(e)
         XCTAssertEqual(try EntryYAML.decode(out), e)
@@ -173,7 +173,7 @@ final class R7ForwardCompatTests: XCTestCase {
     /// 改成斷言不變式本身：**要嘛拒寫並指認欄位，要嘛寫出去且值原封不動**。
     /// 兩者之外的第三種結果（悄悄寫出一個變了的值）才是真正的失敗。
     func testLeadingBOMInTitleEitherRefusesNamingFieldOrRoundTrips() throws {
-        var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "\u{FEFF}X")
+        var e = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle, title: "\u{FEFF}X")
         e.unknownFields = [UnknownField(key: "rating", raw: "rating: 5\n")]
         do {
             let out = try EntryYAML.encode(e)

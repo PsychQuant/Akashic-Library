@@ -71,7 +71,7 @@ final class CorporateNameTests: XCTestCase {
     /// CSL 有 `literal` name variant，正好對應機構名。輸出時**去掉標記**——
     /// 大括號是 biblatex 的慣例，CSL-JSON 的消費端不認得它。
     func testCorporateNameUsesCSLLiteralVariantWithoutBraces() throws {
-        var e = Entry(id: UUID(), citekey: "who2020a", type: "report", title: "T",
+        var e = Entry(id: UUID(), citekey: "who2020a", type: .report, title: "T",
                       authors: [.literal(CorporateName.mark("World Health Organization"))],
                       date: "2020")
         e.fields["journaltitle"] = "J"
@@ -83,7 +83,7 @@ final class CorporateNameTests: XCTestCase {
     }
 
     func testPersonNameUsesFamilyGivenInCSL() throws {
-        var e = Entry(id: UUID(), citekey: "cheng2025a", type: "article", title: "T",
+        var e = Entry(id: UUID(), citekey: "cheng2025a", type: .periodicalArticle, title: "T",
                       authors: [.literal("Che Cheng")], date: "2025")
         e.fields["journaltitle"] = "J"
         let json = try CSLExport.cslJSON(entries: [e], people: [])
@@ -96,7 +96,7 @@ final class CorporateNameTests: XCTestCase {
     /// 標記只是普通字串——**strict 的 authors 層完全不受影響**，
     /// 舊 binary 照常讀（只是它們的 export 仍會切錯，可用性退化非資料毀損）。
     func testMarkedNameIsJustAStringInStore() throws {
-        let e = Entry(id: UUID(), citekey: "who2020a", type: "report", title: "T",
+        let e = Entry(id: UUID(), citekey: "who2020a", type: .report, title: "T",
                       authors: [.literal("{World Health Organization}")], date: "2020")
         let yaml = try EntryYAML.encode(e)
         XCTAssertEqual(try EntryYAML.decode(yaml).authors, e.authors)

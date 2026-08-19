@@ -16,7 +16,7 @@ final class AppLibraryMembershipTests: XCTestCase {
         try store.ensureLayout()
         try store.writeLibrary(Library(key: "reading", name: "待讀"))
         try store.writeLibrary(Library(key: "cited", name: "已引用"))
-        try store.writeEntry(Entry(id: UUID(), citekey: "a2020a", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "a2020a", type: .periodicalArticle,
                                    title: "T", authors: [.literal("X")], date: "2020"))
         state = AppState(root: root)
         try state.load()

@@ -39,7 +39,7 @@ final class ExportSanitisationTests: XCTestCase {
 
     private func dirtyEntry() -> Entry {
         let dirty = "Evil\(esc)[31m\(rtl)gnihsahp\(lineSep)line2"
-        var e = Entry(id: UUID(), citekey: "dirty2020", type: "article", title: dirty)
+        var e = Entry(id: UUID(), citekey: "dirty2020", type: .periodicalArticle, title: dirty)
         e.authors = [.literal(dirty)]
         e.fields = ["journaltitle": dirty]
         e.date = "2020"
@@ -61,7 +61,7 @@ final class ExportSanitisationTests: XCTestCase {
     /// biblatex 跳脫的是 TeX specials，**不是** C0／bidi——這是「跳脫由 biblatex
     /// 層負責」那句話為假的機械證明。
     func testBiblatexEscapesTexSpecialsNotControlCharacters() {
-        var e = Entry(id: UUID(), citekey: "tex2020", type: "article",
+        var e = Entry(id: UUID(), citekey: "tex2020", type: .periodicalArticle,
                       title: "100% \(esc)[31m of \\{braces\\}")
         e.date = "2020"
         let bib = BibExport.bibFile(entries: [e], people: [])

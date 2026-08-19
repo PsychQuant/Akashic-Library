@@ -19,7 +19,7 @@ final class ContextValuationTests: XCTestCase {
         authors: [AkashicCore.Author] = [],
         id: UUID = UUID()
     ) -> Entry {
-        Entry(id: id, citekey: citekey, type: "article", title: "T",
+        Entry(id: id, citekey: citekey, type: .periodicalArticle, title: "T",
               authors: authors, date: "2026")
     }
 

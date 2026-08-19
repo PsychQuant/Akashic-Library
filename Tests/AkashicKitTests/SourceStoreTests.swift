@@ -380,7 +380,7 @@ final class SourceStoreTests: XCTestCase {
     func testEntryWithAbsentCopyDigestLoadsAndReportsMissing() throws {
         let present = try store.storeSource(Data("copy".utf8), provenance: prov()).digest
         let absent = "sha256:" + String(repeating: "dd", count: 32)
-        var e = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle, title: "T")
         e.akashic.sources = [present, absent]
         _ = try store.writeEntry(e)
         let load = try store.load()
@@ -399,7 +399,7 @@ final class SourceStoreTests: XCTestCase {
     func testCopyReferenceAndFieldReferenceCoexistOverSameContent() throws {
         let shared = try store.storeSource(Data("shared bytes".utf8), provenance: prov()).digest
 
-        var work = Entry(id: UUID(), citekey: "a2020b", type: "article", title: "T")
+        var work = Entry(id: UUID(), citekey: "a2020b", type: .periodicalArticle, title: "T")
         work.akashic.sources = [shared]
         _ = try store.writeEntry(work)
 

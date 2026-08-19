@@ -30,14 +30,14 @@ final class DisplayProjectionTests: XCTestCase {
     }
 
     func testEntryProjections() {
-        let e = Entry(id: UUID(), citekey: "k2020", type: "article", title: hostile)
+        let e = Entry(id: UUID(), citekey: "k2020", type: .periodicalArticle, title: hostile)
         assertSanitised(e.displayTitle, "displayTitle")
         assertSanitised(e.displayTitleOrCitekey, "displayTitleOrCitekey")
         // title 為空時退回 citekey——那過 load 端 quarantine，不需消毒
-        let empty = Entry(id: UUID(), citekey: "k2020", type: "article", title: "")
+        let empty = Entry(id: UUID(), citekey: "k2020", type: .periodicalArticle, title: "")
         XCTAssertEqual(empty.displayTitleOrCitekey, "k2020")
         // **只含控制字元的 title 不是 isEmpty**，仍要走消毒分支
-        let ctrl = Entry(id: UUID(), citekey: "k2020", type: "article", title: "\u{202E}")
+        let ctrl = Entry(id: UUID(), citekey: "k2020", type: .periodicalArticle, title: "\u{202E}")
         assertSanitised(ctrl.displayTitleOrCitekey, "只含控制字元的 title")
     }
 
@@ -48,7 +48,7 @@ final class DisplayProjectionTests: XCTestCase {
     /// 諷刺處：本檔 docstring 第一句就是「#161 的核心產出是五個投影——而它們零
     /// 測試覆蓋」。投影從五個變六個，測試沒跟上。
     func testEntryDisplayAuthorsIsSanitised() {
-        var e = Entry(id: UUID(), citekey: "k2020", type: "article", title: "t")
+        var e = Entry(id: UUID(), citekey: "k2020", type: .periodicalArticle, title: "t")
         e.authors = [.literal(hostile), .key("che-cheng")]
         assertSanitised(e.displayAuthors, "displayAuthors")
         XCTAssertTrue(e.displayAuthors.contains("che-cheng"), "非 literal 的部分照常呈現")

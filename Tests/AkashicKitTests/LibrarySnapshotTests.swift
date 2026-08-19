@@ -29,7 +29,7 @@ final class LibrarySnapshotTests: XCTestCase {
     }
 
     private func entry(_ key: String, id: UUID, title: String) -> Entry {
-        Entry(id: id, citekey: key, type: "article", title: title,
+        Entry(id: id, citekey: key, type: .periodicalArticle, title: title,
               authors: [.literal("A")], date: "2026")
     }
 

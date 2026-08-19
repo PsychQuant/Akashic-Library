@@ -28,14 +28,14 @@ final class ServiceTests: XCTestCase {
             try FileManager.default.createDirectory(
                 at: root.appendingPathComponent(sub), withIntermediateDirectories: true)
         }
-        var e1 = Entry(id: UUID(), citekey: "cheng2025identifiability", type: "article",
+        var e1 = Entry(id: UUID(), citekey: "cheng2025identifiability", type: .periodicalArticle,
                        title: "Identifiability of polychoric models",
                        authors: [.key("cheng-che"), .literal("Hau-Hung Yang")], date: "2025")
         e1.fields["journaltitle"] = "Psychometrika"
         e1.akashic.tags = ["identifiability"]
         e1.akashic.relations.cites = ["olsson1979maximum"]
         try store.writeEntry(e1)
-        var e2 = Entry(id: UUID(), citekey: "olsson1979maximum", type: "article",
+        var e2 = Entry(id: UUID(), citekey: "olsson1979maximum", type: .periodicalArticle,
                        title: "Maximum likelihood estimation", authors: [.literal("Ulf Olsson")], date: "1979")
         e2.fields["journaltitle"] = "Psychometrika"
         try store.writeEntry(e2)
@@ -241,7 +241,7 @@ final class ServiceTests: XCTestCase {
         a.orcid = "0000-0001-2345-6789"
         try store.writePerson(a)
         try store.writePerson(Person(key: "amb-two", names: ["Ambi Guous"]))
-        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Ambi Guous")], date: "2020"))
 
         let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
@@ -293,7 +293,7 @@ final class ServiceTests: XCTestCase {
             try store.writePerson(Person(key: "flood-\(i)",
                                          names: PersonNames(variant: ["Flood Same"] + (0..<8).map { "\(long)-\(i)-\($0)" })))
         }
-        try store.writeEntry(Entry(id: UUID(), citekey: "flood2020", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "flood2020", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Flood Same")], date: "2020"))
 
         let raw = try service.resolvePeople(apply: nil)
@@ -350,7 +350,7 @@ final class ServiceTests: XCTestCase {
         let prefix = String(repeating: "a", count: 200)
         try store.writePerson(Person(key: prefix + "b", names: ["Collide Me"]))
         try store.writePerson(Person(key: prefix + "c", names: ["Collide Me"]))
-        try store.writeEntry(Entry(id: UUID(), citekey: "collide2020", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "collide2020", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Collide Me")], date: "2020"))
         // 前提：兩人都合法載入（不是被 quarantine 擋掉才沒事）
         XCTAssertEqual(try store.load().people.filter { $0.key.hasPrefix(prefix) }.count, 2)
@@ -386,7 +386,7 @@ final class ServiceTests: XCTestCase {
         try store.writePerson(Person(key: "many-one", names: ["Many Same"]))
         try store.writePerson(Person(key: "many-two", names: ["Many Same"]))
         for i in 0..<60 {
-            try store.writeEntry(Entry(id: UUID(), citekey: "many\(i)", type: "article",
+            try store.writeEntry(Entry(id: UUID(), citekey: "many\(i)", type: .periodicalArticle,
                                        title: "T", authors: [.literal("Many Same")], date: "2020"))
         }
         let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
@@ -417,7 +417,7 @@ final class ServiceTests: XCTestCase {
         try store.writePerson(Person(key: "desc-amb-1", names: ["Desc Same"]))
         try store.writePerson(Person(key: "desc-amb-2", names: ["Desc Same"]))
         try store.writePerson(Person(key: "desc-solo", names: ["Desc Solo"]))
-        try store.writeEntry(Entry(id: UUID(), citekey: "desc2020", type: "article", title: "T",
+        try store.writeEntry(Entry(id: UUID(), citekey: "desc2020", type: .periodicalArticle, title: "T",
                                    authors: [.literal("Desc Same"), .literal("Desc Solo")],
                                    date: "2020"))
         let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
@@ -453,12 +453,12 @@ final class ServiceTests: XCTestCase {
         try store.writePerson(Person(key: "solo-author", names: ["Solo Author"]))
         // 三筆正常 + 五筆巨大 citekey（合法：`[a-z0-9][a-z0-9-]*`，無長度上限）
         for i in 0..<3 {
-            try store.writeEntry(Entry(id: UUID(), citekey: "short\(i)", type: "article",
+            try store.writeEntry(Entry(id: UUID(), citekey: "short\(i)", type: .periodicalArticle,
                                        title: "T", authors: [.literal("Solo Author")], date: "2020"))
         }
         let huge = String(repeating: "a", count: 40_000)
         for i in 0..<5 {
-            try store.writeEntry(Entry(id: UUID(), citekey: "\(huge)-\(i)", type: "article",
+            try store.writeEntry(Entry(id: UUID(), citekey: "\(huge)-\(i)", type: .periodicalArticle,
                                        title: "T", authors: [.literal("Solo Author")], date: "2020"))
         }
 
@@ -491,7 +491,7 @@ final class ServiceTests: XCTestCase {
         try store.writePerson(Person(key: "names-one",
                                      names: ["Many Same", "Alias A", "Alias B", "Alias C", "Alias D"]))
         try store.writePerson(Person(key: "names-two", names: ["Many Same", "Alias E", "Alias F"]))
-        try store.writeEntry(Entry(id: UUID(), citekey: "n1", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "n1", type: .periodicalArticle,
                                    title: "T", authors: [.literal("Many Same")], date: "2020"))
         let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
         let ambs = out["ambiguities"] as! [[String: Any]]
@@ -520,7 +520,7 @@ final class ServiceTests: XCTestCase {
         let store = LibraryStore(root: root)
         try store.writePerson(Person(key: "few-one", names: ["Few Same", "Alias A"]))
         try store.writePerson(Person(key: "few-two", names: ["Few Same"]))
-        try store.writeEntry(Entry(id: UUID(), citekey: "f1", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "f1", type: .periodicalArticle,
                                    title: "T", authors: [.literal("Few Same")], date: "2020"))
         let out = try json(try service.resolvePeople(apply: nil)) as! [String: Any]
         let people = out["people"] as! [String: [String: Any]]
@@ -532,7 +532,7 @@ final class ServiceTests: XCTestCase {
     }
 
     func testResolvePeopleListsAndAppliesSelectively() throws {
-        let e3 = Entry(id: UUID(), citekey: "cheng2020analysis", type: "thesis",
+        let e3 = Entry(id: UUID(), citekey: "cheng2020analysis", type: .thesis,
                        title: "Analysis of growth curves", authors: [.literal("Che Cheng")], date: "2020")
         try LibraryStore(root: root).writeEntry(e3)
         // #231：no-apply 回應由陣列改為 {candidates, ambiguities}
@@ -550,7 +550,7 @@ final class ServiceTests: XCTestCase {
 
     func testCreateEntryGeneratesCitekeyAndPersists() throws {
         let out = try json(try service.createEntry(
-            type: "article", title: "Manual reference entry",
+            type: "periodical-article", title: "Manual reference entry",
             authors: ["Some Author"], date: "2024",
             fields: ["journaltitle": "Manual Journal"])) as! [String: Any]
         let citekey = out["citekey"] as? String ?? ""
@@ -566,7 +566,7 @@ final class ServiceTests: XCTestCase {
 
     func testIndexFreshnessAfterExternalWrite() throws {
         _ = try service.search(journal: "Psychometrika")   // 建 index
-        var e3 = Entry(id: UUID(), citekey: "new2026entry", type: "article",
+        var e3 = Entry(id: UUID(), citekey: "new2026entry", type: .periodicalArticle,
                        title: "Externally added", authors: [], date: "2026")
         e3.fields["journaltitle"] = "Psychometrika"
         try LibraryStore(root: root).writeEntry(e3)        // service 之外寫入
@@ -644,7 +644,7 @@ final class ServiceTests: XCTestCase {
 
     func testPersonPayloadListsVerdictsWithObservedAndStaleStates() throws {
         let store = LibraryStore(root: root)
-        let e = Entry(id: UUID(), citekey: "hsu2021weber", type: "article", title: "W",
+        let e = Entry(id: UUID(), citekey: "hsu2021weber", type: .periodicalArticle, title: "W",
                       authors: [.literal("Hsu, Y.-F.")], date: "2021")
         try store.writeEntry(e)
         var p = Person(key: "hsu-yung-fong", names: ["Hsu, Yung-Fong"])
@@ -692,7 +692,7 @@ extension ServiceTests {
         // 會與 createEntry 生成的 citekey（author2024manual）同名
         try broken.write(to: store.entriesDir.appendingPathComponent("author2024manual.yaml"),
                          atomically: true, encoding: .utf8)
-        let out = try service.createEntry(type: "article", title: "Manual reference entry",
+        let out = try service.createEntry(type: "periodical-article", title: "Manual reference entry",
                                           authors: ["Some Author"], date: "2024", fields: [:])
         let citekey = (try JSONSerialization.jsonObject(with: Data(out.utf8)) as! [String: Any])["citekey"] as! String
         XCTAssertEqual(citekey, "author2024bmanual")   // 讓位取衝突後綴
@@ -973,7 +973,7 @@ extension ServiceTests {
             .appendingPathComponent("akashic-svc-other-\(UUID().uuidString)")
         let store = LibraryStore(root: otherRoot)
         try store.ensureLayout()
-        try store.writeEntry(Entry(id: UUID(), citekey: "other2020paper", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "other2020paper", type: .periodicalArticle,
                                    title: "Another universe", authors: [.literal("Someone Else")],
                                    date: "2020"))
         let configURL = FileManager.default.temporaryDirectory
@@ -1024,7 +1024,7 @@ extension ServiceTests {
         let frozen = """
         id: 7C1F6C2E-0000-0000-0000-00000000CC01
         citekey: frozen3
-        type: article
+        type: periodical-article
         title: T
         authors:
           - literal: Che Cheng
@@ -1287,7 +1287,7 @@ extension ServiceTests {
 
     /// (a) `Provenance.zoteroKey` — 與同 dict 下一行的 `zotero_hash` 同源、同待遇缺口。
     func testProvenanceZoteroKeyIsSanitised() throws {
-        var e = Entry(id: UUID(), citekey: "prov2020", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "prov2020", type: .periodicalArticle, title: "T")
         e.date = "2020"
         e.provenance = Provenance(zoteroKey: "ABCD\(hostileEcho)EF", zoteroVersion: 3)
         try LibraryStore(root: root).writeEntry(e)
@@ -1297,7 +1297,7 @@ extension ServiceTests {
     /// (b) `relations.cites/related` — 讀寫兩端**都沒有** StoreKey 驗證，是自由字串。
     ///     `link()` 與 `entryDict()` 兩個吐出點都要蓋到。
     func testRelationKeysAreSanitisedOnBothSurfaces() throws {
-        var e = Entry(id: UUID(), citekey: "rel2020", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "rel2020", type: .periodicalArticle, title: "T")
         e.date = "2020"
         e.akashic.relations.cites = ["other\(hostileEcho)key"]
         e.akashic.relations.related = ["rel\(hostileEcho)ated"]
@@ -1335,7 +1335,7 @@ extension ServiceTests {
     /// 回應裡兩種待遇」——`co_authors` 的 `name` fallback 就是 `person_key` 本身。
     func testPersonKeyEchoesAreSanitised() throws {
         let hostileKey = "ev\u{1B}[31m\u{202E}il-key"
-        var e = Entry(id: UUID(), citekey: "coauth2020", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "coauth2020", type: .periodicalArticle, title: "T")
         e.date = "2020"
         e.authors = [.key(hostileKey), .key("cheng-che")]
         try LibraryStore(root: root).writeEntry(e)
@@ -1394,7 +1394,7 @@ extension ServiceTests {
                 p.openalex = bidi
                 try store.writePerson(p)
             }
-            try store.writeEntry(Entry(id: UUID(), citekey: "wide\(i)", type: "article",
+            try store.writeEntry(Entry(id: UUID(), citekey: "wide\(i)", type: .periodicalArticle,
                                        title: "T", authors: [.literal("Wide \(i)")], date: "2020"))
         }
         let raw = try service.resolvePeople(apply: nil)

@@ -44,7 +44,7 @@ final class VenueStoreTests: XCTestCase {
 
     func testEntryVenuesRefusedOnFormat10() throws {
         try StoreVersion.write(root: root, format: 10)
-        var e = Entry(id: UUID(), citekey: "x2025", type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
         e.venues = [.literal("Some Journal")]
         XCTAssertThrowsError(try store.writeEntry(e)) { err in
             guard case StoreIOError.invalidInput = err else {
@@ -52,7 +52,7 @@ final class VenueStoreTests: XCTestCase {
             }
         }
         // 無 venues 的 entry 照常可寫（additive 契約）
-        let plain = Entry(id: UUID(), citekey: "y2025", type: "article", title: "U")
+        let plain = Entry(id: UUID(), citekey: "y2025", type: .periodicalArticle, title: "U")
         XCTAssertNoThrow(try store.writeEntry(plain))
     }
 
@@ -78,11 +78,11 @@ final class VenueStoreTests: XCTestCase {
     func testVenueChronologicalWorksFromIndex() throws {
         let v = sampleVenue()
         _ = try store.writeVenue(v)
-        var e1 = Entry(id: UUID(), citekey: "b2020", type: "article", title: "後")
+        var e1 = Entry(id: UUID(), citekey: "b2020", type: .periodicalArticle, title: "後")
         e1.venues = [.key("jcgs")]; e1.date = "2020"
-        var e2 = Entry(id: UUID(), citekey: "a2015", type: "article", title: "前")
+        var e2 = Entry(id: UUID(), citekey: "a2015", type: .periodicalArticle, title: "前")
         e2.venues = [.key("jcgs")]; e2.date = "2015"
-        var e3 = Entry(id: UUID(), citekey: "c2018", type: "article", title: "他刊")
+        var e3 = Entry(id: UUID(), citekey: "c2018", type: .periodicalArticle, title: "他刊")
         e3.venues = [.literal("Other Journal")]; e3.date = "2018"
         for e in [e1, e2, e3] { _ = try store.writeEntry(e) }
 

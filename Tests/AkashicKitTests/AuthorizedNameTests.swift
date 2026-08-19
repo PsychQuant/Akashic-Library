@@ -439,7 +439,7 @@ final class AuthorizedNameTests: XCTestCase {
 
     private func undesignatedEntryAndPerson() -> (Entry, Person) {
         let e = Entry(id: UUID(uuidString: "7C1F6C2E-0000-0000-0000-0000000000A1")!,
-                      citekey: "guan2020x", type: "article", title: "A paper",
+                      citekey: "guan2020x", type: .periodicalArticle, title: "A paper",
                       authors: [.key("guan-yongtao")], date: "2020")
         return (e, Person(key: "guan-yongtao", names: ["Guan, Yongtao"]))
     }
@@ -454,7 +454,7 @@ final class AuthorizedNameTests: XCTestCase {
 
     func testBibExportPrintsAuthorizedNameWhenDesignated() {
         let e = Entry(id: UUID(uuidString: "7C1F6C2E-0000-0000-0000-0000000000A2")!,
-                      citekey: "shieh2020x", type: "article", title: "A paper",
+                      citekey: "shieh2020x", type: .periodicalArticle, title: "A paper",
                       authors: [.key("shieh")], date: "2020")
         let p = Person(key: "shieh",
                        names: PersonNames(authorized: ["謝叔蓉", "Shwu-Rong Grace Shieh"],

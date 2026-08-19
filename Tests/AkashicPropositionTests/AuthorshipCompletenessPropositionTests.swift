@@ -84,7 +84,7 @@ final class AuthorshipCompletenessPropositionTests: XCTestCase {
         return Entry(
             id: resolvedID,
             citekey: citekey,
-            type: "article",
+            type: .periodicalArticle,
             title: "T",
             authors: authors,
             date: "2026",

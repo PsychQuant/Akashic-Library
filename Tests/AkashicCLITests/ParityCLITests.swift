@@ -30,14 +30,14 @@ final class ParityCLITests: XCTestCase {
         let store = LibraryStore(root: root)
         try store.ensureLayout()
 
-        var e1 = Entry(id: UUID(), citekey: "cheng2025alpha", type: "article",
+        var e1 = Entry(id: UUID(), citekey: "cheng2025alpha", type: .periodicalArticle,
                        title: "Alpha", authors: [.key("che-cheng")], date: "2025")
         e1.fields["journaltitle"] = "Psychometrika"
         try store.writeEntry(e1)
-        try store.writeEntry(Entry(id: UUID(), citekey: "cheng2024beta", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "cheng2024beta", type: .periodicalArticle,
                                    title: "Beta", authors: [.key("che-cheng")], date: "2024"))
         // 不含 che 的第三筆——防 people 過濾假綠
-        try store.writeEntry(Entry(id: UUID(), citekey: "olsson1979max", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "olsson1979max", type: .periodicalArticle,
                                    title: "Max", authors: [.literal("Ulf Olsson")], date: "1979"))
 
         try store.writePerson(Person(key: "che-cheng", names: PersonNames(
@@ -235,7 +235,7 @@ final class ParityCLITests: XCTestCase {
     /// 人可讀與 --json 兩面都不得再有 raw ESC／bidi。
     func testInjectedFieldKeyIsSanitizedInBothFaces() throws {
         let store = LibraryStore(root: root)
-        var e = Entry(id: UUID(), citekey: "evil2026key", type: "article",
+        var e = Entry(id: UUID(), citekey: "evil2026key", type: .periodicalArticle,
                       title: "Evil", authors: [.literal("X")], date: "2026")
         e.fields["\u{1B}[31mKEY\u{202E}BIDI"] = "benign-value"
         try store.writeEntry(e)

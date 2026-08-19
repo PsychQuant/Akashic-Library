@@ -24,7 +24,7 @@ public enum BibExport {
         for key in entry.fields.keys.sorted() {
             fields[key] = entry.fields[key].map(braceSafe)
         }
-        return BibEntry(entryType: entry.type.uppercased(), key: entry.citekey,
+        return BibEntry(entryType: entry.type.biblatexEntryType, key: entry.citekey,
                         fields: fields, rawText: "", lineNumber: 0)
     }
 
@@ -81,7 +81,7 @@ public enum BibExport {
         var unchecked: [String] = []
         for entry in entries.sorted(by: { $0.citekey < $1.citekey }) {
             let bib = bibEntry(for: entry, people: peopleByKey, organizations: orgsByKey)
-            guard apa7CheckedTypes.contains(entry.type.uppercased()) else {
+            guard apa7CheckedTypes.contains(entry.type.biblatexEntryType) else {
                 unchecked.append(entry.citekey)
                 continue
             }

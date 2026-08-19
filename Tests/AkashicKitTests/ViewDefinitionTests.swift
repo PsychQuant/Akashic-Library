@@ -28,7 +28,7 @@ final class ViewDefinitionTests: XCTestCase {
         try store.writePerson(p)
     }
     private func work(_ citekey: String, authors: [Author]) throws {
-        var e = Entry(id: UUID(), citekey: citekey, type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: citekey, type: .periodicalArticle, title: "T")
         e.authors = authors; e.date = "2020"
         try store.writeEntry(e)
     }

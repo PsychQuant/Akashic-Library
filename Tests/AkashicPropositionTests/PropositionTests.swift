@@ -41,7 +41,7 @@ final class PropositionTests: XCTestCase {
     private func model(authorSlots: [AkashicCore.Author],
                        personNames: [String] = ["Che Cheng", "鄭澈"]) throws -> ValuationContext {
         var e = Entry(id: UUID(uuidString: "7C1F6C2E-0000-0000-0000-0000000002A1")!,
-                      citekey: workKey, type: "article", title: "T",
+                      citekey: workKey, type: .periodicalArticle, title: "T",
                       authors: authorSlots, date: "2025")
         e.fields = [:]
         return try rawModel(
@@ -55,7 +55,7 @@ final class PropositionTests: XCTestCase {
     }
 
     private func entry(citekey: String, authors: [AkashicCore.Author] = []) -> Entry {
-        Entry(id: UUID(), citekey: citekey, type: "article", title: "T",
+        Entry(id: UUID(), citekey: citekey, type: .periodicalArticle, title: "T",
               authors: authors, date: "2026")
     }
 

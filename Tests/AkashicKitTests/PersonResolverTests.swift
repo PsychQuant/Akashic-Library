@@ -8,7 +8,7 @@ import Foundation
 final class PersonResolverTests: XCTestCase {
 
     private func entry(_ citekey: String, literal: String) -> Entry {
-        var e = Entry(id: UUID(), citekey: citekey, type: "article", title: "T")
+        var e = Entry(id: UUID(), citekey: citekey, type: .periodicalArticle, title: "T")
         e.authors = [.literal(literal)]
         return e
     }

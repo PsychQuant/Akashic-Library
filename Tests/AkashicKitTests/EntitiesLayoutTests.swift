@@ -15,7 +15,7 @@ final class EntitiesLayoutTests: XCTestCase {
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
 
     private func entry(_ ck: String, id: UUID = UUID()) -> Entry {
-        Entry(id: id, citekey: ck, type: "article", title: "T",
+        Entry(id: id, citekey: ck, type: .periodicalArticle, title: "T",
               authors: [.literal("X")], date: "2020")
     }
     private func legacyStore() throws -> LibraryStore {
@@ -123,7 +123,7 @@ final class EntitiesLayoutTests: XCTestCase {
         let fm = FileManager.default
         try fm.createDirectory(at: root.appendingPathComponent("entries"),
                                withIntermediateDirectories: true)
-        try "id: 11111111-1111-1111-1111-111111111111\ncitekey: a2020a\ntype: article\ntitle: T\nauthors:\n  - literal: X\n"
+        try "id: 11111111-1111-1111-1111-111111111111\ncitekey: a2020a\ntype: periodical-article\ntitle: T\nauthors:\n  - literal: X\n"
             .write(to: root.appendingPathComponent("entries/a2020a.yaml"),
                    atomically: true, encoding: .utf8)
         let store = LibraryStore(root: root)

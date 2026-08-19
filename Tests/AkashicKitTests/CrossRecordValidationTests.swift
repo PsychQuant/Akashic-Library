@@ -32,7 +32,7 @@ final class CrossRecordValidationTests: XCTestCase {
     /// 被測邏輯的問題。需要真的測重複時，明確傳同一個 title。
     private func entry(_ key: String, id: UUID = UUID(), authors: [Author] = [.literal("X")],
                        libraries: [String] = [], title: String? = nil) -> Entry {
-        var e = Entry(id: id, citekey: key, type: "article", title: title ?? "T-\(key)",
+        var e = Entry(id: id, citekey: key, type: .periodicalArticle, title: title ?? "T-\(key)",
                       authors: authors, date: "2020")
         e.akashic.libraries = libraries
         return e

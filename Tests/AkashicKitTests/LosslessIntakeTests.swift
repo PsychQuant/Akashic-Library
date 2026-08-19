@@ -235,7 +235,7 @@ final class LosslessIntakeTests: XCTestCase {
     /// Zotero 的 item 依 type 有幾十種欄位，`fieldMap` 涵蓋不到的原本全部消失
     /// （那行 `guard let bibField = fieldMap[zField] else { continue }`）。
     func testZoteroKeepsUnmappedFields() {
-        var entry = Entry(id: UUID(), citekey: "z1", type: "misc", title: "")
+        var entry = Entry(id: UUID(), citekey: "z1", type: .webpage, title: "")
         let item = ZoteroItem(
             key: "K1", version: 1, libraryID: 1, typeName: "presentation",
             fields: ["title": "T", "date": "2025",
@@ -276,7 +276,7 @@ final class LosslessIntakeTests: XCTestCase {
 
     /// title／date 已抽成一級欄位，不得同時留在 `fields` 裡重複。
     func testZoteroDoesNotDuplicateTitleAndDate() {
-        var entry = Entry(id: UUID(), citekey: "z2", type: "misc", title: "")
+        var entry = Entry(id: UUID(), citekey: "z2", type: .webpage, title: "")
         let item = ZoteroItem(key: "K2", version: 1, libraryID: 1, typeName: "journalArticle",
                               fields: ["title": "T", "date": "2025"],
                               authors: [], tags: [], attachmentPaths: [])

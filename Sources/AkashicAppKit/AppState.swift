@@ -175,7 +175,7 @@ public final class AppState {
 
     public var filteredEntries: [Entry] {
         entries.filter { entry in
-            if let type = filterType, entry.type != type { return false }
+            if let type = filterType, entry.type.rawValue != type { return false }
             if let tag = filterTag, !entry.akashic.tags.contains(tag) { return false }
             if let journal = filterJournal,
                entry.fields["journaltitle"]?.lowercased() != journal.lowercased() { return false }

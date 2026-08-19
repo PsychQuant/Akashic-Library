@@ -22,7 +22,7 @@ final class IndexIdentityTests: XCTestCase {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let store = makeStore(root: root, key: "main")
         try store.ensureLayout()
-        try store.writeEntry(Entry(id: UUID(), citekey: "aaa2020first", type: "article",
+        try store.writeEntry(Entry(id: UUID(), citekey: "aaa2020first", type: .periodicalArticle,
                                    title: "T", authors: [.literal("X")], date: "2020"))
     }
 
@@ -94,7 +94,7 @@ final class IndexIdentityTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: newRoot) }
         let newStore = makeStore(root: newRoot, key: "main")
         try newStore.ensureLayout()
-        try newStore.writeEntry(Entry(id: UUID(), citekey: "bbb2021second", type: "article",
+        try newStore.writeEntry(Entry(id: UUID(), citekey: "bbb2021second", type: .periodicalArticle,
                                       title: "U", authors: [.literal("Y")], date: "2021"))
         // #130 之前這裡斷言「同 key 同 indexURL」，因為 index 檔名只由 key 決定，
         // 於是兩個不同的 store 共用一個檔案、只能靠身分戳記分辨。**化身落地後

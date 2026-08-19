@@ -65,17 +65,15 @@ public enum BibExport {
 
     /// `apa7Report` 的結果。
     ///
-    /// **`uncheckedCitekeys` 是這個型別存在的理由。** `BibValidator` 的必要欄位表只
-    /// 涵蓋 7 個 entry type（ARTICLE／PRESENTATION／REPORT／BOOK／INCOLLECTION／
-    /// INPROCEEDINGS／THESIS），而 `WorkType` 有 7 個值對映到 `UNPUBLISHED`／`ONLINE`
-    /// （`review`／`unpublishedWork`／`audiovisualWork`／`audioWork`／`visualWork`／
-    /// `socialMediaPost`／`webpage`）。對那些 type，validator 回空陣列——若只回 `issues`，「沒被檢查」
-    /// 與「檢查過且乾淨」在輸出上**完全一樣**，而那正是本專案反覆記錄的靜默失敗形狀
-    /// （`lossless-intake` 執行細節 3：「靜默是最糟的形式」）。
+    /// **`uncheckedCitekeys` 是這個型別存在的理由。** 必要欄位表不涵蓋所有 entry type，
+    /// 而對未涵蓋的 type，檢查回空陣列——若只回 `issues`，「沒被檢查」與「檢查過且乾淨」
+    /// 在輸出上**完全一樣**，而那正是本專案反覆記錄的靜默失敗形狀（`lossless-intake`
+    /// 執行細節 3：「靜默是最糟的形式」）。
     ///
-    /// type 值域的收斂已由 #325 完成（`Entry.type` 是封閉的 `WorkType`），但**涵蓋缺口
-    /// 仍在**——收斂的是我們這一側的值域，不是對方的必要欄位表。本型別的責任只是
-    /// **不假裝檢查過**。哪些節因此驗不出東西，由 `APA7GoldenTests` 逐節斷言（#327）。
+    /// type 值域的收斂已由 #325 完成（`Entry.type` 是封閉的 `WorkType`），對映的收窄由
+    /// #352 修正，但**涵蓋缺口仍在**——收斂的是我們這一側，不是對方的必要欄位表。本型別
+    /// 的責任只是**不假裝檢查過**。哪些節因此驗不出東西，由 `APA7GoldenTests` 逐節斷言
+    /// （#327）。
     public struct APA7Report: Equatable {
         public let issues: [APA7Issue]
         public let uncheckedCitekeys: [String]
@@ -84,15 +82,52 @@ public enum BibExport {
         public var hasErrors: Bool { issues.contains { $0.severity == .error } }
     }
 
-    /// biblatex-apa 的 `BibValidator` 涵蓋的 entry type（大寫正規化形）。
+    /// 必要欄位表涵蓋的 entry type——**現算，不維護鏡像**（#353）。
     ///
-    /// **這份清單是對方的實作細節的鏡像**，會隨 dependency 演進而過期。它只用於
-    /// 判定「這個 type 有沒有被檢查」，判錯的方向是**多報 unchecked**（保守、可見），
-    /// 不是漏報 issue。
-    private static let apa7CheckedTypes: Set<String> = [
-        "ARTICLE", "PRESENTATION", "REPORT", "BOOK",
-        "INCOLLECTION", "INPROCEEDINGS", "THESIS",
-    ]
+    /// ## 為什麼是 `APADataModel` 而不是 `BibValidator`
+    ///
+    /// 依賴裡有**兩張**必要欄位表，而它們對同一個型別會給出不同答案：
+    ///
+    /// | | `BibValidator.requiredFields` | `APADataModel.requiredFields`（本函式用） |
+    /// |---|---|---|
+    /// | 涵蓋型別 | 7 | **15** |
+    /// | 來源 | 手寫 | **`apa.dbx`**（biblatex-apa 的 LaTeX 資料模型）|
+    /// | `ONLINE` | 不在表內 → 整批 unchecked | `[TITLE, DATE]`，**AUTHOR 不要求** |
+    /// | `PRESENTATION` 的 `EVENTTITLE` | required | 只是 recommended |
+    ///
+    /// 選 `APADataModel` 的理由不是「它比較大」，是**它比較權威**：值域來自 `apa.dbx`，
+    /// 而依賴自己較新的路徑（`APARuleEngine.fix` 的 Phase 7）也在用它。`BibValidator`
+    /// 是較舊的那條。
+    ///
+    /// 那張表的 `ONLINE` **不要求 AUTHOR**（原始碼註解：`// AUTHOR or EDITOR recommended`）
+    /// ——所以「網頁／社群貼文被報缺作者」那類假陽性（#350 第 3 類）是我們**挑錯表**
+    /// 造成的，不是 APA7 的問題。（維基條目那 14 筆走 `INREFERENCE`，**兩張表都沒有它**
+    /// ——那是 #354，本次未解。）
+    ///
+    /// ## 換表的一個代價，明寫在此（#359）
+    ///
+    /// 兩張表對 **`PRESENTATION` 的 `EVENTTITLE`** 給出相反的答案：`BibValidator` 說
+    /// required，`APADataModel` 只列 recommended。實測 **25 筆**會議發表的
+    /// `Missing EVENTTITLE` 因此從 error 降成 warning。
+    ///
+    /// 而依 §10.5，會議發表的 source element **就是**會議名稱——沒有它那筆參考文獻印不
+    /// 出來，所以那 25 筆是**下限違反**，而 `hasErrors` 現在抓不到它們。資訊沒消失
+    /// （`[WARNING]` 行照印），失去的是嚴重度分級的偵測力。
+    ///
+    /// **刻意不在這裡把 `EVENTTITLE` 加回 required**：那會製造第三張必要欄位表
+    /// （`BibValidator` 的、`APADataModel` 的、我們自己的），而三張會各自分岔。且判準
+    /// 問題沒解決——我們憑什麼說 `EVENTTITLE` 該是 required 而同樣缺 25 筆的 `VENUE`
+    /// 不是？答案要來自 ch10。裁決見 #359。
+    ///
+    /// ## 為什麼不留手維護的鏡像
+    ///
+    /// 這裡原本有一份寫死的 7 個型別的 `Set`，doc 自己寫著「會隨 dependency 演進而過期」
+    /// ——那句話是對的，而它就是那樣過期的。現算讓漂移在結構上不可能發生
+    /// （`entity-backlink-completeness`：反向與衍生一律現算，存一份就是製造第二個會分岔
+    /// 的來源）。
+    private static func isCheckedByAPA7Table(_ entryType: String) -> Bool {
+        APADataModel.requiredFields[entryType] != nil
+    }
 
     /// 對每筆 entry 跑 APA7 必要欄位檢查，回報缺漏與**未被涵蓋的 type**。
     ///
@@ -105,15 +140,38 @@ public enum BibExport {
         var unchecked: [String] = []
         for entry in entries.sorted(by: { $0.citekey < $1.citekey }) {
             let bib = bibEntry(for: entry, people: peopleByKey, organizations: orgsByKey)
-            guard apa7CheckedTypes.contains(entry.type.biblatexEntryType) else {
+            let entryType = entry.type.biblatexEntryType
+            guard isCheckedByAPA7Table(entryType) else {
                 unchecked.append(entry.citekey)
                 continue
             }
-            for issue in BibValidator.validate(entry: bib) {
-                issues.append(APA7Issue(
-                    citekey: entry.citekey,
-                    severity: issue.severity == .error ? .error : .warning,
-                    message: issue.message))
+            // **直接讀 `APADataModel` 的表，不呼叫 `BibValidator.validate`。**
+            //
+            // 不是重造輪子——`APARuleEngine` 唯一使用那張表的入口是 `fix(entry:)`，而它是
+            // **修改器不是驗證器**：同一次呼叫會改寫欄位（`HOWPUBLISHED` → `URL`、重排
+            // 作者、格式化日期），且缺欄位是以 `kind: .warning` 的 `FixAction` 回報，沒有
+            // error／warning 的嚴重度區分。本函式依 #326 的裁決是**純讀取的旁路檢查**，
+            // 不能用一個會改資料的 API 實作。
+            //
+            // 所以這裡只借那張表，檢查迴圈自己寫（約十行）。表是唯一的知識來源，迴圈
+            // 不是知識。
+            for field in APADataModel.requiredFields[entryType] ?? [] {
+                if bib.fields.caseInsensitiveValue(forKey: field) == nil {
+                    issues.append(APA7Issue(citekey: entry.citekey, severity: .error,
+                                            message: "Missing required field: \(field)"))
+                }
+            }
+            // recommended 是 warning。`PRESENTATION` 另有 context-aware 的一組
+            // （依 `MAINTITLE` 在不在），由依賴自己的函式決定——不在這裡重寫那個判斷。
+            let recommended: [String] = entryType == "PRESENTATION"
+                ? APADataModel.presentationRecommendedFields(
+                    hasMainTitle: bib.fields.caseInsensitiveValue(forKey: "MAINTITLE") != nil)
+                : (APADataModel.recommendedFields[entryType] ?? [])
+            for field in recommended {
+                if bib.fields.caseInsensitiveValue(forKey: field) == nil {
+                    issues.append(APA7Issue(citekey: entry.citekey, severity: .warning,
+                                            message: "Missing recommended field: \(field)"))
+                }
             }
         }
         return APA7Report(issues: issues, uncheckedCitekeys: unchecked)

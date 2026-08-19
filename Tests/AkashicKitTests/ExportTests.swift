@@ -76,17 +76,47 @@ final class ExportTests: XCTestCase {
                       "完整 entry 不該有 error，實際：\(report.issues)")
     }
 
-    /// **「沒被檢查」不得長得像「通過」**：validator 的必要欄位表只涵蓋 7 個 type，
-    /// store 另有 online／unpublished／misc 等值不在表內。那些必須明確列為未涵蓋，
-    /// 否則使用者會把「零 issue」讀成「已驗過」。
+    /// **「沒被檢查」不得長得像「通過」**：必要欄位表不涵蓋所有 entry type，未涵蓋者
+    /// 必須明確列出，否則使用者會把「零 issue」讀成「已驗過」。
+    ///
+    /// **探針型別在 #353 換過**。原本用 `.webpage`（→ `ONLINE`），但換用
+    /// `APADataModel` 的 15 型表之後 `ONLINE` **有**必要欄位表了，於是這條測試自己
+    /// 失去了偵測力——它會通過，只因為斷言的那件事不再成立。改用 `.visualWork`
+    /// （→ `IMAGE`），那是目前確實不在表內的三個型別之一
+    /// （另兩個是 `INREFERENCE`／#354 與 `UNPUBLISHED`）。
+    ///
+    /// 這個型別哪天被涵蓋，本測試會紅——那時該換探針、而不是刪掉它。
+    /// `APA7GoldenTests.testUncoveredTypesHaveNoFixtures` 是同一件事的矩陣側。
     func testExportSurfacesTypesNotCoveredByValidator() throws {
-        var entry = makeEntry()
-        entry = Entry(id: entry.id, citekey: "anon2018wiki", type: .webpage,
-                      title: "Wiki", authors: [], date: "2018")
+        let entry = Entry(id: makeEntry().id, citekey: "anon2018image", type: .visualWork,
+                          title: "An Image", authors: [], date: "2018")
         let report = BibExport.apa7Report(entries: [entry], people: people)
-        XCTAssertTrue(report.uncheckedCitekeys.contains("anon2018wiki"),
-                      "type=misc 不在 validator 的必要欄位表內，必須列為未涵蓋")
+        XCTAssertTrue(report.uncheckedCitekeys.contains("anon2018image"),
+                      "IMAGE 不在必要欄位表內，必須列為未涵蓋")
         XCTAssertTrue(report.issues.isEmpty, "未涵蓋者不該產生 issue（那會是假陽性）")
+    }
+
+    /// #353 的正面驗收：先前整批未涵蓋的 `ONLINE` 現在**真的被檢查**。
+    ///
+    /// 沒有這條，換表帶來的覆蓋提升只存在於 commit message 裡。
+    func testOnlineTypesAreNowActuallyChecked() throws {
+        let complete = Entry(id: UUID(), citekey: "anon2018page", type: .webpage,
+                             title: "A Page", authors: [], date: "2018")
+        let report = BibExport.apa7Report(entries: [complete], people: people)
+        XCTAssertTrue(report.uncheckedCitekeys.isEmpty,
+                      "ONLINE 現在有必要欄位表（TITLE／DATE），應被檢查")
+        XCTAssertTrue(report.issues.filter { $0.severity == .error }.isEmpty,
+                      "TITLE 與 DATE 都在，不該有 error：\(report.issues)")
+
+        // 反面：缺 DATE 要被抓到。ONLINE 的必要欄位**不含 AUTHOR**
+        // （`APADataModel` 原始碼註解：AUTHOR or EDITOR recommended），所以這筆沒有
+        // 作者也不該報 error——那正是 #350 第 3 類假陽性消失的地方。
+        let noDate = Entry(id: UUID(), citekey: "anon0000page", type: .webpage,
+                           title: "A Page", authors: [], date: nil)
+        let errs = BibExport.apa7Report(entries: [noDate], people: people)
+            .issues.filter { $0.severity == .error }
+        XCTAssertEqual(errs.map(\.message), ["Missing required field: DATE"],
+                       "應只報缺 DATE；報缺 AUTHOR 就是選錯表的那個假陽性回來了")
     }
 
     func testBibExportRendersBiblatex() throws {

@@ -90,7 +90,7 @@ final class APA7GoldenTests: XCTestCase {
     /// **已知的 validator 缺口**：手冊的正確例子在這裡報 error，而原因是
     /// `BibValidator` 的必要欄位表不足，**不是** Akashic 的模型持有不了。
     ///
-    /// 這張表的斷言是**精確相等**（見 `testKnownValidatorGapsAreExactlyTheseFour`）：
+    /// 這張表的斷言是**精確相等**（見 `testKnownValidatorGapsAreExactlyTheNamedOnes`）：
     ///
     /// - 缺口被修好 → 測試紅，逼人把該列刪掉（否則表會腐爛成一份「曾經的缺口」清單）
     /// - 新缺口出現 → 測試紅，逼人裁決它屬於哪一類
@@ -115,14 +115,17 @@ final class APA7GoldenTests: XCTestCase {
         // 屆時要重新判斷它是否再次落入本表。
     ]
 
-    /// `BibValidator` 涵蓋的 biblatex type（`BibExport.apa7CheckedTypes` 的鏡像）。
+    /// 一個 entry type 有沒有必要欄位表——**現算，與 `BibExport` 讀同一張表**（#353）。
     ///
-    /// 這裡重述一份是刻意的：若哪天兩邊分岔，`testUncoveredSectionsAreReportedUnchecked`
-    /// 會紅，逼人回來看。直接讀對方的 private 常數反而會讓分岔無聲。
-    private static let checkedBiblatexTypes: Set<String> = [
-        "ARTICLE", "PRESENTATION", "REPORT", "BOOK",
-        "INCOLLECTION", "INPROCEEDINGS", "THESIS",
-    ]
+    /// 這裡原本寫死一份 7 個型別的鏡像。#353 換表後那份鏡像整個過期（表從 7 型變 15 型），
+    /// 而它的存在理由「若哪天兩邊分岔測試會紅」在實務上是**反過來**的：分岔時紅的是這份
+    /// 鏡像自己，而修法幾乎總是「把鏡像改成新的樣子」——也就是把守衛改成順從被守衛的東西。
+    ///
+    /// 現算則讓分岔不可能發生，而**真正該紅的東西改由下方的分割 manifest 釘住**：
+    /// 哪些節被檢查、哪些沒有，各自具名。
+    private static func isChecked(_ type: WorkType) -> Bool {
+        APADataModel.requiredFields[type.biblatexEntryType] != nil
+    }
 
     // MARK: - Fixture 載入
 
@@ -235,9 +238,7 @@ final class APA7GoldenTests: XCTestCase {
     }
 
     private func examples(inCheckedSections checked: Bool) throws -> [Example] {
-        try Self.loadExamples().filter {
-            Self.checkedBiblatexTypes.contains($0.type.biblatexEntryType) == checked
-        }
+        try Self.loadExamples().filter { Self.isChecked($0.type) == checked }
     }
 
     // MARK: - 斷言
@@ -273,12 +274,12 @@ final class APA7GoldenTests: XCTestCase {
                                   .sorted().joined(separator: "\n"))
     }
 
-    /// 已知缺口**恰好**是那四筆——一筆不多一筆不少。
+    /// 已知缺口**恰好**是具名的那幾筆——一筆不多一筆不少。
     ///
     /// 這條是上一個測試的另一半：那條問「有沒有新的壞掉」，這條問「舊的有沒有被修好
     /// 卻沒人更新表」。少了這條，`knownValidatorGaps` 會慢慢腐爛成一份記錄著早已修好的
     /// 缺口的清單，而讀它的人無從分辨哪些還成立。
-    func testKnownValidatorGapsAreExactlyTheseFour() throws {
+    func testKnownValidatorGapsAreExactlyTheNamedOnes() throws {
         let covered = try examples(inCheckedSections: true)
         let report = BibExport.apa7Report(entries: covered.map(\.entry), people: [])
         let failing = Set(report.issues.filter { $0.severity == .error }.map(\.citekey))
@@ -299,20 +300,49 @@ final class APA7GoldenTests: XCTestCase {
                       + "\(report.uncheckedCitekeys.sorted())")
     }
 
-    /// 對映到 `UNPUBLISHED`／`ONLINE` 的節**必須**被報成 unchecked。
+    /// **分割 manifest**：每個 fixture 節是被檢查還是未涵蓋，逐節具名（#353）。
     ///
-    /// 這條看起來像在斷言一個缺陷，實際上是在**釘住缺口的位置**：日後有人替那兩個
-    /// biblatex type 補了必要欄位表，這條會紅，逼人回來把那些節移進上面的可驗證組
-    /// ——而不是讓覆蓋率默默改變卻沒人發現。
-    func testUncoveredSectionsAreReportedUnchecked() throws {
-        let uncovered = try examples(inCheckedSections: false)
-        XCTAssertFalse(uncovered.isEmpty,
-                       "若這裡空了，代表 validator 的涵蓋範圍變了——請更新本矩陣的分組")
-        let report = BibExport.apa7Report(entries: uncovered.map(\.entry), people: [])
-        XCTAssertEqual(Set(report.uncheckedCitekeys), Set(uncovered.map(\.storeCitekey)),
-                       "對映到 UNPUBLISHED／ONLINE 的節應全數落在 uncheckedCitekeys")
-        XCTAssertTrue(report.issues.isEmpty,
-                      "未涵蓋的 type 不該產生 issue（那會是假陽性）：\(report.issues)")
+    /// 這條取代了先前的「對映到 `UNPUBLISHED`／`ONLINE` 的節必須被報成 unchecked」。
+    /// 那條測試的前提在 #353 之後整個消失——換用 `APADataModel` 的 15 型表之後，
+    /// **11 個 fixture 節全部被檢查**（先前只有 5 個）。
+    ///
+    /// 改成 manifest 而不是刪掉，是因為要斷言的東西沒變、只是值變了：**覆蓋率的任何
+    /// 改變都必須有人看見**。表用精確相等，所以兩個方向都會紅。
+    private static let expectedCheckedSections: Set<String> = [
+        "10.1", "10.2", "10.3", "10.4", "10.6",
+        "10.9", "10.10", "10.12", "10.13", "10.15", "10.16",
+    ]
+
+    func testSectionPartitionMatchesTheManifest() throws {
+        let all = try Self.loadExamples()
+        let checked = Set(all.filter { Self.isChecked($0.type) }.map(\.section))
+        let unchecked = Set(all.filter { !Self.isChecked($0.type) }.map(\.section))
+        XCTAssertEqual(checked, Self.expectedCheckedSections,
+                       "被檢查的節與 manifest 不一致。"
+                       + "manifest 說有卻實際沒有：\(Self.expectedCheckedSections.subtracting(checked).sorted())；"
+                       + "實際有卻未列入：\(checked.subtracting(Self.expectedCheckedSections).sorted())")
+        XCTAssertTrue(unchecked.isEmpty,
+                      "#353 之後所有 fixture 節都該被檢查，未涵蓋的：\(unchecked.sorted())")
+    }
+
+    /// **一個非顯而易見的對稱**：換表之後，會落進 unchecked 的 entry type 恰好都**沒有
+    /// fixture**。
+    ///
+    /// 我們送出的 14 個 entry type 裡，不在 `APADataModel.requiredFields` 內的是
+    /// `INREFERENCE`（`wikipediaEntry`，#354）／`IMAGE`（`visualWork`）／`UNPUBLISHED`
+    /// （`review`、`unpublishedWork`）。而它們對應的節（10.3 的維基細分、10.14、10.7、
+    /// 10.8）——除了 10.3 由 `bookChapter` 覆蓋——全都在 `sectionsWithoutFixtures` 裡。
+    ///
+    /// 所以「矩陣測不到的路徑」與「表涵蓋不到的型別」目前是同一批。這條把它釘住：
+    /// 任一邊變動都會紅，而那正是「以為測過了、其實沒有」會發生的地方。
+    func testUncoveredTypesHaveNoFixtures() throws {
+        let all = try Self.loadExamples()
+        let fixtureTypes = Set(all.map(\.type))
+        for type in WorkType.allCases where !Self.isChecked(type) {
+            XCTAssertFalse(fixtureTypes.contains(type),
+                           "\(type.rawValue) 送出的 \(type.biblatexEntryType) 沒有必要欄位表，"
+                           + "但矩陣有它的 fixture——那些例子會靜默地不被檢查")
+        }
     }
 
     /// ch10 的 16 個節，每一個都必須**有 fixture**或**在缺席表裡具名**。

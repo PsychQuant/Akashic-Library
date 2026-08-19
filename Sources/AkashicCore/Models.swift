@@ -419,7 +419,8 @@ public struct Person: Equatable {
 /// 不砍正常 usage）。
 public func displaySafeMultiline(_ s: String, maxLineLength: Int = 400,
                                  maxLines: Int = 200,
-                                 maxTotal: Int = 96_000) -> String {
+                                 maxTotal: Int = 96_000,
+                                 escapingBackslash: Bool = true) -> String {
     // **只有真 LF（含 CRLF 正規化）是分隔符**（#135 verify F2）：`isNewline` 會把
     // VT/FF/CR/NEL/LS/PS 全當換行「轉成」真 LF——displaySafe 的 R12 fix #2 特地
     // 跳脫 LS/PS（不得殘留真換行），wrapper 用 isNewline 等於把那道防線拆回來：
@@ -434,7 +435,8 @@ public func displaySafeMultiline(_ s: String, maxLineLength: Int = 400,
             out.append("……（截斷：共 \(lines.count) 行）")
             break
         }
-        let safe = displaySafe(String(line), max: maxLineLength)
+        let safe = displaySafe(String(line), max: maxLineLength,
+                               escapingBackslash: escapingBackslash)
         total += safe.count + 1
         out.append(safe)
     }
@@ -442,6 +444,45 @@ public func displaySafeMultiline(_ s: String, maxLineLength: Int = 400,
     // 最壞形狀曾放大到 ~640 KB（比未消毒的 main 多 6.3 倍）。cap 在 96 KB：
     // 訊息夠長、且刻意 > 64 KB pipe buffer（讓 harness 的 deadlock 修復可測）。
     return out.joined(separator: "\n")
+}
+
+/// **已組裝訊息**的最後一道終端安全網（#297 item 1）。
+///
+/// 與 `displaySafeMultiline` 的差別只有一項：**不跳脫反斜線自身**。
+///
+/// ## 為什麼頂層需要一個不同的變體
+///
+/// 片段層的 `displaySafe` 跳脫反斜線，是為了讓「值裡 literally 寫著 `\u{001B}`」
+/// 無法冒充真的被跳脫的 ESC——那個反偽造性質在**消毒一個不受信任的值**時是必要的。
+///
+/// 但把同一套規則再對**已組裝好的訊息**跑一次，會同時弄壞兩類東西
+/// （#227 cluster verify S6，兩者相鄰但不同）：
+///
+/// 1. **帶合法反斜線的常量**——`StoreKey.pattern`（`\A[a-z0-9][a-z0-9-]*\z`）
+///    顯示成 `\u{005C}A[a-z0-9]…`。它從未經過片段層消毒（各 throw 站點都正確標了
+///    `display-safe-exempt: pattern 是常量`），弄壞它的是**毯式單次**消毒。
+/// 2. **已消毒片段的二次消毒**——`displaySafe(key)` 的產物 `\u{001B}` 再跑一次變成
+///    `\u{005C}u{001B}`，並二次截斷。`displaySafe` 刻意不冪等，所以這是必然而非意外。
+///
+/// ## 安全性沒有降低
+///
+/// 真正保護終端的是**控制字元／C1／LS/PS／bidi／方向標記／BOM 的跳脫**，那些全部
+/// 保留。去掉的只有反偽造性質，而它在片段層已經提供——那也是它該待的地方：
+///
+/// - 片段忘了消毒且含**真 ESC 位元組** → 本函式照樣跳脫它。終端安全 ✅
+/// - 片段忘了消毒且含**字面文字** `\u{001B}` → 顯示成 `\u{001B}`。看起來像被跳脫的
+///   ESC 但其實是普通文字——**外觀歧義，非終端危害**。
+///
+/// ## 使用邊界（唯一合法呼叫點）
+///
+/// **只在最終輸出前呼叫一次**，且該訊息的各片段已在自己的 throw 站點消毒過
+/// （`DisplaySinkCoverageTests` 機械保證這件事）。**不得**用它取代片段層的
+/// `displaySafe`——那會讓未消毒的值繞過反偽造性質。
+public func displaySafeAssembled(_ s: String, maxLineLength: Int = 400,
+                                 maxLines: Int = 200,
+                                 maxTotal: Int = 96_000) -> String {
+    displaySafeMultiline(s, maxLineLength: maxLineLength, maxLines: maxLines,
+                         maxTotal: maxTotal, escapingBackslash: false)
 }
 
 /// **本函式的 doc 曾經孤兒化**（#170 的**第七例**，由 #114 的 `f357e90` 引入，
@@ -490,7 +531,8 @@ public func displaySafeMultiline(_ s: String, maxLineLength: Int = 400,
 ///    與 U+FEFF。
 /// 3. **反斜線自身要跳脫**，否則內容裡的字面 `\u{001B}` 與本函式的輸出無法區分
 ///    （消毒後的字串會變得可偽造）。
-public func displaySafe(_ s: String, max: Int = 200) -> String {
+public func displaySafe(_ s: String, max: Int = 200,
+                        escapingBackslash: Bool = true) -> String {
     var out = String.UnicodeScalarView()
     // `s` 是 caller-controlled；不能為了 reserve 先完整走過可能極大的 scalar view。
     // `max` 才是本函式真正會接觸的上界，負值也收斂為空 budget。
@@ -514,7 +556,9 @@ public func displaySafe(_ s: String, max: Int = 200) -> String {
             || (0x2066...0x2069).contains(v)         // bidi isolate
             || v == 0x200E || v == 0x200F || v == 0x061C  // 方向標記
             || v == 0xFEFF                           // ZWNBSP / BOM
-            || v == 0x5C                             // 反斜線自身——否則輸出可被偽造
+            || (escapingBackslash && v == 0x5C)      // 反斜線自身——否則輸出可被偽造。
+                                                     // 唯一的 false 呼叫端是
+                                                     // `displaySafeAssembled`，理由見該處
         if escape {
             put(String(format: "\\u{%04X}", v))
         } else {
@@ -609,7 +653,15 @@ extension Person {
     ///
     /// 第 3 步退到 `key`（`guan-yongtao`）而不是任一 name，是本 change 的核心判斷：
     /// 沒有指定就是「不知道該怎麼稱呼他」，用醜的 key 讓缺口在輸出上**看得見**，比靜默
-    /// 印出索引系統的引用形誠實。實測 868 筆記錄中 734 筆（84.6%）目前會走到這一步。
+    /// 印出索引系統的引用形誠實。
+    ///
+    /// **實測（2026-08-13，person 記錄 868 筆）**：734 筆（84.6%）會走到第 3 步。
+    ///
+    /// 時間戳是必要的，不是裝飾——person 記錄數會隨消歧合併而**減少**，所以
+    /// 本檔的 868、`.claude/rules/no-compat-fallback.md` 的 869（2026-08-12）與
+    /// 當下的 867（2026-08-19）**都是對的**，只是量在不同時點。#297 item 3 原本
+    /// 把這組數字報成「三處不一致」，而真正缺的是這句話：**帶時間戳的引用不需要
+    /// 對帳，沒帶的才需要**。要重新量就跑 `akashic validate`。
     public func displayName(in script: WritingSystem? = nil) -> String {
         if let script, let hit = names.authorized.first(where: { WritingSystem.of($0) == script }) {
             return hit

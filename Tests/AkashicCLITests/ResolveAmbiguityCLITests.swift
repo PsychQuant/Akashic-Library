@@ -439,4 +439,36 @@ final class ResolveAmbiguityCLITests: XCTestCase {
         let split = try runCLI(["resolve-people", "--rows", "-1"])
         XCTAssertNotEqual(split.status, 0, "分寫的負數也不得通過：\n\(split.output.prefix(300))")
     }
+
+    // MARK: - `--tier` 同時是篩選與承認
+
+    /// **`--tier <寬鬆層> --apply` 先前結構上不可能成功。** CLI 端的閘要求寬鬆層
+    /// 必須 `--tier` 具名（放行），但呼叫 service 時從不傳 `confirmTiers`，於是
+    /// service 端的閘無條件拒絕——一條有文件、有說明、走不通的路。
+    ///
+    /// 這條測試釘住「兩道閘用同一個旗標滿足」。變異：把 `confirmTiers:` 拿掉，
+    /// 本測試轉紅並印出 service 的拒絕訊息。
+    func testTierFlagAlsoAcknowledgesLooseTierOnApply() throws {
+        // reorder 層：同一組 token、順序不同（姓名前後互換）
+        try writePerson(key: "reorder-target", names: ["Shun, Chia-Tung"])
+        try store.writeEntry(Entry(id: UUID(), citekey: "reorderone", type: .periodicalArticle,
+                                   title: "T", authors: [.literal("Chia-Tung Shun")], date: "2020"))
+
+        // 前提：不指定 tier 時，CLI 端的閘就先擋下（這是既有行為，不該變）
+        let bare = try runCLI(["resolve-people", "--apply", "--yes"])
+        XCTAssertNotEqual(bare.status, 0, "裸 --apply 對寬鬆層該拒絕：\n\(bare.output.prefix(300))")
+
+        // 指定 tier 之後**要真的套用**——先前這裡會被 service 端的第二道閘擋下
+        let named = try runCLI(["resolve-people", "--apply", "--tier", "reorder", "--yes"])
+        XCTAssertEqual(named.status, 0,
+                       "--tier reorder 已是 CLI 端要求的顯式承認，service 端不該再拒絕：\n"
+                       + String(named.output.prefix(500)))
+        XCTAssertTrue(named.output.contains("套用 1 個候選"),
+                      "要真的寫入，不是只印候選：\n\(named.output.prefix(400))")
+
+        // 落地確認：entry 的作者位變成 key
+        let after = try runCLI(["resolve-people"])
+        XCTAssertFalse(after.output.contains("reorderone[0]"),
+                       "套用後該列不該再出現在候選裡：\n\(after.output.prefix(400))")
+    }
 }

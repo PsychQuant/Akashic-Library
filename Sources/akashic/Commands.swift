@@ -1685,7 +1685,16 @@ struct ResolvePeople: ParsableCommand {
             let service = AkashicService(root: store.root, key: store.key,
                                          environment: ProcessInfo.processInfo.environment)
             let ids = candidates.map(\.pinnedID)   // R3-5：CLI 也釘 person——與 service 列表同一個型別定義   // 複合鍵住在型別上（#236 R4）——不手拼第四份
-            let out = try service.resolvePeople(apply: ids)
+            // **`--tier` 同時是篩選與承認。** service 端對寬鬆層要求 `confirmTiers`
+            // 顯式承認，而 CLI 端的閘（上方 ValidationError）要求的正是 `--tier` 具名
+            // ——兩者是同一個「你知道自己在套什麼層」的要求，只是先前沒接上線：CLI
+            // 從不傳 confirmTiers，於是 `--tier reorder --apply` **結構上不可能成功**
+            // （CLI 閘放行、service 閘拒絕）。`mcp-cli-parity` 記的「tier-acknowledgment
+            // 參數列 follow-up」就是這條線。
+            //
+            // 不另加一個 `--confirm-tier` 旗標：那會要求使用者把同一組 tier 打兩次，
+            // 而兩次不一致時的語意沒有人想得出來。
+            let out = try service.resolvePeople(apply: ids, confirmTiers: tier.isEmpty ? nil : tier)
             let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
             let written = parsed?["entriesRewritten"] as? Int ?? 0
             let writeFailed = parsed?["writeFailed"] as? [String: String] ?? [:]

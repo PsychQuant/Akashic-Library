@@ -662,7 +662,51 @@ extension Entry {
             issues.append(ValidationIssue(severity: .warning,
                 message: "akashic 未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
+        issues += Self.pagesShapeIssues(fields["pages"])
         return issues
+    }
+
+    /// `pages` 欄位的形狀檢查（`kiki830621/storyline#7`）。
+    ///
+    /// **不是零實例守衛**——三個形狀各有實測，所以不進 `zero-instance-guards` 的裁決表：
+    ///
+    /// | citekey | 值 | 真值 | 形狀 |
+    /// |---|---|---|---|
+    /// | `clarkson2010impact` | `1948550610386628` | `231-238` | DOI 後綴誤入 |
+    /// | `sun2011educational` | `0734282910394976` | `534-546` | DOI 後綴誤入 |
+    /// | `lynn1986determination` | `382???386` | `382-386` | mojibake |
+    ///
+    /// **為什麼需要它**：三筆裡只有第一筆會在下游炸開（R 的 `yaml` 讀 16 位純數字時大整數
+    /// 溢位落成 `NA`）。第二筆開頭的 `0` 讓 YAML 當字串讀，於是**一路安靜**到印出一個 16 位
+    /// 數字當頁碼；第三筆同樣安靜。既有的偵測完全依賴下游剛好會壞，而安靜的那兩種才是多數。
+    ///
+    /// **判準不是「pages 是不是數字」**：article-number 期刊（PLoS ONE 的 `e12345`、
+    /// Nature Communications 的 `1234`）的 `pages` 本來就是單一數字，那是合法的。位數門檻
+    /// 取 10 是因為頁碼與 article number 都不到那個量級，而 DOI 後綴常是 16 位。
+    ///
+    /// 一律 `.warning`：SAGE 一族的線上優先文章確實會拿 DOI 後綴當 article ID，所以這裡報的
+    /// 是「請編目看一眼」而非「這筆錯了」——與跨記錄那幾條同一個立場。
+    static func pagesShapeIssues(_ pages: String?) -> [ValidationIssue] {
+        guard let raw = pages?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return [] }
+        let shown = displaySafe(raw, max: 120)
+
+        if raw.range(of: "^[0-9]{10,}$", options: .regularExpression) != nil {
+            return [ValidationIssue(severity: .warning,
+                message: "pages「\(shown)」是 \(raw.count) 位純數字——頁碼與 article number 都不到這個量級，"
+                       + "常見成因是 DOI 後綴被當成頁碼收進來；拿它反查 DOI 即可判定"
+                       + "（查得到就是它，順便補回真的 volume／issue／pages）")]
+        }
+        if raw.hasPrefix("10.") || raw.contains("/") {
+            return [ValidationIssue(severity: .warning,
+                message: "pages「\(shown)」含 DOI 的形狀（`10.` 前綴或斜線）——整個 DOI 可能誤入了 pages 欄位")]
+        }
+        if raw.contains("?") || raw.contains("\u{FFFD}") {
+            return [ValidationIssue(severity: .warning,
+                message: "pages「\(shown)」含替換字元——常見成因是連字號（en-dash `U+2013`，UTF-8 為 "
+                       + "`E2 80 93`）在某次轉碼中每個位元組各被換成一個 `?`；還原成 `-` 是解碼不是判斷，"
+                       + "但末頁仍要另找獨立來源核對（上游索引本身也可能存著損毀值）")]
+        }
+        return []
     }
 }
 

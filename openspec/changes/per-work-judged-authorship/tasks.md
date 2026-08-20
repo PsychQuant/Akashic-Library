@@ -110,19 +110,19 @@
 實作完成後逐條確認 spec 的 requirement 真的被滿足——這不是重複第 1–6 節，是**反向**檢查：
 從 requirement 出發問「哪個測試或哪次執行證明了它」。
 
-- [ ] 7.1 驗證 `Two or more hits within the nominating tier SHALL be reported as ambiguity`
+- [x] 7.1 驗證 `Two or more hits within the nominating tier SHALL be reported as ambiguity`
       ——指出證明它的測試名或執行輸出（歧義仍不可 apply、且仍可接受 judgement）
-- [ ] 7.2 驗證 `A judged pairing SHALL resolve one occurrence and SHALL carry its judgement`
+- [x] 7.2 驗證 `A judged pairing SHALL resolve one occurrence and SHALL carry its judgement`
       ——指出證明空白 judgement 建構失敗、以及 judgement 原文進了 verdict 的測試名
-- [ ] 7.3 驗證 `A judged pairing SHALL be applied only when the named position still holds the named literal`
+- [x] 7.3 驗證 `A judged pairing SHALL be applied only when the named position still holds the named literal`
       ——指出證明「位置對不上就略過且具名回報」與「重複套用為 no-op」的測試名
-- [ ] 7.4 驗證 `A judgement SHALL nominate the same literal elsewhere, with its provenance visible`
+- [x] 7.4 驗證 `A judgement SHALL nominate the same literal elsewhere, with its provenance visible`
       ——指出證明 confirmed-elsewhere 提名出現、理由含 rule 字面值、且裸 apply 仍拒絕的
       測試名或執行輸出
 
 ## 8. 收尾
 
-- [ ] 8.1 全套 `swift test` 零失敗
-- [ ] 8.2 Mutation 驗證：把 `JudgedPairing` 的空白 judgement 檢查改成永遠通過，1.1 必須
+- [x] 8.1 全套 `swift test` 零失敗
+- [x] 8.2 Mutation 驗證：把 `JudgedPairing` 的空白 judgement 檢查改成永遠通過，1.1 必須
       變紅；把「該位置仍是該 literal」守衛拿掉，3.2 的略過測試必須變紅。以反向編輯還原
       （不用 checkout——既有教訓：checkout 會回滾真修改）

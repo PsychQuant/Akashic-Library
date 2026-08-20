@@ -259,4 +259,51 @@ final class JudgedPairingTests: XCTestCase {
                         .isDisjoint(with: LooseNameKey.initialsKeys("C-H Chen")),
                        "initials 層應收斂標點變體（cleanTokens 把 . 映成 -）")
     }
+
+    // MARK: - 第 7 節反向驗證補上的三個缺口
+
+    /// spec: `A judged pairing SHALL resolve one occurrence and SHALL carry its judgement`
+    /// —— 「SHALL NOT carry a nominating tier」那一句。
+    ///
+    /// 先前只是「碰巧沒有那個欄位」，沒有任何東西擋住日後有人為了方便加一個。
+    /// tier 記的是「怎麼被提名的」，判定不是被提名出來的——給它 tier 會謊報來歷。
+    func testJudgedPairingCarriesNoNominatingTier() {
+        let j = JudgedPairing(citekey: "w1", authorIndex: 0, literal: "x",
+                              personKey: "p", judgement: "why")!
+        let labels = Mirror(reflecting: j).children.compactMap(\.label)
+        XCTAssertFalse(labels.contains("tier"),
+                       "判定不得帶提名層——那會謊報它的來歷。實際欄位：\(labels)")
+        XCTAssertFalse(labels.contains("restsOn"),
+                       "#280：verdict 不攜證據指標，證據住被判 person 的 references")
+    }
+
+    /// spec scenario「A judgement-derived nomination is not swept into a bare apply」。
+    ///
+    /// **這是整個設計賴以成立的安全性質**：判定會傳染（同 literal 在別篇以
+    /// `confirmedElsewhere` 浮出），而傳染之所以安全，就是因為裸 apply 對非 exact 層
+    /// 一律拒絕。先前完全沒有測試——反向驗證（第 7 節）才抓到。
+    ///
+    /// 這裡驗的是**判準本身**（tier != .exact 即屬寬鬆），CLI 的錯誤訊息由該層自己的
+    /// 測試涵蓋；兩者合起來才是完整的那道閘。
+    func testJudgementDerivedNominationCountsAsLooseTier() {
+        let people = [person("chen-hsin-chen", names: ["Chen, Chen-Hsin"]),
+                      person("chun-houh-chen", names: ["Chen, Chun-houh"])]
+        let judged = work("w1", authors: [.literal("C-H Chen")])
+        let other = work("w2", authors: [.literal("C-H Chen")])
+        let j = JudgedPairing(citekey: "w1", authorIndex: 0, literal: "C-H Chen",
+                              personKey: "chun-houh-chen", judgement: "機構證據")!
+        let pairing = ResolutionPairing(holderKind: .work, holder: j.citekey,
+                                        literal: j.literal, judgedKey: j.personKey)
+        let after = PersonResolver.resolve(
+            entries: [PersonResolver.apply([j], to: [judged]).first!, other],
+            people: people, rejected: [],
+            confirmed: [pairing: ResolutionLedger.judgedRule])
+
+        let w2 = after.candidates.first { $0.citekey == "w2" }
+        XCTAssertNotNil(w2)
+        XCTAssertNotEqual(w2?.tier, .exact,
+                          "判定衍生的提名**必須**落在寬鬆層——裸 apply 的閘判準正是 "
+                          + "tier != .exact，落在 exact 就會被一發掃進去")
+        XCTAssertEqual(w2?.tier, .confirmedElsewhere)
+    }
 }

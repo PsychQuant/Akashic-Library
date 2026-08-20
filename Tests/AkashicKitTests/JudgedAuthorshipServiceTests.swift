@@ -58,7 +58,22 @@ final class JudgedAuthorshipServiceTests: XCTestCase {
 
     // MARK: - 正常路徑
 
-    /// spec scenario「A judged pairing resolves the named author position」。
+    /// spec scenario「An ambiguous occurrence remains eligible for judgement」。
+    ///
+    /// **先斷言它真的是歧義**——fixture 的兩個 person（`Chen, Chen-Hsin`／`Chen, Chun-houh`）
+    /// 的 initials 鍵相撞，所以 `C-H Chen` 對到 2 人。不先斷言的話，下面那條測試只是
+    /// **碰巧**在歧義上成功，而 spec 要求的是「歧義列也可判定」這個性質本身。
+    func testTheFixtureOccurrenceIsGenuinelyAnAmbiguity() throws {
+        let json = try service.resolvePeople(apply: nil)
+        let out = (try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]) ?? [:]
+        let amb = (out["ambiguities"] as? [[String: Any]]) ?? []
+        XCTAssertEqual(amb.count, 1, "fixture 應恰有一筆歧義：\(out)")
+        XCTAssertEqual((out["candidates"] as? [Any])?.count, 0,
+                       "歧義不得同時是候選——那正是兩桶設計的重點")
+    }
+
+    /// spec scenario「A judged pairing resolves the named author position」
+    /// ＋「An ambiguous occurrence remains eligible for judgement」的後半。
     func testJudgementResolvesTheNamedPositionAndRecordsTheVerdict() throws {
         let out = try judge(["w1:1:chun-houh-chen=該作者位登記機構為統計所"])
         XCTAssertEqual((out["judged"] as? [Any])?.count, 1, "回報應含 1 筆判定：\(out)")

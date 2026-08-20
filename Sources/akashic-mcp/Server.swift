@@ -153,6 +153,7 @@ actor AkashicMCPServer {
                 "apply": strArray("要套用的候選 id（三段形 citekey:authorIndex:personKey——#303 起 id 釘 person，提名改指時顯式拒絕；兩段 legacy 形僅當該位置提名仍唯一時等價）；省略＝只列候選"),
                 "reject": strArray("要否決的候選 id（同 apply 的三段形）——寫 resolution-rejected verdict（rule 依該候選的 tier 導出），entry 不動；省略＝不否決"),
                 "confirm_tiers": strArray("顯式承認要套用的寬鬆提名層（reorder / initials / confirmed-elsewhere，可多個）——apply 集含寬鬆層候選而該層未列於此＝整批拒絕零寫入（#307）；exact 免承認"),
+                "refute": strArray("逐篇**否決**（#386 的鏡像）：citekey:authorIndex:personKey=否決理由。與既有 reject 的差別是**歧義列也適用**（reject 只吃 resolver 提名出來的候選）。entry 不動，只寫 resolution-rejected verdict；之後該配對不再被提名。理由必填。對共用 literal 來說「不是他」通常才是答案"),
                 "judge": strArray("逐篇判定（#386）：citekey:authorIndex:personKey=判定理由，以**第一個 = 切**（理由可含等號）。與 apply 是不同種類的主張——apply 套用 resolver 提名出來的候選，judge 指名一個作者位並說明**憑什麼**，因此**歧義列也適用**（歧義的意思是提名器分不出來，不是人／AI 分不出來）。理由必填且逐字寫進 verdict；literal 由 store 讀不由呼叫端提供。輸入語法錯（缺 = ／非三段形／重複 id／理由空白／person 不存在）整批拒絕零寫入；store 狀態不符（work 不存在／索引越界／位置已歸戶）該筆略過並在 skipped 具名、不中止其餘。判定寫的 verdict rule 是 author-judged-per-work，會讓同 literal 在其他 work 以 confirmed-elsewhere 提名並在理由揭露血統——那仍是提名，仍須逐列決定。需 store format ≥ 8"),
              ])),
         Tool(name: "akashic_create_entry",
@@ -379,10 +380,13 @@ actor AkashicMCPServer {
                 let confirmTiers = argList("confirm_tiers")
                 let judgeProvided = params.arguments?["judge"] != nil
                 let judge = argList("judge")
+                let refuteProvided = params.arguments?["refute"] != nil
+                let refute = argList("refute")
                 output = try service.resolvePeople(apply: applyProvided ? apply : nil,
                                                    reject: rejectProvided ? reject : nil,
                                                    confirmTiers: confirmProvided ? confirmTiers : nil,
-                                                   judge: judgeProvided ? judge : nil)
+                                                   judge: judgeProvided ? judge : nil,
+                                                   refute: refuteProvided ? refute : nil)
             case "akashic_create_entry":
                 output = try service.createEntry(
                     type: arg("type") ?? "", title: arg("title") ?? "",

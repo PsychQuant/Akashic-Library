@@ -902,13 +902,19 @@ public final class AkashicService {
     /// LLM 一次 triage 常兩邊都點到同一列）。單腿呼叫回應形狀**不變**。
     public func resolvePeople(apply: [String]?, reject: [String]? = nil,
                               confirmTiers: [String]? = nil,
-                              judge: [String]? = nil) throws -> String {
+                              judge: [String]? = nil,
+                              refute: [String]? = nil) throws -> String {
         // 判定（change `per-work-judged-authorship`）：與 apply／reject 是**不同種類的
         // 主張**——後兩者作用在 resolver 提名出來的候選上，判定作用在一個由呼叫端
         // 指名的作者位（提名器可能根本沒提名它，例如歧義列）。因此走獨立分支、
         // 提早返回，不與兩腿協調邏輯糾纏。
         if let specs = judge, !specs.isEmpty {
-            return try judgeAuthorships(specs)
+            return try judgeAuthorships(specs, kind: .confirmed)
+        }
+        // 否決是判定的**鏡像**，不是 reject 的變體：既有 `reject` 只吃 resolver 提名出來的
+        // 候選，歧義列一律 notFound。而對共用 literal 來說「不是他」才是絕大多數的答案。
+        if let specs = refute, !specs.isEmpty {
+            return try judgeAuthorships(specs, kind: .rejected)
         }
         if let ap = apply, !ap.isEmpty, let rj = reject, !rj.isEmpty {
             func parsed(_ s: String) throws -> [String: Any] {
@@ -973,7 +979,9 @@ public final class AkashicService {
     ///
     /// **先全部驗證再寫**：任一筆不合法即整體 throw，零副作用。半批寫入對「判定」
     /// 這種需要逐筆負責的動作是錯的預設——使用者無從知道哪幾筆進去了。
-    private func judgeAuthorships(_ specs: [String]) throws -> String {
+    private func judgeAuthorships(_ specs: [String],
+                                  kind: ResolutionLedger.VerdictKind) throws -> String {
+        let isConfirm = kind == .confirmed
         let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
         guard storeFormat >= 8 else {
             throw ServiceError.invalid(
@@ -1025,9 +1033,28 @@ public final class AkashicService {
                 skipped.append((id, "作者索引 \(idx) 超出範圍（0…\(entry.authors.count - 1)）"))   // display-safe-exempt: idx／count 是 Int
                 continue
             }
-            guard case let .literal(literal) = entry.authors[idx] else {
+            // 否決**不動 entry**，所以「該位置已歸戶」對它不是障礙——已歸戶的位置
+            // 仍可留下「另一個候選不是他」的判定。只有歸戶路徑需要這道守衛。
+            var literal: String
+            if case let .literal(l) = entry.authors[idx] {
+                literal = l
+            } else if case let .key(k) = entry.authors[idx], !isConfirm {
+                // 已歸戶：literal 已不在 entry 上，改由該位置的既有 verdict 取
+                // ——取不到就略過，不猜。
+                guard let recovered = load.people.first(where: { $0.key == k })?
+                        .references.compactMap({ r -> String? in
+                            guard let v = r.value,
+                                  v.hasPrefix("work:\(citekey) :: ") else { return nil }
+                            return String(v.dropFirst("work:\(citekey) :: ".count))
+                        }).first
+                else {
+                    skipped.append((id, "該作者位已歸戶且找不到原 literal——無從否決"))
+                    continue
+                }
+                literal = recovered
+            } else {
                 skipped.append((id, "該作者位已經歸戶——判定不覆寫既有歸戶；"
-                                    + "要改判請先 reject 既有 verdict"))
+                                    + "要改判請先否決既有 verdict"))
                 continue
             }
             guard let p = JudgedPairing(citekey: citekey, authorIndex: idx,
@@ -1041,18 +1068,20 @@ public final class AkashicService {
         }
 
         // ── 寫入（entry → person verdict → rebuild）──
-        let updated = PersonResolver.apply(pairings, to: load.entries)
         var wroteEntries = 0
-        for e in updated where !load.entries.contains(where: { $0 == e }) {
-            try store.writeEntry(e)
-            wroteEntries += 1
+        if isConfirm {
+            let updated = PersonResolver.apply(pairings, to: load.entries)
+            for e in updated where !load.entries.contains(where: { $0 == e }) {
+                try store.writeEntry(e)
+                wroteEntries += 1
+            }
         }
         var grouped: [String: Person] = [:]
         for p in pairings {
             guard var person = grouped[p.personKey] ?? byKey[p.personKey] else {
                 throw ServiceError.notFound("person「\(displaySafe(p.personKey, max: 200))」")
             }
-            ResolutionLedger.appendIfAbsent(ResolutionLedger.record(judged: p),
+            ResolutionLedger.appendIfAbsent(ResolutionLedger.record(judged: p, kind: kind),
                                             to: &person.references)
             grouped[p.personKey] = person
         }
@@ -1060,7 +1089,7 @@ public final class AkashicService {
         _ = try? LibraryIndex(store: store).rebuild()
 
         return try jsonString([
-            "judged": pairings.map { p -> [String: Any] in
+            isConfirm ? "judged" : "refuted": pairings.map { p -> [String: Any] in
                 ["id": "\(displaySafe(p.citekey, max: 200)):\(p.authorIndex):"   // display-safe-exempt: authorIndex 是 Int
                     + "\(displaySafe(p.personKey, max: 200))",
                  "literal": displaySafe(p.literal, max: 300),

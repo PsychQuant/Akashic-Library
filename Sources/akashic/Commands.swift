@@ -1358,6 +1358,15 @@ struct ResolvePeople: ParsableCommand {
             help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式")
     var judge: [String] = []
 
+    /// 判定式否決（#386 的鏡像）：查證後說「**不是他**」。
+    ///
+    /// 與既有 `--reject` 的差別：那個只吃 resolver 提名出來的**候選**，歧義列一律 notFound。
+    /// 而對共用 literal 來說「不是他」才是絕大多數的答案——實測 69 筆歧義裡 22 筆已確定
+    /// 答案不在候選裡。**entry 不動**（否決不歸戶），只寫 verdict。
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "判定式否決（可重複）：citekey:authorIndex:personKey=否決理由。理由必填。歧義列也適用——既有 --reject 只吃候選。entry 不動，只寫 resolution-rejected verdict；之後該配對不再被提名")
+    var refute: [String] = []
+
     func run() throws {
         // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
         // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
@@ -1371,13 +1380,16 @@ struct ResolvePeople: ParsableCommand {
         // verdict 寫入走 **AkashicService**——與 MCP `akashic_resolve_people` 同一條
         // 實作路徑（mcp-cli-parity：兩條各自寫會分岔）。`key:` 不可省（#220 HIGH：
         // keyless 會分岔出第二份 index）。
-        if !judge.isEmpty {
+        if !judge.isEmpty || !refute.isEmpty {
             let service = AkashicService(root: store.root, key: store.key,
                                          environment: ProcessInfo.processInfo.environment)
-            let out = try service.resolvePeople(apply: nil, judge: judge)
+            let confirming = !judge.isEmpty
+            let out = confirming
+                ? try service.resolvePeople(apply: nil, judge: judge)
+                : try service.resolvePeople(apply: nil, refute: refute)
             let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
-            let rows = (parsed?["judged"] as? [[String: Any]]) ?? []
-            print("✓ 判定 \(rows.count) 個作者位、改寫 \(parsed?["entriesRewritten"] as? Int ?? 0) 筆 work、"
+            let rows = (parsed?[confirming ? "judged" : "refuted"] as? [[String: Any]]) ?? []
+            print("✓ \(confirming ? "判定" : "否決") \(rows.count) 個作者位、改寫 \(parsed?["entriesRewritten"] as? Int ?? 0) 筆 work、"
                   + "\(parsed?["personsRewritten"] as? Int ?? 0) 筆 person 記錄、index 已重建")
             for r in rows {
                 // service 回傳的欄位已經 displaySafe 過（見 judgeAuthorships），

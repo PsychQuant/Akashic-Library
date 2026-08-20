@@ -95,8 +95,9 @@ public enum ResolutionLedger {
     ///
     /// `restsOn` 依 `record` 既有行為留空——#280 裁決 verdict 刻意不攜證據指標，
     /// 判定所依據的承重內容寫進被判 person 的 `references`。
-    public static func record(judged pairing: JudgedPairing) -> ProvenanceReference {
-        record(.confirmed, holderKind: .work,
+    public static func record(judged pairing: JudgedPairing,
+                              kind: VerdictKind = .confirmed) -> ProvenanceReference {
+        record(kind, holderKind: .work,
                holder: pairing.citekey, literal: pairing.literal,
                rule: judgedRule, statement: pairing.judgement)
     }

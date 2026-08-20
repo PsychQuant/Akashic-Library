@@ -166,6 +166,61 @@ final class JudgedAuthorshipServiceTests: XCTestCase {
         }
     }
 
+    // MARK: - 判定式否決：查證後說「不是他」
+
+    private func refute(_ specs: [String]) throws -> [String: Any] {
+        let json = try service.resolvePeople(apply: nil, refute: specs)
+        return (try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]) ?? [:]
+    }
+
+    /// **歧義列也適用**——這是 `--judge` 的鏡像缺口。
+    ///
+    /// `akashic-person-verify` 明寫 reject 是三個出口之一（「查過了不是他」），但既有
+    /// `--reject` 只吃**候選**，歧義列一律 notFound。而對共用 literal 來說，**否定才是
+    /// 絕大多數的答案**：實測 69 筆歧義裡有 22 筆已確定「答案不在候選裡」。
+    func testRefutationWritesRejectedVerdictOnAnAmbiguousOccurrence() throws {
+        let out = try refute(["w1:1:chun-houh-chen=該作者位登記機構為 UC Davis，不是統計所"])
+        XCTAssertEqual((out["refuted"] as? [Any])?.count, 1, "應回報 1 筆否決：\(out)")
+
+        // entry **不動**——否決不歸戶（既有 reject 的語意）
+        XCTAssertEqual(try reloadEntry().authors[1], .literal("C-H Chen"))
+
+        let p = try LibraryStore(root: root).load().people
+            .first { $0.key == "chun-houh-chen" }!
+        let v = p.references.filter { $0.field == "resolution-rejected" }
+        XCTAssertEqual(v.count, 1, "應寫一筆 rejected verdict")
+        guard case let .judgement(statement, restsOn) = v[0].kind else {
+            return XCTFail("verdict 應是 judgement，實得 \(v[0].kind)")
+        }
+        XCTAssertTrue(statement.contains("UC Davis"), "操作者原文須逐字在內：\(statement)")
+        XCTAssertTrue(statement.contains(ResolutionLedger.judgedRule), statement)
+        XCTAssertTrue(restsOn.isEmpty, "#280")
+    }
+
+    /// 否決之後該配對不再被提名——歧義少一個候選。
+    func testRefutationRemovesThatCandidateFromNomination() throws {
+        let before = (try JSONSerialization.jsonObject(
+            with: Data(try service.resolvePeople(apply: nil).utf8)) as? [String: Any]) ?? [:]
+        XCTAssertEqual((before["ambiguities"] as? [Any])?.count, 1)
+
+        _ = try refute(["w1:1:chun-houh-chen=不是他"])
+
+        let after = (try JSONSerialization.jsonObject(
+            with: Data(try service.resolvePeople(apply: nil).utf8)) as? [String: Any]) ?? [:]
+        XCTAssertEqual((after["ambiguities"] as? [Any])?.count, 0,
+                       "兩個候選否決掉一個 → 不再是歧義")
+        XCTAssertEqual((after["candidates"] as? [[String: Any]])?.count, 1,
+                       "剩下的唯一命中應升為候選：\(after)")
+    }
+
+    /// 空白理由同樣拒絕——否決與判定同一條紀律。
+    func testBlankRefutationReasonIsRefused() throws {
+        XCTAssertThrowsError(try refute(["w1:1:chun-houh-chen=  "])) { e in
+            XCTAssertTrue("\(e)".contains("judgement") || "\(e)".contains("理由"),
+                          "錯誤應指名理由：\(e)")
+        }
+    }
+
     /// judgement 含 `=` 時只切第一個——理由文字本來就可能有等號。
     func testJudgementMayContainEqualsSign() throws {
         _ = try judge(["w1:1:chun-houh-chen=機構 = 統計所"])

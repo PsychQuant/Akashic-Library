@@ -22,18 +22,18 @@
 
 ## 1. 型別與提名層（AkashicEntity）
 
-- [ ] 1.1 寫失敗測試：`JudgedPairing` 對空白 judgement 建構回 nil。測試檔
+- [x] 1.1 寫失敗測試：`JudgedPairing` 對空白 judgement 建構回 nil。測試檔
       `Tests/AkashicKitTests/JudgedPairingTests.swift`；驗收＝該測試在型別尚不存在時
       無法編譯、型別加入後轉為紅→綠
-- [ ] 1.2 在 `Sources/AkashicEntity/PersonResolver.swift` 定義 `AuthorPairing` 協定
+- [x] 1.2 在 `Sources/AkashicEntity/PersonResolver.swift` 定義 `AuthorPairing` 協定
       （citekey／authorIndex／literal／personKey 唯讀）並讓既有 `ResolutionCandidate`
       conform。驗收＝既有測試全數維持綠（無行為改變）
-- [ ] 1.3 定義 `JudgedPairing`（conform `AuthorPairing`，額外持 judgement，failable
+- [x] 1.3 定義 `JudgedPairing`（conform `AuthorPairing`，額外持 judgement，failable
       init 對空白拒收，無 tier 無 restsOn）。驗收＝1.1 轉綠
-- [ ] 1.4 寫失敗測試：以型別反射斷言 `AmbiguousMatch` 不具備單數成員 `personKey`
+- [x] 1.4 寫失敗測試：以型別反射斷言 `AmbiguousMatch` 不具備單數成員 `personKey`
       （手法同既有 `PersonCLITests` 斷言 `Person` 無 `works` 成員）。驗收＝紅→綠且
       不需要修改 `AmbiguousMatch`
-- [ ] 1.5 把 `PersonResolver.apply` 改為接受任一 conforming 型別的序列，寫入邏輯與三道
+- [x] 1.5 把 `PersonResolver.apply` 改為接受任一 conforming 型別的序列，寫入邏輯與三道
       守衛（記錄存在／索引有效／該位置仍是該 literal）逐字不變。驗收＝既有 apply 測試
       全綠，且新增一條測試證明 `apply` 吃得下 `JudgedPairing`
 

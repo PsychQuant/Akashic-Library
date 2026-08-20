@@ -210,12 +210,12 @@ final class PersonCLITests: XCTestCase {
                               + "會被當成 keyless 而長出第二份 index（#220 HIGH）：\(line.trimmingCharacters(in: .whitespaces))")
             }
         }
-        XCTAssertEqual(constructions, 18,
+        XCTAssertEqual(constructions, 19,
                        "預期 person／update-person／create-entry + #219 五格"
                        + "（people／get-entry／link／tag／set-status）+ #232 的 "
                        + "resolve-people reject 與 apply + #250 兩格"
                        + "（add-person／divergences）+ #304 venue 四格"
-                       + "（venue／venues／add-venue／resolve-venues），共十八處（#306 增 update-venue、#264 增 store-source）；"
+                       + "（venue／venues／add-venue／resolve-venues），共十九處（#306 增 update-venue、#264 增 store-source、#386 增 resolve-people judge）；"
                        + "實際 \(constructions) 處——"
                        + "多出來的新呼叫點請一併確認有帶 key，然後更新這個數字")
     }

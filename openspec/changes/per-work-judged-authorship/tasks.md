@@ -52,14 +52,14 @@
 
 ## 3. CLI 面（akashic）
 
-- [ ] 3.1 在 `Sources/akashic/Commands.swift` 的 `resolve-people` 新增可重複的判定旗標，
+- [x] 3.1 在 `Sources/akashic/Commands.swift` 的 `resolve-people` 新增可重複的判定旗標，
       收 `<citekey>:<authorIndex>:<personKey>` 與 judgement 文字。**不新增**任何篩選式
       批次判定旗標。旗標的確切形狀（單旗標兩段 vs 兩個成對旗標）在此定案並回填
       design 的 Open Questions
-- [ ] 3.2 判定被守衛略過時（記錄不存在／索引越界／該位置已非該 literal／已是 `.key`），
+- [x] 3.2 判定被守衛略過時（記錄不存在／索引越界／該位置已非該 literal／已是 `.key`），
       在報告中**具名列出**被略過者與原因，不靜默、不中止其餘判定。驗收＝新增一條 CLI
       測試斷言略過訊息含該三段形 id
-- [ ] 3.3 判定路徑的所有 store 衍生字串（citekey／literal／judgement）依既有顯示面紀律
+- [x] 3.3 判定路徑的所有 store 衍生字串（citekey／literal／judgement）依既有顯示面紀律
       消毒或帶理由豁免。驗收＝`DisplaySinkCoverageTests` 維持綠
 
 ## 4. MCP 面（AkashicMCPKit／akashic-mcp）

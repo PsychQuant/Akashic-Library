@@ -988,6 +988,7 @@ public final class AkashicService {
 
         // ── 全部解析 + 驗證（此段不寫任何東西）──
         var pairings: [JudgedPairing] = []
+        var skipped: [(id: String, why: String)] = []
         var seen = Set<String>()
         for spec in specs {
             guard let eq = spec.firstIndex(of: "=") else {
@@ -1009,21 +1010,25 @@ public final class AkashicService {
                     "判定 id「\(displaySafe(id, max: 200))」重複——同一個作者位不得在一次"
                     + "呼叫裡判兩次（兩句 judgement 只有一句會留下）")
             }
-            guard let entry = byCitekey[citekey] else {
-                throw ServiceError.notFound("work「\(displaySafe(citekey, max: 200))」")
-            }
-            guard entry.authors.indices.contains(idx) else {
-                throw ServiceError.invalid(
-                    "作者索引 \(idx) 超出「\(displaySafe(citekey, max: 200))」的範圍"   // display-safe-exempt: idx 是 Int
-                    + "（0…\(entry.authors.count - 1)）")   // display-safe-exempt: count 是 Int
-            }
-            guard case let .literal(literal) = entry.authors[idx] else {
-                throw ServiceError.invalid(
-                    "「\(displaySafe(citekey, max: 200))」的第 \(idx) 個作者位已經歸戶"   // display-safe-exempt: idx 是 Int
-                    + "——判定不覆寫既有歸戶；要改判請先 reject 既有 verdict")
-            }
             guard byKey[personKey] != nil else {
                 throw ServiceError.notFound("person「\(displaySafe(personKey, max: 200))」")
+            }
+            // ── 以下三項是 store **狀態**不符，不是輸入語法錯 ──
+            // spec：「that pairing SHALL be skipped … SHALL NOT abort the remaining
+            // pairings」。與 `apply` 既有三道守衛同語意：一筆過期的判定不該讓其餘九筆
+            // 進不去，但也**不得靜默**——每一筆略過都具名回報。
+            guard let entry = byCitekey[citekey] else {
+                skipped.append((id, "work「\(displaySafe(citekey, max: 200))」不存在"))
+                continue
+            }
+            guard entry.authors.indices.contains(idx) else {
+                skipped.append((id, "作者索引 \(idx) 超出範圍（0…\(entry.authors.count - 1)）"))   // display-safe-exempt: idx／count 是 Int
+                continue
+            }
+            guard case let .literal(literal) = entry.authors[idx] else {
+                skipped.append((id, "該作者位已經歸戶——判定不覆寫既有歸戶；"
+                                    + "要改判請先 reject 既有 verdict"))
+                continue
             }
             guard let p = JudgedPairing(citekey: citekey, authorIndex: idx,
                                         literal: literal, personKey: personKey,
@@ -1060,6 +1065,9 @@ public final class AkashicService {
                     + "\(displaySafe(p.personKey, max: 200))",
                  "literal": displaySafe(p.literal, max: 300),
                  "judgement": displaySafe(p.judgement, max: 800)]
+            },
+            "skipped": skipped.map {
+                ["id": displaySafe($0.id, max: 200), "why": $0.why]   // display-safe-exempt: why 由本函式組裝，內含值已消毒
             },
             "entriesRewritten": wroteEntries,
             "personsRewritten": grouped.count,

@@ -105,24 +105,42 @@ final class JudgedAuthorshipServiceTests: XCTestCase {
         }
     }
 
-    func testUnknownCitekeyIsRefusedByName() throws {
-        XCTAssertThrowsError(try judge(["nope:0:chun-houh-chen=理由"])) { e in
-            XCTAssertTrue("\(e)".contains("nope"), "錯誤應指名該 citekey：\(e)")
-        }
+    // MARK: - 狀態不符 → **略過並具名**，不中止其餘（spec 明訂）
+
+    /// spec: `A judged pairing SHALL be applied only when the named position still holds
+    /// the named literal` —— 「SHALL NOT abort the remaining pairings」那一句。
+    ///
+    /// 這三項（work 不存在／索引越界／位置已歸戶）是 store **狀態**不符，不是輸入語法錯，
+    /// 語意同 `apply` 的既有三道守衛：一筆過期的判定不該讓其餘進不去。
+    func testUnknownCitekeyIsSkippedByNameWithoutBlockingOthers() throws {
+        let out = try judge(["nope:0:chun-houh-chen=理由",
+                             "w1:1:chun-houh-chen=好的那筆"])
+        let skipped = (out["skipped"] as? [[String: Any]]) ?? []
+        XCTAssertEqual(skipped.count, 1)
+        XCTAssertEqual(skipped.first?["id"] as? String, "nope:0:chun-houh-chen")
+        XCTAssertTrue((skipped.first?["why"] as? String ?? "").contains("nope"),
+                      "略過原因應指名該 citekey：\(skipped)")
+        XCTAssertEqual((out["judged"] as? [Any])?.count, 1, "好的那筆仍須落地")
+        XCTAssertEqual(try reloadEntry().authors[1], .key("chun-houh-chen"))
     }
 
-    func testOutOfRangeIndexIsRefusedByName() throws {
-        XCTAssertThrowsError(try judge(["w1:9:chun-houh-chen=理由"])) { e in
-            XCTAssertTrue("\(e)".contains("9"), "錯誤應指名該索引：\(e)")
-        }
+    func testOutOfRangeIndexIsSkippedByName() throws {
+        let out = try judge(["w1:9:chun-houh-chen=理由"])
+        let skipped = (out["skipped"] as? [[String: Any]]) ?? []
+        XCTAssertEqual(skipped.count, 1)
+        XCTAssertTrue((skipped.first?["why"] as? String ?? "").contains("9"),
+                      "略過原因應指名該索引：\(skipped)")
+        XCTAssertEqual((out["judged"] as? [Any])?.count, 0)
     }
 
-    /// 該位置已歸戶 → 拒絕，**不覆寫既有歸戶**。
-    func testAlreadyKeyedPositionIsRefused() throws {
+    /// 該位置已歸戶 → 略過並具名，**不覆寫既有歸戶**。
+    func testAlreadyKeyedPositionIsSkippedAndNotOverwritten() throws {
         _ = try judge(["w1:1:chun-houh-chen=第一次"])
-        XCTAssertThrowsError(try judge(["w1:1:chen-hsin-chen=想改判"])) { e in
-            XCTAssertTrue("\(e)".contains("w1"), "錯誤應指名該配對：\(e)")
-        }
+        let out = try judge(["w1:1:chen-hsin-chen=想改判"])
+        let skipped = (out["skipped"] as? [[String: Any]]) ?? []
+        XCTAssertEqual(skipped.count, 1)
+        XCTAssertTrue((skipped.first?["why"] as? String ?? "").contains("已經歸戶"),
+                      "略過原因應說明已歸戶：\(skipped)")
         XCTAssertEqual(try reloadEntry().authors[1], .key("chun-houh-chen"),
                        "既有歸戶不得被覆寫")
     }

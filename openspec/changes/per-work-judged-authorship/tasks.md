@@ -69,7 +69,7 @@
       細節 2 的單一實作路徑）
 - [ ] 4.2 在 `Sources/akashic-mcp/Server.swift` 的 `akashic_resolve_people` schema 新增
       對應參數。驗收＝`StdioE2ETests` 的工具數斷言與 schema 斷言更新後轉綠
-- [ ] 4.3 更新 `.claude/rules/mcp-cli-parity.md` 的 `akashic_resolve_people` 列，載明
+- [x] 4.3 更新 `.claude/rules/mcp-cli-parity.md` 的 `akashic_resolve_people` 列，載明
       兩面契約的差異（CLI 逐 id 顯式且不提供批次；MCP per-id 顯式）
 
 ## 5. Spec 與文件

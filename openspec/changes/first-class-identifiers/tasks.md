@@ -1,14 +1,14 @@
 ## 1. 先驗探針：正規化只在寫入面發生，讀取面寬容保留既有值（此裁決的前提待實測）
 
-- [ ] 1.1 確認「provenance reference 的 `value` 不在該欄位現值清單內」時讀取面的實際行為：造一筆帶清單欄位 reference 的暫時記錄，把該值改成不同字串後讀回。驗證目標——新測試斷言實際結果（拒讀並具名孤兒 value，或載入成功），並在 design.md 的 Open Questions 記下實測結論。**若實測顯示不拒讀，設計裁決「正規化只在寫入面發生，讀取面寬容保留既有值」須重做，後續任務暫停等重新裁決。**
+- [x] 1.1 確認「provenance reference 的 `value` 不在該欄位現值清單內」時讀取面的實際行為：造一筆帶清單欄位 reference 的暫時記錄，把該值改成不同字串後讀回。驗證目標——新測試斷言實際結果（拒讀並具名孤兒 value，或載入成功），並在 design.md 的 Open Questions 記下實測結論。**若實測顯示不拒讀，設計裁決「正規化只在寫入面發生，讀取面寬容保留既有值」須重做，後續任務暫停等重新裁決。**
 
 ## 2. 識別碼欄位的型別是帶驗證的 value type，不是可選字串
 
 交付 spec requirement「An identifier value SHALL be typed」。
 
-- [ ] 2.1 [P] 交付 spec requirement「An identifier value SHALL be typed」。先寫失敗測試：`ISSN` 對 `0003-066X` 接受、對 `0003-066x` 正規化為大寫、對 `12345` 與 `1467-8624(Electronic),0009-3920(Print)` 拒絕。驗證目標——`swift test --filter IdentifierTests` 由紅轉綠。
-- [ ] 2.2 [P] 交付設計裁決「identity-is-judged-not-matched 的例外條款具名到六種識別碼」，即 spec requirement「An identifier SHALL settle reference, not description」與「Identifier equality SHALL be admissible as an identity judgement」：在 `.claude/rules/identity-is-judged-not-matched.md` 新增例外節，具名 DOI／PMID／ISBN／ISSN／ORCID／ROR 六種並明寫「封閉列舉，不得依性質相似類推」，同節說明識別碼終結指涉但不終結欄位值，並具名排除 `url`（locator 非註冊指派）。驗證目標——內容複審確認條款未寫成性質判準，且六種識別碼逐一列出。
-- [ ] 2.3 在 `Sources/AkashicCore/Identifier.swift` 實作六個 value type，各自帶 failable 或 throwing 建構器、形狀驗證與正規形輸出。驗證目標——2.1 的測試全綠，且新增 DOI／ORCID／ROR／PMID／ISBN 各自的合法／非法／非正規三類案例。
+- [x] 2.1 [P] 交付 spec requirement「An identifier value SHALL be typed」。先寫失敗測試：`ISSN` 對 `0003-066X` 接受、對 `0003-066x` 正規化為大寫、對 `12345` 與 `1467-8624(Electronic),0009-3920(Print)` 拒絕。驗證目標——`swift test --filter IdentifierTests` 由紅轉綠。
+- [x] 2.2 [P] 交付設計裁決「identity-is-judged-not-matched 的例外條款具名到六種識別碼」，即 spec requirement「An identifier SHALL settle reference, not description」與「Identifier equality SHALL be admissible as an identity judgement」：在 `.claude/rules/identity-is-judged-not-matched.md` 新增例外節，具名 DOI／PMID／ISBN／ISSN／ORCID／ROR 六種並明寫「封閉列舉，不得依性質相似類推」，同節說明識別碼終結指涉但不終結欄位值，並具名排除 `url`（locator 非註冊指派）。驗證目標——內容複審確認條款未寫成性質判準，且六種識別碼逐一列出。
+- [x] 2.3 在 `Sources/AkashicCore/Identifier.swift` 實作六個 value type，各自帶 failable 或 throwing 建構器、形狀驗證與正規形輸出。驗證目標——2.1 的測試全綠，且新增 DOI／ORCID／ROR／PMID／ISBN 各自的合法／非法／非正規三類案例。
 
 ## 3. 識別碼放記錄頂層的具名欄位，不做泛型容器
 

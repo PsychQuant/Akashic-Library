@@ -1367,7 +1367,31 @@ struct ResolvePeople: ParsableCommand {
             help: "判定式否決（可重複）：citekey:authorIndex:personKey=否決理由。理由必填。歧義列也適用——既有 --reject 只吃候選。entry 不動，只寫 resolution-rejected verdict；之後該配對不再被提名")
     var refute: [String] = []
 
+    /// 歧義段的列數上限（#388）。
+    ///
+    /// **加旋鈕不等於拆掉防線**：真正與內容無關的界是 `AmbiguityDisplayLimit.bytes`
+    /// （128 KB），列數只是次級上限。所以放寬列數仍受位元組預算保護——超出時照樣
+    /// 逐列略過並在結尾說出丟了幾筆。
+    ///
+    /// 缺這個旋鈕的代價實測過：#383 那輪為了拿完整的 100／73／71 筆清單，**三次**用
+    /// 「暫時把常數改成 500、量完還原」的手法。那不是使用者做得到的事，正是
+    /// `mcp-cli-parity` 所說「能不能做到，不該取決於使用者會不會改原始碼」。
+    @Option(name: .long,
+            help: "歧義段最多列出幾筆（預設 50）。位元組預算仍生效——放寬列數不保證全部印得出來")
+    var rows: Int?
+
+    /// 生效的列數上限：旗標優先，缺席退回預設。
+    var rowLimit: Int { rows ?? AmbiguityDisplayLimit.rows }
+
     func run() throws {
+        if let rows, rows < 1 {
+            throw ValidationError("--rows 必須 ≥ 1（給了 \(rows)）——要看完整清單就給一個夠大的數；"
+                                  + "位元組預算（\(AmbiguityDisplayLimit.bytes / 1024) KB）仍會擋住過大的內容")
+        }
+        try runResolve()
+    }
+
+    private func runResolve() throws {
         // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
         // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
         if apply { try options.assertDestructiveTargetNamed("resolve-people") }
@@ -1471,7 +1495,7 @@ struct ResolvePeople: ParsableCommand {
             // **CLI 也要有上限**（#236 R2）。先前只給 MCP 加，而終端機灌爆的威脅
             // repo 自己有明文（`TerminalOutputSafetyTests`）——修一個面就宣稱這一類
             // 關掉了，正是本 PR 前一輪被抓的形狀。
-            let capped = Array(report.ambiguities.prefix(AmbiguityDisplayLimit.rows))
+            let capped = Array(report.ambiguities.prefix(rowLimit))
             // **列數上限擋不住內容**（#236 R4）。R2 加了列數與 ref 兩軸，實測仍可產出
             // **3,844,596 bytes**——`literal`／`key`／隸屬名各自可到 `max:` 上限，而
             // `displaySafe` 是 8 倍膨脹器。與 MCP 那半同一個結論：計數上限追不上內容，
@@ -1551,10 +1575,18 @@ struct ResolvePeople: ParsableCommand {
                 var why: [String] = []
                 if byRows > 0 { why.append("\(byRows) 筆超過列數上限") }
                 if budgetDropped > 0 { why.append("\(budgetDropped) 筆內容過大、吃不下輸出預算") }
-                // **不要指不存在的旋鈕**（#236 R3）：`resolve-people` 沒有 `--json`，
-                // 也沒有分頁。指路只能指呼叫端真的有的東西——假的建議比沒有建議更糟。
+                // **不要指不存在的旋鈕**（#236 R3）：指路只能指呼叫端真的有的東西
+                // ——假的建議比沒有建議更糟。#388 起列數上限有 `--rows`，所以現在指得
+                // 出來；但**只在列數是原因時才指它**——被位元組預算擋下的那些，調大
+                // 列數一樣看不到，指它就是把使用者送去撞同一面牆。
+                var how: [String] = []
+                if byRows > 0 { how.append("--rows \(report.ambiguities.count) 可列出全部") }
+                if budgetDropped > 0 {
+                    how.append("內容過大的那 \(budgetDropped) 筆調大列數也看不到，"
+                               + "用 --citekey／--person 收窄範圍")
+                }
                 print("  …另 \(hidden) 筆未顯示（\(why.joined(separator: "；"))；"
-                      + "目前沒有取回全部的旋鈕，縮小 store 範圍或先處理已列出的）")
+                      + "\(how.joined(separator: "；"))）")
             }
             // R1-fix B6：指引依碰撞層分開——exact 的兩難框架對縮寫共鍵是錯誤指引
             let shownTiers = Set(capped.map(\.tier))
@@ -1653,7 +1685,16 @@ struct ResolvePeople: ParsableCommand {
             let service = AkashicService(root: store.root, key: store.key,
                                          environment: ProcessInfo.processInfo.environment)
             let ids = candidates.map(\.pinnedID)   // R3-5：CLI 也釘 person——與 service 列表同一個型別定義   // 複合鍵住在型別上（#236 R4）——不手拼第四份
-            let out = try service.resolvePeople(apply: ids)
+            // **`--tier` 同時是篩選與承認。** service 端對寬鬆層要求 `confirmTiers`
+            // 顯式承認，而 CLI 端的閘（上方 ValidationError）要求的正是 `--tier` 具名
+            // ——兩者是同一個「你知道自己在套什麼層」的要求，只是先前沒接上線：CLI
+            // 從不傳 confirmTiers，於是 `--tier reorder --apply` **結構上不可能成功**
+            // （CLI 閘放行、service 閘拒絕）。`mcp-cli-parity` 記的「tier-acknowledgment
+            // 參數列 follow-up」就是這條線。
+            //
+            // 不另加一個 `--confirm-tier` 旗標：那會要求使用者把同一組 tier 打兩次，
+            // 而兩次不一致時的語意沒有人想得出來。
+            let out = try service.resolvePeople(apply: ids, confirmTiers: tier.isEmpty ? nil : tier)
             let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
             let written = parsed?["entriesRewritten"] as? Int ?? 0
             let writeFailed = parsed?["writeFailed"] as? [String: String] ?? [:]

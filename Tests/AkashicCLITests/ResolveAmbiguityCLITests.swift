@@ -363,4 +363,112 @@ final class ResolveAmbiguityCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("1. ") && r.output.contains("2. "),
                       "列內要編號——兩個 key 截斷後可能長得一樣：\n\(r.output)")
     }
+
+    // MARK: - #388：列數上限的旋鈕
+
+    /// 旋鈕存在且真的放寬——沒有它時，量完整清單只能靠改原始碼再重編譯
+    /// （#383 那輪實測做了三次）。
+    func testRowsFlagRaisesTheCap() throws {
+        try writePerson(key: "knob-one", names: ["Knob Same"])
+        try writePerson(key: "knob-two", names: ["Knob Same"])
+        for i in 0..<60 {
+            try store.writeEntry(Entry(id: UUID(), citekey: "knob\(i)", type: .periodicalArticle,
+                                       title: "T", authors: [.literal("Knob Same")], date: "2020"))
+        }
+        let capped = try runCLI(["resolve-people"])
+        XCTAssertTrue(capped.output.contains("另 10 筆未顯示"),
+                      "前提：預設上限確實截斷了：\n\(capped.output.suffix(300))")
+
+        let raised = try runCLI(["resolve-people", "--rows", "60"])
+        XCTAssertEqual(raised.status, 0, String(raised.output.prefix(400)))
+        XCTAssertFalse(raised.output.contains("未顯示"),
+                       "--rows 60 之後 60 筆該全部印出、不再有未顯示：\n\(raised.output.suffix(300))")
+    }
+
+    /// 截斷訊息要**指得出真的存在的旋鈕**（#236 R3 的既有紀律）——先前它說
+    /// 「目前沒有取回全部的旋鈕」，而現在有了。
+    func testTruncationMessageNamesTheRowsFlag() throws {
+        try writePerson(key: "point-one", names: ["Point Same"])
+        try writePerson(key: "point-two", names: ["Point Same"])
+        for i in 0..<55 {
+            try store.writeEntry(Entry(id: UUID(), citekey: "point\(i)", type: .periodicalArticle,
+                                       title: "T", authors: [.literal("Point Same")], date: "2020"))
+        }
+        let r = try runCLI(["resolve-people"])
+        XCTAssertTrue(r.output.contains("--rows 55"),
+                      "要指出確切的數字讓人一次拿到全部，不是叫他自己猜：\n\(r.output.suffix(300))")
+        XCTAssertFalse(r.output.contains("沒有取回全部的旋鈕"),
+                       "旋鈕已存在，這句話過期了：\n\(r.output.suffix(300))")
+    }
+
+    /// **被位元組預算擋下的那些，調大列數一樣看不到**——所以那條路徑不得指向
+    /// `--rows`。指錯路比不指路更糟：使用者會撞同一面牆兩次。
+    func testByteDroppedRowsDoNotPointAtRowsFlag() throws {
+        let long = String(repeating: "\u{202E}", count: 200)
+        for i in 0..<20 {
+            let nm = "\(long)-budget-\(i)"
+            for s in 0..<20 {
+                var p = Person(key: "budget-\(i)-\(s)",
+                               names: PersonNames(variant: (0..<4).map { "\(long)-\(i)-\(s)-\($0)" }))
+                p.names.variant.append(nm)
+                try store.writePerson(p)
+            }
+            try store.writeEntry(Entry(id: UUID(), citekey: "budget\(i)", type: .periodicalArticle,
+                                       title: "T", authors: [.literal(nm)], date: "2020"))
+        }
+        let r = try runCLI(["resolve-people"])
+        XCTAssertTrue(r.output.contains("吃不下輸出預算"),
+                      "前提：這個 store 真的撐爆了預算：\n\(r.output.suffix(400))")
+        XCTAssertTrue(r.output.contains("調大列數也看不到"),
+                      "預算擋下的要明說調大列數無效：\n\(r.output.suffix(400))")
+    }
+
+    /// 0 與負數要當場拒絕並說明——`prefix(0)` 會安靜產出空清單，
+    /// 而「一筆都沒有」與「我不給你看」在輸出上長得一樣。
+    func testRowsFlagRejectsNonPositive() throws {
+        // 負數要寫成 `--rows=-1`：分開寫時 ArgumentParser 會把 `-1` 當成另一個旗標
+        // 而在到達本命令的驗證之前就拒絕（訊息是「Missing value for '--rows'」）。
+        // 兩條路都拒絕，但只有 `=` 形式測得到**我們自己**的判準。
+        for bad in ["--rows=0", "--rows=-1"] {
+            let r = try runCLI(["resolve-people", bad])
+            XCTAssertNotEqual(r.status, 0, "\(bad) 該被拒絕")
+            XCTAssertTrue(r.output.contains("--rows 必須 ≥ 1"),
+                          "拒絕要說明原因：\n\(r.output.prefix(300))")
+        }
+        // 分寫形式的負數由 parser 擋下——確認它確實沒有靜默通過
+        let split = try runCLI(["resolve-people", "--rows", "-1"])
+        XCTAssertNotEqual(split.status, 0, "分寫的負數也不得通過：\n\(split.output.prefix(300))")
+    }
+
+    // MARK: - `--tier` 同時是篩選與承認
+
+    /// **`--tier <寬鬆層> --apply` 先前結構上不可能成功。** CLI 端的閘要求寬鬆層
+    /// 必須 `--tier` 具名（放行），但呼叫 service 時從不傳 `confirmTiers`，於是
+    /// service 端的閘無條件拒絕——一條有文件、有說明、走不通的路。
+    ///
+    /// 這條測試釘住「兩道閘用同一個旗標滿足」。變異：把 `confirmTiers:` 拿掉，
+    /// 本測試轉紅並印出 service 的拒絕訊息。
+    func testTierFlagAlsoAcknowledgesLooseTierOnApply() throws {
+        // reorder 層：同一組 token、順序不同（姓名前後互換）
+        try writePerson(key: "reorder-target", names: ["Shun, Chia-Tung"])
+        try store.writeEntry(Entry(id: UUID(), citekey: "reorderone", type: .periodicalArticle,
+                                   title: "T", authors: [.literal("Chia-Tung Shun")], date: "2020"))
+
+        // 前提：不指定 tier 時，CLI 端的閘就先擋下（這是既有行為，不該變）
+        let bare = try runCLI(["resolve-people", "--apply", "--yes"])
+        XCTAssertNotEqual(bare.status, 0, "裸 --apply 對寬鬆層該拒絕：\n\(bare.output.prefix(300))")
+
+        // 指定 tier 之後**要真的套用**——先前這裡會被 service 端的第二道閘擋下
+        let named = try runCLI(["resolve-people", "--apply", "--tier", "reorder", "--yes"])
+        XCTAssertEqual(named.status, 0,
+                       "--tier reorder 已是 CLI 端要求的顯式承認，service 端不該再拒絕：\n"
+                       + String(named.output.prefix(500)))
+        XCTAssertTrue(named.output.contains("套用 1 個候選"),
+                      "要真的寫入，不是只印候選：\n\(named.output.prefix(400))")
+
+        // 落地確認：entry 的作者位變成 key
+        let after = try runCLI(["resolve-people"])
+        XCTAssertFalse(after.output.contains("reorderone[0]"),
+                       "套用後該列不該再出現在候選裡：\n\(after.output.prefix(400))")
+    }
 }

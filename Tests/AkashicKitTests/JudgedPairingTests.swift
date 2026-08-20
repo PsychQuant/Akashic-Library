@@ -237,4 +237,26 @@ final class JudgedPairingTests: XCTestCase {
                                                        to: &refs))
         XCTAssertEqual(refs.count, 1, "同一筆判定不得留下兩筆 verdict")
     }
+
+    // MARK: - 傳染的**邊界**：同 literal 指的是同一個字串
+
+    /// 真實 store 上判定 `C.-H. Chen` 之後，`C-H Chen`（無句點）**沒有**被提名——
+    /// 一開始看起來像 bug，查證後是正確行為：那是**不同的 literal**。
+    ///
+    /// 這條把邊界釘住，並記錄一個**既有的不對稱**：寬鬆 tier 的鍵空間把 `.` 映成 `-`
+    /// （`LooseNameKey.cleanTokens` 的 doc 明寫 `y.-h.` 與 `y.h.` 同歸 `y-h`），
+    /// 而 `confirmedElsewhere` 的傳染鍵走 `NameNormalization.matchingKey`，**不做**這件事。
+    ///
+    /// 兩者都說得通——傳染是較強的主張（「**這個字串**在他處被確認過」），保守是合理的。
+    /// 但這個不對稱先前沒有任何測試或文件記載，本條補上。
+    func testPropagationKeysOnTheExactLiteralNotItsPunctuationVariants() {
+        XCTAssertNotEqual(NameNormalization.matchingKey("C.-H. Chen"),
+                          NameNormalization.matchingKey("C-H Chen"),
+                          "傳染鍵若把句點與連字號視為相同，判定會跨標點變體擴散——"
+                          + "那是比目前更強的主張，需要顯式裁決而非默默發生")
+        // 對照：寬鬆 tier 的鍵空間**確實**收斂這兩者
+        XCTAssertFalse(LooseNameKey.initialsKeys("C.-H. Chen")
+                        .isDisjoint(with: LooseNameKey.initialsKeys("C-H Chen")),
+                       "initials 層應收斂標點變體（cleanTokens 把 . 映成 -）")
+    }
 }

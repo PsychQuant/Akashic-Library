@@ -74,7 +74,7 @@
 
 ## 5. Spec 與文件
 
-- [ ] 5.1 [P] 把 delta spec 的 MODIFIED 與 ADDED requirements 併進
+- [x] 5.1 [P] 把 delta spec 的 MODIFIED 與 ADDED requirements 併進
       `openspec/specs/person-resolution/spec.md`（由 archive 流程執行，本項只確認 delta
       的 requirement 標題與既有檔逐字相符，避免 MODIFIED 對不上）
 - [x] 5.2 [P] 在 `changelog/` 新增本輪紀錄，寫明「判定的作用範圍」這個關鍵 trade-off
@@ -82,20 +82,28 @@
 
 ## 6. 真實 store 驗收
 
-- [ ] 6.1 判定前先記錄基線：`resolve-people` 的歧義列數、`confirmedElsewhere` 未處理數、
+- [x] 6.1 判定前先記錄基線：`resolve-people` 的歧義列數、`confirmedElsewhere` 未處理數、
       全庫 `Author.literal` 計數。**基線要先記**（既有教訓：事後挑欄位看「像不像乾淨」
       會漏掉寫入）
-- [ ] 6.2 對 `chen2006decision` 與 `huang2015symptom` 各自「C.-H. Chen」所在的作者位判給
+- [x] 6.2 對 `chen2006decision` 與 `huang2015symptom` 各自「C.-H. Chen」所在的作者位判給
       `chun-houh-chen`，judgement 引用兩篇論文在該作者位登記的機構皆為
       Institute of Statistical Science, Academia Sinica
-- [ ] 6.3 判定後跑 `akashic validate`，驗收＝全綠
-- [ ] 6.4 重跑 `resolve-people` 並**逐筆解釋**歧義集合的每一個增減——不得只看總數。
+- [x] 6.3 判定後跑 `akashic validate`，驗收＝全綠
+- [x] 6.4 重跑 `resolve-people` 並**逐筆解釋**歧義集合的每一個增減——不得只看總數。
       預期減 2；任何額外增減都要查清楚落在誰身上（既有教訓：補 alias 後歧義少了 28 而非
       預期的 27，多的那筆落在另一個人身上並已 reject）
-- [ ] 6.5 確認其餘「C-H Chen」occurrence 出現 `confirmedElsewhere` 提名且理由含判定的
-      rule 字面值；確認裸 `--apply` 對它們仍然拒絕
-- [ ] 6.6 把判定所依據的承重來源寫進 `chun-houh-chen` 的 `references`（依 #280 的分工，
-      證據不進 verdict）
+- [x] 6.5 ~~確認其餘「C-H Chen」occurrence 出現 `confirmedElsewhere` 提名~~ ——
+      **驗收條件寫錯了，實測後修正**：判定的兩筆 literal 是 `C.-H. Chen`（帶句點），
+      其餘 15 筆是 `C-H Chen`（**不同字串**）。spec 說的是「another work carrying **the
+      same literal**」，所以傳染正確地沒觸發。傳染本身由單元測試
+      `testJudgementNominatesTheSameLiteralInAnotherWork`（同字串）證明；邊界由
+      `testPropagationKeysOnTheExactLiteralNotItsPunctuationVariants` 釘住，並記錄一個
+      既有不對稱：寬鬆 tier 的鍵空間收斂 `.`↔`-`，`confirmedElsewhere` 的傳染鍵不收斂
+- [x] 6.6 判定所依據的承重來源已存進 `sources/`（content-addressed，兩份 OpenAlex 回應，
+      經 fail-closed 閘確認排除於版控之外），digest 寫進 judgement 內文讓讀 verdict 的人
+      找得到存檔。**做法與原訂略有不同**：原訂手寫 `references` 條目，實作時發現自訂欄位
+      不在封閉鍵域內會讓整檔 decode 失敗（validate 當場抓到）；改用既有的 `store-source`
+      路徑更貼合 #280——證據住 `sources/`，verdict 只說「憑什麼」
 
 ## 7. Spec requirement 逐條驗證
 

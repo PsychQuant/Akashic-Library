@@ -29,7 +29,22 @@
 
 順序是先產生候選、再以 DOI 反向 lookup 判定；方向與查詢階段相反，所以「查詢時選錯候選」這類錯誤不會一致地重複（見下方「回查確認」）。
 
-追蹤：Akashic-Library#393。
+**這個形狀不限於 DOI。** 使用者 2026-08-20 裁定本節的用詞維持「驗證」而不改叫「DOI 判定」，理由是「**不是所有東西都是 DOI**」——而那句話同時指出了本節的一般化方向：
+
+| 識別碼 | 反向判定長什麼樣 |
+|---|---|
+| DOI | `api.crossref.org/works/<doi>` — 比對標題／期刊／年份／type |
+| ISBN | OpenLibrary／Google Books 查該號 — 比對書名／作者／出版社／版次 |
+| ISSN | `portal.issn.org` 查該號 — 比對刊名 |
+| PMID | `europepmc.org` 查該號 — 比對標題／期刊／年份 |
+| ORCID | `pub.orcid.org/v3.0/<id>/record` — 比對姓名／隸屬 |
+| ROR | `api.ror.org/organizations/<id>` — 比對機構名 |
+
+**共同結構**：提出候選 → 用識別碼**反向**取回官方記錄 → 以合取判準比對 → 對得上是驗證，對不上或查不到就標 TODO。六種識別碼的型別與正規化見 `Sources/AkashicCore/Identifier.swift`（#394）。
+
+**但識別碼終結的是「指涉」不是「描述」**：反向查回來的官方記錄本身可能有誤植（實測：出版商把 `Institute of Statistical Science` 寫成複數，Crossref 原樣保留）。判準見 `.claude/rules/identity-is-judged-not-matched.md` 的識別碼例外節。
+
+追蹤：Akashic-Library#393、#394。
 
 **先拿 DOI 再拿其他。** 有了 DOI，後續每一項都變成查表；沒有 DOI，每一項都是模糊比對。實測一份 100 篇的 WoS 匯出（無 DOI 欄），補完 DOI 後卷期頁與機構幾乎是附帶取得的。
 

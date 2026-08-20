@@ -48,6 +48,13 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 | `akashic_import_zotero` | `import-zotero` | ✅ |
 | `akashic_import_wos` | `import-wos` | ✅（#290；#259 CLI-only 盤點唯一「需要」格的補齊——#206 鏡像判準）|
 | `akashic_resolve_people` | `resolve-people` | ✅（#272 起兩面契約有記錄的差異：MCP 允許 apply+reject 組合（兩段式、按腿回報）；CLI 維持分兩次呼叫——互動面天然序列，組合是 LLM 批次 triage 的需求。#303 起兩面同步帶 `tier`（封閉四值 exact／confirmed-elsewhere／reorder／initials，信心降冪）：MCP 每列 `tier` 欄、CLI 按 tier 分組標頭與 `--tier` 篩選（裸 `--apply` 對寬鬆 tier 拒絕）、App 候選列標示；apply id 升三段形 `citekey:authorIndex:personKey`（釘 person，兩段 legacy 收）；否決抑制改與提名同一套正規化、淘汰而得的唯一命中在 reason 揭露——R1 verify 後 apply 語意有這些**有記錄的變更**，非純 additive。R3 裁決的**面不對稱**：tier 閘只在 CLI 篩選式批次（MCP per-id 顯式＋tier 可見，刻意不閘；tier-acknowledgment 參數列 follow-up）；rejected/applied 回音均三段 pinned 形）|
+
+**#386 起多一個 per-id 判定面**（`judge` / `--judge`，兩面同走 `judgeAuthorships`）：
+收 `citekey:authorIndex:personKey=理由`，**歧義列也適用**——歧義的意思是提名器分不出來，
+不是人／AI 分不出來（`identity-is-judged-not-matched`）。**契約有記錄的差異**：CLI **不提供**
+篩選式批次形式（judgement 必填形成摩擦，批次會讓它退化成罐頭）；MCP 面沿用該面既有的
+per-id 顯式契約。兩面的失敗語意相同且刻意分兩類：輸入語法錯整批拒絕零寫入、store 狀態不符
+該筆略過並具名。
 | `akashic_record_divergence` | `record-divergence` | ✅ |
 | `akashic_update_person` | `update-person` | ✅（#68）|
 | `akashic_create_entry` | `create-entry` | ✅（#206）|

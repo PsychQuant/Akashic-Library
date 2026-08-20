@@ -22,7 +22,64 @@ public enum ResolutionTier: String, CaseIterable, Comparable, Equatable {
     }
 }
 
-public struct ResolutionCandidate: Equatable {
+/// 一次歸戶寫入需要的**全部**資訊：定位一個作者位，並指出它是誰。
+///
+/// **抽成協定的理由**：`PersonResolver.apply` 實際只用到這四個欄位做寫入與三道守衛
+/// （記錄存在／索引有效／該位置仍是那個 literal），`tier` 完全不參與。抽出來之後
+/// **提名**（`ResolutionCandidate`，帶 tier）與**判定**（`JudgedPairing`，帶 judgement）
+/// 可以共用同一條寫入路徑，而不必讓其中一方假裝成另一方。
+///
+/// **`AmbiguousMatch` 刻意不 conform，而且是結構上做不到**：它的欄位是
+/// `personKeys: [String]`（複數）——歧義的「是哪一個人」尚未決定，所以單數的
+/// `personKey` 在那個型別上不存在。既有的「兩個欄位而非 sum type」設計靠同一件事
+/// 讓「不小心 apply 一個歧義」寫不出來；本協定沿用它，不另立守衛。
+public protocol AuthorPairing {
+    var citekey: String { get }
+    var authorIndex: Int { get }
+    var literal: String { get }
+    var personKey: String { get }
+}
+
+/// 一次**判定**：這一篇的這個作者位是這個人，而這是憑什麼。
+///
+/// 與 `ResolutionCandidate` 的差別不在資料量，在**主張的種類**：
+///
+/// | | 主張 | 誰做的 | 作用範圍 |
+/// |---|---|---|---|
+/// | `ResolutionCandidate` | 「這個字串的鍵撞到這個人」 | 提名器（字串比對） | 那一個 occurrence |
+/// | `JudgedPairing` | 「這個作者位**是**這個人」 | 人／AI（名字以外的證據） | 那一個 occurrence |
+///
+/// **無 `tier`**：tier 記的是「怎麼被提名的」且依信心排序；判定不是被提名出來的，
+/// 給它一個 tier 會謊報來歷（`.claude/rules/identity-is-judged-not-matched.md`）。
+///
+/// **無 `restsOn`**：證據依 #280 的裁決住被判 person 的 `references`，verdict 刻意不攜
+/// 第二個內容指標（`.claude/rules/entity-backlink-completeness.md` 封閉列舉第 13 條）。
+public struct JudgedPairing: Equatable, AuthorPairing {
+    public let citekey: String
+    public let authorIndex: Int
+    public let literal: String
+    public let personKey: String
+
+    /// 為什麼這樣判——**原文逐字保留**，不 trim、不改寫。
+    public let judgement: String
+
+    /// 空白 judgement 回 `nil`——那個狀態在型別層不存在。
+    ///
+    /// 判準是「去掉空白與換行後為空」，不是「等於空字串」：一個只有空格的 judgement
+    /// 與沒有 judgement 在資訊上相同，而只擋 `""` 會讓前者穿過去。
+    public init?(citekey: String, authorIndex: Int, literal: String,
+                 personKey: String, judgement: String) {
+        guard !judgement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        self.citekey = citekey
+        self.authorIndex = authorIndex
+        self.literal = literal
+        self.personKey = personKey
+        self.judgement = judgement
+    }
+}
+
+public struct ResolutionCandidate: Equatable, AuthorPairing {
     public var citekey: String
     public var authorIndex: Int
     public var literal: String
@@ -294,7 +351,13 @@ public enum PersonResolver {
     }
 
     /// 把已確認的候選套用到 entries（回傳新副本，不動原陣列）。
-    public static func apply(_ candidates: [ResolutionCandidate], to entries: [Entry]) -> [Entry] {
+    /// 泛型化（change `per-work-judged-authorship`）：吃任何 `AuthorPairing`，
+    /// 於是**提名**（`ResolutionCandidate`）與**判定**（`JudgedPairing`）共用同一條寫入
+    /// 路徑與同一組守衛。寫入邏輯逐字不變——這裡只放寬入參型別，不放寬任何檢查。
+    ///
+    /// `AmbiguousMatch` 仍傳不進來：它沒有單數 `personKey`
+    /// （`JudgedPairingTests.testAmbiguousMatchHasNoSingularPersonKey` 釘住這件事）。
+    public static func apply<P: AuthorPairing>(_ candidates: [P], to entries: [Entry]) -> [Entry] {
         // uniquingKeysWith：損壞 store 出現重複 citekey 時不 trap（後者勝，validate 另行報告）
         var byCitekey = Dictionary(entries.map { ($0.citekey, $0) }, uniquingKeysWith: { _, last in last })
         for candidate in candidates {

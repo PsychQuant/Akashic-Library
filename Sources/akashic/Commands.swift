@@ -1345,6 +1345,28 @@ struct ResolvePeople: ParsableCommand {
             help: "否決這些候選（三段形 citekey:authorIndex:personKey——釘 person，提名改指時顯式拒絕；兩段 legacy 形僅當該位置提名仍唯一時等價）——寫 resolution-rejected verdict 到該 person，entry 不動；之後該配對不再被提名（同 literal 他 entry 照提）")
     var reject: [String] = []
 
+    /// 逐篇判定（change `per-work-judged-authorship`）。
+    ///
+    /// **單旗標兩段**而非兩個成對旗標：後者靠位置配對，數量不符會**靜默錯配**
+    /// ——把 A 的理由掛到 B 的判定上。單旗標讓「配對沒有自己的 judgement」在語法上
+    /// 寫不出來。
+    ///
+    /// **刻意不提供篩選式批次**（沒有 `--judge-all` 之類）：judgement 必填形成自然摩擦，
+    /// 而批次會讓它退化成罐頭字串——罐頭 judgement 等於沒有判定。同 `mcp-cli-parity`
+    /// 已載明的既有不對稱（tier 閘只加在 CLI 的篩選式批次）。
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式")
+    var judge: [String] = []
+
+    /// 判定式否決（#386 的鏡像）：查證後說「**不是他**」。
+    ///
+    /// 與既有 `--reject` 的差別：那個只吃 resolver 提名出來的**候選**，歧義列一律 notFound。
+    /// 而對共用 literal 來說「不是他」才是絕大多數的答案——實測 69 筆歧義裡 22 筆已確定
+    /// 答案不在候選裡。**entry 不動**（否決不歸戶），只寫 verdict。
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "判定式否決（可重複）：citekey:authorIndex:personKey=否決理由。理由必填。歧義列也適用——既有 --reject 只吃候選。entry 不動，只寫 resolution-rejected verdict；之後該配對不再被提名")
+    var refute: [String] = []
+
     func run() throws {
         // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
         // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
@@ -1358,6 +1380,36 @@ struct ResolvePeople: ParsableCommand {
         // verdict 寫入走 **AkashicService**——與 MCP `akashic_resolve_people` 同一條
         // 實作路徑（mcp-cli-parity：兩條各自寫會分岔）。`key:` 不可省（#220 HIGH：
         // keyless 會分岔出第二份 index）。
+        if !judge.isEmpty || !refute.isEmpty {
+            let service = AkashicService(root: store.root, key: store.key,
+                                         environment: ProcessInfo.processInfo.environment)
+            let confirming = !judge.isEmpty
+            let out = confirming
+                ? try service.resolvePeople(apply: nil, judge: judge)
+                : try service.resolvePeople(apply: nil, refute: refute)
+            let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
+            let rows = (parsed?[confirming ? "judged" : "refuted"] as? [[String: Any]]) ?? []
+            print("✓ \(confirming ? "判定" : "否決") \(rows.count) 個作者位、改寫 \(parsed?["entriesRewritten"] as? Int ?? 0) 筆 work、"
+                  + "\(parsed?["personsRewritten"] as? Int ?? 0) 筆 person 記錄、index 已重建")
+            for r in rows {
+                // service 回傳的欄位已經 displaySafe 過（見 judgeAuthorships），
+                // 這裡原樣轉印——二次消毒會逃脫自己的反斜線（displaySafe 不冪等）
+                print("  \(r["id"] as? String ?? "?")  「\(r["literal"] as? String ?? "?")」")   // display-safe-exempt: service 已消毒，displaySafe 不冪等
+                print("      \(r["judgement"] as? String ?? "")")   // display-safe-exempt: 同上
+            }
+            // 略過**必須具名**——靜默略過會讓「沒判到」與「判了但沒生效」在輸出上
+            // 完全一樣（lossless-intake 執行細節 3 的同一條理由）。
+            let skipped = (parsed?["skipped"] as? [[String: Any]]) ?? []
+            if !skipped.isEmpty {
+                print("")
+                print("略過 \(skipped.count) 筆（store 狀態不符；其餘已落地）：")
+                for sk in skipped {
+                    print("  \(sk["id"] as? String ?? "?")  ——\(sk["why"] as? String ?? "")")   // display-safe-exempt: service 已消毒
+                }
+            }
+            return
+        }
+
         if !reject.isEmpty {
             let service = AkashicService(root: store.root, key: store.key,
                                          environment: ProcessInfo.processInfo.environment)

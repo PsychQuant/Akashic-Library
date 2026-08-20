@@ -41,6 +41,19 @@ public enum ResolutionLedger {
     /// 分開命名讓各族規則的校準歷史分開計。
     public static let venueRule = "venue-name-exact"
 
+    /// 逐篇判定的證據類別（change `per-work-judged-authorship`）。
+    ///
+    /// **刻意不用 `author-name-` 前綴**：那個前綴的意思是「靠作者名字比對出來的」，
+    /// 而判定依 `.claude/rules/identity-is-judged-not-matched.md` **不是**靠名字——
+    /// 它由名字以外的證據（論文登記的機構、共同作者、庫內出處）支撐。沿用該前綴會讓
+    /// 校準統計把兩種完全不同的證據混在一起。
+    ///
+    /// **不進 `personRule(for tier:)`**：那是 tier → rule 的封閉映射，而判定無 tier。
+    ///
+    /// 字面須通過提名理由的弱血統揭露檢查（`^[a-z][a-z-]{0,60}$`），否則會被顯示成
+    /// 「非標準rule」而讓判定的來歷不可見——`ResolutionLedgerTests` 釘住這件事。
+    public static let judgedRule = "author-judged-per-work"
+
     /// 判定種類——與 verdict 欄位對一一對應。
     public enum VerdictKind: String, CaseIterable {
         case confirmed = "resolution-confirmed"
@@ -69,6 +82,24 @@ public enum ResolutionLedger {
             value: ProvenanceReference.VerdictPairingValue(
                 holderKind: holderKind, holder: holder, literal: literal).encoded,
             kind: .judgement(statement: "\(statement) [rule: \(rule)]", restsOn: []))
+    }
+
+    /// 一筆**判定**的 verdict（change `per-work-judged-authorship`）。
+    ///
+    /// 與提名路徑的差別只有兩處，而兩處都是刻意的：
+    /// - `statement` 是**操作者／agent 給的原文**，不是罐頭字串
+    /// - `rule` 是 `judgedRule`，不由 tier 導出（判定無 tier）
+    ///
+    /// **住這裡而不由呼叫端各拼一次**：本檔頭的既有立場是「慣例單一來源——呼叫端不自行
+    /// 拼 `[rule:]`」。CLI 與 MCP 兩面若各組一次，就是兩份會分岔的規格。
+    ///
+    /// `restsOn` 依 `record` 既有行為留空——#280 裁決 verdict 刻意不攜證據指標，
+    /// 判定所依據的承重內容寫進被判 person 的 `references`。
+    public static func record(judged pairing: JudgedPairing,
+                              kind: VerdictKind = .confirmed) -> ProvenanceReference {
+        record(kind, holderKind: .work,
+               holder: pairing.citekey, literal: pairing.literal,
+               rule: judgedRule, statement: pairing.judgement)
     }
 
     /// 寫入邊界的冪等：同 (field, value) 的 verdict 已在 → 不重複附加（verify

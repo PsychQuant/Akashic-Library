@@ -64,7 +64,7 @@
 
 ## 4. MCP 面（AkashicMCPKit／akashic-mcp）
 
-- [ ] 4.1 在 `Sources/AkashicMCPKit/AkashicService.swift` 讓 `resolvePeople` 收 per-id 的
+- [x] 4.1 在 `Sources/AkashicMCPKit/AkashicService.swift` 讓 `resolvePeople` 收 per-id 的
       判定清單，與 CLI 走**同一條** service 函式（`entity-backlink-completeness` 執行
       細節 2 的單一實作路徑）
 - [ ] 4.2 在 `Sources/akashic-mcp/Server.swift` 的 `akashic_resolve_people` schema 新增

@@ -901,7 +901,15 @@ public final class AkashicService {
     /// 剛被 reject 腿否決的 apply id 以 `skippedBecauseRejected` 回報（不是錯誤——
     /// LLM 一次 triage 常兩邊都點到同一列）。單腿呼叫回應形狀**不變**。
     public func resolvePeople(apply: [String]?, reject: [String]? = nil,
-                              confirmTiers: [String]? = nil) throws -> String {
+                              confirmTiers: [String]? = nil,
+                              judge: [String]? = nil) throws -> String {
+        // 判定（change `per-work-judged-authorship`）：與 apply／reject 是**不同種類的
+        // 主張**——後兩者作用在 resolver 提名出來的候選上，判定作用在一個由呼叫端
+        // 指名的作者位（提名器可能根本沒提名它，例如歧義列）。因此走獨立分支、
+        // 提早返回，不與兩腿協調邏輯糾纏。
+        if let specs = judge, !specs.isEmpty {
+            return try judgeAuthorships(specs)
+        }
         if let ap = apply, !ap.isEmpty, let rj = reject, !rj.isEmpty {
             func parsed(_ s: String) throws -> [String: Any] {
                 (try JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any]) ?? [:]
@@ -955,6 +963,109 @@ public final class AkashicService {
     /// 單腿本體（R4-1 抽出）。`rejectedRowsOut`：reject 腿實際否決的配對
     /// （**未截斷**的 rowID＋personKey）——combined 分支的跨腿協調吃這個，
     /// 不吃經消毒截斷的 JSON 回音。
+    /// 逐篇判定（change `per-work-judged-authorship`）。
+    ///
+    /// 收 `<citekey>:<authorIndex>:<personKey>=<judgement>`，**以第一個 `=` 切**
+    /// ——judgement 是自由文字，本來就可能含等號。
+    ///
+    /// **literal 由 store 讀、不由呼叫端提供**：少一個能打錯的欄位，且天然強制
+    /// 「該位置現在是一個 literal」——已歸戶的位置在讀取階段就被擋下。
+    ///
+    /// **先全部驗證再寫**：任一筆不合法即整體 throw，零副作用。半批寫入對「判定」
+    /// 這種需要逐筆負責的動作是錯的預設——使用者無從知道哪幾筆進去了。
+    private func judgeAuthorships(_ specs: [String]) throws -> String {
+        let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
+        guard storeFormat >= 8 else {
+            throw ServiceError.invalid(
+                "judgement 要寫 resolution-confirmed verdict，需要 store format ≥ 8"
+                + "（本 store 是 \(storeFormat)）")   // display-safe-exempt: storeFormat 是 Int
+        }
+        let load = try store.load()
+        let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
+                                   uniquingKeysWith: { _, last in last })
+        let byKey = Dictionary(load.people.map { ($0.key, $0) },
+                               uniquingKeysWith: { a, _ in a })
+
+        // ── 全部解析 + 驗證（此段不寫任何東西）──
+        var pairings: [JudgedPairing] = []
+        var seen = Set<String>()
+        for spec in specs {
+            guard let eq = spec.firstIndex(of: "=") else {
+                throw ServiceError.invalid(
+                    "判定「\(displaySafe(spec, max: 200))」缺少 `=`——格式是 "
+                    + "citekey:authorIndex:personKey=判定理由")
+            }
+            let id = String(spec[..<eq])
+            let judgement = String(spec[spec.index(after: eq)...])
+            let parts = id.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+            guard parts.count == 3, let idx = Int(parts[1]) else {
+                throw ServiceError.invalid(
+                    "判定 id「\(displaySafe(id, max: 200))」不是三段形 "
+                    + "citekey:authorIndex:personKey")
+            }
+            let (citekey, personKey) = (parts[0], parts[2])
+            guard seen.insert(id).inserted else {
+                throw ServiceError.invalid(
+                    "判定 id「\(displaySafe(id, max: 200))」重複——同一個作者位不得在一次"
+                    + "呼叫裡判兩次（兩句 judgement 只有一句會留下）")
+            }
+            guard let entry = byCitekey[citekey] else {
+                throw ServiceError.notFound("work「\(displaySafe(citekey, max: 200))」")
+            }
+            guard entry.authors.indices.contains(idx) else {
+                throw ServiceError.invalid(
+                    "作者索引 \(idx) 超出「\(displaySafe(citekey, max: 200))」的範圍"   // display-safe-exempt: idx 是 Int
+                    + "（0…\(entry.authors.count - 1)）")   // display-safe-exempt: count 是 Int
+            }
+            guard case let .literal(literal) = entry.authors[idx] else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(citekey, max: 200))」的第 \(idx) 個作者位已經歸戶"   // display-safe-exempt: idx 是 Int
+                    + "——判定不覆寫既有歸戶；要改判請先 reject 既有 verdict")
+            }
+            guard byKey[personKey] != nil else {
+                throw ServiceError.notFound("person「\(displaySafe(personKey, max: 200))」")
+            }
+            guard let p = JudgedPairing(citekey: citekey, authorIndex: idx,
+                                        literal: literal, personKey: personKey,
+                                        judgement: judgement) else {
+                throw ServiceError.invalid(
+                    "判定「\(displaySafe(id, max: 200))」的 judgement 是空白"
+                    + "——judgement 是「憑什麼這樣判」的紀錄，沒有它的配對與猜測無法區分")
+            }
+            pairings.append(p)
+        }
+
+        // ── 寫入（entry → person verdict → rebuild）──
+        let updated = PersonResolver.apply(pairings, to: load.entries)
+        var wroteEntries = 0
+        for e in updated where !load.entries.contains(where: { $0 == e }) {
+            try store.writeEntry(e)
+            wroteEntries += 1
+        }
+        var grouped: [String: Person] = [:]
+        for p in pairings {
+            guard var person = grouped[p.personKey] ?? byKey[p.personKey] else {
+                throw ServiceError.notFound("person「\(displaySafe(p.personKey, max: 200))」")
+            }
+            ResolutionLedger.appendIfAbsent(ResolutionLedger.record(judged: p),
+                                            to: &person.references)
+            grouped[p.personKey] = person
+        }
+        for key in grouped.keys.sorted() { try store.writePerson(grouped[key]!) }
+        _ = try? LibraryIndex(store: store).rebuild()
+
+        return try jsonString([
+            "judged": pairings.map { p -> [String: Any] in
+                ["id": "\(displaySafe(p.citekey, max: 200)):\(p.authorIndex):"   // display-safe-exempt: authorIndex 是 Int
+                    + "\(displaySafe(p.personKey, max: 200))",
+                 "literal": displaySafe(p.literal, max: 300),
+                 "judgement": displaySafe(p.judgement, max: 800)]
+            },
+            "entriesRewritten": wroteEntries,
+            "personsRewritten": grouped.count,
+        ])
+    }
+
     private func resolvePeopleCore(apply: [String]?, reject: [String]?,
                                    confirmTiers: [String]? = nil,
                                    rejectedRowsOut: inout [(rowID: String, personKey: String)]) throws -> String {

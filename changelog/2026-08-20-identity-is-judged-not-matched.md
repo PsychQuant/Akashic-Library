@@ -143,6 +143,50 @@ requirement 明文 `SHALL NOT abort the remaining pairings`。正確切法：**�
 
 兩張都是量測 authorized name 時**順帶撈出來**的，與當時的主題無關但不丟棄。
 
+## 產出四：`--refute` —— 判定的鏡像缺口（同日稍晚）
+
+實作完 `--judge` 之後開始查那 69 筆歧義，第一批就撞到牆：
+
+```
+$ akashic resolve-people --refute ...   # 當時還不存在，先試既有的
+$ akashic resolve-people --reject 'chen2013peptide:0:chun-houh-chen'
+Error: 找不到：候選 id「chen2013peptide:0:chun-houh-chen」（先不帶 apply 列出候選）
+```
+
+**既有 `--reject` 只吃 resolver 提名出來的候選，歧義列一律 notFound。** 而
+`akashic-person-verify` 明寫 reject 是三個出口之一（「查過了不是他」）——那個出口對歧義列
+**從來沒有通過**。
+
+#386 解掉了「說**是**他」，「說**不是**他」還是不通。而對共用 literal 來說，**否定才是
+絕大多數的答案**：69 筆逐篇查該作者位在論文上登記的機構後，**22 筆已確定答案不在候選裡**
+（UC Davis／UCSD／長庚／慈濟／馬偕／北榮／國衛院…）。
+
+### 設計：否決是判定的鏡像，不是 reject 的變體
+
+同一條解析與守衛，只差 `VerdictKind` 與「否決不動 entry」。`judgeAuthorships` 因此泛化為
+收 kind，兩條路共用全部邏輯。
+
+**「該位置已歸戶」對否決不是障礙**——否決不動 entry，已歸戶的位置仍可留下「另一個候選
+不是他」的判定。literal 改由該位置的既有 verdict 取；取不到就略過**不猜**。
+
+### 首批成果
+
+39 個 (列, 候選) 配對、涵蓋 22 列，每筆 verdict 都帶逐字的機構證據，例如：
+
+> 該作者位在論文上登記的機構是「Department of Otolaryngology, Chang Gung Memorial
+> Hospital-Kaohsiung M」，不是中研院統計所（OpenAlex raw_affiliation_strings，2026-08-20 查證）
+
+### 一個查證方法上的修正
+
+第一版分類器把 `institutions` 與 `raw_affiliation_strings` 混在一起當機構證據，結果誤判
+一筆：`yushuanshiau1996observation[3]` 的 `institutions` 含統計所，但 `raw` 說的是
+「Department of Radiology, National Taiwan University Hospital」。
+
+**`raw_affiliation_strings` 是逐作者的，`institutions` 可能是論文全體的。** 有 raw 就只信
+raw——實測 55 筆有機構資料的列**全部**都有 raw，所以這個修正沒有覆蓋損失。
+
+（該筆後來查明是真的雙隸屬，兩個字串都在 raw 裡——所以不是污染，但判準仍該以 raw 為準。）
+
 ## 方法論教訓（跨 session 值得記）
 
 **「判準還不夠精確」是一個會無限迭代的錯誤診斷**，而每一輪迭代都看起來像進步。兩版判準、

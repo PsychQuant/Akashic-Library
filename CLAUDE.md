@@ -50,12 +50,26 @@ propose ──→ park ──────────────→ apply ─�
 
 ## Rules
 
-`.claude/rules/` 下是本 repo 的規則，寫給會照著執行的人與模型看。
+**`.claude/rules/` 下的每一條規則，本 repo 的所有實踐都必須遵守。** 它們不是建議、
+不是風格偏好、也不是「參考一下」——是本 repo 已經付過代價換來的裁決。
+
+三條執行語意：
+
+1. **規則勝過臨場判斷。** 當某條規則與「這次這樣做比較快／比較合理」衝突時，以規則為準。
+   規則存在的理由通常正是「當時也覺得那樣比較合理」。
+2. **覺得規則錯了就顯式改規則**，不要靜默偏離。改法是在同一個變更裡改那個檔案、寫下
+   為什麼、附上量測——每條規則的「觸發過的實例」段就是為此而存在。
+3. **規則的封閉列舉不得依性質相似類推。** 好幾條規則刻意用「封閉表 ＋ 逐列理由」而不給
+   總括判準（理由見全域 `common-spec-prose-enumeration`）。遇到表裡沒有的情形，**加一列**，
+   不要從既有列推導。
+
+寫給會照著執行的人與模型看。
 
 | 規則 | 一句話 |
 |---|---|
 | [lossless-intake.md](.claude/rules/lossless-intake.md) | 匯入不得有損——來源給了什麼就收什麼；不收的只有秘密與隱私邊界兩類，且丟棄必須報出來 |
 | [literal-first-then-key.md](.claude/rules/literal-first-then-key.md) | 每個 entity reference 先以 literal 進庫、再經顯式消歧升格 key——進庫不猜、升格留 verdict；終局是全域 literal 歸零（#303/#304） |
+| [identity-is-judged-not-matched.md](.claude/rules/identity-is-judged-not-matched.md) | 身分是**判定**出來的不是**比對**出來的——`literal → key` 是 AI 判斷函數，不得由字串謂詞單獨做出；Jaccard 實測同一人 0.40／不同人 0.50，提名是 recall 不是判定 |
 | [mcp-cli-parity.md](.claude/rules/mcp-cli-parity.md) | 新增任一面（MCP／CLI）的能力時必須裁決另一面——三張封閉裁決表（MCP／CLI-only／橫切選項）+ 四步機械稽核（#259 起雙向，#310 補橫切面），缺口不得安靜累積 |
 | [entity-backlink-completeness.md](.claude/rules/entity-backlink-completeness.md) | 呈現 entity 時所有相關 entity 都要看得到——反向一律現算不儲存；可儲存的關係邊是一張封閉列舉表＋可執行稽核（條數見該檔，摘要刻意不複述——複述過的數字會與表分岔） |
 | [no-compat-fallback.md](.claude/rules/no-compat-fallback.md) | 不留相容 fallback——要改格式就一次改完全部；例外須離開 default 位置、附退場量測、退場即刪 |

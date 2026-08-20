@@ -105,4 +105,136 @@ final class JudgedPairingTests: XCTestCase {
                                     personKey: "chun-houh-chen", judgement: "citekey 不存在")!
         XCTAssertEqual(PersonResolver.apply([oor, unknown], to: [e]).first?.authors, e.authors)
     }
+
+    // MARK: - 2.1 判定的 rule 字面值
+
+    /// spec: `A judgement SHALL nominate the same literal elsewhere, with its provenance
+    /// visible` —— 字面約束的半邊。
+    ///
+    /// 提名理由的弱血統揭露只逐字印出符合 `^[a-z][a-z-]{0,60}$` 的 rule，其餘一律代換成
+    /// 「非標準rule」（防偽造揭露樣式）。判定的 rule 若不符，判定的來歷就**看不見**——
+    /// 而看得見正是它存在的理由。
+    func testJudgedRulePassesTheDisclosureLiteralCheck() {
+        let r = ResolutionLedger.judgedRule
+        XCTAssertNotNil(r.range(of: "^[a-z][a-z-]{0,60}$", options: .regularExpression),
+                        "judgedRule「\(r)」不符揭露的字面約束，會被印成「非標準rule」")
+    }
+
+    /// 與既有 rule 字面值都不相撞——校準歷史分開計（同 orgRule／venueRule 的既有理由）。
+    func testJudgedRuleIsDistinctFromEveryNominationRule() {
+        let nomination = Set(ResolutionTier.allCases.map(ResolutionLedger.personRule(for:)))
+            .union([ResolutionLedger.orgRule, ResolutionLedger.venueRule])
+        XCTAssertFalse(nomination.contains(ResolutionLedger.judgedRule),
+                       "judgedRule 不得與任何提名 rule 相同：\(nomination)")
+    }
+
+    /// **刻意不帶 `author-name-` 前綴**：該前綴的意思是「靠名字比對出來的」，
+    /// 而判定不是。這條把那個設計意圖釘住——有人日後改成 `author-name-judged`
+    /// 就會紅。
+    func testJudgedRuleDoesNotClaimToBeANameMatch() {
+        XCTAssertFalse(ResolutionLedger.judgedRule.hasPrefix("author-name-"),
+                       "判定不是名字比對，rule 不得宣稱自己是")
+    }
+
+    // MARK: - 2.2 verdict 同時含操作者原文與 rule 尾註
+
+    /// spec: `A judged pairing SHALL resolve one occurrence and SHALL carry its judgement`
+    /// —— scenario「A judged pairing resolves the named author position」的 verdict 半邊。
+    ///
+    /// **建構函式住 `ResolutionLedger`**：該檔頭寫著「慣例單一來源——encode 與 decode
+    /// 只住這裡」。CLI 與 MCP 各拼一次尾註，是兩份會分岔的規格。
+    func testJudgedVerdictCarriesBothOperatorTextAndRuleTail() {
+        let text = "該作者位登記機構為 Institute of Statistical Science, Academia Sinica"
+        let j = JudgedPairing(citekey: "chen2006decision", authorIndex: 5,
+                              literal: "C.-H. Chen", personKey: "chun-houh-chen",
+                              judgement: text)!
+        let ref = ResolutionLedger.record(judged: j)
+
+        XCTAssertEqual(ref.field, ResolutionLedger.VerdictKind.confirmed.rawValue)
+        guard case let .judgement(statement, restsOn) = ref.kind else {
+            return XCTFail("判定必須寫成 judgement，實得 \(ref.kind)")
+        }
+        XCTAssertTrue(statement.contains(text), "操作者原文必須逐字在內：\(statement)")
+        XCTAssertTrue(statement.contains("[rule: \(ResolutionLedger.judgedRule)]"),
+                      "rule 尾註必須在：\(statement)")
+        XCTAssertTrue(restsOn.isEmpty,
+                      "#280：verdict 刻意不攜 rests-on，證據走被判 person 的 references")
+    }
+
+    /// verdict 的 value 用既有的配對文法（`work:<citekey> :: <literal>`），
+    /// 這樣 `rejectedPairings`／`confirmedPairings` 的既有讀端不必改就認得判定。
+    func testJudgedVerdictUsesTheExistingPairingGrammar() {
+        let j = JudgedPairing(citekey: "w1", authorIndex: 0, literal: "C-H Chen",
+                              personKey: "chun-houh-chen", judgement: "x")!
+        let ref = ResolutionLedger.record(judged: j)
+        let v = ref.value ?? ""
+        XCTAssertTrue(v.contains("w1"), "value 應含 citekey：\(v)")
+        XCTAssertTrue(v.contains("C-H Chen"), "value 應含 literal：\(v)")
+    }
+
+    // MARK: - 2.3 傳染：判定讓同 literal 在別篇浮出來
+
+    private func person(_ key: String, names: [String]) -> Person {
+        var p = Person(key: key)
+        p.names = PersonNames(authorized: names, variant: [])
+        return p
+    }
+
+    /// spec: `A judgement SHALL nominate the same literal elsewhere, with its provenance
+    /// visible`。
+    ///
+    /// **為什麼傳染是對的**（設計曾反轉過一次）：不傳染的話，同 literal 的其他 occurrence
+    /// 永遠停在歧義桶，**沒有任何東西指出「其中一列已經有人判過了」**。傳染讓它們浮出來，
+    /// 而錯配由既有兩道機制擋住（CLI 裸 apply 拒絕非 exact 層、MCP 要求 per-id 顯式）。
+    func testJudgementNominatesTheSameLiteralInAnotherWork() {
+        let people = [person("chen-hsin-chen", names: ["Chen, Chen-Hsin"]),
+                      person("chun-houh-chen", names: ["Chen, Chun-houh"])]
+        let judged = work("w1", authors: [.literal("C-H Chen")])
+        let other = work("w2", authors: [.literal("C-H Chen")])
+
+        // 判定前：兩篇都是歧義（兩個 person 的 initials 鍵相撞）
+        let before = PersonResolver.resolve(entries: [judged, other], people: people,
+                                            rejected: [], confirmed: [:])
+        XCTAssertEqual(before.candidates.count, 0)
+        XCTAssertEqual(before.ambiguities.count, 2, "判定前兩篇都該是歧義")
+
+        // w1 判給 chun-houh-chen，其 verdict 餵回 confirmed
+        let j = JudgedPairing(citekey: "w1", authorIndex: 0, literal: "C-H Chen",
+                              personKey: "chun-houh-chen",
+                              judgement: "該作者位登記機構為統計所")!
+        let pairing = ResolutionPairing(holderKind: .work, holder: j.citekey,
+                                        literal: j.literal, judgedKey: j.personKey)
+        let after = PersonResolver.resolve(
+            entries: [PersonResolver.apply([j], to: [judged]).first!, other],
+            people: people, rejected: [],
+            confirmed: [pairing: ResolutionLedger.judgedRule])
+
+        let w2 = after.candidates.filter { $0.citekey == "w2" }
+        XCTAssertEqual(w2.count, 1, "w2 應因他處判定而被提名，實得 \(after.candidates)")
+        XCTAssertEqual(w2.first?.tier, .confirmedElsewhere)
+        XCTAssertEqual(w2.first?.personKey, "chun-houh-chen")
+        XCTAssertTrue(w2.first?.reason.contains(ResolutionLedger.judgedRule) ?? false,
+                      "提名理由必須逐字揭露判定的 rule（血統可見）：\(w2.first?.reason ?? "")")
+    }
+
+    // MARK: - 2.4 冪等
+
+    /// spec: `A judged pairing SHALL be applied only when the named position still holds
+    /// the named literal` —— scenario「Re-applying a judged pairing changes nothing」。
+    func testReapplyingAJudgementChangesNothing() {
+        let j = JudgedPairing(citekey: "w1", authorIndex: 0, literal: "C-H Chen",
+                              personKey: "chun-houh-chen", judgement: "同上")!
+        // entry 側：第二次因守衛「該位置仍是那個 literal」而成為 no-op
+        let once = PersonResolver.apply([j], to: [work("w1", authors: [.literal("C-H Chen")])])
+        let twice = PersonResolver.apply([j], to: once)
+        XCTAssertEqual(twice.first?.authors, [.key("chun-houh-chen")])
+
+        // verdict 側：appendIfAbsent 保證不重複附加
+        var refs: [ProvenanceReference] = []
+        XCTAssertTrue(ResolutionLedger.appendIfAbsent(ResolutionLedger.record(judged: j),
+                                                      to: &refs))
+        XCTAssertFalse(ResolutionLedger.appendIfAbsent(ResolutionLedger.record(judged: j),
+                                                       to: &refs))
+        XCTAssertEqual(refs.count, 1, "同一筆判定不得留下兩筆 verdict")
+    }
 }

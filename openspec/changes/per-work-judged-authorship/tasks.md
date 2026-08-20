@@ -39,15 +39,15 @@
 
 ## 2. Verdict 與傳染（AkashicEntity）
 
-- [ ] 2.1 在 `Sources/AkashicEntity/ResolutionLedger.swift` 定案判定用的 rule 字面值
+- [x] 2.1 在 `Sources/AkashicEntity/ResolutionLedger.swift` 定案判定用的 rule 字面值
       （小寫連字號、通過 `^[a-z][a-z-]{0,60}$`、與既有三個字面值語意可區分），
       並補一條測試斷言它通過弱血統揭露的字面檢查、不被顯示成「非標準rule」
-- [ ] 2.2 寫失敗測試：判定寫出的 verdict 其 judgement 欄同時含操作者原文與該 rule 尾註。
+- [x] 2.2 寫失敗測試：判定寫出的 verdict 其 judgement 欄同時含操作者原文與該 rule 尾註。
       驗收＝紅→綠
-- [ ] 2.3 寫失敗測試：某 literal 在 A 篇被判定後，同 literal 在 B 篇的 occurrence 於重跑
+- [x] 2.3 寫失敗測試：某 literal 在 A 篇被判定後，同 literal 在 B 篇的 occurrence 於重跑
       `resolve` 時以 `confirmedElsewhere` tier 出現，且提名理由逐字含該 rule 字面值。
       驗收＝紅→綠
-- [ ] 2.4 寫失敗測試：重複套用同一筆判定後，該作者位仍指向同一人且該 person 的
+- [x] 2.4 寫失敗測試：重複套用同一筆判定後，該作者位仍指向同一人且該 person 的
       references 未新增第二筆相同 verdict（既有 `appendIfAbsent` 的冪等）
 
 ## 3. CLI 面（akashic）

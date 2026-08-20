@@ -67,7 +67,7 @@
 - [x] 4.1 在 `Sources/AkashicMCPKit/AkashicService.swift` 讓 `resolvePeople` 收 per-id 的
       判定清單，與 CLI 走**同一條** service 函式（`entity-backlink-completeness` 執行
       細節 2 的單一實作路徑）
-- [ ] 4.2 在 `Sources/akashic-mcp/Server.swift` 的 `akashic_resolve_people` schema 新增
+- [x] 4.2 在 `Sources/akashic-mcp/Server.swift` 的 `akashic_resolve_people` schema 新增
       對應參數。驗收＝`StdioE2ETests` 的工具數斷言與 schema 斷言更新後轉綠
 - [x] 4.3 更新 `.claude/rules/mcp-cli-parity.md` 的 `akashic_resolve_people` 列，載明
       兩面契約的差異（CLI 逐 id 顯式且不提供批次；MCP per-id 顯式）
@@ -77,7 +77,7 @@
 - [ ] 5.1 [P] 把 delta spec 的 MODIFIED 與 ADDED requirements 併進
       `openspec/specs/person-resolution/spec.md`（由 archive 流程執行，本項只確認 delta
       的 requirement 標題與既有檔逐字相符，避免 MODIFIED 對不上）
-- [ ] 5.2 [P] 在 `changelog/` 新增本輪紀錄，寫明「判定的作用範圍」這個關鍵 trade-off
+- [x] 5.2 [P] 在 `changelog/` 新增本輪紀錄，寫明「判定的作用範圍」這個關鍵 trade-off
       與它被反轉一次的理由（不傳染 → 傳染）
 
 ## 6. 真實 store 驗收

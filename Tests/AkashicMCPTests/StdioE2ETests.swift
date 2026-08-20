@@ -118,6 +118,34 @@ final class StdioE2ETests: XCTestCase {
     /// Server.swift 的 arg 取用（schema key 改名／掉參數，service 層全綠照樣壞）。
     /// 這裡用**與 schema 一致的 key 名**（question/candidates/judgement/rests_on）
     /// 走真 binary，釘住 dispatch 的每個參數都真的被轉發。
+    /// `akashic_resolve_people` 的 judge 參數真的暴露在 schema 上（#386）。
+    ///
+    /// **工具數刻意不變**——判定是既有 tool 的新參數，不是新 tool。所以工具數斷言擋不住
+    /// 「參數忘了註冊」這個失敗；這條補上那一格。
+    func testResolvePeopleExposesTheJudgeParameter() throws {
+        try send([
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": ["protocolVersion": "2024-11-05",
+                       "capabilities": [:] as [String: Any],
+                       "clientInfo": ["name": "e2e-test", "version": "0"]],
+        ])
+        _ = try readResponse()
+        try send(["jsonrpc": "2.0", "method": "notifications/initialized"])
+        try send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
+        let listResp = try readResponse()
+        guard let result = listResp["result"] as? [String: Any],
+              let tools = result["tools"] as? [[String: Any]],
+              let rp = tools.first(where: { $0["name"] as? String == "akashic_resolve_people" })
+        else { return XCTFail("找不到 akashic_resolve_people：\(listResp)") }
+        let props = ((rp["inputSchema"] as? [String: Any])?["properties"] as? [String: Any]) ?? [:]
+        XCTAssertNotNil(props["judge"],
+                        "judge 參數未暴露——CLI 有而 MCP 沒有就是 mcp-cli-parity 說的"
+                        + "「缺口安靜累積」。實際參數：\(props.keys.sorted())")
+        let desc = ((props["judge"] as? [String: Any])?["description"] as? String) ?? ""
+        XCTAssertTrue(desc.contains("歧義"),
+                      "描述必須說明歧義列也適用——那正是本參數存在的理由：\(desc)")
+    }
+
     func testRecordDivergenceToolCallEndToEnd() throws {
         try send(["jsonrpc": "2.0", "id": 1, "method": "initialize",
                   "params": ["protocolVersion": "2024-11-05", "capabilities": [:],

@@ -1026,6 +1026,28 @@ public final class LibraryStore {
     }
 }
 
+/// person key 改名的回報（#395）。
+///
+/// **欄位與 `RenameReport` 不同，刻意不共用型別**——兩者的參照集合不同
+/// （見 `renamePerson` 的對照表），共用一個型別會逼出「這個欄位對另一邊是什麼意思」
+/// 這種答不出來的問題。
+public struct PersonRenameReport: Equatable {
+    /// `authors[].key` 有被改寫的 work citekeys。
+    public var authorEdgesRewritten: [String]
+    /// verdict value 的 `person:<key>` 有被改寫的**持有記錄** key（person 或 organization）。
+    public var verdictValuesRewritten: [String]
+    /// 候選或 `judgement.prefers` 有跟著改名的歧異記錄 id。
+    public var divergencesRewritten: [String]
+
+    public init(authorEdgesRewritten: [String] = [],
+                verdictValuesRewritten: [String] = [],
+                divergencesRewritten: [String] = []) {
+        self.authorEdgesRewritten = authorEdgesRewritten
+        self.verdictValuesRewritten = verdictValuesRewritten
+        self.divergencesRewritten = divergencesRewritten
+    }
+}
+
 public struct RenameReport: Equatable {
     /// relations 有引用被改寫的 citekeys。
     ///
@@ -1190,11 +1212,29 @@ extension LibraryStore {
         // 「找不到對應記錄」，於是它永遠無法被消歧，而 rename 什麼都沒說。
         var divergencesToRewrite: [Divergence] = []
         for var d in load.divergences {
+            // `judgement.prefers` 也是對候選 key 的參照（#395 發現的缺口）。
+            //
+            // 先前只遷 `candidates`，於是一筆「候選沒動、只有 prefers 指著舊 citekey」
+            // 的歧異會被下面的 guard 整個跳過——而漏掉的後果是安靜的：
+            // `resolve-divergence` 用 `prefers != survivor` 擋下不一致，`prefers` 指著
+            // 一個已不存在的 key 時，**任何** survivor 都不等於它，那筆歧異永遠消不掉，
+            // 而 rename 什麼都沒說。與本函式下方 verdict value 那段（#232 NEW-1）同型。
+            var prefersChanged = false
+            if var j = d.judgement, j.prefers == oldKey,
+               d.candidates.contains(where: { $0.shape == .work && $0.key == oldKey }) {
+                j.prefers = newKey
+                d.judgement = j
+                prefersChanged = true
+            }
             let migrated = d.candidates.map { c in
                 (c.shape == .work && c.key == oldKey)
                     ? DivergenceCandidate(key: newKey, shape: c.shape) : c
             }
-            guard migrated != d.candidates else { continue }
+            guard migrated != d.candidates || prefersChanged else { continue }
+            guard migrated != d.candidates else {
+                divergencesToRewrite.append(d)          // 只有 prefers 變
+                continue
+            }
             // 遷移後若兩個候選變成同一個，那筆歧異已被 rename 回答掉，但 rename 不是
             // 消歧——它沒有合併語意、也不該替使用者刪記錄。拒絕並要求先消歧。
             var seen = Set<String>()
@@ -1295,6 +1335,216 @@ extension LibraryStore {
         return RenameReport(relationsRewritten: rewritten.sorted(),
                             divergenceCandidatesRewritten: divergenceIDs.sorted(),
                             verdictValuesRewritten: verdictKeys.sorted())
+    }
+
+
+    // MARK: - person key 改名（#395）
+
+    /// person key 改名：搬 key + 全庫參照遷移（UUID 不變）。
+    ///
+    /// **不是「照抄 `renameEntry`」。** 兩者的參照集合不同，各自窮舉——
+    /// `entity-backlink-completeness` 的封閉列舉表是那份窮舉的來源：
+    ///
+    /// | 參照面 | citekey（`renameEntry`）| person key（本函式）|
+    /// |---|---|---|
+    /// | 主體 | `Entry.citekey` | `Person.key` |
+    /// | 作品側邊 | `relations.cites`／`related` | **`Entry.authors[].key`**（第 1 條）|
+    /// | verdict value | `work:<citekey>` | **`person:<key>`**（第 13 條，holder kind 不同）|
+    /// | verdict 掛在哪 | person 的 `references` | **person 與 organization 兩處** |
+    /// | divergence | `candidates[].key`（shape `.work`）| `candidates[].key`（shape `.person`）|
+    /// | divergence 判斷 | `judgement.prefers` | `judgement.prefers` |
+    ///
+    /// **`prefers` 是 `renameEntry` 漏掉的一格**（本函式一併補上它那半，見
+    /// `migratePrefers`）——漏掉的後果是安靜的：`resolve-divergence` 會拿
+    /// `prefers != survivor` 去擋，而 `prefers` 指著一個已不存在的 key 時，
+    /// **任何** survivor 都不等於它，於是那筆歧異永遠消不掉。
+    ///
+    /// **`person:` verdict 目前零實例**（實測 1296 筆 verdict 全是 `work:`），但
+    /// `resolve-organizations` 的程式路徑會產生它。依 `zero-instance-guards` 第 1 列
+    /// （失敗不可見）處理：不處理就是 #232 verify NEW-1 那個「否決安靜變回待判」的同型。
+    @discardableResult
+    public func renamePerson(from oldKey: String, to newKey: String) throws -> PersonRenameReport {
+        guard StoreKey.isValid(oldKey) else { throw StoreIOError.invalidKey("person key", oldKey) }
+        guard StoreKey.isValid(newKey) else { throw StoreIOError.invalidKey("person key", newKey) }
+        guard oldKey != newKey else {
+            throw StoreIOError.invalidKey("person key（新舊相同）", newKey)
+        }
+        // legacy 佈局的 person 檔名就是 key，改名要搬檔——那條路徑沒有測試覆蓋，
+        // 而 format 12 的 store 一律是 entities 佈局。**拒絕並指路**，不假裝支援。
+        guard usesEntitiesLayout else {
+            throw StoreIOError.inconsistentStore(
+                action: "rename-person",
+                issues: ["legacy 佈局（people/<key>.yaml）不支援 person key 改名——"
+                       + "先跑 akashic migrate 遷到 entities 佈局再改名"])
+        }
+        let load = try store_loadForRename()
+        try assertNoCrossRecordErrors(load, action: "rename-person")
+
+        guard var person = load.people.first(where: { $0.key == oldKey }) else {
+            throw StoreIOError.invalidKey("person key（來源不存在）", oldKey)
+        }
+        if load.people.contains(where: { $0.key == newKey && $0.id != person.id }) {
+            throw StoreIOError.invalidKey("person key（已被其他記錄使用）", newKey)
+        }
+        // person 與 organization 的 key **可以合法同名**（#166），所以佔用檢查
+        // 只看 people——不看 organizations。
+        if let occupied = quarantinedFileClaiming(personKey: newKey, in: load) {
+            throw StoreIOError.invalidKey(
+                "person key（已被 quarantined 檔「\(occupied)」佔用——修好或移走該檔後再改名）",
+                newKey)
+        }
+
+        // 1. 作品側的 authors 邊（封閉列舉第 1 條）
+        var entriesToRewrite: [Entry] = []
+        for var e in load.entries {
+            let migrated = e.authors.map { a -> Author in
+                if case .key(let k) = a, k == oldKey { return .key(newKey) }
+                return a
+            }
+            guard migrated != e.authors else { continue }
+            e.authors = migrated
+            entriesToRewrite.append(e)
+        }
+
+        // 2. verdict value 的 `person:<key>`（第 13 條）——**person 與 organization 兩處**
+        var peopleToRewrite: [Person] = []
+        for var p in load.people where p.key != oldKey {
+            if let migrated = Self.migratedVerdicts(p.references, from: oldKey, to: newKey) {
+                p.references = migrated
+                peopleToRewrite.append(p)
+            }
+        }
+        var orgsToRewrite: [Organization] = []
+        for var o in load.organizations {
+            if let migrated = Self.migratedVerdicts(o.references, from: oldKey, to: newKey) {
+                o.references = migrated
+                orgsToRewrite.append(o)
+            }
+        }
+        // 被改名的那一筆自己也可能持有指向自己的 verdict
+        if let migrated = Self.migratedVerdicts(person.references, from: oldKey, to: newKey) {
+            person.references = migrated
+        }
+
+        // 3. divergence 的候選與 prefers（第 9、10 條）
+        var divergencesToRewrite: [Divergence] = []
+        for var d in load.divergences {
+            var changed = false
+            let migrated = d.candidates.map { c -> DivergenceCandidate in
+                (c.shape == .person && c.key == oldKey)
+                    ? DivergenceCandidate(key: newKey, shape: c.shape) : c
+            }
+            if migrated != d.candidates {
+                // 與 renameEntry 同一條紀律：塌縮成一個候選時拒絕——改名沒有合併語意
+                var seen = Set<String>()
+                let distinct = migrated.filter {
+                    seen.insert("\($0.shape.rawValue)\u{0}\($0.key)").inserted
+                }
+                guard distinct.count >= 2 else {
+                    throw StoreIOError.inconsistentStore(
+                        action: "rename-person",
+                        issues: ["歧異記錄 \(d.id.uuidString) 的候選會因這次改名塌縮成一個"
+                               + "——rename 沒有合併語意，不會替你刪記錄。請先消歧"
+                               + "（akashic resolve-divergence），或編輯 entities/"
+                               + "\(d.id.uuidString).yaml 移除懸空候選，再重跑"])
+                }
+                d.candidates = migrated
+                changed = true
+            }
+            // **prefers 是 renameEntry 漏掉的那一格。** 它指向候選之一；不遷移的話
+            // `resolve-divergence` 的 `prefers != survivor` 檢查會對**任何** survivor
+            // 都成立，那筆歧異永遠消不掉，而改名什麼都沒說。
+            if var j = d.judgement, j.prefers == oldKey {
+                j.prefers = newKey
+                d.judgement = j
+                changed = true
+            }
+            if changed { divergencesToRewrite.append(d) }
+        }
+
+        // 4. 動磁碟前**完整鏡射寫入端的前置條件**（不只 encode）——只鏡射一半就是
+        //    R2 DA 實測到的撕裂：前面寫完了才在後面擲錯，磁碟半遷移而呼叫端收到錯誤。
+        person.key = newKey
+        _ = try PersonYAML.encode(person)
+        for e in entriesToRewrite { _ = try EntryYAML.encode(e) }
+        for p in peopleToRewrite { _ = try PersonYAML.encode(p) }
+        for o in orgsToRewrite { _ = try OrganizationYAML.encode(o) }
+        for d in divergencesToRewrite {
+            try assertDivergenceWritable(d)
+            _ = try DivergenceYAML.encode(d)
+        }
+
+        // 5. 寫入。entities 佈局的檔名是 UUID，改 key 不搬檔（同 renameEntry 的 #35）。
+        try writePerson(person)
+        var entryKeys: [String] = []
+        for e in entriesToRewrite { try writeEntry(e); entryKeys.append(e.citekey) }
+        var verdictHolders: [String] = []
+        for p in peopleToRewrite { try writePerson(p); verdictHolders.append(p.key) }
+        for o in orgsToRewrite { try writeOrganization(o); verdictHolders.append(o.key) }
+        var divergenceIDs: [String] = []
+        for d in divergencesToRewrite { try writeDivergence(d); divergenceIDs.append(d.id.uuidString) }
+
+        return PersonRenameReport(authorEdgesRewritten: entryKeys.sorted(),
+                                  verdictValuesRewritten: verdictHolders.sorted(),
+                                  divergencesRewritten: divergenceIDs.sorted())
+    }
+
+    /// verdict reference 的 `person:<key>` 遷移；沒有任何改動時回 `nil`。
+    ///
+    /// 文法解析與 store 閘同源（`VerdictPairingValue`），不另寫第二份——
+    /// 那正是 #232 D3 自認過的 grammar-in-string 漂移。
+    private static func migratedVerdicts(_ refs: [ProvenanceReference],
+                                         from oldKey: String,
+                                         to newKey: String) -> [ProvenanceReference]? {
+        var changed = false
+        var out: [ProvenanceReference] = []
+        var seen = Set<String>()
+        for r in refs {
+            var kept = r
+            if ProvenanceReference.resolutionVerdictFields.contains(r.field),
+               let v = r.value,
+               let pairing = ProvenanceReference.VerdictPairingValue.parse(v),
+               pairing.holderKind == .person, pairing.holder == oldKey {
+                kept = ProvenanceReference(
+                    field: r.field,
+                    value: ProvenanceReference.VerdictPairingValue(
+                        holderKind: .person, holder: newKey,
+                        literal: pairing.literal).encoded,
+                    kind: r.kind)
+                changed = true
+            }
+            // 遷移後與既有 verdict 同 (field, value) → 收攏（store 永不持有重複 verdict）
+            guard seen.insert("\(kept.field)\u{0}\(kept.value ?? "")").inserted else {
+                changed = true
+                continue
+            }
+            out.append(kept)
+        }
+        return changed ? out : nil
+    }
+
+    /// quarantined 檔裡有沒有哪一份宣稱這個 person key。
+    ///
+    /// 與 `quarantinedFileClaiming(citekey:)` 同一條紀律（行級文字比對而非 decode，
+    /// 讀檔失敗 fail-closed），但**錨在不同的鍵**：person 記錄的頂層鍵是 `key:`。
+    /// 為避免誤抓 work／organization／venue 的同名頂層鍵，額外要求該檔含
+    /// `person:` 形狀標籤。
+    func quarantinedFileClaiming(personKey: String, in load: LibraryLoad) -> String? {
+        for q in load.quarantined {
+            let url = root.appendingPathComponent(q.file)
+            guard let text = try? readUTF8(url) else { return q.file }   // fail-closed
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            guard lines.contains(where: { $0.trimmingCharacters(in: .whitespaces) == "person:" })
+            else { continue }
+            for line in lines where line.hasPrefix("key:") {
+                let claimed = line.dropFirst("key:".count)
+                    .trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+                if claimed == personKey { return q.file }
+                break                                  // 頂層 key 只有一行
+            }
+        }
+        return nil
     }
 
     private func store_loadForRename() throws -> LibraryLoad {

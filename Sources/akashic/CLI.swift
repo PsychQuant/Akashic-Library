@@ -46,7 +46,7 @@ struct AkashicCLI: ParsableCommand {
         abstract: "Akashic-Library — 檔案為本的文獻整合系統",
         subcommands: [
             ImportZotero.self, Validate.self, ExportBib.self,
-            ResolvePeople.self, Doctor.self, Query.self, Graph.self, Rename.self, LibraryCmd.self, FileCmd.self,
+            ResolvePeople.self, Doctor.self, Query.self, Graph.self, Rename.self, RenamePerson.self, LibraryCmd.self, FileCmd.self,
             Migrate.self, MigrateProvenance.self, MigratePersonIdentity.self,
             ExportTables.self, ImportWoS.self, BootstrapPeople.self,
             ResolveDivergence.self, RecordDivergence.self, AuthorizeNames.self,

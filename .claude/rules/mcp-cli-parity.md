@@ -161,6 +161,7 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 | ~~`migrate-work-types`~~（#325，**已退場**） | 有理由缺席 → 退場 | 格式遷移＝維運例外（同 `migrate` 族）；不可逆、要求檔案受 git 追蹤的人工 pre-flight，MCP 的 LLM 消費者不是該角色。**#325 階段二起命令不存在**——它讀不到舊值（舊值在階段二的 decode 就被拒），留著只會是一個永遠無事可做卻看似可用的命令（`no-compat-fallback` 的「退場即刪」）。列保留但劃掉：刪掉會丟失裁決史，而那正是本檔存在的理由 |
 | `validate` | 有理由缺席 | 讀取檢查由 `akashic_doctor` 覆蓋（功能重疊）|
 | `rename` | 有理由缺席 | 高風險身分操作（citekey 遷移含 verdict value 重寫，#232）＝維運例外 |
+| `rename-person`（#395） | 有理由缺席 | 同 `rename` 的理由，**而且遷移面更大**：除 verdict value（`person:` holder，掛在 person 與 organization 兩處）外，還含全庫 `authors[].key` 與 divergence 的 `candidates`／`judgement.prefers`。**這一列不是從上一列類推來的**——它的參照集合是照 `entity-backlink-completeness` 的封閉列舉逐條窮舉出來的（第 1、9、10、13 條），與 citekey 的那組**不重疊**。維運例外的理由因此更強而非更弱：漏一格的後果是安靜的（檔案照樣載入，只是某些邊指向不存在的 key） |
 | `authorize-names` | 有理由缺席 | 批次策展＝操作者規模 |
 | `export-tables --view`（#274） | 有理由缺席 | 匯出物是檔案樹，MCP 的回傳形狀未定——#274 註記的正式落位 |
 

@@ -1752,6 +1752,52 @@ struct Rename: ParsableCommand {
     }
 }
 
+/// person key 改名（#395）。
+///
+/// **與 `rename` 是兩個命令而不是一個帶旗標的命令**：兩者的遷移面不同
+/// （見 `LibraryStore.renamePerson` 的對照表），合成一個會逼出「這個旗標對另一邊
+/// 是什麼意思」這種答不出來的問題。
+///
+/// 名字是 `rename-person` 而非 `rename --person`——同 `mcp-cli-parity` CLI-only 表的
+/// 其他遷移命令，動詞在前、對象在後。
+struct RenamePerson: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "rename-person",
+        abstract: "person key 改名：全庫 authors 邊 + 消解判定 + 歧異候選遷移（UUID 不變）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Argument(help: "現有 person key") var from: String
+    @Argument(help: "新 person key") var to: String
+
+    func run() throws {
+        // #298：改名是破壞性寫入——目標 store 未指名時要求顯式確認
+        try options.assertDestructiveTargetNamed("rename-person")
+        let store = try options.openStore()
+        let report = try store.renamePerson(from: from, to: to)
+        _ = try LibraryIndex(store: store).rebuild()
+        print("✓ \(displaySafe(from, max: 200)) → \(displaySafe(to, max: 200))")
+        // **三個副作用都要印。** 改名會動到**別的**記錄，那是使用者最不會預期的
+        // 部分——不印等於沒發生過（#71 R3 DA 的既有教訓）。
+        if !report.authorEdgesRewritten.isEmpty {
+            print("作品的作者邊已遷移（\(report.authorEdgesRewritten.count)）："
+                  + report.authorEdgesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))
+        }
+        if !report.verdictValuesRewritten.isEmpty {
+            print("消解判定已遷移："
+                  + report.verdictValuesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))
+        }
+        if !report.divergencesRewritten.isEmpty {
+            print("歧異記錄已遷移（候選或 prefers）：\(report.divergencesRewritten.joined(separator: ", "))")
+        }
+        if report.authorEdgesRewritten.isEmpty && report.verdictValuesRewritten.isEmpty
+            && report.divergencesRewritten.isEmpty {
+            // 「沒有副作用」與「有副作用但沒印」在終端上不該長得一樣
+            print("（無其他記錄引用此 key）")
+        }
+    }
+}
+
 /// 為既有記錄補上對外可稱呼的名字（#81）。
 ///
 /// **預設只報告不寫**——`authorized` 是指定不是推導，機械提名的結果要人看過才算數。

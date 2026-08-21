@@ -67,6 +67,11 @@ jobs:
       - name: Build（只為了拿到 oracle）
         run: swift build
 
+      # 生成的 `#` grapheme 表有沒有隨 Swift／Unicode 版本漂移。一張生成的表
+      # 有它自己的失效模式：版本一動它就過期，而過期是安靜的。
+      - name: hash 表漂移
+        run: bash plugin/skills/akashic-literal-campaign/scripts/tests/hash-table-drift.sh
+
       - name: store-marker parity
         run: bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh
 

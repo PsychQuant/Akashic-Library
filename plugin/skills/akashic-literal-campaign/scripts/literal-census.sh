@@ -30,6 +30,8 @@ python3 - "$ROOT" "$SCRIPT_DIR" <<'EOF'
 import collections, errno, glob, io, os, re, sys
 
 root = sys.argv[1]
+# script 自身的目錄（bash 端顯式傳入）——查表與找原始碼都要它。
+_script_dir = sys.argv[2] if len(sys.argv) > 2 else '.'
 
 # ── store format marker：讀端 grammar 的同構實作 ────────────────────────────
 # 對照 Akashic repo（**private**）的 Sources/AkashicStoreIO/StoreVersion.swift 的 read
@@ -75,36 +77,54 @@ _WS = ('\u0009\u0020\u00a0\u1680'
 _NL = re.compile('\r\n|[\n\r\v\f\x85  ]')
 
 
+# 「緊跟在 `#` 後面會讓讀端不把該行當註解」的 code point 表。
+#
+# 讀端判註解用 Swift 的 `line.hasPrefix("#")`，而 Swift 的 String 比較以
+# **Character（grapheme cluster）** 為單位；Python 標準庫沒有 grapheme 分段。
+#
+# 前一版用「general category（Mn/Mc/Me）＋ 四段硬編範圍」近似，並寫下「那正是
+# 分歧的**充要**形狀」。跨模型審查把兩個方向都否證了：漏 103 個（fail-open：
+# 讀端拒開的 store 被印得跟健康的逐字相同），多含 31 個 Mc（反向誤擋：叫使用者
+# 去修一個完全健康的檔）。根因是拿 general category 近似 Grapheme_Cluster_Break
+# ——兩者既不互相包含也不是同一張表，**再加幾段是加不完的**（#407 R9）。
+#
+# 現在改成查表，而表由 Swift 自己列舉：
+#   swift tests/derive-hash-extenders.swift > hash-merging-ranges.txt
+# `tests/hash-table-drift.sh` 每次重新生成並比對——Unicode 版本漂移會變紅。
+_HASH_TABLE_PATH = f'{_script_dir}/hash-merging-ranges.txt'
+_hash_ranges = []
+_hash_table_error = None
+try:
+    for _ln in io.open(_HASH_TABLE_PATH, encoding='utf-8'):
+        _ln = _ln.strip()
+        if not _ln or _ln.startswith('#'):
+            continue
+        _a, _b = _ln.split()
+        _hash_ranges.append((int(_a, 16), int(_b, 16)))
+except (OSError, ValueError) as _e:
+    _hash_table_error = str(_e)
+
+
 def _starts_with_hash(s):
-    """第一個 **grapheme cluster** 是不是恰好 `#`。
+    """第一個 grapheme cluster 是不是恰好 `#`。回 True／False／None（判不出來）。
 
-    讀端用 Swift 的 `line.hasPrefix("#")`——那是 Character（grapheme cluster）
-    比較。Python 的 `startswith('#')` 是 code point 比較，兩者在「`#` 後面緊跟
-    一個 grapheme extender」時分歧：讀端說不是註解（→ 未知的頂層行 → 整檔拒開），
-    code-point 版說是註解（→ 跳過 → 照常印計數）。
-
-    分歧只有一個方向：Swift 為真 ⇒ 第一個 Character 恰為 `#` ⇒ 第一個 scalar 是
-    `#` ⇒ Python 為真。所以不一致時**必然**是這邊較寬，也就是 fail-open——
-    一個沒有任何 binary 打得開的 store 被印得跟健康的一模一樣（#407 R8 CRITICAL）。
-
-    這裡不做完整的 grapheme 分段（Python 標準庫沒有），只 fail-closed 地擋掉
-    「`#` 之後緊跟 extender」這一類：那正是分歧的充要形狀。涵蓋 Mn/Mc/Me 三個
-    category，加上標準庫的 category 認不出來的幾段（ZWJ、variation selector、
-    combining enclosing keycap、tag 字元）。
+    None 只在表讀不到、且 `#` 後面是非 ASCII 時出現——那時**不猜**。替讀端猜
+    的兩種猜法都出過事：猜寬 → 把拒開的 store 報成健康；猜窄 → 叫人去修一個
+    好檔。第三態是這支腳本已經用過的出路（見 ceiling-unknown）。
     """
     if not s.startswith('#'):
         return False
     if len(s) == 1:
         return True
-    nxt = s[1]
-    if unicodedata.category(nxt) in ('Mn', 'Mc', 'Me'):
-        return False
-    cp = ord(nxt)
-    if (cp == 0x200D                       # ZWJ
-            or 0xFE00 <= cp <= 0xFE0F      # variation selectors
-            or 0x20D0 <= cp <= 0x20F0      # combining diacritical marks for symbols
-            or 0xE0020 <= cp <= 0xE007F):  # tag characters
-        return False
+    cp = ord(s[1])
+    if cp < 0x80:
+        # ASCII 一律不是 grapheme extender——這一半不需要表，也不會漂移。
+        return True
+    if _hash_table_error is not None:
+        return None
+    for lo, hi in _hash_ranges:
+        if lo <= cp <= hi:
+            return False
     return True
 
 
@@ -137,7 +157,12 @@ def _read_marker(path):
     found = None
     for line_raw in _NL.split(text):
         line = line_raw.strip(_WS)
-        if not line or _starts_with_hash(line):
+        _h = _starts_with_hash(line)
+        if _h is None:
+            return ('undecidable', None,
+                    f'(`#` 後面是非 ASCII 且判註解用的表讀不到：{_hash_table_error}'
+                    f'——本腳本不替讀端猜。跑 `akashic doctor --library <store>` 問讀端)')
+        if not line or _h:
             continue
         # 有內容的行必須頂格——marker 裡沒有巢狀結構。
         if line_raw[:1] and line_raw[0] in _WS:
@@ -182,7 +207,11 @@ def _read_marker(path):
         # 值後面只能是註解：`format: 2 garbage` 與 `format: 2.5` 都不是
         # 「帶註解的整數」，不得取前綴當真。
         rest = v[len(numeric):].strip(_WS)
-        if rest and not _starts_with_hash(rest):
+        _hr = _starts_with_hash(rest) if rest else True
+        if _hr is None:
+            return ('undecidable', None,
+                    f'(值後的 `#` 註解判不出來：{_hash_table_error}——不替讀端猜)')
+        if rest and not _hr:
             return 'malformed', None, '(format: 值後面不是註解)'
         found = n
     if found is None:
@@ -203,7 +232,6 @@ _supported = None
 # 複製到 tempdir 再 mutate（不碰出貨檔），那份 copy 從自身位置推不到 Sources/。
 # 沒有它的話，copy 會對每個健康 fixture 都回「支援上限未知」，而那是 copy 造成的
 # 差異、不是 mutation 造成的——negative control 會把它誤報成一整片變紅。
-_script_dir = sys.argv[2] if len(sys.argv) > 2 else '.'
 _repo_env = os.environ.get('AKASHIC_REPO')
 _cands = []
 if _repo_env:
@@ -233,6 +261,8 @@ def fmt_label():
     # 標籤自帶「format」一詞：呼叫端直接嵌入句子，不另外前綴。
     if fmt_state == 'absent':
         return 'format 1（無 store.yaml；讀端語意：缺檔即 format 1）'
+    if fmt_state == 'undecidable':
+        return f'format **判不出來** {_detail}'
     if fmt_state == 'unreadable':
         return f'format **未知**——store.yaml 開不了 {_detail}'
     if fmt_state == 'malformed':
@@ -325,11 +355,15 @@ def _tilde(p):
 # ——不只 venue 那一列。author 才是 campaign 的終局量測，而前一版只在 venue
 # 那一列掛但書，author 照常裸印（R6 finding 50）。
 _store_unopenable = fmt_state in ('malformed', 'unreadable') or _too_new
+_undecidable = fmt_state == 'undecidable'
 
 print(f"store: {_tilde(root)}（{fmt_label()}）")
 if _store_unopenable:
     print(f"{'':<14} ⚠ 讀端會整體拒開此 store，**下面每一列都不能拿去定 campaign "
           "的批次範圍**——它們是直接掃 YAML 得到的，不代表任何 binary 讀得到這些內容")
+elif _undecidable:
+    print(f"{'':<14} ⚠ **本腳本判不出這個 marker 合不合法**，所以下面每一列都不能"
+          "拿去定 campaign 的批次範圍。去問讀端：`akashic doctor --library <store>`")
 elif _ceiling_unknown:
     # **這是 plugin 單獨安裝的常態**（marketplace 出貨時沒有 Sources/），所以它
     # 每次都會印。那是誠實的：每次都真的不知道。前一版只把這件事寫進 format 標籤，

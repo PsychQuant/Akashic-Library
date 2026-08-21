@@ -212,12 +212,26 @@ check "超大版號（26 位）"                 'format: 9999999999999999999999
 # 讀端的 `hasPrefix("#")` 是 grapheme cluster 比較，Python 的 `startswith('#')`
 # 是 code point 比較。`#` 後緊跟一個 grapheme extender 時：讀端判「未知的頂層行」
 # 整檔拒開，舊版 census 判註解、跳過、照常印計數——輸出與健康 store 逐字相同。
-# 分歧單向（Swift 為真必蘊含 Python 為真），所以只有 fail-open 那一半。
+# **兩個方向都要造格子。** 上一版寫「分歧單向…所以只有 fail-open 那一半」，
+# 而那句話決定了矩陣**只造一半的格子**——於是 R9 新引入的 31 個 Mc 反向誤擋
+# 一格都沒被測到（#407 R9 verify）。這是「總括判準與封閉列舉分岔」的教科書形狀。
 check "# + combining acute（註解行）"    '#\xcc\x81 c\nformat: 12\n' malformed
 check "# + VS16（註解行）"               '#\xef\xb8\x8f c\nformat: 12\n' malformed
 check "# + ZWJ（註解行）"                '#\xe2\x80\x8d c\nformat: 12\n' malformed
 check "#️⃣ keycap 序列（註解行）"          '#\xef\xb8\x8f\xe2\x83\xa3 s\nformat: 12\n' malformed
 check "值後註解 # + combining acute"     'format: 12 #\xcc\x81c\n' malformed
+
+# ── R9 verify 具名的兩個方向（近似判準漏 103 / 多含 31）────────────────────
+# 前一版用 general category ＋ 硬編範圍近似 grapheme extender，並寫「那正是分歧
+# 的充要形狀」。實測兩個方向都錯。這五格各取一個代表：前四個是漏掉的（fail-open
+# ——讀端拒開卻被報成健康），最後一個是多含的（反向誤擋——好檔被說壞掉）。
+check "# + U+200C ZWNJ（Cf，終端機看不見）"  '#\xe2\x80\x8c x\nformat: 12\n' malformed
+check "# + U+0E33 泰文 SARA AM（Lo）"        '#\xe0\xb8\xb3 x\nformat: 12\n' malformed
+check "# + U+1F3FB emoji modifier（Sk）"     '#\xf0\x9f\x8f\xbb x\nformat: 12\n' malformed
+check "# + U+FF9E 半形濁音（Lm）"            '#\xef\xbe\x9e x\nformat: 12\n' malformed
+check "# + U+102B 緬甸文 Mc（GCB=Other）"    '#\xe1\x80\xab x\nformat: 12\n' accept
+check "值後 # + U+200C"                      'format: 12 #\xe2\x80\x8cx\n' malformed
+check "值後 # + U+102B"                      'format: 12 #\xe1\x80\xabx\n' accept
 
 # ── 前導零（R8 HIGH：Python 3.11+ 的 int() 位數上限；Swift 逐位解析不受影響）──
 check "5000 個前導零 + 1"                "format: $(printf '0%.0s' $(seq 1 5000))1\n" accept

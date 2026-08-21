@@ -97,7 +97,7 @@ MUTATIONS = [
      '重複 format: 行 last-wins', '第二個 format'),
 
     # 值後面的垃圾被當成帶註解的整數
-    ("        if rest and not _starts_with_hash(rest):\n"
+    ("        if rest and not _hr:\n"
      "            return 'malformed', None, '(format: 值後面不是註解)'",
      "        if False:\n"
      "            return 'malformed', None, '(unreachable)'",
@@ -153,6 +153,17 @@ MUTATIONS = [
     ("    if not s.startswith('#'):\n        return False\n    if len(s) == 1:",
      "    if True:\n        return s.startswith('#')\n    if len(s) == 1:",
      '註解判定退回 code-point 比較', '# + combining acute'),
+
+    # 註解判定退回「general category 近似」—— R9 的判準，兩個方向都錯
+    # （漏 U+200C 等 103 個、多含 31 個 Mc）。R10 改成查 Swift 生成的表。
+    ("    if _hash_table_error is not None:\n        return None\n"
+     "    for lo, hi in _hash_ranges:\n        if lo <= cp <= hi:\n            return False\n"
+     "    return True",
+     "    import unicodedata as _u\n"
+     "    if _u.category(s[1]) in ('Mn', 'Mc', 'Me'):\n        return False\n"
+     "    if cp == 0x200D or 0xFE00 <= cp <= 0xFE0F:\n        return False\n"
+     "    return True",
+     '退回 general category 近似（R9 的判準）', '# + U+200C ZWNJ'),
 
     # BOM 當成未知頂層行 —— 讀端吃掉 BOM，正常開啟
     ("        text = raw_bytes.decode('utf-8-sig')",

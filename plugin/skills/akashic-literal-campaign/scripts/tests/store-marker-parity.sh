@@ -208,6 +208,27 @@ check "阿拉伯數字 format: ١٢"            'format: ١٢\n' malformed
 check "Int64 上界 9223372036854775807"   'format: 9223372036854775807\n' tooNew
 check "Int64 溢位 9223372036854775808"   'format: 9223372036854775808\n' malformed
 check "超大版號（26 位）"                 'format: 99999999999999999999999999\n' malformed
+# ── grapheme vs code point（R8 CRITICAL）──────────────────────────────────
+# 讀端的 `hasPrefix("#")` 是 grapheme cluster 比較，Python 的 `startswith('#')`
+# 是 code point 比較。`#` 後緊跟一個 grapheme extender 時：讀端判「未知的頂層行」
+# 整檔拒開，舊版 census 判註解、跳過、照常印計數——輸出與健康 store 逐字相同。
+# 分歧單向（Swift 為真必蘊含 Python 為真），所以只有 fail-open 那一半。
+check "# + combining acute（註解行）"    '#\xcc\x81 c\nformat: 12\n' malformed
+check "# + VS16（註解行）"               '#\xef\xb8\x8f c\nformat: 12\n' malformed
+check "# + ZWJ（註解行）"                '#\xe2\x80\x8d c\nformat: 12\n' malformed
+check "#️⃣ keycap 序列（註解行）"          '#\xef\xb8\x8f\xe2\x83\xa3 s\nformat: 12\n' malformed
+check "值後註解 # + combining acute"     'format: 12 #\xcc\x81c\n' malformed
+
+# ── U+200B ZWSP（R8 HIGH：反方向的假話——讀端 trim 掉它、census 不 trim）────
+# Foundation 的 CharacterSet.whitespaces 含 ZWSP（Cf，不是 Zs），而舊版 _WS 由
+# Zs 推導。五種位置讀端全部接受，census 全部說「讀端會整體拒開此 store」並指名
+# 一個動作（去修一個健康的檔）。差集只有這一個元素，而矩陣先前一格都沒落在上面。
+check "ZWSP 在 format: 之後"             'format:\xe2\x80\x8b 12\n' accept
+check "ZWSP 在值之後"                    'format: 12\xe2\x80\x8b\n' accept
+check "ZWSP 在 # 註解行之前"             '\xe2\x80\x8b# c\nformat: 12\n' accept
+check "ZWSP 夾在值與註解之間"            'format: 12\xe2\x80\x8b # c\n' accept
+check "只有 ZWSP 的一行"                 '\xe2\x80\x8b\nformat: 12\n' accept
+
 # ── BOM（R6 HIGH 22：反方向的假話——讀端吃掉 BOM 正常開啟，census 卻說拒開
 #    並叫使用者去改一個合法的檔。指名動作的假話比報成健康更容易被當真）──
 check "UTF-8 BOM + format: 12"           '\xef\xbb\xbfformat: 12\n' accept

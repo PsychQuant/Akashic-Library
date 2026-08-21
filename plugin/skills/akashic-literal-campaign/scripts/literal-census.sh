@@ -51,13 +51,61 @@ root = sys.argv[1]
 #   unreadable → 開不了檔（權限／IO）。與「不存在」是不同的事，不得折在一起
 import unicodedata
 
-# CharacterSet.whitespaces ＝ Unicode Zs ∪ tab。刻意不用 str.strip()：它另外剝
-# \v \f，而讀端不把那兩個當空白。
-_WS = ''.join(chr(c) for c in range(0x3000 + 1)
-              if unicodedata.category(chr(c)) == 'Zs') + '\t'
+# 讀端 trim 用 Foundation 的 `CharacterSet.whitespaces`。這裡**列舉它實際含有的
+# 19 個 scalar**，不從 Unicode category 推導。
+#
+# 前一版寫「CharacterSet.whitespaces ＝ Unicode Zs ∪ tab」並照那句話推導——**那句
+# 等式是假的**：Foundation 沿用舊表，含 **U+200B**（ZERO WIDTH SPACE），而 ZWSP
+# 自 Unicode 4.0 起是 Cf 不是 Zs。差集恰好一個元素，而它是最容易從網頁／聊天視窗
+# 貼進來、又在終端機裡看不見的那一個。
+#
+# 後果是**反方向**的假話（實測 5 種位置，讀端全部 ACCEPT）：census 說 marker 壞了、
+# 整份計數被宣告不可用，而使用者被指去修一個完全健康的檔。這比報成健康更容易被
+# 當真，因為它指名了一個動作——那句判準就寫在本檔下面幾行（#407 R8）。
+#
+# 量測（可重跑；需要 swift）：
+#   for cp in 0...0x10FFFF { if CharacterSet.whitespaces.contains(scalar) { … } }
+#   → count=19：U+0009 U+0020 U+00A0 U+1680 U+2000–U+200A U+200B U+202F U+205F U+3000
+_WS = ('\u0009\u0020\u00a0\u1680'
+       '\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a'
+       '\u200b'          # ← Foundation 有、Zs 沒有。整條註解存在的理由就是它
+       '\u202f\u205f\u3000')
 # Character.isNewline 的字元集。刻意不用 str.splitlines()：它另外認 \x1c–\x1e，
 # 會在讀端不分行的地方分行。
 _NL = re.compile('\r\n|[\n\r\v\f\x85  ]')
+
+
+def _starts_with_hash(s):
+    """第一個 **grapheme cluster** 是不是恰好 `#`。
+
+    讀端用 Swift 的 `line.hasPrefix("#")`——那是 Character（grapheme cluster）
+    比較。Python 的 `startswith('#')` 是 code point 比較，兩者在「`#` 後面緊跟
+    一個 grapheme extender」時分歧：讀端說不是註解（→ 未知的頂層行 → 整檔拒開），
+    code-point 版說是註解（→ 跳過 → 照常印計數）。
+
+    分歧只有一個方向：Swift 為真 ⇒ 第一個 Character 恰為 `#` ⇒ 第一個 scalar 是
+    `#` ⇒ Python 為真。所以不一致時**必然**是這邊較寬，也就是 fail-open——
+    一個沒有任何 binary 打得開的 store 被印得跟健康的一模一樣（#407 R8 CRITICAL）。
+
+    這裡不做完整的 grapheme 分段（Python 標準庫沒有），只 fail-closed 地擋掉
+    「`#` 之後緊跟 extender」這一類：那正是分歧的充要形狀。涵蓋 Mn/Mc/Me 三個
+    category，加上標準庫的 category 認不出來的幾段（ZWJ、variation selector、
+    combining enclosing keycap、tag 字元）。
+    """
+    if not s.startswith('#'):
+        return False
+    if len(s) == 1:
+        return True
+    nxt = s[1]
+    if unicodedata.category(nxt) in ('Mn', 'Mc', 'Me'):
+        return False
+    cp = ord(nxt)
+    if (cp == 0x200D                       # ZWJ
+            or 0xFE00 <= cp <= 0xFE0F      # variation selectors
+            or 0x20D0 <= cp <= 0x20F0      # combining diacritical marks for symbols
+            or 0xE0020 <= cp <= 0xE007F):  # tag characters
+        return False
+    return True
 
 
 def _read_marker(path):
@@ -89,7 +137,7 @@ def _read_marker(path):
     found = None
     for line_raw in _NL.split(text):
         line = line_raw.strip(_WS)
-        if not line or line.startswith('#'):
+        if not line or _starts_with_hash(line):
             continue
         # 有內容的行必須頂格——marker 裡沒有巢狀結構。
         if line_raw[:1] and line_raw[0] in _WS:
@@ -126,7 +174,7 @@ def _read_marker(path):
         # 值後面只能是註解：`format: 2 garbage` 與 `format: 2.5` 都不是
         # 「帶註解的整數」，不得取前綴當真。
         rest = v[len(numeric):].strip(_WS)
-        if rest and not rest.startswith('#'):
+        if rest and not _starts_with_hash(rest):
             return 'malformed', None, '(format: 值後面不是註解)'
         found = n
     if found is None:

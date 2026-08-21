@@ -97,7 +97,7 @@ MUTATIONS = [
      '重複 format: 行 last-wins', '第二個 format'),
 
     # 值後面的垃圾被當成帶註解的整數
-    ("        if rest and not rest.startswith('#'):\n"
+    ("        if rest and not _starts_with_hash(rest):\n"
      "            return 'malformed', None, '(format: 值後面不是註解)'",
      "        if False:\n"
      "            return 'malformed', None, '(unreachable)'",
@@ -143,6 +143,16 @@ MUTATIONS = [
     ("_too_new = fmt_state == 'read' and _supported is not None and fmt > _supported",
      "_too_new = False",
      '不偵測 tooNew', '版號太新'),
+
+    # _WS 退回「Zs ∪ tab」的推導 —— 少掉 Foundation 實際含有的 U+200B
+    ("       '\\u200b'          # ← Foundation 有、Zs 沒有。整條註解存在的理由就是它\n",
+     "       ''                 # mutation：拿掉 ZWSP\n",
+     '_WS 少掉 U+200B（退回 Zs 推導）', 'ZWSP 在 format: 之後'),
+
+    # 註解判定退回 code-point 比較 —— 讀端是 grapheme cluster 比較（R8 CRITICAL）
+    ("    if not s.startswith('#'):\n        return False\n    if len(s) == 1:",
+     "    if True:\n        return s.startswith('#')\n    if len(s) == 1:",
+     '註解判定退回 code-point 比較', '# + combining acute'),
 
     # BOM 當成未知頂層行 —— 讀端吃掉 BOM，正常開啟
     ("        text = raw_bytes.decode('utf-8-sig')",

@@ -17,7 +17,12 @@ name: Census parity
 #
 # 這個 workflow 補上缺的那一格：**只在 parity 的受測對象或它的 oracle 改動時**
 # 點 macOS runner。範圍刻意窄——那台是 10× 計費，而這個 repo 在 2026-08 兩度把
-# 免費額度燒光。這三條路徑合起來就是「parity 可能因此破掉」的完整條件。
+# 免費額度燒光。這三條路徑涵蓋 parity **最直接的三個受測對象**。
+#
+# **刻意不寫成「完整條件」**：讀端的行為還受其他檔案影響（例如
+# `Sources/akashic/CLI.swift` 裡呼叫 `StoreVersion.check` 的那個 choke point），
+# 而窮舉那條依賴鏈需要另一次量測。上一版寫了「完整條件」——一句沒量過的全稱句，
+# 出現在一份以「別寫沒量過的話」為主題的變更裡（#407 R8 verify）。
 
 on:
   push:

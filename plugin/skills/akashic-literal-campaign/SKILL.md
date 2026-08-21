@@ -21,7 +21,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/akashic-literal-campaign/scripts/literal-cens
 
 四域各報**總邊／literal 邊／distinct 三個口徑**——「literal 邊」是歸零的終局量測，distinct 是查證工作量估計。
 
-**先看第一行有沒有全域警告。** marker 壞到讀端會整體拒開此 store（不合 grammar／讀不到／版號超過本機支援上限）時，census 會在 store 那一行下面印一條 ⚠——**那一輪的每一列都不能拿去定 campaign 的批次範圍**，不只 venue。author 才是歸零的終局量測，而先前只有 venue 那一列掛但書。
+**先看 store 那一行下面有沒有 ⚠。**（它印在**第二行**——第一行是 `store: <路徑>（format …）`。上一版寫「第一行」，#407 R8 verify 抓到。） marker 壞到讀端會整體拒開此 store（不合 grammar／讀不到／版號超過本機支援上限）時，census 會在 store 那一行下面印一條 ⚠——**那一輪的每一列都不能拿去定 campaign 的批次範圍**，不只 venue。author 才是歸零的終局量測，而先前只有 venue 那一列掛但書。
 
 **venue 那一列的輸出，各代表不同的事**（#407 R6／R7 起；先前只有「未部署」一種，於是「還沒部署」「marker 壞了」「量到邊但 marker 說沒有」被折在一起）：
 

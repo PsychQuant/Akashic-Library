@@ -86,10 +86,19 @@ propose ──→ park ──────────────→ apply ─�
 >
 > **那條規則有守衛，而守衛有 negative control。** `plugin/tests/`（覆蓋、散文，
 > 純 python／bash）與 `plugin/skills/akashic-literal-campaign/scripts/tests/`
-> （store-marker parity，拿建好的 CLI 當 oracle）共五支。觸發點：
-> `.githooks/pre-push`（全部五支）、`plugin-guards.yml`（ubuntu，1× 計費，跑純
-> python／bash 的三支）、`census-parity.yml`（macOS，**只在 census／parity 測試／
-> 它的 oracle 改動時觸發**，跑需要 binary 的兩支）。
+> （store-marker parity，拿建好的 CLI 當 oracle）共五支。
+>
+> **觸發點已接上，但 2026-08-21 實測：一個都沒在跑**（#407 R8 verify）：
+>
+> | 觸發點 | 檔案 | 實際執行 |
+> |---|---|---|
+> | `.githooks/pre-push`（五支） | ✅ | ❌ `core.hooksPath` 指向**主 repo** 的 `.githooks`，那份對五支守衛 0 命中——worktree 的修改不是實際生效的那份。**merge 到 main 後自癒** |
+> | `plugin-guards.yml`（ubuntu，1×，三支） | ✅ | ⬜ 從未執行（branch 未 push） |
+> | `census-parity.yml`（macOS，兩支；只在 census／parity 測試／oracle 改動時觸發） | ✅ | ❌ macOS runner 帳務擱置——main 最近 8 次 CI run 全部 `failure` 且 **steps=0**（runner 層拒跑） |
+>
+> **目前唯一實際跑過這五支的路徑是本機手動執行。** 這一格寫在這裡，是因為
+> 「接上觸發點」與「觸發點會跑」是兩件事，而把後者寫成既成事實正是這條規則要防的
+> 那種斷言——它在 R8 verify 被具名。
 >
 > **`ci.yml` 的 `paths-ignore` 仍排除 `plugin/**`**——理由已從「plugin 沒有測試
 > 讀取」換成純計費（macOS runner 10×）。它另有一個 parity step，但那是第二層：

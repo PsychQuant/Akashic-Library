@@ -21,4 +21,17 @@ swift build -Xswiftc -warnings-as-errors
 echo "pre-push: swift test -Xswiftc -warnings-as-errors（全套；判讀看最後一行總數——#56 的教訓）"
 swift test -Xswiftc -warnings-as-errors
 
+# **Plugin 守衛**（#407）。CI 的 macOS job 對 plugin-only 的 push 被
+# paths-ignore 跳過（計費考量），所以本機這一關是它們唯一每次都會跑到的地方。
+# 順序刻意放在 swift build 之後——parity 測試要拿建好的 CLI 當 oracle。
+#
+# 「進版控不等於會被執行」是 #407 R6 跨模型審查量到的缺口：五支守衛出貨了，
+# 卻沒有任何自動觸發點（CI、hook、swift test、Makefile 全部零引用）。
+echo "pre-push: plugin 守衛（覆蓋／散文／parity，各含 negative control）"
+bash plugin/tests/rule-coverage.sh
+python3 plugin/tests/rule-prose-guards.py --venue Sources/AkashicCore/Venue.swift
+python3 plugin/tests/rule-prose-guards-mutations.py
+bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh
+python3 plugin/skills/akashic-literal-campaign/scripts/tests/marker-parity-mutations.py
+
 echo "pre-push: ✓ 全部通過"

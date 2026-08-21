@@ -29,7 +29,19 @@ set -uo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$HERE/../../../../.." && pwd)
+# --census <path>：讓 negative control 可以 mutate **一份 copy** 而不是出貨檔。
+# 先前的 harness 就地改寫 tracked 的 literal-census.sh，審查期間被實際觀察到
+# 兩分鐘內出現三種被注入的狀態。改成 mutate copy 之後，鎖／finally／前置潔淨
+# 檢查三個缺口一次消失——它們防的是「原檔被改壞」，而原檔不再被碰。
 CENSUS="$HERE/../literal-census.sh"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --census) CENSUS="$2"; shift 2 ;;
+    --census=*) CENSUS="${1#--census=}"; shift ;;
+    *) echo "✗ 未知參數：$1" >&2; exit 2 ;;
+  esac
+done
+[ -r "$CENSUS" ] || { echo "✗ 讀不到 census：$CENSUS" >&2; exit 2; }
 
 AKASHIC=""
 for c in "$REPO/.build/debug/akashic" "$REPO/.build/release/akashic"; do
@@ -76,19 +88,28 @@ YAML
 # 把 census 的 `n >= 1` 守衛拿掉之後，`format: 0` 仍然「通過」——因為測試自己的
 # 分類器也做了一次範圍檢查，把 census 的錯誤吸收掉了。二值看不見「census 以為自己
 # 讀到一個合法 marker」與「census 知道 marker 壞了」的差別，而那正是要比的東西。
+# 把 repo 位置顯式傳給 census：`--census` 指到的可能是 tempdir 裡的 copy
+# （negative control 就是這樣跑的），那份 copy 從自身位置推不到 Sources/。
 census_verdict() {
-  local d="$1" out first n
-  out=$("$CENSUS" "$d" 2>&1) || { echo "ERROR"; return; }
+  local out first
+  out=$(AKASHIC_REPO="$REPO" "$CENSUS" "$1" 2>&1) || { echo "ERROR"; return; }
   first=$(printf '%s\n' "$out" | head -1)
   case "$first" in
-    *"marker 不合 grammar"*)      echo "malformed"; return ;;
-    *"store.yaml 開不了"*)        echo "unreadable"; return ;;
-    *"format 1（無 store.yaml"*)  echo "accept";    return ;;
+    *"marker 不合 grammar"*)      echo "malformed" ;;
+    *"store.yaml 開不了"*)        echo "unreadable" ;;
+    # **tooNew 讀 census 自己說的話，不由本測試算。** 前一版寫
+    #   elif [ "$n" -gt "$SUPPORTED" ]; then echo "tooNew"
+    # ——那是測試自己做的範圍檢查。決定性實驗：只刪掉那一行、census 一個位元組
+    # 都沒動，該格立刻變成 census=accept oracle=tooNew。也就是說那個 ✓ 完全由
+    # 測試的算術製造，而 census 對一個沒有任何 binary 打得開的 store 印得跟健康
+    # store 逐字相同。這與本檔上方「刻意不是二值」的理由是**同一個**，而四值那次
+    # 只修好了 n >= 1 那一格。
+    *"超過本機原始碼的支援上限"*) echo "tooNew" ;;
+    *"不知道你的 binary 支援到第幾版"*) echo "ceiling-unknown" ;;
+    *"format 1（無 store.yaml"*)  echo "accept" ;;
+    *"（format "*)                echo "accept" ;;
+    *)                            echo "ERROR" ;;
   esac
-  n=$(printf '%s\n' "$first" | grep -oE 'format [0-9]+' | grep -oE '[0-9]+$')
-  if [ -z "$n" ]; then echo "ERROR"
-  elif [ "$n" -gt "$SUPPORTED" ]; then echo "tooNew"
-  else echo "accept"; fi
 }
 
 # 讀端（真 CLI）對這個 store 的裁決。
@@ -177,9 +198,20 @@ check "讀不到（chmod 000）"               '__NOPERM__'
 check "store.yaml 是目錄"                 '__DIR__'
 check "版號太新（tooNew）"                "format: $((SUPPORTED + 1))\n"
 
-# ── 已知殘留分歧（斷言現況；上游若改會變紅）────────────────────────────────
-# Swift 的 Int(String) 只吃 ASCII 數字，Python 的 int() 吃 Unicode 十進位數字。
-check "Unicode 數字 format: ١٢"          'format: ١٢\n' "Swift Int() 只吃 ASCII，Python int() 吃 Unicode 數字"
+# ── 數值解析（R6 CRITICAL 2：這一族先前只有阿拉伯數字一格，且標成 xfail，
+#    於是整套仍報 fail=0 而 census 把讀端拒開的 store 印得跟健康 store 逐字相同）──
+# Swift 的 Int(String) 只吃 ASCII 數字且超出 Int64 回 nil；Python 的 isdigit()
+# 認全部 Unicode 數字、int() 是任意精度。三種數字系統 + 上下界各一格。
+check "全形數字 format: １２"            'format: １２\n'
+check "天城體數字 format: १२"            'format: १२\n'
+check "阿拉伯數字 format: ١٢"            'format: ١٢\n'
+check "Int64 上界 9223372036854775807"   'format: 9223372036854775807\n'
+check "Int64 溢位 9223372036854775808"   'format: 9223372036854775808\n'
+check "超大版號（26 位）"                 'format: 99999999999999999999999999\n'
+
+# ── BOM（R6 HIGH 22：反方向的假話——讀端吃掉 BOM 正常開啟，census 卻說拒開
+#    並叫使用者去改一個合法的檔。指名動作的假話比報成健康更容易被當真）──
+check "UTF-8 BOM + format: 12"           '\xef\xbb\xbfformat: 12\n'
 
 echo
 echo "═══ pass=$pass  fail=$fail  已知分歧=${xfail} ═══"

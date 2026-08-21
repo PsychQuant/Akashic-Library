@@ -1,0 +1,53 @@
+name: Plugin guards
+
+# **為什麼是獨立 workflow 而不是 ci.yml 的一個 step**
+#
+# `ci.yml` 的 `paths-ignore` 明列 `plugin/**`——一個純 plugin 的 push 不只是
+# 「CI 沒跑守衛」，是**整個 CI job 被跳過**。那個排除有真實理由（macOS runner
+# 是 10× 計費，2026-08 兩度把免費額度燒光），而它的註解當時寫著排除 plugin 的
+# 理由是「plugin shell 沒有任何測試讀取」。
+#
+# 那句話當時為真、現在為假：`plugin/` 底下已經有五支守衛。#407 R6 的跨模型審查
+# 量到這個缺口——「進版控不等於會被執行」。
+#
+# 解法不是把 `plugin/**` 從那份 paths-ignore 拿掉（那會讓每次改 skill 散文都點
+# 一台 10× 計費的 macOS runner，重演被燒光的那件事），而是**按需求分流**：
+#
+#   * 純 python／bash 的守衛（散文、覆蓋）→ 這裡，ubuntu，1× 計費。
+#   * 需要 build 好的 CLI 當 oracle 的 parity 測試 → 留在 ci.yml 的 macOS job，
+#     它本來就會 build（見該檔的「Plugin parity 守衛」step）。
+#
+# 兩者合起來涵蓋五支。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugin/**"
+  pull_request:
+    paths:
+      - "plugin/**"
+
+concurrency:
+  group: plugin-guards-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 規則有沒有被每個 skill 掛到，且相對路徑真的解析得到。
+      - name: rule-coverage
+        run: bash plugin/tests/rule-coverage.sh
+
+      # 散文守衛。`--venue` 顯式指向 checkout 內的原始碼——**不給的話第 5 項會
+      # 走「未涵蓋」出口並以 exit 2 表明它沒被執行**（未涵蓋不得冒充通過）。
+      - name: rule-prose-guards
+        run: python3 plugin/tests/rule-prose-guards.py --venue Sources/AkashicCore/Venue.swift
+
+      # 上一步的每一項都證明會紅。一個從沒紅過的檢查，和一個不存在的檢查，
+      # 在報告上長得一模一樣。
+      - name: rule-prose-guards negative control
+        run: python3 plugin/tests/rule-prose-guards-mutations.py

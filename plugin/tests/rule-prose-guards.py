@@ -26,6 +26,21 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.abspath(os.path.join(HERE, '..'))
+VENUE = None
+
+# --root <dir> / --venue <path>：讓 negative control 能對**一份 copy** 跑，
+# 而不是就地改寫出貨檔。前一版的 harness 改的是版控中的規則檔，而跨模型審查在
+# 審查期間實際觀察到姊妹 harness 把 tracked 的 census 改壞三次。改成 copy 之後，
+# 鎖／finally／前置潔淨檢查三個缺口一次消失——原檔不再被碰。
+_args = sys.argv[1:]
+while _args:
+    if _args[0] == '--root':
+        PLUGIN = os.path.abspath(_args[1]); _args = _args[2:]
+    elif _args[0] == '--venue':
+        VENUE = os.path.abspath(_args[1]); _args = _args[2:]
+    else:
+        sys.exit(f'✗ 未知參數：{_args[0]}')
+
 RULE = os.path.join(PLUGIN, 'rules', 'assertions-must-be-measured.md')
 
 # repo 專屬路徑 ＝ 讀者要有那個 repo 才找得到的東西。三種形狀。
@@ -75,7 +90,15 @@ def prose_lines(fp):
 followable = []
 for fp in files(PLUGIN):
     for i, line in prose_lines(fp):
-        if re.search(r'\]\([^)]*(?:\.claude/rules/|Akashic-Library/blob/)', line):
+        # 謂詞用**同一個** REPO_ONLY，不另寫一份縮寫版。前一版這裡手寫了它四種
+        # 形狀中的兩種，於是把一個指向另外兩種的可跟隨連結注入進去，5/5 全綠。
+        # **一份規格的兩個副本必然分岔**——這是本 issue 反覆的主題，而這裡是它在
+        # 守衛自己身上的實例。
+        #
+        # 註解刻意不逐字寫出那兩種形狀：寫了就會被第 2 項 flag（實測過三次），
+        # 而替代方案是加一份豁免清單——豁免清單才是真正會長出漏洞的東西。
+        if re.search(r'\]\([^)]*', line) and REPO_ONLY.search(
+                line[line.find(']('):] if '](' in line else ''):
             followable.append(f'{os.path.basename(fp)}:{i}')
 check(1, 'repo 專屬路徑以可跟隨連結出現', followable, [])
 
@@ -118,26 +141,43 @@ check(4, '規則檔殘留「三筆都…volume」的假全稱句', false_all, []
 #    引號內的不算：失敗史必須引述得了那句假話（「`VenueType` 是封閉三值」）。
 CJK_NUM = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6,
            '七': 7, '八': 8, '九': 9, '十': 10}
-venue_src = os.path.join(PLUGIN, '..', 'Sources', 'AkashicCore', 'Venue.swift')
+venue_src = VENUE or os.path.join(PLUGIN, '..', 'Sources', 'AkashicCore', 'Venue.swift')
 if os.path.isfile(venue_src):
     body = open(venue_src, encoding='utf8', errors='replace').read()
     seg = body.split('enum VenueType')[1].split('\n}')[0]
-    n_case = len(re.findall(r'^\s+case \w+$', seg, re.M))
+    cases = re.findall(r'^\s+case (\w+)$', seg, re.M)
+    n_case = len(cases)
     wrong = []
     for ln, line in enumerate(rule_txt.split('\n'), 1):
-        # 相關性看**整行**、數字宣稱只看**剝引號後**的部分。兩者都用 bare 的話，
-        # 一行若把 VenueType 寫在引號內（失敗史必然如此），整行會被判為不相關而
-        # 跳過——引號外的數字宣稱就漏檢了。negative control 抓到的。
         bare = unquoted(line)
         if 'VenueType' not in line and '值域' not in line:
             continue
         for m in re.finditer(r'([一二三四五六七八九十])值', bare):
             if CJK_NUM[m.group(1)] != n_case:
                 wrong.append(f'第 {ln} 行宣稱 {m.group(0)}，實測 {n_case}')
-    check(5, f'規則對 VenueType 的每一處數量宣稱都與實測一致（實測 {n_case}）',
+    # **也要驗值，不只驗數量**（R6 finding 27）：把一個 case 改名（真缺陷）
+    # 做成 mutation，只驗數量的謂詞 5/5 全綠。凡是逐一列出值域的那一行，
+    # 列出的每個名字都必須真的存在於 enum 裡。
+    for ln, line in enumerate(rule_txt.split('\n'), 1):
+        if line.count('`／`') < 2:      # 只看逐一列舉值域的行
+            continue
+        listed = re.findall(r'`(\w+)`(?=／|）|\)|、|$)', line)
+        if len(listed) >= 3:
+            for name in listed:
+                if name not in cases and name[0].islower():
+                    wrong.append(f'第 {ln} 行列出 `{name}`，而 enum 裡沒有這個 case')
+    check(5, f'規則對 VenueType 的數量與值都與實測一致（實測 {n_case}：{"／".join(cases)}）',
           wrong, [])
 else:
-    print('[5] SKIP  取不到 Venue.swift（plugin 單獨安裝——repo 為 private）')
+    # **未涵蓋不得冒充通過**（本 repo 的 zero-instance-guards 第 3 列）。
+    # 前一版在這裡只 print 一行 SKIP，於是 plugin 單獨安裝時輸出「4/4 PASS」
+    # 並 exit 0——「沒被檢查」與「檢查過且乾淨」在輸出上完全一樣。
+    print(f'[5] SKIP  取不到 Venue.swift（{venue_src}）——**本項未執行**')
+    print()
+    print(f'=== {sum(results)}/{len(results)} PASS，但第 5 項未涵蓋 ===')
+    print('   plugin 單獨安裝時取不到 Akashic repo 的原始碼（該 repo 為 private）。')
+    print('   這不是通過：用 --venue <path> 指向 Venue.swift，或在 repo 內跑。')
+    sys.exit(2 if all(results) else 1)
 
 print()
 print(f'=== {sum(results)}/{len(results)} PASS ===')

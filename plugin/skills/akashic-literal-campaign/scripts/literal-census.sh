@@ -23,8 +23,11 @@ if [ ! -d "$ROOT/entities" ] && [ ! -d "$ROOT/entries" ] && [ ! -d "$ROOT/people
   echo "✗ 「${ROOT}」不是 Akashic store（entities/／entries/／people/ 皆缺）" >&2
   exit 2
 fi
-python3 - "$ROOT" <<'EOF'
-import collections, errno, glob, os, re, sys
+# script 自身的目錄要顯式傳進去：`python3 -` 讀 stdin，__file__ **不存在**
+# （用它會 NameError）。census 需要它來找原始碼判定支援上限。
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+python3 - "$ROOT" "$SCRIPT_DIR" <<'EOF'
+import collections, errno, glob, io, os, re, sys
 
 root = sys.argv[1]
 
@@ -73,7 +76,12 @@ def _read_marker(path):
         return 'unreadable', None, f'({code})'
 
     try:
-        text = raw_bytes.decode('utf-8')
+        # utf-8-**sig**：Foundation 解 UTF-8 時會吃掉 BOM，所以一個帶 BOM 的
+        # marker 在讀端是**合法的**。前一版用 'utf-8'，於是 BOM 變成第一行的
+        # 第一個字元、既非空白也非 '#'、也不以 'format:' 開頭 → 判「未知的頂層行」，
+        # 印出「讀端會整體拒開此 store」並叫使用者去改一個沒壞的檔。
+        # 這是**反方向**的假話，比報成健康更容易被當真（它指名了一個動作）。
+        text = raw_bytes.decode('utf-8-sig')
     except UnicodeDecodeError:
         # 讀端對此明文 throw malformed，訊息逐字是「(標記檔不是 UTF-8)」。
         return 'malformed', None, '(標記檔不是 UTF-8)'
@@ -93,9 +101,14 @@ def _read_marker(path):
         if found is not None:
             return 'malformed', None, '(第二個 format: 行——歧義)'
         v = line[len('format:'):].strip(_WS)
+        # **只認 ASCII 數字**。Swift 的 `Int(String)` 只吃 ASCII，而 Python 的
+        # `str.isdigit()` 認全部 Unicode 數字——前一版用 isdigit()，於是
+        # `format: １２`（全形）、`format: १२`（天城體）、`format: ١٢`（阿拉伯）
+        # 全部被讀成 12，輸出與一個真正健康的 format 12 store **逐字相同**，
+        # 使用者沒有任何字元可以分辨。讀端對這三者都是 malformed、整體拒開。
         numeric = ''
         for ch in v:
-            if not ch.isdigit():
+            if ch not in '0123456789':
                 break
             numeric += ch
         try:
@@ -104,6 +117,12 @@ def _read_marker(path):
             return 'malformed', None, '(format: 後不是整數)'
         if n < 1:
             return 'malformed', None, f'(format: {n}——版號須 >= 1)'
+        # **Int64 上界**。Swift 的 Int 是 64-bit，`Int("9223372036854775808")`
+        # 回 nil → malformed；Python 的 int 是任意精度，於是超大版號被當成合法，
+        # 而且 `fmt >= 11` 為真 → venue 走「已部署且真的是 0」分支，連不一致
+        # 註記都被抑制。實測界線：…807 兩端一致，…808 起分歧。
+        if n > 2 ** 63 - 1:
+            return 'malformed', None, '(format: 值超出 Int64——讀端的 Int() 回 nil)'
         # 值後面只能是註解：`format: 2 garbage` 與 `format: 2.5` 都不是
         # 「帶註解的整數」，不得取前綴當真。
         rest = v[len(numeric):].strip(_WS)
@@ -117,8 +136,44 @@ def _read_marker(path):
 
 fmt_state, fmt, _detail = _read_marker(f'{root}/store.yaml')
 
+# ── 支援上限：store 的 format 再合法，也可能沒有任何 binary 打得開 ──────────
+# 「支援到第幾版」是**binary 的性質**，不是 store 的性質，所以 census 只有在
+# 找得到原始碼時才知道它。找不到時**明說不知道**——前一版兩種情形都印得跟一個
+# 健康 store 逐字相同且 exit 0，而 SKILL.md 的四列表把它歸進「照常進 venue 輪」：
+# skill 主動叫使用者拿一個沒有任何 binary 打得開的 store 去定 campaign 批次範圍。
+_supported = None
+# 來源根：`AKASHIC_REPO` 環境變數優先，其次由腳本自身位置往上推。
+# 環境變數這條是給「腳本不在 repo 內」的情形——例如 negative control 把 census
+# 複製到 tempdir 再 mutate（不碰出貨檔），那份 copy 從自身位置推不到 Sources/。
+# 沒有它的話，copy 會對每個健康 fixture 都回「支援上限未知」，而那是 copy 造成的
+# 差異、不是 mutation 造成的——negative control 會把它誤報成一整片變紅。
+_script_dir = sys.argv[2] if len(sys.argv) > 2 else '.'
+_repo_env = os.environ.get('AKASHIC_REPO')
+_cands = []
+if _repo_env:
+    _cands.append(f'{_repo_env}/Sources/AkashicStoreIO/StoreVersion.swift')
+_cands.append(f'{_script_dir}/../../../../Sources/AkashicStoreIO/StoreVersion.swift')
+for _cand in _cands:
+    try:
+        _m = re.search(r'static let supported = (\d+)',
+                       io.open(_cand, encoding='utf-8', errors='replace').read())
+        if _m:
+            _supported = int(_m.group(1))
+            break
+    except OSError:
+        pass
+
+_too_new = fmt_state == 'read' and _supported is not None and fmt > _supported
+_ceiling_unknown = fmt_state == 'read' and _supported is None
+
 
 def fmt_label():
+    if _too_new:
+        return (f'format {fmt}——**超過本機原始碼的支援上限 {_supported}**；'
+                '任何只支援到那一版的 binary 都會整體拒開此 store')
+    if _ceiling_unknown:
+        return (f'format {fmt}（**本腳本找不到原始碼，不知道你的 binary 支援到第幾版**'
+                '——若它低於這個數字，開不起來）')
     # 標籤自帶「format」一詞：呼叫端直接嵌入句子，不另外前綴。
     if fmt_state == 'absent':
         return 'format 1（無 store.yaml；讀端語意：缺檔即 format 1）'

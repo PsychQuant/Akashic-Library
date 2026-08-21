@@ -3,6 +3,11 @@
 ## [unreleased]
 
 - **新增 `plugin/rules/`**（#407）：plugin 自帶的規則目錄，第一條是 `assertions-must-be-measured`——**寫下一句可能是錯的話之前先回答四個問題**（這句話可能錯嗎／我憑什麼說它／我手上的東西還說了什麼我沒讀／我寫的範圍有沒有超出證據）。刻意**不是分類法**：前兩版都是分類法，兩版都被跨模型審查打掉，原因相同——每條分類邊界本身就是一個關於命題世界的斷言，規則的斷言表面比它要管的東西還大。問句沒有真假。**全部 6 個 skill** 引用它（該 plugin 的每個 skill 都產出人會照著行動的斷言）。**已知缺口**：掛載面（skill 檔）比適用面（issue／報告／規格）窄，該檔的誠實邊界有記。
+- **venue type 值域不再有第二份會分岔的清單**（#407）：`akashic_add_venue`／`akashic_update_venue` 的 tool 說明與 **per-parameter** 描述、CLI `add-venue`／`update-venue` 的 abstract 與 `--type` 說明，全部改由 `VenueType.domainDescription` 現算。先前四處寫死 `journal | conference | publisher`——`journal` 這個值在 #324 已更名為 `periodical` 且**刻意不留相容別名**，所以那份清單的三個值有一個根本不存在，另外三個（`database`／`socialMedia`／`website`）從未被提及。**LLM 讀 per-parameter 描述決定要傳什麼值**，於是它照著送一個會被 decode 拒絕的值。全樹殘留 0。
+- **`literal-census.sh` 的 marker 解析改為讀端 grammar 的同構實作**（#407）：先前它只認 `^format:\s*(\d+)\s*$`，卻在註解裡宣稱「對照讀端」。跨模型審查實測出**六種輸入形狀分歧**，其中三種讓一個讀端**整體拒開**的 store 被 census 報成健康（`meta: {` 毒化 marker、重複 `format:` 行、縮排的非註解行），一種讓讀端完全接受的 marker（`format: 12  # v12`）被宣告壞掉並叫人去修一個沒壞的檔，還有一種（非 UTF-8）直接 traceback。campaign 的批次範圍就是照這個數字定的。
+  **這次的「對照讀端」是被量測的，不是被宣稱的**：新增 `scripts/tests/store-marker-parity.sh`，拿真的 CLI 當 oracle 跑 19 格 fixture 矩陣、四值比對（accept／malformed／tooNew／unreadable），並把一個已知殘留分歧（Swift 的 `Int()` 只吃 ASCII 數字、Python 的 `int()` 吃 Unicode 數字）**斷言為現況**，上游若改會變紅。另附 `scripts/tests/marker-parity-mutations.py`：七個 mutation 各對應一個實測過的分歧形狀，證明那張矩陣真的會紅——一個從沒紅過的檢查與一個不存在的檢查在報告上長得一模一樣。
+  venue 那一列同時改為**量測優先**：解析到 venue 邊就一定印計數列，不論 marker 說什麼；兩者不一致時把不一致本身報出來，並註明在修好 marker 之前這些數字不能拿去定批次範圍。輸出的 store 路徑縮成 `~` 形式（這份輸出的設計去向是 issue）。
+
 - **修掉兩處懸空引用**（#407）：plugin 內指向 repo 端規則的裸相對路徑在 Akashic repo 外解析不到。**改法不是換成絕對 GitHub URL**——實測該 repo `isPrivate=true`，未認證 GET 一律 404，而 private repo 的 404 與「已刪除／從不存在」不可區分，等於把缺訊號換成假訊號；且主要讀者是未認證的 agent。改為**就地寫出 skill 實際需要的判準**，出處降為註記並明說需 repo 存取權。同一輪順帶修掉 `akashic-wos-intake` 既有的同型 404 連結（它原本被當成「既有慣例」引用，實測它自己也 404）。
 
 - **`akashic_update_venue`／CLI `update-venue`**（#306）：venue 異名補寫——`add_names` append 語意（整組替換刻意不提供，R3F-2 教訓）；`note`／`type` 替換。沿革補全直接擴大 resolve-venues 命中面。

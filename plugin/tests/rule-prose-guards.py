@@ -144,6 +144,14 @@ CJK_NUM = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6,
 venue_src = VENUE or os.path.join(PLUGIN, '..', 'Sources', 'AkashicCore', 'Venue.swift')
 if os.path.isfile(venue_src):
     body = open(venue_src, encoding='utf8', errors='replace').read()
+    if 'enum VenueType' not in body:
+        # `--venue` 指到一個不含該 enum 的檔（打錯路徑、上游改名）→ 走「未涵蓋」
+        # 出口，不是崩潰。前一版直接 `split(...)[1]`，於是拋未捕捉的 IndexError
+        # ——而本檔自己寫好的 SKIP 分支就在下面沒被用到（R6 finding 62）。
+        print(f'[5] SKIP  {venue_src} 裡找不到 `enum VenueType`——**本項未執行**')
+        print()
+        print(f'=== {sum(results)}/{len(results)} PASS，但第 5 項未涵蓋 ===')
+        sys.exit(2 if all(results) else 1)
     seg = body.split('enum VenueType')[1].split('\n}')[0]
     cases = re.findall(r'^\s+case (\w+)$', seg, re.M)
     n_case = len(cases)

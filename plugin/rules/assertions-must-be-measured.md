@@ -122,7 +122,32 @@ curl -sS --fail -H 'User-Agent: your-tool (mailto:you@example.com)' \
 **能寫下的**：當次 Crossref 對該 DOI 回傳 `volume 2 / issue 3 / page 231-238`，且回傳的標題與該記錄相符。
 **不能寫下的**：「真值就是 231-238」——掛在識別碼下的欄位仍可能誤植（本 plugin 的 `akashic-bootstrap/references/work-sources.md` 記過一個實例）。要更強的結論需要出版商頁或全文。
 
-**為什麼這個 repo 與 issue 不具名（顯式裁決，2026-08-21）**：本 plugin 經由**公開**的 marketplace 發布（實測：`gh repo view PsychQuant/psychquant-claude-plugins --json isPrivate` → `false`；README 的安裝指令就是 `claude plugin install akashic-mcp@psychquant-claude-plugins`）。具名一個 private repo 會把**它的存在**與**那張 issue 的主題**一併公開，而那兩件事本身就是該 repo 選擇 private 的內容。失敗史的教學價值不依賴 repo 名字——它依賴那個形狀（一個未查證的假設驅動了兩個修法，兩個都會保留錯的值）。**Akashic-Library 的 issue 編號照常具名**：本專案的存在已由 marketplace entry 與 README 公開，不是新增揭露。這是一次裁決，不是副作用——要改請改這一段。
+**為什麼這個 repo 不具名，而它的主題照常出貨（顯式裁決，2026-08-21，R7 修正）**
+
+本 plugin 經由**公開**的 marketplace 發布——證據見下方自我量測表（marketplace repo
+的 `isPrivate` 為 `false`，且其 manifest 列出本 plugin）。所以這一節寫下的東西是公開的。
+
+**受保護的是 repo 的存在與名字，不是那張 issue 的主題。**
+
+上一版把裁決寫成「具名會把它的存在與**那張 issue 的主題**一併公開」，然後在同一段
+把主題完整出貨（記錄的形狀、唯一識別的 DOI、回傳的標題片段）。**藏掉的是最不敏感
+的那一半，保留的是裁決自己指名為敏感的那一半**——一句寫下來卻未被遵守的斷言，
+出現在一份以「別寫沒量過的話」為主題的規則裡。
+
+裁決收斂為：
+
+| | 處置 | 理由 |
+|---|---|---|
+| private repo 的**名字與存在** | 不具名 | 那是該 repo 選擇 private 所保護的東西，而具名不增加任何教學價值 |
+| 那次失敗的**形狀與量測** | 照常出貨，含 DOI | 這條規則的旗艦要求就是「量測必須可重跑」。遮蔽 DOI 會讓它自己的範例變成一句不可查證的話——**用違反規則的方式保護規則**。DOI 本身是一篇已發表論文的公開識別碼 |
+
+**Akashic-Library 照常具名（含 issue 編號與主題）**：它的名字**已經**在公開處——
+出貨的 `plugin/bin/akashic-mcp-wrapper.sh` 第 6 行逐字寫著 `REPO="PsychQuant/Akashic-Library"`，
+任何裝了這個 plugin 的人都讀得到。上一版引的證據是「marketplace entry 與 README」，
+而那條安裝指令具名的是 **plugin**（`akashic-mcp`）不是 **repo**——照它跑一遍拿不到
+這個結論。**結論對，引用的證據不是它**；這正是第 2 題的字面要求。
+
+這是一次裁決，不是副作用——要改請改這一段。
 
 ### 二、一份逐列對照報告的一句話
 

@@ -34,25 +34,38 @@ for rule in "$RULES"/*.md; do
   echo "── ${name} ──"
   for d in "$SKILLS"/*/; do
     skill=$(basename "$d")
-    # 掃整個 skill 目錄（SKILL.md、references/、scripts/），不只 SKILL.md：
-    # 引用可以落在該 skill 的任一份文件上。
-    if grep -rq -- "$name" "$d"; then
+    # **驗的是「有一條解析得到的相對路徑指向這條規則」**，不是「這個字串在某處
+    # 出現過」。前一版用整目錄子字串比對，於是任何一處純文字提及都算「已掛載」
+    # ——包括一句「本規則不適用於此」。規則檔與 CHANGELOG 卻把它描述成「引用
+    # 存在且路徑解析得到」，那個描述經實測為假（#407 R6 findings 14／15／17）。
+    #
+    # regex 的結尾用 `[^)\`" ]*` 一路吃到分隔符，**不是**吃到 .md 就停。前一版
+    # 會從 `…assertions-must-be-measured.md.bak` 擷取出一個合法前綴、驗證通過，
+    # 而那個連結是壞的。
+    found=0
+    while IFS= read -r hit; do
+      f="${hit%%:*}"; rel="${hit#*:}"
+      base=$(basename "$rel")
+      # 擷取到的整個 token 必須就是規則檔本身（不是它的前綴）
+      [ "$base" = "${name}.md" ] || {
+        printf '  ✗ %s 的引用不是這條規則本身：%s\n' "${f#"$PLUGIN"/}" "$rel"
+        fail=$((fail + 1)); continue
+      }
+      if [ -f "$(dirname "$f")/$rel" ]; then
+        found=1
+      else
+        printf '  ✗ %s 的相對路徑解析不到：%s\n' "${f#"$PLUGIN"/}" "$rel"
+        fail=$((fail + 1))
+      fi
+    done < <(grep -rHo -- "\.\./[^)\`\" ]*${name}[^)\`\" ]*" "$d" 2>/dev/null)
+
+    if [ "$found" = 1 ]; then
       printf '  ✓ %s\n' "$skill"
     else
-      printf '  ✗ %s ← 沒有引用這條規則\n' "$skill"
+      printf '  ✗ %s ← 沒有指向這條規則的可解析相對路徑\n' "$skill"
       fail=$((fail + 1))
     fi
   done
-
-  # 相對路徑要真的解析得到——引用一條指不到的路徑，比不引用更糟：
-  # 它讓讀者以為自己拿得到，而 plugin 安裝到別處時那個路徑不存在。
-  while IFS= read -r f; do
-    dir=$(dirname "$f")
-    while IFS= read -r rel; do
-      [ -f "$dir/$rel" ] || { printf '  ✗ %s 的相對路徑解析不到：%s\n' \
-        "${f#"$PLUGIN"/}" "$rel"; fail=$((fail + 1)); }
-    done < <(grep -o -- '\.\./[^)`" ]*'"$name"'\.md' "$f" | sort -u)
-  done < <(grep -rl -- "$name" "$SKILLS" 2>/dev/null)
 done
 
 echo

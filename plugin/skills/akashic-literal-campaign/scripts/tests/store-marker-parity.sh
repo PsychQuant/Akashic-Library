@@ -60,7 +60,11 @@ if [ -z "$SUPPORTED" ]; then
   exit 2
 fi
 
-WORK=$(mktemp -d)
+# **驗 mktemp 成功**。本檔用 `set -uo`（刻意沒有 -e，因為 check() 要收 census
+# 的非零退出），所以 mktemp 失敗時 $WORK 會是空字串，而下面每個 fixture 路徑都是
+# "$WORK/..." —— 那會在**檔案系統根目錄**建目錄寫檔，且 trap 的 rm -rf "" 清不掉。
+WORK=$(mktemp -d) || { echo "✗ mktemp -d 失敗" >&2; exit 2; }
+[ -n "$WORK" ] && [ -d "$WORK" ] || { echo "✗ mktemp -d 沒有給出可用的目錄" >&2; exit 2; }
 trap 'chmod -R u+rwX "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
 
 pass=0; fail=0; xfail=0

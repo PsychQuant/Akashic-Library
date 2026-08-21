@@ -162,3 +162,9 @@ akashic_resolve_people reject:["<citekey>:<index>:<personKey>", …]  # 查過�
 - **配對不在 candidates 列時沒有 apply 把手**——同上：先讓配對能以 exact 成為候選（補 alias 或建檔），重跑 resolve 再 apply
 - **查不出來是合法結果**。「證據不足以判定」就說證據不足，讓配對留在 pending **並記 divergence**（Step 3 的第三個出口）——pending 可見是設計，不是待消滅的數字
 - **承重頁面要存檔**：判定所依據的網頁內容存進 `sources/`（content-addressed）、經 bootstrap 寫入 person 的 `references`——寫法依 [writing-to-the-store.md](../akashic-bootstrap/references/writing-to-the-store.md)。非承重的佐證列 URL 即可。（verdict **刻意**不攜 rests-on——設計裁決見 Akashic-Library#280：已判定的證據住 person `references`、未判定的住 divergence `restsOn`，兩載體依生命週期分工）
+
+## 相關
+
+- [`akashic-venue-verify`](../akashic-venue-verify/SKILL.md)——同一套 literal→verdict 紀律，不同 entity 域與證據源
+- [`akashic-disambiguate`](../akashic-disambiguate/SKILL.md)——歧義列的判定；它的第 3 步會回頭用本 skill
+- [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——**本 skill 產出的每一句關於世界的話都受它管**：查得到就寫查到什麼、查不到就寫「查不到」並列出查過的來源，不寫「應該是」

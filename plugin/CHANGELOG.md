@@ -2,6 +2,9 @@
 
 ## [unreleased]
 
+- **新增 `plugin/rules/`**（#407）：plugin 自帶的規則目錄，第一條是 `assertions-must-be-measured`——寫進交付物的世界斷言要先被量測過（三分法封閉列舉：可否證的世界斷言受管、設計主張與明標的推測不受管）。四個做外部查證的 skill （person-verify／venue-verify／bootstrap／disambiguate）引用它。**為什麼放 plugin 不放 repo 端的 rules 目錄**：後者只在 Akashic repo 內自動注入，而查證工作常在別的 repo 進行——本規則的兩個失敗實例正好都發生在 repo 外。
+- **修掉兩處懸空引用**（#407）：plugin 內指向 repo 端 rules 目錄（`identity-is-judged-not-matched`）的裸相對路徑，在 Akashic repo 外一律解析不到，改為絕對 GitHub URL（沿 `akashic-wos-intake` 的既有慣例）。
+
 - **`akashic_update_venue`／CLI `update-venue`**（#306）：venue 異名補寫——`add_names` append 語意（整組替換刻意不提供，R3F-2 教訓）；`note`／`type` 替換。沿革補全直接擴大 resolve-venues 命中面。
 - **⚠️ `akashic_resolve_people` 增 `confirm_tiers`**（#307）：apply 集含寬鬆提名層（reorder／initials／confirmed-elsewhere）而該層未列於 `confirm_tiers` ＝整批拒絕零寫入並指名缺席層；exact 免承認。MCP 面自此也有 tier 覺察閘（CLI 為 `--tier`，兩面對稱不同形）。
 - **`akashic_update_person` 的 `references` 落地**（#308）：**append-only**（與其他欄位的替換語意刻意不同——references 持有 verdict，整換會洗判定史）；retrieval／judgement 兩型、(field,value,kind) 冪等；verdict 欄位對拒收（只能經 resolve 流程寫）。alias-promotion 出口的 provenance 半邊自此有正規寫入面。

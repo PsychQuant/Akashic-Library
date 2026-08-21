@@ -77,3 +77,9 @@ propose ──→ park ──────────────→ apply ─�
 | [apa7-is-the-work-floor.md](.claude/rules/apa7-is-the-work-floor.md) | 一筆 work 的資訊下限是「能產出正確的 APA7 參考文獻」——ch10 的 113 例是驗收矩陣、`Entry.type` 的值域須**細分**（非等於）ch10 的 16 節；下限不是上限，分類可更細不可更粗 |
 | [zero-instance-guards.md](.claude/rules/zero-instance-guards.md) | 為「還沒發生過的形狀」寫守衛是一列一列裁決出來的——封閉決策表＋理由欄同列，刻意不給總括判準（那會在邊界上長出沒人同意的答案）|
 | [blocked-issues-must-be-scannable.md](.claude/rules/blocked-issues-must-be-scannable.md) | 被阻塞的 issue 必須把「在等什麼」寫在工具掃得到的三個位置之一，不得只寫在散文裡——四次「空等」的實測（#314）＋哪些「等」需要標記的封閉裁決表 |
+
+> **plugin 另有自己的規則目錄。** `plugin/rules/` 隨 plugin 走（任何 repo 用 Akashic
+> skill 時都在），由 skill 以相對路徑引用——**不像上表那樣自動注入**。目前一條：
+> [`assertions-must-be-measured`](plugin/rules/assertions-must-be-measured.md)，管「寫進交付物的
+> 世界斷言要先被量測過」。刻意不列進上表：那張表的語意是「自動注入的 repo 規則」，
+> 混進去會讓那個性質變成謊話（#407）。

@@ -179,7 +179,7 @@ done
 
 | 陳述 | 怎麼取得 | 何時 |
 |---|---|---|
-| `VenueType` 是六值，不是三值 | `awk '/^public enum VenueType/{f=1} f&&/^}/{exit} f&&/^    case /{n++} END{print n+0}' Sources/AkashicCore/Venue.swift` → `6`。**本檔上一版出貨的是 `grep -c '^    case ' Sources/AkashicCore/Venue.swift`，跑出來是 `8`**——它數的是整個檔案的 case 行，括號裡寫著「取 `enum VenueType` 區塊」而指令並沒有取。旗艦主張的自我量測指令，第一列就不成立。（**repo 為 private，無存取權者跑不了這條**；另可用 `akashic add-venue --help` 讀由 `allCases` 生成的值域字串） | 2026-08-21 |
+| `VenueType` 是六值（上一版寫的是「三值」）| `awk '/^public enum VenueType/{f=1} f&&/^}/{exit} f&&/^    case /{n++} END{print n+0}' Sources/AkashicCore/Venue.swift` → `6`。**本檔上一版出貨的是 `grep -c '^    case ' Sources/AkashicCore/Venue.swift`，跑出來是 `8`**——它數的是整個檔案的 case 行，括號裡寫著「取 `enum VenueType` 區塊」而指令並沒有取。旗艦主張的自我量測指令，第一列就不成立。（**repo 為 private，無存取權者跑不了這條**；另可用 `akashic add-venue --help` 讀由 `allCases` 生成的值域字串） | 2026-08-21 |
 | 兩筆記錄回傳 `article-number` 23／78 | 本檔第二個實例的 `curl`，同時印 `page`／`article-number`／`volume`／`issue` | 2026-08-21 |
 | `plugin.json` 寫 format 10、本機 store 寫 12 | `grep '"description"' plugin/.claude-plugin/plugin.json` 與 `grep '^format:' <store>/store.yaml`。**單機單樣本**——未查該描述寫下時是否正確、也未查兩者是否相容 | 2026-08-21 |
 | 本檔提到的兩個 repo 皆為 private | `gh repo view <repo> --json isPrivate` → 兩者皆 `true`（repo 名不寫在這裡，理由見立案一末的裁決） | 2026-08-21 |

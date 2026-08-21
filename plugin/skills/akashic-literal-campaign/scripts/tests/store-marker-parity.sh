@@ -20,6 +20,11 @@
 #   plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh
 #
 # 需要先 `swift build`（會自己找 .build/debug/akashic 或 .build/release/akashic）。
+#
+# **本測試需要 Akashic repo 的原始碼與 build 產物**：它讀 Sources/ 取支援上限、
+# 並拿建出來的 CLI 當 oracle。**該 repo 為 private**，所以 plugin 單獨安裝的環境
+# 跑不了這支測試——它出貨的目的是讓有 repo 的人能重跑那個等價性主張，而不是讓
+# 每個使用者都跑得動。這個限制寫在這裡，免得「有測試」被讀成「你可以驗」。
 set -uo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -93,7 +98,8 @@ census_verdict() {
 # 檔」也回 exit 1。那是查詢層的結果，不是版本層的裁決；把兩者折在一起，測試就會把
 # 自己的 oracle 缺陷報成 census 的缺陷。
 #
-# StoreVersionError 有兩個 case，各有具名訊息（Sources/AkashicStoreIO/StoreVersion.swift）；
+# StoreVersionError 有兩個 case，各有具名訊息（Akashic repo 的
+# Sources/AkashicStoreIO/StoreVersion.swift，**private，取不到原始碼者只能看訊息本身**）；
 # 第三類不經 StoreVersionError：marker **讀不進來**（權限、是目錄），
 # Data(contentsOf:) 直接 throw Cocoa 檔案錯誤，訊息點名 store.yaml。
 oracle_verdict() {

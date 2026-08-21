@@ -29,7 +29,9 @@ import collections, errno, glob, os, re, sys
 root = sys.argv[1]
 
 # ── store format marker：讀端 grammar 的同構實作 ────────────────────────────
-# 對照 Sources/AkashicStoreIO/StoreVersion.swift 的 read(data:path:)。
+# 對照 Akashic repo（**private**）的 Sources/AkashicStoreIO/StoreVersion.swift 的 read
+# （**該 repo 為 private，plugin 單獨安裝者取不到原始碼**——所以下方那句「對照讀端」
+# 不能靠讀者自己去核對，它由 tests/store-marker-parity.sh 拿真的 CLI 當 oracle 量測）。
 # 前一版只認 `^format:\s*(\d+)\s*$`，卻在註解裡宣稱「標籤對照讀端」——實測有六種
 # 輸入形狀分歧，其中三種讓讀端**整體拒開**的 store 在這裡被報成健康。這支腳本的
 # 數字會決定 campaign 的批次範圍，所以「只認一種形狀」不夠：使用者仍會拿到一個

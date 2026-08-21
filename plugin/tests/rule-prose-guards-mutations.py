@@ -113,6 +113,12 @@ RESULTS = [
     swap('`periodical`／`conference`／`publisher`／`database`／`socialMedia`／`website`',
          '`journal`／`conference`／`publisher`／`database`／`socialMedia`／`website`',
          5, '把值域裡的一個值改成已被更名的舊值'),
+    # 把自我量測表展示的指令換回**原缺陷那一條**（數整個檔案的 case 行 → 印 8）。
+    # 前一版的謂詞另寫一套計數器，於是這個缺陷可以原封不動再犯（R6 finding 10）。
+    swap("awk '/^public enum VenueType/{f=1} f&&/^}/{exit} f&&/^    case /{n++} "
+         "END{print n+0}' Sources/AkashicCore/Venue.swift",
+         "awk '/^    case /{n++} END{print n+0}' Sources/AkashicCore/Venue.swift",
+         5, '把展示的指令換回會算出 8 的原缺陷那一條'),
 ]
 
 print()

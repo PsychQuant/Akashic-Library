@@ -138,9 +138,14 @@ oracle_verdict() {
   esac
 }
 
-# check <名稱> <marker 內容或 __ABSENT__/__NOUTF8__/__NOPERM__/__DIR__> [xfail]
+# check <名稱> <marker 或 __ABSENT__/__NOUTF8__/__NOPERM__/__DIR__> <預期裁決>
+#
+# **第三個參數是必填的預期值，不只是比對兩邊相等。**
+# 前一版只驗 census == oracle，於是**兩邊一起錯仍然全綠**——例如作者誤讀了讀端的
+# grammar、又把 census 寫成跟那個誤讀一致，測試無法區分「兩邊都對」與「兩邊都錯」
+# （#407 R6 finding 13）。加上預期值之後，這張矩陣才是一份可否證的規格。
 check() {
-  local name="$1" marker="$2" expect_divergence="${3:-}"
+  local name="$1" marker="$2" expect="$3"
   local d="$WORK/$(echo "$name" | tr -c 'a-zA-Z0-9' '_')"
   make_store "$d"
   case "$marker" in
@@ -155,22 +160,15 @@ check() {
   c=$(census_verdict "$d"); o=$(oracle_verdict "$d")
   chmod -R u+rwX "$d" 2>/dev/null
 
-  if [ "$c" = "$o" ]; then
-    if [ -n "$expect_divergence" ]; then
-      printf '✗ %-46s 現在一致了（census=%s oracle=%s）——已知分歧被修好，請更新本測試\n' "$name" "$c" "$o"
-      fail=$((fail + 1))
-    else
-      printf '✓ %-46s %s\n' "$name" "$c"
-      pass=$((pass + 1))
-    fi
+  if [ "$c" = "$expect" ] && [ "$o" = "$expect" ]; then
+    printf '✓ %-46s %s\n' "$name" "$expect"
+    pass=$((pass + 1))
+  elif [ "$c" = "$o" ]; then
+    printf '✗ %-46s 兩邊一致於 %s，但預期 %s ← 規格與實作一起錯\n' "$name" "$c" "$expect"
+    fail=$((fail + 1))
   else
-    if [ -n "$expect_divergence" ]; then
-      printf '~ %-46s 已知分歧：census=%s oracle=%s（%s）\n' "$name" "$c" "$o" "$expect_divergence"
-      xfail=$((xfail + 1))
-    else
-      printf '✗ %-46s census=%s oracle=%s\n' "$name" "$c" "$o"
-      fail=$((fail + 1))
-    fi
+    printf '✗ %-46s census=%s oracle=%s（預期 %s）\n' "$name" "$c" "$o" "$expect"
+    fail=$((fail + 1))
   fi
 }
 
@@ -178,45 +176,41 @@ echo "═══ store marker parity：census vs 讀端（supported=${SUPPORTED}�
 echo
 
 # ── 合法 ──────────────────────────────────────────────────────────────────
-check "format: 12"                      'format: 12\n'
-check "缺檔（讀端：即 format 1）"        '__ABSENT__'
-check "值後帶註解（讀端明文允許）"        'format: 12  # v12\n'
-check "前後有註解與空行"                 '# hdr\n\nformat: 12\n\n# tail\n'
-check "縮排的註解（允許）"               '  # indented comment\nformat: 12\n'
-check "CRLF 換行"                        'format: 12\r\n'
-
+check "format: 12"                      'format: 12\n' accept
+check "缺檔（讀端：即 format 1）"        '__ABSENT__' accept
+check "值後帶註解（讀端明文允許）"        'format: 12  # v12\n' accept
+check "前後有註解與空行"                 '# hdr\n\nformat: 12\n\n# tail\n' accept
+check "縮排的註解（允許）"               '  # indented comment\nformat: 12\n' accept
+check "CRLF 換行"                        'format: 12\r\n' accept
 # ── 讀端拒絕 ──────────────────────────────────────────────────────────────
-check "無 format: 行"                    'current: main\n'
-check "空檔"                             ''
-check "第二個 format: 行（歧義）"         'format: 12\nformat: 3\n'
-check "未知頂層行 meta: {（#112 繞法）"   'meta: {\nformat: 12\n'
-check "縮排的非註解行"                    'format: 12\n  indented: x\n'
+check "無 format: 行"                    'current: main\n' malformed
+check "空檔"                             '' malformed
+check "第二個 format: 行（歧義）"         'format: 12\nformat: 3\n' malformed
+check "未知頂層行 meta: {（#112 繞法）"   'meta: {\nformat: 12\n' malformed
+check "縮排的非註解行"                    'format: 12\n  indented: x\n' malformed
 # 這一格是縮排守衛的**唯一**鑑別點：拿掉守衛後上一格仍會落到「未知的頂層行」而照樣
 # 被拒，只有縮排的 *format* 行會被錯誤接受。negative control 抓到的盲點。
-check "縮排的 format 行"                  '  format: 12\n'
-check "format: 0（版號須 >= 1）"          'format: 0\n'
-check "format: 2.5（值後不是註解）"       'format: 2.5\n'
-check "format: 12 garbage"               'format: 12 garbage\n'
-check "非 UTF-8"                         '__NOUTF8__'
-check "讀不到（chmod 000）"               '__NOPERM__'
-check "store.yaml 是目錄"                 '__DIR__'
-check "版號太新（tooNew）"                "format: $((SUPPORTED + 1))\n"
-
+check "縮排的 format 行"                  '  format: 12\n' malformed
+check "format: 0（版號須 >= 1）"          'format: 0\n' malformed
+check "format: 2.5（值後不是註解）"       'format: 2.5\n' malformed
+check "format: 12 garbage"               'format: 12 garbage\n' malformed
+check "非 UTF-8"                         '__NOUTF8__' malformed
+check "讀不到（chmod 000）"               '__NOPERM__' unreadable
+check "store.yaml 是目錄"                 '__DIR__' unreadable
+check "版號太新（tooNew）"                "format: $((SUPPORTED + 1))\n" tooNew
 # ── 數值解析（R6 CRITICAL 2：這一族先前只有阿拉伯數字一格，且標成 xfail，
 #    於是整套仍報 fail=0 而 census 把讀端拒開的 store 印得跟健康 store 逐字相同）──
 # Swift 的 Int(String) 只吃 ASCII 數字且超出 Int64 回 nil；Python 的 isdigit()
 # 認全部 Unicode 數字、int() 是任意精度。三種數字系統 + 上下界各一格。
-check "全形數字 format: １２"            'format: １２\n'
-check "天城體數字 format: १२"            'format: १२\n'
-check "阿拉伯數字 format: ١٢"            'format: ١٢\n'
-check "Int64 上界 9223372036854775807"   'format: 9223372036854775807\n'
-check "Int64 溢位 9223372036854775808"   'format: 9223372036854775808\n'
-check "超大版號（26 位）"                 'format: 99999999999999999999999999\n'
-
+check "全形數字 format: １２"            'format: １２\n' malformed
+check "天城體數字 format: १२"            'format: १२\n' malformed
+check "阿拉伯數字 format: ١٢"            'format: ١٢\n' malformed
+check "Int64 上界 9223372036854775807"   'format: 9223372036854775807\n' tooNew
+check "Int64 溢位 9223372036854775808"   'format: 9223372036854775808\n' malformed
+check "超大版號（26 位）"                 'format: 99999999999999999999999999\n' malformed
 # ── BOM（R6 HIGH 22：反方向的假話——讀端吃掉 BOM 正常開啟，census 卻說拒開
 #    並叫使用者去改一個合法的檔。指名動作的假話比報成健康更容易被當真）──
-check "UTF-8 BOM + format: 12"           '\xef\xbb\xbfformat: 12\n'
-
+check "UTF-8 BOM + format: 12"           '\xef\xbb\xbfformat: 12\n' accept
 echo
 echo "═══ pass=$pass  fail=$fail  已知分歧=${xfail} ═══"
 [ "$fail" -eq 0 ] || exit 1

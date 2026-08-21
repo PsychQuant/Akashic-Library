@@ -22,6 +22,7 @@
 """
 import os
 import re
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -174,7 +175,25 @@ if os.path.isfile(venue_src):
             for name in listed:
                 if name not in cases and name[0].islower():
                     wrong.append(f'第 {ln} 行列出 `{name}`，而 enum 裡沒有這個 case')
-    check(5, f'規則對 VenueType 的數量與值都與實測一致（實測 {n_case}：{"／".join(cases)}）',
+    # **也要真的跑規則檔展示的那條指令**（R6 finding 10）。前一版另寫了一套
+    # 計數器，於是「展示的指令印出 8 而不是它宣稱的 6」這個原缺陷可以原封不動
+    # 再犯——守衛驗的是**它自己**算出來的數字，不是**讀者照著跑會拿到**的數字。
+    # 只接受以 awk 開頭的指令（本檔就是那一條），不執行任意擷取到的 shell。
+    shown = re.search(r'`(awk [^`]+Venue\.swift)`', rule_txt)
+    if not shown:
+        wrong.append('自我量測表裡找不到可執行的 VenueType 計數指令')
+    else:
+        cmd = shown.group(1).replace('Sources/AkashicCore/Venue.swift', venue_src)
+        try:
+            got = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                                 timeout=20).stdout.strip()
+        except Exception as e:            # noqa: BLE001 —— 任何失敗都要說出來
+            got = f'(執行失敗：{e})'
+        if got != str(n_case):
+            wrong.append(f'規則檔展示的指令印出 {got!r}，而實測是 {n_case}')
+
+    check(5, f'規則對 VenueType 的數量與值一致，且它展示的指令真的印出該數字'
+             f'（實測 {n_case}：{"／".join(cases)}）',
           wrong, [])
 else:
     # **未涵蓋不得冒充通過**（本 repo 的 zero-instance-guards 第 3 列）。

@@ -20,9 +20,13 @@ name: CI
 # **`plugin/**` 留在忽略清單，但理由已經換了**（#407 R6）。原註解寫的是
 # 「plugin shell 沒有任何測試讀取」——那句話當時為真、現在為假：`plugin/` 底下
 # 已有五支守衛。現在留著它的理由純粹是計費：一次改 skill 散文不該點一台 10×
-# 的 macOS runner。守衛由 .github/workflows/plugin-guards.yml（ubuntu，1×）
-# 涵蓋純 python／bash 的三支；需要 build 好的 CLI 當 oracle 的兩支 parity 守衛
-# 在本檔下方的「Plugin parity 守衛」step（這個 job 本來就會 build）。
+# 的 macOS runner。守衛由 .github/workflows/plugin-guards.yml（ubuntu，1×）涵蓋
+# 純 python／bash 的三支；parity 那兩支由 .github/workflows/census-parity.yml
+# 涵蓋——**不是**由本檔下方那個 step。理由：本檔的觸發是 push-to-main ＋ 這份
+# paths-ignore，所以一個只改 census 的變更會讓整個 job 被跳過，而 census 正是
+# parity 的受測對象（#407 R7 verify 量到：守衛的觸發條件與它保護的檔案剛好
+# 互斥）。下方那個 step 保留為第二層——一次 push 同時含 Swift 與 plugin 變更時
+# 它會跑到。
 # 本機 pre-push 全套仍是每次 push 的主閘，此處只省 CI 面。
 on:
   push:

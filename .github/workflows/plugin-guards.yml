@@ -14,19 +14,26 @@ name: Plugin guards
 # 一台 10× 計費的 macOS runner，重演被燒光的那件事），而是**按需求分流**：
 #
 #   * 純 python／bash 的守衛（散文、覆蓋）→ 這裡，ubuntu，1× 計費。
-#   * 需要 build 好的 CLI 當 oracle 的 parity 測試 → 留在 ci.yml 的 macOS job，
-#     它本來就會 build（見該檔的「Plugin parity 守衛」step）。
+#   * 需要 build 好的 CLI 當 oracle 的 parity 守衛 → `census-parity.yml`，macOS，
+#     但觸發路徑**只有三條**（census 本身、parity 測試、它的 oracle
+#     `StoreVersion.swift`）。那三條就是「parity 可能因此破掉」的完整條件。
 #
-# 兩者合起來涵蓋五支。
+# （`ci.yml` 的 macOS job 也有一個 parity step，但它的觸發是 push-to-main ＋
+# `paths-ignore: plugin/**`——所以改 census 時它反而被跳過。`census-parity.yml`
+# 補的正是那一格；兩者重疊無害。）
 
+# **`Sources/AkashicCore/Venue.swift` 也在觸發路徑裡**：散文守衛的第 5 項讀它，
+# 存在的理由正是「規則檔的值域宣稱會與那個 enum 漂移」。只監看 plugin/** 的話，
+# 改 enum 不觸發任何跑那個守衛的 workflow——而那正是它防的那個漂移
+# （#407 R7 verify）。
 on:
   push:
     branches: [main]
-    paths:
+    paths: &guard_paths
       - "plugin/**"
+      - "Sources/AkashicCore/Venue.swift"
   pull_request:
-    paths:
-      - "plugin/**"
+    paths: *guard_paths
 
 concurrency:
   group: plugin-guards-${{ github.ref }}

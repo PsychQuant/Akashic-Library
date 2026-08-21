@@ -274,6 +274,14 @@ print(f"store: {_tilde(root)}（{fmt_label()}）")
 if _store_unopenable:
     print(f"{'':<14} ⚠ 讀端會整體拒開此 store，**下面每一列都不能拿去定 campaign "
           "的批次範圍**——它們是直接掃 YAML 得到的，不代表任何 binary 讀得到這些內容")
+elif _ceiling_unknown:
+    # **這是 plugin 單獨安裝的常態**（marketplace 出貨時沒有 Sources/），所以它
+    # 每次都會印。那是誠實的：每次都真的不知道。前一版只把這件事寫進 format 標籤，
+    # 於是一個 `format: 99` 的 store（讀端明確拒開）照樣印四列計數、rc=0、
+    # 沒有任何 ⚠——而 SKILL.md 的操作指引正是「先看第一行有沒有全域警告」。
+    print(f"{'':<14} ⚠ 找不到原始碼，**無法判斷 format {fmt} 是否超過你的 binary "
+          "支援上限**。若超過，任何 binary 都會整體拒開此 store，下面的數字就不能"
+          "拿去定批次範圍。消除這個未知：在 repo 內跑，或設 AKASHIC_REPO=<repo 路徑>")
 row("author", a_key, a_lit, len(a_distinct))
 # venue 的三分支。**先報量到的，解釋擺後面** —— 前一版反過來（先套 format 的解釋、
 # 再決定要不要印計數），於是在 format 未知時印出「下面的計數是實際掃到的」而下面

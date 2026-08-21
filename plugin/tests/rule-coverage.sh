@@ -57,7 +57,11 @@ for rule in "$RULES"/*.md; do
         printf '  ✗ %s 的相對路徑解析不到：%s\n' "${f#"$PLUGIN"/}" "$rel"
         fail=$((fail + 1))
       fi
-    done < <(grep -rHo -- "\.\./[^)\`\" ]*${name}[^)\`\" ]*" "$d" 2>/dev/null)
+      # **只認 SKILL.md**。掛載點是 skill 的進入點，不是它目錄裡的任一份筆記。
+      # 前一版掃整個子樹，於是把連結從 SKILL.md 拿掉、在旁邊的 note.md 寫一句
+      # 「不要載入這條規則」，守衛照樣 ✓——而這支腳本的註解逐字宣稱它已經修掉
+      # 那個形狀（#407 R7 verify）。加位置條件才是真的修掉。
+    done < <(grep -Ho -- "\.\./[^)\`\" ]*${name}[^)\`\" ]*" "$d/SKILL.md" 2>/dev/null)
 
     if [ "$found" = 1 ]; then
       printf '  ✓ %s\n' "$skill"

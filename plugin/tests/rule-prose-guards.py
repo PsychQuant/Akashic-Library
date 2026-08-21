@@ -175,18 +175,41 @@ if os.path.isfile(venue_src):
             for name in listed:
                 if name not in cases and name[0].islower():
                     wrong.append(f'第 {ln} 行列出 `{name}`，而 enum 裡沒有這個 case')
-    # **也要真的跑規則檔展示的那條指令**（R6 finding 10）。前一版另寫了一套
-    # 計數器，於是「展示的指令印出 8 而不是它宣稱的 6」這個原缺陷可以原封不動
-    # 再犯——守衛驗的是**它自己**算出來的數字，不是**讀者照著跑會拿到**的數字。
-    # 只接受以 awk 開頭的指令（本檔就是那一條），不執行任意擷取到的 shell。
-    shown = re.search(r'`(awk [^`]+Venue\.swift)`', rule_txt)
-    if not shown:
-        wrong.append('自我量測表裡找不到可執行的 VenueType 計數指令')
-    else:
-        cmd = shown.group(1).replace('Sources/AkashicCore/Venue.swift', venue_src)
+    # **也要真的跑規則檔展示的那條指令**（R6 finding 10）。守衛要驗的是「讀者照著
+    # 跑會拿到什麼」，不是它自己另算一套。
+    #
+    # **但絕不執行來自散文的字串。** 上一版寫 `subprocess.run(擷取到的字串,
+    # shell=True)`，旁邊註解著「只接受以 awk 開頭的指令，不執行任意擷取到的 shell」
+    # ——那句話是假的：regex 只管開頭與結尾，中間的 `;` `|` `$( )` 換行全部放行。
+    # 跨模型審查做出 PoC：payload 尾端補一個 `echo 6` 讓輸出等於預期值，守衛報
+    # **5/5 PASS、exit 0**，同時以使用者身分執行了注入的指令（R7 兩個 CRITICAL）。
+    # 觸發面是同一輪接上的 pre-push hook 與 pull_request workflow，且本樹經公開
+    # marketplace 出貨。
+    #
+    # 現在的作法：指令是**這裡的常數**，規則檔必須逐字展示它，執行的是常數本身、
+    # 以參數陣列（shell=False）跑。要驗的性質完全保住，而散文不再有任何執行路徑。
+    CANONICAL_CMD = (
+        "awk '/^public enum VenueType/{f=1} f&&/^}/{exit} f&&/^    case /{n++} "
+        "END{print n+0}' Sources/AkashicCore/Venue.swift"
+    )
+    if f'`{CANONICAL_CMD}`' not in rule_txt:
+        wrong.append('規則檔展示的計數指令與守衛內建的那條不逐字相同'
+                     '（守衛只執行內建的那條——不執行來自散文的字串）')
+    # 檔案裡**每一條**同型指令都必須是那一條。安全性質（不執行散文）已由上面的
+    # 常數化保證；這一條管的是**散文完整性**：一個讀者可能複製到別的那條。
+    # 注入 PoC 的 payload 正是這個形狀——它不再被執行，但它仍是一句假的量測。
+    for other in re.findall(r'`(awk\b[^`]*Venue\.swift)`', rule_txt):
+        if other != CANONICAL_CMD:
+            wrong.append(f'規則檔另外展示了一條同型的計數指令，而它不是 canonical '
+                         f'那條：{other[:60]!r}…')
+    if f'`{CANONICAL_CMD}`' in rule_txt:
+        argv = ['awk',
+                '/^public enum VenueType/{f=1} f&&/^}/{exit} f&&/^    case /{n++} '
+                'END{print n+0}',
+                venue_src]
         try:
-            got = subprocess.run(cmd, shell=True, capture_output=True, text=True,
-                                 timeout=20).stdout.strip()
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=20)
+            got = r.stdout.strip() if r.returncode == 0 else f'(exit {r.returncode})'
         except Exception as e:            # noqa: BLE001 —— 任何失敗都要說出來
             got = f'(執行失敗：{e})'
         if got != str(n_case):

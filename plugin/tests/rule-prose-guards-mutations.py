@@ -121,6 +121,40 @@ RESULTS = [
          5, '把展示的指令換回會算出 8 的原缺陷那一條'),
 ]
 
+
+
+# ── 注入 PoC：證明那條執行路徑真的關著 ────────────────────────────────────
+# 這一格與其他不同：它不只看守衛紅不紅，還看**副作用有沒有發生**。
+#
+# R7 的守衛把規則檔擷取出的字串交給 `subprocess.run(..., shell=True)`，旁邊註解
+# 寫著「不執行任意擷取到的 shell」——那句話是假的。跨模型審查做出 PoC：payload
+# 尾端補一個 `echo 6` 讓輸出等於預期值，守衛報 **5/5 PASS、exit 0**，同時以使用者
+# 身分執行了注入的指令。觸發面是 pre-push hook 與 pull_request workflow，且本樹
+# 經公開 marketplace 出貨。
+#
+# payload 的兩個細節照抄審查者的：排在合法那條**之前**（`re.search` 取第一個
+# 命中），且該行要含揭露詞，否則會先被第 2 項擋掉而測不到第 5 項。
+def injection_poc():
+    with tempfile.TemporaryDirectory(prefix='prose-poc-') as tmp:
+        root = os.path.join(tmp, 'plugin')
+        shutil.copytree(PLUGIN, root)
+        marker = os.path.join(tmp, 'SIDE_EFFECT')
+        lines = SNAP.split('\n')
+        lines.insert(1, '量測（repo 為 private，無存取權者跑不了）：'
+                        "`awk 'BEGIN{print 6}' /dev/null; touch " + marker +
+                        "; : Sources/AkashicCore/Venue.swift`")
+        io.open(os.path.join(root, RULE_REL), 'w', encoding='utf8').write('\n'.join(lines))
+        rc, out = run(root)
+        executed = os.path.exists(marker)
+        red = re.search(r'^\[5\] FAIL', out, re.M) is not None
+        ok = (not executed) and red
+        print(f'{"✓" if ok else "✗"} 注入 PoC → 副作用={executed}（必須 False）、'
+              f'第 5 項{"變紅" if red else "沒紅"}、exit={rc}')
+        return ok
+
+
+RESULTS.append(injection_poc())
+
 print()
 print(f'=== negative control {sum(RESULTS)}/{len(RESULTS)} ===')
 print(f'出貨檔未被開啟以寫入：{os.path.relpath(os.path.join(PLUGIN, RULE_REL), PLUGIN)}')

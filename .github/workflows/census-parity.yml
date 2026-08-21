@@ -1,0 +1,59 @@
+name: Census parity
+
+# **為什麼要第三個 workflow**
+#
+# #407 R7 verify 量到一個難堪的形狀：parity 守衛在 CI **只會在它的受測檔案沒被
+# 改動時執行**。
+#
+#   * `ci.yml`（macOS，跑 parity）的觸發是 `push: branches:[main]` ＋
+#     `paths-ignore: plugin/**`——所以一個只改 `literal-census.sh` 的 push
+#     會讓整個 job 被跳過，而 census 正是 parity 的受測對象。
+#   * `ci.yml` 也**沒有 `pull_request` 觸發**，所以任何 PR 都不跑 parity。
+#   * `plugin-guards.yml`（ubuntu，1×）跑不了 parity：它需要 build 好的 CLI
+#     當 oracle。
+#
+# 兩個檔案的註解都寫「兩者合起來涵蓋五支」。那句話在「檔案集合的聯集」意義上成立，
+# 在「任一次變更」意義上不成立——而後者才是觸發點要保證的事。
+#
+# 這個 workflow 補上缺的那一格：**只在 parity 的受測對象或它的 oracle 改動時**
+# 點 macOS runner。範圍刻意窄——那台是 10× 計費，而這個 repo 在 2026-08 兩度把
+# 免費額度燒光。這三條路徑合起來就是「parity 可能因此破掉」的完整條件。
+
+on:
+  push:
+    branches: [main]
+    paths: &parity_paths
+      - "plugin/skills/akashic-literal-campaign/scripts/literal-census.sh"
+      - "plugin/skills/akashic-literal-campaign/scripts/tests/**"
+      - "Sources/AkashicStoreIO/StoreVersion.swift"
+  pull_request:
+    paths: *parity_paths
+
+concurrency:
+  group: census-parity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  parity:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved', 'Package.swift') }}
+          restore-keys: ${{ runner.os }}-spm-
+
+      # parity 拿建好的 CLI 當 oracle——這是它非 macOS 不可的唯一理由。
+      - name: Build（只為了拿到 oracle）
+        run: swift build
+
+      - name: store-marker parity
+        run: bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh
+
+      # 上一步的每一格都證明會紅。它 mutate 一份 copy，不碰出貨檔。
+      - name: parity negative control
+        run: python3 plugin/skills/akashic-literal-campaign/scripts/tests/marker-parity-mutations.py

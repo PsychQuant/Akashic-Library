@@ -115,7 +115,7 @@ struct AddVenueCmd: ParsableCommand {
     @Option(name: .long, parsing: .upToNextOption, help: "名稱變體（可多個）")
     var names: [String]
 
-    @Option(name: .long, help: "journal | conference | publisher")
+    @Option(name: .long, help: "\(VenueType.domainDescription)")
     var type: String
 
     @Option(name: .long, help: "備註（選填）")
@@ -146,7 +146,7 @@ struct UpdateVenueCmd: ParsableCommand {
     @Option(name: .long, help: "備註（替換；選填）")
     var note: String?
 
-    @Option(name: .long, help: "journal | conference | publisher（替換；選填）")
+    @Option(name: .long, help: "\(VenueType.domainDescription)（替換；選填）")
     var type: String?
 
     func run() throws {

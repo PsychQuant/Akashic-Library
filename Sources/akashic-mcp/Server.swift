@@ -182,7 +182,7 @@ actor AkashicMCPServer {
              inputSchema: obj([
                 "key": str("kebab-case venue key"),
                 "names": strArray("名稱變體（正式刊名、縮寫、WoS 大寫形）"),
-                "type": str("journal | conference | publisher"),
+                "type": str(VenueType.domainDescription),
                 "note": str("備註（選填）"),
              ], required: ["key", "names", "type"])),
         Tool(name: "akashic_update_venue",
@@ -191,7 +191,7 @@ actor AkashicMCPServer {
                 "key": str("既有 venue key"),
                 "add_names": strArray("要附加的名稱變體（重複自動略過，以 namesAdded 回報）"),
                 "note": str("備註（替換；選填）"),
-                "type": str("journal | conference | publisher（替換；選填）"),
+                "type": str("\(VenueType.domainDescription)（替換；選填）"),
              ], required: ["key"])),
         Tool(name: "akashic_resolve_venues",
              description: "venue 解析（resolve-people 契約形，#304）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 venue name 完全命中且不歧義的 literal（正規化含 lowercase：WoS 全大寫形因此命中正式刊名）；ambiguities 是同一 literal 對到 2+ venue、需要人判斷。帶 apply（候選 id，形如 citekey:venueIndex）把 literal 升格為 key 並寫 resolution-confirmed verdict 到該 venue；帶 reject 寫 resolution-rejected（entry 不動）。組合呼叫兩段式（reject 腿先提交）。需 store format ≥ 11。絕不自動配對（literal-first-then-key）。",

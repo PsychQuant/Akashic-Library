@@ -20,28 +20,48 @@ python3 - "$ROOT" <<'EOF'
 import glob, re, sys, os, collections
 
 root = sys.argv[1]
-# 三種狀態必須分開，不能都折成 0：
-#   int  → 讀到 format 標記
-#   None → 檔案在但沒有 format: 行（markerless legacy，read 端視同 1）
-#   -1   → 檔案讀不到（權限／路徑錯／store 不在）
-# 折成 0 會讓下游印出「store format 0」——一句關於 store 的假話，而 store 從來
-# 沒有 format 0。儀器造假時，讀報告的人再謹慎也沒用。
-fmt = None
-try:
-    with open(f"{root}/store.yaml", encoding="utf-8") as fh:
-        for line in fh:
-            m = re.match(r"^format:\s*(\d+)\s*$", line)
-            if m:
-                fmt = int(m.group(1))
-except OSError:
-    fmt = -1
+# 四種狀態必須分開。標籤**對照讀端**（AkashicStoreIO/StoreVersion.read）而非自創：
+#   int   → 讀到 format 標記
+#   1     → store.yaml 不存在。讀端明訂「**缺檔 ＝ format 1**，不是錯誤：#24 之前
+#           寫的 store 都沒有這個檔」，所以這是合法的 legacy store，不是儀器失敗。
+#   None  → 檔案在但沒有 format: 行。讀端對這個情形**throw malformed**（「不猜，
+#           明說」），所以這裡也不能自己編一個版號。
+#   -1    → 檔案在但讀不到（權限／IO）。與「不存在」是**不同**的事。
+#
+# 前一版把前兩者的標籤寫反了（缺檔標成「讀不到」、無標記標成「視同 1」），而那是
+# 讀一次讀端就能查證的事。也把「不存在」與「讀不到」折成同一個 OSError 分支——
+# 而本腳本正是「分得清沒有與讀不到嗎」這條紀律的反面教材來源。
+import errno, os as _os
+
+_p = f"{root}/store.yaml"
+if not _os.path.exists(_p):
+    fmt = 1                      # 讀端語意：缺檔即 format 1
+    fmt_state = "absent"
+else:
+    fmt = None
+    fmt_state = "malformed"      # 有檔但沒讀到 format: 行 → 讀端會拒讀
+    try:
+        with open(_p, encoding="utf-8") as fh:
+            for line in fh:
+                m = re.match(r"^format:\s*(\d+)\s*$", line)
+                if m:
+                    fmt = int(m.group(1))
+                    fmt_state = "read"
+    except OSError as e:
+        fmt = -1
+        fmt_state = "unreadable"
+        _err = errno.errorcode.get(e.errno, e.errno)
 
 def fmt_label():
-    if fmt == -1:
-        return "讀不到 store.yaml"
-    if fmt is None:
-        return "markerless（無 format 標記，read 端視同 1）"
-    return str(fmt)
+    # 標籤自帶「format」一詞：呼叫端直接嵌入句子，不再另外前綴（前一版前綴後
+    # 讀成「store format store.yaml 有檔但無 format: 行」）。
+    if fmt_state == "absent":
+        return "format 1（無 store.yaml；讀端語意：缺檔即 format 1）"
+    if fmt_state == "unreadable":
+        return f"format **未知**——store.yaml 讀不到（{_err}）"
+    if fmt_state == "malformed":
+        return "format **未知**——store.yaml 無 format: 行（讀端會拒讀此 store）"
+    return f"format {fmt}"
 
 a_key = a_lit = v_key = v_lit = 0
 a_distinct = collections.Counter()
@@ -107,13 +127,27 @@ def row(label, key, lit, distinct):
     print(f"{label:<14} 總邊 {total:>5}｜literal 邊 {lit}（佔 {pct}）｜key {key}"
           f"｜distinct literal {distinct}")
 
-print(f"store: {root}（format {fmt_label()}）")
+print(f"store: {root}（{fmt_label()}）")
 row("author", a_key, a_lit, len(a_distinct))
-if isinstance(fmt, int) and fmt >= 11:
+# venue 的三分支。**先報量到的，解釋擺後面** —— 前一版反過來（先套 format 的解釋、
+# 再決定要不要印計數），於是在 format 未知時印出「下面的計數是實際掃到的」而下面
+# 根本沒有計數行；在 format 缺檔時，明明手上握著已解析的 venue 邊，卻宣告
+# 「venue 邊不存在於模型中」。兩者都是拿推論蓋掉量測。
+_v_total = v_key + v_lit
+if _v_total > 0:
+    # 量到就印，不論 format 說什麼。format 與量測不一致時，把不一致本身報出來。
     row("venue", v_key, v_lit, len(v_distinct))
-else:
-    print(f"{'venue':<14} 未部署（store format {fmt_label()}，未達 11——venue 邊不存在於模型中，"
+    if not (isinstance(fmt, int) and fmt >= 11):
+        print(f"{'':<14} ↑ 註：store {fmt_label()}，但上列 venue 邊是**實際解析到的**。"
+              "兩者不一致——以量測為準，並請查 store 狀態")
+elif isinstance(fmt, int) and fmt >= 11:
+    row("venue", v_key, v_lit, len(v_distinct))          # 已部署且真的是 0
+elif fmt_state in ("read", "absent"):
+    print(f"{'venue':<14} 未部署（store {fmt_label()}，< 11——venue 邊不存在於模型中，"
           "非「查完」；部署鏈見 repo 的 docs/store-format.md format 11 列（private，無存取權者取不到））")
+else:
+    print(f"{'venue':<14} **未知**（{fmt_label()}；且未解析到任何 venue 邊——"
+          "無法區分「未部署」與「已部署但為 0」。先修 store.yaml 再重跑）")
 row("affiliation", aff_key, aff_lit, len(aff_distinct))
 row("org-parents", org_key, org_lit, len(org_distinct))
 EOF

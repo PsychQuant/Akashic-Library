@@ -2,7 +2,7 @@
 
 ## [unreleased]
 
-- **新增 `plugin/rules/`**（#407）：plugin 自帶的規則目錄，第一條是 `assertions-must-be-measured`——寫進交付物的世界斷言要先被量測過（三分法封閉列舉：可否證的世界斷言受管、設計主張與明標的推測不受管）。四個做外部查證的 skill （person-verify／venue-verify／bootstrap／disambiguate）引用它。**為什麼放 plugin 不放 repo 端的規則目錄**：後者只在 Akashic repo 內自動注入，而查證工作常在別的 repo 進行——本規則的兩個失敗實例正好都發生在 repo 外。
+- **新增 `plugin/rules/`**（#407）：plugin 自帶的規則目錄，第一條是 `assertions-must-be-measured`——**寫下一句可能是錯的話之前先回答四個問題**（這句話可能錯嗎／我憑什麼說它／我手上的東西還說了什麼我沒讀／我寫的範圍有沒有超出證據）。刻意**不是分類法**：前兩版都是分類法，兩版都被跨模型審查打掉，原因相同——每條分類邊界本身就是一個關於命題世界的斷言，規則的斷言表面比它要管的東西還大。問句沒有真假。**全部 6 個 skill** 引用它（該 plugin 的每個 skill 都產出人會照著行動的斷言）。**已知缺口**：掛載面（skill 檔）比適用面（issue／報告／規格）窄，該檔的誠實邊界有記。
 - **修掉兩處懸空引用**（#407）：plugin 內指向 repo 端規則的裸相對路徑在 Akashic repo 外解析不到。**改法不是換成絕對 GitHub URL**——實測該 repo `isPrivate=true`，未認證 GET 一律 404，而 private repo 的 404 與「已刪除／從不存在」不可區分，等於把缺訊號換成假訊號；且主要讀者是未認證的 agent。改為**就地寫出 skill 實際需要的判準**，出處降為註記並明說需 repo 存取權。同一輪順帶修掉 `akashic-wos-intake` 既有的同型 404 連結（它原本被當成「既有慣例」引用，實測它自己也 404）。
 
 - **`akashic_update_venue`／CLI `update-venue`**（#306）：venue 異名補寫——`add_names` append 語意（整組替換刻意不提供，R3F-2 教訓）；`note`／`type` 替換。沿革補全直接擴大 resolve-venues 命中面。
@@ -67,7 +67,7 @@
 ## [0.5.4] - 2026-08-14
 
 - **更正 `akashic-wos-intake` 邊界段**（#281）：0.5.3 的「doctor 不查 DOI 共用」為誤——doctor 自 #94 即有兩道檢查（正規化 DOI 共用組＋同標題同年不同 DOI），敘述改回正確指向。
-- wos-intake 的 W8 欄名清單降級為快照，正典移至 repo `docs/import-wos-mapping.md`（#286，含對映目標與合成語意）。shell-only bump（binary 仍 0.5.0）。
+- wos-intake 的 W8 欄名清單降級為快照，正典移至 repo `docs/import-wos-mapping.md`（#286，含對映目標與合成語意；該 repo 為 private，無存取權者取不到）。shell-only bump（binary 仍 0.5.0）。
 
 ## [0.5.3] - 2026-08-14
 

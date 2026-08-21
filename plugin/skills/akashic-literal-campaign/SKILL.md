@@ -97,3 +97,8 @@ ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，*
 - **venue 輪 gate 在部署**：format 11 未 bump 前不做 venue 域——census 的「未部署」就是這個訊號
 - **initials 的 store 不完整假象**（再說一次，因為它最會咬人）：單命中不是同一性證據，是店裡目前只有一個同鍵者；R3 長尾建檔會讓 initials 碰撞面隨 person 空間成長——早輪的 initials apply 要比晚輪更保守
 - **affiliation／org-parents 域**：census 有計數；處置走既有 `resolve-organizations`／`update-person`（人少量小，順手收）
+
+## 相關
+
+- [`akashic-person-verify`](../akashic-person-verify/SKILL.md)——單一配對的外部證據鏈；本 skill 的逐筆查證管線引用它
+- [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——**本 skill 寫的 verdict 與每輪落進 issue 的計數都受它管**。計數是人要照著決定批次與宣告 campaign 完成的數字；verdict 是身分判定，另有規定（見該檔第 5 節）

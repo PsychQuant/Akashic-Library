@@ -80,6 +80,6 @@ propose ──→ park ──────────────→ apply ─�
 
 > **plugin 另有自己的規則目錄。** `plugin/rules/` 隨 plugin 走（plugin 安裝到哪，規則就在哪），
 > 由 skill 以相對路徑引用——**不像上表那樣自動注入**。目前一條：
-> [`assertions-must-be-measured`](plugin/rules/assertions-must-be-measured.md)，管「寫進交付物的
-> 世界斷言要先被量測過」。刻意不列進上表：那張表的語意是「自動注入的 repo 規則」，
+> [`assertions-must-be-measured`](plugin/rules/assertions-must-be-measured.md)，管「寫下一句可能是錯的話
+> 之前先回答四個問題」（不是分類法——理由見該檔）。刻意不列進上表：那張表的語意是「自動注入的 repo 規則」，
 > 混進去會讓那個性質變成謊話（#407）。

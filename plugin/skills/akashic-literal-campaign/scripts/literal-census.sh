@@ -99,7 +99,7 @@ if fmt >= 11:
     row("venue", v_key, v_lit, len(v_distinct))
 else:
     print(f"{'venue':<14} 未部署（store format {fmt} < 11——venue 邊不存在於模型中，"
-          "非「查完」；部署鏈見 docs/store-format.md format 11 列）")
+          "非「查完」；部署鏈見 repo 的 docs/store-format.md format 11 列（private，無存取權者取不到））")
 row("affiliation", aff_key, aff_lit, len(aff_distinct))
 row("org-parents", org_key, org_lit, len(org_distinct))
 EOF

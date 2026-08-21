@@ -108,7 +108,11 @@ census_verdict() {
     # 測試的算術製造，而 census 對一個沒有任何 binary 打得開的 store 印得跟健康
     # store 逐字相同。這與本檔上方「刻意不是二值」的理由是**同一個**，而四值那次
     # 只修好了 n >= 1 那一格。
-    *"超過本機原始碼的支援上限"*) echo "tooNew" ;;
+    # 兩種來源的措辭都要認（#407 R11）：上限問自 binary 時說「你的 binary 支援
+    # 上限」，只讀得到 source 時說「這份 checkout 的 source 上限」。前一版只認
+    # 舊措辭，於是措辭一改，三格 tooNew 就靜默落到 accept——而它們正是本測試
+    # 要盯的那一類。
+    *"超過你的 binary 支援上限"*|*"這份 checkout 的 source 上限"*) echo "tooNew" ;;
     *"不知道你的 binary 支援到第幾版"*) echo "ceiling-unknown" ;;
     *"format 1（無 store.yaml"*)  echo "accept" ;;
     *"（format "*)                echo "accept" ;;

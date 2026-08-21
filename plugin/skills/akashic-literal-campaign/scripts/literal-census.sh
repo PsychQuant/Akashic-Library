@@ -26,7 +26,41 @@ fi
 # script 自身的目錄要顯式傳進去：`python3 -` 讀 stdin，__file__ **不存在**
 # （用它會 NameError）。census 需要它來找原始碼判定支援上限。
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-python3 - "$ROOT" "$SCRIPT_DIR" <<'EOF'
+# ── 支援上限：**問 binary，不要讀原始碼** ─────────────────────────────────
+# 「支援到第幾版」是 binary 的性質。前一版從 checkout 的原始碼 grep
+# `static let supported`，於是 source 與實際 binary 不同版時雙向誤判——而 parity
+# 測試結構上抓不到（它先在同一個 checkout swift build，兩者恰好同步）。#407 R8/R9
+# 各報過一次。
+#
+# 讀端的 tooNew 訊息逐字含「本 binary 支援至 N」，所以拿一個 format 極高的臨時
+# store 去問一次就有答案——那是 binary 自己說的。
+CEILING=""
+CEILING_SRC=""
+_bin=""
+for _c in "${AKASHIC_BIN:-}" "$(command -v akashic 2>/dev/null || true)" \
+          "$SCRIPT_DIR/../../../../.build/debug/akashic" \
+          "$SCRIPT_DIR/../../../../.build/release/akashic"; do
+  [ -n "$_c" ] && [ -x "$_c" ] && { _bin="$_c"; break; }
+done
+if [ -n "$_bin" ]; then
+  _probe=$(mktemp -d) || _probe=""
+  if [ -n "$_probe" ]; then
+    mkdir -p "$_probe/entities"
+    printf 'format: 999999\n' > "$_probe/store.yaml"
+    # 只讀 stderr 的具名訊息；任何其他失敗都當成「問不到」，不猜。
+    #
+    # **不要用 `| head -1`**：本檔開頭是 `set -euo pipefail`，而 head 讀到第一行
+    # 就結束會讓上游 sed 收到 SIGPIPE 非零退出 → pipefail → set -e 直接殺掉整個
+    # 腳本，輸出變成**完全靜默**（踩過一次，trace 停在 CEILING=12 之後什麼都沒有）。
+    # 用 sed 自己的 `q` 取第一筆，管線就不會被提前關閉。
+    CEILING=$("$_bin" people --library "$_probe" 2>&1 >/dev/null \
+      | sed -n 's/.*本 binary 支援至 \([0-9][0-9]*\).*/\1/p;/./q' || true)
+    rm -rf "$_probe"
+    [ -n "$CEILING" ] && CEILING_SRC="binary:$_bin"
+  fi
+fi
+
+python3 - "$ROOT" "$SCRIPT_DIR" "$CEILING" "$CEILING_SRC" <<'EOF' 
 import collections, errno, glob, io, os, re, sys
 
 root = sys.argv[1]
@@ -226,7 +260,20 @@ fmt_state, fmt, _detail = _read_marker(f'{root}/store.yaml')
 # 找得到原始碼時才知道它。找不到時**明說不知道**——前一版兩種情形都印得跟一個
 # 健康 store 逐字相同且 exit 0，而 SKILL.md 的四列表把它歸進「照常進 venue 輪」：
 # skill 主動叫使用者拿一個沒有任何 binary 打得開的 store 去定 campaign 批次範圍。
+# 支援上限的三層來源，**出處要印出來**——它決定那個數字能支撐什麼樣的話。
+#   1. 探測實際 binary（bash 端已問過）：唯一能支撐「你的 binary 開不開得起來」的來源
+#   2. 退到 checkout 的原始碼：只能說「這份 checkout 的 source 上限」
+#   3. 兩者皆無：維持未知
+# 前一版只有第 2 層卻用第 1 層的措辭，於是 source 與 binary 不同版時雙向誤判
+# （#407 R8／R9 各報過一次；parity 測試結構上抓不到，因為它先在同一個 checkout
+# swift build，oracle 與被讀的 source 恰好同步）。
 _supported = None
+_ceiling_src = None
+_probed = sys.argv[3] if len(sys.argv) > 3 else ''
+if _probed.isdigit():
+    _supported = int(_probed)
+    _ceiling_src = sys.argv[4] if len(sys.argv) > 4 else 'binary'
+
 # 來源根：`AKASHIC_REPO` 環境變數優先，其次由腳本自身位置往上推。
 # 環境變數這條是給「腳本不在 repo 內」的情形——例如 negative control 把 census
 # 複製到 tempdir 再 mutate（不碰出貨檔），那份 copy 從自身位置推不到 Sources/。
@@ -237,12 +284,13 @@ _cands = []
 if _repo_env:
     _cands.append(f'{_repo_env}/Sources/AkashicStoreIO/StoreVersion.swift')
 _cands.append(f'{_script_dir}/../../../../Sources/AkashicStoreIO/StoreVersion.swift')
-for _cand in _cands:
+for _cand in ([] if _supported is not None else _cands):
     try:
         _m = re.search(r'static let supported = (\d+)',
                        io.open(_cand, encoding='utf-8', errors='replace').read())
         if _m:
             _supported = int(_m.group(1))
+            _ceiling_src = 'source'   # ← **不是** binary 的性質，措辭要降級
             break
     except OSError:
         pass
@@ -252,9 +300,15 @@ _ceiling_unknown = fmt_state == 'read' and _supported is None
 
 
 def fmt_label():
+    if _too_new and _ceiling_src == 'source':
+        # 只有 source 可讀時**不得**宣告實際 binary 會怎樣——那正是 R8/R9 具名的
+        # 那條：source 與 binary 可能不同版，而這裡沒有任何東西能排除它。
+        return (f'format {fmt}——超過**這份 checkout 的 source 上限 {_supported}**。'
+                '本腳本沒問到實際 binary（設 AKASHIC_BIN=<path> 或讓 akashic 在 PATH 上'
+                '即可問到），所以**無法斷言你的 binary 開不開得起來**')
     if _too_new:
-        return (f'format {fmt}——**超過本機原始碼的支援上限 {_supported}**；'
-                '任何只支援到那一版的 binary 都會整體拒開此 store')
+        return (f'format {fmt}——**超過你的 binary 支援上限 {_supported}**'
+                f'（問到的：{_ceiling_src.split(":", 1)[-1]}）；它會整體拒開此 store')
     if _ceiling_unknown:
         return (f'format {fmt}（**本腳本找不到原始碼，不知道你的 binary 支援到第幾版**'
                 '——若它低於這個數字，開不起來）')
@@ -354,13 +408,23 @@ def _tilde(p):
 # marker 壞到讀端會整體拒開時，**這一輪的每一個數字都不能拿去定批次範圍**
 # ——不只 venue 那一列。author 才是 campaign 的終局量測，而前一版只在 venue
 # 那一列掛但書，author 照常裸印（R6 finding 50）。
-_store_unopenable = fmt_state in ('malformed', 'unreadable') or _too_new
+# **`_too_new` 只有在上限問自 binary 時才等於「打不開」。** 上限來自 source 時
+# 我們不知道實際 binary 支援到哪——把它併進 unopenable 會讓下一行印出「讀端會
+# 整體拒開此 store」，而那正是上面剛降級掉的那句話。修了標籤沒修相鄰的斷言，
+# 是這條 issue 反覆出現的形狀（#407 R11）。
+_too_new_confirmed = _too_new and _ceiling_src != 'source'
+_too_new_by_source = _too_new and _ceiling_src == 'source'
+_store_unopenable = fmt_state in ('malformed', 'unreadable') or _too_new_confirmed
 _undecidable = fmt_state == 'undecidable'
 
 print(f"store: {_tilde(root)}（{fmt_label()}）")
 if _store_unopenable:
     print(f"{'':<14} ⚠ 讀端會整體拒開此 store，**下面每一列都不能拿去定 campaign "
           "的批次範圍**——它們是直接掃 YAML 得到的，不代表任何 binary 讀得到這些內容")
+elif _too_new_by_source:
+    print(f"{'':<14} ⚠ 這份 checkout 的 source 上限低於 store 的 format，而**本腳本"
+          "沒問到實際 binary**——無法斷言它開不開得起來，所以下面的數字先別拿去定"
+          "批次範圍。確認方式：設 AKASHIC_BIN=<path>，或讓 akashic 在 PATH 上，再重跑")
 elif _undecidable:
     print(f"{'':<14} ⚠ **本腳本判不出這個 marker 合不合法**，所以下面每一列都不能"
           "拿去定 campaign 的批次範圍。去問讀端：`akashic doctor --library <store>`")

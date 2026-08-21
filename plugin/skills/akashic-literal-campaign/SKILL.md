@@ -28,7 +28,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/akashic-literal-campaign/scripts/literal-cens
 | 輸出 | 意思 | 該做什麼 |
 |---|---|---|
 | 正常三個口徑 | marker 讀得到，版號 ≥ 11 且未超過本機支援上限 | 照常進 venue 輪 |
-| 三個口徑 ＋ 第一行的 ⚠ | **版號超過本機原始碼的支援上限**——沒有任何只支援到那一版的 binary 打得開這個 store | 先處理版本，數字不可用 |
+| 三個口徑 ＋ ⚠「超過你的 binary 支援上限」 | **問過實際 binary**（`AKASHIC_BIN`／PATH 上的 `akashic`／repo 的 `.build`），它說它開不了 | 先處理版本，數字不可用 |
+| 三個口徑 ＋ ⚠「這份 checkout 的 source 上限低於…」 | 只讀得到原始碼、**沒問到 binary**——source 與 binary 可能不同版，所以**不知道**開不開得起來 | 設 `AKASHIC_BIN=<path>` 或讓 `akashic` 在 PATH 上再重跑，才知道 |
 | 三個口徑 ＋「無法判斷是否超過支援上限」的 ⚠ | **plugin 單獨安裝的常態**：找不到 Sources/，所以不知道你的 binary 支援到第幾版 | 若 format 數字不尋常先確認；要消除這個未知就在 repo 內跑，或設 `AKASHIC_REPO=<repo 路徑>` |
 | `未部署`（無 store.yaml） | 讀端明訂缺檔即 format 1，而 venue 邊自 format 11 起才存在 | 缺席不是零；先走部署鏈。**沒有東西要修**——缺檔是合法狀態 |
 | `未部署`（marker 說 format N < 11） | 該版本沒有 venue 邊，且本輪零 venue 邊 | 同上 |

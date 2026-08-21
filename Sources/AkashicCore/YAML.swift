@@ -2023,7 +2023,7 @@ public enum VenueYAML {
                                                    expect: "scalar", { $0.scalar?.string }) else {
             throw StoreYAMLError.missingField("key")
         }
-        // type：封閉三值，缺席或未知值都整檔拒讀——不猜（#304 裁決三的封閉性）。
+        // type：封閉列舉，缺席或未知值都整檔拒讀——不猜（#304 裁決三的封閉性）。
         guard let rawType = try EntryYAML.requireShape(map["type"], field: "venue.type",
                                                        expect: "scalar", nullIsAbsent: true,
                                                        { $0.scalar?.string }) else {

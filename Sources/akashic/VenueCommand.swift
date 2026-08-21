@@ -105,7 +105,7 @@ struct VenuesCmd: ParsableCommand {
 struct AddVenueCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "add-venue",
-        abstract: "建發表載體實體（type 封閉三值：journal / conference / publisher；需 store format ≥ 11）")
+        abstract: "建發表載體實體（type 值域：\(VenueType.domainDescription)；需 store format ≥ 11）")
 
     @OptionGroup var options: LibraryOptions
 

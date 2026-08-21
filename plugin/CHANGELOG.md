@@ -31,7 +31,7 @@
 
 ### venue 域（store format 11，#304——與本版並行出貨）
 
-- **store format 11**（#303／#304 venue change）：新 entity 形狀 `venue:`（journal／conference／publisher 封閉三值；`names` 沿革 timeline）＋ `Entry.venues` 二態 ref 邊（`.key`／`.literal`，literal-first）。舊 binary 讀 `venue:` 整檔 quarantine（實測），故 non-additive bump；新 binary 對 format < 11 的 venue 寫入 gate 拒絕指路 `migrate-venues`。
+- **store format 11**（#303／#304 venue change）：新 entity 形狀 `venue:`（`type` 為封閉列舉——**當時是三值，#324 已改為六值**；`names` 沿革 timeline）＋ `Entry.venues` 二態 ref 邊（`.key`／`.literal`，literal-first）。舊 binary 讀 `venue:` 整檔 quarantine（實測），故 non-additive bump；新 binary 對 format < 11 的 venue 寫入 gate 拒絕指路 `migrate-venues`。
 - **6 個新 MCP tool**：`akashic_venue`（記錄＋沿革＋文章編年 list——反向邊現算）、`akashic_venues`、`akashic_add_venue`、`akashic_resolve_venues`（apply+reject 組合腿同 #272 契約；verdict 落被判定 venue）、`akashic_add_organization`／`akashic_resolve_organizations`（#304 org 重啟的 MCP 面補齊）。
 - CLI 對應面：`venue`／`venues`／`add-venue`／`resolve-venues`／`migrate-venues`（additive-idempotent 回填，per-file trackedness 守門）。
 - importer（WoS／Zotero）自動產生 `.literal` venue ref（單一對映源 `VenueDerivation`；進庫不猜 key）。

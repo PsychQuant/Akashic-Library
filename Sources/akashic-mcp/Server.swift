@@ -178,7 +178,7 @@ actor AkashicMCPServer {
              description: "列出全部 venue（key/type/顯示名/文章數）。",
              inputSchema: obj([:])),
         Tool(name: "akashic_add_venue",
-             description: "建發表載體實體（venue:）。type 是封閉三值（journal / conference / publisher）；names 全進沿革時間軸（無時間段）、authorized 留空——指定是人的判斷。需 store format ≥ 11。",
+             description: "建發表載體實體（venue:）。type 的值域是 \(VenueType.domainDescription)；names 全進沿革時間軸（無時間段）、authorized 留空——指定是人的判斷。需 store format ≥ 11。",
              inputSchema: obj([
                 "key": str("kebab-case venue key"),
                 "names": strArray("名稱變體（正式刊名、縮寫、WoS 大寫形）"),

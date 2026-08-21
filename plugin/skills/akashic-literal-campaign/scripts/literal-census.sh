@@ -20,14 +20,28 @@ python3 - "$ROOT" <<'EOF'
 import glob, re, sys, os, collections
 
 root = sys.argv[1]
-fmt = 0
+# 三種狀態必須分開，不能都折成 0：
+#   int  → 讀到 format 標記
+#   None → 檔案在但沒有 format: 行（markerless legacy，read 端視同 1）
+#   -1   → 檔案讀不到（權限／路徑錯／store 不在）
+# 折成 0 會讓下游印出「store format 0」——一句關於 store 的假話，而 store 從來
+# 沒有 format 0。儀器造假時，讀報告的人再謹慎也沒用。
+fmt = None
 try:
-    for line in open(f"{root}/store.yaml", encoding="utf-8"):
-        m = re.match(r"^format:\s*(\d+)\s*$", line)
-        if m:
-            fmt = int(m.group(1))
+    with open(f"{root}/store.yaml", encoding="utf-8") as fh:
+        for line in fh:
+            m = re.match(r"^format:\s*(\d+)\s*$", line)
+            if m:
+                fmt = int(m.group(1))
 except OSError:
-    pass  # markerless legacy store 視同 format 1（read 端同語意）
+    fmt = -1
+
+def fmt_label():
+    if fmt == -1:
+        return "讀不到 store.yaml"
+    if fmt is None:
+        return "markerless（無 format 標記，read 端視同 1）"
+    return str(fmt)
 
 a_key = a_lit = v_key = v_lit = 0
 a_distinct = collections.Counter()
@@ -93,12 +107,12 @@ def row(label, key, lit, distinct):
     print(f"{label:<14} 總邊 {total:>5}｜literal 邊 {lit}（佔 {pct}）｜key {key}"
           f"｜distinct literal {distinct}")
 
-print(f"store: {root}（format {fmt if fmt else 'markerless≈1'}）")
+print(f"store: {root}（format {fmt_label()}）")
 row("author", a_key, a_lit, len(a_distinct))
-if fmt >= 11:
+if isinstance(fmt, int) and fmt >= 11:
     row("venue", v_key, v_lit, len(v_distinct))
 else:
-    print(f"{'venue':<14} 未部署（store format {fmt} < 11——venue 邊不存在於模型中，"
+    print(f"{'venue':<14} 未部署（store format {fmt_label()}，未達 11——venue 邊不存在於模型中，"
           "非「查完」；部署鏈見 repo 的 docs/store-format.md format 11 列（private，無存取權者取不到））")
 row("affiliation", aff_key, aff_lit, len(aff_distinct))
 row("org-parents", org_key, org_lit, len(org_distinct))

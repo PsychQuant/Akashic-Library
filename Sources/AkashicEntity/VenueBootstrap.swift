@@ -22,7 +22,7 @@ import AkashicCore
 ///
 /// ## `VenueType` 從哪來——這是本型別唯一的設計問題
 ///
-/// `VenueType` 是封閉三值（#324），而批次建檔必須給每個 venue 一個值。
+/// `VenueType` 是封閉列舉（#324；值域見該型別），而批次建檔必須給每個 venue 一個值。
 ///
 /// **答案是「讀它從哪個欄位來」，不是猜。** `VenueDerivation.literals(for:)` 是產生
 /// 那些 literal 的**唯一**來源，而它逐欄位取值：`journaltitle` → `.periodical`、

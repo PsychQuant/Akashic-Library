@@ -8,7 +8,9 @@
 
 這條規則的前兩版都是分類法（把句子歸類，再依類別決定受不受管）。兩版都被跨模型審查打掉，而且是同一個原因：**每一條分類邊界本身都是一個關於命題世界的斷言**，於是規則的斷言表面比它要管的東西還大。第二版的分類法連它自己舉的例子都歸錯（見下方「這份文件犯過的錯」）。
 
-問句沒有真假，所以沒有邊界可破。**下面四個問題不需要你先判斷這句話屬於哪一類**——你只要能回答，就合規；答不出來，就照第 4 題的出路寫。
+**下面四個問題不要求你先把句子歸類。** 第 1 題確實把命題分成「可能錯」與「不可能錯」兩邊——那仍是一種區分，只是它問的是**你自己**能不能想出這句話錯掉的樣子，不是要你去認定它屬於哪個範疇。分不出來時的預設是「可能錯」，所以分界模糊的代價只是多回答三個問題，不是漏掉一句該查的話。
+
+**先讀第 5 節再用第 4 題的出路**——限定詞不是萬用鑰匙。
 
 ## 四個問題
 
@@ -26,9 +28,11 @@
 - 證據不是指令能取得的（人的裁定、印刷文獻、需要綜合判斷的身分歸屬）→ 寫出證據**來源**與**取得方式**。身分與歸屬的判定另有規定：見下方第 5 節。
 - **取不到證據** → 走第 4 題。
 
+**還要問一次工具本身：它分得清「沒有」與「讀不到」嗎？** 本 plugin 出過一個實例：`literal-census.sh` 把「讀不到 `store.yaml`」與「檔案裡沒有 format 標記」都折成 `0`，於是報告印出「store format 0」——而 store 從來沒有 format 0。**儀器造假時，四個問題全部誠實回答仍然沒用**，因為你量到的就是假的。（已修，見該腳本的三態註解。）
+
 ### 3. 我手上的東西還說了什麼，是我沒讀的？
 
-這一條是本規則最貴的一課，因為**這份文件在上一版就犯了**：查三筆記錄有沒有頁碼，腳本只印 `page` 欄，於是寫下「能寫的最強結論就到這裡」——而**同一份回應裡有兩筆帶著 `article-number`**，答案本來就在手上（實測見下）。
+這一條是本規則最貴的一課，因為**這份文件在上一版就犯了**：查三筆記錄有沒有頁碼，腳本只印 `page` 欄，於是寫下「能寫的最強結論就到這裡」——而**同一份回應裡有兩筆帶著 `article-number`、三筆都帶著 volume／issue**——原句問的是「卷期頁碼」，答案本來就在手上（實測見下）。
 
 **投影窄於命題，和結論寬於觀察，是同一枚硬幣。** 取回一份資料之後，先看完它，再決定能寫什麼。
 
@@ -36,7 +40,9 @@
 
 - 查了 A、B、C 三個來源都沒有 → 寫「**在 A、B、C，以查詢 Q，於某日查無**」，不寫「沒有」。
 - 量了一個實例 → 不寫全稱句。
-- 沒查 → 限定詞**寫在句子裡**（「推測」「待查」），並寫出**要查什麼**才能定案。限定詞不是免死金牌：**證據便宜又拿得到時，去拿，不要用「推測」帶過**——本規則的兩個立案失敗都是「有能力查卻沒查」。
+- 沒查 → 限定詞**寫在句子裡**（「推測」「待查」），並寫出**要查什麼**才能定案。
+
+**但限定詞有一條硬界線：驅動行動的結論不得只靠限定詞放行。** 如果一句話會被拿去（a）寫進 store、（b）決定分母或批次範圍、（c）當成完成宣告，那麼「推測」不夠——要嘛去查，要嘛把那句話移出結論區、明擺成待決。本規則的兩個立案失敗都是「有能力查卻沒查」，而兩次的傷害都不是語氣造成的，是**建立在那句話上的動作**造成的：加一個「推測」不會阻止任何一條因果鏈。
 
 ## 5. 身分與歸屬的判定另有規定
 
@@ -81,22 +87,28 @@ curl -s -H 'User-Agent: your-tool (mailto:you@example.com)' \
 
 原句：「出版都超過半年了，卷期頁碼照理已經確定。可用 DOI 向出版商查一次補齊」。**「照理已經確定」沒有查證。**
 
-2026-08-21 觀察（同時印 `page` 與 `article-number`——這正是第 3 題的教訓）：
+2026-08-21 觀察（**把命題涵蓋的每一件事都印出來**——原句說「卷期頁碼」，所以四欄都要看，這正是第 3 題的教訓）：
 
 ```bash
 for d in 10.3791/68984 10.1007/s44195-025-00108-7 10.1007/s11009-025-10201-6; do
   curl -s -H 'User-Agent: your-tool (mailto:you@example.com)' "https://api.crossref.org/works/$d" \
     | python3 -c "import json,sys; m=json.load(sys.stdin)['message']; \
-        print(m.get('page'), m.get('article-number'), (m.get('container-title') or [''])[0][:30])"
+        print('page=', m.get('page'), 'art#=', m.get('article-number'), \
+              'vol/iss=', m.get('volume'), '/', m.get('issue'), \
+              (m.get('container-title') or [''])[0][:30])"
 done
 # 當次回傳：
-#   None None  Journal of Visualized Experiments
-#   None 23    Terrestrial, Atmospheric and Ocean
-#   None 78    Methodology and Computing in Appli
+#   page= None art#= None vol/iss= None / 223  Journal of Visualized Experiments
+#   page= None art#= 23   vol/iss= 36 / 1      Terrestrial, Atmospheric and Ocean
+#   page= None art#= 78   vol/iss= 27 / 4      Methodology and Computing in Appli
 ```
 
-**能寫下的**：當次三筆的 `page` 皆為 None；其中兩筆回傳了 `article-number`（23、78）。
+**能寫下的**：當次三筆的 `page` 皆為 None；其中兩筆回傳了 `article-number`（23、78）；**三筆都回傳了 volume／issue**（`None/223`、`36/1`、`27/4`）。
 **不能寫下的**：「這些刊物不用頁碼」——那是關於期刊政策的命題，需要期刊自己的投稿格式規格。
+
+**這個實例自己示範了第 3 題兩次。** 原句說的是「**卷期**頁碼照理已經確定」，而它涵蓋兩件事：卷期**確實已確定**（同一份回應就有），頁碼則不存在（那兩本用 article number）。前一版只印 `page` 欄，於是既漏掉 article-number、也漏掉卷期——**對一個講「卷期頁碼」的命題，只量了其中一半，還對那一半下了整句的裁決**。
+
+取回一份資料之後，先確認**你的命題涵蓋幾件事**，再確認**手上的回應回答了其中幾件**。
 
 ## 誠實邊界
 
@@ -105,3 +117,18 @@ done
 **掛載機制只碰得到 skill 檔。** 本規則由各 skill 的 see-also 引用而生效，所以它實際到得了的是**寫 skill 時**與**跑 skill 時**。而上面兩個立案失敗一個在 GitHub issue 的 Expected、一個在分析報告裡——**兩者都不在 skill 檔內**。這是已知缺口，不是尚未發現的問題：**掛載面比適用面窄**。要真正涵蓋 issue 與報告，需要的是別的機制（撰寫時的 gate 或審查時的檢查），不是這份檔案。
 
 **「曾經為真、因世界改變而變假」不在本清單內。** 那需要守衛而非紀律。本 plugin 自己就有一個實例：`.claude-plugin/plugin.json` 的描述寫「Store format 10」，而本機 store 的 `store.yaml` 寫 `format: 12`（單機觀察，未查證該描述寫下時是否正確、也未查兩者是否可相容）。追蹤：Akashic-Library#408。
+
+## 這份文件自己的量測（第 2 題對它自己也適用）
+
+本檔含若干關於世界的陳述。逐條列出取得方式與時間，讓讀者能重跑或反駁：
+
+| 陳述 | 怎麼取得 | 何時 |
+|---|---|---|
+| `VenueType` 是六值，不是三值 | `grep -c '^    case ' Sources/AkashicCore/Venue.swift`（取 `enum VenueType` 區塊；**repo 為 private，無存取權者跑不了這條**）；並以 `akashic add-venue --help` 讀由 `allCases` 生成的值域字串 | 2026-08-21 |
+| 兩筆記錄回傳 `article-number` 23／78 | 本檔第二個實例的 `curl`，同時印 `page`／`article-number`／`volume`／`issue` | 2026-08-21 |
+| `plugin.json` 寫 format 10、本機 store 寫 12 | `grep '"description"' plugin/.claude-plugin/plugin.json` 與 `grep '^format:' <store>/store.yaml`。**單機單樣本**——未查該描述寫下時是否正確、也未查兩者是否相容 | 2026-08-21 |
+| Akashic repo 與 `kiki830621/storyline` 皆為 private | `gh repo view <repo> --json isPrivate` | 2026-08-21 |
+| census 曾把「讀不到」印成 `format 0` | 讀該腳本的解析段；並以缺 `store.yaml`／有檔無標記兩種 fixture 實跑對照 | 2026-08-21 |
+
+**「兩版都被跨模型審查打掉」「六處失真」這類關於審查過程的陳述**，證據是本 issue 的
+verify comment（**該 repo 為 private，無存取權者讀不到**）。此處不重述其內容——理由見第 5 節。

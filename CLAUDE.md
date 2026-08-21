@@ -86,12 +86,16 @@ propose ──→ park ──────────────→ apply ─�
 >
 > **那條規則有守衛，而守衛有 negative control。** `plugin/tests/`（覆蓋、散文，
 > 純 python／bash）與 `plugin/skills/akashic-literal-campaign/scripts/tests/`
-> （store-marker parity，拿建好的 CLI 當 oracle）共五支。觸發點三處：
-> `.githooks/pre-push`（全部五支）、`.github/workflows/plugin-guards.yml`
-> （ubuntu，1× 計費，跑純 python／bash 的三支）、`ci.yml` 的 macOS job
-> （跑需要 binary 的兩支）。**`ci.yml` 的 `paths-ignore` 仍排除 `plugin/**`**
-> ——理由已從「plugin 沒有測試讀取」換成純計費（macOS runner 10×），
-> 所以純 plugin 的 push 由前兩個觸發點涵蓋，不會落空。
+> （store-marker parity，拿建好的 CLI 當 oracle）共五支。觸發點：
+> `.githooks/pre-push`（全部五支）、`plugin-guards.yml`（ubuntu，1× 計費，跑純
+> python／bash 的三支）、`census-parity.yml`（macOS，**只在 census／parity 測試／
+> 它的 oracle 改動時觸發**，跑需要 binary 的兩支）。
+>
+> **`ci.yml` 的 `paths-ignore` 仍排除 `plugin/**`**——理由已從「plugin 沒有測試
+> 讀取」換成純計費（macOS runner 10×）。它另有一個 parity step，但那是第二層：
+> 它的觸發是 push-to-main ＋ 該 paths-ignore，所以**只改 census 時它反而被跳過**
+> ——`census-parity.yml` 補的正是那一格（#407 R7 verify：守衛的觸發條件與它保護
+> 的檔案剛好互斥）。
 >
 > 兩支 negative control 各自證明對應的守衛會紅，並且**mutate 一份 copy 而不是
 > 出貨檔**：前一版就地改寫版控中的檔案，跨模型審查在審查期間實際觀察到 tracked

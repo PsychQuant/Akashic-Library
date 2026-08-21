@@ -105,7 +105,13 @@ public struct Venue: Equatable {
     public var id: UUID
     /// 人類可讀鍵（`StoreKey` 規則）。
     public var key: String
-    /// 載體種類（封閉列舉；值域見 `VenueType`，錯誤訊息一律用 `domainDescription` 生成）。
+    /// 載體種類（封閉列舉；值域見 `VenueType`）。
+    ///
+    /// **出貨面的值域字串由 `VenueType.domainDescription` 現算**——`akashic-mcp` 的
+    /// `add_venue`／`update_venue`（tool 說明與 per-parameter 描述）與 CLI 對應命令的
+    /// abstract 與 `--type` 說明，共六處。實測 `Sources/` 內已無寫死的值域清單。
+    /// 刻意**不**寫成「錯誤訊息一律用它生成」那種全稱保證：那句話沒有守衛支撐，
+    /// 而它涵蓋的是本 diff 沒有逐一查過的每一個未來錯誤訊息（#407 R5 finding 28）。
     public var type: VenueType
     /// 名稱變體與各自的效期（改名、縮寫、WoS 大寫形）。時間軸而非單值——
     /// **改名之後舊文章仍指向同一個 identity**（裁決五b 的刊名沿革）。

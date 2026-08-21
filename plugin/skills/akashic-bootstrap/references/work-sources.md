@@ -42,7 +42,11 @@
 
 **共同結構**：提出候選 → 用識別碼**反向**取回官方記錄 → 以合取判準比對 → 對得上是驗證，對不上或查不到就標 TODO。六種識別碼的型別與正規化見 Akashic repo 的 `Sources/AkashicCore/Identifier.swift`（#394；**該 repo 為 private，無存取權者取不到**）。
 
-**但識別碼終結的是「指涉」不是「描述」**：反向查回來的官方記錄本身可能有誤植（實測：出版商把 `Institute of Statistical Science` 寫成複數，Crossref 原樣保留）。判準：**識別碼的相等可以單獨判定身分**（六種具名——DOI／PMID／ISBN／ISSN／ORCID／ROR，封閉列舉不得類推第七種），但它**終結指涉、不終結描述**——掛在識別碼下的欄位仍可能誤植。出處是 Akashic repo `.claude/rules/identity-is-judged-not-matched.md` 的識別碼例外節（repo 為 private，無存取權者取不到全文）。
+**但識別碼終結的是「指涉」不是「描述」**：反向查回來的官方記錄本身可能有誤植（本檔自己的實測：出版商把 `Institute of Statistical Science` 寫成複數，Crossref 原樣保留）。
+
+**識別碼例外的判準本身，此處刻意不重述。** 它住在 Akashic repo 的 `.claude/rules/identity-is-judged-not-matched.md`（**該 repo 為 private，無存取權者取不到全文**）。重述過一次，被逐句比對後找出兩處走樣，而兩處都往同一個方向錯：把原文對**某一條要求**的豁免寫成無條件的充分性，並丟掉原文唯一帶量測數字的但書。讀不到時的出路是**明說讀不到**、請有存取權的人補——不是憑記憶重寫一份縮寫版。
+
+**不論那條例外怎麼說，下方「反向驗證（寫入前必做）」不因識別碼相等而豁免。** 這句寫在這裡是因為上一版的重述就夾在這兩道規定中間，而它讀起來像是允許跳過——本檔第 64–74 行整張表就是在講 Crossref 會回傳三種「像但不是」的記錄。
 
 追蹤：Akashic-Library#393、#394。
 

@@ -34,6 +34,14 @@ on:
   pull_request:
     paths: *parity_paths
 
+# **最小權限 ＋ 不留憑證**（#407 R8 HIGH）。這兩個 workflow 以 `pull_request`
+# 觸發並**執行 PR 端可控的程式碼**（守衛本身就是 PR 可以改的檔案）。
+# `actions/checkout` 預設 `persist-credentials: true` 會把 token 留在 git config，
+# 於是被改過的守衛腳本可以直接拿它 push。同 repo 的 contributor PR 拿到的 token
+# 不像 fork PR 那樣被降權，所以這道防線不能靠外部設定。
+permissions:
+  contents: read
+
 concurrency:
   group: census-parity-${{ github.ref }}
   cancel-in-progress: true
@@ -44,6 +52,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # 只影響 checkout **之後**是否把 token 留在 git config——submodule 在
+          # checkout 當下仍取得到憑證，所以兩者不衝突。
+          persist-credentials: false
           submodules: recursive
 
       - uses: actions/cache@v4

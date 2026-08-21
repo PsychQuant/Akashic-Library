@@ -35,6 +35,14 @@ on:
   pull_request:
     paths: *guard_paths
 
+# **最小權限 ＋ 不留憑證**（#407 R8 HIGH）。這兩個 workflow 以 `pull_request`
+# 觸發並**執行 PR 端可控的程式碼**（守衛本身就是 PR 可以改的檔案）。
+# `actions/checkout` 預設 `persist-credentials: true` 會把 token 留在 git config，
+# 於是被改過的守衛腳本可以直接拿它 push。同 repo 的 contributor PR 拿到的 token
+# 不像 fork PR 那樣被降權，所以這道防線不能靠外部設定。
+permissions:
+  contents: read
+
 concurrency:
   group: plugin-guards-${{ github.ref }}
   cancel-in-progress: true
@@ -44,6 +52,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # 規則有沒有被每個 skill 掛到，且相對路徑真的解析得到。
       - name: rule-coverage

@@ -159,8 +159,16 @@ def _read_marker(path):
             if ch not in '0123456789':
                 break
             numeric += ch
+        # **先剝前導零再判上界**，不要把完整字串交給 int()。Python 3.11+ 對超長
+        # 十進位字串的 int() 有位數上限（預設約 4300 位）會拋 ValueError，而
+        # Swift 的 Int(String) 逐位解析、數值未溢位就接受。所以
+        # `format: 000…0001`（前面幾千個 0）在讀端是合法的 1，在舊版 census 卻
+        # 落進「不是整數」→ 又一次**反方向**的假話（#407 R8 HIGH）。
+        significant = numeric.lstrip('0') or '0'
+        if len(significant) > 19:
+            return 'malformed', None, '(format: 值超出 Int64——讀端的 Int() 回 nil)'
         try:
-            n = int(numeric)
+            n = int(significant)
         except ValueError:
             return 'malformed', None, '(format: 後不是整數)'
         if n < 1:

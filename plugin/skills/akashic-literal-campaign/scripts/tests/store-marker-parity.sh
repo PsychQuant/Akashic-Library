@@ -219,6 +219,11 @@ check "# + ZWJ（註解行）"                '#\xe2\x80\x8d c\nformat: 12\n' ma
 check "#️⃣ keycap 序列（註解行）"          '#\xef\xb8\x8f\xe2\x83\xa3 s\nformat: 12\n' malformed
 check "值後註解 # + combining acute"     'format: 12 #\xcc\x81c\n' malformed
 
+# ── 前導零（R8 HIGH：Python 3.11+ 的 int() 位數上限；Swift 逐位解析不受影響）──
+check "5000 個前導零 + 1"                "format: $(printf '0%.0s' $(seq 1 5000))1\n" accept
+check "前導零 + Int64 上界"              "format: 000009223372036854775807\n" tooNew
+check "前導零 + Int64 上界加一"          "format: 000009223372036854775808\n" malformed
+
 # ── U+200B ZWSP（R8 HIGH：反方向的假話——讀端 trim 掉它、census 不 trim）────
 # Foundation 的 CharacterSet.whitespaces 含 ZWSP（Cf，不是 Zs），而舊版 _WS 由
 # Zs 推導。五種位置讀端全部接受，census 全部說「讀端會整體拒開此 store」並指名

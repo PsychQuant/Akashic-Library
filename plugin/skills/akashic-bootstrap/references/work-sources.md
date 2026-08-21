@@ -42,7 +42,7 @@
 
 **共同結構**：提出候選 → 用識別碼**反向**取回官方記錄 → 以合取判準比對 → 對得上是驗證，對不上或查不到就標 TODO。六種識別碼的型別與正規化見 `Sources/AkashicCore/Identifier.swift`（#394）。
 
-**但識別碼終結的是「指涉」不是「描述」**：反向查回來的官方記錄本身可能有誤植（實測：出版商把 `Institute of Statistical Science` 寫成複數，Crossref 原樣保留）。判準見 [`identity-is-judged-not-matched`](https://github.com/PsychQuant/Akashic-Library/blob/main/.claude/rules/identity-is-judged-not-matched.md) 的識別碼例外節。
+**但識別碼終結的是「指涉」不是「描述」**：反向查回來的官方記錄本身可能有誤植（實測：出版商把 `Institute of Statistical Science` 寫成複數，Crossref 原樣保留）。判準：**識別碼的相等可以單獨判定身分**（六種具名——DOI／PMID／ISBN／ISSN／ORCID／ROR，封閉列舉不得類推第七種），但它**終結指涉、不終結描述**——掛在識別碼下的欄位仍可能誤植。出處是 Akashic repo `.claude/rules/identity-is-judged-not-matched.md` 的識別碼例外節（repo 為 private，無存取權者取不到全文）。
 
 追蹤：Akashic-Library#393、#394。
 

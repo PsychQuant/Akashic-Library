@@ -25,7 +25,7 @@ xlsx/CSV 用手邊可用的讀法（python＋openpyxl、`excel-to-json` skill、
 `Publication Year`／`Publication Date`／`Source Title`／`Volume`／`Issue`／
 `Start Page`／`End Page`／`DOI`／`Group Authors`；其餘欄位走殘餘收集原樣入
 `fields`（#206）。（本清單是**快照**；含對映目標與合成語意的正典在 repo 的
-[docs/import-wos-mapping.md](https://github.com/PsychQuant/Akashic-Library/blob/main/docs/import-wos-mapping.md)
+`docs/import-wos-mapping.md`（Akashic repo；**private，無 repo 存取權者取不到**——欄名對映的權威在該檔，本 skill 只在此註明出處）
 ——兩者不一致時以正典為準。）
 
 ### 2. DOI 補查（缺 DOI 的列）
@@ -99,3 +99,8 @@ link），絕不靜默丟列。確認後的交接是**檔案**，不是口頭：
   指向 record-divergence）。本 skill 是匯入**前**的閘，兩者互補：事後安全網只能
   **報告**、不能替你在匯入前定分母——「無法分類」的組仍要在本閘交人，別留給事後
 - 清單欄位 → store 欄位的對映屬 `import-wos` 本體（無損契約），本 skill 不重述
+
+## 相關
+
+- [`akashic-bootstrap`](../akashic-bootstrap/SKILL.md)——逐筆實體的補完；本 skill 是它上游的清單層 QA 閘
+- [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——**intake 報告裡的每個計數與每次 Crossref 判定都受它管**：查得到就寫查到什麼、查不到就寫「在哪些來源、以什麼查詢、哪一天查無」，不寫「應該是」。分母定案是人要照著行動的數字，過寬的斷言會直接流進下游統計

@@ -2,8 +2,8 @@
 
 ## [unreleased]
 
-- **新增 `plugin/rules/`**（#407）：plugin 自帶的規則目錄，第一條是 `assertions-must-be-measured`——寫進交付物的世界斷言要先被量測過（三分法封閉列舉：可否證的世界斷言受管、設計主張與明標的推測不受管）。四個做外部查證的 skill （person-verify／venue-verify／bootstrap／disambiguate）引用它。**為什麼放 plugin 不放 repo 端的 rules 目錄**：後者只在 Akashic repo 內自動注入，而查證工作常在別的 repo 進行——本規則的兩個失敗實例正好都發生在 repo 外。
-- **修掉兩處懸空引用**（#407）：plugin 內指向 repo 端 rules 目錄（`identity-is-judged-not-matched`）的裸相對路徑，在 Akashic repo 外一律解析不到，改為絕對 GitHub URL（沿 `akashic-wos-intake` 的既有慣例）。
+- **新增 `plugin/rules/`**（#407）：plugin 自帶的規則目錄，第一條是 `assertions-must-be-measured`——寫進交付物的世界斷言要先被量測過（三分法封閉列舉：可否證的世界斷言受管、設計主張與明標的推測不受管）。四個做外部查證的 skill （person-verify／venue-verify／bootstrap／disambiguate）引用它。**為什麼放 plugin 不放 repo 端的規則目錄**：後者只在 Akashic repo 內自動注入，而查證工作常在別的 repo 進行——本規則的兩個失敗實例正好都發生在 repo 外。
+- **修掉兩處懸空引用**（#407）：plugin 內指向 repo 端規則的裸相對路徑在 Akashic repo 外解析不到。**改法不是換成絕對 GitHub URL**——實測該 repo `isPrivate=true`，未認證 GET 一律 404，而 private repo 的 404 與「已刪除／從不存在」不可區分，等於把缺訊號換成假訊號；且主要讀者是未認證的 agent。改為**就地寫出 skill 實際需要的判準**，出處降為註記並明說需 repo 存取權。同一輪順帶修掉 `akashic-wos-intake` 既有的同型 404 連結（它原本被當成「既有慣例」引用，實測它自己也 404）。
 
 - **`akashic_update_venue`／CLI `update-venue`**（#306）：venue 異名補寫——`add_names` append 語意（整組替換刻意不提供，R3F-2 教訓）；`note`／`type` 替換。沿革補全直接擴大 resolve-venues 命中面。
 - **⚠️ `akashic_resolve_people` 增 `confirm_tiers`**（#307）：apply 集含寬鬆提名層（reorder／initials／confirmed-elsewhere）而該層未列於 `confirm_tiers` ＝整批拒絕零寫入並指名缺席層；exact 免承認。MCP 面自此也有 tier 覺察閘（CLI 為 `--tier`，兩面對稱不同形）。

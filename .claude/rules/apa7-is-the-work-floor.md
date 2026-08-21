@@ -81,7 +81,7 @@ Entries in Reference Works），與編著章節同節。但在本專案它是獨
 ## 觸發過的實例（2026-08-19 讀 ch8–ch10 全文時一次性發現）
 
 - **`Entry.type` 是自由 `String`**，10 個值是各 importer 碰巧寫的，沒有任何東西擋得住第 11 個
-  拼錯的值（#325）。對照 `VenueType` 封閉值域（#324 改以 APA7 §9.23–9.33 為判準後為六值：`periodical`／`conference`／`publisher`／`database`／`socialMedia`／`website`）、decode 對未知值整檔拒讀——**驅動 export 排版的
+  拼錯的值（#325）。對照 `VenueType` 封閉值域（#324 起改以 APA7 §9.23–9.33 的 source 類型學為判準；**值域本身不在此複述**——`Sources/AkashicCore/Venue.swift` 的 enum 是唯一來源，出貨面的字串由 `VenueType.domainDescription` 現算。#407 同輪剛因為「一份規格的兩個副本必然分岔」而從 `Sources/` 拔掉四份寫死清單，這裡再寫一份是同一個錯誤換個位置）、decode 對未知值整檔拒讀——**驅動 export 排版的
   欄位反而沒約束**
 - **兩個 catch-all 都在藏真類型，但兩者的病不同**：`misc` 的 14 筆**全部**是維基百科條目
   ——它們在 APA7 有歸屬（10.3 例 49）但在**本專案沒有自己的格子**，該由細分關係補上

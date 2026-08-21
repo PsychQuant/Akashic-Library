@@ -21,13 +21,17 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/akashic-literal-campaign/scripts/literal-cens
 
 四域各報**總邊／literal 邊／distinct 三個口徑**——「literal 邊」是歸零的終局量測，distinct 是查證工作量估計。
 
-**venue 那一列的四種輸出，各代表不同的事**（#407 R6 起；先前只有「未部署」一種，於是「還沒部署」「marker 壞了」「量到邊但 marker 說沒有」三件事被折在一起）：
+**先看第一行有沒有全域警告。** marker 壞到讀端會整體拒開此 store（不合 grammar／讀不到／版號超過本機支援上限）時，census 會在 store 那一行下面印一條 ⚠——**那一輪的每一列都不能拿去定 campaign 的批次範圍**，不只 venue。author 才是歸零的終局量測，而先前只有 venue 那一列掛但書。
+
+**venue 那一列的輸出，各代表不同的事**（#407 R6／R7 起；先前只有「未部署」一種，於是「還沒部署」「marker 壞了」「量到邊但 marker 說沒有」被折在一起）：
 
 | 輸出 | 意思 | 該做什麼 |
 |---|---|---|
-| 正常三個口徑 | marker 讀得到、版號 ≥ 11 | 照常進 venue 輪 |
-| `未部署` | marker 讀得到、版號 < 11、**且本輪零 venue 邊** | 缺席不是零；先走部署鏈 |
-| 三個口徑 ＋「兩者不一致」註記 | **量到 venue 邊，而 marker 說版號不夠** | 以量測為準，但**先修 marker**——marker 不合 grammar 時讀端會整體拒開此 store，這些數字不能拿去定批次範圍 |
+| 正常三個口徑 | marker 讀得到，版號 ≥ 11 且未超過本機支援上限 | 照常進 venue 輪 |
+| 三個口徑 ＋ 第一行的 ⚠ | **版號超過本機原始碼的支援上限**——沒有任何只支援到那一版的 binary 打得開這個 store | 先處理版本，數字不可用 |
+| `未部署`（無 store.yaml） | 讀端明訂缺檔即 format 1，而 venue 邊自 format 11 起才存在 | 缺席不是零；先走部署鏈。**沒有東西要修**——缺檔是合法狀態 |
+| `未部署`（marker 說 format N < 11） | 該版本沒有 venue 邊，且本輪零 venue 邊 | 同上 |
+| 三個口徑 ＋「兩者不一致」註記 | **量到 venue 邊，而 marker 說的版號沒有這種邊** | 以量測為準，但先查 store 狀態 |
 | `**未知**` | marker 不合 grammar／讀不到，且零 venue 邊 | 無法區分「未部署」與「已部署但為 0」。先修 `store.yaml` 再重跑 |
 
 marker 的解析與讀端的一致性由 `scripts/tests/store-marker-parity.sh` 量測（拿真的 CLI 當 oracle），`scripts/tests/marker-parity-mutations.py` 證明那張矩陣會紅。

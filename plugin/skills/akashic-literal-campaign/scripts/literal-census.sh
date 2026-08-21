@@ -253,11 +253,27 @@ def _tilde(p):
     只處理前綴——store root 之外的路徑本腳本不印。這不是通用消毒器，
     別把它當成 displaySafe 的對應物（那是另一個威脅模型：檔案原文進 error）。
     """
-    home = os.path.expanduser('~')
-    return '~' + p[len(home):] if home and p.startswith(home) else p
+    home = os.path.expanduser('~').rstrip(os.sep)
+    if not home:
+        return p
+    # **比到路徑邊界**，不是裸前綴。裸前綴在 HOME=/home/ann 時會把
+    # /home/anna/x 改寫成 ~a/x —— 一個不存在的路徑，而這份輸出的去向是 issue。
+    if p == home:
+        return '~'
+    if p.startswith(home + os.sep):
+        return '~' + p[len(home):]
+    return p
 
+
+# marker 壞到讀端會整體拒開時，**這一輪的每一個數字都不能拿去定批次範圍**
+# ——不只 venue 那一列。author 才是 campaign 的終局量測，而前一版只在 venue
+# 那一列掛但書，author 照常裸印（R6 finding 50）。
+_store_unopenable = fmt_state in ('malformed', 'unreadable') or _too_new
 
 print(f"store: {_tilde(root)}（{fmt_label()}）")
+if _store_unopenable:
+    print(f"{'':<14} ⚠ 讀端會整體拒開此 store，**下面每一列都不能拿去定 campaign "
+          "的批次範圍**——它們是直接掃 YAML 得到的，不代表任何 binary 讀得到這些內容")
 row("author", a_key, a_lit, len(a_distinct))
 # venue 的三分支。**先報量到的，解釋擺後面** —— 前一版反過來（先套 format 的解釋、
 # 再決定要不要印計數），於是在 format 未知時印出「下面的計數是實際掃到的」而下面
@@ -267,16 +283,27 @@ _v_total = v_key + v_lit
 if _v_total > 0:
     # 量到就印，不論 format 說什麼。format 與量測不一致時，把不一致本身報出來。
     row("venue", v_key, v_lit, len(v_distinct))
-    if not (isinstance(fmt, int) and fmt >= 11):
-        print(f"{'':<14} ↑ 註：store {fmt_label()}，但上列 venue 邊是**實際解析到的**。"
-              "而 marker 說不是——**兩者不一致**。上列是這一輪實際解析到的數字；"
-              "marker 不合 grammar 時讀端會整體拒開此 store，"
-              "所以在修好 marker 之前，這些數字不能拿去定 campaign 的批次範圍")
+    if fmt_state in ('read', 'absent') and not _too_new and fmt < 11:
+        # marker **說得出**一個版號，而它與量測不合——這才是「兩者不一致」。
+        print(f"{'':<14} ↑ 註：marker 說 format {fmt}（< 11，該版本沒有 venue 邊），"
+              "而上列是**實際解析到的**——兩者不一致，請查 store 狀態")
+    elif fmt_state in ('malformed', 'unreadable'):
+        # marker 壞掉時它**什麼版本都沒說**，談不上「說不是」。前一版把
+        # 「marker 說不是」寫死在一個對三種狀態都會觸發的分支裡（R6 finding 28）。
+        print(f"{'':<14} ↑ 註：marker 讀不出版號，所以無法判斷上列 venue 邊"
+              "是否屬於這個 store 的模型——上游的全域警告已說明數字不可用")
 elif isinstance(fmt, int) and fmt >= 11:
     row("venue", v_key, v_lit, len(v_distinct))          # 已部署且真的是 0
-elif fmt_state in ("read", "absent"):
-    print(f"{'venue':<14} 未部署（store {fmt_label()}，< 11，且本輪零 venue 邊——"
-          "非「查完」；部署鏈見 repo 的 docs/store-format.md format 11 列（private，無存取權者取不到））")
+elif fmt_state == 'absent':
+    # **缺檔不是壞掉**：讀端明訂缺檔即 format 1。前一版對這個情形也印「先修好
+    # marker」，而根本沒有東西要修，且那句話指名了一個動作（R6 finding 39）。
+    print(f"{'venue':<14} 未部署（無 store.yaml ＝ format 1，而 venue 邊自 format 11 起"
+          "才存在於模型中；本輪零 venue 邊——非「查完」。"
+          "部署鏈見 repo 的 docs/store-format.md format 11 列（private，無存取權者取不到））")
+elif fmt_state == 'read':
+    print(f"{'venue':<14} 未部署（marker 說 format {fmt}，< 11——該版本沒有 venue 邊；"
+          "本輪零 venue 邊——非「查完」。"
+          "部署鏈見 repo 的 docs/store-format.md format 11 列（private，無存取權者取不到））")
 else:
     print(f"{'venue':<14} **未知**（{fmt_label()}；且未解析到任何 venue 邊——"
           "無法區分「未部署」與「已部署但為 0」。先修 store.yaml 再重跑）")

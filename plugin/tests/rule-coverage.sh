@@ -18,6 +18,9 @@ set -uo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PLUGIN=$(cd "$HERE/.." && pwd)
+# 這支用 glob 定位規則檔，從不寫出任何 basename——trigger-coverage.py 的
+# 啟發式因此看不見這條依賴（#407 R20 實測）。顯式宣告補上：
+# trigger-coverage: reads plugin/rules/*.md
 RULES="$PLUGIN/rules"
 SKILLS="$PLUGIN/skills"
 

@@ -66,13 +66,24 @@ fails = []
 
 
 def code_only(path):
-    """剝掉整行註解與行尾註解（坑 3）。"""
+    """剝掉整行註解與行尾註解（坑 3）。
+
+    **`.swift` 的行尾 `//` 先前不剝**，而這句 docstring 說剝——一句沒被量測過
+    的斷言，出現在一支為了防那件事而寫的腳本裡（#407 R20 跨模型審查指名）。
+    量測顯示當下零實例（兩支 .swift 的行尾註解都不含受保護檔名），但成本是
+    一個分支，而「零實例、成本一行、前件精確」在本 repo 的 zero-instance-guards
+    第 1 列是「寫」。
+    """
     out = []
     for line in io.open(path, encoding='utf8', errors='replace'):
         s = line.lstrip()
         if s.startswith('#') or s.startswith('//'):
             continue
-        out.append(line.split(' # ')[0] if path.endswith(('.sh', '.py')) else line)
+        if path.endswith(('.sh', '.py')):
+            line = line.split(' # ')[0]
+        elif path.endswith('.swift'):
+            line = line.split(' // ')[0]
+        out.append(line)
     return '\n'.join(out)
 
 
@@ -85,6 +96,38 @@ def yaml_paths(yml):
         got[key] = ([x.strip().strip('"') for x in
                      re.findall(r'^\s*-\s*(.+)$', m.group(1), re.M)] if m else [])
     return got
+
+
+def invoked(text):
+    """workflow 裡**真的被執行**的腳本檔名。
+
+    判準是**命令位置**，不是同一行出現。上一版寫
+    `re.findall(r'run:.*?([\\w./-]+\\.(?:sh|py|swift))', text)`——它匹配
+    `run:` 之後同一行的任何檔名，於是
+
+        run: echo "見 plugin/tests/rule-coverage.sh 的說明"
+
+    會讓 `rule-coverage.sh` 被算成「這個 workflow 執行了它」。實測（#407 R20）：
+    把一個真的 run 步驟換成上面那行 echo，守衛照樣報綠。
+
+    現在只認直譯器後面緊跟的那一個引數（`bash X` / `python3 X` / `swift X`）
+    與直接執行（`./X`）。**這仍是啟發式**——一個包在 shell 變數或多行 `run: |`
+    裡的呼叫會被漏掉（方向是漏報，比誤報安全），而漏報會讓守衛紅、不會讓它假綠。
+    """
+    found = set()
+    for line in text.split('\n'):
+        m = re.match(r'\s*(?:-\s*)?run:\s*(.+)$', line)
+        if not m:
+            continue
+        toks = m.group(1).split()
+        for i, tok in enumerate(toks):
+            if tok in ('bash', 'sh', 'python3', 'python', 'swift') and i + 1 < len(toks):
+                nxt = toks[i + 1]
+                if nxt.endswith(('.sh', '.py', '.swift')):
+                    found.add(os.path.basename(nxt))
+            elif tok.startswith('./') and tok.endswith(('.sh', '.py', '.swift')):
+                found.add(os.path.basename(tok))
+    return found
 
 
 def matches(patterns, f):
@@ -101,22 +144,57 @@ if missing:
     sys.exit(1)
 
 PROTECTED = sorted(set(GUARDS + DATA))
-READS = {g: {g} | {f for f in PROTECTED if os.path.basename(f) in code_only(g)}
+# **這是啟發式，而它的失敗方向是漏報**（#407 R20 指名）：一個把路徑組出來的
+# 守衛（`DIR + 'literal' + '-census.sh'`、環境變數、glob）不會讓 basename 逐字
+# 出現，於是那條依賴**整個不被考慮**——不報缺口、不印任何東西。靜態分析救不了
+# 這件事（要執行才知道），所以改為把它**攤開來**：下面印出每個守衛被判定讀了
+# 什麼，讓漏掉的那條在人眼前缺席，而不是在沉默裡缺席。
+DECLARE = re.compile(r'trigger-coverage:\s*reads\s+(\S+)')
+
+
+def declared(path):
+    """守衛可以顯式宣告它讀什麼，補上啟發式看不見的依賴。
+
+    寫法（放在守衛自己的註解裡，這一行**刻意不剝**）：
+
+        # trigger-coverage: reads plugin/rules/*.md
+
+    存在的理由是一個實測到的漏報：`rule-coverage.sh` 用 glob `"$RULES"/*.md`
+    定位規則檔，從不寫出任何 basename，於是啟發式把它判成「只讀自己」——
+    而它的整個職責就是驗那些規則檔（#407 R20，由攤開表讓它現形）。
+    """
+    out = set()
+    for line in io.open(path, encoding='utf8', errors='replace'):
+        m = DECLARE.search(line)
+        if m:
+            out |= {f for f in PROTECTED if fnmatch.fnmatch(f, m.group(1))}
+    return out
+
+
+READS = {g: ({g} | declared(g)
+             | {f for f in PROTECTED if os.path.basename(f) in code_only(g)})
          for g in GUARDS}
 
 WORKFLOWS = {}
 for y in sorted(glob.glob('.github/workflows/*.yml')):
     text = io.open(y, encoding='utf8').read()
-    WORKFLOWS[os.path.basename(y)] = (
-        yaml_paths(y),
-        set(os.path.basename(x) for x in
-            re.findall(r'run:.*?([\w./-]+\.(?:sh|py|swift))', text)))
+    WORKFLOWS[os.path.basename(y)] = (yaml_paths(y), invoked(text))
 
-HOOK = io.open('.githooks/pre-push', encoding='utf8').read() \
-    if os.path.exists('.githooks/pre-push') else ''
+# **也要剝註解。** 上一版這裡讀 raw text，而 code_only() 就在同一個檔案裡、
+# 正是為了修「坑 3」而寫的——READS 用了它，這裡沒用。**修了一半。** 實測
+# （#407 R20）：把一支守衛從 pre-push 拿掉、只留一行 `# TODO: 之後再接 …`，
+# 守衛照樣報「涵蓋 N/N」。同型缺陷成對出現而只修先被看見的那個，是本 repo
+# 的 no-compat-fallback 記過的形狀。
+HOOK = code_only('.githooks/pre-push') if os.path.exists('.githooks/pre-push') else ''
 
 print(f'守衛 {len(GUARDS)} 支｜受保護 {len(PROTECTED)} 個｜'
       f'workflow {len(WORKFLOWS)} 份\n')
+
+print('每支守衛被判定讀了哪些受保護檔（啟發式，漏報方向——見 READS 上方註解）：')
+for g in GUARDS:
+    others = sorted(os.path.basename(x) for x in READS[g] if x != g)
+    print(f'   {os.path.basename(g):<32} → {"、".join(others) if others else "（只有自己）"}')
+print()
 
 for f in PROTECTED:
     readers = [g for g in GUARDS if f in READS[g]]

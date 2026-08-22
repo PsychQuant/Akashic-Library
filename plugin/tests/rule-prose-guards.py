@@ -249,6 +249,15 @@ if os.path.exists(PARITY) and os.path.exists(MUTS):
     n_mut = len(re.findall(r'^\s{4}\(', mm.group(1), re.M)) if mm else -1
     if n_mut < 0:
         stale.append('數不到 MUTATIONS 的項目數——抽取式已與宣告寫法脫節')
+    # **proxy 的有效前件也要驗**（#407 R20 指名）：`^check ` 只認 column 0。
+    # 若有人把一個 check 移進 if／函式區塊，實跑的 fixture 數不變而靜態計數
+    # 少一——散文若跟著改成那個錯的數字，這一項會綠而表格已與實際不符。
+    # 目前縮排的 check 是 0 個；出現即報，因為那一刻起 proxy 不再成立。
+    indented = len(re.findall(r'^\s+check ', open(PARITY, encoding='utf8').read(), re.M))
+    if indented:
+        stale.append(f'store-marker-parity.sh 有 {indented} 個縮排的 check——'
+                     f'靜態計數（只認 column 0）不再等於實跑的 fixture 數，'
+                     f'本項的 proxy 前件失效')
     # 表格裡標 ↗ 的那兩列必須帶當下的數字。
     if f'**{n_fix}** 格 fixture' not in rule_txt:
         stale.append(f'自我量測表的 parity 列不是當下的 {n_fix} 格')

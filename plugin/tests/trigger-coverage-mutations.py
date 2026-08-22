@@ -75,6 +75,19 @@ RESULTS = [
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
              'run: bash plugin/tests/rule-coverage.sh', 'run: true  # 被拿掉了')},
          'rule-coverage.sh'),
+    # 下面兩格是 #407 R20 跨模型審查實測到的**假陰性**——修法之前這兩種狀態
+    # 都讓守衛報綠而它宣稱的性質為假。
+    case('把 pre-push 的一支守衛換成只提到它的註解',
+         {'.githooks/pre-push': lambda t: t.replace(
+             'bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh\n',
+             '# TODO: 之後再接 plugin/skills/akashic-literal-campaign/'
+             'scripts/tests/store-marker-parity.sh\n')},
+         'store-marker-parity.sh 不在 pre-push 裡'),
+    case('把 workflow 的一個 run: 換成只印檔名的 echo',
+         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+             'run: bash plugin/tests/rule-coverage.sh',
+             'run: echo "見 plugin/tests/rule-coverage.sh 的說明"')},
+         'rule-coverage.sh'),
     case('把受保護檔案的路徑改成不存在的（憑記憶寫路徑的那個坑）',
          {GUARD_REL: lambda t: t.replace(
              "'Sources/AkashicStoreIO/StoreVersion.swift'",

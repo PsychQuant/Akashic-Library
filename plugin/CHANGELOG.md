@@ -2,6 +2,12 @@
 
 ## [unreleased]
 
+- **新守衛自己有兩個假陰性**（#407 R20）：R17–R19c 的 887 行此前從未被跨模型審查（那是那幾輪自己寫的程式碼）。送審後 3/3 完成、六條 finding **全部指向 `trigger-coverage.py`**。兩個 HIGH 經構造實驗實測成立——守衛在那兩種狀態下**報綠而它宣稱的性質為假**：
+  (a) **pre-push 覆蓋檢查讀 raw text**。把一支守衛從 hook 拿掉、只留一行 `# TODO: 之後再接 …`，守衛照樣印「涵蓋 10/10」。而 `code_only()` 就在同一個檔案裡、正是為了修「坑 3」而寫的——`READS` 用了它，`HOOK` 沒用。**修了一半**，正是本 repo `no-compat-fallback` 記過的 #241 形狀。
+  (b) **workflow 的「執行」偵測匹配同一行任何檔名**。把 `run: bash plugin/tests/rule-coverage.sh` 換成 `run: echo "見 plugin/tests/rule-coverage.sh 的說明"`，該守衛仍被算成「這個 workflow 執行了它」。改為只認命令位置（`bash X`／`python3 X`／`swift X`／`./X`）；仍是啟發式，但失敗方向翻轉為漏報（讓守衛紅，不讓它假綠）。
+  兩格已加進 negative control（4 → 6）。
+  其餘四條：**`code_only()` 的 docstring 說剝行尾註解而 `.swift` 走 else 分支不剝**（零實例，但斷言是假的——依 `zero-instance-guards` 第 1 列「零實例、成本一行、前件精確」而寫）；**`READS` 是啟發式且失敗方向是漏報**（一個用 glob 組路徑的守衛整條依賴不被考慮，不報缺口也不印任何東西）——靜態分析救不了，所以改為**把判定攤開印出來**讓漏報在人眼前缺席，而攤開表當場讓一個真實漏報現形（`rule-coverage.sh` 用 `"$RULES"/*.md` 定位規則檔，從不寫出 basename，被判成「只讀自己」），並加上顯式宣告的出口（`# trigger-coverage: reads <glob>`）；**第 6 項散文守衛的靜態計數 proxy 沒驗它自己的前件**（`^check ` 只認 column 0，一個被縮排的 check 會讓計數少一而實跑不變）——補上前件檢查，實測縮排一個即變紅。
+
 - **規則的旗艦論證自己過期了**（#407 R19b）：`assertions-must-be-measured.md` 的自我量測表（「我說的每句話都量過」）重量八列，**兩列已過期**——parity `26→46`、mutation `11/11→14/14`。過期的正是兩個**會長**的數字（每輪加 fixture 就變），而表格把它們寫得跟「`VenueType` 是六值」一樣像恆定事實。其餘六列仍成立（VenueType 6、skill 6、wrapper 第 6 行、format 10 vs 12、marketplace 27 個、main 最近 8 次 CI 全 `failure`）。
   修法**不只是換數字**（下一輪會再過期）：會長的那幾列標 `↗` 並寫出前一次的值，表頭寫下「數字會過期不是缺陷，把會長的數字寫得像恆定事實才是」。並新增**第 6 項散文守衛**——靜態數 fixture 定義與 mutation 項目（不跑那兩支腳本：parity 需 `swift build`、mutation 要數分鐘；實測靜態計數與實跑一致），與表格裡的數字比對。它有兩格 negative control（把兩個數字各自改回過期值），negative control 11 → 13。
   **這不是零實例守衛**——過期是 2026-08-22 真實量到的，2/8。

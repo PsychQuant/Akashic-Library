@@ -2,6 +2,10 @@
 
 ## [unreleased]
 
+- **白名單是憑印象列的，漏了 `gpgsig-sha256`**（#407 R26l，c25 的 logic 席指名）：R26i 的 `KNOWN_NOT_REVIEW` 有七個欄位，而 SHA-256 物件格式的 repo 用 `gpgsig-sha256` 簽署——**那個名字不在清單裡**，於是那種 repo 的 signed commit 會被判成「未判定過的欄位」。實測 git binary 的字串常數確實有它。
+  修法不只是補一個字：**把窮舉方法寫進註解**——`strings $(command -v git) | grep -oE '^(tree|parent|author|committer|gpgsig[a-z0-9-]*|mergetag|encoding)$' | sort -u` 回**八個**，白名單就是那八個，**零差集**（同輪驗過）。下次不必猜。
+  同輪：兩個 lens 獨立指出續行問題（**R26k 已修**）——一席 MEDIUM、一席 CRITICAL，措辭不同但指的是同一件事。
+
 - **抽取式對多行 header 的續行取錯東西——而 HEAD 剛好沒簽名，所以本機全綠**（#407 R26k，自答 c25 的 logic 那題時量到）：R26i 把判準從黑名單改成白名單（「未判定過的欄位就紅」），方向對——**但抽取式本身錯了**。commit header 的多行值以**空格續行**（RFC 式折疊），而 `gpgsig` 的 PGP 簽章正是那樣。上一版對每一行取 `split()[0]`，於是 signed commit 抽出 **19 個「欄位」**，其中 15 個是 base64 片段（實測 `32ebc301`）。
   **HEAD 剛好不是 signed commit，所以它跑起來全綠**——這個守衛在有 GPG 的環境（那是常態）會炸。修法是濾掉前導空格的續行，並**不只驗 HEAD**：順帶對本 repo 第一個 signed commit 跑同一個抽取式，**兩種形狀都要對，才叫這個檢查有意義**。舊抽取式對它抽出 14 個未判定欄位（正確會紅）。
 

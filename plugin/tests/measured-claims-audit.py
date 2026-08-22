@@ -59,9 +59,18 @@ print('② 「git 證立時序，證立不了有檢查」')
 # 而不是靠清單漏掉它來蒙混。
 REVIEW_ISH = ('review', 'approv', 'signoff', 'sign-off', 'verdict', 'attest')
 # 已知且判定「不是審查證據」的欄位（含縮寫）。出現在這裡＝看過、判過。
+#
+# **清單怎麼來的**（#407 R26l——上一版是憑印象列的，漏了 `gpgsig-sha256`，
+# 由跨模型審查指名）：直接從 git binary 的字串常數窮舉，不用猜——
+#
+#     strings $(command -v git) | grep -oE '^(tree|parent|author|committer|gpgsig[a-z0-9-]*|mergetag|encoding)$' | sort -u
+#
+# 當次回傳八個：author／committer／encoding／gpgsig／gpgsig-sha256／mergetag／
+# parent／tree。**下面這張表就是那八個**，一個不多一個不少。
 KNOWN_NOT_REVIEW = {
     'tree': '內容指標', 'parent': '前驅', 'author': '誰寫的', 'committer': '誰提交的',
     'gpgsig': '**簽署**不是審查——它證明身分，不證明有人檢查過內容',
+    'gpgsig-sha256': '同 gpgsig，SHA-256 物件格式的 repo 用這個欄位名',
     'mergetag': '被合併的 tag 物件', 'encoding': 'message 的字元編碼',
 }
 # **多行 header 的續行以空格開頭**（RFC 式折疊）——`gpgsig` 的 PGP 簽章就是那樣。

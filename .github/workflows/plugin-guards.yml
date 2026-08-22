@@ -86,3 +86,5 @@ jobs:
         run: python3 plugin/tests/trigger-coverage.py
       - name: 觸發點守衛的 negative control
         run: python3 plugin/tests/trigger-coverage-mutations.py
+      - name: 判準表的現查
+        run: python3 plugin/tests/measured-claims-audit.py

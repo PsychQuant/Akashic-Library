@@ -44,5 +44,7 @@ python3 plugin/skills/akashic-literal-campaign/scripts/tests/marker-parity-mutat
 # 判準是**逐對**而非聯集——CLAUDE.md 那張手寫的觸發點表由它量。
 python3 plugin/tests/trigger-coverage.py
 python3 plugin/tests/trigger-coverage-mutations.py
+# 那張四列判準表的現查（#407 R26b）——表自己的四個宣稱也是可否證的。
+python3 plugin/tests/measured-claims-audit.py
 
 echo "pre-push: ✓ 全部通過"

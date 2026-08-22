@@ -116,6 +116,7 @@ def invoked(text):
     """
     found = set()
     blocks = []
+    chained = []
     for line in text.split('\n'):
         m = re.match(r'\s*(?:-\s*)?run:\s*(.+)$', line)
         if not m:
@@ -133,11 +134,22 @@ def invoked(text):
         if not toks:
             continue
         head = toks[0]
+        if head not in ('bash', 'sh', 'python3', 'python', 'swift') \
+                and not head.startswith('./') \
+                and re.search(r'&&|;', cmd) \
+                and re.search(r'\S+\.(?:sh|py|swift)\b', cmd):
+            chained.append(cmd)
         if head in ('bash', 'sh', 'python3', 'python', 'swift') and len(toks) > 1 \
                 and toks[1].endswith(('.sh', '.py', '.swift')):
             found.add(os.path.basename(toks[1]))
         elif head.startswith('./') and head.endswith(('.sh', '.py', '.swift')):
             found.add(os.path.basename(head))
+    if chained:
+        # `cd A && bash X` 這類串接：第一個 token 不是直譯器，所以認不出來。
+        # **方向是漏報**（守衛會紅、不會假綠），但仍要印——R20c 才立下的原則是
+        # 「寫在註解裡的已知限制，對讀輸出的人等於沒人知道」（#407 R20e）。
+        print(f'   ℹ 有 {len(chained)} 個串接式 run（含 && 或 ; 且提到守衛檔名），'
+              f'本函式只認第一個 token——那些呼叫看不到（漏報，會讓守衛紅）')
     if blocks:
         # 多行 `run: |` 的實際命令在**續行**上，本函式看不到（#407 R20c）。
         # 不靜默：印出來。目前用它的只有 ci.yml，而 ci.yml 的 paths-ignore

@@ -7,6 +7,50 @@
 
 
 
+
+## R31 — 註記禁令的代價不是零；以及我自己三次量錯同一件事
+
+### ① R30 的「六個註記全部可還原」證不到它被拿來當的那句話
+
+跨模型審查指名：那句對**已經存在的六個**為真，但不成立為「格層級的資訊一律不會失去」。
+具體反例是一個**對稱**的註記——`執行（**目標**）` 標在第 6 列。實測整段只有一句指認
+現況，**沒有任何句子指認目標**。
+
+所以禁令的代價是實的：**你得自己寫一句散文**。已補（並順帶把「現況是第 2 列」附上
+當日實測：`core.hooksPath` 指向主 repo、main 最近三次 CI 皆 `failure`）。代價可接受
+——散文是單一來源——但不能寫成零。
+
+### ② 五支守衛沒有 negative control（自己量到的）
+
+直接讀四支 harness 的呼叫目標（不靠 regex）：
+
+| harness | 實際跑哪一支 |
+|---|---|
+| `rule-prose-guards-mutations.py` | `rule-prose-guards.py` |
+| `trigger-coverage-mutations.py` | `trigger-coverage.py` |
+| `decision-matrix-mutations.py` | `decision-matrix-drift.py` |
+| `marker-parity-mutations.py` | `store-marker-parity.sh` |
+
+**9 支守衛（`derive-hash-extenders.swift` 是產生器、無斷言，不計）中 4 支有負控、
+5 支沒有**：`hash-table-drift.sh`、`multiscalar-parity.swift`、`measured-claims-audit.py`、
+`review-claim-audit.sh`、`rule-coverage.sh`。它們每次都綠，而「沒紅過的檢查與不存在
+的檢查無從區分」正是本 issue 的立場——**這五支目前落在自己的立場之外**。（尚未補；
+逐支的成本與價值不同，要一支一支裁決，不是一次補齊。）
+
+### ③ 同一件事我量了三次，三次不同的錯答案
+
+問「哪些守衛沒有負控」時：
+
+| 次 | 謂詞 | 錯在哪 |
+|---|---|---|
+| 1 | harness 檔內出現該守衛的檔名 | **過度歸功**——`review-claim-audit.sh` 只是被當成注入載體 |
+| 2 | 從 `GUARD=` / `subprocess.run` 抽檔名 | **漏報**——`marker-parity-mutations.py` 判不出，`store-marker-parity.sh` 被誤列為無負控 |
+| 3 | `grep -cE 'exit\(1\)\|exitFailure\|exit 1'` 判有無失敗路徑 | **漏報**——`multiscalar-parity.swift` 寫的是 `exit(diverge == 0 ? 0 : 1)`，被判成「不可能失敗」 |
+
+三次都把窄謂詞的輸出當成事實寫下來。正解是**直接讀那四支 harness 的呼叫行**——
+不猜。這一格記在這裡，是因為它與本 issue 的主題精確同型，而且發生在**正在寫這個
+issue 的人**手上，同一個小時內三次。
+
 ## R30 — 不偵測矛盾，改成讓矛盾寫不出來（＋ `///` 對兩個謂詞同時隱形）
 
 兩條 finding 都來自「攻模型」那一輪，**兩條都是我自己沒找到的**。

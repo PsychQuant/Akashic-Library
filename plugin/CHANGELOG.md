@@ -14,6 +14,26 @@
 
 
 
+
+## R38 — 剛加的守衛帶了一個沒人行使的參數（假接口，當輪即刪）
+
+`measured-numbers-audit.py` 寫了 `root = sys.argv[1] if len(sys.argv) > 1 else ROOT`，
+而**沒有任何呼叫端傳它**（pre-push、workflow、negative control 三處都不傳）。它不需要：
+`ROOT` 由 `__file__` 推出，所以負控跑 copy 裡那一份時它自然指向 copy。
+
+這與本 issue 具名過的 `derive-hash-extenders.swift --check` 同型——一個宣稱存在、
+而程式從未走過的入口。退場方式是刪掉（`no-compat-fallback` 的「退場即刪」），不是
+留著等第一個誤用它的人。
+
+**順帶的同型稽核我不出貨**：想寫一支「哪些守衛帶了沒人行使的參數」的通用檢查，
+兩次的謂詞都太鬆（呼叫端側只要檔名後面還有字就算「帶了參數」，於是
+`derive-hash-extenders` 被判成有人傳——而 `review-claim-audit.sh` 的既有 verdict
+明說它從不讀 `CommandLine.arguments`）。**本輪第四次窄／鬆謂詞被當成事實**。逐一
+直查五支即可：只有上面那一個是未行使的，`decision-matrix-drift.py` 的 `argv[1]`
+由它的負控實際傳入，其餘三支根本不讀參數。
+
+守衛十四支全綠、negative control 16/16。
+
 ## R37 — 那張耗時表在同一天內又過期了一次（我自己弄的）
 
 R29 修好「59 秒的 pre-push 是假的」之後，R32／R34／R36 又往 pre-push 加了兩支守衛，

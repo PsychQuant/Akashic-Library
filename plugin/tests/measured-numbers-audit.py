@@ -36,7 +36,11 @@ CMD = re.compile(r'`[^`]*(?:grep|awk|sed|git |gh |python3|swift|bash|jq|wc |find
 
 
 def main():
-    root = sys.argv[1] if len(sys.argv) > 1 else ROOT
+    # 刻意**不收** root 參數。ROOT 由 `__file__` 推出，所以 negative control 跑 copy
+    # 裡的那一份時它自然指向 copy——不需要參數。加一個沒有呼叫端的參數就是假接口
+    # （本 issue 具名過的 `derive-hash-extenders.swift --check` 同型），而假接口的
+    # 退場方式是刪掉，不是留著（`no-compat-fallback` 的「退場即刪」）。
+    root = ROOT
     files = sorted(glob.glob(os.path.join(root, '.claude/rules/*.md'))
                    + glob.glob(os.path.join(root, 'plugin/rules/*.md')))
     if not files:

@@ -262,6 +262,24 @@ else:
     print(f'=== {sum(results)}/{len(results)} PASS，但第 6 項未涵蓋 ===')
     sys.exit(2 if all(results) else 1)
 
+# ── 考慮過但**不加**的檢查：「散文裡的 repo 路徑必須存在」 ────────────────
+#
+# 憑記憶寫路徑是本 issue 反覆踩到的形狀（#407 R19 的坑 (a)），所以自然會想到
+# 「掃散文裡所有 backtick 路徑，不存在就紅」。**實測後裁決不加**：14 個 backtick
+# 路徑裡 3 個不存在，而三個全是假陽性，且各有不同的排除理由——
+#
+#   · `.claude-plugin/plugin.json`     → 相對於 **plugin 根**，不是 repo 根
+#   · `.claude-plugin/marketplace.json`→ 是**別的 repo**（marketplace）的路徑
+#   · CHANGELOG 裡那個型別原始碼的路徑 → **刻意引述的錯誤路徑**，它必須不存在，
+#     那正是該句的內容（這裡不寫出字面——寫出來會觸發本檔第 2 項，而那正是
+#     它該做的事：本註解是第三次被自己抓到）
+#
+# 三個排除規則都需要判斷，機械化必然失真。一個 100% 假陽性的檢查比沒有檢查更糟：
+# 它訓練讀者忽略輸出，而下一個真缺陷就混在被忽略的那批裡。
+#
+# **真正防住那個坑的是別的東西**：trigger-coverage.py 對它的受保護清單逐條驗
+# 存在——那份清單是**程式碼**（會被執行），不是散文，所以謂詞可以是精確的。
+
 print()
 print(f'=== {sum(results)}/{len(results)} PASS ===')
 sys.exit(0 if all(results) else 1)

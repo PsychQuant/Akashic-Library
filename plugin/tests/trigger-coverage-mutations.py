@@ -166,12 +166,12 @@ RESULTS = [
     # #407 R23d：詞邊界擋得住 `rulesets` 那種巧合子串，擋不住**散文**——
     # `# TODO: add more tests` 裡的 `tests` 是完整的詞。加上路徑脈絡要求後
     # 才擋得下來。
-    warn_case('編造宣告 + 一句含該目錄名的散文（啟發式警告）',
+    warn_case('編造宣告 + 一句含該目錄名的散文（有提到但非路徑脈絡）',
          {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
              '#!/bin/bash',
              '#!/bin/bash\n# trigger-coverage: reads Sources/AkashicCore/*.swift\n'
              '# 註：本檔不碰 AkashicCore，只重建審查者的失敗情境。', 1)},
-         '沒有明顯提到'),
+         '不在路徑脈絡裡'),
     # #407 R22e：`cat X | bash` 是常見的 CI 部署慣用法，它真的執行 X——先前
     # 直譯器單獨成段時無條件靜默，於是零可見度。
     case('把 run: 換成 `cat <守衛> | bash`（直譯器從 stdin 讀）',
@@ -190,19 +190,19 @@ RESULTS = [
     # 矇混過去。這一格給一個不含 `rules` 的守衛同時注入 (a) 一條指向
     # `plugin/rules/*.md` 的編造宣告 (b) 一行含 `rulesets` 的註解——`rules`
     # 是 `rulesets` 的子串但不是它的詞，所以子串版放過、詞邊界版擋下。
-    warn_case('編造宣告 + 一個巧合子串（`rulesets` 含 `rules` 但不是詞）',
+    warn_case('編造宣告 + 巧合子串（`rulesets` 含 `rules`，非路徑脈絡）',
          {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
              '#!/bin/bash',
              '#!/bin/bash\n# trigger-coverage: reads plugin/rules/*.md\n'
              '# 說明：本檔不處理 rulesets，只重建審查者的失敗情境。', 1)},
-         '沒有明顯提到'),
+         '不在路徑脈絡裡'),
     # #407 R22e：`Sources/*/*.swift` 的 dirname 末段是 `*`，先前讓痕跡檢查
     # 整條跳過，而第一段字面 `Sources` 又讓前一道放它過——完全不被驗。
-    warn_case('宣告用中間萬用字元（`Sources/*/*.swift`）——痕跡走回 `Sources`',
+    case('宣告用中間萬用字元（`Sources/*/*.swift`）——`Sources` 一次都沒出現',
          {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
              '# trigger-coverage: reads plugin/rules/*.md',
              '# trigger-coverage: reads Sources/*/*.swift')},
-         '沒有明顯提到'),
+         '一次都沒出現過'),
     # #407 R22d：把守衛的呼叫換成一個**不執行它**的命令（shellcheck 只做靜態
     # 檢查）。判準若還是「列舉不執行的命令」，這一格會因為 shellcheck 不在
     # 白名單而報成「有東西看不到」——那是假警報不是缺口。現在的判準是「段內
@@ -268,10 +268,10 @@ RESULTS = [
     # 東西的宣告，先前完全通過——而攤開表印出來與正常依賴逐字相同。所謂
     # 「可見性」要求讀者已經知道守衛實際讀什麼，那不是可見。痕跡檢查把它
     # 變成可否證的：宣告的目錄名必須在守衛原始碼裡留下痕跡。
-    warn_case('給一個不讀 rules/ 的守衛加一條格式正確的誤宣告',
+    case('給一個不讀 rules/ 的守衛加一條格式正確的誤宣告（可證偽的假陳述）',
          {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
              '#!/bin/bash', '#!/bin/bash\n# trigger-coverage: reads plugin/rules/*.md', 1)},
-         '沒有明顯提到'),
+         '一次都沒出現過'),
     case('把宣告改成 `reads *.sh`（比例判準會放過，結構判準擋下）',
          {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
              '# trigger-coverage: reads plugin/rules/*.md',

@@ -124,12 +124,20 @@ def yaml_paths(yml):
 def invoked(text):
     """workflow 裡**真的被執行**的腳本檔名。
 
-    ── 真實輸入集合的量測（2026-08-22，#407 R23e）──────────────────────
-    本 repo 三個 workflow 的 19 行單行 `run:`，形狀只有兩類：
+    ── 真實輸入集合的量測（2026-08-22，#407 R23e，**數字於 R24d 更正**）────
+    本 repo 三個 workflow 共 **19 行** `run:`：
 
-        13 行  <直譯器> <腳本>   （bash X／python3 X／swift X）
-         6 行  run: |           （block scalar，本函式讀不到續行）
-         1 行  swift --version  （唯一的純旗標形式）
+        13 行  單行 run:
+                 10 行  <直譯器> <腳本>  （bash X／python3 X／swift X）
+                  2 行  swift build …    （子命令＋旗標，不帶腳本）
+                  1 行  swift --version  （純旗標）
+         6 行  run: |               （block scalar，本函式讀不到續行）
+
+    **R23e 的原文三處都錯**，而它正是用來替 R24 的方向反轉辯護的實證依據：
+    寫「19 行**單行** run:」（19 是總數，單行只有 13）、把 13／6／1 並列成
+    三類（13+6+1=20≠19）、把 `swift build` 算進「<直譯器> <腳本>」（那 13 行
+    裡只有 10 行是）。**一段以「我量過了」為賣點的文字，它的算術沒被檢查過**
+    ——`13+6+1=20` 用眼睛就看得出來（#407 R24d，DA 席指名）。
 
     也就是說下面為 `||`／管線／`FOO=1 bash`／`cat X | bash`／同一支呼叫兩次
     ／`grep`・`shellcheck`・`chmod` 等寫的分支，**在本 repo 的真實輸入上一次
@@ -554,11 +562,27 @@ for g in GUARDS:
         # 宣告，而那是**可見且惱人**的；它漏掉的編造宣告則從未出現過。
         #
         # 保留為警告：它仍指出「這條宣告沒有明顯痕跡」，由人判斷。
-        if seg and '*' not in seg and '?' not in seg and not traced:
-            warnings.append(f'{os.path.basename(g)} 宣告讀 `{glob_}`，但它的原始碼'
-                            f'（扣掉宣告行本身）沒有明顯提到 `{seg}` 的痕跡'
-                            f'——**這是啟發式，兩個方向都會錯**（見上方註解），'
-                            f'請人確認這條宣告是否屬實')
+        # **三級，不是兩級**（#407 R24d，CRITICAL：R24 一律降為 warning 太粗）。
+        #
+        # R24c 的盤點說「痕跡檢查是啟發式，兩頭都不準」——那對**有提到**的情形
+        # 成立（散文巧合／裸目錄名，兩個方向都有反例）。但**連子串都沒有**時
+        # 它是**確定的**：一條宣告說守衛讀某個目錄，而那個目錄名在整個檔案裡
+        # 一次都沒出現過——那不是「判不出」，是**可證偽的假陳述**。
+        #
+        #   連子串都沒有   → fail    （確定：編造）
+        #   有子串、非路徑 → warning （判不出：散文巧合 or 裸目錄名）
+        #   路徑脈絡       → 過
+        mentioned = seg and seg in body
+        if seg and '*' not in seg and '?' not in seg:
+            if not mentioned:
+                fails.append(f'{os.path.basename(g)} 宣告讀 `{glob_}`，但 `{seg}` '
+                             f'在它的原始碼裡（扣掉宣告行本身）**一次都沒出現過**'
+                             f'——這不是判不出，是可證偽的假陳述')
+            elif not traced:
+                warnings.append(f'{os.path.basename(g)} 宣告讀 `{glob_}`，`{seg}` '
+                                f'有出現但不在路徑脈絡裡——**這一級是啟發式，兩個'
+                                f'方向都會錯**（散文巧合／裸目錄名，見上方註解），'
+                                f'請人確認')
     # **這一條目前不可獨立觸發，保留是有條件的。**
     #
     # 要命中全部 16 個受保護檔就得跨 `plugin/` 與 `Sources/` 兩個前綴，而那

@@ -40,17 +40,24 @@ for h in ['41bd3d8', '848939a', '3eda486']:
 
 # ② git 的欄位
 print('② 「git 證立時序，證立不了有檢查」')
-# **這一列先前無條件印 ✓**（#407 R26f，跨模型審查指名）——那個勾不是算出來的，
-# 是寫死的字串。改成真的去問 git：列出 `git log` 支援的所有 placeholder，看有沒有
-# 任何一個攜帶 review／approval 資訊。若 git 日後加了那種欄位，這一列會紅。
-REVIEW_ISH = ('review', 'approv', 'signoff', 'sign-off', 'verdict')
-fmt_help = sh("git log --help 2>/dev/null | grep -oE '%[a-zA-Z]+' | sort -u | tr '\\n' ' '")
-hit = [w for w in REVIEW_ISH if w in fmt_help.lower()]
-# trailer 也算一種可能的載體：`git log --format=%(trailers)` 讀 commit message 的尾註。
+# **這一列走過三版，前兩版都不可否證**（#407 R26g）：
+#   R26b  寫死 `✓`                      → 字串常數
+#   R26f  掃 `git log --help` 的 placeholder → placeholder 是 `%an`／`%ct` **縮寫**，
+#                                            結構上不可能含 `review` 這個英文字
+# 把「寫死」換成「查詢」不等於變成可否證——**那個查詢問的東西必須有可能命中**。
+#
+# 這一版問 commit **物件本身**的欄位名（`git cat-file -p`），那是 git 物件格式的
+# 一部分：`tree` / `parent` / `author` / `committer` / 空行 / message。欄位名是
+# **真的單字**，所以 review 類字樣有可能出現——若 git 日後加了那種欄位，這裡會紅。
+REVIEW_ISH = ('review', 'approv', 'signoff', 'sign-off', 'verdict', 'attest')
+header = sh("git cat-file -p HEAD | sed -n '1,/^$/p'")
+fields = sorted({l.split()[0] for l in header.split('\n') if l.strip()})
+hit = [f for f in fields if any(w in f.lower() for w in REVIEW_ISH)]
+# trailer 是第二個可能的載體（commit message 尾註）。
 trailers = sh("git log -1 --format='%(trailers)' HEAD").strip()
-print(f'     git 的 placeholder 裡含 review 類字樣：{hit or "無"}')
-print(f'     HEAD 的 trailer：{trailers or "無"}  '
-      f'{check(not hit and not trailers, f"git 出現了 review 類欄位：{hit}／{trailers}")}')
+print(f'     commit 物件的欄位：{fields}')
+print(f'     其中 review 類：{hit or "無"}｜HEAD 的 trailer：{trailers or "無"}  '
+      f'{check(not hit and not trailers, f"git 出現了 review 類載體：{hit}／{trailers}")}')
 
 # ③ 那三格全是 warn_case——直接列，不用計數
 print('③ 「3 格全是 warn_case（行 209／246／315）」')

@@ -87,8 +87,15 @@ unknown = [f for f in fields if f not in KNOWN_NOT_REVIEW]
 # **不只驗 HEAD**：HEAD 剛好不是 signed commit 時，續行的坑看不出來（R26k）。
 # 本 repo 有 signed commit（GitHub 的 web merge），所以順帶對第一個 signed
 # commit 跑同一個抽取式——**兩種形狀都要對，才叫這個檢查有意義**。
+# **偵測式要錨定在 header 且錨定行首**（#407 R26o，自己撞到）：
+# 上一版寫 `head -6 | grep -q gpgsig`，兩個錯——(a) header 只有 4–5 行，
+# `head -6` 會越過空行進入 **message**；(b) `grep -q` 不錨行首，message 裡
+# 提到那個字就命中。於是它抓到了 **R26l 那個 commit**（標題正是「漏了
+# gpgsig-sha256」）——**我寫的那句話讓偵測式抓到了它自己**。
+# 正解：只看 header（`sed '/^$/q'`）並錨定行首（`^gpgsig`）。
 signed = sh("git rev-list --all | while read h; do "
-            "git cat-file -p $h | head -6 | grep -q gpgsig && echo $h && break; done")
+            "git cat-file -p $h | sed '/^$/q' | grep -q '^gpgsig' "
+            "&& echo $h && break; done")
 if signed:
     sh_hdr = sh(f"git cat-file -p {signed} | sed -n '1,/^$/p'")
     sf = sorted({l.split()[0] for l in sh_hdr.split('\n')
@@ -96,6 +103,20 @@ if signed:
     su = [f for f in sf if f not in KNOWN_NOT_REVIEW]
     print(f'     signed commit {signed[:8]} 的欄位：{sf}  '
           f'{check(not su, f"signed commit 抽出未判定欄位：{su[:3]}")}')
+# **本 repo 沒有 mergetag 的 commit，所以那個形狀用構造的測**（#407 R26o）。
+# git 合併一個 signed tag 時，會把**整個 tag 物件**內嵌成 mergetag 的續行——
+# 其中有 `type`／`tag`／`tagger` 這些看起來像欄位名的行。舊抽取式對它抽出
+# **7 個未判定欄位**；濾掉續行之後是 0。
+MERGETAG_FIXTURE = (
+    'tree abc\nparent def\nparent 123\nauthor X <x@y> 1 +0000\n'
+    'committer X <x@y> 1 +0000\nmergetag object 456\n type commit\n tag v1.0\n'
+    ' tagger X <x@y> 1 +0000\n \n Release v1.0\n -----BEGIN PGP SIGNATURE-----\n'
+    ' iQEcBAAB\n -----END PGP SIGNATURE-----')
+mt_fields = sorted({l.split()[0] for l in MERGETAG_FIXTURE.split('\n')
+                    if l.strip() and not l.startswith(' ')})
+mt_unknown = [f for f in mt_fields if f not in KNOWN_NOT_REVIEW]
+print(f'     mergetag fixture（構造，本 repo 無實例）：{mt_fields}  '
+      f'{check(not mt_unknown, f"mergetag 續行沒被濾掉：{mt_unknown[:3]}")}')
 print(f'     commit 物件的欄位：{fields}')
 print(f'     其中 review 類：{hit or "無"}｜未判定過的欄位：{unknown or "無"}｜'
       f'HEAD 的 trailer：{trailers or "無"}')

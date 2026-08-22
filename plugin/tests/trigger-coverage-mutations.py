@@ -146,6 +146,16 @@ RESULTS = [
              'run: bash plugin/tests/rule-coverage.sh',
              'run: bash scripts/setup.sh && echo "見 plugin/tests/rule-coverage.sh"')},
          'rule-coverage.sh 不在任何 CI workflow 跑'),
+    # DA 席指名（#407 R21d）：收窄 DECLARE 擋不住**獨立成行的教學範例**——
+    # 一行真實格式的示範會完整匹配。當時沒再撞到是因為我手動把本檔的範例改成
+    # 佔位形式，那是一次性遮蔽不是機制。這一格證明「一個守衛只該有一條宣告」
+    # 那道防線會接住它。
+    case('在真宣告旁邊多寫一行教學範例（DA 指名的類別）',
+         {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
+             '# trigger-coverage: reads plugin/rules/*.md',
+             '# trigger-coverage: reads plugin/tests/*.py\n'
+             '# trigger-coverage: reads plugin/rules/*.md')},
+         '行宣告'),
     case('把宣告改成 `reads *.sh`（比例判準會放過，結構判準擋下）',
          {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
              '# trigger-coverage: reads plugin/rules/*.md',

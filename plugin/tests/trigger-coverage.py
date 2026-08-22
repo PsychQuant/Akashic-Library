@@ -259,12 +259,22 @@ print(f'守衛 {len(GUARDS)} 支｜受保護 {len(PROTECTED)} 個｜'
 # `/var` 是 `/private/var` 的 symlink——`__file__` 保留 `/var`，`os.chdir` 之後
 # 的 cwd 卻已解析成 `/private/var`，於是 abspath 兩邊永遠不相等，自指排除在
 # mutation 環境下靜默失效（實測 8 格掉到 2 格，#407 R21）。
-# **這裡曾有一段自指排除，已退場（#407 R21）。** 當時 DECLARE 是裸子串，
-# 於是本檔（機制的實作者）因為錯誤訊息模板裡的字面被算成「有宣告」。加特例
-# 排除之後，harness 又因為 case 描述裡的字面撞上同一件事——**特例追不上，
-# 因為每個談論它的地方都會再撞一次**。收窄 DECLARE 為「整行就是宣告」才是
-# 根治，而根治之後特例就該刪（no-compat-fallback 的退場即刪）：留著它會看
-# 起來像在保護什麼。實測拿掉後仍全綠。
+# **這裡曾有一段自指排除，已退場（#407 R21）——但退場的理由當時寫寬了。**
+#
+# 當時 DECLARE 是裸子串，於是本檔（機制的實作者）因為錯誤訊息模板裡的字面
+# 被算成「有宣告」。加特例排除之後，harness 又因為 case 描述裡的字面撞上同
+# 一件事。收窄 DECLARE 為「整行就是宣告」之後兩者都消失，於是我寫下「收窄
+# 才是根治」——**那句話過寬**（#407 R21d，DA 席指名）。
+#
+# 收窄真正解決的是「字面出現在**字串**裡」。它擋不住**獨立成行的教學範例**：
+# 一行 `# trigger-coverage: reads plugin/rules/*.md` 寫在任何守衛的 docstring
+# 裡，都會完整匹配。當時之所以沒再撞到，是因為我**手動**把本檔的範例改成了
+# 佔位形式——那是一次性的遮蔽，不是機制。
+#
+# 現在的立場是誠實的兩層：**收窄**（機制，擋字串內的字面）＋ **佔位約定**
+# （約定，擋教學範例）。約定會被違反，所以第三層是**可見性**：下方攤開表
+# 標出每一條依賴的來源，一個誤宣告會顯示成「這個守衛讀了它其實不讀的東西」。
+# 這不等於機制，寫出來是因為把約定寫成機制正是這條 issue 的主題。
 for g in GUARDS:
     raw = io.open(g, encoding='utf8', errors='replace').read()
     # **用同一個謂詞。** 裸子串會把「談論宣告」算成「有宣告」——那正是上面
@@ -295,6 +305,11 @@ for g in GUARDS:
         if m and '/' not in m.group(1):
             fails.append(f'{os.path.basename(g)} 的宣告 `{m.group(1)}` 沒有路徑成分'
                          f'——那是在說「凡是這種副檔名的」，不是在指認依賴的位置')
+    n_decl = sum(1 for line in raw.split('\n') if DECLARE.match(line))
+    if n_decl > 1:
+        fails.append(f'{os.path.basename(g)} 有 {n_decl} 行宣告——一個守衛只該有'
+                     f'一條依賴宣告；多出來的那行多半是教學範例，請改寫成佔位'
+                     f'形式（見 declared() 的 docstring）')
     hits = declared(g)
     if hits and len(hits) == len(PROTECTED):
         fails.append(f'{os.path.basename(g)} 的宣告命中全部 {len(PROTECTED)} 個'
@@ -302,8 +317,15 @@ for g in GUARDS:
 
 print('每支守衛被判定讀了哪些受保護檔（啟發式，漏報方向——見 READS 上方註解）：')
 for g in GUARDS:
-    others = sorted(os.path.basename(x) for x in READS[g] if x != g)
-    print(f'   {os.path.basename(g):<32} → {"、".join(others) if others else "（只有自己）"}')
+    decl = declared(g)
+    parts = []
+    for x in sorted(READS[g]):
+        if x == g:
+            continue
+        # 標出來源：宣告來的加 ⟨宣⟩。一個誤宣告（教學範例被當成宣告）會在這裡
+        # 顯示成「這個守衛讀了它其實不讀的東西」——約定被違反時的可見性。
+        parts.append(os.path.basename(x) + ('⟨宣⟩' if x in decl else ''))
+    print(f'   {os.path.basename(g):<32} → {"、".join(parts) if parts else "（只有自己）"}')
 print()
 
 for f in PROTECTED:

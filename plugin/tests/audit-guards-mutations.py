@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
-"""`rule-coverage.sh` 與 `hash-table-drift.sh` 的 negative control。
+"""`rule-coverage.sh`、`hash-table-drift.sh`、`review-claim-audit.sh` 的 negative control。
 
 **為什麼是這兩支**（#407 R32）：R31 直接讀四支既有 harness 的呼叫行，量到 9 支守衛
 裡只有 4 支被人跑過並要求變紅。剩下五支每次都綠，而「沒紅過的檢查與不存在的檢查
 無從區分」正是本 issue 的立場——那五支落在自己的立場之外。
 
-本支先補其中兩支（兩支 shell、自足、跑得快）。另外三支的裁決寫在下面，**不是漏掉**：
+本支補其中三支。**剩下兩支的裁決寫在下面，不是漏掉**：
 
   `measured-claims-audit.py`  它的偵測式要跑 `git rev-list --all`，而 mutation 必須在
                               pristine copy 上跑；copy 裡沒有 `.git` → 偵測式在 copy
                               裡本來就不成立，紅得與注入無關。這正是 R27 踩過的
                               「因錯誤理由變紅的負控等於不存在」。要補它得先讓它
                               接受一個 `--repo` 之類的參數，屬另一件事。
-  `review-claim-audit.sh`     它重建的是四個歷史 finding 的失敗情境，注入要跨
-                              `.github/workflows` 與 parity 腳本兩處；成本明顯高於
-                              本檔這兩支，值得但不在本輪。
   `multiscalar-parity.swift`  注入要改它內建的 census 模型再重編；每個 case 約一秒
                               的 swift 啟動，值得但同樣不在本輪。
 
@@ -29,18 +26,23 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 COVERAGE_REL = 'plugin/tests/rule-coverage.sh'
+REVIEW_REL = 'plugin/tests/review-claim-audit.sh'
+PARITY_REL = 'plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh'
+GEN_REL = 'plugin/skills/akashic-literal-campaign/scripts/tests/derive-hash-extenders.swift'
+WF_REL = '.github/workflows/census-parity.yml'
 DRIFT_REL = 'plugin/skills/akashic-literal-campaign/scripts/tests/hash-table-drift.sh'
 TABLE_REL = 'plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt'
 MULTI_REL = 'plugin/skills/akashic-literal-campaign/scripts/tests/multiscalar-parity.swift'
 RULE_REL = 'plugin/rules/assertions-must-be-measured.md'
 
-WATCHED = [COVERAGE_REL, DRIFT_REL, TABLE_REL, MULTI_REL, RULE_REL]
+WATCHED = [COVERAGE_REL, DRIFT_REL, TABLE_REL, MULTI_REL, RULE_REL,
+           REVIEW_REL, PARITY_REL, GEN_REL, WF_REL]
 
 
 def with_copy(guard_rel, edits):
     """複製相關子樹、套用 edits、跑 copy 裡的那支守衛。"""
     with tempfile.TemporaryDirectory(prefix='audit-mut-') as tmp:
-        for sub in ('plugin',):
+        for sub in ('plugin', '.github'):
             shutil.copytree(os.path.join(ROOT, sub), os.path.join(tmp, sub))
         for rel, fn in edits.items():
             p = os.path.join(tmp, rel)
@@ -78,6 +80,27 @@ CASES = [
     ('drift：multiscalar 的 inline RANGES 與表脫節',
      DRIFT_REL,
      {MULTI_REL: lambda t: _perturb_ranges(t)},
+     ['✗']),
+    # ── review-claim-audit.sh（#407 R34）──────────────────────────────────
+    # 它重建的是四個歷史 finding 的失敗情境。每個 mutation 把其中一個修法**還原**，
+    # 對應的 verdict 就該翻掉。R32 把這支列為「值得，不在本輪」——本輪補上。
+    ('review：把 5000 前導零 fixture 改回會退化的長度',
+     REVIEW_REL,
+     {PARITY_REL: lambda t: t.replace("printf '%05000d'", "printf '%0500d'")},
+     ['✗']),
+    ('review：把生成表從 parity workflow 的 paths 拿掉',
+     REVIEW_REL,
+     {WF_REL: lambda t: t.replace('      - "plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt"\n', '')},
+     ['✗']),
+    ('review：讓生成器真的去讀 CommandLine.arguments',
+     REVIEW_REL,
+     {GEN_REL: lambda t: t.replace('import Foundation',
+                                   'import Foundation\nlet _ = CommandLine.arguments', 1)},
+     ['✗']),
+    ('review：把宣稱 --check 的那句註解加回去',
+     REVIEW_REL,
+     {GEN_REL: lambda t: t.replace('import Foundation',
+                                   '// 用法：derive-hash-extenders.swift --check <生成的表>\nimport Foundation', 1)},
      ['✗']),
 ]
 

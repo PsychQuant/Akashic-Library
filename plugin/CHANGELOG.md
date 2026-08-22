@@ -10,6 +10,30 @@
 
 
 
+
+## R34 — negative control 覆蓋 4/9 → 7/9
+
+R32 把 `review-claim-audit.sh` 列為「值得，不在本輪」。本輪補上——它的 `R` 由自身位置
+解析（`dirname(BASH_SOURCE)/../..`），所以在 pristine copy 上跑得起來。四個 mutation
+各把它重建的一個歷史修法**還原**：
+
+| 注入 | 翻掉哪一條 verdict |
+|---|---|
+| 5000 前導零 fixture 改回會退化的長度 | codex #7 |
+| 生成表從 parity workflow 的 `paths:` 拿掉 | codex #4 |
+| 讓生成器真的去讀 `CommandLine.arguments` | codex #9 |
+| 把宣稱 `--check` 的那句註解加回去 | codex #9 |
+
+`audit-guards-mutations.py` 由 4 → **8 個 mutation**。守衛 negative control 覆蓋
+**4/9 → 7/9**（R31 量到的基準是 4/9）。
+
+**剩下兩支的裁決不變，理由寫在 harness 檔頭**：`measured-claims-audit.py` 的偵測式
+要 `git rev-list --all`，copy 裡沒有 `.git` → 會因錯誤理由變紅（R27 的形狀）；
+`multiscalar-parity.swift` 要改內建 census 模型再重編。兩者都要先給守衛一個參數，
+屬另一件事。
+
+守衛十三支全綠、pre-push 14/14、trigger 逐對零缺口。
+
 ## R33 — 重算規則檔裡的現況數字，撞到一條**早已成立卻沒人發現**的觸發條件
 
 c34 的第二條 finding：沒有守衛能抓「某條規則裡的 `實測 N` 隨語料變動而安靜過期」。

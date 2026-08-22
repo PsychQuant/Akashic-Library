@@ -61,6 +61,10 @@ jobs:
 
       # 散文守衛。`--venue` 顯式指向 checkout 內的原始碼——**不給的話第 5 項會
       # 走「未涵蓋」出口並以 exit 2 表明它沒被執行**（未涵蓋不得冒充通過）。
+      # 逐條重建審查者宣稱的失敗情境。純 bash，不需要 build 產物。
+      - name: review-claim-audit
+        run: bash plugin/tests/review-claim-audit.sh
+
       - name: rule-prose-guards
         run: python3 plugin/tests/rule-prose-guards.py --venue Sources/AkashicCore/Venue.swift
 

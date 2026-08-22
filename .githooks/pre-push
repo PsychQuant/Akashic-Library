@@ -29,6 +29,9 @@ swift test -Xswiftc -warnings-as-errors
 # 卻沒有任何自動觸發點（CI、hook、swift test、Makefile 全部零引用）。
 echo "pre-push: plugin 守衛（覆蓋／散文／parity，各含 negative control）"
 bash plugin/tests/rule-coverage.sh
+# 逐條重建審查者宣稱的失敗情境——一條 finding 若重建不出它宣稱的失敗，
+# 那條就是未經量測的（#407 R10 的九條裡有一條正是如此）。
+bash plugin/tests/review-claim-audit.sh
 python3 plugin/tests/rule-prose-guards.py --venue Sources/AkashicCore/Venue.swift
 python3 plugin/tests/rule-prose-guards-mutations.py
 bash plugin/skills/akashic-literal-campaign/scripts/tests/hash-table-drift.sh

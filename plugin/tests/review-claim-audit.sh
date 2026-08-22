@@ -1,0 +1,86 @@
+#!/bin/bash
+# 逐條重建**審查者宣稱的失敗情境**，量它在修法前是否真的會發生。
+#
+# 為什麼存在
+# ==========
+# #407 的第 10 輪，跨模型審查給了九條 finding，我照著改了八條。而其中**一條是
+# 假的**：它說 `_WS` 誤把 U+200B 當空白，論證是「U+200B 的 general category 是
+# Cf 不是 Zs，所以 Foundation 的 CharacterSet.whitespaces 不含它」——**它從
+# 屬性表推論，沒有量 Foundation 的實際集合**。實測：`contains(U+200B) == true`，
+# count=19；端到端 fixture 也顯示真讀端接受。
+#
+# 那正是這條 issue 的主題（斷言要先量測）發生在審查者身上。而它逼出一個問題：
+# **其餘八條呢？我是「照著它的論證改」還是「先驗過再改」？**
+#
+# 誠實答案是多數為前者。所以這支腳本把每一條的失敗情境重建出來實跑——
+# 一條 finding 若重建不出它宣稱的失敗，那條就是未經量測的。
+#
+# 這不是為了記分。**下一個讀那些 finding 的人會被假的那條誤導**，而修法一旦
+# 落地就長得跟真的一樣。
+#
+# 用法
+# ====
+#   plugin/tests/review-claim-audit.sh
+#
+# 每一格印出重建的證據（不是只印通過與否）——判準是「看得到那個失敗」，
+# 不是「檢查回了綠燈」。
+set -uo pipefail
+R=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+pass=0; fail=0
+
+verdict() {  # verdict <名稱> <成立?> <證據>
+  if [ "$2" = yes ]; then printf '✓ %-52s %s\n' "$1" "$3"; pass=$((pass+1))
+  else printf '✗ %-52s %s\n' "$1" "$3"; fail=$((fail+1)); fi
+}
+
+echo "══ codex finding #3：sed 的 /./q 是「第一個非空行就停」，不是「找到目標才停」══"
+# codex 說：binary 若在正式錯誤訊息前先印一行別的，sed 看到那行就 q，CEILING 空手。
+printf 'warning: config deprecated\nError: 此 library 由較新版本寫入（store format 99），本 binary 支援至 12。\n' > "$W/two-line"
+OLD=$(sed -n 's/.*本 binary 支援至 \([0-9][0-9]*\).*/\1/p;/./q' < "$W/two-line")
+NEW=""
+_err=$(cat "$W/two-line")
+if [[ "$_err" =~ 本\ binary\ 支援至\ ([0-9]+) ]]; then NEW="${BASH_REMATCH[1]}"; fi
+verdict "舊寫法（sed …;/./q）在前置雜訊下拿不到值" \
+  "$([ -z "$OLD" ] && echo yes || echo no)" "舊=「${OLD:-空}」"
+verdict "新寫法（bash regex，無管線）拿得到" \
+  "$([ "$NEW" = 12 ] && echo yes || echo no)" "新=「${NEW:-空}」"
+
+echo
+echo "══ codex finding #7：5000 前導零 fixture 依賴 seq，缺席時靜默退化 ══"
+# codex 說：seq 不存在時內層回 127，外層 printf 仍成功，Bash 對缺少的 %s 代入
+# 空字串 → 退化成 `format: 01`，仍屬 accept、測試照樣綠。
+DEGRADED=$(PATH=/nonexistent bash -c "printf '0%.0s' \$(seq 1 5000 2>/dev/null)1" 2>/dev/null)
+verdict "舊寫法在無 seq 時退化成極短字串" \
+  "$([ "${#DEGRADED}" -lt 10 ] && echo yes || echo no)" "退化後長度=${#DEGRADED}"
+NEWZ=$(printf '%05000d' 0)
+verdict "新寫法（純 bash）不依賴外部指令且長度正確" \
+  "$([ "${#NEWZ}" -eq 5000 ] && echo yes || echo no)" "長度=${#NEWZ}"
+verdict "出貨的 parity 測試已改用新寫法且有長度斷言" \
+  "$(grep -q 'printf .%05000d' "$R/plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh" \
+     && grep -q 'ZEROS.*-eq 5000' "$R/plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh" \
+     && echo yes || echo no)" ""
+
+echo
+echo "══ codex finding #4：census-parity.yml 的 path filter 漏掉生成表 ══"
+verdict "生成表現在在 parity workflow 的觸發路徑裡" \
+  "$(grep -q 'hash-merging-ranges.txt' "$R/.github/workflows/census-parity.yml" && echo yes || echo no)" ""
+verdict "drift 測試也在該 workflow 的 step 裡" \
+  "$(grep -q 'hash-table-drift.sh' "$R/.github/workflows/census-parity.yml" && echo yes || echo no)" ""
+
+echo
+echo "══ codex finding #9：derive-hash-extenders.swift 的 --check 是假接口 ══"
+# **排除註解行**：唯一命中在說明那句「從頭到尾沒讀過 CommandLine.arguments」裡，
+# 而那正是在陳述它沒讀。不排除的話，這個檢查會因為「文件記載了這件事」而判定
+# 「它做了這件事」——謂詞比它要管的東西寬，本 issue 反覆記過的形狀。
+verdict "程式碼（非註解）確實從未讀 CommandLine.arguments" \
+  "$(grep -vE '^\s*//' "$R/plugin/skills/akashic-literal-campaign/scripts/tests/derive-hash-extenders.swift" \
+     | grep -q 'CommandLine' && echo no || echo yes)" ""
+verdict "宣稱 --check 的那句註解已移除" \
+  "$(grep -q -- '--check <生成的表>' "$R/plugin/skills/akashic-literal-campaign/scripts/tests/derive-hash-extenders.swift" \
+     && echo no || echo yes)" ""
+
+echo
+echo "══ 總計 ══"
+echo "成立 ${pass}｜不成立 ${fail}"
+[ "$fail" -eq 0 ] || exit 1

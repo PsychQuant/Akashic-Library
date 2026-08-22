@@ -88,6 +88,12 @@ final class PrePushHookTests: XCTestCase {
     /// `swift test`」。它**不**證明 #129 那個管線吞 exit code 的形狀——那需要 hook 把
     /// `swift test` 接進管線，而現在沒有（兩行都是裸呼叫，`set -e` 就足夠）。若日後有人
     /// 加了管線，要另外加一項；本項不會替它把關。
+    ///
+    /// **判別力來自「與上一項成對」，不是本項自己**（#407 R43，跨模型審查在孤立閱讀下
+    /// 指名）：一個「呼叫完 `swift build` 就無條件 `exit 1`」的假實作，**本項會綠**
+    /// （exit≠0、log 一行，兩個斷言都滿足）。排除它的是**上一項**——那裡 build 成功而
+    /// 斷言 exit 0 ＋ log 兩行，假實作在那裡是紅的。所以這兩項**不可拆**：刪掉或搬走
+    /// 任一項，另一項的判別力就消失，而且不會有任何跡象。
     func testHookAbortsWhenSwiftBuildFails() throws {
         let root = repositoryRoot
         guard FileManager.default.fileExists(

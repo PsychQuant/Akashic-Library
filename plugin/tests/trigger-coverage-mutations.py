@@ -293,6 +293,15 @@ RESULTS = [
     # 白名單而報成「有東西看不到」——那是假警報不是缺口。現在的判準是「段內
     # 有沒有直譯器」，所以它靜默，而覆蓋缺口由 rule-coverage.sh 不再被執行
     # 這件事本身報出來。
+    # #407 R43：把單行 `run:` 改成 block scalar 之後，守衛仍須看得到那個呼叫。
+    # 先前只讀單行形式（並以揭露交代），而揭露擋不住它咬人——實地把一個步驟改成
+    # 區塊形式處理 exit 2，覆蓋表立刻報 11 個缺口，而呼叫就寫在區塊裡。
+    case('把某個守衛改成 block scalar 形式呼叫（續行要讀得到）',
+         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+             'run: python3 plugin/tests/measured-numbers-audit.py',
+             'run: |\n          set -e\n          echo 開始\n'
+             '          python3 plugin/tests/DELETED-numbers-audit.py', 1)},
+         'measured-numbers-audit.py'),
     case('把 run: 換成 shellcheck（靜態檢查，不執行守衛）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
              'run: bash plugin/tests/rule-coverage.sh',

@@ -229,7 +229,8 @@ def main():
         if r.returncode != 0:
             print(f'✗ baseline 就紅了：{rel}\n{r.stdout}{r.stderr}')
             return 1
-    print(f'baseline：兩支皆綠 ✓（{len(CASES)} 個 mutation 待跑）\n')
+    _n = 2 if has_swift else 1
+    print(f'baseline：{_n} 支皆綠 ✓（{len(CASES)} 個 mutation 待跑）\n')
 
     # **缺 swift 時大聲跳過，不假裝乾淨**（#407 R42）：本 harness 有 5 個 case 需要真的
     # Swift toolchain（`multiscalar-parity.swift` 三個、`hash-table-drift.sh` 三個經由
@@ -268,7 +269,14 @@ def main():
     print(f'\n=== negative control {ok}/{expected} ==='
           + (f'（另有 {len(skipped)} 個因缺 swift 跳過）' if skipped else ''))
     print(f'{"出貨檔未被開啟以寫入" if same else "**出貨檔被動到了**"}：{len(WATCHED)} 個受監看檔')
-    return 0 if (ok == expected and same) else 1
+    if ok != expected or not same:
+        return 1
+    # **跳過要進 exit code，不能只印在 stdout**（#407 R43，跨模型審查指名）：`expected`
+    # 隨 `skipped` 一起縮，於是分子分母同縮、跳過對回傳值**不可見**。而 CI 步驟只看
+    # 回傳值——那正是「未涵蓋不得冒充通過」（`zero-instance-guards` 第 3 列）。
+    # **2 ＝ 跑得動的都綠，但有沒跑到的**，沿用 `hash-table-drift.sh` 既有的 exit 2 慣例。
+    # 有 swift 的環境（pre-push、macOS CI）拿到 0；ubuntu 那一步顯式接受 2 並印出來。
+    return 2 if skipped else 0
 
 
 if __name__ == '__main__':

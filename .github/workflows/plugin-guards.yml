@@ -100,7 +100,19 @@ jobs:
         run: python3 plugin/tests/decision-matrix-drift.py
       - name: 決策矩陣守衛的 negative control
         run: python3 plugin/tests/decision-matrix-mutations.py
-      - name: rule-coverage 與 hash-table-drift 的 negative control
-        run: python3 plugin/tests/audit-guards-mutations.py
+      # exit 2 ＝「跑得動的都綠，但有沒跑到的」（#407 R43）。本 runner 是 stock
+      # ubuntu，沒有 Swift toolchain，所以 6 個需要它的 case 一定跳過。**顯式接受 2
+      # 並把跳過清單印出來**——而 1（真的有 case 紅）照樣讓這一步失敗。
+      - name: rule-coverage／hash-table-drift／review-claim-audit 的 negative control
+        run: |
+          set +e
+          python3 plugin/tests/audit-guards-mutations.py
+          rc=$?
+          set -e
+          if [ "$rc" -eq 2 ]; then
+            echo "::warning::此 runner 沒有 Swift toolchain，6 個 case 未執行（見上方清單）"
+            exit 0
+          fi
+          exit "$rc"
       - name: 規則檔的實測數字要有時間錨
         run: python3 plugin/tests/measured-numbers-audit.py

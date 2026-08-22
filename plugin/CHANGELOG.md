@@ -18,6 +18,36 @@
 
 
 
+
+## R43 — 跳過要進 exit code；閘門測試的判別力來自「成對」；區塊形式的 run: 要讀得到
+
+### ① 跳過只印在 stdout，對回傳值不可見（跨模型審查指名）
+
+R42 的 `expected = len(CASES) - len(skipped)` 讓分子分母同縮，於是 CI 步驟（只看回傳值）
+拿到 0 ——「未涵蓋冒充通過」，正是 `zero-instance-guards` 第 3 列記過的形狀。
+
+改成 **exit 2 ＝「跑得動的都綠，但有沒跑到的」**（沿用 `hash-table-drift.sh` 的既有慣例）：
+有 swift 的環境拿 0，無 swift 拿 2；ubuntu 那一步**顯式接受 2** 並印 `::warning::`，而
+1（真的有 case 紅）照樣讓步驟失敗。順帶修掉 baseline 訊息——無 swift 時只跑了一支卻印
+「兩支皆綠」。
+
+### ② 那個修法立刻被 `trigger-coverage` 咬回來
+
+顯式接受 2 需要 block scalar 的 `run: |`，而 `invoked()` **只讀單行形式**——覆蓋表立刻報
+**11 個缺口**，而那個呼叫就寫在區塊裡。守衛自己早就揭露了這個限制，**而揭露擋不住它咬人**。
+改成展開續行後逐行解析（縮排嚴格深於 `run:` 的非空行即續行），缺口歸零；揭露保留但改述
+它現在真正的限制：**不解析 shell 控制流**（`if`／`case` 內的分支一律當成會執行）。
+新增第 30 個 negative control 釘住「改成區塊形式仍須看得見」。
+
+### ③ 閘門測試的判別力來自成對，不是單項
+
+跨模型審查（孤立閱讀）指出 `testHookAbortsWhenSwiftBuildFails` 對一個「呼叫完 build 就
+無條件 `exit 1`」的假實作**會綠**。逐格重演確認：**它確實會綠，而排除它的是上一項**
+（build 成功時斷言 exit 0 ＋ log 兩行，假實作在那裡是紅的）。已把「這兩項不可拆」寫進
+doc comment——刪掉或搬走任一項，另一項的判別力就消失且不會有任何跡象。
+
+守衛十四支全綠、trigger 負控 30/30、audit 負控 18/18（無 swift 12/12＋6 跳過、rc=2）。
+
 ## R42 — 兩條 finding：閘門測試證不了閘門會擋；ubuntu workflow 缺 swift 會全紅
 
 ### ① `PrePushHookTests` 的 mock 對 `build`／`test` **永遠回 0**

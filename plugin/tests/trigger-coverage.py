@@ -169,13 +169,38 @@ def invoked(text):
     blocks = []
     chained = []
     conditional = []
-    for line in text.split('\n'):
+    # **block scalar 的續行也要讀**（#407 R43）。先前只讀單行形式，並把「讀不到續行」
+    # 寫成揭露——而揭露擋不住它咬人：把一個守衛改成區塊形式呼叫（為了處理 exit 2），
+    # 覆蓋表立刻報 11 個缺口，而那個呼叫其實就寫在區塊裡。展開續行即根治；揭露保留，
+    # 因為它現在陳述的是**別的**限制（見下）。
+    src_lines = text.split('\n')
+    expanded = []
+    i = 0
+    while i < len(src_lines):
+        line = src_lines[i]
+        m = re.match(r'(\s*)(?:-\s*)?run:\s*(.+)$', line)
+        if m and m.group(2).strip().startswith('|'):
+            indent = len(m.group(1))
+            blocks.append(line)
+            i += 1
+            # 續行 ＝ 縮排嚴格深於 `run:` 的非空行
+            while i < len(src_lines):
+                nxt = src_lines[i]
+                if nxt.strip() and (len(nxt) - len(nxt.lstrip())) <= indent:
+                    break
+                if nxt.strip():
+                    expanded.append('run: ' + nxt.strip())
+                i += 1
+            continue
+        expanded.append(line)
+        i += 1
+
+    for line in expanded:
         m = re.match(r'\s*(?:-\s*)?run:\s*(.+)$', line)
         if not m:
             continue
         cmd = m.group(1).strip()
         if cmd == '|' or cmd.startswith('|'):
-            blocks.append(line)          # block scalar——見下方揭露
             continue
         # **只認第一個 token。** 上一版對 `./X` 分支仍掃全行，於是
         # `run: echo "見 ./rule-coverage.sh"` 照樣被算成執行了它——同一個修法
@@ -316,7 +341,8 @@ def invoked(text):
         # 多行 `run: |` 的實際命令在**續行**上，本函式看不到（#407 R20c）。
         # 不靜默：印出來。目前用它的只有 ci.yml，而 ci.yml 的 paths-ignore
         # 排除 plugin/**、也不跑這些守衛——所以當下不影響，但那是巧合不是設計。
-        print(f'   ℹ 有 {len(blocks)} 個 `run: |` 區塊，本函式只讀單行形式——'
+        print(f'   ℹ 有 {len(blocks)} 個 `run: |` 區塊，續行已展開後逐行解析（#407 R43）；'
+              f'仍不解析 shell 控制流（`if`／`case` 內的分支一律當成會執行）——'
               f'若守衛改用區塊形式呼叫，這裡會看不到它（漏報，會讓守衛紅）')
     return found
 

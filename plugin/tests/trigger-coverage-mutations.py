@@ -48,6 +48,19 @@ def with_copy(edits):
         return run(tmp)
 
 
+def warn_case(desc, edits, expect_substr):
+    """斷言**警告**出現（rc 不變）。
+
+    #407 R24 把三個啟發式檢查（痕跡、同目錄）從 fail 降為 warning——它們說的是
+    「請人看一眼」而不是「這裡壞了」。負控要跟著分兩種判準：把 warning 當 fail
+    測，會逼人把啟發式維持在 fail-closed，而那正是 R24 判定不該做的事。
+    """
+    rc, out = with_copy(edits)
+    in_warn = '待人確認' in out and expect_substr in out
+    print(f'{"✓" if in_warn else "✗"} {desc} → {"警告出現" if in_warn else "沒出現 ← 檢查對它是盲的"}')
+    return in_warn
+
+
 def case(desc, edits, expect_substr):
     """判準有三段，第三段是 #407 R20d 補的。
 
@@ -137,12 +150,12 @@ RESULTS = [
     # #407 R23d：詞邊界擋得住 `rulesets` 那種巧合子串，擋不住**散文**——
     # `# TODO: add more tests` 裡的 `tests` 是完整的詞。加上路徑脈絡要求後
     # 才擋得下來。
-    case('編造宣告 + 一句含該目錄名的散文（詞邊界放過，路徑脈絡擋下）',
+    warn_case('編造宣告 + 一句含該目錄名的散文（啟發式警告）',
          {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
              '#!/bin/bash',
              '#!/bin/bash\n# trigger-coverage: reads Sources/AkashicCore/*.swift\n'
              '# 註：本檔不碰 AkashicCore，只重建審查者的失敗情境。', 1)},
-         '從沒提過'),
+         '沒有明顯提到'),
     # #407 R22e：`cat X | bash` 是常見的 CI 部署慣用法，它真的執行 X——先前
     # 直譯器單獨成段時無條件靜默，於是零可見度。
     case('把 run: 換成 `cat <守衛> | bash`（直譯器從 stdin 讀）',
@@ -153,7 +166,7 @@ RESULTS = [
     # #407 R23c：痕跡檢查問「守衛提過這個目錄嗎」，而守衛提到**自己所在的
     # 目錄**是必然的（路徑字串出現在它自己的註解裡）——於是 `seg='tests'`
     # 對每一個守衛都命中，一條編造的 `reads plugin/tests/*.py` 完全通過。
-    case('宣告指向守衛自己所在的目錄（痕跡檢查對它沒有鑑別力）',
+    warn_case('宣告指向守衛自己所在的目錄（可能多餘、也可能必要）',
          {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
              '#!/bin/bash', '#!/bin/bash\n# trigger-coverage: reads plugin/tests/*.py', 1)},
          '那正是它自己所在的目錄'),
@@ -161,19 +174,19 @@ RESULTS = [
     # 矇混過去。這一格給一個不含 `rules` 的守衛同時注入 (a) 一條指向
     # `plugin/rules/*.md` 的編造宣告 (b) 一行含 `rulesets` 的註解——`rules`
     # 是 `rulesets` 的子串但不是它的詞，所以子串版放過、詞邊界版擋下。
-    case('編造宣告 + 一個巧合子串（`rulesets` 含 `rules` 但不是詞）',
+    warn_case('編造宣告 + 一個巧合子串（`rulesets` 含 `rules` 但不是詞）',
          {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
              '#!/bin/bash',
              '#!/bin/bash\n# trigger-coverage: reads plugin/rules/*.md\n'
              '# 說明：本檔不處理 rulesets，只重建審查者的失敗情境。', 1)},
-         '從沒提過'),
+         '沒有明顯提到'),
     # #407 R22e：`Sources/*/*.swift` 的 dirname 末段是 `*`，先前讓痕跡檢查
     # 整條跳過，而第一段字面 `Sources` 又讓前一道放它過——完全不被驗。
-    case('宣告用中間萬用字元（`Sources/*/*.swift`）躲過痕跡檢查',
+    warn_case('宣告用中間萬用字元（`Sources/*/*.swift`）——痕跡走回 `Sources`',
          {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
              '# trigger-coverage: reads plugin/rules/*.md',
              '# trigger-coverage: reads Sources/*/*.swift')},
-         '從沒提過'),
+         '沒有明顯提到'),
     # #407 R22d：把守衛的呼叫換成一個**不執行它**的命令（shellcheck 只做靜態
     # 檢查）。判準若還是「列舉不執行的命令」，這一格會因為 shellcheck 不在
     # 白名單而報成「有東西看不到」——那是假警報不是缺口。現在的判準是「段內
@@ -239,10 +252,10 @@ RESULTS = [
     # 東西的宣告，先前完全通過——而攤開表印出來與正常依賴逐字相同。所謂
     # 「可見性」要求讀者已經知道守衛實際讀什麼，那不是可見。痕跡檢查把它
     # 變成可否證的：宣告的目錄名必須在守衛原始碼裡留下痕跡。
-    case('給一個不讀 rules/ 的守衛加一條格式正確的誤宣告',
+    warn_case('給一個不讀 rules/ 的守衛加一條格式正確的誤宣告',
          {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
              '#!/bin/bash', '#!/bin/bash\n# trigger-coverage: reads plugin/rules/*.md', 1)},
-         '從沒提過'),
+         '沒有明顯提到'),
     case('把宣告改成 `reads *.sh`（比例判準會放過，結構判準擋下）',
          {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
              '# trigger-coverage: reads plugin/rules/*.md',

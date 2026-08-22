@@ -64,6 +64,10 @@ DATA = [
 ]
 
 fails = []
+# **警告與缺口分開。** 警告是「請人看一眼」，缺口是「這裡壞了」——把兩者
+# 混在同一個出口，會讓人對整份輸出一起打折扣（#407 R24，DA 席的 cry-wolf
+# 論證在痕跡檢查上的同型應用）。
+warnings = []
 
 
 def code_only(path):
@@ -261,11 +265,18 @@ def invoked(text):
             if any(x in INTERP for x in st[1:]):
                 chained.append(' '.join(st))
     if conditional:
-        print(f'   ℹ 有 {len(conditional)} 個 `||` 後的段帶著腳本。`||` 的語意'
-              f'靜態判不出：可能是例外路徑（`main || handle_failure`），也可能'
-              f'是正常路徑（`[ -f flag ] || do_work`，LHS 通常為假）。保守起見'
-              f'不計入覆蓋——**若那一段其實每次都跑，這裡的缺口是假警報**，'
-              f'請改寫成 `&&`／分行，或在 workflow 註明')
+        # **逐筆具名，不彙總。**（#407 R24，DA 席的 cry-wolf 論證）
+        #
+        # 上一版印一則不指名的旁白，而主判定訊息（「不在任何 CI workflow 跑」）
+        # 在「真的是例外路徑」與「skip-flag 幾乎必跑」兩種情況下**完全相同**。
+        # 人看過幾次假警報之後，會學會對所有帶 ℹ 的判定一起打折扣——包括真正
+        # 的缺口。免責聲明要能對上號才抵銷得了保守的代價。
+        print(f'   ℹ `||` 後的段（語意靜態判不出，保守不計入覆蓋）：')
+        for c in conditional:
+            print(f'      · {c}')
+        print(f'      ↑ 可能是例外路徑（`main || handle_failure`，缺口為真），'
+              f'也可能是正常路徑（`[ -f flag ] || do_work`，LHS 通常為假 → '
+              f'**缺口是假警報**）。逐筆確認上面那幾行，或改寫成 `&&`／分行')
     if chained:
         # `cd A && bash X` 這類串接：第一個 token 不是直譯器，所以認不出來。
         # **方向是漏報**（守衛會紅、不會假綠），但仍要印——R20c 才立下的原則是
@@ -470,9 +481,17 @@ for g in GUARDS:
         # ——實測一條編造的 `reads plugin/tests/*.py` 完全通過（#407 R23c）。
         decl_dir = os.path.dirname(glob_).rstrip('/')
         if decl_dir and os.path.dirname(g).rstrip('/') == decl_dir:
-            fails.append(f'{os.path.basename(g)} 宣告讀 `{glob_}`，而那正是它自己'
-                         f'所在的目錄——啟發式本來就看得到同目錄的檔案，這個宣告'
-                         f'補不了任何漏（而痕跡檢查對它也沒有鑑別力）')
+            # **這說的是「不必要」，不是「假的」——所以是警告不是缺口。**
+            #
+            # R23c 把它寫成 fail 並 `continue`，於是它與「編造的宣告」拿到同一
+            # 種嚴重度、同一則訊息。跨模型審查指出反例（#407 R24）：GUARDS 只
+            # 枚舉 `.sh`/`.py`，所以同目錄的**資料檔**（golden 快照、oracle 表）
+            # 不在啟發式的視野裡；若守衛又以 runtime 組路徑讀它，那條同目錄宣告
+            # 就是**真的且必要**的。把它當假的拒絕，是把兩件事混為一談。
+            warnings.append(f'{os.path.basename(g)} 宣告讀 `{glob_}`，而那正是它'
+                            f'自己所在的目錄——同目錄的**腳本**啟發式本來就看得到，'
+                            f'這條宣告多半多餘；但同目錄的**資料檔**（非 .sh/.py）'
+                            f'不在枚舉範圍內，那種依賴的宣告是必要的。請人確認')
             continue
         parts = [p for p in os.path.dirname(glob_).rstrip('/').split('/') if p]
         seg = next((p for p in reversed(parts)
@@ -500,10 +519,28 @@ for g in GUARDS:
         traced = seg and re.search(
             rf'[/"\'$=]{esc}(?![A-Za-z0-9_-])|(?<![A-Za-z0-9_-]){esc}[/"\']',
             body)
+        # **降為警告，不 fail。**（#407 R24，跨模型審查兩個方向各給一個反例）
+        #
+        # 這個檢查走過三版近似，每一版都被證明兩頭不對：
+        #
+        #   子串（R22b）    → `rulesets` 含 `rules`，巧合就矇混
+        #   詞邊界（R22f）  → `# TODO: add more tests` 的 `tests` 是完整的詞
+        #   路徑脈絡（R23d）→ 太鬆：`unit tests/integration tests` 仍匹配
+        #                     太緊：`find Sources -name` 真的讀卻不匹配
+        #
+        # 最後兩個方向**本質上衝突**：放寬讓散文更容易矇混，收緊拒掉更多真實
+        # 用法。字串脈絡判不出「這行在不在讀那個目錄」——那是靜態分析問題。
+        #
+        # 而真實輸入集合是 **1 條宣告**（R23e 量過），編造的宣告零實例。一個
+        # 零實例、且已證明兩頭不準的檢查不該 fail-closed：它的誤拒會擋掉合法
+        # 宣告，而那是**可見且惱人**的；它漏掉的編造宣告則從未出現過。
+        #
+        # 保留為警告：它仍指出「這條宣告沒有明顯痕跡」，由人判斷。
         if seg and '*' not in seg and '?' not in seg and not traced:
-            fails.append(f'{os.path.basename(g)} 宣告讀 `{glob_}`，但它的原始碼'
-                         f'（扣掉宣告行本身）從沒提過 `{seg}`——宣告是用來補'
-                         f'啟發式的漏，不是用來聲稱一個看不出痕跡的依賴')
+            warnings.append(f'{os.path.basename(g)} 宣告讀 `{glob_}`，但它的原始碼'
+                            f'（扣掉宣告行本身）沒有明顯提到 `{seg}` 的痕跡'
+                            f'——**這是啟發式，兩個方向都會錯**（見上方註解），'
+                            f'請人確認這條宣告是否屬實')
     # **這一條目前不可獨立觸發，保留是有條件的。**
     #
     # 要命中全部 16 個受保護檔就得跨 `plugin/` 與 `Sources/` 兩個前綴，而那
@@ -562,6 +599,10 @@ print(f'\n{"✓" if not uncovered_hook else "✗"} pre-push 涵蓋 '
 for g in uncovered_hook:
     fails.append(f'{os.path.basename(g)} 不在 pre-push 裡')
 
+if warnings:
+    print(f'\n══ 待人確認 {len(warnings)}（啟發式警告，不構成缺口）══')
+    for m in warnings:
+        print(f'  ? {m}')
 if fails:
     print(f'\n══ 缺口 {len(fails)} ══')
     for m in fails:

@@ -432,7 +432,11 @@ print(f'守衛 {len(GUARDS)} 支｜受保護 {len(PROTECTED)} 個｜'
 # 行尾多一句註記、沒給 glob、關鍵字打成 `read`（#407 R28）。四種都被這一條認出，
 # 而對全部守衛逐行掃描的**誤傷是 0 行**（實測，含 harness 裡的字串字面——它們以
 # 引號開頭所以不匹配）。
-DECL_SHAPED = re.compile(r'^\s*(?:#|//)?\s*trigger-coverage:')
+# 標記寫成 `[#/]*` 而非 `(?:#|//)?`（#407 R30，跨模型審查指名）：後者只吃**一個** `#`
+# 或**恰好兩個** `/`，於是 Swift 慣用的 `///` 與 shell 的段標 `##` 對 DECLARE 與本條
+# **同時**隱形——那正是本條要擋的「啞宣告」，只是標記多了一個字元。GUARDS 確實含
+# `.swift`，所以 `///` 不是杜撰的邊界。實測放寬後對全部守衛逐行掃描誤傷仍是 0 行。
+DECL_SHAPED = re.compile(r'^\s*[#/]*\s*trigger-coverage:')
 for g in GUARDS:
     raw = io.open(g, encoding='utf8', errors='replace').read()
     # **用同一個謂詞。** 裸子串會把「談論宣告」算成「有宣告」——那正是上面

@@ -59,28 +59,25 @@ def rule_move(push, ci, hp):
     return '執行' if ci == '恢復' else '零執行'
 
 
-def strip_md(cell, strip_notes=True):
-    """剝 markdown 強調、反引號，**以及全形括號的註記**。
+def strip_md(cell):
+    """剝 markdown 強調與反引號。**不剝括號註記——因為格裡不准有註記。**
 
-    **只對前三欄剝註記，結果欄不剝**（#407 R28b，負控自己逼出來的）：前三欄的格是
-    在**指名一個封閉集合裡的值**，括號裡的字改不了它是哪一個（`不跑（**現況**）`
-    仍然是不跑）；結果欄的格是在**下一個判斷**，括號裡的字可以限定它
-    （`執行（只在 merge 後）` 不是無條件的執行）。所以同一個剝法用在兩處，一處
-    是正確地忽略裝飾、另一處是安靜地丟掉限定詞。
+    演化（三步，每一步都是被實測逼出來的）：
 
-    註記剝掉才能對前三欄做**嚴格查表**（#407 R28）。上一版對前三欄用子串比對，於是
-    一個很自然的編輯就會被安靜讀反——實測三個：
+      R27 子串比對 → 一個很自然的編輯就被安靜讀反（`不跑（等 macOS 恢復）` 讀成
+                     「恢復」）。
+      R28 剝註記 ＋ 嚴格查表 → 讀對了值，但**註記與 token 可以互相矛盾**：只改
+                     註記（「未 merge」→「已 merge」）而不動 token，守衛全綠而
+                     人會照註記讀成另一個值（#407 R30，跨模型審查指名）。
+      R30 **格裡不准有註記**。兩個猜關鍵字的檢查都被實測否掉——「註記含本欄其他
+                     值的 token」誤傷 0 卻抓不到那個情境；「hooksPath 註記含
+                     `merge`」抓得到形狀卻誤傷 2 列。所以不偵測矛盾，改成**讓矛盾
+                     寫不出來**：註記回散文，格裡出現 `（` 即 `<未解析>`。
 
-        `不跑（**等 macOS 帳務恢復**）`   → 讀成「恢復」（人讀「不跑」）
-        `正常 push（不帶 --no-verify）`   → 讀成「--no-verify」（人讀「正常」）
-        `指向本樹以外（未設定或主 repo）` → 讀成「未設定」（人讀是兩個值）
-
-    三個都不出聲。上一輪只把**結果欄**改成嚴格相等，其餘三欄漏了——同一個病，
-    修了一欄就以為修完了。
+    這是 `entity-backlink-completeness` 引 Tractatus 3.325 的同一個立場：與其檢查
+    錯誤，不如用一種讓錯誤在文法上寫不出來的記法。
     """
     cell = re.sub(r'`[^`]*`', lambda m: m.group(0).strip('`'), cell)
-    if strip_notes:
-        cell = re.sub(r'（[^（）]*）', '', cell)
     return cell.replace('*', '').strip()
 
 
@@ -121,8 +118,12 @@ def main():
     for l in lines[head + 2:]:
         if not l.startswith('> |'):
             break
-        raw_cells = l[2:].strip().strip('|').split('|')
-        cells = [strip_md(c, strip_notes=(i < 3)) for i, c in enumerate(raw_cells)]
+        cells = [strip_md(c) for c in l[2:].strip().strip('|').split('|')]
+        # 註記一律回散文（見 strip_md 的 R30）。格裡出現全形括號 → 出聲。
+        noted = [c for c in cells if '（' in c or '）' in c]
+        if noted:
+            print(f'✗ 格裡有註記（註記一律寫在散文，不寫在格裡）：{noted}')
+            return 1
         if len(cells) != 5:
             print(f'✗ 列的欄數不是 5：{l[:70]}')
             return 1

@@ -258,6 +258,18 @@ RESULTS = [
          {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
              '#!/bin/bash', '#!/bin/bash\n# trigger-coverage: reads', 1)},
          '這一行是啞的'),
+    # #407 R30：標記多一個字元就對兩個謂詞同時隱形。`///` 是 Swift 慣用的 doc
+    # comment，而 GUARDS 含 `.swift`——不是杜撰的邊界。
+    case('啞宣告⑤：Swift 的 `///` doc comment',
+         {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
+             '#!/bin/bash',
+             '#!/bin/bash\n/// trigger-coverage: reads plugin/rules/*.md', 1)},
+         '這一行是啞的'),
+    case('啞宣告⑥：shell 的段標 `##`',
+         {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
+             '#!/bin/bash',
+             '#!/bin/bash\n## trigger-coverage: reads plugin/rules/*.md', 1)},
+         '這一行是啞的'),
     case('啞宣告④：關鍵字打成 read',
          {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
              '#!/bin/bash',

@@ -20,10 +20,10 @@ MD = os.path.join(ROOT, 'CLAUDE.md')
 GUARD = os.path.join(ROOT, 'plugin', 'tests', 'decision-matrix-drift.py')
 
 R6 = '> | 正常 `git push` | 恢復 | 指向本樹 | 執行 | 執行 |'
-R3 = '> | 正常 `git push` | 不跑（**現況**） | 指向本樹（merge 後） | **執行** | **零執行** |'
-R5 = '> | 正常 `git push` | 恢復 | 指向主 repo（**未 merge**） | **零執行** | **執行** |'
-R2 = '> | 正常 `git push` | 不跑（**現況**） | 指向主 repo（**本 worktree 現況**） | **零執行** | 零執行 |'
-R1 = '> | 正常 `git push` | 不跑（**現況**） | 未設定（他人 clone 的預設） | 零執行 | 零執行 |'
+R3 = '> | 正常 `git push` | 不跑 | 指向本樹 | **執行** | **零執行** |'
+R5 = '> | 正常 `git push` | 恢復 | 指向主 repo | **零執行** | **執行** |'
+R2 = '> | 正常 `git push` | 不跑 | 指向主 repo | **零執行** | 零執行 |'
+R1 = '> | 正常 `git push` | 不跑 | 未設定 | 零執行 | 零執行 |'
 HEAD = '> | push 方式 | CI 狀態 | hooksPath | 留在 pre-push | 移出、只留 CI |'
 
 CASES = [
@@ -38,10 +38,10 @@ CASES = [
      lambda s: s.replace(R5 + '\n', ''),
      ['缺 ', "'主repo'"], ['✗ 列']),
     ('讓兩列重疊（列1 的 hooksPath 改成任一）',
-     lambda s: s.replace(R1, '> | 正常 `git push` | 不跑（**現況**） | 任一 | 零執行 | 零執行 |'),
+     lambda s: s.replace(R1, '> | 正常 `git push` | 不跑 | 任一 | 零執行 | 零執行 |'),
      ['✗ 列1', '被重複宣稱'], []),
     ('把一格的 hooksPath 弄成解析不出來的字',
-     lambda s: s.replace(R2, R2.replace('指向主 repo（**本 worktree 現況**）', '（見上）', 1)),
+     lambda s: s.replace(R2, R2.replace('指向主 repo', '見上', 1)),
      ['<未解析>'], ['矩陣與規則一致']),
     ('改掉表頭 → 找不到表',
      lambda s: s.replace(HEAD, '> | 推送方式 | CI | hooks | 留 | 移出 |'),
@@ -54,15 +54,20 @@ CASES = [
     # 「執行（只在 merge 後）」讀成無條件「執行」——限定詞被安靜丟掉。
     # #407 R28：三個「人讀是 A、parser 讀成 B 且不出聲」的自然編輯。上一輪只把
     # 結果欄改嚴格，其餘三欄仍是子串比對——修了一欄就以為修完了。
-    ('push 格的註記提到「--no-verify」→ 不得被讀成 --no-verify',
-     lambda s: s.replace(R6, '> | 正常 push（不帶 --no-verify） | 恢復 | 指向本樹 | 執行 | 執行 |'),
+    ('push 格不在封閉詞彙裡（`正常 push`，少了 git）→ 不得被猜成正常',
+     lambda s: s.replace(R6, '> | 正常 push | 恢復 | 指向本樹 | 執行 | 執行 |'),
      ['<未解析>'], ['矩陣與規則一致']),
-    ('hooksPath 格寫成「本樹以外」→ 不得只讀到其中一值',
-     lambda s: s.replace(R6, '> | 正常 `git push` | 恢復 | 指向本樹以外（未設定或主 repo） | 執行 | 執行 |'),
+    ('hooksPath 格寫成「指向本樹以外」→ 不得只讀到其中一值',
+     lambda s: s.replace(R6, '> | 正常 `git push` | 恢復 | 指向本樹以外 | 執行 | 執行 |'),
      ['<未解析>'], ['矩陣與規則一致']),
-    ('結果格帶限定詞 → 不得被讀成無條件',
+    # R30：格裡一律不准有註記——不論它會不會造成誤讀。偵測矛盾的兩個近似做法都被
+    # 實測否掉（一個抓不到、一個誤傷 2 列），所以改成讓矛盾寫不出來。
+    ('key 欄帶註記 → 一律拒（不偵測矛盾，改成寫不出來）',
+     lambda s: s.replace(R5, R5.replace('指向主 repo', '指向主 repo（**已 merge**）', 1)),
+     ['格裡有註記'], ['矩陣與規則一致']),
+    ('結果欄帶限定詞 → 一律拒',
      lambda s: s.replace(R6, R6.replace('| 執行 |', '| 執行（只在 merge 後） |', 1)),
-     ['<未解析>'], ['矩陣與規則一致']),
+     ['格裡有註記'], ['矩陣與規則一致']),
 ]
 
 
@@ -74,14 +79,8 @@ def run(path):
 # **不是每個注入都該讓守衛變紅。** 下面這些注入的正確結果是**維持綠**——它們檢查
 # 的是「守衛沒有把裝飾當成內容」。把它們混進上面的清單會逼出一個錯的修法（實地
 # 踩到：#407 R28b，我先把它寫成負控，於是「剝掉註記」這個**正確**的行為被當成缺陷）。
-ROBUST = [
-    ('CI 格的註記提到「恢復」→ 不得因此被讀成恢復',
-     lambda s: s.replace('| 不跑（**現況**） |', '| 不跑（**等 macOS 帳務恢復**） |', 1),
-     ['✓ 列1', '不跑']),
-    ('push 格加一句無害註記 → 仍是正常',
-     lambda s: s.replace(R1, R1.replace('正常 `git push`', '正常 `git push`（一般情形）', 1)),
-     ['✓ 列1', '正常']),
-]
+ROBUST = []          # R30 起格裡不准有註記，於是「註記須被忽略」那組不再存在
+
 
 
 def main():

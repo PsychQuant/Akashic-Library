@@ -88,6 +88,13 @@ RESULTS = [
              'run: bash plugin/tests/rule-coverage.sh',
              'run: echo "見 plugin/tests/rule-coverage.sh 的說明"')},
          'rule-coverage.sh'),
+    # 同一個 echo 但用 `./` 形式。R20 只修了直譯器那半邊（`bash X`），
+    # `./X` 分支照舊掃全行——這一格是那個殘留的負控（#407 R20c）。
+    case('把 run: 換成印出 ./ 形式檔名的 echo（R20 修法的殘留半邊）',
+         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+             'run: bash plugin/tests/rule-coverage.sh',
+             'run: echo "見 ./plugin/tests/rule-coverage.sh 的說明"')},
+         'rule-coverage.sh'),
     # 宣告機制若被「統一」成走 code_only()，宣告行（是註解）會被剝掉、機制
     # 整個失效——而守衛本來**不會紅**（只是少考慮幾個 pair，沉默地）。R20b
     # 把它變成會紅的，這一格證明那件事。

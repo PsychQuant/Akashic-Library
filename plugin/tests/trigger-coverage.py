@@ -115,18 +115,35 @@ def invoked(text):
     裡的呼叫會被漏掉（方向是漏報，比誤報安全），而漏報會讓守衛紅、不會讓它假綠。
     """
     found = set()
+    blocks = []
     for line in text.split('\n'):
         m = re.match(r'\s*(?:-\s*)?run:\s*(.+)$', line)
         if not m:
             continue
-        toks = m.group(1).split()
-        for i, tok in enumerate(toks):
-            if tok in ('bash', 'sh', 'python3', 'python', 'swift') and i + 1 < len(toks):
-                nxt = toks[i + 1]
-                if nxt.endswith(('.sh', '.py', '.swift')):
-                    found.add(os.path.basename(nxt))
-            elif tok.startswith('./') and tok.endswith(('.sh', '.py', '.swift')):
-                found.add(os.path.basename(tok))
+        cmd = m.group(1).strip()
+        if cmd == '|' or cmd.startswith('|'):
+            blocks.append(line)          # block scalar——見下方揭露
+            continue
+        # **只認第一個 token。** 上一版對 `./X` 分支仍掃全行，於是
+        # `run: echo "見 ./rule-coverage.sh"` 照樣被算成執行了它——同一個修法
+        # 只修了直譯器那半邊（#407 R20c，跨模型審查指名；今天第二次同型：
+        # code_only() 先前也只用在 READS 不用在 HOOK）。
+        # 代價是 `cd A && bash X` 這種會漏——**方向是漏報**，讓守衛紅而非假綠。
+        toks = cmd.split()
+        if not toks:
+            continue
+        head = toks[0]
+        if head in ('bash', 'sh', 'python3', 'python', 'swift') and len(toks) > 1 \
+                and toks[1].endswith(('.sh', '.py', '.swift')):
+            found.add(os.path.basename(toks[1]))
+        elif head.startswith('./') and head.endswith(('.sh', '.py', '.swift')):
+            found.add(os.path.basename(head))
+    if blocks:
+        # 多行 `run: |` 的實際命令在**續行**上，本函式看不到（#407 R20c）。
+        # 不靜默：印出來。目前用它的只有 ci.yml，而 ci.yml 的 paths-ignore
+        # 排除 plugin/**、也不跑這些守衛——所以當下不影響，但那是巧合不是設計。
+        print(f'   ℹ 有 {len(blocks)} 個 `run: |` 區塊，本函式只讀單行形式——'
+              f'若守衛改用區塊形式呼叫，這裡會看不到它（漏報，會讓守衛紅）')
     return found
 
 

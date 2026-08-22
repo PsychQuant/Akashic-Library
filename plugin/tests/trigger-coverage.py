@@ -431,6 +431,19 @@ for g in GUARDS:
         # `Sources/*`，取最後一段會得到 `*`，於是下面的萬用字元條件讓整條宣告
         # **跳過檢查**——而它的第一段是字面 `Sources`，前一道也放它過，於是
         # 完全不被驗（#407 R22e，跨模型審查指名）。
+        # **宣告指向守衛自己所在的目錄 ⇒ 它補不了任何漏。**
+        #
+        # 宣告存在的理由是補啟發式的漏（守衛用 glob 組路徑，basename 不逐字
+        # 出現）。而**同目錄**的東西啟發式本來就看得到，不需要宣告。更糟的是
+        # 痕跡檢查對這一類**沒有鑑別力**：守衛住在 `plugin/tests/`，那個字串
+        # 必然出現在它自己的註解裡，於是 `seg='tests'` 對**每一個守衛**都命中
+        # ——實測一條編造的 `reads plugin/tests/*.py` 完全通過（#407 R23c）。
+        decl_dir = os.path.dirname(glob_).rstrip('/')
+        if decl_dir and os.path.dirname(g).rstrip('/') == decl_dir:
+            fails.append(f'{os.path.basename(g)} 宣告讀 `{glob_}`，而那正是它自己'
+                         f'所在的目錄——啟發式本來就看得到同目錄的檔案，這個宣告'
+                         f'補不了任何漏（而痕跡檢查對它也沒有鑑別力）')
+            continue
         parts = [p for p in os.path.dirname(glob_).rstrip('/').split('/') if p]
         seg = next((p for p in reversed(parts)
                     if '*' not in p and '?' not in p), '')

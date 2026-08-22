@@ -136,6 +136,13 @@ RESULTS = [
              'run: bash plugin/tests/rule-coverage.sh',
              'run: cat plugin/tests/rule-coverage.sh | bash')},
          'rule-coverage.sh 不在任何 CI workflow 跑'),
+    # #407 R23c：痕跡檢查問「守衛提過這個目錄嗎」，而守衛提到**自己所在的
+    # 目錄**是必然的（路徑字串出現在它自己的註解裡）——於是 `seg='tests'`
+    # 對每一個守衛都命中，一條編造的 `reads plugin/tests/*.py` 完全通過。
+    case('宣告指向守衛自己所在的目錄（痕跡檢查對它沒有鑑別力）',
+         {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
+             '#!/bin/bash', '#!/bin/bash\n# trigger-coverage: reads plugin/tests/*.py', 1)},
+         '那正是它自己所在的目錄'),
     # #407 R22f：痕跡檢查若用**子串**比對，巧合的字串重疊足以讓編造的宣告
     # 矇混過去。這一格給一個不含 `rules` 的守衛同時注入 (a) 一條指向
     # `plugin/rules/*.md` 的編造宣告 (b) 一行含 `rulesets` 的註解——`rules`
@@ -211,7 +218,7 @@ RESULTS = [
     case('在真宣告旁邊多寫一行教學範例（DA 指名的類別）',
          {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
              '# trigger-coverage: reads plugin/rules/*.md',
-             '# trigger-coverage: reads plugin/tests/*.py\n'
+             '# trigger-coverage: reads plugin/rules/*.md\n'
              '# trigger-coverage: reads plugin/rules/*.md')},
          '行宣告'),
     # requirements 席指名（#407 R22b）：一條格式**完全正確**、指向它不讀的

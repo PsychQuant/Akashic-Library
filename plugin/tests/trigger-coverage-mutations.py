@@ -74,6 +74,15 @@ def warn_case(desc, edits, expect_substr):
     #
     # 所以 `case` 的鑑別力只能靠 expect_substr ＋ stray 檢查，那是既有設計，
     # 不是漏掉綁定。
+    # **單檔才綁得住。**（#407 R24h，跨模型審查指名這個「休眠的角」）
+    #
+    # 綁定是「警告行含 `expect_substr` **且**含某個被 edit 的檔名」。若 edits
+    # 有兩個 key，那個「某個」變成**聯集**——A 的警告消失而 B 恰好有一條文字
+    # 相符的既有警告時，這一格仍會綠。目前六格都是單檔（量過），但函式本身
+    # 沒有攔它，所以在這裡攔：多檔的 warn_case 要嘛拆成兩格，要嘛改寫綁定。
+    if len(edits) != 1:
+        raise SystemExit(f'✗ warn_case 目前只支援單檔 edits（收到 {len(edits)} 個）'
+                         f'——綁定會退化成聯集，見上方註解')
     targets = {os.path.basename(k) for k in edits}
     named = [w for w in warns
              if expect_substr in w and any(tg in w for tg in targets)]

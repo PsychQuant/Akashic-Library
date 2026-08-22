@@ -408,4 +408,16 @@ for (name, cps) in cases {
           + (bad ? "★" : ""))
 }
 print("\n分歧數：\(diverge)")
+
+// **fixture 蒸發時不得靜默通過**（#407 R35，寫負控時當場量到）：把 `cases` 清空
+// 後本檔印「分歧數：0」並 exit 0——與「全部通過」逐字相同。零個案例的「零分歧」
+// 不是證據，是沒有證據。下限寫死在這裡，加案例時要一併調高。
+let expected = 12
+if cases.count < expected {
+    FileHandle.standardError.write(
+        "✗ 案例只剩 \(cases.count) 個（下限 \(expected)）——fixture 被刪了，"
+        .data(using: .utf8)!)
+    FileHandle.standardError.write("「零分歧」在這種狀態下不是證據\n".data(using: .utf8)!)
+    exit(1)
+}
 exit(diverge == 0 ? 0 : 1)

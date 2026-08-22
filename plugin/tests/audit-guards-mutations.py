@@ -5,15 +5,17 @@
 裡只有 4 支被人跑過並要求變紅。剩下五支每次都綠，而「沒紅過的檢查與不存在的檢查
 無從區分」正是本 issue 的立場——那五支落在自己的立場之外。
 
-本支補其中三支。**剩下兩支的裁決寫在下面，不是漏掉**：
+本支覆蓋**五支**：`rule-coverage.sh`、`hash-table-drift.sh`、`review-claim-audit.sh`、
+`measured-claims-audit.py`、`multiscalar-parity.swift`。加上既有的四支 harness，
+**9 支守衛全部都有 negative control**（R31 量到的基準是 4/9）。
 
-  `measured-claims-audit.py`  它的偵測式要跑 `git rev-list --all`，而 mutation 必須在
-                              pristine copy 上跑；copy 裡沒有 `.git` → 偵測式在 copy
-                              裡本來就不成立，紅得與注入無關。這正是 R27 踩過的
-                              「因錯誤理由變紅的負控等於不存在」。要補它得先讓它
-                              接受一個 `--repo` 之類的參數，屬另一件事。
-  `multiscalar-parity.swift`  注入要改它內建的 census 模型再重編；每個 case 約一秒
-                              的 swift 啟動，值得但同樣不在本輪。
+前一版把後兩支列為「要先給守衛一個參數」而延後——**兩個都不需要**（#407 R35）：
+
+  `measured-claims-audit.py`  它的偵測式要 `git rev-list --all`，而 copy 裡沒有 `.git`。
+                              解法不是改守衛，是在 copy 裡把 `.git` **symlink** 回真的
+                              repo：守衛只讀歷史（rev-list／cat-file／log／show），
+                              symlink 讓那些查詢照常成立，而檔案讀取仍落在 copy 上。
+  `multiscalar-parity.swift`  單檔自足，複製該檔、改內建的 census 模型、`swift` 跑它即可。
 
 **mutate 的是 pristine copy**，出貨檔以 mtime 前後比對確認未被開啟以寫入。
 """
@@ -30,13 +32,14 @@ REVIEW_REL = 'plugin/tests/review-claim-audit.sh'
 PARITY_REL = 'plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh'
 GEN_REL = 'plugin/skills/akashic-literal-campaign/scripts/tests/derive-hash-extenders.swift'
 WF_REL = '.github/workflows/census-parity.yml'
+CLAIMS_REL = 'plugin/tests/measured-claims-audit.py'
 DRIFT_REL = 'plugin/skills/akashic-literal-campaign/scripts/tests/hash-table-drift.sh'
 TABLE_REL = 'plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt'
 MULTI_REL = 'plugin/skills/akashic-literal-campaign/scripts/tests/multiscalar-parity.swift'
 RULE_REL = 'plugin/rules/assertions-must-be-measured.md'
 
 WATCHED = [COVERAGE_REL, DRIFT_REL, TABLE_REL, MULTI_REL, RULE_REL,
-           REVIEW_REL, PARITY_REL, GEN_REL, WF_REL]
+           REVIEW_REL, PARITY_REL, GEN_REL, WF_REL, CLAIMS_REL]
 
 
 def with_copy(guard_rel, edits):
@@ -51,7 +54,13 @@ def with_copy(guard_rel, edits):
             if after == before:
                 raise SystemExit(f'✗ 注入對 {rel} 沒有造成任何改動——這個 case 無效')
             io.open(p, 'w', encoding='utf8').write(after)
-        r = subprocess.run(['bash', os.path.join(tmp, guard_rel)],
+        # 守衛只讀 git **歷史**（rev-list／cat-file／log／show），所以把 `.git`
+        # symlink 回真 repo 是安全的；沒有它，`measured-claims-audit.py` 會因為
+        # 「這裡不是 repo」而紅——與注入無關的紅等於沒有負控（#407 R27）。
+        os.symlink(os.path.join(ROOT, '.git'), os.path.join(tmp, '.git'))
+        interp = {'py': sys.executable, 'sh': 'bash', 'swift': 'swift'}[
+            guard_rel.rsplit('.', 1)[1]]
+        r = subprocess.run([interp, os.path.join(tmp, guard_rel)],
                            capture_output=True, text=True, cwd=tmp)
         return r.returncode, r.stdout + r.stderr
 
@@ -102,6 +111,47 @@ CASES = [
      {GEN_REL: lambda t: t.replace('import Foundation',
                                    '// 用法：derive-hash-extenders.swift --check <生成的表>\nimport Foundation', 1)},
      ['✗']),
+    # ── measured-claims-audit.py（#407 R35）───────────────────────────────
+    ('claims：改壞偵測式（抽取式仍指向舊字面）',
+     CLAIMS_REL,
+     # **要打到程式碼那一份，不是註解那一份**：R26x 之後抽取式會先剝註解，
+     # 所以改註解不會讓守衛紅——那是它**該有**的行為。用完整的偵測式字面定位。
+     {CLAIMS_REL: lambda t: t.replace(
+         '''| sed '/^$/q' | grep -q '^gpgsig' ''',
+         '''| sed '/^$/q' | grep -q '^gpgSIG' ''', 1)},
+     ['✗']),
+    # 白名單要打**真的會出現在 header 裡**的欄位。先前寫 `gpgsig-sha256`——本 repo
+    # 的 commit 未簽署，那個欄位從不出現，於是拿掉它對輸出零影響、守衛正確地不紅
+    # （#407 R35 當場量到）。`tree` 每個 commit 都有。
+    ('claims：把白名單裡的 tree 拿掉（它每個 commit 都有）',
+     CLAIMS_REL,
+     {CLAIMS_REL: lambda t: t.replace("'tree': '內容指標'", "'tree-x': '內容指標'", 1)},
+     ['✗']),
+    # ── multiscalar-parity.swift（#407 R35）───────────────────────────────
+    # **兩個試過但不成立的注入也記在這裡**，因為它們各自說明一件事：
+    #   「移除 ASCII 快速路徑」→ 零分歧。**不是 fixture 沒涵蓋**：`hash-table-drift.sh`
+    #     強制表中不得出現 ASCII range，所以那條路徑在該不變式下**可證為冗餘**。
+    #   「案例表清空」→ 先前也是零分歧、rc=0（fixture 蒸發卻靜默通過）。那是真缺陷，
+    #     已在守衛裡加案例數下限修掉；下面那個 case 就是它的負控。
+    ('multi：模型把 inTable 的判定反過來',
+     MULTI_REL,
+     {MULTI_REL: lambda t: t.replace('return f < 0x80 ? true : !inTable(f)',
+                                     'return f < 0x80 ? true : inTable(f)', 1)},
+     ['分歧數']),
+    ('multi：模型改看最後一個 scalar',
+     MULTI_REL,
+     {MULTI_REL: lambda t: t.replace('guard let f = cps.first else { return true }',
+                                     'guard let f = cps.last else { return true }', 1)},
+     ['分歧數']),
+    ('multi：案例表被清空（fixture 蒸發不得靜默通過）',
+     MULTI_REL,
+     # `[] + [...]` **不會**清空（前一版寫成那樣，於是這個 case 一直在測別的東西，
+     # 而我卻拿它當「vacuous pass 存在」的證據——#407 R35 當場抓到）。真的清空要
+     # 讓 `cases` 綁到空陣列，原本的字面另外綁一個沒人用的名字。
+     {MULTI_REL: lambda t: t.replace(
+         'let cases: [(String, [UInt32])] = [',
+         'let cases: [(String, [UInt32])] = []\nlet _unused: [(String, [UInt32])] = [', 1)},
+     ['案例只剩']),
 ]
 
 

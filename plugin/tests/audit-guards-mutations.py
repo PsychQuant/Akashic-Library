@@ -73,33 +73,56 @@ CASES = [
     # 注意：改散文裡的**名字**不夠——守衛驗的是「解析得到的相對路徑 token」，
     # 不是字串出現過（那正是它自己註解裡記的 R6 findings 14／15／17）。所以
     # 這個 case 要把**連結**整個拿掉。
-    ('coverage：把某個 skill 的規則連結整個拿掉',
+    # `rule-coverage.sh` 每個 skill 有**三個**失敗分支，訊息各不相同。斷言用各自的
+    # 具體訊息、不用裸 `✗`——前一版兩個 case 都只斷言 `✗`，於是第二個**標成**
+    # 「相對路徑解析不到」卻其實打中「引用不是這條規則本身」，而被 `.md.bak` 教訓
+    # 硬化過的 `-f` 分支**一次都沒被行使**（#407 R39，跨模型審查指名）。
+    ('coverage①：連結整個拿掉（沒有任何可解析的相對路徑）',
      COVERAGE_REL,
      {'plugin/skills/akashic-literal-campaign/SKILL.md':
       lambda t: t.replace('../../rules/assertions-must-be-measured.md', '見規則目錄')},
-     ['✗']),
-    ('coverage：掛載還在但相對路徑指到不存在的檔',
+     ['沒有指向這條規則的可解析相對路徑']),
+    ('coverage②：token 是別的檔名（引用不是這條規則本身）',
      COVERAGE_REL,
      {'plugin/skills/akashic-literal-campaign/SKILL.md':
       lambda t: t.replace('../../rules/assertions-must-be-measured.md',
                           '../../rules/assertions-must-be-measured-v2.md', 1)},
-     ['✗']),
+     ['的引用不是這條規則本身']),
+    ('coverage③：basename 相同但目錄錯（`-f` 解析不到——`.md.bak` 教訓的那一格）',
+     COVERAGE_REL,
+     {'plugin/skills/akashic-literal-campaign/SKILL.md':
+      lambda t: t.replace('../../rules/assertions-must-be-measured.md',
+                          '../../rulez/assertions-must-be-measured.md', 1)},
+     ['的相對路徑解析不到']),
     # ── hash-table-drift.sh ───────────────────────────────────────────────
     ('drift：生成的表被人手改了一段',
      DRIFT_REL,
      {TABLE_REL: lambda t: t.replace('\n', '\n', 1) and _perturb_table(t)},
-     ['✗']),
+     ['inline RANGES 與生成的表不一致']),
     ('drift：multiscalar 的 inline RANGES 與表脫節',
      DRIFT_REL,
      {MULTI_REL: lambda t: _perturb_ranges(t)},
-     ['✗']),
+     ['inline RANGES 與生成的表不一致']),
+    # `hash-table-drift.sh` 的第三個分支：**表中不得出現 ASCII range**。它是那個
+    # 讓 `multiscalar-parity.swift` 的 ASCII 快速路徑可證為冗餘的不變式，而先前
+    # 一次都沒被行使（#407 R39）。
+    ('drift：表中混進一個 ASCII range（快速路徑的不變式）',
+     DRIFT_REL,
+     # 表用**裸十六進位**（`0300 0300`），不是 `0x` 前綴——前一版寫 `0x0041` 於是
+     # ASCII 檢查的 regex 不匹配，注入改而觸發後面的 RANGES 比對，看起來「有紅」
+     # 卻紅在別的分支（#407 R39 的同一個形狀，在修它的那一輪又犯一次）。
+     # regex 是「1–2 位十六進位 ＋ 空白」（`^[0-7]?[0-9a-f] `）。`0041` 是四位、
+     # `0x0041` 有 `x`——兩個我都試過，兩次都改而觸發後面的 RANGES 比對：**看起來
+     # 有紅、卻紅在別的分支**，正是本輪 finding 的形狀，在修它的那一輪連犯兩次。
+     {TABLE_REL: lambda t: '41 41\n' + t},
+     ['ASCII range']),
     # ── review-claim-audit.sh（#407 R34）──────────────────────────────────
     # 它重建的是四個歷史 finding 的失敗情境。每個 mutation 把其中一個修法**還原**，
     # 對應的 verdict 就該翻掉。R32 把這支列為「值得，不在本輪」——本輪補上。
     ('review：把 5000 前導零 fixture 改回會退化的長度',
      REVIEW_REL,
      {PARITY_REL: lambda t: t.replace("printf '%05000d'", "printf '%0500d'")},
-     ['✗']),
+     ['出貨的 parity 測試已改用新寫法且有長度斷言']),
     ('review：把生成表從 parity workflow 的 paths 拿掉',
      REVIEW_REL,
      {WF_REL: lambda t: t.replace('      - "plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt"\n', '')},
@@ -108,12 +131,12 @@ CASES = [
      REVIEW_REL,
      {GEN_REL: lambda t: t.replace('import Foundation',
                                    'import Foundation\nlet _ = CommandLine.arguments', 1)},
-     ['✗']),
+     ['確實從未讀 CommandLine.arguments']),
     ('review：把宣稱 --check 的那句註解加回去',
      REVIEW_REL,
      {GEN_REL: lambda t: t.replace('import Foundation',
                                    '// 用法：derive-hash-extenders.swift --check <生成的表>\nimport Foundation', 1)},
-     ['✗']),
+     ['宣稱 --check 的那句註解已移除']),
     # ── measured-claims-audit.py（#407 R35）───────────────────────────────
     ('claims：改壞偵測式（抽取式仍指向舊字面）',
      CLAIMS_REL,
@@ -122,14 +145,14 @@ CASES = [
      {CLAIMS_REL: lambda t: t.replace(
          '''| sed '/^$/q' | grep -q '^gpgsig' ''',
          '''| sed '/^$/q' | grep -q '^gpgSIG' ''', 1)},
-     ['✗']),
+     ['抽出 0 個 pattern']),
     # 白名單要打**真的會出現在 header 裡**的欄位。先前寫 `gpgsig-sha256`——本 repo
     # 的 commit 未簽署，那個欄位從不出現，於是拿掉它對輸出零影響、守衛正確地不紅
     # （#407 R35 當場量到）。`tree` 每個 commit 都有。
     ('claims：把白名單裡的 tree 拿掉（它每個 commit 都有）',
      CLAIMS_REL,
      {CLAIMS_REL: lambda t: t.replace("'tree': '內容指標'", "'tree-x': '內容指標'", 1)},
-     ['✗']),
+     ['tree']),
     # ── multiscalar-parity.swift（#407 R35）───────────────────────────────
     # **兩個試過但不成立的注入也記在這裡**，因為它們各自說明一件事：
     #   「移除 ASCII 快速路徑」→ 零分歧。**不是 fixture 沒涵蓋**：`hash-table-drift.sh`
@@ -140,12 +163,12 @@ CASES = [
      MULTI_REL,
      {MULTI_REL: lambda t: t.replace('return f < 0x80 ? true : !inTable(f)',
                                      'return f < 0x80 ? true : inTable(f)', 1)},
-     ['分歧數']),
+     ['★']),
     ('multi：模型改看最後一個 scalar',
      MULTI_REL,
      {MULTI_REL: lambda t: t.replace('guard let f = cps.first else { return true }',
                                      'guard let f = cps.last else { return true }', 1)},
-     ['分歧數']),
+     ['★']),
     # ── measured-numbers-audit.py（#407 R36）──────────────────────────────
     # 要挑**只靠行內錨**的那一個。先前挑 `entity-backlink` 的「（#339 立案當時）」，
     # 但同一小節裡還有 R33 加的 ⚠ 區塊帶著日期，小節層的錨照樣成立——注入不生效

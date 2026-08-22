@@ -15,6 +15,43 @@
 
 
 
+
+## R39 — 兩條 finding，而修其中一條時**同一個形狀又犯了兩次**
+
+### ① 負控標成 A、實際打中 B（跨模型審查指名）
+
+`rule-coverage.sh` 每個 skill 有**三個**失敗分支。我的兩個 case 只斷言裸 `✗`，於是
+第二個**標成**「相對路徑解析不到」卻其實打中「引用不是這條規則本身」（greedy regex
+把 `-v2.md` 整個吃進 token → basename 不等於規則名 → 更早的分支就 `continue`）。
+被 `.md.bak` 教訓硬化過的 `-f` 分支**一次都沒被行使**。
+
+修法：三個分支各一個 case，斷言改用**各自的具體訊息**（裸 `✗` 正是錯標能藏身的地方）。
+順帶把 harness 裡其餘 10 個裸標記全部換成具體訊息，並補一個
+`hash-table-drift.sh` 的第三分支（表中不得出現 ASCII range）。18 個 mutation 全綠。
+
+**補那個 ASCII case 時，同一個形狀連犯兩次**：先寫 `0x0041 0x0041`、再寫 `0041 0041`，
+兩次都不匹配那條 `^[0-7]?[0-9a-f] ` 的 regex（表用**裸 1–2 位**十六進位），於是注入改
+而觸發後面的 RANGES 比對——**看起來有紅、卻紅在別的分支**，正是我當輪在修的那個缺陷。
+第三次寫 `41 41` 才對。
+
+### ② 「有指令」≠「可重跑」（跨模型審查指名）
+
+`measured-numbers-audit.py` 的 CMD 謂詞只要 backtick 裡出現關鍵字就算有背書，於是
+`` `akashic validate` ``——一個沒有 store 路徑、沒有 filter、貼進 shell 重現不出那個
+數字的**工具名**——把 `identity-is-judged-not-matched.md` 的「實測 37 組」判成有背書。
+
+**先重跑再改**：`akashic validate 2>&1 | grep -c '標題與年份相同但 DOI 不同'` →
+**2026-08-23 仍是 37**。所以把完整配方與日期補進該規則（數字沒漂移，但先前無從查證）。
+謂詞收緊成「還要含路徑分隔／管線／旗標／命令替換其中之一」。
+
+實測只有 2 個數字是純靠 CMD 背書，另一個（`mcp-cli-parity.md` 的 30）本來就附著完整
+的 `grep -oE …` ——收緊沒有誤傷。
+
+順帶：`rule-prose-guards` 當場抓到我在 R37 的 CHANGELOG 提 `.claude/rules/`（在 private
+的 Akashic repo 裡，外部讀者取不到）卻沒在同一行揭露取用限制。已補。
+
+守衛十四支全綠、negative control 18/18、trigger 逐對零缺口。
+
 ## R38 — 剛加的守衛帶了一個沒人行使的參數（假接口，當輪即刪）
 
 `measured-numbers-audit.py` 寫了 `root = sys.argv[1] if len(sys.argv) > 1 else ROOT`，
@@ -49,8 +86,8 @@ R29 修好「59 秒的 pre-push 是假的」之後，R32／R34／R36 又往 pre-
 比例也變了：那支 57 秒的守衛從佔 86% 降到 **74%**，因為 `audit-guards-mutations.py`
 長到 10.4 秒（4 → 16 個 mutation）。移出後是 **263 → 205 秒（−22%）**。
 
-**這正是 R36 那支守衛在管的形狀，而它管不到 CLAUDE.md**——它只掃 `.claude/rules/`
-與 `plugin/rules/`。**刻意不擴進來**：擴了的話**每次加守衛都會擋 push**，而那個摩擦
+**這正是 R36 那支守衛在管的形狀，而它管不到 CLAUDE.md**——它只掃 `.claude/rules/`（在 private 的 Akashic repo 裡，外部讀者取不到）
+與 `plugin/rules/`（隨 plugin 出貨，取得到）。**刻意不擴進來**：擴了的話**每次加守衛都會擋 push**，而那個摩擦
 沒有對應的好處（表本來就該跟著改）。這個裁決寫進 CLAUDE.md 那一段，不留在 commit 裡。
 
 守衛十四支全綠。

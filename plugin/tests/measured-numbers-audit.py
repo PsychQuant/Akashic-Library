@@ -10,7 +10,8 @@
 
   1. 同一行有時間錨（`2026-08-23`／`當日`／`立案當時`／`#NNN`）
   2. 所在**小節的標題到該行之間**有時間錨——這些文件的日期常寫在小節開頭
-  3. 前 4 行至後 8 行內有可重跑的指令（`grep`／`git`／`swift`…）
+  3. 前 4 行至後 8 行內有**可重跑的指令**——不只是工具名：還要含路徑分隔／管線／
+     旗標／命令替換其中之一（#407 R39 收緊）
 
 **誠實邊界（三條，都量過）**：
 
@@ -32,7 +33,13 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 NUM = re.compile(r'實測[^。\n]{0,24}?(\d[\d,./]*)')
 MARK = re.compile(r'20\d\d-\d\d-\d\d|20\d\d 年|當日|立案當時|#\d{2,4}')
-CMD = re.compile(r'`[^`]*(?:grep|awk|sed|git |gh |python3|swift|bash|jq|wc |find |validate)[^`]*`')
+# **工具名不算配方**（#407 R39，跨模型審查指名）：前一版只要 backtick 裡出現關鍵字
+# 就算有指令，於是 `` `akashic validate` `` ——一個沒有 store 路徑、沒有 filter、
+# 貼進 shell 也重現不出那個數字的**工具名**——把一個會漂移的計數判成有背書。現在
+# 另外要求它長得像**可貼進 shell 的一行**：含路徑分隔、管線、旗標、或命令替換。
+CMD = re.compile(
+    r'`[^`]*(?:grep|awk|sed|git |gh |python3|swift|bash|jq|wc |find |validate)'
+    r'[^`]*[|/$-][^`]*`')
 
 
 def main():

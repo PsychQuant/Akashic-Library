@@ -32,6 +32,13 @@ on:
     paths: &guard_paths
       - "plugin/**"
       - "Sources/AkashicCore/Venue.swift"
+      # trigger-coverage.py 讀這兩處——**改觸發點本身就該重跑它**，
+      # 否則一個把守衛從 workflow 拿掉的 PR 不會驚動任何東西（#407 R19）。
+      - ".github/workflows/**"
+      - ".githooks/**"
+      # parity 的 oracle。它不在這裡跑 parity（那需要 build，屬 census-parity.yml），
+      # 但 trigger-coverage 要能看見它改動時的覆蓋狀況。
+      - "Sources/AkashicStoreIO/StoreVersion.swift"
   pull_request:
     paths: *guard_paths
 
@@ -72,3 +79,10 @@ jobs:
       # 在報告上長得一模一樣。
       - name: rule-prose-guards negative control
         run: python3 plugin/tests/rule-prose-guards-mutations.py
+
+      # 觸發點自己的守衛。它不執行任何被保護的程式碼，只讀 workflow／hook 的
+      # 設定與各守衛的原始碼——所以放在 ubuntu（1× 計費）這一側。
+      - name: 觸發點覆蓋（逐對，非聯集）
+        run: python3 plugin/tests/trigger-coverage.py
+      - name: 觸發點守衛的 negative control
+        run: python3 plugin/tests/trigger-coverage-mutations.py

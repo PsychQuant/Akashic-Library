@@ -2,6 +2,10 @@
 
 ## [unreleased]
 
+- **窮舉第四維時，找到的是第三個維度少了一個值**（#407 R26p，自答 c26 的 DA 那題）：DA 問「2×2×2 是否還缺第四維」——窮舉後答案是**沒有**（push 目標只有一個 remote；hook 檔的執行權限 git 不要求，且實測已是 `-rwxr-xr-x`）。但過程中找到更實際的東西：**`hooksPath` 我只列了兩個值，漏了第三個——「未設定」**。
+  那是**別人 clone 這個 repo 後的預設狀態**：`core.hooksPath` 是 `.git/config` 的 **local** 設定，**不隨 clone 傳遞**。所以任何新 clone 的人，pre-push **完全不跑**——與 `--no-verify` 同效，**但不需要任何人主動繞過**。這是現行狀態下**最常見的零執行路徑**，而我的表把它歸在「指向主 repo」那格底下（那格至少 hook 檔存在）。
+  **問「有沒有新維度」時，順手問「既有維度的值列全了嗎」**——這次的答案在後者。
+
 - **偵測式抓到了它自己**（#407 R26o，自答 c26 的 logic 那題時撞到）：R26k 加的 signed-commit 偵測式寫 `git cat-file -p $h | head -6 | grep -q gpgsig`，兩個錯——(a) header 只有 4–5 行，`head -6` 會**越過空行進入 message**；(b) `grep -q` **不錨行首**，message 裡提到那個字就命中。於是它抓到 **R26l 那個 commit**（標題正是「漏了 `gpgsig-sha256`」）——**我寫的那句話讓偵測式抓到了它自己**，而那個 commit 根本沒簽名。
   正解：只看 header（`sed '/^$/q'`）＋ 錨定行首（`^gpgsig`）。修好後正確抓回 `32ebc301`（第 5 行確實是 `gpgsig`）。
 - **`mergetag` 用構造 fixture 出貨**（#407 R26o）：本 repo 無實例，而 git 合併 signed tag 時會把**整個 tag 物件**內嵌成續行（含 `type`／`tag`／`tagger` 這些看起來像欄位名的行）。舊抽取式對它抽出 **7 個未判定欄位**，濾掉續行後是 0。

@@ -119,15 +119,27 @@ propose ──→ park ──────────────→ apply ─�
 >
 > | push 方式 | CI 狀態 | hooksPath | 留在 pre-push | 移出、只留 CI |
 > |---|---|---|---|---|
+> | 正常 `git push` | 不跑（**現況**） | **未設定（別人 clone 後的預設）** | **零執行** | 零執行 |
 > | 正常 `git push` | 不跑（**現況**） | **指向主 repo（本 worktree 的現況）** | **零執行** | 零執行 |
 > | 正常 `git push` | 不跑（**現況**） | 指向本樹（merge 後） | **執行** | **零執行** |
 > | 正常 `git push` | 恢復 | 任一 | 執行 | 執行 |
 > | `--no-verify` | 不跑（**現況**） | 任一 | 零執行 | 零執行 |
 > | `--no-verify` | 恢復 | 任一 | 執行 | 執行 |
 >
-> **第一列是此刻的真實狀態**：`core.hooksPath` 指向 `/Users/che/Developer/Akashic-Library/
-> .githooks`，而那份對本輪守衛**命中 0**（實測 `grep -c 'measured-claims-audit\|trigger-coverage'`
-> → 0，本 worktree 的那份是 3）。**在 merge 之前，留與不留沒有差別。**
+> **`hooksPath` 有三個值，不是兩個**（#407 R26p，窮欲第四維時找到）：
+>
+> - **未設定** — `core.hooksPath` 是 `.git/config` 的 **local** 設定，**不隨 clone 傳遞**。
+>   任何新 clone 的人 pre-push **完全不跑**，而且**不需要主動繞過**。這是現行狀態下
+>   **最常見的零執行路徑**。
+> - **指向主 repo** — 本 worktree 此刻的狀態：`/Users/che/Developer/Akashic-Library/.githooks`，
+>   那份對本輪守衛**命中 0**（實測 `grep -c 'measured-claims-audit\|trigger-coverage'` → 0，
+>   本 worktree 的那份是 3）。
+> - **指向本樹** — merge 到 main 後自癒。
+>
+> **前兩個值下，留與不留沒有差別。**
+>
+> **窮舉過的其他候選（都不是維度）**：push 目標（只有一個 remote）、hook 檔的執行權限
+> （git 不要求 `+x`，且實測已是 `-rwxr-xr-x`）。
 >
 > **「留著提供預設保護」只在第二列成立**（merge 後、CI 仍不跑）。上一版把那一列的結論
 > 推廣到「正常 push」整體——**與 R26f／R26m 精確同型的第三次**：都是把某一格的結論

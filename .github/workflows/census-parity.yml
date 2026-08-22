@@ -35,6 +35,12 @@ on:
       - "plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt"
       - "plugin/skills/akashic-literal-campaign/scripts/tests/**"
       - "Sources/AkashicStoreIO/StoreVersion.swift"
+      # 這支 harness 在本 workflow 跑（本 runner 有 Swift），所以**改它自己也要觸發
+      # 本 workflow**——否則把它的 6 個 swift-gated case 弄壞不會驚動任何東西
+      # （#407 R44 的修法原本只對一半：改 `scripts/tests/**` 下的守衛會觸發，
+      # 改 harness 本身不會）。刻意只列這一個檔而非 `plugin/tests/**`：本 runner
+      # 是 macOS、10× 計費，不該對每次 plugin/tests 改動都啟動。
+      - "plugin/tests/audit-guards-mutations.py"
   pull_request:
     paths: *parity_paths
 

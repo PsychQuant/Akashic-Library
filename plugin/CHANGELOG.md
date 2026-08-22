@@ -45,6 +45,20 @@ R43 的續行展開把「縮排更深的非空行」一律當成命令。而
 文字**，不是被執行的命令——X.py 會被算成「CI 有跑」。加 heredoc 狀態追蹤後擋掉；
 第 31 個 negative control 釘住它。
 
+### ③ 而 ① 的修法**只對一半**（自己量到）
+
+加完那一步之後查它的觸發條件：`census-parity.yml` 的 `paths` 是
+`scripts/tests/**` ＋ census ＋ 生成表 ＋ `StoreVersion.swift`——**不含 `plugin/tests/`**。
+所以：
+
+| 改動 | macOS workflow 會觸發嗎 |
+|---|---|
+| `hash-table-drift.sh`／`multiscalar-parity.swift`（在 `scripts/tests/**` 內） | ✅ 會——HIGH finding 的核心情境已涵蓋 |
+| **harness 自己**（`plugin/tests/audit-guards-mutations.py`） | ❌ **不會** |
+
+把 harness 那一個檔加進 `paths`（**刻意只列這一個檔而非 `plugin/tests/**`**：macOS
+runner 10× 計費，不該對每次 `plugin/tests` 改動都啟動）。三個關鍵檔逐一驗過觸發。
+
 端到端 pre-push 再驗：**exit=0、339 秒**。守衛十四支全綠、trigger 負控 31/31、
 audit 負控 18/18。
 

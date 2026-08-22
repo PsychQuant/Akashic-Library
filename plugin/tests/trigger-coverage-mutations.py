@@ -64,6 +64,16 @@ def warn_case(desc, edits, expect_substr):
     # 若某個 mutation 不再觸發警告，而**別的**守衛在未 mutate 的狀態下剛好產生
     # 匹配的警告，這一格仍會綠。警告訊息的模板對每個守衛都一樣，所以這不是
     # 假想：同目錄那條的尾巴（「那正是它自己所在的目錄」）逐字相同。
+    # **為什麼只有 warn_case 綁定、`case` 不綁**（#407 R24g，量過才寫）：
+    #
+    #   warn_case 的六格全部 edit **守衛檔本身**，而警告訊息指名的就是那個守衛
+    #             ——被改的與被指名的是同一個東西，綁得起來。
+    #   case      多數 edit **workflow**（`.yml`），而缺口訊息指名的是**守衛**
+    #             （「改 X 時 Y 不在任何 CI 跑」）——被改的與被指名的**不同**，
+    #             同樣的綁定會把每一格都誤殺。
+    #
+    # 所以 `case` 的鑑別力只能靠 expect_substr ＋ stray 檢查，那是既有設計，
+    # 不是漏掉綁定。
     targets = {os.path.basename(k) for k in edits}
     named = [w for w in warns
              if expect_substr in w and any(tg in w for tg in targets)]

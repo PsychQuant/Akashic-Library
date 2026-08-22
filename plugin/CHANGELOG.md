@@ -150,7 +150,11 @@ baseline 那一段也要跳，否則 `hash-table-drift.sh` 的 `exit 2` 會讓�
 
 修法：① mock 只攔 `build`／`test`，其餘 pass-through 給真 swift——本測試要驗的是
 「環境有沒有清乾淨」與「build／test 有沒有帶 `-warnings-as-errors`」，不是「總共呼叫
-幾次 swift」，所以原本的斷言不必改。② 訊息先算好再進 f-string；實測九支 `.py` 守衛
+幾次 swift」，所以原本的斷言不必改。② 訊息先算好再進 f-string；實測**十支** `.py` 守衛
+（**原文寫「九支」，當時就錯了**——`git ls-tree` 實測該 commit 當下是 10 支；我的一行
+指令硬編了 9 個檔名、漏掉 `marker-parity-mutations.py`，卻把那個數字當成全集寫下。
+正是本 issue 的形狀：一個真的查詢，被用來支撐一個那個查詢沒問的性質。#407 R46 更正，
+重跑：10 支、3.9 下語法錯誤 0）
 在 3.9 下**全部**可編譯。③ `git rm --cached` ＋ `.gitignore` 加 `__pycache__/`／`*.pyc`。
 
 ### 同輪跨模型審查的兩條，也都成立

@@ -33,6 +33,21 @@ trap 'rm -f "$TMP"' EXIT
 
 swift "$GEN" > "$TMP" 2>/dev/null || { echo "✗ 生成器執行失敗" >&2; exit 2; }
 
+# **census 的 ASCII 快速路徑依賴「表中沒有 ASCII range」**：它對 cp < 0x80 直接
+# 回 True 而不查表。那句話在 R13 被量過（最小 range 起點 U+0300），但它的真假
+# 依賴這張表——所以在這裡斷言，而不是只比對整份 diff。整份 diff 相同時這條當然
+# 也成立；分開寫是為了讓失敗訊息指得出**是哪個性質**壞了。
+# 不用 awk 的 strtonum（gawk 專屬，macOS 的 awk 沒有——實測它會印
+# 「calling undefined function」到 stderr，**而檢查照樣通過**，因為變數是空的。
+# 那是假綠，也正是本測試存在的理由的反面）。表中的 code point 是大寫十六進位，
+# ASCII（< 0x80）只可能是一到兩位、且首位不超過 7，用行首樣式直接比對。
+ASCII_ROWS=$(grep -E '^[0-7]?[0-9A-F] ' "$TABLE" || true)
+if [ -n "$ASCII_ROWS" ]; then
+  echo "✗ 表中出現 ASCII range——census 的 ASCII 快速路徑（cp < 0x80 直接回 True）失效：" >&2
+  printf '%s\n' "$ASCII_ROWS" >&2
+  exit 1
+fi
+
 if diff -q "$TABLE" "$TMP" >/dev/null; then
   # 反引號在雙引號內是命令替換——`\`#\`` 會展開成空字串（# 開頭即註解）。
   # 這一行原本印成「✓  grapheme 表…」，少了它要講的那個字元。

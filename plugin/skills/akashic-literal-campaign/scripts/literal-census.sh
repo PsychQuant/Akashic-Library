@@ -173,7 +173,14 @@ def _starts_with_hash(s):
         return True
     cp = ord(s[1])
     if cp < 0x80:
-        # ASCII 一律不是 grapheme extender——這一半不需要表，也不會漂移。
+        # ASCII 一律不是 grapheme extender——這一半不需要表。
+        #
+        # **這句話被量過**（#407 R13）：生成表中最小的 range 起點是 U+0300，
+        # 沒有任何 range 落在 ASCII 區。它先前只是一句寫在快速路徑旁邊、
+        # 用來正當化那條路徑的斷言，而從未被驗證——正是這條 issue 反覆記過的形狀。
+        #
+        # 但它的真假**依賴那張表**，而表會隨 Unicode 版本漂移，所以
+        # tests/hash-table-drift.sh 現在也斷言這件事（不是只比對整份 diff）。
         return True
     if _hash_table_error is not None:
         return None

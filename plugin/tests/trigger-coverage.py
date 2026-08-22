@@ -200,9 +200,14 @@ def invoked(text):
                         heredoc = None
                     i += 1
                     continue
-                hd = re.search(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?", s)
+                # 結束字要**整個**抓到。上一版 `[A-Za-z0-9_]*` 在第一個非字元停住，
+                # 於是 `<<SETUP-EOF` 只抓到 `SETUP`、結束行永遠對不上，其後**整段
+                # 被當成 heredoc 吞掉**——真的呼叫因此隱形（#407 R45，跨模型審查
+                # 指名）。方向是漏報（守衛會紅），但答案仍是錯的。
+                hd = re.search(
+                    r'''<<-?\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_][A-Za-z0-9_.-]*))''', s)
                 if hd:
-                    heredoc = hd.group(1)
+                    heredoc = next(g for g in hd.groups() if g)
                 if s:
                     expanded.append('run: ' + s)
                 i += 1

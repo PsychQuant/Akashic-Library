@@ -311,6 +311,16 @@ RESULTS = [
              "          python3 plugin/tests/measured-numbers-audit.py\n"
              "          EOF\n          chmod +x /tmp/w.sh", 1)},
          'measured-numbers-audit.py'),
+    # #407 R45：heredoc 的結束字帶非字元（`SETUP-EOF`）時，上一版只抓到 `SETUP`，
+    # 於是結束行永遠對不上、其後整段被吞——**真的呼叫因此隱形**。這個 case 把一個
+    # 守衛的呼叫放在這種 heredoc **之後**，它必須仍然被看見。
+    case('heredoc 結束字帶連字號，其後的真呼叫不得被吞掉',
+         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+             'run: python3 plugin/tests/measured-numbers-audit.py',
+             "run: |\n          cat > /tmp/s.sh <<SETUP-EOF\n          echo hi\n"
+             "          SETUP-EOF\n"
+             "          python3 plugin/tests/DELETED-numbers-audit.py", 1)},
+         'measured-numbers-audit.py'),
     case('把 run: 換成 shellcheck（靜態檢查，不執行守衛）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
              'run: bash plugin/tests/rule-coverage.sh',

@@ -65,8 +65,17 @@ REVIEW_ISH = ('review', 'approv', 'signoff', 'sign-off', 'verdict', 'attest')
 #
 #     strings $(command -v git) | grep -oE '^(tree|parent|author|committer|gpgsig[a-z0-9-]*|mergetag|encoding)$' | sort -u
 #
-# 當次回傳八個：author／committer／encoding／gpgsig／gpgsig-sha256／mergetag／
-# parent／tree。**下面這張表就是那八個**，一個不多一個不少。
+# 當次輸出（2026-08-23，`git version 2.55.0` / darwin-arm64）：
+#     author
+#     committer
+#     encoding
+#     gpgsig
+#     gpgsig-sha256
+#     mergetag
+#     parent
+#     tree
+# **下面這張表就是那八個**，一個不多一個不少。**版號寫出來**是因為別的
+# git build 可能不同——那時這張表要重新導出，而不是照抄（#407 R26q）。
 KNOWN_NOT_REVIEW = {
     'tree': '內容指標', 'parent': '前驅', 'author': '誰寫的', 'committer': '誰提交的',
     'gpgsig': '**簽署**不是審查——它證明身分，不證明有人檢查過內容',
@@ -103,6 +112,13 @@ if signed:
     su = [f for f in sf if f not in KNOWN_NOT_REVIEW]
     print(f'     signed commit {signed[:8]} 的欄位：{sf}  '
           f'{check(not su, f"signed commit 抽出未判定欄位：{su[:3]}")}')
+else:
+    # **靜默是最糟的形式**（本 repo 的 lossless-intake 執行細節 3）。找不到
+    # signed commit 時整段跳過而不出聲，會讓「這個形狀沒被測」與「測過且乾淨」
+    # 在輸出上長得一樣——而這正是 R26k 的修法要驗的那個形狀（#407 R26q）。
+    # 淺 clone（CI 常見的 `fetch-depth: 1`）也會走到這裡。
+    print('     ⚠ 找不到 signed commit——**本形狀未測**（淺 clone？）。'
+          'mergetag fixture 仍會跑，但真實 gpgsig 續行沒有被驗證')
 # **本 repo 沒有 mergetag 的 commit，所以那個形狀用構造的測**（#407 R26o）。
 # git 合併一個 signed tag 時，會把**整個 tag 物件**內嵌成 mergetag 的續行——
 # 其中有 `type`／`tag`／`tagger` 這些看起來像欄位名的行。舊抽取式對它抽出

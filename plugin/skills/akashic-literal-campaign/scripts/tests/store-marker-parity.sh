@@ -67,7 +67,7 @@ WORK=$(mktemp -d) || { echo "✗ mktemp -d 失敗" >&2; exit 2; }
 [ -n "$WORK" ] && [ -d "$WORK" ] || { echo "✗ mktemp -d 沒有給出可用的目錄" >&2; exit 2; }
 trap 'chmod -R u+rwX "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
 
-pass=0; fail=0; xfail=0
+pass=0; fail=0
 
 # 建一個最小 store：一筆 work，帶一條 venue literal 邊。
 make_store() {
@@ -262,5 +262,9 @@ check "只有 ZWSP 的一行"                 '\xe2\x80\x8b\nformat: 12\n' accep
 #    並叫使用者去改一個合法的檔。指名動作的假話比報成健康更容易被當真）──
 check "UTF-8 BOM + format: 12"           '\xef\xbb\xbfformat: 12\n' accept
 echo
-echo "═══ pass=$pass  fail=$fail  已知分歧=${xfail} ═══"
+# **不印「已知分歧」。** 先前這裡印 `已知分歧=${xfail}`，而 xfail 只被初始化、
+# 從未被任何一格 increment——那個數字恆為 0，讀起來卻像「有一套分類機制而目前
+# 分類為零」。兩者的差別是：後者代表「檢查過、沒有」，前者代表「沒有這個機制」。
+# 而這支測試的整個設計理由（三值 expect）正是不讓這兩件事長得一樣（#407 R18）。
+echo "═══ pass=$pass  fail=$fail ═══"
 [ "$fail" -eq 0 ] || exit 1

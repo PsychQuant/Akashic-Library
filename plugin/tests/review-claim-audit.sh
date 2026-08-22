@@ -77,10 +77,19 @@ verdict "出貨的 parity 測試已改用新寫法且有長度斷言" \
 
 echo
 echo "══ codex finding #4：census-parity.yml 的 path filter 漏掉生成表 ══"
-verdict "生成表現在在 parity workflow 的觸發路徑裡" \
-  "$(grep -q 'hash-merging-ranges.txt' "$R/.github/workflows/census-parity.yml" && echo yes || echo no)" ""
-verdict "drift 測試也在該 workflow 的 step 裡" \
-  "$(grep -q 'hash-table-drift.sh' "$R/.github/workflows/census-parity.yml" && echo yes || echo no)" ""
+# **不能只問「這個字串在檔案裡嗎」**——它出現在 `paths:`（要的）與 `paths-ignore:`
+# （反面）長得一模一樣，而後者正是這條 finding 當初要修的東西。所以先切出 `paths:`
+# 到下一個同層 key 之間的那一段，只在那一段裡找。謂詞比它要管的東西寬，是本 issue
+# 反覆記過的形狀——這裡是它在稽核腳本自己身上的一次（#407 R18）。
+PATHS_BLOCK=$(awk '/^ *paths:/{f=1;next} f && /^ *[a-z_-]+:/{f=0} f' \
+  "$R/.github/workflows/census-parity.yml")
+verdict "生成表現在在 parity workflow 的 paths: 區段裡（非 paths-ignore:）" \
+  "$(printf '%s' "$PATHS_BLOCK" | grep -q 'hash-merging-ranges.txt' && echo yes || echo no)" \
+  "區段 $(printf '%s' "$PATHS_BLOCK" | grep -c . ) 行"
+# 同理：drift 測試要真的被**執行**，不是出現在註解或 paths 裡。只在 `run:` 行找。
+verdict "drift 測試在該 workflow 的某個 run: 步驟裡" \
+  "$(grep -E '^ *run: ' "$R/.github/workflows/census-parity.yml" \
+     | grep -q 'hash-table-drift.sh' && echo yes || echo no)" ""
 
 echo
 echo "══ codex finding #9：derive-hash-extenders.swift 的 --check 是假接口 ══"

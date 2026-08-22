@@ -16,7 +16,14 @@
 //
 // 表直接編進原始碼：`swift <file>` 的 JIT 直譯模式下 Foundation 的讀檔路徑會
 // crash（`String(contentsOfFile:)` 與 `FileManager.contents` 實測皆然）。代價是
-// 表改動時這裡要重新產生——由 tests/hash-table-drift.sh 的比對兜住。
+// 表改動時這裡要重新產生——由 hash-table-drift.sh 的 inline-RANGES 比對兜住
+// （它把這裡的每一段抽出來，與 hash-merging-ranges.txt 逐行比）。
+//
+// **這句話在 #407 R18 之前是假的。** 當時它寫「由 tests/hash-table-drift.sh 的
+// 比對兜住」，而那支腳本對 `multiscalar` 的命中數是 0——它只比對表與生成器，
+// 從不讀這個檔。一句描述不存在的守衛的話，寫在一個守衛檔案自己的檔頭上。
+// 修法是把那個守衛真的加上去（而不是把話改軟），並用三種注入證明它會紅：
+// 改邊界、刪最後一段、改寫宣告形式（第三種驗的是抽取式本身脫節時不靜默通過）。
 //
 // 用法
 // ====

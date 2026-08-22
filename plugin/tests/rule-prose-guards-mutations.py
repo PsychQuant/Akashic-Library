@@ -104,6 +104,16 @@ RESULTS = [
     # 第 1 項先前只認四種形狀中的兩種——這一格注入的正是另外兩種之一。
     append('見 [那個型別](Sources/AkashicCore/Venue.swift)。',
            1, '加一個指向 Sources/ 的可跟隨連結（前一版的謂詞漏掉這種）'),
+    # REPO_ONLY 有**四**個 alternation 分支，而這份負控先前只注入前兩個
+    # （規則目錄與型別原始碼那兩種——這裡刻意不寫出路徑字面，那會觸發第 2 項）。
+    # 它的 docstring 自己記載
+    # 「手寫兩種形狀、另外兩種一路綠燈」發生過一次——而覆蓋率當時只修了一半：
+    # 謂詞改成共用 REPO_ONLY 了，證明它四個分支都會紅的注入卻只有兩格。
+    # 下面兩格補上第 3、4 個分支（#407 R18，跨模型審查指名）。
+    append('見 [那份說明](docs/store-format.md)。',
+           1, '加一個指向 docs/*.md 的可跟隨連結（REPO_ONLY 第 3 分支）'),
+    append('見 [那一行](https://github.com/PsychQuant/Akashic-Library/blob/main/README.md)。',
+           1, '加一個 blob/ 深連結（REPO_ONLY 第 4 分支）'),
     append('判準寫在 `.claude/rules/identity-is-judged-not-matched.md`。',
            2, '加一句未揭露取用限制的 repo 專屬路徑'),
     append('本規則採三分法。', 3, '把被打掉兩次的分類法用語加回來'),

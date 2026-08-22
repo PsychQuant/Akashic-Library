@@ -108,10 +108,28 @@ propose ──→ park ──────────────→ apply ─�
 > **守衛能否生效的瓶頸不是正確性，是人願不願意等**：59 秒的 pre-push 在頻繁 push 時會被
 > `--no-verify` 繞過，那時**所有**守衛等於不存在。
 >
-> **現在不動它**，因為取捨的一邊被外部因素卡住：它在 `census-parity.yml` 有覆蓋且觸發
-> 路徑正確（`scripts/tests/**`），但**那個 workflow 目前不跑**（下表第 3 格，macOS 帳務
-> 擱置）。移出 pre-push 等於零執行。**條件寫在這裡**：macOS runner 恢復後，這一支可以
-> 從 pre-push 移出、只留 CI。
+> **現在不動它——但上一版把這個裁決寫得像已權衡完畢，那是錯的**（#407 R26f，DA 席指名）。
+> 誠實的版本是：
+>
+> | 選項 | `--no-verify` 時 | CI 上 |
+> |---|---|---|
+> | 留在 pre-push（現況） | **零執行** | 只有 `census-parity.yml`（macOS，**目前不跑**）|
+> | 移出 pre-push | 零執行 | 同上 |
+>
+> **兩個選項都可能零執行**，差別只是「要不要多打一次 `--no-verify`」的摩擦力——不是
+> 「有執行 vs 零執行」。上一版把問題框成「CI 沒覆蓋 → 不能移出」，而**留著同樣被同一段
+> 文字承認的風險架空**。
+>
+> **它為什麼不能掛在會跑的 ubuntu workflow 上**：`marker-parity-mutations.py` 要真的
+> `akashic` binary 當 oracle（`store-marker-parity.sh` 找不到就 `exit 2`），而那需要
+> `swift build`——所以它只能在 macOS。
+>
+> **與 `--no-verify` 無關的遠端強制點目前不存在**：branch protection 的 required status
+> checks 在這個 repo **結構上不可用**（實測 `gh api …/branches/main/protection` 回
+> **403 Upgrade to GitHub Pro or make this repository public**）。
+>
+> **所以這是待解，不是已權衡完畢。** 兩條可能的出路（都未做）：(a) macOS runner 恢復後
+> 把它移出 pre-push、只留 CI；(b) repo 轉公開或升級方案後加 required status check。
 >
 > **上表的「已接上」那一欄現在有守衛在量**（`plugin/tests/trigger-coverage.py`，
 > #407 R19）。它問的不是聯集而是**逐對**：對每個受保護檔案 × 每個讀它的守衛，

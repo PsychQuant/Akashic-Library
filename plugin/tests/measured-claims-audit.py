@@ -40,8 +40,17 @@ for h in ['41bd3d8', '848939a', '3eda486']:
 
 # ② git 的欄位
 print('② 「git 證立時序，證立不了有檢查」')
-print(f'     commit 欄位：{sh("git log -1 --format=%an|%ae|%ct|%s HEAD")[:60]}…')
-print('     → 無 review 欄位 ✓（結構性，不需指令）')
+# **這一列先前無條件印 ✓**（#407 R26f，跨模型審查指名）——那個勾不是算出來的，
+# 是寫死的字串。改成真的去問 git：列出 `git log` 支援的所有 placeholder，看有沒有
+# 任何一個攜帶 review／approval 資訊。若 git 日後加了那種欄位，這一列會紅。
+REVIEW_ISH = ('review', 'approv', 'signoff', 'sign-off', 'verdict')
+fmt_help = sh("git log --help 2>/dev/null | grep -oE '%[a-zA-Z]+' | sort -u | tr '\\n' ' '")
+hit = [w for w in REVIEW_ISH if w in fmt_help.lower()]
+# trailer 也算一種可能的載體：`git log --format=%(trailers)` 讀 commit message 的尾註。
+trailers = sh("git log -1 --format='%(trailers)' HEAD").strip()
+print(f'     git 的 placeholder 裡含 review 類字樣：{hit or "無"}')
+print(f'     HEAD 的 trailer：{trailers or "無"}  '
+      f'{check(not hit and not trailers, f"git 出現了 review 類欄位：{hit}／{trailers}")}')
 
 # ③ 那三格全是 warn_case——直接列，不用計數
 print('③ 「3 格全是 warn_case（行 209／246／315）」')

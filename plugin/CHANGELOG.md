@@ -2,6 +2,10 @@
 
 ## [unreleased]
 
+- **裁決被寫得像已權衡完畢，而兩個選項其實都可能零執行**（#407 R26f，c22 的 DA 席指名）：R26c 的裁決是「不把 52 秒的 `marker-parity-mutations.py` 移出 pre-push，因為它的 CI 覆蓋目前不跑」。DA 指出那個二分法是假的——**留在 pre-push 在 `--no-verify` 下同樣是零執行**，兩個選項的差別只是摩擦力，不是「有執行 vs 零執行」。
+  補齊三件事實：(a) 它**不能**掛在會跑的 ubuntu workflow 上，因為要真 `akashic` binary 當 oracle（需 `swift build`）；(b) 與 `--no-verify` 無關的遠端強制點**結構上不可用**——實測 `gh api …/branches/main/protection` 回 **403 Upgrade to GitHub Pro or make this repository public**；(c) 所以這是**待解**，不是已權衡完畢。兩條出路都寫下來且都未做。
+- **check ② 無條件印 `✓`**（#407 R26f，同輪）：R26e 把 ①③④ 改成真的斷言，而 ② 仍是寫死的字串——「git 沒有 review 欄位」由腳本自己選的 `--format` 保證，不可能觀察到為假。改成真的問 git：列出 `git log` 支援的所有 placeholder 掃 review 類字樣，並讀 HEAD 的 trailer。若 git 日後加了那種欄位，這一列會紅。
+
 - **剛出貨的守衛只印不驗——rc 恆為 0**（#407 R26e，c22 的 logic 那題）：R26b 出貨的 `measured-claims-audit.py` 四列全是 `print`，**零個斷言**，無論宣稱成不成立都 `exit 0`。**印出 `✗` 而 rc=0，與沒有這支腳本對 CI 是同一件事**——而「驗收套件對它宣稱要檢查的東西是盲的」正是本 issue 最早記下的失敗之一（規則檔失敗表裡就有那一列）。
   改為每列走 `check()` 收集失敗，結尾 `sys.exit(1)`。兩個方向驗過：把一個 `warn_case` 改成 `case` → **rc=1 且具名「行 209 是 case，不是 warn_case」**；在 workflow 多加一行 block scalar → rc=0（恆等式仍成立，不誤報）。
 

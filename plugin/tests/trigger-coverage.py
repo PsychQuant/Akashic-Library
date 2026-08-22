@@ -166,17 +166,39 @@ def invoked(text):
                 cur.append(tok)
         segments.append(cur)
         segments = [s for s in segments if s]
-        # 明確不執行的命令：它們把腳本名當**資料**（印出來、讀進去）。
-        NON_EXEC = {'echo', 'printf', 'cat', 'true', ':', 'ls', 'head', 'tail'}
+        # **認出「執行的形式」，不列舉「不執行的命令」。**
+        #
+        # 上一版維護一份 NON_EXEC 白名單（echo／printf／cat／…）。那是在用封閉
+        # 列舉描述一個**開放集合**——實測 13 個常見 CI 命令全部觸發假警報：
+        # `grep -n foo b.sh`、`shellcheck b.sh`、`wc -l b.sh`、`chmod +x b.sh`、
+        # `git add b.sh`、`cp b.sh /tmp/`、`test -f b.sh`、`black --check b.py`…
+        # 每加一個進白名單，下一個仍在外面（#407 R22d）。
+        #
+        # 反過來問：**這一段有沒有直譯器 token？** 沒有的話它不可能在跑腳本
+        # （`grep`／`shellcheck`／`cp` 都不會），靜默即可。有的話它可能在跑，
+        # 而我們認不出形式時才需要揭露。
+        INTERP = ('bash', 'sh', 'python3', 'python', 'swift')
         for st in segments:
             h = st[0]
-            if h in ('bash', 'sh', 'python3', 'python', 'swift') and len(st) > 1 \
-                    and st[1].endswith(('.sh', '.py', '.swift')):
-                found.add(os.path.basename(st[1]))
-            elif h.startswith('./') and h.endswith(('.sh', '.py', '.swift')):
+            if h in INTERP:
+                # 跳過旗標找腳本（`bash -x a.sh` 是常見的除錯形式）。
+                # `-m` 例外：`python3 -m mod x.py` 跑的是模組，x.py 是它的引數。
+                if '-m' not in st:
+                    script = next((x for x in st[1:]
+                                   if not x.startswith('-')
+                                   and x.endswith(('.sh', '.py', '.swift'))), None)
+                    if script:
+                        found.add(os.path.basename(script))
+                        continue
+                # 直譯器在場但形式認不出（`-m`、或引數裡沒有腳本）——靜默：
+                # 它跑的不是我們關心的那種東西。
+                continue
+            if h.startswith('./') and h.endswith(('.sh', '.py', '.swift')):
                 found.add(os.path.basename(h))
-            elif h not in NON_EXEC and any(
-                    re.search(r'\S+\.(?:sh|py|swift)\b', x) for x in st):
+                continue
+            # head 不是直譯器。只有當**段內**仍出現直譯器 token 時，才可能有
+            # 一個我們看不到的執行（`FOO=1 bash a.sh`、`env bash a.sh`）。
+            if any(x in INTERP for x in st[1:]):
                 chained.append(' '.join(st))
     if chained:
         # `cd A && bash X` 這類串接：第一個 token 不是直譯器，所以認不出來。

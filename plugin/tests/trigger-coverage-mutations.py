@@ -112,6 +112,16 @@ RESULTS = [
          'rule-coverage.sh'),
     # 同一個 echo 但用 `./` 形式。R20 只修了直譯器那半邊（`bash X`），
     # `./X` 分支照舊掃全行——這一格是那個殘留的負控（#407 R20c）。
+    # #407 R22d：把守衛的呼叫換成一個**不執行它**的命令（shellcheck 只做靜態
+    # 檢查）。判準若還是「列舉不執行的命令」，這一格會因為 shellcheck 不在
+    # 白名單而報成「有東西看不到」——那是假警報不是缺口。現在的判準是「段內
+    # 有沒有直譯器」，所以它靜默，而覆蓋缺口由 rule-coverage.sh 不再被執行
+    # 這件事本身報出來。
+    case('把 run: 換成 shellcheck（靜態檢查，不執行守衛）',
+         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+             'run: bash plugin/tests/rule-coverage.sh',
+             'run: shellcheck plugin/tests/rule-coverage.sh')},
+         'rule-coverage.sh 不在任何 CI workflow 跑'),
     # #407 R22c 量測到的兩個零可見度形式。管線先前完全不在切分符裡，於是
     # `cat x | bash <守衛>` 的守衛既不進 found 也不進 chained。
     case('把 run: 改成管線形式（`cat x | bash <守衛>` 後半換成 echo）',

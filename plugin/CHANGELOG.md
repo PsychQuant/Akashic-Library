@@ -2,6 +2,9 @@
 
 ## [unreleased]
 
+- **`NON_EXEC` 是在用封閉列舉描述一個開放集合**（#407 R22d）：R22c 維護一份「不執行腳本的命令」白名單（`echo`／`printf`／`cat`／…）。實測 **13 個常見 CI 命令全部觸發假警報**——`grep -n foo b.sh`、`shellcheck b.sh`、`wc -l b.sh`、`chmod +x b.sh`、`git add b.sh`、`cp b.sh /tmp/`、`test -f b.sh`、`black --check b.py`、`python3 -m py_compile b.py`…**每加一個進白名單，下一個仍在外面**。
+  判準反過來：**認出「執行的形式」，不列舉「不執行的命令」**。問「這一段有沒有直譯器 token」——沒有的話它不可能在跑腳本（`grep`／`shellcheck`／`cp` 都不會），靜默即可；有的話才需要揭露認不出的形式。另補兩個細節：跳過旗標找腳本（`bash -x a.sh` 是常見除錯形式），`-m` 例外（`python3 -m mod x.py` 跑的是模組）。**16 種形式逐一驗過**：13 個假警報全消，真正的漏報（`FOO=1 bash a.sh`、`env bash a.sh`）仍被揭露。負控 14 → 15（`shellcheck` 一格）。
+
 - **字串 split 看不懂 shell**（#407 R22c）：R21c 的切段是對字串做 `re.split`，量測後三種形式都錯——`cat x \| bash b.sh`（管線不在切分符裡 → b.sh **真的執行卻零可見度**）、`FOO=1 bash a.sh`（單段、head 不是直譯器 → 同上）、`echo "見 a.sh && bash b.sh"`（引號內的 `&&` 被當成分隔符 → **誤報**）。改用 `shlex`（`punctuation_chars=True`，讓 `;`／`|`／`&&`／`||` 成為獨立 token，同時懂引號）。
   「**單段未認出 ≠ 漏掉**」那句話 R21c 寫得太寬：它對 `echo "見 X.sh"` 成立，對 `FOO=1 bash X` 不成立。判準改為看 head 是不是明確的「不執行」命令（`echo`／`printf`／`cat`／`true`／`:`／`ls`／`head`／`tail`——它們把腳本名當**資料**）。
   過程中撞到 `shlex.split` 的預設不把 `;` 當獨立 token（黏成 `a.sh;`），九格驗證裡就那一格紅——改用 `shlex.shlex(punctuation_chars=True)` 後 9/9。負控 13 → 14（管線一格），反向（管線真的執行）不誤報。

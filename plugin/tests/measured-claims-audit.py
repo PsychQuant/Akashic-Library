@@ -104,8 +104,19 @@ unknown = [f for f in fields if f not in KNOWN_NOT_REVIEW]
 # 正解：只看 header（`sed '/^$/q'`）並錨定行首（`^gpgsig`）。
 #
 # **`^gpgsig` 是前綴，所以 SHA-256 repo 的 `gpgsig-sha256` 也會被抓到**——那不是
-# 巧合而是 grep 的自然行為，但寫下來以免日後有人「修正」成 `^gpgsig ` （加空格）
-# 而漏掉那種 repo（#407 R26r，自答 c27 時順帶驗到）。
+# 巧合而是 grep 的自然行為，但日後有人「修正」成 `^gpgsig `（加空格）就會漏掉那種
+# repo。上一版只把這句寫成註解（#407 R26r），**而註解不會在它變假時發出聲音**
+# ——現在改成出貨的斷言（#407 R26s，DA 席指名）。
+# **不經 shell**（#407 R26s 當場踩到）：上一版用 `printf … | grep -c`，而 `\n` 的
+# 展開取決於**轉義層數**——出貨腳本裡碰巧展成兩行（印 2／1 通過），我的獨立驗證
+# 腳本用了不同轉義卻得到 1／1。**斷言通過，但通過的理由不是我寫的理由。**
+# Python 的 `re` 沒有轉義層，直接做。
+_LINES = ['gpgsig -----BEGIN', 'gpgsig-sha256 -----BEGIN']
+_hit_prefix = sum(1 for l in _LINES if re.match(r'^gpgsig', l))
+_hit_spaced = sum(1 for l in _LINES if re.match(r'^gpgsig ', l))
+print(f'     `^gpgsig` 對 gpgsig／gpgsig-sha256 命中 {_hit_prefix}／2、'
+      f'加空格後只剩 {_hit_spaced}  '
+      f'{check(_hit_prefix == 2 and _hit_spaced == 1, "grep 前綴行為與註解不符")}')
 signed = sh("git rev-list --all | while read h; do "
             "git cat-file -p $h | sed '/^$/q' | grep -q '^gpgsig' "
             "&& echo $h && break; done")

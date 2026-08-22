@@ -90,7 +90,9 @@ RESULTS = [
     case('從 workflow 的 paths 拿掉 census 的資料依賴',
          {'.github/workflows/census-parity.yml': lambda t: t.replace(
              '      - "plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt"\n', '')},
-         'hash-merging-ranges.txt'),
+         # **指名側別**：缺口模板是「改 {f} 時 {g} 不在…」，裸檔名會同時吞下
+         # f 側與 g 側。這一格宣告的是「把該檔從 paths 拿掉」，期望 f 側。
+         '改 hash-merging-ranges.txt 時'),
     case('從 workflow 拿掉一個 run 步驟（守衛還在版控，只是不再被執行）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
              'run: bash plugin/tests/rule-coverage.sh', 'run: true  # 被拿掉了')},
@@ -125,6 +127,17 @@ RESULTS = [
              "    for line in code_only(path).split('\\n'):\n"
              "        m = DECLARE.search(line)")},
          '宣告機制失效了'),
+    # **這一格曾是「拿掉自指排除」，已隨那個特例一起退場**（#407 R21）：
+    # DECLARE 收窄為「整行就是宣告」之後，實作者自己不再被誤認，特例沒有東西
+    # 可保護、這一格也證明不了任何事。留著一個永遠綠的負控，與沒有負控在報告
+    # 上長得一樣——那正是本 harness 存在的理由。
+    #
+    # 取而代之的兩格，來自同輪跨模型審查：
+    case('把宣告改成過寬的 glob（`reads *`）——解析得到但文不對題',
+         {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
+             '# trigger-coverage: reads plugin/rules/*.md',
+             '# trigger-coverage: reads *')},
+         '過寬的 glob 不是宣告依賴'),
     case('把受保護檔案的路徑改成不存在的（憑記憶寫路徑的那個坑）',
          {GUARD_REL: lambda t: t.replace(
              "'Sources/AkashicStoreIO/StoreVersion.swift'",

@@ -134,10 +134,19 @@ def invoked(text):
         if not toks:
             continue
         head = toks[0]
-        if head not in ('bash', 'sh', 'python3', 'python', 'swift') \
-                and not head.startswith('./') \
-                and re.search(r'&&|;', cmd) \
-                and re.search(r'\S+\.(?:sh|py|swift)\b', cmd):
+        # **串接偵測不看 head。** 上一版要求 head 不是直譯器，於是
+        # `bash A && bash B` 短路成 False——B 既不進 found（只認 toks[1]＝A）
+        # 也不進 chained，**零可見度**；而 `cd A && bash B`（head 不是直譯器）
+        # 至少會被揭露。同一個缺口因為 head 的形式不同而有無揭露，是不對稱
+        # 的假保證（#407 R21，跨模型審查指名）。
+        # 判準改為：這一行含 && 或 ;，而且它提到的腳本檔名多於我們認出來的
+        # 那一個——那就有東西被漏掉。
+        named = re.findall(r'\S+\.(?:sh|py|swift)\b', cmd)
+        recognised = 1 if (head in ('bash', 'sh', 'python3', 'python', 'swift')
+                           and len(toks) > 1
+                           and toks[1].endswith(('.sh', '.py', '.swift'))) \
+            or head.startswith('./') else 0
+        if re.search(r'&&|;', cmd) and len(named) > recognised:
             chained.append(cmd)
         if head in ('bash', 'sh', 'python3', 'python', 'swift') and len(toks) > 1 \
                 and toks[1].endswith(('.sh', '.py', '.swift')):
@@ -178,7 +187,14 @@ PROTECTED = sorted(set(GUARDS + DATA))
 # 出現，於是那條依賴**整個不被考慮**——不報缺口、不印任何東西。靜態分析救不了
 # 這件事（要執行才知道），所以改為把它**攤開來**：下面印出每個守衛被判定讀了
 # 什麼，讓漏掉的那條在人眼前缺席，而不是在沉默裡缺席。
-DECLARE = re.compile(r'trigger-coverage:\s*reads\s+(\S+)')
+# **整行就是宣告**——行首是註解標記、行尾沒有別的東西。
+#
+# 上一版是裸的 `trigger-coverage:\s*reads\s+(\S+)`，它認不出「這是宣告」與
+# 「這是在談論宣告」：一個把該字面寫進**字串**（測試描述、錯誤訊息模板）或
+# docstring 說明的檔案，都會被算成有宣告。實測（#407 R21）：先修 docstring、
+# 再排除實作者自己，然後 harness 又因為 case 描述裡的字面被命中——**特例排除
+# 追不上，因為每個談論它的地方都會再撞一次**。收窄謂詞才是根治。
+DECLARE = re.compile(r'^\s*(?:#|//)\s*trigger-coverage:\s*reads\s+(\S+)\s*$')
 
 
 def declared(path):
@@ -186,7 +202,14 @@ def declared(path):
 
     寫法（放在守衛自己的註解裡，這一行**刻意不剝**）：
 
-        # trigger-coverage: reads plugin/rules/*.md
+        #<空白>trigger-coverage:<空白>reads<空白><glob>
+
+    **上面那行刻意寫成佔位形式，不是排版潔癖**：本檔的 DECLARE regex 認不出
+    「這是宣告」與「這是在說明宣告怎麼寫」。先前這裡寫的是可直接匹配的字面，
+    於是本檔自己被當成有宣告——一份文件因為**描述**了某個語法而被當成**使用**
+    了它（#407 R21）。目前不出錯只因為 declared() 用同一個 regex、兩邊一致；
+    一旦那個範例的 glob 不匹配任何受保護檔，「有宣告就必須解析得到」那條斷言
+    會對一份根本沒宣告的檔案報紅。真實用例見 rule-coverage.sh。
 
     存在的理由是一個實測到的漏報：`rule-coverage.sh` 用 glob `"$RULES"/*.md`
     定位規則檔，從不寫出任何 basename，於是啟發式把它判成「只讀自己」——
@@ -228,11 +251,34 @@ print(f'守衛 {len(GUARDS)} 支｜受保護 {len(PROTECTED)} 個｜'
 # **有宣告就必須解析得到。** 若有人把 declared() 「統一」成走 code_only()，
 # 宣告行（是註解）會被剝掉、機制整個失效——而守衛**不會紅**：它只是少考慮
 # 幾個 pair，沉默地。所以在這裡把它變成會紅的（#407 R20b）。
+# **`realpath` 不是 `abspath`。** macOS 的 tempdir 是 `/var/folders/…`，而
+# `/var` 是 `/private/var` 的 symlink——`__file__` 保留 `/var`，`os.chdir` 之後
+# 的 cwd 卻已解析成 `/private/var`，於是 abspath 兩邊永遠不相等，自指排除在
+# mutation 環境下靜默失效（實測 8 格掉到 2 格，#407 R21）。
+# **這裡曾有一段自指排除，已退場（#407 R21）。** 當時 DECLARE 是裸子串，
+# 於是本檔（機制的實作者）因為錯誤訊息模板裡的字面被算成「有宣告」。加特例
+# 排除之後，harness 又因為 case 描述裡的字面撞上同一件事——**特例追不上，
+# 因為每個談論它的地方都會再撞一次**。收窄 DECLARE 為「整行就是宣告」才是
+# 根治，而根治之後特例就該刪（no-compat-fallback 的退場即刪）：留著它會看
+# 起來像在保護什麼。實測拿掉後仍全綠。
 for g in GUARDS:
     raw = io.open(g, encoding='utf8', errors='replace').read()
-    if 'trigger-coverage: reads' in raw and not declared(g):
+    # **用同一個謂詞。** 裸子串會把「談論宣告」算成「有宣告」——那正是上面
+    # DECLARE 收窄要解決的事，而存在性檢查若還用舊謂詞，兩者就會分岔。
+    has_decl = any(DECLARE.match(line) for line in raw.split('\n'))
+    if has_decl and not declared(g):
         fails.append(f'{os.path.basename(g)} 有 `# trigger-coverage: reads` 宣告，'
                      f'但 declared() 解析不到任何受保護檔——宣告機制失效了')
+    # **「解析得到」不等於「解析到對的東西」**（#407 R21，DA 席指名）：
+    # `reads *` 或 `reads *.sh` 幾乎保證命中一堆守衛，斷言通過而宣告文不對題
+    # ——那比宣告落空更難發現，因為覆蓋表會印出一個看似合理的讀取關係。
+    # 這裡不猜「對的東西」是什麼（那要人判斷），只擋掉明顯過寬的：一個宣告
+    # 命中超過受保護檔的一半，它就不是在指認依賴，是在描述整個 repo。
+    hits = declared(g)
+    if len(hits) > len(PROTECTED) // 2:
+        fails.append(f'{os.path.basename(g)} 的 `trigger-coverage: reads` 宣告命中 '
+                     f'{len(hits)}/{len(PROTECTED)} 個受保護檔——過寬的 glob 不是'
+                     f'宣告依賴，是在描述整個 repo；請指名到具體路徑或目錄')
 
 print('每支守衛被判定讀了哪些受保護檔（啟發式，漏報方向——見 READS 上方註解）：')
 for g in GUARDS:

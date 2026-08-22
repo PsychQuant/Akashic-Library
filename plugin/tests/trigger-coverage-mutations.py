@@ -56,9 +56,25 @@ def warn_case(desc, edits, expect_substr):
     測，會逼人把啟發式維持在 fail-closed，而那正是 R24 判定不該做的事。
     """
     rc, out = with_copy(edits)
-    in_warn = '待人確認' in out and expect_substr in out
-    print(f'{"✓" if in_warn else "✗"} {desc} → {"警告出現" if in_warn else "沒出現 ← 檢查對它是盲的"}')
-    return in_warn
+    warns = re.findall(r'^  \? (.+)$', out, re.M)
+    gaps = re.findall(r'^  · (.+)$', out, re.M)
+    named = [w for w in warns if expect_substr in w]
+    stray = [w for w in warns if expect_substr not in w]
+    # 三段判準，與 case() 對齊（#407 R24b，跨模型審查指出 warn_case 少了兩段）：
+    #   1. rc **必須是 0**——警告不改變 exit code，那正是「降為 warning」的意思。
+    #      若某個注入意外觸發別的 fail，上一版仍會過。
+    #   2. 指名的警告出現。
+    #   3. 鑑別力：不得有無關的警告，也不得有任何缺口（有缺口就不是純警告情境）。
+    ok = rc == 0 and named and not stray and not gaps
+    if ok:
+        print(f'✓ {desc} → 警告出現（rc=0，警告 {len(warns)} 條全屬同類）')
+    elif rc != 0:
+        print(f'✗ {desc} → rc={rc} ← 警告不該改變 exit code；缺口：{gaps[:2]}')
+    elif not named:
+        print(f'✗ {desc} → 警告沒出現 ← 檢查對它是盲的')
+    else:
+        print(f'✗ {desc} → 另有 {len(stray)} 條無關警告 ← 注入不是外科手術式的')
+    return ok
 
 
 def case(desc, edits, expect_substr):

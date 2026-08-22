@@ -232,7 +232,7 @@ def main():
     _n = 2 if has_swift else 1
     print(f'baseline：{_n} 支皆綠 ✓（{len(CASES)} 個 mutation 待跑）\n')
 
-    # **缺 swift 時大聲跳過，不假裝乾淨**（#407 R42）：本 harness 有 5 個 case 需要真的
+    # **缺 swift 時大聲跳過，不假裝乾淨**（#407 R42）：本 harness 有 6 個 case 需要真的
     # Swift toolchain（`multiscalar-parity.swift` 三個、`hash-table-drift.sh` 三個經由
     # 它的表生成器）。而 `plugin-guards.yml` 跑在 **ubuntu-latest**，stock image 沒有
     # Swift——那些 case 會以與注入無關的理由失敗。跳過它們，但把**跳了哪幾個、為什麼**

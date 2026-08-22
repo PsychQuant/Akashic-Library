@@ -22,7 +22,12 @@
     entity-backlink 那個 31 筆是**人**重跑發現的，本支抓不到它。
   · **四位數年份不算數字**（`2026-08-12 的實測` 裡的 2026 是日期）。
 
+# 兩個目錄都要宣告——程式 glob 的是兩個，而上一版只宣告了一個，於是
+# `.claude/rules/*.md` 那半邊的依賴從未被覆蓋檢查看見（#407 R48，跨模型審查指名）。（private repo，外部讀者取不到））
 # trigger-coverage: reads plugin/rules/*.md
+# 第二條指向 `.claude/rules/*.md`（private repo，外部讀者取不到）。
+# （該目錄在 private repo，外部讀者取不到。）
+# trigger-coverage: reads .claude/rules/*.md
 """
 import glob
 import io

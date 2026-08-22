@@ -110,6 +110,14 @@ check(1, 'repo 專屬路徑以可跟隨連結出現', followable, [])
 undisclosed = []
 for fp in files(PLUGIN):
     for i, line in prose_lines(fp):
+        # **`trigger-coverage` 的宣告行豁免**（#407 R48）：那條檢查與 `DECLARE`
+        # 結構性衝突——DECLARE 要求宣告行在 glob 之後**不得有任何東西**，而本檢查
+        # 要求同一行揭露取用限制。一條指向 private repo 路徑的宣告因此**無法同時
+        # 滿足兩者**。豁免是對的那一邊：本檢查的目的是「讀者跟著路徑走不會撞上
+        # 看不懂的 404」，而宣告行不是給人跟隨的連結，是給 `trigger-coverage.py`
+        # 讀的機器宣告。揭露改寫在它**上一行**的註解裡（實地做法）。
+        if re.match(r'\s*(?:#|//)\s*trigger-coverage:\s*reads\s', line):
+            continue
         if REPO_ONLY.search(line) and not DISCLOSE.search(line):
             undisclosed.append(f'{os.path.basename(fp)}:{i}')
 check(2, '提到 repo 專屬路徑卻未在同一行揭露取用限制', undisclosed, [])

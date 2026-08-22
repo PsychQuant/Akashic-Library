@@ -61,6 +61,11 @@ DATA = [
     'plugin/rules/assertions-must-be-measured.md',
     'Sources/AkashicStoreIO/StoreVersion.swift',
     'Sources/AkashicCore/Venue.swift',
+    # repo 規則檔是 `measured-numbers-audit.py` 的輸入（#407 R48）。先前不在此列，
+    # 於是那支守衛對 `.claude/rules/*.md`（Akashic repo，private，外部讀者取不到）的
+    # 宣告**解析不到任何受保護檔**——宣告寫了
+    # 卻等於沒寫，而既有的「有宣告但解析不到」只在**全部**宣告都落空時才報。
+] + sorted(glob.glob('.claude/rules/*.md')) + [
     # CLAUDE.md 是資料而非守衛：`decision-matrix-drift.py` 拿它的 8 列決策矩陣
     # 當輸入（#407 R27）。表改了守衛就得跑——與其他 DATA 同一個語意。
     'CLAUDE.md',
@@ -500,6 +505,18 @@ for g in GUARDS:
     if has_decl and not declared(g):
         fails.append(f'{os.path.basename(g)} 有 `# trigger-coverage: reads` 宣告，'
                      f'但 declared() 解析不到任何受保護檔——宣告機制失效了')
+    # **逐條宣告都要解析得到**（#407 R48）：上面那條的前件是「**全部**落空」，於是
+    # 一個檔案寫兩條宣告、其中一條落空時完全無聲——實地踩到（`.claude/rules/*.md`，——private repo，外部讀者取不到
+    # private repo，外部讀者取不到）
+    # 當時不在 PROTECTED，那條宣告等於沒寫，而另一條有效所以沒人出聲）。
+    for line in raw.split('\n'):
+        m = DECLARE.match(line)
+        if not m:
+            continue
+        pat = m.group(1)
+        if not any(fnmatch.fnmatch(p, pat) for p in PROTECTED):
+            fails.append(f'{os.path.basename(g)} 的宣告 `{pat}` 解析不到任何受保護檔'
+                         f'——它等於沒寫')
     # **「解析得到」不等於「解析到對的東西」**（#407 R21，DA 席指名）：
     # `reads *` 或 `reads *.sh` 幾乎保證命中一堆守衛，斷言通過而宣告文不對題
     # ——那比宣告落空更難發現，因為覆蓋表會印出一個看似合理的讀取關係。
@@ -536,16 +553,17 @@ for g in GUARDS:
                          f'萬用字元——那是在說「任何地方的這類檔案」，不是在指認'
                          f'依賴的位置；請從一個真的目錄名開始')
     decl_lines = [line for line in raw.split('\n') if DECLARE.match(line)]
-    if len(decl_lines) > 1:
-        # **這是約定，不是機制**，而且它有已知的誤擋風險：一個真的依賴兩個
-        # 不相關路徑根的守衛需要兩條宣告，而沒有語法能把它們併成一條。目前
-        # 零實例（沒有守衛需要兩條）。裁決保留，因為不對稱：誤擋是**可見且
-        # 可逆**的（加宣告時被擋、看到訊息、改寫或回報），而漏掉教學範例是
-        # **安靜的假依賴**（#407 R22b，requirements 席指名）。
-        fails.append(f'{os.path.basename(g)} 有 {len(decl_lines)} 行宣告——一個守衛'
-                     f'通常只需要一條；多出來的那行多半是教學範例，請改寫成佔位'
-                     f'形式。若你**真的**需要兩條不同路徑根的宣告，這道檢查會擋'
-                     f'錯——請改這裡並在 CHANGELOG 記下第一個實例')
+    # **第一個真實例出現了**（#407 R48）：`measured-numbers-audit.py` 掃
+    # `.claude/rules/*.md`（private，外部讀者取不到）與 `plugin/rules/*.md`（隨
+    # plugin 出貨）**兩個路徑根**，沒有語法能併成
+    # 一條。上一版把「多於一行」整個判成失敗，並在訊息裡預告「若你真的需要兩條，
+    # 這道檢查會擋錯——請改這裡並在 CHANGELOG 記下第一個實例」。照做。
+    #
+    # 放寬但不失去保護：**每一條都必須解析得到**（上方那條逐條檢查），而重複的
+    # 樣式仍然擋——一個教學範例最可能的形狀就是把既有那條再抄一次。
+    if len(decl_lines) != len(set(decl_lines)):
+        fails.append(f'{os.path.basename(g)} 有重複的宣告樣式——多半是教學範例，'
+                     f'請改寫成佔位形式')
     # **宣告的目標，守衛自己得提過。**
     #
     # 上一版說第三層是「可見性」——攤開表用 ⟨宣⟩ 標出宣告來源，「誤宣告會顯示

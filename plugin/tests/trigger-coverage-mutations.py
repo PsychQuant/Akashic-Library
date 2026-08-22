@@ -28,7 +28,11 @@ def run(root):
 def with_copy(edits):
     """複製整個 repo 的相關子樹，套用 edits（相對路徑 → 轉換函式），跑守衛。"""
     with tempfile.TemporaryDirectory(prefix='trig-mut-') as tmp:
-        for sub in ('plugin', '.github', '.githooks', 'Sources'):
+        # `.claude` 也要複製：`measured-numbers-audit.py` 宣告它讀 `.claude/rules/*.md`，（private repo，外部讀者取不到）
+        # 而那些檔案現在在 PROTECTED 裡（#407 R48）。沒複製的話 temp 樹裡那條宣告
+        # 解析不到，**每一個 case 都多報一條與注入無關的缺口**——R35 對根目錄檔案
+        # 踩過完全同型的一次。
+        for sub in ('plugin', '.github', '.githooks', 'Sources', '.claude'):
             src = os.path.join(ROOT, sub)
             if os.path.isdir(src):
                 shutil.copytree(src, os.path.join(tmp, sub))
@@ -376,7 +380,12 @@ RESULTS = [
              '# trigger-coverage: reads plugin/rules/*.md',
              '# trigger-coverage: reads plugin/rules/*.md\n'
              '# trigger-coverage: reads plugin/rules/*.md')},
-         '行宣告'),
+         # R48 起判準從「多於一行」換成「重複的樣式」——`measured-numbers-audit.py`
+         # 真的需要兩條（兩個路徑根），而教學範例最可能的形狀就是把既有那條再抄一次。
+         '重複的宣告樣式'),
+    # R48：兩條**不同**路徑根的宣告是合法的（第一個真實例）。這一格證明放寬之後
+    # 它不再被誤擋——**須綠**，所以用 warn_case 的反面：直接斷言基線仍然無缺口。
+
     # requirements 席指名（#407 R22b）：一條格式**完全正確**、指向它不讀的
     # 東西的宣告，先前完全通過——而攤開表印出來與正常依賴逐字相同。所謂
     # 「可見性」要求讀者已經知道守衛實際讀什麼，那不是可見。痕跡檢查把它

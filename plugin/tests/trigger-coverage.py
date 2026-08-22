@@ -572,17 +572,33 @@ for g in GUARDS:
         #   連子串都沒有   → fail    （確定：編造）
         #   有子串、非路徑 → warning （判不出：散文巧合 or 裸目錄名）
         #   路徑脈絡       → 過
-        mentioned = seg and seg in body
-        if seg and '*' not in seg and '?' not in seg:
-            if not mentioned:
-                fails.append(f'{os.path.basename(g)} 宣告讀 `{glob_}`，但 `{seg}` '
-                             f'在它的原始碼裡（扣掉宣告行本身）**一次都沒出現過**'
-                             f'——這不是判不出，是可證偽的假陳述')
-            elif not traced:
-                warnings.append(f'{os.path.basename(g)} 宣告讀 `{glob_}`，`{seg}` '
-                                f'有出現但不在路徑脈絡裡——**這一級是啟發式，兩個'
-                                f'方向都會錯**（散文巧合／裸目錄名，見上方註解），'
-                                f'請人確認')
+        # **退回兩級：一律 warning。**（#407 R24f——撤銷 R24d 的三級化）
+        #
+        # R24d 依 c13 的 CRITICAL 把「seg 連子串都沒出現」升為 fail，理由是
+        # 「那不是判不出，是可證偽的假陳述」。**那個理由對，但判準抓不到它**
+        # ——實測三種**宣告為真**的寫法都會被誤殺：
+        #
+        #   D=$(dirname "$0")/../rul ; D="${D}es"   字串拼接組出目錄名
+        #   for f in "$BASE"/*/*.md                 純 glob，從不寫目錄名
+        #   swift build && ls Sources/*/            走 Sources 但不點名子目錄
+        #
+        # **第二個正是宣告機制存在的理由**：宣告是為了補「守衛用 glob 組路徑、
+        # basename 不逐字出現」的漏。一個連目錄名都不寫的守衛是最需要宣告的
+        # 那種，卻被判成假陳述。
+        #
+        # 兩個 reviewer 的論點都對（編造的宣告不該綠、真宣告不該被誤殺），
+        # 意味著這個檢查在任何嚴格度下都會錯一個方向——**選哪個方向是裁決**：
+        #
+        #   誤殺的代價 → 擋住宣告機制的**目標使用者**（動態路徑的守衛作者）
+        #   漏放的代價 → 一條假陳述留在 codebase，而真實實例**為零**
+        #     （R23e 量過：真實宣告 1 條、編造的 0 條）
+        #
+        # 選擇不誤殺目標使用者。**這是已知且刻意接受的限制**，不是沒想到。
+        if seg and '*' not in seg and '?' not in seg and not traced:
+            warnings.append(f'{os.path.basename(g)} 宣告讀 `{glob_}`，但 `{seg}` '
+                            f'在它的原始碼裡（扣掉宣告行本身）沒有明顯的路徑痕跡'
+                            f'——**這是啟發式，兩個方向都會錯**（見上方註解）。'
+                            f'請人確認：宣告屬實（守衛用動態路徑）還是編造的？')
     # **這一條目前不可獨立觸發，保留是有條件的。**
     #
     # 要命中全部 16 個受保護檔就得跨 `plugin/` 與 `Sources/` 兩個前綴，而那

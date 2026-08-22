@@ -50,5 +50,8 @@ python3 plugin/tests/measured-claims-audit.py
 # 那張表錯過一次（R26q），而那個錯撐過了好幾輪人＋AI 審查——散文沒人檢查。
 python3 plugin/tests/decision-matrix-drift.py
 python3 plugin/tests/decision-matrix-mutations.py
+# rule-coverage 與 hash-table-drift 的 negative control（#407 R32）——它們先前
+# 每次都綠而從沒紅過，落在本 issue 自己的立場之外。
+python3 plugin/tests/audit-guards-mutations.py
 
 echo "pre-push: ✓ 全部通過"

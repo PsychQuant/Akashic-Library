@@ -8,6 +8,36 @@
 
 
 
+
+## R32 — 補兩支沒有 negative control 的守衛（5 → 3）
+
+R31 量到 9 支守衛裡只有 4 支被人跑過並要求變紅。本輪補兩支自足、跑得快的
+（`plugin/tests/audit-guards-mutations.py`，4 個 mutation）：
+
+| 注入 | 守衛 |
+|---|---|
+| 把某個 skill 的規則**連結**整個拿掉 | `rule-coverage.sh` |
+| 連結還在但相對路徑指到不存在的檔 | 同上 |
+| 生成的表被人手改了一段 | `hash-table-drift.sh` |
+| `multiscalar-parity.swift` 的 inline RANGES 與表脫節 | 同上 |
+
+**第一個 case 一開始沒讓它紅**，而那本身就是個實例：我改的是散文裡的**名字**，
+而守衛驗的是「解析得到的相對路徑 token」——它自己的註解就記著這件事（R6 findings
+14／15／17：前一版用字串比對，於是一句「本規則不適用於此」也算已掛載）。**寫負控
+時假設了守衛的判準，而那個假設是錯的。**
+
+**另外三支的裁決寫在 harness 檔頭，不是漏掉**：
+
+- `measured-claims-audit.py` — 偵測式要跑 `git rev-list --all`，而 mutation 必須在
+  pristine copy 上跑；copy 裡沒有 `.git`，紅得與注入無關。**那正是 R27 踩過的
+  「因錯誤理由變紅的負控等於不存在」。** 要補它得先讓它接受 `--repo` 之類的參數。
+- `review-claim-audit.sh` — 注入要跨 `.github/workflows` 與 parity 腳本兩處，成本
+  明顯較高。值得，不在本輪。
+- `multiscalar-parity.swift` — 注入要改內建 census 模型再重編，每個 case 約一秒。
+  值得，不在本輪。
+
+pre-push 14/14、trigger 覆蓋逐對零缺口、守衛十三支全綠。
+
 ## R31 — 註記禁令的代價不是零；以及我自己三次量錯同一件事
 
 ### ① R30 的「六個註記全部可還原」證不到它被拿來當的那句話

@@ -48,11 +48,25 @@ verdict "新寫法（bash regex，無管線）拿得到" \
 
 echo
 echo "══ codex finding #7：5000 前導零 fixture 依賴 seq，缺席時靜默退化 ══"
-# codex 說：seq 不存在時內層回 127，外層 printf 仍成功，Bash 對缺少的 %s 代入
-# 空字串 → 退化成 `format: 01`，仍屬 accept、測試照樣綠。
-DEGRADED=$(PATH=/nonexistent bash -c "printf '0%.0s' \$(seq 1 5000 2>/dev/null)1" 2>/dev/null)
-verdict "舊寫法在無 seq 時退化成極短字串" \
-  "$([ "${#DEGRADED}" -lt 10 ] && echo yes || echo no)" "退化後長度=${#DEGRADED}"
+# codex 說：seq 不存在時舊寫法會靜默退化成一個極短的字串，仍屬 accept、測試照樣綠。
+#
+# **重建方式被修正過兩次，兩次都是因為機制沒被量。**
+#   第一版：`PATH=/nonexistent bash -c '...'` —— 這讓**外層 bash 自己**找不到
+#           （exit 127，`command not found: bash`），內層的 printf／seq **從未執行**。
+#           量到的「長度 0」是 bash 沒跑，不是 seq 缺席。DA 抓到（#407 R12）。
+#   第二版註解：宣稱「printf 仍成功、%s 代入空字串 → `01`」——那也是猜的。
+#   **實測**：只抽掉 seq 而保留 bash／printf 時，輸出是 `0`（printf 的 `0%.0s`
+#           在沒有參數時仍會印一次字面的 `0`），長度 1。
+#
+# 所以這裡建一個**只缺 seq** 的 PATH：真正隔離那一個變因。
+_SQ=$(mktemp -d)
+for _c in bash printf; do ln -s "$(command -v $_c)" "$_SQ/$_c" 2>/dev/null; done
+DEGRADED=$(PATH="$_SQ" bash -c 'printf "0%.0s" $(seq 1 5000 2>/dev/null)1' 2>/dev/null)
+rm -rf "$_SQ"
+# 斷言用「遠短於 5000」而不是某個猜出來的確切值——重建的目的是證明**退化會發生**，
+# 不是釘住退化的確切形狀（那個形狀正是上面兩次都猜錯的東西）。
+verdict "舊寫法在無 seq 時退化（遠短於 5000）" \
+  "$([ "${#DEGRADED}" -lt 10 ] && echo yes || echo no)" "退化後長度=${#DEGRADED}（不是 5000）"
 NEWZ=$(printf '%05000d' 0)
 verdict "新寫法（純 bash）不依賴外部指令且長度正確" \
   "$([ "${#NEWZ}" -eq 5000 ] && echo yes || echo no)" "長度=${#NEWZ}"

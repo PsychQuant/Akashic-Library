@@ -302,14 +302,40 @@ for g in GUARDS:
     # 比例檢查保留，但收到無疑義的那一格：命中**全部**。
     for line in raw.split('\n'):
         m = DECLARE.match(line)
-        if m and '/' not in m.group(1):
-            fails.append(f'{os.path.basename(g)} 的宣告 `{m.group(1)}` 沒有路徑成分'
-                         f'——那是在說「凡是這種副檔名的」，不是在指認依賴的位置')
+        if not m:
+            continue
+        # **判準是「第一段必須是字面」，不是「含有斜線」。**
+        #
+        # R21b 從比例判準換成結構判準時方向對了（不隨集合漂移），但判準取得
+        # 太表面：`*/*.sh` 含斜線、命中 5/16，兩道檢查都放它過——而它與被擋掉
+        # 的 `*.sh` **同樣不具體**，差別只是一個無意義的 `*/` 前綴（#407 R22，
+        # DA 席那題的量測答案）。
+        #
+        # 「指認位置」的性質是：起點是一個**真的目錄名**。`plugin/tests/*` 從
+        # `plugin` 出發，`*/*.sh` 從「任何地方」出發——後者沒有指認任何東西。
+        first = m.group(1).split('/')[0]
+        if '*' in first or '?' in first:
+            fails.append(f'{os.path.basename(g)} 的宣告 `{m.group(1)}` 的第一段是'
+                         f'萬用字元——那是在說「任何地方的這類檔案」，不是在指認'
+                         f'依賴的位置；請從一個真的目錄名開始')
     n_decl = sum(1 for line in raw.split('\n') if DECLARE.match(line))
     if n_decl > 1:
         fails.append(f'{os.path.basename(g)} 有 {n_decl} 行宣告——一個守衛只該有'
                      f'一條依賴宣告；多出來的那行多半是教學範例，請改寫成佔位'
                      f'形式（見 declared() 的 docstring）')
+    # **這一條目前不可獨立觸發，保留是有條件的。**
+    #
+    # 要命中全部 16 個受保護檔就得跨 `plugin/` 與 `Sources/` 兩個前綴，而那
+    # 需要第一段是萬用字元——於是一定先被上面那條抓。實測：沒有任何「第一段
+    # 字面 ＋ 命中全部」的 glob 存在（#407 R22）。
+    #
+    # 不刪的理由是它**條件性可達**：若日後 Sources 那兩個受保護檔退場、全部
+    # 集中到 `plugin/` 底下，`plugin/**` 就會是「第一段字面 ＋ 命中全部」，
+    # 那一刻這條就活過來。這與 no-compat-fallback 的「退場即刪」不同——那條
+    # 管的是用途已歸零的相容路徑，這裡是用途取決於集合形狀。
+    #
+    # **負控裡沒有它的格子**，因為它現在不可獨立觸發：留一格假裝在測它，與
+    # 沒有負控在報告上長得一樣。
     hits = declared(g)
     if hits and len(hits) == len(PROTECTED):
         fails.append(f'{os.path.basename(g)} 的宣告命中全部 {len(PROTECTED)} 個'

@@ -160,14 +160,23 @@ RESULTS = [
          {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
              '# trigger-coverage: reads plugin/rules/*.md',
              '# trigger-coverage: reads *.sh')},
-         '沒有路徑成分'),
-    # `*/*` 有路徑成分（結構判準放它過）但命中全部 16/16——證明全覆蓋那條
-    # 檢查不是被結構判準遮蔽的死碼。
-    case('把宣告改成 `reads */*`（有路徑成分但命中全部）',
+         '第一段是萬用字元'),
+    # `*/*.sh` 含斜線、命中 5/16——**「含斜線」與「命中全部」兩道都放它過**，
+    # 而它與 `*.sh` 同樣不具體。這一格是判準從「含斜線」收到「第一段必須是
+    # 字面」之後才抓得到的（#407 R22，DA 席那題的量測答案）。
+    case('把宣告改成 `reads */*.sh`（含斜線但第一段是萬用字元）',
          {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
              '# trigger-coverage: reads plugin/rules/*.md',
-             '# trigger-coverage: reads */*')},
-         '在描述整個 repo'),
+             '# trigger-coverage: reads */*.sh')},
+         '第一段是萬用字元'),
+    # **這裡曾有一格 `reads */*` 測「命中全部」，已移除**（#407 R22）：判準從
+    # 「含斜線」收到「第一段必須是字面」之後，`*/*` 同時觸發兩條，於是它證明
+    # 不了是哪一條抓到的——第三段鑑別力判準正確地把它判成不外科手術。
+    #
+    # 而「命中全部」那條**目前沒有任何 glob 能單獨觸發**（要命中全部就得跨
+    # plugin/ 與 Sources/ 兩個前綴 → 第一段必為萬用字元 → 先被前一條抓）。
+    # 留一格假裝在測它，與沒有負控在報告上長得一樣。該檢查的可達性條件寫在
+    # trigger-coverage.py 它自己旁邊。
     case('把受保護檔案的路徑改成不存在的（憑記憶寫路徑的那個坑）',
          {GUARD_REL: lambda t: t.replace(
              "'Sources/AkashicStoreIO/StoreVersion.swift'",

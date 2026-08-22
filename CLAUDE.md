@@ -96,7 +96,18 @@ propose ──→ park ──────────────→ apply ─�
 > | `plugin-guards.yml`（ubuntu，1×） | ✅ | ⬜ 從未執行（branch 未 push） |
 > | `census-parity.yml`（macOS；只在 census／parity 測試／生成表／oracle 改動時觸發） | ✅ | ❌ macOS runner 帳務擱置——main 最近 8 次 CI run 全部 `failure` 且 **steps=0**（runner 層拒跑） |
 >
-> **目前唯一實際跑過它們的路徑是本機手動執行。** 這一格寫在這裡，是因為
+> **左欄「已接上」現在是逐對意義的完整**（2026-08-23 實測，#407 R45b）：
+> `trigger-coverage.py` 對 **22 個受保護檔全部報「CI 未覆蓋 0」**——每一對
+> (受保護檔 × 讀它的守衛) 都存在一個 workflow 同時在該檔改動時觸發、且執行該守衛。
+> 這比本表原先的狀態強：先前有數格只靠 pre-push 兜住。
+>
+> **右欄沒有跟著變。** 上表三格的「實際執行」仍如上：hooksPath 指向主 repo（merge 後
+> 自癒）、ubuntu 從未執行（branch 未 push）、macOS 帳務擱置。**「每一對都有 workflow
+> 會跑它」與「那些 workflow 跑得起來」是兩件事**——而這正是本段一開始就在說的那件事，
+> 只是換了一層：先前的落差在「有沒有接上」，現在的落差只剩「跑不跑得起來」。
+>
+> **目前唯一實際跑過它們的路徑是本機手動執行**（含端到端 `bash .githooks/pre-push`，
+> 2026-08-23 實測 exit=0、339 秒）。這一格寫在這裡，是因為
 > 「接上觸發點」與「觸發點會跑」是兩件事，而把後者寫成既成事實正是這條規則要防的
 > 那種斷言——它在 R8 verify 被具名。
 >

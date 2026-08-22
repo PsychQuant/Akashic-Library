@@ -48,7 +48,7 @@ _RUNNABLE = r'[|/$-]'
 CMD_INLINE = re.compile(r'`[^`\n]*' + _TOOL + r'[^`\n]*' + _RUNNABLE + r'[^`\n]*`')
 # ② 圍籬區塊。**必須支援**：兩個真的可重跑的配方就寫在 ```bash 裡，而 inline 那條
 #    看不到它們——先前它們「通過」靠的是①跨行誤配對出來的假 match（#407 R40）。
-CMD_FENCE = re.compile(r'```[a-z]*\n(.*?)```', re.S)
+CMD_FENCE = re.compile(r'^[ \t>]*```[a-z]*\n(.*?)^[ \t>]*```', re.S | re.M)
 
 
 def has_cmd(window):
@@ -56,6 +56,11 @@ def has_cmd(window):
         return True
     return any(re.search(_TOOL, b) and re.search(_RUNNABLE, b)
                for b in CMD_FENCE.findall(window))
+
+
+def _unquote(line):
+    """剝掉前導空白與 markdown 引用符，讓引用式圍籬也能被辨識。"""
+    return re.sub(r'^[\s>]*', '', line)
 
 
 def main():
@@ -77,7 +82,12 @@ def main():
         sec = 0
         in_fence = False
         for i, line in enumerate(lines):
-            if line.lstrip().startswith('```'):
+            # **引用式圍籬也要認**（#407 R47）：`lstrip()` 只剝空白，不剝 `>`，
+            # 於是 `> ```bash` 這種寫法完全不切換狀態，區塊內容被當成散文。
+            # 本檔掃描的兩個 rules 目錄現在**零實例**，但 CLAUDE.md 用過兩次，
+            # 而失敗方向是**假陽性**（把有錨的數字報成裸的）——那會讓人去「修」
+            # 一個不存在的問題，或乾脆停用守衛。成本一行，所以現在補。
+            if _unquote(line).startswith('```'):
                 in_fence = not in_fence
                 continue
             # 圍籬區塊裡的行**本身就在配方中**（那個數字是指令旁的註解）。窗式偵測

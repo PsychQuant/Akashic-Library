@@ -67,7 +67,13 @@ rm -rf "$_SQ"
 # 不是釘住退化的確切形狀（那個形狀正是上面兩次都猜錯的東西）。
 verdict "舊寫法在無 seq 時退化（遠短於 5000）" \
   "$([ "${#DEGRADED}" -lt 10 ] && echo yes || echo no)" "退化後長度=${#DEGRADED}（不是 5000）"
-NEWZ=$(printf '%05000d' 0)
+# **標籤的兩半都要量**（#407 R47，跨模型審查指名）：標籤說「不依賴外部指令**且**
+# 長度正確」，而上一版只測長度——依賴性那一半從未被執行過。改成在**只有 bash 的
+# 受限 PATH** 下算它（同一支腳本前面已經用這個手法示範過 seq 的依賴性）。
+_NOSEQ=$(mktemp -d)
+ln -sf "$(command -v bash)" "$_NOSEQ/bash" 2>/dev/null
+NEWZ=$(PATH="$_NOSEQ" bash -c "printf '%05000d' 0")
+rm -rf "$_NOSEQ"
 verdict "新寫法（純 bash）不依賴外部指令且長度正確" \
   "$([ "${#NEWZ}" -eq 5000 ] && echo yes || echo no)" "長度=${#NEWZ}"
 verdict "出貨的 parity 測試已改用新寫法且有長度斷言" \

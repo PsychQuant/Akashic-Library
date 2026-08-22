@@ -36,7 +36,8 @@ for i, l in enumerate(src, 1):
         print(f'     行 {i}: {fn}')
 
 # ④ 19 = 13 + 6
-print('④ 「19 行 run: ＝ 13 單行 ＋ 6 block」')
+print('④ 「run: 的分類：總數 ＝ 單行 ＋ block」')
+print('     刻意不寫死 19／13——R26b 加一個 CI 步驟就變 20／14；驗的是恆等式')
 tot = sh("grep -hcE '^\\s*(-\\s*)?run:' .github/workflows/*.yml | awk '{s+=$1} END{print s}'")
 sg = sh("grep -hE '^\\s*(-\\s*)?run: [^|]' .github/workflows/*.yml | wc -l")
 bl = sh("grep -hE '^\\s*(-\\s*)?run: \\|' .github/workflows/*.yml | wc -l")

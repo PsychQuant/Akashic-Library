@@ -19,8 +19,12 @@
 //
 // 用法
 // ====
-//   swift derive-hash-extenders.swift            # 印出 Python 可讀的表
-//   swift derive-hash-extenders.swift --check <生成的表>   # 比對是否漂移
+//   swift derive-hash-extenders.swift > hash-merging-ranges.txt
+//
+// **只有這一種模式。** 早期的註解還寫過 `--check <表>` 可以比對漂移，而實作從頭
+// 到尾沒讀過 CommandLine.arguments——傳什麼參數都只是重印一次表並以 0 結束。
+// 一個照著註解跑 `--check` 的維護者會以為「檢查過了、沒問題」，即使表已經漂移
+// （#407 R10 verify）。比對由 tests/hash-table-drift.sh 用重導向 + diff 做。
 import Foundation
 
 var ranges: [(UInt32, UInt32)] = []

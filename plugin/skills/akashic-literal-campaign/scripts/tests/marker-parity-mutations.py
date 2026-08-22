@@ -48,6 +48,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..', '..', '..', '..'))
 CENSUS = os.path.join(HERE, '..', 'literal-census.sh')
 TEST = os.path.join(HERE, 'store-marker-parity.sh')
+TABLE = os.path.join(HERE, '..', 'hash-merging-ranges.txt')
 
 ORIGINAL = io.open(CENSUS, encoding='utf8').read()
 
@@ -66,6 +67,13 @@ def mutate(work, old, new, desc, expect_case):
     copy = os.path.join(work, 'literal-census.sh')
     io.open(copy, 'w', encoding='utf8').write(ORIGINAL.replace(old, new, 1))
     os.chmod(copy, 0o755)
+    # **相鄰的資料檔也要一起複製。** census 從自己的所在目錄讀
+    # `hash-merging-ranges.txt`（判 `#` 註解用的 grapheme 表）。只複製腳本的話，
+    # copy 找不到表 → 所有「# + 非 ASCII」的 fixture 一律變 undecidable，
+    # **與被測的 mutation 無關**。實測：單一 mutation 的 fail 從 1–3 變成 11–12，
+    # 而 harness 仍報 14/14——它在一個降級的環境裡量，數字看起來是綠的。
+    # （#407 R10 verify）
+    shutil.copy2(TABLE, os.path.join(work, os.path.basename(TABLE)))
     fails, out = run_test(copy)
     hit = re.search(rf'✗ {re.escape(expect_case)}', out) is not None
     ok = fails > 0 and hit

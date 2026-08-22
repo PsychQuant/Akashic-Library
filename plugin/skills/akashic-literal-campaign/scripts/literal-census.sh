@@ -49,12 +49,19 @@ if [ -n "$_bin" ]; then
     printf 'format: 999999\n' > "$_probe/store.yaml"
     # 只讀 stderr 的具名訊息；任何其他失敗都當成「問不到」，不猜。
     #
-    # **不要用 `| head -1`**：本檔開頭是 `set -euo pipefail`，而 head 讀到第一行
-    # 就結束會讓上游 sed 收到 SIGPIPE 非零退出 → pipefail → set -e 直接殺掉整個
-    # 腳本，輸出變成**完全靜默**（踩過一次，trace 停在 CEILING=12 之後什麼都沒有）。
-    # 用 sed 自己的 `q` 取第一筆，管線就不會被提前關閉。
-    CEILING=$("$_bin" people --library "$_probe" 2>&1 >/dev/null \
-      | sed -n 's/.*本 binary 支援至 \([0-9][0-9]*\).*/\1/p;/./q' || true)
+    # **完全不用管線。** 兩個前一版踩過的坑都出在管線上：
+    #   (a) `| head -1` —— head 讀完第一行就結束，上游 sed 收 SIGPIPE 非零退出，
+    #       而本檔開頭是 `set -euo pipefail` → 整支腳本被 set -e 殺掉，輸出**完全
+    #       靜默**（trace 停在 CEILING=12 之後什麼都沒有）。
+    #   (b) 改成 `sed …;/./q` 之後，語意變成「遇到第一個非空輸出行就停」，**不是**
+    #       「擷取到目標訊息才停」——binary 若先印一行 deprecation warning，sed 看到
+    #       它就結束，CEILING 空手而回。而當時的註解還宣稱「管線就不會被提前關閉」，
+    #       那句話對 `q` 同樣不成立（#407 R10 verify）。
+    # 收進變數再用 bash 自己的 regex 比對：沒有管線，就沒有這兩類問題。
+    _probe_err=$("$_bin" people --library "$_probe" 2>&1 >/dev/null || true)
+    if [[ "$_probe_err" =~ 本\ binary\ 支援至\ ([0-9]+) ]]; then
+      CEILING="${BASH_REMATCH[1]}"
+    fi
     rm -rf "$_probe"
     [ -n "$CEILING" ] && CEILING_SRC="binary:$_bin"
   fi
@@ -137,6 +144,20 @@ try:
         _hash_ranges.append((int(_a, 16), int(_b, 16)))
 except (OSError, ValueError) as _e:
     _hash_table_error = str(_e)
+
+# **表的內容也要驗，不只驗「檔案打得開、每行是合法十六進位」。**
+# 最危險的是空表：例外沒被觸發，迴圈不執行，所有非 ASCII 一律回 True——
+# 退化成這張表要修的那個 fail-open，而不是宣告判不出來（#407 R10 verify）。
+# 這裡只驗**結構**（非空、lo <= hi、落在 Unicode scalar 範圍內）；內容是否與
+# 本機 Swift 一致由 tests/hash-table-drift.sh 管，兩者分工不重疊。
+if _hash_table_error is None:
+    if not _hash_ranges:
+        _hash_table_error = '表是空的（0 段）——不可能是有效的生成結果'
+    else:
+        for _lo, _hi in _hash_ranges:
+            if _lo > _hi or _hi > 0x10FFFF:
+                _hash_table_error = f'range 不合理：{_lo:X}–{_hi:X}'
+                break
 
 
 def _starts_with_hash(s):
@@ -421,13 +442,23 @@ print(f"store: {_tilde(root)}（{fmt_label()}）")
 if _store_unopenable:
     print(f"{'':<14} ⚠ 讀端會整體拒開此 store，**下面每一列都不能拿去定 campaign "
           "的批次範圍**——它們是直接掃 YAML 得到的，不代表任何 binary 讀得到這些內容")
+elif _undecidable:
+    print(f"{'':<14} ⚠ **本腳本判不出這個 marker 合不合法**，所以下面每一列都不能"
+          "拿去定 campaign 的批次範圍。去問讀端：`akashic doctor --library <store>`")
+elif _ceiling_src == 'source':
+    # **source 上限沒超過，也不代表你的 binary 讀得到。** 前一版只在超過時才說話，
+    # 於是 `fmt <= source 上限` 被當成一般健康狀態、完全不印任何東西——而 source
+    # 只證明「從這份 source 建出的 binary 應能讀」。使用者實際操作的 CLI／App／MCP
+    # 可能是另一個版本，那正是本輪要修的 source/binary 分歧（#407 R10 verify）。
+    #
+    # 措辭刻意比 ⚠ 輕（這是常見且多半無害的情形），但**不能沉默**。
+    print(f"{'':<14} ℹ 支援上限取自這份 checkout 的 source（{_supported}），"
+          "**沒問到實際 binary**——若你操作的 binary 較舊，它仍可能拒開。"
+          "設 AKASHIC_BIN=<path> 或讓 akashic 在 PATH 上即可確認")
 elif _too_new_by_source:
     print(f"{'':<14} ⚠ 這份 checkout 的 source 上限低於 store 的 format，而**本腳本"
           "沒問到實際 binary**——無法斷言它開不開得起來，所以下面的數字先別拿去定"
           "批次範圍。確認方式：設 AKASHIC_BIN=<path>，或讓 akashic 在 PATH 上，再重跑")
-elif _undecidable:
-    print(f"{'':<14} ⚠ **本腳本判不出這個 marker 合不合法**，所以下面每一列都不能"
-          "拿去定 campaign 的批次範圍。去問讀端：`akashic doctor --library <store>`")
 elif _ceiling_unknown:
     # **這是 plugin 單獨安裝的常態**（marketplace 出貨時沒有 Sources/），所以它
     # 每次都會印。那是誠實的：每次都真的不知道。前一版只把這件事寫進 format 標籤，

@@ -238,7 +238,13 @@ check "值後 # + U+200C"                      'format: 12 #\xe2\x80\x8cx\n' mal
 check "值後 # + U+102B"                      'format: 12 #\xe1\x80\xabx\n' accept
 
 # ── 前導零（R8 HIGH：Python 3.11+ 的 int() 位數上限；Swift 逐位解析不受影響）──
-check "5000 個前導零 + 1"                "format: $(printf '0%.0s' $(seq 1 5000))1\n" accept
+# **不用 `seq`**（非 POSIX）。它缺席時內層回 127 而外層 printf 仍成功，Bash 對
+# 缺少的 %s 代入空字串 → 整串退化成 `format: 01`，仍屬 accept、測試照樣綠——
+# 「宣稱測了 5000 位、實際完全沒測到」（#407 R10 verify）。改用純 bash 生成，
+# 並在建構後斷言長度，缺一個字元都會直接讓測試失敗。
+ZEROS=$(printf '%05000d' 0)
+[ "${#ZEROS}" -eq 5000 ] || { echo "✗ 前導零 fixture 只生成了 ${#ZEROS} 個字元" >&2; exit 2; }
+check "5000 個前導零 + 1"                "format: ${ZEROS}1\n" accept
 check "前導零 + Int64 上界"              "format: 000009223372036854775807\n" tooNew
 check "前導零 + Int64 上界加一"          "format: 000009223372036854775808\n" malformed
 

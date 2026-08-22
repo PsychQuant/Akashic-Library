@@ -29,6 +29,10 @@ on:
     branches: [main]
     paths: &parity_paths
       - "plugin/skills/akashic-literal-campaign/scripts/literal-census.sh"
+      # census 的 runtime 資料依賴。漏了它的話，「只改這份生成表」的 PR
+      # 不會觸發任何 workflow——而那正是 drift guard 最需要跑的情況
+      # （#407 R10 verify）。
+      - "plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt"
       - "plugin/skills/akashic-literal-campaign/scripts/tests/**"
       - "Sources/AkashicStoreIO/StoreVersion.swift"
   pull_request:

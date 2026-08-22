@@ -64,12 +64,29 @@ KNOWN_NOT_REVIEW = {
     'gpgsig': '**簽署**不是審查——它證明身分，不證明有人檢查過內容',
     'mergetag': '被合併的 tag 物件', 'encoding': 'message 的字元編碼',
 }
+# **多行 header 的續行以空格開頭**（RFC 式折疊）——`gpgsig` 的 PGP 簽章就是那樣。
+# 上一版對每一行取 `split()[0]`，於是 signed commit 抽出 **19 個「欄位」**，其中
+# 15 個是 base64 片段（#407 R26k，實測 `32ebc301`）。**HEAD 剛好不是 signed
+# commit，所以本機全綠**——它在有 GPG 的環境會炸，而那是常態。
 header = sh("git cat-file -p HEAD | sed -n '1,/^$/p'")
-fields = sorted({l.split()[0] for l in header.split('\n') if l.strip()})
+fields = sorted({l.split()[0] for l in header.split('\n')
+                 if l.strip() and not l.startswith(' ')})
 hit = [f for f in fields if any(w in f.lower() for w in REVIEW_ISH)]
 # trailer 是第二個可能的載體（commit message 尾註）。
 trailers = sh("git log -1 --format='%(trailers)' HEAD").strip()
 unknown = [f for f in fields if f not in KNOWN_NOT_REVIEW]
+# **不只驗 HEAD**：HEAD 剛好不是 signed commit 時，續行的坑看不出來（R26k）。
+# 本 repo 有 signed commit（GitHub 的 web merge），所以順帶對第一個 signed
+# commit 跑同一個抽取式——**兩種形狀都要對，才叫這個檢查有意義**。
+signed = sh("git rev-list --all | while read h; do "
+            "git cat-file -p $h | head -6 | grep -q gpgsig && echo $h && break; done")
+if signed:
+    sh_hdr = sh(f"git cat-file -p {signed} | sed -n '1,/^$/p'")
+    sf = sorted({l.split()[0] for l in sh_hdr.split('\n')
+                 if l.strip() and not l.startswith(' ')})
+    su = [f for f in sf if f not in KNOWN_NOT_REVIEW]
+    print(f'     signed commit {signed[:8]} 的欄位：{sf}  '
+          f'{check(not su, f"signed commit 抽出未判定欄位：{su[:3]}")}')
 print(f'     commit 物件的欄位：{fields}')
 print(f'     其中 review 類：{hit or "無"}｜未判定過的欄位：{unknown or "無"}｜'
       f'HEAD 的 trailer：{trailers or "無"}')

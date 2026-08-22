@@ -2,6 +2,12 @@
 
 ## [unreleased]
 
+- **兩個零驗證的洞 ＋ 一個巧合就能矇混的比對**（#407 R22e／R22f，c10 三個 lens 全回）：
+  · **`cat X | bash` 零可見度**：直譯器單獨成段（引數裡沒有腳本）先前無條件靜默，而 `cat deploy.sh | bash` 是常見的 CI 部署慣用法、它**真的執行** deploy.sh。改為：直譯器單獨成段 ＝ 從 stdin 讀 ＝ 管線執行 → 揭露（不猜是哪一支，管線來源在別的段裡）。
+  · **`Sources/*/*.swift` 完全不被驗**：它的 `dirname` 末段是 `*`，痕跡檢查整條跳過；而第一段字面 `Sources` 又讓結構判準放它過——**兩道檢查都不看它**。改為往前找第一個非萬用字元的段（`Sources/*/*.swift` → `Sources`）。
+  · **痕跡檢查是子串比對**：`docs` 會因為原始碼裡有 `docstring` 算成有痕跡，`tests` 因為 `attests`／`protests`。改用詞邊界。端到端負控刻意構造：給一個不含 `rules` 的守衛同時注入一條編造宣告與一行含 `rulesets` 的註解——子串版放過、詞邊界版擋下。
+  同輪 DA 席獨立確認 R22d 的 `NON_EXEC` 缺陷（它讀了 worktree 的現行版本佐證「作者自己在下一輪就承認並修掉了」）。負控 15 → 18。
+
 - **`NON_EXEC` 是在用封閉列舉描述一個開放集合**（#407 R22d）：R22c 維護一份「不執行腳本的命令」白名單（`echo`／`printf`／`cat`／…）。實測 **13 個常見 CI 命令全部觸發假警報**——`grep -n foo b.sh`、`shellcheck b.sh`、`wc -l b.sh`、`chmod +x b.sh`、`git add b.sh`、`cp b.sh /tmp/`、`test -f b.sh`、`black --check b.py`、`python3 -m py_compile b.py`…**每加一個進白名單，下一個仍在外面**。
   判準反過來：**認出「執行的形式」，不列舉「不執行的命令」**。問「這一段有沒有直譯器 token」——沒有的話它不可能在跑腳本（`grep`／`shellcheck`／`cp` 都不會），靜默即可；有的話才需要揭露認不出的形式。另補兩個細節：跳過旗標找腳本（`bash -x a.sh` 是常見除錯形式），`-m` 例外（`python3 -m mod x.py` 跑的是模組）。**16 種形式逐一驗過**：13 個假警報全消，真正的漏報（`FOO=1 bash a.sh`、`env bash a.sh`）仍被揭露。負控 14 → 15（`shellcheck` 一格）。
 

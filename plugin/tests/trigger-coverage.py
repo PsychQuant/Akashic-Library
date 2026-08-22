@@ -190,8 +190,15 @@ def invoked(text):
                     if script:
                         found.add(os.path.basename(script))
                         continue
-                # 直譯器在場但形式認不出（`-m`、或引數裡沒有腳本）——靜默：
-                # 它跑的不是我們關心的那種東西。
+                # **直譯器單獨成段（或引數裡全是旗標）＝ 從 stdin 讀。**
+                # `cat deploy.sh | bash` 是常見的 CI 部署慣用法，而它真的執行了
+                # deploy.sh——先前這裡無條件 `continue`，於是零可見度（#407 R22e，
+                # 跨模型審查指名）。管線來源在別的段裡，本函式看不出它是哪一支，
+                # 所以揭露而不是猜。
+                if not any(x for x in st[1:] if not x.startswith('-')):
+                    chained.append(' '.join(st))
+                    continue
+                # `-m` 或引數裡沒有腳本——它跑的不是我們關心的那種東西，靜默。
                 continue
             if h.startswith('./') and h.endswith(('.sh', '.py', '.swift')):
                 found.add(os.path.basename(h))
@@ -391,12 +398,25 @@ for g in GUARDS:
     body = '\n'.join(l for l in raw.split('\n') if not DECLARE.match(l))
     for line in decl_lines:
         glob_ = DECLARE.match(line).group(1)
-        seg = os.path.dirname(glob_).rstrip('/').split('/')[-1]
+        # **往前找第一個非萬用字元的段。** `Sources/*/*.swift` 的 dirname 是
+        # `Sources/*`，取最後一段會得到 `*`，於是下面的萬用字元條件讓整條宣告
+        # **跳過檢查**——而它的第一段是字面 `Sources`，前一道也放它過，於是
+        # 完全不被驗（#407 R22e，跨模型審查指名）。
+        parts = [p for p in os.path.dirname(glob_).rstrip('/').split('/') if p]
+        seg = next((p for p in reversed(parts)
+                    if '*' not in p and '?' not in p), '')
         # **沒有目錄部分的 glob 跳過。** `*.sh` 的 dirname 是空字串，退化之後
         # seg 會變成 pattern 自己，而它當然不在原始碼裡——於是這條會跟「第一段
         # 是萬用字元」那條**同時**報，讓負控的鑑別力判準正確地判它不外科手術
         # （#407 R22b 當場撞到）。那類 glob 已由前一條負責，這裡不重複。
-        if seg and '*' not in seg and '?' not in seg and seg not in body:
+        # **詞邊界，不是子串。** `seg not in body` 會讓 `docs` 因為原始碼裡有
+        # `docstring` 而算成有痕跡，`tests` 因為 `attests`／`protests`——巧合的
+        # 字串重疊足以讓一條編造的宣告矇混過去（#407 R22f，跨模型審查的次要
+        # 指名）。實測：詞邊界版正確區分 `docs`/`docstring`（無痕跡）與
+        # `rules`/`$PLUGIN/rules`（有痕跡）。
+        traced = seg and re.search(
+            rf'(?<![A-Za-z0-9_-]){re.escape(seg)}(?![A-Za-z0-9_-])', body)
+        if seg and '*' not in seg and '?' not in seg and not traced:
             fails.append(f'{os.path.basename(g)} 宣告讀 `{glob_}`，但它的原始碼'
                          f'（扣掉宣告行本身）從沒提過 `{seg}`——宣告是用來補'
                          f'啟發式的漏，不是用來聲稱一個看不出痕跡的依賴')

@@ -112,6 +112,30 @@ RESULTS = [
          'rule-coverage.sh'),
     # 同一個 echo 但用 `./` 形式。R20 只修了直譯器那半邊（`bash X`），
     # `./X` 分支照舊掃全行——這一格是那個殘留的負控（#407 R20c）。
+    # #407 R22e：`cat X | bash` 是常見的 CI 部署慣用法，它真的執行 X——先前
+    # 直譯器單獨成段時無條件靜默，於是零可見度。
+    case('把 run: 換成 `cat <守衛> | bash`（直譯器從 stdin 讀）',
+         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+             'run: bash plugin/tests/rule-coverage.sh',
+             'run: cat plugin/tests/rule-coverage.sh | bash')},
+         'rule-coverage.sh 不在任何 CI workflow 跑'),
+    # #407 R22f：痕跡檢查若用**子串**比對，巧合的字串重疊足以讓編造的宣告
+    # 矇混過去。這一格給一個不含 `rules` 的守衛同時注入 (a) 一條指向
+    # `plugin/rules/*.md` 的編造宣告 (b) 一行含 `rulesets` 的註解——`rules`
+    # 是 `rulesets` 的子串但不是它的詞，所以子串版放過、詞邊界版擋下。
+    case('編造宣告 + 一個巧合子串（`rulesets` 含 `rules` 但不是詞）',
+         {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
+             '#!/bin/bash',
+             '#!/bin/bash\n# trigger-coverage: reads plugin/rules/*.md\n'
+             '# 說明：本檔不處理 rulesets，只重建審查者的失敗情境。', 1)},
+         '從沒提過'),
+    # #407 R22e：`Sources/*/*.swift` 的 dirname 末段是 `*`，先前讓痕跡檢查
+    # 整條跳過，而第一段字面 `Sources` 又讓前一道放它過——完全不被驗。
+    case('宣告用中間萬用字元（`Sources/*/*.swift`）躲過痕跡檢查',
+         {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
+             '# trigger-coverage: reads plugin/rules/*.md',
+             '# trigger-coverage: reads Sources/*/*.swift')},
+         '從沒提過'),
     # #407 R22d：把守衛的呼叫換成一個**不執行它**的命令（shellcheck 只做靜態
     # 檢查）。判準若還是「列舉不執行的命令」，這一格會因為 shellcheck 不在
     # 白名單而報成「有東西看不到」——那是假警報不是缺口。現在的判準是「段內

@@ -302,6 +302,15 @@ RESULTS = [
              'run: |\n          set -e\n          echo 開始\n'
              '          python3 plugin/tests/DELETED-numbers-audit.py', 1)},
          'measured-numbers-audit.py'),
+    # #407 R44：heredoc 主體是**寫進檔案的字面文字**，不是被執行的命令。不擋的話
+    # 會產生**假綠**（方向與本函式其餘刻意選的漏報相反）。
+    case('把守衛名字藏進 heredoc 主體（不得算成有跑）',
+         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+             'run: python3 plugin/tests/measured-numbers-audit.py',
+             "run: |\n          cat > /tmp/w.sh <<'EOF'\n"
+             "          python3 plugin/tests/measured-numbers-audit.py\n"
+             "          EOF\n          chmod +x /tmp/w.sh", 1)},
+         'measured-numbers-audit.py'),
     case('把 run: 換成 shellcheck（靜態檢查，不執行守衛）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
              'run: bash plugin/tests/rule-coverage.sh',

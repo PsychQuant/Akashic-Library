@@ -19,6 +19,35 @@
 
 
 
+
+## R44 — 那 6 個 case 在 CI **哪裡都跑不到**（HIGH）；以及 heredoc 主體被算成執行
+
+### ① 綠燈掩蓋「沒跑到」——三個事實都重驗過
+
+| 事實 | 重驗 |
+|---|---|
+| `census-parity.yml`（唯一有 Swift 的 CI）沒跑這支 harness | `grep -c audit-guards-mutations` → **0** |
+| 它是 macOS runner | `runs-on: macos-15` |
+| main 的 CI 全紅（帳務擱置） | `gh run list --limit 5` → 五次全 `failure` |
+
+所以 R43 讓 ubuntu 那步把 `exit 2` 收成 0 之後，那 6 個 swift-gated case **在 CI 的任何
+一處都不會執行**，而 PR 的 check 是**全綠**。一個把 `hash-table-drift.sh` 的 ASCII 不變式
+弄壞、或把 `multiscalar-parity.swift` 的 `inTable` 極性寫反的回歸，會以全綠出貨。
+
+**修法是讓它們有地方跑**，不是讓 ubuntu 那步變紅（那只會讓 workflow 永遠紅、被忽略）：
+`census-parity.yml` 加一步跑整支 harness——那台有 Swift，18 個全跑。殘留的缺口因此從
+「哪裡都跑不到」降為「macOS runner 帳務擱置」，而後者本檔與 CLAUDE.md 都已記載。
+
+### ② heredoc 主體被算成執行（假綠，方向與其餘刻意選的漏報相反）
+
+R43 的續行展開把「縮排更深的非空行」一律當成命令。而
+`cat > w.sh <<'EOF' … python3 plugin/tests/X.py … EOF` 裡那一行是**被寫進檔案的字面
+文字**，不是被執行的命令——X.py 會被算成「CI 有跑」。加 heredoc 狀態追蹤後擋掉；
+第 31 個 negative control 釘住它。
+
+端到端 pre-push 再驗：**exit=0、339 秒**。守衛十四支全綠、trigger 負控 31/31、
+audit 負控 18/18。
+
 ## R43 — 跳過要進 exit code；閘門測試的判別力來自「成對」；區塊形式的 run: 要讀得到
 
 ### ① 跳過只印在 stdout，對回傳值不可見（跨模型審查指名）

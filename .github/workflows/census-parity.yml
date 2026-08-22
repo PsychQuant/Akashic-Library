@@ -86,3 +86,9 @@ jobs:
       # 上一步的每一格都證明會紅。它 mutate 一份 copy，不碰出貨檔。
       - name: parity negative control
         run: python3 plugin/skills/akashic-literal-campaign/scripts/tests/marker-parity-mutations.py
+      # 這台有 Swift，所以 `audit-guards-mutations.py` 的 18 個 case **全部**跑得起來
+      # （ubuntu 那台缺 toolchain，6 個 swift-gated case 一定跳過、回 exit 2）。
+      # 不加這一步的話那 6 個 case 在 CI **哪裡都跑不到**，而 ubuntu 那步把 2 收成 0
+      # ——綠燈掩蓋「沒跑到」（#407 R44，跨模型審查指名為 HIGH）。
+      - name: 守衛的 negative control（本 runner 有 Swift，18 個全跑）
+        run: python3 plugin/tests/audit-guards-mutations.py

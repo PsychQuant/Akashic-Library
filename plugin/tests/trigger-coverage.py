@@ -184,12 +184,27 @@ def invoked(text):
             blocks.append(line)
             i += 1
             # 續行 ＝ 縮排嚴格深於 `run:` 的非空行
+            heredoc = None       # heredoc 的結束字，None ＝ 不在 heredoc 內
             while i < len(src_lines):
                 nxt = src_lines[i]
                 if nxt.strip() and (len(nxt) - len(nxt.lstrip())) <= indent:
                     break
-                if nxt.strip():
-                    expanded.append('run: ' + nxt.strip())
+                s = nxt.strip()
+                if heredoc is not None:
+                    # **heredoc 主體是被寫進檔案的字面文字，不是被執行的命令**
+                    # （#407 R44，跨模型審查指名）。不跳過的話，一個
+                    # `cat > w.sh <<'EOF' … python3 plugin/tests/X.py … EOF`
+                    # 會讓 X.py 被算成「CI 有跑」——**假綠**，方向與本函式其餘
+                    # 部分刻意選的漏報相反，所以要特別擋。
+                    if s == heredoc:
+                        heredoc = None
+                    i += 1
+                    continue
+                hd = re.search(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?", s)
+                if hd:
+                    heredoc = hd.group(1)
+                if s:
+                    expanded.append('run: ' + s)
                 i += 1
             continue
         expanded.append(line)

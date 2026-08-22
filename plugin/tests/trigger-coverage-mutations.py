@@ -49,11 +49,31 @@ def with_copy(edits):
 
 
 def case(desc, edits, expect_substr):
+    """判準有三段，第三段是 #407 R20d 補的。
+
+    前兩段（守衛變紅、訊息指名了它）不足以說這格**鑑別**了它具名的缺陷：
+    一個注入若順帶打壞別的東西，紅的原因就分不出來。姊妹 harness
+    （plugin/tests/rule-prose-guards-mutations.py）在 R18b 已經吃過這個虧
+    ——四格宣告「第 1 項」的注入實際紅 [1, 2]。
+
+    所以第三段要求**每一條被報出來的缺口都屬於它指名的那一類**。實測八格
+    全部「其他 0」，這條斷言在寫下時即為真，而它防的是日後新增的不純注入。
+    """
     rc, out = with_copy(edits)
     hit = expect_substr in out
-    ok = rc != 0 and hit
-    print(f'{"✓" if ok else "✗"} {desc} → rc={rc}'
-          f'{"，且指名了它" if hit else "，但沒指名 ← 訊息對它是盲的"}')
+    gaps = re.findall(r'^  · (.+)$', out, re.M)
+    stray = [g for g in gaps if expect_substr not in g]
+    ok = rc != 0 and hit and not stray
+    if ok:
+        print(f'✓ {desc} → rc={rc}，指名了它'
+              + (f'（缺口 {len(gaps)} 條全屬同類）' if gaps else ''))
+    elif not hit:
+        print(f'✗ {desc} → rc={rc}，但沒指名 ← 訊息對它是盲的')
+    elif stray:
+        print(f'✗ {desc} → rc={rc}，但另有 {len(stray)} 條無關缺口 '
+              f'← 注入不是外科手術式的：{stray[:2]}')
+    else:
+        print(f'✗ {desc} → rc={rc}')
     return ok
 
 

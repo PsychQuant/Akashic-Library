@@ -160,8 +160,8 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
 
 **裁決：暫不升格。** 三個理由：
 
-1. **實測 6 筆**，而其中只有 1 個容器被共用（`The Stanford Encyclopedia of Philosophy`
-   ×3）。新增一條封閉列舉的邊要付的代價是：本表加一列＋merge 閘＋反射守衛計數＋YAML
+1. **實測 6 筆**（#339 立案當時），而其中只有 1 個容器被共用（`The Stanford Encyclopedia
+   of Philosophy` ×3）。新增一條封閉列舉的邊要付的代價是：本表加一列＋merge 閘＋反射守衛計數＋YAML
    編解碼與封閉鍵域＋`resolve-*` 一族（提名／verdict／tier）＋index 反向查詢＋
    `literal-first-then-key` 的 campaign 納入＋MCP/CLI parity 裁決。那是兩個中型 issue
    的量級。
@@ -169,6 +169,20 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
    `apa7-is-the-work-floor` 的破底，是**表達力**問題。
 3. **venue 那條路已被 #324 關掉**：不得把 edited book 塞進 `VenueType`——那會製造一個
    結構上無法持有 APA7 要求欄位的 venue，是把「模型接不住」搬個位置而不是修掉。
+
+> ⚠ **兩個觸發條件都已成立（2026-08-23 重跑，#407 R33）——本裁決待重做。**
+>
+> | 觸發條件 | 立案當時 | 2026-08-23 |
+> |---|---|---|
+> | 帶 `booktitle` 的記錄 ≥ 20 筆 | 6 筆 | **31 筆** |
+> | 單一容器被 ≥ 5 筆共用 | 最多 ×3 | **`維基百科，自由的百科全書` ×10、`Wikipedia, the free encyclopedia` ×4** |
+>
+> 重跑指令即下方那條（逐字未改）；記錄數另用
+> `grep -l '^  booktitle:' ~/.akashic/entities/*.yaml | wc -l`。
+>
+> **本輪只更新量測、不代做裁決**——那是 #339 的設計決定，須由使用者定奪。這一格是
+> 在 #407 重算規則檔裡的現況數字時發現的：**「暫不新增」的條件早就不成立了，而沒有
+> 任何東西會通知它**（`blocked-issues-must-be-scannable` 記過同型的「空等」）。
 
 **觸發條件（任一成立即重新裁決）**：
 

@@ -102,6 +102,10 @@ unknown = [f for f in fields if f not in KNOWN_NOT_REVIEW]
 # 提到那個字就命中。於是它抓到了 **R26l 那個 commit**（標題正是「漏了
 # gpgsig-sha256」）——**我寫的那句話讓偵測式抓到了它自己**。
 # 正解：只看 header（`sed '/^$/q'`）並錨定行首（`^gpgsig`）。
+#
+# **`^gpgsig` 是前綴，所以 SHA-256 repo 的 `gpgsig-sha256` 也會被抓到**——那不是
+# 巧合而是 grep 的自然行為，但寫下來以免日後有人「修正」成 `^gpgsig ` （加空格）
+# 而漏掉那種 repo（#407 R26r，自答 c27 時順帶驗到）。
 signed = sh("git rev-list --all | while read h; do "
             "git cat-file -p $h | sed '/^$/q' | grep -q '^gpgsig' "
             "&& echo $h && break; done")

@@ -75,6 +75,19 @@ def mutate(work, old, new, desc, expect_case):
     # （#407 R10 verify）
     shutil.copy2(TABLE, os.path.join(work, os.path.basename(TABLE)))
     fails, out = run_test(copy)
+    # **判準是「宣告的那一格紅了」，刻意不是「只有那一格紅」。**
+    #
+    # 姊妹 harness（tests/rule-prose-guards-mutations.py）在 #407 R18 把判準升成
+    # 「恰好第 n 項紅」，因為那邊的 5 個 check 是**不同性質**的檢查——一個注入
+    # 同時打紅兩項時，「第 n 項紅」就分不出是誰抓到的。
+    #
+    # 這裡不跟進，而且不是還沒做：46 個 fixture 是**同一個性質**（census 與讀端
+    # 一致）的不同輸入。一個打壞 census 某條規則的注入，天然會讓所有依賴該規則的
+    # fixture 一起紅——那是正確行為，不是雜訊。要求 exact 會逼每個 mutation 手寫
+    # 一份預期的 fixture 集合，而那份集合會在新增 fixture 時安靜過期：一份與它所
+    # 描述的東西分開演化的規格，正是這條 issue 反覆記過的形狀。
+    #
+    # 兩邊的共通要求仍在：baseline 全綠、在 pristine copy 上跑、宣告的那格必須紅。
     hit = re.search(rf'✗ {re.escape(expect_case)}', out) is not None
     ok = fails > 0 and hit
     print(f'{"✓" if ok else "✗"} 注入「{desc}」→ fail={fails}'

@@ -70,10 +70,23 @@ def with_copy(mutated_rule):
 
 
 def report(out, n, desc):
-    red = re.search(rf'^\[{n}\] FAIL', out, re.M) is not None
-    print(f'{"✓" if red else "✗"} {desc} → 第 {n} 項 '
-          f'{"變紅" if red else "沒紅 ← 守衛對它是盲的"}')
-    return red
+    """判準是**恰好**第 n 項紅，不是「第 n 項紅」。
+
+    差別是鑑別力。一個注入若同時打紅第 n 與第 m 項，那麼「第 n 項紅」這個觀察
+    就分不出「守衛 n 抓到了它」與「守衛 m 抓到了它、而 n 只是順帶」——它作為
+    第 n 項的負控就不純。#407 R18 實測：四個宣告第 1 項的注入實際紅 [1, 2]，
+    因為一個 markdown 連結同時是兩者的正例（可跟隨 ＋ 未揭露取用限制）。
+    修法是讓那四格帶揭露詞，把它們收斂成只對第 1 項的正例。
+    """
+    reds = set(int(m) for m in re.findall(r'^\[(\d)\] FAIL', out, re.M))
+    ok = reds == {n}
+    if ok:
+        print(f'✓ {desc} → 恰好第 {n} 項變紅')
+    elif not reds:
+        print(f'✗ {desc} → 第 {n} 項沒紅 ← 守衛對它是盲的')
+    else:
+        print(f'✗ {desc} → 宣告第 {n} 項，實際紅 {sorted(reds)} ← 注入不是外科手術式的')
+    return ok
 
 
 def append(extra, n, desc):
@@ -99,10 +112,13 @@ print('baseline：5/5 ✓')
 print()
 
 RESULTS = [
-    append('見 [那條規則](.claude/rules/identity-is-judged-not-matched.md)。',
+    # **前四格都刻意帶「private／取不到」的揭露詞**——不是為了好看，是為了讓
+    # 它們只當第 1 項的正例。不帶的話它們同時觸發第 2 項（提到 repo 路徑而未
+    # 揭露），於是「第 1 項紅」分不出是誰抓到的（#407 R18 實測紅 [1, 2]）。
+    append('見 [那條規則](.claude/rules/identity-is-judged-not-matched.md)（private repo，外部讀者取不到）。',
            1, '加一個可跟隨的 repo 連結（private repo 的 404 ＝ 假訊號）'),
     # 第 1 項先前只認四種形狀中的兩種——這一格注入的正是另外兩種之一。
-    append('見 [那個型別](Sources/AkashicCore/Venue.swift)。',
+    append('見 [那個型別](Sources/AkashicCore/Venue.swift)（private repo，外部讀者取不到）。',
            1, '加一個指向 Sources/ 的可跟隨連結（前一版的謂詞漏掉這種）'),
     # REPO_ONLY 有**四**個 alternation 分支，而這份負控先前只注入前兩個
     # （規則目錄與型別原始碼那兩種——這裡刻意不寫出路徑字面，那會觸發第 2 項）。
@@ -110,9 +126,9 @@ RESULTS = [
     # 「手寫兩種形狀、另外兩種一路綠燈」發生過一次——而覆蓋率當時只修了一半：
     # 謂詞改成共用 REPO_ONLY 了，證明它四個分支都會紅的注入卻只有兩格。
     # 下面兩格補上第 3、4 個分支（#407 R18，跨模型審查指名）。
-    append('見 [那份說明](docs/store-format.md)。',
+    append('見 [那份說明](docs/store-format.md)（private repo，外部讀者取不到）。',
            1, '加一個指向 docs/*.md 的可跟隨連結（REPO_ONLY 第 3 分支）'),
-    append('見 [那一行](https://github.com/PsychQuant/Akashic-Library/blob/main/README.md)。',
+    append('見 [那一行](https://github.com/PsychQuant/Akashic-Library/blob/main/README.md)（private repo，取不到）。',
            1, '加一個 blob/ 深連結（REPO_ONLY 第 4 分支）'),
     append('判準寫在 `.claude/rules/identity-is-judged-not-matched.md`。',
            2, '加一句未揭露取用限制的 repo 專屬路徑'),

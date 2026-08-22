@@ -112,11 +112,18 @@ unknown = [f for f in fields if f not in KNOWN_NOT_REVIEW]
 # 腳本用了不同轉義卻得到 1／1。**斷言通過，但通過的理由不是我寫的理由。**
 # Python 的 `re` 沒有轉義層，直接做。
 _LINES = ['gpgsig -----BEGIN', 'gpgsig-sha256 -----BEGIN']
-_hit_prefix = sum(1 for l in _LINES if re.match(r'^gpgsig', l))
-_hit_spaced = sum(1 for l in _LINES if re.match(r'^gpgsig ', l))
-print(f'     `^gpgsig` 對 gpgsig／gpgsig-sha256 命中 {_hit_prefix}／2、'
-      f'加空格後只剩 {_hit_spaced}  '
-      f'{check(_hit_prefix == 2 and _hit_spaced == 1, "grep 前綴行為與註解不符")}')
+# **pattern 只有一份**（#407 R26u，DA 席指名）：上一版的 fixture 自己寫了
+# `re.match(r'^gpgsig', …)`，而真偵測式用的是 shell 的 `grep -q '^gpgsig'`
+# ——**兩份獨立的 pattern**。有人把偵測式改成 `^gpgsig ` 時，fixture 那格照樣綠：
+# **斷言存在，但它守的不是被守的那個東西**（本 repo 反覆記過的「一份規格的兩個
+# 副本必然分岔」）。現在從本檔原始碼抽出偵測式實際用的 regex 再跑 fixture。
+_SRC = io.open(__file__, encoding='utf8').read()
+_m = re.search(r"grep -q '(\^gpgsig[^']*)'", _SRC)
+_pat = _m.group(1) if _m else None
+_hit_prefix = sum(1 for l in _LINES if _pat and re.match(_pat, l))
+print(f'     偵測式實際用的 pattern：{_pat!r}（從原始碼抽出，非另寫一份）')
+print(f'     它對 gpgsig／gpgsig-sha256 命中 {_hit_prefix}／2  '
+      f'{check(_pat is not None and _hit_prefix == 2, f"偵測式的 pattern 只命中 {_hit_prefix}／2——SHA-256 repo 會被漏掉")}')
 signed = sh("git rev-list --all | while read h; do "
             "git cat-file -p $h | sed '/^$/q' | grep -q '^gpgsig' "
             "&& echo $h && break; done")

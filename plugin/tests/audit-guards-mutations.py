@@ -33,19 +33,22 @@ PARITY_REL = 'plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-
 GEN_REL = 'plugin/skills/akashic-literal-campaign/scripts/tests/derive-hash-extenders.swift'
 WF_REL = '.github/workflows/census-parity.yml'
 CLAIMS_REL = 'plugin/tests/measured-claims-audit.py'
+NUMBERS_REL = 'plugin/tests/measured-numbers-audit.py'
+BACKLINK_REL = '.claude/rules/entity-backlink-completeness.md'
 DRIFT_REL = 'plugin/skills/akashic-literal-campaign/scripts/tests/hash-table-drift.sh'
 TABLE_REL = 'plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt'
 MULTI_REL = 'plugin/skills/akashic-literal-campaign/scripts/tests/multiscalar-parity.swift'
 RULE_REL = 'plugin/rules/assertions-must-be-measured.md'
 
 WATCHED = [COVERAGE_REL, DRIFT_REL, TABLE_REL, MULTI_REL, RULE_REL,
-           REVIEW_REL, PARITY_REL, GEN_REL, WF_REL, CLAIMS_REL]
+           REVIEW_REL, PARITY_REL, GEN_REL, WF_REL, CLAIMS_REL,
+           NUMBERS_REL, BACKLINK_REL]
 
 
 def with_copy(guard_rel, edits):
     """複製相關子樹、套用 edits、跑 copy 裡的那支守衛。"""
     with tempfile.TemporaryDirectory(prefix='audit-mut-') as tmp:
-        for sub in ('plugin', '.github'):
+        for sub in ('plugin', '.github', '.claude'):
             shutil.copytree(os.path.join(ROOT, sub), os.path.join(tmp, sub))
         for rel, fn in edits.items():
             p = os.path.join(tmp, rel)
@@ -143,6 +146,26 @@ CASES = [
      {MULTI_REL: lambda t: t.replace('guard let f = cps.first else { return true }',
                                      'guard let f = cps.last else { return true }', 1)},
      ['分歧數']),
+    # ── measured-numbers-audit.py（#407 R36）──────────────────────────────
+    # 要挑**只靠行內錨**的那一個。先前挑 `entity-backlink` 的「（#339 立案當時）」，
+    # 但同一小節裡還有 R33 加的 ⚠ 區塊帶著日期，小節層的錨照樣成立——注入不生效
+    # （#407 R36 當場量到）。`literal-first-then-key.md:35` 的 `#303` 是該行唯一的錨。
+    ('numbers：把某個數字唯一的行內時間錨拿掉',
+     NUMBERS_REL,
+     {'.claude/rules/literal-first-then-key.md':
+      lambda t: t.replace('（#303 實測：2,123/3,720 邊，57.1%）',
+                          '（實測：2,123/3,720 邊，57.1%）', 1)},
+     ['沒有時間錨']),
+    ('numbers：新增一個裸的 `實測 N`',
+     NUMBERS_REL,
+     {RULE_REL: lambda t: t.replace('## 誠實邊界',
+                                    '## 補充\n\n實測 99 筆。\n\n## 誠實邊界', 1)},
+     ['沒有時間錨']),
+    ('numbers：規則目錄整個不見（不得靜默回綠）',
+     NUMBERS_REL,
+     {NUMBERS_REL: lambda t: t.replace("'.claude/rules/*.md'", "'.claude/rulez/*.md'", 1)
+                              .replace("'plugin/rules/*.md'))", "'plugin/rulez/*.md'))", 1)},
+     ['一個規則檔都沒找到']),
     ('multi：案例表被清空（fixture 蒸發不得靜默通過）',
      MULTI_REL,
      # `[] + [...]` **不會**清空（前一版寫成那樣，於是這個 case 一直在測別的東西，

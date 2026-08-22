@@ -42,6 +42,8 @@ on:
       # decision-matrix-drift.py 的輸入是 CLAUDE.md 的 8 列決策矩陣（#407 R27）。
       # 表改了守衛就得跑——不加這條的話，一個改壞矩陣的 push 在 CI 側完全無聲。
       - "CLAUDE.md"
+      # measured-numbers-audit.py 讀 .claude/rules 與 plugin/rules 兩處（#407 R36）。
+      - ".claude/rules/**"
   pull_request:
     paths: *guard_paths
 
@@ -100,3 +102,5 @@ jobs:
         run: python3 plugin/tests/decision-matrix-mutations.py
       - name: rule-coverage 與 hash-table-drift 的 negative control
         run: python3 plugin/tests/audit-guards-mutations.py
+      - name: 規則檔的實測數字要有時間錨
+        run: python3 plugin/tests/measured-numbers-audit.py

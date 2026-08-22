@@ -37,9 +37,25 @@ MARK = re.compile(r'20\d\d-\d\d-\d\d|20\d\d 年|當日|立案當時|#\d{2,4}')
 # 就算有指令，於是 `` `akashic validate` `` ——一個沒有 store 路徑、沒有 filter、
 # 貼進 shell 也重現不出那個數字的**工具名**——把一個會漂移的計數判成有背書。現在
 # 另外要求它長得像**可貼進 shell 的一行**：含路徑分隔、管線、旗標、或命令替換。
-CMD = re.compile(
-    r'`[^`]*(?:grep|awk|sed|git |gh |python3|swift|bash|jq|wc |find |validate)'
-    r'[^`]*[|/$-][^`]*`')
+# **反引號要在同一行內配對**（#407 R40，跨模型審查指名）：`[^`]*` 不排除換行，於是
+# 一個沒有關鍵字的 inline code 的**收尾**反引號會被當成新的開頭，一路吃過表格好幾列，
+# 直到下一個反引號——中間的中文散文含「通過 validate」與 markdown 的 `|`，於是整段被
+# 判成「有可重跑的指令」。實測 `zero-instance-guards.md:22` 就這樣憑空產生一個
+# 540→943 的 match。加 `\n` 到排除集合即讓它只在單行內配對。
+_TOOL = r'(?:grep|awk|sed|git |gh |python3|swift|bash|jq|wc |find |validate)'
+_RUNNABLE = r'[|/$-]'
+# ① 同一行內的 inline code
+CMD_INLINE = re.compile(r'`[^`\n]*' + _TOOL + r'[^`\n]*' + _RUNNABLE + r'[^`\n]*`')
+# ② 圍籬區塊。**必須支援**：兩個真的可重跑的配方就寫在 ```bash 裡，而 inline 那條
+#    看不到它們——先前它們「通過」靠的是①跨行誤配對出來的假 match（#407 R40）。
+CMD_FENCE = re.compile(r'```[a-z]*\n(.*?)```', re.S)
+
+
+def has_cmd(window):
+    if CMD_INLINE.search(window):
+        return True
+    return any(re.search(_TOOL, b) and re.search(_RUNNABLE, b)
+               for b in CMD_FENCE.findall(window))
 
 
 def main():
@@ -59,7 +75,16 @@ def main():
     for f in files:
         lines = io.open(f, encoding='utf8').read().split('\n')
         sec = 0
+        in_fence = False
         for i, line in enumerate(lines):
+            if line.lstrip().startswith('```'):
+                in_fence = not in_fence
+                continue
+            # 圍籬區塊裡的行**本身就在配方中**（那個數字是指令旁的註解）。窗式偵測
+            # 看不到它——窗從區塊中間開始時抓不到開頭的柵欄（#407 R40 實測：
+            # `mcp-cli-parity.md` 的「實測：恰 30」就寫在 ```bash 內的註解行）。
+            if in_fence:
+                continue
             if line.startswith('#'):
                 sec = i
             for m in NUM.finditer(line):
@@ -68,7 +93,7 @@ def main():
                 total += 1
                 anchored = (MARK.search(line)
                             or MARK.search('\n'.join(lines[sec:i + 1]))
-                            or CMD.search('\n'.join(lines[max(0, i - 4):i + 8])))
+                            or has_cmd('\n'.join(lines[max(0, i - 4):i + 8])))
                 if not anchored:
                     bare.append((os.path.relpath(f, root), i + 1,
                                  m.group(1), line.strip()[:60]))

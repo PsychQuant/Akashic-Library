@@ -38,3 +38,10 @@ openspec/.vector-search.db*
 
 # IDD per-clone config（legacy 形式；現行 .claude/.idd/local.json 照常追蹤）
 .claude/issue-driven-dev.local.*
+
+# Python 建置產物（#407 R40）。守衛與 negative control 是 .py，而 harness 會被
+# import（probe／測試），於是 `git add -A` 會把 `__pycache__/` 一起掃進去——
+# 實地發生過：`plugin/tests/__pycache__/audit-guards-mutations.cpython-313.pyc`
+# 被 R39 的 commit 帶上版控。
+__pycache__/
+*.pyc

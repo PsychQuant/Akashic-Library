@@ -23,10 +23,20 @@ final class PrePushHookTests: XCTestCase {
         let checks = poisonedNames.map {
             "if /usr/bin/env | /usr/bin/grep -q '^\($0)='; then exit 91; fi"
         }.joined(separator: "\n")
+        // **只攔 `build`／`test`，其餘 pass-through 給真的 swift**（#407 R40）。
+        // 先前這支 mock 對任何呼叫都只記錄後回 0，而 pre-push 現在還會用 swift 跑
+        // `multiscalar-parity.swift`、以及 `hash-table-drift.sh` 內的表生成器——
+        // 它們拿到空輸出就判定漂移，於是**整個 hook exit 1**，本測試的兩個斷言
+        // （狀態為 0、swift 呼叫恰為那兩筆）同時紅。本測試要驗的是「環境有沒有被
+        // 清乾淨」與「build／test 有沒有帶 -warnings-as-errors」，不是「hook 總共
+        // 呼叫幾次 swift」——所以 pass-through 保住原本的斷言不必改。
         let script = """
         #!/bin/sh
         \(checks)
-        /usr/bin/printf '%s\\n' "$*" >> "$AKASHIC_PRE_PUSH_PROBE_LOG"
+        case "$1" in
+          build|test) /usr/bin/printf '%s\\n' "$*" >> "$AKASHIC_PRE_PUSH_PROBE_LOG" ;;
+          *) exec /usr/bin/swift "$@" ;;
+        esac
         """
         try script.write(to: mockSwift, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(

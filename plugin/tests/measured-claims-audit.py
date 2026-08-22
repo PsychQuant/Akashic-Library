@@ -164,8 +164,12 @@ print(f'     mergetag fixture（構造，本 repo 無實例）：{mt_fields}  '
 print(f'     commit 物件的欄位：{fields}')
 print(f'     其中 review 類：{hit or "無"}｜未判定過的欄位：{unknown or "無"}｜'
       f'HEAD 的 trailer：{trailers or "無"}')
-print(f'     {check(not hit and not trailers and not unknown, "git 出現了 review 類載體或未判定過的欄位："
-                    f"{hit}／{trailers}／{unknown}")}')
+# **訊息先算好，不要塞進 f-string 的巢狀引號＋跨行運算式**——那是 PEP 701（Python
+# 3.12+）才允許的寫法，而 pre-push 與 CI 拿到的 `python3` 未必是 3.12：本機 PATH 上
+# 是 3.13，系統的 `/usr/bin/python3` 是 **3.9**，在後者這一段直接 SyntaxError、整支
+# 守衛跑不起來（#407 R40，由 `PrePushHookTests` 的受限 PATH 抓到）。
+_msg = f'git 出現了 review 類載體或未判定過的欄位：{hit}／{trailers}／{unknown}'
+print(f'     {check(not hit and not trailers and not unknown, _msg)}')
 
 # ③ 那三格全是 warn_case——直接列，不用計數
 print('③ 「3 格全是 warn_case（行 209／246／315）」')

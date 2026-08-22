@@ -16,6 +16,35 @@
 
 
 
+
+## R40 — 端到端跑一次整個 pre-push，抓到四件個別跑不出來的事
+
+這輪之前我只逐支跑守衛，**從沒跑過整個 hook**。跑一次（183 秒）→ **exit 1**。
+
+| # | 缺陷 | 只有端到端跑得出來的原因 |
+|---|---|---|
+| 1 | **`PrePushHookTests` 紅**——它 mock 掉 `swift` 並斷言「呼叫恰為 build／test 兩筆、且 hook exit 0」。而 hook 現在還用 swift 跑 `multiscalar-parity.swift` 與表生成器，mock 讓它們拿到空輸出 → 判定漂移 → 整個 hook 失敗 | 單跑守衛用的是真 swift |
+| 2 | **`measured-claims-audit.py` 在 Python 3.9 下 SyntaxError**——一個 f-string 用了巢狀引號＋跨行運算式（PEP 701，3.12+）。本機 PATH 是 3.13、`/usr/bin/python3` 是 3.9 | 測試用受限 PATH（`/usr/bin:/bin`）跑 hook，我平常不會 |
+| 3 | **`.pyc` 被 commit 進版控**——R39 的 `git add -A` 掃進 `plugin/tests/__pycache__/`（probe 腳本 import 了 harness）。`.gitignore` 當時沒有 `__pycache__` 規則 | 只有看整個 branch 的檔案清單才會發現 |
+| 4 | 最後一個裸 `✗` 斷言（R39 的四個替換有一個沒命中而我沒察覺） | — |
+
+修法：① mock 只攔 `build`／`test`，其餘 pass-through 給真 swift——本測試要驗的是
+「環境有沒有清乾淨」與「build／test 有沒有帶 `-warnings-as-errors`」，不是「總共呼叫
+幾次 swift」，所以原本的斷言不必改。② 訊息先算好再進 f-string；實測九支 `.py` 守衛
+在 3.9 下**全部**可編譯。③ `git rm --cached` ＋ `.gitignore` 加 `__pycache__/`／`*.pyc`。
+
+### 同輪跨模型審查的兩條，也都成立
+
+- **CMD 的反引號跨行誤配對**：`[^`]*` 不排除換行，於是沒有關鍵字的 inline code 的
+  **收尾**反引號被當成開頭，一路吃過好幾列表格；中間的中文散文含「通過 validate」與
+  markdown 的 `|`，整段被判成「有可重跑的指令」。加 `\n` 到排除集合後——**冒出 2 個
+  先前被遮住的裸數字**，其中一個正是我 R39 自己補的那個配方（它「通過」靠的就是這個
+  誤配對）。
+- 補圍籬支援時又發現第二層：`mcp-cli-parity.md` 的「實測：恰 30」**寫在 ```bash 區塊
+  內的註解行**，窗式偵測從區塊中間開始、看不到開頭的柵欄。改成掃描時追蹤圍籬狀態。
+
+守衛十四支全綠、negative control 18/18、`PrePushHookTests` 綠、受限 PATH 下全部守衛綠。
+
 ## R39 — 兩條 finding，而修其中一條時**同一個形狀又犯了兩次**
 
 ### ① 負控標成 A、實際打中 B（跨模型審查指名）

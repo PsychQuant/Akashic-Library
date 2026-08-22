@@ -126,7 +126,7 @@ CASES = [
     ('review：把生成表從 parity workflow 的 paths 拿掉',
      REVIEW_REL,
      {WF_REL: lambda t: t.replace('      - "plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt"\n', '')},
-     ['✗']),
+     ['生成表現在在 parity workflow 的 paths']),
     ('review：讓生成器真的去讀 CommandLine.arguments',
      REVIEW_REL,
      {GEN_REL: lambda t: t.replace('import Foundation',

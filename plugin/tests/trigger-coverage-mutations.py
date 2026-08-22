@@ -133,11 +133,31 @@ RESULTS = [
     # 上長得一樣——那正是本 harness 存在的理由。
     #
     # 取而代之的兩格，來自同輪跨模型審查：
-    case('把宣告改成過寬的 glob（`reads *`）——解析得到但文不對題',
+    # 兩條規則各一格，**刻意不用 `reads *`**：那個 glob 同時觸發兩條（無路徑
+    # 成分 ＋ 命中全部），於是它證明不了是哪一條抓到的——第三段鑑別力判準會
+    # 正確地把它判成不外科手術（實測過，#407 R21b）。
+    #
+    # `*.sh` 命中 5/16——**比例判準放它過**，結構判準擋下。這一格是判準從
+    # 比例改成結構之後才抓得到的東西。
+    # 切段之後，`bash A && bash B` 的 B 也認得出來——這一格證明那件事：
+    # 把真的執行 B 的那一段改成 echo，B 才該從 found 消失（#407 R21c）。
+    case('把 run 改成 `bash setup.sh && bash <守衛>` 再把後半換成 echo',
+         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+             'run: bash plugin/tests/rule-coverage.sh',
+             'run: bash scripts/setup.sh && echo "見 plugin/tests/rule-coverage.sh"')},
+         'rule-coverage.sh 不在任何 CI workflow 跑'),
+    case('把宣告改成 `reads *.sh`（比例判準會放過，結構判準擋下）',
          {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
              '# trigger-coverage: reads plugin/rules/*.md',
-             '# trigger-coverage: reads *')},
-         '過寬的 glob 不是宣告依賴'),
+             '# trigger-coverage: reads *.sh')},
+         '沒有路徑成分'),
+    # `*/*` 有路徑成分（結構判準放它過）但命中全部 16/16——證明全覆蓋那條
+    # 檢查不是被結構判準遮蔽的死碼。
+    case('把宣告改成 `reads */*`（有路徑成分但命中全部）',
+         {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
+             '# trigger-coverage: reads plugin/rules/*.md',
+             '# trigger-coverage: reads */*')},
+         '在描述整個 repo'),
     case('把受保護檔案的路徑改成不存在的（憑記憶寫路徑的那個坑）',
          {GUARD_REL: lambda t: t.replace(
              "'Sources/AkashicStoreIO/StoreVersion.swift'",

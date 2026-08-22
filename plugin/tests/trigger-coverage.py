@@ -134,31 +134,35 @@ def invoked(text):
         if not toks:
             continue
         head = toks[0]
-        # **串接偵測不看 head。** 上一版要求 head 不是直譯器，於是
-        # `bash A && bash B` 短路成 False——B 既不進 found（只認 toks[1]＝A）
-        # 也不進 chained，**零可見度**；而 `cd A && bash B`（head 不是直譯器）
-        # 至少會被揭露。同一個缺口因為 head 的形式不同而有無揭露，是不對稱
-        # 的假保證（#407 R21，跨模型審查指名）。
-        # 判準改為：這一行含 && 或 ;，而且它提到的腳本檔名多於我們認出來的
-        # 那一個——那就有東西被漏掉。
-        named = re.findall(r'\S+\.(?:sh|py|swift)\b', cmd)
-        recognised = 1 if (head in ('bash', 'sh', 'python3', 'python', 'swift')
-                           and len(toks) > 1
-                           and toks[1].endswith(('.sh', '.py', '.swift'))) \
-            or head.startswith('./') else 0
-        if re.search(r'&&|;', cmd) and len(named) > recognised:
-            chained.append(cmd)
-        if head in ('bash', 'sh', 'python3', 'python', 'swift') and len(toks) > 1 \
-                and toks[1].endswith(('.sh', '.py', '.swift')):
-            found.add(os.path.basename(toks[1]))
-        elif head.startswith('./') and head.endswith(('.sh', '.py', '.swift')):
-            found.add(os.path.basename(head))
+        # **按分隔符切段，每段獨立判斷。**
+        #
+        # 前一版數「這行提到幾個腳本檔名」對上「認出來幾個」，而後者被 cap 在 1
+        # ——於是 `bash a.sh && bash a.sh`（同一支呼叫兩次）誤報成有東西漏掉，
+        # 而 `bash A && bash B` 只認出 A、B 仍然漏（#407 R21c，跨模型審查指名
+        # 前者，量測時發現後者一併存在）。切段之後兩者都對：每一段有自己的 head。
+        #
+        # **單段未認出 ≠ 漏掉。** `run: echo "見 X.sh"` 只有一段，它就是不執行
+        # ——正確忽略，不進 chained。只有**多段**時，一個帶腳本檔名卻認不出
+        # 執行形式的段（`FOO=$(…) bash X`、變數展開）才是真的看不到。
+        segments = [s for s in re.split(r'&&|\|\||;', cmd) if s.strip()]
+        for seg in segments:
+            st = seg.split()
+            if not st:
+                continue
+            h = st[0]
+            if h in ('bash', 'sh', 'python3', 'python', 'swift') and len(st) > 1 \
+                    and st[1].endswith(('.sh', '.py', '.swift')):
+                found.add(os.path.basename(st[1]))
+            elif h.startswith('./') and h.endswith(('.sh', '.py', '.swift')):
+                found.add(os.path.basename(h))
+            elif len(segments) > 1 and re.search(r'\S+\.(?:sh|py|swift)\b', seg):
+                chained.append(seg.strip())
     if chained:
         # `cd A && bash X` 這類串接：第一個 token 不是直譯器，所以認不出來。
         # **方向是漏報**（守衛會紅、不會假綠），但仍要印——R20c 才立下的原則是
         # 「寫在註解裡的已知限制，對讀輸出的人等於沒人知道」（#407 R20e）。
-        print(f'   ℹ 有 {len(chained)} 個串接式 run（含 && 或 ; 且提到守衛檔名），'
-              f'本函式只認第一個 token——那些呼叫看不到（漏報，會讓守衛紅）')
+        print(f'   ℹ 有 {len(chained)} 個串接段帶著腳本檔名卻認不出執行形式'
+              f'（變數展開、前置賦值等）——那些呼叫看不到（漏報，會讓守衛紅）')
     if blocks:
         # 多行 `run: |` 的實際命令在**續行**上，本函式看不到（#407 R20c）。
         # 不靜默：印出來。目前用它的只有 ci.yml，而 ci.yml 的 paths-ignore
@@ -274,11 +278,27 @@ for g in GUARDS:
     # ——那比宣告落空更難發現，因為覆蓋表會印出一個看似合理的讀取關係。
     # 這裡不猜「對的東西」是什麼（那要人判斷），只擋掉明顯過寬的：一個宣告
     # 命中超過受保護檔的一半，它就不是在指認依賴，是在描述整個 repo。
+    # **判準是結構的，不是比例的。**
+    #
+    # 上一版寫「命中超過受保護檔的一半」。那是比例判準，會隨集合形狀漂移：
+    # 實測 `plugin/tests/*` 目前命中 6/16（安全），但守衛再長 5 支就會被判過寬
+    # ——而它是一個**完全合法**的目錄宣告。把會變的東西當成恆定判準，正是這條
+    # issue 反覆記過的形狀（#407 R21b）。
+    #
+    # 要擋的東西有結構性特徵：`*`／`*.sh` **沒有路徑成分**——它們說「凡是這種
+    # 副檔名的」，不是「這個位置的」。有路徑成分的宣告（`plugin/tests/*`、
+    # `plugin/rules/*.md`）是在指認位置，合法且不隨集合大小改變。
+    #
+    # 比例檢查保留，但收到無疑義的那一格：命中**全部**。
+    for line in raw.split('\n'):
+        m = DECLARE.match(line)
+        if m and '/' not in m.group(1):
+            fails.append(f'{os.path.basename(g)} 的宣告 `{m.group(1)}` 沒有路徑成分'
+                         f'——那是在說「凡是這種副檔名的」，不是在指認依賴的位置')
     hits = declared(g)
-    if len(hits) > len(PROTECTED) // 2:
-        fails.append(f'{os.path.basename(g)} 的 `trigger-coverage: reads` 宣告命中 '
-                     f'{len(hits)}/{len(PROTECTED)} 個受保護檔——過寬的 glob 不是'
-                     f'宣告依賴，是在描述整個 repo；請指名到具體路徑或目錄')
+    if hits and len(hits) == len(PROTECTED):
+        fails.append(f'{os.path.basename(g)} 的宣告命中全部 {len(PROTECTED)} 個'
+                     f'受保護檔——那不是宣告依賴，是在描述整個 repo')
 
 print('每支守衛被判定讀了哪些受保護檔（啟發式，漏報方向——見 READS 上方註解）：')
 for g in GUARDS:

@@ -243,11 +243,26 @@ RESULTS = [
     # 而輸出與「這個守衛沒有宣告任何依賴」逐字相同。實地踩到（decision-matrix-drift
     # 的宣告寫在 docstring 裡沒加 `#`，覆蓋表照樣印全綠）。既有的「有宣告但解析不到」
     # 那條擋不住這種——它的前件就是 DECLARE 匹配。
-    case('宣告少了註解標記（DECLARE 不匹配，宣告是啞的）',
+    case('啞宣告①：少了註解標記',
          {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
              '#!/bin/bash',
              '#!/bin/bash\ntrigger-coverage: reads plugin/rules/*.md', 1)},
-         '少了註解標記'),
+         '這一行是啞的'),
+    # #407 R28：另外三種同樣安靜的啞法。上一版的謂詞只認第①種。
+    case('啞宣告②：行尾多一句註記（DECLARE 要求行尾就結束）',
+         {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
+             '#!/bin/bash',
+             '#!/bin/bash\n# trigger-coverage: reads plugin/rules/*.md  # 新增', 1)},
+         '這一行是啞的'),
+    case('啞宣告③：沒給 glob',
+         {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
+             '#!/bin/bash', '#!/bin/bash\n# trigger-coverage: reads', 1)},
+         '這一行是啞的'),
+    case('啞宣告④：關鍵字打成 read',
+         {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
+             '#!/bin/bash',
+             '#!/bin/bash\n# trigger-coverage: read plugin/rules/*.md', 1)},
+         '這一行是啞的'),
     warn_case('編造宣告 + 巧合子串（`rulesets` 含 `rules`，非路徑脈絡）',
          {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
              '#!/bin/bash',

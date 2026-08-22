@@ -427,7 +427,12 @@ print(f'守衛 {len(GUARDS)} 支｜受保護 {len(PROTECTED)} 個｜'
 # 只說「這來自宣告」，不說「這個宣告是對的」——一條編造的宣告印出來與正常
 # 依賴逐字相同。要看出不對，讀者得**已經知道**那個守衛實際讀什麼，那不是可見。
 # 換成痕跡檢查之後它至少是可否證的：宣告的目錄名必須在守衛原始碼裡留下痕跡。
-NEAR_MISS = re.compile(r'^\s*trigger-coverage:\s*reads\s+\S+\s*$')
+# 一行**看起來就是在宣告**（行首、可有註解標記、緊接 `trigger-coverage:`）卻不是
+# 合法宣告 → 它是啞的。上一版只認「少了註解標記」一種，實測還有三種同樣安靜：
+# 行尾多一句註記、沒給 glob、關鍵字打成 `read`（#407 R28）。四種都被這一條認出，
+# 而對全部守衛逐行掃描的**誤傷是 0 行**（實測，含 harness 裡的字串字面——它們以
+# 引號開頭所以不匹配）。
+DECL_SHAPED = re.compile(r'^\s*(?:#|//)?\s*trigger-coverage:')
 for g in GUARDS:
     raw = io.open(g, encoding='utf8', errors='replace').read()
     # **用同一個謂詞。** 裸子串會把「談論宣告」算成「有宣告」——那正是上面
@@ -439,9 +444,9 @@ for g in GUARDS:
     # 覆蓋表照樣印全綠。上面那條只擋「有宣告但解析不到」，抓不到這一種。
     # 錨在行首（不含引號／標記）才不會誤傷 harness 裡帶 `\n` 的字串字面。
     for line in raw.split('\n'):
-        if NEAR_MISS.match(line) and not DECLARE.match(line):
+        if DECL_SHAPED.match(line) and not DECLARE.match(line):
             fails.append(f'{os.path.basename(g)} 有一行 `{line.strip()[:56]}`，'
-                         f'但**少了註解標記**（`#` 或 `//`）——這個宣告是啞的')
+                         f'但 DECLARE 不匹配——**這一行是啞的**')
     if has_decl and not declared(g):
         fails.append(f'{os.path.basename(g)} 有 `# trigger-coverage: reads` 宣告，'
                      f'但 declared() 解析不到任何受保護檔——宣告機制失效了')

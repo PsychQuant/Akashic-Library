@@ -59,38 +59,52 @@ def rule_move(push, ci, hp):
     return '執行' if ci == '恢復' else '零執行'
 
 
-def strip_md(cell):
+def strip_md(cell, strip_notes=True):
+    """剝 markdown 強調、反引號，**以及全形括號的註記**。
+
+    **只對前三欄剝註記，結果欄不剝**（#407 R28b，負控自己逼出來的）：前三欄的格是
+    在**指名一個封閉集合裡的值**，括號裡的字改不了它是哪一個（`不跑（**現況**）`
+    仍然是不跑）；結果欄的格是在**下一個判斷**，括號裡的字可以限定它
+    （`執行（只在 merge 後）` 不是無條件的執行）。所以同一個剝法用在兩處，一處
+    是正確地忽略裝飾、另一處是安靜地丟掉限定詞。
+
+    註記剝掉才能對前三欄做**嚴格查表**（#407 R28）。上一版對前三欄用子串比對，於是
+    一個很自然的編輯就會被安靜讀反——實測三個：
+
+        `不跑（**等 macOS 帳務恢復**）`   → 讀成「恢復」（人讀「不跑」）
+        `正常 push（不帶 --no-verify）`   → 讀成「--no-verify」（人讀「正常」）
+        `指向本樹以外（未設定或主 repo）` → 讀成「未設定」（人讀是兩個值）
+
+    三個都不出聲。上一輪只把**結果欄**改成嚴格相等，其餘三欄漏了——同一個病，
+    修了一欄就以為修完了。
+    """
     cell = re.sub(r'`[^`]*`', lambda m: m.group(0).strip('`'), cell)
+    if strip_notes:
+        cell = re.sub(r'（[^（）]*）', '', cell)
     return cell.replace('*', '').strip()
 
 
+# 嚴格查表。任何不在表內的字面都落進 `<未解析>`（出聲），不做「猜最像的那個」。
+PUSH_MAP = {'正常 git push': '正常', '--no-verify': '--no-verify'}
+CI_MAP = {'不跑': '不跑', '恢復': '恢復'}
+HP_MAP = {'未設定': ['未設定'], '指向主 repo': ['主repo'],
+          '指向本樹': ['本樹'], '任一': HP_VALUES}
+
+
 def parse_push(c):
-    return '--no-verify' if '--no-verify' in c else ('正常' if 'git push' in c or '正常' in c else None)
+    return PUSH_MAP.get(c)
 
 
 def parse_ci(c):
-    if '恢復' in c:
-        return '恢復'
-    return '不跑' if '不跑' in c else None
+    return CI_MAP.get(c)
 
 
 def parse_hp(c):
-    if '任一' in c:
-        return HP_VALUES          # 該維全部取值
-    if '未設定' in c:
-        return ['未設定']
-    if '主 repo' in c or '主repo' in c:
-        return ['主repo']
-    if '本樹' in c:
-        return ['本樹']
-    return None
+    return HP_MAP.get(c)
 
 
 def parse_outcome(c):
-    # **嚴格相等，不做子串比對**（#407 R27，負控寫錯 mutation 時順帶看見的）。
-    # 子串版把「執行（只在 merge 後）」讀成無條件的「執行」——安靜丟掉限定詞，
-    # 而限定詞正是這張表出過事的地方。嚴格版讓它落進 `<未解析>` 出聲。
-    # （子串版另有一個坑：「零執行」含有「執行」，順序寫反就全錯。嚴格版沒這個問題。）
+    # 同一個立場（#407 R27 先在這一欄落地，R28 推到其餘三欄）：嚴格相等。
     return c if c in ('執行', '零執行') else None
 
 
@@ -107,7 +121,8 @@ def main():
     for l in lines[head + 2:]:
         if not l.startswith('> |'):
             break
-        cells = [strip_md(c) for c in l[2:].strip().strip('|').split('|')]
+        raw_cells = l[2:].strip().strip('|').split('|')
+        cells = [strip_md(c, strip_notes=(i < 3)) for i, c in enumerate(raw_cells)]
         if len(cells) != 5:
             print(f'✗ 列的欄數不是 5：{l[:70]}')
             return 1

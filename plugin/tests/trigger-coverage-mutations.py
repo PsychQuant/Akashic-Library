@@ -32,6 +32,14 @@ def with_copy(edits):
             src = os.path.join(ROOT, sub)
             if os.path.isdir(src):
                 shutil.copytree(src, os.path.join(tmp, sub))
+        # **根目錄的受保護檔也要複製。** 它們不是子樹，上面那個迴圈看不到——
+        # 漏掉時守衛在 temp 樹裡找不到 DATA 的成員，於是**每一個** case 都因為
+        # 同一個與注入無關的理由變紅（#407 R27 當場踩到：加了 `CLAUDE.md` 進
+        # DATA 之後 14/14 全紅，而紅的原因是檔案不存在）。
+        for f in ('CLAUDE.md',):
+            s = os.path.join(ROOT, f)
+            if os.path.isfile(s):
+                shutil.copy2(s, os.path.join(tmp, f))
         for rel, fn in edits.items():
             p = os.path.join(tmp, rel)
             # **先讀完，再開寫。** 寫成一行的話 Python 會先求值 io.open(p,'w')
@@ -231,6 +239,15 @@ RESULTS = [
     # 矇混過去。這一格給一個不含 `rules` 的守衛同時注入 (a) 一條指向
     # `plugin/rules/*.md` 的編造宣告 (b) 一行含 `rulesets` 的註解——`rules`
     # 是 `rulesets` 的子串但不是它的詞，所以子串版放過、詞邊界版擋下。
+    # #407 R27：整行就是宣告卻**少了註解標記** → DECLARE 不匹配、宣告完全啞掉，
+    # 而輸出與「這個守衛沒有宣告任何依賴」逐字相同。實地踩到（decision-matrix-drift
+    # 的宣告寫在 docstring 裡沒加 `#`，覆蓋表照樣印全綠）。既有的「有宣告但解析不到」
+    # 那條擋不住這種——它的前件就是 DECLARE 匹配。
+    case('宣告少了註解標記（DECLARE 不匹配，宣告是啞的）',
+         {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
+             '#!/bin/bash',
+             '#!/bin/bash\ntrigger-coverage: reads plugin/rules/*.md', 1)},
+         '少了註解標記'),
     warn_case('編造宣告 + 巧合子串（`rulesets` 含 `rules`，非路徑脈絡）',
          {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
              '#!/bin/bash',

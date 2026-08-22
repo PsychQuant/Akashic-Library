@@ -39,6 +39,9 @@ on:
       # parity 的 oracle。它不在這裡跑 parity（那需要 build，屬 census-parity.yml），
       # 但 trigger-coverage 要能看見它改動時的覆蓋狀況。
       - "Sources/AkashicStoreIO/StoreVersion.swift"
+      # decision-matrix-drift.py 的輸入是 CLAUDE.md 的 8 列決策矩陣（#407 R27）。
+      # 表改了守衛就得跑——不加這條的話，一個改壞矩陣的 push 在 CI 側完全無聲。
+      - "CLAUDE.md"
   pull_request:
     paths: *guard_paths
 
@@ -88,3 +91,10 @@ jobs:
         run: python3 plugin/tests/trigger-coverage-mutations.py
       - name: 判準表的現查
         run: python3 plugin/tests/measured-claims-audit.py
+
+      # 決策矩陣的漂移檢查。純讀 CLAUDE.md 的表 + 兩條語意規則，不跑任何
+      # 被保護的程式碼、不需要 swift ——所以同樣放 ubuntu（1× 計費）這一側。
+      - name: 決策矩陣漂移
+        run: python3 plugin/tests/decision-matrix-drift.py
+      - name: 決策矩陣守衛的 negative control
+        run: python3 plugin/tests/decision-matrix-mutations.py

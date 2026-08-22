@@ -49,15 +49,32 @@ print('② 「git 證立時序，證立不了有檢查」')
 # 這一版問 commit **物件本身**的欄位名（`git cat-file -p`），那是 git 物件格式的
 # 一部分：`tree` / `parent` / `author` / `committer` / 空行 / message。欄位名是
 # **真的單字**，所以 review 類字樣有可能出現——若 git 日後加了那種欄位，這裡會紅。
+# **縮寫也要列**（#407 R26i）：`REVIEW_ISH` 原本只有英文單字，而 commit 欄位名裡
+# 有縮寫——`gpgsig` 是最接近的一個。這是同一個坑的第三次（R26f 掃 placeholder
+# 縮寫找英文單字；R26g 改問欄位名以為解決了，而欄位名裡也有縮寫）。
+#
+# **但 `gpgsig` 不算**，而理由要寫清楚：它證明**簽署**（這是誰寫的），不證明
+# **審查**（有人檢查過內容）。兩者的差別正是第 ② 列的主題。所以它列進 KNOWN
+# 而非 REVIEW_ISH——**列進去是為了讓「我看過它並判定它不算」這件事可查**，
+# 而不是靠清單漏掉它來蒙混。
 REVIEW_ISH = ('review', 'approv', 'signoff', 'sign-off', 'verdict', 'attest')
+# 已知且判定「不是審查證據」的欄位（含縮寫）。出現在這裡＝看過、判過。
+KNOWN_NOT_REVIEW = {
+    'tree': '內容指標', 'parent': '前驅', 'author': '誰寫的', 'committer': '誰提交的',
+    'gpgsig': '**簽署**不是審查——它證明身分，不證明有人檢查過內容',
+    'mergetag': '被合併的 tag 物件', 'encoding': 'message 的字元編碼',
+}
 header = sh("git cat-file -p HEAD | sed -n '1,/^$/p'")
 fields = sorted({l.split()[0] for l in header.split('\n') if l.strip()})
 hit = [f for f in fields if any(w in f.lower() for w in REVIEW_ISH)]
 # trailer 是第二個可能的載體（commit message 尾註）。
 trailers = sh("git log -1 --format='%(trailers)' HEAD").strip()
+unknown = [f for f in fields if f not in KNOWN_NOT_REVIEW]
 print(f'     commit 物件的欄位：{fields}')
-print(f'     其中 review 類：{hit or "無"}｜HEAD 的 trailer：{trailers or "無"}  '
-      f'{check(not hit and not trailers, f"git 出現了 review 類載體：{hit}／{trailers}")}')
+print(f'     其中 review 類：{hit or "無"}｜未判定過的欄位：{unknown or "無"}｜'
+      f'HEAD 的 trailer：{trailers or "無"}')
+print(f'     {check(not hit and not trailers and not unknown, "git 出現了 review 類載體或未判定過的欄位："
+                    f"{hit}／{trailers}／{unknown}")}')
 
 # ③ 那三格全是 warn_case——直接列，不用計數
 print('③ 「3 格全是 warn_case（行 209／246／315）」')

@@ -2,6 +2,8 @@
 
 ## [unreleased]
 
+- **宣告機制失效時守衛本來不會紅**（#407 R20b）：`# trigger-coverage: reads <glob>` 的宣告寫在**註解**裡（寫在程式碼裡它就會被執行），所以 `declared()` 必須讀 raw file——而同一個檔案裡的 `code_only()` 服務的是相反的判定（「這個 basename 是真的被讀，還是只在註解裡被提到」）。**兩個函式對註解的態度相反是設計**，而它看起來像不一致，下一個人很可能會「統一」它。統一之後宣告全部失效，**而守衛不會紅**：它只是少考慮幾個 pair，沉默地。加一條會紅的斷言（有宣告就必須解析得到）＋ 第 7 格 negative control（把 `declared()` 改成走 `code_only()`，實測紅且訊息指名根因）。跨模型審查的 requirements 席獨立確認機制有效。
+
 - **新守衛自己有兩個假陰性**（#407 R20）：R17–R19c 的 887 行此前從未被跨模型審查（那是那幾輪自己寫的程式碼）。送審後 3/3 完成、六條 finding **全部指向 `trigger-coverage.py`**。兩個 HIGH 經構造實驗實測成立——守衛在那兩種狀態下**報綠而它宣稱的性質為假**：
   (a) **pre-push 覆蓋檢查讀 raw text**。把一支守衛從 hook 拿掉、只留一行 `# TODO: 之後再接 …`，守衛照樣印「涵蓋 10/10」。而 `code_only()` 就在同一個檔案裡、正是為了修「坑 3」而寫的——`READS` 用了它，`HOOK` 沒用。**修了一半**，正是本 repo `no-compat-fallback` 記過的 #241 形狀。
   (b) **workflow 的「執行」偵測匹配同一行任何檔名**。把 `run: bash plugin/tests/rule-coverage.sh` 換成 `run: echo "見 plugin/tests/rule-coverage.sh 的說明"`，該守衛仍被算成「這個 workflow 執行了它」。改為只認命令位置（`bash X`／`python3 X`／`swift X`／`./X`）；仍是啟發式，但失敗方向翻轉為漏報（讓守衛紅，不讓它假綠）。

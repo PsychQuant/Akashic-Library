@@ -162,6 +162,12 @@ def declared(path):
     存在的理由是一個實測到的漏報：`rule-coverage.sh` 用 glob `"$RULES"/*.md`
     定位規則檔，從不寫出任何 basename，於是啟發式把它判成「只讀自己」——
     而它的整個職責就是驗那些規則檔（#407 R20，由攤開表讓它現形）。
+
+    **這裡刻意讀 raw file，不經 `code_only()`——那不是漏改，是必要的。**
+    宣告只能寫在註解裡（寫在程式碼裡它就會被執行），所以讀宣告必須看得到註解；
+    而 `code_only()` 服務的是另一個判定（「這個 basename 是真的被讀，還是只是
+    在註解裡被提到」），那裡剝註解才對。兩個函式對註解的態度相反是設計，
+    把它們「統一」會讓宣告機制整個失效。
     """
     out = set()
     for line in io.open(path, encoding='utf8', errors='replace'):
@@ -189,6 +195,15 @@ HOOK = code_only('.githooks/pre-push') if os.path.exists('.githooks/pre-push') e
 
 print(f'守衛 {len(GUARDS)} 支｜受保護 {len(PROTECTED)} 個｜'
       f'workflow {len(WORKFLOWS)} 份\n')
+
+# **有宣告就必須解析得到。** 若有人把 declared() 「統一」成走 code_only()，
+# 宣告行（是註解）會被剝掉、機制整個失效——而守衛**不會紅**：它只是少考慮
+# 幾個 pair，沉默地。所以在這裡把它變成會紅的（#407 R20b）。
+for g in GUARDS:
+    raw = io.open(g, encoding='utf8', errors='replace').read()
+    if 'trigger-coverage: reads' in raw and not declared(g):
+        fails.append(f'{os.path.basename(g)} 有 `# trigger-coverage: reads` 宣告，'
+                     f'但 declared() 解析不到任何受保護檔——宣告機制失效了')
 
 print('每支守衛被判定讀了哪些受保護檔（啟發式，漏報方向——見 READS 上方註解）：')
 for g in GUARDS:

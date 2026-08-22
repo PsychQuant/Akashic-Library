@@ -88,6 +88,16 @@ RESULTS = [
              'run: bash plugin/tests/rule-coverage.sh',
              'run: echo "見 plugin/tests/rule-coverage.sh 的說明"')},
          'rule-coverage.sh'),
+    # 宣告機制若被「統一」成走 code_only()，宣告行（是註解）會被剝掉、機制
+    # 整個失效——而守衛本來**不會紅**（只是少考慮幾個 pair，沉默地）。R20b
+    # 把它變成會紅的，這一格證明那件事。
+    case('把 declared() 改成走 code_only()（宣告行是註解，會被剝掉）',
+         {'plugin/tests/trigger-coverage.py': lambda t: t.replace(
+             "    for line in io.open(path, encoding='utf8', errors='replace'):\n"
+             "        m = DECLARE.search(line)",
+             "    for line in code_only(path).split('\\n'):\n"
+             "        m = DECLARE.search(line)")},
+         '宣告機制失效了'),
     case('把受保護檔案的路徑改成不存在的（憑記憶寫路徑的那個坑）',
          {GUARD_REL: lambda t: t.replace(
              "'Sources/AkashicStoreIO/StoreVersion.swift'",

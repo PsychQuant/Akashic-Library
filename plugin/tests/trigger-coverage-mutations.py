@@ -112,6 +112,13 @@ RESULTS = [
          'rule-coverage.sh'),
     # 同一個 echo 但用 `./` 形式。R20 只修了直譯器那半邊（`bash X`），
     # `./X` 分支照舊掃全行——這一格是那個殘留的負控（#407 R20c）。
+    # #407 R22c 量測到的兩個零可見度形式。管線先前完全不在切分符裡，於是
+    # `cat x | bash <守衛>` 的守衛既不進 found 也不進 chained。
+    case('把 run: 改成管線形式（`cat x | bash <守衛>` 後半換成 echo）',
+         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+             'run: bash plugin/tests/rule-coverage.sh',
+             'run: cat /dev/null | echo "見 plugin/tests/rule-coverage.sh"')},
+         'rule-coverage.sh 不在任何 CI workflow 跑'),
     case('把 run: 換成印出 ./ 形式檔名的 echo（R20 修法的殘留半邊）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
              'run: bash plugin/tests/rule-coverage.sh',

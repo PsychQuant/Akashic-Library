@@ -34,6 +34,7 @@ import glob
 import io
 import os
 import re
+import shlex
 import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -134,29 +135,49 @@ def invoked(text):
         if not toks:
             continue
         head = toks[0]
-        # **按分隔符切段，每段獨立判斷。**
+        # **用 shlex 切 token，再按分隔符切段。**
         #
-        # 前一版數「這行提到幾個腳本檔名」對上「認出來幾個」，而後者被 cap 在 1
-        # ——於是 `bash a.sh && bash a.sh`（同一支呼叫兩次）誤報成有東西漏掉，
-        # 而 `bash A && bash B` 只認出 A、B 仍然漏（#407 R21c，跨模型審查指名
-        # 前者，量測時發現後者一併存在）。切段之後兩者都對：每一段有自己的 head。
+        # 前一版直接對字串 split，於是三種形式都錯（#407 R22c 量測）：
+        #   · `cat x.txt | bash b.sh`  管線不在切分符裡 → b.sh 真的執行卻**零可見度**
+        #   · `FOO=1 bash a.sh`        單段、head 不是直譯器 → 同上
+        #   · `echo "見 a.sh && bash b.sh"`  引號內的 && 被當成分隔符 → **誤報**
         #
-        # **單段未認出 ≠ 漏掉。** `run: echo "見 X.sh"` 只有一段，它就是不執行
-        # ——正確忽略，不進 chained。只有**多段**時，一個帶腳本檔名卻認不出
-        # 執行形式的段（`FOO=$(…) bash X`、變數展開）才是真的看不到。
-        segments = [s for s in re.split(r'&&|\|\||;', cmd) if s.strip()]
-        for seg in segments:
-            st = seg.split()
-            if not st:
-                continue
+        # shlex 懂引號：第三種會變成 ['echo', '見 a.sh && bash b.sh'] 兩個 token，
+        # 分隔符藏在字串裡不再被切開。切分符加上 `|`。
+        #
+        # 「單段未認出 ≠ 漏掉」那句話**先前寫得太寬**：它對 `echo "見 X.sh"` 成立，
+        # 對 `FOO=1 bash X` 不成立。判準改為看 head 是不是明確的「不執行」命令。
+        # `punctuation_chars=True` 讓 `;`／`|`／`&&`／`||` 成為**獨立 token**。
+        # 沒有它的話 `bash a.sh; bash b.sh` 會被切成 `['bash','a.sh;',…]`——分號
+        # 黏在檔名尾巴上，於是整行變成單段而兩支都認不出（#407 R22c 當場撞到，
+        # 六格驗證裡就這一格紅）。
+        try:
+            lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+            lex.whitespace_split = True
+            tokens = list(lex)
+        except ValueError:
+            tokens = cmd.split()          # 未閉合引號等——退回粗略切法
+        segments, cur = [], []
+        for tok in tokens:
+            if tok in ('&&', '||', ';', '|'):
+                segments.append(cur)
+                cur = []
+            else:
+                cur.append(tok)
+        segments.append(cur)
+        segments = [s for s in segments if s]
+        # 明確不執行的命令：它們把腳本名當**資料**（印出來、讀進去）。
+        NON_EXEC = {'echo', 'printf', 'cat', 'true', ':', 'ls', 'head', 'tail'}
+        for st in segments:
             h = st[0]
             if h in ('bash', 'sh', 'python3', 'python', 'swift') and len(st) > 1 \
                     and st[1].endswith(('.sh', '.py', '.swift')):
                 found.add(os.path.basename(st[1]))
             elif h.startswith('./') and h.endswith(('.sh', '.py', '.swift')):
                 found.add(os.path.basename(h))
-            elif len(segments) > 1 and re.search(r'\S+\.(?:sh|py|swift)\b', seg):
-                chained.append(seg.strip())
+            elif h not in NON_EXEC and any(
+                    re.search(r'\S+\.(?:sh|py|swift)\b', x) for x in st):
+                chained.append(' '.join(st))
     if chained:
         # `cd A && bash X` 這類串接：第一個 token 不是直譯器，所以認不出來。
         # **方向是漏報**（守衛會紅、不會假綠），但仍要印——R20c 才立下的原則是

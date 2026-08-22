@@ -76,6 +76,71 @@ final class PrePushHookTests: XCTestCase {
         )
     }
 
+    /// `swift build` 失敗時，hook 必須**中止**——不得繼續跑 `swift test` 或後面的守衛。
+    ///
+    /// 為什麼要有這一項（#407 R42，跨模型審查指名）：上面那項的 mock 對 `build`／`test`
+    /// **永遠回 0**，所以它驗得了「有沒有帶 `-warnings-as-errors`」與「環境有沒有清乾淨」，
+    /// 卻驗不了**這道閘會不會擋**。一個把 `set -eo pipefail` 拿掉、或把 `swift test` 接進
+    /// 沒有 `pipefail` 的管線的回歸（那正是 #129 記過的 bug），會讓上面那項**逐字不變**
+    /// 地通過——log 仍是那兩行、狀態仍是 0——而失敗的建置從此推得上去。
+    ///
+    /// **它抓的是哪一類，誠實界定**：本項證明「`swift build` 失敗 ⇒ hook 中止且不再跑
+    /// `swift test`」。它**不**證明 #129 那個管線吞 exit code 的形狀——那需要 hook 把
+    /// `swift test` 接進管線，而現在沒有（兩行都是裸呼叫，`set -e` 就足夠）。若日後有人
+    /// 加了管線，要另外加一項；本項不會替它把關。
+    func testHookAbortsWhenSwiftBuildFails() throws {
+        let root = repositoryRoot
+        guard FileManager.default.fileExists(
+            atPath: root.appendingPathComponent(".git").path) else {
+            throw XCTSkip("這項承重測試需要 Git checkout")
+        }
+
+        let temporary = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-prepush-fail-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: temporary, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let log = temporary.appendingPathComponent("swift-invocations.log")
+        let mockSwift = temporary.appendingPathComponent("swift")
+        // `build` 記錄後**以 1 結束**；`test` 若被呼叫也記錄（那正是回歸的證據）。
+        let script = """
+        #!/bin/sh
+        /usr/bin/printf '%s\\n' "$*" >> "$AKASHIC_PRE_PUSH_PROBE_LOG"
+        case "$1" in
+          build) exit 1 ;;
+          test) exit 0 ;;
+          *) exec /usr/bin/swift "$@" ;;
+        esac
+        """
+        try script.write(to: mockSwift, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: mockSwift.path)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [root.appendingPathComponent(".githooks/pre-push").path]
+        process.currentDirectoryURL = root
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(temporary.path):/usr/bin:/bin"
+        environment["AKASHIC_PRE_PUSH_PROBE_LOG"] = log.path
+        process.environment = environment
+
+        try process.run()
+        process.waitUntilExit()
+
+        XCTAssertNotEqual(
+            process.terminationStatus, 0,
+            "swift build 失敗時 pre-push 必須以非零結束，否則壞掉的建置推得上去")
+        XCTAssertEqual(
+            try String(contentsOf: log, encoding: .utf8)
+                .split(separator: "\n").map(String.init),
+            ["build -Xswiftc -warnings-as-errors"],
+            "build 失敗後不得再呼叫 swift test——出現第二行即代表 hook 沒有中止")
+    }
+
     private var repositoryRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

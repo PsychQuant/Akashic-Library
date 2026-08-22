@@ -17,6 +17,32 @@
 
 
 
+
+## R42 — 兩條 finding：閘門測試證不了閘門會擋；ubuntu workflow 缺 swift 會全紅
+
+### ① `PrePushHookTests` 的 mock 對 `build`／`test` **永遠回 0**
+
+所以它驗得了「有沒有帶 `-warnings-as-errors`」與「環境有沒有清乾淨」，卻**驗不了這道
+閘會不會擋**。新增 `testHookAbortsWhenSwiftBuildFails`：mock 的 `build` 記錄後 `exit 1`，
+斷言 hook **非零結束**且 log **只有那一行**（出現第二行即代表沒中止）。
+
+**誠實界定它抓的是哪一類**（寫進測試的 doc comment）：它證明「build 失敗 ⇒ 中止且不再
+跑 test」，**不**證明 #129 那個管線吞 exit code 的形狀——那需要 hook 把 `swift test` 接進
+管線，而現在兩行都是裸呼叫、`set -e` 就足夠。日後有人加管線要另外加一項。
+
+### ② `audit-guards-mutations.py` 跑在 ubuntu-latest 而它需要 Swift toolchain
+
+實測該 workflow 的 11 個步驟裡，這一支的 6 個 case 需要真 swift（`multiscalar-parity.swift`
+三個、`hash-table-drift.sh` 三個經由表生成器），而 stock `ubuntu-latest` **沒有 Swift**
+——workflow 一啟用就會以**與注入無關**的理由全紅。
+
+**不裝 Swift、也不假裝乾淨**：缺 swift 時跳過那 6 個並把**跳了哪幾個、為什麼**逐項印出，
+其餘 12 個照跑（實測：無 swift 環境 rc=0、`12/12（另有 6 個因缺 swift 跳過）`；有 swift
+時 18/18）。輸出明寫「跳過不等於檢查過且乾淨」——`lossless-intake` 的靜默禁令。
+baseline 那一段也要跳，否則 `hash-table-drift.sh` 的 `exit 2` 會讓整支在第一步就紅。
+
+守衛十四支全綠、`PrePushHookTests` 2/2、負控 18/18（無 swift 時 12/12 ＋ 6 跳過）。
+
 ## R40 — 端到端跑一次整個 pre-push，抓到四件個別跑不出來的事
 
 這輪之前我只逐支跑守衛，**從沒跑過整個 hook**。跑一次（183 秒）→ **exit 1**。

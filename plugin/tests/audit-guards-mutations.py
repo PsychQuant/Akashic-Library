@@ -24,6 +24,7 @@ import os
 import shutil
 import subprocess
 import sys
+import shutil as _sh
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -221,7 +222,8 @@ def _perturb_ranges(t):
 def main():
     before = {r: os.stat(os.path.join(ROOT, r)).st_mtime_ns for r in WATCHED}
 
-    for rel in (COVERAGE_REL, DRIFT_REL):
+    has_swift = shutil.which('swift') is not None
+    for rel in ([COVERAGE_REL] + ([DRIFT_REL] if has_swift else [])):
         r = subprocess.run(['bash', os.path.join(ROOT, rel)],
                            capture_output=True, text=True, cwd=ROOT)
         if r.returncode != 0:
@@ -229,8 +231,24 @@ def main():
             return 1
     print(f'baseline：兩支皆綠 ✓（{len(CASES)} 個 mutation 待跑）\n')
 
+    # **缺 swift 時大聲跳過，不假裝乾淨**（#407 R42）：本 harness 有 5 個 case 需要真的
+    # Swift toolchain（`multiscalar-parity.swift` 三個、`hash-table-drift.sh` 三個經由
+    # 它的表生成器）。而 `plugin-guards.yml` 跑在 **ubuntu-latest**，stock image 沒有
+    # Swift——那些 case 會以與注入無關的理由失敗。跳過它們，但把**跳了哪幾個、為什麼**
+    # 印出來：`lossless-intake` 的「靜默是最糟的形式」。
+    skipped = []
+    if not has_swift:
+        skipped = [n for n, g, _, _ in CASES
+                   if g.endswith('.swift') or g == DRIFT_REL]
+        print(f'⚠ 此環境沒有 swift——跳過 {len(skipped)} 個需要 Swift toolchain 的 case：')
+        for n in skipped:
+            print(f'    · {n}')
+        print('  （其餘 case 照跑。「跳過」不等於「檢查過且乾淨」。）\n')
+
     ok = 0
     for name, guard, edits, must in CASES:
+        if name in skipped:
+            continue
         try:
             rc, out = with_copy(guard, edits)
         except SystemExit as e:
@@ -246,9 +264,11 @@ def main():
 
     after = {r: os.stat(os.path.join(ROOT, r)).st_mtime_ns for r in WATCHED}
     same = before == after
-    print(f'\n=== negative control {ok}/{len(CASES)} ===')
+    expected = len(CASES) - len(skipped)
+    print(f'\n=== negative control {ok}/{expected} ==='
+          + (f'（另有 {len(skipped)} 個因缺 swift 跳過）' if skipped else ''))
     print(f'{"出貨檔未被開啟以寫入" if same else "**出貨檔被動到了**"}：{len(WATCHED)} 個受監看檔')
-    return 0 if (ok == len(CASES) and same) else 1
+    return 0 if (ok == expected and same) else 1
 
 
 if __name__ == '__main__':

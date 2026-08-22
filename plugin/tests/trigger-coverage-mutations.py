@@ -156,6 +156,14 @@ RESULTS = [
              '# trigger-coverage: reads plugin/tests/*.py\n'
              '# trigger-coverage: reads plugin/rules/*.md')},
          '行宣告'),
+    # requirements 席指名（#407 R22b）：一條格式**完全正確**、指向它不讀的
+    # 東西的宣告，先前完全通過——而攤開表印出來與正常依賴逐字相同。所謂
+    # 「可見性」要求讀者已經知道守衛實際讀什麼，那不是可見。痕跡檢查把它
+    # 變成可否證的：宣告的目錄名必須在守衛原始碼裡留下痕跡。
+    case('給一個不讀 rules/ 的守衛加一條格式正確的誤宣告',
+         {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
+             '#!/bin/bash', '#!/bin/bash\n# trigger-coverage: reads plugin/rules/*.md', 1)},
+         '從沒提過'),
     case('把宣告改成 `reads *.sh`（比例判準會放過，結構判準擋下）',
          {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
              '# trigger-coverage: reads plugin/rules/*.md',

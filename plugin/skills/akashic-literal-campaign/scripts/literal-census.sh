@@ -34,40 +34,46 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 #
 # 讀端的 tooNew 訊息逐字含「本 binary 支援至 N」，所以拿一個 format 極高的臨時
 # store 去問一次就有答案——那是 binary 自己說的。
-CEILING=""
-CEILING_SRC=""
-_bin=""
-for _c in "${AKASHIC_BIN:-}" "$(command -v akashic 2>/dev/null || true)" \
-          "$SCRIPT_DIR/../../../../.build/debug/akashic" \
-          "$SCRIPT_DIR/../../../../.build/release/akashic"; do
-  [ -n "$_c" ] && [ -x "$_c" ] && { _bin="$_c"; break; }
+#
+# **威脅模型（顯式裁決，#407 R17）**：審查者把 `AKASHIC_BIN` 標為 HIGH——控制它
+# 的人能讓本腳本以使用者身分執行任意程式。這是真的，但**不是本腳本引入的能力**：
+# 能設環境變數的人已經能直接執行任意程式，不需要繞過這裡。所以裁決是「不擋」，
+# 但把它寫下來，並收兩個真正屬於本腳本的邊：
+#
+#   1. **加 timeout**：探測是同步的，一個 hang 住的 binary 會讓 census 永遠不返回
+#      （而它被 pre-push 與 CI 呼叫）。
+#   2. **不從當前目錄找**：PATH 若含 `.`（少見但有），`akashic` 可能解析到 store
+#      裡的檔案——那是**資料**而非工具，是唯一一條「攻擊者只要能寫檔就成立」的路徑。
+#
+# 不做的：hash pin／簽章驗證。那需要一份可信的期望值，而 plugin 沒有地方放它；
+# 假的保證比沒有保證更糟（本 issue 反覆記過的形狀）。
+# 探測交給下面的 python（它本來就要跑）：`subprocess.run(timeout=)` 一行就有
+# 超時，不需要背景 job。
+#
+# **不要在 bash 用背景 job 做這件事**（實測踩過兩次）：
+#   (a) `$( … & )` 的命令替換會等到**所有**繼承 stdout 的子程序關掉它，殺掉主
+#       程序不夠——hang 住的 binary 讓整支腳本卡到外層 timeout 才死。
+#   (b) 改成寫檔＋`while kill -0 … && [ … ]` 輪詢之後，`kill -0` 對已結束的程序
+#       回非零、而它在 `&&` 鏈**左側**（`set -e` 不豁免的位置），於是 binary 一
+#       正常結束整支腳本就被殺、輸出全空——parity 立刻 0/46 抓到。
+#   (c) 而即使把 (b) 修好，留下的背景程序仍會讓**呼叫端**的
+#       `subprocess.run(capture_output=True)` 永遠等下去：mutation harness 因此
+#       卡了 40 分鐘（預期 2 分鐘）。
+# 三次都是同一個根因：bash 的背景 job 與「等 I/O 關閉」的語意糾纏。python 沒有
+# 這個問題（#407 R17）。
+_BIN_CANDIDATES=()
+[ -n "${AKASHIC_BIN:-}" ] && _BIN_CANDIDATES+=("$AKASHIC_BIN")
+_which=$(command -v akashic 2>/dev/null || true)
+[ -n "$_which" ] && _BIN_CANDIDATES+=("$_which")
+_BIN_CANDIDATES+=("$SCRIPT_DIR/../../../../.build/debug/akashic" \
+                  "$SCRIPT_DIR/../../../../.build/release/akashic")
+AKASHIC_PROBE=""
+for _c in "${_BIN_CANDIDATES[@]}"; do
+  [ -n "$_c" ] && [ -x "$_c" ] && { AKASHIC_PROBE="$_c"; break; }
 done
-if [ -n "$_bin" ]; then
-  _probe=$(mktemp -d) || _probe=""
-  if [ -n "$_probe" ]; then
-    mkdir -p "$_probe/entities"
-    printf 'format: 999999\n' > "$_probe/store.yaml"
-    # 只讀 stderr 的具名訊息；任何其他失敗都當成「問不到」，不猜。
-    #
-    # **完全不用管線。** 兩個前一版踩過的坑都出在管線上：
-    #   (a) `| head -1` —— head 讀完第一行就結束，上游 sed 收 SIGPIPE 非零退出，
-    #       而本檔開頭是 `set -euo pipefail` → 整支腳本被 set -e 殺掉，輸出**完全
-    #       靜默**（trace 停在 CEILING=12 之後什麼都沒有）。
-    #   (b) 改成 `sed …;/./q` 之後，語意變成「遇到第一個非空輸出行就停」，**不是**
-    #       「擷取到目標訊息才停」——binary 若先印一行 deprecation warning，sed 看到
-    #       它就結束，CEILING 空手而回。而當時的註解還宣稱「管線就不會被提前關閉」，
-    #       那句話對 `q` 同樣不成立（#407 R10 verify）。
-    # 收進變數再用 bash 自己的 regex 比對：沒有管線，就沒有這兩類問題。
-    _probe_err=$("$_bin" people --library "$_probe" 2>&1 >/dev/null || true)
-    if [[ "$_probe_err" =~ 本\ binary\ 支援至\ ([0-9]+) ]]; then
-      CEILING="${BASH_REMATCH[1]}"
-    fi
-    rm -rf "$_probe"
-    [ -n "$CEILING" ] && CEILING_SRC="binary:$_bin"
-  fi
-fi
+export AKASHIC_PROBE
 
-python3 - "$ROOT" "$SCRIPT_DIR" "$CEILING" "$CEILING_SRC" <<'EOF' 
+python3 - "$ROOT" "$SCRIPT_DIR" <<'EOF' 
 import collections, errno, glob, io, os, re, sys
 
 root = sys.argv[1]
@@ -297,10 +303,25 @@ fmt_state, fmt, _detail = _read_marker(f'{root}/store.yaml')
 # swift build，oracle 與被讀的 source 恰好同步）。
 _supported = None
 _ceiling_src = None
-_probed = sys.argv[3] if len(sys.argv) > 3 else ''
-if _probed.isdigit():
-    _supported = int(_probed)
-    _ceiling_src = sys.argv[4] if len(sys.argv) > 4 else 'binary'
+
+# 探測：問 binary 自己的支援上限。用 subprocess 的 timeout——一行就有超時，
+# 而且不留背景程序（bash 的背景 job 在這件事上踩過三次，見上方 bash 段的註解）。
+_probe_bin = os.environ.get('AKASHIC_PROBE') or ''
+if _probe_bin:
+    import subprocess as _sp
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as _pd:
+        io.open(f'{_pd}/store.yaml', 'w', encoding='utf-8').write('format: 999999\n')
+        os.makedirs(f'{_pd}/entities', exist_ok=True)
+        try:
+            _r = _sp.run([_probe_bin, 'people', '--library', _pd],
+                         capture_output=True, text=True, timeout=10)
+            _m = re.search(r'本 binary 支援至 (\d+)', _r.stderr or '')
+            if _m:
+                _supported = int(_m.group(1))
+                _ceiling_src = f'binary:{_probe_bin}'
+        except Exception:   # noqa: BLE001 —— timeout／不是 akashic／任何失敗都當「問不到」
+            pass
 
 # 來源根：`AKASHIC_REPO` 環境變數優先，其次由腳本自身位置往上推。
 # 環境變數這條是給「腳本不在 repo 內」的情形——例如 negative control 把 census
@@ -327,6 +348,23 @@ _too_new = fmt_state == 'read' and _supported is not None and fmt > _supported
 _ceiling_unknown = fmt_state == 'read' and _supported is None
 
 
+def _tilde(p):
+    """把 $HOME 前綴縮成 ~。輸出會進 issue，不印使用者名。
+
+    只處理前綴——store root 之外的路徑本腳本不印。這不是通用消毒器，
+    別把它當成 displaySafe 的對應物（那是另一個威脅模型：檔案原文進 error）。
+    """
+    home = os.path.expanduser('~').rstrip(os.sep)
+    if not home:
+        return p
+    # **比到路徑邊界**，不是裸前綴。裸前綴在 HOME=/home/ann 時會把
+    # /home/anna/x 改寫成 ~a/x —— 一個不存在的路徑，而這份輸出的去向是 issue。
+    if p == home:
+        return '~'
+    if p.startswith(home + os.sep):
+        return '~' + p[len(home):]
+    return p
+
 def fmt_label():
     if _too_new and _ceiling_src == 'source':
         # 只有 source 可讀時**不得**宣告實際 binary 會怎樣——那正是 R8/R9 具名的
@@ -336,7 +374,10 @@ def fmt_label():
                 '即可問到），所以**無法斷言你的 binary 開不開得起來**')
     if _too_new:
         return (f'format {fmt}——**超過你的 binary 支援上限 {_supported}**'
-                f'（問到的：{_ceiling_src.split(":", 1)[-1]}）；它會整體拒開此 store')
+                # **路徑要過 _tilde**：探測到的 binary 可能在使用者家目錄下，
+                # 而本腳本的輸出去向是 GitHub issue（檔頭自己的政策）。前一版
+                # 只對 store root 套 _tilde，這條路徑直接原樣印（#407 R17）。
+                f'（問到的：{_tilde(_ceiling_src.split(":", 1)[-1])}）；它會整體拒開此 store')
     if _ceiling_unknown:
         return (f'format {fmt}（**本腳本找不到原始碼，不知道你的 binary 支援到第幾版**'
                 '——若它低於這個數字，開不起來）')
@@ -415,22 +456,6 @@ def row(label, key, lit, distinct):
     print(f"{label:<14} 總邊 {total:>5}｜literal 邊 {lit}（佔 {pct}）｜key {key}"
           f"｜distinct literal {distinct}")
 
-def _tilde(p):
-    """把 $HOME 前綴縮成 ~。輸出會進 issue，不印使用者名。
-
-    只處理前綴——store root 之外的路徑本腳本不印。這不是通用消毒器，
-    別把它當成 displaySafe 的對應物（那是另一個威脅模型：檔案原文進 error）。
-    """
-    home = os.path.expanduser('~').rstrip(os.sep)
-    if not home:
-        return p
-    # **比到路徑邊界**，不是裸前綴。裸前綴在 HOME=/home/ann 時會把
-    # /home/anna/x 改寫成 ~a/x —— 一個不存在的路徑，而這份輸出的去向是 issue。
-    if p == home:
-        return '~'
-    if p.startswith(home + os.sep):
-        return '~' + p[len(home):]
-    return p
 
 
 # marker 壞到讀端會整體拒開時，**這一輪的每一個數字都不能拿去定批次範圍**
@@ -452,6 +477,19 @@ if _store_unopenable:
 elif _undecidable:
     print(f"{'':<14} ⚠ **本腳本判不出這個 marker 合不合法**，所以下面每一列都不能"
           "拿去定 campaign 的批次範圍。去問讀端：`akashic doctor --library <store>`")
+elif _too_new_by_source:
+    # **這一格必須排在下面那個一般性的 source 提示之前。** `_too_new_by_source`
+    # 是 `_ceiling_src == 'source'` 的**嚴格子集**，順序反了它就是死碼——而那正是
+    # R11 加它、R12 加另一格之後發生的事（#407 R17 由 logic lens 抓到）。
+    #
+    # 後果不只是少印一行：落到下面那格時印的是「**若**你操作的 binary 較舊，
+    # 它**仍可能**拒開」——而這裡的資料已經算出 fmt > source 上限，也就是
+    # **連從這份 checkout 建出的 binary 都開不了**。那不是可能，是確定。
+    # 印出一句被自己已解析的資料否證的話，正是這條 issue 的主題。
+    print(f"{'':<14} ⚠ store 的 format {fmt} **超過這份 checkout 的 source 上限 "
+          f"{_supported}**——連從這份 source 建出的 binary 都開不了它。"
+          "（沒問到你實際在用的 binary，但那不影響這個結論：它只會更舊或一樣新。）"
+          "下面的數字先別拿去定批次範圍")
 elif _ceiling_src == 'source':
     # **source 上限沒超過，也不代表你的 binary 讀得到。** 前一版只在超過時才說話，
     # 於是 `fmt <= source 上限` 被當成一般健康狀態、完全不印任何東西——而 source
@@ -462,10 +500,6 @@ elif _ceiling_src == 'source':
     print(f"{'':<14} ℹ 支援上限取自這份 checkout 的 source（{_supported}），"
           "**沒問到實際 binary**——若你操作的 binary 較舊，它仍可能拒開。"
           "設 AKASHIC_BIN=<path> 或讓 akashic 在 PATH 上即可確認")
-elif _too_new_by_source:
-    print(f"{'':<14} ⚠ 這份 checkout 的 source 上限低於 store 的 format，而**本腳本"
-          "沒問到實際 binary**——無法斷言它開不開得起來，所以下面的數字先別拿去定"
-          "批次範圍。確認方式：設 AKASHIC_BIN=<path>，或讓 akashic 在 PATH 上，再重跑")
 elif _ceiling_unknown:
     # **這是 plugin 單獨安裝的常態**（marketplace 出貨時沒有 Sources/），所以它
     # 每次都會印。那是誠實的：每次都真的不知道。前一版只把這件事寫進 format 標籤，
@@ -483,10 +517,16 @@ _v_total = v_key + v_lit
 if _v_total > 0:
     # 量到就印，不論 format 說什麼。format 與量測不一致時，把不一致本身報出來。
     row("venue", v_key, v_lit, len(v_distinct))
-    if fmt_state in ('read', 'absent') and not _too_new and fmt < 11:
+    if fmt_state == 'read' and not _too_new and fmt < 11:
         # marker **說得出**一個版號，而它與量測不合——這才是「兩者不一致」。
         print(f"{'':<14} ↑ 註：marker 說 format {fmt}（< 11，該版本沒有 venue 邊），"
               "而上列是**實際解析到的**——兩者不一致，請查 store 狀態")
+    elif fmt_state == 'absent' and not _too_new and fmt < 11:
+        # **缺檔時不能說「marker 說」**——根本沒有 marker 說過任何話。`fmt=1` 是
+        # 讀端的約定（缺檔即 format 1），不是某份文件的陳述。前一版把 read 與
+        # absent 折進同一句，於是對一個不存在的文件做了引述（#407 R17）。
+        print(f"{'':<14} ↑ 註：沒有 store.yaml——讀端把這種 store 當 format 1，"
+              "而該版本沒有 venue 邊，上列卻**實際解析到了**。兩者不一致，請查 store 狀態")
     elif fmt_state in ('malformed', 'unreadable'):
         # marker 壞掉時它**什麼版本都沒說**，談不上「說不是」。前一版把
         # 「marker 說不是」寫死在一個對三種狀態都會觸發的分支裡（R6 finding 28）。

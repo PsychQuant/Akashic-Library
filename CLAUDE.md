@@ -111,22 +111,32 @@ propose ──→ park ──────────────→ apply ─�
 > **現在不動它——但上一版把這個裁決寫得像已權衡完畢，那是錯的**（#407 R26f，DA 席指名）。
 > 誠實的版本是：
 >
-> | 選項 | `--no-verify` 時 | CI 上 |
+> | 情境 | 留在 pre-push（現況） | 移出、只留 CI |
 > |---|---|---|
-> | 留在 pre-push（現況） | **零執行** | 只有 `census-parity.yml`（macOS，**目前不跑**）|
-> | 移出 pre-push | 零執行 | 同上 |
+> | **正常 `git push`** | **執行** | **零執行**（macOS 不跑）|
+> | `git push --no-verify` | 零執行 | 零執行 |
+> | CI（macOS 恢復後） | 執行 | 執行 |
 >
-> **兩個選項都可能零執行**，差別只是「要不要多打一次 `--no-verify`」的摩擦力——不是
-> 「有執行 vs 零執行」。上一版把問題框成「CI 沒覆蓋 → 不能移出」，而**留著同樣被同一段
-> 文字承認的風險架空**。
+> **所以留著確實提供預設保護**——在最常見的情境（不帶 `--no-verify` 的 push）下，兩者的
+> 差別**正是**「有執行 vs 零執行」。上一版（R26f）為了修掉「已權衡完畢」這個過度宣稱，
+> 寫下「差別只是摩擦力，不是有執行 vs 零執行」——**那句話只在 `--no-verify` 那一列成立，
+> 而我把它推廣到全部情境**，順手否定掉留著的唯一理由（#407 R26h，DA 席指名）。
+>
+> **仍然待解的是另一半**：`--no-verify` 這條路上兩個選項都歸零，而 59 秒的 pre-push 正是
+> 讓人想按那個開關的原因。留著不是沒有代價。
 >
 > **它為什麼不能掛在會跑的 ubuntu workflow 上**：`marker-parity-mutations.py` 要真的
 > `akashic` binary 當 oracle（`store-marker-parity.sh` 找不到就 `exit 2`），而那需要
 > `swift build`——所以它只能在 macOS。
 >
 > **與 `--no-verify` 無關的遠端強制點目前不存在**：branch protection 的 required status
-> checks 在這個 repo **結構上不可用**（實測 `gh api …/branches/main/protection` 回
-> **403 Upgrade to GitHub Pro or make this repository public**）。
+> checks 在這個 repo **結構上不可用**——重跑指令與當次輸出：
+>
+> ```
+> $ gh api repos/PsychQuant/Akashic-Library/branches/main/protection
+> {"message":"Upgrade to GitHub Pro or make this repository public to enable this
+>  feature.","status":"403"}                                    # 2026-08-23 觀察
+> ```
 >
 > **所以這是待解，不是已權衡完畢。** 兩條可能的出路（都未做）：(a) macOS runner 恢復後
 > 把它移出 pre-push、只留 CI；(b) repo 轉公開或升級方案後加 required status check。

@@ -188,8 +188,18 @@ def invoked(text):
         INTERP = ('bash', 'sh', 'python3', 'python', 'swift')
         for sep_before, st in segments:
             h = st[0]
-            # `||` 後的段是**例外路徑**：跑不跑取決於前面失敗與否，不能算覆蓋。
-            # 揭露它——既不是漏報也不是誤記，是「條件執行」。
+            # **`||` 有兩種讀法，靜態判不出是哪一種**（#407 R23d，跨模型審查
+            # 的 logic 席指名，實測確認）：
+            #
+            #   error-fallback：`main || handle_failure`      → RHS 只在失敗時跑
+            #   **skip-flag**：`[ -f .done ] || bash setup.sh` → RHS **每次都跑**
+            #
+            # 第二種在 CI 裡同樣常見（`command -v x >/dev/null || bash install.sh`），
+            # 而它的 LHS 通常為假——RHS 就是正常路徑。R23 把兩者都當成例外路徑，
+            # 於是 skip-flag 形式的守衛會被誤報成「沒被執行」。
+            #
+            # 判不出來就**不假裝判得出來**：不計入覆蓋（保守，寧可假紅不可假綠
+            # ——與本檔一貫立場一致），但訊息要說明它**可能是假警報**，由人裁決。
             if sep_before == '||':
                 if any(x in INTERP or x.startswith('./') for x in st) or \
                         any(re.search(r'\S+\.(?:sh|py|swift)\b', x) for x in st):
@@ -234,8 +244,11 @@ def invoked(text):
             if any(x in INTERP for x in st[1:]):
                 chained.append(' '.join(st))
     if conditional:
-        print(f'   ℹ 有 {len(conditional)} 個 `||` 後的段帶著腳本——那是**例外路徑**'
-              f'（前面失敗才跑），不計入覆蓋（會讓守衛紅，而那是對的）')
+        print(f'   ℹ 有 {len(conditional)} 個 `||` 後的段帶著腳本。`||` 的語意'
+              f'靜態判不出：可能是例外路徑（`main || handle_failure`），也可能'
+              f'是正常路徑（`[ -f flag ] || do_work`，LHS 通常為假）。保守起見'
+              f'不計入覆蓋——**若那一段其實每次都跑，這裡的缺口是假警報**，'
+              f'請改寫成 `&&`／分行，或在 workflow 註明')
     if chained:
         # `cd A && bash X` 這類串接：第一個 token 不是直譯器，所以認不出來。
         # **方向是漏報**（守衛會紅、不會假綠），但仍要印——R20c 才立下的原則是
@@ -456,8 +469,20 @@ for g in GUARDS:
         # 字串重疊足以讓一條編造的宣告矇混過去（#407 R22f，跨模型審查的次要
         # 指名）。實測：詞邊界版正確區分 `docs`/`docstring`（無痕跡）與
         # `rules`/`$PLUGIN/rules`（有痕跡）。
+        # **要在路徑脈絡裡出現，不只是一個詞。**
+        #
+        # 詞邊界擋掉了 `rulesets` 那種巧合子串（R22f），但擋不住**散文**：
+        # `# TODO: add more tests` 裡的 `tests` 是完整的詞，於是一條編造的
+        # `reads plugin/*/tests/*.py` 被算成有痕跡（#407 R23d，requirements
+        # 席指名）。而 R22e 的 walk-back 讓這更容易發生——它退到的往往是
+        # `tests`／`docs`／`scripts` 這種在散文裡很常見的短詞。
+        #
+        # 要求它出現在**看起來像路徑或賦值**的位置：前面是 `/`／引號／`$`／`=`，
+        # 或後面接 `/`／引號。實測正確區分散文與真路徑。
+        esc = re.escape(seg)
         traced = seg and re.search(
-            rf'(?<![A-Za-z0-9_-]){re.escape(seg)}(?![A-Za-z0-9_-])', body)
+            rf'[/"\'$=]{esc}(?![A-Za-z0-9_-])|(?<![A-Za-z0-9_-]){esc}[/"\']',
+            body)
         if seg and '*' not in seg and '?' not in seg and not traced:
             fails.append(f'{os.path.basename(g)} 宣告讀 `{glob_}`，但它的原始碼'
                          f'（扣掉宣告行本身）從沒提過 `{seg}`——宣告是用來補'

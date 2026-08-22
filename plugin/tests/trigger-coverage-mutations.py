@@ -121,14 +121,28 @@ RESULTS = [
              'run: bash plugin/tests/rule-coverage.sh',
              'run: bash --version && cat plugin/tests/rule-coverage.sh | bash')},
          'rule-coverage.sh 不在任何 CI workflow 跑'),
-    # #407 R23：`||` 後的段只在前面失敗時跑。把守衛掛到 `||` 之後，在正常
-    # （綠）的 CI 狀態下它根本不執行——先前 `||` 與 `&&` 同等對待，於是它被
-    # 算成有覆蓋（假綠）。這一格證明現在會紅。
-    case('把守衛掛到 `||` 之後（例外路徑，正常狀態下不跑）',
+    # **這一格的敘述先前是錯的**（#407 R23d）：它寫「`||` 後的段在正常狀態下
+    # 不執行」，並用 `test -f /nonexistent || bash <守衛>` 當例子——而那個 LHS
+    # **永遠失敗**，所以守衛**每次都跑**。跨模型審查的 logic 席指出這一點，
+    # 實測確認（`bash -c 'test -f /nonexistent || echo RHS'` 印出 RHS）。
+    #
+    # `||` 的語意靜態判不出（error-fallback vs skip-flag），守衛的立場是保守
+    # 不計入覆蓋並說明它可能是假警報。這一格保留，但改為斷言**那段說明出現**
+    # ——而不是斷言「守衛應該報它沒被執行」那個可能為假的期望。
+    case('把守衛掛到 `||` 之後（語意判不出，守衛須說明而非斷言）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
              'run: bash plugin/tests/rule-coverage.sh',
              'run: test -f /nonexistent || bash plugin/tests/rule-coverage.sh')},
          'rule-coverage.sh 不在任何 CI workflow 跑'),
+    # #407 R23d：詞邊界擋得住 `rulesets` 那種巧合子串，擋不住**散文**——
+    # `# TODO: add more tests` 裡的 `tests` 是完整的詞。加上路徑脈絡要求後
+    # 才擋得下來。
+    case('編造宣告 + 一句含該目錄名的散文（詞邊界放過，路徑脈絡擋下）',
+         {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
+             '#!/bin/bash',
+             '#!/bin/bash\n# trigger-coverage: reads Sources/AkashicCore/*.swift\n'
+             '# 註：本檔不碰 AkashicCore，只重建審查者的失敗情境。', 1)},
+         '從沒提過'),
     # #407 R22e：`cat X | bash` 是常見的 CI 部署慣用法，它真的執行 X——先前
     # 直譯器單獨成段時無條件靜默，於是零可見度。
     case('把 run: 換成 `cat <守衛> | bash`（直譯器從 stdin 讀）',

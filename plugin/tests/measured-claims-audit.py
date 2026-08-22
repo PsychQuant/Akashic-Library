@@ -10,8 +10,25 @@
 
 用法：python3 plugin/tests/measured-claims-audit.py
 """
-import io, re, subprocess
+import io, re, subprocess, sys
 def sh(c): return subprocess.run(c, shell=True, capture_output=True, text=True).stdout.strip()
+
+fails = []
+
+
+def check(ok, msg):
+    """**印 ✓／✗ 而永遠 exit 0，與沒有這支腳本對 CI 是同一件事。**
+
+    R26b 出貨的第一版正是那樣（四列全是 print、零個 assert、rc 恆 0）——
+    而「驗收套件對它宣稱要檢查的東西是盲的」是本 issue 最早記下的失敗之一
+    （見規則檔失敗表）。#407 R26e 由跨模型審查指名。
+    """
+    if not ok:
+        fails.append(msg)
+    return '✓' if ok else '✗'
+
+
+
 
 print('逐列現查（每列問「我跑的指令，回答的是不是正好這句話」）\n')
 
@@ -19,7 +36,7 @@ print('逐列現查（每列問「我跑的指令，回答的是不是正好這�
 print('① 「實測三個是純新增」')
 for h in ['41bd3d8', '848939a', '3eda486']:
     d = sh(f"git show {h} --format='' --numstat -- plugin/ | awk '{{d+=$2}} END{{print d+0}}'")
-    print(f'     {h} 刪除行數 {d}  {"✓" if d == "0" else "✗"}')
+    print(f'     {h} 刪除行數 {d}  {check(d == "0", f"{h} 不是純新增（刪除 {d} 行）")}')
 
 # ② git 的欄位
 print('② 「git 證立時序，證立不了有檢查」')
@@ -33,7 +50,7 @@ for i, l in enumerate(src, 1):
     if "'一次都沒出現過')" in l:
         fn = next((src[j].strip().split('(')[0] for j in range(i - 2, max(0, i - 14), -1)
                    if src[j].lstrip().startswith(('case(', 'warn_case('))), '?')
-        print(f'     行 {i}: {fn}')
+        print(f'     行 {i}: {fn}  {check(fn == "warn_case", f"行 {i} 是 {fn}，不是 warn_case")}')
 
 # ④ 19 = 13 + 6
 print('④ 「run: 的分類：總數 ＝ 單行 ＋ block」')
@@ -41,4 +58,14 @@ print('     刻意不寫死 19／13——R26b 加一個 CI 步驟就變 20／14�
 tot = sh("grep -hcE '^\\s*(-\\s*)?run:' .github/workflows/*.yml | awk '{s+=$1} END{print s}'")
 sg = sh("grep -hE '^\\s*(-\\s*)?run: [^|]' .github/workflows/*.yml | wc -l")
 bl = sh("grep -hE '^\\s*(-\\s*)?run: \\|' .github/workflows/*.yml | wc -l")
-print(f'     總 {tot}｜單行 {sg}｜block {bl} → {int(sg)+int(bl)}  {"✓" if int(sg)+int(bl) == int(tot) else "✗"}')
+print(f'     總 {tot}｜單行 {sg}｜block {bl} → {int(sg)+int(bl)}  '
+      f'{check(int(sg)+int(bl) == int(tot), f"總數 {tot} ≠ 單行 {sg} + block {bl}")}')
+
+
+print()
+if fails:
+    print(f'══ {len(fails)} 個宣稱不成立 ══')
+    for m in fails:
+        print(f'  ✗ {m}')
+    sys.exit(1)
+print('══ 四列全部現查成立 ══')

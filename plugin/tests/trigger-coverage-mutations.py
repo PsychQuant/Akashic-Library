@@ -206,13 +206,13 @@ RESULTS = [
              '#!/bin/bash',
              '#!/bin/bash\n# trigger-coverage: reads plugin/rules/*.md\n'
              'for f in "$(dirname "$0")"/../*/*.md; do :; done', 1)},
-         '沒有明顯的路徑痕跡'),
+         '一次都沒出現過'),
     warn_case('編造宣告 + 一句含該目錄名的散文（有提到但非路徑脈絡）',
          {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
              '#!/bin/bash',
              '#!/bin/bash\n# trigger-coverage: reads Sources/AkashicCore/*.swift\n'
              '# 註：本檔不碰 AkashicCore，只重建審查者的失敗情境。', 1)},
-         '沒有明顯的路徑痕跡'),
+         '有出現但不在路徑脈絡裡'),
     # #407 R22e：`cat X | bash` 是常見的 CI 部署慣用法，它真的執行 X——先前
     # 直譯器單獨成段時無條件靜默，於是零可見度。
     case('把 run: 換成 `cat <守衛> | bash`（直譯器從 stdin 讀）',
@@ -236,14 +236,14 @@ RESULTS = [
              '#!/bin/bash',
              '#!/bin/bash\n# trigger-coverage: reads plugin/rules/*.md\n'
              '# 說明：本檔不處理 rulesets，只重建審查者的失敗情境。', 1)},
-         '沒有明顯的路徑痕跡'),
+         '有出現但不在路徑脈絡裡'),
     # #407 R22e：`Sources/*/*.swift` 的 dirname 末段是 `*`，先前讓痕跡檢查
     # 整條跳過，而第一段字面 `Sources` 又讓前一道放它過——完全不被驗。
     warn_case('宣告用中間萬用字元（`Sources/*/*.swift`）——痕跡走回 `Sources`',
          {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
              '# trigger-coverage: reads plugin/rules/*.md',
              '# trigger-coverage: reads Sources/*/*.swift')},
-         '沒有明顯的路徑痕跡'),
+         '一次都沒出現過'),
     # #407 R22d：把守衛的呼叫換成一個**不執行它**的命令（shellcheck 只做靜態
     # 檢查）。判準若還是「列舉不執行的命令」，這一格會因為 shellcheck 不在
     # 白名單而報成「有東西看不到」——那是假警報不是缺口。現在的判準是「段內
@@ -312,7 +312,7 @@ RESULTS = [
     warn_case('給一個不讀 rules/ 的守衛加一條格式正確的誤宣告',
          {'plugin/tests/review-claim-audit.sh': lambda t: t.replace(
              '#!/bin/bash', '#!/bin/bash\n# trigger-coverage: reads plugin/rules/*.md', 1)},
-         '沒有明顯的路徑痕跡'),
+         '一次都沒出現過'),
     case('把宣告改成 `reads *.sh`（比例判準會放過，結構判準擋下）',
          {'plugin/tests/rule-coverage.sh': lambda t: t.replace(
              '# trigger-coverage: reads plugin/rules/*.md',

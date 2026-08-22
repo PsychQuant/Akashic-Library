@@ -117,13 +117,19 @@ _LINES = ['gpgsig -----BEGIN', 'gpgsig-sha256 -----BEGIN']
 # ——**兩份獨立的 pattern**。有人把偵測式改成 `^gpgsig ` 時，fixture 那格照樣綠：
 # **斷言存在，但它守的不是被守的那個東西**（本 repo 反覆記過的「一份規格的兩個
 # 副本必然分岔」）。現在從本檔原始碼抽出偵測式實際用的 regex 再跑 fixture。
-_SRC = io.open(__file__, encoding='utf8').read()
-_m = re.search(r"grep -q '(\^gpgsig[^']*)'", _SRC)
-_pat = _m.group(1) if _m else None
+# **抽取要排除註解，並要求恰好一處**（#407 R26x，DA 席指名）：上一版用
+# `re.search`（取第一個命中），而檔案裡有**兩處**符合——行 116 的**註解**與
+# 真偵測式。目前兩者字面相同所以看起來正確，但有人改壞偵測式而註解沒跟著改時，
+# 斷言仍讀註解、仍然綠——**與 R26u 修掉的「兩份 pattern」同病，只是這次其中
+# 一份在註解裡**。現在先剝註解行，再要求命中恰好一處（多於一處＝又有副本了）。
+_SRC_CODE = '\n'.join(l for l in io.open(__file__, encoding='utf8')
+                      if not l.lstrip().startswith('#'))
+_ms = re.findall(r"grep -q '(\^gpgsig[^']*)'", _SRC_CODE)
+_pat = _ms[0] if len(_ms) == 1 else None
 _hit_prefix = sum(1 for l in _LINES if _pat and re.match(_pat, l))
 print(f'     偵測式實際用的 pattern：{_pat!r}（從原始碼抽出，非另寫一份）')
 print(f'     它對 gpgsig／gpgsig-sha256 命中 {_hit_prefix}／2  '
-      f'{check(_pat is not None and _hit_prefix == 2, f"偵測式的 pattern 只命中 {_hit_prefix}／2——SHA-256 repo 會被漏掉")}')
+      f'{check(_pat is not None and _hit_prefix == 2, f"抽出 {len(_ms)} 個 pattern（須恰好 1）或它只命中 {_hit_prefix}／2——SHA-256 repo 會被漏掉")}')
 signed = sh("git rev-list --all | while read h; do "
             "git cat-file -p $h | sed '/^$/q' | grep -q '^gpgsig' "
             "&& echo $h && break; done")

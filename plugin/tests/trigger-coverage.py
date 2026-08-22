@@ -118,6 +118,7 @@ def invoked(text):
     found = set()
     blocks = []
     chained = []
+    conditional = []
     for line in text.split('\n'):
         m = re.match(r'\s*(?:-\s*)?run:\s*(.+)$', line)
         if not m:
@@ -157,15 +158,22 @@ def invoked(text):
             tokens = list(lex)
         except ValueError:
             tokens = cmd.split()          # 未閉合引號等——退回粗略切法
-        segments, cur = [], []
+        # **記住每段前面的分隔符——`||` 的語意與其他三個不同。**
+        #
+        # `bash A || bash B` 的 B **只在 A 失敗時跑**。R22c 把 `||` 加進切分符
+        # 時讓兩段同等對待，於是 B 被算成「執行了」——而在正常（綠）的 CI 狀態
+        # 下它根本不跑。這是 regression：R21c 之前 `||` 不在切分符裡，B 是**漏報**
+        # （安全方向，讓守衛紅）；R22c 之後變成**誤記**（守衛綠而它其實沒跑）。
+        # 跨模型審查的 logic 席指名，量測確認（#407 R23）。
+        segments, cur, sep = [], [], None
         for tok in tokens:
             if tok in ('&&', '||', ';', '|'):
-                segments.append(cur)
-                cur = []
+                segments.append((sep, cur))
+                cur, sep = [], tok
             else:
                 cur.append(tok)
-        segments.append(cur)
-        segments = [s for s in segments if s]
+        segments.append((sep, cur))
+        segments = [(s, c) for s, c in segments if c]
         # **認出「執行的形式」，不列舉「不執行的命令」。**
         #
         # 上一版維護一份 NON_EXEC 白名單（echo／printf／cat／…）。那是在用封閉
@@ -178,8 +186,15 @@ def invoked(text):
         # （`grep`／`shellcheck`／`cp` 都不會），靜默即可。有的話它可能在跑，
         # 而我們認不出形式時才需要揭露。
         INTERP = ('bash', 'sh', 'python3', 'python', 'swift')
-        for st in segments:
+        for sep_before, st in segments:
             h = st[0]
+            # `||` 後的段是**例外路徑**：跑不跑取決於前面失敗與否，不能算覆蓋。
+            # 揭露它——既不是漏報也不是誤記，是「條件執行」。
+            if sep_before == '||':
+                if any(x in INTERP or x.startswith('./') for x in st) or \
+                        any(re.search(r'\S+\.(?:sh|py|swift)\b', x) for x in st):
+                    conditional.append(' '.join(st))
+                continue
             if h in INTERP:
                 # 跳過旗標找腳本（`bash -x a.sh` 是常見的除錯形式）。
                 # `-m` 例外：`python3 -m mod x.py` 跑的是模組，x.py 是它的引數。
@@ -207,6 +222,9 @@ def invoked(text):
             # 一個我們看不到的執行（`FOO=1 bash a.sh`、`env bash a.sh`）。
             if any(x in INTERP for x in st[1:]):
                 chained.append(' '.join(st))
+    if conditional:
+        print(f'   ℹ 有 {len(conditional)} 個 `||` 後的段帶著腳本——那是**例外路徑**'
+              f'（前面失敗才跑），不計入覆蓋（會讓守衛紅，而那是對的）')
     if chained:
         # `cd A && bash X` 這類串接：第一個 token 不是直譯器，所以認不出來。
         # **方向是漏報**（守衛會紅、不會假綠），但仍要印——R20c 才立下的原則是

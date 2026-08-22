@@ -112,6 +112,14 @@ RESULTS = [
          'rule-coverage.sh'),
     # 同一個 echo 但用 `./` 形式。R20 只修了直譯器那半邊（`bash X`），
     # `./X` 分支照舊掃全行——這一格是那個殘留的負控（#407 R20c）。
+    # #407 R23：`||` 後的段只在前面失敗時跑。把守衛掛到 `||` 之後，在正常
+    # （綠）的 CI 狀態下它根本不執行——先前 `||` 與 `&&` 同等對待，於是它被
+    # 算成有覆蓋（假綠）。這一格證明現在會紅。
+    case('把守衛掛到 `||` 之後（例外路徑，正常狀態下不跑）',
+         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+             'run: bash plugin/tests/rule-coverage.sh',
+             'run: test -f /nonexistent || bash plugin/tests/rule-coverage.sh')},
+         'rule-coverage.sh 不在任何 CI workflow 跑'),
     # #407 R22e：`cat X | bash` 是常見的 CI 部署慣用法，它真的執行 X——先前
     # 直譯器單獨成段時無條件靜默，於是零可見度。
     case('把 run: 換成 `cat <守衛> | bash`（直譯器從 stdin 讀）',

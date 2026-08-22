@@ -210,7 +210,18 @@ def invoked(text):
                 # deploy.sh——先前這裡無條件 `continue`，於是零可見度（#407 R22e，
                 # 跨模型審查指名）。管線來源在別的段裡，本函式看不出它是哪一支，
                 # 所以揭露而不是猜。
-                if not any(x for x in st[1:] if not x.startswith('-')):
+                # **只有在管線下游才是 stdin 執行。**
+                #
+                # 判準是**位置**不是旗標列舉：`cat d.sh | bash` 的 bash 有來源，
+                # `bash --version` 沒有。上一版問「引數裡有沒有非旗標的東西」，
+                # 於是 `bash --version`／`python3 -V`／`swift --version` 這些
+                # CI 極常見的環境檢查全部被當成 stdin 執行而印假警報（#407 R23b，
+                # DA 席那題的量測答案）。
+                #
+                # 用旗標白名單修是錯的方向——那正是 R22d 剛從 NON_EXEC 拆掉的
+                # 開放集合形狀（`--version`／`-V`／`--help`／`--check`… 列不完）。
+                if sep_before == '|' and \
+                        not any(x for x in st[1:] if not x.startswith('-')):
                     chained.append(' '.join(st))
                     continue
                 # `-m` 或引數裡沒有腳本——它跑的不是我們關心的那種東西，靜默。

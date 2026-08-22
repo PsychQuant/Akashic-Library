@@ -112,6 +112,15 @@ RESULTS = [
          'rule-coverage.sh'),
     # 同一個 echo 但用 `./` 形式。R20 只修了直譯器那半邊（`bash X`），
     # `./X` 分支照舊掃全行——這一格是那個殘留的負控（#407 R20c）。
+    # #407 R23b：`bash --version` 是 CI 極常見的環境檢查。判準若問「引數裡有
+    # 沒有非旗標的東西」，它會被當成 stdin 執行而印假警報。改成問**位置**
+    # （只有管線下游才是 stdin 執行）之後靜默——這一格用一個真的管線執行
+    # 證明揭露仍然會發生，兩者的差別就是那個位置。
+    case('把 run: 換成 `cat <守衛> | bash`（管線下游的裸直譯器）',
+         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+             'run: bash plugin/tests/rule-coverage.sh',
+             'run: bash --version && cat plugin/tests/rule-coverage.sh | bash')},
+         'rule-coverage.sh 不在任何 CI workflow 跑'),
     # #407 R23：`||` 後的段只在前面失敗時跑。把守衛掛到 `||` 之後，在正常
     # （綠）的 CI 狀態下它根本不執行——先前 `||` 與 `&&` 同等對待，於是它被
     # 算成有覆蓋（假綠）。這一格證明現在會紅。

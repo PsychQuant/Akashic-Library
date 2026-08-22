@@ -204,13 +204,14 @@ done
 
 | 陳述 | 怎麼取得 | 何時 |
 |---|---|---|
+| ⚠ **標 ↗ 的那幾列是會長的數字**，不是恆定性質——它們每輪加 fixture 就變。本表 2026-08-22 重量八列，**兩列已過期**（parity 26→46、mutation 11→14），而過期的正是那兩個 ↗ 列。這張表是本規則的旗艦論證，所以它自己過期這件事留在這裡：**數字會過期不是缺陷，把會長的數字寫得像恆定事實才是。** | 重跑下面每一列的指令 | 2026-08-22 |
 | `VenueType` 是六值（上一版寫的是「三值」）| `awk '/^public enum VenueType/{f=1} f&&/^}/{exit} f&&/^    case /{n++} END{print n+0}' Sources/AkashicCore/Venue.swift` → `6`。**本檔上一版出貨的是 `grep -c '^    case ' Sources/AkashicCore/Venue.swift`，跑出來是 `8`**——它數的是整個檔案的 case 行，括號裡寫著「取 `enum VenueType` 區塊」而指令並沒有取。旗艦主張的自我量測指令，第一列就不成立。（**repo 為 private，無存取權者跑不了這條**；另可用 `akashic add-venue --help` 讀由 `allCases` 生成的值域字串） | 2026-08-21 |
 | 兩筆記錄回傳 `article-number` 23／78 | 本檔第二個實例的 `curl`，同時印 `page`／`article-number`／`volume`／`issue` | 2026-08-21 |
 | `plugin.json` 寫 format 10、本機 store 寫 12 | `grep '"description"' plugin/.claude-plugin/plugin.json` 與 `grep '^format:' <store>/store.yaml`。**單機單樣本**——未查該描述寫下時是否正確、也未查兩者是否相容 | 2026-08-21 |
 | 本檔提到的 repo 中，**存放兩個立案實例的那兩個**皆為 private（marketplace repo 不在此列——它是公開的，見下一列） | `gh repo view <repo> --json isPrivate` → 兩者皆 `true`（repo 名不寫在這裡，理由見立案一末的裁決） | 2026-08-21 |
 | census 曾把「讀不到」印成 `format 0` | 讀該腳本的解析段；並以缺 `store.yaml`／有檔無標記兩種 fixture 實跑對照 | 2026-08-21 |
-| census 的 marker 解析在 26 格 fixture 上與讀端裁決一致（**不是「一致」的全稱句**——那需要窮舉輸入空間，而這裡量的是 26 個具名形狀） | `plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh`（需先 `swift build`；拿真的 CLI 當 oracle） | 2026-08-21 |
-| 上一句那張矩陣真的會紅 | `plugin/skills/akashic-literal-campaign/scripts/tests/marker-parity-mutations.py` → 11/11 | 2026-08-21 |
+| ↗ census 的 marker 解析在 **46** 格 fixture 上與讀端裁決一致（**不是「一致」的全稱句**——那需要窮舉輸入空間，而這裡量的是 46 個具名形狀；**2026-08-21 是 26 格**，每輪都在加） | `plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh`（需先 `swift build`；拿真的 CLI 當 oracle） | 2026-08-22 |
+| ↗ 上一句那張矩陣真的會紅 | `plugin/skills/akashic-literal-campaign/scripts/tests/marker-parity-mutations.py` → **14/14**（2026-08-21 是 11/11） | 2026-08-22 |
 | 本 plugin 經由**公開**的 marketplace 發布 | 兩步都在公開處：`gh repo view PsychQuant/psychquant-claude-plugins --json isPrivate` → `false`，且該 repo 的 `.claude-plugin/marketplace.json` 列出 `akashic-mcp`（27 個 plugin 之一）。**先前這一列引的是本 repo 的 README——而本 repo 是 private，讀者查不到，等於用一個他取不到的東西當證據** | 2026-08-21 |
 
 **關於審查過程的陳述**（「前兩版都被跨模型審查打掉」「就地重述被比出多處失真」），證據是本 issue 的

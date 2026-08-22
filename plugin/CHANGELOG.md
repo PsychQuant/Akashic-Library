@@ -2,8 +2,12 @@
 
 ## [unreleased]
 
+- **規則的旗艦論證自己過期了**（#407 R19b）：`assertions-must-be-measured.md` 的自我量測表（「我說的每句話都量過」）重量八列，**兩列已過期**——parity `26→46`、mutation `11/11→14/14`。過期的正是兩個**會長**的數字（每輪加 fixture 就變），而表格把它們寫得跟「`VenueType` 是六值」一樣像恆定事實。其餘六列仍成立（VenueType 6、skill 6、wrapper 第 6 行、format 10 vs 12、marketplace 27 個、main 最近 8 次 CI 全 `failure`）。
+  修法**不只是換數字**（下一輪會再過期）：會長的那幾列標 `↗` 並寫出前一次的值，表頭寫下「數字會過期不是缺陷，把會長的數字寫得像恆定事實才是」。並新增**第 6 項散文守衛**——靜態數 fixture 定義與 mutation 項目（不跑那兩支腳本：parity 需 `swift build`、mutation 要數分鐘；實測靜態計數與實跑一致），與表格裡的數字比對。它有兩格 negative control（把兩個數字各自改回過期值），negative control 11 → 13。
+  **這不是零實例守衛**——過期是 2026-08-22 真實量到的，2/8。
+
 - **新增第 9、10 支守衛：觸發點自己的覆蓋**（#407 R19）：`plugin/tests/trigger-coverage.py` ＋ 它的 negative control。`CLAUDE.md` 有一張**手寫**的觸發點表，而手寫的表會與現實安靜分岔——這條 issue 已記過三次同形狀。判準取自 `census-parity.yml` 自己的檔頭：**不是聯集，是逐對**——對每個受保護檔案 × 每個讀它的守衛，必須存在一個 workflow 同時在該檔改動時觸發、且執行該守衛。當下實測**零缺口**，pre-push 涵蓋全部 10 支。**右欄（CI 是否真的跑起來）它量不到**，那三格的狀態仍如 `CLAUDE.md` 所載。
-  **寫這支腳本的當天踩了四個坑，全部是本 issue 的主題**：(a) 受保護清單裡憑記憶寫了 `Sources/AkashicCore/StoreVersion.swift`，真實位置是 `AkashicStoreIO/`——現在每條路徑先驗存在，指不到東西的守衛比沒有守衛更糟；(b) 抽 `paths:` 的 regex 不認 YAML anchor（`paths: &parity_paths`），於是對 `census-parity.yml` 回報 0 條而它明明有 4 條；(c)「守衛讀哪些檔」用 basename 出現在整個檔案裡判定，於是**註解**裡提到姊妹 harness 被算成讀取它，報出兩個不存在的缺口——現在先剝註解行；(d) **negative control 自己是假的**：`io.open(p,'w').write(fn(io.open(p).read()))` 讓 Python 先求值 `open(...,'w')`（截斷檔案）再求參數（讀到空字串），於是守衛的 copy 是 **0 bytes**、零輸出、rc=0，而**前三格仍然「紅」**——紅的原因是檔案被清空，不是它們宣稱的注入。一個因錯誤理由變紅的負控，等於不存在。修法是先讀完再開寫，並加一條「注入若對內容零改動即失敗」的斷言。
+  **寫這支腳本的當天踩了四個坑，全部是本 issue 的主題**：(a) 受保護清單裡憑記憶寫了 `Sources/AkashicCore/StoreVersion.swift`，真實位置是 `AkashicStoreIO/`（**該 repo 為 private，plugin 單獨安裝者取不到這兩條路徑**）——現在每條路徑先驗存在，指不到東西的守衛比沒有守衛更糟；(b) 抽 `paths:` 的 regex 不認 YAML anchor（`paths: &parity_paths`），於是對 `census-parity.yml` 回報 0 條而它明明有 4 條；(c)「守衛讀哪些檔」用 basename 出現在整個檔案裡判定，於是**註解**裡提到姊妹 harness 被算成讀取它，報出兩個不存在的缺口——現在先剝註解行；(d) **negative control 自己是假的**：`io.open(p,'w').write(fn(io.open(p).read()))` 讓 Python 先求值 `open(...,'w')`（截斷檔案）再求參數（讀到空字串），於是守衛的 copy 是 **0 bytes**、零輸出、rc=0，而**前三格仍然「紅」**——紅的原因是檔案被清空，不是它們宣稱的注入。一個因錯誤理由變紅的負控，等於不存在。修法是先讀完再開寫，並加一條「注入若對內容零改動即失敗」的斷言。
   同輪查了另外兩支 mutation harness 有無同型缺陷（同型缺陷成對出現，本 repo 記過）：**兩支都安全**——它們的 `write` 參數是別處算好的變數，不是同一行讀同一個檔。
 
 - **一句描述不存在的守衛的話，寫在守衛檔案自己的檔頭上**（#407 R18）：`multiscalar-parity.swift` 的檔頭寫著「表改動時這裡要重新產生——由 `tests/hash-table-drift.sh` 的比對兜住」，而該腳本對 `multiscalar` 的命中數是 **0**：它只比對表與生成器，從不讀那個檔。那份 inline 副本（它在 `swift <file>` 的 JIT 模式下不能讀檔，所以把表編進原始碼）可以與表安靜分岔——過期的那份仍會跑完、仍印 0 分歧，只是它驗的是**舊表**對 Swift 的**現行**行為。

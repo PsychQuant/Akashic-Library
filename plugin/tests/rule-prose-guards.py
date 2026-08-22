@@ -229,6 +229,39 @@ else:
     print('   這不是通過：用 --venue <path> 指向 Venue.swift，或在 repo 內跑。')
     sys.exit(2 if all(results) else 1)
 
+
+# ── [6] 規則檔自我量測表裡「會長的數字」是否還等於當下實測 ────────────────
+#
+# 那張表是本規則的旗艦論證（「我說的每句話都量過」）。2026-08-22 重量八列，
+# **兩列已過期**——parity 26→46、mutation 11→14。過期的正是兩個「會長」的數字：
+# 每輪加 fixture 就變，而表格把它們寫得跟「VenueType 是六值」一樣像恆定事實。
+#
+# 這一項只做**靜態計數**（數 fixture 定義與 mutation 項目），不跑那兩支腳本
+# ——parity 需要 swift build、mutation 要數分鐘。實測靜態計數與實跑一致
+# （46/46、14/14），而會漂的是計數本身，不是通過率。
+PARITY = os.path.join(PLUGIN, 'skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh')
+MUTS = os.path.join(PLUGIN, 'skills/akashic-literal-campaign/scripts/tests/marker-parity-mutations.py')
+stale = []
+if os.path.exists(PARITY) and os.path.exists(MUTS):
+    n_fix = len(re.findall(r'^check ', open(PARITY, encoding='utf8').read(), re.M))
+    mt = open(MUTS, encoding='utf8').read()
+    mm = re.search(r'MUTATIONS\s*=\s*\[(.*?)\n\]', mt, re.S)
+    n_mut = len(re.findall(r'^\s{4}\(', mm.group(1), re.M)) if mm else -1
+    if n_mut < 0:
+        stale.append('數不到 MUTATIONS 的項目數——抽取式已與宣告寫法脫節')
+    # 表格裡標 ↗ 的那兩列必須帶當下的數字。
+    if f'**{n_fix}** 格 fixture' not in rule_txt:
+        stale.append(f'自我量測表的 parity 列不是當下的 {n_fix} 格')
+    if f'**{n_mut}/{n_mut}**' not in rule_txt:
+        stale.append(f'自我量測表的 mutation 列不是當下的 {n_mut}/{n_mut}')
+    check(6, f'自我量測表裡會長的數字仍等於實測（parity {n_fix} 格、mutation {n_mut}）',
+          stale, [])
+else:
+    print('[6] SKIP  取不到 parity／mutation 腳本——**本項未執行**')
+    print()
+    print(f'=== {sum(results)}/{len(results)} PASS，但第 6 項未涵蓋 ===')
+    sys.exit(2 if all(results) else 1)
+
 print()
 print(f'=== {sum(results)}/{len(results)} PASS ===')
 sys.exit(0 if all(results) else 1)

@@ -139,6 +139,13 @@ RESULTS = [
     swap('`periodical`／`conference`／`publisher`／`database`／`socialMedia`／`website`',
          '`journal`／`conference`／`publisher`／`database`／`socialMedia`／`website`',
          5, '把值域裡的一個值改成已被更名的舊值'),
+    # 第 6 項：把自我量測表裡「會長的數字」改回過期的值。這一格驗的正是
+    # 2026-08-22 真實發生過的事——那張表的 parity 列停在 26、mutation 列停在
+    # 11/11，而實測已是 46 與 14/14。**這不是零實例守衛**，是已發生的形狀。
+    swap('**46** 格 fixture', '**26** 格 fixture', 6,
+         '把自我量測表的 parity 格數改回過期的 26'),
+    swap('**14/14**', '**11/11**', 6,
+         '把自我量測表的 mutation 數改回過期的 11/11'),
     # 把自我量測表展示的指令換回**原缺陷那一條**（數整個檔案的 case 行 → 印 8）。
     # 前一版的謂詞另寫一套計數器，於是這個缺陷可以原封不動再犯（R6 finding 10）。
     swap("awk '/^public enum VenueType/{f=1} f&&/^}/{exit} f&&/^    case /{n++} "

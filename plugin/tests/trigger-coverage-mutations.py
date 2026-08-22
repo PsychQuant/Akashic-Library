@@ -58,8 +58,16 @@ def warn_case(desc, edits, expect_substr):
     rc, out = with_copy(edits)
     warns = re.findall(r'^  \? (.+)$', out, re.M)
     gaps = re.findall(r'^  · (.+)$', out, re.M)
-    named = [w for w in warns if expect_substr in w]
-    stray = [w for w in warns if expect_substr not in w]
+    # **綁定到被 mutate 的那個守衛**（#407 R24e，跨模型審查指名）。
+    #
+    # 上一版只問「輸出裡有沒有 expect_substr」——那與「哪一個守衛觸發的」無關。
+    # 若某個 mutation 不再觸發警告，而**別的**守衛在未 mutate 的狀態下剛好產生
+    # 匹配的警告，這一格仍會綠。警告訊息的模板對每個守衛都一樣，所以這不是
+    # 假想：同目錄那條的尾巴（「那正是它自己所在的目錄」）逐字相同。
+    targets = {os.path.basename(k) for k in edits}
+    named = [w for w in warns
+             if expect_substr in w and any(tg in w for tg in targets)]
+    stray = [w for w in warns if w not in named]
     # 三段判準，與 case() 對齊（#407 R24b，跨模型審查指出 warn_case 少了兩段）：
     #   1. rc **必須是 0**——警告不改變 exit code，那正是「降為 warning」的意思。
     #      若某個注入意外觸發別的 fail，上一版仍會過。

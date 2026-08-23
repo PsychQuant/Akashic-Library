@@ -21,6 +21,7 @@
 """
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -39,6 +40,7 @@ PARITY_TABLE_REL = 'plugin/tests/parity-table-drift.py'
 RATCHET_REL = 'plugin/tests/backlink-field-ratchet.py'
 ZIROWS_REL = 'plugin/tests/zero-instance-rows-audit.py'
 ZI_RULE_REL = '.claude/rules/zero-instance-guards.md'
+CREATE_ENTRY_REL = 'Sources/akashic/CreateEntryCommand.swift'
 MODELS_REL = 'Sources/AkashicCore/Models.swift'
 MCP_RULE_REL = '.claude/rules/mcp-cli-parity.md'
 SERVER_REL = 'Sources/akashic-mcp/Server.swift'
@@ -51,7 +53,7 @@ RULE_REL = 'plugin/rules/assertions-must-be-measured.md'
 WATCHED = [COVERAGE_REL, DRIFT_REL, TABLE_REL, MULTI_REL, RULE_REL,
            REVIEW_REL, PARITY_REL, GEN_REL, WF_REL, CLAIMS_REL,
            NUMBERS_REL, BACKLINK_REL, PARITY_TABLE_REL, MCP_RULE_REL, SERVER_REL,
-           RATCHET_REL, MODELS_REL, ZIROWS_REL, ZI_RULE_REL]
+           RATCHET_REL, MODELS_REL, ZIROWS_REL, ZI_RULE_REL, CREATE_ENTRY_REL]
 
 
 def with_copy(guard_rel, edits):
@@ -291,6 +293,32 @@ def _perturb_ranges(t):
     return t[:i] + '0xFFFE' + t[i + 6:] if i >= 0 else t
 
 
+# **不是每個注入都該讓守衛變紅。** 下面這些注入的正確結果是**維持綠**——它們檢查的是
+# 「守衛沒有把合法的重排當成缺陷」。R55 把大括號配對的驗證做成一次性 fixture 而沒有
+# 常設化，本輪補上（#407 R56）。
+def _move_nested_struct_up(src):
+    """把 `CreateEntryCmd` 裡巢狀的 `EntryDraft` 搬到 `configuration` **之前**。
+
+    這是一次**純重排**（Swift 語意不變）。上一版的抽取邊界（到下一個 `struct ` 宣告
+    為止）在這個排列下會抽不到 `commandName` 而回 `None`——訊息會去怪稽核程序自己。
+    大括號配對不受影響。
+    """
+    m = re.search(r'    struct EntryDraft \{.*?\n    \}\n', src, re.S)
+    if not m:
+        return src
+    return src.replace(m.group(0), '').replace(
+        'struct CreateEntryCmd: ParsableCommand {',
+        'struct CreateEntryCmd: ParsableCommand {\n' + m.group(0), 1)
+
+
+ROBUST = [
+    ('把巢狀型別搬到 configuration 之前（純重排，不得被當成缺陷）',
+     PARITY_TABLE_REL,
+     {CREATE_ENTRY_REL: _move_nested_struct_up},
+     ['三面皆同步']),
+]
+
+
 def main():
     before = {r: os.stat(os.path.join(ROOT, r)).st_mtime_ns for r in WATCHED}
 
@@ -335,10 +363,24 @@ def main():
             print(f'✗ 注入「{name}」→ rc={rc}' + (f'，缺 {miss}' if miss else ''))
             print('   ' + (out or '（無輸出）').replace('\n', '\n   ')[:500])
 
+    for name, guard, edits, must in ROBUST:
+        try:
+            rc, out = with_copy(guard, edits)
+        except SystemExit as e:
+            print(e)
+            continue
+        miss = [m for m in must if m not in out]
+        if rc == 0 and not miss:
+            print(f'✓ 重排注入「{name}」→ 維持綠')
+            ok += 1
+        else:
+            print(f'✗ 重排注入「{name}」→ rc={rc}' + (f'，缺 {miss}' if miss else ''))
+
     after = {r: os.stat(os.path.join(ROOT, r)).st_mtime_ns for r in WATCHED}
     same = before == after
-    expected = len(CASES) - len(skipped)
-    print(f'\n=== negative control {ok}/{expected} ==='
+    expected = len(CASES) - len(skipped) + len(ROBUST)
+    print(f'\n=== negative control {ok}/{expected} '
+          f'（{len(CASES) - len(skipped)} 須紅 ＋ {len(ROBUST)} 須綠）==='
           + (f'（另有 {len(skipped)} 個因缺 swift 跳過）' if skipped else ''))
     print(f'{"出貨檔未被開啟以寫入" if same else "**出貨檔被動到了**"}：{len(WATCHED)} 個受監看檔')
     if ok != expected or not same:

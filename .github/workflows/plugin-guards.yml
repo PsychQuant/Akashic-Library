@@ -44,6 +44,9 @@ on:
       - "CLAUDE.md"
       # measured-numbers-audit.py 讀 .claude/rules 與 plugin/rules 兩處（#407 R36）。
       - ".claude/rules/**"
+      # parity-table-drift.py 拿這兩支當真值來源（#407 R50）。
+      - "Sources/akashic-mcp/Server.swift"
+      - "Sources/akashic/*.swift"
   pull_request:
     paths: *guard_paths
 
@@ -116,3 +119,5 @@ jobs:
           exit "$rc"
       - name: 規則檔的實測數字要有時間錨
         run: python3 plugin/tests/measured-numbers-audit.py
+      - name: parity 表 vs 程式碼
+        run: python3 plugin/tests/parity-table-drift.py

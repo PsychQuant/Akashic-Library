@@ -55,5 +55,8 @@ python3 plugin/tests/decision-matrix-mutations.py
 python3 plugin/tests/audit-guards-mutations.py
 # 規則檔裡的「實測 N」必須有時間錨或可重跑的指令（#407 R36）。
 python3 plugin/tests/measured-numbers-audit.py
+# mcp-cli-parity.md 的封閉列舉 vs 程式碼實際有的東西（#407 R50）——那條規則自帶的
+# 稽核程序先前從來沒人跑。
+python3 plugin/tests/parity-table-drift.py
 
 echo "pre-push: ✓ 全部通過"

@@ -25,14 +25,49 @@
 
 
 
+
+## R50 — 規則自帶的稽核程序從來沒人跑（第 15 支守衛）＋ 兩側 glob 不對稱
+
+### ① `mcp-cli-parity.md` 的封閉列舉沒有任何東西在守（**跨模型審查的完整性批判列為最高**）
+
+那條規則自帶一段「怎麼機械檢查這張表真的封閉」——四個步驟、指令都寫好了——而**從來
+沒有任何東西執行它**。新增一個 MCP tool 或 CLI subcommand 而忘了補表，全部守衛照樣綠、
+`swift test` 照樣綠，封閉列舉的宣稱就安靜變假。
+
+當下實測**三面都同步**（MCP `Tool(name:)` 30＝表 30 零差集、43 個 CLI subcommand 全部
+被規則提到、2 個橫切 `ParsableArguments` 都在），所以這是**零實例**守衛。裁決「寫」的
+理由：規則自己命令要稽核、指令現成、而失敗安靜。
+
+`parity-table-drift.py` ＋ 3 個 negative control（程式多一個 tool 而表沒補／表列了程式
+沒有的 tool／規則完全不提某個 subcommand）。**誠實邊界寫在檔頭**：MCP 面是嚴格集合相等，
+CLI 面**只驗命令名被提到**、不驗它落在哪一張表——**這比規則要求的弱**，理由是三張表的
+欄位形狀不同，把「哪一欄算數」寫死會比它要防的漂移更脆弱。
+
+### ② `plugin/rules/*.md` 仍是寫死單一路徑（跨模型審查指名）
+
+R48 把 `.claude/rules/*.md` 升成 live glob，卻沒動另一側。`plugin/rules/` 一長出第二個檔，
+`declared()` 就會再次少解析——**正是這次改動要修的病，換到另一側**，而且不會被「解析不到
+任何受保護檔」抓到（那條的前件是解析到 **0** 個）。兩側改為對稱。
+
+順帶量了審查提的 low-confidence 風險（basename 子字串造假邊）：**8 處命中逐一看過全是真的
+讀取**（那些規則檔正是 mutation 目標）——否證。
+
+### ③ check 3 的標籤比檢查寬，且**收窄沒被揭露**
+
+`規則檔殘留分類法用語` 實際只比**四個歷史字面**。收窄是刻意的（通用偵測要語意判斷），
+但同檔第 5、6 項都有揭露自己的收窄、只有它沒有。標籤改成
+`（**只比四個歷史字面**，非通用偵測）`。
+
+從 pre-push 導出 **16 支、失敗 0**；audit 負控 21/21、prose 負控 14/14、trigger 逐對零缺口。
+
 ## R49 — 豁免比它要豁免的東西寬（同一個形狀，這次出現在豁免上）
 
 R48 給 `trigger-coverage` 的宣告行開了揭露豁免，而那個豁免**只錨行首**：
 
 ```
 豁免      # trigger-coverage: reads plugin/rules/*.md
-**不豁免** # trigger-coverage: reads plugin/rules/*.md, 順帶碰 .claude/rules/x.md   ← 修正後
-豁免      # trigger-coverage: reads .claude/rules/*.md
+**不豁免** # trigger-coverage: reads plugin/rules/*.md, 順帶碰 <private-rules>/x.md   ← 修正後
+豁免      # trigger-coverage: reads <private-rules>/*.md
 ```
 
 第二行**不是**真宣告（`DECLARE` 要求 glob 之後只能有空白），卻逃得掉揭露檢查——一條

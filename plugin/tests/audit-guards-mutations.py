@@ -35,6 +35,9 @@ GEN_REL = 'plugin/skills/akashic-literal-campaign/scripts/tests/derive-hash-exte
 WF_REL = '.github/workflows/census-parity.yml'
 CLAIMS_REL = 'plugin/tests/measured-claims-audit.py'
 NUMBERS_REL = 'plugin/tests/measured-numbers-audit.py'
+PARITY_TABLE_REL = 'plugin/tests/parity-table-drift.py'
+MCP_RULE_REL = '.claude/rules/mcp-cli-parity.md'
+SERVER_REL = 'Sources/akashic-mcp/Server.swift'
 BACKLINK_REL = '.claude/rules/entity-backlink-completeness.md'
 DRIFT_REL = 'plugin/skills/akashic-literal-campaign/scripts/tests/hash-table-drift.sh'
 TABLE_REL = 'plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt'
@@ -43,13 +46,13 @@ RULE_REL = 'plugin/rules/assertions-must-be-measured.md'
 
 WATCHED = [COVERAGE_REL, DRIFT_REL, TABLE_REL, MULTI_REL, RULE_REL,
            REVIEW_REL, PARITY_REL, GEN_REL, WF_REL, CLAIMS_REL,
-           NUMBERS_REL, BACKLINK_REL]
+           NUMBERS_REL, BACKLINK_REL, PARITY_TABLE_REL, MCP_RULE_REL, SERVER_REL]
 
 
 def with_copy(guard_rel, edits):
     """複製相關子樹、套用 edits、跑 copy 裡的那支守衛。"""
     with tempfile.TemporaryDirectory(prefix='audit-mut-') as tmp:
-        for sub in ('plugin', '.github', '.claude'):
+        for sub in ('plugin', '.github', '.claude', 'Sources'):
             shutil.copytree(os.path.join(ROOT, sub), os.path.join(tmp, sub))
         for rel, fn in edits.items():
             p = os.path.join(tmp, rel)
@@ -190,6 +193,21 @@ CASES = [
      {NUMBERS_REL: lambda t: t.replace("'.claude/rules/*.md'", "'.claude/rulez/*.md'", 1)
                               .replace("'plugin/rules/*.md'))", "'plugin/rulez/*.md'))", 1)},
      ['一個規則檔都沒找到']),
+    # ── parity-table-drift.py（#407 R50）──────────────────────────────────
+    ('parity：程式新增一個 MCP tool 而表沒補',
+     PARITY_TABLE_REL,
+     {SERVER_REL: lambda t: t.replace('Tool(name: "akashic_doctor"',
+                                      'Tool(name: "akashic_brandnew"', 1)},
+     ['在程式裡但**不在規則的 MCP 表**']),
+    ('parity：表列了一個程式沒有的 tool',
+     PARITY_TABLE_REL,
+     {MCP_RULE_REL: lambda t: t.replace('| `akashic_doctor` |',
+                                        '| `akashic_ghost` |', 1)},
+     ['但程式裡**沒有這個 tool**']),
+    ('parity：規則檔完全不提某個 CLI subcommand',
+     PARITY_TABLE_REL,
+     {MCP_RULE_REL: lambda t: t.replace('`doctor`', '`doktor`')},
+     ['規則檔裡完全沒提到']),
     ('multi：案例表被清空（fixture 蒸發不得靜默通過）',
      MULTI_REL,
      # `[] + [...]` **不會**清空（前一版寫成那樣，於是這個 case 一直在測別的東西，

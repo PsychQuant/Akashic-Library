@@ -58,7 +58,11 @@ DATA = [
     'plugin/skills/akashic-literal-campaign/scripts/literal-census.sh',
     'plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt',
     'plugin/skills/akashic-literal-campaign/scripts/tests/derive-hash-extenders.swift',
-    'plugin/rules/assertions-must-be-measured.md',
+    # **兩個 glob 根要對稱**（#407 R50，跨模型審查指名）：`.claude/rules/*.md`（private，取不到） 已升成
+    # live glob，而這一側仍是單一寫死路徑。`plugin/rules/` 一長出第二個檔，
+    # `declared()` 就會再次**少解析**——正是這次改動要修的那個病，只是換到另一側，
+    # 而且不會被「解析不到任何受保護檔」抓到（那條的前件是解析到 **0** 個）。
+] + sorted(glob.glob('plugin/rules/*.md')) + [
     'Sources/AkashicStoreIO/StoreVersion.swift',
     'Sources/AkashicCore/Venue.swift',
     # repo 規則檔是 `measured-numbers-audit.py` 的輸入（#407 R48）。先前不在此列，

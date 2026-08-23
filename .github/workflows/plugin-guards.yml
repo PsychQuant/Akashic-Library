@@ -123,5 +123,7 @@ jobs:
         run: python3 plugin/tests/measured-numbers-audit.py
       - name: parity 表 vs 程式碼
         run: python3 plugin/tests/parity-table-drift.py
-      - name: 非純量欄位棘輪（14 條邊的表）
+      - name: 欄位棘輪（14 條邊的表）
         run: python3 plugin/tests/backlink-field-ratchet.py
+      - name: zero-instance 裁決表的編號棘輪
+        run: python3 plugin/tests/zero-instance-rows-audit.py

@@ -37,6 +37,8 @@ CLAIMS_REL = 'plugin/tests/measured-claims-audit.py'
 NUMBERS_REL = 'plugin/tests/measured-numbers-audit.py'
 PARITY_TABLE_REL = 'plugin/tests/parity-table-drift.py'
 RATCHET_REL = 'plugin/tests/backlink-field-ratchet.py'
+ZIROWS_REL = 'plugin/tests/zero-instance-rows-audit.py'
+ZI_RULE_REL = '.claude/rules/zero-instance-guards.md'
 MODELS_REL = 'Sources/AkashicCore/Models.swift'
 MCP_RULE_REL = '.claude/rules/mcp-cli-parity.md'
 SERVER_REL = 'Sources/akashic-mcp/Server.swift'
@@ -49,7 +51,7 @@ RULE_REL = 'plugin/rules/assertions-must-be-measured.md'
 WATCHED = [COVERAGE_REL, DRIFT_REL, TABLE_REL, MULTI_REL, RULE_REL,
            REVIEW_REL, PARITY_REL, GEN_REL, WF_REL, CLAIMS_REL,
            NUMBERS_REL, BACKLINK_REL, PARITY_TABLE_REL, MCP_RULE_REL, SERVER_REL,
-           RATCHET_REL, MODELS_REL]
+           RATCHET_REL, MODELS_REL, ZIROWS_REL, ZI_RULE_REL]
 
 
 def with_copy(guard_rel, edits):
@@ -225,6 +227,17 @@ CASES = [
     # #407 R52：純量型別的新欄位**也**要被抓到（上一版的候選謂詞會漏掉
     # `public var seeAlso: [String]` 這種直接掛在頂層的 key 陣列）。
     # #407 R53：`public let` 也要抓（第 13 條邊的解析形式就是 let）。
+    # ── zero-instance-rows-audit.py（#407 R55）───────────────────────────
+    ('zi-rows：新增一列裁決「寫」而編號在 Sources 裡不存在',
+     ZIROWS_REL,
+     # 表的欄位分隔是「空白 ＋ 管線 ＋ 空白」；少一個空白就與 row regex 不合，
+     # 注入會靜默不生效（#407 R55 當場踩到）。
+     {ZI_RULE_REL: lambda t: t.replace('| 4 |', '| 5 | **假的一列**（#9999：不存在的守衛） | ✅ **寫** | 為了測負控 |\n| 4 |', 1)},
+     ['在 Sources/ 裡都找不到']),
+    ('zi-rows：某一列完全不引用 issue 編號',
+     ZIROWS_REL,
+     {ZI_RULE_REL: lambda t: t.replace('（#254：', '（無編號：', 1)},
+     ['沒有引用任何 issue 編號']),
     ('ratchet：Swift 多一個 public let 欄位',
      RATCHET_REL,
      {MODELS_REL: lambda t: t.replace('public var authors:',

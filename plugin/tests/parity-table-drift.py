@@ -42,21 +42,34 @@ CLI = 'Sources/akashic/CLI.swift'
 
 
 def _command_name(type_name, srcs):
-    """抽某個 struct 的 `commandName`，**限制在它自己的區段內**。
+    """抽某個 struct 的 `commandName`，**用大括號配對界定它自己的本體**。
 
-    上一版用 `struct T\\s*:.*?commandName:` ＋ DOTALL：若 `T` 的本體裡沒有
-    `commandName:`（例如寫在 extension 裡），非貪婪的 `.*?` 會**走過 T 的定義**、
-    綁到檔案裡下一個 struct 的 `commandName`——`live` 因此被靜默貼錯標籤，而且
-    沒有任何症狀（#407 R54，跨模型審查指名；規則檔自己也記過「純文字抽取對宣告
-    寫法改變脆弱」）。改成先切出「從 `struct T` 到下一個 `struct ` 宣告之前」的
-    區段，再在區段內找。
+    演化（兩步，都是被實測逼出來的）：
+
+      R54  `struct T\\s*:.*?commandName:` ＋ DOTALL —— `T` 本體裡沒有 `commandName:`
+           時（例如寫在 extension），非貪婪的 `.*?` 會走過 `T` 的定義綁到**下一個**
+           struct 的值，靜默貼錯標籤。
+      R54b 改成「到下一個 `struct ` 宣告為止」——**仍然不是 scope-aware**：實測
+           `CreateEntryCmd` 的區段終止在它**自己巢狀的** `struct EntryDraft`（#407
+           R55，跨模型審查指名）。今天無害（`commandName` 在巢狀型別之前），但把
+           巢狀型別上移一行就會讓抽取回 `None`，而訊息會去怪稽核程序自己。
+      R55  **大括號配對**：從 `T` 的 `{` 數到它的 `}`。巢狀型別、中間夾 `enum`、
+           extension 都不再影響邊界。
+
+    誠實邊界：字串／註解裡的大括號會讓計數失準。Swift 原始碼裡這在**宣告區**極少見，
+    而失敗方向是區段過長或過短——過短會回 `None`（出聲），過長退化成上一版的行為。
     """
-    m = re.search(r'struct\s+' + re.escape(type_name) + r'\s*[:{]', srcs)
+    m = re.search(r'struct\s+' + re.escape(type_name) + r'\b[^{]*\{', srcs)
     if not m:
         return None
-    nxt = re.search(r'\bstruct\s+[A-Za-z]', srcs[m.end():])
-    seg = srcs[m.end():m.end() + nxt.start()] if nxt else srcs[m.end():]
-    return re.search(r'commandName:\s*"([^"]+)"', seg)
+    depth, i = 1, m.end()
+    while i < len(srcs) and depth:
+        if srcs[i] == '{':
+            depth += 1
+        elif srcs[i] == '}':
+            depth -= 1
+        i += 1
+    return re.search(r'commandName:\s*"([^"]+)"', srcs[m.end():i])
 
 
 def main():

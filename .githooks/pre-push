@@ -61,5 +61,7 @@ python3 plugin/tests/parity-table-drift.py
 # entity-backlink-completeness.md 的 14 條邊：新的非純量欄位必須先被裁決（#407 R51）。
 # 那張表錯過三次，而它的第 ③ 步是人的判斷——本支只做棘輪，不代做裁決。
 python3 plugin/tests/backlink-field-ratchet.py
+# zero-instance-guards.md 的裁決表：裁決「寫」的那些列，守衛真的存在嗎（#407 R55）。
+python3 plugin/tests/zero-instance-rows-audit.py
 
 echo "pre-push: ✓ 全部通過"

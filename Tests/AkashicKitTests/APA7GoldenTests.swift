@@ -136,7 +136,8 @@ final class APA7GoldenTests: XCTestCase {
         //
         // 這裡原本是 `APADataModel.requiredFields[...] != nil`。#354 加了一張補充表
         // （補依賴沒有意見的型別）之後，那個寫法立刻與受測者分岔——而且**空洞地通過**：
-        // 唯一受影響的型別 `referenceWorkEntry` 沒有 fixture，所以
+        // 唯一受影響的型別（當時的 `wikipediaEntry`，#409 起 `referenceWorkEntry`）
+        // 沒有 fixture，所以
         // `testUncoveredTypesHaveNoFixtures` 對一個空集合斷言，全綠。
         //
         // 這是 #353 剛消除的同一個形狀在測試側重現：一個「以為在守某件事、其實在守自己

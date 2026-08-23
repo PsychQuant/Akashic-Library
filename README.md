@@ -763,14 +763,27 @@ python3 -c "import json; [print(json.loads(l).get('retrieved')) for l in open('$
 #### 「暫時」不會變成「永遠」——觸發條件寫成可執行的
 
 ```bash
-grep -h '^  booktitle:' ~/.akashic/entities/*.yaml | sort | uniq -c | sort -rn | head
+python3 - <<'EOF'
+import glob, io, re, collections
+uncov = collections.Counter()
+for f in glob.glob('/Users/che/.akashic/entities/*.yaml'):
+    s = io.open(f, encoding='utf8').read()
+    m = re.search(r'^  booktitle: (.+)$', s, re.M)
+    if m and not re.search(r'^venues:\n- key: ', s, re.M):
+        uncov[m.group(1).strip()] += 1
+print(sum(uncov.values()), max(uncov.values()) if uncov else 0)
+EOF
 ```
 
-**≥ 20 筆**或**單一容器被 ≥ 5 筆共用**即重新裁決。
+**≥ 20 筆**或**單一容器被 ≥ 5 筆共用**即重新裁決。2026-08-23 實測 **11 筆／最大 ×1**。
 
-另一個觸發：#354 讓 `INREFERENCE` 的必要欄位含 `BOOKTITLE`（參考工具書名），而實測那 3 筆
-SEP 條目目前是 `bookChapter` —— 它們與 14 筆維基條目**是同一種東西**（參考工具書中的條目）。
-若那 17 筆被統一分類，容器需求的規模一次跳到 17+。
+> **這條指令換過一次（#409）**：原本數的是「帶 `booktitle` 的記錄」，而 `lossless-intake`
+> 規定來源欄位不刪 —— 容器改由 venue 承載之後那個數字**完全不會下降**（實測仍是 31）。
+> 現在數的是「仍只有純量字串、沒有任何 ref 承載容器」的記錄。
+
+第二個觸發（#354 讓 `INREFERENCE` 的必要欄位含 `BOOKTITLE`）**已於 2026-08-23 由 #409 消解**：
+當時那 3 筆 SEP 條目是 `bookChapter`，與 14 筆維基條目是同一種東西卻因型別標籤而分流；#409
+把型別改名為 `referenceWorkEntry` 並讓那 3 筆一併改過去，17 筆因此統一分類。
 
 > **順帶記一個相鄰發現 —— 已於 2026-08-23 由 #409 消解**：`WorkType.wikipediaEntry` 的名字
 > 過窄 —— 它實際承擔的是「參考工具書中的條目」，而 SEP 不是 Wikipedia。

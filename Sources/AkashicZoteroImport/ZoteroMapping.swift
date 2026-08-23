@@ -49,7 +49,10 @@ public enum ZoteroMapping {
         // 改名成 `referenceWorkEntry`。**那條邊界不再需要，因為它描述的缺陷已經不在。**
         //
         // **但它記的一個零實例事實仍然有效，所以留著**：Zotero 的 `dictionaryEntry`
-        // 本庫**零筆**。辭典條目與百科條目在 APA7 同屬 §10.3，但它們是否該共用
+        // 本庫**零筆**（2026-08-23 重量，#409 verify R2 指名——搬回這句時沒附量測依據，
+        // 而 `assertions-must-be-measured` 管的正是這個形狀）：
+        //     grep -l dictionaryEntry ~/.akashic/entities/*.yaml | wc -l   # → 0
+        // 辭典條目與百科條目在 APA7 同屬 §10.3，但它們是否該共用
         // `.referenceWorkEntry` 這一格，等真的出現實例時再裁（`zero-instance-guards`
         // 的立場：還沒發生的形狀不現在猜）。
         "encyclopediaArticle": .referenceWorkEntry,

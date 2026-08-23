@@ -42,6 +42,29 @@
 
 
 
+## R67m — architecture 席三輪都沒跑完，那四個問題自己量
+
+三輪 ensemble 的 architecture 席**每一輪都 errored**（harness 依 fail-closed 記成 HIGH
+「did not complete」）。DA 席指出它本該覆蓋的正是 `oracle-precondition-control.py` 那個
+「動態載入 ＋ monkey-patch 一個共用 harness、呼叫三次」的設計。
+
+那四個問題是可量的，所以量了：
+
+| # | 問題 | 實測 |
+|---|---|---|
+| a | 三次 `_load()` 之間是否真的隔離 | 不同物件；污染其一不外洩到其二 |
+| b | monkey-patch 會不會外洩到未預期的路徑 | patch 過的模組不影響後續 `_load()` |
+| c | `sys.modules['audit_harness']` 註冊會不會污染其他 import | 另一個 process 載入拿到完整的 43 個 case（不是被清空的 0） |
+| d | 出貨檔會不會被寫 | 跑完控制組後 harness 的 `mtime_ns` 未變 |
+
+**四項全過，但這是自審不是獨立審查**——記在這裡是為了讓「architecture 面被看過了」
+這句話有依據，而不是讓它看起來像有人獨立看過。三輪都沒跑完這件事本身也記著。
+
+**刻意不做成常設守衛**：(d) 已由 harness 自己的「出貨檔未被開啟以寫入」涵蓋；(a)(b)(c)
+是 importlib 的固有性質，不會因為我們的程式碼而回歸。加第七列零實例守衛的成本大於
+它擋得住的東西。量測腳本留在 CHANGELOG 這張表裡即可重跑。
+
+
 ## R67l — 第三輪的四條：三條成立、一條今天為假但仍值得修
 
 第三輪跨模型審查（3/5 席）帶回四條，逐條自己重現：

@@ -6,7 +6,7 @@
 第 ③ 步是「逐欄位問：它會被序列化嗎？它的值指涉另一個實體嗎？」——**那一步是人的
 判斷**，不能由腳本代做。
 
-所以本支**不裁決**，只做**棘輪**：把當下六個型別檔裡的 `public var` **全部**釘住。
+所以本支**不裁決**，只做**棘輪**：把當下六個型別檔裡的 `public var` **與 `public let`** 全部釘住。
 新出現一個就紅，訊息要求人跑規則的第 ③ 步、再把它加進下面的清單。
 
 **誠實邊界**：
@@ -17,6 +17,9 @@
     只是因為它們包在 `relations: Relations` 這個非純量結構裡。謂詞比它要管的東西窄，
     所以整個拿掉：全部欄位都要裁決，那本來就是規則第 ③ 步的字面要求（#407 R52）。
   · 宣告**跨行**時上一版的逐行 regex 也看不到；改成先摺平空白再抓。
+  · **`public let` 也算**（#407 R53，跨模型審查指名）：上一版只抓 `var`，而第 13 條邊
+    的解析形式 `VerdictPairingValue` 的 `holderKind`／`holder` 正是 `public let`——
+    一條真的 entity 指標整個在棘輪之外。
   · **本支不驗表裡那 14 列對不對**，只驗「沒有未經裁決的新欄位溜進來」。
   · 欄位被**刪掉**也會紅（清單與現況不等），那是刻意的——刪一條邊同樣要改表。
 
@@ -108,7 +111,10 @@ ADJUDICATED = {
     'Organization.unknownFields',
     'Provenance.encoded',
     'Provenance.field',
+    'Provenance.holder',
+    'Provenance.holderKind',
     'Provenance.kind',
+    'Provenance.literal',
     'Provenance.value',
     'Temporal.administrative',
     'Temporal.affiliations',
@@ -153,7 +159,7 @@ def main():
             print(f'✗ 找不到 {p}——規則指定的六個型別檔之一不在了，稽核程序脫節')
             return 1
         flat = re.sub(r'\s+', ' ', io.open(p, encoding='utf8').read())
-        for m in re.finditer(r'public var (\w+)\s*:', flat):
+        for m in re.finditer(r'public (?:var|let) (\w+)\s*:', flat):
             seen.add(f'{f}.{m.group(1)}')
 
     new = sorted(seen - ADJUDICATED)

@@ -28,6 +28,23 @@
 
 
 
+
+## R53 — 棘輪只抓 `public var`，而第 13 條邊的解析形式是 `public let`
+
+跨模型審查指名：`ProvenanceReference.VerdictPairingValue` 的 `holderKind`／`holder`
+（第 13 條邊「verdict value 指向 work／person／organization by key」的**解析後**形式）
+宣告成 `public let`，而棘輪的 regex 只認 `var`——**一條真的 entity 指標整個在棘輪之外**。
+
+改抓 `public (?:var|let)`，釘住的欄位從 **105 → 108**。新增第 27 個 negative control。
+
+### 同輪自查：放寬後的 token 掃描**零誤判**
+
+c47 的第二席未回，它的問題（49 個 token 裡有哪些被誤當成 CLI 命令）我自己量：扣掉
+`akashic_*`（① 管）與 `-` 開頭（③ 管）之後，**實際被當成命令檢查的是 16 個，全部是真的
+CLI 命令**；唯一劃掉的 `migrate-work-types` 正確地不在 `CLI.swift`。放寬沒有引入誤判。
+
+從 pre-push 導出 **17 支、失敗 0**；audit 負控 27/27。
+
 ## R52 — 兩個新守衛的謂詞都比它們要管的東西窄（跨模型審查同輪指名）
 
 ### ① 棘輪的候選偵測會漏掉 `[String]` 型別的 key 陣列

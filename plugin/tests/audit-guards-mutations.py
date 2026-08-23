@@ -224,6 +224,12 @@ CASES = [
     # ── backlink-field-ratchet.py（#407 R51）──────────────────────────────
     # #407 R52：純量型別的新欄位**也**要被抓到（上一版的候選謂詞會漏掉
     # `public var seeAlso: [String]` 這種直接掛在頂層的 key 陣列）。
+    # #407 R53：`public let` 也要抓（第 13 條邊的解析形式就是 let）。
+    ('ratchet：Swift 多一個 public let 欄位',
+     RATCHET_REL,
+     {MODELS_REL: lambda t: t.replace('public var authors:',
+                                      'public let ghostEdge: String = ""\n    public var authors:', 1)},
+     ['新欄位未經裁決']),
     ('ratchet：Swift 多一個 [String] 欄位（上一版會漏）',
      RATCHET_REL,
      {MODELS_REL: lambda t: t.replace('public var authors:',

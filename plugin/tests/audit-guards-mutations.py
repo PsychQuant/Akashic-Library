@@ -421,6 +421,30 @@ def _move_nested_struct_up(src):
 
 
 ROBUST = [
+    # #407 R67j（跨模型審查指名的兩個子點，修完後**須綠**）：修之前兩者都會紅
+    # ——fence 內那張 1 列的示範表會被當成真的表；緊鄰的第二張表的表頭與分隔線會被
+    # 算成第一張的資料列。所以它們是這兩個修正的回歸守衛，不是新缺陷的偵測器。
+    ('numbers：標題與表之間夾一段 fence 包住的示範表（不得被當成真的表）',
+     NUMBERS_REL,
+     {'.claude/rules/blocked-issues-must-be-scannable.md':
+      # 插在**裁決表的標題與它自己的表之間**——那才是「現有 4 列」綁的那張表。
+      # 前一版插在檔案較早的另一張表前面，對受檢宣稱完全沒有影響（實測：回退修正
+      # 後那一格仍綠 ⇒ 空的 case）。位置錯了，控制組就什麼都沒測到。
+      lambda t: t.replace('| # | 情形 | 裁決 | 理由 |',
+                          '```markdown\n| 示範 | 表 |\n|---|---|\n| a | b |\n```\n\n'
+                          '| # | 情形 | 裁決 | 理由 |', 1)},
+     ['列數宣稱皆相符']),
+    ('numbers：一張無關的表緊接在受檢表之後（不得併入計數）',
+     NUMBERS_REL,
+     {'.claude/rules/blocked-issues-must-be-scannable.md':
+      # 緊接在裁決表**最後一列之後、中間沒有空行**——有空行的話 while 迴圈本來就停了，
+      # 測不到「表頭與分隔線被算成資料列」那條路徑。
+      lambda t: t.replace(
+          '不用 `### Blocking`',
+          '不用 `### Blocking`', 1).replace(
+          '\n\n## 跟其他規則的關係',
+          '\n| 另一張 | 表 |\n|---|---|\n| x | y |\n\n## 跟其他規則的關係', 1)},
+     ['列數宣稱皆相符']),
     # #407 R67d：收窄前件的那一格要有守衛。散文裡的「只有一條」與 10 行外的一張
     # 10 列的表**不是**不符——寬版謂詞當初正是這樣誤傷 `mcp-cli-parity.md` 的。
     ('在散文（非標題）加一句「只有 2 條」，其後有表（不得被誤判為不符）',
@@ -467,6 +491,24 @@ def main():
         if r.returncode != 0:
             print(f'✗ baseline 就紅了：{rel}\n{r.stdout}{r.stderr}')
             return 1
+    # **每一支被當成受測對象的守衛都要驗 baseline**（#407 R67j，自審抓到）：上一版
+    # 只驗這兩支，於是其餘守衛若在注入**之前**就已經紅，它們的控制組會平白通過——
+    # 控制組宣稱「注入造成了紅」，而紅早就在那裡。實測（把一個裸數字先注進規則檔）：
+    # 10 個 numbers 控制組**全部**照樣報 ✓。這與 R67h 的教訓同型：一個跑過的控制組
+    # 不等於一個能失敗的控制組，而這裡連「它在測什麼」都不成立。
+    tested = sorted({g for _, g, _, _ in CASES + ROBUST})
+    if not has_swift:
+        tested = [g for g in tested if not g.endswith('.swift') and g != DRIFT_REL]
+    dirty = []
+    for rel in tested:
+        rc, out = with_copy(rel, {})          # 未注入的乾淨 copy
+        if rc != 0:
+            dirty.append((rel, out))
+    if dirty:
+        print(f'✗ {len(dirty)} 支守衛在**注入之前**就已經紅——它們的控制組會平白通過：')
+        for rel, out in dirty:
+            print(f'  · {rel}\n    ' + (out or '（無輸出）').strip().replace('\n', '\n    ')[:300])
+        return 1
     _n = 2 if has_swift else 1
     print(f'baseline：{_n} 支皆綠 ✓（{len(CASES)} 個 mutation 待跑）\n')
 

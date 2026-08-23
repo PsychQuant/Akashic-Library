@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""`audit-guards-mutations.py` 的 ROBUST oracle 前提檢查，自己的負控（#407 R67h）。
+"""`audit-guards-mutations.py` 兩個**自檢**機制的負控（#407 R67h／R67j）。
 
 為什麼要獨立一支
 ================
@@ -12,10 +12,14 @@ R67 讓 ROBUST 負控拿「守衛在未注入 copy 上的輸出」當 oracle、�
 指出那條路徑會 `KeyError` 整支 crash——挑一個只有一格的守衛當控制組，等於挑了唯一
 不會暴露它的那支。這支檔案存在，就是為了讓那個控制組**不再是隨手挑的**。
 
-它檢查兩件事（都要求 harness 乾淨降級，而不是 crash 或假裝通過）：
+**檢查一：ROBUST oracle 的前提**（R67h）。要求 harness 乾淨降級，而不是 crash 或
+假裝通過：前提不成立時具名報出是哪一支守衛，且那一支的 ROBUST case 全部不計入
+通過數（不是只少一格）。
 
-  1. 前提不成立時**具名報出**是哪一支守衛
-  2. 那一支的 ROBUST case **全部不計入**通過數（不是只少一格）
+**檢查二：逐守衛的 baseline**（R67j）。harness 上一版只驗兩支守衛的 baseline，
+於是其餘守衛若在注入**之前**就已經紅，它們的控制組會平白通過——控制組宣稱「注入
+造成了紅」，而紅早就在那裡。實測當時 10 個 numbers 控制組**全部**照樣報 ✓。
+這裡把一個既有守衛在 baseline 就弄紅，要求 harness 在跑任何 case 之前就攔下來。
 
 用法
 ====
@@ -62,6 +66,35 @@ def _run(mod, poisoned):
     with contextlib.redirect_stdout(buf):
         rc = mod.main()
     return rc, buf.getvalue()
+
+
+def _check_baseline(mod):
+    """把一支守衛在 baseline 就弄紅，harness 必須在跑任何 case 之前攔下。"""
+    orig = mod.with_copy
+    poison = ('.claude/rules/lossless-intake.md',
+              lambda s: s.replace('## 規則', '## 破壞 baseline\n\n實測 42 筆。\n\n## 規則', 1))
+
+    def patched(guard, edits):
+        e = dict(edits)
+        if guard == mod.NUMBERS_REL:
+            p, fn = poison
+            prev = e.get(p)
+            e[p] = (lambda s: fn(prev(s))) if prev else fn
+        return orig(guard, e)
+
+    mod.with_copy = patched
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = mod.main()
+    out = buf.getvalue()
+    fails = []
+    if '在**注入之前**就已經紅' not in out or mod.NUMBERS_REL not in out:
+        fails.append('沒有具名報出是哪一支守衛的 baseline 就紅了')
+    if 'negative control' in out:
+        fails.append('髒 baseline 下仍跑完全部 case 並印出通過數——控制組在空轉')
+    if rc == 0:
+        fails.append('baseline 髒掉時 harness 仍回 0')
+    return fails
 
 
 def main():
@@ -116,8 +149,17 @@ def main():
         print(f'  ✗ {f}')
     if not fails:
         print(f'  ✓ 具名報出、{n_cases} 格全部不計入（{clean_ok} → {clean_ok - n_cases}）、rc≠0')
-    print(f'\n══ {"前提檢查會乾淨降級" if not fails else f"**{len(fails)} 項不符**"} ══')
-    return 1 if fails else 0
+    print()
+    print('══ 檢查二：逐守衛的 baseline 驗證 ══')
+    b_fails = _check_baseline(_load())
+    for f in b_fails:
+        print(f'  ✗ {f}')
+    if not b_fails:
+        print('  ✓ 髒 baseline 被在跑任何 case 之前攔下、具名、rc≠0')
+
+    total = fails + b_fails
+    print(f'\n══ {"兩個自檢都會乾淨降級" if not total else f"**{len(total)} 項不符**"} ══')
+    return 1 if total else 0
 
 
 if __name__ == '__main__':

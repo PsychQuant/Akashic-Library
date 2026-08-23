@@ -125,8 +125,18 @@ def _rows_after(lines, i):
     回 None 而不是 0，是因為「標題後沒有表」與「表有 0 列」是兩件事，而把它們
     折成同一個值會讓前者被當成不符。`lossless-intake` 的「靜默是最糟的形式」。
     """
+    # **fence 內的示範表不是表**（#407 R67j，跨模型審查指名）：規則檔常用 ``` 包一段
+    # markdown 語法示範，而本檔別處（`has_cmd`／`CMD_FENCE`）早就有處理 fence 的意識
+    # ——這段 40 行前向掃描當初卻沒有。實測：fence 裡放一張 1 列的示範表，真正的 3 列
+    # 表在後面，上一版回報 1。
     crossed = False
+    fenced = False
     for j in range(i + 1, min(i + 40, len(lines))):
+        if lines[j].lstrip().startswith('```'):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
         # **不得跨過下一個標題**（#407 R67i）：上一版只看「40 行內第一張表」，於是
         # 一個宣稱了列數卻自己沒有表的標題，會借用**下一節**的表來比對——兩個不相干
         # 的數字被湊成一對，而結果看起來完全正常。
@@ -137,11 +147,18 @@ def _rows_after(lines, i):
         if re.match(r'^\|[-\s|:]+\|\s*$', lines[j]):
             if crossed:
                 return 'borrowed'
+            # **遇到第二張表的分隔線就停**（#407 R67j）：兩張表若中間沒有空行，
+            # 第二張的表頭列與分隔線列同樣以 `|` 開頭，上一版會把它們算成第一張的
+            # 資料列。實測：2 列的表後面緊接一張表，上一版回報 5。
             k, rows = j + 1, 0
             while k < len(lines) and lines[k].lstrip().startswith('|'):
+                if re.match(r'^\|[-\s|:]+\|\s*$', lines[k]):
+                    # 這是下一張表的分隔線——它的表頭是上一列，把那列扣回去。
+                    rows -= 1
+                    break
                 rows += 1
                 k += 1
-            return rows
+            return max(rows, 0)
     return None
 
 

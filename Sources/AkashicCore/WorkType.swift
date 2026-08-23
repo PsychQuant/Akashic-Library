@@ -41,7 +41,7 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
     case periodicalArticle  = "periodical-article"   // 10.1 Periodicals
     case book                                        // 10.2 Books and Reference Works
     case bookChapter        = "book-chapter"         // 10.3 Edited Book Chapters
-    case referenceWorkEntry     = "reference-work-entry"      // 10.3（細分——例 49）
+    case referenceWorkEntry = "reference-work-entry" // 10.3（細分——例 49）
     case report                                      // 10.4 Reports and Gray Literature
     case conferenceSession  = "conference-session"   // 10.5 Conference Sessions
     case thesis                                      // 10.6 Dissertations and Theses

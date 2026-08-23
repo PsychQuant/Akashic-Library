@@ -46,7 +46,12 @@ public enum ZoteroMapping {
         // 的參考書條目時，該補的是一個更廣的 10.3-entry 型別」。
         //
         // 那個形狀在 #339 出現了（3 筆 SEP 條目），於是 #409 做了那條註解預告的事：
-        // 改名成 `referenceWorkEntry`。**註解不再需要，因為它描述的缺陷已經不在。**
+        // 改名成 `referenceWorkEntry`。**那條邊界不再需要，因為它描述的缺陷已經不在。**
+        //
+        // **但它記的一個零實例事實仍然有效，所以留著**：Zotero 的 `dictionaryEntry`
+        // 本庫**零筆**。辭典條目與百科條目在 APA7 同屬 §10.3，但它們是否該共用
+        // `.referenceWorkEntry` 這一格，等真的出現實例時再裁（`zero-instance-guards`
+        // 的立場：還沒發生的形狀不現在猜）。
         "encyclopediaArticle": .referenceWorkEntry,
     ]
 

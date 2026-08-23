@@ -41,6 +41,8 @@ RATCHET_REL = 'plugin/tests/backlink-field-ratchet.py'
 ZIROWS_REL = 'plugin/tests/zero-instance-rows-audit.py'
 ZI_RULE_REL = '.claude/rules/zero-instance-guards.md'
 CREATE_ENTRY_REL = 'Sources/akashic/CreateEntryCommand.swift'
+SCALAR_GUARD_REL = 'plugin/tests/literal-scalar-parity.py'
+CENSUS_REL = 'plugin/skills/akashic-literal-campaign/scripts/literal-census.sh'
 MODELS_REL = 'Sources/AkashicCore/Models.swift'
 MCP_RULE_REL = '.claude/rules/mcp-cli-parity.md'
 SERVER_REL = 'Sources/akashic-mcp/Server.swift'
@@ -53,7 +55,8 @@ RULE_REL = 'plugin/rules/assertions-must-be-measured.md'
 WATCHED = [COVERAGE_REL, DRIFT_REL, TABLE_REL, MULTI_REL, RULE_REL,
            REVIEW_REL, PARITY_REL, GEN_REL, WF_REL, CLAIMS_REL,
            NUMBERS_REL, BACKLINK_REL, PARITY_TABLE_REL, MCP_RULE_REL, SERVER_REL,
-           RATCHET_REL, MODELS_REL, ZIROWS_REL, ZI_RULE_REL, CREATE_ENTRY_REL]
+           RATCHET_REL, MODELS_REL, ZIROWS_REL, ZI_RULE_REL, CREATE_ENTRY_REL,
+           SCALAR_GUARD_REL, CENSUS_REL]
 
 
 def with_copy(guard_rel, edits):
@@ -241,6 +244,15 @@ CASES = [
     # `public var seeAlso: [String]` 這種直接掛在頂層的 key 陣列）。
     # #407 R53：`public let` 也要抓（第 13 條邊的解析形式就是 let）。
     # ── zero-instance-rows-audit.py（#407 R55）───────────────────────────
+    # ── literal-scalar-parity.py（#407 R65）──────────────────────────────
+    # R64 把「結構完整檢查會紅」記為**沒有被反向證實**（當時的診斷腳本自己壞了）。
+    # 常設化：砍掉 `_scalar` 的最後一個分支，本體就不以 `return` 結尾。
+    ('scalar：`_scalar` 的最後一個分支被砍掉（切片可能被截斷）',
+     SCALAR_GUARD_REL,
+     {CENSUS_REL: lambda t: t.replace(
+         "        i = s.find(' #')\n        return (s[:i] if i >= 0 else s).strip()\n",
+         "        pass\n", 1)},
+     ['本體最後一行不是 `return`']),
     ('zi-rows：新增一列裁決「寫」而編號在 Sources 裡不存在',
      ZIROWS_REL,
      # 表的欄位分隔是「空白 ＋ 管線 ＋ 空白」；少一個空白就與 row regex 不合，
@@ -353,6 +365,12 @@ ROBUST = [
          'struct CreateEntryCmd: ParsableCommand {',
          'struct CreateEntryCmd: ParsableCommand {\n    static let brace = "{"', 1)},
      ['三面皆同步']),
+    # #407 R65：縮排不足的註解**不得**終止切片（維護者加範圍說明時很自然會左對齊）。
+    ('在 `_scalar` 裡插一行縮排不足的註解（不得截斷切片）',
+     SCALAR_GUARD_REL,
+     {CENSUS_REL: lambda t: t.replace('        # 未加引號：',
+                                      '# 範圍說明\n        # 未加引號：', 1)},
+     ['全部一致']),
     ('把巢狀型別搬到 configuration 之前（純重排，不得被當成缺陷）',
      PARITY_TABLE_REL,
      {CREATE_ENTRY_REL: _move_nested_struct_up},

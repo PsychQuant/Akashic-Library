@@ -36,6 +36,41 @@
 
 
 
+
+## R61 — `literal:` 值抽取的分岔**已量到**；oracle 這一側卡在 store 註冊（未完成）
+
+c50 的第三條 HIGH：`literal-census.sh` 抽 `literal:` 值用的是裸 regex，而同一支腳本裡
+兩個**更窄**的文字解析風險（`#` 註解判定、`format:` 標記）都已有完整 oracle ＋ mutation。
+
+### 分岔是真的——單靠 census 一側就量得出來
+
+從真實 entity 複製兩筆、只改 `literal` 的**寫法**（值不變）：
+
+```
+fixtureA:  - literal: "Jacob Cohen"  # 尾註
+fixtureB:  - literal: Jacob Cohen
+```
+
+真正的解碼器對兩者都得到 `Jacob Cohen`（1 個 distinct）。census 報 **`distinct literal 2`**
+——它把引號與尾隨註解一起吃進捕獲組。
+
+**這不是假設，是跑出來的。** 而 `distinct literal` 正是整個 campaign 的分母。
+
+### 沒完成的那一半：oracle 指不到 fixture store
+
+`store-marker-parity.sh` 的作法是拿真 `akashic` 當 oracle。這裡卡住：
+
+| 嘗試 | 結果 |
+|---|---|
+| `akashic get-entry --library <路徑>` | `--library` 是 **membership 篩選**，不是 store 根 |
+| `AKASHIC_HOME` ／ `AKASHIC_STORE` ／ `AKASHIC_ROOT` | 三個都不吃 |
+
+要讓 CLI 讀 fixture store，得先把它註冊進 registry（`akashic file`／`library` 那一族）。
+**那是下一輪的第一件事**，起點很精確：fixture 造法已驗（複製真 entity ＋ 改寫 literal
+形式，schema 保證有效）、分岔已量、只差把 oracle 那一側接上。
+
+守衛十八支全綠、audit 負控 36/36。
+
 ## R60 — 兩個我**剛做的**收緊各有一條可繞過的路（跨模型審查各列 HIGH）
 
 ### ① `EDGE_TYPES` 用裸欄位名當鍵 → 同名誘餌可以遮住真正的型別變更

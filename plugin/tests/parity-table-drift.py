@@ -17,6 +17,13 @@
     欄、有時在劃掉的退場列裡），而把「哪一欄算數」寫死會比它要防的漂移更脆弱。
     **這比規則要求的弱**——規則要的是「落在某一張表的某一列」，本支只保證「被提到」。
   · **不驗裁決是否正確**（那要人判斷）。本支只擋「整個沒被提到」。
+  · **②b 把第一欄反引號內容的第一個詞當命令名，這在編輯時可能誤擋**（#407 R54，
+    跨模型審查指名的潛在情形）：`view`（list／show）那一列若被拆成兩列 `list`／`show`
+    ——一次**純編輯**的精確化，`CLI.swift` 完全沒動——②b 會把兩者都當成「退場了卻沒
+    劃掉」而報紅。**裁決：接受。** 失敗方向是**可見且可逆**的誤擋（改動當下就紅、
+    訊息具名、改回或調整表即可），而收窄成「只看某一張表的某一欄」會比它要防的漂移
+    更脆弱——這正是本檔第二條邊界的同一個理由。與規則檔自己記過的不對稱一致：
+    誤擋可見可逆，漏報安靜。
 
 # trigger-coverage: reads .claude/rules/mcp-cli-parity.md
 # （該檔在 private repo，外部讀者取不到。）
@@ -32,6 +39,24 @@ os.chdir(ROOT)
 RULE = '.claude/rules/mcp-cli-parity.md'
 SERVER = 'Sources/akashic-mcp/Server.swift'
 CLI = 'Sources/akashic/CLI.swift'
+
+
+def _command_name(type_name, srcs):
+    """抽某個 struct 的 `commandName`，**限制在它自己的區段內**。
+
+    上一版用 `struct T\\s*:.*?commandName:` ＋ DOTALL：若 `T` 的本體裡沒有
+    `commandName:`（例如寫在 extension 裡），非貪婪的 `.*?` 會**走過 T 的定義**、
+    綁到檔案裡下一個 struct 的 `commandName`——`live` 因此被靜默貼錯標籤，而且
+    沒有任何症狀（#407 R54，跨模型審查指名；規則檔自己也記過「純文字抽取對宣告
+    寫法改變脆弱」）。改成先切出「從 `struct T` 到下一個 `struct ` 宣告之前」的
+    區段，再在區段內找。
+    """
+    m = re.search(r'struct\s+' + re.escape(type_name) + r'\s*[:{]', srcs)
+    if not m:
+        return None
+    nxt = re.search(r'\bstruct\s+[A-Za-z]', srcs[m.end():])
+    seg = srcs[m.end():m.end() + nxt.start()] if nxt else srcs[m.end():]
+    return re.search(r'commandName:\s*"([^"]+)"', seg)
 
 
 def main():
@@ -66,7 +91,7 @@ def main():
     toks = set(re.findall(r'`([a-z][a-z0-9-]*)`', rule))
     unresolved = []
     for t in types:
-        mm = re.search(r'struct\s+' + t + r'\s*:.*?commandName:\s*"([^"]+)"', srcs, re.S)
+        mm = _command_name(t, srcs)
         if not mm:
             # **抽不到要出聲，不可靜默跳過**——只在 happy path 正確的稽核，會在真正
             # 需要它時安靜少報一列（`mcp-cli-parity.md` 自己的 ② 記過同型：第一版
@@ -84,7 +109,7 @@ def main():
     #     先前只做正向，於是一個**退場了卻沒劃掉**的孤兒列完全無聲。
     live = set()
     for t_ in types:
-        mm = re.search(r'struct\s+' + t_ + r'\s*:.*?commandName:\s*"([^"]+)"', srcs, re.S)
+        mm = _command_name(t_, srcs)
         if mm:
             live.add(mm.group(1))
     # token 允許含空白與旗標（`export-tables --view`、`--library`）。上一版的

@@ -87,7 +87,16 @@ def main():
         mm = re.search(r'struct\s+' + t_ + r'\s*:.*?commandName:\s*"([^"]+)"', srcs, re.S)
         if mm:
             live.add(mm.group(1))
-    for struck, name in re.findall(r'^\|\s*(~~)?`([a-z][a-z0-9-]*)`(?:~~)?', rule, re.M):
+    # token 允許含空白與旗標（`export-tables --view`、`--library`）。上一版的
+    # `[a-z][a-z0-9-]*` 在空白處斷掉，而 `^` ＋ MULTILINE 讓它每行只試一次——
+    # 於是那些列**兩個失敗分支都看不到**（#407 R52，跨模型審查實測 `[]`）。
+    # 取第一個詞當命令名；以 `-` 開頭的是橫切選項、不是 subcommand，跳過。
+    for struck, raw in re.findall(r'^\|\s*(~~)?`([^`]+)`(?:~~)?', rule, re.M):
+        name = raw.split()[0]
+        # `akashic_*` 是 MCP tool 名（第一欄），由 ① 負責；`-` 開頭是橫切選項，
+        # 由 ③ 負責。這裡只看 CLI subcommand。
+        if name.startswith('-') or name.startswith('akashic_'):
+            continue
         if struck and name in live:
             fails.append(f'表把 `{name}` 標成退場（劃掉），但它**仍註冊在 CLI.swift**')
         if not struck and name not in live:

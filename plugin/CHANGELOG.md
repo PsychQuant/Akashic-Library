@@ -27,6 +27,36 @@
 
 
 
+
+## R52 — 兩個新守衛的謂詞都比它們要管的東西窄（跨模型審查同輪指名）
+
+### ① 棘輪的候選偵測會漏掉 `[String]` 型別的 key 陣列
+
+上一版用「型別不是純量」當候選（42 個）。而 `public var seeAlso: [String]` 這種
+**直接掛在頂層型別上的 key 陣列**會被判成純量而漏掉——`cites`／`related` 之所以被涵蓋，
+只是因為它們包在 `relations: Relations` 這個非純量結構裡，**是包裝結構進了清單，不是
+那兩個欄位**。
+
+**謂詞比它要管的東西窄，所以整個拿掉**：改為釘住**全部** `public var`（**105 個**），
+那本來就是規則第 ③ 步的字面要求（「逐欄位問」）。順帶修掉逐行 regex 看不到**跨行宣告**
+的問題（先摺平空白再抓）。
+
+### ② `②b` 的 token 樣式在空白處斷掉
+
+`[a-z][a-z0-9-]*` 配上 `^` ＋ MULTILINE ＝ 每行只試一次，於是
+`| \`export-tables --view\`（#274） |` 這一列**兩個失敗分支都看不到**（審查實測 `[]`）；
+橫切選項表的 `--library`／`--config`／`--yes` 同理。改成抓整段反引號內容再取第一個詞，
+並排除 `akashic_*`（由 ① 管）與 `-` 開頭（由 ③ 管）。第一欄 token 從 **9 → 49**。
+
+### ③ 而補那個 case 時我把注入打在散文上
+
+`export-tables --view` 的**首次出現在第 44 行的散文裡**，不是 CLI-only 表那一列——
+不帶行首管線的 `.replace(…, 1)` 打到散文，守衛保持綠是**正確的**，而我一度以為那是守衛
+的洞。改成帶 `| ` 前綴的精準注入才紅。**注入打錯地方 ≠ 守衛有洞**，這是本 session 第二次
+在同一件事上停下來確認。
+
+從 pre-push 導出 **17 支、失敗 0**；audit 負控 26/26、prose 14/14、trigger 逐對零缺口。
+
 ## R51 — 第 16 支（表→命令的反向）＋ 第 17 支（14 條邊的欄位棘輪）
 
 ### ① `parity-table-drift.py` 比它機械化的那段程序弱（跨模型審查指名）
@@ -56,9 +86,9 @@
 
 ### ③ 而我給那支守衛寫的第一條宣告是**假的**
 
-`# trigger-coverage: reads .claude/rules/entity-backlink-completeness.md`——它根本**不打開**
+`# trigger-coverage: reads <private-rules>/entity-backlink-completeness.md`——它根本**不打開**
 那份規則（只讀 Swift）。守衛的痕跡檢查當場警告。改宣告它真正讀的
-`Sources/AkashicCore/*.swift`。**一條格式完全正確、指向它不讀的東西的宣告**，正是
+`Sources/AkashicCore/*.swift`（private repo，外部讀者取不到）。**一條格式完全正確、指向它不讀的東西的宣告**，正是
 `trigger-coverage.py` 檔頭記過的那個形狀——這次由它自己抓到。
 
 從 pre-push 導出 **17 支、失敗 0**；audit 負控 24/24、prose 14/14、trigger 逐對零缺口。

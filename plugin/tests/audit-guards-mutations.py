@@ -222,6 +222,22 @@ CASES = [
                                         '| `migrate-work-types`', 1)},
      ['已不在 CLI.swift']),
     # ── backlink-field-ratchet.py（#407 R51）──────────────────────────────
+    # #407 R52：純量型別的新欄位**也**要被抓到（上一版的候選謂詞會漏掉
+    # `public var seeAlso: [String]` 這種直接掛在頂層的 key 陣列）。
+    ('ratchet：Swift 多一個 [String] 欄位（上一版會漏）',
+     RATCHET_REL,
+     {MODELS_REL: lambda t: t.replace('public var authors:',
+                                      'public var seeAlso: [String] = []\n    public var authors:', 1)},
+     ['新欄位未經裁決']),
+    # #407 R52：`export-tables --view` 這種含空白的 token，上一版的 ②b 兩個分支都看不到。
+    ('parity：含空白的命令 token 退場了卻沒劃掉',
+     PARITY_TABLE_REL,
+     # **要帶行首管線**：`export-tables --view` 的首次出現在第 44 行的散文裡，
+     # 不是 CLI-only 表那一列——不帶管線的注入會打到散文，守衛保持綠是**正確的**
+     # （#407 R52 當場踩到：注入打錯地方而我一度以為是守衛的洞）。
+     {MCP_RULE_REL: lambda t: t.replace('| `export-tables --view`',
+                                        '| `ghost-command --view`', 1)},
+     ['已不在 CLI.swift']),
     ('ratchet：Swift 多一個非純量欄位而沒被裁決',
      RATCHET_REL,
      {MODELS_REL: lambda t: t.replace('public var authors:',

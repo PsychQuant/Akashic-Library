@@ -219,10 +219,25 @@ public enum VenueDerivation {
     /// `literals(for:)` 第三個分支無條件把 publisher 變成另一個 venue literal。出版社不是
     /// 持不住，是它自己就是一個 venue（全 corpus 82 筆帶它）。該半句已刪。
     ///
-    /// 未做的方向（留在 #414）：給每個 `WorkType` 一組必要欄位、讓成員資格由「該欄位組
-    /// 能否被 `Venue` 承載」**推導**而非人工列舉。那需要一張新的欄位契約表，而
-    /// `apa7-is-the-work-floor` 已記過「三張必要欄位表會各自分岔」的風險——是設計裁決，
-    /// 不在本輪範圍。
+    /// **#414 方向 1 已做，而它不需要新表**（2026-08-24 量測推翻了原本的判斷）。
+    /// 原本的顧慮是「讓成員資格由欄位契約推導要新增第三張必要欄位表」，而
+    /// `apa7-is-the-work-floor` 記過三張表會各自分岔。實測既有的
+    /// `requiredFields(for:)` ＋ `recommendedFields(for:)` **就能區辨**——
+    /// `INCOLLECTION` 的 recommended 含 `EDITOR,PUBLISHER`，本表兩個成員都不含。
+    ///
+    /// 判準因此有了程式層對應物：`BooktitleCarrierDerivationTests` 逐型別比對
+    /// 「契約含 `BOOKTITLE` 且不含 `EDITOR`／`PUBLISHER`」與本表，**16/17 相符**。
+    ///
+    /// 守衛住在測試而非產品程式，因為 `VenueDerivation` 在 `AkashicCore` 而欄位契約在
+    /// `AkashicExport`——讓 core 讀 export 會把依賴方向倒過來。集合維持人工維護，
+    /// 但**判準可檢查**，這正是 #414 要的：不是集合被自動生成。
+    ///
+    /// **唯一的不合是具名例外，而它指向一個真的建模缺口**：`.conferenceSession` 的契約
+    /// （`PRESENTATION`）**完全沒有 `BOOKTITLE`**——它的容器是 `EVENTTITLE`。與資料層
+    /// 互相印證：37 筆 conference-session 零筆帶 booktitle。也就是說它在本表的成員資格
+    /// **目前對任何一筆記錄都不生效**；留著是為了「論文集中的論文」那種形狀，而
+    /// APA7 §10.5 把它與「會議發表」併在同一節，`WorkType` 也只給了一個格子。
+    /// 該不該拆是建模裁決，測試只把事實釘住。
     ///
     /// **那個已知缺口已於 2026-08-23 由 #409 關閉。** 它原本寫著：3 筆 SEP 條目的型別是
     /// `.bookChapter`，與這些維基條目是同一種東西，但把 `.bookChapter` 加進本表會把 14 筆

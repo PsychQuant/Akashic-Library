@@ -236,6 +236,19 @@ public enum BibExport {
     ///
     /// 順序是這張表的全部安全性所在——反過來就變成「用我們的意見覆寫依賴的」，
     /// 那是 #359 拒絕做的事。
+    /// 一個 biblatex 型別的**完整欄位契約**（required ∪ recommended）。
+    ///
+    /// #414 方向 1 的可執行面：`booktitleCarrierTypes` 的成員資格判準（#324 的 §11，
+    /// 「它決定了哪些欄位存在」）先前只存在於 doc comment。實測既有的兩張表
+    /// **就能區辨**——`INCOLLECTION` 的 recommended 含 `EDITOR,PUBLISHER`，
+    /// 兩個成員都不含——所以那個判準有程式層對應物，**不需要第三張表**
+    /// （`apa7-is-the-work-floor` 記過的那個風險在這條路上不成立）。
+    ///
+    /// 實際的一致性由 `BooktitleCarrierDerivationTests` 逐型別驗，含一個具名的例外。
+    public static func fieldContract(_ entryType: String) -> Set<String> {
+        Set((requiredFields(for: entryType) ?? []) + recommendedFields(for: entryType))
+    }
+
     static func requiredFields(for entryType: String) -> [String]? {
         APADataModel.requiredFields[entryType] ?? supplementalRequiredFields[entryType]
     }

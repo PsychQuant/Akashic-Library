@@ -81,14 +81,42 @@ def _unquote(line):
 # 「只有 N 條」）在 9 處宣稱裡報 2 個不符，其中 1 個是誤傷——`mcp-cli-parity.md` 的
 # 散文「只有一條」被 10 行外的表誤配。收窄成**只認標題行**後：3 處受檢、1 處不符、
 # 零誤傷。標題是宣告表的邊界的地方，散文不是。
-_COUNT = re.compile(r'(現有|恰|共)\s*([0-9０-９一二三四五六七八九十]+)\s*(列|項|條|格)')
-_CN = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8,
-       '九': 9, '十': 10, '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十六': 16}
+# 字元類**要比 `_num` 認得的略寬**（#407 R67i）：只收 `_num` 認得的字，
+# 「解析不出要報」那條路徑就永遠不可達——一段沒有輸入到得了的程式碼，
+# 讀起來卻像一道防線。收進 `廿`／`卅`／`萬` 這些真實會出現但 `_num` 不處理的字，
+# 讓那條路徑有東西走得到。
+_COUNT = re.compile(r'(現有|恰|共)\s*([0-9０-９零一二兩三四五六七八九十百千廿卅萬]+)\s*(列|項|條|格)')
+# **中文數字要用算的，不要用查表**（#407 R67i，跨模型審查指名）：上一版是一張手寫的
+# 對照表，而它**缺了十五、且十六以上完全沒有**——`現有十五列` 會回 None 然後被靜默
+# 略過。手寫表的問題不是這次漏了哪幾個，是它每次都會漏，而漏掉的形式是沉默。
+_DIGIT = {'零': 0, '一': 1, '二': 2, '兩': 2, '三': 3, '四': 4, '五': 5,
+          '六': 6, '七': 7, '八': 8, '九': 9}
 
 
 def _num(s):
-    s = s.translate(str.maketrans('０１２３４５６７８９', '0123456789'))
-    return int(s) if s.isdigit() else _CN.get(s)
+    """把中文或阿拉伯數字轉成 int；解析不出回 None（呼叫端必須報出來，不得略過）。"""
+    s = s.translate(str.maketrans('０１２３４５６７８９', '0123456789')).strip()
+    if s.isdigit():
+        return int(s)
+    # 十／百 的位值解析，涵蓋 1–999（十五、二十、二十一、三十、一百零五…）
+    total, section, seen = 0, 0, False
+    for ch in s:
+        if ch in _DIGIT:
+            section = _DIGIT[ch]
+            seen = True
+        elif ch == '十':
+            section = (section or 1) * 10
+            total += section
+            section = 0
+            seen = True
+        elif ch == '百':
+            section = (section or 1) * 100
+            total += section
+            section = 0
+            seen = True
+        else:
+            return None
+    return (total + section) if seen else None
 
 
 def _rows_after(lines, i):
@@ -97,8 +125,18 @@ def _rows_after(lines, i):
     回 None 而不是 0，是因為「標題後沒有表」與「表有 0 列」是兩件事，而把它們
     折成同一個值會讓前者被當成不符。`lossless-intake` 的「靜默是最糟的形式」。
     """
-    for j in range(i, min(i + 40, len(lines))):
+    crossed = False
+    for j in range(i + 1, min(i + 40, len(lines))):
+        # **不得跨過下一個標題**（#407 R67i）：上一版只看「40 行內第一張表」，於是
+        # 一個宣稱了列數卻自己沒有表的標題，會借用**下一節**的表來比對——兩個不相干
+        # 的數字被湊成一對，而結果看起來完全正常。
+        if lines[j].lstrip().startswith('#'):
+            # 不 return——繼續看下去，只為了分辨「完全沒有表」與「有表但屬於下一節」。
+            # 兩者都是缺陷，但診斷不同：前者要補表，後者要把宣稱搬到對的標題上。
+            crossed = True
         if re.match(r'^\|[-\s|:]+\|\s*$', lines[j]):
+            if crossed:
+                return 'borrowed'
             k, rows = j + 1, 0
             while k < len(lines) and lines[k].lstrip().startswith('|'):
                 rows += 1
@@ -117,6 +155,9 @@ def declared_counts(files, root):
             for m in _COUNT.finditer(line):
                 n = _num(m.group(2))
                 if n is None:
+                    # **解析不出要報，不得略過**（#407 R67i）：略過會讓一個看不懂的
+                    # 數字與「沒有宣稱」完全同形，而前者正是最需要人看一眼的。
+                    out.append((os.path.relpath(fp, root), i + 1, m.group(0), None, None))
                     continue
                 rows = _rows_after(lines, i)
                 out.append((os.path.relpath(fp, root), i + 1, m.group(0), n, rows))
@@ -188,19 +229,27 @@ def main():
     if not bare:
         print('  全部都有時間錨或可重跑的指令')
     counts = declared_counts(files, root)
-    drift = [c for c in counts if c[4] is not None and c[3] != c[4]]
-    noflag = [c for c in counts if c[4] is None]
+    drift = [c for c in counts if c[3] is not None
+             and isinstance(c[4], int) and c[3] != c[4]]
+    noflag = [c for c in counts if c[3] is not None and c[4] is None]
+    borrowed = [c for c in counts if c[4] == 'borrowed']
+    unparsed = [c for c in counts if c[3] is None]
     print(f'\n══ 標題宣稱的列數：共 {len(counts)} 處 ══')
     for rel, i, txt, n_, rows in drift:
         print(f'  ✗ {rel}:{i} 標題說「{txt}」而下方的表有 {rows} 列')
     for rel, i, txt, n_, rows in noflag:
-        print(f'  ✗ {rel}:{i} 標題說「{txt}」但其後 40 行內找不到表——錨不存在')
-    if not drift and not noflag:
+        print(f'  ✗ {rel}:{i} 標題說「{txt}」但在下一個標題之前找不到表——錨不存在')
+    for rel, i, txt, n_, rows in borrowed:
+        print(f'  ✗ {rel}:{i} 標題說「{txt}」而它自己沒有表——最近的表在**下一個'
+              '標題之後**，不屬於它。把宣稱搬到那個標題上，或補回本節的表')
+    for rel, i, txt, n_, rows in unparsed:
+        print(f'  ✗ {rel}:{i} 標題說「{txt}」而那個數字解析不出來——請改寫或擴充 _num')
+    if not drift and not noflag and not unparsed and not borrowed:
         print(f'  {len(counts)} 處全部與其下方的表相符')
 
     print(f'\n══ {"無裸數字" if not bare else f"**{len(bare)} 個裸數字**"}'
-          f'｜{"列數宣稱皆相符" if not (drift or noflag) else f"**{len(drift) + len(noflag)} 處列數不符**"} ══')
-    return 1 if (bare or drift or noflag) else 0
+          f'｜{"列數宣稱皆相符" if not (drift or noflag or unparsed or borrowed) else f"**{len(drift) + len(noflag) + len(unparsed) + len(borrowed)} 處列數不符**"} ══')
+    return 1 if (bare or drift or noflag or unparsed or borrowed) else 0
 
 
 if __name__ == '__main__':

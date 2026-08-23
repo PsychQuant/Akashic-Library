@@ -222,6 +222,27 @@ CASES = [
      {NUMBERS_REL: lambda t: t.replace("'CLAUDE.md': glob.glob(os.path.join(root, 'CLAUDE.md')),",
                                        "'CLAUDE.md': glob.glob(os.path.join(root, 'CLAUDE.mdx')),", 1)},
      ['`CLAUDE.md` 一個檔都沒找到']),
+    # #407 R67i：中文數字用算的（不是查表）、表不得跨標題借用、解析不出要報。
+    ('numbers：標題用「十五」而表沒有十五列（查表版會靜默略過）',
+     NUMBERS_REL,
+     {'.claude/rules/blocked-issues-must-be-scannable.md':
+      lambda t: t.replace('（哪些「等」需要標記——封閉列舉，現有 4 列）',
+                          '（哪些「等」需要標記——封閉列舉，現有十五列）', 1)},
+     ['現有十五列', '而下方的表有 4 列']),
+    ('numbers：標題宣稱列數、自己沒有表，而下一節有（不得借用）',
+     NUMBERS_REL,
+     {'.claude/rules/zero-instance-guards.md':
+      lambda t: t.replace('## 裁決史（封閉列舉——現有 6 列，一列不多一列不少）',
+                          '## 前言（封閉列舉——現有 6 列）\n\n散文一句。\n\n'
+                          '## 裁決史（一列不多一列不少）', 1)},
+     ['最近的表在**下一個標題之後**']),
+    ('numbers：標題的數字解析不出來（不得靜默略過）',
+     NUMBERS_REL,
+     # `廿` 在 `_COUNT` 的字元類裡但 `_num` 不處理——這正是「匹配得到卻解析不出」
+     # 那條路徑唯一走得到的形狀。字元類刻意比 `_num` 寬就是為了讓它可達。
+     {'.claude/rules/blocked-issues-must-be-scannable.md':
+      lambda t: t.replace('現有 4 列', '現有 廿 列', 1)},
+     ['解析不出來']),
     # #407 R67g：CLAUDE.md 也在掃描範圍內。它是每個 session 自動注入的檔案，
     # 一個過期數字在那裡的影響面比任何規則檔都大。
     ('numbers：CLAUDE.md 裡出現一個裸的 `實測 N`',

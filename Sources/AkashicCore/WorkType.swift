@@ -29,7 +29,9 @@ import Foundation
 ///
 /// `Entry.type` 曾是自由 `String` 且 decode 不驗。若直接改嚴格，937 筆現有記錄會在
 /// 新 binary 上線的那一刻全部 quarantine（而 `query` 回 rc=0、無訊息）。所以
-/// `migrate-work-types`（階段一）**必須先跑完**——本型別是階段二。
+/// 階段一的遷移**必須先跑完**——本型別是階段二。（階段一由 `migrate-work-types`
+/// 執行，該命令與 `WorkTypeMigration` 型別都已於階段二退場：它們讀不到舊值，
+/// 留著只會是永遠無事可做卻看似可用的東西。舊值的改寫因此只能走文字層——#410／#412。）
 public enum WorkType: String, CaseIterable, Equatable, Sendable {
     // ── Textual Works ──
     /// 10.1 Periodicals——**涵蓋 journal／magazine／newspaper／newsletter／blog**。
@@ -191,8 +193,12 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
     ///
     /// ## 這張表不是新發明的
     ///
-    /// 它與 `WorkTypeMigration.mapping`（#325 階段一）**是同一張表**——階段一遷移的
-    /// 來源值域就是 biblatex entry type，因為舊的自由字串 `Entry.type` 裝的正是那些。
+    /// 它與 #325 **階段一**的遷移表是同一張——階段一遷移的來源值域就是 biblatex
+    /// entry type，因為舊的自由字串 `Entry.type` 裝的正是那些。
+    ///
+    /// （那張表當時住在 `WorkTypeMigration.mapping`，**該型別已於階段二連同
+    /// `migrate-work-types` 一起退場**；這裡保留「兩張表同源」這個裁決史，但不再
+    /// 指向一個不存在的符號——#412。）
     /// 那張表已由 937 筆真實記錄驗證（937/937 可對映、0 未對映），所以這裡是把一個
     /// **已驗證的事實**搬到它該住的地方：緊鄰正向的 `biblatexEntryType`，讓正逆兩向
     /// 並列，分岔看得見。

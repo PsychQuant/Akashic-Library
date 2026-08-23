@@ -9,8 +9,9 @@ public struct Entry: Equatable {
     /// biblatex entry type（article / book / incollection / …）。
     /// 作品類型（#325 階段二：自由 `String` → 封閉列舉）。
     ///
-    /// **decode 對未知值嚴格**——但那要求 `migrate-work-types`（階段一）**已經跑完**。
-    /// 兩階段部署的理由見 `WorkType` 的 doc 與 `WorkTypeMigration`。
+    /// **decode 對未知值嚴格**——但那要求 #325 階段一的遷移**已經跑完**。
+    /// 兩階段部署的理由見 `WorkType` 的 doc。（階段一的 `migrate-work-types` 命令與
+    /// `WorkTypeMigration` 型別都已於階段二退場，所以這裡不再指向它們——#412。）
     public var type: WorkType
     public var title: String
     public var authors: [Author]

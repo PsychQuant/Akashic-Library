@@ -108,7 +108,7 @@ entry 以 digest 引用（`akashic.sources`）；尚未 ingest 的檔案留在�
 ```yaml
 id: 7C1F6C2E-1A2B-4C3D-9E8F-000000000001
 citekey: cheng2025identifiability
-type: article
+type: periodical-article
 title: Identifiability of polychoric models with latent elliptical distributions
 authors:
   - key: cheng-che              # 已解析 → people/cheng-che.yaml

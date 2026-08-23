@@ -812,7 +812,18 @@ public enum EntryYAML {
                 "type",
                 "'\(displaySafe(type, max: 80))' 不在封閉列舉"
                 + "（\(WorkType.domainDescription)）"   // display-safe-exempt: 由 allCases 生成，編譯期常量
-                + "——若這是遷移前的舊值，先跑 `akashic migrate-work-types --apply`（#325）")
+                // **指路必須指向存在的路**（#410）：這裡原本寫「先跑
+                // `akashic migrate-work-types --apply`」，而那個命令在 #325 階段二
+                // 已被刻意刪除（`mcp-cli-parity.md` 的 CLI-only 表劃掉了那一列：
+                // 「它讀不到舊值……留著只會是一個永遠無事可做卻看似可用的命令」）。
+                // 指向死路比不指路更糟——撞到這個錯的人會先浪費一輪去確認命令不存在。
+                //
+                // 遷移只能走**文字層**，理由與那個命令被刪的理由同源：decode 對舊值
+                // 嚴格拒絕，所以任何要先讀檔的工具都到不了那些記錄。
+                + "——若這是遷移前的舊值，改寫需走文字層（decode 讀不到舊值，"
+                + "所以任何先讀檔的工具都到不了那些記錄）："
+                + #"sed -i '' 's/^type: <舊值>$/type: <新值>/' ~/.akashic/entities/*.yaml"#
+                + "，改寫後逐檔驗數量再跑 `akashic validate`（#325／#410）")
         }
         var entry = Entry(id: id, citekey: citekey, type: workType, title: title)
         entry.unknownFields = topUnknowns

@@ -16,12 +16,12 @@ final class WorkTypeTests: XCTestCase {
         }
     }
 
-    /// **細分而非相等**：允許多值對映同節（如 `wikipedia-entry` 與 `book-chapter`
+    /// **細分而非相等**：允許多值對映同節（如 `reference-work-entry` 與 `book-chapter`
     /// 同屬 10.3），但每個值只能有一個節。
     func testRefinementAllowsManyValuesPerSection() {
         let bySection = Dictionary(grouping: WorkType.allCases, by: \.apa7Section)
         XCTAssertTrue(bySection["10.3"]?.count ?? 0 >= 2,
-                      "10.3 應同時有 book-chapter 與 wikipedia-entry（細分的實例）")
+                      "10.3 應同時有 book-chapter 與 reference-work-entry（細分的實例）")
     }
 
     // **接縫守衛住在階段一，不在這裡。**
@@ -57,11 +57,11 @@ final class WorkTypeTests: XCTestCase {
 
     /// **正向是多對一，所以逆向必須選一個原像**——選的是最不細分的那個。
     ///
-    /// `wikipediaEntry` 與 `bookChapter` 都輸出 `INCOLLECTION`；讀 `.bib` 時只能得到
+    /// `referenceWorkEntry` 與 `bookChapter` 都輸出 `INCOLLECTION`；讀 `.bib` 時只能得到
     /// `bookChapter`。細分要靠額外訊號（`misc` + `url`），不靠猜。
     func testInversePicksTheLeastRefinedPreimage() {
         XCTAssertEqual(WorkType(biblatexEntryType: "incollection"), .bookChapter,
-                       "不得逆向到 wikipediaEntry——那需要額外訊號")
+                       "不得逆向到 referenceWorkEntry——那需要額外訊號")
         XCTAssertEqual(WorkType(biblatexEntryType: "report"), .report,
                        "不得逆向到 dataSet／software／testInstrument")
         XCTAssertEqual(WorkType(biblatexEntryType: "online"), .webpage,
@@ -71,7 +71,7 @@ final class WorkTypeTests: XCTestCase {
     /// 條件式細分的判準與階段一同源（同一組 `fields` 訊號）。
     func testConditionalRefinementUsesTheSameSignalsAsMigration() {
         XCTAssertEqual(WorkType(biblatexEntryType: "misc",
-                                fields: ["url": "https://x"]), .wikipediaEntry)
+                                fields: ["url": "https://x"]), .referenceWorkEntry)
         XCTAssertNil(WorkType(biblatexEntryType: "misc"),
                      "沒有 url 的 misc **不猜**——回 nil 讓呼叫端拒絕並列出值域")
         XCTAssertEqual(WorkType(biblatexEntryType: "unpublished",
@@ -104,4 +104,32 @@ final class WorkTypeTests: XCTestCase {
                          "「\(legacy)」是階段一遷移前的舊值，階段二不得接受")
         }
     }
+
+    /// #409：`referenceWorkEntry` 的名字承擔不了它實際代表的東西——它自己的三個下游
+    /// 對照（APA7 §10.3「Entries in **Reference Works**」／biblatex `INREFERENCE`／
+    /// CSL `entry-encyclopedia`）沒有一個說 Wikipedia，而 Zotero 的
+    /// `encyclopediaArticle` 也對映進來。改名為 `referenceWorkEntry`。
+    ///
+    /// **不用 `referenceEntry`**：`reference` 在本 repo 已是「參考文獻」的意思
+    /// （`Person.references`／`ProvenanceReference`），`referenceEntry` 會讀成
+    /// 「一筆參考文獻條目」——而那是**每一筆** work。
+    func testReferenceWorkEntryReplacesWikipediaEntry() {
+        XCTAssertEqual(WorkType(rawValue: "reference-work-entry"), .referenceWorkEntry)
+        // **舊值不得留下雙讀路徑**（`no-compat-fallback`）。
+        //
+        // 這一行在實作時被全域改名誤傷過（`"wikipedia-entry"` 被一併換成新值，
+        // 於是斷言變成「新值必須是 nil」而紅）——**測試自己抓到了機械改名的誤傷**。
+        // 保留這段記錄：舊值字面在這裡是**被測資料**，不是待改的引用。
+        XCTAssertNil(WorkType(rawValue: "wikipedia-entry"),
+                     "改名後舊值必須整個消失，不得同時解析——那是相容 fallback")
+    }
+
+    /// #409／#339：參考工具書的 `booktitle` 是**載體**不是書名，所以它要在
+    /// `booktitleCarrierTypes` 裡。改名不得把這個成員弄丟。
+    func testReferenceWorkEntryIsABooktitleCarrier() {
+        XCTAssertTrue(VenueDerivation.booktitleCarrierTypes.contains(.referenceWorkEntry))
+        XCTAssertFalse(VenueDerivation.booktitleCarrierTypes.contains(.bookChapter),
+                       "編著章節索取 EDITOR + PUBLISHER，venue 持不住——#324 的裁決")
+    }
+
 }

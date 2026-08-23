@@ -47,7 +47,7 @@ final class ZoteroEnrichmentTests: XCTestCase {
     }
 
     func testTypeTitleAuthorsAndVenuesAreNeverTouched() {
-        var e = entry("a", type: .wikipediaEntry, title: "store 的標題")
+        var e = entry("a", type: .referenceWorkEntry, title: "store 的標題")
         e.authors = [.literal("已在 store 的作者")]
         e.venues = [.literal("已在 store 的載體")]
         // Zotero 說它是 journalArticle、標題不同、有自己的作者
@@ -57,7 +57,7 @@ final class ZoteroEnrichmentTests: XCTestCase {
 
         let plan = ZoteroEnrichment.plan(entries: [e], items: [i], citekeys: ["a"])
         let after = ZoteroEnrichment.applied(plan.additions[0], to: e)
-        XCTAssertEqual(after.type, .wikipediaEntry, "type 不得被 pull 語意改掉")
+        XCTAssertEqual(after.type, .referenceWorkEntry, "type 不得被 pull 語意改掉")
         XCTAssertEqual(after.title, "store 的標題")
         XCTAssertEqual(after.authors, [.literal("已在 store 的作者")])
         XCTAssertEqual(after.venues, [.literal("已在 store 的載體")])
@@ -198,11 +198,11 @@ final class ZoteroEnrichmentTests: XCTestCase {
     /// `encyclopediaArticle` 先前不在 `typeMap`，fallback 到 `.webpage`（10.16）。
     /// 那是**落錯節**：百科條目是 10.3，而 10.3 的 source element 在 10.16 沒有位置。
     ///
-    /// 附帶擋住一個潛伏回歸：#325 已把那 14 筆訂為 `wikipedia-entry`，而 pull 每次
+    /// 附帶擋住一個潛伏回歸：#325 已把那 14 筆訂為 `reference-work-entry`，而 pull 每次
     /// 都重設 `entry.type`——沒有這一列，一次 `import-zotero` 就把它們降回 webpage。
     func testEncyclopediaArticleMapsToTheReferenceWorkEntryType() {
-        XCTAssertEqual(ZoteroMapping.workType(for: "encyclopediaArticle"), .wikipediaEntry)
-        XCTAssertEqual(WorkType.wikipediaEntry.apa7Section, "10.3",
+        XCTAssertEqual(ZoteroMapping.workType(for: "encyclopediaArticle"), .referenceWorkEntry)
+        XCTAssertEqual(WorkType.referenceWorkEntry.apa7Section, "10.3",
                        "落點必須是 10.3——若這條紅了，代表節的歸屬變了，"
                        + "上面那個對映要重新裁決")
     }
@@ -220,6 +220,6 @@ final class ZoteroEnrichmentTests: XCTestCase {
         XCTAssertEqual(probe.fields["booktitle"], "Wikipedia, the free encyclopedia")
         XCTAssertNil(probe.fields["encyclopediatitle"],
                      "走了對映就不該同時留一份殘餘——同一個來源欄位兩個鍵會分岔")
-        XCTAssertEqual(probe.type, .wikipediaEntry)
+        XCTAssertEqual(probe.type, .referenceWorkEntry)
     }
 }

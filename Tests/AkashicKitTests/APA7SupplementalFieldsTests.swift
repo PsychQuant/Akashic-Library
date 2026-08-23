@@ -44,8 +44,8 @@ final class APA7SupplementalFieldsTests: XCTestCase {
     /// 沒有這條，補充表可以存在而完全不生效（同 #264 的 `storeSource`：API 完整、
     /// 防護齊全、零 production 呼叫端）。
     func testSupplementedTypesAreActuallyChecked() {
-        // `wikipediaEntry` 送 INREFERENCE。缺 BOOKTITLE 要被抓到。
-        let noBooktitle = Entry(id: UUID(), citekey: "anon2019wiki", type: .wikipediaEntry,
+        // `referenceWorkEntry` 送 INREFERENCE。缺 BOOKTITLE 要被抓到。
+        let noBooktitle = Entry(id: UUID(), citekey: "anon2019wiki", type: .referenceWorkEntry,
                                title: "List of Oldest Companies", authors: [], date: "2019")
         let report = BibExport.apa7Report(entries: [noBooktitle], people: [])
         XCTAssertTrue(report.uncheckedCitekeys.isEmpty,
@@ -58,11 +58,11 @@ final class APA7SupplementalFieldsTests: XCTestCase {
     /// **`AUTHOR` 不得是必要欄位。**
     ///
     /// 這是整條線的重點。APA7 §10.3 的參考工具書條目**條目名佔作者位置**，所以維基
-    /// 條目沒有個人作者是**正確形式**而非缺漏。#352 把 `wikipediaEntry` 從
+    /// 條目沒有個人作者是**正確形式**而非缺漏。#352 把 `referenceWorkEntry` 從
     /// `INCOLLECTION`（要求 `AUTHOR`）改對映到 `INREFERENCE` 就是為了消除那 14 筆
     /// 假陽性——若補充表把 `AUTHOR` 寫進必要欄位，那個假陽性就從另一條路回來了。
     func testAuthorIsNotRequiredForReferenceWorkEntries() {
-        var entry = Entry(id: UUID(), citekey: "anon2019wiki", type: .wikipediaEntry,
+        var entry = Entry(id: UUID(), citekey: "anon2019wiki", type: .referenceWorkEntry,
                           title: "List of Oldest Companies", authors: [], date: "2019")
         entry.fields = ["booktitle": "Wikipedia"]
         let errors = BibExport.apa7Report(entries: [entry], people: [])
@@ -73,7 +73,7 @@ final class APA7SupplementalFieldsTests: XCTestCase {
 
     /// `AUTHOR` 是 recommended——同節另有帶團體作者的例子，所以它不是禁止而是建議。
     func testAuthorIsRecommendedForReferenceWorkEntries() {
-        var entry = Entry(id: UUID(), citekey: "anon2019wiki", type: .wikipediaEntry,
+        var entry = Entry(id: UUID(), citekey: "anon2019wiki", type: .referenceWorkEntry,
                           title: "An Entry", authors: [], date: "2019")
         entry.fields = ["booktitle": "Wikipedia"]
         let warnings = BibExport.apa7Report(entries: [entry], people: [])

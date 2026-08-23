@@ -35,7 +35,7 @@ two parts, depending on the reference category**」，即每節向載體索取�
 
 **實例（使用者 2026-08-19 裁定）**：維基百科條目在 APA7 落在 10.3（Edited Book Chapters and
 Entries in Reference Works），與編著章節同節。但在本專案它是獨立且高頻的類型（實測 14 筆），
-**值得自己的格子**——`wikipedia-entry` 是合法的 Akashic 類型，其 APA7 對映是 10.3。使用者原話：
+**值得自己的格子**——`wikipedia-entry` 是合法的 Akashic 類型，其 APA7 對映是 10.3（**#409 起改名 `reference-work-entry`**：它實際代表的是參考工具書中的條目，而 SEP 不是 Wikipedia）。使用者原話：
 「這在我這個專案是可以特別用 wikipedia 條目的，我們沒有必要要完全照 APA7，而是我們**包含**他」。
 
 這是「下限不是上限」在**分類**面的形式：**ch10 的節是下限的分辨率**，專案可以更細，不能更粗。
@@ -85,7 +85,7 @@ Entries in Reference Works），與編著章節同節。但在本專案它是獨
   欄位反而沒約束**
 - **兩個 catch-all 都在藏真類型，但兩者的病不同**：`misc` 的 14 筆**全部**是維基百科條目
   ——它們在 APA7 有歸屬（10.3 例 49）但在**本專案沒有自己的格子**，該由細分關係補上
-  （`wikipedia-entry` → 10.3）；`unpublished` 的 21 筆**全部**是會議發表或未刊稿，而 APA7 把
+  （`wikipedia-entry` → 10.3；#409 起 `reference-work-entry`）；`unpublished` 的 21 筆**全部**是會議發表或未刊稿，而 APA7 把
   它們分在**兩個不同節**（10.5／10.8）——這是**更粗**的那種病，欄位全空且已無法機械區分。
   catch-all 的名字說「雜項」，內容說「沒人給它們正確的格子」
 - **10.11 Tests, Scales, and Inventories 零實例**——而使用者主授心理測驗、做心理計量，引用量表

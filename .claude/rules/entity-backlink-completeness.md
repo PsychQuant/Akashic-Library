@@ -177,7 +177,7 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
 >
 > | 群 | 筆數 | 容器 |
 > |---|---|---|
-> | `wikipedia-entry` | 14 | 維基百科 ×10 ＋ Wikipedia ×4（**同一個容器的兩個語言變體**） |
+> | `wikipedia-entry`（#409 起 `reference-work-entry`） | 14 | 維基百科 ×10 ＋ Wikipedia ×4（**同一個容器的兩個語言變體**） |
 > | SEP 條目（型別目前是 `book-chapter`） | 3 | The Stanford Encyclopedia of Philosophy ×3 |
 > | 真正的編著章節 | 14 | 14 個容器，**每個 ×1** |
 >
@@ -189,7 +189,7 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
 > 「依性質相似類推」。**
 >
 > **落地**：`VenueDerivation.booktitleCarrierTypes`（原名 `proceedingsTypes`，加入
-> `.wikipediaEntry` 後名字說謊，故改名）＋ `migrate-venues` 回填 ＋ 一個 `wikipedia`
+> `.wikipediaEntry`（#409 起 `.referenceWorkEntry`）後名字說謊，故改名）＋ `migrate-venues` 回填 ＋ 一個 `wikipedia`
 > venue 實體（`type: website`，四個名稱變體）＋ `resolve-venues` 歸戶 14 筆。
 > zh/en 兩個字串的合一由既有的 `resolve-venues` 免費涵蓋——走第 15 條邊則要重造一套。
 >
@@ -214,15 +214,23 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
   print(sum(uncov.values()), max(uncov.values()) if uncov else 0)
   EOF
   ```
-- 或 **`INREFERENCE` 一族的容器需求浮現**：那 3 筆 SEP 條目與 14 筆維基條目**是同一種
-  東西**（參考工具書中的條目），但型別不同（`book-chapter` vs `wikipedia-entry`），
-  所以它們走不進 `booktitleCarrierTypes`——把 `.bookChapter` 加進去會把 14 筆真正的
-  編著章節一起掃走。要修的是**型別**（`wikipediaEntry` 這個名字對 SEP 過窄），屬 #325
-  家族的值域問題。**在那之前，SEP 那 3 筆的容器仍只是純量字串。**
+- ~~或 **`INREFERENCE` 一族的容器需求浮現**~~ —— **已於 2026-08-23 由 #409 消解**。
 
-  > **順帶記一個相鄰發現**（不在本裁決範圍）：`WorkType.wikipediaEntry` 的名字可能過窄
-  > ——它實際承擔的是「參考工具書中的條目」，而 SEP 不是 Wikipedia。是否更名／推廣屬
-  > `Entry.type` 值域的問題（#325 家族），不是關係邊的問題。
+  > 這一條原本寫著：那 3 筆 SEP 條目與 14 筆維基條目是同一種東西，但型別不同
+  > （`book-chapter` vs `wikipedia-entry`），所以走不進 `booktitleCarrierTypes`；
+  > 把 `.bookChapter` 加進去會把 14 筆真正的編著章節一起掃走，**要修的是型別**
+  > （`wikipediaEntry` 這個名字對 SEP 過窄）。
+  >
+  > **#409 就是去修那個型別的**：`wikipediaEntry` → `referenceWorkEntry`
+  > （rawValue `reference-work-entry`）。理由是它自己的三個下游對照——APA7 §10.3
+  > 「Entries in **Reference Works**」／biblatex `INREFERENCE`／CSL
+  > `entry-encyclopedia`——**沒有一個說 Wikipedia**。改名後 3 筆 SEP 一併改型別，
+  > 走進 `booktitleCarrierTypes`、歸戶到 `stanford-encyclopedia-of-philosophy`
+  > venue。實測「仍只有純量字串」從 **14 筆／最大 ×3** 掉到 **11 筆／最大 ×1**。
+  >
+  > **這一條保留而不刪除**：它是本裁決「暫不新增」得以維持的原因之一，刪掉會讓
+  > 上面那個量測看起來憑空變好（`mcp-cli-parity` 對退場命令「劃掉而非刪除」的同一
+  > 立場——刪掉會丟失裁決史）。
 
 
 ## 為什麼：不對稱（與 `lossless-intake` 同形，方向相反）

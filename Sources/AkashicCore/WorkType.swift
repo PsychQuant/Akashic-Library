@@ -13,7 +13,7 @@ import Foundation
 /// 更粗不行的理由是具體的：兩個 ch10 節的欄位組不同（§9.24），混進同一個值後就無法
 /// 判斷該索取哪一組。舊值域的 `unpublished` 正是那個形狀——它橫跨 10.5 與 10.8。
 ///
-/// ## `wikipedia-entry` 是「細分」的第一個具名實例
+/// ## `reference-work-entry` 是「細分」的第一個具名實例
 ///
 /// 它在 APA7 落在 **10.3**（Edited Book Chapters and Entries in Reference Works，
 /// 例 49），與 `book-chapter` 同節。但在本專案它是獨立且高頻的類型（實測 14 筆），
@@ -36,7 +36,7 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
     case periodicalArticle  = "periodical-article"   // 10.1 Periodicals
     case book                                        // 10.2 Books and Reference Works
     case bookChapter        = "book-chapter"         // 10.3 Edited Book Chapters
-    case wikipediaEntry     = "wikipedia-entry"      // 10.3（細分——例 49）
+    case referenceWorkEntry     = "reference-work-entry"      // 10.3（細分——例 49）
     case report                                      // 10.4 Reports and Gray Literature
     case conferenceSession  = "conference-session"   // 10.5 Conference Sessions
     case thesis                                      // 10.6 Dissertations and Theses
@@ -63,7 +63,7 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
         case .periodicalArticle: return "10.1"
         case .book:              return "10.2"
         case .bookChapter:       return "10.3"
-        case .wikipediaEntry:    return "10.3"   // 與 bookChapter 同節——細分的實例
+        case .referenceWorkEntry:    return "10.3"   // 與 bookChapter 同節——細分的實例
         case .report:            return "10.4"
         case .conferenceSession: return "10.5"
         case .thesis:            return "10.6"
@@ -111,7 +111,7 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
         //       訊號也一起失去了。
         // 取捨的依據：假陽性會驅動錯誤的資料修改（不可逆），unchecked 只是暫時看不到
         // （而且 `export-bib` 的 note 行會報出未檢查筆數，#326）。追蹤：#354。
-        case .wikipediaEntry:    return "INREFERENCE"
+        case .referenceWorkEntry:    return "INREFERENCE"
         case .report:            return "REPORT"
         case .dataSet:           return "DATASET"
         case .software:          return "SOFTWARE"
@@ -158,7 +158,7 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
         case .periodicalArticle: return "article-journal"
         case .book:              return "book"
         case .bookChapter:       return "chapter"
-        case .wikipediaEntry:    return "entry-encyclopedia"
+        case .referenceWorkEntry:    return "entry-encyclopedia"
         case .report:            return "report"
         case .conferenceSession: return "paper-conference"
         case .thesis:            return "thesis"
@@ -194,16 +194,16 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
     ///
     /// ## 有損在哪裡（明寫，不假裝是雙射）
     ///
-    /// 正向是多對一（`bookChapter` 與 `wikipediaEntry` 都輸出 `INCOLLECTION`），所以
+    /// 正向是多對一（`bookChapter` 與 `referenceWorkEntry` 都輸出 `INCOLLECTION`），所以
     /// 逆向必須**選一個原像**。選的一律是**最不細分的那個**——細分要靠額外訊號：
     ///
-    /// - `incollection` → `bookChapter`（**不是** `wikipediaEntry`）
+    /// - `incollection` → `bookChapter`（**不是** `referenceWorkEntry`）
     /// - `report` → `report`（不是 `dataSet` / `software` / `testInstrument`）
     /// - `unpublished`（無 `location`）→ `unpublishedWork`（不是 `review`）
     /// - `online` → `webpage`（不是視聽／社群媒體）
     ///
     /// 兩個**條件式**細分沿用階段一經驗證的判準（同一組 `fields` 訊號）：
-    /// `misc` 帶 `url` → `wikipediaEntry`；`unpublished` 帶 `location` →
+    /// `misc` 帶 `url` → `referenceWorkEntry`；`unpublished` 帶 `location` →
     /// `conferenceSession`。
     ///
     /// ## 對映不到就回 `nil`，**不猜**
@@ -215,7 +215,7 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
         switch biblatexEntryType.lowercased() {
         case "article":       self = .periodicalArticle   // 10.1
         case "book":          self = .book                // 10.2
-        case "incollection":  self = .bookChapter         // 10.3（不細分到 wikipediaEntry）
+        case "incollection":  self = .bookChapter         // 10.3（不細分到 referenceWorkEntry）
         case "report":        self = .report              // 10.4
         case "inproceedings",
              "presentation":  self = .conferenceSession   // 10.5（APA7 不分這兩者）
@@ -224,7 +224,7 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
         // ── 條件式細分（判準與階段一同源）──
         case "misc":
             guard fields["url"] != nil else { return nil }
-            self = .wikipediaEntry
+            self = .referenceWorkEntry
         case "unpublished":
             self = fields["location"] != nil ? .conferenceSession : .unpublishedWork
         default: return nil

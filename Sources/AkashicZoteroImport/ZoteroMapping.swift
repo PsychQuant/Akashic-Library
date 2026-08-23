@@ -34,18 +34,20 @@ public enum ZoteroMapping {
         // 根本沒有位置，於是這筆記錄在 `apa7-is-the-work-floor` 的意義下
         // **由構造保證跌破下限**，不是資料缺漏。
         //
-        // 另有一個潛伏的回歸：#325 的遷移已把這 14 筆訂為 `wikipedia-entry`，
-        // 而 `applyBiblatexFields` 每次 pull 都會重設 `entry.type`——只要有人
-        // 跑一次 `import-zotero`，那 14 筆就會被**降回** `webpage`。表裡缺一列
-        // 的代價不是「這次沒對映到」，是「上次對的會被改錯」。
+        // 另有一個潛伏的回歸：#325 的遷移已把這 14 筆訂為 `wikipedia-entry`
+        // （#409 起改名為 `reference-work-entry`），而 `applyBiblatexFields` 每次
+        // pull 都會重設 `entry.type`——只要有人跑一次 `import-zotero`，那 14 筆就會
+        // 被**降回** `webpage`。表裡缺一列的代價不是「這次沒對映到」，是「上次對的
+        // 會被改錯」。
         //
-        // **誠實邊界**：`.wikipediaEntry` 這個名字對非維基的參考書（大英百科…）
-        // 是過度宣稱。實測本庫的 `encyclopediaArticle` 恰 14 筆、`encyclopediaTitle`
-        // 只有兩個相異值（`Wikipedia, the free encyclopedia`／`維基百科，自由的
-        // 百科全書`），`dictionaryEntry` 零筆——所以目前**每一個實例都真的是維基**。
-        // 出現非維基的參考書條目時，該補的是一個更廣的 10.3-entry 型別，那是那時
-        // 的裁決（`zero-instance-guards` 的立場：還沒發生的形狀不現在猜）。
-        "encyclopediaArticle": .wikipediaEntry,
+        // **先前這裡有一條「誠實邊界」，#409 把它修掉了。** 它記的是：
+        // `.wikipediaEntry` 這個名字對非維基的參考書是過度宣稱，而當時本庫的
+        // `encyclopediaArticle` 恰 14 筆、每一個實例都真的是維基，所以「出現非維基
+        // 的參考書條目時，該補的是一個更廣的 10.3-entry 型別」。
+        //
+        // 那個形狀在 #339 出現了（3 筆 SEP 條目），於是 #409 做了那條註解預告的事：
+        // 改名成 `referenceWorkEntry`。**註解不再需要，因為它描述的缺陷已經不在。**
+        "encyclopediaArticle": .referenceWorkEntry,
     ]
 
     /// Zotero fieldName → biblatex 欄位名。title/date 由 Entry 一級欄位承接，不進 fields。

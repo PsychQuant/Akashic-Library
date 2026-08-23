@@ -179,17 +179,33 @@ public struct Venue: Equatable {
 /// 只產生 `.literal`（`literal-first-then-key`：進庫不猜 key）；順序帶語意
 /// （主要載體在前）；type 推定不寫進 ref，歸戶時人裁。
 public enum VenueDerivation {
-    /// booktitle 視為會議載體的 entry type（proceedings 族，封閉列舉）——
-    /// incollection 的 booktitle 是書名，不在此列。
+    /// `booktitle` 是**載體**而非書名的 entry type（封閉列舉，現有 2 個）。
+    ///
+    /// 判準是 #324 的 §11 那一條：**它決定了哪些欄位存在**。
+    ///
+    /// | 型別 | `booktitle` 是什麼 | 收不收 | 理由 |
+    /// |---|---|---|---|
+    /// | `.conferenceSession` | 會議／論文集名 | ✅ | 會議是載體，索取的欄位組同 venue |
+    /// | `.wikipediaEntry` | 參考工具書名 | ✅ | 持續出版的線上參考工具，沒有逐卷編者與同義的出版社；索取的欄位組接近 `website`／`database`（#339，2026-08-23 裁決） |
+    /// | `.bookChapter` | **書名** | ❌ | 編著索取 `BOOKTITLE + EDITOR + PUBLISHER`（APA7 §9.28），venue 結構上持不住——#324 明文關掉這條路 |
+    ///
+    /// **不得依性質相似類推第三個**：`.wikipediaEntry` 之所以進來，不是因為它「看起來
+    /// 像 proceedings」，是因為對它做了與 #324 同一個判準的獨立評估，而答案不同。
+    /// #324 關掉的是**編著**那條路，不是「凡是 booktitle」。
+    ///
+    /// **已知缺口（#339 的 `### Blocking`）**：3 筆 SEP 條目目前型別是 `.bookChapter`
+    /// ——它們與這 14 筆是同一種東西（參考工具書中的條目），但把 `.bookChapter` 加進
+    /// 本表會把 14 筆真正的編著章節一起掃進來。要修的是**它們的型別**（`.wikipediaEntry`
+    /// 的名字對 SEP 過窄，屬 #325 家族的值域問題），不是這張表。
     public static // #325 階段二：三個字串猜測（"inproceedings"／"proceedings"／"conference"）
         // 收斂成**一個列舉值**。實測舊值域只出現過 `inproceedings`（4 筆），另兩個
         // 從未被任何 importer 寫入——它們是防禦性猜測，而封閉列舉讓猜測不再必要。
-        let proceedingsTypes: Set<WorkType> = [.conferenceSession]
+        let booktitleCarrierTypes: Set<WorkType> = [.conferenceSession, .wikipediaEntry]
 
     public static func literals(for entry: Entry) -> [VenueRef] {
         var out: [String] = []
         if let j = entry.fields["journaltitle"], !j.isEmpty { out.append(j) }
-        if proceedingsTypes.contains(entry.type),
+        if booktitleCarrierTypes.contains(entry.type),
            let b = entry.fields["booktitle"], !b.isEmpty, !out.contains(b) {
             out.append(b)
         }

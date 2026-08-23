@@ -170,35 +170,59 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
 3. **venue 那條路已被 #324 關掉**：不得把 edited book 塞進 `VenueType`——那會製造一個
    結構上無法持有 APA7 要求欄位的 venue，是把「模型接不住」搬個位置而不是修掉。
 
-> ⚠ **兩個觸發條件都已成立（2026-08-23 重跑，#407 R33）——本裁決待重做。**
+> ✅ **觸發條件曾成立、已於 2026-08-23 處置完畢（#339）——本裁決維持「暫不新增」。**
 >
-> | 觸發條件 | 立案當時 | 2026-08-23 |
+> **經過**：#407 R33 重跑時兩個觸發條件都成立（6 → 31 筆；最大共用 ×3 → ×10），
+> 於是回頭重做裁決。拆解那 31 筆之後，**兩個門檻幾乎完全由「參考工具書」那一群造成**：
+>
+> | 群 | 筆數 | 容器 |
 > |---|---|---|
-> | 帶 `booktitle` 的記錄 ≥ 20 筆 | 6 筆 | **31 筆** |
-> | 單一容器被 ≥ 5 筆共用 | 最多 ×3 | **`維基百科，自由的百科全書` ×10、`Wikipedia, the free encyclopedia` ×4** |
+> | `wikipedia-entry` | 14 | 維基百科 ×10 ＋ Wikipedia ×4（**同一個容器的兩個語言變體**） |
+> | SEP 條目（型別目前是 `book-chapter`） | 3 | The Stanford Encyclopedia of Philosophy ×3 |
+> | 真正的編著章節 | 14 | 14 個容器，**每個 ×1** |
 >
-> 重跑指令即下方那條（逐字未改）；記錄數另用
-> `grep -l '^  booktitle:' ~/.akashic/entities/*.yaml | wc -l`。
+> **裁決（使用者 2026-08-23）：參考工具書的容器走 venue，不走 `booktitle` ref。**
+> 理由是 #324 自己的判準（§11：「它決定了哪些欄位存在」）——#324 關掉的是**編著**
+> 那條路（編著索取 `BOOKTITLE + EDITOR + PUBLISHER`，venue 持不住），而參考工具書
+> 是持續出版的線上工具，沒有逐卷編者與同義的出版社，索取的欄位組接近
+> `website`／`database`，而那兩個值 `VenueType` 已經有。**把兩者混為一談，正是
+> 「依性質相似類推」。**
 >
-> **本輪只更新量測、不代做裁決**——那是 #339 的設計決定，須由使用者定奪。這一格是
-> 在 #407 重算規則檔裡的現況數字時發現的：**「暫不新增」的條件早就不成立了，而沒有
-> 任何東西會通知它**（`blocked-issues-must-be-scannable` 記過同型的「空等」）。
+> **落地**：`VenueDerivation.booktitleCarrierTypes`（原名 `proceedingsTypes`，加入
+> `.wikipediaEntry` 後名字說謊，故改名）＋ `migrate-venues` 回填 ＋ 一個 `wikipedia`
+> venue 實體（`type: website`，四個名稱變體）＋ `resolve-venues` 歸戶 14 筆。
+> zh/en 兩個字串的合一由既有的 `resolve-venues` 免費涵蓋——走第 15 條邊則要重造一套。
+>
+> **原本的觸發條件量錯了東西，一併修正。** 它數的是「帶 `booktitle` 的記錄」，而
+> `lossless-intake` 規定來源欄位不刪——所以容器改由 venue 邊承載之後，那個數字
+> **完全不會下降**（實測仍是 31）。要數的是**仍只有純量字串、沒有任何 ref 承載
+> 容器**的記錄。
 
-**觸發條件（任一成立即重新裁決）**：
+**觸發條件（任一成立即重新裁決；2026-08-23 實測 14 筆／最大 ×3，兩者皆未達）**：
 
-- 帶 `fields.booktitle` 的記錄 **≥ 20 筆**，或**單一容器被 ≥ 5 筆共用**
+- **容器仍只是純量字串**（`booktitle` 在場而該記錄沒有 `venues:` key 邊）的記錄
+  **≥ 20 筆**，或**單一容器被 ≥ 5 筆共用**
   ```bash
-  grep -h '^  booktitle:' ~/.akashic/entities/*.yaml | sort | uniq -c | sort -rn | head
+  python3 - <<'EOF'
+  import glob, io, re, collections
+  uncov = collections.Counter()
+  for f in glob.glob('/Users/che/.akashic/entities/*.yaml'):
+      t = io.open(f, encoding='utf8').read()
+      m = re.search(r'^  booktitle: (.+)$', t, re.M)
+      if m and not re.search(r'^venues:\n- key: ', t, re.M):
+          uncov[m.group(1).strip()] += 1
+  print(sum(uncov.values()), max(uncov.values()) if uncov else 0)
+  EOF
   ```
-- 或 **`INREFERENCE` 一族的容器需求浮現**：#354 讓 `INREFERENCE` 必要欄位含 `BOOKTITLE`
-  （參考工具書名）。實測那 3 筆 SEP 條目目前是 `bookChapter`，而它們與 14 筆維基條目
-  **是同一種東西**（參考工具書中的條目）。若那 17 筆被統一分類，容器需求的規模一次跳到
-  17+，本裁決應重做。
+- 或 **`INREFERENCE` 一族的容器需求浮現**：那 3 筆 SEP 條目與 14 筆維基條目**是同一種
+  東西**（參考工具書中的條目），但型別不同（`book-chapter` vs `wikipedia-entry`），
+  所以它們走不進 `booktitleCarrierTypes`——把 `.bookChapter` 加進去會把 14 筆真正的
+  編著章節一起掃走。要修的是**型別**（`wikipediaEntry` 這個名字對 SEP 過窄），屬 #325
+  家族的值域問題。**在那之前，SEP 那 3 筆的容器仍只是純量字串。**
 
   > **順帶記一個相鄰發現**（不在本裁決範圍）：`WorkType.wikipediaEntry` 的名字可能過窄
   > ——它實際承擔的是「參考工具書中的條目」，而 SEP 不是 Wikipedia。是否更名／推廣屬
   > `Entry.type` 值域的問題（#325 家族），不是關係邊的問題。
-
 
 
 ## 為什麼：不對稱（與 `lossless-intake` 同形，方向相反）

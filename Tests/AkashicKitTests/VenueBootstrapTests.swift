@@ -36,7 +36,7 @@ final class VenueBootstrapTests: XCTestCase {
         XCTAssertEqual(r.candidates.map(\.type), [.publisher])
     }
 
-    /// `booktitle` 只在會議發表時才是載體（`VenueDerivation` 的 `proceedingsTypes`）。
+    /// `booktitle` 只在會議發表時才是載體（`VenueDerivation` 的 `booktitleCarrierTypes`）。
     func testBooktitleYieldsConferenceOnlyForConferenceSessions() {
         let conf = VenueBootstrap.result(
             entries: [entry("c2020", type: .conferenceSession,

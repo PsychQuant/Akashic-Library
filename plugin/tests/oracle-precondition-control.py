@@ -44,6 +44,14 @@ def _load():
     mod = importlib.util.module_from_spec(spec)
     sys.modules['audit_harness'] = mod
     spec.loader.exec_module(mod)
+    # **把 CASES 清空**（#407 R67k）：本檔驗的是 harness 的兩個**自檢**路徑
+    # （ROBUST oracle 前提、逐守衛 baseline），跟那 42 個 mutation 完全無關。
+    # 不清空的話每次 `main()` 都會把整套 mutation 重跑一遍——而本檔要呼叫 `main()`
+    # 三次。實測代價：`PrePushHookTests` 會**再把整個 hook 跑一遍**，於是那支測試
+    # 從數十秒變成 239 秒，而 pre-push 每次多花約兩分鐘做已經做過的事。
+    # `tested` 是 CASES+ROBUST 的聯集，清空後仍涵蓋全部 ROBUST 守衛，兩個自檢
+    # 要的路徑一個不少。
+    mod.CASES = []
     return mod
 
 

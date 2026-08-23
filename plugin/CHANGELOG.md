@@ -42,6 +42,37 @@
 
 
 
+## R67k — 守衛全綠而 pre-push 紅：只有端到端量測看得見的那一格
+
+R67j 之後「20 支導出的守衛全綠」，於是我去補 R67f 留下的 TODO（乾淨環境的端到端
+重量）——**而那次 `bash .githooks/pre-push` 回 1**。
+
+紅的是 `PrePushHookTests`：它把**整個 hook 再跑一遍**（驗環境有沒有被污染），而
+R67h 新加的 `oracle-precondition-control.py` 會呼叫 harness 的 `main()` 三次，每次
+把 42 個 mutation 全部重跑。那支測試因此從數十秒變成 **239 秒**，pre-push 每次多花
+約兩分鐘做已經做過的事。
+
+**兩個非顯而易見之處：**
+
+1. **導出的守衛套件測不到它。** 那套跑的是 hook 裡的守衛清單，不含 `swift test`
+   ——而紅的正是 `swift test` 裡的一支測試。「20 支全綠」與「pre-push 綠」是兩件事，
+   這一輪是它們第一次分岔。R67f 已經記過同型的事（分項相加 ≠ 端到端），這次是它的
+   實例。
+2. **診斷過程本身犯了同一類錯兩次。** 第一次重現只帶 PATH 與 probe log → rc=0；
+   補上毒化的 GIT_\* 變數與 mock 的毒化檢查 → 仍 rc=0。兩次「重現不出來」都不是
+   證據不足，是**我重現的不是那個東西**——真正的差別是那支測試會巢狀執行整個 hook。
+
+修法：控制組載入 harness 後把 `CASES` 清空。它驗的是兩個**自檢**路徑（ROBUST oracle
+前提、逐守衛 baseline），與那 42 個 mutation 無關；`tested` 是 CASES+ROBUST 的聯集，
+清空後仍涵蓋全部 ROBUST 守衛。**150 秒 → 7.2 秒**，`PrePushHookTests` 兩支通過。
+
+清空後**先驗它沒有變空**：回退 R67h 的修正，控制組照樣紅（而且因為 R67j 新增了兩個
+ROBUST case，它自動改毒化 `measured-numbers-audit`——3 格、全樹最多，選擇是算出來的
+不是寫死的）。
+
+負控 50/50；`PrePushHookTests` 2/2。
+
+
 ## R67j — 兩個控制組「跑過」而什麼都沒測到；還有一個 baseline 從來沒被驗過
 
 第二輪跨模型審查（correctness 席）在 `_rows_after` 上補了兩個 R67i 沒修到的子點，

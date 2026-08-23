@@ -129,7 +129,12 @@ def _rows_after(lines, i):
     # markdown 語法示範，而本檔別處（`has_cmd`／`CMD_FENCE`）早就有處理 fence 的意識
     # ——這段 40 行前向掃描當初卻沒有。實測：fence 裡放一張 1 列的示範表，真正的 3 列
     # 表在後面，上一版回報 1。
-    crossed = False
+    # **標題要是合法的 ATX 標題**（#407 R67l，跨模型審查指名）：CommonMark 要求 `#`
+    # 後接空白（或行尾）。上一版只看行首是不是 `#`，而本 repo 的規則檔滿是行首的
+    # `#NNN` issue 編號——實測 `#407 R33 的量測：` 會被當成標題，於是它後面那張
+    # **本來就屬於當前標題**的表被誤判成 borrowed。這是誤傷不是漏報，更該修。
+    _ATX = re.compile(r'^#{1,6}(\s|$)')
+    crossed = []          # 跨過的標題原文——不是布林，見下方 append 處的理由
     fenced = False
     for j in range(i + 1, min(i + 40, len(lines))):
         if lines[j].lstrip().startswith('```'):
@@ -140,13 +145,17 @@ def _rows_after(lines, i):
         # **不得跨過下一個標題**（#407 R67i）：上一版只看「40 行內第一張表」，於是
         # 一個宣稱了列數卻自己沒有表的標題，會借用**下一節**的表來比對——兩個不相干
         # 的數字被湊成一對，而結果看起來完全正常。
-        if lines[j].lstrip().startswith('#'):
+        if _ATX.match(lines[j].lstrip()):
             # 不 return——繼續看下去，只為了分辨「完全沒有表」與「有表但屬於下一節」。
             # 兩者都是缺陷，但診斷不同：前者要補表，後者要把宣稱搬到對的標題上。
-            crossed = True
+            # **記下是哪些標題，不是只記「有沒有跨過」**（#407 R67l）：上一版用一個
+            # 不歸零的布林，於是跨過 5 個標題與跨過 1 個給出同一句「最近的表在下一個
+            # 標題之後」——而那句話叫使用者「把宣稱搬到那個標題上」，訊息承諾了一個
+            # 具體動作，實作卻拿不出「那個標題」是什麼。
+            crossed.append(lines[j].strip())
         if re.match(r'^\|[-\s|:]+\|\s*$', lines[j]):
             if crossed:
-                return 'borrowed'
+                return ('borrowed', tuple(crossed))
             # **遇到第二張表的分隔線就停**（#407 R67j）：兩張表若中間沒有空行，
             # 第二張的表頭列與分隔線列同樣以 `|` 開頭，上一版會把它們算成第一張的
             # 資料列。實測：2 列的表後面緊接一張表，上一版回報 5。
@@ -249,7 +258,7 @@ def main():
     drift = [c for c in counts if c[3] is not None
              and isinstance(c[4], int) and c[3] != c[4]]
     noflag = [c for c in counts if c[3] is not None and c[4] is None]
-    borrowed = [c for c in counts if c[4] == 'borrowed']
+    borrowed = [c for c in counts if isinstance(c[4], tuple)]
     unparsed = [c for c in counts if c[3] is None]
     print(f'\n══ 標題宣稱的列數：共 {len(counts)} 處 ══')
     for rel, i, txt, n_, rows in drift:
@@ -257,8 +266,13 @@ def main():
     for rel, i, txt, n_, rows in noflag:
         print(f'  ✗ {rel}:{i} 標題說「{txt}」但在下一個標題之前找不到表——錨不存在')
     for rel, i, txt, n_, rows in borrowed:
-        print(f'  ✗ {rel}:{i} 標題說「{txt}」而它自己沒有表——最近的表在**下一個'
-              '標題之後**，不屬於它。把宣稱搬到那個標題上，或補回本節的表')
+        # rows 是 ('borrowed', (跨過的標題…))；**把標題印出來**，訊息才可執行。
+        heads = rows[1]
+        where = (f'在「{heads[0]}」之後' if len(heads) == 1
+                 else f'隔了 {len(heads)} 個標題（{heads[0]} … {heads[-1]}）')
+        which = '那個' if len(heads) == 1 else '正確的那個'
+        print(f'  ✗ {rel}:{i} 標題說「{txt}」而它自己沒有表——最近的表{where}，'
+              f'不屬於它。把宣稱搬到{which}標題上，或補回本節的表')
     for rel, i, txt, n_, rows in unparsed:
         print(f'  ✗ {rel}:{i} 標題說「{txt}」而那個數字解析不出來——請改寫或擴充 _num')
     if not drift and not noflag and not unparsed and not borrowed:

@@ -33,6 +33,7 @@ import importlib.util
 import io
 import os
 import re
+import shutil
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -107,9 +108,24 @@ def _check_baseline(mod):
 
 def main():
     mod = _load()
+    # **套用與 harness `tested` 同一個過濾**（#407 R67l，跨模型審查指名的不一致）：
+    # harness 在無 Swift 的 runner 上把 `.swift` 與 `DRIFT_REL` 排除在受測對象之外，
+    # 而這裡挑毒化目標時沒有——同一個 commit 的兩半各說各話。
+    #
+    # **實測今天為假**：ROBUST 現有三支守衛（measured-numbers ×3、parity ×2、
+    # literal-scalar ×1）沒有任何一支需要 Swift，所以 target 選不到跑不動的守衛。
+    # 修它不是因為現在會壞，是因為那個不一致會在**加入第一個 Swift 依賴的 ROBUST
+    # case 時**安靜地變成缺陷——而唯一實際在跑的 CI 正是無 Swift 的 ubuntu。
+    has_swift = shutil.which('swift') is not None
     counts = {}
     for _, guard, _, _ in mod.ROBUST:
+        if not has_swift and (guard.endswith('.swift') or guard == mod.DRIFT_REL):
+            continue
         counts[guard] = counts.get(guard, 0) + 1
+    if not counts:
+        print('✗ 過濾後沒有任何可毒化的 ROBUST 守衛——本控制組在此環境退化成空的。'
+              '（全部 ROBUST 守衛都需要 Swift 而此環境沒有？）')
+        return 1
 
     # **刻意挑 ROBUST case 最多的那一支**（不是隨手挑）：只有一格的守衛在前提
     # 不成立時第一輪就 `continue`，走不到後面的路徑——那正是 R67e 的 probe 的盲點。

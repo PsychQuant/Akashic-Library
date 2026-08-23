@@ -235,7 +235,8 @@ CASES = [
       lambda t: t.replace('## 裁決史（封閉列舉——現有 6 列，一列不多一列不少）',
                           '## 前言（封閉列舉——現有 6 列）\n\n散文一句。\n\n'
                           '## 裁決史（一列不多一列不少）', 1)},
-     ['最近的表在**下一個標題之後**']),
+     # R67l 起訊息具名跨過的標題，不再是一句「下一個標題之後」。
+     ['最近的表在「## 裁決史（一列不多一列不少）」之後']),
     ('numbers：標題的數字解析不出來（不得靜默略過）',
      NUMBERS_REL,
      # `廿` 在 `_COUNT` 的字元類裡但 `_num` 不處理——這正是「匹配得到卻解析不出」
@@ -243,6 +244,14 @@ CASES = [
      {'.claude/rules/blocked-issues-must-be-scannable.md':
       lambda t: t.replace('現有 4 列', '現有 廿 列', 1)},
      ['解析不出來']),
+    # #407 R67l：跨 >=2 個標題時，診斷要具名跨過哪些（不是一句「下一個標題」）。
+    ('numbers：宣稱與表之間隔了兩個標題（診斷要說「隔了 2 個」並具名）',
+     NUMBERS_REL,
+     {'.claude/rules/zero-instance-guards.md':
+      lambda t: t.replace(
+          '| # | 情形 | 裁決 | 理由 |',
+          '## 插入的空節甲\n\n## 插入的空節乙\n\n| # | 情形 | 裁決 | 理由 |', 1)},
+     ['隔了 2 個標題', '插入的空節甲', '插入的空節乙']),
     # #407 R67g：CLAUDE.md 也在掃描範圍內。它是每個 session 自動注入的檔案，
     # 一個過期數字在那裡的影響面比任何規則檔都大。
     ('numbers：CLAUDE.md 裡出現一個裸的 `實測 N`',
@@ -421,6 +430,15 @@ def _move_nested_struct_up(src):
 
 
 ROBUST = [
+    # #407 R67l：行首的 #NNN issue 編號**不是**標題（CommonMark 要求 # 後接空白）。
+    # 修之前這一格會紅——那張表本來就屬於當前標題，卻被判成 borrowed。
+    ('numbers：宣稱與表之間有一行以 #407 開頭的散文（不得當成標題）',
+     NUMBERS_REL,
+     {'.claude/rules/zero-instance-guards.md':
+      lambda t: t.replace(
+          '| # | 情形 | 裁決 | 理由 |',
+          '#407 R67l 的量測見下表。\n\n| # | 情形 | 裁決 | 理由 |', 1)},
+     ['列數宣稱皆相符']),
     # #407 R67j（跨模型審查指名的兩個子點，修完後**須綠**）：修之前兩者都會紅
     # ——fence 內那張 1 列的示範表會被當成真的表；緊鄰的第二張表的表頭與分隔線會被
     # 算成第一張的資料列。所以它們是這兩個修正的回歸守衛，不是新缺陷的偵測器。
@@ -509,8 +527,11 @@ def main():
         for rel, out in dirty:
             print(f'  · {rel}\n    ' + (out or '（無輸出）').strip().replace('\n', '\n    ')[:300])
         return 1
-    _n = 2 if has_swift else 1
-    print(f'baseline：{_n} 支皆綠 ✓（{len(CASES)} 個 mutation 待跑）\n')
+    # **印實際驗過的支數**（#407 R67l）：R67j 把 baseline 驗證從固定 2 支擴成
+    # `tested` 全部，而這行訊息沿用舊的 `_n`（2 或 1），於是它**低報**了自己做過
+    # 的事（實測驗了 10 支卻說 2 支）。本 repo 有一整支守衛在抓「宣稱的數字沒跟上
+    # 實際狀態」，而這行就落在同一支 harness 裡。
+    print(f'baseline：{len(tested)} 支皆綠 ✓（{len(CASES)} 個 mutation 待跑）\n')
 
     # **缺 swift 時大聲跳過，不假裝乾淨**（#407 R42）：本 harness 有 6 個 case 需要真的
     # Swift toolchain（`multiscalar-parity.swift` 三個、`hash-table-drift.sh` 三個經由

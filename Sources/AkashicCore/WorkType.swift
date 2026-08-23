@@ -102,6 +102,41 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
     /// 所以送錯型別＝整筆參考文獻被當成另一個類別排版（`REPORT` → 10.4 而非 10.9／10.10）。
     ///
     /// `WorkTypeSectionAgreementTests` 用依賴自己的 `classifySection` 釘住這件事。
+    /// 正向對映的**依 fields 版**（#417 方向 2）。
+    ///
+    /// 只有 `.conferenceSession` 會用到 `fields`——它是 `WorkType` 裡唯一一個把 APA7
+    /// §10.5 的**兩種欄位形狀**併進同一格的型別：
+    ///
+    /// | §10.5 的形狀 | 容器欄位 | biblatex |
+    /// |---|---|---|
+    /// | 會議發表（session／paper／poster／symposium）| `EVENTTITLE` | `PRESENTATION` |
+    /// | 論文集中的論文 | `BOOKTITLE` | `INPROCEEDINGS` |
+    ///
+    /// 先前一律送 `PRESENTATION`，而那個 template 印「Conference Name, Location」
+    /// ——一筆論文集論文的**論文集名印不出來**（資訊在庫裡、`booktitle` 也歸了 venue，
+    /// 只是不出現在參考文獻）。那是 `apa7-is-the-work-floor` 說的安靜失敗：語法正確、
+    /// 測試全綠，丟進 LaTeX 才看到少了東西。
+    ///
+    /// 判準是**記錄自己有沒有 `booktitle`**，與反向 init 的兩個既有先例同形
+    /// （`misc` ＋ `url`；`unpublished` ＋ `location`）。不是猜——`booktitle` 在場就是
+    /// 「這筆有論文集」的直接證據。
+    ///
+    /// **零實例，所以零輸出變更**：實測 37 筆 conference-session 全部沒有 booktitle。
+    ///
+    /// **不動 `WorkType` 的值域**：拆成兩個型別是另一條路（#417 方向 1），代價是又一次
+    /// 改名遷移＋37 筆重新分類，而它解的是同一個問題。
+    public func biblatexEntryType(fields: [String: String]) -> String {
+        guard self == .conferenceSession,
+              let bt = fields["booktitle"],
+              !bt.trimmingCharacters(in: .whitespaces).isEmpty
+        else { return biblatexEntryType }
+        return "INPROCEEDINGS"
+    }
+
+    /// 無 fields 的正向對映。
+    ///
+    /// **保留為 property**：`allCases` 的走訪、值域對照表、round-trip 不變量都用它，
+    /// 而那些場合沒有 fields 可給。它等於 `biblatexEntryType(fields: [:])`。
     public var biblatexEntryType: String {
         switch self {
         case .periodicalArticle: return "ARTICLE"

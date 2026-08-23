@@ -65,7 +65,11 @@ public enum BibExport {
         if entry.type == .review, fields["relatedtype"] == nil, fields["RELATEDTYPE"] == nil {
             fields["relatedtype"] = "reviewof"
         }
-        return BibEntry(entryType: entry.type.biblatexEntryType, key: entry.citekey,
+        // **依 fields 選型別**（#417）：`.conferenceSession` 帶 `booktitle` 時送
+        // `INPROCEEDINGS`，否則 `PRESENTATION`。餵 `entry.fields` 而非上面組好的
+        // `fields`——後者已經過 `braceSafe` 等處理，而判準只問「原始記錄有沒有這個欄位」。
+        return BibEntry(entryType: entry.type.biblatexEntryType(fields: entry.fields),
+                        key: entry.citekey,
                         fields: fields, rawText: "", lineNumber: 0)
     }
 
@@ -272,7 +276,9 @@ public enum BibExport {
         var unchecked: [String] = []
         for entry in entries.sorted(by: { $0.citekey < $1.citekey }) {
             let bib = bibEntry(for: entry, people: peopleByKey, organizations: orgsByKey)
-            let entryType = entry.type.biblatexEntryType
+            // 與 `bibEntry` 走**同一個**對映（#417）：兩邊分岔的話，報告會拿
+            // `PRESENTATION` 的必要欄位去檢查一筆實際匯出成 `INPROCEEDINGS` 的記錄。
+            let entryType = entry.type.biblatexEntryType(fields: entry.fields)
             guard isCheckedByAPA7Table(entryType) else {
                 unchecked.append(entry.citekey)
                 continue

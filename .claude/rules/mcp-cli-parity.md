@@ -86,7 +86,7 @@ per-id 顯式契約。兩面的失敗語意相同且刻意分兩類：輸入語�
 | `akashic_venues` | `venues` | ✅（#304 venue change；讀取面同源）|
 | `akashic_add_venue` | `add-venue` | ✅（#304 venue change；寫入面封閉例外形，同 `add-person`）|
 | `akashic_update_venue` | `update-venue` | ✅（#306；寫入面封閉例外形；append 語意——整組替換刻意不提供，R3F-2 教訓）|
-| `akashic_resolve_venues` | `resolve-venues` | ✅（#304 venue change；兩面契約差異同 #272：MCP 允許 apply+reject 組合、CLI 分兩次呼叫）|
+| `akashic_resolve_venues` | `resolve-venues` | ✅（#304 venue change；兩面契約差異同 #272：MCP 允許 apply+reject 組合、CLI 分兩次呼叫）。**#418 起兩面同時新增 `repoint`**（三段式 id `citekey:venueIndex:newKey`，把**已歸戶**的邊改指到另一個 venue）——它是歸錯戶的退路：`apply` 只做 literal → key 的升格，此前一條已是 key 的邊改不回來，而 person 域有 `resolve-divergence`、venue 域沒有，且 `literal-first-then-key` 的整套論證建立在「誤可逆」上。**這一項兩面契約相同**（與上面那個差異不同）：`repoint` **不與** `apply`／`reject` 組合，兩面都拒——它們是不同階段（升格 vs 修正已升格的），混在一次呼叫裡會讓「哪一批寫了」難以判讀，而改指本來就是在修一個錯誤，最需要清楚的失敗語意。失敗語意分兩類（同 #386 的 `judge`）：語法錯或前提不符 → **整批拒絕零寫入**；成功則兩側都留 verdict（新的 confirmed、舊的 rejected——少了 rejected，下次提名會把同一配對再提出來）|
 | `akashic_add_organization` | 無（單筆建檔 MCP-only；批次面 `bootstrap-organizations` 維持 CLI-only，見 CLI-only 表）| ✅ 有理由的單面（#304 移轉裁決：org 重啟後單筆建檔是 #303 campaign 的 LLM 消費流程；操作者規模的批次建檔另有 CLI 面）|
 | `akashic_resolve_organizations` | `resolve-organizations` | ✅（#304 移轉；CLI-only 表「候補缺席（重啟訊號已觸發）」格的補齊——同 `import-wos`／#290 的移列形）|
 | `akashic_store_source` | `store-source` | ✅（#264；**讀取面慣例**而非寫入面封閉例外——receipt 的 `discardedProvenance` 攜帶「你這份敘述沒被寫入」，人需要看得懂，故 `--json` 原樣轉印＋人可讀同源。收**檔案路徑**不收 base64／stdin：MCP 面無 stdin 會讓兩面分岔，base64 把二進位塞進 JSON 會膨脹並整份進 context（#165 的既有威脅模型）。`SourceStore.storeSource` 的寫入面防護 #224 已完成，本格只補呼叫端——先前全樹零 production 呼叫端，能力只有寫 Swift 的人做得到，#206 判準的同形）|

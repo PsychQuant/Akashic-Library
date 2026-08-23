@@ -173,4 +173,71 @@ final class VenueServiceTests: XCTestCase {
         XCTAssertEqual(person.profile.affiliations.entries.first?.value,
                        .key("institute-of-statistical-science"), "literal 升格 key")
     }
+
+    // MARK: - 歸錯戶的退路（#418）
+
+    private func twoVenuesAndAnEntry() throws -> Entry {
+        _ = try service.addVenue(key: "wikipedia", names: ["Wikipedia"], type: "website", note: nil)
+        _ = try service.addVenue(key: "wikipedia-zh", names: ["維基百科"], type: "website", note: nil)
+        var e = Entry(id: UUID(), citekey: "w2020", type: .referenceWorkEntry, title: "條目")
+        e.venues = [.key("wikipedia")]
+        _ = try store.writeEntry(e)
+        return e
+    }
+
+    /// **`--repoint` 把一條已經是 key 的邊改指到另一個 venue**（#418）。
+    ///
+    /// `resolve-venues --apply` 只做 literal → key 的升格。歸錯戶之後**沒有任何命令**
+    /// 改得回來——person 域有 `resolve-divergence` 當退路，venue 域沒有。而
+    /// `literal-first-then-key` 的整套論證建立在「漏可逆、誤不可逆」的不對稱上，
+    /// 並為 person 域提供了退路；venue 域缺這一格。
+    func testRepointMovesAKeyedEdgeToAnotherVenue() throws {
+        _ = try twoVenuesAndAnEntry()
+        let d = try json(try service.resolveVenues(apply: nil, reject: nil,
+                                                   repoint: ["w2020:0:wikipedia-zh"]))
+        XCTAssertEqual(d["entriesRewritten"] as? Int, 1)
+        let after = try store.load().entries.first { $0.citekey == "w2020" }
+        XCTAssertEqual(after?.venues, [.key("wikipedia-zh")])
+    }
+
+    /// **兩側都要留 verdict**——改指是一個身分判定，而判定會錯、錯了要能回溯
+    /// （`identity-is-judged-not-matched`：判定要留 verdict、要可回溯與逆轉）。
+    func testRepointWritesVerdictsOnBothVenues() throws {
+        _ = try twoVenuesAndAnEntry()
+        _ = try service.resolveVenues(apply: nil, reject: nil, repoint: ["w2020:0:wikipedia-zh"])
+        let venues = try store.load().venues
+        let old = try XCTUnwrap(venues.first { $0.key == "wikipedia" })
+        let new = try XCTUnwrap(venues.first { $0.key == "wikipedia-zh" })
+        XCTAssertTrue(old.references.contains { $0.field == "resolution-rejected" },
+                      "舊 venue 要留 rejected——否則下次提名會再把它提出來：\(old.references)")
+        XCTAssertTrue(new.references.contains { $0.field == "resolution-confirmed" },
+                      "新 venue 要留 confirmed：\(new.references)")
+    }
+
+    /// **前提不符要具名略過，不得靜默**：那一格不是 key、index 越界、新 key 不存在。
+    func testRepointRefusesWhenThePreconditionDoesNotHold() throws {
+        _ = try twoVenuesAndAnEntry()
+        // 新 key 不存在 → 整批拒絕（同 apply 的 notFound 語意）
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, reject: nil,
+                                                       repoint: ["w2020:0:nope"]))
+        // index 越界 → 拒絕
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, reject: nil,
+                                                       repoint: ["w2020:9:wikipedia-zh"]))
+        // 語法錯 → 拒絕
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, reject: nil,
+                                                       repoint: ["w2020:0"]))
+        // 全部拒絕後，資料不得被動過
+        XCTAssertEqual(try store.load().entries.first { $0.citekey == "w2020" }?.venues,
+                       [.key("wikipedia")], "整批拒絕即零寫入")
+    }
+
+    /// **改指到自己是 no-op，不是錯誤**——冪等，重跑同一個 id 不會累積 verdict。
+    func testRepointToTheSameVenueIsANoOp() throws {
+        _ = try twoVenuesAndAnEntry()
+        let d = try json(try service.resolveVenues(apply: nil, reject: nil,
+                                                   repoint: ["w2020:0:wikipedia"]))
+        XCTAssertEqual(d["entriesRewritten"] as? Int, 0)
+        XCTAssertEqual(try store.load().entries.first { $0.citekey == "w2020" }?.venues,
+                       [.key("wikipedia")])
+    }
 }

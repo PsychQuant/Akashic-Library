@@ -271,4 +271,38 @@ final class BooktitleCarrierDerivationTests: XCTestCase {
                       "拿掉 ¬EDITOR 應該就會收進 bookChapter——它是這個子句唯一的理由")
         XCTAssertFalse(current.contains(.bookChapter), "而現行判準必須排除它")
     }
+
+    // MARK: - §10.5 的兩種形狀端到端（#417 方向 2）
+
+    /// **論文集論文匯出成 `INPROCEEDINGS`，而會議發表維持 `PRESENTATION`**。
+    ///
+    /// 這條驗的是**匯出**而非對映——`WorkTypeTests` 驗後者。兩條都要，因為
+    /// `bibEntry` 可能忘了餵 fields（那正是接呼叫端時最容易漏的一步）。
+    func testProceedingsPaperExportsAsInproceedings() {
+        var paper = Entry(id: UUID(), citekey: "p2019", type: .conferenceSession, title: "P")
+        paper.fields["booktitle"] = "Proceedings of Great Conf"
+        XCTAssertEqual(BibExport.bibEntry(for: paper, people: [:], organizations: [:]).entryType,
+                       "INPROCEEDINGS",
+                       "論文集名在場 → 送 INPROCEEDINGS，否則它印不進參考文獻")
+
+        var talk = Entry(id: UUID(), citekey: "t2019", type: .conferenceSession, title: "T")
+        talk.fields["eventtitle"] = "Great Conf"
+        XCTAssertEqual(BibExport.bibEntry(for: talk, people: [:], organizations: [:]).entryType,
+                       "PRESENTATION", "會議發表維持原樣")
+    }
+
+    /// **APA7 報告與匯出必須用同一個型別**——分岔的話報告會拿錯的必要欄位表去檢查。
+    ///
+    /// `INPROCEEDINGS` 的必要欄位含 `BOOKTITLE`（實測契約
+    /// `AUTHOR, BOOKTITLE, DATE, PUBLISHER, TITLE`），而 `PRESENTATION` 不含
+    /// ——所以一筆缺 booktitle 的論文集論文只有在兩邊同源時才報得出來。
+    func testAPA7ReportUsesTheSameEntryTypeAsTheExport() {
+        var paper = Entry(id: UUID(), citekey: "p2019", type: .conferenceSession, title: "P")
+        paper.fields["booktitle"] = "Proceedings of Great Conf"
+        paper.date = "2019"
+        paper.authors = [.literal("Someone")]
+        let report = BibExport.apa7Report(entries: [paper], people: [])
+        XCTAssertFalse(report.uncheckedCitekeys.contains("p2019"),
+                       "INPROCEEDINGS 在依賴的表內——不該落進 unchecked：\(report.uncheckedCitekeys)")
+    }
 }

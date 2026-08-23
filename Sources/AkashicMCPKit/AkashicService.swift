@@ -2186,7 +2186,20 @@ public final class AkashicService {
     /// venue 消歧（resolve-people 契約形，#304）：無參數＝列候選與歧義；
     /// apply＝literal 升格 key＋confirmed verdict；reject＝rejected verdict；
     /// apply+reject 同呼叫＝兩段式（reject 先完整提交，apply 以新快照重解析）。
-    public func resolveVenues(apply: [String]?, reject: [String]? = nil) throws -> String {
+    public func resolveVenues(apply: [String]?, reject: [String]? = nil,
+                              repoint: [String]? = nil) throws -> String {
+        // **改指：歸錯戶的退路**（#418）。`apply` 只做 literal → key 的升格，所以一條
+        // 已經是 key 的邊在此之前**改不回來**——person 域有 `resolve-divergence`，
+        // venue 域沒有，而 `literal-first-then-key` 的整套論證建立在「誤可逆」上。
+        //
+        // 三段式 id `citekey:venueIndex:newKey`，與 `resolve-people` 的
+        // `citekey:authorIndex:personKey` 同形（#303）。
+        //
+        // **失敗語意分兩類，與 `judge` 同**（#386）：輸入語法錯或前提不符 → **整批拒絕、
+        // 零寫入**（下面先全部解析完才動手）；成功則兩側都留 verdict。
+        if let rp = repoint, !rp.isEmpty {
+            return try repointVenues(rp)
+        }
         if let ap = apply, !ap.isEmpty, let rj = reject, !rj.isEmpty {
             func parsed(_ s: String) throws -> [String: Any] {
                 (try JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any]) ?? [:]
@@ -2307,6 +2320,97 @@ public final class AkashicService {
             "applied": chosen.map { $0.rowID },
             "entriesRewritten": changed.count,   // display-safe-exempt: Int
             "venuesRewritten": grouped.count,    // display-safe-exempt: Int
+        ] as [String: Any])
+    }
+
+    /// `resolve-venues --repoint` 的實作（#418）。
+    ///
+    /// **先全部解析、再一次寫入**：任何一筆前提不符就整批拒絕、零寫入。部分寫入會讓
+    /// 使用者面對一個「有些改了有些沒改」的中間態，而那正是改指這種操作最不該有的
+    /// ——它本來就是在修一個錯誤歸戶。
+    private func repointVenues(_ ids: [String]) throws -> String {
+        let load = try store.load()
+        let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
+        guard storeFormat >= 11 else {
+            throw ServiceError.invalid(
+                "venue 改指需要 store format ≥ 11（本 store 是 \(storeFormat)）")   // display-safe-exempt: Int
+        }
+        let venueKeys = Set(load.venues.map(\.key))
+        var byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) }, uniquingKeysWith: { a, _ in a })
+
+        struct Move { let citekey: String; let index: Int; let from: String; let to: String }
+        var moves: [Move] = []
+        var seen = Set<String>()
+        for raw in ids where seen.insert(raw).inserted {
+            let parts = raw.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+            guard parts.count == 3, let idx = Int(parts[1]), idx >= 0 else {
+                throw ServiceError.invalid(
+                    "改指 id「\(displaySafe(raw, max: 200))」不是 citekey:venueIndex:newKey 形")
+            }
+            let (citekey, newKey) = (parts[0], parts[2])
+            guard let entry = byCitekey[citekey] else {
+                throw ServiceError.notFound("work「\(displaySafe(citekey, max: 200))」")
+            }
+            guard idx < entry.venues.count else {
+                throw ServiceError.invalid(
+                    "work「\(displaySafe(citekey, max: 200))」只有 \(entry.venues.count) 個 venue 邊，"   // display-safe-exempt: Int
+                    + "index \(idx) 越界")   // display-safe-exempt: Int
+            }
+            guard case let .key(oldKey) = entry.venues[idx] else {
+                throw ServiceError.invalid(
+                    "work「\(displaySafe(citekey, max: 200))」的第 \(idx) 個 venue 邊還是 literal"   // display-safe-exempt: Int
+                    + "——那要用 --apply 升格，不是改指")
+            }
+            guard venueKeys.contains(newKey) else {
+                throw ServiceError.notFound("venue「\(displaySafe(newKey, max: 200))」")
+            }
+            // 改指到自己＝no-op（冪等；重跑同一個 id 不累積 verdict）
+            guard oldKey != newKey else { continue }
+            moves.append(Move(citekey: citekey, index: idx, from: oldKey, to: newKey))
+        }
+        guard !moves.isEmpty else {
+            return try jsonString(["repointed": [String](), "entriesRewritten": 0,
+                                   "venuesRewritten": 0,
+                                   "note": "沒有實際變更（改指到自己是 no-op）"] as [String: Any])
+        }
+
+        for m in moves {
+            var e = byCitekey[m.citekey]!
+            e.venues[m.index] = .key(m.to)
+            byCitekey[m.citekey] = e
+        }
+        let touched = Set(moves.map(\.citekey))
+        for ck in touched.sorted() { try store.writeEntry(byCitekey[ck]!) }
+
+        // **兩側都留 verdict**：新的 confirmed、舊的 rejected。少了 rejected，
+        // 下次提名會把同一個配對再提出來（`ResolutionLedger.rejectedPairings` 讀的正是它）。
+        var venuesByKey = Dictionary(load.venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        for m in moves {
+            let literal = byCitekey[m.citekey]!.title
+            if var to = venuesByKey[m.to] {
+                ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+                    .confirmed, holderKind: .work, holder: m.citekey, literal: literal,
+                    rule: ResolutionLedger.venueRule,
+                    statement: "resolve repoint：由「\(displaySafe(m.from, max: 120))」改指而來，使用者裁定"),
+                    to: &to.references)
+                venuesByKey[m.to] = to
+            }
+            if var from = venuesByKey[m.from] {
+                ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+                    .rejected, holderKind: .work, holder: m.citekey, literal: literal,
+                    rule: ResolutionLedger.venueRule,
+                    statement: "resolve repoint：改指到「\(displaySafe(m.to, max: 120))」，此配對經裁定為誤"),
+                    to: &from.references)
+                venuesByKey[m.from] = from
+            }
+        }
+        let changedVenues = Set(moves.flatMap { [$0.from, $0.to] })
+        for k in changedVenues.sorted() { try store.writeVenue(venuesByKey[k]!) }
+        try LibraryIndex(store: store).rebuild()
+        return try jsonString([
+            "repointed": moves.map { "\(displaySafe($0.citekey, max: 200)):\($0.index):\(displaySafe($0.to, max: 200))" },
+            "entriesRewritten": touched.count,        // display-safe-exempt: Int
+            "venuesRewritten": changedVenues.count,   // display-safe-exempt: Int
         ] as [String: Any])
     }
 

@@ -169,4 +169,41 @@ final class WorkTypeTests: XCTestCase {
         }
     }
 
+    // MARK: - §10.5 的兩種形狀（#417 方向 2）
+
+    /// **帶 `booktitle` 的會議記錄要送 `INPROCEEDINGS`，不是 `PRESENTATION`**（#417）。
+    ///
+    /// `WorkType.conferenceSession` 覆蓋 APA7 §10.5 的兩種形狀，而正向先前一律送
+    /// `PRESENTATION`——那個 template 印「Conference Name, Location」，所以一筆論文集
+    /// 論文的**論文集名印不出來**（資訊在庫裡、也歸了 venue，只是不出現在參考文獻）。
+    ///
+    /// 判準是**記錄自己有沒有 `booktitle`**，與反向 init 的兩個既有先例同形
+    /// （`misc` ＋ `url` → `referenceWorkEntry`；`unpublished` ＋ `location` →
+    /// `conferenceSession`）。不是猜——`booktitle` 在場就是「這筆有論文集」的直接證據。
+    ///
+    /// **零實例，所以零輸出變更**：實測 37 筆 conference-session 全部沒有 booktitle。
+    func testConferenceRecordWithBooktitleSendsInproceedings() {
+        XCTAssertEqual(WorkType.conferenceSession.biblatexEntryType(fields: ["booktitle": "Proc. X"]),
+                       "INPROCEEDINGS",
+                       "有論文集名 → INPROCEEDINGS，否則論文集名印不出來")
+        XCTAssertEqual(WorkType.conferenceSession.biblatexEntryType(fields: [:]),
+                       "PRESENTATION", "沒有論文集名 → 維持會議發表")
+        XCTAssertEqual(WorkType.conferenceSession.biblatexEntryType(fields: ["booktitle": "  "]),
+                       "PRESENTATION", "空白字串不算有")
+    }
+
+    /// **其餘型別不受 fields 影響**——只有 `.conferenceSession` 是兩形狀合流的那個。
+    func testOnlyConferenceSessionIsFieldsDependentOnTheForwardMap() {
+        for t in WorkType.allCases where t != .conferenceSession {
+            XCTAssertEqual(t.biblatexEntryType(fields: ["booktitle": "X", "publisher": "Y"]),
+                           t.biblatexEntryType,
+                           "\(t) 的正向對映不得依賴 fields——只有 §10.5 那個格子是合流的")
+        }
+    }
+
+    /// **round-trip 仍成立**：`INPROCEEDINGS` 反向也回 `.conferenceSession`。
+    func testInproceedingsRoundTripsBackToConferenceSession() {
+        let bt = WorkType.conferenceSession.biblatexEntryType(fields: ["booktitle": "P"])
+        XCTAssertEqual(WorkType(biblatexEntryType: bt, fields: [:]), .conferenceSession)
+    }
 }

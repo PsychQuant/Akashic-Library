@@ -69,6 +69,12 @@ final class BooktitleCarrierDerivationTests: XCTestCase {
     /// **`EDITOR` 是唯一真的「持不住」**：`Venue` 沒有編者欄位，也沒有任何分支把編者
     /// 變成別的東西。#324 排除編著的原始理由就是這一條。
     ///
+    /// **更尖的說法**（R70 跨模型審查獨立算出）：`¬PUBLISHER` 檢查的條件與它試圖控制的
+    /// 行為**根本不相關**。`literals(for:)` 的三個分支裡，只有 `booktitle` 那個受
+    /// `booktitleCarrierTypes` 閘控；`publisher` 分支**無條件執行**，不論型別是不是
+    /// 成員。所以那個子句檢查「型別契約有沒有 PUBLISHER」，卻用來決定一個
+    /// **與 publisher 輸出無關**的閘。它不只是冗餘，是**錯置**。
+    ///
     private func derivedMembership(_ t: WorkType) -> Bool {
         let contract = BibExport.fieldContract(t.biblatexEntryType)
         return contract.contains("BOOKTITLE") && !contract.contains("EDITOR")
@@ -228,5 +234,41 @@ final class BooktitleCarrierDerivationTests: XCTestCase {
             XCTAssertFalse(VenueDerivation.booktitleCarrierTypes.contains(t),
                            "\(t) 契約是空的卻在表裡——那個成員資格沒有任何契約依據")
         }
+    }
+
+    /// **判準的每個子句都必須是承重的**——這道守衛是 #417 R1 那個錯誤的直接產物。
+    ///
+    /// 被修掉的 `¬PUBLISHER` 之所以能存活兩輪，不是因為它看起來對，是因為
+    /// **拿掉它預測完全不變**——所以沒有任何資料或測試會碰到它。一句從未被反駁的話
+    /// 不等於一句對的話；它安靜地待著，直到有人拿它去推導新結論。
+    ///
+    /// 這條把那個性質變成可執行的：**逐一拿掉每個子句，預測都必須改變**。
+    /// 現行判準的兩個子句實測都承重：
+    ///
+    ///     現行 BT ∧ ¬EDITOR   → {referenceWorkEntry}
+    ///     拿掉 BT 要求         → 16 個型別（多 14 個）
+    ///     拿掉 ¬EDITOR 排除    → {bookChapter, referenceWorkEntry}（多收 #324 排除的那個）
+    ///
+    /// 日後有人再加一個子句而它不改變任何預測，這條會紅——那正是加它之前該先回答的
+    /// 問題：「有什麼案例是它、而且只有它，擋得下來的？」
+    func testEveryClauseInThePredicateIsLoadBearing() {
+        func predicted(_ p: (Set<String>) -> Bool) -> Set<WorkType> {
+            Set(WorkType.allCases.filter { p(BibExport.fieldContract($0.biblatexEntryType)) })
+        }
+        let current = predicted { $0.contains("BOOKTITLE") && !$0.contains("EDITOR") }
+
+        // 逐一拿掉一個子句，預測必須改變。
+        let withoutBooktitle = predicted { !$0.contains("EDITOR") }
+        XCTAssertNotEqual(withoutBooktitle, current,
+                          "`BOOKTITLE` 要求不承重——拿掉它預測不變，"
+                          + "那是被修掉的 `¬PUBLISHER` 同型的問題")
+        let withoutEditor = predicted { $0.contains("BOOKTITLE") }
+        XCTAssertNotEqual(withoutEditor, current,
+                          "`¬EDITOR` 排除不承重——同上")
+
+        // 而且各自擋下的東西要說得出來：`¬EDITOR` 擋的是 #324 排除的編著。
+        XCTAssertTrue(withoutEditor.contains(.bookChapter),
+                      "拿掉 ¬EDITOR 應該就會收進 bookChapter——它是這個子句唯一的理由")
+        XCTAssertFalse(current.contains(.bookChapter), "而現行判準必須排除它")
     }
 }

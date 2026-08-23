@@ -20,8 +20,9 @@
   · **`public let` 也算**（#407 R53，跨模型審查指名）：上一版只抓 `var`，而第 13 條邊
     的解析形式 `VerdictPairingValue` 的 `holderKind`／`holder` 正是 `public let`——
     一條真的 entity 指標整個在棘輪之外。
-  · **不驗那 14 列的裁決內容對不對**（那要人判斷），但**列的葉欄位必須存在於 Swift**
-    ——R57 起加的第二道，見 `_table_edges()`。
+  · **不驗那 14 列的裁決內容對不對**（那要人判斷），但兩件事有守：**葉欄位必須存在於
+    Swift**（R57，`_table_edges()`），以及**它的宣告型別不得改變**（R59，`EDGE_TYPES`）
+    ——後者正面對應「名字不變而語意改變，所有棘輪都看不到」那一格。
   · 欄位被**刪掉**也會紅（清單與現況不等），那是刻意的——刪一條邊同樣要改表。
 
 **它讀的是 Swift，不是那份規則**（#407 R51）：本支拿六個型別檔與自己釘住的清單比對，
@@ -154,6 +155,25 @@ ADJUDICATED = {
 
 RULE = '.claude/rules/entity-backlink-completeness.md'
 
+# 14 條邊的葉欄位 → 它**宣告時的型別**（#407 R59 釘住）。名字不變而型別改變，是
+# 跨模型審查列為 HIGH 的那一格：`affiliations` 從 `TimelineOf<OrgRef>` 變成
+# `[String]`，欄位名沒動、棘輪原本完全看不到，而該規則記載的邊語意已經不成立。
+EDGE_TYPES = {
+    'affiliations': 'TimelineOf<OrgRef>',
+    'attachments': '[AttachmentRef]',
+    'authors': '[Author]',
+    'candidates': '[DivergenceCandidate]',
+    'cites': '[String]',
+    'libraries': '[String]',
+    'parents': 'TimelineOf<OrgRef>',
+    'prefers': 'String?',
+    'references': '[ProvenanceReference]',
+    'related': '[String]',
+    'restsOn': '[String]',
+    'tags': '[String]',
+    'venues': '[VenueRef]',
+}
+
 
 def _table_edges():
     """從那張表抽出 14 條邊各自的**葉欄位名**。
@@ -196,6 +216,16 @@ def main():
         for m in re.finditer(r'public (?:var|let) (\w+)\s*:', flat):
             seen.add(f'{f}.{m.group(1)}')
 
+    types = {}
+    for f in FILES:
+        for line in io.open(f'Sources/AkashicCore/{f}.swift', encoding='utf8'):
+            m = re.match(r'\s*public (?:var|let) (\w+)\s*:\s*([^={\n]+)', line)
+            if m:
+                types.setdefault(m.group(1), m.group(2).strip())
+    type_fails = [f'邊欄位 `{k}` 的宣告型別變了：釘住 `{v}`，現在是 '
+                  f'`{types.get(k, "（抽不到）")}`——名字沒動而語意可能已經不同'
+                  for k, v in EDGE_TYPES.items() if types.get(k) != v]
+
     edges, err = _table_edges()
     table_fails = []
     if err:
@@ -215,13 +245,15 @@ def main():
               f'第 ③ 步（它會被序列化嗎？值指涉另一個實體嗎？），再加進 ADJUDICATED')
     for n in gone:
         print(f'  ✗ 欄位消失：{n}——若它是一條邊，表也要改')
+    for f in type_fails:
+        print(f'  ✗ {f}')
     for f in table_fails:
         print(f'  ✗ {f}')
     if edges:
         print(f'  （表 {len(edges)} 列，葉欄位全部對得上 Swift）'
               if not table_fails else '')
     print(f'\n══ {"無未裁決欄位" if not (new or gone) else f"**{len(new) + len(gone)} 處"} ══')
-    return 1 if (new or gone or table_fails) else 0
+    return 1 if (new or gone or table_fails or type_fails) else 0
 
 
 if __name__ == '__main__':

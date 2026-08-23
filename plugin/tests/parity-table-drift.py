@@ -141,7 +141,13 @@ def main():
         types = re.findall(r'([A-Za-z]+)\.self', m.group(1))
     srcs = '\n'.join(io.open(f, encoding='utf8', errors='replace').read()
                      for f in sorted(glob.glob('Sources/akashic/*.swift')))
-    toks = set(re.findall(r'`([a-z][a-z0-9-]*)`', rule))
+    # **只認表列裡的 token**（#407 R59，跨模型審查列為 HIGH）：上一版只驗「命令名
+    # 出現在規則檔裡」——散文任一處提到就算數，於是一個**沒有被裁決過**的命令只要
+    # 在某段說明裡被提及就綠。收緊成「必須出現在某一行 `|` 開頭的表列裡」：實測 43
+    # 個命令**全部**已在表列中，收緊零誤傷。仍不驗它落在**哪一張**表（那需要欄位
+    # 形狀的假設，見上方第二條邊界）。
+    rows_text = '\n'.join(l for l in rule.split('\n') if l.startswith('|'))
+    toks = {t.split()[0] for t in re.findall(r'`([a-z][a-z0-9 -]*)`', rows_text)}
     unresolved = []
     for t in types:
         mm = _command_name(t, srcs)

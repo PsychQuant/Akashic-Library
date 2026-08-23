@@ -211,6 +211,11 @@ CASES = [
      {MCP_RULE_REL: lambda t: t.replace('| `akashic_doctor` |',
                                         '| `akashic_ghost` |', 1)},
      ['但程式裡**沒有這個 tool**']),
+    # #407 R59：只在散文提到、不在任何表列裡 → 不算被裁決過。
+    ('parity：某命令只在散文被提到、不在任何表列',
+     PARITY_TABLE_REL,
+     {MCP_RULE_REL: lambda t: t.replace('| `fmt` |', '| `fmt-x` |', 1)},
+     ['規則檔裡完全沒提到']),
     ('parity：規則檔完全不提某個 CLI subcommand',
      PARITY_TABLE_REL,
      {MCP_RULE_REL: lambda t: t.replace('`doctor`', '`doktor`')},
@@ -241,6 +246,13 @@ CASES = [
      {ZI_RULE_REL: lambda t: t.replace('（#254：', '（無編號：', 1)},
      ['沒有引用任何 issue 編號']),
     # #407 R57：棘輪現在也讀那張表——列被改名／Swift 那側改名都要紅。
+    # #407 R59：名字不變而**型別**改變——c49 列為 HIGH 的那一格。
+    ('ratchet：邊欄位的宣告型別被改掉（名字沒動）',
+     RATCHET_REL,
+     {'Sources/AkashicCore/Temporal.swift':
+      lambda t: t.replace('public var affiliations: TimelineOf<OrgRef>',
+                          'public var affiliations: [String]', 1)},
+     ['宣告型別變了']),
     ('ratchet：表裡某一列的欄位名被改掉（Swift 沒動）',
      RATCHET_REL,
      {BACKLINK_REL: lambda t: t.replace('`Entry.venues`', '`Entry.venuez`', 1)},

@@ -306,7 +306,9 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 鍵，同一個正規化名對到 2 個以上實體即判歧義、整組排除，交人裁決。
 
 判定會被**記住**（#232）：`--apply` 在同一動作內寫 `resolution-confirmed`、
-`--reject` 寫 `resolution-rejected`（entry／holder 不動）——兩者都是判斷型
+`--reject` 寫 `resolution-rejected`（entry／holder 不動）；**venue 域的
+`--repoint` 兩側都寫**（新的 confirmed、舊的 rejected）、`--demote` 寫 rejected
+（#418）——少了 rejected，下一輪會把使用者剛否決的配對再提名一次。以上都是判斷型
 provenance reference，落在被判定的 person／organization 上。已否決的配對不再被
 提名（同 literal 在別的 entry 是另一次觀察，照提），列表沉底標示而非隱藏；三態
 計數（已確認／已否決／未處理）從 verdict 現算、絕不儲存，**只報計數不報比率**
@@ -805,11 +807,32 @@ EOF
 
 venue 域先前**沒有批次建檔的路徑**。person 與 organization 都有，venue 沒有：
 
-| 域 | 從 literal 批次建實體 | 單筆建檔 | 消歧 |
-|---|---|---|---|
-| person | ✅ `bootstrap-people` | ✅ `add-person` | ✅ `resolve-people` |
-| organization | ✅ `bootstrap-organizations` | ✅ `add-organization`（MCP）| ✅ `resolve-organizations` |
-| venue | **❌ 先前無** → ✅ `bootstrap-venues` | ✅ `add-venue` | ✅ `resolve-venues` |
+| 域 | 從 literal 批次建實體 | 單筆建檔 | 消歧 | **歸錯了怎麼辦** |
+|---|---|---|---|---|
+| person | ✅ `bootstrap-people` | ✅ `add-person` | ✅ `resolve-people` | ✅ `resolve-divergence`（合併＋全庫改寫）|
+| organization | ✅ `bootstrap-organizations` | ✅ `add-organization`（MCP）| ✅ `resolve-organizations` | **❌ 無** |
+| venue | **❌ 先前無** → ✅ `bootstrap-venues` | ✅ `add-venue` | ✅ `resolve-venues` | **❌ 先前無** → ✅ `--repoint` / `--demote`（#418）|
+
+**最後一欄是 #418 補的，而它同時揭露了 organization 也缺這一格。**
+`literal-first-then-key` 的整套論證建立在「漏（literal 待消歧）可逆，誤（錯誤歸戶）
+不可逆」這個不對稱上，並為它提供退路——但**只有 person 與 work 真的有**：
+`resolve-divergence` 對其餘 shape 直接拒（`DivergenceResolve.swift` 的
+`unsupportedShape`，訊息逐字寫著「本版的消歧只處理 person 與 work」）。
+
+寫這張表時我先填了「organization ✅ 同上」，**去查才發現是假的**——那正是本批
+（#407）在管的形狀，出現在為它自己寫的文件裡。venue 那格已由 #418 補上；
+organization 那格仍空，追蹤在 #418 的討論。
+
+venue 的兩個旗標各對應一種錯誤：
+
+| 錯誤 | 退路 |
+|---|---|
+| 邊指到**錯的** venue | `resolve-venues --repoint <citekey:venueIndex:newKey>` |
+| 誤升格，而**現有的 venue 都不對** | `resolve-venues --demote <citekey:venueIndex>` |
+
+`--demote` 的原字串**從 verdict 逐字取回**（`resolution-confirmed` 的 value 帶著它），
+所以是無損的；取不到就拒絕，**不拿 venue 的顯示名頂替**——顯示名不是那筆記錄原本
+寫的字（WoS 的 `PSYCHOMETRIKA` vs 正式刊名 `Psychometrika`），頂替會安靜改寫書目資料。
 
 ```
 migrate-venues ──→ 803 筆 literal ──→ ??? ──→ venue entity ──→ resolve-venues

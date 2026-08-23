@@ -177,12 +177,17 @@ CASES = [
      MULTI_REL,
      {MULTI_REL: lambda t: t.replace('return f < 0x80 ? true : !inTable(f)',
                                      'return f < 0x80 ? true : inTable(f)', 1)},
-     ['★']),
+     # **斷言具體的分歧數，不是裸的 `★`**（#407 R67，跨模型審查指名）：`★` 是
+     # 任何一列不符都會印的通用標記，兩個 multi case 先前**斷言完全相同**——
+     # 把它們對調也不會被發現，而一個與注入無關的破壞（改某列的 expected、
+     # RANGES 差一格）同樣會印 `★` 而被記成「抓到了」。實測兩者分歧數不同：
+     # inTable 反轉 11 列、改看最後一個 scalar 4 列。
+     ['分歧數：11']),
     ('multi：模型改看最後一個 scalar',
      MULTI_REL,
      {MULTI_REL: lambda t: t.replace('guard let f = cps.first else { return true }',
                                      'guard let f = cps.last else { return true }', 1)},
-     ['★']),
+     ['分歧數：4']),
     # ── measured-numbers-audit.py（#407 R36）──────────────────────────────
     # 要挑**只靠行內錨**的那一個。先前挑 `entity-backlink` 的「（#339 立案當時）」，
     # 但同一小節裡還有 R33 加的 ⚠ 區塊帶著日期，小節層的錨照樣成立——注入不生效
@@ -219,16 +224,18 @@ CASES = [
      PARITY_TABLE_REL,
      {MCP_RULE_REL: lambda t: t.replace('| `fmt` | 有理由缺席', '| `fmt-x` | 有理由缺席')
                               .replace('全庫改寫＝維運例外', '全庫改寫＝維運例外（同 `fmt`）')},
-     ['規則檔裡完全沒提到']),
+     # **斷言要帶具體項目**（#407 R67）：三個 parity case 先前斷言完全相同，
+     # 對調哪個注入配哪個 case 都不會被發現。守衛的訊息本來就帶命令名。
+     ['`fmt`', '規則檔裡完全沒提到']),
     # #407 R59：只在散文提到、不在任何表列裡 → 不算被裁決過。
     ('parity：某命令只在散文被提到、不在任何表列',
      PARITY_TABLE_REL,
      {MCP_RULE_REL: lambda t: t.replace('| `fmt` |', '| `fmt-x` |', 1)},
-     ['規則檔裡完全沒提到']),
+     ['`fmt`', '規則檔裡完全沒提到']),
     ('parity：規則檔完全不提某個 CLI subcommand',
      PARITY_TABLE_REL,
      {MCP_RULE_REL: lambda t: t.replace('`doctor`', '`doktor`')},
-     ['規則檔裡完全沒提到']),
+     ['`doctor`', '規則檔裡完全沒提到']),
     ('parity：表把某命令標成退場但它仍註冊著（表→命令方向）',
      PARITY_TABLE_REL,
      {MCP_RULE_REL: lambda t: t.replace('| ~~`migrate-work-types`~~',
@@ -289,12 +296,12 @@ CASES = [
      RATCHET_REL,
      {MODELS_REL: lambda t: t.replace('public var authors:',
                                       'public let ghostEdge: String = ""\n    public var authors:', 1)},
-     ['新欄位未經裁決']),
+     ['ghostEdge', '新欄位未經裁決']),
     ('ratchet：Swift 多一個 [String] 欄位（上一版會漏）',
      RATCHET_REL,
      {MODELS_REL: lambda t: t.replace('public var authors:',
                                       'public var seeAlso: [String] = []\n    public var authors:', 1)},
-     ['新欄位未經裁決']),
+     ['seeAlso', '新欄位未經裁決']),
     # #407 R52：`export-tables --view` 這種含空白的 token，上一版的 ②b 兩個分支都看不到。
     ('parity：含空白的命令 token 退場了卻沒劃掉',
      PARITY_TABLE_REL,
@@ -308,7 +315,7 @@ CASES = [
      RATCHET_REL,
      {MODELS_REL: lambda t: t.replace('public var authors:',
                                       'public var brandNewEdge: [VenueRef] = []\n    public var authors:', 1)},
-     ['新欄位未經裁決']),
+     ['brandNewEdge', '新欄位未經裁決']),
     ('multi：案例表被清空（fixture 蒸發不得靜默通過）',
      MULTI_REL,
      # `[] + [...]` **不會**清空（前一版寫成那樣，於是這個 case 一直在測別的東西，
@@ -422,18 +429,31 @@ def main():
             print(f'✗ 注入「{name}」→ rc={rc}' + (f'，缺 {miss}' if miss else ''))
             print('   ' + (out or '（無輸出）').replace('\n', '\n   ')[:500])
 
+    # **純重排的正確斷言是「輸出逐字不變」，不是「有印通過訊息」**（#407 R67，
+    # 跨模型審查指名兩個 ROBUST case 斷言完全相同）。通過訊息對所有 ROBUST case
+    # 都一樣，所以它證明不了「通過得對」——切片若靜默截斷而剛好沒少掉命令名，
+    # 守衛照樣印通過。改成拿**同一支守衛在未注入的 copy 上**的輸出當 oracle：
+    # 重排不得改變任何一個字（含 `MCP 30｜CLI 43｜橫切 2` 這行計數）。
+    # 現算而非寫死——寫死 43 會製造第二份會與 CLI.swift 分岔的規格，正是本 issue
+    # 在修的形狀。
+    pristine = {}
     for name, guard, edits, must in ROBUST:
         try:
+            if guard not in pristine:
+                pristine[guard] = with_copy(guard, {})[1]
             rc, out = with_copy(guard, edits)
         except SystemExit as e:
             print(e)
             continue
         miss = [m for m in must if m not in out]
-        if rc == 0 and not miss:
-            print(f'✓ 重排注入「{name}」→ 維持綠')
+        drift = out != pristine[guard]
+        if rc == 0 and not miss and not drift:
+            print(f'✓ 重排注入「{name}」→ 維持綠，且輸出與未注入逐字相同')
             ok += 1
         else:
-            print(f'✗ 重排注入「{name}」→ rc={rc}' + (f'，缺 {miss}' if miss else ''))
+            print(f'✗ 重排注入「{name}」→ rc={rc}'
+                  + (f'，缺 {miss}' if miss else '')
+                  + ('，輸出與未注入不同' if drift else ''))
 
     after = {r: os.stat(os.path.join(ROOT, r)).st_mtime_ns for r in WATCHED}
     same = before == after

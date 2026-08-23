@@ -24,6 +24,26 @@
 
 
 
+
+## R49 — 豁免比它要豁免的東西寬（同一個形狀，這次出現在豁免上）
+
+R48 給 `trigger-coverage` 的宣告行開了揭露豁免，而那個豁免**只錨行首**：
+
+```
+豁免      # trigger-coverage: reads plugin/rules/*.md
+**不豁免** # trigger-coverage: reads plugin/rules/*.md, 順帶碰 .claude/rules/x.md   ← 修正後
+豁免      # trigger-coverage: reads .claude/rules/*.md
+```
+
+第二行**不是**真宣告（`DECLARE` 要求 glob 之後只能有空白），卻逃得掉揭露檢查——一條
+「宣告開頭 ＋ 後面藏一個私有路徑」的行因此完全無聲。改成**逐字用 `DECLARE` 的整行樣式**，
+並新增第 14 個 negative control 釘住它。
+
+**謂詞比它要管的東西寬**是本 issue 反覆記過的形狀；這次它出現在**豁免**而不是**檢查**上
+——同一個錯誤換了極性。
+
+端到端 pre-push（R48 後）：**exit=0、331 秒**。prose 負控 14/14。
+
 ## R48 — 一條宣告只寫了一半；而補齊它連鎖出四件
 
 跨模型審查指名：`measured-numbers-audit.py` 的 `# trigger-coverage: reads` **只宣告

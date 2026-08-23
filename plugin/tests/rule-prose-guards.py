@@ -116,7 +116,11 @@ for fp in files(PLUGIN):
         # 滿足兩者**。豁免是對的那一邊：本檢查的目的是「讀者跟著路徑走不會撞上
         # 看不懂的 404」，而宣告行不是給人跟隨的連結，是給 `trigger-coverage.py`
         # 讀的機器宣告。揭露改寫在它**上一行**的註解裡（實地做法）。
-        if re.match(r'\s*(?:#|//)\s*trigger-coverage:\s*reads\s', line):
+        # **豁免要與 DECLARE 逐字同寬**（#407 R49，跨模型審查指名）：上一版只錨行首，
+        # 於是 `# trigger-coverage: reads X, 順帶碰 <私有路徑>` 逃得掉揭露檢查卻**不是**
+        # 真宣告（DECLARE 要求 glob 之後只能有空白）。謂詞比它要豁免的東西寬——本 issue
+        # 反覆記過的形狀，這次出現在**豁免**而不是**檢查**上。
+        if re.match(r'^\s*(?:#|//)\s*trigger-coverage:\s*reads\s+(\S+)\s*$', line):
             continue
         if REPO_ONLY.search(line) and not DISCLOSE.search(line):
             undisclosed.append(f'{os.path.basename(fp)}:{i}')

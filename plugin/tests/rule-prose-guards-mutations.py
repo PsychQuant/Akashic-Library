@@ -132,6 +132,10 @@ RESULTS = [
            1, '加一個 blob/ 深連結（REPO_ONLY 第 4 分支）'),
     append('判準寫在 `.claude/rules/identity-is-judged-not-matched.md`。',
            2, '加一句未揭露取用限制的 repo 專屬路徑'),
+    # #407 R49：豁免只錨行首時，一條「宣告開頭 ＋ 後面還有別的東西」的行會逃掉
+    # 揭露檢查卻不是真宣告。整行錨定之後它必須被擋回來。
+    append('# trigger-coverage: reads plugin/rules/*.md, 順帶碰 .claude/rules/x.md',
+           2, '偽裝成宣告的行（後面還有東西）不得逃掉揭露檢查'),
     append('本規則採三分法。', 3, '把被打掉兩次的分類法用語加回來'),
     append('三筆都回傳了 volume／issue。', 4, '把被同段證據否證的假全稱句放回引號外'),
     swap('實測**六值**', '實測**三值**', 5, '把 VenueType 的數量宣稱改錯'),

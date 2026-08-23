@@ -211,6 +211,12 @@ CASES = [
      {MCP_RULE_REL: lambda t: t.replace('| `akashic_doctor` |',
                                         '| `akashic_ghost` |', 1)},
      ['但程式裡**沒有這個 tool**']),
+    # #407 R60：把命令名種在既有列的**理由欄**（第 3 格）不算被裁決過。
+    ('parity：命令名只出現在某列的理由欄',
+     PARITY_TABLE_REL,
+     {MCP_RULE_REL: lambda t: t.replace('| `fmt` | 有理由缺席', '| `fmt-x` | 有理由缺席')
+                              .replace('全庫改寫＝維運例外', '全庫改寫＝維運例外（同 `fmt`）')},
+     ['規則檔裡完全沒提到']),
     # #407 R59：只在散文提到、不在任何表列裡 → 不算被裁決過。
     ('parity：某命令只在散文被提到、不在任何表列',
      PARITY_TABLE_REL,
@@ -247,6 +253,16 @@ CASES = [
      ['沒有引用任何 issue 編號']),
     # #407 R57：棘輪現在也讀那張表——列被改名／Swift 那側改名都要紅。
     # #407 R59：名字不變而**型別**改變——c49 列為 HIGH 的那一格。
+    # #407 R60：同名誘餌不得遮住真正的型別變更（限定名鍵）。
+    ('ratchet：同名誘餌 ＋ 真欄位改型別（裸名鍵會被騙過）',
+     RATCHET_REL,
+     {'Sources/AkashicCore/Models.swift':
+      lambda t: t.replace('public var authors:',
+                          'public var affiliations: TimelineOf<OrgRef> = .init()\n    public var authors:', 1),
+      'Sources/AkashicCore/Temporal.swift':
+      lambda t: t.replace('public var affiliations: TimelineOf<OrgRef>',
+                          'public var affiliations: [String]', 1)},
+     ['宣告型別變了']),
     ('ratchet：邊欄位的宣告型別被改掉（名字沒動）',
      RATCHET_REL,
      {'Sources/AkashicCore/Temporal.swift':

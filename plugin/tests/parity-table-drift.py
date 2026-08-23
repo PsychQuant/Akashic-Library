@@ -146,8 +146,17 @@ def main():
     # 在某段說明裡被提及就綠。收緊成「必須出現在某一行 `|` 開頭的表列裡」：實測 43
     # 個命令**全部**已在表列中，收緊零誤傷。仍不驗它落在**哪一張**表（那需要欄位
     # 形狀的假設，見上方第二條邊界）。
-    rows_text = '\n'.join(l for l in rule.split('\n') if l.startswith('|'))
-    toks = {t.split()[0] for t in re.findall(r'`([a-z][a-z0-9 -]*)`', rows_text)}
+    # **只認每一列的前兩格**（#407 R60，跨模型審查列為 HIGH）：上一版收成「表列裡」
+    # 之後仍然是**任何一格**——攻擊把新命令的名字塞進某個既有列的**理由欄**（第 3 格）
+    # 就綠了，而那個命令從來沒有被裁決過。前兩格是「命令／對應」欄，第 3 格起是理由。
+    # 實測：限前 2 格時 43 個命令**全部命中、零誤傷**；限前 1 格會漏 27 個（多數命令
+    # 寫在 MCP 表的「CLI 對應」欄，也就是第 2 格）。
+    toks = set()
+    for line in rule.split('\n'):
+        if not line.startswith('|'):
+            continue
+        for cell in line.strip().strip('|').split('|')[:2]:
+            toks |= {x.split()[0] for x in re.findall(r'`([a-z][a-z0-9 -]*)`', cell)}
     unresolved = []
     for t in types:
         mm = _command_name(t, srcs)

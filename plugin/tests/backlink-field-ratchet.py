@@ -155,23 +155,28 @@ ADJUDICATED = {
 
 RULE = '.claude/rules/entity-backlink-completeness.md'
 
-# 14 條邊的葉欄位 → 它**宣告時的型別**（#407 R59 釘住）。名字不變而型別改變，是
+# 14 條邊的欄位 → 它**宣告時的型別**（#407 R59 釘住，R60 改用**限定名**）。
+# 用裸葉名當鍵會被**同名誘餌**繞過（跨模型審查列為 HIGH）：在較早掃到的檔案裡塞一個
+# 同名、型別＝舊值的欄位，`setdefault` 就把舊型別鎖住，真正那個改成 `[String]` 也不紅。
+# 限定名讓誘餌成為**不同的鍵**——它自己會以「新欄位未經裁決」被抓到。名字不變而型別改變，是
 # 跨模型審查列為 HIGH 的那一格：`affiliations` 從 `TimelineOf<OrgRef>` 變成
 # `[String]`，欄位名沒動、棘輪原本完全看不到，而該規則記載的邊語意已經不成立。
 EDGE_TYPES = {
-    'affiliations': 'TimelineOf<OrgRef>',
-    'attachments': '[AttachmentRef]',
-    'authors': '[Author]',
-    'candidates': '[DivergenceCandidate]',
-    'cites': '[String]',
-    'libraries': '[String]',
-    'parents': 'TimelineOf<OrgRef>',
-    'prefers': 'String?',
-    'references': '[ProvenanceReference]',
-    'related': '[String]',
-    'restsOn': '[String]',
-    'tags': '[String]',
-    'venues': '[VenueRef]',
+    'Divergence.candidates': '[DivergenceCandidate]',
+    'Divergence.prefers': 'String?',
+    'Divergence.restsOn': '[String]',
+    'Models.attachments': '[AttachmentRef]',
+    'Models.authors': '[Author]',
+    'Models.cites': '[String]',
+    'Models.libraries': '[String]',
+    'Models.references': '[ProvenanceReference]',
+    'Models.related': '[String]',
+    'Models.tags': '[String]',
+    'Models.venues': '[VenueRef]',
+    'Organization.parents': 'TimelineOf<OrgRef>',
+    'Organization.references': '[ProvenanceReference]',
+    'Temporal.affiliations': 'TimelineOf<OrgRef>',
+    'Venue.references': '[ProvenanceReference]',
 }
 
 
@@ -221,7 +226,7 @@ def main():
         for line in io.open(f'Sources/AkashicCore/{f}.swift', encoding='utf8'):
             m = re.match(r'\s*public (?:var|let) (\w+)\s*:\s*([^={\n]+)', line)
             if m:
-                types.setdefault(m.group(1), m.group(2).strip())
+                types.setdefault(f'{f}.{m.group(1)}', m.group(2).strip())
     type_fails = [f'邊欄位 `{k}` 的宣告型別變了：釘住 `{v}`，現在是 '
                   f'`{types.get(k, "（抽不到）")}`——名字沒動而語意可能已經不同'
                   for k, v in EDGE_TYPES.items() if types.get(k) != v]

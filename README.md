@@ -772,9 +772,14 @@ grep -h '^  booktitle:' ~/.akashic/entities/*.yaml | sort | uniq -c | sort -rn |
 SEP 條目目前是 `bookChapter` —— 它們與 14 筆維基條目**是同一種東西**（參考工具書中的條目）。
 若那 17 筆被統一分類，容器需求的規模一次跳到 17+。
 
-> **順帶記一個相鄰發現**：`WorkType.wikipediaEntry` 的名字可能過窄 —— 它實際承擔的是
-> 「參考工具書中的條目」，而 SEP 不是 Wikipedia。那屬 `Entry.type` 值域的問題（#325 家族），
-> 不是關係邊的問題。
+> **順帶記一個相鄰發現 —— 已於 2026-08-23 由 #409 消解**：`WorkType.wikipediaEntry` 的名字
+> 過窄 —— 它實際承擔的是「參考工具書中的條目」，而 SEP 不是 Wikipedia。
+>
+> #409 把它改名為 **`referenceWorkEntry`**（rawValue `reference-work-entry`）。理由是它自己的
+> 三個下游對照沒有一個說 Wikipedia：APA7 §10.3「Entries in **Reference Works**」／biblatex
+> `INREFERENCE`／CSL `entry-encyclopedia`。改名後 3 筆 SEP 一併改型別、走進
+> `booktitleCarrierTypes`、歸戶到 `stanford-encyclopedia-of-philosophy` venue —— 實測「仍只有
+> 純量字串」從 **14 筆／最大 ×3** 掉到 **11 筆／最大 ×1**。
 
 #### 守衛守的是**前提**不是結論
 
@@ -938,7 +943,7 @@ APA7 §10.2 的 template 是 `Editor, E. E. (Ed.). (Year). Title. Publisher.` �
 
 ### 必要欄位補充表與它的退場守衛（#354）
 
-`INREFERENCE`（`wikipediaEntry` 送出的型別）在依賴的**兩張表裡都沒有** ——
+`INREFERENCE`（`referenceWorkEntry` 送出的型別；#409 前叫 `wikipediaEntry`）在依賴的**兩張表裡都沒有** ——
 `allEntryTypes` 認得它、`classifySection` 算得出 10.3，但沒有必要欄位。所以 #352 之後那
 14 筆維基條目變成 unchecked：假陽性消失了，代價是完全不被檢查。
 
@@ -1084,7 +1089,7 @@ APA7 §10.6 有**兩張** template，而差別不只是字串：
 | `audioWork` | `ONLINE` | `AUDIO` | 10.16 → **10.13** |
 | `visualWork` | `ONLINE` | `IMAGE` | 10.16 → **10.14** |
 | `conferenceSession` | `INPROCEEDINGS` | `PRESENTATION` | 10.5（節本來就對，但欄位需求錯：要 `BOOKTITLE` 而非 `EVENTTITLE`）|
-| `wikipediaEntry` | `INCOLLECTION` | `INREFERENCE` | 10.3（節本來就對；改的理由是消除假陽性，代價見 #354）|
+| `referenceWorkEntry`（#409 前 `wikipediaEntry`） | `INCOLLECTION` | `INREFERENCE` | 10.3（節本來就對；改的理由是消除假陽性，代價見 #354）|
 
 **實測效果**（937 筆全庫）：`[ERROR]` 143 → 94、error 記錄 97 → 71。帳目對得上：
 26 筆停止報錯 ＝ 14 筆變 unchecked（維基條目）＋ 12 筆變乾淨（有 `eventtitle` 的會議發表）。

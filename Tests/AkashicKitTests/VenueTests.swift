@@ -180,8 +180,12 @@ final class VenueTests: XCTestCase {
         var e = Entry(id: UUID(), citekey: "x2025", type: .conferenceSession, title: "T")
         e.fields["editor"] = "Someone"
         let msgs = e.validate().map(\.message)
-        XCTAssertTrue(msgs.contains { $0.contains("editor") && $0.contains("venue") },
-                      "booktitle 載體型別帶 editor 必須出聲——venue 持不住編者：\(msgs)")
+        // **斷言兩支訊息都有的那部分**。先前這裡寫 `contains("venue")`（小寫），而
+        // #414 R1 把訊息分成有／無 booktitle 兩支之後，無 booktitle 那支只有
+        // 大寫的 `Venue`——測試因此在一個**與它要測的性質無關**的字上紅。
+        // 要測的性質是「有沒有出聲」，所以錨在兩支共有的抬頭。
+        XCTAssertTrue(msgs.contains { $0.contains("editor") && $0.contains("booktitle 載體列舉") },
+                      "booktitle 載體型別帶 editor 必須出聲：\(msgs)")
     }
 
     /// **前件不得寫成「editor 或 publisher」**——那會誤傷一個有正當路徑的欄位。
@@ -202,6 +206,36 @@ final class VenueTests: XCTestCase {
 
     /// **不在表裡的型別不受此約束**。編著章節本來就該有編者——#324 排除它的理由正是
     /// 「它有編者而 venue 持不住」，所以對它報警等於把排除的結論倒過來用。
+    /// **訊息不得斷言一個對該筆為假的後果**（自審抓到，#414 R1）。
+    ///
+    /// 守衛的前件是**型別層**的（#324 的 §11 判準問的是「這個型別決定哪些欄位存在」），
+    /// 所以它對一筆**沒有 `booktitle`** 的成員記錄照樣出聲——那是對的，因為型別成員資格
+    /// 本身就是被問的東西。
+    ///
+    /// 但原本的訊息一律說「venue 持不住編者」，而那句話描述的是 `booktitle → venue`
+    /// **推導的後果**——對一筆沒有 booktitle 的記錄，那個推導**沒有發生**，於是訊息
+    /// 斷言了一件對該筆為假的事。
+    ///
+    /// 實測（2026-08-23）這不是假想：37 筆 `conference-session` **零筆帶 booktitle**，
+    /// 而 17 筆 `reference-work-entry` **全部帶**。也就是說本表的兩個成員在這一點上
+    /// 剛好落在光譜兩端，而先前的訊息只對其中一端為真。
+    func testMessageDoesNotClaimADerivationThatDidNotHappen() {
+        var withBT = Entry(id: UUID(), citekey: "a2025", type: .conferenceSession, title: "T")
+        withBT.fields["editor"] = "Someone"
+        withBT.fields["booktitle"] = "Proceedings of X"
+        let m1 = try! XCTUnwrap(withBT.validate().first { $0.message.contains("editor") }).message
+        XCTAssertTrue(m1.contains("持不住"),
+                      "有 booktitle 時推導確實發生，訊息該說出後果：\(m1)")
+
+        var noBT = Entry(id: UUID(), citekey: "b2025", type: .conferenceSession, title: "T")
+        noBT.fields["editor"] = "Someone"
+        let m2 = try! XCTUnwrap(noBT.validate().first { $0.message.contains("editor") }).message
+        XCTAssertFalse(m2.contains("持不住"),
+                       "沒有 booktitle 時那個推導沒發生——訊息不得斷言它的後果：\(m2)")
+        XCTAssertTrue(m2.contains("型別"),
+                      "沒有 booktitle 時要說出這是型別層的問題：\(m2)")
+    }
+
     func testNonCarrierTypeWithEditorIsNotFlagged() {
         var e = Entry(id: UUID(), citekey: "x2025", type: .bookChapter, title: "T")
         e.fields["editor"] = "Someone"

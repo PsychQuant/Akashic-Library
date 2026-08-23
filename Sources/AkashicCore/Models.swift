@@ -670,11 +670,22 @@ extension Entry {
         // **必要條件不是充分條件**：不帶 editor 的新型別未必就該進表。
         if VenueDerivation.booktitleCarrierTypes.contains(type),
            let ed = fields["editor"], !ed.trimmingCharacters(in: .whitespaces).isEmpty {
+            // **訊息分兩支，因為後果不同**（自審抓到，#414 R1）：一律說「venue 持不住
+            // 編者」會對**沒有 `booktitle`** 的記錄斷言一個沒發生的推導。實測兩個成員
+            // 剛好落在光譜兩端——37 筆 `conference-session` 零筆帶 booktitle，17 筆
+            // `reference-work-entry` 全部帶。前件本身**不**收窄（§11 判準問的是型別，
+            // 不是個別記錄），收窄的只有那句因果宣稱。
+            let head = "type `\(type.rawValue)` 在 booktitle 載體列舉內卻帶 editor"
+                     + "「\(displaySafe(ed, max: 80))」——"
+            let tail = "請確認這筆的型別是否正確，或該型別是否真該在 booktitleCarrierTypes 內"
             issues.append(ValidationIssue(severity: .warning,
-                message: "type `\(type.rawValue)` 在 booktitle 載體列舉內卻帶 editor"
-                       + "「\(displaySafe(ed, max: 80))」——venue 持不住編者（`Venue` 無此欄位），"
-                       + "而 #324 排除編著章節的理由正是這一條。"
-                       + "請確認這筆的型別是否正確，或該型別是否真該在 booktitleCarrierTypes 內"))
+                message: head + (fields["booktitle"] != nil
+                    ? "這筆的 booktitle 會被推導成 venue，而 venue 持不住編者"
+                      + "（`Venue` 無此欄位）——#324 排除編著章節的理由正是這一條。"
+                    : "這筆沒有 booktitle，所以那個推導這次沒有發生；"
+                      + "但**型別**宣告了「我的 booktitle 是載體」，而載體型別不該帶編者"
+                      + "（`Venue` 無此欄位，#324）。")
+                    + tail))
         }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,

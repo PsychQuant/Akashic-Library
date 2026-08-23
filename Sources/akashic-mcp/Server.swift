@@ -194,11 +194,12 @@ actor AkashicMCPServer {
                 "type": str("\(VenueType.domainDescription)（替換；選填）"),
              ], required: ["key"])),
         Tool(name: "akashic_resolve_venues",
-             description: "venue 解析（resolve-people 契約形，#304）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 venue name 完全命中且不歧義的 literal（正規化含 lowercase：WoS 全大寫形因此命中正式刊名）；ambiguities 是同一 literal 對到 2+ venue、需要人判斷。帶 apply（候選 id，形如 citekey:venueIndex）把 literal 升格為 key 並寫 resolution-confirmed verdict 到該 venue；帶 reject 寫 resolution-rejected（entry 不動）。組合呼叫兩段式（reject 腿先提交）。需 store format ≥ 11。絕不自動配對（literal-first-then-key）。帶 repoint（三段式 id citekey:venueIndex:newKey）把**已歸戶**的邊改指到另一個 venue——歸錯戶的退路（#418），兩側都寫 verdict（新的 confirmed、舊的 rejected）；語法錯或前提不符整批拒絕、零寫入；改指到自己是 no-op。repoint 不與 apply／reject 組合（不同階段）。",
+             description: "venue 解析（resolve-people 契約形，#304）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 venue name 完全命中且不歧義的 literal（正規化含 lowercase：WoS 全大寫形因此命中正式刊名）；ambiguities 是同一 literal 對到 2+ venue、需要人判斷。帶 apply（候選 id，形如 citekey:venueIndex）把 literal 升格為 key 並寫 resolution-confirmed verdict 到該 venue；帶 reject 寫 resolution-rejected（entry 不動）。組合呼叫兩段式（reject 腿先提交）。需 store format ≥ 11。絕不自動配對（literal-first-then-key）。帶 repoint（三段式 id citekey:venueIndex:newKey）把**已歸戶**的邊改指到另一個 venue——歸錯戶的退路（#418），兩側都寫 verdict（新的 confirmed、舊的 rejected）；語法錯或前提不符整批拒絕、零寫入；改指到自己是 no-op。repoint 不與 apply／reject 組合（不同階段）。帶 demote（citekey:venueIndex）把**誤升**的邊退回 literal——原字串從該 venue 上的 confirmed verdict 逐字取回（無損；取不到就拒絕，不拿顯示名頂替），並留 rejected verdict。repoint／demote 各自單獨呼叫。",
              inputSchema: obj([
                 "apply": strArray("要套用的候選 id（citekey:venueIndex）；省略＝只列候選"),
                 "reject": strArray("要否決的候選 id（同形）"),
-                "repoint": strArray("要改指的已歸戶邊（citekey:venueIndex:newKey）——不與 apply／reject 組合"),
+                "repoint": strArray("要改指的已歸戶邊（citekey:venueIndex:newKey）——不與 apply／reject／demote 組合"),
+                "demote": strArray("要退回 literal 的已歸戶邊（citekey:venueIndex）——原字串從 verdict 取回；不與其他組合"),
              ])),
         Tool(name: "akashic_add_organization",
              description: "建機構實體（organization:；#304 org 重啟後的單筆 MCP 面）。parent 以既有 org key 指涉（選填；literal parent 屬 bootstrap 面）。",
@@ -409,15 +410,18 @@ actor AkashicMCPServer {
                 let vApplyProvided = params.arguments?["apply"] != nil
                 let vRejectProvided = params.arguments?["reject"] != nil
                 let vRepointProvided = params.arguments?["repoint"] != nil
-                // **repoint 不與另外兩者組合**（兩面同契約，#418）：它修的是已歸戶的邊，
+                let vDemoteProvided = params.arguments?["demote"] != nil
+                // **修正類的兩個各自單獨呼叫**（兩面同契約，#418）：它們修的是已歸戶的邊，
                 // 與升格／否決不同階段；混在一次呼叫裡會讓「哪一批寫了」難以判讀。
-                if vRepointProvided, vApplyProvided || vRejectProvided {
-                    throw ServiceError.invalid("repoint 不得與 apply／reject 同時給（不同階段）")
+                if (vRepointProvided || vDemoteProvided),
+                   vApplyProvided || vRejectProvided || (vRepointProvided && vDemoteProvided) {
+                    throw ServiceError.invalid("repoint／demote 各自單獨呼叫（不得與 apply／reject 或彼此同時給）")
                 }
                 output = try service.resolveVenues(
                     apply: vApplyProvided ? argList("apply") : nil,
                     reject: vRejectProvided ? argList("reject") : nil,
-                    repoint: vRepointProvided ? argList("repoint") : nil)
+                    repoint: vRepointProvided ? argList("repoint") : nil,
+                    demote: vDemoteProvided ? argList("demote") : nil)
             case "akashic_add_organization":
                 output = try service.addOrganization(key: arg("key") ?? "", names: argList("names"),
                                                      parentKey: arg("parent_key"), note: arg("note"))

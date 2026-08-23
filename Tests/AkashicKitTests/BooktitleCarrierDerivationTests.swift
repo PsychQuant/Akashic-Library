@@ -305,4 +305,42 @@ final class BooktitleCarrierDerivationTests: XCTestCase {
         XCTAssertFalse(report.uncheckedCitekeys.contains("p2019"),
                        "INPROCEEDINGS 在依賴的表內——不該落進 unchecked：\(report.uncheckedCitekeys)")
     }
+
+    // MARK: - 方向 2 是否已滿足規則（#417 的收束）
+
+    /// **`apa7-is-the-work-floor` 的「更粗不行」失敗條件對 `.conferenceSession`
+    /// 已不再成立**（#417 方向 2 之後）。
+    ///
+    /// 那條規則的失敗條件寫得很具體：
+    ///
+    /// > 兩個 ch10 節的欄位組不同，混進同一個 Akashic 類型後**就無法判斷該索取哪一組**
+    ///
+    /// 它舉的實例是 `unpublished` 的 21 筆——「橫跨 10.5 與 10.8，**欄位全空**，現在
+    /// 已無法機械區分」。關鍵在**欄位全空**：那些記錄身上沒有任何東西能決定該用哪一組。
+    ///
+    /// `.conferenceSession` 不是那個形狀：`booktitle` 在不在場**就是**那個判準，而
+    /// `biblatexEntryType(fields:)` 已經在用它。所以「無法判斷」這個失敗條件不成立
+    /// ——**方向 1（拆成兩個 `WorkType`）不是規則要求的**，它是建模純度。
+    ///
+    /// 本條把「判斷得出來」寫成斷言：兩種形狀索取**不同**的必要欄位組，而我們對
+    /// 同一個 `WorkType` 的兩筆記錄確實各自索取了正確的那一組。
+    func testTheTwoShapesDemandDifferentFieldSetsAndWeCanTellThemApart() {
+        let presentation = BibExport.fieldContract("PRESENTATION")
+        let proceedings = BibExport.fieldContract("INPROCEEDINGS")
+        XCTAssertNotEqual(presentation, proceedings,
+                          "兩節的欄位組必須不同，否則本條無意義")
+        XCTAssertTrue(proceedings.contains("BOOKTITLE") && !presentation.contains("BOOKTITLE"),
+                      "區別正是 BOOKTITLE：\(presentation.sorted()) vs \(proceedings.sorted())")
+
+        // 同一個 WorkType 的兩筆記錄，各自索取正確的那一組。
+        var talk = Entry(id: UUID(), citekey: "t2019", type: .conferenceSession, title: "T")
+        talk.fields["eventtitle"] = "Great Conf"
+        var paper = Entry(id: UUID(), citekey: "p2019", type: .conferenceSession, title: "P")
+        paper.fields["booktitle"] = "Proceedings of Great Conf"
+
+        XCTAssertEqual(BibExport.fieldContract(talk.type.biblatexEntryType(fields: talk.fields)),
+                       presentation, "會議發表索取 PRESENTATION 那一組")
+        XCTAssertEqual(BibExport.fieldContract(paper.type.biblatexEntryType(fields: paper.fields)),
+                       proceedings, "論文集論文索取 INPROCEEDINGS 那一組")
+    }
 }

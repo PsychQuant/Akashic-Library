@@ -240,4 +240,66 @@ final class VenueServiceTests: XCTestCase {
         XCTAssertEqual(try store.load().entries.first { $0.citekey == "w2020" }?.venues,
                        [.key("wikipedia")])
     }
+
+    /// **降格：把誤升的 key 邊變回 literal**（#418 的第二半）。
+    ///
+    /// `--repoint` 只能改指到**既有**的 venue。若正確答案是「現有的都不對」——例如
+    /// 那個刊名根本還沒建檔——就回不去了。`literal-first-then-key` 說 literal 是
+    /// **誠實狀態**而非壞掉的 key，所以「退回誠實狀態」必須是可能的。
+    ///
+    /// **literal 字串從 verdict 取回**：`--apply` 寫的 `resolution-confirmed` 的
+    /// value 裡逐字帶著原本的 literal（`<kind>:<key> :: <literal>` 文法，第 13 條邊）。
+    /// 所以降格是**無損**的——不需要猜，也不需要拿 venue 的顯示名冒充。
+    func testDemoteTurnsAKeyedEdgeBackIntoTheOriginalLiteral() throws {
+        _ = try service.addVenue(key: "psychometrika", names: ["Psychometrika"],
+                                 type: "periodical", note: nil)
+        var e = Entry(id: UUID(), citekey: "x2020", type: .periodicalArticle, title: "T")
+        e.fields["journaltitle"] = "PSYCHOMETRIKA"     // WoS 全大寫形
+        e.venues = [.literal("PSYCHOMETRIKA")]
+        _ = try store.writeEntry(e)
+        // 先升格（verdict 因此帶著原 literal）
+        _ = try service.resolveVenues(apply: ["x2020:0"], reject: nil)
+        XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2020" }?.venues,
+                       [.key("psychometrika")], "前提：已升格")
+
+        let d = try json(try service.resolveVenues(apply: nil, reject: nil, demote: ["x2020:0"]))
+        XCTAssertEqual(d["entriesRewritten"] as? Int, 1)
+        XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2020" }?.venues,
+                       [.literal("PSYCHOMETRIKA")],
+                       "要回到**原本的** literal，不是 venue 的顯示名")
+    }
+
+    /// **降格也要留 verdict**——否則下一輪 `--apply` 會把同一個配對再提名一次，
+    /// 而使用者剛剛才說它是錯的。
+    func testDemoteWritesARejectedVerdict() throws {
+        _ = try service.addVenue(key: "psychometrika", names: ["Psychometrika"],
+                                 type: "periodical", note: nil)
+        var e = Entry(id: UUID(), citekey: "x2020", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("PSYCHOMETRIKA")]
+        _ = try store.writeEntry(e)
+        _ = try service.resolveVenues(apply: ["x2020:0"], reject: nil)
+        _ = try service.resolveVenues(apply: nil, reject: nil, demote: ["x2020:0"])
+        let v = try XCTUnwrap(try store.load().venues.first { $0.key == "psychometrika" })
+        XCTAssertTrue(v.references.contains { $0.field == "resolution-rejected" },
+                      "降格要留 rejected：\(v.references)")
+    }
+
+    /// **沒有 verdict 可依據時要拒絕，不得猜**。
+    ///
+    /// 一條 key 邊若不是經 `--apply` 來的（例如手寫的 YAML），verdict 裡沒有它的
+    /// literal。那時**拒絕**而非拿 venue 的顯示名頂替——顯示名不是那筆記錄原本寫的字，
+    /// 用它會安靜改寫書目資料。
+    func testDemoteRefusesWhenTheOriginalLiteralIsUnknown() throws {
+        _ = try service.addVenue(key: "psychometrika", names: ["Psychometrika"],
+                                 type: "periodical", note: nil)
+        var e = Entry(id: UUID(), citekey: "x2020", type: .periodicalArticle, title: "T")
+        e.venues = [.key("psychometrika")]            // 直接就是 key，沒有 apply 過
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, reject: nil,
+                                                       demote: ["x2020:0"])) { err in
+            guard case ServiceError.invalid = err else { return XCTFail("預期 invalid：\(err)") }
+        }
+        XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2020" }?.venues,
+                       [.key("psychometrika")], "拒絕即零寫入")
+    }
 }

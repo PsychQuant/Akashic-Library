@@ -655,6 +655,27 @@ extension Entry {
             issues.append(ValidationIssue(severity: .warning,
                                           message: "akashic.libraries 含重複 key（load 已去重）"))
         }
+        // `booktitleCarrierTypes` 的成員資格判準（#324 的 §11：「它決定了哪些欄位存在」）
+        // 先前**只存在於 doc comment**——集合是人工列舉、只看 `type`，而那條「不得依性質
+        // 相似類推第三個」的禁令沒有任何可機械執行的對應物（#414）。
+        //
+        // 這裡把 #324 排除編著的那個**結構性**理由變成對成員的可執行約束：`Venue` 沒有
+        // 編者欄位，所以一個帶 `editor` 的型別若進了那張表，它的編者在 venue 側無處可放。
+        //
+        // **前件只有 `editor`，刻意不含 `publisher`**：實測（2026-08-23）`VenueType` 本身
+        // 就有 `.publisher`，而 `VenueDerivation.literals` 無條件把 publisher 變成另一個
+        // venue literal——出版社不是持不住，是**它自己就是一個 venue**。把它寫進前件會誤傷
+        // 82 筆有正當路徑的記錄（`zero-instance-guards` 第 2 列：前件的寬度要先量過再定）。
+        //
+        // **必要條件不是充分條件**：不帶 editor 的新型別未必就該進表。
+        if VenueDerivation.booktitleCarrierTypes.contains(type),
+           let ed = fields["editor"], !ed.trimmingCharacters(in: .whitespaces).isEmpty {
+            issues.append(ValidationIssue(severity: .warning,
+                message: "type `\(type.rawValue)` 在 booktitle 載體列舉內卻帶 editor"
+                       + "「\(displaySafe(ed, max: 80))」——venue 持不住編者（`Venue` 無此欄位），"
+                       + "而 #324 排除編著章節的理由正是這一條。"
+                       + "請確認這筆的型別是否正確，或該型別是否真該在 booktitleCarrierTypes 內"))
+        }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
                 message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))

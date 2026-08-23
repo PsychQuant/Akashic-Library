@@ -41,6 +41,24 @@ PARITY_TABLE_REL = 'plugin/tests/parity-table-drift.py'
 RATCHET_REL = 'plugin/tests/backlink-field-ratchet.py'
 ZIROWS_REL = 'plugin/tests/zero-instance-rows-audit.py'
 ZI_RULE_REL = '.claude/rules/zero-instance-guards.md'
+
+
+def _zi_verdict_heading(new):
+    """把 zero-instance-guards 的裁決史標題整行換成 `new`——**不寫死列數**。
+
+    #414：先前三個 case 各自寫死 `'## 裁決史（封閉列舉——現有 6 列，一列不多一列不少）'`
+    當字面錨。那個數字**是規則檔那個數字的第二份副本**，於是規則檔加一列（6 → 7）時
+    三個 case 同時失效——而它們失效的方式是「注入沒有造成任何改動」，也就是這個 harness
+    自己的 fail-loud 檢查抓到的（#407 R67 起就有那道檢查，這次是它第一次抓到真的漂移）。
+
+    寫死數字是本 issue 反覆記過的形狀，出現在**檢查那個形狀的工具自己身上**。用 regex
+    綁「標題的結構」而非「標題此刻的內容」：列數怎麼變都命中，而標題若被改成別的形狀
+    （不再宣稱列數），regex 不命中 → 同一道 fail-loud 照樣出聲。
+    """
+    pat = re.compile(r'^## 裁決史（封閉列舉——現有 \S+ 列，一列不多一列不少）$', re.M)
+    def sub(text):
+        return pat.sub(lambda _: new, text, count=1)
+    return sub
 CREATE_ENTRY_REL = 'Sources/akashic/CreateEntryCommand.swift'
 SCALAR_GUARD_REL = 'plugin/tests/literal-scalar-parity.py'
 CENSUS_REL = 'plugin/skills/akashic-literal-campaign/scripts/literal-census.sh'
@@ -244,10 +262,8 @@ CASES = [
          "                                _rows_after(lines, i)))\n"
          "                    continue\n", 1),
       '.claude/rules/zero-instance-guards.md':
-      lambda t: t.replace(
-          '## 裁決史（封閉列舉——現有 6 列，一列不多一列不少）',
-          '## 前言（封閉列舉——現有 廿 列）\n\n散文一句。\n\n'
-          '## 裁決史（一列不多一列不少）', 1)},
+      _zi_verdict_heading('## 前言（封閉列舉——現有 廿 列）\n\n散文一句。\n\n'
+                          '## 裁決史（一列不多一列不少）')},
      ['解析不出來']),
     # #407 R67i：中文數字用算的（不是查表）、表不得跨標題借用、解析不出要報。
     ('numbers：標題用「十五」而表沒有十五列（查表版會靜默略過）',
@@ -259,9 +275,8 @@ CASES = [
     ('numbers：標題宣稱列數、自己沒有表，而下一節有（不得借用）',
      NUMBERS_REL,
      {'.claude/rules/zero-instance-guards.md':
-      lambda t: t.replace('## 裁決史（封閉列舉——現有 6 列，一列不多一列不少）',
-                          '## 前言（封閉列舉——現有 6 列）\n\n散文一句。\n\n'
-                          '## 裁決史（一列不多一列不少）', 1)},
+      _zi_verdict_heading('## 前言（封閉列舉——現有 6 列）\n\n散文一句。\n\n'
+                          '## 裁決史（一列不多一列不少）')},
      # R67l 起訊息具名跨過的標題，不再是一句「下一個標題之後」。
      ['最近的表在「## 裁決史（一列不多一列不少）」之後']),
     ('numbers：標題的數字解析不出來（不得靜默略過）',
@@ -274,10 +289,8 @@ CASES = [
      # 守衛在不在都沒差，配對的不變式就會是**空的**（#413 第一版正是這樣，回退守衛
      # 仍綠才發現）。
      {'.claude/rules/zero-instance-guards.md':
-      lambda t: t.replace(
-          '## 裁決史（封閉列舉——現有 6 列，一列不多一列不少）',
-          '## 前言（封閉列舉——現有 廿 列）\n\n散文一句。\n\n'
-          '## 裁決史（一列不多一列不少）', 1)},
+      _zi_verdict_heading('## 前言（封閉列舉——現有 廿 列）\n\n散文一句。\n\n'
+                          '## 裁決史（一列不多一列不少）')},
      ['解析不出來']),
     # #407 R67l：跨 >=2 個標題時，診斷要具名跨過哪些（不是一句「下一個標題」）。
     ('numbers：宣稱與表之間隔了兩個標題（診斷要說「隔了 2 個」並具名）',

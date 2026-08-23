@@ -159,4 +159,53 @@ final class VenueTests: XCTestCase {
         XCTAssertFalse(text.contains("venues"))
         XCTAssertEqual(try EntryYAML.decode(text).venues, [])
     }
+
+    // MARK: - booktitleCarrierTypes 的成員資格有沒有程式層對應物（#414）
+
+    /// `booktitleCarrierTypes` 的判準（#324 的 §11：「它決定了哪些欄位存在」）先前
+    /// **只存在於 doc comment**：集合是人工列舉，成員資格只看 `entry.type`，既不檢查
+    /// 記錄實際擁有的欄位，也沒有任何東西會在判準被違反時出聲。
+    ///
+    /// 跨模型審查（2026-08-23）指出的正是這個：「不得依性質相似類推第三個」這條禁令
+    /// **沒有可機械執行的判準程序**——下一個線上百科／辭典型別仍只能靠人判斷「像不像」。
+    ///
+    /// 本條把 #324 排除編著的那個**結構性**理由變成對成員的可執行約束：`Venue` 沒有
+    /// 編者欄位（實測其欄位是 id/key/type/names/authorized/note/references/unknownFields），
+    /// 所以一個帶 `editor` 的型別進了這張表，它的編者資訊在 venue 側**無處可放**。
+    ///
+    /// **這是必要條件不是充分條件**（同 `apa7-is-the-work-floor` 對 113 例的立場）：
+    /// 一個新型別即使不帶 `editor` 也未必該進表。守衛擋掉的是**已知會錯**的那一類，
+    /// 不保證通過的都對。
+    func testCarrierTypeCarryingAnEditorIsFlagged() {
+        var e = Entry(id: UUID(), citekey: "x2025", type: .conferenceSession, title: "T")
+        e.fields["editor"] = "Someone"
+        let msgs = e.validate().map(\.message)
+        XCTAssertTrue(msgs.contains { $0.contains("editor") && $0.contains("venue") },
+                      "booktitle 載體型別帶 editor 必須出聲——venue 持不住編者：\(msgs)")
+    }
+
+    /// **前件不得寫成「editor 或 publisher」**——那會誤傷一個有正當路徑的欄位。
+    ///
+    /// 實測（2026-08-23，全 corpus）：帶 `publisher` 的有 82 筆、跨 4 個型別，而
+    /// `VenueType` 本身就有 `.publisher` 這個值，`VenueDerivation.literals` 的第三個
+    /// 分支**無條件**把 publisher 變成另一個 venue literal。所以出版社不是「持不住」，
+    /// 是「它自己就是一個 venue」。
+    ///
+    /// doc comment 先前把「沒有同義的出版社」列為納入 `.referenceWorkEntry` 的理由之一
+    /// ——那句話被本量測否掉，已一併改寫（#414）。
+    func testCarrierTypeCarryingAPublisherIsNotFlagged() {
+        var e = Entry(id: UUID(), citekey: "x2025", type: .conferenceSession, title: "T")
+        e.fields["publisher"] = "Springer"
+        XCTAssertFalse(e.validate().map(\.message).contains { $0.contains("venue 持不住") },
+                       "publisher 有自己的 venue 路徑（VenueType.publisher），不得當成違規")
+    }
+
+    /// **不在表裡的型別不受此約束**。編著章節本來就該有編者——#324 排除它的理由正是
+    /// 「它有編者而 venue 持不住」，所以對它報警等於把排除的結論倒過來用。
+    func testNonCarrierTypeWithEditorIsNotFlagged() {
+        var e = Entry(id: UUID(), citekey: "x2025", type: .bookChapter, title: "T")
+        e.fields["editor"] = "Someone"
+        XCTAssertFalse(e.validate().map(\.message).contains { $0.contains("venue 持不住") },
+                       "bookChapter 不在 booktitleCarrierTypes 內，帶編者是正常的")
+    }
 }

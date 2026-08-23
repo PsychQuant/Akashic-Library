@@ -54,8 +54,17 @@ public struct StoreHealth {
     /// 唯一呼叫點是 `Sources/akashic/Commands.swift`，`doctor()` 與 App 面各 0。
     /// 而 `mcp-cli-parity` 對 `validate` 是 CLI-only 的裁決，理由寫「讀取檢查由
     /// `akashic_doctor` 覆蓋（功能重疊）」；那句話被量測否掉：doctor 覆蓋的是
-    /// **跨記錄**檢查，per-entry 一條都不做。落差裡有一條是 **error** 級
-    /// （citekey 不符 pattern），而 MCP／App 的使用者拿不到它。
+    /// **跨記錄**檢查，per-entry 一條都不做。
+    ///
+    /// **落差是 warning 一族，不是 error**（#416 R1 更正）。我原本寫「落差裡有一條是
+    /// error 級（citekey 不符 pattern）」——實測那條到不了：load 對五族都做 key 合法性
+    /// 檢查並 quarantine 整個檔，所以 `validate()` 的 error 分支對載入後的記錄結構上
+    /// 不可達（`StoreHealthSurfaceTests.testNoPerRecordErrorIsReachableFromALoadedStore`
+    /// 釘住這個事實）。quarantine 本來就在本型別裡、doctor 也渲染。
+    ///
+    /// 真正看不到的是「title 為空」「libraries 含重複 key」「載體型別帶 editor」
+    /// 「未知欄位」那幾條 warning——它們是編目品質提示，少了它們 App 使用者不會知道
+    /// 哪些記錄該補。
     ///
     /// 放這裡而不是各面自己算，是 #263 已建立的形狀：唯讀事實單一來源，
     /// 兩個消費面各自渲染。上面的反射守衛自動釘住新欄位。
@@ -100,6 +109,16 @@ public struct StoreHealth {
     }
 }
 
+extension StoreHealth {
+    /// error 先於 warning，**同 severity 內保持原順序**（stable partition）。
+    ///
+    /// 不用 `sorted(by:)`：Swift 的排序不保證穩定，而族序（entry → person → …）
+    /// 是刻意的——它讓 CLI 與 MCP 兩面的輸出可以逐行對照（#416）。
+    static func errorsFirst(_ xs: [OwnedIssue]) -> [OwnedIssue] {
+        xs.filter { $0.issue.severity == .error } + xs.filter { $0.issue.severity != .error }
+    }
+}
+
 public extension LibraryStore {
     /// 從一份已載入的快照算出唯讀健康事實（#263）。
     ///
@@ -117,6 +136,27 @@ public extension LibraryStore {
             audit = try auditSourceIndex()
         } catch {
             auditError = displaySafe(String(describing: error), max: 300)
+        }
+        // **五族逐一，順序與 CLI `validate` 相同**，好讓兩面的輸出逐行對照。
+        // 族數是照 CLI 那五個迴圈數出來的（#416 第一版只寫了三族——漏掉
+        // organizations 與 divergences，於是 MCP 面會少兩族而「看起來完整」）。
+        var perRecord: [StoreHealth.OwnedIssue] = []
+        for e in load.entries {
+            perRecord += e.validate().map { .init(owner: e.citekey, kind: "entry", issue: $0) }
+        }
+        for p in load.people {
+            perRecord += p.validate().map { .init(owner: p.key, kind: "person", issue: $0) }
+        }
+        for l in load.libraries {
+            perRecord += l.validate().map { .init(owner: l.key, kind: "library", issue: $0) }
+        }
+        for o in load.organizations {
+            perRecord += o.validate().map { .init(owner: o.key, kind: "organization", issue: $0) }
+        }
+        for d in load.divergences {
+            perRecord += d.validate().map {
+                .init(owner: d.id.uuidString, kind: "divergence", issue: $0)
+            }
         }
         return StoreHealth(
             crossRecordIssues: cross,
@@ -138,23 +178,11 @@ public extension LibraryStore {
             // **五族逐一，順序與 CLI `validate` 相同**，好讓兩面的輸出逐行對照。
             // 族數是照 CLI 那五個迴圈數出來的（#416 第一版只寫了三族——漏掉
             // organizations 與 divergences，於是 MCP 面會少兩族而「看起來完整」）。
-            perRecordIssues:
-                load.entries.flatMap { e in
-                    e.validate().map { StoreHealth.OwnedIssue(owner: e.citekey, kind: "entry", issue: $0) }
-                }
-                + load.people.flatMap { p in
-                    p.validate().map { StoreHealth.OwnedIssue(owner: p.key, kind: "person", issue: $0) }
-                }
-                + load.libraries.flatMap { l in
-                    l.validate().map { StoreHealth.OwnedIssue(owner: l.key, kind: "library", issue: $0) }
-                }
-                + load.organizations.flatMap { o in
-                    o.validate().map { StoreHealth.OwnedIssue(owner: o.key, kind: "organization", issue: $0) }
-                }
-                + load.divergences.flatMap { d in
-                    d.validate().map {
-                        StoreHealth.OwnedIssue(owner: d.id.uuidString, kind: "divergence", issue: $0)
-                    }
-                })
+            // **error 排在前面**（#416 R1 自審抓到）：MCP 面取 `prefix(20)`，而按族序
+            // 排的話一個有 25 筆 warning 的 store 會把後面族別的 error **整個截掉**
+            // ——`errors` 計數說「有一個」而 `first` 裡看不到它是哪一個。「知道有錯
+            // 但看不到是哪個」與「不知道有錯」在可行動性上幾乎一樣糟，而它更難察覺，
+            // 因為計數欄讓報告**看起來完整**（`lossless-intake` 執行細節 3 的形狀）。
+            perRecordIssues: StoreHealth.errorsFirst(perRecord))
     }
 }

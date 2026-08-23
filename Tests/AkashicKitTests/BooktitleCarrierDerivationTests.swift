@@ -41,6 +41,27 @@ final class BooktitleCarrierDerivationTests: XCTestCase {
     /// - 契約**不含** `EDITOR`／`PUBLISHER` ＝ 那個容器可以由 `Venue` 承載
     ///   （`Venue` 沒有編者欄位；出版社雖有 `VenueType.publisher`，但編著的
     ///   `BOOKTITLE + EDITOR + PUBLISHER` 三件套是 #324 明文關掉的那條路）
+    /// **兩個排除子句互為冗餘，而兩者都有理由在**（#414 R2 量測）。
+    ///
+    /// 跨模型審查問：「這個謂詞會不會只是碰巧套上現表？」實測三個變體：
+    ///
+    ///     BT ∧ ¬EDITOR ∧ ¬PUBLISHER  → {referenceWorkEntry}   ← 現行
+    ///     BT ∧ ¬EDITOR                → {referenceWorkEntry}   ← 同
+    ///     BT ∧ ¬PUBLISHER             → {referenceWorkEntry}   ← 同
+    ///     ¬EDITOR ∧ ¬PUBLISHER（不要求 BT）→ 14 個型別          ← 顯然過寬
+    ///
+    /// 三個要求 `BOOKTITLE` 的變體**答案相同**——因為現在只有兩個型別的契約含
+    /// `BOOKTITLE`（`INCOLLECTION` 與 `INREFERENCE`），而 `INCOLLECTION` 同時含
+    /// `EDITOR` 與 `PUBLISHER`，任一個子句單獨都排得掉它。
+    ///
+    /// **兩個子句都留著，因為它們各自對應一個真的案例**：`EDITOR` 排的是編著
+    /// （#324 的原始裁決）；`PUBLISHER` 排的是**論文集**（`INPROCEEDINGS` 含
+    /// `PUBLISHER` 但**不含** `EDITOR`——見 `testTheSingleExceptionPointsAtAConflation`）。
+    /// 只留一個的話，另一個案例會在它出現時安靜通過。
+    ///
+    /// **這是「同樣合理的謂詞會得到不同答案嗎」的答案：不會**——收窄到三個合理變體
+    /// 內，它們一致。差異只出現在把 `BOOKTITLE` 要求拿掉的那個，而那不合理
+    /// （它會讓每個型別都變成 booktitle 載體）。
     private func derivedMembership(_ t: WorkType) -> Bool {
         let contract = BibExport.fieldContract(t.biblatexEntryType)
         return contract.contains("BOOKTITLE")
@@ -100,10 +121,26 @@ final class BooktitleCarrierDerivationTests: XCTestCase {
     ///   它們用的是 `eventtitle`(33)／`venue`(12)／`location`(24)
     ///
     /// 也就是說 `.conferenceSession` 在本表裡的成員資格**目前對任何一筆記錄都不生效**。
-    /// 它留著是為了論文集那一種形狀——而那種形狀在 store 裡還沒有實例。
     ///
-    /// **這條不主張該怎麼改**（拆成兩個型別？讓正向依 fields 選 `INPROCEEDINGS`？）
-    /// ——那是建模裁決。它只把這個事實釘住，讓它不再是「沒人注意到的一致」。
+    /// ## 而它在「論文集那一種形狀」下**也不成立**（2026-08-24 量測，比原本的說法更尖）
+    ///
+    /// 我先前寫「它留著是為了論文集那一種形狀」。量了才知道那個理由也站不住：
+    ///
+    ///     INPROCEEDINGS 的契約 = AUTHOR, BOOKTITLE, DATE, PUBLISHER, TITLE
+    ///
+    /// **含 `PUBLISHER`** ——所以在本檔的推導謂詞下它一樣不合格，理由與 #324 排除
+    /// `INCOLLECTION` 的完全相同：容器規格索取的欄位 venue 持不住。
+    ///
+    /// 換句話說 `.conferenceSession` 的成員資格在**兩種讀法下都不成立**：
+    ///
+    /// | 讀法 | 契約 | 謂詞 |
+    /// |---|---|---|
+    /// | 現行（送 `PRESENTATION`）| 沒有 `BOOKTITLE` | ❌ 成員資格空轉 |
+    /// | 假想（論文集送 `INPROCEEDINGS`）| 有 `BOOKTITLE` **但也有 `PUBLISHER`** | ❌ 與 `INCOLLECTION` 同理被排除 |
+    ///
+    /// **這條仍不主張該怎麼改**——把它從表裡拿掉是行為變更（雖然當下零實例），
+    /// 而那是 #417 的裁決。它只把「兩種讀法都不成立」這件事釘住，讓那個豁免不再
+    /// 讀起來像「暫時保留給一個合理的未來形狀」。
     func testTheSingleExceptionPointsAtAConflation() {
         let contract = BibExport.fieldContract(WorkType.conferenceSession.biblatexEntryType)
         XCTAssertFalse(contract.contains("BOOKTITLE"),
@@ -112,6 +149,78 @@ final class BooktitleCarrierDerivationTests: XCTestCase {
         XCTAssertTrue(contract.contains("EVENTTITLE"),
                       "會議發表的容器是 eventtitle 不是 booktitle：\(contract.sorted())")
         XCTAssertTrue(VenueDerivation.booktitleCarrierTypes.contains(.conferenceSession),
-                      "它仍在表裡——為了論文集那一種形狀（store 裡目前零實例）")
+                      "它仍在表裡——裁決在 #417")
+
+        // **論文集那條路也不合格**——這是上面那張表的第二列，釘住它免得日後有人
+        // 拿「留給論文集」當理由把豁免延長下去。
+        let proceedings = BibExport.fieldContract("INPROCEEDINGS")
+        XCTAssertFalse(proceedings.isEmpty,
+                       "依賴應該認得 INPROCEEDINGS——不認得的話這個對照就無從做起")
+        XCTAssertTrue(proceedings.contains("BOOKTITLE"), "\(proceedings.sorted())")
+        XCTAssertTrue(proceedings.contains("PUBLISHER"),
+                      "INPROCEEDINGS 含 PUBLISHER，所以論文集論文在本謂詞下與 INCOLLECTION "
+                      + "同樣不是 booktitle 載體：\(proceedings.sorted())")
+    }
+
+    // MARK: - venue 的身分同一性對匯出無影響（#414 附帶項）
+
+    /// **`.bib` 的欄位只來自 `entry.fields`，venue 記錄一律不查**。
+    ///
+    /// #414 附帶指出一個沒被證成過的身分假設：中文與英文 Wikipedia 被建成**同一個**
+    /// venue 的兩個名稱變體，而它們是不同語言版的獨立計畫。
+    ///
+    /// 名字以外的證據**確實區分得出來**（`identity-is-judged-not-matched` 要的那種）：
+    ///
+    ///     4 筆  en.wikipedia.org  langid=en     booktitle=Wikipedia, the free encyclopedia
+    ///    10 筆  zh.wikipedia.org  langid=zh-TW  booktitle=維基百科，自由的百科全書
+    ///
+    /// **但這個測試釘住的是：那個身分判斷對參考文獻的正確性沒有影響。**
+    /// `BibExport.bibEntry` 逐鍵轉出 `entry.fields`，從不讀 `entry.venues` 指向的
+    /// venue 記錄——所以一筆中文條目印出來的 `BOOKTITLE` 永遠是它自己 `fields` 裡的
+    /// 「維基百科，自由的百科全書」，不論它歸戶到哪個 venue key。
+    ///
+    /// 這把一個開放的建模問題降級成**低風險**的：合或不合都不會印錯。真要拆的話
+    /// `resolve-venues` 的 verdict 機制本來就支援，而**這條會在有人改成從 venue 取
+    /// 名字時變紅**——那時身分判斷才開始有後果。
+    func testExportReadsBooktitleFromFieldsNotFromTheVenueRecord() {
+        var zh = Entry(id: UUID(), citekey: "zh2020a", type: .referenceWorkEntry, title: "條目")
+        zh.fields["booktitle"] = "維基百科，自由的百科全書"
+        zh.venues = [.key("wikipedia")]          // 歸到與英文版共用的那個 key
+        let bib = BibExport.bibEntry(for: zh, people: [:], organizations: [:])
+        XCTAssertEqual(bib.fields["booktitle"], "維基百科，自由的百科全書",
+                       "BOOKTITLE 必須來自這一筆自己的 fields，不得由 venue 記錄決定")
+
+        // 反向：venue key 不出現在任何欄位裡——它不是書目資料。
+        XCTAssertFalse(bib.fields.pairs.contains { $0.value.contains("wikipedia") },
+                       "venue key 不得洩進 .bib 欄位：\(bib.fields.pairs)")
+    }
+
+    /// **謂詞把「依賴沒有意見」當成「沒有 BOOKTITLE」**——一個安靜的合流（#414 R2）。
+    ///
+    /// 實測兩個型別的契約是**空的**：
+    ///
+    ///     unpublishedWork → UNPUBLISHED: []
+    ///     visualWork      → IMAGE:       []
+    ///
+    /// 對它們，`contract.contains("BOOKTITLE")` 回 false ——謂詞於是給出「不是成員」
+    /// 這個**有信心的答案**，而它的依據其實是「查無資料」。兩者在輸出上完全一樣。
+    ///
+    /// **當下兩者答案相同**（那兩個型別確實不該是 booktitle 載體），所以這不是缺陷，
+    /// 是一個**已知的推理弱點**。釘住它的理由與 `zero-instance-guards` 第 3 列同源
+    /// （「未涵蓋不得冒充通過」）：日後若有型別的契約是空的**而它其實該是成員**，
+    /// 謂詞會安靜地說不是。
+    ///
+    /// 這條在空契約集合改變時變紅，逼人回來重讀這一段。
+    func testThePredicateConflatesEmptyContractWithNoBooktitle() {
+        let empties = WorkType.allCases.filter {
+            BibExport.fieldContract($0.biblatexEntryType).isEmpty
+        }
+        XCTAssertEqual(Set(empties.map(\.rawValue)), ["unpublished-work", "visual-work"],
+                       "空契約的型別集合變了——請重讀本段：謂詞對它們的『不是成員』"
+                       + "是查無資料而非查到沒有：\(empties)")
+        for t in empties {
+            XCTAssertFalse(VenueDerivation.booktitleCarrierTypes.contains(t),
+                           "\(t) 契約是空的卻在表裡——那個成員資格沒有任何契約依據")
+        }
     }
 }

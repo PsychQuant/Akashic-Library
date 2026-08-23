@@ -110,6 +110,74 @@ final class StoreHealthSurfaceTests: XCTestCase {
                       "per-entry 驗證要進 StoreHealth 才會被兩面消費（#416）")
     }
 
+    /// **error 不得被截斷吃掉**——而實測顯示這是一個**零實例**守衛（#416 R1）。
+    ///
+    /// MCP 面取 `prefix(20)`，順序是 entry → person → library → organization →
+    /// divergence。按族序排的話，一個有 25 筆 warning 的 store 會把後面族別的 error
+    /// **整個截掉**——`errors` 計數說「有一個」而 `first` 裡看不到是哪一個。
+    ///
+    /// 修法是 `StoreHealth.errorsFirst`（stable partition，族內順序不變）。
+    /// 依 `zero-instance-guards` 加了一列裁決（第 8 列）。
+    func testErrorsFirstPutsErrorsBeforeWarningsAndKeepsFamilyOrder() {
+        func w(_ o: String) -> StoreHealth.OwnedIssue {
+            .init(owner: o, kind: "entry", issue: .init(severity: .warning, message: "w"))
+        }
+        func e(_ o: String) -> StoreHealth.OwnedIssue {
+            .init(owner: o, kind: "divergence", issue: .init(severity: .error, message: "e"))
+        }
+        let sorted = StoreHealth.errorsFirst([w("a"), w("b"), e("x"), w("c"), e("y")])
+        XCTAssertEqual(sorted.map(\.owner), ["x", "y", "a", "b", "c"],
+                       "error 要在前，且**兩組內部各自保持原順序**（stable）")
+    }
+
+    /// **沒有任何 per-record 的 error 到得了載入後的 store**——這是一個量出來的事實，
+    /// 不是設計意圖，所以要釘住：它變假的那天，上面那條就從零實例變成真的在防東西。
+    ///
+    /// 五族的 `validate()` 裡所有 error 級檢查**都是 key 合法性檢查**，而 load 對
+    /// 每一族都做同樣的檢查並**quarantine 整個檔**——於是那些 error 分支對載入後的
+    /// 記錄結構上不可達。實測兩例（其餘三族同型，由本測試逐一驗）：
+    ///
+    ///     entry      citekey: BAD_KEY  → quarantined「citekey「BAD_KEY」不符合 …」
+    ///     divergence 候選 key BAD_KEY  → quarantined「候選 key「BAD_KEY」不符合 …」
+    ///
+    /// **這更正了 #416 的一句敘述**：我當時寫「落差裡有一條是 **error** 級（citekey
+    /// 不符 pattern），而 MCP／App 的使用者拿不到它」。前半為假——那條 error 對載入後
+    /// 的 entry 到不了，quarantine 才是它實際走的路，而 quarantine **本來就在
+    /// `StoreHealth` 裡、doctor 也渲染**。真正的落差是 warning 一族，不是 error。
+    func testNoPerRecordErrorIsReachableFromALoadedStore() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-reach-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LibraryStore(root: root)
+        try store.ensureLayout()
+
+        // 每一族各放一筆「合法寫入後、文字層改壞 key」的記錄。
+        func corrupt(_ url: URL, _ from: String) throws {
+            try String(contentsOf: url, encoding: .utf8)
+                .replacingOccurrences(of: from, with: "BAD_KEY")
+                .write(to: url, atomically: true, encoding: .utf8)
+        }
+        try corrupt(store.writeEntry(Entry(id: UUID(), citekey: "placeholderone",
+                                           type: .book, title: "T")), "placeholderone")
+        try corrupt(store.writePerson(Person(key: "placeholdertwo")), "placeholdertwo")
+        let divID = UUID()
+        try store.writeDivergence(
+            Divergence(id: divID, question: "同一人？",
+                       candidates: [DivergenceCandidate(key: "placeholderthree", shape: .person),
+                                    DivergenceCandidate(key: "placeholderfour", shape: .person)]))
+        try corrupt(store.entityURL(id: divID), "placeholderthree")
+
+        let load = try store.load()
+        XCTAssertEqual(load.quarantined.count, 3,
+                       "三筆都該在 load 就被擋下：\(load.quarantined.map(\.reason))")
+        let errs = store.health(from: load).perRecordIssues
+            .filter { $0.issue.severity == .error }
+        XCTAssertTrue(errs.isEmpty,
+                      "若這裡開始有 error，`errorsFirst` 就不再是零實例守衛——"
+                      + "請更新 `zero-instance-guards` 第 8 列與上面那段說明：\(errs)")
+    }
+
     /// **要帶 severity 與是哪一筆**——只給訊息的話，消費端無法分辨 error 與 warning，
     /// 也無法指出哪一筆記錄。CLI 面兩者都有，MCP 面就不能丟（#138 verify F3 的既有立場）。
     func testPerRecordIssuesCarrySeverityAndOwner() throws {

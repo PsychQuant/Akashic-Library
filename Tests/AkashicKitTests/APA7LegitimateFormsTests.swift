@@ -124,7 +124,7 @@ final class APA7LegitimateFormsTests: XCTestCase {
 
     /// 參考工具書條目同理——**條目名佔作者位置**（§10.3 例 49 維基百科）。
     func testReferenceWorkEntriesDoNotRequireAuthor() {
-        XCTAssertEqual(errors([entry("anon2019wiki", type: .wikipediaEntry, date: "2019",
+        XCTAssertEqual(errors([entry("anon2019wiki", type: .referenceWorkEntry, date: "2019",
                                      fields: ["booktitle": "Wikipedia"],
                                      authors: [])]), [])
     }

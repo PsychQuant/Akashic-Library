@@ -65,7 +65,11 @@ public enum BibExport {
         if entry.type == .review, fields["relatedtype"] == nil, fields["RELATEDTYPE"] == nil {
             fields["relatedtype"] = "reviewof"
         }
-        return BibEntry(entryType: entry.type.biblatexEntryType, key: entry.citekey,
+        // **依 fields 選型別**（#417）：`.conferenceSession` 帶 `booktitle` 時送
+        // `INPROCEEDINGS`，否則 `PRESENTATION`。餵 `entry.fields` 而非上面組好的
+        // `fields`——後者已經過 `braceSafe` 等處理，而判準只問「原始記錄有沒有這個欄位」。
+        return BibEntry(entryType: entry.type.biblatexEntryType(fields: entry.fields),
+                        key: entry.citekey,
                         fields: fields, rawText: "", lineNumber: 0)
     }
 
@@ -179,7 +183,7 @@ public enum BibExport {
     /// 條目名。(年, 月 日)。In 《工具書名》。URL
     /// ```
     ///
-    /// **條目名佔作者位置**，所以 `AUTHOR` 不是必要的——這正是 #352 把 `wikipediaEntry`
+    /// **條目名佔作者位置**，所以 `AUTHOR` 不是必要的——這正是 #352 把 `wikipediaEntry`（#409 起 `referenceWorkEntry`）
     /// 從 `INCOLLECTION`（要求 `AUTHOR`）改對映到 `INREFERENCE` 的理由。但工具書名
     /// （`BOOKTITLE`）是必要的：沒有它，那筆參考文獻無法說出條目出自哪裡。
     ///
@@ -236,6 +240,19 @@ public enum BibExport {
     ///
     /// 順序是這張表的全部安全性所在——反過來就變成「用我們的意見覆寫依賴的」，
     /// 那是 #359 拒絕做的事。
+    /// 一個 biblatex 型別的**完整欄位契約**（required ∪ recommended）。
+    ///
+    /// #414 方向 1 的可執行面：`booktitleCarrierTypes` 的成員資格判準（#324 的 §11，
+    /// 「它決定了哪些欄位存在」）先前只存在於 doc comment。實測既有的兩張表
+    /// **就能區辨**——`INCOLLECTION` 的 recommended 含 `EDITOR,PUBLISHER`，
+    /// 兩個成員都不含——所以那個判準有程式層對應物，**不需要第三張表**
+    /// （`apa7-is-the-work-floor` 記過的那個風險在這條路上不成立）。
+    ///
+    /// 實際的一致性由 `BooktitleCarrierDerivationTests` 逐型別驗，含一個具名的例外。
+    public static func fieldContract(_ entryType: String) -> Set<String> {
+        Set((requiredFields(for: entryType) ?? []) + recommendedFields(for: entryType))
+    }
+
     static func requiredFields(for entryType: String) -> [String]? {
         APADataModel.requiredFields[entryType] ?? supplementalRequiredFields[entryType]
     }
@@ -259,7 +276,9 @@ public enum BibExport {
         var unchecked: [String] = []
         for entry in entries.sorted(by: { $0.citekey < $1.citekey }) {
             let bib = bibEntry(for: entry, people: peopleByKey, organizations: orgsByKey)
-            let entryType = entry.type.biblatexEntryType
+            // 與 `bibEntry` 走**同一個**對映（#417）：兩邊分岔的話，報告會拿
+            // `PRESENTATION` 的必要欄位去檢查一筆實際匯出成 `INPROCEEDINGS` 的記錄。
+            let entryType = entry.type.biblatexEntryType(fields: entry.fields)
             guard isCheckedByAPA7Table(entryType) else {
                 unchecked.append(entry.citekey)
                 continue

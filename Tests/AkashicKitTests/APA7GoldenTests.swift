@@ -136,7 +136,8 @@ final class APA7GoldenTests: XCTestCase {
         //
         // 這裡原本是 `APADataModel.requiredFields[...] != nil`。#354 加了一張補充表
         // （補依賴沒有意見的型別）之後，那個寫法立刻與受測者分岔——而且**空洞地通過**：
-        // 唯一受影響的型別 `wikipediaEntry` 沒有 fixture，所以
+        // 唯一受影響的型別（當時的 `wikipediaEntry`，#409 起 `referenceWorkEntry`）
+        // 沒有 fixture，所以
         // `testUncoveredTypesHaveNoFixtures` 對一個空集合斷言，全綠。
         //
         // 這是 #353 剛消除的同一個形狀在測試側重現：一個「以為在守某件事、其實在守自己
@@ -347,7 +348,7 @@ final class APA7GoldenTests: XCTestCase {
     /// fixture**。
     ///
     /// 我們送出的 14 個 entry type 裡，不在 `APADataModel.requiredFields` 內的是
-    /// `INREFERENCE`（`wikipediaEntry`，#354）／`IMAGE`（`visualWork`）／`UNPUBLISHED`
+    /// `INREFERENCE`（當時的 `wikipediaEntry`，#354；#409 起 `referenceWorkEntry`）／`IMAGE`（`visualWork`）／`UNPUBLISHED`
     /// （`review`、`unpublishedWork`）。而它們對應的節（10.3 的維基細分、10.14、10.7、
     /// 10.8）——除了 10.3 由 `bookChapter` 覆蓋——全都在 `sectionsWithoutFixtures` 裡。
     ///

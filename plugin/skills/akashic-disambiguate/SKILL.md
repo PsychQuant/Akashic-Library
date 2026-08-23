@@ -151,5 +151,7 @@ pending 是**現算的缺席、什麼都不記**；divergence 才是「查過什
 
 - [`akashic-person-verify`](../akashic-person-verify/SKILL.md)——單一配對的外部證據鏈；本 skill 的第 3 步會回頭用它
 - [`akashic-literal-campaign`](../akashic-literal-campaign/SKILL.md)——全域 literal 歸零的批次編排；歧義只是其中最吵的一塊
-- `.claude/rules/identity-is-judged-not-matched.md`——身分是判定不是比對；本 skill 是它的執行面
+- **`identity-is-judged-not-matched`** —— 身分判定的實際規定住在 Akashic repo 的 `.claude/rules/`（**private，無存取權者取不到全文**）。本 skill 是它的執行面。
+  **此處刻意不重述它的判準**：重述過一次，被逐句比對後找出多處失真（漏掉一項證據、把明標的開放清單寫成封閉、整個識別碼例外沒提；型態的完整清單見 `../../rules/assertions-must-be-measured.md` 的失真表）。**確切數目不寫**——那個計數只存在於一則讀者多半取不到的 verify comment，而寫一個他無法重跑的數字正好違反那條規則的第 2 題。讀不到時的出路是**明說讀不到**、請有存取權的人補，不是憑印象補上
+- [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——判定寫進 verdict 的理由是關於世界的斷言，先量過再寫
 - Akashic-Library#384（統計所 100 筆歧義的逐輪消歧，本 skill 的方法論來源）、#386（per-work 判定路徑）、#396（220 列非歧義候選）

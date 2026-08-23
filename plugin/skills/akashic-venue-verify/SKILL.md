@@ -71,6 +71,11 @@ akashic_resolve_venues reject:["<citekey>:<venueIndex>", …]   # 查過了不�
 ## 邊界
 
 - **歧義列（同 literal 對到 2+ venue）不可 apply**——查證區分後（通常靠 ISSN／DOI），先把區辨資訊補全再重跑 resolve
-- **literal 不在 candidates 時沒有 apply 把手**：店裡沒這個 venue → `akashic_add_venue`（key／names／type；type 封閉三值 journal／conference／publisher，推定錯誤寧可先問——booktitle 不必然 conference）。venue 存在但缺這個異名 → `akashic_update_venue`／CLI `update-venue --add-name`（append 語意，#306）——沿革補全直接擴大 resolve-venues 命中面
+- **literal 不在 candidates 時沒有 apply 把手**：店裡沒這個 venue → `akashic_add_venue`（key／names／type；type 是封閉列舉，值域以 `akashic_add_venue` 的 tool description 為準（由程式從 `allCases` 生成——**不要照任何文件裡寫死的清單**，#324 就是那樣壞掉的），推定錯誤寧可先問——booktitle 不必然 conference）。venue 存在但缺這個異名 → `akashic_update_venue`／CLI `update-venue --add-name`（append 語意，#306）——沿革補全直接擴大 resolve-venues 命中面
 - **查不出來是合法結果**：證據不足就記 `akashic_record_divergence`（question＝這個配對、candidates＝兩造、rests_on＝已蒐集 URL＋日期）再停手，下次從那裡續查
 - **承重頁面存檔**：判定所依據的頁面內容存 `sources/`（content-addressed）寫入 venue 的 `references`；非承重佐證列 URL 即可（verdict 刻意不攜 rests-on——#280 裁決，同 person 域）
+
+## 相關
+
+- [`akashic-person-verify`](../akashic-person-verify/SKILL.md)——同一套 literal→verdict 紀律，不同 entity 域與證據源
+- [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——**刊名沿革的每一句斷言都受它管**：查到哪一年改名就寫哪一年、查不到就寫「查不到」並列出查過的來源，不寫「應該是那時候改的」

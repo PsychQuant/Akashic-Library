@@ -1,0 +1,100 @@
+name: Census parity
+
+# **為什麼要第三個 workflow**
+#
+# #407 R7 verify 量到一個難堪的形狀：parity 守衛在 CI **只會在它的受測檔案沒被
+# 改動時執行**。
+#
+#   * `ci.yml`（macOS，跑 parity）的觸發是 `push: branches:[main]` ＋
+#     `paths-ignore: plugin/**`——所以一個只改 `literal-census.sh` 的 push
+#     會讓整個 job 被跳過，而 census 正是 parity 的受測對象。
+#   * `ci.yml` 也**沒有 `pull_request` 觸發**，所以任何 PR 都不跑 parity。
+#   * `plugin-guards.yml`（ubuntu，1×）跑不了 parity：它需要 build 好的 CLI
+#     當 oracle。
+#
+# 兩個檔案的註解都寫「兩者合起來涵蓋五支」。那句話在「檔案集合的聯集」意義上成立，
+# 在「任一次變更」意義上不成立——而後者才是觸發點要保證的事。
+#
+# 這個 workflow 補上缺的那一格：**只在 parity 的受測對象或它的 oracle 改動時**
+# 點 macOS runner。範圍刻意窄——那台是 10× 計費，而這個 repo 在 2026-08 兩度把
+# 免費額度燒光。這三條路徑涵蓋 parity **最直接的三個受測對象**。
+#
+# **刻意不寫成「完整條件」**：讀端的行為還受其他檔案影響（例如
+# `Sources/akashic/CLI.swift` 裡呼叫 `StoreVersion.check` 的那個 choke point），
+# 而窮舉那條依賴鏈需要另一次量測。上一版寫了「完整條件」——一句沒量過的全稱句，
+# 出現在一份以「別寫沒量過的話」為主題的變更裡（#407 R8 verify）。
+
+on:
+  push:
+    branches: [main]
+    paths: &parity_paths
+      - "plugin/skills/akashic-literal-campaign/scripts/literal-census.sh"
+      # census 的 runtime 資料依賴。漏了它的話，「只改這份生成表」的 PR
+      # 不會觸發任何 workflow——而那正是 drift guard 最需要跑的情況
+      # （#407 R10 verify）。
+      - "plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt"
+      - "plugin/skills/akashic-literal-campaign/scripts/tests/**"
+      - "Sources/AkashicStoreIO/StoreVersion.swift"
+      # 這支 harness 在本 workflow 跑（本 runner 有 Swift），所以**改它自己也要觸發
+      # 本 workflow**——否則把它的 6 個 swift-gated case 弄壞不會驚動任何東西
+      # （#407 R44 的修法原本只對一半：改 `scripts/tests/**` 下的守衛會觸發，
+      # 改 harness 本身不會）。刻意只列這一個檔而非 `plugin/tests/**`：本 runner
+      # 是 macOS、10× 計費，不該對每次 plugin/tests 改動都啟動。
+      - "plugin/tests/audit-guards-mutations.py"
+  pull_request:
+    paths: *parity_paths
+
+# **最小權限 ＋ 不留憑證**（#407 R8 HIGH）。這兩個 workflow 以 `pull_request`
+# 觸發並**執行 PR 端可控的程式碼**（守衛本身就是 PR 可以改的檔案）。
+# `actions/checkout` 預設 `persist-credentials: true` 會把 token 留在 git config，
+# 於是被改過的守衛腳本可以直接拿它 push。同 repo 的 contributor PR 拿到的 token
+# 不像 fork PR 那樣被降權，所以這道防線不能靠外部設定。
+permissions:
+  contents: read
+
+concurrency:
+  group: census-parity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  parity:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 只影響 checkout **之後**是否把 token 留在 git config——submodule 在
+          # checkout 當下仍取得到憑證，所以兩者不衝突。
+          persist-credentials: false
+          submodules: recursive
+
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved', 'Package.swift') }}
+          restore-keys: ${{ runner.os }}-spm-
+
+      # parity 拿建好的 CLI 當 oracle——這是它非 macOS 不可的唯一理由。
+      - name: Build（只為了拿到 oracle）
+        run: swift build
+
+      # 生成的 `#` grapheme 表有沒有隨 Swift／Unicode 版本漂移。一張生成的表
+      # 有它自己的失效模式：版本一動它就過期，而過期是安靜的。
+      - name: hash 表漂移
+        run: bash plugin/skills/akashic-literal-campaign/scripts/tests/hash-table-drift.sh
+
+      # 表是逐 code point 的——這支證明對「# + 多 scalar 序列」那樣就夠。
+      - name: 多 scalar 序列 parity
+        run: swift plugin/skills/akashic-literal-campaign/scripts/tests/multiscalar-parity.swift
+
+      - name: store-marker parity
+        run: bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh
+
+      # 上一步的每一格都證明會紅。它 mutate 一份 copy，不碰出貨檔。
+      - name: parity negative control
+        run: python3 plugin/skills/akashic-literal-campaign/scripts/tests/marker-parity-mutations.py
+      # 這台有 Swift，所以 `audit-guards-mutations.py` 的 18 個 case **全部**跑得起來
+      # （ubuntu 那台缺 toolchain，6 個 swift-gated case 一定跳過、回 exit 2）。
+      # 不加這一步的話那 6 個 case 在 CI **哪裡都跑不到**，而 ubuntu 那步把 2 收成 0
+      # ——綠燈掩蓋「沒跑到」（#407 R44，跨模型審查指名為 HIGH）。
+      - name: 守衛的 negative control（本 runner 有 Swift，18 個全跑）
+        run: python3 plugin/tests/audit-guards-mutations.py

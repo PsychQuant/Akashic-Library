@@ -105,7 +105,7 @@ struct VenuesCmd: ParsableCommand {
 struct AddVenueCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "add-venue",
-        abstract: "建發表載體實體（type 封閉三值：journal / conference / publisher；需 store format ≥ 11）")
+        abstract: "建發表載體實體（type 值域：\(VenueType.domainDescription)；需 store format ≥ 11）")
 
     @OptionGroup var options: LibraryOptions
 
@@ -115,7 +115,7 @@ struct AddVenueCmd: ParsableCommand {
     @Option(name: .long, parsing: .upToNextOption, help: "名稱變體（可多個）")
     var names: [String]
 
-    @Option(name: .long, help: "journal | conference | publisher")
+    @Option(name: .long, help: "\(VenueType.domainDescription)")
     var type: String
 
     @Option(name: .long, help: "備註（選填）")
@@ -146,7 +146,7 @@ struct UpdateVenueCmd: ParsableCommand {
     @Option(name: .long, help: "備註（替換；選填）")
     var note: String?
 
-    @Option(name: .long, help: "journal | conference | publisher（替換；選填）")
+    @Option(name: .long, help: "\(VenueType.domainDescription)（替換；選填）")
     var type: String?
 
     func run() throws {
@@ -163,7 +163,7 @@ struct UpdateVenueCmd: ParsableCommand {
 struct ResolveVenuesCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "resolve-venues",
-        abstract: "venue 解析：不帶參數列候選與歧義；--apply 升格 literal 為 key（寫 confirmed verdict）；--reject 否決（寫 rejected verdict）")
+        abstract: "venue 解析：不帶參數列候選與歧義；--apply 升格 literal 為 key（寫 confirmed verdict）；--reject 否決（寫 rejected verdict）；--repoint 改指已歸戶的邊（兩側都寫 verdict）；--demote 退回 literal（原字串從 verdict 取回，#418）")
 
     @OptionGroup var options: LibraryOptions
 
@@ -175,16 +175,35 @@ struct ResolveVenuesCmd: ParsableCommand {
             help: "要否決的候選 id（同形）——CLI 面維持分兩次呼叫（互動面天然序列；組合腿是 MCP 的 LLM 批次需求，#272 同裁決）")
     var reject: [String] = []
 
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "把已歸戶的邊改指到另一個 venue（citekey:venueIndex:newKey）——歸錯戶的退路，#418")
+    var repoint: [String] = []
+
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "把誤升的邊退回 literal（citekey:venueIndex）——原字串從 verdict 取回，無損，#418")
+    var demote: [String] = []
+
     func run() throws {
         // CLI 契約同 resolve-people：apply 與 reject 分兩次呼叫
         if !apply.isEmpty, !reject.isEmpty {
             throw ValidationError("--apply 與 --reject 請分兩次呼叫（組合腿是 MCP 面的契約差異，見 mcp-cli-parity）")
         }
+        // **`--repoint` 不與另外兩者組合**：它們解的是不同階段的問題（升格 vs 修正
+        // 已升格的），混在一次呼叫裡會讓「哪一批寫了、哪一批沒寫」難以判讀，而改指
+        // 本來就是在修一個錯誤——它最需要的是清楚的失敗語意（#418）。
+        // **修正類的兩個旗標都單獨呼叫**：它們修的是已歸戶的邊，與升格／否決不同階段，
+        // 而混在一次呼叫會讓「哪一批寫了」難以判讀（#418）。
+        let fixers = [("--repoint", repoint), ("--demote", demote)].filter { !$0.1.isEmpty }
+        if let f = fixers.first, fixers.count > 1 || !apply.isEmpty || !reject.isEmpty {
+            throw ValidationError("\(f.0) 請單獨呼叫（它修的是已歸戶的邊，與升格／否決不同階段）")
+        }
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
         print(try service.resolveVenues(apply: apply.isEmpty ? nil : apply,
-                                        reject: reject.isEmpty ? nil : reject))
+                                        reject: reject.isEmpty ? nil : reject,
+                                        repoint: repoint.isEmpty ? nil : repoint,
+                                        demote: demote.isEmpty ? nil : demote))
     }
 }
 

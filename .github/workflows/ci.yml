@@ -15,8 +15,19 @@ name: CI
 # 幾乎全為 docs-only（skill／README／規則），卻每次點一台 macOS runner。
 # 加 paths-ignore：改動**全部**落在下列路徑才跳過（混有 code 的 push 照跑）。
 # 忽略清單刻意不含 docs/tractatus/**——corpus YAML 是測試的輸入（strict
-# validation 解析 locator，#266 的跨 PR 破壞即實例），.md 與 plugin shell 則
-# 沒有任何測試讀取。本機 pre-push 全套仍是每次 push 的主閘，此處只省 CI 面。
+# validation 解析 locator，#266 的跨 PR 破壞即實例）。
+#
+# **`plugin/**` 留在忽略清單，但理由已經換了**（#407 R6）。原註解寫的是
+# 「plugin shell 沒有任何測試讀取」——那句話當時為真、現在為假：`plugin/` 底下
+# 已有五支守衛。現在留著它的理由純粹是計費：一次改 skill 散文不該點一台 10×
+# 的 macOS runner。守衛由 .github/workflows/plugin-guards.yml（ubuntu，1×）涵蓋
+# 純 python／bash 的三支；parity 那兩支由 .github/workflows/census-parity.yml
+# 涵蓋——**不是**由本檔下方那個 step。理由：本檔的觸發是 push-to-main ＋ 這份
+# paths-ignore，所以一個只改 census 的變更會讓整個 job 被跳過，而 census 正是
+# parity 的受測對象（#407 R7 verify 量到：守衛的觸發條件與它保護的檔案剛好
+# 互斥）。下方那個 step 保留為第二層——一次 push 同時含 Swift 與 plugin 變更時
+# 它會跑到。
+# 本機 pre-push 全套仍是每次 push 的主閘，此處只省 CI 面。
 on:
   push:
     branches: [main]
@@ -69,6 +80,18 @@ jobs:
         run: |
           set -o pipefail
           swift test -Xswiftc -warnings-as-errors 2>&1 | tee /tmp/test.log
+
+      # **Plugin parity 守衛**（#407）。放這個 job 而不是 plugin-guards.yml，
+      # 因為它們拿**建好的 CLI** 當 oracle——比對 census 的 store-marker 解析
+      # 與 StoreVersion.read 對同一批 fixture 的裁決是否一致。ubuntu 上沒有
+      # binary 可以問，所以只能在這裡。
+      #
+      # 第二支是第一支的 negative control：證明那張 fixture 矩陣真的會紅。
+      # 它 mutate 的是複製到 tempdir 的 census，**不碰出貨檔**。
+      - name: Plugin parity 守衛
+        run: |
+          bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh
+          python3 plugin/skills/akashic-literal-campaign/scripts/tests/marker-parity-mutations.py
 
       # 測試「跑到一半崩掉」由 exit code 擋（fatal error 會讓程序非零退出）。
       # 這一步擋的是**另一種**失敗：測試靜默地不再被執行——整個 suite 沒編進

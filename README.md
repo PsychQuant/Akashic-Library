@@ -306,7 +306,9 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 鍵，同一個正規化名對到 2 個以上實體即判歧義、整組排除，交人裁決。
 
 判定會被**記住**（#232）：`--apply` 在同一動作內寫 `resolution-confirmed`、
-`--reject` 寫 `resolution-rejected`（entry／holder 不動）——兩者都是判斷型
+`--reject` 寫 `resolution-rejected`（entry／holder 不動）；**venue 域的
+`--repoint` 兩側都寫**（新的 confirmed、舊的 rejected）、`--demote` 寫 rejected
+（#418）——少了 rejected，下一輪會把使用者剛否決的配對再提名一次。以上都是判斷型
 provenance reference，落在被判定的 person／organization 上。已否決的配對不再被
 提名（同 literal 在別的 entry 是另一次觀察，照提），列表沉底標示而非隱藏；三態
 計數（已確認／已否決／未處理）從 verdict 現算、絕不儲存，**只報計數不報比率**
@@ -371,7 +373,7 @@ store 是跨 binary（CLI / MCP / App）的契約。格式版本記載於
 | format 8 | **`references[].field` 白名單新增消解判定欄位對 `resolution-confirmed`／`resolution-rejected`**（#232）：人工消解判定（「這個 literal 就是他」／「查過了，不是他」）以**判斷型 reference** 落在**被判定的記錄**上（person 或 organization），欄位名是**封閉對**、不得依性質相似類推第三個；`value` 必填、必須可解析，單一文法 `<kind>:<key> :: <literal>`（以**第一個** ` :: ` 切分）。**non-additive，MUST bump**——同 6／7 的「看似 additive 其實不是」：field 白名單是 strict → 舊 binary 讀到 verdict reference 是**整檔 quarantine（記錄消失）**，且該檔可被 bootstrap 的決定性 UUID 安靜覆寫、判定史全滅（#232 verify 實測整條鏈）。write gate 對 format < 8 拒寫含 verdict 的記錄＋指路；**序列化形狀不變——8 只是「這個 store 可以持有 verdict」的宣告**。見 [store-format.md §3.5 消解判定節](docs/store-format.md) |
 | format 9 | **附件鍵域收窄為只剩 `zotero`（移除 `pool`）＋ 記錄側副本引用 `akashic.sources`**（#223；原佔 8，rebase 時已被 #232 佔用順延）：可 ingest 的內容一律以 digest 引用、不以檔案系統路徑引用；副本清單存記錄側、反向現算。**non-additive，MUST bump**——依據是**鍵域的嚴格性，不是資料量**：`attachments` 元素鍵走 strict 驗證，未知種類導致整檔 quarantine，故縮減鍵域是 non-additive。移除當下受影響資料為 0 筆，但那是巧合而非契約；當死碼移除而不 bump，會讓 refuse-if-newer 在下一次真的有資料時失效。見 [store-format.md §2.4](docs/store-format.md) |
 | format 10 | **person `names` 巢狀化（`authorized`／`variant` 分區）＋ `id` 改為獨立 v4 UUID**（#227／#241）：子集關係從 runtime 驗證變成結構性事實（分區不交、共同書寫系統唯一仍是 runtime 驗證）；`id` 與 key 徹底脫鉤——單一來源事件發放、永不由名字重算，867 筆既有記錄一次性換發。**non-additive，MUST bump**——舊 binary 讀巢狀 `names` 是整檔 quarantine；新 binary 讀舊平面 `names`／頂層 `authorized` fail-closed 指向 `akashic migrate-person-identity`（dry-run 預設）。org 刻意**不**巢狀化（不對稱是設計）。見 [store-format.md §3.1](docs/store-format.md) |
-| format 11 | **新一級形狀 `venue:`（發表載體——期刊／會議／出版社）＋ entry 的 `venues:` 二態 ref 邊**（#304）：`type` 封閉三值（journal／conference／publisher，未知值整檔拒讀）、`names` 是刊名沿革 timeline（同 org 模式）；`venues` 元素 `.key`（已歸戶）／`.literal`（未歸戶，匯入端唯一產物——literal-first）。文章編年 list 由反向邊現算，venue 記錄不存清單。**non-additive，MUST bump（實測依據）**——format-10 binary 讀 `venue:` 是整檔 quarantine（與 format 6 同型）；entry 的 `venues:` 在舊 binary 落 tolerant-preserve，但 ref 邊「保留而不解讀」＝反向查詢靜默漏資料，併入同一 bump。回填走 `akashic migrate-venues`（dry-run 預設、只加不改、idempotent）；升級順序＝全 binary 升 v11 → migrate → validate → 手動 bump。見 [store-format.md](docs/store-format.md) format 對照表 |
+| format 11 | **新一級形狀 `venue:`（發表載體——期刊／會議／出版社）＋ entry 的 `venues:` 二態 ref 邊**（#304）：`type` 封閉三值（journal／conference／publisher，未知值整檔拒讀）**——當時的值域；#324 已改為六值，見下一列**、`names` 是刊名沿革 timeline（同 org 模式）；`venues` 元素 `.key`（已歸戶）／`.literal`（未歸戶，匯入端唯一產物——literal-first）。文章編年 list 由反向邊現算，venue 記錄不存清單。**non-additive，MUST bump（實測依據）**——format-10 binary 讀 `venue:` 是整檔 quarantine（與 format 6 同型）；entry 的 `venues:` 在舊 binary 落 tolerant-preserve，但 ref 邊「保留而不解讀」＝反向查詢靜默漏資料，併入同一 bump。回填走 `akashic migrate-venues`（dry-run 預設、只加不改、idempotent）；升級順序＝全 binary 升 v11 → migrate → validate → 手動 bump。見 [store-format.md](docs/store-format.md) format 對照表 |
 | format 12 | **`Author` 三態（新增 `organization`）＋ `VenueType` 改以 APA7 §9.23–9.33 為判準**（#323／#324）：團體作者終於能歸戶（先前只能永遠停在 `.literal`——升格的唯一路徑是 person key，而團體不是人）；`journal` → `periodical`（APA7 的 periodical 涵蓋 journal／magazine／newspaper／newsletter／blog，索取同一組欄位），另加 `database`／`socialMedia`／`website`。**non-additive，MUST bump（實測依據）**——format-11 binary 讀含 organization 作者的 entry 是整檔 quarantine，而 `query` 回 **rc=0 且該筆消失、無訊息**；`VenueType` 對未知值整檔拒讀。write gate 對 format < 12 兩者皆拒寫。**`Entry.type` 的封閉列舉（#325）不在此列**——它對舊 binary 是 additive，安全性由兩階段部署順序承擔。見 [store-format.md](docs/store-format.md) format 對照表 |
 | — | **canonical serialization form**（#69）：記錄寫出的位元組形式由**單一權威**定義（三個 `encode` 函式），正規化即 `encode(decode(x))`——沒有第二份定義。時間軸的序列化順序改為「依 `range` 排序，`range` 相同時**保留寫入順序**」，與相等性用的全序**分離**（後者 `range` 相同時比 `value`，那是為了讓「同樣的段落、不同的儲存順序」判為相等）。動機：`Organization.names` 三筆全無 `range`，由值決勝會讓主名（中文正式名）被 ASCII 別名推到後面。`authors` / `attachments` 的順序**不參與排序**（位置即語意）。新增 `akashic fmt`（`--check` 只回報不寫檔）作為對齊入口；`validate` 不擋排版。**additive，不 bump format**；見 [store-format.md §3.4](docs/store-format.md) |
 | — | **`judgement.prefers`：消歧不對已寫下的判斷惰性**（#75 對一）。`divergence` 記錄本來就能寫 `judgement`（人的判斷），但 `resolve-divergence` **從來不看它**——人寫了「這兩筆是同一人、保留 A」，工具照樣讓你選 B 而不吭聲。新增選填的結構化欄位 `prefers: <key>`（與 `judgement` 成對、必須是候選之一），`prefers ≠ --survivor` 時**拒絕**，除非帶 `--override-reason`（空理由不接受）。有 `judgement` 但無 `prefers` 時無從機械核對 → **報 warning、不擋**。<br>**但不代選**：不照 `prefers` 自動執行——#133 起判斷可由 LLM 經 MCP 寫入，自動採信＝把「當場判斷」換成「延遲自動判斷」，繞過 #71 的人工確認底線。倖存者永遠是消歧當下的人工輸入，而這是**型別層強制**的（`survivor` 非 optional 且無 MCP resolve 工具）。<br>CLI：`record-divergence --prefers <key>`（先前只有 MCP 寫得了——LLM 有執法權而人沒有）。<br>**additive，不 bump format**：`judgement`／`prefers`／`rests-on` 是三個**平行的 record 頂層 key**，在 tolerant-preserve 涵蓋範圍內，跨版 round-trip 無損（實測）。代價是舊 binary 會靜默無視這道護欄——那是「選填護欄 + tolerant-preserve」的必然，見 [store-format.md §5.8](docs/store-format.md) |
@@ -763,18 +765,34 @@ python3 -c "import json; [print(json.loads(l).get('retrieved')) for l in open('$
 #### 「暫時」不會變成「永遠」——觸發條件寫成可執行的
 
 ```bash
-grep -h '^  booktitle:' ~/.akashic/entities/*.yaml | sort | uniq -c | sort -rn | head
+python3 - <<'EOF'
+import glob, io, re, collections
+uncov = collections.Counter()
+for f in glob.glob('/Users/che/.akashic/entities/*.yaml'):
+    s = io.open(f, encoding='utf8').read()
+    m = re.search(r'^  booktitle: (.+)$', s, re.M)
+    if m and not re.search(r'^venues:\n- key: ', s, re.M):
+        uncov[m.group(1).strip()] += 1
+print(sum(uncov.values()), max(uncov.values()) if uncov else 0)
+EOF
 ```
 
-**≥ 20 筆**或**單一容器被 ≥ 5 筆共用**即重新裁決。
+**≥ 20 筆**或**單一容器被 ≥ 5 筆共用**即重新裁決。2026-08-23 實測 **11 筆／最大 ×1**。
 
-另一個觸發：#354 讓 `INREFERENCE` 的必要欄位含 `BOOKTITLE`（參考工具書名），而實測那 3 筆
-SEP 條目目前是 `bookChapter` —— 它們與 14 筆維基條目**是同一種東西**（參考工具書中的條目）。
-若那 17 筆被統一分類，容器需求的規模一次跳到 17+。
+> **這條指令換過一次（#409）**：原本數的是「帶 `booktitle` 的記錄」，而 `lossless-intake`
+> 規定來源欄位不刪 —— 容器改由 venue 承載之後那個數字**完全不會下降**（實測仍是 31）。
+> 現在數的是「仍只有純量字串、沒有任何 ref 承載容器」的記錄。
 
-> **順帶記一個相鄰發現**：`WorkType.wikipediaEntry` 的名字可能過窄 —— 它實際承擔的是
-> 「參考工具書中的條目」，而 SEP 不是 Wikipedia。那屬 `Entry.type` 值域的問題（#325 家族），
-> 不是關係邊的問題。
+第二個觸發（#354 讓 `INREFERENCE` 的必要欄位含 `BOOKTITLE`）**已消解** —— 見下方那則。
+
+> **順帶記一個相鄰發現 —— 已於 2026-08-23 由 #409 消解**：`WorkType.wikipediaEntry` 的名字
+> 過窄 —— 它實際承擔的是「參考工具書中的條目」，而 SEP 不是 Wikipedia。
+>
+> #409 把它改名為 **`referenceWorkEntry`**（rawValue `reference-work-entry`）。理由是它自己的
+> 三個下游對照沒有一個說 Wikipedia：APA7 §10.3「Entries in **Reference Works**」／biblatex
+> `INREFERENCE`／CSL `entry-encyclopedia`。改名後 3 筆 SEP 一併改型別、走進
+> `booktitleCarrierTypes`、歸戶到 `stanford-encyclopedia-of-philosophy` venue —— 實測「仍只有
+> 純量字串」從 **14 筆／最大 ×3** 掉到 **11 筆／最大 ×1**。
 
 #### 守衛守的是**前提**不是結論
 
@@ -789,11 +807,32 @@ SEP 條目目前是 `bookChapter` —— 它們與 14 筆維基條目**是同一
 
 venue 域先前**沒有批次建檔的路徑**。person 與 organization 都有，venue 沒有：
 
-| 域 | 從 literal 批次建實體 | 單筆建檔 | 消歧 |
-|---|---|---|---|
-| person | ✅ `bootstrap-people` | ✅ `add-person` | ✅ `resolve-people` |
-| organization | ✅ `bootstrap-organizations` | ✅ `add-organization`（MCP）| ✅ `resolve-organizations` |
-| venue | **❌ 先前無** → ✅ `bootstrap-venues` | ✅ `add-venue` | ✅ `resolve-venues` |
+| 域 | 從 literal 批次建實體 | 單筆建檔 | 消歧 | **歸錯了怎麼辦** |
+|---|---|---|---|---|
+| person | ✅ `bootstrap-people` | ✅ `add-person` | ✅ `resolve-people` | ✅ `resolve-divergence`（合併＋全庫改寫）|
+| organization | ✅ `bootstrap-organizations` | ✅ `add-organization`（MCP）| ✅ `resolve-organizations` | **❌ 無** |
+| venue | **❌ 先前無** → ✅ `bootstrap-venues` | ✅ `add-venue` | ✅ `resolve-venues` | **❌ 先前無** → ✅ `--repoint` / `--demote`（#418）|
+
+**最後一欄是 #418 補的，而它同時揭露了 organization 也缺這一格。**
+`literal-first-then-key` 的整套論證建立在「漏（literal 待消歧）可逆，誤（錯誤歸戶）
+不可逆」這個不對稱上，並為它提供退路——但**只有 person 與 work 真的有**：
+`resolve-divergence` 對其餘 shape 直接拒（`DivergenceResolve.swift` 的
+`unsupportedShape`，訊息逐字寫著「本版的消歧只處理 person 與 work」）。
+
+寫這張表時我先填了「organization ✅ 同上」，**去查才發現是假的**——那正是本批
+（#407）在管的形狀，出現在為它自己寫的文件裡。venue 那格已由 #418 補上；
+organization 那格仍空，追蹤在 #418 的討論。
+
+venue 的兩個旗標各對應一種錯誤：
+
+| 錯誤 | 退路 |
+|---|---|
+| 邊指到**錯的** venue | `resolve-venues --repoint <citekey:venueIndex:newKey>` |
+| 誤升格，而**現有的 venue 都不對** | `resolve-venues --demote <citekey:venueIndex>` |
+
+`--demote` 的原字串**從 verdict 逐字取回**（`resolution-confirmed` 的 value 帶著它），
+所以是無損的；取不到就拒絕，**不拿 venue 的顯示名頂替**——顯示名不是那筆記錄原本
+寫的字（WoS 的 `PSYCHOMETRIKA` vs 正式刊名 `Psychometrika`），頂替會安靜改寫書目資料。
 
 ```
 migrate-venues ──→ 803 筆 literal ──→ ??? ──→ venue entity ──→ resolve-venues
@@ -938,7 +977,7 @@ APA7 §10.2 的 template 是 `Editor, E. E. (Ed.). (Year). Title. Publisher.` �
 
 ### 必要欄位補充表與它的退場守衛（#354）
 
-`INREFERENCE`（`wikipediaEntry` 送出的型別）在依賴的**兩張表裡都沒有** ——
+`INREFERENCE`（`referenceWorkEntry` 送出的型別；#409 前叫 `wikipediaEntry`）在依賴的**兩張表裡都沒有** ——
 `allEntryTypes` 認得它、`classifySection` 算得出 10.3，但沒有必要欄位。所以 #352 之後那
 14 筆維基條目變成 unchecked：假陽性消失了，代價是完全不被檢查。
 
@@ -1084,7 +1123,7 @@ APA7 §10.6 有**兩張** template，而差別不只是字串：
 | `audioWork` | `ONLINE` | `AUDIO` | 10.16 → **10.13** |
 | `visualWork` | `ONLINE` | `IMAGE` | 10.16 → **10.14** |
 | `conferenceSession` | `INPROCEEDINGS` | `PRESENTATION` | 10.5（節本來就對，但欄位需求錯：要 `BOOKTITLE` 而非 `EVENTTITLE`）|
-| `wikipediaEntry` | `INCOLLECTION` | `INREFERENCE` | 10.3（節本來就對；改的理由是消除假陽性，代價見 #354）|
+| `referenceWorkEntry`（#409 前 `wikipediaEntry`） | `INCOLLECTION` | `INREFERENCE` | 10.3（節本來就對；改的理由是消除假陽性，代價見 #354）|
 
 **實測效果**（937 筆全庫）：`[ERROR]` 143 → 94、error 記錄 97 → 71。帳目對得上：
 26 筆停止報錯 ＝ 14 筆變 unchecked（維基條目）＋ 12 筆變乾淨（有 `eventtitle` 的會議發表）。

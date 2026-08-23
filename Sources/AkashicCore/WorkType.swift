@@ -13,18 +13,25 @@ import Foundation
 /// 更粗不行的理由是具體的：兩個 ch10 節的欄位組不同（§9.24），混進同一個值後就無法
 /// 判斷該索取哪一組。舊值域的 `unpublished` 正是那個形狀——它橫跨 10.5 與 10.8。
 ///
-/// ## `wikipedia-entry` 是「細分」的第一個具名實例
+/// ## `reference-work-entry` 是「細分」的第一個具名實例
 ///
 /// 它在 APA7 落在 **10.3**（Edited Book Chapters and Entries in Reference Works，
-/// 例 49），與 `book-chapter` 同節。但在本專案它是獨立且高頻的類型（實測 14 筆），
-/// **值得自己的格子**——使用者 2026-08-19 裁定：「我們沒有必要要完全照 APA7，而是
-/// 我們**包含**他」。
+/// 例 49），與 `book-chapter` 同節。但在本專案它是獨立且高頻的類型（2026-08-23 實測
+/// **17 筆**：14 筆維基條目 ＋ 3 筆 SEP），**值得自己的格子**——使用者 2026-08-19
+/// 裁定：「我們沒有必要要完全照 APA7，而是我們**包含**他」。
+///
+/// **那次裁定命名的是 `wikipedia-entry`**；#409（2026-08-23）改名為
+/// `reference-work-entry`，因為三個下游對照（APA7 §10.3 標題、biblatex `INREFERENCE`、
+/// CSL `entry-encyclopedia`）沒有一個說 Wikipedia，而 SEP 不是 Wikipedia。**裁決本身
+/// 沒變**（這一格值得存在），變的只是它的名字。
 ///
 /// ## 為什麼是兩階段
 ///
 /// `Entry.type` 曾是自由 `String` 且 decode 不驗。若直接改嚴格，937 筆現有記錄會在
 /// 新 binary 上線的那一刻全部 quarantine（而 `query` 回 rc=0、無訊息）。所以
-/// `migrate-work-types`（階段一）**必須先跑完**——本型別是階段二。
+/// 階段一的遷移**必須先跑完**——本型別是階段二。（階段一由 `migrate-work-types`
+/// 執行，該命令與 `WorkTypeMigration` 型別都已於階段二退場：它們讀不到舊值，
+/// 留著只會是永遠無事可做卻看似可用的東西。舊值的改寫因此只能走文字層——#410／#412。）
 public enum WorkType: String, CaseIterable, Equatable, Sendable {
     // ── Textual Works ──
     /// 10.1 Periodicals——**涵蓋 journal／magazine／newspaper／newsletter／blog**。
@@ -36,7 +43,7 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
     case periodicalArticle  = "periodical-article"   // 10.1 Periodicals
     case book                                        // 10.2 Books and Reference Works
     case bookChapter        = "book-chapter"         // 10.3 Edited Book Chapters
-    case wikipediaEntry     = "wikipedia-entry"      // 10.3（細分——例 49）
+    case referenceWorkEntry = "reference-work-entry" // 10.3（細分——例 49）
     case report                                      // 10.4 Reports and Gray Literature
     case conferenceSession  = "conference-session"   // 10.5 Conference Sessions
     case thesis                                      // 10.6 Dissertations and Theses
@@ -63,7 +70,7 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
         case .periodicalArticle: return "10.1"
         case .book:              return "10.2"
         case .bookChapter:       return "10.3"
-        case .wikipediaEntry:    return "10.3"   // 與 bookChapter 同節——細分的實例
+        case .referenceWorkEntry:    return "10.3"   // 與 bookChapter 同節——細分的實例
         case .report:            return "10.4"
         case .conferenceSession: return "10.5"
         case .thesis:            return "10.6"
@@ -95,6 +102,41 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
     /// 所以送錯型別＝整筆參考文獻被當成另一個類別排版（`REPORT` → 10.4 而非 10.9／10.10）。
     ///
     /// `WorkTypeSectionAgreementTests` 用依賴自己的 `classifySection` 釘住這件事。
+    /// 正向對映的**依 fields 版**（#417 方向 2）。
+    ///
+    /// 只有 `.conferenceSession` 會用到 `fields`——它是 `WorkType` 裡唯一一個把 APA7
+    /// §10.5 的**兩種欄位形狀**併進同一格的型別：
+    ///
+    /// | §10.5 的形狀 | 容器欄位 | biblatex |
+    /// |---|---|---|
+    /// | 會議發表（session／paper／poster／symposium）| `EVENTTITLE` | `PRESENTATION` |
+    /// | 論文集中的論文 | `BOOKTITLE` | `INPROCEEDINGS` |
+    ///
+    /// 先前一律送 `PRESENTATION`，而那個 template 印「Conference Name, Location」
+    /// ——一筆論文集論文的**論文集名印不出來**（資訊在庫裡、`booktitle` 也歸了 venue，
+    /// 只是不出現在參考文獻）。那是 `apa7-is-the-work-floor` 說的安靜失敗：語法正確、
+    /// 測試全綠，丟進 LaTeX 才看到少了東西。
+    ///
+    /// 判準是**記錄自己有沒有 `booktitle`**，與反向 init 的兩個既有先例同形
+    /// （`misc` ＋ `url`；`unpublished` ＋ `location`）。不是猜——`booktitle` 在場就是
+    /// 「這筆有論文集」的直接證據。
+    ///
+    /// **零實例，所以零輸出變更**：實測 37 筆 conference-session 全部沒有 booktitle。
+    ///
+    /// **不動 `WorkType` 的值域**：拆成兩個型別是另一條路（#417 方向 1），代價是又一次
+    /// 改名遷移＋37 筆重新分類，而它解的是同一個問題。
+    public func biblatexEntryType(fields: [String: String]) -> String {
+        guard self == .conferenceSession,
+              let bt = fields["booktitle"],
+              !bt.trimmingCharacters(in: .whitespaces).isEmpty
+        else { return biblatexEntryType }
+        return "INPROCEEDINGS"
+    }
+
+    /// 無 fields 的正向對映。
+    ///
+    /// **保留為 property**：`allCases` 的走訪、值域對照表、round-trip 不變量都用它，
+    /// 而那些場合沒有 fields 可給。它等於 `biblatexEntryType(fields: [:])`。
     public var biblatexEntryType: String {
         switch self {
         case .periodicalArticle: return "ARTICLE"
@@ -111,7 +153,7 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
         //       訊號也一起失去了。
         // 取捨的依據：假陽性會驅動錯誤的資料修改（不可逆），unchecked 只是暫時看不到
         // （而且 `export-bib` 的 note 行會報出未檢查筆數，#326）。追蹤：#354。
-        case .wikipediaEntry:    return "INREFERENCE"
+        case .referenceWorkEntry:    return "INREFERENCE"
         case .report:            return "REPORT"
         case .dataSet:           return "DATASET"
         case .software:          return "SOFTWARE"
@@ -158,7 +200,7 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
         case .periodicalArticle: return "article-journal"
         case .book:              return "book"
         case .bookChapter:       return "chapter"
-        case .wikipediaEntry:    return "entry-encyclopedia"
+        case .referenceWorkEntry:    return "entry-encyclopedia"
         case .report:            return "report"
         case .conferenceSession: return "paper-conference"
         case .thesis:            return "thesis"
@@ -186,24 +228,39 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
     ///
     /// ## 這張表不是新發明的
     ///
-    /// 它與 `WorkTypeMigration.mapping`（#325 階段一）**是同一張表**——階段一遷移的
-    /// 來源值域就是 biblatex entry type，因為舊的自由字串 `Entry.type` 裝的正是那些。
+    /// 它與 #325 **階段一**的遷移表是同一張——階段一遷移的來源值域就是 biblatex
+    /// entry type，因為舊的自由字串 `Entry.type` 裝的正是那些。
+    ///
+    /// （那張表當時住在 `WorkTypeMigration.mapping`，**該型別已於階段二連同
+    /// `migrate-work-types` 一起退場**；這裡保留「兩張表同源」這個裁決史，但不再
+    /// 指向一個不存在的符號——#412。）
     /// 那張表已由 937 筆真實記錄驗證（937/937 可對映、0 未對映），所以這裡是把一個
     /// **已驗證的事實**搬到它該住的地方：緊鄰正向的 `biblatexEntryType`，讓正逆兩向
     /// 並列，分岔看得見。
     ///
     /// ## 有損在哪裡（明寫，不假裝是雙射）
     ///
-    /// 正向是多對一（`bookChapter` 與 `wikipediaEntry` 都輸出 `INCOLLECTION`），所以
-    /// 逆向必須**選一個原像**。選的一律是**最不細分的那個**——細分要靠額外訊號：
+    /// 正向仍是多對一，所以逆向必須**選一個原像**，選的一律是**最不細分的那個**。
     ///
-    /// - `incollection` → `bookChapter`（**不是** `wikipediaEntry`）
-    /// - `report` → `report`（不是 `dataSet` / `software` / `testInstrument`）
-    /// - `unpublished`（無 `location`）→ `unpublishedWork`（不是 `review`）
-    /// - `online` → `webpage`（不是視聽／社群媒體）
+    /// **這份清單在 #415 重算過**（2026-08-23）——它先前描述的是 #352 之前的正向表，
+    /// 而 #352／#356 讓多個型別改送自己的 apa.dbx 型別之後，好幾對「多對一」已經解開：
+    /// `report` 現在是 1:1（`dataSet`／`software` 各自送 `DATASET`／`SOFTWARE`）、
+    /// `unpublished` 也不再與 `review` 共用（後者送 `ARTICLE`）。實測當前的多對一**恰
+    /// 三組**：
+    ///
+    /// - `ARTICLE` ← `periodicalArticle` ／ `review` → 逆向取 `periodicalArticle`
+    /// - `ONLINE` ← `webpage` ／ `socialMediaPost` → 逆向取 `webpage`
+    /// - `SOFTWARE` ← `software` ／ `testInstrument` → 逆向取 `software`
+    ///
+    /// `incollection` → `bookChapter` 現在是 **1:1**（`referenceWorkEntry` 自 #352 起送
+    /// `INREFERENCE`，不再是 `INCOLLECTION` 的原像）。
+    ///
+    /// **這份清單不再靠人維護**：`testEveryForwardBiblatexTypeSurvivesTheRoundTrip`
+    /// 逐一走過 `allCases`，正向送出的每個型別都必須反向收得回來——除非它出現在該測試
+    /// 的 `deliberatelyLossy` 顯式清單裡（#415）。
     ///
     /// 兩個**條件式**細分沿用階段一經驗證的判準（同一組 `fields` 訊號）：
-    /// `misc` 帶 `url` → `wikipediaEntry`；`unpublished` 帶 `location` →
+    /// `misc` 帶 `url` → `referenceWorkEntry`；`unpublished` 帶 `location` →
     /// `conferenceSession`。
     ///
     /// ## 對映不到就回 `nil`，**不猜**
@@ -215,16 +272,30 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
         switch biblatexEntryType.lowercased() {
         case "article":       self = .periodicalArticle   // 10.1
         case "book":          self = .book                // 10.2
-        case "incollection":  self = .bookChapter         // 10.3（不細分到 wikipediaEntry）
+        case "incollection":  self = .bookChapter         // 10.3（1:1——#352 起 referenceWorkEntry 送 INREFERENCE）
         case "report":        self = .report              // 10.4
         case "inproceedings",
              "presentation":  self = .conferenceSession   // 10.5（APA7 不分這兩者）
         case "thesis":        self = .thesis              // 10.6
         case "online":        self = .webpage             // 10.16
+        // ── #415：正向送出卻反向不收的 6 個（#352／#356 開始送 apa.dbx 型別時新增，
+        //    反向從未跟上）。我們自己寫出的 `.bib` 因此讀不回型別。
+        //    五個是 1:1、無歧義，補回即無損：
+        case "inreference":   self = .referenceWorkEntry  // 10.3
+        case "dataset":       self = .dataSet             // 10.9
+        case "video":         self = .audiovisualWork     // 10.12
+        case "audio":         self = .audioWork           // 10.13
+        case "image":         self = .visualWork          // 10.14
+        //    第六個 `SOFTWARE` 是 **2:1**（`.software` 與 `.testInstrument` 都送它），
+        //    所以反向只能回較粗的那個——與 `incollection → bookChapter`、
+        //    `article → periodicalArticle`、`online → webpage` 同一慣例。
+        //    `testEveryForwardBiblatexTypeSurvivesTheRoundTrip` 的 `deliberatelyLossy`
+        //    把這件事變成**必須顯式宣告**，而不是靠讀者自己比對兩個 switch。
+        case "software":      self = .software            // 10.10（有損：亦由 testInstrument 送出）
         // ── 條件式細分（判準與階段一同源）──
         case "misc":
             guard fields["url"] != nil else { return nil }
-            self = .wikipediaEntry
+            self = .referenceWorkEntry
         case "unpublished":
             self = fields["location"] != nil ? .conferenceSession : .unpublishedWork
         default: return nil

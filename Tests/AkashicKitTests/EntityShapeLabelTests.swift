@@ -150,9 +150,14 @@ final class EntityShapeLabelTests: XCTestCase {
     /// 列舉（依 `.claude/rules/apa7-is-the-work-floor.md`，細分 APA7 ch10）。反轉的
     /// 理由留在這裡，免得日後有人看到「拒絕未知 type」以為是回歸而放寬回去。
     ///
-    /// 反轉後它守的東西比原本多一項：**拒絕訊息必須指向遷移命令**。遇到舊自由字串
-    /// 的人多半是「升了 binary 但還沒跑 `migrate-work-types`」，不指路的話他只會看到
-    /// 一個不知怎麼修的錯——那正是兩階段部署的風險視窗。
+    /// 反轉後它守的東西比原本多一項：**拒絕訊息必須指向一條可行的路**。遇到舊自由
+    /// 字串的人多半是「升了 binary 但還沒遷移」，不指路的話他只會看到一個不知怎麼修
+    /// 的錯——那正是兩階段部署的風險視窗。
+    ///
+    /// **這條斷言在 #410 改過**：它原本要求訊息含 `migrate-work-types`，而那個命令已
+    /// 於 #325 階段二被刻意刪除——於是測試**釘住了一條死路**，反而讓那句話不能被修正。
+    /// 現在守的是語意而非字面命令名：訊息要說出改寫走**文字層**（decode 對舊值嚴格
+    /// 拒絕，任何先讀檔的工具都到不了那些記錄），以及改完要跑 `validate`。
     ///
     /// 「標籤不得取代書目類型」這個原始關切由
     /// `testSingleKnownLabelSelectsShape` 覆蓋，未隨反轉失去。
@@ -168,8 +173,12 @@ final class EntityShapeLabelTests: XCTestCase {
         let load = try LibraryStore(root: root).load()
         XCTAssertEqual(load.entries.count, 0, "封閉列舉之外的值不得載入")
         let q = try XCTUnwrap(load.quarantined.first)
-        XCTAssertTrue(q.reason.contains("migrate-work-types"),
-                      "拒絕訊息必須指路到遷移命令，否則使用者不知怎麼修：\(q.reason)")
+        XCTAssertTrue(q.reason.contains("文字層"),
+                      "拒絕訊息必須說出改寫走文字層——那是唯一可行的路（#410）：\(q.reason)")
+        XCTAssertTrue(q.reason.contains("validate"),
+                      "拒絕訊息必須指出改完要驗（#410）：\(q.reason)")
+        XCTAssertFalse(q.reason.contains("migrate-work-types --apply"),
+                       "不得指向已於 #325 階段二刪除的命令——指死路比不指路更糟（#410）")
         XCTAssertTrue(q.reason.contains("data-set"),
                       "訊息要列出值域，讓使用者看得到正確的那個值：\(q.reason)")
     }

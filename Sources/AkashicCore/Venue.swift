@@ -105,7 +105,13 @@ public struct Venue: Equatable {
     public var id: UUID
     /// 人類可讀鍵（`StoreKey` 規則）。
     public var key: String
-    /// 載體種類（封閉三值）。
+    /// 載體種類（封閉列舉；值域見 `VenueType`）。
+    ///
+    /// **出貨面的值域字串由 `VenueType.domainDescription` 現算**——`akashic-mcp` 的
+    /// `add_venue`／`update_venue`（tool 說明與 per-parameter 描述）與 CLI 對應命令的
+    /// abstract 與 `--type` 說明，共六處。實測 `Sources/` 內已無寫死的值域清單。
+    /// 刻意**不**寫成「錯誤訊息一律用它生成」那種全稱保證：那句話沒有守衛支撐，
+    /// 而它涵蓋的是本 diff 沒有逐一查過的每一個未來錯誤訊息（#407 R5 finding 28）。
     public var type: VenueType
     /// 名稱變體與各自的效期（改名、縮寫、WoS 大寫形）。時間軸而非單值——
     /// **改名之後舊文章仍指向同一個 identity**（裁決五b 的刊名沿革）。
@@ -173,17 +179,93 @@ public struct Venue: Equatable {
 /// 只產生 `.literal`（`literal-first-then-key`：進庫不猜 key）；順序帶語意
 /// （主要載體在前）；type 推定不寫進 ref，歸戶時人裁。
 public enum VenueDerivation {
-    /// booktitle 視為會議載體的 entry type（proceedings 族，封閉列舉）——
-    /// incollection 的 booktitle 是書名，不在此列。
+    /// `booktitle` 是**載體**而非書名的 entry type（封閉列舉，現有 2 個）。
+    ///
+    /// 判準是 #324 的 §11 那一條：**它決定了哪些欄位存在**。
+    ///
+    /// | 型別 | `booktitle` 是什麼 | 收不收 | 理由 |
+    /// |---|---|---|---|
+    /// | `.conferenceSession` | 會議名／論文集名 | ✅ | 論文集論文的 booktitle 是載體（`VenueMigrationTests.testProceedingsBooktitleAndPublisher` 釘住：會議與出版社**各自**成為一個 venue）。**#417 R1 曾據「`INPROCEEDINGS` 含 `PUBLISHER`」把它移除，被那條測試抓到並還原**——出版社不是 venue 持不住的東西，它自己就是一個 venue |
+    /// | `.referenceWorkEntry` | 參考工具書名 | ✅ | 持續出版的線上參考工具，沒有逐卷編者（#339，2026-08-23 裁決） |
+    /// | `.bookChapter` | **書名** | ❌ | 編著索取 `BOOKTITLE + EDITOR + PUBLISHER`（APA7 §9.28），venue 結構上持不住——#324 明文關掉這條路 |
+    ///
+    /// **不得依性質相似類推第三個**：`.referenceWorkEntry` 之所以進來，不是因為它「看起來
+    /// 像 proceedings」，是因為對它做了與 #324 同一個判準的獨立評估，而答案不同。
+    /// #324 關掉的是**編著**那條路，不是「凡是 booktitle」。
+    ///
+    /// ## 這條禁令能執行到什麼程度（#414，2026-08-23 量測後改寫）
+    ///
+    /// 跨模型審查指出：上面那句禁令**沒有可機械執行的判準程序**——下一個線上百科／
+    /// 辭典型別仍只能靠人判斷「像不像」。那是對的，而先前這段散文沒有承認它。
+    ///
+    /// 現在有一個**部分**的對應物：`Entry.validate()` 對「本表成員卻帶 `editor`」出聲。
+    /// 它把 #324 排除編著的那個結構性理由（`Venue` 沒有編者欄位，持不住）變成對成員的
+    /// 可執行約束。實測 54 筆成員記錄（37 conference-session ＋ 17 reference-work-entry）
+    /// 零筆觸發，全 corpus 帶 `editor` 的只有 2 筆、全是 `.bookChapter`——正是被排除的
+    /// 那一個。
+    ///
+    /// **兩個成員在「booktitle 是否在場」上落在光譜兩端**（#414 R1 自審量測）：
+    /// 37 筆 `conference-session` **零筆**帶 booktitle（它們用 `eventtitle`／`venue`），
+    /// 17 筆 `reference-work-entry` **全部**帶。所以守衛的訊息分兩支——一律說
+    /// 「venue 持不住編者」會對前者斷言一個沒發生的推導。**前件不因此收窄**：
+    /// §11 判準問的是型別，不是個別記錄。
+    ///
+    /// **它是必要條件不是充分條件**（同 `apa7-is-the-work-floor` 對 113 例的立場）：
+    /// 一個新型別即使不帶 `editor` 也未必該進表，那一步仍是人工裁決。所以這段不再說
+    /// 禁令「有程序」——它擋掉的是**已知會錯**的那一類，不保證通過的都對。
+    ///
+    /// **上表原本還有一個理由被量測否掉**：`.referenceWorkEntry` 那列曾寫「沒有逐卷編者
+    /// 與**同義的出版社**」。後半是假的——`VenueType` 本身就有 `.publisher`，而下面的
+    /// `literals(for:)` 第三個分支無條件把 publisher 變成另一個 venue literal。出版社不是
+    /// 持不住，是它自己就是一個 venue（全 corpus 82 筆帶它）。該半句已刪。
+    ///
+    /// **#414 方向 1 已做，而它不需要新表**（2026-08-24 量測推翻了原本的判斷）。
+    /// 原本的顧慮是「讓成員資格由欄位契約推導要新增第三張必要欄位表」，而
+    /// `apa7-is-the-work-floor` 記過三張表會各自分岔。實測既有的
+    /// `requiredFields(for:)` ＋ `recommendedFields(for:)` **就能區辨**——
+    /// `INCOLLECTION` 的 recommended 含 `EDITOR,PUBLISHER`，本表兩個成員都不含。
+    ///
+    /// 判準因此有了程式層對應物：`BooktitleCarrierDerivationTests` 逐型別比對
+    /// 「契約含 `BOOKTITLE` 且不含 `EDITOR`」與本表，**16/17 相符**。
+    ///
+    /// **判準只排除 `EDITOR`**。曾經多一個 `¬PUBLISHER`，而那與本檔下方
+    /// `literals(for:)` 的第三個分支矛盾——它無條件把 publisher 變成另一個 venue
+    /// literal。#417 R1 依那個錯誤子句改了表，被 `VenueMigrationTests` 抓到（見上表）。
+    ///
+    /// 守衛住在測試而非產品程式，因為 `VenueDerivation` 在 `AkashicCore` 而欄位契約在
+    /// `AkashicExport`——讓 core 讀 export 會把依賴方向倒過來。集合維持人工維護，
+    /// 但**判準可檢查**，這正是 #414 要的：不是集合被自動生成。
+    ///
+    /// **唯一的不合是具名例外，而它是「契約不完整」而非「表錯了」**：`.conferenceSession` 的契約
+    /// （`PRESENTATION`）**完全沒有 `BOOKTITLE`**——它的容器是 `EVENTTITLE`。與資料層
+    /// 互相印證：37 筆 conference-session 零筆帶 booktitle。也就是說它在本表的成員資格
+    /// **目前對任何一筆記錄都不生效**；留著是為了「論文集中的論文」那種形狀，而
+    /// APA7 §10.5 把它與「會議發表」併在同一節，`WorkType` 也只給了一個格子。
+    /// **例外的退場條件是可執行的**：`INPROCEEDINGS` 的契約含 `BOOKTITLE` 而**不含**
+    /// `EDITOR`，所以正向哪天改送它（#417 的方向 2），現行判準會自動接受，
+    /// `namedException` 即可清空。那條斷言在測試裡。
+    ///
+    /// 「該不該拆 `.conferenceSession` 這個型別」仍是建模裁決（#417），本表不預判。
+    ///
+    /// **那個已知缺口已於 2026-08-23 由 #409 關閉。** 它原本寫著：3 筆 SEP 條目的型別是
+    /// `.bookChapter`，與這些維基條目是同一種東西，但把 `.bookChapter` 加進本表會把 14 筆
+    /// 真正的編著章節一起掃進來——所以要修的是**它們的型別**（當時的 `.wikipediaEntry`
+    /// 這個名字對 SEP 過窄）。
+    ///
+    /// #409 就是去修那個型別的：`.wikipediaEntry` → `.referenceWorkEntry`。那 3 筆一併改
+    /// 型別後即走進本表，歸戶到 `stanford-encyclopedia-of-philosophy`。
+    ///
+    /// **這段保留而不刪**：#324 為什麼排除 `.bookChapter`、以及「同一種東西卻因型別標籤
+    /// 而分流」曾經是個真問題——那是本表判準的實例，刪掉會讓下一個人重新踩一次。
     public static // #325 階段二：三個字串猜測（"inproceedings"／"proceedings"／"conference"）
         // 收斂成**一個列舉值**。實測舊值域只出現過 `inproceedings`（4 筆），另兩個
         // 從未被任何 importer 寫入——它們是防禦性猜測，而封閉列舉讓猜測不再必要。
-        let proceedingsTypes: Set<WorkType> = [.conferenceSession]
+        let booktitleCarrierTypes: Set<WorkType> = [.conferenceSession, .referenceWorkEntry]
 
     public static func literals(for entry: Entry) -> [VenueRef] {
         var out: [String] = []
         if let j = entry.fields["journaltitle"], !j.isEmpty { out.append(j) }
-        if proceedingsTypes.contains(entry.type),
+        if booktitleCarrierTypes.contains(entry.type),
            let b = entry.fields["booktitle"], !b.isEmpty, !out.contains(b) {
             out.append(b)
         }

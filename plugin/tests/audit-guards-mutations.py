@@ -507,17 +507,33 @@ def main():
     # 重排不得改變任何一個字（含 `MCP 30｜CLI 43｜橫切 2` 這行計數）。
     # 現算而非寫死——寫死 43 會製造第二份會與 CLI.swift 分岔的規格，正是本 issue
     # 在修的形狀。
+    # **oracle 的前提要自己驗**（#407 R67e）：逐字比對只在守衛輸出是決定性時才有
+    # 意義。若哪天某支開始印時間、耗時、temp 路徑或走訪順序，ROBUST 會**偶發假紅**
+    # ——而假紅比漏報更貴：它不只讓這一格失效，還會訓練維護者忽略**所有**紅燈。
+    # 這是本 harness 唯一一個「失敗會傷到其他守衛」的檢查，所以它自己要被檢查。
+    # 成本是每支 ROBUST 守衛多跑一次未注入（實測 2 支、約 2 秒）。實測全部決定性。
     pristine = {}
+    nondeterministic = set()
     for name, guard, edits, must in ROBUST:
         try:
-            if guard not in pristine:
-                pristine[guard] = with_copy(guard, {})[1]
+            if guard not in pristine and guard not in nondeterministic:
+                first = with_copy(guard, {})[1]
+                second = with_copy(guard, {})[1]
+                if first != second:
+                    diff = [l for l in second.splitlines() if l not in first.splitlines()]
+                    print(f'✗ oracle 前提不成立：{guard} 的未注入輸出兩次不同'
+                          f'——逐字比對會偶發假紅\n   第二次獨有：{diff[:3]}')
+                    nondeterministic.add(guard)
+                    continue
+                pristine[guard] = first
             rc, out = with_copy(guard, edits)
         except SystemExit as e:
             print(e)
             continue
         miss = [m for m in must if m not in out]
         drift = out != pristine[guard]
+        if guard not in pristine:
+            continue                      # 前提不成立時不假裝這一格通過
         if rc == 0 and not miss and not drift:
             print(f'✓ 重排注入「{name}」→ 維持綠，且輸出與未注入逐字相同')
             ok += 1

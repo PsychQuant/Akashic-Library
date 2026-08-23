@@ -20,6 +20,7 @@
 **mutate 的是 pristine copy**，出貨檔以 mtime 前後比對確認未被開啟以寫入。
 """
 import io
+import collections
 import os
 import re
 import shutil
@@ -208,6 +209,20 @@ CASES = [
      {NUMBERS_REL: lambda t: t.replace("'.claude/rules/*.md'", "'.claude/rulez/*.md'", 1)
                               .replace("'plugin/rules/*.md'))", "'plugin/rulez/*.md'))", 1)},
      ['一個規則檔都沒找到']),
+    # #407 R67d：標題宣稱的列數 vs 表的實際列數。三個方向——漂移、錨不存在、
+    # 以及**不得誤傷散文**（收窄前件的那一格；它是須綠的，放在 ROBUST 裡）。
+    ('numbers：表多一列而標題的計數沒跟上',
+     NUMBERS_REL,
+     {'.claude/rules/blocked-issues-must-be-scannable.md':
+      lambda t: t.replace(
+          '| 4 | 等時間累積',
+          '| 3.5 | 等一個外部帳務事件 | ✅ **`### Blocking`** | 佔位 |\n| 4 | 等時間累積', 1)},
+     ['現有 4 列', '而下方的表有 5 列']),
+    ('numbers：標題宣稱了列數卻沒有表（錨不存在）',
+     NUMBERS_REL,
+     {'.claude/rules/zero-instance-guards.md':
+      lambda t: t.replace('| # | 情形 | 裁決 | 理由 |\n|---|---|---|---|\n', '', 1)},
+     ['找不到表——錨不存在']),
     # ── parity-table-drift.py（#407 R50）──────────────────────────────────
     ('parity：程式新增一個 MCP tool 而表沒補',
      PARITY_TABLE_REL,
@@ -366,6 +381,13 @@ def _move_nested_struct_up(src):
 
 
 ROBUST = [
+    # #407 R67d：收窄前件的那一格要有守衛。散文裡的「只有一條」與 10 行外的一張
+    # 10 列的表**不是**不符——寬版謂詞當初正是這樣誤傷 `mcp-cli-parity.md` 的。
+    ('在散文（非標題）加一句「只有 2 條」，其後有表（不得被誤判為不符）',
+     NUMBERS_REL,
+     {'.claude/rules/zero-instance-guards.md':
+      lambda t: t.replace('## 裁決史', '不得類推：本檔的封閉性只有 2 條依據。\n\n## 裁決史', 1)},
+     ['列數宣稱皆相符']),
     # #407 R58：掃描器要跳過字串裡的大括號。注入一個**不平衡**的 `"{"` 字面——
     # 天真計數會讓區段暴走（實測 90,902 字元 vs 該檔 15,061），修好之後不受影響。
     ('Swift 裡多一個不平衡的大括號字串字面（不得讓區段暴走）',
@@ -395,6 +417,7 @@ PAIRED_IDENTICAL = ('parity：命令名只出現在某列的理由欄',
 
 def main():
     paired = {}
+    by_output = collections.defaultdict(list)
     before = {r: os.stat(os.path.join(ROOT, r)).st_mtime_ns for r in WATCHED}
 
     has_swift = shutil.which('swift') is not None
@@ -433,12 +456,32 @@ def main():
         miss = [m for m in must if m not in out]
         if name in PAIRED_IDENTICAL:
             paired[name] = out
+        by_output[(guard, out)].append(name)
         if rc != 0 and not miss:
             print(f'✓ 注入「{name}」→ rc={rc}，具名')
             ok += 1
         else:
             print(f'✗ 注入「{name}」→ rc={rc}' + (f'，缺 {miss}' if miss else ''))
             print('   ' + (out or '（無輸出）').replace('\n', '\n   ')[:500])
+
+    # **輸出逐字相同的 case 互相不可區分**（#407 R67c，把 R67b 的形狀一般化）。
+    # 它可能是刻意的（`PAIRED_IDENTICAL` 那對，見下），也可能是沒人發現的重複——
+    # 而重複**看起來像多一份覆蓋**：計數從 35 變 36、多印一個 ✓，維護者讀成
+    # 「又多檢查了一件事」，其實是同一件事查了兩次。這與既有四列零實例守衛的理由
+    # 都不同（不是看不見、不是假訊號、不是沉默的歧義，是**對測試自己的計數說謊**），
+    # 所以在 `.claude/rules/zero-instance-guards.md` 另立一列（private repo，外部讀者取不到）。
+    # 成本是零：上面的迴圈本來就跑完全部 case，這裡只是分組。實測 0 個未具名重複。
+    undeclared = [names for names in by_output.values()
+                  if len(names) > 1 and set(names) != set(PAIRED_IDENTICAL)]
+    if undeclared:
+        print(f'✗ {len(undeclared)} 組 case 的輸出逐字相同卻未具名為刻意的一對：')
+        for names in undeclared:
+            for x in names:
+                print(f'      · {x}')
+            print('    （若是刻意的，加進 PAIRED_IDENTICAL 並寫下為什麼相同）')
+    else:
+        print('✓ 無未具名的重複 case（輸出逐字相同者只有已具名的那一對）')
+        ok += 1
 
     # **理由欄的提及不得改變任何事**（#407 R67b）：上面兩個 parity case 一個是
     # 另一個的注入**再加**一句種在理由欄的 `fmt`。R60 的主張就是那個加法無效，
@@ -485,9 +528,9 @@ def main():
 
     after = {r: os.stat(os.path.join(ROOT, r)).st_mtime_ns for r in WATCHED}
     same = before == after
-    expected = len(CASES) - len(skipped) + len(ROBUST) + 1  # +1 = 上方的不變式
+    expected = len(CASES) - len(skipped) + len(ROBUST) + 2  # +2 = 不變式、重複掃描
     print(f'\n=== negative control {ok}/{expected} '
-          f'（{len(CASES) - len(skipped)} 須紅 ＋ {len(ROBUST)} 須綠 ＋ 1 不變式）==='
+          f'（{len(CASES) - len(skipped)} 須紅 ＋ {len(ROBUST)} 須綠 ＋ 2 後設檢查）==='
           + (f'（另有 {len(skipped)} 個因缺 swift 跳過）' if skipped else ''))
     print(f'{"出貨檔未被開啟以寫入" if same else "**出貨檔被動到了**"}：{len(WATCHED)} 個受監看檔')
     if ok != expected or not same:

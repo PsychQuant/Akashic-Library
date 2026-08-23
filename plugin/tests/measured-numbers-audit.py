@@ -68,6 +68,60 @@ def _unquote(line):
     return re.sub(r'^[\s>]*', '', line)
 
 
+# ── 標題宣稱的列數 vs 表的實際列數（#407 R67d）────────────────────────────────
+# 規則檔常在標題裡寫「封閉列舉——現有 N 列，一列不多一列不少」。那個 N 與下方的表
+# **是兩份會分岔的規格**——本檔要求「實測數字要有錨」，而這是同一個病的另一種形式：
+# 數字寫在標題裡，錨就是它正下方那張表，而沒有東西在比對。
+#
+# **實測抓到的實例**：`zero-instance-guards.md` 宣稱「現有 3 列」而表有 5 列——它在
+# 表長到第 4 列時就已經過期，沒有任何跡象。所以這不是零實例守衛，不必進那份裁決表。
+#
+# **前件是量出來的，不是想出來的**（該規則第 2 列的教訓）：寬版謂詞（任何行的
+# 「只有 N 條」）在 9 處宣稱裡報 2 個不符，其中 1 個是誤傷——`mcp-cli-parity.md` 的
+# 散文「只有一條」被 10 行外的表誤配。收窄成**只認標題行**後：3 處受檢、1 處不符、
+# 零誤傷。標題是宣告表的邊界的地方，散文不是。
+_COUNT = re.compile(r'(現有|恰|共)\s*([0-9０-９一二三四五六七八九十]+)\s*(列|項|條|格)')
+_CN = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8,
+       '九': 9, '十': 10, '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十六': 16}
+
+
+def _num(s):
+    s = s.translate(str.maketrans('０１２３４５６７８９', '0123456789'))
+    return int(s) if s.isdigit() else _CN.get(s)
+
+
+def _rows_after(lines, i):
+    """i 之後最近的 markdown 表有幾個資料列（找不到回 None——不是 0）。
+
+    回 None 而不是 0，是因為「標題後沒有表」與「表有 0 列」是兩件事，而把它們
+    折成同一個值會讓前者被當成不符。`lossless-intake` 的「靜默是最糟的形式」。
+    """
+    for j in range(i, min(i + 40, len(lines))):
+        if re.match(r'^\|[-\s|:]+\|\s*$', lines[j]):
+            k, rows = j + 1, 0
+            while k < len(lines) and lines[k].lstrip().startswith('|'):
+                rows += 1
+                k += 1
+            return rows
+    return None
+
+
+def declared_counts(files, root):
+    out = []
+    for fp in files:
+        lines = io.open(fp, encoding='utf8').read().splitlines()
+        for i, line in enumerate(lines):
+            if not line.lstrip().startswith('#'):
+                continue
+            for m in _COUNT.finditer(line):
+                n = _num(m.group(2))
+                if n is None:
+                    continue
+                rows = _rows_after(lines, i)
+                out.append((os.path.relpath(fp, root), i + 1, m.group(0), n, rows))
+    return out
+
+
 def main():
     # 刻意**不收** root 參數。ROOT 由 `__file__` 推出，所以 negative control 跑 copy
     # 裡的那一份時它自然指向 copy——不需要參數。加一個沒有呼叫端的參數就是假接口
@@ -118,8 +172,20 @@ def main():
         print(f'  ✗ {rel}:{i} 「{n}」——沒有時間錨也沒有可重跑的指令\n     {s}')
     if not bare:
         print('  全部都有時間錨或可重跑的指令')
-    print(f'\n══ {"無裸數字" if not bare else f"**{len(bare)} 個裸數字**"} ══')
-    return 1 if bare else 0
+    counts = declared_counts(files, root)
+    drift = [c for c in counts if c[4] is not None and c[3] != c[4]]
+    noflag = [c for c in counts if c[4] is None]
+    print(f'\n══ 標題宣稱的列數：共 {len(counts)} 處 ══')
+    for rel, i, txt, n_, rows in drift:
+        print(f'  ✗ {rel}:{i} 標題說「{txt}」而下方的表有 {rows} 列')
+    for rel, i, txt, n_, rows in noflag:
+        print(f'  ✗ {rel}:{i} 標題說「{txt}」但其後 40 行內找不到表——錨不存在')
+    if not drift and not noflag:
+        print(f'  {len(counts)} 處全部與其下方的表相符')
+
+    print(f'\n══ {"無裸數字" if not bare else f"**{len(bare)} 個裸數字**"}'
+          f'｜{"列數宣稱皆相符" if not (drift or noflag) else f"**{len(drift) + len(noflag)} 處列數不符**"} ══')
+    return 1 if (bare or drift or noflag) else 0
 
 
 if __name__ == '__main__':

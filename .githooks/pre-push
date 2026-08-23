@@ -53,6 +53,7 @@ python3 plugin/tests/decision-matrix-mutations.py
 # rule-coverage 與 hash-table-drift 的 negative control（#407 R32）——它們先前
 # 每次都綠而從沒紅過，落在本 issue 自己的立場之外。
 python3 plugin/tests/audit-guards-mutations.py
+python3 plugin/tests/oracle-precondition-control.py
 # 規則檔裡的「實測 N」必須有時間錨或可重跑的指令（#407 R36）。
 python3 plugin/tests/measured-numbers-audit.py
 # mcp-cli-parity.md 的封閉列舉 vs 程式碼實際有的東西（#407 R50）——那條規則自帶的

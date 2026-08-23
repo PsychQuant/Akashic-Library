@@ -119,6 +119,13 @@ jobs:
             exit 0
           fi
           exit "$rc"
+      # oracle 前提檢查自己的負控（#407 R67h）。它毒化「ROBUST case 最多」的那一支
+      # 守衛——刻意不是隨手挑：只有一格的守衛在前提不成立時第一輪就 continue，走不到
+      # 會 KeyError 的那條路徑，而 R67e 的 scratch probe 正是這樣漏掉它的。
+      # 它跑的是 harness 本身，所以在無 Swift 的 runner 上同樣走 skip 路徑；通過數是
+      # 現算的，不寫死，因此兩種環境都成立。
+      - name: oracle 前提檢查會乾淨降級
+        run: python3 plugin/tests/oracle-precondition-control.py
       - name: 規則檔的實測數字要有時間錨
         run: python3 plugin/tests/measured-numbers-audit.py
       - name: parity 表 vs 程式碼

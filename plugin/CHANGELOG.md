@@ -42,6 +42,35 @@
 
 
 
+## R67h — 我的負控挑了唯一測不到那條路徑的守衛（跨模型審查指名）
+
+R67e 的 oracle 前提檢查有一條 `if guard not in pristine: continue`，而它**寫在
+`drift = out != pristine[guard]` 之後**。前提不成立時，同一支守衛的**第二個** ROBUST
+case 會跳過前面的計算、直接走到 `pristine[guard]` → `KeyError` → 整支 harness crash，
+而不是乾淨地少幾格。
+
+**R67e 當時的反向證實跑過，而且結構上永遠測不到它**：它毒化的守衛只有 1 個 ROBUST
+case，第一輪就在上面 `continue` 了。全樹唯一有 2 格的是 `parity-table-drift.py`——
+挑另一支等於挑了唯一不會暴露這條路徑的那支。改毒化 parity 後立刻重現 `KeyError`。
+
+這是本 issue 的核心命題在自己身上又應驗一次：**一個跑過的控制組不等於一個能失敗的
+控制組**。R67 剛剛才在「斷言不可區分」上說過同一句話。
+
+修法兩部分：
+
+1. `continue` 搬到計算 drift 之前。
+2. **把那支 scratch probe 做成出貨的守衛**（`plugin/tests/oracle-precondition-control.py`）
+   ——因為問題不在那次 probe 寫錯，在於**控制組的選擇是隨手的**。新守衛自己去算
+   「哪一支守衛的 ROBUST case 最多」並毒化它，而且在全樹沒有任何守衛有 2 格以上時
+   **明說自己退化了**，不是靜默通過。它檢查兩件事：前提不成立時具名報出是哪一支、
+   以及那一支的 ROBUST case 全部不計入（實測 45 → 43，不是只少一格）。
+
+掛上 pre-push（20 支）與 `plugin-guards.yml`。通過數是現算的，所以無 Swift 的 runner
+上同樣成立。
+
+負控 45/45；`oracle-precondition-control` 綠；從 pre-push 導出 20 支、失敗 0。
+
+
 ## R67f／R67g — 量測條件也是量測的一部分；然後把守衛擴到最常被讀的那個檔
 
 **R67f（耗時表重量）**：`CLAUDE.md` 的耗時表最後一欄標「現行」而寫「15 支 77.1 秒」——

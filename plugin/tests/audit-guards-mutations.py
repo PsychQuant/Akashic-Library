@@ -549,10 +549,16 @@ def main():
         except SystemExit as e:
             print(e)
             continue
+        if guard not in pristine:
+            # **這個 continue 必須在算 drift 之前**（#407 R67h，跨模型審查指名）：
+            # 前一版寫在後面，於是「同一支守衛有第二個 ROBUST case」時會先執行
+            # `pristine[guard]` 而 KeyError——整支 harness crash，不是乾淨地少一格。
+            # 而 R67e 的反向證實**結構上測不到它**：它毒化的守衛只有一個 ROBUST
+            # case，第一輪就在上面 `continue` 了。挑一個只有一格的守衛當控制組，
+            # 等於挑了唯一不會暴露這個路徑的那支。
+            continue                      # 前提不成立時不假裝這一格通過
         miss = [m for m in must if m not in out]
         drift = out != pristine[guard]
-        if guard not in pristine:
-            continue                      # 前提不成立時不假裝這一格通過
         if rc == 0 and not miss and not drift:
             print(f'✓ 重排注入「{name}」→ 維持綠，且輸出與未注入逐字相同')
             ok += 1

@@ -57,13 +57,18 @@ final class WorkTypeTests: XCTestCase {
 
     /// **正向是多對一，所以逆向必須選一個原像**——選的是最不細分的那個。
     ///
-    /// `referenceWorkEntry` 與 `bookChapter` 都輸出 `INCOLLECTION`；讀 `.bib` 時只能得到
-    /// `bookChapter`。細分要靠額外訊號（`misc` + `url`），不靠猜。
+    /// **這段在 #415 重寫過**：它原本說「`referenceWorkEntry` 與 `bookChapter` 都輸出
+    /// `INCOLLECTION`」——那是 #352 之前的事，該型別自 #352 起送 `INREFERENCE`。
+    ///
+    /// 實測當前的多對一恰三組：`ARTICLE`（`periodicalArticle`／`review`）、
+    /// `ONLINE`（`webpage`／`socialMediaPost`）、`SOFTWARE`（`software`／`testInstrument`）。
+    /// 下面三條斷言仍成立，但 `incollection` 那條的理由已改變——它現在是 1:1，
+    /// 逆向到 `bookChapter` 不是「選較粗的原像」而是「唯一的原像」。
     func testInversePicksTheLeastRefinedPreimage() {
         XCTAssertEqual(WorkType(biblatexEntryType: "incollection"), .bookChapter,
-                       "不得逆向到 referenceWorkEntry——那需要額外訊號")
+                       "#352 起 referenceWorkEntry 送 INREFERENCE，已不是 INCOLLECTION 的原像")
         XCTAssertEqual(WorkType(biblatexEntryType: "report"), .report,
-                       "不得逆向到 dataSet／software／testInstrument")
+                       "#352 起 dataSet／software 各自送 DATASET／SOFTWARE，report 已是 1:1")
         XCTAssertEqual(WorkType(biblatexEntryType: "online"), .webpage,
                        "不得逆向到視聽／社群媒體")
     }
@@ -130,6 +135,38 @@ final class WorkTypeTests: XCTestCase {
         XCTAssertTrue(VenueDerivation.booktitleCarrierTypes.contains(.referenceWorkEntry))
         XCTAssertFalse(VenueDerivation.booktitleCarrierTypes.contains(.bookChapter),
                        "編著章節索取 EDITOR + PUBLISHER，venue 持不住——#324 的裁決")
+    }
+
+
+    /// #415：**正向送出的每一個 biblatex 型別，反向都必須收得回來**——除非它出現在
+    /// 下面這份「刻意有損」的顯式清單裡。
+    ///
+    /// 這是把「哪些是刻意有損」從**讀者自己比對兩個 switch** 變成**必須顯式宣告**。
+    /// #415 立案時只指名 `INREFERENCE`；實測差集是 **6 個**（`AUDIO`／`DATASET`／
+    /// `IMAGE`／`INREFERENCE`／`SOFTWARE`／`VIDEO`）——全是 #352／#356 開始送 apa.dbx
+    /// 型別時新增的，反向從未跟上。一份「我們自己寫的 .bib 讀不回型別」的清單，靠人
+    /// 比對兩個 switch 是發現不了的。
+    func testEveryForwardBiblatexTypeSurvivesTheRoundTrip() {
+        // **刻意有損的原像多對一**：同一個 biblatex 型別由多個 WorkType 送出時，
+        // 反向只能回到其中一個。取**較粗**的那個（既有慣例，見
+        // `testInversePicksTheLeastRefinedPreimage`）。
+        let deliberatelyLossy: [String: WorkType] = [
+            "ARTICLE":  .periodicalArticle,   // 亦由 .review 送出
+            "ONLINE":   .webpage,             // 亦由 .socialMediaPost 送出
+            "SOFTWARE": .software,            // 亦由 .testInstrument 送出
+        ]
+        for t in WorkType.allCases {
+            let fwd = t.biblatexEntryType
+            let back = WorkType(biblatexEntryType: fwd, fields: [:])
+            if let coarser = deliberatelyLossy[fwd] {
+                XCTAssertEqual(back, coarser,
+                               "\(fwd) 是多對一，反向必須回到較粗的 \(coarser)")
+            } else {
+                XCTAssertEqual(back, t,
+                               "\(t) 送出 \(fwd)，反向必須收得回來——"
+                               + "若這是刻意有損，請加進 deliberatelyLossy 並寫下理由")
+            }
+        }
     }
 
 }

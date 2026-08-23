@@ -205,13 +205,24 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
     ///
     /// ## 有損在哪裡（明寫，不假裝是雙射）
     ///
-    /// 正向是多對一（`bookChapter` 與 `referenceWorkEntry` 都輸出 `INCOLLECTION`），所以
-    /// 逆向必須**選一個原像**。選的一律是**最不細分的那個**——細分要靠額外訊號：
+    /// 正向仍是多對一，所以逆向必須**選一個原像**，選的一律是**最不細分的那個**。
     ///
-    /// - `incollection` → `bookChapter`（**不是** `referenceWorkEntry`）
-    /// - `report` → `report`（不是 `dataSet` / `software` / `testInstrument`）
-    /// - `unpublished`（無 `location`）→ `unpublishedWork`（不是 `review`）
-    /// - `online` → `webpage`（不是視聽／社群媒體）
+    /// **這份清單在 #415 重算過**（2026-08-23）——它先前描述的是 #352 之前的正向表，
+    /// 而 #352／#356 讓多個型別改送自己的 apa.dbx 型別之後，好幾對「多對一」已經解開：
+    /// `report` 現在是 1:1（`dataSet`／`software` 各自送 `DATASET`／`SOFTWARE`）、
+    /// `unpublished` 也不再與 `review` 共用（後者送 `ARTICLE`）。實測當前的多對一**恰
+    /// 三組**：
+    ///
+    /// - `ARTICLE` ← `periodicalArticle` ／ `review` → 逆向取 `periodicalArticle`
+    /// - `ONLINE` ← `webpage` ／ `socialMediaPost` → 逆向取 `webpage`
+    /// - `SOFTWARE` ← `software` ／ `testInstrument` → 逆向取 `software`
+    ///
+    /// `incollection` → `bookChapter` 現在是 **1:1**（`referenceWorkEntry` 自 #352 起送
+    /// `INREFERENCE`，不再是 `INCOLLECTION` 的原像）。
+    ///
+    /// **這份清單不再靠人維護**：`testEveryForwardBiblatexTypeSurvivesTheRoundTrip`
+    /// 逐一走過 `allCases`，正向送出的每個型別都必須反向收得回來——除非它出現在該測試
+    /// 的 `deliberatelyLossy` 顯式清單裡（#415）。
     ///
     /// 兩個**條件式**細分沿用階段一經驗證的判準（同一組 `fields` 訊號）：
     /// `misc` 帶 `url` → `referenceWorkEntry`；`unpublished` 帶 `location` →
@@ -226,12 +237,26 @@ public enum WorkType: String, CaseIterable, Equatable, Sendable {
         switch biblatexEntryType.lowercased() {
         case "article":       self = .periodicalArticle   // 10.1
         case "book":          self = .book                // 10.2
-        case "incollection":  self = .bookChapter         // 10.3（不細分到 referenceWorkEntry）
+        case "incollection":  self = .bookChapter         // 10.3（1:1——#352 起 referenceWorkEntry 送 INREFERENCE）
         case "report":        self = .report              // 10.4
         case "inproceedings",
              "presentation":  self = .conferenceSession   // 10.5（APA7 不分這兩者）
         case "thesis":        self = .thesis              // 10.6
         case "online":        self = .webpage             // 10.16
+        // ── #415：正向送出卻反向不收的 6 個（#352／#356 開始送 apa.dbx 型別時新增，
+        //    反向從未跟上）。我們自己寫出的 `.bib` 因此讀不回型別。
+        //    五個是 1:1、無歧義，補回即無損：
+        case "inreference":   self = .referenceWorkEntry  // 10.3
+        case "dataset":       self = .dataSet             // 10.9
+        case "video":         self = .audiovisualWork     // 10.12
+        case "audio":         self = .audioWork           // 10.13
+        case "image":         self = .visualWork          // 10.14
+        //    第六個 `SOFTWARE` 是 **2:1**（`.software` 與 `.testInstrument` 都送它），
+        //    所以反向只能回較粗的那個——與 `incollection → bookChapter`、
+        //    `article → periodicalArticle`、`online → webpage` 同一慣例。
+        //    `testEveryForwardBiblatexTypeSurvivesTheRoundTrip` 的 `deliberatelyLossy`
+        //    把這件事變成**必須顯式宣告**，而不是靠讀者自己比對兩個 switch。
+        case "software":      self = .software            // 10.10（有損：亦由 testInstrument 送出）
         // ── 條件式細分（判準與階段一同源）──
         case "misc":
             guard fields["url"] != nil else { return nil }

@@ -222,6 +222,33 @@ CASES = [
      {NUMBERS_REL: lambda t: t.replace("'CLAUDE.md': glob.glob(os.path.join(root, 'CLAUDE.md')),",
                                        "'CLAUDE.md': glob.glob(os.path.join(root, 'CLAUDE.mdx')),", 1)},
      ['`CLAUDE.md` 一個檔都沒找到']),
+    # #413：`borrowed` 分桶先前只看 `c[4]`，安全性靠一個**跨函式**的不變量——
+    # `declared_counts` 在數字解析失敗時 append `(…, None, None)` 並立刻 `continue`，
+    # 所以 `_rows_after` 根本不會被呼叫。這個 mutation 拿掉那個 `continue`（改成
+    # 無論解析成功與否都算 rows），把不變量從「隱含」變成「被測」：
+    #
+    #   加了 `c[3] is not None` 之後 → 那筆的 c[3] 是 None → **不進 borrowed**，
+    #   照樣落在 `unparsed`，訊息仍是「解析不出來」。守衛維持綠。
+    #   拿掉那個守衛 → 同一筆同時進 borrowed，印出「標題說『廿』而它自己沒有表」，
+    #   而「廿」是一個解析失敗的裸數字——語意錯位、零錯誤訊息。
+    ('numbers：解析失敗的宣稱仍算 rows（不變量：它必須留在 unparsed，不得變 borrowed）',
+     NUMBERS_REL,
+     # 這是上一個 case 的注入**再加**「讓 `declared_counts` 對解析失敗也算 rows」。
+     # `borrowed` 加了 `c[3] is not None` 之後，那個加法**不得改變任何事**——那筆的
+     # `c[3]` 是 None，照樣只落在 `unparsed`。拿掉守衛則它同時進 `borrowed`，兩者
+     # 的輸出立刻分岔（配對不變式即在測這件事）。
+     {NUMBERS_REL: lambda t: t.replace(
+         "                    out.append((os.path.relpath(fp, root), i + 1, m.group(0), None, None))\n"
+         "                    continue\n",
+         "                    out.append((os.path.relpath(fp, root), i + 1, m.group(0), None,\n"
+         "                                _rows_after(lines, i)))\n"
+         "                    continue\n", 1),
+      '.claude/rules/zero-instance-guards.md':
+      lambda t: t.replace(
+          '## 裁決史（封閉列舉——現有 6 列，一列不多一列不少）',
+          '## 前言（封閉列舉——現有 廿 列）\n\n散文一句。\n\n'
+          '## 裁決史（一列不多一列不少）', 1)},
+     ['解析不出來']),
     # #407 R67i：中文數字用算的（不是查表）、表不得跨標題借用、解析不出要報。
     ('numbers：標題用「十五」而表沒有十五列（查表版會靜默略過）',
      NUMBERS_REL,
@@ -241,8 +268,16 @@ CASES = [
      NUMBERS_REL,
      # `廿` 在 `_COUNT` 的字元類裡但 `_num` 不處理——這正是「匹配得到卻解析不出」
      # 那條路徑唯一走得到的形狀。字元類刻意比 `_num` 寬就是為了讓它可達。
-     {'.claude/rules/blocked-issues-must-be-scannable.md':
-      lambda t: t.replace('現有 4 列', '現有 廿 列', 1)},
+     #
+     # **標題刻意做成「自己沒有表」**（把表推到下一節）：這樣 `_rows_after` 才會回
+     # `('borrowed', …)` 而不是 int——`borrowed` 分桶只收 tuple，用 int 的話那個
+     # 守衛在不在都沒差，配對的不變式就會是**空的**（#413 第一版正是這樣，回退守衛
+     # 仍綠才發現）。
+     {'.claude/rules/zero-instance-guards.md':
+      lambda t: t.replace(
+          '## 裁決史（封閉列舉——現有 6 列，一列不多一列不少）',
+          '## 前言（封閉列舉——現有 廿 列）\n\n散文一句。\n\n'
+          '## 裁決史（一列不多一列不少）', 1)},
      ['解析不出來']),
     # #407 R67l：跨 >=2 個標題時，診斷要具名跨過哪些（不是一句「下一個標題」）。
     ('numbers：宣稱與表之間隔了兩個標題（診斷要說「隔了 2 個」並具名）',
@@ -493,8 +528,19 @@ ROBUST = [
 
 # 這兩個 case 的輸出**必須逐字相同**（見 main() 的不變式檢查）。名字寫在這裡而不是
 # 用索引，是因為索引會在 CASES 增刪時安靜錯位。
-PAIRED_IDENTICAL = ('parity：命令名只出現在某列的理由欄',
-                    'parity：某命令只在散文被提到、不在任何表列')
+PAIRED_IDENTICAL = (
+    # 每一組的輸出**必須逐字相同**，而那個相同本身就是被斷言的性質。
+    # 用名字而非索引：索引會在 CASES 增刪時安靜錯位。
+    ('parity：命令名只出現在某列的理由欄',
+     'parity：某命令只在散文被提到、不在任何表列'),
+    # #413：後者是前者的注入**再加**「讓 `declared_counts` 對解析失敗仍呼叫
+    # `_rows_after`」。`borrowed` 分桶加了 `c[3] is not None` 之後，那個加法
+    # **不得改變任何事**——那筆的 `c[3]` 是 None，照樣只落在 `unparsed`。
+    # 拿掉守衛則它同時進 `borrowed`，兩者的輸出立刻分岔。
+    ('numbers：標題的數字解析不出來（不得靜默略過）',
+     'numbers：解析失敗的宣稱仍算 rows（不變量：它必須留在 unparsed，不得變 borrowed）'),
+)
+_PAIRED_FLAT = {n for pair in PAIRED_IDENTICAL for n in pair}
 
 
 def main():
@@ -557,7 +603,7 @@ def main():
             print(e)
             continue
         miss = [m for m in must if m not in out]
-        if name in PAIRED_IDENTICAL:
+        if name in _PAIRED_FLAT:
             paired[name] = out
         by_output[(guard, out)].append(name)
         if rc != 0 and not miss:
@@ -574,8 +620,9 @@ def main():
     # 都不同（不是看不見、不是假訊號、不是沉默的歧義，是**對測試自己的計數說謊**），
     # 所以在 `.claude/rules/zero-instance-guards.md` 另立一列（private repo，外部讀者取不到）。
     # 成本是零：上面的迴圈本來就跑完全部 case，這裡只是分組。實測 0 個未具名重複。
+    _declared = [set(p) for p in PAIRED_IDENTICAL]
     undeclared = [names for names in by_output.values()
-                  if len(names) > 1 and set(names) != set(PAIRED_IDENTICAL)]
+                  if len(names) > 1 and set(names) not in _declared]
     if undeclared:
         print(f'✗ {len(undeclared)} 組 case 的輸出逐字相同卻未具名為刻意的一對：')
         for names in undeclared:
@@ -591,17 +638,20 @@ def main():
     # 所以正確的斷言是**兩者輸出逐字相同**——而那是字串斷言做不到的（實測它們
     # 的輸出本來就一模一樣，所以先前給兩者加同一個 `` `fmt` `` 毫無區分力）。
     # 這一格若壞掉（理由欄開始算數），兩者的輸出會分岔。
-    if len(paired) == len(PAIRED_IDENTICAL):
-        if len(set(paired.values())) == 1:
-            print('✓ 不變式：理由欄的提及未改變守衛輸出（兩個 parity case 逐字相同）')
-            ok += 1
-        else:
-            print('✗ 不變式：理由欄的提及改變了守衛輸出——R60 的主張已不成立')
-            for k, v in paired.items():
-                print(f'   {k}\n   ' + v.replace('\n', '\n   ')[:300])
-    else:
-        print(f'✗ 不變式：只收到 {len(paired)}/{len(PAIRED_IDENTICAL)} 個 paired 輸出'
-              '（case 被改名或跳過？）')
+    # **逐組檢查**（#413 起不只一組）：每一組的兩個 case 輸出必須逐字相同。
+    inv_ok = True
+    for a, b in PAIRED_IDENTICAL:
+        if a not in paired or b not in paired:
+            print(f'✗ 不變式：這一組只收到部分輸出（case 被改名或跳過？）\n'
+                  f'   {a}\n   {b}')
+            inv_ok = False
+        elif paired[a] != paired[b]:
+            print(f'✗ 不變式：這一組的輸出分岔了——被斷言為「不得改變任何事」'
+                  f'的那個加法改變了守衛輸出\n   {a}\n   {b}')
+            inv_ok = False
+    if inv_ok:
+        print(f'✓ 不變式：{len(PAIRED_IDENTICAL)} 組刻意相同的 case 輸出各自逐字一致')
+        ok += 1
 
     # **純重排的正確斷言是「輸出逐字不變」，不是「有印通過訊息」**（#407 R67，
     # 跨模型審查指名兩個 ROBUST case 斷言完全相同）。通過訊息對所有 ROBUST case

@@ -258,7 +258,15 @@ def main():
     drift = [c for c in counts if c[3] is not None
              and isinstance(c[4], int) and c[3] != c[4]]
     noflag = [c for c in counts if c[3] is not None and c[4] is None]
-    borrowed = [c for c in counts if isinstance(c[4], tuple)]
+    # **`c[3] is not None` 與其餘兩桶對稱**（#413，R2 correctness 席指名）：這一桶
+    # 先前只看 `c[4]`，靠一個**跨函式**的不變量才安全——`declared_counts` 在 `n`
+    # 解析失敗時 append `(…, None, None)` 並立刻 `continue`，所以 `_rows_after`
+    # 根本不會被呼叫。那個不變量沒有在這一行被斷言、註解或測試釘住：日後若
+    # `declared_counts` 改成無論解析成功與否都呼叫 `_rows_after`（例如為了同時
+    # 回報「數字解析不出來」與「表被哪個標題借走」），這一桶會**安靜地**把一筆
+    # 本該進 `unparsed` 的記錄印成「標題說『{txt}』而它自己沒有表」——而 `txt`
+    # 是一個解析失敗的裸數字。語意錯位，零錯誤訊息。
+    borrowed = [c for c in counts if c[3] is not None and isinstance(c[4], tuple)]
     unparsed = [c for c in counts if c[3] is None]
     print(f'\n══ 標題宣稱的列數：共 {len(counts)} 處 ══')
     for rel, i, txt, n_, rows in drift:

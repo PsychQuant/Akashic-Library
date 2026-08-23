@@ -48,6 +48,11 @@ CASES = [
     ('- literal: "Cohen, J."',              'Cohen, J.'),
     ('- literal: "a \\"quoted\\" name"',      'a "quoted" name'),
     ("- literal: 'it''s'",                  "it's"),
+    # #407 R63（跨模型審查指名）：帶變音符的人名在這個 store 很常見，而 ASCII-safe
+    # 的 YAML emitter 會把它們寫成 `\uXXXX`。照抄下一個字元會得到字面的 `u00e9`。
+    ('- literal: "Andr\\u00e9 Weil"',        'André Weil'),
+    ('- literal: "caf\\xe9"',                'café'),
+    ('- literal: "a\\tb"',                   'a\tb'),
 ]
 
 
@@ -57,9 +62,19 @@ def _census_scalar():
     一份規格的兩個副本必然分岔（本 issue 反覆記過）。抽不到、或抽到不只一份，都紅。
     """
     src = io.open(CENSUS, encoding='utf8').read()
-    m = re.search(r'\n(    def _scalar\(s\):\n(?:(?:        .*)?\n)+?)\n', src)
-    if not m:
+    # **用縮排界定函式本體，不靠空行**（#407 R63）：上一版的非貪婪樣式在**第一個空行**
+    # 就停——在 `_scalar` 裡插一行純排版的空行，切出來的仍是**語法有效**的片段，
+    # `exec` 不會拋，兩道既有檢查也不會紅，而那個被截斷的 `_scalar` 對單引號／未加引號
+    # 的值一律回 `None`。**靜默切錯比切不到危險**（跨模型審查指名）。
+    lines = src.split('\n')
+    try:
+        a = next(k for k, l in enumerate(lines) if l.startswith('    def _scalar(s):'))
+    except StopIteration:
         return None, '從 census 抽不到 `_scalar`——抽取式與宣告寫法脫節了'
+    b = a + 1
+    while b < len(lines) and (not lines[b].strip() or lines[b].startswith('        ')):
+        b += 1
+    m = type('M', (), {'group': lambda self, i: '\n'.join(lines[a:b])})()
     if src.count('def _scalar(s):') != 1:
         return None, f"census 裡有 {src.count('def _scalar(s):')} 份 `_scalar`（須恰好 1）"
     ns = {'re': re}

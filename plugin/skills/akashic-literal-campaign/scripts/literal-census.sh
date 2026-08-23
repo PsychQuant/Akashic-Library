@@ -424,12 +424,22 @@ for f in files:
         s = s.strip()
         if s[:1] == '"':
             # 掃到收尾引號（跳過 `\\"`）；其後是註解，丟掉
+            # **跳脫要按 YAML 語義還原，不是「照抄下一個字元」**（#407 R63）：
+            # 照抄對 `\\"`／`\\\\` 碰巧對，但 `\\uXXXX` 會變成字面的 `u00e9`——
+            # 而帶變音符的人名在這個 store 很常見（跨模型審查指名）。
+            _ESC = {'n': chr(10), 't': chr(9), 'r': chr(13), '0': chr(0),
+                    'b': chr(8), 'f': chr(12), '"': '"', '/': '/'}
             i, out = 1, []
             while i < len(s) and s[i] != '"':
-                if s[i] == '\\' and i + 1 < len(s):
-                    out.append(s[i + 1]); i += 2
+                if s[i] != '\\' or i + 1 >= len(s):
+                    out.append(s[i]); i += 1; continue
+                e = s[i + 1]
+                if e == 'u' and re.fullmatch(r'[0-9A-Fa-f]{4}', s[i + 2:i + 6] or ''):
+                    out.append(chr(int(s[i + 2:i + 6], 16))); i += 6
+                elif e == 'x' and re.fullmatch(r'[0-9A-Fa-f]{2}', s[i + 2:i + 4] or ''):
+                    out.append(chr(int(s[i + 2:i + 4], 16))); i += 4
                 else:
-                    out.append(s[i]); i += 1
+                    out.append(_ESC.get(e, e)); i += 2
             return ''.join(out)
         if s[:1] == "'":
             i, out = 1, []

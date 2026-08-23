@@ -78,6 +78,22 @@ def main():
     for t in unresolved:
         fails.append(f'<未解析> {t} 抽不到 commandName——稽核程序自己壞了')
 
+    # ②b **表 → 命令**方向（#407 R51，跨模型審查指名）。規則自己在 CLI-only 表下方
+    #     寫了這個方向並附了觸發實例（#325 刪掉 `migrate-work-types`）：表裡提到的
+    #     命令若已不存在，那一列**必須劃掉並標退場**，不得刪除（刪掉會丟失裁決史）。
+    #     先前只做正向，於是一個**退場了卻沒劃掉**的孤兒列完全無聲。
+    live = set()
+    for t_ in types:
+        mm = re.search(r'struct\s+' + t_ + r'\s*:.*?commandName:\s*"([^"]+)"', srcs, re.S)
+        if mm:
+            live.add(mm.group(1))
+    for struck, name in re.findall(r'^\|\s*(~~)?`([a-z][a-z0-9-]*)`(?:~~)?', rule, re.M):
+        if struck and name in live:
+            fails.append(f'表把 `{name}` 標成退場（劃掉），但它**仍註冊在 CLI.swift**')
+        if not struck and name not in live:
+            fails.append(f'表列了 `{name}` 而它**已不在 CLI.swift**——退場的列要劃掉'
+                         f'並標明理由，不是留著不動')
+
     # ③ 橫切選項
     cross = set()
     for f in sorted(glob.glob('Sources/akashic/*.swift')):

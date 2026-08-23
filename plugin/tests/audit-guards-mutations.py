@@ -36,6 +36,8 @@ WF_REL = '.github/workflows/census-parity.yml'
 CLAIMS_REL = 'plugin/tests/measured-claims-audit.py'
 NUMBERS_REL = 'plugin/tests/measured-numbers-audit.py'
 PARITY_TABLE_REL = 'plugin/tests/parity-table-drift.py'
+RATCHET_REL = 'plugin/tests/backlink-field-ratchet.py'
+MODELS_REL = 'Sources/AkashicCore/Models.swift'
 MCP_RULE_REL = '.claude/rules/mcp-cli-parity.md'
 SERVER_REL = 'Sources/akashic-mcp/Server.swift'
 BACKLINK_REL = '.claude/rules/entity-backlink-completeness.md'
@@ -46,7 +48,8 @@ RULE_REL = 'plugin/rules/assertions-must-be-measured.md'
 
 WATCHED = [COVERAGE_REL, DRIFT_REL, TABLE_REL, MULTI_REL, RULE_REL,
            REVIEW_REL, PARITY_REL, GEN_REL, WF_REL, CLAIMS_REL,
-           NUMBERS_REL, BACKLINK_REL, PARITY_TABLE_REL, MCP_RULE_REL, SERVER_REL]
+           NUMBERS_REL, BACKLINK_REL, PARITY_TABLE_REL, MCP_RULE_REL, SERVER_REL,
+           RATCHET_REL, MODELS_REL]
 
 
 def with_copy(guard_rel, edits):
@@ -208,6 +211,22 @@ CASES = [
      PARITY_TABLE_REL,
      {MCP_RULE_REL: lambda t: t.replace('`doctor`', '`doktor`')},
      ['規則檔裡完全沒提到']),
+    ('parity：表把某命令標成退場但它仍註冊著（表→命令方向）',
+     PARITY_TABLE_REL,
+     {MCP_RULE_REL: lambda t: t.replace('| ~~`migrate-work-types`~~',
+                                        '| ~~`doctor`~~', 1)},
+     ['仍註冊在 CLI.swift']),
+    ('parity：退場的列沒劃掉（孤兒列）',
+     PARITY_TABLE_REL,
+     {MCP_RULE_REL: lambda t: t.replace('| ~~`migrate-work-types`~~',
+                                        '| `migrate-work-types`', 1)},
+     ['已不在 CLI.swift']),
+    # ── backlink-field-ratchet.py（#407 R51）──────────────────────────────
+    ('ratchet：Swift 多一個非純量欄位而沒被裁決',
+     RATCHET_REL,
+     {MODELS_REL: lambda t: t.replace('public var authors:',
+                                      'public var brandNewEdge: [VenueRef] = []\n    public var authors:', 1)},
+     ['新欄位未經裁決']),
     ('multi：案例表被清空（fixture 蒸發不得靜默通過）',
      MULTI_REL,
      # `[] + [...]` **不會**清空（前一版寫成那樣，於是這個 case 一直在測別的東西，

@@ -47,6 +47,8 @@ on:
       # parity-table-drift.py 拿這兩支當真值來源（#407 R50）。
       - "Sources/akashic-mcp/Server.swift"
       - "Sources/akashic/*.swift"
+      # backlink-field-ratchet.py 讀這六個型別檔（#407 R51）。
+      - "Sources/AkashicCore/*.swift"
   pull_request:
     paths: *guard_paths
 
@@ -121,3 +123,5 @@ jobs:
         run: python3 plugin/tests/measured-numbers-audit.py
       - name: parity 表 vs 程式碼
         run: python3 plugin/tests/parity-table-drift.py
+      - name: 非純量欄位棘輪（14 條邊的表）
+        run: python3 plugin/tests/backlink-field-ratchet.py

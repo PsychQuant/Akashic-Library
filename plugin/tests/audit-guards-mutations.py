@@ -224,8 +224,10 @@ CASES = [
      PARITY_TABLE_REL,
      {MCP_RULE_REL: lambda t: t.replace('| `fmt` | 有理由缺席', '| `fmt-x` | 有理由缺席')
                               .replace('全庫改寫＝維運例外', '全庫改寫＝維運例外（同 `fmt`）')},
-     # **斷言要帶具體項目**（#407 R67）：三個 parity case 先前斷言完全相同，
-     # 對調哪個注入配哪個 case 都不會被發現。守衛的訊息本來就帶命令名。
+     # **這一格的可區分性不在字串裡**（#407 R67b，自己量出來的）：本 case 的注入
+     # 是下一個 case 的注入**再加**「把 `fmt` 種進理由欄」，而它的主張正是那個
+     # 加法**不得改變任何事**——所以兩者的輸出逐字相同，任何字串斷言都分不開它們。
+     # 可區分的斷言是下方 `main()` 裡的不變式：out(理由欄版) == out(純散文版)。
      ['`fmt`', '規則檔裡完全沒提到']),
     # #407 R59：只在散文提到、不在任何表列裡 → 不算被裁決過。
     ('parity：某命令只在散文被提到、不在任何表列',
@@ -385,7 +387,14 @@ ROBUST = [
 ]
 
 
+# 這兩個 case 的輸出**必須逐字相同**（見 main() 的不變式檢查）。名字寫在這裡而不是
+# 用索引，是因為索引會在 CASES 增刪時安靜錯位。
+PAIRED_IDENTICAL = ('parity：命令名只出現在某列的理由欄',
+                    'parity：某命令只在散文被提到、不在任何表列')
+
+
 def main():
+    paired = {}
     before = {r: os.stat(os.path.join(ROOT, r)).st_mtime_ns for r in WATCHED}
 
     has_swift = shutil.which('swift') is not None
@@ -422,12 +431,31 @@ def main():
             print(e)
             continue
         miss = [m for m in must if m not in out]
+        if name in PAIRED_IDENTICAL:
+            paired[name] = out
         if rc != 0 and not miss:
             print(f'✓ 注入「{name}」→ rc={rc}，具名')
             ok += 1
         else:
             print(f'✗ 注入「{name}」→ rc={rc}' + (f'，缺 {miss}' if miss else ''))
             print('   ' + (out or '（無輸出）').replace('\n', '\n   ')[:500])
+
+    # **理由欄的提及不得改變任何事**（#407 R67b）：上面兩個 parity case 一個是
+    # 另一個的注入**再加**一句種在理由欄的 `fmt`。R60 的主張就是那個加法無效，
+    # 所以正確的斷言是**兩者輸出逐字相同**——而那是字串斷言做不到的（實測它們
+    # 的輸出本來就一模一樣，所以先前給兩者加同一個 `` `fmt` `` 毫無區分力）。
+    # 這一格若壞掉（理由欄開始算數），兩者的輸出會分岔。
+    if len(paired) == len(PAIRED_IDENTICAL):
+        if len(set(paired.values())) == 1:
+            print('✓ 不變式：理由欄的提及未改變守衛輸出（兩個 parity case 逐字相同）')
+            ok += 1
+        else:
+            print('✗ 不變式：理由欄的提及改變了守衛輸出——R60 的主張已不成立')
+            for k, v in paired.items():
+                print(f'   {k}\n   ' + v.replace('\n', '\n   ')[:300])
+    else:
+        print(f'✗ 不變式：只收到 {len(paired)}/{len(PAIRED_IDENTICAL)} 個 paired 輸出'
+              '（case 被改名或跳過？）')
 
     # **純重排的正確斷言是「輸出逐字不變」，不是「有印通過訊息」**（#407 R67，
     # 跨模型審查指名兩個 ROBUST case 斷言完全相同）。通過訊息對所有 ROBUST case
@@ -457,9 +485,9 @@ def main():
 
     after = {r: os.stat(os.path.join(ROOT, r)).st_mtime_ns for r in WATCHED}
     same = before == after
-    expected = len(CASES) - len(skipped) + len(ROBUST)
+    expected = len(CASES) - len(skipped) + len(ROBUST) + 1  # +1 = 上方的不變式
     print(f'\n=== negative control {ok}/{expected} '
-          f'（{len(CASES) - len(skipped)} 須紅 ＋ {len(ROBUST)} 須綠）==='
+          f'（{len(CASES) - len(skipped)} 須紅 ＋ {len(ROBUST)} 須綠 ＋ 1 不變式）==='
           + (f'（另有 {len(skipped)} 個因缺 swift 跳過）' if skipped else ''))
     print(f'{"出貨檔未被開啟以寫入" if same else "**出貨檔被動到了**"}：{len(WATCHED)} 個受監看檔')
     if ok != expected or not same:

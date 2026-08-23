@@ -359,6 +359,25 @@ public final class AkashicService {
                 },
             ] as [String: Any]
         }
+        // #416：per-entry 驗證。先前這一族只有 CLI 的 `validate` 看得到——`doctor()`
+        // 與 App 面各 0，而落差裡有一條是 **error** 級（citekey 不符 pattern）。
+        // 邏輯單一路徑在 `StoreHealth`；此處只渲染（同 `sources` 的既有形狀）。
+        // 截斷 20 則與 `crossRecordIssues` 同——MCP 輸出進 LLM context，呼叫端無法
+        // 在收到後丟棄已付的代價（#236 的既有威脅模型）。`count` 送分母讓消費端
+        // 判斷得出「我看到的是不是全部」。
+        let perRec = health.perRecordIssues
+        if !perRec.isEmpty {
+            d["recordIssues"] = [
+                "count": perRec.count,
+                "errors": perRec.filter { $0.issue.severity == .error }.count,
+                "first": perRec.prefix(20).map {
+                    ["severity": $0.issue.severity == .error ? "error" : "warning",
+                     "kind": $0.kind,
+                     "key": displaySafe($0.owner, max: 200),
+                     "message": displaySafe($0.issue.message, max: 300)]
+                },
+            ] as [String: Any]
+        }
         // #107：佈局殘留（報告不動手刪）。與 CLI 同：排在 fatal 早退之前——
         // 重複 citekey 的 store 正是最需要看清全貌的時候。
         let residue = health.layoutResidue

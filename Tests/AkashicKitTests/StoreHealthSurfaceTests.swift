@@ -89,4 +89,45 @@ final class StoreHealthSurfaceTests: XCTestCase {
         }
         throw XCTSkip("找不到 \(rel) —— 跳過來源掃描")
     }
+
+    // MARK: - per-entry 檢查的三面可見性（#416）
+
+    /// **per-entry 驗證不得只有 CLI 看得到**（#416）。
+    ///
+    /// 量測（2026-08-23）：`Entry.validate()` 在全樹只有一個呼叫點——
+    /// `Sources/akashic/Commands.swift`，也就是 CLI 的 `validate`。`doctor()` 與
+    /// App 面各 0。而 `mcp-cli-parity` 對 `validate` 是 CLI-only 的裁決，理由寫著
+    /// 「讀取檢查由 `akashic_doctor` 覆蓋（**功能重疊**）」——那句話被這個量測否掉：
+    /// doctor 覆蓋的是**跨記錄**檢查，per-entry 一條都不做。
+    ///
+    /// 落差裡有一條是 **error** 級（citekey 不符 pattern），而 MCP／App 的使用者
+    /// 拿不到它。App 又是取代 Zotero 的主要 UI（`replace-endnote-and-zotero`）。
+    ///
+    /// 修法沿用 #263 已建立的形狀：per-entry 驗證是**唯讀**的，所以抽進 `StoreHealth`
+    /// ——兩個消費面就都拿得到，且由上面那兩條反射守衛自動釘住。
+    func testPerRecordIssuesAreInStoreHealth() throws {
+        XCTAssertTrue(try healthFieldNames().contains("perRecordIssues"),
+                      "per-entry 驗證要進 StoreHealth 才會被兩面消費（#416）")
+    }
+
+    /// **要帶 severity 與是哪一筆**——只給訊息的話，消費端無法分辨 error 與 warning，
+    /// 也無法指出哪一筆記錄。CLI 面兩者都有，MCP 面就不能丟（#138 verify F3 的既有立場）。
+    func testPerRecordIssuesCarrySeverityAndOwner() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-perrec-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LibraryStore(root: root)
+        try store.ensureLayout()
+        var e = Entry(id: UUID(), citekey: "x2025", type: .conferenceSession, title: "")
+        e.fields["editor"] = "Someone"
+        try store.writeEntry(e)
+        let health = store.health(from: try store.load())
+        let mine = health.perRecordIssues.filter { $0.owner == "x2025" }
+        XCTAssertFalse(mine.isEmpty, "空 title ＋ 載體型別帶 editor 應各出一則")
+        XCTAssertTrue(mine.contains { $0.issue.message.contains("title 為空") }, "\(mine)")
+        XCTAssertTrue(mine.contains { $0.issue.message.contains("booktitle 載體列舉") }, "\(mine)")
+        XCTAssertTrue(mine.allSatisfy { $0.issue.severity == .warning },
+                      "本例兩則都是 warning——severity 必須逐則攜帶而非丟掉")
+    }
 }

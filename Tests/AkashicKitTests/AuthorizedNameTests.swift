@@ -305,16 +305,29 @@ final class AuthorizedNameTests: XCTestCase {
             .deletingLastPathComponent()   // AkashicKitTests
             .deletingLastPathComponent()   // Tests
             .deletingLastPathComponent()   // repo root
+        // **#416 起這個走訪住在 `LibraryStore.health(from:)`**，不在 CLI 的 `Validate`
+        // 裡。守衛跟著搬，因為它釘的是「機構真的被驗證」這個**性質**——不是它住在
+        // 哪個檔。搬家後這條不變式**變強**了：per-record 驗證現在三個面都拿得到，
+        // 而先前只有 CLI。
+        //
+        // 這是本 session 第三次遇到「守衛釘住實作位置而非性質」（前兩次：
+        // `EntityShapeLabelTests` 釘住一個已刪除的命令名、`VenueTests` 釘住訊息裡
+        // 的小寫 `venue`）。三次同型，值得寫下來。
         let src = try String(contentsOf: repoRoot
-            .appendingPathComponent("Sources/akashic/Commands.swift"), encoding: .utf8)
-        guard let validateBody = src.range(of: "struct Validate: ParsableCommand")
-            .map({ String(src[$0.lowerBound...].prefix(3000)) }) else {
-            return XCTFail("找不到 Validate 子命令")
+            .appendingPathComponent("Sources/AkashicStoreIO/StoreHealth.swift"), encoding: .utf8)
+        guard let healthBody = src.range(of: "func health(from load: LibraryLoad)")
+            .map({ String(src[$0.lowerBound...].prefix(4000)) }) else {
+            return XCTFail("找不到 health(from:)")
         }
-        XCTAssertTrue(validateBody.contains("load.organizations"),
-                      "Validate 必須走訪 organizations，否則機構的 authorized 不變式在使用層不生效")
-        XCTAssertTrue(validateBody.contains("organization.validate()"),
+        XCTAssertTrue(healthBody.contains("load.organizations"),
+                      "health(from:) 必須走訪 organizations，否則機構的 authorized 不變式在使用層不生效")
+        XCTAssertTrue(healthBody.contains("o.validate()"),
                       "而且要真的呼叫 validate()，不是只列舉")
+        // **三個面都要拿得到**——搬家的理由正是這個，所以一併釘住。
+        let cli = try String(contentsOf: repoRoot
+            .appendingPathComponent("Sources/akashic/Commands.swift"), encoding: .utf8)
+        XCTAssertTrue(cli.contains("health.perRecordIssues"),
+                      "CLI validate 必須消費 health.perRecordIssues（單一路徑）")
     }
 
     // MARK: - 對外名字解析（task 6.1 / 6.2）

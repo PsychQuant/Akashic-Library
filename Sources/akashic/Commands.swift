@@ -176,57 +176,32 @@ struct Validate: ParsableCommand {
     func run() throws {
         let store = try options.openStore()
         let load = try store.load()
+        let health = store.health(from: load)
         var failed = false
         if !load.quarantined.isEmpty {
             failed = true
             print("quarantined \(load.quarantined.count) 檔：")
             load.quarantineLines.forEach { print($0) }
         }
-        for entry in load.entries {
-            let issues = entry.validate()
-            for issue in issues {
-                let mark = issue.severity == .error ? "✗" : "⚠"
-                print("\(mark) \(displaySafe(entry.citekey, max: 200)): \(issue.message)")
-                if issue.severity == .error { failed = true }
-            }
-        }
-        // #23：person / library 層驗證（未知欄位 warning 不 fail——availability 優先，可見性保留）
-        for person in load.people {
-            for issue in person.validate() {
-                let mark = issue.severity == .error ? "✗" : "⚠"
-                print("\(mark) \(displaySafe(person.key, max: 200)): \(issue.message)")
-                if issue.severity == .error { failed = true }
-            }
-        }
-        for library in load.libraries {
-            for issue in library.validate() {
-                let mark = issue.severity == .error ? "✗" : "⚠"
-                print("\(mark) \(displaySafe(library.key, max: 200)): \(issue.message)")
-                if issue.severity == .error { failed = true }
-            }
-        }
-        // #81：機構記錄在此之前**從未被驗證過**——`Organization.validate()` 不存在，這個
-        // 迴圈也不存在。對外名字的不變式若只加在型別上，使用層不會生效。
-        // `AuthorizedNameTests` 有機械守衛掃這一段，刪掉會紅。
-        for organization in load.organizations {
-            for issue in organization.validate() {
-                let mark = issue.severity == .error ? "✗" : "⚠"
-                print("\(mark) \(displaySafe(organization.key, max: 200)): \(issue.message)")
-                if issue.severity == .error { failed = true }
-            }
-        }
-        // 歧異記錄的單筆檢查（#71 R1 verify 的 DA 更正四）：`Validate` 的未知欄位提示
-        // 完全來自每筆記錄的 `validate()`，不是 `load.unknownFieldFiles`（那條只餵
-        // doctor 與 App）。少了這個迴圈，帶未知欄位的歧異記錄會被印成「全部通過」。
-        for d in load.divergences {
-            for issue in d.validate() {
-                let mark = issue.severity == .error ? "✗" : "⚠"
-                print("\(mark) divergence \(d.id.uuidString): \(issue.message)")
-                if issue.severity == .error { failed = true }
-            }
+        // **五族的 per-record 驗證走 `StoreHealth`**（#416）。先前這裡是五個各自展開的
+        // 迴圈，而 `Entry.validate()` 在全樹的唯一呼叫點就是其中之一——`doctor()` 與
+        // App 面各 0。落差裡有一條是 **error** 級（citekey 不符 pattern）。
+        //
+        // 現在邏輯在 `LibraryStore.health(from:)`，三個面各自渲染
+        // （`entity-backlink-completeness` 執行細節 2：一個讀取面只能有一條實作路徑）。
+        // CLI 這一面的特徵是**逐行、無截斷**；MCP 面截斷 20 則並送 count 當分母。
+        //
+        // `load.organizations` / `organization.validate()` / `load.divergences` 這些
+        // 走訪**沒有消失**，只是搬到 `health(from:)` 裡——`AuthorizedNameTests` 的
+        // 機械守衛跟著搬（它釘的是「機構真的被驗證」這個性質，不是它住在哪個檔）。
+        for owned in health.perRecordIssues {
+            let mark = owned.issue.severity == .error ? "✗" : "⚠"
+            let label = owned.kind == "entry" ? "" : "\(owned.kind) "
+            print("\(mark) \(label)\(displaySafe(owned.owner, max: 200)): \(owned.issue.message)")
+            if owned.issue.severity == .error { failed = true }
         }
         // #7b：跨記錄檢查——單筆 validate() 結構上看不到的那一層
-        for issue in load.crossRecordIssues() {
+        for issue in health.crossRecordIssues {
             let mark = issue.severity == .error ? "✗" : "⚠"
             print("\(mark) [跨記錄] \(issue.message)")
             if issue.severity == .error { failed = true }

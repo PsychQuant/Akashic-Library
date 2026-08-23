@@ -65,6 +65,10 @@ def with_copy(guard_rel, edits):
     with tempfile.TemporaryDirectory(prefix='audit-mut-') as tmp:
         for sub in ('plugin', '.github', '.claude', 'Sources'):
             shutil.copytree(os.path.join(ROOT, sub), os.path.join(tmp, sub))
+        # **CLAUDE.md 是檔案不是目錄**，所以它不在上面那個迴圈裡（#407 R67g）。
+        # `measured-numbers-audit.py` 自 R67g 起也掃它，而少了這一行，針對它的注入
+        # 會以 `FileNotFoundError` 失敗——那是與注入無關的紅，等於沒有負控。
+        shutil.copy2(os.path.join(ROOT, 'CLAUDE.md'), os.path.join(tmp, 'CLAUDE.md'))
         for rel, fn in edits.items():
             p = os.path.join(tmp, rel)
             before = io.open(p, encoding='utf8').read()
@@ -204,11 +208,26 @@ CASES = [
      {RULE_REL: lambda t: t.replace('## 誠實邊界',
                                     '## 補充\n\n實測 99 筆。\n\n## 誠實邊界', 1)},
      ['沒有時間錨']),
-    ('numbers：規則目錄整個不見（不得靜默回綠）',
+    ('numbers：規則目錄整個不見（不得被 CLAUDE.md 撐著回綠）',
      NUMBERS_REL,
-     {NUMBERS_REL: lambda t: t.replace("'.claude/rules/*.md'", "'.claude/rulez/*.md'", 1)
-                              .replace("'plugin/rules/*.md'))", "'plugin/rulez/*.md'))", 1)},
-     ['一個規則檔都沒找到']),
+     # 只打壞 `.claude/rules`——聯集版會被另外兩個來源撐住而靜默回綠，逐來源版
+     # 必須具名是**哪一個**歸零（#407 R67g）。
+     {NUMBERS_REL: lambda t: t.replace("'.claude/rules/*.md': glob.glob",
+                                       "'.claude/rulez/*.md': glob.glob", 1)
+                              .replace("os.path.join(root, '.claude/rules/*.md')),",
+                                       "os.path.join(root, '.claude/rulez/*.md')),", 1)},
+     ['`.claude/rulez/*.md` 一個檔都沒找到']),
+    ('numbers：CLAUDE.md 不見（同樣不得被另外兩個來源撐著）',
+     NUMBERS_REL,
+     {NUMBERS_REL: lambda t: t.replace("'CLAUDE.md': glob.glob(os.path.join(root, 'CLAUDE.md')),",
+                                       "'CLAUDE.md': glob.glob(os.path.join(root, 'CLAUDE.mdx')),", 1)},
+     ['`CLAUDE.md` 一個檔都沒找到']),
+    # #407 R67g：CLAUDE.md 也在掃描範圍內。它是每個 session 自動注入的檔案，
+    # 一個過期數字在那裡的影響面比任何規則檔都大。
+    ('numbers：CLAUDE.md 裡出現一個裸的 `實測 N`',
+     NUMBERS_REL,
+     {'CLAUDE.md': lambda t: t.replace('## Rules', '## 補充\n\n實測 77 支。\n\n## Rules', 1)},
+     ['沒有時間錨', 'CLAUDE.md']),
     # #407 R67d：標題宣稱的列數 vs 表的實際列數。三個方向——漂移、錨不存在、
     # 以及**不得誤傷散文**（收窄前件的那一格；它是須綠的，放在 ROBUST 裡）。
     ('numbers：表多一列而標題的計數沒跟上',

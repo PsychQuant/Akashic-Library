@@ -28,6 +28,7 @@
 # 第二條指向 `.claude/rules/*.md`（private repo，外部讀者取不到）。
 # （該目錄在 private repo，外部讀者取不到。）
 # trigger-coverage: reads .claude/rules/*.md
+# trigger-coverage: reads CLAUDE.md
 """
 import glob
 import io
@@ -128,11 +129,25 @@ def main():
     # （本 issue 具名過的 `derive-hash-extenders.swift --check` 同型），而假接口的
     # 退場方式是刪掉，不是留著（`no-compat-fallback` 的「退場即刪」）。
     root = ROOT
-    files = sorted(glob.glob(os.path.join(root, '.claude/rules/*.md'))
-                   + glob.glob(os.path.join(root, 'plugin/rules/*.md')))
-    if not files:
-        print(f'✗ 在 {root} 底下一個規則檔都沒找到——路徑錯了還是規則被搬走了？')
+    # **CLAUDE.md 也要掃**（#407 R67g）：它是每個 session 都被自動注入的檔案，所以
+    # 一個過期的實測數字在那裡的影響面比任何規則檔都大——它會出現在往後每一輪的
+    # context 裡，而讀者沒有理由懷疑它。實測缺口很小（2 處「實測 <數字>」、1 處裸），
+    # 但小不是不掃的理由：小才表示現在補的成本低。
+    # **逐來源檢查，不看聯集**（#407 R67g）：加入 CLAUDE.md 之後，原本那個
+    # 「一個都沒找到就報錯」的檢查會被它撐著——兩個 rules 目錄整個消失時聯集仍非空，
+    # 於是路徑打錯或規則被搬走**不會有任何跡象**。這與 `trigger-coverage` 當初從
+    # 「聯集」改成「逐對」是同一個修正：聯集會掩蓋掉個別來源的歸零。
+    sources = {
+        '.claude/rules/*.md': glob.glob(os.path.join(root, '.claude/rules/*.md')),
+        'plugin/rules/*.md': glob.glob(os.path.join(root, 'plugin/rules/*.md')),
+        'CLAUDE.md': glob.glob(os.path.join(root, 'CLAUDE.md')),
+    }
+    empty = [k for k, v in sources.items() if not v]
+    if empty:
+        for k in empty:
+            print(f'✗ 在 {root} 底下 `{k}` 一個檔都沒找到——路徑錯了還是被搬走了？')
         return 1
+    files = sorted(f for v in sources.values() for f in v)
 
     total = 0
     bare = []

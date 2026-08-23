@@ -240,6 +240,11 @@ CASES = [
      ZIROWS_REL,
      {ZI_RULE_REL: lambda t: t.replace('（#254：', '（無編號：', 1)},
      ['沒有引用任何 issue 編號']),
+    # #407 R57：棘輪現在也讀那張表——列被改名／Swift 那側改名都要紅。
+    ('ratchet：表裡某一列的欄位名被改掉（Swift 沒動）',
+     RATCHET_REL,
+     {BACKLINK_REL: lambda t: t.replace('`Entry.venues`', '`Entry.venuez`', 1)},
+     ['在六個型別檔裡找不到']),
     ('ratchet：Swift 多一個 public let 欄位',
      RATCHET_REL,
      {MODELS_REL: lambda t: t.replace('public var authors:',

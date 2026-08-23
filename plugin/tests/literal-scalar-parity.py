@@ -55,6 +55,11 @@ CASES = [
     ('- literal: "a\\tb"',                   'a\tb'),
     # #407 R64（跨模型審查指名）：`\U` 是 8 位，非 BMP（CJK 擴充 B、emoji）。
     ('- literal: "\\U00020000"',              chr(0x20000)),
+    # #407 R66（跨模型審查指名）：YAML 雙引號純量還有這些跳脫，漏掉會輸出字面的字母。
+    ('- literal: "a\\_b"',                   'a' + chr(0xA0) + 'b'),
+    ('- literal: "a\\Nb"',                   'a' + chr(0x85) + 'b'),
+    ('- literal: "a\\eb"',                   'a' + chr(27) + 'b'),
+    ('- literal: "a\\vb"',                   'a' + chr(11) + 'b'),
 ]
 
 

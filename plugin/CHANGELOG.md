@@ -37,6 +37,38 @@
 
 
 
+
+## R62 — 第 19 支：`literal:` 純量解碼 parity（**8 種寫法 7 種分岔，是現行缺陷**）
+
+R61 只記錄了分岔、沒實作守衛（並明寫「那是下一輪的第一件事」）。做掉。
+
+### oracle 那一側：四條路都不通，所以改用**較弱但誠實**的參考解碼
+
+| 嘗試 | 結果 |
+|---|---|
+| `get-entry --library <路徑>` | `--library` 是 membership 篩選 |
+| `AKASHIC_HOME` ／ `AKASHIC_STORE` ／ `AKASHIC_ROOT` | 三個都不吃 |
+| 覆寫 `HOME` 指到 fixture store | 仍讀不到——CLI 要 registry key 才有 index（index 住 store 之外）|
+
+所以 oracle 是守衛檔內的**參考解碼**，涵蓋 8 種單行純量寫法。**這比它的兩個姊妹弱**
+（`store-marker-parity.sh` 拿真 `akashic` 當 oracle），檔頭三條邊界寫清楚。
+
+### 而它一上線就是紅的——**7/8 分岔**
+
+引號沒剝、尾隨註解吃進捕獲組、跳脫沒還原。所以守衛不能只是加上，**census 本身要修**：
+加 `_scalar()` 走 YAML 純量語義，四個抽取點全部改走它。
+
+第一版 `_scalar` 用 `endswith('"')` 判雙引號——**帶尾註時判不到**，落進未加引號分支。
+改成掃描式（找收尾引號、跳過 `\\"`），8/8 一致。
+
+**真實 store 的數字不變（distinct literal 1446）**——今天沒有引號／註解形式的 literal，
+所以這是**潛在**正確性修正。但 `distinct literal` 是整個 campaign 的分母，而它先前
+對 7 種寫法會給錯答案。
+
+守衛把 census 的 `_scalar` **抽出來執行**（不重打一份；抽不到或抽到多份都紅）。
+
+從 pre-push 導出 **19 支、失敗 0**；trigger 逐對零缺口。
+
 ## R61 — `literal:` 值抽取的分岔**已量到**；oracle 這一側卡在 store 註冊（未完成）
 
 c50 的第三條 HIGH：`literal-census.sh` 抽 `literal:` 值用的是裸 regex，而同一支腳本裡

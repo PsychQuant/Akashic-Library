@@ -417,6 +417,33 @@ for f in files:
     t = open(f, encoding="utf-8", errors="replace").read()
     # legacy 佈局檔無形狀前綴——依目錄判 kind（entries/=work、people/=person）
     parent = os.path.basename(os.path.dirname(f))
+    # **`literal:` 的值要按 YAML 純量語義解碼，不能原樣當字串**（#407 R62）。
+    # 實測 8 種寫法有 **7 種**分岔：引號沒剝、尾隨註解吃進去、跳脫沒還原。
+    # 而 `distinct literal` 是整個 campaign 的分母——分岔直接污染它。
+    def _scalar(s):
+        s = s.strip()
+        if s[:1] == '"':
+            # 掃到收尾引號（跳過 `\\"`）；其後是註解，丟掉
+            i, out = 1, []
+            while i < len(s) and s[i] != '"':
+                if s[i] == '\\' and i + 1 < len(s):
+                    out.append(s[i + 1]); i += 2
+                else:
+                    out.append(s[i]); i += 1
+            return ''.join(out)
+        if s[:1] == "'":
+            i, out = 1, []
+            while i < len(s):
+                if s[i] == "'":
+                    if s[i + 1:i + 2] == "'":
+                        out.append("'"); i += 2; continue
+                    break
+                out.append(s[i]); i += 1
+            return ''.join(out)
+        # 未加引號：` #` 起是註解（YAML 要求註解前有空白）
+        i = s.find(' #')
+        return (s[:i] if i >= 0 else s).strip()
+
     is_work = t.startswith("work:") or (parent == "entries" and not t.startswith(("person:", "organization:")))
     is_person = t.startswith("person:") or (parent == "people" and not t.startswith(("work:", "organization:")))
     if is_work:
@@ -425,13 +452,13 @@ for f in files:
         a_key += len(re.findall(r"^- key: ", blk, re.M))
         for x in re.findall(r"^- literal: (.*)$", blk, re.M):
             a_lit += 1
-            a_distinct[x.strip()] += 1
+            a_distinct[_scalar(x)] += 1
         mv = re.search(r"\nvenues:\n((?:- (?:key|literal): .*\n)*)", t)
         bv = mv.group(1) if mv else ""
         v_key += len(re.findall(r"^- key: ", bv, re.M))
         for x in re.findall(r"^- literal: (.*)$", bv, re.M):
             v_lit += 1
-            v_distinct[x.strip()] += 1
+            v_distinct[_scalar(x)] += 1
     elif t.startswith("organization:"):
         # parents 是頂層鍵（非縮排）——與 person affiliations（profile 下縮排）不同形
         m = re.search(r"\nparents:\n(.*?)(?=\n[a-z]|\Z)", t, re.S)
@@ -440,7 +467,7 @@ for f in files:
             org_key += len(re.findall(r"value:\n\s+key: ", blk))
             for x in re.findall(r"value:\n\s+literal: (.*)$", blk, re.M):
                 org_lit += 1
-                org_distinct[x.strip()] += 1
+                org_distinct[_scalar(x)] += 1
     elif is_person:
         m = re.search(r"\n  affiliations:\n(.*?)(?=\n  [a-z]|\nprofile|\Z)", t, re.S)
         if m:
@@ -448,7 +475,7 @@ for f in files:
             aff_key += len(re.findall(r"value:\n\s+key: ", blk))
             for x in re.findall(r"value:\n\s+literal: (.*)$", blk, re.M):
                 aff_lit += 1
-                aff_distinct[x.strip()] += 1
+                aff_distinct[_scalar(x)] += 1
 
 def row(label, key, lit, distinct):
     total = key + lit

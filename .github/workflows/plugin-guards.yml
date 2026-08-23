@@ -127,3 +127,5 @@ jobs:
         run: python3 plugin/tests/backlink-field-ratchet.py
       - name: zero-instance 裁決表的編號棘輪
         run: python3 plugin/tests/zero-instance-rows-audit.py
+      - name: literal 純量解碼 parity
+        run: python3 plugin/tests/literal-scalar-parity.py

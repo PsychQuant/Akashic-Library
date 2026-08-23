@@ -53,6 +53,8 @@ CASES = [
     ('- literal: "Andr\\u00e9 Weil"',        'André Weil'),
     ('- literal: "caf\\xe9"',                'café'),
     ('- literal: "a\\tb"',                   'a\tb'),
+    # #407 R64（跨模型審查指名）：`\U` 是 8 位，非 BMP（CJK 擴充 B、emoji）。
+    ('- literal: "\\U00020000"',              chr(0x20000)),
 ]
 
 
@@ -71,10 +73,25 @@ def _census_scalar():
         a = next(k for k, l in enumerate(lines) if l.startswith('    def _scalar(s):'))
     except StopIteration:
         return None, '從 census 抽不到 `_scalar`——抽取式與宣告寫法脫節了'
+    # 空行與**任意縮排的註解行**都不終止切片（#407 R64，跨模型審查指名）：一行
+    # 縮排不足的註解——維護者加一句範圍說明時很自然會左對齊——會讓切片提前結束，
+    # 而截斷後的本體**仍然語法有效**（每個分支都自帶 return），`exec` 不拋。
     b = a + 1
-    while b < len(lines) and (not lines[b].strip() or lines[b].startswith('        ')):
+    while b < len(lines) and (not lines[b].strip()
+                              or lines[b].lstrip().startswith('#')
+                              or lines[b].startswith('        ')):
         b += 1
-    m = type('M', (), {'group': lambda self, i: '\n'.join(lines[a:b])})()
+    # **切完要驗結構完整**：本體的最後一個非空、非註解行必須是 `return`。只驗
+    # 「`exec` 沒拋」擋不住截斷——那正是上一版的漏洞。
+    tail = [l for l in lines[a:b] if l.strip() and not l.lstrip().startswith('#')]
+    if not tail or not tail[-1].strip().startswith('return'):
+        return None, ('切出的 `_scalar` 本體最後一行不是 `return`——切片可能被截斷了'
+                      f'（最後一行：{tail[-1].strip()[:40] if tail else "（空）"}）')
+    # **縮排不足的註解行不進切片**：它們不終止切片（見上），但若原樣納入，
+    # `textwrap.dedent` 的共同前綴會塌成空字串、`exec` 反而炸掉（#407 R64 當場踩到）。
+    body = [l for l in lines[a:b]
+            if not (l.strip().startswith('#') and not l.startswith('        '))]
+    m = type('M', (), {'group': lambda self, i: '\n'.join(body)})()
     if src.count('def _scalar(s):') != 1:
         return None, f"census 裡有 {src.count('def _scalar(s):')} 份 `_scalar`（須恰好 1）"
     ns = {'re': re}

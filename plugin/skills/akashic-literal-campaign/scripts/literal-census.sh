@@ -434,6 +434,10 @@ for f in files:
                 if s[i] != '\\' or i + 1 >= len(s):
                     out.append(s[i]); i += 1; continue
                 e = s[i + 1]
+                # `\U` 是 8 位（非 BMP：CJK 擴充 B、emoji）。只認小寫 `u` 會讓它
+                # 落到 fallback、輸出字面的 `U` 再把 8 個十六進位當文字（#407 R64）。
+                if e == 'U' and re.fullmatch(r'[0-9A-Fa-f]{8}', s[i + 2:i + 10] or ''):
+                    out.append(chr(int(s[i + 2:i + 10], 16))); i += 10; continue
                 if e == 'u' and re.fullmatch(r'[0-9A-Fa-f]{4}', s[i + 2:i + 6] or ''):
                     out.append(chr(int(s[i + 2:i + 6], 16))); i += 6
                 elif e == 'x' and re.fullmatch(r'[0-9A-Fa-f]{2}', s[i + 2:i + 4] or ''):

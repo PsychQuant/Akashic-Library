@@ -74,7 +74,12 @@ public struct StoreHealth {
     ///
     /// **severity 與 owner 都要攜帶**：只給訊息的話消費端分不出 error 與 warning，
     /// 也指不出是哪一筆——CLI 面兩者都有，MCP 面就不能丟（#138 verify F3 的立場）。
-    public struct OwnedIssue: Sendable {
+    /// **不宣告 `Sendable`**：`ValidationIssue` 不是（`Models.swift:614`），而在
+    /// 一個非 Sendable 的成員上宣告 Sendable 在 Swift 6 是 error（現在是 warning）。
+    /// 讓 `ValidationIssue` 變 Sendable 是另一個變更的範圍——它是共用型別，動它會
+    /// 波及五族的 `validate()`。本型別不跨並行邊界（`health(from:)` 同步算完就回），
+    /// 所以不需要那個保證。
+    public struct OwnedIssue {
         /// 這筆記錄的 key（entry 是 citekey、person 是 person key…）。
         public let owner: String
         /// 它屬於哪一族（`entry`／`person`／`library`）——渲染時要分辨得出來。

@@ -41,32 +41,37 @@ final class BooktitleCarrierDerivationTests: XCTestCase {
     /// - 契約**不含** `EDITOR`／`PUBLISHER` ＝ 那個容器可以由 `Venue` 承載
     ///   （`Venue` 沒有編者欄位；出版社雖有 `VenueType.publisher`，但編著的
     ///   `BOOKTITLE + EDITOR + PUBLISHER` 三件套是 #324 明文關掉的那條路）
-    /// **兩個排除子句互為冗餘，而兩者都有理由在**（#414 R2 量測）。
+    /// **判準只排除 `EDITOR`。曾經多一個 `¬PUBLISHER`，那是錯的**（#417 R1，被測試抓到）。
     ///
-    /// 跨模型審查問：「這個謂詞會不會只是碰巧套上現表？」實測三個變體：
+    /// 跨模型審查問「這個謂詞會不會只是碰巧套上現表」，我實測了四個變體：
     ///
-    ///     BT ∧ ¬EDITOR ∧ ¬PUBLISHER  → {referenceWorkEntry}   ← 現行
-    ///     BT ∧ ¬EDITOR                → {referenceWorkEntry}   ← 同
-    ///     BT ∧ ¬PUBLISHER             → {referenceWorkEntry}   ← 同
+    ///     BT ∧ ¬EDITOR                → {referenceWorkEntry}   ← **現行**
+    ///     BT ∧ ¬EDITOR ∧ ¬PUBLISHER  → {referenceWorkEntry}   ← 曾經用這個
+    ///     BT ∧ ¬PUBLISHER             → {referenceWorkEntry}
     ///     ¬EDITOR ∧ ¬PUBLISHER（不要求 BT）→ 14 個型別          ← 顯然過寬
     ///
-    /// 三個要求 `BOOKTITLE` 的變體**答案相同**——因為現在只有兩個型別的契約含
-    /// `BOOKTITLE`（`INCOLLECTION` 與 `INREFERENCE`），而 `INCOLLECTION` 同時含
-    /// `EDITOR` 與 `PUBLISHER`，任一個子句單獨都排得掉它。
+    /// 前三個在**當前型別集合上答案相同**，因為只有 `INCOLLECTION` 與 `INREFERENCE`
+    /// 的契約含 `BOOKTITLE`，而 `INCOLLECTION` 同時含 `EDITOR` 與 `PUBLISHER`。
+    /// 我當時據此說「兩個子句都留著，各自對應一個真的案例」，並拿
+    /// `INPROCEEDINGS`（含 `PUBLISHER` 不含 `EDITOR`）當 `¬PUBLISHER` 的正當理由。
     ///
-    /// **兩個子句都留著，因為它們各自對應一個真的案例**：`EDITOR` 排的是編著
-    /// （#324 的原始裁決）；`PUBLISHER` 排的是**論文集**（`INPROCEEDINGS` 含
-    /// `PUBLISHER` 但**不含** `EDITOR`——見 `testTheSingleExceptionPointsAtAConflation`）。
-    /// 只留一個的話，另一個案例會在它出現時安靜通過。
+    /// **那個理由與我自己兩輪前的量測矛盾。** `#414` 的量測已經記過：出版社**不是**
+    /// 「venue 持不住」的東西——`VenueType` 就有 `.publisher`，而
+    /// `VenueDerivation.literals` 的第三個分支**無條件**把 publisher 變成另一個 venue
+    /// literal。論文集論文因此得到**兩個** venue（會議一個、出版社一個），而不是
+    /// 「因為有出版社所以不能有 venue」。
     ///
-    /// **這是「同樣合理的謂詞會得到不同答案嗎」的答案：不會**——收窄到三個合理變體
-    /// 內，它們一致。差異只出現在把 `BOOKTITLE` 要求拿掉的那個，而那不合理
-    /// （它會讓每個型別都變成 booktitle 載體）。
+    /// `VenueMigrationTests.testProceedingsBooktitleAndPublisher` 逐字釘住這個行為
+    /// （期望 `[.literal("Proc. of Great Conf"), .literal("Some Press")]`），而它正是
+    /// 抓到這個錯誤的那條測試——我依 `¬PUBLISHER` 把 `.conferenceSession` 移出表，
+    /// 它立刻紅。
+    ///
+    /// **`EDITOR` 是唯一真的「持不住」**：`Venue` 沒有編者欄位，也沒有任何分支把編者
+    /// 變成別的東西。#324 排除編著的原始理由就是這一條。
+    ///
     private func derivedMembership(_ t: WorkType) -> Bool {
         let contract = BibExport.fieldContract(t.biblatexEntryType)
-        return contract.contains("BOOKTITLE")
-            && !contract.contains("EDITOR")
-            && !contract.contains("PUBLISHER")
+        return contract.contains("BOOKTITLE") && !contract.contains("EDITOR")
     }
 
     /// **具名的例外，只有一個**——不得依性質相似類推第二個。
@@ -74,6 +79,18 @@ final class BooktitleCarrierDerivationTests: XCTestCase {
     /// `.conferenceSession` 的契約（`PRESENTATION`）**完全沒有 `BOOKTITLE`**，所以
     /// 謂詞說它不是成員，而表說它是。這個不合**不是謂詞壞了**，它指向一個真的建模
     /// 缺口，見下方 `testTheSingleExceptionPointsAtAConflation`。
+    /// **具名的例外，只有一個**——不得依性質相似類推第二個。
+    ///
+    /// `.conferenceSession` 的契約（`PRESENTATION`）**完全沒有 `BOOKTITLE`**，所以
+    /// 謂詞說它不是成員，而表說它是。
+    ///
+    /// **這個不合是謂詞的極限，不是表的錯**（#417 R1 更正）：`WorkType.conferenceSession`
+    /// 覆蓋 APA7 §10.5 的**兩種**形狀（會議發表／論文集論文），而正向只送
+    /// `PRESENTATION`——那個契約只描述其中一種。模型**刻意支援**帶 `booktitle` 的
+    /// conference-session 記錄（`VenueBootstrapTests` 與 `VenueMigrationTests` 各有
+    /// 一條釘住），所以欄位契約對這個型別是**不完整的 oracle**。
+    ///
+    /// 我曾據謂詞把它移出表，兩條測試立刻紅——那是系統正常運作，記在這裡免得重犯。
     private let namedException: Set<WorkType> = [.conferenceSession]
 
     /// **判準與表逐型別一致**（例外除外）。
@@ -110,56 +127,45 @@ final class BooktitleCarrierDerivationTests: XCTestCase {
 
     /// 那個例外指向什麼：`.conferenceSession` 把 APA7 §10.5 的兩種形狀併成一個型別。
     ///
-    /// §10.5 同時涵蓋「會議發表」（有 eventtitle／venue，**沒有** booktitle）與
+    /// §10.5 同時涵蓋「會議發表」（有 `eventtitle`／`venue`，**沒有** booktitle）與
     /// 「論文集中的論文」（**有** booktitle）。`WorkType` 只有一個格子給它們，正向
-    /// 一律送 `PRESENTATION`，而 `PRESENTATION` 的欄位契約沒有 `BOOKTITLE`。
+    /// 一律送 `PRESENTATION`，而那個契約只描述前者。
     ///
-    /// 兩個實測互相印證：
+    /// ## 為什麼這使欄位契約對這個型別成為不完整的 oracle
     ///
-    /// - 契約層：`PRESENTATION` 的 req ∪ rec 不含 `BOOKTITLE`（本測試斷言）
-    /// - 資料層：37 筆 `conference-session` **零筆**帶 booktitle（#414 R1 量測），
-    ///   它們用的是 `eventtitle`(33)／`venue`(12)／`location`(24)
+    /// 模型**刻意支援**帶 `booktitle` 的 conference-session 記錄——兩條既有測試釘住：
     ///
-    /// 也就是說 `.conferenceSession` 在本表裡的成員資格**目前對任何一筆記錄都不生效**。
+    /// - `VenueBootstrapTests.testBooktitleYieldsConferenceOnlyForConferenceSessions`
+    ///   （`.conferenceSession` ＋ booktitle → `.conference` 候選）
+    /// - `VenueMigrationTests.testProceedingsBooktitleAndPublisher`
+    ///   （期望 `[.literal("Proc. of Great Conf"), .literal("Some Press")]`——
+    ///   **會議與出版社各自成為一個 venue**）
     ///
-    /// ## 而它在「論文集那一種形狀」下**也不成立**（2026-08-24 量測，比原本的說法更尖）
+    /// 第二條同時是本檔判準修正的來源：我曾以「`INPROCEEDINGS` 含 `PUBLISHER`」為由把
+    /// `.conferenceSession` 移出 `booktitleCarrierTypes`，它立刻紅。出版社**不是**
+    /// venue 持不住的東西——它自己就是一個 venue。
     ///
-    /// 我先前寫「它留著是為了論文集那一種形狀」。量了才知道那個理由也站不住：
-    ///
-    ///     INPROCEEDINGS 的契約 = AUTHOR, BOOKTITLE, DATE, PUBLISHER, TITLE
-    ///
-    /// **含 `PUBLISHER`** ——所以在本檔的推導謂詞下它一樣不合格，理由與 #324 排除
-    /// `INCOLLECTION` 的完全相同：容器規格索取的欄位 venue 持不住。
-    ///
-    /// 換句話說 `.conferenceSession` 的成員資格在**兩種讀法下都不成立**：
-    ///
-    /// | 讀法 | 契約 | 謂詞 |
-    /// |---|---|---|
-    /// | 現行（送 `PRESENTATION`）| 沒有 `BOOKTITLE` | ❌ 成員資格空轉 |
-    /// | 假想（論文集送 `INPROCEEDINGS`）| 有 `BOOKTITLE` **但也有 `PUBLISHER`** | ❌ 與 `INCOLLECTION` 同理被排除 |
-    ///
-    /// **這條仍不主張該怎麼改**——把它從表裡拿掉是行為變更（雖然當下零實例），
-    /// 而那是 #417 的裁決。它只把「兩種讀法都不成立」這件事釘住，讓那個豁免不再
-    /// 讀起來像「暫時保留給一個合理的未來形狀」。
-    func testTheSingleExceptionPointsAtAConflation() {
+    /// 本條因此斷言**兩件都成立**：契約缺 `BOOKTITLE`（所以謂詞說不是成員），
+    /// 而表**仍然**收它（因為模型支援的形狀比契約描述的多）。哪一邊變了都要回來重讀。
+    func testTheExceptionIsTheContractBeingAnIncompleteOracle() {
         let contract = BibExport.fieldContract(WorkType.conferenceSession.biblatexEntryType)
         XCTAssertFalse(contract.contains("BOOKTITLE"),
-                       "PRESENTATION 的契約若已含 BOOKTITLE，這個 conflation 就消失了——"
+                       "PRESENTATION 的契約若已含 BOOKTITLE，這個例外就消失了——"
                        + "請一併更新 namedException 與這段說明：\(contract.sorted())")
         XCTAssertTrue(contract.contains("EVENTTITLE"),
-                      "會議發表的容器是 eventtitle 不是 booktitle：\(contract.sorted())")
+                      "會議發表的容器是 eventtitle：\(contract.sorted())")
         XCTAssertTrue(VenueDerivation.booktitleCarrierTypes.contains(.conferenceSession),
-                      "它仍在表裡——裁決在 #417")
+                      "它必須留在表裡——論文集論文的 booktitle 是載體，"
+                      + "VenueMigrationTests.testProceedingsBooktitleAndPublisher 釘住這件事")
 
-        // **論文集那條路也不合格**——這是上面那張表的第二列，釘住它免得日後有人
-        // 拿「留給論文集」當理由把豁免延長下去。
+        // **`INPROCEEDINGS` 不含 `EDITOR`**——所以若正向哪天改送它，現行判準
+        // （`BOOKTITLE ∧ ¬EDITOR`）會**自動**接受它，例外可以移除。釘住這一點，
+        // 因為它是這個例外的退場條件。
         let proceedings = BibExport.fieldContract("INPROCEEDINGS")
-        XCTAssertFalse(proceedings.isEmpty,
-                       "依賴應該認得 INPROCEEDINGS——不認得的話這個對照就無從做起")
         XCTAssertTrue(proceedings.contains("BOOKTITLE"), "\(proceedings.sorted())")
-        XCTAssertTrue(proceedings.contains("PUBLISHER"),
-                      "INPROCEEDINGS 含 PUBLISHER，所以論文集論文在本謂詞下與 INCOLLECTION "
-                      + "同樣不是 booktitle 載體：\(proceedings.sorted())")
+        XCTAssertFalse(proceedings.contains("EDITOR"),
+                       "INPROCEEDINGS 不含 EDITOR，所以它符合現行判準——"
+                       + "正向改送它的那天，namedException 可以清空：\(proceedings.sorted())")
     }
 
     // MARK: - venue 的身分同一性對匯出無影響（#414 附帶項）

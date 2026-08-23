@@ -193,10 +193,16 @@ public enum VenueDerivation {
     /// 像 proceedings」，是因為對它做了與 #324 同一個判準的獨立評估，而答案不同。
     /// #324 關掉的是**編著**那條路，不是「凡是 booktitle」。
     ///
-    /// **已知缺口（#339 的 `### Blocking`）**：3 筆 SEP 條目目前型別是 `.bookChapter`
-    /// ——它們與這 14 筆是同一種東西（參考工具書中的條目），但把 `.bookChapter` 加進
-    /// 本表會把 14 筆真正的編著章節一起掃進來。要修的是**它們的型別**（`.referenceWorkEntry`
-    /// 的名字對 SEP 過窄，屬 #325 家族的值域問題），不是這張表。
+    /// **那個已知缺口已於 2026-08-23 由 #409 關閉。** 它原本寫著：3 筆 SEP 條目的型別是
+    /// `.bookChapter`，與這些維基條目是同一種東西，但把 `.bookChapter` 加進本表會把 14 筆
+    /// 真正的編著章節一起掃進來——所以要修的是**它們的型別**（當時的 `.wikipediaEntry`
+    /// 這個名字對 SEP 過窄）。
+    ///
+    /// #409 就是去修那個型別的：`.wikipediaEntry` → `.referenceWorkEntry`。那 3 筆一併改
+    /// 型別後即走進本表，歸戶到 `stanford-encyclopedia-of-philosophy`。
+    ///
+    /// **這段保留而不刪**：#324 為什麼排除 `.bookChapter`、以及「同一種東西卻因型別標籤
+    /// 而分流」曾經是個真問題——那是本表判準的實例，刪掉會讓下一個人重新踩一次。
     public static // #325 階段二：三個字串猜測（"inproceedings"／"proceedings"／"conference"）
         // 收斂成**一個列舉值**。實測舊值域只出現過 `inproceedings`（4 筆），另兩個
         // 從未被任何 importer 寫入——它們是防禦性猜測，而封閉列舉讓猜測不再必要。

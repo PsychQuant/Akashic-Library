@@ -105,7 +105,7 @@ final class WorkTypeTests: XCTestCase {
         }
     }
 
-    /// #409：`referenceWorkEntry` 的名字承擔不了它實際代表的東西——它自己的三個下游
+    /// #409：`wikipediaEntry` 的名字承擔不了它實際代表的東西——它自己的三個下游
     /// 對照（APA7 §10.3「Entries in **Reference Works**」／biblatex `INREFERENCE`／
     /// CSL `entry-encyclopedia`）沒有一個說 Wikipedia，而 Zotero 的
     /// `encyclopediaArticle` 也對映進來。改名為 `referenceWorkEntry`。

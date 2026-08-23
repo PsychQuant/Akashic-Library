@@ -179,7 +179,7 @@ public enum BibExport {
     /// 條目名。(年, 月 日)。In 《工具書名》。URL
     /// ```
     ///
-    /// **條目名佔作者位置**，所以 `AUTHOR` 不是必要的——這正是 #352 把 `referenceWorkEntry`
+    /// **條目名佔作者位置**，所以 `AUTHOR` 不是必要的——這正是 #352 把 `wikipediaEntry`（#409 起 `referenceWorkEntry`）
     /// 從 `INCOLLECTION`（要求 `AUTHOR`）改對映到 `INREFERENCE` 的理由。但工具書名
     /// （`BOOKTITLE`）是必要的：沒有它，那筆參考文獻無法說出條目出自哪裡。
     ///

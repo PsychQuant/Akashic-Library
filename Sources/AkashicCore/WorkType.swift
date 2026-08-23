@@ -16,9 +16,14 @@ import Foundation
 /// ## `reference-work-entry` 是「細分」的第一個具名實例
 ///
 /// 它在 APA7 落在 **10.3**（Edited Book Chapters and Entries in Reference Works，
-/// 例 49），與 `book-chapter` 同節。但在本專案它是獨立且高頻的類型（實測 14 筆），
-/// **值得自己的格子**——使用者 2026-08-19 裁定：「我們沒有必要要完全照 APA7，而是
-/// 我們**包含**他」。
+/// 例 49），與 `book-chapter` 同節。但在本專案它是獨立且高頻的類型（2026-08-23 實測
+/// **17 筆**：14 筆維基條目 ＋ 3 筆 SEP），**值得自己的格子**——使用者 2026-08-19
+/// 裁定：「我們沒有必要要完全照 APA7，而是我們**包含**他」。
+///
+/// **那次裁定命名的是 `wikipedia-entry`**；#409（2026-08-23）改名為
+/// `reference-work-entry`，因為三個下游對照（APA7 §10.3 標題、biblatex `INREFERENCE`、
+/// CSL `entry-encyclopedia`）沒有一個說 Wikipedia，而 SEP 不是 Wikipedia。**裁決本身
+/// 沒變**（這一格值得存在），變的只是它的名字。
 ///
 /// ## 為什麼是兩階段
 ///

@@ -178,7 +178,7 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
 > | 群 | 筆數 | 容器 |
 > |---|---|---|
 > | `wikipedia-entry`（#409 起 `reference-work-entry`） | 14 | 維基百科 ×10 ＋ Wikipedia ×4（**同一個容器的兩個語言變體**） |
-> | SEP 條目（型別目前是 `book-chapter`） | 3 | The Stanford Encyclopedia of Philosophy ×3 |
+> | SEP 條目（**當時**型別是 `book-chapter`；#409 起 `reference-work-entry`） | 3 | The Stanford Encyclopedia of Philosophy ×3 |
 > | 真正的編著章節 | 14 | 14 個容器，**每個 ×1** |
 >
 > **裁決（使用者 2026-08-23）：參考工具書的容器走 venue，不走 `booktitle` ref。**

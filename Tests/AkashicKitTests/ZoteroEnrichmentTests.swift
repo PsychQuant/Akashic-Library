@@ -198,7 +198,8 @@ final class ZoteroEnrichmentTests: XCTestCase {
     /// `encyclopediaArticle` 先前不在 `typeMap`，fallback 到 `.webpage`（10.16）。
     /// 那是**落錯節**：百科條目是 10.3，而 10.3 的 source element 在 10.16 沒有位置。
     ///
-    /// 附帶擋住一個潛伏回歸：#325 已把那 14 筆訂為 `reference-work-entry`，而 pull 每次
+    /// 附帶擋住一個潛伏回歸：#325 已把那 14 筆訂為 `wikipedia-entry`（#409 起改名為
+    /// `reference-work-entry`），而 pull 每次
     /// 都重設 `entry.type`——沒有這一列，一次 `import-zotero` 就把它們降回 webpage。
     func testEncyclopediaArticleMapsToTheReferenceWorkEntryType() {
         XCTAssertEqual(ZoteroMapping.workType(for: "encyclopediaArticle"), .referenceWorkEntry)

@@ -58,7 +58,7 @@ final class APA7SupplementalFieldsTests: XCTestCase {
     /// **`AUTHOR` 不得是必要欄位。**
     ///
     /// 這是整條線的重點。APA7 §10.3 的參考工具書條目**條目名佔作者位置**，所以維基
-    /// 條目沒有個人作者是**正確形式**而非缺漏。#352 把 `referenceWorkEntry` 從
+    /// 條目沒有個人作者是**正確形式**而非缺漏。#352 把 `wikipediaEntry`（#409 起 `referenceWorkEntry`）從
     /// `INCOLLECTION`（要求 `AUTHOR`）改對映到 `INREFERENCE` 就是為了消除那 14 筆
     /// 假陽性——若補充表把 `AUTHOR` 寫進必要欄位，那個假陽性就從另一條路回來了。
     func testAuthorIsNotRequiredForReferenceWorkEntries() {

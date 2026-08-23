@@ -347,7 +347,7 @@ final class APA7GoldenTests: XCTestCase {
     /// fixture**。
     ///
     /// 我們送出的 14 個 entry type 裡，不在 `APADataModel.requiredFields` 內的是
-    /// `INREFERENCE`（`referenceWorkEntry`，#354）／`IMAGE`（`visualWork`）／`UNPUBLISHED`
+    /// `INREFERENCE`（當時的 `wikipediaEntry`，#354；#409 起 `referenceWorkEntry`）／`IMAGE`（`visualWork`）／`UNPUBLISHED`
     /// （`review`、`unpublishedWork`）。而它們對應的節（10.3 的維基細分、10.14、10.7、
     /// 10.8）——除了 10.3 由 `bookChapter` 覆蓋——全都在 `sectionsWithoutFixtures` 裡。
     ///

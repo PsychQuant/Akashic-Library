@@ -41,35 +41,75 @@ SERVER = 'Sources/akashic-mcp/Server.swift'
 CLI = 'Sources/akashic/CLI.swift'
 
 
-def _command_name(type_name, srcs):
-    """抽某個 struct 的 `commandName`，**用大括號配對界定它自己的本體**。
+def _struct_body(type_name, srcs):
+    """回傳 `struct T` 的本體區段，**大括號配對時跳過字串與註解**。
 
-    演化（兩步，都是被實測逼出來的）：
+    演化（三步，每一步都由實測逼出）：
 
-      R54  `struct T\\s*:.*?commandName:` ＋ DOTALL —— `T` 本體裡沒有 `commandName:`
-           時（例如寫在 extension），非貪婪的 `.*?` 會走過 `T` 的定義綁到**下一個**
-           struct 的值，靜默貼錯標籤。
-      R54b 改成「到下一個 `struct ` 宣告為止」——**仍然不是 scope-aware**：實測
-           `CreateEntryCmd` 的區段終止在它**自己巢狀的** `struct EntryDraft`（#407
-           R55，跨模型審查指名）。今天無害（`commandName` 在巢狀型別之前），但把
-           巢狀型別上移一行就會讓抽取回 `None`，而訊息會去怪稽核程序自己。
-      R55  **大括號配對**：從 `T` 的 `{` 數到它的 `}`。巢狀型別、中間夾 `enum`、
-           extension 都不再影響邊界。
+      R54  `struct T\\s*:.*?commandName:` ＋ DOTALL → 沒有 `commandName:` 時走過 T。
+      R54b 到下一個 `struct ` 宣告為止 → 終止在 T **自己巢狀的** struct。
+      R55  大括號配對 → **仍然壞**：字串字面裡的 `"{"`／`"}"` 也被算進去。實測
+           `CreateEntryCmd` 的區段長 **90,902** 字元，而
+           `CreateEntryCommand.swift` 全檔只有 15,061——區段衝出檔案外六倍
+           （#407 R58，跨模型審查指名；R55 的 docstring 自己預測過「失敗方向是
+           區段過長」，而那句話當時已經是**現行事實**，不是預測）。
+      R58  跳過 `"..."`（含跳脫）、`//` 到行尾、`/* */`，再數大括號。
 
-    誠實邊界：字串／註解裡的大括號會讓計數失準。Swift 原始碼裡這在**宣告區**極少見，
-    而失敗方向是區段過長或過短——過短會回 `None`（出聲），過長退化成上一版的行為。
+    誠實邊界：**多行字串有處理**——上一版的 docstring 寫「六個命令檔目前都沒有」，
+    而把那句話做成斷言時**當場被否證：實測 4 處**。原始字串（`#"…"#`）不處理，
+    實測 **0 處**，由 `_no_exotic_strings` 守住（#407 R58）。
+    的斷言）。
     """
     m = re.search(r'struct\s+' + re.escape(type_name) + r'\b[^{]*\{', srcs)
     if not m:
         return None
-    depth, i = 1, m.end()
-    while i < len(srcs) and depth:
-        if srcs[i] == '{':
+    depth, i, n = 1, m.end(), len(srcs)
+    while i < n and depth:
+        c = srcs[i]
+        if srcs.startswith('\"' * 3, i):
+            j = srcs.find('\"' * 3, i + 3)
+            i = n if j < 0 else j + 3
+            continue
+        if c == '"':
+            i += 1
+            while i < n and srcs[i] != '"':
+                i += 2 if srcs[i] == '\\' else 1
+            i += 1
+            continue
+        if c == '/' and i + 1 < n and srcs[i + 1] == '/':
+            while i < n and srcs[i] != '\n':
+                i += 1
+            continue
+        if c == '/' and i + 1 < n and srcs[i + 1] == '*':
+            j = srcs.find('*/', i + 2)
+            i = n if j < 0 else j + 2
+            continue
+        if c == '{':
             depth += 1
-        elif srcs[i] == '}':
+        elif c == '}':
             depth -= 1
         i += 1
-    return re.search(r'commandName:\s*"([^"]+)"', srcs[m.end():i])
+    return srcs[m.end():i]
+
+
+def _no_exotic_strings(srcs):
+    """`_struct_body` 的掃描器不處理**原始字串**——所以要**量**它不在場。
+
+    docstring 若只寫「目前沒有」而不驗，那句話會在第一個人加進來時安靜變假
+    （#407 R58）。回傳 `None` 表示乾淨，否則回傳要報的訊息。
+    """
+    raw = len(re.findall(r'#"', srcs))
+    if raw:
+        return (f'原始碼出現原始字串 `#"…"#`（{raw} 處）——`_struct_body` 的掃描器'
+                f'不處理它們，區段可能算錯')
+    return None
+
+
+def _command_name(type_name, srcs):
+    body = _struct_body(type_name, srcs)
+    if body is None:
+        return None
+    return re.search(r'commandName:\s*"([^"]+)"', body)
 
 
 def main():
@@ -115,6 +155,10 @@ def main():
             fails.append(f'CLI subcommand `{mm.group(1)}`（{t}）**規則檔裡完全沒提到**')
     for t in unresolved:
         fails.append(f'<未解析> {t} 抽不到 commandName——稽核程序自己壞了')
+
+    exotic = _no_exotic_strings(srcs)
+    if exotic:
+        fails.append(exotic)
 
     # ②b **表 → 命令**方向（#407 R51，跨模型審查指名）。規則自己在 CLI-only 表下方
     #     寫了這個方向並附了觸發實例（#325 刪掉 `migrate-work-types`）：表裡提到的

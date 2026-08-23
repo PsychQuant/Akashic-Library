@@ -317,6 +317,14 @@ def _move_nested_struct_up(src):
 
 
 ROBUST = [
+    # #407 R58：掃描器要跳過字串裡的大括號。注入一個**不平衡**的 `"{"` 字面——
+    # 天真計數會讓區段暴走（實測 90,902 字元 vs 該檔 15,061），修好之後不受影響。
+    ('Swift 裡多一個不平衡的大括號字串字面（不得讓區段暴走）',
+     PARITY_TABLE_REL,
+     {CREATE_ENTRY_REL: lambda t: t.replace(
+         'struct CreateEntryCmd: ParsableCommand {',
+         'struct CreateEntryCmd: ParsableCommand {\n    static let brace = "{"', 1)},
+     ['三面皆同步']),
     ('把巢狀型別搬到 configuration 之前（純重排，不得被當成缺陷）',
      PARITY_TABLE_REL,
      {CREATE_ENTRY_REL: _move_nested_struct_up},

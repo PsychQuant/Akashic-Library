@@ -190,7 +190,25 @@ public struct ISBN: Identifier {
             } else { return nil }
             guard let expected = mod11(digits, weights: [10, 9, 8, 7, 6, 5, 4, 3, 2]),
                   expected == lastValue else { return nil }
-            normalized = c
+            // **ISBN-10 → ISBN-13 是正規化，不是基數**（2026-08-24 裁決）。
+            //
+            // 兩者不是兩個識別碼，是同一個識別碼的兩種編碼：ISBN-13 ＝ `978` ＋
+            // ISBN-10 的前 9 碼 ＋ 重算 check digit。把它們當成兩個值（或拆成
+            // `isbn10`／`isbn13` 兩個欄位）等於**把編碼當成身分建模**——與
+            // `0003-066x` vs `0003-066X` 是同一個錯誤，只是換個尺度。
+            //
+            // 實測依據（真實 store 的 5 筆多值 ISBN）：`berk2018development` 由 2 個
+            // 收斂為 **1**、`kelley2023sample` 由 4 收斂為 **2**（兩本書各有 10 與 13
+            // 兩種寫法）；而 `dweck2000social`（精裝／平裝）與 `genz2009computation`
+            // （softcover／electronic）**仍是 2**——真的兩個產品不會被收掉。
+            //
+            // **只做 10 → 13，不做反向**：`979` 前綴的 ISBN-13 沒有 ISBN-10 對應物，
+            // 單向轉換才是全定義的。`raw` 保留磁碟上的原寫法（§2 的雙字串設計）。
+            let core = "978" + c.prefix(9)
+            let sum = core.enumerated().reduce(0) {
+                $0 + ($1.element.wholeNumberValue ?? 0) * ($1.offset % 2 == 0 ? 1 : 3)
+            }
+            normalized = core + String((10 - sum % 10) % 10)
         } else if c.count == 13 {
             var digits: [Int] = []
             for ch in c {

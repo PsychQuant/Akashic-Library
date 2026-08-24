@@ -38,7 +38,7 @@
 交付 spec requirement「An identifier field SHALL be attachable」。
 
 - [x] 6.1 交付 spec requirement「An identifier field SHALL be attachable」。在 `ProvenanceReference` 的欄位白名單新增 `doi`／`pmid`／`isbn`／`issn`／`ror`，使識別碼能攜帶來源。驗證目標——新測試斷言一筆帶 `field: issn` reference 的 venue 記錄可載入，且該 reference 出現在讀回的記錄上。
-- [ ] 6.2 `docs/store-format.md` 的版本對照表新增 format 13 一列，寫明「`references[].field` 白名單是 strict → 舊 binary 整檔 quarantine」的升版理由；`StoreVersion` 的支援版本同步。驗證目標——對 format 13 的 store 用未升級路徑讀取的測試斷言拒讀並指路。
+- [x] 6.2 `docs/store-format.md` 的版本對照表新增 format 13 一列，寫明「`references[].field` 白名單是 strict → 舊 binary 整檔 quarantine」的升版理由；`StoreVersion` 的支援版本同步。驗證目標——對 format 13 的 store 用未升級路徑讀取的測試斷言拒讀並指路。
 
 ## 7. 匯出面：結構化值勝過自由字典殘留
 

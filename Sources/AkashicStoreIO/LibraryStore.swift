@@ -1856,21 +1856,20 @@ public extension LibraryLoad {
         // DOI 依規格**大小寫不敏感**，且同一個 DOI 有多種儲存形式——
         // `https://doi.org/10.x/y`、`doi:10.x/y`、裸 `10.x/y`。只 trim+lowercase
         // 會讓「兩筆存法不同的同一個 DOI」逃掉（真實案例：同一篇 Methods in
-        // Psychology 論文一筆存 URL 形式、一筆存裸 DOI）。空字串與缺席一律跳過，
-        // 否則整個沒有 DOI 的子集會湊成一則巨大的假警告。
-        func normalizedDOI(_ raw: String?) -> String {
-            var s = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            for p in ["https://doi.org/", "http://doi.org/",
-                      "https://dx.doi.org/", "http://dx.doi.org/", "doi:"] {
-                if s.hasPrefix(p) { s.removeFirst(p.count); break }
-            }
-            return s.trimmingCharacters(in: .whitespaces)
-        }
+        // Psychology 論文一筆存 URL 形式、一筆存裸 DOI）。這些前綴的剝除與小寫
+        // 現在住在 `DOI.init?`，本地不再重做一份——**同一份規格的兩個副本必然分岔**。
+        //
+        // **讀 `canonicalDOIs` 而不是 `fields["doi"]`**（#394 verify）。曾經讀後者，
+        // 而 §8 的遷移把 664 筆的 `fields.doi` 移除之後這條檢查恆為空：18 組共用 DOI
+        // 的警告全滅，其中 15 組改由下面那條印成「標題與年份相同但 **DOI 不同**」
+        // ——而那 15 組的 DOI 逐字相同。**一條檢查變瞎不只是少報，它讓另一條開始說謊。**
         var byDOI: [String: [String]] = [:]
         for e in entries {
-            let doi = normalizedDOI(e.fields["doi"])
-            guard !doi.isEmpty else { continue }
-            byDOI[doi, default: []].append(e.citekey)
+            // 同一筆 work 的多個 DOI 正規化後可能相同（例：URL 形式 ＋ 裸形式），
+            // 去重，否則「被 N 筆 work 共用」會把同一個 citekey 數兩次。
+            for d in Set(e.canonicalDOIs.map(\.normalized)) where !d.isEmpty {
+                byDOI[d, default: []].append(e.citekey)
+            }
         }
         var reportedByDOI = Set<String>()
         for (doi, cites) in byDOI.sorted(by: { $0.key < $1.key }) where cites.count > 1 {

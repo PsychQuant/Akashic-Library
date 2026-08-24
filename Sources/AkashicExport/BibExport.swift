@@ -8,7 +8,7 @@ public enum BibExport {
     /// Entry.fields（已是 biblatex 欄位名）之外的一級欄位對映。
     public static func bibEntry(for entry: Entry, people: [String: Person],
                                 organizations: [String: Organization] = [:],
-                                venues: [String: Venue] = [:]) -> BibEntry {
+                                venues: [String: Venue]) -> BibEntry {
         // 每個值都過 `braceSafe`（#176）。**逐個作者、不是 join 之後**——一個壞名字
         // 不該把整串作者一起拖進逃脫（那會改掉同一筆裡其他機構名的 `{...}` 標記）。
         var fields = OrderedDict()
@@ -303,14 +303,21 @@ public enum BibExport {
     /// 對每筆 entry 跑 APA7 必要欄位檢查，回報缺漏與**未被涵蓋的 type**。
     ///
     /// 不改變 `.bib` 內容——本函式是純讀取的旁路檢查（warn-only，#326 裁決）。
+    ///
+    /// **`venues` 無預設值是刻意的**（#394 verify）：§8 讓 ISSN 住 venue 之後，漏傳
+    /// 它的呼叫端會評到一份**沒有 ISSN 的** `BibEntry`，而編譯器不會出聲。這正是
+    /// 下面那句 doc comment 禁止的分岔——它當時只防住 entry type，防不住欄位來源。
     public static func apa7Report(entries: [Entry], people: [Person],
+                                  venues: [Venue],
                                   organizations: [Organization] = []) -> APA7Report {
         let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
         let orgsByKey = Dictionary(uniqueKeysWithValues: organizations.map { ($0.key, $0) })
+        let venuesByKey = Dictionary(venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         var issues: [APA7Issue] = []
         var unchecked: [String] = []
         for entry in entries.sorted(by: { $0.citekey < $1.citekey }) {
-            let bib = bibEntry(for: entry, people: peopleByKey, organizations: orgsByKey)
+            let bib = bibEntry(for: entry, people: peopleByKey, organizations: orgsByKey,
+                               venues: venuesByKey)
             // 與 `bibEntry` 走**同一個**對映（#417）：兩邊分岔的話，報告會拿
             // `PRESENTATION` 的必要欄位去檢查一筆實際匯出成 `INPROCEEDINGS` 的記錄。
             let entryType = entry.type.biblatexEntryType(fields: entry.fields)
@@ -353,7 +360,7 @@ public enum BibExport {
 
     public static func bibFile(entries: [Entry], people: [Person],
                                organizations: [Organization] = [],
-                               venues: [Venue] = []) -> String {
+                               venues: [Venue]) -> String {
         let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
         let orgsByKey = Dictionary(uniqueKeysWithValues: organizations.map { ($0.key, $0) })
         // #394 §8：ISSN 遷移到 venue 之後，work 的 .bib 要從這裡撈。

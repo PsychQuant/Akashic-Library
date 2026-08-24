@@ -287,7 +287,7 @@ public final class AkashicService {
             // biblatex 註解（`%`）前置——輸出仍是合法 `.bib`，而 LLM 消費端看得到缺漏。
             // 兩面**載體不同、能力相同**，屬 `mcp-cli-parity` 允許的有記錄差異
             // （同 `resolve-people` 的兩面契約差異）。
-            let report = BibExport.apa7Report(entries: entries, people: load.people)
+            let report = BibExport.apa7Report(entries: entries, people: load.people, venues: load.venues)
             var header = ""
             for issue in report.issues {
                 header += "% [\(issue.severity.rawValue.uppercased())] "
@@ -302,7 +302,7 @@ public final class AkashicService {
             return try safe(header + BibExport.bibFile(entries: entries, people: load.people,
                                                        venues: load.venues))
         case "csl-json":
-            return try safe(CSLExport.cslJSON(entries: entries, people: load.people))
+            return try safe(CSLExport.cslJSON(entries: entries, people: load.people, venues: load.venues))
         default: throw ServiceError.invalid("format 必須是 bib / csl-json")
         }
     }

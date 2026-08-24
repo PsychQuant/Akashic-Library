@@ -127,7 +127,15 @@ public enum RelationalExport {
             [e.id.uuidString, e.citekey, e.type.rawValue, e.title,
              e.date, year(of: e.date).map(String.init),
              e.fields["journaltitle"] ?? e.fields["journal"],
-             e.fields["doi"], e.akashic.status]
+             // `canonicalDOIs` 而非 `fields["doi"]`（#394 verify）——§8 的遷移把 664 筆
+             // 的 `fields.doi` 移除後，這一欄對它們全為 NULL。
+             //
+             // **`.first` 是零實例下的顯式裁決**（`zero-instance-guards`）：本表一列一筆
+             // work，而 DOI 是清單。實測全庫**帶 >1 個 DOI 的 work ＝ 0 筆**，所以今天
+             // 取第一個不丟任何東西。**觸發條件**：`akashic validate` 出現任何一筆帶
+             // 兩個結構化 DOI 的 work 時重裁——正解是另立一張 publication_doi 表，
+             // 不是在 CSV 欄位裡塞分隔符（那會把解析責任推給下游）。
+             e.canonicalDOIs.first?.normalized, e.akashic.status]
         }
 
         // key → person id。**用 people 的實際內容解析，不重算 UUID**——

@@ -265,13 +265,39 @@ public enum WoSImport {
         //
         // 身分用 **DOI 優先，無 DOI 則 (標題, 年份)**——citekey 是衍生的稱呼，
         // 拿它當身分正是上面那個 bug 的來源。
-        func identity(_ e: Entry) -> String {
-            if let doi = e.fields["doi"]?.lowercased(), !doi.isEmpty { return "doi:\(doi)" }
+        // **讀 `canonicalDOIs` 不讀 `fields["doi"]`**（#394 verify）。§8 的遷移把
+        // 664 筆的 `fields.doi` 移到結構化欄位之後，庫內記錄的身分退化成
+        // `ty:<標題>|<年>`，而從 WoS 列生出的 probe 仍寫 `fields.doi`、身分是
+        // `doi:<...>`——**兩側永遠對不上**，於是每一次重跑都走「新的一篇」那條路。
+        // 上面那段註解描述的 bug 被這次遷移原封不動地重新裝填了一次。
+        //
+        // 索引**每一個** DOI 而不是第一個：一筆 work 可以有多個 DOI（型別是清單），
+        // 若庫內記錄存 `[B, A]` 而 WoS 列給 A，只比第一個就會漏配並生出重複。
+        // 實測目前全庫帶 >1 個 DOI 的 work ＝ 0 筆，所以這一步今天不改變任何結果；
+        // 寫成這樣是因為**這個函式的失效模式就是安靜地多一份**。
+        func titleYearIdentity(_ e: Entry) -> String {
             let y = e.date?.prefix(4) ?? ""
             return "ty:\(e.title.lowercased())|\(y)"
         }
-        let byIdentity = Dictionary(load.entries.map { (identity($0), $0) },
+        var byDOI: [String: Entry] = [:]
+        for e in load.entries {
+            for d in e.canonicalDOIs {
+                if byDOI[d.normalized] == nil { byDOI[d.normalized] = e }
+            }
+        }
+        let byIdentity = Dictionary(load.entries.map { (titleYearIdentity($0), $0) },
                                     uniquingKeysWith: { a, _ in a })
+        /// DOI 命中優先；無 DOI 或查無才退回 (標題, 年份)。
+        func existing(matching probe: Entry) -> Entry? {
+            for d in probe.canonicalDOIs {
+                if let hit = byDOI[d.normalized] { return hit }
+            }
+            // 帶 DOI 卻查不到時**不**退回標題比對：DOI 是身分證，它說「不是同一筆」
+            // 就不是（`identity-is-judged-not-matched` 的識別碼例外）。退回去會讓
+            // 兩篇同題同年而 DOI 不同的論文被誤判成同一筆。
+            guard probe.canonicalDOIs.isEmpty else { return nil }
+            return byIdentity[titleYearIdentity(probe)]
+        }
 
         for (i, row) in rows(from: text, separator: separator).enumerated() {
             let groups = aliasGroups(abbreviated: row["Authors"], full: row["Author Full Names"])
@@ -283,7 +309,7 @@ public enum WoSImport {
             if !venueCapable { probe.venues = [] }
             report.aliasGroups += groups.filter { $0.count > 1 }
 
-            if let existing = byIdentity[identity(probe)] {
+            if let existing = existing(matching: probe) {
                 // 同一篇。比對時忽略 id（新生成的 UUID 必然不同）、citekey（衍生的稱呼）
                 // 與 unknownFields。
                 var a = existing, b = probe

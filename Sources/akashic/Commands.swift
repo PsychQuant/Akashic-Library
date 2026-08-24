@@ -1244,14 +1244,14 @@ struct ExportBib: ParsableCommand {
             }
         }
         let content: String = cslJson
-            ? try CSLExport.cslJSON(entries: entries, people: load.people)
+            ? try CSLExport.cslJSON(entries: entries, people: load.people, venues: load.venues)
             : BibExport.bibFile(entries: entries, people: load.people,
                                 venues: load.venues)
         // #326：APA7 完整性報告（warn-only，不改變匯出內容）。走 stderr，讓 stdout
         // 的 `.bib` 仍可被管線直接吃。CSL 路徑不跑——`BibValidator` 驗的是 biblatex
         // 欄位名。
         if !cslJson {
-            let report = BibExport.apa7Report(entries: entries, people: load.people)
+            let report = BibExport.apa7Report(entries: entries, people: load.people, venues: load.venues)
             for issue in report.issues {
                 FileHandle.standardError.write(Data(
                     "[\(issue.severity.rawValue.uppercased())] \(displaySafe(issue.citekey, max: 200)): \(displaySafe(issue.message, max: 300))\n".utf8))

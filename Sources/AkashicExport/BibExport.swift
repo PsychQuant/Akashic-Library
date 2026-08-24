@@ -32,6 +32,25 @@ public enum BibExport {
         for key in entry.fields.keys.sorted() {
             fields[key] = entry.fields[key].map(braceSafe)
         }
+        // 作品識別碼（#394 §7）。**在 `fields` 之後寫**——理由同下方學位論文欄位：
+        // 遷移把 `doi` 從 `Entry.fields` 搬進結構化欄位之後，上面那個逐鍵迴圈就不再
+        // 輸出它，而 `.bib` 少一個欄位**不會報錯**（LaTeX 照樣編得過，只是參考文獻
+        // 少了 DOI）。這是 `apa7-is-the-work-floor` 記過的「語法正確性與書目正確性是
+        // 兩件事」，而目前只有前者有守衛。
+        //
+        // **只在有結構化值時覆蓋。** 遷移前的記錄只有 `fields.doi`，那時必須照舊
+        // 輸出殘留——否則光是升級 binary 就會讓全庫的 DOI 從 .bib 消失。
+        //
+        // 多值以逗號分隔：一筆 work 真的可以有多個 DOI（實測 37 組同題同年而 DOI
+        // 不同），只留一個等於丟掉一次身分判定。寫出的是**正規形**——磁碟上可能是
+        // 非正規形，但 .bib 是給下游排版用的。
+        func emitIdentifiers<T: Identifier>(_ ids: [T], as key: String) {
+            guard !ids.isEmpty else { return }
+            fields[key] = braceSafe(ids.map(\.normalized).joined(separator: ", "))
+        }
+        emitIdentifiers(entry.doi, as: "doi")
+        emitIdentifiers(entry.pmid, as: "pmid")
+        emitIdentifiers(entry.isbn, as: "isbn")
         // 學位論文事實（#335）。**在 `fields` 之後寫**，所以結構化欄位勝過自由字典裡
         // 同名的殘留值——遷移把 `fields.type` 搬進 `thesis.degree` 之後那個殘留不該
         // 存在，但若存在，結構化的那個才是正典（`no-compat-fallback`：不留兩條讀法）。

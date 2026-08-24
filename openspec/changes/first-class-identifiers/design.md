@@ -135,7 +135,20 @@ store 對識別碼有三種並存待遇，且沒有任何一次裁決記錄說�
 **Acceptance criteria**
 
 - `swift test` 全綠，且新增測試涵蓋：六種識別碼各自的合法／非法／非正規輸入；清單與純量兩種 provenance 分支；round-trip 保留未知欄位。
-- 對 store 跑 `akashic export-bib` 並與升格前的輸出逐位元比對，`DOI`／`ISBN`／`PMID` 欄位無差異。
+- 對 store 跑 `akashic export-bib` 並與升格前的輸出逐位元比對，`DOI`／`ISBN`／`PMID` 欄位
+  **除下述 15 筆之外**無差異；那 15 筆須逐筆出現在遷移報告裡（before → after）。
+
+  > **這一條在 2026-08-24 被改過，原本寫的是「無差異」。** 實測那個條件達不到，而原因
+  > **不在 export**：`DOI.normalized` 會剝 URL 前綴並整串轉小寫（§2 既有行為，DOI 依規格
+  > case-insensitive），而遷移把正規形寫進 store，所以之後 `raw == normalized`——位元的
+  > 改變是**遷移本身**造成的，換 export 寫 `raw` 也躲不掉。
+  >
+  > 實測（667 筆帶 `doi` 的 work）：664 可解析、3 無法解析（遷移略過並具名）、
+  > **15 筆正規化後值會變**，分兩類——`https://doi.org/10.1016/…` → 裸 DOI（剝前綴），
+  > `10.1007/BF02294210` → `10.1007/bf02294210`（轉小寫）。
+  >
+  > 使用者裁定接受兩類改寫。「除 15 筆外逐位元相同 ＋ 15 筆逐筆列出」比原本的「無差異」
+  > **強**：它可檢查，而且把實際動了什麼攤出來，而不是斷言什麼都沒動。
 - 遷移後 `akashic validate` 零新增 diagnostic；帶 `issn` 的 work 數自 64 降至 0，帶 `issn` 的 venue 數自 0 升至 39。
 - `.claude/rules/mcp-cli-parity.md` 的三張裁決表對本 change 新增的每一個面各有一列。
 

@@ -1416,6 +1416,21 @@ extension LibraryStore {
         lostIdentifiers(keeper.doi, e.doi, label: "doi")
         lostIdentifiers(keeper.pmid, e.pmid, label: "pmid")
         lostIdentifiers(keeper.isbn, e.isbn, label: "isbn")
+        // 欄位層級 provenance（#394 §5）：差集判準、指名——同上。
+        //
+        // **為什麼不能只靠上面的識別碼檢查涵蓋**：兩者會分開。倖存者與被併者帶著
+        // **同一個** DOI 時上面那三行不報任何東西（差集為空），但被併者可能是唯一
+        // 記著「這個號是從哪裡查到的」的那一筆。丟掉它不會讓任何識別碼消失，只會讓
+        // 一個有來源的值變成沒來源的值——而那是安靜的：合併後的記錄看起來完全正常。
+        //
+        // 這正是 provenance-reference spec 那句「不能攜帶 reference 的識別碼不算
+        // 記錄的一等公民」在合併面的對偶：能攜帶但在合併時被靜默丟掉，等於沒有。
+        let lostRefs = e.references.filter { !keeper.references.contains($0) }
+        if !lostRefs.isEmpty {
+            losses.append("references: " + lostRefs.map {
+                "\($0.field)" + ($0.value.map { v in "（\(displaySafe(v, max: 80))）" } ?? "")
+            }.joined(separator: "、"))
+        }
         // 學位論文事實（#335）：整塊當一個值比，不逐欄位拆。
         //
         // 理由是那兩個事實**互相依賴**——`availability: published` 帶著典藏庫，
@@ -1708,15 +1723,15 @@ extension LibraryStore {
     ///
     /// | 比對（12） | **部分比對**（2） | 排除（2） |
     /// |---|---|---|
-    /// | `fields`、`attachments`、`akashic`（tags／libraries／status／relations／authorListCompleteness／unknownFields 六個子欄位都在裡面，**收合成一個屬性算**）、`authors`、`venues`（#304，差集判準同 authors 的理由）、`date`、`unknownFields`、`provenance`、`thesis`（#335，**整塊比不逐欄位拆**——兩個事實互相依賴，逐欄位比會產生沒人裁決過的混合）、`doi`／`pmid`／`isbn`（#394，差集判準；丟掉一個識別碼是丟掉一次**身分判定**，且它不可由名字重算） | `type`、`title`——**只比缺席方向**（見下） | `id`、`citekey` |
+    /// | `fields`、`attachments`、`akashic`（tags／libraries／status／relations／authorListCompleteness／unknownFields 六個子欄位都在裡面，**收合成一個屬性算**）、`authors`、`venues`（#304，差集判準同 authors 的理由）、`date`、`unknownFields`、`provenance`、`thesis`（#335，**整塊比不逐欄位拆**——兩個事實互相依賴，逐欄位比會產生沒人裁決過的混合）、`doi`／`pmid`／`isbn`（#394，差集判準；丟掉一個識別碼是丟掉一次**身分判定**，且它不可由名字重算）、`references`（#394 §5，差集判準；**與識別碼檢查不重疊**——兩邊帶同一個 DOI 時識別碼差集為空，但被併者可能是唯一記著那個號從哪查到的，丟掉它會讓一個有來源的值安靜地變成沒來源的值） | `type`、`title`——**只比缺席方向**（見下） | `id`、`citekey` |
     ///
-    /// 12 + 2 + 2 = 16，由 `testEntryFieldCoverageOfMergeCheck` 以反射釘住。
+    /// 13 + 2 + 2 = 17，由 `testEntryFieldCoverageOfMergeCheck` 以反射釘住。
     ///
     /// **反射只釘頂層**（#157 verify 157-9）：`AkashicMeta`／`Relations`／`Provenance`
     /// 的巢狀屬性另有各自的計數斷言——歷史上 schema 演化正是發生在 `akashic` 那層
     /// （`Models.swift` 自己這麼寫，#13 的 `libraries` 即是），只釘頂層等於對最會
     /// rot 的地方失明。
-    static let entryFieldsCoveredByMergeCheck = 16
+    static let entryFieldsCoveredByMergeCheck = 17
 
     /// `p` 的哪些 profile 維度**不是** `keeper` 的子集。空 = 合併不會失去任何時間軸。
     private static func profileDimensionsNotCovered(

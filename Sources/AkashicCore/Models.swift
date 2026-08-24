@@ -76,6 +76,11 @@ public struct Entry: Equatable {
     public var pmid: [PMID]
     /// ISBN（#394）。不同版次／地區可以是不同的號。
     public var isbn: [ISBN]
+    /// 欄位層級的 provenance（#394 §5）。**本輪新增的一條邊**——在此之前 work 的識別碼
+    /// 無法攜帶來源，而 spec 明寫「不能攜帶 reference 的識別碼不算記錄的一等公民」。
+    /// 目前值域只有三個識別碼欄位（見 `validateReferenceAttachment`）。
+    /// 空清單不序列化——既有記錄零 diff。
+    public var references: [ProvenanceReference]
     /// 頂層未知欄位（tolerant-preserve，#23）。
     public var unknownFields: [UnknownField]
 
@@ -85,7 +90,9 @@ public struct Entry: Equatable {
                 provenance: Provenance? = nil, akashic: AkashicMeta = AkashicMeta(),
                 thesis: ThesisFacts? = nil,
                 doi: [DOI] = [], pmid: [PMID] = [], isbn: [ISBN] = [],
+                references: [ProvenanceReference] = [],
                 unknownFields: [UnknownField] = []) {
+        self.references = references
         self.doi = doi
         self.pmid = pmid
         self.isbn = isbn

@@ -152,6 +152,10 @@ public enum EntryYAML {
         if let n = IdentifierYAML.listNode(entry.doi) { pairs.append((Node("doi"), n)) }
         if let n = IdentifierYAML.listNode(entry.pmid) { pairs.append((Node("pmid"), n)) }
         if let n = IdentifierYAML.listNode(entry.isbn) { pairs.append((Node("isbn"), n)) }
+        // #394 §5：work 的欄位層級 provenance。空清單不寫出——既有記錄零 diff。
+        if !entry.references.isEmpty {
+            try pairs.append((Node("references"), ProvenanceYAML.node(entry.references)))
+        }
         var a: [(Node, Node)] = []
         if !entry.akashic.tags.isEmpty {
             a.append((Node("tags"), Node(entry.akashic.tags.map { Node($0) })))
@@ -261,6 +265,7 @@ public enum EntryYAML {
         if a.doi != b.doi { bad.append("doi") }
         if a.pmid != b.pmid { bad.append("pmid") }
         if a.isbn != b.isbn { bad.append("isbn") }
+        if a.references != b.references { bad.append("references") }
         if a.provenance != b.provenance { bad.append("provenance") }
         if a.akashic != b.akashic { bad.append("akashic") }
         return bad.isEmpty
@@ -331,7 +336,7 @@ public enum EntryYAML {
     static let knownTopLevelKeys: Set<String> = Set([
         "id", "citekey", "type", "title", "authors", "venues", "date",
         "fields", "attachments", "provenance", "akashic", "thesis",
-        "doi", "pmid", "isbn",
+        "doi", "pmid", "isbn", "references",
     ]).union(EntityKind.knownLabels)
     static let knownAkashicKeys: Set<String> = [
         "tags", "libraries", "status", "relations", "author-list-completeness",
@@ -998,6 +1003,11 @@ public enum EntryYAML {
         entry.doi = try IdentifierYAML.decodeList(map, key: "doi", field: "doi", as: DOI.self)
         entry.pmid = try IdentifierYAML.decodeList(map, key: "pmid", field: "pmid", as: PMID.self)
         entry.isbn = try IdentifierYAML.decodeList(map, key: "isbn", field: "isbn", as: ISBN.self)
+        if let rn = try requireShape(map["references"], field: "references",
+                                     expect: "sequence", nullIsAbsent: true,
+                                     { $0.sequence != nil ? $0 : nil }) {
+            entry.references = try ProvenanceYAML.decode(rn, context: "entry")
+        }
         if let provMap = try requireShape(map["provenance"], field: "provenance",
                                           expect: "mapping", nullIsAbsent: true, { $0.mapping }) {
             try rejectUnknownKeys(provMap, known: knownProvenanceKeys, context: "provenance")
@@ -1136,6 +1146,8 @@ public enum EntryYAML {
                     entryAuthors: entry.authors)
             }
         }
+        // #394 §5：work 的識別碼 reference 附著驗證（本輪新增的邊）。
+        try entry.validateReferenceAttachment()
         return entry
     }
 
@@ -2165,6 +2177,8 @@ public enum VenueYAML {
                                                { $0.sequence != nil ? $0 : nil }) {
             v.references = try ProvenanceYAML.decode(rn, context: "venue")
         }
+        // #394 §5：venue 先前**完全沒有**附著驗證——任何欄位名都照收。
+        try v.validateReferenceAttachment()
         return v
     }
 }

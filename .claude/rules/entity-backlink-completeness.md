@@ -28,7 +28,7 @@
 > 那份文件明寫它是**思考輔助不是裁決程序**：它的輸出必須落回下表，不允許讀者拿它
 > 自行類推出沒寫下的邊。本規則只引用它、不複製（複製 = 兩份會分岔的規格）。
 
-以下 **14 條**是 store 裡**僅有的**關係邊。**封閉列舉，不得依性質相似類推下一條**：
+以下 **15 條**是 store 裡**僅有的**關係邊。**封閉列舉，不得依性質相似類推下一條**：
 
 | # | 存在哪 | 指向 | 邊界條件 |
 |---|---|---|---|
@@ -46,6 +46,7 @@
 | 12 | `Divergence.judgement.restsOn` | `sources/` 的內容 | 同 11 的定址法；**與 10 同一筆記錄的另一條邊** |
 | 13 | `Person.references` / `Organization.references` / `Venue.references` 中 verdict 欄位對的 `value` | work／person／organization／venue（by key） | **僅限封閉欄位對** `resolution-confirmed`／`resolution-rejected`（#232）；value 文法 `<kind>:<key> :: <literal>`。正典側是**被判定的記錄**：verdict 是關於它的同一性的事實，存在 entry 側會讓 work 長出無上界的 per-person 清單，且 reject 依規格不動 entry。與 11 **不同條**：11 指向存檔內容（content-addressed），13 是 `ProvenanceReference.value` 首次成為跨 entity 指標（by key）——`rename` 因此必須遷移 `work:` value（#232 verify NEW-1 實測不遷移＝否決安靜變回待判）。`resolve-venues` 的 verdict 落被判定的 venue 記錄（#304，同一欄位對、同文法） |
 | 14 | `Entry.venues` | venue | `.key` 已歸戶／`.literal` 未歸戶，兩者都合法（與第 1 條同二態形；#304。作品側正典的六理由同適用——刊名沿革中舊文章掛舊刊名即第 4 條可表達性的 venue 版；編年 list 由本邊反向現算，venue 記錄**不存**文章清單） |
+| 15 | `Entry.references` | `sources/` 的內容 | 同第 11 條的定址法（content-addressed `sha256:`），但住在 **work** 上——#394 §5 新增。**正典側是 work**：識別碼（`doi`／`pmid`／`isbn`）是那筆作品的屬性，來源說的是「這個號是從哪裡查到的」，那件事只跟該作品有關。值域刻意只有三個識別碼欄位（`Entry.validateReferenceAttachment`）——work 的其餘欄位（`title`／`date`／`fields.*`）要不要能攜帶來源是另一個問題，#394 不裁決。**為什麼在此之前不存在**：`Entry` 原本沒有 `references`，而 provenance-reference spec 明寫「不能攜帶 reference 的識別碼不算記錄的一等公民」——照字面，work 的三個識別碼在補上它之前不算一等公民，而那正是 #394 的標題所主張的東西 |
 
 **每一條邊只存一次，存在上表指定的那一側。反向一律現算。**
 

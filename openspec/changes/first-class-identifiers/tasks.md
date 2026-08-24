@@ -30,14 +30,14 @@
 
 交付 spec requirement「Identifier cardinality SHALL be decided per kind」與「A reference to a list-valued identifier SHALL name which value it supports」。
 
-- [ ] 5.1 交付 spec requirement「Identifier cardinality SHALL be decided per kind」與「A reference to a list-valued identifier SHALL name which value it supports」。先寫失敗測試：清單型識別碼欄位的 reference 缺 `value` 時被拒；純量型識別碼欄位的 reference 帶 `value` 時被拒；`value` 不在清單內時整筆拒讀並具名孤兒值。驗證目標——測試由紅轉綠。
-- [ ] 5.2 依基數把清單型識別碼導向 `names` 既有的清單驗證分支、純量型導向 `orcid` 既有的純量分支；`ORCID` 與 `ROR` 宣告為純量，`ISSN`／`DOI`／`PMID`／`ISBN` 宣告為清單。驗證目標——5.1 全綠。
+- [x] 5.1 交付 spec requirement「Identifier cardinality SHALL be decided per kind」與「A reference to a list-valued identifier SHALL name which value it supports」。先寫失敗測試：清單型識別碼欄位的 reference 缺 `value` 時被拒；純量型識別碼欄位的 reference 帶 `value` 時被拒；`value` 不在清單內時整筆拒讀並具名孤兒值。驗證目標——測試由紅轉綠。
+- [x] 5.2 依基數把清單型識別碼導向 `names` 既有的清單驗證分支、純量型導向 `orcid` 既有的純量分支；`ORCID` 與 `ROR` 宣告為純量，`ISSN`／`DOI`／`PMID`／`ISBN` 宣告為清單。驗證目標——5.1 全綠。
 
 ## 6. 識別碼進 provenance 欄位白名單，store format 自 12 升至 13
 
 交付 spec requirement「An identifier field SHALL be attachable」。
 
-- [ ] 6.1 交付 spec requirement「An identifier field SHALL be attachable」。在 `ProvenanceReference` 的欄位白名單新增 `doi`／`pmid`／`isbn`／`issn`／`ror`，使識別碼能攜帶來源。驗證目標——新測試斷言一筆帶 `field: issn` reference 的 venue 記錄可載入，且該 reference 出現在讀回的記錄上。
+- [x] 6.1 交付 spec requirement「An identifier field SHALL be attachable」。在 `ProvenanceReference` 的欄位白名單新增 `doi`／`pmid`／`isbn`／`issn`／`ror`，使識別碼能攜帶來源。驗證目標——新測試斷言一筆帶 `field: issn` reference 的 venue 記錄可載入，且該 reference 出現在讀回的記錄上。
 - [ ] 6.2 `docs/store-format.md` 的版本對照表新增 format 13 一列，寫明「`references[].field` 白名單是 strict → 舊 binary 整檔 quarantine」的升版理由；`StoreVersion` 的支援版本同步。驗證目標——對 format 13 的 store 用未升級路徑讀取的測試斷言拒讀並指路。
 
 ## 7. 匯出面：結構化值勝過自由字典殘留

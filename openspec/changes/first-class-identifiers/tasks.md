@@ -52,6 +52,6 @@
 
 ## 9. 兩面對等與收尾裁決
 
-- [ ] 9.1 [P] `.claude/rules/mcp-cli-parity.md` 的三張裁決表對本 change 新增的每一個面各加一列（`migrate-identifiers` 落 CLI-only 表並具名維運例外理由；識別碼參數在 MCP 面的有無各自裁決）。驗證目標——依該規則的四步機械稽核程序執行，確認枚舉輸出與表零差集。
-- [ ] 9.2 [P] `.claude/rules/zero-instance-guards.md` 的裁決表新增一列，裁決 `Organization.ror` 這個當下零實例欄位要不要寫，並在同列寫出該列自己的理由。驗證目標——內容複審確認理由未沿用既有四列任一列的理由。
-- [ ] 9.3 收尾驗收：遷移後帶 `issn` 的 work 數為 0、帶 `issn` 的 venue 數為 39、`akashic validate` 零新增 diagnostic、`swift test` 全綠。驗證目標——逐項執行並記錄實測數字。
+- [x] 9.1 [P] `.claude/rules/mcp-cli-parity.md` 的三張裁決表對本 change 新增的每一個面各加一列（`migrate-identifiers` 落 CLI-only 表並具名維運例外理由；識別碼參數在 MCP 面的有無各自裁決）。驗證目標——依該規則的四步機械稽核程序執行，確認枚舉輸出與表零差集。
+- [x] 9.2 [P] `.claude/rules/zero-instance-guards.md` 的裁決表新增一列，裁決 `Organization.ror` 這個當下零實例欄位要不要寫，並在同列寫出該列自己的理由。驗證目標——內容複審確認理由未沿用既有四列任一列的理由。
+- [x] 9.3 收尾驗收：遷移後帶 `issn` 的 work 數為 0、帶 `issn` 的 venue 數為 39、`akashic validate` 零新增 diagnostic、`swift test` 全綠。驗證目標——逐項執行並記錄實測數字。

@@ -186,6 +186,42 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 **這個方向是 #325 才補的**——#259 雙向化時只想到「命令長出來」，沒想到
 「命令退場」，因為當時還沒有任何命令退場過。
 
+## 識別碼寫入面的裁決（#394，2026-08-24）
+
+本 change 新增了五個識別碼欄位（`venue.issn`／`organization.ror`／work 的 `doi`・`pmid`・
+`isbn`），而**兩面都沒有為它們新增參數**。這不是遺漏，是一個要寫下來的裁決——依本檔的
+規則，新增能力時必須裁決兩面，而「兩面都不給」也是一種裁決。
+
+| 面 | 現況 | 裁決 |
+|---|---|---|
+| MCP 寫入面（add_venue／update_venue／add_organization／create_entry）| 不收識別碼參數 | ⚠ **有理由缺席，但這一格是最弱的一列** |
+| CLI 寫入面（同名命令）| 同上 | 同上 |
+| 既有的 person ORCID 欄位 | **兩面都收**（經 generic `fields` JSON object，#68 的既有形狀）| ✅ 既有，本 change 只改型別不改介面 |
+
+> **這張表的第一欄刻意不用反引號包 token。** `parity-table-drift.py` 把表格第一欄的
+> 反引號 token 一律當成「宣稱存在的 CLI subcommand」並去 `CLI.swift` 對照——第一版把
+> `person.orcid`（一個**欄位**）放在第一欄，於是守衛報「表列了 `person.orcid` 而它已不在
+> CLI.swift」。守衛沒錯，是我的表格形狀在對它說謊。
+
+**缺席的理由**：識別碼的來源目前只有兩條——遷移（`migrate-identifiers`，一次性）與匯入
+（`import-wos`／`import-zotero`，走 `fields` 殘留再由遷移升格）。**沒有第三條路徑產生
+識別碼**，所以現在加寫入參數是替一個還不存在的流程造介面。
+
+**但這一列必須標記為弱，理由要寫出來**：遷移之後，若使用者查到一筆 work 的 DOI，
+**沒有任何面寫得進結構化欄位**——實測 `entry.doi` / `v.issn` / `org.ror` 在
+`Sources/` 內的 production 寫入路徑**零命中**（`IdentifierMigration` 與 YAML 編解碼除外）。
+唯一的路是手改 YAML。
+
+這正是 `replace-endnote-and-zotero` 第 4 條要防的形狀：
+
+> 使用者說「這個功能我回去用 Zotero 做」一旦變成常態，就是取代失敗的樣子——而且它是
+> **安靜的**失敗，因為每次個別繞過都看起來很合理。
+
+**重新裁決的條件（可檢查）**：出現第一個「查到識別碼但寫不進去」的實例時。那時要裁的
+不只是加參數，還有**它該長什麼形狀**——`person.orcid` 走 generic `fields` object，而
+`venue`／`entry` 的寫入面目前沒有對應的 generic 通道（`update-venue` 只收 `key`）。
+追蹤：#394 close 前不處理；本列即是那個「已知且具名」的缺口。
+
 ## CLI 橫切選項裁決表（封閉列舉——#310 一次性補裁 2 項、#298 增第 3 項；恰 3 項，一格不多一格不少。**不得依性質相似類推第四項**）
 
 前兩張表的行分別是「MCP tool」與「CLI subcommand」。**橫切選項兩者皆非**——它是

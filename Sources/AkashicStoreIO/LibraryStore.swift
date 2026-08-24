@@ -401,6 +401,12 @@ public final class LibraryStore {
         guard StoreKey.isValid(entry.citekey) else {
             throw StoreIOError.invalidKey("citekey", entry.citekey)
         }
+        // #394 §6：識別碼 reference 需要 format 13。
+        if !entry.references.isEmpty {
+            try Self.assertIdentifierReferencesWritable(
+                entry.references, format: try StoreVersion.read(root: root),
+                what: "work「\(displaySafe(entry.citekey, max: 120))」")
+        }
         // membership keys（#13）同樣 write-time 驗證——不進路徑，但保 index/query 語意乾淨
         for key in entry.akashic.libraries where !StoreKey.isValid(key) {
             throw StoreIOError.invalidKey("akashic.libraries key", key)
@@ -477,6 +483,33 @@ public final class LibraryStore {
         .conference, .publisher,
     ]
 
+
+    /// 這筆記錄的 references 有沒有指名識別碼欄位（#394 §6 的 bump 觸發面）。
+    ///
+    /// **只看 reference，不看識別碼欄位本身。** 識別碼欄位是 additive——頂層未知鍵
+    /// 走 tolerant-preserve（2026-08-24 對 format-12 binary 實測）。對它設閘會讓
+    /// `migrate-identifiers` 在 bump 之前跑不動，而 design.md 的部署順序要求遷移
+    /// **跑在舊解碼器上**、format bump 是最後一步（先有雞先有蛋）。
+    static let identifierReferenceFields: Set<String> = ["doi", "pmid", "isbn", "issn", "ror"]
+
+    static func namesIdentifierReference(_ refs: [ProvenanceReference]) -> String? {
+        refs.first { identifierReferenceFields.contains($0.field) }?.field
+    }
+
+    static func assertIdentifierReferencesWritable(
+        _ refs: [ProvenanceReference], format: Int, what: String) throws {
+        guard let field = namesIdentifierReference(refs), format < 13 else { return }
+        throw StoreIOError.invalidInput(
+            what: "\(what) 的 reference（field: \(field)）",   // display-safe-exempt: 值域是上方封閉集合
+            why: "識別碼欄位攜帶來源是 format 13 的新能力（#394）；本 store 是 \(format)——" +
+                 "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 format: " +
+                 "改成 13。**實測依據**（2026-08-24，format-12 binary）：organization 帶 " +
+                 "`field: ror` 的 reference 會**整檔 quarantine**；venue 的 `field: issn` " +
+                 "與 work 的 `references:` 則落 tolerant-preserve——後兩者併入同一個 bump " +
+                 "的理由同 format 11 對 `venues:` 的裁決：保留而不解讀的 reference 不會被" +
+                 "附著驗證，於是它可以指向一個不存在的值而沒有人發現")
+    }
+
     /// 發表載體只存在於 entities 佈局（format 11 起，#304）。
     @discardableResult
     public func writeVenue(_ v: Venue) throws -> URL {
@@ -503,6 +536,8 @@ public final class LibraryStore {
                      "把 store.yaml 的 format: 改成 12（format-11 binary 讀到未知 " +
                      "venue type 會整檔拒讀）")
         }
+        try Self.assertIdentifierReferencesWritable(
+            v.references, format: format, what: "venue「\(displaySafe(v.key, max: 120))」")
         try Self.assertNoErrors(v.validate(), what: "venue", key: v.key)
         let yaml = try VenueYAML.encode(v)
         let dest = entityURL(id: v.id)
@@ -516,6 +551,13 @@ public final class LibraryStore {
         try assertStoreRoot()
         guard StoreKey.isValid(org.key) else {
             throw StoreIOError.invalidKey("organization key", org.key)
+        }
+        // #394 §6：識別碼 reference 需要 format 13。**這一格是硬觸發**——format-12
+        // binary 讀到 `field: ror` 的 reference 會整檔 quarantine（2026-08-24 實測）。
+        if !org.references.isEmpty {
+            try Self.assertIdentifierReferencesWritable(
+                org.references, format: try StoreVersion.read(root: root),
+                what: "organization「\(displaySafe(org.key, max: 120))」")
         }
         // v6-only 語法的 format gate——理由見 writePerson（#131 verify Codex-H2）
         if org.names.entries.contains(where: \.range.endedUnknown)

@@ -96,7 +96,7 @@ public enum StoreVersion {
     ///   decode 不驗，舊 binary 讀到新值會照 tolerant-preserve 原樣保留——那是
     ///   **additive**，依本檔頂部的判準表不該 bump（「bump 會讓每個 additive 演化都逼
     ///   所有 binary 同步升級，等於白做 #23」）。
-    public static let supported = 12
+    public static let supported = 13
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，

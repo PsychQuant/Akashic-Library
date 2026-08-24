@@ -49,11 +49,15 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
                                  authorize-names / fmt / library / file / migrate /
                                  migrate-person-identity（#227/#241，dry-run 預設）
 
-                                 **破壞性寫入的目標 store 須指名（#298）**：六個會改寫
+                                 **破壞性寫入的目標 store 須指名（#298）**：會改寫
                                  或刪除記錄的命令——`migrate-person-identity` /
-                                 `migrate-venues` / `bootstrap-people` /
-                                 `bootstrap-organizations` / `resolve-people` /
-                                 `resolve-organizations`——在 `--apply` 時若既未給
+                                 `migrate-venues` / `migrate-identifiers` /
+                                 `bootstrap-people` / `bootstrap-organizations` /
+                                 `bootstrap-venues` / `resolve-people` /
+                                 `resolve-organizations` / `enrich-from-zotero`
+                                 （唯一來源是 `DestructiveTargetGate.destructiveCommands`；
+                                 **這裡刻意不寫個數**——先前寫「六個」而原始碼已是九個，
+                                 數字與清單分岔過一次）——在 `--apply` 時若既未給
                                  `--library` 也未給 `--yes`，**拒絕執行**，並在訊息裡
                                  說出實際解析到的 store 絕對路徑與「與你目前所在的目錄
                                  無關」。**dry-run 不被擋**（不帶 `--apply` 時零拒絕）

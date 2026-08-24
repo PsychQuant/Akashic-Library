@@ -162,4 +162,59 @@ final class IdentifierTests: XCTestCase {
         XCTAssertEqual(twice("0039098040", PMID.init), "39098040")
         XCTAssertEqual(twice("978-0-12-179060-8", ISBN.init), "9780121790608")
     }
+
+    // MARK: - raw 保留（#394，讀取面原樣保留的前提）
+
+    /// 識別碼**同時**持有原樣字串與正規形。
+    ///
+    /// **為什麼型別要留 raw**：decode 當下若把值改寫成正規形，記憶體值就與磁碟不一致，
+    /// 而 provenance reference 的 `value` 必須落在該欄位的**現值**清單內——於是既有
+    /// reference 變孤兒、整筆記錄拒讀。Task 1.1 探針實測過這個 quarantine
+    /// （`people: 1` → `people: 0`、`quarantined: 1`）。
+    ///
+    /// 語意分工（task 4.1 的驗證目標逐字如此）：**讀取→raw、寫入→normalized**。
+    func testRawIsPreservedAlongsideTheNormalForm() {
+        let issn = ISSN("0003-066x")
+        XCTAssertEqual(issn?.raw, "0003-066x", "原樣字串必須留著——它是磁碟上的那個")
+        XCTAssertEqual(issn?.normalized, "0003-066X", "正規形照樣算得出來")
+    }
+
+    func testRawIsPreservedForEveryKind() {
+        XCTAssertEqual(DOI("https://doi.org/10.1037/MET0000524")?.raw,
+                       "https://doi.org/10.1037/MET0000524")
+        XCTAssertEqual(ISBN("978-0-12-179060-8")?.raw, "978-0-12-179060-8")
+        XCTAssertEqual(PMID("0039098040")?.raw, "0039098040")
+        XCTAssertEqual(ORCID("0000000308997477")?.raw, "0000000308997477")
+        XCTAssertEqual(ROR("05BQACH95")?.raw, "05BQACH95")
+    }
+
+    /// **相等由正規形決定，不由 raw**——否則 `0003-066x` 與 `0003-066X` 會被當成
+    /// 兩個不同的 ISSN，而 task 8.2 的去重（「先正規化再去重，去重後仍 >1 者才是
+    /// 真多號」）就永遠去不掉重複。
+    ///
+    /// 這條也擋一個具體的退化：Swift 對多欄位 struct 會**合成**逐欄位的 `==`，
+    /// 加了 `raw` 之後若讓合成勝出，相等就悄悄變成「兩個欄位都一樣」。
+    func testEqualityIsByNormalFormNotByRaw() {
+        XCTAssertEqual(ISSN("0003-066x"), ISSN("0003-066X"),
+                       "同一個號的兩種寫法是同一個識別碼")
+        XCTAssertEqual(DOI("10.1037/MET0000524"), DOI("10.1037/met0000524"))
+        XCTAssertEqual(ISBN("978-0-12-179060-8"), ISBN("9780121790608"),
+                       "連字號不是識別碼的一部分")
+        XCTAssertNotEqual(ISSN("0003-066X"), ISSN("1935-990X"),
+                          "不同的號仍然不相等")
+    }
+
+    /// 去重要真的去得掉——這是 task 8.2 的直接前提（8 個 venue 收到多值，其中混了
+    /// 「同一個號的異寫法」與「真的兩個號」，前者要合併、後者要保留）。
+    func testDeduplicationCollapsesSpellingsButKeepsDistinctNumbers() {
+        let spellings = [ISSN("0003-066x"), ISSN("0003-066X")].compactMap { $0 }
+        var uniq: [ISSN] = []
+        for v in spellings where !uniq.contains(v) { uniq.append(v) }
+        XCTAssertEqual(uniq.count, 1, "異寫法要合併成一個")
+
+        let real = [ISSN("1554-351X"), ISSN("1554-3528")].compactMap { $0 }
+        var uniq2: [ISSN] = []
+        for v in real where !uniq2.contains(v) { uniq2.append(v) }
+        XCTAssertEqual(uniq2.count, 2, "print 與 electronic 是兩個真的號，不得合併")
+    }
 }

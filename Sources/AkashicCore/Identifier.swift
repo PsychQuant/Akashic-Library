@@ -21,22 +21,40 @@ import Foundation
 /// `people: 1` → `people: 0`、`quarantined: 1`）。用整檔 quarantine 去修一個大小寫，
 /// 代價不成比例。
 ///
+/// **所以型別同時持有兩個字串**：`raw`（磁碟上的那個）與 `normalized`（算出來的）。
+/// 語意分工逐字取自 task 4.1 的驗證目標——**讀取→`raw`、寫入→`normalized`**。
+/// 少了 `raw`，「讀取面原樣保留」在結構上就做不到：decode 當下值已被改寫。
+/// 實測 store 內有 43 個非正規值（issn 10、isbn 18、doi 15）落在這一格。
+///
+/// **相等由 `normalized` 決定**（見下方 protocol extension）：`0003-066x` 與
+/// `0003-066X` 是同一個識別碼，否則遷移的去重永遠去不掉異寫法。
+///
 /// ## 它終結什麼、不終結什麼
 ///
 /// 終結**指涉**（是哪一個），不終結**描述**（附帶欄位是否正確）。註冊機構收的是
 /// 出版商送的資料，錯的照收。判準與封閉列舉見
 /// `.claude/rules/identity-is-judged-not-matched.md` 的識別碼例外節。
 public protocol Identifier: Equatable, CustomStringConvertible {
-    /// 從原始字串建構；形狀不合法回 `nil`。**建構即正規化。**
+    /// 從原始字串建構；形狀不合法回 `nil`。**建構即算出正規形，但不丟掉原樣字串。**
     init?(_ raw: String)
-    /// 正規形——寫進 store 的就是這個。
+    /// 原樣字串——**磁碟上的那個**。讀取面原樣保留靠它。
+    var raw: String { get }
+    /// 正規形——寫入面寫的就是這個。
     var normalized: String { get }
     /// 這種識別碼的預期形狀，供錯誤訊息具名。
     static var shapeDescription: String { get }
 }
 
 public extension Identifier {
+    /// 顯示用正規形（`raw` 是儲存細節，不是給人看的）。
     var description: String { normalized }
+
+    /// **相等由正規形決定，不由 `raw`。**
+    ///
+    /// 寫在這裡而不是靠 Swift 合成：加了 `raw` 之後，合成的逐欄位 `==` 會把
+    /// `0003-066x` 與 `0003-066X` 判成兩個不同的識別碼，而遷移的去重
+    /// （task 8.2：「先正規化再去重，去重後仍 >1 者才是真多號」）就永遠去不掉異寫法。
+    static func == (a: Self, b: Self) -> Bool { a.normalized == b.normalized }
 }
 
 // MARK: - 共用的字元工具
@@ -65,10 +83,12 @@ private func mod11(_ digits: [Int], weights: [Int]) -> Int? {
 /// 一個期刊可以有**兩個** ISSN（print 與 electronic），所以 venue 側是清單而非純量
 /// ——實測 Behavior Research Methods 的 `1554-351X`（print）與 `1554-3528`（electronic）。
 public struct ISSN: Identifier {
+    public let raw: String
     public let normalized: String
     public static let shapeDescription = "NNNN-NNNN（末位可為大寫 X）"
 
     public init?(_ raw: String) {
+        self.raw = raw
         let c = raw.idCompact
         guard c.count == 8 else { return nil }
         let chars = Array(c)
@@ -100,10 +120,12 @@ public struct ISSN: Identifier {
 /// 正規化：剝掉 `https://doi.org/` 之類的前綴、轉小寫（DOI 的比對規則是
 /// 大小寫不敏感，store 內存一種形式才不會出現「同一個 DOI 的兩種寫法」）。
 public struct DOI: Identifier {
+    public let raw: String
     public let normalized: String
     public static let shapeDescription = "10.<註冊者>/<後綴>"
 
     public init?(_ raw: String) {
+        self.raw = raw
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         for prefix in ["https://doi.org/", "http://doi.org/", "https://dx.doi.org/",
                        "http://dx.doi.org/", "doi:", "DOI:"] where s.hasPrefix(prefix) {
@@ -125,10 +147,12 @@ public struct DOI: Identifier {
 
 /// PubMed 的記錄編號。純數字，無 check digit。
 public struct PMID: Identifier {
+    public let raw: String
     public let normalized: String
     public static let shapeDescription = "純數字"
 
     public init?(_ raw: String) {
+        self.raw = raw
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.lowercased().hasPrefix("pmid:") { s = String(s.dropFirst(5)) }
         s = s.trimmingCharacters(in: .whitespaces)
@@ -146,10 +170,12 @@ public struct PMID: Identifier {
 /// 識別碼」是尚未裁決的問題（#394 的 Open Questions 之一）——在裁決之前，原樣保存
 /// 來源給的那一種，不自作主張換算。
 public struct ISBN: Identifier {
+    public let raw: String
     public let normalized: String
     public static let shapeDescription = "10 碼（末位可為大寫 X）或 13 碼"
 
     public init?(_ raw: String) {
+        self.raw = raw
         let c = raw.idCompact
         if c.count == 10 {
             var digits: [Int] = []
@@ -188,10 +214,12 @@ public struct ISBN: Identifier {
 ///
 /// **每人恰一個**——這是 ORCID 的定義，故 person 側是純量而非清單。
 public struct ORCID: Identifier {
+    public let raw: String
     public let normalized: String
     public static let shapeDescription = "NNNN-NNNN-NNNN-NNNC（末位可為大寫 X）"
 
     public init?(_ raw: String) {
+        self.raw = raw
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         for prefix in ["https://orcid.org/", "http://orcid.org/"] where s.hasPrefix(prefix) {
             s = String(s.dropFirst(prefix.count))
@@ -225,6 +253,7 @@ public struct ORCID: Identifier {
 ///
 /// **每個機構恰一個**——ROR 的定義，故 organization 側是純量。
 public struct ROR: Identifier {
+    public let raw: String
     public let normalized: String
     public static let shapeDescription = "0 ＋ 6 碼 base32 ＋ 2 碼 check digit"
 
@@ -232,6 +261,7 @@ public struct ROR: Identifier {
     private static let alphabet = Array("0123456789abcdefghjkmnpqrstvwxyz")
 
     public init?(_ raw: String) {
+        self.raw = raw
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         for prefix in ["https://ror.org/", "http://ror.org/", "ror.org/"] where s.hasPrefix(prefix) {
             s = String(s.dropFirst(prefix.count))

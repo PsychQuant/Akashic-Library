@@ -64,6 +64,11 @@ public final class PeopleResolveModel {
     ///
     /// `names` 不具區辨力（它們正規化後相同才會歧義）；真正能分辨「兩個同名的人」
     /// 與「同一人兩筆記錄」的是外部識別碼與時空不相容。
+    ///
+    /// **`orcid` 回傳 `String?` 不是 `ORCID?`**（#394 task 3.3）：這個函式的產出
+    /// 全部是顯示字串（其餘四個成員本來就是 `String?`），呼叫端只拿去拼一行文字
+    /// 給人看，不再需要型別化的識別碼行為（正規化、shape 驗證早在 `Person.orcid`
+    /// decode 時就做完了）。型別在這個邊界降級成字串是刻意的 downcast，不是漏改。
     public func discriminators(for key: String) -> (names: [String], orcid: String?,
                                                     openalex: String?, died: String?,
                                                     affiliation: String?) {
@@ -91,7 +96,7 @@ public final class PeopleResolveModel {
         }
         // #227：呈現面列**全部**名字（authorized + variant）——這裡是身分判斷的
         // 佐證資訊，缺一個變體就少一條線索。
-        return (p?.names.all ?? [], p?.orcid, p?.openalex, p?.died, aff)
+        return (p?.names.all ?? [], p?.orcid?.normalized, p?.openalex, p?.died, aff)
     }
 
     public func accept(_ candidate: ResolutionCandidate) throws {

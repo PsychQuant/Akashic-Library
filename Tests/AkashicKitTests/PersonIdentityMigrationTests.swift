@@ -95,7 +95,7 @@ final class PersonIdentityMigrationTests: XCTestCase {
         // names 摺疊：authorized 分割保序、其餘進 variant
         XCTAssertEqual(person.names.authorized, ["梁佑任", "Yu-Jen Liang"])
         XCTAssertEqual(person.names.variant, ["Liang, Yu-Jen"])
-        XCTAssertEqual(person.orcid, "0000-0001-2345-6789", "其餘欄位原樣保留")
+        XCTAssertEqual(person.orcid?.normalized, "0000-0001-2345-6789", "其餘欄位原樣保留")
         // load 全庫：零 quarantine
         let load = try store.load()
         XCTAssertEqual(load.people.map(\.key), ["liang-yu-jen"])

@@ -304,7 +304,7 @@ final class ServiceTests: XCTestCase {
     func testResolvePeopleSurfacesAmbiguitiesWithDiscriminators() throws {
         let store = LibraryStore(root: root)
         var a = Person(key: "amb-one", names: ["Ambi Guous"])
-        a.orcid = "0000-0001-2345-6789"
+        a.orcid = ORCID("0000-0001-2345-6789")
         try store.writePerson(a)
         try store.writePerson(Person(key: "amb-two", names: ["Ambi Guous"]))
         try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: .periodicalArticle,
@@ -1456,7 +1456,9 @@ extension ServiceTests {
         for i in 0..<50 {
             for s in ["a", "b"] {
                 var p = Person(key: "wide-\(s)-\(i)", names: ["Wide \(i)", bidi, bidi])
-                p.orcid = bidi
+                // orcid 已型別化（#394 task 3.3）：`bidi` 不合 ORCID 形狀，指派不到
+                // 這個欄位上——膨脹字元的注入面收斂到 names／openalex，這是型別
+                // 化刻意關閉的其中一個向量，不是漏測。
                 p.openalex = bidi
                 try store.writePerson(p)
             }

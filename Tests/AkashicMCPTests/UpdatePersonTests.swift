@@ -22,7 +22,7 @@ final class UpdatePersonTests: XCTestCase {
         try store.ensureLayout()
         var p = Person(key: "cheng-che",
                        names: PersonNames(authorized: ["Che Cheng", "鄭澈"]))
-        p.orcid = "0000-0003-4038-9439"
+        p.orcid = ORCID("0000-0003-4038-9439")
         p.note = "既有備註"
         p.profile.ranks = Timeline([
             TemporalValue(value: "助研究員", range: DateRange(start: "2003"))])
@@ -49,7 +49,7 @@ final class UpdatePersonTests: XCTestCase {
         XCTAssertEqual(p.openalex, "A5017898742")
         XCTAssertEqual(p.note, "新備註")
         // 未提及的一律不動
-        XCTAssertEqual(p.orcid, "0000-0003-4038-9439")
+        XCTAssertEqual(p.orcid?.normalized, "0000-0003-4038-9439")
         XCTAssertEqual(p.names, PersonNames(authorized: ["Che Cheng", "鄭澈"]))
         XCTAssertEqual(p.profile.ranks.entries.count, 1)
     }

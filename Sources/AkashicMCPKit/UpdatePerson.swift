@@ -87,7 +87,19 @@ public extension AkashicService {
             }
             switch k {
             case "orcid":
-                person.orcid = try scalarOrNull(raw, field: k)
+                // 寫入面驗證即拒絕（design.md 的寫入契約）：形狀不合法的值不得
+                // 進 store，錯誤具名該值與預期形狀——與讀取面 fail-closed 同方向，
+                // 但這裡是使用者當下能看到並修正的錯誤，不是事後才發現的 quarantine。
+                if let raw = try scalarOrNull(raw, field: k) {
+                    guard let o = ORCID(raw) else {
+                        throw ServiceError.invalid(
+                            "欄位「orcid」的值「\(displaySafe(raw, max: 120))」不是合法的 ORCID"
+                            + "（\(ORCID.shapeDescription)）")   // display-safe-exempt: 型別的靜態常數（預期形狀說明），非 store 內容
+                    }
+                    person.orcid = o
+                } else {
+                    person.orcid = nil
+                }
                 changes[k] = raw
             case "openalex":
                 person.openalex = try scalarOrNull(raw, field: k)

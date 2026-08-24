@@ -60,6 +60,42 @@ final class IdentifierPlacementTests: XCTestCase {
         XCTAssertTrue(fieldNames(of: org).contains("ror"))
     }
 
+    // MARK: - task 3.3：`Person.orcid` 由 `String?` 改為 `ORCID?`
+
+    /// 寫入面永遠正規化——與 issn/ror 同契約（design.md 決策：正規化只在寫入面發生）。
+    /// 小寫 check digit 是實測會出現的非正規形（IdentifierTests 已驗過建構本身接受它），
+    /// 這裡驗的是它經過一次 encode 之後在磁碟上變成大寫。
+    ///
+    /// **末位換成小寫不能只是換字元**——check digit 是對前 15 碼算出來的，換了末位
+    /// 而不重算就會讓這個號本身不合法（第一版誤把 `…0097` 的 `7` 直接改成 `x`，
+    /// 測試自己先紅了）。`0000-0002-1694-233X` 是 checksum 真的算出 X 的既有例子。
+    func testPersonORCIDNormalizesOnWrite() throws {
+        var p = Person(key: "che-cheng", names: ["Cheng, Che"])
+        p.orcid = try XCTUnwrap(ORCID("0000-0002-1694-233x"), "小寫 check digit 仍是合法建構")
+        let yaml = try PersonYAML.encode(p)
+        XCTAssertTrue(yaml.contains("orcid: 0000-0002-1694-233X"),
+                      "寫入面必須是大寫正規形，不是磁碟上曾經出現過的原樣值：\(yaml)")
+        XCTAssertEqual(try PersonYAML.decode(yaml).orcid?.normalized, "0000-0002-1694-233X")
+    }
+
+    /// 形狀不合法的 orcid 在讀取面被拒絕（quarantine 整筆），與 `id`/`UUID` 同紀律
+    /// （`R8ForwardCompatTests.testShapeMismatchNotReportedAsMissing` 的 `id: not-a-uuid`）。
+    ///
+    /// **這不是 design.md 最終目標的「讀取面寬容保留」**——那要求非法值仍載入並由
+    /// `akashic validate` 具名回報，屬 Section 4（YAML 編解碼的正式讀寬容機制）尚未
+    /// 落地的部分。本任務只交付型別化＋消費面，選 fail-closed 是因為它是**看得見**
+    /// 的失敗（quarantine 進 `doctor`／`validate` 報告），而不是把非法值靜默轉 nil
+    /// 讓資料在下一次讀寫循環中無聲消失（`lossless-intake` 的「靜默是最糟的形式」）。
+    func testMalformedORCIDQuarantinesPersonAtDecode() {
+        let yaml = "id: 11111111-1111-4111-8111-111111111111\n"
+            + "key: a\nnames: {variant: [A]}\norcid: not-an-orcid\n"
+        XCTAssertThrowsError(try PersonYAML.decode(yaml)) { error in
+            let msg = "\(error)"
+            XCTAssertTrue(msg.contains("不是合法的 ORCID"), msg)
+            XCTAssertTrue(msg.contains("not-an-orcid"), "錯誤須具名該值：\(msg)")
+        }
+    }
+
     // MARK: - doc 列舉不得與實際欄位分岔
 
     /// `Venue` 的型別 doc 用**逐一列舉全部欄位**來論證「編著裝不下」（§9.28 為什麼不入

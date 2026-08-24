@@ -321,7 +321,7 @@ public final class AkashicService {
                                     "names": person.names.all.map { displaySafe($0, max: 200) }]
             // #219：與 person() 的 personDict 同待遇——orcid/openalex 雖有寫入面
             // 格式驗證，讀取面仍一律消毒（同一 payload 進 MCP tool result 與 CLI）
-            if let orcid = person.orcid { d["orcid"] = displaySafe(orcid, max: 200) }
+            if let orcid = person.orcid { d["orcid"] = displaySafe(orcid.normalized, max: 200) }
             if let openalex = person.openalex { d["openalex"] = displaySafe(openalex, max: 200) }
             if !person.unknownFields.isEmpty {   // #31：同 entryDict，只給 key
                 d["unknownFields"] = person.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
@@ -628,7 +628,7 @@ public final class AkashicService {
                     personDict["unknownFields"] =
                         record.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
                 }
-                if let orcid = record.orcid { personDict["orcid"] = displaySafe(orcid, max: 200) }
+                if let orcid = record.orcid { personDict["orcid"] = displaySafe(orcid.normalized, max: 200) }
                 // **隸屬必須看得到**（#218 verify HIGH）。`profile.affiliations` 是
                 // `entity-backlink-completeness` 封閉列舉的第 7 條，而且是**存在 person
                 // 自己身上**的邊——連反向現算都不需要。先前這個聚合面沒有它，於是那條
@@ -1292,7 +1292,7 @@ public final class AkashicService {
                 if allNames.count > Self.namesPerPerson { d["namesTotal"] = allNames.count }
                 // **缺席就不輸出**，不要送空字串——那會讓「沒有 ORCID」與「ORCID 是
                 // 空字串」在 JSON 上不再有分別（同本檔 :185／:375 的慣例）。
-                if let o = p?.orcid { d["orcid"] = displaySafe(o, max: 60) }
+                if let o = p?.orcid { d["orcid"] = displaySafe(o.normalized, max: 60) }
                 if let o = p?.openalex { d["openalex"] = displaySafe(o, max: 60) }
                 if let x = p?.died { d["died"] = displaySafe(x, max: 40) }
                 // 只看 current 會讓「只有已結束隸屬」的人看起來毫無隸屬資訊。
@@ -1677,10 +1677,22 @@ public final class AkashicService {
         guard !FileManager.default.fileExists(atPath: store.personURL(key: key).path) else {
             throw ServiceError.invalid("people/\(displaySafe(key, max: 200)).yaml 已存在（可能是 quarantined 檔），不覆寫")
         }
+        // #394 task 3.3：orcid 是外部呼叫端（CLI／MCP）送進來的原始字串，維持
+        // `String?` 簽章不動——與 UpdatePerson.swift 同紀律，寫入面驗證即拒絕，
+        // 不靜默丟、不靜默保留非法形狀。
+        var typedORCID: ORCID?
+        if let raw = orcid {
+            guard let o = ORCID(raw) else {
+                throw ServiceError.invalid(
+                    "欄位「orcid」的值「\(displaySafe(raw, max: 120))」不是合法的 ORCID"
+                    + "（\(ORCID.shapeDescription)）")   // display-safe-exempt: 型別的靜態常數（預期形狀說明），非 store 內容
+            }
+            typedORCID = o
+        }
         // #227：add_person 產生的是尚未指定對外名字的記錄——全部進 variant，
         // authorized 留空（指定是人的判斷，不由建檔機械偽造）。
         let person = Person(key: key, names: PersonNames(variant: names),
-                            orcid: orcid, openalex: openalex)
+                            orcid: typedORCID, openalex: openalex)
         try store.writePerson(person)
         try LibraryIndex(store: store).rebuild()
         // #171 verify 171-5(c)：單一 MCP 來回把呼叫端字串原樣吐回 LLM context——

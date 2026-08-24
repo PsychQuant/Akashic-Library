@@ -138,7 +138,9 @@ final class AdjudicationTests: XCTestCase {
         let store = LibraryStore(root: root)
         try store.writePerson(Person(key: "amb-one", names: ["Ambi Guous"]))
         var two = Person(key: "amb-two", names: ["Ambi Guous"])
-        two.orcid = "0000-0002-0000-0000"
+        // 換成 checksum 合法的 ORCID——原字串「0000-0002-0000-0000」的 check
+        // digit 不合法，型別化前是自由字串所以沒被發現（探針實測：ORCID(…) == nil）。
+        two.orcid = try XCTUnwrap(ORCID("0000-0002-1825-0097"))
         try store.writePerson(two)
         try store.writeEntry(Entry(id: UUID(), citekey: "amb2020x", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Ambi Guous")]))
@@ -151,7 +153,7 @@ final class AdjudicationTests: XCTestCase {
 
         // 區辨欄位要拿得到，否則人也判不了
         let d = model.discriminators(for: "amb-two")
-        XCTAssertEqual(d.orcid, "0000-0002-0000-0000")
+        XCTAssertEqual(d.orcid, "0000-0002-1825-0097")
         XCTAssertEqual(d.names, ["Ambi Guous"])
 
         // 歧義**不得**混進可 accept 的候選

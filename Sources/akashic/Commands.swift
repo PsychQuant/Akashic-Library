@@ -1509,7 +1509,7 @@ struct ResolvePeople: ParsableCommand {
                     // **`names` 不具區辨力**——它們之所以被比到一起，正是因為正規化後
                     // 相同。真正能分辨的是外部識別碼與時空不相容，所以那些一定要印。
                     var bits: [String] = []
-                    if let o = p?.orcid { bits.append("orcid:\(displaySafe(o, max: 40))") }
+                    if let o = p?.orcid { bits.append("orcid:\(displaySafe(o.normalized, max: 40))") }
                     if let o = p?.openalex { bits.append("openalex:\(displaySafe(o, max: 40))") }
                     if let x = p?.died { bits.append("卒:\(displaySafe(x, max: 20))") }
                     // **不是只看 current**（#236 R2）。`isOpen` 正確地把

@@ -259,7 +259,7 @@ extension ProvenanceTests {
         let d = "sha256:" + String(repeating: "ab", count: 32)
         var keeper = Person(key: "a-keep"); keeper.names = ["A"]
         var doomed = Person(key: "a-gone"); doomed.names = ["A."]
-        doomed.orcid = "0000-0002-1825-0097"
+        doomed.orcid = ORCID("0000-0002-1825-0097")
         doomed.references = [ProvenanceReference(field: "orcid", kind: .retrieval(
             url: "https://example.org/o", retrieved: "2026-08-03", status: 200,
             mediaType: nil, content: d))]

@@ -188,7 +188,7 @@ final class RelationalExportTests: XCTestCase {
 
     /// researcher 的主鍵用**UUID 而非 key**——key 是稱呼會改，surrogate id 才適合當 FK。
     func testResearcherUsesStableIDNotKey() {
-        let p = Person(key: "cheng-che", names: ["Che Cheng"], orcid: "0000-0001-2345-6789")
+        let p = Person(key: "cheng-che", names: ["Che Cheng"], orcid: ORCID("0000-0001-2345-6789"))
         let row = RelationalExport.tables(entries: [], people: [p]).researcher.rows[0]
         XCTAssertEqual(row[0], p.id.uuidString)
         XCTAssertEqual(row[1], "cheng-che")

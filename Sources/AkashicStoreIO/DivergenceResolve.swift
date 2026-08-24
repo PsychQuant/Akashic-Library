@@ -1258,7 +1258,7 @@ extension LibraryStore {
             guard mine != theirs else { return }               // 倖存者已有同值 → 不會失去
             losses.append("\(label): \(theirs)")
         }
-        check("orcid", mine: keeper.orcid, theirs: p.orcid)
+        check("orcid", mine: keeper.orcid?.normalized, theirs: p.orcid?.normalized)
         check("openalex", mine: keeper.openalex, theirs: p.openalex)
         // #67：逝世日期。兩邊給出**不同**日期時尤其要擋——那不是排版差異，是對
         // 「這兩筆是不是同一個人」的反證，或至少是一個必須有人裁決的來源衝突。

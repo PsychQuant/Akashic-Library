@@ -155,7 +155,7 @@ final class DivergenceHardeningTests: XCTestCase {
         var keeper = Person(key: "fann-cathy-s-j"); keeper.names = ["Fann, Cathy S-J"]
         var doomed = Person(key: "fann-cathy-s-j-2")
         doomed.names = ["Fann, Cathy S. J."]
-        doomed.orcid = "0000-0002-1825-0097"
+        doomed.orcid = ORCID("0000-0002-1825-0097")
         try store.writePerson(keeper)
         try store.writePerson(doomed)
         let d = Divergence(id: UUID(), question: "同一人？",
@@ -175,9 +175,9 @@ final class DivergenceHardeningTests: XCTestCase {
     /// 倖存者已持有同值時不算衝突，正常合併。
     func testMergeProceedsWhenFieldsAgree() throws {
         var keeper = Person(key: "fann-cathy-s-j")
-        keeper.names = ["Fann, Cathy S-J"]; keeper.orcid = "0000-0002-1825-0097"
+        keeper.names = ["Fann, Cathy S-J"]; keeper.orcid = ORCID("0000-0002-1825-0097")
         var doomed = Person(key: "fann-cathy-s-j-2")
-        doomed.names = ["Fann, Cathy S. J."]; doomed.orcid = "0000-0002-1825-0097"
+        doomed.names = ["Fann, Cathy S. J."]; doomed.orcid = ORCID("0000-0002-1825-0097")
         try store.writePerson(keeper)
         try store.writePerson(doomed)
         let d = Divergence(id: UUID(), question: "同一人？",
@@ -461,11 +461,11 @@ final class DivergenceHardeningTests: XCTestCase {
     func testMergeProceedsWhenSurvivorIsRicher() throws {
         var keeper = Person(key: "fann-cathy-s-j")
         keeper.names = ["Fann, Cathy S-J"]
-        keeper.orcid = "0000-0002-1825-0097"
+        keeper.orcid = ORCID("0000-0002-1825-0097")
         keeper.note = "中研院統計所"
         var doomed = Person(key: "fann-cathy-s-j-2")
         doomed.names = ["Fann, Cathy S. J."]
-        doomed.orcid = "0000-0002-1825-0097"   // 同值，不會失去
+        doomed.orcid = ORCID("0000-0002-1825-0097")   // 同值，不會失去
         try store.writePerson(keeper); try store.writePerson(doomed)
         let d = Divergence(id: UUID(), question: "同一人？",
                            candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),

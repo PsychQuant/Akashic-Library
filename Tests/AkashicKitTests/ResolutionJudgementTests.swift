@@ -69,7 +69,7 @@ final class ResolutionJudgementTests: XCTestCase {
 
     func testNonVerdictEmptyRestsOnStillRejectedAtDecode() {
         var p = Person(key: "che-cheng", names: ["Cheng, Che"])
-        p.orcid = "0000-0002-1825-0097"
+        p.orcid = ORCID("0000-0002-1825-0097")
         p.references = [ProvenanceReference(field: "orcid",
                                             kind: .judgement(statement: "推理", restsOn: []))]
         // 驗證住 throwing init（encode round-check 也會過它）——encode 或 decode

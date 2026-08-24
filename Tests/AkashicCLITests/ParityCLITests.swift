@@ -247,20 +247,27 @@ final class ParityCLITests: XCTestCase {
         }
     }
 
-    /// orcid／openalex 消毒（本 change 對既有 MCP consumer 唯一的行為變更）：
-    /// 正常 identifier 逐字不變、legacy 髒值被消毒、person() 與 people() 一致。
+    /// openalex 消毒：正常 identifier 逐字不變、legacy 髒值被消毒、person() 與 people() 一致。
+    ///
+    /// **orcid 半部已隨型別化移除**（#394 task 3.3）：先前 orcid 與 openalex 都是自由
+    /// 字串，共用這一個測試。orcid 型別化後，非法形狀的值在**讀取面**就被拒絕
+    /// （`IdentifierPlacementTests.testMalformedORCIDQuarantinesPersonAtDecode`）——它
+    /// 不再可能以髒值的姿態流到這裡的顯示路徑，`displaySafe()` 對它已經不是最後一道
+    /// 防線，是打不到的防線。openalex 仍是自由字串，這道防線仍是它唯一的防線。
     func testPeopleIdentifierSanitization() throws {
         let store = LibraryStore(root: root)
         var clean = Person(key: "clean-person", names: ["Clean"])
-        clean.orcid = "0000-0002-1825-0097"
+        clean.orcid = ORCID("0000-0002-1825-0097")
+        clean.openalex = "A5017898742"
         try store.writePerson(clean)
         var dirty = Person(key: "dirty-person", names: ["Dirty"])
-        dirty.orcid = "\u{1B}[31mevil\u{202E}"
+        dirty.openalex = "\u{1B}[31mevil\u{202E}"
         try store.writePerson(dirty)
 
         let payload = try service().people(query: nil)
         XCTAssertTrue(payload.contains("0000-0002-1825-0097"), "正常 ORCID 不得被改寫")
-        XCTAssertFalse(payload.contains("\u{1B}"), "legacy 髒 ORCID 的 raw ESC 進了 payload")
+        XCTAssertTrue(payload.contains("A5017898742"), "正常 openalex 不得被改寫")
+        XCTAssertFalse(payload.contains("\u{1B}"), "legacy 髒 openalex 的 raw ESC 進了 payload")
         XCTAssertFalse(payload.contains("\u{202E}"))
 
         // person() 與 people() 對同一人給同一個 identifier

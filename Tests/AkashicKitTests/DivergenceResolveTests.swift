@@ -339,7 +339,7 @@ final class DivergenceResolveTests: XCTestCase {
         let d = try seed(into: store)
         // 被併者帶 keeper 沒有的 orcid → 實跑會拒
         var merged = try XCTUnwrap(try store.load().people.first { $0.key == "fann-cathy-s-j-2" })
-        merged.orcid = "0000-0002-1825-0097"
+        merged.orcid = ORCID("0000-0002-1825-0097")
         try store.writePerson(merged)
         GitFixture.commitAll(store.root, message: "orcid on doomed")
 

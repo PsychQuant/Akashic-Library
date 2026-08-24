@@ -35,7 +35,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
     private func writePerson(key: String, names: [String],
                              orcid: String? = nil, died: String? = nil) throws {
         var p = Person(key: key, names: PersonNames(variant: names))
-        p.orcid = orcid
+        p.orcid = try orcid.map { try XCTUnwrap(ORCID($0), "fixture orcid 必須合法：\($0)") }
         p.died = died
         try store.writePerson(p)
     }
@@ -340,7 +340,7 @@ final class ResolveAmbiguityCLITests: XCTestCase {
             value: OrgRef.literal("Old Institute"),
             range: DateRange(start: "1990", end: "1995"))])
         try store.writePerson(one)
-        try writePerson(key: "past-two", names: ["Past Same"], orcid: "0000-0003-0000-0000")
+        try writePerson(key: "past-two", names: ["Past Same"], orcid: "0000-0003-4038-9439")
         try store.writeEntry(Entry(id: UUID(), citekey: "past2020", type: .periodicalArticle,
                                    title: "X", authors: [.literal("Past Same")], date: "2020"))
 

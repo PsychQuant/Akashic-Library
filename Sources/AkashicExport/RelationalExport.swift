@@ -77,7 +77,7 @@ public enum RelationalExport {
         let sortedPeople = people.sorted { $0.key < $1.key }
         let researcherRows: [[String?]] = sortedPeople.map { p in
             // 現況欄位由 timeline 推出（`end IS NULL` 的最新一段）——冗餘但常用
-            [p.id.uuidString, p.key, p.displayName(in: .latn), p.orcid, p.openalex,
+            [p.id.uuidString, p.key, p.displayName(in: .latn), p.orcid?.normalized, p.openalex,
              p.profile.affiliations.current?.value.displayName,
              p.profile.ranks.current?.value,
              p.profile.administrative.current?.value,

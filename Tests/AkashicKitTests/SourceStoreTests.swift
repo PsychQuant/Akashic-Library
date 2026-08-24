@@ -358,7 +358,7 @@ final class SourceStoreTests: XCTestCase {
         let absent = "sha256:" + String(repeating: "ee", count: 32)
         var p = Person(key: "chen-h-y")
         p.names = ["Chen, H-Y."]
-        p.orcid = "0000-0003-4038-9439"
+        p.orcid = ORCID("0000-0003-4038-9439")
         p.references = [
             ProvenanceReference(field: "orcid", kind: .retrieval(
                 url: "https://example.org/a", retrieved: "2026-08-03", status: 200,
@@ -405,7 +405,7 @@ final class SourceStoreTests: XCTestCase {
 
         var p = Person(key: "chen-h-y")
         p.names = ["Chen, H-Y."]
-        p.orcid = "0000-0003-4038-9439"
+        p.orcid = ORCID("0000-0003-4038-9439")
         p.references = [
             ProvenanceReference(field: "orcid", kind: .retrieval(
                 url: "https://example.org/a", retrieved: "2026-08-11", status: 200,
@@ -452,7 +452,7 @@ extension SourceStoreTests {
         // 真的存一份（blob 落地），再把 shard 目錄鎖成不可讀
         let receipt = try store.storeSource(Data("locked".utf8), provenance: prov())
         var p = Person(key: "p-locked", names: ["L"])
-        p.orcid = "0000-0002-1825-0097"   // reference 指名的欄位必須存在
+        p.orcid = ORCID("0000-0002-1825-0097")   // reference 指名的欄位必須存在
         p.references = [ProvenanceReference(
             field: "orcid", value: nil,
             kind: .retrieval(url: "https://example.org", retrieved: "2026-08-15",

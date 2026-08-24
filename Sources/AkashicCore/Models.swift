@@ -422,7 +422,7 @@ public struct Person: Equatable {
     /// 術語（RDA access point）與「不要改名叫 normalized」的禁令見 `PersonNames`
     /// 與其 `authorized` 屬性的 doc。
     public var names: PersonNames
-    public var orcid: String?
+    public var orcid: ORCID?
     public var openalex: String?
     /// 逝世日期（#67）。ISO 8601 前綴：`2004`、`2004-11`、`2004-11-18`——與
     /// `Organization.dissolved` 同慣例，精度就是來源說了什麼，**不補齊**。
@@ -470,7 +470,7 @@ public struct Person: Equatable {
     /// `id:`，舊檔只能經 migrate-person-identity 進來（`.claude/rules/
     /// no-compat-fallback.md`：退場後刪掉，不留著當保險）。
     public init(key: String, names: PersonNames = [],
-                orcid: String? = nil,
+                orcid: ORCID? = nil,
                 openalex: String? = nil, died: String? = nil, note: String? = nil,
                 id: UUID? = nil,
                 profile: PersonProfile = PersonProfile(),

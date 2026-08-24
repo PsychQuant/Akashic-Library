@@ -152,7 +152,7 @@ final class PersonYAMLTests: XCTestCase {
     func testRoundTrip() throws {
         let person = Person(key: "chen-chun-houh",
                             names: ["Chun-Houh Chen", "陳君厚", "C.-H. Chen"],
-                            orcid: "0000-0002-0000-0000", openalex: "A5017898742",
+                            orcid: ORCID("0000-0002-1825-0097"), openalex: "A5017898742",
                             note: "中研院統計所")
         let decoded = try PersonYAML.decode(try PersonYAML.encode(person))
         XCTAssertEqual(decoded, person)

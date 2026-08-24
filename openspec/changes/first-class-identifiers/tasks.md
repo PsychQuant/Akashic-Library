@@ -16,7 +16,7 @@
 
 - [x] 3.1 [P] 交付 spec requirement「An identifier SHALL live on the entity it identifies」。`Venue` 取得 `issn: [ISSN]`、`Organization` 取得 `ror: ROR?`，且 `Venue` 型別 doc comment 內逐一列舉欄位的那段同步更新。驗證目標——新測試以反射斷言兩型別的欄位集合含新欄位，且 `Venue` 的 doc 列舉與實際欄位一致。
 - [x] 3.2 [P] `Entry` 取得 `doi: [DOI]`／`pmid: [PMID]`／`isbn: [ISBN]` 結構化欄位，與既有 `Entry.fields` 並存（本任務不移除 `fields` 內的舊值，移除由遷移負責）。驗證目標——新測試斷言同時持有結構化值與 `fields` 殘留時，結構化值為正典。
-- [ ] 3.3 `Person.orcid` 的型別自 `String?` 改為 `ORCID?`，並逐一更新讀取它的五個消費面（App 審議面、MCP 的 update-person、CLI 命令、關聯匯出、divergence 解析）。驗證目標——`swift build -Xswiftc -warnings-as-errors` 通過且既有 person 相關測試全綠。
+- [x] 3.3 `Person.orcid` 的型別自 `String?` 改為 `ORCID?`，並逐一更新讀取它的五個消費面（App 審議面、MCP 的 update-person、CLI 命令、關聯匯出、divergence 解析）。驗證目標——`swift build -Xswiftc -warnings-as-errors` 通過且既有 person 相關測試全綠。
 
 ## 4. YAML 編解碼：正規化只在寫入面發生，讀取面寬容保留既有值
 

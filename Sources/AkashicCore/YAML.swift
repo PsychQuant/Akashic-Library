@@ -1240,7 +1240,10 @@ public enum PersonYAML {
             }
             pairs.append((Node("names"), Node(nameParts)))
         }
-        if let orcid = person.orcid { pairs.append((Node("orcid"), Node(orcid))) }
+        // 寫入面永遠寫正規形（#394 決策：正規化只在寫入面發生）——即使原樣值
+        // 是非正規大小寫（如 issn 的小寫 check digit 同型問題），寫出去的一律是
+        // `.normalized`，讀回時 `raw == normalized`。
+        if let orcid = person.orcid { pairs.append((Node("orcid"), Node(orcid.normalized))) }
         if let openalex = person.openalex { pairs.append((Node("openalex"), Node(openalex))) }
         // #67：逝世日期。缺席**不寫出任何鍵**——缺席的語意是右設限（尚未觀察到），
         // 寫成空字串或 null 會把「沒觀察到」偽裝成一個有內容的觀測。
@@ -1388,8 +1391,28 @@ public enum PersonYAML {
                                                { $0.sequence != nil ? $0 : nil }) {
             person.references = try ProvenanceYAML.decode(rn, context: "person")
         }
-        person.orcid = try EntryYAML.requireShape(map["orcid"], field: "person.orcid",
-                                                  expect: "scalar") { $0.scalar?.string }
+        // #394 task 3.3：orcid 是型別化欄位。**現況與 id/UUID 同紀律**——形狀不合法
+        // 即整筆拒讀（quarantine），不是靜默丟棄或靜默保留原字串。這與 design.md
+        // 「讀取面寬容保留既有值」的最終目標不同：那個目標要求非法值仍能載入並由
+        // `akashic validate` 具名回報，屬 Section 4（YAML 編解碼的正式讀寬容機制，
+        // 尚未實作）——本任務只交付「型別化＋五個消費面」，不越界動這個尚未拍板的
+        // 讀取語意。選 fail-closed 而非靜默丟值，理由是 lossless-intake 的「靜默是
+        // 最糟的形式」：quarantine 是**看得見**的失敗（`doctor`／`validate` 報得出），
+        // 靜默轉 nil 則是資料在下一次讀-寫循環中無聲消失。
+        //
+        // 實測零風險：真建構器當 oracle 掃過 store 現有 42 筆 orcid 值，0 個建構失敗、
+        // 0 個非正規形（一次性探針、已移除；不留在測試套件內）。回歸覆蓋見
+        // `IdentifierPlacementTests.testMalformedORCIDQuarantinesPersonAtDecode`
+        // 與 `testPersonORCIDNormalizesOnWrite`。
+        if let raw = try EntryYAML.requireShape(map["orcid"], field: "person.orcid",
+                                                 expect: "scalar", { $0.scalar?.string }) {
+            guard let o = ORCID(raw) else {
+                throw StoreYAMLError.invalidField(
+                    "person.orcid",
+                    "「\(displaySafe(raw, max: 120))」不是合法的 ORCID（\(ORCID.shapeDescription)）")
+            }
+            person.orcid = o
+        }
         person.openalex = try EntryYAML.requireShape(map["openalex"], field: "person.openalex",
                                                      expect: "scalar") { $0.scalar?.string }
         // #67：值原樣讀入，**不驗證是否為合法 ISO 前綴**——與 `DateRange` 的

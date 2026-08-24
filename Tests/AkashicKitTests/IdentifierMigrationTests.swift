@@ -9,21 +9,21 @@ final class IdentifierMigrationTests: XCTestCase {
 
     /// 實測的三種多值寫法都要切得開。
     func testMultiValueShapesAreSplit() {
-        XCTAssertEqual(IdentifierMigration.candidates("0022-3506 1467-6494"),
+        XCTAssertEqual(IdentifierMigration.candidates("0022-3506 1467-6494", field: "issn"),
                        ["0022-3506", "1467-6494"])
-        XCTAssertEqual(IdentifierMigration.candidates("0033-3123,1860-0980"),
+        XCTAssertEqual(IdentifierMigration.candidates("0033-3123,1860-0980", field: "issn"),
                        ["0033-3123", "1860-0980"])
         // 括號標註整段丟掉——`(Electronic)` 是人給的註記，不是識別碼的一部分，
         // 而我們沒有欄位可以存它。留著會讓值解析失敗，等於把整筆略過。
-        XCTAssertEqual(IdentifierMigration.candidates("1860-0980 (Electronic) 0033-3123 (Linking)"),
+        XCTAssertEqual(IdentifierMigration.candidates("1860-0980 (Electronic) 0033-3123 (Linking)", field: "issn"),
                        ["1860-0980", "0033-3123"])
     }
 
     /// **異寫法合併**：task 8.2 具名的第一個實例。
     /// `0003-066x` 與 `0003-066X 1935-990X` 去重後是兩個相異值，不是三個。
     func testAmericanPsychologistMergesToTwoDistinctValues() {
-        let raws = IdentifierMigration.candidates("0003-066x")
-            + IdentifierMigration.candidates("0003-066X 1935-990X")
+        let raws = IdentifierMigration.candidates("0003-066x", field: "issn")
+            + IdentifierMigration.candidates("0003-066X 1935-990X", field: "issn")
         let (values, bad) = IdentifierMigration.normalizedUnique(raws, ISSN.init)
         XCTAssertTrue(bad.isEmpty, "不該有解析不了的：\(bad)")
         XCTAssertEqual(values.map(\.normalized), ["0003-066X", "1935-990X"],
@@ -33,7 +33,7 @@ final class IdentifierMigrationTests: XCTestCase {
     /// **真多號保留**：task 8.2 具名的第二個實例。print 與 electronic 是兩個真的號。
     func testBehaviorResearchMethodsKeepsTwo() {
         let (values, _) = IdentifierMigration.normalizedUnique(
-            IdentifierMigration.candidates("1554-351X 1554-3528"), ISSN.init)
+            IdentifierMigration.candidates("1554-351X 1554-3528", field: "issn"), ISSN.init)
         XCTAssertEqual(values.count, 2)
     }
 
@@ -42,7 +42,7 @@ final class IdentifierMigrationTests: XCTestCase {
     /// 不先正規化再去重，它會被當成兩個 ISSN 存進去。
     func testAValueThatLooksMultiButDedupesToOne() {
         let (values, _) = IdentifierMigration.normalizedUnique(
-            IdentifierMigration.candidates("0033-2909 (Print) 0033-2909"), ISSN.init)
+            IdentifierMigration.candidates("0033-2909 (Print) 0033-2909", field: "issn"), ISSN.init)
         XCTAssertEqual(values.map(\.normalized), ["0033-2909"])
     }
 
@@ -52,7 +52,7 @@ final class IdentifierMigrationTests: XCTestCase {
     /// 斷言「整個解析不了」而自己先紅——切開之後那個 DOI 其實救得回來。
     func testUnparseableTokensAreReportedWhileTheRealOneIsRecovered() {
         let (values, bad) = IdentifierMigration.normalizedUnique(
-            IdentifierMigration.candidates("DOI 10.1037/h0077149"), DOI.init)
+            IdentifierMigration.candidates("DOI 10.1037/h0077149", field: "doi"), DOI.init)
         XCTAssertEqual(values.map(\.normalized), ["10.1037/h0077149"],
                        "切得開就救得回來——前綴雜訊不該讓整筆被略過")
         XCTAssertEqual(bad, ["DOI"], "解析不了的 token 必須出現在報告裡：\(bad)")
@@ -80,5 +80,23 @@ final class IdentifierMigrationTests: XCTestCase {
     func testDOIAndPMIDDoNotAbsorbMultipleValues() {
         XCTAssertFalse(IdentifierMigration.absorbsMultipleValues(field: "doi"))
         XCTAssertFalse(IdentifierMigration.absorbsMultipleValues(field: "pmid"))
+    }
+
+    /// **DOI 的括號絕不能剝**——Elsevier／Wiley 的後綴合法含括號，實測 52 筆。
+    /// 第一版對所有種類一律剝括號，把它們切成兩半，乾跑報告裡出現 `00255-9` 這種殘骸
+    /// 並被當成「資料解析不了」。
+    func testDOIParenthesesAreNotStripped() {
+        XCTAssertEqual(
+            IdentifierMigration.candidates("10.1016/S0304-4076(98)00255-9", field: "doi"),
+            ["10.1016/S0304-4076(98)00255-9"])
+        XCTAssertNotNil(DOI("10.1016/S0304-4076(98)00255-9"))
+    }
+
+    /// ISSN／ISBN 的括號**要剝**——那是人給的註記。
+    func testISSNAnnotationsAreStripped() {
+        XCTAssertEqual(
+            IdentifierMigration.candidates("1860-0980 (Electronic) 0033-3123 (Linking)",
+                                           field: "issn"),
+            ["1860-0980", "0033-3123"])
     }
 }

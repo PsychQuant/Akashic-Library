@@ -52,6 +52,8 @@ enum DestructiveTargetGate {
     /// 新增會改寫或刪除記錄的命令時**必須在同一個變更裡加進這裡**。
     /// `DestructiveTargetGateTests` 的雙向機械稽核接住漏網的。
     static let destructiveCommands: Set<String> = [
+        // #394：識別碼自 fields 升格、work 的 issn 移位至 venue——改寫既有記錄。
+        "migrate-identifiers",
         "migrate-person-identity",
         "migrate-venues",
         "bootstrap-people",

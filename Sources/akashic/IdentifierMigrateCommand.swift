@@ -1,0 +1,75 @@
+import ArgumentParser
+import Foundation
+import AkashicCore
+import AkashicStoreIO
+
+/// `Entry.fields` 的識別碼殘留 → 結構化欄位；work 的 `issn` → 它的 venue（#394 §8）。
+///
+/// 形狀比照 `migrate-venues`：預設乾跑、`--apply` 才寫入、只改寫 git 追蹤中的檔、
+/// **不自動 bump format**（bump 是人工的最後一步，見 design.md 的部署順序）。
+struct MigrateIdentifiers: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "migrate-identifiers",
+        abstract: "識別碼自 fields 升格為結構化欄位；work 的 issn 移位至 venue（預設乾跑）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Flag(name: .long, help: "實際寫入（預設只預演；只改寫 git 追蹤中的檔）")
+    var apply = false
+
+    func run() throws {
+        // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
+        // ——乾跑不得被擋（它不寫東西，且正是用來確認目標的手段）。
+        if apply { try options.assertDestructiveTargetNamed("migrate-identifiers") }
+        let store = try options.openStore()
+        let report = try IdentifierMigration.run(store: store, apply: apply)
+        let prefix = apply ? "✓" : "（dry-run）"
+
+        print("\(prefix) \(apply ? "已改動" : "將改動") \(report.plans.count) 筆 work、"
+              + "\(report.identifierCount) 個識別碼；venue 落點 \(report.venuePlans.count) 個")
+
+        if !report.plans.isEmpty {
+            print("\n── work 側 ──")
+            for p in report.plans {
+                print("  \(displaySafe(p.citekey, max: 200))")
+                for c in p.changes { print("      \(c)") }
+            }
+        }
+        if !report.venuePlans.isEmpty {
+            // **「去重後合併」與「保留多值」分開列**（task 8.2）——前者是異寫法收斂，
+            // 後者是 print／electronic 兩個真的號，人要分辨得出來。
+            print("\n── venue 側：去重後合併為單值 ──")
+            for v in report.venuePlans where !v.keptMultiple {
+                print("  \(v.venueKey): \(v.values.joined(separator: "、"))"
+                      + "   ← 來源 \(v.mergedFrom.joined(separator: " ｜ "))")
+            }
+            print("\n── venue 側：保留多值（print／electronic 是兩個真的號）──")
+            for v in report.venuePlans where v.keptMultiple {
+                print("  \(v.venueKey): \(v.values.joined(separator: "、"))"
+                      + "   ← 來源 \(v.mergedFrom.joined(separator: " ｜ "))")
+            }
+        }
+        if !report.skipped.isEmpty {
+            print("\n── 略過（不猜、不丟棄，原值留在 fields）──")
+            for s in report.skipped {
+                print("  \(displaySafe(s.citekey, max: 200)) [\(s.field)] "
+                      + "「\(displaySafe(s.value, max: 120))」")   // display-safe-exempt: field 值域是 workIdentifierKeys 封閉集合
+                print("      \(displaySafe(s.reason, max: 800))")
+            }
+        }
+        print("\n── provenance value 改寫：\(report.provenanceRewrites.count) 筆 ──")
+        if report.provenanceRewrites.isEmpty {
+            print("  （零實例是預期的：Entry.references 是本 change 新增、全庫為空；"
+                  + "venue 的 issn reference 需要 format 13 才寫得進去，而 store 仍是 12）")
+        }
+        if !report.failed.isEmpty {
+            print("\n── 失敗 ──")
+            for f in report.failed { print("  \(f)") }
+            throw ExitCode(1)
+        }
+        if !apply {
+            print("\n這是乾跑，store 沒有被改動。確認以上處置無誤後加 --apply。")
+            print("**--apply 不會改 store.yaml 的 format**——那是驗證之後的人工最後一步。")
+        }
+    }
+}

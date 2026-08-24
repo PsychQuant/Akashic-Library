@@ -7,7 +7,8 @@ import BiblatexAPA
 public enum BibExport {
     /// Entry.fields（已是 biblatex 欄位名）之外的一級欄位對映。
     public static func bibEntry(for entry: Entry, people: [String: Person],
-                                organizations: [String: Organization] = [:]) -> BibEntry {
+                                organizations: [String: Organization] = [:],
+                                venues: [String: Venue] = [:]) -> BibEntry {
         // 每個值都過 `braceSafe`（#176）。**逐個作者、不是 join 之後**——一個壞名字
         // 不該把整串作者一起拖進逃脫（那會改掉同一筆裡其他機構名的 `{...}` 標記）。
         var fields = OrderedDict()
@@ -51,6 +52,21 @@ public enum BibExport {
         emitIdentifiers(entry.doi, as: "doi")
         emitIdentifiers(entry.pmid, as: "pmid")
         emitIdentifiers(entry.isbn, as: "isbn")
+        // **ISSN 來自 venue，不是 work**（#394 §8 遷移之後）。
+        //
+        // design.md 的 Risks 段預言了「export 靜默少欄位」，而 §7 的 mitigation 只涵蓋
+        // `doi`／`pmid`／`isbn`——那三個仍在 work 上，`issn` **換了實體**，所以同一個
+        // 形狀套不上去。遷移後實測 `.bib` 的 ISSN 欄位自 64 掉到 0：資料沒丟（在 venue
+        // 上），但匯出看不到。驗收條件也沒抓到，因為它只列了那三個欄位。
+        //
+        // **只在 `fields` 沒有殘留時才寫**——遷移略過的那些仍在 `fields`，不得被覆蓋。
+        // venue 未歸戶（`.literal`）時不生出任何東西：沒有 venue 記錄就沒有號。
+        if fields["issn"] == nil {
+            let venueISSNs = entry.venues.compactMap { ref -> Venue? in
+                if case .key(let k) = ref { return venues[k] } else { return nil }
+            }.flatMap(\.issn)
+            emitIdentifiers(venueISSNs, as: "issn")
+        }
         // 學位論文事實（#335）。**在 `fields` 之後寫**，所以結構化欄位勝過自由字典裡
         // 同名的殘留值——遷移把 `fields.type` 搬進 `thesis.degree` 之後那個殘留不該
         // 存在，但若存在，結構化的那個才是正典（`no-compat-fallback`：不留兩條讀法）。
@@ -336,13 +352,17 @@ public enum BibExport {
     }
 
     public static func bibFile(entries: [Entry], people: [Person],
-                               organizations: [Organization] = []) -> String {
+                               organizations: [Organization] = [],
+                               venues: [Venue] = []) -> String {
         let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
         let orgsByKey = Dictionary(uniqueKeysWithValues: organizations.map { ($0.key, $0) })
+        // #394 §8：ISSN 遷移到 venue 之後，work 的 .bib 要從這裡撈。
+        let venuesByKey = Dictionary(uniqueKeysWithValues: venues.map { ($0.key, $0) })
         return entries
             .sorted { $0.citekey < $1.citekey }
             .map { BibWriter.serialize(bibEntry(for: $0, people: peopleByKey,
-                                                organizations: orgsByKey)) }
+                                                organizations: orgsByKey,
+                                                venues: venuesByKey)) }
             .joined(separator: "\n\n") + "\n"
     }
 

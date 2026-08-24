@@ -299,7 +299,8 @@ public final class AkashicService {
                     + "不在 APA7 必要欄位表內，未經檢查（見 #325）\n"
             }
             if !header.isEmpty { header += "\n" }
-            return try safe(header + BibExport.bibFile(entries: entries, people: load.people))
+            return try safe(header + BibExport.bibFile(entries: entries, people: load.people,
+                                                       venues: load.venues))
         case "csl-json":
             return try safe(CSLExport.cslJSON(entries: entries, people: load.people))
         default: throw ServiceError.invalid("format 必須是 bib / csl-json")

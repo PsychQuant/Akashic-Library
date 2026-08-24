@@ -1245,7 +1245,8 @@ struct ExportBib: ParsableCommand {
         }
         let content: String = cslJson
             ? try CSLExport.cslJSON(entries: entries, people: load.people)
-            : BibExport.bibFile(entries: entries, people: load.people)
+            : BibExport.bibFile(entries: entries, people: load.people,
+                                venues: load.venues)
         // #326：APA7 完整性報告（warn-only，不改變匯出內容）。走 stderr，讓 stdout
         // 的 `.bib` 仍可被管線直接吃。CSL 路徑不跑——`BibValidator` 驗的是 biblatex
         // 欄位名。

@@ -62,4 +62,55 @@ final class IdentifierExportTests: XCTestCase {
         let e = entry(fields: ["doi": "10.0000/only-residue"])
         XCTAssertEqual(BibExport.bibEntry(for: e, people: [:]).fields["doi"], "10.0000/only-residue")
     }
+
+    // MARK: - ISSN 搬到 venue 之後，.bib 仍須輸出它（遷移後實測抓到的回歸）
+
+    /// **design.md 的 Risks 段預言過這件事，而 §7 的 mitigation 漏掉了 issn。**
+    ///
+    /// > [export 靜默少欄位] 把 `doi` 搬出 `Entry.fields` 後，`BibExport` 對自由字典的
+    /// > 逐鍵轉出不再輸出它，而 `.bib` 少一個欄位**不會報錯**
+    ///
+    /// §7 對 `doi`／`pmid`／`isbn` 做了 mitigation（迴圈後寫結構化值），但那三個仍在
+    /// work 上；`issn` **換了實體**（搬到 venue），所以同一個形狀套不上去。遷移後實測
+    /// `.bib` 的 ISSN 欄位自 64 掉到 **0**——資料沒丟（在 venue 上），但匯出看不到。
+    ///
+    /// 驗收條件也沒抓到：它只列 `DOI`／`ISBN`／`PMID` 要比對，**沒列 ISSN**——寫驗收的
+    /// 人在同一個盲點裡。是逐位元比對本身把它翻出來的。
+    func testISSNComesFromTheVenueAfterMigration() throws {
+        var v = Venue(key: "jrss-c", type: .periodical)
+        v.issn = [try XCTUnwrap(ISSN("0035-9254"))]
+        var e = Entry(id: UUID(), citekey: "agresti1992analysis",
+                      type: .periodicalArticle, title: "T")
+        e.venues = [.key("jrss-c")]
+        let bib = BibExport.bibEntry(for: e, people: [:], venues: ["jrss-c": v])
+        XCTAssertEqual(bib.fields["issn"], "0035-9254",
+                       "ISSN 搬到 venue 之後，work 的 .bib 仍須輸出它")
+    }
+
+    /// venue 有多個 ISSN 時全部輸出——print 與 electronic 都是這份期刊的號。
+    func testMultipleVenueISSNsAreEmitted() throws {
+        var v = Venue(key: "ap", type: .periodical)
+        v.issn = [try XCTUnwrap(ISSN("0003-066X")), try XCTUnwrap(ISSN("1935-990X"))]
+        var e = Entry(id: UUID(), citekey: "x2020", type: .periodicalArticle, title: "T")
+        e.venues = [.key("ap")]
+        let out = try XCTUnwrap(
+            BibExport.bibEntry(for: e, people: [:], venues: ["ap": v]).fields["issn"])
+        XCTAssertTrue(out.contains("0003-066X") && out.contains("1935-990X"), out)
+    }
+
+    /// **venue 未歸戶（literal）時不得憑空生出 ISSN**——沒有 venue 記錄就沒有號。
+    func testNoISSNWhenTheVenueEdgeIsStillLiteral() throws {
+        var e = Entry(id: UUID(), citekey: "x2020", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Some Journal")]
+        XCTAssertNil(BibExport.bibEntry(for: e, people: [:], venues: [:]).fields["issn"])
+    }
+
+    /// `fields` 裡若還有 issn 殘留（遷移略過的那些），照舊輸出——不得被 venue 覆蓋成空。
+    func testResidualISSNInFieldsStillEmitted() {
+        var e = Entry(id: UUID(), citekey: "x2020", type: .periodicalArticle, title: "T",
+                      fields: ["issn": "0000-0000"])
+        e.venues = [.literal("Some Journal")]
+        XCTAssertEqual(BibExport.bibEntry(for: e, people: [:], venues: [:]).fields["issn"],
+                       "0000-0000")
+    }
 }

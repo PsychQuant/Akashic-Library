@@ -112,7 +112,23 @@ store 對識別碼有三種並存待遇，且沒有任何一次裁決記錄說�
 **Failure modes**
 
 - 形狀不合法的識別碼在**寫入面**被拒絕，錯誤訊息具名該值與該種識別碼的預期形狀。
-- 形狀不合法的識別碼在**讀取面**被接受並保留，且 `akashic validate` 報一則 diagnostic 具名該記錄與該值（surfaced，不是靜默）。
+- **非正規形**的識別碼（例如小寫 check digit）在**讀取面**被接受並原樣保留，且 `akashic validate` 報一則 diagnostic 具名該記錄與該值（surfaced，不是靜默）。
+- **形狀不合法**的識別碼（例如 `12345`）在**讀取面**仍然拒讀，整筆 quarantine 並具名該值與預期形狀。
+
+  > **這一句在 2026-08-24 被裁決過一次，原本寫的是相反的行為。** 原文是「形狀不合法的
+  > 識別碼在讀取面被接受並保留」，而它與兩處分岔：spec 的 scenario 寫的是 “does not match
+  > **the normal form**”（只涵蓋非正規形），task 3.3 落地的 `Person.orcid` 對
+  > `not-an-orcid` 是整筆 quarantine 且測試綠著。
+  >
+  > 使用者裁定取**窄**的那個讀法。理由不是「比較好做」，是 `id` 與 `issn` 的不對稱：
+  > `id` 壞掉是**身分**壞掉（不知道這是哪一筆），`issn` 壞掉是**屬性**壞掉。但 quarantine
+  > 是**看得見**的失敗（`doctor`／`validate` 報得出來），沒有違反 `lossless-intake` 的
+  > 「靜默是最糟的形式」——而寬容版要新增一個機制（型別的 invalid 狀態或 per-field 殘留），
+  > 那個成本要穿過相等、export、遷移、provenance 驗證四處，而觸發它的情形是**零實例**
+  > （寫入面已拒絕、遷移對無法解析者略過，只有手改 YAML 到得了這一格）。
+  >
+  > 依 `.claude/rules/zero-instance-guards.md` 的立場，這一格要不要防是一列一列裁決的，
+  > 而這一列的裁決是**現在不防**。真的出現手改壞值的實例時重新裁決。
 - provenance reference 指向不在清單內的值時，維持既有行為（拒讀整筆並具名孤兒 value）——本 change 不放寬它。
 - 遷移遇到無法解析的識別碼字串時**略過該筆並具名**，不猜測、不丟棄；乾跑報告列出全部略過項。
 

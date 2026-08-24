@@ -166,6 +166,7 @@ public struct Venue: Equatable {
         }
         issues += AuthorizedNames.validate(authorized: authorized,
                                            names: names.entries.map(\.value), ownerKey: key)
+        issues += IdentifierDiagnostics.nonNormal(issn, field: "venue.issn")
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
                 message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))

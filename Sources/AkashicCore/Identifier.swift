@@ -283,3 +283,36 @@ public struct ROR: Identifier {
         normalized = s
     }
 }
+
+
+// MARK: - 非正規形的 diagnostic（#394 task 4.3）
+
+/// 讀取面寬容保留非正規形，**但不得靜默**——`lossless-intake` 的「靜默是最糟的形式」在
+/// 這裡的落地：值留著，同時 `akashic validate` 具名它。遷移（`migrate-identifiers`）
+/// 修好之後這些 diagnostic 自然歸零，所以它同時是遷移進度的量測。
+///
+/// **severity 是 warning 不是 error**：值指涉正確、只是寫法不是正規形。依 #416 的判準
+/// `hasFindings` 只計 error——記成 error 會讓一份正常的 store 常態顯示不健康，那個布林
+/// 就失去訊號。
+///
+/// 四個帶識別碼的記錄型別共用這一份（同 `IdentifierYAML` 的理由：一份規格的兩份副本
+/// 必然分岔）。
+public enum IdentifierDiagnostics {
+    public static func nonNormal<T: Identifier>(_ ids: [T], field: String) -> [ValidationIssue] {
+        ids.filter { $0.raw != $0.normalized }.map { issue($0, field: field) }
+    }
+
+    public static func nonNormal<T: Identifier>(_ id: T?, field: String) -> [ValidationIssue] {
+        guard let id, id.raw != id.normalized else { return [] }
+        return [issue(id, field: field)]
+    }
+
+    /// 訊息同時給**原樣值**與**正規形**——只給前者的話讀的人不知道要改成什麼。
+    private static func issue<T: Identifier>(_ id: T, field: String) -> ValidationIssue {
+        ValidationIssue(
+            severity: .warning,
+            message: "\(field)「\(displaySafe(id.raw, max: 120))」不是正規形"
+                + "（正規形是「\(displaySafe(id.normalized, max: 120))」；"
+                + "`migrate-identifiers` 會修正）")
+    }
+}

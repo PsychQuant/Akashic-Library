@@ -736,6 +736,10 @@ extension Entry {
                 message: "akashic 未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         issues += Self.pagesShapeIssues(fields["pages"])
+        // #394 task 4.3：非正規形的識別碼要出聲（值保留、但不靜默）。
+        issues += IdentifierDiagnostics.nonNormal(doi, field: "doi")
+        issues += IdentifierDiagnostics.nonNormal(pmid, field: "pmid")
+        issues += IdentifierDiagnostics.nonNormal(isbn, field: "isbn")
         return issues
     }
 
@@ -833,6 +837,7 @@ extension Person {
                 severity: .error,
                 message: "person key '\(displaySafe(key, max: 120))' 不符合 \(StoreKey.pattern)"))
         }
+        issues += IdentifierDiagnostics.nonNormal(orcid, field: "person.orcid")
         // #81／#227：對外名字的內容不變式（每書寫系統至多一個）。與 organization 共用
         // 同一份檢查——「哪個名字對外」是同一個問題，不該有兩套答案。子集那條已由
         // `PersonNames` 的結構承擔，**刻意不呼叫** `validate(authorized:names:)`——

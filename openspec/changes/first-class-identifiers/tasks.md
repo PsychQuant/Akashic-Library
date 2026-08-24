@@ -22,9 +22,9 @@
 
 交付 spec requirement「Normalization SHALL occur on the write path only」。
 
-- [ ] 4.1 交付 spec requirement「Normalization SHALL occur on the write path only」。先寫失敗測試：讀取一筆 `issn` 值為 `0003-066x` 的 venue 記錄時記錄成功載入且值原樣保留；寫入同一筆時值變為 `0003-066X`。驗證目標——測試由紅轉綠。
-- [ ] 4.2 實作識別碼欄位的序列化與反序列化：頂層鍵、清單欄位為序列、純量欄位為純量、空清單不序列化（既有記錄零 diff）、讀取路徑不因格式不合而拒讀。驗證目標——4.1 全綠，且 round-trip 測試斷言未知欄位仍被 tolerant-preserve 保留。
-- [ ] 4.3 `akashic validate` 對非正規形的識別碼值輸出一則具名該記錄與該值的 diagnostic（surfaced，不靜默）。驗證目標——對含 `0003-066x` 的暫時 store 執行 validate，斷言輸出含該值。
+- [x] 4.1 交付 spec requirement「Normalization SHALL occur on the write path only」。先寫失敗測試：讀取一筆 `issn` 值為 `0003-066x` 的 venue 記錄時記錄成功載入且值原樣保留；寫入同一筆時值變為 `0003-066X`。驗證目標——測試由紅轉綠。
+- [x] 4.2 實作識別碼欄位的序列化與反序列化：頂層鍵、清單欄位為序列、純量欄位為純量、空清單不序列化（既有記錄零 diff）、讀取路徑**不因非正規形而拒讀**（形狀不合法仍拒讀——2026-08-24 裁決，見 design.md Failure modes）。驗證目標——4.1 全綠，且 round-trip 測試斷言未知欄位仍被 tolerant-preserve 保留。
+- [x] 4.3 `akashic validate` 對非正規形的識別碼值輸出一則具名該記錄與該值的 diagnostic（surfaced，不靜默）。驗證目標——對含 `0003-066x` 的暫時 store 執行 validate，斷言輸出含該值。
 
 ## 5. 基數逐種決定，且基數決定 provenance 走哪條驗證分支
 

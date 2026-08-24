@@ -60,7 +60,13 @@ public enum IdentifierMigration {
         public var venuePlans: [VenuePlan] = []
         public var skipped: [Skipped] = []
         public var provenanceRewrites: [String] = []
-        public var failed: [String] = []
+        /// **寫入開始之前**就判定成立的阻擋前提（#394 verify）。
+        ///
+        /// 取代原本的 `failed`——那個名字對應的是「寫到一半失敗」，而那正是本命令
+        /// 不該有的狀態：它**跨記錄搬動資料**（work 的 issn → venue），寫到一半
+        /// 等於兩邊都不對。現在所有前提在任何寫入之前裁決完畢，於是乾跑與 apply
+        /// 得到同一組結果，乾跑才真的能預告 apply。
+        public var blockers: [String] = []
         public var applied: Int = 0
 
         /// 會被改動的識別碼總數——dry-run 的頭條數字。
@@ -143,14 +149,20 @@ public enum IdentifierMigration {
 
         // per-file trackedness：apply 時查一次（同 VenueMigration／PersonIdentityMigration）。
         // 未被 git 追蹤的檔改寫沒有回復路徑。
+        //
+        // **乾跑也查**（#394 verify）：先前只在 `apply` 內查，於是一個保證會毀資料的
+        // 前提（venue 檔未追蹤／venue 不存在）在乾跑輸出裡**完全看不見**——而這條命令
+        // 的整段 doc comment 主張乾跑存在的理由就是「讓會靜默毀資料的問題在寫入前現形」。
         var tracked: Set<Data> = []
-        if apply {
-            guard let out = LibraryStore.git(["ls-files", "-z", "--", "entities"],
-                                             in: store.root), out.status == 0 else {
-                throw PersonIdentityMigration.MigrationError.noRecoveryPath(
-                    detail: "git ls-files 無法執行——無從確認追蹤狀態")
-            }
+        var trackednessKnown = true
+        if let out = LibraryStore.git(["ls-files", "-z", "--", "entities"],
+                                      in: store.root), out.status == 0 {
             tracked = Set(out.out.split(separator: "\0").map { Data($0.utf8) })
+        } else if apply {
+            throw PersonIdentityMigration.MigrationError.noRecoveryPath(
+                detail: "git ls-files 無法執行——無從確認追蹤狀態")
+        } else {
+            trackednessKnown = false
         }
 
         // venue key → 要加上去的 ISSN（跨 work 累積後一次寫）。
@@ -246,28 +258,57 @@ public enum IdentifierMigration {
                 mergedFrom: mergedFrom, keptMultiple: merged.count > 1))
         }
 
-        guard apply else { return report }
-
-        // ---- 寫入 ----
-        for updated in updatedEntries {
-            let rel = "entities/\(updated.id.uuidString).yaml"
-            guard tracked.contains(Data(rel.utf8)) else {
-                report.failed.append("\(updated.citekey)：\(rel) 未被 git 追蹤——改寫無回復路徑，先 commit 再跑")
-                continue
-            }
-            _ = try store.writeEntry(rewritingProvenance(updated, report: &report))
-            report.applied += 1
-        }
+        // ---- Pre-flight：**任何寫入之前**判定每個 venue 落點寫不寫得成 ----
+        //
+        // 這是 `mcp-cli-parity` 為本命令寫下的那句話的守衛：「它會**跨記錄搬動資料**
+        // （work 的 issn 移位到它的 venue），所以一次失敗的部分寫入會讓兩邊都不對」。
+        // 規則指名了風險，實作原本沒有對應的守衛——work 先寫（`fields.issn` 已刪）、
+        // venue 後寫，venue 那格失敗時 ISSN **從兩邊都消失**，且工具內不可逆。
+        //
+        // 判定只依賴 pre-flight 拿得到的事實（venue 是否存在、檔案是否被追蹤），
+        // 所以乾跑與 apply 得到**同一組** blockers——乾跑因此真的能預告 apply 的結果。
+        var blockedVenues: Set<String> = []
         for plan in report.venuePlans {
-            guard var v = existingVenues[plan.venueKey] else {
-                report.failed.append("venue「\(plan.venueKey)」不存在——ISSN 無處可放")
+            guard let v = existingVenues[plan.venueKey] else {
+                report.blockers.append("venue「\(plan.venueKey)」不存在——ISSN 無處可放")
+                blockedVenues.insert(plan.venueKey)
                 continue
             }
             let rel = "entities/\(v.id.uuidString).yaml"
-            guard tracked.contains(Data(rel.utf8)) else {
-                report.failed.append("venue「\(plan.venueKey)」：\(rel) 未被 git 追蹤")
-                continue
+            if trackednessKnown && !tracked.contains(Data(rel.utf8)) {
+                report.blockers.append("venue「\(plan.venueKey)」：\(rel) 未被 git 追蹤")
+                blockedVenues.insert(plan.venueKey)
             }
+        }
+        // 落點被擋的 work **整筆不動**——不是「照寫但少一個欄位」。它的 `fields.issn`
+        // 是那個號在此刻唯一的棲身處，刪掉它而 venue 沒收到，就是純粹的資料消失。
+        let issnTargetByCitekey = Dictionary(
+            report.plans.compactMap { p in p.issnToVenue.map { (p.citekey, $0) } },
+            uniquingKeysWith: { a, _ in a })
+        var blockedEntries: Set<String> = []
+        for (ck, vkey) in issnTargetByCitekey where blockedVenues.contains(vkey) {
+            report.blockers.append("\(ck)：ISSN 的落點 venue「\(vkey)」寫不進去——本筆整筆略過")
+            blockedEntries.insert(ck)
+        }
+        if trackednessKnown {
+            for updated in updatedEntries
+            where !tracked.contains(Data("entities/\(updated.id.uuidString).yaml".utf8)) {
+                report.blockers.append(
+                    "\(updated.citekey)：entities/\(updated.id.uuidString).yaml 未被 git 追蹤"
+                    + "——改寫無回復路徑，先 commit 再跑")
+                blockedEntries.insert(updated.citekey)
+            }
+        }
+
+        guard apply else { return report }
+
+        // ---- 寫入（此後不再有新的失敗判定；所有前提已在上方裁決）----
+        for updated in updatedEntries where !blockedEntries.contains(updated.citekey) {
+            _ = try store.writeEntry(rewritingProvenance(updated, report: &report))
+            report.applied += 1
+        }
+        for plan in report.venuePlans where !blockedVenues.contains(plan.venueKey) {
+            guard var v = existingVenues[plan.venueKey] else { continue }
             v.issn = plan.values.compactMap(ISSN.init)
             _ = try store.writeVenue(rewritingProvenance(v, report: &report))
             report.applied += 1

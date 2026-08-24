@@ -49,7 +49,7 @@ final class WoSImportTests: XCTestCase {
     /// 「基底 citekey 已被自己上次匯入佔用」會生出 `su2015bfunctional`，每跑一次多一份。
     func testRerunProducesNoDuplicates() throws {
         let tsv = header
-            + "Su, YH\tSu, Ying-Hao\tFunctional data\tPsychometrika\t2015\t10.1/abc\n"
+            + "Su, YH\tSu, Ying-Hao\tFunctional data\tPsychometrika\t2015\t10.1234/abc\n"
             + "Cheng, C\tCheng, Che\tIdentifiability\tPsychometrika\t2025\t\n"
         let first = try WoSImport.run(text: tsv, store: store)
         XCTAssertEqual(first.created.count, 2)
@@ -63,9 +63,9 @@ final class WoSImportTests: XCTestCase {
     /// 同一個 DOI 即使標題微調也是同一篇。
     func testDOIIsIdentityEvenWhenTitleChanges() throws {
         _ = try WoSImport.run(text: header
-            + "Su, YH\tSu, Ying-Hao\tOld title\tPsychometrika\t2015\t10.1/abc\n", store: store)
+            + "Su, YH\tSu, Ying-Hao\tOld title\tPsychometrika\t2015\t10.1234/abc\n", store: store)
         let r = try WoSImport.run(text: header
-            + "Su, YH\tSu, Ying-Hao\tRevised title\tPsychometrika\t2015\t10.1/abc\n", store: store)
+            + "Su, YH\tSu, Ying-Hao\tRevised title\tPsychometrika\t2015\t10.1234/abc\n", store: store)
         XCTAssertEqual(r.created.count, 0)
         XCTAssertEqual(r.conflicts.count, 1, "同一篇但內容不同 → conflict，不是新增")
     }
@@ -74,12 +74,12 @@ final class WoSImportTests: XCTestCase {
     /// 而 WoS 的欄位比 store 的窄——覆寫會把人工資訊洗掉。
     func testConflictDoesNotOverwrite() throws {
         _ = try WoSImport.run(text: header
-            + "Su, YH\tSu, Ying-Hao\tT\tPsychometrika\t2015\t10.1/abc\n", store: store)
+            + "Su, YH\tSu, Ying-Hao\tT\tPsychometrika\t2015\t10.1234/abc\n", store: store)
         var e = try store.load().entries[0]
         e.akashic.tags = ["人工補的"]
         try store.writeEntry(e)
         _ = try WoSImport.run(text: header
-            + "Su, YH\tSu, Ying-Hao\tT\tOther Journal\t2015\t10.1/abc\n", store: store)
+            + "Su, YH\tSu, Ying-Hao\tT\tOther Journal\t2015\t10.1234/abc\n", store: store)
         XCTAssertEqual(try store.load().entries[0].akashic.tags, ["人工補的"], "人工資料被洗掉")
     }
 
@@ -169,5 +169,36 @@ final class WoSImportTests: XCTestCase {
             + "Su, YH\tSu, Ying-Hao\tT\tJ\t2015\t\n", store: store, dryRun: true)
         XCTAssertEqual(r.created.count, 1)
         XCTAssertEqual(try store.load().entries.count, 0)
+    }
+}
+
+/// 身分判準改讀 `canonicalDOIs` 之後的**行為改變**（#394 verify）——記錄下來，
+/// 不假裝沒發生。
+///
+/// 舊實作比的是 `fields["doi"]` 的**原始字串**，所以任何非空字串都算「有 DOI」；
+/// 新實作要求該字串解析得出 `DOI`（`10.<≥4 碼註冊者>/<後綴>`）。實測真實 store 有
+/// **3 筆**解析不出的殘留（`DOI 10.1037/h0077149`、`Doi 10.1037//…`、以及一筆把
+/// 附錄 DOI 黏在後面的），它們因此退回 (標題, 年份) 判準。
+///
+/// **這不是回歸**：舊實作對同樣那 3 筆也配不上（庫內鍵是 `doi:doi 10.1037/…`、
+/// 從 WoS 列來的 probe 是 `doi:10.1037/…`，兩側一樣對不上）。差別只在**退路**——
+/// 舊的沒有退路直接新增，新的還會試一次標題比對。
+extension WoSImportTests {
+    func testUnparseableDOIResidueFallsBackToTitleYear() throws {
+        // 庫內先放一筆殘留形狀不合法的記錄
+        var e = Entry(id: UUID(), citekey: "su2015functional",
+                      type: .periodicalArticle, title: "Functional data")
+        e.date = "2015"
+        e.fields["doi"] = "DOI 10.1234/abc"          // 帶標籤前綴 → DOI.init 解析失敗
+        _ = try store.writeEntry(e)
+
+        // 同標題同年的一列進來：DOI 對不上（庫內那筆的 canonicalDOIs 是空的），
+        // 但 probe 自己帶 DOI，所以**不退回標題比對**——DOI 說「不是同一筆」就不是。
+        let r = try WoSImport.run(text: header
+            + "Su, YH\tSu, Ying-Hao\tFunctional data\tPsychometrika\t2015\t10.1234/abc\n",
+            store: store)
+        XCTAssertEqual(r.created.count, 1,
+                       "probe 帶得出 DOI 而庫內那筆帶不出——判為不同筆。"
+                       + "退回標題比對會讓兩篇同題同年而 DOI 不同的論文被誤判成同一筆")
     }
 }

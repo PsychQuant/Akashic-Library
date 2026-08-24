@@ -100,3 +100,113 @@ final class IdentifierMigrationTests: XCTestCase {
             ["1860-0980", "0033-3123"])
     }
 }
+
+/// `IdentifierMigration.run()` 的端到端契約（#394 verify）。
+///
+/// **這些測試在此之前不存在。** ensemble 指出 `run()` 全樹零覆蓋——而它是那個真的
+/// 改寫了 731 個檔的函式；兩支姊妹遷移（`VenueMigration`／`PersonIdentityMigration`）
+/// 各有 8 與 10+ 個 `run()` 測試。
+///
+/// 前兩支釘住的是一個**已被端到端重現過**的資料毀損：work 先寫（`fields.issn` 已刪）、
+/// venue 後寫，venue 那格失敗時 ISSN 從兩邊都消失，且工具內不可逆。
+final class IdentifierMigrationRunTests: XCTestCase {
+    var root: URL!
+    var store: LibraryStore!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-idmig-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("entities"), withIntermediateDirectories: true)
+        try StoreVersion.write(root: root, format: StoreVersion.supported)
+        store = LibraryStore(root: root)
+        _ = LibraryStore.git(["init", "-q"], in: root)
+        _ = LibraryStore.git(["config", "user.email", "t@t"], in: root)
+        _ = LibraryStore.git(["config", "user.name", "t"], in: root)
+    }
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
+
+    private func commitAll() {
+        _ = LibraryStore.git(["add", "-A"], in: root)
+        _ = LibraryStore.git(["commit", "-q", "-m", "seed"], in: root)
+    }
+
+    /// 帶 `fields.issn` 且 venue 邊已歸戶的一筆 work。
+    @discardableResult
+    private func seedArticle(_ ck: String, venueKey: String, issn: String) throws -> Entry {
+        var e = Entry(id: UUID(), citekey: ck, type: .periodicalArticle, title: "T-\(ck)")
+        e.venues = [.key(venueKey)]
+        e.fields["issn"] = issn
+        _ = try store.writeEntry(e)
+        return e
+    }
+
+    private func issnOnDisk(_ ck: String) throws -> String? {
+        try store.load().entries.first { $0.citekey == ck }?.fields["issn"]
+    }
+
+    // MARK: 快樂路徑（run() 的基本覆蓋，此前完全沒有）
+
+    func testApplyMovesISSNFromWorkToVenue() throws {
+        _ = try store.writeVenue(Venue(key: "j", type: .periodical))
+        try seedArticle("a2020", venueKey: "j", issn: "0003-066X")
+        commitAll()
+
+        let r = try IdentifierMigration.run(store: store, apply: true)
+        XCTAssertTrue(r.blockers.isEmpty, "無阻擋前提：\(r.blockers)")
+        XCTAssertNil(try issnOnDisk("a2020"), "work 側的殘留已移除")
+        XCTAssertEqual(try store.load().venues.first?.issn.map(\.normalized), ["0003-066X"],
+                       "號落在 venue 上")
+    }
+
+    // MARK: 毀資料的兩個形狀——ISSN 必須存活
+
+    func testUntrackedVenueBlocksTheWorkInsteadOfDestroyingItsISSN() throws {
+        try seedArticle("a2020", venueKey: "j", issn: "0003-066X")
+        commitAll()                                   // work 已追蹤
+        _ = try store.writeVenue(Venue(key: "j", type: .periodical))   // venue **未** commit
+
+        let r = try IdentifierMigration.run(store: store, apply: true)
+
+        XCTAssertFalse(r.blockers.isEmpty, "未追蹤的 venue 必須被裁決為阻擋前提")
+        XCTAssertEqual(try issnOnDisk("a2020"), "0003-066X",
+                       "落點寫不進去時，work 側的 ISSN 必須原封不動——"
+                       + "刪掉它而 venue 沒收到就是純粹的資料消失")
+    }
+
+    func testDanglingVenueKeyBlocksTheWorkInsteadOfDestroyingItsISSN() throws {
+        try seedArticle("a2020", venueKey: "ghost", issn: "0003-066X")  // 無此 venue 記錄
+        commitAll()
+
+        let r = try IdentifierMigration.run(store: store, apply: true)
+
+        XCTAssertFalse(r.blockers.isEmpty, "懸空的 venue key 必須被裁決為阻擋前提")
+        XCTAssertEqual(try issnOnDisk("a2020"), "0003-066X", "ISSN 必須存活")
+    }
+
+    // MARK: 乾跑必須預告 apply 會擋下什麼
+
+    func testDryRunRevealsTheSameBlockersApplyWould() throws {
+        try seedArticle("a2020", venueKey: "ghost", issn: "0003-066X")
+        commitAll()
+
+        let dry = try IdentifierMigration.run(store: store, apply: false)
+        XCTAssertFalse(dry.blockers.isEmpty,
+                       "乾跑存在的理由就是讓會毀資料的前提在寫入前現形——"
+                       + "先前 trackedness 只在 apply 內查，於是乾跑對此完全沉默")
+        XCTAssertEqual(dry.applied, 0, "乾跑零寫入")
+        XCTAssertEqual(try issnOnDisk("a2020"), "0003-066X")
+    }
+
+    /// 一個未受影響的 work 不該被別人的阻擋前提牽連。
+    func testBlockedVenueDoesNotStopUnrelatedWorks() throws {
+        _ = try store.writeVenue(Venue(key: "ok", type: .periodical))
+        try seedArticle("good2020", venueKey: "ok", issn: "0003-066X")
+        try seedArticle("bad2020", venueKey: "ghost", issn: "1082-989X")
+        commitAll()
+
+        let r = try IdentifierMigration.run(store: store, apply: true)
+        XCTAssertNil(try issnOnDisk("good2020"), "未受影響的那筆照常遷移")
+        XCTAssertEqual(try issnOnDisk("bad2020"), "1082-989X", "受阻的那筆原封不動")
+    }
+}

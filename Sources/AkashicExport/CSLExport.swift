@@ -5,8 +5,8 @@ import AkashicCore
 public enum CSLExport {
 
     public static func cslJSON(entries: [Entry], people: [Person],
-                               venues: [Venue],
-                               organizations: [Organization] = []) throws -> String {
+                               organizations: [Organization] = [],
+                               venues: [Venue]) throws -> String {
         let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
         let venuesByKey = Dictionary(venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let organizationsByKey = Dictionary(

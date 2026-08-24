@@ -126,16 +126,16 @@ public extension Entry {
     ///
     /// 解析不出來的殘留回空清單，**不猜**：`fields` 是自由字典，裡面可能是
     /// `1467-8624(Electronic),0009-3920(Print)` 這種一欄兩號。
-    public func canonicalIdentifiers<T: Identifier>(
+    private func canonicalIdentifiers<T: Identifier>(
         structured: [T], residueKey: String
     ) -> [T] {
         if !structured.isEmpty { return structured }
         return fields[residueKey].flatMap(T.init).map { [$0] } ?? []
     }
 
-    public var canonicalDOIs: [DOI] { canonicalIdentifiers(structured: doi, residueKey: "doi") }
-    public var canonicalPMIDs: [PMID] { canonicalIdentifiers(structured: pmid, residueKey: "pmid") }
-    public var canonicalISBNs: [ISBN] { canonicalIdentifiers(structured: isbn, residueKey: "isbn") }
+    var canonicalDOIs: [DOI] { canonicalIdentifiers(structured: doi, residueKey: "doi") }
+    var canonicalPMIDs: [PMID] { canonicalIdentifiers(structured: pmid, residueKey: "pmid") }
+    var canonicalISBNs: [ISBN] { canonicalIdentifiers(structured: isbn, residueKey: "isbn") }
 }
 
 /// 作者**三態**（#323）：已歸戶為人／已歸戶為團體／未歸戶。

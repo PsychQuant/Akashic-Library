@@ -52,7 +52,7 @@ final class ExportTests: XCTestCase {
         e.authors = [.organization("taiwan-cancer-moonshot")]
         let orgs = [Organization(key: "taiwan-cancer-moonshot",
                                  authorized: ["Taiwan Cancer Moonshot Program"])]
-        let bib = BibExport.bibFile(entries: [e], people: people, organizations: orgs)
+        let bib = BibExport.bibFile(entries: [e], people: people, organizations: orgs, venues: [])
         XCTAssertTrue(bib.contains("AUTHOR = {{Taiwan Cancer Moonshot Program}}"),
                       "團體作者必須雙大括號，實得：\(bib)")
     }
@@ -63,7 +63,7 @@ final class ExportTests: XCTestCase {
     func testExportReportsMissingAPA7RequiredField() throws {
         var entry = makeEntry()
         entry.fields.removeValue(forKey: "journaltitle")   // ARTICLE 的必要欄位
-        let report = BibExport.apa7Report(entries: [entry], people: people)
+        let report = BibExport.apa7Report(entries: [entry], people: people, venues: [])
         XCTAssertTrue(report.issues.contains {
             $0.citekey == "cheng2025identifiability" && $0.message.contains("JOURNALTITLE")
         }, "缺 JOURNALTITLE 必須被報出，實際：\(report.issues)")
@@ -71,7 +71,7 @@ final class ExportTests: XCTestCase {
 
     /// 欄位齊全者不得被誤報。
     func testExportReportsNothingWhenAPA7FieldsComplete() throws {
-        let report = BibExport.apa7Report(entries: [makeEntry()], people: people)
+        let report = BibExport.apa7Report(entries: [makeEntry()], people: people, venues: [])
         XCTAssertTrue(report.issues.filter { $0.severity == .error }.isEmpty,
                       "完整 entry 不該有 error，實際：\(report.issues)")
     }
@@ -90,7 +90,7 @@ final class ExportTests: XCTestCase {
     func testExportSurfacesTypesNotCoveredByValidator() throws {
         let entry = Entry(id: makeEntry().id, citekey: "anon2018image", type: .visualWork,
                           title: "An Image", authors: [], date: "2018")
-        let report = BibExport.apa7Report(entries: [entry], people: people)
+        let report = BibExport.apa7Report(entries: [entry], people: people, venues: [])
         XCTAssertTrue(report.uncheckedCitekeys.contains("anon2018image"),
                       "IMAGE 不在必要欄位表內，必須列為未涵蓋")
         XCTAssertTrue(report.issues.isEmpty, "未涵蓋者不該產生 issue（那會是假陽性）")
@@ -102,7 +102,7 @@ final class ExportTests: XCTestCase {
     func testOnlineTypesAreNowActuallyChecked() throws {
         let complete = Entry(id: UUID(), citekey: "anon2018page", type: .webpage,
                              title: "A Page", authors: [], date: "2018")
-        let report = BibExport.apa7Report(entries: [complete], people: people)
+        let report = BibExport.apa7Report(entries: [complete], people: people, venues: [])
         XCTAssertTrue(report.uncheckedCitekeys.isEmpty,
                       "ONLINE 現在有必要欄位表（TITLE／DATE），應被檢查")
         XCTAssertTrue(report.issues.filter { $0.severity == .error }.isEmpty,
@@ -113,14 +113,14 @@ final class ExportTests: XCTestCase {
         // 作者也不該報 error——那正是 #350 第 3 類假陽性消失的地方。
         let noDate = Entry(id: UUID(), citekey: "anon0000page", type: .webpage,
                            title: "A Page", authors: [], date: nil)
-        let errs = BibExport.apa7Report(entries: [noDate], people: people)
+        let errs = BibExport.apa7Report(entries: [noDate], people: people, venues: [])
             .issues.filter { $0.severity == .error }
         XCTAssertEqual(errs.map(\.message), ["Missing required field: DATE"],
                        "應只報缺 DATE；報缺 AUTHOR 就是選錯表的那個假陽性回來了")
     }
 
     func testBibExportRendersBiblatex() throws {
-        let bib = BibExport.bibFile(entries: [makeEntry()], people: people)
+        let bib = BibExport.bibFile(entries: [makeEntry()], people: people, venues: [])
         XCTAssertTrue(bib.contains("@ARTICLE{cheng2025identifiability,"))
         // key 作者經 people 還原顯示名，姓在前
         XCTAssertTrue(bib.contains("AUTHOR = {Cheng, Che and Yang, Hau-Hung}"))
@@ -134,19 +134,19 @@ final class ExportTests: XCTestCase {
         var entry = Entry(id: UUID(), citekey: "chen2004matrix", type: .book,
                           title: "矩陣視覺化", authors: [.literal("陳君厚")], date: "2004")
         entry.fields["publisher"] = "Academia Sinica"
-        let bib = BibExport.bibFile(entries: [entry], people: [])
+        let bib = BibExport.bibFile(entries: [entry], people: [], venues: [])
         XCTAssertTrue(bib.contains("@BOOK{chen2004matrix,"))
         XCTAssertTrue(bib.contains("AUTHOR = {陳君厚}"))   // 無空格姓名整體視為 family
     }
 
     func testBibExportIsDeterministic() throws {
-        let a = BibExport.bibFile(entries: [makeEntry()], people: people)
-        let b = BibExport.bibFile(entries: [makeEntry()], people: people)
+        let a = BibExport.bibFile(entries: [makeEntry()], people: people, venues: [])
+        let b = BibExport.bibFile(entries: [makeEntry()], people: people, venues: [])
         XCTAssertEqual(a, b)
     }
 
     func testCSLJSONExport() throws {
-        let json = try CSLExport.cslJSON(entries: [makeEntry()], people: people)
+        let json = try CSLExport.cslJSON(entries: [makeEntry()], people: people, venues: [])
         let parsed = try JSONSerialization.jsonObject(with: Data(json.utf8)) as! [[String: Any]]
         XCTAssertEqual(parsed.count, 1)
         let item = parsed[0]

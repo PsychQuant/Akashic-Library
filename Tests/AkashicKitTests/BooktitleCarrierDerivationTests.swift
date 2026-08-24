@@ -198,7 +198,7 @@ final class BooktitleCarrierDerivationTests: XCTestCase {
         var zh = Entry(id: UUID(), citekey: "zh2020a", type: .referenceWorkEntry, title: "條目")
         zh.fields["booktitle"] = "維基百科，自由的百科全書"
         zh.venues = [.key("wikipedia")]          // 歸到與英文版共用的那個 key
-        let bib = BibExport.bibEntry(for: zh, people: [:], organizations: [:])
+        let bib = BibExport.bibEntry(for: zh, people: [:], organizations: [:], venues: [:])
         XCTAssertEqual(bib.fields["booktitle"], "維基百科，自由的百科全書",
                        "BOOKTITLE 必須來自這一筆自己的 fields，不得由 venue 記錄決定")
 
@@ -281,13 +281,13 @@ final class BooktitleCarrierDerivationTests: XCTestCase {
     func testProceedingsPaperExportsAsInproceedings() {
         var paper = Entry(id: UUID(), citekey: "p2019", type: .conferenceSession, title: "P")
         paper.fields["booktitle"] = "Proceedings of Great Conf"
-        XCTAssertEqual(BibExport.bibEntry(for: paper, people: [:], organizations: [:]).entryType,
+        XCTAssertEqual(BibExport.bibEntry(for: paper, people: [:], organizations: [:], venues: [:]).entryType,
                        "INPROCEEDINGS",
                        "論文集名在場 → 送 INPROCEEDINGS，否則它印不進參考文獻")
 
         var talk = Entry(id: UUID(), citekey: "t2019", type: .conferenceSession, title: "T")
         talk.fields["eventtitle"] = "Great Conf"
-        XCTAssertEqual(BibExport.bibEntry(for: talk, people: [:], organizations: [:]).entryType,
+        XCTAssertEqual(BibExport.bibEntry(for: talk, people: [:], organizations: [:], venues: [:]).entryType,
                        "PRESENTATION", "會議發表維持原樣")
     }
 
@@ -301,7 +301,7 @@ final class BooktitleCarrierDerivationTests: XCTestCase {
         paper.fields["booktitle"] = "Proceedings of Great Conf"
         paper.date = "2019"
         paper.authors = [.literal("Someone")]
-        let report = BibExport.apa7Report(entries: [paper], people: [])
+        let report = BibExport.apa7Report(entries: [paper], people: [], venues: [])
         XCTAssertFalse(report.uncheckedCitekeys.contains("p2019"),
                        "INPROCEEDINGS 在依賴的表內——不該落進 unchecked：\(report.uncheckedCitekeys)")
     }

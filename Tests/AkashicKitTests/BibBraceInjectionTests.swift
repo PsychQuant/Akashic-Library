@@ -55,7 +55,7 @@ final class BibBraceInjectionTests: XCTestCase {
     // MARK: - 主判準
 
     func testHostileTitleCannotFabricateAnEntry() {
-        let bib = BibExport.bibFile(entries: [entry(title: Self.payload)], people: [])
+        let bib = BibExport.bibFile(entries: [entry(title: Self.payload)], people: [], venues: [])
         XCTAssertEqual(bib.components(separatedBy: "@ARTICLE{").count - 1, 1,
                        "輸出裡只能有一筆 entry：\n\(bib)")
         XCTAssertFalse(bib.contains("@ARTICLE{forged2099"), "值不得開出新 entry")
@@ -68,7 +68,7 @@ final class BibBraceInjectionTests: XCTestCase {
     func testEveryFieldValueIsGuarded() {
         for field in ["journaltitle", "note", "abstract", "pages"] {
             let bib = BibExport.bibFile(
-                entries: [entry(fields: [field: Self.payload])], people: [])
+                entries: [entry(fields: [field: Self.payload])], people: [], venues: [])
             XCTAssertEqual(bib.components(separatedBy: "@ARTICLE{").count - 1, 1,
                            "\(field) 沒被守住：\n\(bib)")
             XCTAssertTrue(isBalanced(bib), "\(field) 的輸出不平衡")
@@ -78,7 +78,7 @@ final class BibBraceInjectionTests: XCTestCase {
     /// 作者名同樣是 store 內容（`.literal` 是尚未歸戶的原字串）。
     func testHostileAuthorLiteralIsGuarded() {
         let bib = BibExport.bibFile(
-            entries: [entry(authors: [.literal(Self.payload)])], people: [])
+            entries: [entry(authors: [.literal(Self.payload)])], people: [], venues: [])
         XCTAssertEqual(bib.components(separatedBy: "@ARTICLE{").count - 1, 1)
         XCTAssertTrue(isBalanced(bib))
     }
@@ -89,7 +89,7 @@ final class BibBraceInjectionTests: XCTestCase {
         let bib = BibExport.bibFile(
             entries: [entry(authors: [.literal("{World Health Organization}"),
                                       .literal(Self.payload)])],
-            people: [])
+            people: [], venues: [])
         XCTAssertTrue(bib.contains("{World Health Organization}"),
                       "機構名的大括號標記必須原樣存活：\n\(bib)")
         XCTAssertTrue(isBalanced(bib))
@@ -101,14 +101,14 @@ final class BibBraceInjectionTests: XCTestCase {
     /// 一律逃脫會改掉每一筆這種記錄的排版輸出。
     func testBalancedBracesSurviveVerbatim() {
         let legit = "{DNA} sequencing of {E. coli}"
-        let bib = BibExport.bibFile(entries: [entry(title: legit)], people: [])
+        let bib = BibExport.bibFile(entries: [entry(title: legit)], people: [], venues: [])
         XCTAssertTrue(bib.contains("TITLE = {\(legit)},"), "保護大小寫被動到了：\n\(bib)")
         XCTAssertFalse(bib.contains("textbraceleft"), "這裡沒有東西該被逃脫")
     }
 
     func testNestedBalancedBracesSurviveVerbatim() {
         let legit = "a {b {c} d} e"
-        XCTAssertTrue(BibExport.bibFile(entries: [entry(title: legit)], people: [])
+        XCTAssertTrue(BibExport.bibFile(entries: [entry(title: legit)], people: [], venues: [])
             .contains("TITLE = {\(legit)},"))
     }
 
@@ -157,7 +157,7 @@ final class BibBraceInjectionTests: XCTestCase {
 
     /// 走完整條路徑再用 parser 讀回來：一筆進、一筆出。
     func testRoundTripThroughParserYieldsExactlyOneEntry() {
-        let bib = BibExport.bibFile(entries: [entry(title: Self.payload)], people: [])
+        let bib = BibExport.bibFile(entries: [entry(title: Self.payload)], people: [], venues: [])
         let parsed = BibParser.parse(content: bib)
         XCTAssertEqual(parsed.entries.count, 1, "解析後只能有一筆")
         XCTAssertEqual(parsed.entries.first?.key, "genuine2025")

@@ -18,7 +18,7 @@ final class APA7LegitimateFormsTests: XCTestCase {
     }
 
     private func errors(_ entries: [Entry]) -> [String] {
-        BibExport.apa7Report(entries: entries, people: [])
+        BibExport.apa7Report(entries: entries, people: [], venues: [])
             .issues.filter { $0.severity == .error }.map(\.message).sorted()
     }
 
@@ -51,7 +51,7 @@ final class APA7LegitimateFormsTests: XCTestCase {
     func testSentinelIsNotEmittedToBib() {
         let bib = BibExport.bibEntry(for: entry("anonndentry", type: .book,
                                                 date: Entry.noDateSentinel),
-                                     people: [:])
+                                     people: [:], venues: [:])
         XCTAssertNil(bib.fields.caseInsensitiveValue(forKey: "date"),
                      "sentinel 不該出現在 .bib；缺席才是 biblatex-apa 印 (n.d.) 的條件")
     }
@@ -59,7 +59,7 @@ final class APA7LegitimateFormsTests: XCTestCase {
     /// 真日期照樣寫出去（回歸保護）。
     func testRealDateIsStillEmitted() {
         let bib = BibExport.bibEntry(for: entry("x2020", type: .book, date: "2020"),
-                                     people: [:])
+                                     people: [:], venues: [:])
         XCTAssertEqual(bib.fields.caseInsensitiveValue(forKey: "date"), "2020")
     }
 

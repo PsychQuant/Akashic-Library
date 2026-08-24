@@ -308,8 +308,8 @@ public enum BibExport {
     /// 它的呼叫端會評到一份**沒有 ISSN 的** `BibEntry`，而編譯器不會出聲。這正是
     /// 下面那句 doc comment 禁止的分岔——它當時只防住 entry type，防不住欄位來源。
     public static func apa7Report(entries: [Entry], people: [Person],
-                                  venues: [Venue],
-                                  organizations: [Organization] = []) -> APA7Report {
+                                  organizations: [Organization] = [],
+                                  venues: [Venue]) -> APA7Report {
         let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
         let orgsByKey = Dictionary(uniqueKeysWithValues: organizations.map { ($0.key, $0) })
         let venuesByKey = Dictionary(venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })

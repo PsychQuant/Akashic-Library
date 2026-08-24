@@ -24,7 +24,7 @@ import BiblatexAPA
 /// ## 這個測試實際在驗什麼（往返，不是單向）
 ///
 /// ```
-/// fixture 的 BibEntry ──→ 我們的 Entry ──→ bibEntry(for:) ──→ BibValidator
+/// fixture 的 BibEntry ──→ 我們的 Entry ──→ bibEntry(for:, venues: [:]) ──→ BibValidator
 ///        （手冊）          （受測的模型）      （匯出路徑）        （書目正確性）
 /// ```
 ///
@@ -206,7 +206,7 @@ final class APA7GoldenTests: XCTestCase {
                 for (key, value) in bib.fields.pairs {
                     let lower = key.lowercased()
                     // title／author／date 由 `Entry` 的具名屬性承載；再放進 `fields`
-                    // 會在 `bibEntry(for:)` 裡覆寫同名鍵。
+                    // 會在 `bibEntry(for:, venues: [:])` 裡覆寫同名鍵。
                     guard !["title", "author", "date"].contains(lower) else { continue }
                     fields[lower] = value
                 }
@@ -282,7 +282,7 @@ final class APA7GoldenTests: XCTestCase {
     func testManualExamplesInCoveredSectionsProduceNoAPA7Errors() throws {
         let covered = try examples(inCheckedSections: true)
         XCTAssertFalse(covered.isEmpty, "可驗證的節不該是空的")
-        let report = BibExport.apa7Report(entries: covered.map(\.entry), people: [])
+        let report = BibExport.apa7Report(entries: covered.map(\.entry), people: [], venues: [])
         let errors = report.issues.filter { $0.severity == .error }
         let unexpected = errors.filter { Self.knownValidatorGaps[$0.citekey] == nil }
         XCTAssertTrue(unexpected.isEmpty,
@@ -300,7 +300,7 @@ final class APA7GoldenTests: XCTestCase {
     /// 缺口的清單，而讀它的人無從分辨哪些還成立。
     func testKnownValidatorGapsAreExactlyTheNamedOnes() throws {
         let covered = try examples(inCheckedSections: true)
-        let report = BibExport.apa7Report(entries: covered.map(\.entry), people: [])
+        let report = BibExport.apa7Report(entries: covered.map(\.entry), people: [], venues: [])
         let failing = Set(report.issues.filter { $0.severity == .error }.map(\.citekey))
         XCTAssertEqual(failing, Set(Self.knownValidatorGaps.keys),
                        "已知缺口表與實際失敗不一致。"
@@ -313,7 +313,7 @@ final class APA7GoldenTests: XCTestCase {
     /// 沒有這條，上一個測試會被「validator 根本沒看它們」偽造成通過。
     func testManualExamplesInCoveredSectionsAreActuallyChecked() throws {
         let covered = try examples(inCheckedSections: true)
-        let report = BibExport.apa7Report(entries: covered.map(\.entry), people: [])
+        let report = BibExport.apa7Report(entries: covered.map(\.entry), people: [], venues: [])
         XCTAssertTrue(report.uncheckedCitekeys.isEmpty,
                       "這些節的 type 應在 validator 的表內，未被檢查的："
                       + "\(report.uncheckedCitekeys.sorted())")
@@ -406,7 +406,7 @@ final class APA7GoldenTests: XCTestCase {
             XCTAssertNotNil(degree, "\(example.storeCitekey) 應有學位別"
                             + "（來源以 @PHDTHESIS／@MASTERSTHESIS 編碼）")
             guard let degree else { continue }
-            let bib = BibExport.bibEntry(for: example.entry, people: [:])
+            let bib = BibExport.bibEntry(for: example.entry, people: [:], venues: [:])
             XCTAssertEqual(bib.fields.caseInsensitiveValue(forKey: "type"),
                            degree.biblatexToken,
                            "\(example.storeCitekey) 的 type 欄位應是依賴指定的 token")
@@ -466,7 +466,7 @@ final class APA7GoldenTests: XCTestCase {
         else { return XCTFail("§10.5 應有 fixture") }
         var stripped = example.entry
         stripped.fields.removeValue(forKey: "eventtitle")
-        let report = BibExport.apa7Report(entries: [stripped], people: [])
+        let report = BibExport.apa7Report(entries: [stripped], people: [], venues: [])
 
         XCTAssertFalse(report.hasErrors,
                        "現況：拿掉 eventtitle 只是 warning，hasErrors 為 false。"
@@ -480,7 +480,7 @@ final class APA7GoldenTests: XCTestCase {
     /// 齊備的 §10.5 例子不得有 error（矩陣的核心斷言在本節的實例）。
     func testCompleteSection105ExamplesProduceNoErrors() throws {
         let sessions = try Self.loadExamples().filter { $0.section == "10.5" }
-        let report = BibExport.apa7Report(entries: sessions.map(\.entry), people: [])
+        let report = BibExport.apa7Report(entries: sessions.map(\.entry), people: [], venues: [])
         let errors = report.issues.filter { $0.severity == .error }
         XCTAssertTrue(errors.isEmpty,
                       "手冊 §10.5 的例子不該有 error：\n"

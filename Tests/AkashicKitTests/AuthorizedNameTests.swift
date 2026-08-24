@@ -459,7 +459,7 @@ final class AuthorizedNameTests: XCTestCase {
 
     func testBibExportPrintsKeyNotCitationFormWhenUndesignated() {
         let (e, p) = undesignatedEntryAndPerson()
-        let bib = BibExport.bibFile(entries: [e], people: [p])
+        let bib = BibExport.bibFile(entries: [e], people: [p], venues: [])
         XCTAssertTrue(bib.contains("guan-yongtao"), "沒有指定就印 key，讓缺口看得見")
         XCTAssertFalse(bib.contains("Guan, Yongtao"),
                        "引用形是索引系統的產物，不該出現在對外書目上：\(bib)")
@@ -472,7 +472,7 @@ final class AuthorizedNameTests: XCTestCase {
         let p = Person(key: "shieh",
                        names: PersonNames(authorized: ["謝叔蓉", "Shwu-Rong Grace Shieh"],
                                           variant: ["Shieh, Grace S."]))
-        let bib = BibExport.bibFile(entries: [e], people: [p])
+        let bib = BibExport.bibFile(entries: [e], people: [p], venues: [])
         // biblatex 的資料模型**要求** `Family, Given`，所以 `.bib` 裡出現逗號是格式正確，
         // 不是引用形洩漏。差別在**來源**：這裡的 "Shieh, Shwu-Rong Grace" 是由 authorized
         // 的「Shwu-Rong Grace Shieh」轉出來的，而不是照抄 WoS 給的「Shieh, Grace S.」。
@@ -484,7 +484,7 @@ final class AuthorizedNameTests: XCTestCase {
 
     func testCSLExportUsesResolution() throws {
         let (e, p) = undesignatedEntryAndPerson()
-        let json = try CSLExport.cslJSON(entries: [e], people: [p])
+        let json = try CSLExport.cslJSON(entries: [e], people: [p], venues: [])
         XCTAssertTrue(json.contains("guan-yongtao"))
         XCTAssertFalse(json.contains("Guan, Yongtao"))
     }

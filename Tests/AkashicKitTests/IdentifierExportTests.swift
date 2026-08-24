@@ -23,7 +23,7 @@ final class IdentifierExportTests: XCTestCase {
     func testStructuredDOIWinsOverTheResidueInFields() throws {
         let e = entry(doi: [try XCTUnwrap(DOI("10.1037/0003-066X.59.1.29"))],
                       fields: ["doi": "10.0000/stale"])
-        let bib = BibExport.bibEntry(for: e, people: [:])
+        let bib = BibExport.bibEntry(for: e, people: [:], venues: [:])
         XCTAssertEqual(bib.fields["doi"], "10.1037/0003-066x.59.1.29",
                        "結構化值是正典——殘留不得勝出。**值是正規形**：DOI 依規格是"
                        + "case-insensitive，`DOI.normalized` 整串轉小寫")
@@ -33,7 +33,7 @@ final class IdentifierExportTests: XCTestCase {
         let e = entry(doi: [try XCTUnwrap(DOI("10.1037/0003-066X.59.1.29"))],
                       pmid: [try XCTUnwrap(PMID("12345678"))],
                       isbn: [try XCTUnwrap(ISBN("978-0-306-40615-7"))])
-        let bib = BibExport.bibEntry(for: e, people: [:])
+        let bib = BibExport.bibEntry(for: e, people: [:], venues: [:])
         XCTAssertEqual(bib.fields["doi"], "10.1037/0003-066x.59.1.29")
         XCTAssertEqual(bib.fields["pmid"], "12345678")
         XCTAssertNotNil(bib.fields["isbn"])
@@ -42,7 +42,7 @@ final class IdentifierExportTests: XCTestCase {
     /// **寫出的是正規形**——磁碟上可能是非正規形，但 `.bib` 是給下游排版用的。
     func testEmittedValueIsTheNormalForm() throws {
         let e = entry(isbn: [try XCTUnwrap(ISBN("978-0-306-40615-7"))])
-        XCTAssertEqual(BibExport.bibEntry(for: e, people: [:]).fields["isbn"],
+        XCTAssertEqual(BibExport.bibEntry(for: e, people: [:], venues: [:]).fields["isbn"],
                        try XCTUnwrap(ISBN("978-0-306-40615-7")).normalized)
     }
 
@@ -51,7 +51,7 @@ final class IdentifierExportTests: XCTestCase {
     func testMultipleIdentifiersAreAllEmitted() throws {
         let e = entry(doi: [try XCTUnwrap(DOI("10.1111/aaa")),
                             try XCTUnwrap(DOI("10.2222/bbb"))])
-        let out = try XCTUnwrap(BibExport.bibEntry(for: e, people: [:]).fields["doi"])
+        let out = try XCTUnwrap(BibExport.bibEntry(for: e, people: [:], venues: [:]).fields["doi"])
         XCTAssertTrue(out.contains("10.1111/aaa") && out.contains("10.2222/bbb"),
                       "多值不得只留一個：\(out)")
     }
@@ -60,7 +60,7 @@ final class IdentifierExportTests: XCTestCase {
     /// 而那時 export 必須照舊輸出它，否則升級 binary 就會讓所有 DOI 從 .bib 消失。
     func testResidueSurvivesWhenThereIsNoStructuredValue() {
         let e = entry(fields: ["doi": "10.0000/only-residue"])
-        XCTAssertEqual(BibExport.bibEntry(for: e, people: [:]).fields["doi"], "10.0000/only-residue")
+        XCTAssertEqual(BibExport.bibEntry(for: e, people: [:], venues: [:]).fields["doi"], "10.0000/only-residue")
     }
 
     // MARK: - ISSN 搬到 venue 之後，.bib 仍須輸出它（遷移後實測抓到的回歸）

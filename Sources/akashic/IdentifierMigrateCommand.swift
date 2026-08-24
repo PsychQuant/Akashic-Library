@@ -62,10 +62,13 @@ struct MigrateIdentifiers: ParsableCommand {
             print("  （零實例是預期的：Entry.references 是本 change 新增、全庫為空；"
                   + "venue 的 issn reference 需要 format 13 才寫得進去，而 store 仍是 12）")
         }
-        if !report.failed.isEmpty {
-            print("\n── 失敗 ──")
-            for f in report.failed { print("  \(f)") }
-            throw ExitCode(1)
+        if !report.blockers.isEmpty {
+            print(apply ? "\n── 已擋下（未寫入）──"
+                        : "\n── 會被擋下（--apply 時這些不會寫入）──")
+            for f in report.blockers { print("  \(f)") }
+            // **乾跑不 exit 1**：乾跑本身成功了，它的工作就是把這些顯示出來。
+            // apply 才是錯誤——有東西沒搬成，使用者必須知道。
+            if apply { throw ExitCode(1) }
         }
         if !apply {
             print("\n這是乾跑，store 沒有被改動。確認以上處置無誤後加 --apply。")

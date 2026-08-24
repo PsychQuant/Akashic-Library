@@ -53,7 +53,7 @@ final class ExportSanitisationTests: XCTestCase {
     /// 若哪天有人「順手」在這裡加消毒，這條會紅並指出：那會破壞 `--output <file>`
     /// 的正確性。消毒屬輸出邊界。
     func testBibSerialisationPreservesRawBytes() {
-        let bib = BibExport.bibFile(entries: [dirtyEntry()], people: [])
+        let bib = BibExport.bibFile(entries: [dirtyEntry()], people: [], venues: [])
         XCTAssertTrue(bib.contains(esc), "序列化層必須保真——寫檔要的是原始位元組")
         XCTAssertTrue(bib.contains(rtl), "同上")
     }
@@ -64,7 +64,7 @@ final class ExportSanitisationTests: XCTestCase {
         var e = Entry(id: UUID(), citekey: "tex2020", type: .periodicalArticle,
                       title: "100% \(esc)[31m of \\{braces\\}")
         e.date = "2020"
-        let bib = BibExport.bibFile(entries: [e], people: [])
+        let bib = BibExport.bibFile(entries: [e], people: [], venues: [])
         // **`BibWriter.serialize` 做零跳脫**——它只是 `"{\(value)}"` 包大括號，
         // `%` 原樣留在輸出裡（#171 verify 171-6）。原本這裡斷言 `!contains("\n100%")`
         // 並附註「TeX special 的處理是 biblatex 的職責」：那句話是**假的**，而斷言

@@ -92,7 +92,7 @@ final class WorkTypeSectionAgreementTests: XCTestCase {
         var entry = Entry(id: UUID(), citekey: "probe", type: type, title: "Probe Title")
         entry.date = "2020"
         entry.authors = [.literal("Probe, P.")]
-        return BibExport.bibEntry(for: entry, people: [:])
+        return BibExport.bibEntry(for: entry, people: [:], venues: [:])
     }
 
     /// **核心守衛**：每個 `WorkType` 送出的 entry type，經依賴自己的分類器算回來的節，
@@ -182,7 +182,7 @@ final class WorkTypeSectionAgreementTests: XCTestCase {
     func testExistingRelatedTypeIsNotOverwritten() throws {
         var entry = Entry(id: UUID(), citekey: "r", type: .review, title: "T")
         entry.fields["relatedtype"] = "commenton"
-        let bib = BibExport.bibEntry(for: entry, people: [:])
+        let bib = BibExport.bibEntry(for: entry, people: [:], venues: [:])
         let relType = bib.fields.keys.first { $0.lowercased() == "relatedtype" }
             .flatMap { bib.fields[$0] }
         XCTAssertEqual(relType, "commenton", "既有值優先——補值不得改寫來源的斷言")
@@ -212,7 +212,7 @@ final class WorkTypeSectionAgreementTests: XCTestCase {
     func testSocialMediaPostReachesTenFifteenWhenTheStoreHoldsThePlatform() throws {
         var entry = Entry(id: UUID(), citekey: "s", type: .socialMediaPost, title: "T")
         entry.fields["eprint"] = "Twitter"
-        let bib = BibExport.bibEntry(for: entry, people: [:])
+        let bib = BibExport.bibEntry(for: entry, people: [:], venues: [:])
         XCTAssertEqual(APADataModel.classifySection(entry: bib).number, "10.15",
                        "平台事實在場時，如實轉寫就足以落到 10.15")
     }
@@ -232,7 +232,7 @@ final class WorkTypeSectionAgreementTests: XCTestCase {
     func testAPlatformOutsideTheDependencyListStillMissesTenFifteenToday() throws {
         var entry = Entry(id: UUID(), citekey: "s2", type: .socialMediaPost, title: "T")
         entry.fields["eprint"] = "Mastodon"
-        let bib = BibExport.bibEntry(for: entry, people: [:])
+        let bib = BibExport.bibEntry(for: entry, people: [:], venues: [:])
         XCTAssertEqual(APADataModel.classifySection(entry: bib).number, "10.16",
                        "現況：依賴的平台清單是封閉的寫死列舉，Mastodon 不在其中。"
                        + "**這條變紅代表上游擴充了清單** —— 那時請更新 #355 的裁決記載")
@@ -244,7 +244,7 @@ final class WorkTypeSectionAgreementTests: XCTestCase {
         var entry = Entry(id: UUID(), citekey: "t", type: .testInstrument,
                           title: "Beck Depression Inventory")
         entry.date = "1996"
-        let bib = BibExport.bibEntry(for: entry, people: [:])
+        let bib = BibExport.bibEntry(for: entry, people: [:], venues: [:])
         XCTAssertEqual(APADataModel.classifySection(entry: bib).number, "10.11",
                        "標題真的說了它是 inventory —— 依賴的啟發式自然命中，"
                        + "我們沒有補任何欄位")

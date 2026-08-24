@@ -99,3 +99,54 @@ final class IdentifierPlacementTests: XCTestCase {
             """)
     }
 }
+
+/// 交付 task 3.2：`Entry` 的作品識別碼結構化，且**與 `fields` 並存**。
+///
+/// 並存是刻意的——本階段不移除 `fields` 內的舊值，移除由遷移負責。但兩者同時在場時
+/// 必須有一個是正典，否則就是 `no-compat-fallback` 禁止的「兩條讀法」：兩份都看起來
+/// 像真的，而沒有任何跡象指出哪一份過期。
+///
+/// **優先序只有一份實作**（`Entry.canonical*` accessor）。#335 的 `thesis.degree` 把
+/// 同一個規則內聯在 `BibExport`；識別碼有三種、六個型別，內聯會變成三份會各自分岔的
+/// 比較。accessor 讓 §7 的 export 呼叫它而不是自己再寫一次。
+final class EntryIdentifierPrecedenceTests: XCTestCase {
+
+    private func work() -> Entry {
+        Entry(id: UUID(), citekey: "x2020", type: .periodicalArticle, title: "T")
+    }
+
+    func testStructuredIdentifierWinsOverTheResidueInFields() {
+        var e = work()
+        e.fields["doi"] = "10.1037/OLD"                       // 遷移前的殘留
+        e.doi = [try! XCTUnwrap(DOI("10.1037/met0000524"))]   // 升格後的正典
+        XCTAssertEqual(e.canonicalDOIs.map(\.normalized), ["10.1037/met0000524"],
+                       "結構化值在場時，fields 的同名殘留不得勝出")
+    }
+
+    func testResidueIsStillReadableWhileTheStructuredFieldIsEmpty() {
+        // 遷移**尚未**跑過的記錄：結構化欄位空、值還在 fields。
+        // 此時 canonical 必須回退到殘留——否則升級 binary 當天全庫的 DOI 一起消失。
+        var e = work()
+        e.fields["doi"] = "10.1037/met0000524"
+        XCTAssertEqual(e.canonicalDOIs.map(\.normalized), ["10.1037/met0000524"])
+    }
+
+    func testAnUnparseableResidueYieldsNothingRatherThanAGuess() {
+        // fields 是自由字典，裡面可能是任何東西（實測 `1467-8624(Electronic),0009-3920(Print)`
+        // 這種一欄兩號）。解析不出來就是沒有——不猜、不硬塞。
+        var e = work()
+        e.fields["doi"] = "not-a-doi"
+        XCTAssertTrue(e.canonicalDOIs.isEmpty)
+    }
+
+    func testAllThreeWorkIdentifierKindsHaveTheSamePrecedenceRule() {
+        var e = work()
+        e.fields["pmid"] = "1"; e.fields["isbn"] = "0-306-40615-2"
+        e.pmid = [try! XCTUnwrap(PMID("29083049"))]
+        e.isbn = [try! XCTUnwrap(ISBN("9780306406157"))]
+        XCTAssertEqual(e.canonicalPMIDs.map(\.normalized), ["29083049"])
+        XCTAssertEqual(e.canonicalISBNs.count, 1)
+        XCTAssertNotEqual(e.canonicalISBNs.first?.normalized, "0-306-40615-2",
+                          "三種識別碼共用同一條優先序，不得有一種例外")
+    }
+}

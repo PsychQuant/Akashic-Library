@@ -1398,6 +1398,24 @@ extension LibraryStore {
         if let s = e.akashic.status, !s.isEmpty, keeper.akashic.status != s {
             losses.append("status: \(s)")
         }
+        // 作品識別碼（#394）：差集判準、指名——同 attachments／tags／venues 的形狀。
+        //
+        // **為什麼不是「同值就算了」而要逐個指名**：識別碼終結指涉。被併者帶著一個
+        // 倖存者沒有的 DOI，意思是「這筆記錄曾經被認定指向那個作品」——丟掉它不是
+        // 丟掉重複資料，是丟掉一個**身分判定**（`identity-is-judged-not-matched` 的
+        // 六種封閉例外之一）。而且它不可由名字重算：DOI 不是標題的函數。
+        //
+        // 這裡讀的是**結構化欄位**不是 `canonicalDOIs`——殘留在 `fields` 裡的那份
+        // 已經由上面的 `check("fields.\(k)"…)` 迴圈涵蓋，走 canonical 會讓同一個值
+        // 被報兩次。
+        func lostIdentifiers<T: Identifier>(_ mine: [T], _ theirs: [T], label: String) {
+            let lost = theirs.filter { !mine.contains($0) }
+            guard !lost.isEmpty else { return }
+            losses.append("\(label): " + lost.map(\.normalized).joined(separator: "、"))
+        }
+        lostIdentifiers(keeper.doi, e.doi, label: "doi")
+        lostIdentifiers(keeper.pmid, e.pmid, label: "pmid")
+        lostIdentifiers(keeper.isbn, e.isbn, label: "isbn")
         // 學位論文事實（#335）：整塊當一個值比，不逐欄位拆。
         //
         // 理由是那兩個事實**互相依賴**——`availability: published` 帶著典藏庫，
@@ -1684,21 +1702,21 @@ extension LibraryStore {
     ///   先前漏了這一格，造成本函式唯一的 **fail-open**（唯一的真標題靜默消失）。
     /// - `id` / `citekey`：身分，不隨合併移動（同 person 側的 key/id）。
     ///
-    /// **逐一對到 `Entry` 的 12 個儲存屬性**（#157 verify 157-10：原本寫「這五個 +
+    /// **逐一對到 `Entry` 的 16 個儲存屬性**（#157 verify 157-10：原本寫「這五個 +
     /// 上方的六類 = 11」，兩個數都錯，只是 5+6 湊巧等於 11——排除項是 4 個、比對
     /// 的是 7 個。湊得出總數不代表對得上）：
     ///
-    /// | 比對（9） | **部分比對**（2） | 排除（2） |
+    /// | 比對（12） | **部分比對**（2） | 排除（2） |
     /// |---|---|---|
-    /// | `fields`、`attachments`、`akashic`（tags／libraries／status／relations／authorListCompleteness／unknownFields 六個子欄位都在裡面，**收合成一個屬性算**）、`authors`、`venues`（#304，差集判準同 authors 的理由）、`date`、`unknownFields`、`provenance`、`thesis`（#335，**整塊比不逐欄位拆**——兩個事實互相依賴，逐欄位比會產生沒人裁決過的混合） | `type`、`title`——**只比缺席方向**（見下） | `id`、`citekey` |
+    /// | `fields`、`attachments`、`akashic`（tags／libraries／status／relations／authorListCompleteness／unknownFields 六個子欄位都在裡面，**收合成一個屬性算**）、`authors`、`venues`（#304，差集判準同 authors 的理由）、`date`、`unknownFields`、`provenance`、`thesis`（#335，**整塊比不逐欄位拆**——兩個事實互相依賴，逐欄位比會產生沒人裁決過的混合）、`doi`／`pmid`／`isbn`（#394，差集判準；丟掉一個識別碼是丟掉一次**身分判定**，且它不可由名字重算） | `type`、`title`——**只比缺席方向**（見下） | `id`、`citekey` |
     ///
-    /// 9 + 2 + 2 = 13，由 `testEntryFieldCoverageOfMergeCheck` 以反射釘住。
+    /// 12 + 2 + 2 = 16，由 `testEntryFieldCoverageOfMergeCheck` 以反射釘住。
     ///
     /// **反射只釘頂層**（#157 verify 157-9）：`AkashicMeta`／`Relations`／`Provenance`
     /// 的巢狀屬性另有各自的計數斷言——歷史上 schema 演化正是發生在 `akashic` 那層
     /// （`Models.swift` 自己這麼寫，#13 的 `libraries` 即是），只釘頂層等於對最會
     /// rot 的地方失明。
-    static let entryFieldsCoveredByMergeCheck = 13
+    static let entryFieldsCoveredByMergeCheck = 16
 
     /// `p` 的哪些 profile 維度**不是** `keeper` 的子集。空 = 合併不會失去任何時間軸。
     private static func profileDimensionsNotCovered(

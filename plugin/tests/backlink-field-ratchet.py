@@ -77,8 +77,12 @@ ADJUDICATED = {
     'Models.name',
     'Models.names',
     'Models.note',
+    # #394 作品識別碼 → **不是**關係邊（同 orcid／openalex，指向 store 之外）。
+    'Models.doi',
+    'Models.isbn',
     'Models.openalex',
     'Models.orcid',
+    'Models.pmid',
     'Models.orphanedAt',
     'Models.path',
     'Models.profile',

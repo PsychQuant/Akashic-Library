@@ -66,6 +66,16 @@ public struct Entry: Equatable {
     /// **刻意不在型別層綁定 `type == .thesis`**——那需要把 `Entry` 變成 per-type 的
     /// 和類型，改動遠大於本題。「非學位論文帶 thesis 事實」由 `validate` 報診斷。
     public var thesis: ThesisFacts?
+    /// 這筆作品的 DOI（#394）。**清單**——實測 37 組同題同年而 DOI 不同
+    /// （JSTOR vs 出版商、preprint vs 正式版），一律純量會丟掉一個。
+    ///
+    /// 與 `fields["doi"]` **並存**：本階段不移除殘留，移除由遷移負責。兩者同時在場
+    /// 時的正典是這個——讀取請走 `canonicalDOIs`，不要自己比較。
+    public var doi: [DOI]
+    /// PubMed ID（#394）。同一篇生醫論文同時有 DOI 與 PMID 是常態。
+    public var pmid: [PMID]
+    /// ISBN（#394）。不同版次／地區可以是不同的號。
+    public var isbn: [ISBN]
     /// 頂層未知欄位（tolerant-preserve，#23）。
     public var unknownFields: [UnknownField]
 
@@ -74,7 +84,11 @@ public struct Entry: Equatable {
                 fields: [String: String] = [:], attachments: [AttachmentRef] = [],
                 provenance: Provenance? = nil, akashic: AkashicMeta = AkashicMeta(),
                 thesis: ThesisFacts? = nil,
+                doi: [DOI] = [], pmid: [PMID] = [], isbn: [ISBN] = [],
                 unknownFields: [UnknownField] = []) {
+        self.doi = doi
+        self.pmid = pmid
+        self.isbn = isbn
         self.id = id
         self.citekey = citekey
         self.type = type
@@ -89,6 +103,32 @@ public struct Entry: Equatable {
         self.thesis = thesis
         self.unknownFields = unknownFields
     }
+}
+
+// MARK: - 識別碼的正典讀法（#394）
+
+public extension Entry {
+    /// **優先序的唯一實作**：結構化識別碼勝過 `fields` 裡的同名殘留。
+    ///
+    /// 遷移之後殘留不該存在，但若存在，結構化的那個才是正典
+    /// （`no-compat-fallback`：不留兩條讀法）。
+    ///
+    /// **為什麼是 accessor 而不是內聯在 export**：#335 的 `thesis.degree` 把同一個規則
+    /// 內聯在 `BibExport`，那時只有一個欄位。識別碼有三種，內聯會變成三份會各自分岔的
+    /// 比較——而「同一份規格的兩個副本必然分岔」是本 repo 反覆付過代價的形狀。
+    ///
+    /// 解析不出來的殘留回空清單，**不猜**：`fields` 是自由字典，裡面可能是
+    /// `1467-8624(Electronic),0009-3920(Print)` 這種一欄兩號。
+    private func canonicalIdentifiers<T: Identifier>(
+        structured: [T], residueKey: String
+    ) -> [T] {
+        if !structured.isEmpty { return structured }
+        return fields[residueKey].flatMap(T.init).map { [$0] } ?? []
+    }
+
+    var canonicalDOIs: [DOI] { canonicalIdentifiers(structured: doi, residueKey: "doi") }
+    var canonicalPMIDs: [PMID] { canonicalIdentifiers(structured: pmid, residueKey: "pmid") }
+    var canonicalISBNs: [ISBN] { canonicalIdentifiers(structured: isbn, residueKey: "isbn") }
 }
 
 /// 作者**三態**（#323）：已歸戶為人／已歸戶為團體／未歸戶。

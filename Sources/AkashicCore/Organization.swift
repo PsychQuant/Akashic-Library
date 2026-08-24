@@ -65,6 +65,15 @@ public struct Organization: Equatable {
     /// 與 `names` 的時間軸正交——改名記在時間軸上，「哪個名稱對外」記在這裡。空集合
     /// 合法，意思是還沒指定，此時 `displayName` 退回當前有效名稱。
     public var authorized: [String]
+    /// 這個機構的 ROR（Research Organization Registry）識別碼（#394）。
+    ///
+    /// **純量而非清單**——ROR 在定義上每機構一筆記錄。基數決定 `ProvenanceReference`
+    /// 走哪條驗證分支（純量型比照 `orcid` 拒收 `value`），宣告錯邊會落到錯的分支。
+    ///
+    /// **當下零實例**（8 筆 organization 皆無）。寫它的裁決與理由記在
+    /// `.claude/rules/zero-instance-guards.md` 的裁決表——依該規則，零實例欄位要不要
+    /// 寫是一列一列裁決出來的，不從既有列類推。
+    public var ror: ROR?
     /// 成立時間（ISO 8601 前綴，保留來源精度）。
     public var founded: String?
     /// 解散時間。`nil` ＝ 仍存續（**不是**未知）。
@@ -85,6 +94,7 @@ public struct Organization: Equatable {
 
     public init(key: String, names: TimelineOf<String> = Timeline(),
                 authorized: [String] = [],
+                ror: ROR? = nil,
                 founded: String? = nil, dissolved: String? = nil,
                 parents: TimelineOf<OrgRef> = TimelineOf(),
                 note: String? = nil, id: UUID? = nil,
@@ -93,6 +103,7 @@ public struct Organization: Equatable {
         self.key = key
         self.names = names
         self.authorized = authorized
+        self.ror = ror
         self.founded = founded
         self.dissolved = dissolved
         self.parents = parents

@@ -110,6 +110,8 @@ ADJUDICATED = {
     'Organization.note',
     'Organization.parents',
     'Organization.references',
+    # #394 外部識別碼 → **不是**關係邊（規則第 ③ 步的邊界句已明文列入）。
+    'Organization.ror',
     'Organization.unknownFields',
     'Provenance.encoded',
     'Provenance.field',
@@ -144,6 +146,9 @@ ADJUDICATED = {
     'Venue.authorized',
     'Venue.displayName',
     'Venue.id',
+    # #394 外部識別碼 → **不是**關係邊。清單型也一樣：排除的根據是「指向 store
+    # 之外」，與基數無關（規則那句原本寫「純量的」，#394 已拿掉該限定詞）。
+    'Venue.issn',
     'Venue.key',
     'Venue.names',
     'Venue.note',

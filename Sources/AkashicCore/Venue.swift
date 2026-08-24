@@ -60,8 +60,11 @@ public enum VenueRef: Equatable, Comparable {
 /// ## 為什麼**沒有** APA7 的第七類（§9.28 edited book / reference work）
 ///
 /// 一本編著**有編者、書名、版次、出版社**，而 `Venue` 的全部欄位是
-/// `id / key / type / names / authorized / note / references / unknownFields`——**一個
-/// 都裝不下**。它是 **work**，其容器關係是 work→work；它的 *publisher* 才是 venue。
+/// `id / key / type / names / authorized / issn / note / references / unknownFields`——**一個
+/// 都裝不下**。（這份列舉是欄位表的第二份副本，因此有守衛：
+/// `IdentifierPlacementTests.testVenueDocFieldEnumerationMatchesTheActualFields`
+/// 會在它與實際欄位分岔時變紅。守衛查的是**一致性**不是**論證仍成立**——加一個
+/// 裝得下編者的欄位不會被它擋下，那一步永遠是人工裁決。）它是 **work**，其容器關係是 work→work；它的 *publisher* 才是 venue。
 /// store 早就這樣存了：`incollection` 的 `venues:` 放出版社、書名放 `fields.booktitle`
 /// （正是 §9.28 描述的兩部分 source）。硬把它塞進本列舉會製造一個結構上無法持有 APA7
 /// 要求欄位的 venue——把「模型接不住」搬個位置而不是修掉。
@@ -118,6 +121,14 @@ public struct Venue: Equatable {
     public var names: TimelineOf<String>
     /// 對外可稱呼的名稱（#81 慣例；子集檢查在執行期，比對整條時間軸）。
     public var authorized: [String]
+    /// 這個期刊的 ISSN（#394）。**清單而非純量**——print 與 electronic 是兩個**真的**
+    /// 號（實測 Behavior Research Methods 的 `1554-351X` 與 `1554-3528`），一律純量會
+    /// 丟掉一個。基數不是風格選擇：它決定 `ProvenanceReference` 走哪條驗證分支
+    /// （清單型比照 `names` 必須帶 `value`，純量型比照 `orcid` 拒收 `value`）。
+    ///
+    /// ISSN 識別的是**期刊**，不是文章——它先前住在 work 的 `fields` 裡（實測 64 筆），
+    /// 只因為 venue 沒有地方放它。空清單不序列化（既有記錄零 diff）。
+    public var issn: [ISSN]
     public var note: String?
     /// 欄位層級 provenance（#66）；venue 消歧的 resolution verdict 也落這裡
     /// （封閉列舉第 13 條邊的 venue 面）。空清單不序列化。
@@ -128,6 +139,7 @@ public struct Venue: Equatable {
     public init(key: String, type: VenueType,
                 names: TimelineOf<String> = Timeline(),
                 authorized: [String] = [],
+                issn: [ISSN] = [],
                 note: String? = nil, id: UUID? = nil,
                 references: [ProvenanceReference] = [],
                 unknownFields: [UnknownField] = []) {
@@ -135,6 +147,7 @@ public struct Venue: Equatable {
         self.type = type
         self.names = names
         self.authorized = authorized
+        self.issn = issn
         self.note = note
         // v4 直接產生——不經任何名字推導（對照 Organization 的 legacy 補值，
         // venue 無遺產故無該入口；`no-compat-fallback` 規則的順向案例）。

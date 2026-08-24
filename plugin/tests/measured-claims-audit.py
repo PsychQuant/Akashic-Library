@@ -91,7 +91,40 @@ fields = sorted({l.split()[0] for l in header.split('\n')
                  if l.strip() and not l.startswith(' ')})
 hit = [f for f in fields if any(w in f.lower() for w in REVIEW_ISH)]
 # trailer 是第二個可能的載體（commit message 尾註）。
-trailers = sh("git log -1 --format='%(trailers)' HEAD").strip()
+#
+# **只問 review 類 token，不是「有沒有 trailer」**（2026-08-24，#407 後續）。上一版
+# 斷言 HEAD **完全沒有** trailer，而那個前提是「HEAD 不會是 GitHub 的 merge commit」
+# ——它從來沒被寫下來，也從來沒被測過，因為 pre-push 永遠在 merge **之前**跑
+# （merge 發生在 GitHub 端），所以 HEAD 從來不是 merge commit。
+#
+# GitHub 的 merge commit body 會回音 PR 的 commit 標題：
+#
+#     Merge pull request #405 from PsychQuant/idd/pages-shape-guard
+#
+#     feat: pages 欄位的形狀守衛——三筆實測缺陷裡有兩筆完全不會出聲
+#
+# 而 `feat: …` 正好符合 git 的 trailer 文法（`token: value`），於是 `%(trailers)`
+# 把它當 trailer 回報。**實測最近 20 個 merge commit 有 11 個會踩到這一格。**
+#
+# 這是假陽性：本列的宣稱是「git 沒有出現 **review 類**載體」，而一個
+# conventional-commit 標題不是那個東西。修法不是把 merge commit 整格跳過（那會製造
+# 盲點——真的 `Reviewed-by:` 掛在 merge commit 上就抓不到了），是**讓 trailer 與
+# header 問同一個問題**：token 是不是 review 類。兩邊共用 `REVIEW_ISH`，於是這裡
+# 不會再長出第二套判準。
+def _review_ish_trailers(raw):
+    """從 `%(trailers)` 的輸出取出 review 類的 token。空回傳＝乾淨。"""
+    out = []
+    for line in raw.split('\n'):
+        if ':' not in line:
+            continue
+        token = line.split(':', 1)[0].strip().lower()
+        if any(w in token for w in REVIEW_ISH):
+            out.append(line.strip())
+    return out
+
+
+_trailers_raw = sh("git log -1 --format='%(trailers)' HEAD").strip()
+trailers = _review_ish_trailers(_trailers_raw)
 unknown = [f for f in fields if f not in KNOWN_NOT_REVIEW]
 # **不只驗 HEAD**：HEAD 剛好不是 signed commit 時，續行的坑看不出來（R26k）。
 # 本 repo 有 signed commit（GitHub 的 web merge），所以順帶對第一個 signed
@@ -161,9 +194,20 @@ mt_fields = sorted({l.split()[0] for l in MERGETAG_FIXTURE.split('\n')
 mt_unknown = [f for f in mt_fields if f not in KNOWN_NOT_REVIEW]
 print(f'     mergetag fixture（構造，本 repo 無實例）：{mt_fields}  '
       f'{check(not mt_unknown, f"mergetag 續行沒被濾掉：{mt_unknown[:3]}")}')
+# **回歸 fixture：merge commit 的 body 回音 vs 真的 review trailer**（2026-08-24）。
+# 兩個方向都要釘——只釘「不誤報」會讓人把整個檢查改成 `return []` 也照樣綠。
+_MERGE_BODY_TRAILER = 'feat: pages 欄位的形狀守衛——三筆實測缺陷裡有兩筆完全不會出聲'
+_REAL_REVIEW_TRAILER = 'Reviewed-by: Someone <s@example.com>'
+_fp = _review_ish_trailers(_MERGE_BODY_TRAILER)
+_tp = _review_ish_trailers(_REAL_REVIEW_TRAILER)
+print(f'     merge-body 回音不誤報：{_fp or "無"}  '
+      f'{check(not _fp, f"conventional-commit 標題被當成 review 載體：{_fp}")}')
+print(f'     真的 review trailer 仍抓得到：{_tp}  '
+      f'{check(len(_tp) == 1, "Reviewed-by 沒被抓到——檢查被改壞成永遠回空")}')
 print(f'     commit 物件的欄位：{fields}')
 print(f'     其中 review 類：{hit or "無"}｜未判定過的欄位：{unknown or "無"}｜'
-      f'HEAD 的 trailer：{trailers or "無"}')
+      f'HEAD 的 review 類 trailer：{trailers or "無"}'
+      f'（原始 trailer：{_trailers_raw.replace(chr(10), " / ") or "無"}）')
 # **訊息先算好，不要塞進 f-string 的巢狀引號＋跨行運算式**——那是 PEP 701（Python
 # 3.12+）才允許的寫法，而 pre-push 與 CI 拿到的 `python3` 未必是 3.12：本機 PATH 上
 # 是 3.13，系統的 `/usr/bin/python3` 是 **3.9**，在後者這一段直接 SyntaxError、整支

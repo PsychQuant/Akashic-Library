@@ -133,6 +133,17 @@ public extension Entry {
         return fields[residueKey].flatMap(T.init).map { [$0] } ?? []
     }
 
+    /// 以欄位名取結構化識別碼的**個數**（跨種類的統一問法）。
+    /// 回 `nil` ＝ 那個名字不是識別碼欄位。
+    func identifierList(_ field: String) -> [String]? {
+        switch field {
+        case "doi":  return doi.map(\.normalized)
+        case "pmid": return pmid.map(\.normalized)
+        case "isbn": return isbn.map(\.normalized)
+        default:     return nil
+        }
+    }
+
     var canonicalDOIs: [DOI] { canonicalIdentifiers(structured: doi, residueKey: "doi") }
     var canonicalPMIDs: [PMID] { canonicalIdentifiers(structured: pmid, residueKey: "pmid") }
     var canonicalISBNs: [ISBN] { canonicalIdentifiers(structured: isbn, residueKey: "isbn") }

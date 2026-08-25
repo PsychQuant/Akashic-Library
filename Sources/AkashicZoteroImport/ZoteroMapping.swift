@@ -206,14 +206,25 @@ public enum ZoteroMapping {
         // **解析不出來的不猜**——原值留在 `fields`，交由既有的殘餘路徑（#206）處理。
         // `issn` **刻意不在此處理**：它不屬於 work（spec 明文的 misplacement），
         // 由 `ZoteroImporter` 在拿得到回報通道的地方移除並記進 `fieldsRemovedByPull`。
-        if let raw = fields["doi"], let v = DOI(raw) {
-            entry.doi = [v]; fields.removeValue(forKey: "doi")
-        }
-        if let raw = fields["pmid"], let v = PMID(raw) {
-            entry.pmid = [v]; fields.removeValue(forKey: "pmid")
-        }
-        if let raw = fields["isbn"], let v = ISBN(raw) {
-            entry.isbn = [v]; fields.removeValue(forKey: "isbn")
+        // **跟隨上游，兩個方向都跟隨**（#394 verify R4 ④）。
+        //
+        // 第一版只有 `if let`——於是 Zotero 這次沒給時，`entry.doi` 原封不動。
+        // 那既不是 follow（`fields` 是整份替換）也不是 preserve（`venues` 與 `authors`
+        // 各有**顯式**的守衛與回報），而且**沒有一行程式碼說那是刻意的**。
+        //
+        // 後果是過期值安靜留著：使用者在 Zotero 清掉一個掛錯篇的 DOI，重跑 pull 之後
+        // store 仍然帶著它，而 `export-bib` 繼續印、`import-wos` 拿它當身分證
+        // （`existing(matching:)` 先查 `canonicalDOIs`）。
+        //
+        // 清掉是**恢復**提升進結構化欄位之前的行為：那時 DOI 住 `fields`，
+        // 整份替換本來就會讓它消失，而 `fieldsRemovedByPull` 記得到。
+        // 那個回報通道由 `ZoteroImporter` 一併恢復。
+        entry.doi = fields["doi"].flatMap(DOI.init).map { [$0] } ?? []
+        entry.pmid = fields["pmid"].flatMap(PMID.init).map { [$0] } ?? []
+        entry.isbn = fields["isbn"].flatMap(ISBN.init).map { [$0] } ?? []
+        // 解析得出來的已進結構化欄位——**解析不出的原值留在 `fields`**（不猜，#206）。
+        for k in ["doi", "pmid", "isbn"] where !(entry.identifierList(k)?.isEmpty ?? true) {
+            fields.removeValue(forKey: k)
         }
         entry.fields = fields
         // #304：載體二態 ref。**只在 venues 為空時推導**——已歸戶的 `.key` 或先前

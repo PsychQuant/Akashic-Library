@@ -163,11 +163,25 @@ public struct ZoteroImporter {
                     // 觸發，於是它從「偶爾」變成「下一次匯入就會發生」。
                     // 先讓它**可見**——靜默才是真正的問題。
                     let fieldsBefore = Set(existing.fields.keys)
+                    // **識別碼的移除也要可見**（#394 verify R4 ④）。
+                    //
+                    // 它們自 §4 起住結構化欄位，於是下面那個 `fields` 的減法看不到它們
+                    // ——同一件事（Zotero 這次沒給、pull 因此清掉）從**有回報**變成**零回報**。
+                    // 本輪 4 個修復裡，那是唯一拆掉既有回報通道的一個。這裡把它接回來。
+                    let identifiersBefore = Set(["doi", "pmid", "isbn"].filter {
+                        !(existing.identifierList($0)?.isEmpty ?? true)
+                    })
                     let authorsBefore = existing.authors
                     ZoteroMapping.applyBiblatexFields(from: item, to: &existing)
                     if !venueCapable { existing.venues = [] }
                     let removed = fieldsBefore.subtracting(existing.fields.keys).sorted()
                     for k in removed { report.fieldsRemovedByPull[k, default: 0] += 1 }
+                    let identifiersAfter = Set(["doi", "pmid", "isbn"].filter {
+                        !(existing.identifierList($0)?.isEmpty ?? true)
+                    })
+                    for k in identifiersBefore.subtracting(identifiersAfter).sorted() {
+                        report.fieldsRemovedByPull[k, default: 0] += 1
+                    }
                     if hadResolvedAuthors {
                         // 解析成果（person key）是使用者確認過的衍生知識，pull 不摧毀
                         report.authorsPreserved.append(existing.citekey)

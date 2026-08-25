@@ -545,6 +545,11 @@ extension IdentifierMigrationRunTests {
         let applied = try IdentifierMigration.run(store: store, apply: true)
         XCTAssertEqual(dry.blockers, applied.blockers,
                        "乾跑與 apply 必須得到同一組 blockers——那是本命令自己的契約")
+        // **apply 之後磁碟真的要被升級**（#394 verify R4 的負控找到的缺口：
+        // 移除寫入區塊時沒有任何測試會紅，也就是那個區塊在正向上未被測到）。
+        XCTAssertTrue(try String(contentsOf: url, encoding: .utf8).contains("- value: 0003-066X"),
+                      "apply 的最後一步是把模擬結果落到磁碟——乾跑與 apply 的差別"
+                      + "就只剩這一步，沒有它兩者完全一樣")
     }
 }
 
@@ -613,5 +618,36 @@ extension IdentifierMigrationTests {
         let out = upgraded(src)
         XCTAssertTrue(out.contains("- value: 0003-066X"))
         XCTAssertTrue(out.contains("note: 0003-066X"), "同樣的字串在序列外不得被改寫")
+    }
+}
+
+/// 形狀升級的寫入必須在 quarantine 守衛**之後**（#394 verify R4）。
+extension IdentifierMigrationRunTests {
+    /// 先前順序是「升級寫檔 → load → 守衛」，於是守衛擋下時**檔案已經被改過**，
+    /// 而 `report`（含 `shapeUpgraded`）隨例外被丟棄——使用者沒有任何線索知道有寫入發生。
+    ///
+    /// 正確順序是「升級**模擬** → load（餵記憶體版本）→ 守衛 → 才寫」。
+    /// 乾跑本來就走模擬，apply 也走同一條，於是兩者的差別只剩最後那一步。
+    func testShapeUpgradeIsNotWrittenWhenTheGuardBlocks() throws {
+        // 一個會升級的 venue
+        var v = Venue(key: "j", type: .periodical)
+        v.issn = [try XCTUnwrap(ISSN("0003-066X"))]
+        _ = try store.writeVenue(v)
+        let url = store.entityURL(id: v.id)
+        let legacy = try String(contentsOf: url, encoding: .utf8)
+            .replacingOccurrences(of: "- value: 0003-066X", with: "- 0003-066X")
+        try legacy.write(to: url, atomically: true, encoding: .utf8)
+        // 一個**不相干**的壞檔，讓守衛擋下
+        try "venue:\nid: not-a-uuid\nkey: broken\ntype: periodical\n"
+            .write(to: store.root.appendingPathComponent("entities/broken.yaml"),
+                   atomically: true, encoding: .utf8)
+        commitAll()
+
+        XCTAssertThrowsError(try IdentifierMigration.run(store: store, apply: true),
+                             "不相干的 quarantine 必須擋下整個 apply")
+
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), legacy,
+                       "守衛擋下時**一個位元組都不該寫**——先前它已經改過檔了，"
+                       + "而 report 隨例外被丟棄，使用者不會知道")
     }
 }

@@ -399,7 +399,15 @@ public enum IdentifierMigration {
         }
         // **形狀前置升級必須在 load 之前**——裸純量的 issn/isbn 會讓那些檔整檔
         // quarantine，於是 load 之後它們根本不在 `load.venues`／`load.entries` 裡。
-        let shape = try upgradingIdentifierShape(store: store, apply: apply, tracked: tracked)
+        // **一律模擬，寫入延到守衛之後**（#394 verify R4）。
+        //
+        // 先前的順序是「升級寫檔 → load → 守衛」，於是守衛擋下時**檔案已經被改過**，
+        // 而 `report`（含 `shapeUpgraded`）隨例外被丟棄——使用者沒有任何線索知道
+        // 有寫入發生過。R3 的註解已經為 venue 寫入具名了這個形狀，而形狀升級這一格
+        // 當時沒有跟著改。
+        //
+        // 現在乾跑與 apply 走**同一條**模擬路徑，差別只剩最後那一步寫不寫。
+        let shape = try upgradingIdentifierShape(store: store, apply: false, tracked: tracked)
         report.shapeUpgraded = shape.touched
         // 乾跑：把升級後的文字餵給接下來的 load，磁碟不動（#425 verify 的裁決）。
         store.textOverrides = shape.upgraded
@@ -582,6 +590,13 @@ public enum IdentifierMigration {
             report.venuePlans.append(VenuePlan(
                 venueKey: vkey, issn: merged,
                 mergedFrom: mergedFrom, keptMultiple: merged.count > 1))
+        }
+
+        // 守衛過了——現在才把形狀升級落到磁碟。
+        if apply {
+            for (path, text) in shape.upgraded.sorted(by: { $0.key < $1.key }) {
+                try text.write(to: URL(fileURLWithPath: path), atomically: true, encoding: .utf8)
+            }
         }
 
         // ---- Pre-flight：**任何寫入之前**判定每個 venue 落點寫不寫得成 ----

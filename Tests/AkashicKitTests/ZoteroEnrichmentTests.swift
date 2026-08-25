@@ -376,3 +376,32 @@ extension ZoteroPullIdentifierPlacementTests {
         XCTAssertEqual(bib.fields["issn"], "1554-351X", "唯一來源不得被丟掉")
     }
 }
+
+/// pull 對識別碼必須**跟隨上游**，而移除要可見（#394 verify R4 ④）。
+extension ZoteroPullIdentifierPlacementTests {
+    /// Zotero 這次沒給 → 結構化識別碼要清掉。
+    ///
+    /// 修改**之前** DOI 住 `fields`，整份替換讓它消失，`fieldsRemovedByPull` 記得到；
+    /// 把它提升進結構化欄位之後**沒有補 else 分支**，於是它變成「有就跟隨、沒有就保留」
+    /// ——既不是 follow 也不是 preserve，而且沒有一行程式碼說這是刻意的。
+    ///
+    /// 後果是**過期值會安靜留著**：使用者在 Zotero 清掉一個掛錯篇的 DOI，重跑 pull
+    /// 之後 store 仍然帶著它，而 `export-bib` 繼續印、`import-wos` 繼續拿它當身分證。
+    func testClearingTheDOIUpstreamClearsItLocally() {
+        var e = Entry(id: UUID(), citekey: "a", type: .periodicalArticle, title: "T")
+        e.doi = [DOI("10.1037/aaa")!]
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T"]), to: &e)
+
+        XCTAssertTrue(e.doi.isEmpty,
+                      "pull 是跟隨上游——Zotero 清掉的值不得在本地安靜留著。"
+                      + "這正是提升進結構化欄位**之前**的行為（住 fields 時整份替換會清掉它）")
+    }
+
+    /// 上游有值時照常覆寫（跟隨語意的另一半）。
+    func testUpstreamValueStillOverwrites() {
+        var e = Entry(id: UUID(), citekey: "a", type: .periodicalArticle, title: "T")
+        e.doi = [DOI("10.1037/old")!]
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T", "DOI": "10.1037/new"]), to: &e)
+        XCTAssertEqual(e.doi.map(\.normalized), ["10.1037/new"])
+    }
+}

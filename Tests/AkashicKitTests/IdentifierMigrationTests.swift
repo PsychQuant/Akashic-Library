@@ -483,3 +483,34 @@ extension IdentifierMigrationRunTests {
                       "續行之後的裸純量必須也被升級——舊實作在續行處就把序列模式關掉了：\n\(after)")
     }
 }
+
+/// 跨 work 累積到 venue 那一步也要套用「有 qualifier 的勝過沒有的」（#425 verify HIGH）。
+extension IdentifierMigrationRunTests {
+    /// **這是真實資料的形狀**：同一份期刊被多篇引用，只有其中一篇的字串帶括號註記，
+    /// 而那一篇的 citekey 不一定排在前面。
+    ///
+    /// `for v in raws where !merged.contains(v)` 走 `Identifier.==`，而它**刻意只比
+    /// `normalized`**（那是 dedup 的前提，不能改）——所以先進來的勝出，**不論它有沒有
+    /// qualifier**。同一個檔案裡的 `normalizedUniqueQualified` 明寫了偏好規則，
+    /// 跨 work 累積那一步沒套用它。
+    ///
+    /// 既有兩支測試都剛好避開這個格子：一支是「venue 已有 qualified、work 供
+    /// unqualified」，一支是「venue 空 ＋ **單一**帶註記的 work」。
+    func testQualifierSurvivesWhenAnEarlierWorkSuppliesTheSameISSNUnqualified() throws {
+        _ = try store.writeVenue(Venue(key: "j", type: .periodical))
+        // citekey 排序：aaa 在 zzz 之前，而**帶註記的是 zzz**
+        try seedArticle("aaa2020", venueKey: "j", issn: "0033-3123 1860-0980")
+        try seedArticle("zzz2020", venueKey: "j",
+                        issn: "1860-0980 (Electronic) 0033-3123 (Linking)")
+        commitAll()
+
+        _ = try IdentifierMigration.run(store: store, apply: true)
+
+        let v = try XCTUnwrap(try store.load().venues.first { $0.key == "j" })
+        let byValue = Dictionary(uniqueKeysWithValues:
+            v.issn.map { ($0.normalized, $0.medium?.rawValue ?? "—") })
+        XCTAssertEqual(byValue["1860-0980"], "electronic",
+                       "註記不得因為另一篇 work 先供給同一個號而消失")
+        XCTAssertEqual(byValue["0033-3123"], "linking")
+    }
+}

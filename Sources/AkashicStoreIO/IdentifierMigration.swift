@@ -227,6 +227,24 @@ public enum IdentifierMigration {
     /// 號同時是紙本 ISSN 與 ISSN-L）**保留先出現的**，第二個由
     /// `candidatesWithAnnotations` 的回報留下痕跡。一個 `String?` 裝不下兩個角色，
     /// 而為此把欄位變成清單，是為一個實測 1 筆的情形付結構成本。
+    /// 把一個識別碼併進清單：相等時**有 qualifier 的勝過沒有的**（#425 verify HIGH）。
+    ///
+    /// 抽出來是因為這條規則先前只寫在 `normalizedUniqueQualified`（單一欄位內的多值），
+    /// 而**跨 work 累積到 venue 的那一步沒有套用它**——`merged.contains(v)` 走
+    /// `Identifier.==`，而它刻意只比 `normalized`（dedup 的前提，不能改），
+    /// 所以先進來的勝出、不論有沒有 qualifier。
+    ///
+    /// 那是真實資料的形狀：同一份期刊被多篇引用，只有其中一篇帶括號註記，
+    /// 而那一篇的 citekey 不一定排在前面。複製一份規則到第二處必然分岔，
+    /// 而分岔的方向就是「其中一處安靜地丟掉 qualifier」。
+    static func mergePreferringQualified<T: Identifier>(_ v: T, into out: inout [T]) {
+        if let idx = out.firstIndex(of: v) {
+            if out[idx].qualifier == nil, v.qualifier != nil { out[idx] = v }
+        } else {
+            out.append(v)
+        }
+    }
+
     static func normalizedUniqueQualified<T: Identifier>(
         _ pairs: [(value: String, qualifier: String?)], _ make: (String) -> T?
     ) -> (values: [T], unparseable: [String]) {
@@ -234,12 +252,7 @@ public enum IdentifierMigration {
         var bad: [String] = []
         for (rawValue, q) in pairs {
             guard let v = make(rawValue) else { bad.append(rawValue); continue }
-            let withQ = v.withQualifier(q)
-            if let idx = out.firstIndex(of: withQ) {
-                if out[idx].qualifier == nil, withQ.qualifier != nil { out[idx] = withQ }
-            } else {
-                out.append(withQ)
-            }
+            mergePreferringQualified(v.withQualifier(q), into: &out)
         }
         return (out, bad)
     }
@@ -549,7 +562,9 @@ public enum IdentifierMigration {
         for (vkey, raws) in issnByVenue.sorted(by: { $0.key < $1.key }) {
             var merged: [ISSN] = existingVenues[vkey]?.issn ?? []
             var mergedFrom: [String] = []
-            for v in raws where !merged.contains(v) { merged.append(v) }
+            // **同一條偏好規則**（#425 verify）——先前這裡是 `!merged.contains(v)`，
+            // 於是先進來的勝出而不論有無 qualifier。
+            for v in raws { Self.mergePreferringQualified(v, into: &merged) }
             for src in issnSources[vkey] ?? [] where !mergedFrom.contains(src) {
                 mergedFrom.append(src)
             }

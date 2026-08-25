@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import AkashicCore
+import AkashicStoreIO
 
 /// Zotero → Akashic 的對映表。
 public enum ZoteroMapping {
@@ -168,6 +169,27 @@ public enum ZoteroMapping {
 
     /// 把 ZoteroItem 的 biblatex 面向填進 Entry（不動 id/citekey/akashic）。
     /// date 經 DateNormalizer；解析不了保留原字串（importer 另行 report）。
+    /// 上游值 → 結構化識別碼清單,三態語意見呼叫處（#394 verify R5 ①）。
+    ///
+    /// 多值欄位（`issn`／`isbn`）走 `IdentifierMigration` 既有的 tokenizer——它是
+    /// 為了同一個形狀（一個字串裡有多個號）寫的,這裡沒有理由再造一個。
+    static func followUpstream<T: Identifier>(
+        _ raw: String?, existing: [T], field: String
+    ) -> [T] {
+        guard let raw, !raw.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return []                                    // 上游沒給 → 清空
+        }
+        // 吸不吸收多值**按欄位種類**,而那個裁決連同它的量測住在 `absorbsMultipleValues`
+        // 的 doc 裡（DOI 刻意不吸收——吸收附錄的 DOI 等於一句假的身分宣稱）。這裡引用它,
+        // 不複製:兩份會分岔。
+        let parsed: [T] = IdentifierMigration.absorbsMultipleValues(field: field)
+            ? IdentifierMigration.normalizedUniqueQualified(
+                IdentifierMigration.qualifiedCandidates(raw, field: field), T.init).values
+            : (T(raw).map { [$0] } ?? [])
+        // 讀不懂 → 保留既有（**不是**清空）。原字串仍留在 `fields`,資訊零損失。
+        return parsed.isEmpty ? existing : parsed
+    }
+
     public static func applyBiblatexFields(from item: ZoteroItem, to entry: inout Entry) {
         entry.type = workType(for: item.typeName)
         entry.title = item.fields["title"] ?? ""
@@ -219,9 +241,24 @@ public enum ZoteroMapping {
         // 清掉是**恢復**提升進結構化欄位之前的行為：那時 DOI 住 `fields`，
         // 整份替換本來就會讓它消失，而 `fieldsRemovedByPull` 記得到。
         // 那個回報通道由 `ZoteroImporter` 一併恢復。
-        entry.doi = fields["doi"].flatMap(DOI.init).map { [$0] } ?? []
-        entry.pmid = fields["pmid"].flatMap(PMID.init).map { [$0] } ?? []
-        entry.isbn = fields["isbn"].flatMap(ISBN.init).map { [$0] } ?? []
+        // **狀態有三個，不是兩個**（#394 verify R5 ①——R4 把後兩者折在一起）：
+        //
+        // | 上游 | 動作 |
+        // |---|---|
+        // | 沒給 | 清空（跟隨） |
+        // | 給了且讀得懂 | 取代（跟隨） |
+        // | **給了但讀不懂** | **保留既有值**——那是我們的解析限制,不是上游的意思 |
+        //
+        // 第三格是 R4 的資料遺失回歸：**Zotero 把多個 ISBN 塞在同一個字串裡**
+        // （`978-… 978-…`），而 `ISBN.init` 對它必然回 nil。R4 把那個 nil 讀成
+        // 「上游清空了」，於是 `migrate-identifiers` 剛拆出來的號被扔掉。
+        // 實測受害者 2 筆（`dweck2000social` 精裝／平裝、`kelley2023sample`）。
+        //
+        // 多值欄位走 migration 既有的 tokenizer，所以「兩個真的號」讀得出來、
+        // 跟隨語意對它們也成立——**而不是只把資料保住**。
+        entry.doi = followUpstream(fields["doi"], existing: entry.doi, field: "doi")
+        entry.pmid = followUpstream(fields["pmid"], existing: entry.pmid, field: "pmid")
+        entry.isbn = followUpstream(fields["isbn"], existing: entry.isbn, field: "isbn")
         // 解析得出來的已進結構化欄位——**解析不出的原值留在 `fields`**（不猜，#206）。
         for k in ["doi", "pmid", "isbn"] where !(entry.identifierList(k)?.isEmpty ?? true) {
             fields.removeValue(forKey: k)

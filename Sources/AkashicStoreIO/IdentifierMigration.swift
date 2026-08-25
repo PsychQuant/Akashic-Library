@@ -157,7 +157,13 @@ public enum IdentifierMigration {
     ///
     /// 規則：一個 `(...)` 歸屬於**它前面最近的**值。前面沒有值的括號（罕見）被忽略，
     /// 但仍出現在 `candidatesWithAnnotations` 的回報裡——不猜它屬於誰。
-    static func qualifiedCandidates(_ raw: String, field: String)
+    /// **常設路徑也在用**（#394 verify R5 ①）：`import-zotero` 的跟隨語意需要同一個
+    /// 切法——Zotero 把多個號塞在一個字串裡,而那正是本函式為之而寫的形狀。
+    ///
+    /// ⚠️ **耦合**:本型別是一次性遷移工具,而 `no-compat-fallback` 要求遷移「退場即刪」。
+    /// 刪它之前必須先把這兩個函式搬到 `AkashicCore`（識別碼解析不是遷移的職責）。
+    /// 追蹤:#427 的 follow-up。
+    public static func qualifiedCandidates(_ raw: String, field: String)
         -> [(value: String, qualifier: String?)] {
         guard absorbsMultipleValues(field: field) else {
             return splitTokens(raw).map { ($0, nil) }
@@ -277,7 +283,7 @@ public enum IdentifierMigration {
         }
     }
 
-    static func normalizedUniqueQualified<T: Identifier>(
+    public static func normalizedUniqueQualified<T: Identifier>(
         _ pairs: [(value: String, qualifier: String?)], _ make: (String) -> T?
     ) -> (values: [T], unparseable: [String]) {
         var out: [T] = []

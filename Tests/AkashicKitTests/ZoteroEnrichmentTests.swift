@@ -405,3 +405,34 @@ extension ZoteroPullIdentifierPlacementTests {
         XCTAssertEqual(e.doi.map(\.normalized), ["10.1037/new"])
     }
 }
+
+/// 上游「給了但讀不懂」不得與「沒給」折成同一件事（#394 verify R5 ①）。
+extension ZoteroPullIdentifierPlacementTests {
+    /// **Zotero 把多個 ISBN 塞在同一個字串裡**，而 `ISBN.init` 對它必然回 nil
+    /// （`idCompact` 後長度既非 10 也非 13）。R4 的翻轉把那個 nil 當成「上游清空了」，
+    /// 於是 `migrate-identifiers` 剛拆出來的兩個結構化號被扔掉。
+    ///
+    /// 實測受害者 2 筆（`dweck2000social` 精裝／平裝、`kelley2023sample`），皆來自 Zotero。
+    ///
+    /// 正確的狀態有**三個**不是兩個：上游沒給 → 清空；給了且讀得懂 → 取代；
+    /// **給了但讀不懂 → 保留既有值**（那是我們的解析能力不足，不是上游的意思）。
+    func testAnUnparseableUpstreamStringDoesNotWipeStructuredISBNs() {
+        var e = Entry(id: UUID(), citekey: "k", type: .book, title: "T")
+        e.isbn = [ISBN("9781433837135")!, ISBN("9781433841323")!]
+        // Zotero 的真實形狀：多個號空白分隔在同一個欄位
+        ZoteroMapping.applyBiblatexFields(
+            from: item(["title": "T", "ISBN": "978-1-4338-3713-5 978-1-4338-4132-3"]), to: &e)
+
+        XCTAssertEqual(e.isbn.count, 2,
+                       "上游那個字串**含有**這兩個號——讀不懂它是我們的解析限制，"
+                       + "不是上游說「這本書沒有 ISBN」。把兩者折成同一個分支會安靜刪資料")
+    }
+
+    /// 上游真的沒給時仍然清空（跟隨語意的那一半不得被本修復弄壞）。
+    func testAbsentUpstreamStillClearsISBN() {
+        var e = Entry(id: UUID(), citekey: "k", type: .book, title: "T")
+        e.isbn = [ISBN("9781433837135")!]
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T"]), to: &e)
+        XCTAssertTrue(e.isbn.isEmpty, "沒給就是清空——R4 修的那件事仍然成立")
+    }
+}

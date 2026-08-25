@@ -61,10 +61,19 @@ public enum BibExport {
         //
         // **只在 `fields` 沒有殘留時才寫**——遷移略過的那些仍在 `fields`，不得被覆蓋。
         // venue 未歸戶（`.literal`）時不生出任何東西：沒有 venue 記錄就沒有號。
-        if fields["issn"] == nil {
-            let venueISSNs = entry.venues.compactMap { ref -> Venue? in
-                if case .key(let k) = ref { return venues[k] } else { return nil }
-            }.flatMap(\.issn)
+        // **venue 優先於 work 的殘留**（#425 verify HIGH）。
+        //
+        // 先前的條件是 `if fields["issn"] == nil`——只在 work 沒有殘留時才拉 venue。
+        // 而 `import-zotero`（pull）會把 `fields.issn` 寫回 work，於是那條拉取
+        // **被遮蔽**，`.bib` 改印 Zotero 的原始字串而不是 venue 上正規化過的號。
+        //
+        // 方向該反過來：識別碼住在它所識別的實體上（spec），venue 的那個才是正典；
+        // work 的殘留是**過渡態**（等 migrate-identifiers 搬走）。venue 沒有號時才
+        // 退回殘留——那時它是唯一的來源。
+        let venueISSNs = entry.venues.compactMap { ref -> Venue? in
+            if case .key(let k) = ref { return venues[k] } else { return nil }
+        }.flatMap(\.issn)
+        if !venueISSNs.isEmpty {
             emitIdentifiers(venueISSNs, as: "issn")
         }
         // 學位論文事實（#335）。**在 `fields` 之後寫**，所以結構化欄位勝過自由字典裡

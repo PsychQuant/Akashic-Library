@@ -158,22 +158,18 @@ public enum ZoteroEnrichment {
                     // the article」。補回去等於製造 spec 明文指為錯置的東西。
                     refused.append("issn「\(v)」——ISSN 識別的是期刊不是文章，"
                                    + "work 不收；要補請補到它的 venue")
-                case "doi":
-                    if !entry.canonicalDOIs.isEmpty { continue }
-                    if let d = DOI(v) { addedDOIs = [d] }
-                    else { refused.append("doi「\(v)」——解析不出 DOI 的形狀，不猜") }
-                case "pmid":
-                    if !entry.canonicalPMIDs.isEmpty { continue }
-                    if let d = PMID(v) { addedPMIDs = [d] }
-                    else { refused.append("pmid「\(v)」——解析不出 PMID 的形狀，不猜") }
-                case "isbn":
-                    if !entry.canonicalISBNs.isEmpty { continue }
-                    if let d = ISBN(v) { addedISBNs = [d] }
-                    else { refused.append("isbn「\(v)」——解析不出 ISBN 的形狀，不猜") }
+                case "doi", "pmid", "isbn":
+                    // 解析得出來的已由 `applyBiblatexFields` 放進 probe 的**結構化欄位**
+                    //（#425 verify），所以還留在 `fields` 的必然是解析不出來的殘留。
+                    refused.append("\(k)「\(v)」——解析不出 \(k.uppercased()) 的形狀，不猜")
                 default:
                     if entry.fields[k] == nil { added[k] = v }
                 }
             }
+            // 結構化識別碼：probe 帶得出來、而 entry 仍為空時才補（保守側同 fields）。
+            if entry.canonicalDOIs.isEmpty { addedDOIs = probe.doi }
+            if entry.canonicalPMIDs.isEmpty { addedPMIDs = probe.pmid }
+            if entry.canonicalISBNs.isEmpty { addedISBNs = probe.isbn }
             var addedDate: String?
             if (entry.date ?? "").isEmpty, let d = probe.date, !d.isEmpty {
                 addedDate = d

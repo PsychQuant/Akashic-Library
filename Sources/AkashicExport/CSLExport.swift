@@ -79,10 +79,11 @@ public enum CSLExport {
                 emitIdentifiers(entry.isbn, as: "ISBN")
                 // ISSN 住 venue（§8 之後）。只在 `fields` 沒有殘留時才拉，
                 // 與 `.bib` 那面同判準——遷移略過的那些仍在 `fields`，不得被覆蓋。
-                if entry.fields["issn"] == nil {
-                    let venueISSNs = entry.venues.compactMap { ref -> Venue? in
-                        if case .key(let k) = ref { return venuesByKey[k] } else { return nil }
-                    }.flatMap(\.issn)
+                // **venue 優先於 work 的殘留**（#425 verify）——與 `.bib` 那面同一條規則。
+                let venueISSNs = entry.venues.compactMap { ref -> Venue? in
+                    if case .key(let k) = ref { return venuesByKey[k] } else { return nil }
+                }.flatMap(\.issn)
+                if !venueISSNs.isEmpty {
                     emitIdentifiers(venueISSNs, as: "ISSN")
                 }
                 return item

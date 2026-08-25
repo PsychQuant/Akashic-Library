@@ -130,7 +130,11 @@ final class ZoteroImportTests: XCTestCase {
         XCTAssertEqual(article.fields["journaltitle"], "Psychometrika")
         XCTAssertEqual(article.fields["volume"], "90")
         XCTAssertEqual(article.fields["number"], "2")
-        XCTAssertEqual(article.fields["doi"], "10.1017/psy.2025.1")
+        // #425 verify：識別碼進**結構化欄位**，不留 `fields` 殘留。
+        // 先前這一行斷言的是 `fields["doi"]`——而那個殘留正是缺陷：
+        // pull 會在 migrate-identifiers 移除它之後一筆一筆種回去。
+        XCTAssertEqual(article.doi.map(\.normalized), ["10.1017/psy.2025.1"])
+        XCTAssertNil(article.fields["doi"], "同一個值不得有兩份可各自漂移的副本")
         XCTAssertEqual(article.attachments, [AttachmentRef(kind: .zotero, path: "storage/KEYATT01/paper.pdf")])
         XCTAssertEqual(article.provenance?.zoteroKey, "KEYART01")
         XCTAssertEqual(article.provenance?.zoteroVersion, 5)

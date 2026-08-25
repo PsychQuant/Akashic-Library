@@ -1,4 +1,5 @@
 import XCTest
+@testable import AkashicExport
 @testable import AkashicZoteroImport
 import AkashicCore
 
@@ -311,4 +312,67 @@ extension ZoteroEnrichmentTests {
 private func XCTUnwrap0<T>(_ v: T?) -> T {
     guard let v else { preconditionFailure("預期非 nil") }
     return v
+}
+
+/// pull 路徑（`applyBiblatexFields`）也不得把識別碼留在 `fields` 殘留（#425 verify HIGH）。
+///
+/// 我修了 add-only 的 `enrich`，**姊妹路徑 pull 沒修**——而 pull 是預設的 Zotero
+/// 匯入面（`ZoteroImporter` 的新建與更新兩條路徑都呼叫它）。
+/// spec（entity-identifier）的「WHEN a work record carries an ISSN THEN the store
+/// SHALL treat that as a misplacement」在該路徑上 NOT addressed，
+/// 而 `BibExport` 的 `if fields["issn"] == nil` venue 拉取會因此被遮蔽。
+final class ZoteroPullIdentifierPlacementTests: XCTestCase {
+    private func item(_ fields: [String: String]) -> ZoteroItem {
+        ZoteroItem(key: "K", version: 1, libraryID: 1, typeName: "journalArticle",
+                   fields: fields, authors: [], tags: [], attachmentPaths: [])
+    }
+
+    func testDOIAndISBNGoToStructuredFieldsNotResidue() {
+        var e = Entry(id: UUID(), citekey: "x", type: .webpage, title: "")
+        ZoteroMapping.applyBiblatexFields(
+            from: item(["title": "T", "DOI": "10.1234/abc", "ISBN": "9780306406157"]), to: &e)
+
+        XCTAssertEqual(e.doi.map(\.normalized), ["10.1234/abc"], "識別碼有結構化的家")
+        XCTAssertEqual(e.isbn.map(\.normalized), ["9780306406157"])
+        XCTAssertNil(e.fields["doi"], "不得留在 fields——同一個值兩份副本可各自漂移")
+        XCTAssertNil(e.fields["isbn"])
+    }
+
+    /// 解析不出來的**不猜**——原值留在 `fields`，交由既有的殘餘路徑處理。
+    func testUnparseableIdentifierStaysInFields() {
+        var e = Entry(id: UUID(), citekey: "x", type: .webpage, title: "")
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T", "DOI": "not-a-doi"]), to: &e)
+
+        XCTAssertTrue(e.doi.isEmpty, "解析不出就不填結構化欄位")
+        XCTAssertEqual(e.fields["doi"], "not-a-doi", "原值不得丟棄（lossless-intake）")
+    }
+}
+
+/// venue 的 ISSN 勝過 work 的 `fields` 殘留（#425 verify HIGH）。
+extension ZoteroPullIdentifierPlacementTests {
+    func testVenueISSNWinsOverTheWorkResidue() throws {
+        var v = Venue(key: "j", type: .periodical)
+        v.issn = [try XCTUnwrap(ISSN("1554-351X"))]
+        var e = Entry(id: UUID(), citekey: "a2020", type: .periodicalArticle, title: "T")
+        e.venues = [.key("j")]
+        // pull 寫回的殘留——寫法未正規化，而且它是**過渡態**
+        e.fields["issn"] = "1554351X"
+
+        let bib = BibExport.bibEntry(for: e, people: [:], venues: ["j": v])
+
+        XCTAssertEqual(bib.fields["issn"], "1554-351X",
+                       "識別碼住在它所識別的實體上——venue 的那個才是正典；"
+                       + "work 的殘留是等 migrate-identifiers 搬走的過渡態")
+    }
+
+    /// venue 沒有號時退回殘留——那時它是唯一的來源。
+    func testResidueIsUsedWhenTheVenueHasNoISSN() throws {
+        let v = Venue(key: "j", type: .periodical)
+        var e = Entry(id: UUID(), citekey: "a2020", type: .periodicalArticle, title: "T")
+        e.venues = [.key("j")]
+        e.fields["issn"] = "1554-351X"
+
+        let bib = BibExport.bibEntry(for: e, people: [:], venues: ["j": v])
+        XCTAssertEqual(bib.fields["issn"], "1554-351X", "唯一來源不得被丟掉")
+    }
 }

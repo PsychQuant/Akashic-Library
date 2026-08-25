@@ -184,6 +184,35 @@ final class IdentifierMigrationRunTests: XCTestCase {
         XCTAssertEqual(try issnOnDisk("a2020"), "0003-066X", "ISSN 必須存活")
     }
 
+    // MARK: 丟棄必須可見（lossless-intake 執行細節 3）
+
+    func testStrippedParentheticalAnnotationsAreReported() throws {
+        _ = try store.writeVenue(Venue(key: "j", type: .periodical))
+        var e = Entry(id: UUID(), citekey: "a2020", type: .periodicalArticle, title: "T")
+        e.venues = [.key("j")]
+        e.fields["issn"] = "1939-1455(Electronic),0033-2909(Print)"
+        _ = try store.writeEntry(e)
+        commitAll()
+
+        let r = try IdentifierMigration.run(store: store, apply: false)
+
+        XCTAssertEqual(r.discardedAnnotations.count, 1)
+        XCTAssertEqual(r.discardedAnnotations.first?.annotations, ["Electronic", "Print"],
+                       "Electronic／Print 是有書目語意的 qualifier——剝掉可以，"
+                       + "不報出來不行（lossless-intake 執行細節 3：靜默是最糟的形式）")
+        XCTAssertEqual(r.discardedAnnotations.first?.raw,
+                       "1939-1455(Electronic),0033-2909(Print)",
+                       "原值要在報告裡，否則使用者無從復原")
+    }
+
+    /// DOI 的後綴合法含括號——**不得**被當成註記剝掉，也不該回報成丟棄。
+    func testDOIParenthesesAreNotTreatedAsAnnotations() {
+        let (values, annotations) = IdentifierMigration.candidatesWithAnnotations(
+            "10.1016/S0304-4076(98)00255-9", field: "doi")
+        XCTAssertEqual(values, ["10.1016/S0304-4076(98)00255-9"])
+        XCTAssertTrue(annotations.isEmpty, "DOI 不吸收多值也不剝括號")
+    }
+
     // MARK: 乾跑必須預告 apply 會擋下什麼
 
     func testDryRunRevealsTheSameBlockersApplyWould() throws {

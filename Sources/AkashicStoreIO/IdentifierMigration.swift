@@ -55,11 +55,23 @@ public enum IdentifierMigration {
         public var keptMultiple: Bool
     }
 
+    /// 一筆被剝掉的括號註記——連同它原本黏在哪個值上。
+    public struct DiscardedAnnotation: Equatable {
+        public let citekey: String
+        public let field: String
+        public let raw: String
+        public let annotations: [String]
+    }
+
     public struct Report: Equatable {
         public var plans: [Plan] = []
         public var venuePlans: [VenuePlan] = []
         public var skipped: [Skipped] = []
         public var provenanceRewrites: [String] = []
+        /// 被剝掉的括號註記（#394 verify）。`lossless-intake` 執行細節 3：真的要丟就
+        /// 必須報出來——先前這些在報告的任何一處都不出現，而它們是有書目語意的
+        /// qualifier（Electronic／Print／Linking／softcover／alk. paper），不是雜訊。
+        public var discardedAnnotations: [DiscardedAnnotation] = []
         /// **寫入開始之前**就判定成立的阻擋前提（#394 verify）。
         ///
         /// 取代原本的 `failed`——那個名字對應的是「寫到一半失敗」，而那正是本命令
@@ -96,11 +108,40 @@ public enum IdentifierMigration {
     /// **而它們會被當成「解析不了」而略過，看起來像是資料本身有問題**。
     /// 這是乾跑存在的理由：它讓一個會靜默毀資料的 bug 在寫入前現形。
     static func candidates(_ raw: String, field: String) -> [String] {
-        let stripped = absorbsMultipleValues(field: field)
-            ? raw.replacingOccurrences(of: #"\([^)]*\)"#, with: " ",
-                                       options: .regularExpression)
-            : raw
-        return stripped
+        candidatesWithAnnotations(raw, field: field).values
+    }
+
+    /// 同 `candidates`，但**一併回報被剝掉的括號註記**（#394 verify）。
+    ///
+    /// 剝括號是為了讓 `1860-0980 (Electronic) 0033-3123 (Linking)` 這種值解析得出來
+    /// ——但 `Electronic`／`Print`／`Linking`／`softcover`／`alk. paper` **是有書目語意的
+    /// qualifier**，不是雜訊。`lossless-intake` 執行細節 3：真的要丟就必須報出來，
+    /// 「靜默是最糟的形式」。
+    ///
+    /// **這個函式不決定要不要丟，只保證丟了看得見。** 那些註記在現行模型裡確實沒有
+    /// 棲身處——`Identifier` 的 `raw` 不進磁碟（`IdentifierYAML.listNode` 只寫
+    /// `normalized`），而給 ISSN 加 medium 欄位是 schema 改動。裁決留在 #394。
+    static func candidatesWithAnnotations(_ raw: String, field: String)
+        -> (values: [String], annotations: [String]) {
+        guard absorbsMultipleValues(field: field) else {
+            return (splitTokens(raw), [])
+        }
+        var annotations: [String] = []
+        if let re = try? NSRegularExpression(pattern: #"\(([^)]*)\)"#) {
+            let ns = raw as NSString
+            for m in re.matches(in: raw, range: NSRange(location: 0, length: ns.length)) {
+                let inner = ns.substring(with: m.range(at: 1))
+                    .trimmingCharacters(in: .whitespaces)
+                if !inner.isEmpty { annotations.append(inner) }
+            }
+        }
+        let stripped = raw.replacingOccurrences(of: #"\([^)]*\)"#, with: " ",
+                                                options: .regularExpression)
+        return (splitTokens(stripped), annotations)
+    }
+
+    private static func splitTokens(_ stripped: String) -> [String] {
+        stripped
             .split(whereSeparator: { $0 == "," || $0.isWhitespace })
             .map(String.init)
             .filter { !$0.isEmpty }
@@ -177,7 +218,11 @@ public enum IdentifierMigration {
 
             for key in workIdentifierKeys {
                 guard let raw = entry.fields[key] else { continue }
-                let toks = candidates(raw, field: key)
+                let (toks, annotations) = candidatesWithAnnotations(raw, field: key)
+                if !annotations.isEmpty {
+                    report.discardedAnnotations.append(DiscardedAnnotation(
+                        citekey: entry.citekey, field: key, raw: raw, annotations: annotations))
+                }
 
                 func take<T: Identifier>(_ make: (String) -> T?) -> [T]? {
                     let (values, bad) = normalizedUnique(toks, make)

@@ -57,6 +57,16 @@ struct MigrateIdentifiers: ParsableCommand {
                 print("      \(displaySafe(s.reason, max: 800))")
             }
         }
+        if !report.discardedAnnotations.isEmpty {
+            print("\n── 被剝掉的括號註記（\(report.discardedAnnotations.count) 筆）──")
+            print("  這些是有書目語意的 qualifier，不是雜訊；現行模型沒有欄位存它們。")
+            print("  剝掉是為了讓值解析得出來——但 lossless-intake 要求丟棄必須可見。")
+            for a in report.discardedAnnotations {
+                print("  \(displaySafe(a.citekey, max: 200)) [\(a.field)] "   // display-safe-exempt: field 值域是 workIdentifierKeys 封閉集合
+                      + "「\(displaySafe(a.raw, max: 200))」")
+                print("      丟棄：\(a.annotations.map { displaySafe($0, max: 60) }.joined(separator: "、"))")
+            }
+        }
         print("\n── provenance value 改寫：\(report.provenanceRewrites.count) 筆 ──")
         if report.provenanceRewrites.isEmpty {
             print("  （零實例是預期的：Entry.references 是本 change 新增、全庫為空；"

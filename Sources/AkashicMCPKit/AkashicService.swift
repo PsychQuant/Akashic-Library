@@ -1824,12 +1824,30 @@ public final class AkashicService {
                     }),
                 ]
                 if let dt = a.addedDate { one["addedDate"] = displaySafe(dt, max: 200) }
+                // 結構化識別碼與被拒項（#394 verify）——CLI 那面同步。
+                if !a.addedDOIs.isEmpty {
+                    one["addedDOIs"] = a.addedDOIs.map { displaySafe($0.normalized, max: 200) }
+                }
+                if !a.addedPMIDs.isEmpty {
+                    one["addedPMIDs"] = a.addedPMIDs.map { displaySafe($0.normalized, max: 200) }
+                }
+                if !a.addedISBNs.isEmpty {
+                    one["addedISBNs"] = a.addedISBNs.map { displaySafe($0.normalized, max: 200) }
+                }
+                if !a.refusedIdentifiers.isEmpty {
+                    one["refusedIdentifiers"] = a.refusedIdentifiers.map { displaySafe($0, max: 300) }
+                }
                 return one
             },
             "unchanged": plan.unchanged.sorted().map { displaySafe($0, max: 200) },
             "noProvenance": plan.noProvenance.sorted().map { displaySafe($0, max: 200) },
             "zoteroMissing": plan.zoteroMissing.sorted().map { displaySafe($0, max: 200) },
             "notInStore": plan.notInStore.sorted().map { displaySafe($0, max: 200) },
+            // 第六類：給了識別碼但刻意不收，且沒有別的可補。與 unchanged 不可混為一談。
+            "refusedOnly": plan.refusedOnly.sorted { $0.citekey < $1.citekey }.map { a -> [String: Any] in
+                ["citekey": displaySafe(a.citekey, max: 200),
+                 "refusedIdentifiers": a.refusedIdentifiers.map { displaySafe($0, max: 300) }]
+            },
         ]
         if !dryRun { d["written"] = written.sorted().map { displaySafe($0, max: 200) } }
         if !writeFailed.isEmpty {

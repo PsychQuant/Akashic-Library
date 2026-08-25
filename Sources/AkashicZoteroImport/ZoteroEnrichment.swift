@@ -47,13 +47,31 @@ public enum ZoteroEnrichment {
         /// 原本 `authors` **完全為空**、而 Zotero 有作者時的補值（一律 `.literal`，#340）。
         /// 空陣列＝沒有補（`authors` 非空，或呼叫端未開旗標）。
         public let addedAuthors: [Author]
+        /// 補進**結構化**識別碼欄位的值（#394 verify）。
+        ///
+        /// **不走 `addedFields`**：§8 的遷移把 `fields.doi` 一族移進結構化欄位，而本命令
+        /// 是 add-only（`entry.fields[k] == nil` 才補）——遷移之後那些鍵**恰好都是 nil**，
+        /// 於是它會把殘留一筆一筆種回去。那不只是多一份副本：`BibExport` 的
+        /// `if fields["issn"] == nil` 會因此失效，venue 的 ISSN 拉取被遮蔽。
+        public let addedDOIs: [DOI]
+        public let addedPMIDs: [PMID]
+        public let addedISBNs: [ISBN]
+        /// Zotero 給了識別碼但**刻意不採用**的理由（citekey 級，逐條具名）。
+        /// `lossless-intake` 執行細節 3：丟棄必須可見。
+        public let refusedIdentifiers: [String]
 
         public init(citekey: String, addedFields: [String: String], addedDate: String?,
-                    addedAuthors: [Author] = []) {
+                    addedAuthors: [Author] = [],
+                    addedDOIs: [DOI] = [], addedPMIDs: [PMID] = [], addedISBNs: [ISBN] = [],
+                    refusedIdentifiers: [String] = []) {
             self.citekey = citekey
             self.addedFields = addedFields
             self.addedDate = addedDate
             self.addedAuthors = addedAuthors
+            self.addedDOIs = addedDOIs
+            self.addedPMIDs = addedPMIDs
+            self.addedISBNs = addedISBNs
+            self.refusedIdentifiers = refusedIdentifiers
         }
     }
 
@@ -70,12 +88,18 @@ public enum ZoteroEnrichment {
         public var zoteroMissing: [String] = []
         /// 指名的 citekey 不在 store 裡。
         public var notInStore: [String] = []
+        /// **只有被拒絕的識別碼、沒有任何可補值**的 citekey（#394 verify）。
+        /// 與 `unchanged` 分開：那一類是「Zotero 給不出缺著的欄位」，這一類是
+        /// 「Zotero 給了，而我們**刻意不收**」——兩者在輸出上不可混為一談
+        /// （`lossless-intake` 執行細節 3）。
+        public var refusedOnly: [Addition] = []
 
         public init() {}
 
         /// 落在每一類的 citekey 總數。用於後置條件斷言。
         public var accountedCitekeys: [String] {
-            additions.map(\.citekey) + unchanged + noProvenance + zoteroMissing + notInStore
+            additions.map(\.citekey) + refusedOnly.map(\.citekey)
+                + unchanged + noProvenance + zoteroMissing + notInStore
         }
     }
 
@@ -121,8 +145,34 @@ public enum ZoteroEnrichment {
             ZoteroMapping.applyBiblatexFields(from: item, to: &probe)
 
             var added: [String: String] = [:]
+            var addedDOIs: [DOI] = [], addedPMIDs: [PMID] = [], addedISBNs: [ISBN] = []
+            var refused: [String] = []
             for (k, v) in probe.fields where !v.isEmpty {
-                if entry.fields[k] == nil { added[k] = v }
+                // 識別碼**不進 `fields` 殘留**（#394 verify）。它們自 §8 起有結構化的家；
+                // 走 add-only 的舊路徑會在遷移之後把殘留一筆一筆種回去。
+                switch k {
+                case "issn":
+                    // **work 一律不收 ISSN。** spec（entity-identifier）逐字：
+                    // 「WHEN a work record carries an ISSN THEN the store SHALL treat
+                    // that as a misplacement, because ISSN identifies the serial and not
+                    // the article」。補回去等於製造 spec 明文指為錯置的東西。
+                    refused.append("issn「\(v)」——ISSN 識別的是期刊不是文章，"
+                                   + "work 不收；要補請補到它的 venue")
+                case "doi":
+                    if !entry.canonicalDOIs.isEmpty { continue }
+                    if let d = DOI(v) { addedDOIs = [d] }
+                    else { refused.append("doi「\(v)」——解析不出 DOI 的形狀，不猜") }
+                case "pmid":
+                    if !entry.canonicalPMIDs.isEmpty { continue }
+                    if let d = PMID(v) { addedPMIDs = [d] }
+                    else { refused.append("pmid「\(v)」——解析不出 PMID 的形狀，不猜") }
+                case "isbn":
+                    if !entry.canonicalISBNs.isEmpty { continue }
+                    if let d = ISBN(v) { addedISBNs = [d] }
+                    else { refused.append("isbn「\(v)」——解析不出 ISBN 的形狀，不猜") }
+                default:
+                    if entry.fields[k] == nil { added[k] = v }
+                }
             }
             var addedDate: String?
             if (entry.date ?? "").isEmpty, let d = probe.date, !d.isEmpty {
@@ -138,12 +188,22 @@ public enum ZoteroEnrichment {
                     .map { Author.literal($0) }
             }
 
-            if added.isEmpty && addedDate == nil && addedAuthors.isEmpty {
+            let nothingToAdd = added.isEmpty && addedDate == nil && addedAuthors.isEmpty
+                && addedDOIs.isEmpty && addedPMIDs.isEmpty && addedISBNs.isEmpty
+            // **`refused` 不算「有東西可補」**，但也不能讓它消失：只有 refused 的 citekey
+            // 落在 `unchanged`，而 refused 本身仍隨 Addition 回報。所以這裡兩者都要記。
+            if nothingToAdd && refused.isEmpty {
                 result.unchanged.append(citekey)
+            } else if nothingToAdd {
+                result.refusedOnly.append(
+                    Addition(citekey: citekey, addedFields: [:], addedDate: nil,
+                             refusedIdentifiers: refused))
             } else {
                 result.additions.append(
                     Addition(citekey: citekey, addedFields: added, addedDate: addedDate,
-                             addedAuthors: addedAuthors))
+                             addedAuthors: addedAuthors,
+                             addedDOIs: addedDOIs, addedPMIDs: addedPMIDs,
+                             addedISBNs: addedISBNs, refusedIdentifiers: refused))
             }
         }
         return result
@@ -159,6 +219,10 @@ public enum ZoteroEnrichment {
         for (k, v) in addition.addedFields where out.fields[k] == nil {
             out.fields[k] = v
         }
+        // 結構化識別碼：同一條保守側紀律——**只在仍為空時**補，不覆寫。
+        if out.doi.isEmpty, !addition.addedDOIs.isEmpty { out.doi = addition.addedDOIs }
+        if out.pmid.isEmpty, !addition.addedPMIDs.isEmpty { out.pmid = addition.addedPMIDs }
+        if out.isbn.isEmpty, !addition.addedISBNs.isEmpty { out.isbn = addition.addedISBNs }
         if (out.date ?? "").isEmpty, let d = addition.addedDate { out.date = d }
         // 同一條保守側紀律：計畫之後 store 若已長出作者，一律不動。
         if out.authors.isEmpty, !addition.addedAuthors.isEmpty {

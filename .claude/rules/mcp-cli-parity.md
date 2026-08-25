@@ -159,6 +159,7 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 | `migrate-person-identity`（#227/#241） | 有理由缺席 | 格式遷移＝維運例外（同 `migrate`／`migrate-provenance`）；且不可逆、要求 store 工作樹乾淨的人工 pre-flight，MCP 的 LLM 消費者不是該角色 |
 | `migrate-venues`（#304 venue change） | 有理由缺席 | 格式遷移＝維運例外（同 `migrate` 族）；per-file trackedness pre-flight＋部署鏈（release → migrate → validate → 手動 bump format 11）屬操作者角色 |
 | ~~`migrate-work-types`~~（#325，**已退場**） | 有理由缺席 → 退場 | 格式遷移＝維運例外（同 `migrate` 族）；不可逆、要求檔案受 git 追蹤的人工 pre-flight，MCP 的 LLM 消費者不是該角色。**#325 階段二起命令不存在**——它讀不到舊值（舊值在階段二的 decode 就被拒），留著只會是一個永遠無事可做卻看似可用的命令（`no-compat-fallback` 的「退場即刪」）。列保留但劃掉：刪掉會丟失裁決史，而那正是本檔存在的理由 |
+| `migrate-identifiers`（#394） | 有理由缺席 | 格式遷移＝維運例外（同 `migrate` 族與 `migrate-venues`）；不可逆、要求每個將被改寫的檔**自身**受 git 追蹤的人工 pre-flight，MCP 的 LLM 消費者不是該角色。**這一列不是從 `migrate-venues` 類推來的**：它多一個該族沒有的性質——它會**跨記錄搬動資料**（work 的 `issn` 移位到它的 venue），所以一次失敗的部分寫入會讓兩邊都不對，而不只是某些檔沒遷到。乾跑是預設、`--apply` 才寫，且乾跑刻意**不**受 #298 的破壞性閘管制——它不寫東西，且正是用來確認目標的手段 |
 | `validate` | 有理由缺席（理由於 #416 換過）| **原理由「讀取檢查由 `akashic_doctor` 覆蓋（功能重疊）」被量測否掉**：`Entry.validate()` 在全樹只有一個呼叫點（CLI），`doctor()` 與 App 面各 0。**落差是 warning 一族**（#416 R1 更正：原本寫「有一條是 error 級」，實測那條到不了——load 的 quarantine 先擋下，而 quarantine 本來就在 `StoreHealth` 裡）。#416 把 per-record 驗證抽進 `StoreHealth.perRecordIssues`，兩個消費面因此都拿得到——**現在**才真的重疊。CLI 面維持獨立命令的理由改為：它是**逐行、無截斷**的完整報表，而 MCP 面截斷 20 則（輸出進 LLM context，呼叫端無法在收到後丟棄已付的代價，#236 的既有威脅模型）；要全部就用 CLI。這是**呈現粒度**的差異，不是能力缺席 |
 | `rename` | 有理由缺席 | 高風險身分操作（citekey 遷移含 verdict value 重寫，#232）＝維運例外 |
 | `rename-person`（#395） | 有理由缺席 | 同 `rename` 的理由，**而且遷移面更大**：除 verdict value（`person:` holder，掛在 person 與 organization 兩處）外，還含全庫 `authors[].key` 與 divergence 的 `candidates`／`judgement.prefers`。**這一列不是從上一列類推來的**——它的參照集合是照 `entity-backlink-completeness` 的封閉列舉逐條窮舉出來的（第 1、9、10、13 條），與 citekey 的那組**不重疊**。維運例外的理由因此更強而非更弱：漏一格的後果是安靜的（檔案照樣載入，只是某些邊指向不存在的 key） |
@@ -184,6 +185,42 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 `no-compat-fallback`），本表的那一列因此在同一個變更裡改為劃掉標記。
 **這個方向是 #325 才補的**——#259 雙向化時只想到「命令長出來」，沒想到
 「命令退場」，因為當時還沒有任何命令退場過。
+
+## 識別碼寫入面的裁決（#394，2026-08-24）
+
+本 change 新增了五個識別碼欄位（`venue.issn`／`organization.ror`／work 的 `doi`・`pmid`・
+`isbn`），而**兩面都沒有為它們新增參數**。這不是遺漏，是一個要寫下來的裁決——依本檔的
+規則，新增能力時必須裁決兩面，而「兩面都不給」也是一種裁決。
+
+| 面 | 現況 | 裁決 |
+|---|---|---|
+| MCP 寫入面（add_venue／update_venue／add_organization／create_entry）| 不收識別碼參數 | ⚠ **有理由缺席，但這一格是最弱的一列** |
+| CLI 寫入面（同名命令）| 同上 | 同上 |
+| 既有的 person ORCID 欄位 | **兩面都收**（經 generic `fields` JSON object，#68 的既有形狀）| ✅ 既有，本 change 只改型別不改介面 |
+
+> **這張表的第一欄刻意不用反引號包 token。** `parity-table-drift.py` 把表格第一欄的
+> 反引號 token 一律當成「宣稱存在的 CLI subcommand」並去 `CLI.swift` 對照——第一版把
+> `person.orcid`（一個**欄位**）放在第一欄，於是守衛報「表列了 `person.orcid` 而它已不在
+> CLI.swift」。守衛沒錯，是我的表格形狀在對它說謊。
+
+**缺席的理由**：識別碼的來源目前只有兩條——遷移（`migrate-identifiers`，一次性）與匯入
+（`import-wos`／`import-zotero`，走 `fields` 殘留再由遷移升格）。**沒有第三條路徑產生
+識別碼**，所以現在加寫入參數是替一個還不存在的流程造介面。
+
+**但這一列必須標記為弱，理由要寫出來**：遷移之後，若使用者查到一筆 work 的 DOI，
+**沒有任何面寫得進結構化欄位**——實測 `entry.doi` / `v.issn` / `org.ror` 在
+`Sources/` 內的 production 寫入路徑**零命中**（`IdentifierMigration` 與 YAML 編解碼除外）。
+唯一的路是手改 YAML。
+
+這正是 `replace-endnote-and-zotero` 第 4 條要防的形狀：
+
+> 使用者說「這個功能我回去用 Zotero 做」一旦變成常態，就是取代失敗的樣子——而且它是
+> **安靜的**失敗，因為每次個別繞過都看起來很合理。
+
+**重新裁決的條件（可檢查）**：出現第一個「查到識別碼但寫不進去」的實例時。那時要裁的
+不只是加參數，還有**它該長什麼形狀**——`person.orcid` 走 generic `fields` object，而
+`venue`／`entry` 的寫入面目前沒有對應的 generic 通道（`update-venue` 只收 `key`）。
+追蹤：#394 close 前不處理；本列即是那個「已知且具名」的缺口。
 
 ## CLI 橫切選項裁決表（封閉列舉——#310 一次性補裁 2 項、#298 增第 3 項；恰 3 項，一格不多一格不少。**不得依性質相似類推第四項**）
 

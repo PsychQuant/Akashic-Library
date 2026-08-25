@@ -207,7 +207,7 @@ final class ThesisFactsTests: XCTestCase {
 
     func testDegreeIsEmittedAsBiblatexType() {
         let bib = BibExport.bibEntry(for: entry(thesis: ThesisFacts(degree: .doctoral)),
-                                     people: [:])
+                                     people: [:], venues: [:])
         XCTAssertEqual(bib.fields.caseInsensitiveValue(forKey: "type"), "phdthesis")
     }
 
@@ -219,7 +219,7 @@ final class ThesisFactsTests: XCTestCase {
         let bib = BibExport.bibEntry(
             for: entry(thesis: ThesisFacts(degree: .masters),
                        fields: ["type": "phdthesis"]),
-            people: [:])
+            people: [:], venues: [:])
         XCTAssertEqual(bib.fields.caseInsensitiveValue(forKey: "type"), "mathesis",
                        "結構化的 degree 必須勝過 fields.type 的殘留值")
     }
@@ -229,7 +229,7 @@ final class ThesisFactsTests: XCTestCase {
             for: entry(thesis: ThesisFacts(
                 degree: .doctoral,
                 availability: .published(repository: "ProQuest", url: "https://e.org/1"))),
-            people: [:])
+            people: [:], venues: [:])
         XCTAssertEqual(bib.fields.caseInsensitiveValue(forKey: "eprint"), "ProQuest")
         XCTAssertEqual(bib.fields.caseInsensitiveValue(forKey: "url"), "https://e.org/1")
     }
@@ -238,7 +238,7 @@ final class ThesisFactsTests: XCTestCase {
     func testUnpublishedEmitsNoEprint() {
         let bib = BibExport.bibEntry(
             for: entry(thesis: ThesisFacts(degree: .doctoral, availability: .unpublished)),
-            people: [:])
+            people: [:], venues: [:])
         XCTAssertNil(bib.fields.caseInsensitiveValue(forKey: "eprint"))
     }
 
@@ -246,7 +246,7 @@ final class ThesisFactsTests: XCTestCase {
     func testFullyPopulatedThesisMeetsTheAPA7Floor() {
         var e = entry(thesis: ThesisFacts(degree: .doctoral, availability: .unpublished))
         e.fields = ["institution": "National Taiwan University"]
-        let report = BibExport.apa7Report(entries: [e], people: [])
+        let report = BibExport.apa7Report(entries: [e], people: [], venues: [])
         XCTAssertTrue(report.issues.filter { $0.severity == .error }.isEmpty,
                       "完整的學位論文不該有 APA7 error：\(report.issues)")
         XCTAssertTrue(report.uncheckedCitekeys.isEmpty, "THESIS 在 validator 表內，應被檢查")

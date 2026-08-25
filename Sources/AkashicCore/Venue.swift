@@ -166,6 +166,17 @@ public struct Venue: Equatable {
         }
         issues += AuthorizedNames.validate(authorized: authorized,
                                            names: names.entries.map(\.value), ownerKey: key)
+        issues += IdentifierDiagnostics.nonNormal(issn, field: "venue.issn")
+        // 認不出的 ISSN 角色**保留原值並報出來**（#394 verify）——不猜、也不靜默丟。
+        // 形狀與上一行的非正規形診斷同構：讀取面寬容、`validate` 出聲。
+        for i in issn where i.qualifierRaw != nil && i.medium == nil {
+            issues.append(ValidationIssue(
+                severity: .warning,
+                message: "venue.issn「\(displaySafe(i.normalized, max: 40))」的 qualifier"
+                       + "「\(displaySafe(i.qualifierRaw ?? "", max: 60))」不是 ISSN 標準的"
+                       + "三個角色（print／electronic／linking）——原值已保留，"
+                       + "但 medium 未判定；改成標準寫法即可（例：Online → electronic）"))
+        }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
                 message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))

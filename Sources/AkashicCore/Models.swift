@@ -76,6 +76,11 @@ public struct Entry: Equatable {
     public var pmid: [PMID]
     /// ISBN（#394）。不同版次／地區可以是不同的號。
     public var isbn: [ISBN]
+    /// 欄位層級的 provenance（#394 §5）。**本輪新增的一條邊**——在此之前 work 的識別碼
+    /// 無法攜帶來源，而 spec 明寫「不能攜帶 reference 的識別碼不算記錄的一等公民」。
+    /// 目前值域只有三個識別碼欄位（見 `validateReferenceAttachment`）。
+    /// 空清單不序列化——既有記錄零 diff。
+    public var references: [ProvenanceReference]
     /// 頂層未知欄位（tolerant-preserve，#23）。
     public var unknownFields: [UnknownField]
 
@@ -85,7 +90,9 @@ public struct Entry: Equatable {
                 provenance: Provenance? = nil, akashic: AkashicMeta = AkashicMeta(),
                 thesis: ThesisFacts? = nil,
                 doi: [DOI] = [], pmid: [PMID] = [], isbn: [ISBN] = [],
+                references: [ProvenanceReference] = [],
                 unknownFields: [UnknownField] = []) {
+        self.references = references
         self.doi = doi
         self.pmid = pmid
         self.isbn = isbn
@@ -736,6 +743,10 @@ extension Entry {
                 message: "akashic 未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         issues += Self.pagesShapeIssues(fields["pages"])
+        // #394 task 4.3：非正規形的識別碼要出聲（值保留、但不靜默）。
+        issues += IdentifierDiagnostics.nonNormal(doi, field: "doi")
+        issues += IdentifierDiagnostics.nonNormal(pmid, field: "pmid")
+        issues += IdentifierDiagnostics.nonNormal(isbn, field: "isbn")
         return issues
     }
 
@@ -833,6 +844,7 @@ extension Person {
                 severity: .error,
                 message: "person key '\(displaySafe(key, max: 120))' 不符合 \(StoreKey.pattern)"))
         }
+        issues += IdentifierDiagnostics.nonNormal(orcid, field: "person.orcid")
         // #81／#227：對外名字的內容不變式（每書寫系統至多一個）。與 organization 共用
         // 同一份檢查——「哪個名字對外」是同一個問題，不該有兩套答案。子集那條已由
         // `PersonNames` 的結構承擔，**刻意不呼叫** `validate(authorized:names:)`——

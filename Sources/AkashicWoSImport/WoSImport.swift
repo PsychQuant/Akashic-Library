@@ -265,13 +265,39 @@ public enum WoSImport {
         //
         // 身分用 **DOI 優先，無 DOI 則 (標題, 年份)**——citekey 是衍生的稱呼，
         // 拿它當身分正是上面那個 bug 的來源。
-        func identity(_ e: Entry) -> String {
-            if let doi = e.fields["doi"]?.lowercased(), !doi.isEmpty { return "doi:\(doi)" }
+        // **讀 `canonicalDOIs` 不讀 `fields["doi"]`**（#394 verify）。§8 的遷移把
+        // 664 筆的 `fields.doi` 移到結構化欄位之後，庫內記錄的身分退化成
+        // `ty:<標題>|<年>`，而從 WoS 列生出的 probe 仍寫 `fields.doi`、身分是
+        // `doi:<...>`——**兩側永遠對不上**，於是每一次重跑都走「新的一篇」那條路。
+        // 上面那段註解描述的 bug 被這次遷移原封不動地重新裝填了一次。
+        //
+        // 索引**每一個** DOI 而不是第一個：一筆 work 可以有多個 DOI（型別是清單），
+        // 若庫內記錄存 `[B, A]` 而 WoS 列給 A，只比第一個就會漏配並生出重複。
+        // 實測目前全庫帶 >1 個 DOI 的 work ＝ 0 筆，所以這一步今天不改變任何結果；
+        // 寫成這樣是因為**這個函式的失效模式就是安靜地多一份**。
+        func titleYearIdentity(_ e: Entry) -> String {
             let y = e.date?.prefix(4) ?? ""
             return "ty:\(e.title.lowercased())|\(y)"
         }
-        let byIdentity = Dictionary(load.entries.map { (identity($0), $0) },
+        var byDOI: [String: Entry] = [:]
+        for e in load.entries {
+            for d in e.canonicalDOIs {
+                if byDOI[d.normalized] == nil { byDOI[d.normalized] = e }
+            }
+        }
+        let byIdentity = Dictionary(load.entries.map { (titleYearIdentity($0), $0) },
                                     uniquingKeysWith: { a, _ in a })
+        /// DOI 命中優先；無 DOI 或查無才退回 (標題, 年份)。
+        func existing(matching probe: Entry) -> Entry? {
+            for d in probe.canonicalDOIs {
+                if let hit = byDOI[d.normalized] { return hit }
+            }
+            // 帶 DOI 卻查不到時**不**退回標題比對：DOI 是身分證，它說「不是同一筆」
+            // 就不是（`identity-is-judged-not-matched` 的識別碼例外）。退回去會讓
+            // 兩篇同題同年而 DOI 不同的論文被誤判成同一筆。
+            guard probe.canonicalDOIs.isEmpty else { return nil }
+            return byIdentity[titleYearIdentity(probe)]
+        }
 
         for (i, row) in rows(from: text, separator: separator).enumerated() {
             let groups = aliasGroups(abbreviated: row["Authors"], full: row["Author Full Names"])
@@ -283,7 +309,7 @@ public enum WoSImport {
             if !venueCapable { probe.venues = [] }
             report.aliasGroups += groups.filter { $0.count > 1 }
 
-            if let existing = byIdentity[identity(probe)] {
+            if let existing = existing(matching: probe) {
                 // 同一篇。比對時忽略 id（新生成的 UUID 必然不同）、citekey（衍生的稱呼）
                 // 與 unknownFields。
                 var a = existing, b = probe
@@ -294,6 +320,26 @@ public enum WoSImport {
                 // venues，同 `.key` 作者紀律）；既有為空才由 probe 回填（下方 additive
                 // 路徑，同 migrate-venues 語意）。
                 if !a.venues.isEmpty { b.venues = a.venues }
+                // #394 verify：**結構化識別碼由 store 勝出**，形狀與上面的 venues 同構。
+                //
+                // `Entry` 是合成 Equatable，而 #394 給它加了 doi／pmid／isbn／references
+                // 四個儲存屬性；`entry(from: row)` 只寫 `fields["doi"]`——probe 的結構化
+                // 欄位**恆為空**。遷移之後既有記錄的結構化欄位非空，於是 `a == b` 必然
+                // 為假、回填後的 `mergedCheck == probeCheck` 也必然為假 → **每一筆從
+                // unchanged 變成 conflict**。而 conflict 路徑刻意不覆寫，所以 `enriched`
+                // 回填此後永遠不會再 fire——`lossless-intake` 的「規則要及於已匯入的
+                // 記錄」對全庫帶 DOI 的 work 失效。
+                //
+                // **這是上面那段註解記載的 #206 verify H1，被結構化欄位重新裝填一次。**
+                //
+                // 同時把 probe 的 `fields` 殘留一併移除：識別碼有結構化的家之後，
+                // 回填不得繞道 `fields` 把它種回來（同 `enrich-from-zotero` 的紀律）
+                // ——否則同一個值有兩份副本可各自漂移。
+
+                if !a.doi.isEmpty { b.doi = a.doi; b.fields.removeValue(forKey: "doi") }
+                if !a.pmid.isEmpty { b.pmid = a.pmid; b.fields.removeValue(forKey: "pmid") }
+                if !a.isbn.isEmpty { b.isbn = a.isbn; b.fields.removeValue(forKey: "isbn") }
+                if !a.references.isEmpty { b.references = a.references }
                 if a == b { report.unchanged.append(existing.citekey); continue }
 
                 // **只多不少 → 回填，不算 conflict**（#206 verify H1）。

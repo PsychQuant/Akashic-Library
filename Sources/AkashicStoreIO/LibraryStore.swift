@@ -88,6 +88,17 @@ public struct LibraryLoad {
 public final class LibraryStore {
     public let root: URL
 
+    /// **讀取時的記憶體覆寫**（#425 verify）：絕對路徑 → 內容。
+    ///
+    /// 存在的唯一理由是 `migrate-identifiers` 的乾跑：形狀升級若不寫檔，load 會對
+    /// 那些檔 quarantine，於是**乾跑拒跑而 `--apply` 成功**——違反該命令自己寫下的
+    /// 契約「乾跑與 apply 得到同一組 blockers」。有了這層，乾跑可以把升級後的文字
+    /// 餵給 decode 而**磁碟一個位元組都不動**。
+    ///
+    /// **不是相容路徑**：它不讀舊格式、不推導缺欄位、不回退目錄。它是一個顯式的
+    /// 測試／預演注入點，呼叫端 `grep textOverrides` 一眼看完（目前只有一處）。
+    public var textOverrides: [String: String] = [:]
+
     public var entriesDir: URL { root.appendingPathComponent("entries") }
     public var peopleDir: URL { root.appendingPathComponent("people") }
     public var librariesDir: URL { root.appendingPathComponent("libraries") }
@@ -401,6 +412,12 @@ public final class LibraryStore {
         guard StoreKey.isValid(entry.citekey) else {
             throw StoreIOError.invalidKey("citekey", entry.citekey)
         }
+        // #394 §6：識別碼 reference 需要 format 13。
+        if !entry.references.isEmpty {
+            try Self.assertIdentifierReferencesWritable(
+                entry.references, format: try StoreVersion.read(root: root),
+                what: "work「\(displaySafe(entry.citekey, max: 120))」")
+        }
         // membership keys（#13）同樣 write-time 驗證——不進路徑，但保 index/query 語意乾淨
         for key in entry.akashic.libraries where !StoreKey.isValid(key) {
             throw StoreIOError.invalidKey("akashic.libraries key", key)
@@ -477,16 +494,49 @@ public final class LibraryStore {
         .conference, .publisher,
     ]
 
-    /// 發表載體只存在於 entities 佈局（format 11 起，#304）。
-    @discardableResult
-    public func writeVenue(_ v: Venue) throws -> URL {
-        try assertStoreRoot()
+
+    /// 這筆記錄的 references 有沒有指名識別碼欄位（#394 §6 的 bump 觸發面）。
+    ///
+    /// **只看 reference，不看識別碼欄位本身。** 識別碼欄位是 additive——頂層未知鍵
+    /// 走 tolerant-preserve（2026-08-24 對 format-12 binary 實測）。對它設閘會讓
+    /// `migrate-identifiers` 在 bump 之前跑不動，而 design.md 的部署順序要求遷移
+    /// **跑在舊解碼器上**、format bump 是最後一步（先有雞先有蛋）。
+    static let identifierReferenceFields: Set<String> = ["doi", "pmid", "isbn", "issn", "ror"]
+
+    static func namesIdentifierReference(_ refs: [ProvenanceReference]) -> String? {
+        refs.first { identifierReferenceFields.contains($0.field) }?.field
+    }
+
+    static func assertIdentifierReferencesWritable(
+        _ refs: [ProvenanceReference], format: Int, what: String) throws {
+        guard let field = namesIdentifierReference(refs), format < 13 else { return }
+        throw StoreIOError.invalidInput(
+            what: "\(what) 的 reference（field: \(field)）",   // display-safe-exempt: 值域是上方封閉集合
+            why: "識別碼欄位攜帶來源是 format 13 的新能力（#394）；本 store 是 \(format)——" +
+                 "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 format: " +
+                 "改成 13。**實測依據**（2026-08-24，format-12 binary）：organization 帶 " +
+                 "`field: ror` 的 reference 會**整檔 quarantine**；venue 的 `field: issn` " +
+                 "與 work 的 `references:` 則落 tolerant-preserve——後兩者併入同一個 bump " +
+                 "的理由同 format 11 對 `venues:` 的裁決：保留而不解讀的 reference 不會被" +
+                 "附著驗證，於是它可以指向一個不存在的值而沒有人發現")
+    }
+
+    /// `writeVenue` 的**全部**前置閘，抽成可單獨呼叫的一份（#394 verify）。
+    ///
+    /// 存在的理由：`migrate-identifiers` 的 pre-flight 要在**任何寫入之前**判定
+    /// venue 寫不寫得成，而它先前只查了兩件事（venue 存在、檔案受追蹤）——
+    /// 這裡另外四道閘一道都沒模擬。work 先寫（`fields.issn` 已移除）、venue 後寫，
+    /// venue 那格 throw 之後例外穿出 `run()`，於是那個 ISSN **從兩邊同時消失**，
+    /// 而 report 在印任何東西之前就被丟棄。
+    ///
+    /// **抽出來而不是在 pre-flight 複製一份**：閘門清單複製兩份必然分岔，而分岔的
+    /// 方向正好是「pre-flight 說可以、實際寫入時 throw」——也就是這個缺陷本身。
+    public static func assertVenueWritable(_ v: Venue, format: Int) throws {
         guard StoreKey.isValid(v.key) else {
             throw StoreIOError.invalidKey("venue key", v.key)
         }
         // v11 形狀 gate：舊 binary 對未知頂層形狀是**整檔 quarantine**（2026-08-16
         // 實測，見 StoreVersion doc）——refuse-if-newer 必須在寫入端先 fire。
-        let format = try StoreVersion.read(root: root)
         guard format >= 11 else {
             throw StoreIOError.invalidInput(
                 what: "venue「\(displaySafe(v.key, max: 120))」",
@@ -503,7 +553,16 @@ public final class LibraryStore {
                      "把 store.yaml 的 format: 改成 12（format-11 binary 讀到未知 " +
                      "venue type 會整檔拒讀）")
         }
+        try Self.assertIdentifierReferencesWritable(
+            v.references, format: format, what: "venue「\(displaySafe(v.key, max: 120))」")
         try Self.assertNoErrors(v.validate(), what: "venue", key: v.key)
+    }
+
+    /// 發表載體只存在於 entities 佈局（format 11 起，#304）。
+    @discardableResult
+    public func writeVenue(_ v: Venue) throws -> URL {
+        try assertStoreRoot()
+        try Self.assertVenueWritable(v, format: try StoreVersion.read(root: root))
         let yaml = try VenueYAML.encode(v)
         let dest = entityURL(id: v.id)
         try atomicWrite(yaml, to: dest)
@@ -516,6 +575,13 @@ public final class LibraryStore {
         try assertStoreRoot()
         guard StoreKey.isValid(org.key) else {
             throw StoreIOError.invalidKey("organization key", org.key)
+        }
+        // #394 §6：識別碼 reference 需要 format 13。**這一格是硬觸發**——format-12
+        // binary 讀到 `field: ror` 的 reference 會整檔 quarantine（2026-08-24 實測）。
+        if !org.references.isEmpty {
+            try Self.assertIdentifierReferencesWritable(
+                org.references, format: try StoreVersion.read(root: root),
+                what: "organization「\(displaySafe(org.key, max: 120))」")
         }
         // v6-only 語法的 format gate——理由見 writePerson（#131 verify Codex-H2）
         if org.names.entries.contains(where: \.range.endedUnknown)
@@ -692,8 +758,13 @@ public final class LibraryStore {
                     "\(directory)/\($0.lastPathComponent)"
                 }
             },
-            data: { [root] relativePath in
-                try Data(contentsOf: root.appendingPathComponent(relativePath))
+            data: { [root, textOverrides] relativePath in
+                // 記憶體覆寫優先（#425 verify）——`migrate-identifiers` 的乾跑靠它把
+                // 升級後的文字餵進 decode 而不動磁碟。空字典時行為逐位元不變。
+                let url = root.appendingPathComponent(relativePath)
+
+                if let injected = textOverrides[url.path] { return Data(injected.utf8) }
+                return try Data(contentsOf: url)
             })
         return try load(from: source)
     }
@@ -1814,21 +1885,20 @@ public extension LibraryLoad {
         // DOI 依規格**大小寫不敏感**，且同一個 DOI 有多種儲存形式——
         // `https://doi.org/10.x/y`、`doi:10.x/y`、裸 `10.x/y`。只 trim+lowercase
         // 會讓「兩筆存法不同的同一個 DOI」逃掉（真實案例：同一篇 Methods in
-        // Psychology 論文一筆存 URL 形式、一筆存裸 DOI）。空字串與缺席一律跳過，
-        // 否則整個沒有 DOI 的子集會湊成一則巨大的假警告。
-        func normalizedDOI(_ raw: String?) -> String {
-            var s = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            for p in ["https://doi.org/", "http://doi.org/",
-                      "https://dx.doi.org/", "http://dx.doi.org/", "doi:"] {
-                if s.hasPrefix(p) { s.removeFirst(p.count); break }
-            }
-            return s.trimmingCharacters(in: .whitespaces)
-        }
+        // Psychology 論文一筆存 URL 形式、一筆存裸 DOI）。這些前綴的剝除與小寫
+        // 現在住在 `DOI.init?`，本地不再重做一份——**同一份規格的兩個副本必然分岔**。
+        //
+        // **讀 `canonicalDOIs` 而不是 `fields["doi"]`**（#394 verify）。曾經讀後者，
+        // 而 §8 的遷移把 664 筆的 `fields.doi` 移除之後這條檢查恆為空：18 組共用 DOI
+        // 的警告全滅，其中 15 組改由下面那條印成「標題與年份相同但 **DOI 不同**」
+        // ——而那 15 組的 DOI 逐字相同。**一條檢查變瞎不只是少報，它讓另一條開始說謊。**
         var byDOI: [String: [String]] = [:]
         for e in entries {
-            let doi = normalizedDOI(e.fields["doi"])
-            guard !doi.isEmpty else { continue }
-            byDOI[doi, default: []].append(e.citekey)
+            // 同一筆 work 的多個 DOI 正規化後可能相同（例：URL 形式 ＋ 裸形式），
+            // 去重，否則「被 N 筆 work 共用」會把同一個 citekey 數兩次。
+            for d in Set(e.canonicalDOIs.map(\.normalized)) where !d.isEmpty {
+                byDOI[d, default: []].append(e.citekey)
+            }
         }
         var reportedByDOI = Set<String>()
         for (doi, cites) in byDOI.sorted(by: { $0.key < $1.key }) where cites.count > 1 {

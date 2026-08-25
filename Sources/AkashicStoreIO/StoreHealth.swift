@@ -158,6 +158,15 @@ public extension LibraryStore {
         for o in load.organizations {
             perRecord += o.validate().map { .init(owner: o.key, kind: "organization", issue: $0) }
         }
+        // #394 task 4.3：**venue 是先前缺的第六族**。`Venue.validate()` 存在於
+        // `Venue.swift` 卻在全樹零呼叫端——於是 venue 的 key 格式錯誤、authorized 與
+        // names 不符、未知欄位警告全部看不見，而 #416 把這一族抽進 `StoreHealth` 時
+        // 也沒把它補上（那一輪的封閉列舉是「五族」，venue 不在裡面）。
+        // 這正是 `entity-backlink-completeness` 執行細節 2 記過的形狀：一個 entity kind
+        // 在讀取面沒有路徑，而缺席不會有任何跡象。
+        for v in load.venues {
+            perRecord += v.validate().map { .init(owner: v.key, kind: "venue", issue: $0) }
+        }
         for d in load.divergences {
             perRecord += d.validate().map {
                 .init(owner: d.id.uuidString, kind: "divergence", issue: $0)

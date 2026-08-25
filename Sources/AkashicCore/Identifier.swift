@@ -43,9 +43,26 @@ public protocol Identifier: Equatable, CustomStringConvertible {
     var normalized: String { get }
     /// 這種識別碼的預期形狀，供錯誤訊息具名。
     static var shapeDescription: String { get }
+    /// 限定詞（#394 verify）——**只有 ISSN 與 ISBN 有**，其餘四種恆為 `nil`。
+    ///
+    /// 不對稱是有依據的：spec（entity-identifier）為每種識別碼的**基數**列了證據，
+    /// 而 ISSN 與 ISBN 的多值是被一個**內在區分軸**證成的——
+    /// 「`1554-351X` and `1554-3528` are the print and electronic ISSNs of one journal」、
+    /// 「one work has separate ISBNs across **editions**」。DOI 與 PMID 的多值不是：
+    /// 37 組同題同年而 DOI 不同，是不同註冊，沒有一個軸可以區分它們。
+    ///
+    /// **在此之前模型記錄了「有幾個」，卻沒記錄「憑什麼是幾個」**——而遷移當時
+    /// 手上有那個區分（`1939-1455(Electronic),0033-2909(Print)`），把它剝掉了。
+    var qualifier: String? { get }
+    /// 回傳帶上限定詞的同一個識別碼。不支援限定詞的種類原樣回傳。
+    func withQualifier(_ q: String?) -> Self
 }
 
 public extension Identifier {
+    /// 預設無限定詞——DOI／PMID／ORCID／ROR 走這條。
+    var qualifier: String? { nil }
+    func withQualifier(_ q: String?) -> Self { self }
+
     /// 顯示用正規形（`raw` 是儲存細節，不是給人看的）。
     var description: String { normalized }
 
@@ -82,12 +99,58 @@ private func mod11(_ digits: [Int], weights: [Int]) -> Int? {
 ///
 /// 一個期刊可以有**兩個** ISSN（print 與 electronic），所以 venue 側是清單而非純量
 /// ——實測 Behavior Research Methods 的 `1554-351X`（print）與 `1554-3528`（electronic）。
+/// ISSN 的角色。**封閉值域，取自 ISSN 標準本身**（不是我們發明的分類）：
+/// 同一份期刊的紙本與電子版各有一個號，而 ISSN-L（linking）把它們串起來。
+///
+/// 值域封閉的理由與 `VenueType` 同型（`common-spec-prose-enumeration`）：
+/// 這三個是標準定義的角色，不是一個開放的形容詞集合。
+public enum ISSNMedium: String, CaseIterable, Equatable {
+    case print, electronic, linking
+
+    /// 從自由字串認出角色（遷移剝下來的括號註記是 `Electronic`／`Print`／`Linking`）。
+    /// 認不出回 `nil`——**不猜**。
+    public init?(loose s: String) {
+        let k = s.trimmingCharacters(in: .whitespaces).lowercased()
+        guard let m = ISSNMedium.allCases.first(where: { $0.rawValue == k }) else { return nil }
+        self = m
+    }
+}
+
 public struct ISSN: Identifier {
     public let raw: String
     public let normalized: String
+    /// 這個號是紙本、電子版、還是 ISSN-L。`nil` ＝**還沒查、或磁碟上的寫法認不出來**
+    /// （後者由 `qualifierRaw` 保留原值、`validate` 報 diagnostic——見下）。
+    public let medium: ISSNMedium?
+    /// **磁碟上那個字串**（#394 verify）。與 `raw`／`normalized` 的分工同構：
+    /// 讀取面原樣保留，解析不出來的**不丟**。
+    ///
+    /// 先前 `qualifier` 直接回 `medium?.rawValue`，於是任何不在封閉三值內的寫法
+    /// 在 decode 當下就消失——沒有 diagnostic、沒有 invalidField、沒有任何回報。
+    /// 而 `VenueYAML.encode` 的 canary（`guard back == v`）**看不到**它，因為
+    /// `Identifier.==` 刻意只比 `normalized`（那是 dedup 的前提，不能改）。
+    ///
+    /// `Online` 正是 Crossref／Zotero 對電子 ISSN 最常見的寫法。註記寫「認不出回
+    /// nil——**不猜**」，而「不猜」被實作成「靜默丟」——那是 `lossless-intake`
+    /// 執行細節 3 具名為最糟的形式。
+    public let qualifierRaw: String?
+    public var qualifier: String? { qualifierRaw }
+    public func withQualifier(_ q: String?) -> ISSN {
+        let trimmed = q?.trimmingCharacters(in: .whitespaces)
+        let kept = (trimmed?.isEmpty == false) ? trimmed : nil
+        return ISSN(validated: raw, normalized: normalized,
+                    medium: kept.flatMap(ISSNMedium.init(loose:)), qualifierRaw: kept)
+    }
+    private init(validated raw: String, normalized: String,
+                 medium: ISSNMedium?, qualifierRaw: String?) {
+        self.raw = raw; self.normalized = normalized
+        self.medium = medium; self.qualifierRaw = qualifierRaw
+    }
     public static let shapeDescription = "NNNN-NNNN（末位可為大寫 X）"
 
     public init?(_ raw: String) {
+        self.medium = nil
+        self.qualifierRaw = nil
         self.raw = raw
         let c = raw.idCompact
         guard c.count == 8 else { return nil }
@@ -172,9 +235,26 @@ public struct PMID: Identifier {
 public struct ISBN: Identifier {
     public let raw: String
     public let normalized: String
+    /// 裝幀／版次註記（#394 verify）。**自由文字，不是封閉列舉**——與 `ISSNMedium`
+    /// 的不對稱是有依據的：ISSN 的角色由標準定義（print／electronic／linking），
+    /// 而 ISBN 的限定詞沿用 MARC 020 $q「Qualifying information」的語意，其值域
+    /// 本來就開放（實測庫內出現過 `hardcover`、`alk. paper`；常見的還有 paperback、
+    /// ebook、EPUB、set、v.1…）。
+    ///
+    /// 把一個真正開放的東西寫成封閉列舉，會在第一個沒想到的值上把資料擋在門外——
+    /// 那是 `common-spec-prose-enumeration` 說的「真的是性質才寫判準」的反面。
+    public let qualifier: String?
+    public func withQualifier(_ q: String?) -> ISBN {
+        ISBN(validated: raw, normalized: normalized,
+             qualifier: q?.trimmingCharacters(in: .whitespaces).isEmpty == false ? q : nil)
+    }
+    private init(validated raw: String, normalized: String, qualifier: String?) {
+        self.raw = raw; self.normalized = normalized; self.qualifier = qualifier
+    }
     public static let shapeDescription = "10 碼（末位可為大寫 X）或 13 碼"
 
     public init?(_ raw: String) {
+        self.qualifier = nil
         self.raw = raw
         let c = raw.idCompact
         if c.count == 10 {
@@ -190,7 +270,25 @@ public struct ISBN: Identifier {
             } else { return nil }
             guard let expected = mod11(digits, weights: [10, 9, 8, 7, 6, 5, 4, 3, 2]),
                   expected == lastValue else { return nil }
-            normalized = c
+            // **ISBN-10 → ISBN-13 是正規化，不是基數**（2026-08-24 裁決）。
+            //
+            // 兩者不是兩個識別碼，是同一個識別碼的兩種編碼：ISBN-13 ＝ `978` ＋
+            // ISBN-10 的前 9 碼 ＋ 重算 check digit。把它們當成兩個值（或拆成
+            // `isbn10`／`isbn13` 兩個欄位）等於**把編碼當成身分建模**——與
+            // `0003-066x` vs `0003-066X` 是同一個錯誤，只是換個尺度。
+            //
+            // 實測依據（真實 store 的 5 筆多值 ISBN）：`berk2018development` 由 2 個
+            // 收斂為 **1**、`kelley2023sample` 由 4 收斂為 **2**（兩本書各有 10 與 13
+            // 兩種寫法）；而 `dweck2000social`（精裝／平裝）與 `genz2009computation`
+            // （softcover／electronic）**仍是 2**——真的兩個產品不會被收掉。
+            //
+            // **只做 10 → 13，不做反向**：`979` 前綴的 ISBN-13 沒有 ISBN-10 對應物，
+            // 單向轉換才是全定義的。`raw` 保留磁碟上的原寫法（§2 的雙字串設計）。
+            let core = "978" + c.prefix(9)
+            let sum = core.enumerated().reduce(0) {
+                $0 + ($1.element.wholeNumberValue ?? 0) * ($1.offset % 2 == 0 ? 1 : 3)
+            }
+            normalized = core + String((10 - sum % 10) % 10)
         } else if c.count == 13 {
             var digits: [Int] = []
             for ch in c {
@@ -281,5 +379,38 @@ public struct ROR: Identifier {
         let expected = 98 - ((value * 100) % 97)
         guard expected == check else { return nil }
         normalized = s
+    }
+}
+
+
+// MARK: - 非正規形的 diagnostic（#394 task 4.3）
+
+/// 讀取面寬容保留非正規形，**但不得靜默**——`lossless-intake` 的「靜默是最糟的形式」在
+/// 這裡的落地：值留著，同時 `akashic validate` 具名它。遷移（`migrate-identifiers`）
+/// 修好之後這些 diagnostic 自然歸零，所以它同時是遷移進度的量測。
+///
+/// **severity 是 warning 不是 error**：值指涉正確、只是寫法不是正規形。依 #416 的判準
+/// `hasFindings` 只計 error——記成 error 會讓一份正常的 store 常態顯示不健康，那個布林
+/// 就失去訊號。
+///
+/// 四個帶識別碼的記錄型別共用這一份（同 `IdentifierYAML` 的理由：一份規格的兩份副本
+/// 必然分岔）。
+public enum IdentifierDiagnostics {
+    public static func nonNormal<T: Identifier>(_ ids: [T], field: String) -> [ValidationIssue] {
+        ids.filter { $0.raw != $0.normalized }.map { issue($0, field: field) }
+    }
+
+    public static func nonNormal<T: Identifier>(_ id: T?, field: String) -> [ValidationIssue] {
+        guard let id, id.raw != id.normalized else { return [] }
+        return [issue(id, field: field)]
+    }
+
+    /// 訊息同時給**原樣值**與**正規形**——只給前者的話讀的人不知道要改成什麼。
+    private static func issue<T: Identifier>(_ id: T, field: String) -> ValidationIssue {
+        ValidationIssue(
+            severity: .warning,
+            message: "\(field)「\(displaySafe(id.raw, max: 120))」不是正規形"
+                + "（正規形是「\(displaySafe(id.normalized, max: 120))」；"
+                + "`migrate-identifiers` 會修正）")
     }
 }

@@ -287,7 +287,7 @@ public final class AkashicService {
             // biblatex 註解（`%`）前置——輸出仍是合法 `.bib`，而 LLM 消費端看得到缺漏。
             // 兩面**載體不同、能力相同**，屬 `mcp-cli-parity` 允許的有記錄差異
             // （同 `resolve-people` 的兩面契約差異）。
-            let report = BibExport.apa7Report(entries: entries, people: load.people)
+            let report = BibExport.apa7Report(entries: entries, people: load.people, venues: load.venues)
             var header = ""
             for issue in report.issues {
                 header += "% [\(issue.severity.rawValue.uppercased())] "
@@ -299,9 +299,10 @@ public final class AkashicService {
                     + "不在 APA7 必要欄位表內，未經檢查（見 #325）\n"
             }
             if !header.isEmpty { header += "\n" }
-            return try safe(header + BibExport.bibFile(entries: entries, people: load.people))
+            return try safe(header + BibExport.bibFile(entries: entries, people: load.people,
+                                                       venues: load.venues))
         case "csl-json":
-            return try safe(CSLExport.cslJSON(entries: entries, people: load.people))
+            return try safe(CSLExport.cslJSON(entries: entries, people: load.people, venues: load.venues))
         default: throw ServiceError.invalid("format 必須是 bib / csl-json")
         }
     }
@@ -624,7 +625,7 @@ public final class AkashicService {
             var personDict: [String: Any] = ["key": displaySafe(key, max: 200)]
             if let record {
                 personDict["names"] = record.names.all.map { displaySafe($0, max: 200) }
-                if !record.unknownFields.isEmpty {   // #31
+        if !record.unknownFields.isEmpty {   // #31
                     personDict["unknownFields"] =
                         record.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
                 }
@@ -1823,12 +1824,30 @@ public final class AkashicService {
                     }),
                 ]
                 if let dt = a.addedDate { one["addedDate"] = displaySafe(dt, max: 200) }
+                // 結構化識別碼與被拒項（#394 verify）——CLI 那面同步。
+                if !a.addedDOIs.isEmpty {
+                    one["addedDOIs"] = a.addedDOIs.map { displaySafe($0.normalized, max: 200) }
+                }
+                if !a.addedPMIDs.isEmpty {
+                    one["addedPMIDs"] = a.addedPMIDs.map { displaySafe($0.normalized, max: 200) }
+                }
+                if !a.addedISBNs.isEmpty {
+                    one["addedISBNs"] = a.addedISBNs.map { displaySafe($0.normalized, max: 200) }
+                }
+                if !a.refusedIdentifiers.isEmpty {
+                    one["refusedIdentifiers"] = a.refusedIdentifiers.map { displaySafe($0, max: 300) }
+                }
                 return one
             },
             "unchanged": plan.unchanged.sorted().map { displaySafe($0, max: 200) },
             "noProvenance": plan.noProvenance.sorted().map { displaySafe($0, max: 200) },
             "zoteroMissing": plan.zoteroMissing.sorted().map { displaySafe($0, max: 200) },
             "notInStore": plan.notInStore.sorted().map { displaySafe($0, max: 200) },
+            // 第六類：給了識別碼但刻意不收，且沒有別的可補。與 unchanged 不可混為一談。
+            "refusedOnly": plan.refusedOnly.sorted { $0.citekey < $1.citekey }.map { a -> [String: Any] in
+                ["citekey": displaySafe(a.citekey, max: 200),
+                 "refusedIdentifiers": a.refusedIdentifiers.map { displaySafe($0, max: 300) }]
+            },
         ]
         if !dryRun { d["written"] = written.sorted().map { displaySafe($0, max: 200) } }
         if !writeFailed.isEmpty {
@@ -2022,6 +2041,30 @@ public final class AkashicService {
                 uniquingKeysWith: { first, _ in first }),
         ]
         if let date = entry.date { d["date"] = displaySafe(date, max: 200) }
+        // **識別碼**（#425 verify HIGH）。在此之前 `entryDict` 一個都沒有——
+        // `akashic get-entry` 與 MCP 兩面同時對 work 的識別碼失明，而它們自 §4 起
+        // 就在磁碟上。與已修的 venue ISSN 是**同一族、換一個 entity kind**。
+        //
+        // 讀 `canonical*` 而非結構化欄位本身：遷移略過的記錄仍把值放在 `fields`
+        // 殘留裡，而使用者要看的是「這筆有沒有 DOI」，不是「它存在哪一層」。
+        if !entry.canonicalDOIs.isEmpty {
+            d["doi"] = entry.canonicalDOIs.map { displaySafe($0.normalized, max: 200) }
+        }
+        if !entry.canonicalPMIDs.isEmpty {
+            d["pmid"] = entry.canonicalPMIDs.map { displaySafe($0.normalized, max: 200) }
+        }
+        if !entry.canonicalISBNs.isEmpty {
+            d["isbn"] = entry.canonicalISBNs.map { displaySafe($0.normalized, max: 200) }
+        }
+        // 欄位層級的 provenance（封閉列舉的第 15 條邊，#394 §5）。
+        // 只列**它支撐哪個欄位與哪個值**——digest 與 statement 屬 `doctor` 的職責。
+        if !entry.references.isEmpty {
+            d["references"] = entry.references.map { r -> [String: Any] in
+                var one: [String: Any] = ["field": displaySafe(r.field, max: 200)]
+                if let v = r.value { one["value"] = displaySafe(v, max: 200) }
+                return one
+            }
+        }
         if !entry.attachments.isEmpty {
             d["attachments"] = entry.attachments.map {
                 [$0.kind.rawValue: displaySafe($0.path, max: 800)]
@@ -2095,7 +2138,10 @@ public final class AkashicService {
         let engine = try freshEngine()
         let works = try engine.venueWorks(key: key)
         var d: [String: Any] = [
-            "key": displaySafe(key, max: 200),
+            // **`record.key` 而非查找用的 `key`**：輸出該反映**記錄**，不是使用者輸入的
+            // 字串。今天兩者必然相同（查找是精確比對），但若查找哪天放寬（大小寫、
+            // 正規化），回顯輸入會讓使用者以為庫裡存的是他打的那個寫法。
+            "key": displaySafe(record.key, max: 200),
             "type": record.type.rawValue,
             // 沿革：時間軸各段（序列化順序；四個時間欄位全帶——#218 R2 的教訓）
             "names": record.names.inSerializationOrder.map { seg -> [String: Any] in
@@ -2121,6 +2167,56 @@ public final class AkashicService {
             d["authorized"] = record.authorized.map { displaySafe($0, max: 200) }
         }
         if let note = record.note { d["note"] = displaySafe(note, max: 500) }
+        // ISSN（#394 §5／verify）。**在此之前兩個讀取面都看不到它**——§8 的遷移把
+        // 39 個 venue 的 ISSN 寫進磁碟，而 `akashic venue` 與 `--json` 都沒有這一格，
+        // 於是「庫裡有這個號」與「查不到這個號」在使用者眼中完全一樣。
+        //
+        // 空清單**不輸出這個鍵**（同 `authorized`／`note` 的既有慣例）：venue 沒有
+        // 登記 ISSN 是常態（會議、出版社、網站），輸出空陣列是雜訊不是訊號。
+
+        // ISSN（#394 §5／verify）。**在此之前兩個讀取面都看不到它**——§8 的遷移把
+        // 39 個 venue 的 ISSN 寫進磁碟，而 `akashic venue` 與 `--json` 都沒有這一格，
+        // 於是「庫裡有這個號」與「查不到這個號」在使用者眼中完全一樣。
+        //
+        // 空清單**不輸出這個鍵**（同 `authorized`／`note` 的既有慣例）：venue 沒有
+        // 登記 ISSN 是常態（會議、出版社、網站），輸出空陣列是雜訊不是訊號。
+        if !record.issn.isEmpty {
+            d["issn"] = record.issn.map { i -> [String: Any] in
+                var one: [String: Any] = ["value": displaySafe(i.normalized, max: 40)]
+                // `medium` 缺席 ＝ **還沒查**，是合法狀態不是缺陷；缺席就不寫這個鍵。
+                if let m = i.medium { one["medium"] = m.rawValue }   // display-safe-exempt: 封閉列舉 rawValue
+                return one
+            }
+        }
+        // resolution verdict（`entity-backlink-completeness` 第 13 條邊）。**person 那面
+        // 早就有這一格，venue 沒有**——而 `resolve-venues` 的判定同樣落在被判定的 venue
+        // 記錄上，於是「這個 venue 收過哪些歸戶判定」在讀取面完全不可見。
+        //
+        // `observed` 的判定與 person 那面同構，只是看的邊不同：person 看 `authors`
+        // 還在不在，venue 看 `venues`。仍是 literal ⇒ 這條 verdict 描述的狀態還在；
+        // 已升格成 key ⇒ stale（判定已被套用，記錄留作 provenance）。
+        let (verdicts, verdictMalformed) = ResolutionLedger.verdicts(references: record.references)
+        if !verdicts.isEmpty {
+            d["verdicts"] = verdicts.map { v -> [String: Any] in
+                let observed: Bool = {
+                    guard v.holderKind == .work,
+                          let e = load.entries.first(where: { $0.citekey == v.holder })
+                    else { return v.holderKind != .work }
+                    return e.venues.contains {
+                        if case .literal(let s) = $0 { return s == v.literal }; return false
+                    }
+                }()
+                return ["kind": v.kind.rawValue,   // display-safe-exempt: VerdictKind 是封閉列舉 rawValue
+                        "holder_kind": v.holderKind.rawValue,   // display-safe-exempt: 同上
+                        "holder": displaySafe(v.holder, max: 200),
+                        "literal": displaySafe(v.literal, max: 200),
+                        "rule": displaySafe(v.rule, max: 200),
+                        "state": observed ? "observed" : "stale"]
+            }
+        }
+        if !verdictMalformed.isEmpty {
+            d["verdictMalformed"] = verdictMalformed.map { displaySafe($0, max: 300) }
+        }
         if !record.unknownFields.isEmpty {
             d["unknownFields"] = record.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
         }

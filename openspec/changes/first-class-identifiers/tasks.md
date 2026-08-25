@@ -22,36 +22,54 @@
 
 交付 spec requirement「Normalization SHALL occur on the write path only」。
 
-- [ ] 4.1 交付 spec requirement「Normalization SHALL occur on the write path only」。先寫失敗測試：讀取一筆 `issn` 值為 `0003-066x` 的 venue 記錄時記錄成功載入且值原樣保留；寫入同一筆時值變為 `0003-066X`。驗證目標——測試由紅轉綠。
-- [ ] 4.2 實作識別碼欄位的序列化與反序列化：頂層鍵、清單欄位為序列、純量欄位為純量、空清單不序列化（既有記錄零 diff）、讀取路徑不因格式不合而拒讀。驗證目標——4.1 全綠，且 round-trip 測試斷言未知欄位仍被 tolerant-preserve 保留。
-- [ ] 4.3 `akashic validate` 對非正規形的識別碼值輸出一則具名該記錄與該值的 diagnostic（surfaced，不靜默）。驗證目標——對含 `0003-066x` 的暫時 store 執行 validate，斷言輸出含該值。
+- [x] 4.1 交付 spec requirement「Normalization SHALL occur on the write path only」。先寫失敗測試：讀取一筆 `issn` 值為 `0003-066x` 的 venue 記錄時記錄成功載入且值原樣保留；寫入同一筆時值變為 `0003-066X`。驗證目標——測試由紅轉綠。
+- [x] 4.2 實作識別碼欄位的序列化與反序列化：頂層鍵、清單欄位為序列、純量欄位為純量、空清單不序列化（既有記錄零 diff）、讀取路徑**不因非正規形而拒讀**（形狀不合法仍拒讀——2026-08-24 裁決，見 design.md Failure modes）。驗證目標——4.1 全綠，且 round-trip 測試斷言未知欄位仍被 tolerant-preserve 保留。
+- [x] 4.3 `akashic validate` 對非正規形的識別碼值輸出一則具名該記錄與該值的 diagnostic（surfaced，不靜默）。驗證目標——對含 `0003-066x` 的暫時 store 執行 validate，斷言輸出含該值。
 
 ## 5. 基數逐種決定，且基數決定 provenance 走哪條驗證分支
 
 交付 spec requirement「Identifier cardinality SHALL be decided per kind」與「A reference to a list-valued identifier SHALL name which value it supports」。
 
-- [ ] 5.1 交付 spec requirement「Identifier cardinality SHALL be decided per kind」與「A reference to a list-valued identifier SHALL name which value it supports」。先寫失敗測試：清單型識別碼欄位的 reference 缺 `value` 時被拒；純量型識別碼欄位的 reference 帶 `value` 時被拒；`value` 不在清單內時整筆拒讀並具名孤兒值。驗證目標——測試由紅轉綠。
-- [ ] 5.2 依基數把清單型識別碼導向 `names` 既有的清單驗證分支、純量型導向 `orcid` 既有的純量分支；`ORCID` 與 `ROR` 宣告為純量，`ISSN`／`DOI`／`PMID`／`ISBN` 宣告為清單。驗證目標——5.1 全綠。
+- [x] 5.1 交付 spec requirement「Identifier cardinality SHALL be decided per kind」與「A reference to a list-valued identifier SHALL name which value it supports」。先寫失敗測試：清單型識別碼欄位的 reference 缺 `value` 時被拒；純量型識別碼欄位的 reference 帶 `value` 時被拒；`value` 不在清單內時整筆拒讀並具名孤兒值。驗證目標——測試由紅轉綠。
+- [x] 5.2 依基數把清單型識別碼導向 `names` 既有的清單驗證分支、純量型導向 `orcid` 既有的純量分支；`ORCID` 與 `ROR` 宣告為純量，`ISSN`／`DOI`／`PMID`／`ISBN` 宣告為清單。驗證目標——5.1 全綠。
 
 ## 6. 識別碼進 provenance 欄位白名單，store format 自 12 升至 13
 
 交付 spec requirement「An identifier field SHALL be attachable」。
 
-- [ ] 6.1 交付 spec requirement「An identifier field SHALL be attachable」。在 `ProvenanceReference` 的欄位白名單新增 `doi`／`pmid`／`isbn`／`issn`／`ror`，使識別碼能攜帶來源。驗證目標——新測試斷言一筆帶 `field: issn` reference 的 venue 記錄可載入，且該 reference 出現在讀回的記錄上。
-- [ ] 6.2 `docs/store-format.md` 的版本對照表新增 format 13 一列，寫明「`references[].field` 白名單是 strict → 舊 binary 整檔 quarantine」的升版理由；`StoreVersion` 的支援版本同步。驗證目標——對 format 13 的 store 用未升級路徑讀取的測試斷言拒讀並指路。
+- [x] 6.1 交付 spec requirement「An identifier field SHALL be attachable」。在 `ProvenanceReference` 的欄位白名單新增 `doi`／`pmid`／`isbn`／`issn`／`ror`，使識別碼能攜帶來源。驗證目標——新測試斷言一筆帶 `field: issn` reference 的 venue 記錄可載入，且該 reference 出現在讀回的記錄上。
+- [x] 6.2 `docs/store-format.md` 的版本對照表新增 format 13 一列，寫明「`references[].field` 白名單是 strict → 舊 binary 整檔 quarantine」的升版理由；`StoreVersion` 的支援版本同步。驗證目標——對 format 13 的 store 用未升級路徑讀取的測試斷言拒讀並指路。
 
 ## 7. 匯出面：結構化值勝過自由字典殘留
 
-- [ ] 7.1 `BibExport` 在自由字典逐鍵轉出的迴圈**之後**寫出結構化識別碼，使結構化值勝過 `fields` 內的同名殘留，形狀比照既有的學位論文欄位處理。驗證目標——新測試斷言同時持有兩者時 `.bib` 取結構化值；並對現行 store 執行 export 與升格前輸出逐位元比對，`DOI`／`ISBN`／`PMID` 欄位無差異。
+- [x] 7.1 `BibExport` 在自由字典逐鍵轉出的迴圈**之後**寫出結構化識別碼，使結構化值勝過 `fields` 內的同名殘留，形狀比照既有的學位論文欄位處理。驗證目標——新測試斷言同時持有兩者時 `.bib` 取結構化值；並對現行 store 執行 export 與升格前輸出逐位元比對，`DOI`／`ISBN`／`PMID` 欄位無差異。
 
 ## 8. 遷移
 
-- [ ] 8.1 新增 CLI 命令 `migrate-identifiers`：預設乾跑列出每一筆將改動的值、`--apply` 才寫入、要求 store 工作樹乾淨、**不自動 bump format**。驗證目標——乾跑對現行 store 輸出 825 個識別碼的處置清單且 store 無變動。
-- [ ] 8.2 遷移對 ISSN 的多值處理：先正規化再去重，去重後仍 >1 者保留為多值；乾跑報告把「去重後合併」與「保留多值」分開列出。驗證目標——對 8 個收到多值的 venue，斷言 `american-psychologist` 的 `0003-066x` 與 `0003-066X 1935-990X` 合併為兩個相異值，而 `behavior-research-methods` 的 `1554-351x` 與 `1554-3528` 保留為兩個。
-- [ ] 8.3 遷移原子地同時改寫識別碼值與指向舊值的 provenance `value`；無法解析的識別碼字串略過該筆並在報告具名，不猜測不丟棄。驗證目標——測試斷言改寫後無任何 reference 指向不存在的值，且略過項出現在報告中。
+- [x] 8.1 新增 CLI 命令 `migrate-identifiers`：預設乾跑列出每一筆將改動的值、`--apply` 才寫入、要求 store 工作樹乾淨、**不自動 bump format**。驗證目標——乾跑對現行 store 輸出 825 個識別碼的處置清單且 store 無變動。
+- [x] 8.2 遷移對 ISSN 的多值處理：先正規化再去重，去重後仍 >1 者保留為多值；乾跑報告把「去重後合併」與「保留多值」分開列出。驗證目標——對 8 個收到多值的 venue，斷言 `american-psychologist` 的 `0003-066x` 與 `0003-066X 1935-990X` 合併為兩個相異值，而 `behavior-research-methods` 的 `1554-351x` 與 `1554-3528` 保留為兩個。
+- [x] 8.3 遷移原子地同時改寫識別碼值與指向舊值的 provenance `value`；無法解析的識別碼字串略過該筆並在報告具名，不猜測不丟棄。驗證目標——測試斷言改寫後無任何 reference 指向不存在的值，且略過項出現在報告中。
+
+  > **2026-08-25 verify 更正。** 本項原本打勾時，`rewritingProvenance` 是恆等空殼
+  > （`append(contentsOf: [])` ＋ `return record`），而「測試斷言改寫後無孤兒 reference」
+  > 的那支測試**不存在**——16 支遷移測試零觸及 provenance。空殼有一個真實的理由：
+  > 舊簽章只收記錄、拿不到「舊值是什麼」，所以它結構上做不到自己宣稱的事。
+  >
+  > 現已改簽章並實作（`rewritingProvenance(_:rewrites:report:)`）。同時查明它**零次
+  > 改寫的原因不是「還沒發生」，是結構上走不到**：寫入面要求 reference 的 `value`
+  > 落在該欄位的結構化清單內，而遷移只從 `fields` 殘留搬值——帶殘留的記錄其結構化
+  > 清單是空的，不可能合法帶著指向該殘留值的 reference。
+  >
+  > 依 `zero-instance-guards` 第 8 列，這一格的裁決有兩半：實作它，**以及釘住「現在
+  > 為什麼是零」**。後者是 `testAResidueValuedReferenceCannotBeWrittenAtAll`——它一旦
+  > 變紅（寫入面放寬了），本函式就從裝飾品變成承重結構。
+  >
+  > 同輪修掉一個相關的反向缺陷：遷移原本以 `updated.doi = v` **無條件覆寫**已在場的
+  > 結構化值，而 `canonicalDOIs` 的立場是「兩者同時在場時正典是結構化那個」。方向
+  > 正好相反且不可逆。現改為略過並具名。
 
 ## 9. 兩面對等與收尾裁決
 
-- [ ] 9.1 [P] `.claude/rules/mcp-cli-parity.md` 的三張裁決表對本 change 新增的每一個面各加一列（`migrate-identifiers` 落 CLI-only 表並具名維運例外理由；識別碼參數在 MCP 面的有無各自裁決）。驗證目標——依該規則的四步機械稽核程序執行，確認枚舉輸出與表零差集。
-- [ ] 9.2 [P] `.claude/rules/zero-instance-guards.md` 的裁決表新增一列，裁決 `Organization.ror` 這個當下零實例欄位要不要寫，並在同列寫出該列自己的理由。驗證目標——內容複審確認理由未沿用既有四列任一列的理由。
-- [ ] 9.3 收尾驗收：遷移後帶 `issn` 的 work 數為 0、帶 `issn` 的 venue 數為 39、`akashic validate` 零新增 diagnostic、`swift test` 全綠。驗證目標——逐項執行並記錄實測數字。
+- [x] 9.1 [P] `.claude/rules/mcp-cli-parity.md` 的三張裁決表對本 change 新增的每一個面各加一列（`migrate-identifiers` 落 CLI-only 表並具名維運例外理由；識別碼參數在 MCP 面的有無各自裁決）。驗證目標——依該規則的四步機械稽核程序執行，確認枚舉輸出與表零差集。
+- [x] 9.2 [P] `.claude/rules/zero-instance-guards.md` 的裁決表新增一列，裁決 `Organization.ror` 這個當下零實例欄位要不要寫，並在同列寫出該列自己的理由。驗證目標——內容複審確認理由未沿用既有四列任一列的理由。
+- [x] 9.3 收尾驗收：遷移後帶 `issn` 的 work 數為 0、帶 `issn` 的 venue 數為 39、`akashic validate` 零新增 diagnostic、`swift test` 全綠。驗證目標——逐項執行並記錄實測數字。

@@ -47,7 +47,7 @@ final class APA7SupplementalFieldsTests: XCTestCase {
         // `referenceWorkEntry` 送 INREFERENCE。缺 BOOKTITLE 要被抓到。
         let noBooktitle = Entry(id: UUID(), citekey: "anon2019wiki", type: .referenceWorkEntry,
                                title: "List of Oldest Companies", authors: [], date: "2019")
-        let report = BibExport.apa7Report(entries: [noBooktitle], people: [])
+        let report = BibExport.apa7Report(entries: [noBooktitle], people: [], venues: [])
         XCTAssertTrue(report.uncheckedCitekeys.isEmpty,
                       "INREFERENCE 現在有補充表，不該再落進 unchecked")
         XCTAssertEqual(report.issues.filter { $0.severity == .error }.map(\.message),
@@ -65,7 +65,7 @@ final class APA7SupplementalFieldsTests: XCTestCase {
         var entry = Entry(id: UUID(), citekey: "anon2019wiki", type: .referenceWorkEntry,
                           title: "List of Oldest Companies", authors: [], date: "2019")
         entry.fields = ["booktitle": "Wikipedia"]
-        let errors = BibExport.apa7Report(entries: [entry], people: [])
+        let errors = BibExport.apa7Report(entries: [entry], people: [], venues: [])
             .issues.filter { $0.severity == .error }
         XCTAssertTrue(errors.isEmpty,
                       "無個人作者的維基條目是 APA7 的正確形式，不該報 error：\(errors)")
@@ -76,7 +76,7 @@ final class APA7SupplementalFieldsTests: XCTestCase {
         var entry = Entry(id: UUID(), citekey: "anon2019wiki", type: .referenceWorkEntry,
                           title: "An Entry", authors: [], date: "2019")
         entry.fields = ["booktitle": "Wikipedia"]
-        let warnings = BibExport.apa7Report(entries: [entry], people: [])
+        let warnings = BibExport.apa7Report(entries: [entry], people: [], venues: [])
             .issues.filter { $0.severity == .warning }.map(\.message)
         XCTAssertTrue(warnings.contains("Missing recommended field: AUTHOR"),
                       "AUTHOR 應是 recommended（§10.3 有帶團體作者的例子）：\(warnings)")
@@ -97,7 +97,7 @@ final class APA7SupplementalFieldsTests: XCTestCase {
         for type in [WorkType.visualWork, .unpublishedWork] {
             let entry = Entry(id: UUID(), citekey: "probe\(type.rawValue.filter(\.isLetter))",
                               type: type, title: "Probe", authors: [], date: "2020")
-            let report = BibExport.apa7Report(entries: [entry], people: [])
+            let report = BibExport.apa7Report(entries: [entry], people: [], venues: [])
             XCTAssertEqual(report.uncheckedCitekeys, [entry.citekey],
                            "\(type.rawValue)（送 \(type.biblatexEntryType)）目前零實例、"
                            + "未補必要欄位，必須列為未涵蓋而非靜默通過")
@@ -114,7 +114,7 @@ final class APA7SupplementalFieldsTests: XCTestCase {
     func testReviewIsNowCoveredWithTheJournalArticleFloor() {
         let bare = Entry(id: UUID(), citekey: "probereview", type: .review,
                          title: "Review of Something", authors: [], date: "2020")
-        let report = BibExport.apa7Report(entries: [bare], people: [])
+        let report = BibExport.apa7Report(entries: [bare], people: [], venues: [])
         XCTAssertTrue(report.uncheckedCitekeys.isEmpty,
                       "`.review` 送 ARTICLE，已被依賴的必要欄位表涵蓋："
                       + "\(report.uncheckedCitekeys)")

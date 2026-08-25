@@ -96,7 +96,24 @@ public enum StoreVersion {
     ///   decode 不驗，舊 binary 讀到新值會照 tolerant-preserve 原樣保留——那是
     ///   **additive**，依本檔頂部的判準表不該 bump（「bump 會讓每個 additive 演化都逼
     ///   所有 binary 同步升級，等於白做 #23」）。
-    public static let supported = 12
+    /// - **13** ＝ 識別碼成為記錄的一等公民欄位（#394），且 `issn`／`isbn` 的序列
+    ///   元素**由裸純量改為 mapping**（`value:` ＋選填的 `qualifier:`）。
+    ///
+    ///   **兩者都是 non-additive**：
+    ///   - 識別碼的頂層鍵（`doi`／`pmid`／`isbn`／`issn`／`ror`）對 format-12 binary
+    ///     落在 tolerant-preserve 層——**保留但不解讀**。那不是 quarantine，是更安靜的
+    ///     失敗：舊 binary 開得起來、查得動，只是**看不到任何識別碼**，而 `fields` 裡
+    ///     的殘留已被遷移移除。一個看起來成功的錯誤答案。
+    ///   - `issn`／`isbn` 的元素形狀由 `decodeQualifiedList` 走 strict 驗證
+    ///     （`rejectUnknownKeys` ＋ 要求 mapping），所以 format-12 binary 寫出的裸純量
+    ///     序列被新 binary 讀到會**整檔 quarantine**，反向亦然。
+    ///
+    ///   **為什麼 `qualifier` 不算 additive**：它不是「多一個可選鍵」——序列元素的
+    ///   **容器形狀**變了（scalar → mapping），而序列元素不在 tolerant-preserve 的
+    ///   涵蓋範圍內（同 format 6 的 `ended`、format 12 的 `Author` 三態）。
+    ///
+    ///   write gate 對 format < 13 拒寫含識別碼 reference 的記錄（#394 §6 既有）。
+    public static let supported = 13
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，

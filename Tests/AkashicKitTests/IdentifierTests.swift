@@ -83,11 +83,18 @@ final class IdentifierTests: XCTestCase {
         XCTAssertNotNil(ISBN("0-12-179060-6"), "ISBN-10 也要接受")
     }
 
-    /// **刻意不換算。** 10 碼與 13 碼是同一本書的兩種編碼，但「要不要視為同一個
-    /// 識別碼」是 #394 尚未裁決的問題——在裁決前原樣保存來源給的那一種。
-    func testISBNDoesNotConvertBetweenForms() {
-        XCTAssertEqual(ISBN("0-12-179060-6")?.normalized.count, 10,
-                       "10 碼不得被換算成 13 碼——那是尚未裁決的問題")
+    /// **已裁決：換算。**（2026-08-24，取代先前「刻意不換算」的那一版。）
+    ///
+    /// 這支測試原本斷言 10 碼**不得**被換算，訊息寫著「那是尚未裁決的問題」——它是
+    /// 一支刻意的現況斷言，等裁決落下時變紅。裁決落下了，所以它換內容而不是被刪：
+    /// 10 碼與 13 碼是同一個識別碼的兩種編碼，收斂它們是**正規化**。
+    ///
+    /// 保留這段歷史是為了下一個讀者知道這裡曾經是留白，而不是一直都這樣。
+    func testISBNConvertsTenToThirteen() {
+        XCTAssertEqual(ISBN("0-12-179060-6")?.normalized, "9780121790608",
+                       "10 碼換算成 13 碼——與同一本書的 13 碼形收斂到同一個值")
+        XCTAssertEqual(ISBN("0-12-179060-6"), ISBN("978-0-12-179060-8"),
+                       "同一本書的兩種編碼必須相等，否則去重收不掉異寫法")
     }
 
     func testISBNRejectsBadCheckDigit() {
@@ -216,5 +223,45 @@ final class IdentifierTests: XCTestCase {
         var uniq2: [ISSN] = []
         for v in real where !uniq2.contains(v) { uniq2.append(v) }
         XCTAssertEqual(uniq2.count, 2, "print 與 electronic 是兩個真的號，不得合併")
+    }
+
+    // MARK: - ISBN-10 → ISBN-13 是正規化，不是基數（2026-08-24 裁決）
+
+    /// ISBN-10 與 ISBN-13 **不是兩個識別碼，是同一個識別碼的兩種編碼**：
+    /// ISBN-13 ＝ `978` ＋ ISBN-10 的前 9 碼 ＋ 重算 check digit。
+    ///
+    /// 把它們當成兩個值（或拆成 `isbn10`／`isbn13` 兩個欄位）等於**把編碼當成身分建模**
+    /// ——與 `0003-066x` vs `0003-066X` 是同一個錯誤，只是換個尺度。
+    func testISBN10NormalizesToISBN13() throws {
+        let ten = try XCTUnwrap(ISBN("0-13-441969-3"))
+        XCTAssertEqual(ten.normalized, "9780134419695")
+        XCTAssertEqual(ten.raw, "0-13-441969-3", "raw 仍保留磁碟上的寫法")
+    }
+
+    /// 因此同一本書的兩種寫法**相等**——去重才收得掉（`Identifier.==` 比正規形）。
+    func testTheTwoEncodingsOfOneBookAreEqual() throws {
+        XCTAssertEqual(try XCTUnwrap(ISBN("0-13-441969-3")),
+                       try XCTUnwrap(ISBN("978-0-13-441969-5")))
+    }
+
+    /// **真的兩個產品仍是兩個**：softcover 與 electronic 是不同的號，不得被收斂。
+    func testDifferentProductsStayDistinct() throws {
+        XCTAssertNotEqual(try XCTUnwrap(ISBN("9783642016882")),
+                          try XCTUnwrap(ISBN("9783642016899")))
+    }
+
+    /// **只能 10 → 13，不能反向**：`979` 開頭的 ISBN-13 沒有 ISBN-10 對應物，
+    /// 所以單向轉換才是全定義的。這一條釘住「不要哪天有人加反向轉換」。
+    func testA979PrefixedISBN13IsKeptAsIs() throws {
+        let v = try XCTUnwrap(ISBN("9791234567896"))
+        XCTAssertEqual(v.normalized, "9791234567896")
+    }
+
+    /// ISBN-10 的 `X` check digit 換算後仍正確。
+    func testISBN10WithXCheckDigitConverts() throws {
+        // 0-8044-2957-X 是常用的 X-check-digit 例子
+        let v = try XCTUnwrap(ISBN("0-8044-2957-X"))
+        XCTAssertEqual(v.normalized.count, 13)
+        XCTAssertTrue(v.normalized.hasPrefix("978"))
     }
 }

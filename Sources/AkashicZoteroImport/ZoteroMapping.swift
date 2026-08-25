@@ -196,6 +196,25 @@ public enum ZoteroMapping {
             }
             fields[key] = value
         }
+        // **識別碼進結構化欄位，不留 `fields` 殘留**（#425 verify HIGH）。
+        //
+        // 我修過 add-only 的 `enrich-from-zotero`，而**姊妹路徑 pull 沒修**——
+        // 而 pull 是預設的 Zotero 匯入面（新建與更新兩條路徑都走這裡）。殘留一旦
+        // 回來，同一個值就有兩份副本可各自漂移，且 `BibExport` 的
+        // `if fields["issn"] == nil` venue 拉取會被遮蔽。
+        //
+        // **解析不出來的不猜**——原值留在 `fields`，交由既有的殘餘路徑（#206）處理。
+        // `issn` **刻意不在此處理**：它不屬於 work（spec 明文的 misplacement），
+        // 由 `ZoteroImporter` 在拿得到回報通道的地方移除並記進 `fieldsRemovedByPull`。
+        if let raw = fields["doi"], let v = DOI(raw) {
+            entry.doi = [v]; fields.removeValue(forKey: "doi")
+        }
+        if let raw = fields["pmid"], let v = PMID(raw) {
+            entry.pmid = [v]; fields.removeValue(forKey: "pmid")
+        }
+        if let raw = fields["isbn"], let v = ISBN(raw) {
+            entry.isbn = [v]; fields.removeValue(forKey: "isbn")
+        }
         entry.fields = fields
         // #304：載體二態 ref。**只在 venues 為空時推導**——已歸戶的 `.key` 或先前
         // 的 literal 一律不覆寫（Zotero pull 對 fields 跟隨上游，但 venues 的歸戶

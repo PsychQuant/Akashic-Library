@@ -44,6 +44,21 @@ struct GetEntryCmd: ParsableCommand {
         if let fields = d["fields"] as? [String: String] {
             for k in fields.keys.sorted() { print("field:\(k)\t\(fields[k] ?? "")") }   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
         }
+        // 識別碼（#425 verify）——**JSON 面有的，人可讀面也要看得到**，
+        // 與下方 attachments 那條同一個理由（#219 verify F1）。
+        for key in ["doi", "pmid", "isbn"] {
+            if let vs = d[key] as? [String], !vs.isEmpty {
+                print("\(key)\t\(vs.joined(separator: ", "))")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
+            }
+        }
+        // 欄位層級的 provenance（第 15 條邊）——只列它支撐哪個欄位與哪個值。
+        if let refs = d["references"] as? [[String: Any]] {
+            for r in refs {
+                let f = r["field"] as? String ?? "?"
+                let v = (r["value"] as? String).map { "\t\($0)" } ?? ""
+                print("reference:\(f)\(v)")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
+            }
+        }
         if let attachments = d["attachments"] as? [[String: String]] {
             // 封閉列舉第 6 條邊——JSON 面有的，人可讀面也要看得到（#219 verify F1）
             for a in attachments {

@@ -81,9 +81,11 @@ final class IdentifierPlacementTests: XCTestCase {
     /// 形狀不合法的 orcid 在讀取面被拒絕（quarantine 整筆），與 `id`/`UUID` 同紀律
     /// （`R8ForwardCompatTests.testShapeMismatchNotReportedAsMissing` 的 `id: not-a-uuid`）。
     ///
-    /// **這不是 design.md 最終目標的「讀取面寬容保留」**——那要求非法值仍載入並由
-    /// `akashic validate` 具名回報，屬 Section 4（YAML 編解碼的正式讀寬容機制）尚未
-    /// 落地的部分。本任務只交付型別化＋消費面，選 fail-closed 是因為它是**看得見**
+    /// **這就是最終行為，不是暫時狀態**（2026-08-24 裁決，design.md Failure modes）。
+    /// 讀取面的寬容只涵蓋**非正規形**（`0003-066x` 載入並原樣保留）；**形狀不合法**
+    /// 仍拒讀。先前這裡寫著「§4 會讓非法值也載入」，那個讀法已被裁掉——理由是寬容版
+    /// 需要一個新機制（型別的 invalid 狀態或 per-field 殘留）穿過相等／export／遷移／
+    /// provenance 四處，而觸發它的是零實例。選 fail-closed 是因為它是**看得見**
     /// 的失敗（quarantine 進 `doctor`／`validate` 報告），而不是把非法值靜默轉 nil
     /// 讓資料在下一次讀寫循環中無聲消失（`lossless-intake` 的「靜默是最糟的形式」）。
     func testMalformedORCIDQuarantinesPersonAtDecode() {

@@ -1,0 +1,110 @@
+import XCTest
+@testable import AkashicCore
+@testable import AkashicMCPKit
+
+/// `Entry` 的每個序列化欄位都必須出現在讀取面（#425 verify HIGH）。
+///
+/// ## 這道守衛防的是什麼
+///
+/// `entryDict` 逐欄位組 payload，而 #394 新增的 `doi`／`pmid`／`isbn` **一個都沒進去**
+/// ——`akashic get-entry` 與 MCP 兩面同時對 work 的識別碼失明。
+///
+/// 這與已修的 venue ISSN 是**同一族、換一個 entity kind**。修 venue 那次我加了
+/// `VenueSurfaceTests`，但**沒有問「這一族還有誰」**——於是同一個缺口在 entry 上
+/// 又存在了一輪。本檔是那個問題的答案。
+///
+/// ## 誠實邊界
+///
+/// 它查的是**服務端有沒有讀那個欄位**，不是渲染得對不對。一個把 `doi` 讀出來卻印成
+/// 空字串的實作仍會通過。這是必要條件不是充分條件。
+final class EntrySurfaceTests: XCTestCase {
+
+    static func serviceSource() throws -> String {
+        try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/AkashicMCPKit/AkashicService.swift"),
+            encoding: .utf8)
+    }
+
+    /// 括號配對取完整 body——固定長度的視窗會在函式變長時假紅
+    /// （`VenueSurfaceTests` 已經踩過一次）。
+    static func functionBody(of signature: String, in source: String) -> String? {
+        guard let sig = source.range(of: signature) else { return nil }
+        var depth = 0
+        var i = source.index(before: sig.upperBound)
+        let start = i
+        while i < source.endIndex {
+            if source[i] == "{" { depth += 1 }
+            else if source[i] == "}" {
+                depth -= 1
+                if depth == 0 { return String(source[start...i]) }
+            }
+            i = source.index(after: i)
+        }
+        return nil
+    }
+
+    private func entryFieldNames() -> [String] {
+        Mirror(reflecting: Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T"))
+            .children.compactMap(\.label)
+    }
+
+    func testReflectionActuallySeesFields() {
+        XCTAssertGreaterThanOrEqual(entryFieldNames().count, 10,
+                                    "反射應看到 Entry 的全部欄位，實得 \(entryFieldNames())")
+    }
+
+    /// **守衛的守衛**：括號配對要停在函式結尾。
+    func testExtractedBodyStopsAtTheFunctionEnd() throws {
+        let source = try Self.serviceSource()
+        guard let body = Self.functionBody(of: "func entryDict(_ entry: Entry) -> [String: Any] {",
+                                           in: source)
+        else { return XCTFail("找不到 entryDict") }
+        XCTAssertTrue(body.contains("entry.citekey"), "body 應涵蓋整個函式")
+        XCTAssertLessThan(body.count, source.count / 2, "body 不該是大半個檔案")
+    }
+
+    func testEveryFieldReachesTheReadSurface() throws {
+        // **封閉豁免，附理由**——加一項就是加一列理由，不得依性質相似類推。
+        let exempt: [String: String] = [
+            "id": "內部 UUID 身分，任何 entity 的讀取面都不輸出它（venue／person 同）",
+            "unknownFields": "tolerant-preserve 的未知鍵；`entryDict` 不逐一列舉它們"
+                + "（`akashic doctor` 是它們的出口）",
+        ]
+        let source = try Self.serviceSource()
+        guard let body = Self.functionBody(of: "func entryDict(_ entry: Entry) -> [String: Any] {",
+                                           in: source)
+        else { return XCTFail("找不到 entryDict —— 本測試的前提不成立") }
+
+        // **已知缺口 ≠ 豁免**（#426）。`exempt` 說「刻意不輸出」，`knownGaps` 說
+        // 「該輸出而還沒輸出」。兩者混為一談會讓守衛在下次有人問「為什麼 venues
+        // 不在裡面」時給出錯的答案。兩者都早於 #394（venues #304、thesis #335），
+        // 依 scope guard 不混進這個 branch。
+        let knownGaps: [String: String] = [
+            "venues": "#426——第 14 條邊，work 通往 venue 的唯一路徑",
+            "thesis": "#426——#335 的 ThesisFacts，APA7 匯出靠它",
+        ]
+        for field in entryFieldNames() {
+            if let gap = knownGaps[field] {
+                XCTAssertTrue(gap.contains("#"), "已知缺口必須指向一張 issue")
+                continue
+            }
+            if let why = exempt[field] {
+                XCTAssertFalse(why.isEmpty, "豁免必須附理由")
+                continue
+            }
+            // **canonical accessor 也算讀到**（#425 verify）。`canonicalDOIs` 一族的
+            // doc 明寫「讀取請走它」——殘留與結構化值同時在場時它才是正典。
+            // 守衛若只認 `entry.doi` 的字面，會逼呼叫端改用**較差**的讀法才能過關。
+            let aliases = ["doi": "canonicalDOIs", "pmid": "canonicalPMIDs",
+                           "isbn": "canonicalISBNs"]
+            let reached = body.contains("entry.\(field)")
+                || (aliases[field].map { body.contains("entry.\($0)") } ?? false)
+            XCTAssertTrue(reached,
+                          "Entry.\(field) 沒有被 entryDict 讀到——"
+                          + "它會存在磁碟上而使用者兩個面都看不到，"
+                          + "而那與『庫裡沒有這個值』在輸出上完全一樣")
+        }
+    }
+}

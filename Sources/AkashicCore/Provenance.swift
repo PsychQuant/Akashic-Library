@@ -11,6 +11,15 @@ import Foundation
 /// 一起會讓「這筆 provenance 完不完整」無法機械判定。Swift 側用 enum——判斷型
 /// 帶 `content` 在型別上**不可能**；YAML 側的平面欄位經 `init(field:...)` 的
 /// throwing 建構器驗證，混合即拒。
+/// 帶欄位層級 provenance 的記錄（#394 verify）。
+///
+/// 四個型別各自有 `references`，而在此之前**沒有共同抽象**——於是任何「對所有帶
+/// reference 的記錄做同一件事」的邏輯只能逐型別複製，或者退化成空殼。
+/// `IdentifierMigration.rewritingProvenance` 曾經是後者。
+public protocol ProvenanceCarrying {
+    var references: [ProvenanceReference] { get set }
+}
+
 public struct ProvenanceReference: Equatable {
 
     /// #232：resolution verdict 欄位的**封閉對**——僅此二值，不得類推第三個。
@@ -395,6 +404,21 @@ extension Person {
     }
 }
 
+
+// MARK: - 識別碼欄位的附著驗證（#394 §5）
+
+/// 清單型識別碼的成員判定。**比對走正規形**——磁碟上是非正規形時（遷移前的既有
+/// 記錄），reference 的 `value` 仍應對得上，否則那些記錄會因為一個大小寫而整筆拒讀，
+/// 而 §4 的整個「讀取面寬容保留」就被這裡抵銷掉了。
+///
+/// 這也是 `Identifier` 的 `==` 由 `normalized` 決定的同一個理由（見該 protocol 的
+/// extension）：`0003-066x` 與 `0003-066X` 是同一個識別碼。
+func identifierListContains<T: Identifier>(_ ids: [T], value: String,
+                                           _ make: (String) -> T?) -> Bool {
+    guard let probe = make(value) else { return false }
+    return ids.contains(probe)
+}
+
 extension Organization {
     public func validateReferenceAttachment() throws {
         for r in references {
@@ -421,7 +445,7 @@ extension Organization {
                         "organization.references(field: authorized)",
                         "value「\(v)」不在 authorized 清單內")
                 }
-            case "founded", "dissolved", "note":
+            case "founded", "dissolved", "note", "ror":
                 guard r.value == nil else {
                     throw StoreYAMLError.invalidField(
                         "organization.references(field: \(r.field))",
@@ -431,6 +455,8 @@ extension Organization {
                 switch r.field {
                 case "founded": present = founded != nil
                 case "dissolved": present = dissolved != nil
+                // #394：ROR 是純量——每個機構一筆 ROR 記錄，由定義。
+                case "ror": present = ror != nil
                 default: present = note != nil
                 }
                 guard present else {
@@ -462,9 +488,151 @@ extension Organization {
                 throw StoreYAMLError.invalidField(
                     "organization.references(field: \(r.field))",
                     "organization 沒有可附著 reference 的欄位「\(r.field)」"
-                    + "（合法：names、authorized、founded、dissolved、note、parents、"
+                    + "（合法：names、authorized、founded、dissolved、note、ror、parents、"
                     + "resolution-confirmed、resolution-rejected）")
             }
         }
     }
 }
+
+// MARK: - Venue 的附著驗證（#394 §5）
+
+/// **venue 原本完全沒有這個方法**——`validateReferenceAttachment` 只有 person 與
+/// organization 有，`VenueYAML.decode` 也從不呼叫。於是一筆 venue reference 可以寫
+/// 任何欄位名而照樣載入，這是 #304 建立 venue 形狀時留下的洞。
+///
+/// **補上它是有風險的動作，所以先量過**：實測真實 store 有 **817 筆** venue
+/// reference，全部是 `resolution-confirmed`（`resolve-venues` 的判定，封閉列舉第 13
+/// 條）。漏掉那一格的話 405 筆 venue 記錄會全部拒讀——`IdentifierProvenanceTests`
+/// 的第一條測試釘的就是它。
+extension Venue {
+    public func validateReferenceAttachment() throws {
+        for r in references {
+            switch r.field {
+            case "names":
+                guard let v = r.value else {
+                    throw StoreYAMLError.invalidField(
+                        "venue.references(field: names)",
+                        "names 是時間軸清單（刊名沿革），reference 必須帶 value 指名支持的是哪個名字（D2）")
+                }
+                guard names.entries.contains(where: { $0.value == v }) else {
+                    throw StoreYAMLError.invalidField(
+                        "venue.references(field: names)",
+                        "value「\(v)」不在 names 內——值被改寫後 provenance 成了孤兒")
+                }
+            case "authorized":
+                guard let v = r.value else {
+                    throw StoreYAMLError.invalidField(
+                        "venue.references(field: authorized)",
+                        "authorized 是清單，reference 必須帶 value（D2）")
+                }
+                guard authorized.contains(v) else {
+                    throw StoreYAMLError.invalidField(
+                        "venue.references(field: authorized)",
+                        "value「\(v)」不在 authorized 清單內")
+                }
+            case "issn":
+                // #394：ISSN 是清單——print 與 electronic 是兩個真的號，所以一筆
+                // 記錄級的 reference 不說支持哪一個，另一個就**看起來有來源而其實沒有**。
+                guard let v = r.value else {
+                    throw StoreYAMLError.invalidField(
+                        "venue.references(field: issn)",
+                        "issn 是清單（print 與 electronic 是兩個真的號），"
+                        + "reference 必須帶 value 指名支持的是哪一個（D2）")
+                }
+                guard identifierListContains(issn, value: v, ISSN.init) else {
+                    throw StoreYAMLError.invalidField(
+                        "venue.references(field: issn)",
+                        "value「\(displaySafe(v, max: 120))」不在 issn 清單內"
+                        + "——值被改寫後 provenance 成了孤兒，"
+                        + "把 value 更新成現值或移除這筆 reference")
+                }
+            case "note":
+                guard r.value == nil else {
+                    throw StoreYAMLError.invalidField(
+                        "venue.references(field: note)",
+                        "note 是純量欄位，不收 value（D2）")
+                }
+                guard note != nil else {
+                    throw StoreYAMLError.invalidField(
+                        "venue.references(field: note)",
+                        "記錄沒有 note 欄位——reference 指名的欄位必須存在")
+                }
+            case _ where ProvenanceReference.resolutionVerdictFields.contains(r.field):
+                // #232／#304：`resolve-venues` 的判定落在被判定的 venue 記錄上。
+                // **實測 817 筆，這一格是承重的。**
+                guard case .judgement = r.kind else {
+                    throw StoreYAMLError.invalidField(
+                        "venue.references(field: \(r.field))",
+                        "verdict 必須是判斷型（judgement）——擷取型帶不動人為裁決")
+                }
+                guard let v = r.value,
+                      ProvenanceReference.VerdictPairingValue.parse(v) != nil else {
+                    throw StoreYAMLError.invalidField(
+                        "venue.references(field: \(r.field))",
+                        "\(r.field) 的 value 必須是「<kind>:<key> :: <literal>」"
+                        + "（kind ∈ work/person/org）——verdict 沒有可解析的配對即無錨")
+                }
+            default:
+                throw StoreYAMLError.invalidField(
+                    "venue.references(field: \(r.field))",
+                    "venue 沒有可附著 reference 的欄位「\(displaySafe(r.field, max: 120))」"
+                    + "（合法：names、authorized、issn、note、"
+                    + "resolution-confirmed、resolution-rejected）")
+            }
+        }
+    }
+}
+
+// MARK: - Entry 的附著驗證（#394 §5／§6——本輪新增的邊）
+
+/// work 的識別碼要能攜帶來源。spec 的 requirement 寫得很硬：
+///
+/// > An identifier that **cannot carry a reference** SHALL NOT be treated as a
+/// > first-class field of the record.
+///
+/// 而 `Entry` 原本**沒有 `references` 欄位**（`Models.swift` 那個屬於 `Person`），
+/// 所以在本輪之前 work 的 `doi`／`pmid`／`isbn` 照該 requirement 的字面不算一等公民
+/// ——這正是本 change 的標題所主張的東西。使用者 2026-08-24 裁定補齊。
+///
+/// **值域刻意只有三個識別碼欄位。** work 的其餘欄位（`title`／`date`／`fields.*`）
+/// 要不要能攜帶來源是另一個問題，本 change 不裁決——寫在這裡是為了讓「只有三個」
+/// 是一個看得見的選擇，而不是一個沒人注意到的省略。
+extension Entry {
+    public func validateReferenceAttachment() throws {
+        for r in references {
+            switch r.field {
+            case "doi", "pmid", "isbn":
+                guard let v = r.value else {
+                    throw StoreYAMLError.invalidField(
+                        "entry.references(field: \(r.field))",
+                        "\(r.field) 是清單，reference 必須帶 value 指名支持的是哪一個（D2）"
+                        + "——實測 37 組同題同年而 DOI 不同，一筆記錄真的會有多個")
+                }
+                let ok: Bool
+                switch r.field {
+                case "doi": ok = identifierListContains(doi, value: v, DOI.init)
+                case "pmid": ok = identifierListContains(pmid, value: v, PMID.init)
+                default: ok = identifierListContains(isbn, value: v, ISBN.init)
+                }
+                guard ok else {
+                    throw StoreYAMLError.invalidField(
+                        "entry.references(field: \(r.field))",
+                        "value「\(displaySafe(v, max: 120))」不在 \(r.field) 清單內"
+                        + "——值被改寫後 provenance 成了孤兒")
+                }
+            default:
+                throw StoreYAMLError.invalidField(
+                    "entry.references(field: \(r.field))",
+                    "work 沒有可附著 reference 的欄位「\(displaySafe(r.field, max: 120))」"
+                    + "（合法：doi、pmid、isbn）")
+            }
+        }
+    }
+}
+
+
+extension Entry: ProvenanceCarrying {}
+extension Person: ProvenanceCarrying {}
+extension Organization: ProvenanceCarrying {}
+extension Venue: ProvenanceCarrying {}

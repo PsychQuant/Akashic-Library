@@ -61,7 +61,9 @@ struct EnrichFromZotero: ParsableCommand {
               + "上游也沒有 \(plan.unchanged.count)、"
               + "無 zotero_key \(plan.noProvenance.count)、"
               + "Zotero 查無 \(plan.zoteroMissing.count)、"
-              + "不在 store \(plan.notInStore.count)")
+              + "不在 store \(plan.notInStore.count)"
+              + (plan.refusedOnly.isEmpty ? ""
+                 : "、只有被拒的識別碼 \(plan.refusedOnly.count)"))
 
         for a in plan.additions.sorted(by: { $0.citekey < $1.citekey }) {
             print("")
@@ -79,6 +81,26 @@ struct EnrichFromZotero: ParsableCommand {
                 }
                 print("    + authors（literal ×\(a.addedAuthors.count)）= "
                       + names.joined(separator: "、"))
+            }
+            // 結構化識別碼——**不是 `fields` 殘留**（#394 verify）
+            for d in a.addedDOIs { print("    + doi（結構化）= \(displaySafe(d.normalized, max: 160))") }
+            for d in a.addedPMIDs { print("    + pmid（結構化）= \(displaySafe(d.normalized, max: 160))") }
+            for d in a.addedISBNs { print("    + isbn（結構化）= \(displaySafe(d.normalized, max: 160))") }
+            for r in a.refusedIdentifiers { print("    ✗ 不採用：\(displaySafe(r, max: 300))") }
+        }
+
+        // 第六類：Zotero 給了識別碼、我們刻意不收，而**沒有別的東西可補**。
+        // 與 `unchanged` 分開的理由寫在 `Result.refusedOnly` 的 doc comment 裡。
+        if !plan.refusedOnly.isEmpty {
+            print("")
+            print("Zotero 給了識別碼但刻意不採用（\(plan.refusedOnly.count)）：")
+            for a in plan.refusedOnly.sorted(by: { $0.citekey < $1.citekey })
+                .prefix(AmbiguityDisplayLimit.rows) {
+                print("  \(displaySafe(a.citekey, max: 200))")
+                for r in a.refusedIdentifiers { print("    ✗ \(displaySafe(r, max: 300))") }
+            }
+            if plan.refusedOnly.count > AmbiguityDisplayLimit.rows {
+                print("  …另 \(plan.refusedOnly.count - AmbiguityDisplayLimit.rows) 筆未顯示")
             }
         }
 

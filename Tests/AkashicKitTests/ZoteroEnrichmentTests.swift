@@ -1,4 +1,5 @@
 import XCTest
+@testable import AkashicExport
 @testable import AkashicZoteroImport
 import AkashicCore
 
@@ -222,5 +223,156 @@ final class ZoteroEnrichmentTests: XCTestCase {
         XCTAssertNil(probe.fields["encyclopediatitle"],
                      "走了對映就不該同時留一份殘餘——同一個來源欄位兩個鍵會分岔")
         XCTAssertEqual(probe.type, .referenceWorkEntry)
+    }
+}
+
+/// 識別碼不得以 `fields` 殘留的形式被種回去（#394 verify）。
+///
+/// ## 這組測試防的是什麼
+///
+/// §8 的遷移把 664 筆 work 的 `fields.doi` 一族移進結構化欄位。而本命令是 **add-only**
+/// （`entry.fields[k] == nil` 才補）——遷移之後那些鍵**恰好都是 nil**，於是它會把殘留
+/// 一筆一筆種回去。
+///
+/// 那不只是「多一份副本」。`BibExport` 的 venue-ISSN 拉取條件是 `if fields["issn"] == nil`
+/// ——殘留一旦回來，那條拉取**被遮蔽**，`.bib` 改用 work 上的原始字串。而 spec
+/// （entity-identifier）逐字說 work 帶 ISSN 是 **misplacement**。
+extension ZoteroEnrichmentTests {
+
+    /// work 一律不收 ISSN——spec 明文指為錯置。
+    func testISSNIsNeverAddedToAWork() {
+        let e = entry("a", fields: [:])
+        let i = item(key: "ZK1", fields: ["ISSN": "1082-989X", "title": "T"])
+        let plan = ZoteroEnrichment.plan(entries: [e], items: [i], citekeys: ["a"])
+
+        let all = plan.additions + plan.refusedOnly
+        XCTAssertEqual(all.count, 1, "必須有一筆記錄，不可靜默消失")
+        XCTAssertNil(all[0].addedFields["issn"],
+                     "ISSN 識別的是期刊不是文章；補到 work 上是 spec 明文的 misplacement，"
+                     + "而且會遮蔽 BibExport 的 venue-ISSN 拉取")
+        XCTAssertTrue(all[0].refusedIdentifiers.contains { $0.contains("issn") },
+                      "拒絕必須具名（lossless-intake 執行細節 3：丟棄必須可見）")
+    }
+
+    /// 只有被拒的識別碼、沒有別的可補 → 落在 `refusedOnly`，**不是** `unchanged`。
+    func testRefusedOnlyIsDistinctFromUnchanged() {
+        let e = entry("a", fields: [:])
+        let i = item(key: "ZK1", fields: ["ISSN": "1082-989X"])
+        let plan = ZoteroEnrichment.plan(entries: [e], items: [i], citekeys: ["a"])
+
+        XCTAssertTrue(plan.unchanged.isEmpty,
+                      "「上游也沒有」與「上游有而我們不收」是兩件事，混在一起就看不出區別")
+        XCTAssertEqual(plan.refusedOnly.count, 1)
+        XCTAssertEqual(plan.accountedCitekeys.sorted(), ["a"], "每個 citekey 恰好被歸類一次")
+    }
+
+    /// DOI 走**結構化欄位**，不進 `fields`。
+    func testDOIGoesToTheStructuredFieldNotTheResidue() {
+        let e = entry("a", fields: [:])
+        let i = item(key: "ZK1", fields: ["DOI": "10.1037/met0000144", "title": "T"])
+        let plan = ZoteroEnrichment.plan(entries: [e], items: [i], citekeys: ["a"])
+
+        XCTAssertEqual(plan.additions.count, 1)
+        let add = plan.additions[0]
+        XCTAssertNil(add.addedFields["doi"], "不得種回 fields 殘留")
+        XCTAssertEqual(add.addedDOIs.map(\.normalized), ["10.1037/met0000144"])
+
+        let applied = ZoteroEnrichment.applied(add, to: e)
+        XCTAssertEqual(applied.doi.map(\.normalized), ["10.1037/met0000144"])
+        XCTAssertNil(applied.fields["doi"])
+    }
+
+    /// 已有結構化 DOI 時不動它——保守側紀律與既有的 `fields` 一致。
+    func testExistingStructuredDOIIsNotOverwritten() {
+        var e = entry("a", fields: [:])
+        e.doi = [XCTUnwrap0(DOI("10.1037/aaa"))]
+        let i = item(key: "ZK1", fields: ["DOI": "10.1037/bbb", "title": "T"])
+        let plan = ZoteroEnrichment.plan(entries: [e], items: [i], citekeys: ["a"])
+
+        let add = plan.additions.first
+        XCTAssertTrue(add?.addedDOIs.isEmpty ?? true, "既有結構化值不得被覆寫")
+        XCTAssertNil(add?.addedFields["doi"], "也不得繞道 fields 寫回去")
+    }
+
+    /// 形狀不合法的識別碼**不猜**，但要具名。
+    func testUnparseableIdentifierIsRefusedByName() {
+        let e = entry("a", fields: [:])
+        let i = item(key: "ZK1", fields: ["DOI": "not-a-doi", "title": "T"])
+        let plan = ZoteroEnrichment.plan(entries: [e], items: [i], citekeys: ["a"])
+
+        let all = plan.additions + plan.refusedOnly
+        XCTAssertEqual(all.count, 1)
+        XCTAssertTrue(all[0].addedDOIs.isEmpty)
+        XCTAssertNil(all[0].addedFields["doi"])
+        XCTAssertTrue(all[0].refusedIdentifiers.contains { $0.contains("doi") })
+    }
+}
+
+/// XCTUnwrap 在非 throwing 上下文的小輔助。
+private func XCTUnwrap0<T>(_ v: T?) -> T {
+    guard let v else { preconditionFailure("預期非 nil") }
+    return v
+}
+
+/// pull 路徑（`applyBiblatexFields`）也不得把識別碼留在 `fields` 殘留（#425 verify HIGH）。
+///
+/// 我修了 add-only 的 `enrich`，**姊妹路徑 pull 沒修**——而 pull 是預設的 Zotero
+/// 匯入面（`ZoteroImporter` 的新建與更新兩條路徑都呼叫它）。
+/// spec（entity-identifier）的「WHEN a work record carries an ISSN THEN the store
+/// SHALL treat that as a misplacement」在該路徑上 NOT addressed，
+/// 而 `BibExport` 的 `if fields["issn"] == nil` venue 拉取會因此被遮蔽。
+final class ZoteroPullIdentifierPlacementTests: XCTestCase {
+    private func item(_ fields: [String: String]) -> ZoteroItem {
+        ZoteroItem(key: "K", version: 1, libraryID: 1, typeName: "journalArticle",
+                   fields: fields, authors: [], tags: [], attachmentPaths: [])
+    }
+
+    func testDOIAndISBNGoToStructuredFieldsNotResidue() {
+        var e = Entry(id: UUID(), citekey: "x", type: .webpage, title: "")
+        ZoteroMapping.applyBiblatexFields(
+            from: item(["title": "T", "DOI": "10.1234/abc", "ISBN": "9780306406157"]), to: &e)
+
+        XCTAssertEqual(e.doi.map(\.normalized), ["10.1234/abc"], "識別碼有結構化的家")
+        XCTAssertEqual(e.isbn.map(\.normalized), ["9780306406157"])
+        XCTAssertNil(e.fields["doi"], "不得留在 fields——同一個值兩份副本可各自漂移")
+        XCTAssertNil(e.fields["isbn"])
+    }
+
+    /// 解析不出來的**不猜**——原值留在 `fields`，交由既有的殘餘路徑處理。
+    func testUnparseableIdentifierStaysInFields() {
+        var e = Entry(id: UUID(), citekey: "x", type: .webpage, title: "")
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T", "DOI": "not-a-doi"]), to: &e)
+
+        XCTAssertTrue(e.doi.isEmpty, "解析不出就不填結構化欄位")
+        XCTAssertEqual(e.fields["doi"], "not-a-doi", "原值不得丟棄（lossless-intake）")
+    }
+}
+
+/// venue 的 ISSN 勝過 work 的 `fields` 殘留（#425 verify HIGH）。
+extension ZoteroPullIdentifierPlacementTests {
+    func testVenueISSNWinsOverTheWorkResidue() throws {
+        var v = Venue(key: "j", type: .periodical)
+        v.issn = [try XCTUnwrap(ISSN("1554-351X"))]
+        var e = Entry(id: UUID(), citekey: "a2020", type: .periodicalArticle, title: "T")
+        e.venues = [.key("j")]
+        // pull 寫回的殘留——寫法未正規化，而且它是**過渡態**
+        e.fields["issn"] = "1554351X"
+
+        let bib = BibExport.bibEntry(for: e, people: [:], venues: ["j": v])
+
+        XCTAssertEqual(bib.fields["issn"], "1554-351X",
+                       "識別碼住在它所識別的實體上——venue 的那個才是正典；"
+                       + "work 的殘留是等 migrate-identifiers 搬走的過渡態")
+    }
+
+    /// venue 沒有號時退回殘留——那時它是唯一的來源。
+    func testResidueIsUsedWhenTheVenueHasNoISSN() throws {
+        let v = Venue(key: "j", type: .periodical)
+        var e = Entry(id: UUID(), citekey: "a2020", type: .periodicalArticle, title: "T")
+        e.venues = [.key("j")]
+        e.fields["issn"] = "1554-351X"
+
+        let bib = BibExport.bibEntry(for: e, people: [:], venues: ["j": v])
+        XCTAssertEqual(bib.fields["issn"], "1554-351X", "唯一來源不得被丟掉")
     }
 }

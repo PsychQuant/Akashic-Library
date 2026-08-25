@@ -7,7 +7,8 @@ import BiblatexAPA
 public enum BibExport {
     /// Entry.fields（已是 biblatex 欄位名）之外的一級欄位對映。
     public static func bibEntry(for entry: Entry, people: [String: Person],
-                                organizations: [String: Organization] = [:]) -> BibEntry {
+                                organizations: [String: Organization] = [:],
+                                venues: [String: Venue]) -> BibEntry {
         // 每個值都過 `braceSafe`（#176）。**逐個作者、不是 join 之後**——一個壞名字
         // 不該把整串作者一起拖進逃脫（那會改掉同一筆裡其他機構名的 `{...}` 標記）。
         var fields = OrderedDict()
@@ -31,6 +32,49 @@ public enum BibExport {
         // 印對）。
         for key in entry.fields.keys.sorted() {
             fields[key] = entry.fields[key].map(braceSafe)
+        }
+        // 作品識別碼（#394 §7）。**在 `fields` 之後寫**——理由同下方學位論文欄位：
+        // 遷移把 `doi` 從 `Entry.fields` 搬進結構化欄位之後，上面那個逐鍵迴圈就不再
+        // 輸出它，而 `.bib` 少一個欄位**不會報錯**（LaTeX 照樣編得過，只是參考文獻
+        // 少了 DOI）。這是 `apa7-is-the-work-floor` 記過的「語法正確性與書目正確性是
+        // 兩件事」，而目前只有前者有守衛。
+        //
+        // **只在有結構化值時覆蓋。** 遷移前的記錄只有 `fields.doi`，那時必須照舊
+        // 輸出殘留——否則光是升級 binary 就會讓全庫的 DOI 從 .bib 消失。
+        //
+        // 多值以逗號分隔：一筆 work 真的可以有多個 DOI（實測 37 組同題同年而 DOI
+        // 不同），只留一個等於丟掉一次身分判定。寫出的是**正規形**——磁碟上可能是
+        // 非正規形，但 .bib 是給下游排版用的。
+        func emitIdentifiers<T: Identifier>(_ ids: [T], as key: String) {
+            guard !ids.isEmpty else { return }
+            fields[key] = braceSafe(ids.map(\.normalized).joined(separator: ", "))
+        }
+        emitIdentifiers(entry.doi, as: "doi")
+        emitIdentifiers(entry.pmid, as: "pmid")
+        emitIdentifiers(entry.isbn, as: "isbn")
+        // **ISSN 來自 venue，不是 work**（#394 §8 遷移之後）。
+        //
+        // design.md 的 Risks 段預言了「export 靜默少欄位」，而 §7 的 mitigation 只涵蓋
+        // `doi`／`pmid`／`isbn`——那三個仍在 work 上，`issn` **換了實體**，所以同一個
+        // 形狀套不上去。遷移後實測 `.bib` 的 ISSN 欄位自 64 掉到 0：資料沒丟（在 venue
+        // 上），但匯出看不到。驗收條件也沒抓到，因為它只列了那三個欄位。
+        //
+        // **只在 `fields` 沒有殘留時才寫**——遷移略過的那些仍在 `fields`，不得被覆蓋。
+        // venue 未歸戶（`.literal`）時不生出任何東西：沒有 venue 記錄就沒有號。
+        // **venue 優先於 work 的殘留**（#425 verify HIGH）。
+        //
+        // 先前的條件是 `if fields["issn"] == nil`——只在 work 沒有殘留時才拉 venue。
+        // 而 `import-zotero`（pull）會把 `fields.issn` 寫回 work，於是那條拉取
+        // **被遮蔽**，`.bib` 改印 Zotero 的原始字串而不是 venue 上正規化過的號。
+        //
+        // 方向該反過來：識別碼住在它所識別的實體上（spec），venue 的那個才是正典；
+        // work 的殘留是**過渡態**（等 migrate-identifiers 搬走）。venue 沒有號時才
+        // 退回殘留——那時它是唯一的來源。
+        let venueISSNs = entry.venues.compactMap { ref -> Venue? in
+            if case .key(let k) = ref { return venues[k] } else { return nil }
+        }.flatMap(\.issn)
+        if !venueISSNs.isEmpty {
+            emitIdentifiers(venueISSNs, as: "issn")
         }
         // 學位論文事實（#335）。**在 `fields` 之後寫**，所以結構化欄位勝過自由字典裡
         // 同名的殘留值——遷移把 `fields.type` 搬進 `thesis.degree` 之後那個殘留不該
@@ -268,14 +312,21 @@ public enum BibExport {
     /// 對每筆 entry 跑 APA7 必要欄位檢查，回報缺漏與**未被涵蓋的 type**。
     ///
     /// 不改變 `.bib` 內容——本函式是純讀取的旁路檢查（warn-only，#326 裁決）。
+    ///
+    /// **`venues` 無預設值是刻意的**（#394 verify）：§8 讓 ISSN 住 venue 之後，漏傳
+    /// 它的呼叫端會評到一份**沒有 ISSN 的** `BibEntry`，而編譯器不會出聲。這正是
+    /// 下面那句 doc comment 禁止的分岔——它當時只防住 entry type，防不住欄位來源。
     public static func apa7Report(entries: [Entry], people: [Person],
-                                  organizations: [Organization] = []) -> APA7Report {
+                                  organizations: [Organization] = [],
+                                  venues: [Venue]) -> APA7Report {
         let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
         let orgsByKey = Dictionary(uniqueKeysWithValues: organizations.map { ($0.key, $0) })
+        let venuesByKey = Dictionary(venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         var issues: [APA7Issue] = []
         var unchecked: [String] = []
         for entry in entries.sorted(by: { $0.citekey < $1.citekey }) {
-            let bib = bibEntry(for: entry, people: peopleByKey, organizations: orgsByKey)
+            let bib = bibEntry(for: entry, people: peopleByKey, organizations: orgsByKey,
+                               venues: venuesByKey)
             // 與 `bibEntry` 走**同一個**對映（#417）：兩邊分岔的話，報告會拿
             // `PRESENTATION` 的必要欄位去檢查一筆實際匯出成 `INPROCEEDINGS` 的記錄。
             let entryType = entry.type.biblatexEntryType(fields: entry.fields)
@@ -317,13 +368,17 @@ public enum BibExport {
     }
 
     public static func bibFile(entries: [Entry], people: [Person],
-                               organizations: [Organization] = []) -> String {
+                               organizations: [Organization] = [],
+                               venues: [Venue]) -> String {
         let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
         let orgsByKey = Dictionary(uniqueKeysWithValues: organizations.map { ($0.key, $0) })
+        // #394 §8：ISSN 遷移到 venue 之後，work 的 .bib 要從這裡撈。
+        let venuesByKey = Dictionary(uniqueKeysWithValues: venues.map { ($0.key, $0) })
         return entries
             .sorted { $0.citekey < $1.citekey }
             .map { BibWriter.serialize(bibEntry(for: $0, people: peopleByKey,
-                                                organizations: orgsByKey)) }
+                                                organizations: orgsByKey,
+                                                venues: venuesByKey)) }
             .joined(separator: "\n\n") + "\n"
     }
 

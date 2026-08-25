@@ -75,7 +75,7 @@ final class CorporateNameTests: XCTestCase {
                       authors: [.literal(CorporateName.mark("World Health Organization"))],
                       date: "2020")
         e.fields["journaltitle"] = "J"
-        let json = try CSLExport.cslJSON(entries: [e], people: [])
+        let json = try CSLExport.cslJSON(entries: [e], people: [], venues: [])
         let arr = try JSONSerialization.jsonObject(with: Data(json.utf8)) as! [[String: Any]]
         let authors = arr[0]["author"] as! [[String: Any]]
         XCTAssertEqual(authors[0]["literal"] as? String, "World Health Organization")
@@ -86,7 +86,7 @@ final class CorporateNameTests: XCTestCase {
         var e = Entry(id: UUID(), citekey: "cheng2025a", type: .periodicalArticle, title: "T",
                       authors: [.literal("Che Cheng")], date: "2025")
         e.fields["journaltitle"] = "J"
-        let json = try CSLExport.cslJSON(entries: [e], people: [])
+        let json = try CSLExport.cslJSON(entries: [e], people: [], venues: [])
         let arr = try JSONSerialization.jsonObject(with: Data(json.utf8)) as! [[String: Any]]
         let authors = arr[0]["author"] as! [[String: Any]]
         XCTAssertEqual(authors[0]["family"] as? String, "Cheng")
@@ -134,7 +134,7 @@ final class CorporateNameTests: XCTestCase {
         var e = Entry(id: UUID(), citekey: "chang2026a", type: .periodicalArticle,
                       title: "T", authors: [.key("chang-ya-hsuan")], date: "2026")
         e.fields["journaltitle"] = "J"
-        let bib = BibExport.bibEntry(for: e, people: ["chang-ya-hsuan": p])
+        let bib = BibExport.bibEntry(for: e, people: ["chang-ya-hsuan": p], venues: [:])
         XCTAssertEqual(bib.fields["author"], "Chang, Ya-Hsuan",
                        "先前是「Ya-Hsuan, Chang,」——姓名顛倒且多一個逗號")
     }
@@ -146,7 +146,7 @@ final class CorporateNameTests: XCTestCase {
         var e = Entry(id: UUID(), citekey: "chang2026b", type: .periodicalArticle,
                       title: "T", authors: [.key("chang")], date: "2026")
         e.fields["journaltitle"] = "J"
-        let bib = BibExport.bibEntry(for: e, people: ["chang": p])
+        let bib = BibExport.bibEntry(for: e, people: ["chang": p], venues: [:])
         XCTAssertEqual(bib.fields["author"], "Chang")
     }
 

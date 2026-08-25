@@ -1,5 +1,4 @@
 import SwiftUI
-import AkashicAppKit
 import AkashicCore
 
 struct EntryListView: View {
@@ -62,7 +61,7 @@ struct EntryDetailView: View {
                             }
                         }
                     }
-                    LabeledContent("Type", value: entry.type)
+                    LabeledContent("Type", value: entry.type.rawValue)
                     LabeledContent("Title", value: entry.displayTitle)
                     // `Author.displayName` 不消毒（#161 verify 181-4）——走投影
                     LabeledContent("Authors", value: entry.displayAuthors)

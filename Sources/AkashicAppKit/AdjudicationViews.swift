@@ -1,5 +1,4 @@
 import SwiftUI
-import AkashicAppKit
 import AkashicCore
 
 /// 裁決台①：resolve-people 候選逐一 accept／skip。

@@ -1,5 +1,4 @@
 import SwiftUI
-import AkashicAppKit
 import AkashicGraph
 
 /// Graph 區塊的控制欄（content column）：focus 選擇 + depth。

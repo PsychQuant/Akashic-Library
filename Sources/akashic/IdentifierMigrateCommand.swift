@@ -57,6 +57,11 @@ struct MigrateIdentifiers: ParsableCommand {
                 print("      \(displaySafe(s.reason, max: 800))")
             }
         }
+        if !report.shapeUpgraded.isEmpty {
+            print("\n── 形狀升級（format 12 → 13）：\(report.shapeUpgraded.count) 檔 ──")
+            print("  `issn`／`isbn` 序列的裸純量元素改寫為 `- value: …`。"
+                  + "舊形狀在新解碼器下是整檔 quarantine，所以這一步必須先跑。")
+        }
         if !report.discardedAnnotations.isEmpty {
             print("\n── 被剝掉的括號註記（\(report.discardedAnnotations.count) 筆）──")
             print("  這些是有書目語意的 qualifier，不是雜訊；現行模型沒有欄位存它們。")

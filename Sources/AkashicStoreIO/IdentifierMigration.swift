@@ -79,6 +79,8 @@ public enum IdentifierMigration {
         /// 等於兩邊都不對。現在所有前提在任何寫入之前裁決完畢，於是乾跑與 apply
         /// 得到同一組結果，乾跑才真的能預告 apply。
         public var blockers: [String] = []
+        /// format 12 → 13 的形狀前置升級碰過的檔（`issn`／`isbn` 的裸純量 → mapping）。
+        public var shapeUpgraded: [String] = []
         public var applied: Int = 0
 
         /// 會被改動的識別碼總數——dry-run 的頭條數字。
@@ -140,11 +142,80 @@ public enum IdentifierMigration {
         return (splitTokens(stripped), annotations)
     }
 
+    /// 值 ＋ 緊跟在它後面的括號註記（#394 verify）。
+    ///
+    /// **配對而不是各自成堆**：`1939-1455(Electronic),0033-2909(Print)` 的資訊不是
+    /// 「有兩個號、有兩個註記」，是「1939-1455 是電子版、0033-2909 是紙本」。
+    /// 先前 `candidatesWithAnnotations` 把兩者拆成兩個平坦清單——那保住了「有丟東西」
+    /// 這個事實，卻保不住那個事實的內容。
+    ///
+    /// 規則：一個 `(...)` 歸屬於**它前面最近的**值。前面沒有值的括號（罕見）被忽略，
+    /// 但仍出現在 `candidatesWithAnnotations` 的回報裡——不猜它屬於誰。
+    static func qualifiedCandidates(_ raw: String, field: String)
+        -> [(value: String, qualifier: String?)] {
+        guard absorbsMultipleValues(field: field) else {
+            return splitTokens(raw).map { ($0, nil) }
+        }
+        var out: [(value: String, qualifier: String?)] = []
+        var token = ""
+        var i = raw.startIndex
+        func flush() {
+            let s = token.trimmingCharacters(in: .whitespaces)
+            if !s.isEmpty { out.append((s, nil)) }
+            token = ""
+        }
+        while i < raw.endIndex {
+            let c = raw[i]
+            if c == "(" {
+                flush()
+                var inner = ""
+                i = raw.index(after: i)
+                while i < raw.endIndex, raw[i] != ")" { inner.append(raw[i]); i = raw.index(after: i) }
+                if i < raw.endIndex { i = raw.index(after: i) }          // 跳過 ")"
+                let q = inner.trimmingCharacters(in: .whitespaces)
+                // 歸屬於前面最近的值。前面沒有值就丟掉——但 `candidatesWithAnnotations`
+                // 仍會回報它，所以不是靜默。
+                if !q.isEmpty, let last = out.indices.last { out[last].qualifier = q }
+                continue
+            }
+            if c == "," || c.isWhitespace { flush() } else { token.append(c) }
+            i = raw.index(after: i)
+        }
+        flush()
+        return out
+    }
+
     private static func splitTokens(_ stripped: String) -> [String] {
         stripped
             .split(whereSeparator: { $0 == "," || $0.isWhitespace })
             .map(String.init)
             .filter { !$0.isEmpty }
+    }
+
+    /// 帶限定詞的正規化＋去重（#394 verify）。
+    ///
+    /// **相等仍只看正規形**（`Identifier` 的既有立場——否則 `0003-066x` 與 `0003-066X`
+    /// 會被當成兩個號）。所以去重時要決定保留哪一個的限定詞：**有的勝過沒有的**。
+    ///
+    /// 兩個都有而且不同時（實測案例：`0022-3514 (Print) 0022-3514 (Linking)`——同一個
+    /// 號同時是紙本 ISSN 與 ISSN-L）**保留先出現的**，第二個由
+    /// `candidatesWithAnnotations` 的回報留下痕跡。一個 `String?` 裝不下兩個角色，
+    /// 而為此把欄位變成清單，是為一個實測 1 筆的情形付結構成本。
+    static func normalizedUniqueQualified<T: Identifier>(
+        _ pairs: [(value: String, qualifier: String?)], _ make: (String) -> T?
+    ) -> (values: [T], unparseable: [String]) {
+        var out: [T] = []
+        var bad: [String] = []
+        for (rawValue, q) in pairs {
+            guard let v = make(rawValue) else { bad.append(rawValue); continue }
+            let withQ = v.withQualifier(q)
+            if let idx = out.firstIndex(of: withQ) {
+                if out[idx].qualifier == nil, withQ.qualifier != nil { out[idx] = withQ }
+            } else {
+                out.append(withQ)
+            }
+        }
+        return (out, bad)
     }
 
     /// 正規化 ＋ **去重**（task 8.2：先正規化再去重，去重後仍 >1 者才是真多號）。
@@ -180,31 +251,96 @@ public enum IdentifierMigration {
         field == "issn" || field == "isbn"
     }
 
+    /// **format 12 → 13 的形狀前置升級**（#394 verify）：`issn:`／`isbn:` 序列的
+    /// 裸純量元素改寫成 `- value: …`。
+    ///
+    /// ## 為什麼這條相容路徑可以存在
+    ///
+    /// `no-compat-fallback` 允許「一次改不完」時保留相容路徑，但要求三件事，本函式逐條滿足：
+    ///
+    /// 1. **不住 default 位置**：解碼器（`decodeQualifiedList`）維持嚴格、對裸純量整檔拒讀。
+    ///    這條路徑**只有遷移命令呼叫**，`grep -n 'upgradingIdentifierShape' Sources/` 一眼看完。
+    /// 2. **退場量測**（可直接貼進終端機）：
+    ///    ```bash
+    ///    grep -A5 -E '^(issn|isbn):' ~/.akashic/entities/*.yaml | grep -cE '^\S*-- [^v]'
+    ///    ```
+    ///    回 0 ＝ 全庫已無裸純量形狀，本函式可刪。
+    /// 3. **退場即刪**：條件成立後移除本函式與它的呼叫點，不留著當保險。
+    ///
+    /// ## 為什麼是文字層而不是寬容解碼器
+    ///
+    /// 寬容解碼器要嘛住 default 位置（違反第 1 條），要嘛要把旗標穿過整條 decode 鏈。
+    /// 而這是**一次性的形狀轉換**，文字層足夠且不污染型別層——同 `migrate-venues`
+    /// 一族的既有形狀。
+    ///
+    /// 只改**確實是舊形狀**的行：`issn:`／`isbn:` 之下、以 `- ` 開頭、且**不是**
+    /// `- value:` 的那些。其餘一律不動。
+    @discardableResult
+    static func upgradingIdentifierShape(store: LibraryStore, apply: Bool,
+                                         tracked: Set<Data>) throws -> [String] {
+        let fm = FileManager.default
+        let dir = store.root.appendingPathComponent("entities")
+        guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { return [] }
+        var touched: [String] = []
+        for name in names.sorted() where name.hasSuffix(".yaml") {
+            let url = dir.appendingPathComponent(name)
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            var lines = text.components(separatedBy: "\n")
+            var inList = false
+            var changed = false
+            for i in lines.indices {
+                let line = lines[i]
+                if line == "issn:" || line == "isbn:" { inList = true; continue }
+                guard inList else { continue }
+                if line.hasPrefix("- ") {
+                    let v = String(line.dropFirst(2))
+                    if !v.hasPrefix("value:") {
+                        lines[i] = "- value: \(v)"
+                        changed = true
+                    }
+                } else {
+                    inList = false          // 序列結束
+                }
+            }
+            guard changed else { continue }
+            let rel = "entities/\(name)"
+            // **同一條 trackedness 紀律**：未被 git 追蹤的檔改寫沒有回復路徑。
+            // 前置升級也是改寫——它先前繞過了這道閘。
+            guard tracked.contains(Data(rel.utf8)) else { continue }
+            touched.append(rel)
+            if apply { try lines.joined(separator: "\n").write(to: url, atomically: true,
+                                                              encoding: .utf8) }
+        }
+        return touched
+    }
+
     /// 掃全庫、產出處置計畫；`apply` 才寫入。
     ///
     /// **不自動 bump format**（design 的部署順序）——遷移必須跑得動在舊解碼器上，
     /// bump 是人工的最後一步。
     public static func run(store: LibraryStore, apply: Bool = false) throws -> Report {
         var report = Report()
-        let load = try store.load()
-
-        // per-file trackedness：apply 時查一次（同 VenueMigration／PersonIdentityMigration）。
-        // 未被 git 追蹤的檔改寫沒有回復路徑。
-        //
-        // **乾跑也查**（#394 verify）：先前只在 `apply` 內查，於是一個保證會毀資料的
-        // 前提（venue 檔未追蹤／venue 不存在）在乾跑輸出裡**完全看不見**——而這條命令
-        // 的整段 doc comment 主張乾跑存在的理由就是「讓會靜默毀資料的問題在寫入前現形」。
+        // trackedness 先算——前置升級也要受它管（它同樣是改寫）。
         var tracked: Set<Data> = []
         var trackednessKnown = true
-        if let out = LibraryStore.git(["ls-files", "-z", "--", "entities"],
-                                      in: store.root), out.status == 0 {
-            tracked = Set(out.out.split(separator: "\0").map { Data($0.utf8) })
+        if let out0 = LibraryStore.git(["ls-files", "-z", "--", "entities"], in: store.root),
+           out0.status == 0 {
+            tracked = Set(out0.out.split(separator: "\0").map { Data($0.utf8) })
         } else if apply {
             throw PersonIdentityMigration.MigrationError.noRecoveryPath(
                 detail: "git ls-files 無法執行——無從確認追蹤狀態")
         } else {
             trackednessKnown = false
         }
+        // **形狀前置升級必須在 load 之前**——裸純量的 issn/isbn 會讓那些檔整檔
+        // quarantine，於是 load 之後它們根本不在 `load.venues`／`load.entries` 裡。
+        report.shapeUpgraded = try upgradingIdentifierShape(store: store, apply: apply,
+                                                            tracked: tracked)
+        let load = try store.load()
+
+        // per-file trackedness：apply 時查一次（同 VenueMigration／PersonIdentityMigration）。
+        // 未被 git 追蹤的檔改寫沒有回復路徑。
+
 
         // venue key → 要加上去的 ISSN（跨 work 累積後一次寫）。
         var issnByVenue: [String: [ISSN]] = [:]
@@ -222,14 +358,15 @@ public enum IdentifierMigration {
 
             for key in workIdentifierKeys {
                 guard let raw = entry.fields[key] else { continue }
-                let (toks, annotations) = candidatesWithAnnotations(raw, field: key)
+                let annotations = candidatesWithAnnotations(raw, field: key).annotations
+                let qualifiedToks = qualifiedCandidates(raw, field: key)
                 if !annotations.isEmpty {
                     report.discardedAnnotations.append(DiscardedAnnotation(
                         citekey: entry.citekey, field: key, raw: raw, annotations: annotations))
                 }
 
                 func take<T: Identifier>(_ make: (String) -> T?) -> [T]? {
-                    let (values, bad) = normalizedUnique(toks, make)
+                    let (values, bad) = normalizedUniqueQualified(qualifiedToks, make)
                     for b in bad {
                         report.skipped.append(Skipped(
                             citekey: entry.citekey, field: key, value: b,

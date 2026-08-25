@@ -2157,7 +2157,12 @@ public final class AkashicService {
         // 空清單**不輸出這個鍵**（同 `authorized`／`note` 的既有慣例）：venue 沒有
         // 登記 ISSN 是常態（會議、出版社、網站），輸出空陣列是雜訊不是訊號。
         if !record.issn.isEmpty {
-            d["issn"] = record.issn.map { displaySafe($0.normalized, max: 40) }
+            d["issn"] = record.issn.map { i -> [String: Any] in
+                var one: [String: Any] = ["value": displaySafe(i.normalized, max: 40)]
+                // `medium` 缺席 ＝ **還沒查**，是合法狀態不是缺陷；缺席就不寫這個鍵。
+                if let m = i.medium { one["medium"] = m.rawValue }   // display-safe-exempt: 封閉列舉 rawValue
+                return one
+            }
         }
         // resolution verdict（`entity-backlink-completeness` 第 13 條邊）。**person 那面
         // 早就有這一格，venue 沒有**——而 `resolve-venues` 的判定同樣落在被判定的 venue

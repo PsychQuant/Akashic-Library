@@ -151,7 +151,7 @@ public enum EntryYAML {
         // （讀取請走 `canonicalDOIs` 一族）；殘留的移除由 `migrate-identifiers` 負責。
         if let n = IdentifierYAML.listNode(entry.doi) { pairs.append((Node("doi"), n)) }
         if let n = IdentifierYAML.listNode(entry.pmid) { pairs.append((Node("pmid"), n)) }
-        if let n = IdentifierYAML.listNode(entry.isbn) { pairs.append((Node("isbn"), n)) }
+        if let n = IdentifierYAML.qualifiedListNode(entry.isbn) { pairs.append((Node("isbn"), n)) }
         // #394 §5：work 的欄位層級 provenance。空清單不寫出——既有記錄零 diff。
         if !entry.references.isEmpty {
             try pairs.append((Node("references"), ProvenanceYAML.node(entry.references)))
@@ -1002,7 +1002,7 @@ public enum EntryYAML {
         // #394：work 的三種識別碼（清單型——實測 37 組同題同年而 DOI 不同）。
         entry.doi = try IdentifierYAML.decodeList(map, key: "doi", field: "doi", as: DOI.self)
         entry.pmid = try IdentifierYAML.decodeList(map, key: "pmid", field: "pmid", as: PMID.self)
-        entry.isbn = try IdentifierYAML.decodeList(map, key: "isbn", field: "isbn", as: ISBN.self)
+        entry.isbn = try IdentifierYAML.decodeQualifiedList(map, key: "isbn", field: "isbn", as: ISBN.self)
         if let rn = try requireShape(map["references"], field: "references",
                                      expect: "sequence", nullIsAbsent: true,
                                      { $0.sequence != nil ? $0 : nil }) {
@@ -2064,6 +2064,54 @@ enum IdentifierYAML {
             .map { try make($0, field: field, as: T.self) }
     }
 
+    /// 帶限定詞的清單型 → YAML 序列（#394 verify）。
+    ///
+    /// **一律 mapping，不做「純量或 mapping 二選一」。** 兩種形狀並存會讓
+    /// 「這個欄位長什麼樣」取決於該筆記錄恰好是哪一代寫的，而分支住在唯一的
+    /// 解析入口裡、沒有具名出口可以 grep——那正是本 repo 反覆付過代價的形狀。
+    ///
+    /// 形狀與 `authors`／`venues`／`affiliations` 一致（那三個也都是一律 mapping、
+    /// 靠鍵的有無做 switch），不是為這個欄位發明的新慣例。
+    ///
+    /// `qualifier` 缺席 ＝ **還沒查**，是合法狀態；缺席就不寫那個鍵，
+    /// 與 `note`／`authorized` 的既有慣例相同。
+    static func qualifiedListNode<T: Identifier>(_ ids: [T]) -> Yams.Node? {
+        guard !ids.isEmpty else { return nil }
+        return Yams.Node(ids.map { id -> Yams.Node in
+            var pairs: [(Yams.Node, Yams.Node)] = [(Yams.Node("value"), Yams.Node(id.normalized))]
+            if let q = id.qualifier, !q.isEmpty {
+                pairs.append((Yams.Node("qualifier"), Yams.Node(q)))
+            }
+            return Yams.Node(pairs)
+        })
+    }
+
+    /// 帶限定詞的清單型讀取。缺席回空陣列（缺席不是錯誤）。
+    static func decodeQualifiedList<T: Identifier>(
+        _ map: Yams.Node.Mapping, key: String, field: String, as _: T.Type
+    ) throws -> [T] {
+        guard let seq = try EntryYAML.requireShape(map[key], field: field,
+                                                   expect: "sequence", nullIsAbsent: true,
+                                                   { $0.sequence }) else { return [] }
+        return try seq.map { node in
+            guard let m = node.mapping else {
+                throw StoreYAMLError.invalidField(
+                    field, "每個元素必須是 mapping（`value:` ＋選填的 `qualifier:`）"
+                         + "——裸純量是 format 13 之前的形狀，經 migrate-identifiers 升級")
+            }
+            try EntryYAML.rejectUnknownKeys(m, known: ["value", "qualifier"], context: field)
+            guard let raw = try EntryYAML.requireShape(m["value"], field: "\(field).value",
+                                                      expect: "scalar",
+                                                      { $0.scalar?.string }) else {
+                throw StoreYAMLError.missingField("\(field).value")
+            }
+            let q = try EntryYAML.requireShape(m["qualifier"], field: "\(field).qualifier",
+                                               expect: "scalar", nullIsAbsent: true,
+                                               { $0.scalar?.string })
+            return try make(raw, field: field, as: T.self).withQualifier(q)
+        }
+    }
+
     /// 純量型的讀取。
     static func decodeScalar<T: Identifier>(
         _ map: Yams.Node.Mapping, key: String, field: String, as _: T.Type
@@ -2106,7 +2154,7 @@ public enum VenueYAML {
             pairs.append((Node("authorized"), Node(v.authorized.map { Node($0) })))
         }
         // #394：識別碼緊接在身分區塊之後——它就是身分的一部分。
-        if let n = IdentifierYAML.listNode(v.issn) { pairs.append((Node("issn"), n)) }
+        if let n = IdentifierYAML.qualifiedListNode(v.issn) { pairs.append((Node("issn"), n)) }
         if let n = v.note { pairs.append((Node("note"), Node(n))) }
         if !v.references.isEmpty {
             try pairs.append((Node("references"), ProvenanceYAML.node(v.references)))
@@ -2167,7 +2215,7 @@ public enum VenueYAML {
                                                 { $0.sequence }) {
             v.authorized = try EntryYAML.stringList(seq, context: "venue.authorized")
         }
-        v.issn = try IdentifierYAML.decodeList(map, key: "issn", field: "venue.issn",
+        v.issn = try IdentifierYAML.decodeQualifiedList(map, key: "issn", field: "venue.issn",
                                                as: ISSN.self)
         v.note = try EntryYAML.requireShape(map["note"], field: "venue.note",
                                             expect: "scalar", nullIsAbsent: true,

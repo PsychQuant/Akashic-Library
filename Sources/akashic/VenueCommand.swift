@@ -60,8 +60,13 @@ struct VenueCmd: ParsableCommand {
         if let auth = obj["authorized"] as? [String], !auth.isEmpty {
             print("  authorized：\(auth.joined(separator: "；"))")
         }
-        if let issn = obj["issn"] as? [String], !issn.isEmpty {
-            print("  ISSN：\(issn.joined(separator: "、"))")   // display-safe-exempt: service 已逐值消毒（40），displaySafe 不冪等
+        if let issn = obj["issn"] as? [[String: Any]], !issn.isEmpty {
+            let rendered = issn.map { one -> String in
+                let v = one["value"] as? String ?? "?"
+                if let m = one["medium"] as? String { return "\(v)（\(m)）" }
+                return v
+            }
+            print("  ISSN：\(rendered.joined(separator: "、"))")   // display-safe-exempt: service 已逐值消毒（40），displaySafe 不冪等
         }
         if let note = obj["note"] as? String { print("  note：\(note)") }
         if let vs = obj["verdicts"] as? [[String: Any]], !vs.isEmpty {

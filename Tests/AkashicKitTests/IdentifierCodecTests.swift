@@ -25,7 +25,7 @@ final class IdentifierCodecTests: XCTestCase {
         key: american-psychologist
         type: periodical
         issn:
-        - 0003-066x
+        - value: 0003-066x
         """
         let v = try VenueYAML.decode(yaml)
         XCTAssertEqual(v.issn.count, 1)
@@ -42,7 +42,7 @@ final class IdentifierCodecTests: XCTestCase {
         key: american-psychologist
         type: periodical
         issn:
-        - 0003-066x
+        - value: 0003-066x
         """
         let out = try VenueYAML.encode(try VenueYAML.decode(yaml))
         XCTAssertTrue(out.contains("0003-066X"), "寫入面必須輸出正規形：\(out)")
@@ -59,7 +59,7 @@ final class IdentifierCodecTests: XCTestCase {
         key: bad
         type: periodical
         issn:
-        - 12345
+        - value: 12345
         """
         XCTAssertThrowsError(try VenueYAML.decode(yaml)) { error in
             let msg = "\(error)"
@@ -67,6 +67,43 @@ final class IdentifierCodecTests: XCTestCase {
             XCTAssertTrue(msg.contains(ISSN.shapeDescription),
                           "錯誤須具名預期形狀：\(msg)")
         }
+    }
+
+    /// format 12 的裸純量形狀在 format 13 起**被拒**，而錯誤要說得出升級路徑。
+    ///
+    /// 這是本次 bump 為什麼是 non-additive 的可執行證據：舊形狀不是被寬容保留，
+    /// 是整檔讀不進來。**寫成測試而不是只寫進 StoreVersion 的 doc comment**——
+    /// 那段散文沒有任何東西在驗證它。
+    func testBareScalarISSNIsRefusedWithAnUpgradeHint() {
+        let yaml = """
+        venue:
+        id: \(UUID().uuidString)
+        key: legacy
+        type: periodical
+        issn:
+        - 0003-066X
+        """
+        XCTAssertThrowsError(try VenueYAML.decode(yaml)) { error in
+            let msg = "\(error)"
+            XCTAssertTrue(msg.contains("mapping"), "錯誤須具名預期的容器形狀：\(msg)")
+            XCTAssertTrue(msg.contains("migrate-identifiers"),
+                          "錯誤須指出升級路徑，否則使用者只知道壞了不知道怎麼修：\(msg)")
+        }
+    }
+
+    /// `qualifier` 缺席 ＝ 還沒查，是合法狀態；在場則原樣讀回。
+    func testQualifierRoundTrips() throws {
+        var v = Venue(key: "psychological-bulletin", type: .periodical)
+        v.issn = [try XCTUnwrap(ISSN("1939-1455")).withQualifier("electronic"),
+                  try XCTUnwrap(ISSN("0033-2909")).withQualifier("print"),
+                  try XCTUnwrap(ISSN("1234-5679"))]
+        let out = try VenueYAML.encode(v)
+        XCTAssertTrue(out.contains("qualifier: electronic"), out)
+        let back = try VenueYAML.decode(out)
+        XCTAssertEqual(back.issn.map { $0.medium?.rawValue ?? "—" },
+                       ["electronic", "print", "—"],
+                       "缺席的 medium 讀回來仍是缺席，不得被填成某個預設值")
+        XCTAssertFalse(out.contains("qualifier: —"), "缺席就不寫那個鍵：\(out)")
     }
 
     // MARK: - task 4.2：序列化形狀
@@ -84,8 +121,10 @@ final class IdentifierCodecTests: XCTestCase {
         var v = Venue(key: "brm", type: .periodical)
         v.issn = [try XCTUnwrap(ISSN("1554-351X")), try XCTUnwrap(ISSN("1554-3528"))]
         let venueOut = try VenueYAML.encode(v)
-        XCTAssertTrue(venueOut.contains("issn:\n- 1554-351X\n- 1554-3528"),
-                      "清單型必須是 YAML 序列：\(venueOut)")
+        XCTAssertTrue(venueOut.contains("issn:"), "清單型必須是 YAML 序列：\(venueOut)")
+        XCTAssertTrue(venueOut.contains("- value: 1554-351X"),
+                      "format 13 起序列元素是 mapping（value ＋選填 qualifier）：\(venueOut)")
+        XCTAssertTrue(venueOut.contains("- value: 1554-3528"), venueOut)
 
         var org = Organization(key: "academia-sinica")
         org.ror = ROR("05bqach95")

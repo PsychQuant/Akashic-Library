@@ -43,9 +43,26 @@ public protocol Identifier: Equatable, CustomStringConvertible {
     var normalized: String { get }
     /// 這種識別碼的預期形狀，供錯誤訊息具名。
     static var shapeDescription: String { get }
+    /// 限定詞（#394 verify）——**只有 ISSN 與 ISBN 有**，其餘四種恆為 `nil`。
+    ///
+    /// 不對稱是有依據的：spec（entity-identifier）為每種識別碼的**基數**列了證據，
+    /// 而 ISSN 與 ISBN 的多值是被一個**內在區分軸**證成的——
+    /// 「`1554-351X` and `1554-3528` are the print and electronic ISSNs of one journal」、
+    /// 「one work has separate ISBNs across **editions**」。DOI 與 PMID 的多值不是：
+    /// 37 組同題同年而 DOI 不同，是不同註冊，沒有一個軸可以區分它們。
+    ///
+    /// **在此之前模型記錄了「有幾個」，卻沒記錄「憑什麼是幾個」**——而遷移當時
+    /// 手上有那個區分（`1939-1455(Electronic),0033-2909(Print)`），把它剝掉了。
+    var qualifier: String? { get }
+    /// 回傳帶上限定詞的同一個識別碼。不支援限定詞的種類原樣回傳。
+    func withQualifier(_ q: String?) -> Self
 }
 
 public extension Identifier {
+    /// 預設無限定詞——DOI／PMID／ORCID／ROR 走這條。
+    var qualifier: String? { nil }
+    func withQualifier(_ q: String?) -> Self { self }
+
     /// 顯示用正規形（`raw` 是儲存細節，不是給人看的）。
     var description: String { normalized }
 
@@ -82,12 +99,40 @@ private func mod11(_ digits: [Int], weights: [Int]) -> Int? {
 ///
 /// 一個期刊可以有**兩個** ISSN（print 與 electronic），所以 venue 側是清單而非純量
 /// ——實測 Behavior Research Methods 的 `1554-351X`（print）與 `1554-3528`（electronic）。
+/// ISSN 的角色。**封閉值域，取自 ISSN 標準本身**（不是我們發明的分類）：
+/// 同一份期刊的紙本與電子版各有一個號，而 ISSN-L（linking）把它們串起來。
+///
+/// 值域封閉的理由與 `VenueType` 同型（`common-spec-prose-enumeration`）：
+/// 這三個是標準定義的角色，不是一個開放的形容詞集合。
+public enum ISSNMedium: String, CaseIterable, Equatable {
+    case print, electronic, linking
+
+    /// 從自由字串認出角色（遷移剝下來的括號註記是 `Electronic`／`Print`／`Linking`）。
+    /// 認不出回 `nil`——**不猜**。
+    public init?(loose s: String) {
+        let k = s.trimmingCharacters(in: .whitespaces).lowercased()
+        guard let m = ISSNMedium.allCases.first(where: { $0.rawValue == k }) else { return nil }
+        self = m
+    }
+}
+
 public struct ISSN: Identifier {
     public let raw: String
     public let normalized: String
+    /// 這個號是紙本、電子版、還是 ISSN-L。`nil` ＝**還沒查**，是合法狀態不是缺陷
+    /// （實測 39 個帶 ISSN 的 venue 裡，只有 5 個的角色可從庫內資料判定）。
+    public let medium: ISSNMedium?
+    public var qualifier: String? { medium?.rawValue }
+    public func withQualifier(_ q: String?) -> ISSN {
+        ISSN(validated: raw, normalized: normalized, medium: q.flatMap(ISSNMedium.init(loose:)))
+    }
+    private init(validated raw: String, normalized: String, medium: ISSNMedium?) {
+        self.raw = raw; self.normalized = normalized; self.medium = medium
+    }
     public static let shapeDescription = "NNNN-NNNN（末位可為大寫 X）"
 
     public init?(_ raw: String) {
+        self.medium = nil
         self.raw = raw
         let c = raw.idCompact
         guard c.count == 8 else { return nil }
@@ -172,9 +217,26 @@ public struct PMID: Identifier {
 public struct ISBN: Identifier {
     public let raw: String
     public let normalized: String
+    /// 裝幀／版次註記（#394 verify）。**自由文字，不是封閉列舉**——與 `ISSNMedium`
+    /// 的不對稱是有依據的：ISSN 的角色由標準定義（print／electronic／linking），
+    /// 而 ISBN 的限定詞沿用 MARC 020 $q「Qualifying information」的語意，其值域
+    /// 本來就開放（實測庫內出現過 `hardcover`、`alk. paper`；常見的還有 paperback、
+    /// ebook、EPUB、set、v.1…）。
+    ///
+    /// 把一個真正開放的東西寫成封閉列舉，會在第一個沒想到的值上把資料擋在門外——
+    /// 那是 `common-spec-prose-enumeration` 說的「真的是性質才寫判準」的反面。
+    public let qualifier: String?
+    public func withQualifier(_ q: String?) -> ISBN {
+        ISBN(validated: raw, normalized: normalized,
+             qualifier: q?.trimmingCharacters(in: .whitespaces).isEmpty == false ? q : nil)
+    }
+    private init(validated raw: String, normalized: String, qualifier: String?) {
+        self.raw = raw; self.normalized = normalized; self.qualifier = qualifier
+    }
     public static let shapeDescription = "10 碼（末位可為大寫 X）或 13 碼"
 
     public init?(_ raw: String) {
+        self.qualifier = nil
         self.raw = raw
         let c = raw.idCompact
         if c.count == 10 {

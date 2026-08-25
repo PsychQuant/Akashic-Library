@@ -290,3 +290,53 @@ final class IdentifierMigrationRunTests: XCTestCase {
         XCTAssertEqual(try issnOnDisk("bad2020"), "1082-989X", "受阻的那筆原封不動")
     }
 }
+
+/// 括號註記配對到相鄰的值，而不是各自成堆（#394 verify）。
+extension IdentifierMigrationTests {
+    func testAnnotationsPairWithTheValueTheyFollow() {
+        let p = IdentifierMigration.qualifiedCandidates(
+            "1939-1455(Electronic),0033-2909(Print)", field: "issn")
+        XCTAssertEqual(p.map(\.value), ["1939-1455", "0033-2909"])
+        XCTAssertEqual(p.map { $0.qualifier ?? "—" }, ["Electronic", "Print"],
+                       "資訊不是「有兩個號、有兩個註記」，是「1939-1455 是電子版」")
+    }
+
+    func testSpaceSeparatedAnnotationsAlsoPair() {
+        let p = IdentifierMigration.qualifiedCandidates(
+            "1860-0980 (Electronic) 0033-3123 (Linking)", field: "issn")
+        XCTAssertEqual(p.map(\.value), ["1860-0980", "0033-3123"])
+        XCTAssertEqual(p.map { $0.qualifier ?? "—" }, ["Electronic", "Linking"])
+    }
+
+    func testISBNQualifierIsFreeTextNotAClosedSet() {
+        let p = IdentifierMigration.qualifiedCandidates("9780935302356 (alk. paper)", field: "isbn")
+        XCTAssertEqual(p.map(\.value), ["9780935302356"])
+        XCTAssertEqual(p.first?.qualifier, "alk. paper",
+                       "MARC 020 $q 的值域本來就開放——寫成封閉列舉會把資料擋在門外")
+    }
+
+    /// DOI 的後綴合法含括號——**不得**被當成限定詞切開。
+    func testDOIIsNotPairedBecauseItDoesNotAbsorb() {
+        let p = IdentifierMigration.qualifiedCandidates(
+            "10.1016/S0304-4076(98)00255-9", field: "doi")
+        XCTAssertEqual(p.map(\.value), ["10.1016/S0304-4076(98)00255-9"])
+        XCTAssertNil(p.first?.qualifier)
+    }
+
+    /// 去重時**有限定詞的勝過沒有的**；相等仍只看正規形。
+    func testDedupPrefersTheValueThatCarriesAQualifier() {
+        let (values, bad) = IdentifierMigration.normalizedUniqueQualified(
+            [("0003-066x", nil), ("0003-066X", "print")], ISSN.init)
+        XCTAssertTrue(bad.isEmpty)
+        XCTAssertEqual(values.count, 1, "異寫法仍是同一個號")
+        XCTAssertEqual(values.first?.medium, .print, "限定詞不得因去重而消失")
+    }
+
+    /// 同一個號帶兩個不同角色時保留先出現的——一個 String? 裝不下兩個。
+    func testConflictingQualifiersKeepTheFirst() {
+        let (values, _) = IdentifierMigration.normalizedUniqueQualified(
+            [("0022-3514", "Print"), ("0022-3514", "Linking")], ISSN.init)
+        XCTAssertEqual(values.count, 1)
+        XCTAssertEqual(values.first?.medium, .print)
+    }
+}

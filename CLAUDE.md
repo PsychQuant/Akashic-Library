@@ -94,7 +94,26 @@ propose ──→ park ──────────────→ apply ─�
 > |---|---|---|
 > | `.githooks/pre-push`（全部） | ✅ | ❌ `core.hooksPath` 指向**主 repo** 的 `.githooks`，那份對這些守衛 0 命中——worktree 的修改不是實際生效的那份。**merge 到 main 後自癒** |
 > | `plugin-guards.yml`（ubuntu，1×） | ✅ | ⬜ 從未執行（branch 未 push） |
-> | `census-parity.yml`（macOS；只在 census／parity 測試／生成表／oracle 改動時觸發） | ✅ | ❌ macOS runner 帳務擱置——main 最近 8 次 CI run 全部 `failure` 且 **steps=0**（runner 層拒跑） |
+> | `census-parity.yml`（macOS；只在 census／parity 測試／生成表／oracle 改動時觸發） | ✅ | ❌ **帳號層付款失效**（見下）——run 全部 `failure` 且 **steps=0**（runner 層拒跑） |
+>
+> **「macOS runner 帳務擱置」這個說法在 2026-08-26 被更正——範圍與原因都寫窄了。**
+> 逐字的原因取自 check-run annotation（`gh api /repos/<r>/check-runs/<jobId>/annotations`）：
+>
+> > The job was not started because recent account payments have failed or your
+> > spending limit needs to be increased. Please check the 'Billing & plans'
+> > section in your settings
+>
+> **不是 macOS-only、也不是分鐘數用完**：ubuntu 的 `plugin-guards.yml` 同樣 `steps=0`，
+> 而 2026-08 全帳號 Actions 用量只有 6 分鐘（且 Akashic-Library **從未計費過**——
+> runner 沒啟動就不計費）。最可能的失敗款項是 **Git LFS 儲存 10.2 GB vs 免費額度 1 GB**
+> （2026-05 產生 $0.70 淨額，是唯一一筆真的要付錢的）。
+>
+> **診斷路徑值得記**：`gh run view --log-failed` 回「log not found」（沒跑就沒有 log），
+> `gh run list` 只說 `failure`。真正的訊息在 **check-run 的 annotation** 裡——
+> 那是唯一說得出原因的地方。中途我曾因「其他 repo 在 6/7 月有用量」而推翻帳號層假設，
+> 那個推翻是錯的：那些用量在付款失效**之前**。
+>
+> 修法在使用者的網頁端（Settings → Billing & plans），不在這個 repo 裡。
 >
 > **左欄「已接上」現在是逐對意義的完整**（2026-08-23 實測，#407 R45b）：
 > `trigger-coverage.py` 對 **22 個受保護檔全部報「CI 未覆蓋 0」**——每一對

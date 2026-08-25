@@ -60,7 +60,20 @@ struct VenueCmd: ParsableCommand {
         if let auth = obj["authorized"] as? [String], !auth.isEmpty {
             print("  authorized：\(auth.joined(separator: "；"))")
         }
+        if let issn = obj["issn"] as? [String], !issn.isEmpty {
+            print("  ISSN：\(issn.joined(separator: "、"))")   // display-safe-exempt: service 已逐值消毒（40），displaySafe 不冪等
+        }
         if let note = obj["note"] as? String { print("  note：\(note)") }
+        if let vs = obj["verdicts"] as? [[String: Any]], !vs.isEmpty {
+            print("  歸戶判定（\(vs.count)）：")
+            for v in vs {
+                let kind = v["kind"] as? String ?? "?"
+                let state = v["state"] as? String ?? "?"
+                let lit = v["literal"] as? String ?? "?"
+                let holder = v["holder"] as? String ?? "?"
+                print("    [\(kind)/\(state)] 「\(lit)」← \(holder)")   // display-safe-exempt: service 已逐欄位消毒，displaySafe 不冪等
+            }
+        }
         let count = obj["workCount"] as? Int ?? 0
         print("")
         print("文章（\(count)，編年）")

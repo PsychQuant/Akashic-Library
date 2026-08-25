@@ -625,7 +625,7 @@ public final class AkashicService {
             var personDict: [String: Any] = ["key": displaySafe(key, max: 200)]
             if let record {
                 personDict["names"] = record.names.all.map { displaySafe($0, max: 200) }
-                if !record.unknownFields.isEmpty {   // #31
+        if !record.unknownFields.isEmpty {   // #31
                     personDict["unknownFields"] =
                         record.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
                 }
@@ -2096,7 +2096,10 @@ public final class AkashicService {
         let engine = try freshEngine()
         let works = try engine.venueWorks(key: key)
         var d: [String: Any] = [
-            "key": displaySafe(key, max: 200),
+            // **`record.key` 而非查找用的 `key`**：輸出該反映**記錄**，不是使用者輸入的
+            // 字串。今天兩者必然相同（查找是精確比對），但若查找哪天放寬（大小寫、
+            // 正規化），回顯輸入會讓使用者以為庫裡存的是他打的那個寫法。
+            "key": displaySafe(record.key, max: 200),
             "type": record.type.rawValue,
             // 沿革：時間軸各段（序列化順序；四個時間欄位全帶——#218 R2 的教訓）
             "names": record.names.inSerializationOrder.map { seg -> [String: Any] in
@@ -2122,6 +2125,51 @@ public final class AkashicService {
             d["authorized"] = record.authorized.map { displaySafe($0, max: 200) }
         }
         if let note = record.note { d["note"] = displaySafe(note, max: 500) }
+        // ISSN（#394 §5／verify）。**在此之前兩個讀取面都看不到它**——§8 的遷移把
+        // 39 個 venue 的 ISSN 寫進磁碟，而 `akashic venue` 與 `--json` 都沒有這一格，
+        // 於是「庫裡有這個號」與「查不到這個號」在使用者眼中完全一樣。
+        //
+        // 空清單**不輸出這個鍵**（同 `authorized`／`note` 的既有慣例）：venue 沒有
+        // 登記 ISSN 是常態（會議、出版社、網站），輸出空陣列是雜訊不是訊號。
+
+        // ISSN（#394 §5／verify）。**在此之前兩個讀取面都看不到它**——§8 的遷移把
+        // 39 個 venue 的 ISSN 寫進磁碟，而 `akashic venue` 與 `--json` 都沒有這一格，
+        // 於是「庫裡有這個號」與「查不到這個號」在使用者眼中完全一樣。
+        //
+        // 空清單**不輸出這個鍵**（同 `authorized`／`note` 的既有慣例）：venue 沒有
+        // 登記 ISSN 是常態（會議、出版社、網站），輸出空陣列是雜訊不是訊號。
+        if !record.issn.isEmpty {
+            d["issn"] = record.issn.map { displaySafe($0.normalized, max: 40) }
+        }
+        // resolution verdict（`entity-backlink-completeness` 第 13 條邊）。**person 那面
+        // 早就有這一格，venue 沒有**——而 `resolve-venues` 的判定同樣落在被判定的 venue
+        // 記錄上，於是「這個 venue 收過哪些歸戶判定」在讀取面完全不可見。
+        //
+        // `observed` 的判定與 person 那面同構，只是看的邊不同：person 看 `authors`
+        // 還在不在，venue 看 `venues`。仍是 literal ⇒ 這條 verdict 描述的狀態還在；
+        // 已升格成 key ⇒ stale（判定已被套用，記錄留作 provenance）。
+        let (verdicts, verdictMalformed) = ResolutionLedger.verdicts(references: record.references)
+        if !verdicts.isEmpty {
+            d["verdicts"] = verdicts.map { v -> [String: Any] in
+                let observed: Bool = {
+                    guard v.holderKind == .work,
+                          let e = load.entries.first(where: { $0.citekey == v.holder })
+                    else { return v.holderKind != .work }
+                    return e.venues.contains {
+                        if case .literal(let s) = $0 { return s == v.literal }; return false
+                    }
+                }()
+                return ["kind": v.kind.rawValue,   // display-safe-exempt: VerdictKind 是封閉列舉 rawValue
+                        "holder_kind": v.holderKind.rawValue,   // display-safe-exempt: 同上
+                        "holder": displaySafe(v.holder, max: 200),
+                        "literal": displaySafe(v.literal, max: 200),
+                        "rule": displaySafe(v.rule, max: 200),
+                        "state": observed ? "observed" : "stale"]
+            }
+        }
+        if !verdictMalformed.isEmpty {
+            d["verdictMalformed"] = verdictMalformed.map { displaySafe($0, max: 300) }
+        }
         if !record.unknownFields.isEmpty {
             d["unknownFields"] = record.unknownFields.map { displaySafe($0.key, max: 200) }.sorted()
         }

@@ -149,15 +149,43 @@ final class EntrySurfaceTests: XCTestCase {
     func testEveryFieldReachesEverySurface() throws {
         // App 只顯示識別碼與書目核心；attachments／provenance／akashic 屬其他 Section
         // 或另有專屬視圖，逐面豁免。
+        // 全域豁免——與姊妹測試 `testEveryFieldReachesTheReadSurface` 的 `exempt` 同一組
+        // （沒有任何讀取面輸出它們）。刻意不抽成共用常數:兩支測試問的是不同的命題,
+        // 而共用會讓其中一支的豁免悄悄擴張到另一支。
+        let globallyExempt: Set<String> = ["id", "unknownFields"]
+        // 逐面豁免:那個面**在設計上**不該顯示這個欄位。
         let perSurfaceExempt: [String: Set<String>] = [
             "App（EntryDetailView）": ["attachments", "provenance", "akashic", "references"],
             "CLI（get-entry）": [],
             "MCP（entryDict）": [],
         ]
-        let identifiers = ["doi", "pmid", "isbn"]
+        // 逐面**已知缺口**:該面應該顯示但目前沒有。與豁免刻意分開——豁免是裁決,
+        // 缺口是待辦,把兩者混在一起會讓待辦看起來像已裁決（#426 追蹤 venues/thesis）。
+        let perSurfaceKnownGaps: [String: [String: String]] = [
+            "App（EntryDetailView）": [
+                "venues": "#426", "thesis": "#426", "citekey": "#426",
+                "type": "#426", "title": "#426", "date": "#426", "authors": "#426",
+                "fields": "#426", "doi": "", "pmid": "", "isbn": "",
+            ].filter { !$0.value.isEmpty },
+            "CLI（get-entry）": ["venues": "#426", "thesis": "#426"],
+            "MCP（entryDict）": ["venues": "#426", "thesis": "#426"],
+        ]
+        // **反射,不是寫死清單**（#394 verify R5 ②④）。
+        //
+        // 第一版寫 `let identifiers = ["doi", "pmid", "isbn"]`——於是新增任何 `Entry`
+        // 欄位時它零次迴圈、照樣綠,而 `perSurfaceExempt` 列的四個名字**與那三個交集為空**,
+        // 一列都不曾生效。讀者看到「逐面豁免＋理由」會合理推論本測試涵蓋全部欄位。
+        //
+        // 那是 `zero-instance-guards` 第 5 列具名的**覆蓋率自我謊報**:守衛多印一個 ✓,
+        // 而那個 ✓ 沒有對應到任何新的事實。同一個檔案裡的姊妹測試
+        // （`testEveryFieldReachesTheReadSurface`）從一開始就走 `Mirror`——本測試補上
+        // surface 維度時卻把 field 維度退化成寫死,**修一個維度、弄壞另一個**。
         for s in Self.surfaces {
             let src = try Self.repoFile(s.path)
-            for f in identifiers where !(perSurfaceExempt[s.name]?.contains(f) ?? false) {
+            for f in entryFieldNames()
+            where !globallyExempt.contains(f)
+                && !(perSurfaceExempt[s.name]?.contains(f) ?? false)
+                && !(perSurfaceKnownGaps[s.name]?.keys.contains(f) ?? false) {
                 let reached = s.patterns(f).contains { src.contains($0) }
                 XCTAssertTrue(reached,
                               "\(s.name) 讀不到 Entry.\(f)——三個讀取面必須一致，"

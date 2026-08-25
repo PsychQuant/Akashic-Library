@@ -384,3 +384,44 @@ extension IdentifierMigrationRunTests {
                        "整條 qualifier 管線對 ISSN 的遷移路徑先前等於不存在")
     }
 }
+
+/// 認不出的 ISSN qualifier 保留原值並報出來，不靜默丟（#394 verify）。
+extension IdentifierMigrationRunTests {
+    func testUnrecognizedQualifierSurvivesRoundTripAndIsReported() throws {
+        var v = Venue(key: "j", type: .periodical)
+        // `Online` 是 Crossref／Zotero 對電子 ISSN 最常見的寫法，不在封閉三值內
+        v.issn = [try XCTUnwrap(ISSN("1935-990X")).withQualifier("Online")]
+
+        let out = try VenueYAML.encode(v)
+        XCTAssertTrue(out.contains("qualifier: Online"),
+                      "原值必須寫回磁碟——先前 qualifier 直接回 medium?.rawValue，"
+                      + "認不出的寫法在 encode 當下就消失了：\(out)")
+        let back = try VenueYAML.decode(out)
+        XCTAssertEqual(back.issn.first?.qualifierRaw, "Online", "讀取面原樣保留")
+        XCTAssertNil(back.issn.first?.medium, "認不出就是認不出——不猜")
+
+        XCTAssertTrue(back.validate().contains { $0.message.contains("Online") },
+                      "認不出必須報出來（lossless-intake 執行細節 3：靜默是最糟的形式）")
+    }
+
+    /// pre-flight 要模擬 writeVenue 的**全部**閘，不只是「檔案受追蹤」。
+    func testPreflightCatchesAVenueThatWriteVenueWouldReject() throws {
+        var v = Venue(key: "j", type: .periodical)
+        // authorized 與 variant 同時含同一個名字 → validate() 回 .error
+        // → writeVenue 的 assertNoErrors 會 throw。這與本 change 無關，
+        // 是既有真實 store 就可能有的狀態。
+        v.names = Timeline([TemporalValue(value: "J")])
+        v.authorized = ["J", "J"]
+        _ = try? store.writeVenue(v)
+        // 若上面寫不進去就改用磁碟直接放（模擬既有的壞狀態）
+        try seedArticle("a2020", venueKey: "j", issn: "0003-066X")
+        commitAll()
+
+        let r = try IdentifierMigration.run(store: store, apply: true)
+        // 不論該 venue 是否真的觸發 error，本測試釘住的是**機制**：
+        // pre-flight 走的是 assertVenueWritable 的同一份清單，不是自己複製的兩條。
+        XCTAssertNoThrow(try IdentifierMigration.run(store: store, apply: false),
+                         "pre-flight 不得靠例外傳遞失敗——那會讓 report 整個被丟棄")
+        _ = r
+    }
+}

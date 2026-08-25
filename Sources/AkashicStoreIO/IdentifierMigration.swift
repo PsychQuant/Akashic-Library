@@ -528,6 +528,8 @@ public enum IdentifierMigration {
         //
         // 判定只依賴 pre-flight 拿得到的事實（venue 是否存在、檔案是否被追蹤），
         // 所以乾跑與 apply 得到**同一組** blockers——乾跑因此真的能預告 apply 的結果。
+        // 寫入閘要用的 format——讀一次，pre-flight 與實際寫入看到同一個值。
+        let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
         var blockedVenues: Set<String> = []
         for plan in report.venuePlans {
             guard let v = existingVenues[plan.venueKey] else {
@@ -538,6 +540,23 @@ public enum IdentifierMigration {
             let rel = "entities/\(v.id.uuidString).yaml"
             if trackednessKnown && !tracked.contains(Data(rel.utf8)) {
                 report.blockers.append("venue「\(plan.venueKey)」：\(rel) 未被 git 追蹤")
+                blockedVenues.insert(plan.venueKey)
+                continue
+            }
+            // **模擬實際的寫入閘**（#394 verify）。先前 pre-flight 只查「venue 存在」
+            // 與「檔案受追蹤」，而 `writeVenue` 另有四道會 throw 的閘
+            //（key 合法性、format >= 11、venue type 的 format 閘、識別碼 reference 的
+            // format 13 閘、`assertNoErrors(validate())`）。任何一道在寫入當下 throw，
+            // 例外就穿出 run()——work 的 `fields.issn` 已被移除而 venue 從未收到那個號，
+            // **ISSN 從兩邊同時消失**，且 report 在印任何東西之前就被丟棄。
+            //
+            // 走 `LibraryStore.assertVenueWritable` 的**同一份**閘門清單，不複製。
+            var candidate = v
+            candidate.issn = plan.issn
+            do {
+                try LibraryStore.assertVenueWritable(candidate, format: storeFormat)
+            } catch {
+                report.blockers.append("venue「\(plan.venueKey)」寫入前提不成立：\(error)")
                 blockedVenues.insert(plan.venueKey)
             }
         }

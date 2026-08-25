@@ -512,14 +512,22 @@ public final class LibraryStore {
 
     /// 發表載體只存在於 entities 佈局（format 11 起，#304）。
     @discardableResult
-    public func writeVenue(_ v: Venue) throws -> URL {
-        try assertStoreRoot()
+    /// `writeVenue` 的**全部**前置閘，抽成可單獨呼叫的一份（#394 verify）。
+    ///
+    /// 存在的理由：`migrate-identifiers` 的 pre-flight 要在**任何寫入之前**判定
+    /// venue 寫不寫得成，而它先前只查了兩件事（venue 存在、檔案受追蹤）——
+    /// 這裡另外四道閘一道都沒模擬。work 先寫（`fields.issn` 已移除）、venue 後寫，
+    /// venue 那格 throw 之後例外穿出 `run()`，於是那個 ISSN **從兩邊同時消失**，
+    /// 而 report 在印任何東西之前就被丟棄。
+    ///
+    /// **抽出來而不是在 pre-flight 複製一份**：閘門清單複製兩份必然分岔，而分岔的
+    /// 方向正好是「pre-flight 說可以、實際寫入時 throw」——也就是這個缺陷本身。
+    public static func assertVenueWritable(_ v: Venue, format: Int) throws {
         guard StoreKey.isValid(v.key) else {
             throw StoreIOError.invalidKey("venue key", v.key)
         }
         // v11 形狀 gate：舊 binary 對未知頂層形狀是**整檔 quarantine**（2026-08-16
         // 實測，見 StoreVersion doc）——refuse-if-newer 必須在寫入端先 fire。
-        let format = try StoreVersion.read(root: root)
         guard format >= 11 else {
             throw StoreIOError.invalidInput(
                 what: "venue「\(displaySafe(v.key, max: 120))」",
@@ -539,6 +547,11 @@ public final class LibraryStore {
         try Self.assertIdentifierReferencesWritable(
             v.references, format: format, what: "venue「\(displaySafe(v.key, max: 120))」")
         try Self.assertNoErrors(v.validate(), what: "venue", key: v.key)
+    }
+
+    public func writeVenue(_ v: Venue) throws -> URL {
+        try assertStoreRoot()
+        try Self.assertVenueWritable(v, format: try StoreVersion.read(root: root))
         let yaml = try VenueYAML.encode(v)
         let dest = entityURL(id: v.id)
         try atomicWrite(yaml, to: dest)

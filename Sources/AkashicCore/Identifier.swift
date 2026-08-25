@@ -119,20 +119,38 @@ public enum ISSNMedium: String, CaseIterable, Equatable {
 public struct ISSN: Identifier {
     public let raw: String
     public let normalized: String
-    /// 這個號是紙本、電子版、還是 ISSN-L。`nil` ＝**還沒查**，是合法狀態不是缺陷
-    /// （實測 39 個帶 ISSN 的 venue 裡，只有 5 個的角色可從庫內資料判定）。
+    /// 這個號是紙本、電子版、還是 ISSN-L。`nil` ＝**還沒查、或磁碟上的寫法認不出來**
+    /// （後者由 `qualifierRaw` 保留原值、`validate` 報 diagnostic——見下）。
     public let medium: ISSNMedium?
-    public var qualifier: String? { medium?.rawValue }
+    /// **磁碟上那個字串**（#394 verify）。與 `raw`／`normalized` 的分工同構：
+    /// 讀取面原樣保留，解析不出來的**不丟**。
+    ///
+    /// 先前 `qualifier` 直接回 `medium?.rawValue`，於是任何不在封閉三值內的寫法
+    /// 在 decode 當下就消失——沒有 diagnostic、沒有 invalidField、沒有任何回報。
+    /// 而 `VenueYAML.encode` 的 canary（`guard back == v`）**看不到**它，因為
+    /// `Identifier.==` 刻意只比 `normalized`（那是 dedup 的前提，不能改）。
+    ///
+    /// `Online` 正是 Crossref／Zotero 對電子 ISSN 最常見的寫法。註記寫「認不出回
+    /// nil——**不猜**」，而「不猜」被實作成「靜默丟」——那是 `lossless-intake`
+    /// 執行細節 3 具名為最糟的形式。
+    public let qualifierRaw: String?
+    public var qualifier: String? { qualifierRaw }
     public func withQualifier(_ q: String?) -> ISSN {
-        ISSN(validated: raw, normalized: normalized, medium: q.flatMap(ISSNMedium.init(loose:)))
+        let trimmed = q?.trimmingCharacters(in: .whitespaces)
+        let kept = (trimmed?.isEmpty == false) ? trimmed : nil
+        return ISSN(validated: raw, normalized: normalized,
+                    medium: kept.flatMap(ISSNMedium.init(loose:)), qualifierRaw: kept)
     }
-    private init(validated raw: String, normalized: String, medium: ISSNMedium?) {
-        self.raw = raw; self.normalized = normalized; self.medium = medium
+    private init(validated raw: String, normalized: String,
+                 medium: ISSNMedium?, qualifierRaw: String?) {
+        self.raw = raw; self.normalized = normalized
+        self.medium = medium; self.qualifierRaw = qualifierRaw
     }
     public static let shapeDescription = "NNNN-NNNN（末位可為大寫 X）"
 
     public init?(_ raw: String) {
         self.medium = nil
+        self.qualifierRaw = nil
         self.raw = raw
         let c = raw.idCompact
         guard c.count == 8 else { return nil }

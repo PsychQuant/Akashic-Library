@@ -19,13 +19,50 @@ import XCTest
 /// 空字串的實作仍會通過。這是必要條件不是充分條件。
 final class EntrySurfaceTests: XCTestCase {
 
-    static func serviceSource() throws -> String {
+    static func repoFile(_ rel: String) throws -> String {
         try String(contentsOf: URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/AkashicMCPKit/AkashicService.swift"),
-            encoding: .utf8)
+            .appendingPathComponent(rel), encoding: .utf8)
     }
+
+    static func serviceSource() throws -> String {
+        try repoFile("Sources/AkashicMCPKit/AkashicService.swift")
+    }
+
+    /// **三個讀取面**（#394 verify R4）。
+    ///
+    /// `entity-backlink-completeness` 執行細節 2 明文列 CLI／MCP／**App**——#263 特地把
+    /// App 補進列舉，理由是「App 是取代 Zotero 的主要 UI，只用 App 的人永遠不會知道
+    /// audit trail 正在腐爛」。
+    ///
+    /// 本檔的第一版**只讀 `AkashicService.swift` 一個檔**——它問「這一族還有哪個
+    /// entity kind」，沒問「哪個 **surface**」。於是 App 對全部 664 筆 work 的識別碼
+    /// 失明，而守衛在結構上看不到。**同一個形狀第三次重演**（venue ISSN → venue
+    /// verdict → entry identifiers），每次都是「修完了沒問這一族還有誰」。
+    ///
+    /// 每個面的慣用寫法不同，所以判準逐面給：service 與 App 讀 `entry.<欄位>`，
+    /// CLI 讀 JSON payload 的鍵。
+    struct Surface {
+        let name: String
+        let path: String
+        /// 給定欄位名，回傳「這個面若有讀到它，原始碼裡會出現的字串」候選。
+        let patterns: (String) -> [String]
+    }
+
+    static let surfaces: [Surface] = [
+        Surface(name: "MCP（entryDict）", path: "Sources/AkashicMCPKit/AkashicService.swift",
+                patterns: { f in ["entry.\(f)"] + (canonicalAlias[f].map { ["entry.\($0)"] } ?? []) }),
+        Surface(name: "CLI（get-entry）", path: "Sources/akashic/GetEntryCommand.swift",
+                patterns: { f in ["\"\(f)\""] }),
+        Surface(name: "App（EntryDetailView）", path: "AkashicApp/Sources/EntryViews.swift",
+                patterns: { f in ["entry.\(f)"] + (canonicalAlias[f].map { ["entry.\($0)"] } ?? []) }),
+    ]
+
+    /// canonical accessor 也算讀到——它的 doc 明寫「讀取請走它」。
+    /// 守衛若只認欄位名的字面，會**逼呼叫端改用較差的讀法才能過關**。
+    static let canonicalAlias = ["doi": "canonicalDOIs", "pmid": "canonicalPMIDs",
+                                 "isbn": "canonicalISBNs"]
 
     /// 括號配對取完整 body——固定長度的視窗會在函式變長時假紅
     /// （`VenueSurfaceTests` 已經踩過一次）。
@@ -105,6 +142,28 @@ final class EntrySurfaceTests: XCTestCase {
                           "Entry.\(field) 沒有被 entryDict 讀到——"
                           + "它會存在磁碟上而使用者兩個面都看不到，"
                           + "而那與『庫裡沒有這個值』在輸出上完全一樣")
+        }
+    }
+
+    /// **每個欄位 × 每個面**——不是「有一個面讀到就算」（#394 verify R4）。
+    func testEveryFieldReachesEverySurface() throws {
+        // App 只顯示識別碼與書目核心；attachments／provenance／akashic 屬其他 Section
+        // 或另有專屬視圖，逐面豁免。
+        let perSurfaceExempt: [String: Set<String>] = [
+            "App（EntryDetailView）": ["attachments", "provenance", "akashic", "references"],
+            "CLI（get-entry）": [],
+            "MCP（entryDict）": [],
+        ]
+        let identifiers = ["doi", "pmid", "isbn"]
+        for s in Self.surfaces {
+            let src = try Self.repoFile(s.path)
+            for f in identifiers where !(perSurfaceExempt[s.name]?.contains(f) ?? false) {
+                let reached = s.patterns(f).contains { src.contains($0) }
+                XCTAssertTrue(reached,
+                              "\(s.name) 讀不到 Entry.\(f)——三個讀取面必須一致，"
+                              + "否則同一個 store 的兩個面會對「這筆有沒有 \(f)」"
+                              + "給出相反的答案，而使用者沒有線索知道哪個對")
+            }
         }
     }
 }

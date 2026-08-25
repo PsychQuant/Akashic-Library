@@ -62,11 +62,38 @@ struct EntryDetailView: View {
                             }
                         }
                     }
-                    LabeledContent("Type", value: entry.type)
+                    LabeledContent("Type", value: entry.type.rawValue)
                     LabeledContent("Title", value: entry.displayTitle)
                     // `Author.displayName` 不消毒（#161 verify 181-4）——走投影
                     LabeledContent("Authors", value: entry.displayAuthors)
                     if let date = entry.date { LabeledContent("Date", value: date) }
+                    // **識別碼**（#394 verify R4）。App 是 `entity-backlink-completeness`
+                    // 執行細節 2 明文列舉的**第三個**讀取面（#263 特地把它補進列舉，
+                    // 理由是「App 是取代 Zotero 的主要 UI，只用 App 的人永遠不會知道
+                    // audit trail 正在腐爛」）。
+                    //
+                    // **這不是 pre-existing**：§8 遷移**之前** DOI 住 `fields.doi`，
+                    // 下面那個泛用迴圈自動印得出來；遷移把 664 筆搬進結構化欄位之後，
+                    // 這一面就再也印不出任何一筆——而 CLI／MCP 同時印得出來，
+                    // 於是同一個 store 的兩個面對「這筆有沒有 DOI」給出相反的答案。
+                    //
+                    // 讀 `canonical*`：遷移略過的記錄仍把值放在 `fields` 殘留裡，
+                    // 而使用者要看的是「這筆有沒有 DOI」不是「它存在哪一層」。
+                    if !entry.canonicalDOIs.isEmpty {
+                        LabeledContent("DOI",
+                                       value: entry.canonicalDOIs.map(\.normalized)
+                                           .joined(separator: ", "))
+                    }
+                    if !entry.canonicalPMIDs.isEmpty {
+                        LabeledContent("PMID",
+                                       value: entry.canonicalPMIDs.map(\.normalized)
+                                           .joined(separator: ", "))
+                    }
+                    if !entry.canonicalISBNs.isEmpty {
+                        LabeledContent("ISBN",
+                                       value: entry.canonicalISBNs.map(\.normalized)
+                                           .joined(separator: ", "))
+                    }
                     ForEach(entry.fields.keys.sorted(), id: \.self) { key in
                         LabeledContent(key, value: entry.fields[key] ?? "")
                     }

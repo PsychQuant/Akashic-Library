@@ -340,3 +340,47 @@ extension IdentifierMigrationTests {
         XCTAssertEqual(values.first?.medium, .print)
     }
 }
+
+/// venue 既有的 ISSN medium 不得因為一次不相干的 apply 而消失（#394 verify）。
+extension IdentifierMigrationRunTests {
+    func testExistingVenueMediumSurvivesAnUnrelatedApply() throws {
+        var venue = Venue(key: "j", type: .periodical)
+        venue.issn = [try XCTUnwrap(ISSN("0033-3123")).withQualifier("linking"),
+                      try XCTUnwrap(ISSN("1860-0980")).withQualifier("electronic")]
+        _ = try store.writeVenue(venue)
+        // 一筆帶 fields.issn 的 work，落點就是這個 venue——會觸發 venue 重寫
+        var e = Entry(id: UUID(), citekey: "a2020", type: .periodicalArticle, title: "T")
+        e.venues = [.key("j")]
+        e.fields["issn"] = "0033-3123"
+        _ = try store.writeEntry(e)
+        commitAll()
+
+        _ = try IdentifierMigration.run(store: store, apply: true)
+
+        let after = try XCTUnwrap(try store.load().venues.first { $0.key == "j" })
+        XCTAssertEqual(after.issn.map { $0.medium?.rawValue ?? "—" }.sorted(),
+                       ["electronic", "linking"],
+                       "既有的 medium 必須存活——先前 VenuePlan 只帶正規形字串，"
+                       + "apply 從字串重建時 ISSN.init 把 medium 設成 nil，"
+                       + "於是一次不相干的遷移會刪掉磁碟上已有的 qualifier")
+    }
+
+    /// 從括號註記解析出來的 medium 要真的寫進 venue，不能只活在報告裡。
+    func testMediumParsedFromAnnotationReachesTheVenue() throws {
+        _ = try store.writeVenue(Venue(key: "j", type: .periodical))
+        var e = Entry(id: UUID(), citekey: "a2020", type: .periodicalArticle, title: "T")
+        e.venues = [.key("j")]
+        e.fields["issn"] = "1939-1455(Electronic),0033-2909(Print)"
+        _ = try store.writeEntry(e)
+        commitAll()
+
+        _ = try IdentifierMigration.run(store: store, apply: true)
+
+        let after = try XCTUnwrap(try store.load().venues.first { $0.key == "j" })
+        let byValue = Dictionary(uniqueKeysWithValues:
+            after.issn.map { ($0.normalized, $0.medium?.rawValue ?? "—") })
+        XCTAssertEqual(byValue["1939-1455"], "electronic")
+        XCTAssertEqual(byValue["0033-2909"], "print",
+                       "整條 qualifier 管線對 ISSN 的遷移路徑先前等於不存在")
+    }
+}

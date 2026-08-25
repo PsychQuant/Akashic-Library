@@ -50,7 +50,13 @@ public enum IdentifierMigration {
     /// 前者是異寫法收斂，後者是 print／electronic 兩個真的號，人要分辨得出來。
     public struct VenuePlan: Equatable {
         public var venueKey: String
-        public var values: [String]
+        /// **帶 medium 的完整值**（#394 verify）。先前是 `[String]`，於是 apply 走
+        /// `plan.values.compactMap(ISSN.init)` 從字串重建——`ISSN.init` 把 medium 設 nil，
+        /// 兩層損失：本輪剛從括號註記解出的 medium 蒸發，而 `merged` 的種子是 venue
+        /// **既有的** issn，所以連已經在磁碟上的 medium 也一起被壓掉。
+        public var issn: [ISSN]
+        /// 顯示用——**由 `issn` 現算，不另存**（兩份會分岔）。
+        public var values: [String] { issn.map(\.normalized) }
         public var mergedFrom: [String]
         public var keptMultiple: Bool
     }
@@ -337,6 +343,28 @@ public enum IdentifierMigration {
         report.shapeUpgraded = try upgradingIdentifierShape(store: store, apply: apply,
                                                             tracked: tracked)
         let load = try store.load()
+        // **quarantine 守衛**（#394 verify CRITICAL）。對照組就在隔壁：
+        // `AuthorizedNameMigration.run` 對非空 quarantined 直接拒跑，理由是「本工具
+        // **看不見**它們」。這裡先前沒有，而後果更尖銳：形狀前置升級只認**一種**
+        // YAML 寫法（頂格 `issn:` ＋ 頂格 `- `），縮排序列／flow 序列／CRLF／混合形狀
+        // 一律漏掉，然後**在同一次 run 的下一行**被 `decodeQualifiedList` 拒讀而整檔
+        // quarantine——於是那個 venue 從 `load.venues` 消失，報告卻說一切正常，
+        // 甚至可能印出誤導的「venue「X」不存在——ISSN 無處可放」。
+        //
+        // fail-fast 兩種模式都擋：乾跑的報告對看不見的記錄同樣不完整。
+        guard load.quarantined.isEmpty else {
+            throw StoreIOError.invalidInput(
+                what: "migrate-identifiers",
+                why: "store 有 \(load.quarantined.count) 個檔 quarantined——本工具"
+                      + "**看不見**它們（load 已排除），"
+                      + (apply ? "apply 會改寫其餘記錄並回報成功，而那些檔的識別碼"
+                               + "一個都沒被搬，後續 format bump 會把它們鎖在門外"
+                               : "報告會漏掉它們（誤導性的不完整）")
+                      + "。先跑 `akashic doctor` 看 quarantine 的原因——"
+                      + "若是 `issn`／`isbn` 的裸純量序列，那是本命令的形狀前置升級"
+                      + "沒認出的寫法（它只認頂格 `issn:` ＋ 頂格 `- `），需人工改成"
+                      + "`- value: …` 後重跑")
+        }
 
         // per-file trackedness：apply 時查一次（同 VenueMigration／PersonIdentityMigration）。
         // 未被 git 追蹤的檔改寫沒有回復路徑。
@@ -487,7 +515,7 @@ public enum IdentifierMigration {
                 mergedFrom.append(src)
             }
             report.venuePlans.append(VenuePlan(
-                venueKey: vkey, values: merged.map(\.normalized),
+                venueKey: vkey, issn: merged,
                 mergedFrom: mergedFrom, keptMultiple: merged.count > 1))
         }
 
@@ -543,7 +571,8 @@ public enum IdentifierMigration {
         }
         for plan in report.venuePlans where !blockedVenues.contains(plan.venueKey) {
             guard var v = existingVenues[plan.venueKey] else { continue }
-            v.issn = plan.values.compactMap(ISSN.init)
+            // **直接用 plan 帶的 ISSN 物件**——經字串往返會把 medium 丟掉。
+            v.issn = plan.issn
             _ = try store.writeVenue(rewritingProvenance(
                 v, rewrites: rewritesByVenue[plan.venueKey] ?? [], report: &report))
             report.applied += 1

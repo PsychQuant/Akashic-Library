@@ -32,7 +32,7 @@ struct MigrateIdentifiers: ParsableCommand {
             print("\n── work 側 ──")
             for p in report.plans {
                 print("  \(displaySafe(p.citekey, max: 200))")
-                for c in p.changes { print("      \(c)") }
+                for c in p.changes { print("      \(displaySafe(c, max: 400))") }
             }
         }
         if !report.venuePlans.isEmpty {

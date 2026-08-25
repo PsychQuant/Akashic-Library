@@ -11,6 +11,15 @@ import Foundation
 /// 一起會讓「這筆 provenance 完不完整」無法機械判定。Swift 側用 enum——判斷型
 /// 帶 `content` 在型別上**不可能**；YAML 側的平面欄位經 `init(field:...)` 的
 /// throwing 建構器驗證，混合即拒。
+/// 帶欄位層級 provenance 的記錄（#394 verify）。
+///
+/// 四個型別各自有 `references`，而在此之前**沒有共同抽象**——於是任何「對所有帶
+/// reference 的記錄做同一件事」的邏輯只能逐型別複製，或者退化成空殼。
+/// `IdentifierMigration.rewritingProvenance` 曾經是後者。
+public protocol ProvenanceCarrying {
+    var references: [ProvenanceReference] { get set }
+}
+
 public struct ProvenanceReference: Equatable {
 
     /// #232：resolution verdict 欄位的**封閉對**——僅此二值，不得類推第三個。
@@ -622,3 +631,8 @@ extension Entry {
     }
 }
 
+
+extension Entry: ProvenanceCarrying {}
+extension Person: ProvenanceCarrying {}
+extension Organization: ProvenanceCarrying {}
+extension Venue: ProvenanceCarrying {}

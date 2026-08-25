@@ -50,6 +50,24 @@
 - [x] 8.2 遷移對 ISSN 的多值處理：先正規化再去重，去重後仍 >1 者保留為多值；乾跑報告把「去重後合併」與「保留多值」分開列出。驗證目標——對 8 個收到多值的 venue，斷言 `american-psychologist` 的 `0003-066x` 與 `0003-066X 1935-990X` 合併為兩個相異值，而 `behavior-research-methods` 的 `1554-351x` 與 `1554-3528` 保留為兩個。
 - [x] 8.3 遷移原子地同時改寫識別碼值與指向舊值的 provenance `value`；無法解析的識別碼字串略過該筆並在報告具名，不猜測不丟棄。驗證目標——測試斷言改寫後無任何 reference 指向不存在的值，且略過項出現在報告中。
 
+  > **2026-08-25 verify 更正。** 本項原本打勾時，`rewritingProvenance` 是恆等空殼
+  > （`append(contentsOf: [])` ＋ `return record`），而「測試斷言改寫後無孤兒 reference」
+  > 的那支測試**不存在**——16 支遷移測試零觸及 provenance。空殼有一個真實的理由：
+  > 舊簽章只收記錄、拿不到「舊值是什麼」，所以它結構上做不到自己宣稱的事。
+  >
+  > 現已改簽章並實作（`rewritingProvenance(_:rewrites:report:)`）。同時查明它**零次
+  > 改寫的原因不是「還沒發生」，是結構上走不到**：寫入面要求 reference 的 `value`
+  > 落在該欄位的結構化清單內，而遷移只從 `fields` 殘留搬值——帶殘留的記錄其結構化
+  > 清單是空的，不可能合法帶著指向該殘留值的 reference。
+  >
+  > 依 `zero-instance-guards` 第 8 列，這一格的裁決有兩半：實作它，**以及釘住「現在
+  > 為什麼是零」**。後者是 `testAResidueValuedReferenceCannotBeWrittenAtAll`——它一旦
+  > 變紅（寫入面放寬了），本函式就從裝飾品變成承重結構。
+  >
+  > 同輪修掉一個相關的反向缺陷：遷移原本以 `updated.doi = v` **無條件覆寫**已在場的
+  > 結構化值，而 `canonicalDOIs` 的立場是「兩者同時在場時正典是結構化那個」。方向
+  > 正好相反且不可逆。現改為略過並具名。
+
 ## 9. 兩面對等與收尾裁決
 
 - [x] 9.1 [P] `.claude/rules/mcp-cli-parity.md` 的三張裁決表對本 change 新增的每一個面各加一列（`migrate-identifiers` 落 CLI-only 表並具名維運例外理由；識別碼參數在 MCP 面的有無各自裁決）。驗證目標——依該規則的四步機械稽核程序執行，確認枚舉輸出與表零差集。

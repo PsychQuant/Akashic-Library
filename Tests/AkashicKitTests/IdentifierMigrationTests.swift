@@ -184,6 +184,57 @@ final class IdentifierMigrationRunTests: XCTestCase {
         XCTAssertEqual(try issnOnDisk("a2020"), "0003-066X", "ISSN 必須存活")
     }
 
+    // MARK: provenance value 與識別碼值同一次原子改寫（task 8.3）
+
+    /// **釘住「為什麼是零」**（`zero-instance-guards` 第 8 列的第二半）。
+    ///
+    /// `rewritingProvenance` 至今零次改寫，而理由**不是「還沒發生」，是結構上走不到**：
+    /// 寫入面驗證要求 reference 的 `value` 必須落在該欄位的**結構化清單**內
+    /// （`Provenance.swift`：「value「…」不在 doi 清單內——值被改寫後 provenance 成了孤兒」）。
+    /// 而遷移只從 `fields` 殘留搬值——一筆帶殘留的記錄，其結構化清單是空的，
+    /// 所以它不可能合法地帶著一個指向該殘留值的 reference。
+    ///
+    /// 這條測試釘住那個機制。**它一旦變綠（＝寫入面放寬了），`rewritingProvenance`
+    /// 就從裝飾品變成承重結構**，那時要回頭確認它真的有測試涵蓋。
+    func testAResidueValuedReferenceCannotBeWrittenAtAll() throws {
+        var e = Entry(id: UUID(), citekey: "a2020", type: .periodicalArticle, title: "T")
+        e.fields["doi"] = "10.1007/BF02294210"          // 殘留，結構化 doi 仍為空
+        e.references = [ProvenanceReference(
+            field: "doi", value: "10.1007/BF02294210",
+            kind: .judgement(statement: "自 Crossref 查得",
+                             restsOn: ["sha256:2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"]))]
+
+        XCTAssertThrowsError(try store.writeEntry(e),
+                             "殘留值的 reference 必須被寫入面拒絕——這正是 "
+                             + "rewritingProvenance 目前不可達的原因") { err in
+            XCTAssertTrue("\(err)".contains("不在 doi 清單內"), "實得：\(err)")
+        }
+    }
+
+    /// 遷移**不得**用殘留覆寫已在場的結構化值（#394 verify）。
+    ///
+    /// §3 讓兩者並存是設計中的過渡態，而 `canonicalDOIs` 的立場是「同時在場時正典是
+    /// 結構化那個」。原本 `updated.doi = v` 是無條件賦值——方向正好相反且不可逆。
+    func testResidueDoesNotOverwriteAStructuredIdentifier() throws {
+        var e = Entry(id: UUID(), citekey: "a2020", type: .periodicalArticle, title: "T")
+        e.doi = [try XCTUnwrap(DOI("10.1007/canonical"))]
+        _ = try store.writeEntry(e)
+        // 繞過寫入面把殘留加回磁碟——並存狀態只能這樣造出來
+        let url = store.entityURL(id: e.id)
+        var text = try String(contentsOf: url, encoding: .utf8)
+        text = text.replacingOccurrences(of: "fields:", with: "fields:\n  doi: 10.9999/residue")
+        if !text.contains("fields:") { text += "\nfields:\n  doi: 10.9999/residue\n" }
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        commitAll()
+
+        let r = try IdentifierMigration.run(store: store, apply: true)
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2020" })
+        XCTAssertEqual(after.doi.map(\.normalized), ["10.1007/canonical"],
+                       "正典值必須存活——遷移用殘留覆寫它是不可逆的降級")
+        XCTAssertTrue(r.skipped.contains { $0.citekey == "a2020" && $0.field == "doi" },
+                      "略過必須具名（lossless-intake 執行細節 3）")
+    }
+
     // MARK: 丟棄必須可見（lossless-intake 執行細節 3）
 
     func testStrippedParentheticalAnnotationsAreReported() throws {

@@ -210,6 +210,10 @@ public enum IdentifierMigration {
         var issnByVenue: [String: [ISSN]] = [:]
         var issnSources: [String: [String]] = [:]
         var updatedEntries: [Entry] = []
+        // 每筆 work 自己的值改寫（citekey → 對照），供 provenance 同步改寫（task 8.3）。
+        var rewritesByCitekey: [String: [IdentifierRewrite]] = [:]
+        // ISSN 的改寫跟著號搬到 venue——venue 上指向該號舊字面的 reference 要一起改。
+        var rewritesByVenue: [String: [IdentifierRewrite]] = [:]
 
         for entry in load.entries.sorted(by: { $0.citekey < $1.citekey }) {
             var updated = entry
@@ -231,6 +235,12 @@ public enum IdentifierMigration {
                             citekey: entry.citekey, field: key, value: b,
                             reason: "解析不了——不猜、不丟棄，原值留在 fields"))
                     }
+                    // **正規形與原字面不同者即是一次改寫**——指向舊字面的
+                    // provenance reference 要在同一次寫入裡跟著改（task 8.3）。
+                    for v in values where v.raw != v.normalized {
+                        let rw = IdentifierRewrite(field: key, old: v.raw, new: v.normalized)
+                        rewritesByCitekey[entry.citekey, default: []].append(rw)
+                    }
                     guard !values.isEmpty else { return nil }
                     guard values.count == 1 || absorbsMultipleValues(field: key) else {
                         report.skipped.append(Skipped(
@@ -246,16 +256,52 @@ public enum IdentifierMigration {
 
                 switch key {
                 case "doi":
+                    // **不覆寫已在場的結構化值**（#394 verify）。§3 讓結構化欄位與
+                    // `fields` 殘留並存是設計中的過渡態，而 `canonicalDOIs` 的既有
+                    // 立場是「兩者同時在場時的正典是結構化那個」。無條件賦值會讓
+                    // 遷移把正典換成殘留——方向正好相反，且不可逆。
+                    guard updated.doi.isEmpty else {
+                        report.skipped.append(Skipped(
+                            citekey: entry.citekey, field: key, value: raw,
+                            reason: "已有結構化 doi「"
+                                + updated.doi.map(\.normalized).joined(separator: "、")
+                                + "」——殘留與正典並存時正典勝，不覆寫；兩者不一致交人裁"))
+                        continue
+                    }
                     if let v: [DOI] = take(DOI.init) {
                         updated.doi = v; updated.fields.removeValue(forKey: key)
                         changes.append("doi: \(raw) → \(v.map(\.normalized).joined(separator: "、"))")
                     }
                 case "pmid":
+                    // **不覆寫已在場的結構化值**（#394 verify）。§3 讓結構化欄位與
+                    // `fields` 殘留並存是設計中的過渡態，而 `canonicalPMIDs` 的既有
+                    // 立場是「兩者同時在場時的正典是結構化那個」。無條件賦值會讓
+                    // 遷移把正典換成殘留——方向正好相反，且不可逆。
+                    guard updated.pmid.isEmpty else {
+                        report.skipped.append(Skipped(
+                            citekey: entry.citekey, field: key, value: raw,
+                            reason: "已有結構化 pmid「"
+                                + updated.pmid.map(\.normalized).joined(separator: "、")
+                                + "」——殘留與正典並存時正典勝，不覆寫；兩者不一致交人裁"))
+                        continue
+                    }
                     if let v: [PMID] = take(PMID.init) {
                         updated.pmid = v; updated.fields.removeValue(forKey: key)
                         changes.append("pmid: \(raw) → \(v.map(\.normalized).joined(separator: "、"))")
                     }
                 case "isbn":
+                    // **不覆寫已在場的結構化值**（#394 verify）。§3 讓結構化欄位與
+                    // `fields` 殘留並存是設計中的過渡態，而 `canonicalISBNs` 的既有
+                    // 立場是「兩者同時在場時的正典是結構化那個」。無條件賦值會讓
+                    // 遷移把正典換成殘留——方向正好相反，且不可逆。
+                    guard updated.isbn.isEmpty else {
+                        report.skipped.append(Skipped(
+                            citekey: entry.citekey, field: key, value: raw,
+                            reason: "已有結構化 isbn「"
+                                + updated.isbn.map(\.normalized).joined(separator: "、")
+                                + "」——殘留與正典並存時正典勝，不覆寫；兩者不一致交人裁"))
+                        continue
+                    }
                     if let v: [ISBN] = take(ISBN.init) {
                         updated.isbn = v; updated.fields.removeValue(forKey: key)
                         changes.append("isbn: \(raw) → \(v.map(\.normalized).joined(separator: "、"))")
@@ -274,6 +320,11 @@ public enum IdentifierMigration {
                     if let v: [ISSN] = take(ISSN.init) {
                         updated.fields.removeValue(forKey: key)
                         issnByVenue[vkey, default: []].append(contentsOf: v)
+                        for one in v where one.raw != one.normalized {
+                            rewritesByVenue[vkey, default: []].append(
+                                IdentifierRewrite(field: "issn", old: one.raw,
+                                                  new: one.normalized))
+                        }
                         issnSources[vkey, default: []].append(raw)
                         issnTarget = vkey
                         changes.append("issn: \(raw) → venue「\(vkey)」")
@@ -349,31 +400,53 @@ public enum IdentifierMigration {
 
         // ---- 寫入（此後不再有新的失敗判定；所有前提已在上方裁決）----
         for updated in updatedEntries where !blockedEntries.contains(updated.citekey) {
-            _ = try store.writeEntry(rewritingProvenance(updated, report: &report))
+            _ = try store.writeEntry(rewritingProvenance(
+                updated, rewrites: rewritesByCitekey[updated.citekey] ?? [], report: &report))
             report.applied += 1
         }
         for plan in report.venuePlans where !blockedVenues.contains(plan.venueKey) {
             guard var v = existingVenues[plan.venueKey] else { continue }
             v.issn = plan.values.compactMap(ISSN.init)
-            _ = try store.writeVenue(rewritingProvenance(v, report: &report))
+            _ = try store.writeVenue(rewritingProvenance(
+                v, rewrites: rewritesByVenue[plan.venueKey] ?? [], report: &report))
             report.applied += 1
         }
         return report
     }
 
+    /// 一次識別碼值的改寫：某個欄位裡的舊字面 → 新的正規形。
+    public struct IdentifierRewrite: Equatable {
+        public let field: String
+        public let old: String
+        public let new: String
+    }
+
     /// 指向被改寫值的 provenance `value` 同一次原子改寫（task 8.3）。
     ///
-    /// **誠實邊界：這條路徑目前零實例。** `Entry.references` 是 §5 才新增的、全庫為空；
-    /// venue 的 `issn` reference 也還不存在（寫入面要 format 13，而 store 仍是 12）。
-    /// 它仍然實作，理由是：遷移是**一次性的破壞性寫入**，等真的有 reference 指向識別碼
-    /// 時再補就來不及了——而它的成本是一個迴圈。
+    /// **這個函式曾經是恆等空殼**（`report.provenanceRewrites.append(contentsOf: [])`
+    /// ＋ `return record`），而 tasks.md 8.3 打勾宣稱「測試斷言改寫後無任何 reference
+    /// 指向不存在的值」——那個測試不存在，16 支遷移測試零觸及 provenance。
     ///
-    /// 依 `zero-instance-guards` 的立場，這一格的裁決是「寫」，理由是**不可回頭**：
-    /// 前七列的零實例守衛失敗時還能補救，這一列失敗時資料已經被改寫過。
-    static func rewritingProvenance<T>(_ record: T, report: inout Report) -> T {
-        // 值本身在上方已被替換成正規形；此處只需把指向舊值的 reference value 一併更新。
-        // 目前沒有任何記錄帶識別碼 reference（見上方誠實邊界），所以恆等回傳並記錄零次。
-        report.provenanceRewrites.append(contentsOf: [])
-        return record
+    /// 空殼有一個**真實的**理由：舊簽章只收記錄，拿不到「舊值是什麼」，所以它結構上
+    /// 做不到自己宣稱的事。修法是改簽章，不是補迴圈。
+    ///
+    /// **零實例的理由即將過期。** doc 原本寫「venue 的 issn reference 還不存在（寫入面
+    /// 要 format 13，而 store 仍是 12）」——而 store 正要 bump 到 13，那道閘就開了。
+    /// 遷移是一次性的破壞性寫入：等真的有 reference 指向識別碼時再補就來不及
+    /// （`zero-instance-guards` 第 8 列的「不可回頭」）。
+    static func rewritingProvenance<T: ProvenanceCarrying>(
+        _ record: T, rewrites: [IdentifierRewrite], report: inout Report
+    ) -> T {
+        guard !rewrites.isEmpty, !record.references.isEmpty else { return record }
+        var out = record
+        for i in out.references.indices {
+            let ref = out.references[i]
+            guard let v = ref.value,
+                  let hit = rewrites.first(where: { $0.field == ref.field && $0.old == v })
+            else { continue }
+            out.references[i].value = hit.new
+            report.provenanceRewrites.append("\(ref.field)「\(v)」→「\(hit.new)」")
+        }
+        return out
     }
 }

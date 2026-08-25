@@ -202,3 +202,66 @@ extension WoSImportTests {
                        + "退回標題比對會讓兩篇同題同年而 DOI 不同的論文被誤判成同一筆")
     }
 }
+
+/// 遷移之後重跑同一份 WoS 檔，必須仍是 `unchanged`（#425 verify HIGH）。
+///
+/// ## 這組測試防的是什麼
+///
+/// `Entry` 是**合成** Equatable，而 #394 給它加了 `doi`／`pmid`／`isbn`／`references`
+/// 四個儲存屬性。`entry(from: row)` 只寫 `fields["doi"]`——probe 的結構化欄位**恆為空**。
+///
+/// 於是對一筆已遷移的記錄（結構化 `doi` 非空、`fields.doi` 已移除）：
+/// `a == b` 為假 → 走回填 → 最終 `mergedCheck == probeCheck` **必然為假** → 落 conflicts。
+/// 而 conflict 路徑刻意不覆寫，所以 `enriched` 回填**此後永遠不會再 fire**：
+/// WoS 日後新增的任何欄位都補不進去，`lossless-intake` 的「規則要及於已匯入的記錄」
+/// 對全庫 664 筆帶 DOI 的 work 失效。
+///
+/// **這是 #206 verify H1 修過的同一個形狀，被 #394 的結構化欄位原封不動重新裝填。**
+///
+/// 既有的三支 idempotency 測試對它是盲的：它們都在**同一次 run** 內建檔＋重跑，
+/// 結構化欄位全程為空。
+extension WoSImportTests {
+
+    /// 把一筆記錄手動改成「遷移後」的形狀：結構化 `doi` 有值、`fields.doi` 移除。
+    private func migrateInPlace(_ citekey: String) throws {
+        var e = try XCTUnwrap(try store.load().entries.first { $0.citekey == citekey })
+        let raw = try XCTUnwrap(e.fields["doi"])
+        e.doi = [try XCTUnwrap(DOI(raw))]
+        e.fields.removeValue(forKey: "doi")
+        _ = try store.writeEntry(e)
+    }
+
+    func testReimportAfterMigrationIsStillUnchanged() throws {
+        let tsv = header
+            + "Su, YH\tSu, Ying-Hao\tFunctional data\tPsychometrika\t2015\t10.1234/abc\n"
+        let first = try WoSImport.run(text: tsv, store: store)
+        XCTAssertEqual(first.created.count, 1)
+
+        try migrateInPlace("su2015functional")
+
+        let second = try WoSImport.run(text: tsv, store: store)
+        XCTAssertEqual(second.conflicts, [],
+                       "遷移之後重跑不得變成 conflict——conflict 路徑不覆寫，"
+                       + "於是 enriched 回填此後永遠不會再 fire")
+        XCTAssertEqual(second.unchanged, ["su2015functional"])
+        XCTAssertEqual(second.created.count, 0)
+    }
+
+    /// 重跑**不得**把 `fields.doi` 殘留種回去——那是 migrate-identifiers 剛移除的。
+    ///
+    /// 與 `enrich-from-zotero` 的同一條紀律（#394）：識別碼有結構化的家之後，
+    /// 回填路徑不得繞道 `fields` 把它種回來。
+    func testReimportDoesNotResurrectTheFieldsResidue() throws {
+        let tsv = header
+            + "Su, YH\tSu, Ying-Hao\tFunctional data\tPsychometrika\t2015\t10.1234/abc\n"
+        _ = try WoSImport.run(text: tsv, store: store)
+        try migrateInPlace("su2015functional")
+
+        _ = try WoSImport.run(text: tsv, store: store)
+
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "su2015functional" })
+        XCTAssertNil(after.fields["doi"],
+                     "殘留一旦被種回來，同一個值就有兩份副本可各自漂移")
+        XCTAssertEqual(after.doi.map(\.normalized), ["10.1234/abc"], "結構化值必須完好")
+    }
+}

@@ -320,6 +320,26 @@ public enum WoSImport {
                 // venues，同 `.key` 作者紀律）；既有為空才由 probe 回填（下方 additive
                 // 路徑，同 migrate-venues 語意）。
                 if !a.venues.isEmpty { b.venues = a.venues }
+                // #394 verify：**結構化識別碼由 store 勝出**，形狀與上面的 venues 同構。
+                //
+                // `Entry` 是合成 Equatable，而 #394 給它加了 doi／pmid／isbn／references
+                // 四個儲存屬性；`entry(from: row)` 只寫 `fields["doi"]`——probe 的結構化
+                // 欄位**恆為空**。遷移之後既有記錄的結構化欄位非空，於是 `a == b` 必然
+                // 為假、回填後的 `mergedCheck == probeCheck` 也必然為假 → **每一筆從
+                // unchanged 變成 conflict**。而 conflict 路徑刻意不覆寫，所以 `enriched`
+                // 回填此後永遠不會再 fire——`lossless-intake` 的「規則要及於已匯入的
+                // 記錄」對全庫帶 DOI 的 work 失效。
+                //
+                // **這是上面那段註解記載的 #206 verify H1，被結構化欄位重新裝填一次。**
+                //
+                // 同時把 probe 的 `fields` 殘留一併移除：識別碼有結構化的家之後，
+                // 回填不得繞道 `fields` 把它種回來（同 `enrich-from-zotero` 的紀律）
+                // ——否則同一個值有兩份副本可各自漂移。
+
+                if !a.doi.isEmpty { b.doi = a.doi; b.fields.removeValue(forKey: "doi") }
+                if !a.pmid.isEmpty { b.pmid = a.pmid; b.fields.removeValue(forKey: "pmid") }
+                if !a.isbn.isEmpty { b.isbn = a.isbn; b.fields.removeValue(forKey: "isbn") }
+                if !a.references.isEmpty { b.references = a.references }
                 if a == b { report.unchanged.append(existing.citekey); continue }
 
                 // **只多不少 → 回填，不算 conflict**（#206 verify H1）。

@@ -2041,6 +2041,30 @@ public final class AkashicService {
                 uniquingKeysWith: { first, _ in first }),
         ]
         if let date = entry.date { d["date"] = displaySafe(date, max: 200) }
+        // **識別碼**（#425 verify HIGH）。在此之前 `entryDict` 一個都沒有——
+        // `akashic get-entry` 與 MCP 兩面同時對 work 的識別碼失明，而它們自 §4 起
+        // 就在磁碟上。與已修的 venue ISSN 是**同一族、換一個 entity kind**。
+        //
+        // 讀 `canonical*` 而非結構化欄位本身：遷移略過的記錄仍把值放在 `fields`
+        // 殘留裡，而使用者要看的是「這筆有沒有 DOI」，不是「它存在哪一層」。
+        if !entry.canonicalDOIs.isEmpty {
+            d["doi"] = entry.canonicalDOIs.map { displaySafe($0.normalized, max: 200) }
+        }
+        if !entry.canonicalPMIDs.isEmpty {
+            d["pmid"] = entry.canonicalPMIDs.map { displaySafe($0.normalized, max: 200) }
+        }
+        if !entry.canonicalISBNs.isEmpty {
+            d["isbn"] = entry.canonicalISBNs.map { displaySafe($0.normalized, max: 200) }
+        }
+        // 欄位層級的 provenance（封閉列舉的第 15 條邊，#394 §5）。
+        // 只列**它支撐哪個欄位與哪個值**——digest 與 statement 屬 `doctor` 的職責。
+        if !entry.references.isEmpty {
+            d["references"] = entry.references.map { r -> [String: Any] in
+                var one: [String: Any] = ["field": displaySafe(r.field, max: 200)]
+                if let v = r.value { one["value"] = displaySafe(v, max: 200) }
+                return one
+            }
+        }
         if !entry.attachments.isEmpty {
             d["attachments"] = entry.attachments.map {
                 [$0.kind.rawValue: displaySafe($0.path, max: 800)]

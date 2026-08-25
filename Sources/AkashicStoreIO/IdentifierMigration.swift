@@ -191,6 +191,26 @@ public enum IdentifierMigration {
         return out
     }
 
+    /// 這個序列元素是不是已經是 mapping（`<鍵>: …`）。
+    ///
+    /// 只認 YAML 的簡單鍵（字母或底線開頭，後接字母／數字／`_`／`-`／`.`，再接冒號）。
+    /// ISSN／ISBN 的值不含冒號，所以這個判準對「裸的識別碼」永遠回 false。
+    static func looksLikeYAMLMapping(_ s: String) -> Bool {
+        var seenFirst = false
+        for (idx, c) in s.enumerated() {
+            if idx == 0 {
+                guard c.isLetter || c == "_" else { return false }
+                seenFirst = true
+                continue
+            }
+            if c == ":" { return seenFirst }
+            guard c.isLetter || c.isNumber || c == "_" || c == "-" || c == "." else {
+                return false
+            }
+        }
+        return false                       // 整串沒有冒號 ⇒ 不是 mapping
+    }
+
     private static func splitTokens(_ stripped: String) -> [String] {
         stripped
             .split(whereSeparator: { $0 == "," || $0.isWhitespace })
@@ -300,12 +320,31 @@ public enum IdentifierMigration {
                 guard inList else { continue }
                 if line.hasPrefix("- ") {
                     let v = String(line.dropFirst(2))
-                    if !v.hasPrefix("value:") {
+                    // **判準是「有沒有 YAML 鍵結構」，不是「開頭是不是 value:」**
+                    //（#425 verify HIGH）。舊判斷假設「不是 value: 開頭 ⇒ 裸純量」，
+                    // 而 YAML mapping **無序**——一個完全合法的 format-13 元素只要寫成
+                    // `- qualifier: print` 開頭就會被改成 `- value: qualifier: print`，
+                    // 該檔從此讀不出來。而 quarantine 守衛擋不住它：守衛在寫入之後才跑，
+                    // 於是它會把**本命令剛製造的**損壞回報成「沒認出的寫法」。
+                    //
+                    // 這個寫法不是憑空假設——守衛自己的錯誤訊息就叫使用者「需人工改成
+                    // `- value: …` 後重跑」，手改時把 qualifier 放前面完全自然。
+                    //
+                    // 安全的原因：ISSN 與 ISBN 的值**不含冒號**（各自的 `init?` 只收
+                    // 數字、連字號與末位 X），所以「含 `<鍵>:` 」與「是裸的識別碼」
+                    // 兩者互斥，不需要猜。
+                    if !Self.looksLikeYAMLMapping(v) {
                         lines[i] = "- value: \(v)"
                         changed = true
                     }
+                } else if line.first?.isWhitespace == true && !line.trimmingCharacters(
+                            in: .whitespaces).isEmpty {
+                    // **續行**（`  qualifier: print`）——同一個 mapping 元素的後續鍵。
+                    // 舊實作在這裡把序列模式關掉，於是**其後的裸純量元素全部漏掉**，
+                    // 而漏掉的檔在同一次 run 的下一行就被 quarantine。
+                    continue
                 } else {
-                    inList = false          // 序列結束
+                    inList = false          // 序列真的結束了
                 }
             }
             guard changed else { continue }

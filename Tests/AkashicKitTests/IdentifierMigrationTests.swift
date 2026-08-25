@@ -425,3 +425,61 @@ extension IdentifierMigrationRunTests {
         _ = r
     }
 }
+
+/// 形狀前置升級**不得改壞合法的 format-13 檔**（#425 verify HIGH）。
+extension IdentifierMigrationRunTests {
+    /// YAML mapping 無序——`qualifier:` 寫在 `value:` 之前是完全合法的，
+    /// 而且 `decodeQualifiedList` 讀得出來。
+    ///
+    /// 舊判斷 `if !v.hasPrefix("value:")` 假設「不是 value: 開頭 ⇒ 裸純量」，
+    /// 於是把 `- qualifier: print` 改成 `- value: qualifier: print`，該檔從此讀不出來。
+    /// **quarantine 守衛擋不住它**——守衛在寫入之後才跑。
+    ///
+    /// 這個寫法不是憑空假設：守衛自己的錯誤訊息就叫使用者「需人工改成 `- value: …`
+    /// 後重跑」，而手改時把 qualifier 放前面完全自然。
+    func testLegalFormat13FileWithQualifierFirstIsNotRewritten() throws {
+        var v = Venue(key: "j", type: .periodical)
+        v.issn = [try XCTUnwrap(ISSN("0003-066X")).withQualifier("print")]
+        _ = try store.writeVenue(v)
+
+        let url = store.entityURL(id: v.id)
+        let original = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(original.contains("- value: 0003-066X"), "前提：預設鍵序是 value 在前")
+        let swapped = original.replacingOccurrences(
+            of: "- value: 0003-066X\n  qualifier: print",
+            with: "- qualifier: print\n  value: 0003-066X")
+        XCTAssertNotEqual(swapped, original, "前提：替換要真的發生")
+        try swapped.write(to: url, atomically: true, encoding: .utf8)
+        commitAll()
+
+        // 前提：這個形狀本來就讀得出來
+        let readBack = try store.load().venues.first { $0.key == "j" }
+        XCTAssertEqual(readBack?.issn.first?.medium, .print, "前提：鍵序反過來仍解析得出")
+
+        _ = try IdentifierMigration.run(store: store, apply: true)
+
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), swapped,
+                       "合法的 format-13 檔不得被形狀升級碰到——"
+                       + "它只該處理 format-12 的裸純量")
+    }
+
+    /// 續行（`  qualifier: …`）不得讓序列模式提早結束，否則其後的裸純量元素全部漏掉。
+    func testContinuationLineDoesNotEndTheSequence() throws {
+        var v = Venue(key: "j", type: .periodical)
+        v.issn = [try XCTUnwrap(ISSN("0003-066X")).withQualifier("print")]
+        _ = try store.writeVenue(v)
+        let url = store.entityURL(id: v.id)
+        // 第一個元素是 mapping（帶續行），第二個是 format-12 的裸純量
+        var text = try String(contentsOf: url, encoding: .utf8)
+        text = text.replacingOccurrences(of: "  qualifier: print",
+                                         with: "  qualifier: print\n- 1935-990X")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        commitAll()
+
+        _ = try IdentifierMigration.run(store: store, apply: true)
+
+        let after = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(after.contains("- value: 1935-990X"),
+                      "續行之後的裸純量必須也被升級——舊實作在續行處就把序列模式關掉了：\n\(after)")
+    }
+}

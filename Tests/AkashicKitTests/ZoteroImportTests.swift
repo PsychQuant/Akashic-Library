@@ -642,3 +642,34 @@ extension ZoteroImportTests {
         XCTAssertTrue(onDisk.contains("weird: [a,"))
     }
 }
+
+/// `fieldsRemovedByPull` 對**識別碼**的回報（#394 verify R5 ③）。
+extension ZoteroImportTests {
+    /// R4 把識別碼提升進結構化欄位之後，`fields` 的減法就看不到它們——同一件事
+    /// （Zotero 這次沒給、pull 因此清掉）從**有回報**變成**零回報**。R4 宣稱把通道接回來，
+    /// 但那一半**正向零覆蓋**：把 `ZoteroImporter` 的 `identifiersBefore`/`identifiersAfter`
+    /// 整段刪掉，全套測試仍然全綠。
+    ///
+    /// 這正是 R4 自己的 changelog 列為第 7 種失效（「守衛在正向上是空的」）的形狀，
+    /// 在同一輪的另一條修復裡重演，而且是**該條修復的宣稱重點**。
+    func testClearingAnIdentifierUpstreamIsReported() throws {
+        _ = try runImport()   // setUp 已 seedStandard
+
+        // 模擬 migrate-identifiers 的結果：DOI 住結構化欄位、`fields` 沒有殘留。
+        let all = try store.load().entries
+        guard var e = all.first else { return XCTFail("fixture 應該至少建了一筆") }
+        e.doi = [DOI("10.1037/abc123")!]
+        e.fields.removeValue(forKey: "doi")
+
+        // 讓 hash 過期以進 update 分支（Zotero 端**沒有** DOI）——動 provenance 而非動
+        // fixture DB:後者要猜 item/value id,而本測試問的與 Zotero 端的內容無關。
+        e.provenance?.zoteroHash = "stale-\(UUID().uuidString)"
+        _ = try store.writeEntry(e)
+        let report = try runImport()
+
+        XCTAssertEqual(report.fieldsRemovedByPull["doi"], 1,
+                       "pull 清掉了一個結構化識別碼——那必須出現在報告裡。"
+                       + "靜默丟棄是 lossless-intake 執行細節 3 具名為最糟的形式，"
+                       + "而識別碼搬出 `fields` 之後那個減法看不到它們")
+    }
+}

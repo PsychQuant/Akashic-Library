@@ -339,9 +339,22 @@ public enum IdentifierMigration {
     ///    這條路徑**只有遷移命令呼叫**，`grep -n 'upgradingIdentifierShape' Sources/` 一眼看完。
     /// 2. **退場量測**（可直接貼進終端機）：
     ///    ```bash
-    ///    grep -A5 -E '^(issn|isbn):' ~/.akashic/entities/*.yaml | grep -cE '^\S*-- [^v]'
+    ///    awk 'FNR==1{s=0} /^(issn|isbn):$/{s=1;next} s&&/^- /{if($0!~/^- value:/)n++;next} \
+    ///         s&&!/^[ -]/{s=0} END{print n+0}' ~/.akashic/entities/*.yaml
     ///    ```
     ///    回 0 ＝ 全庫已無裸純量形狀，本函式可刪。
+    ///
+    ///    **上一版的量測是壞的**（#394 verify R5 ⑤）：`grep -A5` 的 context 行用 `-` 當
+    ///    分隔（`檔名-<行>`），而編碼器把 `references:` 排在 `isbn:`／`issn:` 之後，於是
+    ///    每個帶 reference 的記錄都貢獻一個 `- field: resolution-confirmed` 假陽性。
+    ///    在**乾淨的** store 上它回 **35** 而非 0——也就是它**永遠到不了退場條件**，
+    ///    而維護者會據此判定「還有 35 筆舊形狀」並把這條路徑永久留著。
+    ///
+    ///    新版逐檔重置狀態、只認 `issn:`／`isbn:` 序列自己的元素。實測（2026-08-26，
+    ///    真實 store）：**序列元素 88 個、裸純量 0 個** → 回 0。負控:注入一個裸純量回 1。
+    ///
+    ///    **所以退場條件此刻已經成立**——本函式與呼叫點可刪。刻意不在同一個變更裡刪:
+    ///    它是 #394 的 apply 路徑正在用的東西,而那條路徑還沒 merge。追蹤:#394 close 前。
     /// 3. **退場即刪**：條件成立後移除本函式與它的呼叫點，不留著當保險。
     ///
     /// ## 為什麼是文字層而不是寬容解碼器

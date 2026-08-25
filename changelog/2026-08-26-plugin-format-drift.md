@@ -44,3 +44,25 @@ pre-push ＋ `plugin-guards.yml`（**ubuntu 側**——它只讀兩個檔的文�
 `Sources/AkashicStoreIO/StoreVersion.swift`）本來就在該 workflow 的 paths 裡。
 
 `trigger-coverage.py` 實測零缺口，21/21 支守衛都有觸發點涵蓋。
+
+## 第六輪：副本有三份不是兩份
+
+verify 指出 `grep -rIl "Store format"` 實測有**三個**位置，而本 change 只接上兩份。
+第三份是 **`mcpb/manifest.json`**——它不是文件而是**出貨物**：`release-signed.sh` 把它
+zip 進 `.mcpb`，那是 Claude Desktop 一鍵安裝時顯示的 description。它仍寫著 **10**。
+
+**而守衛會印一個綠勾。** 一個綠燈指認「漂移這個類別已經關閉」，實際只關閉了三分之二
+——那比沒有燈更糟，因為它讓人停止檢查。
+
+同一支 `release-signed.sh` 已經對 `version` 欄做過跨檔 parity 檢查，所以「這個檔會漂移」
+在本 repo 是**已知且已經處置過一次**的事實；描述欄的 store format 沒有跟上。
+
+改成 `DECLARERS` 清單，三個方向各自負控通過。`mcpb/**` 一併加進 `plugin-guards.yml`
+的 paths（先前不在，改它不觸發任何 workflow）。
+
+### 一個順帶學到的東西
+
+第一版的失敗訊息只說「把 plugin.json 的數字改成 N」——若真正的錯是 **StoreVersion 忘了
+bump**，那句指引會把人導向改錯邊。新版明寫兩個方向都要考慮。
+
+**守衛指出不一致時，它通常不知道哪一邊才是對的。** 假裝知道會讓修法變成猜測。

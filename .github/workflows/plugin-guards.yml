@@ -39,6 +39,9 @@ on:
       # parity 的 oracle。它不在這裡跑 parity（那需要 build，屬 census-parity.yml），
       # 但 trigger-coverage 要能看見它改動時的覆蓋狀況。
       - "Sources/AkashicStoreIO/StoreVersion.swift"
+      # plugin-store-format-parity.py 的第三份宣告來源。它是**出貨物**
+      # （release-signed.sh 會 zip 進 .mcpb），改它而守衛不跑＝出貨一個過期數字。
+      - "mcpb/manifest.json"
       # decision-matrix-drift.py 的輸入是 CLAUDE.md 的 8 列決策矩陣（#407 R27）。
       # 表改了守衛就得跑——不加這條的話，一個改壞矩陣的 push 在 CI 側完全無聲。
       - "CLAUDE.md"

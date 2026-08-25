@@ -285,7 +285,7 @@ final class IdentifierMigrationRunTests: XCTestCase {
         try seedArticle("bad2020", venueKey: "ghost", issn: "1082-989X")
         commitAll()
 
-        let r = try IdentifierMigration.run(store: store, apply: true)
+        _ = try IdentifierMigration.run(store: store, apply: true)
         XCTAssertNil(try issnOnDisk("good2020"), "未受影響的那筆照常遷移")
         XCTAssertEqual(try issnOnDisk("bad2020"), "1082-989X", "受阻的那筆原封不動")
     }

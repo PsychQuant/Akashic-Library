@@ -191,24 +191,56 @@ public enum IdentifierMigration {
         return out
     }
 
-    /// 這個序列元素是不是已經是 mapping（`<鍵>: …`）。
+    /// format 12 → 13 的行級轉換。**純函式，可單獨測**（#394 verify R4）。
     ///
-    /// 只認 YAML 的簡單鍵（字母或底線開頭，後接字母／數字／`_`／`-`／`.`，再接冒號）。
-    /// ISSN／ISBN 的值不含冒號，所以這個判準對「裸的識別碼」永遠回 false。
-    static func looksLikeYAMLMapping(_ s: String) -> Bool {
-        var seenFirst = false
-        for (idx, c) in s.enumerated() {
-            if idx == 0 {
-                guard c.isLetter || c == "_" else { return false }
-                seenFirst = true
+    /// ## 判準是「它是不是真的裸識別碼」，不是「它長得像不像 mapping」
+    ///
+    /// R3 的病是 `hasPrefix("value:")`——猜一種寫法。R3 的修法換成「有沒有 YAML 鍵結構」
+    /// ——**那仍是白名單**，只是把邊界挪了一格。R4 實測四種合法的 format-13 元素落在
+    /// 新邊界外面（`- value : X`、`-  value: X`、`- {value: X}`、`- "value": X`），
+    /// 而前兩者改寫後產生 `- value: value : X`：**整檔 YAML 語法錯誤**，比原缺陷嚴重
+    /// ——原缺陷只是 decode 失敗。
+    ///
+    /// 當時的註解**寫出了正確的性質**（「ISSN 與 ISBN 的值不含冒號」）卻實作了它的
+    /// 近似補集。這一版直接問那個性質：**`ISSN(v) != nil`**。
+    ///
+    /// 於是它只在「確定是裸識別碼」時改寫——mapping、垃圾、解析不出的值一律不動。
+    /// 不確定就不碰，剩下的交給 quarantine 具名，那比猜一個包裝誠實。
+    ///
+    /// 序列的結束條件同樣改掉白名單：**下一個頂層鍵**才是邊界（第 0 欄的 `<鍵>:`），
+    /// 空行與 `#` 註解不再讓其後的元素漏掉（R4 ⑤）。
+    static func upgradedLines(_ lines: [String]) -> [String] {
+        var out = lines
+        var listKey: String?
+        for i in lines.indices {
+            let line = lines[i]
+            if line == "issn:" || line == "isbn:" {
+                listKey = String(line.dropLast()); continue
+            }
+            guard let key = listKey else { continue }
+            if line.hasPrefix("- ") {
+                let v = String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                if isBareIdentifier(v, field: key) { out[i] = "- value: \(v)" }
                 continue
             }
-            if c == ":" { return seenFirst }
-            guard c.isLetter || c.isNumber || c == "_" || c == "-" || c == "." else {
-                return false
+            // **序列的邊界是下一個頂層鍵**，不是「這一行長得像不像續行」。
+            // 空行、`#` 註解、縮排的續行都仍在序列內。
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty, !trimmed.hasPrefix("#"),
+               line.first?.isWhitespace != true {
+                listKey = nil
             }
         }
-        return false                       // 整串沒有冒號 ⇒ 不是 mapping
+        return out
+    }
+
+    /// 這個字串是不是該欄位的**裸識別碼**——由型別自己的建構器回答，不由形狀猜。
+    static func isBareIdentifier(_ v: String, field: String) -> Bool {
+        switch field {
+        case "issn": return ISSN(v) != nil
+        case "isbn": return ISBN(v) != nil
+        default:     return false
+        }
     }
 
     private static func splitTokens(_ stripped: String) -> [String] {
@@ -326,49 +358,16 @@ public enum IdentifierMigration {
         for name in names.sorted() where name.hasSuffix(".yaml") {
             let url = dir.appendingPathComponent(name)
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            var lines = text.components(separatedBy: "\n")
-            var inList = false
-            var changed = false
-            for i in lines.indices {
-                let line = lines[i]
-                if line == "issn:" || line == "isbn:" { inList = true; continue }
-                guard inList else { continue }
-                if line.hasPrefix("- ") {
-                    let v = String(line.dropFirst(2))
-                    // **判準是「有沒有 YAML 鍵結構」，不是「開頭是不是 value:」**
-                    //（#425 verify HIGH）。舊判斷假設「不是 value: 開頭 ⇒ 裸純量」，
-                    // 而 YAML mapping **無序**——一個完全合法的 format-13 元素只要寫成
-                    // `- qualifier: print` 開頭就會被改成 `- value: qualifier: print`，
-                    // 該檔從此讀不出來。而 quarantine 守衛擋不住它：守衛在寫入之後才跑，
-                    // 於是它會把**本命令剛製造的**損壞回報成「沒認出的寫法」。
-                    //
-                    // 這個寫法不是憑空假設——守衛自己的錯誤訊息就叫使用者「需人工改成
-                    // `- value: …` 後重跑」，手改時把 qualifier 放前面完全自然。
-                    //
-                    // 安全的原因：ISSN 與 ISBN 的值**不含冒號**（各自的 `init?` 只收
-                    // 數字、連字號與末位 X），所以「含 `<鍵>:` 」與「是裸的識別碼」
-                    // 兩者互斥，不需要猜。
-                    if !Self.looksLikeYAMLMapping(v) {
-                        lines[i] = "- value: \(v)"
-                        changed = true
-                    }
-                } else if line.first?.isWhitespace == true && !line.trimmingCharacters(
-                            in: .whitespaces).isEmpty {
-                    // **續行**（`  qualifier: print`）——同一個 mapping 元素的後續鍵。
-                    // 舊實作在這裡把序列模式關掉，於是**其後的裸純量元素全部漏掉**，
-                    // 而漏掉的檔在同一次 run 的下一行就被 quarantine。
-                    continue
-                } else {
-                    inList = false          // 序列真的結束了
-                }
-            }
+            let lines = text.components(separatedBy: "\n")
+            let newLines = Self.upgradedLines(lines)
+            let changed = newLines != lines
             guard changed else { continue }
             let rel = "entities/\(name)"
             // **同一條 trackedness 紀律**：未被 git 追蹤的檔改寫沒有回復路徑。
             // 前置升級也是改寫——它先前繞過了這道閘。
             guard tracked.contains(Data(rel.utf8)) else { continue }
             touched.append(rel)
-            let newText = lines.joined(separator: "\n")
+            let newText = newLines.joined(separator: "\n")
             if apply {
                 try newText.write(to: url, atomically: true, encoding: .utf8)
             } else {
@@ -424,9 +423,10 @@ public enum IdentifierMigration {
                                + "一個都沒被搬，後續 format bump 會把它們鎖在門外"
                                : "報告會漏掉它們（誤導性的不完整）")
                       + "。先跑 `akashic doctor` 看 quarantine 的原因。"
-                      + "**這裡不會是 `issn`／`isbn` 的裸純量序列**——那些在本命令的"
-                      + "形狀前置升級就處理掉了（乾跑也一樣，它把升級後的文字餵給 "
-                      + "load 而不動磁碟）。所以 quarantine 是別的原因造成的。")
+                      + "**若是 `issn`／`isbn` 的裸純量序列**，那是本命令的形狀前置升級"
+                      + "沒有處理到的形狀——它只認頂格的 `issn:`／`isbn:` ＋ 頂格的 "
+                      + "`- <識別碼>`，且該檔必須已被 git 追蹤。已知會漏的："
+                      + "CRLF 行尾、縮排序列、未追蹤的檔。人工改成 `- value: …` 後重跑。")
         }
 
         // per-file trackedness：apply 時查一次（同 VenueMigration／PersonIdentityMigration）。

@@ -514,3 +514,36 @@ extension IdentifierMigrationRunTests {
         XCTAssertEqual(byValue["0033-3123"], "linking")
     }
 }
+
+/// 乾跑與 apply 必須看到**同一組** blockers（#425 verify HIGH）。
+extension IdentifierMigrationRunTests {
+    /// 形狀升級先前只在 `apply == true` 寫檔，所以乾跑時裸純量還在 → load 時
+    /// quarantine → 守衛 throw；而 `--apply` 先升級再 load 因而**成功**。
+    /// 同一個 store：乾跑拒跑、apply 成功。
+    ///
+    /// 這違反本命令自己寫下的契約（「乾跑與 apply 得到**同一組** blockers——乾跑因此
+    /// 真的能預告 apply 的結果」），而且錯誤訊息**說了假話**：它斷言那是「本命令的
+    /// 形狀前置升級沒認出的寫法」，而實測觸發值**正是**它認得的形式。
+    func testDryRunSucceedsOnAStoreThatApplyWouldUpgrade() throws {
+        var v = Venue(key: "j", type: .periodical)
+        v.issn = [try XCTUnwrap(ISSN("0003-066X"))]
+        _ = try store.writeVenue(v)
+        // 退回 format-12 的裸純量形狀——這正是本命令存在的理由
+        let url = store.entityURL(id: v.id)
+        let text = try String(contentsOf: url, encoding: .utf8)
+            .replacingOccurrences(of: "- value: 0003-066X", with: "- 0003-066X")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        commitAll()
+
+        // 乾跑**不得** throw——它要能預告 apply 的結果
+        let dry = try IdentifierMigration.run(store: store, apply: false)
+        XCTAssertEqual(dry.shapeUpgraded.count, 1, "乾跑要報出它會升級哪些檔")
+        XCTAssertEqual(dry.applied, 0, "乾跑零寫入")
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), text,
+                       "乾跑不得改動磁碟")
+
+        let applied = try IdentifierMigration.run(store: store, apply: true)
+        XCTAssertEqual(dry.blockers, applied.blockers,
+                       "乾跑與 apply 必須得到同一組 blockers——那是本命令自己的契約")
+    }
+}

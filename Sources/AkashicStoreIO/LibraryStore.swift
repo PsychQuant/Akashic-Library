@@ -88,6 +88,17 @@ public struct LibraryLoad {
 public final class LibraryStore {
     public let root: URL
 
+    /// **讀取時的記憶體覆寫**（#425 verify）：絕對路徑 → 內容。
+    ///
+    /// 存在的唯一理由是 `migrate-identifiers` 的乾跑：形狀升級若不寫檔，load 會對
+    /// 那些檔 quarantine，於是**乾跑拒跑而 `--apply` 成功**——違反該命令自己寫下的
+    /// 契約「乾跑與 apply 得到同一組 blockers」。有了這層，乾跑可以把升級後的文字
+    /// 餵給 decode 而**磁碟一個位元組都不動**。
+    ///
+    /// **不是相容路徑**：它不讀舊格式、不推導缺欄位、不回退目錄。它是一個顯式的
+    /// 測試／預演注入點，呼叫端 `grep textOverrides` 一眼看完（目前只有一處）。
+    public var textOverrides: [String: String] = [:]
+
     public var entriesDir: URL { root.appendingPathComponent("entries") }
     public var peopleDir: URL { root.appendingPathComponent("people") }
     public var librariesDir: URL { root.appendingPathComponent("libraries") }
@@ -747,8 +758,13 @@ public final class LibraryStore {
                     "\(directory)/\($0.lastPathComponent)"
                 }
             },
-            data: { [root] relativePath in
-                try Data(contentsOf: root.appendingPathComponent(relativePath))
+            data: { [root, textOverrides] relativePath in
+                // 記憶體覆寫優先（#425 verify）——`migrate-identifiers` 的乾跑靠它把
+                // 升級後的文字餵進 decode 而不動磁碟。空字典時行為逐位元不變。
+                let url = root.appendingPathComponent(relativePath)
+
+                if let injected = textOverrides[url.path] { return Data(injected.utf8) }
+                return try Data(contentsOf: url)
             })
         return try load(from: source)
     }

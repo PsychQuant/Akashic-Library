@@ -316,11 +316,13 @@ public enum IdentifierMigration {
     /// `- value:` 的那些。其餘一律不動。
     @discardableResult
     static func upgradingIdentifierShape(store: LibraryStore, apply: Bool,
-                                         tracked: Set<Data>) throws -> [String] {
+                                         tracked: Set<Data>)
+        throws -> (touched: [String], upgraded: [String: String]) {
         let fm = FileManager.default
         let dir = store.root.appendingPathComponent("entities")
-        guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { return [] }
+        guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { return ([], [:]) }
         var touched: [String] = []
+        var upgraded: [String: String] = [:]
         for name in names.sorted() where name.hasSuffix(".yaml") {
             let url = dir.appendingPathComponent(name)
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
@@ -366,10 +368,16 @@ public enum IdentifierMigration {
             // 前置升級也是改寫——它先前繞過了這道閘。
             guard tracked.contains(Data(rel.utf8)) else { continue }
             touched.append(rel)
-            if apply { try lines.joined(separator: "\n").write(to: url, atomically: true,
-                                                              encoding: .utf8) }
+            let newText = lines.joined(separator: "\n")
+            if apply {
+                try newText.write(to: url, atomically: true, encoding: .utf8)
+            } else {
+                // **乾跑不寫檔，但要讓 load 看到升級後的樣子**——否則那些檔會被
+                // quarantine，於是乾跑拒跑而 apply 成功（#425 verify）。
+                upgraded[url.path] = newText
+            }
         }
-        return touched
+        return (touched, upgraded)
     }
 
     /// 掃全庫、產出處置計畫；`apply` 才寫入。
@@ -392,8 +400,11 @@ public enum IdentifierMigration {
         }
         // **形狀前置升級必須在 load 之前**——裸純量的 issn/isbn 會讓那些檔整檔
         // quarantine，於是 load 之後它們根本不在 `load.venues`／`load.entries` 裡。
-        report.shapeUpgraded = try upgradingIdentifierShape(store: store, apply: apply,
-                                                            tracked: tracked)
+        let shape = try upgradingIdentifierShape(store: store, apply: apply, tracked: tracked)
+        report.shapeUpgraded = shape.touched
+        // 乾跑：把升級後的文字餵給接下來的 load，磁碟不動（#425 verify 的裁決）。
+        store.textOverrides = shape.upgraded
+        defer { store.textOverrides = [:] }
         let load = try store.load()
         // **quarantine 守衛**（#394 verify CRITICAL）。對照組就在隔壁：
         // `AuthorizedNameMigration.run` 對非空 quarantined 直接拒跑，理由是「本工具
@@ -412,10 +423,10 @@ public enum IdentifierMigration {
                       + (apply ? "apply 會改寫其餘記錄並回報成功，而那些檔的識別碼"
                                + "一個都沒被搬，後續 format bump 會把它們鎖在門外"
                                : "報告會漏掉它們（誤導性的不完整）")
-                      + "。先跑 `akashic doctor` 看 quarantine 的原因——"
-                      + "若是 `issn`／`isbn` 的裸純量序列，那是本命令的形狀前置升級"
-                      + "沒認出的寫法（它只認頂格 `issn:` ＋ 頂格 `- `），需人工改成"
-                      + "`- value: …` 後重跑")
+                      + "。先跑 `akashic doctor` 看 quarantine 的原因。"
+                      + "**這裡不會是 `issn`／`isbn` 的裸純量序列**——那些在本命令的"
+                      + "形狀前置升級就處理掉了（乾跑也一樣，它把升級後的文字餵給 "
+                      + "load 而不動磁碟）。所以 quarantine 是別的原因造成的。")
         }
 
         // per-file trackedness：apply 時查一次（同 VenueMigration／PersonIdentityMigration）。

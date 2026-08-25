@@ -92,6 +92,12 @@ jobs:
 
       # 觸發點自己的守衛。它不執行任何被保護的程式碼，只讀 workflow／hook 的
       # 設定與各守衛的原始碼——所以放在 ubuntu（1× 計費）這一側。
+      # plugin.json 的 description 宣告 store format,而它與 `StoreVersion.supported`
+      # 是同一份規格的兩個副本。實測三次漂移零次被發現（#408）——放這裡不放 macOS 那側:
+      # 它只讀兩個檔的文字,不需要 build。
+      - name: plugin.json 的 store format 與唯一來源一致
+        run: python3 plugin/tests/plugin-store-format-parity.py
+
       - name: 觸發點覆蓋（逐對，非聯集）
         run: python3 plugin/tests/trigger-coverage.py
       - name: 觸發點守衛的 negative control

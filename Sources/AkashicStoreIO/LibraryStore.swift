@@ -510,8 +510,6 @@ public final class LibraryStore {
                  "附著驗證，於是它可以指向一個不存在的值而沒有人發現")
     }
 
-    /// 發表載體只存在於 entities 佈局（format 11 起，#304）。
-    @discardableResult
     /// `writeVenue` 的**全部**前置閘，抽成可單獨呼叫的一份（#394 verify）。
     ///
     /// 存在的理由：`migrate-identifiers` 的 pre-flight 要在**任何寫入之前**判定
@@ -549,6 +547,8 @@ public final class LibraryStore {
         try Self.assertNoErrors(v.validate(), what: "venue", key: v.key)
     }
 
+    /// 發表載體只存在於 entities 佈局（format 11 起，#304）。
+    @discardableResult
     public func writeVenue(_ v: Venue) throws -> URL {
         try assertStoreRoot()
         try Self.assertVenueWritable(v, format: try StoreVersion.read(root: root))

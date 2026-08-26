@@ -159,9 +159,27 @@ public enum ZoteroEnrichment {
                     refused.append("issn「\(v)」——ISSN 識別的是期刊不是文章，"
                                    + "work 不收；要補請補到它的 venue")
                 case "doi", "pmid", "isbn":
-                    // 解析得出來的已由 `applyBiblatexFields` 放進 probe 的**結構化欄位**
-                    //（#425 verify），所以還留在 `fields` 的必然是解析不出來的殘留。
-                    refused.append("\(k)「\(v)」——解析不出 \(k.uppercased()) 的形狀，不猜")
+                    // **「必然」在 R7 之後為假**（#394 verify R8）。
+                    //
+                    // 這段原本建立在一條兩態不變式上：解析得出來 → 進結構化欄位且移除殘留；
+                    // 解析不出 → 殘留留在 `fields`。R7 為了不丟資料新增**第三態**
+                    //（部分成功：值進結構化欄位**且**殘留保留），那句「必然」自此不成立。
+                    //
+                    // 沒跟著改的話，同一筆會同時印「+ isbn = 978…」與
+                    // 「✗ 不採用：isbn「978… 1-4338-3216」——解析不出 ISBN 的形狀」
+                    // ——**第二行對第一行剛採用的那個號說它解析不出**。使用者據此手動補一個，
+                    // 就會與已經寫進去的值衝突。
+                    //
+                    // 判準改問 probe 的結構化欄位空不空（＝這一輪有沒有解析出任何東西）。
+                    let parsedCount = probe.identifierList(k)?.count ?? 0
+                    if parsedCount == 0 {
+                        refused.append("\(k)「\(v)」——解析不出 \(k.uppercased()) 的形狀，不猜")
+                    } else {
+                        // 部分成功。**不說「解析不出」**（有一半解出來了、而且已被採用），
+                        // 也不沉默（`lossless-intake`：丟棄必須可見）。
+                        refused.append("\(k)「\(v)」——只解析出 \(parsedCount) 個，"
+                                       + "其餘 token 的形狀不認得；原字串保留在 fields 供人裁")
+                    }
                 default:
                     if entry.fields[k] == nil { added[k] = v }
                 }

@@ -88,7 +88,16 @@ final class EntrySurfaceTests: XCTestCase {
     /// canonical accessor 也算讀到——它的 doc 明寫「讀取請走它」。
     /// 守衛若只認欄位名的字面，會**逼呼叫端改用較差的讀法才能過關**。
     static let canonicalAlias = ["doi": "canonicalDOIs", "pmid": "canonicalPMIDs",
-                                 "isbn": "canonicalISBNs"]
+                                 "isbn": "canonicalISBNs",
+                                 // **App 的 canonical 讀法**（#394 verify R8）:
+                                 // `Entry.displayTitle`／`displayAuthors` 是 displaySafe
+                                 // 一族,而 pattern `entry.title` 不含於 `entry.displayTitle`,
+                                 // 所以比對必然落空。先前把它們誤診成 #426 缺口——
+                                 // **App 明明顯示了標題與作者**,是別名表不完整。
+                                 //
+                                 // 這正是本表上方那句裁決要防的:守衛若只認欄位名的字面,
+                                 // 會逼呼叫端改用**較差的讀法**才能過關。
+                                 "title": "displayTitle", "authors": "displayAuthors"]
 
     /// 括號配對取完整 body——固定長度的視窗會在函式變長時假紅
     /// （`VenueSurfaceTests` 已經踩過一次）。
@@ -188,11 +197,18 @@ final class EntrySurfaceTests: XCTestCase {
         // 逐面**已知缺口**:該面應該顯示但目前沒有。與豁免刻意分開——豁免是裁決,
         // 缺口是待辦,把兩者混在一起會讓待辦看起來像已裁決（#426 追蹤 venues/thesis）。
         let perSurfaceKnownGaps: [String: [String: String]] = [
-            "App（EntryDetailView）": [
-                "venues": "#426", "thesis": "#426", "citekey": "#426",
-                "type": "#426", "title": "#426", "date": "#426", "authors": "#426",
-                "fields": "#426", "doi": "", "pmid": "", "isbn": "",
-            ].filter { !$0.value.isEmpty },
+            // **只剩兩個是真的**（#394 verify R8）。先前這裡有八個,而實測
+            // `grep -oE 'entry\.[a-zA-Z]+' AkashicApp/Sources/EntryViews.swift` 顯示
+            // `citekey`／`type`／`date`／`fields` **今天就命中**——那四列不是缺口,
+            // 是四項本來會綠的檢查被關掉了;`title`／`authors` 則是別名表不完整
+            // （見 `canonicalAlias`）。
+            //
+            // 算術很刺眼:`Entry` 有 17 個 stored 欄位,扣掉全域豁免 2 個、逐面豁免
+            // 4 個、缺口 8 個,剩下**恰好 3 個**（doi／pmid／isbn）——就是本檔註解
+            // 自我批評過的那個寫死清單。反射化修好了「新欄位會被檢查」,而對**既有**
+            // 欄位 App 面的涵蓋率仍是 3/17,長註解讀起來卻像整個 surface 維度都補上了。
+            // 那是 `zero-instance-guards` 第 5 列的「覆蓋率自我謊報」。
+            "App（EntryDetailView）": ["venues": "#426", "thesis": "#426"],
             "CLI（get-entry）": ["venues": "#426", "thesis": "#426"],
             "MCP（entryDict）": ["venues": "#426", "thesis": "#426"],
         ]

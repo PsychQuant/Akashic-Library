@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""`assertions-must-be-measured.md` 第 2 題那張四列判準表的現查。
+"""`assertions-must-be-measured.md` 第 2 題那張五列判準表的現查。
 
 那張表的主題是「一個真的查詢，被用來支撐一個那個查詢沒問的性質」，而它自己的
-四列也是四個可否證的宣稱。這支腳本逐列跑出它們的依據。
+五列也是五個可否證的宣稱。這支腳本逐列跑出它們的依據。
 
 **第三列刻意不計數**：前三次量它時用了三種計數方式（`grep -c`、全格 `re.findall`、
 逐格解析），得到三個不同的答案（#407 R25i）。現在直接列出行號與函式名——
@@ -235,9 +235,50 @@ print(f'     總 {tot}｜單行 {sg}｜block {bl} → {int(sg)+int(bl)}  '
 
 
 print()
+# ⑤ 時態（#394 verify R8）
+print('⑤ 「差的是時態，不是內容」')
+# 前四列的形狀是「查詢問的不是那個性質」;這一列的查詢問的**正是**那個性質,
+# 只是它還沒回答完。所以現查方式也不同——不是重跑一個 grep,而是確認這一列
+# **有沒有被人悄悄刪掉或改寫成不可否證的形式**。
+#
+# **刻意不寫死那個 SHA**：寫死的話,它終於推上去之後這裡就永遠綠,而那正好讓這一列
+# 失去意義（本檔第 ② 列走過同一條路:R26b 寫死 `✓`、R26f 換成一個結構上不可能命中的
+# 查詢,兩版都不可否證）。
+_rule = open('plugin/rules/assertions-must-be-measured.md', encoding='utf8').read()
+_r5 = [l for l in _rule.split('\n') if 'No commit found' in l and l.startswith('|')]
+print(f'     第 5 列在場且恰一列：{len(_r5)} '
+      f'{check(len(_r5) == 1, "第 5 列不見了或重複")}')
+# 那一列必須同時具名「時態」與一個**可否證的觀察**（422／No commit found）,
+# 否則它會退化成一句感想。
+_ok5 = len(_r5) == 1 and '時態' in _r5[0] and '422' in _r5[0]
+print(f'     它具名了時態與可否證的觀察：'
+      f'{check(_ok5, "第 5 列被改寫成沒有可否證觀察的形式——那會讓它退化成感想")}')
+# 表頭宣稱的列數必須與**那一張表**的實際列數一致（本檔記過的計數分岔形狀）。
+# **範圍要收在那張表上**——第一版掃全檔所有表格得到 47，那是在量別的東西。
+_lines = _rule.split('\n')
+_start = next(i for i, l in enumerate(_lines) if l.startswith('| 我跑的 |'))
+_n = 0
+for l in _lines[_start + 2:]:              # +2 跳過表頭與分隔列
+    if not l.startswith('|'):
+        break
+    _n += 1
+_hdr = [l for l in _lines if '都不是假指令' in l]
+_words = {3: '三個', 4: '四個', 5: '五個', 6: '六個', 7: '七個'}
+# **那一句裡有兩個計數詞**（「N 個都不是假指令，N 個都不是假數字」），所以用 `in`
+# 檢查會被另一個的存在救起來——負控實測:只改前半,`in` 照樣命中而守衛不紅。
+# 改成**抽出全部計數詞、要求每一個都對**。
+import re as _re
+_cnts = _re.findall(r'([一二三四五六七八九十]個)都不是', _hdr[0]) if len(_hdr) == 1 else []
+_want = _words.get(_n)
+print(f'     散文計數與表一致：表 {_n} 列，散文說 {_cnts or "?"} '
+      f'{check(bool(_cnts) and all(c == _want for c in _cnts),
+               f"散文的計數詞 {_cnts} 與實際 {_n} 列不符")}')
+
+
+
 if fails:
     print(f'══ {len(fails)} 個宣稱不成立 ══')
     for m in fails:
         print(f'  ✗ {m}')
     sys.exit(1)
-print('══ 四列全部現查成立 ══')
+print('══ 五列全部現查成立 ══')

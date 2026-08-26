@@ -491,3 +491,35 @@ extension ZoteroPullIdentifierPlacementTests {
         XCTAssertNil(e.fields["isbn"], "全部解得出 → 殘留沒有存在理由")
     }
 }
+
+/// 上游結構上不供給的欄位，不得被「跟隨上游」清空（#394 verify R8）。
+extension ZoteroPullIdentifierPlacementTests {
+    /// **`fieldMap` 沒有任何一列產生 `pmid`** —— Zotero 的 item schema 沒有 PMID 欄位
+    /// （它住 `Extra`，經 `FieldKey.normalized` 收成 `extra`）。於是
+    /// `followUpstream(fields["pmid"], …)` 的第一個引數**結構上恆為 nil**，
+    /// 走第一個 guard 回 `([], false)`，`entry.pmid` 被設成 `[]`。
+    ///
+    /// 「跟隨上游」對一個上游永遠不給的欄位，退化成**無條件銷毀**——而且不可逆：
+    /// PMID 不在 Zotero 裡，永遠不會從 Zotero 回來。
+    ///
+    /// 實測 0 筆重疊（536 筆 Zotero 來源、65 筆有 pmid），所以這是**地雷不是現行損害**
+    /// ——但它不需要任何人犯錯就會引爆，只需要有人在一筆 Zotero 來源的記錄上補一個 PMID
+    /// （`import-wos` 會寫、`akashic-person-verify` 查 Europe PMC 後也會）。
+    func testPullDoesNotWipeAFieldZoteroCannotSupply() {
+        var e = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
+        e.pmid = [PMID("12345678")!]
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T"]), to: &e)
+
+        XCTAssertEqual(e.pmid.map(\.normalized), ["12345678"],
+                       "Zotero 沒有 PMID 欄位——它的沉默不是「上游說沒有」，"
+                       + "是「上游根本不談這件事」。把兩者折成同一個分支會不可逆地刪資料")
+    }
+
+    /// 上游**能**供給的欄位，沉默仍然是清空（跟隨語意不得被本修復弄壞）。
+    func testPullStillClearsAFieldZoteroCanSupply() {
+        var e = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
+        e.doi = [DOI("10.1037/old")!]
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T"]), to: &e)
+        XCTAssertTrue(e.doi.isEmpty, "DOI 在 fieldMap 裡——上游沉默＝上游說沒有")
+    }
+}

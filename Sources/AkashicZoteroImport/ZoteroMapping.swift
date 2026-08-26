@@ -283,13 +283,31 @@ public enum ZoteroMapping {
         // 整份替換之後上游字串仍在）、**零回報**（`identifiersBefore/After` 只看「有沒有
         // 變空」,前後都非空 → 不記）、留下的是**過期識別碼**（而識別碼終結指涉,
         // `existing(matching:)` 會拿它認人、`export-bib` 會印它）。
+        // **只對上游「談得到」的欄位跟隨**（#394 verify R8）。
+        //
+        // `fieldMap` 實測只產生 `doi` 與 `isbn`——**沒有任何一列產生 `pmid`**
+        // （Zotero 的 item schema 沒有 PMID 欄位,它住 `Extra`,經 `FieldKey.normalized`
+        // 收成 `extra`）。於是 `followUpstream(fields["pmid"], …)` 的第一個引數
+        // **結構上恆為 nil**,而「跟隨上游」對一個上游永遠不給的欄位退化成
+        // **無條件銷毀**——且不可逆:PMID 不在 Zotero 裡,永遠不會從 Zotero 回來。
+        //
+        // 上游的**沉默**有兩種意思,先前被折成同一種:
+        //
+        // | 情形 | 意思 | 動作 |
+        // |---|---|---|
+        // | 欄位在 `fieldMap` 裡而這次沒給 | 「上游說沒有」 | 清空（跟隨）|
+        // | 欄位**不在** `fieldMap` 裡 | 「上游根本不談這件事」 | **不動** |
+        //
+        // 實測 0 筆重疊（536 筆 Zotero 來源、65 筆有 pmid）,所以這是**地雷不是現行
+        // 損害**——但它不需要任何人犯錯就會引爆,只要有人在一筆 Zotero 來源的記錄上
+        // 補一個 PMID（`import-wos` 會寫、person-verify 查 Europe PMC 後也會）。
         let d = followUpstream(fields["doi"], existing: entry.doi, field: "doi")
-        let p = followUpstream(fields["pmid"], existing: entry.pmid, field: "pmid")
         let i = followUpstream(fields["isbn"], existing: entry.isbn, field: "isbn")
-        entry.doi = d.values; entry.pmid = p.values; entry.isbn = i.values
+        entry.doi = d.values; entry.isbn = i.values
+        // `pmid` 刻意不在此列——見上表第二列。它由 `import-wos` 與查證面維護。
         // 解析得出來的已進結構化欄位——**解析不出的原值留在 `fields`**（不猜，#206）。
         if d.parsed { fields.removeValue(forKey: "doi") }
-        if p.parsed { fields.removeValue(forKey: "pmid") }
+
         if i.parsed { fields.removeValue(forKey: "isbn") }
         entry.fields = fields
         // #304：載體二態 ref。**只在 venues 為空時推導**——已歸戶的 `.key` 或先前

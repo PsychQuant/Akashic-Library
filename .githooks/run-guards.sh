@@ -39,7 +39,8 @@ python3 plugin/tests/guard-python-compat.py
 python3 plugin/tests/measured-claims-audit.py
 # CLAUDE.md 的 pre-push 決策矩陣：宣稱值 vs 由兩條語意規則現算的值。
 # 那張表錯過一次（R26q），而那個錯撐過了好幾輪人＋AI 審查——散文沒人檢查。
-python3 plugin/tests/decision-matrix-drift.py
+# **Swift 版**（#433 A 批 2/2）。實測:乾淨樹 ＋ 五個 mutation,輸出**逐字相同**。
+.build/debug/akashic-guards decision-matrix-drift
 python3 plugin/tests/decision-matrix-mutations.py
 # rule-coverage 與 hash-table-drift 的 negative control（#407 R32）——它們先前
 # 每次都綠而從沒紅過，落在本 issue 自己的立場之外。

@@ -68,6 +68,10 @@ guard args.count >= 2 else {
 switch args[1] {
 case "zero-instance-rows-audit":
     exit(zeroInstanceRowsAudit())
+case "decision-matrix-drift":
+    // 第二個參數可覆寫要讀的 markdown——**唯一的用途是負控**（在 pristine copy 上
+    // mutate，不得就地改出貨檔）。由 `decision-matrix-mutations.py` 實際行使。
+    exit(decisionMatrixDrift(args.count > 2 ? args[2] : nil))
 default:
     // **不預設通過**：未知名字回非零。一個打錯的守衛名若靜默回 0，
     // `run-guards.sh` 會照樣往下跑而那一格等於不存在。

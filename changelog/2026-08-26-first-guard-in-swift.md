@@ -70,3 +70,57 @@ mutation「把某列引的編號改成 `Sources/` 裡沒有的」→ **兩版都
 管線最後一個命令。真實 rc 是 **64**。
 
 **今天第三次踩同一個坑**（`| tail -5` 吞過 push 失敗、`| tail -2` 讓我漏看 88 個缺口）。
+
+---
+
+## A 批 2/2：`decision-matrix-drift`（171 行）
+
+同樣走完四步。**六個情境**（乾淨樹 ＋ 五個 mutation）輸出**逐字相同**。
+
+### 逐字相同不是免費的
+
+首次比對時 exit code 五個全對，但**失敗路徑的格式有差**：
+
+| Python | Swift（第一版）|
+|---|---|
+| `['不跑（現況）']` | `["不跑（現況）"]` |
+| `('--no-verify', '不跑', '主repo')` | `"--no-verify\|不跑\|主repo"` |
+| `None` | `nil` |
+
+取捨很實：
+
+- **放寬成「rc 相同 ＋ 我看訊息實質一致」** → 把 judgment 帶回 oracle。而今天反覆
+  證明 judgment 會讓錯誤通過（三個假設全部被自己的量測推翻）
+- **讓 Swift 逐字模仿 Python 的 repr** → oracle 保持**機械**（一個 `diff` 就是判定），
+  但 Python 刪掉後那個格式沒有存在理由
+
+選後者，**並寫下退場條件** —— 那正是 `no-compat-fallback` 要求的形狀：
+
+```
+ls plugin/tests/decision-matrix-drift.py 2>/dev/null | wc -l   # → 0 即可刪 pyList/pyTuple
+```
+
+### 一個 Swift 沒有內建等價物的地方
+
+Python 的 `f'{s:<n}'` 對**全形字元**按碼點數補空白。Swift 沒有這個行為，而
+「看起來對齊」不夠 —— 第 3a 步要求逐字相同。所以 `pad()` 逐字複製那個語意
+（`s.count` 而非顯示寬度）。
+
+**這類差異只有在要求逐字相同時才會浮出來。** 若當初放寬成「實質一致」，
+這個對齊差異會被當成無關緊要而留著 —— 然後在下一支守衛的比對裡變成噪音。
+
+### A 批完成，而它只有 2 支不是 4 支
+
+原判準（「grep 不到 `subprocess`」）**量錯了東西**。正確的問法是「它依賴 Python 的什麼」：
+
+| 依賴形態 | 例 | 可遷移？ |
+|---|---|---|
+| 只用 Python 當實作語言 | `zero-instance-rows-audit`、`decision-matrix-drift` | ✅ |
+| spawn Python 當**被測對象** | `guard-python-compat` | ⚠️ 遷移後**退場**，不是改寫 |
+| **`exec` Python 原始碼**當 oracle | `literal-scalar-parity` | ❌ 要先改被守衛的對象 |
+
+`literal-scalar-parity` 的 oracle 是「把 `literal-census.sh` 內嵌的 `_scalar` 抽出來
+`exec`」。Swift 版只有兩條路，兩條都不能走：spawn Python（把版本依賴搬回來）或
+重打一份（違反那支守衛自己的契約：「一份規格的兩個副本必然分岔」）。
+
+**`exec` 一段 Python 原始碼比開子行程更深地綁在 Python 上，卻不會被那個 grep 抓到。**

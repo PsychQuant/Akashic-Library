@@ -164,3 +164,48 @@ worktree 裡跑）。
 
 三支守衛共用 `matches`／`captures`／`firstGroup`，而不是每支各自
 `try! NSRegularExpression(...)` —— 那會讓「regex 寫錯」的失敗方式在每支各不相同。
+
+---
+
+## B 批 2/4：`backlink-field-ratchet`（274 行）
+
+乾淨副本 ＋ 四個 mutation，輸出**逐字相同**。
+
+### 113 個已裁決欄位是機械抽取的，不是手抄
+
+用 `ast.literal_eval` 從 Python 版讀出 `ADJUDICATED`／`EDGE_TYPES`／`FILES`，產生 Swift
+資料檔。**兩版的清單因此同源，而不是我小心的結果** —— 那是第 3b 步的精神在資料層的
+應用：不是比對兩份清單，是讓它們**同源**。
+
+### 必須連第二來源一起譯
+
+那支守衛有一道防「**被編輯自己的 fixture 消音**」的機制（#407 R57）：上一版只比對自己的
+清單字面、不打開規則檔，於是同一個 commit 裡加欄位再追加進清單，棘輪就綠了而表一列沒動。
+
+**只譯棘輪、不譯讀規則檔那道，3a 比對看不出來** —— 乾淨樹上兩版都綠，而四個 mutation
+也可能都一致（它們測的是棘輪那一半）。
+
+**只有第 3b 步（對照明說的契約）問得出這件事** —— 契約裡明寫了「為什麼要讀表」。
+**今天第二次由 3b 而非 3a 抓到東西。** 而 3b 是使用者提出 radical translation 之後才加
+進紀律的 —— 若沒加，這兩件事都會被原封不動搬進 Swift。
+
+### 逐字比對抓到一個空行
+
+Python 是 `print(A if not table_fails else '')` —— 有 `table_fails` 時**印一個空行**，
+而我的第一版整個跳過。實質判定兩版一致，差的只有那個空行。
+
+**「跳過不印」與「印空行」在 diff 裡不同**，而那正是要求逐字相同才會浮出來的東西。
+若當初放寬成「實質一致」，這個差異會留著 —— 然後在下一支守衛的比對裡變成噪音。
+
+### 累計
+
+| 批 | 守衛 | 行數 | 狀態 |
+|---|---|---|---|
+| A | `zero-instance-rows-audit` | 70 | ✅ |
+| A | `decision-matrix-drift` | 171 | ✅ |
+| B | `parity-table-drift` | 220 | ✅ |
+| B | `backlink-field-ratchet` | 274 | ✅ |
+| B | `measured-numbers-audit` | 295 | ⬜ |
+| B | `trigger-coverage` | 846 | ⬜ |
+
+**4/16。** Python 版全部留在樹裡當 oracle（tag `guards-python-final` 是參照點）。

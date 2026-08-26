@@ -54,7 +54,10 @@ python3 plugin/tests/parity-table-drift.py
 # 那張表錯過三次，而它的第 ③ 步是人的判斷——本支只做棘輪，不代做裁決。
 python3 plugin/tests/backlink-field-ratchet.py
 # zero-instance-guards.md 的裁決表：裁決「寫」的那些列，守衛真的存在嗎（#407 R55）。
-python3 plugin/tests/zero-instance-rows-audit.py
+# **Swift 版**（#433 A 批第 1 支）。Python 版留在樹裡當 oracle,通過整批驗證後才刪
+# ——`guards-python-final` 這個 tag 是參照點,但 oracle 要能**跑**（第 3a 步要兩版
+# 在同一批 mutation 上逐一比對）。實測:乾淨樹 ＋ 四個 mutation,輸出**逐字相同**。
+.build/debug/akashic-guards zero-instance-rows-audit
 # census 抽 `literal:` 值的解碼 vs YAML 純量語義（#407 R62）——distinct literal 是
 # 整個 campaign 的分母，而它先前 8 種寫法有 7 種分岔。
 python3 plugin/tests/literal-scalar-parity.py

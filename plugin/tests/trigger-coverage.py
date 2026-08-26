@@ -373,6 +373,15 @@ def invoked(text):
         print(f'   ℹ 有 {len(blocks)} 個 `run: |` 區塊，續行已展開後逐行解析（#407 R43）；'
               f'仍不解析 shell 控制流（`if`／`case` 內的分支一律當成會執行）——'
               f'若守衛改用區塊形式呼叫，這裡會看不到它（漏報，會讓守衛紅）')
+    # **Swift 版守衛的呼叫算數**（#433）：遷移期間 `plugin/tests/X.py` 仍在樹裡當
+    # oracle，而呼叫的是 `.build/debug/akashic-guards X`。本函式以**檔名**辨識守衛，
+    # 所以要把子命令名翻回 `X.py`——否則每遷一支就多一個假缺口。
+    #
+    # **翻回 `.py` 而不是新增一個 Swift 守衛清單**：`plugin/tests/X.py` 在整個遷移期間
+    # 都是那支守衛的**身分**，直到它被刪除為止。刪除之後這一行對它自然失效，
+    # 而那時 `GUARDS` 也不再列出它——兩者同時消失，不留孤兒。
+    for m in re.finditer(r'akashic-guards\s+([A-Za-z0-9_-]+)', text):
+        found.add(m.group(1) + '.py')
     return found
 
 
@@ -461,9 +470,13 @@ for y in sorted(glob.glob('.github/workflows/*.yml')):
     #
     # **一層，不遞迴**：追蹤任意深度會讓「哪些守衛會跑」變成需要模擬 shell 的問題。
     if 'run-guards.sh' in inv and os.path.exists('.githooks/run-guards.sh'):
+        rg = code_only('.githooks/run-guards.sh')
         inv = inv | {os.path.basename(s) for s in re.findall(
-            r'(?:python3|bash|swift)\s+(\S+\.(?:py|sh|swift))',
-            code_only('.githooks/run-guards.sh'))}
+            r'(?:python3|bash|swift)\s+(\S+\.(?:py|sh|swift))', rg)}
+        # **Swift 版守衛也要展開**（#433）——腳本裡是 `.build/debug/akashic-guards X`，
+        # 而 `invoked()` 只認 `<直譯器> <腳本>`。第三次補同一個 indirection:
+        # HOOK 一次、workflow 的直接呼叫一次、這裡（經腳本的間接呼叫）一次。
+        inv = inv | {m + '.py' for m in re.findall(r'akashic-guards\s+([A-Za-z0-9_-]+)', rg)}
     WORKFLOWS[os.path.basename(y)] = (yaml_paths(y), inv)
 
 # **也要剝註解。** 上一版這裡讀 raw text，而 code_only() 就在同一個檔案裡、
@@ -480,6 +493,11 @@ for y in sorted(glob.glob('.github/workflows/*.yml')):
 # 一層是刻意的上限——再多一層就要在這裡加一列,而那時該問的是為什麼需要兩層。
 HOOK = (code_only('.githooks/pre-push') if os.path.exists('.githooks/pre-push') else '') \
      + (code_only('.githooks/run-guards.sh') if os.path.exists('.githooks/run-guards.sh') else '')
+# **Swift 版守衛的呼叫也算數**（#433）——與 `invoked()` 裡那段同一個理由。
+# HOOK 用純子字串比對（`os.path.basename(g) in HOOK`），所以把子命令名補成 `X.py`
+# 塞進這個字串即可。**兩種讀法各補一次**：#432 就是因為只改對一種而讓 CI 側漏了 90 格。
+HOOK += ''.join('\n' + m + '.py'
+                for m in re.findall(r'akashic-guards\s+([A-Za-z0-9_-]+)', HOOK))
 
 print(f'守衛 {len(GUARDS)} 支｜受保護 {len(PROTECTED)} 個｜'
       f'workflow {len(WORKFLOWS)} 份\n')

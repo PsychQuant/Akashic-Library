@@ -65,6 +65,9 @@ let package = Package(
             "AkashicCore",
             .product(name: "Yams", package: "Yams"),
         ]),
+        // 守衛的 Swift 實作（#433）。**無依賴**——它們只讀檔案與跑 regex,
+        // 不該碰 store 的任何型別:守衛要能在一個建不起來的樹上仍然跑得動。
+        .executableTarget(name: "akashic-guards"),
         .executableTarget(name: "tractatus-doc", dependencies: [
             "TractatusDocs",
             .product(name: "ArgumentParser", package: "swift-argument-parser"),

@@ -52,6 +52,36 @@ func readFile(_ rel: String) -> String? {
     try? String(contentsOfFile: "\(repoRoot)/\(rel)", encoding: .utf8)
 }
 
+// MARK: - regex 小工具
+//
+// **每支守衛都在做同一件事**：抽 capture group、數命中。寫成共用的三個函式，
+// 而不是每支各自 `try!` 一次——那會讓「regex 寫錯」的失敗方式在每支各不相同。
+
+func matches(_ s: String, _ pattern: String, multiline: Bool = false,
+             dotAll: Bool = false) -> [NSTextCheckingResult] {
+    var opts: NSRegularExpression.Options = []
+    if multiline { opts.insert(.anchorsMatchLines) }
+    if dotAll { opts.insert(.dotMatchesLineSeparators) }
+    guard let re = try? NSRegularExpression(pattern: pattern, options: opts) else { return [] }
+    return re.matches(in: s, range: NSRange(location: 0, length: (s as NSString).length))
+}
+
+/// 每個命中的第 1 個 capture group。
+func captures(_ s: String, _ pattern: String, multiline: Bool = false,
+              dotAll: Bool = false) -> [String] {
+    let ns = s as NSString
+    return matches(s, pattern, multiline: multiline, dotAll: dotAll).compactMap {
+        $0.numberOfRanges > 1 && $0.range(at: 1).location != NSNotFound
+            ? ns.substring(with: $0.range(at: 1)) : nil
+    }
+}
+
+/// 第一個命中的第 1 個 capture group；沒命中回 nil。
+func firstGroup(_ s: String, _ pattern: String, multiline: Bool = false,
+                dotAll: Bool = false) -> String? {
+    captures(s, pattern, multiline: multiline, dotAll: dotAll).first
+}
+
 func swiftSources() -> [String] {
     guard let e = FileManager.default.enumerator(atPath: "\(repoRoot)/Sources") else { return [] }
     return e.compactMap { ($0 as? String).flatMap { $0.hasSuffix(".swift") ? "Sources/\($0)" : nil } }
@@ -68,6 +98,8 @@ guard args.count >= 2 else {
 switch args[1] {
 case "zero-instance-rows-audit":
     exit(zeroInstanceRowsAudit())
+case "parity-table-drift":
+    exit(parityTableDrift())
 case "decision-matrix-drift":
     // 第二個參數可覆寫要讀的 markdown——**唯一的用途是負控**（在 pristine copy 上
     // mutate，不得就地改出貨檔）。由 `decision-matrix-mutations.py` 實際行使。

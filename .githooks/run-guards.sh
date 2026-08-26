@@ -50,7 +50,11 @@ python3 plugin/tests/oracle-precondition-control.py
 python3 plugin/tests/measured-numbers-audit.py
 # mcp-cli-parity.md 的封閉列舉 vs 程式碼實際有的東西（#407 R50）——那條規則自帶的
 # 稽核程序先前從來沒人跑。
-python3 plugin/tests/parity-table-drift.py
+# **Swift 版**（#433 B 批 1/4）。實測:乾淨副本 ＋ 四個 mutation,輸出**逐字相同**。
+# 註:Swift 版用 **cwd** 定位 repo,Python 版用 `__file__`——後者讓它在複製出來的
+# 樹上仍讀**原始** repo。比對 harness 因此必須呼叫**副本裡的**那份 .py（我第一次
+# 呼叫原始路徑,四個 mutation 全部 py=0,看起來像 Swift 版報假警,實際是 harness 的 bug）。
+.build/debug/akashic-guards parity-table-drift
 # entity-backlink-completeness.md 的 14 條邊：新的非純量欄位必須先被裁決（#407 R51）。
 # 那張表錯過三次，而它的第 ③ 步是人的判斷——本支只做棘輪，不代做裁決。
 python3 plugin/tests/backlink-field-ratchet.py

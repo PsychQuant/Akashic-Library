@@ -436,3 +436,58 @@ extension ZoteroPullIdentifierPlacementTests {
         XCTAssertTrue(e.isbn.isEmpty, "沒給就是清空——R4 修的那件事仍然成立")
     }
 }
+
+/// 第三態不得把上游那個讀不懂的字串刪掉（#394 verify R6 ③）。
+extension ZoteroPullIdentifierPlacementTests {
+    /// R5 的註解逐字寫著「原字串仍留在 `fields`,資訊零損失」——**那句話只在
+    /// `existing` 為空時為真**。移除迴圈問的是「結構化欄位現在空不空」，而第三態
+    /// 剛把 `existing` 填回去了,於是上游那個讀不懂的字串被一併刪除。
+    ///
+    /// 三件事同時成立:資訊損失（且是相對 main 的**回歸**——遷移前它住 `fields`,
+    /// 整份替換之後仍在）、零回報、留下的是**過期識別碼**（而識別碼終結指涉）。
+    func testAnUnparseableUpstreamStringSurvivesInFields() {
+        var e = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
+        e.doi = [DOI("10.1037/old")!]
+        ZoteroMapping.applyBiblatexFields(
+            from: item(["title": "T", "DOI": "10.1037/new (in press)"]), to: &e)
+
+        XCTAssertEqual(e.doi.map(\.normalized), ["10.1037/old"], "既有值保留（R5 已修的那半）")
+        XCTAssertEqual(e.fields["doi"], "10.1037/new (in press)",
+                       "**上游那個字串必須留在 fields**——我們讀不懂它不等於它不存在。"
+                       + "刪掉它是 lossless-intake 禁止的靜默丟棄,而且留下的是過期識別碼")
+    }
+}
+
+/// 部分成功不得移除殘留（#394 verify R7 ①）。
+extension ZoteroPullIdentifierPlacementTests {
+    /// **借了 tokenizer，沒借它的紀律。** `IdentifierMigration` 對同一個形狀有明文裁決：
+    ///
+    /// > 只要有任何一個 bad，就**不移除殘留**——殘留是那些解不了的值唯一的棲身處。
+    ///
+    /// 而 `followUpstream` 用 `.values` 把 `unparseable` 整個丟掉，於是「一個 token
+    /// 解得出、另一個解不出」時 `parsed` 為 true，呼叫端把**整個原字串**移出 `fields`
+    /// ——解不出的那個號從 store 徹底消失，且零回報。
+    ///
+    /// 兩者的差別還在於**頻率**：`migrate-identifiers` 只跑一次，`import-zotero` 是
+    /// 預設的匯入面，新建與更新兩條路徑都走這裡。
+    func testPartialParseKeepsTheResidueString() {
+        var e = Entry(id: UUID(), citekey: "k", type: .book, title: "T")
+        // 精裝可解、平裝漏一碼不可解
+        let raw = "978-1-4338-3216-1 (hardcover) 1-4338-3216 (paperback)"
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T", "ISBN": raw]), to: &e)
+
+        XCTAssertFalse(e.isbn.isEmpty, "解得出的那個號要進結構化欄位")
+        XCTAssertEqual(e.fields["isbn"], raw,
+                       "**有任何一個 token 解不出就不移除殘留**——那是它唯一的棲身處。"
+                       + "IdentifierMigration 對同一個形狀已有明文裁決，這裡不得相反")
+    }
+
+    /// 全部解得出時照常移除（紀律的另一半，不得被本修復弄壞）。
+    func testFullyParsedRemovesTheResidue() {
+        var e = Entry(id: UUID(), citekey: "k", type: .book, title: "T")
+        ZoteroMapping.applyBiblatexFields(
+            from: item(["title": "T", "ISBN": "9781433837135 9781433841323"]), to: &e)
+        XCTAssertEqual(e.isbn.count, 2)
+        XCTAssertNil(e.fields["isbn"], "全部解得出 → 殘留沒有存在理由")
+    }
+}

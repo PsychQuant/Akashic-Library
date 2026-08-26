@@ -26,6 +26,18 @@ final class EntrySurfaceTests: XCTestCase {
             .appendingPathComponent(rel), encoding: .utf8)
     }
 
+    /// 候選路徑擇一存在者。全部都不在 → 具名列出全部候選（#394 verify R7 ③）。
+    static func repoFileAny(_ candidates: [String], surface: String) throws -> String {
+        for c in candidates {
+            if let s = try? repoFile(c) { return s }
+        }
+        XCTFail("\(surface) 的原始碼在下列候選路徑都不存在——檔案搬家了？\n"
+                + candidates.map { "  - \($0)" }.joined(separator: "\n")
+                + "\n  **不要刪掉這一列**：那會讓三個讀取面的守衛靜靜退回兩個。"
+                + "把新位置加進 alternates。")
+        return ""
+    }
+
     static func serviceSource() throws -> String {
         try repoFile("Sources/AkashicMCPKit/AkashicService.swift")
     }
@@ -46,6 +58,9 @@ final class EntrySurfaceTests: XCTestCase {
     struct Surface {
         let name: String
         let path: String
+        /// 檔案搬家時的候選路徑。**擇一存在者**——兩個都不在才是真的失敗
+        /// （那時錯誤訊息要列出全部候選,而不是只說第一個不見了）。
+        var alternates: [String] = []
         /// 給定欄位名，回傳「這個面若有讀到它，原始碼裡會出現的字串」候選。
         let patterns: (String) -> [String]
     }
@@ -55,7 +70,18 @@ final class EntrySurfaceTests: XCTestCase {
                 patterns: { f in ["entry.\(f)"] + (canonicalAlias[f].map { ["entry.\($0)"] } ?? []) }),
         Surface(name: "CLI（get-entry）", path: "Sources/akashic/GetEntryCommand.swift",
                 patterns: { f in ["\"\(f)\""] }),
+        // **路徑收候選清單,不是單一字串**（#394 verify R7 ③）。
+        //
+        // 第六輪就抓到這條:#427 把 EntryViews.swift 從 `AkashicApp/Sources/` 搬進
+        // `Sources/AkashicAppKit/`,而**兩種 merge 順序都零衝突**——git rename detection
+        // 正確地把內容修改搬過去了,壞掉的只有這個**寫死的字串**,而字串不參與 rename
+        // detection。第七輪實測 merge 後 `NSCocoaErrorDomain Code=260`。
+        //
+        // **比一條紅測試更糟的那半**:紅了之後最省事的修法是把 App 那一列刪掉,
+        // 而三個讀取面的守衛就靜靜退回兩個——#263 把 App 補進列舉的理由正是
+        // 「只用 App 的人永遠不會知道 audit trail 正在腐爛」。
         Surface(name: "App（EntryDetailView）", path: "AkashicApp/Sources/EntryViews.swift",
+                alternates: ["Sources/AkashicAppKit/EntryViews.swift"],
                 patterns: { f in ["entry.\(f)"] + (canonicalAlias[f].map { ["entry.\($0)"] } ?? []) }),
     ]
 
@@ -181,7 +207,7 @@ final class EntrySurfaceTests: XCTestCase {
         // （`testEveryFieldReachesTheReadSurface`）從一開始就走 `Mirror`——本測試補上
         // surface 維度時卻把 field 維度退化成寫死,**修一個維度、弄壞另一個**。
         for s in Self.surfaces {
-            let src = try Self.repoFile(s.path)
+            let src = try Self.repoFileAny([s.path] + s.alternates, surface: s.name)
             for f in entryFieldNames()
             where !globallyExempt.contains(f)
                 && !(perSurfaceExempt[s.name]?.contains(f) ?? false)

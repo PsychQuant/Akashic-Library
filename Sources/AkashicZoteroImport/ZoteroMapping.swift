@@ -173,21 +173,39 @@ public enum ZoteroMapping {
     ///
     /// 多值欄位（`issn`／`isbn`）走 `IdentifierMigration` 既有的 tokenizer——它是
     /// 為了同一個形狀（一個字串裡有多個號）寫的,這裡沒有理由再造一個。
+    /// 回傳 `parsed`＝**這一輪真的從上游字串解析出東西**。呼叫端用它決定要不要把
+    /// 原字串移出 `fields`——問「欄位空不空」會在第三態誤刪（#394 verify R6 ③）。
     static func followUpstream<T: Identifier>(
         _ raw: String?, existing: [T], field: String
-    ) -> [T] {
+    ) -> (values: [T], parsed: Bool) {
         guard let raw, !raw.trimmingCharacters(in: .whitespaces).isEmpty else {
-            return []                                    // 上游沒給 → 清空
+            return ([], false)                           // 上游沒給 → 清空
         }
         // 吸不吸收多值**按欄位種類**,而那個裁決連同它的量測住在 `absorbsMultipleValues`
         // 的 doc 裡（DOI 刻意不吸收——吸收附錄的 DOI 等於一句假的身分宣稱）。這裡引用它,
         // 不複製:兩份會分岔。
-        let parsed: [T] = IdentifierMigration.absorbsMultipleValues(field: field)
-            ? IdentifierMigration.normalizedUniqueQualified(
-                IdentifierMigration.qualifiedCandidates(raw, field: field), T.init).values
-            : (T(raw).map { [$0] } ?? [])
-        // 讀不懂 → 保留既有（**不是**清空）。原字串仍留在 `fields`,資訊零損失。
-        return parsed.isEmpty ? existing : parsed
+        let parsed: [T]
+        var anyUnparseable = false
+        if IdentifierMigration.absorbsMultipleValues(field: field) {
+            // **`.values` 會把 `unparseable` 整個丟掉**（#394 verify R7 ①）。
+            // `IdentifierMigration` 對同一個形狀有明文裁決,逐字是:
+            //
+            //   > 只要有任何一個 bad,就**不移除殘留**——殘留是那些解不了的值唯一的棲身處。
+            //
+            // R6 借了它的 tokenizer,**沒借這條紀律**。於是「一個 token 解得出、另一個
+            // 解不出」時原字串被整個移出 `fields`,解不出的號從 store 徹底消失且零回報。
+            let r = IdentifierMigration.normalizedUniqueQualified(
+                IdentifierMigration.qualifiedCandidates(raw, field: field), T.init)
+            parsed = r.values
+            anyUnparseable = !r.unparseable.isEmpty
+        } else {
+            parsed = T(raw).map { [$0] } ?? []
+        }
+        // 讀不懂 → 保留既有（**不是**清空），且回報 `parsed: false` 讓呼叫端把原字串
+        // 留在 `fields`。R5 的版本只做了前半,於是上游字串被靜默刪除。
+        if parsed.isEmpty { return (existing, false) }
+        // 部分成功:值進結構化欄位,但 `parsed: false` 讓呼叫端**保留殘留字串**。
+        return (parsed, !anyUnparseable)
     }
 
     public static func applyBiblatexFields(from item: ZoteroItem, to entry: inout Entry) {
@@ -256,13 +274,23 @@ public enum ZoteroMapping {
         //
         // 多值欄位走 migration 既有的 tokenizer，所以「兩個真的號」讀得出來、
         // 跟隨語意對它們也成立——**而不是只把資料保住**。
-        entry.doi = followUpstream(fields["doi"], existing: entry.doi, field: "doi")
-        entry.pmid = followUpstream(fields["pmid"], existing: entry.pmid, field: "pmid")
-        entry.isbn = followUpstream(fields["isbn"], existing: entry.isbn, field: "isbn")
+        // **問「這次有沒有解析成功」,不是「欄位空不空」**（#394 verify R6 ③）。
+        //
+        // R5 的版本問後者,而第三態（讀不懂 → 回傳 existing）剛把欄位填回去了——於是
+        // 上游那個**讀不懂的原字串被一併刪掉**,與它上方兩行的註解正好相反。
+        //
+        // 三件事同時成立:資訊損失（且是相對 main 的**回歸**——遷移前 DOI 住 `fields`,
+        // 整份替換之後上游字串仍在）、**零回報**（`identifiersBefore/After` 只看「有沒有
+        // 變空」,前後都非空 → 不記）、留下的是**過期識別碼**（而識別碼終結指涉,
+        // `existing(matching:)` 會拿它認人、`export-bib` 會印它）。
+        let d = followUpstream(fields["doi"], existing: entry.doi, field: "doi")
+        let p = followUpstream(fields["pmid"], existing: entry.pmid, field: "pmid")
+        let i = followUpstream(fields["isbn"], existing: entry.isbn, field: "isbn")
+        entry.doi = d.values; entry.pmid = p.values; entry.isbn = i.values
         // 解析得出來的已進結構化欄位——**解析不出的原值留在 `fields`**（不猜，#206）。
-        for k in ["doi", "pmid", "isbn"] where !(entry.identifierList(k)?.isEmpty ?? true) {
-            fields.removeValue(forKey: k)
-        }
+        if d.parsed { fields.removeValue(forKey: "doi") }
+        if p.parsed { fields.removeValue(forKey: "pmid") }
+        if i.parsed { fields.removeValue(forKey: "isbn") }
         entry.fields = fields
         // #304：載體二態 ref。**只在 venues 為空時推導**——已歸戶的 `.key` 或先前
         // 的 literal 一律不覆寫（Zotero pull 對 fields 跟隨上游，但 venues 的歸戶

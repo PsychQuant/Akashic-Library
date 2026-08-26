@@ -33,6 +33,22 @@ DECLARERS = [
     "mcpb/manifest.json",                  # Claude Desktop 一鍵安裝的出貨物
 ]
 
+# **第四份在另一個 repo，本守衛讀不到它**（#408 verify R7 ②）。
+#
+# `psychquant-claude-plugins/.claude-plugin/marketplace.json` 有一份逐字相同的
+# description，實測仍寫 **Store format 10**——而 `/plugin marketplace` 顯示的是
+# **那一份**，不是本 repo 的 plugin.json。也就是說：**使用者真正看到的那格是壞的，
+# 而它不在任何守衛的視野內。**
+#
+# 「讀不到」不等於「可以不提」（`lossless-intake`：丟棄必須可見）。所以成功訊息
+# **具名說出涵蓋不到什麼**——一個無條件的 ✓ 會讓維護者讀成「這個類別已經關閉」，
+# 而那正是第六輪 CRITICAL 的原形（當時是三分之二，現在是四分之三）。
+#
+# 退場條件：`/devtools:plugin-update` 若日後把 marketplace.json 的 description 改成
+# 從 plugin.json 現讀（而非人工複製），這條註記與下方那行輸出可一併移除。
+UNCOVERED = "psychquant-claude-plugins/.claude-plugin/marketplace.json（跨 repo，"\
+            "由 /devtools:plugin-update 負責；`/plugin marketplace` 顯示的是它）"
+
 bad = []
 for rel in DECLARERS:
     f = ROOT / rel
@@ -54,3 +70,4 @@ if bad:
          f"  它說謊的對象是 Claude Desktop 的安裝者。")
 
 print(f"✓ {len(DECLARERS)} 份宣告與 StoreVersion.supported 一致（format {supported}）")
+print(f"  ⚠ 涵蓋不到：{UNCOVERED}")

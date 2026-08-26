@@ -45,6 +45,9 @@ python3 plugin/skills/akashic-literal-campaign/scripts/tests/marker-parity-mutat
 python3 plugin/tests/trigger-coverage.py
 python3 plugin/tests/trigger-coverage-mutations.py
 # 那張四列判準表的現查（#407 R26b）——表自己的四個宣稱也是可否證的。
+# 語法相容性要**最先**跑（#394 verify R9）：它便宜（秒級）,而它防的失效會讓
+# 後面任何一支守衛在 hook 裡變成 SyntaxError——那個症狀極具誤導性。
+python3 plugin/tests/guard-python-compat.py
 python3 plugin/tests/measured-claims-audit.py
 # CLAUDE.md 的 pre-push 決策矩陣：宣稱值 vs 由兩條語意規則現算的值。
 # 那張表錯過一次（R26q），而那個錯撐過了好幾輪人＋AI 審查——散文沒人檢查。

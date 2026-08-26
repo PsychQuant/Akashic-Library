@@ -73,6 +73,12 @@ jobs:
           persist-credentials: false
 
       # 規則有沒有被每個 skill 掛到，且相對路徑真的解析得到。
+      # 語法相容性要**最先**跑（#394 verify R9）：hook 用系統 Python 3.9,
+      # 開發機用 homebrew 3.12+。差異會讓守衛「在我這裡永遠通過、在 hook 裡是
+      # SyntaxError」——實測代價是三次 push 失敗與三個被推翻的假設。
+      - name: 守衛在系統 Python 下解析得過
+        run: python3 plugin/tests/guard-python-compat.py
+
       - name: rule-coverage
         run: bash plugin/tests/rule-coverage.sh
 

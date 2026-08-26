@@ -270,9 +270,14 @@ _words = {3: '三個', 4: '四個', 5: '五個', 6: '六個', 7: '七個'}
 import re as _re
 _cnts = _re.findall(r'([一二三四五六七八九十]個)都不是', _hdr[0]) if len(_hdr) == 1 else []
 _want = _words.get(_n)
-print(f'     散文計數與表一致：表 {_n} 列，散文說 {_cnts or "?"} '
-      f'{check(bool(_cnts) and all(c == _want for c in _cnts),
-               f"散文的計數詞 {_cnts} 與實際 {_n} 列不符")}')
+# **f-string 內不得換行**（#394 verify R9 的根因）：那是 PEP 701，**Python 3.12+ 才有**。
+# 而 `PrePushHookTests` 把 `PATH` 設成 `/usr/bin:/bin`，那裡的 `python3` 是系統 3.9
+# ——於是這一支在 hook 裡是 `SyntaxError`，而在我的終端機（homebrew 3.12）永遠通過。
+# 三次 push 失敗、三個被推翻的假設，根因就是這兩行。
+_ok_cnt = bool(_cnts) and all(c == _want for c in _cnts)
+_msg_cnt = "散文的計數詞 %s 與實際 %d 列不符" % (_cnts, _n)
+print("     散文計數與表一致：表 %d 列，散文說 %s %s"
+      % (_n, _cnts or "?", check(_ok_cnt, _msg_cnt)))
 
 
 

@@ -29,6 +29,13 @@ final class ZoteroEnrichmentTests: XCTestCase {
         return e
     }
 
+    /// 造一筆「entry 無 ISBN、Zotero 有一個部分可解的 ISBN 字串」的計畫（#394 verify R9）。
+    func planWithZoteroISBN(_ raw: String) throws -> ZoteroEnrichment.Result {
+        let e = entry("a")
+        let i = item(key: "ZK1", fields: ["title": "T", "ISBN": raw])
+        return ZoteroEnrichment.plan(entries: [e], items: [i], citekeys: ["a"])
+    }
+
     // MARK: - 核心語意
 
     func testOnlyAbsentKeysAreAdded() {
@@ -521,5 +528,49 @@ extension ZoteroPullIdentifierPlacementTests {
         e.doi = [DOI("10.1037/old")!]
         ZoteroMapping.applyBiblatexFields(from: item(["title": "T"]), to: &e)
         XCTAssertTrue(e.doi.isEmpty, "DOI 在 fieldMap 裡——上游沉默＝上游說沒有")
+    }
+}
+
+/// enrich 的部分成功：訊息說保留就要真的保留（#394 verify R9）。
+extension ZoteroEnrichmentTests {
+    /// R8 的訊息逐字寫「其餘 token 的形狀不認得；**原字串保留在 fields 供人裁**」
+    /// ——那句話描述的是 **pull** 的行為。這段程式碼住在 **enrich**（add-only）路徑，
+    /// 那裡 `case "doi","pmid","isbn"` **只 append 訊息、從不寫 `added[k]`**，
+    /// 所以那個解析不出的 token 在 enrich 之後**不存在於 store 的任何地方**。
+    ///
+    /// **比沉默更糟**：丟棄被誤述成保留，使用者讀完會判斷「資料還在、之後再處理」。
+    ///
+    /// 修法讓那句話變真——部分成功時把原字串真的加進 `fields`（那正是殘留欄位的用途，
+    /// 與 pull 一致），而不是改成一句「已丟棄」的誠實訃告。
+    func testPartialParseActuallyPreservesTheRawString() throws {
+        let raw = "9781433832161 1-4338-3216"          // 第二個 token 只有 9 碼
+        let plan = try planWithZoteroISBN(raw)
+        guard let a = plan.additions.first else { return XCTFail("應該有一筆 addition") }
+
+        XCTAssertEqual(a.addedISBNs.map { $0.normalized }, ["9781433832161"], "解得出的進結構化欄位")
+        XCTAssertEqual(a.addedFields["isbn"], raw,
+                       "**原字串必須真的被加進去**——訊息說它保留在 fields，"
+                       + "而 enrich 是 add-only,不主動加就等於它消失了")
+    }
+
+    /// 部分成功**不是**「刻意不採用」——它不該走 refused 通道。
+    func testPartialParseIsNotReportedAsRefused() throws {
+        let plan = try planWithZoteroISBN("9781433832161 1-4338-3216")
+        guard let a = plan.additions.first else { return XCTFail("應該有一筆 addition") }
+
+        XCTAssertTrue(a.refusedIdentifiers.isEmpty,
+                      "`refusedIdentifiers` 的契約是「Zotero 給了識別碼但**刻意不採用**」。"
+                      + "部分成功既不是刻意（解析不出是我們的限制）也不是不採用"
+                      + "（解出的那些已經採用了）")
+        XCTAssertEqual(a.partiallyParsedIdentifiers.count, 1, "它有自己的通道")
+    }
+
+    /// 全部解不出時仍走 refused（那一格的語意沒變）。
+    func testFullyUnparseableStillRefused() throws {
+        let plan = try planWithZoteroISBN("not-an-isbn-at-all")
+        // 全部解不出且無其他可補值 → 落 `refusedOnly`（那個分類本來就是為它存在的）。
+        guard let a = plan.refusedOnly.first else { return XCTFail("應該落 refusedOnly") }
+        XCTAssertEqual(a.refusedIdentifiers.count, 1)
+        XCTAssertTrue(a.partiallyParsedIdentifiers.isEmpty)
     }
 }

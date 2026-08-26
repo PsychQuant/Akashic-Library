@@ -57,7 +57,9 @@ python3 plugin/tests/measured-numbers-audit.py
 .build/debug/akashic-guards parity-table-drift
 # entity-backlink-completeness.md 的 14 條邊：新的非純量欄位必須先被裁決（#407 R51）。
 # 那張表錯過三次，而它的第 ③ 步是人的判斷——本支只做棘輪，不代做裁決。
-python3 plugin/tests/backlink-field-ratchet.py
+# **Swift 版**（#433 B 批 2/4）。乾淨副本 ＋ 四個 mutation,輸出**逐字相同**。
+# 113 個已裁決欄位由 Python 版 `ast.literal_eval` **機械抽取**——兩版的清單同源。
+.build/debug/akashic-guards backlink-field-ratchet
 # zero-instance-guards.md 的裁決表：裁決「寫」的那些列，守衛真的存在嗎（#407 R55）。
 # **Swift 版**（#433 A 批第 1 支）。Python 版留在樹裡當 oracle,通過整批驗證後才刪
 # ——`guards-python-final` 這個 tag 是參照點,但 oracle 要能**跑**（第 3a 步要兩版

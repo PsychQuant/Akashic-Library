@@ -98,6 +98,8 @@ guard args.count >= 2 else {
 switch args[1] {
 case "zero-instance-rows-audit":
     exit(zeroInstanceRowsAudit())
+case "backlink-field-ratchet":
+    exit(backlinkFieldRatchet())
 case "parity-table-drift":
     exit(parityTableDrift())
 case "decision-matrix-drift":

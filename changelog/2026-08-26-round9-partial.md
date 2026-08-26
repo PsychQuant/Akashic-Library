@@ -59,3 +59,48 @@ token 在 enrich 之後**不存在於 store 的任何地方**，而訊息叫使�
   `fieldMap[z] ?? FieldKey.normalized(z)` 決定 —— 後半無人稽核，且 Zotero 日後加一個
   `PMID` 欄位就會翻轉，**我方零程式碼改動**
 - **LOW**：`addedPMIDs = probe.pmid` 已成結構性死碼，而註解仍說「probe 帶得出來」
+
+## MEDIUM（續修）：判準問錯了問題
+
+R8 的條件寫成「`pmid` 不在 `fieldMap` 裡 ⇒ 不跟隨」。而決定 `fields["pmid"]` 存不存在的是
+**兩條路徑**：`fieldMap[z] ?? FieldKey.normalized(z)`。`FieldKey.normalized("PMID")` → `"pmid"`，
+而 `ZoteroReader` 的 SQL 是**泛型**的 —— Zotero DB 裡任何 fieldName 都會流進來。
+
+所以 Zotero 日後加一個 `PMID` 欄位就會讓 `fields["pmid"]` 出現，**我方零程式碼改動**，
+而舊條件**仍然「為真」**（fieldMap 確實沒有那一列）。後果：殘留永不被移除、結構化的
+舊值遮蔽上游的新值，兩面都不印出也沒有任何 diagnostic —— 而識別碼**終結指涉**。
+
+**正確的問法不是「這個欄位在不在對映表裡」，是「上游這次到底有沒有給值」。**
+
+```swift
+if let rawPMID = fields["pmid"] {
+    let p = followUpstream(rawPMID, existing: entry.pmid, field: "pmid")
+    ...
+}
+```
+
+這同時解掉三件事：今天（nil → 不動，R8 修的那件事保住）、未來（有值 → 跟隨）、
+以及**判準不再依賴一個只稽核得到一半的前提**。
+
+## LOW：那段註解自己活過來了
+
+`addedPMIDs = probe.pmid` 的可達性有過一段插曲：R8 把 `pmid` 整個移出跟隨清單，於是
+`probe.pmid` 從「因**資料**而恆空」變成「因**契約**而恆空」—— 這一行成了結構性死碼，
+而上方那句「probe 帶得出來」在呼叫點讀起來仍像它可達。
+
+R9 換掉判準之後**它又活了**。註解因此不必改成訃告，只需把這段插曲記在呼叫點
+（讀那三行的人看不到另一個模組）。
+
+**這是本輪第二次「修法讓一句原本會變假的話回到真」** —— 前一次是部分成功的訊息。
+兩次的共同點：**與其把描述改成符合壞掉的行為，不如把行為修成符合原本正確的描述。**
+
+## 負控（全部四條）
+
+| 拿掉什麼 | 結果 |
+|---|---|
+| 「真的保留原字串」那一行 | ✅ 紅 |
+| 把 `partial` 併回 `refused` | ✅ 紅 |
+| 整段 pmid 跟隨 | ✅ 紅 |
+| 改成無條件跟隨（退回 R7 的 bug） | ✅ 紅 |
+
+2222 測試 0 失敗。**R9 的四條全部修完。**

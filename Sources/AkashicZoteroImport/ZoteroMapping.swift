@@ -304,6 +304,22 @@ public enum ZoteroMapping {
         let d = followUpstream(fields["doi"], existing: entry.doi, field: "doi")
         let i = followUpstream(fields["isbn"], existing: entry.isbn, field: "isbn")
         entry.doi = d.values; entry.isbn = i.values
+        // **`pmid` 走「給了才跟隨」**（#394 verify R9）。
+        //
+        // R8 的條件寫成「`pmid` 不在 `fieldMap` 裡 ⇒ 不跟隨」,而決定 `fields["pmid"]`
+        // 存不存在的是 **`fieldMap[z] ?? FieldKey.normalized(z)` 兩條路徑**——
+        // `FieldKey.normalized("PMID")` → `"pmid"`,而 `ZoteroReader` 的 SQL 是泛型的。
+        // Zotero 日後加一個 `PMID` 欄位就會讓它出現,**我方零程式碼改動**,而舊條件
+        // 仍然「為真」（fieldMap 確實沒那一列）——於是殘留永不移除、結構化的舊值
+        // 遮蔽上游的新值,兩面都不印也無 diagnostic。
+        //
+        // 正確的問法不是「這個欄位在不在對映表裡」,是**上游這次到底有沒有給值**。
+        // 這也讓判準不再依賴一個**只稽核得到一半**的前提。
+        if let rawPMID = fields["pmid"] {
+            let p = followUpstream(rawPMID, existing: entry.pmid, field: "pmid")
+            entry.pmid = p.values
+            if p.parsed { fields.removeValue(forKey: "pmid") }
+        }
         // `pmid` 刻意不在此列——見上表第二列。它由 `import-wos` 與查證面維護。
         // 解析得出來的已進結構化欄位——**解析不出的原值留在 `fields`**（不猜，#206）。
         if d.parsed { fields.removeValue(forKey: "doi") }

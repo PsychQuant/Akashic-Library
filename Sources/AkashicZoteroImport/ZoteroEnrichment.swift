@@ -208,6 +208,14 @@ public enum ZoteroEnrichment {
                 }
             }
             // 結構化識別碼：probe 帶得出來、而 entry 仍為空時才補（保守側同 fields）。
+            //
+            // **`addedPMIDs` 的可達性有過一段插曲**（#394 verify R8→R9）：R8 把 `pmid`
+            // 整個移出 pull 的跟隨清單,於是 `probe.pmid` 從「因**資料**而恆空」變成
+            // 「因**契約**而恆空」——這一行成了結構性死碼,而上面那句「probe 帶得出來」
+            // 在呼叫點讀起來仍像它可達。R9 把判準換成「上游這次有沒有給值」之後
+            // 它**又活了**:Zotero 若日後供給 PMID,這條路會自動開始工作。
+            //
+            // 記在這裡而不只在 `ZoteroMapping`,是因為讀這三行的人看不到另一個模組。
             if entry.canonicalDOIs.isEmpty { addedDOIs = probe.doi }
             if entry.canonicalPMIDs.isEmpty { addedPMIDs = probe.pmid }
             if entry.canonicalISBNs.isEmpty { addedISBNs = probe.isbn }

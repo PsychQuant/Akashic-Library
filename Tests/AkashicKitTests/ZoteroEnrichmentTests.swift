@@ -574,3 +574,34 @@ extension ZoteroEnrichmentTests {
         XCTAssertTrue(a.partiallyParsedIdentifiers.isEmpty)
     }
 }
+
+/// 上游若**真的給了** PMID，就該跟隨（#394 verify R9 MEDIUM）。
+extension ZoteroPullIdentifierPlacementTests {
+    /// R8 的條件寫成「`pmid` 不在 `fieldMap` 裡 ⇒ 不跟隨」，而決定 `fields["pmid"]`
+    /// 存不存在的是 **`fieldMap[z] ?? FieldKey.normalized(z)` 兩條路徑**。
+    /// `FieldKey.normalized("PMID")` → `"pmid"`，而 `ZoteroReader` 的 SQL 是泛型的
+    /// ——Zotero 日後加一個 `PMID` 欄位就會讓它出現，**我方零程式碼改動**。
+    ///
+    /// 那時舊條件仍然「為真」（fieldMap 確實沒有那一列），於是殘留永不被移除、
+    /// 結構化的舊值遮蔽上游的新值，兩面都不會印出也不會有 diagnostic。
+    ///
+    /// 正確的問法不是「這個欄位在不在對映表裡」，是「**上游這次到底有沒有給值**」。
+    func testAnUpstreamPMIDIsFollowedWhenActuallySupplied() {
+        var e = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
+        e.pmid = [PMID("11111111")!]
+        // 走殘餘路徑：`PMID` 不在 fieldMap，經 FieldKey.normalized 收成 `pmid`
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T", "PMID": "22222222"]), to: &e)
+
+        XCTAssertEqual(e.pmid.map(\.normalized), ["22222222"],
+                       "上游**給了**值就該跟隨——沉默才是「不談這件事」")
+        XCTAssertNil(e.fields["pmid"], "解得出就不留殘留（與 doi／isbn 一致）")
+    }
+
+    /// 沉默仍然不清空（R8 修的那件事不得被本修復弄壞）。
+    func testSilenceStillDoesNotWipePMID() {
+        var e = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
+        e.pmid = [PMID("11111111")!]
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T"]), to: &e)
+        XCTAssertEqual(e.pmid.map(\.normalized), ["11111111"], "Zotero 沒談 PMID ⇒ 不動")
+    }
+}

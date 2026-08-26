@@ -444,14 +444,42 @@ READS = {g: ({g} | declared(g)
 WORKFLOWS = {}
 for y in sorted(glob.glob('.github/workflows/*.yml')):
     text = io.open(y, encoding='utf8').read()
-    WORKFLOWS[os.path.basename(y)] = (yaml_paths(y), invoked(text))
+    # **workflow 也可能經 `run-guards.sh` 間接呼叫**（#432）——與上方 HOOK 同一個
+    # 理由，而且是同型缺陷成對出現的又一次：先前只修了 pre-push 那半，CI 這半
+    # 照樣會把「經由腳本呼叫的守衛」判成沒有涵蓋。
+    #
+    # **一層，與 HOOK 同**：追蹤任意深度會讓「哪些守衛會跑」變成需要模擬 shell 的問題。
+    inv = invoked(text)
+    # **workflow 經 `run-guards.sh` 間接呼叫的守衛也算涵蓋**（#432）。
+    #
+    # 第一版把腳本內容**串接進 workflow 文字**再交給 `invoked()`——那沒用，
+    # 因為 `invoked()` 解析的是 YAML 的 `run:` 行，而腳本裡是裸的 shell 命令。
+    # 上方 HOOK 那半能過是因為它用純子字串比對；**同一個 indirection，兩種讀法，
+    # 只有一種被我改對**。實測第一版：pre-push 21/21 綠，而 CI 側 90 個缺口。
+    #
+    # 正確做法是擴充**回傳的集合**，而不是餵它更多文字。
+    #
+    # **一層，不遞迴**：追蹤任意深度會讓「哪些守衛會跑」變成需要模擬 shell 的問題。
+    if 'run-guards.sh' in inv and os.path.exists('.githooks/run-guards.sh'):
+        inv = inv | {os.path.basename(s) for s in re.findall(
+            r'(?:python3|bash|swift)\s+(\S+\.(?:py|sh|swift))',
+            code_only('.githooks/run-guards.sh'))}
+    WORKFLOWS[os.path.basename(y)] = (yaml_paths(y), inv)
 
 # **也要剝註解。** 上一版這裡讀 raw text，而 code_only() 就在同一個檔案裡、
 # 正是為了修「坑 3」而寫的——READS 用了它，這裡沒用。**修了一半。** 實測
 # （#407 R20）：把一支守衛從 pre-push 拿掉、只留一行 `# TODO: 之後再接 …`，
 # 守衛照樣報「涵蓋 N/N」。同型缺陷成對出現而只修先被看見的那個，是本 repo
 # 的 no-compat-fallback 記過的形狀。
-HOOK = code_only('.githooks/pre-push') if os.path.exists('.githooks/pre-push') else ''
+# **pre-push 的守衛清單住在 `run-guards.sh`**（#432）。hook 只呼叫它一行,
+# 所以只讀 hook 會判定「每一支都不在 pre-push 裡」——實測本腳本在抽出那一刻
+# 立刻報 21 個缺口,那正是它該做的事。
+#
+# 兩個檔都讀,因為 hook 本身仍可能直接列守衛（目前沒有,但判準不該假設）。
+# **不追蹤任意深度的間接**:那會讓「哪些守衛會跑」變成需要模擬 shell 才答得出的問題。
+# 一層是刻意的上限——再多一層就要在這裡加一列,而那時該問的是為什麼需要兩層。
+HOOK = (code_only('.githooks/pre-push') if os.path.exists('.githooks/pre-push') else '') \
+     + (code_only('.githooks/run-guards.sh') if os.path.exists('.githooks/run-guards.sh') else '')
 
 print(f'守衛 {len(GUARDS)} 支｜受保護 {len(PROTECTED)} 個｜'
       f'workflow {len(WORKFLOWS)} 份\n')

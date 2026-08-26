@@ -53,6 +53,12 @@ final class PrePushHookTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(temporary.path):/usr/bin:/bin"
         environment["AKASHIC_PRE_PUSH_PROBE_LOG"] = log.path
+        // **只跑前兩階段**（#432）。本測試斷言的是「`GIT_*` 有沒有被清乾淨」與
+        // 「swift 有沒有帶 `-Xswiftc -warnings-as-errors`」——**兩者都在前兩階段**。
+        //
+        // 先前它會連守衛一起跑（實測 **43 分鐘**），而外層 hook 兩分鐘後跑同一批、
+        // 讀同一個工作樹、得同一個結果。內層那次的覆蓋是外層的真子集,純浪費。
+        environment["AKASHIC_PRE_PUSH_STAGES"] = "build,test"
         environment["GIT_DIR"] = gitDirectory.path
         environment["GIT_WORK_TREE"] = root.path
         environment["GIT_INDEX_FILE"] = gitDirectory.appendingPathComponent("index").path

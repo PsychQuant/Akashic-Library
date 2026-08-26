@@ -156,33 +156,50 @@ if base_rc != 0:
 print('baseline：無缺口 ✓\n')
 
 RESULTS = [
-    case('從 pre-push 拿掉一支守衛',
-         {'.githooks/pre-push': lambda t: t.replace(
+    # **注入目標隨守衛清單搬家**（#432）：守衛行已從 `.githooks/pre-push` 移進
+    # `.githooks/run-guards.sh`（hook 與 CI 共用同一份）。本 harness 在搬家那一刻
+    # 立刻報「注入式已與被注入的內容脫節」——**它檢查注入本身有沒有改到東西**，
+    # 而不是注入完跑一次、紅了就算過。那個性質是這裡最該保住的。
+    case('從守衛清單拿掉一支守衛',
+         {'.githooks/run-guards.sh': lambda t: t.replace(
              'bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh\n', '')},
          'store-marker-parity.sh 不在 pre-push 裡'),
-    case('從 workflow 的 paths 拿掉 census 的資料依賴',
-         {'.github/workflows/census-parity.yml': lambda t: t.replace(
-             '      - "plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt"\n', '')},
+    # **改注入 `plugin-guards.yml`**（#432）：合併之後那個 workflow 的 `plugin/**`
+    # 覆蓋了 census 的資料依賴，所以從 `census-parity.yml` 拿掉那一行**不再產生缺口**
+    # ——實測 rc=0。那不是 harness 壞了，是合併讓一個 workflow 涵蓋了另一個的角色。
+    #
+    # 這一格要測的是「從 paths 拿掉一個受保護檔會不會被發現」，所以目標換成
+    # 現在真的承擔涵蓋責任的那個。
+    case('從 workflow 的 paths 拿掉一個受保護檔',
+         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+             '      - "plugin/**"\n', '')},
          # **指名側別**：缺口模板是「改 {f} 時 {g} 不在…」，裸檔名會同時吞下
          # f 側與 g 側。這一格宣告的是「把該檔從 paths 拿掉」，期望 f 側。
-         '改 hash-merging-ranges.txt 時'),
-    case('從 workflow 拿掉一個 run 步驟（守衛還在版控，只是不再被執行）',
+         '不在任何 CI workflow 跑'),
+    # **合併之後這一格的語意變了**（#432）：CI 只剩一個 step，拿掉它等於停用
+    # **整批** 21 支，而不是一支。所以期望從「具名某一支」改成「每一條缺口都是
+    # CI 涵蓋缺口」——`case()` 仍然要求全部同類，鑑別力沒有降低，只是類別變粗。
+    #
+    # **這是合併的真實代價，寫出來而不是假裝沒發生**：先前「一支守衛從 CI 掉了」
+    # 與「整個守衛階段掉了」是兩種可分辨的故障，現在它們在 CI 側無法區分。
+    # 換來的是 hook 與 CI 不再有兩份會分岔的清單。
+    case('從 workflow 拿掉守衛階段（整批不再被執行）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
-             'run: bash plugin/tests/rule-coverage.sh', 'run: true  # 被拿掉了')},
-         'rule-coverage.sh'),
+             'run: bash .githooks/run-guards.sh', 'run: true  # 被拿掉了')},
+         '不在任何 CI workflow 跑'),
     # 下面兩格是 #407 R20 跨模型審查實測到的**假陰性**——修法之前這兩種狀態
     # 都讓守衛報綠而它宣稱的性質為假。
-    case('把 pre-push 的一支守衛換成只提到它的註解',
-         {'.githooks/pre-push': lambda t: t.replace(
+    case('把守衛清單裡的一支換成只提到它的註解',
+         {'.githooks/run-guards.sh': lambda t: t.replace(
              'bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh\n',
              '# TODO: 之後再接 plugin/skills/akashic-literal-campaign/'
              'scripts/tests/store-marker-parity.sh\n')},
          'store-marker-parity.sh 不在 pre-push 裡'),
     case('把 workflow 的一個 run: 換成只印檔名的 echo',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
-             'run: bash plugin/tests/rule-coverage.sh',
-             'run: echo "見 plugin/tests/rule-coverage.sh 的說明"')},
-         'rule-coverage.sh'),
+             'run: bash .githooks/run-guards.sh',
+             'run: echo "見 .githooks/run-guards.sh 的說明"')},
+         '不在任何 CI workflow 跑'),
     # 同一個 echo 但用 `./` 形式。R20 只修了直譯器那半邊（`bash X`），
     # `./X` 分支照舊掃全行——這一格是那個殘留的負控（#407 R20c）。
     # #407 R23b：`bash --version` 是 CI 極常見的環境檢查。判準若問「引數裡有
@@ -191,9 +208,9 @@ RESULTS = [
     # 證明揭露仍然會發生，兩者的差別就是那個位置。
     case('把 run: 換成 `cat <守衛> | bash`（管線下游的裸直譯器）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
-             'run: bash plugin/tests/rule-coverage.sh',
-             'run: bash --version && cat plugin/tests/rule-coverage.sh | bash')},
-         'rule-coverage.sh 不在任何 CI workflow 跑'),
+             'run: bash .githooks/run-guards.sh',
+             'run: bash --version && cat .githooks/run-guards.sh | bash')},
+         '不在任何 CI workflow 跑'),
     # **這一格的敘述先前是錯的**（#407 R23d）：它寫「`||` 後的段在正常狀態下
     # 不執行」，並用 `test -f /nonexistent || bash <守衛>` 當例子——而那個 LHS
     # **永遠失敗**，所以守衛**每次都跑**。跨模型審查的 logic 席指出這一點，
@@ -204,9 +221,9 @@ RESULTS = [
     # ——而不是斷言「守衛應該報它沒被執行」那個可能為假的期望。
     case('把守衛掛到 `||` 之後（語意判不出，守衛須說明而非斷言）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
-             'run: bash plugin/tests/rule-coverage.sh',
+             'run: bash .githooks/run-guards.sh',
              'run: test -f /nonexistent || bash plugin/tests/rule-coverage.sh')},
-         'rule-coverage.sh 不在任何 CI workflow 跑'),
+         '不在任何 CI workflow 跑'),
     # #407 R23d：詞邊界擋得住 `rulesets` 那種巧合子串，擋不住**散文**——
     # `# TODO: add more tests` 裡的 `tests` 是完整的詞。加上路徑脈絡要求後
     # 才擋得下來。
@@ -229,9 +246,9 @@ RESULTS = [
     # 直譯器單獨成段時無條件靜默，於是零可見度。
     case('把 run: 換成 `cat <守衛> | bash`（直譯器從 stdin 讀）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
-             'run: bash plugin/tests/rule-coverage.sh',
-             'run: cat plugin/tests/rule-coverage.sh | bash')},
-         'rule-coverage.sh 不在任何 CI workflow 跑'),
+             'run: bash .githooks/run-guards.sh',
+             'run: cat .githooks/run-guards.sh | bash')},
+         '不在任何 CI workflow 跑'),
     # #407 R23c：痕跡檢查問「守衛提過這個目錄嗎」，而守衛提到**自己所在的
     # 目錄**是必然的（路徑字串出現在它自己的註解裡）——於是 `seg='tests'`
     # 對每一個守衛都命中，一條編造的 `reads plugin/tests/*.py` 完全通過。
@@ -302,46 +319,46 @@ RESULTS = [
     # 區塊形式處理 exit 2，覆蓋表立刻報 11 個缺口，而呼叫就寫在區塊裡。
     case('把某個守衛改成 block scalar 形式呼叫（續行要讀得到）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
-             'run: python3 plugin/tests/measured-numbers-audit.py',
+             'run: bash .githooks/run-guards.sh',
              'run: |\n          set -e\n          echo 開始\n'
              '          python3 plugin/tests/DELETED-numbers-audit.py', 1)},
-         'measured-numbers-audit.py'),
+         '不在任何 CI workflow 跑'),
     # #407 R44：heredoc 主體是**寫進檔案的字面文字**，不是被執行的命令。不擋的話
     # 會產生**假綠**（方向與本函式其餘刻意選的漏報相反）。
     case('把守衛名字藏進 heredoc 主體（不得算成有跑）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
-             'run: python3 plugin/tests/measured-numbers-audit.py',
+             'run: bash .githooks/run-guards.sh',
              "run: |\n          cat > /tmp/w.sh <<'EOF'\n"
              "          python3 plugin/tests/measured-numbers-audit.py\n"
              "          EOF\n          chmod +x /tmp/w.sh", 1)},
-         'measured-numbers-audit.py'),
+         '不在任何 CI workflow 跑'),
     # #407 R45：heredoc 的結束字帶非字元（`SETUP-EOF`）時，上一版只抓到 `SETUP`，
     # 於是結束行永遠對不上、其後整段被吞——**真的呼叫因此隱形**。這個 case 把一個
     # 守衛的呼叫放在這種 heredoc **之後**，它必須仍然被看見。
     case('heredoc 結束字帶連字號，其後的真呼叫不得被吞掉',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
-             'run: python3 plugin/tests/measured-numbers-audit.py',
+             'run: bash .githooks/run-guards.sh',
              "run: |\n          cat > /tmp/s.sh <<SETUP-EOF\n          echo hi\n"
              "          SETUP-EOF\n"
              "          python3 plugin/tests/DELETED-numbers-audit.py", 1)},
-         'measured-numbers-audit.py'),
+         '不在任何 CI workflow 跑'),
     case('把 run: 換成 shellcheck（靜態檢查，不執行守衛）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
-             'run: bash plugin/tests/rule-coverage.sh',
+             'run: bash .githooks/run-guards.sh',
              'run: shellcheck plugin/tests/rule-coverage.sh')},
-         'rule-coverage.sh 不在任何 CI workflow 跑'),
+         '不在任何 CI workflow 跑'),
     # #407 R22c 量測到的兩個零可見度形式。管線先前完全不在切分符裡，於是
     # `cat x | bash <守衛>` 的守衛既不進 found 也不進 chained。
     case('把 run: 改成管線形式（`cat x | bash <守衛>` 後半換成 echo）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
-             'run: bash plugin/tests/rule-coverage.sh',
+             'run: bash .githooks/run-guards.sh',
              'run: cat /dev/null | echo "見 plugin/tests/rule-coverage.sh"')},
-         'rule-coverage.sh 不在任何 CI workflow 跑'),
+         '不在任何 CI workflow 跑'),
     case('把 run: 換成印出 ./ 形式檔名的 echo（R20 修法的殘留半邊）',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
-             'run: bash plugin/tests/rule-coverage.sh',
-             'run: echo "見 ./plugin/tests/rule-coverage.sh 的說明"')},
-         'rule-coverage.sh'),
+             'run: bash .githooks/run-guards.sh',
+             'run: echo "見 ./.githooks/run-guards.sh 的說明"')},
+         '不在任何 CI workflow 跑'),
     # 宣告機制若被「統一」成走 code_only()，宣告行（是註解）會被剝掉、機制
     # 整個失效——而守衛本來**不會紅**（只是少考慮幾個 pair，沉默地）。R20b
     # 把它變成會紅的，這一格證明那件事。
@@ -368,9 +385,9 @@ RESULTS = [
     # 把真的執行 B 的那一段改成 echo，B 才該從 found 消失（#407 R21c）。
     case('把 run 改成 `bash setup.sh && bash <守衛>` 再把後半換成 echo',
          {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
-             'run: bash plugin/tests/rule-coverage.sh',
+             'run: bash .githooks/run-guards.sh',
              'run: bash scripts/setup.sh && echo "見 plugin/tests/rule-coverage.sh"')},
-         'rule-coverage.sh 不在任何 CI workflow 跑'),
+         '不在任何 CI workflow 跑'),
     # DA 席指名（#407 R21d）：收窄 DECLARE 擋不住**獨立成行的教學範例**——
     # 一行真實格式的示範會完整匹配。當時沒再撞到是因為我手動把本檔的範例改成
     # 佔位形式，那是一次性遮蔽不是機制。這一格證明「一個守衛只該有一條宣告」

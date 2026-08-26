@@ -72,73 +72,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # 規則有沒有被每個 skill 掛到，且相對路徑真的解析得到。
-      # 語法相容性要**最先**跑（#394 verify R9）：hook 用系統 Python 3.9,
-      # 開發機用 homebrew 3.12+。差異會讓守衛「在我這裡永遠通過、在 hook 裡是
-      # SyntaxError」——實測代價是三次 push 失敗與三個被推翻的假設。
-      - name: 守衛在系統 Python 下解析得過
-        run: python3 plugin/tests/guard-python-compat.py
-
-      - name: rule-coverage
-        run: bash plugin/tests/rule-coverage.sh
-
-      # 散文守衛。`--venue` 顯式指向 checkout 內的原始碼——**不給的話第 5 項會
-      # 走「未涵蓋」出口並以 exit 2 表明它沒被執行**（未涵蓋不得冒充通過）。
-      # 逐條重建審查者宣稱的失敗情境。純 bash，不需要 build 產物。
-      - name: review-claim-audit
-        run: bash plugin/tests/review-claim-audit.sh
-
-      - name: rule-prose-guards
-        run: python3 plugin/tests/rule-prose-guards.py --venue Sources/AkashicCore/Venue.swift
-
-      # 上一步的每一項都證明會紅。一個從沒紅過的檢查，和一個不存在的檢查，
-      # 在報告上長得一模一樣。
-      - name: rule-prose-guards negative control
-        run: python3 plugin/tests/rule-prose-guards-mutations.py
-
-      # 觸發點自己的守衛。它不執行任何被保護的程式碼，只讀 workflow／hook 的
-      # 設定與各守衛的原始碼——所以放在 ubuntu（1× 計費）這一側。
-      - name: 觸發點覆蓋（逐對，非聯集）
-        run: python3 plugin/tests/trigger-coverage.py
-      - name: 觸發點守衛的 negative control
-        run: python3 plugin/tests/trigger-coverage-mutations.py
-      - name: 判準表的現查
-        run: python3 plugin/tests/measured-claims-audit.py
-
-      # 決策矩陣的漂移檢查。純讀 CLAUDE.md 的表 + 兩條語意規則，不跑任何
-      # 被保護的程式碼、不需要 swift ——所以同樣放 ubuntu（1× 計費）這一側。
-      - name: 決策矩陣漂移
-        run: python3 plugin/tests/decision-matrix-drift.py
-      - name: 決策矩陣守衛的 negative control
-        run: python3 plugin/tests/decision-matrix-mutations.py
-      # exit 2 ＝「跑得動的都綠，但有沒跑到的」（#407 R43）。本 runner 是 stock
-      # ubuntu，沒有 Swift toolchain，所以 6 個需要它的 case 一定跳過。**顯式接受 2
-      # 並把跳過清單印出來**——而 1（真的有 case 紅）照樣讓這一步失敗。
-      - name: rule-coverage／hash-table-drift／review-claim-audit 的 negative control
-        run: |
-          set +e
-          python3 plugin/tests/audit-guards-mutations.py
-          rc=$?
-          set -e
-          if [ "$rc" -eq 2 ]; then
-            echo "::warning::此 runner 沒有 Swift toolchain，6 個 case 未執行（見上方清單）"
-            exit 0
-          fi
-          exit "$rc"
-      # oracle 前提檢查自己的負控（#407 R67h）。它毒化「ROBUST case 最多」的那一支
-      # 守衛——刻意不是隨手挑：只有一格的守衛在前提不成立時第一輪就 continue，走不到
-      # 會 KeyError 的那條路徑，而 R67e 的 scratch probe 正是這樣漏掉它的。
-      # 它跑的是 harness 本身，所以在無 Swift 的 runner 上同樣走 skip 路徑；通過數是
-      # 現算的，不寫死，因此兩種環境都成立。
-      - name: oracle 前提檢查會乾淨降級
-        run: python3 plugin/tests/oracle-precondition-control.py
-      - name: 規則檔的實測數字要有時間錨
-        run: python3 plugin/tests/measured-numbers-audit.py
-      - name: parity 表 vs 程式碼
-        run: python3 plugin/tests/parity-table-drift.py
-      - name: 欄位棘輪（14 條邊的表）
-        run: python3 plugin/tests/backlink-field-ratchet.py
-      - name: zero-instance 裁決表的編號棘輪
-        run: python3 plugin/tests/zero-instance-rows-audit.py
-      - name: literal 純量解碼 parity
-        run: python3 plugin/tests/literal-scalar-parity.py
+      # **唯一的守衛清單**（#432）：hook 與 CI 共用 `.githooks/run-guards.sh`。
+      # 先前兩邊各自列 21 支,是兩份會分岔的規格——#394 R9 加一支守衛時就得
+      # 分別改兩個檔案,而 `trigger-coverage.py` 在漏掉這一份時立刻叫了。
+      - name: 全部守衛（與 pre-push 同一份清單）
+        run: bash .githooks/run-guards.sh

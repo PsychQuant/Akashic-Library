@@ -83,5 +83,9 @@ python3 plugin/tests/oracle-precondition-control.py
 .build/debug/akashic-guards zero-instance-rows-audit
 # census 抽 `literal:` 值的解碼 vs YAML 純量語義（#407 R62）——distinct literal 是
 # 整個 campaign 的分母，而它先前 8 種寫法有 7 種分岔。
-python3 plugin/tests/literal-scalar-parity.py
+# **Swift 版**（#433 C 批 3/3——C 批完成）。乾淨樹逐位元相同，負控進 `MIGRATED` 兩版並驗。
+# **它仍 spawn `python3`**，而那不是遷移沒做完：被測的東西**就是** census.sh 內嵌的 Python
+# 函數（該檔 598 行裡 573 行是內嵌 Python）。用 Swift 重寫一份等價解碼，驗的就變成我寫的
+# 那份，而不是實際在跑的那份。
+.build/debug/akashic-guards literal-scalar-parity
 

@@ -111,6 +111,8 @@ case "rule-prose-guards":
     exit(ruleProseGuards(argv: Array(CommandLine.arguments.dropFirst(2))))
 case "measured-claims-audit":
     exit(measuredClaimsAudit())
+case "literal-scalar-parity":
+    exit(literalScalarParity())
 case "measured-numbers-audit":
     exit(measuredNumbersAudit())
 case "backlink-field-ratchet":

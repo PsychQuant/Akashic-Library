@@ -838,7 +838,7 @@ def main():
         print(f'ℹ {len(SOURCE_INJECTED)} 個 case 注入的是守衛**自己的原始碼**'
               f'（{"、".join(uniq)}）——Swift 版的等價程式碼在 compiled binary 裡，'
               f'改 .py 對它無效，所以這些 case **只驗了 Python 版**。'
-              f'能改成環境注入的就該改（見 `with_copy` 的說明）。')
+              f'能改成環境注入的就該改（見注入處的說明）。')
     print(f'\n=== negative control {ok}/{expected} '
           f'（{len(CASES) - len(skipped)} 須紅 ＋ {len(ROBUST)} 須綠 ＋ 2 後設檢查）==='
           + (f'（另有 {len(skipped)} 個因缺 swift 跳過）' if skipped else ''))

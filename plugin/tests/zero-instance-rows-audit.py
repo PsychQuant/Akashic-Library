@@ -38,8 +38,24 @@ def main():
         print(f'✗ 找不到 {RULE}')
         return 1
     rule = io.open(RULE, encoding='utf8').read()
-    src = '\n'.join(io.open(f, encoding='utf8', errors='replace').read()
-                    for f in glob.glob('Sources/**/*.swift', recursive=True))
+    # **排除由腳本生成的測試資料檔**（#433）：`AuditGuardsMutationsData.swift` 等是把
+    # negative-control 的 mutation 字串資料化的產物，住在 `Sources/` 只因為 SwiftPM 要它
+    # 在那裡才編得到——它們**不是實作**。
+    #
+    # 不排除的話這支必然誤判：其中一個 mutation 的內容正是「一個刻意不存在於 Sources 的
+    # 編號」（`#9999`），資料化之後那個編號就真的出現在 `Sources/` 裡了，於是守衛說
+    # 「找得到實作」而它其實只找到自己的測試資料。這不是理論邊界——它在資料化的當天就
+    # 讓這一格從綠變紅。
+    #
+    # **判準是結構的**（檔頭的生成標記），不是列舉檔名——列舉會與下一個生成檔分岔。
+    def _is_generated(text):
+        return '本檔由腳本生成' in text[:600]
+    _srcs = []
+    for f in glob.glob('Sources/**/*.swift', recursive=True):
+        _t = io.open(f, encoding='utf8', errors='replace').read()
+        if not _is_generated(_t):
+            _srcs.append(_t)
+    src = '\n'.join(_srcs)
     rows = re.findall(r'^\| (\d+) \| (.*?) \| (.*?) \|', rule, re.M)
     if not rows:
         print('✗ 裁決表一列都沒讀到——抽取式與表的寫法脫節了')

@@ -88,8 +88,14 @@ python3 plugin/tests/guard-python-compat.py
 .build/debug/akashic-guards decision-matrix-mutations
 # rule-coverage 與 hash-table-drift 的 negative control（#407 R32）——它們先前
 # 每次都綠而從沒紅過，落在本 issue 自己的立場之外。
-python3 plugin/tests/audit-guards-mutations.py
-python3 plugin/tests/oracle-precondition-control.py
+# **Swift 版**（#433，最大的一支 835 行）。52 個 case 機械抽出＋**自我驗證**（抽出的
+# edits 套用結果必須與原 lambda 逐字相同）——那道驗證當場抓到兩個會靜默的抽取缺陷：
+# 丟掉 `count` 引數（5 個 case 換錯範圍）、鏈式 replace 只抽最外層（2 個 case 注入不完整）。
+.build/debug/akashic-guards audit-guards-mutations
+# **Swift 版**（#433）。它 monkey-patch 不了 harness（Swift 沒那個機制），改用
+# **環境變數 ＋ subprocess**——好處是它跑的是**真的出貨路徑**。三個注入變數帶 `AKASHIC_`
+# 前綴、在被注入處具名、**未設定時完全沒有行為**（實測：輸出與 Python 版逐位元相同）。
+.build/debug/akashic-guards oracle-precondition-control
 # 規則檔裡的「實測 N」必須有時間錨或可重跑的指令（#407 R36）。
 # **Swift 版**（#433 B 批 3/4）。乾淨副本 ＋ **12 個 mutation**（三個負向:fence 內、
 # 四位數年份、有錨即不報）,輸出**逐字相同**。契約交叉核對另確認三處**理由**而非行為

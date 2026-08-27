@@ -123,6 +123,10 @@ case "marker-parity-mutations":
     exit(markerParityMutations())
 case "trigger-coverage-mutations":
     exit(triggerCoverageMutations())
+case "audit-guards-mutations":
+    exit(auditGuardsMutations())
+case "oracle-precondition-control":
+    exit(oraclePreconditionControl())
 case "measured-numbers-audit":
     exit(measuredNumbersAudit())
 case "backlink-field-ratchet":

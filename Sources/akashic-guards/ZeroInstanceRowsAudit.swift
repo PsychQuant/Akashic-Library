@@ -27,7 +27,18 @@ func zeroInstanceRowsAudit() -> Int32 {
         FileHandle.standardError.write(Data("✗ 找不到 \(rulePath)\n".utf8))
         return 1
     }
-    let src = swiftSources().compactMap(readFile).joined(separator: "\n")
+    // **排除由腳本生成的測試資料檔**（#433）：`AuditGuardsMutationsData.swift` 等把
+    // negative-control 的 mutation 字串資料化，住在 `Sources/` 只因為 SwiftPM 要它在那裡
+    // 才編得到——它們**不是實作**。
+    //
+    // 不排除的話這支必然誤判：其中一個 mutation 的內容正是「一個刻意不存在於 Sources 的
+    // 編號」，資料化之後那個編號就真的出現了，於是守衛說「找得到實作」而它其實只找到自己
+    // 的測試資料。這在資料化的當天就讓那一格從綠變紅。
+    //
+    // **判準是結構的**（檔頭的生成標記），不是列舉檔名——列舉會與下一個生成檔分岔。
+    let src = swiftSources().compactMap(readFile)
+        .filter { !String($0.prefix(600)).contains("本檔由腳本生成") }
+        .joined(separator: "\n")
 
     // `| <列號> | <情形> | <裁決> |` —— 前三欄。第四欄（理由）刻意不讀:
     // 判準只問「裁決 ✅ 的列有沒有引編號、那編號在不在 Sources」。

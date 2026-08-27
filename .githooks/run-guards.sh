@@ -38,7 +38,9 @@ bash plugin/tests/review-claim-audit.sh
 # （`rule-prose-guards-mutations.py` 對每個 case 同時跑兩版並要求 stdout 與 rc 逐字相同）。
 # 這支不需要 source-injection 豁免：mutation 只作用在 copy 的 plugin 樹上，守衛在原位。
 .build/debug/akashic-guards rule-prose-guards --venue Sources/AkashicCore/Venue.swift
-python3 plugin/tests/rule-prose-guards-mutations.py
+# **Swift 版**（#433，第二支遷移的 harness）。乾淨樹逐位元相同（19 行、rc=0）。
+# 13 個 case ＋ 一個注入 PoC（不只看守衛紅不紅，還看**副作用有沒有發生**）。
+.build/debug/akashic-guards rule-prose-guards-mutations
 bash plugin/skills/akashic-literal-campaign/scripts/tests/hash-table-drift.sh
 # 表是逐 code point 的——這支證明對「# + 多 scalar 序列」那樣就夠
 # （12 種序列零分歧；理由見該檔）。

@@ -117,6 +117,8 @@ case "migrated-guard-control":
     exit(migratedGuardControl())
 case "decision-matrix-mutations":
     exit(decisionMatrixMutations())
+case "rule-prose-guards-mutations":
+    exit(ruleProseGuardsMutations())
 case "measured-numbers-audit":
     exit(measuredNumbersAudit())
 case "backlink-field-ratchet":

@@ -19,9 +19,40 @@ GUARD_REL = 'plugin/tests/trigger-coverage.py'
 BEFORE = os.path.getmtime(os.path.join(ROOT, GUARD_REL))
 
 
-def run(root):
+# ── 遷移期：runner 跑的是 Swift 版，所以負控必須驗**它**（#433）──────────────
+#
+# 理由與 `audit-guards-mutations.py` 的 `MIGRATED` 表逐字相同：`run-guards.sh` 換成
+# `akashic-guards trigger-coverage` 之後，這支若仍只跑 `.py`，它驗的就是一個**不再被
+# 執行的實作**——負控全綠而實際在跑的那一版沒有任何保證。那個缺口是遷移自己製造的，
+# 而它在對面那支 harness 上加了兩版並驗的**第一次執行**就抓到兩個真的翻譯遺漏。
+#
+# **兩版都跑並要求逐字一致**，不是二選一：Python 版在刪除之前仍是 oracle，Swift 版是
+# 實際在跑的。刪除 Python 版時把這一段拿掉即可。
+GUARDS_BIN = os.path.join(ROOT, '.build/debug/akashic-guards')
+SOURCE_INJECTED = []
+
+
+def run(root, source_injected=False):
     r = subprocess.run([sys.executable, os.path.join(root, GUARD_REL), '--root', root],
                        capture_output=True, text=True)
+    # **注入守衛自己的原始碼時不比對。** Swift 的等價程式碼在 compiled binary 裡，改
+    # `.py` 對它**結構上**無效——比對必然分岔，而分岔與守衛的正確性無關。判準是結構的
+    # （`edits` 動到 `GUARD_REL` 自己），不是一張會與 case 分岔的名單。
+    # 代價在總結彙總印出，不靜默。
+    if source_injected:
+        SOURCE_INJECTED.append(GUARD_REL)
+        return r.returncode, r.stdout + r.stderr
+    if os.path.exists(GUARDS_BIN):
+        # Swift 版以 **cwd** 定位 repo（Python 版靠 `--root`），所以 binary 留在 ROOT、
+        # cwd=root 即讀到注入後的副本。
+        rs = subprocess.run([GUARDS_BIN, 'trigger-coverage'],
+                            capture_output=True, text=True, cwd=root)
+        if (rs.returncode, rs.stdout + rs.stderr) != (r.returncode, r.stdout + r.stderr):
+            raise SystemExit(
+                f'✗ 遷移期兩版分岔：{GUARD_REL} vs `akashic-guards trigger-coverage`\n'
+                f'  ── python rc={r.returncode}\n{r.stdout}{r.stderr}\n'
+                f'  ── swift  rc={rs.returncode}\n{rs.stdout}{rs.stderr}')
+        return rs.returncode, rs.stdout + rs.stderr   # 回傳**實際在跑的**那一版
     return r.returncode, r.stdout + r.stderr
 
 
@@ -65,7 +96,7 @@ def with_copy(edits):
                 raise SystemExit(f'✗ 注入對 {rel} 沒有造成任何改動——'
                                  f'注入式已與被注入的內容脫節')
             io.open(p, 'w', encoding='utf8').write(after)
-        return run(tmp)
+        return run(tmp, source_injected=(GUARD_REL in edits))
 
 
 def warn_case(desc, edits, expect_substr):
@@ -450,6 +481,12 @@ RESULTS = [
 # 出貨檔不得被開啟以寫入。
 assert os.path.getmtime(os.path.join(ROOT, GUARD_REL)) == BEFORE, \
     '✗ 出貨檔被改動了'
+if SOURCE_INJECTED:
+    # **不靜默**（`lossless-intake` 執行細節 3）：這些 case 的 Swift 側沒有負控，
+    # 而輸出若不說，它與「兩版都驗過了」長得一模一樣。
+    print(f'ℹ {len(SOURCE_INJECTED)} 個 case 注入的是守衛**自己的原始碼**——Swift 版的'
+          f'等價程式碼在 compiled binary 裡，改 .py 對它無效，所以這些 case '
+          f'**只驗了 Python 版**。')
 print(f'\n=== negative control {sum(RESULTS)}/{len(RESULTS)} ===')
 print(f'出貨檔未被開啟以寫入：{GUARD_REL}')
 sys.exit(0 if all(RESULTS) else 1)

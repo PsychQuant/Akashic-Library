@@ -30,7 +30,12 @@ bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh
 python3 plugin/skills/akashic-literal-campaign/scripts/tests/marker-parity-mutations.py
 # 觸發點自己的守衛：每個受保護檔案改動時，讀它的守衛真的會跑起來嗎？
 # 判準是**逐對**而非聯集——CLAUDE.md 那張手寫的觸發點表由它量。
-python3 plugin/tests/trigger-coverage.py
+# **Swift 版**（#433 B 批 4/4，全樹最大的一支 846 行）。驗證：乾淨樹逐位元相同、
+# 19 個手動 mutation、**負控的 30 個 case 兩版並驗**（`trigger-coverage-mutations.py`
+# 對每個 case 同時跑兩版並要求輸出逐字相同；另 2 個 case 注入守衛自己的原始碼，
+# Swift 側結構上測不到，harness 會把它們彙總印出而不靜默）。
+# 另含 `shlex(posix, punctuation_chars)` 的等價實作，差分測試 63 個 case 逐 token 相同。
+.build/debug/akashic-guards trigger-coverage
 python3 plugin/tests/trigger-coverage-mutations.py
 # 那張四列判準表的現查（#407 R26b）——表自己的四個宣稱也是可否證的。
 # 語法相容性要**最先**跑（#394 verify R9）：它便宜（秒級）,而它防的失效會讓

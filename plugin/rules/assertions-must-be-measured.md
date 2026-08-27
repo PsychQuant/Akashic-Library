@@ -290,8 +290,8 @@ done
 | `plugin.json` 寫 format 10、本機 store 寫 12 | `grep '"description"' plugin/.claude-plugin/plugin.json` 與 `grep '^format:' <store>/store.yaml`。**單機單樣本**——未查該描述寫下時是否正確、也未查兩者是否相容 | 2026-08-21 |
 | 本檔提到的 repo 中，**存放兩個立案實例的那兩個**皆為 private（marketplace repo 不在此列——它是公開的，見下一列） | `gh repo view <repo> --json isPrivate` → 兩者皆 `true`（repo 名不寫在這裡，理由見立案一末的裁決） | 2026-08-21 |
 | census 曾把「讀不到」印成 `format 0` | 讀該腳本的解析段；並以缺 `store.yaml`／有檔無標記兩種 fixture 實跑對照 | 2026-08-21 |
-| ↗ census 的 marker 解析在 **46** 格 fixture 上與讀端裁決一致（**不是「一致」的全稱句**——那需要窮舉輸入空間，而這裡量的是 46 個具名形狀；**2026-08-21 是 26 格**，每輪都在加） | `plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh`（需先 `swift build`；拿真的 CLI 當 oracle） | 2026-08-22 |
-| ↗ 上一句那張矩陣真的會紅 | `plugin/skills/akashic-literal-campaign/scripts/tests/marker-parity-mutations.py` → **14/14**（2026-08-21 是 11/11） | 2026-08-22 |
+| ↗ census 的 marker 解析在 **46** 格 fixture 上與讀端裁決一致（**不是「一致」的全稱句**——那需要窮舉輸入空間，而這裡量的是 46 個具名形狀；**2026-08-21 是 26 格**，每輪都在加） | `plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh`（需先 `swift build`；拿真的 CLI 當 oracle） | 2026-08-22 |
+| ↗ 上一句那張矩陣真的會紅 | `plugin/skills/akashic-promote-literals/scripts/tests/marker-parity-mutations.py` → **14/14**（2026-08-21 是 11/11） | 2026-08-22 |
 | 本 plugin 經由**公開**的 marketplace 發布 | 兩步都在公開處：`gh repo view PsychQuant/psychquant-claude-plugins --json isPrivate` → `false`，且該 repo 的 `.claude-plugin/marketplace.json` 列出 `akashic-mcp`（27 個 plugin 之一）。**先前這一列引的是本 repo 的 README——而本 repo 是 private，讀者查不到，等於用一個他取不到的東西當證據** | 2026-08-21 |
 
 ### 一次對本規則自己的效力稽核（#407 R28b，2026-08-23）

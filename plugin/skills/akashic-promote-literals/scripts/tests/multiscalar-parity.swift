@@ -27,7 +27,7 @@
 //
 // 用法
 // ====
-//   swift plugin/skills/akashic-literal-campaign/scripts/tests/multiscalar-parity.swift
+//   swift plugin/skills/akashic-promote-literals/scripts/tests/multiscalar-parity.swift
 //
 import Foundation
 

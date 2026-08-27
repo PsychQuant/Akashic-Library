@@ -56,7 +56,7 @@ func oraclePreconditionControl() -> Int32 {
 
     let hasSwift = FileManager.default.isExecutableFile(atPath: "/usr/bin/swift")
         || FileManager.default.isExecutableFile(atPath: "/usr/local/bin/swift")
-    let DRIFT = "plugin/skills/akashic-literal-campaign/scripts/tests/hash-table-drift.sh"
+    let DRIFT = "plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh"
     var counts: [String: Int] = [:]
     for c in agmRobust {
         if !hasSwift && (c.guardRel.hasSuffix(".swift") || c.guardRel == DRIFT) { continue }

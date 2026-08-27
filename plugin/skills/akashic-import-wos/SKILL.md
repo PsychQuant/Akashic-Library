@@ -1,5 +1,5 @@
 ---
-name: akashic-wos-intake
+name: akashic-import-wos
 description: WoS 匯出清單的匯入前 QA——DOI 補查、同篇雙列偵測（early-access／erratum／重複收錄）、機構名誤植容錯，產出 intake 報告經人確認後才交給 import-wos。當使用者拿到一份 WoS 格式的 Excel/CSV 清單（「所方給的成果清單」「這批要進 Akashic」「這份 WoS 匯出先整理一下」）、或說「先檢查這份清單有沒有重複」「補一下 DOI」時使用。清單的分母（實際篇數）在這一步定案——不做這步就匯入，重複列會流進下游統計。與 akashic-bootstrap 的分工：本 skill 是清單層的 QA 閘（列 vs 列），bootstrap 是逐筆實體的補完（查證單篇/單人）。同型的其他書目匯出清單（Scopus、所方自製格式）除 WoS 特有欄名對映外同樣適用。
 ---
 
@@ -61,7 +61,7 @@ xlsx/CSV 用手邊可用的讀法（python＋openpyxl、`excel-to-json` skill、
 機構欄比對決定「哪些列算本機構的成果」——與雙列偵測同屬分母問題：那邊算「幾篇」，
 這裡算「哪些篇算數」。機構名的誤植真實存在於文獻（正式名稱單數、出版商頁印複數
 都發生過）——比對用正規化＋容錯，命中後回原文查證；判準與實例見 person-verify 的
-[verification-traps.md](../akashic-person-verify/references/verification-traps.md) 第 2 節。
+[verification-traps.md](../akashic-verify-person/references/verification-traps.md) 第 2 節。
 
 **產出**（進 step 5 報告）：機構欄命中 m 列、疑義 p 列（僅正規化後才命中／完全
 不命中但作者似本機構人員），疑義逐列列出、待回原文查證。
@@ -93,7 +93,7 @@ link），絕不靜默丟列。確認後的交接是**檔案**，不是口頭：
 
 - 本 skill 管**清單層**（列 vs 列）；單篇的欄位補完、作者歸戶是
   [akashic-bootstrap](../akashic-bootstrap/SKILL.md) 與
-  [akashic-person-verify](../akashic-person-verify/SKILL.md) 的事，常接續使用
+  [akashic-verify-person](../akashic-verify-person/SKILL.md) 的事，常接續使用
 - 匯入後的 store 內重複由 `akashic doctor` 負責（#94 起兩道檢查：正規化 DOI
   共用組——全前綴變體、大小寫不敏感——＋同標題同年不同 DOI；warning 報告不合併、
   指向 record-divergence）。本 skill 是匯入**前**的閘，兩者互補：事後安全網只能

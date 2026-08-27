@@ -17,7 +17,7 @@
 #
 # 用法
 # ====
-#   plugin/skills/akashic-literal-campaign/scripts/tests/hash-table-drift.sh
+#   plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh
 set -uo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

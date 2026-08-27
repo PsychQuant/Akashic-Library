@@ -26,7 +26,7 @@
 import Foundation
 
 func literalScalarParity() -> Int32 {
-    let CENSUS = "plugin/skills/akashic-literal-campaign/scripts/literal-census.sh"
+    let CENSUS = "plugin/skills/akashic-promote-literals/scripts/literal-census.sh"
     // 「這一行 YAML」→「正確解碼後的值」。封閉列舉：每一列都是一個 YAML 純量寫法。
     let CASES: [(String, String)] = [
         (#"- literal: Jacob Cohen"#,            "Jacob Cohen"),

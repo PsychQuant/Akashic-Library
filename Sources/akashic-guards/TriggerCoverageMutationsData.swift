@@ -17,7 +17,7 @@ struct TCMCase {
 let triggerCoverageMutationCases: [TCMCase] = [
     TCMCase(isWarn: false, desc: "從守衛清單拿掉一支守衛",
         edits: [
-            (path: ".githooks/run-guards.sh", old: "bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh\n", new: ""),
+            (path: ".githooks/run-guards.sh", old: "bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh\n", new: ""),
         ], expect: "store-marker-parity.sh 不在 pre-push 裡"),
     TCMCase(isWarn: false, desc: "從 workflow 的 paths 拿掉一個受保護檔",
         edits: [
@@ -29,7 +29,7 @@ let triggerCoverageMutationCases: [TCMCase] = [
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把守衛清單裡的一支換成只提到它的註解",
         edits: [
-            (path: ".githooks/run-guards.sh", old: "bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh\n", new: "# TODO: 之後再接 plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh\n"),
+            (path: ".githooks/run-guards.sh", old: "bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh\n", new: "# TODO: 之後再接 plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh\n"),
         ], expect: "store-marker-parity.sh 不在 pre-push 裡"),
     TCMCase(isWarn: false, desc: "把 workflow 的一個 run: 換成只印檔名的 echo",
         edits: [

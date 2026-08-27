@@ -17,10 +17,10 @@
 import Foundation
 
 func markerParityMutations() -> Int32 {
-    let HERE = "\(repoRoot)/plugin/skills/akashic-literal-campaign/scripts/tests"
-    let CENSUS = "\(repoRoot)/plugin/skills/akashic-literal-campaign/scripts/literal-census.sh"
+    let HERE = "\(repoRoot)/plugin/skills/akashic-promote-literals/scripts/tests"
+    let CENSUS = "\(repoRoot)/plugin/skills/akashic-promote-literals/scripts/literal-census.sh"
     let TEST = "\(HERE)/store-marker-parity.sh"
-    let TABLE = "\(repoRoot)/plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt"
+    let TABLE = "\(repoRoot)/plugin/skills/akashic-promote-literals/scripts/hash-merging-ranges.txt"
     let ORIGINAL = (try? String(contentsOfFile: CENSUS, encoding: .utf8)) ?? ""
 
     func runTest(_ censusPath: String) -> (Int, String) {
@@ -83,6 +83,6 @@ func markerParityMutations() -> Int32 {
 
     print("")
     print("=== negative control \(results.filter { $0 }.count)/\(results.count) ===")
-    print("出貨檔未被開啟以寫入：plugin/skills/akashic-literal-campaign/scripts/literal-census.sh")
+    print("出貨檔未被開啟以寫入：plugin/skills/akashic-promote-literals/scripts/literal-census.sh")
     return results.allSatisfy { $0 } ? 0 : 1
 }

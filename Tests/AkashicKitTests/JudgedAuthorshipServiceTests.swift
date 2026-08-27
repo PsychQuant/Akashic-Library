@@ -175,7 +175,7 @@ final class JudgedAuthorshipServiceTests: XCTestCase {
 
     /// **歧義列也適用**——這是 `--judge` 的鏡像缺口。
     ///
-    /// `akashic-person-verify` 明寫 reject 是三個出口之一（「查過了不是他」），但既有
+    /// `akashic-verify-person` 明寫 reject 是三個出口之一（「查過了不是他」），但既有
     /// `--reject` 只吃**候選**，歧義列一律 notFound。而對共用 literal 來說，**否定才是
     /// 絕大多數的答案**：實測 69 筆歧義裡有 22 筆已確定「答案不在候選裡」。
     func testRefutationWritesRejectedVerdictOnAnAmbiguousOccurrence() throws {

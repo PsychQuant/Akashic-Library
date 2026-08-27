@@ -1,0 +1,79 @@
+## Why
+
+`Venue.names` 的型別是**時間軸**、spec 宣稱它模型化刊名沿革，而實務上它裝的是**異寫法**。
+
+實測（2026-08-28，全庫 405 筆 venue）：
+
+| | 值 |
+|---|---|
+| `names` 多筆的 venue | **35** |
+| 其中**帶時間欄位**（`start`／`end`／`ended`／`attested`） | **0** |
+| 有 `authorized:` 分割 | 402 |
+| 有 `variant` 分割 | **0** |
+
+`venue-entity` spec 的 Requirement「Venue name history timeline」帶一個 Scenario——
+「a venue whose `names` contains an old title with `end: 2003` and a current title with
+`start: 2003`」。**那個 scenario 在 405 筆記錄上零實例。** 而那 35 筆多名字的內容，
+逐一看都是同一本刊的不同寫法：`wikipedia` 的四個名字是 zh／en 變體（#339 已記過）、
+`plos-one` 的三個是大小寫與縮寫差異。
+
+**一個欄位在說謊**：讀 `Venue.names` 的人會以為拿到時間序，實際拿到任意順序的別名。
+`names.current` 在「多筆皆不帶時間」時取哪一筆，是一個沒人裁決過的行為。
+
+## 這推翻一條顯式裁決，不是補一個沒人想過的格子
+
+`openspec/specs/venue-entity/spec.md:11` 寫著：
+
+> flat `names` list with optional `authorized` subset (organization pattern;
+> **NOT the nested person partition of format 10**)
+
+那條裁決（`add-venue-entities`，2026-08-17）不是疏漏——它顯式選了 organization 的扁平
+模式而**拒絕**了 person 的巢狀分割。本提案主張改它，所以必須說明它當時為什麼對、
+現在為什麼不對：
+
+**當時對**：organization pattern 夠用的前提是「`names` 的多筆會用來裝沿革，而別名少到
+可以塞進 `authorized` 的補集」。那是一個關於未來資料的預測。
+
+**現在不對**：預測沒有實現。11 天後的實測是沿革 **0** 筆、異寫法 **35** 筆——
+被預測會是次要用途的那個，是唯一用途；被預測是主要用途的那個，零實例。
+
+## What Changes
+
+- **`Venue.names` 新增 `variant` 分割**，與既有的 `authorized` 並列。402 筆已有
+  `authorized`，所以這是**補上第二個分割**，不是從零建。
+- **時間軸語意收窄到只承載沿革**：帶時間欄位的 names item 表示刊名沿革；`variant`
+  分割不帶時間（異寫法沒有「從何時起是異寫法」這種事）。
+- **`displayName` 的四階回退維持不變**——它目前在異寫法情境下已給出合理結果
+  （#422 記載「目前無實測損害」），本提案不動它，只讓它讀到的東西名實相符。
+- **既有 35 筆的遷移**：多筆 `names` 中非 `authorized` 的那些搬進 `variant`。
+  依 `no-compat-fallback`，**一次改完全部**，不留雙重讀法。
+
+## Capabilities
+
+### New Capabilities
+
+(none)
+
+### Modified Capabilities
+
+- `venue-entity`: 把 `names` 的兩個用途拆開——時間軸只承載沿革，異寫法住 `variant`；
+  推翻「NOT the nested person partition」那半句。
+
+## 明確不在範圍內的兩張 issue
+
+#420（venue-driven 匯入）與 #423（venue → works 補完）**不在本提案內**，而這是
+一個判斷不是省略。四張 venue issue 是**兩條互不相交的鏈**：
+
+```
+鏈 A（建模——「venue 記錄該長什麼樣」）
+  #422 別名的格子  ──→  #421 時間軸真的只裝沿革        ← 本提案
+鏈 B（範圍——「庫裡有什麼」的意思）
+  #420 本體論裁決  ──→  #423 venue → works 的實作
+```
+
+鏈 B 卡在一個 repo 答不出的問題。#420 自己寫著：把 4207 筆 Psychometrika 論文全部
+寫成 `work:` 記錄，會讓「這個庫裡有什麼」從「我讀過／引用過／寫過的東西」變成
+「我知道存在的東西」——**那是本體論變更，不是一個 importer**。那要使用者裁決。
+
+把四張綁成一個 change，會讓鏈 A 這條完全可判定的建模工作，被一個懸而未決的本體論
+問題無限期擋住。

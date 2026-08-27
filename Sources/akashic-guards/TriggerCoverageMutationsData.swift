@@ -21,11 +21,11 @@ let triggerCoverageMutationCases: [TCMCase] = [
         ], expect: "store-marker-parity.sh 不在 pre-push 裡"),
     TCMCase(isWarn: false, desc: "從 workflow 的 paths 拿掉一個受保護檔",
         edits: [
-            (path: ".github/workflows/plugin-guards.yml", old: "      - \"plugin/**\"\n", new: ""),
+            (path: ".github/workflows/census-parity.yml", old: "      - \"plugin/**\"\n", new: ""),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "從 workflow 拿掉守衛階段（整批不再被執行）",
         edits: [
-            (path: ".github/workflows/plugin-guards.yml", old: "run: bash .githooks/run-guards.sh", new: "run: true  # 被拿掉了"),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: true  # 被拿掉了"),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把守衛清單裡的一支換成只提到它的註解",
         edits: [
@@ -33,15 +33,15 @@ let triggerCoverageMutationCases: [TCMCase] = [
         ], expect: "store-marker-parity.sh 不在 pre-push 裡"),
     TCMCase(isWarn: false, desc: "把 workflow 的一個 run: 換成只印檔名的 echo",
         edits: [
-            (path: ".github/workflows/plugin-guards.yml", old: "run: bash .githooks/run-guards.sh", new: "run: echo \"見 .githooks/run-guards.sh 的說明\""),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: echo \"見 .githooks/run-guards.sh 的說明\""),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把 run: 換成 `cat <守衛> | bash`（管線下游的裸直譯器）",
         edits: [
-            (path: ".github/workflows/plugin-guards.yml", old: "run: bash .githooks/run-guards.sh", new: "run: bash --version && cat .githooks/run-guards.sh | bash"),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: bash --version && cat .githooks/run-guards.sh | bash"),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把守衛掛到 `||` 之後（語意判不出，守衛須說明而非斷言）",
         edits: [
-            (path: ".github/workflows/plugin-guards.yml", old: "run: bash .githooks/run-guards.sh", new: "run: test -f /nonexistent || bash plugin/tests/rule-coverage.sh"),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: test -f /nonexistent || bash plugin/tests/rule-coverage.sh"),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: true, desc: "守衛用純 glob 讀宣告的目錄、從不寫目錄名（宣告為真，不得誤殺）",
         edits: [
@@ -53,7 +53,7 @@ let triggerCoverageMutationCases: [TCMCase] = [
         ], expect: "有出現但不在路徑脈絡裡"),
     TCMCase(isWarn: false, desc: "把 run: 換成 `cat <守衛> | bash`（直譯器從 stdin 讀）",
         edits: [
-            (path: ".github/workflows/plugin-guards.yml", old: "run: bash .githooks/run-guards.sh", new: "run: cat .githooks/run-guards.sh | bash"),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: cat .githooks/run-guards.sh | bash"),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: true, desc: "宣告指向守衛自己所在的目錄（可能多餘、也可能必要）",
         edits: [
@@ -93,27 +93,27 @@ let triggerCoverageMutationCases: [TCMCase] = [
         ], expect: "一次都沒出現過"),
     TCMCase(isWarn: false, desc: "把某個守衛改成 block scalar 形式呼叫（續行要讀得到）",
         edits: [
-            (path: ".github/workflows/plugin-guards.yml", old: "run: bash .githooks/run-guards.sh", new: "run: |\n          set -e\n          echo 開始\n          python3 plugin/tests/DELETED-numbers-audit.py"),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: |\n          set -e\n          echo 開始\n          python3 plugin/tests/DELETED-numbers-audit.py"),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把守衛名字藏進 heredoc 主體（不得算成有跑）",
         edits: [
-            (path: ".github/workflows/plugin-guards.yml", old: "run: bash .githooks/run-guards.sh", new: "run: |\n          cat > /tmp/w.sh <<'EOF'\n          python3 plugin/tests/measured-numbers-audit.py\n          EOF\n          chmod +x /tmp/w.sh"),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: |\n          cat > /tmp/w.sh <<'EOF'\n          python3 plugin/tests/measured-numbers-audit.py\n          EOF\n          chmod +x /tmp/w.sh"),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "heredoc 結束字帶連字號，其後的真呼叫不得被吞掉",
         edits: [
-            (path: ".github/workflows/plugin-guards.yml", old: "run: bash .githooks/run-guards.sh", new: "run: |\n          cat > /tmp/s.sh <<SETUP-EOF\n          echo hi\n          SETUP-EOF\n          python3 plugin/tests/DELETED-numbers-audit.py"),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: |\n          cat > /tmp/s.sh <<SETUP-EOF\n          echo hi\n          SETUP-EOF\n          python3 plugin/tests/DELETED-numbers-audit.py"),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把 run: 換成 shellcheck（靜態檢查，不執行守衛）",
         edits: [
-            (path: ".github/workflows/plugin-guards.yml", old: "run: bash .githooks/run-guards.sh", new: "run: shellcheck plugin/tests/rule-coverage.sh"),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: shellcheck plugin/tests/rule-coverage.sh"),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把 run: 改成管線形式（`cat x | bash <守衛>` 後半換成 echo）",
         edits: [
-            (path: ".github/workflows/plugin-guards.yml", old: "run: bash .githooks/run-guards.sh", new: "run: cat /dev/null | echo \"見 plugin/tests/rule-coverage.sh\""),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: cat /dev/null | echo \"見 plugin/tests/rule-coverage.sh\""),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把 run: 換成印出 ./ 形式檔名的 echo（R20 修法的殘留半邊）",
         edits: [
-            (path: ".github/workflows/plugin-guards.yml", old: "run: bash .githooks/run-guards.sh", new: "run: echo \"見 ./.githooks/run-guards.sh 的說明\""),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: echo \"見 ./.githooks/run-guards.sh 的說明\""),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把 declared() 改成走 code_only()（宣告行是註解，會被剝掉）",
         edits: [
@@ -121,7 +121,7 @@ let triggerCoverageMutationCases: [TCMCase] = [
         ], expect: "宣告機制失效了"),
     TCMCase(isWarn: false, desc: "把 run 改成 `bash setup.sh && bash <守衛>` 再把後半換成 echo",
         edits: [
-            (path: ".github/workflows/plugin-guards.yml", old: "run: bash .githooks/run-guards.sh", new: "run: bash scripts/setup.sh && echo \"見 plugin/tests/rule-coverage.sh\""),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: bash scripts/setup.sh && echo \"見 plugin/tests/rule-coverage.sh\""),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "在真宣告旁邊多寫一行教學範例（DA 指名的類別）",
         edits: [

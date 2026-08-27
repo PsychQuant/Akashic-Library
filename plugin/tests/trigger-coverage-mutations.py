@@ -203,14 +203,14 @@ RESULTS = [
          {'.githooks/run-guards.sh': lambda t: t.replace(
              'bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh\n', '')},
          'store-marker-parity.sh 不在 pre-push 裡'),
-    # **改注入 `plugin-guards.yml`**（#432）：合併之後那個 workflow 的 `plugin/**`
+    # **改注入 `census-parity.yml`**（#435——`plugin-guards.yml` 已刪除；原註解見 #432）：合併之後那個 workflow 的 `plugin/**`
     # 覆蓋了 census 的資料依賴，所以從 `census-parity.yml` 拿掉那一行**不再產生缺口**
     # ——實測 rc=0。那不是 harness 壞了，是合併讓一個 workflow 涵蓋了另一個的角色。
     #
     # 這一格要測的是「從 paths 拿掉一個受保護檔會不會被發現」，所以目標換成
     # 現在真的承擔涵蓋責任的那個。
     case('從 workflow 的 paths 拿掉一個受保護檔',
-         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+         {'.github/workflows/census-parity.yml': lambda t: t.replace(
              '      - "plugin/**"\n', '')},
          # **指名側別**：缺口模板是「改 {f} 時 {g} 不在…」，裸檔名會同時吞下
          # f 側與 g 側。這一格宣告的是「把該檔從 paths 拿掉」，期望 f 側。
@@ -223,7 +223,7 @@ RESULTS = [
     # 與「整個守衛階段掉了」是兩種可分辨的故障，現在它們在 CI 側無法區分。
     # 換來的是 hook 與 CI 不再有兩份會分岔的清單。
     case('從 workflow 拿掉守衛階段（整批不再被執行）',
-         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+         {'.github/workflows/census-parity.yml': lambda t: t.replace(
              'run: bash .githooks/run-guards.sh', 'run: true  # 被拿掉了')},
          '不在任何 CI workflow 跑'),
     # 下面兩格是 #407 R20 跨模型審查實測到的**假陰性**——修法之前這兩種狀態
@@ -235,7 +235,7 @@ RESULTS = [
              'scripts/tests/store-marker-parity.sh\n')},
          'store-marker-parity.sh 不在 pre-push 裡'),
     case('把 workflow 的一個 run: 換成只印檔名的 echo',
-         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+         {'.github/workflows/census-parity.yml': lambda t: t.replace(
              'run: bash .githooks/run-guards.sh',
              'run: echo "見 .githooks/run-guards.sh 的說明"')},
          '不在任何 CI workflow 跑'),
@@ -246,7 +246,7 @@ RESULTS = [
     # （只有管線下游才是 stdin 執行）之後靜默——這一格用一個真的管線執行
     # 證明揭露仍然會發生，兩者的差別就是那個位置。
     case('把 run: 換成 `cat <守衛> | bash`（管線下游的裸直譯器）',
-         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+         {'.github/workflows/census-parity.yml': lambda t: t.replace(
              'run: bash .githooks/run-guards.sh',
              'run: bash --version && cat .githooks/run-guards.sh | bash')},
          '不在任何 CI workflow 跑'),
@@ -259,7 +259,7 @@ RESULTS = [
     # 不計入覆蓋並說明它可能是假警報。這一格保留，但改為斷言**那段說明出現**
     # ——而不是斷言「守衛應該報它沒被執行」那個可能為假的期望。
     case('把守衛掛到 `||` 之後（語意判不出，守衛須說明而非斷言）',
-         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+         {'.github/workflows/census-parity.yml': lambda t: t.replace(
              'run: bash .githooks/run-guards.sh',
              'run: test -f /nonexistent || bash plugin/tests/rule-coverage.sh')},
          '不在任何 CI workflow 跑'),
@@ -284,7 +284,7 @@ RESULTS = [
     # #407 R22e：`cat X | bash` 是常見的 CI 部署慣用法，它真的執行 X——先前
     # 直譯器單獨成段時無條件靜默，於是零可見度。
     case('把 run: 換成 `cat <守衛> | bash`（直譯器從 stdin 讀）',
-         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+         {'.github/workflows/census-parity.yml': lambda t: t.replace(
              'run: bash .githooks/run-guards.sh',
              'run: cat .githooks/run-guards.sh | bash')},
          '不在任何 CI workflow 跑'),
@@ -357,7 +357,7 @@ RESULTS = [
     # 先前只讀單行形式（並以揭露交代），而揭露擋不住它咬人——實地把一個步驟改成
     # 區塊形式處理 exit 2，覆蓋表立刻報 11 個缺口，而呼叫就寫在區塊裡。
     case('把某個守衛改成 block scalar 形式呼叫（續行要讀得到）',
-         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+         {'.github/workflows/census-parity.yml': lambda t: t.replace(
              'run: bash .githooks/run-guards.sh',
              'run: |\n          set -e\n          echo 開始\n'
              '          python3 plugin/tests/DELETED-numbers-audit.py', 1)},
@@ -365,7 +365,7 @@ RESULTS = [
     # #407 R44：heredoc 主體是**寫進檔案的字面文字**，不是被執行的命令。不擋的話
     # 會產生**假綠**（方向與本函式其餘刻意選的漏報相反）。
     case('把守衛名字藏進 heredoc 主體（不得算成有跑）',
-         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+         {'.github/workflows/census-parity.yml': lambda t: t.replace(
              'run: bash .githooks/run-guards.sh',
              "run: |\n          cat > /tmp/w.sh <<'EOF'\n"
              "          python3 plugin/tests/measured-numbers-audit.py\n"
@@ -375,26 +375,26 @@ RESULTS = [
     # 於是結束行永遠對不上、其後整段被吞——**真的呼叫因此隱形**。這個 case 把一個
     # 守衛的呼叫放在這種 heredoc **之後**，它必須仍然被看見。
     case('heredoc 結束字帶連字號，其後的真呼叫不得被吞掉',
-         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+         {'.github/workflows/census-parity.yml': lambda t: t.replace(
              'run: bash .githooks/run-guards.sh',
              "run: |\n          cat > /tmp/s.sh <<SETUP-EOF\n          echo hi\n"
              "          SETUP-EOF\n"
              "          python3 plugin/tests/DELETED-numbers-audit.py", 1)},
          '不在任何 CI workflow 跑'),
     case('把 run: 換成 shellcheck（靜態檢查，不執行守衛）',
-         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+         {'.github/workflows/census-parity.yml': lambda t: t.replace(
              'run: bash .githooks/run-guards.sh',
              'run: shellcheck plugin/tests/rule-coverage.sh')},
          '不在任何 CI workflow 跑'),
     # #407 R22c 量測到的兩個零可見度形式。管線先前完全不在切分符裡，於是
     # `cat x | bash <守衛>` 的守衛既不進 found 也不進 chained。
     case('把 run: 改成管線形式（`cat x | bash <守衛>` 後半換成 echo）',
-         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+         {'.github/workflows/census-parity.yml': lambda t: t.replace(
              'run: bash .githooks/run-guards.sh',
              'run: cat /dev/null | echo "見 plugin/tests/rule-coverage.sh"')},
          '不在任何 CI workflow 跑'),
     case('把 run: 換成印出 ./ 形式檔名的 echo（R20 修法的殘留半邊）',
-         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+         {'.github/workflows/census-parity.yml': lambda t: t.replace(
              'run: bash .githooks/run-guards.sh',
              'run: echo "見 ./.githooks/run-guards.sh 的說明"')},
          '不在任何 CI workflow 跑'),
@@ -423,7 +423,7 @@ RESULTS = [
     # 切段之後，`bash A && bash B` 的 B 也認得出來——這一格證明那件事：
     # 把真的執行 B 的那一段改成 echo，B 才該從 found 消失（#407 R21c）。
     case('把 run 改成 `bash setup.sh && bash <守衛>` 再把後半換成 echo',
-         {'.github/workflows/plugin-guards.yml': lambda t: t.replace(
+         {'.github/workflows/census-parity.yml': lambda t: t.replace(
              'run: bash .githooks/run-guards.sh',
              'run: bash scripts/setup.sh && echo "見 plugin/tests/rule-coverage.sh"')},
          '不在任何 CI workflow 跑'),

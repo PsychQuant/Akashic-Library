@@ -279,7 +279,10 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     // parity 需要 swift build、mutation 要數分鐘。實測靜態計數與實跑一致，而會漂的是
     // 計數本身，不是通過率。
     let PARITY = "\(plugin)/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh"
-    let MUTS = "\(plugin)/skills/akashic-literal-campaign/scripts/tests/marker-parity-mutations.py"
+    // **來源換成 Swift 資料檔**（#433 Step 5）：`marker-parity-mutations.py` 已刪除，
+    // 那 14 個 mutation 現在住在 `MarkerParityMutationsData.swift`（機械抽出時生成的）。
+    // 數的仍是同一件事——那張自我量測表裡「會長的數字」有沒有跟上實際的 mutation 數。
+    let MUTS = abspath("\(plugin)/../Sources/akashic-guards/MarkerParityMutationsData.swift")
     guard FileManager.default.fileExists(atPath: PARITY),
           FileManager.default.fileExists(atPath: MUTS) else {
         return skipExit(6, ["[6] SKIP  取不到 parity／mutation 腳本——**本項未執行**", ""])
@@ -289,11 +292,11 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     var stale: [String] = []
     let nFix = matches(parityTxt, #"(?m)^check "#).count
     var nMut = -1
-    if let mm = matches(mutTxt, #"(?s)MUTATIONS\s*=\s*\[(.*?)\n\]"#).first {
+    if let mm = matches(mutTxt, #"(?s)markerParityMutationsTable[^=]*=\s*\[(.*?)\n\]"#).first {
         let blk = (mutTxt as NSString).substring(with: mm.range(at: 1))
-        nMut = matches(blk, #"(?m)^\s{4}\("#).count
+        nMut = matches(blk, #"(?m)^\s{4}\(old:"#).count
     }
-    if nMut < 0 { stale.append("數不到 MUTATIONS 的項目數——抽取式已與宣告寫法脫節") }
+    if nMut < 0 { stale.append("數不到 mutation 表的項目數——抽取式已與宣告寫法脫節") }
     // **proxy 的有效前件也要驗**（#407 R20）：`^check ` 只認 column 0。若有人把一個
     // check 移進 if／函式區塊，實跑的 fixture 數不變而靜態計數少一——散文若跟著改成
     // 那個錯的數字，這一項會綠而表格已與實際不符。

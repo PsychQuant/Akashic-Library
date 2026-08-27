@@ -60,3 +60,36 @@ compiled binary 就得重編譯，而 harness 在 temp copy 裡 build 整個 pac
 樹一度編譯失敗，而那會讓 22 支守衛**全部跑不了**。已還原。那三處要逐一精確改，不能批次。
 
 Step 5 的後半（移除兩版並驗 → 刪 16 支 `.py` → `guard-python-compat` 退場）因此還沒做。
+
+---
+
+## Step 5 完成：Python 歸零，而三個自指問題是同一個形狀
+
+刪掉 16 支 `.py` 之後，`runner 跑 Swift 16 / Python 0`。全套 22 支綠。
+
+**把測試資料放進被掃描的範圍，它就會被當成事實。** 這一輪撞到三次：
+
+| # | 什麼被當成事實 | 誰掃到它 |
+|---|---|---|
+| 1 | mutation 內容裡「一個刻意不存在於 `Sources/` 的編號」，資料化後真的出現在 `Sources/` | `zero-instance-rows-audit` |
+| 2 | 一個 case 斷言「某守衛缺負控」，而那個守衛名寫在同一個資料檔的 `expect` 欄位 | `migrated-guard-control` |
+| 3 | **我在說明第 1 個問題的註解裡寫了那個編號的字面** | `zero-instance-rows-audit`（又一次） |
+
+前兩個用「排除生成的資料檔／只認 `guardRel` 欄位」修掉，判準都是**結構的**（檔頭標記、
+欄位名）而非列舉檔名。第三個只能靠不寫那個字面——並在原處註明為什麼。
+
+### 一個讓豁免靜默失效的小地方
+
+第 2 個的修法一度沒生效：檔頭的生成標記**本身是註解**，而我用 `codeOnly()` 讀它——
+標記被剝掉，於是資料檔走了通用分支。改讀未剝註解的原文。
+
+**兩個函式對註解的態度必須相反**，這是 `trigger-coverage` 早就記過的事（`declared()` 讀
+raw、判斷 basename 是否真被讀時剝註解），而我在別處重蹈了它。
+
+### 連帶調整
+
+- `guard-python-compat` 退場——它的存在理由是「Python 守衛要能在 system 3.9 跑」
+- `rule-prose-guards` 的第 6 項改讀 `MarkerParityMutationsData.swift` 數 mutation 數，
+  且 harness 的 copy 要含 `Sources/`（Python 版時那份資料在 plugin 樹裡，本來就在複製範圍）
+- `migrated-guard-control` 的 covered 判準補上第三種形式：子命令作為**獨立字串字面**
+  （`exec([BIN, "decision-matrix-drift", …])` 裡它不跟 `akashic-guards` 相鄰）

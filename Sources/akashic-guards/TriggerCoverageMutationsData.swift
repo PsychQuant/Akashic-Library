@@ -57,7 +57,7 @@ let triggerCoverageMutationCases: [TCMCase] = [
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: true, desc: "宣告指向守衛自己所在的目錄（可能多餘、也可能必要）",
         edits: [
-            (path: "plugin/tests/review-claim-audit.sh", old: "#!/bin/bash", new: "#!/bin/bash\n# trigger-coverage: reads plugin/tests/*.py"),
+            (path: "plugin/tests/review-claim-audit.sh", old: "#!/bin/bash", new: "#!/bin/bash\n# trigger-coverage: reads plugin/tests/*.sh"),
         ], expect: "那正是它自己所在的目錄"),
     TCMCase(isWarn: false, desc: "啞宣告①：少了註解標記",
         edits: [
@@ -115,10 +115,6 @@ let triggerCoverageMutationCases: [TCMCase] = [
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: echo \"見 ./.githooks/run-guards.sh 的說明\""),
         ], expect: "不在任何 CI workflow 跑"),
-    TCMCase(isWarn: false, desc: "把 declared() 改成走 code_only()（宣告行是註解，會被剝掉）",
-        edits: [
-            (path: "plugin/tests/trigger-coverage.py", old: "    for line in io.open(path, encoding='utf8', errors='replace'):\n        m = DECLARE.search(line)", new: "    for line in code_only(path).split('\\n'):\n        m = DECLARE.search(line)"),
-        ], expect: "宣告機制失效了"),
     TCMCase(isWarn: false, desc: "把 run 改成 `bash setup.sh && bash <守衛>` 再把後半換成 echo",
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: bash scripts/setup.sh && echo \"見 plugin/tests/rule-coverage.sh\""),
@@ -139,8 +135,4 @@ let triggerCoverageMutationCases: [TCMCase] = [
         edits: [
             (path: "plugin/tests/rule-coverage.sh", old: "# trigger-coverage: reads plugin/rules/*.md", new: "# trigger-coverage: reads */*.sh"),
         ], expect: "第一段是萬用字元"),
-    TCMCase(isWarn: false, desc: "把受保護檔案的路徑改成不存在的（憑記憶寫路徑的那個坑）",
-        edits: [
-            (path: "plugin/tests/trigger-coverage.py", old: "'Sources/AkashicStoreIO/StoreVersion.swift'", new: "'Sources/AkashicCore/StoreVersion.swift'"),
-        ], expect: "不存在的路徑"),
 ]

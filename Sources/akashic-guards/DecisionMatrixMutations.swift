@@ -15,7 +15,6 @@ import Foundation
 
 func decisionMatrixMutations() -> Int32 {
     let MD = "\(repoRoot)/CLAUDE.md"
-    let GUARD = "\(repoRoot)/plugin/tests/decision-matrix-drift.py"
     let BIN = "\(repoRoot)/.build/debug/akashic-guards"
 
     let R6 = "> | 正常 `git push` | 恢復 | 指向本樹 | 執行 | 執行 |"
@@ -91,18 +90,8 @@ func decisionMatrixMutations() -> Int32 {
             return (p.terminationStatus,
                     (String(data: od, encoding: .utf8) ?? "") + (String(data: ed, encoding: .utf8) ?? ""))
         }
-        let py = exec(["/usr/bin/python3", GUARD, path])
-        if FileManager.default.isExecutableFile(atPath: BIN) {
-            let sw = exec([BIN, "decision-matrix-drift", path])
-            if sw != py {
-                print("✗ 遷移期兩版分岔：decision-matrix-drift.py vs `akashic-guards decision-matrix-drift`")
-                print("  ── python rc=\(py.0)\n\(py.1)")
-                print("  ── swift  rc=\(sw.0)\n\(sw.1)")
-                exit(1)
-            }
-            return sw
-        }
-        return py
+        // **Python 版已刪除**（#433 Step 5）：遷移期這裡跑兩版並要求逐字一致。
+        return exec([BIN, "decision-matrix-drift", path])
     }
 
     func stat(_ p: String) -> (Int, Int) {

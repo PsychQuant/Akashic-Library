@@ -15,7 +15,6 @@ import Foundation
 
 func ruleProseGuardsMutations() -> Int32 {
     let PLUGIN = "\(repoRoot)/plugin"
-    let GUARD = "\(repoRoot)/plugin/tests/rule-prose-guards.py"
     let BIN = "\(repoRoot)/.build/debug/akashic-guards"
     let VENUE = "\(repoRoot)/Sources/AkashicCore/Venue.swift"
     let RULE_REL = "rules/assertions-must-be-measured.md"
@@ -33,25 +32,12 @@ func ruleProseGuardsMutations() -> Int32 {
         p.waitUntilExit()
         return (p.terminationStatus, String(data: od, encoding: .utf8) ?? "")
     }
-    /// 跑守衛。**兩版都跑並要求逐字一致**——回傳實際在跑的那一版（只取 stdout，同 Python 版）。
+    // **Python 版已刪除**（#433 Step 5）：遷移期這裡跑兩版並要求逐字一致，Python 是 oracle。
+    // 那條路徑在 `.py` 刪掉之後是死的——`no-compat-fallback` 的「退場即刪」。
     func run(_ root: String) -> (Int32, String) {
-        var pyArgv = ["/usr/bin/python3", GUARD, "--root", root]
         var swArgv = [BIN, "rule-prose-guards", "--root", root]
-        if FileManager.default.fileExists(atPath: VENUE) {
-            pyArgv += ["--venue", VENUE]; swArgv += ["--venue", VENUE]
-        }
-        let py = exec(pyArgv, cwd: PLUGIN)
-        if FileManager.default.isExecutableFile(atPath: BIN) {
-            let sw = exec(swArgv, cwd: PLUGIN)
-            if sw != py {
-                print("✗ 遷移期兩版分岔：rule-prose-guards.py vs `akashic-guards rule-prose-guards`")
-                print("  ── python rc=\(py.0)\n\(py.1)")
-                print("  ── swift  rc=\(sw.0)\n\(sw.1)")
-                exit(1)
-            }
-            return sw
-        }
-        return py
+        if FileManager.default.fileExists(atPath: VENUE) { swArgv += ["--venue", VENUE] }
+        return exec(swArgv, cwd: PLUGIN)
     }
 
     /// 複製整個 plugin 樹到 tempdir、換掉規則檔、跑守衛。出貨檔完全不碰。
@@ -60,6 +46,13 @@ func ruleProseGuardsMutations() -> Int32 {
         let root = tmp + "/plugin"
         try? FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
         try? FileManager.default.copyItem(atPath: PLUGIN, toPath: root)
+        // **`Sources/` 也要複製**（#433 Step 5）：第 6 項數的 mutation 表在
+        // `Sources/akashic-guards/MarkerParityMutationsData.swift`（Python 版時它在
+        // `plugin/skills/.../marker-parity-mutations.py`，本來就在複製範圍內）。少了它，
+        // 那一項走 SKIP 出口回 rc=2，而 harness 的 baseline 要求 rc=0——整支在 baseline
+        // 就停住，且訊息說「先修守衛」而守衛沒壞。
+        try? FileManager.default.copyItem(atPath: "\(repoRoot)/Sources",
+                                          toPath: tmp + "/Sources")
         try? mutatedRule.write(toFile: root + "/" + RULE_REL, atomically: true, encoding: .utf8)
         let r = run(root)
         try? FileManager.default.removeItem(atPath: tmp)

@@ -22,7 +22,9 @@
 // 表填滿卻不比對的 harness 照樣通過——本守衛擋的是**整個忘記**，不是**做錯**。
 // 後者由 harness 自己的 negative control 管（那是它們的職責，不是這支的）。
 //
-// trigger-coverage: reads plugin/tests/*.py
+// **刻意不寫 `trigger-coverage: reads` 宣告**（#433 Step 5）：宣告存在的理由是補啟發式
+// 的漏（守衛用 glob 組路徑、basename 不逐字出現）。這支讀的是同目錄的 harness source，
+// 啟發式看得到——而指向自己所在目錄的宣告會被守衛判成「多半多餘」的警告。
 
 import Foundation
 
@@ -52,18 +54,35 @@ func migratedGuardControl() -> Int32 {
     if fileExists("plugin/tests/oracle-precondition-control.py") {
         harnesses.append("plugin/tests/oracle-precondition-control.py")
     }
-    // Swift 側：source 裡有 `Process()` 且執行別的守衛。**不列舉檔名**——列舉會與下一支
-    // harness 分岔，而這個性質從 source 就讀得出來（同下方 `isHarness` 的判準）。
-    for f in globFiles("Sources/akashic-guards/*.swift") {
-        let code = codeOnly(f)
-        if code.contains("Process()")
-            && (code.contains("akashic-guards") || code.contains("/tests/")) {
-            harnesses.append(f)
-        }
-    }
+    // **Swift 側掃整個目錄，不只「有 Process() 的」**（#433 Step 5）：harness 的 case 資料
+    // 被抽進 `*Data.swift`（沒有 `Process()`，不會被判成 harness），而受測守衛的子命令名
+    // 正是寫在那裡。只掃執行面會漏掉它們——實測 5 支守衛因此被誤報「缺負控」。
+    //
+    // 掃全目錄不會誤判：`main.swift` 的 dispatch 表寫的是 `case "X":` 而非
+    // `akashic-guards X`，抓不到；下方的 `isHarness` 仍用執行面判準區分「它自己就是負控」。
+    harnesses += globFiles("Sources/akashic-guards/*.swift")
     var covered = Set<String>()
     for h in harnesses {
         let code = codeOnly(h)
+        // **生成的資料檔只認 `guardRel:` 欄位**（#433 Step 5）：它同時裝著 case 的**受測
+        // 對象**（`guardRel`）與**注入內容**（`new:`），而後者可能含 `akashic-guards <名字>`
+        // 的字面——那是被注入的資料，不是「有東西驗它」。
+        //
+        // 不分開的話會自指：有一個 case 注入 runner 加一支叫 `fake-guard` 的守衛並斷言
+        // 「它缺負控」，而那個名字在資料檔裡被讀成「已涵蓋」→ 守衛不紅 → 那一格失效。
+        // 與 `zero-instance-rows-audit` 撞到的那個假編號是同一個形狀：**把測試資料放進被掃描
+        // （那個編號的字面刻意不寫在這裡——寫了就會被那支守衛掃到，而那正是這段在講的事。
+        //   這句話本身是第三次踩到同一個形狀：我在說明自指問題的註解裡製造了自指問題。）
+        // 的範圍，它就會被當成事實**。
+        // **標記要從未剝註解的原文讀**——它自己就是註解，`codeOnly` 會把它剝掉。
+        // 這個小地方讓整段豁免靜默失效：資料檔走了通用分支，於是 case 的 `expect` 欄位
+        // （裡面有被斷言「應該缺負控」的那個名字）被讀成「已涵蓋」。
+        if String(rawFile(h).prefix(600)).contains("本檔由腳本生成") {
+            for m in matches(code, #"guardRel: "akashic-guards ([a-z][a-z0-9-]*)""#) {
+                covered.insert((code as NSString).substring(with: m.range(at: 1)))
+            }
+            continue
+        }
         // ① 直接呼叫
         for m in matches(code, #"akashic-guards['"]?\s*,?\s*['"]([a-z][a-z0-9-]*)['"]"#) {
             covered.insert((code as NSString).substring(with: m.range(at: 1)))
@@ -71,6 +90,10 @@ func migratedGuardControl() -> Int32 {
         for m in matches(code, #"akashic-guards ([a-z][a-z0-9-]*)"#) {
             covered.insert((code as NSString).substring(with: m.range(at: 1)))
         }
+        // ③ **子命令作為獨立的字串字面**——`exec([BIN, "decision-matrix-drift", path])` 這種
+        //    形式裡它不跟 `akashic-guards` 相鄰。`codeOnly` 已剝註解，所以「只在註解裡提到」
+        //    不算數。
+        for s in executed where code.contains("\"\(s)\"") { covered.insert(s) }
         // ② `MIGRATED` 表的值（遷移期的兩版並驗清單）
         if let mm = matches(code, #"(?s)MIGRATED\s*=\s*\{(.*?)\n\}"#).first {
             let blk = (code as NSString).substring(with: mm.range(at: 1))

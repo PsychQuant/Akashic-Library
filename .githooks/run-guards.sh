@@ -66,8 +66,8 @@ bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh
 .build/debug/akashic-guards trigger-coverage-mutations
 # 那張四列判準表的現查（#407 R26b）——表自己的四個宣稱也是可否證的。
 # 語法相容性要**最先**跑（#394 verify R9）：它便宜（秒級）,而它防的失效會讓
-# 後面任何一支守衛在 hook 裡變成 SyntaxError——那個症狀極具誤導性。
-python3 plugin/tests/guard-python-compat.py
+# `guard-python-compat.py` 已退場（#433 Step 5）：它的存在理由是「Python 守衛要能在
+# system 3.9 跑」，而現在沒有 Python 守衛了。
 # **Swift 版**（#433 C 批 2/3）。驗證：乾淨樹逐位元相同（29 行、rc=0），負控在
 # `audit-guards-mutations.py` 的 `MIGRATED` 表裡兩版並驗。
 # **注意**：本支有 case 注入守衛**自己的原始碼**，Swift 側結構上測不到（harness 會把

@@ -16,9 +16,9 @@ func triggerCoverageMutations() -> Int32 {
     // **守衛要跑 copy 裡的那份，不是原始路徑**——兩個 case 注入的正是守衛自己的原始碼，
     // 跑原始路徑等於那兩格完全沒生效（而輸出看起來只是「守衛沒指名」）。差分測試抓到
     // 這個：Python 版用 `os.path.join(root, GUARD_REL)`，我第一版寫成 repoRoot。
-    let GUARD_REL = "plugin/tests/trigger-coverage.py"
+    // 只用於最後那行「出貨檔未被開啟以寫入」的訊息——守衛本身已是 Swift 子命令。
+    let GUARD_REL = "akashic-guards trigger-coverage"
     let BIN = "\(repoRoot)/.build/debug/akashic-guards"
-    var sourceInjected: [String] = []
 
     func exec(_ argv: [String], cwd: String) -> (Int32, String) {
         let p = Process()
@@ -32,26 +32,13 @@ func triggerCoverageMutations() -> Int32 {
         p.waitUntilExit()
         return (p.terminationStatus, String(data: od, encoding: .utf8) ?? "")
     }
-    func run(_ root: String, sourceInjection: Bool = false) -> (Int32, String) {
-        let py = exec(["/usr/bin/python3", root + "/" + GUARD_REL, "--root", root], cwd: root)
-        // **注入守衛自己的原始碼時不比對**：Swift 的等價程式碼在 compiled binary 裡，改
-        // `.py` 對它**結構上**無效——比對必然分岔，而分岔與守衛的正確性無關。代價在總結
-        // 彙總印出，不靜默。
-        if sourceInjection {
-            sourceInjected.append(GUARD_REL)
-            return py
-        }
-        if FileManager.default.isExecutableFile(atPath: BIN) {
-            let sw = exec([BIN, "trigger-coverage"], cwd: root)
-            if sw != py {
-                print("✗ 遷移期兩版分岔：trigger-coverage.py vs `akashic-guards trigger-coverage`")
-                print("  ── python rc=\(py.0)\n\(py.1)")
-                print("  ── swift  rc=\(sw.0)\n\(sw.1)")
-                exit(1)
-            }
-            return sw
-        }
-        return py
+    // **Python 版已刪除**（#433 Step 5）：遷移期這裡跑兩版並要求逐字一致，Python 是 oracle。
+    // 那條路徑在 `.py` 刪掉之後是死的——`no-compat-fallback` 的「退場即刪」。
+    //
+    // `sourceInjection` 那個參數也一起退場：它服務的兩個 case 注入守衛自己的 `.py`，
+    // 而那個檔案已不存在——那兩個 case 同輪移除。
+    func run(_ root: String) -> (Int32, String) {
+        return exec([BIN, "trigger-coverage"], cwd: root)
     }
 
     /// 複製相關子樹、套用 edits、跑守衛。
@@ -91,7 +78,7 @@ func triggerCoverageMutations() -> Int32 {
             guard let r = t.range(of: e.old) else { return nil }   // 注入沒改到 → case 無效
             try? t.replacingCharacters(in: r, with: e.new).write(toFile: p, atomically: true, encoding: .utf8)
         }
-        return run(tmp, sourceInjection: edits.contains { $0.path == GUARD_REL })
+        return run(tmp)
     }
 
     let (baseRC, baseOut) = run(repoRoot)
@@ -150,13 +137,6 @@ func triggerCoverageMutations() -> Int32 {
             }
             results.append(ok)
         }
-    }
-    if !sourceInjected.isEmpty {
-        // **不靜默**（`lossless-intake` 執行細節 3）：這些 case 的 Swift 側沒有負控，
-        // 而輸出若不說，它與「兩版都驗過了」長得一模一樣。
-        print("ℹ \(sourceInjected.count) 個 case 注入的是守衛**自己的原始碼**——Swift 版的"
-            + "等價程式碼在 compiled binary 裡，改 .py 對它無效，所以這些 case "
-            + "**只驗了 Python 版**。")
     }
     print("\n=== negative control \(results.filter { $0 }.count)/\(results.count) ===")
     print("出貨檔未被開啟以寫入：\(GUARD_REL)")

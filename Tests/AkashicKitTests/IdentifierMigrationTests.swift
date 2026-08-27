@@ -545,5 +545,109 @@ extension IdentifierMigrationRunTests {
         let applied = try IdentifierMigration.run(store: store, apply: true)
         XCTAssertEqual(dry.blockers, applied.blockers,
                        "乾跑與 apply 必須得到同一組 blockers——那是本命令自己的契約")
+        // **apply 之後磁碟真的要被升級**（#394 verify R4 的負控找到的缺口：
+        // 移除寫入區塊時沒有任何測試會紅，也就是那個區塊在正向上未被測到）。
+        XCTAssertTrue(try String(contentsOf: url, encoding: .utf8).contains("- value: 0003-066X"),
+                      "apply 的最後一步是把模擬結果落到磁碟——乾跑與 apply 的差別"
+                      + "就只剩這一步，沒有它兩者完全一樣")
+    }
+}
+
+/// 形狀升級的判準是「**它是不是真的裸識別碼**」，不是「它長得像不像 mapping」
+/// （#394 verify R4 HIGH）。
+///
+/// ## 為什麼白名單是錯的範疇
+///
+/// R3 的病是 `hasPrefix("value:")`——猜一種寫法。R3 的修法換成
+/// `looksLikeYAMLMapping`（首字元字母、到冒號只有 `[A-Za-z0-9_.-]`）——**那仍是白名單**，
+/// 只是邊界挪了一格。R4 實測四種合法的 format-13 寫法在新邊界外面：
+/// `- value : X`（冒號前空格）、`-  value: X`、`- {value: X}`（flow）、`- "value": X`。
+///
+/// 而前兩者改寫後產生 `- value: value : X`——**整檔 YAML 語法錯誤**（plain scalar
+/// 不得含 `: `），比原缺陷嚴重：原缺陷只是 decode 失敗。
+///
+/// 註解當時寫出了正確的性質（「ISSN／ISBN 的值不含冒號」），卻實作了它的**近似補集**。
+/// 正確判準是直接問那個性質：`ISSN(v) != nil`。
+extension IdentifierMigrationTests {
+
+    private func upgraded(_ yaml: String, key: String = "issn") -> String {
+        let lines = yaml.components(separatedBy: "\n")
+        return IdentifierMigration.upgradedLines(lines).joined(separator: "\n")
+    }
+
+    /// 只有**真的解析得出識別碼**的裸純量才改寫。
+    func testOnlyGenuineBareIdentifiersAreRewritten() {
+        XCTAssertEqual(upgraded("issn:\n- 0003-066X"), "issn:\n- value: 0003-066X",
+                       "真的裸 ISSN → 升級")
+        XCTAssertEqual(upgraded("isbn:\n- 9780306406157"), "isbn:\n- value: 9780306406157")
+    }
+
+    /// R4 找到的四種合法 mapping 寫法，一個都不得被碰。
+    func testLegalMappingShapesAreNeverRewritten() {
+        for shape in ["- value : 0003-066X",          // 冒號前空格
+                      "-  value: 0003-066X",           // 兩個空格
+                      "- {value: 0003-066X, qualifier: print}",   // flow mapping
+                      "- \"value\": 0003-066X",        // 引號鍵
+                      "- value: 0003-066X"] {          // 標準形
+            let src = "issn:\n\(shape)"
+            XCTAssertEqual(upgraded(src), src,
+                           "合法的 format-13 元素不得被改寫：\(shape)")
+        }
+    }
+
+    /// 解析不出識別碼的裸純量**也不碰**——不確定就不動，交給 quarantine 具名。
+    func testUnparseableBareScalarIsLeftAlone() {
+        let src = "issn:\n- 12345"
+        XCTAssertEqual(upgraded(src), src,
+                       "12345 不是合法 ISSN——包成 `- value: 12345` 只是把 decode 失敗"
+                       + "換個位置，而且假裝我們認得它")
+    }
+
+    /// 序列中的空行與註解不得讓後續元素漏掉（R4 ⑤）。
+    func testBlankLinesAndCommentsDoNotEndTheSequence() {
+        let src = "issn:\n- value: 0003-066X\n\n# 這是註解\n- 1935-990X\nnote: x"
+        let out = upgraded(src)
+        XCTAssertTrue(out.contains("- value: 1935-990X"),
+                      "空行與註解之後的裸純量必須也被升級：\n\(out)")
+        XCTAssertTrue(out.contains("note: x"), "序列外的鍵不得被動到")
+    }
+
+    /// 序列在**下一個頂層鍵**處結束——那才是真正的邊界。
+    func testSequenceEndsAtTheNextTopLevelKey() {
+        let src = "issn:\n- 0003-066X\nnote: 0003-066X"
+        let out = upgraded(src)
+        XCTAssertTrue(out.contains("- value: 0003-066X"))
+        XCTAssertTrue(out.contains("note: 0003-066X"), "同樣的字串在序列外不得被改寫")
+    }
+}
+
+/// 形狀升級的寫入必須在 quarantine 守衛**之後**（#394 verify R4）。
+extension IdentifierMigrationRunTests {
+    /// 先前順序是「升級寫檔 → load → 守衛」，於是守衛擋下時**檔案已經被改過**，
+    /// 而 `report`（含 `shapeUpgraded`）隨例外被丟棄——使用者沒有任何線索知道有寫入發生。
+    ///
+    /// 正確順序是「升級**模擬** → load（餵記憶體版本）→ 守衛 → 才寫」。
+    /// 乾跑本來就走模擬，apply 也走同一條，於是兩者的差別只剩最後那一步。
+    func testShapeUpgradeIsNotWrittenWhenTheGuardBlocks() throws {
+        // 一個會升級的 venue
+        var v = Venue(key: "j", type: .periodical)
+        v.issn = [try XCTUnwrap(ISSN("0003-066X"))]
+        _ = try store.writeVenue(v)
+        let url = store.entityURL(id: v.id)
+        let legacy = try String(contentsOf: url, encoding: .utf8)
+            .replacingOccurrences(of: "- value: 0003-066X", with: "- 0003-066X")
+        try legacy.write(to: url, atomically: true, encoding: .utf8)
+        // 一個**不相干**的壞檔，讓守衛擋下
+        try "venue:\nid: not-a-uuid\nkey: broken\ntype: periodical\n"
+            .write(to: store.root.appendingPathComponent("entities/broken.yaml"),
+                   atomically: true, encoding: .utf8)
+        commitAll()
+
+        XCTAssertThrowsError(try IdentifierMigration.run(store: store, apply: true),
+                             "不相干的 quarantine 必須擋下整個 apply")
+
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), legacy,
+                       "守衛擋下時**一個位元組都不該寫**——先前它已經改過檔了，"
+                       + "而 report 隨例外被丟棄，使用者不會知道")
     }
 }

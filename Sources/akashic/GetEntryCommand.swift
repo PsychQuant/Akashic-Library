@@ -51,6 +51,13 @@ struct GetEntryCmd: ParsableCommand {
                 print("\(key)\t\(vs.joined(separator: ", "))")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
             }
         }
+        // 匯入來歷（`Entry.provenance`）——#394 verify R5 ②④ 的反射守衛抓到的缺口:
+        // MCP 的 `entryDict` 一直輸出它，CLI 的人可讀面沒有。違反上面那條同檔原則
+        // （「JSON 面有的，人可讀面也要看得到」），而寫死欄位名的舊守衛看不到它。
+        if let prov = d["provenance"] as? [String: Any], !prov.isEmpty {
+            let pairs = prov.keys.sorted().map { "\($0)=\(prov[$0] ?? "")" }
+            print("provenance\t\(pairs.joined(separator: " "))")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
+        }
         // 欄位層級的 provenance（第 15 條邊）——只列它支撐哪個欄位與哪個值。
         if let refs = d["references"] as? [[String: Any]] {
             for r in refs {

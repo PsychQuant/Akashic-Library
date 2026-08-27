@@ -53,6 +53,12 @@ final class PrePushHookTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(temporary.path):/usr/bin:/bin"
         environment["AKASHIC_PRE_PUSH_PROBE_LOG"] = log.path
+        // **只跑前兩階段**（#432）。本測試斷言的是「`GIT_*` 有沒有被清乾淨」與
+        // 「swift 有沒有帶 `-Xswiftc -warnings-as-errors`」——**兩者都在前兩階段**。
+        //
+        // 先前它會連守衛一起跑（實測 **43 分鐘**），而外層 hook 兩分鐘後跑同一批、
+        // 讀同一個工作樹、得同一個結果。內層那次的覆蓋是外層的真子集,純浪費。
+        environment["AKASHIC_PRE_PUSH_STAGES"] = "build,test"
         environment["GIT_DIR"] = gitDirectory.path
         environment["GIT_WORK_TREE"] = root.path
         environment["GIT_INDEX_FILE"] = gitDirectory.appendingPathComponent("index").path
@@ -62,9 +68,32 @@ final class PrePushHookTests: XCTestCase {
             .appendingPathComponent("objects").path
         process.environment = environment
 
+        // **必須在 `waitUntilExit()` 之前把 pipe 讀乾**（#394 verify R9 的診斷）。
+        //
+        // `standardOutput = Pipe()` 而沒有人讀，等於給 hook 一個 **8192 bytes**
+        // （實測 `sysctl net.local.stream.recvspace`）的水桶：寫滿之後它**阻塞在
+        // write 上**，而我們在 `waitUntilExit()` 等它 —— 雙方互等，永不結束。
+        //
+        // hook 的輸出實測 **29714 bytes**（3.6 倍於 buffer），所以這不是邊界情況，
+        // 是必然。它**以前會過**是因為輸出隨守衛數量成長（現在 21 支），
+        // 在某個時點越過 8 KB —— 從此每次 push 都掛。
+        //
+        // 症狀極具誤導性：三次失敗的耗時各不相同（2857／911／1173 秒），
+        // 而 hook 的輸出**完全不出現在任何 log 裡**（它在那個沒人讀的 pipe 裡）。
+        // 我為此先後假設過「編輯期間的競爭」「某支守衛是紅的」「並發碰撞」，
+        // **三個都被自己的量測推翻**，直到去讀這幾行。
+        let outHandle = (process.standardOutput as! Pipe).fileHandleForReading
+        let errHandle = (process.standardError as! Pipe).fileHandleForReading
         try process.run()
+        // 先讀到 EOF 再 wait —— 順序反了就是同一個死鎖。
+        let outData = outHandle.readDataToEndOfFile()
+        let errData = errHandle.readDataToEndOfFile()
         process.waitUntilExit()
-        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(process.terminationStatus, 0,
+                       "hook 失敗。輸出：\n"
+                       + String(data: outData, encoding: .utf8)!.suffix(2000)
+                       + "\n--- stderr ---\n"
+                       + String(data: errData, encoding: .utf8)!.suffix(1000))
         XCTAssertEqual(
             try String(contentsOf: log, encoding: .utf8)
                 .split(separator: "\n")

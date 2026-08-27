@@ -1834,6 +1834,13 @@ public final class AkashicService {
                 if !a.addedISBNs.isEmpty {
                     one["addedISBNs"] = a.addedISBNs.map { displaySafe($0.normalized, max: 200) }
                 }
+                if !a.partiallyParsedIdentifiers.isEmpty {
+                    // 部分成功不是拒絕（#394 verify R9）——消費端是 LLM，它只看得到
+                    // 鍵名的語意,借用 `refusedIdentifiers` 會讓它判定「這個被拒絕了」
+                    // 而去補一個已經寫進去的值。
+                    one["partiallyParsedIdentifiers"] =
+                        a.partiallyParsedIdentifiers.map { displaySafe($0, max: 300) }
+                }
                 if !a.refusedIdentifiers.isEmpty {
                     one["refusedIdentifiers"] = a.refusedIdentifiers.map { displaySafe($0, max: 300) }
                 }
@@ -1846,7 +1853,9 @@ public final class AkashicService {
             // 第六類：給了識別碼但刻意不收，且沒有別的可補。與 unchanged 不可混為一談。
             "refusedOnly": plan.refusedOnly.sorted { $0.citekey < $1.citekey }.map { a -> [String: Any] in
                 ["citekey": displaySafe(a.citekey, max: 200),
-                 "refusedIdentifiers": a.refusedIdentifiers.map { displaySafe($0, max: 300) }]
+                 "refusedIdentifiers": a.refusedIdentifiers.map { displaySafe($0, max: 300) },
+                 "partiallyParsedIdentifiers":
+                    a.partiallyParsedIdentifiers.map { displaySafe($0, max: 300) }]
             },
         ]
         if !dryRun { d["written"] = written.sorted().map { displaySafe($0, max: 200) } }

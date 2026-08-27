@@ -87,6 +87,9 @@ struct EnrichFromZotero: ParsableCommand {
             for d in a.addedPMIDs { print("    + pmid（結構化）= \(displaySafe(d.normalized, max: 160))") }
             for d in a.addedISBNs { print("    + isbn（結構化）= \(displaySafe(d.normalized, max: 160))") }
             for r in a.refusedIdentifiers { print("    ✗ 不採用：\(displaySafe(r, max: 300))") }
+            // **部分成功另有通道**（#394 verify R9）：它不是「不採用」——解出的那些
+            // 已經採用了，所以不能沿用 ✗ 那個記號。
+            for r in a.partiallyParsedIdentifiers { print("    ◐ 部分解析：\(displaySafe(r, max: 300))") }
         }
 
         // 第六類：Zotero 給了識別碼、我們刻意不收，而**沒有別的東西可補**。
@@ -98,6 +101,7 @@ struct EnrichFromZotero: ParsableCommand {
                 .prefix(AmbiguityDisplayLimit.rows) {
                 print("  \(displaySafe(a.citekey, max: 200))")
                 for r in a.refusedIdentifiers { print("    ✗ \(displaySafe(r, max: 300))") }
+                for r in a.partiallyParsedIdentifiers { print("    ◐ \(displaySafe(r, max: 300))") }
             }
             if plan.refusedOnly.count > AmbiguityDisplayLimit.rows {
                 print("  …另 \(plan.refusedOnly.count - AmbiguityDisplayLimit.rows) 筆未顯示")

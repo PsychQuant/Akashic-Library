@@ -29,6 +29,13 @@ final class ZoteroEnrichmentTests: XCTestCase {
         return e
     }
 
+    /// 造一筆「entry 無 ISBN、Zotero 有一個部分可解的 ISBN 字串」的計畫（#394 verify R9）。
+    func planWithZoteroISBN(_ raw: String) throws -> ZoteroEnrichment.Result {
+        let e = entry("a")
+        let i = item(key: "ZK1", fields: ["title": "T", "ISBN": raw])
+        return ZoteroEnrichment.plan(entries: [e], items: [i], citekeys: ["a"])
+    }
+
     // MARK: - 核心語意
 
     func testOnlyAbsentKeysAreAdded() {
@@ -374,5 +381,227 @@ extension ZoteroPullIdentifierPlacementTests {
 
         let bib = BibExport.bibEntry(for: e, people: [:], venues: ["j": v])
         XCTAssertEqual(bib.fields["issn"], "1554-351X", "唯一來源不得被丟掉")
+    }
+}
+
+/// pull 對識別碼必須**跟隨上游**，而移除要可見（#394 verify R4 ④）。
+extension ZoteroPullIdentifierPlacementTests {
+    /// Zotero 這次沒給 → 結構化識別碼要清掉。
+    ///
+    /// 修改**之前** DOI 住 `fields`，整份替換讓它消失，`fieldsRemovedByPull` 記得到；
+    /// 把它提升進結構化欄位之後**沒有補 else 分支**，於是它變成「有就跟隨、沒有就保留」
+    /// ——既不是 follow 也不是 preserve，而且沒有一行程式碼說這是刻意的。
+    ///
+    /// 後果是**過期值會安靜留著**：使用者在 Zotero 清掉一個掛錯篇的 DOI，重跑 pull
+    /// 之後 store 仍然帶著它，而 `export-bib` 繼續印、`import-wos` 繼續拿它當身分證。
+    func testClearingTheDOIUpstreamClearsItLocally() {
+        var e = Entry(id: UUID(), citekey: "a", type: .periodicalArticle, title: "T")
+        e.doi = [DOI("10.1037/aaa")!]
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T"]), to: &e)
+
+        XCTAssertTrue(e.doi.isEmpty,
+                      "pull 是跟隨上游——Zotero 清掉的值不得在本地安靜留著。"
+                      + "這正是提升進結構化欄位**之前**的行為（住 fields 時整份替換會清掉它）")
+    }
+
+    /// 上游有值時照常覆寫（跟隨語意的另一半）。
+    func testUpstreamValueStillOverwrites() {
+        var e = Entry(id: UUID(), citekey: "a", type: .periodicalArticle, title: "T")
+        e.doi = [DOI("10.1037/old")!]
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T", "DOI": "10.1037/new"]), to: &e)
+        XCTAssertEqual(e.doi.map(\.normalized), ["10.1037/new"])
+    }
+}
+
+/// 上游「給了但讀不懂」不得與「沒給」折成同一件事（#394 verify R5 ①）。
+extension ZoteroPullIdentifierPlacementTests {
+    /// **Zotero 把多個 ISBN 塞在同一個字串裡**，而 `ISBN.init` 對它必然回 nil
+    /// （`idCompact` 後長度既非 10 也非 13）。R4 的翻轉把那個 nil 當成「上游清空了」，
+    /// 於是 `migrate-identifiers` 剛拆出來的兩個結構化號被扔掉。
+    ///
+    /// 實測受害者 2 筆（`dweck2000social` 精裝／平裝、`kelley2023sample`），皆來自 Zotero。
+    ///
+    /// 正確的狀態有**三個**不是兩個：上游沒給 → 清空；給了且讀得懂 → 取代；
+    /// **給了但讀不懂 → 保留既有值**（那是我們的解析能力不足，不是上游的意思）。
+    func testAnUnparseableUpstreamStringDoesNotWipeStructuredISBNs() {
+        var e = Entry(id: UUID(), citekey: "k", type: .book, title: "T")
+        e.isbn = [ISBN("9781433837135")!, ISBN("9781433841323")!]
+        // Zotero 的真實形狀：多個號空白分隔在同一個欄位
+        ZoteroMapping.applyBiblatexFields(
+            from: item(["title": "T", "ISBN": "978-1-4338-3713-5 978-1-4338-4132-3"]), to: &e)
+
+        XCTAssertEqual(e.isbn.count, 2,
+                       "上游那個字串**含有**這兩個號——讀不懂它是我們的解析限制，"
+                       + "不是上游說「這本書沒有 ISBN」。把兩者折成同一個分支會安靜刪資料")
+    }
+
+    /// 上游真的沒給時仍然清空（跟隨語意的那一半不得被本修復弄壞）。
+    func testAbsentUpstreamStillClearsISBN() {
+        var e = Entry(id: UUID(), citekey: "k", type: .book, title: "T")
+        e.isbn = [ISBN("9781433837135")!]
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T"]), to: &e)
+        XCTAssertTrue(e.isbn.isEmpty, "沒給就是清空——R4 修的那件事仍然成立")
+    }
+}
+
+/// 第三態不得把上游那個讀不懂的字串刪掉（#394 verify R6 ③）。
+extension ZoteroPullIdentifierPlacementTests {
+    /// R5 的註解逐字寫著「原字串仍留在 `fields`,資訊零損失」——**那句話只在
+    /// `existing` 為空時為真**。移除迴圈問的是「結構化欄位現在空不空」，而第三態
+    /// 剛把 `existing` 填回去了,於是上游那個讀不懂的字串被一併刪除。
+    ///
+    /// 三件事同時成立:資訊損失（且是相對 main 的**回歸**——遷移前它住 `fields`,
+    /// 整份替換之後仍在）、零回報、留下的是**過期識別碼**（而識別碼終結指涉）。
+    func testAnUnparseableUpstreamStringSurvivesInFields() {
+        var e = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
+        e.doi = [DOI("10.1037/old")!]
+        ZoteroMapping.applyBiblatexFields(
+            from: item(["title": "T", "DOI": "10.1037/new (in press)"]), to: &e)
+
+        XCTAssertEqual(e.doi.map(\.normalized), ["10.1037/old"], "既有值保留（R5 已修的那半）")
+        XCTAssertEqual(e.fields["doi"], "10.1037/new (in press)",
+                       "**上游那個字串必須留在 fields**——我們讀不懂它不等於它不存在。"
+                       + "刪掉它是 lossless-intake 禁止的靜默丟棄,而且留下的是過期識別碼")
+    }
+}
+
+/// 部分成功不得移除殘留（#394 verify R7 ①）。
+extension ZoteroPullIdentifierPlacementTests {
+    /// **借了 tokenizer，沒借它的紀律。** `IdentifierMigration` 對同一個形狀有明文裁決：
+    ///
+    /// > 只要有任何一個 bad，就**不移除殘留**——殘留是那些解不了的值唯一的棲身處。
+    ///
+    /// 而 `followUpstream` 用 `.values` 把 `unparseable` 整個丟掉，於是「一個 token
+    /// 解得出、另一個解不出」時 `parsed` 為 true，呼叫端把**整個原字串**移出 `fields`
+    /// ——解不出的那個號從 store 徹底消失，且零回報。
+    ///
+    /// 兩者的差別還在於**頻率**：`migrate-identifiers` 只跑一次，`import-zotero` 是
+    /// 預設的匯入面，新建與更新兩條路徑都走這裡。
+    func testPartialParseKeepsTheResidueString() {
+        var e = Entry(id: UUID(), citekey: "k", type: .book, title: "T")
+        // 精裝可解、平裝漏一碼不可解
+        let raw = "978-1-4338-3216-1 (hardcover) 1-4338-3216 (paperback)"
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T", "ISBN": raw]), to: &e)
+
+        XCTAssertFalse(e.isbn.isEmpty, "解得出的那個號要進結構化欄位")
+        XCTAssertEqual(e.fields["isbn"], raw,
+                       "**有任何一個 token 解不出就不移除殘留**——那是它唯一的棲身處。"
+                       + "IdentifierMigration 對同一個形狀已有明文裁決，這裡不得相反")
+    }
+
+    /// 全部解得出時照常移除（紀律的另一半，不得被本修復弄壞）。
+    func testFullyParsedRemovesTheResidue() {
+        var e = Entry(id: UUID(), citekey: "k", type: .book, title: "T")
+        ZoteroMapping.applyBiblatexFields(
+            from: item(["title": "T", "ISBN": "9781433837135 9781433841323"]), to: &e)
+        XCTAssertEqual(e.isbn.count, 2)
+        XCTAssertNil(e.fields["isbn"], "全部解得出 → 殘留沒有存在理由")
+    }
+}
+
+/// 上游結構上不供給的欄位，不得被「跟隨上游」清空（#394 verify R8）。
+extension ZoteroPullIdentifierPlacementTests {
+    /// **`fieldMap` 沒有任何一列產生 `pmid`** —— Zotero 的 item schema 沒有 PMID 欄位
+    /// （它住 `Extra`，經 `FieldKey.normalized` 收成 `extra`）。於是
+    /// `followUpstream(fields["pmid"], …)` 的第一個引數**結構上恆為 nil**，
+    /// 走第一個 guard 回 `([], false)`，`entry.pmid` 被設成 `[]`。
+    ///
+    /// 「跟隨上游」對一個上游永遠不給的欄位，退化成**無條件銷毀**——而且不可逆：
+    /// PMID 不在 Zotero 裡，永遠不會從 Zotero 回來。
+    ///
+    /// 實測 0 筆重疊（536 筆 Zotero 來源、65 筆有 pmid），所以這是**地雷不是現行損害**
+    /// ——但它不需要任何人犯錯就會引爆，只需要有人在一筆 Zotero 來源的記錄上補一個 PMID
+    /// （`import-wos` 會寫、`akashic-person-verify` 查 Europe PMC 後也會）。
+    func testPullDoesNotWipeAFieldZoteroCannotSupply() {
+        var e = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
+        e.pmid = [PMID("12345678")!]
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T"]), to: &e)
+
+        XCTAssertEqual(e.pmid.map(\.normalized), ["12345678"],
+                       "Zotero 沒有 PMID 欄位——它的沉默不是「上游說沒有」，"
+                       + "是「上游根本不談這件事」。把兩者折成同一個分支會不可逆地刪資料")
+    }
+
+    /// 上游**能**供給的欄位，沉默仍然是清空（跟隨語意不得被本修復弄壞）。
+    func testPullStillClearsAFieldZoteroCanSupply() {
+        var e = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
+        e.doi = [DOI("10.1037/old")!]
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T"]), to: &e)
+        XCTAssertTrue(e.doi.isEmpty, "DOI 在 fieldMap 裡——上游沉默＝上游說沒有")
+    }
+}
+
+/// enrich 的部分成功：訊息說保留就要真的保留（#394 verify R9）。
+extension ZoteroEnrichmentTests {
+    /// R8 的訊息逐字寫「其餘 token 的形狀不認得；**原字串保留在 fields 供人裁**」
+    /// ——那句話描述的是 **pull** 的行為。這段程式碼住在 **enrich**（add-only）路徑，
+    /// 那裡 `case "doi","pmid","isbn"` **只 append 訊息、從不寫 `added[k]`**，
+    /// 所以那個解析不出的 token 在 enrich 之後**不存在於 store 的任何地方**。
+    ///
+    /// **比沉默更糟**：丟棄被誤述成保留，使用者讀完會判斷「資料還在、之後再處理」。
+    ///
+    /// 修法讓那句話變真——部分成功時把原字串真的加進 `fields`（那正是殘留欄位的用途，
+    /// 與 pull 一致），而不是改成一句「已丟棄」的誠實訃告。
+    func testPartialParseActuallyPreservesTheRawString() throws {
+        let raw = "9781433832161 1-4338-3216"          // 第二個 token 只有 9 碼
+        let plan = try planWithZoteroISBN(raw)
+        guard let a = plan.additions.first else { return XCTFail("應該有一筆 addition") }
+
+        XCTAssertEqual(a.addedISBNs.map { $0.normalized }, ["9781433832161"], "解得出的進結構化欄位")
+        XCTAssertEqual(a.addedFields["isbn"], raw,
+                       "**原字串必須真的被加進去**——訊息說它保留在 fields，"
+                       + "而 enrich 是 add-only,不主動加就等於它消失了")
+    }
+
+    /// 部分成功**不是**「刻意不採用」——它不該走 refused 通道。
+    func testPartialParseIsNotReportedAsRefused() throws {
+        let plan = try planWithZoteroISBN("9781433832161 1-4338-3216")
+        guard let a = plan.additions.first else { return XCTFail("應該有一筆 addition") }
+
+        XCTAssertTrue(a.refusedIdentifiers.isEmpty,
+                      "`refusedIdentifiers` 的契約是「Zotero 給了識別碼但**刻意不採用**」。"
+                      + "部分成功既不是刻意（解析不出是我們的限制）也不是不採用"
+                      + "（解出的那些已經採用了）")
+        XCTAssertEqual(a.partiallyParsedIdentifiers.count, 1, "它有自己的通道")
+    }
+
+    /// 全部解不出時仍走 refused（那一格的語意沒變）。
+    func testFullyUnparseableStillRefused() throws {
+        let plan = try planWithZoteroISBN("not-an-isbn-at-all")
+        // 全部解不出且無其他可補值 → 落 `refusedOnly`（那個分類本來就是為它存在的）。
+        guard let a = plan.refusedOnly.first else { return XCTFail("應該落 refusedOnly") }
+        XCTAssertEqual(a.refusedIdentifiers.count, 1)
+        XCTAssertTrue(a.partiallyParsedIdentifiers.isEmpty)
+    }
+}
+
+/// 上游若**真的給了** PMID，就該跟隨（#394 verify R9 MEDIUM）。
+extension ZoteroPullIdentifierPlacementTests {
+    /// R8 的條件寫成「`pmid` 不在 `fieldMap` 裡 ⇒ 不跟隨」，而決定 `fields["pmid"]`
+    /// 存不存在的是 **`fieldMap[z] ?? FieldKey.normalized(z)` 兩條路徑**。
+    /// `FieldKey.normalized("PMID")` → `"pmid"`，而 `ZoteroReader` 的 SQL 是泛型的
+    /// ——Zotero 日後加一個 `PMID` 欄位就會讓它出現，**我方零程式碼改動**。
+    ///
+    /// 那時舊條件仍然「為真」（fieldMap 確實沒有那一列），於是殘留永不被移除、
+    /// 結構化的舊值遮蔽上游的新值，兩面都不會印出也不會有 diagnostic。
+    ///
+    /// 正確的問法不是「這個欄位在不在對映表裡」，是「**上游這次到底有沒有給值**」。
+    func testAnUpstreamPMIDIsFollowedWhenActuallySupplied() {
+        var e = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
+        e.pmid = [PMID("11111111")!]
+        // 走殘餘路徑：`PMID` 不在 fieldMap，經 FieldKey.normalized 收成 `pmid`
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T", "PMID": "22222222"]), to: &e)
+
+        XCTAssertEqual(e.pmid.map(\.normalized), ["22222222"],
+                       "上游**給了**值就該跟隨——沉默才是「不談這件事」")
+        XCTAssertNil(e.fields["pmid"], "解得出就不留殘留（與 doi／isbn 一致）")
+    }
+
+    /// 沉默仍然不清空（R8 修的那件事不得被本修復弄壞）。
+    func testSilenceStillDoesNotWipePMID() {
+        var e = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
+        e.pmid = [PMID("11111111")!]
+        ZoteroMapping.applyBiblatexFields(from: item(["title": "T"]), to: &e)
+        XCTAssertEqual(e.pmid.map(\.normalized), ["11111111"], "Zotero 沒談 PMID ⇒ 不動")
     }
 }

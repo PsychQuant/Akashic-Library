@@ -35,12 +35,49 @@ on:
       - "plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt"
       - "plugin/skills/akashic-literal-campaign/scripts/tests/**"
       - "Sources/AkashicStoreIO/StoreVersion.swift"
+      # plugin-store-format-parity.py 的第三份宣告來源。它是**出貨物**
+      # （release-signed.sh 會 zip 進 .mcpb），改它而守衛不跑＝出貨一個過期數字。
+      # 承接自已刪除的 plugin-guards.yml（#408 新增、#435 合併）。
+      - "mcpb/manifest.json"
       # 這支 harness 在本 workflow 跑（本 runner 有 Swift），所以**改它自己也要觸發
       # 本 workflow**——否則把它的 6 個 swift-gated case 弄壞不會驚動任何東西
       # （#407 R44 的修法原本只對一半：改 `scripts/tests/**` 下的守衛會觸發，
       # 改 harness 本身不會）。刻意只列這一個檔而非 `plugin/tests/**`：本 runner
       # 是 macOS、10× 計費，不該對每次 plugin/tests 改動都啟動。
       - "plugin/tests/audit-guards-mutations.py"
+      # **Swift 守衛自己**（#433）。它們需要 `swift build`，所以只有這台 macOS runner
+      # 跑得動——ubuntu 那份缺 toolchain。理由與上一條同型：改守衛本身正是最需要驗證的
+      # 時候，而先前 `Sources/akashic-guards/**` 不在任何 workflow 的 paths 裡，
+      # `trigger-coverage` 實測報 **26 個缺口**（9 支 Swift 守衛 × 讀它們的守衛）。
+      # 這個目錄只裝守衛，不像 `plugin/tests/**` 會被高頻改動——10× 計費可負擔。
+      - "Sources/akashic-guards/**"
+      # ── 以下承接自 `plugin-guards.yml`（#435，該 workflow 已刪除）─────────────
+      #
+      # 它跑在 ubuntu（1× 計費），設計理由是「純 python／bash 的守衛不必點 10× 的
+      # macOS runner」。**守衛遷成 Swift 之後那個理由不再成立**：`run-guards.sh` 需要
+      # `swift build`，而 ubuntu runner 沒有 toolchain——那個 workflow 必然失敗。
+      #
+      # 兩者現在跑的是**同一個命令**（`bash .githooks/run-guards.sh`），差別只在 paths。
+      # 合併是誠實的收斂：留著一個必然失敗的 workflow，比沒有它更糟——它會訓練人忽略
+      # 紅燈，而下一個真缺陷就混在被忽略的那批裡。
+      #
+      # **代價寫出來**：所有 plugin 改動現在都點 10× 的 macOS runner。2026-08 兩度把免費
+      # 額度燒光正是這個形狀，所以這不是零成本的決定——但它是**必然的**，除非在 ubuntu
+      # 裝 Swift（#435 的候選一與二，兩者都無法在 CI 恢復前驗證）。
+      - "plugin/**"
+      - "Sources/AkashicCore/Venue.swift"
+      # trigger-coverage 讀這兩處——**改觸發點本身就該重跑它**（#407 R19）。
+      - ".github/workflows/**"
+      - ".githooks/**"
+      # decision-matrix-drift 的輸入是 CLAUDE.md 的決策矩陣（#407 R27）。
+      - "CLAUDE.md"
+      # measured-numbers-audit 讀 .claude/rules 與 plugin/rules 兩處（#407 R36）。
+      - ".claude/rules/**"
+      # parity-table-drift 拿這兩支當真值來源（#407 R50）。
+      - "Sources/akashic-mcp/Server.swift"
+      - "Sources/akashic/*.swift"
+      # backlink-field-ratchet 讀這六個型別檔（#407 R51）。
+      - "Sources/AkashicCore/*.swift"
   pull_request:
     paths: *parity_paths
 
@@ -98,3 +135,15 @@ jobs:
       # ——綠燈掩蓋「沒跑到」（#407 R44，跨模型審查指名為 HIGH）。
       - name: 守衛的 negative control（本 runner 有 Swift，18 個全跑）
         run: python3 plugin/tests/audit-guards-mutations.py
+      # **全部守衛**（#433）。9 支守衛已遷成 `akashic-guards` 子命令，而它們需要
+      # `swift build`——本 runner 有（上面第一步就是），ubuntu 那台沒有。
+      #
+      # 不加這一步的話，`Sources/akashic-guards/**` 改動時**沒有任何 workflow 會執行讀
+      # 它們的守衛**：`trigger-coverage` 實測 26 個缺口（9 支 Swift 守衛 × 讀它們的守衛）。
+      # 光把那個路徑加進 `paths:` 不夠——判準是逐對的：workflow 要同時 (a) 該檔改動時
+      # 觸發、(b) 執行那支守衛。加 paths 只做到 (a)。
+      #
+      # 與上一步的 `audit-guards-mutations.py` 重疊（`run-guards.sh` 裡也有它）——
+      # 重疊無害，而拆開會讓「與 pre-push 同一份清單」這個性質消失。
+      - name: 全部守衛（與 pre-push 同一份清單；本 runner 有 Swift）
+        run: bash .githooks/run-guards.sh

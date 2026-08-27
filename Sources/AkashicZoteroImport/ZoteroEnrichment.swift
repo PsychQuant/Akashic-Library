@@ -59,11 +59,19 @@ public enum ZoteroEnrichment {
         /// Zotero 給了識別碼但**刻意不採用**的理由（citekey 級，逐條具名）。
         /// `lossless-intake` 執行細節 3：丟棄必須可見。
         public let refusedIdentifiers: [String]
+        /// **部分成功**：一部分 token 解得出並已採用，其餘形狀不認得（#394 verify R9）。
+        ///
+        /// 刻意**不**併進 `refusedIdentifiers`——那個欄位的契約逐字是「Zotero 給了識別碼
+        /// 但**刻意不採用**」，而部分成功既不是刻意（解析不出是我們的限制,不是裁決）
+        /// 也不是不採用（解出的那些已經採用了）。兩面的標籤都照契約渲染,借用會讓
+        /// CLI 印「✗ 不採用」在剛印完「+ isbn = …」的下一行,MCP 送出的鍵名也會說謊。
+        public let partiallyParsedIdentifiers: [String]
 
         public init(citekey: String, addedFields: [String: String], addedDate: String?,
                     addedAuthors: [Author] = [],
                     addedDOIs: [DOI] = [], addedPMIDs: [PMID] = [], addedISBNs: [ISBN] = [],
-                    refusedIdentifiers: [String] = []) {
+                    refusedIdentifiers: [String] = [],
+                    partiallyParsedIdentifiers: [String] = []) {
             self.citekey = citekey
             self.addedFields = addedFields
             self.addedDate = addedDate
@@ -72,6 +80,7 @@ public enum ZoteroEnrichment {
             self.addedPMIDs = addedPMIDs
             self.addedISBNs = addedISBNs
             self.refusedIdentifiers = refusedIdentifiers
+            self.partiallyParsedIdentifiers = partiallyParsedIdentifiers
         }
     }
 
@@ -147,6 +156,7 @@ public enum ZoteroEnrichment {
             var added: [String: String] = [:]
             var addedDOIs: [DOI] = [], addedPMIDs: [PMID] = [], addedISBNs: [ISBN] = []
             var refused: [String] = []
+            var partial: [String] = []
             for (k, v) in probe.fields where !v.isEmpty {
                 // 識別碼**不進 `fields` 殘留**（#394 verify）。它們自 §8 起有結構化的家；
                 // 走 add-only 的舊路徑會在遷移之後把殘留一筆一筆種回去。
@@ -159,14 +169,53 @@ public enum ZoteroEnrichment {
                     refused.append("issn「\(v)」——ISSN 識別的是期刊不是文章，"
                                    + "work 不收；要補請補到它的 venue")
                 case "doi", "pmid", "isbn":
-                    // 解析得出來的已由 `applyBiblatexFields` 放進 probe 的**結構化欄位**
-                    //（#425 verify），所以還留在 `fields` 的必然是解析不出來的殘留。
-                    refused.append("\(k)「\(v)」——解析不出 \(k.uppercased()) 的形狀，不猜")
+                    // **「必然」在 R7 之後為假**（#394 verify R8）。
+                    //
+                    // 這段原本建立在一條兩態不變式上：解析得出來 → 進結構化欄位且移除殘留；
+                    // 解析不出 → 殘留留在 `fields`。R7 為了不丟資料新增**第三態**
+                    //（部分成功：值進結構化欄位**且**殘留保留），那句「必然」自此不成立。
+                    //
+                    // 沒跟著改的話，同一筆會同時印「+ isbn = 978…」與
+                    // 「✗ 不採用：isbn「978… 1-4338-3216」——解析不出 ISBN 的形狀」
+                    // ——**第二行對第一行剛採用的那個號說它解析不出**。使用者據此手動補一個，
+                    // 就會與已經寫進去的值衝突。
+                    //
+                    // 判準改問 probe 的結構化欄位空不空（＝這一輪有沒有解析出任何東西）。
+                    let parsedCount = probe.identifierList(k)?.count ?? 0
+                    if parsedCount == 0 {
+                        refused.append("\(k)「\(v)」——解析不出 \(k.uppercased()) 的形狀，不猜")
+                    } else {
+                        // **部分成功：真的保留原字串**（#394 verify R9）。
+                        //
+                        // R8 的訊息逐字寫「原字串保留在 fields 供人裁」——那句話描述的是
+                        // **pull** 的行為（那裡 `if i.parsed` 為 false 時原字串確實留著）。
+                        // 這段程式碼住在 **enrich**（add-only）路徑，先前**只 append 訊息、
+                        // 從不寫 `added[k]`**,於是那個解析不出的 token 在 enrich 之後
+                        // **不存在於 store 的任何地方**,而訊息叫使用者去 `fields` 找它。
+                        //
+                        // **比沉默更糟**:丟棄被誤述成保留,使用者會判斷「資料還在、
+                        // 之後再處理」而永遠不回頭補（`lossless-intake` 執行細節 3）。
+                        //
+                        // 修法讓那句話變真而不是改成訃告:殘留欄位的用途**正是**裝那些
+                        // 解不出的值（與 pull 一致）。add-only 的保守側同樣適用——
+                        // 只在該鍵原本不存在時加。
+                        if entry.fields[k] == nil { added[k] = v }
+                        partial.append("\(k)「\(v)」——只解析出 \(parsedCount) 個，"
+                                       + "其餘 token 的形狀不認得；原字串已一併加進 fields 供人裁")
+                    }
                 default:
                     if entry.fields[k] == nil { added[k] = v }
                 }
             }
             // 結構化識別碼：probe 帶得出來、而 entry 仍為空時才補（保守側同 fields）。
+            //
+            // **`addedPMIDs` 的可達性有過一段插曲**（#394 verify R8→R9）：R8 把 `pmid`
+            // 整個移出 pull 的跟隨清單,於是 `probe.pmid` 從「因**資料**而恆空」變成
+            // 「因**契約**而恆空」——這一行成了結構性死碼,而上面那句「probe 帶得出來」
+            // 在呼叫點讀起來仍像它可達。R9 把判準換成「上游這次有沒有給值」之後
+            // 它**又活了**:Zotero 若日後供給 PMID,這條路會自動開始工作。
+            //
+            // 記在這裡而不只在 `ZoteroMapping`,是因為讀這三行的人看不到另一個模組。
             if entry.canonicalDOIs.isEmpty { addedDOIs = probe.doi }
             if entry.canonicalPMIDs.isEmpty { addedPMIDs = probe.pmid }
             if entry.canonicalISBNs.isEmpty { addedISBNs = probe.isbn }
@@ -188,18 +237,24 @@ public enum ZoteroEnrichment {
                 && addedDOIs.isEmpty && addedPMIDs.isEmpty && addedISBNs.isEmpty
             // **`refused` 不算「有東西可補」**，但也不能讓它消失：只有 refused 的 citekey
             // 落在 `unchanged`，而 refused 本身仍隨 Addition 回報。所以這裡兩者都要記。
-            if nothingToAdd && refused.isEmpty {
+            // **`partial` 也要算進來**（#394 verify R9 的修法自己帶出的缺口）：
+            // 若某筆只有部分成功而沒有任何可補值（entry 已有該欄位與結構化值），
+            // 舊條件會讓它落進 `unchanged`——而 `unchanged` 的語意是「Zotero 給不出
+            // 缺著的欄位」，那對這一筆為假,且部分成功的訊息被靜默丟棄。
+            if nothingToAdd && refused.isEmpty && partial.isEmpty {
                 result.unchanged.append(citekey)
             } else if nothingToAdd {
                 result.refusedOnly.append(
                     Addition(citekey: citekey, addedFields: [:], addedDate: nil,
-                             refusedIdentifiers: refused))
+                             refusedIdentifiers: refused,
+                             partiallyParsedIdentifiers: partial))
             } else {
                 result.additions.append(
                     Addition(citekey: citekey, addedFields: added, addedDate: addedDate,
                              addedAuthors: addedAuthors,
                              addedDOIs: addedDOIs, addedPMIDs: addedPMIDs,
-                             addedISBNs: addedISBNs, refusedIdentifiers: refused))
+                             addedISBNs: addedISBNs, refusedIdentifiers: refused,
+                             partiallyParsedIdentifiers: partial))
             }
         }
         return result

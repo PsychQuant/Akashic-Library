@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import AkashicCore
+import AkashicStoreIO
 
 /// Zotero → Akashic 的對映表。
 public enum ZoteroMapping {
@@ -168,6 +169,45 @@ public enum ZoteroMapping {
 
     /// 把 ZoteroItem 的 biblatex 面向填進 Entry（不動 id/citekey/akashic）。
     /// date 經 DateNormalizer；解析不了保留原字串（importer 另行 report）。
+    /// 上游值 → 結構化識別碼清單,三態語意見呼叫處（#394 verify R5 ①）。
+    ///
+    /// 多值欄位（`issn`／`isbn`）走 `IdentifierMigration` 既有的 tokenizer——它是
+    /// 為了同一個形狀（一個字串裡有多個號）寫的,這裡沒有理由再造一個。
+    /// 回傳 `parsed`＝**這一輪真的從上游字串解析出東西**。呼叫端用它決定要不要把
+    /// 原字串移出 `fields`——問「欄位空不空」會在第三態誤刪（#394 verify R6 ③）。
+    static func followUpstream<T: Identifier>(
+        _ raw: String?, existing: [T], field: String
+    ) -> (values: [T], parsed: Bool) {
+        guard let raw, !raw.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return ([], false)                           // 上游沒給 → 清空
+        }
+        // 吸不吸收多值**按欄位種類**,而那個裁決連同它的量測住在 `absorbsMultipleValues`
+        // 的 doc 裡（DOI 刻意不吸收——吸收附錄的 DOI 等於一句假的身分宣稱）。這裡引用它,
+        // 不複製:兩份會分岔。
+        let parsed: [T]
+        var anyUnparseable = false
+        if IdentifierMigration.absorbsMultipleValues(field: field) {
+            // **`.values` 會把 `unparseable` 整個丟掉**（#394 verify R7 ①）。
+            // `IdentifierMigration` 對同一個形狀有明文裁決,逐字是:
+            //
+            //   > 只要有任何一個 bad,就**不移除殘留**——殘留是那些解不了的值唯一的棲身處。
+            //
+            // R6 借了它的 tokenizer,**沒借這條紀律**。於是「一個 token 解得出、另一個
+            // 解不出」時原字串被整個移出 `fields`,解不出的號從 store 徹底消失且零回報。
+            let r = IdentifierMigration.normalizedUniqueQualified(
+                IdentifierMigration.qualifiedCandidates(raw, field: field), T.init)
+            parsed = r.values
+            anyUnparseable = !r.unparseable.isEmpty
+        } else {
+            parsed = T(raw).map { [$0] } ?? []
+        }
+        // 讀不懂 → 保留既有（**不是**清空），且回報 `parsed: false` 讓呼叫端把原字串
+        // 留在 `fields`。R5 的版本只做了前半,於是上游字串被靜默刪除。
+        if parsed.isEmpty { return (existing, false) }
+        // 部分成功:值進結構化欄位,但 `parsed: false` 讓呼叫端**保留殘留字串**。
+        return (parsed, !anyUnparseable)
+    }
+
     public static func applyBiblatexFields(from item: ZoteroItem, to entry: inout Entry) {
         entry.type = workType(for: item.typeName)
         entry.title = item.fields["title"] ?? ""
@@ -206,15 +246,85 @@ public enum ZoteroMapping {
         // **解析不出來的不猜**——原值留在 `fields`，交由既有的殘餘路徑（#206）處理。
         // `issn` **刻意不在此處理**：它不屬於 work（spec 明文的 misplacement），
         // 由 `ZoteroImporter` 在拿得到回報通道的地方移除並記進 `fieldsRemovedByPull`。
-        if let raw = fields["doi"], let v = DOI(raw) {
-            entry.doi = [v]; fields.removeValue(forKey: "doi")
+        // **跟隨上游，兩個方向都跟隨**（#394 verify R4 ④）。
+        //
+        // 第一版只有 `if let`——於是 Zotero 這次沒給時，`entry.doi` 原封不動。
+        // 那既不是 follow（`fields` 是整份替換）也不是 preserve（`venues` 與 `authors`
+        // 各有**顯式**的守衛與回報），而且**沒有一行程式碼說那是刻意的**。
+        //
+        // 後果是過期值安靜留著：使用者在 Zotero 清掉一個掛錯篇的 DOI，重跑 pull 之後
+        // store 仍然帶著它，而 `export-bib` 繼續印、`import-wos` 拿它當身分證
+        // （`existing(matching:)` 先查 `canonicalDOIs`）。
+        //
+        // 清掉是**恢復**提升進結構化欄位之前的行為：那時 DOI 住 `fields`，
+        // 整份替換本來就會讓它消失，而 `fieldsRemovedByPull` 記得到。
+        // 那個回報通道由 `ZoteroImporter` 一併恢復。
+        // **狀態有三個，不是兩個**（#394 verify R5 ①——R4 把後兩者折在一起）：
+        //
+        // | 上游 | 動作 |
+        // |---|---|
+        // | 沒給 | 清空（跟隨） |
+        // | 給了且讀得懂 | 取代（跟隨） |
+        // | **給了但讀不懂** | **保留既有值**——那是我們的解析限制,不是上游的意思 |
+        //
+        // 第三格是 R4 的資料遺失回歸：**Zotero 把多個 ISBN 塞在同一個字串裡**
+        // （`978-… 978-…`），而 `ISBN.init` 對它必然回 nil。R4 把那個 nil 讀成
+        // 「上游清空了」，於是 `migrate-identifiers` 剛拆出來的號被扔掉。
+        // 實測受害者 2 筆（`dweck2000social` 精裝／平裝、`kelley2023sample`）。
+        //
+        // 多值欄位走 migration 既有的 tokenizer，所以「兩個真的號」讀得出來、
+        // 跟隨語意對它們也成立——**而不是只把資料保住**。
+        // **問「這次有沒有解析成功」,不是「欄位空不空」**（#394 verify R6 ③）。
+        //
+        // R5 的版本問後者,而第三態（讀不懂 → 回傳 existing）剛把欄位填回去了——於是
+        // 上游那個**讀不懂的原字串被一併刪掉**,與它上方兩行的註解正好相反。
+        //
+        // 三件事同時成立:資訊損失（且是相對 main 的**回歸**——遷移前 DOI 住 `fields`,
+        // 整份替換之後上游字串仍在）、**零回報**（`identifiersBefore/After` 只看「有沒有
+        // 變空」,前後都非空 → 不記）、留下的是**過期識別碼**（而識別碼終結指涉,
+        // `existing(matching:)` 會拿它認人、`export-bib` 會印它）。
+        // **只對上游「談得到」的欄位跟隨**（#394 verify R8）。
+        //
+        // `fieldMap` 實測只產生 `doi` 與 `isbn`——**沒有任何一列產生 `pmid`**
+        // （Zotero 的 item schema 沒有 PMID 欄位,它住 `Extra`,經 `FieldKey.normalized`
+        // 收成 `extra`）。於是 `followUpstream(fields["pmid"], …)` 的第一個引數
+        // **結構上恆為 nil**,而「跟隨上游」對一個上游永遠不給的欄位退化成
+        // **無條件銷毀**——且不可逆:PMID 不在 Zotero 裡,永遠不會從 Zotero 回來。
+        //
+        // 上游的**沉默**有兩種意思,先前被折成同一種:
+        //
+        // | 情形 | 意思 | 動作 |
+        // |---|---|---|
+        // | 欄位在 `fieldMap` 裡而這次沒給 | 「上游說沒有」 | 清空（跟隨）|
+        // | 欄位**不在** `fieldMap` 裡 | 「上游根本不談這件事」 | **不動** |
+        //
+        // 實測 0 筆重疊（536 筆 Zotero 來源、65 筆有 pmid）,所以這是**地雷不是現行
+        // 損害**——但它不需要任何人犯錯就會引爆,只要有人在一筆 Zotero 來源的記錄上
+        // 補一個 PMID（`import-wos` 會寫、person-verify 查 Europe PMC 後也會）。
+        let d = followUpstream(fields["doi"], existing: entry.doi, field: "doi")
+        let i = followUpstream(fields["isbn"], existing: entry.isbn, field: "isbn")
+        entry.doi = d.values; entry.isbn = i.values
+        // **`pmid` 走「給了才跟隨」**（#394 verify R9）。
+        //
+        // R8 的條件寫成「`pmid` 不在 `fieldMap` 裡 ⇒ 不跟隨」,而決定 `fields["pmid"]`
+        // 存不存在的是 **`fieldMap[z] ?? FieldKey.normalized(z)` 兩條路徑**——
+        // `FieldKey.normalized("PMID")` → `"pmid"`,而 `ZoteroReader` 的 SQL 是泛型的。
+        // Zotero 日後加一個 `PMID` 欄位就會讓它出現,**我方零程式碼改動**,而舊條件
+        // 仍然「為真」（fieldMap 確實沒那一列）——於是殘留永不移除、結構化的舊值
+        // 遮蔽上游的新值,兩面都不印也無 diagnostic。
+        //
+        // 正確的問法不是「這個欄位在不在對映表裡」,是**上游這次到底有沒有給值**。
+        // 這也讓判準不再依賴一個**只稽核得到一半**的前提。
+        if let rawPMID = fields["pmid"] {
+            let p = followUpstream(rawPMID, existing: entry.pmid, field: "pmid")
+            entry.pmid = p.values
+            if p.parsed { fields.removeValue(forKey: "pmid") }
         }
-        if let raw = fields["pmid"], let v = PMID(raw) {
-            entry.pmid = [v]; fields.removeValue(forKey: "pmid")
-        }
-        if let raw = fields["isbn"], let v = ISBN(raw) {
-            entry.isbn = [v]; fields.removeValue(forKey: "isbn")
-        }
+        // `pmid` 刻意不在此列——見上表第二列。它由 `import-wos` 與查證面維護。
+        // 解析得出來的已進結構化欄位——**解析不出的原值留在 `fields`**（不猜，#206）。
+        if d.parsed { fields.removeValue(forKey: "doi") }
+
+        if i.parsed { fields.removeValue(forKey: "isbn") }
         entry.fields = fields
         // #304：載體二態 ref。**只在 venues 為空時推導**——已歸戶的 `.key` 或先前
         // 的 literal 一律不覆寫（Zotero pull 對 fields 跟隨上游，但 venues 的歸戶

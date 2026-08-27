@@ -157,7 +157,13 @@ public enum IdentifierMigration {
     ///
     /// 規則：一個 `(...)` 歸屬於**它前面最近的**值。前面沒有值的括號（罕見）被忽略，
     /// 但仍出現在 `candidatesWithAnnotations` 的回報裡——不猜它屬於誰。
-    static func qualifiedCandidates(_ raw: String, field: String)
+    /// **常設路徑也在用**（#394 verify R5 ①）：`import-zotero` 的跟隨語意需要同一個
+    /// 切法——Zotero 把多個號塞在一個字串裡,而那正是本函式為之而寫的形狀。
+    ///
+    /// ⚠️ **耦合**:本型別是一次性遷移工具,而 `no-compat-fallback` 要求遷移「退場即刪」。
+    /// 刪它之前必須先把這兩個函式搬到 `AkashicCore`（識別碼解析不是遷移的職責）。
+    /// 追蹤:#427 的 follow-up。
+    public static func qualifiedCandidates(_ raw: String, field: String)
         -> [(value: String, qualifier: String?)] {
         guard absorbsMultipleValues(field: field) else {
             return splitTokens(raw).map { ($0, nil) }
@@ -191,24 +197,56 @@ public enum IdentifierMigration {
         return out
     }
 
-    /// 這個序列元素是不是已經是 mapping（`<鍵>: …`）。
+    /// format 12 → 13 的行級轉換。**純函式，可單獨測**（#394 verify R4）。
     ///
-    /// 只認 YAML 的簡單鍵（字母或底線開頭，後接字母／數字／`_`／`-`／`.`，再接冒號）。
-    /// ISSN／ISBN 的值不含冒號，所以這個判準對「裸的識別碼」永遠回 false。
-    static func looksLikeYAMLMapping(_ s: String) -> Bool {
-        var seenFirst = false
-        for (idx, c) in s.enumerated() {
-            if idx == 0 {
-                guard c.isLetter || c == "_" else { return false }
-                seenFirst = true
+    /// ## 判準是「它是不是真的裸識別碼」，不是「它長得像不像 mapping」
+    ///
+    /// R3 的病是 `hasPrefix("value:")`——猜一種寫法。R3 的修法換成「有沒有 YAML 鍵結構」
+    /// ——**那仍是白名單**，只是把邊界挪了一格。R4 實測四種合法的 format-13 元素落在
+    /// 新邊界外面（`- value : X`、`-  value: X`、`- {value: X}`、`- "value": X`），
+    /// 而前兩者改寫後產生 `- value: value : X`：**整檔 YAML 語法錯誤**，比原缺陷嚴重
+    /// ——原缺陷只是 decode 失敗。
+    ///
+    /// 當時的註解**寫出了正確的性質**（「ISSN 與 ISBN 的值不含冒號」）卻實作了它的
+    /// 近似補集。這一版直接問那個性質：**`ISSN(v) != nil`**。
+    ///
+    /// 於是它只在「確定是裸識別碼」時改寫——mapping、垃圾、解析不出的值一律不動。
+    /// 不確定就不碰，剩下的交給 quarantine 具名，那比猜一個包裝誠實。
+    ///
+    /// 序列的結束條件同樣改掉白名單：**下一個頂層鍵**才是邊界（第 0 欄的 `<鍵>:`），
+    /// 空行與 `#` 註解不再讓其後的元素漏掉（R4 ⑤）。
+    static func upgradedLines(_ lines: [String]) -> [String] {
+        var out = lines
+        var listKey: String?
+        for i in lines.indices {
+            let line = lines[i]
+            if line == "issn:" || line == "isbn:" {
+                listKey = String(line.dropLast()); continue
+            }
+            guard let key = listKey else { continue }
+            if line.hasPrefix("- ") {
+                let v = String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                if isBareIdentifier(v, field: key) { out[i] = "- value: \(v)" }
                 continue
             }
-            if c == ":" { return seenFirst }
-            guard c.isLetter || c.isNumber || c == "_" || c == "-" || c == "." else {
-                return false
+            // **序列的邊界是下一個頂層鍵**，不是「這一行長得像不像續行」。
+            // 空行、`#` 註解、縮排的續行都仍在序列內。
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty, !trimmed.hasPrefix("#"),
+               line.first?.isWhitespace != true {
+                listKey = nil
             }
         }
-        return false                       // 整串沒有冒號 ⇒ 不是 mapping
+        return out
+    }
+
+    /// 這個字串是不是該欄位的**裸識別碼**——由型別自己的建構器回答，不由形狀猜。
+    static func isBareIdentifier(_ v: String, field: String) -> Bool {
+        switch field {
+        case "issn": return ISSN(v) != nil
+        case "isbn": return ISBN(v) != nil
+        default:     return false
+        }
     }
 
     private static func splitTokens(_ stripped: String) -> [String] {
@@ -245,7 +283,7 @@ public enum IdentifierMigration {
         }
     }
 
-    static func normalizedUniqueQualified<T: Identifier>(
+    public static func normalizedUniqueQualified<T: Identifier>(
         _ pairs: [(value: String, qualifier: String?)], _ make: (String) -> T?
     ) -> (values: [T], unparseable: [String]) {
         var out: [T] = []
@@ -301,9 +339,22 @@ public enum IdentifierMigration {
     ///    這條路徑**只有遷移命令呼叫**，`grep -n 'upgradingIdentifierShape' Sources/` 一眼看完。
     /// 2. **退場量測**（可直接貼進終端機）：
     ///    ```bash
-    ///    grep -A5 -E '^(issn|isbn):' ~/.akashic/entities/*.yaml | grep -cE '^\S*-- [^v]'
+    ///    awk 'FNR==1{s=0} /^(issn|isbn):$/{s=1;next} s&&/^- /{if($0!~/^- value:/)n++;next} \
+    ///         s&&!/^[ -]/{s=0} END{print n+0}' ~/.akashic/entities/*.yaml
     ///    ```
     ///    回 0 ＝ 全庫已無裸純量形狀，本函式可刪。
+    ///
+    ///    **上一版的量測是壞的**（#394 verify R5 ⑤）：`grep -A5` 的 context 行用 `-` 當
+    ///    分隔（`檔名-<行>`），而編碼器把 `references:` 排在 `isbn:`／`issn:` 之後，於是
+    ///    每個帶 reference 的記錄都貢獻一個 `- field: resolution-confirmed` 假陽性。
+    ///    在**乾淨的** store 上它回 **35** 而非 0——也就是它**永遠到不了退場條件**，
+    ///    而維護者會據此判定「還有 35 筆舊形狀」並把這條路徑永久留著。
+    ///
+    ///    新版逐檔重置狀態、只認 `issn:`／`isbn:` 序列自己的元素。實測（2026-08-26，
+    ///    真實 store）：**序列元素 88 個、裸純量 0 個** → 回 0。負控:注入一個裸純量回 1。
+    ///
+    ///    **所以退場條件此刻已經成立**——本函式與呼叫點可刪。刻意不在同一個變更裡刪:
+    ///    它是 #394 的 apply 路徑正在用的東西,而那條路徑還沒 merge。追蹤:#394 close 前。
     /// 3. **退場即刪**：條件成立後移除本函式與它的呼叫點，不留著當保險。
     ///
     /// ## 為什麼是文字層而不是寬容解碼器
@@ -326,49 +377,16 @@ public enum IdentifierMigration {
         for name in names.sorted() where name.hasSuffix(".yaml") {
             let url = dir.appendingPathComponent(name)
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            var lines = text.components(separatedBy: "\n")
-            var inList = false
-            var changed = false
-            for i in lines.indices {
-                let line = lines[i]
-                if line == "issn:" || line == "isbn:" { inList = true; continue }
-                guard inList else { continue }
-                if line.hasPrefix("- ") {
-                    let v = String(line.dropFirst(2))
-                    // **判準是「有沒有 YAML 鍵結構」，不是「開頭是不是 value:」**
-                    //（#425 verify HIGH）。舊判斷假設「不是 value: 開頭 ⇒ 裸純量」，
-                    // 而 YAML mapping **無序**——一個完全合法的 format-13 元素只要寫成
-                    // `- qualifier: print` 開頭就會被改成 `- value: qualifier: print`，
-                    // 該檔從此讀不出來。而 quarantine 守衛擋不住它：守衛在寫入之後才跑，
-                    // 於是它會把**本命令剛製造的**損壞回報成「沒認出的寫法」。
-                    //
-                    // 這個寫法不是憑空假設——守衛自己的錯誤訊息就叫使用者「需人工改成
-                    // `- value: …` 後重跑」，手改時把 qualifier 放前面完全自然。
-                    //
-                    // 安全的原因：ISSN 與 ISBN 的值**不含冒號**（各自的 `init?` 只收
-                    // 數字、連字號與末位 X），所以「含 `<鍵>:` 」與「是裸的識別碼」
-                    // 兩者互斥，不需要猜。
-                    if !Self.looksLikeYAMLMapping(v) {
-                        lines[i] = "- value: \(v)"
-                        changed = true
-                    }
-                } else if line.first?.isWhitespace == true && !line.trimmingCharacters(
-                            in: .whitespaces).isEmpty {
-                    // **續行**（`  qualifier: print`）——同一個 mapping 元素的後續鍵。
-                    // 舊實作在這裡把序列模式關掉，於是**其後的裸純量元素全部漏掉**，
-                    // 而漏掉的檔在同一次 run 的下一行就被 quarantine。
-                    continue
-                } else {
-                    inList = false          // 序列真的結束了
-                }
-            }
+            let lines = text.components(separatedBy: "\n")
+            let newLines = Self.upgradedLines(lines)
+            let changed = newLines != lines
             guard changed else { continue }
             let rel = "entities/\(name)"
             // **同一條 trackedness 紀律**：未被 git 追蹤的檔改寫沒有回復路徑。
             // 前置升級也是改寫——它先前繞過了這道閘。
             guard tracked.contains(Data(rel.utf8)) else { continue }
             touched.append(rel)
-            let newText = lines.joined(separator: "\n")
+            let newText = newLines.joined(separator: "\n")
             if apply {
                 try newText.write(to: url, atomically: true, encoding: .utf8)
             } else {
@@ -400,7 +418,15 @@ public enum IdentifierMigration {
         }
         // **形狀前置升級必須在 load 之前**——裸純量的 issn/isbn 會讓那些檔整檔
         // quarantine，於是 load 之後它們根本不在 `load.venues`／`load.entries` 裡。
-        let shape = try upgradingIdentifierShape(store: store, apply: apply, tracked: tracked)
+        // **一律模擬，寫入延到守衛之後**（#394 verify R4）。
+        //
+        // 先前的順序是「升級寫檔 → load → 守衛」，於是守衛擋下時**檔案已經被改過**，
+        // 而 `report`（含 `shapeUpgraded`）隨例外被丟棄——使用者沒有任何線索知道
+        // 有寫入發生過。R3 的註解已經為 venue 寫入具名了這個形狀，而形狀升級這一格
+        // 當時沒有跟著改。
+        //
+        // 現在乾跑與 apply 走**同一條**模擬路徑，差別只剩最後那一步寫不寫。
+        let shape = try upgradingIdentifierShape(store: store, apply: false, tracked: tracked)
         report.shapeUpgraded = shape.touched
         // 乾跑：把升級後的文字餵給接下來的 load，磁碟不動（#425 verify 的裁決）。
         store.textOverrides = shape.upgraded
@@ -424,9 +450,10 @@ public enum IdentifierMigration {
                                + "一個都沒被搬，後續 format bump 會把它們鎖在門外"
                                : "報告會漏掉它們（誤導性的不完整）")
                       + "。先跑 `akashic doctor` 看 quarantine 的原因。"
-                      + "**這裡不會是 `issn`／`isbn` 的裸純量序列**——那些在本命令的"
-                      + "形狀前置升級就處理掉了（乾跑也一樣，它把升級後的文字餵給 "
-                      + "load 而不動磁碟）。所以 quarantine 是別的原因造成的。")
+                      + "**若是 `issn`／`isbn` 的裸純量序列**，那是本命令的形狀前置升級"
+                      + "沒有處理到的形狀——它只認頂格的 `issn:`／`isbn:` ＋ 頂格的 "
+                      + "`- <識別碼>`，且該檔必須已被 git 追蹤。已知會漏的："
+                      + "CRLF 行尾、縮排序列、未追蹤的檔。人工改成 `- value: …` 後重跑。")
         }
 
         // per-file trackedness：apply 時查一次（同 VenueMigration／PersonIdentityMigration）。
@@ -582,6 +609,13 @@ public enum IdentifierMigration {
             report.venuePlans.append(VenuePlan(
                 venueKey: vkey, issn: merged,
                 mergedFrom: mergedFrom, keptMultiple: merged.count > 1))
+        }
+
+        // 守衛過了——現在才把形狀升級落到磁碟。
+        if apply {
+            for (path, text) in shape.upgraded.sorted(by: { $0.key < $1.key }) {
+                try text.write(to: URL(fileURLWithPath: path), atomically: true, encoding: .utf8)
+            }
         }
 
         // ---- Pre-flight：**任何寫入之前**判定每個 venue 落點寫不寫得成 ----

@@ -93,8 +93,41 @@ propose ──→ park ──────────────→ apply ─�
 > | 觸發點 | 檔案 | 實際執行 |
 > |---|---|---|
 > | `.githooks/pre-push`（全部） | ✅ | ❌ `core.hooksPath` 指向**主 repo** 的 `.githooks`，那份對這些守衛 0 命中——worktree 的修改不是實際生效的那份。**merge 到 main 後自癒** |
-> | `plugin-guards.yml`（ubuntu，1×） | ✅ | ⬜ 從未執行（branch 未 push） |
-> | `census-parity.yml`（macOS；只在 census／parity 測試／生成表／oracle 改動時觸發） | ✅ | ❌ macOS runner 帳務擱置——main 最近 8 次 CI run 全部 `failure` 且 **steps=0**（runner 層拒跑） |
+> | ~~`plugin-guards.yml`（ubuntu，1×）~~ | **已刪除** | 2026-08-27（#435）——見下 |
+> | `census-parity.yml`（macOS；現在也涵蓋 `plugin/**` 與原 ubuntu 那份的全部 paths） | ✅ | ❌ **帳號層付款失效**（見下）——run 全部 `failure` 且 **steps=0**（runner 層拒跑） |
+>
+> **`plugin-guards.yml` 已於 2026-08-27 刪除**（#435）：它跑在 ubuntu（1× 計費），
+> 設計理由是「純 python／bash 的守衛不必點 10× 的 macOS runner」。**守衛遷成 Swift 之後
+> （#433）那個理由不再成立**——`run-guards.sh` 需要 `swift build`，而 ubuntu runner 沒有
+> toolchain，那個 workflow 必然失敗。兩者當時跑的已經是**同一個命令**
+> （`bash .githooks/run-guards.sh`），差別只在 paths。
+>
+> 留著一個必然失敗的 workflow 比沒有它更糟：它會訓練人忽略紅燈。paths 合併進
+> `census-parity.yml`，`trigger-coverage` 驗證覆蓋仍完整（**35/35、零缺口、workflow 2 份**
+> ——那是本機證據）。
+>
+> **代價**：所有 plugin 改動現在都點 10× 的 macOS runner。2026-08 兩度把免費額度燒光正是
+> 這個形狀，所以這不是零成本的決定——但它是必然的，除非在 ubuntu 裝 Swift toolchain
+> （#435 記著兩個候選，兩者都無法在 CI 恢復前驗證）。
+>
+> **「macOS runner 帳務擱置」這個說法在 2026-08-26 被更正——範圍與原因都寫窄了。**
+> 逐字的原因取自 check-run annotation（`gh api /repos/<r>/check-runs/<jobId>/annotations`）：
+>
+> > The job was not started because recent account payments have failed or your
+> > spending limit needs to be increased. Please check the 'Billing & plans'
+> > section in your settings
+>
+> **不是 macOS-only、也不是分鐘數用完**：ubuntu 的 `plugin-guards.yml` 同樣 `steps=0`，
+> 而 2026-08 全帳號 Actions 用量只有 6 分鐘（且 Akashic-Library **從未計費過**——
+> runner 沒啟動就不計費）。最可能的失敗款項是 **Git LFS 儲存 10.2 GB vs 免費額度 1 GB**
+> （2026-05 產生 $0.70 淨額，是唯一一筆真的要付錢的）。
+>
+> **診斷路徑值得記**：`gh run view --log-failed` 回「log not found」（沒跑就沒有 log），
+> `gh run list` 只說 `failure`。真正的訊息在 **check-run 的 annotation** 裡——
+> 那是唯一說得出原因的地方。中途我曾因「其他 repo 在 6/7 月有用量」而推翻帳號層假設，
+> 那個推翻是錯的：那些用量在付款失效**之前**。
+>
+> 修法在使用者的網頁端（Settings → Billing & plans），不在這個 repo 裡。
 >
 > **左欄「已接上」現在是逐對意義的完整**（2026-08-23 實測，#407 R45b）：
 > `trigger-coverage.py` 對 **22 個受保護檔全部報「CI 未覆蓋 0」**——每一對
@@ -114,13 +147,38 @@ propose ──→ park ──────────────→ apply ─�
 > **pre-push 的耗時分布**（2026-08-23 重量，#407 R29——上一版的數字全部過期，
 > 而且其中一句是**假的**）：
 >
-> | | 2026-08-22 | 2026-08-23 早 | 2026-08-23 晚 | 2026-08-23 深夜（競爭下） | **2026-08-23 深夜（乾淨，現行）** |
-> |---|---|---|---|---|---|
-> | 守衛支數與總時 | 11 支 59.4 秒 | 13 支 66.5 秒 | 15 支 77.1 秒 | 19 支 99.6 秒 | **20 支 149.3 秒** |
-> | 最大一支 | `marker-parity-mutations.py` 52.5 秒（88%） | 57.2 秒（86%） | 57.3 秒（74%） | 69.4 秒（70%） | **91.9 秒（62%）** |
-> | 其餘 | 十支 7 秒 | 12 支 9.3 秒 | 14 支 19.8 秒 | 18 支 30.2 秒 | **19 支 57.4 秒** |
-> | **整個 pre-push** | 「59 秒」 | ≈252 秒 | 端到端實測 337 秒 | 端到端 778 秒 | **端到端 595 秒（#407 R67k）** |
+> | | 2026-08-22 | 2026-08-23 早 | 2026-08-23 晚 | 2026-08-23 深夜（競爭下） | 2026-08-23 深夜（乾淨） | **2026-08-27（乾淨，現行）** |
+> |---|---|---|---|---|---|---|
+> | 守衛支數與總時 | 11 支 59.4 秒 | 13 支 66.5 秒 | 15 支 77.1 秒 | 19 支 99.6 秒 | 20 支 149.3 秒 | **21 支 121.1 秒** |
+> | 最大一支 | `marker-parity-mutations.py` 52.5 秒（88%） | 57.2 秒（86%） | 57.3 秒（74%） | 69.4 秒（70%） | 91.9 秒（62%） | **62.2 秒（51%）** |
+> | 其餘 | 十支 7 秒 | 12 支 9.3 秒 | 14 支 19.8 秒 | 18 支 30.2 秒 | 19 支 57.4 秒 | **20 支 58.8 秒** |
+> | **整個 pre-push** | 「59 秒」 | ≈252 秒 | 端到端實測 337 秒 | 端到端 778 秒 | 端到端 595 秒（#407 R67k） | 未重量 |
 >
+> **第六欄在同一個 session 內量了兩次，兩個數字都真**（2026-08-27）：先量到
+> **99.5 秒**，把 `trigger-coverage` 的負控改成**兩版並驗**（每個 case 同時跑
+> Python 與 Swift 並要求輸出逐字相同）之後是 **121.1 秒**。差額 21.6 秒是換到
+> 「Swift 版**有**負控」的代價——在此之前 runner 跑 Swift 而負控驗 Python，
+> 那個缺口兩邊都是綠的。表上寫現行配置；**不要拿 121 減 21.6 當成「退化」**。
+>
+> 這張表在同一個 session 內過期一次，與它下面記過的「同一天內就過期了一次」同型
+> ——而那正是它保留全部欄位而非只留最新一欄的理由。
+>
+> **第六欄多一支守衛卻快了 50 秒，原因具名**（2026-08-27，#433／#431）：兩支負控
+> harness 的 `with_copy()` 都在複製整個 `.claude`——**2.0 GB／25,519 個檔**，其中
+> `.claude/worktrees/` 佔 2.0 GB（IDD 的隔離工作樹），而守衛要的只有 144 KB 的規則檔
+> （private repo，外部讀者取不到）。單次 `copytree` **16.51 秒 → 0.07 秒**。
+> `oracle-precondition-control.py`（它 import 前者並多次呼叫 `with_copy`）**5 分 44 秒
+> → 8.2 秒**。同輪另修 Swift 版守衛的 `globFiles()`（天真地 enumerate 整個 repo root，
+> 同樣為那 2 GB 付錢）。
+>
+> **這件事全程綠燈**——兩支 harness 慢了十倍而從未報錯，而本節自己下面就寫著
+> 「四分鐘的 pre-push 在頻繁 push 時會被 `--no-verify` 繞過，那時**所有**守衛等於
+> 不存在」。慢是這條規則的失效路徑，不是效能潔癖。
+>
+> **最後一列刻意寫「未重量」而不是沿用 595**（本表自己的紀律：寫出條件而不是只寫
+> 數字）。守衛那一段快了 50 秒，但 `swift test` 佔 pre-push 的大頭且本輪沒重量，
+> 拿 595 減 50 是推論不是量測——而那正是本表第四欄的註記在防的那個動作。
+
 > **第五欄（競爭下）的兩個數字與其餘各欄不可直接相比**（#407 R67f）：量測當時有一個
 > 21-agent 的跨模型審查 workflow 在同一台機器上跑。留著它是因為刪掉會讓「778」這個
 > 曾經被寫進本檔的數字失去脈絡；**寫出條件而不是只寫數字**正是本 issue 要求的事。

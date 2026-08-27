@@ -121,6 +121,8 @@ case "rule-prose-guards-mutations":
     exit(ruleProseGuardsMutations())
 case "marker-parity-mutations":
     exit(markerParityMutations())
+case "trigger-coverage-mutations":
+    exit(triggerCoverageMutations())
 case "measured-numbers-audit":
     exit(measuredNumbersAudit())
 case "backlink-field-ratchet":

@@ -59,7 +59,11 @@ bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh
 # Swift 側結構上測不到，harness 會把它們彙總印出而不靜默）。
 # 另含 `shlex(posix, punctuation_chars)` 的等價實作，差分測試 63 個 case 逐 token 相同。
 .build/debug/akashic-guards trigger-coverage
-python3 plugin/tests/trigger-coverage-mutations.py
+# **Swift 版**（#433，第四支遷移的 harness）。32 個 mutation（26 case ＋ 6 warn_case）
+# 的字串**機械抽出不手抄**（`TriggerCoverageMutationsData.swift`）——它們全是
+# `t.replace(字面, 字面)`，而 harness 斷言注入必須真的改到東西，手抄一個空白之差會讓
+# case 靜默失效而輸出看起來像「被注入的檔案改了」。
+.build/debug/akashic-guards trigger-coverage-mutations
 # 那張四列判準表的現查（#407 R26b）——表自己的四個宣稱也是可否證的。
 # 語法相容性要**最先**跑（#394 verify R9）：它便宜（秒級）,而它防的失效會讓
 # 後面任何一支守衛在 hook 裡變成 SyntaxError——那個症狀極具誤導性。

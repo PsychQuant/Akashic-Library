@@ -69,8 +69,34 @@ func migratedGuardControl() -> Int32 {
         }
     }
 
-    let missing = executed.filter { !covered.contains($0) }.sorted()
+    // **harness 自己就是負控——要求「負控的負控」會無限遞歸。**
+    //
+    // 但**不靜默豁免**：`oracle-precondition-control` 的存在正是「harness 也可能需要
+    // meta 檢查」的實例（它 import `audit-guards-mutations` 並驗那支 harness 自己的降級
+    // 機制）。所以 harness 類**印出來**，交人裁決要不要 meta-harness，只是不計入缺口。
+    //
+    // **判準是結構的**：harness ＝ 它**執行**別的守衛（那就是負控的定義）。用「source 裡
+    // 有 `Process()` 且提到守衛」而不是檔名——`migrated-guard-control` 的名字帶 `control`
+    // 卻不是 harness（它讀 `run-guards.sh` 抽字串，不執行任何守衛），檔名判準會誤判它。
+    //
+    // **這是啟發式**：一個用別的方式 spawn 的 harness 會被判成非 harness（方向是**誤報**
+    // ——它會被要求負控，而那是可見可裁決的，不是靜默漏放）。
+    func isHarness(_ sub: String) -> Bool {
+        let p = "Sources/akashic-guards/" + pascal(sub) + ".swift"
+        guard fileExists(p) else { return false }
+        let code = codeOnly(p)
+        return code.contains("Process()")
+            && (code.contains("akashic-guards") || code.contains("plugin/tests/"))
+    }
+    let uncovered = executed.filter { !covered.contains($0) }.sorted()
+    let selfControl = uncovered.filter(isHarness)
+    let missing = uncovered.filter { !isHarness($0) }
     print("══ 實際在跑的 Swift 守衛：\(executed.count) 支｜negative-control harness：\(harnesses.count) 支 ══")
+    for s in selfControl {
+        print("  ℹ `akashic-guards \(s)` 沒有負控，但它**自己就是**負控（source 裡執行別的守衛）"
+            + "——不計入缺口。要不要替它寫 meta-harness 是人的裁決"
+            + "（`oracle-precondition-control` 就是那樣的一個實例）")
+    }
     for s in missing {
         print("  ✗ `akashic-guards \(s)` 在 run-guards.sh 裡跑，"
             + "但沒有任何 negative-control harness 驗它——")
@@ -78,7 +104,11 @@ func migratedGuardControl() -> Int32 {
         print("     修法：讓它的 harness 兩版都跑並要求輸出逐字相同（見 #433 的第 4 步）。")
     }
     if missing.isEmpty {
-        print("  \(executed.count) 支全部都有負控在驗實際執行的那一版")
+        // **數字要與上面的 ℹ 對得起來**：說「11 支全部都有」而其中一支剛被印成「沒有負控」
+        // ——那是同一份輸出裡的兩句矛盾的話，而本 repo 有一整支守衛在抓這個形狀。
+        let need = executed.count - selfControl.count
+        print("  \(need) 支需要負控的全部都有在驗實際執行的那一版"
+            + (selfControl.isEmpty ? "" : "（另 \(selfControl.count) 支自己就是負控）"))
     }
     print("\n══ \(missing.isEmpty ? "無缺口" : "**\(missing.count) 支缺負控**") ══")
     return missing.isEmpty ? 0 : 1

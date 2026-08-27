@@ -115,6 +115,8 @@ case "literal-scalar-parity":
     exit(literalScalarParity())
 case "migrated-guard-control":
     exit(migratedGuardControl())
+case "decision-matrix-mutations":
+    exit(decisionMatrixMutations())
 case "measured-numbers-audit":
     exit(measuredNumbersAudit())
 case "backlink-field-ratchet":

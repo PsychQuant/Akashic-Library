@@ -72,7 +72,10 @@ python3 plugin/tests/guard-python-compat.py
 # 負控是獨立 harness 而不在 `MIGRATED` 表裡）在我修完前兩個之後**仍然漏掉**。
 # 一條記在散文裡的紀律擋不住它：它要求人每次遷移都想起來，而我沒有。
 .build/debug/akashic-guards migrated-guard-control
-python3 plugin/tests/decision-matrix-mutations.py
+# **Swift 版**（#433，第一支遷移的 harness）。乾淨樹逐位元相同（17 行、rc=0）。
+# 它自己就是 `decision-matrix-drift` 的負控，並在 `runBoth` 裡對每個 case 同時跑守衛的
+# 兩版、要求輸出逐字相同——刪掉 Python 守衛時把那一半拿掉即可。
+.build/debug/akashic-guards decision-matrix-mutations
 # rule-coverage 與 hash-table-drift 的 negative control（#407 R32）——它們先前
 # 每次都綠而從沒紅過，落在本 issue 自己的立場之外。
 python3 plugin/tests/audit-guards-mutations.py

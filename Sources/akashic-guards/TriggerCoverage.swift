@@ -297,7 +297,8 @@ private func pyDirname(_ p: String) -> String {
 }
 
 /// `measured-numbers-audit` → `MeasuredNumbersAudit`（子命令名 ↔ 檔名的唯一對映）。
-private func pascal(_ sub: String) -> String {
+/// （`MigratedGuardControl` 也用它，故非 private。）
+func pascal(_ sub: String) -> String {
     sub.components(separatedBy: "-").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined()
 }
 

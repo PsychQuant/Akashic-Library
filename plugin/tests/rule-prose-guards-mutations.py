@@ -52,11 +52,33 @@ RULE_REL = os.path.join('rules', 'assertions-must-be-measured.md')
 SNAP = io.open(os.path.join(PLUGIN, RULE_REL), encoding='utf8').read()
 
 
+# ── 遷移期：runner 跑的是 Swift 版，所以負控必須驗**它**（#433）──────────────
+#
+# 若這支仍只跑 `.py`，它驗的就是一個**不再被執行的實作**——負控全綠、runner 全綠，
+# 而實際在跑的那一版沒有任何保證。那個缺口是遷移自己製造的，且它在對面兩支 harness 上
+# 各抓到過真的翻譯遺漏。**兩版都跑並要求逐字一致**；刪掉 Python 版時把這一段拿掉即可。
+#
+# 這支不需要 source-injection 的豁免：mutation 只作用在 **copy 的 plugin 樹**上，
+# 守衛自己（`GUARD` / binary）都在原位不被改寫。
+GUARDS_BIN = os.path.abspath(os.path.join(PLUGIN, '..', '.build', 'debug', 'akashic-guards'))
+
+
 def run(root):
     cmd = [sys.executable, GUARD, '--root', root]
     if os.path.isfile(VENUE):
         cmd += ['--venue', VENUE]
     r = subprocess.run(cmd, cwd=PLUGIN, capture_output=True, text=True)
+    if os.path.exists(GUARDS_BIN):
+        scmd = [GUARDS_BIN, 'rule-prose-guards', '--root', root]
+        if os.path.isfile(VENUE):
+            scmd += ['--venue', VENUE]
+        rs = subprocess.run(scmd, cwd=PLUGIN, capture_output=True, text=True)
+        if (rs.returncode, rs.stdout) != (r.returncode, r.stdout):
+            raise SystemExit(
+                f'✗ 遷移期兩版分岔：rule-prose-guards.py vs `akashic-guards rule-prose-guards`\n'
+                f'  ── python rc={r.returncode}\n{r.stdout}\n'
+                f'  ── swift  rc={rs.returncode}\n{rs.stdout}')
+        return rs.returncode, rs.stdout       # 回傳**實際在跑的**那一版
     return r.returncode, r.stdout
 
 

@@ -20,7 +20,10 @@ bash plugin/tests/rule-coverage.sh
 # 逐條重建審查者宣稱的失敗情境——一條 finding 若重建不出它宣稱的失敗，
 # 那條就是未經量測的（#407 R10 的九條裡有一條正是如此）。
 bash plugin/tests/review-claim-audit.sh
-python3 plugin/tests/rule-prose-guards.py --venue Sources/AkashicCore/Venue.swift
+# **Swift 版**（#433 C 批 1/3）。驗證：乾淨樹逐位元相同、負控的 **14 個 case 兩版並驗**
+# （`rule-prose-guards-mutations.py` 對每個 case 同時跑兩版並要求 stdout 與 rc 逐字相同）。
+# 這支不需要 source-injection 豁免：mutation 只作用在 copy 的 plugin 樹上，守衛在原位。
+.build/debug/akashic-guards rule-prose-guards --venue Sources/AkashicCore/Venue.swift
 python3 plugin/tests/rule-prose-guards-mutations.py
 bash plugin/skills/akashic-literal-campaign/scripts/tests/hash-table-drift.sh
 # 表是逐 code point 的——這支證明對「# + 多 scalar 序列」那樣就夠

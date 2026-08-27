@@ -107,6 +107,8 @@ case "__shlex-probe":   // 內部：tokenizer 對照用，不在 run-guards 裡
     exit(0)
 case "trigger-coverage":
     exit(triggerCoverage(argv: Array(CommandLine.arguments.dropFirst(2))))
+case "rule-prose-guards":
+    exit(ruleProseGuards(argv: Array(CommandLine.arguments.dropFirst(2))))
 case "measured-numbers-audit":
     exit(measuredNumbersAudit())
 case "backlink-field-ratchet":

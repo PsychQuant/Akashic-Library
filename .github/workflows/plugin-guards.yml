@@ -39,6 +39,9 @@ on:
       # parity 的 oracle。它不在這裡跑 parity（那需要 build，屬 census-parity.yml），
       # 但 trigger-coverage 要能看見它改動時的覆蓋狀況。
       - "Sources/AkashicStoreIO/StoreVersion.swift"
+      # plugin-store-format-parity.py 的第三份宣告來源。它是**出貨物**
+      # （release-signed.sh 會 zip 進 .mcpb），改它而守衛不跑＝出貨一個過期數字。
+      - "mcpb/manifest.json"
       # decision-matrix-drift.py 的輸入是 CLAUDE.md 的 8 列決策矩陣（#407 R27）。
       # 表改了守衛就得跑——不加這條的話，一個改壞矩陣的 push 在 CI 側完全無聲。
       - "CLAUDE.md"
@@ -92,6 +95,12 @@ jobs:
 
       # 觸發點自己的守衛。它不執行任何被保護的程式碼，只讀 workflow／hook 的
       # 設定與各守衛的原始碼——所以放在 ubuntu（1× 計費）這一側。
+      # plugin.json 的 description 宣告 store format,而它與 `StoreVersion.supported`
+      # 是同一份規格的兩個副本。實測三次漂移零次被發現（#408）——放這裡不放 macOS 那側:
+      # 它只讀兩個檔的文字,不需要 build。
+      - name: plugin.json 的 store format 與唯一來源一致
+        run: python3 plugin/tests/plugin-store-format-parity.py
+
       - name: 觸發點覆蓋（逐對，非聯集）
         run: python3 plugin/tests/trigger-coverage.py
       - name: 觸發點守衛的 negative control

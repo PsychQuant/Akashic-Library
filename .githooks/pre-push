@@ -67,5 +67,6 @@ python3 plugin/tests/zero-instance-rows-audit.py
 # census 抽 `literal:` 值的解碼 vs YAML 純量語義（#407 R62）——distinct literal 是
 # 整個 campaign 的分母，而它先前 8 種寫法有 7 種分岔。
 python3 plugin/tests/literal-scalar-parity.py
+python3 plugin/tests/plugin-store-format-parity.py
 
 echo "pre-push: ✓ 全部通過"

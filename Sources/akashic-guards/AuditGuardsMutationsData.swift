@@ -15,9 +15,12 @@ struct AGMCase { let desc: String; let guardRel: String; let edits: [AGMEdit]; l
 
 
 let agmCases: [AGMCase] = [
-    AGMCase(desc: "migrated：從 MIGRATED 表拿掉一列 → 那支守衛失去驗 Swift 版的負控", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: "plugin/tests/audit-guards-mutations.py", kind: "replaceFirst", a: "    NUMBERS_REL: 'measured-numbers-audit',\n", b: ""),
-    ], expect: ["缺負控", "measured-numbers-audit"]),
+    // **注入目標從 `MIGRATED` 表換成 runner**（#433 Step 5）：那張表在遷移完成後是空的，
+    // 「拿掉一列」不再改變任何事。而 `migrated-guard-control` 真正的輸入是 `run-guards.sh`
+    // ——注入一支沒有負控的守衛，它必須報出來。
+    AGMCase(desc: "migrated：runner 多一支沒有負控的守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: ".build/debug/akashic-guards fake-guard\n.build/debug/akashic-guards migrated-guard-control"),
+    ], expect: ["缺負控", "fake-guard"]),
     AGMCase(desc: "coverage①：連結整個拿掉（沒有任何可解析的相對路徑）", guardRel: "plugin/tests/rule-coverage.sh", edits: [
         AGMEdit(path: "plugin/skills/akashic-literal-campaign/SKILL.md", kind: "replaceAll", a: "../../rules/assertions-must-be-measured.md", b: "見規則目錄"),
     ], expect: ["沒有指向這條規則的可解析相對路徑"]),
@@ -48,106 +51,96 @@ let agmCases: [AGMCase] = [
     AGMCase(desc: "review：把宣稱 --check 的那句註解加回去", guardRel: "plugin/tests/review-claim-audit.sh", edits: [
         AGMEdit(path: "plugin/skills/akashic-literal-campaign/scripts/tests/derive-hash-extenders.swift", kind: "replaceFirst", a: "import Foundation", b: "// 用法：derive-hash-extenders.swift --check <生成的表>\nimport Foundation"),
     ], expect: ["宣稱 --check 的那句註解已移除"]),
-    AGMCase(desc: "claims：改壞偵測式（抽取式仍指向舊字面）", guardRel: "plugin/tests/measured-claims-audit.py", edits: [
-        AGMEdit(path: "plugin/tests/measured-claims-audit.py", kind: "replaceFirst", a: "| sed '/^$/q' | grep -q '^gpgsig' ", b: "| sed '/^$/q' | grep -q '^gpgSIG' "),
-    ], expect: ["抽出 0 個 pattern"]),
-    AGMCase(desc: "claims：把白名單裡的 tree 拿掉（它每個 commit 都有）", guardRel: "plugin/tests/measured-claims-audit.py", edits: [
-        AGMEdit(path: "plugin/tests/measured-claims-audit.py", kind: "replaceFirst", a: "'tree': '內容指標'", b: "'tree-x': '內容指標'"),
-    ], expect: ["tree"]),
     AGMCase(desc: "multi：模型把 inTable 的判定反過來", guardRel: "plugin/skills/akashic-literal-campaign/scripts/tests/multiscalar-parity.swift", edits: [
         AGMEdit(path: "plugin/skills/akashic-literal-campaign/scripts/tests/multiscalar-parity.swift", kind: "replaceFirst", a: "return f < 0x80 ? true : !inTable(f)", b: "return f < 0x80 ? true : inTable(f)"),
     ], expect: ["分歧數：11"]),
     AGMCase(desc: "multi：模型改看最後一個 scalar", guardRel: "plugin/skills/akashic-literal-campaign/scripts/tests/multiscalar-parity.swift", edits: [
         AGMEdit(path: "plugin/skills/akashic-literal-campaign/scripts/tests/multiscalar-parity.swift", kind: "replaceFirst", a: "guard let f = cps.first else { return true }", b: "guard let f = cps.last else { return true }"),
     ], expect: ["分歧數：4"]),
-    AGMCase(desc: "numbers：把某個數字唯一的行內時間錨拿掉", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "numbers：把某個數字唯一的行內時間錨拿掉", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules/literal-first-then-key.md", kind: "replaceFirst", a: "（#303 實測：2,123/3,720 邊，57.1%）", b: "（實測：2,123/3,720 邊，57.1%）"),
     ], expect: ["沒有時間錨"]),
-    AGMCase(desc: "numbers：新增一個裸的 `實測 N`", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "numbers：新增一個裸的 `實測 N`", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: "plugin/rules/assertions-must-be-measured.md", kind: "replaceFirst", a: "## 誠實邊界", b: "## 補充\n\n實測 99 筆。\n\n## 誠實邊界"),
     ], expect: ["沒有時間錨"]),
-    AGMCase(desc: "numbers：規則目錄整個不見（不得被 CLAUDE.md 撐著回綠）", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "numbers：規則目錄整個不見（不得被 CLAUDE.md 撐著回綠）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules", kind: "delete", a: "", b: ""),
     ], expect: ["`.claude/rules/*.md` 一個檔都沒找到"]),
-    AGMCase(desc: "numbers：CLAUDE.md 不見（同樣不得被另外兩個來源撐著）", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "numbers：CLAUDE.md 不見（同樣不得被另外兩個來源撐著）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: "CLAUDE.md", kind: "delete", a: "", b: ""),
     ], expect: ["`CLAUDE.md` 一個檔都沒找到"]),
-    AGMCase(desc: "numbers：解析失敗的宣稱仍算 rows（不變量：它必須留在 unparsed，不得變 borrowed）", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
-        AGMEdit(path: "plugin/tests/measured-numbers-audit.py", kind: "replaceFirst", a: "                    out.append((os.path.relpath(fp, root), i + 1, m.group(0), None, None))\n                    continue\n", b: "                    out.append((os.path.relpath(fp, root), i + 1, m.group(0), None,\n                                _rows_after(lines, i)))\n                    continue\n"),
-        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "ziVerdictHeading", a: "## 前言（封閉列舉——現有 廿 列）\n\n散文一句。\n\n## 裁決史（一列不多一列不少）", b: ""),
-    ], expect: ["解析不出來"]),
-    AGMCase(desc: "numbers：標題用「十五」而表沒有十五列（查表版會靜默略過）", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "numbers：標題用「十五」而表沒有十五列（查表版會靜默略過）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules/blocked-issues-must-be-scannable.md", kind: "replaceFirst", a: "（哪些「等」需要標記——封閉列舉，現有 4 列）", b: "（哪些「等」需要標記——封閉列舉，現有十五列）"),
     ], expect: ["現有十五列", "而下方的表有 4 列"]),
-    AGMCase(desc: "numbers：標題宣稱列數、自己沒有表，而下一節有（不得借用）", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "numbers：標題宣稱列數、自己沒有表，而下一節有（不得借用）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "ziVerdictHeading", a: "## 前言（封閉列舉——現有 6 列）\n\n散文一句。\n\n## 裁決史（一列不多一列不少）", b: ""),
     ], expect: ["最近的表在「## 裁決史（一列不多一列不少）」之後"]),
-    AGMCase(desc: "numbers：標題的數字解析不出來（不得靜默略過）", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "numbers：標題的數字解析不出來（不得靜默略過）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "ziVerdictHeading", a: "## 前言（封閉列舉——現有 廿 列）\n\n散文一句。\n\n## 裁決史（一列不多一列不少）", b: ""),
     ], expect: ["解析不出來"]),
-    AGMCase(desc: "numbers：宣稱與表之間隔了兩個標題（診斷要說「隔了 2 個」並具名）", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "numbers：宣稱與表之間隔了兩個標題（診斷要說「隔了 2 個」並具名）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "| # | 情形 | 裁決 | 理由 |", b: "## 插入的空節甲\n\n## 插入的空節乙\n\n| # | 情形 | 裁決 | 理由 |"),
     ], expect: ["隔了 2 個標題", "插入的空節甲", "插入的空節乙"]),
-    AGMCase(desc: "numbers：CLAUDE.md 裡出現一個裸的 `實測 N`", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "numbers：CLAUDE.md 裡出現一個裸的 `實測 N`", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: "CLAUDE.md", kind: "replaceFirst", a: "## Rules", b: "## 補充\n\n實測 77 支。\n\n## Rules"),
     ], expect: ["沒有時間錨", "CLAUDE.md"]),
-    AGMCase(desc: "numbers：表多一列而標題的計數沒跟上", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "numbers：表多一列而標題的計數沒跟上", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules/blocked-issues-must-be-scannable.md", kind: "replaceFirst", a: "| 4 | 等時間累積", b: "| 3.5 | 等一個外部帳務事件 | ✅ **`### Blocking`** | 佔位 |\n| 4 | 等時間累積"),
     ], expect: ["現有 4 列", "而下方的表有 5 列"]),
-    AGMCase(desc: "numbers：標題宣稱了列數卻沒有表（錨不存在）", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "numbers：標題宣稱了列數卻沒有表（錨不存在）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "removeTableSeparator", a: "", b: ""),
     ], expect: ["找不到表——錨不存在"]),
-    AGMCase(desc: "parity：程式新增一個 MCP tool 而表沒補", guardRel: "plugin/tests/parity-table-drift.py", edits: [
+    AGMCase(desc: "parity：程式新增一個 MCP tool 而表沒補", guardRel: "akashic-guards parity-table-drift", edits: [
         AGMEdit(path: "Sources/akashic-mcp/Server.swift", kind: "replaceFirst", a: "Tool(name: \"akashic_doctor\"", b: "Tool(name: \"akashic_brandnew\""),
     ], expect: ["在程式裡但**不在規則的 MCP 表**"]),
-    AGMCase(desc: "parity：表列了一個程式沒有的 tool", guardRel: "plugin/tests/parity-table-drift.py", edits: [
+    AGMCase(desc: "parity：表列了一個程式沒有的 tool", guardRel: "akashic-guards parity-table-drift", edits: [
         AGMEdit(path: ".claude/rules/mcp-cli-parity.md", kind: "replaceFirst", a: "| `akashic_doctor` |", b: "| `akashic_ghost` |"),
     ], expect: ["但程式裡**沒有這個 tool**"]),
-    AGMCase(desc: "parity：命令名只出現在某列的理由欄", guardRel: "plugin/tests/parity-table-drift.py", edits: [
+    AGMCase(desc: "parity：命令名只出現在某列的理由欄", guardRel: "akashic-guards parity-table-drift", edits: [
         AGMEdit(path: ".claude/rules/mcp-cli-parity.md", kind: "replaceAll", a: "| `fmt` | 有理由缺席", b: "| `fmt-x` | 有理由缺席"),
         AGMEdit(path: ".claude/rules/mcp-cli-parity.md", kind: "replaceAll", a: "全庫改寫＝維運例外", b: "全庫改寫＝維運例外（同 `fmt`）"),
     ], expect: ["`fmt`", "規則檔裡完全沒提到"]),
-    AGMCase(desc: "parity：某命令只在散文被提到、不在任何表列", guardRel: "plugin/tests/parity-table-drift.py", edits: [
+    AGMCase(desc: "parity：某命令只在散文被提到、不在任何表列", guardRel: "akashic-guards parity-table-drift", edits: [
         AGMEdit(path: ".claude/rules/mcp-cli-parity.md", kind: "replaceFirst", a: "| `fmt` |", b: "| `fmt-x` |"),
     ], expect: ["`fmt`", "規則檔裡完全沒提到"]),
-    AGMCase(desc: "parity：規則檔完全不提某個 CLI subcommand", guardRel: "plugin/tests/parity-table-drift.py", edits: [
+    AGMCase(desc: "parity：規則檔完全不提某個 CLI subcommand", guardRel: "akashic-guards parity-table-drift", edits: [
         AGMEdit(path: ".claude/rules/mcp-cli-parity.md", kind: "replaceAll", a: "`doctor`", b: "`doktor`"),
     ], expect: ["`doctor`", "規則檔裡完全沒提到"]),
-    AGMCase(desc: "parity：表把某命令標成退場但它仍註冊著（表→命令方向）", guardRel: "plugin/tests/parity-table-drift.py", edits: [
+    AGMCase(desc: "parity：表把某命令標成退場但它仍註冊著（表→命令方向）", guardRel: "akashic-guards parity-table-drift", edits: [
         AGMEdit(path: ".claude/rules/mcp-cli-parity.md", kind: "replaceFirst", a: "| ~~`migrate-work-types`~~", b: "| ~~`doctor`~~"),
     ], expect: ["仍註冊在 CLI.swift"]),
-    AGMCase(desc: "parity：退場的列沒劃掉（孤兒列）", guardRel: "plugin/tests/parity-table-drift.py", edits: [
+    AGMCase(desc: "parity：退場的列沒劃掉（孤兒列）", guardRel: "akashic-guards parity-table-drift", edits: [
         AGMEdit(path: ".claude/rules/mcp-cli-parity.md", kind: "replaceFirst", a: "| ~~`migrate-work-types`~~", b: "| `migrate-work-types`"),
     ], expect: ["已不在 CLI.swift"]),
-    AGMCase(desc: "scalar：`_scalar` 的最後一個分支被砍掉（切片可能被截斷）", guardRel: "plugin/tests/literal-scalar-parity.py", edits: [
+    AGMCase(desc: "scalar：`_scalar` 的最後一個分支被砍掉（切片可能被截斷）", guardRel: "akashic-guards literal-scalar-parity", edits: [
         AGMEdit(path: "plugin/skills/akashic-literal-campaign/scripts/literal-census.sh", kind: "replaceFirst", a: "        i = s.find(' #')\n        return (s[:i] if i >= 0 else s).strip()\n", b: "        pass\n"),
     ], expect: ["本體最後一行不是 `return`"]),
-    AGMCase(desc: "zi-rows：新增一列裁決「寫」而編號在 Sources 裡不存在", guardRel: "plugin/tests/zero-instance-rows-audit.py", edits: [
+    AGMCase(desc: "zi-rows：新增一列裁決「寫」而編號在 Sources 裡不存在", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "| 4 |", b: "| 5 | **假的一列**（#9999：不存在的守衛） | ✅ **寫** | 為了測負控 |\n| 4 |"),
     ], expect: ["在 Sources/ 裡都找不到"]),
-    AGMCase(desc: "zi-rows：某一列完全不引用 issue 編號", guardRel: "plugin/tests/zero-instance-rows-audit.py", edits: [
+    AGMCase(desc: "zi-rows：某一列完全不引用 issue 編號", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "（#254：", b: "（無編號："),
     ], expect: ["沒有引用任何 issue 編號"]),
-    AGMCase(desc: "ratchet：同名誘餌 ＋ 真欄位改型別（裸名鍵會被騙過）", guardRel: "plugin/tests/backlink-field-ratchet.py", edits: [
+    AGMCase(desc: "ratchet：同名誘餌 ＋ 真欄位改型別（裸名鍵會被騙過）", guardRel: "akashic-guards backlink-field-ratchet", edits: [
         AGMEdit(path: "Sources/AkashicCore/Models.swift", kind: "replaceFirst", a: "public var authors:", b: "public var affiliations: TimelineOf<OrgRef> = .init()\n    public var authors:"),
         AGMEdit(path: "Sources/AkashicCore/Temporal.swift", kind: "replaceFirst", a: "public var affiliations: TimelineOf<OrgRef>", b: "public var affiliations: [String]"),
     ], expect: ["宣告型別變了"]),
-    AGMCase(desc: "ratchet：邊欄位的宣告型別被改掉（名字沒動）", guardRel: "plugin/tests/backlink-field-ratchet.py", edits: [
+    AGMCase(desc: "ratchet：邊欄位的宣告型別被改掉（名字沒動）", guardRel: "akashic-guards backlink-field-ratchet", edits: [
         AGMEdit(path: "Sources/AkashicCore/Temporal.swift", kind: "replaceFirst", a: "public var affiliations: TimelineOf<OrgRef>", b: "public var affiliations: [String]"),
     ], expect: ["宣告型別變了"]),
-    AGMCase(desc: "ratchet：表裡某一列的欄位名被改掉（Swift 沒動）", guardRel: "plugin/tests/backlink-field-ratchet.py", edits: [
+    AGMCase(desc: "ratchet：表裡某一列的欄位名被改掉（Swift 沒動）", guardRel: "akashic-guards backlink-field-ratchet", edits: [
         AGMEdit(path: ".claude/rules/entity-backlink-completeness.md", kind: "replaceFirst", a: "`Entry.venues`", b: "`Entry.venuez`"),
     ], expect: ["在六個型別檔裡找不到"]),
-    AGMCase(desc: "ratchet：Swift 多一個 public let 欄位", guardRel: "plugin/tests/backlink-field-ratchet.py", edits: [
+    AGMCase(desc: "ratchet：Swift 多一個 public let 欄位", guardRel: "akashic-guards backlink-field-ratchet", edits: [
         AGMEdit(path: "Sources/AkashicCore/Models.swift", kind: "replaceFirst", a: "public var authors:", b: "public let ghostEdge: String = \"\"\n    public var authors:"),
     ], expect: ["ghostEdge", "新欄位未經裁決"]),
-    AGMCase(desc: "ratchet：Swift 多一個 [String] 欄位（上一版會漏）", guardRel: "plugin/tests/backlink-field-ratchet.py", edits: [
+    AGMCase(desc: "ratchet：Swift 多一個 [String] 欄位（上一版會漏）", guardRel: "akashic-guards backlink-field-ratchet", edits: [
         AGMEdit(path: "Sources/AkashicCore/Models.swift", kind: "replaceFirst", a: "public var authors:", b: "public var seeAlso: [String] = []\n    public var authors:"),
     ], expect: ["seeAlso", "新欄位未經裁決"]),
-    AGMCase(desc: "parity：含空白的命令 token 退場了卻沒劃掉", guardRel: "plugin/tests/parity-table-drift.py", edits: [
+    AGMCase(desc: "parity：含空白的命令 token 退場了卻沒劃掉", guardRel: "akashic-guards parity-table-drift", edits: [
         AGMEdit(path: ".claude/rules/mcp-cli-parity.md", kind: "replaceFirst", a: "| `export-tables --view`", b: "| `ghost-command --view`"),
     ], expect: ["已不在 CLI.swift"]),
-    AGMCase(desc: "ratchet：Swift 多一個非純量欄位而沒被裁決", guardRel: "plugin/tests/backlink-field-ratchet.py", edits: [
+    AGMCase(desc: "ratchet：Swift 多一個非純量欄位而沒被裁決", guardRel: "akashic-guards backlink-field-ratchet", edits: [
         AGMEdit(path: "Sources/AkashicCore/Models.swift", kind: "replaceFirst", a: "public var authors:", b: "public var brandNewEdge: [VenueRef] = []\n    public var authors:"),
     ], expect: ["brandNewEdge", "新欄位未經裁決"]),
     AGMCase(desc: "multi：案例表被清空（fixture 蒸發不得靜默通過）", guardRel: "plugin/skills/akashic-literal-campaign/scripts/tests/multiscalar-parity.swift", edits: [
@@ -156,26 +149,26 @@ let agmCases: [AGMCase] = [
 ]
 
 let agmRobust: [AGMCase] = [
-    AGMCase(desc: "numbers：宣稱與表之間有一行以 #407 開頭的散文（不得當成標題）", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "numbers：宣稱與表之間有一行以 #407 開頭的散文（不得當成標題）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "| # | 情形 | 裁決 | 理由 |", b: "#407 R67l 的量測見下表。\n\n| # | 情形 | 裁決 | 理由 |"),
     ], expect: ["列數宣稱皆相符"]),
-    AGMCase(desc: "numbers：標題與表之間夾一段 fence 包住的示範表（不得被當成真的表）", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "numbers：標題與表之間夾一段 fence 包住的示範表（不得被當成真的表）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules/blocked-issues-must-be-scannable.md", kind: "replaceFirst", a: "| # | 情形 | 裁決 | 理由 |", b: "```markdown\n| 示範 | 表 |\n|---|---|\n| a | b |\n```\n\n| # | 情形 | 裁決 | 理由 |"),
     ], expect: ["列數宣稱皆相符"]),
-    AGMCase(desc: "numbers：一張無關的表緊接在受檢表之後（不得併入計數）", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "numbers：一張無關的表緊接在受檢表之後（不得併入計數）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules/blocked-issues-must-be-scannable.md", kind: "replaceFirst", a: "不用 `### Blocking`", b: "不用 `### Blocking`"),
         AGMEdit(path: ".claude/rules/blocked-issues-must-be-scannable.md", kind: "replaceFirst", a: "\n\n## 跟其他規則的關係", b: "\n| 另一張 | 表 |\n|---|---|\n| x | y |\n\n## 跟其他規則的關係"),
     ], expect: ["列數宣稱皆相符"]),
-    AGMCase(desc: "在散文（非標題）加一句「只有 2 條」，其後有表（不得被誤判為不符）", guardRel: "plugin/tests/measured-numbers-audit.py", edits: [
+    AGMCase(desc: "在散文（非標題）加一句「只有 2 條」，其後有表（不得被誤判為不符）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "## 裁決史", b: "不得類推：本檔的封閉性只有 2 條依據。\n\n## 裁決史"),
     ], expect: ["列數宣稱皆相符"]),
-    AGMCase(desc: "Swift 裡多一個不平衡的大括號字串字面（不得讓區段暴走）", guardRel: "plugin/tests/parity-table-drift.py", edits: [
+    AGMCase(desc: "Swift 裡多一個不平衡的大括號字串字面（不得讓區段暴走）", guardRel: "akashic-guards parity-table-drift", edits: [
         AGMEdit(path: "Sources/akashic/CreateEntryCommand.swift", kind: "replaceFirst", a: "struct CreateEntryCmd: ParsableCommand {", b: "struct CreateEntryCmd: ParsableCommand {\n    static let brace = \"{\""),
     ], expect: ["三面皆同步"]),
-    AGMCase(desc: "在 `_scalar` 裡插一行縮排不足的註解（不得截斷切片）", guardRel: "plugin/tests/literal-scalar-parity.py", edits: [
+    AGMCase(desc: "在 `_scalar` 裡插一行縮排不足的註解（不得截斷切片）", guardRel: "akashic-guards literal-scalar-parity", edits: [
         AGMEdit(path: "plugin/skills/akashic-literal-campaign/scripts/literal-census.sh", kind: "replaceFirst", a: "        # 未加引號：", b: "# 範圍說明\n        # 未加引號："),
     ], expect: ["全部一致"]),
-    AGMCase(desc: "把巢狀型別搬到 configuration 之前（純重排，不得被當成缺陷）", guardRel: "plugin/tests/parity-table-drift.py", edits: [
+    AGMCase(desc: "把巢狀型別搬到 configuration 之前（純重排，不得被當成缺陷）", guardRel: "akashic-guards parity-table-drift", edits: [
         AGMEdit(path: "Sources/akashic/CreateEntryCommand.swift", kind: "moveNestedStruct", a: "", b: ""),
     ], expect: ["三面皆同步"]),
 ]
@@ -208,16 +201,10 @@ let agmWatched: [String] = [
 
 /// 遷移期兩版並驗的守衛。刪掉 Python 版時這張表自然清空。
 let agmMigrated: [(py: String, sub: String)] = [
-    (py: "plugin/tests/measured-claims-audit.py", sub: "measured-claims-audit"),
-    (py: "plugin/tests/literal-scalar-parity.py", sub: "literal-scalar-parity"),
-    (py: "plugin/tests/measured-numbers-audit.py", sub: "measured-numbers-audit"),
-    (py: "plugin/tests/parity-table-drift.py", sub: "parity-table-drift"),
-    (py: "plugin/tests/backlink-field-ratchet.py", sub: "backlink-field-ratchet"),
-    (py: "plugin/tests/zero-instance-rows-audit.py", sub: "zero-instance-rows-audit"),
+    // **遷移完成後為空**（#433 Step 5）：沒有 Python 版可比對了。
 ]
 
 /// 輸出**必須逐字相同**的 case 組——那個相同本身就是被斷言的性質。
 let agmPairedIdentical: [[String]] = [
     ["parity：命令名只出現在某列的理由欄", "parity：某命令只在散文被提到、不在任何表列"],
-    ["numbers：標題的數字解析不出來（不得靜默略過）", "numbers：解析失敗的宣稱仍算 rows（不變量：它必須留在 unparsed，不得變 borrowed）"],
 ]

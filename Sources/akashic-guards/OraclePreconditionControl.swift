@@ -109,7 +109,9 @@ func oraclePreconditionControl() -> Int32 {
     print("══ 檢查二：逐守衛的 baseline 驗證 ══")
     let (rc2, out2) = runHarness(["AKASHIC_POISON_BASELINE": "1"])
     var bFails: [String] = []
-    let NUMBERS = "plugin/tests/measured-numbers-audit.py"
+    // **子命令形式**（#433 Step 5）：harness 的 `guardRel` 已從 `.py` 路徑換成
+    // `akashic-guards <sub>`，訊息裡印的也是那個。比對舊路徑會讓這一格靜默失敗。
+    let NUMBERS = "akashic-guards measured-numbers-audit"
     if !out2.contains("在**注入之前**就已經紅") || !out2.contains(NUMBERS) {
         bFails.append("沒有具名報出是哪一支守衛的 baseline 就紅了")
     }

@@ -45,10 +45,21 @@ func migratedGuardControl() -> Int32 {
 
     // negative-control harness：檔名帶 `mutations` 的，加上 `oracle-precondition-control`
     // （它 import 前者的模組、驗 harness 自己的降級機制）。
+    // **harness 清單同時涵蓋兩種語言**（#433 Step 5）：遷移期間 Python 版還在，遷完之後
+    // 只剩 Swift。判準對兩者相同——它們都是「執行別的守衛」的東西，而那正是負控的定義。
     var harnesses = globFiles("plugin/tests/*mutations*.py")
         + globFiles("plugin/skills/*/scripts/tests/*mutations*.py")
     if fileExists("plugin/tests/oracle-precondition-control.py") {
         harnesses.append("plugin/tests/oracle-precondition-control.py")
+    }
+    // Swift 側：source 裡有 `Process()` 且執行別的守衛。**不列舉檔名**——列舉會與下一支
+    // harness 分岔，而這個性質從 source 就讀得出來（同下方 `isHarness` 的判準）。
+    for f in globFiles("Sources/akashic-guards/*.swift") {
+        let code = codeOnly(f)
+        if code.contains("Process()")
+            && (code.contains("akashic-guards") || code.contains("/tests/")) {
+            harnesses.append(f)
+        }
     }
     var covered = Set<String>()
     for h in harnesses {

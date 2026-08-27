@@ -84,6 +84,7 @@ func auditGuardsMutations() -> Int32 {
     let BIN = "\(repoRoot)/.build/debug/akashic-guards"
     let fm = FileManager.default
     var sourceInjected: [String] = []
+    var poisonCounter = 0          // 見 `AKASHIC_POISON_GUARD`
     var abort: String? = nil          // 取代 Python 的 SystemExit（case 無效時具名並跳過）
 
     func exec(_ argv: [String], cwd: String) -> (Int32, String) {
@@ -208,7 +209,7 @@ func auditGuardsMutations() -> Int32 {
         // **檢查二的注入**：把 `measured-numbers-audit` 的 baseline 弄髒（規則檔多一個裸
         // 數字），harness 必須在跑任何 case **之前**攔下並具名。
         if env["AKASHIC_POISON_BASELINE"] != nil,
-           guardRel == "plugin/tests/measured-numbers-audit.py" {
+           guardRel == "akashic-guards measured-numbers-audit" {
             var e = edits
             e.append(AGMEdit(path: ".claude/rules/lossless-intake.md", kind: "replaceFirst",
                              a: "## 規則", b: "## 破壞 baseline\n\n實測 42 筆。\n\n## 規則"))
@@ -216,12 +217,15 @@ func auditGuardsMutations() -> Int32 {
         }
         if let poison = env["AKASHIC_POISON_GUARD"],
            poison == guardRel, edits.isEmpty {
-            // 非決定性注入（印 pid），不改守衛的任何判斷——用來驗 ROBUST oracle 的降級。
-            // `replaceFirst`——Python 版是 `t.replace(..., 1)`。**先前寫 `"replace"`**，
-            // 而 `applyEdit` 後來拆成 `replaceAll`／`replaceFirst` 之後那個字串落到
-            // default 回 nil，於是注入靜默失效、oracle 報「沒有具名報出」。
-            return withCopy(guardRel, [AGMEdit(path: guardRel, kind: "replaceFirst",
-                a: "import re\n", b: "import os\nimport re\nprint(os.getpid())\n")])
+            // **非決定性注入在 harness 層，不在守衛裡**（#433 Step 5）。
+            //
+            // Python 版把 `print(os.getpid())` 注進守衛的 `.py`——遷移之後守衛是 compiled
+            // binary，那條路**結構上不通**。而 oracle 要測的性質是「harness 對**非決定性
+            // 輸出**的降級」，輸出從哪來不影響那個性質，所以改在這裡附加一個每次都不同的
+            // 值。遞增計數器而非 pid：pid 是 harness 自己的，同一個 process 內每次相同。
+            poisonCounter += 1
+            let r = withCopy(guardRel, [])
+            return (r.0, r.1 + "\n\(poisonCounter)")
         }
         return withCopy(guardRel, edits)
     }

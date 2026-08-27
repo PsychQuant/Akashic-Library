@@ -35,6 +35,10 @@ on:
       - "plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt"
       - "plugin/skills/akashic-literal-campaign/scripts/tests/**"
       - "Sources/AkashicStoreIO/StoreVersion.swift"
+      # plugin-store-format-parity.py 的第三份宣告來源。它是**出貨物**
+      # （release-signed.sh 會 zip 進 .mcpb），改它而守衛不跑＝出貨一個過期數字。
+      # 承接自已刪除的 plugin-guards.yml（#408 新增、#435 合併）。
+      - "mcpb/manifest.json"
       # 這支 harness 在本 workflow 跑（本 runner 有 Swift），所以**改它自己也要觸發
       # 本 workflow**——否則把它的 6 個 swift-gated case 弄壞不會驚動任何東西
       # （#407 R44 的修法原本只對一半：改 `scripts/tests/**` 下的守衛會觸發，

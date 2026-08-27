@@ -1,5 +1,4 @@
 import SwiftUI
-import AkashicAppKit
 
 enum SidebarSection: String, CaseIterable, Identifiable {
     case library = "文獻列表"
@@ -21,14 +20,29 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     }
 }
 
-struct ContentView: View {
+/// **App 的根 view,唯一跨 module 公開的表面**（#427）。
+///
+/// 本檔與另外三個 view 檔於 #427 從 `AkashicApp/Sources/` 搬進本 target,理由是
+/// `AkashicApp/` 是獨立的 Xcode 專案、**不在任何一道防線的視野內**——`swift build`／
+/// `pre-push`／`ci.yml`／14 支 plugin 守衛全部只認 SPM target。#325 把 `Entry.type`
+/// 改成 enum 之後 `EntryViews.swift` 就編不過,而那個錯誤存活了一個月沒有人知道。
+///
+/// **public 只給這一個型別與這一個 init**:app 殼唯一用到的就是
+/// `ContentView(onSwitchFile:)`。其餘 view 維持 internal——公開面越小,
+/// 日後改動越不會被迫維持相容。
+public struct ContentView: View {
     @Environment(AppState.self) private var state
     @State private var section: SidebarSection = .library
     @State private var selectedCitekey: String?
     /// #18：切換檔案（root view 注入,LaunchState 同步 rebind watcher）
     var onSwitchFile: (String) -> Void = { _ in }
 
-    var body: some View {
+    /// memberwise init 是 internal,跨 module 用不到——所以顯式給一個。
+    public init(onSwitchFile: @escaping (String) -> Void = { _ in }) {
+        self.onSwitchFile = onSwitchFile
+    }
+
+    public var body: some View {
         NavigationSplitView {
             SidebarView(section: $section, onSwitchFile: { key in
                 selectedCitekey = nil   // 舊 universe 的選取無意義

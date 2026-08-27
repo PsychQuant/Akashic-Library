@@ -1,5 +1,4 @@
 import SwiftUI
-import AkashicAppKit
 import AkashicCore
 
 struct EntryListView: View {

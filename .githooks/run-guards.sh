@@ -127,3 +127,13 @@ bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh
 # 那份，而不是實際在跑的那份。
 .build/debug/akashic-guards literal-scalar-parity
 
+
+# plugin.json 的 description 宣告 store format，而它與 `StoreVersion.supported`
+# 是同一份規格的**三個**副本（第三份是出貨物 `mcpb/manifest.json`，
+# `release-signed.sh` 會 zip 進 .mcpb）。實測三次漂移零次被發現（#408）。
+#
+# **這支仍是 Python**——#433 的 16 支遷完之後 main 才長出它（#408），所以它不在那批
+# 裡。放在這裡不是「還沒遷」的暫存：它只讀三個檔的文字、不需要 build，遷成 Swift
+# 得不到任何東西（#433 的遷移理由是「ubuntu runner 沒有 toolchain」，而現在兩個
+# workflow 已合併成一個 macOS 的，那個理由對新守衛不再適用）。
+python3 plugin/tests/plugin-store-format-parity.py

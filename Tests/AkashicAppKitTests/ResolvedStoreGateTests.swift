@@ -58,10 +58,35 @@ final class ResolvedStoreGateTests: XCTestCase {
     /// reason: "..."))`——那條路徑是**刻意留的**（keyless 是合法狀態），代價是
     /// 它可以被誤用。生產程式碼一律走 `AppState.resolvedStore`。
     func testNoProductionCodeConstructsAStoreForGraphModel() throws {
-        let appDir = repoRoot.appendingPathComponent("AkashicApp/Sources")
-        let files = (try? FileManager.default.contentsOfDirectory(
-            at: appDir, includingPropertiesForKeys: nil))?.filter { $0.pathExtension == "swift" } ?? []
-        XCTAssertFalse(files.isEmpty, "App 顯示層讀不到——目錄改名了？")
+        // **顯示層現在住兩個目錄**（#427/#429）：`AkashicApp/Sources` 只剩 112 行的
+        // `@main` 殼，4 個 view 已搬進 `Sources/AkashicAppKit`。
+        //
+        // 只掃前者的話,本守衛在搬檔那一刻就變成 **tautology**——殼檔 `LibraryStore(`
+        // 出現 0 次,兩條斷言必然通過,而下方的反空洞檢查**也照樣綠**（殼檔還在）。
+        // 它是全樹唯一擋 #125 那個事故的守衛,失效方式卻完全安靜。
+        //
+        // 不能改成「掃 AkashicAppKit」了事:那個 target 同時裝著**模型**,而模型建 store
+        // 是 #101 刻意開放的路。所以掃兩個目錄 ＋ 一張**封閉豁免表**（附理由）。
+        let viewDirs = ["AkashicApp/Sources", "Sources/AkashicAppKit"]
+        /// 合法持有 store 建構的模型檔——**封閉列舉,不得依性質相似類推第三個**。
+        /// 判準是「它是不是顯示層」,而不是「它現在有沒有觸發斷言」。
+        let modelFiles: Set<String> = [
+            "AppState.swift",    // #101：解析 store 的唯一入口,它本來就該建
+            "GraphModel.swift",  // 接受 `.unregistered` 的那一端,keyless 是合法狀態
+        ]
+        var files: [URL] = []
+        for d in viewDirs {
+            let dir = repoRoot.appendingPathComponent(d)
+            files += (try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: nil))?
+                .filter { $0.pathExtension == "swift" } ?? []
+        }
+        files = files.filter { !modelFiles.contains($0.lastPathComponent) }
+        // **反空洞:數量下限而非「非空」**。搬檔之後只剩殼檔時 `isEmpty` 仍是 false,
+        // 所以那個檢查抓不到本輪的失效。實測顯示層有 5 個檔（殼 1 ＋ view 4）。
+        XCTAssertGreaterThanOrEqual(files.count, 5,
+                                    "顯示層只找到 \(files.count) 個檔——view 被搬走了？"
+                                    + "本守衛靠檔案清單存在才有意義,清單縮水即是失效")
         for f in files {
             let text = try String(contentsOf: f, encoding: .utf8)
             XCTAssertFalse(text.contains("LibraryStore("),

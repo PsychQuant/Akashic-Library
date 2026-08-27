@@ -81,12 +81,19 @@ func migratedGuardControl() -> Int32 {
     //
     // **這是啟發式**：一個用別的方式 spawn 的 harness 會被判成非 harness（方向是**誤報**
     // ——它會被要求負控，而那是可見可裁決的，不是靜默漏放）。
+    // **不列舉路徑前綴。** 上一版寫 `plugin/tests/`，而 `marker-parity-mutations` 執行的是
+    // `plugin/skills/.../store-marker-parity.sh`——判準比它要描述的東西窄，於是一支真的
+    // harness 被要求負控。改成拿 `run-guards.sh` 裡**實際跑的每一支守衛的檔名**去比對：
+    // 那份清單本來就是唯一來源，不需要另外維護一組前綴。
+    let guardNames = Set(matches(rg, #"(?m)^(?:python3|bash|swift) (\S+)"#).map {
+        base((rg as NSString).substring(with: $0.range(at: 1)))
+    })
     func isHarness(_ sub: String) -> Bool {
         let p = "Sources/akashic-guards/" + pascal(sub) + ".swift"
         guard fileExists(p) else { return false }
         let code = codeOnly(p)
-        return code.contains("Process()")
-            && (code.contains("akashic-guards") || code.contains("plugin/tests/"))
+        guard code.contains("Process()") else { return false }
+        return code.contains("akashic-guards") || guardNames.contains(where: { code.contains($0) })
     }
     let uncovered = executed.filter { !covered.contains($0) }.sorted()
     let selfControl = uncovered.filter(isHarness)

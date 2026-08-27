@@ -46,7 +46,11 @@ bash plugin/skills/akashic-literal-campaign/scripts/tests/hash-table-drift.sh
 # （12 種序列零分歧；理由見該檔）。
 swift plugin/skills/akashic-literal-campaign/scripts/tests/multiscalar-parity.swift
 bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh
-python3 plugin/skills/akashic-literal-campaign/scripts/tests/marker-parity-mutations.py
+# **Swift 版**（#433，第三支遷移的 harness）。乾淨樹逐位元相同（19 行、rc=0）。
+# 14 個 mutation 的字串**機械抽出不手抄**（`MarkerParityMutationsData.swift`，由
+# `ast.literal_eval` 從 .py 生成）——它們是多行 Python 程式碼片段，而 harness 斷言每段
+# 必須在 census 裡逐字唯一命中，手抄一個空白之差就中止且失敗看起來像「census 改了」。
+.build/debug/akashic-guards marker-parity-mutations
 # 觸發點自己的守衛：每個受保護檔案改動時，讀它的守衛真的會跑起來嗎？
 # 判準是**逐對**而非聯集——CLAUDE.md 那張手寫的觸發點表由它量。
 # **Swift 版**（#433 B 批 4/4，全樹最大的一支 846 行）。驗證：乾淨樹逐位元相同、

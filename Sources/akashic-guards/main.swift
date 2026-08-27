@@ -119,6 +119,8 @@ case "decision-matrix-mutations":
     exit(decisionMatrixMutations())
 case "rule-prose-guards-mutations":
     exit(ruleProseGuardsMutations())
+case "marker-parity-mutations":
+    exit(markerParityMutations())
 case "measured-numbers-audit":
     exit(measuredNumbersAudit())
 case "backlink-field-ratchet":

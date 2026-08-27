@@ -107,7 +107,7 @@ WATCHED = [COVERAGE_REL, DRIFT_REL, TABLE_REL, MULTI_REL, RULE_REL,
 def with_copy(guard_rel, edits):
     """複製相關子樹、套用 edits、跑 copy 裡的那支守衛。"""
     with tempfile.TemporaryDirectory(prefix='audit-mut-') as tmp:
-        for sub in ('plugin', '.github', 'Sources'):
+        for sub in ('plugin', '.github', 'Sources', '.githooks'):
             shutil.copytree(os.path.join(ROOT, sub), os.path.join(tmp, sub))
         # **`.claude` 只複製 `rules/`。** 整個 `.claude` 是 **2.0 GB／25,519 個檔**——
         # 其中 `.claude/worktrees/` 佔 2.0 GB（IDD 的隔離工作樹，見 `git worktree list`），
@@ -156,6 +156,15 @@ def with_copy(guard_rel, edits):
         # symlink 回真 repo 是安全的；沒有它，`measured-claims-audit.py` 會因為
         # 「這裡不是 repo」而紅——與注入無關的紅等於沒有負控（#407 R27）。
         os.symlink(os.path.join(ROOT, '.git'), os.path.join(tmp, '.git'))
+        # **Swift-only 守衛**（#433）：`migrated-guard-control` 沒有 Python 原版——它是遷移
+        # 期間長出來的，用來擋「runner 跑 Swift 而負控驗 Python」那個形狀。這種守衛的
+        # `guard_rel` 直接寫成 `akashic-guards <子命令>`，不走 interpreter 那條路。
+        if guard_rel.startswith('akashic-guards '):
+            sub = guard_rel.split()[1]
+            if not os.path.exists(GUARDS_BIN):
+                return 2, f'（{GUARDS_BIN} 不存在——本 case 未執行）'
+            r = subprocess.run([GUARDS_BIN, sub], capture_output=True, text=True, cwd=tmp)
+            return r.returncode, r.stdout + r.stderr
         interp = {'py': sys.executable, 'sh': 'bash', 'swift': 'swift'}[
             guard_rel.rsplit('.', 1)[1]]
         r = subprocess.run([interp, os.path.join(tmp, guard_rel)],
@@ -189,7 +198,18 @@ def with_copy(guard_rel, edits):
         return r.returncode, r.stdout + r.stderr
 
 
+MIGRATED_CTL = 'akashic-guards migrated-guard-control'
+
 CASES = [
+    # ── migrated-guard-control（#433）────────────────────────────────────
+    # 它擋的形狀已經踩過三次：runner 換成 Swift 而負控仍驗 Python，兩邊都綠而缺口在
+    # 中間。第三次是我**修完前兩次之後**仍然漏掉的（`decision-matrix-drift`，負控是
+    # 獨立 harness 而不在 `MIGRATED` 表裡）——所以它必須是守衛，不是散文紀律。
+    ('migrated：從 MIGRATED 表拿掉一列 → 那支守衛失去驗 Swift 版的負控',
+     MIGRATED_CTL,
+     {'plugin/tests/audit-guards-mutations.py':
+      lambda t: t.replace("    NUMBERS_REL: 'measured-numbers-audit',\n", '', 1)},
+     ['缺負控', 'measured-numbers-audit']),
     # ── rule-coverage.sh ──────────────────────────────────────────────────
     # 注意：改散文裡的**名字**不夠——守衛驗的是「解析得到的相對路徑 token」，
     # 不是字串出現過（那正是它自己註解裡記的 R6 findings 14／15／17）。所以

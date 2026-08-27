@@ -67,6 +67,11 @@ python3 plugin/tests/guard-python-compat.py
 # 那張表錯過一次（R26q），而那個錯撐過了好幾輪人＋AI 審查——散文沒人檢查。
 # **Swift 版**（#433 A 批 2/2）。實測:乾淨樹 ＋ 五個 mutation,輸出**逐字相同**。
 .build/debug/akashic-guards decision-matrix-drift
+# 每支**實際在跑**的 Swift 守衛，都有 negative control 在驗它嗎（#433）？
+# 這個形狀已經踩過三次——兩次修了、第三次（`decision-matrix-drift`，A 批第一支、
+# 負控是獨立 harness 而不在 `MIGRATED` 表裡）在我修完前兩個之後**仍然漏掉**。
+# 一條記在散文裡的紀律擋不住它：它要求人每次遷移都想起來，而我沒有。
+.build/debug/akashic-guards migrated-guard-control
 python3 plugin/tests/decision-matrix-mutations.py
 # rule-coverage 與 hash-table-drift 的 negative control（#407 R32）——它們先前
 # 每次都綠而從沒紅過，落在本 issue 自己的立場之外。

@@ -71,8 +71,28 @@ CASES = [
 ]
 
 
+# ── 遷移期：runner 跑的是 Swift 版，所以負控必須驗**它**（#433）──────────────
+#
+# 這支是**第三個**同型實例，而前兩個修完之後我漏了它——`decision-matrix-drift` 是 A 批
+# 第一支遷的（在第 4 步紀律建立**之前**），而它的負控是這支獨立 harness，不在
+# `audit-guards-mutations.py` 的 `MIGRATED` 表裡，於是兩處修正都沒有涵蓋到它。
+#
+# **兩版都跑並要求逐字一致**；刪掉 Python 版時把這一段拿掉即可。
+GUARDS_BIN = os.path.join(ROOT, '.build', 'debug', 'akashic-guards')
+
+
 def run(path):
     p = subprocess.run([sys.executable, GUARD, path], capture_output=True, text=True)
+    if os.path.exists(GUARDS_BIN):
+        s = subprocess.run([GUARDS_BIN, 'decision-matrix-drift', path],
+                           capture_output=True, text=True, cwd=ROOT)
+        if (s.returncode, s.stdout + s.stderr) != (p.returncode, p.stdout + p.stderr):
+            raise SystemExit(
+                f'✗ 遷移期兩版分岔：decision-matrix-drift.py vs '
+                f'`akashic-guards decision-matrix-drift`\n'
+                f'  ── python rc={p.returncode}\n{p.stdout}{p.stderr}\n'
+                f'  ── swift  rc={s.returncode}\n{s.stdout}{s.stderr}')
+        return s.returncode, s.stdout + s.stderr      # 回傳**實際在跑的**那一版
     return p.returncode, p.stdout + p.stderr
 
 

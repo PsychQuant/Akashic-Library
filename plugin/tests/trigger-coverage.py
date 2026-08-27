@@ -46,12 +46,39 @@ os.chdir(ROOT)
 # 生成器不是守衛——它由 hash-table-drift.sh 呼叫，自己不做斷言。
 GENERATORS = {'derive-hash-extenders.swift'}
 
-GUARDS = [g for g in sorted(
+# **Swift 守衛的身分是 `main.swift` 的 dispatch 表，不是目錄 glob**（#433）。
+#
+# `Sources/akashic-guards/` 裡有三個**不是守衛**的檔案：`main.swift`（dispatch）、
+# `ShellLex.swift`（共用工具）、`BacklinkRatchetData.swift`（生成的資料）。glob 會把它們
+# 一起收進來，而 `case "X":` 是「它是一支守衛」的定義——比檔案存在準。
+#
+# **為什麼非加不可**：`GUARDS` 原本只 glob `plugin/tests/*.{sh,py}`，所以 Python 版一刪，
+# 那支守衛就**整個離開覆蓋表**——不是留下一個壞掉的條目，是消失。實測：21 支 → 6 支，
+# 而輸出仍印 `✓ pre-push 涵蓋 6/6 支守衛`。保護範圍縮掉 71% 而兩個數字都以 ✓ 開頭。
+def _swift_guards():
+    main = 'Sources/akashic-guards/main.swift'
+    if not os.path.exists(main):
+        return []
+    src = io.open(main, encoding='utf8').read()
+    out = []
+    for sub in re.findall(r'^\s*case "([a-z][a-z0-9-]*)":', src, re.M):
+        p = 'Sources/akashic-guards/' + _pascal(sub) + '.swift'
+        if os.path.exists(p):
+            out.append(p)
+    return out
+
+
+def _pascal(sub):
+    """`measured-numbers-audit` → `MeasuredNumbersAudit`（子命令名 ↔ 檔名的唯一對映）。"""
+    return ''.join(w[:1].upper() + w[1:] for w in sub.split('-'))
+
+
+GUARDS = sorted([g for g in (
     glob.glob('plugin/tests/*.sh') + glob.glob('plugin/tests/*.py')
     + glob.glob('plugin/skills/*/scripts/tests/*.sh')
     + glob.glob('plugin/skills/*/scripts/tests/*.py')
     + glob.glob('plugin/skills/*/scripts/tests/*.swift'))
-    if os.path.basename(g) not in GENERATORS]
+    if os.path.basename(g) not in GENERATORS] + _swift_guards())
 
 # 守衛之外，還被守衛讀的東西。**每一條都必須存在**（坑 1）。
 DATA = [
@@ -381,7 +408,9 @@ def invoked(text):
     # 都是那支守衛的**身分**，直到它被刪除為止。刪除之後這一行對它自然失效，
     # 而那時 `GUARDS` 也不再列出它——兩者同時消失，不留孤兒。
     for m in re.finditer(r'akashic-guards\s+([A-Za-z0-9_-]+)', text):
-        found.add(m.group(1) + '.py')
+        sub = m.group(1)
+        found.add(sub + '.py')                    # 遷移期：Python 版仍是那支守衛的身分
+        found.add(_pascal(sub) + '.swift')        # 刪掉 Python 之後這一個接手
     return found
 
 
@@ -476,7 +505,8 @@ for y in sorted(glob.glob('.github/workflows/*.yml')):
         # **Swift 版守衛也要展開**（#433）——腳本裡是 `.build/debug/akashic-guards X`，
         # 而 `invoked()` 只認 `<直譯器> <腳本>`。第三次補同一個 indirection:
         # HOOK 一次、workflow 的直接呼叫一次、這裡（經腳本的間接呼叫）一次。
-        inv = inv | {m + '.py' for m in re.findall(r'akashic-guards\s+([A-Za-z0-9_-]+)', rg)}
+        for _s in re.findall(r'akashic-guards\s+([A-Za-z0-9_-]+)', rg):
+            inv = inv | {_s + '.py', _pascal(_s) + '.swift'}
     WORKFLOWS[os.path.basename(y)] = (yaml_paths(y), inv)
 
 # **也要剝註解。** 上一版這裡讀 raw text，而 code_only() 就在同一個檔案裡、
@@ -496,8 +526,8 @@ HOOK = (code_only('.githooks/pre-push') if os.path.exists('.githooks/pre-push') 
 # **Swift 版守衛的呼叫也算數**（#433）——與 `invoked()` 裡那段同一個理由。
 # HOOK 用純子字串比對（`os.path.basename(g) in HOOK`），所以把子命令名補成 `X.py`
 # 塞進這個字串即可。**兩種讀法各補一次**：#432 就是因為只改對一種而讓 CI 側漏了 90 格。
-HOOK += ''.join('\n' + m + '.py'
-                for m in re.findall(r'akashic-guards\s+([A-Za-z0-9_-]+)', HOOK))
+HOOK += ''.join('\n' + s + '.py' + '\n' + _pascal(s) + '.swift'
+                for s in re.findall(r'akashic-guards\s+([A-Za-z0-9_-]+)', HOOK))
 
 print(f'守衛 {len(GUARDS)} 支｜受保護 {len(PROTECTED)} 個｜'
       f'workflow {len(WORKFLOWS)} 份\n')

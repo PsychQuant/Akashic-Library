@@ -16,6 +16,20 @@
 # `set -eo pipefail` 與 hook 同——任何一支非零就中止（#129 verify 的教訓）。
 set -eo pipefail
 
+# **9 支守衛已遷成 `akashic-guards` 的子命令（#433），它們需要先 build。**
+#
+# 沒有這個檢查的話，失敗訊息是 shell 的 `No such file or directory` ——那說不出
+# 「為什麼」也說不出「怎麼修」。`plugin-guards.yml` 跑在 **ubuntu**（無 Swift
+# toolchain），所以 CI 恢復後它必然走到這裡；讓它講清楚，而不是留一個看起來像
+# 路徑打錯的訊息。
+if [ ! -x .build/debug/akashic-guards ]; then
+  echo "✗ .build/debug/akashic-guards 不存在或不可執行。"
+  echo "  9 支守衛已遷成它的子命令（#433），先跑："
+  echo "      swift build --product akashic-guards"
+  echo "  （CI：本腳本現在需要 Swift toolchain——ubuntu runner 尚未具備，見 #435）"
+  exit 1
+fi
+
 bash plugin/tests/rule-coverage.sh
 # 逐條重建審查者宣稱的失敗情境——一條 finding 若重建不出它宣稱的失敗，
 # 那條就是未經量測的（#407 R10 的九條裡有一條正是如此）。

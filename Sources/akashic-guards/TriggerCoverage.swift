@@ -279,7 +279,9 @@ func invoked(_ text: String) -> Set<String> {
     // glob `plugin/tests/*.py` 得出的，所以刪檔會讓那支守衛**整個離開覆蓋表**（實測
     // 21 支 → 6 支），而輸出仍印 `✓ 涵蓋 6/6`。「不留孤兒」為真，但保護範圍會安靜縮小。
     for m in matches(text, #"akashic-guards\s+([A-Za-z0-9_-]+)"#) {
-        found.insert((text as NSString).substring(with: m.range(at: 1)) + ".py")
+        let sub = (text as NSString).substring(with: m.range(at: 1))
+        found.insert(sub + ".py")                  // 遷移期：Python 版仍是那支守衛的身分
+        found.insert(pascal(sub) + ".swift")       // 刪掉 Python 之後這一個接手
     }
     return found
 }
@@ -294,14 +296,41 @@ private func pyDirname(_ p: String) -> String {
     return String(p[p.startIndex..<i])
 }
 
+/// `measured-numbers-audit` → `MeasuredNumbersAudit`（子命令名 ↔ 檔名的唯一對映）。
+private func pascal(_ sub: String) -> String {
+    sub.components(separatedBy: "-").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined()
+}
+
+/// **Swift 守衛的身分是 `main.swift` 的 dispatch 表，不是目錄 glob**（#433）。
+///
+/// `Sources/akashic-guards/` 裡有三個**不是守衛**的檔案：`main.swift`（dispatch）、
+/// `ShellLex.swift`（共用工具）、`BacklinkRatchetData.swift`（生成的資料）。glob 會把它們
+/// 一起收進來，而 `case "X":` 是「它是一支守衛」的定義——比檔案存在準。
+///
+/// **為什麼非加不可**：`GUARDS` 原本只 glob `plugin/tests/*.{sh,py}`，所以 Python 版一刪，
+/// 那支守衛就**整個離開覆蓋表**——不是留下壞掉的條目，是消失。實測 21 支 → 6 支，
+/// 而輸出仍印 `✓ pre-push 涵蓋 6/6 支守衛`。
+private func swiftGuards() -> [String] {
+    let main = "Sources/akashic-guards/main.swift"
+    guard fileExists(main) else { return [] }
+    let src = rawFile(main)
+    var out: [String] = []
+    for m in matches(src, #"(?m)^\s*case "([a-z][a-z0-9-]*)":"#) {
+        let sub = (src as NSString).substring(with: m.range(at: 1))
+        let p = "Sources/akashic-guards/" + pascal(sub) + ".swift"
+        if fileExists(p) { out.append(p) }
+    }
+    return out
+}
+
 func triggerCoverage(argv: [String]) -> Int32 {
     // 生成器不是守衛——它由 hash-table-drift.sh 呼叫，自己不做斷言。
     let GENERATORS: Set<String> = ["derive-hash-extenders.swift"]
-    let GUARDS = (globFiles("plugin/tests/*.sh") + globFiles("plugin/tests/*.py")
+    let GUARDS = ((globFiles("plugin/tests/*.sh") + globFiles("plugin/tests/*.py")
         + globFiles("plugin/skills/*/scripts/tests/*.sh")
         + globFiles("plugin/skills/*/scripts/tests/*.py")
         + globFiles("plugin/skills/*/scripts/tests/*.swift"))
-        .sorted().filter { !GENERATORS.contains(base($0)) }
+        .filter { !GENERATORS.contains(base($0)) } + swiftGuards()).sorted()
 
     // 守衛之外，還被守衛讀的東西。**每一條都必須存在**（坑 1）。
     var DATA = [
@@ -397,7 +426,8 @@ func triggerCoverage(argv: [String]) -> Int32 {
             // **Swift 版守衛也要展開**（#433）——腳本裡是 `.build/debug/akashic-guards X`，
             // 而 `invoked()` 只認 `<直譯器> <腳本>`。第三次補同一個 indirection。
             for m in matches(rg, #"akashic-guards\s+([A-Za-z0-9_-]+)"#) {
-                inv.insert((rg as NSString).substring(with: m.range(at: 1)) + ".py")
+                let s = (rg as NSString).substring(with: m.range(at: 1))
+                inv.insert(s + ".py"); inv.insert(pascal(s) + ".swift")
             }
         }
         WORKFLOWS.append((base(y), yamlPaths(y), inv))
@@ -417,8 +447,10 @@ func triggerCoverage(argv: [String]) -> Int32 {
     // （`HOOK += f(HOOK)` 在 Swift 是 exclusivity 衝突——`+=` 是 inout 存取而右側讀同一
     //   個變數。先算進臨時變數再併，這是 Swift 端才有的形狀，不是語意差異。）
     let hookSuffix = matches(HOOK, #"akashic-guards\s+([A-Za-z0-9_-]+)"#)
-        .map { "\n" + (HOOK as NSString).substring(with: $0.range(at: 1)) + ".py" }
-        .joined()
+        .map { m -> String in
+            let s = (HOOK as NSString).substring(with: m.range(at: 1))
+            return "\n" + s + ".py" + "\n" + pascal(s) + ".swift"
+        }.joined()
     HOOK += hookSuffix
 
     print("守衛 \(GUARDS.count) 支｜受保護 \(PROTECTED.count) 個｜workflow \(WORKFLOWS.count) 份\n")

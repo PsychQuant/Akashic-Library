@@ -61,6 +61,30 @@ def _zi_verdict_heading(new):
     return sub
 CREATE_ENTRY_REL = 'Sources/akashic/CreateEntryCommand.swift'
 SCALAR_GUARD_REL = 'plugin/tests/literal-scalar-parity.py'
+
+# ── 遷移期：runner 跑的是 Swift 版，所以負控必須驗**它**（#433）──────────────
+#
+# `run-guards.sh` 換成 `.build/debug/akashic-guards X` 之後，這支 harness 若仍只跑
+# `plugin/tests/X.py`，它驗的就是一個**不再被執行的實作**——負控全綠，而實際在跑的
+# 那一版會不會紅，沒有任何東西在保證。這是本 repo 反覆記過的形狀（一份規格與現實
+# 安靜分岔），而這一次是**遷移自己製造的**：兩邊都綠，缺口在它們中間。
+#
+# **兩版都跑並要求逐字一致**，不是二選一。理由是兩者在遷移期各有不可取代的角色：
+# Python 版是 oracle（Swift 版的正確性正是由「與它輸出相同」建立的），Swift 版是
+# 實際在跑的。要求一致同時保住兩者，並把「遷移期兩版不得分岔」從一次性的手動比對
+# 變成**每個 mutation 都跑**的斷言——比我手動比對過的那 19 格涵蓋更廣。
+#
+# Step 4 刪掉 Python 版時這張表自然清空，harness 退化成只跑 Swift。
+MIGRATED = {
+    NUMBERS_REL: 'measured-numbers-audit',
+    PARITY_TABLE_REL: 'parity-table-drift',
+    RATCHET_REL: 'backlink-field-ratchet',
+    ZIROWS_REL: 'zero-instance-rows-audit',
+}
+GUARDS_BIN = os.path.join(ROOT, '.build/debug/akashic-guards')
+# 注入**守衛自己原始碼**的 case：Swift 側結構上測不到，見 `with_copy` 裡的說明。
+# 收集起來在 main() 尾端彙總印出——靜默跳過會讓「Swift 側沒有負控」這件事消失。
+SOURCE_INJECTED = []
 CENSUS_REL = 'plugin/skills/akashic-literal-campaign/scripts/literal-census.sh'
 MODELS_REL = 'Sources/AkashicCore/Models.swift'
 MCP_RULE_REL = '.claude/rules/mcp-cli-parity.md'
@@ -81,14 +105,46 @@ WATCHED = [COVERAGE_REL, DRIFT_REL, TABLE_REL, MULTI_REL, RULE_REL,
 def with_copy(guard_rel, edits):
     """複製相關子樹、套用 edits、跑 copy 裡的那支守衛。"""
     with tempfile.TemporaryDirectory(prefix='audit-mut-') as tmp:
-        for sub in ('plugin', '.github', '.claude', 'Sources'):
+        for sub in ('plugin', '.github', 'Sources'):
             shutil.copytree(os.path.join(ROOT, sub), os.path.join(tmp, sub))
+        # **`.claude` 只複製 `rules/`。** 整個 `.claude` 是 **2.0 GB／25,519 個檔**——
+        # 其中 `.claude/worktrees/` 佔 2.0 GB（IDD 的隔離工作樹，見 `git worktree list`），
+        # 而守衛讀的只有 `.claude/rules/`（144 KB；private repo，外部讀者取不到）。全樹複製
+        # 要 **16.5 秒一次**，
+        # 乘上 `tested` 的每支 baseline ＋ 每個 mutation case，讓這支 harness 從
+        # 30.6 秒漲到 **13 分鐘以上**，`oracle-precondition-control.py`（它 import 本模組
+        # 並多次呼叫 `with_copy`）漲到 **5 分 44 秒**。
+        #
+        # **這是安靜的**：兩支都照樣全綠，只是慢——而 CLAUDE.md 已經記過「四分鐘的
+        # pre-push 在頻繁 push 時會被 `--no-verify` 繞過，那時**所有**守衛等於不存在」。
+        # 一個因為別處長出 2 GB 而變慢十倍的 harness，走的正是那條路。
+        #
+        # 全部守衛（含 `plugin/skills/*/scripts/tests/`）引用的 `.claude` 路徑實測**只有**
+        # `.claude/rules/`（private repo，外部讀者取不到）；`.claude/rulez` 與
+        # `.claude/rules/x.md`（同樣取不到）是負控刻意用的**不存在**路徑——
+        # 不需要複製任何東西就能扮演它們的角色。
+        os.makedirs(os.path.join(tmp, '.claude'))
+        shutil.copytree(os.path.join(ROOT, '.claude', 'rules'),
+                        os.path.join(tmp, '.claude', 'rules'))
         # **CLAUDE.md 是檔案不是目錄**，所以它不在上面那個迴圈裡（#407 R67g）。
         # `measured-numbers-audit.py` 自 R67g 起也掃它，而少了這一行，針對它的注入
         # 會以 `FileNotFoundError` 失敗——那是與注入無關的紅，等於沒有負控。
         shutil.copy2(os.path.join(ROOT, 'CLAUDE.md'), os.path.join(tmp, 'CLAUDE.md'))
         for rel, fn in edits.items():
             p = os.path.join(tmp, rel)
+            # **`None` ＝ 把它整個搬走**（#433）。用來測「輸入來源歸零」這一類性質，
+            # 而不是改守衛**自己的原始碼**去指向一個錯的路徑。
+            #
+            # 差別在遷移之後才顯現：注入原始碼只對直譯語言有效——Swift 版的等價字串在
+            # compiled binary 裡，改 `.py` 對它**結構上**無效，於是那種 case 在兩版比對
+            # 下永遠報分岔，而分岔的原因與守衛的正確性無關。改成搬走目錄之後，測的仍是
+            # 同一個性質（守衛會不會發現輸入源沒了），但**語言中立**——而那個性質正是
+            # 守衛訊息自己寫的那句「路徑錯了還是**被搬走了**？」。
+            if fn is None:
+                if not os.path.exists(p):
+                    raise SystemExit(f'✗ 注入要搬走 {rel} 但它不存在——這個 case 無效')
+                shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
+                continue
             before = io.open(p, encoding='utf8').read()
             after = fn(before)
             if after == before:
@@ -102,6 +158,32 @@ def with_copy(guard_rel, edits):
             guard_rel.rsplit('.', 1)[1]]
         r = subprocess.run([interp, os.path.join(tmp, guard_rel)],
                            capture_output=True, text=True, cwd=tmp)
+        sub = MIGRATED.get(guard_rel)
+        # **注入守衛自己的原始碼時不做兩版比對。** Swift 版的等價程式碼在 compiled
+        # binary 裡，改 `.py` 對它**結構上**無效——比對必然分岔，而分岔與守衛的正確性
+        # 無關。這類注入測的是 harness **自己**的機制（`oracle-precondition-control.py`
+        # 毒化守衛以驗證 ROBUST oracle 的降級行為），不是守衛在測的那個性質。
+        #
+        # 判準是結構的（`edits` 動到 `guard_rel` 自己），不是一張名單——名單會與 CASES
+        # 分岔，而這個性質從 edits 就讀得出來。
+        #
+        # 代價要說出來：這些 case 的 **Swift 側沒有負控**。能改成環境注入的就該改
+        # （本輪把 `.claude/rules` 與 `CLAUDE.md` 那兩個改掉了，它們測的「輸入源歸零」
+        # 本來就與語言無關）；真正在測 harness 機制的那些改不掉，只能記著。
+        if sub and guard_rel in edits:
+            SOURCE_INJECTED.append(guard_rel)
+            sub = None
+        if sub and os.path.exists(GUARDS_BIN):
+            # Swift 版以 **cwd** 定位 repo，所以 binary 留在 ROOT、cwd=tmp 即讀到注入後
+            # 的副本（Python 版靠 `__file__`，而它自己也被複製進 tmp 了）。
+            rs = subprocess.run([GUARDS_BIN, sub],
+                                capture_output=True, text=True, cwd=tmp)
+            if (rs.returncode, rs.stdout + rs.stderr) != (r.returncode, r.stdout + r.stderr):
+                raise SystemExit(
+                    f'✗ 遷移期兩版分岔：{guard_rel} vs `akashic-guards {sub}`\n'
+                    f'  ── python rc={r.returncode}\n{r.stdout}{r.stderr}\n'
+                    f'  ── swift  rc={rs.returncode}\n{rs.stdout}{rs.stderr}')
+            return rs.returncode, rs.stdout + rs.stderr   # 回傳**實際在跑的**那一版
         return r.returncode, r.stdout + r.stderr
 
 
@@ -230,15 +312,11 @@ CASES = [
      NUMBERS_REL,
      # 只打壞 `.claude/rules`——聯集版會被另外兩個來源撐住而靜默回綠，逐來源版
      # 必須具名是**哪一個**歸零（#407 R67g）。
-     {NUMBERS_REL: lambda t: t.replace("'.claude/rules/*.md': glob.glob",
-                                       "'.claude/rulez/*.md': glob.glob", 1)
-                              .replace("os.path.join(root, '.claude/rules/*.md')),",
-                                       "os.path.join(root, '.claude/rulez/*.md')),", 1)},
-     ['`.claude/rulez/*.md` 一個檔都沒找到']),
+     {'.claude/rules': None},
+     ['`.claude/rules/*.md` 一個檔都沒找到']),
     ('numbers：CLAUDE.md 不見（同樣不得被另外兩個來源撐著）',
      NUMBERS_REL,
-     {NUMBERS_REL: lambda t: t.replace("'CLAUDE.md': glob.glob(os.path.join(root, 'CLAUDE.md')),",
-                                       "'CLAUDE.md': glob.glob(os.path.join(root, 'CLAUDE.mdx')),", 1)},
+     {'CLAUDE.md': None},
      ['`CLAUDE.md` 一個檔都沒找到']),
     # #413：`borrowed` 分桶先前只看 `c[4]`，安全性靠一個**跨函式**的不變量——
     # `declared_counts` 在數字解析失敗時 append `(…, None, None)` 並立刻 `continue`，
@@ -569,6 +647,12 @@ def main():
     before = {r: os.stat(os.path.join(ROOT, r)).st_mtime_ns for r in WATCHED}
 
     has_swift = shutil.which('swift') is not None
+    # **binary 缺席要說出來，不得靜默退回只驗 Python**（`lossless-intake` 執行細節 3）：
+    # 那會讓 `MIGRATED` 的四支在這台機器上失去負控，而輸出與「驗過了」完全一樣。
+    if not os.path.exists(GUARDS_BIN):
+        print(f'ℹ {GUARDS_BIN} 不存在——`MIGRATED` 的 {len(MIGRATED)} 支只驗 Python 版，'
+              f'實際在 run-guards.sh 跑的 Swift 版**在這台機器上沒有負控**。'
+              f'先跑 `swift build --product akashic-guards`。')
     for rel in ([COVERAGE_REL] + ([DRIFT_REL] if has_swift else [])):
         r = subprocess.run(['bash', os.path.join(ROOT, rel)],
                            capture_output=True, text=True, cwd=ROOT)
@@ -598,6 +682,7 @@ def main():
     # 的事（實測驗了 10 支卻說 2 支）。本 repo 有一整支守衛在抓「宣稱的數字沒跟上
     # 實際狀態」，而這行就落在同一支 harness 裡。
     print(f'baseline：{len(tested)} 支皆綠 ✓（{len(CASES)} 個 mutation 待跑）\n')
+    SOURCE_INJECTED.clear()   # baseline 階段的計數不算——那裡 edits 是空的
 
     # **缺 swift 時大聲跳過，不假裝乾淨**（#407 R42）：本 harness 有 6 個 case 需要真的
     # Swift toolchain（`multiscalar-parity.swift` 三個、`hash-table-drift.sh` 三個經由
@@ -724,6 +809,14 @@ def main():
     after = {r: os.stat(os.path.join(ROOT, r)).st_mtime_ns for r in WATCHED}
     same = before == after
     expected = len(CASES) - len(skipped) + len(ROBUST) + 2  # +2 = 不變式、重複掃描
+    if SOURCE_INJECTED:
+        # **不靜默。** 這些 case 的 Swift 側沒有負控，而輸出若不說，它與「兩版都驗過了」
+        # 長得一模一樣（`lossless-intake` 執行細節 3 的同一個立場）。
+        uniq = sorted({os.path.basename(g) for g in SOURCE_INJECTED})
+        print(f'ℹ {len(SOURCE_INJECTED)} 個 case 注入的是守衛**自己的原始碼**'
+              f'（{"、".join(uniq)}）——Swift 版的等價程式碼在 compiled binary 裡，'
+              f'改 .py 對它無效，所以這些 case **只驗了 Python 版**。'
+              f'能改成環境注入的就該改（見 `with_copy` 的說明）。')
     print(f'\n=== negative control {ok}/{expected} '
           f'（{len(CASES) - len(skipped)} 須紅 ＋ {len(ROBUST)} 須綠 ＋ 2 後設檢查）==='
           + (f'（另有 {len(skipped)} 個因缺 swift 跳過）' if skipped else ''))

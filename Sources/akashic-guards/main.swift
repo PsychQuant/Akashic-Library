@@ -98,6 +98,17 @@ guard args.count >= 2 else {
 switch args[1] {
 case "zero-instance-rows-audit":
     exit(zeroInstanceRowsAudit())
+case "__shlex-probe":   // 內部：tokenizer 對照用，不在 run-guards 裡
+    while let line = readLine(strippingNewline: true) {
+        if line.isEmpty { continue }
+        if let t = try? shellLex(line) { print(t.joined(separator: "\u{1F}")) }
+        else { print("<ValueError>") }
+    }
+    exit(0)
+case "trigger-coverage":
+    exit(triggerCoverage(argv: Array(CommandLine.arguments.dropFirst(2))))
+case "measured-numbers-audit":
+    exit(measuredNumbersAudit())
 case "backlink-field-ratchet":
     exit(backlinkFieldRatchet())
 case "parity-table-drift":

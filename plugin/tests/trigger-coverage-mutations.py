@@ -32,10 +32,18 @@ def with_copy(edits):
         # 而那些檔案現在在 PROTECTED 裡（#407 R48）。沒複製的話 temp 樹裡那條宣告
         # 解析不到，**每一個 case 都多報一條與注入無關的缺口**——R35 對根目錄檔案
         # 踩過完全同型的一次。
-        for sub in ('plugin', '.github', '.githooks', 'Sources', '.claude'):
+        for sub in ('plugin', '.github', '.githooks', 'Sources'):
             src = os.path.join(ROOT, sub)
             if os.path.isdir(src):
                 shutil.copytree(src, os.path.join(tmp, sub))
+        # **`.claude` 只複製 `rules/`**（#433，與 `audit-guards-mutations.py` 同一個修正）：
+        # 整個 `.claude` 是 2.0 GB／25,519 個檔，其中 `.claude/worktrees/` 佔 2.0 GB
+        # （IDD 的隔離工作樹）；守衛要的只有規則檔（144 KB；private repo，外部讀者取不到）。
+        # 全樹複製 16.5 秒一次 × 每個 case，而正確答案完全落在那個小目錄裡。
+        rules_src = os.path.join(ROOT, '.claude', 'rules')
+        if os.path.isdir(rules_src):
+            os.makedirs(os.path.join(tmp, '.claude'), exist_ok=True)
+            shutil.copytree(rules_src, os.path.join(tmp, '.claude', 'rules'))
         # **根目錄的受保護檔也要複製。** 它們不是子樹，上面那個迴圈看不到——
         # 漏掉時守衛在 temp 樹裡找不到 DATA 的成員，於是**每一個** case 都因為
         # 同一個與注入無關的理由變紅（#407 R27 當場踩到：加了 `CLAUDE.md` 進

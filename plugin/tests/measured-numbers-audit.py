@@ -36,7 +36,12 @@ import os
 import re
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# **`realpath` 不是 `abspath`**（#407 R21 在 `trigger-coverage.py` 記過同一個坑）：
+# macOS 的 tempdir 是 `/var/folders/…`，而 `/var` 是 `/private/var` 的 symlink。
+# `__file__` 保留 `/var`，而 `getcwd()`（Swift 版據以定位 repo 的東西）已解析成
+# `/private/var`——於是下面那則錯誤訊息裡的 `{root}` 在 mutation 環境下兩版永遠不相等，
+# 負控會報一個與語意無關的分岔。
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 NUM = re.compile(r'實測[^。\n]{0,24}?(\d[\d,./]*)')
 MARK = re.compile(r'20\d\d-\d\d-\d\d|20\d\d 年|當日|立案當時|#\d{2,4}')
 # **工具名不算配方**（#407 R39，跨模型審查指名）：前一版只要 backtick 裡出現關鍵字

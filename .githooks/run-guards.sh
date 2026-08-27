@@ -47,7 +47,11 @@ python3 plugin/tests/decision-matrix-mutations.py
 python3 plugin/tests/audit-guards-mutations.py
 python3 plugin/tests/oracle-precondition-control.py
 # 規則檔裡的「實測 N」必須有時間錨或可重跑的指令（#407 R36）。
-python3 plugin/tests/measured-numbers-audit.py
+# **Swift 版**（#433 B 批 3/4）。乾淨副本 ＋ **12 個 mutation**（三個負向:fence 內、
+# 四位數年份、有錨即不報）,輸出**逐字相同**。契約交叉核對另確認三處**理由**而非行為
+# 的一致:40 行表格視窗、`[i-4, i+8)` 指令視窗、以及 `countRe` 的字元類**刻意比**
+# `digits` 認得的寬（否則「解析不出要報」那條路徑不可達,#407 R67i）。
+.build/debug/akashic-guards measured-numbers-audit
 # mcp-cli-parity.md 的封閉列舉 vs 程式碼實際有的東西（#407 R50）——那條規則自帶的
 # 稽核程序先前從來沒人跑。
 # **Swift 版**（#433 B 批 1/4）。實測:乾淨副本 ＋ 四個 mutation,輸出**逐字相同**。

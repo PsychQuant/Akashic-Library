@@ -13,7 +13,8 @@ import Foundation
 ///
 /// 輸出要與 Python 版**逐位元相同**，所以連 repr 的引號規則都要跟——含單引號的字串
 /// Python 會改用雙引號包。
-private func pyRepr(_ xs: [String]) -> String {
+/// Python `repr()` / `str()` 對 `list[str]` 的格式——`MeasuredClaimsAudit` 也用它，故非 private。
+func pyRepr(_ xs: [String]) -> String {
     "[" + xs.map { s -> String in
         s.contains("'") && !s.contains("\"")
             ? "\"\(s)\""
@@ -22,7 +23,7 @@ private func pyRepr(_ xs: [String]) -> String {
     }.joined(separator: ", ") + "]"
 }
 
-private func pyRepr(_ s: String) -> String { pyRepr([s]).dropFirst().dropLast().description }
+func pyRepr(_ s: String) -> String { pyRepr([s]).dropFirst().dropLast().description }
 
 /// Python `os.path.abspath`：相對 cwd 轉絕對，並正規化 `..`／`.`。
 private func abspath(_ p: String) -> String {

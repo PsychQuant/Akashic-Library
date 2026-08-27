@@ -44,7 +44,11 @@ python3 plugin/tests/trigger-coverage-mutations.py
 # 語法相容性要**最先**跑（#394 verify R9）：它便宜（秒級）,而它防的失效會讓
 # 後面任何一支守衛在 hook 裡變成 SyntaxError——那個症狀極具誤導性。
 python3 plugin/tests/guard-python-compat.py
-python3 plugin/tests/measured-claims-audit.py
+# **Swift 版**（#433 C 批 2/3）。驗證：乾淨樹逐位元相同（29 行、rc=0），負控在
+# `audit-guards-mutations.py` 的 `MIGRATED` 表裡兩版並驗。
+# **注意**：本支有 case 注入守衛**自己的原始碼**，Swift 側結構上測不到（harness 會把
+# 那幾格彙總印出，不靜默）——它們目前只驗了 Python 版。
+.build/debug/akashic-guards measured-claims-audit
 # CLAUDE.md 的 pre-push 決策矩陣：宣稱值 vs 由兩條語意規則現算的值。
 # 那張表錯過一次（R26q），而那個錯撐過了好幾輪人＋AI 審查——散文沒人檢查。
 # **Swift 版**（#433 A 批 2/2）。實測:乾淨樹 ＋ 五個 mutation,輸出**逐字相同**。

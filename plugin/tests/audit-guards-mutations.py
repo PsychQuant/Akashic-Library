@@ -76,6 +76,7 @@ SCALAR_GUARD_REL = 'plugin/tests/literal-scalar-parity.py'
 #
 # Step 4 刪掉 Python 版時這張表自然清空，harness 退化成只跑 Swift。
 MIGRATED = {
+    CLAIMS_REL: 'measured-claims-audit',
     NUMBERS_REL: 'measured-numbers-audit',
     PARITY_TABLE_REL: 'parity-table-drift',
     RATCHET_REL: 'backlink-field-ratchet',

@@ -109,6 +109,8 @@ case "trigger-coverage":
     exit(triggerCoverage(argv: Array(CommandLine.arguments.dropFirst(2))))
 case "rule-prose-guards":
     exit(ruleProseGuards(argv: Array(CommandLine.arguments.dropFirst(2))))
+case "measured-claims-audit":
+    exit(measuredClaimsAudit())
 case "measured-numbers-audit":
     exit(measuredNumbersAudit())
 case "backlink-field-ratchet":

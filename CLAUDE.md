@@ -93,8 +93,22 @@ propose ──→ park ──────────────→ apply ─�
 > | 觸發點 | 檔案 | 實際執行 |
 > |---|---|---|
 > | `.githooks/pre-push`（全部） | ✅ | ❌ `core.hooksPath` 指向**主 repo** 的 `.githooks`，那份對這些守衛 0 命中——worktree 的修改不是實際生效的那份。**merge 到 main 後自癒** |
-> | `plugin-guards.yml`（ubuntu，1×） | ✅ | ⬜ 從未執行（branch 未 push） |
-> | `census-parity.yml`（macOS；只在 census／parity 測試／生成表／oracle 改動時觸發） | ✅ | ❌ **帳號層付款失效**（見下）——run 全部 `failure` 且 **steps=0**（runner 層拒跑） |
+> | ~~`plugin-guards.yml`（ubuntu，1×）~~ | **已刪除** | 2026-08-27（#435）——見下 |
+> | `census-parity.yml`（macOS；現在也涵蓋 `plugin/**` 與原 ubuntu 那份的全部 paths） | ✅ | ❌ **帳號層付款失效**（見下）——run 全部 `failure` 且 **steps=0**（runner 層拒跑） |
+>
+> **`plugin-guards.yml` 已於 2026-08-27 刪除**（#435）：它跑在 ubuntu（1× 計費），
+> 設計理由是「純 python／bash 的守衛不必點 10× 的 macOS runner」。**守衛遷成 Swift 之後
+> （#433）那個理由不再成立**——`run-guards.sh` 需要 `swift build`，而 ubuntu runner 沒有
+> toolchain，那個 workflow 必然失敗。兩者當時跑的已經是**同一個命令**
+> （`bash .githooks/run-guards.sh`），差別只在 paths。
+>
+> 留著一個必然失敗的 workflow 比沒有它更糟：它會訓練人忽略紅燈。paths 合併進
+> `census-parity.yml`，`trigger-coverage` 驗證覆蓋仍完整（**35/35、零缺口、workflow 2 份**
+> ——那是本機證據）。
+>
+> **代價**：所有 plugin 改動現在都點 10× 的 macOS runner。2026-08 兩度把免費額度燒光正是
+> 這個形狀，所以這不是零成本的決定——但它是必然的，除非在 ubuntu 裝 Swift toolchain
+> （#435 記著兩個候選，兩者都無法在 CI 恢復前驗證）。
 >
 > **「macOS runner 帳務擱置」這個說法在 2026-08-26 被更正——範圍與原因都寫窄了。**
 > 逐字的原因取自 check-run annotation（`gh api /repos/<r>/check-runs/<jobId>/annotations`）：

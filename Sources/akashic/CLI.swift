@@ -65,6 +65,7 @@ struct AkashicCLI: ParsableCommand {
             // MCP 對應面在同一 change 落表（mcp-cli-parity）
             VenueCmd.self, VenuesCmd.self, AddVenueCmd.self, UpdateVenueCmd.self, ResolveVenuesCmd.self,
             MigrateVenues.self,
+            MigrateVenueVariants.self,
         MigrateIdentifiers.self,
         ])
 }

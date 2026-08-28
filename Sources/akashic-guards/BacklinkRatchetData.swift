@@ -39,8 +39,8 @@ let adjudicated: Set<String> = [
     "Temporal.start", "Temporal.usesAttested", "Temporal.usesEndedUnknown",
     "Temporal.value", "Venue.authorized", "Venue.displayName",
     "Venue.id", "Venue.issn", "Venue.key",
-    "Venue.names", "Venue.note", "Venue.references",
-    "Venue.type", "Venue.unknownFields",
+    "Venue.names", "Venue.note", "Venue.paginated", "Venue.references",
+    "Venue.type", "Venue.unknownFields", "Venue.variant",
 ]
 
 /// 葉欄位 → 它的宣告型別。**名字不變而語意改變，所有棘輪都看不到**（#407 R59）。

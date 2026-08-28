@@ -116,7 +116,10 @@ let agmCases: [AGMCase] = [
         AGMEdit(path: "plugin/skills/akashic-promote-literals/scripts/literal-census.sh", kind: "replaceFirst", a: "        i = s.find(' #')\n        return (s[:i] if i >= 0 else s).strip()\n", b: "        pass\n"),
     ], expect: ["本體最後一行不是 `return`"]),
     AGMCase(desc: "zi-rows：新增一列裁決「寫」而編號在 Sources 裡不存在", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
-        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "| 4 |", b: "| 5 | **假的一列**（#9999：不存在的守衛） | ✅ **寫** | 為了測負控 |\n| 4 |"),
+        // **插在表尾且編號接續**（#365，2026-08-28）。先前插在第 4 列前並用編號 `5`，
+        // 於是列號序列變成 1,2,3,5,4,… ——而新加的列號連續檢查會先觸發並蓋掉本 case
+        // 期望的訊息。錨點取表格後面那句散文（它不會隨列數成長）。
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "\n新增下一個零實例守衛 = 在這張表加一列。", b: "| 12 | **假的一列**（#9999：不存在的守衛） | ✅ **寫** | 為了測負控 |\n\n新增下一個零實例守衛 = 在這張表加一列。"),
     ], expect: ["在 Sources/ 裡都找不到"]),
     AGMCase(desc: "zi-rows：某一列完全不引用 issue 編號", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "（#254：", b: "（無編號："),

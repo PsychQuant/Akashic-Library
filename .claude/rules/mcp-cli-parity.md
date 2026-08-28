@@ -194,8 +194,8 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 
 | 面 | 現況 | 裁決 |
 |---|---|---|
-| MCP 寫入面（~~add_venue~~／~~update_venue~~／~~add_organization~~／**create_entry**）| ~~不收識別碼參數~~ → **三格已補齊（#394，2026-08-28）**：`update_venue.add_issn`／`add_venue.issn`／`add_organization.ror`。**只剩 `create_entry` 的 doi・pmid・isbn** | ⚠ 剩一格 |
-| CLI 寫入面（同名命令）| `update-venue --add-issn`／`add-venue --issn` 已有；`add-organization` 是 **MCP-only**（本檔既有裁決，不是缺口）| 同上 |
+| MCP 寫入面（~~add_venue~~／~~update_venue~~／~~add_organization~~／~~create_entry~~）| ~~不收識別碼參數~~ → **四格全部補齊（#394，2026-08-28）**：`update_venue.add_issn`／`add_venue.issn`／`add_organization.ror`／`create_entry` 的 `doi`・`pmid`・`isbn` | ✅ **這一列已關閉** |
+| CLI 寫入面（同名命令）| `update-venue --add-issn`／`add-venue --issn`／`create-entry` 的 JSON draft 收 `doi`・`pmid`・`isbn`；`add-organization` 是 **MCP-only**（本檔既有裁決，不是缺口）| ✅ |
 | 既有的 person ORCID 欄位 | **兩面都收**（經 generic `fields` JSON object，#68 的既有形狀）| ✅ 既有，本 change 只改型別不改介面 |
 
 > **這張表的第一欄刻意不用反引號包 token。** `parity-table-drift.py` 把表格第一欄的
@@ -223,7 +223,11 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 
 **形狀刻意不同**：ISSN 是**清單**（print 與 electronic 是兩個真的號），ROR 是**純量**（一個機構只有一個）。兩者都是「不合法即整個呼叫拒絕、零寫入」——建檔面的拒絕比更新面更強：若守衛只擋識別碼而讓記錄建了出來，結果是一筆「使用者以為帶識別碼、實際沒有」的記錄，比明確失敗更糟。
 
-**只剩 `create_entry`（work 的 `doi`／`pmid`／`isbn`）。它的重新裁決條件（可檢查）**：出現第一個「查到識別碼但寫不進去」的實例時。那時要裁的
+**`create_entry` 同日補齊，這一列因此關閉。** 理由與前三格相同（欄位、型別、正規化都已存在，只差一個參數）。
+
+**`.bib` 匯入路徑刻意不帶結構化識別碼**：`.bib` 的 `DOI = {...}` 進 `fields`，走**殘留路徑**由 `migrate-identifiers` 升格。在匯入端順手升格會製造第二條升格路徑，而那條路徑對「解不了的 token」的處置與遷移端不同（遷移把它留在殘留並報出來），兩者會分岔——這正是同日 #424 修掉的那個 bug 的形狀（一個 `return` 綁兩個決定）。
+
+**這一列關閉後，`replace-endnote-and-zotero` 第 4 條在識別碼這一格不再有「回去用 Zotero 做」的理由**——查到一個識別碼之後，四個寫入面都收得下。那時要裁的
 不只是加參數，還有**它該長什麼形狀**——`person.orcid` 走 generic `fields` object，而
 `venue`／`entry` 的寫入面目前沒有對應的 generic 通道（`update-venue` 只收 `key`）。
 追蹤：#394 close 前不處理；本列即是那個「已知且具名」的缺口。

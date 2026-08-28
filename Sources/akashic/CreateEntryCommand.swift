@@ -101,7 +101,10 @@ struct CreateEntryCmd: ParsableCommand {
                 // service 的輸出已 displaySafe，原樣轉印
                 print(try service.createEntry(type: d.type, title: d.title,
                                               authors: d.authors, date: d.date,
-                                              fields: d.fields))
+                                              fields: d.fields,
+                                              doi: d.doi.isEmpty ? nil : d.doi,
+                                              pmid: d.pmid.isEmpty ? nil : d.pmid,
+                                              isbn: d.isbn.isEmpty ? nil : d.isbn))
                 created += 1
             } catch {
                 // **per-item 收容**：一筆壞掉不該讓其餘的全滅（同 resolve-people
@@ -130,6 +133,11 @@ struct CreateEntryCmd: ParsableCommand {
         var authors: [String]
         var date: String?
         var fields: [String: String]
+        /// #394：識別碼走結構化欄位而不是 `fields`。兩者同時可用時
+        /// `canonicalDOIs` 的既有立場是「結構化那個才是正典」。
+        var doi: [String] = []
+        var pmid: [String] = []
+        var isbn: [String] = []
     }
 
     /// JSON：單一 object 或 object 陣列。形狀與 MCP `akashic_create_entry` 相同。
@@ -180,6 +188,27 @@ struct CreateEntryCmd: ParsableCommand {
                         + "無法無損轉成字串——請先在來源攤平成純量")
                 }
             }
+            // **識別碼**（#394）。與 `authors` 同一條紀律：形狀不符**報錯**，不靜默降級。
+            // 一個 `"doi": "10.x"`（字串而非陣列）若被靜默接受成零個 DOI，結果是一筆
+            // 「呼叫端以為帶 DOI、實際沒有」的 work——那正是本檔上方註解所防的形狀。
+            func idList(_ key: String) throws -> [String] {
+                guard let raw = o[key] else { return [] }
+                guard let arr = raw as? [Any] else {
+                    throw ValidationError(
+                        "「\(title)」的 \(key) 必須是陣列，實際是 \(Self.shapeName(raw))")
+                }
+                return try arr.map { el in
+                    guard let s = el as? String else {
+                        throw ValidationError(
+                            "「\(title)」的 \(key) 含非字串元素（\(Self.shapeName(el))）")
+                    }
+                    return s
+                }
+            }
+            let doi = try idList("doi")
+            let pmid = try idList("pmid")
+            let isbn = try idList("isbn")
+
             var authors: [String] = []
             if let a = o["authors"] {
                 guard let arr = a as? [Any] else {
@@ -201,7 +230,8 @@ struct CreateEntryCmd: ParsableCommand {
                 else { throw ValidationError("「\(title)」的 date 必須是字串或數字，實際是 \(Self.shapeName(d))") }
             }
             return EntryDraft(type: type, title: title, authors: authors,
-                              date: date, fields: fields)
+                              date: date, fields: fields,
+                              doi: doi, pmid: pmid, isbn: isbn)
         }
     }
 
@@ -278,6 +308,10 @@ struct CreateEntryCmd: ParsableCommand {
                 authors: splitBibAuthors(authorRaw),
                 date: e.fields.caseInsensitiveValue(forKey: "DATE")
                     ?? e.fields.caseInsensitiveValue(forKey: "YEAR"),
+                // **`.bib` 路徑刻意不帶結構化識別碼**（#394）。`.bib` 的 `DOI = {...}`
+                // 進 `fields`，走**殘留路徑**——`migrate-identifiers` 會升格它。
+                // 在這裡順手升格會製造第二條升格路徑，而那條路徑對「解不了的 token」
+                // 的處置與遷移端不同（遷移把它留在殘留並報出來），兩者會分岔。
                 fields: fields)
         }
     }

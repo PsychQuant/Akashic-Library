@@ -1604,8 +1604,20 @@ public final class AkashicService {
         return try jsonString(result)
     }
 
+    /// 建一筆 work。`doi`／`pmid`／`isbn` 於 #394 加入——**這是本專案識別碼寫入面的
+    /// 最後一格**（`mcp-cli-parity` 的「識別碼寫入面的裁決」那一節）。
+    ///
+    /// 理由與同日的 venue／organization 三格相同：欄位、型別、正規化都已存在，只差
+    /// 一個參數；而建檔時本來就知道論文的 DOI。少了它得「先建再遷移」——而遷移只從
+    /// `fields` 殘留搬值，所以要先把 DOI 寫進 `fields` 再跑一次遷移，兩步都不直觀。
+    ///
+    /// **識別碼走結構化欄位，不走 `fields`**：兩者同時可用時 `canonicalDOIs` 的既有
+    /// 立場是「結構化那個才是正典」。呼叫端若把 DOI 塞進 `fields` 仍然有效（那是殘留，
+    /// 遷移會處理），但**這條路直接寫到正典位置**。
     public func createEntry(type: String, title: String, authors: [String],
-                            date: String?, fields: [String: String]) throws -> String {
+                            date: String?, fields: [String: String],
+                            doi: [String]? = nil, pmid: [String]? = nil,
+                            isbn: [String]? = nil) throws -> String {
         guard !type.trimmingCharacters(in: .whitespaces).isEmpty,
               !title.trimmingCharacters(in: .whitespaces).isEmpty else {
             throw ServiceError.invalid("type 與 title 不可為空")
@@ -1635,6 +1647,31 @@ public final class AkashicService {
         }
         var entry = Entry(id: UUID(), citekey: citekey, type: workType, title: title,
                           authors: authors.map { .literal($0) }, date: date)
+        // **識別碼：不合法即整個拒絕、零寫入**（#394）。與 venue／organization 的建檔面
+        // 同型，而建檔面的拒絕比更新面更強：若只擋識別碼而讓記錄建了出來，結果是一筆
+        // 「呼叫端以為帶 DOI、實際沒有」的 work——比明確失敗更糟。
+        //
+        // 相等看正規形（與 `IdentifierMigration.normalizedUnique` 同一條規則）。
+        func parse<T: Identifier>(_ raws: [String]?, _ make: (String) -> T?,
+                                  _ field: String) throws -> [T] {
+            guard let raws else { return [] }
+            var out: [T] = []
+            var seen = Set<String>()
+            for r in raws where !r.trimmingCharacters(in: .whitespaces).isEmpty {
+                guard let one = make(r) else {
+                    throw ServiceError.invalid(
+                        // **標記必須與被標記的那一行同行**——放在下一行守衛看不到
+                        // （2026-08-28 實測被 `DisplaySinkCoverageTests` 擋下一次）。
+                        "\(field)「\(displaySafe(r, max: 60))」不是合法的 \(field.uppercased())"   // display-safe-exempt: field 是三個呼叫端傳入的編譯期字面（"doi"／"pmid"／"isbn"），不含 store 資料
+                        + "——拒絕整個呼叫，零寫入")
+                }
+                if seen.insert(one.normalized).inserted { out.append(one) }
+            }
+            return out
+        }
+        entry.doi = try parse(doi, DOI.init, "doi")
+        entry.pmid = try parse(pmid, PMID.init, "pmid")
+        entry.isbn = try parse(isbn, ISBN.init, "isbn")
         // **鍵在這一層正規化，不在呼叫端**（#206 verify C1）。
         //
         // `Entry.fields` 的鍵**直接**成為匯出的 biblatex 欄位名，所以一個帶空格或

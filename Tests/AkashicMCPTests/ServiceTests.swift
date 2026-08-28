@@ -752,6 +752,56 @@ final class ServiceTests: XCTestCase {
 
 extension ServiceTests {
     // DA CONFIRMED HIGH：createEntry 不得覆寫 quarantined 檔
+    // MARK: - #394：建檔時帶識別碼（識別碼寫入面的最後一格）
+
+    /// 識別碼走**結構化欄位**，不是 `fields` 殘留。
+    ///
+    /// 兩者同時可用時 `canonicalDOIs` 的既有立場是「結構化那個才是正典」。呼叫端把
+    /// DOI 塞進 `fields` 仍然有效（那是殘留，`migrate-identifiers` 會升格），但這條路
+    /// 直接寫到正典位置——省掉「先建再遷移」那兩步。
+    func testCreateEntryWritesIdentifiersToStructuredFields() throws {
+        let out = try json(try service.createEntry(
+            type: "periodical-article", title: "With identifiers",
+            authors: ["Some Author"], date: "2024", fields: [:],
+            doi: ["10.1037/h0077149"], pmid: nil,
+            isbn: ["978-0-13-441969-5", "0-13-441969-3"])) as! [String: Any]
+        let ck = out["citekey"] as? String ?? ""
+        let e = try LibraryStore(root: root).load().entries.first { $0.citekey == ck }!
+        XCTAssertEqual(e.doi.map(\.normalized), ["10.1037/h0077149"])
+        // **ISBN-10 與 ISBN-13 正規化後相同**——它們是同一本書的兩種**編碼**，不是兩個號。
+        //
+        // 這與 `IdentifierMigration.absorbsMultipleValues` 的 doc 措辭需要一起讀：那裡
+        // 說「ISBN 的多值是真的：978-0-13-441969-5 與 0-13-441969-3 是同一本書的 ISBN-13
+        // 與 ISBN-10」——**「多值是真的」指的是精裝／平裝／電子版的不同號**，而不是這一對。
+        // 這一對正規化後收斂成一個，且那是對的（`Identifier` 的既有立場：相等由正規形決定）。
+        XCTAssertEqual(e.isbn.count, 1,
+                       "ISBN-10 與 ISBN-13 是同一本書的兩種編碼，正規化後收斂：\(e.isbn)")
+        XCTAssertNil(e.fields["doi"], "識別碼不該同時寫進 fields——那會製造殘留")
+    }
+
+    /// **不合法即整個建檔拒絕，work 也不該存在。**
+    ///
+    /// 建檔面的拒絕比更新面更強：若守衛只擋識別碼而讓記錄建了出來，結果是一筆
+    /// 「呼叫端以為帶 DOI、實際沒有」的 work——比明確失敗更糟。
+    func testCreateEntryRejectsMalformedIdentifierWithZeroWrites() throws {
+        let before = try LibraryStore(root: root).load().entries.count
+        XCTAssertThrowsError(try service.createEntry(
+            type: "periodical-article", title: "Bad DOI",
+            authors: ["A"], date: "2024", fields: [:], doi: ["not-a-doi"]))
+        XCTAssertEqual(try LibraryStore(root: root).load().entries.count, before,
+                       "拒絕必須零寫入——連 work 本身都不該存在")
+    }
+
+    /// 相等看正規形——與 `IdentifierMigration.normalizedUnique` 同一條規則。
+    func testCreateEntryDeduplicatesIdentifiersByNormalisedForm() throws {
+        let out = try json(try service.createEntry(
+            type: "book", title: "Dup ISBN", authors: ["A"], date: "2024",
+            fields: [:], isbn: ["9780134419695", "978-0-13-441969-5"])) as! [String: Any]   // 同一個號的兩種寫法
+        let ck = out["citekey"] as? String ?? ""
+        let e = try LibraryStore(root: root).load().entries.first { $0.citekey == ck }!
+        XCTAssertEqual(e.isbn.count, 1, "同一個號的兩種寫法不是兩個號：\(e.isbn)")
+    }
+
     func testCreateEntryNeverOverwritesQuarantinedFile() throws {
         let store = LibraryStore(root: root)
         let broken = "broken: [yaml\n"

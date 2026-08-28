@@ -166,8 +166,11 @@ actor AkashicMCPServer {
                 "fields": .object([
                     "type": .string("object"),
                     "additionalProperties": .object(["type": .string("string")]),
-                    "description": .string("其餘 biblatex 欄位（journaltitle/doi/…；值必須是字串）"),
+                    "description": .string("其餘 biblatex 欄位（journaltitle/…；值必須是字串）"),
                 ]),
+                "doi": strArray("DOI（結構化欄位，非 fields；不合法即整個呼叫拒絕、零寫入。#394）"),
+                "pmid": strArray("PMID（同上）"),
+                "isbn": strArray("ISBN（同上；ISBN-13 與 ISBN-10 是同一本書的兩個真的號）"),
              ], required: ["type", "title"])),
         Tool(name: "akashic_venue",
              description: "看一個發表載體（#304）：記錄＋刊名沿革（names 時間軸）＋文章**編年 list**（依年升冪；反向邊現算，不存在記錄裡）。零篇是合法答案（workCount: 0），與查無此 venue（notFound）分開；store 有 quarantined 檔且查無時回「無法判定」。",
@@ -395,7 +398,10 @@ actor AkashicMCPServer {
             case "akashic_create_entry":
                 output = try service.createEntry(
                     type: arg("type") ?? "", title: arg("title") ?? "",
-                    authors: argList("authors"), date: arg("date"), fields: argDict("fields"))
+                    authors: argList("authors"), date: arg("date"), fields: argDict("fields"),
+                    doi: params.arguments?["doi"] != nil ? argList("doi") : nil,
+                    pmid: params.arguments?["pmid"] != nil ? argList("pmid") : nil,
+                    isbn: params.arguments?["isbn"] != nil ? argList("isbn") : nil)
             case "akashic_venue":
                 output = try service.venue(key: arg("key") ?? "")
             case "akashic_venues":

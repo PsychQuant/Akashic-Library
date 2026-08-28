@@ -214,6 +214,36 @@ final class VenueServiceTests: XCTestCase {
         XCTAssertThrowsError(try service.attributeToOrganizations(["x2011:0:moe=想覆寫"]))
     }
 
+    /// **同一筆 work 的多個作者位一起升格**——實測 crash（#443）。
+    ///
+    /// 實作用 `Dictionary(uniqueKeysWithValues:)` 建 citekey → entry 的對照，而同一個
+    /// work 的三個作者位產生**三筆同 citekey 的 plan** → `Fatal error: Duplicate values
+    /// for key`。
+    ///
+    /// **三個既有的負向測試都沒抓到它**：每個只用一筆 plan，或用不同的 citekey。我測了
+    /// 「第二筆壞掉」卻沒測「兩筆都好而且在同一筆 work 上」——而後者是這個功能最自然的
+    /// 用法（《Standards for Educational and Psychological Testing》有三個共同出版者）。
+    func testAttributeMultipleAuthorSlotsOnTheSameWork() throws {
+        for k in ["aera", "apa", "ncme"] {
+            _ = try service.addOrganization(key: k, names: [k.uppercased()],
+                                            parentKey: nil, note: nil)
+        }
+        var e = Entry(id: UUID(), citekey: "std1966", type: .book, title: "Standards")
+        e.authors = [.literal("AERA"), .literal("APA"), .literal("NCME")]
+        _ = try store.writeEntry(e)
+
+        let out = try json(try service.attributeToOrganizations([
+            "std1966:0:aera=學會不是人", "std1966:1:apa=同上", "std1966:2:ncme=同上",
+        ]))
+        XCTAssertEqual((out["attributed"] as? [[String: Any]])?.count, 3, "\(out)")
+
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "std1966" })
+        let keys: [String] = after.authors.compactMap {
+            if case .organization(let k) = $0 { return k } else { return nil }
+        }
+        XCTAssertEqual(keys, ["aera", "apa", "ncme"], "三個作者位都要升格，順序不變")
+    }
+
     // MARK: - org MCP 面（#304 移轉）
 
     func testAddOrganizationWithParent() throws {

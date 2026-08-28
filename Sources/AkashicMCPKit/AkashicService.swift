@@ -2383,7 +2383,15 @@ public final class AkashicService {
         }
 
         // ── 全部驗證通過才寫 ──
-        var entries = Dictionary(uniqueKeysWithValues: plans.map { ($0.citekey, byCitekey[$0.citekey]!) })
+        // **同一筆 work 的多個作者位是常態，不是邊界**——《Standards for Educational
+        // and Psychological Testing》有三個共同出版者。`uniqueKeysWithValues` 對重複
+        // 的 citekey 會 **crash**（實測 #443：`Fatal error: Duplicate values for key`），
+        // 而三個既有的負向測試都沒抓到它：每個只用一筆 plan，或用不同的 citekey。
+        //
+        // 測了「第二筆壞掉」卻沒測「兩筆都好而且在同一筆 work 上」——後者才是這個功能
+        // 最自然的用法。
+        var entries: [String: Entry] = [:]
+        for p in plans where entries[p.citekey] == nil { entries[p.citekey] = byCitekey[p.citekey]! }
         var orgs = Dictionary(uniqueKeysWithValues:
             load.organizations.filter { o in plans.contains { $0.orgKey == o.key } }.map { ($0.key, $0) })
         var rows: [[String: Any]] = []

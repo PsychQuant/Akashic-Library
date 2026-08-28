@@ -60,7 +60,7 @@ public enum VenueRef: Equatable, Comparable {
 /// ## 為什麼**沒有** APA7 的第七類（§9.28 edited book / reference work）
 ///
 /// 一本編著**有編者、書名、版次、出版社**，而 `Venue` 的全部欄位是
-/// `id / key / type / names / authorized / issn / note / references / unknownFields`——**一個
+/// `id / key / type / names / authorized / variant / paginated / issn / note / references / unknownFields`——**一個
 /// 都裝不下**。（這份列舉是欄位表的第二份副本，因此有守衛：
 /// `IdentifierPlacementTests.testVenueDocFieldEnumerationMatchesTheActualFields`
 /// 會在它與實際欄位分岔時變紅。守衛查的是**一致性**不是**論證仍成立**——加一個

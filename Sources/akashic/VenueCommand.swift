@@ -139,19 +139,26 @@ struct AddVenueCmd: ParsableCommand {
     @Option(name: .long, help: "備註（選填）")
     var note: String?
 
+    /// #394：建檔時就知道 ISSN 是常見的。少了它得「先建再更新」——一次操作變兩次，
+    /// 中間有一個 ISSN 不在的狀態。不合法即整個拒絕、零寫入；相等看正規形。
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "ISSN（可多個；print 與 electronic 是兩個真的號。不合法即整批拒絕）")
+    var issn: [String] = []
+
     func run() throws {
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
         // 寫入面封閉例外形：只回 service payload（mcp-cli-parity 的既有裁決）
-        print(try service.addVenue(key: key, names: names, type: type, note: note))
+        print(try service.addVenue(key: key, names: names, type: type, note: note,
+                                   issn: issn.isEmpty ? nil : issn))
     }
 }
 
 struct UpdateVenueCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update-venue",
-        abstract: "venue 異名補寫（#306）——append 語意：--add-name 只附加不重複的異名（整組替換刻意不提供）；--note／--type 替換")
+        abstract: "venue 的部分更新（#306／#394）——append 語意：--add-name 與 --add-issn 只附加不重複的值（整組替換刻意不提供）；--note／--type 替換")
 
     @OptionGroup var options: LibraryOptions
 
@@ -167,6 +174,12 @@ struct UpdateVenueCmd: ParsableCommand {
     @Option(name: .long, help: "\(VenueType.domainDescription)（替換；選填）")
     var type: String?
 
+    /// **append 語意，與 `--add-name` 一致**（#394）。ISSN 本來就是清單——print 與
+    /// electronic 是兩個真的號。相等看正規形；任一個不合法即整個呼叫拒絕、零寫入。
+    @Option(name: .customLong("add-issn"), parsing: .upToNextOption,
+            help: "要附加的 ISSN（可多個；正規形相同者自動略過，不合法即整批拒絕）")
+    var addISSN: [String] = []
+
     func run() throws {
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
@@ -174,7 +187,8 @@ struct UpdateVenueCmd: ParsableCommand {
         // 寫入面封閉例外形：只回 service payload（mcp-cli-parity 的既有裁決）
         print(try service.updateVenue(key: key,
                                       addNames: addName.isEmpty ? nil : addName,
-                                      note: note, type: type))
+                                      note: note, type: type,
+                                      addISSN: addISSN.isEmpty ? nil : addISSN))
     }
 }
 

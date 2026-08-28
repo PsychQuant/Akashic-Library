@@ -1604,8 +1604,20 @@ public final class AkashicService {
         return try jsonString(result)
     }
 
+    /// 建一筆 work。`doi`／`pmid`／`isbn` 於 #394 加入——**這是本專案識別碼寫入面的
+    /// 最後一格**（`mcp-cli-parity` 的「識別碼寫入面的裁決」那一節）。
+    ///
+    /// 理由與同日的 venue／organization 三格相同：欄位、型別、正規化都已存在，只差
+    /// 一個參數；而建檔時本來就知道論文的 DOI。少了它得「先建再遷移」——而遷移只從
+    /// `fields` 殘留搬值，所以要先把 DOI 寫進 `fields` 再跑一次遷移，兩步都不直觀。
+    ///
+    /// **識別碼走結構化欄位，不走 `fields`**：兩者同時可用時 `canonicalDOIs` 的既有
+    /// 立場是「結構化那個才是正典」。呼叫端若把 DOI 塞進 `fields` 仍然有效（那是殘留，
+    /// 遷移會處理），但**這條路直接寫到正典位置**。
     public func createEntry(type: String, title: String, authors: [String],
-                            date: String?, fields: [String: String]) throws -> String {
+                            date: String?, fields: [String: String],
+                            doi: [String]? = nil, pmid: [String]? = nil,
+                            isbn: [String]? = nil) throws -> String {
         guard !type.trimmingCharacters(in: .whitespaces).isEmpty,
               !title.trimmingCharacters(in: .whitespaces).isEmpty else {
             throw ServiceError.invalid("type 與 title 不可為空")
@@ -1635,6 +1647,31 @@ public final class AkashicService {
         }
         var entry = Entry(id: UUID(), citekey: citekey, type: workType, title: title,
                           authors: authors.map { .literal($0) }, date: date)
+        // **識別碼：不合法即整個拒絕、零寫入**（#394）。與 venue／organization 的建檔面
+        // 同型，而建檔面的拒絕比更新面更強：若只擋識別碼而讓記錄建了出來，結果是一筆
+        // 「呼叫端以為帶 DOI、實際沒有」的 work——比明確失敗更糟。
+        //
+        // 相等看正規形（與 `IdentifierMigration.normalizedUnique` 同一條規則）。
+        func parse<T: Identifier>(_ raws: [String]?, _ make: (String) -> T?,
+                                  _ field: String) throws -> [T] {
+            guard let raws else { return [] }
+            var out: [T] = []
+            var seen = Set<String>()
+            for r in raws where !r.trimmingCharacters(in: .whitespaces).isEmpty {
+                guard let one = make(r) else {
+                    throw ServiceError.invalid(
+                        // **標記必須與被標記的那一行同行**——放在下一行守衛看不到
+                        // （2026-08-28 實測被 `DisplaySinkCoverageTests` 擋下一次）。
+                        "\(field)「\(displaySafe(r, max: 60))」不是合法的 \(field.uppercased())"   // display-safe-exempt: field 是三個呼叫端傳入的編譯期字面（"doi"／"pmid"／"isbn"），不含 store 資料
+                        + "——拒絕整個呼叫，零寫入")
+                }
+                if seen.insert(one.normalized).inserted { out.append(one) }
+            }
+            return out
+        }
+        entry.doi = try parse(doi, DOI.init, "doi")
+        entry.pmid = try parse(pmid, PMID.init, "pmid")
+        entry.isbn = try parse(isbn, ISBN.init, "isbn")
         // **鍵在這一層正規化，不在呼叫端**（#206 verify C1）。
         //
         // `Entry.fields` 的鍵**直接**成為匯出的 biblatex 欄位名，所以一個帶空格或
@@ -2288,8 +2325,11 @@ public final class AkashicService {
 
     /// venue 單筆建檔（同 addPerson 形：寫入面封閉例外、key 已存在拒絕）。
     /// names 全部進時間軸（無時間段）；authorized 留空——指定是人的判斷。
+    /// 建一筆 venue。`issn` 於 #394 加入——理由與 `updateVenue` 的 `addISSN` 同：
+    /// 欄位、型別、正規化都已存在，只差一個參數。建檔時就知道 ISSN 是常見的，
+    /// 少了它就得「先建再更新」，而那讓一次操作變成兩次、中間有一個 ISSN 不在的狀態。
     public func addVenue(key: String, names: [String], type rawType: String,
-                         note: String? = nil) throws -> String {
+                         note: String? = nil, issn: [String]? = nil) throws -> String {
         guard let vtype = VenueType(rawValue: rawType) else {
             throw ServiceError.invalid(
                 "type「\(displaySafe(rawType, max: 60))」不在封閉列舉（\(VenueType.domainDescription)）")   // display-safe-exempt: domainDescription 由 VenueType.allCases 的 rawValue 組成，那些是 Swift 原始碼裡的識別字（編譯期常量），不含使用者資料
@@ -2298,21 +2338,48 @@ public final class AkashicService {
         guard !load.venues.contains(where: { $0.key == key }) else {
             throw ServiceError.invalid("venue key「\(displaySafe(key, max: 200))」已存在")
         }
-        let venue = Venue(key: key, type: vtype,
+        var venue = Venue(key: key, type: vtype,
                           names: Timeline(names.map { TemporalValue(value: $0) }),
                           note: note)
+        // 不合法即整個拒絕、零寫入（同 `updateVenue`）；相等看正規形。
+        if let raws = issn {
+            var seen = Set<String>()
+            for r in raws where !r.trimmingCharacters(in: .whitespaces).isEmpty {
+                guard let one = ISSN(r) else {
+                    throw ServiceError.invalid(
+                        "issn「\(displaySafe(r, max: 60))」不是合法的 ISSN——拒絕整個呼叫，零寫入")
+                }
+                if seen.insert(one.normalized).inserted { venue.issn.append(one) }
+            }
+        }
         try store.writeVenue(venue)
         try LibraryIndex(store: store).rebuild()
         return try jsonString(["key": key, "type": vtype.rawValue,
-                               "names": names.map { displaySafe($0, max: 200) }])
+                               "names": names.map { displaySafe($0, max: 200) },
+                               // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
+                               "issn": venue.issn.map(\.normalized)])
     }
 
     /// venue 異名補寫（#306）——**append 語意**：`addNames` 只附加不重複的
     /// variant（整組替換是 R3F-2 教訓的 footgun，本入口在設計上排除它）；
     /// `note`／`type` 為替換語意（可選）。沿革補全直接擴大 resolve-venues
     /// 的 exact 命中面（resolver 對沿革各段都配對）。
+    /// venue 的部分更新（#306）。`addISSN` 於 #394 加入。
+    ///
+    /// ## 為什麼 ISSN 也是 append 而不是替換
+    ///
+    /// ISSN 本來就是清單——print 與 electronic 是**兩個真的號**。整組替換會讓「補一個」
+    /// 變成「先讀再全寫」，而那正是 #306 對 `addNames` 已經裁決過不提供的形狀。
+    ///
+    /// ## 為什麼要有這條路
+    ///
+    /// #394 把識別碼升格為一等公民，但**只給了遷移路徑**（`migrate-identifiers` 從
+    /// `fields` 殘留搬值）。查到一個**新的** ISSN 時沒有任何面寫得進去，唯一的路是
+    /// 手改 YAML——而那沒有型別檢查、沒有 round-trip 驗證、沒有原子性。
+    /// 該 issue 自己把這一格標為「最弱的一列」。
     public func updateVenue(key: String, addNames: [String]?,
-                            note: String?, type rawType: String?) throws -> String {
+                            note: String?, type rawType: String?,
+                            addISSN: [String]? = nil) throws -> String {
         let load = try store.load()
         guard var venue = load.venues.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("venue「\(displaySafe(key, max: 200))」")
@@ -2333,12 +2400,41 @@ public final class AkashicService {
             }
             venue.type = vtype
         }
+        // **識別碼：不合法就整個拒絕，零寫入**（#394）。
+        //
+        // 與上面 `type` 那條同型。識別碼尤其如此——它**終結指涉**
+        // （`identity-is-judged-not-matched`），一個壞掉的號寫進去之後，用它做的每一次
+        // 配對都建立在假的身分宣稱上。
+        //
+        // **相等看正規形**：`0003-066x` 與 `0003-066X` 是同一個號。這與
+        // `IdentifierMigration.normalizedUnique` 的既有立場一致——兩個面若用不同的相等，
+        // 對「這本刊有幾個 ISSN」會給出不同答案。
+        var issnAdded: [String] = []
+        if let raws = addISSN {
+            var parsed: [ISSN] = []
+            for r in raws where !r.trimmingCharacters(in: .whitespaces).isEmpty {
+                guard let one = ISSN(r) else {
+                    throw ServiceError.invalid(
+                        "issn「\(displaySafe(r, max: 60))」不是合法的 ISSN——拒絕整個呼叫，零寫入")
+                }
+                parsed.append(one)
+            }
+            var existing = Set(venue.issn.map(\.normalized))
+            for one in parsed where !existing.contains(one.normalized) {
+                venue.issn.append(one)
+                existing.insert(one.normalized)
+                issnAdded.append(one.normalized)
+            }
+        }
         if let note { venue.note = note }
         try store.writeVenue(venue)
         try LibraryIndex(store: store).rebuild()
         return try jsonString(["key": key,
                                "namesAdded": added.map { displaySafe($0, max: 200) },
-                               "namesTotal": venue.names.entries.count])
+                               "namesTotal": venue.names.entries.count,
+                               // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
+                               "issnAdded": issnAdded,
+                               "issnTotal": venue.issn.count])
     }
 
     /// **`.literal` → `.organization` 的升格**（#443）。
@@ -2787,8 +2883,16 @@ public final class AkashicService {
 
     /// org 單筆建檔（addPerson 形；parent 選填、以 key 指涉——literal parent 由
     /// bootstrap 面處理，單筆面收窄為已知 parent）。
+    /// 建一筆 organization。`ror` 於 #394 加入。
+    ///
+    /// **ROR 是純量不是清單**（與 venue 的 ISSN 不同）——一個機構只有一個 ROR ID，
+    /// 而 ISSN 的多值是真的（print 與 electronic）。`zero-instance-guards` 第 9 列
+    /// 裁決加這個欄位時的理由是「缺席本身在說話」：person 有 `orcid`、venue 有 `issn`，
+    /// organization 什麼都沒有會讓讀者推論「機構沒有識別碼可記」，而那是假的。
+    /// 那一列補了欄位，本次補上寫得進去的路。
     public func addOrganization(key: String, names: [String],
-                                parentKey: String? = nil, note: String? = nil) throws -> String {
+                                parentKey: String? = nil, note: String? = nil,
+                                ror: String? = nil) throws -> String {
         let load = try store.load()
         guard !load.organizations.contains(where: { $0.key == key }) else {
             throw ServiceError.invalid("organization key「\(displaySafe(key, max: 200))」已存在")
@@ -2803,9 +2907,20 @@ public final class AkashicService {
             org.parents = TimelineOf([TemporalValue(value: .key(pk))])
         }
         org.note = note
+        if let raw = ror, !raw.trimmingCharacters(in: .whitespaces).isEmpty {
+            guard let one = ROR(raw) else {
+                throw ServiceError.invalid(
+                    "ror「\(displaySafe(raw, max: 60))」不是合法的 ROR ID——拒絕整個呼叫，零寫入")
+            }
+            org.ror = one
+        }
         try store.writeOrganization(org)
         try LibraryIndex(store: store).rebuild()
-        return try jsonString(["key": key, "names": names.map { displaySafe($0, max: 200) }])
+        var payload: [String: Any] = ["key": key,
+                                      "names": names.map { displaySafe($0, max: 200) }]
+        // display-safe-exempt: ROR.normalized 由型別保證是 ROR 語法
+        if let r = org.ror { payload["ror"] = r.normalized }
+        return try jsonString(payload)
     }
 
     /// org 消歧（OrgResolver 包裝；apply/reject 與 verdict 紀律同 venue 面）。

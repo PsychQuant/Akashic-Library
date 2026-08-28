@@ -167,8 +167,11 @@ actor AkashicMCPServer {
                 "fields": .object([
                     "type": .string("object"),
                     "additionalProperties": .object(["type": .string("string")]),
-                    "description": .string("其餘 biblatex 欄位（journaltitle/doi/…；值必須是字串）"),
+                    "description": .string("其餘 biblatex 欄位（journaltitle/…；值必須是字串）"),
                 ]),
+                "doi": strArray("DOI（結構化欄位，非 fields；不合法即整個呼叫拒絕、零寫入。#394）"),
+                "pmid": strArray("PMID（同上）"),
+                "isbn": strArray("ISBN（同上；ISBN-13 與 ISBN-10 是同一本書的兩個真的號）"),
              ], required: ["type", "title"])),
         Tool(name: "akashic_venue",
              description: "看一個發表載體（#304）：記錄＋刊名沿革（names 時間軸）＋文章**編年 list**（依年升冪；反向邊現算，不存在記錄裡）。零篇是合法答案（workCount: 0），與查無此 venue（notFound）分開；store 有 quarantined 檔且查無時回「無法判定」。",
@@ -185,14 +188,16 @@ actor AkashicMCPServer {
                 "names": strArray("名稱變體（正式刊名、縮寫、WoS 大寫形）"),
                 "type": str(VenueType.domainDescription),
                 "note": str("備註（選填）"),
+                "issn": strArray("ISSN（可多個——print 與 electronic 是兩個真的號；相等看正規形；任一不合法即整個呼叫拒絕、零寫入。#394）"),
              ], required: ["key", "names", "type"])),
         Tool(name: "akashic_update_venue",
-             description: "venue 異名補寫（#306）——append 語意：add_names 只附加不重複的異名（整組替換刻意不提供）；note／type 替換（選填）。沿革補全直接擴大 resolve_venues 的命中面（resolver 對沿革各段都配對）。需 store format ≥ 11。",
+             description: "venue 的部分更新（#306／#394）——append 語意：add_names 與 add_issn 只附加不重複的值（整組替換刻意不提供）；note／type 替換（選填）。沿革補全直接擴大 resolve_venues 的命中面（resolver 對沿革各段都配對）。需 store format ≥ 11。",
              inputSchema: obj([
                 "key": str("既有 venue key"),
                 "add_names": strArray("要附加的名稱變體（重複自動略過，以 namesAdded 回報）"),
                 "note": str("備註（替換；選填）"),
                 "type": str("\(VenueType.domainDescription)（替換；選填）"),
+                "add_issn": strArray("要附加的 ISSN（append 語意，同 add_names；ISSN 本來就是清單——print 與 electronic 是兩個真的號。相等看正規形，`0003-066x` 與 `0003-066X` 不會變成兩筆；任一個不合法即整個呼叫拒絕、零寫入。#394）"),
              ], required: ["key"])),
         Tool(name: "akashic_resolve_venues",
              description: "venue 解析（resolve-people 契約形，#304）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 venue name 完全命中且不歧義的 literal（正規化含 lowercase：WoS 全大寫形因此命中正式刊名）；ambiguities 是同一 literal 對到 2+ venue、需要人判斷。帶 apply（候選 id，形如 citekey:venueIndex）把 literal 升格為 key 並寫 resolution-confirmed verdict 到該 venue；帶 reject 寫 resolution-rejected（entry 不動）。組合呼叫兩段式（reject 腿先提交）。需 store format ≥ 11。絕不自動配對（literal-first-then-key）。帶 repoint（三段式 id citekey:venueIndex:newKey）把**已歸戶**的邊改指到另一個 venue——歸錯戶的退路（#418），兩側都寫 verdict（新的 confirmed、舊的 rejected）；語法錯或前提不符整批拒絕、零寫入；改指到自己是 no-op。repoint 不與 apply／reject 組合（不同階段）。帶 demote（citekey:venueIndex）把**誤升**的邊退回 literal——原字串從該 venue 上的 confirmed verdict 逐字取回（無損；取不到就拒絕，不拿顯示名頂替），並留 rejected verdict。repoint／demote 各自單獨呼叫。",
@@ -209,6 +214,7 @@ actor AkashicMCPServer {
                 "names": strArray("名稱變體（中文名、英文名、縮寫）"),
                 "parent_key": str("上級機構的 key（選填，需已存在）"),
                 "note": str("備註（選填）"),
+                "ror": str("ROR ID（選填；**純量不是清單**——一個機構只有一個 ROR，而 ISSN 的多值是真的。不合法即整個呼叫拒絕、零寫入。#394）"),
              ], required: ["key", "names"])),
         Tool(name: "akashic_resolve_organizations",
              description: "org 解析（#304 parity 移轉）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 person affiliations／org parents 的 literal 與某 org name 完全命中且不歧義者。帶 apply（候選 id，形如 holderKey::literal）歸戶並寫 confirmed verdict；帶 reject 寫 rejected verdict。需 store format ≥ 8（verdict）。",
@@ -400,20 +406,26 @@ actor AkashicMCPServer {
             case "akashic_create_entry":
                 output = try service.createEntry(
                     type: arg("type") ?? "", title: arg("title") ?? "",
-                    authors: argList("authors"), date: arg("date"), fields: argDict("fields"))
+                    authors: argList("authors"), date: arg("date"), fields: argDict("fields"),
+                    doi: params.arguments?["doi"] != nil ? argList("doi") : nil,
+                    pmid: params.arguments?["pmid"] != nil ? argList("pmid") : nil,
+                    isbn: params.arguments?["isbn"] != nil ? argList("isbn") : nil)
             case "akashic_venue":
                 output = try service.venue(key: arg("key") ?? "")
             case "akashic_venues":
                 output = try service.venues()
             case "akashic_add_venue":
-                output = try service.addVenue(key: arg("key") ?? "", names: argList("names"),
-                                              type: arg("type") ?? "", note: arg("note"))
+                output = try service.addVenue(
+                    key: arg("key") ?? "", names: argList("names"),
+                    type: arg("type") ?? "", note: arg("note"),
+                    issn: params.arguments?["issn"] != nil ? argList("issn") : nil)
             case "akashic_update_venue":
                 let addNamesProvided = params.arguments?["add_names"] != nil
                 output = try service.updateVenue(
                     key: arg("key") ?? "",
                     addNames: addNamesProvided ? argList("add_names") : nil,
-                    note: arg("note"), type: arg("type"))
+                    note: arg("note"), type: arg("type"),
+                    addISSN: params.arguments?["add_issn"] != nil ? argList("add_issn") : nil)
             case "akashic_resolve_venues":
                 let vApplyProvided = params.arguments?["apply"] != nil
                 let vRejectProvided = params.arguments?["reject"] != nil
@@ -431,8 +443,10 @@ actor AkashicMCPServer {
                     repoint: vRepointProvided ? argList("repoint") : nil,
                     demote: vDemoteProvided ? argList("demote") : nil)
             case "akashic_add_organization":
-                output = try service.addOrganization(key: arg("key") ?? "", names: argList("names"),
-                                                     parentKey: arg("parent_key"), note: arg("note"))
+                output = try service.addOrganization(
+                    key: arg("key") ?? "", names: argList("names"),
+                    parentKey: arg("parent_key"), note: arg("note"),
+                    ror: arg("ror"))
             case "akashic_resolve_organizations":
                 let oApplyProvided = params.arguments?["apply"] != nil
                 let oRejectProvided = params.arguments?["reject"] != nil

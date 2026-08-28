@@ -137,6 +137,58 @@ final class VenueServiceTests: XCTestCase {
             key: "v1", addNames: nil, note: nil, type: "series"))
     }
 
+    // MARK: - #394：venue 的 ISSN 寫入面
+
+    /// **查到一個 ISSN 之後，有一條路把它寫進去。**
+    ///
+    /// #394 把識別碼升格為一等公民，但**只給了遷移路徑**——`migrate-identifiers` 從
+    /// `fields` 殘留搬值。查到一個**新的** ISSN（不在任何殘留裡）時，該 issue 自己記著
+    /// 沒有任何面寫得進去，唯一的路是手改 YAML。那一列被標為「最弱的一列」。
+    ///
+    /// 本測試釘住那條路現在存在。**append 語意**與 `addNames` 一致：ISSN 本來就是清單
+    /// （print 與 electronic 是兩個真的號），而整組替換會讓「補一個」變成「先讀再全寫」
+    /// ——那是 #306 已經裁決過不提供的形狀。
+    func testUpdateVenueAppendsISSN() throws {
+        _ = try service.addVenue(key: "ampsy", names: ["American Psychologist"],
+                                 type: "periodical", note: nil)
+        let out = try json(try service.updateVenue(
+            key: "ampsy", addNames: nil, note: nil, type: nil,
+            addISSN: ["0003-066X"]))
+        XCTAssertEqual(out["issnAdded"] as? [String], ["0003-066X"], "回報加了什麼：\(out)")
+        XCTAssertEqual(try store.load().venues.first?.issn.map(\.normalized), ["0003-066X"])
+    }
+
+    /// **正規形決定相等**——`0003-066x` 與 `0003-066X` 是同一個號，不得變成兩筆。
+    ///
+    /// 這與 `IdentifierMigration.normalizedUnique` 的既有立場一致（那裡的 doc 逐字寫著
+    /// 「否則 `0003-066x` 與 `0003-066X` 會被當成兩個號」）。寫入面走同一條規則，
+    /// 否則兩個面對「這本刊有幾個 ISSN」會給出不同答案。
+    func testUpdateVenueDeduplicatesISSNByNormalisedForm() throws {
+        _ = try service.addVenue(key: "ampsy", names: ["American Psychologist"],
+                                 type: "periodical", note: nil)
+        _ = try service.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil,
+                                    addISSN: ["0003-066X"])
+        let out = try json(try service.updateVenue(
+            key: "ampsy", addNames: nil, note: nil, type: nil,
+            addISSN: ["0003-066x", "1935-990X"]))
+        XCTAssertEqual(out["issnAdded"] as? [String], ["1935-990X"],
+                       "大小寫異寫法不是新號：\(out)")
+        XCTAssertEqual(try store.load().venues.first?.issn.count, 2)
+    }
+
+    /// 不合法的 ISSN **整個呼叫拒絕**，零寫入。
+    ///
+    /// 與 `type: "series"` 那條（`testUpdateVenueRejectsUnknownKeyAndBadType`）同型：
+    /// 寫入面對值域的違反是拒絕，不是「收下來再說」。識別碼尤其如此——它**終結指涉**，
+    /// 一個壞掉的號寫進去之後，用它做的每一次配對都建立在假的身分宣稱上。
+    func testUpdateVenueRejectsMalformedISSN() throws {
+        _ = try service.addVenue(key: "ampsy", names: ["V"], type: "periodical", note: nil)
+        XCTAssertThrowsError(try service.updateVenue(
+            key: "ampsy", addNames: nil, note: nil, type: nil, addISSN: ["not-an-issn"]))
+        XCTAssertTrue(try store.load().venues.first?.issn.isEmpty ?? false,
+                      "拒絕必須零寫入")
+    }
+
     // MARK: - org MCP 面（#304 移轉）
 
     func testAddOrganizationWithParent() throws {

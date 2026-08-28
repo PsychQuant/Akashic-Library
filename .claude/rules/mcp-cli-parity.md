@@ -85,7 +85,7 @@ per-id 顯式契約。兩面的失敗語意相同且刻意分兩類：輸入語�
 | `akashic_venue` | `venue` | ✅（#304 venue change；讀取面 `--json`＋人可讀同源；編年 list 由反向邊現算）|
 | `akashic_venues` | `venues` | ✅（#304 venue change；讀取面同源）|
 | `akashic_add_venue` | `add-venue` | ✅（#304 venue change；寫入面封閉例外形，同 `add-person`）|
-| `akashic_update_venue` | `update-venue` | ✅（#306；寫入面封閉例外形；append 語意——整組替換刻意不提供，R3F-2 教訓）|
+| `akashic_update_venue` | `update-venue` | ✅（#306；寫入面封閉例外形；append 語意——整組替換刻意不提供，R3F-2 教訓）。**#394 起兩面同時新增 ISSN 寫入**（MCP `add_issn`／CLI `--add-issn`，append 語意同 `add_names`——ISSN 本來就是清單，print 與 electronic 是兩個真的號）。**這是本檔「識別碼寫入面的裁決」那一節記為「最弱的一列」的第一格補齊**：在此之前識別碼只有遷移路徑（從 `fields` 殘留搬值），查到一個**新的** ISSN 時唯一的路是手改 YAML。相等看正規形（與 `IdentifierMigration.normalizedUnique` 同一條規則——兩面若用不同的相等，對「這本刊有幾個 ISSN」會給出不同答案）；任一個不合法即整批拒絕、零寫入，與同函式既有的 `type` 值域檢查同型）|
 | `akashic_resolve_venues` | `resolve-venues` | ✅（#304 venue change；兩面契約差異同 #272：MCP 允許 apply+reject 組合、CLI 分兩次呼叫）。**#418 起兩面同時新增 `repoint`**（三段式 id `citekey:venueIndex:newKey`，把**已歸戶**的邊改指到另一個 venue）——它是歸錯戶的退路：`apply` 只做 literal → key 的升格，此前一條已是 key 的邊改不回來，而 person 域有 `resolve-divergence`、venue 域沒有，且 `literal-first-then-key` 的整套論證建立在「誤可逆」上。**這一項兩面契約相同**（與上面那個差異不同）：`repoint` **不與** `apply`／`reject` 組合，兩面都拒——它們是不同階段（升格 vs 修正已升格的），混在一次呼叫裡會讓「哪一批寫了」難以判讀，而改指本來就是在修一個錯誤，最需要清楚的失敗語意。失敗語意分兩類（同 #386 的 `judge`）：語法錯或前提不符 → **整批拒絕零寫入**；成功則兩側都留 verdict（新的 confirmed、舊的 rejected——少了 rejected，下次提名會把同一配對再提出來）。**同輪另加 `demote`**（`citekey:venueIndex`）把**誤升**的邊退回 literal——`repoint` 只改得到既有 venue，而正確答案可能是「現有的都不對」，那時要能退回 `literal-first-then-key` 所說的**誠實狀態**。原字串**從該 venue 的 confirmed verdict 逐字取回**（第 13 條邊的 `<kind>:<key> :: <literal>` 文法），走 `ResolutionLedger.verdicts` 這個唯一解析器；**取不到就拒絕，不拿 venue 顯示名頂替**（顯示名不是那筆記錄原本寫的字——WoS 的 `PSYCHOMETRIKA` vs 正式刊名 `Psychometrika`，頂替會安靜改寫書目資料）。`repoint` 與 `demote` **各自單獨呼叫**，兩面同契約 |
 | `akashic_add_organization` | 無（單筆建檔 MCP-only；批次面 `bootstrap-organizations` 維持 CLI-only，見 CLI-only 表）| ✅ 有理由的單面（#304 移轉裁決：org 重啟後單筆建檔是 #303 campaign 的 LLM 消費流程；操作者規模的批次建檔另有 CLI 面）|
 | `akashic_resolve_organizations` | `resolve-organizations` | ✅（#304 移轉；CLI-only 表「候補缺席（重啟訊號已觸發）」格的補齊——同 `import-wos`／#290 的移列形）|
@@ -194,8 +194,8 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 
 | 面 | 現況 | 裁決 |
 |---|---|---|
-| MCP 寫入面（add_venue／update_venue／add_organization／create_entry）| 不收識別碼參數 | ⚠ **有理由缺席，但這一格是最弱的一列** |
-| CLI 寫入面（同名命令）| 同上 | 同上 |
+| MCP 寫入面（add_venue／**~~update_venue~~**／add_organization／create_entry）| ~~不收識別碼參數~~ → **`update_venue` 已收 `add_issn`（#394，2026-08-28）**；其餘三個仍不收 | ⚠ 缺席範圍已縮小；剩下的三格仍是最弱的一列 |
+| CLI 寫入面（同名命令）| 同上（`update-venue --add-issn` 已有）| 同上 |
 | 既有的 person ORCID 欄位 | **兩面都收**（經 generic `fields` JSON object，#68 的既有形狀）| ✅ 既有，本 change 只改型別不改介面 |
 
 > **這張表的第一欄刻意不用反引號包 token。** `parity-table-drift.py` 把表格第一欄的
@@ -217,7 +217,9 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 > 使用者說「這個功能我回去用 Zotero 做」一旦變成常態，就是取代失敗的樣子——而且它是
 > **安靜的**失敗，因為每次個別繞過都看起來很合理。
 
-**重新裁決的條件（可檢查）**：出現第一個「查到識別碼但寫不進去」的實例時。那時要裁的
+**venue 那一格已於 2026-08-28 補齊**（`update-venue --add-issn`／`akashic_update_venue` 的 `add_issn`）。動手的理由不是等到了實例，是相反的：`Venue.issn` 的欄位、型別與正規化都已存在，而**只差一個參數**——把它留著等一個實例，等於讓「查到 ISSN 卻只能手改 YAML」這件事在下次真的發生時才被修，而手改 YAML 的失敗方式是安靜的（2026-08-28 實測差點弄丟一筆 DOI）。
+
+**其餘三格（`add_venue`／`add_organization`／`create_entry`）的重新裁決條件（可檢查）**：出現第一個「查到識別碼但寫不進去」的實例時。那時要裁的
 不只是加參數，還有**它該長什麼形狀**——`person.orcid` 走 generic `fields` object，而
 `venue`／`entry` 的寫入面目前沒有對應的 generic 通道（`update-venue` 只收 `key`）。
 追蹤：#394 close 前不處理；本列即是那個「已知且具名」的缺口。

@@ -2270,8 +2270,22 @@ public final class AkashicService {
     /// variant（整組替換是 R3F-2 教訓的 footgun，本入口在設計上排除它）；
     /// `note`／`type` 為替換語意（可選）。沿革補全直接擴大 resolve-venues
     /// 的 exact 命中面（resolver 對沿革各段都配對）。
+    /// venue 的部分更新（#306）。`addISSN` 於 #394 加入。
+    ///
+    /// ## 為什麼 ISSN 也是 append 而不是替換
+    ///
+    /// ISSN 本來就是清單——print 與 electronic 是**兩個真的號**。整組替換會讓「補一個」
+    /// 變成「先讀再全寫」，而那正是 #306 對 `addNames` 已經裁決過不提供的形狀。
+    ///
+    /// ## 為什麼要有這條路
+    ///
+    /// #394 把識別碼升格為一等公民，但**只給了遷移路徑**（`migrate-identifiers` 從
+    /// `fields` 殘留搬值）。查到一個**新的** ISSN 時沒有任何面寫得進去，唯一的路是
+    /// 手改 YAML——而那沒有型別檢查、沒有 round-trip 驗證、沒有原子性。
+    /// 該 issue 自己把這一格標為「最弱的一列」。
     public func updateVenue(key: String, addNames: [String]?,
-                            note: String?, type rawType: String?) throws -> String {
+                            note: String?, type rawType: String?,
+                            addISSN: [String]? = nil) throws -> String {
         let load = try store.load()
         guard var venue = load.venues.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("venue「\(displaySafe(key, max: 200))」")
@@ -2292,12 +2306,41 @@ public final class AkashicService {
             }
             venue.type = vtype
         }
+        // **識別碼：不合法就整個拒絕，零寫入**（#394）。
+        //
+        // 與上面 `type` 那條同型。識別碼尤其如此——它**終結指涉**
+        // （`identity-is-judged-not-matched`），一個壞掉的號寫進去之後，用它做的每一次
+        // 配對都建立在假的身分宣稱上。
+        //
+        // **相等看正規形**：`0003-066x` 與 `0003-066X` 是同一個號。這與
+        // `IdentifierMigration.normalizedUnique` 的既有立場一致——兩個面若用不同的相等，
+        // 對「這本刊有幾個 ISSN」會給出不同答案。
+        var issnAdded: [String] = []
+        if let raws = addISSN {
+            var parsed: [ISSN] = []
+            for r in raws where !r.trimmingCharacters(in: .whitespaces).isEmpty {
+                guard let one = ISSN(r) else {
+                    throw ServiceError.invalid(
+                        "issn「\(displaySafe(r, max: 60))」不是合法的 ISSN——拒絕整個呼叫，零寫入")
+                }
+                parsed.append(one)
+            }
+            var existing = Set(venue.issn.map(\.normalized))
+            for one in parsed where !existing.contains(one.normalized) {
+                venue.issn.append(one)
+                existing.insert(one.normalized)
+                issnAdded.append(one.normalized)
+            }
+        }
         if let note { venue.note = note }
         try store.writeVenue(venue)
         try LibraryIndex(store: store).rebuild()
         return try jsonString(["key": key,
                                "namesAdded": added.map { displaySafe($0, max: 200) },
-                               "namesTotal": venue.names.entries.count])
+                               "namesTotal": venue.names.entries.count,
+                               // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
+                               "issnAdded": issnAdded,
+                               "issnTotal": venue.issn.count])
     }
 
     /// venue 消歧（resolve-people 契約形，#304）：無參數＝列候選與歧義；

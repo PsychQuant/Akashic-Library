@@ -186,12 +186,13 @@ actor AkashicMCPServer {
                 "note": str("備註（選填）"),
              ], required: ["key", "names", "type"])),
         Tool(name: "akashic_update_venue",
-             description: "venue 異名補寫（#306）——append 語意：add_names 只附加不重複的異名（整組替換刻意不提供）；note／type 替換（選填）。沿革補全直接擴大 resolve_venues 的命中面（resolver 對沿革各段都配對）。需 store format ≥ 11。",
+             description: "venue 的部分更新（#306／#394）——append 語意：add_names 與 add_issn 只附加不重複的值（整組替換刻意不提供）；note／type 替換（選填）。沿革補全直接擴大 resolve_venues 的命中面（resolver 對沿革各段都配對）。需 store format ≥ 11。",
              inputSchema: obj([
                 "key": str("既有 venue key"),
                 "add_names": strArray("要附加的名稱變體（重複自動略過，以 namesAdded 回報）"),
                 "note": str("備註（替換；選填）"),
                 "type": str("\(VenueType.domainDescription)（替換；選填）"),
+                "add_issn": strArray("要附加的 ISSN（append 語意，同 add_names；ISSN 本來就是清單——print 與 electronic 是兩個真的號。相等看正規形，`0003-066x` 與 `0003-066X` 不會變成兩筆；任一個不合法即整個呼叫拒絕、零寫入。#394）"),
              ], required: ["key"])),
         Tool(name: "akashic_resolve_venues",
              description: "venue 解析（resolve-people 契約形，#304）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 venue name 完全命中且不歧義的 literal（正規化含 lowercase：WoS 全大寫形因此命中正式刊名）；ambiguities 是同一 literal 對到 2+ venue、需要人判斷。帶 apply（候選 id，形如 citekey:venueIndex）把 literal 升格為 key 並寫 resolution-confirmed verdict 到該 venue；帶 reject 寫 resolution-rejected（entry 不動）。組合呼叫兩段式（reject 腿先提交）。需 store format ≥ 11。絕不自動配對（literal-first-then-key）。帶 repoint（三段式 id citekey:venueIndex:newKey）把**已歸戶**的邊改指到另一個 venue——歸錯戶的退路（#418），兩側都寫 verdict（新的 confirmed、舊的 rejected）；語法錯或前提不符整批拒絕、零寫入；改指到自己是 no-op。repoint 不與 apply／reject 組合（不同階段）。帶 demote（citekey:venueIndex）把**誤升**的邊退回 literal——原字串從該 venue 上的 confirmed verdict 逐字取回（無損；取不到就拒絕，不拿顯示名頂替），並留 rejected verdict。repoint／demote 各自單獨呼叫。",
@@ -405,7 +406,8 @@ actor AkashicMCPServer {
                 output = try service.updateVenue(
                     key: arg("key") ?? "",
                     addNames: addNamesProvided ? argList("add_names") : nil,
-                    note: arg("note"), type: arg("type"))
+                    note: arg("note"), type: arg("type"),
+                    addISSN: params.arguments?["add_issn"] != nil ? argList("add_issn") : nil)
             case "akashic_resolve_venues":
                 let vApplyProvided = params.arguments?["apply"] != nil
                 let vRejectProvided = params.arguments?["reject"] != nil

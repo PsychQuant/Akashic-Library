@@ -483,6 +483,13 @@ public enum IdentifierMigration {
                         citekey: entry.citekey, field: key, raw: raw, annotations: annotations))
                 }
 
+                // **有解不了的 token 時，殘留要留著；但可解的那個仍要升格**（#424 裁決 A）。
+                //
+                // 這兩件事先前綁在同一個 `return`（`bad.isEmpty ? values : nil`），
+                // 而那一行的註解只寫了前半——於是「保護解不了的 token」被實作成
+                // 「連可解的一起放棄」。實測 2 筆記錄因此永遠沒有一等公民 DOI，
+                // 而它們在報告上長得像「這個值解析不了」。
+                var residueMustStay = false
                 func take<T: Identifier>(_ make: (String) -> T?) -> [T]? {
                     let (values, bad) = normalizedUniqueQualified(qualifiedToks, make)
                     for b in bad {
@@ -504,9 +511,11 @@ public enum IdentifierMigration {
                                 + "——實測唯一的多 DOI 是附錄的 DOI，吸收它是一句假的身分宣稱；交人裁"))
                         return nil
                     }
-                    // 全部 token 都解析失敗以外的情形：只要有任何一個 bad，就**不移除殘留**
-                    // ——殘留是那些解不了的值唯一的棲身處。
-                    return bad.isEmpty ? values : nil
+                    // 有任何一個 bad → **殘留留著**（它是那些解不了的值唯一的棲身處），
+                    // 但可解的那些照樣升格。呼叫端讀 `residueMustStay` 決定要不要
+                    // `removeValue`——那是本函式與呼叫端刻意分開的兩個決定。
+                    residueMustStay = !bad.isEmpty
+                    return values
                 }
 
                 switch key {
@@ -524,7 +533,7 @@ public enum IdentifierMigration {
                         continue
                     }
                     if let v: [DOI] = take(DOI.init) {
-                        updated.doi = v; updated.fields.removeValue(forKey: key)
+                        updated.doi = v; if !residueMustStay { updated.fields.removeValue(forKey: key) }
                         changes.append("doi: \(raw) → \(v.map(\.normalized).joined(separator: "、"))")
                     }
                 case "pmid":
@@ -541,7 +550,7 @@ public enum IdentifierMigration {
                         continue
                     }
                     if let v: [PMID] = take(PMID.init) {
-                        updated.pmid = v; updated.fields.removeValue(forKey: key)
+                        updated.pmid = v; if !residueMustStay { updated.fields.removeValue(forKey: key) }
                         changes.append("pmid: \(raw) → \(v.map(\.normalized).joined(separator: "、"))")
                     }
                 case "isbn":
@@ -558,7 +567,7 @@ public enum IdentifierMigration {
                         continue
                     }
                     if let v: [ISBN] = take(ISBN.init) {
-                        updated.isbn = v; updated.fields.removeValue(forKey: key)
+                        updated.isbn = v; if !residueMustStay { updated.fields.removeValue(forKey: key) }
                         changes.append("isbn: \(raw) → \(v.map(\.normalized).joined(separator: "、"))")
                     }
                 case "issn":
@@ -573,7 +582,7 @@ public enum IdentifierMigration {
                         continue
                     }
                     if let v: [ISSN] = take(ISSN.init) {
-                        updated.fields.removeValue(forKey: key)
+                        if !residueMustStay { updated.fields.removeValue(forKey: key) }
                         issnByVenue[vkey, default: []].append(contentsOf: v)
                         for one in v where one.raw != one.normalized {
                             rewritesByVenue[vkey, default: []].append(

@@ -159,6 +159,59 @@ final class IdentifierMigrationRunTests: XCTestCase {
                        "號落在 venue 上")
     }
 
+    // MARK: 有解不了的 token 時，可解的那個仍要遷移（#424 裁決 A）
+
+    /// `DOI 10.1037/h0077149` 的 DOI 必須升格，即使 `DOI` 這個標籤 token 解析不了。
+    ///
+    /// ## 註解與實作分岔了，而註解讀起來完全合理
+    ///
+    /// `take` 的收尾寫著：
+    ///
+    /// ```swift
+    /// // 只要有任何一個 bad，就**不移除殘留**——殘留是那些解不了的值唯一的棲身處。
+    /// return bad.isEmpty ? values : nil
+    /// ```
+    ///
+    /// 註解說的是「不移除殘留」，實作做的是「**連結構化值都不寫**」。前者保護解不了的
+    /// 那個 token，後者連可解的那個一起放棄——而兩者在報告上看起來一樣：那筆會出現在
+    /// `skipped` 裡，理由寫「解析不了」，讀者合理地以為指的是整個值。
+    ///
+    /// 實測（2026-08-28）store 有 **2 筆**因此卡住（`dweck1975role`／`hong1999implicit`），
+    /// 兩筆的 DOI 本身都完全合法。它們是 #424 裁決 A 的三分之二。
+    func testAnUnparseableLabelDoesNotBlockTheParseableIdentifier() throws {
+        var e = Entry(id: UUID(), citekey: "d1975", type: .periodicalArticle, title: "T")
+        e.fields["doi"] = "DOI 10.1037/h0077149"
+        _ = try store.writeEntry(e)
+        commitAll()
+
+        let r = try IdentifierMigration.run(store: store, apply: true)
+        XCTAssertTrue(r.blockers.isEmpty, "無阻擋前提：\(r.blockers)")
+
+        let after = try store.load().entries.first { $0.citekey == "d1975" }
+        XCTAssertEqual(after?.doi.map(\.normalized), ["10.1037/h0077149"],
+                       "可解的 DOI 必須升格——一個解不了的**標籤**不該讓整筆放棄")
+        XCTAssertEqual(after?.fields["doi"], "DOI 10.1037/h0077149",
+                       "殘留必須保留——那個解不了的 token 沒有別的棲身處（這半是註解本來就說對的）")
+        XCTAssertTrue(r.skipped.contains { $0.citekey == "d1975" && $0.value == "DOI" },
+                      "解不了的 token 仍要出現在報告裡（lossless-intake：丟棄必須可見）")
+    }
+
+    /// **邊界：全部 token 都解不了時，什麼都不寫。**
+    ///
+    /// 上一個測試放寬的是「有些解得開」的情形。這個釘住它沒有順便放寬「一個都解不開」
+    /// ——那時結構化欄位應該維持空的，殘留原封不動。
+    func testWhenNothingParsesNothingIsWritten() throws {
+        var e = Entry(id: UUID(), citekey: "junk", type: .periodicalArticle, title: "T")
+        e.fields["doi"] = "not-a-doi also-not"
+        _ = try store.writeEntry(e)
+        commitAll()
+
+        _ = try IdentifierMigration.run(store: store, apply: true)
+        let after = try store.load().entries.first { $0.citekey == "junk" }
+        XCTAssertTrue(after?.doi.isEmpty ?? false, "一個都解不開時不得寫入任何結構化值")
+        XCTAssertEqual(after?.fields["doi"], "not-a-doi also-not", "殘留原封不動")
+    }
+
     // MARK: 毀資料的兩個形狀——ISSN 必須存活
 
     func testUntrackedVenueBlocksTheWorkInsteadOfDestroyingItsISSN() throws {
@@ -649,5 +702,33 @@ extension IdentifierMigrationRunTests {
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), legacy,
                        "守衛擋下時**一個位元組都不該寫**——先前它已經改過檔了，"
                        + "而 report 隨例外被丟棄，使用者不會知道")
+    }
+}
+
+// MARK: - 多 DOI 的邊界（#424）
+
+extension IdentifierMigrationTests {
+
+    /// **真的兩個 DOI 仍然要被跳過。**
+    ///
+    /// `yeager2020what` 的第二個 DOI（`.supp`）指的是**另一個物件**。吸收它等於讓該
+    /// 記錄宣稱自己是那個物件，而識別碼**終結指涉**——那是一句假的身分宣稱。
+    ///
+    /// 這條與 `testAnUnparseableLabelDoesNotBlockTheParseableIdentifier` 是一對：
+    /// 那條放寬「有些 token 解不開」的情形，這條釘住它**沒有**順便放寬「解出兩個真值」。
+    ///
+    /// ## 一個被放棄的方案，記在這裡免得下次重走
+    ///
+    /// 途中試過「剝掉 `DOI ` 標籤前綴讓它變成單值」。那個方案**會通過本檔的端到端測試**，
+    /// 卻讓 `DOI` 這個 token 從 `skipped` 報告裡消失——而
+    /// `testUnparseableTokensAreReportedWhileTheRealOneIsRecovered` 正是釘住它要出現。
+    /// `lossless-intake` 執行細節 3：丟棄必須可見。
+    ///
+    /// 真正的根因不在 tokenizer，在 `take` 把兩個決定綁在同一個 `return`。
+    func testTwoRealDOIsAreStillNotAbsorbed() {
+        let got = IdentifierMigration.qualifiedCandidates(
+            "10.1037/amp0000794 10.1037/amp0000794.supp (Supplemental)", field: "doi")
+        XCTAssertGreaterThan(got.count, 1,
+                             "兩個真的 DOI 必須維持多值（於是被 skipped、交人裁，#424）")
     }
 }

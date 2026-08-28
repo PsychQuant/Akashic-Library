@@ -55,7 +55,7 @@ enum DestructiveTargetGate {
         // #394：識別碼自 fields 升格、work 的 issn 移位至 venue——改寫既有記錄。
         "migrate-identifiers",
         "migrate-person-identity",
-        "migrate-venues",
+        "migrate-venues", "migrate-venue-variants",
         "bootstrap-people",
         "bootstrap-organizations",
         "bootstrap-venues",

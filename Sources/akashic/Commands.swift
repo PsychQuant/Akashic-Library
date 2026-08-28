@@ -1334,6 +1334,17 @@ struct ResolvePeople: ParsableCommand {
             help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式")
     var judge: [String] = []
 
+    /// **團體作者的升格**（#443）：`.literal` → `.organization`。
+    ///
+    /// 與 `--judge` 同型（per-id 顯式指名、judgement 必填、不提供批次），差別只在
+    /// 升格的目標是 organization 而不是 person。放在同一個命令是因為**作用對象相同**
+    /// ——都是 work 的一個作者位；`Author` 的三態裡只有兩態接得起來，這條補第三態。
+    ///
+    /// **不是消歧**：org key 由呼叫端顯式給，不經提名，所以沒有 tier 也沒有候選清單。
+    @Option(name: .customLong("attribute-org"), parsing: .upToNextOption,
+            help: "把作者位歸給團體作者（可重複）：citekey:authorIndex:orgKey=判定理由。理由必填；org 需已存在（絕不自動建）；已歸戶的位置拒絕；整批驗證通過才寫")
+    var attributeOrg: [String] = []
+
     /// 判定式否決（#386 的鏡像）：查證後說「**不是他**」。
     ///
     /// 與既有 `--reject` 的差別：那個只吃 resolver 提名出來的**候選**，歧義列一律 notFound。
@@ -1380,6 +1391,25 @@ struct ResolvePeople: ParsableCommand {
         // verdict 寫入走 **AkashicService**——與 MCP `akashic_resolve_people` 同一條
         // 實作路徑（mcp-cli-parity：兩條各自寫會分岔）。`key:` 不可省（#220 HIGH：
         // keyless 會分岔出第二份 index）。
+        // 團體作者的升格（#443）——與 judge／refute 同走 service，兩面一條路徑。
+        if !attributeOrg.isEmpty {
+            let service = AkashicService(root: store.root, key: store.key,
+                                         environment: ProcessInfo.processInfo.environment)
+            let out = try service.attributeToOrganizations(attributeOrg)
+            let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
+            let rows = (parsed?["attributed"] as? [[String: Any]]) ?? []
+            print("✓ 歸給團體作者 \(rows.count) 個作者位、index 已重建")   // display-safe-exempt: Int
+            for r in rows {
+                // service 回傳的欄位已 displaySafe（見 attributeToOrganizations）
+                // **標記必須與被標記的那一行同行**——多行運算式只有最後一行帶標記時，
+                // 前面幾行仍會被守衛看見（本 session 第三次踩，前兩次在 EntryViews
+                // 與 AkashicService）。組完再印，讓整個運算式落在一行上。
+                let line = "  \(r["citekey"] as? String ?? "")[\(r["authorIndex"] as? Int ?? -1)] "
+                    + "\(r["literal"] as? String ?? "") → @\(r["organization"] as? String ?? "")"   // display-safe-exempt: 值取自 attributeToOrganizations（已逐欄位 displaySafe），二次消毒非冪等
+                print(line)   // display-safe-exempt: 值取自 attributeToOrganizations（已逐欄位 displaySafe），二次消毒非冪等
+            }
+            return
+        }
         if !judge.isEmpty || !refute.isEmpty {
             let service = AkashicService(root: store.root, key: store.key,
                                          environment: ProcessInfo.processInfo.environment)

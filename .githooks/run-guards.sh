@@ -41,11 +41,11 @@ bash plugin/tests/review-claim-audit.sh
 # **Swift 版**（#433，第二支遷移的 harness）。乾淨樹逐位元相同（19 行、rc=0）。
 # 13 個 case ＋ 一個注入 PoC（不只看守衛紅不紅，還看**副作用有沒有發生**）。
 .build/debug/akashic-guards rule-prose-guards-mutations
-bash plugin/skills/akashic-literal-campaign/scripts/tests/hash-table-drift.sh
+bash plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh
 # 表是逐 code point 的——這支證明對「# + 多 scalar 序列」那樣就夠
 # （12 種序列零分歧；理由見該檔）。
-swift plugin/skills/akashic-literal-campaign/scripts/tests/multiscalar-parity.swift
-bash plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh
+swift plugin/skills/akashic-promote-literals/scripts/tests/multiscalar-parity.swift
+bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh
 # **Swift 版**（#433，第三支遷移的 harness）。乾淨樹逐位元相同（19 行、rc=0）。
 # 14 個 mutation 的字串**機械抽出不手抄**（`MarkerParityMutationsData.swift`，由
 # `ast.literal_eval` 從 .py 生成）——它們是多行 Python 程式碼片段，而 harness 斷言每段

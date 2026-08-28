@@ -42,7 +42,7 @@
   MCP 的 `path` 是 server 本機路徑（stdio 同機前提，非內容上傳）
 - **欄名的字集事實**：CJK 欄名（如「備註欄」）`isLetter` 為真 → 照 #206 收進
   `fields`，**不會**進 `droppedColumns`；只有正規化為空的純符號欄名才會被丟（可見）
-- 匯入前的清單 QA（DOI 補查、同篇雙列、分母定案）見 plugin 的 `akashic-wos-intake`
+- 匯入前的清單 QA（DOI 補查、同篇雙列、分母定案）見 plugin 的 `akashic-import-wos`
   skill；匯入後的重複偵測（DOI 共用組＋同標題同年）由 `akashic doctor` 負責（#94）
 
 ## 歷史

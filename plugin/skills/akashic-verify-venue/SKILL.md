@@ -1,6 +1,6 @@
 ---
-name: akashic-venue-verify
-description: 發表載體查證——判定「這個 literal 刊名／會議名／出版社名是不是這個 venue」並把判定落成 Akashic 的 verdict。給一個未歸戶的 venue 字串（或 resolve-venues 列出的候選／歧義），依標準證據鏈查 Crossref journals、OpenAlex sources、ISSN Portal、出版商頁，組出刊名沿革 timeline 與判定建議，經使用者確認後以 akashic_resolve_venues 的 apply/reject 寫入 resolution-confirmed／resolution-rejected。當使用者說「這個縮寫是哪個期刊」「這批 journaltitle 幫我歸戶」「這個刊改過名嗎」，或 resolve-venues 出現需要人判斷的歧義時使用。與 akashic-person-verify 的分工：同一套 literal→verdict 紀律、不同 entity 域與證據源。
+name: akashic-verify-venue
+description: 發表載體查證——判定「這個 literal 刊名／會議名／出版社名是不是這個 venue」並把判定落成 Akashic 的 verdict。給一個未歸戶的 venue 字串（或 resolve-venues 列出的候選／歧義），依標準證據鏈查 Crossref journals、OpenAlex sources、ISSN Portal、出版商頁，組出刊名沿革 timeline 與判定建議，經使用者確認後以 akashic_resolve_venues 的 apply/reject 寫入 resolution-confirmed／resolution-rejected。當使用者說「這個縮寫是哪個期刊」「這批 journaltitle 幫我歸戶」「這個刊改過名嗎」，或 resolve-venues 出現需要人判斷的歧義時使用。與 akashic-verify-person 的分工：同一套 literal→verdict 紀律、不同 entity 域與證據源。
 ---
 
 # 發表載體查證：從 literal 到 verdict
@@ -77,5 +77,5 @@ akashic_resolve_venues reject:["<citekey>:<venueIndex>", …]   # 查過了不�
 
 ## 相關
 
-- [`akashic-person-verify`](../akashic-person-verify/SKILL.md)——同一套 literal→verdict 紀律，不同 entity 域與證據源
+- [`akashic-verify-person`](../akashic-verify-person/SKILL.md)——同一套 literal→verdict 紀律，不同 entity 域與證據源
 - [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——**刊名沿革的每一句斷言都受它管**：查到哪一年改名就寫哪一年、查不到就寫「查不到」並列出查過的來源，不寫「應該是那時候改的」

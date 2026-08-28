@@ -278,7 +278,7 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     // 這一項只做**靜態計數**（數 fixture 定義與 mutation 項目），不跑那兩支腳本——
     // parity 需要 swift build、mutation 要數分鐘。實測靜態計數與實跑一致，而會漂的是
     // 計數本身，不是通過率。
-    let PARITY = "\(plugin)/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh"
+    let PARITY = "\(plugin)/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh"
     // **來源換成 Swift 資料檔**（#433 Step 5）：`marker-parity-mutations.py` 已刪除，
     // 那 14 個 mutation 現在住在 `MarkerParityMutationsData.swift`（機械抽出時生成的）。
     // 數的仍是同一件事——那張自我量測表裡「會長的數字」有沒有跟上實際的 mutation 數。

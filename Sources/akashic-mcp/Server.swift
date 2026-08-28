@@ -289,7 +289,7 @@ actor AkashicMCPServer {
                         + "idempotent（citekey＋內容）、既有記錄只補缺欄（enriched）、內容分歧不覆寫（conflicts）。"
                         + "回傳完整 report（created/unchanged/enriched/conflicts/aliasGroups/skippedRows/droppedColumns——丟棄必須可見）。"
                         + "path 是 server 本機路徑（非內容上傳）。建議先 dry_run:true 看報告再寫入"
-                        + "（清單層 QA——DOI 補查、同篇雙列、分母定案——見 akashic-wos-intake skill）。",
+                        + "（清單層 QA——DOI 補查、同篇雙列、分母定案——見 akashic-import-wos skill）。",
              inputSchema: obj([
                 "path": str("WoS 匯出檔路徑（server 本機；~ 可用）"),
                 "csv": .object(["type": .string("boolean"),

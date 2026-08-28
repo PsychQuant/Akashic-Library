@@ -85,7 +85,7 @@ propose ──→ park ──────────────→ apply ─�
 > 混進去會讓那個性質變成謊話（#407）。
 >
 > **那條規則有守衛，而守衛有 negative control。** `plugin/tests/`（覆蓋、散文，
-> 純 python／bash）與 `plugin/skills/akashic-literal-campaign/scripts/tests/`
+> 純 python／bash）與 `plugin/skills/akashic-promote-literals/scripts/tests/`
 > （store-marker parity ＋ hash 表漂移，拿建好的 CLI／Swift 當 oracle）。**支數不寫死**——每輪都在長，而寫死的計數會與目錄分岔（這正是本 repo 反覆記過的形狀）。要知道有幾支就跑 `ls plugin/tests/*.{sh,py} plugin/skills/*/scripts/tests/*.{sh,py}`。
 >
 > **觸發點已接上，但 2026-08-21 實測：一個都沒在跑**（#407 R8 verify）：

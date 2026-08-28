@@ -511,7 +511,7 @@ extension ZoteroPullIdentifierPlacementTests {
     ///
     /// 實測 0 筆重疊（536 筆 Zotero 來源、65 筆有 pmid），所以這是**地雷不是現行損害**
     /// ——但它不需要任何人犯錯就會引爆，只需要有人在一筆 Zotero 來源的記錄上補一個 PMID
-    /// （`import-wos` 會寫、`akashic-person-verify` 查 Europe PMC 後也會）。
+    /// （`import-wos` 會寫、`akashic-verify-person` 查 Europe PMC 後也會）。
     func testPullDoesNotWipeAFieldZoteroCannotSupply() {
         var e = Entry(id: UUID(), citekey: "k", type: .periodicalArticle, title: "T")
         e.pmid = [PMID("12345678")!]

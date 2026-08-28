@@ -17,7 +17,7 @@
 #
 # 用法
 # ====
-#   plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh
+#   plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh
 #
 # 需要先 `swift build`（會自己找 .build/debug/akashic 或 .build/release/akashic）。
 #

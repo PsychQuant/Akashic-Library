@@ -31,7 +31,7 @@
 **Non-Goals:**
 
 - **判定怎麼產生**不在本 change 內。查證流程（DOI → 該作者位登記機構 → 共同作者 → 庫內
-  出處）屬 `akashic-person-verify` skill 的工作面。本 change 只提供載體與寫入路徑，
+  出處）屬 `akashic-verify-person` skill 的工作面。本 change 只提供載體與寫入路徑，
   兩者的介面是三段形 id ＋ judgement 文字。
 - **judgement 內容的品質驗收**不做。judgement 是自由文字，本 change 不檢查它是否真的引用
   了證據——那與「語法正確不等於書目正確」同型，屬另案。

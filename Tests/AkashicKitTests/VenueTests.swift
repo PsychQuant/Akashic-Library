@@ -243,3 +243,79 @@ final class VenueTests: XCTestCase {
                        "bookChapter 不在 booktitleCarrierTypes 內，帶編者是正常的")
     }
 }
+
+// MARK: - #422／#406：variant 分割與 paginated 判定
+
+extension VenueTests {
+
+    /// `variant` round-trip，且**不與 `authorized` 混淆**。
+    func testVariantRoundTrips() throws {
+        var v = Venue(key: "plos-one", type: .periodical,
+                      names: TimelineOf([TemporalValue(value: "PLOS ONE"),
+                                         TemporalValue(value: "PLoS One")]))
+        v.authorized = ["PLOS ONE"]
+        v.variant = ["PLoS One"]
+        let back = try VenueYAML.decode(try VenueYAML.encode(v))
+        XCTAssertEqual(back.authorized, ["PLOS ONE"])
+        XCTAssertEqual(back.variant, ["PLoS One"])
+    }
+
+    /// **交集是 error**——一個名字不能既權威又是它自己的異寫。
+    ///
+    /// 這不是「資料不完整」是**自相矛盾**：讀取面對同一個字串會得到兩個相反的答案。
+    func testAuthorizedAndVariantMustNotOverlap() {
+        var v = Venue(key: "x", type: .periodical,
+                      names: TimelineOf([TemporalValue(value: "A")]))
+        v.authorized = ["A"]
+        v.variant = ["A"]
+        let errs = v.validate().filter { $0.severity == .error }
+        XCTAssertTrue(errs.contains { $0.message.contains("既權威又是它的異寫") },
+                      "應該報交集：\(v.validate().map(\.message))")
+    }
+
+    /// `paginated` 的三態 round-trip——**`nil` 不得折成 `false`**。
+    ///
+    /// 「未判定」與「判定為不使用頁碼」是兩件事：前者是 APA7 下限**仍該報缺**的狀態，
+    /// 後者才是「這筆沒有頁碼是正確的」。折成 `false` 會讓所有未查的刊靜默通過。
+    func testPaginatedRoundTripsAllThreeStates() throws {
+        for state: Bool? in [nil, true, false] {
+            var v = Venue(key: "j", type: .periodical,
+                          names: TimelineOf([TemporalValue(value: "J")]))
+            v.paginated = state
+            let back = try VenueYAML.decode(try VenueYAML.encode(v))
+            XCTAssertEqual(back.paginated, state, "三態必須逐一區分，失敗於 \(String(describing: state))")
+        }
+    }
+
+    /// **`nil` 不寫進 YAML**——缺席即未判定。
+    func testUnjudgedPaginatedIsAbsentFromYAML() throws {
+        let v = Venue(key: "j", type: .periodical,
+                      names: TimelineOf([TemporalValue(value: "J")]))
+        XCTAssertFalse(try VenueYAML.encode(v).contains("paginated"),
+                       "未判定不該在 YAML 裡留痕跡——那會讓缺席與 false 難以區分")
+    }
+
+    /// `paginated` 只收 `true`／`false`，其餘**整檔拒讀**。
+    func testPaginatedRejectsAnythingElse() throws {
+        let yaml = """
+        venue:
+        id: 01945230-81CD-4144-8E31-5BE5B8C13328
+        key: j
+        type: periodical
+        names:
+        - value: J
+        paginated: maybe
+        """
+        XCTAssertThrowsError(try VenueYAML.decode(yaml),
+                             "只接受 true／false——`maybe` 必須整檔拒讀，不猜")
+    }
+
+    /// variant 的名字必須在 `names` 裡——分割是**對 names 的標記**，不是獨立清單。
+    func testVariantMustReferToAKnownName() {
+        var v = Venue(key: "x", type: .periodical,
+                      names: TimelineOf([TemporalValue(value: "A")]))
+        v.variant = ["B"]
+        XCTAssertTrue(v.validate().contains { $0.message.contains("不在 names 裡") },
+                      "孤兒 variant 要出聲：\(v.validate().map(\.message))")
+    }
+}

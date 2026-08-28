@@ -121,6 +121,47 @@ public struct Venue: Equatable {
     public var names: TimelineOf<String>
     /// 對外可稱呼的名稱（#81 慣例；子集檢查在執行期，比對整條時間軸）。
     public var authorized: [String]
+
+    /// **異寫法**（#422）。與 `authorized` 並列的第二個分割。
+    ///
+    /// ## 為什麼 `names` 的時間軸裝不下它
+    ///
+    /// `names` 的型別是時間軸、spec 宣稱它模型化刊名沿革，而實測（2026-08-28，405 筆
+    /// venue）：`names` 多筆的 **35** 筆裡**帶時間欄位的 0 筆**，內容全是同一本刊的不同
+    /// 寫法（`wikipedia` 的 zh／en、`plos-one` 的大小寫）。**一個欄位在說謊**——讀它的人
+    /// 以為拿到時間序，實際拿到任意順序的別名。
+    ///
+    /// 這推翻 `venue-entity` spec 的「organization pattern; **NOT** the nested person
+    /// partition」。那條裁決（`add-venue-entities`，2026-08-17）不是疏漏，它預測
+    /// `names` 的多筆會裝沿革；11 天後的實測是那個預測完全反了。
+    ///
+    /// ## 形狀：頂層清單，不是 person 的巢狀分割
+    ///
+    /// 402 筆已有 `authorized` 在**頂層**，改成巢狀要動那 402 筆而只換到與 person 外觀
+    /// 一致。兩個分割**不得有交集**（`validate()` 檢查）——一個名字不能既權威又是它的異寫。
+    public var variant: [String] = []
+
+    /// **本刊使用頁碼嗎**（#406）。`nil` ＝ 尚未判定。
+    ///
+    /// ## 為什麼判準屬 venue 不屬 work
+    ///
+    /// 決定「這篇有沒有頁碼」的是**刊物的性質**：`Frontiers in Psychology` 的每一篇都
+    /// 沒有頁碼（article number 制），`The Annals of Statistics` 的每一篇都有。實測 70 筆
+    /// 期刊論文缺 `pages`，而「本來就沒有」與「真的漏了」在模型裡分不出來。
+    ///
+    /// 四個外部來源（Crossref／OpenAlex／Zotero／識別碼覆蓋率）**全部量過，全部不提供
+    /// 頁碼**——Zotero 那條是 2026-08-28 的全量 dry-run，0/70。所以這不是抓取問題，
+    /// 是模型缺一個格子。
+    ///
+    /// ## `nil` 不得折成任何預設值
+    ///
+    /// 「未判定」與「判定為不使用頁碼」是兩件事：前者是 APA7 下限**仍該報缺**的狀態，
+    /// 後者才是「這筆沒有頁碼是正確的」。折成 `false` 會讓所有未查的刊靜默通過下限檢查。
+    ///
+    /// 判定要留 verdict 與證據（`references`，第 11 條邊）——依
+    /// `identity-is-judged-not-matched`，「本刊不用頁碼」是關於世界的斷言，不是字串謂詞
+    /// 做得出來的。
+    public var paginated: Bool?
     /// 這個期刊的 ISSN（#394）。**清單而非純量**——print 與 electronic 是兩個**真的**
     /// 號（實測 Behavior Research Methods 的 `1554-351X` 與 `1554-3528`），一律純量會
     /// 丟掉一個。基數不是風格選擇：它決定 `ProvenanceReference` 走哪條驗證分支
@@ -166,6 +207,28 @@ public struct Venue: Equatable {
         }
         issues += AuthorizedNames.validate(authorized: authorized,
                                            names: names.entries.map(\.value), ownerKey: key)
+        // **兩個分割不得有交集**（#422）：一個名字不能既是權威形又是它自己的異寫。
+        // 這是 error 不是 warning——它不是「資料不完整」，是**自相矛盾**：
+        // 讀取面對同一個字串會得到兩個相反的答案。
+        let overlap = Set(authorized).intersection(variant).sorted()
+        if !overlap.isEmpty {
+            issues.append(ValidationIssue(
+                severity: .error,
+                message: "venue '\(displaySafe(key, max: 120))' 的 authorized 與 variant "
+                       + "同時含「\(displaySafe(overlap.joined(separator: "、"), max: 200))」"
+                       + "——一個名字不能既權威又是它的異寫"))
+        }
+        // **variant 的名字必須在 `names` 裡**（同 `authorized` 的既有立場）：
+        // 兩個分割都是**對 `names` 的標記**，不是獨立的清單。
+        let known = Set(names.entries.map(\.value))
+        let orphan = variant.filter { !known.contains($0) }.sorted()
+        if !orphan.isEmpty {
+            issues.append(ValidationIssue(
+                severity: .warning,
+                message: "venue '\(displaySafe(key, max: 120))' 的 variant "
+                       + "「\(displaySafe(orphan.joined(separator: "、"), max: 200))」"
+                       + "不在 names 裡——分割是對 names 的標記，不是獨立清單"))
+        }
         issues += IdentifierDiagnostics.nonNormal(issn, field: "venue.issn")
         // 認不出的 ISSN 角色**保留原值並報出來**（#394 verify）——不猜、也不靜默丟。
         // 形狀與上一行的非正規形診斷同構：讀取面寬容、`validate` 出聲。

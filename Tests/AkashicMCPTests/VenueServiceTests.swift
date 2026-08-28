@@ -189,6 +189,52 @@ final class VenueServiceTests: XCTestCase {
                       "拒絕必須零寫入")
     }
 
+    // MARK: - #394：建檔時就能帶識別碼
+
+    /// `add-venue --issn` ／ `akashic_add_venue` 的 `issn`。
+    ///
+    /// **為什麼建檔面也要**：少了它得「先建再更新」——一次操作變兩次，中間有一個
+    /// ISSN 不在的狀態。而建檔時本來就知道刊物的 ISSN。
+    ///
+    /// **誠實記錄**：本測試是**實作之後**補的（違反 TDD 的先寫測試）。所以它附一個
+    /// 負控——見 `testAddVenueISSNGuardActuallyFires`。一個從沒紅過的檢查與一個不存在
+    /// 的檢查，在報告上長得一模一樣。
+    func testAddVenueAcceptsISSNAtCreation() throws {
+        let out = try json(try service.addVenue(
+            key: "ampsy", names: ["American Psychologist"], type: "periodical",
+            note: nil, issn: ["0003-066X", "1935-990X"]))
+        XCTAssertEqual(out["issn"] as? [String], ["0003-066X", "1935-990X"], "回報：\(out)")
+        XCTAssertEqual(try store.load().venues.first?.issn.count, 2)
+    }
+
+    /// 不合法的 ISSN → 整個建檔拒絕，**venue 也不該存在**。
+    ///
+    /// 這比 `updateVenue` 那條更強：那裡拒絕的是一次更新，這裡拒絕的是整筆記錄的誕生。
+    /// 若守衛只擋 ISSN 而讓 venue 建了出來，結果是一筆「使用者以為帶 ISSN、實際沒有」
+    /// 的記錄——比明確失敗更糟。
+    func testAddVenueISSNGuardActuallyFires() throws {
+        XCTAssertThrowsError(try service.addVenue(
+            key: "bad", names: ["V"], type: "periodical", note: nil, issn: ["not-an-issn"]))
+        XCTAssertTrue(try store.load().venues.isEmpty,
+                      "拒絕必須零寫入——連 venue 本身都不該存在")
+    }
+
+    /// ROR 是**純量不是清單**——一個機構只有一個 ROR ID，而 ISSN 的多值是真的
+    /// （print 與 electronic）。兩者形狀不同是刻意的。
+    func testAddOrganizationAcceptsROR() throws {
+        let out = try json(try service.addOrganization(
+            key: "academia-sinica", names: ["中央研究院"], parentKey: nil, note: nil,
+            ror: "https://ror.org/03rmrcq20"))
+        XCTAssertNotNil(out["ror"], "回報：\(out)")
+        XCTAssertNotNil(try store.load().organizations.first?.ror)
+    }
+
+    func testAddOrganizationRORGuardActuallyFires() throws {
+        XCTAssertThrowsError(try service.addOrganization(
+            key: "bad", names: ["X"], parentKey: nil, note: nil, ror: "not-a-ror"))
+        XCTAssertTrue(try store.load().organizations.isEmpty, "拒絕必須零寫入")
+    }
+
     // MARK: - org MCP 面（#304 移轉）
 
     func testAddOrganizationWithParent() throws {

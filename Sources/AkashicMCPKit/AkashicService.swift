@@ -2247,8 +2247,11 @@ public final class AkashicService {
 
     /// venue 單筆建檔（同 addPerson 形：寫入面封閉例外、key 已存在拒絕）。
     /// names 全部進時間軸（無時間段）；authorized 留空——指定是人的判斷。
+    /// 建一筆 venue。`issn` 於 #394 加入——理由與 `updateVenue` 的 `addISSN` 同：
+    /// 欄位、型別、正規化都已存在，只差一個參數。建檔時就知道 ISSN 是常見的，
+    /// 少了它就得「先建再更新」，而那讓一次操作變成兩次、中間有一個 ISSN 不在的狀態。
     public func addVenue(key: String, names: [String], type rawType: String,
-                         note: String? = nil) throws -> String {
+                         note: String? = nil, issn: [String]? = nil) throws -> String {
         guard let vtype = VenueType(rawValue: rawType) else {
             throw ServiceError.invalid(
                 "type「\(displaySafe(rawType, max: 60))」不在封閉列舉（\(VenueType.domainDescription)）")   // display-safe-exempt: domainDescription 由 VenueType.allCases 的 rawValue 組成，那些是 Swift 原始碼裡的識別字（編譯期常量），不含使用者資料
@@ -2257,13 +2260,26 @@ public final class AkashicService {
         guard !load.venues.contains(where: { $0.key == key }) else {
             throw ServiceError.invalid("venue key「\(displaySafe(key, max: 200))」已存在")
         }
-        let venue = Venue(key: key, type: vtype,
+        var venue = Venue(key: key, type: vtype,
                           names: Timeline(names.map { TemporalValue(value: $0) }),
                           note: note)
+        // 不合法即整個拒絕、零寫入（同 `updateVenue`）；相等看正規形。
+        if let raws = issn {
+            var seen = Set<String>()
+            for r in raws where !r.trimmingCharacters(in: .whitespaces).isEmpty {
+                guard let one = ISSN(r) else {
+                    throw ServiceError.invalid(
+                        "issn「\(displaySafe(r, max: 60))」不是合法的 ISSN——拒絕整個呼叫，零寫入")
+                }
+                if seen.insert(one.normalized).inserted { venue.issn.append(one) }
+            }
+        }
         try store.writeVenue(venue)
         try LibraryIndex(store: store).rebuild()
         return try jsonString(["key": key, "type": vtype.rawValue,
-                               "names": names.map { displaySafe($0, max: 200) }])
+                               "names": names.map { displaySafe($0, max: 200) },
+                               // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
+                               "issn": venue.issn.map(\.normalized)])
     }
 
     /// venue 異名補寫（#306）——**append 語意**：`addNames` 只附加不重複的
@@ -2675,8 +2691,16 @@ public final class AkashicService {
 
     /// org 單筆建檔（addPerson 形；parent 選填、以 key 指涉——literal parent 由
     /// bootstrap 面處理，單筆面收窄為已知 parent）。
+    /// 建一筆 organization。`ror` 於 #394 加入。
+    ///
+    /// **ROR 是純量不是清單**（與 venue 的 ISSN 不同）——一個機構只有一個 ROR ID，
+    /// 而 ISSN 的多值是真的（print 與 electronic）。`zero-instance-guards` 第 9 列
+    /// 裁決加這個欄位時的理由是「缺席本身在說話」：person 有 `orcid`、venue 有 `issn`，
+    /// organization 什麼都沒有會讓讀者推論「機構沒有識別碼可記」，而那是假的。
+    /// 那一列補了欄位，本次補上寫得進去的路。
     public func addOrganization(key: String, names: [String],
-                                parentKey: String? = nil, note: String? = nil) throws -> String {
+                                parentKey: String? = nil, note: String? = nil,
+                                ror: String? = nil) throws -> String {
         let load = try store.load()
         guard !load.organizations.contains(where: { $0.key == key }) else {
             throw ServiceError.invalid("organization key「\(displaySafe(key, max: 200))」已存在")
@@ -2691,9 +2715,20 @@ public final class AkashicService {
             org.parents = TimelineOf([TemporalValue(value: .key(pk))])
         }
         org.note = note
+        if let raw = ror, !raw.trimmingCharacters(in: .whitespaces).isEmpty {
+            guard let one = ROR(raw) else {
+                throw ServiceError.invalid(
+                    "ror「\(displaySafe(raw, max: 60))」不是合法的 ROR ID——拒絕整個呼叫，零寫入")
+            }
+            org.ror = one
+        }
         try store.writeOrganization(org)
         try LibraryIndex(store: store).rebuild()
-        return try jsonString(["key": key, "names": names.map { displaySafe($0, max: 200) }])
+        var payload: [String: Any] = ["key": key,
+                                      "names": names.map { displaySafe($0, max: 200) }]
+        // display-safe-exempt: ROR.normalized 由型別保證是 ROR 語法
+        if let r = org.ror { payload["ror"] = r.normalized }
+        return try jsonString(payload)
     }
 
     /// org 消歧（OrgResolver 包裝；apply/reject 與 verdict 紀律同 venue 面）。

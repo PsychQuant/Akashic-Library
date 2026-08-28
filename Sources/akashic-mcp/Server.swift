@@ -184,6 +184,7 @@ actor AkashicMCPServer {
                 "names": strArray("名稱變體（正式刊名、縮寫、WoS 大寫形）"),
                 "type": str(VenueType.domainDescription),
                 "note": str("備註（選填）"),
+                "issn": strArray("ISSN（可多個——print 與 electronic 是兩個真的號；相等看正規形；任一不合法即整個呼叫拒絕、零寫入。#394）"),
              ], required: ["key", "names", "type"])),
         Tool(name: "akashic_update_venue",
              description: "venue 的部分更新（#306／#394）——append 語意：add_names 與 add_issn 只附加不重複的值（整組替換刻意不提供）；note／type 替換（選填）。沿革補全直接擴大 resolve_venues 的命中面（resolver 對沿革各段都配對）。需 store format ≥ 11。",
@@ -209,6 +210,7 @@ actor AkashicMCPServer {
                 "names": strArray("名稱變體（中文名、英文名、縮寫）"),
                 "parent_key": str("上級機構的 key（選填，需已存在）"),
                 "note": str("備註（選填）"),
+                "ror": str("ROR ID（選填；**純量不是清單**——一個機構只有一個 ROR，而 ISSN 的多值是真的。不合法即整個呼叫拒絕、零寫入。#394）"),
              ], required: ["key", "names"])),
         Tool(name: "akashic_resolve_organizations",
              description: "org 解析（#304 parity 移轉）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 person affiliations／org parents 的 literal 與某 org name 完全命中且不歧義者。帶 apply（候選 id，形如 holderKey::literal）歸戶並寫 confirmed verdict；帶 reject 寫 rejected verdict。需 store format ≥ 8（verdict）。",
@@ -399,8 +401,10 @@ actor AkashicMCPServer {
             case "akashic_venues":
                 output = try service.venues()
             case "akashic_add_venue":
-                output = try service.addVenue(key: arg("key") ?? "", names: argList("names"),
-                                              type: arg("type") ?? "", note: arg("note"))
+                output = try service.addVenue(
+                    key: arg("key") ?? "", names: argList("names"),
+                    type: arg("type") ?? "", note: arg("note"),
+                    issn: params.arguments?["issn"] != nil ? argList("issn") : nil)
             case "akashic_update_venue":
                 let addNamesProvided = params.arguments?["add_names"] != nil
                 output = try service.updateVenue(
@@ -425,8 +429,10 @@ actor AkashicMCPServer {
                     repoint: vRepointProvided ? argList("repoint") : nil,
                     demote: vDemoteProvided ? argList("demote") : nil)
             case "akashic_add_organization":
-                output = try service.addOrganization(key: arg("key") ?? "", names: argList("names"),
-                                                     parentKey: arg("parent_key"), note: arg("note"))
+                output = try service.addOrganization(
+                    key: arg("key") ?? "", names: argList("names"),
+                    parentKey: arg("parent_key"), note: arg("note"),
+                    ror: arg("ror"))
             case "akashic_resolve_organizations":
                 let oApplyProvided = params.arguments?["apply"] != nil
                 let oRejectProvided = params.arguments?["reject"] != nil

@@ -139,12 +139,19 @@ struct AddVenueCmd: ParsableCommand {
     @Option(name: .long, help: "備註（選填）")
     var note: String?
 
+    /// #394：建檔時就知道 ISSN 是常見的。少了它得「先建再更新」——一次操作變兩次，
+    /// 中間有一個 ISSN 不在的狀態。不合法即整個拒絕、零寫入；相等看正規形。
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "ISSN（可多個；print 與 electronic 是兩個真的號。不合法即整批拒絕）")
+    var issn: [String] = []
+
     func run() throws {
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
         // 寫入面封閉例外形：只回 service payload（mcp-cli-parity 的既有裁決）
-        print(try service.addVenue(key: key, names: names, type: type, note: note))
+        print(try service.addVenue(key: key, names: names, type: type, note: note,
+                                   issn: issn.isEmpty ? nil : issn))
     }
 }
 

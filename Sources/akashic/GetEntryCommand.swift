@@ -51,6 +51,35 @@ struct GetEntryCmd: ParsableCommand {
                 print("\(key)\t\(vs.joined(separator: ", "))")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
             }
         }
+        // **載體**（第 14 條邊，#304）與**學位論文事實**（#335）——#426 之前三個讀取面
+        // 同時看不到它們，而兩者都在磁碟上。同上條原則：JSON 面有的，人可讀面也要有。
+        //
+        // 二態原樣呈現：`.key` 加 `@` 前綴（與 authors 同慣例），`.literal` 給原文加註記
+        // ——`literal-first-then-key` 第 2 段要求 literal 顯示時給名字而不冒充 identity，
+        // 讓使用者一眼看得出哪些還沒歸戶。
+        if let venues = d["venues"] as? [[String: String]] {
+            let rendered = venues.map { v in
+                v["key"].map { "@\($0)" } ?? (v["literal"].map { "\($0)（未歸戶）" } ?? "")
+            }
+            if !rendered.isEmpty {
+                // **單行 block 在這裡寫不出來**：`display-safe-exempt` 標記必須與被標記的
+                // 那一行同行，而行尾註解會把單行 block 的閉括號吃進註解裡。
+                print("venues\t\(rendered.joined(separator: "; "))")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
+            }
+        }
+        if let thesis = d["thesis"] as? [String: Any] {
+            if let degree = thesis["degree"] as? String {
+                print("thesis:degree\t\(degree)")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
+            }
+            if let avail = thesis["availability"] as? String {
+                // `published` 的 repository／url 都可選（手冊例 65／66 是已出版卻沒有
+                // 典藏庫名的論文）——有什麼印什麼，缺席不補預設。
+                let extra = (thesis["published"] as? [String: Any]).map { pub in
+                    pub.keys.sorted().map { "\($0)=\(pub[$0] ?? "")" }.joined(separator: " ")
+                } ?? ""
+                print("thesis:availability\t\(avail)\(extra.isEmpty ? "" : " " + extra)")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
+            }
+        }
         // 匯入來歷（`Entry.provenance`）——#394 verify R5 ②④ 的反射守衛抓到的缺口:
         // MCP 的 `entryDict` 一直輸出它，CLI 的人可讀面沒有。違反上面那條同檔原則
         // （「JSON 面有的，人可讀面也要看得到」），而寫死欄位名的舊守衛看不到它。

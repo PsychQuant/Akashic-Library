@@ -2065,6 +2065,47 @@ public final class AkashicService {
         if !entry.canonicalISBNs.isEmpty {
             d["isbn"] = entry.canonicalISBNs.map { displaySafe($0.normalized, max: 200) }
         }
+        // **載體**（封閉列舉的第 14 條邊，#304）。在此之前 `entryDict` 讀不到它——
+        // 而它是 work 通往 venue 的**唯一**路徑，#394 之後 ISSN 就住在那個 venue 上。
+        // 一個看不到 `venues` 的 `get-entry`，說不出這篇文章的 ISSN 是從哪裡來的（#426）。
+        //
+        // **二態原樣輸出，不折成顯示名**：`.literal` 是誠實狀態不是壞掉的 `.key`
+        // （`literal-first-then-key` 第 2 段）。折成 `displayName` 會讓消費端無法分辨
+        // 「已歸戶」與「還沒歸戶」，而那正是 campaign 的進度量測所依據的區分。
+        // 形狀與上面的 `authors` 一致——同為二態 ref，不該有兩種渲染慣例。
+        if !entry.venues.isEmpty {
+            d["venues"] = entry.venues.map { v -> [String: String] in
+                switch v {
+                case .key(let k): return ["key": displaySafe(k, max: 200)]
+                case .literal(let s): return ["literal": displaySafe(s, max: 400)]
+                }
+            }
+        }
+        // **學位論文的專屬事實**（#335 的 `ThesisFacts`）。APA7 §10.6 的匯出靠它，
+        // 而兩個讀取面在 #426 之前都看不到它。
+        //
+        // `availability` 是帶關聯值的 enum，逐 case 展開而**不加預設**：`nil` ＝ 未查，
+        // 型別 doc 明寫「不得折成任何預設值」。`published` 的 repository 與 url 都可選
+        // ——手冊例 65／66 是已出版卻沒有典藏庫名的論文，折疊它們會逼人編造。
+        if let thesis = entry.thesis {
+            var th: [String: Any] = [:]
+            if let degree = thesis.degree {
+                th["degree"] = degree.rawValue   // display-safe-exempt: 封閉列舉的 rawValue
+            }
+            switch thesis.availability {
+            case .unpublished:
+                th["availability"] = "unpublished"   // display-safe-exempt: 編譯期常量
+            case .published(let repository, let url):
+                var pub: [String: Any] = [:]
+                if let r = repository { pub["repository"] = displaySafe(r, max: 400) }
+                if let u = url { pub["url"] = displaySafe(u, max: 800) }
+                th["availability"] = "published"   // display-safe-exempt: 編譯期常量
+                if !pub.isEmpty { th["published"] = pub }
+            case nil:
+                break   // 未查——不寫任何鍵，缺席即「不知道」
+            }
+            if !th.isEmpty { d["thesis"] = th }
+        }
         // 欄位層級的 provenance（封閉列舉的第 15 條邊，#394 §5）。
         // 只列**它支撐哪個欄位與哪個值**——digest 與 statement 屬 `doctor` 的職責。
         if !entry.references.isEmpty {

@@ -93,6 +93,45 @@ struct EntryDetailView: View {
                                        value: entry.canonicalISBNs.map(\.normalized)
                                            .joined(separator: ", "))
                     }
+                    // **載體**（第 14 條邊，#304）與**學位論文事實**（#335）——App 是
+                    // 第三個讀取面，而 #426 之前三面同時看不到這兩者。
+                    //
+                    // 這裡是獨立的第三條實作路徑（CLI 與 MCP 共用 `entryDict`），
+                    // 所以要分別改。那正是 `entity-backlink-completeness` 執行細節 2
+                    // 說的「一個 entity kind 的讀取面只能有一條實作路徑」對 entry
+                    // **尚未成立**的地方——venue 那面已收斂，entry 這面還沒有。
+                    //
+                    // 二態 ref 標出未歸戶而不冒充 identity（執行細節 3）：`.literal`
+                    // 加註記，讓使用者一眼看得出哪些還沒歸戶。
+                    if !entry.venues.isEmpty {
+                        LabeledContent("Venues",
+                                       value: entry.venues.map { v in
+                                           switch v {
+                                           // key 過 load 端 quarantine（StoreKey），
+                                           // literal 是 WoS／Zotero 的第三方原文——
+                                           // 與 `authors` 的 literal 同源，要消毒。
+                                           case .key(let k):
+                                               return k   // display-safe-exempt: StoreKey quarantine
+                                           case .literal(let s):
+                                               return "\(displaySafe(s, max: 400))（未歸戶）"
+                                           }
+                                       }.joined(separator: ", "))
+                    }
+                    if let thesis = entry.thesis {
+                        if let degree = thesis.degree {
+                            LabeledContent("Degree", value: degree.rawValue)
+                        }
+                        switch thesis.availability {
+                        case .unpublished:
+                            LabeledContent("Availability", value: "unpublished")
+                        case .published(let repository, let url):
+                            LabeledContent("Availability",
+                                           value: [ "published", repository, url ]
+                                               .compactMap { $0 }.joined(separator: " · "))
+                        case nil:
+                            EmptyView()   // 未查——不顯示，缺席即「不知道」
+                        }
+                    }
                     ForEach(entry.fields.keys.sorted(), id: \.self) { key in
                         LabeledContent(key, value: entry.fields[key] ?? "")
                     }

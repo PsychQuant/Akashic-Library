@@ -2102,6 +2102,47 @@ public final class AkashicService {
         if !entry.canonicalISBNs.isEmpty {
             d["isbn"] = entry.canonicalISBNs.map { displaySafe($0.normalized, max: 200) }
         }
+        // **載體**（封閉列舉的第 14 條邊，#304）。在此之前 `entryDict` 讀不到它——
+        // 而它是 work 通往 venue 的**唯一**路徑，#394 之後 ISSN 就住在那個 venue 上。
+        // 一個看不到 `venues` 的 `get-entry`，說不出這篇文章的 ISSN 是從哪裡來的（#426）。
+        //
+        // **二態原樣輸出，不折成顯示名**：`.literal` 是誠實狀態不是壞掉的 `.key`
+        // （`literal-first-then-key` 第 2 段）。折成 `displayName` 會讓消費端無法分辨
+        // 「已歸戶」與「還沒歸戶」，而那正是 campaign 的進度量測所依據的區分。
+        // 形狀與上面的 `authors` 一致——同為二態 ref，不該有兩種渲染慣例。
+        if !entry.venues.isEmpty {
+            d["venues"] = entry.venues.map { v -> [String: String] in
+                switch v {
+                case .key(let k): return ["key": displaySafe(k, max: 200)]
+                case .literal(let s): return ["literal": displaySafe(s, max: 400)]
+                }
+            }
+        }
+        // **學位論文的專屬事實**（#335 的 `ThesisFacts`）。APA7 §10.6 的匯出靠它，
+        // 而兩個讀取面在 #426 之前都看不到它。
+        //
+        // `availability` 是帶關聯值的 enum，逐 case 展開而**不加預設**：`nil` ＝ 未查，
+        // 型別 doc 明寫「不得折成任何預設值」。`published` 的 repository 與 url 都可選
+        // ——手冊例 65／66 是已出版卻沒有典藏庫名的論文，折疊它們會逼人編造。
+        if let thesis = entry.thesis {
+            var th: [String: Any] = [:]
+            if let degree = thesis.degree {
+                th["degree"] = degree.rawValue   // display-safe-exempt: 封閉列舉的 rawValue
+            }
+            switch thesis.availability {
+            case .unpublished:
+                th["availability"] = "unpublished"   // display-safe-exempt: 編譯期常量
+            case .published(let repository, let url):
+                var pub: [String: Any] = [:]
+                if let r = repository { pub["repository"] = displaySafe(r, max: 400) }
+                if let u = url { pub["url"] = displaySafe(u, max: 800) }
+                th["availability"] = "published"   // display-safe-exempt: 編譯期常量
+                if !pub.isEmpty { th["published"] = pub }
+            case nil:
+                break   // 未查——不寫任何鍵，缺席即「不知道」
+            }
+            if !th.isEmpty { d["thesis"] = th }
+        }
         // 欄位層級的 provenance（封閉列舉的第 15 條邊，#394 §5）。
         // 只列**它支撐哪個欄位與哪個值**——digest 與 statement 屬 `doctor` 的職責。
         if !entry.references.isEmpty {
@@ -2394,6 +2435,120 @@ public final class AkashicService {
                                // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
                                "issnAdded": issnAdded,
                                "issnTotal": venue.issn.count])
+    }
+
+    /// **`.literal` → `.organization` 的升格**（#443）。
+    ///
+    /// ## 為什麼要有這條路
+    ///
+    /// `Author` 有三態（`.key`／`.organization`／`.literal`，#323），而在此之前只有
+    /// 兩態接得起來：`resolve-people` 的 apply 把 `.literal` 升格成 `.key`，而團體作者
+    /// **只能在建檔時指定**。既有記錄改不了，唯一出路是手改 YAML——那是 #394 差點弄丟
+    /// 一筆 DOI 的那條路。
+    ///
+    /// 實測（#443）：`Center for History and New Media` 與 `教育部` 兩筆機構被記成
+    /// `.literal` 作者，在此之前修不了。
+    ///
+    /// ## 為什麼不是消歧
+    ///
+    /// org key 由呼叫端**顯式給**，不是提名出來的——所以沒有 tier、沒有候選清單。
+    /// 與 #386 的 `judge` 同型：per-id 顯式指名 ＋ judgement 必填。
+    ///
+    /// **judgement 必填**是因為判定會錯，而錯了要能回溯。一個沒有理由的判定在事後與
+    /// 「不知道為什麼這樣」無法區分。
+    ///
+    /// ## 失敗語意：整批拒絕、零寫入
+    ///
+    /// 與 `judge`／`repoint` 同（#386／#418）。下面**先全部解析驗證完才動手**——逐筆
+    /// 寫入會留下「一半套用」的狀態，比整批失敗難修得多。
+    public func attributeToOrganizations(_ specs: [String]) throws -> String {
+        let load = try store.load()
+        let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
+                                   uniquingKeysWith: { _, last in last })
+        let orgKeys = Set(load.organizations.map(\.key))
+
+        struct Plan { let citekey: String; let idx: Int; let orgKey: String
+                      let literal: String; let judgement: String }
+        var plans: [Plan] = []
+        var seen = Set<String>()
+
+        for spec in specs {
+            guard let eq = spec.firstIndex(of: "=") else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(spec, max: 200))」缺少 `=`——格式是 "
+                    + "citekey:authorIndex:orgKey=判定理由")
+            }
+            let idPart = String(spec[spec.startIndex..<eq])
+            let judgement = String(spec[spec.index(after: eq)...])
+                .trimmingCharacters(in: .whitespaces)
+            guard !judgement.isEmpty else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(idPart, max: 200))」的判定理由是空的——判定會錯，"
+                    + "而沒有理由的判定事後與「不知道為什麼這樣」無法區分")
+            }
+            let parts = idPart.split(separator: ":", omittingEmptySubsequences: false)
+            guard parts.count == 3, let idx = Int(parts[1]) else {
+                throw ServiceError.invalid(
+                    "id「\(displaySafe(idPart, max: 200))」不是三段形 citekey:authorIndex:orgKey")
+            }
+            let citekey = String(parts[0]), orgKey = String(parts[2])
+            guard seen.insert(idPart).inserted else {
+                throw ServiceError.invalid("id「\(displaySafe(idPart, max: 200))」重複")
+            }
+            guard let entry = byCitekey[citekey] else {
+                throw ServiceError.notFound("work「\(displaySafe(citekey, max: 200))」")
+            }
+            guard entry.authors.indices.contains(idx) else {
+                throw ServiceError.invalid(
+                    "作者索引 \(idx) 超出範圍（0…\(entry.authors.count - 1)）")   // display-safe-exempt: Int
+            }
+            guard orgKeys.contains(orgKey) else {
+                throw ServiceError.notFound(
+                    "organization「\(displaySafe(orgKey, max: 200))」"
+                    + "——先用 add_organization 建檔（絕不自動建）")
+            }
+            // **已歸戶的位置不得被覆寫**：`.key`（人）與 `.organization` 都是。
+            // 改一個已歸戶的邊是**修正**不是升格，而那需要自己的出口（同 venue 的
+            // `repoint`／`demote` 與 apply 分開的理由，#418）。
+            guard case .literal(let lit) = entry.authors[idx] else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(citekey, max: 200))」的作者位 \(idx) 已歸戶"   // display-safe-exempt: Int
+                    + "——升格只作用於 .literal；改已歸戶的邊是修正，需要自己的出口")
+            }
+            plans.append(Plan(citekey: citekey, idx: idx, orgKey: orgKey,
+                              literal: lit, judgement: judgement))
+        }
+
+        // ── 全部驗證通過才寫 ──
+        // **同一筆 work 的多個作者位是常態，不是邊界**——《Standards for Educational
+        // and Psychological Testing》有三個共同出版者。`uniqueKeysWithValues` 對重複
+        // 的 citekey 會 **crash**（實測 #443：`Fatal error: Duplicate values for key`），
+        // 而三個既有的負向測試都沒抓到它：每個只用一筆 plan，或用不同的 citekey。
+        //
+        // 測了「第二筆壞掉」卻沒測「兩筆都好而且在同一筆 work 上」——後者才是這個功能
+        // 最自然的用法。
+        var entries: [String: Entry] = [:]
+        for p in plans where entries[p.citekey] == nil { entries[p.citekey] = byCitekey[p.citekey]! }
+        var orgs = Dictionary(uniqueKeysWithValues:
+            load.organizations.filter { o in plans.contains { $0.orgKey == o.key } }.map { ($0.key, $0) })
+        var rows: [[String: Any]] = []
+        for p in plans {
+            entries[p.citekey]!.authors[p.idx] = .organization(p.orgKey)
+            // verdict 落在**被判定的記錄**（封閉列舉第 13 條）——holder 是 work，
+            // 因為那個判定是關於「這個作者位是誰」。
+            let ref = ResolutionLedger.record(
+                .confirmed, holderKind: .work, holder: p.citekey, literal: p.literal,
+                rule: "author-organization-judged", statement: p.judgement)
+            ResolutionLedger.appendIfAbsent(ref, to: &orgs[p.orgKey]!.references)
+            rows.append(["citekey": displaySafe(p.citekey, max: 200),
+                         "authorIndex": p.idx,   // display-safe-exempt: Int
+                         "organization": displaySafe(p.orgKey, max: 200),
+                         "literal": displaySafe(p.literal, max: 400)])
+        }
+        for e in entries.values.sorted(by: { $0.citekey < $1.citekey }) { try store.writeEntry(e) }
+        for o in orgs.values.sorted(by: { $0.key < $1.key }) { try store.writeOrganization(o) }
+        try LibraryIndex(store: store).rebuild()
+        return try jsonString(["attributed": rows, "count": rows.count])   // display-safe-exempt: Int
     }
 
     /// venue 消歧（resolve-people 契約形，#304）：無參數＝列候選與歧義；

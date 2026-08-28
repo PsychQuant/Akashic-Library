@@ -1,6 +1,6 @@
 ---
 name: akashic-bootstrap
-description: 把資料補進 Akashic library——給一個人名、citekey、DOI、一份匯出檔或一批任何形式的參照，找出 store 裡已有什麼、外部查得到什麼，驗證後補齊。涵蓋建立缺少的 person／work 實體、歸戶裸字串作者（「這個 literal 是不是這個人」的身分判定與 verdict 落地屬 akashic-person-verify，本 skill 負責把判定後的資料寫進 store）、補 DOI 與書目欄位、蒐集作者機構。當使用者說「把這些補進去」「查一下這個人的所有著作」「這批論文缺 DOI」「這份名單建成實體」「補完某人的 CV」，或給了一份 xlsx/CSV/BibTeX 說要進 Akashic 時使用（整批 WoS 型匯出清單先過 akashic-wos-intake 的匯入前 QA 閘，再進本 skill 逐筆補完）。也涵蓋純查詢：「找某位作者的所有文章」「這個人跟誰合作過」——查詢是補完的第一步，同一條路徑。不要求使用者預先說明那是 person 還是 work，看內容判斷。
+description: 把資料補進 Akashic library——給一個人名、citekey、DOI、一份匯出檔或一批任何形式的參照，找出 store 裡已有什麼、外部查得到什麼，驗證後補齊。涵蓋建立缺少的 person／work 實體、歸戶裸字串作者（「這個 literal 是不是這個人」的身分判定與 verdict 落地屬 akashic-verify-person，本 skill 負責把判定後的資料寫進 store）、補 DOI 與書目欄位、蒐集作者機構。當使用者說「把這些補進去」「查一下這個人的所有著作」「這批論文缺 DOI」「這份名單建成實體」「補完某人的 CV」，或給了一份 xlsx/CSV/BibTeX 說要進 Akashic 時使用（整批 WoS 型匯出清單先過 akashic-import-wos 的匯入前 QA 閘，再進本 skill 逐筆補完）。也涵蓋純查詢：「找某位作者的所有文章」「這個人跟誰合作過」——查詢是補完的第一步，同一條路徑。不要求使用者預先說明那是 person 還是 work，看內容判斷。
 ---
 
 # 把資料補進 Akashic library
@@ -9,9 +9,9 @@ description: 把資料補進 Akashic library——給一個人名、citekey、DO
 
 **不要求使用者預先分類。** 「這是 person 還是 work」是看內容就能判斷的事；把它外包給使用者只會讓人卡在自己不該回答的問題上。
 
-**與 akashic-person-verify 的分工**：本 skill 補資料進 store；「這個 literal 是不是這個人」的**身分判定**（含 verdict 落地）是 [akashic-person-verify](../akashic-person-verify/SKILL.md) 的事。查證得出的新事實（ORCID、任期、異名）回到本 skill 寫入。
+**與 akashic-verify-person 的分工**：本 skill 補資料進 store；「這個 literal 是不是這個人」的**身分判定**（含 verdict 落地）是 [akashic-verify-person](../akashic-verify-person/SKILL.md) 的事。查證得出的新事實（ORCID、任期、異名）回到本 skill 寫入。
 
-**與 akashic-wos-intake 的分工**：整批 WoS 型書目清單的**匯入前 QA**（DOI 補查、同篇雙列偵測、分母定案）先走 [akashic-wos-intake](../akashic-wos-intake/SKILL.md)——QA 過、經人確認的清單才進本 skill 或 `import-wos`。跳過那道閘，重複列會直接流進下游統計。
+**與 akashic-import-wos 的分工**：整批 WoS 型書目清單的**匯入前 QA**（DOI 補查、同篇雙列偵測、分母定案）先走 [akashic-import-wos](../akashic-import-wos/SKILL.md)——QA 過、經人確認的清單才進本 skill 或 `import-wos`。跳過那道閘，重複列會直接流進下游統計。
 
 ## 為什麼需要紀律
 
@@ -194,6 +194,6 @@ DOI 識別「註冊的物件」，篇名識別「作品」，store 的 work 記�
 | 「找某位作者的所有文章」 | 步驟 1 就結束——`akashic_person`，不需要寫入 |
 | 「這個人跟誰合作過」 | 同上，看 `co_authors`；無 `person_key` 者＝尚未歸戶的 literal |
 | 「這批論文缺 DOI」 | 1 → 2（work-sources）→ 3 → 4 → 5 |
-| 「把這份 xlsx 匯入」 | **先過 [akashic-wos-intake](../akashic-wos-intake/SKILL.md) 的 QA 閘**（分母定案）→ 讀 header → work 先進 → 再建 person → 再歸戶 |
+| 「把這份 xlsx 匯入」 | **先過 [akashic-import-wos](../akashic-import-wos/SKILL.md) 的 QA 閘**（分母定案）→ 讀 header → work 先進 → 再建 person → 再歸戶 |
 | 「補完某人的學術 CV」 | 1 → 2（person-sources）→ 3 → 4 → 5 |
 | 「這些作者都建成實體」 | 注意範圍與門檻；見 `references/writing-to-the-store.md` |

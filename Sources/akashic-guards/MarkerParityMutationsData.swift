@@ -1,5 +1,5 @@
 // **本檔由腳本生成，不要手改。** 來源：
-//   plugin/skills/akashic-literal-campaign/scripts/tests/marker-parity-mutations.py 的 `MUTATIONS`
+//   plugin/skills/akashic-promote-literals/scripts/tests/marker-parity-mutations.py 的 `MUTATIONS`
 //
 // **為什麼機械抽而不是手抄**（#433）：那 14 個 mutation 全是**多行 Python 程式碼片段**，
 // 而 `mutate()` 斷言原文片段必須在 census 裡**逐字唯一命中**——一個空白之差就中止。

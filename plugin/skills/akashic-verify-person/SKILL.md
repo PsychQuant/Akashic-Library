@@ -1,5 +1,5 @@
 ---
-name: akashic-person-verify
+name: akashic-verify-person
 description: 歸戶查證——判定「這個 literal 作者是不是這個人」並把判定落成 Akashic 的 verdict。給一個未歸戶的作者字串（或 resolve-people 列出的候選／歧義），依標準證據鏈查 Europe PMC 著作軌跡、ORCID employment、OpenAlex 隸屬史、出版商頁逐作者機構綁定，組出 affiliation timeline 與判定建議，經使用者確認後以 akashic_resolve_people 的 apply/reject 寫入 resolution-confirmed／resolution-rejected。當使用者說「查一下這個作者是不是他」「這個名字歸不歸得了戶」「幫我查證這批候選」「這個人是不是所上的人」，或 resolve-people 出現需要人判斷的歧義時使用。與 akashic-bootstrap 的分工：bootstrap 補資料進 store，本 skill 判定身分並記 verdict——查證結論要落地時兩者常接續使用。
 ---
 
@@ -165,6 +165,6 @@ akashic_resolve_people reject:["<citekey>:<index>:<personKey>", …]  # 查過�
 
 ## 相關
 
-- [`akashic-venue-verify`](../akashic-venue-verify/SKILL.md)——同一套 literal→verdict 紀律，不同 entity 域與證據源
+- [`akashic-verify-venue`](../akashic-verify-venue/SKILL.md)——同一套 literal→verdict 紀律，不同 entity 域與證據源
 - [`akashic-disambiguate`](../akashic-disambiguate/SKILL.md)——歧義列的判定；它的第 3 步會回頭用本 skill
 - [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——**本 skill 產出的每一句關於世界的話都受它管**：查得到就寫查到什麼、查不到就寫「查不到」並列出查過的來源，不寫「應該是」

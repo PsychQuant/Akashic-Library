@@ -2,6 +2,91 @@ import Foundation
 import XCTest
 
 final class PrePushHookTests: XCTestCase {
+
+    /// 只推 tag 且其 commit 已在遠端 → 跳過驗證（#434）。
+    ///
+    /// **兩個負向 case 是這支測試的重點**。正向那個（真的跳過）只證明早退存在；
+    /// 負向那兩個才證明它**沒有跳太多**——而跳太多的失敗是安靜的：push 成功、
+    /// 驗證沒跑、沒有任何訊息說它沒跑。
+    func testTagOnlyPushSkipsVerificationButOnlyWhenTheCommitIsAlreadyRemote() throws {
+        let root = repositoryRoot
+        guard FileManager.default.fileExists(atPath: root.appendingPathComponent(".git").path)
+        else { throw XCTSkip("這項承重測試需要 Git checkout") }
+
+        /// 真 repo 上一個**確定已在遠端**的 commit。取不到就跳過——它是本測試的前提，
+        /// 而前提不成立時謊報通過比跳過更糟。
+        func remoteCommit() -> String? {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            p.arguments = ["-C", root.path, "rev-parse", "origin/main"]
+            let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
+            try? p.run(); p.waitUntilExit()
+            guard p.terminationStatus == 0 else { return nil }
+            let s = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+            return s?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard let onRemote = remoteCommit(), !onRemote.isEmpty else {
+            throw XCTSkip("拿不到 origin/main——本測試的前提不成立")
+        }
+
+        /// 餵 stdin 跑 hook，回 (exit code, 是否呼叫過 swift)。
+        ///
+        /// `AKASHIC_PRE_PUSH_STAGES=build` 讓非早退的路徑只跑第一階段——本測試問的是
+        /// 「有沒有早退」，不是「後面幾階段對不對」。mock 的 swift 只記錄不執行。
+        func run(stdin: String) throws -> (Int32, Bool) {
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("akashic-tagonly-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            let log = tmp.appendingPathComponent("swift.log")
+            let mock = tmp.appendingPathComponent("swift")
+            try "#!/bin/sh\n/usr/bin/printf '%s\\n' \"$*\" >> \"$AKASHIC_PRE_PUSH_PROBE_LOG\"\n"
+                .write(to: mock, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755],
+                                                  ofItemAtPath: mock.path)
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/bin/bash")
+            proc.arguments = [root.appendingPathComponent(".githooks/pre-push").path]
+            proc.currentDirectoryURL = root
+            var env = ProcessInfo.processInfo.environment
+            env["PATH"] = "\(tmp.path):/usr/bin:/bin"
+            env["AKASHIC_PRE_PUSH_PROBE_LOG"] = log.path
+            env["AKASHIC_PRE_PUSH_STAGES"] = "build"
+            proc.environment = env
+            let input = Pipe()
+            proc.standardInput = input
+            proc.standardOutput = Pipe(); proc.standardError = Pipe()
+            try proc.run()
+            input.fileHandleForWriting.write(stdin.data(using: .utf8)!)
+            try? input.fileHandleForWriting.close()
+            proc.waitUntilExit()
+            let called = FileManager.default.fileExists(atPath: log.path)
+                && ((try? String(contentsOf: log, encoding: .utf8))?.isEmpty == false)
+            return (proc.terminationStatus, called)
+        }
+
+        // ① 正向：只推 tag，commit 已在遠端 → 早退，一次 swift 都不呼叫
+        let tagOnly = try run(
+            stdin: "refs/tags/v9.9.9 \(onRemote) refs/tags/v9.9.9 " + String(repeating: "0", count: 40))
+        XCTAssertEqual(tagOnly.0, 0, "只推已在遠端的 tag 應該直接通過")
+        XCTAssertFalse(tagOnly.1, "早退之後不該呼叫 swift——跑了就表示沒有真的跳過")
+
+        // ② 負向：推 branch → 照常驗證
+        let branchPush = try run(
+            stdin: "refs/heads/main \(onRemote) refs/heads/main " + String(repeating: "0", count: 40))
+        XCTAssertTrue(branchPush.1,
+                      "推 branch 必須照常跑驗證——早退若吃掉這個情形，失敗是安靜的")
+
+        // ③ 負向：tag 指向**不在遠端**的 commit → 照常驗證
+        //
+        // `git push origin v1.0` 可以推一個指向本地獨有 commit 的 tag，那次 push 會把
+        // 那個 commit 一起帶上去。那時樹是新的，驗證不能跳。
+        let orphanTag = try run(
+            stdin: "refs/tags/v9.9.9 \(String(repeating: "f", count: 40)) refs/tags/v9.9.9 "
+                + String(repeating: "0", count: 40))
+        XCTAssertTrue(orphanTag.1,
+                      "tag 指向遠端沒有的 commit 時，那次 push 會帶上新程式碼——不能跳")
+    }
     func testHookScrubsRepositoryLocalGitEnvironmentAndRunsWarningsAsErrors() throws {
         let root = repositoryRoot
         let gitDirectory = root.appendingPathComponent(".git")

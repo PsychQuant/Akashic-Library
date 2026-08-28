@@ -1,6 +1,6 @@
 ---
-name: akashic-literal-campaign
-description: literal 歸零 campaign 的編排層（#303）——以「全 entity 域 literal 歸零」為終局（#304 裁決），驅動分批的「查證 → resolve → apply」循環並量測進度。讀 store 現況（四域 census：author／venue／affiliation／org-parents）→ 按批 TaskCreate → 逐 literal 走查證管線 → 每輪把計數落一筆 #303 comment。當使用者說「繼續 literal campaign」「這批 literal 收一收」「歸戶進度到哪了」「跑一輪 resolve」「campaign 下一批」時使用。與 akashic-person-verify 的分工：那是單一配對的查證紀律，本 skill 是批次編排與進度追蹤——每個候選的查證仍走 person-verify。
+name: akashic-promote-literals
+description: literal 歸零 campaign 的編排層（#303）——以「全 entity 域 literal 歸零」為終局（#304 裁決），驅動分批的「查證 → resolve → apply」循環並量測進度。讀 store 現況（四域 census：author／venue／affiliation／org-parents）→ 按批 TaskCreate → 逐 literal 走查證管線 → 每輪把計數落一筆 #303 comment。當使用者說「繼續 literal campaign」「這批 literal 收一收」「歸戶進度到哪了」「跑一輪 resolve」「campaign 下一批」時使用。與 akashic-verify-person 的分工：那是單一配對的查證紀律，本 skill 是批次編排與進度追蹤——每個候選的查證仍走 person-verify。
 ---
 
 # literal 歸零 campaign：從積壓到終局
@@ -16,7 +16,7 @@ description: literal 歸零 campaign 的編排層（#303）——以「全 entit
 ### 0. Census（每輪開場與收尾各跑一次）
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/skills/akashic-literal-campaign/scripts/literal-census.sh"   # 預設 ~/.akashic
+bash "${CLAUDE_PLUGIN_ROOT}/skills/akashic-promote-literals/scripts/literal-census.sh"   # 預設 ~/.akashic
 ```
 
 四域各報**總邊／literal 邊／distinct 三個口徑**——「literal 邊」是歸零的終局量測，distinct 是查證工作量估計。
@@ -70,7 +70,7 @@ ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，*
 1. **R1 高頻批**：candidates 按 literal 頻次降冪（CLI 全列表自行彙總），freq ≥ 5 的 distinct 先處理
 2. **R2 統計所批**：iss view works 的 literal 作者（storyline 查證動線接續）
 3. **R3+ 長尾**：freq=1 的 one-off——批次建檔問題，走 `bootstrap-people`。它會把**與既有 person 寬鬆共鍵**的名字路由到「先消歧再說」桶（不建檔、印出撞誰）；照它的指引先走 resolve 流程，全部否決後名字自動回到建檔候選
-4. **venue 輪**（format 11 部署後）：add-venue 標準刊 → resolve-venues；縮寫刊名走 akashic-venue-verify
+4. **venue 輪**（format 11 部署後）：add-venue 標準刊 → resolve-venues；縮寫刊名走 akashic-verify-venue
 
 每批開工時用 TaskCreate 建 batch 清單，完成即 TaskUpdate——批內進度可見，中斷可續。
 
@@ -117,5 +117,5 @@ ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，*
 
 ## 相關
 
-- [`akashic-person-verify`](../akashic-person-verify/SKILL.md)——單一配對的外部證據鏈；本 skill 的逐筆查證管線引用它
+- [`akashic-verify-person`](../akashic-verify-person/SKILL.md)——單一配對的外部證據鏈；本 skill 的逐筆查證管線引用它
 - [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——**本 skill 寫的 verdict 與每輪落進 issue 的計數都受它管**。計數是人要照著決定批次與宣告 campaign 完成的數字；verdict 是身分判定，另有規定（見該檔第 5 節）

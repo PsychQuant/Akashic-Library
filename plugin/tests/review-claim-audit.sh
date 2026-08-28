@@ -77,8 +77,8 @@ rm -rf "$_NOSEQ"
 verdict "新寫法（純 bash）不依賴外部指令且長度正確" \
   "$([ "${#NEWZ}" -eq 5000 ] && echo yes || echo no)" "長度=${#NEWZ}"
 verdict "出貨的 parity 測試已改用新寫法且有長度斷言" \
-  "$(grep -q 'printf .%05000d' "$R/plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh" \
-     && grep -q 'ZEROS.*-eq 5000' "$R/plugin/skills/akashic-literal-campaign/scripts/tests/store-marker-parity.sh" \
+  "$(grep -q 'printf .%05000d' "$R/plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh" \
+     && grep -q 'ZEROS.*-eq 5000' "$R/plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh" \
      && echo yes || echo no)" ""
 
 echo
@@ -103,10 +103,10 @@ echo "══ codex finding #9：derive-hash-extenders.swift 的 --check 是假�
 # 而那正是在陳述它沒讀。不排除的話，這個檢查會因為「文件記載了這件事」而判定
 # 「它做了這件事」——謂詞比它要管的東西寬，本 issue 反覆記過的形狀。
 verdict "程式碼（非註解）確實從未讀 CommandLine.arguments" \
-  "$(grep -vE '^\s*//' "$R/plugin/skills/akashic-literal-campaign/scripts/tests/derive-hash-extenders.swift" \
+  "$(grep -vE '^\s*//' "$R/plugin/skills/akashic-promote-literals/scripts/tests/derive-hash-extenders.swift" \
      | grep -q 'CommandLine' && echo no || echo yes)" ""
 verdict "宣稱 --check 的那句註解已移除" \
-  "$(grep -q -- '--check <生成的表>' "$R/plugin/skills/akashic-literal-campaign/scripts/tests/derive-hash-extenders.swift" \
+  "$(grep -q -- '--check <生成的表>' "$R/plugin/skills/akashic-promote-literals/scripts/tests/derive-hash-extenders.swift" \
      && echo no || echo yes)" ""
 
 echo

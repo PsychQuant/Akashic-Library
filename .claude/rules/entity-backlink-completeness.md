@@ -244,6 +244,48 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
   > 立場——刪掉會丟失裁決史）。
 
 
+#### entity → entity 的「分裂／繼承」（#421，2026-08-25 裁決：暫不新增）
+
+**問題**：一個期刊一分為二（實例：JRSS Series B／C），或一個機構改組。`Venue`／
+`Organization` 有 UUID 身分與 names timeline，但「這個實體從那個實體分出來」**零機制、
+零詞彙**。
+
+**裁決：暫不新增**，理由不是「還沒發生」——JRSS 的分裂是真的發生過的事：
+
+> issue body 稱 JRSS Series B／C 是「未被表達的實例」，診斷查證後修正為：它是模型
+> **表達不了**的一件真事，**不是**模型算錯的一件事 —— 目前無任何查詢因缺那條邊而出錯。
+
+那個修正是關鍵：**表達不了 ≠ 算錯**。加這條邊要付的代價是本表加一列、YAML 編解碼、
+遷移、以及「分裂後舊的那個還在嗎」這個**形上學前提**（它需要選擇，不是查證）——而
+換到的是一個目前沒有任何查詢在問的答案。
+
+**觸發條件（任一成立即重新裁決）**：
+
+```bash
+# ① 有查詢因缺這條邊而給出錯的答案（不是「表達不了」，是「答錯」）
+#    ——目前為 0，且這一格沒有機械量測，需要人指認
+# ② 帶時間欄位的 names 段出現（＝沿革真的開始被用，而分裂是它的鄰居）
+python3 -c "
+import glob,io,re
+n=0
+for f in glob.glob('\$HOME/.akashic/entities/*.yaml'):
+    t=io.open(f,encoding='utf8').read()
+    if not (t.startswith('venue:') or t.startswith('organization:')): continue
+    m=re.search(r'^names:\n((?:- .*\n|  .*\n)+)',t,re.M)
+    if m and re.search(r'(from|until|since|start|end):',m.group(1)): n+=1
+print(n)"   # 2026-08-28 實測：0
+```
+
+**同案的另外兩層一併記在這裡**（它們不是關係邊，所以不進上表，但屬同一次裁決）：
+
+| 層 | 裁決 | 為什麼 |
+|---|---|---|
+| **Person 的名字要不要有時間軸** | 暫不做 | blast radius 46 個呼叫點／27 檔，而零實測損害 |
+| **`Venue.issn` 要不要跟著 names 變 timeline** | 暫不做 | **前提未滿足**：405 個 venue、35 個多名字、**帶時間的 0 個**且全是異寫法——加 `issn` 時間軸會做出**第二條空軸**。另有型別前提：`TemporalValue<V: Equatable & Comparable>` 而 `Identifier` 無 `Comparable`，`TimelineOf<ISSN>` 今天編不過 |
+
+**第二層的前提正在被 #422／PR #437 處理**（把異寫法從 names 時間軸搬進 `variant` 分割）
+——那之後 names 的時間軸才可能只裝沿革，而「第一條軸有沒有在用」才成為可問的問題。
+
 ## 為什麼：不對稱（與 `lossless-intake` 同形，方向相反）
 
 | 選擇 | 代價 |

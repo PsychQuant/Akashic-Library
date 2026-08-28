@@ -6,7 +6,7 @@
 
 適用於**任何把 literal 接到 key 的判定**——`resolve-people`／`resolve-venues`／
 `resolve-organizations` 的 apply、`bootstrap-*` 的「這個 literal 是否已對應既有實體」、
-`akashic-person-verify` 的查證、以及任何未來的消歧面。
+`akashic-verify-person` 的查證、以及任何未來的消歧面。
 
 不適用於**提名**（見下方「提名是 recall，不是判定」）、也不適用於**純量欄位的正規化**
 （大小寫、空白、Unicode 形式——那些是機械查表，本規則不對其發言）。

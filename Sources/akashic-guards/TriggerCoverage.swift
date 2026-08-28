@@ -335,9 +335,9 @@ func triggerCoverage(argv: [String]) -> Int32 {
 
     // 守衛之外，還被守衛讀的東西。**每一條都必須存在**（坑 1）。
     var DATA = [
-        "plugin/skills/akashic-literal-campaign/scripts/literal-census.sh",
-        "plugin/skills/akashic-literal-campaign/scripts/hash-merging-ranges.txt",
-        "plugin/skills/akashic-literal-campaign/scripts/tests/derive-hash-extenders.swift",
+        "plugin/skills/akashic-promote-literals/scripts/literal-census.sh",
+        "plugin/skills/akashic-promote-literals/scripts/hash-merging-ranges.txt",
+        "plugin/skills/akashic-promote-literals/scripts/tests/derive-hash-extenders.swift",
     ]
     // **兩個 glob 根要對稱**（#407 R50）：`.claude/rules/*.md` 已升成 live glob，而
     // 這一側曾是單一寫死路徑。`plugin/rules/` 一長出第二個檔，`declared()` 就會再次

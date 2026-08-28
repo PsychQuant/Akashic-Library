@@ -49,6 +49,16 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 | `akashic_import_wos` | `import-wos` | ✅（#290；#259 CLI-only 盤點唯一「需要」格的補齊——#206 鏡像判準）|
 | `akashic_resolve_people` | `resolve-people` | ✅（#272 起兩面契約有記錄的差異：MCP 允許 apply+reject 組合（兩段式、按腿回報）；CLI 維持分兩次呼叫——互動面天然序列，組合是 LLM 批次 triage 的需求。#303 起兩面同步帶 `tier`（封閉四值 exact／confirmed-elsewhere／reorder／initials，信心降冪）：MCP 每列 `tier` 欄、CLI 按 tier 分組標頭與 `--tier` 篩選（裸 `--apply` 對寬鬆 tier 拒絕）、App 候選列標示；apply id 升三段形 `citekey:authorIndex:personKey`（釘 person，兩段 legacy 收）；否決抑制改與提名同一套正規化、淘汰而得的唯一命中在 reason 揭露——R1 verify 後 apply 語意有這些**有記錄的變更**，非純 additive。R3 裁決的**面不對稱**：tier 閘只在 CLI 篩選式批次（MCP per-id 顯式＋tier 可見，刻意不閘；tier-acknowledgment 參數列 follow-up）；rejected/applied 回音均三段 pinned 形）|
 
+**#443 起多一個團體作者的升格面**（`--attribute-org` / `attribute_org`，兩面同走
+`attributeToOrganizations`）：`.literal` → **`.organization`**。`Author` 的三態
+（#323）在此之前只有兩態接得起來——`apply` 升格成 `.key`，而團體作者**只能在建檔時
+指定**，既有記錄改不了（實測 #443：兩筆機構被記成 `.literal` 作者，唯一出路是手改
+YAML）。**放在 `resolve-people` 是因為作用對象相同**（work 的一個作者位），不是因為
+它是消歧——org key 由呼叫端顯式給，不經提名，所以沒有 tier 也沒有候選清單。
+**兩面同契約**：per-id 顯式、judgement 必填、不提供批次形式、**不與 apply／reject 組合**
+（升格目標是另一個值域，混在一批裡會讓「哪些寫了」難以判讀——同 #418 對 `repoint`／
+`demote` 的既有裁決）。失敗語意：**整批驗證通過才寫**，任一筆前提不符即零寫入。
+
 **#386 起多一個 per-id 判定面**（`judge` / `--judge`，兩面同走 `judgeAuthorships`）：
 收 `citekey:authorIndex:personKey=理由`，**歧義列也適用**——歧義的意思是提名器分不出來，
 不是人／AI 分不出來（`identity-is-judged-not-matched`）。**契約有記錄的差異**：CLI **不提供**

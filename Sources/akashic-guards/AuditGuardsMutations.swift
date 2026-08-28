@@ -250,7 +250,7 @@ func auditGuardsMutations() -> Int32 {
             + "先跑 `swift build --product akashic-guards`。")
     }
     let COVERAGE = "plugin/tests/rule-coverage.sh"
-    let DRIFT = "plugin/skills/akashic-literal-campaign/scripts/tests/hash-table-drift.sh"
+    let DRIFT = "plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh"
     for rel in [COVERAGE] + (hasSwift ? [DRIFT] : []) {
         let r = exec(["/bin/bash", "\(repoRoot)/\(rel)"], cwd: repoRoot)
         if r.0 != 0 { print("✗ baseline 就紅了：\(rel)\n\(r.1)"); return 1 }

@@ -15,6 +15,52 @@ for git_local_env_var in $git_local_env_vars; do
     unset "$git_local_env_var"
 done
 
+# **只推 tag 時跳過驗證**（#434）。
+#
+# git 從 stdin 餵 `<local ref> <local sha> <remote ref> <remote sha>`，一行一個 ref。
+# tag 不改變任何檔案、不移動任何 branch——它給一個**已經在遠端的 commit** 一個名字。
+# 對那樣的 push 跑完整驗證，驗的是一個遠端早就有的樹。
+#
+# **這不只是省時間，是防止 `--no-verify` 變成習慣**：CLAUDE.md 已記過「四分鐘的
+# pre-push 在頻繁 push 時會被繞過，那時**所有**守衛等於不存在」。一個明顯無意義的
+# 等待，是讓人開始習慣性繞過的最有效訓練——而繞過一旦成為肌肉記憶，它不會只用在
+# tag 上。
+#
+# **「已經在遠端」是必要條件，不是裝飾**：`git push origin v1.0` 可以推一個指向
+# **本地獨有** commit 的 tag，那次 push 會把那個 commit 一起帶上去。那時樹是新的，
+# 驗證不能跳。
+#
+# stdin 為空（手動執行、或測試不餵）→ 什麼都不跳，照常跑完整流程。
+if [ -t 0 ]; then
+    push_refs=""            # 互動式終端機：沒有 git 餵的 ref，不要卡在 read 上
+else
+    push_refs="$(cat)"
+fi
+if [ -n "$push_refs" ]; then
+    only_tags=1
+    while read -r _local_ref local_sha remote_ref _remote_sha; do
+        [ -z "$remote_ref" ] && continue
+        case "$remote_ref" in
+            refs/tags/*) ;;
+            *) only_tags=0; break ;;
+        esac
+        # 全零 sha ＝ 刪除該 ref。刪 tag 同樣不引入任何樹。
+        if [ "$local_sha" != "0000000000000000000000000000000000000000" ]; then
+            # tag 指向的 commit 必須已被某個 remote-tracking branch 含著。
+            if ! git branch -r --contains "$local_sha" 2>/dev/null | grep -q .; then
+                only_tags=0
+                break
+            fi
+        fi
+    done <<PUSH_REFS
+$push_refs
+PUSH_REFS
+    if [ "$only_tags" = "1" ]; then
+        echo "pre-push: 這次只推 tag，且其 commit 已在遠端——跳過驗證（#434）"
+        exit 0
+    fi
+fi
+
 echo "pre-push: swift build -Xswiftc -warnings-as-errors"
 swift build -Xswiftc -warnings-as-errors
 

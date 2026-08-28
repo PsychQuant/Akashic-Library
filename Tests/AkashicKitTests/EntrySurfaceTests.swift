@@ -151,12 +151,12 @@ final class EntrySurfaceTests: XCTestCase {
 
         // **已知缺口 ≠ 豁免**（#426）。`exempt` 說「刻意不輸出」，`knownGaps` 說
         // 「該輸出而還沒輸出」。兩者混為一談會讓守衛在下次有人問「為什麼 venues
-        // 不在裡面」時給出錯的答案。兩者都早於 #394（venues #304、thesis #335），
-        // 依 scope guard 不混進這個 branch。
-        let knownGaps: [String: String] = [
-            "venues": "#426——第 14 條邊，work 通往 venue 的唯一路徑",
-            "thesis": "#426——#335 的 ThesisFacts，APA7 匯出靠它",
-        ]
+        // 不在裡面」時給出錯的答案。
+        //
+        // **這張表現在是空的**（#426 已修）。留著空表而不刪掉這個機制,是因為下一個
+        // 缺口出現時它需要一個**與豁免分開**的位置——刪掉的話,那個缺口只剩兩條路:
+        // 混進 `exempt`（於是待辦偽裝成裁決）,或讓守衛紅著（於是所有紅燈失效)。
+        let knownGaps: [String: String] = [:]
         for field in entryFieldNames() {
             if let gap = knownGaps[field] {
                 XCTAssertTrue(gap.contains("#"), "已知缺口必須指向一張 issue")
@@ -208,9 +208,14 @@ final class EntrySurfaceTests: XCTestCase {
             // 自我批評過的那個寫死清單。反射化修好了「新欄位會被檢查」,而對**既有**
             // 欄位 App 面的涵蓋率仍是 3/17,長註解讀起來卻像整個 surface 維度都補上了。
             // 那是 `zero-instance-guards` 第 5 列的「覆蓋率自我謊報」。
-            "App（EntryDetailView）": ["venues": "#426", "thesis": "#426"],
-            "CLI（get-entry）": ["venues": "#426", "thesis": "#426"],
-            "MCP（entryDict）": ["venues": "#426", "thesis": "#426"],
+            // **三個面都空了**（#426 已修）。venues 與 thesis 現在三面皆讀得到:
+            // CLI 與 MCP 共用 `entryDict`（改一處兩面好）,App 的 `EntryDetailView`
+            // 是第三條獨立路徑,必須分別改——那正是 `entity-backlink-completeness`
+            // 執行細節 2 說的「一個 entity kind 的讀取面只能有一條實作路徑」尚未
+            // 對 entry 成立的地方（venue 那面已收斂,entry 這面沒有）。
+            "App（EntryDetailView）": [:],
+            "CLI（get-entry）": [:],
+            "MCP（entryDict）": [:],
         ]
         // **反射,不是寫死清單**（#394 verify R5 ②④）。
         //

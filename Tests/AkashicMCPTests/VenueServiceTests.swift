@@ -137,6 +137,113 @@ final class VenueServiceTests: XCTestCase {
             key: "v1", addNames: nil, note: nil, type: "series"))
     }
 
+    // MARK: - #443：`.literal` → `.organization` 的升格面
+
+    /// **`Author` 有三態，而在此之前只有兩態接得起來。**
+    ///
+    /// `resolve-people` 的 apply 把 `.literal` 升格成 `.key`（人）。團體作者
+    /// （`.organization`，#323）**只能在建檔時指定**——既有記錄改不了，唯一出路是手改
+    /// YAML，而那是 #394 差點弄丟一筆 DOI 的那條路。
+    ///
+    /// 實測（#443，2026-08-28）：`Center for History and New Media` 與 `教育部` 兩筆
+    /// 機構被記成 `.literal` 作者，修不了。
+    ///
+    /// **這不是消歧**：org key 是呼叫端**顯式給的**，不是提名出來的。所以沒有 tier、
+    /// 沒有候選清單——與 #386 的 `judge` 同型（per-id 顯式指名，judgement 必填）。
+    func testAttributeAuthorToOrganisation() throws {
+        _ = try service.addOrganization(key: "moe", names: ["教育部"],
+                                        parentKey: nil, note: nil)
+        var e = Entry(id: UUID(), citekey: "moe2011", type: .book, title: "T")
+        e.authors = [.literal("教育部")]
+        _ = try store.writeEntry(e)
+
+        let out = try json(try service.attributeToOrganizations(
+            ["moe2011:0:moe=名字是政府機關，不是人"]))
+        XCTAssertEqual((out["attributed"] as? [[String: Any]])?.count, 1, "\(out)")
+
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "moe2011" })
+        guard case .organization(let k) = after.authors[0] else {
+            return XCTFail("該位應該是 .organization，實際是 \(after.authors[0])")
+        }
+        XCTAssertEqual(k, "moe")
+
+        // verdict 落在**被判定的記錄**上（封閉列舉第 13 條的既有立場）
+        let org = try XCTUnwrap(try store.load().organizations.first { $0.key == "moe" })
+        XCTAssertTrue(org.references.contains { $0.field == "resolution-confirmed" },
+                      "判定要留 verdict——錯了要能回溯與逆轉")
+    }
+
+    /// **judgement 必填**——與 #386 的 `judge` 同一條紀律。
+    ///
+    /// 判定會錯，而錯了要能回溯。一個沒有理由的判定在事後與「不知道為什麼這樣」
+    /// 無法區分。空字串在這一層拒絕，不是靠呼叫端自律。
+    func testAttributeToOrganizationRequiresJudgement() throws {
+        _ = try service.addOrganization(key: "moe", names: ["教育部"], parentKey: nil, note: nil)
+        var e = Entry(id: UUID(), citekey: "moe2011", type: .book, title: "T")
+        e.authors = [.literal("教育部")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.attributeToOrganizations(["moe2011:0:moe="]))
+    }
+
+    /// **前提不符 → 整批拒絕、零寫入**（同 `judge` 與 `repoint` 的失敗語意）。
+    ///
+    /// 這裡刻意驗**第二筆**壞掉：第一筆完全合法，若實作是逐筆寫入，它會先寫成功再失敗
+    /// ——留下一個「一半套用」的狀態，而那比整批失敗難修得多。
+    func testAttributeToOrganizationRejectsWholeBatchOnUnknownOrg() throws {
+        _ = try service.addOrganization(key: "moe", names: ["教育部"], parentKey: nil, note: nil)
+        var e = Entry(id: UUID(), citekey: "moe2011", type: .book, title: "T")
+        e.authors = [.literal("教育部"), .literal("Center for History and New Media")]
+        _ = try store.writeEntry(e)
+
+        XCTAssertThrowsError(try service.attributeToOrganizations(
+            ["moe2011:0:moe=合法的一筆", "moe2011:1:no-such-org=不存在的 org"]))
+
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "moe2011" })
+        guard case .literal = after.authors[0] else {
+            return XCTFail("整批拒絕時第一筆也不該被寫入——實際是 \(after.authors[0])")
+        }
+    }
+
+    /// 已歸戶的位置不得被覆寫——`.key`（人）與 `.organization` 都是。
+    func testAttributeToOrganizationRefusesAnAlreadyResolvedSlot() throws {
+        _ = try service.addOrganization(key: "moe", names: ["教育部"], parentKey: nil, note: nil)
+        _ = try service.addPerson(key: "a-b", names: ["A B"], orcid: nil, openalex: nil)
+        var e = Entry(id: UUID(), citekey: "x2011", type: .book, title: "T")
+        e.authors = [.key("a-b")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.attributeToOrganizations(["x2011:0:moe=想覆寫"]))
+    }
+
+    /// **同一筆 work 的多個作者位一起升格**——實測 crash（#443）。
+    ///
+    /// 實作用 `Dictionary(uniqueKeysWithValues:)` 建 citekey → entry 的對照，而同一個
+    /// work 的三個作者位產生**三筆同 citekey 的 plan** → `Fatal error: Duplicate values
+    /// for key`。
+    ///
+    /// **三個既有的負向測試都沒抓到它**：每個只用一筆 plan，或用不同的 citekey。我測了
+    /// 「第二筆壞掉」卻沒測「兩筆都好而且在同一筆 work 上」——而後者是這個功能最自然的
+    /// 用法（《Standards for Educational and Psychological Testing》有三個共同出版者）。
+    func testAttributeMultipleAuthorSlotsOnTheSameWork() throws {
+        for k in ["aera", "apa", "ncme"] {
+            _ = try service.addOrganization(key: k, names: [k.uppercased()],
+                                            parentKey: nil, note: nil)
+        }
+        var e = Entry(id: UUID(), citekey: "std1966", type: .book, title: "Standards")
+        e.authors = [.literal("AERA"), .literal("APA"), .literal("NCME")]
+        _ = try store.writeEntry(e)
+
+        let out = try json(try service.attributeToOrganizations([
+            "std1966:0:aera=學會不是人", "std1966:1:apa=同上", "std1966:2:ncme=同上",
+        ]))
+        XCTAssertEqual((out["attributed"] as? [[String: Any]])?.count, 3, "\(out)")
+
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "std1966" })
+        let keys: [String] = after.authors.compactMap {
+            if case .organization(let k) = $0 { return k } else { return nil }
+        }
+        XCTAssertEqual(keys, ["aera", "apa", "ncme"], "三個作者位都要升格，順序不變")
+    }
+
     // MARK: - org MCP 面（#304 移轉）
 
     func testAddOrganizationWithParent() throws {

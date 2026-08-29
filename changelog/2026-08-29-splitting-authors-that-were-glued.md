@@ -22,8 +22,16 @@
 citekey:authorIndex:分隔符=理由
 ```
 
-零編造，且錯了看得出來——切出空段就拒絕（`「與雷庚玲」` 用 `與` 切會得到空的前段）。
-分隔符本身被丟棄，而報告逐筆印出「用什麼切、切成什麼」（`lossless-intake` 的丟棄必須可見）。
+零編造，且錯了看得出來——切出空段就拒絕（`「與雷庚玲」` 用 `與` 切會得到空的前段；
+換行等空白段同拒）。段數有上界（32）：literal 是未信任輸入，高頻分隔符不得把一個作者位
+炸成無界多個。同一個作者位一次只能拆一次（去重以解析後的 (citekey, index) 為鍵）。
+分隔符不得含 `=`——第一個 `=` 之後一律是理由。
+
+**三樣東西被丟棄，報告全部揭露**（R1 verify 修正——初版只揭露了分隔符）：分隔符、
+**原始 literal**、**理由**。報告逐筆印出「原文、用什麼切、切成什麼、為什麼」
+（`lossless-intake` 的丟棄必須可見）。**原文與理由不進 store**——拆分沒有「被判定的
+另一方」可落 verdict，work 側 references 值域目前只收識別碼；un-split 所需資訊在
+store 內不可回復（只在 store repo 的 git 歷史）。持久化需要值域的顯式裁決（follow-up）。
 
 ## 拆出來的仍是 `.literal`
 
@@ -45,7 +53,10 @@ citekey:authorIndex:分隔符=理由
 `attributeToOrganizations` 踩過的形狀（同一 citekey 多筆 plan）的更尖版本：那次是 crash，
 這次會**靜默拆錯位置**。
 
-## 五個測試，四個是負向的
+## 十個測試，七個是負向的
+
+> 初版此節標題寫「五個測試，四個是負向的」——**兩個數字都錯**（實測 3 個
+> `XCTAssertThrowsError`，R1 verify DA 抓到）。R1 後補五個測試，現數如題。
 
 | 測試 | 釘住什麼 |
 |---|---|
@@ -54,3 +65,8 @@ citekey:authorIndex:分隔符=理由
 | `RejectsAbsentSeparator` | 分隔符不在該 literal 裡 → 拒絕，而不是靜默不拆 |
 | `RefusesAResolvedSlot` | 只作用於 `.literal` |
 | `AccountsForIndexShift` | 同一筆 work 多個位置 |
+| `RejectsTheSameSlotGivenTwice` | 同 slot 配兩個分隔符 → 拒絕（R1 HIGH：字面去重繞過→陣列毀損）|
+| `RejectsTheSameSlotSpelledDifferently` | `0` vs `+0` 同 slot → 拒絕（去重用解析後的值）|
+| `RejectsNewlineOnlySegment` | 換行段不是名字 |
+| `RejectsPathologicalOversplit` | 段數 > 32 → 拒絕 |
+| `ReportCarriesOriginalAndJudgement` | 原文與理由進報告（store 不留的唯一揭露面）|

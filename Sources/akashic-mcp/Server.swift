@@ -392,17 +392,39 @@ actor AkashicMCPServer {
                 let judge = argList("judge")
                 let refuteProvided = params.arguments?["refute"] != nil
                 let refute = argList("refute")
-                // 團體作者的升格（#443）——`.literal` → `.organization`。與 `judge`
-                // 同型（per-id 顯式、judgement 必填），單獨呼叫不與 apply／reject 組合：
-                // 它升格的目標是另一個值域，混在一批裡會讓「哪些寫了」難以判讀。
-                // 把黏在一起的作者位拆開（#443）。單獨呼叫，不與其餘腿組合——它改的是
-                // 作者位的**數量**，混在一批裡會讓其他腿的 index 意義改變。
-                if params.arguments?["split_author"] != nil {
-                    output = try service.splitAuthors(argList("split_author"))
-                    break
-                }
-                if params.arguments?["attribute_org"] != nil {
-                    output = try service.attributeToOrganizations(argList("attribute_org"))
+                // **兩個結構修正腿各自單獨呼叫，顯式拒絕組合**（R1 verify）：先前靠
+                // 分支順序隱含達成，其餘腿被**靜默忽略**——呼叫端（LLM）會以為兩腿都
+                // 跑了。同檔 resolve_venues 對同型契約是顯式 throw（#418），對齊。
+                // split 改作者位的**數量**（其他腿的 index 意義改變）、attribute_org
+                // 升格到另一個值域（「哪些寫了」難以判讀）。
+                //
+                // 空陣列與 JSON null 也拒（`argList` 對兩者都回 []）：「給了鍵但沒有
+                // 內容」不構成一次呼叫，靜默 no-op 會讓呼叫端以為別的腿跑了。
+                let splitProvided = params.arguments?["split_author"] != nil
+                let attrOrgProvided = params.arguments?["attribute_org"] != nil
+                if splitProvided || attrOrgProvided {
+                    let otherLegs = applyProvided || rejectProvided || confirmProvided
+                        || judgeProvided || refuteProvided
+                    if (splitProvided && attrOrgProvided) || otherLegs {
+                        throw ServiceError.invalid(
+                            "split_author／attribute_org 各自單獨呼叫（不得與其他腿或彼此組合）"
+                            + "——它們改作者位的數量或值域，混在一批裡會讓其他腿的意義改變")
+                    }
+                    if splitProvided {
+                        let specs = argList("split_author")
+                        guard !specs.isEmpty else {
+                            throw ServiceError.invalid(
+                                "split_author 是空的（空陣列或 null）——沒有要拆的東西就不要給這個鍵")
+                        }
+                        output = try service.splitAuthors(specs)
+                    } else {
+                        let specs = argList("attribute_org")
+                        guard !specs.isEmpty else {
+                            throw ServiceError.invalid(
+                                "attribute_org 是空的（空陣列或 null）——沒有要歸的東西就不要給這個鍵")
+                        }
+                        output = try service.attributeToOrganizations(specs)
+                    }
                     break
                 }
                 output = try service.resolvePeople(apply: applyProvided ? apply : nil,

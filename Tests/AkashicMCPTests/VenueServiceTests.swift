@@ -418,6 +418,65 @@ final class VenueServiceTests: XCTestCase {
                        "兩個位置都要拆，且順序保持——index 位移由實作處理，不由呼叫端")
     }
 
+    /// **同一個作者位被指定兩次 → 整批拒絕**（R1 verify HIGH）。字面去重擋不住
+    /// 「同 slot 配不同分隔符」：兩筆都對 pristine entry 驗證通過，寫入時第二筆
+    /// 對已改寫的陣列套用預先算好的 parts——長度不對的靜默毀損。
+    func testSplitRejectsTheSameSlotGivenTwice() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("甲與乙X丙")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.splitAuthors(
+            ["a2014:0:與=理由甲", "a2014:0:X=理由乙"]))
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        XCTAssertEqual(after.authors.count, 1, "拒絕必須零寫入")
+    }
+
+    /// 同 slot 的**另一種拼法**也要擋：`0` 與 `+0` 解析成同一個 Int。以字面
+    /// 去重修上一條會被這條繞回（R1 verify DA）——去重必須用解析後的值。
+    func testSplitRejectsTheSameSlotSpelledDifferently() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("甲與乙X丙")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.splitAuthors(
+            ["a2014:0:與=理由甲", "a2014:+0:X=理由乙"]))
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        XCTAssertEqual(after.authors.count, 1, "拒絕必須零寫入")
+    }
+
+    /// 換行段不是名字：`.whitespaces` 不含 `\n`，修掉前「甲與\n」會拆出一個
+    /// 名字是換行符的作者（R1 verify，regression 席實測）。
+    func testSplitRejectsNewlineOnlySegment() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("甲與\n")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.splitAuthors(["a2014:0:與=理由"]))
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        XCTAssertEqual(after.authors.count, 1, "拒絕必須零寫入")
+    }
+
+    /// **段數上界**：literal 來自 store（未信任輸入），高頻分隔符可把一個作者位
+    /// 炸成無界多個 `.literal`——寫入不可逆、回傳無預算（R1 verify）。
+    func testSplitRejectsPathologicalOversplit() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal(Array(repeating: "人", count: 40).joined(separator: "與"))]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.splitAuthors(["a2014:0:與=理由"]))
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        XCTAssertEqual(after.authors.count, 1, "拒絕必須零寫入")
+    }
+
+    /// **原文與理由進報告**——store 不留它們（誠實邊界），所以報告是唯一的
+    /// 揭露面；先前只揭露了分隔符的丟棄（R1 verify HIGH 的可修一半）。
+    func testSplitReportCarriesOriginalAndJudgement() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("鄭澈與雷庚玲")]
+        _ = try store.writeEntry(e)
+        let out = try json(try service.splitAuthors(["a2014:0:與=兩個人黏在一個 literal"]))
+        let row = try XCTUnwrap((out["split"] as? [[String: Any]])?.first)
+        XCTAssertEqual(row["original"] as? String, "鄭澈與雷庚玲")
+        XCTAssertEqual(row["judgement"] as? String, "兩個人黏在一個 literal")
+    }
+
     // MARK: - org MCP 面（#304 移轉）
 
     func testAddOrganizationWithParent() throws {

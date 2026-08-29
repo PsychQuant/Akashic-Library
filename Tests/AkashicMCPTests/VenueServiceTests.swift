@@ -433,14 +433,56 @@ final class VenueServiceTests: XCTestCase {
 
     /// 同 slot 的**另一種拼法**也要擋：`0` 與 `+0` 解析成同一個 Int。以字面
     /// 去重修上一條會被這條繞回（R1 verify DA）——去重必須用解析後的值。
+    ///
+    /// **驗的是拒絕的理由**（R2 verify）：只驗「有丟錯」的話，日後 parser 若改成
+    /// 直接拒收 `+0`，本測試照綠、去重那一格卻沒了覆蓋。
     func testSplitRejectsTheSameSlotSpelledDifferently() throws {
         var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
         e.authors = [.literal("甲與乙X丙")]
         _ = try store.writeEntry(e)
         XCTAssertThrowsError(try service.splitAuthors(
-            ["a2014:0:與=理由甲", "a2014:+0:X=理由乙"]))
+            ["a2014:0:與=理由甲", "a2014:+0:X=理由乙"])) { error in
+            XCTAssertTrue(String(describing: error).contains("被指定了兩次"),
+                          "要因 slot 重複被拒，不是因 +0 被 parser 拒收：\(error)")
+        }
         let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
         XCTAssertEqual(after.authors.count, 1, "拒絕必須零寫入")
+        if case .literal(let s) = after.authors[0] {
+            XCTAssertEqual(s, "甲與乙X丙", "原 literal 一個字都不能動")
+        } else { XCTFail("作者位形狀被改了") }
+    }
+
+    /// **上界的兩側**（R2 verify）：只測 40 段會失敗的話，上限錯成 35 也照綠。
+    /// 32 段是允許的最大值、33 段拒絕——且拒絕發生在 materialization 之前
+    /// （病態 literal 不得先被切成無界陣列再拒）。
+    func testSplitBoundaryExactlyThirtyTwoPassesThirtyThreeFails() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal(Array(repeating: "人", count: 32).joined(separator: "與"))]
+        _ = try store.writeEntry(e)
+        _ = try service.splitAuthors(["a2014:0:與=32 段是允許的最大值"])
+        var after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        XCTAssertEqual(after.authors.count, 32)
+
+        var e2 = Entry(id: UUID(), citekey: "b2014", type: .periodicalArticle, title: "T")
+        e2.authors = [.literal(Array(repeating: "人", count: 33).joined(separator: "與"))]
+        _ = try store.writeEntry(e2)
+        XCTAssertThrowsError(try service.splitAuthors(["b2014:0:與=33 段要拒"]))
+        after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "b2014" })
+        XCTAssertEqual(after.authors.count, 1, "拒絕必須零寫入")
+    }
+
+    /// **語法限制的釘住**（R2 verify）：分隔符無法含 `=`——第一個 `=` 之後一律是
+    /// 理由。`w:0:x=y=理由` 解析成分隔符 `x`、理由 `y=理由`，而不是分隔符 `x=y`。
+    /// 這是既定語法不是 bug，但它必須**看得出來**：報告的 separator／judgement 欄
+    /// 逐筆揭露實際的解析結果。根治需要結構化參數（follow-up）。
+    func testSplitSeparatorCannotContainEquals() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("甲x乙")]
+        _ = try store.writeEntry(e)
+        let out = try json(try service.splitAuthors(["a2014:0:x=y=理由"]))
+        let row = try XCTUnwrap((out["split"] as? [[String: Any]])?.first)
+        XCTAssertEqual(row["separator"] as? String, "x", "第一個 = 之前的第三段才是分隔符")
+        XCTAssertEqual(row["judgement"] as? String, "y=理由", "第一個 = 之後整段是理由")
     }
 
     /// 換行段不是名字：`.whitespaces` 不含 `\n`，修掉前「甲與\n」會拆出一個

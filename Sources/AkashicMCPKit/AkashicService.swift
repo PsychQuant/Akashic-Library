@@ -2469,8 +2469,14 @@ public final class AkashicService {
     /// 進 org.references）不同：拆分沒有「被判定的另一方」可落 verdict，而 work 側
     /// references 的值域目前只收識別碼（`Entry.validateReferenceAttachment`）。持久化
     /// 需要那個值域的顯式裁決（follow-up issue）——在那之前，un-split 所需的資訊只
-    /// 存在於 store 的 git 歷史。另一個解析上的既定事實：**分隔符不得含 `=`**——
-    /// 第一個 `=` 之後一律是理由，含 `=` 的分隔符會被解析成更短的那一段。
+    /// 存在於 store 的 git 歷史。報告裡的 `original`／`judgement` 是**消毒顯示形**
+    /// （`displaySafe`，200／300 scalar 上限）——正常長度無損，病態超長者截斷；
+    /// 這是 #165 輸出消毒紀律與揭露之間的顯式取捨，不是完整原值的承諾。
+    ///
+    /// 另一個**語法上的既定事實**：分隔符無法含 `=`——第一個 `=` 之後一律是理由，
+    /// 想用含 `=` 的分隔符會被解析成更短的那一段（`testSplitSeparatorCannotContainEquals`
+    /// 釘住此行為）。報告的 `separator`／`judgement` 欄讓這種誤解析**看得出來**；
+    /// 要根治需要結構化參數，屬 follow-up。
     ///
     /// ## 拆出來的仍是 `.literal`
     ///
@@ -2538,6 +2544,24 @@ public final class AkashicService {
                 throw ServiceError.invalid(
                     "分隔符「\(displaySafe(sep, max: 60))」不在"
                     + "「\(displaySafe(lit, max: 200))」裡——拒絕，而不是靜默不拆")
+            }
+            // **上界在 materialization 之前生效**（R2 verify）：`components` 會先把
+            // 整個陣列建出來——病態 literal（未信任輸入、無長度上限）配高頻分隔符
+            // 可在被拒絕之前放大出無界多個 component 與 trim。先數分隔符出現次數
+            // （非重疊、與 `components` 同切法），過界即拒、不建陣列。
+            // 段數上界 32 ⟺ 分隔符出現 ≤ 31。
+            var sepCount = 0
+            var searchFrom = lit.startIndex
+            while let r = lit.range(of: sep, range: searchFrom..<lit.endIndex) {
+                sepCount += 1
+                if sepCount > 31 { break }
+                searchFrom = r.upperBound
+            }
+            guard sepCount <= 31 else {
+                throw ServiceError.invalid(
+                    "分隔符「\(displaySafe(sep, max: 60))」在"
+                    + "「\(displaySafe(lit, max: 200))」出現超過 31 次（> 32 段）"
+                    + "——分隔符太常見，這不像是把幾個人拆開")
             }
             let parts = lit.components(separatedBy: sep)
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

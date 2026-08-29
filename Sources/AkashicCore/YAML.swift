@@ -2139,6 +2139,7 @@ enum IdentifierYAML {
 /// （刊名沿革）、authorized、未知欄位 tolerant-preserve、encode 後自檢（canary）。
 public enum VenueYAML {
     static let knownKeys: Set<String> = Set(["id", "key", "type", "names", "authorized",
+                                             "variant", "paginated",
                                              "issn", "note", "references"])
         .union(EntityKind.knownLabels)
 
@@ -2153,6 +2154,12 @@ public enum VenueYAML {
         if !v.authorized.isEmpty {
             pairs.append((Node("authorized"), Node(v.authorized.map { Node($0) })))
         }
+        // #422：異寫法。緊接 `authorized` —— 兩者是同一組名字上的兩個分割。
+        if !v.variant.isEmpty {
+            pairs.append((Node("variant"), Node(v.variant.map { Node($0) })))
+        }
+        // #406：`nil` 不寫——缺席即「尚未判定」，而那與 `false` 是兩件事。
+        if let p = v.paginated { pairs.append((Node("paginated"), Node(p ? "true" : "false"))) }
         // #394：識別碼緊接在身分區塊之後——它就是身分的一部分。
         if let n = IdentifierYAML.qualifiedListNode(v.issn) { pairs.append((Node("issn"), n)) }
         if let n = v.note { pairs.append((Node("note"), Node(n))) }
@@ -2214,6 +2221,23 @@ public enum VenueYAML {
                                                 expect: "sequence", nullIsAbsent: true,
                                                 { $0.sequence }) {
             v.authorized = try EntryYAML.stringList(seq, context: "venue.authorized")
+        }
+        if let seq = try EntryYAML.requireShape(map["variant"], field: "venue.variant",
+                                                expect: "sequence", nullIsAbsent: true,
+                                                { $0.sequence }) {
+            v.variant = try EntryYAML.stringList(seq, context: "venue.variant")
+        }
+        // #406：只收 `true`／`false`——其餘（含空字串）整檔拒讀，不猜。
+        if let s = try EntryYAML.requireShape(map["paginated"], field: "venue.paginated",
+                                              expect: "scalar", nullIsAbsent: true,
+                                              { $0.scalar?.string }) {
+            switch s {
+            case "true": v.paginated = true
+            case "false": v.paginated = false
+            default:
+                throw StoreYAMLError.invalidField(
+                    "venue.paginated", "只接受 true／false，讀到「\(s)」——缺席即未判定，不猜")
+            }
         }
         v.issn = try IdentifierYAML.decodeQualifiedList(map, key: "issn", field: "venue.issn",
                                                as: ISSN.self)

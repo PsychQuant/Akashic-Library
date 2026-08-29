@@ -113,7 +113,7 @@ public enum StoreVersion {
     ///   涵蓋範圍內（同 format 6 的 `ended`、format 12 的 `Author` 三態）。
     ///
     ///   write gate 對 format < 13 拒寫含識別碼 reference 的記錄（#394 §6 既有）。
-    public static let supported = 13
+    public static let supported = 14
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，

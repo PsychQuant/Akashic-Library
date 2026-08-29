@@ -40,8 +40,14 @@ final class Format13GateTests: XCTestCase {
                                    atomically: true, encoding: .utf8)
     }
 
-    func testSupportedFormatIsThirteen() {
-        XCTAssertEqual(StoreVersion.supported, 13)
+    /// **這條是「斷言現況」的守衛，bump 時要跟著改**（#422）。
+    ///
+    /// 它不是在說「13 是對的」，是在說「本檔其餘的測試假設 supported 是這個值」——
+    /// 下面每一條都在驗「低於 supported 的 format 拒寫某形狀」，而那些 `setFormat(n)`
+    /// 的 `n` 是相對於 supported 的。supported 變了而這裡沒變，那些測試會靜默地驗
+    /// 一個不再相關的邊界。
+    func testSupportedFormatIsFourteen() {
+        XCTAssertEqual(StoreVersion.supported, 14)
     }
 
     /// organization 的 ror reference 是**硬觸發**——舊 binary 對它整檔 quarantine。

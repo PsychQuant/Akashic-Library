@@ -2253,6 +2253,15 @@ public final class AkashicService {
         if !record.authorized.isEmpty {
             d["authorized"] = record.authorized.map { displaySafe($0, max: 200) }
         }
+        // **異寫法**（#422）。與 `authorized` 並列的第二個分割——在此之前 `names` 的
+        // 時間軸同時裝沿革與別名，而讀取面無從區分。空清單不輸出（同既有慣例）。
+        if !record.variant.isEmpty {
+            d["variant"] = record.variant.map { displaySafe($0, max: 200) }
+        }
+        // **本刊使用頁碼嗎**（#406）。三態：`true`／`false`／缺席（＝尚未判定）。
+        // 缺席**不輸出這個鍵**——那與 `false` 是兩件事，而輸出 `null` 會讓消費端要多
+        // 一層判斷才能區分「沒查」與「查了、答案是不用」。
+        if let p = record.paginated { d["paginated"] = p }   // display-safe-exempt: Bool
         if let note = record.note { d["note"] = displaySafe(note, max: 500) }
         // ISSN（#394 §5／verify）。**在此之前兩個讀取面都看不到它**——§8 的遷移把
         // 39 個 venue 的 ISSN 寫進磁碟，而 `akashic venue` 與 `--json` 都沒有這一格，

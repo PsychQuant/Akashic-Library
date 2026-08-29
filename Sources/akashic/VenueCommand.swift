@@ -60,6 +60,16 @@ struct VenueCmd: ParsableCommand {
         if let auth = obj["authorized"] as? [String], !auth.isEmpty {
             print("  authorized：\(auth.joined(separator: "；"))")
         }
+        // **異寫法與權威形分開顯示**（#422）——在此之前它們混在 names 的時間軸裡，
+        // 而讀的人以為拿到時間序。值取自 service（已 displaySafe），原樣轉印。
+        if let vari = obj["variant"] as? [String], !vari.isEmpty {
+            print("  variant：\(vari.joined(separator: "；"))")   // display-safe-exempt: 值取自 AkashicService.venue（已逐欄位 displaySafe），二次消毒非冪等
+        }
+        // **三態**（#406）：印 true／false，缺席**什麼都不印**——那是「尚未判定」，
+        // 而印「未判定」會讓它看起來像一個已經查過的結論。
+        if let p = obj["paginated"] as? Bool {
+            print("  paginated：\(p ? "是（本刊使用頁碼）" : "否（article number 制）")")   // display-safe-exempt: 編譯期常量
+        }
         if let issn = obj["issn"] as? [[String: Any]], !issn.isEmpty {
             let rendered = issn.map { one -> String in
                 let v = one["value"] as? String ?? "?"
@@ -189,6 +199,50 @@ struct UpdateVenueCmd: ParsableCommand {
                                       addNames: addName.isEmpty ? nil : addName,
                                       note: note, type: type,
                                       addISSN: addISSN.isEmpty ? nil : addISSN))
+    }
+}
+
+/// `names` 的異寫法搬進 `variant` 分割（#422，format 13 → 14）。
+///
+/// **CLI-only，維運例外**（`mcp-cli-parity` 的既有裁決形狀）：格式遷移不可逆、要求每個
+/// 將被改寫的檔自身受 git 追蹤，而 MCP 的 LLM 消費者不是那個角色。
+struct MigrateVenueVariants: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "migrate-venue-variants",
+        abstract: "把 names 的異寫法搬進 variant 分割（#422；需另手動 bump format 至 14）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Flag(name: .long, help: "實際寫入（預設只預演；只改寫 git 追蹤中的檔）")
+    var apply = false
+
+    func run() throws {
+        // #298：破壞性寫入前確認目標 store 已被指名——**只在 --apply 時**。
+        if apply { try options.assertDestructiveTargetNamed("migrate-venue-variants") }
+        let store = try options.openStore()
+        print("目標 store：\(displaySafe(store.root.path, max: 300))")
+        let report = try VenueVariantMigration.run(store: store, apply: apply)
+        let prefix = apply ? "✓" : "（dry-run）"
+        if report.planned.isEmpty && report.failed.isEmpty {
+            print("沒有可分類的 venue——names 皆單筆、已分割、或帶時間（沿革不動）")
+        } else {
+            print("\(prefix) \(apply ? "已分類" : "將分類") \(report.planned.count) 筆"
+                  + "；單一名字 \(report.singleName.count)、已分割 \(report.alreadyPartitioned.count)"
+                  + "、帶時間（沿革，不動）\(report.hasTemporal.count)")
+            // **逐筆印出來給人看**——若某一筆其實是沿革，這是唯一的攔截點。
+            for p in report.planned.prefix(40) {
+                let vs = p.variants.map { displaySafe($0, max: 120) }.joined(separator: "、")
+                print("  \(displaySafe(p.key, max: 120)) → variant: \(vs)")
+            }
+            if report.planned.count > 40 { print("  …另 \(report.planned.count - 40) 筆") }
+            if !report.failed.isEmpty {
+                print("拒寫 \(report.failed.count) 筆（其餘照常；commit 後重跑——遷移是冪等的）：")
+                for f in report.failed.prefix(20) {
+                    print("  ⚠ \(displaySafe(f.key, max: 120))——\(displaySafe(f.reason, max: 300))")
+                }
+            }
+        }
+        if let next = VenueVariantMigration.nextStep(report: report, apply: apply) { print(next) }
     }
 }
 

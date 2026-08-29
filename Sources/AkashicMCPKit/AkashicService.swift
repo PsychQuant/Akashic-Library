@@ -2388,7 +2388,9 @@ public final class AkashicService {
     /// 該 issue 自己把這一格標為「最弱的一列」。
     public func updateVenue(key: String, addNames: [String]?,
                             note: String?, type rawType: String?,
-                            addISSN: [String]? = nil) throws -> String {
+                            addISSN: [String]? = nil,
+                            paginated: Bool? = nil, judgement: String? = nil,
+                            restsOn: [String]? = nil) throws -> String {
         let load = try store.load()
         guard var venue = load.venues.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("venue「\(displaySafe(key, max: 200))」")
@@ -2436,14 +2438,42 @@ public final class AkashicService {
             }
         }
         if let note { venue.note = note }
+        // #406：「本刊是否使用頁碼」的**判定**。判定要留 verdict 與證據
+        // （`identity-is-judged-not-matched`；欄位契約明文「nil 不得折成任何預設值」）
+        // ——設 paginated 必附 judgement 與 rests-on，缺任一即整個呼叫拒絕、零寫入。
+        // rests-on 的非空與 digest 形狀由 ProvenanceReference 平面 init 驗（唯一的
+        // 驗證入口，不在這裡重寫那套規則）；(field, value, kind) 冪等由
+        // appendIfAbsent 保證——重複判定不重加，翻轉判定則新 reference 並存為史。
+        if let paginated {
+            guard let judgement,
+                  !judgement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ServiceError.invalid(
+                    "設 paginated 必附 judgement——「本刊是否使用頁碼」是判定，"
+                    + "沒有理由的判定事後與「不知道為什麼這樣」無法區分")
+            }
+            let ref = try ProvenanceReference(
+                field: "paginated", value: nil,
+                url: nil, retrieved: nil, status: nil, mediaType: nil, content: nil,
+                judgement: judgement, restsOn: restsOn ?? [])
+            venue.paginated = paginated
+            // 冪等以**完整** (field, value, kind) 相等判（`Equatable`）——
+            // `ResolutionLedger.appendIfAbsent` 的判準對 value 恆 nil 的純量欄位太粗，
+            // 會把「翻轉判定」（statement 不同）誤當重複而吞掉史（實測抓到）。
+            if !venue.references.contains(ref) { venue.references.append(ref) }
+        } else if judgement != nil || restsOn != nil {
+            throw ServiceError.invalid(
+                "judgement／rests_on 只伴隨 paginated 使用——沒有判定就沒有判定的理由")
+        }
         try store.writeVenue(venue)
         try LibraryIndex(store: store).rebuild()
-        return try jsonString(["key": key,
-                               "namesAdded": added.map { displaySafe($0, max: 200) },
-                               "namesTotal": venue.names.entries.count,
-                               // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
-                               "issnAdded": issnAdded,
-                               "issnTotal": venue.issn.count])
+        var payload: [String: Any] = ["key": key,
+                                      "namesAdded": added.map { displaySafe($0, max: 200) },
+                                      "namesTotal": venue.names.entries.count,
+                                      // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
+                                      "issnAdded": issnAdded,
+                                      "issnTotal": venue.issn.count]
+        if let p = venue.paginated { payload["paginated"] = p }
+        return try jsonString(payload)
     }
 
     /// **`.literal` → `.organization` 的升格**（#443）。

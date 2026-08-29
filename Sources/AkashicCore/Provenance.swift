@@ -547,6 +547,27 @@ extension Venue {
                         + "——值被改寫後 provenance 成了孤兒，"
                         + "把 value 更新成現值或移除這筆 reference")
                 }
+            case "paginated":
+                // #406：「本刊是否使用頁碼」的判定要留 verdict 與證據（欄位契約
+                // 明文）。純量欄位不收 value（比照 note）；判定必須是判斷型——
+                // 「本刊不用頁碼」是關於世界的斷言，擷取型帶不動人為裁決。
+                guard r.value == nil else {
+                    throw StoreYAMLError.invalidField(
+                        "venue.references(field: paginated)",
+                        "paginated 是純量欄位，不收 value（D2）")
+                }
+                guard paginated != nil else {
+                    throw StoreYAMLError.invalidField(
+                        "venue.references(field: paginated)",
+                        "記錄沒有 paginated 欄位——判定的 reference 必須指向一個"
+                        + "存在的判定值（nil＝未判定，不該有判定證據）")
+                }
+                guard case .judgement = r.kind else {
+                    throw StoreYAMLError.invalidField(
+                        "venue.references(field: paginated)",
+                        "paginated 的判定必須是判斷型（judgement）——"
+                        + "「本刊是否使用頁碼」是人為裁決，不是一次擷取")
+                }
             case "note":
                 guard r.value == nil else {
                     throw StoreYAMLError.invalidField(

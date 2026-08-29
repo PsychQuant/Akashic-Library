@@ -198,6 +198,10 @@ actor AkashicMCPServer {
                 "note": str("備註（替換；選填）"),
                 "type": str("\(VenueType.domainDescription)（替換；選填）"),
                 "add_issn": strArray("要附加的 ISSN（append 語意，同 add_names；ISSN 本來就是清單——print 與 electronic 是兩個真的號。相等看正規形，`0003-066x` 與 `0003-066X` 不會變成兩筆；任一個不合法即整個呼叫拒絕、零寫入。#394）"),
+                "paginated": .object(["type": .string("boolean"),
+                    "description": .string("「本刊是否使用頁碼」的判定（#406）：true＝傳統頁碼刊、false＝article-number 制。必附 judgement 與 rests_on（判定要留 verdict 與證據）；缺席＝不動既有值。nil 是誠實的未判定狀態，floor 檢查對它照報")]),
+                "judgement": str("paginated 判定的理由（設 paginated 時必填）"),
+                "rests_on": strArray("判定所依據的證據 digest（sha256:64hex，至少一個——先用 akashic_store_source 存證據拿 digest）"),
              ], required: ["key"])),
         Tool(name: "akashic_resolve_venues",
              description: "venue 解析（resolve-people 契約形，#304）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 venue name 完全命中且不歧義的 literal（正規化含 lowercase：WoS 全大寫形因此命中正式刊名）；ambiguities 是同一 literal 對到 2+ venue、需要人判斷。帶 apply（候選 id，形如 citekey:venueIndex）把 literal 升格為 key 並寫 resolution-confirmed verdict 到該 venue；帶 reject 寫 resolution-rejected（entry 不動）。組合呼叫兩段式（reject 腿先提交）。需 store format ≥ 11。絕不自動配對（literal-first-then-key）。帶 repoint（三段式 id citekey:venueIndex:newKey）把**已歸戶**的邊改指到另一個 venue——歸錯戶的退路（#418），兩側都寫 verdict（新的 confirmed、舊的 rejected）；語法錯或前提不符整批拒絕、零寫入；改指到自己是 no-op。repoint 不與 apply／reject 組合（不同階段）。帶 demote（citekey:venueIndex）把**誤升**的邊退回 literal——原字串從該 venue 上的 confirmed verdict 逐字取回（無損；取不到就拒絕，不拿顯示名頂替），並留 rejected verdict。repoint／demote 各自單獨呼叫。",
@@ -421,11 +425,16 @@ actor AkashicMCPServer {
                     issn: params.arguments?["issn"] != nil ? argList("issn") : nil)
             case "akashic_update_venue":
                 let addNamesProvided = params.arguments?["add_names"] != nil
+                let paginatedFlag: Bool?
+                if case .bool(let b)? = params.arguments?["paginated"] { paginatedFlag = b }
+                else { paginatedFlag = nil }
                 output = try service.updateVenue(
                     key: arg("key") ?? "",
                     addNames: addNamesProvided ? argList("add_names") : nil,
                     note: arg("note"), type: arg("type"),
-                    addISSN: params.arguments?["add_issn"] != nil ? argList("add_issn") : nil)
+                    addISSN: params.arguments?["add_issn"] != nil ? argList("add_issn") : nil,
+                    paginated: paginatedFlag, judgement: arg("judgement"),
+                    restsOn: params.arguments?["rests_on"] != nil ? argList("rests_on") : nil)
             case "akashic_resolve_venues":
                 let vApplyProvided = params.arguments?["apply"] != nil
                 let vRejectProvided = params.arguments?["reject"] != nil

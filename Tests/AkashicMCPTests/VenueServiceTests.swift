@@ -4,6 +4,7 @@ import Foundation
 @testable import AkashicStoreIO
 @testable import AkashicMCPKit
 @testable import AkashicIndex
+@testable import AkashicExport
 
 /// venue／org 的 service 面（#304 task 4.1）——CLI 與 MCP 的唯一實作路徑。
 final class VenueServiceTests: XCTestCase {
@@ -135,6 +136,112 @@ final class VenueServiceTests: XCTestCase {
         _ = try service.addVenue(key: "v1", names: ["V"], type: "periodical", note: nil)
         XCTAssertThrowsError(try service.updateVenue(
             key: "v1", addNames: nil, note: nil, type: "series"))
+    }
+
+    // MARK: - #406：venue.paginated 的判定面與 floor 接線
+
+    /// 判定要留 verdict 與**證據**——judgement 或 rests-on 缺任一都拒、零寫入。
+    /// 孤兒 judgement（沒有 paginated 卻給理由）同拒。
+    func testUpdateVenuePaginatedRequiresJudgementAndEvidence() throws {
+        _ = try service.addVenue(key: "fp", names: ["Frontiers in Psychology"],
+                                 type: "periodical", note: nil)
+        XCTAssertThrowsError(try service.updateVenue(
+            key: "fp", addNames: nil, note: nil, type: nil, paginated: false))
+        XCTAssertThrowsError(try service.updateVenue(
+            key: "fp", addNames: nil, note: nil, type: nil,
+            paginated: false, judgement: "artnum 制", restsOn: nil))
+        XCTAssertThrowsError(try service.updateVenue(
+            key: "fp", addNames: nil, note: nil, type: nil,
+            paginated: false, judgement: "artnum 制", restsOn: ["sha256:xyz"]))
+        XCTAssertNil(try store.load().venues.first?.paginated, "拒絕必須零寫入")
+        XCTAssertThrowsError(try service.updateVenue(
+            key: "fp", addNames: nil, note: nil, type: nil, judgement: "孤兒理由"))
+    }
+
+    /// 判定寫入：值＋判斷型 reference；(field, value, kind) 冪等；翻轉判定
+    /// 是**新判定**，舊判定留史（判定會錯，錯了要能回溯）。
+    func testUpdateVenuePaginatedWritesValueAndVerdict() throws {
+        _ = try service.addVenue(key: "fp", names: ["Frontiers in Psychology"],
+                                 type: "periodical", note: nil)
+        let digest = "sha256:" + String(repeating: "ab", count: 32)
+        let out = try json(try service.updateVenue(
+            key: "fp", addNames: nil, note: nil, type: nil,
+            paginated: false, judgement: "Crossref 抽樣 0/80 page、42/80 artnum",
+            restsOn: [digest]))
+        XCTAssertEqual(out["paginated"] as? Bool, false)
+        let v = try XCTUnwrap(try store.load().venues.first)
+        XCTAssertEqual(v.paginated, false)
+        let ref = try XCTUnwrap(v.references.first { $0.field == "paginated" })
+        guard case .judgement(let stmt, let ro) = ref.kind else {
+            return XCTFail("判定必須是判斷型")
+        }
+        XCTAssertTrue(stmt.contains("Crossref"))
+        XCTAssertEqual(ro, [digest])
+        _ = try service.updateVenue(
+            key: "fp", addNames: nil, note: nil, type: nil,
+            paginated: false, judgement: "Crossref 抽樣 0/80 page、42/80 artnum",
+            restsOn: [digest])
+        XCTAssertEqual(try store.load().venues.first?.references
+                        .filter { $0.field == "paginated" }.count, 1,
+                       "同 (field,value,kind) 冪等")
+        _ = try service.updateVenue(
+            key: "fp", addNames: nil, note: nil, type: nil,
+            paginated: true, judgement: "改判：出版商頁逐篇有頁碼", restsOn: [digest])
+        let v2 = try XCTUnwrap(try store.load().venues.first)
+        XCTAssertEqual(v2.paginated, true)
+        XCTAssertEqual(v2.references.filter { $0.field == "paginated" }.count, 2,
+                       "翻轉是新判定，舊判定留史")
+    }
+
+    /// **floor 三態**（欄位契約的核心）：`false` 抑制缺 PAGES 的警告；`nil`（未判定）
+    /// 與 `true` **照報**——「未判定折成任何預設值，會讓所有未查的刊靜默通過下限檢查」。
+    func testFloorSuppressesMissingPagesOnlyForJudgedUnpaginatedVenues() throws {
+        _ = try service.addVenue(key: "vfalse", names: ["ArtNum J"], type: "periodical", note: nil)
+        _ = try service.addVenue(key: "vtrue", names: ["Paged J"], type: "periodical", note: nil)
+        _ = try service.addVenue(key: "vnil", names: ["Unjudged J"], type: "periodical", note: nil)
+        let digest = "sha256:" + String(repeating: "cd", count: 32)
+        _ = try service.updateVenue(key: "vfalse", addNames: nil, note: nil, type: nil,
+                                    paginated: false, judgement: "artnum 制", restsOn: [digest])
+        _ = try service.updateVenue(key: "vtrue", addNames: nil, note: nil, type: nil,
+                                    paginated: true, judgement: "傳統頁碼刊", restsOn: [digest])
+        func entry(_ ck: String, venue: String) -> Entry {
+            var e = Entry(id: UUID(), citekey: ck, type: .periodicalArticle, title: "T")
+            e.venues = [.key(venue)]
+            e.authors = [.literal("A B")]
+            e.date = "2020"
+            e.fields = ["journaltitle": "J", "volume": "1"]
+            return e
+        }
+        let venues = try store.load().venues
+        let report = BibExport.apa7Report(
+            entries: [entry("efalse", venue: "vfalse"),
+                      entry("enil", venue: "vnil"),
+                      entry("etrue", venue: "vtrue")],
+            people: [], venues: venues)
+        let pagesWarnings = report.issues.filter { $0.message.contains("PAGES") }
+        XCTAssertEqual(Set(pagesWarnings.map(\.citekey)), ["enil", "etrue"],
+                       "false 抑制；nil 與 true 照報")
+    }
+
+    /// venue 附著驗證的 `paginated` case：純量不收 value；欄位缺席（nil＝未判定）
+    /// 不該有判定證據；判定必須是判斷型。
+    func testVenuePaginatedReferenceAttachmentRules() throws {
+        _ = try service.addVenue(key: "v9", names: ["V9"], type: "periodical", note: nil)
+        var v = try XCTUnwrap(try store.load().venues.first { $0.key == "v9" })
+        v.references.append(ProvenanceReference(
+            field: "paginated", value: nil,
+            kind: .judgement(statement: "x", restsOn: [])))
+        XCTAssertThrowsError(try v.validateReferenceAttachment(),
+                             "欄位缺席（未判定）不該有判定證據")
+        v.paginated = false
+        v.references[v.references.count - 1] = ProvenanceReference(
+            field: "paginated", value: "false",
+            kind: .judgement(statement: "x", restsOn: []))
+        XCTAssertThrowsError(try v.validateReferenceAttachment(), "純量欄位不收 value")
+        v.references[v.references.count - 1] = ProvenanceReference(
+            field: "paginated", value: nil,
+            kind: .judgement(statement: "x", restsOn: []))
+        XCTAssertNoThrow(try v.validateReferenceAttachment())
     }
 
     // MARK: - #394：venue 的 ISSN 寫入面

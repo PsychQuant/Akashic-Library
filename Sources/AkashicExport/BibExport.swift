@@ -358,6 +358,21 @@ public enum BibExport {
                     hasMainTitle: bib.fields.caseInsensitiveValue(forKey: "MAINTITLE") != nil)
                 : recommendedFields(for: entryType)
             for field in recommended {
+                // #406：article-number 期刊的「缺 pages」是**正確狀態**不是缺陷。判準
+                // 屬 venue 不屬 work——只在該 entry 第一個已歸戶 venue 被**判定**
+                // `paginated == false` 時抑制。`nil`（未判定）與 `true` **照報**：
+                // 欄位契約明文「未判定折成任何預設值，會讓所有未查的刊靜默通過
+                // 下限檢查」。只限 ARTICLE——編著章節（INCOLLECTION）的頁碼與期刊
+                // 分頁制無關。
+                if field.uppercased() == "PAGES", entryType == "ARTICLE" {
+                    let firstKeyedVenue = entry.venues.compactMap { ref -> String? in
+                        if case .key(let k) = ref { return k }
+                        return nil
+                    }.first
+                    if let vk = firstKeyedVenue, venuesByKey[vk]?.paginated == false {
+                        continue
+                    }
+                }
                 if bib.fields.caseInsensitiveValue(forKey: field) == nil {
                     issues.append(APA7Issue(citekey: entry.citekey, severity: .warning,
                                             message: "Missing recommended field: \(field)"))

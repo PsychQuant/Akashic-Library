@@ -154,7 +154,8 @@ actor AkashicMCPServer {
                 "reject": strArray("要否決的候選 id（同 apply 的三段形）——寫 resolution-rejected verdict（rule 依該候選的 tier 導出），entry 不動；省略＝不否決"),
                 "confirm_tiers": strArray("顯式承認要套用的寬鬆提名層（reorder / initials / confirmed-elsewhere，可多個）——apply 集含寬鬆層候選而該層未列於此＝整批拒絕零寫入（#307）；exact 免承認"),
                 "refute": strArray("逐篇**否決**（#386 的鏡像）：citekey:authorIndex:personKey=否決理由。與既有 reject 的差別是**歧義列也適用**（reject 只吃 resolver 提名出來的候選）。entry 不動，只寫 resolution-rejected verdict；之後該配對不再被提名。理由必填。對共用 literal 來說「不是他」通常才是答案"),
-"attribute_org": strArray("把作者位歸給**團體作者**（#443）：citekey:authorIndex:orgKey=判定理由。`.literal` → `.organization`——`Author` 三態裡在此之前只有兩態接得起來。理由必填；org 需已存在（絕不自動建）；已歸戶的位置拒絕；整批驗證通過才寫。單獨呼叫，不與 apply／reject 組合"),
+"split_author": strArray("把一個作者位**拆成多個**（#443）：citekey:authorIndex:分隔符=理由。一個 literal 裝了兩個人時用它。**收分隔符不收拆好的名字**——後者等於讓呼叫端編造；收分隔符則拆出的每一段必然是原文的子字串。切出空段即拒絕；只作用於未歸戶的位置；拆出來的仍是 .literal（拆是形狀修正不是身分判定）。單獨呼叫，不與其餘腿組合——它改的是作者位的數量"),
+                "attribute_org": strArray("把作者位歸給**團體作者**（#443）：citekey:authorIndex:orgKey=判定理由。`.literal` → `.organization`——`Author` 三態裡在此之前只有兩態接得起來。理由必填；org 需已存在（絕不自動建）；已歸戶的位置拒絕；整批驗證通過才寫。單獨呼叫，不與 apply／reject 組合"),
                                 "judge": strArray("逐篇判定（#386）：citekey:authorIndex:personKey=判定理由，以**第一個 = 切**（理由可含等號）。與 apply 是不同種類的主張——apply 套用 resolver 提名出來的候選，judge 指名一個作者位並說明**憑什麼**，因此**歧義列也適用**（歧義的意思是提名器分不出來，不是人／AI 分不出來）。理由必填且逐字寫進 verdict；literal 由 store 讀不由呼叫端提供。輸入語法錯（缺 = ／非三段形／重複 id／理由空白／person 不存在）整批拒絕零寫入；store 狀態不符（work 不存在／索引越界／位置已歸戶）該筆略過並在 skipped 具名、不中止其餘。判定寫的 verdict rule 是 author-judged-per-work，會讓同 literal 在其他 work 以 confirmed-elsewhere 提名並在理由揭露血統——那仍是提名，仍須逐列決定。需 store format ≥ 8"),
              ])),
         Tool(name: "akashic_create_entry",
@@ -394,6 +395,12 @@ actor AkashicMCPServer {
                 // 團體作者的升格（#443）——`.literal` → `.organization`。與 `judge`
                 // 同型（per-id 顯式、judgement 必填），單獨呼叫不與 apply／reject 組合：
                 // 它升格的目標是另一個值域，混在一批裡會讓「哪些寫了」難以判讀。
+                // 把黏在一起的作者位拆開（#443）。單獨呼叫，不與其餘腿組合——它改的是
+                // 作者位的**數量**，混在一批裡會讓其他腿的 index 意義改變。
+                if params.arguments?["split_author"] != nil {
+                    output = try service.splitAuthors(argList("split_author"))
+                    break
+                }
                 if params.arguments?["attribute_org"] != nil {
                     output = try service.attributeToOrganizations(argList("attribute_org"))
                     break

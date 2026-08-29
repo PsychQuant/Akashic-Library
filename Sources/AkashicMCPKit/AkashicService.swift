@@ -2446,6 +2446,116 @@ public final class AkashicService {
                                "issnTotal": venue.issn.count])
     }
 
+    /// **把黏在一起的作者位拆開**（#443）。
+    ///
+    /// ## 問題
+    ///
+    /// 一個 literal 裝了兩個人時，沒有任何面拆得開。實測 4 筆「某人與雷庚玲」——同一個
+    /// 指導教授的四篇合著，匯入時整個作者欄被當成一個 literal。`apply` 只能把它整個
+    /// 升格成**一個** person，而那會建出一個不存在的人。
+    ///
+    /// ## 收分隔符，不收自由文字
+    ///
+    /// 收「拆成哪兩個名字」的自由文字，等於讓呼叫端**編造**——打錯一個字就寫進 store
+    /// 而沒有任何東西擋得住。收**分隔符**則讓拆出的每一段必然是原文的子字串：零編造。
+    ///
+    /// 分隔符本身被丟棄，而那是可見的（報告逐筆印出用什麼切、切成什麼）——
+    /// `lossless-intake` 執行細節 3 的「丟棄必須可見」。
+    ///
+    /// ## 拆出來的仍是 `.literal`
+    ///
+    /// 拆是**形狀**修正，不是身分判定。拆完之後每一段各自走 `resolve-people` 的既有
+    /// 消歧路徑——依 `literal-first-then-key`，進庫不猜、升格留 verdict。
+    ///
+    /// ## 失敗語意：整批拒絕、零寫入
+    ///
+    /// 與 `judge`／`repoint`／`attributeToOrganizations` 同。下面先全部解析驗證完才動手。
+    public func splitAuthors(_ specs: [String]) throws -> String {
+        let load = try store.load()
+        let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
+                                   uniquingKeysWith: { _, last in last })
+
+        struct Plan { let citekey: String; let idx: Int
+                      let separator: String; let parts: [String]; let judgement: String }
+        var plans: [Plan] = []
+        var seen = Set<String>()
+
+        for spec in specs {
+            guard let eq = spec.firstIndex(of: "=") else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(spec, max: 200))」缺少 `=`——格式是 "
+                    + "citekey:authorIndex:分隔符=理由")
+            }
+            let idPart = String(spec[spec.startIndex..<eq])
+            let judgement = String(spec[spec.index(after: eq)...])
+                .trimmingCharacters(in: .whitespaces)
+            guard !judgement.isEmpty else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(idPart, max: 200))」的理由是空的——拆開是一個判斷，"
+                    + "而沒有理由的判斷事後與「不知道為什麼這樣」無法區分")
+            }
+            // 分隔符本身可能含 `:`，所以只切前兩段
+            let bits = idPart.split(separator: ":", maxSplits: 2,
+                                    omittingEmptySubsequences: false)
+            guard bits.count == 3, let idx = Int(bits[1]), !bits[2].isEmpty else {
+                throw ServiceError.invalid(
+                    "id「\(displaySafe(idPart, max: 200))」不是三段形 citekey:authorIndex:分隔符")
+            }
+            let citekey = String(bits[0]), sep = String(bits[2])
+            guard seen.insert(idPart).inserted else {
+                throw ServiceError.invalid("id「\(displaySafe(idPart, max: 200))」重複")
+            }
+            guard let entry = byCitekey[citekey] else {
+                throw ServiceError.notFound("work「\(displaySafe(citekey, max: 200))」")
+            }
+            guard entry.authors.indices.contains(idx) else {
+                throw ServiceError.invalid(
+                    "作者索引 \(idx) 超出範圍（0…\(entry.authors.count - 1)）")   // display-safe-exempt: Int
+            }
+            // **只作用於 `.literal`**：已歸戶的位置拆開會讓那個 key 的身分不明。
+            guard case .literal(let lit) = entry.authors[idx] else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(citekey, max: 200))」的作者位 \(idx) 已歸戶"   // display-safe-exempt: Int
+                    + "——拆開只作用於 .literal")
+            }
+            guard lit.contains(sep) else {
+                throw ServiceError.invalid(
+                    "分隔符「\(displaySafe(sep, max: 60))」不在"
+                    + "「\(displaySafe(lit, max: 200))」裡——拒絕，而不是靜默不拆")
+            }
+            let parts = lit.components(separatedBy: sep)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            // **切出空段即拒絕**：那表示分隔符選錯了（例如「與雷庚玲」用 `與` 切）。
+            guard parts.count >= 2, !parts.contains(where: { $0.isEmpty }) else {
+                throw ServiceError.invalid(
+                    "用「\(displaySafe(sep, max: 60))」切"
+                    + "「\(displaySafe(lit, max: 200))」會得到空的一段——分隔符選錯了")
+            }
+            plans.append(Plan(citekey: citekey, idx: idx, separator: sep,
+                              parts: parts, judgement: judgement))
+        }
+
+        // ── 全部驗證通過才寫 ──
+        //
+        // **同一筆 work 的多個位置一起拆時 index 會位移**：由**大到小**處理，於是先做的
+        // 那個不影響還沒做的那些的索引。呼叫端給的是**原始**索引，不必自己算位移。
+        var entries: [String: Entry] = [:]
+        for p in plans where entries[p.citekey] == nil { entries[p.citekey] = byCitekey[p.citekey]! }
+        var rows: [[String: Any]] = []
+        for p in plans.sorted(by: { $0.citekey == $1.citekey ? $0.idx > $1.idx
+                                                             : $0.citekey < $1.citekey }) {
+            entries[p.citekey]!.authors.replaceSubrange(
+                p.idx...p.idx, with: p.parts.map { Author.literal($0) })
+            rows.append(["citekey": displaySafe(p.citekey, max: 200),
+                         "authorIndex": p.idx,   // display-safe-exempt: Int
+                         "separator": displaySafe(p.separator, max: 60),
+                         "into": p.parts.map { displaySafe($0, max: 200) }])
+        }
+        for e in entries.values.sorted(by: { $0.citekey < $1.citekey }) { try store.writeEntry(e) }
+        try LibraryIndex(store: store).rebuild()
+        return try jsonString(["split": rows, "count": rows.count])   // display-safe-exempt: Int
+    }
+
     /// **`.literal` → `.organization` 的升格**（#443）。
     ///
     /// ## 為什麼要有這條路

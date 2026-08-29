@@ -1345,6 +1345,16 @@ struct ResolvePeople: ParsableCommand {
             help: "把作者位歸給團體作者（可重複）：citekey:authorIndex:orgKey=判定理由。理由必填；org 需已存在（絕不自動建）；已歸戶的位置拒絕；整批驗證通過才寫")
     var attributeOrg: [String] = []
 
+    /// **把黏在一起的作者位拆開**（#443）：一個 literal 裝了兩個人。
+    ///
+    /// **收分隔符而不是拆好的名字**——後者等於讓呼叫端編造，打錯一個字就寫進 store。
+    /// 收分隔符則讓拆出的每一段必然是原文的子字串。切出空段即拒絕（分隔符選錯了）。
+    ///
+    /// 拆出來的仍是 `.literal`——拆是**形狀**修正不是身分判定，每一段各自走既有的消歧路徑。
+    @Option(name: .customLong("split-author"), parsing: .upToNextOption,
+            help: "把一個作者位拆成多個（可重複）：citekey:authorIndex:分隔符=理由。分隔符必須在該 literal 裡且切不出空段；只作用於未歸戶的位置；同一筆 work 的多個位置一起拆時 index 位移由實作處理")
+    var splitAuthor: [String] = []
+
     /// 判定式否決（#386 的鏡像）：查證後說「**不是他**」。
     ///
     /// 與既有 `--reject` 的差別：那個只吃 resolver 提名出來的**候選**，歧義列一律 notFound。
@@ -1391,6 +1401,23 @@ struct ResolvePeople: ParsableCommand {
         // verdict 寫入走 **AkashicService**——與 MCP `akashic_resolve_people` 同一條
         // 實作路徑（mcp-cli-parity：兩條各自寫會分岔）。`key:` 不可省（#220 HIGH：
         // keyless 會分岔出第二份 index）。
+        // 把黏在一起的作者位拆開（#443）——與其餘寫入腿同走 service。
+        if !splitAuthor.isEmpty {
+            let service = AkashicService(root: store.root, key: store.key,
+                                         environment: ProcessInfo.processInfo.environment)
+            let out = try service.splitAuthors(splitAuthor)
+            let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
+            let rows = (parsed?["split"] as? [[String: Any]]) ?? []
+            print("✓ 拆開 \(rows.count) 個作者位、index 已重建")   // display-safe-exempt: Int
+            for r in rows {
+                let into = (r["into"] as? [String] ?? []).joined(separator: "、")
+                // 逐筆印出「用什麼切、切成什麼」——分隔符被丟棄，而丟棄必須可見
+                let line = "  \(r["citekey"] as? String ?? "")[\(r["authorIndex"] as? Int ?? -1)] "
+                    + "以「\(r["separator"] as? String ?? "")」切 → \(into)"   // display-safe-exempt: 值取自 splitAuthors（已逐欄位 displaySafe），二次消毒非冪等
+                print(line)   // display-safe-exempt: 同上
+            }
+            return
+        }
         // 團體作者的升格（#443）——與 judge／refute 同走 service，兩面一條路徑。
         if !attributeOrg.isEmpty {
             let service = AkashicService(root: store.root, key: store.key,

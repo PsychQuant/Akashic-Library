@@ -342,6 +342,82 @@ final class VenueServiceTests: XCTestCase {
         XCTAssertEqual(keys, ["aera", "apa", "ncme"], "三個作者位都要升格，順序不變")
     }
 
+    // MARK: - #443：把黏在一起的作者位拆開
+
+    /// **一個 literal 裝了兩個人時，沒有任何面拆得開。**
+    ///
+    /// 實測（#443）：4 筆「某人與雷庚玲」——同一個指導教授的四篇合著，匯入時整個作者欄
+    /// 被當成一個 literal。`resolve-people --apply` 只能把它整個升格成**一個** person，
+    /// 而那會建出一個不存在的人。
+    ///
+    /// ## 為什麼用分隔符而不是自由文字
+    ///
+    /// 收「拆成哪兩個名字」的自由文字，等於讓呼叫端**編造**——打錯一個字就寫進 store
+    /// 而沒有任何東西擋得住。收**分隔符**則讓拆出的每一段必然是原文的子字串：零編造，
+    /// 且錯了看得出來（切出空段就拒絕）。
+    ///
+    /// 分隔符本身被丟棄，而那是可見的——報告逐筆印出「用什麼切、切成什麼」。
+    func testSplitAuthorBySeparator() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("鄭澈與雷庚玲")]
+        _ = try store.writeEntry(e)
+
+        let out = try json(try service.splitAuthors(["a2014:0:與=兩個人被匯入成一個 literal"]))
+        XCTAssertEqual((out["split"] as? [[String: Any]])?.count, 1, "\(out)")
+
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        XCTAssertEqual(after.authors.count, 2, "一個作者位拆成兩個")
+        let names: [String] = after.authors.compactMap {
+            if case .literal(let s) = $0 { return s } else { return nil }
+        }
+        XCTAssertEqual(names, ["鄭澈", "雷庚玲"], "拆出的名字必然是原文的子字串")
+    }
+
+    /// **切出空段 → 整批拒絕**。`「與雷庚玲」` 用 `與` 切會得到一個空的前段。
+    func testSplitRejectsEmptySegment() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("與雷庚玲")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.splitAuthors(["a2014:0:與=理由"]))
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        XCTAssertEqual(after.authors.count, 1, "拒絕必須零寫入")
+    }
+
+    /// 分隔符不在該 literal 裡 → 拒絕（而不是靜默不拆）。
+    func testSplitRejectsAbsentSeparator() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("鄭澈")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.splitAuthors(["a2014:0:與=理由"]))
+    }
+
+    /// **只作用於 `.literal`**——已歸戶的位置拆開會讓那個 key 的身分不明。
+    func testSplitRefusesAResolvedSlot() throws {
+        _ = try service.addPerson(key: "a-b", names: ["A B"], orcid: nil, openalex: nil)
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.key("a-b")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.splitAuthors(["a2014:0:與=理由"]))
+    }
+
+    /// **同一筆 work 的多個作者位一起拆**——index 會位移，而實作必須處理。
+    ///
+    /// 這是 #443 的 `attributeToOrganizations` 踩過的形狀（`Dictionary(uniqueKeysWithValues:)`
+    /// 對重複 citekey 直接 crash），但這裡更尖：**拆開會改變後續 index**。
+    func testSplittingTwoSlotsOnTheSameWorkAccountsForIndexShift() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("甲與乙"), .literal("丙與丁")]
+        _ = try store.writeEntry(e)
+
+        _ = try service.splitAuthors(["a2014:0:與=理由", "a2014:1:與=理由"])
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        let names: [String] = after.authors.compactMap {
+            if case .literal(let s) = $0 { return s } else { return nil }
+        }
+        XCTAssertEqual(names, ["甲", "乙", "丙", "丁"],
+                       "兩個位置都要拆，且順序保持——index 位移由實作處理，不由呼叫端")
+    }
+
     // MARK: - org MCP 面（#304 移轉）
 
     func testAddOrganizationWithParent() throws {

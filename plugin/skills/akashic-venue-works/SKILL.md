@@ -50,7 +50,11 @@ Angular 空殼（`akashic-venue-verify` 的 403 訊號在這裡不會出現）�
 1. `akashic libraries create <venue-key>-catalog`（已存在則略過）
 2. **增量 diff**：讀庫內全部 DOI（正規形）集合；來源記錄的 DOI 已在庫 → **跳過並記
    conflict**（`import-wos` 語意：拒絕覆寫——期刊目錄是一次性快照，store 可能比它新，
-   #420 裁決 (c)）。無 DOI 的來源記錄照 title+year 比對後仍不確定 → 跳過並具名
+   #420 裁決 (c)）。無 DOI 的來源記錄照 title+year 比對後仍不確定 → 跳過並具名。
+   **DOI 正規化必須收攏 APA 舊式雙斜線**（`10.1037//…` 是九〇年代 APA 的正式註冊形，
+   兩個 DOI 都真、都可解析）——OpenAlex 對同文常存單／雙斜線**兩筆記錄**，不收攏會建
+   近重複（Psychological Methods 驗收 run 實測：197 對攣生、漏收攏建出 195 組重複，
+   清理另開 issue）。同文攣生的摘要常只在一側——收攏後合併欄位再建
 3. 逐筆 `create-entry`：type `periodical-article`（review 同）、authors 全部 `.literal`
    （`literal-first-then-key`：進庫不猜）、fields 帶 `journaltitle`／`volume`／`number`／
    `pages`（OpenAlex biblio；article-number 刊的 first_page 若非範圍形，落 `eid` 類欄位

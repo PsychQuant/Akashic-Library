@@ -63,6 +63,8 @@ Angular 空殼（`akashic-venue-verify` 的 403 訊號在這裡不會出現）�
 
 ## 誠實邊界
 
+- **寫下的世界斷言要先量過**——排除計數、覆蓋率、conflict 數都是當場量的，不寫「應該是」；
+  見 [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)
 - 83/17 的摘要覆蓋是 Psychological Methods 的數字——**換一份刊要重量**，不當通則
 - OpenAlex 鏡射 Crossref 的欄位（頁碼等）——它不是獨立第二來源（`storyline#7` 教訓）
 - 匯入的 authors 是 literal——歸戶是 `resolve-people`／`akashic-person-verify` 的後續，

@@ -56,10 +56,13 @@ final class Format13GateTests: XCTestCase {
     /// 沒有 `paginated` case，讀到會走封閉 default 擲錯 → 整檔 quarantine（R1 verify
     /// 在完整 store 副本量測：406 venue 靜默掉到 373、rc=0，輸出與「判定從未發生」
     /// 不可分辨）。write gate 必須在寫入端先 fire。
+    ///
+    /// **刻意只帶 reference 不帶值**（R2 verify：初版兩者都設，於是刪掉 reference
+    /// 分支、只剩值分支時本測試照綠——遮蔽）。gate 先於 validate 跑，所以「無值
+    /// 有 reference」構造得出來。
     func testWritingAPaginatedJudgementIsRefusedBelowFormat15() throws {
         try setFormat(14)
         var v = Venue(key: "frontiers-in-psychology", type: .periodical)
-        v.paginated = false
         v.references = [ProvenanceReference(
             field: "paginated", value: nil,
             kind: .judgement(statement: "artnum 制",
@@ -71,14 +74,23 @@ final class Format13GateTests: XCTestCase {
         }
     }
 
-    /// 頂層 `paginated:` 值本身也閘在 15 之下——它雖屬 format 14 的鍵域，但判定面
-    /// （值＋reference 成對寫入）是 15 的能力；只寫值不寫 reference 的路徑不存在
-    /// （service 強制成對），所以 gate 對兩者一致。
-    func testWritingAPaginatedValueIsRefusedBelowFormat15() throws {
-        try setFormat(14)
+    /// 頂層 `paginated:` **值**屬 format 14 的鍵域——閘在 14 之下，**不在 15 之下**
+    /// （R2 verify NEW BUG 1：初版把值也鎖到 15，一筆合法的 format-14 venue 連
+    /// add_names 都寫不回去——破壞舊格式的 read-modify-write）。
+    func testWritingAPaginatedValueIsRefusedBelowFormat14() throws {
+        try setFormat(13)
         var v = Venue(key: "psychometrika", type: .periodical)
         v.paginated = true
         XCTAssertThrowsError(try LibraryStore(root: root).writeVenue(v))
+    }
+
+    /// 合法的 format-14 頂層值（無判定 reference）在 14 上照常寫——這正是
+    /// NEW BUG 1 破壞掉的那條路，釘住它。
+    func testWritingAPaginatedValueAloneSucceedsAtFormat14() throws {
+        try setFormat(14)
+        var v = Venue(key: "psychometrika", type: .periodical)
+        v.paginated = true
+        XCTAssertNoThrow(try LibraryStore(root: root).writeVenue(v))
     }
 
     /// format 15 之上照常寫。

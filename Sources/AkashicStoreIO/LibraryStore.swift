@@ -555,13 +555,25 @@ public final class LibraryStore {
         }
         try Self.assertIdentifierReferencesWritable(
             v.references, format: format, what: "venue「\(displaySafe(v.key, max: 120))」")
-        // #406 R1 verify：`paginated` 的**判定 reference** 是 format 15 的新
-        // vocabulary——format-14 binary 的附著驗證沒有這個 case，讀到會走封閉
-        // default 擲錯 → **整檔 quarantine**（且輸出與「判定從未發生」不可分辨，
-        // 實測 406 個 venue 靜默掉到 373）。頂層 `paginated:` 欄位屬 format 14；
-        // 這裡閘的是判定證據那一半。
-        if format < 15,
-           v.paginated != nil || v.references.contains(where: { $0.field == "paginated" }) {
+        // #406：兩個世代的能力**分開閘**（R2 verify NEW BUG 1——初版把兩者綁在
+        // 同一條 `< 15`，於是一筆合法的 format-14 venue（有頂層 `paginated:`、無
+        // reference）連 add_names 這種無關寫入都被拒，破壞舊格式的 read-modify-write）：
+        //
+        // - 頂層 `paginated:` 值是 **format 14** 的鍵域（format-13 binary 的
+        //   `rejectUnknownKeys` 對它整檔 quarantine）。
+        if format < 14, v.paginated != nil {
+            throw StoreIOError.invalidInput(
+                what: "venue「\(displaySafe(v.key, max: 120))」的 paginated 值",
+                why: "paginated 是 format 14 的新欄位（#422／#406）；本 store 是 \(format)——" +
+                     "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                     "format: 改成 14（format-13 binary 讀到會整檔 quarantine）")
+        }
+        // - **判定 reference**（`field: paginated`）是 **format 15** 的 vocabulary
+        //   （R1 verify）：format-14 binary 的附著驗證沒有這個 case，讀到會走封閉
+        //   default 擲錯 → **整檔 quarantine**（且輸出與「判定從未發生」不可分辨，
+        //   實測 406 個 venue 靜默掉到 373）。service 設值時必同時建 reference，
+        //   所以本分支已足以讓新判定在 format 14 上原子失敗。
+        if format < 15, v.references.contains(where: { $0.field == "paginated" }) {
             throw StoreIOError.invalidInput(
                 what: "venue「\(displaySafe(v.key, max: 120))」的 paginated 判定",
                 why: "paginated 判定 reference 是 format 15 的新能力（#406）；本 store 是 " +

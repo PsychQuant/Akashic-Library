@@ -2266,18 +2266,17 @@ public final class AkashicService {
         // digest 先前只能手開 YAML——verdicts 解析器對 `field: paginated` 靜默跳過，
         // 「判定錯了可以回溯」的回溯半邊在所有讀取面缺席）。逐筆帶 statement 與
         // rests-on；翻轉留史時多筆並存，序列化順序即判定順序。
-        let pagRefs = record.references.filter { $0.field == "paginated" }
-        if !pagRefs.isEmpty {
-            d["paginatedJudgements"] = pagRefs.map { r -> [String: Any] in
-                var j: [String: Any] = [:]
-                if case .judgement(let stmt, let ro) = r.kind {
-                    j["statement"] = displaySafe(stmt, max: 500)
-                    // display-safe-exempt: digest 由 isValidDigest 保證只含 sha256:+hex
-                    j["restsOn"] = ro
-                }
-                return j
+        // compactMap 只留判斷型（R2 verify NEW BUG 2：初版 map 對非 judgement kind
+        // 輸出空 dict——附著驗證雖擋 extraction 進 store，讀取面不該倚賴那個前提
+        // 產出空白列）。
+        let pagJudgements = record.references
+            .filter { $0.field == "paginated" }
+            .compactMap { r -> [String: Any]? in
+                guard case .judgement(let stmt, let ro) = r.kind else { return nil }
+                // display-safe-exempt: digest 由 isValidDigest 保證只含 sha256:+hex
+                return ["statement": displaySafe(stmt, max: 500), "restsOn": ro]
             }
-        }
+        if !pagJudgements.isEmpty { d["paginatedJudgements"] = pagJudgements }
         if let note = record.note { d["note"] = displaySafe(note, max: 500) }
         // ISSN（#394 §5／verify）。**在此之前兩個讀取面都看不到它**——§8 的遷移把
         // 39 個 venue 的 ISSN 寫進磁碟，而 `akashic venue` 與 `--json` 都沒有這一格，

@@ -49,6 +49,31 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 | `akashic_import_wos` | `import-wos` | ✅（#290；#259 CLI-only 盤點唯一「需要」格的補齊——#206 鏡像判準）|
 | `akashic_resolve_people` | `resolve-people` | ✅（#272 起兩面契約有記錄的差異：MCP 允許 apply+reject 組合（兩段式、按腿回報）；CLI 維持分兩次呼叫——互動面天然序列，組合是 LLM 批次 triage 的需求。#303 起兩面同步帶 `tier`（封閉四值 exact／confirmed-elsewhere／reorder／initials，信心降冪）：MCP 每列 `tier` 欄、CLI 按 tier 分組標頭與 `--tier` 篩選（裸 `--apply` 對寬鬆 tier 拒絕）、App 候選列標示；apply id 升三段形 `citekey:authorIndex:personKey`（釘 person，兩段 legacy 收）；否決抑制改與提名同一套正規化、淘汰而得的唯一命中在 reason 揭露——R1 verify 後 apply 語意有這些**有記錄的變更**，非純 additive。R3 裁決的**面不對稱**：tier 閘只在 CLI 篩選式批次（MCP per-id 顯式＋tier 可見，刻意不閘；tier-acknowledgment 參數列 follow-up）；rejected/applied 回音均三段 pinned 形）|
 
+**#443 起另有一個「把作者位拆開」的面**（`--split-author` / `split_author`，兩面同走
+`splitAuthors`）：一個 literal 裝了兩個人時，在此之前**沒有任何面拆得開**——`apply`
+只能把它整個升格成一個 person，而那會建出一個不存在的人。實測 4 筆「某人與雷庚玲」。
+
+**收分隔符而不是拆好的名字**：後者等於讓呼叫端**編造**，打錯一個字就寫進 store 而沒有
+任何東西擋得住；收分隔符則拆出的每一段必然是原文的子字串。切出空段即拒絕（分隔符選錯）；
+換行等空白段同拒；段數有上界（32，且在 materialization 之前生效——literal 是未信任
+輸入，高頻分隔符不得先被切成無界陣列再拒）；分隔符**在語法上無法**含 `=`（第一個 `=`
+之後一律是理由——誤解析由報告的 separator／judgement 欄揭露、有測試釘住，根治需
+結構化參數，follow-up）。分隔符、**原始 literal 與理由**都被丟棄，而報告逐筆印出
+「原文、用什麼切、切成什麼、為什麼」（`lossless-intake` 的丟棄必須可見；揭露的是
+消毒顯示形——`displaySafe` 200／300 上限，#165 的既有取捨）——**store 不留原文與
+理由是本面的誠實邊界**（R1 verify）：拆分沒有
+「被判定的另一方」可落 verdict，work 側 references 值域目前只收識別碼；un-split 所需
+資訊在 store 內不可回復（只在 store 的 git 歷史），持久化需要值域的顯式裁決（follow-up）。
+
+**拆出來的仍是 `.literal`**——拆是**形狀**修正不是身分判定，每一段各自走既有消歧路徑。
+**兩面同契約**：per-id 顯式、理由必填、**同一個作者位一次只能拆一次**（去重以解析後的
+(citekey, index) 為鍵——字面去重會被同 slot 異拼法繞過，R1 verify HIGH）、**單獨呼叫
+不與其餘腿組合且組合被顯式拒絕**（#418 樣式；R1 verify 前靠分支順序隱含達成、其餘腿被
+靜默忽略——那不是「不可組合」而是隱藏優先序。空陣列與 JSON null 同拒）。它改的是
+作者位的**數量**，混在一批裡會讓其他腿的 index 意義改變。同一筆 work 的多個位置一起拆時
+**index 位移由實作處理**（由大到小），呼叫端給的是原始索引（報告的 `authorIndex` 也是
+原始索引，非寫入後位置）。
+
 **#443 起多一個團體作者的升格面**（`--attribute-org` / `attribute_org`，兩面同走
 `attributeToOrganizations`）：`.literal` → **`.organization`**。`Author` 的三態
 （#323）在此之前只有兩態接得起來——`apply` 升格成 `.key`，而團體作者**只能在建檔時

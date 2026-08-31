@@ -1345,6 +1345,16 @@ struct ResolvePeople: ParsableCommand {
             help: "把作者位歸給團體作者（可重複）：citekey:authorIndex:orgKey=判定理由。理由必填；org 需已存在（絕不自動建）；已歸戶的位置拒絕；整批驗證通過才寫")
     var attributeOrg: [String] = []
 
+    /// **把黏在一起的作者位拆開**（#443）：一個 literal 裝了兩個人。
+    ///
+    /// **收分隔符而不是拆好的名字**——後者等於讓呼叫端編造，打錯一個字就寫進 store。
+    /// 收分隔符則讓拆出的每一段必然是原文的子字串。切出空段即拒絕（分隔符選錯了）。
+    ///
+    /// 拆出來的仍是 `.literal`——拆是**形狀**修正不是身分判定，每一段各自走既有的消歧路徑。
+    @Option(name: .customLong("split-author"), parsing: .upToNextOption,
+            help: "把一個作者位拆成多個（可重複）：citekey:authorIndex:分隔符=理由。理由必填；分隔符不得含 =（第一個 = 之後一律是理由）、必須在該 literal 裡且切不出空段；只作用於未歸戶的位置；同一個作者位一次只能拆一次；同一筆 work 的多個位置一起拆時 index 位移由實作處理。原文與理由只進報告不進 store。不與其他腿組合")
+    var splitAuthor: [String] = []
+
     /// 判定式否決（#386 的鏡像）：查證後說「**不是他**」。
     ///
     /// 與既有 `--reject` 的差別：那個只吃 resolver 提名出來的**候選**，歧義列一律 notFound。
@@ -1386,11 +1396,42 @@ struct ResolvePeople: ParsableCommand {
         if apply, !reject.isEmpty {
             throw ValidationError("--apply 與 --reject 不可同用（相反的 verdict）——分兩次呼叫")
         }
+        // **兩個結構修正腿各自單獨呼叫，顯式拒絕組合**（R1 verify）：先前只有文件宣稱
+        // 「不與其餘腿組合」而實作靠分支順序隱含達成——其餘腿被**靜默忽略**，呼叫端
+        // 會以為兩腿都跑了。同型契約在 resolve-venues 是顯式 throw（#418），對齊。
+        if !splitAuthor.isEmpty || !attributeOrg.isEmpty {
+            let otherLegs = apply || !reject.isEmpty || !judge.isEmpty || !refute.isEmpty
+            if (!splitAuthor.isEmpty && !attributeOrg.isEmpty) || otherLegs {
+                throw ValidationError("--split-author／--attribute-org 各自單獨呼叫"
+                    + "（不得與其他腿或彼此組合）——它們改作者位的數量或值域，"
+                    + "混在一批裡會讓其他腿的意義改變")
+            }
+        }
         let store = try options.openStore()
 
         // verdict 寫入走 **AkashicService**——與 MCP `akashic_resolve_people` 同一條
         // 實作路徑（mcp-cli-parity：兩條各自寫會分岔）。`key:` 不可省（#220 HIGH：
         // keyless 會分岔出第二份 index）。
+        // 把黏在一起的作者位拆開（#443）——與其餘寫入腿同走 service。
+        if !splitAuthor.isEmpty {
+            let service = AkashicService(root: store.root, key: store.key,
+                                         environment: ProcessInfo.processInfo.environment)
+            let out = try service.splitAuthors(splitAuthor)
+            let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
+            let rows = (parsed?["split"] as? [[String: Any]]) ?? []
+            print("✓ 拆開 \(rows.count) 個作者位、index 已重建")   // display-safe-exempt: Int
+            for r in rows {
+                let into = (r["into"] as? [String] ?? []).joined(separator: "、")
+                // 逐筆印出「原文、用什麼切、切成什麼、為什麼」——分隔符與原文都被
+                // 丟棄，而丟棄必須可見（R1 verify：先前只揭露了分隔符的丟棄，
+                // 原文與理由不進 store、只在這份報告裡）。
+                let line = "  \(r["citekey"] as? String ?? "")[\(r["authorIndex"] as? Int ?? -1)] "
+                    + "「\(r["original"] as? String ?? "")」以「\(r["separator"] as? String ?? "")」切 → \(into)"   // display-safe-exempt: 值取自 splitAuthors（已逐欄位 displaySafe），二次消毒非冪等
+                print(line)   // display-safe-exempt: 同上
+                print("    理由：\(r["judgement"] as? String ?? "")（只進報告，不進 store）")   // display-safe-exempt: 值取自 splitAuthors（已 displaySafe），二次消毒非冪等
+            }
+            return
+        }
         // 團體作者的升格（#443）——與 judge／refute 同走 service，兩面一條路徑。
         if !attributeOrg.isEmpty {
             let service = AkashicService(root: store.root, key: store.key,

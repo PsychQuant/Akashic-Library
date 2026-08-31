@@ -342,6 +342,183 @@ final class VenueServiceTests: XCTestCase {
         XCTAssertEqual(keys, ["aera", "apa", "ncme"], "三個作者位都要升格，順序不變")
     }
 
+    // MARK: - #443：把黏在一起的作者位拆開
+
+    /// **一個 literal 裝了兩個人時，沒有任何面拆得開。**
+    ///
+    /// 實測（#443）：4 筆「某人與雷庚玲」——同一個指導教授的四篇合著，匯入時整個作者欄
+    /// 被當成一個 literal。`resolve-people --apply` 只能把它整個升格成**一個** person，
+    /// 而那會建出一個不存在的人。
+    ///
+    /// ## 為什麼用分隔符而不是自由文字
+    ///
+    /// 收「拆成哪兩個名字」的自由文字，等於讓呼叫端**編造**——打錯一個字就寫進 store
+    /// 而沒有任何東西擋得住。收**分隔符**則讓拆出的每一段必然是原文的子字串：零編造，
+    /// 且錯了看得出來（切出空段就拒絕）。
+    ///
+    /// 分隔符本身被丟棄，而那是可見的——報告逐筆印出「用什麼切、切成什麼」。
+    func testSplitAuthorBySeparator() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("鄭澈與雷庚玲")]
+        _ = try store.writeEntry(e)
+
+        let out = try json(try service.splitAuthors(["a2014:0:與=兩個人被匯入成一個 literal"]))
+        XCTAssertEqual((out["split"] as? [[String: Any]])?.count, 1, "\(out)")
+
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        XCTAssertEqual(after.authors.count, 2, "一個作者位拆成兩個")
+        let names: [String] = after.authors.compactMap {
+            if case .literal(let s) = $0 { return s } else { return nil }
+        }
+        XCTAssertEqual(names, ["鄭澈", "雷庚玲"], "拆出的名字必然是原文的子字串")
+    }
+
+    /// **切出空段 → 整批拒絕**。`「與雷庚玲」` 用 `與` 切會得到一個空的前段。
+    func testSplitRejectsEmptySegment() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("與雷庚玲")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.splitAuthors(["a2014:0:與=理由"]))
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        XCTAssertEqual(after.authors.count, 1, "拒絕必須零寫入")
+    }
+
+    /// 分隔符不在該 literal 裡 → 拒絕（而不是靜默不拆）。
+    func testSplitRejectsAbsentSeparator() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("鄭澈")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.splitAuthors(["a2014:0:與=理由"]))
+    }
+
+    /// **只作用於 `.literal`**——已歸戶的位置拆開會讓那個 key 的身分不明。
+    func testSplitRefusesAResolvedSlot() throws {
+        _ = try service.addPerson(key: "a-b", names: ["A B"], orcid: nil, openalex: nil)
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.key("a-b")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.splitAuthors(["a2014:0:與=理由"]))
+    }
+
+    /// **同一筆 work 的多個作者位一起拆**——index 會位移，而實作必須處理。
+    ///
+    /// 這是 #443 的 `attributeToOrganizations` 踩過的形狀（`Dictionary(uniqueKeysWithValues:)`
+    /// 對重複 citekey 直接 crash），但這裡更尖：**拆開會改變後續 index**。
+    func testSplittingTwoSlotsOnTheSameWorkAccountsForIndexShift() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("甲與乙"), .literal("丙與丁")]
+        _ = try store.writeEntry(e)
+
+        _ = try service.splitAuthors(["a2014:0:與=理由", "a2014:1:與=理由"])
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        let names: [String] = after.authors.compactMap {
+            if case .literal(let s) = $0 { return s } else { return nil }
+        }
+        XCTAssertEqual(names, ["甲", "乙", "丙", "丁"],
+                       "兩個位置都要拆，且順序保持——index 位移由實作處理，不由呼叫端")
+    }
+
+    /// **同一個作者位被指定兩次 → 整批拒絕**（R1 verify HIGH）。字面去重擋不住
+    /// 「同 slot 配不同分隔符」：兩筆都對 pristine entry 驗證通過，寫入時第二筆
+    /// 對已改寫的陣列套用預先算好的 parts——長度不對的靜默毀損。
+    func testSplitRejectsTheSameSlotGivenTwice() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("甲與乙X丙")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.splitAuthors(
+            ["a2014:0:與=理由甲", "a2014:0:X=理由乙"]))
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        XCTAssertEqual(after.authors.count, 1, "拒絕必須零寫入")
+    }
+
+    /// 同 slot 的**另一種拼法**也要擋：`0` 與 `+0` 解析成同一個 Int。以字面
+    /// 去重修上一條會被這條繞回（R1 verify DA）——去重必須用解析後的值。
+    ///
+    /// **驗的是拒絕的理由**（R2 verify）：只驗「有丟錯」的話，日後 parser 若改成
+    /// 直接拒收 `+0`，本測試照綠、去重那一格卻沒了覆蓋。
+    func testSplitRejectsTheSameSlotSpelledDifferently() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("甲與乙X丙")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.splitAuthors(
+            ["a2014:0:與=理由甲", "a2014:+0:X=理由乙"])) { error in
+            XCTAssertTrue(String(describing: error).contains("被指定了兩次"),
+                          "要因 slot 重複被拒，不是因 +0 被 parser 拒收：\(error)")
+        }
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        XCTAssertEqual(after.authors.count, 1, "拒絕必須零寫入")
+        if case .literal(let s) = after.authors[0] {
+            XCTAssertEqual(s, "甲與乙X丙", "原 literal 一個字都不能動")
+        } else { XCTFail("作者位形狀被改了") }
+    }
+
+    /// **上界的兩側**（R2 verify）：只測 40 段會失敗的話，上限錯成 35 也照綠。
+    /// 32 段是允許的最大值、33 段拒絕——且拒絕發生在 materialization 之前
+    /// （病態 literal 不得先被切成無界陣列再拒）。
+    func testSplitBoundaryExactlyThirtyTwoPassesThirtyThreeFails() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal(Array(repeating: "人", count: 32).joined(separator: "與"))]
+        _ = try store.writeEntry(e)
+        _ = try service.splitAuthors(["a2014:0:與=32 段是允許的最大值"])
+        var after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        XCTAssertEqual(after.authors.count, 32)
+
+        var e2 = Entry(id: UUID(), citekey: "b2014", type: .periodicalArticle, title: "T")
+        e2.authors = [.literal(Array(repeating: "人", count: 33).joined(separator: "與"))]
+        _ = try store.writeEntry(e2)
+        XCTAssertThrowsError(try service.splitAuthors(["b2014:0:與=33 段要拒"]))
+        after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "b2014" })
+        XCTAssertEqual(after.authors.count, 1, "拒絕必須零寫入")
+    }
+
+    /// **語法限制的釘住**（R2 verify）：分隔符無法含 `=`——第一個 `=` 之後一律是
+    /// 理由。`w:0:x=y=理由` 解析成分隔符 `x`、理由 `y=理由`，而不是分隔符 `x=y`。
+    /// 這是既定語法不是 bug，但它必須**看得出來**：報告的 separator／judgement 欄
+    /// 逐筆揭露實際的解析結果。根治需要結構化參數（follow-up）。
+    func testSplitSeparatorCannotContainEquals() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("甲x乙")]
+        _ = try store.writeEntry(e)
+        let out = try json(try service.splitAuthors(["a2014:0:x=y=理由"]))
+        let row = try XCTUnwrap((out["split"] as? [[String: Any]])?.first)
+        XCTAssertEqual(row["separator"] as? String, "x", "第一個 = 之前的第三段才是分隔符")
+        XCTAssertEqual(row["judgement"] as? String, "y=理由", "第一個 = 之後整段是理由")
+    }
+
+    /// 換行段不是名字：`.whitespaces` 不含 `\n`，修掉前「甲與\n」會拆出一個
+    /// 名字是換行符的作者（R1 verify，regression 席實測）。
+    func testSplitRejectsNewlineOnlySegment() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("甲與\n")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.splitAuthors(["a2014:0:與=理由"]))
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        XCTAssertEqual(after.authors.count, 1, "拒絕必須零寫入")
+    }
+
+    /// **段數上界**：literal 來自 store（未信任輸入），高頻分隔符可把一個作者位
+    /// 炸成無界多個 `.literal`——寫入不可逆、回傳無預算（R1 verify）。
+    func testSplitRejectsPathologicalOversplit() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal(Array(repeating: "人", count: 40).joined(separator: "與"))]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.splitAuthors(["a2014:0:與=理由"]))
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "a2014" })
+        XCTAssertEqual(after.authors.count, 1, "拒絕必須零寫入")
+    }
+
+    /// **原文與理由進報告**——store 不留它們（誠實邊界），所以報告是唯一的
+    /// 揭露面；先前只揭露了分隔符的丟棄（R1 verify HIGH 的可修一半）。
+    func testSplitReportCarriesOriginalAndJudgement() throws {
+        var e = Entry(id: UUID(), citekey: "a2014", type: .periodicalArticle, title: "T")
+        e.authors = [.literal("鄭澈與雷庚玲")]
+        _ = try store.writeEntry(e)
+        let out = try json(try service.splitAuthors(["a2014:0:與=兩個人黏在一個 literal"]))
+        let row = try XCTUnwrap((out["split"] as? [[String: Any]])?.first)
+        XCTAssertEqual(row["original"] as? String, "鄭澈與雷庚玲")
+        XCTAssertEqual(row["judgement"] as? String, "兩個人黏在一個 literal")
+    }
+
     // MARK: - org MCP 面（#304 移轉）
 
     func testAddOrganizationWithParent() throws {

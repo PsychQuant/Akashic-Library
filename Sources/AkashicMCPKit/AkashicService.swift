@@ -2446,6 +2446,172 @@ public final class AkashicService {
                                "issnTotal": venue.issn.count])
     }
 
+    /// **把黏在一起的作者位拆開**（#443）。
+    ///
+    /// ## 問題
+    ///
+    /// 一個 literal 裝了兩個人時，沒有任何面拆得開。實測 4 筆「某人與雷庚玲」——同一個
+    /// 指導教授的四篇合著，匯入時整個作者欄被當成一個 literal。`apply` 只能把它整個
+    /// 升格成**一個** person，而那會建出一個不存在的人。
+    ///
+    /// ## 收分隔符，不收自由文字
+    ///
+    /// 收「拆成哪兩個名字」的自由文字，等於讓呼叫端**編造**——打錯一個字就寫進 store
+    /// 而沒有任何東西擋得住。收**分隔符**則讓拆出的每一段必然是原文的子字串：零編造。
+    ///
+    /// 分隔符本身被丟棄，而那是可見的（報告逐筆印出用什麼切、切成什麼）——
+    /// `lossless-intake` 執行細節 3 的「丟棄必須可見」。
+    ///
+    /// ## 誠實邊界（R1 verify）：原文與理由只進報告，不進 store
+    ///
+    /// 拆分把黏著的原始 literal 改寫掉，而 store 內**沒有**它的記錄——`original` 與
+    /// `judgement` 只出現在本次回傳的報告裡。這與 `attributeToOrganizations`（verdict
+    /// 進 org.references）不同：拆分沒有「被判定的另一方」可落 verdict，而 work 側
+    /// references 的值域目前只收識別碼（`Entry.validateReferenceAttachment`）。持久化
+    /// 需要那個值域的顯式裁決（follow-up issue）——在那之前，un-split 所需的資訊只
+    /// 存在於 store 的 git 歷史。報告裡的 `original`／`judgement` 是**消毒顯示形**
+    /// （`displaySafe`，200／300 scalar 上限）——正常長度無損，病態超長者截斷；
+    /// 這是 #165 輸出消毒紀律與揭露之間的顯式取捨，不是完整原值的承諾。
+    ///
+    /// 另一個**語法上的既定事實**：分隔符無法含 `=`——第一個 `=` 之後一律是理由，
+    /// 想用含 `=` 的分隔符會被解析成更短的那一段（`testSplitSeparatorCannotContainEquals`
+    /// 釘住此行為）。報告的 `separator`／`judgement` 欄讓這種誤解析**看得出來**；
+    /// 要根治需要結構化參數，屬 follow-up。
+    ///
+    /// ## 拆出來的仍是 `.literal`
+    ///
+    /// 拆是**形狀**修正，不是身分判定。拆完之後每一段各自走 `resolve-people` 的既有
+    /// 消歧路徑——依 `literal-first-then-key`，進庫不猜、升格留 verdict。
+    ///
+    /// ## 失敗語意：整批拒絕、零寫入
+    ///
+    /// 與 `judge`／`repoint`／`attributeToOrganizations` 同。下面先全部解析驗證完才動手。
+    public func splitAuthors(_ specs: [String]) throws -> String {
+        let load = try store.load()
+        let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
+                                   uniquingKeysWith: { _, last in last })
+
+        struct Plan { let citekey: String; let idx: Int; let separator: String
+                      let parts: [String]; let literal: String; let judgement: String }
+        var plans: [Plan] = []
+        var seen = Set<String>()
+
+        for spec in specs {
+            guard let eq = spec.firstIndex(of: "=") else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(spec, max: 200))」缺少 `=`——格式是 "
+                    + "citekey:authorIndex:分隔符=理由")
+            }
+            let idPart = String(spec[spec.startIndex..<eq])
+            let judgement = String(spec[spec.index(after: eq)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !judgement.isEmpty else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(idPart, max: 200))」的理由是空的——拆開是一個判斷，"
+                    + "而沒有理由的判斷事後與「不知道為什麼這樣」無法區分")
+            }
+            // 分隔符本身可能含 `:`，所以只切前兩段
+            let bits = idPart.split(separator: ":", maxSplits: 2,
+                                    omittingEmptySubsequences: false)
+            guard bits.count == 3, let idx = Int(bits[1]), !bits[2].isEmpty else {
+                throw ServiceError.invalid(
+                    "id「\(displaySafe(idPart, max: 200))」不是三段形 citekey:authorIndex:分隔符")
+            }
+            let citekey = String(bits[0]), sep = String(bits[2])
+            // **以解析後的 (citekey, idx) 去重，不以字面 id**（R1 verify HIGH）：
+            // `w:0:與` 與 `w:0:，`（或 `w:00:與`、`w:+0:與`）字面不同、語意是同一個
+            // 作者位。字面去重讓兩筆都通過，而驗證對 pristine entry 求值、寫入對已
+            // 改寫的陣列依序套用——結果是長度不對的靜默毀損。一個 slot 一次只能拆一次。
+            guard seen.insert("\(citekey)#\(idx)").inserted else {   // display-safe-exempt: idx 是 Int
+                throw ServiceError.invalid(
+                    "「\(displaySafe(citekey, max: 200))」的作者位 \(idx) 被指定了兩次"   // display-safe-exempt: Int
+                    + "——同一個作者位一次只能拆一次")
+            }
+            guard let entry = byCitekey[citekey] else {
+                throw ServiceError.notFound("work「\(displaySafe(citekey, max: 200))」")
+            }
+            guard entry.authors.indices.contains(idx) else {
+                throw ServiceError.invalid(
+                    "作者索引 \(idx) 超出範圍（0…\(entry.authors.count - 1)）")   // display-safe-exempt: Int
+            }
+            // **只作用於 `.literal`**：已歸戶的位置拆開會讓那個 key 的身分不明。
+            guard case .literal(let lit) = entry.authors[idx] else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(citekey, max: 200))」的作者位 \(idx) 已歸戶"   // display-safe-exempt: Int
+                    + "——拆開只作用於 .literal")
+            }
+            guard lit.contains(sep) else {
+                throw ServiceError.invalid(
+                    "分隔符「\(displaySafe(sep, max: 60))」不在"
+                    + "「\(displaySafe(lit, max: 200))」裡——拒絕，而不是靜默不拆")
+            }
+            // **上界在 materialization 之前生效**（R2 verify）：`components` 會先把
+            // 整個陣列建出來——病態 literal（未信任輸入、無長度上限）配高頻分隔符
+            // 可在被拒絕之前放大出無界多個 component 與 trim。先數分隔符出現次數
+            // （非重疊、與 `components` 同切法），過界即拒、不建陣列。
+            // 段數上界 32 ⟺ 分隔符出現 ≤ 31。
+            var sepCount = 0
+            var searchFrom = lit.startIndex
+            while let r = lit.range(of: sep, range: searchFrom..<lit.endIndex) {
+                sepCount += 1
+                if sepCount > 31 { break }
+                searchFrom = r.upperBound
+            }
+            guard sepCount <= 31 else {
+                throw ServiceError.invalid(
+                    "分隔符「\(displaySafe(sep, max: 60))」在"
+                    + "「\(displaySafe(lit, max: 200))」出現超過 31 次（> 32 段）"
+                    + "——分隔符太常見，這不像是把幾個人拆開")
+            }
+            let parts = lit.components(separatedBy: sep)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            // **切出空段即拒絕**：那表示分隔符選錯了（例如「與雷庚玲」用 `與` 切）。
+            // trim 含換行（R1 verify：`.whitespaces` 不含 `\n`，「甲與\n」會拆出一個
+            // 名字是換行符的作者）。
+            guard parts.count >= 2, !parts.contains(where: { $0.isEmpty }) else {
+                throw ServiceError.invalid(
+                    "用「\(displaySafe(sep, max: 60))」切"
+                    + "「\(displaySafe(lit, max: 200))」會得到空的一段——分隔符選錯了")
+            }
+            // **上界**（R1 verify）：literal 來自 store YAML（未信任輸入，長度無上限），
+            // 高頻分隔符可把一個作者位炸成無界多個 `.literal`——寫入不可逆、回傳無預算
+            // （#236 R3/R4 的形狀）。一個 byline 不會有三十幾個人黏在同一格。
+            guard parts.count <= 32 else {
+                throw ServiceError.invalid(
+                    "用「\(displaySafe(sep, max: 60))」切出 \(parts.count) 段（> 32）"   // display-safe-exempt: Int
+                    + "——分隔符太常見，這不像是把幾個人拆開")
+            }
+            plans.append(Plan(citekey: citekey, idx: idx, separator: sep,
+                              parts: parts, literal: lit, judgement: judgement))
+        }
+
+        // ── 全部驗證通過才寫 ──
+        //
+        // **同一筆 work 的多個位置一起拆時 index 會位移**：由**大到小**處理，於是先做的
+        // 那個不影響還沒做的那些的索引。呼叫端給的是**原始**索引，不必自己算位移。
+        var entries: [String: Entry] = [:]
+        for p in plans where entries[p.citekey] == nil { entries[p.citekey] = byCitekey[p.citekey]! }
+        var rows: [[String: Any]] = []
+        for p in plans.sorted(by: { $0.citekey == $1.citekey ? $0.idx > $1.idx
+                                                             : $0.citekey < $1.citekey }) {
+            entries[p.citekey]!.authors.replaceSubrange(
+                p.idx...p.idx, with: p.parts.map { Author.literal($0) })
+            rows.append(["citekey": displaySafe(p.citekey, max: 200),
+                         // 呼叫端給的**原始**索引，不是寫入後位置——同一筆 work 拆了
+                         // 多個位置時，第二筆之後的寫入後位置已位移（R1 verify DA-4）。
+                         "authorIndex": p.idx,   // display-safe-exempt: Int
+                         "separator": displaySafe(p.separator, max: 60),
+                         // **原文與理由只在這份報告裡**（store 不留）——見 doc comment
+                         // 的誠實邊界。丟棄必須可見，而先前只揭露了分隔符的丟棄。
+                         "original": displaySafe(p.literal, max: 200),
+                         "judgement": displaySafe(p.judgement, max: 300),
+                         "into": p.parts.map { displaySafe($0, max: 200) }])
+        }
+        for e in entries.values.sorted(by: { $0.citekey < $1.citekey }) { try store.writeEntry(e) }
+        try LibraryIndex(store: store).rebuild()
+        return try jsonString(["split": rows, "count": rows.count])   // display-safe-exempt: Int
+    }
+
     /// **`.literal` → `.organization` 的升格**（#443）。
     ///
     /// ## 為什麼要有這條路

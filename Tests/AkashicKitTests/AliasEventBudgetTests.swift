@@ -289,9 +289,19 @@ final class AliasEventBudgetTests: XCTestCase {
             XCTAssertNoThrow(try AliasEventBudget.check(t, context: f.lastPathComponent))
         }
         XCTAssertGreaterThan(n, 100, "corpus 太小，證明力不足")
-        // 門檻要留足夠餘裕——真實最大檔與門檻至少差兩個數量級
-        XCTAssertLessThan(maxNodes * 100, AliasEventBudget.maxExpandedNodes,
-                          "真實最大檔 \(maxNodes) 節點，門檻餘裕不足")
+        // 門檻要留餘裕——真實最大檔與門檻至少差**一個**數量級。
+        //
+        // **係數 100 → 10 的事件記錄**（2026-09-01，#423）：期刊目錄匯入讓
+        // `psychological-methods` venue 一夜長出 1,556 筆 confirmed verdict
+        // （14,031 節點）——最大檔 ×7、「兩個數量級」的原始假設在 catalog 時代
+        // 不再成立。硬預算（\(AliasEventBudget.maxExpandedNodes)）仍留 14 倍餘裕，
+        // decode 安全；但 per-verdict-on-venue 是 O(catalog) 增長——一本 20 萬筆
+        // 的大刊會真的撞上硬預算。那是封閉列舉第 13 條邊的規模化裁決
+        // （follow-up **#455** 第二節），不是這裡再放寬一次能解的。
+        XCTAssertLessThan(maxNodes * 10, AliasEventBudget.maxExpandedNodes,
+                          "真實最大檔 \(maxNodes) 節點，門檻餘裕不足一個數量級"
+                          + "——若又是目錄型 venue 的 verdicts 長出來的，先看第 13 條邊"
+                          + "的規模化 follow-up，不要直接再放寬係數")
     }
 
     /// **把「文件裡的數字」變成可證偽的斷言**（PR #42 的教訓機械化）。

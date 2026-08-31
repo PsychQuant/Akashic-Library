@@ -2262,6 +2262,21 @@ public final class AkashicService {
         // 缺席**不輸出這個鍵**——那與 `false` 是兩件事，而輸出 `null` 會讓消費端要多
         // 一層判斷才能區分「沒查」與「查了、答案是不用」。
         if let p = record.paginated { d["paginated"] = p }   // display-safe-exempt: Bool
+        // **判定的理由與證據要看得到**（#406 R1 verify：33 句 statement＋37 個
+        // digest 先前只能手開 YAML——verdicts 解析器對 `field: paginated` 靜默跳過，
+        // 「判定錯了可以回溯」的回溯半邊在所有讀取面缺席）。逐筆帶 statement 與
+        // rests-on；翻轉留史時多筆並存，序列化順序即判定順序。
+        // compactMap 只留判斷型（R2 verify NEW BUG 2：初版 map 對非 judgement kind
+        // 輸出空 dict——附著驗證雖擋 extraction 進 store，讀取面不該倚賴那個前提
+        // 產出空白列）。
+        let pagJudgements = record.references
+            .filter { $0.field == "paginated" }
+            .compactMap { r -> [String: Any]? in
+                guard case .judgement(let stmt, let ro) = r.kind else { return nil }
+                // display-safe-exempt: digest 由 isValidDigest 保證只含 sha256:+hex
+                return ["statement": displaySafe(stmt, max: 500), "restsOn": ro]
+            }
+        if !pagJudgements.isEmpty { d["paginatedJudgements"] = pagJudgements }
         if let note = record.note { d["note"] = displaySafe(note, max: 500) }
         // ISSN（#394 §5／verify）。**在此之前兩個讀取面都看不到它**——§8 的遷移把
         // 39 個 venue 的 ISSN 寫進磁碟，而 `akashic venue` 與 `--json` 都沒有這一格，
@@ -2388,7 +2403,9 @@ public final class AkashicService {
     /// 該 issue 自己把這一格標為「最弱的一列」。
     public func updateVenue(key: String, addNames: [String]?,
                             note: String?, type rawType: String?,
-                            addISSN: [String]? = nil) throws -> String {
+                            addISSN: [String]? = nil,
+                            paginated: Bool? = nil, judgement: String? = nil,
+                            restsOn: [String]? = nil) throws -> String {
         let load = try store.load()
         guard var venue = load.venues.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("venue「\(displaySafe(key, max: 200))」")
@@ -2436,14 +2453,46 @@ public final class AkashicService {
             }
         }
         if let note { venue.note = note }
+        // #406：「本刊是否使用頁碼」的**判定**。判定要留 verdict 與證據
+        // （`identity-is-judged-not-matched`；欄位契約明文「nil 不得折成任何預設值」）
+        // ——設 paginated 必附 judgement 與 rests-on，缺任一即整個呼叫拒絕、零寫入。
+        // rests-on 的非空與 digest 形狀由 ProvenanceReference 平面 init 驗（唯一的
+        // 驗證入口，不在這裡重寫那套規則）；(field, value, kind) 冪等以 `Equatable`
+        // 全比對（不用 appendIfAbsent——它只比 (field, value)，會吞掉翻轉判定）；
+        // 翻轉判定則新 reference 並存為史。
+        if let paginated {
+            // trim 一次、驗證與儲存用同一個值（R1 verify：先前驗 trimmed、存原文——
+            // 兩個版本的 statement 會讓「同判定重打」的冪等比對失準）。
+            let trimmedJudgement = judgement?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmedJudgement.isEmpty else {
+                throw ServiceError.invalid(
+                    "設 paginated 必附 judgement——「本刊是否使用頁碼」是判定，"
+                    + "沒有理由的判定事後與「不知道為什麼這樣」無法區分")
+            }
+            let ref = try ProvenanceReference(
+                field: "paginated", value: nil,
+                url: nil, retrieved: nil, status: nil, mediaType: nil, content: nil,
+                judgement: trimmedJudgement, restsOn: restsOn ?? [])
+            venue.paginated = paginated
+            // 冪等以**完整** (field, value, kind) 相等判（`Equatable`）——
+            // `ResolutionLedger.appendIfAbsent` 的判準對 value 恆 nil 的純量欄位太粗，
+            // 會把「翻轉判定」（statement 不同）誤當重複而吞掉史（實測抓到）。
+            if !venue.references.contains(ref) { venue.references.append(ref) }
+        } else if judgement != nil || restsOn != nil {
+            throw ServiceError.invalid(
+                "judgement／rests_on 只伴隨 paginated 使用——沒有判定就沒有判定的理由")
+        }
         try store.writeVenue(venue)
         try LibraryIndex(store: store).rebuild()
-        return try jsonString(["key": key,
-                               "namesAdded": added.map { displaySafe($0, max: 200) },
-                               "namesTotal": venue.names.entries.count,
-                               // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
-                               "issnAdded": issnAdded,
-                               "issnTotal": venue.issn.count])
+        var payload: [String: Any] = ["key": key,
+                                      "namesAdded": added.map { displaySafe($0, max: 200) },
+                                      "namesTotal": venue.names.entries.count,
+                                      // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
+                                      "issnAdded": issnAdded,
+                                      "issnTotal": venue.issn.count]
+        if let p = venue.paginated { payload["paginated"] = p }
+        return try jsonString(payload)
     }
 
     /// **把黏在一起的作者位拆開**（#443）。

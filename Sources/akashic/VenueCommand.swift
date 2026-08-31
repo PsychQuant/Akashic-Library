@@ -70,6 +70,13 @@ struct VenueCmd: ParsableCommand {
         if let p = obj["paginated"] as? Bool {
             print("  paginated：\(p ? "是（本刊使用頁碼）" : "否（article number 制）")")   // display-safe-exempt: 編譯期常量
         }
+        // 判定的理由要看得到（#406 R1 verify）——回溯的讀取面。多筆＝翻轉留史。
+        if let js = obj["paginatedJudgements"] as? [[String: Any]], !js.isEmpty {
+            for j in js {
+                let n = (j["restsOn"] as? [String])?.count ?? 0
+                print("    判定：\(j["statement"] as? String ?? "")（證據 \(n) 份）")   // display-safe-exempt: statement 取自 service（已 displaySafe），二次消毒非冪等；n 是 Int
+            }
+        }
         if let issn = obj["issn"] as? [[String: Any]], !issn.isEmpty {
             let rendered = issn.map { one -> String in
                 let v = one["value"] as? String ?? "?"
@@ -190,6 +197,21 @@ struct UpdateVenueCmd: ParsableCommand {
             help: "要附加的 ISSN（可多個；正規形相同者自動略過，不合法即整批拒絕）")
     var addISSN: [String] = []
 
+    /// #406：「本刊是否使用頁碼」的**判定**。判定要留 verdict 與證據
+    /// （`identity-is-judged-not-matched`），所以設它必附 `--judgement` 與
+    /// `--rests-on`（缺任一即整個呼叫拒絕、零寫入）。`nil` 是誠實的未判定狀態，
+    /// 不得折成任何預設值——floor 檢查對 nil 照報缺 pages。
+    @Option(name: .long,
+            help: "「本刊是否使用頁碼」的判定：true＝傳統頁碼刊、false＝article-number 制。必附 --judgement 與 --rests-on（#406）")
+    var paginated: Bool?
+
+    @Option(name: .long, help: "paginated 判定的理由（設 --paginated 時必填）")
+    var judgement: String?
+
+    @Option(name: .customLong("rests-on"), parsing: .upToNextOption,
+            help: "判定所依據的證據 digest（sha256:64hex，至少一個——先用 store-source 存證據拿 digest）")
+    var restsOn: [String] = []
+
     func run() throws {
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
@@ -198,7 +220,9 @@ struct UpdateVenueCmd: ParsableCommand {
         print(try service.updateVenue(key: key,
                                       addNames: addName.isEmpty ? nil : addName,
                                       note: note, type: type,
-                                      addISSN: addISSN.isEmpty ? nil : addISSN))
+                                      addISSN: addISSN.isEmpty ? nil : addISSN,
+                                      paginated: paginated, judgement: judgement,
+                                      restsOn: restsOn.isEmpty ? nil : restsOn))
     }
 }
 

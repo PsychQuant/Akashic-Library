@@ -297,7 +297,7 @@ final class AliasEventBudgetTests: XCTestCase {
         // 不再成立。硬預算（\(AliasEventBudget.maxExpandedNodes)）仍留 14 倍餘裕，
         // decode 安全；但 per-verdict-on-venue 是 O(catalog) 增長——一本 20 萬筆
         // 的大刊會真的撞上硬預算。那是封閉列舉第 13 條邊的規模化裁決
-        // （follow-up issue 已開），不是這裡再放寬一次能解的。
+        // （follow-up **#455** 第二節），不是這裡再放寬一次能解的。
         XCTAssertLessThan(maxNodes * 10, AliasEventBudget.maxExpandedNodes,
                           "真實最大檔 \(maxNodes) 節點，門檻餘裕不足一個數量級"
                           + "——若又是目錄型 venue 的 verdicts 長出來的，先看第 13 條邊"

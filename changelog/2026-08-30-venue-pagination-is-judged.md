@@ -4,6 +4,25 @@
 但落地時四項缺口具名：寫不進去、驗證讀不了、floor 檢查不消費、45 個 venue 群沒判定。
 本 change 補齊程式側三項；資料側（33 刊判定）同日完成於 store。
 
+## R1 verify 補了第五塊：format 15（2026-08-31）
+
+R1 ensemble（4 lens＋DA＋Codex）抓到一個 CRITICAL：**判定 reference（`field: paginated`
+的 judgement）是 format 14 之後才引入的 vocabulary**——兩個都自稱 14 的 binary 對同一份
+venue 檔一個讀得動、一個在附著驗證的封閉 default 擲錯 → **整檔 quarantine**。DA 在完整
+store 副本量測：406 個 venue 靜默掉到 373、rc=0、export-bib 回到判定前的數字——舊 binary
+的輸出**與「這些判定從未發生」不可分辨**；security 席另量測連鎖（quarantine → add-venue
+重複 key → UNIQUE constraint 讓 doctor/venues/venue 全滅）。
+
+處置：`StoreVersion.supported` 14 → 15（doc 一併補 14/15 兩段——先前 13 的說明直接接
+`supported`，「14 是什麼」只存在於 store-format.md）；`assertVenueWritable` 對 format < 15
+拒寫帶 paginated 值或判定 reference 的 venue（Format15 三測釘住）；store marker 手動 bump
+（gate 讀 marker 不讀 binary 能力——**已寫入的 33 筆只有 marker bump 防得住**其他 clone
+的舊 binary，且 bump 前不 push store repo）。同輪收：MCP 畸形 boolean 顯式拒絕（字串
+`"false"`／null 先前靜默當未提供、同呼叫其他寫入照跑）；判定的回溯讀取面（venue payload
+的 `paginatedJudgements`＋CLI 逐筆印理由——33 句 statement 先前只能手開 YAML）；BMC 三刊
+2004-09 早期窗補證（DA 抓到 6 筆 2005-08 持有被抽樣窗 2010 起的判定抑制——補抓後範圍形
+頁碼 0 筆，判定成立且證據涵蓋早期窗）。
+
 ## 為什麼判準屬 venue 不屬 work
 
 `Frontiers in Psychology` 的每一篇都沒有頁碼；`The Annals of Statistics` 的每一篇都有。

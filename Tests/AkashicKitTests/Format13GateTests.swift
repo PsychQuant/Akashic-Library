@@ -46,8 +46,51 @@ final class Format13GateTests: XCTestCase {
     /// 下面每一條都在驗「低於 supported 的 format 拒寫某形狀」，而那些 `setFormat(n)`
     /// 的 `n` 是相對於 supported 的。supported 變了而這裡沒變，那些測試會靜默地驗
     /// 一個不再相關的邊界。
-    func testSupportedFormatIsFourteen() {
-        XCTAssertEqual(StoreVersion.supported, 14)
+    func testSupportedFormatIsFifteen() {
+        XCTAssertEqual(StoreVersion.supported, 15)
+    }
+
+    // MARK: - format 15：paginated 判定 reference（#406 R1 verify）
+
+    /// **判定 reference 是 format 15 的 vocabulary**——format-14 binary 的附著驗證
+    /// 沒有 `paginated` case，讀到會走封閉 default 擲錯 → 整檔 quarantine（R1 verify
+    /// 在完整 store 副本量測：406 venue 靜默掉到 373、rc=0，輸出與「判定從未發生」
+    /// 不可分辨）。write gate 必須在寫入端先 fire。
+    func testWritingAPaginatedJudgementIsRefusedBelowFormat15() throws {
+        try setFormat(14)
+        var v = Venue(key: "frontiers-in-psychology", type: .periodical)
+        v.paginated = false
+        v.references = [ProvenanceReference(
+            field: "paginated", value: nil,
+            kind: .judgement(statement: "artnum 制",
+                             restsOn: ["sha256:" + String(repeating: "a", count: 64)]))]
+        XCTAssertThrowsError(try LibraryStore(root: root).writeVenue(v)) { e in
+            let m = "\(e)"
+            XCTAssertTrue(m.contains("15"), "訊息要說明需要 format 15：\(m)")
+            XCTAssertTrue(m.contains("paginated"), "訊息要具名觸發的欄位：\(m)")
+        }
+    }
+
+    /// 頂層 `paginated:` 值本身也閘在 15 之下——它雖屬 format 14 的鍵域，但判定面
+    /// （值＋reference 成對寫入）是 15 的能力；只寫值不寫 reference 的路徑不存在
+    /// （service 強制成對），所以 gate 對兩者一致。
+    func testWritingAPaginatedValueIsRefusedBelowFormat15() throws {
+        try setFormat(14)
+        var v = Venue(key: "psychometrika", type: .periodical)
+        v.paginated = true
+        XCTAssertThrowsError(try LibraryStore(root: root).writeVenue(v))
+    }
+
+    /// format 15 之上照常寫。
+    func testWritingAPaginatedJudgementSucceedsAtFormat15() throws {
+        try setFormat(15)
+        var v = Venue(key: "frontiers-in-psychology", type: .periodical)
+        v.paginated = false
+        v.references = [ProvenanceReference(
+            field: "paginated", value: nil,
+            kind: .judgement(statement: "artnum 制",
+                             restsOn: ["sha256:" + String(repeating: "a", count: 64)]))]
+        XCTAssertNoThrow(try LibraryStore(root: root).writeVenue(v))
     }
 
     /// organization 的 ror reference 是**硬觸發**——舊 binary 對它整檔 quarantine。

@@ -70,6 +70,13 @@ struct VenueCmd: ParsableCommand {
         if let p = obj["paginated"] as? Bool {
             print("  paginated：\(p ? "是（本刊使用頁碼）" : "否（article number 制）")")   // display-safe-exempt: 編譯期常量
         }
+        // 判定的理由要看得到（#406 R1 verify）——回溯的讀取面。多筆＝翻轉留史。
+        if let js = obj["paginatedJudgements"] as? [[String: Any]], !js.isEmpty {
+            for j in js {
+                let n = (j["restsOn"] as? [String])?.count ?? 0
+                print("    判定：\(j["statement"] as? String ?? "")（證據 \(n) 份）")   // display-safe-exempt: statement 取自 service（已 displaySafe），二次消毒非冪等；n 是 Int
+            }
+        }
         if let issn = obj["issn"] as? [[String: Any]], !issn.isEmpty {
             let rendered = issn.map { one -> String in
                 let v = one["value"] as? String ?? "?"

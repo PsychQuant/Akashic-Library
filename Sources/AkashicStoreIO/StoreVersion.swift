@@ -113,7 +113,20 @@ public enum StoreVersion {
     ///   涵蓋範圍內（同 format 6 的 `ended`、format 12 的 `Author` 三態）。
     ///
     ///   write gate 對 format < 13 拒寫含識別碼 reference 的記錄（#394 §6 既有）。
-    public static let supported = 14
+    /// - **14** ＝ venue 的 `names` 拆出 `variant` 分割（#422）＋ `paginated` 三態
+    ///   **頂層欄位**（#406）。**non-additive**：`VenueYAML.knownKeys` 是封閉鍵域，
+    ///   format-13 binary 讀到頂層 `variant:`／`paginated:` → `rejectUnknownKeys`
+    ///   擲錯 → 整檔 quarantine。
+    ///
+    ///   （這一行是 #406 R1 verify 補的——先前 13 的說明直接接 `supported`，
+    ///   「14 是什麼」只存在於 docs/store-format.md，兩份規格少一份。）
+    /// - **15** ＝ `paginated` 的**判定 reference**（`field: paginated` 的 judgement，
+    ///   #406）。**與 14 分開 bump 的理由**：14 只涵蓋頂層欄位，判定 reference 是
+    ///   之後才引入的 vocabulary——兩個都自稱 14 的 binary 對同一份檔案一個讀得動、
+    ///   一個在附著驗證的封閉 default 擲錯 → **整檔 quarantine**（R1 verify 在完整
+    ///   store 副本量測：406 個 venue 靜默掉到 373、rc=0，輸出與「判定從未發生」
+    ///   不可分辨）。write gate 對 format < 15 拒寫帶判定的 venue。
+    public static let supported = 15
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，

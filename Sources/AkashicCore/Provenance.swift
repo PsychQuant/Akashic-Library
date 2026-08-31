@@ -598,7 +598,7 @@ extension Venue {
                 throw StoreYAMLError.invalidField(
                     "venue.references(field: \(r.field))",
                     "venue 沒有可附著 reference 的欄位「\(displaySafe(r.field, max: 120))」"
-                    + "（合法：names、authorized、issn、note、"
+                    + "（合法：names、authorized、issn、note、paginated、"
                     + "resolution-confirmed、resolution-rejected）")
             }
         }

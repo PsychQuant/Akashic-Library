@@ -425,9 +425,19 @@ actor AkashicMCPServer {
                     issn: params.arguments?["issn"] != nil ? argList("issn") : nil)
             case "akashic_update_venue":
                 let addNamesProvided = params.arguments?["add_names"] != nil
+                // **畸形 boolean 顯式拒絕，不靜默當未提供**（#406 R1 verify）：
+                // `"false"`（字串）／null／數字被折成 nil 的話，同呼叫的 add_names
+                // 照樣寫入、單獨給時回 stale 值——呼叫端以為判定寫了。MCP 的 input
+                // schema 不能取代 server-side 驗證。
                 let paginatedFlag: Bool?
-                if case .bool(let b)? = params.arguments?["paginated"] { paginatedFlag = b }
-                else { paginatedFlag = nil }
+                if let raw = params.arguments?["paginated"] {
+                    guard case .bool(let b) = raw else {
+                        throw ServiceError.invalid(
+                            "paginated 必須是 boolean（true／false）——收到別的型別。"
+                            + "字串 \"false\" 不是 false；拒絕整個呼叫，零寫入")
+                    }
+                    paginatedFlag = b
+                } else { paginatedFlag = nil }
                 output = try service.updateVenue(
                     key: arg("key") ?? "",
                     addNames: addNamesProvided ? argList("add_names") : nil,

@@ -555,6 +555,21 @@ public final class LibraryStore {
         }
         try Self.assertIdentifierReferencesWritable(
             v.references, format: format, what: "venue「\(displaySafe(v.key, max: 120))」")
+        // #406 R1 verify：`paginated` 的**判定 reference** 是 format 15 的新
+        // vocabulary——format-14 binary 的附著驗證沒有這個 case，讀到會走封閉
+        // default 擲錯 → **整檔 quarantine**（且輸出與「判定從未發生」不可分辨，
+        // 實測 406 個 venue 靜默掉到 373）。頂層 `paginated:` 欄位屬 format 14；
+        // 這裡閘的是判定證據那一半。
+        if format < 15,
+           v.paginated != nil || v.references.contains(where: { $0.field == "paginated" }) {
+            throw StoreIOError.invalidInput(
+                what: "venue「\(displaySafe(v.key, max: 120))」的 paginated 判定",
+                why: "paginated 判定 reference 是 format 15 的新能力（#406）；本 store 是 " +
+                     "\(format)——確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 " +
+                     "store.yaml 的 format: 改成 15。**實測依據**（2026-08-31，format-14 " +
+                     "binary）：帶 `field: paginated` reference 的 venue 檔會**整檔 " +
+                     "quarantine**，且輸出看起來就像判定從未發生")
+        }
         try Self.assertNoErrors(v.validate(), what: "venue", key: v.key)
     }
 

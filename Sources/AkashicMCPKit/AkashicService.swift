@@ -2262,6 +2262,22 @@ public final class AkashicService {
         // 缺席**不輸出這個鍵**——那與 `false` 是兩件事，而輸出 `null` 會讓消費端要多
         // 一層判斷才能區分「沒查」與「查了、答案是不用」。
         if let p = record.paginated { d["paginated"] = p }   // display-safe-exempt: Bool
+        // **判定的理由與證據要看得到**（#406 R1 verify：33 句 statement＋37 個
+        // digest 先前只能手開 YAML——verdicts 解析器對 `field: paginated` 靜默跳過，
+        // 「判定錯了可以回溯」的回溯半邊在所有讀取面缺席）。逐筆帶 statement 與
+        // rests-on；翻轉留史時多筆並存，序列化順序即判定順序。
+        let pagRefs = record.references.filter { $0.field == "paginated" }
+        if !pagRefs.isEmpty {
+            d["paginatedJudgements"] = pagRefs.map { r -> [String: Any] in
+                var j: [String: Any] = [:]
+                if case .judgement(let stmt, let ro) = r.kind {
+                    j["statement"] = displaySafe(stmt, max: 500)
+                    // display-safe-exempt: digest 由 isValidDigest 保證只含 sha256:+hex
+                    j["restsOn"] = ro
+                }
+                return j
+            }
+        }
         if let note = record.note { d["note"] = displaySafe(note, max: 500) }
         // ISSN（#394 §5／verify）。**在此之前兩個讀取面都看不到它**——§8 的遷移把
         // 39 個 venue 的 ISSN 寫進磁碟，而 `akashic venue` 與 `--json` 都沒有這一格，
@@ -2442,11 +2458,15 @@ public final class AkashicService {
         // （`identity-is-judged-not-matched`；欄位契約明文「nil 不得折成任何預設值」）
         // ——設 paginated 必附 judgement 與 rests-on，缺任一即整個呼叫拒絕、零寫入。
         // rests-on 的非空與 digest 形狀由 ProvenanceReference 平面 init 驗（唯一的
-        // 驗證入口，不在這裡重寫那套規則）；(field, value, kind) 冪等由
-        // appendIfAbsent 保證——重複判定不重加，翻轉判定則新 reference 並存為史。
+        // 驗證入口，不在這裡重寫那套規則）；(field, value, kind) 冪等以 `Equatable`
+        // 全比對（不用 appendIfAbsent——它只比 (field, value)，會吞掉翻轉判定）；
+        // 翻轉判定則新 reference 並存為史。
         if let paginated {
-            guard let judgement,
-                  !judgement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            // trim 一次、驗證與儲存用同一個值（R1 verify：先前驗 trimmed、存原文——
+            // 兩個版本的 statement 會讓「同判定重打」的冪等比對失準）。
+            let trimmedJudgement = judgement?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmedJudgement.isEmpty else {
                 throw ServiceError.invalid(
                     "設 paginated 必附 judgement——「本刊是否使用頁碼」是判定，"
                     + "沒有理由的判定事後與「不知道為什麼這樣」無法區分")
@@ -2454,7 +2474,7 @@ public final class AkashicService {
             let ref = try ProvenanceReference(
                 field: "paginated", value: nil,
                 url: nil, retrieved: nil, status: nil, mediaType: nil, content: nil,
-                judgement: judgement, restsOn: restsOn ?? [])
+                judgement: trimmedJudgement, restsOn: restsOn ?? [])
             venue.paginated = paginated
             // 冪等以**完整** (field, value, kind) 相等判（`Equatable`）——
             // `ResolutionLedger.appendIfAbsent` 的判準對 value 恆 nil 的純量欄位太粗，

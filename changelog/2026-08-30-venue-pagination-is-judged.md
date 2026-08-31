@@ -14,8 +14,10 @@ store 副本量測：406 個 venue 靜默掉到 373、rc=0、export-bib 回到�
 重複 key → UNIQUE constraint 讓 doctor/venues/venue 全滅）。
 
 處置：`StoreVersion.supported` 14 → 15（doc 一併補 14/15 兩段——先前 13 的說明直接接
-`supported`，「14 是什麼」只存在於 store-format.md）；`assertVenueWritable` 對 format < 15
-拒寫帶 paginated 值或判定 reference 的 venue（Format15 三測釘住）；store marker 手動 bump
+`supported`，「14 是什麼」只存在於 store-format.md）；`assertVenueWritable` 的 gate **分
+兩條世代**（R2 verify 修正——初版把頂層值也錯鎖到 15，一筆合法的 format-14 venue 連
+add_names 都寫不回去）：頂層 `paginated:` 值屬 format 14（< 14 拒）、判定 reference 屬
+format 15（< 15 拒），邊界測試各釘一側且 reference 測試不被值遮蔽；store marker 手動 bump
 （gate 讀 marker 不讀 binary 能力——**已寫入的 33 筆只有 marker bump 防得住**其他 clone
 的舊 binary，且 bump 前不 push store repo）。同輪收：MCP 畸形 boolean 顯式拒絕（字串
 `"false"`／null 先前靜默當未提供、同呼叫其他寫入照跑）；判定的回溯讀取面（venue payload

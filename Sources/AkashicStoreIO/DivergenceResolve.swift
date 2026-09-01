@@ -776,6 +776,49 @@ extension LibraryStore {
 
     // MARK: - work
 
+    /// merge 側 `work:` holder verdict 的遷移＋收攏（#461——順序無關的二階段）。
+    ///
+    /// Pass 1 先全部遷移並記下**本次觸及**的 (field, value)；Pass 2 只對被觸及的
+    /// 鍵保首見收攏。survivor 原版與遷移版同 (field, value) 時**不論排列**都收成
+    /// 一筆——#460 verify 實證舊形（guard-else 無條件 append）在 doomed-first 排列
+    /// 寫出兩筆 byte-identical。**與本次遷移無關的既有重複一筆不動**——「消歧不是
+    /// 清理工具」（#71）的裁決由觸及集合守住，不因順序無關化而放寬。
+    ///
+    /// kind 語意：收攏保首見——doomed-first 時留存者的 kind 來自 doomed 側、
+    /// keeper-first 時來自 keeper 側；兩筆 (field, value) 相同，kind 級的丟棄
+    /// 可見性是 #460 verify F9 的既有觀察，不在本函式 scope。
+    static func migrateWorkHolderVerdicts(
+        _ refs: [ProvenanceReference], merged: Set<String>, survivor: String
+    ) -> (refs: [ProvenanceReference], changed: Bool) {
+        func dedupKey(_ r: ProvenanceReference) -> String { "\(r.field)\u{0}\(r.value ?? "")" }
+        var touched = Set<String>()
+        var changed = false
+        let rewritten: [ProvenanceReference] = refs.map { r in
+            guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
+                  let v = r.value,
+                  let pairing = ProvenanceReference.VerdictPairingValue.parse(v),
+                  pairing.holderKind == .work, merged.contains(pairing.holder) else { return r }
+            let out = ProvenanceReference(
+                field: r.field,
+                value: ProvenanceReference.VerdictPairingValue(
+                    holderKind: .work, holder: survivor,
+                    literal: pairing.literal).encoded,
+                kind: r.kind)
+            changed = true
+            touched.insert(dedupKey(out))
+            return out
+        }
+        guard changed else { return (refs, false) }
+        var seen = Set<String>()
+        var deduped: [ProvenanceReference] = []
+        for r in rewritten {
+            let k = dedupKey(r)
+            if touched.contains(k), !seen.insert(k).inserted { continue }
+            deduped.append(r)
+        }
+        return (deduped, true)
+    }
+
     private func resolveWorkDivergence(record: Divergence, survivor: String,
                                        mergedKeys: [String],
                                        snapshot: LibraryLoad) throws -> ResolveReport {
@@ -829,29 +872,8 @@ extension LibraryStore {
         // verdict value 不遷移就安靜變 stale（rename 已修 #232、merge 漏了同型）。
         // 機制鏡射 renameEntry：同 VerdictPairingValue 文法、同 (field, value) 冪等。
         for var person in snapshot.people {
-            var changed = false
-            var migrated: [ProvenanceReference] = []
-            var seen = Set<String>()
-            for r in person.references {
-                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
-                      let v = r.value,
-                      let pairing = ProvenanceReference.VerdictPairingValue.parse(v),
-                      pairing.holderKind == .work, merged.contains(pairing.holder) else {
-                    migrated.append(r)
-                    continue
-                }
-                let out = ProvenanceReference(
-                    field: r.field,
-                    value: ProvenanceReference.VerdictPairingValue(
-                        holderKind: .work, holder: survivor,
-                        literal: pairing.literal).encoded,
-                    kind: r.kind)
-                changed = true
-                guard seen.insert("\(out.field)\u{0}\(out.value ?? "")").inserted,
-                      !migrated.contains(where: {
-                          $0.field == out.field && $0.value == out.value }) else { continue }
-                migrated.append(out)
-            }
+            let (migrated, changed) = Self.migrateWorkHolderVerdicts(
+                person.references, merged: merged, survivor: survivor)
             guard changed else { continue }
             person.references = migrated
             do {
@@ -868,29 +890,8 @@ extension LibraryStore {
         // 合併後 venue 留著指向已刪 citekey 的死 verdict，rejected stale 則讓
         // 否決抑制安靜失效。機制完全鏡射上方 person 迴圈：同文法、同冪等。
         for var venue in snapshot.venues {
-            var changed = false
-            var migrated: [ProvenanceReference] = []
-            var seen = Set<String>()
-            for r in venue.references {
-                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
-                      let v = r.value,
-                      let pairing = ProvenanceReference.VerdictPairingValue.parse(v),
-                      pairing.holderKind == .work, merged.contains(pairing.holder) else {
-                    migrated.append(r)
-                    continue
-                }
-                let out = ProvenanceReference(
-                    field: r.field,
-                    value: ProvenanceReference.VerdictPairingValue(
-                        holderKind: .work, holder: survivor,
-                        literal: pairing.literal).encoded,
-                    kind: r.kind)
-                changed = true
-                guard seen.insert("\(out.field)\u{0}\(out.value ?? "")").inserted,
-                      !migrated.contains(where: {
-                          $0.field == out.field && $0.value == out.value }) else { continue }
-                migrated.append(out)
-            }
+            let (migrated, changed) = Self.migrateWorkHolderVerdicts(
+                venue.references, merged: merged, survivor: survivor)
             guard changed else { continue }
             venue.references = migrated
             do {

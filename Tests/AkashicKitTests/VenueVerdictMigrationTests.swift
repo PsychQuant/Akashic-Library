@@ -71,9 +71,8 @@ final class VenueVerdictMigrationTests: XCTestCase {
         XCTAssertFalse(v.contains("doomed2020a"), "已併 citekey 殘留：\(v)")
     }
 
-    /// doomed 與 keeper 的 verdict 在遷移後同 (field, value) → 收攏成一筆。
-    /// **限定 keeper 在前的排列**——doomed 在前時收攏不觸發（見下一支 pin 測試與
-    /// #461）；「store 永不持有重複 verdict」在 merge 路徑上只對這個排列成立。
+    /// doomed 與 keeper 的 verdict 在遷移後同 (field, value) → 收攏成一筆
+    /// （#461 起與排列無關——doomed-first 見下一支測試）。
     func testMergeCollapsesDuplicateVenueVerdictIdempotently() throws {
         try entry("keeper2020b")
         try entry("doomed2020b")
@@ -91,10 +90,10 @@ final class VenueVerdictMigrationTests: XCTestCase {
         XCTAssertTrue(after?.references.first?.value?.contains("work:keeper2020b") ?? false)
     }
 
-    /// **斷言現況的 pin 測試**（#461 的紅色目標）：doomed 的 verdict 排在 keeper
-    /// 原版之前時，keeper 原版走 guard-else 無條件 append——兩筆並存。#461 修好
-    /// 後本測試會紅，屆時把斷言改成 count == 1 並刪除本註解。
-    func testMergeDoomedFirstArrangementCurrentlyKeepsDuplicate() throws {
+    /// doomed 的 verdict 排在 keeper 原版之前也收攏（#461 的二階段修法）——
+    /// 本測試曾是斷言現況 count == 2 的 pin（#460 verify），#461 修復後翻轉為
+    /// 正向斷言：收攏與排列無關。
+    func testMergeDoomedFirstArrangementAlsoCollapses() throws {
         try entry("keeper2020c")
         try entry("doomed2020c")
         try venue("ord-journal", verdicts: [
@@ -106,8 +105,9 @@ final class VenueVerdictMigrationTests: XCTestCase {
         _ = try store.resolveDivergence(id: d.id, survivor: "keeper2020c")
 
         let after = try store.load().venues.first { $0.key == "ord-journal" }
-        XCTAssertEqual(after?.references.count, 2,
-                       "現況：doomed 在前的排列留下重複（#461 修復後本斷言應改為 1）")
+        XCTAssertEqual(after?.references.count, 1,
+                       "doomed-first 排列也必須收攏成一筆（#461）")
+        XCTAssertTrue(after?.references.first?.value?.contains("work:keeper2020c") ?? false)
     }
 
     // MARK: - rename 側（renameEntry）

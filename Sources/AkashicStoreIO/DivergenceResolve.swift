@@ -115,8 +115,8 @@ public struct ResolveReport: Equatable {
     public var failures: [String]
     /// #271：person merge 時自動遷移到倖存者的 verdict（pairing value 清單）。
     public var verdictReferencesMigrated: [String] = []
-    /// #271：work merge 時 citekey 退役、value 被改寫的 person key 清單
-    /// （鏡射 rename 的 `verdictValuesRewritten`）。
+    /// #271：work merge 時 citekey 退役、value 被改寫的**持有記錄 key（person 或
+    /// venue，#460 起）**清單（鏡射 rename 的 `verdictValuesRewritten`）。
     public var verdictValuesRewritten: [String] = []
     /// **不擋、但要說**的提醒（#75 對一）：有判斷卻沒有結構化的 `prefers` 時，
     /// 消歧無從機械比對——提醒人自行核對，而不是靜默當作沒有判斷。

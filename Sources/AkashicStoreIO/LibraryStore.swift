@@ -1154,7 +1154,9 @@ public struct RenameReport: Equatable {
     public var relationsRewritten: [String]
     /// 候選有跟著改名的歧異記錄 id（#71）。
     public var divergenceCandidatesRewritten: [String]
-    /// verdict reference 的 value 有跟著改名的 person key（#232 verify NEW-1）。
+    /// verdict reference 的 value 有跟著改名的**持有記錄 key（person 或 venue）**
+    /// （#232 verify NEW-1；#460 起 venue 也在列——扁平清單不帶 kind，同名跨型別
+    /// 時無從分辨，結構化拆分屬 follow-up）。
     public var verdictValuesRewritten: [String]
 
     public init(relationsRewritten: [String] = [],
@@ -1432,7 +1434,11 @@ extension LibraryStore {
             _ = try DivergenceYAML.encode(d)
         }
         for p in peopleToRewrite { _ = try PersonYAML.encode(p) }
-        for vn in venuesToRewrite { _ = try VenueYAML.encode(vn) }
+        let venueGateFormat = try StoreVersion.read(root: root)
+        for vn in venuesToRewrite {
+            try Self.assertVenueWritable(vn, format: venueGateFormat)
+            _ = try VenueYAML.encode(vn)
+        }
         // 3. 寫記錄本身。
         //
         // **#35：format 2 下 rename 不搬檔案。** 檔名是 UUID，而 rename 不改 UUID——

@@ -10,19 +10,23 @@ work 的 citekey 退役（rename／merge）時，venue 身上的 `work:` holder 
 `'work:bakeman1996btesting :: Psychological Methods'`——指向已刪 citekey 的死 verdict。
 #456 批次（204 組攣生合併）後全庫累積 **204 條** stale。
 
-更尖的一半：**rejected verdict stale 會讓否決抑制安靜失效**——同一配對被重新提名，
-打破 #232 自己的「Rejection SHALL be distinct from absence」。
+更尖的一半是**條件句**：rejected verdict 若 stale，否決抑制會安靜失效（同一配對被
+重新提名，打破 #232 的「Rejection SHALL be distinct from absence」）。實測 venue 的
+2,167 條 verdict 現況全為 confirmed、0 筆 rejected——這一半是 zero-instance guard，
+不是已實現的事故。
 
 ## 修了什麼
 
 - `DivergenceResolve.swift`（resolveWorkDivergence）與 `LibraryStore.swift`（renameEntry）
-  各加 venue 遷移迴圈——**完全鏡射既有 person 迴圈**：同 `VerdictPairingValue` 文法、
-  同 (field,value) 冪等收攏、同 encode-先行的撕裂防護、同 failures 回報
-- 測試四支（RED→GREEN）：merge 遷移到 survivor／同值冪等收攏成一筆／rename 遷移到
-  newKey／rejected 欄位同樣遷移
+  各加 venue 遷移迴圈——鏡射既有 person 迴圈：同 `VerdictPairingValue` 文法、
+  同 (field,value) 冪等收攏（rename 側順序無關；merge 側限 keeper-first 排列，#461）；
+  rename 側前置閘完整鏡射寫入端（`assertVenueWritable` ＋ encode 先行——比 person
+  側多一道，person 側的同型缺口屬 #461 家族另議）
+- 測試五支：merge 遷移／keeper-first 收攏／doomed-first 斷言現況的 pin（#461 紅色
+  目標）／rename 遷移／rejected 遷移
 - 一次性清理（store 資料操作，隨 store commit 不在本 diff）：204 條 stale 按
   doomed→keeper 映射驗證後冪等收攏——203 條淨刪（keeper 版已在）＋1 條遷移，
-  venue verdicts 1556 → 1353，validate 全綠
+  psychological-methods 單檔 verdicts 1556 → 1353（全庫 venue verdict 2,167），validate 全綠
 
 ## 誠實邊界
 

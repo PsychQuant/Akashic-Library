@@ -83,7 +83,7 @@ struct ResolveDivergence: ParsableCommand {
                 + "（\(report.verdictReferencesMigrated.map { displaySafe($0, max: 200) }.joined(separator: "；"))）")
         }
         if !report.verdictValuesRewritten.isEmpty {
-            print("verdict value 已隨 citekey 退役改寫（person）："
+            print("verdict value 已隨 citekey 退役改寫（person／venue）："
                 + report.verdictValuesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))
         }
         for w in report.warnings {   // #75 對一：不擋但要說

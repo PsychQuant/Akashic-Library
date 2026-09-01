@@ -115,8 +115,8 @@ public struct ResolveReport: Equatable {
     public var failures: [String]
     /// #271：person merge 時自動遷移到倖存者的 verdict（pairing value 清單）。
     public var verdictReferencesMigrated: [String] = []
-    /// #271：work merge 時 citekey 退役、value 被改寫的 person key 清單
-    /// （鏡射 rename 的 `verdictValuesRewritten`）。
+    /// #271：work merge 時 citekey 退役、value 被改寫的**持有記錄 key（person 或
+    /// venue，#460 起）**清單（鏡射 rename 的 `verdictValuesRewritten`）。
     public var verdictValuesRewritten: [String] = []
     /// **不擋、但要說**的提醒（#75 對一）：有判斷卻沒有結構化的 `prefers` 時，
     /// 消歧無從機械比對——提醒人自行核對，而不是靜默當作沒有判斷。
@@ -860,6 +860,45 @@ extension LibraryStore {
             } catch {
                 report.failures.append(
                     "person「\(person.key)」的 verdict value 遷移寫入失敗：\(error)")
+            }
+        }
+        // venue 同型（#460）：#304 之後 venue 持 `work:` holder 的 verdict
+        // （resolve-venues 落在被判定 venue 的 confirmed／rejected，第 13 條邊）
+        // ——#271 補 person 側時它尚不存在。漏掉的實測後果（#456 pilot）：
+        // 合併後 venue 留著指向已刪 citekey 的死 verdict，rejected stale 則讓
+        // 否決抑制安靜失效。機制完全鏡射上方 person 迴圈：同文法、同冪等。
+        for var venue in snapshot.venues {
+            var changed = false
+            var migrated: [ProvenanceReference] = []
+            var seen = Set<String>()
+            for r in venue.references {
+                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
+                      let v = r.value,
+                      let pairing = ProvenanceReference.VerdictPairingValue.parse(v),
+                      pairing.holderKind == .work, merged.contains(pairing.holder) else {
+                    migrated.append(r)
+                    continue
+                }
+                let out = ProvenanceReference(
+                    field: r.field,
+                    value: ProvenanceReference.VerdictPairingValue(
+                        holderKind: .work, holder: survivor,
+                        literal: pairing.literal).encoded,
+                    kind: r.kind)
+                changed = true
+                guard seen.insert("\(out.field)\u{0}\(out.value ?? "")").inserted,
+                      !migrated.contains(where: {
+                          $0.field == out.field && $0.value == out.value }) else { continue }
+                migrated.append(out)
+            }
+            guard changed else { continue }
+            venue.references = migrated
+            do {
+                _ = try writeVenue(venue)
+                report.verdictValuesRewritten.append(venue.key)
+            } catch {
+                report.failures.append(
+                    "venue「\(venue.key)」的 verdict value 遷移寫入失敗：\(error)")
             }
         }
         // #169：與 preview 側取自**同一個** validateWorkPreconditions 回傳值。

@@ -1154,7 +1154,9 @@ public struct RenameReport: Equatable {
     public var relationsRewritten: [String]
     /// 候選有跟著改名的歧異記錄 id（#71）。
     public var divergenceCandidatesRewritten: [String]
-    /// verdict reference 的 value 有跟著改名的 person key（#232 verify NEW-1）。
+    /// verdict reference 的 value 有跟著改名的**持有記錄 key（person 或 venue）**
+    /// （#232 verify NEW-1；#460 起 venue 也在列——扁平清單不帶 kind，同名跨型別
+    /// 時無從分辨，結構化拆分屬 follow-up）。
     public var verdictValuesRewritten: [String]
 
     public init(relationsRewritten: [String] = [],
@@ -1387,6 +1389,40 @@ extension LibraryStore {
             }
             if changed { p.references = migrated; peopleToRewrite.append(p) }
         }
+        // venue 同型（#460）：#304 之後 venue 也持 `work:` holder 的 verdict
+        // （resolve-venues 的 confirmed／rejected 落被判定的 venue 記錄，
+        // `entity-backlink-completeness` 第 13 條邊）——#232 修本迴圈時它尚不存在，
+        // 漏掉的後果與 person 側完全同構：rejected stale ⇒ 否決安靜變回待判。
+        var venuesToRewrite: [Venue] = []
+        for var vn in load.venues {
+            var changed = false
+            var migrated: [ProvenanceReference] = []
+            var seenVerdicts = Set<String>()
+            for r in vn.references {
+                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
+                      let v = r.value,
+                      let pairing = ProvenanceReference.VerdictPairingValue.parse(v) else {
+                    migrated.append(r)
+                    continue
+                }
+                var out = r
+                if pairing.holderKind == .work, pairing.holder == oldKey {
+                    out = ProvenanceReference(
+                        field: r.field,
+                        value: ProvenanceReference.VerdictPairingValue(
+                            holderKind: .work, holder: newKey,
+                            literal: pairing.literal).encoded,
+                        kind: r.kind)
+                    changed = true
+                }
+                guard seenVerdicts.insert("\(out.field)\u{0}\(out.value ?? "")").inserted else {
+                    changed = true
+                    continue
+                }
+                migrated.append(out)
+            }
+            if changed { vn.references = migrated; venuesToRewrite.append(vn) }
+        }
 
         _ = try EntryYAML.encode(entry)
         for other in toRewrite { _ = try EntryYAML.encode(other) }
@@ -1398,6 +1434,11 @@ extension LibraryStore {
             _ = try DivergenceYAML.encode(d)
         }
         for p in peopleToRewrite { _ = try PersonYAML.encode(p) }
+        let venueGateFormat = try StoreVersion.read(root: root)
+        for vn in venuesToRewrite {
+            try Self.assertVenueWritable(vn, format: venueGateFormat)
+            _ = try VenueYAML.encode(vn)
+        }
         // 3. 寫記錄本身。
         //
         // **#35：format 2 下 rename 不搬檔案。** 檔名是 UUID，而 rename 不改 UUID——
@@ -1425,6 +1466,10 @@ extension LibraryStore {
         for p in peopleToRewrite {
             try writePerson(p)
             verdictKeys.append(p.key)
+        }
+        for vn in venuesToRewrite {
+            _ = try writeVenue(vn)
+            verdictKeys.append(vn.key)
         }
         // 4. 刪舊檔（僅 legacy 佈局——format 2 沒有舊檔，見上）
         if !usesEntitiesLayout {

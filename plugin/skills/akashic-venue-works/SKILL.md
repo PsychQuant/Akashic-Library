@@ -49,7 +49,10 @@ libraries:
 目錄（primary_location 是 OpenAlex 的視圖；漏收要靠重跑與其他來源交叉）。結構化欄位＋
 摘要（`abstract_inverted_index` 還原）一次取齊。
 
-**階段 B（safari-browser）**：**先做攣生收攏（見下）再現算** `has_abstract:false` 的清單
+**階段 B（瀏覽器渲染頁）**：**工具選擇與各站點的判準／坑見
+[references/site-access.md](references/site-access.md)**（升級階梯、psycnet 的 Incapsula
+邊界、不干擾使用者的縮小視窗方案、節奏——都是量過的）。**先做攣生收攏（見下）再現算**
+`has_abstract:false` 的清單
 ——順序錯了會把攣生的無摘要側白白送瀏覽器（Psychological Methods 實測：原始 261 筆，
 收攏後真缺 151 筆）。判準**不是 HTTP 狀態碼**——psycnet 對 headless 回 200 的空殼；判準
 是**渲染後有沒有摘要節點**。查完仍無 → 記顯式的「已查證、來源無摘要」，不是留白。每次

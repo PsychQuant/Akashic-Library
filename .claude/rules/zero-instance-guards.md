@@ -54,11 +54,11 @@
 
 新增下一個零實例守衛 = 在這張表加一列。
 
-**第 12 列的零是駁回出來的——量測腳本**（2026-09-03，`~/.akashic/entities`）。第一行印 person 總數與三個計數，對應第 12 列情形欄的 865／11／1／0（有 ≥2 個不同 confirmed literal 的 person、其中跨書寫系統的、其中有兩個彼此無共同 token 拉丁名的）；接著逐人列出那些 literal，**駁回理由要拿這份清單逐筆核對**（實跑：10 組只差縮寫形、標點或大小寫，1 組跨書寫系統）。「拉丁名」的判準寫在腳本裡（每個字母都落在拉丁字母區——漢字、假名、諺文、西里爾都不算），第一版只排除 CJK，會把其他書寫系統當拉丁名、空 token 會誤算「無共同 token」，Codex R2 抓到：
+**第 12 列的零是駁回出來的——量測腳本**（2026-09-03，`~/.akashic/entities`）。第一行印 person 總數與三個計數，對應第 12 列情形欄的 865／11／1／0（有 ≥2 個不同 confirmed literal 的 person、其中跨書寫系統的、其中有兩個彼此無共同 token 拉丁名的）；接著逐人列出那些 literal，**駁回理由要拿這份清單逐筆核對**（實跑：10 組只差縮寫形、標點或大小寫，1 組跨書寫系統）。「拉丁名」的判準寫在腳本裡（至少一個字母，且每個字母的 Unicode 名稱都以 LATIN 開頭——漢字、假名、諺文、西里爾都不算；不要求 ASCII、不靠 code-point 範圍）。這個判準改了兩次：第一版只排除 CJK，會把其他書寫系統當拉丁名、空 token 會誤算「無共同 token」（Codex R2 抓到）；第二版要求至少一個 ASCII 字母且只認部分拉丁區塊，`É` 單獨會被判非拉丁、`[À-ɏ]` 範圍含 `×`／`÷`（Codex R3 抓到）。三版在 live store 上都得同一組數——邊界案例目前沒有實例，但判準要與散文說的一致：
 
 ```bash
 python3 - <<'EOF'
-import glob, io, re, os, collections
+import glob, io, re, os, collections, unicodedata
 root = os.path.expanduser('~/.akashic/entities')
 people = 0
 lits = collections.defaultdict(set)
@@ -71,10 +71,17 @@ for f in glob.glob(root + '/*.yaml'):
         v = m.group(1).strip().strip('"\'')
         if ' :: ' in v: lits[key].add(v.split(' :: ', 1)[1])
 multi = {k: sorted(v) for k, v in lits.items() if len(v) >= 2}
-# 拉丁名 ＝ 至少一個 ASCII 字母，且每個「字母」都落在拉丁字母區（漢字、假名、諺文、西里爾、阿拉伯……都不算）
-def is_latin_letter(c): return 'A' <= c <= 'Z' or 'a' <= c <= 'z' or 'À' <= c <= 'ɏ' or 'Ḁ' <= c <= 'ỿ'
-def latin(s): return any('A' <= c <= 'Z' or 'a' <= c <= 'z' for c in s) and all(is_latin_letter(c) for c in s if c.isalpha())
-def toks(s): return set(re.findall(r'[A-Za-zÀ-ɏḀ-ỿ]+', s.lower()))
+# 拉丁名 ＝ 至少一個字母，且每個字母的 Unicode 名稱都以 LATIN 開頭（漢字、假名、諺文、西里爾、阿拉伯……都不算；
+# 不要求 ASCII、不靠 code-point 範圍——範圍會漏掉後面的拉丁區塊、也會把 × ÷ 當字母）
+def is_latin_letter(c): return c.isalpha() and unicodedata.name(c, '').startswith('LATIN')
+def latin(s): return any(c.isalpha() for c in s) and all(is_latin_letter(c) for c in s if c.isalpha())
+def toks(s):
+    out, cur = set(), ''
+    for c in s.lower():
+        if is_latin_letter(c): cur += c
+        elif cur: out.add(cur); cur = ''
+    if cur: out.add(cur)
+    return out
 cross = sorted(k for k, v in multi.items() if len({latin(x) for x in v}) > 1)
 disjoint = sorted(k for k, v in multi.items()
                   if any(latin(a) and latin(b) and toks(a) and toks(b) and not (toks(a) & toks(b))

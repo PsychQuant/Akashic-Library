@@ -93,6 +93,43 @@ final class AppStateTests: XCTestCase {
         XCTAssertNotNil(state.entries.first { $0.citekey == "olsson1979bmaximum" })
         XCTAssertNil(state.entries.first { $0.citekey == "olsson1979maximum" })
     }
+
+    /// #465：App 面的 rename 要把 `RenameReport` 帶回來——relations、歧異候選、verdict 三類
+    /// 連帶改寫各自可見。這裡釘 relations 與 verdict 兩類非空、歧異候選為空。
+    func testRenameThroughStateReturnsTheMigrationReport() throws {
+        try state.addRelation(citekey: "cheng2025identifiability", kind: .cites, target: "olsson1979maximum")
+        let store = LibraryStore(root: root)
+        var p = Person(key: "ulf-olsson", names: ["Ulf Olsson"])
+        p.references = [ProvenanceReference(
+            field: "resolution-confirmed",
+            value: ProvenanceReference.VerdictPairingValue(
+                holderKind: .work, holder: "olsson1979maximum", literal: "Ulf Olsson").encoded,
+            kind: .judgement(statement: "測試用判定", restsOn: []))]
+        try store.writePerson(p)
+        try state.load()
+
+        let report = try state.rename(from: "olsson1979maximum", to: "olsson1979bmaximum")
+
+        XCTAssertEqual(report.relationsRewritten, ["cheng2025identifiability"])
+        XCTAssertEqual(report.divergenceCandidatesRewritten, [])
+        XCTAssertEqual(report.verdictValuesRewritten, ["ulf-olsson"])
+        let cites = state.entries.first { $0.citekey == "cheng2025identifiability" }?.akashic.relations.cites
+        XCTAssertEqual(cites, ["olsson1979bmaximum"], "報告說改了，store 也要真的改了")
+    }
+
+    /// #465：App 面的摘要——三類各一行、零筆說零（「沒有連帶改寫」與「沒有報告」是兩件事）、
+    /// 超過五筆截斷但計數保留。
+    func testRenameReportSummaryListsAllThreeFamiliesAndTruncates() {
+        let many = (1...7).map { "w\($0)" }
+        let text = EntryDetailView.describe(RenameReport(relationsRewritten: many,
+                                                         divergenceCandidatesRewritten: [],
+                                                         verdictValuesRewritten: ["some-person"]))
+        let lines = text.split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertEqual(lines[0], "relations 已遷移：7 筆（w1、w2、w3、w4、w5…）")
+        XCTAssertEqual(lines[1], "歧異候選已遷移：0 筆")
+        XCTAssertEqual(lines[2], "消解判定已遷移：1 筆（some-person）")
+    }
 }
 
 /// #13 多 library：AppState 的 libraries 載入與 filterLibrary 篩選。

@@ -273,9 +273,17 @@ public final class AppState {
         }
     }
 
-    public func rename(from oldKey: String, to newKey: String) throws {
-        _ = try store.renameEntry(from: oldKey, to: newKey)
+    /// 改名 citekey，並把 `renameEntry` 的遷移報告**回傳給呼叫端**（#465）。
+    ///
+    /// 先前這裡 `_ =` 丟掉了 `RenameReport`——CLI 面印出 relations／歧異候選／verdict 三類
+    /// 連帶改寫，App 面卻對使用者一句不說。改名的副作用是全庫改寫（#71、#232、#460），
+    /// 使用者在 App 裡按下「改名」後**看不到動了什麼**，與 `lossless-intake` 執行細節 3
+    /// 「丟棄必須可見」同一形狀：不是資料被丟，是**事實被丟**。
+    @discardableResult
+    public func rename(from oldKey: String, to newKey: String) throws -> RenameReport {
+        let report = try store.renameEntry(from: oldKey, to: newKey)
         try reindexAndReload()
+        return report
     }
 
     public enum RelationKind {

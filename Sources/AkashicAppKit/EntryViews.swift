@@ -1,5 +1,6 @@
 import SwiftUI
 import AkashicCore
+import AkashicStoreIO
 
 struct EntryListView: View {
     @Environment(AppState.self) private var state
@@ -43,6 +44,8 @@ struct EntryDetailView: View {
     @State private var renameTarget = ""
     @State private var showRename = false
     @State private var errorMessage: String?
+    /// #465：改名後的遷移報告——非 nil 即彈出摘要。
+    @State private var renameReport: RenameReport?
 
     private var entry: Entry? {
         state.entries.first { $0.citekey == citekey }
@@ -165,6 +168,13 @@ struct EntryDetailView: View {
             } message: {
                 Text("UUID 不變；引用此 citekey 的 relations 會一併改寫。")
             }
+            .alert("已改名", isPresented: Binding(
+                get: { renameReport != nil },
+                set: { if !$0 { renameReport = nil } })) {
+                Button("好") { renameReport = nil }
+            } message: {
+                Text(renameReport.map(Self.describe) ?? "")   // display-safe-exempt: describe 只印計數與經 load 端 StoreKey 檢查的 key
+            }
             .alert("操作失敗", isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } })) {
@@ -270,9 +280,25 @@ struct EntryDetailView: View {
 
     private func performRename(from oldKey: String) {
         attempt {
-            try state.rename(from: oldKey, to: renameTarget)
+            // #465：`RenameReport` 不再丟掉——CLI 面印三類連帶改寫，App 面先前一句不說。
+            // 改名的副作用是全庫改寫（relations／歧異候選／verdict），使用者按下「改名」後
+            // 要看得到動了什麼（`lossless-intake` 執行細節 3：丟棄必須可見——這裡丟的是事實）。
+            renameReport = try state.rename(from: oldKey, to: renameTarget)
             selectedCitekey = renameTarget
         }
+    }
+
+    /// `RenameReport` 的人可讀摘要——三類連帶改寫各一行，與 CLI `rename` 的三行同語意
+    /// （「relations 已遷移」「歧異候選已遷移」「消解判定已遷移」），零筆時說零，不省略：
+    /// 「沒有連帶改寫」與「沒有報告」是兩件事。
+    static func describe(_ r: RenameReport) -> String {
+        func line(_ label: String, _ xs: [String]) -> String {
+            xs.isEmpty ? "\(label)：0 筆"
+                       : "\(label)：\(xs.count) 筆（\(xs.prefix(5).joined(separator: "、"))\(xs.count > 5 ? "…" : "")）"
+        }
+        return [line("relations 已遷移", r.relationsRewritten),
+                line("歧異候選已遷移", r.divergenceCandidatesRewritten),
+                line("消解判定已遷移", r.verdictValuesRewritten)].joined(separator: "\n")
     }
 
     private func attempt(_ action: () throws -> Void) {

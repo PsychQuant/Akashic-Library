@@ -1154,9 +1154,9 @@ public struct RenameReport: Equatable {
     public var relationsRewritten: [String]
     /// 候選有跟著改名的歧異記錄 id（#71）。
     public var divergenceCandidatesRewritten: [String]
-    /// verdict reference 的 value 有跟著改名的**持有記錄 key（person 或 venue）**
-    /// （#232 verify NEW-1；#460 起 venue 也在列——扁平清單不帶 kind，同名跨型別
-    /// 時無從分辨，結構化拆分屬 follow-up）。
+    /// verdict reference 的 value 有跟著改名的**持有記錄 key（person、venue 或 organization）**
+    /// （#232 verify NEW-1；#460 起 venue 也在列；#463 起 organization 也在列——扁平清單不帶
+    /// kind，同名跨型別時無從分辨，結構化拆分屬 follow-up）。
     public var verdictValuesRewritten: [String]
 
     public init(relationsRewritten: [String] = [],
@@ -1423,6 +1423,39 @@ extension LibraryStore {
             }
             if changed { vn.references = migrated; venuesToRewrite.append(vn) }
         }
+        // organization 同型（#463，網格的 rename×org 格）：#443／OrgResolver 在 organization 記錄上落
+        // `work:` holder 的 verdict（live store 9 條）。#460 補 venue 迴圈時漏了它——一次合法的 rename
+        // 就會留下死 verdict（#464 verify 實測兩次 rename 得 4 條）。機制完全鏡射上方 venue 迴圈。
+        var orgsToRewrite: [Organization] = []
+        for var org in load.organizations {
+            var changed = false
+            var migrated: [ProvenanceReference] = []
+            var seenVerdicts = Set<String>()
+            for r in org.references {
+                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
+                      let v = r.value,
+                      let pairing = ProvenanceReference.VerdictPairingValue.parse(v) else {
+                    migrated.append(r)
+                    continue
+                }
+                var out = r
+                if pairing.holderKind == .work, pairing.holder == oldKey {
+                    out = ProvenanceReference(
+                        field: r.field,
+                        value: ProvenanceReference.VerdictPairingValue(
+                            holderKind: .work, holder: newKey,
+                            literal: pairing.literal).encoded,
+                        kind: r.kind)
+                    changed = true
+                }
+                guard seenVerdicts.insert("\(out.field)\u{0}\(out.value ?? "")").inserted else {
+                    changed = true
+                    continue
+                }
+                migrated.append(out)
+            }
+            if changed { org.references = migrated; orgsToRewrite.append(org) }
+        }
 
         _ = try EntryYAML.encode(entry)
         for other in toRewrite { _ = try EntryYAML.encode(other) }
@@ -1438,6 +1471,13 @@ extension LibraryStore {
         for vn in venuesToRewrite {
             try Self.assertVenueWritable(vn, format: venueGateFormat)
             _ = try VenueYAML.encode(vn)
+        }
+        // organization 的寫入前置條件鏡射 `writeOrganization`：key 文法、驗證零 error、encode 得過。
+        // verdict 的 format ≥ 8 閘在這裡必然已滿足（記錄本來就持有 verdict 才會進到這裡）。
+        for o in orgsToRewrite {
+            guard StoreKey.isValid(o.key) else { throw StoreIOError.invalidKey("organization key", o.key) }
+            try Self.assertNoErrors(o.validate(), what: "organization", key: o.key)
+            _ = try OrganizationYAML.encode(o)
         }
         // 3. 寫記錄本身。
         //
@@ -1470,6 +1510,10 @@ extension LibraryStore {
         for vn in venuesToRewrite {
             _ = try writeVenue(vn)
             verdictKeys.append(vn.key)
+        }
+        for o in orgsToRewrite {
+            _ = try writeOrganization(o)
+            verdictKeys.append(o.key)
         }
         // 4. 刪舊檔（僅 legacy 佈局——format 2 沒有舊檔，見上）
         if !usesEntitiesLayout {

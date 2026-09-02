@@ -1,0 +1,139 @@
+import Foundation
+import XCTest
+@testable import AkashicCore
+@testable import AkashicStoreIO
+
+/// #463：verdict holder 遷移網格（4 退役操作 × 3 記錄形狀）剩下的四格——
+/// rename×organization、work-merge×organization、person-merge×organization、person-merge×person。
+/// 每格一支 RED→GREEN 的測試；另以 live store 的形狀（多個 organization 各持一條指向同一 citekey 的
+/// `work:` verdict，實測 9 條）模擬退役。機制鏡射 #232／#271／#460 的既有迴圈，helper 以 holderKind
+/// 參數化（`migrateHolderVerdicts`）。
+final class VerdictHolderGridTests: XCTestCase {
+    private var root: URL!
+    private var store: LibraryStore!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-vhg-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("entities"), withIntermediateDirectories: true)
+        GitFixture.initRepo(root)
+        try StoreVersion.write(root: root, format: StoreVersion.supported)
+        store = LibraryStore(root: root)
+    }
+
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
+
+    private func entry(_ citekey: String) throws {
+        try store.writeEntry(Entry(id: UUID(), citekey: citekey, type: .periodicalArticle,
+                                   title: "T \(citekey)", authors: [.literal("A B")], date: "2020"))
+    }
+
+    private func verdict(_ field: String, kind: ProvenanceReference.VerdictHolderKind,
+                         holder: String, literal: String) -> ProvenanceReference {
+        ProvenanceReference(
+            field: field,
+            value: ProvenanceReference.VerdictPairingValue(holderKind: kind, holder: holder, literal: literal).encoded,
+            kind: .judgement(statement: "測試用判定", restsOn: []))
+    }
+
+    private func org(_ key: String, refs: [ProvenanceReference]) throws {
+        var o = Organization(key: key, names: TimelineOf([TemporalValue(value: "Org \(key)")]))
+        o.references = refs
+        _ = try store.writeOrganization(o)
+    }
+
+    private func holders(ofOrg key: String) throws -> [String] {
+        try store.load().organizations.first { $0.key == key }?.references
+            .compactMap { $0.value }.compactMap(ProvenanceReference.VerdictPairingValue.parse)
+            .map { "\($0.holderKind.rawValue):\($0.holder)" } ?? []
+    }
+
+    private func holders(ofPerson key: String) throws -> [String] {
+        try store.load().people.first { $0.key == key }?.references
+            .compactMap { $0.value }.compactMap(ProvenanceReference.VerdictPairingValue.parse)
+            .map { "\($0.holderKind.rawValue):\($0.holder)" } ?? []
+    }
+
+    private func divergence(keeper: String, doomed: String, shape: EntityKind) throws -> Divergence {
+        let d = Divergence(id: UUID(), question: "\(keeper) 與 \(doomed) 是同一個嗎",
+                           candidates: [DivergenceCandidate(key: keeper, shape: shape),
+                                        DivergenceCandidate(key: doomed, shape: shape)])
+        _ = try store.writeDivergence(d)
+        return d
+    }
+
+    // MARK: - rename × organization
+
+    func testRenameMigratesOrganizationHeldWorkVerdict() throws {
+        try entry("old2020a")
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "Some Org")])
+        let report = try store.renameEntry(from: "old2020a", to: "new2020a")
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:new2020a"])
+        XCTAssertEqual(report.verdictValuesRewritten, ["some-org"])
+    }
+
+    // MARK: - work merge × organization
+
+    func testWorkMergeMigratesOrganizationHeldWorkVerdict() throws {
+        try entry("keeper2020a"); try entry("doomed2020a")
+        try org("some-org", refs: [verdict("resolution-rejected", kind: .work, holder: "doomed2020a", literal: "Some Org")])
+        let d = try divergence(keeper: "keeper2020a", doomed: "doomed2020a", shape: .work)
+        GitFixture.commitAll(store.root)   // resolve 只在受 git 追蹤的檔上動刀（deletionNotRecoverable 閘）
+        let report = try store.resolveDivergence(id: d.id, survivor: "keeper2020a")
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:keeper2020a"])
+        XCTAssertTrue(report.verdictValuesRewritten.contains("some-org"), "\(report)")
+        XCTAssertTrue(report.failures.isEmpty, "\(report.failures)")
+    }
+
+    // MARK: - person merge × organization ／ × person
+
+    func testPersonMergeMigratesPersonHoldersOnOrganizations() throws {
+        try store.writePerson(Person(key: "keeper-person", names: ["Keeper Person"]))
+        try store.writePerson(Person(key: "doomed-person", names: ["Doomed Person"]))
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .person, holder: "doomed-person", literal: "Some Org")])
+        let d = try divergence(keeper: "keeper-person", doomed: "doomed-person", shape: .person)
+        GitFixture.commitAll(store.root)   // resolve 只在受 git 追蹤的檔上動刀（deletionNotRecoverable 閘）
+        let report = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["person:keeper-person"])
+        XCTAssertTrue(report.verdictValuesRewritten.contains("some-org"), "\(report)")
+    }
+
+    func testPersonMergeMigratesPersonHoldersOnPeople() throws {
+        try store.writePerson(Person(key: "keeper-person", names: ["Keeper Person"]))
+        try store.writePerson(Person(key: "doomed-person", names: ["Doomed Person"]))
+        var third = Person(key: "third-person", names: ["Third Person"])
+        third.references = [verdict("resolution-confirmed", kind: .person, holder: "doomed-person", literal: "X")]
+        try store.writePerson(third)
+        let d = try divergence(keeper: "keeper-person", doomed: "doomed-person", shape: .person)
+        GitFixture.commitAll(store.root)   // resolve 只在受 git 追蹤的檔上動刀（deletionNotRecoverable 閘）
+        let report = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
+        XCTAssertEqual(try holders(ofPerson: "third-person"), ["person:keeper-person"])
+        XCTAssertTrue(report.verdictValuesRewritten.contains("third-person"), "\(report)")
+    }
+
+    // MARK: - helper 的 kind 篩選
+
+    func testHelperKindFilterLeavesOtherKindsUntouched() {
+        let refs = [verdict("resolution-confirmed", kind: .work, holder: "doomed-person", literal: "A"),   // 同名 holder、不同 kind
+                    verdict("resolution-confirmed", kind: .person, holder: "doomed-person", literal: "B")]
+        let (out, changed, collapsed) = LibraryStore.migrateHolderVerdicts(
+            refs, merged: ["doomed-person"], survivor: "keeper-person", holderKind: .person)
+        XCTAssertTrue(changed); XCTAssertTrue(collapsed.isEmpty)
+        XCTAssertEqual(out.map(\.value), [refs[0].value, "person:keeper-person :: B"], "`work:` 那筆不動")
+    }
+
+    // MARK: - live store 的形狀：多個 organization 指向同一 citekey
+
+    func testLiveShapeSeveralOrganizationsPointingAtOneCitekeySurviveRename() throws {
+        try entry("standards1966a")
+        for k in ["org-a", "org-b", "org-c"] {
+            try org(k, refs: [verdict("resolution-confirmed", kind: .work, holder: "standards1966a", literal: "Org \(k)")])
+        }
+        let report = try store.renameEntry(from: "standards1966a", to: "standards1966b")
+        XCTAssertEqual(report.verdictValuesRewritten, ["org-a", "org-b", "org-c"])
+        for k in ["org-a", "org-b", "org-c"] {
+            XCTAssertEqual(try holders(ofOrg: k), ["work:standards1966b"], k)
+        }
+    }
+}

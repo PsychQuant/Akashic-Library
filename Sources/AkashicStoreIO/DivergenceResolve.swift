@@ -776,6 +776,40 @@ extension LibraryStore {
                                     snapshot: snapshot, survivor: survivor,
                                     survivorNote: "倖存者的別名合併已經落地（磁碟上不是原狀）")
         report.verdictReferencesMigrated = verdictsMigrated
+        // #463（網格的 person-merge 兩格）：person key 退役＝改名的一種——organization（與 person）記錄上
+        // `person:<被併鍵>` holder 的 verdict 不遷移就安靜變 stale。#395 已補 rename 側，merge 側在此之前
+        // **零 holder 遷移**（上面 #271 搬的是 doomed 自己的 references，不是指向 doomed 的 holder）。
+        // 機制鏡射 resolveWorkDivergence 的三個迴圈，holderKind 換成 `.person`。
+        for var org in snapshot.organizations {
+            let (migrated, changed, collapsed) = Self.migrateHolderVerdicts(
+                org.references, merged: merged, survivor: survivor, holderKind: .person)
+            guard changed else { continue }
+            org.references = migrated
+            do {
+                _ = try writeOrganization(org)
+                report.verdictValuesRewritten.append(org.key)
+                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe(c, max: 300)（DivergenceCommands），與 failures 同一條消毒點
+                    contentsOf: collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: 同上
+            } catch {
+                report.failures.append(
+                    "organization「\(org.key)」的 verdict value 遷移寫入失敗：\(error)")
+            }
+        }
+        for var person in snapshot.people where !merged.contains(person.key) {
+            let (migrated, changed, collapsed) = Self.migrateHolderVerdicts(
+                person.references, merged: merged, survivor: survivor, holderKind: .person)
+            guard changed else { continue }
+            person.references = migrated
+            do {
+                try writePerson(person)
+                report.verdictValuesRewritten.append(person.key)
+                report.verdictsCollapsed.append(   // display-safe-exempt: 同上
+                    contentsOf: collapsed.map { "person「\(person.key)」：\($0)" })   // display-safe-exempt: 同上
+            } catch {
+                report.failures.append(
+                    "person「\(person.key)」的 verdict value 遷移寫入失敗：\(error)")
+            }
+        }
         return report
     }
 
@@ -811,8 +845,13 @@ extension LibraryStore {
     /// 若把它算成「本次觸及」，觸及集合會退化成全量 dedup（被否決的方案 (a)）且
     /// `changed` 恆真造成空寫。#463 複用時不必再各自防（複用面：org × work merge
     /// 一格是 drop-in；其餘三格要 `person:` holder 或走 rename 側，不是這支）。
-    static func migrateWorkHolderVerdicts(
-        _ refs: [ProvenanceReference], merged: Set<String>, survivor: String
+    /// merge 側 holder verdict 的遷移＋收攏，**holderKind 參數化**（#463）：`.work`（work merge，
+    /// #461 的原形）與 `.person`（person merge——`person:<被併 key>` holder 住在 organization 記錄上，
+    /// 是 org-resolution 的判定；#395 rename 側已遷、merge 側漏了，#232→#271 的不對稱在 person-key 軸重演）。
+    /// 語意與 `migrateWorkHolderVerdicts` 完全相同，只多一個 kind 篩選——那個函式現在是本函式的 `.work` 特例。
+    static func migrateHolderVerdicts(
+        _ refs: [ProvenanceReference], merged: Set<String>, survivor: String,
+        holderKind: ProvenanceReference.VerdictHolderKind
     ) -> (refs: [ProvenanceReference], changed: Bool, collapsed: [String]) {
         func dedupKey(_ r: ProvenanceReference) -> String { "\(r.field)\u{0}\(r.value ?? "")" }
         var touched = Set<String>()
@@ -821,13 +860,13 @@ extension LibraryStore {
             guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
                   let v = r.value,
                   let pairing = ProvenanceReference.VerdictPairingValue.parse(v),
-                  pairing.holderKind == .work,
+                  pairing.holderKind == holderKind,
                   pairing.holder != survivor,
                   merged.contains(pairing.holder) else { return r }
             let out = ProvenanceReference(
                 field: r.field,
                 value: ProvenanceReference.VerdictPairingValue(
-                    holderKind: .work, holder: survivor,
+                    holderKind: holderKind, holder: survivor,
                     literal: pairing.literal).encoded,
                 kind: r.kind)
             changed = true
@@ -847,6 +886,12 @@ extension LibraryStore {
             deduped.append(r)
         }
         return (deduped, true, collapsed)
+    }
+
+    static func migrateWorkHolderVerdicts(
+        _ refs: [ProvenanceReference], merged: Set<String>, survivor: String
+    ) -> (refs: [ProvenanceReference], changed: Bool, collapsed: [String]) {
+        migrateHolderVerdicts(refs, merged: merged, survivor: survivor, holderKind: .work)
     }
 
     /// 收攏丟掉的那一列，說得出來的形：field ＋ value ＋ 被丟的判定原文（擷取型印 URL）。
@@ -945,6 +990,24 @@ extension LibraryStore {
             } catch {
                 report.failures.append(
                     "venue「\(venue.key)」的 verdict value 遷移寫入失敗：\(error)")
+            }
+        }
+        // organization 同型（#463，網格的 merge×org 格）：#443 的團體作者升格面與 OrgResolver 會在
+        // organization 記錄上落 `work:` holder 的 verdict（live store 實測 9 條）。#460 補 venue 時漏了
+        // 它——同一個缺口第三次以同一形狀出現，機制完全鏡射上方兩個迴圈。
+        for var org in snapshot.organizations {
+            let (migrated, changed, collapsed) = Self.migrateWorkHolderVerdicts(
+                org.references, merged: merged, survivor: survivor)
+            guard changed else { continue }
+            org.references = migrated
+            do {
+                _ = try writeOrganization(org)
+                report.verdictValuesRewritten.append(org.key)
+                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe(c, max: 300)（DivergenceCommands），與 failures 同一條消毒點
+                    contentsOf: collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
+            } catch {
+                report.failures.append(
+                    "organization「\(org.key)」的 verdict value 遷移寫入失敗：\(error)")
             }
         }
         // #169：與 preview 側取自**同一個** validateWorkPreconditions 回傳值。

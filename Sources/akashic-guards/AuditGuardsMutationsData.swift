@@ -171,7 +171,7 @@ let agmRobust: [AGMCase] = [
     AGMCase(desc: "在 `_scalar` 裡插一行縮排不足的註解（不得截斷切片）", guardRel: "akashic-guards literal-scalar-parity", edits: [
         AGMEdit(path: "plugin/skills/akashic-promote-literals/scripts/literal-census.sh", kind: "replaceFirst", a: "        # 未加引號：", b: "# 範圍說明\n        # 未加引號："),
     ], expect: ["全部一致"]),
-    AGMCase(desc: "把巢狀型別搬到 configuration 之前（純重排，不得被當成缺陷）", guardRel: "akashic-guards parity-table-drift", edits: [
+    AGMCase(desc: "把巢狀型別（enum Format）搬到 configuration 之前（純重排，不得被當成缺陷）", guardRel: "akashic-guards parity-table-drift", edits: [
         AGMEdit(path: "Sources/akashic/CreateEntryCommand.swift", kind: "moveNestedStruct", a: "", b: ""),
     ], expect: ["三面皆同步"]),
 ]

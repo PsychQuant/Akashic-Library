@@ -661,15 +661,16 @@ public final class LibraryStore {
         return dest
     }
 
-    /// **需要 `@discardableResult`**：多數呼叫端隱式丟棄回傳的 URL——它們只在乎
-    /// 「寫成功了」，不在乎寫到哪。生產碼裡有兩處：`AkashicService.addPerson`
-    /// 與 CLI 的 `bootstrap-people`。
-    ///
-    /// 本 attribute 曾在 #55 插入 `writeOrganization` 時被誤刪（撞到 duplicate-attribute
-    /// 編譯錯誤，刪錯了那一個），於 #59 復原。
-    @discardableResult
-    public func writePerson(_ person: Person) throws -> URL {
-        try assertStoreRoot()
+    /// `writePerson` 的**全部非 I/O 前置條件**——與 `assertOrganizationWritable`／`assertVenueWritable` 同型，寫入端與
+    /// rename 的前置閘共用同一個函式（#463 verify DA-3：org 與 venue 的閘抽出後 person 腿仍只 encode，format ≤ 7 的 store 上
+    /// `rename` 會在 entry 已改名之後才在 `writePerson` 的 v8 閘擲錯——撕裂，而 person 是三族裡 live verdict 最多的）。
+    /// `format` 是 lazy 的，理由同 `assertOrganizationWritable`。
+    public static func assertPersonWritable(_ person: Person, format provider: () throws -> Int) throws {
+        var cached: Int?
+        func format() throws -> Int {
+            if let c = cached { return c }
+            let f = try provider(); cached = f; return f
+        }
         guard StoreKey.isValid(person.key) else {
             throw StoreIOError.invalidKey("person key", person.key)
         }
@@ -680,7 +681,7 @@ public final class LibraryStore {
         // 拒絕而非自動 bump：升 marker 會讓其餘 binary（MCP/App）突然整庫拒開，
         // 那必須是使用者知情的動作，訊息指路。
         if person.profile.usesEndedUnknown {
-            let format = try StoreVersion.read(root: root)
+            let format = try format()
             guard format >= 6 else {
                 throw StoreIOError.invalidKey(
                     "person（含 ended 段，需要 store format ≥ 6；本 store 是 \(format)）——" +
@@ -690,7 +691,7 @@ public final class LibraryStore {
         }
         // v7-only 語法的 format gate（#70，同 ended gate 的機制與理由）
         if person.profile.usesAttested {
-            let format = try StoreVersion.read(root: root)
+            let format = try format()
             guard format >= 7 else {
                 throw StoreIOError.invalidKey(
                     "person（含 attested 段，需要 store format ≥ 7；本 store 是 \(format)）——" +
@@ -704,7 +705,7 @@ public final class LibraryStore {
         // 這道閘是 verdict 寫入與「第二台機器上安靜銷毀 ledger」之間唯一的東西。
         if person.references.contains(where: {
             ProvenanceReference.resolutionVerdictFields.contains($0.field) }) {
-            let format = try StoreVersion.read(root: root)
+            let format = try format()
             guard format >= 8 else {
                 throw StoreIOError.invalidKey(
                     "person（含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)）——" +
@@ -717,7 +718,7 @@ public final class LibraryStore {
         // refuse-if-newer 必須在寫入端先 fire。空 names 的記錄不受此閘——檔上沒有
         // names 鍵，兩代 binary 都讀得懂。
         if !person.names.all.isEmpty {
-            let format = try StoreVersion.read(root: root)
+            let format = try format()
             guard format >= 10 else {
                 // #227 verify S5：用 invalidInput 不用 invalidKey——後者的框架是
                 // 「不符合 key 正規式」，對合法 key 是假斷言，會把 LLM 呼叫端引去
@@ -732,6 +733,19 @@ public final class LibraryStore {
             }
         }
         try Self.assertNoErrors(person.validate(), what: "person", key: person.key)
+    }
+
+    /// **需要 `@discardableResult`**：多數呼叫端隱式丟棄回傳的 URL——它們只在乎
+    /// 「寫成功了」，不在乎寫到哪。生產碼裡有兩處：`AkashicService.addPerson`
+    /// 與 CLI 的 `bootstrap-people`。
+    ///
+    /// 本 attribute 曾在 #55 插入 `writeOrganization` 時被誤刪（撞到 duplicate-attribute
+    /// 編譯錯誤，刪錯了那一個），於 #59 復原；#463 抽出 `assertPersonWritable` 時**第三次**被文字手術
+    /// 移位到 helper 上——pre-push 的 `-warnings-as-errors` 建置擋下（`swift test` 不帶該旗標，全綠仍會漏）。
+    @discardableResult
+    public func writePerson(_ person: Person) throws -> URL {
+        try assertStoreRoot()
+        try Self.assertPersonWritable(person, format: { try StoreVersion.read(root: self.root) })
         let yaml = try PersonYAML.encode(person)
         let dest = usesEntitiesLayout ? entityURL(id: person.id) : personURL(key: person.key)
         try atomicWrite(yaml, to: dest)
@@ -1145,7 +1159,8 @@ public final class LibraryStore {
 public struct PersonRenameReport: Equatable {
     /// `authors[].key` 有被改寫的 work citekeys。
     public var authorEdgesRewritten: [String]
-    /// verdict value 的 `person:<key>` 有被改寫的**持有記錄** key（person 或 organization）。
+    /// verdict value 的 `person:<key>` 有被改寫的**持有記錄** key（person、organization 或 venue——#463 起 venue 也在列；
+    /// 扁平清單不帶 kind，同 `RenameReport.verdictValuesRewritten` 的既有取捨）。
     public var verdictValuesRewritten: [String]
     /// 候選或 `judgement.prefers` 有跟著改名的歧異記錄 id。
     public var divergencesRewritten: [String]
@@ -1405,16 +1420,22 @@ extension LibraryStore {
             try assertDivergenceWritable(d)
             _ = try DivergenceYAML.encode(d)
         }
-        for p in peopleToRewrite { _ = try PersonYAML.encode(p) }
-        let gateFormat = try StoreVersion.read(root: root)   // venue／organization 的 format 閘共用
+        // 三腿的寫入閘與各自的寫入端**同一個函式**——person 腿是 DA-3 補的（#232 起只 encode、不跑 format 閘）。
+        // format 只在真的有 gated 記錄要驗時才讀、讀一次共用（#463 verify Codex R3 N3：無條件讀會讓一個
+        // 壞掉的 store.yaml 擋住完全不需要 format 閘的 rename——R2 對 writeOrganization 修過的同一件事，換個位置）。
+        let gateFormat = lazyStoreFormat()
+        for p in peopleToRewrite {
+            try Self.assertPersonWritable(p, format: gateFormat)
+            _ = try PersonYAML.encode(p)
+        }
         for vn in venuesToRewrite {
-            try Self.assertVenueWritable(vn, format: gateFormat)
+            try Self.assertVenueWritable(vn, format: try gateFormat())
             _ = try VenueYAML.encode(vn)
         }
         // organization 的寫入前置條件與 `writeOrganization` **同一個函式**（含 format 閘：識別碼 ≥13、ended ≥6、
         // attested ≥7、verdict ≥8）——只鏡射一半就是 #35 R2 DA 實測過的撕裂（Codex R1 在本張再抓一次）。
         for o in orgsToRewrite {
-            try Self.assertOrganizationWritable(o, format: { gateFormat })
+            try Self.assertOrganizationWritable(o, format: gateFormat)
             _ = try OrganizationYAML.encode(o)
         }
         // 3. 寫記錄本身。
@@ -1599,18 +1620,23 @@ extension LibraryStore {
         // 4. 動磁碟前**完整鏡射寫入端的前置條件**（不只 encode）——只鏡射一半就是
         //    R2 DA 實測到的撕裂：前面寫完了才在後面擲錯，磁碟半遷移而呼叫端收到錯誤。
         person.key = newKey
+        // 三腿（person／organization／venue）的前置閘與各自的寫入端同一個函式（#463 verify regression F2：抽出
+        // `assertOrganizationWritable` 後這裡只接了 encode——三個呼叫點只接了兩個，實測撕裂；person 腿是 DA-3 補的）。
+        // 同 renameEntry：format lazy、讀一次共用（Codex R3 N3）。
+        let gateFormat = lazyStoreFormat()
+        try Self.assertPersonWritable(person, format: gateFormat)
         _ = try PersonYAML.encode(person)
         for e in entriesToRewrite { _ = try EntryYAML.encode(e) }
-        for p in peopleToRewrite { _ = try PersonYAML.encode(p) }
-        // organization 與 venue 的前置閘與各自的寫入端同一個函式（#463 verify regression F2：抽出
-        // `assertOrganizationWritable` 後這裡只接了 encode——三個呼叫點只接了兩個，實測撕裂）。
-        let gateFormat = try StoreVersion.read(root: root)
+        for p in peopleToRewrite {
+            try Self.assertPersonWritable(p, format: gateFormat)
+            _ = try PersonYAML.encode(p)
+        }
         for o in orgsToRewrite {
-            try Self.assertOrganizationWritable(o, format: { gateFormat })
+            try Self.assertOrganizationWritable(o, format: gateFormat)
             _ = try OrganizationYAML.encode(o)
         }
         for vn in venuesToRewrite {
-            try Self.assertVenueWritable(vn, format: gateFormat)
+            try Self.assertVenueWritable(vn, format: try gateFormat())
             _ = try VenueYAML.encode(vn)
         }
         for d in divergencesToRewrite {
@@ -1639,22 +1665,32 @@ extension LibraryStore {
     /// 三份複本，verify security 席指出同一 commit 剛用「不漂移」證立另一個抽出，這裡沒有理由例外）。
     ///
     /// 文法解析與 store 閘同源（`VerdictPairingValue`），不另寫第二份——那正是 #232 D3 自認過的
-    /// grammar-in-string 漂移。收攏是**全量** (field, value) dedup（#232 的既有語意，與 merge 側「只收本次觸及」
-    /// 刻意不同）；**收攏是靜默的**——rename 側的報告沒有 `verdictsCollapsed`，被丟的列不回報（既有缺口，#461
-    /// 只修了 merge 側；#463 把這一面擴到 organization 與 venue，缺口同步擴大，記在 changelog）。
-    static func migratedVerdicts(_ refs: [ProvenanceReference],
-                                 from oldKey: String,
-                                 to newKey: String,
-                                 holderKind: ProvenanceReference.VerdictHolderKind) -> [ProvenanceReference]? {
+    /// grammar-in-string 漂移。收攏是**可解析 verdict 的全量** (field, value) dedup（#232 的既有語意，與 merge 側
+    /// 「只收本次觸及」刻意不同）；**收攏是靜默的**——rename 側的報告沒有 `verdictsCollapsed`，被丟的列不回報（既有
+    /// 缺口，#461 只修了 merge 側；#463 把這一面擴到 organization 與 venue，缺口同步擴大，記在 changelog）。
+    ///
+    /// **非 verdict 的 reference 原樣通過、不 dedup**（#463 verify Codex R3 N2）：抽 helper 前 renameEntry 的三個迴圈
+    /// 就是這樣，而 #395 的 renamePerson 版本對**每一筆** reference 做 (field, value) dedup——一次與此無關的 rename 會
+    /// 靜默丟掉兩筆同 (field, value) 但不同來源（不同 `kind`）的 affiliation／識別碼 reference，且把那筆記錄算進
+    /// `verdictValuesRewritten`（`lossless-intake`：丟棄必須可見）。統一到窄的那一邊：renamePerson 因此只會少收攏。
+    /// value 為 nil 或文法不合的 verdict 在載入後的記錄上**到不了這裡**（三族 `validate()` 都擋，load 會 quarantine），
+    /// 這條 guard 的可觀察效果在非 verdict 欄位。
+    private static func migratedVerdicts(_ refs: [ProvenanceReference],
+                                         from oldKey: String,
+                                         to newKey: String,
+                                         holderKind: ProvenanceReference.VerdictHolderKind) -> [ProvenanceReference]? {
         var changed = false
         var out: [ProvenanceReference] = []
         var seen = Set<String>()
         for r in refs {
+            guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
+                  let v = r.value,
+                  let pairing = ProvenanceReference.VerdictPairingValue.parse(v) else {
+                out.append(r)
+                continue
+            }
             var kept = r
-            if ProvenanceReference.resolutionVerdictFields.contains(r.field),
-               let v = r.value,
-               let pairing = ProvenanceReference.VerdictPairingValue.parse(v),
-               pairing.holderKind == holderKind, pairing.holder == oldKey {
+            if pairing.holderKind == holderKind, pairing.holder == oldKey {
                 kept = ProvenanceReference(
                     field: r.field,
                     value: ProvenanceReference.VerdictPairingValue(
@@ -1671,6 +1707,17 @@ extension LibraryStore {
             out.append(kept)
         }
         return changed ? out : nil
+    }
+
+    /// 一次性快取的 `StoreVersion.read`：**第一次被呼叫時才讀**、之後回同一個值。rename 的 venue／organization
+    /// format 閘共用一份——沒有任何 gated 記錄要驗時整個 rename 不碰 store.yaml（Codex R3 N3）。
+    func lazyStoreFormat() -> () throws -> Int {
+        var cached: Int?
+        let root = self.root
+        return {
+            if let c = cached { return c }
+            let f = try StoreVersion.read(root: root); cached = f; return f
+        }
     }
 
     /// quarantined 檔裡有沒有哪一份宣稱這個 person key。

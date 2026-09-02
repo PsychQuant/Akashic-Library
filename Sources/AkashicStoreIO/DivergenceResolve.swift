@@ -782,20 +782,34 @@ extension LibraryStore {
                                     doomedIDs: doomed.map(\.id), mergedKeys: mergedKeys,
                                     snapshot: snapshot, survivor: survivor,
                                     survivorNote: "倖存者的別名合併已經落地（磁碟上不是原狀）")
-        // 同 resolveWorkDivergence：commit 早退或失敗時，下方的 holder 遷移不得再寫檔（verify logic L2）。
-        guard report.failures.isEmpty else { return report }
-        // #271 的清單記的是搬移**當下**的值；keeper 上的 `person:<被併鍵>` 已在 commit 前改寫（見上），
-        // 揭露值要跟著改，否則 CLI 印出一個 store 裡不存在的 value（verify requirements #5）。
-        report.verdictReferencesMigrated = verdictsMigrated.map { v in
-            guard let p = ProvenanceReference.VerdictPairingValue.parse(v),
-                  p.holderKind == .person, merged.contains(p.holder) else { return v }
-            return ProvenanceReference.VerdictPairingValue(holderKind: .person, holder: survivor, literal: p.literal).encoded
+        // commit 的失敗語意（verify logic L2 → Codex R3 N1 → DA-2／DA-4，謂詞改過兩次，理由要寫全）：
+        // 揭露與遷移**都**看 `survivorUpdated`——它在 `keeperWrite()` 成功後立刻設，是「磁碟已經不是原狀」的精確訊號。
+        //
+        //   A. commit 前早退（被併檔不可刪）：keeper 沒寫、什麼都不揭露、不遷移 —— L2 要防的那條路（報告說「未動任何
+        //      檔案」就真的不動任何檔案）。
+        //   B. keeper 寫了、某筆 entry 寫入失敗：被併記錄不刪，holder 遷移**照做**——冪等、指向仍存在的 survivor，
+        //      重跑補完其餘；報告同時揭露 keeper 已改寫。
+        //   C. 被併檔**部分**刪除失敗：`report.merged` 只在全部刪成功才填，而已刪掉的那些 key 的 holder 若不遷移就是死
+        //      verdict，且**重跑救不回**（`validatePersonPreconditions` 對缺檔候選擲 `candidateMissing`）。
+        //   D. 全部刪成、只有最後刪歧異記錄失敗：`merged` 已填、`failures` 非空——同 C，遷移必須做。
+        //
+        // 第一版用 `failures.isEmpty`（擋掉 B／C／D，其中 C／D 不可逆——DA-2）；DA 提的 `!merged.isEmpty` 修 D 但仍擋 C。
+        // 只有 `survivorUpdated` 把 A 與其餘三條切開。凍結態（無條件遷移）在 B／C／D 上本來就對，錯的只有 A。
+        if report.survivorUpdated {
+            // #271 的清單記的是搬移**當下**的值；keeper 上的 `person:<被併鍵>` 已在 commit 前改寫（見上），
+            // 揭露值要跟著改，否則 CLI 印出一個 store 裡不存在的 value（verify requirements #5）。
+            report.verdictReferencesMigrated = verdictsMigrated.map { v in
+                guard let p = ProvenanceReference.VerdictPairingValue.parse(v),
+                      p.holderKind == .person, merged.contains(p.holder) else { return v }
+                return ProvenanceReference.VerdictPairingValue(holderKind: .person, holder: survivor, literal: p.literal).encoded
+            }
+            if keeperMigration.changed {
+                report.verdictValuesRewritten.append(survivor)
+                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe（DivergenceCommands）
+                    contentsOf: keeperMigration.collapsed.map { "person「\(survivor)」：\($0)" })   // display-safe-exempt: 同上
+            }
         }
-        if keeperMigration.changed {
-            report.verdictValuesRewritten.append(survivor)
-            report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe（DivergenceCommands）
-                contentsOf: keeperMigration.collapsed.map { "person「\(survivor)」：\($0)" })   // display-safe-exempt: 同上
-        }
+        guard report.survivorUpdated else { return report }
         // #463（網格的 person-merge 兩格）：person key 退役＝改名的一種——organization（與 person）記錄上
         // `person:<被併鍵>` holder 的 verdict 不遷移就安靜變 stale。#395 已補 rename 側，merge 側在此之前
         // **零 holder 遷移**（上面 #271 搬的是 doomed 自己的 references，不是指向 doomed 的 holder）。
@@ -993,10 +1007,11 @@ extension LibraryStore {
                                     snapshot: snapshot, survivor: survivor,
                                     survivorNote: "倖存者的記錄已被重寫"
                                         + "（work 消歧不搬欄位，見 #75）")
-        // #463 verify logic L2：commit 早退（不可刪檔、記錄仍在等）或部分失敗時，下方的 holder 遷移**不得再寫檔**
-        // ——否則一個回報「未動任何檔案」的失敗實際改寫了 person／venue／organization。此時 `report.failures`
-        // 只可能含 commit 階段的失敗（遷移迴圈還沒跑）。這條閘同時涵蓋 #271／#460 的既有迴圈。
-        guard report.failures.isEmpty else { return report }
+        // #463 verify logic L2：commit **前**早退（被併檔不可刪）時，下方的 holder 遷移**不得再寫檔**——否則一個回報
+        // 「未動任何檔案」的失敗實際改寫了 person／venue／organization。keeper 一旦寫進去（`survivorUpdated`），之後
+        // 任何失敗路徑都**要**遷移：被併檔部分刪除失敗時不遷移就是重跑救不回的死 verdict（案例 A–D 與謂詞的三次
+        // 更迭見 resolvePersonDivergence 同位置的註解）。這條閘同時涵蓋 #271／#460 的既有迴圈。
+        guard report.survivorUpdated else { return report }
         // #271（下半）：citekey 退役＝改名的一種——person 身上 `work:<被併鍵>` 的
         // verdict value 不遷移就安靜變 stale（rename 已修 #232、merge 漏了同型）。
         // 文法與 renameEntry 同源（VerdictPairingValue）；**收攏範圍刻意不同**——

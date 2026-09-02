@@ -215,6 +215,169 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(out.map(\.value), [refs[0].value, "person:keeper-person :: B"], "`work:` 那筆不動")
     }
 
+    // MARK: - commit 失敗語意（Codex R3 N1）：揭露看 keeper 寫沒寫，遷移看整個 commit 成沒成
+
+    /// keeper 寫入後某筆 entry 寫入失敗（immutable 擋 rename，案例 B）：doomed 不刪、failures 非空，但 holder 遷移
+    /// **照做**（冪等，重跑補完其餘）且 keeper 自己已改寫的 holder 是既成事實、報告**必須**揭露。
+    /// 拿掉 `survivorUpdated` 閘本支照綠——它的殺手是下一支（案例 A）；本支釘的是「不得用 `failures.isEmpty` 擋」。
+    func testPersonMergePartialFailureAfterKeeperWriteStillMigratesHoldersAndDisclosesKeeper() throws {
+        var keeper = Person(key: "keeper-person", names: ["Keeper Person"])
+        keeper.references = [verdict("resolution-confirmed", kind: .person, holder: "doomed-person", literal: "K")]
+        try store.writePerson(keeper)
+        try store.writePerson(Person(key: "doomed-person", names: ["Doomed Person"]))
+        var third = Person(key: "third-person", names: ["Third Person"])
+        third.references = [verdict("resolution-confirmed", kind: .person, holder: "doomed-person", literal: "X")]
+        try store.writePerson(third)
+        var blocked = Entry(id: UUID(), citekey: "blocked2020a", type: .periodicalArticle, title: "Blocked")
+        blocked.authors = [.key("doomed-person")]
+        try store.writeEntry(blocked)
+        let d = try divergence(keeper: "keeper-person", doomed: "doomed-person", shape: .person)
+        GitFixture.commitAll(store.root)
+        let blockedURL = store.entityURL(id: blocked.id)
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: blockedURL.path)
+        defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: blockedURL.path) }
+
+        let report = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
+        XCTAssertTrue(report.hasFailures, "\(report)")
+        XCTAssertTrue(report.survivorUpdated)
+        XCTAssertEqual(try holders(ofPerson: "third-person"), ["person:keeper-person"], "keeper 已落地：遷移照做（C／D 兩案重跑救不回）")
+        XCTAssertNotNil(try store.load().people.first { $0.key == "doomed-person" }, "失敗路徑不刪被併記錄")
+        XCTAssertEqual(try holders(ofPerson: "keeper-person"), ["person:keeper-person"], "keeper 已在 commit 前改寫")
+        XCTAssertTrue(report.verdictValuesRewritten.contains("keeper-person"), "既成事實要揭露：\(report)")
+        XCTAssertTrue(report.verdictValuesRewritten.contains("third-person"), "做了的要報：\(report)")
+    }
+
+    /// commit **前**就早退（被併檔不可刪）：keeper 沒寫、holder 沒動、報告什麼都不揭露——完全的 no-op。
+    func testPersonMergeUndeletableDoomedTouchesNoHolderAndDisclosesNothing() throws {
+        var keeper = Person(key: "keeper-person", names: ["Keeper Person"])
+        keeper.references = [verdict("resolution-confirmed", kind: .person, holder: "doomed-person", literal: "K")]
+        try store.writePerson(keeper)
+        var doomed = Person(key: "doomed-person", names: ["Doomed Person"])
+        doomed.references = [verdict("resolution-rejected", kind: .person, holder: "doomed-person", literal: "D")]
+        try store.writePerson(doomed)
+        var third = Person(key: "third-person", names: ["Third Person"])
+        third.references = [verdict("resolution-confirmed", kind: .person, holder: "doomed-person", literal: "X")]
+        try store.writePerson(third)
+        let d = try divergence(keeper: "keeper-person", doomed: "doomed-person", shape: .person)
+        GitFixture.commitAll(store.root)
+        let doomedURL = store.entityURL(id: doomed.id)
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: doomedURL.path)
+        defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: doomedURL.path) }
+
+        let report = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
+        XCTAssertTrue(report.hasFailures, "\(report)")
+        XCTAssertFalse(report.survivorUpdated)
+        XCTAssertEqual(try holders(ofPerson: "keeper-person"), ["person:doomed-person"], "keeper 不得被寫")
+        XCTAssertEqual(try holders(ofPerson: "third-person"), ["person:doomed-person"])
+        XCTAssertTrue(report.verdictValuesRewritten.isEmpty, "\(report)")
+        XCTAssertTrue(report.verdictReferencesMigrated.isEmpty, "#271 的搬移沒落地就不得揭露：\(report)")
+    }
+
+    // MARK: - rename 側 helper 只對可解析的 verdict 收攏（Codex R3 N2）
+
+    /// 兩筆同 (field, value)、不同來源（不同 `kind`）的非 verdict reference：與 rename 無關的記錄不得被碰，
+    /// 有關的記錄改寫 verdict 之後那兩筆也要都還在。#395 的 helper 版本會把它們收成一筆並把記錄算進報告。
+    func testRenameLeavesDuplicateNonVerdictReferencesAlone() throws {
+        try entry("old2020a"); try entry("other2020a")
+        func twice(_ name: String) -> [ProvenanceReference] {   // 同一個名字、兩份不同來源
+            ["a", "b"].map { tag in
+                ProvenanceReference(field: "names", value: name,
+                                    kind: .retrieval(url: "https://\(tag).example/", retrieved: "2026-09-03", status: 200,
+                                                     mediaType: "text/html", content: "sha256:" + String(repeating: tag, count: 64)))
+            }
+        }
+        var unrelated = Person(key: "unrelated-person", names: ["Unrelated"])
+        unrelated.references = twice("Unrelated")
+        try store.writePerson(unrelated)
+        var related = Person(key: "related-person", names: ["Related"])
+        related.references = twice("Related") + [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "R")]
+        try store.writePerson(related)
+
+        let report = try store.renameEntry(from: "old2020a", to: "new2020a")
+        XCTAssertEqual(report.verdictValuesRewritten, ["related-person"], "無關的記錄不得算進報告：\(report)")
+        let load = try store.load()
+        XCTAssertEqual(load.people.first { $0.key == "unrelated-person" }?.references.count, 2, "不得被收攏")
+        let after = load.people.first { $0.key == "related-person" }?.references ?? []
+        XCTAssertEqual(after.filter { $0.field == "names" }.count, 2, "改寫 verdict 之後兩筆 names reference 都要在")
+        XCTAssertEqual(try holders(ofPerson: "related-person"), ["work:new2020a"])
+    }
+
+    // MARK: - rename 的 format 閘 lazy、讀一次共用（Codex R3 N3）
+
+    /// `lazyStoreFormat()`：第一次呼叫才讀、之後回快取——marker 在第一次讀之後壞掉也不再碰。
+    /// **誠實邊界**：這只證明 rename 的 format 閘本身不多讀；整個 rename 仍會在 `load()` 讀 marker（`StoreVersion.read(data:)`），
+    /// 所以「壞掉的 store.yaml 不擋純 person rename」對 rename **不成立**——R3 N3 的前提對 `writeOrganization` 成立（它不讀佈局），
+    /// 對 rename 不成立。改動的價值是與 R2 同一條紀律（不無條件讀），不是可達性。
+    func testLazyStoreFormatReadsOnceAndCaches() throws {
+        let provider = store.lazyStoreFormat()
+        XCTAssertEqual(try provider(), StoreVersion.supported)
+        try Data([0xFF, 0xFE, 0x00]).write(to: root.appendingPathComponent("store.yaml"))   // 第一次讀之後才壞
+        defer { try? StoreVersion.write(root: root, format: StoreVersion.supported) }
+        XCTAssertEqual(try provider(), StoreVersion.supported, "快取：不再讀 marker")
+        XCTAssertThrowsError(try store.lazyStoreFormat()(), "新的 provider 才會讀到壞掉的 marker")
+    }
+
+    // MARK: - person 腿的寫入閘（DA-3）：與 org／venue 同型，format ≤ 7 的 store 上 rename 要在動 entry 之前擋
+
+    func testRenameRefusesBeforeTouchingEntryWhenPersonGateFails() throws {
+        try entry("old2020a")
+        var p = Person(key: "some-person", names: ["Some Person"])
+        p.references = [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "SP")]
+        try store.writePerson(p)
+        try StoreVersion.write(root: root, format: 7)   // verdict 需要 ≥ 8
+        XCTAssertThrowsError(try store.renameEntry(from: "old2020a", to: "new2020a"))
+        try StoreVersion.write(root: root, format: StoreVersion.supported)
+        XCTAssertEqual(try store.load().entries.map(\.citekey), ["old2020a"], "entry 不得被改動")
+        XCTAssertEqual(try holders(ofPerson: "some-person"), ["work:old2020a"])
+    }
+
+    func testRenamePersonRefusesBeforeTouchingPersonWhenHolderGateFails() throws {
+        try store.writePerson(Person(key: "old-person", names: ["Old"]))
+        var h = Person(key: "holder-person", names: ["Holder"])
+        h.references = [verdict("resolution-rejected", kind: .person, holder: "old-person", literal: "H")]
+        try store.writePerson(h)
+        try StoreVersion.write(root: root, format: 7)
+        XCTAssertThrowsError(try store.renamePerson(from: "old-person", to: "new-person"))
+        try StoreVersion.write(root: root, format: StoreVersion.supported)
+        XCTAssertNotNil(try store.load().people.first { $0.key == "old-person" }, "被改名的 person 不得被寫")
+        XCTAssertEqual(try holders(ofPerson: "holder-person"), ["person:old-person"])
+    }
+
+    // MARK: - live 形狀的回歸（DA-1）：venue 持兩條 `paginated` 判定（value 皆 nil、rests-on 不同），與 rename 無關
+
+    /// `bmc-genomics`／`bmc-bioinformatics`／`bmc-genetics` 的真實形狀（#406 的判定＋早期窗補證）。#395 形的 helper 會把
+    /// 第二條連同它的 rests-on digest 一起刪掉並印成「已遷移」——rename 與 rename-person 兩條路都要原樣。
+    func testUnrelatedRenamesLeaveVenuesWithTwoPaginatedJudgementsAlone() throws {
+        try entry("hayes2024a"); try store.writePerson(Person(key: "shih-chun-ming", names: ["Shih Chun-Ming"]))
+        var v = Venue(key: "bmc-genomics", type: .periodical, names: TimelineOf([TemporalValue(value: "BMC Genomics")]))
+        v.paginated = false   // 判定的 reference 必須指向一個存在的判定值
+        v.references = [
+            ProvenanceReference(field: "paginated", value: nil,
+                                kind: .judgement(statement: "本刊使用文章編號", restsOn: ["sha256:" + String(repeating: "1", count: 64)])),
+            ProvenanceReference(field: "paginated", value: nil,
+                                kind: .judgement(statement: "早期窗補證", restsOn: ["sha256:" + String(repeating: "2", count: 64)])),
+        ]
+        _ = try store.writeVenue(v)
+        let r1 = try store.renameEntry(from: "hayes2024a", to: "hayes2024a-zzz")
+        XCTAssertTrue(r1.verdictValuesRewritten.isEmpty, "\(r1)")
+        let r2 = try store.renamePerson(from: "shih-chun-ming", to: "shih-chun-ming-zzz")
+        XCTAssertTrue(r2.verdictValuesRewritten.isEmpty, "\(r2)")
+        let refs = try store.load().venues.first { $0.key == "bmc-genomics" }?.references ?? []
+        XCTAssertEqual(refs.filter { $0.field == "paginated" }.count, 2, "兩條判定都要在：\(refs)")
+    }
+
+    // MARK: - provider 成功後只讀一次（Codex R3 N6：可殺 mutant）
+
+    /// 一筆帶 verdict 的 organization 會經過**兩個**要 format 的閘（識別碼 reference 檢查、verdict ≥ 8）——
+    /// 沒有快取時 provider 被叫兩次；拿掉 `cached` 這支測試就紅。
+    func testOrganizationWritableGateReadsFormatOnce() throws {
+        var gated = Organization(key: "gated-org", names: TimelineOf([TemporalValue(value: "Gated")]))
+        gated.references = [verdict("resolution-confirmed", kind: .work, holder: "x2020a", literal: "G")]
+        var calls = 0
+        try LibraryStore.assertOrganizationWritable(gated, format: { calls += 1; return StoreVersion.supported })
+        XCTAssertEqual(calls, 1, "provider 成功後只讀一次")
+    }
+
     // MARK: - 多筆 cardinality 回歸：多個 organization 指向同一 citekey（live store 的形狀：9 條、7 個 distinct citekey）
 
     func testSeveralOrganizationsPointingAtOneCitekeyAllMigrateOnRename() throws {

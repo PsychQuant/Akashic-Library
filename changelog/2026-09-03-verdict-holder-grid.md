@@ -49,3 +49,43 @@
   （#271／#460 的既有形狀，本輪一併關）。
 - **dry-run preview 對 verdict 面仍沉默**（#467，issue note 建議同輪落地）——本輪**不做**：preview 的回報形狀要與
   `ResolveReport` 三個 verdict 欄位一起裁，不是加三個迴圈的事；#467 的 `### Blocking` 記本張。
+
+## verify fix round 2（Codex R3 ＋ DA）
+
+- **commit 失敗語意：揭露與遷移都看 `survivorUpdated`**（logic L2 → Codex R3 N1 → DA-2／DA-4；謂詞改了兩次）。
+  四個案例：A：commit 前早退（被併檔不可刪）→ 不揭露、不遷移；B keeper 寫後 entry 寫入失敗 → 揭露 keeper、遷移照做
+  （冪等，重跑補完）；C 被併檔**部分**刪除失敗 → `merged` 不填，而已刪 key 的 holder 不遷移就是**重跑救不回**的死 verdict
+  （`validatePersonPreconditions` 對缺檔候選擲 `candidateMissing`）；D 全刪成、只剩主歧異記錄刪除失敗 → 同 C。
+  `failures.isEmpty`（fix round 1）擋掉 B／C／D；DA 提的 `!merged.isEmpty` 修 D 仍擋 C；`survivorUpdated` 只擋 A——
+  凍結態（無條件遷移）在 B／C／D 本來就對，錯的只有 A。兩支 failure-injection 測試（A：被併檔 immutable；B：keeper 寫後
+  entry immutable）；C／D 沒有注入手段（前移的可刪檢查會在 A 就擋下 immutable），是程式路徑推導。
+- **person 腿的寫入閘**（DA-3）：`assertPersonWritable(_:format:)` 從 `writePerson` 抽出（ended ≥6、attested ≥7、
+  verdict ≥8、巢狀 names ≥10、validate），renameEntry／renamePerson 的 person 迴圈與被改名的 person 本身都接上。此前
+  只 encode——DA 用 format 7 fixture 重現：entry 已改名、person 的 verdict 沒遷移。兩支測試（rename／rename-person）。
+- **DA-1 的 live 形狀回歸**：venue 持兩條 `paginated` 判定（value 皆 nil、rests-on 不同；`bmc-genomics` 三刊的真實形狀），
+  無關的 `rename` 與 `rename-person` 後兩條都在、報告不列它。
+- **rename 側 helper 只對可解析的 verdict 收攏**（R3 N2）：#395 的 `migratedVerdicts` 對**每一筆** reference 做
+  (field, value) dedup，抽出共用後 renameEntry 也繼承了它——一次無關的 rename 會靜默丟掉兩筆同 (field, value)、不同
+  來源的 affiliation reference 並把記錄算進報告。統一到 renameEntry 原本的窄語意（非 verdict 原樣通過）；renamePerson
+  因此只會少收攏。nil／文法不合的 verdict 在載入後的記錄上到不了 helper（三族 `validate()` 擋、load quarantine）。
+- **rename 的 format 閘 lazy、讀一次共用**（R3 N3）：`lazyStoreFormat()`，renameEntry／renamePerson 的 venue 與
+  organization 閘共用。**但 R3 的前提對 rename 不成立**：整個 rename 在 `load()` 就讀 marker（`StoreVersion.read(data:)`），
+  壞掉的 store.yaml 擋住**任何** rename，與閘無關——第一版測試「壞 marker 下純 person rename 成功」實測紅，改成只斷言
+  provider 讀一次並快取。改動的價值是與 R2 同一條紀律（不無條件讀），不是可達性；`writeOrganization` 不讀佈局，R2 對它才是可達性。
+- `PersonRenameReport.verdictValuesRewritten` doc 補 venue（N4）；`migratedVerdicts` 回 `private`（N5）；
+  `assertOrganizationWritable` 的 provider 單次讀取有可殺 mutant 的測試（N6：帶 verdict 的 org 經過兩個要 format 的閘）。
+- CLI 標籤改成不列舉 holder 種類（「持有記錄 key」）——與 #465 對使用者可見字串的同一裁決：列舉第四種出現時就過期。
+
+### 這一輪同時寫下的邊界與義務
+
+- **矩陣沒有 work 記錄欄**，這是本表**唯一**真正結構性的缺席：`Entry.validateReferenceAttachment` 的值域只有
+  doi／pmid／isbn，verdict 欄位落 `default` 直接 throw，entry 記錄不可能持有 verdict（DA-8）。
+- **量 live verdict 要走 YAML 解析，不要單行 grep**：`DB88AB9C-1AE0-56EB-B328-7D65AF7F6D8C.yaml` 的 value 被 YAML
+  折行，` :: ` 在下一行——單行 regex 得 8／6，正確是 9／7（logic L3 因此 REJECTED）。給 #464 的掃描器同一個提醒
+  （它走已解析的 `references`，不受影響；留 comment 附這個檔當 fixture）。
+- **被 quarantine 的記錄整張網格看不見**（DA-7）：一筆 names 不合法的 organization 持 `person:doomed` verdict，
+  `rename-person` 成功並印「無其他記錄引用此 key」，磁碟上那條仍指向退役 key。四格補齊只涵蓋 `load()` 看得見的
+  記錄；#488 的後置條件若也只看 `load()` 同樣看不見。開 follow-up。
+- **merge 後要更新的地方**：#464 第 13 列的歸因（合法 rename 不再產生死 verdict——DA-3 修完這句才成立）；#465 的
+  `AppState.rename` doc 與 `changelog/2026-09-03-app-rename-report.md`（rename 報告的 holder 種類多了 organization）；
+  #467（preview 對 verdict 面沉默）與 #469（rename 側收攏靜默、`RenameReport` 沒有 `verdictsCollapsed`）的範圍隨本張擴大。

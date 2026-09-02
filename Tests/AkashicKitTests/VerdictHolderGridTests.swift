@@ -215,7 +215,7 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(out.map(\.value), [refs[0].value, "person:keeper-person :: B"], "`work:` 那筆不動")
     }
 
-    // MARK: - commit 失敗語意（Codex R3 N1）：揭露看 keeper 寫沒寫，遷移看整個 commit 成沒成
+    // MARK: - commit 失敗語意（Codex R3 N1／DA-2）：揭露與遷移**都**看 keeper 寫沒寫（`survivorUpdated`）
 
     /// keeper 寫入後某筆 entry 寫入失敗（immutable 擋 rename，案例 B）：doomed 不刪、failures 非空，但 holder 遷移
     /// **照做**（冪等，重跑補完其餘）且 keeper 自己已改寫的 holder 是既成事實、報告**必須**揭露。
@@ -271,6 +271,51 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(try holders(ofPerson: "third-person"), ["person:doomed-person"])
         XCTAssertTrue(report.verdictValuesRewritten.isEmpty, "\(report)")
         XCTAssertTrue(report.verdictReferencesMigrated.isEmpty, "#271 的搬移沒落地就不得揭露：\(report)")
+    }
+
+    /// work-merge 側是同一道 guard 的**第二份**（謂詞沒有集中）——B 案：keeper 寫後某筆引用 doomed 的 entry 寫入失敗，
+    /// person 上 `work:<doomed>` 的 holder 仍要遷移、doomed 不刪、failures 非空（Codex R4 N3）。
+    func testWorkMergePartialFailureAfterKeeperWriteStillMigratesHolders() throws {
+        try entry("keeper2020a"); try entry("doomed2020a")
+        var p = Person(key: "holder-person", names: ["Holder"])
+        p.references = [verdict("resolution-confirmed", kind: .work, holder: "doomed2020a", literal: "H")]
+        try store.writePerson(p)
+        var citing = Entry(id: UUID(), citekey: "citing2021a", type: .periodicalArticle, title: "Citing",
+                           authors: [.literal("A B")], date: "2021")
+        citing.akashic.relations.cites = ["doomed2020a"]
+        try store.writeEntry(citing)
+        let d = try divergence(keeper: "keeper2020a", doomed: "doomed2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        let citingURL = store.entityURL(id: citing.id)
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: citingURL.path)
+        defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: citingURL.path) }
+
+        let report = try store.resolveDivergence(id: d.id, survivor: "keeper2020a")
+        XCTAssertTrue(report.hasFailures, "\(report)"); XCTAssertTrue(report.survivorUpdated)
+        XCTAssertEqual(try holders(ofPerson: "holder-person"), ["work:keeper2020a"], "keeper 已落地：遷移照做")
+        XCTAssertTrue(try store.load().entries.contains { $0.citekey == "doomed2020a" }, "失敗路徑不刪被併記錄")
+        XCTAssertTrue(report.verdictValuesRewritten.contains("holder-person"), "\(report)")
+    }
+
+    /// work-merge 側 A 案：被併檔不可刪 → 早退，holder 不動、什麼都不揭露。
+    func testWorkMergeUndeletableDoomedTouchesNoHolder() throws {
+        try entry("keeper2020a")
+        let doomed = Entry(id: UUID(), citekey: "doomed2020a", type: .periodicalArticle, title: "Doomed",
+                           authors: [.literal("A B")], date: "2020")
+        try store.writeEntry(doomed)
+        var p = Person(key: "holder-person", names: ["Holder"])
+        p.references = [verdict("resolution-confirmed", kind: .work, holder: "doomed2020a", literal: "H")]
+        try store.writePerson(p)
+        let d = try divergence(keeper: "keeper2020a", doomed: "doomed2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        let doomedURL = store.entityURL(id: doomed.id)
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: doomedURL.path)
+        defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: doomedURL.path) }
+
+        let report = try store.resolveDivergence(id: d.id, survivor: "keeper2020a")
+        XCTAssertTrue(report.hasFailures, "\(report)"); XCTAssertFalse(report.survivorUpdated)
+        XCTAssertEqual(try holders(ofPerson: "holder-person"), ["work:doomed2020a"], "早退：holder 不得被碰")
+        XCTAssertTrue(report.verdictValuesRewritten.isEmpty, "\(report)")
     }
 
     // MARK: - rename 側 helper 只對可解析的 verdict 收攏（Codex R3 N2）
@@ -331,8 +376,10 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(try holders(ofPerson: "some-person"), ["work:old2020a"])
     }
 
+    /// 被改名的 person 自己**不得**觸發任何閘（空 names——v10 閘只看非空 names），否則測試在 holder 迴圈之前就短路、
+    /// 殺不掉「holder 迴圈少了閘」的 mutant（Codex R4 N2）。
     func testRenamePersonRefusesBeforeTouchingPersonWhenHolderGateFails() throws {
-        try store.writePerson(Person(key: "old-person", names: ["Old"]))
+        try store.writePerson(Person(key: "old-person", names: []))
         var h = Person(key: "holder-person", names: ["Holder"])
         h.references = [verdict("resolution-rejected", kind: .person, holder: "old-person", literal: "H")]
         try store.writePerson(h)

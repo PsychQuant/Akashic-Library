@@ -1698,13 +1698,16 @@ extension LibraryStore {
     }
 
     /// person／organization 共用的實作：頂層標頭 ＋ 第一個 `key:` 行。
+    ///
+    /// 標頭要**整行相等、無前導空白**（`organization:`／`person:` 在 store 格式裡是頂層鍵，錨在行首與
+    /// `citekey:` 版同一條紀律）——縮排的同名鍵（巢狀值裡的 `organization:`）不算，否則一個被 quarantine
+    /// 的別種檔會因為巢狀鍵而被當成宣稱者、再配上檔內第一個不相干的 `key:`（Codex R2）。
     private func quarantinedFileClaiming(topLevel marker: String, key: String, in load: LibraryLoad) -> String? {
         for q in load.quarantined {
             let url = root.appendingPathComponent(q.file)
             guard let text = try? readUTF8(url) else { return q.file }   // fail-closed
             let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-            guard lines.contains(where: { $0.trimmingCharacters(in: .whitespaces) == marker })
-            else { continue }
+            guard lines.contains(where: { $0 == marker }) else { continue }
             for line in lines where line.hasPrefix("key:") {
                 let claimed = line.dropFirst("key:".count)
                     .trimmingCharacters(in: .whitespaces)

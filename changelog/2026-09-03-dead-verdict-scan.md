@@ -2,7 +2,7 @@
 
 resolution verdict 的 value 指向一個**沒有載入**的 holder（`work:<citekey>`／`person:<key>`／`org:<key>`）
 現在由 `LibraryStore.health(from:)` 掃出（`deadVerdictIssues(in:)`），以 warning 級的 `OwnedIssue` 併入
-`perRecordIssues`——CLI `validate` 逐行可見；MCP `akashic_doctor` 進 `recordIssues`（截斷 20 則、`count` 送分母）；
+`perRecordIssues`——CLI `validate` 逐行可見；MCP `akashic_doctor` 進 `recordIssues`（`prefix(20)` 截斷、`count` 送分母，#236 的既有預算）；
 **App 面未渲染 `perRecordIssues`**（#416 起的既有缺口，健康區塊閘在 `hasFindings` 而它只計 error）
 ——追蹤 #487。`StoreHealth.deadVerdictPrefix`／`deadVerdicts` 給三面單一定義。
 
@@ -21,8 +21,8 @@ resolution verdict 的 value 指向一個**沒有載入**的 holder（`work:<cit
 - **解析不了的 value 對已載入記錄不可達**：decode 期的 `validateReferenceAttachment` 把 malformed
   verdict 整檔 quarantine；測試釘住「零的來源在 load」（`zero-instance-guards` 第 8 列的形狀）。
 - **實測**（2026-09-03）：live store 2,700 條 verdict（`grep -h 'field: resolution-' ~/.akashic/entities/*.yaml | wc -l`），
-  死引用 0。重跑指令**自證**（先確認 binary 含這條檢查）——verify DA 在一份真有 5 條死 verdict 的副本上，
-  PATH 上的舊 `akashic` 回 0、`.build/debug/akashic` 回 5。
+  死引用 0（2026-09-03）。重跑指令**自證**（先確認 binary 含這條檢查）——verify DA 2026-09-03 在一份真有
+  5 條死 verdict 的副本上，PATH 上的舊 `akashic` 回 0、`.build/debug/akashic` 回 5。
 - **規則表**：`zero-instance-guards.md` 第 13 列（✅ 寫，理由「跡象住在錯的地方」——家族三張 issue
   #232／#271／#460 是三個結構缺口，stale 實際累積一次、三個場外機制全在 #460 那一次）；第 14 列（❌ 不寫，
   第 10 列的形狀）記錄 #461 交叉註記的第二個掃描項——**本輪只做 set-difference，矛盾偵測（同配對

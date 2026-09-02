@@ -3,13 +3,14 @@ import XCTest
 @testable import AkashicCore
 @testable import AkashicStoreIO
 
-/// #464：死 verdict 掃描——resolution verdict 的 value 指向已不存在的 holder。
+/// #464：死 verdict 掃描——resolution verdict 的 value 指向沒有載入的 holder。
 /// 家族的三個結構缺口（#232 person rename／#271 person merge／#460 venue）至今零守衛；#460 那一次
-/// 的三個場外機制（#456 pilot 人肉 205 條、verify lens 掃出殘留 1 條、set-difference 腳本驗清理）。掃描住在 `StoreHealth`，CLI `validate` 與 App 兩面
-/// 繼承——CLI `validate` 逐行可見、MCP `doctor` 進 `recordIssues`；App 面未渲染 per-record warning（#487）。
-/// 釘住：注入死引用 → warning；乾淨 store → 零；三種 holderKind 各自對到自己的集合（正向與錯集合碰撞）；
-/// 被 quarantine 的 holder 說「被 quarantine」而不是「不存在」；malformed value 對已載入記錄不可達
-/// （零的來源在 decode 的 quarantine，第 8 列的形狀）；三個能帶 verdict 的族都被掃到。
+/// 的三個場外機制（#456 pilot 人肉 205 條、verify lens 掃出殘留 1 條、set-difference 腳本驗清理）。
+/// 掃描住在 `StoreHealth`——CLI `validate` 逐行可見、MCP `doctor` 進 `recordIssues`；App 面未渲染
+/// per-record warning（#487）。釘住：注入死引用 → warning；乾淨 store → 零；三種 holderKind 各自對到
+/// 自己的集合（正向與錯集合碰撞）；被 quarantine 的 holder（work／person／org 三種）說「被 quarantine」
+/// 而不是「不存在」；malformed value 對已載入記錄不可達（三族都在 decode 期 quarantine，第 8 列的形狀）；
+/// `ProvenanceCarrying` 的 conformer 集合被源碼掃描釘住，第五個出現時測試會紅。
 final class DeadVerdictScanTests: XCTestCase {
     private var root: URL!
     private var store: LibraryStore!
@@ -150,6 +151,43 @@ final class DeadVerdictScanTests: XCTestCase {
         XCTAssertFalse(dead[0].issue.message.contains("沒有任何檔宣稱它"))
     }
 
+    /// `person:` 與 `org:` holder 的檔被 quarantine 時同樣分辨得出——這兩條走新加的 org key 查詢與
+    /// 既有的 person key 查詢（Codex R2：前一版只走 work 路徑）。
+    func testQuarantinedPersonAndOrgHoldersAreReportedAsQuarantined() throws {
+        // person 檔：檔名 UUID 與記錄 id 不符 → quarantine；`person:` 標頭與 `key:` 行仍在
+        try PersonYAML.encode(Person(key: "quar-person", names: PersonNames(variant: ["Quar Person"]))).write(
+            to: store.entitiesDir.appendingPathComponent("\(UUID().uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        try OrganizationYAML.encode(Organization(key: "quar-org", names: TimelineOf([TemporalValue(value: "Quar Org")]))).write(
+            to: store.entitiesDir.appendingPathComponent("\(UUID().uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        var o = Organization(key: "some-org", names: TimelineOf([TemporalValue(value: "Some Org")]))
+        o.references = [verdict("resolution-confirmed", kind: .person, holder: "quar-person", literal: "P"),
+                        verdict("resolution-confirmed", kind: .org, holder: "quar-org", literal: "O")]
+        try store.writeOrganization(o)
+        let load = try store.load()
+        XCTAssertEqual(load.quarantined.count, 2)
+        let dead = deadVerdicts(store.health(from: load))
+        XCTAssertEqual(dead.count, 2, "\(dead.map(\.issue.message))")
+        XCTAssertTrue(dead.allSatisfy { $0.issue.message.contains("被 quarantine") }, "\(dead.map(\.issue.message))")
+    }
+
+    /// 縮排的同名鍵不算標頭：一個被 quarantine 的**別種**檔即使內文有縮排的 `organization:`，也不會被當成
+    /// 宣稱者（Codex R2 指出的假陽性路徑）。
+    func testIndentedMarkerInAnotherQuarantinedFileDoesNotClaimTheOrgKey() throws {
+        let text = "entry:\n  organization:\n    nested: true\nkey: some-org\ncitekey: BAD KEY\n"
+        try text.write(to: store.entitiesDir.appendingPathComponent("\(UUID().uuidString).yaml"),
+                       atomically: true, encoding: .utf8)
+        var v = Venue(key: "some-journal", type: .periodical, names: TimelineOf([TemporalValue(value: "J")]))
+        v.references = [verdict("resolution-confirmed", kind: .org, holder: "some-org", literal: "O")]
+        _ = try store.writeVenue(v)
+        let load = try store.load()
+        XCTAssertEqual(load.quarantined.count, 1)
+        let dead = deadVerdicts(store.health(from: load))
+        XCTAssertEqual(dead.count, 1)
+        XCTAssertTrue(dead[0].issue.message.contains("沒有任何檔宣稱它"), dead[0].issue.message)
+    }
+
     /// 解析不了的 verdict value 對**已載入**的記錄結構上不可達：載入端把它整檔 quarantine，
     /// 掃描因此看不到它——零不是掃描的功勞，是 load 的（第 8 列的形狀：釘住為什麼是零）。
     func testMalformedVerdictValueIsUnreachableForLoadedRecords() throws {
@@ -169,6 +207,28 @@ final class DeadVerdictScanTests: XCTestCase {
         XCTAssertEqual(deadVerdicts(store.health(from: load)).count, 0)
     }
 
+    /// 同一件事對 organization 與 venue 兩族也成立（Codex R2：前一版只釘 person）。
+    func testMalformedVerdictValueIsUnreachableForLoadedOrganizationsAndVenues() throws {
+        try entry("alive2020a")
+        let pairing = ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "alive2020a", literal: "X").encoded
+        var o = Organization(key: "some-org", names: TimelineOf([TemporalValue(value: "Some Org")]))
+        o.references = [verdict("resolution-confirmed", kind: .work, holder: "alive2020a", literal: "X")]
+        let ou = try store.writeOrganization(o)
+        var v = Venue(key: "some-journal", type: .periodical, names: TimelineOf([TemporalValue(value: "J")]))
+        v.references = [verdict("resolution-rejected", kind: .work, holder: "alive2020a", literal: "X")]
+        let vu = try store.writeVenue(v)
+        for url in [ou, vu] {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            XCTAssertTrue(text.contains(pairing))
+            try text.replacingOccurrences(of: pairing, with: "nonsense without a separator")
+                .write(to: url, atomically: true, encoding: .utf8)
+        }
+        let load = try store.load()
+        XCTAssertEqual(load.organizations.count, 0); XCTAssertEqual(load.venues.count, 0)
+        XCTAssertEqual(load.quarantined.count, 2, "\(load.quarantined)")
+        XCTAssertEqual(deadVerdicts(store.health(from: load)).count, 0)
+    }
+
     // MARK: - owner 三族是人工列舉——釘住它與 ProvenanceCarrying 的關係
 
     /// `deadVerdictIssues` 逐一寫 people／organizations／venues。`ProvenanceCarrying` 有四個 conformer，
@@ -177,10 +237,17 @@ final class DeadVerdictScanTests: XCTestCase {
     /// 對非識別碼欄位一律 throw，decode 時就拒）。work 側值域一放寬（#443 段記的「目前只收識別碼」），
     /// 本測試的第一個斷言會紅，提醒把 entries 加進掃描。
     func testEveryProvenanceCarrierIsEitherScannedOrCannotCarryAVerdict() throws {
+        // 棘輪：conformer 集合由源碼掃描取得——第五個 conformer 出現時這裡會紅，逼人裁決它要不要進掃描。
+        let source = try EntrySurfaceTests.repoFile("Sources/AkashicCore/Provenance.swift")
+        let conformers = Set(source.matches(of: #/extension (\w+): ProvenanceCarrying \{\}/#).map { String($0.1) })
+        XCTAssertEqual(conformers, ["Entry", "Person", "Organization", "Venue"],
+                       "多了一個 ProvenanceCarrying——決定它要被 deadVerdictIssues 掃、還是像 Entry 一樣帶不了 verdict")
         var e = Entry(id: UUID(), citekey: "x2020a", type: .periodicalArticle, title: "X")
         e.references = [verdict("resolution-confirmed", kind: .work, holder: "gone2019a", literal: "Y")]
         XCTAssertThrowsError(try e.validateReferenceAttachment(),
-                             "Entry 帶不了 verdict——掃描不掃 entries 是因為這裡擋住，不是漏掉")
+                             "Entry 帶不了 verdict——掃描不掃 entries 是因為這裡擋住，不是漏掉") { error in
+            XCTAssertTrue("\(error)".contains("entry.references(field: resolution-confirmed)"), "\(error)")
+        }
         var p = Person(key: "p1", names: PersonNames(variant: ["P One"]))
         p.references = [verdict("resolution-confirmed", kind: .work, holder: "gone2019a", literal: "P")]
         try store.writePerson(p)

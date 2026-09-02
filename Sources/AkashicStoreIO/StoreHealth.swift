@@ -29,7 +29,9 @@ import AkashicCore
 ///
 /// **第二種合法形狀**（#464）：掛進既有的 `perRecordIssues`（一個跨記錄檢查產出的 per-record
 /// warning）。代價是反射守衛看不到它、消費端只能靠訊息前綴區辨——所以那個前綴要有單一定義
-/// （`deadVerdictPrefix`）與一個計算屬性（`deadVerdicts`），各面都從那裡取，不各自 grep。
+/// （`deadVerdictPrefix`，訊息**由它組出**）與一個計算屬性（`deadVerdicts`）；要區辨這一族的
+/// 消費端（測試、日後的 App 面）從那裡取。CLI `validate` 與 MCP `doctor` 直接消費
+/// `perRecordIssues`、不區辨——那是它們的既有形狀。
 public struct StoreHealth {
     /// 跨記錄檢查（重複 citekey／person key 等）。
     public let crossRecordIssues: [ValidationIssue]
@@ -74,7 +76,8 @@ public struct StoreHealth {
     /// 兩個消費面各自渲染。上面的反射守衛自動釘住新欄位。
     public let perRecordIssues: [OwnedIssue]
 
-    /// 死 verdict（#464）的訊息前綴——**單一定義**，測試與日後的 App 面都從這裡取，不各自寫字串。
+    /// 死 verdict（#464）的訊息前綴——**單一定義**：`deadVerdictIssues` 用它組訊息、`deadVerdicts` 用它篩，
+    /// 測試與日後的 App 面也從這裡取。改這個常數，組與篩一起變。
     public static let deadVerdictPrefix = "死 verdict"
     /// `perRecordIssues` 裡的死 verdict。是計算屬性不是儲存屬性：它是 `perRecordIssues` 的
     /// 子集（同一份事實的一個切面），存兩份會分岔（`entity-backlink-completeness` 的立場）。
@@ -186,8 +189,8 @@ public extension LibraryStore {
         }
         // #464：死 verdict 掃描——跨記錄的一致性（holder 是否還在），單筆 `validate()`
         // 結構上看不到。附加在各族之後：`errorsFirst` 是穩定分割，warning 內保持此序；MCP 面取
-        // `prefix(20)`，per-record warning 若累積到 20 以上（live store 今天 2 條）這一族會被擠出
-        // `first`——那時要重排或給專屬計數，這裡先記下。
+        // `prefix(20)`（`AkashicService.doctor()` 的既有截斷），per-record warning 若累積到 20 以上
+        // （2026-09-03 實測 live store 2 條）這一族會被擠出 `first`——那時要重排或給專屬計數，這裡先記下。
         perRecord += deadVerdictIssues(in: load)
         return StoreHealth(
             crossRecordIssues: cross,
@@ -226,9 +229,10 @@ public extension LibraryStore {
     ///
     /// 判準是 set-difference：`work:` holder ∈ 已載入 citekey 集合、`person:` ∈ person key
     /// 集合、`org:` ∈ organization key 集合。**「不在集合」有兩種意思，訊息分開說**：holder 的
-    /// 檔仍在磁碟但被 quarantine（先修那個檔）；或沒有任何檔宣稱它（holder 已退役而這筆 verdict
-    /// 沒跟著遷移——最常見的來源是 #463 網格裡還沒補的格——處置是更新或刪掉這筆 verdict）。
-    /// 訊息裡不放 issue 編號與成因臆測（那是給維護者看的，寫在這裡）。
+    /// 檔仍在磁碟但被 quarantine（先修那個檔）；或沒有任何檔宣稱它（掃描證得到的只有這件事——
+    /// 最常見的成因是 holder 退役而 verdict 沒跟著遷移，即 #463 網格裡還沒補的格，但也可能是 key
+    /// 打錯或壞的匯入；處置是確認後更新或刪掉這筆 verdict）。訊息只說掃描證得到的事實與處置，
+    /// 成因與 issue 編號寫在這裡給維護者看。
     ///
     /// **severity 是 warning——三個理由，都不是「記錄仍合法」、也不是「rename 後常態為真」**
     /// （後者為假：`renameEntry` 沒有 organizations 迴圈——#463 的格——所以只有 org 持有的那幾條
@@ -278,13 +282,13 @@ public extension LibraryStore {
                 let literal = displaySafe(p.literal, max: 120)
                 let message: String
                 if let file = quarantinedFile(p) {
-                    message = "死 verdict（暫定）：\(r.field) 的 holder \(target) 未載入——它的檔 "
+                    message = "\(StoreHealth.deadVerdictPrefix)（暫定）：\(r.field) 的 holder \(target) 未載入——它的檔 "
                             + "\(displaySafe(file, max: 200)) 被 quarantine。先修那個檔，修好後這條會消失"
                             + "（literal「\(literal)」）"
                 } else {
-                    message = "死 verdict：\(r.field) 的 holder \(target) 不在載入集合，且沒有任何檔宣稱它"
-                            + "——holder 已退役而這筆 verdict 沒跟著遷移。"
-                            + "處置：在本記錄的 references 更新或刪掉這筆 verdict（literal「\(literal)」）"
+                    message = "\(StoreHealth.deadVerdictPrefix)：\(r.field) 的 holder \(target) 不在載入集合，且沒有任何檔宣稱它。"
+                            + "處置：確認 holder 是否真的退役（最常見）或 key 打錯，然後在本記錄的 references "
+                            + "更新或刪掉這筆 verdict（literal「\(literal)」）"
                 }
                 return StoreHealth.OwnedIssue(owner: owner, kind: kind,
                                               issue: ValidationIssue(severity: .warning, message: message))

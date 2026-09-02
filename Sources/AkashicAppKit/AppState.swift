@@ -297,7 +297,7 @@ public final class AppState {
             // 根治（`attempt` 的簽名、兩條分支都不丟）屬 follow-up。
             throw AppStateError.renamedButReloadFailed(
                 report: report,
-                underlying: (error as? LocalizedError)?.errorDescription ?? "\(error)")
+                underlying: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
         }
         return report
     }

@@ -2,7 +2,8 @@ import Foundation
 import AkashicCore
 import AkashicStoreIO
 
-/// `RenameReport` 的人可讀摘要——**nonisolated 純函式**，住在 View 之外：`AppStateError` 的
+/// `RenameReport` 的人可讀摘要——**nonisolated 純函式**（顯式標記，不靠 package 的預設隔離：本 package 是
+/// swift-tools 5.9、無 `defaultIsolation` 設定，bare enum 本來就 nonisolated，但寫出來讓意圖由編譯器守），住在 View 之外：`AppStateError` 的
 /// `errorDescription`（同步、任意呼叫端）與 `EntryDetailView` 的回執都用它。model 不得依賴 View
 /// （#465 verify Codex R2：`LocalizedError` 綁到 MainActor 隔離的 `View` 型別在嚴格並行下會變 error）。
 ///
@@ -18,12 +19,12 @@ import AkashicStoreIO
 /// （三元隱式 return、無 tainted token，#485）。
 enum RenameReportSummary {
     /// 回執：第一行「✓ old → new」——alert 要說出改成了什麼，否則與一次不編輯的點擊同形（DA-2）。
-    static func receipt(_ r: RenameReport, from old: String, to new: String) -> String {
+    nonisolated static func receipt(_ r: RenameReport, from old: String, to new: String) -> String {
         "✓ \(displaySafe(old, max: 200)) → \(displaySafe(new, max: 200))\n" + lines(r)
     }
 
     /// 三類連帶改寫各一行。
-    static func lines(_ r: RenameReport) -> String {
+    nonisolated static func lines(_ r: RenameReport) -> String {
         func line(_ label: String, _ xs: [String]) -> String {
             let shown = xs.prefix(5).map { displaySafe($0, max: 200) }.joined(separator: "、")
             return xs.isEmpty ? "\(label)：0 筆"

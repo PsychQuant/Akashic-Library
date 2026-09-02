@@ -145,7 +145,7 @@ final class AppStateTests: XCTestCase {
         let long = String(repeating: "k", count: 260)
         let text = RenameReportSummary.lines(RenameReport(relationsRewritten: ["a\tb", long]))
         XCTAssertFalse(text.contains("\t"), "控制字元不得原樣進 alert")
-        XCTAssertTrue(text.contains("u{0009}"), text)
+        XCTAssertTrue(text.contains("a\\u{0009}b"), "displaySafe 的逃脫形是 \\u{XXXX}（含反斜線）：\(text)")
         XCTAssertFalse(text.contains(long), "260 字的 key 要被截")
     }
 

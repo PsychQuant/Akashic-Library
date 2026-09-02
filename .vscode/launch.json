@@ -59,6 +59,26 @@
             "target": "tractatus-doc",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release tractatus-doc"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Akashic-Library}",
+            "name": "Debug UnicodeNormalizationGenerator",
+            "target": "UnicodeNormalizationGenerator",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug UnicodeNormalizationGenerator"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Akashic-Library}",
+            "name": "Release UnicodeNormalizationGenerator",
+            "target": "UnicodeNormalizationGenerator",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release UnicodeNormalizationGenerator"
         }
     ]
 }

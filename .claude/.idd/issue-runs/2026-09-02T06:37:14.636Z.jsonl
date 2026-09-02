@@ -1,0 +1,42 @@
+{
+  "run_id": "2026-09-02T06:37:14.636Z",
+  "source": "verify-report:#461 (PR #466, R1 2026-09-02)",
+  "source_type": "pasted-text",
+  "total_findings": 4,
+  "actions": [
+    {
+      "finding_id": 1,
+      "finding_quote": "previewResolveDivergence 的 .work 分支不算 person／venue 的 verdict 面（security F4 + logic #6）",
+      "action": "create",
+      "issue_number": 467,
+      "issue_url": "https://github.com/PsychQuant/Akashic-Library/issues/467"
+    },
+    {
+      "finding_id": 2,
+      "finding_quote": "收攏留存者的 kind 由排列決定；留哪一筆未裁決（security F1 + DA D1c）",
+      "action": "create",
+      "issue_number": 468,
+      "issue_url": "https://github.com/PsychQuant/Akashic-Library/issues/468"
+    },
+    {
+      "finding_id": 3,
+      "finding_quote": "verdict 遷移改寫的 holder 檔不在 filesNotSafelyRecoverable 範圍（security F3 + DA D5）",
+      "action": "create",
+      "issue_number": 469,
+      "issue_url": "https://github.com/PsychQuant/Akashic-Library/issues/469"
+    },
+    {
+      "finding_id": 4,
+      "finding_quote": "verdict 相等寫入面位元組精確、讀取面正規化（logic #5）",
+      "action": "create",
+      "issue_number": 470,
+      "issue_url": "https://github.com/PsychQuant/Akashic-Library/issues/470"
+    }
+  ],
+  "started_at": "2026-09-02T06:37:14.636Z",
+  "completed_at": "2026-09-02T06:38:21.079Z",
+  "succeeded": 4,
+  "failed": 0,
+  "skipped": 0,
+  "note": "first dispatch loop mis-paired bodies (zsh 1-indexed array); bodies of #467-#469 repaired by edit within the same run before any reader"
+}

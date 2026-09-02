@@ -1,0 +1,115 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../Academic/projects/active/storyline"
+		}
+	],
+	"settings": {},
+	"launch": {
+		"configurations": [
+			{
+				"type": "swift",
+				"request": "launch",
+				"args": [],
+				"cwd": "${workspaceFolder:Akashic-Library}",
+				"name": "Debug akashic (Akashic-Library)",
+				"target": "akashic",
+				"configuration": "debug",
+				"preLaunchTask": "swift: Build Debug akashic (Akashic-Library)"
+			},
+			{
+				"type": "swift",
+				"request": "launch",
+				"args": [],
+				"cwd": "${workspaceFolder:Akashic-Library}",
+				"name": "Release akashic (Akashic-Library)",
+				"target": "akashic",
+				"configuration": "release",
+				"preLaunchTask": "swift: Build Release akashic (Akashic-Library)"
+			},
+			{
+				"type": "swift",
+				"request": "launch",
+				"args": [],
+				"cwd": "${workspaceFolder:Akashic-Library}",
+				"name": "Debug tractatus-doc (Akashic-Library)",
+				"target": "tractatus-doc",
+				"configuration": "debug",
+				"preLaunchTask": "swift: Build Debug tractatus-doc (Akashic-Library)"
+			},
+			{
+				"type": "swift",
+				"request": "launch",
+				"args": [],
+				"cwd": "${workspaceFolder:Akashic-Library}",
+				"name": "Release tractatus-doc (Akashic-Library)",
+				"target": "tractatus-doc",
+				"configuration": "release",
+				"preLaunchTask": "swift: Build Release tractatus-doc (Akashic-Library)"
+			},
+			{
+				"type": "swift",
+				"request": "launch",
+				"args": [],
+				"cwd": "${workspaceFolder:Akashic-Library}",
+				"name": "Debug akashic-mcp (Akashic-Library)",
+				"target": "akashic-mcp",
+				"configuration": "debug",
+				"preLaunchTask": "swift: Build Debug akashic-mcp (Akashic-Library)"
+			},
+			{
+				"type": "swift",
+				"request": "launch",
+				"args": [],
+				"cwd": "${workspaceFolder:Akashic-Library}",
+				"name": "Release akashic-mcp (Akashic-Library)",
+				"target": "akashic-mcp",
+				"configuration": "release",
+				"preLaunchTask": "swift: Build Release akashic-mcp (Akashic-Library)"
+			},
+			{
+				"type": "swift",
+				"request": "launch",
+				"args": [],
+				"cwd": "${workspaceFolder:Akashic-Library}",
+				"name": "Debug UnicodeNormalizationGenerator (Akashic-Library)",
+				"target": "UnicodeNormalizationGenerator",
+				"configuration": "debug",
+				"preLaunchTask": "swift: Build Debug UnicodeNormalizationGenerator (Akashic-Library)"
+			},
+			{
+				"type": "swift",
+				"request": "launch",
+				"args": [],
+				"cwd": "${workspaceFolder:Akashic-Library}",
+				"name": "Release UnicodeNormalizationGenerator (Akashic-Library)",
+				"target": "UnicodeNormalizationGenerator",
+				"configuration": "release",
+				"preLaunchTask": "swift: Build Release UnicodeNormalizationGenerator (Akashic-Library)"
+			},
+			{
+				"type": "swift",
+				"request": "launch",
+				"args": [],
+				"cwd": "${workspaceFolder:Akashic-Library}",
+				"name": "Debug akashic-guards (Akashic-Library)",
+				"target": "akashic-guards",
+				"configuration": "debug",
+				"preLaunchTask": "swift: Build Debug akashic-guards (Akashic-Library)"
+			},
+			{
+				"type": "swift",
+				"request": "launch",
+				"args": [],
+				"cwd": "${workspaceFolder:Akashic-Library}",
+				"name": "Release akashic-guards (Akashic-Library)",
+				"target": "akashic-guards",
+				"configuration": "release",
+				"preLaunchTask": "swift: Build Release akashic-guards (Akashic-Library)"
+			}
+		]
+	}
+}

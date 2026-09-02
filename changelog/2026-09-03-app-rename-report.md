@@ -8,9 +8,11 @@
   App 先前 `_ =` 把報告丟掉——使用者按下「改名」後看不到動了什麼。`entity-backlink-completeness`
   執行細節 2 的形狀：三面走同一條 `renameEntry`，App 這面把輸出丟了。（不引 `lossless-intake`：那條
   明文不適用於 App 顯示。）
-- **回執要說改成了什麼**：沒改就不能按（`disabled` ＋ `performRename` 再擋一次），否則一次不編輯的點擊
-  會得到與真改名同形的「已改名／0／0／0」（verify DA）。
-- **消毒與 CLI 同立場**：`describe` 對每個 key 套 `displaySafe(max: 200)`；`DisplaySinkCoverageTests` 對這條
+- **回執要說改成了什麼**：沒改就不執行（`disabled` 在各版 macOS 的 alert 按鈕上不保證生效，`performRename`
+  一定再擋一次），否則一次不編輯的點擊會得到與真改名同形的「已改名／0／0／0」（verify DA）。
+- **摘要住在 View 之外**：`RenameReportSummary`（nonisolated 純函式）——`AppStateError.errorDescription` 與
+  `EntryDetailView` 都用它，model 不依賴 View（Codex R2）。
+- **消毒與 CLI 同立場**：`RenameReportSummary` 對每個 key 套 `displaySafe(max: 200)`；`DisplaySinkCoverageTests` 對這條
   路徑結構上不可見（#485 記著）。
 - **三個 alert 掛在 if／else 之外**：回執看不看得到不綁在記錄找不找得到上。
 - **alert 串 alert，未實機量測**：「已改名」是在「改名 citekey」alert 的按鈕閉包裡被要求呈現的。本 repo 有

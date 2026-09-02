@@ -176,7 +176,8 @@ struct EntryDetailView: View {
         .alert("改名 citekey", isPresented: $showRename) {
             TextField("新 citekey", text: $renameTarget)
                 .font(.body.monospaced())
-            // 沒改就不能按：不然一次不編輯的點擊會得到「已改名／0／0／0」，與真改名同形（verify DA-2）。
+            // 沒改就不執行：不然一次不編輯的點擊會得到「已改名／0／0／0」，與真改名同形（verify DA-2）。
+            // `.disabled` 在各版 macOS 的 alert 按鈕上不保證生效，`performRename` 一定再擋一次。
             Button("改名（搬檔＋全庫引用遷移）") { performRename(from: citekey) }
                 .disabled(renameTarget.isEmpty || renameTarget == citekey)
             Button("取消", role: .cancel) {}
@@ -192,7 +193,7 @@ struct EntryDetailView: View {
             set: { if !$0 { renameOutcome = nil } })) {
             Button("好") { renameOutcome = nil }
         } message: {
-            Text(renameOutcome.map { Self.describe($0.report, from: $0.from, to: $0.to) } ?? "")   // display-safe-exempt: describe 對每個 key 套 displaySafe(max: 200)（與 CLI rename 同立場）；守衛對本路徑結構上不可見（無 tainted token）
+            Text(renameOutcome.map { RenameReportSummary.receipt($0.report, from: $0.from, to: $0.to) } ?? "")   // display-safe-exempt: RenameReportSummary 對每個 key 套 displaySafe(max: 200)（與 CLI rename 同立場）；守衛對本路徑結構上不可見（無 tainted token）
         }
         .alert("操作失敗", isPresented: Binding(
             get: { errorMessage != nil },
@@ -295,7 +296,8 @@ struct EntryDetailView: View {
     }
 
     private func performRename(from oldKey: String) {
-        // 與按鈕的 disabled 同一條件再擋一次（alert 按鈕的 disabled 在各版 macOS 上不保證生效）。
+        // 與按鈕的 disabled 同一條件再擋一次（alert 按鈕的 disabled 在各版 macOS 上不保證生效）——
+        // 所以承諾是「沒改就不執行」，不是「不能按」。
         guard !renameTarget.isEmpty, renameTarget != oldKey else {
             errorMessage = "新 citekey 與現在的相同（或為空），沒有改名"
             return
@@ -309,34 +311,7 @@ struct EntryDetailView: View {
         }
     }
 
-    /// `RenameReport` 的人可讀摘要——三類連帶改寫各一行。**標籤**與 CLI `rename` 的三行逐字相同
-    /// （「relations 已遷移」「歧異候選已遷移」「消解判定已遷移」）；**三處刻意不同**：零筆說零而 CLI
-    /// 省略（GUI 沒有 scrollback，回執沉默會讓「沒有連帶改寫」與「App 沒告訴我」不可分辨——這與
-    /// `ContentView` 健康區塊的「沉默即健康」是**不同語意**：那是被動儀表板，這是動作回執，不要為了
-    /// 一致性統一）、只列前五筆但計數保留（alert 不是清單）、分隔符用「、」。
-    ///
-    /// 每個 key 套 `displaySafe(max: 200)`——與 CLI 同一立場：這些值經 load 端 `StoreKey` 把關
-    /// （relations 是 citekey、verdict 是 person／venue key）或是 UUID（歧異候選），結構上載不了控制
-    /// 字元，但 `StoreKey` 不約束長度，且「同一份資料兩種待遇，遲早有人照沒消毒的那個抄」
-    /// （`AkashicService` 對同類值的既有裁決）。`DisplaySinkCoverageTests` 對本函式結構上不可見（三元
-    /// 隱式 return、無 tainted token，#485）。
-    ///
-    /// 帶 `from:to:` 的版本多第一行「✓ old → new」——alert 要說出改成了什麼，否則與一次不編輯的點擊
-    /// 同形（verify DA-2）。
-    static func describe(_ r: RenameReport, from old: String, to new: String) -> String {
-        "✓ \(displaySafe(old, max: 200)) → \(displaySafe(new, max: 200))\n" + describe(r)
-    }
-
-    static func describe(_ r: RenameReport) -> String {
-        func line(_ label: String, _ xs: [String]) -> String {
-            let shown = xs.prefix(5).map { displaySafe($0, max: 200) }.joined(separator: "、")
-            return xs.isEmpty ? "\(label)：0 筆"
-                              : "\(label)：\(xs.count) 筆（\(shown)\(xs.count > 5 ? "…" : "")）"
-        }
-        return [line("relations 已遷移", r.relationsRewritten),
-                line("歧異候選已遷移", r.divergenceCandidatesRewritten),
-                line("消解判定已遷移", r.verdictValuesRewritten)].joined(separator: "\n")
-    }
+    // 摘要住在 `RenameReportSummary`（View 之外的 nonisolated formatter）——`AppStateError` 也用它。
 
     private func attempt(_ action: () throws -> Void) {
         do {

@@ -295,7 +295,9 @@ public final class AppState {
             // 改名已經寫進磁碟（全庫改寫完成），只是 index／快照沒跟上。錯誤訊息要說出這件事，
             // 而且帶著報告——否則本張要修的形狀在更窄的窗口重演（verify regression／logic）。
             // 根治（`attempt` 的簽名、兩條分支都不丟）屬 follow-up。
-            throw AppStateError.renamedButReloadFailed(report: report, underlying: "\(error)")
+            throw AppStateError.renamedButReloadFailed(
+                report: report,
+                underlying: (error as? LocalizedError)?.errorDescription ?? "\(error)")
         }
         return report
     }
@@ -327,10 +329,10 @@ public final class AppState {
 public enum AppStateError: Error, LocalizedError {
     case unknownFile(String)
     case notALibrary(String)
-    /// #15：library key 是**參照**不是自由字串——加進不存在的 library 會產生懸空成員關係。
-    case unknownLibrary(String)
     /// #465：改名已寫入磁碟，但 index 重建或重載失敗。帶著報告，讓使用者知道全庫已被改寫了什麼。
     case renamedButReloadFailed(report: RenameReport, underlying: String)
+    /// #15：library key 是**參照**不是自由字串——加進不存在的 library 會產生懸空成員關係。
+    case unknownLibrary(String)
 
     public var errorDescription: String? {
         switch self {
@@ -338,13 +340,14 @@ public enum AppStateError: Error, LocalizedError {
             return "library「\(displaySafe(key, max: 200))」不在 registry 裡"
                  + "——先用 akashic library create 建立，或從清單挑一個既有的"
         // #155：key／path 來自 config.yaml 與使用者輸入——同 unknownLibrary 消毒
-        case .renamedButReloadFailed(let report, let underlying):
-            return "改名**已寫入磁碟**，但索引重建或重載失敗：\(displaySafe(underlying, max: 300))\n\n"
-                 + EntryDetailView.describe(report) + "\n\n重新開啟檔案或跑 akashic doctor 重建索引。"
         case .unknownFile(let key):
             return "檔案 key「\(displaySafe(key, max: 200))」未註冊於 config"
         case .notALibrary(let path):
             return "「\(displaySafe(path, max: 300))」不是 Akashic library（缺 entries/）"
+        case .renamedButReloadFailed(let report, let underlying):
+            // 純文字（`Text(String)` 不解析 Markdown）；摘要用 View 之外的 formatter（model 不依賴 View）
+            return "改名已寫入磁碟，但索引重建或重載失敗：\(displaySafe(underlying, max: 300))\n\n"
+                 + RenameReportSummary.lines(report) + "\n\n重新開啟檔案或跑 akashic doctor 重建索引。"
         }
     }
 }

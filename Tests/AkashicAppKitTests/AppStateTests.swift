@@ -125,7 +125,7 @@ final class AppStateTests: XCTestCase {
     /// 超過五筆截斷但計數保留。
     func testRenameReportSummaryListsAllThreeFamiliesAndTruncates() {
         let many = (1...7).map { "w\($0)" }
-        let text = EntryDetailView.describe(RenameReport(relationsRewritten: many,
+        let text = RenameReportSummary.lines(RenameReport(relationsRewritten: many,
                                                          divergenceCandidatesRewritten: [],
                                                          verdictValuesRewritten: ["some-person"]))
         let lines = text.split(separator: "\n").map(String.init)
@@ -134,9 +134,30 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(lines[1], "歧異候選已遷移：0 筆")
         XCTAssertEqual(lines[2], "消解判定已遷移：1 筆（some-person）")
         // 帶 from/to 的版本第一行說出改成了什麼——與一次不編輯的點擊不同形（DA-2）
-        let full = EntryDetailView.describe(RenameReport(), from: "a2020a", to: "a2020b")
+        let full = RenameReportSummary.receipt(RenameReport(), from: "a2020a", to: "a2020b")
         XCTAssertEqual(full.split(separator: "\n").first.map(String.init), "✓ a2020a → a2020b")
         XCTAssertEqual(full.split(separator: "\n").count, 4)
+        XCTAssertEqual(full, "✓ a2020a → a2020b\nrelations 已遷移：0 筆\n歧異候選已遷移：0 筆\n消解判定已遷移：0 筆")
+    }
+
+    /// 消毒與 CLI 同立場：控制字元被逃脫、超長 key 被截（displaySafe(max: 200)）。
+    func testRenameSummarySanitizesKeys() {
+        let long = String(repeating: "k", count: 260)
+        let text = RenameReportSummary.lines(RenameReport(relationsRewritten: ["a\tb", long]))
+        XCTAssertFalse(text.contains("\t"), "控制字元不得原樣進 alert")
+        XCTAssertTrue(text.contains("u{0009}"), text)
+        XCTAssertFalse(text.contains(long), "260 字的 key 要被截")
+    }
+
+    /// 部分成功的錯誤描述帶著報告，且說出「已寫入磁碟」；純文字、無 Markdown。
+    func testRenamedButReloadFailedDescriptionCarriesTheReport() {
+        let e = AppStateError.renamedButReloadFailed(
+            report: RenameReport(relationsRewritten: ["w1"]), underlying: "index boom")
+        let d = e.errorDescription ?? ""
+        XCTAssertTrue(d.contains("已寫入磁碟"), d)
+        XCTAssertTrue(d.contains("index boom"), d)
+        XCTAssertTrue(d.contains("relations 已遷移：1 筆（w1）"), d)
+        XCTAssertFalse(d.contains("**"), "Text(String) 不解析 Markdown，星號會原樣顯示")
     }
 }
 

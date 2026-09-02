@@ -22,6 +22,10 @@
 - **部分成功不再只剩「操作失敗」**：`renameEntry` 已寫入而 `reindexAndReload` 失敗時，
   `AppStateError.renamedButReloadFailed` 帶著報告、訊息明說「已寫入磁碟」。根治（兩條分支都不丟、`attempt`
   的簽名）屬 follow-up。
+- **隔離顯式化**（verify Codex R3）：`RenameReportSummary` 的兩個 static func 標 `nonisolated`——本 package 是
+  swift-tools 5.9、無 `defaultIsolation`，bare enum 本來就 nonisolated，但寫出來讓「model 不依賴 View、
+  可從任意 context 呼叫」由編譯器守，而不是靠註解。`renamedButReloadFailed` 的 `underlying` fallback 改
+  `error.localizedDescription`；消毒測試的逃脫斷言改精確形（`a\u{0009}b`，與 `DisplaySafeTests` 同）。
 - **測試**：`AppStateTests.testRenameThroughStateReturnsTheMigrationReport`（relations 與 verdict 兩類非空、
   歧異候選為空、store 與持久化的 verdict holder 真的改了）、`testRenameReportSummaryListsAllThreeFamiliesAndTruncates`
   （含 `from:to:` 首行）。

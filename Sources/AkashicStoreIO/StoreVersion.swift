@@ -114,9 +114,15 @@ public enum StoreVersion {
     ///
     ///   write gate 對 format < 13 拒寫含識別碼 reference 的記錄（#394 §6 既有）。
     /// - **14** ＝ venue 的 `names` 拆出 `variant` 分割（#422）＋ `paginated` 三態
-    ///   **頂層欄位**（#406）。**non-additive**：`VenueYAML.knownKeys` 是封閉鍵域，
-    ///   format-13 binary 讀到頂層 `variant:`／`paginated:` → `rejectUnknownKeys`
-    ///   擲錯 → 整檔 quarantine。
+    ///   **頂層欄位**（#406）。**對舊 binary 是 additive**——`VenueYAML.decode` 走
+    ///   `captureUnknownBlocks` 的 tolerant-preserve，format-13 binary 讀到頂層
+    ///   `variant:`／`paginated:` 會**原樣保留而不解讀**（#422 verify R1 更正：第一版寫
+    ///   「`VenueYAML.knownKeys` 是封閉鍵域 → `rejectUnknownKeys` → 整檔 quarantine」，
+    ///   與程式相反；format 13 那一列早四天就對同一層的 `issn:` 實測過同一件事，且
+    ///   `VenueTests.testUnknownFieldsTolerantPreserved` 釘著）。**仍 bump 的理由沿用
+    ///   format 11／13 的既有裁決**：「保留而不解讀」對一個**分割標記**等於舊 binary 安靜地
+    ///   把異寫法當一般名字顯示、把 `paginated` 當從未判定——不會大聲失敗，所以更需要
+    ///   marker 讓 refuse-if-newer 出聲。
     ///
     ///   （這一行是 #406 R1 verify 補的——先前 13 的說明直接接 `supported`，
     ///   「14 是什麼」只存在於 docs/store-format.md，兩份規格少一份。）

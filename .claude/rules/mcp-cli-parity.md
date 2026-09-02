@@ -173,7 +173,7 @@ grep -rhoE 'struct [A-Za-z]+:[^{]*\bParsableArguments\b' Sources/akashic/ \
   | sed -E 's/^struct ([A-Za-z]+):.*/\1/' | sort -u
 ```
 
-## CLI-only 裁決表（封閉列舉——#259 一次性補裁；12 命令＋1 旗標，`bootstrap-venues` 於 #367 新增時當場裁決，一格不多一格不少；`import-wos` 於 #290、`resolve-organizations` 於 #304 venue change 補 MCP 面後移列 MCP 表；`migrate-person-identity` 於 #227/#241、`migrate-venues` 於 #304 venue change 新增時當場裁決）
+## CLI-only 裁決表（封閉列舉——#259 一次性補裁；**列數以下表為準、表頭不寫死**（#422 verify R1 實測表頭的「12 命令＋1 旗標」與表已漂移多列——同 `entity-backlink-completeness` 對條數的既有作法：複述過的數字會與表分岔）；`bootstrap-venues` 於 #367 新增時當場裁決；`import-wos` 於 #290、`resolve-organizations` 於 #304 venue change 補 MCP 面後移列 MCP 表；`migrate-person-identity` 於 #227/#241、`migrate-venues` 於 #304 venue change 新增時當場裁決）
 
 新增 CLI subcommand = 在這張表加一列（或補 MCP 面後在 MCP 表加一列）。兩個
 裁決用語：**維運例外**＝要求操作者在檔案系統與版控旁（git 退路、人工

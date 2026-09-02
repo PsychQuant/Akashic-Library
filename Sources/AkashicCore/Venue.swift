@@ -210,14 +210,14 @@ public struct Venue: Equatable {
         // **兩個分割不得有交集**（#422）：一個名字不能既是權威形又是它自己的異寫。
         // 這是 error 不是 warning——它不是「資料不完整」，是**自相矛盾**：
         // 讀取面對同一個字串會得到兩個相反的答案。
-        let overlap = Set(authorized).intersection(variant).sorted()
-        if !overlap.isEmpty {
-            issues.append(ValidationIssue(
-                severity: .error,
-                message: "venue '\(displaySafe(key, max: 120))' 的 authorized 與 variant "
-                       + "同時含「\(displaySafe(overlap.joined(separator: "、"), max: 200))」"
-                       + "——一個名字不能既權威又是它的異寫"))
-        }
+        //
+        // 判定走 `AuthorizedNames.validateDisjointPartitions`——與 person 同一份守衛，用
+        // `NameIdentity`（只收前後與內部空白、**不**大小寫摺疊）而非精確 `String ==`：
+        // #296 已量過只差空白的近重複會穿透精確比對；#422 verify R1 四席一致指出第一版
+        // 在 venue 上重造了那個較弱的副本。大小寫不摺疊是刻意的——WoS 全大寫 vs 正常
+        // 大小寫正是本分割要裝的那種異寫（實測 32 筆遷移 variant 全是此形）。
+        issues += AuthorizedNames.validateDisjointPartitions(authorized: authorized,
+                                                             variant: variant, ownerKey: key)
         // **variant 的名字必須在 `names` 裡**（同 `authorized` 的既有立場）：
         // 兩個分割都是**對 `names` 的標記**，不是獨立的清單。
         let known = Set(names.entries.map(\.value))
@@ -228,6 +228,25 @@ public struct Venue: Equatable {
                 message: "venue '\(displaySafe(key, max: 120))' 的 variant "
                        + "「\(displaySafe(orphan.joined(separator: "、"), max: 200))」"
                        + "不在 names 裡——分割是對 names 的標記，不是獨立清單"))
+        }
+        // **variant 不得帶時間欄位**（#422 spec：「Names listed in the `variant` partition
+        // SHALL NOT carry temporal fields」＋ Scenario「A variant carrying a date fails
+        // validation」）。異寫法沒有「何時起生效」可言——問 `PLoS One` 何時開始是
+        // `PLOS ONE` 的異寫，不是一個關於世界的問題；時間欄位保留給沿革。這是 error：
+        // 同一筆記錄同時斷言「這是異寫」與「這是某段期間的刊名」是自相矛盾。
+        // #422 verify R1 實測第一版零實作——遷移的「帶時間整筆跳過」只保證遷移自己
+        // 不造出這種記錄，擋不了手改 YAML 與未來寫入面；守衛住在 validate → writeVenue
+        // 的交會處才擋得住所有路徑。判準與遷移共用 `DateRange.makesTemporalClaim`。
+        let variantSet = Set(variant)
+        let datedVariants = names.entries
+            .filter { variantSet.contains($0.value) && $0.range.makesTemporalClaim }
+            .map(\.value)
+        if !datedVariants.isEmpty {
+            issues.append(ValidationIssue(
+                severity: .error,
+                message: "venue '\(displaySafe(key, max: 120))' 的 variant "
+                       + "「\(displaySafe(datedVariants.joined(separator: "、"), max: 200))」"
+                       + "帶時間欄位——異寫法沒有生效期間；時間欄位是沿革的，二者擇一"))
         }
         issues += IdentifierDiagnostics.nonNormal(issn, field: "venue.issn")
         // 認不出的 ISSN 角色**保留原值並報出來**（#394 verify）——不猜、也不靜默丟。

@@ -34,7 +34,7 @@ let adjudicated: Set<String> = [
     "Temporal.contacts", "Temporal.current", "Temporal.end",
     "Temporal.endedUnknown", "Temporal.entries", "Temporal.fields",
     "Temporal.inSerializationOrder", "Temporal.isEmpty", "Temporal.isOpen",
-    "Temporal.latestPastSegment", "Temporal.note", "Temporal.range",
+    "Temporal.latestPastSegment", "Temporal.makesTemporalClaim", "Temporal.note", "Temporal.range",
     "Temporal.ranks", "Temporal.sorted", "Temporal.source",
     "Temporal.start", "Temporal.usesAttested", "Temporal.usesEndedUnknown",
     "Temporal.value", "Venue.authorized", "Venue.displayName",

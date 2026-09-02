@@ -1,0 +1,55 @@
+{
+  "run_id": "2026-09-02T07:54:07.290Z",
+  "source": "verify-report:#422 (PR #447, R1 2026-09-02)",
+  "source_type": "pasted-text",
+  "total_findings": 6,
+  "actions": [
+    {
+      "finding_id": 1,
+      "finding_quote": "variant 兩面都沒有寫入面；遷移是唯一寫入者而它不做判定（四席＋DA F1）",
+      "action": "create",
+      "issue_number": 471,
+      "issue_url": "https://github.com/PsychQuant/Akashic-Library/issues/471"
+    },
+    {
+      "finding_id": 2,
+      "finding_quote": "遷移 nextStep 在 format-15 store 上印「改成 14」（DA 6）",
+      "action": "create",
+      "issue_number": 472,
+      "issue_url": "https://github.com/PsychQuant/Akashic-Library/issues/472"
+    },
+    {
+      "finding_id": 3,
+      "finding_quote": "孤兒 variant warning vs 孤兒 authorized error（logic 5、security 8）",
+      "action": "create",
+      "issue_number": 473,
+      "issue_url": "https://github.com/PsychQuant/Akashic-Library/issues/473"
+    },
+    {
+      "finding_id": 4,
+      "finding_quote": "zero-instance-guards 補一列：沿革時間軸保留位置（design.md §2）",
+      "action": "create",
+      "issue_number": 474,
+      "issue_url": "https://github.com/PsychQuant/Akashic-Library/issues/474"
+    },
+    {
+      "finding_id": 5,
+      "finding_quote": "displayName 在 authorized 為空時取 names.current（logic 3、DA 9）",
+      "action": "create",
+      "issue_number": 475,
+      "issue_url": "https://github.com/PsychQuant/Akashic-Library/issues/475"
+    },
+    {
+      "finding_id": 6,
+      "finding_quote": "bulletin 刊名沿革：守衛與證據到位後再補 start/end（requirements 2、DA 裁決）",
+      "action": "create",
+      "issue_number": 476,
+      "issue_url": "https://github.com/PsychQuant/Akashic-Library/issues/476"
+    }
+  ],
+  "started_at": "2026-09-02T07:54:07.290Z",
+  "completed_at": "2026-09-02T07:54:45.345Z",
+  "succeeded": 6,
+  "failed": 0,
+  "skipped": 0
+}

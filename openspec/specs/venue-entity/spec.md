@@ -34,10 +34,8 @@ source: venue-name-variants
 updated: 2026-08-28
 code:
   - Sources/AkashicMCPKit/AkashicService.swift
-  - .vscode/launch.json
   - Sources/akashic/CLI.swift
   - Sources/AkashicStoreIO/VenueVariantMigration.swift
-  - Akashic-Library.code-workspace
   - Sources/akashic/VenueCommand.swift
 -->
 
@@ -68,10 +66,8 @@ source: venue-name-variants
 updated: 2026-08-28
 code:
   - Sources/AkashicMCPKit/AkashicService.swift
-  - .vscode/launch.json
   - Sources/akashic/CLI.swift
   - Sources/AkashicStoreIO/VenueVariantMigration.swift
-  - Akashic-Library.code-workspace
   - Sources/akashic/VenueCommand.swift
 -->
 
@@ -97,7 +93,6 @@ An entry SHALL support an ordered `venues` list whose elements are two-state ref
 source: add-venue-entities
 updated: 2026-08-17
 code:
-  - .vscode/launch.json
 -->
 
 ---
@@ -116,7 +111,6 @@ The venue read surface (CLI `akashic venue`, MCP `akashic_venue`) SHALL present 
 source: add-venue-entities
 updated: 2026-08-17
 code:
-  - .vscode/launch.json
 -->
 
 ---
@@ -135,7 +129,6 @@ A `migrate-venues` command SHALL backfill existing entries' `venues` references 
 source: add-venue-entities
 updated: 2026-08-17
 code:
-  - .vscode/launch.json
 -->
 
 ---
@@ -154,7 +147,6 @@ Writing a venue entity or an entry `venues` edge into a store whose format marke
 source: add-venue-entities
 updated: 2026-08-17
 code:
-  - .vscode/launch.json
 -->
 
 ---
@@ -172,5 +164,4 @@ Every venue capability (view, list, resolve, add) SHALL ship both CLI and MCP fa
 source: add-venue-entities
 updated: 2026-08-17
 code:
-  - .vscode/launch.json
 -->

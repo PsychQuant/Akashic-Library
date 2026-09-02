@@ -269,8 +269,48 @@ extension VenueTests {
         v.authorized = ["A"]
         v.variant = ["A"]
         let errs = v.validate().filter { $0.severity == .error }
-        XCTAssertTrue(errs.contains { $0.message.contains("既權威又是它的異寫") },
+        XCTAssertTrue(errs.contains { $0.message.contains("兩個分割") },
                       "應該報交集：\(v.validate().map(\.message))")
+    }
+
+    /// 分割互斥與 person 共用同一份守衛（`AuthorizedNames.validateDisjointPartitions`，
+    /// `NameIdentity`）：只差前後空白的近重複**不得**穿透（#296；#422 verify R1 指出
+    /// 第一版在 venue 上用精確 `String ==` 重造了較弱的副本）。
+    func testNearDuplicateAcrossPartitionsIsCaught() {
+        var v = Venue(key: "x", type: .periodical,
+                      names: TimelineOf([TemporalValue(value: "A"), TemporalValue(value: "A ")]))
+        v.authorized = ["A"]
+        v.variant = ["A "]
+        XCTAssertTrue(v.validate().contains { $0.severity == .error && $0.message.contains("兩個分割") },
+                      "只差空白的名字分居兩個分割要被抓：\(v.validate().map(\.message))")
+    }
+
+    /// 大小寫**不**摺疊——WoS 全大寫 vs 正常大小寫正是 variant 要裝的東西（實測 32 筆），
+    /// 摺疊會把整批遷移結果誤報成交集。
+    func testCaseVariantsAreNotTreatedAsOverlap() {
+        var v = Venue(key: "plos-one", type: .periodical,
+                      names: TimelineOf([TemporalValue(value: "PLOS ONE"), TemporalValue(value: "PLoS One")]))
+        v.authorized = ["PLOS ONE"]
+        v.variant = ["PLoS One"]
+        XCTAssertFalse(v.validate().contains { $0.severity == .error },
+                       "大小寫異寫不是交集：\(v.validate().map(\.message))")
+    }
+
+    /// **variant 不得帶時間欄位**（spec Scenario「A variant carrying a date fails validation」）。
+    /// #422 verify R1：第一版零實作——遷移的整筆跳過只保證遷移自己不造出這種記錄。
+    func testVariantCarryingADateFailsValidation() {
+        var v = Venue(key: "x", type: .periodical,
+                      names: TimelineOf([TemporalValue(value: "A"),
+                                         TemporalValue(value: "B", range: DateRange(start: "2003"))]))
+        v.authorized = ["A"]
+        v.variant = ["B"]
+        let errs = v.validate().filter { $0.severity == .error }
+        XCTAssertTrue(errs.contains { $0.message.contains("帶時間欄位") },
+                      "帶 start 的 variant 必須 fail：\(v.validate().map(\.message))")
+        // 同一筆不列 variant，就是合法的沿革——守衛只針對「既是異寫又有期間」的矛盾。
+        v.variant = []
+        XCTAssertFalse(v.validate().contains { $0.severity == .error },
+                       "不列 variant 的帶時間名字是沿革，不該報錯：\(v.validate().map(\.message))")
     }
 
     /// `paginated` 的三態 round-trip——**`nil` 不得折成 `false`**。

@@ -43,6 +43,14 @@ public struct DateRange: Equatable, Hashable, Comparable, Sendable {
     /// 即整檔 quarantine——write gate 對 format < 7 拒寫。
     public var attested: [String]
 
+    /// 這段**對時間有沒有作宣稱**：`start`／`end`／`endedUnknown`／`attested` 任一在場即為真。
+    /// 全空的段對時間**不作宣稱**（不是「從不知何時起」）。#422 verify R1 抽出——遷移的
+    /// 「帶時間＝沿革，不動」與 `Venue.validate()` 的「variant 不得帶時間」用的是同一個判準，
+    /// 寫成兩份必然分岔。
+    public var makesTemporalClaim: Bool {
+        start != nil || end != nil || endedUnknown || !attested.isEmpty
+    }
+
     public init(start: String? = nil, end: String? = nil, endedUnknown: Bool = false,
                 attested: [String] = []) {
         self.start = start

@@ -42,10 +42,18 @@ struct VenueCmd: ParsableCommand {
         let key = obj["key"] as? String ?? "?"
         let type = obj["type"] as? String ?? "?"
         print("\(key)（\(type)）")
+        // **標題不再叫「沿革」**（#422 verify R1）：`names` 是時間軸，但不帶時間欄位的項目
+        // 對時間**不作宣稱**——印成「沿革」正是 #422 要修掉的那句謊。每項就地標記它落在
+        // 哪個分割（〔authorized〕／〔variant〕／未標＝尚未判定），不另起一行重列 variant。
+        let authorizedSet = Set(obj["authorized"] as? [String] ?? [])
+        let variantSet = Set(obj["variant"] as? [String] ?? [])
         if let names = obj["names"] as? [[String: Any]], !names.isEmpty {
-            print("  沿革：")
+            print("  names（帶時間欄位者為沿革；〔authorized〕權威形／〔variant〕異寫／未標＝未判定）：")
             for n in names {
-                var line = "    \(n["value"] as? String ?? "?")"
+                let value = n["value"] as? String ?? "?"
+                var line = "    \(value)"
+                if authorizedSet.contains(value) { line += " 〔authorized〕" }
+                if variantSet.contains(value) { line += " 〔variant〕" }
                 var span: [String] = []
                 if let s = n["start"] as? String { span.append("start \(s)") }
                 if let e = n["end"] as? String { span.append("end \(e)") }
@@ -57,14 +65,8 @@ struct VenueCmd: ParsableCommand {
                 print(line)
             }
         }
-        if let auth = obj["authorized"] as? [String], !auth.isEmpty {
-            print("  authorized：\(auth.joined(separator: "；"))")
-        }
-        // **異寫法與權威形分開顯示**（#422）——在此之前它們混在 names 的時間軸裡，
-        // 而讀的人以為拿到時間序。值取自 service（已 displaySafe），原樣轉印。
-        if let vari = obj["variant"] as? [String], !vari.isEmpty {
-            print("  variant：\(vari.joined(separator: "；"))")   // display-safe-exempt: 值取自 AkashicService.venue（已逐欄位 displaySafe），二次消毒非冪等
-        }
+        // authorized／variant 已在上方逐項就地標記（#422 verify R1：不重列兩次）；
+        // `--json` 的 payload 不變，兩個分割仍是獨立欄位。
         // **三態**（#406）：印 true／false，缺席**什麼都不印**——那是「尚未判定」，
         // 而印「未判定」會讓它看起來像一個已經查過的結論。
         if let p = obj["paginated"] as? Bool {
@@ -248,11 +250,23 @@ struct MigrateVenueVariants: ParsableCommand {
         let report = try VenueVariantMigration.run(store: store, apply: apply)
         let prefix = apply ? "✓" : "（dry-run）"
         if report.planned.isEmpty && report.failed.isEmpty {
-            print("沒有可分類的 venue——names 皆單筆、已分割、或帶時間（沿革不動）")
+            print("沒有可分類的 venue——names 皆單筆、全部已 authorized、已分割、帶時間（沿革不動）"
+                  + "、或 authorized 為空（不分類，交人）")
         } else {
             print("\(prefix) \(apply ? "已分類" : "將分類") \(report.planned.count) 筆"
-                  + "；單一名字 \(report.singleName.count)、已分割 \(report.alreadyPartitioned.count)"
-                  + "、帶時間（沿革，不動）\(report.hasTemporal.count)")
+                  + "；單一名字 \(report.singleName.count)、全部已 authorized \(report.allAuthorized.count)"
+                  + "、已分割 \(report.alreadyPartitioned.count)"
+                  + "、帶時間（沿革，不動）\(report.hasTemporal.count)"
+                  + "、authorized 為空（不分類）\(report.noAuthorized.count)")
+        }
+        // **authorized 為空的記錄要點名**（#422 verify R1 B3）：它們不是「沒事」，是等人
+        // 先指定權威形——不印出來，這一桶就會被讀成「已處理」。
+        if !report.noAuthorized.isEmpty {
+            print("authorized 為空、本遷移不分類（先指定 authorized 再跑）\(report.noAuthorized.count) 筆：")
+            for k in report.noAuthorized.prefix(40) { print("  · \(displaySafe(k, max: 120))") }
+            if report.noAuthorized.count > 40 { print("  …另 \(report.noAuthorized.count - 40) 筆") }
+        }
+        if !report.planned.isEmpty || !report.failed.isEmpty {
             // **逐筆印出來給人看**——若某一筆其實是沿革，這是唯一的攔截點。
             for p in report.planned.prefix(40) {
                 let vs = p.variants.map { displaySafe($0, max: 120) }.joined(separator: "、")

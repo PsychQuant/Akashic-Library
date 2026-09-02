@@ -36,6 +36,18 @@ public enum VenueVariantMigration {
         public var planned: [Planned] = []
         /// `names` 只有一筆——沒有可分類的東西。
         public var singleName: [String] = []
+        /// 多筆但**全部已在 `authorized`**——沒有異寫法可搬。與 `singleName` 分開
+        /// （#422 verify R1）：乾跑報表是這個遷移唯一的攔截點，桶的標籤說錯話會讓
+        /// 過目的人看到「單一名字」而實際是「多名字、無待分類項」。
+        public var allAuthorized: [String] = []
+        /// 多筆但 **`authorized` 為空——不分類，交人**（#422 verify R1 B3）。補集規則對
+        /// 空的 `authorized` 回傳全部名字，會把一筆記錄的每個名字都標成它自己的異寫
+        /// （實測三筆：wikipedia／stanford-encyclopedia-of-philosophy／bulletin-…-academia-sinica，
+        /// 其中 bulletin 的 note 自述是新舊系列沿革）。「哪一個是權威形」是判定
+        /// （`identity-is-judged-not-matched`），本遷移只重新分類**既有**判定——沒有既有判定
+        /// 就沒有可分類的東西。`add-venue --names A B` 建檔時 `authorized` 留空，所以這不是
+        /// 三筆歷史資料的問題，是建檔的預設產物：先指定 `authorized` 再跑。
+        public var noAuthorized: [String] = []
         /// 已有 `variant`——本輪不動（冪等）。
         public var alreadyPartitioned: [String] = []
         /// **帶時間欄位**——那是沿革，不是異寫法，不動。
@@ -71,6 +83,12 @@ public enum VenueVariantMigration {
             trackedRelPaths = []
         }
 
+        // 乾跑與實跑走**同一組**寫入閘（#422 verify R1，security F4）：注定會 throw 的記錄
+        // 不該被印成「將分類」；實跑則逐筆 do/catch 收進 `failed`，而不是讓例外穿出
+        // `run()` 把整份報告連同已落盤的寫入一起丟掉（`LibraryStore.assertVenueWritable`
+        // 的 doc 記著 #394 踩過的正是這個形狀）。
+        let format = try StoreVersion.read(root: store.root)
+
         for venue in load.venues.sorted(by: { $0.key < $1.key }) {
             guard venue.variant.isEmpty else {
                 report.alreadyPartitioned.append(venue.key)
@@ -82,29 +100,28 @@ public enum VenueVariantMigration {
                 continue
             }
             // **帶時間 ＝ 沿革，不動。** 本遷移的前提是「多筆且不帶時間 ＝ 異寫法」，
-            // 而那個前提在帶時間的記錄上不成立。
-            // 拆成具名函式——四個 optional 的 `||` 鏈會讓型別檢查器超時
-            func hasTime(_ i: TemporalValue<String>) -> Bool {
-                if i.range.start != nil { return true }
-                if i.range.end != nil { return true }
-                if i.range.endedUnknown { return true }
-                if !i.range.attested.isEmpty { return true }
-                return false
-            }
-            let temporal = items.contains(where: hasTime)
+            // 而那個前提在帶時間的記錄上不成立。判準與 `Venue.validate()` 的
+            // 「variant 不得帶時間」共用同一個 `DateRange.makesTemporalClaim`——兩份會分岔。
+            let temporal = items.contains { $0.range.makesTemporalClaim }
             guard !temporal else {
                 report.hasTemporal.append(venue.key)
+                continue
+            }
+            // **`authorized` 為空 → 不分類**（理由見 `Report.noAuthorized` 的 doc）。
+            guard !venue.authorized.isEmpty else {
+                report.noAuthorized.append(venue.key)
                 continue
             }
             let authorized = Set(venue.authorized)
             let variants = items.map(\.value).filter { !authorized.contains($0) }
             guard !variants.isEmpty else {
-                // 全部都在 authorized——沒有異寫法可搬
-                report.singleName.append(venue.key)
+                report.allAuthorized.append(venue.key)
                 continue
             }
             report.planned.append(Planned(key: venue.key, variants: variants))
 
+            var updated = venue
+            updated.variant = variants
             if apply {
                 let relFile = "entities/\(venue.id.uuidString).yaml"
                 guard trackedRelPaths.contains(Data(relFile.utf8)) else {
@@ -114,10 +131,20 @@ public enum VenueVariantMigration {
                     report.planned.removeLast()
                     continue
                 }
-                var updated = venue
-                updated.variant = variants
-                try store.writeVenue(updated)
-                report.applied += 1
+                do {
+                    _ = try store.writeVenue(updated)
+                    report.applied += 1
+                } catch {
+                    report.failed.append(Failed(key: venue.key, reason: "寫入失敗：\(error)"))
+                    report.planned.removeLast()
+                }
+            } else {
+                do {
+                    try LibraryStore.assertVenueWritable(updated, format: format)
+                } catch {
+                    report.failed.append(Failed(key: venue.key, reason: "寫入閘會拒絕：\(error)"))
+                    report.planned.removeLast()
+                }
             }
         }
         return report

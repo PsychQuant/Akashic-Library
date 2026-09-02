@@ -296,6 +296,17 @@ extension VenueTests {
                        "大小寫異寫不是交集：\(v.validate().map(\.message))")
     }
 
+    /// **未分類是合法狀態**（spec 第 13 行）：多筆不帶時間的名字、`authorized` 與 `variant`
+    /// 都空——那是「還沒人判定」的誠實狀態，不是錯誤。#422 verify 把三筆記錄退回這個
+    /// 狀態，本測試釘住它不會被任何守衛誤擋（Codex R2 建議）。
+    func testUnclassifiedMultiNameVenueIsLegal() {
+        let v = Venue(key: "wikipedia", type: .website,
+                      names: TimelineOf([TemporalValue(value: "Wikipedia"), TemporalValue(value: "維基百科")]))
+        XCTAssertTrue(v.authorized.isEmpty && v.variant.isEmpty)
+        XCTAssertFalse(v.validate().contains { $0.severity == .error },
+                       "未分類不是錯誤：\(v.validate().map(\.message))")
+    }
+
     /// **variant 不得帶時間欄位**（spec Scenario「A variant carrying a date fails validation」）。
     /// #422 verify R1：第一版零實作——遷移的整筆跳過只保證遷移自己不造出這種記錄。
     func testVariantCarryingADateFailsValidation() {

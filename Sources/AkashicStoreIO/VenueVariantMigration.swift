@@ -70,18 +70,15 @@ public enum VenueVariantMigration {
         var report = Report()
         let load = try store.load()
 
-        // per-file trackedness：apply 時查一次（沿用 `VenueMigration` 的既有形狀）。
-        let trackedRelPaths: Set<Data>
-        if apply {
-            guard let out = LibraryStore.git(["ls-files", "-z", "--", "entities"],
-                                             in: store.root), out.status == 0 else {
-                throw MigrationError.noRecoveryPath(
-                    detail: "git ls-files 無法執行——無從確認追蹤狀態")
-            }
-            trackedRelPaths = Set(out.out.split(separator: "\0").map { Data($0.utf8) })
-        } else {
-            trackedRelPaths = []
+        // per-file trackedness：**乾跑與實跑都查**（#422 verify R2 L1——先前只在 apply 查，
+        // 於是一筆未追蹤的 venue 在乾跑印成「將分類」、apply 時才進 failed；乾跑的價值是
+        // 誠實預告，兩種模式必須看到同一組拒絕）。沿用 `VenueMigration` 的既有形狀。
+        guard let out = LibraryStore.git(["ls-files", "-z", "--", "entities"],
+                                         in: store.root), out.status == 0 else {
+            throw MigrationError.noRecoveryPath(
+                detail: "git ls-files 無法執行——無從確認追蹤狀態")
         }
+        let trackedRelPaths = Set(out.out.split(separator: "\0").map { Data($0.utf8) })
 
         // 乾跑與實跑走**同一組**寫入閘（#422 verify R1，security F4）：注定會 throw 的記錄
         // 不該被印成「將分類」；實跑則逐筆 do/catch 收進 `failed`，而不是讓例外穿出
@@ -122,15 +119,15 @@ public enum VenueVariantMigration {
 
             var updated = venue
             updated.variant = variants
+            let relFile = "entities/\(venue.id.uuidString).yaml"
+            guard trackedRelPaths.contains(Data(relFile.utf8)) else {
+                report.failed.append(Failed(
+                    key: venue.key,
+                    reason: "\(relFile) 未被 git 追蹤——改寫無回復路徑，先 commit 再跑"))
+                report.planned.removeLast()
+                continue
+            }
             if apply {
-                let relFile = "entities/\(venue.id.uuidString).yaml"
-                guard trackedRelPaths.contains(Data(relFile.utf8)) else {
-                    report.failed.append(Failed(
-                        key: venue.key,
-                        reason: "\(relFile) 未被 git 追蹤——改寫無回復路徑，先 commit 再跑"))
-                    report.planned.removeLast()
-                    continue
-                }
                 do {
                     _ = try store.writeVenue(updated)
                     report.applied += 1

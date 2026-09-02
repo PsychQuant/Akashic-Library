@@ -94,6 +94,12 @@ final class VenueVariantMigrationTests: XCTestCase {
         try venue("untracked", names: [TemporalValue(value: "Untracked J"), TemporalValue(value: "UNTRACKED J")],
                   authorized: ["Untracked J"])   // 寫在 commit 之後 → git 零歷史
 
+        // 乾跑要看到**同一組**拒絕（R2 L1）：未追蹤的檔不得被印成「將分類」
+        let dry = try VenueVariantMigration.run(store: store, apply: false)
+        XCTAssertEqual(dry.planned.map(\.key), ["tracked"])
+        XCTAssertEqual(dry.failed.map(\.key), ["untracked"], "乾跑也要點名未追蹤的檔：\(dry)")
+        XCTAssertEqual(dry.applied, 0)
+
         let r = try VenueVariantMigration.run(store: store, apply: true)
         XCTAssertEqual(r.applied, 1)
         XCTAssertEqual(r.planned.map(\.key), ["tracked"])

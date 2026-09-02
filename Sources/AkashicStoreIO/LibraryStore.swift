@@ -1690,6 +1690,32 @@ extension LibraryStore {
         return nil
     }
 
+    /// quarantined 檔裡有沒有哪一份宣稱這個 organization key——與 `quarantinedFileClaiming(personKey:)`
+    /// 同一條紀律（行級文字比對而非 decode、讀檔失敗當佔用），只換頂層標頭。#464 的死 verdict 掃描
+    /// 需要它分辨「holder 的檔被 quarantine」與「沒有任何檔宣稱它」。
+    func quarantinedFileClaiming(orgKey: String, in load: LibraryLoad) -> String? {
+        quarantinedFileClaiming(topLevel: "organization:", key: orgKey, in: load)
+    }
+
+    /// person／organization 共用的實作：頂層標頭 ＋ 第一個 `key:` 行。
+    private func quarantinedFileClaiming(topLevel marker: String, key: String, in load: LibraryLoad) -> String? {
+        for q in load.quarantined {
+            let url = root.appendingPathComponent(q.file)
+            guard let text = try? readUTF8(url) else { return q.file }   // fail-closed
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            guard lines.contains(where: { $0.trimmingCharacters(in: .whitespaces) == marker })
+            else { continue }
+            for line in lines where line.hasPrefix("key:") {
+                let claimed = line.dropFirst("key:".count)
+                    .trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+                if claimed == key { return q.file }
+                break                                  // 頂層 key 只有一行
+            }
+        }
+        return nil
+    }
+
     private func store_loadForRename() throws -> LibraryLoad {
         try load()
     }

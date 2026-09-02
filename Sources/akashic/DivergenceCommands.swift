@@ -86,6 +86,10 @@ struct ResolveDivergence: ParsableCommand {
             print("verdict value 已隨 citekey 退役改寫（person／venue）："
                 + report.verdictValuesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))
         }
+        if !report.verdictsCollapsed.isEmpty {   // #461：收攏丟列要說出來——靜默丟棄不可稽核
+            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（與遷移輸出同 (field, value)，留首見）：")
+            for c in report.verdictsCollapsed { print("  · \(displaySafe(c, max: 300))") }
+        }
         for w in report.warnings {   // #75 對一：不擋但要說
             print("  ⚠ \(w)")
         }

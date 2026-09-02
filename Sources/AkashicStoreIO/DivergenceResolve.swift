@@ -118,6 +118,11 @@ public struct ResolveReport: Equatable {
     /// #271：work merge 時 citekey 退役、value 被改寫的**持有記錄 key（person 或
     /// venue，#460 起）**清單（鏡射 rename 的 `verdictValuesRewritten`）。
     public var verdictValuesRewritten: [String] = []
+    /// #461：work merge 收攏時被**丟棄**的 verdict 列（「持有記錄：field value——丟棄
+    /// 判定「…」」）。丟棄不靜默（`lossless-intake` 執行細節 3）。與
+    /// `verdictValuesRewritten` 同樣不進 `==`——preview 側目前不算 verdict 面
+    /// （#271／#460 起的既有缺口，#461 verify follow-up 追蹤）。
+    public var verdictsCollapsed: [String] = []
     /// **不擋、但要說**的提醒（#75 對一）：有判斷卻沒有結構化的 `prefers` 時，
     /// 消歧無從機械比對——提醒人自行核對，而不是靜默當作沒有判斷。
     public var warnings: [String]
@@ -781,15 +786,34 @@ extension LibraryStore {
     /// Pass 1 先全部遷移並記下**本次觸及**的 (field, value)；Pass 2 只對被觸及的
     /// 鍵保首見收攏。survivor 原版與遷移版同 (field, value) 時**不論排列**都收成
     /// 一筆——#460 verify 實證舊形（guard-else 無條件 append）在 doomed-first 排列
-    /// 寫出兩筆 byte-identical。**與本次遷移無關的既有重複一筆不動**——「消歧不是
-    /// 清理工具」（#71）的裁決由觸及集合守住，不因順序無關化而放寬。
+    /// 寫出兩筆 byte-identical。
     ///
-    /// kind 語意：收攏保首見——doomed-first 時留存者的 kind 來自 doomed 側、
-    /// keeper-first 時來自 keeper 側；兩筆 (field, value) 相同，kind 級的丟棄
-    /// 可見性是 #460 verify F9 的既有觀察，不在本函式 scope。
+    /// **收攏的邊界是「鍵」不是「來歷」**（#461 verify R1，六席收斂）：(field, value)
+    /// **不等於任一遷移輸出**的既有重複一筆不動——bystander 的重複、不同 literal 的
+    /// 重複都在觸及集合外，這是「消歧不是清理工具」（#71）守住的那條線
+    /// （`testUnrelatedExistingDuplicatesAreUntouched`）。但**落在觸及鍵上**的既有
+    /// 重複（keeper 自己已有兩筆同 value、doomed 遷移後撞上）會一併收攏成一筆——
+    /// 這是刻意的：#271 起 `resolvePersonDivergence` 的遷移就以同樣方式折疊 doomed
+    /// 自己的重複，遷移相鄰的收攏在本 repo 有先例；且這種輸入在正常寫入面
+    /// （`appendIfAbsent`）產生不了，唯一的自然來源正是本函式修掉的那個 bug
+    /// （`testTouchedKeyCollapsesKeeperPreexistingDuplicatesDeliberately` 釘住）。
+    ///
+    /// **丟棄不靜默**（`lossless-intake` 執行細節 3）：被收攏掉的每一列以 `collapsed`
+    /// 回報（value ＋ 被丟的判定原文），呼叫端寫進 `ResolveReport.verdictsCollapsed`。
+    /// 留存者是**首見**：doomed-first 時留下 doomed 側的 kind、keeper-first 時留下
+    /// keeper 側的。這在 #461 之前的 doomed-first 排列**不會發生**（兩筆並存、零丟棄），
+    /// 所以是本修法引入的、不是既有觀察；留存者選擇政策（首見／keeper 優先／last-wins）
+    /// 屬顯式裁決，由 verify follow-up 追蹤。
+    ///
+    /// **前提與自保**：生產呼叫端的 `merged` 恆不含 `survivor`（`resolveDivergence`
+    /// 的 `candidateKeys.filter { $0 != survivor }`）。helper 另以
+    /// `pairing.holder != survivor` 自保——指向 survivor 的 verdict 不是遷移對象；
+    /// 若把它算成「本次觸及」，觸及集合會退化成全量 dedup（被否決的方案 (a)）且
+    /// `changed` 恆真造成空寫。#463 複用時不必再各自防（複用面：org × work merge
+    /// 一格是 drop-in；其餘三格要 `person:` holder 或走 rename 側，不是這支）。
     static func migrateWorkHolderVerdicts(
         _ refs: [ProvenanceReference], merged: Set<String>, survivor: String
-    ) -> (refs: [ProvenanceReference], changed: Bool) {
+    ) -> (refs: [ProvenanceReference], changed: Bool, collapsed: [String]) {
         func dedupKey(_ r: ProvenanceReference) -> String { "\(r.field)\u{0}\(r.value ?? "")" }
         var touched = Set<String>()
         var changed = false
@@ -797,7 +821,9 @@ extension LibraryStore {
             guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
                   let v = r.value,
                   let pairing = ProvenanceReference.VerdictPairingValue.parse(v),
-                  pairing.holderKind == .work, merged.contains(pairing.holder) else { return r }
+                  pairing.holderKind == .work,
+                  pairing.holder != survivor,
+                  merged.contains(pairing.holder) else { return r }
             let out = ProvenanceReference(
                 field: r.field,
                 value: ProvenanceReference.VerdictPairingValue(
@@ -808,15 +834,29 @@ extension LibraryStore {
             touched.insert(dedupKey(out))
             return out
         }
-        guard changed else { return (refs, false) }
+        guard changed else { return (refs, false, []) }
         var seen = Set<String>()
         var deduped: [ProvenanceReference] = []
+        var collapsed: [String] = []
         for r in rewritten {
             let k = dedupKey(r)
-            if touched.contains(k), !seen.insert(k).inserted { continue }
+            if touched.contains(k), !seen.insert(k).inserted {
+                collapsed.append(Self.describeCollapsedVerdict(r))
+                continue
+            }
             deduped.append(r)
         }
-        return (deduped, true)
+        return (deduped, true, collapsed)
+    }
+
+    /// 收攏丟掉的那一列，說得出來的形：field ＋ value ＋ 被丟的判定原文（擷取型印 URL）。
+    private static func describeCollapsedVerdict(_ r: ProvenanceReference) -> String {
+        let reason: String
+        switch r.kind {
+        case .judgement(let statement, _): reason = "判定「\(statement)」"
+        case .retrieval(let url, _, _, _, _): reason = "擷取 \(url)"
+        }
+        return "\(r.field) \(r.value ?? "")——丟棄 \(reason)"
     }
 
     private func resolveWorkDivergence(record: Divergence, survivor: String,
@@ -870,15 +910,18 @@ extension LibraryStore {
                                         + "（work 消歧不搬欄位，見 #75）")
         // #271（下半）：citekey 退役＝改名的一種——person 身上 `work:<被併鍵>` 的
         // verdict value 不遷移就安靜變 stale（rename 已修 #232、merge 漏了同型）。
-        // 機制鏡射 renameEntry：同 VerdictPairingValue 文法、同 (field, value) 冪等。
+        // 文法與 renameEntry 同源（VerdictPairingValue）；**收攏範圍刻意不同**——
+        // rename 側全量 dedup（#232），merge 側只收本次觸及的鍵（#461／#71）。
         for var person in snapshot.people {
-            let (migrated, changed) = Self.migrateWorkHolderVerdicts(
+            let (migrated, changed, collapsed) = Self.migrateWorkHolderVerdicts(
                 person.references, merged: merged, survivor: survivor)
             guard changed else { continue }
             person.references = migrated
             do {
                 try writePerson(person)
                 report.verdictValuesRewritten.append(person.key)
+                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe(c, max: 300)（DivergenceCommands），與 failures 同一條消毒點
+                    contentsOf: collapsed.map { "person「\(person.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
             } catch {
                 report.failures.append(
                     "person「\(person.key)」的 verdict value 遷移寫入失敗：\(error)")
@@ -890,13 +933,15 @@ extension LibraryStore {
         // 合併後 venue 留著指向已刪 citekey 的死 verdict，rejected stale 則讓
         // 否決抑制安靜失效。機制完全鏡射上方 person 迴圈：同文法、同冪等。
         for var venue in snapshot.venues {
-            let (migrated, changed) = Self.migrateWorkHolderVerdicts(
+            let (migrated, changed, collapsed) = Self.migrateWorkHolderVerdicts(
                 venue.references, merged: merged, survivor: survivor)
             guard changed else { continue }
             venue.references = migrated
             do {
                 _ = try writeVenue(venue)
                 report.verdictValuesRewritten.append(venue.key)
+                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe(c, max: 300)（DivergenceCommands），與 failures 同一條消毒點
+                    contentsOf: collapsed.map { "venue「\(venue.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
             } catch {
                 report.failures.append(
                     "venue「\(venue.key)」的 verdict value 遷移寫入失敗：\(error)")

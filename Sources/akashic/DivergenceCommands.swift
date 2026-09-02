@@ -83,7 +83,7 @@ struct ResolveDivergence: ParsableCommand {
                 + "（\(report.verdictReferencesMigrated.map { displaySafe($0, max: 200) }.joined(separator: "；"))）")
         }
         if !report.verdictValuesRewritten.isEmpty {
-            print("verdict value 已隨 citekey 退役改寫（person／venue）："
+            print("verdict value 已隨 holder 退役改寫（持有記錄：person／venue／organization）："
                 + report.verdictValuesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))
         }
         if !report.verdictsCollapsed.isEmpty {   // #461：收攏丟列要說出來——靜默丟棄不可稽核

@@ -55,6 +55,12 @@ final class VerdictHolderGridTests: XCTestCase {
             .map { "\($0.holderKind.rawValue):\($0.holder)" } ?? []
     }
 
+    private func holders(ofVenue key: String) throws -> [String] {
+        try store.load().venues.first { $0.key == key }?.references
+            .compactMap { $0.value }.compactMap(ProvenanceReference.VerdictPairingValue.parse)
+            .map { "\($0.holderKind.rawValue):\($0.holder)" } ?? []
+    }
+
     private func divergence(keeper: String, doomed: String, shape: EntityKind) throws -> Divergence {
         let d = Divergence(id: UUID(), question: "\(keeper) 與 \(doomed) 是同一個嗎",
                            candidates: [DivergenceCandidate(key: keeper, shape: shape),
@@ -137,8 +143,39 @@ final class VerdictHolderGridTests: XCTestCase {
         try store.writePerson(doomed)
         let d = try divergence(keeper: "keeper-person", doomed: "doomed-person", shape: .person)
         GitFixture.commitAll(store.root)
-        _ = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
+        let report = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
         XCTAssertEqual(try holders(ofPerson: "keeper-person"), ["person:keeper-person"], "搬來的 verdict 也要改寫")
+        // doomed 帶 references：若 post-commit 迴圈沒排除 merged，會 writePerson(doomed) 把已刪檔復活（logic L1）
+        XCTAssertNil(try store.load().people.first { $0.key == "doomed-person" }, "doomed 不得復活")
+        XCTAssertEqual(report.verdictReferencesMigrated, ["person:keeper-person :: D"], "揭露值要是改寫後的（requirements #5）")
+    }
+
+    // MARK: - venue 的 `person:` holder（矩陣的最後兩格：person-merge×venue、person-rename×venue）
+
+    /// venue 記錄今天只由 resolve-venues 落 `work:` holder，但寫入閘收任何 holderKind——與 person 記錄同一個
+    /// 「結構上不會有」，處置要一致（verify security 席）。
+    func testPersonMergeMigratesPersonHoldersOnVenues() throws {
+        try store.writePerson(Person(key: "keeper-person", names: ["Keeper Person"]))
+        try store.writePerson(Person(key: "doomed-person", names: ["Doomed Person"]))
+        var v = Venue(key: "some-journal", type: .periodical, names: TimelineOf([TemporalValue(value: "J")]))
+        v.references = [verdict("resolution-confirmed", kind: .person, holder: "doomed-person", literal: "V")]
+        _ = try store.writeVenue(v)
+        let d = try divergence(keeper: "keeper-person", doomed: "doomed-person", shape: .person)
+        GitFixture.commitAll(store.root)
+        let report = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
+        XCTAssertEqual(try holders(ofVenue: "some-journal"), ["person:keeper-person"])
+        XCTAssertTrue(report.verdictValuesRewritten.contains("some-journal"), "\(report)")
+    }
+
+    func testPersonRenameMigratesPersonHoldersOnVenues() throws {
+        try store.writePerson(Person(key: "old-person", names: ["Old Person"]))
+        var v = Venue(key: "some-journal", type: .periodical, names: TimelineOf([TemporalValue(value: "J")]))
+        v.references = [verdict("resolution-rejected", kind: .person, holder: "old-person", literal: "V")]
+        _ = try store.writeVenue(v)
+        GitFixture.commitAll(store.root)
+        let report = try store.renamePerson(from: "old-person", to: "new-person")
+        XCTAssertEqual(try holders(ofVenue: "some-journal"), ["person:new-person"])
+        XCTAssertTrue(report.verdictValuesRewritten.contains("some-journal"), "\(report)")
     }
 
     // MARK: - rename 的 org 前置閘與 writeOrganization 同一個函式
@@ -153,6 +190,18 @@ final class VerdictHolderGridTests: XCTestCase {
         try StoreVersion.write(root: root, format: StoreVersion.supported)
         let keys = try store.load().entries.map(\.citekey)
         XCTAssertEqual(keys, ["old2020a"], "entry 不得被改動：\(keys)")
+    }
+
+    /// `writeOrganization` 的 format 讀取是 lazy 的：一個**壞掉的** store.yaml 不得讓沒有任何 gated feature 的
+    /// organization 寫不進（抽 helper 前就是按需讀——Codex R2 抓到第一版改成無條件讀）；帶 verdict 的則要擲錯。
+    func testMalformedStoreVersionOnlyBlocksOrganizationsThatNeedAGate() throws {
+        try Data([0xFF, 0xFE, 0x00]).write(to: root.appendingPathComponent("store.yaml"))   // 非 UTF-8 → read 擲錯
+        XCTAssertNoThrow(try store.writeOrganization(Organization(key: "plain-org", names: TimelineOf([TemporalValue(value: "Plain")]))),
+                         "沒有 gated feature：不該碰 store.yaml")
+        var gated = Organization(key: "gated-org", names: TimelineOf([TemporalValue(value: "Gated")]))
+        gated.references = [verdict("resolution-confirmed", kind: .work, holder: "x2020a", literal: "G")]
+        XCTAssertThrowsError(try store.writeOrganization(gated), "verdict 需要 format 閘，壞掉的 store.yaml 要擲錯")
+        try StoreVersion.write(root: root, format: StoreVersion.supported)
     }
 
     // MARK: - helper 的 kind 篩選

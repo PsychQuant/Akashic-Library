@@ -598,8 +598,14 @@ public final class LibraryStore {
 
     /// `writeOrganization` 的**全部非 I/O 前置條件**——寫入端與 `renameEntry` 的前置閘共用同一個函式，
     /// 兩邊不會漂移（#463 verify Codex R1：rename 側只鏡射了 key／validate／encode，漏掉 format 閘，format ≤ 7
-    /// 的 store 會在 entry 寫完之後才在 `writeOrganization` 擲錯——撕裂）。`format` 由呼叫端讀一次傳進來。
-    public static func assertOrganizationWritable(_ org: Organization, format: Int) throws {
+    /// 的 store 會在 entry 寫完之後才在 `writeOrganization` 擲錯——撕裂）。`format` 是 **lazy** 的：只在某個閘真的需要它時才讀、讀一次就快取——`writeOrganization` 原本就是按需讀，
+    /// 無條件讀會讓一個壞掉的 store.yaml 連沒有任何 gated feature 的 organization 都寫不進（Codex R2）。
+    public static func assertOrganizationWritable(_ org: Organization, format provider: () throws -> Int) throws {
+        var cached: Int?
+        func format() throws -> Int {
+            if let c = cached { return c }
+            let f = try provider(); cached = f; return f
+        }
         guard StoreKey.isValid(org.key) else {
             throw StoreIOError.invalidKey("organization key", org.key)
         }
@@ -607,12 +613,13 @@ public final class LibraryStore {
         // binary 讀到 `field: ror` 的 reference 會整檔 quarantine（2026-08-24 實測）。
         if !org.references.isEmpty {
             try Self.assertIdentifierReferencesWritable(
-                org.references, format: format,
+                org.references, format: try format(),
                 what: "organization「\(displaySafe(org.key, max: 120))」")
         }
         // v6-only 語法的 format gate——理由見 writePerson（#131 verify Codex-H2）
         if org.names.entries.contains(where: \.range.endedUnknown)
             || org.parents.entries.contains(where: \.range.endedUnknown) {
+            let format = try format()
             guard format >= 6 else {
                 throw StoreIOError.invalidKey(
                     "organization（含 ended 段，需要 store format ≥ 6；本 store 是 \(format)）——" +
@@ -622,6 +629,7 @@ public final class LibraryStore {
         // v7-only（attested，#70）——同上
         if org.names.entries.contains(where: { !$0.range.attested.isEmpty })
             || org.parents.entries.contains(where: { !$0.range.attested.isEmpty }) {
+            let format = try format()
             guard format >= 7 else {
                 throw StoreIOError.invalidKey(
                     "organization（含 attested 段，需要 store format ≥ 7；本 store 是 \(format)）——" +
@@ -631,6 +639,7 @@ public final class LibraryStore {
         // v8-only（resolution verdict，#232）——同 writePerson 的 v8 gate
         if org.references.contains(where: {
             ProvenanceReference.resolutionVerdictFields.contains($0.field) }) {
+            let format = try format()
             guard format >= 8 else {
                 throw StoreIOError.invalidKey(
                     "organization（含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)）——" +
@@ -645,7 +654,7 @@ public final class LibraryStore {
     @discardableResult
     public func writeOrganization(_ org: Organization) throws -> URL {
         try assertStoreRoot()
-        try Self.assertOrganizationWritable(org, format: try StoreVersion.read(root: root))
+        try Self.assertOrganizationWritable(org, format: { try StoreVersion.read(root: self.root) })
         let yaml = try OrganizationYAML.encode(org)
         let dest = entityURL(id: org.id)
         try atomicWrite(yaml, to: dest)
@@ -1363,35 +1372,9 @@ extension LibraryStore {
         // 文法解析與 store 閘同源（`VerdictPairingValue`），不另寫第二份。
         var peopleToRewrite: [Person] = []
         for var p in load.people {
-            var changed = false
-            var migrated: [ProvenanceReference] = []
-            var seenVerdicts = Set<String>()
-            for r in p.references {
-                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
-                      let v = r.value,
-                      let pairing = ProvenanceReference.VerdictPairingValue.parse(v) else {
-                    migrated.append(r)
-                    continue
-                }
-                var out = r
-                if pairing.holderKind == .work, pairing.holder == oldKey {
-                    out = ProvenanceReference(
-                        field: r.field,
-                        value: ProvenanceReference.VerdictPairingValue(
-                            holderKind: .work, holder: newKey,
-                            literal: pairing.literal).encoded,
-                        kind: r.kind)
-                    changed = true
-                }
-                // 遷移後與既有 verdict 同 (field, value) → 收攏成一筆（寫入邊界
-                // 冪等的鏡射——store 永不持有重複 verdict）
-                guard seenVerdicts.insert("\(out.field)\u{0}\(out.value ?? "")").inserted else {
-                    changed = true
-                    continue
-                }
-                migrated.append(out)
+            if let migrated = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .work) {
+                p.references = migrated; peopleToRewrite.append(p)
             }
-            if changed { p.references = migrated; peopleToRewrite.append(p) }
         }
         // venue 同型（#460）：#304 之後 venue 也持 `work:` holder 的 verdict
         // （resolve-venues 的 confirmed／rejected 落被判定的 venue 記錄，
@@ -1399,66 +1382,18 @@ extension LibraryStore {
         // 漏掉的後果與 person 側完全同構：rejected stale ⇒ 否決安靜變回待判。
         var venuesToRewrite: [Venue] = []
         for var vn in load.venues {
-            var changed = false
-            var migrated: [ProvenanceReference] = []
-            var seenVerdicts = Set<String>()
-            for r in vn.references {
-                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
-                      let v = r.value,
-                      let pairing = ProvenanceReference.VerdictPairingValue.parse(v) else {
-                    migrated.append(r)
-                    continue
-                }
-                var out = r
-                if pairing.holderKind == .work, pairing.holder == oldKey {
-                    out = ProvenanceReference(
-                        field: r.field,
-                        value: ProvenanceReference.VerdictPairingValue(
-                            holderKind: .work, holder: newKey,
-                            literal: pairing.literal).encoded,
-                        kind: r.kind)
-                    changed = true
-                }
-                guard seenVerdicts.insert("\(out.field)\u{0}\(out.value ?? "")").inserted else {
-                    changed = true
-                    continue
-                }
-                migrated.append(out)
+            if let migrated = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .work) {
+                vn.references = migrated; venuesToRewrite.append(vn)
             }
-            if changed { vn.references = migrated; venuesToRewrite.append(vn) }
         }
         // organization 同型（#463，網格的 rename×org 格）：#443／OrgResolver 在 organization 記錄上落
         // `work:` holder 的 verdict（live store 9 條）。#460 補 venue 迴圈時漏了它——一次合法的 rename
         // 就會留下死 verdict（#464 verify 實測兩次 rename 得 4 條）。機制完全鏡射上方 venue 迴圈。
         var orgsToRewrite: [Organization] = []
         for var org in load.organizations {
-            var changed = false
-            var migrated: [ProvenanceReference] = []
-            var seenVerdicts = Set<String>()
-            for r in org.references {
-                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
-                      let v = r.value,
-                      let pairing = ProvenanceReference.VerdictPairingValue.parse(v) else {
-                    migrated.append(r)
-                    continue
-                }
-                var out = r
-                if pairing.holderKind == .work, pairing.holder == oldKey {
-                    out = ProvenanceReference(
-                        field: r.field,
-                        value: ProvenanceReference.VerdictPairingValue(
-                            holderKind: .work, holder: newKey,
-                            literal: pairing.literal).encoded,
-                        kind: r.kind)
-                    changed = true
-                }
-                guard seenVerdicts.insert("\(out.field)\u{0}\(out.value ?? "")").inserted else {
-                    changed = true
-                    continue
-                }
-                migrated.append(out)
+            if let migrated = Self.migratedVerdicts(org.references, from: oldKey, to: newKey, holderKind: .work) {
+                org.references = migrated; orgsToRewrite.append(org)
             }
-            if changed { org.references = migrated; orgsToRewrite.append(org) }
         }
 
         _ = try EntryYAML.encode(entry)
@@ -1479,7 +1414,7 @@ extension LibraryStore {
         // organization 的寫入前置條件與 `writeOrganization` **同一個函式**（含 format 閘：識別碼 ≥13、ended ≥6、
         // attested ≥7、verdict ≥8）——只鏡射一半就是 #35 R2 DA 實測過的撕裂（Codex R1 在本張再抓一次）。
         for o in orgsToRewrite {
-            try Self.assertOrganizationWritable(o, format: gateFormat)
+            try Self.assertOrganizationWritable(o, format: { gateFormat })
             _ = try OrganizationYAML.encode(o)
         }
         // 3. 寫記錄本身。
@@ -1599,20 +1534,29 @@ extension LibraryStore {
         // 2. verdict value 的 `person:<key>`（第 13 條）——**person 與 organization 兩處**
         var peopleToRewrite: [Person] = []
         for var p in load.people where p.key != oldKey {
-            if let migrated = Self.migratedVerdicts(p.references, from: oldKey, to: newKey) {
+            if let migrated = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .person) {
                 p.references = migrated
                 peopleToRewrite.append(p)
             }
         }
         var orgsToRewrite: [Organization] = []
         for var o in load.organizations {
-            if let migrated = Self.migratedVerdicts(o.references, from: oldKey, to: newKey) {
+            if let migrated = Self.migratedVerdicts(o.references, from: oldKey, to: newKey, holderKind: .person) {
                 o.references = migrated
                 orgsToRewrite.append(o)
             }
         }
+        // venue 同型（#463，verify security 席：venue 記錄今天只由 resolve-venues 落 `work:` holder，但寫入閘收任何
+        // holderKind——「結構上不會有」對 person 記錄同樣成立而 person 迴圈仍在，同型兩格不該處置相反）
+        var venuesToRewrite: [Venue] = []
+        for var vn in load.venues {
+            if let migrated = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .person) {
+                vn.references = migrated
+                venuesToRewrite.append(vn)
+            }
+        }
         // 被改名的那一筆自己也可能持有指向自己的 verdict
-        if let migrated = Self.migratedVerdicts(person.references, from: oldKey, to: newKey) {
+        if let migrated = Self.migratedVerdicts(person.references, from: oldKey, to: newKey, holderKind: .person) {
             person.references = migrated
         }
 
@@ -1658,7 +1602,17 @@ extension LibraryStore {
         _ = try PersonYAML.encode(person)
         for e in entriesToRewrite { _ = try EntryYAML.encode(e) }
         for p in peopleToRewrite { _ = try PersonYAML.encode(p) }
-        for o in orgsToRewrite { _ = try OrganizationYAML.encode(o) }
+        // organization 與 venue 的前置閘與各自的寫入端同一個函式（#463 verify regression F2：抽出
+        // `assertOrganizationWritable` 後這裡只接了 encode——三個呼叫點只接了兩個，實測撕裂）。
+        let gateFormat = try StoreVersion.read(root: root)
+        for o in orgsToRewrite {
+            try Self.assertOrganizationWritable(o, format: { gateFormat })
+            _ = try OrganizationYAML.encode(o)
+        }
+        for vn in venuesToRewrite {
+            try Self.assertVenueWritable(vn, format: gateFormat)
+            _ = try VenueYAML.encode(vn)
+        }
         for d in divergencesToRewrite {
             try assertDivergenceWritable(d)
             _ = try DivergenceYAML.encode(d)
@@ -1671,6 +1625,7 @@ extension LibraryStore {
         var verdictHolders: [String] = []
         for p in peopleToRewrite { try writePerson(p); verdictHolders.append(p.key) }
         for o in orgsToRewrite { try writeOrganization(o); verdictHolders.append(o.key) }
+        for vn in venuesToRewrite { _ = try writeVenue(vn); verdictHolders.append(vn.key) }
         var divergenceIDs: [String] = []
         for d in divergencesToRewrite { try writeDivergence(d); divergenceIDs.append(d.id.uuidString) }
 
@@ -1679,13 +1634,18 @@ extension LibraryStore {
                                   divergencesRewritten: divergenceIDs.sorted())
     }
 
-    /// verdict reference 的 `person:<key>` 遷移；沒有任何改動時回 `nil`。
+    /// rename 側 verdict holder 的遷移＋收攏；沒有任何改動時回 `nil`。`holderKind` 是 `.person`（`renamePerson`，
+    /// #395 的原形）或 `.work`（`renameEntry`——#232 person／#460 venue／#463 organization 三個迴圈曾是逐字相同的
+    /// 三份複本，verify security 席指出同一 commit 剛用「不漂移」證立另一個抽出，這裡沒有理由例外）。
     ///
-    /// 文法解析與 store 閘同源（`VerdictPairingValue`），不另寫第二份——
-    /// 那正是 #232 D3 自認過的 grammar-in-string 漂移。
-    private static func migratedVerdicts(_ refs: [ProvenanceReference],
-                                         from oldKey: String,
-                                         to newKey: String) -> [ProvenanceReference]? {
+    /// 文法解析與 store 閘同源（`VerdictPairingValue`），不另寫第二份——那正是 #232 D3 自認過的
+    /// grammar-in-string 漂移。收攏是**全量** (field, value) dedup（#232 的既有語意，與 merge 側「只收本次觸及」
+    /// 刻意不同）；**收攏是靜默的**——rename 側的報告沒有 `verdictsCollapsed`，被丟的列不回報（既有缺口，#461
+    /// 只修了 merge 側；#463 把這一面擴到 organization 與 venue，缺口同步擴大，記在 changelog）。
+    static func migratedVerdicts(_ refs: [ProvenanceReference],
+                                 from oldKey: String,
+                                 to newKey: String,
+                                 holderKind: ProvenanceReference.VerdictHolderKind) -> [ProvenanceReference]? {
         var changed = false
         var out: [ProvenanceReference] = []
         var seen = Set<String>()
@@ -1694,11 +1654,11 @@ extension LibraryStore {
             if ProvenanceReference.resolutionVerdictFields.contains(r.field),
                let v = r.value,
                let pairing = ProvenanceReference.VerdictPairingValue.parse(v),
-               pairing.holderKind == .person, pairing.holder == oldKey {
+               pairing.holderKind == holderKind, pairing.holder == oldKey {
                 kept = ProvenanceReference(
                     field: r.field,
                     value: ProvenanceReference.VerdictPairingValue(
-                        holderKind: .person, holder: newKey,
+                        holderKind: holderKind, holder: newKey,
                         literal: pairing.literal).encoded,
                     kind: r.kind)
                 changed = true

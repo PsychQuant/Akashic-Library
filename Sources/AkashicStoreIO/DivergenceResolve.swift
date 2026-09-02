@@ -115,10 +115,11 @@ public struct ResolveReport: Equatable {
     public var failures: [String]
     /// #271：person merge 時自動遷移到倖存者的 verdict（pairing value 清單）。
     public var verdictReferencesMigrated: [String] = []
-    /// #271：work merge 時 citekey 退役、value 被改寫的**持有記錄 key（person 或
-    /// venue，#460 起）**清單（鏡射 rename 的 `verdictValuesRewritten`）。
+    /// #271：holder 退役（work merge 的 citekey、#463 起 person merge 的 person key）時 value 被改寫的
+    /// **持有記錄 key（person／venue／organization——#460 起 venue、#463 起 organization）**清單
+    /// （鏡射 rename 的 `verdictValuesRewritten`）。
     public var verdictValuesRewritten: [String] = []
-    /// #461：work merge 收攏時被**丟棄**的 verdict 列（「持有記錄：field value——丟棄
+    /// #461：merge 收攏（work merge，#463 起也含 person merge）時被**丟棄**的 verdict 列（「持有記錄：field value——丟棄
     /// 判定「…」」）。丟棄不靜默（`lossless-intake` 執行細節 3）。與
     /// `verdictValuesRewritten` 同樣不進 `==`——preview 側目前不算 verdict 面
     /// （#271／#460 起的既有缺口，#461 verify follow-up 追蹤）。
@@ -781,7 +782,15 @@ extension LibraryStore {
                                     doomedIDs: doomed.map(\.id), mergedKeys: mergedKeys,
                                     snapshot: snapshot, survivor: survivor,
                                     survivorNote: "倖存者的別名合併已經落地（磁碟上不是原狀）")
-        report.verdictReferencesMigrated = verdictsMigrated
+        // 同 resolveWorkDivergence：commit 早退或失敗時，下方的 holder 遷移不得再寫檔（verify logic L2）。
+        guard report.failures.isEmpty else { return report }
+        // #271 的清單記的是搬移**當下**的值；keeper 上的 `person:<被併鍵>` 已在 commit 前改寫（見上），
+        // 揭露值要跟著改，否則 CLI 印出一個 store 裡不存在的 value（verify requirements #5）。
+        report.verdictReferencesMigrated = verdictsMigrated.map { v in
+            guard let p = ProvenanceReference.VerdictPairingValue.parse(v),
+                  p.holderKind == .person, merged.contains(p.holder) else { return v }
+            return ProvenanceReference.VerdictPairingValue(holderKind: .person, holder: survivor, literal: p.literal).encoded
+        }
         if keeperMigration.changed {
             report.verdictValuesRewritten.append(survivor)
             report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe（DivergenceCommands）
@@ -804,6 +813,23 @@ extension LibraryStore {
             } catch {
                 report.failures.append(
                     "organization「\(org.key)」的 verdict value 遷移寫入失敗：\(error)")
+            }
+        }
+        // venue 同型（#463 verify security 席）：`person:` holder 的 producer 今天只寫 organization，但寫入閘收任何
+        // holderKind——與 person 迴圈同一個理由，同型兩格不該處置相反。
+        for var venue in snapshot.venues {
+            let (migrated, changed, collapsed) = Self.migrateHolderVerdicts(
+                venue.references, merged: merged, survivor: survivor, holderKind: .person)
+            guard changed else { continue }
+            venue.references = migrated
+            do {
+                _ = try writeVenue(venue)
+                report.verdictValuesRewritten.append(venue.key)
+                report.verdictsCollapsed.append(   // display-safe-exempt: 同上
+                    contentsOf: collapsed.map { "venue「\(venue.key)」：\($0)" })   // display-safe-exempt: 同上
+            } catch {
+                report.failures.append(
+                    "venue「\(venue.key)」的 verdict value 遷移寫入失敗：\(error)")
             }
         }
         // 排除 merged（已刪檔，寫回等於復活）**與 survivor**（commit 已改寫它，快照是舊的——它的遷移在上面 commit 前做）
@@ -855,8 +881,9 @@ extension LibraryStore {
     /// 的 `candidateKeys.filter { $0 != survivor }`）。helper 另以
     /// `pairing.holder != survivor` 自保——指向 survivor 的 verdict 不是遷移對象；
     /// 若把它算成「本次觸及」，觸及集合會退化成全量 dedup（被否決的方案 (a)）且
-    /// `changed` 恆真造成空寫。#463 複用時不必再各自防（複用面：org × work merge
-    /// 一格是 drop-in；其餘三格要 `person:` holder 或走 rename 側，不是這支）。
+    /// `changed` 恆真造成空寫。#463 複用本函式的是 merge 側的四格（org×work-merge 是 drop-in；person-merge 的
+    /// organization／person／venue 三格傳 `.person`）；rename 側走 `LibraryStore.migratedVerdicts`（全量 dedup，
+    /// 語意刻意不同）。
     /// merge 側 holder verdict 的遷移＋收攏，**holderKind 參數化**（#463）：`.work`（work merge，
     /// #461 的原形）與 `.person`（person merge——`person:<被併 key>` holder 住在 organization 記錄上，
     /// 是 org-resolution 的判定；#395 rename 側已遷、merge 側漏了，#232→#271 的不對稱在 person-key 軸重演）。
@@ -900,6 +927,7 @@ extension LibraryStore {
         return (deduped, true, collapsed)
     }
 
+    /// `migrateHolderVerdicts` 的 `.work` 特例——#461 的原名，語意逐字不變（該 issue 的測試打這個名字）。
     static func migrateWorkHolderVerdicts(
         _ refs: [ProvenanceReference], merged: Set<String>, survivor: String
     ) -> (refs: [ProvenanceReference], changed: Bool, collapsed: [String]) {
@@ -965,6 +993,10 @@ extension LibraryStore {
                                     snapshot: snapshot, survivor: survivor,
                                     survivorNote: "倖存者的記錄已被重寫"
                                         + "（work 消歧不搬欄位，見 #75）")
+        // #463 verify logic L2：commit 早退（不可刪檔、記錄仍在等）或部分失敗時，下方的 holder 遷移**不得再寫檔**
+        // ——否則一個回報「未動任何檔案」的失敗實際改寫了 person／venue／organization。此時 `report.failures`
+        // 只可能含 commit 階段的失敗（遷移迴圈還沒跑）。這條閘同時涵蓋 #271／#460 的既有迴圈。
+        guard report.failures.isEmpty else { return report }
         // #271（下半）：citekey 退役＝改名的一種——person 身上 `work:<被併鍵>` 的
         // verdict value 不遷移就安靜變 stale（rename 已修 #232、merge 漏了同型）。
         // 文法與 renameEntry 同源（VerdictPairingValue）；**收攏範圍刻意不同**——

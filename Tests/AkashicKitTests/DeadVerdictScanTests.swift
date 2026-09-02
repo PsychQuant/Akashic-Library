@@ -188,15 +188,37 @@ final class DeadVerdictScanTests: XCTestCase {
         XCTAssertTrue(dead[0].issue.message.contains("沒有任何檔宣稱它"), dead[0].issue.message)
     }
 
-    /// 頂層標頭的判準：第 0 欄開始、其後只剩水平空白或 `\r`；檔首 BOM 不算前導字元；縮排不算（Codex R3）。
-    func testTopLevelMarkerLineTolerantToBOMCRLFAndTrailingSpaceButNotIndent() {
+    /// 頂層標頭的判準：第 0 欄開始、其後只剩水平空白；縮排不算（Codex R3）。換行與 BOM 由 `rawLines` 處理。
+    func testTopLevelMarkerLineTolerantToTrailingSpaceButNotIndent() {
         XCTAssertTrue(LibraryStore.isTopLevelMarkerLine("organization:", marker: "organization:"))
-        XCTAssertTrue(LibraryStore.isTopLevelMarkerLine("organization:\r", marker: "organization:"))
         XCTAssertTrue(LibraryStore.isTopLevelMarkerLine("organization: \t", marker: "organization:"))
-        XCTAssertTrue(LibraryStore.isTopLevelMarkerLine("\u{FEFF}organization:", marker: "organization:"))
         XCTAssertFalse(LibraryStore.isTopLevelMarkerLine("  organization:", marker: "organization:"))
         XCTAssertFalse(LibraryStore.isTopLevelMarkerLine("organization: x", marker: "organization:"))
         XCTAssertFalse(LibraryStore.isTopLevelMarkerLine("organizations:", marker: "organization:"))
+    }
+
+    /// `rawLines`：三種換行都切（`\n`／`\r\n`／單獨 `\r`——Codex R4：classic Mac 的 CR 是合法 YAML 換行）；
+    /// 檔首 BOM 剝一次、行中的 BOM 不剝（它不是每行的標記，Codex R4）。
+    func testRawLinesSplitsAllThreeLineBreaksAndStripsOnlyTheLeadingBOM() {
+        XCTAssertEqual(LibraryStore.rawLines("a\nb\r\nc\rd").map(String.init), ["a", "b", "c", "d"])
+        XCTAssertEqual(LibraryStore.rawLines("\u{FEFF}organization:\r\nkey: x\r\n").map(String.init), ["organization:", "key: x", ""])
+        XCTAssertEqual(LibraryStore.rawLines("a\n\u{FEFF}organization:").map(String.init), ["a", "\u{FEFF}organization:"])
+        XCTAssertFalse(LibraryStore.isTopLevelMarkerLine("\u{FEFF}organization:", marker: "organization:"), "行中的 BOM 不是第 0 欄")
+    }
+
+    /// 單獨 `\r` 換行（classic Mac）的 quarantined 檔也認得——與 CRLF 同一條路。
+    func testQuarantinedOrgFileWithLoneCRIsStillRecognised() throws {
+        let yaml = try OrganizationYAML.encode(Organization(key: "quar-org", names: TimelineOf([TemporalValue(value: "Q")])))
+        try yaml.replacingOccurrences(of: "\n", with: "\r")
+            .write(to: store.entitiesDir.appendingPathComponent("\(UUID().uuidString).yaml"), atomically: true, encoding: .utf8)
+        var v = Venue(key: "some-journal", type: .periodical, names: TimelineOf([TemporalValue(value: "J")]))
+        v.references = [verdict("resolution-confirmed", kind: .org, holder: "quar-org", literal: "O")]
+        _ = try store.writeVenue(v)
+        let load = try store.load()
+        XCTAssertEqual(load.quarantined.count, 1, "\(load.quarantined)")
+        let dead = deadVerdicts(store.health(from: load))
+        XCTAssertEqual(dead.count, 1)
+        XCTAssertTrue(dead[0].issue.message.contains("被 quarantine"), dead[0].issue.message)
     }
 
     /// CRLF 與 BOM 的 quarantined 檔仍被認成宣稱者（不會被誤報成「沒有任何檔宣稱」）。
@@ -281,22 +303,37 @@ final class DeadVerdictScanTests: XCTestCase {
     /// 對非識別碼欄位一律 throw，decode 時就拒）。work 側值域一放寬（#443 段記的「目前只收識別碼」），
     /// 本測試的第一個斷言會紅，提醒把 entries 加進掃描。
     func testEveryProvenanceCarrierIsEitherScannedOrCannotCarryAVerdict() throws {
-        // 棘輪：conformer 集合由源碼掃描取得——掃整個 AkashicCore、認得 extension／型別宣告、
-        // 多重 conformance 與換行（Codex R3：只掃一檔一種寫法會被繞過）。第五個 conformer 出現時這裡會紅。
+        // 棘輪：conformer 集合由源碼掃描取得——遞迴掃整個 AkashicCore；只看**繼承子句**（型別名（含巢狀）＋
+        // 可選泛型參數之後的 `:` 到 `{` 或 `where` 之前），所以 `struct Box<T: ProvenanceCarrying>` 的泛型約束與
+        // `extension X where T: ProvenanceCarrying` 都不算（Codex R3／R4）。**它是詞法棘輪，不是編譯器約束**：
+        // 註解與字串裡的宣告會誤入、極端排版可能漏掉——常見寫法的第五個 conformer 會讓這裡紅，這是它能承諾的。
         let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/AkashicCore")
-        let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "swift" }
+        var files: [URL] = []
+        if let it = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil) {
+            for case let u as URL in it where u.pathExtension == "swift" { files.append(u) }
+        }
         XCTAssertGreaterThan(files.count, 5)
         var conformers = Set<String>()
         for f in files {
             let src = try String(contentsOf: f, encoding: .utf8)
-            for m in src.matches(of: #/(?:extension|struct|final class|class|enum|actor)\s+(\w+)\b[^{]*?\bProvenanceCarrying\b/#) {
-                conformers.insert(String(m.1))
+            for m in src.matches(of: #/\b(?:extension|struct|final class|class|enum|actor)\s+([\w.]+)\s*(?:<[^>]*>)?\s*:\s*([^{]*?)\{/#) {
+                let clause = String(m.2).components(separatedBy: "where").first ?? ""
+                if clause.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }).contains("ProvenanceCarrying") {
+                    conformers.insert(String(m.1))
+                }
             }
         }
         XCTAssertEqual(conformers, ["Entry", "Person", "Organization", "Venue"],
                        "多了一個 ProvenanceCarrying——決定它要被 deadVerdictIssues 掃、還是像 Entry 一樣帶不了 verdict")
+        // 負控：泛型約束與 where 子句不得被算成 conformance（Codex R4 指出的誤入形）
+        let probe = "struct Box<T: ProvenanceCarrying> {}\nextension Box where T: ProvenanceCarrying {}\nextension Real.Nested: Foo, ProvenanceCarrying {}\n"
+        var found = Set<String>()
+        for m in probe.matches(of: #/\b(?:extension|struct|final class|class|enum|actor)\s+([\w.]+)\s*(?:<[^>]*>)?\s*:\s*([^{]*?)\{/#) {
+            let clause = String(m.2).components(separatedBy: "where").first ?? ""
+            if clause.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }).contains("ProvenanceCarrying") { found.insert(String(m.1)) }
+        }
+        XCTAssertEqual(found, ["Real.Nested"])
         var e = Entry(id: UUID(), citekey: "x2020a", type: .periodicalArticle, title: "X")
         e.references = [verdict("resolution-confirmed", kind: .work, holder: "gone2019a", literal: "Y")]
         XCTAssertThrowsError(try e.validateReferenceAttachment(),

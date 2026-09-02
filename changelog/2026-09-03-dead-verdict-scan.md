@@ -29,10 +29,11 @@ resolution verdict 的 value 指向一個**沒有載入**的 holder（`work:<cit
   confirmed／rejected 並存）延後至 #486**，其 Blocking 是 #470 的相等定義。
 - **quarantine 宣稱者的判定**（verify Codex R2／R3）：頂層標頭要從第 0 欄開始（縮排的巢狀鍵不算），但
   不要求整行位元組相等——檔首 BOM、CRLF 的 `\r`、標頭後的水平空白都是合法排版。實測抓到一個更深的坑：
-  Swift 把 `\r\n` 當**一個** Character，只用 `"\n"` 切行的 CRLF 檔整檔會是一行——person／org 的共用查詢
-  與既有的 citekey 查詢都改成同時以 `\n`、`\r\n` 切；測試各一支。
-- **conformer 棘輪**掃整個 `Sources/AkashicCore`、認 extension／型別宣告／多重 conformance（Codex R3：只掃
-  一檔一種寫法會被繞過）；Entry 拒絕斷言改 pattern-match `StoreYAMLError.invalidField` 的 field。
+  Swift 把 `\r\n` 當**一個** Character，只用 `"\n"` 切行的 CRLF 檔整檔會是一行（Codex R3 的 CRLF case 促成
+  實驗、缺陷在 fix round 才發現）——`rawLines` 統一切三種換行（`\n`／`\r\n`／單獨 `\r`，Codex R4）、檔首
+  BOM 剝一次；person／org 的共用查詢與既有的 citekey 查詢都走它；CRLF／CR／BOM 各有真檔測試。
+- **conformer 棘輪**遞迴掃整個 `Sources/AkashicCore`、只看繼承子句（泛型約束與 `where` 不算，巢狀型別名保留）
+  ——它是**詞法**棘輪不是編譯器約束，常見寫法的第五個 conformer 會紅、極端排版與註解裡的宣告不保證（Codex R3／R4）；Entry 拒絕斷言改 pattern-match `StoreYAMLError.invalidField` 的 field。
 - **Verify 補的**：quarantine 分辨、測試矩陣（正向 person／org holder、錯集合碰撞、
   quarantined holder、malformed 不可達、三族釘子）、第 13 列的歸因與 severity 理由——R1 六席全 FAIL 後的
   fix round。

@@ -112,6 +112,49 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertTrue(report.verdictValuesRewritten.contains("third-person"), "\(report)")
     }
 
+    /// survivor **自己**持有的 `person:<doomed>` holder：改寫在 commit 之前、對合併後的 keeper 做——合併進來的別名
+    /// 不得被舊快照蓋掉（Codex R1 的 HIGH：post-commit 用 pre-commit 快照寫 survivor 會丟掉合併結果）。
+    func testPersonMergeRewritesSurvivorsOwnPersonHolderAndKeepsMergedAliases() throws {
+        var keeper = Person(key: "keeper-person", names: ["Keeper Person"])
+        keeper.references = [verdict("resolution-confirmed", kind: .person, holder: "doomed-person", literal: "K")]
+        try store.writePerson(keeper)
+        try store.writePerson(Person(key: "doomed-person", names: ["Doomed Alias"]))
+        let d = try divergence(keeper: "keeper-person", doomed: "doomed-person", shape: .person)
+        GitFixture.commitAll(store.root)
+        let report = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
+        let after = try store.load().people.first { $0.key == "keeper-person" }
+        XCTAssertEqual(try holders(ofPerson: "keeper-person"), ["person:keeper-person"])
+        XCTAssertTrue(after?.names.all.contains("Doomed Alias") ?? false, "合併進來的別名不得被舊快照蓋掉：\(String(describing: after?.names.all))")
+        XCTAssertNil(try store.load().people.first { $0.key == "doomed-person" }, "doomed 不得復活")
+        XCTAssertTrue(report.verdictValuesRewritten.contains("keeper-person"), "\(report)")
+    }
+
+    /// doomed **自帶**的 `person:<doomed>` verdict 由 #271 搬到 keeper 後也要被改寫——pre-commit 的快照掃描看不到它。
+    func testPersonMergeRewritesPersonHolderTransferredFromDoomed() throws {
+        try store.writePerson(Person(key: "keeper-person", names: ["Keeper Person"]))
+        var doomed = Person(key: "doomed-person", names: ["Doomed Person"])
+        doomed.references = [verdict("resolution-rejected", kind: .person, holder: "doomed-person", literal: "D")]
+        try store.writePerson(doomed)
+        let d = try divergence(keeper: "keeper-person", doomed: "doomed-person", shape: .person)
+        GitFixture.commitAll(store.root)
+        _ = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
+        XCTAssertEqual(try holders(ofPerson: "keeper-person"), ["person:keeper-person"], "搬來的 verdict 也要改寫")
+    }
+
+    // MARK: - rename 的 org 前置閘與 writeOrganization 同一個函式
+
+    /// format 閘沒鏡射會撕裂：entry 寫完才在 `writeOrganization` 擲錯（Codex R1）。把 store 降到 format 7 之後，
+    /// rename 要在**改動 entry 之前**擲錯。
+    func testRenameRefusesBeforeTouchingEntryWhenOrganizationGateFails() throws {
+        try entry("old2020a")
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "Some Org")])
+        try StoreVersion.write(root: root, format: 7)   // verdict 需要 ≥ 8：閘要在 rename 的前置段就擋
+        XCTAssertThrowsError(try store.renameEntry(from: "old2020a", to: "new2020a"))
+        try StoreVersion.write(root: root, format: StoreVersion.supported)
+        let keys = try store.load().entries.map(\.citekey)
+        XCTAssertEqual(keys, ["old2020a"], "entry 不得被改動：\(keys)")
+    }
+
     // MARK: - helper 的 kind 篩選
 
     func testHelperKindFilterLeavesOtherKindsUntouched() {
@@ -123,9 +166,9 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(out.map(\.value), [refs[0].value, "person:keeper-person :: B"], "`work:` 那筆不動")
     }
 
-    // MARK: - live store 的形狀：多個 organization 指向同一 citekey
+    // MARK: - 多筆 cardinality 回歸：多個 organization 指向同一 citekey（live store 的形狀：9 條、7 個 distinct citekey）
 
-    func testLiveShapeSeveralOrganizationsPointingAtOneCitekeySurviveRename() throws {
+    func testSeveralOrganizationsPointingAtOneCitekeyAllMigrateOnRename() throws {
         try entry("standards1966a")
         for k in ["org-a", "org-b", "org-c"] {
             try org(k, refs: [verdict("resolution-confirmed", kind: .work, holder: "standards1966a", literal: "Org \(k)")])

@@ -596,10 +596,10 @@ public final class LibraryStore {
         return dest
     }
 
-    /// 機構只存在於 entities 佈局（format 4 起）——legacy 佈局沒有它的位置。
-    @discardableResult
-    public func writeOrganization(_ org: Organization) throws -> URL {
-        try assertStoreRoot()
+    /// `writeOrganization` 的**全部非 I/O 前置條件**——寫入端與 `renameEntry` 的前置閘共用同一個函式，
+    /// 兩邊不會漂移（#463 verify Codex R1：rename 側只鏡射了 key／validate／encode，漏掉 format 閘，format ≤ 7
+    /// 的 store 會在 entry 寫完之後才在 `writeOrganization` 擲錯——撕裂）。`format` 由呼叫端讀一次傳進來。
+    public static func assertOrganizationWritable(_ org: Organization, format: Int) throws {
         guard StoreKey.isValid(org.key) else {
             throw StoreIOError.invalidKey("organization key", org.key)
         }
@@ -607,13 +607,12 @@ public final class LibraryStore {
         // binary 讀到 `field: ror` 的 reference 會整檔 quarantine（2026-08-24 實測）。
         if !org.references.isEmpty {
             try Self.assertIdentifierReferencesWritable(
-                org.references, format: try StoreVersion.read(root: root),
+                org.references, format: format,
                 what: "organization「\(displaySafe(org.key, max: 120))」")
         }
         // v6-only 語法的 format gate——理由見 writePerson（#131 verify Codex-H2）
         if org.names.entries.contains(where: \.range.endedUnknown)
             || org.parents.entries.contains(where: \.range.endedUnknown) {
-            let format = try StoreVersion.read(root: root)
             guard format >= 6 else {
                 throw StoreIOError.invalidKey(
                     "organization（含 ended 段，需要 store format ≥ 6；本 store 是 \(format)）——" +
@@ -623,7 +622,6 @@ public final class LibraryStore {
         // v7-only（attested，#70）——同上
         if org.names.entries.contains(where: { !$0.range.attested.isEmpty })
             || org.parents.entries.contains(where: { !$0.range.attested.isEmpty }) {
-            let format = try StoreVersion.read(root: root)
             guard format >= 7 else {
                 throw StoreIOError.invalidKey(
                     "organization（含 attested 段，需要 store format ≥ 7；本 store 是 \(format)）——" +
@@ -633,7 +631,6 @@ public final class LibraryStore {
         // v8-only（resolution verdict，#232）——同 writePerson 的 v8 gate
         if org.references.contains(where: {
             ProvenanceReference.resolutionVerdictFields.contains($0.field) }) {
-            let format = try StoreVersion.read(root: root)
             guard format >= 8 else {
                 throw StoreIOError.invalidKey(
                     "organization（含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)）——" +
@@ -642,6 +639,13 @@ public final class LibraryStore {
         }
         // 同 writePerson 的閘（#229）——「哪個名字對外」是同一個問題，不該有兩套答案
         try Self.assertNoErrors(org.validate(), what: "organization", key: org.key)
+    }
+
+    /// 機構只存在於 entities 佈局（format 4 起）——legacy 佈局沒有它的位置。
+    @discardableResult
+    public func writeOrganization(_ org: Organization) throws -> URL {
+        try assertStoreRoot()
+        try Self.assertOrganizationWritable(org, format: try StoreVersion.read(root: root))
         let yaml = try OrganizationYAML.encode(org)
         let dest = entityURL(id: org.id)
         try atomicWrite(yaml, to: dest)
@@ -1467,16 +1471,15 @@ extension LibraryStore {
             _ = try DivergenceYAML.encode(d)
         }
         for p in peopleToRewrite { _ = try PersonYAML.encode(p) }
-        let venueGateFormat = try StoreVersion.read(root: root)
+        let gateFormat = try StoreVersion.read(root: root)   // venue／organization 的 format 閘共用
         for vn in venuesToRewrite {
-            try Self.assertVenueWritable(vn, format: venueGateFormat)
+            try Self.assertVenueWritable(vn, format: gateFormat)
             _ = try VenueYAML.encode(vn)
         }
-        // organization 的寫入前置條件鏡射 `writeOrganization`：key 文法、驗證零 error、encode 得過。
-        // verdict 的 format ≥ 8 閘在這裡必然已滿足（記錄本來就持有 verdict 才會進到這裡）。
+        // organization 的寫入前置條件與 `writeOrganization` **同一個函式**（含 format 閘：識別碼 ≥13、ended ≥6、
+        // attested ≥7、verdict ≥8）——只鏡射一半就是 #35 R2 DA 實測過的撕裂（Codex R1 在本張再抓一次）。
         for o in orgsToRewrite {
-            guard StoreKey.isValid(o.key) else { throw StoreIOError.invalidKey("organization key", o.key) }
-            try Self.assertNoErrors(o.validate(), what: "organization", key: o.key)
+            try Self.assertOrganizationWritable(o, format: gateFormat)
             _ = try OrganizationYAML.encode(o)
         }
         // 3. 寫記錄本身。

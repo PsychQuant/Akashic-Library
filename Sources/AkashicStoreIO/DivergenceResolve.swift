@@ -749,6 +749,12 @@ extension LibraryStore {
         }
 
         let merged = Set(mergedKeys)
+        // #463：keeper **自己**持有的 `person:<被併鍵>` holder（含剛由 #271 從 doomed 搬來的）在 **commit 之前**
+        // 就改寫——commit 之後拿 pre-commit 快照寫 keeper，會把合併別名與搬來的 references 整個蓋掉
+        // （Codex R1）。survivor 因此**不進**下方 post-commit 的 snapshot 迴圈。
+        let keeperMigration = Self.migrateHolderVerdicts(
+            keeper.references, merged: merged, survivor: survivor, holderKind: .person)
+        if keeperMigration.changed { keeper.references = keeperMigration.refs }
         var entriesToWrite: [Entry] = []
         for var e in snapshot.entries {
             // **只碰真的指名被併鍵的記錄。** 先判斷有沒有命中，再改寫——否則
@@ -776,6 +782,11 @@ extension LibraryStore {
                                     snapshot: snapshot, survivor: survivor,
                                     survivorNote: "倖存者的別名合併已經落地（磁碟上不是原狀）")
         report.verdictReferencesMigrated = verdictsMigrated
+        if keeperMigration.changed {
+            report.verdictValuesRewritten.append(survivor)
+            report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe（DivergenceCommands）
+                contentsOf: keeperMigration.collapsed.map { "person「\(survivor)」：\($0)" })   // display-safe-exempt: 同上
+        }
         // #463（網格的 person-merge 兩格）：person key 退役＝改名的一種——organization（與 person）記錄上
         // `person:<被併鍵>` holder 的 verdict 不遷移就安靜變 stale。#395 已補 rename 側，merge 側在此之前
         // **零 holder 遷移**（上面 #271 搬的是 doomed 自己的 references，不是指向 doomed 的 holder）。
@@ -795,7 +806,8 @@ extension LibraryStore {
                     "organization「\(org.key)」的 verdict value 遷移寫入失敗：\(error)")
             }
         }
-        for var person in snapshot.people where !merged.contains(person.key) {
+        // 排除 merged（已刪檔，寫回等於復活）**與 survivor**（commit 已改寫它，快照是舊的——它的遷移在上面 commit 前做）
+        for var person in snapshot.people where !merged.contains(person.key) && person.key != survivor {
             let (migrated, changed, collapsed) = Self.migrateHolderVerdicts(
                 person.references, merged: merged, survivor: survivor, holderKind: .person)
             guard changed else { continue }

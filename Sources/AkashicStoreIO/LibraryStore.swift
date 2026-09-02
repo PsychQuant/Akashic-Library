@@ -1231,10 +1231,11 @@ extension LibraryStore {
         for q in load.quarantined {
             let url = root.appendingPathComponent(q.file)
             guard let text = try? readUTF8(url) else { return q.file }   // fail-closed
-            for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            // `\r\n` 是一個 Character——只用 `"\n"` 切，CRLF 檔整檔一行、永遠對不到（#464 verify 實測）
+            for line in text.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" || $0 == "\r\n" }) {
                 guard line.hasPrefix("citekey:") else { continue }
                 let claimed = line.dropFirst("citekey:".count)
-                    .trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
                     .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
                 if claimed == citekey { return q.file }
                 break                                  // 頂層 citekey 只有一行
@@ -1699,24 +1700,36 @@ extension LibraryStore {
 
     /// person／organization 共用的實作：頂層標頭 ＋ 第一個 `key:` 行。
     ///
-    /// 標頭要**整行相等、無前導空白**（`organization:`／`person:` 在 store 格式裡是頂層鍵，錨在行首與
+    /// 標頭要**從第 0 欄開始**（`organization:`／`person:` 在 store 格式裡是頂層鍵，錨在行首與
     /// `citekey:` 版同一條紀律）——縮排的同名鍵（巢狀值裡的 `organization:`）不算，否則一個被 quarantine
     /// 的別種檔會因為巢狀鍵而被當成宣稱者、再配上檔內第一個不相干的 `key:`（Codex R2）。
+    /// **但不要求整行位元組相等**：檔首 BOM、CRLF 留下的 `\r`、標頭後的水平空白都是合法 YAML 排版，
+    /// 拒絕它們會把「檔在、被 quarantine」誤報成「沒有任何檔宣稱」（Codex R3）。
     private func quarantinedFileClaiming(topLevel marker: String, key: String, in load: LibraryLoad) -> String? {
         for q in load.quarantined {
             let url = root.appendingPathComponent(q.file)
             guard let text = try? readUTF8(url) else { return q.file }   // fail-closed
-            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-            guard lines.contains(where: { $0 == marker }) else { continue }
+            // Swift 把 `\r\n` 當**一個** Character：只用 `"\n"` 切，CRLF 檔整檔會是一行、什麼都對不到
+            // （Codex R3 指出的 CRLF 缺口，實測正是這裡）。
+            let lines = text.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" || $0 == "\r\n" })
+            guard lines.contains(where: { Self.isTopLevelMarkerLine($0, marker: marker) }) else { continue }
             for line in lines where line.hasPrefix("key:") {
                 let claimed = line.dropFirst("key:".count)
-                    .trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)   // CRLF 的 `\r` 也是尾端字元（Codex R3）
                     .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
                 if claimed == key { return q.file }
                 break                                  // 頂層 key 只有一行
             }
         }
         return nil
+    }
+
+    /// 一行是不是頂層標頭：去掉檔首 BOM 後從第 0 欄開始是 `marker`，其後只剩水平空白或 `\r`。
+    static func isTopLevelMarkerLine(_ line: Substring, marker: String) -> Bool {
+        var l = line
+        if l.hasPrefix("\u{FEFF}") { l = l.dropFirst() }
+        guard l.hasPrefix(marker) else { return false }
+        return l.dropFirst(marker.count).allSatisfy { $0 == " " || $0 == "\t" || $0 == "\r" }
     }
 
     private func store_loadForRename() throws -> LibraryLoad {

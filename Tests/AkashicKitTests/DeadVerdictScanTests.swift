@@ -188,6 +188,50 @@ final class DeadVerdictScanTests: XCTestCase {
         XCTAssertTrue(dead[0].issue.message.contains("沒有任何檔宣稱它"), dead[0].issue.message)
     }
 
+    /// 頂層標頭的判準：第 0 欄開始、其後只剩水平空白或 `\r`；檔首 BOM 不算前導字元；縮排不算（Codex R3）。
+    func testTopLevelMarkerLineTolerantToBOMCRLFAndTrailingSpaceButNotIndent() {
+        XCTAssertTrue(LibraryStore.isTopLevelMarkerLine("organization:", marker: "organization:"))
+        XCTAssertTrue(LibraryStore.isTopLevelMarkerLine("organization:\r", marker: "organization:"))
+        XCTAssertTrue(LibraryStore.isTopLevelMarkerLine("organization: \t", marker: "organization:"))
+        XCTAssertTrue(LibraryStore.isTopLevelMarkerLine("\u{FEFF}organization:", marker: "organization:"))
+        XCTAssertFalse(LibraryStore.isTopLevelMarkerLine("  organization:", marker: "organization:"))
+        XCTAssertFalse(LibraryStore.isTopLevelMarkerLine("organization: x", marker: "organization:"))
+        XCTAssertFalse(LibraryStore.isTopLevelMarkerLine("organizations:", marker: "organization:"))
+    }
+
+    /// CRLF 與 BOM 的 quarantined 檔仍被認成宣稱者（不會被誤報成「沒有任何檔宣稱」）。
+    func testQuarantinedOrgFileWithCRLFAndBOMIsStillRecognised() throws {
+        let yaml = try OrganizationYAML.encode(Organization(key: "quar-org", names: TimelineOf([TemporalValue(value: "Q")])))
+        let crlf = "\u{FEFF}" + yaml.replacingOccurrences(of: "\n", with: "\r\n")
+        try crlf.write(to: store.entitiesDir.appendingPathComponent("\(UUID().uuidString).yaml"),
+                       atomically: true, encoding: .utf8)
+        var v = Venue(key: "some-journal", type: .periodical, names: TimelineOf([TemporalValue(value: "J")]))
+        v.references = [verdict("resolution-confirmed", kind: .org, holder: "quar-org", literal: "O")]
+        _ = try store.writeVenue(v)
+        let load = try store.load()
+        XCTAssertEqual(load.quarantined.count, 1, "\(load.quarantined)")
+        let dead = deadVerdicts(store.health(from: load))
+        XCTAssertEqual(dead.count, 1)
+        XCTAssertTrue(dead[0].issue.message.contains("被 quarantine"), dead[0].issue.message)
+    }
+
+    /// 同一個 CRLF 陷阱在 `work:` holder 的路徑（`quarantinedFileClaiming(citekey:)`）也修了。
+    func testQuarantinedEntryFileWithCRLFIsStillRecognisedForWorkHolder() throws {
+        let e = Entry(id: UUID(), citekey: "quarcrlf2019a", type: .periodicalArticle,
+                      title: "Q", authors: [.literal("A B")], date: "2019")
+        let crlf = try EntryYAML.encode(e).replacingOccurrences(of: "\n", with: "\r\n")
+        try crlf.write(to: store.entitiesDir.appendingPathComponent("\(UUID().uuidString).yaml"),
+                       atomically: true, encoding: .utf8)
+        var p = Person(key: "some-author", names: PersonNames(variant: ["Some Author"]))
+        p.references = [verdict("resolution-confirmed", kind: .work, holder: "quarcrlf2019a", literal: "Some Author")]
+        try store.writePerson(p)
+        let load = try store.load()
+        XCTAssertEqual(load.quarantined.count, 1, "\(load.quarantined)")
+        let dead = deadVerdicts(store.health(from: load))
+        XCTAssertEqual(dead.count, 1)
+        XCTAssertTrue(dead[0].issue.message.contains("被 quarantine"), dead[0].issue.message)
+    }
+
     /// 解析不了的 verdict value 對**已載入**的記錄結構上不可達：載入端把它整檔 quarantine，
     /// 掃描因此看不到它——零不是掃描的功勞，是 load 的（第 8 列的形狀：釘住為什麼是零）。
     func testMalformedVerdictValueIsUnreachableForLoadedRecords() throws {
@@ -237,16 +281,30 @@ final class DeadVerdictScanTests: XCTestCase {
     /// 對非識別碼欄位一律 throw，decode 時就拒）。work 側值域一放寬（#443 段記的「目前只收識別碼」），
     /// 本測試的第一個斷言會紅，提醒把 entries 加進掃描。
     func testEveryProvenanceCarrierIsEitherScannedOrCannotCarryAVerdict() throws {
-        // 棘輪：conformer 集合由源碼掃描取得——第五個 conformer 出現時這裡會紅，逼人裁決它要不要進掃描。
-        let source = try EntrySurfaceTests.repoFile("Sources/AkashicCore/Provenance.swift")
-        let conformers = Set(source.matches(of: #/extension (\w+): ProvenanceCarrying \{\}/#).map { String($0.1) })
+        // 棘輪：conformer 集合由源碼掃描取得——掃整個 AkashicCore、認得 extension／型別宣告、
+        // 多重 conformance 與換行（Codex R3：只掃一檔一種寫法會被繞過）。第五個 conformer 出現時這裡會紅。
+        let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/AkashicCore")
+        let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+        XCTAssertGreaterThan(files.count, 5)
+        var conformers = Set<String>()
+        for f in files {
+            let src = try String(contentsOf: f, encoding: .utf8)
+            for m in src.matches(of: #/(?:extension|struct|final class|class|enum|actor)\s+(\w+)\b[^{]*?\bProvenanceCarrying\b/#) {
+                conformers.insert(String(m.1))
+            }
+        }
         XCTAssertEqual(conformers, ["Entry", "Person", "Organization", "Venue"],
                        "多了一個 ProvenanceCarrying——決定它要被 deadVerdictIssues 掃、還是像 Entry 一樣帶不了 verdict")
         var e = Entry(id: UUID(), citekey: "x2020a", type: .periodicalArticle, title: "X")
         e.references = [verdict("resolution-confirmed", kind: .work, holder: "gone2019a", literal: "Y")]
         XCTAssertThrowsError(try e.validateReferenceAttachment(),
                              "Entry 帶不了 verdict——掃描不掃 entries 是因為這裡擋住，不是漏掉") { error in
-            XCTAssertTrue("\(error)".contains("entry.references(field: resolution-confirmed)"), "\(error)")
+            guard case StoreYAMLError.invalidField(let field, _)? = error as? StoreYAMLError else {
+                return XCTFail("要的是 StoreYAMLError.invalidField，得到 \(error)")
+            }
+            XCTAssertEqual(field, "entry.references(field: resolution-confirmed)")
         }
         var p = Person(key: "p1", names: PersonNames(variant: ["P One"]))
         p.references = [verdict("resolution-confirmed", kind: .work, holder: "gone2019a", literal: "P")]

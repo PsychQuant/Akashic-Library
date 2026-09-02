@@ -27,6 +27,12 @@ resolution verdict 的 value 指向一個**沒有載入**的 holder（`work:<cit
   #232／#271／#460 是三個結構缺口，stale 實際累積一次、三個場外機制全在 #460 那一次）；第 14 列（❌ 不寫，
   第 10 列的形狀）記錄 #461 交叉註記的第二個掃描項——**本輪只做 set-difference，矛盾偵測（同配對
   confirmed／rejected 並存）延後至 #486**，其 Blocking 是 #470 的相等定義。
+- **quarantine 宣稱者的判定**（verify Codex R2／R3）：頂層標頭要從第 0 欄開始（縮排的巢狀鍵不算），但
+  不要求整行位元組相等——檔首 BOM、CRLF 的 `\r`、標頭後的水平空白都是合法排版。實測抓到一個更深的坑：
+  Swift 把 `\r\n` 當**一個** Character，只用 `"\n"` 切行的 CRLF 檔整檔會是一行——person／org 的共用查詢
+  與既有的 citekey 查詢都改成同時以 `\n`、`\r\n` 切；測試各一支。
+- **conformer 棘輪**掃整個 `Sources/AkashicCore`、認 extension／型別宣告／多重 conformance（Codex R3：只掃
+  一檔一種寫法會被繞過）；Entry 拒絕斷言改 pattern-match `StoreYAMLError.invalidField` 的 field。
 - **Verify 補的**：quarantine 分辨、測試矩陣（正向 person／org holder、錯集合碰撞、
   quarantined holder、malformed 不可達、三族釘子）、第 13 列的歸因與 severity 理由——R1 六席全 FAIL 後的
   fix round。

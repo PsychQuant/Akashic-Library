@@ -302,6 +302,13 @@ final class DeadVerdictScanTests: XCTestCase {
     /// 釘住：每個 conformer 要嘛被掃到，要嘛**結構上帶不了 verdict**（Entry：`validateReferenceAttachment`
     /// 對非識別碼欄位一律 throw，decode 時就拒）。work 側值域一放寬（#443 段記的「目前只收識別碼」），
     /// 本測試的第一個斷言會紅，提醒把 entries 加進掃描。
+    /// 繼承子句在 `where` **關鍵字**處截斷——用識別碼邊界，不用子字串（`Somewhere` 含 `where`，子字串切會把
+    /// `struct NewCarrier: Somewhere, ProvenanceCarrying` 切成 `Some`、讓真 conformer 靜默漏掉——Codex R5）。
+    private static func conformsToProvenanceCarrying(_ clause: Substring) -> Bool {
+        let head = clause.firstRange(of: #/\bwhere\b/#).map { clause[..<$0.lowerBound] } ?? clause
+        return head.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.contains("ProvenanceCarrying")
+    }
+
     func testEveryProvenanceCarrierIsEitherScannedOrCannotCarryAVerdict() throws {
         // 棘輪：conformer 集合由源碼掃描取得——遞迴掃整個 AkashicCore；只看**繼承子句**（型別名（含巢狀）＋
         // 可選泛型參數之後的 `:` 到 `{` 或 `where` 之前），所以 `struct Box<T: ProvenanceCarrying>` 的泛型約束與
@@ -317,23 +324,24 @@ final class DeadVerdictScanTests: XCTestCase {
         var conformers = Set<String>()
         for f in files {
             let src = try String(contentsOf: f, encoding: .utf8)
-            for m in src.matches(of: #/\b(?:extension|struct|final class|class|enum|actor)\s+([\w.]+)\s*(?:<[^>]*>)?\s*:\s*([^{]*?)\{/#) {
-                let clause = String(m.2).components(separatedBy: "where").first ?? ""
-                if clause.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }).contains("ProvenanceCarrying") {
-                    conformers.insert(String(m.1))
-                }
+            for m in src.matches(of: #/\b(?:extension|struct|final class|class|enum|actor)\s+([\w.]+)\s*(?:<[^>]*>)?\s*:\s*([^{]*?)\{/#)
+            where Self.conformsToProvenanceCarrying(m.2) {
+                conformers.insert(String(m.1))
             }
         }
         XCTAssertEqual(conformers, ["Entry", "Person", "Organization", "Venue"],
                        "多了一個 ProvenanceCarrying——決定它要被 deadVerdictIssues 掃、還是像 Entry 一樣帶不了 verdict")
-        // 負控：泛型約束與 where 子句不得被算成 conformance（Codex R4 指出的誤入形）
-        let probe = "struct Box<T: ProvenanceCarrying> {}\nextension Box where T: ProvenanceCarrying {}\nextension Real.Nested: Foo, ProvenanceCarrying {}\n"
+        // 負控與正控：泛型約束與 where 子句不得被算成 conformance（Codex R4）；識別碼裡的 `where`（`Somewhere`）
+        // 不得截斷子句（Codex R5）；巢狀型別名保留。
+        let probe = "struct Box<T: ProvenanceCarrying> {}\nextension Box where T: ProvenanceCarrying {}\n"
+                  + "extension Real.Nested: Foo, ProvenanceCarrying {}\nstruct NewCarrier: Somewhere, ProvenanceCarrying {}\n"
+                  + "struct Constrained: ProvenanceCarrying where Self: Sendable {}\n"
         var found = Set<String>()
-        for m in probe.matches(of: #/\b(?:extension|struct|final class|class|enum|actor)\s+([\w.]+)\s*(?:<[^>]*>)?\s*:\s*([^{]*?)\{/#) {
-            let clause = String(m.2).components(separatedBy: "where").first ?? ""
-            if clause.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }).contains("ProvenanceCarrying") { found.insert(String(m.1)) }
+        for m in probe.matches(of: #/\b(?:extension|struct|final class|class|enum|actor)\s+([\w.]+)\s*(?:<[^>]*>)?\s*:\s*([^{]*?)\{/#)
+        where Self.conformsToProvenanceCarrying(m.2) {
+            found.insert(String(m.1))
         }
-        XCTAssertEqual(found, ["Real.Nested"])
+        XCTAssertEqual(found, ["Real.Nested", "NewCarrier", "Constrained"])
         var e = Entry(id: UUID(), citekey: "x2020a", type: .periodicalArticle, title: "X")
         e.references = [verdict("resolution-confirmed", kind: .work, holder: "gone2019a", literal: "Y")]
         XCTAssertThrowsError(try e.validateReferenceAttachment(),

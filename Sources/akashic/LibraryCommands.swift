@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import AkashicCore
+import AkashicMCPKit
 import AkashicStoreIO
 import AkashicIndex
 
@@ -64,59 +65,57 @@ struct LibraryCreate: ParsableCommand {
     }
 }
 
-/// add/remove 共用：讀盤後 patch（沿 #11 mutate 慣例——不用記憶體舊快照）+ reindex。
-private func mutateMembership(store: LibraryStore, libraryKey: String, citekey: String,
-                              requireRegistry: Bool, change: (inout [String]) -> Void) throws {
-    // 邊界先驗 key 格式：畸形 key 不得靜默 no-op（StoreKey 契約一致性，R2 follow-up）
-    guard StoreKey.isValid(libraryKey) else {
-        throw ValidationError("library key「\(libraryKey)」不符合 \(StoreKey.pattern)")
+/// add／remove 走 service 的批次形 `setMembership`（#455）：一次 load、整批驗（任一 citekey 不存在 → 整批
+/// 拒絕零寫入）、逐筆寫、一次 rebuild。**先前 CLI 自己有一條 `mutateMembership`**（讀盤後 patch＋reindex），與
+/// MCP 的 `libraries(action:)` 是兩條會分岔的實作路徑——`entity-backlink-completeness` 執行細節 2。
+private func runMembership(options: LibraryOptions, action: String, libraryKey: String,
+                           citekeys: [String]) throws -> AkashicService.MembershipReport {
+    let store = try options.openStore()
+    let service = AkashicService(root: store.root, key: store.key,
+                                 environment: ProcessInfo.processInfo.environment)
+    do {
+        let report = try service.setMembership(action: action, key: libraryKey, citekeys: citekeys)
+        guard report.writeFailures.isEmpty else {
+            for f in report.writeFailures {
+                print("  ! \(displaySafe(f.citekey, max: 200)) — \(displaySafe(f.error, max: 400))")
+            }
+            throw ValidationError("\(report.writeFailures.count) 筆寫入失敗（其餘已寫入且 index 已重建）")   // display-safe-exempt: Int
+        }
+        return report
+    } catch let e as ServiceError {
+        throw ValidationError(e.errorDescription ?? "\(e)")
     }
-    let load = try store.load()
-    // add 要求 registry 存在；remove 不要求——dangling membership（spec 允許存在）
-    // 必須能用正式介面清理
-    if requireRegistry, !load.libraries.contains(where: { $0.key == libraryKey }) {
-        throw ValidationError("library「\(libraryKey)」不存在（先 akashic library create）")
-    }
-    guard var entry = load.entries.first(where: { $0.citekey == citekey }) else {
-        throw ValidationError("citekey「\(citekey)」不存在")
-    }
-    change(&entry.akashic.libraries)
-    try store.writeEntry(entry)
-    _ = try LibraryIndex(store: store).rebuild()
 }
 
 struct LibraryAdd: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "add", abstract: "把 entry 加入 library（寫 entry 的 akashic.libraries）")
+        commandName: "add",
+        abstract: "把 entry 加入 library（寫 entry 的 akashic.libraries）。可一次給多個 citekey：任一不存在即整批拒絕（#455）")
 
     @OptionGroup var options: LibraryOptions
     @Argument(help: "library key") var libraryKey: String
-    @Argument(help: "citekey") var citekey: String
+    @Argument(help: "citekey（可多個）") var citekeys: [String]
 
     func run() throws {
-        let store = try options.openStore()
-        try mutateMembership(store: store, libraryKey: libraryKey, citekey: citekey,
-                             requireRegistry: true) {
-            if !$0.contains(libraryKey) { $0.append(libraryKey) }
+        let report = try runMembership(options: options, action: "add", libraryKey: libraryKey, citekeys: citekeys)
+        for ck in report.written {
+            print("added: \(displaySafe(ck, max: 200)) → \(displaySafe(libraryKey, max: 200))")
         }
-        print("added: \(displaySafe(citekey, max: 200)) → \(displaySafe(libraryKey, max: 200))")
     }
 }
 
 struct LibraryRemove: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "remove", abstract: "把 entry 移出 library")
+        commandName: "remove", abstract: "把 entry 移出 library。可一次給多個 citekey：任一不存在即整批拒絕（#455）")
 
     @OptionGroup var options: LibraryOptions
     @Argument(help: "library key") var libraryKey: String
-    @Argument(help: "citekey") var citekey: String
+    @Argument(help: "citekey（可多個）") var citekeys: [String]
 
     func run() throws {
-        let store = try options.openStore()
-        try mutateMembership(store: store, libraryKey: libraryKey, citekey: citekey,
-                             requireRegistry: false) {
-            $0.removeAll { $0 == libraryKey }
+        let report = try runMembership(options: options, action: "remove", libraryKey: libraryKey, citekeys: citekeys)
+        for ck in report.written {
+            print("removed: \(displaySafe(ck, max: 200)) ✕ \(displaySafe(libraryKey, max: 200))")
         }
-        print("removed: \(displaySafe(citekey, max: 200)) ✕ \(displaySafe(libraryKey, max: 200))")
     }
 }

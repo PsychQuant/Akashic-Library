@@ -246,6 +246,22 @@ extension CLIIntegrationTests {
         r = try runCLI(["library", "add", "ghostlib", "cheng2025identifiability"] + lib)
         XCTAssertNotEqual(r.status, 0, "未知 library 要失敗")
     }
+
+    /// #455：`library add|remove` 收多個 citekey，一次 load、一次 rebuild；任一 citekey 不存在 → 整批拒絕零寫入。
+    func testLibraryAddAcceptsSeveralCitekeysAndRejectsTheBatchOnUnknown() throws {
+        _ = try runCLI(["library", "create", "sinica", "--name", "中研院"] + lib)
+        var r = try runCLI(["library", "add", "sinica", "cheng2025identifiability", "olsson1979maximum"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        let entries = libraryRoot.appendingPathComponent("entries")
+        for ck in ["cheng2025identifiability", "olsson1979maximum"] {
+            let yaml = try String(contentsOf: entries.appendingPathComponent("\(ck).yaml"), encoding: .utf8)
+            XCTAssertTrue(yaml.contains("- sinica"), "\(ck) 應含 sinica：\(yaml)")
+        }
+        r = try runCLI(["library", "remove", "sinica", "cheng2025identifiability", "ghost2000x"] + lib)
+        XCTAssertNotEqual(r.status, 0, "未知 citekey 要讓整批失敗")
+        let cheng = try String(contentsOf: entries.appendingPathComponent("cheng2025identifiability.yaml"), encoding: .utf8)
+        XCTAssertTrue(cheng.contains("- sinica"), "整批拒絕：存在的那筆不得被動")
+    }
 }
 
 /// #18 多檔案：`akashic file` 子指令（--config 注入，不碰真實 ~/.akashic）。

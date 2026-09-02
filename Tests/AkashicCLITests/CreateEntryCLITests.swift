@@ -381,3 +381,35 @@ final class CreateEntryCLITests: XCTestCase {
         XCTAssertTrue(r.out.contains("create-entry"), "create-entry 未註冊：\(r.out)")
     }
 }
+
+// MARK: - 批次語意（#455）：陣列一次呼叫 createEntries；可預期的失敗整批擋、零寫入
+
+extension CreateEntryCLITests {
+    /// 三筆陣列：三行 JSON＋`✓ created 3`，三筆都落地。
+    func testJSONArrayCreatesAllInOneBatch() throws {
+        let json = """
+        [{"type":"periodical-article","title":"Batch one","authors":["Some Author"],"date":"2024"},
+         {"type":"periodical-article","title":"Batch two","authors":["Some Author"],"date":"2024"},
+         {"type":"periodical-article","title":"Batch three","authors":["Some Author"],"date":"2024"}]
+        """
+        let r = try runCLI(["create-entry", "--format", "json"], stdin: json)
+        XCTAssertEqual(r.status, 0, r.out)
+        XCTAssertTrue(r.out.contains("✓ created 3"), r.out)
+        XCTAssertEqual(Set(try loadedEntries().map(\.citekey)),
+                       ["author2024batch", "author2024bbatch", "author2024cbatch"], r.out)
+    }
+
+    /// 兩筆合法＋一筆 type 不在值域：exit 非零、**零檔案**（先前逐筆迴圈會把前兩筆寫進去）。
+    func testJSONArrayWithOnePredictableFailureWritesNothing() throws {
+        let json = """
+        [{"type":"periodical-article","title":"Good one","authors":["Some Author"],"date":"2024"},
+         {"type":"periodical-article","title":"Good two","authors":["Some Author"],"date":"2024"},
+         {"type":"not-a-type","title":"Bad type","authors":["Some Author"],"date":"2024"}]
+        """
+        let r = try runCLI(["create-entry", "--format", "json"], stdin: json)
+        XCTAssertNotEqual(r.status, 0, r.out)
+        XCTAssertTrue(r.out.contains("第 3 筆") && r.out.contains("Bad type"), r.out)
+        let keys = try loadedEntries().map(\.citekey)
+        XCTAssertTrue(keys.isEmpty, "可預期的失敗：整批零寫入。實際：\(keys)")
+    }
+}

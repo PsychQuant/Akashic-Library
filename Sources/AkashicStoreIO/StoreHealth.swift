@@ -172,6 +172,9 @@ public extension LibraryStore {
                 .init(owner: d.id.uuidString, kind: "divergence", issue: $0)
             }
         }
+        // #464：死 verdict 掃描——跨記錄的一致性（holder 是否還在），單筆 `validate()`
+        // 結構上看不到（它只有自己那一筆）。放這裡讓三個消費面自動繼承。
+        perRecord += StoreHealth.deadVerdictIssues(in: load)
         return StoreHealth(
             crossRecordIssues: cross,
             fatalCrossRecordIssues: cross.filter { $0.severity == .error },
@@ -198,5 +201,50 @@ public extension LibraryStore {
             // 但看不到是哪個」與「不知道有錯」在可行動性上幾乎一樣糟，而它更難察覺，
             // 因為計數欄讓報告**看起來完整**（`lossless-intake` 執行細節 3 的形狀）。
             perRecordIssues: StoreHealth.errorsFirst(perRecord))
+    }
+}
+
+extension StoreHealth {
+    /// **死 verdict 掃描**（#464）：resolution verdict 的 value 指向一個已不存在的 holder。
+    ///
+    /// #232（rename）／#271（merge）／#460（venue 側）三次都是同一族的 stale——205 條靠人肉、
+    /// 殘留 1 條靠 verify lens 全庫掃、清理完整性靠腳本。三次全是場外機制；本掃描把它放進
+    /// `StoreHealth`，CLI `validate` 與 App 兩面自動繼承（#416 的 perRecordIssues 形）。
+    ///
+    /// 判準是 set-difference 不變式（#460 fix round 已驗證可行）：`work:` holder ∈ citekey 集合、
+    /// `person:` holder ∈ person key 集合、`org:` holder ∈ organization key 集合；不在集合內即 warning。
+    /// 是 warning 不是 error：它是**過期**不是**矛盾**——記錄本身仍合法、仍可載入，只是它宣稱的
+    /// 配對對象已經退役；把它升成 error 會讓 `hasFindings` 對一次 rename 之後的 store 常態為真。
+    /// 解析不了的 value 不在此列（寫入閘與 `validate()` 的 malformed 檢查已管）。
+    static func deadVerdictIssues(in load: LibraryLoad) -> [OwnedIssue] {
+        let citekeys = Set(load.entries.map(\.citekey))
+        let personKeys = Set(load.people.map(\.key))
+        let orgKeys = Set(load.organizations.map(\.key))
+        func alive(_ p: ProvenanceReference.VerdictPairingValue) -> Bool {
+            switch p.holderKind {
+            case .work:   return citekeys.contains(p.holder)
+            case .person: return personKeys.contains(p.holder)
+            case .org:    return orgKeys.contains(p.holder)
+            }
+        }
+        func scan(_ refs: [ProvenanceReference], owner: String, kind: String) -> [OwnedIssue] {
+            refs.compactMap { r in
+                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
+                      let v = r.value,
+                      let p = ProvenanceReference.VerdictPairingValue.parse(v),
+                      !alive(p) else { return nil }
+                return OwnedIssue(owner: owner, kind: kind, issue: ValidationIssue(
+                    severity: .warning,
+                    message: "死 verdict：\(r.field) 指向已不存在的 \(p.holderKind.rawValue):"
+                           + "\(displaySafe(p.holder, max: 120))（literal「\(displaySafe(p.literal, max: 120))」）"
+                           + "——#232／#271／#460 家族的 stale；holder 退役時遷移漏了這一格，"
+                           + "或退役走了沒有遷移的路徑"))
+            }
+        }
+        var out: [OwnedIssue] = []
+        for p in load.people { out += scan(p.references, owner: p.key, kind: "person") }
+        for o in load.organizations { out += scan(o.references, owner: o.key, kind: "organization") }
+        for v in load.venues { out += scan(v.references, owner: v.key, kind: "venue") }
+        return out
     }
 }

@@ -45,6 +45,10 @@ public struct StoreHealth {
     /// 與 `quarantined` 並列但**語意相反**：這些檔正常載入且完整保留。
     public let unknownFieldFiles: [String]
     /// 未歸戶的作者 literal 數（`literal-first-then-key` campaign 的進度量測）。
+    ///
+    /// **上升不一定是退步**：`split-author`（#443）把一個黏著的 literal 拆成 N 個作者位，
+    /// 這個數會因此上升——那是一個合成的假人變成 N 個誠實的未歸戶名字，趨勢要與拆分次數
+    /// 並讀（#451；store 不記得哪些位置是拆出來的，機械標註等 #450 的持久化）。
     public let unresolvedAuthorLiterals: Int
     /// 上游已消失（Zotero 端刪除）的 entry 的 citekey。
     public let orphanedCitekeys: [String]

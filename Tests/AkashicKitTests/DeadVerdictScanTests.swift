@@ -303,9 +303,18 @@ final class DeadVerdictScanTests: XCTestCase {
     /// 對非識別碼欄位一律 throw，decode 時就拒）。work 側值域一放寬（#443 段記的「目前只收識別碼」），
     /// 本測試的第一個斷言會紅，提醒把 entries 加進掃描。
     /// 繼承子句在 `where` **關鍵字**處截斷——用識別碼邊界，不用子字串（`Somewhere` 含 `where`，子字串切會把
-    /// `struct NewCarrier: Somewhere, ProvenanceCarrying` 切成 `Some`、讓真 conformer 靜默漏掉——Codex R5）。
+    /// `struct NewCarrier: Somewhere, ProvenanceCarrying` 切成 `Some`、讓真 conformer 靜默漏掉——Codex R5）；
+    /// 反引號逃逸的 `` `where` `` 是合法識別碼、不是關鍵字，也不截（Codex R6）。`\b` 是 regex 的字邊界不是 Swift
+    /// 的 token 邊界——這是詞法棘輪的已知上限（非 ASCII 識別碼的分類可能不同），文件明寫、不假裝完備。
     private static func conformsToProvenanceCarrying(_ clause: Substring) -> Bool {
-        let head = clause.firstRange(of: #/\bwhere\b/#).map { clause[..<$0.lowerBound] } ?? clause
+        // Swift Regex 不支援 lookbehind——反引號用相鄰字元手動排除
+        var cut: Substring.Index?
+        for m in clause.matches(of: #/\bwhere\b/#) {
+            let before: Character? = m.range.lowerBound > clause.startIndex ? clause[clause.index(before: m.range.lowerBound)] : nil
+            let after: Character? = m.range.upperBound < clause.endIndex ? clause[m.range.upperBound] : nil
+            if before != "`" && after != "`" { cut = m.range.lowerBound; break }
+        }
+        let head = cut.map { clause[..<$0] } ?? clause
         return head.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.contains("ProvenanceCarrying")
     }
 
@@ -336,12 +345,13 @@ final class DeadVerdictScanTests: XCTestCase {
         let probe = "struct Box<T: ProvenanceCarrying> {}\nextension Box where T: ProvenanceCarrying {}\n"
                   + "extension Real.Nested: Foo, ProvenanceCarrying {}\nstruct NewCarrier: Somewhere, ProvenanceCarrying {}\n"
                   + "struct Constrained: ProvenanceCarrying where Self: Sendable {}\n"
+                  + "struct Escaped: `where`, ProvenanceCarrying {}\n"
         var found = Set<String>()
         for m in probe.matches(of: #/\b(?:extension|struct|final class|class|enum|actor)\s+([\w.]+)\s*(?:<[^>]*>)?\s*:\s*([^{]*?)\{/#)
         where Self.conformsToProvenanceCarrying(m.2) {
             found.insert(String(m.1))
         }
-        XCTAssertEqual(found, ["Real.Nested", "NewCarrier", "Constrained"])
+        XCTAssertEqual(found, ["Real.Nested", "NewCarrier", "Constrained", "Escaped"])
         var e = Entry(id: UUID(), citekey: "x2020a", type: .periodicalArticle, title: "X")
         e.references = [verdict("resolution-confirmed", kind: .work, holder: "gone2019a", literal: "Y")]
         XCTAssertThrowsError(try e.validateReferenceAttachment(),

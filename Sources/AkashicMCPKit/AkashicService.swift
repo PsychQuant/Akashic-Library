@@ -809,29 +809,77 @@ public final class AkashicService {
             guard let key, let citekey else {
                 throw ServiceError.invalid("\(displaySafe(action, max: 120)) 需要 key 與 citekey")
             }
-            guard StoreKey.isValid(key) else {
-                throw ServiceError.invalid("library key「\(displaySafe(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: pattern 是常量
+            // 單筆＝批次的薄包裝（#455）：一條實作路徑
+            let report = try setMembership(action: action, key: key, citekeys: [citekey])
+            guard report.writeFailures.isEmpty else {
+                throw ServiceError.invalid("寫入失敗：" + (report.writeFailures.first?.error ?? "未知"))
             }
-            let load = try store.load()
-            // add 要求 registry 存在；remove 不要求——dangling membership（spec 允許）
-            // 必須能用正式介面清理
-            if action == "add", !load.libraries.contains(where: { $0.key == key }) {
-                throw ServiceError.notFound("library「\(displaySafe(key, max: 200))」")
-            }
-            guard var entry = load.entries.first(where: { $0.citekey == citekey }) else {
-                throw ServiceError.notFound("citekey「\(displaySafe(citekey, max: 200))」")
+            return try jsonString(["citekey": displaySafe(citekey, max: 200),
+                                   "libraries": report.libraries[citekey] ?? []])
+        default:
+            throw ServiceError.invalid("未知 action「\(displaySafe(action, max: 120))」（list/create/add/remove）")
+        }
+    }
+
+    /// membership 批次形的回報（#455）。可預期的失敗（key 文法、library 不存在、citekey 不存在）在動磁碟前
+    /// 整批 throw；這裡只有磁碟層的逐筆結果。
+    public struct MembershipReport: Equatable {
+        public struct WriteFailure: Equatable { public let citekey: String; public let error: String }
+        /// 成功寫入的 citekey（依呼叫順序）。
+        public var written: [String] = []
+        public var writeFailures: [WriteFailure] = []
+        /// 每個成功寫入的 citekey 寫後的 membership。
+        public var libraries: [String: [String]] = [:]
+        public init() {}
+    }
+
+    /// library membership 的批次 add／remove（#455 同族）：**一次** `load()`、整批驗證（library 存在＋每個
+    /// citekey 存在，任一不在 → 整批拒絕零寫入）、逐筆寫（I/O 失敗收容）、**一次** rebuild。
+    /// 單筆的 `libraries(action:"add"|"remove")` 是它的薄包裝。
+    public func setMembership(action: String, key: String, citekeys: [String]) throws -> MembershipReport {
+        guard action == "add" || action == "remove" else {
+            throw ServiceError.invalid("未知 action「\(displaySafe(action, max: 120))」（add/remove）")
+        }
+        guard !citekeys.isEmpty else { throw ServiceError.invalid("citekeys 不得為空") }
+        guard StoreKey.isValid(key) else {
+            throw ServiceError.invalid("library key「\(displaySafe(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: pattern 是常量
+        }
+        let load = try store.load()
+        // add 要求 registry 存在；remove 不要求——dangling membership（spec 允許）
+        // 必須能用正式介面清理
+        if action == "add", !load.libraries.contains(where: { $0.key == key }) {
+            throw ServiceError.notFound("library「\(displaySafe(key, max: 200))」")
+        }
+        var byCitekey: [String: Entry] = [:]
+        for e in load.entries { byCitekey[e.citekey] = e }
+        // 1. 整批驗證，零寫入
+        var planned: [Entry] = []
+        var seen = Set<String>()
+        for ck in citekeys where seen.insert(ck).inserted {
+            guard var entry = byCitekey[ck] else {
+                throw ServiceError.notFound("citekey「\(displaySafe(ck, max: 200))」——整批拒絕，零寫入")
             }
             if action == "add" {
                 if !entry.akashic.libraries.contains(key) { entry.akashic.libraries.append(key) }
             } else {
                 entry.akashic.libraries.removeAll { $0 == key }
             }
-            try writeAndReindex(entry)
-            return try jsonString(["citekey": displaySafe(citekey, max: 200),
-                                   "libraries": entry.akashic.libraries])
-        default:
-            throw ServiceError.invalid("未知 action「\(displaySafe(action, max: 120))」（list/create/add/remove）")
+            planned.append(entry)
         }
+        // 2. 逐筆寫，I/O 失敗收容
+        var report = MembershipReport()
+        for entry in planned {
+            do {
+                try store.writeEntry(entry)
+                report.written.append(entry.citekey)
+                report.libraries[entry.citekey] = entry.akashic.libraries
+            } catch {
+                report.writeFailures.append(.init(citekey: entry.citekey, error: Self.describe(error)))
+            }
+        }
+        // 3. 一次 rebuild
+        if !report.written.isEmpty { try LibraryIndex(store: store).rebuild() }
+        return report
     }
 
     public func setStatus(citekey: String, status: String?, clear: Bool = false) throws -> String {

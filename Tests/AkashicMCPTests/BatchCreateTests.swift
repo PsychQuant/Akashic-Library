@@ -68,3 +68,34 @@ final class BatchCreateTests: XCTestCase {
         XCTAssertFalse(found.contains("author2024beta"), found)
     }
 }
+
+// MARK: - library membership 的批次形（#455 同族：add／remove 一次 load、整批驗、逐筆寫、一次 rebuild）
+
+extension BatchCreateTests {
+    private func seedTwoEntriesAndALibrary() throws {
+        _ = try service.createEntries([draft("Alpha study"), draft("Gamma study")])
+        _ = try service.libraries(action: "create", key: "reading", name: "Reading", description: nil, citekey: nil)
+    }
+
+    /// 兩個 citekey 其中一個不存在：整批拒絕、零寫入（存在的那筆 membership 不變）。
+    func testSetMembershipRejectsUnknownCitekeyWithZeroWrites() throws {
+        try seedTwoEntriesAndALibrary()
+        XCTAssertThrowsError(try service.setMembership(action: "add", key: "reading",
+                                                       citekeys: ["author2024alpha", "no-such-key"]))
+        let alpha = try LibraryStore(root: root).load().entries.first { $0.citekey == "author2024alpha" }
+        XCTAssertEqual(alpha?.akashic.libraries, [], "整批拒絕：存在的那筆也不得被寫")
+    }
+
+    /// 兩個都存在：兩筆都加進 library，報告列出兩筆；remove 同路徑。
+    func testSetMembershipWritesAllCitekeysInOneBatch() throws {
+        try seedTwoEntriesAndALibrary()
+        let added = try service.setMembership(action: "add", key: "reading",
+                                              citekeys: ["author2024alpha", "author2024gamma"])
+        XCTAssertEqual(added.written, ["author2024alpha", "author2024gamma"])
+        let load = try LibraryStore(root: root).load()
+        XCTAssertEqual(load.entries.filter { $0.akashic.libraries == ["reading"] }.count, 2)
+        let removed = try service.setMembership(action: "remove", key: "reading", citekeys: ["author2024gamma"])
+        XCTAssertEqual(removed.written, ["author2024gamma"])
+        XCTAssertEqual(try LibraryStore(root: root).load().entries.first { $0.citekey == "author2024gamma" }?.akashic.libraries, [])
+    }
+}

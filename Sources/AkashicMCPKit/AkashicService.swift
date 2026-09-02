@@ -815,7 +815,7 @@ public final class AkashicService {
                 throw ServiceError.invalid("寫入失敗：" + (report.writeFailures.first?.error ?? "未知"))
             }
             return try jsonString(["citekey": displaySafe(citekey, max: 200),
-                                   "libraries": report.libraries[citekey] ?? []])
+                                   "libraries": report.libraries[citekey] ?? []])   // display-safe-exempt: library key 由 StoreKey 文法保證只含 [a-z0-9-]（寫入端 assertEntryWritable 驗過）
         default:
             throw ServiceError.invalid("未知 action「\(displaySafe(action, max: 120))」（list/create/add/remove）")
         }

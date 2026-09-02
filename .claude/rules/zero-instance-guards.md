@@ -50,32 +50,38 @@
 | 9 | **一個零實例的欄位，而缺席會被讀成「不可能」**（#394：`Organization.ror`。實測 8 筆 organization、**0 筆帶 ror**；`Venue.issn` 有 39、`Entry.doi` 有 664，只有 organization 這一格是空的） | ✅ **寫** | **前八列講的都是守衛，這一列講的是欄位**——它不查任何東西，所以「失敗」的意思不同。不寫的代價不是漏報，是**模型會說一句它沒打算說的話**：一個讀者問「Akashic 有沒有模型化機構的識別碼」，會看到 person 有 `orcid`、venue 有 `issn`、organization 什麼都沒有，於是合理推論「機構沒有識別碼可記」。而那是假的——ROR 存在、`identity-is-judged-not-matched` 的封閉例外節具名列了它，我們只是還沒有資料。**缺席在這裡不是中性的，它是一個關於世界的斷言**，而那個斷言是錯的。成本是一個 `ROR?` 欄位（additive，舊 binary tolerant-preserve）|
 | 10 | **零實例、成本高，而形狀取決於一個還不存在的用途**（#365：`Author.correspondingAuthor`。APA7 的參考文獻**不印**通訊作者，所以它服務的是 CV 產生或作者查詢——而那兩個功能都不存在。實測 55 筆 work 的作者含 `che-cheng`，而「其中幾筆是通訊作者」在 store 內**不是可求值的命題**） | ❌ **不寫** | **本表第一個「不寫」，而它是本檔自己預測過的**（見下方「還沒出現過的情形」——那段寫著「零實例且成本高的守衛……那一列的理由**很可能是『不寫』**」）。理由不是成本高本身，是**形狀取決於用途而用途不存在**：`Bool` 還是 `Set<index>` 只有那個場景能決定，現在選一個等於用猜的固定一個介面。與第 9 列（`Organization.ror`）的關鍵差別：那一列的**形狀是確定的**（ROR 是純量），缺的只是資料。**觸發條件**（逐字取自 2026-08-28 裁決 §1）：出現第一個需要它的場景（CV 產生器、或一個「我是哪幾篇的通訊作者」的查詢）——那時形狀才能被決定。這一格沒有機械量測，需要人指認 |
 | 11 | **零實例、成本高，而既有欄位已經承載它**（#365：`Author.role`。實測 `fields` 的 role 一族恰 **2 筆**（`editor` ×2），其餘八個相關欄位全零；而那 2 筆已由 `fields["editor"]` 承載、#350 已讓 `EDITOR` 在編著作品上滿足 APA7 下限） | ❌ **不寫** | 與第 10 列同為「不寫」而**理由完全不同**：這一列的形狀是確定的，缺的是**理由**——為 2 筆把 `Author` 從 `enum` 改成 `struct`（非 additive、bump store format、動 46 個呼叫點）不成比例。**觸發條件可檢查**：`fields` 的 role 一族 ≥ 20 筆，**或**出現一個 role 是 `fields` 承載不了的（同一人在同一篇既是作者又是譯者——那時 `fields["translator"]` 與 `authors` 會各自說一半） |
-| 12 | **零實例，而它屬於另一個型別**（#365：`Author.pseudonym`。筆名是「這個人也用那個名字發表」——關於**人**的事實，`PersonNames` 已有可承載它的 `variant` 分區；authorship 側只在「同一人在**不同作品**用不同筆名、且兩個名字都要進各自的參考文獻」時才需要 per-occurrence 的名字選擇，且與 #386 的 per-work judged authorship 是同一個位置。**這一列的零是駁回出來的，不是量出來的**：2026-09-03 實測 865 筆 person 中 **11** 筆有 ≥2 個彼此不同的 confirmed literal（其中 1 筆跨書寫系統：`che-cheng` 的 `Che Cheng`／`鄭澈`），全部可駁回——縮寫形差異在 APA7 下本來就被正規化成首字母，跨書寫系統那筆由 #81 的 `.latn` 裁決吸收；而「兩個彼此無共同 token 的拉丁名」（真筆名的形狀）**0** 筆。量測腳本見表下方） | ❌ **不寫** | 與第 10、11 列同為「不寫」而理由是**第三種：位置錯了**。第 10 列缺用途、第 11 列缺理由，這一列連問題都問錯了型別——把筆名放進 `Author` 會讓「人的名字」這個事實有兩個家（`Person.names` 與每一筆 authorship）。這裡引的是 `entity-backlink-completeness` 的**立場**（3.325 的工程類比：讓那種分岔在記法裡**寫不出來**）而非它的封閉列舉——那張表管的是關係邊，名字是屬性，所以這是受稽核的類比，不是類推。APA7 對筆名的處置（用出版時的名字、必要時方括號補真名）是**呈現層**規則，讀的是 `Person.names`——它已經有兩個分區可用。觸發條件見情形欄；**這一格沒有機械量測，需要人指認**（store 沒有筆名的表示法，連查詢都寫不出來——與第 11 列不同，那列至少有一個可數的析取項）。觸發時要的是 per-occurrence 的**選擇**（指向 `Person.names` 的指標——#386 的 `judgeAuthorships` 收的是 personKey，不是名字），不是名字的第二份 copy，所以它不製造第二個家；落點在 #386 那一族，不是 `Author.pseudonym` |
+| 12 | **零實例，而它屬於另一個型別**（#365：`Author.pseudonym`。筆名是「這個人也用那個名字發表」——關於**人**的事實，`PersonNames` 已有可承載它的 `variant` 分區；authorship 側只在「同一人在**不同作品**用不同筆名、且兩個名字都要進各自的參考文獻」時才需要 per-occurrence 的名字選擇，且與 #386 的 per-work judged authorship 是同一個位置。**這一列的零是駁回出來的，不是量出來的**：2026-09-03 實測 865 筆 person 中 **11** 筆有 ≥2 個彼此不同的 confirmed literal（其中 1 筆跨書寫系統：`che-cheng` 的 `Che Cheng`／`鄭澈`），全部可駁回——腳本逐人列出的 literal 顯示 10 組只差縮寫形、標點或大小寫（APA7 的參考文獻本來就把 given name 正規化成首字母，差異活不到輸出），跨書寫系統那筆由 #81 的 `.latn` 裁決吸收；而「兩個彼此無共同 token 的拉丁名」（真筆名的形狀）**0** 筆。量測腳本與清單見表下方） | ❌ **不寫** | 與第 10、11 列同為「不寫」而理由是**第三種：位置錯了**。第 10 列缺用途、第 11 列缺理由，這一列連問題都問錯了型別——把筆名放進 `Author` 會讓「人的名字」這個事實有兩個家（`Person.names` 與每一筆 authorship）。這裡引的是 `entity-backlink-completeness` 的**立場**（《邏輯哲學論》3.325 的工程類比：讓那種分岔在記法裡**寫不出來**）而非它的封閉列舉——那張表管的是關係邊，名字是屬性，所以這是受稽核的類比，不是類推。APA7 對筆名的處置（用出版時的名字、必要時方括號補真名）是**呈現層**規則，讀的是 `Person.names`——它已經有兩個分區可用。觸發條件見情形欄；**這一格沒有機械量測，需要人指認**（store 沒有筆名的表示法，連查詢都寫不出來——與第 11 列不同，那列至少有一個可數的析取項）。觸發時要的是 per-occurrence 的**選擇**（指向 `Person.names` 裡某一個名字的 selector），不是名字的第二份 copy，所以它不製造第二個家；#386 的 `judgeAuthorships` 是同一個位置的先例（per-work 的判定），但它選的是**人**（收 personKey）不是名字——selector 的形狀是觸發時才裁的事。落點在 #386 那一族，不是 `Author.pseudonym` |
 
 新增下一個零實例守衛 = 在這張表加一列。
 
-**第 12 列的零是駁回出來的——量測腳本**（2026-09-03，`~/.akashic/entities`；印出的三個數對應第 12 列情形欄的 11／1／0：有 ≥2 個不同 confirmed literal 的 person、其中跨書寫系統的、其中有兩個彼此無共同 token 拉丁名的）：
+**第 12 列的零是駁回出來的——量測腳本**（2026-09-03，`~/.akashic/entities`）。第一行印 person 總數與三個計數，對應第 12 列情形欄的 865／11／1／0（有 ≥2 個不同 confirmed literal 的 person、其中跨書寫系統的、其中有兩個彼此無共同 token 拉丁名的）；接著逐人列出那些 literal，**駁回理由要拿這份清單逐筆核對**（實跑：10 組只差縮寫形、標點或大小寫，1 組跨書寫系統）。「拉丁名」的判準寫在腳本裡（每個字母都落在拉丁字母區——漢字、假名、諺文、西里爾都不算），第一版只排除 CJK，會把其他書寫系統當拉丁名、空 token 會誤算「無共同 token」，Codex R2 抓到：
 
 ```bash
 python3 - <<'EOF'
 import glob, io, re, os, collections
 root = os.path.expanduser('~/.akashic/entities')
+people = 0
 lits = collections.defaultdict(set)
 for f in glob.glob(root + '/*.yaml'):
     t = io.open(f, encoding='utf8').read()
     if not t.startswith('person:'): continue
+    people += 1
     key = re.search(r'^key: (.+)$', t, re.M).group(1).strip()
     for m in re.finditer(r'^\s*- field: resolution-confirmed\n\s*value: (.+)$', t, re.M):
         v = m.group(1).strip().strip('"\'')
         if ' :: ' in v: lits[key].add(v.split(' :: ', 1)[1])
-multi = {k: v for k, v in lits.items() if len(v) >= 2}
-def latin(s): return not re.search(r'[぀-ヿ一-鿿]', s)
-cross = [k for k, v in multi.items() if len({latin(x) for x in v}) > 1]
-def toks(s): return set(re.findall(r'[A-Za-z]+', s.lower()))
-disjoint = [k for k, v in multi.items()
-            if any(latin(a) and latin(b) and not (toks(a) & toks(b))
-                   for a in v for b in v if a < b)]
-print(len(multi), len(cross), len(disjoint))   # 2026-09-03：11 1 0
+multi = {k: sorted(v) for k, v in lits.items() if len(v) >= 2}
+# 拉丁名 ＝ 至少一個 ASCII 字母，且每個「字母」都落在拉丁字母區（漢字、假名、諺文、西里爾、阿拉伯……都不算）
+def is_latin_letter(c): return 'A' <= c <= 'Z' or 'a' <= c <= 'z' or 'À' <= c <= 'ɏ' or 'Ḁ' <= c <= 'ỿ'
+def latin(s): return any('A' <= c <= 'Z' or 'a' <= c <= 'z' for c in s) and all(is_latin_letter(c) for c in s if c.isalpha())
+def toks(s): return set(re.findall(r'[A-Za-zÀ-ɏḀ-ỿ]+', s.lower()))
+cross = sorted(k for k, v in multi.items() if len({latin(x) for x in v}) > 1)
+disjoint = sorted(k for k, v in multi.items()
+                  if any(latin(a) and latin(b) and toks(a) and toks(b) and not (toks(a) & toks(b))
+                         for a in v for b in v if a < b))
+print(f'person={people} multi={len(multi)} cross={len(cross)} disjoint={len(disjoint)}')   # 2026-09-03：865 11 1 0
+for k in sorted(multi): print(' ', k, '|', ' / '.join(multi[k]))
+print('cross:', cross); print('disjoint:', disjoint)
 EOF
 ```
 
@@ -103,7 +109,7 @@ EOF
 - 第 10、11、12 列的理由是三個**不同的**「不寫」——缺用途（形狀由用途決定）、缺理由（既有欄位承載、
   不成比例）、**位置錯了**（筆名是 Person 側的事實）。三列同出自 #365 而不可互換，正是這張表
   不寫總括判準的理由再一次實例。區辨全在**觸發後會發生什麼**：第 11 列越過門檻後欄位**進** `Author`、
-  第 10 列用途出現後進 `Author` 但形狀待定、第 12 列**永遠不進** `Author`（落點在 #386 那一族）
+  第 10 列用途出現後進 authorship 側（`Author` 上的 `Bool`、或 `Entry` 上的 `Set<index>`——由那個場景決定）、第 12 列**永遠不進** `Author`（落點在 #386 那一族）
 
 **「完備」在第 1–7 列裡有三種強度，不是兩種**（#414 R1 自審更正——這一段原本寫
 「前六列在前件內都完備」，而那對第 5、6 兩列為假）：

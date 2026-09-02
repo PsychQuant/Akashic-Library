@@ -277,12 +277,26 @@ public final class AppState {
     ///
     /// 先前這裡 `_ =` 丟掉了 `RenameReport`——CLI 面印出 relations／歧異候選／verdict 三類
     /// 連帶改寫，App 面卻對使用者一句不說。改名的副作用是全庫改寫（#71、#232、#460），
-    /// 使用者在 App 裡按下「改名」後**看不到動了什麼**，與 `lossless-intake` 執行細節 3
-    /// 「丟棄必須可見」同一形狀：不是資料被丟，是**事實被丟**。
-    @discardableResult
+    /// 使用者在 App 裡按下「改名」後**看不到動了什麼**——`entity-backlink-completeness` 執行
+    /// 細節 2 的形狀：三面走同一條 `renameEntry`，而 App 這一面把它的輸出丟了一半。
+    ///
+    /// **刻意不標 `@discardableResult`**：那個 attribute 會把「報告可以被安靜丟掉」重新合法化，
+    /// 而那正是 #465 的 root cause。呼叫端不要報告就寫 `_ =`，讓丟棄在原始碼上看得見（verify DA）。
+    ///
+    /// **報告的邊界**：`renameEntry` 今天只遷 people 與 venues 持有的 verdict、不遷 organizations 的
+    /// （#463 的格；live store 有 9 條），所以 `verdictValuesRewritten` 說的是 person／venue 持有的。
+    /// 使用者面字串**不**標這個邊界（會製造 App／CLI 分岔、且 #463 落地當天過期），邊界寫在這裡
+    /// 與 changelog。
     public func rename(from oldKey: String, to newKey: String) throws -> RenameReport {
         let report = try store.renameEntry(from: oldKey, to: newKey)
-        try reindexAndReload()
+        do {
+            try reindexAndReload()
+        } catch {
+            // 改名已經寫進磁碟（全庫改寫完成），只是 index／快照沒跟上。錯誤訊息要說出這件事，
+            // 而且帶著報告——否則本張要修的形狀在更窄的窗口重演（verify regression／logic）。
+            // 根治（`attempt` 的簽名、兩條分支都不丟）屬 follow-up。
+            throw AppStateError.renamedButReloadFailed(report: report, underlying: "\(error)")
+        }
         return report
     }
 
@@ -315,6 +329,8 @@ public enum AppStateError: Error, LocalizedError {
     case notALibrary(String)
     /// #15：library key 是**參照**不是自由字串——加進不存在的 library 會產生懸空成員關係。
     case unknownLibrary(String)
+    /// #465：改名已寫入磁碟，但 index 重建或重載失敗。帶著報告，讓使用者知道全庫已被改寫了什麼。
+    case renamedButReloadFailed(report: RenameReport, underlying: String)
 
     public var errorDescription: String? {
         switch self {
@@ -322,6 +338,9 @@ public enum AppStateError: Error, LocalizedError {
             return "library「\(displaySafe(key, max: 200))」不在 registry 裡"
                  + "——先用 akashic library create 建立，或從清單挑一個既有的"
         // #155：key／path 來自 config.yaml 與使用者輸入——同 unknownLibrary 消毒
+        case .renamedButReloadFailed(let report, let underlying):
+            return "改名**已寫入磁碟**，但索引重建或重載失敗：\(displaySafe(underlying, max: 300))\n\n"
+                 + EntryDetailView.describe(report) + "\n\n重新開啟檔案或跑 akashic doctor 重建索引。"
         case .unknownFile(let key):
             return "檔案 key「\(displaySafe(key, max: 200))」未註冊於 config"
         case .notALibrary(let path):

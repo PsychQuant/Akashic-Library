@@ -44,14 +44,23 @@ struct EntryDetailView: View {
     @State private var renameTarget = ""
     @State private var showRename = false
     @State private var errorMessage: String?
-    /// #465：改名後的遷移報告——非 nil 即彈出摘要。
-    @State private var renameReport: RenameReport?
+    /// #465：改名後的回執（舊 key、新 key、遷移報告）——非 nil 即彈出摘要。
+    @State private var renameOutcome: RenameOutcome?
+
+    struct RenameOutcome {
+        let from: String
+        let to: String
+        let report: RenameReport
+    }
 
     private var entry: Entry? {
         state.entries.first { $0.citekey == citekey }
     }
 
     var body: some View {
+        // 三個 alert 掛在 Group 上（if／else 兩個分支之外）：回執「看不看得到」不該綁在
+        // 「記錄找不找得到」上（verify DA-4／regression #4）。
+        Group {
         if let entry {
             Form {
                 Section("書目（唯讀——過渡期歸 Zotero pull 管）") {
@@ -160,30 +169,37 @@ struct EntryDetailView: View {
             }
             .formStyle(.grouped)
             .navigationTitle(entry.citekey)   // display-safe-exempt: 同上
-            .alert("改名 citekey", isPresented: $showRename) {
-                TextField("新 citekey", text: $renameTarget)
-                    .font(.body.monospaced())
-                Button("改名（搬檔＋全庫引用遷移）") { performRename(from: entry.citekey) }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("UUID 不變；引用此 citekey 的 relations 會一併改寫。")
-            }
-            .alert("已改名", isPresented: Binding(
-                get: { renameReport != nil },
-                set: { if !$0 { renameReport = nil } })) {
-                Button("好") { renameReport = nil }
-            } message: {
-                Text(renameReport.map(Self.describe) ?? "")   // display-safe-exempt: describe 只印計數與經 load 端 StoreKey 檢查的 key
-            }
-            .alert("操作失敗", isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } })) {
-                Button("好") { errorMessage = nil }
-            } message: {
-                Text(errorMessage ?? "")
-            }
         } else {
             ContentUnavailableView("找不到 \(citekey)", systemImage: "questionmark.circle")   // display-safe-exempt: citekey 過 load 端 quarantine（LibraryStore.swift 的 StoreKey.isValid 檢查）
+        }
+        }
+        .alert("改名 citekey", isPresented: $showRename) {
+            TextField("新 citekey", text: $renameTarget)
+                .font(.body.monospaced())
+            // 沒改就不能按：不然一次不編輯的點擊會得到「已改名／0／0／0」，與真改名同形（verify DA-2）。
+            Button("改名（搬檔＋全庫引用遷移）") { performRename(from: citekey) }
+                .disabled(renameTarget.isEmpty || renameTarget == citekey)
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("UUID 不變；引用此 citekey 的 relations 會一併改寫。")
+        }
+        // 「已改名」是在上面那個 alert 的按鈕閉包裡被要求呈現的（同一次更新內關一個、開一個）。
+        // 本 repo 兩個既有先例同形（同檔的「操作失敗」自 #11 起、AdjudicationViews 的 dialog→alert），
+        // 且這裡用衍生 binding（`renameOutcome != nil`）——呈現若被丟棄，下次 body 求值會重新算出
+        // 「想呈現」，比儲存的 Bool 耐用。**未實機量測**；量到負結果時才把設定延到下一個 runloop。
+        .alert("已改名", isPresented: Binding(
+            get: { renameOutcome != nil },
+            set: { if !$0 { renameOutcome = nil } })) {
+            Button("好") { renameOutcome = nil }
+        } message: {
+            Text(renameOutcome.map { Self.describe($0.report, from: $0.from, to: $0.to) } ?? "")   // display-safe-exempt: describe 對每個 key 套 displaySafe(max: 200)（與 CLI rename 同立場）；守衛對本路徑結構上不可見（無 tainted token）
+        }
+        .alert("操作失敗", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } })) {
+            Button("好") { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
         }
     }
 
@@ -279,22 +295,43 @@ struct EntryDetailView: View {
     }
 
     private func performRename(from oldKey: String) {
+        // 與按鈕的 disabled 同一條件再擋一次（alert 按鈕的 disabled 在各版 macOS 上不保證生效）。
+        guard !renameTarget.isEmpty, renameTarget != oldKey else {
+            errorMessage = "新 citekey 與現在的相同（或為空），沒有改名"
+            return
+        }
         attempt {
-            // #465：`RenameReport` 不再丟掉——CLI 面印三類連帶改寫，App 面先前一句不說。
-            // 改名的副作用是全庫改寫（relations／歧異候選／verdict），使用者按下「改名」後
-            // 要看得到動了什麼（`lossless-intake` 執行細節 3：丟棄必須可見——這裡丟的是事實）。
-            renameReport = try state.rename(from: oldKey, to: renameTarget)
+            // #465：`RenameReport` 不再丟掉——CLI 面印三類連帶改寫，App 面先前一句不說
+            // （`entity-backlink-completeness` 執行細節 2：三面同一條路徑，App 這面把輸出丟了）。
+            let report = try state.rename(from: oldKey, to: renameTarget)
             selectedCitekey = renameTarget
+            renameOutcome = RenameOutcome(from: oldKey, to: renameTarget, report: report)
         }
     }
 
-    /// `RenameReport` 的人可讀摘要——三類連帶改寫各一行，與 CLI `rename` 的三行同語意
-    /// （「relations 已遷移」「歧異候選已遷移」「消解判定已遷移」），零筆時說零，不省略：
-    /// 「沒有連帶改寫」與「沒有報告」是兩件事。
+    /// `RenameReport` 的人可讀摘要——三類連帶改寫各一行。**標籤**與 CLI `rename` 的三行逐字相同
+    /// （「relations 已遷移」「歧異候選已遷移」「消解判定已遷移」）；**三處刻意不同**：零筆說零而 CLI
+    /// 省略（GUI 沒有 scrollback，回執沉默會讓「沒有連帶改寫」與「App 沒告訴我」不可分辨——這與
+    /// `ContentView` 健康區塊的「沉默即健康」是**不同語意**：那是被動儀表板，這是動作回執，不要為了
+    /// 一致性統一）、只列前五筆但計數保留（alert 不是清單）、分隔符用「、」。
+    ///
+    /// 每個 key 套 `displaySafe(max: 200)`——與 CLI 同一立場：這些值經 load 端 `StoreKey` 把關
+    /// （relations 是 citekey、verdict 是 person／venue key）或是 UUID（歧異候選），結構上載不了控制
+    /// 字元，但 `StoreKey` 不約束長度，且「同一份資料兩種待遇，遲早有人照沒消毒的那個抄」
+    /// （`AkashicService` 對同類值的既有裁決）。`DisplaySinkCoverageTests` 對本函式結構上不可見（三元
+    /// 隱式 return、無 tainted token，#485）。
+    ///
+    /// 帶 `from:to:` 的版本多第一行「✓ old → new」——alert 要說出改成了什麼，否則與一次不編輯的點擊
+    /// 同形（verify DA-2）。
+    static func describe(_ r: RenameReport, from old: String, to new: String) -> String {
+        "✓ \(displaySafe(old, max: 200)) → \(displaySafe(new, max: 200))\n" + describe(r)
+    }
+
     static func describe(_ r: RenameReport) -> String {
         func line(_ label: String, _ xs: [String]) -> String {
-            xs.isEmpty ? "\(label)：0 筆"
-                       : "\(label)：\(xs.count) 筆（\(xs.prefix(5).joined(separator: "、"))\(xs.count > 5 ? "…" : "")）"
+            let shown = xs.prefix(5).map { displaySafe($0, max: 200) }.joined(separator: "、")
+            return xs.isEmpty ? "\(label)：0 筆"
+                              : "\(label)：\(xs.count) 筆（\(shown)\(xs.count > 5 ? "…" : "")）"
         }
         return [line("relations 已遷移", r.relationsRewritten),
                 line("歧異候選已遷移", r.divergenceCandidatesRewritten),

@@ -89,7 +89,7 @@ final class AppStateTests: XCTestCase {
     }
 
     func testRenameThroughState() throws {
-        try state.rename(from: "olsson1979maximum", to: "olsson1979bmaximum")
+        _ = try state.rename(from: "olsson1979maximum", to: "olsson1979bmaximum")   // 不要報告就寫出來（#465：沒有 @discardableResult）
         XCTAssertNotNil(state.entries.first { $0.citekey == "olsson1979bmaximum" })
         XCTAssertNil(state.entries.first { $0.citekey == "olsson1979maximum" })
     }
@@ -115,6 +115,10 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(report.verdictValuesRewritten, ["ulf-olsson"])
         let cites = state.entries.first { $0.citekey == "cheng2025identifiability" }?.akashic.relations.cites
         XCTAssertEqual(cites, ["olsson1979bmaximum"], "報告說改了，store 也要真的改了")
+        // Codex R1 建議：不只信報告，也核對持久化結果——person 的 verdict holder 真的變成新 citekey
+        let migrated = try store.load().people.first { $0.key == "ulf-olsson" }?.references
+            .compactMap { $0.value }.compactMap(ProvenanceReference.VerdictPairingValue.parse) ?? []
+        XCTAssertEqual(migrated.map(\.holder), ["olsson1979bmaximum"], "報告說遷了，檔案也要真的遷了")
     }
 
     /// #465：App 面的摘要——三類各一行、零筆說零（「沒有連帶改寫」與「沒有報告」是兩件事）、
@@ -129,6 +133,10 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(lines[0], "relations 已遷移：7 筆（w1、w2、w3、w4、w5…）")
         XCTAssertEqual(lines[1], "歧異候選已遷移：0 筆")
         XCTAssertEqual(lines[2], "消解判定已遷移：1 筆（some-person）")
+        // 帶 from/to 的版本第一行說出改成了什麼——與一次不編輯的點擊不同形（DA-2）
+        let full = EntryDetailView.describe(RenameReport(), from: "a2020a", to: "a2020b")
+        XCTAssertEqual(full.split(separator: "\n").first.map(String.init), "✓ a2020a → a2020b")
+        XCTAssertEqual(full.split(separator: "\n").count, 4)
     }
 }
 

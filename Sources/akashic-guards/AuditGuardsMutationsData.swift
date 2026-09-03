@@ -1,5 +1,10 @@
-// **本檔由腳本生成，不要手改。** 來源：`plugin/tests/audit-guards-mutations.py`
-// 生成腳本存在 #433 的 comment 裡，且它**自我驗證**：抽出的 edits 套用結果必須與原
+// **本檔由腳本生成**——那是歷史：#433 時由 `plugin/tests/audit-guards-mutations.py` 生成，
+// 該腳本已隨 #433 從 repo 移除（只留在 #433 的 comment 裡），**本檔現為手維護**（#365 fix，
+// 2026-09-02 起）。上一行「本檔由腳本生成」這串字**不得刪**：`ZeroInstanceRowsAudit` 用它
+// （`prefix(600)`）把本檔排除在 Sources 掃描之外，拿掉它就會把本檔內注入用的 `#9999` 當成
+// Sources 裡的真引用，負控從此紅。日後若重跑生成器，#433 comment 裡那份 lambda 要先同步本檔的
+// 手改（否則會把它們洗掉）。
+// 生成腳本當年**自我驗證**：抽出的 edits 套用結果必須與原
 // lambda 逐字相同（import 該模組、拿真檔案當輸入）。沒有那道驗證，兩個抽取缺陷會靜默——
 // 兩者都真的發生過：
 //   1. **丟掉 `count` 引數**：Python 的 `str.replace(old, new)` 換全部、帶 `count=1` 才換
@@ -115,11 +120,21 @@ let agmCases: [AGMCase] = [
     AGMCase(desc: "scalar：`_scalar` 的最後一個分支被砍掉（切片可能被截斷）", guardRel: "akashic-guards literal-scalar-parity", edits: [
         AGMEdit(path: "plugin/skills/akashic-promote-literals/scripts/literal-census.sh", kind: "replaceFirst", a: "        i = s.find(' #')\n        return (s[:i] if i >= 0 else s).strip()\n", b: "        pass\n"),
     ], expect: ["本體最後一行不是 `return`"]),
-    AGMCase(desc: "zi-rows：新增一列裁決「寫」而編號在 Sources 裡不存在", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
-        // **插在表尾且編號接續**（#365，2026-08-28）。先前插在第 4 列前並用編號 `5`，
-        // 於是列號序列變成 1,2,3,5,4,… ——而新加的列號連續檢查會先觸發並蓋掉本 case
-        // 期望的訊息。錨點取表格後面那句散文（它不會隨列數成長）。
-        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "\n新增下一個零實例守衛 = 在這張表加一列。", b: "| 12 | **假的一列**（#9999：不存在的守衛） | ✅ **寫** | 為了測負控 |\n\n新增下一個零實例守衛 = 在這張表加一列。"),
+    AGMCase(desc: "zi-rows：某一列裁決「寫」而它引用的編號在 Sources 裡不存在", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        // **改既有列的編號，不再注入新列**（#365 fix，2026-09-02）。前兩版都靠注入一列：
+        // 先是插在第 4 列前編號 `5`（列號連續檢查先觸發、蓋掉本 case 的訊息），再改成
+        // 插表尾並**寫死**編號 `12`——而表真的長到 12 列時（#365 補 pseudonym 那列）
+        // 注入列就與真列撞號，守衛報「第 13 個是 12」而不是本 case 期望的訊息，
+        // pre-push 因此紅。任何寫死的列號都會在表下一次成長時重演。
+        //
+        // 改成把第 9 列（`Organization.ror`，✅ 寫，唯一引用 #394）的編號換成不存在的
+        // #9999：列數、列號、分隔符全不動，表長多少都無所謂，只剩「寫而找不到實作」
+        // 這一件事會變。
+        //
+        // **前提**：第 9 列只引用 #394 這一個編號——守衛的條件是「該列引用的編號**全部**在
+        // Sources 找不到才報」。日後若第 9 列多引一個存在於 Sources 的編號，本 case 會**大聲**
+        // 失敗（期望 rc=1 卻得 0），不會安靜通過。
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "（#394：`Organization.ror`。", b: "（#9999：`Organization.ror`。"),
     ], expect: ["在 Sources/ 裡都找不到"]),
     AGMCase(desc: "zi-rows：某一列完全不引用 issue 編號", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "（#254：", b: "（無編號："),

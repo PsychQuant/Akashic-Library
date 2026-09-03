@@ -200,6 +200,11 @@ struct Validate: ParsableCommand {
             print("\(mark) \(label)\(displaySafe(owned.owner, max: 200)): \(owned.issue.message)")
             if owned.issue.severity == .error { failed = true }
         }
+        // #453：本機缺承重存檔的計數行——逐條已印在上面，這一行讓人一眼看出是整批
+        // （其他 clone 上 sources/ 沒同步時會是全部）還是零星（一筆捏造）。
+        if !health.danglingSources.isEmpty {
+            print("本機缺承重存檔: \(health.danglingSources.count)（sources/ 不進 git；其他 clone 上的數字會不同）")
+        }
         // #7b：跨記錄檢查——單筆 validate() 結構上看不到的那一層
         for issue in health.crossRecordIssues {
             let mark = issue.severity == .error ? "✗" : "⚠"

@@ -81,11 +81,13 @@ APA 九〇年代的 DOI 正式形帶**雙斜線**（`10.1037//…`），OpenAlex
    （`import-wos` 語意：拒絕覆寫——期刊目錄是一次性快照，store 可能比它新，#420 裁決 (c)）。
    攣生候選同上節。無 DOI 的來源記錄：title+year 折疊**只是提名**——不確定就跳過並具名，
    確定要建也要在報告裡逐筆留下比對依據
-3. 逐筆 `create-entry`：type `periodical-article`、authors 全部 `.literal`
-   （`literal-first-then-key`：進庫不猜）、fields 帶 `journaltitle`／`volume`／`number`／
-   `pages`／`abstract`、識別碼 `--doi`／`--pmid`
-4. 逐筆 `library add`（**冪等**：已是成員即 no-op——重跑安全，中斷後重跑會補上漏掉的
-   membership）
+3. **一次** `create-entry --format json --file <drafts.json>`（#455）：整個陣列一次寫入——
+   type `periodical-article`、authors 全部 `.literal`（`literal-first-then-key`：進庫不猜）、
+   fields 帶 `journaltitle`／`volume`／`number`／`pages`／`abstract`、識別碼 `doi`／`pmid`。
+   **可預期的失敗整批擋、零寫入**（type 值域、識別碼形狀、欄位鍵、format 閘——訊息指名第幾筆），
+   磁碟層失敗逐筆列出且 exit 非零；批次內同作者同年的 citekey 由 service 消解
+4. **一次** `library add <venue-key>-catalog <citekey>...`（#455；冪等：已是成員即 no-op——
+   重跑安全，中斷後重跑會補上漏掉的 membership；任一 citekey 不存在即整批拒絕）
 5. `migrate-venues` **乾跑逐筆過目** → `--apply`：從 `journaltitle` 回填 venues literal
 6. `resolve-venues` **先列候選過目**（歧義與未命中要報出來）→ `--apply`。exact 命中寫
    confirmed verdict 是該面的既有契約（#304 的 venue-name-exact）；本刊零歧義是
@@ -101,9 +103,12 @@ APA 九〇年代的 DOI 正式形帶**雙斜線**（`10.1037//…`），OpenAlex
 摘要；攣生 197 對（未收攏的代價＝195 組近重複，#456）；真缺摘要 261 → 151（96% 集中
 1996–1999）；electronic ISSN 補 1 個（核對後）。
 
-**效能事實（#455）**：逐筆走既有面＝每筆 2 個 process × O(n) 全庫 load ＋ O(n) index
-rebuild → 全批 **O(n²)**（實測每筆 2 → 6 秒、1545 筆約 3 小時）。大刊（數萬筆）在 #455
-的批次 create 面落地前**不要**用本 skill 全量跑。
+**效能事實（#455，2026-09-03 重量）**：先前逐筆走既有面＝每筆 2 個 process × O(n) 全庫 load ＋
+O(n) index rebuild → 全批 **O(n²)**（2026-09-01 實測每筆 2 → 6 秒、1545 筆約 3 小時）。#455 的批次
+面（一次 load、一次 rebuild）落地後，同一台機器、3,565 筆 entity 的 store 副本、合成 draft：
+舊 binary（2026-09-01 build）50 筆 **158 秒**；新 binary（debug build）50 筆 **6 秒**、
+1545 筆 **9 秒**（方法與原始輸出見 `changelog/2026-09-03-batch-create-entries.md`）。
+大刊（數萬筆）現在可以全量跑；撞到的下一個牆是 venue 側 verdict 的 O(catalog) 增長（#499）。
 
 ## 誠實邊界
 

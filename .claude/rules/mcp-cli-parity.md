@@ -44,7 +44,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 | `akashic_export` | `export-bib`／`export-tables` | ✅ 功能重疊（tables 面與 #274 的 `--view` 為 **CLI-only**——正式裁決見 CLI-only 表的 `export-tables --view` 列，#259）|
 | `akashic_doctor` | `doctor` | ✅ |
 | `akashic_files` | `file` | ✅ |
-| `akashic_libraries` | `library` | ✅ |
+| `akashic_libraries` | `library` | ✅（#455 起 add／remove 兩面同走 `setMembership`：CLI 收多 citekey 是批次形、MCP 維持單 citekey——批次面的裁決見 CLI-only 表）|
 | `akashic_import_zotero` | `import-zotero` | ✅ |
 | `akashic_import_wos` | `import-wos` | ✅（#290；#259 CLI-only 盤點唯一「需要」格的補齊——#206 鏡像判準）|
 | `akashic_resolve_people` | `resolve-people` | ✅（#272 起兩面契約有記錄的差異：MCP 允許 apply+reject 組合（兩段式、按腿回報）；CLI 維持分兩次呼叫——互動面天然序列，組合是 LLM 批次 triage 的需求。#303 起兩面同步帶 `tier`（封閉四值 exact／confirmed-elsewhere／reorder／initials，信心降冪）：MCP 每列 `tier` 欄、CLI 按 tier 分組標頭與 `--tier` 篩選（裸 `--apply` 對寬鬆 tier 拒絕）、App 候選列標示；apply id 升三段形 `citekey:authorIndex:personKey`（釘 person，兩段 legacy 收）；否決抑制改與提名同一套正規化、淘汰而得的唯一命中在 reason 揭露——R1 verify 後 apply 語意有這些**有記錄的變更**，非純 additive。R3 裁決的**面不對稱**：tier 閘只在 CLI 篩選式批次（MCP per-id 顯式＋tier 可見，刻意不閘；tier-acknowledgment 參數列 follow-up）；rejected/applied 回音均三段 pinned 形）|
@@ -110,7 +110,7 @@ per-id 顯式契約。兩面的失敗語意相同且刻意分兩類：輸入語�
 （列數與 ref 上限都在時仍產出 3,844,596 bytes）。
 | `akashic_record_divergence` | `record-divergence` | ✅ |
 | `akashic_update_person` | `update-person` | ✅（#68）|
-| `akashic_create_entry` | `create-entry` | ✅（#206）|
+| `akashic_create_entry` | `create-entry` | ✅（#206；#455 起兩面同走 `createEntries`——MCP 單筆是薄包裝，CLI 的 JSON 陣列是批次形，批次面的裁決見 CLI-only 表）|
 | `akashic_person` | `person` | ✅（#218）|
 | `akashic_people` | `people` | ✅（#219）|
 | `akashic_get_entry` | `get-entry` | ✅（#219）|
@@ -203,6 +203,7 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 | `rename-person`（#395） | 有理由缺席 | 同 `rename` 的理由，**而且遷移面更大**：除 verdict value（`person:` holder，掛在 person 與 organization 兩處）外，還含全庫 `authors[].key` 與 divergence 的 `candidates`／`judgement.prefers`。**這一列不是從上一列類推來的**——它的參照集合是照 `entity-backlink-completeness` 的封閉列舉逐條窮舉出來的（第 1、9、10、13 條），與 citekey 的那組**不重疊**。維運例外的理由因此更強而非更弱：漏一格的後果是安靜的（檔案照樣載入，只是某些邊指向不存在的 key） |
 | `authorize-names` | 有理由缺席 | 批次策展＝操作者規模 |
 | `export-tables --view`（#274） | 有理由缺席 | 匯出物是檔案樹，MCP 的回傳形狀未定——#274 註記的正式落位 |
+| `create-entry` 的 JSON 陣列與 `library` add／remove 的多 citekey（批次語意，#455） | 有理由缺席 | **批次屬操作者規模**（同三個 `bootstrap-*` 的既有裁決）：一次 load、批次內消解 citekey 碰撞、可預期失敗整批擋零寫入、I/O 逐筆收容、一次 rebuild，是目錄匯入（1545 筆量到 O(n²)）的使用形；MCP 的 `akashic_create_entry`／`akashic_libraries` 維持單筆——LLM 消費面逐筆顯式指名，且兩面**同一條實作路徑**（單筆是 `createEntries([draft])`／`setMembership(citekeys: [ck])` 的薄包裝），所以缺的只是「一次送多筆」的參數形狀，不是能力。日後若出現 LLM 流程需要一次建千筆，重新裁決的是 MCP 面的**位元組預算**（#388 的同一個論證），不是加參數 |
 
 **機械檢查（CLI→MCP 方向）**：上方稽核程序的 ② 枚舉 CLI 全部註冊型別後，
 每個命令必須出現在 **MCP 表的「CLI 對應」欄**或**本表**其中之一——兩處都

@@ -43,11 +43,13 @@ private func ziVerdictHeading(_ new: String, _ text: String) -> String {
     return (text as NSString).replacingCharacters(in: m.range, with: new)
 }
 
-/// 把 `CreateEntryCmd` 裡巢狀的 `EntryDraft` 搬到 `configuration` **之前**——一次**純重排**
+/// 把 `CreateEntryCmd` 裡巢狀的 `enum Format` 搬到 `configuration` **之前**——一次**純重排**
 /// （Swift 語意不變），測稽核程序的抽取邊界。上一版的邊界（到下一個 `struct ` 為止）在這個
 /// 排列下會抽不到 `commandName` 而回 nil——訊息會去怪稽核程序自己。
+/// （原本搬的是巢狀 `struct EntryDraft`；#455 把它改成指向 service 的 typealias，無物可搬，
+/// 改搬同檔仍存在的巢狀 `enum Format`——case 的目的不變。）
 private func moveNestedStruct(_ src: String) -> String {
-    guard let m = matches(src, #"(?s)    struct EntryDraft \{.*?\n    \}\n"#).first else { return src }
+    guard let m = matches(src, #"(?s)    enum Format: String[^\n]*\{.*?\n    \}\n"#).first else { return src }
     let block = (src as NSString).substring(with: m.range)
     var out = src.replacingOccurrences(of: block, with: "")
     if let r = out.range(of: "struct CreateEntryCmd: ParsableCommand {") {

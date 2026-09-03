@@ -405,9 +405,18 @@ public final class LibraryStore {
         return dest
     }
 
-    @discardableResult
-    public func writeEntry(_ entry: Entry) throws -> URL {
-        try assertStoreRoot()
+    /// `writeEntry`／`writeEntryExclusive` 的**全部非 I/O 前置條件**（#455）：citekey 文法、識別碼 reference ≥13、
+    /// membership key 文法與重複、sources ≥9、venues ≥11、organization 作者 ≥12。與 `assertPersonWritable`／
+    /// `assertOrganizationWritable`／`assertVenueWritable` 同形——寫入端與批次 create 的 preflight 共用同一個函式，
+    /// 兩邊不會漂移。**抽出前 `writeEntryExclusive` 只驗 citekey＋encode**：rename 的目的檔與（本 change 起）批次
+    /// create 都走它，format 閘整個缺席——format 10 的 store 能寫進含 venues 的 entry，舊 binary 讀到就靜默漏資料。
+    /// `format` 是 lazy 的，理由同 `assertOrganizationWritable`（Codex R2 on #463）。
+    public static func assertEntryWritable(_ entry: Entry, format provider: () throws -> Int) throws {
+        var cached: Int?
+        func format() throws -> Int {
+            if let c = cached { return c }
+            let f = try provider(); cached = f; return f
+        }
         // write-time key 驗證：不合格式的 citekey 絕不進檔名（path traversal 防護）
         guard StoreKey.isValid(entry.citekey) else {
             throw StoreIOError.invalidKey("citekey", entry.citekey)
@@ -415,7 +424,7 @@ public final class LibraryStore {
         // #394 §6：識別碼 reference 需要 format 13。
         if !entry.references.isEmpty {
             try Self.assertIdentifierReferencesWritable(
-                entry.references, format: try StoreVersion.read(root: root),
+                entry.references, format: try format(),
                 what: "work「\(displaySafe(entry.citekey, max: 120))」")
         }
         // membership keys（#13）同樣 write-time 驗證——不進路徑，但保 index/query 語意乾淨
@@ -429,7 +438,7 @@ public final class LibraryStore {
         }
         // v9-only 語法的 format gate（#223，同 ended/attested gate 的機制與理由）
         if !entry.akashic.sources.isEmpty {
-            let format = try StoreVersion.read(root: root)
+            let format = try format()
             guard format >= 9 else {
                 throw StoreIOError.invalidKey(
                     "entry（含 akashic.sources 副本引用，需要 store format ≥ 9；本 store 是 \(format)）——" +
@@ -440,7 +449,7 @@ public final class LibraryStore {
         // v11-only 語法的 format gate（#304）：venues ref 邊。舊 binary 對 entry 的
         // venues 鍵走 tolerant-preserve（保留不解讀）——反向查詢靜默漏資料，故仍 gate。
         if !entry.venues.isEmpty {
-            let format = try StoreVersion.read(root: root)
+            let format = try format()
             guard format >= 11 else {
                 throw StoreIOError.invalidInput(
                     what: "entry「\(displaySafe(entry.citekey, max: 120))」",
@@ -455,7 +464,7 @@ public final class LibraryStore {
         // 更嚴重，故同樣 gate。
         if entry.authors.contains(where: { if case .organization = $0 { return true }
                                            else { return false } }) {
-            let format = try StoreVersion.read(root: root)
+            let format = try format()
             guard format >= 12 else {
                 throw StoreIOError.invalidInput(
                     what: "entry「\(displaySafe(entry.citekey, max: 120))」",
@@ -465,6 +474,12 @@ public final class LibraryStore {
                          "且 query 不會報錯）")
             }
         }
+    }
+
+    @discardableResult
+    public func writeEntry(_ entry: Entry) throws -> URL {
+        try assertStoreRoot()
+        try Self.assertEntryWritable(entry, format: { try StoreVersion.read(root: self.root) })
         let yaml = try EntryYAML.encode(entry)
         // #35：format 2 走 entities/<uuid>.yaml，legacy 走 entries/<citekey>.yaml
         let dest = usesEntitiesLayout ? entityURL(id: entry.id) : entryURL(citekey: entry.citekey)
@@ -478,9 +493,7 @@ public final class LibraryStore {
     @discardableResult
     public func writeEntryExclusive(_ entry: Entry) throws -> URL {
         try assertStoreRoot()
-        guard StoreKey.isValid(entry.citekey) else {
-            throw StoreIOError.invalidKey("citekey", entry.citekey)
-        }
+        try Self.assertEntryWritable(entry, format: { try StoreVersion.read(root: self.root) })   // 同一組閘（#455）
         let yaml = try EntryYAML.encode(entry)
         let dest = usesEntitiesLayout ? entityURL(id: entry.id) : entryURL(citekey: entry.citekey)
         try atomicWrite(yaml, to: dest, mustCreate: true)

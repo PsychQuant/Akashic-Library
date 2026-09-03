@@ -809,29 +809,77 @@ public final class AkashicService {
             guard let key, let citekey else {
                 throw ServiceError.invalid("\(displaySafe(action, max: 120)) 需要 key 與 citekey")
             }
-            guard StoreKey.isValid(key) else {
-                throw ServiceError.invalid("library key「\(displaySafe(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: pattern 是常量
+            // 單筆＝批次的薄包裝（#455）：一條實作路徑
+            let report = try setMembership(action: action, key: key, citekeys: [citekey])
+            guard report.writeFailures.isEmpty else {
+                throw ServiceError.invalid("寫入失敗：" + (report.writeFailures.first?.error ?? "未知"))
             }
-            let load = try store.load()
-            // add 要求 registry 存在；remove 不要求——dangling membership（spec 允許）
-            // 必須能用正式介面清理
-            if action == "add", !load.libraries.contains(where: { $0.key == key }) {
-                throw ServiceError.notFound("library「\(displaySafe(key, max: 200))」")
-            }
-            guard var entry = load.entries.first(where: { $0.citekey == citekey }) else {
-                throw ServiceError.notFound("citekey「\(displaySafe(citekey, max: 200))」")
+            return try jsonString(["citekey": displaySafe(citekey, max: 200),
+                                   "libraries": report.libraries[citekey] ?? []])   // display-safe-exempt: library key 由 StoreKey 文法保證只含 [a-z0-9-]（寫入端 assertEntryWritable 驗過）
+        default:
+            throw ServiceError.invalid("未知 action「\(displaySafe(action, max: 120))」（list/create/add/remove）")
+        }
+    }
+
+    /// membership 批次形的回報（#455）。可預期的失敗（key 文法、library 不存在、citekey 不存在）在動磁碟前
+    /// 整批 throw；這裡只有磁碟層的逐筆結果。
+    public struct MembershipReport: Equatable {
+        public struct WriteFailure: Equatable { public let citekey: String; public let error: String }
+        /// 成功寫入的 citekey（依呼叫順序）。
+        public var written: [String] = []
+        public var writeFailures: [WriteFailure] = []
+        /// 每個成功寫入的 citekey 寫後的 membership。
+        public var libraries: [String: [String]] = [:]
+        public init() {}
+    }
+
+    /// library membership 的批次 add／remove（#455 同族）：**一次** `load()`、整批驗證（library 存在＋每個
+    /// citekey 存在，任一不在 → 整批拒絕零寫入）、逐筆寫（I/O 失敗收容）、**一次** rebuild。
+    /// 單筆的 `libraries(action:"add"|"remove")` 是它的薄包裝。
+    public func setMembership(action: String, key: String, citekeys: [String]) throws -> MembershipReport {
+        guard action == "add" || action == "remove" else {
+            throw ServiceError.invalid("未知 action「\(displaySafe(action, max: 120))」（add/remove）")
+        }
+        guard !citekeys.isEmpty else { throw ServiceError.invalid("citekeys 不得為空") }
+        guard StoreKey.isValid(key) else {
+            throw ServiceError.invalid("library key「\(displaySafe(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: pattern 是常量
+        }
+        let load = try store.load()
+        // add 要求 registry 存在；remove 不要求——dangling membership（spec 允許）
+        // 必須能用正式介面清理
+        if action == "add", !load.libraries.contains(where: { $0.key == key }) {
+            throw ServiceError.notFound("library「\(displaySafe(key, max: 200))」")
+        }
+        var byCitekey: [String: Entry] = [:]
+        for e in load.entries { byCitekey[e.citekey] = e }
+        // 1. 整批驗證，零寫入
+        var planned: [Entry] = []
+        var seen = Set<String>()
+        for ck in citekeys where seen.insert(ck).inserted {
+            guard var entry = byCitekey[ck] else {
+                throw ServiceError.notFound("citekey「\(displaySafe(ck, max: 200))」——整批拒絕，零寫入")
             }
             if action == "add" {
                 if !entry.akashic.libraries.contains(key) { entry.akashic.libraries.append(key) }
             } else {
                 entry.akashic.libraries.removeAll { $0 == key }
             }
-            try writeAndReindex(entry)
-            return try jsonString(["citekey": displaySafe(citekey, max: 200),
-                                   "libraries": entry.akashic.libraries])
-        default:
-            throw ServiceError.invalid("未知 action「\(displaySafe(action, max: 120))」（list/create/add/remove）")
+            planned.append(entry)
         }
+        // 2. 逐筆寫，I/O 失敗收容
+        var report = MembershipReport()
+        for entry in planned {
+            do {
+                try store.writeEntry(entry)
+                report.written.append(entry.citekey)
+                report.libraries[entry.citekey] = entry.akashic.libraries
+            } catch {
+                report.writeFailures.append(.init(citekey: entry.citekey, error: Self.describe(error)))
+            }
+        }
+        // 3. 一次 rebuild
+        if !report.written.isEmpty { try LibraryIndex(store: store).rebuild() }
+        return report
     }
 
     public func setStatus(citekey: String, status: String?, clear: Bool = false) throws -> String {
@@ -1614,14 +1662,56 @@ public final class AkashicService {
     /// **識別碼走結構化欄位，不走 `fields`**：兩者同時可用時 `canonicalDOIs` 的既有
     /// 立場是「結構化那個才是正典」。呼叫端若把 DOI 塞進 `fields` 仍然有效（那是殘留，
     /// 遷移會處理），但**這條路直接寫到正典位置**。
-    public func createEntry(type: String, title: String, authors: [String],
-                            date: String?, fields: [String: String],
-                            doi: [String]? = nil, pmid: [String]? = nil,
-                            isbn: [String]? = nil) throws -> String {
-        guard !type.trimmingCharacters(in: .whitespaces).isEmpty,
-              !title.trimmingCharacters(in: .whitespaces).isEmpty else {
-            throw ServiceError.invalid("type 與 title 不可為空")
+    // MARK: - create（單筆＝批次的薄包裝，#455）
+
+    /// 一筆待建記錄。CLI `create-entry --format json` 的元素、MCP `akashic_create_entry` 的參數，
+    /// **兩面同一個形**——先前 CLI 自己有一份同名 struct 再逐欄轉呼叫（#455 起搬到這裡）。
+    public struct EntryDraft: Equatable {
+        public var type: String
+        public var title: String
+        public var authors: [String]
+        public var date: String?
+        public var fields: [String: String]
+        public var doi: [String]
+        public var pmid: [String]
+        public var isbn: [String]
+        /// 呼叫端指定的記錄 id（省略即新 UUID）。目的檔位置由它決定（entities 佈局檔名是 UUID）——
+        /// 測試用它把某一筆的目的檔占住以注入 I/O 失敗；匯入類呼叫端要冪等重跑時也用得到。
+        public var id: UUID?
+        public init(type: String, title: String, authors: [String] = [], date: String? = nil,
+                    fields: [String: String] = [:], doi: [String] = [], pmid: [String] = [],
+                    isbn: [String] = [], id: UUID? = nil) {
+            self.type = type; self.title = title; self.authors = authors; self.date = date
+            self.fields = fields; self.doi = doi; self.pmid = pmid; self.isbn = isbn; self.id = id
         }
+    }
+
+    /// `createEntries` 的回報。**可預期的失敗不在這裡**——它們在動磁碟前就整批 throw；這裡只有
+    /// 磁碟層的逐筆結果（`lossless-intake` 執行細節 3：部分寫入必須把已寫的與失敗的都列出來）。
+    public struct BatchCreateReport: Equatable {
+        public struct Created: Equatable {
+            public let index: Int; public let citekey: String; public let id: UUID
+        }
+        public struct WriteFailure: Equatable {
+            public let index: Int; public let title: String; public let citekey: String; public let error: String
+        }
+        public var created: [Created] = []
+        public var writeFailures: [WriteFailure] = []
+        public init() {}
+    }
+
+    /// 批次 create（#455）：**一次** `load()`、逐筆驗證（零寫入）、逐筆 `writeEntryExclusive`、**一次** rebuild。
+    ///
+    /// 失敗語意（使用者裁決 2026-09-03）：
+    /// - **可預期的失敗整批擋**：type 值域、識別碼形狀、欄位鍵、citekey 目的檔、format 閘、encode——任一筆
+    ///   不過就 `ServiceError.invalid("第 N 筆「title」：…")`，此時**沒有任何檔被動過**。
+    /// - **I/O 失敗逐筆收容**：exclusive 寫入失敗的那一筆進 `writeFailures`，其餘照寫；rebuild 照跑——
+    ///   index 必須反映已落地的那些，否則「部分寫入」上再疊一層「index 過期」。
+    ///
+    /// 批次內的 citekey 唯一性：`Citekey.generate(existing:)` 看到的 `existing` **逐筆累積**——這是單筆版本
+    /// 不會遇到的情況（同作者同年兩筆會撞成同一鍵）。preflight 與寫入端同一個 `assertEntryWritable`。
+    public func createEntries(_ drafts: [EntryDraft]) throws -> BatchCreateReport {
+        guard !drafts.isEmpty else { throw ServiceError.invalid("drafts 不得為空") }
         let load = try store.load()
         // quarantined 檔 basename 佔住 citekey（Phase 1 合約：quarantined 檔永不被自動覆寫）
         var existing = Set(load.entries.map(\.citekey))
@@ -1631,30 +1721,73 @@ public final class AkashicService {
                 existing.insert(String(basename.dropLast(".yaml".count)))
             }
         }
-        let family = authors.first.flatMap { $0.split(separator: " ").last.map(String.init) }
+        // format 只在某個閘真的需要時才讀、整批共用一次（同 assertOrganizationWritable 的 lazy 紀律）
+        var cachedFormat: Int?
+        let root = store.root
+        let gateFormat: () throws -> Int = {
+            if let c = cachedFormat { return c }
+            let f = try StoreVersion.read(root: root); cachedFormat = f; return f
+        }
+        // 1. 逐筆驗證，零寫入
+        var planned: [Entry] = []
+        for (i, d) in drafts.enumerated() {
+            do {
+                planned.append(try validatedEntry(from: d, existing: &existing, format: gateFormat))
+            } catch {
+                throw ServiceError.invalid(
+                    "第 \(i + 1) 筆「\(displaySafe(d.title, max: 120))」：\(Self.describe(error))——整批拒絕，零寫入")   // display-safe-exempt: Int
+            }
+        }
+        // 2. 逐筆寫（exclusive：目的檔存在 fail-closed），I/O 失敗收容
+        var report = BatchCreateReport()
+        for (i, entry) in planned.enumerated() {
+            do {
+                _ = try store.writeEntryExclusive(entry)
+                report.created.append(.init(index: i, citekey: entry.citekey, id: entry.id))
+            } catch {
+                report.writeFailures.append(.init(index: i, title: entry.title, citekey: entry.citekey,
+                                                  error: Self.describe(error)))
+            }
+        }
+        // 3. 一次 rebuild（有寫入才跑）
+        if !report.created.isEmpty { try LibraryIndex(store: store).rebuild() }
+        return report
+    }
+
+    private static func describe(_ error: Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+    }
+
+    /// 單筆驗證：從 draft 算出可寫的 `Entry`，並把它的 citekey 加進 `existing`。**不動磁碟**。
+    private func validatedEntry(from d: EntryDraft, existing: inout Set<String>,
+                                format: () throws -> Int) throws -> Entry {
+        guard !d.type.trimmingCharacters(in: .whitespaces).isEmpty,
+              !d.title.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw ServiceError.invalid("type 與 title 不可為空")
+        }
+        let family = d.authors.first.flatMap { $0.split(separator: " ").last.map(String.init) }
         let citekey = Citekey.generate(
-            familyName: family, year: date, title: title, existing: existing)
-        // 最後防線：目的檔已存在（含 quarantined/大小寫別名）→ 拒寫
+            familyName: family, year: d.date, title: d.title, existing: existing)
+        // 最後防線：legacy 目的檔已存在（含 quarantined/大小寫別名）→ 拒寫
         guard !FileManager.default.fileExists(atPath: store.entryURL(citekey: citekey).path) else {
             throw ServiceError.invalid("目的檔已存在：entries/\(displaySafe(citekey, max: 200)).yaml（可能是 quarantined 檔）")
         }
         // #325 階段二：type 是封閉列舉。**這是新資料入口**——LLM 呼叫端給的字串
         // 若不在值域，必須當場拒絕並列出值域，否則它會反覆猜。
-        guard let workType = WorkType(rawValue: type) else {
+        guard let workType = WorkType(rawValue: d.type) else {
             throw ServiceError.invalid(
-                "type「\(displaySafe(type, max: 80))」不在封閉列舉"
+                "type「\(displaySafe(d.type, max: 80))」不在封閉列舉"
                 + "（\(WorkType.domainDescription)）")   // display-safe-exempt: 由 allCases 生成，編譯期常量
         }
-        var entry = Entry(id: UUID(), citekey: citekey, type: workType, title: title,
-                          authors: authors.map { .literal($0) }, date: date)
+        var entry = Entry(id: d.id ?? UUID(), citekey: citekey, type: workType, title: d.title,
+                          authors: d.authors.map { .literal($0) }, date: d.date)
         // **識別碼：不合法即整個拒絕、零寫入**（#394）。與 venue／organization 的建檔面
         // 同型，而建檔面的拒絕比更新面更強：若只擋識別碼而讓記錄建了出來，結果是一筆
         // 「呼叫端以為帶 DOI、實際沒有」的 work——比明確失敗更糟。
         //
         // 相等看正規形（與 `IdentifierMigration.normalizedUnique` 同一條規則）。
-        func parse<T: Identifier>(_ raws: [String]?, _ make: (String) -> T?,
+        func parse<T: Identifier>(_ raws: [String], _ make: (String) -> T?,
                                   _ field: String) throws -> [T] {
-            guard let raws else { return [] }
             var out: [T] = []
             var seen = Set<String>()
             for r in raws where !r.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -1669,9 +1802,9 @@ public final class AkashicService {
             }
             return out
         }
-        entry.doi = try parse(doi, DOI.init, "doi")
-        entry.pmid = try parse(pmid, PMID.init, "pmid")
-        entry.isbn = try parse(isbn, ISBN.init, "isbn")
+        entry.doi = try parse(d.doi, DOI.init, "doi")
+        entry.pmid = try parse(d.pmid, PMID.init, "pmid")
+        entry.isbn = try parse(d.isbn, ISBN.init, "isbn")
         // **鍵在這一層正規化，不在呼叫端**（#206 verify C1）。
         //
         // `Entry.fields` 的鍵**直接**成為匯出的 biblatex 欄位名，所以一個帶空格或
@@ -1683,8 +1816,8 @@ public final class AkashicService {
         // 是因為這裡是**兩個介面唯一的交會點**；補在任一呼叫端都會留下另一個洞。
         var normalized: [String: String] = [:]
         var rejectedKeys: [String] = []
-        for key in fields.keys.sorted() {           // 排序 → 撞鍵時的勝者是決定性的
-            guard let value = fields[key] else { continue }
+        for key in d.fields.keys.sorted() {           // 排序 → 撞鍵時的勝者是決定性的
+            guard let value = d.fields[key] else { continue }
             guard let k = FieldKey.normalized(key) else {
                 rejectedKeys.append(key); continue   // 無法表達成合法欄位名
             }
@@ -1701,9 +1834,27 @@ public final class AkashicService {
                 + rejectedKeys.map { displaySafe($0, max: 80) }.joined(separator: "、"))
         }
         entry.fields = normalized
-        try writeAndReindex(entry)
-        return try jsonString(["citekey": displaySafe(citekey, max: 200),
-                               "id": entry.id.uuidString])
+        // 寫入端的前置條件在動磁碟前全部跑一遍（與 writeEntry／writeEntryExclusive 同一個函式，#455）
+        try LibraryStore.assertEntryWritable(entry, format: format)
+        _ = try EntryYAML.encode(entry)
+        existing.insert(citekey)
+        return entry
+    }
+
+    /// 單筆 create——`createEntries([draft])` 的薄包裝（**一條實作路徑**）。
+    /// 驗證失敗照舊 throw；exclusive 寫入失敗也 throw；成功回 `citekey`／`id`。
+    public func createEntry(type: String, title: String, authors: [String],
+                            date: String?, fields: [String: String],
+                            doi: [String]? = nil, pmid: [String]? = nil,
+                            isbn: [String]? = nil) throws -> String {
+        let draft = EntryDraft(type: type, title: title, authors: authors, date: date, fields: fields,
+                               doi: doi ?? [], pmid: pmid ?? [], isbn: isbn ?? [])
+        let report = try createEntries([draft])
+        guard let c = report.created.first else {
+            throw ServiceError.invalid("寫入失敗：" + (report.writeFailures.first?.error ?? "未知"))
+        }
+        return try jsonString(["citekey": displaySafe(c.citekey, max: 200),
+                               "id": c.id.uuidString])
     }
 
     public func addPerson(key: String, names: [String], orcid: String?, openalex: String?) throws -> String {

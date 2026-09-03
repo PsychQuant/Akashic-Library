@@ -17,12 +17,20 @@ import BiblatexAPA
 ///
 /// ## 與 MCP 共用同一條寫入路徑
 ///
-/// 走 `AkashicService.createEntry`（同 `update-person` 的作法）——citekey 生成、
+/// 走 `AkashicService.createEntries`（#455；單筆的 `createEntry` 是它的薄包裝）——citekey 生成、
 /// quarantine 檔名佔位、format gate、index rebuild 全部白拿，且**不會與 MCP 面分岔**。
+///
+/// ## 批次語意（#455，使用者裁決 2026-09-03）
+///
+/// 整個陣列**一次**呼叫 service：一次 load、批次內消解 citekey 碰撞、一次 rebuild。
+/// **可預期的失敗（type 值域、識別碼形狀、欄位鍵、format 閘）整批擋、零寫入**——先前逐筆呼叫時
+/// 第 k 筆失敗，前 k−1 筆已經落地；現在什麼都不寫，exit 非零並指名是第幾筆。磁碟層的 I/O 失敗
+/// 逐筆收容、其餘照寫、rebuild 照跑，並 exit 非零。
 struct CreateEntryCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "create-entry",
-        abstract: "建庫外文獻，**保留來源的所有欄位**（JSON 或 .bib；citekey 自動生成）")
+        abstract: "建庫外文獻，**保留來源的所有欄位**（JSON 或 .bib；citekey 自動生成）。"
+            + "陣列一次寫入：可預期的失敗整批擋、零寫入（#455）")
 
     enum Format: String, ExpressibleByArgument, CaseIterable {
         case json, bib
@@ -94,51 +102,29 @@ struct CreateEntryCmd: ParsableCommand {
         // 差別只在它們的**主要產出**不取自 index，不是它們不碰 index。
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
-        var created = 0
-        var failed: [(String, String)] = []
-        for d in drafts {
-            do {
-                // service 的輸出已 displaySafe，原樣轉印
-                print(try service.createEntry(type: d.type, title: d.title,
-                                              authors: d.authors, date: d.date,
-                                              fields: d.fields,
-                                              doi: d.doi.isEmpty ? nil : d.doi,
-                                              pmid: d.pmid.isEmpty ? nil : d.pmid,
-                                              isbn: d.isbn.isEmpty ? nil : d.isbn))
-                created += 1
-            } catch {
-                // **per-item 收容**：一筆壞掉不該讓其餘的全滅（同 resolve-people
-                // 的多檔迴圈立場）。失敗清單最後一起報，不吞。
-                failed.append((d.title, displaySafe(String(describing: error), max: 400)))
-            }
+        // 一次呼叫（#455）：可預期的失敗由 service 整批 throw（ArgumentParser 印錯、exit 非零）；
+        // 這裡只剩磁碟層的逐筆結果。
+        let report = try service.createEntries(drafts)
+        for c in report.created {
+            // citekey 由 StoreKey 文法保證只含 [a-z0-9-]；id 是 UUID
+            print("{\"citekey\":\"\(displaySafe(c.citekey, max: 200))\",\"id\":\"\(c.id.uuidString)\"}")   // display-safe-exempt: UUID
         }
-        print("✓ created \(created)")
-        if !failed.isEmpty {
-            print("failed \(failed.count)：")
-            for (t, e) in failed.prefix(10) {
-                print("  ! \(displaySafe(t, max: 80)) — \(e)")
+        print("✓ created \(report.created.count)")   // display-safe-exempt: Int
+        if !report.writeFailures.isEmpty {
+            print("failed \(report.writeFailures.count)（磁碟層，其餘已寫入且 index 已重建）：")   // display-safe-exempt: Int
+            for f in report.writeFailures.prefix(10) {
+                print("  ! \(displaySafe(f.title, max: 80)) — \(displaySafe(f.error, max: 400))")
             }
-            // **一筆都沒寫成必須非零退出**（#206 verify H3）。上面「解析出 0 筆」
-            // 已經因為「script 分不出成功與沉默」而刻意 throw；「寫成 0 筆」是同一
-            // 個處境，卻回 exit 0——`akashic create-entry … && next` 會照常往下走。
-            throw ExitCode(created == 0 ? 1 : 0)
+            // **有任何一筆沒寫成就非零退出**：`akashic create-entry … && next` 不得在部分寫入時往下走
+            throw ExitCode(1)
         }
     }
 
     // MARK: - 解析
 
-    struct EntryDraft {
-        var type: String
-        var title: String
-        var authors: [String]
-        var date: String?
-        var fields: [String: String]
-        /// #394：識別碼走結構化欄位而不是 `fields`。兩者同時可用時
-        /// `canonicalDOIs` 的既有立場是「結構化那個才是正典」。
-        var doi: [String] = []
-        var pmid: [String] = []
-        var isbn: [String] = []
-    }
+    /// draft 的形狀住在 service（#455）——先前 CLI 自己有一份同名 struct 再逐欄轉呼叫，
+    /// 兩份會分岔。識別碼走結構化欄位而不是 `fields`（#394）。
+    typealias EntryDraft = AkashicService.EntryDraft
 
     /// JSON：單一 object 或 object 陣列。形狀與 MCP `akashic_create_entry` 相同。
     static func parseJSON(_ data: Data) throws -> [EntryDraft] {

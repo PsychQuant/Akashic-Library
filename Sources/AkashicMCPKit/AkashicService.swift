@@ -371,6 +371,9 @@ public final class AkashicService {
             d["recordIssues"] = [
                 "count": perRec.count,
                 "errors": perRec.filter { $0.issue.severity == .error }.count,
+                // #453：本機缺承重存檔的計數——per-record 逐條在 `first`（截 20），計數讓呼叫端分得出
+                // 「整批」（其他 clone 上 sources/ 沒同步）與「零星」（一筆捏造）。
+                "danglingSources": health.danglingSources.count,
                 "first": perRec.prefix(20).map {
                     ["severity": $0.issue.severity == .error ? "error" : "warning",
                      "kind": $0.kind,

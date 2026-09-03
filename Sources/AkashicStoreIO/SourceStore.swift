@@ -290,30 +290,66 @@ public extension LibraryStore {
     ///
     /// **divergence 的 `judgement.restsOn` 在掃描範圍**（#251，第 12 條邊）——
     /// 先前只掃 people/organizations 的 references，報告對消歧證據鏈全盲。
-    func missingSourceDigests(_ load: LibraryLoad)
-        -> (missing: [String], unreadableShards: [String]) {
-        var digests = Set<String>()
-        func collect(_ refs: [ProvenanceReference]) {
+    /// 逐 holder 的缺席報告（#453）：每一筆是「哪一筆記錄的哪個槽位指向一個本機沒有的存檔」。
+    /// `missing` 維持既有語意（distinct digest、排序）；`holders` 是 per-record 事實——
+    /// `danglingSourceIssues(in:)` 據此組出 `perRecordIssues` 的 warning（#464 死 verdict 的同一形）。
+    struct MissingSourceReport {
+        struct Holder: Equatable {
+            /// 持有記錄的 key（entry 為 citekey、divergence 為 id）。
+            let owner: String
+            /// `entry`／`person`／`organization`／`venue`／`divergence`——與 `StoreHealth.OwnedIssue.kind` 同詞彙。
+            let kind: String
+            /// 指向該存檔的槽位：reference 的 `field`、`judgement.restsOn`、或 `akashic.sources`。
+            let slot: String
+            let digest: String
+            /// `false` ＝ 值根本不是 `sha256:` 形（`sourceURL` 解不出路徑）——無從在本機查找，
+            /// 與「合法但本機沒有」是兩件事（live store 2026-09-04 實測一筆 divergence 的
+            /// `judgement.restsOn` 裝的是 URL）。兩者都算進 `missing`（既有語意），訊息分開說。
+            let wellFormed: Bool
+        }
+        let holders: [Holder]
+        let unreadableShards: [String]
+        /// 既有介面：distinct digest、排序。
+        var missing: [String] { Array(Set(holders.map(\.digest))).sorted() }
+    }
+
+    func missingSourceDigests(_ load: LibraryLoad) -> MissingSourceReport {
+        typealias Claim = (owner: String, kind: String, slot: String, digest: String)
+        var claims: [Claim] = []
+        func collect(_ refs: [ProvenanceReference], owner: String, kind: String) {
             for r in refs {
                 switch r.kind {
-                case .retrieval(_, _, _, _, let content): digests.insert(content)
-                case .judgement(_, let restsOn): digests.formUnion(restsOn)
+                case .retrieval(_, _, _, _, let content):
+                    claims.append((owner, kind, r.field, content))
+                case .judgement(_, let restsOn):
+                    for d in restsOn { claims.append((owner, kind, r.field, d)) }
                 }
             }
         }
-        for p in load.people { collect(p.references) }
-        for o in load.organizations { collect(o.references) }
+        for p in load.people { collect(p.references, owner: p.key, kind: "person") }
+        for o in load.organizations { collect(o.references, owner: o.key, kind: "organization") }
+        // #453：venue 的 references——#406 起承重證據（`paginated` 判定的 rests-on）第一次住在 venue 上，
+        // 而這裡先前不掃它（第 11 條邊的 venue 形，#304 隨形狀新增時沒跟著補）。
+        for v in load.venues { collect(v.references, owner: v.key, kind: "venue") }
         for d in load.divergences {   // #251：judgement 的依據也是指名的存檔
-            if let j = d.judgement { digests.formUnion(j.restsOn) }
+            guard let j = d.judgement else { continue }
+            for digest in j.restsOn {
+                claims.append((d.id.uuidString, "divergence", "judgement.restsOn", digest))
+            }
         }
-        // 記錄側副本引用（#223）：關係項與欄位層級 references 不同，但**指向同一個
-        // 內容儲存區**，所以缺席語意共用這一條路徑——不新增第二套判定。
-        for e in load.entries { digests.formUnion(e.akashic.sources) }
+        for e in load.entries {
+            // 記錄側副本引用（#223）：關係項與欄位層級 references 不同，但**指向同一個
+            // 內容儲存區**，所以缺席語意共用這一條路徑——不新增第二套判定。
+            for digest in e.akashic.sources { claims.append((e.citekey, "entry", "akashic.sources", digest)) }
+            // #453：`Entry.references`（第 15 條邊，#394 §5）——識別碼的來源存檔，先前不掃。
+            collect(e.references, owner: e.citekey, kind: "entry")
+        }
         let fm = FileManager.default
-        var missing: [String] = []
+        var absent = Set<String>()
+        var malformed = Set<String>()
         var unreadable = Set<String>()
-        for d in digests.sorted() {
-            guard let url = sourceURL(digest: d) else { missing.append(d); continue }
+        for d in Set(claims.map(\.digest)).sorted() {
+            guard let url = sourceURL(digest: d) else { absent.insert(d); malformed.insert(d); continue }
             if fm.fileExists(atPath: url.path) { continue }
             // 判缺席前先確認 shard 可列——列不出來是「讀不到」，不是「缺席」（#265）
             let shardDir = url.deletingLastPathComponent()
@@ -323,9 +359,13 @@ public extension LibraryStore {
                 unreadable.insert("sources/\(shardDir.lastPathComponent)/")
                 continue
             }
-            missing.append(d)
+            absent.insert(d)
         }
-        return (missing, unreadable.sorted())
+        let holders = claims.filter { absent.contains($0.digest) }.map {
+            MissingSourceReport.Holder(owner: $0.owner, kind: $0.kind, slot: $0.slot, digest: $0.digest,
+                                       wellFormed: !malformed.contains($0.digest))
+        }
+        return MissingSourceReport(holders: holders, unreadableShards: unreadable.sorted())
     }
 
     /// 版控排除的 fail-closed 驗證（D5）。

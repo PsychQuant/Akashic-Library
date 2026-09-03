@@ -88,6 +88,14 @@ public struct StoreHealth {
     public var deadVerdicts: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.deadVerdictPrefix) }
     }
+    /// 本機缺承重存檔（#453）的訊息前綴——**單一定義**：`danglingSourceIssues` 用它組訊息、
+    /// `danglingSources` 用它篩，與 `deadVerdictPrefix` 同形。
+    public static let danglingSourcePrefix = "本機缺承重存檔"
+    /// `perRecordIssues` 裡的本機缺存檔。計算屬性，與 `deadVerdicts` 同一個理由：它是
+    /// `perRecordIssues` 的一個視圖，不是第二份資料。
+    public var danglingSources: [OwnedIssue] {
+        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.danglingSourcePrefix) }
+    }
 
     /// 一則驗證問題 ＋ 它屬於哪筆記錄。
     ///
@@ -196,6 +204,10 @@ public extension LibraryStore {
         // `prefix(20)`（`AkashicService.doctor()` 的既有截斷），per-record warning 若累積到 20 以上
         // （2026-09-03 實測 live store 2 條）這一族會被擠出 `first`——那時要重排或給專屬計數，這裡先記下。
         perRecord += deadVerdictIssues(in: load)
+        // #453：本機缺承重存檔——`missingSourceDigests` 先前零 production 呼叫端，doctor 只接
+        // `auditSourceIndex()`（blob↔index 兩向比對），捏造或未同步的 digest 兩邊都不在、兩邊一致、
+        // doctor 沉默（第 3 列「未涵蓋不得冒充通過」的形）。與死 verdict 同一形：per-record warning。
+        perRecord += danglingSourceIssues(in: load)
         return StoreHealth(
             crossRecordIssues: cross,
             fatalCrossRecordIssues: cross.filter { $0.severity == .error },
@@ -305,5 +317,41 @@ public extension LibraryStore {
         for o in load.organizations { out += scan(o.references, owner: o.key, kind: "organization") }
         for v in load.venues { out += scan(v.references, owner: v.key, kind: "venue") }
         return out
+    }
+}
+
+public extension LibraryStore {
+    /// **本機缺承重存檔**（#453）：記錄的 provenance 指向一個本機 `sources/` 沒有的 digest。
+    ///
+    /// 兩層盲區：`missingSourceDigests` 不掃 venue（#406 起承重證據住在 venue 上）也不掃
+    /// `Entry.references`（第 15 條邊）；而且它**零 production 呼叫端**——doctor／`StoreHealth` 接的是
+    /// `auditSourceIndex()`，只比 blob↔index，捏造的 digest 兩邊都不在、兩邊一致、doctor 沉默
+    /// （#251 形狀第三次）。修法是把逐 holder 的缺席以 warning 級 `OwnedIssue` 併入 `perRecordIssues`
+    /// ——CLI `validate` 逐行、MCP `doctor` 進 `recordIssues`；App 面未渲染 per-record（#416 起，#487）。
+    ///
+    /// **用詞是「本機缺」不是「偽造」**：`sources/` 不進 git（`replace-endnote-and-zotero` 的承重閘），
+    /// 本機分不出「從未存在」與「沒同步」——所以訊息說出這個邊界，處置寫成兩條。
+    ///
+    /// **severity 是 warning**：記錄合法可載入，缺的是位元組；error 會讓 `hasErrors` 翻紅、擋住
+    /// export 類流程，而其他 clone 上「全部 dangling」是常態。
+    ///
+    /// 讀不到的 shard 不判缺席（#265 的既有語意，住在 `missingSourceDigests`）——那是
+    /// `auditSourceIndex` 的 `unreadableShards` 在報的事。
+    func danglingSourceIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
+        missingSourceDigests(load).holders.map { h in
+            let head = "\(StoreHealth.danglingSourcePrefix)：\(displaySafe(h.slot, max: 80)) 指向 "
+                + "\(displaySafe(h.digest, max: 80))——"
+            let message: String
+            if h.wellFormed {
+                message = head + "本機 sources/ 找不到這份存檔。sources/ 不進 git，其他 clone 上的數字會不同；"
+                    + "處置：從持有它的機器同步 sources/，或確認這個 digest 是否從未存在過（本機分不出兩者）"
+            } else {
+                // 不是 `sha256:` 形——無從查找，同步也不會有。不能說「找不到」，那暗示同步就會有。
+                message = head + "這不是合法的 digest（`sha256:` ＋ 64 個十六進位字元），無從在本機查找；"
+                    + "處置：把來源存進 sources/（`store-source`）再把這個槽位改成它的 digest"
+            }
+            return StoreHealth.OwnedIssue(owner: h.owner, kind: h.kind,
+                                          issue: ValidationIssue(severity: .warning, message: message))
+        }
     }
 }

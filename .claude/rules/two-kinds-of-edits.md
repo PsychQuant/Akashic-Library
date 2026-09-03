@@ -1,0 +1,72 @@
+# 兩種編輯方法：AI 編輯（判定型、依規則）與程式編輯（決定論式）——每個寫入面只能是其中一種
+
+使用者 2026-09-03（+08:00）定調（#505）：本 repo 的編輯分兩種——**AI 編輯**（複雜、根據規則編輯）與
+**程式編輯**（決定論式）。
+
+適用於**任何把東西寫進 store 的面**——CLI subcommand、MCP tool、App 的寫入動作、skill 驅動的批次流程。
+不適用於**讀取面**（doctor、query、export——它們不改 store）。
+
+## 規則
+
+**每個寫入面在設計時就要歸類為兩種之一，且兩種的義務不同。** 判準只有一句：
+
+> **同一輸入是否必然得到同一輸出？** 若答案取決於**名字以外的證據**（共同作者、機構、作品領域、時間窗、
+> 原文頁面），它就是 AI 編輯；若答案由輸入與規則完全決定，它就是程式編輯。
+
+| | AI 編輯（判定型） | 程式編輯（決定論式） |
+|---|---|---|
+| 做的是什麼 | **判定**：這個 literal 是誰、這一格要不要拆、這本刊有沒有頁碼 | **轉換**：改名、遷移、匯入、批次建檔、只補不存在的鍵、收攏重複 |
+| 誰執行 | AI agent（人可代）——`identity-is-judged-not-matched` 的「底線函數」 | 程式——`normalize` 以外沒有底線的那些函數 |
+| 產出的義務 | **留 verdict／judgement**（`ResolutionLedger`、`ProvenanceReference`），必附理由，可回溯、可逆轉（`demote`／`repoint`／`resolve-divergence`） | **決定論**（同輸入同輸出）、**冪等或有具名逆操作**、可預期失敗**整批擋零寫入**、代價要**量測**不猜 |
+| 不得做的事 | 不得由字串謂詞代做（`identity-is-judged-not-matched`）；不得把「未判定」折成預設值（`Venue.paginated` 的 nil） | 不得由 AI 逐筆手做（O(n²)、會出錯）；不得在 default 位置留兩條讀法（`no-compat-fallback`） |
+| 失敗形 | 誤判——熔合兩個人、拆錯一格；發現時下游已建在錯的身分上 | 撕裂——部分寫入、index 過期；或安靜分岔（兩份政策各自演化） |
+
+**混合的面要拆成三段，不要混在一個函式裡**：**提名（程式）→ 判定（AI）→ 落地（程式）**。`resolve-people`／
+`resolve-venues`／`resolve-organizations` 就是這個形：`LooseNameKey` 的提名是 recall、由程式做；`apply`／`judge`
+的判定由 AI 做且留 verdict；寫回 store 與收攏由程式做。
+
+### 裁決史（封閉列舉——列數以下表為準；新的寫入面加一列，不得依性質相似類推）
+
+| 寫入面 | 種類 | 一句話理由 |
+|---|---|---|
+| `resolve-people apply`／`reject`／`judge`（#272／#303／#386） | AI | `literal → key` 是身分判定；Jaccard 實測同一人 0.40、不同人 0.50，字串謂詞站在錯的一側 |
+| `resolve-people split-author`（#443） | AI | 「這一格裝了兩個人」是判定；但落地是程式（切出的每一段必然是原文子字串）——持久化見 #450 |
+| `resolve-people attribute-org`（#443） | AI | 團體作者的升格是判定，org key 由呼叫端顯式給 |
+| `resolve-venues apply`／`reject`／`repoint`／`demote`（#304／#418） | AI | 同 people；`demote` 是判定的逆轉，原字串從 verdict 逐字取回、取不到寧可拒絕 |
+| `resolve-organizations`（#304） | AI | 同上 |
+| `resolve-divergence`（#71 一族）／攣生合併（#456／#459） | AI | 兩筆記錄是否同一實體是判定；合併含全庫改寫＋刪檔，所以落地那一半是程式且要乾跑過目 |
+| `update-venue --paginated`（#406） | AI | 「本刊是否使用頁碼」是判定，必附 judgement 與 rests-on |
+| `record-divergence`（#77） | AI | 「當場記錄而非當場判斷」——記下判定尚未做出，本身也是判定型工作的一部分 |
+| `rename`／`rename-person`（#35／#232／#395） | 程式 | 改名不改身分；參照集合由封閉列舉逐條窮舉、可機械檢查 |
+| `migrate-*` 一族／`fmt`（#227／#304／#325／#394／#422） | 程式 | 格式遷移；不可逆但決定論，前置是 git 追蹤，乾跑逐筆過目 |
+| `import-wos`／`import-zotero`（#206） | 程式 | 對映歸對映、收集歸收集；conflict 交人，不猜 |
+| `create-entry`／`createEntries`（#206／#455） | 程式 | citekey 由規則生成；批次內碰撞由 `existing` 累積消解；可預期失敗整批擋 |
+| `enrich-from-zotero`／generic enrich（#340／#458） | 程式 | 只補不存在的鍵；來源給什麼收什麼，不判定 |
+| `bootstrap-people`／`-organizations`／`-venues`（#367） | 程式 | 門檻建檔是提名不是判定——建出來的實體仍待 `resolve-*` 判定歸戶 |
+| `library add`／`remove`、`tag`、`link`、`set-status`（#219／#258／#455） | 程式 | 集合語意，冪等 |
+| order-insensitive collapse（#461）、verdict holder 遷移（#463） | 程式 | 對已判定結果的機械搬移；只收本次觸及、不碰未觸及 |
+| `authorize-names`（#81） | AI | 「哪個名字對外」是人的判斷，建檔不得機械偽造（#227） |
+
+新增下一個寫入面 = 在這張表加一列，並在 `mcp-cli-parity` 的表裡同時裁決它的兩面。
+
+## 為什麼：兩個方向的失敗都發生過
+
+| 方向 | 實例 | 代價 |
+|---|---|---|
+| 讓程式做判定 | #383：助手兩版字串判準都錯，第 2 版會把謝叔蓉重新拆成兩個人（#13 記載的合併代價已付過一次） | 誤判不可逆——發現時下游已建在錯的身分上 |
+| 讓 AI 手做決定論工作 | #455 之前 `akashic-venue-works` 逐筆 `create-entry`：每筆 2 個 process × 全庫 load，1545 筆約 3 小時（O(n²)）；批次面落地後 50 筆 6 秒、1545 筆 9 秒（2026-09-03 量測） | 慢，而且**會出錯**：2026-08-28 手改 YAML 差點弄丟一筆 DOI（`mcp-cli-parity` 識別碼寫入面那一節記著） |
+| 判定做了卻沒留記錄 | #443 的 split 只把理由印進報告、store 不留（#450 裁決持久化） | 不可逆且不可偵測——`literal-first-then-key` 的「誤可逆」論證在這一腿為假 |
+
+三個方向的共同點：**種類沒被說出來**。`identity-is-judged-not-matched` 講了單向（程式不得做判定）；本規則補反向
+（AI 不得手做決定論工作）與第三項（判定必須留記錄），並要求每個面在建時就歸類。
+
+## 跟其他規則的關係
+
+- `identity-is-judged-not-matched`：本規則的「AI 編輯」欄就是那條的「底線函數」；那條說判定不得由字串謂詞代做，
+  本規則補上對稱的另一半。
+- `literal-first-then-key`：進庫（程式：以 literal 原樣收）→ 升格（AI：顯式消歧留 verdict）的生命週期，正是
+  「提名（程式）→ 判定（AI）→ 落地（程式）」三段的實例。
+- `no-compat-fallback`／`lossless-intake`：程式編輯欄的兩條義務（決定論、量測；丟棄必須可見）來自它們。
+- `mcp-cli-parity`：新寫入面加列時兩張表要同時改——那張裁決兩面，這張裁決種類。
+- 全域 `common-spec-prose-enumeration`：上表是封閉列舉，判準那一句只用來**判斷新面該加哪一列**，不允許讀者拿它
+  對既有面重新歸類。

@@ -83,7 +83,9 @@ struct ResolveDivergence: ParsableCommand {
                 + "（\(report.verdictReferencesMigrated.map { displaySafe($0, max: 200) }.joined(separator: "；"))）")
         }
         if !report.verdictValuesRewritten.isEmpty {
-            print("verdict value 已隨 citekey 退役改寫（person／venue）："
+            // 使用者面不標 kind（#465 的裁決同型）：列出三族今天正確，第四族出現就過期；
+            // 清單裡的 key 是持有記錄的 key，kind 由記錄自己說（扁平清單不帶 kind 的既有缺口，RenameReport doc 記著）
+            print("verdict value 已隨 holder 退役改寫（持有記錄 key）："
                 + report.verdictValuesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))
         }
         if !report.verdictsCollapsed.isEmpty {   // #461：收攏丟列要說出來——靜默丟棄不可稽核

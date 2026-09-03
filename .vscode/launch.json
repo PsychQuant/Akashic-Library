@@ -65,6 +65,26 @@
             "request": "launch",
             "args": [],
             "cwd": "${workspaceFolder:Akashic-Library}",
+            "name": "Debug akashic-guards",
+            "target": "akashic-guards",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug akashic-guards"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Akashic-Library}",
+            "name": "Release akashic-guards",
+            "target": "akashic-guards",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release akashic-guards"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Akashic-Library}",
             "name": "Debug UnicodeNormalizationGenerator",
             "target": "UnicodeNormalizationGenerator",
             "configuration": "debug",

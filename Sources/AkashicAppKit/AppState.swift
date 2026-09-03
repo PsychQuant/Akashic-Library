@@ -273,9 +273,33 @@ public final class AppState {
         }
     }
 
-    public func rename(from oldKey: String, to newKey: String) throws {
-        _ = try store.renameEntry(from: oldKey, to: newKey)
-        try reindexAndReload()
+    /// 改名 citekey，並把 `renameEntry` 的遷移報告**回傳給呼叫端**（#465）。
+    ///
+    /// 先前這裡 `_ =` 丟掉了 `RenameReport`——CLI 面印出 relations／歧異候選／verdict 三類
+    /// 連帶改寫，App 面卻對使用者一句不說。改名的副作用是全庫改寫（#71、#232、#460），
+    /// 使用者在 App 裡按下「改名」後**看不到動了什麼**——`entity-backlink-completeness` 執行
+    /// 細節 2 的形狀：三面走同一條 `renameEntry`，而 App 這一面把它的輸出丟了一半。
+    ///
+    /// **刻意不標 `@discardableResult`**：那個 attribute 會把「報告可以被安靜丟掉」重新合法化，
+    /// 而那正是 #465 的 root cause。呼叫端不要報告就寫 `_ =`，讓丟棄在原始碼上看得見（verify DA）。
+    ///
+    /// **報告的邊界**：`renameEntry` 今天只遷 people 與 venues 持有的 verdict、不遷 organizations 的
+    /// （#463 的格；live store 有 9 條），所以 `verdictValuesRewritten` 說的是 person／venue 持有的。
+    /// 使用者面字串**不**標這個邊界（會製造 App／CLI 分岔、且 #463 落地當天過期），邊界寫在這裡
+    /// 與 changelog。
+    public func rename(from oldKey: String, to newKey: String) throws -> RenameReport {
+        let report = try store.renameEntry(from: oldKey, to: newKey)
+        do {
+            try reindexAndReload()
+        } catch {
+            // 改名已經寫進磁碟（全庫改寫完成），只是 index／快照沒跟上。錯誤訊息要說出這件事，
+            // 而且帶著報告——否則本張要修的形狀在更窄的窗口重演（verify regression／logic）。
+            // 根治（`attempt` 的簽名、兩條分支都不丟）屬 follow-up。
+            throw AppStateError.renamedButReloadFailed(
+                report: report,
+                underlying: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+        }
+        return report
     }
 
     public enum RelationKind {
@@ -305,6 +329,8 @@ public final class AppState {
 public enum AppStateError: Error, LocalizedError {
     case unknownFile(String)
     case notALibrary(String)
+    /// #465：改名已寫入磁碟，但 index 重建或重載失敗。帶著報告，讓使用者知道全庫已被改寫了什麼。
+    case renamedButReloadFailed(report: RenameReport, underlying: String)
     /// #15：library key 是**參照**不是自由字串——加進不存在的 library 會產生懸空成員關係。
     case unknownLibrary(String)
 
@@ -318,6 +344,10 @@ public enum AppStateError: Error, LocalizedError {
             return "檔案 key「\(displaySafe(key, max: 200))」未註冊於 config"
         case .notALibrary(let path):
             return "「\(displaySafe(path, max: 300))」不是 Akashic library（缺 entries/）"
+        case .renamedButReloadFailed(let report, let underlying):
+            // 純文字（`Text(String)` 不解析 Markdown）；摘要用 View 之外的 formatter（model 不依賴 View）
+            return "改名已寫入磁碟，但索引重建或重載失敗：\(displaySafe(underlying, max: 300))\n\n"
+                 + RenameReportSummary.lines(report) + "\n\n重新開啟檔案或跑 akashic doctor 重建索引。"
         }
     }
 }

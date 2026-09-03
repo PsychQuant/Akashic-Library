@@ -559,14 +559,24 @@ public final class LibraryStore {
         // 同一條 `< 15`，於是一筆合法的 format-14 venue（有頂層 `paginated:`、無
         // reference）連 add_names 這種無關寫入都被拒，破壞舊格式的 read-modify-write）：
         //
-        // - 頂層 `paginated:` 值是 **format 14** 的鍵域（format-13 binary 的
-        //   `rejectUnknownKeys` 對它整檔 quarantine）。
+        // - 頂層 `paginated:` 值是 **format 14** 的鍵域。對 format-13 binary 它是
+        //   **additive**——`VenueYAML.decode` 走 `captureUnknownBlocks` 的 tolerant-preserve，
+        //   原樣保留而不解讀（#422 verify R1 更正：第一版寫「`rejectUnknownKeys` 整檔
+        //   quarantine」，與程式相反；format 13 那一列早四天就對同一層的 `issn:` 實測過
+        //   同一件事）。設閘的理由是「保留而不解讀」的後果：舊 binary 會把**已判定**的刊
+        //   當成從未判定、安靜給出錯的 APA7 下限答案。
+        //
+        //   **`variant` 刻意不設閘**（同 format 13 對識別碼欄位的 doctrine，見 :498-504）：
+        //   它有一個必須跑在 bump **之前**的遷移（`migrate-venue-variants`），對它設閘會讓
+        //   遷移在 bump 之前跑不動；`paginated` 沒有 pre-bump 遷移，設閘零成本。判準是
+        //   「有沒有 pre-bump 遷移」，不是「會不會 quarantine」。
         if format < 14, v.paginated != nil {
             throw StoreIOError.invalidInput(
                 what: "venue「\(displaySafe(v.key, max: 120))」的 paginated 值",
                 why: "paginated 是 format 14 的新欄位（#422／#406）；本 store 是 \(format)——" +
                      "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
-                     "format: 改成 14（format-13 binary 讀到會整檔 quarantine）")
+                     "format: 改成 14（format-13 binary 讀到會原樣保留而不解讀——" +
+                     "把已判定的刊當成從未判定，安靜給錯 APA7 下限）")
         }
         // - **判定 reference**（`field: paginated`）是 **format 15** 的 vocabulary
         //   （R1 verify）：format-14 binary 的附著驗證沒有這個 case，讀到會走封閉

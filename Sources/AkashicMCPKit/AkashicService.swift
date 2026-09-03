@@ -2384,8 +2384,11 @@ public final class AkashicService {
                                "issn": venue.issn.map(\.normalized)])
     }
 
-    /// venue 異名補寫（#306）——**append 語意**：`addNames` 只附加不重複的
-    /// variant（整組替換是 R3F-2 教訓的 footgun，本入口在設計上排除它）；
+    /// venue 異名補寫（#306）——**append 語意**：`addNames` 只把不重複的名字附加進
+    /// `names` 時間軸（不帶時間欄位、**不標 `variant` 也不標 `authorized`**——#422 之後
+    /// `variant` 是正式欄位名，這裡先前寫的「附加 variant」是 #306 時代的散文用法，
+    /// #422 verify R1 指出它已逐字為假；新名字落地即「未判定」，哪個分割是判定，
+    /// 寫入面另案追蹤）（整組替換是 R3F-2 教訓的 footgun，本入口在設計上排除它）；
     /// `note`／`type` 為替換語意（可選）。沿革補全直接擴大 resolve-venues
     /// 的 exact 命中面（resolver 對沿革各段都配對）。
     /// venue 的部分更新（#306）。`addISSN` 於 #394 加入。

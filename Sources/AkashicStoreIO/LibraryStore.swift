@@ -1241,7 +1241,7 @@ extension LibraryStore {
         for q in load.quarantined {
             let url = root.appendingPathComponent(q.file)
             guard let text = try? readUTF8(url) else { return q.file }   // fail-closed
-            for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            for line in Self.rawLines(text) {   // 三種換行、BOM 剝一次（#464 verify 實測 CRLF 檔整檔一行）
                 guard line.hasPrefix("citekey:") else { continue }
                 let claimed = line.dropFirst("citekey:".count)
                     .trimmingCharacters(in: .whitespaces)
@@ -1698,6 +1698,55 @@ extension LibraryStore {
             }
         }
         return nil
+    }
+
+    /// quarantined 檔裡有沒有哪一份宣稱這個 organization key——與 `quarantinedFileClaiming(personKey:)`
+    /// 同一條紀律（行級文字比對而非 decode、讀檔失敗當佔用），只換頂層標頭。#464 的死 verdict 掃描
+    /// 需要它分辨「holder 的檔被 quarantine」與「沒有任何檔宣稱它」。
+    func quarantinedFileClaiming(orgKey: String, in load: LibraryLoad) -> String? {
+        quarantinedFileClaiming(topLevel: "organization:", key: orgKey, in: load)
+    }
+
+    /// person／organization 共用的實作：頂層標頭 ＋ 第一個 `key:` 行。
+    ///
+    /// 標頭要**從第 0 欄開始**（`organization:`／`person:` 在 store 格式裡是頂層鍵，錨在行首與
+    /// `citekey:` 版同一條紀律）——縮排的同名鍵（巢狀值裡的 `organization:`）不算，否則一個被 quarantine
+    /// 的別種檔會因為巢狀鍵而被當成宣稱者、再配上檔內第一個不相干的 `key:`（Codex R2）。
+    /// **但不要求整行位元組相等**：檔首 BOM、CRLF／CR 換行、標頭後的水平空白都是合法 YAML 排版，
+    /// 拒絕它們會把「檔在、被 quarantine」誤報成「沒有任何檔宣稱」（Codex R3／R4）。換行與 BOM 在
+    /// `rawLines` 處理；這裡只看「第 0 欄開始、其後只剩水平空白」。
+    private func quarantinedFileClaiming(topLevel marker: String, key: String, in load: LibraryLoad) -> String? {
+        for q in load.quarantined {
+            let url = root.appendingPathComponent(q.file)
+            guard let text = try? readUTF8(url) else { return q.file }   // fail-closed
+            let lines = Self.rawLines(text)   // 三種換行、BOM 剝一次（見 rawLines）
+            guard lines.contains(where: { Self.isTopLevelMarkerLine($0, marker: marker) }) else { continue }
+            for line in lines where line.hasPrefix("key:") {
+                let claimed = line.dropFirst("key:".count)
+                    .trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+                if claimed == key { return q.file }
+                break                                  // 頂層 key 只有一行
+            }
+        }
+        return nil
+    }
+
+    /// YAML 的三種換行都是換行：`\n`、`\r\n`（Swift 把它當**一個** Character）、單獨的 `\r`（classic Mac）。
+    /// 只用 `"\n"` 切，CRLF 檔整檔會是一行——#464 verify 實測；單獨 `\r` 是 Codex R4 補的。
+    static func isLineBreak(_ c: Character) -> Bool { c == "\n" || c == "\r\n" || c == "\r" }
+
+    /// 把 quarantined 檔的原文切成行：檔首 BOM 只剝**一次**（它是串流開頭的標記，不是每行的），
+    /// 再以三種換行切。行級啟發式查詢（`quarantinedFileClaiming` 一族）都從這裡取行。
+    static func rawLines(_ text: String) -> [Substring] {
+        let body = text.hasPrefix("\u{FEFF}") ? text.dropFirst() : Substring(text)
+        return body.split(omittingEmptySubsequences: false, whereSeparator: isLineBreak)
+    }
+
+    /// 一行是不是頂層標頭：從第 0 欄開始是 `marker`，其後只剩水平空白（換行已在 `rawLines` 切掉）。
+    static func isTopLevelMarkerLine(_ line: Substring, marker: String) -> Bool {
+        guard line.hasPrefix(marker) else { return false }
+        return line.dropFirst(marker.count).allSatisfy { $0 == " " || $0 == "\t" }
     }
 
     private func store_loadForRename() throws -> LibraryLoad {

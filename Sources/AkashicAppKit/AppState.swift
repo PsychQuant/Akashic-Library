@@ -283,10 +283,11 @@ public final class AppState {
     /// **刻意不標 `@discardableResult`**：那個 attribute 會把「報告可以被安靜丟掉」重新合法化，
     /// 而那正是 #465 的 root cause。呼叫端不要報告就寫 `_ =`，讓丟棄在原始碼上看得見（verify DA）。
     ///
-    /// **報告的邊界**：`renameEntry` 今天只遷 people 與 venues 持有的 verdict、不遷 organizations 的
-    /// （#463 的格；live store 有 9 條），所以 `verdictValuesRewritten` 說的是 person／venue 持有的。
-    /// 使用者面字串**不**標這個邊界（會製造 App／CLI 分岔、且 #463 落地當天過期），邊界寫在這裡
-    /// 與 changelog。
+    /// **報告的邊界（已於 2026-09-03 消失）**：本段原本記著 `renameEntry` 只遷 people 與 venues
+    /// 持有的 verdict、不遷 organizations 的（#463 的格；live store 有 9 條）。#463（PR #493）同日
+    /// 落地後三種 holder 都遷，`verdictValuesRewritten` 現在涵蓋 person／organization／venue 持有的。
+    /// 使用者面字串從未標過那個邊界（會製造 App／CLI 分岔、且 #463 落地當天過期——現在就是那一天），
+    /// 所以這次只改這裡與 changelog。
     public func rename(from oldKey: String, to newKey: String) throws -> RenameReport {
         let report = try store.renameEntry(from: oldKey, to: newKey)
         do {

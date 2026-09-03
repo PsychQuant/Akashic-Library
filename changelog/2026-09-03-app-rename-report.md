@@ -32,3 +32,5 @@
 - **不做**：完整逐項列表的 UI（屬 UI 設計）；**organizations 持有的 verdict 本版不遷移**——`renameEntry`
   沒有 org 迴圈（#463 的格，live store 9 條），回執的「消解判定」只涵蓋 person／venue 持有的；使用者面字串
   刻意不標這個邊界（會製造 App／CLI 分岔且 #463 落地當天過期），邊界寫在 `AppState.rename` 的 doc 與這裡。
+  **2026-09-03 補記**：#463（PR #493）同日 merge，`renameEntry` 三種 holder 都遷；上面那條邊界自此不成立，
+  回執的「消解判定」涵蓋 person／organization／venue 持有的（見 `changelog/2026-09-03-verdict-holder-grid.md`）。

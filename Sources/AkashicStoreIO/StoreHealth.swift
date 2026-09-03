@@ -239,8 +239,10 @@ public extension LibraryStore {
     /// 成因與 issue 編號寫在這裡給維護者看。
     ///
     /// **severity 是 warning——三個理由，都不是「記錄仍合法」、也不是「rename 後常態為真」**
-    /// （後者為假：`renameEntry` 沒有 organizations 迴圈——#463 的格——所以只有 org 持有的那幾條
-    /// verdict 的 holder 被 rename 時才會；verify DA 實測兩次 rename 產生 4 條）：
+    /// （後者為假：寫下時 `renameEntry` 沒有 organizations 迴圈——#463 的格——所以只有 org 持有的那幾條
+    /// verdict 的 holder 被 rename 時才會；verify DA 實測兩次 rename 產生 4 條。**#463 已於 2026-09-03
+    /// 落地**（PR #493），合法 rename 不再產生死 verdict；第 3 個理由「沒有處置命令」仍成立，error 的
+    /// 重開裁決等修復路徑出現）：
     /// 1. **升 error 會把 `zero-instance-guards` 第 8 列釘住的零翻掉**：那一列的依據是「per-record 的
     ///    error 級檢查全部是 key 合法性檢查、對載入後的記錄不可達」；死 verdict 若是 error，它會是第一個
     ///    既非 key 檢查又可達的 per-record error，`errorsFirst` 從裝飾品變成承重結構——而第 8 列明寫

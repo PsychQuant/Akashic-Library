@@ -17,7 +17,8 @@ resolution verdict 的 value 指向一個**沒有載入**的 holder（`work:<cit
   命令。**不是**「rename 後常態為真」也**不是**「rename 本來就全遷」——`renameEntry` 沒有 organizations
   迴圈（#463 的格），verify DA 實測兩次 rename 產生 4 條死 verdict；這是 #463 要修的，不是本列調
   severity 的理由。#463 補完後 error 要重開裁決。誠實邊界：warning 級的 `validate` exit 仍為 0——做到
-  「掃得到」，做不到「叫醒」。
+  「掃得到」，做不到「叫醒」。**2026-09-03 補記**：#463（PR #493）同日 merge，`renameEntry` 已有
+  organizations 迴圈；「零的第二個來源」消失。修復路徑仍缺，error 的重開裁決未發生。
 - **解析不了的 value 對已載入記錄不可達**：decode 期的 `validateReferenceAttachment` 把 malformed
   verdict 整檔 quarantine；測試釘住「零的來源在 load」（`zero-instance-guards` 第 8 列的形狀）。
 - **實測**（2026-09-03）：live store 2,700 條 verdict（`grep -h 'field: resolution-' ~/.akashic/entities/*.yaml | wc -l`），

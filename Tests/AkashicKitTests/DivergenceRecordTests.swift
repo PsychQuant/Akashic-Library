@@ -48,7 +48,7 @@ final class DivergenceRecordTests: XCTestCase {
             question: "是否為同一人",
             candidates: [("shieh-grace-s", .person), ("shwu-rong-grace-shieh", .person)],
             judgement: "兩者是同一人",
-            restsOn: ["https://staff.stat.sinica.edu.tw/gshieh/"])
+            restsOn: ["sha256:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"])
 
         let load = try store.load()
         XCTAssertEqual(load.divergences.count, 1)
@@ -64,7 +64,7 @@ final class DivergenceRecordTests: XCTestCase {
         _ = try store.recordDivergence(question: "同一人？",
                                        candidates: [("a", .person), ("b", .person)],
                                        judgement: "是",
-                                       restsOn: ["https://example.org/evidence"])
+                                       restsOn: ["sha256:b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"])
         let load = try store.load()
         XCTAssertEqual(load.people.count, 2, "兩筆都還在——判斷寫下了，合併還沒發生")
         XCTAssertEqual(load.divergences.count, 1)
@@ -79,7 +79,7 @@ final class DivergenceRecordTests: XCTestCase {
         let again = try store.recordDivergence(question: "同一人？（改寫過的問法）",
                                                candidates: [("b", .person), ("a", .person)],
                                                judgement: "是",
-                                               restsOn: ["https://example.org/evidence"])
+                                               restsOn: ["sha256:b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"])
         XCTAssertEqual(first.id, again.id, "同一組候選＝同一個未決問題，不該累積成兩筆")
         XCTAssertEqual(try store.load().divergences.count, 1)
     }
@@ -107,7 +107,7 @@ final class DivergenceRecordTests: XCTestCase {
         }
         XCTAssertThrowsError(try store.recordDivergence(
             question: "同一人？", candidates: [("a", .person), ("b", .person)],
-            judgement: nil, restsOn: ["https://example.org/x"]))
+            judgement: nil, restsOn: ["sha256:c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"]))
     }
 
     func testAtLeastTwoCandidates() throws {

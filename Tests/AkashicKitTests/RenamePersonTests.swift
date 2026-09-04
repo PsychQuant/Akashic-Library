@@ -140,7 +140,7 @@ final class RenamePersonTests: XCTestCase {
                            candidates: [DivergenceCandidate(key: "old-key", shape: .person),
                                         DivergenceCandidate(key: "other-key", shape: .person)])
         d.judgement = Judgement(statement: "傾向前者",
-                                          restsOn: ["https://example.org/x"],
+                                          restsOn: ["sha256:c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"],
                                           prefers: "old-key")
         try store.writeDivergence(d)
 

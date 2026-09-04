@@ -133,27 +133,42 @@ final class DanglingSourceScanTests: XCTestCase {
         XCTAssertTrue(store.health(from: load).danglingSources.isEmpty)
     }
 
-    /// 不是 `sha256:` 形的值（live store 2026-09-04 實測：一筆 divergence 的 `judgement.restsOn` 裝的是
-    /// `https://doi.org/…`）——它**無從在本機查找**，訊息不能說「找不到」（那暗示同步就會有），要說
-    /// 「不是合法的 digest」。既有的 `missing` 語意把它算缺席不變；per-record 訊息分開說。
-    func testMalformedDigestSaysMalformedNotMissing() throws {
+    /// #507 之後，「不是 `sha256:` 形的值」對**已載入的記錄**結構上不可達：divergence 的 rests-on 在
+    /// decode 與寫入閘都過 `isValidDigest`（`akashic.sources` 與 `ProvenanceReference.restsOn` 本來就有）。
+    /// `Holder.wellFormed == false` 那條訊息分支因此只剩防禦意義——這裡釘住「為什麼是零」
+    /// （`zero-instance-guards` 第 8 列的形：零的來源在別處，那段程式改了要有人知道）。
+    /// live store 2026-09-04 實測的那一筆 URL restsOn 是本閘落地前寫進去的，修法見 #507。
+    func testMalformedDigestIsUnreachableForLoadedRecords() throws {
         try store.writePerson(Person(key: "p-one", names: ["P"]))
         try store.writePerson(Person(key: "p-two", names: ["P2"]))
         var d = Divergence(id: UUID(), question: "q",
                            candidates: [DivergenceCandidate(key: "p-one", shape: .person),
                                         DivergenceCandidate(key: "p-two", shape: .person)])
         d.judgement = Judgement(statement: "s", restsOn: ["https://doi.org/10.1038/x"])
-        try store.writeDivergence(d)
+        XCTAssertThrowsError(try store.writeDivergence(d), "寫入閘擋住（#507）")
+        // 繞過寫入閘、直接落一份 YAML：decode 期 quarantine，掃描看不到它
+        let yaml = """
+        divergence:
+        id: \(d.id.uuidString)
+        question: q
+        candidates:
+        - key: p-one
+          shape: person
+        - key: p-two
+          shape: person
+        judgement: s
+        rests-on:
+        - https://doi.org/10.1038/x
+
+        """
+        try yaml.write(to: root.appendingPathComponent("entities").appendingPathComponent("\(d.id.uuidString).yaml"),
+                       atomically: true, encoding: .utf8)
         let load = try store.load()
-        let report = store.missingSourceDigests(load)
-        XCTAssertEqual(report.holders.count, 1)
-        XCTAssertEqual(report.holders.first?.wellFormed, false)
-        XCTAssertEqual(report.missing, ["https://doi.org/10.1038/x"], "既有 `missing` 語意：不合法也算缺席")
-        let dangling = store.health(from: load).danglingSources
-        XCTAssertEqual(dangling.count, 1)
-        let msg = try XCTUnwrap(dangling.first?.issue.message)
-        XCTAssertTrue(msg.contains("不是合法的 digest"), msg)
-        XCTAssertFalse(msg.contains("找不到這份存檔"), "不合法的值不該被說成「同步就會有」：\(msg)")
+        XCTAssertEqual(load.divergences.count, 0, "decode 期 quarantine")
+        XCTAssertEqual(load.quarantined.count, 1)
+        XCTAssertTrue(store.missingSourceDigests(load).holders.isEmpty)
+        XCTAssertTrue(store.health(from: load).danglingSources.isEmpty,
+                      "不合法的值到不了掃描——它在 quarantine 清單裡，不在 dangling 裡")
     }
 
     /// #265 的既有語意不動：shard 目錄存在但列不出來 → 不判缺席、不出 warning，shard 進

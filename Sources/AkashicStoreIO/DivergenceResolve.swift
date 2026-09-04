@@ -195,6 +195,14 @@ extension LibraryStore {
         for c in d.candidates where !StoreKey.isValid(c.key) {
             throw StoreIOError.invalidKey("divergence candidate key", c.key)
         }
+        // #507：judgement 的依據必須是 digest——decode 期擋住的形狀，寫入閘也要擋，否則本 binary
+        // 寫得出一筆下一次載入就 quarantine 的記錄（`ProvenanceReference` 在 init 就驗的同一語意）。
+        if let j = d.judgement, let bad = j.restsOn.first(where: { !ProvenanceReference.isValidDigest($0) }) {
+            throw StoreIOError.invalidInput(
+                what: "divergence.rests-on",
+                why: "「\(displaySafe(bad, max: 120))」不是合法的 digest（`sha256:` ＋ 64 個十六進位字元）"
+                    + "——先 store-source 把依據存進 sources/，再填它的 digest")
+        }
     }
 
     /// 記下一個未決的同一性問題（#77）。

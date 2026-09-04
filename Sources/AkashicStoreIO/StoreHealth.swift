@@ -96,6 +96,12 @@ public struct StoreHealth {
     public var danglingSources: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.danglingSourcePrefix) }
     }
+    /// venue 的 verdict 數達 decode 預算一半（#499）的訊息前綴——單一定義，同上兩族。
+    public static let venueVerdictBudgetPrefix = "venue 的 verdict 數逼近 decode 預算"
+    /// `perRecordIssues` 裡的 venue verdict 預算 warning。計算屬性，同 `deadVerdicts`。
+    public var venueVerdictBudgetWarnings: [OwnedIssue] {
+        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.venueVerdictBudgetPrefix) }
+    }
 
     /// 一則驗證問題 ＋ 它屬於哪筆記錄。
     ///
@@ -208,6 +214,8 @@ public extension LibraryStore {
         // `auditSourceIndex()`（blob↔index 兩向比對），捏造或未同步的 digest 兩邊都不在、兩邊一致、
         // doctor 沉默（第 3 列「未涵蓋不得冒充通過」的形）。與死 verdict 同一形：per-record warning。
         perRecord += danglingSourceIssues(in: load)
+        // #499：第 13 條邊在 venue 側是 O(catalog)——硬預算的一半處出聲、指名該 venue（裁決：候選 3）。
+        perRecord += venueVerdictBudgetIssues(in: load)
         return StoreHealth(
             crossRecordIssues: cross,
             fatalCrossRecordIssues: cross.filter { $0.severity == .error },
@@ -351,6 +359,32 @@ public extension LibraryStore {
                     + "處置：把來源存進 sources/（`store-source`）再把這個槽位改成它的 digest"
             }
             return StoreHealth.OwnedIssue(owner: h.owner, kind: h.kind,
+                                          issue: ValidationIssue(severity: .warning, message: message))
+        }
+    }
+}
+
+public extension LibraryStore {
+    /// **venue 的 verdict 數逼近 decode 預算**（#499，裁決：候選 3）。
+    ///
+    /// `resolve-venues` 的 confirmed verdict 落被判定的 venue（第 13 條邊）；目錄匯入讓一本刊一夜長出上千筆
+    /// （`psychological-methods` 1,352 筆、268 KB），增長是 O(catalog)，而唯一的守衛是 decode 硬預算——撞上時
+    /// 整檔 quarantine、venue 消失。裁決不改序列化位置（候選 1 會打回 #464／#463 的 per-holder 前提，候選 2 的
+    /// blast radius 是那整套機制），改在**硬預算的一半**設 warning：`AliasEventBudget.venueVerdictWarningThreshold`
+    /// ＝ `maxExpandedNodes / 2 / nodesPerVenueVerdict`（後者是量測值）。達門檻＝重開第 13 條邊的規模化裁決，
+    /// 候選 2（sidecar ledger）是那時的形狀。
+    ///
+    /// 只數 resolution verdict（`resolutionVerdictFields`），不數其他 reference——增長來源就是它們。
+    /// severity warning：記錄合法、只是在長；訊息說出數字、門檻與處置。
+    func venueVerdictBudgetIssues(in load: LibraryLoad,
+                                  threshold: Int = AliasEventBudget.venueVerdictWarningThreshold) -> [StoreHealth.OwnedIssue] {
+        load.venues.compactMap { v in
+            let n = v.references.filter { ProvenanceReference.resolutionVerdictFields.contains($0.field) }.count
+            guard n >= threshold else { return nil }
+            let message = "\(StoreHealth.venueVerdictBudgetPrefix)：\(n) 筆 resolution verdict（門檻 \(threshold)＝"
+                + "decode 硬預算的一半）。這本刊的 verdict 是 O(catalog) 在長；處置：重開第 13 條邊的規模化裁決（#499，"
+                + "候選 2 sidecar ledger），不要只放寬預算"
+            return StoreHealth.OwnedIssue(owner: v.key, kind: "venue",
                                           issue: ValidationIssue(severity: .warning, message: message))
         }
     }

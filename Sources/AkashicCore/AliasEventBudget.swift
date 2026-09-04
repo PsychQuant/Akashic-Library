@@ -50,6 +50,14 @@ public enum AliasEventBudget {
     /// PR #42 的教訓是**不要用代理指標**（anchor 數 × alias 數）：那種門檻與真實資料的
     /// 距離無法量測。這裡是**同一個量綱**的直接比較，兩邊的餘裕都看得見。
     public static let maxExpandedNodes = 200_000
+    /// #499：venue 側一筆 resolution verdict（`ProvenanceReference` judgement 形）展開後的節點數，
+    /// **2026-09-01 實測**：`psychological-methods` 1,556 筆 verdict ＝ 14,031 節點（≈ 9.02）。這是換算用的量測值，
+    /// 不是設計值——verdict 的 YAML 形狀變了要重量（`VenueVerdictBudgetWarningTests` 釘住門檻由它算出）。
+    public static let nodesPerVenueVerdict = 9
+    /// #499（裁決：候選 3）：第 13 條邊在 venue 側維持序列化位置（verdict 留在被判定的 venue 上），
+    /// 但增長是 O(catalog)——所以在**硬預算的一半**設一道 warning，指名該 venue，讓工具自己看、不靠散文觸發條件。
+    /// 達門檻＝重開第 13 條邊的規模化裁決（候選 2：sidecar ledger 是那時的形狀）。live 最大刊 1,352 筆（2026-09-04）。
+    public static let venueVerdictWarningThreshold = maxExpandedNodes / 2 / nodesPerVenueVerdict
 
     /// 輸入大小上限（bytes）。
     public static let maxBytes = 8 * 1024 * 1024

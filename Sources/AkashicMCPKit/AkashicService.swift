@@ -374,6 +374,8 @@ public final class AkashicService {
                 // #453：本機缺承重存檔的計數——per-record 逐條在 `first`（截 20），計數讓呼叫端分得出
                 // 「整批」（其他 clone 上 sources/ 沒同步）與「零星」（一筆捏造）。
                 "danglingSources": health.danglingSources.count,
+                // #499：venue verdict 數逼近 decode 預算——計數讓呼叫端不必掃 first 就看見有哪本刊在長。
+                "venueVerdictBudgetWarnings": health.venueVerdictBudgetWarnings.count,
                 "first": perRec.prefix(20).map {
                     ["severity": $0.issue.severity == .error ? "error" : "warning",
                      "kind": $0.kind,

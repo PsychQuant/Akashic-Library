@@ -205,6 +205,10 @@ struct Validate: ParsableCommand {
         if !health.danglingSources.isEmpty {
             print("本機缺承重存檔: \(health.danglingSources.count)（sources/ 不進 git；其他 clone 上的數字會不同）")
         }
+        // #499：哪些 venue 的 verdict 數逼近 decode 預算——逐條已印，這一行給總數。
+        if !health.venueVerdictBudgetWarnings.isEmpty {
+            print("venue verdict 逼近 decode 預算: \(health.venueVerdictBudgetWarnings.count)（第 13 條邊的規模化裁決，#499）")
+        }
         // #7b：跨記錄檢查——單筆 validate() 結構上看不到的那一層
         for issue in health.crossRecordIssues {
             let mark = issue.severity == .error ? "✗" : "⚠"

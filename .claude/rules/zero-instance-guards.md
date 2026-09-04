@@ -35,7 +35,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 15 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 16 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -54,6 +54,7 @@
 | 13 | **零實例，但同族的結構缺口已經出現三次、stale 實際累積過一次——抓到它的三個機制全是場外的，沒有一個是守衛**（#464：死 verdict 掃描。resolution verdict 的 value 指向一個沒有載入的 holder。三個結構缺口：#232 rename／person 側、#271 merge／person 側、#460 venue 側（#460 的 changelog 原話「家族第三個缺口」）；實際量到的 stale 累積只有 #460 那一次（來源是 #456 的攣生合併批次），而抓到它的三個機制全在那一次——205 條 stale 由 #456 pilot 人肉抓、殘留 1 條由 verify lens 全庫掃抓、清理完整性靠 set-difference 腳本**驗**（驗不是抓）。2026-09-03 實測 live store 2,700 條 verdict（confirmed 與 rejected 合計），死引用 **0**。**零有第二個來源**：#463 網格裡還沒補的格——`renameEntry` 沒有 organizations 迴圈——今天沒被走過（organizations 持有的 verdict 只有 9 條、其 holder 沒被 rename 過；verify DA 在副本上 rename 兩次即得 4 條死 verdict）。**該格已於 2026-09-03 由 #463（PR #493）補齊，第二個來源自此消失**——現在的零只剩「清理過之後的零」一個來源。重跑指令見表下方） | ✅ **寫** | 前面各列的零實例都是「這個形狀還沒發生過」；這一列的零是**清理過之後的零**——形狀在 #460 真的發生過（205 條），只是被場外機制（人肉、verify lens、一次性腳本）掃乾淨了，store 裡因此看不到。所以本列的理由不是第 1 列的「不寫就沒有跡象」（跡象有，在 issue 史裡），而是**跡象住在錯的地方**：每一次都要一個人記得去看，而下一條 holder 退役路徑（#463 網格裡還沒補的格）不會有人記得。掃描放進 `StoreHealth` 是把跡象搬到工具會自己看的地方。**severity 是 warning，三個理由，且都是「現在」**：(1) 升 error 會把**第 8 列釘住的零翻掉**——那一列的依據是 per-record 的 error 級檢查全部是 key 合法性檢查、對載入後記錄不可達；死 verdict 若是 error 就是第一個既非 key 檢查又可達的 per-record error，`errorsFirst` 從裝飾品變承重結構，而第 8 列明寫那個轉變不得安靜發生——**本列因此繼承第 8 列的釘零義務**（測試釘住 malformed value 對已載入記錄不可達）。(2) #464 的 Expected 逐字寫「warning 級」。(3) 今天沒有處置命令，升 error 會讓一次合法的 rename 把 `validate` 打紅而修不掉。**不是**「rename 後常態為真」（假：只有 org 持有的那幾條）、也**不是**「rename 本來就全遷」（假：沒有 org 迴圈）——兩句 verify 都量過。#463 補完且有修復路徑後，error 要重開裁決，第 8 列與本列一起改（#463 已於 2026-09-03 補完；修復路徑仍缺，裁決未重開——#464 的 closing summary 記著）。**誠實邊界**：warning 級的 `validate` 對它 exit 仍為 0（DA 實測 5 條死 verdict 仍 exit=0）——它做到「掃得到」、做不到「叫醒」（`blocked-issues-must-be-scannable` 的同一條界線）；CLI 逐行可見、MCP 進 `recordIssues`，**App 面未渲染 `perRecordIssues`**（#416 起的既有缺口，#487）。**觸發條件可檢查（用含這條檢查的 binary，指令見表下方）**：「死 verdict」數應恆為 0；非零時先看 quarantined 清單——被 quarantine 的 holder 是「讀不到」不是「退役」，其餘才指向一條漏了遷移的退役路徑 |
 | 14 | **零實例、成本一個掃描，而判準取決於一個還不存在的相等定義**（#464 的第二個掃描項——同一 owner 對同一配對同時持有 `resolution-confirmed` 與 `resolution-rejected`。2026-09-03 實測 live store 以 (檔, holder) 與 (檔, 完整 value) 兩種收攏法各算一次，並存數皆 **0**；追蹤 #486，其 `### Blocking` 記 #470） | ❌ **不寫** | 與第 10 列同形——判準取決於一個還不存在的東西——而對象不同：那一列是**形狀**取決於用途，這一列形狀確定（一個並存掃描），是它要比較的**相等**取決於 #470：寫入面位元組精確、讀取面 `NameNormalization.matchingKey` 正規化，兩面今天對同一筆 verdict 答案不同。現在寫任一個，都是在 #470 之前偷偷定案第三份相等定義，裁決後必然分岔（`no-compat-fallback` 記過的形狀）。**本表第一個成本低而「不寫」的列**，理由與成本無關。本列**不取代** #486——「在等 #470」的可掃描位置是那張 issue 的 `### Blocking`，不是這張表（`blocked-issues-must-be-scannable` 的三個位置是封閉列舉）。**觸發條件可機械檢查**：#470 選定相等定義（其 state 變 CLOSED）——那時本列改裁「寫」、在 #486 實作 |
 | 15 | **零實例，而零是本機的——同一份 store 在別台機器上全是實例**（#453：本機缺承重存檔的掃描。記錄的 provenance 指向一個本機 `sources/` 沒有的 digest。2026-09-04 實測 live store：62 個 digest 引用、41 個 distinct `sha256:`，**本機缺 1 筆**——而那一筆不是缺席，是 divergence `B354B9E9…` 的 `judgement.restsOn` 裝了一個 URL、根本不是 digest（訊息分開說，見 `danglingSourceIssues`）；同一份 store 拿掉 `sources/` 的副本跑同一支 binary：**41 筆**（40 venue ＋ 1 divergence）。兩層盲區都實測為真：`missingSourceDigests` 不掃 venue（#406 起承重證據住在 venue 上）也不掃 `Entry.references`（第 15 條邊）；且它零 production 呼叫端——doctor 接的是 `auditSourceIndex()`，捏造的 digest 在 blob 與 index 兩邊都不在、兩邊一致、audit 說「全部一致」。重跑指令見表下方） | ✅ **寫** | 前面各列的零，成立與否**不取決於在哪台機器上量**；這一列的零**只在這台機器上為真**——`sources/` 不進 git（`replace-endnote-and-zotero` 的承重閘：第三方版權 PDF 住在那裡），所以每一台新 clone 上這個數字都是「全部」。與第 13 列（清理過之後的零）最像而不同：那一列的零是**時間上**的（曾經非零、掃乾淨了），這一列的零是**空間上**的（換一台機器就非零）——而任何只在本機量的守衛都會對它報綠。第 3 列「未涵蓋不得冒充通過」正是 `auditSourceIndex` 的沉默形：沒被檢查與檢查過且乾淨在輸出上相同。**severity 是 warning**：記錄合法可載入、缺的是位元組，而其他 clone 上「全部 dangling」是常態，error 會讓 `hasErrors` 翻紅擋住 export 類流程。**用詞「本機缺」不寫「偽造」**：本機分不出「從未存在」與「沒同步」，訊息把這個邊界說出來。**觸發條件可檢查**（指令見表下方）：本機數字應恆等於「不是合法 digest 的引用數」（今天 1）；多出來的那些指向沒同步的 `sources/` 或真的捏造——先同步，同步後仍在的才是後者 |
+| 16 | **零實例，而它守的是一個已裁決「現在不改形狀」的 O(n) 增長**（#499：venue 側 verdict 數逼近 decode 預算的 warning。第 13 條邊在 venue 側是 O(catalog)——`psychological-methods` 2026-09-04 實測 **1,352** 筆 resolution verdict、268 KB；硬預算 200,000 節點、每筆 verdict 量測 9 節點（2026-09-01：14,031／1,556），門檻＝預算一半÷9＝**11,111** 筆。沒有一本刊接近門檻 → 0 實例。使用者裁決（2026-09-04）：候選 3——不改序列化位置、半預算處出聲、達門檻重開裁決；候選 2（sidecar ledger）是那時的形狀。重跑指令見表下方） | ✅ **寫** | 前面各列的守衛守的是「某個形狀出現」；這一列守的是**一條已知會漲、且裁決了暫不改形狀的曲線**——它的零不是「還沒發生」，是「還沒漲到」。不寫的代價與第 1 列同形（撞上硬預算時整檔 quarantine、venue 消失，而在那之前沒有任何跡象），但理由多一層：**裁決本身依賴這個守衛**。候選 3 之所以可接受，是因為「達門檻時重開」被承諾為一個工具會自己看的門檻，而不是散文觸發條件（`blocked-issues-must-be-scannable` 的誠實邊界：散文命題沒有機制會叫醒任何人）。拿掉守衛，裁決就退化成「等它壞」。門檻由量測換算（節點／筆）而不是憑空的數字，`VenueVerdictBudgetWarningTests` 釘住那個換算。**觸發條件可檢查**：任一 venue 的 warning 出現即重開第 13 條邊的規模化裁決，不要只放寬預算 |
 
 新增下一個零實例守衛 = 在這張表加一列。
 
@@ -97,7 +98,9 @@ EOF
 
 **第 13 列的量測（2026-09-03，可重跑，且自證）**：死 verdict 數 `grep -a -q '死 verdict' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '死 verdict'`（應印 0；**沒印任何東西＝你的 `akashic` 是沒有這條檢查的舊 binary**——verify 實測 PATH 上的 `~/bin/akashic` 就是這樣：對一份真有 5 條死 verdict 的副本它回 0、`.build/debug/akashic` 回 5。「沒被檢查」與「檢查過且乾淨」在輸出上不可區分，第 3 列的理由）；verdict 總數 `grep -h 'field: resolution-' ~/.akashic/entities/*.yaml | wc -l`（2,700，含 confirmed 與 rejected）。第一版寫 2,698 並附 owner-kind 拆分——那是用單行正則掃出來的，漏掉兩筆被 YAML 折行的長 value；grep 的數才是可重跑的，拆分不承載裁決、不列。
 
-**第 15 列的量測（2026-09-04，可重跑）**：本機缺承重存檔數 `akashic validate 2>&1 | grep -c '本機缺承重存檔：'`（用含這條檢查的 binary——同第 13 列的自證：舊 binary 印不出東西，「沒被檢查」與「檢查過且乾淨」在輸出上不可區分；2026-09-04 實測 1，且那一筆是 URL 不是 digest）；distinct digest 引用數 `grep -ohE 'sha256:[0-9a-f]{64}' ~/.akashic/entities/*.yaml | sort -u | wc -l`（41）；「其他機器上會是多少」的下限＝把 `sources/` 排除後複製一份再跑同一支 binary（41，全部 venue 加那筆 divergence）。
+**第 15 列的量測（2026-09-04，可重跑）**：本機缺承重存檔數 `akashic validate 2>&1 | grep -c '本機缺承重存檔：'`（用含這條檢查的 binary——同第 13 列的自證：舊 binary 印不出東西，「沒被檢查」與「檢查過且乾淨」在輸出上不可區分；2026-09-04 實測 1，且那一筆是 URL 不是 digest）；distinct digest 引用數 `grep -ohE 'sha256:[0-9a-f]{64}' ~/.akashic/entities/*.yaml | sort -u | wc -l`（41）；「其他機器上會是多少」的下限＝把 `sources/` 排除後複製一份再跑同一支 binary（41，全部 venue 加那筆 divergence）。**#507 落地後**（2026-09-04）那筆 URL 已補存 landing page 並改成 digest，本機重跑為 0。
+
+**第 16 列的量測（2026-09-04，可重跑）**：warning 數 `akashic validate 2>&1 | grep -c 'venue 的 verdict 數逼近'`（應為 0）；最大刊的 verdict 數 `grep -c 'field: resolution-' ~/.akashic/entities/<psychological-methods 的 uuid>.yaml`（1,352；找 uuid 用 `grep -l '^key: psychological-methods' ~/.akashic/entities/*.yaml`）；門檻 `AliasEventBudget.venueVerdictWarningThreshold`（11,111＝200,000÷2÷9）。
 
 ## 各列共通的東西（觀察，不是判準）
 
@@ -125,6 +128,7 @@ EOF
   不寫總括判準的理由再一次實例。區辨全在**觸發後會發生什麼**：第 11 列越過門檻後欄位**進** `Author`、
   第 10 列用途出現後進 authorship 側（`Author` 上的 `Bool`、或 `Entry` 上的 `Set<index>`——由那個場景決定）、第 12 列**永遠不進** `Author`（落點在 #386 那一族）
 - 第 13 列的理由是**跡象住在錯的地方**——它與第 1 列（缺跡象）、第 8 列（零的來源在別處）最像而都不同：跡象存在（三張 issue 的家族史），零也是真的零（#460 清理過之後的零），問題是每次都靠人記得去看。守衛各列（第 1–8 列）問「守衛該不該存在」，這一列問「已經發生過的形狀，為什麼還是零實例」——答案是場外機制，而場外機制不會自己跑
+- 第 16 列的理由是**裁決依賴守衛**——前十五列的守衛是裁決的結果，這一列的守衛是裁決的**前提**：「暫不改形狀」只有在「漲到門檻時工具會出聲」為真時才站得住。它的零是「還沒漲到」，與第 1 列（還沒發生）、第 13 列（掃乾淨之後）、第 15 列（在這台機器上）都不同
 - 第 15 列的理由是**零是本機的**——前十四列的零不取決於在哪台機器上量，這一列換一台機器就非零；它與第 13 列（時間上的零）成對：一個是「掃乾淨之後」，一個是「在這台機器上」。任何只在本機量的守衛都會對它報綠，所以掃描要住在每台機器都會跑的 `StoreHealth` 裡
 - 第 14 列的理由是**判準的輸入未定**——與第 10 列（缺用途）同形而不同：那一列缺的是形狀由什麼決定，這一列形狀確定、缺的是它要比較的「相等」的定義，而定義在 #470 手上。寫了就是替 #470 預先裁決
 

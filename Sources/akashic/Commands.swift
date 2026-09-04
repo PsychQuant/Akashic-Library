@@ -19,13 +19,18 @@ struct Doctor: ParsableCommand {
         let store = try options.openOrCreateStore()
         let root = store.root
         let load = try store.load()
+        // #504：doctor 先前是 `StoreHealth` 之外的第四條讀取路徑——自己算 cross-record、殘留、
+        // sources audit 並自行渲染，而 MCP `doctor()`、CLI `validate`、App 都走 `health(from:)`。
+        // #453／#464 加進 health 的掃描它一個都看不到。現在唯讀事實全部從 health 讀、這裡只渲染，
+        // 且 `health(from:)` 本來就在 fatal 早退之前算得出，早退順序不變。
+        let health = store.health(from: load)
 
         // #35：跨記錄檢查必須在 rebuild **之前**。雙佈局並存時 index 會撞
         // `UNIQUE constraint failed: entries.citekey`——使用者拿到的是 SQLite 的
         // 內部錯誤，而不是「你有兩筆同 citekey 的記錄、它們在哪」。診斷工具在這種
         // 狀態下正是最該說話的時候，不是最該掛掉的時候。
-        let cross = load.crossRecordIssues()
-        let fatalCross = cross.filter { $0.severity == .error }
+        let cross = health.crossRecordIssues
+        let fatalCross = health.fatalCrossRecordIssues
         if !cross.isEmpty {
             print("cross-record: \(cross.count)")
             for i in cross { print("  \(i.severity == .error ? "✗" : "⚠") \(i.message)") }
@@ -35,7 +40,9 @@ struct Doctor: ParsableCommand {
         // 判準保守：含資料的目錄永不報；sources/（#66 的被指涉內容）絕不列入。
         // **排在 fatal cross-record 早退之前**（#120 verify）：重複 citekey 的 store
         // 正是最需要看清全貌的時候，殘留報告不該被吞掉。
-        let residue = try store.layoutResidue()
+        // `health(from:)` 對殘留掃描失敗以 `try?` 吞掉（報告不得消失，#224 F1）——先前這裡是 throw，
+        // 改後與 MCP 面同語意：殘留掃描失敗不再中止 doctor（#504）。
+        let residue = health.layoutResidue
         if !residue.isEmpty {
             print("殘留：")
             residue.forEach { print("  ⚠ \(displaySafe($0, max: 300))") }
@@ -44,8 +51,7 @@ struct Doctor: ParsableCommand {
         // 與 MCP 面的 doctor 讀同一個結果）。四類皆空不出聲；有事必說、不動手刪。
         // audit 自身失敗**不得**中止 doctor（診斷工具最該說話的時候不是最該掛掉的
         // 時候）——降級為一則警告，其餘報告照出。
-        do {
-            let srcAudit = try store.auditSourceIndex()
+        if let srcAudit = health.sourcesAudit {
             if !srcAudit.orphanBlobs.isEmpty || !srcAudit.danglingEntries.isEmpty
                 || !srcAudit.malformedLines.isEmpty || !srcAudit.unreadableShards.isEmpty {
                 print("sources 一致性：")
@@ -62,8 +68,9 @@ struct Doctor: ParsableCommand {
                     print("  ✗ 讀不到的 shard（權限／半截同步；其 blob 未參與比對）：\(displaySafe(s, max: 120))")
                 }
             }
-        } catch {
-            print("  ✗ sources audit 無法完成：\(displaySafe(String(describing: error), max: 300))")
+        }
+        if let auditError = health.sourcesAuditError {
+            print("  ✗ sources audit 無法完成：\(auditError)")   // display-safe-exempt: StoreHealth 已 displaySafe
         }
         if !fatalCross.isEmpty {
             print("library: \(displaySafe(root.path, max: 800))")

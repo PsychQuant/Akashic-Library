@@ -18,7 +18,7 @@ final class DivergenceSerializationTests: XCTestCase {
                          DivergenceCandidate(key: "fann-cathy-s-j", shape: .person)],
             judgement: judged
                 ? Judgement(statement: "兩者的姓與 given initials 一致",
-                            restsOn: ["sha256:ffff", "sha256:0001"])
+                            restsOn: ["sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "sha256:0000000000000000000000000000000000000000000000000000000000000001"])
                 : nil)
     }
 
@@ -44,7 +44,7 @@ final class DivergenceSerializationTests: XCTestCase {
             candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),
                          DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)],
             judgement: Judgement(statement: "兩者的姓與 given initials 一致",
-                                 restsOn: ["sha256:0001", "sha256:ffff"]))
+                                 restsOn: ["sha256:0000000000000000000000000000000000000000000000000000000000000001", "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"]))
         XCTAssertEqual(a, try DivergenceYAML.encode(reversed))
     }
 

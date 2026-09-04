@@ -760,3 +760,26 @@ extension DivergenceHardeningTests {
         XCTAssertEqual(back.references.count, 1, "撞同 pairing 要收攏成一筆")
     }
 }
+
+// MARK: - #507：寫入閘也擋非 digest 的 rests-on
+
+extension DivergenceHardeningTests {
+    /// #507：`writeDivergence` 對 `judgement.restsOn` 過 `isValidDigest`——拒寫、零檔案。
+    /// decode 期擋住的形狀，寫入閘也要擋（同 `ProvenanceReference` 在 init 就驗的語意），
+    /// 否則本 binary 寫得出一筆下一次載入就 quarantine 的記錄。
+    func testWriteGateRefusesRestsOnThatIsNotADigest() throws {
+        var p1 = Person(key: "p-one"); p1.names = ["P"]
+        var p2 = Person(key: "p-two"); p2.names = ["P2"]
+        try store.writePerson(p1); try store.writePerson(p2)
+        var d = Divergence(id: UUID(), question: "q",
+                           candidates: [DivergenceCandidate(key: "p-one", shape: .person),
+                                        DivergenceCandidate(key: "p-two", shape: .person)])
+        d.judgement = Judgement(statement: "s", restsOn: ["https://doi.org/10.1038/x"])
+        let before = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("entities").path).count
+        XCTAssertThrowsError(try store.writeDivergence(d)) { error in
+            XCTAssertTrue("\(error)".contains("digest"), "\(error)")
+        }
+        let after = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("entities").path).count
+        XCTAssertEqual(before, after, "拒寫必須零寫入")
+    }
+}

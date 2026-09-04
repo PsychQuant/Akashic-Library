@@ -305,6 +305,9 @@ public extension LibraryStore {
             /// `false` ＝ 值根本不是 `sha256:` 形（`sourceURL` 解不出路徑）——無從在本機查找，
             /// 與「合法但本機沒有」是兩件事（live store 2026-09-04 實測一筆 divergence 的
             /// `judgement.restsOn` 裝的是 URL）。兩者都算進 `missing`（既有語意），訊息分開說。
+            /// **#507 起對已載入的記錄不可達**：三條路徑（`akashic.sources`、`ProvenanceReference.restsOn`、
+            /// divergence 的 rests-on）都在 decode 期擋不合法的值。留著這個分支是防禦，
+            /// `DanglingSourceScanTests.testMalformedDigestIsUnreachableForLoadedRecords` 釘住它為什麼是零。
             let wellFormed: Bool
         }
         let holders: [Holder]

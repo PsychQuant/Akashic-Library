@@ -1232,7 +1232,7 @@ final class ServiceRecordDivergenceTests: XCTestCase {
     func testRecordDivergenceRefusesToSilentlyEraseJudgement() throws {
         _ = try service.recordDivergence(
             question: "q1", candidates: ["chen-h-y:person", "chen-hui-yun:person"],
-            judgement: "同一人", restsOn: ["https://example.org/roster"])
+            judgement: "同一人", restsOn: ["sha256:d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"])
         // 有→nil：拒絕（曾經靜默抹掉判斷與 question）
         XCTAssertThrowsError(try service.recordDivergence(
             question: "q2", candidates: ["chen-h-y:person", "chen-hui-yun:person"],
@@ -1244,7 +1244,7 @@ final class ServiceRecordDivergenceTests: XCTestCase {
         // 有→有：更新允許
         XCTAssertNoThrow(try service.recordDivergence(
             question: "q3", candidates: ["chen-h-y:person", "chen-hui-yun:person"],
-            judgement: "仍同一人，另據", restsOn: ["https://example.org/other"]))
+            judgement: "仍同一人，另據", restsOn: ["sha256:e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"]))
     }
 
     /// #133 verify F2：shape 說是什麼就到那個形狀的集合驗——person 記成 work 拒絕；

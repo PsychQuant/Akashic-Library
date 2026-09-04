@@ -40,7 +40,7 @@ final class DivergenceDecodeTests: XCTestCase {
         let j = try XCTUnwrap(d.judgement)
         XCTAssertEqual(j.statement,
                        "兩者的姓與 given initials 一致，差異僅在連字號與句點的排版慣例")
-        XCTAssertEqual(j.restsOn, ["sha256:9a23d701e4fe4888"])
+        XCTAssertEqual(j.restsOn, ["sha256:9a23d701e4fe48889a23d701e4fe48889a23d701e4fe48889a23d701e4fe4888"])
     }
 
     // MARK: - 拒絕條件（design「失敗模式」前四列）
@@ -95,7 +95,7 @@ final class DivergenceDecodeTests: XCTestCase {
     /// `judgement` / `rests-on` 成對——否則「這筆 provenance 完不完整」無法機械判定。
     func testJudgementWithoutRestsOnRefused() throws {
         let yaml = Self.withJudgement
-            .replacingOccurrences(of: "rests-on:\n- sha256:9a23d701e4fe4888\n", with: "")
+            .replacingOccurrences(of: "rests-on:\n- sha256:9a23d701e4fe48889a23d701e4fe48889a23d701e4fe48889a23d701e4fe4888\n", with: "")
         XCTAssertThrowsError(try DivergenceYAML.decode(yaml)) { error in
             XCTAssertTrue("\(error)".contains("成對"), "錯誤須說明兩者成對：\(error)")
         }
@@ -150,7 +150,23 @@ final class DivergenceDecodeTests: XCTestCase {
       shape: person
     judgement: 兩者的姓與 given initials 一致，差異僅在連字號與句點的排版慣例
     rests-on:
-    - sha256:9a23d701e4fe4888
+    - sha256:9a23d701e4fe48889a23d701e4fe48889a23d701e4fe48889a23d701e4fe4888
 
     """
+}
+
+// MARK: - #507：rests-on 必須是 digest
+
+extension DivergenceDecodeTests {
+    /// #507：`rests-on` 的元素不是 `sha256:` ＋ 64 hex → 拒收（整檔 quarantine）。live store 實測
+    /// 一筆 divergence 的 rests-on 裝的是 URL——三條指向同一內容儲存區的路徑只有這條沒閘。
+    func testRestsOnThatIsNotADigestRefused() throws {
+        let yaml = Self.withJudgement.replacingOccurrences(
+            of: "- sha256:9a23d701e4fe48889a23d701e4fe48889a23d701e4fe48889a23d701e4fe4888",
+            with: "- https://doi.org/10.1038/s41586-025-09680-x")
+        XCTAssertTrue(yaml.contains("https://doi.org"), "fixture 替換必須命中")
+        XCTAssertThrowsError(try DivergenceYAML.decode(yaml)) { error in
+            XCTAssertTrue("\(error)".contains("digest"), "錯誤須說明要的是 digest：\(error)")
+        }
+    }
 }

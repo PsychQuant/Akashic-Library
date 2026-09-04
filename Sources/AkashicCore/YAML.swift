@@ -2415,6 +2415,15 @@ public enum DivergenceYAML {
             _ = bad
             throw StoreYAMLError.invalidField("divergence.rests-on", "元素不得為空")
         }
+        // #507：每個元素必須是 `sha256:` ＋ 64 hex 的 digest——與 `akashic.sources`（上方）和
+        // `ProvenanceReference.restsOn`（init 就驗）同一定義。三條指向同一內容儲存區的路徑
+        // 先前只有這條沒閘，live store 因此收進一個 URL（#453 的掃描抓到）。
+        if let bad = restsOn.first(where: { !ProvenanceReference.isValidDigest($0) }) {
+            throw StoreYAMLError.invalidField(
+                "divergence.rests-on",
+                "「\(displaySafe(bad, max: 120))」不是合法的 digest（`sha256:` ＋ 64 個十六進位字元）"
+                    + "——依據必須是已存進 sources/ 的內容；URL 或其他形式先 store-source 再填 digest")
+        }
         // #75 對一：prefers（選填）——與 judgement 成對（單獨存在無意義），
         // 且 MUST 是本記錄的候選之一（指向別的東西是無法執行的判斷）。
         let prefers = try EntryYAML.requireShape(

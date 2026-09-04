@@ -159,7 +159,7 @@ final class StdioE2ETests: XCTestCase {
                        "arguments": ["question": "縮寫是否同一人",
                                      "candidates": ["chen-h-y:person", "chen-hui-yun:person"],
                                      "judgement": "同一人",
-                                     "rests_on": ["https://example.org/roster"]]],
+                                     "rests_on": ["sha256:d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"]]],
         ])
         let resp = try readResponse()
         let result = resp["result"] as? [String: Any]
@@ -171,7 +171,7 @@ final class StdioE2ETests: XCTestCase {
         // 判斷落地（judgement/rests_on 兩個 key 都真的到了 store）
         let load = try LibraryStore(root: root).load()
         XCTAssertEqual(load.divergences.first?.judgement?.statement, "同一人")
-        XCTAssertEqual(load.divergences.first?.judgement?.restsOn, ["https://example.org/roster"])
+        XCTAssertEqual(load.divergences.first?.judgement?.restsOn, ["sha256:d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"])
 
         // #138 verify F4：akashic_divergences 不只出現在 tools/list，還要真的
         // 打得通——dispatch switch 的 case 標籤打錯字，只有實際呼叫抓得到。

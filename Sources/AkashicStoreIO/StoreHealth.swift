@@ -274,7 +274,7 @@ public extension LibraryStore {
     /// 一起改。
     ///
     /// 三面：CLI `validate` 逐行可見（exit 對 warning 仍為 0）；MCP `akashic_doctor` 進 `recordIssues`
-    /// （截斷 20 則、`count` 送分母）；**App 面未渲染 `perRecordIssues`**（#416 起的既有缺口，#487）。
+    /// （截斷 20 則、`count` 送分母）；App 側欄「記錄」Section 渲染計數（#487，2026-09-04 落地；完整逐行仍是 CLI `validate`）。
     ///
     /// 解析不了的 value（`parse` 回 nil）不在此列——**對已載入的記錄它結構上不可達**：三族的
     /// YAML decode 在寫入閘與載入端都把 malformed verdict 整檔拒收（quarantine），
@@ -335,7 +335,7 @@ public extension LibraryStore {
     /// `Entry.references`（第 15 條邊）；而且它**零 production 呼叫端**——doctor／`StoreHealth` 接的是
     /// `auditSourceIndex()`，只比 blob↔index，捏造的 digest 兩邊都不在、兩邊一致、doctor 沉默
     /// （#251 形狀第三次）。修法是把逐 holder 的缺席以 warning 級 `OwnedIssue` 併入 `perRecordIssues`
-    /// ——CLI `validate` 逐行、MCP `doctor` 進 `recordIssues`；App 面未渲染 per-record（#416 起，#487）。
+    /// ——CLI `validate` 逐行、MCP `doctor` 進 `recordIssues`；App 側欄「記錄」Section 渲染計數（#487）。
     ///
     /// **用詞是「本機缺」不是「偽造」**：`sources/` 不進 git（`replace-endnote-and-zotero` 的承重閘），
     /// 本機分不出「從未存在」與「沒同步」——所以訊息說出這個邊界，處置寫成兩條。

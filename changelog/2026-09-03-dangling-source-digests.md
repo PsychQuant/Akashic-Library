@@ -5,7 +5,7 @@
 `references`（第 15 條，#394）——現在由 `LibraryStore.health(from:)` 掃出（`danglingSourceIssues(in:)`），
 以 warning 級的 `OwnedIssue` 併入 `perRecordIssues`：CLI `validate` 逐行可見並加一行計數；MCP `akashic_doctor`
 進 `recordIssues`（`prefix(20)` 截斷、`count` 送分母）並多一個 `danglingSources` 計數；**App 面未渲染
-`perRecordIssues`**（#416 起的既有缺口，#487）。`StoreHealth.danglingSourcePrefix`／`danglingSources` 給三面單一定義
+`perRecordIssues`**（#487 起 App 側欄「記錄」Section 渲染計數）。`StoreHealth.danglingSourcePrefix`／`danglingSources` 給三面單一定義
 ——與 #464 死 verdict 完全同形。
 
 ## 兩層盲區（都實測為真）
@@ -56,7 +56,7 @@
 |---|---|
 | CLI `validate` | 逐條 `⚠ <kind> <key>: 本機缺承重存檔：<slot> 指向 sha256:…` ＋ 一行計數 `本機缺承重存檔: N` |
 | MCP `akashic_doctor` | `recordIssues.first`（截 20）逐條 ＋ `recordIssues.danglingSources` 計數 |
-| App | 未渲染（#487） |
+| App | 側欄「記錄」Section：記錄層問題總數＋三個家族的計數，`.help` 帶前幾則（#487） |
 
 兩面都提到 `health.danglingSources` 由 `DanglingSourceScanTests.testBothFacesMentionDanglingSources` 以源碼掃描釘住
 ——`StoreHealthSurfaceTests` 的反射只看儲存屬性，計算屬性（`deadVerdicts` 亦然）在它視野外。

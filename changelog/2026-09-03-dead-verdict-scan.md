@@ -3,8 +3,7 @@
 resolution verdict 的 value 指向一個**沒有載入**的 holder（`work:<citekey>`／`person:<key>`／`org:<key>`）
 現在由 `LibraryStore.health(from:)` 掃出（`deadVerdictIssues(in:)`），以 warning 級的 `OwnedIssue` 併入
 `perRecordIssues`——CLI `validate` 逐行可見；MCP `akashic_doctor` 進 `recordIssues`（`prefix(20)` 截斷、`count` 送分母，#236 的既有預算）；
-**App 面未渲染 `perRecordIssues`**（#416 起的既有缺口，健康區塊閘在 `hasFindings` 而它只計 error）
-——追蹤 #487。`StoreHealth.deadVerdictPrefix`／`deadVerdicts` 給三面單一定義。
+App 側欄「記錄」Section 渲染計數（#487，2026-09-04 落地——獨立的閘，不掛在只計 error 的 `hasFindings` 下）。`StoreHealth.deadVerdictPrefix`／`deadVerdicts` 給三面單一定義。
 
 - **判準**：set-difference——holder 不在已載入的對應 kind 集合。**「不在集合」分兩種說**：holder 的檔
   仍在磁碟但被 quarantine（訊息指名那個檔，先修它）；沒有任何檔宣稱它（退役時遷移漏了——#463 的網格

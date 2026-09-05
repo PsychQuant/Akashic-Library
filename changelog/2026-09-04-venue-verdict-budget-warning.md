@@ -14,7 +14,7 @@
 - `LibraryStore.venueVerdictBudgetIssues(in:threshold:)`：只數 `resolutionVerdictFields` 的 reference（增長來源就是它們），
   達門檻的 venue 各一筆 warning 級 `OwnedIssue`（owner＝venue key），訊息說出數字、門檻與處置；併入 `perRecordIssues`
   （`venueVerdictBudgetPrefix`／`venueVerdictBudgetWarnings`，與 #464／#453 同形）。
-- 兩面：CLI `validate` 計數行、MCP `doctor` 的 `recordIssues.venueVerdictBudgetWarnings`；源碼掃描釘住。App 面未渲染（#487）。
+- 兩面：CLI `validate` 計數行、MCP `doctor` 的 `recordIssues.venueVerdictBudgetWarnings`；源碼掃描釘住。App 側欄「記錄」Section 渲染計數（#487）。
 - `zero-instance-guards` 第 16 列（✅ 寫，理由「裁決依賴守衛」——不寫的話候選 3 就退化成「等它壞」）；
   `entity-backlink-completeness` 第 13 條加 venue 側 O(catalog) 註記與觸發後的形狀。
 - **不做**：放寬 `maxExpandedNodes`（那是把 O(catalog) 留給下一本大刊）；聚合或 sidecar（達門檻再議）。

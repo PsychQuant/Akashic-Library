@@ -132,6 +132,12 @@ struct SidebarView: View {
                     }
                 }
             }
+            // #487：記錄層問題（含 warning 一族：死 verdict／本機缺承重存檔／venue verdict 預算）。
+            // **獨立的閘**——不掛在上方 `hasFindings` 下：那個布林依 #416 只計 error，warning 永遠不會讓它亮。
+            // 摘要是純模型（`RecordIssuesSummary`，可測），view 只收那個值（narrow input）。
+            if let health = state.health, let summary = RecordIssuesSummary(health: health) {
+                RecordIssuesSection(summary: summary)
+            }
             // 外部變更同步提示（spec §6 的 write-through 落地：沒有草稿緩衝可遺失，
             // 但外部剛更新畫面時要讓使用者知道）
             if let syncedAt = state.lastExternalSyncAt {

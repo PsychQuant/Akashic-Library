@@ -427,6 +427,20 @@ public final class LibraryStore {
                 entry.references, format: try format(),
                 what: "work「\(displaySafe(entry.citekey, max: 120))」")
         }
+        // v16-only 語法的 format gate（#450）：拆分記錄（`field: authors` 的 reference）。
+        // format-15 binary 的 `Entry.validateReferenceAttachment` 沒有 `authors` case → 封閉
+        // default 擲錯 → **整檔 quarantine**（與 format 15 對 `field: paginated` 同形）——
+        // 被拆過的 work 在舊 binary 上整筆消失而 rc=0，所以 marker 必須先擋。
+        if entry.references.contains(where: { $0.field == "authors" }) {
+            let format = try format()
+            guard format >= 16 else {
+                throw StoreIOError.invalidInput(
+                    what: "entry「\(displaySafe(entry.citekey, max: 120))」",
+                    why: "含拆分記錄（field: authors 的 reference），需要 store format ≥ 16；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 format: 改成 16" +
+                         "（format-15 binary 讀到會整檔 quarantine，且 rc=0）")
+            }
+        }
         // membership keys（#13）同樣 write-time 驗證——不進路徑，但保 index/query 語意乾淨
         for key in entry.akashic.libraries where !StoreKey.isValid(key) {
             throw StoreIOError.invalidKey("akashic.libraries key", key)

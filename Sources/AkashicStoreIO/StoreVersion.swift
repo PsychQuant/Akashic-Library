@@ -132,7 +132,12 @@ public enum StoreVersion {
     ///   一個在附著驗證的封閉 default 擲錯 → **整檔 quarantine**（R1 verify 在完整
     ///   store 副本量測：406 個 venue 靜默掉到 373、rc=0，輸出與「判定從未發生」
     ///   不可分辨）。write gate 對 format < 15 拒寫帶判定的 venue。
-    public static let supported = 15
+    /// - **16** ＝ work 側的**拆分記錄**（`field: authors` 的 judgement reference，value＝被拆掉的
+    ///   原 literal，#450）。**non-additive，理由同 15**：format-15 binary 的
+    ///   `Entry.validateReferenceAttachment` 沒有 `authors` case → 封閉 default 擲錯 → **整檔
+    ///   quarantine**——被拆過的 work 在舊 binary 上整筆消失、rc=0。write gate（`assertEntryWritable`）
+    ///   對 format < 16 拒寫帶拆分記錄的 entry；已拆的 4 筆（store `32916ba`）不回填。
+    public static let supported = 16
 
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，

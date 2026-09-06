@@ -43,7 +43,7 @@
 
 ### store format bump 16 與寫入閘
 
-`assertEntryWritable` 對帶 `field: authors` reference 的 entry 加 ≥16 閘（同 #394 識別碼 reference 的 ≥13 閘形）；`StoreVersion.supported` 升 16；CLI／akashic-mcp／App 三 binary 同步（`format-bump-breaks-three-binaries`：只升一個仍整份拒讀，部署順序見 changelog）。`store-marker-parity` 守衛認的兩份宣告一起改。
+`assertEntryWritable` 對帶 `field: authors` reference 的 entry 加 ≥16 閘（同 #394 識別碼 reference 的 ≥13 閘形）；`StoreVersion.supported` 升 16；CLI／akashic-mcp／App 三 binary 同步（`format-bump-breaks-three-binaries`：只升一個仍整份拒讀，部署順序見 changelog）。`plugin-store-format-parity` 守衛認的兩份宣告（`plugin/.claude-plugin/plugin.json`、`mcpb/manifest.json`）一起改——第一版此處寫 `Package.swift`＋`store-marker-parity`，兩者都錯：`Package.swift` 沒有 format 宣告，`store-marker-parity` 驗的是 census 的 marker、不讀宣告檔（verify 抓到）。
 
 ### 孤兒 verdict 偵測進 perRecordIssues
 
@@ -63,7 +63,7 @@ seam＝`Entry.validateReferenceAttachment`（`authors` 例外）＋`SplitRecordV
 - `SplitRecordValue { parts: [String], reason: String }`；`static func parse(_ statement: String) -> SplitRecordValue?`；`var encoded: String`（`拆為 ⟦a⟧ ⟦b⟧：理由`）；round-trip 逐字。
 - `Entry.validateReferenceAttachment`：`field == "authors"` → value 必須非空、kind 必須是 judgement、statement 必須 `parse` 成功且 `parts.count ≥ 2`；**不**要求 value 在場；至少一段在場的檢查放在 `StoreHealth`（warning），不在 decode 期。
 - `LibraryStore.assertEntryWritable`：entry 含 `field: authors` reference 且 store format < 16 → 拒寫，訊息說明要先 bump。
-- `StoreVersion.supported = 16`；`docs/store-format.md` 記 16 的差異；`plugin/.claude-plugin/plugin.json` 與 `Package.swift` 的宣告同步。
+- `StoreVersion.supported = 16`（`Sources/AkashicStoreIO/StoreVersion.swift`）；`docs/store-format.md` 與 README 各記 16 的一列；`plugin/.claude-plugin/plugin.json` 與 `mcpb/manifest.json` 的宣告同步（`plugin-store-format-parity` 守衛認的兩份）。
 - `AkashicService.splitAuthors`：寫入拆分記錄與改寫 `authors` 在同一次 `writeEntry`；報告多一欄 `recorded: true`。
 - `StoreHealth.orphanedSplitVerdictPrefix = "拆分後的孤兒 verdict"`；`orphanedSplitVerdicts` 計算屬性；`LibraryStore.orphanedSplitVerdictIssues(in:)` 掃 person／organization 的 resolution verdict 對照全庫拆分記錄；另一種 warning `拆分記錄的各段都已不在作者位`（同一前綴族，訊息分開）。
 
@@ -77,9 +77,9 @@ seam＝`Entry.validateReferenceAttachment`（`authors` 例外）＋`SplitRecordV
 **Acceptance criteria**
 
 - `Tests/AkashicKitTests/SplitRecordReferenceTests.swift`：`SplitRecordValue` round-trip 與拒絕案（段 <2、空理由、缺 `⟦⟧`）；`authors` reference 的 decode 接受／拒絕；format 15 store 寫入被拒、format 16 通過；spec 的例（`chen2020a`：`某人與雷庚玲` → `某人`／`雷庚玲` ＋ 一筆記錄）。
-- `Tests/AkashicMCPTests/SplitAuthorTests.swift`（既有）補斷言：拆分後 `references` 多一筆且 value 逐字等於原 literal。
+- `Tests/AkashicMCPTests/SplitAuthorTests.swift`（新檔；既有的 #443 split 測試在 `VenueServiceTests`，零改動）補斷言：拆分後 `references` 多一筆且 value 逐字等於原 literal。
 - `Tests/AkashicKitTests/OrphanedSplitVerdictScanTests.swift`：持有 `work:chen2020a :: 某人與雷庚玲` 的 person 在該 work 拆分後 → 1 筆 warning、owner 是那個 person、訊息指名 `chen2020a`；各段全不在 → 另一種 warning；乾淨 → 0；拿掉 `health(from:)` 的 append 即紅。
-- `bash .githooks/run-guards.sh` 全綠（`store-marker-parity` 兩份宣告一致為 16、`zero-instance-rows-audit` 讀到新列）。
+- `bash .githooks/run-guards.sh` 全綠（`plugin-store-format-parity` 兩份宣告一致為 16、`zero-instance-rows-audit` 讀到新列）。
 
 **Scope boundaries**
 

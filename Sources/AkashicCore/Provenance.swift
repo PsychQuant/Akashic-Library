@@ -29,6 +29,13 @@ public struct ProvenanceReference: Equatable {
         "resolution-confirmed", "resolution-rejected",
     ]
 
+    /// #450：**一階人為裁決**的欄位集合——judgement 的空 rests-on 只對這些放行（#232 D8 的例外
+    /// 一般化）。＝ `resolutionVerdictFields ∪ {authors}`：拆分同樣是一階裁決，原文逐字保存於 value
+    /// 就是證據。**第二個具名集合，不把 `authors` 塞進上面那個**——上面那個被三處當 verdict 文法
+    /// （`<kind>:<key> :: <literal>`）解析：`ResolutionLedger.verdicts`、死 verdict 掃描、demote 的
+    /// 逐字取回。塞進去會讓它們對拆分記錄解析失敗或誤判；拆分記錄的 statement 走 `SplitRecordValue`。
+    public static let firstOrderRulingFields: Set<String> = resolutionVerdictFields.union(["authors"])
+
     /// #232 verify（DA）：verdict `value` 的**單一文法**——`<kind>:<key> :: <literal>`。
     ///
     /// kind token **必填**且**兩族統一**：person 與 organization 的 key 可合法同名
@@ -183,8 +190,9 @@ public struct ProvenanceReference: Equatable {
                     "reference(field: \(safeField)).judgement——沒有斷言的依據不知道在支持什麼")
             }
             // #232 design D8：verdict 是一階人為裁決、非對既有證據的推理——
-            // 僅對封閉欄位對允許空 rests-on（有證據時 SHOULD 附）；其他欄位維持拒收
-            guard !restsOn.isEmpty || Self.resolutionVerdictFields.contains(field) else {
+            // 僅對封閉欄位對允許空 rests-on（有證據時 SHOULD 附）；其他欄位維持拒收。
+            // #450 把「一階裁決」一般化成 `firstOrderRulingFields`（多 `authors` 一格：拆分記錄）。
+            guard !restsOn.isEmpty || Self.firstOrderRulingFields.contains(field) else {
                 throw StoreYAMLError.missingField(
                     "reference(field: \(safeField)).rests-on——沒有依據的斷言不是判斷")
             }
@@ -616,13 +624,36 @@ extension Venue {
 /// 所以在本輪之前 work 的 `doi`／`pmid`／`isbn` 照該 requirement 的字面不算一等公民
 /// ——這正是本 change 的標題所主張的東西。使用者 2026-08-24 裁定補齊。
 ///
-/// **值域刻意只有三個識別碼欄位。** work 的其餘欄位（`title`／`date`／`fields.*`）
-/// 要不要能攜帶來源是另一個問題，本 change 不裁決——寫在這裡是為了讓「只有三個」
+/// **值域刻意只有三個識別碼欄位＋一格拆分記錄。** work 的其餘欄位（`title`／`date`／`fields.*`）
+/// 要不要能攜帶來源是另一個問題，#394 不裁決——寫在這裡是為了讓「只有這幾個」
 /// 是一個看得見的選擇，而不是一個沒人注意到的省略。
+///
+/// **`authors` 那一格的語意與其他三格相反**（#450）：識別碼 reference 附著在**當下存在**的值
+/// （D2 以值定位、`identifierListContains` 驗值在場）；拆分記錄指向的是**已退役**的值（被拆掉的
+/// 原 literal），所以不驗 value 在場——它的一致性條件是「statement 各段至少一段仍是本 work 的
+/// 作者位」，而那放在 `StoreHealth`（warning），不在 decode 期：記錄合法，只是證據錨可能失效。
+/// 這一格的例外**只有 `authors`**，其他 field 不得類推（`default` 分支照舊拒絕）。
 extension Entry {
     public func validateReferenceAttachment() throws {
         for r in references {
             switch r.field {
+            case "authors":
+                guard let v = r.value, !v.isEmpty else {
+                    throw StoreYAMLError.invalidField(
+                        "entry.references(field: authors)",
+                        "拆分記錄必須帶 value＝被拆掉的原 literal（逐字）——沒有它 un-split 無從回復")
+                }
+                guard case .judgement(let statement, _) = r.kind else {
+                    throw StoreYAMLError.invalidField(
+                        "entry.references(field: authors)",
+                        "拆分記錄必須是 judgement 型（statement 走 `拆為 ⟦a⟧ ⟦b⟧：理由`）")
+                }
+                guard SplitRecordValue.parse(statement) != nil else {
+                    throw StoreYAMLError.invalidField(
+                        "entry.references(field: authors)",
+                        "statement「\(displaySafe(statement, max: 200))」不是合法的拆分文法"
+                        + "（`拆為 ⟦a⟧ ⟦b⟧…：理由`：段 ≥ 2、括號平衡、理由非空）")
+                }
             case "doi", "pmid", "isbn":
                 guard let v = r.value else {
                     throw StoreYAMLError.invalidField(
@@ -646,7 +677,7 @@ extension Entry {
                 throw StoreYAMLError.invalidField(
                     "entry.references(field: \(r.field))",
                     "work 沒有可附著 reference 的欄位「\(displaySafe(r.field, max: 120))」"
-                    + "（合法：doi、pmid、isbn）")
+                    + "（合法：doi、pmid、isbn、authors）")
             }
         }
     }

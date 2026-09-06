@@ -103,6 +103,18 @@ public struct StoreHealth {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.venueVerdictBudgetPrefix) }
     }
 
+    /// #450：拆分後的孤兒 verdict——某 person／organization 持有的 resolution verdict，其 literal 已被
+    /// 該 work 的拆分記錄退役（以 (citekey, literal) 為鍵）。計算屬性，同 `deadVerdicts`。
+    public static let orphanedSplitVerdictPrefix = "拆分後的孤兒 verdict"
+    public var orphanedSplitVerdicts: [OwnedIssue] {
+        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.orphanedSplitVerdictPrefix) }
+    }
+    /// #450：拆分記錄的各段都已不在作者位——證據錨失效，記錄仍合法（供 un-split 參考）。
+    public static let staleSplitRecordPrefix = "拆分記錄的各段都已不在作者位"
+    public var staleSplitRecords: [OwnedIssue] {
+        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.staleSplitRecordPrefix) }
+    }
+
     /// 一則驗證問題 ＋ 它屬於哪筆記錄。
     ///
     /// **severity 與 owner 都要攜帶**：只給訊息的話消費端分不出 error 與 warning，
@@ -216,6 +228,10 @@ public extension LibraryStore {
         perRecord += danglingSourceIssues(in: load)
         // #499：第 13 條邊在 venue 側是 O(catalog)——硬預算的一半處出聲、指名該 venue（裁決：候選 3）。
         perRecord += venueVerdictBudgetIssues(in: load)
+        // #450：拆分後錨失效的兩種 warning——各段全不在的拆分記錄（owner 是 work）、literal 已被拆分
+        // 退役的 verdict（owner 是持有者）。跨記錄（work 的拆分記錄 vs person 的 verdict），單筆 validate()
+        // 看不到；同一形：per-record warning。
+        perRecord += orphanedSplitVerdictIssues(in: load)
         return StoreHealth(
             crossRecordIssues: cross,
             fatalCrossRecordIssues: cross.filter { $0.severity == .error },
@@ -387,5 +403,70 @@ public extension LibraryStore {
             return StoreHealth.OwnedIssue(owner: v.key, kind: "venue",
                                           issue: ValidationIssue(severity: .warning, message: message))
         }
+    }
+}
+
+public extension LibraryStore {
+    /// **拆分後錨失效的掃描**（#450）——兩種 warning，都是「拆分記錄 vs 作者位／verdict」的跨記錄一致性：
+    ///
+    /// 1. **各段全不在**（owner＝work）：一筆拆分記錄的 statement 各段沒有任何一段仍是本 work 的作者位。
+    ///    「仍在」含已升格的 `.key`——升格不是消失，那一段的原 literal 記在 person 的 confirmed verdict
+    ///    （`work:<citekey> :: <literal>`）裡。記錄仍合法、仍載入（decode 只驗形狀），只是證據錨失效。
+    /// 2. **孤兒 verdict**（owner＝持有者）：person／organization 持有的 resolution verdict，其 value 指向
+    ///    `work:<citekey> :: <literal>`，而該 work 有一筆拆分記錄的 value 就是那個 literal——verdict 判的
+    ///    是一個已經不存在的作者位。**以 (citekey, literal) 為鍵**（design Risks）：同一個 literal 掛在
+    ///    另一筆沒拆的 work 上不是孤兒。
+    ///
+    /// **severity 是 warning**：兩者記錄都合法可載入；error 會讓 `hasErrors` 翻紅擋住 export 類流程，
+    /// 而處置（對拆出的各段重新消歧、更新或刪掉 verdict）是人的動作，不是修檔。`validate` exit 仍 0
+    /// ——「掃得到」不「叫醒」（#464 的同一條界線）。零實例的來源是「記錄還沒開始寫」（4 筆已拆記錄
+    /// 沒有拆分記錄，不回填），見 `zero-instance-guards` 第 17 列。
+    func orphanedSplitVerdictIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
+        // 已升格作者位的原 literal：person 的 confirmed verdict（holder 是 work）
+        var confirmedByWork: [String: Set<String>] = [:]
+        for p in load.people {
+            for r in p.references where r.field == "resolution-confirmed" {
+                guard let v = r.value, let pv = ProvenanceReference.VerdictPairingValue.parse(v),
+                      pv.holderKind == .work else { continue }
+                confirmedByWork[pv.holder, default: []].insert(pv.literal)
+            }
+        }
+        var out: [StoreHealth.OwnedIssue] = []
+        var retiredByWork: [String: Set<String>] = [:]
+        for e in load.entries {
+            let records = e.splitRecords
+            guard !records.isEmpty else { continue }
+            let present = Set(e.authors.compactMap { a -> String? in
+                if case .literal(let s) = a { return s } else { return nil }
+            }).union(confirmedByWork[e.citekey] ?? [])
+            for s in records {
+                retiredByWork[e.citekey, default: []].insert(s.retired)
+                guard !s.record.parts.contains(where: { present.contains($0) }) else { continue }
+                let parts = s.record.parts.map { "⟦\(displaySafe($0, max: 80))⟧" }.joined(separator: " ")
+                let message = "\(StoreHealth.staleSplitRecordPrefix)：「\(displaySafe(s.retired, max: 120))」拆為 \(parts)，"
+                            + "但沒有任何一段仍是本 work 的作者位（含已升格 .key 的 confirmed literal）。"
+                            + "處置：確認作者位是否被改寫；記錄保留供 un-split 參考，不要刪"
+                out.append(StoreHealth.OwnedIssue(owner: e.citekey, kind: "entry",
+                                                  issue: ValidationIssue(severity: .warning, message: message)))
+            }
+        }
+        guard !retiredByWork.isEmpty else { return out }
+        func scan(_ refs: [ProvenanceReference], owner: String, kind: String) -> [StoreHealth.OwnedIssue] {
+            refs.compactMap { r in
+                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
+                      let v = r.value,
+                      let pv = ProvenanceReference.VerdictPairingValue.parse(v),
+                      pv.holderKind == .work,
+                      retiredByWork[pv.holder]?.contains(pv.literal) == true else { return nil }
+                let message = "\(StoreHealth.orphanedSplitVerdictPrefix)：\(r.field) 指向 work:\(displaySafe(pv.holder, max: 120)) 的 "
+                            + "literal「\(displaySafe(pv.literal, max: 120))」，而該 work 已把它拆分（拆分記錄在 work 側 references）"
+                            + "——這條 verdict 判的作者位已退役。處置：對拆出的各段重新消歧，然後更新或刪掉這筆 verdict"
+                return StoreHealth.OwnedIssue(owner: owner, kind: kind,
+                                              issue: ValidationIssue(severity: .warning, message: message))
+            }
+        }
+        for p in load.people { out += scan(p.references, owner: p.key, kind: "person") }
+        for o in load.organizations { out += scan(o.references, owner: o.key, kind: "organization") }
+        return out
     }
 }

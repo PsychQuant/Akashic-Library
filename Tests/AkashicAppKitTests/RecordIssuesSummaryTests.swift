@@ -47,6 +47,32 @@ final class RecordIssuesSummaryTests: XCTestCase {
         XCTAssertTrue(summary.help.contains("akashic validate"))
     }
 
+    /// #450：拆分後的孤兒 verdict 也要到得了 App 的摘要——三面（CLI／MCP／App）對這一族的計數不得分岔
+    /// （#453 對 CLI／MCP 的同一條紀律）。person 持有 `work:alive2020a :: A B` 的 rejected verdict，而 alive2020a
+    /// 已把「A B」拆成「A」「B」（拆分記錄在 work 側）→ 孤兒 1、各段全不在 0。
+    func testOrphanedSplitVerdictReachesTheAppSummary() throws {
+        let store = LibraryStore(root: root)
+        var e = try XCTUnwrap(try store.load().entries.first { $0.citekey == "alive2020a" })
+        e.authors = [.literal("A"), .literal("B")]
+        let record = try XCTUnwrap(SplitRecordValue(parts: ["A", "B"], reason: "測試用拆分"))
+        e.references = [ProvenanceReference(field: "authors", value: "A B",
+                                            kind: .judgement(statement: record.encoded, restsOn: []))]
+        try store.writeEntry(e)
+        var p = Person(key: "p-one", names: PersonNames(variant: ["A B"]))
+        p.references = [ProvenanceReference(
+            field: "resolution-rejected",
+            value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "alive2020a", literal: "A B").encoded,
+            kind: .judgement(statement: "測試用否決", restsOn: []))]
+        try store.writePerson(p)
+        let state = AppState(root: root)
+        try state.load()
+        let summary = try XCTUnwrap(RecordIssuesSummary(health: try XCTUnwrap(state.health)))
+        XCTAssertEqual(summary.orphanedSplitVerdicts, 1)
+        XCTAssertEqual(summary.staleSplitRecords, 0, "「A」「B」都仍是作者位")
+        XCTAssertEqual(summary.errors, 0, "warning，不亮 hasFindings")
+        XCTAssertTrue(summary.help.contains("p-one"), summary.help)
+    }
+
     /// 乾淨 store → nil（沉默即健康）。
     func testCleanStoreHasNoSummary() throws {
         let store = LibraryStore(root: root)

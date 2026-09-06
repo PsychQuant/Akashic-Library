@@ -62,6 +62,8 @@ enum DestructiveTargetGate {
         "resolve-people",
         "resolve-organizations",
         "enrich-from-zotero",
+        // #458：generic add-only 補值——只加不存在的鍵，但它仍改寫既有記錄檔；閘的成本是一行。
+        "enrich",
     ]
 
     /// 呼叫者有沒有指名目標 store。**只在真的要寫的時候呼叫**——dry-run 不得被擋

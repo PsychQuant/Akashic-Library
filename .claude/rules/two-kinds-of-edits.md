@@ -46,6 +46,7 @@
 | `library add`／`remove`、`tag`、`link`、`set-status`（#219／#258／#455） | 程式 | 集合語意，冪等 |
 | order-insensitive collapse（#461）、verdict holder 遷移（#463） | 程式 | 對已判定結果的機械搬移；只收本次觸及、不碰未觸及 |
 | `authorize-names`（#81） | AI | 「哪個名字對外」是人的判斷，建檔不得機械偽造（#227） |
+| `enrich`／`akashic_enrich`（#458） | 程式 | generic add-only：只補不存在的鍵、來源給什麼收什麼、不判定——同輸入必得同輸出。DOI → citekey 由程式做是**識別碼例外**（`identity-is-judged-not-matched`），命中 ≥2 筆時**拒絕不判定**（`ambiguous`）——判定屬 #459 的攣生管線。`enrich-from-zotero` 自此是它的 adapter，種類不變 |
 
 新增下一個寫入面 = 在這張表加一列，並在 `mcp-cli-parity` 的表裡同時裁決它的兩面。
 

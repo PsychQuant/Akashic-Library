@@ -1,33 +1,21 @@
 import Foundation
 import AkashicCore
 
-/// 逐筆、**只補不存在的鍵**的 Zotero 補值（#340）。
+/// 逐筆、**只補不存在的鍵**的 Zotero 補值（#340）——**`AddOnlyEnrichment` 的 adapter**（#458）。
 ///
 /// ## 為什麼不用既有的 `import-zotero`
 ///
 /// `ZoteroImporter` 是 **pull**：Zotero 是上游，`applyBiblatexFields` **整份替換**
 /// `fields`、重設 `type`、覆寫未歸戶的 literal 作者。那個語意對「同步一個由 Zotero
 /// 維護的書目」是對的（`lossless-intake` 記載了兩個 importer 方向相反是刻意的），
-/// 但用來修 90 筆跌破下限的記錄時，它的作用半徑是**整個 store**、而且會蓋掉人工補過
-/// 的值。
+/// 但用來修跌破下限的記錄時，它的作用半徑是**整個 store**、而且會蓋掉人工補過的值。
 ///
-/// 本型別走另一條紀律，與 `import-wos` 的 `enriched` 同形：
+/// ## 政策只有一份，在 `AddOnlyEnrichment`
 ///
-/// - **只加原本不存在的鍵**。既有值一個都不動——人工修改過的值不得被洗掉。
-/// - **不動 `type` / `title` / `venues` / `attachments`**。它們各自有自己的裁決路徑
-///   （`resolve-venues`／#325 的遷移），補值不越界。
-/// - **`authors` 預設也不動**，但有一個顯式的例外（`includeAbsentAuthors`，#340）：
-///   當 store 的 `authors` **完全為空**時，可從 Zotero 補 `.literal` 作者。
-///
-///   **為什麼這個例外是一致的而非破口**：排除 authors 的理由是「它有自己的裁決路徑
-///   （`resolve-people`）」——而**空的 authors 沒有東西可裁決**。`literal-first-then-key`
-///   要求「來源給的字串以 `.literal` 原樣進庫，再經顯式消歧升格」；不補等於那條消歧
-///   路徑永遠看不到它們。所以補 literal 是**啟用**該路徑，不是繞過它。
-///
-///   **絕不覆寫**：只要 `authors` 非空（哪怕只有一個 `.literal`），一律不動——已歸戶的
-///   `.key` 更不可能被碰到。旗標必須顯式傳入，預設關閉。
-/// - **作用半徑由呼叫端逐筆指名**。沒有篩選式批次掃蕩，所以 #298 那個「破壞性
-///   `--apply` 未指名目標」的風險形狀在這裡不存在。
+/// 本型別只做三步：找 item → 以既有對映（`ZoteroMapping.mappedFields`／`normalizedDate`）
+/// 產 `Proposal` → 委派 core。欄位政策（只補不存在的鍵、`issn` 拒、識別碼三態、`date`
+/// 空才補、作者旗標）**全部住在 core 的 doc 裡**，這裡刻意不複製一份會分岔的副本。
+/// #458 之前政策寫在這個檔案裡；搬走後 `ZoteroEnrichmentTests`（本 change 當下 22 支）零改動即為等價的驗收。
 ///
 /// ## 誠實邊界
 ///
@@ -36,8 +24,8 @@ import AkashicCore
 /// `lossless-intake` 執行細節 3 說的「靜默是最糟的形式」。
 public enum ZoteroEnrichment {
 
-    /// 一筆記錄的補值計畫。`addedFields` 與 `addedDate` 皆空的不會出現在這裡
-    /// （那筆走 `unchanged`）。
+    /// 一筆記錄的補值計畫——`AddOnlyEnrichment.Outcome` 加上 citekey 的 adapter 形。
+    /// `addedFields` 與 `addedDate` 皆空的不會出現在這裡（那筆走 `unchanged`）。
     public struct Addition: Equatable {
         public let citekey: String
         /// biblatex 欄位名 → 值。只含**原本不存在**的鍵。
@@ -47,24 +35,14 @@ public enum ZoteroEnrichment {
         /// 原本 `authors` **完全為空**、而 Zotero 有作者時的補值（一律 `.literal`，#340）。
         /// 空陣列＝沒有補（`authors` 非空，或呼叫端未開旗標）。
         public let addedAuthors: [Author]
-        /// 補進**結構化**識別碼欄位的值（#394 verify）。
-        ///
-        /// **不走 `addedFields`**：§8 的遷移把 `fields.doi` 一族移進結構化欄位，而本命令
-        /// 是 add-only（`entry.fields[k] == nil` 才補）——遷移之後那些鍵**恰好都是 nil**，
-        /// 於是它會把殘留一筆一筆種回去。那不只是多一份副本：`BibExport` 的
-        /// `if fields["issn"] == nil` 會因此失效，venue 的 ISSN 拉取被遮蔽。
+        /// 補進**結構化**識別碼欄位的值（#394 verify）——不走 `addedFields`。
         public let addedDOIs: [DOI]
         public let addedPMIDs: [PMID]
         public let addedISBNs: [ISBN]
         /// Zotero 給了識別碼但**刻意不採用**的理由（citekey 級，逐條具名）。
-        /// `lossless-intake` 執行細節 3：丟棄必須可見。
         public let refusedIdentifiers: [String]
         /// **部分成功**：一部分 token 解得出並已採用，其餘形狀不認得（#394 verify R9）。
-        ///
-        /// 刻意**不**併進 `refusedIdentifiers`——那個欄位的契約逐字是「Zotero 給了識別碼
-        /// 但**刻意不採用**」，而部分成功既不是刻意（解析不出是我們的限制,不是裁決）
-        /// 也不是不採用（解出的那些已經採用了）。兩面的標籤都照契約渲染,借用會讓
-        /// CLI 印「✗ 不採用」在剛印完「+ isbn = …」的下一行,MCP 送出的鍵名也會說謊。
+        /// 刻意**不**併進 `refusedIdentifiers`——那個欄位的契約是「刻意不採用」。
         public let partiallyParsedIdentifiers: [String]
 
         public init(citekey: String, addedFields: [String: String], addedDate: String?,
@@ -81,6 +59,20 @@ public enum ZoteroEnrichment {
             self.addedISBNs = addedISBNs
             self.refusedIdentifiers = refusedIdentifiers
             self.partiallyParsedIdentifiers = partiallyParsedIdentifiers
+        }
+
+        fileprivate init(citekey: String, outcome o: AddOnlyEnrichment.Outcome) {
+            self.init(citekey: citekey, addedFields: o.addedFields, addedDate: o.addedDate,
+                      addedAuthors: o.addedAuthors,
+                      addedDOIs: o.addedDOIs, addedPMIDs: o.addedPMIDs, addedISBNs: o.addedISBNs,
+                      refusedIdentifiers: o.refused, partiallyParsedIdentifiers: o.partial)
+        }
+
+        fileprivate var outcome: AddOnlyEnrichment.Outcome {
+            AddOnlyEnrichment.Outcome(addedFields: addedFields, addedDate: addedDate,
+                                      addedAuthors: addedAuthors,
+                                      addedDOIs: addedDOIs, addedPMIDs: addedPMIDs, addedISBNs: addedISBNs,
+                                      refused: refusedIdentifiers, partial: partiallyParsedIdentifiers)
         }
     }
 
@@ -99,8 +91,7 @@ public enum ZoteroEnrichment {
         public var notInStore: [String] = []
         /// **只有被拒絕的識別碼、沒有任何可補值**的 citekey（#394 verify）。
         /// 與 `unchanged` 分開：那一類是「Zotero 給不出缺著的欄位」，這一類是
-        /// 「Zotero 給了，而我們**刻意不收**」——兩者在輸出上不可混為一談
-        /// （`lossless-intake` 執行細節 3）。
+        /// 「Zotero 給了，而我們**刻意不收**」——兩者在輸出上不可混為一談。
         public var refusedOnly: [Addition] = []
 
         public init() {}
@@ -131,6 +122,7 @@ public enum ZoteroEnrichment {
         }
 
         var result = Result()
+        var proposals: [AddOnlyEnrichment.Proposal] = []
         for citekey in citekeys {
             guard let entry = byCitekey[citekey] else {
                 result.notInStore.append(citekey); continue
@@ -147,138 +139,54 @@ public enum ZoteroEnrichment {
             guard let item else {
                 result.zoteroMissing.append(citekey); continue
             }
+            // **對映邏輯只有一份**：借 pull 的對映算出 Zotero 這筆會產生什麼，交給 core
+            // 從中只取缺著的鍵。自己重寫一份對映＝兩份會分岔的規格。
+            let fields = ZoteroMapping.mappedFields(from: item)
+            let date = ZoteroMapping.normalizedDate(from: item)
+            let authors = item.authors.map(\.display)
+            // core 對「什麼都沒提」的提案整批拒絕（那是呼叫端的語法錯）；Zotero item 若真的
+            // 一個欄位都沒給，這筆的意思是「上游也沒有」，直接歸 `unchanged`。
+            let offersAnything = !fields.isEmpty || !(date ?? "").isEmpty
+                || authors.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            guard offersAnything else { result.unchanged.append(citekey); continue }
+            proposals.append(.init(citekey: citekey, fields: fields, date: date, authors: authors))
+        }
 
-            // **對映邏輯只有一份**：借 `applyBiblatexFields` 算出 Zotero 這筆
-            // 會產生什麼，再從中只取缺著的鍵。自己重寫一份對映＝兩份會分岔的規格。
-            var probe = Entry(id: UUID(), citekey: "probe", type: .webpage, title: "")
-            ZoteroMapping.applyBiblatexFields(from: item, to: &probe)
-
-            var added: [String: String] = [:]
-            var addedDOIs: [DOI] = [], addedPMIDs: [PMID] = [], addedISBNs: [ISBN] = []
-            var refused: [String] = []
-            var partial: [String] = []
-            for (k, v) in probe.fields where !v.isEmpty {
-                // 識別碼**不進 `fields` 殘留**（#394 verify）。它們自 §8 起有結構化的家；
-                // 走 add-only 的舊路徑會在遷移之後把殘留一筆一筆種回去。
-                switch k {
-                case "issn":
-                    // **work 一律不收 ISSN。** spec（entity-identifier）逐字：
-                    // 「WHEN a work record carries an ISSN THEN the store SHALL treat
-                    // that as a misplacement, because ISSN identifies the serial and not
-                    // the article」。補回去等於製造 spec 明文指為錯置的東西。
-                    refused.append("issn「\(v)」——ISSN 識別的是期刊不是文章，"
-                                   + "work 不收；要補請補到它的 venue")
-                case "doi", "pmid", "isbn":
-                    // **「必然」在 R7 之後為假**（#394 verify R8）。
-                    //
-                    // 這段原本建立在一條兩態不變式上：解析得出來 → 進結構化欄位且移除殘留；
-                    // 解析不出 → 殘留留在 `fields`。R7 為了不丟資料新增**第三態**
-                    //（部分成功：值進結構化欄位**且**殘留保留），那句「必然」自此不成立。
-                    //
-                    // 沒跟著改的話，同一筆會同時印「+ isbn = 978…」與
-                    // 「✗ 不採用：isbn「978… 1-4338-3216」——解析不出 ISBN 的形狀」
-                    // ——**第二行對第一行剛採用的那個號說它解析不出**。使用者據此手動補一個，
-                    // 就會與已經寫進去的值衝突。
-                    //
-                    // 判準改問 probe 的結構化欄位空不空（＝這一輪有沒有解析出任何東西）。
-                    let parsedCount = probe.identifierList(k)?.count ?? 0
-                    if parsedCount == 0 {
-                        refused.append("\(k)「\(v)」——解析不出 \(k.uppercased()) 的形狀，不猜")
-                    } else {
-                        // **部分成功：真的保留原字串**（#394 verify R9）。
-                        //
-                        // R8 的訊息逐字寫「原字串保留在 fields 供人裁」——那句話描述的是
-                        // **pull** 的行為（那裡 `if i.parsed` 為 false 時原字串確實留著）。
-                        // 這段程式碼住在 **enrich**（add-only）路徑，先前**只 append 訊息、
-                        // 從不寫 `added[k]`**,於是那個解析不出的 token 在 enrich 之後
-                        // **不存在於 store 的任何地方**,而訊息叫使用者去 `fields` 找它。
-                        //
-                        // **比沉默更糟**:丟棄被誤述成保留,使用者會判斷「資料還在、
-                        // 之後再處理」而永遠不回頭補（`lossless-intake` 執行細節 3）。
-                        //
-                        // 修法讓那句話變真而不是改成訃告:殘留欄位的用途**正是**裝那些
-                        // 解不出的值（與 pull 一致）。add-only 的保守側同樣適用——
-                        // 只在該鍵原本不存在時加。
-                        if entry.fields[k] == nil { added[k] = v }
-                        partial.append("\(k)「\(v)」——只解析出 \(parsedCount) 個，"
-                                       + "其餘 token 的形狀不認得；原字串已一併加進 fields 供人裁")
-                    }
-                default:
-                    if entry.fields[k] == nil { added[k] = v }
-                }
-            }
-            // 結構化識別碼：probe 帶得出來、而 entry 仍為空時才補（保守側同 fields）。
-            //
-            // **`addedPMIDs` 的可達性有過一段插曲**（#394 verify R8→R9）：R8 把 `pmid`
-            // 整個移出 pull 的跟隨清單,於是 `probe.pmid` 從「因**資料**而恆空」變成
-            // 「因**契約**而恆空」——這一行成了結構性死碼,而上面那句「probe 帶得出來」
-            // 在呼叫點讀起來仍像它可達。R9 把判準換成「上游這次有沒有給值」之後
-            // 它**又活了**:Zotero 若日後供給 PMID,這條路會自動開始工作。
-            //
-            // 記在這裡而不只在 `ZoteroMapping`,是因為讀這三行的人看不到另一個模組。
-            if entry.canonicalDOIs.isEmpty { addedDOIs = probe.doi }
-            if entry.canonicalPMIDs.isEmpty { addedPMIDs = probe.pmid }
-            if entry.canonicalISBNs.isEmpty { addedISBNs = probe.isbn }
-            var addedDate: String?
-            if (entry.date ?? "").isEmpty, let d = probe.date, !d.isEmpty {
-                addedDate = d
-            }
-            // #340：只在 `authors` **完全為空**時補，且一律 `.literal`
-            //（`literal-first-then-key`：進庫不猜 key）。非空一律不動。
-            var addedAuthors: [Author] = []
-            if includeAbsentAuthors, entry.authors.isEmpty {
-                addedAuthors = item.authors
-                    .map(\.display)
-                    .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-                    .map { Author.literal($0) }
-            }
-
-            let nothingToAdd = added.isEmpty && addedDate == nil && addedAuthors.isEmpty
-                && addedDOIs.isEmpty && addedPMIDs.isEmpty && addedISBNs.isEmpty
-            // **`refused` 不算「有東西可補」**，但也不能讓它消失：只有 refused 的 citekey
-            // 落在 `unchanged`，而 refused 本身仍隨 Addition 回報。所以這裡兩者都要記。
-            // **`partial` 也要算進來**（#394 verify R9 的修法自己帶出的缺口）：
-            // 若某筆只有部分成功而沒有任何可補值（entry 已有該欄位與結構化值），
-            // 舊條件會讓它落進 `unchanged`——而 `unchanged` 的語意是「Zotero 給不出
-            // 缺著的欄位」，那對這一筆為假,且部分成功的訊息被靜默丟棄。
-            if nothingToAdd && refused.isEmpty && partial.isEmpty {
-                result.unchanged.append(citekey)
-            } else if nothingToAdd {
-                result.refusedOnly.append(
-                    Addition(citekey: citekey, addedFields: [:], addedDate: nil,
-                             refusedIdentifiers: refused,
-                             partiallyParsedIdentifiers: partial))
-            } else {
-                result.additions.append(
-                    Addition(citekey: citekey, addedFields: added, addedDate: addedDate,
-                             addedAuthors: addedAuthors,
-                             addedDOIs: addedDOIs, addedPMIDs: addedPMIDs,
-                             addedISBNs: addedISBNs, refusedIdentifiers: refused,
-                             partiallyParsedIdentifiers: partial))
+        guard !proposals.isEmpty else { return result }
+        let core: AddOnlyEnrichment.Result
+        do {
+            core = try AddOnlyEnrichment.plan(entries: entries, proposals: proposals,
+                                              includeAbsentAuthors: includeAbsentAuthors)
+        } catch {
+            // 結構上不可達：每筆提案恰有 citekey、鍵來自 `mappedFields`（已正規化且無撞鍵）、
+            // 空提案在上面就歸了 `unchanged`。若真的擲出，寧可大聲失敗也不把一批 citekey 歸錯類。
+            preconditionFailure("ZoteroEnrichment 產出的提案被 AddOnlyEnrichment 拒絕：\(error)")
+        }
+        for item in core.items {
+            let ck = proposals[item.proposalIndex].citekey!
+            let o = item.outcome
+            switch item.category {
+            case .added:
+                result.additions.append(Addition(citekey: ck, outcome: o))
+            case .skipped where o.partial.isEmpty:
+                result.unchanged.append(ck)
+            case .skipped, .rejected:
+                // 只有被拒的識別碼、或只有部分成功而沒有任何可補值——與 `unchanged` 分開，
+                // 那一類的語意是「Zotero 給不出缺著的欄位」，對這兩種為假。
+                result.refusedOnly.append(Addition(citekey: ck, addedFields: [:], addedDate: nil,
+                                                   refusedIdentifiers: o.refused,
+                                                   partiallyParsedIdentifiers: o.partial))
+            case .ambiguous, .notFound:
+                // citekey 定位不會 ambiguous；notFound 在上面的 `byCitekey` 已先擋掉。
+                preconditionFailure("citekey 定位的提案不該落在 \(item.category)：\(ck)")
             }
         }
         return result
     }
 
-    /// 把一筆補值套進 entry，回傳**新的** entry（不 mutate 傳入者）。
-    ///
-    /// 只碰 `fields` 的缺鍵與空的 `date`。斷言式防呆：若 `addition` 含一個
-    /// entry 已經有值的鍵，這裡**跳過它**而不是覆寫——計畫與套用之間若有落差
-    /// （例如 plan 之後 store 被改過），保守側是不動既有值。
+    /// 把一筆補值套進 entry，回傳**新的** entry（不 mutate 傳入者）——委派 core 的
+    /// `applied`，保守側紀律（既有值一律不動）在那裡。
     public static func applied(_ addition: Addition, to entry: Entry) -> Entry {
-        var out = entry
-        for (k, v) in addition.addedFields where out.fields[k] == nil {
-            out.fields[k] = v
-        }
-        // 結構化識別碼：同一條保守側紀律——**只在仍為空時**補，不覆寫。
-        if out.doi.isEmpty, !addition.addedDOIs.isEmpty { out.doi = addition.addedDOIs }
-        if out.pmid.isEmpty, !addition.addedPMIDs.isEmpty { out.pmid = addition.addedPMIDs }
-        if out.isbn.isEmpty, !addition.addedISBNs.isEmpty { out.isbn = addition.addedISBNs }
-        if (out.date ?? "").isEmpty, let d = addition.addedDate { out.date = d }
-        // 同一條保守側紀律：計畫之後 store 若已長出作者，一律不動。
-        if out.authors.isEmpty, !addition.addedAuthors.isEmpty {
-            out.authors = addition.addedAuthors
-        }
-        return out
+        AddOnlyEnrichment.applied(addition.outcome, to: entry)
     }
 }

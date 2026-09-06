@@ -116,7 +116,7 @@ public enum IdentifierMigration {
     /// **而它們會被當成「解析不了」而略過，看起來像是資料本身有問題**。
     /// 這是乾跑存在的理由：它讓一個會靜默毀資料的 bug 在寫入前現形。
     static func candidates(_ raw: String, field: String) -> [String] {
-        candidatesWithAnnotations(raw, field: field).values
+        IdentifierTokenizer.candidates(raw, field: field)
     }
 
     /// 同 `candidates`，但**一併回報被剝掉的括號註記**（#394 verify）。
@@ -131,21 +131,7 @@ public enum IdentifierMigration {
     /// `normalized`），而給 ISSN 加 medium 欄位是 schema 改動。裁決留在 #394。
     static func candidatesWithAnnotations(_ raw: String, field: String)
         -> (values: [String], annotations: [String]) {
-        guard absorbsMultipleValues(field: field) else {
-            return (splitTokens(raw), [])
-        }
-        var annotations: [String] = []
-        if let re = try? NSRegularExpression(pattern: #"\(([^)]*)\)"#) {
-            let ns = raw as NSString
-            for m in re.matches(in: raw, range: NSRange(location: 0, length: ns.length)) {
-                let inner = ns.substring(with: m.range(at: 1))
-                    .trimmingCharacters(in: .whitespaces)
-                if !inner.isEmpty { annotations.append(inner) }
-            }
-        }
-        let stripped = raw.replacingOccurrences(of: #"\([^)]*\)"#, with: " ",
-                                                options: .regularExpression)
-        return (splitTokens(stripped), annotations)
+        IdentifierTokenizer.candidatesWithAnnotations(raw, field: field)
     }
 
     /// 值 ＋ 緊跟在它後面的括號註記（#394 verify）。
@@ -160,41 +146,13 @@ public enum IdentifierMigration {
     /// **常設路徑也在用**（#394 verify R5 ①）：`import-zotero` 的跟隨語意需要同一個
     /// 切法——Zotero 把多個號塞在一個字串裡,而那正是本函式為之而寫的形狀。
     ///
-    /// ⚠️ **耦合**:本型別是一次性遷移工具,而 `no-compat-fallback` 要求遷移「退場即刪」。
+    /// ~~⚠️ **耦合**:本型別是一次性遷移工具,而 `no-compat-fallback` 要求遷移「退場即刪」。
     /// 刪它之前必須先把這兩個函式搬到 `AkashicCore`（識別碼解析不是遷移的職責）。
-    /// 追蹤:#427 的 follow-up。
+    /// 追蹤:#427 的 follow-up。~~ → **已搬**（#458，2026-09-06）：本體在
+    /// `AkashicCore.IdentifierTokenizer`，這裡與下方同名函式全是轉發——遷移退場時整段可刪。
     public static func qualifiedCandidates(_ raw: String, field: String)
         -> [(value: String, qualifier: String?)] {
-        guard absorbsMultipleValues(field: field) else {
-            return splitTokens(raw).map { ($0, nil) }
-        }
-        var out: [(value: String, qualifier: String?)] = []
-        var token = ""
-        var i = raw.startIndex
-        func flush() {
-            let s = token.trimmingCharacters(in: .whitespaces)
-            if !s.isEmpty { out.append((s, nil)) }
-            token = ""
-        }
-        while i < raw.endIndex {
-            let c = raw[i]
-            if c == "(" {
-                flush()
-                var inner = ""
-                i = raw.index(after: i)
-                while i < raw.endIndex, raw[i] != ")" { inner.append(raw[i]); i = raw.index(after: i) }
-                if i < raw.endIndex { i = raw.index(after: i) }          // 跳過 ")"
-                let q = inner.trimmingCharacters(in: .whitespaces)
-                // 歸屬於前面最近的值。前面沒有值就丟掉——但 `candidatesWithAnnotations`
-                // 仍會回報它，所以不是靜默。
-                if !q.isEmpty, let last = out.indices.last { out[last].qualifier = q }
-                continue
-            }
-            if c == "," || c.isWhitespace { flush() } else { token.append(c) }
-            i = raw.index(after: i)
-        }
-        flush()
-        return out
+        IdentifierTokenizer.qualifiedCandidates(raw, field: field)
     }
 
     /// format 12 → 13 的行級轉換。**純函式，可單獨測**（#394 verify R4）。
@@ -250,10 +208,7 @@ public enum IdentifierMigration {
     }
 
     private static func splitTokens(_ stripped: String) -> [String] {
-        stripped
-            .split(whereSeparator: { $0 == "," || $0.isWhitespace })
-            .map(String.init)
-            .filter { !$0.isEmpty }
+        IdentifierTokenizer.splitTokens(stripped)
     }
 
     /// 帶限定詞的正規化＋去重（#394 verify）。
@@ -276,35 +231,19 @@ public enum IdentifierMigration {
     /// 而那一篇的 citekey 不一定排在前面。複製一份規則到第二處必然分岔，
     /// 而分岔的方向就是「其中一處安靜地丟掉 qualifier」。
     static func mergePreferringQualified<T: Identifier>(_ v: T, into out: inout [T]) {
-        if let idx = out.firstIndex(of: v) {
-            if out[idx].qualifier == nil, v.qualifier != nil { out[idx] = v }
-        } else {
-            out.append(v)
-        }
+        IdentifierTokenizer.mergePreferringQualified(v, into: &out)
     }
 
     public static func normalizedUniqueQualified<T: Identifier>(
         _ pairs: [(value: String, qualifier: String?)], _ make: (String) -> T?
     ) -> (values: [T], unparseable: [String]) {
-        var out: [T] = []
-        var bad: [String] = []
-        for (rawValue, q) in pairs {
-            guard let v = make(rawValue) else { bad.append(rawValue); continue }
-            mergePreferringQualified(v.withQualifier(q), into: &out)
-        }
-        return (out, bad)
+        IdentifierTokenizer.normalizedUniqueQualified(pairs, make)
     }
 
     /// 正規化 ＋ **去重**（task 8.2：先正規化再去重，去重後仍 >1 者才是真多號）。
     static func normalizedUnique<T: Identifier>(_ raws: [String], _ make: (String) -> T?)
         -> (values: [T], unparseable: [String]) {
-        var out: [T] = []
-        var bad: [String] = []
-        for r in raws {
-            guard let v = make(r) else { bad.append(r); continue }
-            if !out.contains(v) { out.append(v) }
-        }
-        return (out, bad)
+        IdentifierTokenizer.normalizedUnique(raws, make)
     }
 
     /// 這個欄位的多值該吸收，還是交給人？**按種類分，而分法是量出來的。**
@@ -325,7 +264,7 @@ public enum IdentifierMigration {
     ///
     /// 不吸收 ≠ 丟棄：那一筆會出現在報告的 `skipped` 裡、原值留在 `fields`，交人裁。
     public static func absorbsMultipleValues(field: String) -> Bool {
-        field == "issn" || field == "isbn"
+        IdentifierTokenizer.absorbsMultipleValues(field: field)
     }
 
     /// **format 12 → 13 的形狀前置升級**（#394 verify）：`issn:`／`isbn:` 序列的

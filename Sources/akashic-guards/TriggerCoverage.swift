@@ -338,6 +338,31 @@ func triggerCoverage(argv: [String]) -> Int32 {
         "plugin/skills/akashic-promote-literals/scripts/literal-census.sh",
         "plugin/skills/akashic-promote-literals/scripts/hash-merging-ranges.txt",
         "plugin/skills/akashic-promote-literals/scripts/tests/derive-hash-extenders.swift",
+        // ── 以下八條由下方「守衛讀的檔必須在受保護集合」檢查找出（#518）─────────────
+        //
+        // **為什麼是顯式條目而不是放寬 glob。** 兩個方案各有一個**沉默方向**：
+        //   · 顯式條目 —— 新增（守衛開始讀一個沒被保護的檔）靜默 ← 就是 #518
+        //   · 放寬 glob —— 刪除（受保護檔被刪掉）靜默；glob 只是回傳更少的檔，
+        //     而 `#433` 的註解已記過同型：「刪檔會讓那支守衛整個離開覆蓋表，
+        //     而輸出仍印 ✓ 涵蓋 6/6」
+        // 所以兩個都不選：**顯式條目 ＋ 一道會紅的檢查**。新增由那道檢查擋（紅到你把它
+        // 加進來），刪除由上方 `missing` 前置檢查擋。兩個方向都不沉默。
+        //
+        // #518 立案時以為是一個實例；掃過 23 支守衛後是**五個**（`plugin.json` 那條尤其
+        // 諷刺：`plugin-store-format-parity` 整支守衛的職責就是比對它，而改它不會觸發任何
+        // 逐對檢查）。手維護清單不自我維持，自此不再是推論而是 n=5 的量測。
+        "plugin/skills/akashic-venue-works/scripts/ndjson-abstracts-to-proposals.py",
+        "plugin/.claude-plugin/plugin.json",
+        "Sources/akashic-mcp/Server.swift",
+        "Sources/akashic/CLI.swift",
+        "Sources/akashic-guards/MarkerParityMutationsData.swift",
+        "Sources/akashic-guards/main.swift",
+        ".githooks/run-guards.sh",
+        // 第九條由新檢查自己找出來（立案時的手工掃描漏了 `mcpb/` 這個路徑根）——
+        // 而它是 store format 的**第三份宣告來源**、且是出貨物（`release-signed.sh`
+        // 會 zip 進 `.mcpb`）。`census-parity.yml` 的 paths 早就列了它，逐對迴圈卻
+        // 一直看不到這一對。檢查上線的第一次執行就抓到自己的作者漏掉的那一個。
+        "mcpb/manifest.json",
     ]
     // **兩個 glob 根要對稱**（#407 R50）：`.claude/rules/*.md` 已升成 live glob，而
     // 這一側曾是單一寫死路徑。`plugin/rules/` 一長出第二個檔，`declared()` 就會再次
@@ -375,6 +400,35 @@ func triggerCoverage(argv: [String]) -> Int32 {
         return 1
     }
     let PROTECTED = Array(Set(GUARDS + DATA)).sorted()
+
+    // ── 撞名消歧（#518）───────────────────────────────────────────────────
+    //
+    // 報表原本一律印 `base(f)`，而**守衛與它的被測檔可以同名**——
+    // `plugin/tests/ndjson-abstracts-to-proposals.py`（守衛）與
+    // `plugin/skills/akashic-venue-works/scripts/ndjson-abstracts-to-proposals.py`
+    // （被測腳本）就是。同名時報表會印出兩列逐字相同的結果，而在被測檔還沒進
+    // `PROTECTED` 的那段期間更糟：唯一那列是**守衛在保護它自己**，卻讀起來像被測檔被涵蓋了
+    // ——缺口不是沉默，是**偽裝成一個通過**。
+    //
+    // 這份報表的價值全在人讀得懂（見上方「把它攤開來——讓漏掉的那條在人眼前缺席」），
+    // 所以只修收錄而不修顯示，等於把隱形的缺口換成讀不懂的報表。
+    // **只在撞名時**加後綴：不撞名的一律維持 basename，既有輸出寬度不變。
+    let dupBases: Set<String> = {
+        var c: [String: Int] = [:]
+        for p in PROTECTED { c[base(p), default: 0] += 1 }
+        return Set(c.filter { $0.value > 1 }.keys)
+    }()
+    func label(_ p: String) -> String {
+        guard dupBases.contains(base(p)) else { return base(p) }
+        let parts = p.components(separatedBy: "/")
+        var n = 2
+        while n < parts.count {
+            let suffix = parts.suffix(n).joined(separator: "/")
+            if PROTECTED.filter({ $0.hasSuffix("/" + suffix) || $0 == suffix }).count == 1 { return suffix }
+            n += 1
+        }
+        return p
+    }
 
     // **整行就是宣告**——行首是註解標記、行尾沒有別的東西。上一版是裸的子串，它認不出
     // 「這是宣告」與「這是在談論宣告」：一個把該字面寫進**字串**或 docstring 說明的檔案
@@ -465,6 +519,38 @@ func triggerCoverage(argv: [String]) -> Int32 {
     // 標記寫成 `[#/]*` 而非 `(?:#|//)?`（#407 R30）：後者只吃**一個** `#` 或**恰好兩個**
     // `/`，於是 Swift 慣用的 `///` 與 shell 的段標 `##` 對 DECLARE 與本條**同時**隱形。
     let DECL_SHAPED = #"^\s*[#/]*\s*trigger-coverage:"#
+
+    // ── 守衛讀的檔必須在受保護集合（#518）──────────────────────────────────
+    //
+    // **這道檢查是收錄判準本身。** 在它之前，`PROTECTED` 是 glob ＋ 手維護清單，而
+    // 「有沒有漏收」沒有任何東西在看——漏收的後果是那一對**結構上進不了**下方的逐對
+    // 迴圈（`for f in PROTECTED`），於是報表照印「無缺口」。#516 就是這樣過去的。
+    //
+    // 判準：守衛的**程式碼**（`codeOnly()`，註解已剝掉）裡逐字出現一個 repo 相對路徑，
+    // 而那個檔**存在於磁碟**卻不在 `PROTECTED`。三個條件都是機械可判定的事實，所以進
+    // `fails` 而非 `warnings`（分界見上方：降級的是「我們有沒有能力判定」，不是嚴重度）。
+    //
+    // **抓不到的那一半明寫出來**：把路徑組出來的守衛（`ROOT / dir / name`）不會讓字面
+    // 出現，這道檢查對它是盲的——那正是 `# trigger-coverage: reads` 宣告機制存在的理由，
+    // 兩者互補。含 `*` 的字面（glob 樣式）跳過：那是 `globFiles` 的領域。
+    let PATH_ROOTS = ["plugin/", "Sources/", ".claude/", ".githooks/", ".github/",
+                      "docs/", "openspec/", "changelog/", "Tests/", "mcpb/"]
+    let PATH_LITERAL = #"["'`]([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.*-]+)+\.[A-Za-z0-9]+)["'`]"#
+    for g in GUARDS {
+        let code = codeOnly(g)
+        var seen = Set<String>()
+        for m in matches(code, PATH_LITERAL) {
+            let pth = (code as NSString).substring(with: m.range(at: 1))
+            guard PATH_ROOTS.contains(where: { pth.hasPrefix($0) }) else { continue }
+            guard !pth.contains("*"), pth != g, !seen.contains(pth) else { continue }
+            guard fileExists(pth), !PROTECTED.contains(pth) else { continue }
+            seen.insert(pth)
+            fails.append("\(label(g)) 讀 \(label(pth))，但 \(label(pth)) 不在受保護集合"
+                       + "——逐對迴圈跑不到這一對，報表會照印「無缺口」。"
+                       + "把它加進 `DATA`，或確認那不是真的依賴")
+        }
+    }
+
     for g in GUARDS {
         let raw = rawFile(g)
         let lines = raw.components(separatedBy: "\n")
@@ -596,8 +682,8 @@ func triggerCoverage(argv: [String]) -> Int32 {
         // 標出來源：宣告來的加 ⟨宣⟩。一個誤宣告（教學範例被當成宣告）會在這裡顯示成
         // 「這個守衛讀了它其實不讀的東西」——約定被違反時的可見性。
         let parts = READS[g]!.sorted().filter { $0 != g }
-            .map { base($0) + (decl.contains($0) ? "⟨宣⟩" : "") }
-        print("   \(pad(base(g), 32)) → \(parts.isEmpty ? "（只有自己）" : parts.joined(separator: "、"))")
+            .map { label($0) + (decl.contains($0) ? "⟨宣⟩" : "") }
+        print("   \(pad(label(g), 40)) → \(parts.isEmpty ? "（只有自己）" : parts.joined(separator: "、"))")
     }
     print("")
 
@@ -611,10 +697,10 @@ func triggerCoverage(argv: [String]) -> Int32 {
             covered += readers.filter { w.runs.contains(base($0)) }
         }
         let gap = readers.filter { !covered.contains($0) }
-        print("\(gap.isEmpty ? "✓" : "✗") \(pad(base(f), 34)) 讀它的守衛 \(readers.count)｜CI 未覆蓋 \(gap.count)")
+        print("\(gap.isEmpty ? "✓" : "✗") \(pad(label(f), 40)) 讀它的守衛 \(readers.count)｜CI 未覆蓋 \(gap.count)")
         for g in gap {
             let whereS = HOOK.contains(base(g)) ? "pre-push 有" : "pre-push 也沒有"
-            fails.append("改 \(base(f)) 時 \(base(g)) 不在任何 CI workflow 跑（\(whereS)）")
+            fails.append("改 \(label(f)) 時 \(label(g)) 不在任何 CI workflow 跑（\(whereS)）")
         }
     }
 

@@ -27,7 +27,7 @@ let triggerCoverageMutationCases: [TCMCase] = [
             (path: "plugin/tests/plugin-store-format-parity.py",
              old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
              new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n_probe = ROOT / \"Sources/akashic-guards/ShellLex.swift\"\n"),
-        ], expect: "ShellLex.swift 不在受保護集合"),
+        ], expect: "讀 `Sources/akashic-guards/ShellLex.swift`"),
     TCMCase(isWarn: false, desc: "從守衛清單拿掉一支守衛",
         edits: [
             (path: ".githooks/run-guards.sh", old: "bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh\n", new: ""),

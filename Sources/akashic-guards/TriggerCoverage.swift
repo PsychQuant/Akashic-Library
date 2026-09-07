@@ -338,19 +338,50 @@ func triggerCoverage(argv: [String]) -> Int32 {
         "plugin/skills/akashic-promote-literals/scripts/literal-census.sh",
         "plugin/skills/akashic-promote-literals/scripts/hash-merging-ranges.txt",
         "plugin/skills/akashic-promote-literals/scripts/tests/derive-hash-extenders.swift",
-        // ── 以下八條由下方「守衛讀的檔必須在受保護集合」檢查找出（#518）─────────────
+        // ── 以下八條是 #518 補進來的 ─────────────────────────────────────────
         //
-        // **為什麼是顯式條目而不是放寬 glob。** 兩個方案各有一個**沉默方向**：
+        // **為什麼是顯式條目而不是放寬 glob。** 兩個方案各有一個沉默方向：
         //   · 顯式條目 —— 新增（守衛開始讀一個沒被保護的檔）靜默 ← 就是 #518
         //   · 放寬 glob —— 刪除（受保護檔被刪掉）靜默；glob 只是回傳更少的檔，
         //     而 `#433` 的註解已記過同型：「刪檔會讓那支守衛整個離開覆蓋表，
         //     而輸出仍印 ✓ 涵蓋 6/6」
-        // 所以兩個都不選：**顯式條目 ＋ 一道會紅的檢查**。新增由那道檢查擋（紅到你把它
-        // 加進來），刪除由上方 `missing` 前置檢查擋。兩個方向都不沉默。
+        // 裁決：**顯式條目 ＋ 一道會紅的檢查**（下方「守衛讀的檔必須在受保護集合」）。
         //
-        // #518 立案時以為是一個實例；掃過 23 支守衛後是**五個**（`plugin.json` 那條尤其
-        // 諷刺：`plugin-store-format-parity` 整支守衛的職責就是比對它，而改它不會觸發任何
-        // 逐對檢查）。手維護清單不自我維持，自此不再是推論而是 n=5 的量測。
+        // **但「兩個方向都不沉默」是假的。** 那句話是 #518 的第一版寫在這裡與 changelog
+        // 裡的，被 R1 verify 的 Devil's Advocate 用實測推翻、coordinator 獨立重現。三個量測：
+        //
+        //   1. **刪檔方向只涵蓋顯式字面。** `missing`（下方）檢查的是「清單裡列的路徑還在
+        //      不在磁碟上」，而 glob 產生的成員永遠不會「列了卻不存在」——它只會變少。
+        //      `PROTECTED` 的 49 條裡**只有 14 條是顯式的**：`GUARDS` 整組是 glob（23 條）、
+        //      下方 `DATA` 自己還有兩個 glob（`.claude/rules/*.md` 11 條、`plugin/rules/*.md`
+        //      1 條）。**35/49（71%）刪掉不會出聲。** 實測刪掉一整支守衛
+        //      `plugin/tests/review-claim-audit.sh` → 守衛 23→22、受保護 49→48、
+        //      **rc=0、照印「無缺口」**。
+        //      也就是說：拿來否決 glob 的那個性質，在被選中的方案裡已經涵蓋 71%。
+        //
+        //   2. **「從 `DATA` 拿掉一條」與「檔案被刪掉」是兩件事**，而前者只有在**某支守衛的
+        //      程式碼裡有那條路徑的引號字面**時才會紅。實測 14 條顯式條目裡 **5 條看不見**：
+        //      `hash-merging-ranges.txt`、`derive-hash-extenders.swift`、
+        //      `MarkerParityMutationsData.swift`、`Venue.swift`（四條完全靜默：rc=0、
+        //      印「無缺口」、標頭少一）與 `CLAUDE.md`（會紅，但紅的是「宣告解析到零」
+        //      這個別的機制，不是這道檢查）。
+        //      **`MarkerParityMutationsData.swift` 是最尖的一格**：它是本輪自己補進來的、
+        //      是真依賴（`RuleProseGuards.swift:285` 真的讀它），而拿掉它一聲不吭——
+        //      #518 的標題所描述的形狀，發生在 #518 自己修完之後、在它自己加的條目上。
+        //
+        //   3. **新增方向只涵蓋「引號緊鄰完整路徑」的寫法。** 見下方檢查處的盲點清單。
+        //
+        // **裁決仍然成立**（顯式 ＋ 檢查在「新增」那一軸嚴格優於純顯式，而刪除那一軸兩案
+        // 同樣沉默），但它買到的是**一部分**，不是兩個完整的方向。這裡選擇把覆蓋率降級成
+        // 誠實的散文而不是當場補一道機制：真正的修法（`PROTECTED.count`／`GUARDS.count`
+        // 下降時出聲）要在 `zero-instance-guards` 加一列裁決，那是人要做的判斷。追蹤 #522。
+        //
+        // **量測（逐項，#518 R1 重量）**：這道檢查**自己**找出 **5 支守衛／8 對／7 個檔**；
+        // 第 8 個檔 `MarkerParityMutationsData.swift` 是**照報表手補的**——它真正的讀者
+        // `RuleProseGuards.swift:285` 把路徑組出來，引號不緊鄰，這道檢查看不到。
+        // 合計 **6 支守衛／9 對／8 個相異檔**（`.githooks/run-guards.sh` 被兩支守衛引用，
+        // 在對數裡算兩次、在檔數裡算一次）。受保護 41 → 49。
+        // 手維護清單不自我維持，自此不再是推論而是 n=6 的量測。
         "plugin/skills/akashic-venue-works/scripts/ndjson-abstracts-to-proposals.py",
         "plugin/.claude-plugin/plugin.json",
         "Sources/akashic-mcp/Server.swift",
@@ -358,7 +389,7 @@ func triggerCoverage(argv: [String]) -> Int32 {
         "Sources/akashic-guards/MarkerParityMutationsData.swift",
         "Sources/akashic-guards/main.swift",
         ".githooks/run-guards.sh",
-        // 第九條由新檢查自己找出來（立案時的手工掃描漏了 `mcpb/` 這個路徑根）——
+        // 第八條由新檢查自己找出來（立案時的手工掃描漏了 `mcpb/` 這個路徑根）——
         // 而它是 store format 的**第三份宣告來源**、且是出貨物（`release-signed.sh`
         // 會 zip 進 `.mcpb`）。`census-parity.yml` 的 paths 早就列了它，逐對迴圈卻
         // 一直看不到這一對。檢查上線的第一次執行就抓到自己的作者漏掉的那一個。
@@ -530,9 +561,26 @@ func triggerCoverage(argv: [String]) -> Int32 {
     // 而那個檔**存在於磁碟**卻不在 `PROTECTED`。三個條件都是機械可判定的事實，所以進
     // `fails` 而非 `warnings`（分界見上方：降級的是「我們有沒有能力判定」，不是嚴重度）。
     //
-    // **抓不到的那一半明寫出來**：把路徑組出來的守衛（`ROOT / dir / name`）不會讓字面
-    // 出現，這道檢查對它是盲的——那正是 `# trigger-coverage: reads` 宣告機制存在的理由，
-    // 兩者互補。含 `*` 的字面（glob 樣式）跳過：那是 `globFiles` 的領域。
+    // **抓不到的東西明寫出來（#518 R1 重量，五種寫法逐一實測）。** 這道 ratchet 保證的
+    // **不是**「守衛的依賴都受保護」，而是「**恰好用引號緊鄰完整路徑寫出來的**依賴都受
+    // 保護」。以下全部靜默通過（目標都是一個真的存在、未受保護的檔）：字串串接
+    // （`"docs/" + "store-format.md"`）、`./` 前綴（過不了 `PATH_ROOTS`）、雙斜線
+    // （過不了 regex）、`os.path.join("docs", "store-format.md")`、以及組出來的路徑
+    // （`abspath("\(plugin)/../Sources/…")`——本表就有一條踩到）。
+    //
+    // **`# trigger-coverage: reads` 宣告機制補不了這個洞——上一版的註解把它說反了。**
+    // `declared()`（上方）最後一步是 `PROTECTED.filter { globMatch($0, pat) }`：宣告只能
+    // 在 `PROTECTED` **內部做選取**，永遠無法把一個檔**帶進** `PROTECTED`。實測對一個
+    // 未受保護的檔只寫宣告 → **多兩條紅**（「宣告機制失效了」＋「它等於沒寫」），不是
+    // 覆蓋。宣告機制互補的是**歸屬**（把一個已在集合裡的檔正確算給某支守衛），不是
+    // **收錄**——而 #518 從頭到尾講的是收錄。
+    //
+    // **另外兩個刻意的跳過**：含 `*` 的字面（glob 樣式）屬 `globFiles` 的領域；檔案
+    // **不存在**時直接跳過——那一半（守衛引用已刪除的檔）是 #521，不是防呆。
+    //
+    // `PATH_ROOTS` 本身也是一份手維護白名單，而**它已經漏過一次**（`mcpb/` 是這道檢查
+    // 上線第一次執行才補的）。目前漏著 repo 根目錄的 `AkashicApp/`、`Tools/`、`Vendor/`、
+    // `mcps/`、`repos/`、`scripts/` 六個——零實例，但同一個失效搬了一層。
     let PATH_ROOTS = ["plugin/", "Sources/", ".claude/", ".githooks/", ".github/",
                       "docs/", "openspec/", "changelog/", "Tests/", "mcpb/"]
     let PATH_LITERAL = #"["'`]([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.*-]+)+\.[A-Za-z0-9]+)["'`]"#
@@ -545,9 +593,16 @@ func triggerCoverage(argv: [String]) -> Int32 {
             guard !pth.contains("*"), pth != g, !seen.contains(pth) else { continue }
             guard fileExists(pth), !PROTECTED.contains(pth) else { continue }
             seen.insert(pth)
-            fails.append("\(label(g)) 讀 \(label(pth))，但 \(label(pth)) 不在受保護集合"
+            // **這裡印完整路徑，不用 `label()`**（#518 R1，三席獨立命中）。`label()` 的
+            // 唯一性是相對 `PROTECTED` 求的，而 `pth` 依定義**不在** `PROTECTED` 裡：
+            // 同 basename 時它會印出另一個、而且是**已受保護**的檔，於是訊息叫人做的事
+            // （把它加進 `DATA`）照做無效——本 change 要消滅的「缺口偽裝成通過」，換到
+            // 失敗訊息裡又長一次。印完整路徑同時解決另一半：那就是要貼進 `DATA` 的字串。
+            // **不再提供「或確認那不是真的依賴」這條出路**——實測它沒有落點（無 ignore
+            // 清單、無反向宣告），寫出來只會讓人去找一個不存在的機制。
+            fails.append("\(label(g)) 讀 `\(pth)`，但它不在受保護集合"
                        + "——逐對迴圈跑不到這一對，報表會照印「無缺口」。"
-                       + "把它加進 `DATA`，或確認那不是真的依賴")
+                       + "把 \"\(pth)\" 加進 `DATA`")
         }
     }
 

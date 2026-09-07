@@ -352,29 +352,49 @@ func triggerCoverage(argv: [String]) -> Int32 {
         //
         //   1. **刪檔方向只涵蓋顯式字面。** `missing`（下方）檢查的是「清單裡列的路徑還在
         //      不在磁碟上」，而 glob 產生的成員永遠不會「列了卻不存在」——它只會變少。
-        //      `PROTECTED` 的 49 條裡**只有 14 條是顯式的**：`GUARDS` 整組是 glob（23 條）、
-        //      下方 `DATA` 自己還有兩個 glob（`.claude/rules/*.md` 11 條、`plugin/rules/*.md`
-        //      1 條）。**35/49（71%）刪掉不會出聲。** 實測刪掉一整支守衛
-        //      `plugin/tests/review-claim-audit.sh` → 守衛 23→22、受保護 49→48、
+        //      `PROTECTED` 的 54 條組成（實測）：**顯式 19**、`GUARDS` **23**
+        //      （**7 個 glob ＋ 16 個由 `swiftGuards()` 解析 `main.swift` 的 `case` 分派**——
+        //      不是「整組 glob」，那是本檔上一版寫錯的機制描述）、rules glob **12**
+        //      （`.claude/rules/*.md` 11 ＋ `plugin/rules/*.md` 1）。
+        //      **這道守衛自己對 32 條刪檔沉默**（35 條 glob 成員裡 3 條會出聲：
+        //      `entity-backlink-completeness.md` 與 `mcp-cli-parity.md` 被**具名宣告**指到、
+        //      `assertions-must-be-measured.md` 是 `plugin/rules/*.md` 的唯一成員故 glob 解析到零）。
+        //      實測刪掉一整支守衛 `plugin/tests/review-claim-audit.sh` → 守衛 23→22、
         //      **rc=0、照印「無缺口」**。
-        //      也就是說：拿來否決 glob 的那個性質，在被選中的方案裡已經涵蓋 71%。
+        //
+        //      **但「32 條可以無聲消失」對整條 pre-push 是過度悲觀的**（R2 verify 更正）：
+        //      那 32 條裡 **23 條在 pre-push 的別的階段是大聲的**——16 支 Swift 守衛的檔一刪，
+        //      `main.swift` 的 `case` 分派就找不到符號、`swift build` 直接失敗（pre-push 第一
+        //      階段就是它）；7 支腳本守衛一刪，`run-guards.sh` 以路徑呼叫它們、rc=127。
+        //      **整條 pre-push 都靜默的只剩 9 個 `.claude/rules/*.md`（9/54，17%）。**
         //
         //   2. **「從 `DATA` 拿掉一條」與「檔案被刪掉」是兩件事**，而前者只有在**某支守衛的
-        //      程式碼裡有那條路徑的引號字面**時才會紅。實測 14 條顯式條目裡 **5 條看不見**：
-        //      `hash-merging-ranges.txt`、`derive-hash-extenders.swift`、
-        //      `MarkerParityMutationsData.swift`、`Venue.swift`（四條完全靜默：rc=0、
-        //      印「無缺口」、標頭少一）與 `CLAUDE.md`（會紅，但紅的是「宣告解析到零」
-        //      這個別的機制，不是這道檢查）。
+        //      程式碼裡有那條路徑的引號字面**時才會紅。實測 19 條顯式條目裡 **10 條看不見**。
         //      **`MarkerParityMutationsData.swift` 是最尖的一格**：它是本輪自己補進來的、
         //      是真依賴（`RuleProseGuards.swift:285` 真的讀它），而拿掉它一聲不吭——
         //      #518 的標題所描述的形狀，發生在 #518 自己修完之後、在它自己加的條目上。
         //
+        //      **10/19 這個比例比修法前更差，而那是本輪自己造成的**：R2 補進來的那 5 條
+        //      （下方 `AuditGuardsMutationsData` 那一段）唯一的讀者就是那個**不被掃描的資料
+        //      檔**，所以它們一進來就全部落在盲區。修法前是 5/14。把它寫出來而不是只報
+        //      「受保護 54」，因為後者看起來像單調的進步。
+        //
         //   3. **新增方向只涵蓋「引號緊鄰完整路徑」的寫法。** 見下方檢查處的盲點清單。
         //
-        // **裁決仍然成立**（顯式 ＋ 檢查在「新增」那一軸嚴格優於純顯式，而刪除那一軸兩案
-        // 同樣沉默），但它買到的是**一部分**，不是兩個完整的方向。這裡選擇把覆蓋率降級成
-        // 誠實的散文而不是當場補一道機制：真正的修法（`PROTECTED.count`／`GUARDS.count`
-        // 下降時出聲）要在 `zero-instance-guards` 加一列裁決，那是人要做的判斷。追蹤 #522。
+        // **裁決仍然成立，而且比上一版寫的更強**（R2 verify 更正——上一版寫「刪除那一軸兩案
+        // 同樣沉默」，那是從「兩個方向都不沉默」過度擺盪到另一端，而且同樣沒量過 glob 那一側）：
+        //   · **刪除軸**：顯式條目 **19/19 由 `missing` 逐條具名**；glob 成員 **0**
+        //     （結構上不可能——glob 不會「列了卻不存在」）。顯式嚴格更優 19 個檔。
+        //   · **新增軸**：同形放寬 glob（`plugin/skills/*/scripts/*.{sh,py}`）只涵蓋得到本輪
+        //     8 個新檔裡的 **1 個**；要涵蓋 8/8 得同時放寬六條 glob 根、**156 個檔進
+        //     `PROTECTED`**（54 → 191）。只放寬 `Sources/*/*.swift` 一條實跑就是
+        //     **rc=1、受保護 172、72 條缺口**。
+        // 兩軸都是顯式勝，所以裁決不必改；要改的是**別把它說成完整的保證**。
+        //
+        // 這裡選擇把覆蓋率降級成誠實的散文而不是當場補一道機制，理由**不是**「零實例」——
+        // `GUARDS.count` 下降有實測前例，本檔 `#433` 那段就記著「21 支 → 6 支而輸出照印
+        // ✓ 涵蓋 6/6」。真正的理由是：根治要先分開「守衛自己讀的路徑」與「注入用的 payload
+        // 路徑」（見下方第六個盲點），那是判準問題不是一行改動。追蹤 #522。
         //
         // **量測（逐項，#518 R1 重量）**：這道檢查**自己**找出 **5 支守衛／8 對／7 個檔**；
         // 第 8 個檔 `MarkerParityMutationsData.swift` 是**照報表手補的**——它真正的讀者
@@ -389,11 +409,34 @@ func triggerCoverage(argv: [String]) -> Int32 {
         "Sources/akashic-guards/MarkerParityMutationsData.swift",
         "Sources/akashic-guards/main.swift",
         ".githooks/run-guards.sh",
-        // 第八條由新檢查自己找出來（立案時的手工掃描漏了 `mcpb/` 這個路徑根）——
+        // `mcpb/manifest.json` 這一條由新檢查自己找出來（立案時的手工掃描漏了那個路徑根）——
         // 而它是 store format 的**第三份宣告來源**、且是出貨物（`release-signed.sh`
         // 會 zip 進 `.mcpb`）。`census-parity.yml` 的 paths 早就列了它，逐對迴圈卻
         // 一直看不到這一對。檢查上線的第一次執行就抓到自己的作者漏掉的那一個。
         "mcpb/manifest.json",
+        // ── R2 verify 找到的第六個盲點：守衛的**資料檔**完全不被掃描 ──────────
+        //
+        // 下方那道檢查只掃 `GUARDS`，而 `Sources/akashic-guards/*Data.swift`（四個：
+        // `AuditGuardsMutations`／`BacklinkRatchet`／`MarkerParityMutations`／
+        // `TriggerCoverageMutations`）**不是守衛**——`main.swift` 沒有對應的 `case`，
+        // 所以整個檔一行都不會被看到。而 `AuditGuardsMutationsData.swift` 用
+        // `AGMEdit(path: "…")` 逐字寫著 20 個路徑，其中 **5 個存在卻未受保護**。
+        //
+        // **這一格特別要記**：上面那份「五種寫法會靜默繞過」的清單**全部零實例**
+        // （示範用的是構造出來的例子），而這第六種**今天就有 5 個實例**，且它們全都
+        // 已在 `census-parity.yml` 的 `paths:` 裡——與 `mcpb/manifest.json` 完全同型。
+        // 誠實邊界列滿了假想的洞，漏掉唯一一個真的。
+        //
+        // **為什麼不直接把 `*Data.swift` 納入掃描（那才是根治）**：
+        // `TriggerCoverageMutationsData.swift` 裡有 `"Sources/akashic-guards/ShellLex.swift"`
+        // ——那是**負控刻意選的、必須永遠不在 `PROTECTED` 的目標**。納入掃描會讓這支
+        // 守衛因為自己的負控 payload 而永久變紅。要根治得先分開「守衛自己讀的路徑」與
+        // 「注入用的 payload 路徑」，那是判準問題不是一行改動——#522。
+        ".github/workflows/census-parity.yml",
+        "Sources/AkashicCore/Models.swift",
+        "Sources/AkashicCore/Temporal.swift",
+        "Sources/akashic/CreateEntryCommand.swift",
+        "plugin/skills/akashic-promote-literals/SKILL.md",
     ]
     // **兩個 glob 根要對稱**（#407 R50）：`.claude/rules/*.md` 已升成 live glob，而
     // 這一側曾是單一寫死路徑。`plugin/rules/` 一長出第二個檔，`declared()` 就會再次

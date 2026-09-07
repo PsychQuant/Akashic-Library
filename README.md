@@ -54,7 +54,7 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
                                  `migrate-venues` / `migrate-identifiers` /
                                  `bootstrap-people` / `bootstrap-organizations` /
                                  `bootstrap-venues` / `resolve-people` /
-                                 `resolve-organizations` / `enrich-from-zotero`
+                                 `resolve-organizations` / `enrich-from-zotero` / `enrich`
                                  （唯一來源是 `DestructiveTargetGate.destructiveCommands`；
                                  **這裡刻意不寫個數**——先前寫「六個」而原始碼已是九個，
                                  數字與清單分岔過一次）——在 `--apply` 時若既未給
@@ -279,7 +279,7 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 
 - **Phase 1（完結）**：store 地基 — 格式規格、AkashicKit、Zotero 單向 pull、CLI。
   Spec：[docs/specs/2026-07-21-akashic-library-phase1-design.md](docs/specs/2026-07-21-akashic-library-phase1-design.md)
-- **Phase 2（本階段）**：MCP 整合 — schema hash 機制、`akashic-mcp`（30 tools）、發布統一。
+- **Phase 2（本階段）**：MCP 整合 — schema hash 機制、`akashic-mcp`（31 tools）、發布統一。
   Spec：[docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md](docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md)
 - **Phase 3（本階段）**：原生 App — 管理工作台（人工裁決 GUI）+ Canvas 關係圖。
   Spec：[docs/specs/2026-07-22-akashic-library-phase3-app-design.md](docs/specs/2026-07-22-akashic-library-phase3-app-design.md)
@@ -473,7 +473,7 @@ store 永遠是全集——library 只是視角，成員關係存在 entry 的 `
 ⚠ 並發限制：對**同一 entry** 並發執行 membership 寫入（CLI 與 MCP 同時 `library add/remove`）
 不保證安全——read-modify-write 無跨程序鎖，後寫者可能靜默蓋掉先寫者（跨程序鎖為 #7
 store 硬化範疇）。`create` 為 exclusive-create（並發同 key 恰一方成功）。單一操作者依序使用不受影響。
-工具面：**30 tools**（實測 `grep -oE 'Tool\(name: "akashic_[a-z_]+"' Sources/akashic-mcp/Server.swift | sort -u | wc -l`；逐格裁決見 `.claude/rules/mcp-cli-parity.md` 的封閉列舉）——9 讀（search/get_entry/relations/graph/export/people/person/doctor/divergences 列歧異）+ akashic_files（list/use——多檔案切換）+ akashic_libraries（list/create/add/remove）+
+工具面：**31 tools**（實測 `grep -oE 'Tool\(name: "akashic_[a-z_]+"' Sources/akashic-mcp/Server.swift | sort -u | wc -l`；逐格裁決見 `.claude/rules/mcp-cli-parity.md` 的封閉列舉）——9 讀（search/get_entry/relations/graph/export/people/person/doctor/divergences 列歧異）+ akashic_files（list/use——多檔案切換）+ akashic_libraries（list/create/add/remove）+
 8 寫（**只碰衍生層**：set_status/tag/link/resolve_people 逐候選/create_entry 庫外/add_person/import_zotero/record_divergence 記歧異**不**消歧——消歧屬人工）。
 biblatex 面向唯讀——過渡期歸 Zotero pull 管。並發（MCP 與 CLI 並用）：per-file atomic
 write、last-wins、index 冪等重建（單人場景設計）。
@@ -1187,7 +1187,10 @@ fixture 的 BibEntry ──→ 我們的 Entry ──→ bibEntry(for:) ──�
 重設 `type`、覆寫未歸戶的 literal 作者。那個語意對「同步一個由 Zotero 維護的書目」是對的，
 但用來修跌破 APA7 下限的記錄時，作用半徑是**整個 store**、而且會蓋掉人工補過的值。
 
-`enrich-from-zotero`（CLI）／`akashic_enrich_from_zotero`（MCP）走另一條紀律：
+`enrich-from-zotero`（CLI）／`akashic_enrich_from_zotero`（MCP）走另一條紀律——而自 #458 起它是
+generic `enrich --from <file.json>`／`akashic_enrich` 的 **Zotero adapter**：add-only 政策只有一份
+（`AddOnlyEnrichment`，住 AkashicCore），提案以 citekey 或 DOI 定位（DOI 命中多筆＝`ambiguous`、零寫入）、
+雙摘要分鍵（`abstract-<lang>` → `abstract_<lang>`）、`sourceDigest` 只回顯不進 store：
 
 | | pull | 逐筆補值 |
 |---|---|---|

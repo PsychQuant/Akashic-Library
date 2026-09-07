@@ -94,7 +94,8 @@ final class StdioE2ETests: XCTestCase {
         try send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
         let listResponse = try readResponse()
         let tools = ((listResponse["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
-        XCTAssertEqual(tools.count, 30)   // #13/#14/#18/#77 歷次擴充；#76: + akashic_divergences；#68: + akashic_update_person；#290: + akashic_import_wos；#304: + venue×4 + org×2；#340: + akashic_enrich_from_zotero
+        XCTAssertEqual(tools.count, 31)   // #13/#14/#18/#77 歷次擴充；#76: + akashic_divergences；#68: + akashic_update_person；#290: + akashic_import_wos；#304: + venue×4 + org×2；#340: + akashic_enrich_from_zotero；#458: + akashic_enrich
+        XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_enrich" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_record_divergence" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_import_wos" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_divergences" })
@@ -214,7 +215,7 @@ extension StdioE2ETests {
         try send(["jsonrpc": "2.0", "id": 8, "method": "tools/list", "params": [:]])
         let listResp = try readResponse()
         let tools = ((listResp["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
-        XCTAssertEqual(tools.count, 30, "深度炸彈之後 server 必須照常服務：\(listResp)")
+        XCTAssertEqual(tools.count, 31, "深度炸彈之後 server 必須照常服務：\(listResp)")
         XCTAssertTrue(process.isRunning, "進程必須存活")
     }
 
@@ -316,5 +317,63 @@ extension StdioE2ETests {
                                    "回應沒有 result：\(resp)")
         let content = try XCTUnwrap(result["content"] as? [[String: Any]])
         return content.compactMap { $0["text"] as? String }.joined(separator: "\n")
+    }
+}
+
+/// #458：generic add-only 補值的 MCP 面——**必須經真 binary**（dispatch 的 case 標籤打錯字只有
+/// 實際呼叫抓得到，#138 F4 的教訓）。spec「MCP dry run is the default」：不帶 `dry_run` 就是乾跑。
+extension StdioE2ETests {
+    func testEnrichToolDefaultsToDryRun() throws {
+        try send(["jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": ["protocolVersion": "2024-11-05", "capabilities": [:],
+                             "clientInfo": ["name": "t", "version": "0"]]])
+        _ = try readResponse()
+        try send(["jsonrpc": "2.0", "method": "notifications/initialized"])
+
+        try send([
+            "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": ["name": "akashic_enrich",
+                       "arguments": ["proposals": [
+                           ["citekey": "cheng2025identifiability",
+                            "fields": ["abstract": "An abstract", "abstract-es": "Un resumen"],
+                            "source_digest": "sha256:e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"],
+                       ]]],
+        ])
+        let resp = try readResponse()
+        let result = resp["result"] as? [String: Any]
+        XCTAssertNotEqual(result?["isError"] as? Bool, true, "\(resp)")
+        let text = ((result?["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], text)
+        XCTAssertEqual(obj["dryRun"] as? Bool, true, "不帶 dry_run 就是乾跑：\(text)")
+        let items = try XCTUnwrap(obj["items"] as? [[String: Any]])
+        XCTAssertEqual(items.first?["category"] as? String, "added")
+        XCTAssertEqual(items.first?["sourceDigest"] as? String,
+                       "sha256:e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5", "digest 回顯（snake_case 也收）")
+        let keys = (items.first?["additions"] as? [[String: Any]])?.compactMap { $0["key"] as? String } ?? []
+        XCTAssertEqual(keys, ["abstract", "abstract_es"], "雙摘要分鍵，經 FieldKey.normalized：\(text)")
+
+        // 磁碟不動
+        let e = try LibraryStore(root: root).load().entries.first { $0.citekey == "cheng2025identifiability" }
+        XCTAssertNil(e?.fields["abstract"])
+        XCTAssertTrue(e?.references.isEmpty ?? false, "digest 不進 references")
+    }
+
+    /// 頂層打錯位置的欄位（`abstract` 不在 `fields` 裡）要被拒絕，不是靜默略過後回「補了」。
+    func testEnrichRejectsUnknownTopLevelKeys() throws {
+        try send(["jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": ["protocolVersion": "2024-11-05", "capabilities": [:],
+                             "clientInfo": ["name": "t", "version": "0"]]])
+        _ = try readResponse()
+        try send(["jsonrpc": "2.0", "method": "notifications/initialized"])
+        try send([
+            "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": ["name": "akashic_enrich",
+                       "arguments": ["proposals": [["citekey": "cheng2025identifiability", "abstract": "misplaced"]]]],
+        ])
+        let resp = try readResponse()
+        let result = resp["result"] as? [String: Any]
+        XCTAssertEqual(result?["isError"] as? Bool, true, "\(resp)")
+        let text = ((result?["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
+        XCTAssertTrue(text.contains("abstract") && text.contains("fields"), text)
     }
 }

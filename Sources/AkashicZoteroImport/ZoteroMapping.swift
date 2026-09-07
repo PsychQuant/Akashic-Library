@@ -208,10 +208,19 @@ public enum ZoteroMapping {
         return (parsed, !anyUnparseable)
     }
 
-    public static func applyBiblatexFields(from item: ZoteroItem, to entry: inout Entry) {
-        entry.type = workType(for: item.typeName)
-        entry.title = item.fields["title"] ?? ""
-        entry.date = item.fields["date"].map { DateNormalizer.normalize($0) ?? $0 }
+    /// Zotero item 的 `date`，經 `DateNormalizer`；解析不了保留原字串（importer 另行 report）。
+    /// 抽出來是因為 pull（`applyBiblatexFields`）與 add-only adapter（`ZoteroEnrichment`）
+    /// 要算同一個值——兩處各寫一次就是兩份會分岔的規格。
+    public static func normalizedDate(from item: ZoteroItem) -> String? {
+        item.fields["date"].map { DateNormalizer.normalize($0) ?? $0 }
+    }
+
+    /// Zotero item 的欄位 → biblatex 欄位（**識別碼尚未抽出**，`doi`／`isbn`／`issn` 仍是原字串）。
+    ///
+    /// 這是 `applyBiblatexFields` 的前半：對映歸對映、殘餘歸殘餘。抽出來給 `ZoteroEnrichment`
+    /// 用（#458）——add-only 的 core 自己做識別碼的三態解析，所以 adapter 要的是**解析前**的
+    /// 對映結果；pull 則接著在本函式之後做識別碼的跟隨。同一份對映，兩個消費端。
+    public static func mappedFields(from item: ZoteroItem) -> [String: String] {
         var fields: [String: String] = [:]
         // **殘餘收集**（#206）——`fieldMap` 命中就用 canonical biblatex 名，
         // **沒命中的不再丟掉**，改用正規化後的原名收進來。
@@ -236,6 +245,14 @@ public enum ZoteroMapping {
             }
             fields[key] = value
         }
+        return fields
+    }
+
+    public static func applyBiblatexFields(from item: ZoteroItem, to entry: inout Entry) {
+        entry.type = workType(for: item.typeName)
+        entry.title = item.fields["title"] ?? ""
+        entry.date = normalizedDate(from: item)
+        var fields = mappedFields(from: item)
         // **識別碼進結構化欄位，不留 `fields` 殘留**（#425 verify HIGH）。
         //
         // 我修過 add-only 的 `enrich-from-zotero`，而**姊妹路徑 pull 沒修**——

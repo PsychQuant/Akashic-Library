@@ -1,4 +1,10 @@
-## ADDED Requirements
+# add-only-enrichment Specification
+
+## Purpose
+
+TBD - created by archiving change 'generic-add-only-enrich'. Update Purpose after archive.
+
+## Requirements
 
 ### Requirement: Add-only enrichment has exactly one policy implementation
 
@@ -11,9 +17,33 @@ The system SHALL implement the add-only field policy once, in `AddOnlyEnrichment
 
 #### Scenario: Zotero adapter is behaviourally equivalent
 
-- **WHEN** the existing Zotero enrichment test suite (`ZoteroEnrichmentTests`, 12 tests) runs against the adapter that delegates to `AddOnlyEnrichment`
+- **WHEN** the existing Zotero enrichment test suite (`ZoteroEnrichmentTests`, 22 tests at the time of this change; 12 when #340 landed) runs against the adapter that delegates to `AddOnlyEnrichment`
 - **THEN** every test passes without modification
 
+
+<!-- @trace
+source: generic-add-only-enrich
+updated: 2026-09-07
+code:
+  - changelog/2026-09-06-generic-add-only-enrich.md
+  - Sources/akashic/CLI.swift
+  - Sources/AkashicZoteroImport/ZoteroMapping.swift
+  - Tests/AkashicCLITests/EnrichCLITests.swift
+  - Sources/AkashicStoreIO/IdentifierMigration.swift
+  - Sources/AkashicZoteroImport/ZoteroEnrichment.swift
+  - Sources/akashic-mcp/Server.swift
+  - Tests/AkashicKitTests/AddOnlyEnrichmentTests.swift
+  - Tests/AkashicMCPTests/EnrichServiceTests.swift
+  - Tests/AkashicMCPTests/StdioE2ETests.swift
+  - Sources/AkashicCore/IdentifierTokenizer.swift
+  - Sources/akashic/EnrichCommand.swift
+  - Sources/AkashicCore/AddOnlyEnrichment.swift
+  - Tests/AkashicCLITests/PersonCLITests.swift
+  - Sources/akashic/DestructiveTargetGate.swift
+  - Sources/AkashicMCPKit/AkashicService.swift
+-->
+
+---
 ### Requirement: Proposals locate a work by citekey or DOI
 
 Each proposal SHALL name its target by exactly one of `citekey` or `doi`. A DOI SHALL be matched against entries' structured `doi` lists using the `DOI` type's normal form. When the DOI matches exactly one entry, the system SHALL resolve it to that citekey. When the DOI matches two or more entries, the system SHALL classify the item as `ambiguous`, list every matching citekey, and write nothing for that item. When the DOI matches no entry, the system SHALL classify the item as `notFound`. A proposal that gives both keys or neither SHALL be an input error that rejects the whole batch with zero writes.
@@ -39,6 +69,30 @@ Each proposal SHALL name its target by exactly one of `citekey` or `doi`. A DOI 
 - **WHEN** any proposal in the batch gives both `citekey` and `doi`
 - **THEN** the whole batch is rejected with an error naming the offending proposal index and no entry is written
 
+
+<!-- @trace
+source: generic-add-only-enrich
+updated: 2026-09-07
+code:
+  - changelog/2026-09-06-generic-add-only-enrich.md
+  - Sources/akashic/CLI.swift
+  - Sources/AkashicZoteroImport/ZoteroMapping.swift
+  - Tests/AkashicCLITests/EnrichCLITests.swift
+  - Sources/AkashicStoreIO/IdentifierMigration.swift
+  - Sources/AkashicZoteroImport/ZoteroEnrichment.swift
+  - Sources/akashic-mcp/Server.swift
+  - Tests/AkashicKitTests/AddOnlyEnrichmentTests.swift
+  - Tests/AkashicMCPTests/EnrichServiceTests.swift
+  - Tests/AkashicMCPTests/StdioE2ETests.swift
+  - Sources/AkashicCore/IdentifierTokenizer.swift
+  - Sources/akashic/EnrichCommand.swift
+  - Sources/AkashicCore/AddOnlyEnrichment.swift
+  - Tests/AkashicCLITests/PersonCLITests.swift
+  - Sources/akashic/DestructiveTargetGate.swift
+  - Sources/AkashicMCPKit/AkashicService.swift
+-->
+
+---
 ### Requirement: Two abstracts are stored under two keys
 
 When a source provides more than one abstract, the caller SHALL name the second key (`abstract-<lang>` when the language is known, `abstract-2` otherwise) and the system SHALL store it under that key after `FieldKey.normalized` (for example `abstract_es`, `abstract_2`). The system SHALL NOT concatenate abstracts, SHALL NOT drop the second abstract, and SHALL NOT invent a key name.
@@ -59,6 +113,30 @@ When a source provides more than one abstract, the caller SHALL name the second 
 - **WHEN** the entry already has `abstract` and the proposal provides `abstract` and `abstract-2`
 - **THEN** only `abstract_2` is added and `abstract` is reported as already present
 
+
+<!-- @trace
+source: generic-add-only-enrich
+updated: 2026-09-07
+code:
+  - changelog/2026-09-06-generic-add-only-enrich.md
+  - Sources/akashic/CLI.swift
+  - Sources/AkashicZoteroImport/ZoteroMapping.swift
+  - Tests/AkashicCLITests/EnrichCLITests.swift
+  - Sources/AkashicStoreIO/IdentifierMigration.swift
+  - Sources/AkashicZoteroImport/ZoteroEnrichment.swift
+  - Sources/akashic-mcp/Server.swift
+  - Tests/AkashicKitTests/AddOnlyEnrichmentTests.swift
+  - Tests/AkashicMCPTests/EnrichServiceTests.swift
+  - Tests/AkashicMCPTests/StdioE2ETests.swift
+  - Sources/AkashicCore/IdentifierTokenizer.swift
+  - Sources/akashic/EnrichCommand.swift
+  - Sources/AkashicCore/AddOnlyEnrichment.swift
+  - Tests/AkashicCLITests/PersonCLITests.swift
+  - Sources/akashic/DestructiveTargetGate.swift
+  - Sources/AkashicMCPKit/AkashicService.swift
+-->
+
+---
 ### Requirement: Dry run is the default and apply is gated on the CLI only
 
 The CLI command `enrich --from <file>` SHALL compute and print the report without writing unless `--apply` is given, and `--apply` SHALL pass through the destructive-target gate. The MCP tool `akashic_enrich` SHALL default `dry_run` to true and SHALL NOT apply the destructive-target gate, because its proposals name their targets explicitly. Both surfaces SHALL call the same service function, which loads the store once, applies all writable items, and rebuilds the index once.
@@ -73,6 +151,30 @@ The CLI command `enrich --from <file>` SHALL compute and print the report withou
 - **WHEN** `akashic_enrich` is called with `proposals` and without `dry_run`
 - **THEN** the response carries the report and no entity file changes
 
+
+<!-- @trace
+source: generic-add-only-enrich
+updated: 2026-09-07
+code:
+  - changelog/2026-09-06-generic-add-only-enrich.md
+  - Sources/akashic/CLI.swift
+  - Sources/AkashicZoteroImport/ZoteroMapping.swift
+  - Tests/AkashicCLITests/EnrichCLITests.swift
+  - Sources/AkashicStoreIO/IdentifierMigration.swift
+  - Sources/AkashicZoteroImport/ZoteroEnrichment.swift
+  - Sources/akashic-mcp/Server.swift
+  - Tests/AkashicKitTests/AddOnlyEnrichmentTests.swift
+  - Tests/AkashicMCPTests/EnrichServiceTests.swift
+  - Tests/AkashicMCPTests/StdioE2ETests.swift
+  - Sources/AkashicCore/IdentifierTokenizer.swift
+  - Sources/akashic/EnrichCommand.swift
+  - Sources/AkashicCore/AddOnlyEnrichment.swift
+  - Tests/AkashicCLITests/PersonCLITests.swift
+  - Sources/akashic/DestructiveTargetGate.swift
+  - Sources/AkashicMCPKit/AkashicService.swift
+-->
+
+---
 ### Requirement: Source digests are reported, never stored on the work
 
 The `Proposal` shape SHALL include an optional `sourceDigest` used only for reporting. When present, the system SHALL echo it in the report item and SHALL NOT write it into `Entry.references`.
@@ -81,3 +183,25 @@ The `Proposal` shape SHALL include an optional `sourceDigest` used only for repo
 
 - **WHEN** a proposal carries `sourceDigest: sha256:…` and is applied
 - **THEN** the report item shows that digest and the entry's `references` list is unchanged
+
+<!-- @trace
+source: generic-add-only-enrich
+updated: 2026-09-07
+code:
+  - changelog/2026-09-06-generic-add-only-enrich.md
+  - Sources/akashic/CLI.swift
+  - Sources/AkashicZoteroImport/ZoteroMapping.swift
+  - Tests/AkashicCLITests/EnrichCLITests.swift
+  - Sources/AkashicStoreIO/IdentifierMigration.swift
+  - Sources/AkashicZoteroImport/ZoteroEnrichment.swift
+  - Sources/akashic-mcp/Server.swift
+  - Tests/AkashicKitTests/AddOnlyEnrichmentTests.swift
+  - Tests/AkashicMCPTests/EnrichServiceTests.swift
+  - Tests/AkashicMCPTests/StdioE2ETests.swift
+  - Sources/AkashicCore/IdentifierTokenizer.swift
+  - Sources/akashic/EnrichCommand.swift
+  - Sources/AkashicCore/AddOnlyEnrichment.swift
+  - Tests/AkashicCLITests/PersonCLITests.swift
+  - Sources/akashic/DestructiveTargetGate.swift
+  - Sources/AkashicMCPKit/AkashicService.swift
+-->

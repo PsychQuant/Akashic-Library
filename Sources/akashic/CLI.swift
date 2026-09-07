@@ -53,6 +53,7 @@ struct AkashicCLI: ParsableCommand {
             BootstrapOrganizations.self, ResolveOrganizations.self,
             BootstrapVenues.self,
             EnrichFromZotero.self,   // #340：逐筆補值（add-only；與 pull 語意刻意不同）
+            EnrichCmd.self,          // #458：generic add-only 補值（citekey／DOI 定位；Zotero 版是它的 adapter）
             UpdatePersonCmd.self,
             Fmt.self, ViewCmd.self, CreateEntryCmd.self,
             PersonCmd.self,   // #218：person 的讀取面（寫入面是上面的 UpdatePersonCmd）

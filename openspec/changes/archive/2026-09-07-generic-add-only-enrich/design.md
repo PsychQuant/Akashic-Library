@@ -10,7 +10,7 @@
 
 **Goals:**
 
-- add-only 政策只有一份：抽成 `AddOnlyEnrichment`（`Sources/AkashicCore/AddOnlyEnrichment.swift`），Zotero 版降為 adapter，既有 12 支 `ZoteroEnrichmentTests` 零改動即驗收等價。
+- add-only 政策只有一份：抽成 `AddOnlyEnrichment`（`Sources/AkashicCore/AddOnlyEnrichment.swift`），Zotero 版降為 adapter，既有 `ZoteroEnrichmentTests`（22 支（#340 時 12 支，其後隨 #394 各輪成長；測的是「零改動綠」不是支數））零改動即驗收等價。
 - 輸入以 citekey 或 DOI 定位；DOI 反向命中多筆時拒絕並具名（新分類 `ambiguous`），零寫入。
 - 雙摘要分兩個鍵收，core 不猜鍵名。
 - CLI `enrich` 與 MCP `akashic_enrich` 兩面同一條實作路徑；契約差異與 `akashic_enrich_from_zotero` 那列相同。
@@ -74,7 +74,7 @@ seam＝`AddOnlyEnrichment`（契約 `[Proposal] → Result`）；adapter 恰一�
 **Acceptance criteria**
 
 - `Tests/AkashicKitTests/AddOnlyEnrichmentTests.swift`：雙摘要分鍵（`abstract`＋`abstract-es` → `abstract`＋`abstract_es`，既有 `abstract` 存在時只補第二個）；DOI 命中 ≥2 → `ambiguous` 且 `matches` 含全部 citekey、零寫入；DOI 命中 1 → 對回 citekey；兩鍵同給整批拒絕；`issn` 拒；既有鍵不動。
-- `Tests/AkashicMCPTests/ZoteroEnrichmentTests.swift` 12 支**零改動**綠——adapter 等價的驗收。
+- `Tests/AkashicKitTests/ZoteroEnrichmentTests.swift`（22 支（#340 時 12 支，其後隨 #394 各輪成長；測的是「零改動綠」不是支數））**零改動**綠——adapter 等價的驗收。
 - `Tests/AkashicMCPTests/EnrichServiceTests.swift`：service 一次 load、dry-run 零寫入、apply 後 rebuild；`Tests/AkashicCLITests/EnrichCLITests.swift`：`--from` 乾跑、`--apply` 走閘、`--json` 同源。
 - `bash .githooks/run-guards.sh` 全綠（`parity-table-drift` 認得新列）。
 
@@ -85,8 +85,8 @@ seam＝`AddOnlyEnrichment`（契約 `[Proposal] → Result`）；adapter 恰一�
 
 ## Risks / Trade-offs
 
-- [adapter 化改動 Zotero 路徑的行為] → 12 支既有測試零改動是硬驗收；任一支紅即為政策漂移。
-- [DOI 正規形不一致（`10.1037/x` vs `10.1037//x`）讓命中數算錯] → 比對走 `DOI` 型別的既有正規化，與 `IdentifierMigration.normalizedUnique` 同一條規則；測試含雙斜線案。
+- [adapter 化改動 Zotero 路徑的行為] → 既有 `ZoteroEnrichmentTests` 全檔零改動是硬驗收；任一支紅即為政策漂移。
+- [`10.1037/x` 與 `10.1037//x` 被折成同一個 DOI，讓兩筆真的 work 誤判成命中兩筆] → 比對走 `DOI` 型別的既有正規形（大小寫不敏感、剝 URL 前綴，**刻意不折疊斜線**——APA 一九九〇年代的官方形就是雙斜線，`identity-is-judged-not-matched`：「兩個都真的 DOI」），與 `IdentifierMigration.normalizedUnique` 同一條規則；`testDoubleSlashDOIIsADifferentDOIUnderTheNormalForm` 釘住提案 `10.1037//x` 只命中帶雙斜線的那筆。
 - [`abstract-2` 這種鍵名在 `FieldKey.normalized` 後與既有欄位撞名] → `_2` 後綴由呼叫端具名、core 不自動編號；撞名時是既有鍵存在 → `skipped`，不覆寫。
 - [MCP 面一次收千筆 proposals 撐爆 context] → 報告走 `displaySafe` 與 `prefix(20)` 的既有預算（#236）；要全部用 CLI。
 - [`--apply` 未指名目標 store] → #298 閘擋；MCP 面不設閘的理由與 `akashic_enrich_from_zotero` 同（逐筆顯式指名）。

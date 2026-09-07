@@ -30,6 +30,10 @@ actor AkashicMCPServer {
         await server.waitUntilCompleted()
     }
 
+    /// `akashic_enrich` 的 items 上限（#236 的預算形：輸出進 LLM context，呼叫端無法在收到後
+    /// 丟棄已付的代價）。`counts`／`written`／`writeFailed` 不受此限；要全部用 CLI。
+    static let enrichItemLimit = 20
+
     // MARK: - Schema 小工具
 
     private static func obj(_ props: [String: Value], required: [String] = []) -> Value {
@@ -295,6 +299,44 @@ actor AkashicMCPServer {
                 "dry_run": .object(["type": .string("boolean"),
                                     "description": .string("true＝只回計畫不寫入")]),
              ])),
+        Tool(name: "akashic_enrich",
+             description: "generic add-only 補值（#458）：每筆提案以 citekey 或 DOI（二擇一）指名一筆 work，"
+                        + "**只補 fields 裡不存在的鍵**——既有值一個都不動；doi／pmid／isbn 走結構化欄位（部分解析時原字串留在 fields）、"
+                        + "issn 一律拒（它識別期刊）、date 空才補、authors 完全為空且 include_absent_authors 才補 literal；"
+                        + "type／title／venues／attachments 一律不碰。與 akashic_enrich_from_zotero **同一份政策**（那是它的 Zotero adapter）。"
+                        + "DOI 反向命中 ≥2 筆＝ambiguous（matches 列全部 citekey、零寫入，不判定哪筆才對）。"
+                        + "雙摘要分鍵：第二個摘要由呼叫端具名 abstract-<lang>／abstract-2，落地為 abstract_es／abstract_2。"
+                        + "sourceDigest（或 source_digest）只回顯進報告、不進 store。"
+                        + "**dry_run 預設 true**；false 才寫入（一次 load、逐筆寫、一次 rebuild；I/O 失敗逐筆記 writeFailed 其餘照寫）。"
+                        + "輸入語法錯（兩鍵同給／皆無、fields 空且無 date 與 authors、鍵無法正規化、頂層未知鍵）→ **整批拒絕零寫入**；"
+                        + "ambiguous／notFound／rejected／skipped 逐筆具名。items 至多 \(enrichItemLimit) 筆（counts／written／writeFailed 永遠完整，"
+                        + "itemsTotal／truncated 說明有沒有被截）；要全部用 CLI `akashic enrich --from … --json`。",
+             inputSchema: obj([
+                "proposals": .object([
+                    "type": .string("array"),
+                    "description": .string("補值提案陣列（每筆 citekey 或 doi 恰一個）"),
+                    "items": .object([
+                        "type": .string("object"),
+                        "additionalProperties": .bool(false),
+                        "properties": .object([
+                            "citekey": str("目標 citekey（與 doi 二擇一）"),
+                            "doi": str("目標 DOI（與 citekey 二擇一；正規形比對 canonical DOI；命中恰一筆才寫）"),
+                            "fields": .object([
+                                "type": .string("object"),
+                                "additionalProperties": .object(["type": .string("string")]),
+                                "description": .string("要補的 biblatex 欄位（只補不存在的鍵；第二個摘要用 abstract-<lang>／abstract-2）"),
+                            ]),
+                            "date": str("date（entry 的 date 為空時才補）"),
+                            "authors": strArray("literal 作者名（entry 的 authors 完全為空且 include_absent_authors:true 時才補）"),
+                            "sourceDigest": str("來源存檔 digest（sha256:…）——只回顯進報告，不進 store（#450 的裁決）"),
+                        ]),
+                    ]),
+                ]),
+                "dry_run": .object(["type": .string("boolean"),
+                                    "description": .string("預設 true＝只回計畫不寫入；false 才寫")]),
+                "include_absent_authors": .object(["type": .string("boolean"),
+                                                   "description": .string("預設 false；true 時 entry 的 authors 完全為空才補 literal 作者")]),
+             ], required: ["proposals"])),
         Tool(name: "akashic_import_wos",
              description: "匯入 Web of Science 匯出檔（tab-delimited；csv:true 改逗號分隔）。"
                         + "無損匯入（#206）：12 具名欄對映＋其餘欄位殘餘收集原樣入 fields；"
@@ -335,6 +377,17 @@ actor AkashicMCPServer {
         func argDict(_ key: String) -> [String: String] {
             guard let value = params.arguments?[key], case .object(let dict) = value else { return [:] }
             return dict.compactMapValues(\.stringValue)
+        }
+        /// **畸形 boolean 顯式拒絕，不靜默當未提供**（#406 R1 verify 的同一條理由）：
+        /// `"false"`（字串）／null／數字被折成預設值的話，呼叫端以為的乾跑會變成寫入。
+        func argFlag(_ key: String, default d: Bool) throws -> Bool {
+            guard let raw = params.arguments?[key] else { return d }
+            guard case .bool(let b) = raw else {
+                throw ServiceError.invalid(
+                    "\(key) 必須是 boolean（true／false）——收到別的型別。"   // display-safe-exempt: key 是本檔的編譯期字面
+                    + "字串 \"false\" 不是 false；拒絕整個呼叫，零寫入")
+            }
+            return b
         }
 
         do {
@@ -548,6 +601,23 @@ actor AkashicMCPServer {
                                                       zoteroDb: arg("zotero_db"),
                                                       libraryID: argInt("library_id"),
                                                       dryRun: enrichDryRun)
+            case "akashic_enrich":
+                guard let rawProposals = params.arguments?["proposals"] else {
+                    throw ServiceError.invalid("proposals 必填（object 陣列；每筆 citekey 或 doi 恰一個，要補的欄位放 fields）")
+                }
+                // **同一個 JSON 解析器**：`Value` 是 Codable，先編回 JSON 再用 `Proposal` 的 Decodable 解
+                // ——CLI `--from` 讀檔走的是同一個 `init(from:)`，兩面對「什麼是合法的提案」不會分岔。
+                let proposals: [AddOnlyEnrichment.Proposal]
+                do {
+                    proposals = try AddOnlyEnrichment.decodeProposals(from: try JSONEncoder().encode(rawProposals))
+                } catch let e as AddOnlyEnrichment.InputError {
+                    // 訊息含呼叫端給的鍵名＝未信任字串
+                    throw ServiceError.invalid(displaySafe(e.description, max: 400))
+                }
+                output = try service.enrich(proposals: proposals,
+                                            dryRun: try argFlag("dry_run", default: true),
+                                            includeAbsentAuthors: try argFlag("include_absent_authors", default: false),
+                                            itemLimit: AkashicMCPServer.enrichItemLimit)
             case "akashic_import_wos":
                 let csvFlag: Bool
                 if case .bool(let v)? = params.arguments?["csv"] { csvFlag = v } else { csvFlag = false }

@@ -2060,6 +2060,124 @@ public final class AkashicService {
         return try jsonString(d)
     }
 
+    /// generic add-only 補值的 service 面（#458）——CLI `enrich` 與 MCP `akashic_enrich`
+    /// **都走這一條**（`entity-backlink-completeness` 執行細節 2）。
+    ///
+    /// 一次 `load`、委派 `AddOnlyEnrichment.plan`（政策只有一份，Zotero 版是它的 adapter）、
+    /// 逐筆 `writeEntry`、一次 rebuild——#455 批次面的形。失敗語意分兩類（#386）：
+    /// 輸入語法錯由 core 整批擲出、零寫入；`ambiguous`／`notFound`／`rejected` 該筆略過並具名；
+    /// **I/O 失敗逐筆收容**進 `writeFailed`，其餘照寫、rebuild 照跑（index 必須反映已落地的）。
+    ///
+    /// 同一筆記錄在同一批被提多次時**只寫一次**：core 依序計算、後面的提案看得到前面會補的鍵，
+    /// 這裡把各筆 outcome 依序疊在同一份 entry 上再寫——否則第二次寫入會拿舊 load 的 entry
+    /// 蓋掉第一次補的值。
+    ///
+    /// **#298 的閘刻意不在這一面**（同 `enrichFromZotero`）：那個閘擋的是「篩選式批次寫入未指名
+    /// 目標」，而本函式收的是逐筆顯式指名（citekey 或 DOI）的清單；CLI 的 `--apply` 在命令層走閘。
+    ///
+    /// `itemLimit`：MCP 面截 items（輸出進 LLM context，#236 的預算）；`counts`／`written`／
+    /// `writeFailed` **永遠完整**，`itemsTotal`／`truncated` 讓呼叫端知道自己看到的是不是全部。
+    /// CLI 面傳 nil（人的終端機可捲、可 pipe）。
+    public func enrich(proposals: [AddOnlyEnrichment.Proposal], dryRun: Bool,
+                       includeAbsentAuthors: Bool, itemLimit: Int? = nil) throws -> String {
+        guard !proposals.isEmpty else {
+            throw ServiceError.invalid("proposals 不得為空——每筆以 citekey 或 doi 指名一筆 work")
+        }
+        if let limit = itemLimit, limit < 1 {
+            throw ServiceError.invalid("itemLimit 必須 ≥ 1（0 不是「全部」也不是「一個都不要」——要全部就不要給）")
+        }
+        let load = try store.load()
+        let plan: AddOnlyEnrichment.Result
+        do {
+            plan = try AddOnlyEnrichment.plan(entries: load.entries, proposals: proposals,
+                                              includeAbsentAuthors: includeAbsentAuthors)
+        } catch {
+            // core 的 InputError 已指名第 N 筆與理由；欄位名來自呼叫端＝未信任字串，消毒後轉出。
+            throw ServiceError.invalid(displaySafe(Self.describe(error), max: 512))
+        }
+
+        var byCitekey: [String: Entry] = [:]
+        for e in load.entries { byCitekey[e.citekey] = e }
+        var order: [String] = []
+        for item in plan.items where item.category == .added {
+            guard let ck = item.citekey, let current = byCitekey[ck] else { continue }
+            if !order.contains(ck) { order.append(ck) }
+            byCitekey[ck] = AddOnlyEnrichment.applied(item.outcome, to: current)
+        }
+
+        var written: [String] = []
+        var writeFailed: [String: String] = [:]
+        var indexRebuilt = false
+        if !dryRun {
+            for ck in order {
+                do {
+                    try store.writeEntry(byCitekey[ck]!)
+                    written.append(ck)
+                } catch {
+                    writeFailed[ck] = Self.describe(error)
+                }
+            }
+            if !written.isEmpty {
+                // rebuild 擲錯不得吞掉整份報告（同 importZotero 的 R10 裁決）
+                do {
+                    try LibraryIndex(store: store).rebuild()
+                    indexRebuilt = true
+                } catch {
+                    throw ServiceError.invalid(
+                        "index rebuild 失敗：\(displaySafe(String(describing: error), max: 512))"
+                        + "（本趟已落地 \(written.count) 筆："   // display-safe-exempt: Int
+                        + "\(written.sorted().map { displaySafe($0, max: 200) }.joined(separator: ", "))）")
+                }
+            }
+        }
+
+        var counts: [String: Int] = [:]
+        for c in AddOnlyEnrichment.Category.allCases { counts[c.rawValue] = 0 }
+        for item in plan.items { counts[item.category.rawValue, default: 0] += 1 }
+        let shown = itemLimit.map { Array(plan.items.prefix($0)) } ?? plan.items
+
+        var d: [String: Any] = [
+            "dryRun": dryRun,
+            "proposals": proposals.count,   // display-safe-exempt: Int
+            "counts": counts,   // display-safe-exempt: 鍵是封閉列舉的 rawValue、值是 Int
+            "itemsTotal": plan.items.count,   // display-safe-exempt: Int
+            "truncated": shown.count < plan.items.count,   // display-safe-exempt: Bool
+            "items": shown.map { item -> [String: Any] in
+                var one: [String: Any] = [
+                    "index": item.proposalIndex,   // display-safe-exempt: Int
+                    "category": item.category.rawValue,   // display-safe-exempt: 封閉列舉的 rawValue
+                    "additions": item.additions.map { a -> [String: String] in
+                        ["key": displaySafe(a.key, max: 80),
+                         "kind": a.kind.rawValue,   // display-safe-exempt: 封閉列舉的 rawValue
+                         "value": displaySafe(a.valueSummary, max: 512)]
+                    },
+                    "alreadyPresent": item.alreadyPresent.map { displaySafe($0, max: 80) },
+                    "matches": item.matches.map { displaySafe($0, max: 200) },
+                ]
+                if let ck = item.citekey { one["citekey"] = displaySafe(ck, max: 200) }
+                if let r = item.reason { one["reason"] = displaySafe(r, max: 512) }
+                if let s = item.sourceDigest { one["sourceDigest"] = displaySafe(s, max: 200) }
+                if !item.outcome.refused.isEmpty {
+                    one["refused"] = item.outcome.refused.map { displaySafe($0, max: 300) }
+                }
+                if !item.outcome.partial.isEmpty {
+                    one["partial"] = item.outcome.partial.map { displaySafe($0, max: 300) }
+                }
+                return one
+            },
+        ]
+        if !dryRun {
+            d["written"] = written.sorted().map { displaySafe($0, max: 200) }
+            d["indexRebuilt"] = indexRebuilt
+        }
+        if !writeFailed.isEmpty {
+            d["writeFailed"] = Dictionary(uniqueKeysWithValues: writeFailed.map {
+                (displaySafe($0.key, max: 200), displaySafe($0.value, max: 512))
+            })
+        }
+        return try jsonString(d)
+    }
+
     /// WoS 匯入的 MCP 面（#290——#259 CLI-only 盤點唯一「需要」格；#206 鏡像：
     /// 無損匯入不該取決於面）。與 CLI `import-wos` 走 `WoSImport.run` 同一路徑：
     /// 具名對映＋殘餘收集、idempotent（citekey＋內容）、conflicts 不覆寫、

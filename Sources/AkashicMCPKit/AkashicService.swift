@@ -376,6 +376,10 @@ public final class AkashicService {
                 "danglingSources": health.danglingSources.count,
                 // #499：venue verdict 數逼近 decode 預算——計數讓呼叫端不必掃 first 就看見有哪本刊在長。
                 "venueVerdictBudgetWarnings": health.venueVerdictBudgetWarnings.count,
+                // #450：拆分後錨失效的兩種 warning——孤兒 verdict（owner 是持有者）與各段全不在的拆分記錄
+                // （owner 是 work）。計數分開：前者要人去重新消歧，後者只是提醒記錄留著供 un-split。
+                "orphanedSplitVerdicts": health.orphanedSplitVerdicts.count,
+                "staleSplitRecords": health.staleSplitRecords.count,
                 "first": perRec.prefix(20).map {
                     ["severity": $0.issue.severity == .error ? "error" : "warning",
                      "kind": $0.kind,
@@ -2788,16 +2792,17 @@ public final class AkashicService {
     /// 分隔符本身被丟棄，而那是可見的（報告逐筆印出用什麼切、切成什麼）——
     /// `lossless-intake` 執行細節 3 的「丟棄必須可見」。
     ///
-    /// ## 誠實邊界（R1 verify）：原文與理由只進報告，不進 store
+    /// ## 拆分記錄進 work 側的 references（#450；取代 R1 verify 那條「不進 store」的誠實邊界）
     ///
-    /// 拆分把黏著的原始 literal 改寫掉，而 store 內**沒有**它的記錄——`original` 與
-    /// `judgement` 只出現在本次回傳的報告裡。這與 `attributeToOrganizations`（verdict
-    /// 進 org.references）不同：拆分沒有「被判定的另一方」可落 verdict，而 work 側
-    /// references 的值域目前只收識別碼（`Entry.validateReferenceAttachment`）。持久化
-    /// 需要那個值域的顯式裁決（follow-up issue）——在那之前，un-split 所需的資訊只
-    /// 存在於 store 的 git 歷史。報告裡的 `original`／`judgement` 是**消毒顯示形**
-    /// （`displaySafe`，200／300 scalar 上限）——正常長度無損，病態超長者截斷；
-    /// 這是 #165 輸出消毒紀律與揭露之間的顯式取捨，不是完整原值的承諾。
+    /// 拆分把黏著的原始 literal 改寫掉。#443 時 store 內**沒有**它的記錄（`original` 與 `judgement`
+    /// 只進報告，un-split 所需資訊只在 store 的 git 歷史）——那是作者位變更家族裡唯一不可逆且沒有
+    /// 記錄的一腿，而 `literal-first-then-key` 的整套論證建立在「誤可逆」上。#450 裁決：拆分沒有
+    /// 「被判定的另一方」，唯一候選是 work 自己——在改寫 `authors` 的**同一次** `writeEntry` append
+    /// `{field: authors, value: <原 literal 逐字>, judgement: SplitRecordValue.encoded, rests-on: []}`
+    /// （第 15 條邊值域的顯式擴充；空 rests-on 經 `firstOrderRulingFields` 放行：原文逐字保存於 value
+    /// 就是證據）。同一次寫入 ⇒ 拆分永遠不會沒有記錄、也不會記兩次。需要 store format ≥ 16——
+    /// 閘在**任何寫入之前**對全部計畫求值，整批零寫入。報告裡的 `original`／`judgement` 仍是
+    /// **消毒顯示形**（`displaySafe`，200／300 上限），完整原值在 store 的記錄裡。
     ///
     /// 另一個**語法上的既定事實**：分隔符無法含 `=`——第一個 `=` 之後一律是理由，
     /// 想用含 `=` 的分隔符會被解析成更短的那一段（`testSplitSeparatorCannotContainEquals`
@@ -2818,7 +2823,8 @@ public final class AkashicService {
                                    uniquingKeysWith: { _, last in last })
 
         struct Plan { let citekey: String; let idx: Int; let separator: String
-                      let parts: [String]; let literal: String; let judgement: String }
+                      let parts: [String]; let literal: String; let judgement: String
+                      let record: SplitRecordValue }
         var plans: [Plan] = []
         var seen = Set<String>()
 
@@ -2907,8 +2913,15 @@ public final class AkashicService {
                     "用「\(displaySafe(sep, max: 60))」切出 \(parts.count) 段（> 32）"   // display-safe-exempt: Int
                     + "——分隔符太常見，這不像是把幾個人拆開")
             }
+            // **拆分記錄的 statement 文法有保留字元**（#450）：段含 `⟦`／`⟧` 就無法逐字記錄——
+            // 拒絕，而不是靜默改寫段的內容（與 `=` 在分隔符文法的既有處置同形）。
+            guard let record = SplitRecordValue(parts: parts, reason: judgement) else {
+                throw ServiceError.invalid(
+                    "用「\(displaySafe(sep, max: 60))」切「\(displaySafe(lit, max: 200))」得到的段含"
+                    + "文法保留字元 ⟦／⟧——拆分記錄以 ⟦…⟧ 包各段，含它的段無法逐字記錄；拒絕，不改寫")
+            }
             plans.append(Plan(citekey: citekey, idx: idx, separator: sep,
-                              parts: parts, literal: lit, judgement: judgement))
+                              parts: parts, literal: lit, judgement: judgement, record: record))
         }
 
         // ── 全部驗證通過才寫 ──
@@ -2922,16 +2935,26 @@ public final class AkashicService {
                                                              : $0.citekey < $1.citekey }) {
             entries[p.citekey]!.authors.replaceSubrange(
                 p.idx...p.idx, with: p.parts.map { Author.literal($0) })
+            // 拆分記錄與作者位改寫在同一份 entry、同一次寫入（#450）
+            entries[p.citekey]!.references.append(ProvenanceReference(
+                field: "authors", value: p.literal,
+                kind: .judgement(statement: p.record.encoded, restsOn: [])))
             rows.append(["citekey": displaySafe(p.citekey, max: 200),
+                         "recorded": true,   // display-safe-exempt: Bool
                          // 呼叫端給的**原始**索引，不是寫入後位置——同一筆 work 拆了
                          // 多個位置時，第二筆之後的寫入後位置已位移（R1 verify DA-4）。
                          "authorIndex": p.idx,   // display-safe-exempt: Int
                          "separator": displaySafe(p.separator, max: 60),
-                         // **原文與理由只在這份報告裡**（store 不留）——見 doc comment
-                         // 的誠實邊界。丟棄必須可見，而先前只揭露了分隔符的丟棄。
+                         // 原文與理由自 #450 起也在 store 的拆分記錄裡（逐字）；這裡是消毒顯示形。
                          "original": displaySafe(p.literal, max: 200),
                          "judgement": displaySafe(p.judgement, max: 300),
                          "into": p.parts.map { displaySafe($0, max: 200) }])
+        }
+        // **format 閘在任何寫入之前對全部計畫求值**（#450）：拆分記錄需要 format ≥ 16，而逐筆寫入
+        // 遇閘會留下「一半套用」——先全部過閘，整批零寫入或整批寫。
+        let root = store.root
+        for e in entries.values {
+            try LibraryStore.assertEntryWritable(e, format: { try StoreVersion.read(root: root) })
         }
         for e in entries.values.sorted(by: { $0.citekey < $1.citekey }) { try store.writeEntry(e) }
         try LibraryIndex(store: store).rebuild()

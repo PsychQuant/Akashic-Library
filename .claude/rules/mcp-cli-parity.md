@@ -62,10 +62,16 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 其正確分隔符含 `=` 時重開；在此之前不做**——實務上含 `=` 的人名分隔符零實例，先造介面等於
 替一個還不存在的輸入設計形狀）。分隔符、**原始 literal 與理由**都被丟棄，而報告逐筆印出
 「原文、用什麼切、切成什麼、為什麼」（`lossless-intake` 的丟棄必須可見；揭露的是
-消毒顯示形——`displaySafe` 200／300 上限，#165 的既有取捨）——**store 不留原文與
-理由是本面的誠實邊界**（R1 verify）：拆分沒有
-「被判定的另一方」可落 verdict，work 側 references 值域目前只收識別碼；un-split 所需
-資訊在 store 內不可回復（只在 store 的 git 歷史），持久化需要值域的顯式裁決（follow-up）。
+消毒顯示形——`displaySafe` 200／300 上限，#165 的既有取捨）——~~**store 不留原文與
+理由是本面的誠實邊界**（R1 verify）：拆分沒有「被判定的另一方」可落 verdict，work 側 references
+值域目前只收識別碼；un-split 所需資訊在 store 內不可回復（只在 store 的 git 歷史），持久化需要
+值域的顯式裁決（follow-up）。~~ → **自 #450 起不成立**（Spectra change
+`split-verdict-historical-reference`，2026-09-07）：拆分的判定持久化到 work 側 `references`
+（`{field: authors, value: 原 literal 逐字, judgement: 拆為 ⟦a⟧ ⟦b⟧：理由, rests-on: []}`——第 15
+條邊值域的顯式擴充、statement 走 `SplitRecordValue` 單一解析器、需要 store format 16），與作者位
+改寫在**同一次**寫入，所以拆分永遠不會沒有記錄、也不會記兩次；段含文法保留字元 `⟦⟧` 拒絕。
+報告的 `original`／`judgement` 仍是消毒顯示形，`recorded: true` 說記錄寫了。un-split 所需資訊
+自此在 store 內；**un-split 操作面另開 issue**，兩面都還沒有。
 
 **拆出來的仍是 `.literal`**——拆是**形狀**修正不是身分判定，每一段各自走既有消歧路徑。
 **兩面同契約**：per-id 顯式、理由必填、**同一個作者位一次只能拆一次**（去重以解析後的

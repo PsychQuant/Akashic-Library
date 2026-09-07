@@ -33,6 +33,16 @@ struct RecordIssuesSection: View {
                     .help("這本刊的 resolution verdict 數達 decode 硬預算的一半（#499）。"
                           + "處置是重開第 13 條邊的規模化裁決，不要只放寬預算。")
             }
+            if summary.orphanedSplitVerdicts > 0 {
+                LabeledContent("拆分後的孤兒 verdict", value: "\(summary.orphanedSplitVerdicts)")
+                    .help("verdict 判的 literal 已被那筆 work 的拆分記錄退役（#450）。"
+                          + "對拆出的各段重新消歧，然後在持有記錄的 references 更新或刪掉這筆 verdict。")
+            }
+            if summary.staleSplitRecords > 0 {
+                LabeledContent("拆分記錄各段都不在", value: "\(summary.staleSplitRecords)")
+                    .help("一筆拆分記錄的各段沒有任何一段仍是作者位（#450）。"
+                          + "確認作者位是否被改寫；記錄保留供 un-split（#513），不要刪。")
+            }
         }
     }
 }

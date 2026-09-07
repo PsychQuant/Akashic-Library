@@ -137,12 +137,13 @@ final class KnownLayerEvolutionTests: XCTestCase {
     /// 目前的精確 format 值（#131 verify 慣例：釘精確值防「意外多 bump 一次」，
     /// 每次刻意 bump 隨新 format 的測試搬家——#223 從 AttestedRangeTests 搬來，
     /// #323／#324 由 11 改為 12、#394 由 12 改為 13、#422／#406 由 13 改為 14、
-    /// #406 R1 verify 由 14 改為 15——判定 reference 的 vocabulary bump）。
+    /// #406 R1 verify 由 14 改為 15——判定 reference 的 vocabulary bump、#450 由 15 改為 16——
+    /// work 側拆分記錄的 vocabulary bump）。
     ///
     /// **函式名帶數字是刻意的**：改值時被迫連名字一起改，否則會留下
     /// 「`IsExactlyEleven` 斷言 12」這種名字與內容分岔——本 repo 已修過三次同型
     /// （CLAUDE.md 兩處摘要、`13 條` vs `14 條`）。
-    func testCurrentSupportedFormatIsExactlyFifteen() {
-        XCTAssertEqual(StoreVersion.supported, 15)
+    func testCurrentSupportedFormatIsExactlySixteen() {
+        XCTAssertEqual(StoreVersion.supported, 16)
     }
 }

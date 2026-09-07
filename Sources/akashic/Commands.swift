@@ -216,6 +216,13 @@ struct Validate: ParsableCommand {
         if !health.venueVerdictBudgetWarnings.isEmpty {
             print("venue verdict 逼近 decode 預算: \(health.venueVerdictBudgetWarnings.count)（第 13 條邊的規模化裁決，#499）")
         }
+        // #450：拆分後錨失效——逐條已印，這兩行給總數（兩種分開：一種要人重新消歧，一種只是提醒）。
+        if !health.orphanedSplitVerdicts.isEmpty {
+            print("拆分後的孤兒 verdict: \(health.orphanedSplitVerdicts.count)（錨 literal 已被 work 側拆分記錄退役，#450）")
+        }
+        if !health.staleSplitRecords.isEmpty {
+            print("拆分記錄各段都已不在作者位: \(health.staleSplitRecords.count)（記錄仍保留供 un-split，#450）")
+        }
         // #7b：跨記錄檢查——單筆 validate() 結構上看不到的那一層
         for issue in health.crossRecordIssues {
             let mark = issue.severity == .error ? "✗" : "⚠"

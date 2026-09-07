@@ -16,10 +16,13 @@ struct RecordIssuesSummary: Equatable {
     let total: Int
     /// 其中 error 級的——它們本來就讓 `hasFindings` 亮，這裡只是讓兩個區塊的數字對得起來。
     let errors: Int
-    /// 三個具名家族的計數（各自有 `StoreHealth` 的單一前綴定義）。
+    /// 具名家族的計數（各自有 `StoreHealth` 的單一前綴定義）。#450 加兩族：拆分後的孤兒 verdict、
+    /// 拆分記錄各段全不在——CLI／MCP 有計數而 App 沒有，就是 #453 那條「一面有計數另一面沒有」的分岔。
     let deadVerdicts: Int
     let danglingSources: Int
     let venueVerdictBudget: Int
+    let orphanedSplitVerdicts: Int
+    let staleSplitRecords: Int
     /// `.help` 用：前幾則訊息（`displaySafe`，每則截斷），加一句「完整逐行看 CLI validate」。
     let help: String
 
@@ -32,6 +35,8 @@ struct RecordIssuesSummary: Equatable {
         deadVerdicts = health.deadVerdicts.count
         danglingSources = health.danglingSources.count
         venueVerdictBudget = health.venueVerdictBudgetWarnings.count
+        orphanedSplitVerdicts = health.orphanedSplitVerdicts.count
+        staleSplitRecords = health.staleSplitRecords.count
         let preview = issues.prefix(previewLimit).map {
             "\($0.issue.severity == .error ? "✗" : "⚠") \($0.kind) \(displaySafe($0.owner, max: 80))：\(displaySafe($0.issue.message, max: 160))"
         }

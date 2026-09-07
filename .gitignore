@@ -45,3 +45,6 @@ openspec/.vector-search.db*
 # 被 R39 的 commit 帶上版控。
 __pycache__/
 *.pyc
+
+# #516：階段 B 摘要 → [Proposal] 的中間檔裝第三方逐字摘要（含版權聲明），不進版控
+proposals*.json

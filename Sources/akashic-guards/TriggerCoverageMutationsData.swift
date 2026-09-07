@@ -1,11 +1,14 @@
-// **本檔由腳本生成，不要手改。** 來源：`plugin/tests/trigger-coverage-mutations.py`
+// **本檔曾由腳本生成，現為手維護。** 原生成器 `plugin/tests/trigger-coverage-mutations.py`
+// 已於 `989ac64`（#433 Step 5「Python 歸零」）刪除，所以「重新生成」那條路徑**不存在了**。
+// 檔頭原本仍寫著「不要手改」——而唯一能改它的方式就是手改，#518 加負控 case 時撞上這個
+// 矛盾，故一併更正。新增 case 直接在下方陣列手寫，並沿用既有格式。
 //
 // **為什麼機械抽而不是手抄**（#433）：32 個 mutation 全是 `t.replace(字面, 字面)`，而
 // harness 斷言注入必須真的改到東西（沒改到即該 case 無效）。手抄一個空白之差會讓 case
 // 靜默失效，而輸出看起來像「被注入的檔案改了」。
 //
-// 重新生成：`ast` 走訪 `case`／`warn_case` 呼叫 → dict key（含用模組常數的）→
-// `Lambda.body.args` 逐一 `literal_eval`。
+// 原生成方式（存查）：`ast` 走訪 `case`／`warn_case` 呼叫 → dict key（含用模組常數的）→
+// `Lambda.body.args` 逐一 `literal_eval`。**該腳本已刪除，此段只為說明既有條目的來歷。**
 
 struct TCMCase {
     let isWarn: Bool
@@ -15,6 +18,16 @@ struct TCMCase {
 }
 
 let triggerCoverageMutationCases: [TCMCase] = [
+    // **#518 的負控**：讓一支守衛開始引用一個存在、但不在受保護集合裡的檔。
+    // 這正是 #516 的形狀——守衛進了人口、它讀的檔沒進，而報表照印「無缺口」。
+    // `ShellLex.swift` 是刻意選的：它在 `Sources/akashic-guards/` 裡卻**不是守衛**
+    // （`main.swift` 沒有對應的 `case`），所以它永遠不會因為別的原因進 `PROTECTED`。
+    TCMCase(isWarn: false, desc: "讓守衛引用一個未受保護的檔",
+        edits: [
+            (path: "plugin/tests/plugin-store-format-parity.py",
+             old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
+             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n_probe = ROOT / \"Sources/akashic-guards/ShellLex.swift\"\n"),
+        ], expect: "ShellLex.swift 不在受保護集合"),
     TCMCase(isWarn: false, desc: "從守衛清單拿掉一支守衛",
         edits: [
             (path: ".githooks/run-guards.sh", old: "bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh\n", new: ""),

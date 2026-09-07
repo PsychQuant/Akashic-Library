@@ -58,8 +58,19 @@ libraries:
 是**渲染後有沒有摘要節點**。查完仍無 → 記顯式的「已查證、來源無摘要」，不是留白。每次
 重跑對清單**現算**。
 
-**已知限制（誠實記錄）**：conflict＝拒絕覆寫，所以**重跑不會把遲到的摘要補進已建記錄**
-——那是 enrich 型的另一條路（同 `enrich-from-zotero` 的 add-only 形），不在本 skill。
+**遲到摘要的出口（#516）**：conflict＝拒絕覆寫，所以**重跑不會把遲到的摘要補進已建記錄**
+——走 add-only 那條路：階段 B 的 NDJSON 先存進 `sources/`（`akashic store-source`），再
+`scripts/ndjson-abstracts-to-proposals.py --library <root> --source sha256:<digest> --out "${TMPDIR:-/tmp}/proposals.json"`
+→ `akashic enrich --library <root> --from "${TMPDIR:-/tmp}/proposals.json" --json`（dry-run 先看 counts）
+→ 數字對了才 `--apply`。**`proposals.json` 裝的是第三方逐字摘要（含出版商版權聲明），放 `$TMPDIR`
+不要放 repo 內**——本 repo 的 `.gitignore` 另擋 `proposals*.json` 當第二道。腳本只收 `status == got`、
+摘要非空、DOI 在場的列，其餘逐筆印在 stderr 的 skip 報告（控制字元跳脫、長度截斷）；`doi` 原樣透傳
+（正規化由 core 吸收）；同 DOI 兩列而**摘要不同**會被報 `conflicting-duplicate`（取第一列）——那不是冗餘，
+要回頭看來源。**讀 counts 時要知道兩件事**（Psychological Methods 2026-09-07 實測，**下一本刊要重量**）：
+階段 B 對 keeper 的單／雙斜線兩個 DOI **各抓一列**，所以 148 列只有 82 筆 work（66 對重複，第二列被
+core 報 `skipped`）——「這個 `skipped` 不是錯」**只在兩列摘要逐字相同時成立**（本刊實測 0 對相異；腳本
+與 core 都不比對摘要，所以先看 skip 報告有沒有 `conflicting-duplicate`）；原已有摘要的 work 也是
+`skipped`（`alreadyPresent: [abstract]`）。實跑：`added 73／skipped 75／notFound 0／ambiguous 0`、`written` 73。
 
 ## DOI 攣生——收攏是提名，合併是裁決
 

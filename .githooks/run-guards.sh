@@ -137,3 +137,8 @@ bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh
 # 得不到任何東西（#433 的遷移理由是「ubuntu runner 沒有 toolchain」，而現在兩個
 # workflow 已合併成一個 macOS 的，那個理由對新守衛不再適用）。
 python3 plugin/tests/plugin-store-format-parity.py
+
+# 階段 B 摘要存檔（NDJSON）→ `[Proposal]` 的轉換腳本（#516）。fixture 6 列、純 Python、
+# 不需要 build：釘住「只收 got＋非空摘要＋DOI 在場、其餘逐筆具名」「doi 原樣透傳」
+# 「digest 內容定址」「輸出決定論」。住 plugin skill 而非 CLI 的理由在腳本 docstring。
+python3 plugin/tests/ndjson-abstracts-to-proposals.py

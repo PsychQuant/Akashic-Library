@@ -24,11 +24,20 @@
 用法：
     ndjson-abstracts-to-proposals.py --source sha256:<hex> [--library <root>] [--out proposals.json]
     ndjson-abstracts-to-proposals.py --source /path/to/file.ndjson [--out proposals.json]
+`--library` 的解析鏈比 CLI 窄，只有三段：`--library` → `$AKASHIC_LIBRARY` → `~/.akashic`。
+**不讀** `$AKASHIC_HOME/config.yaml` 的 `current`（#519 Expected 3 裁決：接上去等於在這支
+Python 腳本裡重新實作 registry 的解析鏈，那是把「一份描述的副本」換成「一份實作的副本」，
+而後者更糟——描述分岔讀得出來，實作分岔只在特定 profile 下顯形）。`--source` 是 digest 時
+走內容定址，library 取錯只會「找不到那個 digest」，是可見的失敗。
+
+`--out` 拒絕寫到非普通檔（symlink／目錄／…），寫入走同目錄 temp ＋ `os.replace` 原子替換，
+並把解析後的絕對路徑印到 stderr。
+
 接著：
     akashic enrich --library <root> --from proposals.json --json          # dry-run，先看 counts
     akashic enrich --library <root> --from proposals.json --json --apply  # 數字對了才寫
 """
-import argparse, hashlib, json, os, pathlib, re, sys
+import argparse, hashlib, json, os, pathlib, re, stat, sys, tempfile
 from collections import Counter
 
 DIGEST_RE = re.compile(r"^sha256:([0-9a-fA-F]{64})$")
@@ -107,11 +116,92 @@ def convert(data: bytes, digest: str):
     return proposals, skips, rows
 
 
+def write_out(path_str: str, text: str) -> None:
+    """`--out` 的寫入語意（#519 Expected 1 裁決）。
+
+    三條，順序固定：
+
+    1. 目標存在且**不是普通檔**（symlink／目錄／FIFO／socket／device）→ 硬錯誤、具名、零寫入。
+    2. 否則同目錄開 temp、寫完 `os.replace()` 原子替換。
+    3. **無論成敗**，把解析後的絕對路徑印到 stderr。
+
+    **為什麼拒絕 symlink 而不是「跟隨但原子替換」**：#516 verify 實測 `ln -sf victim.txt
+    outlink.json` 之後 `--out ./outlink.json` **改到了 victim.txt**——逃逸到另一條路徑。
+    原子替換本身就不會逃逸（`rename(2)` 作用在名字上、不跟隨 symlink），但那會把使用者
+    刻意建立的導向**默默換成實體檔**。拒絕是唯一不做假設的選項。
+
+    **為什麼不加 `--force`**：本 repo 對 `--force` 有明文立場（`idd-close`：「第一次是我趕
+    時間，第三次就變成反正都 force」）。重跑覆寫這個中間產物是**常態**動作，把常態放在旗標
+    後面訓練出來的正是那個反射，而反射一旦養成，旗標對真正危險的那次也不會攔住。
+
+    **為什麼印絕對路徑**：`--out ~/.akashic/store.yaml` 這種**指錯地方**，上面兩條都擋不住
+    （它是普通檔），加旗標也擋不住（旗標防的是「不小心覆寫」）。可見性才是對症的。
+
+    **權限會變，而這是刻意的**：`mkstemp` 建的檔是 `0600`，`os.replace` 換的是 inode，所以
+    **覆寫一個既有的 `0644` 檔之後它會變成 `0600`**（實測）。舊的 `write_text` 走 umask，通常
+    是 `0644`。這裡不還原原本的 mode——`proposals.json` 裝的是第三方逐字摘要（含出版商版權
+    聲明，SKILL.md 已載明），`0600` 對這個內容更對。寫出來是因為它是**安靜的**行為改變。
+
+    **`lstat` 只查最後一段——父目錄若是 symlink，寫入仍會穿透過去**（實測：`ln -s real link`
+    之後 `--out link/out.json` 落在 `real/`）。這不是漏掉的檢查，是刻意的範圍：第 1 條防的是
+    「寫穿到另一個**檔**」，目錄層的重導向是檔案系統的正常語意。但它**削弱第 3 條的可見性
+    承諾**——印出來的是未解析的路徑，看不出真正落在哪個目錄。**不改成印 `realpath`**：
+    macOS 的 `$TMPDIR` 本身就是 `/var → /private/var`，那會讓每一次正常執行都多印一行雜訊，
+    而第 3 條要對付的是**打錯目標**（那種情形兩條路徑相同）。寫出來而不是修掉。
+
+    **TOCTOU**：第 1 條與第 2 條之間有窗，但那個窗**不會造成逃逸**——`os.replace` 換的是
+    名字，即使競爭者剛插入一個 symlink，被換掉的也是那個 symlink 本身，不會寫穿到它指向
+    的檔。第 1 條買到的是「拒絕」而不是「不逃逸」，兩者是不同的性質。
+    """
+    resolved = pathlib.Path(os.path.abspath(os.path.expanduser(path_str)))
+    print(f"→ --out 寫入 {resolved}", file=sys.stderr)
+
+    try:
+        st = os.lstat(resolved)          # lstat 不跟隨 symlink——跟隨的話這道檢查等於沒做
+    except FileNotFoundError:
+        st = None
+    except OSError as e:
+        sys.exit(f"✗ 無法檢查 --out {resolved}：{e.strerror}")
+
+    if st is not None and not stat.S_ISREG(st.st_mode):
+        m = st.st_mode
+        kind = ("symlink" if stat.S_ISLNK(m) else "目錄" if stat.S_ISDIR(m)
+                else "FIFO" if stat.S_ISFIFO(m) else "socket" if stat.S_ISSOCK(m)
+                else "字元裝置" if stat.S_ISCHR(m) else "區塊裝置" if stat.S_ISBLK(m)
+                else "非普通檔")
+        # 括號裡那句**只對 symlink 為真**——對目錄／FIFO 講「跟隨它會改到另一條路徑上的檔」
+        # 是假的。訊息按類別分，不要用一句話蓋兩種情形。
+        why = ("跟隨它會改到另一條路徑上的檔（#516 verify 實測過），"
+               "取代它則會默默拆掉你刻意建的導向" if stat.S_ISLNK(m)
+               else "本腳本只寫普通檔")
+        sys.exit(f"✗ --out {resolved} 已存在且是{kind}，不是普通檔——拒絕寫入，零寫入。\n"
+                 f"  {why}。這支腳本的產出是 $TMPDIR 裡的短命中間產物；"
+                 f"要寫到別處請直接把那個路徑給 --out。")
+
+    # **`mkstemp` 也要在 try 裡**：它會在父目錄不存在時拋 `FileNotFoundError`（`OSError`
+    # 的子類），寫在 try 之外就變成 traceback 而不是這裡承諾的具名錯誤——實測踩到。
+    tmp = None
+    try:
+        fd, tmp = tempfile.mkstemp(dir=str(resolved.parent), prefix=f".{resolved.name}.", suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf8") as f:
+            f.write(text)
+        os.replace(tmp, resolved)
+    except OSError as e:
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        sys.exit(f"✗ 無法寫入 --out {resolved}：{e.strerror}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--source", required=True, help="sha256:<hex>（在 <library>/sources/ 解析）或 NDJSON 檔路徑")
     ap.add_argument("--library", default=os.environ.get("AKASHIC_LIBRARY") or os.path.expanduser("~/.akashic"),
-                    help="store root（預設 $AKASHIC_LIBRARY 或 ~/.akashic）；只在 --source 為 digest 時用到")
+                    help="store root；只在 --source 為 digest 時用到。"
+                         "**本腳本的解析鏈只有三段**：--library → $AKASHIC_LIBRARY → ~/.akashic。"
+                         "它**不讀** $AKASHIC_HOME/config.yaml 的 current——CLI 有那一段，本腳本沒有")
     ap.add_argument("--out", help="寫入的 JSON 檔（省略則印到 stdout）")
     a = ap.parse_args()
 
@@ -126,10 +216,7 @@ def main():
 
     text = json.dumps(proposals, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if a.out:
-        try:
-            pathlib.Path(a.out).write_text(text, encoding="utf8")
-        except OSError as e:
-            sys.exit(f"✗ 無法寫入 --out {a.out}：{e.strerror}")
+        write_out(a.out, text)
     else:
         sys.stdout.write(text)
 

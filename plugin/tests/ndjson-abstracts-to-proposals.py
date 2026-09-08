@@ -17,6 +17,10 @@
 5. **決定論**：同一輸入兩次輸出逐位元相同；digest 給定時驗內容定址（sha256 不符即拒），
    大寫 hex 仍是 digest 形（不得靜默落到路徑形）。
 6. 錯誤要具名：非 UTF-8、壞的 `--out` 目錄都印 `✗ …`，不吐 traceback。
+7. **`--out` 拒絕寫到非普通檔**（#519 Expected 1）：symlink／目錄／FIFO 一律零寫入並具名
+   ——#516 verify 實測過 `ln -sf victim.txt out.json` 之後 `--out ./out.json` **改到了
+   victim.txt**（逃逸到另一條路徑）。覆寫既有普通檔仍是常態、不收稅（**沒有 `--force`**），
+   寫入走同目錄 temp ＋ `os.replace` 原子替換，解析後的絕對路徑一律印到 stderr。
 
 fixture 只有 9 列（含 BOM 與一個空行）、不碰網路、不需要 build。
 """
@@ -135,5 +139,34 @@ with tempfile.TemporaryDirectory() as tmp:
         if rr.returncode == 0 or "Traceback" in rr.stderr or "✗" not in rr.stderr:
             fail(f"{name} 應具名失敗（✗）且無 traceback：rc={rr.returncode}\n{rr.stderr[-300:]}")
     print("✓ 錯誤具名：非 UTF-8、壞 --out 目錄都不吐 traceback")
+
+    # 9. --out 拒絕非普通檔（#519 Expected 1）：symlink 目標不得被改動、symlink 本身留著
+    victim = pathlib.Path(tmp) / "victim.txt"; victim.write_text("SACRED\n", encoding="utf8")
+    link = pathlib.Path(tmp) / "outlink.json"; link.symlink_to(victim)
+    r10 = run(["--source", str(blob), "--out", str(link)])
+    if r10.returncode == 0 or "symlink" not in r10.stderr or "✗" not in r10.stderr:
+        fail(f"--out 指向 symlink 應具名拒絕：rc={r10.returncode}\n{r10.stderr[-300:]}")
+    if victim.read_text(encoding="utf8") != "SACRED\n":
+        fail("symlink 的目標被改動了——這正是 #516 verify 實測到的逃逸")
+    if not link.is_symlink():
+        fail("symlink 本身被取代了——拒絕就該零副作用，連取代都不做")
+
+    adir = pathlib.Path(tmp) / "adir"; adir.mkdir()
+    r11 = run(["--source", str(blob), "--out", str(adir)])
+    if r11.returncode == 0 or "目錄" not in r11.stderr:
+        fail(f"--out 指向目錄應具名拒絕：rc={r11.returncode}\n{r11.stderr[-300:]}")
+
+    # 覆寫既有普通檔仍是常態路徑（沒有 --force）；且解析後的絕對路徑要印出來
+    plain = pathlib.Path(tmp) / "again.json"; plain.write_text("OLD\n", encoding="utf8")
+    r12 = run(["--source", str(blob), "--out", str(plain)])
+    if r12.returncode != 0 or plain.read_text(encoding="utf8") == "OLD\n":
+        fail(f"覆寫既有普通檔應照常成功（本裁決刻意不加 --force）：rc={r12.returncode}\n{r12.stderr[-300:]}")
+    # **比對未解析的絕對路徑**：腳本刻意不跟隨 symlink（印的是它實際操作的那條路徑），
+    # 而 macOS 的 $TMPDIR 是 /var → /private/var 的 symlink——用 resolve() 比對會假紅。
+    if str(plain) not in r12.stderr:
+        fail(f"--out 的絕對路徑應印到 stderr（指錯地方時唯一的可見性）：\n{r12.stderr[-300:]}")
+    if [f for f in pathlib.Path(tmp).iterdir() if f.name.endswith(".tmp")]:
+        fail("留下了 temp 殘骸——原子寫入的中間檔應該被 os.replace 消掉")
+    print("✓ --out：symlink／目錄零寫入具名、覆寫常態不收稅、絕對路徑可見、無 temp 殘骸")
 
 print("✓ ndjson-abstracts-to-proposals：全部通過")

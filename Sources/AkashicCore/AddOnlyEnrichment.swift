@@ -49,6 +49,31 @@ import Foundation
 /// 值域裁決（#450），本型別不擴。
 public enum AddOnlyEnrichment {
 
+    /// 單一字串的上限，**以 UTF-8 位元組計**（#519 Expected 2 裁決）。
+    ///
+    /// **語意是拒絕，不是截斷。** 超限時 `validate` 拋 `invalidProposal`，而 `plan` 在做任何
+    /// 規劃之前先把全部提案 `map(validate)`，所以結果是**整批零寫入 ＋ 一條具名的訊息**。
+    /// 截斷會讓一個**不是來源給的**值進 store，而且不出聲——`lossless-intake` 執行細節 3
+    /// 說「靜默是最糟的形式」，那條規則的封閉列舉已在同一輪為此顯式加了第三類。
+    ///
+    /// **值的兩個錨點，都是量出來的**（2026-09-08，`~/.akashic`，以 PyYAML 解析、**含折行**
+    /// 的長 value——用行為單位的 grep 會漏掉它們，本 repo 記過那個坑）：
+    ///
+    /// - **下界**：1,517 筆 abstract，最長 **4,220 bytes**、p99 2,185、中位 1,137。
+    ///   65,536 是實測最長值的 **15.5 倍**，不會誤傷任何真實資料。
+    /// - **上界**：`AliasEventBudget.maxBytes`（**輸入檔**的既有位元組預算，8 MiB）的 1/128
+    ///   ——但那是**未跳脫**的比值。YAML 序列化會放大 value，實測（2026-09-08，真的走
+    ///   `create-entry` 寫檔再量檔案大小）：ASCII／反斜線／引號／CJK／換行皆 **1.00×**，
+    ///   `\t` **2.00×**，控制字元（`\x01`／`\x7f` → `\xNN` 跳脫）**4.00×**。所以一個
+    ///   65,536 bytes 的 value 落到磁碟上最壞約 262 KB ＝ 輸入預算的 **1/32**。
+    ///   結論不變（單一欄位不會主導整筆記錄的預算），但那個數字是 1/32 不是 1/128。
+    ///
+    /// **單位是位元組不是字元**：#519 的裁決文字寫「64 KiB（65,536 字元）」，那是單位混用
+    /// ——錨點是位元組預算，而 CJK 摘要下兩者差三倍。同一段裁決引的 p99／中位（2,185／1,136）
+    /// 逐一吻合位元組量測，可見它本來量的就是位元組；只有 max 那個數字（3,884）與重量結果
+    /// （4,220）對不上，以重量為準。
+    public static let maxValueBytes = 65_536
+
     // MARK: - 輸入
 
     /// 一筆補值提案。`citekey` 與 `doi` **恰給一個**。
@@ -355,6 +380,34 @@ public enum AddOnlyEnrichment {
         func present(_ s: String?) -> String? {
             guard let t = s?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
             return t
+        }
+        // **長度上限先查**（#519 Expected 2）：這是對未信任輸入的邊界檢查，在任何結構判斷
+        // 之前做，才不會出現「因為別的理由先拒絕，於是超長那件事沒被說出來」。
+        // 涵蓋提案攜帶的**每一個字串**——欄位鍵與值、date、每個 author、citekey、doi。
+        // 判準是「core 收下的字串」而不是欄位名，所以未來新增的欄位自動在內。
+        func checkLength(_ s: String?, _ label: String) throws {
+            guard let s else { return }
+            let n = s.utf8.count
+            guard n > maxValueBytes else { return }
+            throw InputError.invalidProposal(
+                index: index,
+                reason: "\(label)長 \(n) bytes，超過上限 \(maxValueBytes)"
+                      + "（整批拒絕、零寫入——截斷會讓一個不是來源給的值進 store 而且不出聲）")
+        }
+        try checkLength(p.citekey, "citekey")
+        try checkLength(p.doi, "doi")
+        try checkLength(p.date, "date")
+        // `sourceDigest` 不進 store（`testSourceDigestIsReportedNotStored`），但它**會回顯進報告**
+        // ——而 MCP 面的報告直接進 LLM context。上一版的註解寫「每一個字串」卻沒列它，那是
+        // 散文與程式碼的矛盾；補上而不是改小註解，因為回顯本身就是要被上限管的出口。
+        try checkLength(p.sourceDigest, "sourceDigest")
+        for (i, key) in p.fields.keys.sorted().enumerated() {
+            // 鍵先於值，且**訊息裡放位置不放內容**——一個 64 KiB 的鍵印出來會淹掉錯誤本身。
+            try checkLength(key, "第 \(i + 1) 個欄位鍵")
+            try checkLength(p.fields[key], "欄位「\(key)」的值")
+        }
+        for (i, a) in p.authors.enumerated() {
+            try checkLength(a, "第 \(i + 1) 個 author")
         }
         let ck = present(p.citekey), doi = present(p.doi)
         switch (ck, doi) {

@@ -62,6 +62,10 @@ libraries:
 ——走 add-only 那條路：階段 B 的 NDJSON 先存進 `sources/`（`akashic store-source`），再
 `scripts/ndjson-abstracts-to-proposals.py --library <root> --source sha256:<digest> --out "${TMPDIR:-/tmp}/proposals.json"`
 → `akashic enrich --library <root> --from "${TMPDIR:-/tmp}/proposals.json" --json`（dry-run 先看 counts）
+
+> **這支腳本的 `--library` 解析鏈比 CLI 窄，只有三段**：`--library` → `$AKASHIC_LIBRARY` → `~/.akashic`。它**不讀** `$AKASHIC_HOME/config.yaml` 的 `current`——`README.md` 記的那條四段鏈是 **CLI** 的，對 CLI 為真、對本腳本不為真（#519 Expected 3）。裁決是「明寫限制」而不是「接上 registry」：接上去等於在 Python 這一側**重新實作**解析鏈，那是把一份**描述**的副本換成一份**實作**的副本，而後者更糟——描述分岔讀得出來，實作分岔只在特定 profile 下顯形。風險有界：`--source` 是 digest 時走內容定址，library 取錯只會「找不到那個 digest」，是可見的失敗。
+>
+> **`--out` 拒絕寫到非普通檔**（symlink／目錄／FIFO／…），零寫入並具名；寫入走同目錄 temp ＋ `os.replace` 原子替換，解析後的絕對路徑一律印到 stderr（#519 Expected 1）。**沒有 `--force`**——重跑覆寫這個中間產物是常態動作，把常態放進旗標會養出「反正都 force」的反射。
 → 數字對了才 `--apply`。**`proposals.json` 裝的是第三方逐字摘要（含出版商版權聲明），放 `$TMPDIR`
 不要放 repo 內**——本 repo 的 `.gitignore` 另擋 `proposals*.json` 當第二道。腳本只收 `status == got`、
 摘要非空、DOI 在場的列，其餘逐筆印在 stderr 的 skip 報告（控制字元跳脫、長度截斷）；`doi` 原樣透傳

@@ -216,4 +216,91 @@ final class AddOnlyEnrichmentTests: XCTestCase {
         let after = AddOnlyEnrichment.applied(r.items[0].outcome, to: e)
         XCTAssertEqual(after.references, e.references, "來源不進 Entry.references（值域只收識別碼，#394 §5）")
     }
+
+    // MARK: - #519 Expected 2：單一字串的位元組上限（fail-closed，整批零寫入）
+
+    /// **上限以 UTF-8 位元組計，不是字元。** 這一格是那個區分的負控：30,000 個 CJK 字元
+    /// **字元數低於**上限、**位元組數是它的 1.37 倍**——若改成 `count` 就會放行。
+    func testCapCountsBytesNotCharacters() throws {
+        let cjk = String(repeating: "あ", count: 30_000)   // 30,000 字元 / 90,000 bytes
+        XCTAssertLessThan(cjk.count, AddOnlyEnrichment.maxValueBytes, "前提：字元數低於上限")
+        XCTAssertGreaterThan(cjk.utf8.count, AddOnlyEnrichment.maxValueBytes, "前提：位元組數超過上限")
+        let e = entry("a2020b")
+        XCTAssertThrowsError(try AddOnlyEnrichment.plan(entries: [e], proposals: [
+            proposal(citekey: "a2020b", fields: ["abstract": cjk]),
+        ])) { err in
+            guard case AddOnlyEnrichment.InputError.invalidProposal(let i, let reason) = err else {
+                return XCTFail("應是 invalidProposal，得 \(err)")
+            }
+            XCTAssertEqual(i, 1)
+            XCTAssertTrue(reason.contains("abstract"), "訊息要指名是哪個鍵：\(reason)")
+            XCTAssertTrue(reason.contains("90000"), "訊息要說實際多長：\(reason)")
+            XCTAssertTrue(reason.contains("\(AddOnlyEnrichment.maxValueBytes)"), "訊息要說上限：\(reason)")
+        }
+    }
+
+    /// 界上剛好通過、界上加一被拒——上限是閉區間。
+    func testCapBoundaryIsInclusive() throws {
+        let e = entry("a2020b")
+        let exact = String(repeating: "a", count: AddOnlyEnrichment.maxValueBytes)
+        let over = exact + "a"
+        XCTAssertNoThrow(try AddOnlyEnrichment.plan(entries: [e], proposals: [
+            proposal(citekey: "a2020b", fields: ["abstract": exact]),
+        ]), "恰好等於上限應通過")
+        XCTAssertThrowsError(try AddOnlyEnrichment.plan(entries: [e], proposals: [
+            proposal(citekey: "a2020b", fields: ["abstract": over]),
+        ]), "超過一個位元組即拒")
+    }
+
+    /// **整批零寫入**：批次裡有一筆超限，其餘完全合法的也不寫。這是 `two-kinds-of-edits`
+    /// 對程式編輯的既有義務（「可預期失敗整批擋零寫入」），也是裁決的語意——不是逐筆略過。
+    func testOversizedValueRejectsTheWholeBatch() throws {
+        let e = entry("a2020b"), f = entry("b2021c")
+        let big = String(repeating: "a", count: AddOnlyEnrichment.maxValueBytes + 1)
+        XCTAssertThrowsError(try AddOnlyEnrichment.plan(entries: [e, f], proposals: [
+            proposal(citekey: "a2020b", fields: ["abstract": "fine"]),
+            proposal(citekey: "b2021c", fields: ["abstract": big]),
+        ])) { err in
+            guard case AddOnlyEnrichment.InputError.invalidProposal(let i, _) = err else {
+                return XCTFail("應是 invalidProposal，得 \(err)")
+            }
+            XCTAssertEqual(i, 2, "要指名是第幾筆")
+        }
+    }
+
+    /// 上限的判準是「core 收下的字串」而不是欄位名——`date`／`authors`／`doi` 同樣受管。
+    /// 這一格擋住「只在 abstract 上檢查」那種寫法（那會讓下一個欄位安靜地不受保護）。
+    func testCapAppliesBeyondFieldValues() throws {
+        let e = entry("a2020b")
+        let big = String(repeating: "a", count: AddOnlyEnrichment.maxValueBytes + 1)
+        for (label, p) in [
+            ("date", proposal(citekey: "a2020b", fields: ["abstract": "x"], date: big)),
+            ("authors", proposal(citekey: "a2020b", fields: ["abstract": "x"], authors: [big])),
+            ("doi", proposal(doi: big, fields: ["abstract": "x"])),
+        ] {
+            XCTAssertThrowsError(try AddOnlyEnrichment.plan(entries: [e], proposals: [p]),
+                                 "\(label) 超限也要被擋")
+        }
+    }
+
+    /// `sourceDigest` 不進 store，但**會回顯進報告**（MCP 面的報告直接進 LLM context），
+    /// 所以它也在上限之內。這一格是自審找到的：註解寫「每一個字串」而列舉裡沒有它。
+    func testCapCoversSourceDigestEvenThoughItIsNotStored() throws {
+        let e = entry("a2020b")
+        let big = String(repeating: "a", count: AddOnlyEnrichment.maxValueBytes + 1)
+        XCTAssertThrowsError(try AddOnlyEnrichment.plan(entries: [e], proposals: [
+            proposal(citekey: "a2020b", fields: ["abstract": "x"], sourceDigest: big),
+        ])) { err in
+            guard case AddOnlyEnrichment.InputError.invalidProposal(_, let reason) = err else {
+                return XCTFail("應是 invalidProposal，得 \(err)")
+            }
+            XCTAssertTrue(reason.contains("sourceDigest"), "訊息要指名 sourceDigest：\(reason)")
+        }
+    }
+
+    /// 上限值的**上界錨點**：`AliasEventBudget.maxBytes` 的 1/128。寫成測試是因為那個比例
+    /// 是裁決的依據之一，而依據一旦漂移就不再支撐那個裁決（`assertions-must-be-measured`）。
+    func testCapIsOneHundredTwentyEighthOfTheRecordBudget() {
+        XCTAssertEqual(AddOnlyEnrichment.maxValueBytes * 128, AliasEventBudget.maxBytes)
+    }
 }

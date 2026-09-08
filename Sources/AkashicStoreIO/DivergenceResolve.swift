@@ -216,9 +216,9 @@ extension LibraryStore {
     /// 會撞上同一個缺席——晚報不如早報。
     ///
     /// **記下判斷不等於做掉它。** 消歧是一個操作（`resolveDivergence`），不是一個欄位。
-    @discardableResult
     /// - Parameter prefers: 判斷傾向的候選（#75 對一，選填）——消歧會據以比對，
     ///   但**不代選**（survivor 仍須人工輸入）。
+    @discardableResult
     public func recordDivergence(question: String,
                                  candidates: [(key: String, shape: EntityKind)],
                                  judgement: String?,

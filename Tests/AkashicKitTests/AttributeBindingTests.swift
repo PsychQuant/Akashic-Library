@@ -80,4 +80,39 @@ final class AttributeBindingTests: XCTestCase {
             + "（很可能是有人在 doc comment 與原函式之間插入了新宣告，見 #62）：\n"
             + offenders.joined(separator: "\n"))
     }
+
+    /// **`@discardableResult` 後面不得直接接 `///`**（#491）。
+    ///
+    /// 上面那條自己寫著它「只涵蓋**接收方回傳 Void** 的那一半」。#491 落在另一半：
+    /// 插進來的新函式**回傳 `String?`**，所以 attribute 綁得「合法」——沒有 warning、
+    /// 沒有 build 失敗、上面那條也不紅——而原本的 `renameEntry` 靜靜地掉了 attribute。
+    /// 那是**第三度**被夾在中間的新函式奪走（#11 加入 → #35 奪走 → #59 復原 → 再次）。
+    ///
+    /// 這一半用**形狀**抓而不是型別：正常寫法是 `/// doc` → `@attribute` → `decl`。
+    /// attribute 後面若跟著 `///`，那段 doc 只可能屬於**下一個宣告**——也就是說
+    /// attribute 與它原本要修飾的宣告之間被插進了東西。實測全樹恰好兩處，兩處都是
+    /// 真的漂移（一處是 #491 本身，一處是 `recordDivergence` 的 `- Parameter` 被
+    /// attribute 從它的 doc comment 切開），修完為 **0**。
+    func testNoDiscardableResultFollowedByDocComment() throws {
+        var offenders: [String] = []
+        for url in try sourceFiles() {
+            let lines = try String(contentsOf: url, encoding: .utf8)
+                .components(separatedBy: "\n")
+            for (i, line) in lines.enumerated()
+            where line.trimmingCharacters(in: .whitespaces) == "@discardableResult" {
+                var j = i + 1
+                while j < lines.count, lines[j].trimmingCharacters(in: .whitespaces).isEmpty { j += 1 }
+                guard j < lines.count,
+                      lines[j].trimmingCharacters(in: .whitespaces).hasPrefix("///") else { continue }
+                offenders.append("\(url.lastPathComponent):\(i + 1) → 下一行是 "
+                    + lines[j].trimmingCharacters(in: .whitespaces).prefix(60))
+            }
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "@discardableResult 後面直接接 `///`——那段 doc 屬於下一個宣告，"
+            + "表示 attribute 與它原本要修飾的宣告之間被插進了東西。"
+            + "attribute 仍會綁到下一個宣告上，所以**編譯器不會抱怨**，"
+            + "而原本的 API 靜靜地掉了它（#491，第三度）：\n"
+            + offenders.joined(separator: "\n"))
+    }
 }

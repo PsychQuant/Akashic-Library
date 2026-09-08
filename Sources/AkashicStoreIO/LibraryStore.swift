@@ -1283,7 +1283,6 @@ extension LibraryStore {
     /// 經 `AkashicKit` product 對外暴露，庫外的呼叫端不在本 repo 的稽核範圍內；
     /// 若要改成「強制呼叫端明示 `_ =`」，那是一次 API 政策變更，該自己走一次決策，
     /// 不該是修註解的副作用。
-    @discardableResult
     /// quarantined 檔裡有沒有哪一份宣稱這個 citekey；有的話回傳它的相對路徑。
     ///
     /// **刻意用行級文字比對而非 decode**：這些檔案之所以在 quarantine，正是因為
@@ -1308,6 +1307,7 @@ extension LibraryStore {
         return nil
     }
 
+    @discardableResult
     public func renameEntry(from oldKey: String, to newKey: String) throws -> RenameReport {
         // oldKey 與 newKey 對稱驗證：oldKey 之後會進 entryURL 組刪除路徑，
         // 磁碟上若有畸形 citekey（load() 已 quarantine，此處縱深防禦）絕不可放行

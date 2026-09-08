@@ -52,6 +52,39 @@ public struct ProvenanceReference: Equatable {
     /// 解析後的配對定位。encode／parse 是彼此的反函數；holder key 受 StoreKey
     /// 約束（`[a-z0-9-]`，無 `:`、無空白），literal 任意（含 ` :: ` 也能 round-trip
     /// ——切分一律取**第一個**分隔）。
+    /// **verdict 相等的單一定義**（#470）。
+    ///
+    /// 在此之前寫入面與讀取面各有一個：寫入面（merge 的 `dedupKey`、rename 兩處 `seen`、
+    /// `ResolutionLedger.appendIfAbsent`）比 `value` 的**原字串**；讀取面
+    /// （`PersonResolver` 的 `rejectedNorm`）比 `NameNormalization.matchingKey(literal)`。
+    /// 於是 `work:k :: Fann, C.` 與 `work:k :: Fann,  C.` 在寫入面是兩筆、讀取面是同一筆
+    /// ——「store 永不持有重複 verdict」在**讀取面的意義上**已經被違反。
+    ///
+    /// **裁決：相等取正規化的那一個**，理由是 verdict 的用途本身：它抑制的是「這個
+    /// (holder, literal) 配對已經判過了」，而提名層一路都用正規化比對
+    /// （`LooseNameKey`／`PersonResolver.normalize`）。若寫入面比位元組，一個正規化後
+    /// 等價的重複就會累積，而讀取面看到的是同一個配對有兩筆判定。
+    ///
+    /// **正規化只住在鍵裡，不外洩成資料**——`value` 仍逐字存原字串，`demote`（#418）
+    /// 因此仍取得回原本那個 literal。這句話不是本輪發明的：它逐字寫在
+    /// `PersonResolver.normalize` 的 doc 上，本輪只是把它套到另一面。
+    ///
+    /// 非 verdict 欄位或文法不合的 value 回退到原字串——它們不在這條不變式的轄下，
+    /// 而把它們正規化會擴大 dedup 的作用面（`migratedVerdicts` 的既有立場：非 verdict
+    /// 的 reference 原樣通過、不 dedup）。
+    ///
+    /// **2026-09-09 實測 live store：2,700 筆 verdict，正規化後重複而位元組不同的組 0**
+    /// ——所以這次統一不改變任何既有資料。量測腳本見 #470。
+    public static func verdictEqualityKey(field: String, value: String?) -> String {
+        guard resolutionVerdictFields.contains(field),
+              let v = value,
+              let p = VerdictPairingValue.parse(v) else {
+            return "\(field)\u{0}\(value ?? "")"
+        }
+        return "\(field)\u{0}\(p.holderKind.rawValue):\(p.holder)\u{0}"
+             + NameNormalization.matchingKey(p.literal)
+    }
+
     public struct VerdictPairingValue: Equatable, Sendable {
         public let holderKind: VerdictHolderKind
         public let holder: String

@@ -918,7 +918,10 @@ extension LibraryStore {
         _ refs: [ProvenanceReference], merged: Set<String>, survivor: String,
         holderKind: ProvenanceReference.VerdictHolderKind
     ) -> (refs: [ProvenanceReference], changed: Bool, collapsed: [String]) {
-        func dedupKey(_ r: ProvenanceReference) -> String { "\(r.field)\u{0}\(r.value ?? "")" }
+        // #470：相等的單一定義住在 ProvenanceReference。
+        func dedupKey(_ r: ProvenanceReference) -> String {
+            ProvenanceReference.verdictEqualityKey(field: r.field, value: r.value)
+        }
         var touched = Set<String>()
         var changed = false
         let rewritten: [ProvenanceReference] = refs.map { r in

@@ -105,6 +105,8 @@ case "__shlex-probe":   // 內部：tokenizer 對照用，不在 run-guards 裡
         else { print("<ValueError>") }
     }
     exit(0)
+case "protected-ratchet":
+    exit(protectedRatchet(argv: Array(CommandLine.arguments.dropFirst(2))))
 case "workflow-run-scripts":
     exit(workflowRunScriptsGuard())
 case "trigger-coverage":

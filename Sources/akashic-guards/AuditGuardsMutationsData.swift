@@ -88,6 +88,21 @@ let agmCases: [AGMCase] = [
     AGMCase(desc: "workflow-run：workflow 目錄整個不見（0 個引用不是綠）", guardRel: "akashic-guards workflow-run-scripts", edits: [
         AGMEdit(path: ".github/workflows", kind: "delete", a: "", b: ""),
     ], expect: ["一個檔都沒有"]),
+    // ── #522：受保護清單的棘輪 ────────────────────────────────────────────
+    // `missing` 問的是「列了卻不存在」，而 **glob 成員永遠不會列了卻不存在**——它只會
+    // 變少。三組實測（刪守衛／刪 glob 規則檔／拿掉顯式條目）全部 rc=0 印「無缺口」。
+    AGMCase(desc: "ratchet：glob 規則檔消失（既有的 missing 檢查對它結構上看不見）", guardRel: "akashic-guards protected-ratchet", edits: [
+        AGMEdit(path: ".claude/rules/no-compat-fallback.md", kind: "delete", a: "", b: ""),
+    ], expect: ["少了", "no-compat-fallback.md"]),
+    // 另一個方向：往已在 CI paths 的路徑根加一個零讀者的檔可以零成本灌水（#522 半二 3），
+    // 所以新成員也要被 review。用「從棘輪拿掉一行」模擬（AGM 的 edit 建不了新檔）。
+    AGMCase(desc: "ratchet：清單多了一個成員（新成員也要被 review）", guardRel: "akashic-guards protected-ratchet", edits: [
+        AGMEdit(path: ".githooks/protected-ratchet.txt", kind: "replaceFirst",
+                a: ".claude/rules/apa7-is-the-work-floor.md\n", b: ""),
+    ], expect: ["多了", ".claude/rules/apa7-is-the-work-floor.md"]),
+    AGMCase(desc: "ratchet：棘輪檔整個不見（沒有基準不是綠）", guardRel: "akashic-guards protected-ratchet", edits: [
+        AGMEdit(path: ".githooks/protected-ratchet.txt", kind: "delete", a: "", b: ""),
+    ], expect: ["棘輪檔", "不存在"]),
     AGMCase(desc: "numbers：CLAUDE.md 不見（同樣不得被另外兩個來源撐著）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: "CLAUDE.md", kind: "delete", a: "", b: ""),
     ], expect: ["`CLAUDE.md` 一個檔都沒找到"]),

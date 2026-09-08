@@ -132,18 +132,29 @@ final class OrderInsensitiveCollapseTests: XCTestCase {
         XCTAssertTrue(out.collapsed.allSatisfy { $0.contains("work:keeper2020a :: L") }, "\(out.collapsed)")
     }
 
-    /// doomed-first 時留存者是 doomed 側的判定、被丟的是 keeper 自己的——這是
-    /// #461 之前不會發生的丟棄（舊形兩筆並存），所以要說得出來。留存者選擇政策
-    /// （首見／keeper 優先／last-wins）屬顯式裁決，另案追蹤；本測試釘住**現行**政策
-    /// 與揭露格式，政策改了它要跟著改。
-    func testDoomedFirstKeepsDoomedStatementAndReportsTheDrop() {
-        let out = LibraryStore.migrateWorkHolderVerdicts(
-            [ref("doomed2020a", statement: "doomed 側"), ref("keeper2020a", statement: "keeper 側")],
-            merged: ["doomed2020a"], survivor: "keeper2020a")
-        XCTAssertEqual(out.refs.count, 1)
-        XCTAssertEqual(statement(out.refs.first), "doomed 側", "現行政策：首見留存")
-        XCTAssertEqual(out.collapsed,
-                       ["resolution-confirmed work:keeper2020a :: L——丟棄 判定「keeper 側」"])
+    /// **政策在 #468 從「首見」換成三層裁決**，本測試跟著換（它的舊名字
+    /// `testDoomedFirstKeepsDoomedStatementAndReportsTheDrop` 已不描述行為）。
+    ///
+    /// 這一組兩筆血統相同（都沒有 rule 尾註 ⇒ 依族補完全命中預設），所以由第 2 層決定：
+    /// **原本就指向 survivor 的那一筆勝**，與 #271 的 keeper 恆勝一致。關鍵是**兩種排列
+    /// 得到同一個結果**——舊政策下 doomed-first 與 keeper-first 會留下不同的判定原文，
+    /// 而那正是 #468 說的「不該由陣列順序代勞」。
+    func testKeeperSideWinsOnLineageTieRegardlessOfOrder() {
+        for (desc, refs) in [
+            ("doomed 在前", [ref("doomed2020a", statement: "doomed 側"),
+                             ref("keeper2020a", statement: "keeper 側")]),
+            ("keeper 在前", [ref("keeper2020a", statement: "keeper 側"),
+                             ref("doomed2020a", statement: "doomed 側")]),
+        ] {
+            let out = LibraryStore.migrateWorkHolderVerdicts(
+                refs, merged: ["doomed2020a"], survivor: "keeper2020a")
+            XCTAssertEqual(out.refs.count, 1, desc)
+            XCTAssertEqual(statement(out.refs.first), "keeper 側",
+                           "\(desc)：血統平手 → 未被改寫的那一筆勝（#468 第 2 層）")
+            XCTAssertEqual(out.collapsed,
+                           ["resolution-confirmed work:keeper2020a :: L——丟棄 判定「doomed 側」"],
+                           desc)
+        }
     }
 
     /// 冪等：第二次跑同一組 merged／survivor 是 no-op——refs 逐字相同、`changed`

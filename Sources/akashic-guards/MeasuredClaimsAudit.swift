@@ -207,14 +207,15 @@ func measuredClaimsAudit() -> Int32 {
     let claimSrc = "Sources/akashic-guards/TriggerCoverageMutationsData.swift"
     print("③ 「\(claimSrc) 裡以 `一次都沒出現過` 為 expect 的格，恰 3 格且全是 warn」")
     let src = rawFile(claimSrc).components(separatedBy: "\n")
-    // **來源讀不到就出聲，不要靜默走訪空陣列**（#521）。
+    // **這條的意思在 #527 之後變窄了。** `rawFile` 現在讀不到就中止（rc=2），所以「讀不到」
+    // 到不了這裡；剩下的是**檔在、但是空的**——同樣讓下面的迴圈零次迭代，同樣是「檢查等於
+    // 沒跑」，只是原因不同。訊息跟著改：說「讀不到」會指向一個現在不可能的原因。
     //
     // **它的價值是更準確的診斷，不是唯一的防線**（#521 R1 verify，Codex 席更正）——
-    // 下面的 `found == 3` 本身就擋得住原本那個零次迭代：來源讀不到時 `found` 會是 0
-    // 而它會紅。上一版把這一句寫成「本次修正的核心」，那是誇大。它買到的是：紅的時候
-    // 說得出**為什麼**（來源不見了），而不是丟一句「找到 0 格」讓人去查資料檔。
+    // 下面的 `found == 3` 本身就擋得住零次迭代（`found` 會是 0 而它會紅）。它買到的是：
+    // 紅的時候說得出**為什麼**，而不是丟一句「找到 0 格」讓人去查資料檔。
     if src.count <= 1 && (src.first ?? "").isEmpty {
-        print("     " + check(false, "讀不到 \(claimSrc)——本檢查等於沒跑（#521 的失效形狀）"))
+        print("     " + check(false, "\(claimSrc) 是空的——本檢查等於沒跑（#521 的失效形狀）"))
     } else {
         var found = 0
         for (i0, l) in src.enumerated() where l.contains("expect: \"一次都沒出現過\"") {

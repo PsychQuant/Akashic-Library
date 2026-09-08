@@ -71,6 +71,12 @@ let agmCases: [AGMCase] = [
     AGMCase(desc: "numbers：規則目錄整個不見（不得被 CLAUDE.md 撐著回綠）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules", kind: "delete", a: "", b: ""),
     ], expect: ["`.claude/rules/*.md` 一個檔都沒找到"]),
+    // #527：守衛的**輸入**不見時，要說「輸入不在」而不是靜默走訪空陣列。在此之前
+    // `rawFile` 回 ""，於是這個 case 會走到第 ⑤ 列的「第 5 列不見了或重複」——紅是紅了，
+    // 但指向錯的原因（讀者會去看規則檔的第 5 列，而那個檔根本不在）。
+    AGMCase(desc: "claims：規則檔整個不見（要說輸入不在，不是說某一列不見）", guardRel: "akashic-guards measured-claims-audit", edits: [
+        AGMEdit(path: "plugin/rules/assertions-must-be-measured.md", kind: "delete", a: "", b: ""),
+    ], expect: ["讀不到", "守衛的輸入不在"]),
     AGMCase(desc: "numbers：CLAUDE.md 不見（同樣不得被另外兩個來源撐著）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: "CLAUDE.md", kind: "delete", a: "", b: ""),
     ], expect: ["`CLAUDE.md` 一個檔都沒找到"]),

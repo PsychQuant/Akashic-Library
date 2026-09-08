@@ -70,7 +70,9 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     // 豁免清單」——而豁免清單才是真正會長出漏洞的東西。
     func proseLines(_ fp: String) -> [(Int, String)] {
         let md = fp.hasSuffix(".md")
-        let text = (try? String(contentsOfFile: fp, encoding: .utf8)) ?? ""
+        // #527：讀不到就中止具名。`fp` 來自本檔自己列出的檔案清單——缺席＝那份清單過期，
+        // 而回空字串會讓「這個檔沒有違規」與「這個檔不見了」在輸出上完全一樣。
+        let text = requireContents(ofFile: fp, what: base(fp))
         var out: [(Int, String)] = []
         for (i, line) in text.components(separatedBy: "\n").enumerated() {
             let s = line.drop(while: { $0 == " " || $0 == "\t" })
@@ -132,7 +134,7 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     }
     check(2, "提到 repo 專屬路徑卻未在同一行揭露取用限制", undisclosed, [])
 
-    let ruleTxt = (try? String(contentsOfFile: rulePath, encoding: .utf8)) ?? ""
+    let ruleTxt = requireContents(ofFile: rulePath, what: "assertions-must-be-measured.md")   // #527
     let ruleLines = ruleTxt.components(separatedBy: "\n")
 
     // ── 3. 規則檔不得回到分類法形式 ────────────────────────────────────────

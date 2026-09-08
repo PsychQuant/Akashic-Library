@@ -61,8 +61,32 @@ func fileExists(_ rel: String) -> Bool {
     FileManager.default.fileExists(atPath: "\(repoRoot)/\(rel)")
 }
 
+/// 讀一個**必須在**的檔；讀不到就中止並具名（#527）。
+///
+/// **為什麼不回空字串。** `""` 之後 `components(separatedBy: "\n")` 得 `[""]`，走訪它的
+/// 迴圈**零次迭代**——檢查印完標題就沒有本體，rc 仍是 0。缺口不是沉默，是**偽裝成一次
+/// 通過**。#521 的實例 1（`MeasuredClaimsAudit` 檢查 ③）就是這個形狀的一次落地。
+///
+/// **裁決取自量測，不是偏好**（#527）：11 個 `rawFile` 呼叫點逐一追過路徑來源——來自
+/// glob、`GUARDS` 清單、或固定的受保護檔——**沒有一個容許缺席**。而真的容許缺席的兩處
+/// （本檔的 `HOOK`）已經在**呼叫端**寫成 `fileExists(x) ? codeOnly(x) : ""`：那是更好的
+/// 位置，決定寫在做決定的地方、讀者看得到。
+///
+/// 所以不加 `rawFileRequired`（issue 的候選 2）——零個呼叫點需要容忍版，把它留在 default
+/// 位置就是留一個沒有人需要的陷阱（`no-compat-fallback` 第 1 條）。
+///
+/// **rc=2 而不是 1**：1 是「守衛查到問題」，2 是「守衛跑不起來」。兩者對讀 CI 輸出的人
+/// 意義不同——一個要去修 store／規則，另一個要去修守衛的輸入。
+func requireContents(ofFile path: String, what: String) -> String {
+    guard let s = try? String(contentsOfFile: path, encoding: .utf8) else {
+        print("✗ 讀不到 \(what)（\(path)）——守衛的輸入不在，它無法判定任何事")
+        exit(2)
+    }
+    return s
+}
+
 func rawFile(_ rel: String) -> String {
-    (try? String(contentsOfFile: "\(repoRoot)/\(rel)", encoding: .utf8)) ?? ""
+    requireContents(ofFile: "\(repoRoot)/\(rel)", what: rel)
 }
 
 func base(_ p: String) -> String { (p as NSString).lastPathComponent }

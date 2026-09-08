@@ -76,7 +76,7 @@ final class VerdictHolderGridTests: XCTestCase {
         try org("some-org", refs: [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "Some Org")])
         let report = try store.renameEntry(from: "old2020a", to: "new2020a")
         XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:new2020a"])
-        XCTAssertEqual(report.verdictValuesRewritten, ["some-org"])
+        XCTAssertEqual(report.verdictValuesRewritten, [HolderRecord(.organization, "some-org")])
     }
 
     // MARK: - work merge × organization
@@ -88,7 +88,7 @@ final class VerdictHolderGridTests: XCTestCase {
         GitFixture.commitAll(store.root)   // resolve 只在受 git 追蹤的檔上動刀（deletionNotRecoverable 閘）
         let report = try store.resolveDivergence(id: d.id, survivor: "keeper2020a")
         XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:keeper2020a"])
-        XCTAssertTrue(report.verdictValuesRewritten.contains("some-org"), "\(report)")
+        XCTAssertTrue(report.verdictValuesRewritten.contains(HolderRecord(.organization, "some-org")), "\(report)")
         XCTAssertTrue(report.failures.isEmpty, "\(report.failures)")
     }
 
@@ -102,7 +102,7 @@ final class VerdictHolderGridTests: XCTestCase {
         GitFixture.commitAll(store.root)   // resolve 只在受 git 追蹤的檔上動刀（deletionNotRecoverable 閘）
         let report = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
         XCTAssertEqual(try holders(ofOrg: "some-org"), ["person:keeper-person"])
-        XCTAssertTrue(report.verdictValuesRewritten.contains("some-org"), "\(report)")
+        XCTAssertTrue(report.verdictValuesRewritten.contains(HolderRecord(.organization, "some-org")), "\(report)")
     }
 
     func testPersonMergeMigratesPersonHoldersOnPeople() throws {
@@ -115,7 +115,7 @@ final class VerdictHolderGridTests: XCTestCase {
         GitFixture.commitAll(store.root)   // resolve 只在受 git 追蹤的檔上動刀（deletionNotRecoverable 閘）
         let report = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
         XCTAssertEqual(try holders(ofPerson: "third-person"), ["person:keeper-person"])
-        XCTAssertTrue(report.verdictValuesRewritten.contains("third-person"), "\(report)")
+        XCTAssertTrue(report.verdictValuesRewritten.contains(HolderRecord(.person, "third-person")), "\(report)")
     }
 
     /// survivor **自己**持有的 `person:<doomed>` holder：改寫在 commit 之前、對合併後的 keeper 做——合併進來的別名
@@ -132,7 +132,7 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(try holders(ofPerson: "keeper-person"), ["person:keeper-person"])
         XCTAssertTrue(after?.names.all.contains("Doomed Alias") ?? false, "合併進來的別名不得被舊快照蓋掉：\(String(describing: after?.names.all))")
         XCTAssertNil(try store.load().people.first { $0.key == "doomed-person" }, "doomed 不得復活")
-        XCTAssertTrue(report.verdictValuesRewritten.contains("keeper-person"), "\(report)")
+        XCTAssertTrue(report.verdictValuesRewritten.contains(HolderRecord(.person, "keeper-person")), "\(report)")
     }
 
     /// doomed **自帶**的 `person:<doomed>` verdict 由 #271 搬到 keeper 後也要被改寫——pre-commit 的快照掃描看不到它。
@@ -164,7 +164,7 @@ final class VerdictHolderGridTests: XCTestCase {
         GitFixture.commitAll(store.root)
         let report = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
         XCTAssertEqual(try holders(ofVenue: "some-journal"), ["person:keeper-person"])
-        XCTAssertTrue(report.verdictValuesRewritten.contains("some-journal"), "\(report)")
+        XCTAssertTrue(report.verdictValuesRewritten.contains(HolderRecord(.venue, "some-journal")), "\(report)")
     }
 
     func testPersonRenameMigratesPersonHoldersOnVenues() throws {
@@ -175,7 +175,7 @@ final class VerdictHolderGridTests: XCTestCase {
         GitFixture.commitAll(store.root)
         let report = try store.renamePerson(from: "old-person", to: "new-person")
         XCTAssertEqual(try holders(ofVenue: "some-journal"), ["person:new-person"])
-        XCTAssertTrue(report.verdictValuesRewritten.contains("some-journal"), "\(report)")
+        XCTAssertTrue(report.verdictValuesRewritten.contains(HolderRecord(.venue, "some-journal")), "\(report)")
     }
 
     // MARK: - rename 的 org 前置閘與 writeOrganization 同一個函式
@@ -243,8 +243,8 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(try holders(ofPerson: "third-person"), ["person:keeper-person"], "keeper 已落地：遷移照做（C／D 兩案重跑救不回）")
         XCTAssertNotNil(try store.load().people.first { $0.key == "doomed-person" }, "失敗路徑不刪被併記錄")
         XCTAssertEqual(try holders(ofPerson: "keeper-person"), ["person:keeper-person"], "keeper 已在 commit 前改寫")
-        XCTAssertTrue(report.verdictValuesRewritten.contains("keeper-person"), "既成事實要揭露：\(report)")
-        XCTAssertTrue(report.verdictValuesRewritten.contains("third-person"), "做了的要報：\(report)")
+        XCTAssertTrue(report.verdictValuesRewritten.contains(HolderRecord(.person, "keeper-person")), "既成事實要揭露：\(report)")
+        XCTAssertTrue(report.verdictValuesRewritten.contains(HolderRecord(.person, "third-person")), "做了的要報：\(report)")
     }
 
     /// commit **前**就早退（被併檔不可刪）：keeper 沒寫、holder 沒動、報告什麼都不揭露——完全的 no-op。
@@ -294,7 +294,7 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertTrue(report.hasFailures, "\(report)"); XCTAssertTrue(report.survivorUpdated)
         XCTAssertEqual(try holders(ofPerson: "holder-person"), ["work:keeper2020a"], "keeper 已落地：遷移照做")
         XCTAssertTrue(try store.load().entries.contains { $0.citekey == "doomed2020a" }, "失敗路徑不刪被併記錄")
-        XCTAssertTrue(report.verdictValuesRewritten.contains("holder-person"), "\(report)")
+        XCTAssertTrue(report.verdictValuesRewritten.contains(HolderRecord(.person, "holder-person")), "\(report)")
     }
 
     /// work-merge 側 A 案：被併檔不可刪 → 早退，holder 不動、什麼都不揭露。
@@ -339,7 +339,7 @@ final class VerdictHolderGridTests: XCTestCase {
         try store.writePerson(related)
 
         let report = try store.renameEntry(from: "old2020a", to: "new2020a")
-        XCTAssertEqual(report.verdictValuesRewritten, ["related-person"], "無關的記錄不得算進報告：\(report)")
+        XCTAssertEqual(report.verdictValuesRewritten, [HolderRecord(.person, "related-person")], "無關的記錄不得算進報告：\(report)")
         let load = try store.load()
         XCTAssertEqual(load.people.first { $0.key == "unrelated-person" }?.references.count, 2, "不得被收攏")
         let after = load.people.first { $0.key == "related-person" }?.references ?? []
@@ -433,9 +433,156 @@ final class VerdictHolderGridTests: XCTestCase {
             try org(k, refs: [verdict("resolution-confirmed", kind: .work, holder: "standards1966a", literal: "Org \(k)")])
         }
         let report = try store.renameEntry(from: "standards1966a", to: "standards1966b")
-        XCTAssertEqual(report.verdictValuesRewritten, ["org-a", "org-b", "org-c"])
+        XCTAssertEqual(report.verdictValuesRewritten, [HolderRecord(.organization, "org-a"), HolderRecord(.organization, "org-b"), HolderRecord(.organization, "org-c")])
         for k in ["org-a", "org-b", "org-c"] {
             XCTAssertEqual(try holders(ofOrg: k), ["work:standards1966b"], k)
         }
+    }
+
+    // MARK: - 收攏丟列要回報（#495）
+
+    /// rename 的 verdict 遷移**會丟列**：遷移後與既有 verdict 同 (field, value) 的那一筆被收攏。
+    /// 在 #495 之前那是**靜默**的——report 沒有欄位承載它，CLI 與 App 都印不出來，而
+    /// `lossless-intake` 執行細節 3 明寫「丟棄必須可見：靜默讓『沒有這個東西』與『有但沒說』
+    /// 在事後完全無法區分」。merge 側自 #461 起就有，rename 側到這裡才補上。
+    func testRenameCollapsingAVerdictIsReportedNotSilent() throws {
+        try entry("old2020a")
+        // 同一個 organization 同時持有指向舊鍵與新鍵的同 literal verdict——改名後兩者同值。
+        try org("some-org", refs: [
+            verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "Some Org"),
+            verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Some Org")])
+        let report = try store.renameEntry(from: "old2020a", to: "new2020a")
+        // 收攏真的發生了（兩條變一條）——沒有這一句，下面就只是在驗一個字串
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:new2020a"])
+        XCTAssertEqual(report.verdictsCollapsed.count, 1, "\(report.verdictsCollapsed)")
+        let line = report.verdictsCollapsed[0]
+        XCTAssertTrue(line.hasPrefix("organization「some-org」："),
+                      "要說得出是哪一筆記錄丟的，否則使用者無從去看：\(line)")
+        XCTAssertTrue(line.contains("resolution-confirmed"), line)
+        XCTAssertTrue(line.contains("丟棄"), line)
+    }
+
+    /// person 改名側同型——兩條路徑各自執行同一條不變式，只驗其一會讓另一邊安靜退化。
+    func testRenamePersonCollapsingAVerdictIsReportedNotSilent() throws {
+        try store.writePerson(Person(key: "old-person", names: ["Old Person"]))
+        try org("some-org", refs: [
+            verdict("resolution-rejected", kind: .person, holder: "old-person", literal: "A B"),
+            verdict("resolution-rejected", kind: .person, holder: "new-person", literal: "A B")])
+        let report = try store.renamePerson(from: "old-person", to: "new-person")
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["person:new-person"])
+        XCTAssertEqual(report.verdictsCollapsed.count, 1, "\(report.verdictsCollapsed)")
+        XCTAssertTrue(report.verdictsCollapsed[0].hasPrefix("organization「some-org」："),
+                      report.verdictsCollapsed[0])
+    }
+
+    /// 沒有收攏時是空的——一個恆非空的欄位無法區分「丟了」與「沒丟」。
+    func testRenameWithoutCollapseReportsNothingCollapsed() throws {
+        try entry("old2020a")
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "Some Org")])
+        let report = try store.renameEntry(from: "old2020a", to: "new2020a")
+        XCTAssertEqual(report.verdictsCollapsed, [])
+        XCTAssertEqual(report.verdictValuesRewritten, [HolderRecord(.organization, "some-org")])
+    }
+
+    // MARK: - 後置條件：一次 rename 不得新增死 verdict（#488）
+
+    /// 三個遷移迴圈各自正確**不蘊含**整體正確。這條問結果不問機制——它不知道有幾腿，
+    /// 所以新 holder 形狀第一次被走到時它就會出聲，而逐腿的測試不會（沒有測試知道那一腿存在）。
+    func testVerdictsStillPointingAtNamesTheHolderAndField() {
+        let stragglers = LibraryStore.verdictsStillPointingAt(
+            "old2020a", holderKind: .work,
+            in: [("organization", "some-org",
+                  [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "X")]),
+                 ("person", "innocent",
+                  [verdict("resolution-confirmed", kind: .work, holder: "other2020a", literal: "X")]),
+                 // 不同 holderKind 同名——不得誤報
+                 ("venue", "vk",
+                  [verdict("resolution-confirmed", kind: .person, holder: "old2020a", literal: "X")])])
+        XCTAssertEqual(stragglers, ["organization「some-org」的 resolution-confirmed"])
+    }
+
+    func testAssertNoVerdictLeftBehindThrowsAndNamesThem() {
+        XCTAssertNoThrow(try LibraryStore.assertNoVerdictLeftBehind([], oldKey: "k", action: "rename"))
+        XCTAssertThrowsError(
+            try LibraryStore.assertNoVerdictLeftBehind(["organization「some-org」的 resolution-confirmed"],
+                                                       oldKey: "old2020a", action: "rename")) { e in
+            let msg = "\(e)"
+            XCTAssertTrue(msg.contains("some-org"), msg)
+            XCTAssertTrue(msg.contains("old2020a"), msg)
+            XCTAssertTrue(msg.contains("少了一腿"), "訊息要指出這是遷移缺腿，不是資料壞掉：\(msg)")
+        }
+    }
+
+    /// 三種 holder 都持有指向舊鍵的 verdict 時，一次 rename 之後**一條都不剩**——
+    /// 這是 #464 verify DA 在 live store 副本上實測到 4 條死 verdict 的那個情境的反面。
+    func testRenameWithAllThreeHolderKindsLeavesNoDeadVerdict() throws {
+        try entry("old2020a")
+        var p = Person(key: "some-person", names: ["Some Person"])
+        p.references = [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "SP")]
+        try store.writePerson(p)
+        var v = Venue(key: "some-venue", type: .periodical, names: TimelineOf([TemporalValue(value: "Some Venue")]))
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "SV")]
+        _ = try store.writeVenue(v)
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "SO")])
+
+        let report = try store.renameEntry(from: "old2020a", to: "new2020a")
+        XCTAssertEqual(try holders(ofPerson: "some-person"), ["work:new2020a"])
+        XCTAssertEqual(try holders(ofVenue: "some-venue"), ["work:new2020a"])
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:new2020a"])
+        XCTAssertEqual(report.verdictValuesRewritten, [HolderRecord(.organization, "some-org"), HolderRecord(.person, "some-person"), HolderRecord(.venue, "some-venue")])
+        // 後置條件對改完的 store 重跑一次：零殘留
+        let after = try store.load()
+        XCTAssertEqual(LibraryStore.verdictsStillPointingAt(
+            "old2020a", holderKind: .work,
+            in: after.people.map { ("person", $0.key, $0.references) }
+              + after.venues.map { ("venue", $0.key, $0.references) }
+              + after.organizations.map { ("organization", $0.key, $0.references) }), [])
+    }
+
+    // MARK: - quarantine 檔對遷移網格不可見，但必須被說出來（#497）
+
+    /// #463 verify DA-7 的 fixture：一筆被 quarantine 的 organization 持 `person:` verdict。
+    /// 遷移只走 `load()` 解析得出的記錄，所以它**看不到**那條——這是既有邊界，本張不修它，
+    /// 但報告不得因此宣稱「無其他記錄引用此 key」。「沒掃到」與「掃過且沒有」是兩件事。
+    func testRenamePersonDisclosesUnscannedQuarantineFiles() throws {
+        try store.writePerson(Person(key: "old-person", names: ["Old Person"]))
+        var o = Organization(key: "broken-org", names: TimelineOf([TemporalValue(value: "Broken Org")]))
+        o.references = [verdict("resolution-rejected", kind: .person, holder: "old-person", literal: "OP")]
+        // 檔名 UUID 與記錄 id 不符 → 整檔 quarantine（DeadVerdictScanTests 的既有手法）
+        try OrganizationYAML.encode(o).write(
+            to: store.entitiesDir.appendingPathComponent("\(UUID().uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        XCTAssertEqual(try store.load().quarantined.count, 1, "前提：那個檔真的被 quarantine")
+
+        let report = try store.renamePerson(from: "old-person", to: "new-person")
+        XCTAssertEqual(report.verdictValuesRewritten, [],
+                       "quarantine 檔不在 load 裡——遷移確實看不到它（這是缺口本身，本張不修）")
+        XCTAssertEqual(report.quarantinedNotScanned.count, 1,
+                       "未掃描必須說出來：\(report.quarantinedNotScanned)")
+        // 缺口確實還在——磁碟上那條 verdict 仍指向已退役的鍵
+        let stillThere = try FileManager.default
+            .contentsOfDirectory(atPath: store.entitiesDir.path)
+            .compactMap { try? String(contentsOf: store.entitiesDir.appendingPathComponent($0), encoding: .utf8) }
+            .contains { $0.contains("person:old-person") }
+        XCTAssertTrue(stillThere, "本張只要求可見，不要求遷移——若這裡變成 false，缺口被修了，回來更新這條")
+    }
+
+    /// citekey 側同型。
+    func testRenameDisclosesUnscannedQuarantineFiles() throws {
+        try entry("old2020a")
+        var o = Organization(key: "broken-org", names: TimelineOf([TemporalValue(value: "Broken Org")]))
+        o.references = [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "BO")]
+        try OrganizationYAML.encode(o).write(
+            to: store.entitiesDir.appendingPathComponent("\(UUID().uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        let report = try store.renameEntry(from: "old2020a", to: "new2020a")
+        XCTAssertEqual(report.quarantinedNotScanned.count, 1, "\(report.quarantinedNotScanned)")
+    }
+
+    /// 乾淨的 store 是空的——恆非空的欄位分不出「有邊界」與「沒邊界」。
+    func testCleanStoreDisclosesNoQuarantine() throws {
+        try entry("old2020a")
+        let report = try store.renameEntry(from: "old2020a", to: "new2020a")
+        XCTAssertEqual(report.quarantinedNotScanned, [])
     }
 }

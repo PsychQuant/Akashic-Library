@@ -1817,7 +1817,16 @@ struct Rename: ParsableCommand {
         }
         // verdict value 同理（#232 verify NEW-1）——判定史跟著 citekey 走
         if !report.verdictValuesRewritten.isEmpty {
-            print("消解判定已遷移：\(report.verdictValuesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
+            print("消解判定已遷移：\(report.verdictValuesRewritten.map(\.describedSafely).joined(separator: ", "))")   // display-safe-exempt: HolderRecord.describedSafely 已對 key 套 displaySafe(max: 200)
+        }
+        if !report.quarantinedNotScanned.isEmpty {   // #497：未掃描不得看起來像掃過且沒有
+            print("⚠ \(report.quarantinedNotScanned.count) 個 quarantine 檔未掃描——"
+                  + "其中若有 verdict 指向此鍵，不會被遷移（修好那些檔後跑 akashic validate 複查）：")
+            for f in report.quarantinedNotScanned { print("  · \(displaySafe(f, max: 300))") }
+        }
+        if !report.verdictsCollapsed.isEmpty {   // #495：收攏丟列要說出來——靜默丟棄不可稽核（lossless-intake 執行細節 3）
+            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（與遷移輸出同 (field, value)，留首見）：")
+            for x in report.verdictsCollapsed { print("  · \(displaySafe(x, max: 300))") }
         }
     }
 }
@@ -1854,16 +1863,28 @@ struct RenamePerson: ParsableCommand {
                   + report.authorEdgesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))
         }
         if !report.verdictValuesRewritten.isEmpty {
-            print("消解判定已遷移："
-                  + report.verdictValuesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))
+            print("消解判定已遷移："   // display-safe-exempt: 同上，消毒在 describedSafely 內
+                  + report.verdictValuesRewritten.map(\.describedSafely).joined(separator: ", "))
         }
         if !report.divergencesRewritten.isEmpty {
             print("歧異記錄已遷移（候選或 prefers）：\(report.divergencesRewritten.joined(separator: ", "))")
         }
+        if !report.quarantinedNotScanned.isEmpty {   // #497：未掃描不得看起來像掃過且沒有
+            print("⚠ \(report.quarantinedNotScanned.count) 個 quarantine 檔未掃描——"
+                  + "其中若有 verdict 指向此鍵，不會被遷移（修好那些檔後跑 akashic validate 複查）：")
+            for f in report.quarantinedNotScanned { print("  · \(displaySafe(f, max: 300))") }
+        }
+        if !report.verdictsCollapsed.isEmpty {   // #495：收攏丟列要說出來——靜默丟棄不可稽核（lossless-intake 執行細節 3）
+            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（與遷移輸出同 (field, value)，留首見）：")
+            for x in report.verdictsCollapsed { print("  · \(displaySafe(x, max: 300))") }
+        }
         if report.authorEdgesRewritten.isEmpty && report.verdictValuesRewritten.isEmpty
-            && report.divergencesRewritten.isEmpty {
-            // 「沒有副作用」與「有副作用但沒印」在終端上不該長得一樣
-            print("（無其他記錄引用此 key）")
+            && report.divergencesRewritten.isEmpty && report.verdictsCollapsed.isEmpty {
+            // 「沒有副作用」與「有副作用但沒印」在終端上不該長得一樣。
+            // 而有 quarantine 檔時**兩者都不能說**——那句話是全稱斷言，而我們沒掃過那些檔（#497）。
+            print(report.quarantinedNotScanned.isEmpty
+                  ? "（無其他記錄引用此 key）"
+                  : "（已載入的記錄中無其他引用；未掃描的 quarantine 檔見上）")
         }
     }
 }

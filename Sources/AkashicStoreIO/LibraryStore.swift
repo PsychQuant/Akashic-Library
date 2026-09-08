@@ -454,10 +454,11 @@ public final class LibraryStore {
         if !entry.akashic.sources.isEmpty {
             let format = try format()
             guard format >= 9 else {
-                throw StoreIOError.invalidKey(
-                    "entry（含 akashic.sources 副本引用，需要 store format ≥ 9；本 store 是 \(format)）——" +
-                    "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
-                    "format: 改成 9", entry.citekey)
+                throw StoreIOError.invalidInput(
+                        what: "entry「\(displaySafe(entry.citekey, max: 120))」",
+                        why: "含 akashic.sources 副本引用，需要 store format ≥ 9；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                         "format: 改成 9")
             }
         }
         // v11-only 語法的 format gate（#304）：venues ref 邊。舊 binary 對 entry 的
@@ -658,9 +659,10 @@ public final class LibraryStore {
             || org.parents.entries.contains(where: \.range.endedUnknown) {
             let format = try format()
             guard format >= 6 else {
-                throw StoreIOError.invalidKey(
-                    "organization（含 ended 段，需要 store format ≥ 6；本 store 是 \(format)）——" +
-                    "升級方式見 writePerson 同型訊息", org.key)
+                throw StoreIOError.invalidInput(
+                        what: "organization「\(displaySafe(org.key, max: 120))」",
+                        why: "含 ended 段，需要 store format ≥ 6；本 store 是 \(format)——" +
+                         "升級方式見 writePerson 同型訊息")
             }
         }
         // v7-only（attested，#70）——同上
@@ -668,9 +670,10 @@ public final class LibraryStore {
             || org.parents.entries.contains(where: { !$0.range.attested.isEmpty }) {
             let format = try format()
             guard format >= 7 else {
-                throw StoreIOError.invalidKey(
-                    "organization（含 attested 段，需要 store format ≥ 7；本 store 是 \(format)）——" +
-                    "升級方式見 writePerson 同型訊息", org.key)
+                throw StoreIOError.invalidInput(
+                        what: "organization「\(displaySafe(org.key, max: 120))」",
+                        why: "含 attested 段，需要 store format ≥ 7；本 store 是 \(format)——" +
+                         "升級方式見 writePerson 同型訊息")
             }
         }
         // v8-only（resolution verdict，#232）——同 writePerson 的 v8 gate
@@ -678,9 +681,10 @@ public final class LibraryStore {
             ProvenanceReference.resolutionVerdictFields.contains($0.field) }) {
             let format = try format()
             guard format >= 8 else {
-                throw StoreIOError.invalidKey(
-                    "organization（含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)）——" +
-                    "升級方式見 writePerson 同型訊息", org.key)
+                throw StoreIOError.invalidInput(
+                        what: "organization「\(displaySafe(org.key, max: 120))」",
+                        why: "含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)——" +
+                         "升級方式見 writePerson 同型訊息")
             }
         }
         // 同 writePerson 的閘（#229）——「哪個名字對外」是同一個問題，不該有兩套答案
@@ -720,20 +724,22 @@ public final class LibraryStore {
         if person.profile.usesEndedUnknown {
             let format = try format()
             guard format >= 6 else {
-                throw StoreIOError.invalidKey(
-                    "person（含 ended 段，需要 store format ≥ 6；本 store 是 \(format)）——" +
-                    "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
-                    "format: 改成 6（v6 只新增語法，既有資料不變）", person.key)
+                throw StoreIOError.invalidInput(
+                        what: "person「\(displaySafe(person.key, max: 120))」",
+                        why: "含 ended 段，需要 store format ≥ 6；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                         "format: 改成 6（v6 只新增語法，既有資料不變）")
             }
         }
         // v7-only 語法的 format gate（#70，同 ended gate 的機制與理由）
         if person.profile.usesAttested {
             let format = try format()
             guard format >= 7 else {
-                throw StoreIOError.invalidKey(
-                    "person（含 attested 段，需要 store format ≥ 7；本 store 是 \(format)）——" +
-                    "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
-                    "format: 改成 7（v7 只新增語法，既有資料不變）", person.key)
+                throw StoreIOError.invalidInput(
+                        what: "person「\(displaySafe(person.key, max: 120))」",
+                        why: "含 attested 段，需要 store format ≥ 7；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                         "format: 改成 7（v7 只新增語法，既有資料不變）")
             }
         }
         // v8-only 語法的 format gate（#232 verify NEW-2/NEW-3，同 6/7 的機制與理由）：
@@ -744,10 +750,11 @@ public final class LibraryStore {
             ProvenanceReference.resolutionVerdictFields.contains($0.field) }) {
             let format = try format()
             guard format >= 8 else {
-                throw StoreIOError.invalidKey(
-                    "person（含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)）——" +
-                    "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
-                    "format: 改成 8（v8 只新增 references 欄位對，既有資料不變）", person.key)
+                throw StoreIOError.invalidInput(
+                        what: "person「\(displaySafe(person.key, max: 120))」",
+                        why: "含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                         "format: 改成 8（v8 只新增 references 欄位對，既有資料不變）")
             }
         }
         // v10-only 形狀的 format gate（#227，同 6/7/8/9 的機制與理由）：巢狀 names
@@ -1188,6 +1195,46 @@ public final class LibraryStore {
     }
 }
 
+/// 一筆**被改寫的持有記錄**——kind ＋ key（#498）。
+///
+/// 在此之前三個報告的 `verdictValuesRewritten` 是扁平的 key 清單，混三種記錄形狀
+/// （person／organization／venue，#463 起三種都會出現在同一個清單裡）而不帶 kind。
+/// 跨型別同名鍵在 live store 實測 **2 個**——那時清單上的一個字串對應兩筆記錄，
+/// 使用者無從分辨哪一筆被改寫。
+///
+/// **為什麼是型別而不是 `"organization:some-org"` 字串。** 那個記法在本 store 已經
+///有另一個意思：verdict value 的 `<kind>:<key> :: <literal>` 裡，`person:foo` 說的是
+/// 「這條判定**是關於**誰」，而本清單說的是「**哪一筆記錄**被改寫」——同一個記法兩個軸。
+/// 用具名欄位讓那個混淆寫不出來。
+///
+/// 相鄰的 `verdictsCollapsed` 仍是字串，這**不是不一致**：那是一串句子（「…——丟棄 …」），
+/// 本型別是一筆記錄的身分。記錄身分值得一個型別，句子不值得。
+// 刻意不加 `Sendable`：`EntityKind` 住在 AkashicCore 且未宣告該 conformance，跨 module
+// 加上去會讓嚴格建置要求 `@preconcurrency import`（pre-push 的 -warnings-as-errors 實測擋下）。
+// 相鄰的 `RenameReport`／`PersonRenameReport` 同樣沒有——要加就整族一起加，不是這裡先偷跑。
+public struct HolderRecord: Equatable, Hashable, Comparable {
+    /// 只會是 `.person`／`.organization`／`.venue`——三種持得住 verdict 的記錄形狀
+    /// （`entity-backlink-completeness` 第 13 條邊）。用 `EntityKind` 而不是自己開一個
+    /// 三值 enum：形狀的值域已經有唯一來源，第二份會分岔。
+    public let kind: EntityKind
+    public let key: String
+
+    public init(_ kind: EntityKind, _ key: String) { self.kind = kind; self.key = key }
+
+    /// 三個呈現面共用的顯示形——`organization「some-org」`。
+    ///
+    /// **key 在這裡就消毒**（`displaySafe`）：三個面各寫一份格式化就是三份會分岔的規格，
+    /// 而其中一份忘了消毒不會有任何跡象。刻意用「」而不是 `:`——後者與 verdict value 的
+    /// holder 記法撞號（見型別 doc）。
+    public var describedSafely: String {
+        "\(kind.rawValue)「\(displaySafe(key, max: 200))」"
+    }
+
+    public static func < (a: HolderRecord, b: HolderRecord) -> Bool {
+        (a.kind.rawValue, a.key) < (b.kind.rawValue, b.key)
+    }
+}
+
 /// person key 改名的回報（#395）。
 ///
 /// **欄位與 `RenameReport` 不同，刻意不共用型別**——兩者的參照集合不同
@@ -1196,18 +1243,39 @@ public final class LibraryStore {
 public struct PersonRenameReport: Equatable {
     /// `authors[].key` 有被改寫的 work citekeys。
     public var authorEdgesRewritten: [String]
-    /// verdict value 的 `person:<key>` 有被改寫的**持有記錄** key（person、organization 或 venue——#463 起 venue 也在列；
-    /// 扁平清單不帶 kind，同 `RenameReport.verdictValuesRewritten` 的既有取捨）。
-    public var verdictValuesRewritten: [String]
+    /// verdict value 的 `person:<key>` 有被改寫的**持有記錄**（person、organization 或 venue——#463 起 venue 也在列）。
+    /// #498 起帶 kind：跨型別同名鍵在 live store 實測 2 個，扁平 key 清單分不出是哪一筆。
+    public var verdictValuesRewritten: [HolderRecord]
     /// 候選或 `judgement.prefers` 有跟著改名的歧異記錄 id。
     public var divergencesRewritten: [String]
+    /// 這次退役操作**沒有掃描到**的 quarantine 檔（#497）。
+    ///
+    /// 整張 verdict holder 遷移網格（#463）只走 `load()` 解析得出的記錄；被 quarantine 的檔
+    /// 對它零可見性。#463 verify DA-7 的 fixture 實測：一筆 `names` 形狀不合法的 organization
+    /// 持 `person:doomed-person` verdict，`rename-person` **成功**並印「（無其他記錄引用此 key）」，
+    /// 而磁碟上那條 verdict 仍指向已退役的鍵。
+    ///
+    /// **刻意不掃檔案內文找舊鍵。** 那會印出一個比證據更強的宣稱：quarantine 檔正因為
+    /// 解析不了才在那裡，而行級文字比對會漏掉被 YAML 折行的長 value（本 repo 量過的形狀）。
+    /// 「沒掃到」是可以誠實斷言的，「掃過且沒有」不是。
+    public var quarantinedNotScanned: [String]
+    /// 遷移後與既有 verdict 同 (field, value) 而被收攏丟棄的列（#495）。
+    ///
+    /// 形狀與 merge 側的 `ResolveReport.verdictsCollapsed` 逐字相同
+    /// （`<kind>「<持有記錄 key>」：<field> <value>——丟棄 <來源>`），因為它們是**同一件事**：
+    /// 「store 永不持有重複 verdict」這條不變式在兩條路徑上各自執行。兩份不同的描述會分岔。
+    public var verdictsCollapsed: [String]
 
     public init(authorEdgesRewritten: [String] = [],
-                verdictValuesRewritten: [String] = [],
-                divergencesRewritten: [String] = []) {
+                verdictValuesRewritten: [HolderRecord] = [],
+                divergencesRewritten: [String] = [],
+                verdictsCollapsed: [String] = [],
+                quarantinedNotScanned: [String] = []) {
         self.authorEdgesRewritten = authorEdgesRewritten
         self.verdictValuesRewritten = verdictValuesRewritten
         self.divergencesRewritten = divergencesRewritten
+        self.verdictsCollapsed = verdictsCollapsed
+        self.quarantinedNotScanned = quarantinedNotScanned
     }
 }
 
@@ -1219,17 +1287,26 @@ public struct RenameReport: Equatable {
     public var relationsRewritten: [String]
     /// 候選有跟著改名的歧異記錄 id（#71）。
     public var divergenceCandidatesRewritten: [String]
-    /// verdict reference 的 value 有跟著改名的**持有記錄 key（person、venue 或 organization）**
-    /// （#232 verify NEW-1；#460 起 venue 也在列；#463 起 organization 也在列——扁平清單不帶
-    /// kind，同名跨型別時無從分辨，結構化拆分屬 follow-up）。
-    public var verdictValuesRewritten: [String]
+    /// verdict reference 的 value 有跟著改名的**持有記錄（person、venue 或 organization）**
+    /// （#232 verify NEW-1；#460 起 venue；#463 起 organization）。#498 起帶 kind——
+    /// 同名跨型別時扁平 key 清單無從分辨，那是該 issue 的 follow-up 現在落地。
+    public var verdictValuesRewritten: [HolderRecord]
+    /// 遷移後與既有 verdict 同 (field, value) 而被收攏丟棄的列（#495）。形狀與
+    /// `PersonRenameReport.verdictsCollapsed` 及 merge 側的 `ResolveReport.verdictsCollapsed` 同。
+    public var verdictsCollapsed: [String]
+    /// 這次改名沒有掃描到的 quarantine 檔（#497）——理由見 `PersonRenameReport.quarantinedNotScanned`。
+    public var quarantinedNotScanned: [String]
 
     public init(relationsRewritten: [String] = [],
                 divergenceCandidatesRewritten: [String] = [],
-                verdictValuesRewritten: [String] = []) {
+                verdictValuesRewritten: [HolderRecord] = [],
+                verdictsCollapsed: [String] = [],
+                quarantinedNotScanned: [String] = []) {
         self.relationsRewritten = relationsRewritten
         self.divergenceCandidatesRewritten = divergenceCandidatesRewritten
         self.verdictValuesRewritten = verdictValuesRewritten
+        self.verdictsCollapsed = verdictsCollapsed
+        self.quarantinedNotScanned = quarantinedNotScanned
     }
 }
 
@@ -1283,7 +1360,6 @@ extension LibraryStore {
     /// 經 `AkashicKit` product 對外暴露，庫外的呼叫端不在本 repo 的稽核範圍內；
     /// 若要改成「強制呼叫端明示 `_ =`」，那是一次 API 政策變更，該自己走一次決策，
     /// 不該是修註解的副作用。
-    @discardableResult
     /// quarantined 檔裡有沒有哪一份宣稱這個 citekey；有的話回傳它的相對路徑。
     ///
     /// **刻意用行級文字比對而非 decode**：這些檔案之所以在 quarantine，正是因為
@@ -1308,6 +1384,7 @@ extension LibraryStore {
         return nil
     }
 
+    @discardableResult
     public func renameEntry(from oldKey: String, to newKey: String) throws -> RenameReport {
         // oldKey 與 newKey 對稱驗證：oldKey 之後會進 entryURL 組刪除路徑，
         // 磁碟上若有畸形 citekey（load() 已 quarantine，此處縱深防禦）絕不可放行
@@ -1422,10 +1499,12 @@ extension LibraryStore {
         // 安靜變回待判：否決不再抑制、沉底列消失、同一配對同時計入 rejected 與
         // pending。這打破 #232 自己的「Rejection SHALL be distinct from absence」。
         // 文法解析與 store 閘同源（`VerdictPairingValue`），不另寫第二份。
+        var collapsedVerdicts: [String] = []
         var peopleToRewrite: [Person] = []
         for var p in load.people {
-            if let migrated = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .work) {
-                p.references = migrated; peopleToRewrite.append(p)
+            if let m = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .work) {
+                p.references = m.refs; peopleToRewrite.append(p)
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // venue 同型（#460）：#304 之後 venue 也持 `work:` holder 的 verdict
@@ -1434,8 +1513,9 @@ extension LibraryStore {
         // 漏掉的後果與 person 側完全同構：rejected stale ⇒ 否決安靜變回待判。
         var venuesToRewrite: [Venue] = []
         for var vn in load.venues {
-            if let migrated = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .work) {
-                vn.references = migrated; venuesToRewrite.append(vn)
+            if let m = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .work) {
+                vn.references = m.refs; venuesToRewrite.append(vn)
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // organization 同型（#463，網格的 rename×org 格）：#443／OrgResolver 在 organization 記錄上落
@@ -1443,8 +1523,9 @@ extension LibraryStore {
         // 就會留下死 verdict（#464 verify 實測兩次 rename 得 4 條）。機制完全鏡射上方 venue 迴圈。
         var orgsToRewrite: [Organization] = []
         for var org in load.organizations {
-            if let migrated = Self.migratedVerdicts(org.references, from: oldKey, to: newKey, holderKind: .work) {
-                org.references = migrated; orgsToRewrite.append(org)
+            if let m = Self.migratedVerdicts(org.references, from: oldKey, to: newKey, holderKind: .work) {
+                org.references = m.refs; orgsToRewrite.append(org)
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
 
@@ -1460,6 +1541,21 @@ extension LibraryStore {
         // 三腿的寫入閘與各自的寫入端**同一個函式**——person 腿是 DA-3 補的（#232 起只 encode、不跑 format 閘）。
         // format 只在真的有 gated 記錄要驗時才讀、讀一次共用（#463 verify Codex R3 N3：無條件讀會讓一個
         // 壞掉的 store.yaml 擋住完全不需要 format 閘的 rename——R2 對 writeOrganization 修過的同一件事，換個位置）。
+        // 後置條件（#488）：遷移完的**整份**快照裡不得再有指向舊鍵的 verdict。
+        // 在寫入之前算，所以失敗零寫入。未被任一迴圈改到的記錄用原值——那正是要驗的：
+        // 「沒被改到」必須是因為它本來就沒有指向舊鍵，不是因為某一腿不存在。
+        do {
+            let mp = Dictionary(peopleToRewrite.map { ($0.key, $0) }, uniquingKeysWith: { _, b in b })
+            let mv = Dictionary(venuesToRewrite.map { ($0.key, $0) }, uniquingKeysWith: { _, b in b })
+            let mo = Dictionary(orgsToRewrite.map { ($0.key, $0) }, uniquingKeysWith: { _, b in b })
+            var post: [(kind: String, key: String, refs: [ProvenanceReference])] = []
+            post += load.people.map { ("person", $0.key, (mp[$0.key] ?? $0).references) }
+            post += load.venues.map { ("venue", $0.key, (mv[$0.key] ?? $0).references) }
+            post += load.organizations.map { ("organization", $0.key, (mo[$0.key] ?? $0).references) }
+            try Self.assertNoVerdictLeftBehind(
+                Self.verdictsStillPointingAt(oldKey, holderKind: .work, in: post),
+                oldKey: oldKey, action: "rename")
+        }
         let gateFormat = lazyStoreFormat()
         for p in peopleToRewrite {
             try Self.assertPersonWritable(p, format: gateFormat)
@@ -1498,18 +1594,18 @@ extension LibraryStore {
             try writeDivergence(d)
             divergenceIDs.append(d.id.uuidString)
         }
-        var verdictKeys: [String] = []
+        var verdictKeys: [HolderRecord] = []
         for p in peopleToRewrite {
             try writePerson(p)
-            verdictKeys.append(p.key)
+            verdictKeys.append(HolderRecord(.person, p.key))
         }
         for vn in venuesToRewrite {
             _ = try writeVenue(vn)
-            verdictKeys.append(vn.key)
+            verdictKeys.append(HolderRecord(.venue, vn.key))
         }
         for o in orgsToRewrite {
             _ = try writeOrganization(o)
-            verdictKeys.append(o.key)
+            verdictKeys.append(HolderRecord(.organization, o.key))
         }
         // 4. 刪舊檔（僅 legacy 佈局——format 2 沒有舊檔，見上）
         if !usesEntitiesLayout {
@@ -1517,7 +1613,9 @@ extension LibraryStore {
         }
         return RenameReport(relationsRewritten: rewritten.sorted(),
                             divergenceCandidatesRewritten: divergenceIDs.sorted(),
-                            verdictValuesRewritten: verdictKeys.sorted())
+                            verdictValuesRewritten: verdictKeys.sorted(),
+                            verdictsCollapsed: collapsedVerdicts.sorted(),
+                            quarantinedNotScanned: load.quarantined.map(\.file).sorted())
     }
 
 
@@ -1590,32 +1688,38 @@ extension LibraryStore {
         }
 
         // 2. verdict value 的 `person:<key>`（第 13 條）——**person 與 organization 兩處**
+        var collapsedVerdicts: [String] = []
         var peopleToRewrite: [Person] = []
         for var p in load.people where p.key != oldKey {
-            if let migrated = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .person) {
-                p.references = migrated
+            if let m = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .person) {
+                p.references = m.refs
                 peopleToRewrite.append(p)
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         var orgsToRewrite: [Organization] = []
         for var o in load.organizations {
-            if let migrated = Self.migratedVerdicts(o.references, from: oldKey, to: newKey, holderKind: .person) {
-                o.references = migrated
+            if let m = Self.migratedVerdicts(o.references, from: oldKey, to: newKey, holderKind: .person) {
+                o.references = m.refs
                 orgsToRewrite.append(o)
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(o.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // venue 同型（#463，verify security 席：venue 記錄今天只由 resolve-venues 落 `work:` holder，但寫入閘收任何
         // holderKind——「結構上不會有」對 person 記錄同樣成立而 person 迴圈仍在，同型兩格不該處置相反）
         var venuesToRewrite: [Venue] = []
         for var vn in load.venues {
-            if let migrated = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .person) {
-                vn.references = migrated
+            if let m = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .person) {
+                vn.references = m.refs
                 venuesToRewrite.append(vn)
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // 被改名的那一筆自己也可能持有指向自己的 verdict
-        if let migrated = Self.migratedVerdicts(person.references, from: oldKey, to: newKey, holderKind: .person) {
-            person.references = migrated
+        if let m = Self.migratedVerdicts(person.references, from: oldKey, to: newKey, holderKind: .person) {
+            person.references = m.refs
+            // 標 `newKey`：這筆記錄正在改名，寫舊鍵會讓使用者去找一個改完就不存在的 key。
+            collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(newKey)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
         }
 
         // 3. divergence 的候選與 prefers（第 9、10 條）
@@ -1661,6 +1765,20 @@ extension LibraryStore {
         // `assertOrganizationWritable` 後這裡只接了 encode——三個呼叫點只接了兩個，實測撕裂；person 腿是 DA-3 補的）。
         // 同 renameEntry：format lazy、讀一次共用（Codex R3 N3）。
         let gateFormat = lazyStoreFormat()
+        do {
+            let mp = Dictionary(peopleToRewrite.map { ($0.key, $0) }, uniquingKeysWith: { _, b in b })
+            let mv = Dictionary(venuesToRewrite.map { ($0.key, $0) }, uniquingKeysWith: { _, b in b })
+            let mo = Dictionary(orgsToRewrite.map { ($0.key, $0) }, uniquingKeysWith: { _, b in b })
+            var post: [(kind: String, key: String, refs: [ProvenanceReference])] = []
+            // 被改名的那一筆用手上這份（它的 references 已在上面遷移過），其餘 person 走對照表。
+            post.append(("person", newKey, person.references))
+            post += load.people.filter { $0.key != oldKey }.map { ("person", $0.key, (mp[$0.key] ?? $0).references) }
+            post += load.venues.map { ("venue", $0.key, (mv[$0.key] ?? $0).references) }
+            post += load.organizations.map { ("organization", $0.key, (mo[$0.key] ?? $0).references) }
+            try Self.assertNoVerdictLeftBehind(
+                Self.verdictsStillPointingAt(oldKey, holderKind: .person, in: post),
+                oldKey: oldKey, action: "rename-person")
+        }
         try Self.assertPersonWritable(person, format: gateFormat)
         _ = try PersonYAML.encode(person)
         for e in entriesToRewrite { _ = try EntryYAML.encode(e) }
@@ -1685,16 +1803,62 @@ extension LibraryStore {
         try writePerson(person)
         var entryKeys: [String] = []
         for e in entriesToRewrite { try writeEntry(e); entryKeys.append(e.citekey) }
-        var verdictHolders: [String] = []
-        for p in peopleToRewrite { try writePerson(p); verdictHolders.append(p.key) }
-        for o in orgsToRewrite { try writeOrganization(o); verdictHolders.append(o.key) }
-        for vn in venuesToRewrite { _ = try writeVenue(vn); verdictHolders.append(vn.key) }
+        var verdictHolders: [HolderRecord] = []
+        for p in peopleToRewrite { try writePerson(p); verdictHolders.append(HolderRecord(.person, p.key)) }
+        for o in orgsToRewrite { try writeOrganization(o); verdictHolders.append(HolderRecord(.organization, o.key)) }
+        for vn in venuesToRewrite { _ = try writeVenue(vn); verdictHolders.append(HolderRecord(.venue, vn.key)) }
         var divergenceIDs: [String] = []
         for d in divergencesToRewrite { try writeDivergence(d); divergenceIDs.append(d.id.uuidString) }
 
         return PersonRenameReport(authorEdgesRewritten: entryKeys.sorted(),
                                   verdictValuesRewritten: verdictHolders.sorted(),
-                                  divergencesRewritten: divergenceIDs.sorted())
+                                  divergencesRewritten: divergenceIDs.sorted(),
+                                  verdictsCollapsed: collapsedVerdicts.sorted(),
+                                  quarantinedNotScanned: load.quarantined.map(\.file).sorted())
+    }
+
+    /// 後置條件：這次改名不得留下任何指向舊鍵的 verdict（#488）。
+    ///
+    /// 三個遷移迴圈各自正確**不蘊含**整體正確——#463 的網格就是「補了兩腿漏第三腿」漏了兩輪
+    /// （#460 補 venue 時漏 organization，#464 verify 的 DA 在 live store 副本上 rename 兩次得 4 條
+    /// 死 verdict，而 `rename` 印 `✓`）。逐腿的測試在**新的一腿長出來時**不會紅，因為沒有測試
+    /// 知道那一腿存在；這條問的是結果而不是機制，所以新 holder 形狀第一次被走到時它就會出聲。
+    ///
+    /// **在寫任何東西之前跑**，所以失敗是零寫入的——與同段三個寫入閘同一條紀律（只鏡射一半
+    /// 就是 #35 R2 DA 實測過的撕裂）。
+    ///
+    /// ## 誠實邊界：quarantined 記錄看不到
+    ///
+    /// 被 quarantine 的檔不在 `load` 裡，所以它持有的 verdict 既不會被遷移、也不會被這條看到。
+    /// 那是「讀不到」不是「已處理」——`StoreHealth` 的死 verdict 掃描（#464）會在 quarantine
+    /// 解除後報出來，而那條掃描正是本條的對照面：它掃**既成事實**，本條擋**新增**。
+    static func verdictsStillPointingAt(
+        _ oldKey: String, holderKind: ProvenanceReference.VerdictHolderKind,
+        in records: [(kind: String, key: String, refs: [ProvenanceReference])]) -> [String] {
+        var out: [String] = []
+        for r in records {
+            for ref in r.refs {
+                guard ProvenanceReference.resolutionVerdictFields.contains(ref.field),
+                      let v = ref.value,
+                      let p = ProvenanceReference.VerdictPairingValue.parse(v),
+                      p.holderKind == holderKind, p.holder == oldKey else { continue }
+                out.append("\(r.kind)「\(displaySafe(r.key, max: 120))」的 \(ref.field)")
+            }
+        }
+        return out
+    }
+
+    /// `verdictsStillPointingAt` 非空即擲——訊息說得出是哪幾筆，以及這代表遷移少了一腿。
+    static func assertNoVerdictLeftBehind(
+        _ stragglers: [String], oldKey: String, action: String) throws {
+        guard stragglers.isEmpty else {
+            throw StoreIOError.inconsistentStore(
+                action: action,
+                issues: ["改名會留下 \(stragglers.count) 條指向舊鍵「\(displaySafe(oldKey, max: 120))」的 verdict，"
+                       + "它們在改名後指向一個不存在的鍵（死 verdict，#464）。"
+                       + "這表示遷移少了一腿——請補上對應的 holder 迴圈，不要繞過本檢查。"]
+                    + stragglers.map { "  · \($0)" })
+        }
     }
 
     /// rename 側 verdict holder 的遷移＋收攏；沒有任何改動時回 `nil`。`holderKind` 是 `.person`（`renamePerson`，
@@ -1703,8 +1867,11 @@ extension LibraryStore {
     ///
     /// 文法解析與 store 閘同源（`VerdictPairingValue`），不另寫第二份——那正是 #232 D3 自認過的
     /// grammar-in-string 漂移。收攏是**可解析 verdict 的全量** (field, value) dedup（#232 的既有語意，與 merge 側
-    /// 「只收本次觸及」刻意不同）；**收攏是靜默的**——rename 側的報告沒有 `verdictsCollapsed`，被丟的列不回報（既有
-    /// 缺口，#461 只修了 merge 側；#463 把這一面擴到 organization 與 venue，缺口同步擴大，記在 changelog）。
+    /// 「只收本次觸及」刻意不同）；**被收攏的列逐筆回報**（#495 補上——在此之前 rename 側是靜默的，
+    /// #461 只修了 merge 側而 #463 把這一面擴到 organization 與 venue 使缺口同步變大）。描述由
+    /// `describeCollapsedVerdict` 產生，與 merge 側**同一個函式**：兩條路徑執行的是同一條不變式
+    /// （store 永不持有重複 verdict），兩份描述會分岔。呼叫端負責加上持有記錄的 kind 與 key——
+    /// 本函式只看得到 references 陣列，看不到它掛在誰身上。
     ///
     /// **非 verdict 的 reference 原樣通過、不 dedup**（#463 verify Codex R3 N2）：抽 helper 前 renameEntry 的三個迴圈
     /// 就是這樣，而 #395 的 renamePerson 版本對**每一筆** reference 做 (field, value) dedup——一次與此無關的 rename 會
@@ -1715,9 +1882,11 @@ extension LibraryStore {
     private static func migratedVerdicts(_ refs: [ProvenanceReference],
                                          from oldKey: String,
                                          to newKey: String,
-                                         holderKind: ProvenanceReference.VerdictHolderKind) -> [ProvenanceReference]? {
+                                         holderKind: ProvenanceReference.VerdictHolderKind)
+        -> (refs: [ProvenanceReference], collapsed: [String])? {
         var changed = false
         var out: [ProvenanceReference] = []
+        var collapsed: [String] = []
         var seen = Set<String>()
         for r in refs {
             guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
@@ -1739,11 +1908,12 @@ extension LibraryStore {
             // 遷移後與既有 verdict 同 (field, value) → 收攏（store 永不持有重複 verdict）
             guard seen.insert("\(kept.field)\u{0}\(kept.value ?? "")").inserted else {
                 changed = true
+                collapsed.append(Self.describeCollapsedVerdict(kept))
                 continue
             }
             out.append(kept)
         }
-        return changed ? out : nil
+        return changed ? (out, collapsed) : nil
     }
 
     /// 一次性快取的 `StoreVersion.read`：**第一次被呼叫時才讀**、之後回同一個值。rename 的 venue／organization

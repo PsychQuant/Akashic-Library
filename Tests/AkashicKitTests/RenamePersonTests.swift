@@ -87,7 +87,7 @@ final class RenamePersonTests: XCTestCase {
         try store.writeOrganization(org)
 
         let report = try store.renamePerson(from: "old-key", to: "new-key")
-        XCTAssertEqual(report.verdictValuesRewritten, ["some-org"],
+        XCTAssertEqual(report.verdictValuesRewritten, [HolderRecord(.organization, "some-org")],
                        "掛在 organization 上的 person-holder verdict 必須遷移")
         let after = try store.load().organizations.first { $0.key == "some-org" }
         let v = after?.references.first?.value ?? ""

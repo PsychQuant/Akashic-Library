@@ -66,6 +66,10 @@ final class StoreHealthSurfaceTests: XCTestCase {
                       "AppState 必須走 LibraryStore.health(from:)，不得自行推導")
     }
 
+    /// 註解剝除器已搬到 `EntrySurfaceTests.codeOnly`（#490 去重）。原本的理由與失敗史
+    /// 隨函式一起搬過去了——這裡只留指路，不留第二份說明。
+    ///
+    /// （以下為搬移前的原文，保留是因為它記著本檔自己踩到的那次：）
     /// 一行去掉行註解之後剩下的東西（`//` 之後全部丟掉）。
     ///
     /// **這道掃描必須分得出程式碼與註解**（#484）：判準是「原始碼裡有沒有呼叫
@@ -76,18 +80,9 @@ final class StoreHealthSurfaceTests: XCTestCase {
     ///
     /// 只剝行註解，不處理 `/* */`——`AppState.swift` 沒有區塊註解，而寫一個
     /// 半吊子的區塊剝除器會製造新的靜默失效面。真的出現時再擴。
-    private func codeOnly(_ source: String) -> String {
-        source.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let i = line.range(of: "//") else { return line }
-                return line[line.startIndex..<i.lowerBound]
-            }
-            .joined(separator: "\n")
-    }
-
     /// `AppState` **不得**自行重算健康事實——那會讓單一路徑失效。
     func testAppStateDoesNotRederiveHealthFacts() throws {
-        let source = codeOnly(try repoFile("Sources/AkashicAppKit/AppState.swift"))
+        let source = EntrySurfaceTests.codeOnly(try repoFile("Sources/AkashicAppKit/AppState.swift"))
         XCTAssertFalse(source.contains("crossRecordIssues()"),
                        "AppState 不得自己算 crossRecordIssues——走 health")
         XCTAssertFalse(source.contains("auditSourceIndex()"),
@@ -127,7 +122,7 @@ final class StoreHealthSurfaceTests: XCTestCase {
         // 而那正是本輪在 `testAppStateDoesNotRederiveHealthFacts` 剛修掉的同一個病。
         var corpus = ""
         for f in files {
-            corpus += codeOnly(try String(contentsOf: appKit.appendingPathComponent(f), encoding: .utf8))
+            corpus += EntrySurfaceTests.codeOnly(try String(contentsOf: appKit.appendingPathComponent(f), encoding: .utf8))
         }
 
         for field in try healthFieldNames() {

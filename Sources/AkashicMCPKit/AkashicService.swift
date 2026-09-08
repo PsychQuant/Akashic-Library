@@ -2686,7 +2686,8 @@ public final class AkashicService {
                             note: String?, type rawType: String?,
                             addISSN: [String]? = nil,
                             addVariant: [String]? = nil,
-                            paginated: Bool? = nil, judgement: String? = nil,
+                            paginated: Bool? = nil, clearPaginated: Bool = false,
+                            judgement: String? = nil,
                             restsOn: [String]? = nil) throws -> String {
         let load = try store.load()
         guard var venue = load.venues.first(where: { $0.key == key }) else {
@@ -2742,7 +2743,30 @@ public final class AkashicService {
         // 驗證入口，不在這裡重寫那套規則）；(field, value, kind) 冪等以 `Equatable`
         // 全比對（不用 appendIfAbsent——它只比 (field, value)，會吞掉翻轉判定）；
         // 翻轉判定則新 reference 並存為史。
-        if let paginated {
+        // #500：**撤回判定回到誠實的未判定狀態**。清除須顯式（同 #258 對 set-status 的
+        // 既有裁決：省略拒絕、清除用專屬旗標）——`paginated` 省略時意思是「這次不動它」，
+        // 若讓省略等於清除，一次只想改 note 的呼叫會把判定抹掉。
+        //
+        // 撤回**是一筆判定**不是刪除：它同樣要理由與證據，並在 references 留下
+        // value=`nil` 的一筆。丟掉全部 reference 才是刪除，而那違反「翻轉留史」。
+        if clearPaginated {
+            guard paginated == nil else {
+                throw ServiceError.invalid(
+                    "paginated 與 clear_paginated 不得同時給——一次呼叫只能說一件事")
+            }
+            let trimmed = judgement?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmed.isEmpty else {
+                throw ServiceError.invalid(
+                    "撤回 paginated 判定必附 judgement——撤回本身是判定，"
+                    + "沒有理由的撤回事後與「不知道為什麼撤回」無法區分")
+            }
+            let ref = try ProvenanceReference(
+                field: "paginated", value: "nil",
+                url: nil, retrieved: nil, status: nil, mediaType: nil, content: nil,
+                judgement: trimmed, restsOn: restsOn ?? [])
+            venue.paginated = nil
+            if !venue.references.contains(ref) { venue.references.append(ref) }
+        } else if let paginated {
             // trim 一次、驗證與儲存用同一個值（R1 verify：先前驗 trimmed、存原文——
             // 兩個版本的 statement 會讓「同判定重打」的冪等比對失準）。
             let trimmedJudgement = judgement?
@@ -2752,8 +2776,10 @@ public final class AkashicService {
                     "設 paginated 必附 judgement——「本刊是否使用頁碼」是判定，"
                     + "沒有理由的判定事後與「不知道為什麼這樣」無法區分")
             }
+            // #500：帶上判定值——資料層因此看得出哪句理由對應哪個值，而 (field, value,
+            // kind) 的冪等比對也自然把「翻轉」與「重打同一個判定」分開。
             let ref = try ProvenanceReference(
-                field: "paginated", value: nil,
+                field: "paginated", value: paginated ? "true" : "false",
                 url: nil, retrieved: nil, status: nil, mediaType: nil, content: nil,
                 judgement: trimmedJudgement, restsOn: restsOn ?? [])
             venue.paginated = paginated
@@ -2763,7 +2789,8 @@ public final class AkashicService {
             if !venue.references.contains(ref) { venue.references.append(ref) }
         } else if judgement != nil || restsOn != nil {
             throw ServiceError.invalid(
-                "judgement／rests_on 只伴隨 paginated 使用——沒有判定就沒有判定的理由")
+                "judgement／rests_on 只伴隨 paginated 或 clear_paginated 使用"
+                + "——沒有判定就沒有判定的理由")
         }
         // **variant 的寫入面**（#471）。在此之前 variant **兩面都沒有寫入面**，唯一的
         // 寫入者是 `migrate-venue-variants`——而它用的是「`authorized` 的補集」。

@@ -223,25 +223,43 @@ final class VenueServiceTests: XCTestCase {
                        "false 抑制；nil 與 true 照報")
     }
 
-    /// venue 附著驗證的 `paginated` case：純量不收 value；欄位缺席（nil＝未判定）
-    /// 不該有判定證據；判定必須是判斷型。
+    /// venue 附著驗證的 `paginated` case——**#500 改了兩條規則，本測試跟著改**。
+    ///
+    /// 被拿掉的兩條原本寫著「純量不收 value」與「欄位缺席不該有判定證據」，而**它們正是
+    /// (b)『撤回判定』寫不出來的原因**：撤回之後欄位就是 nil，而判定史要留著——舊規則下
+    /// 這個狀態載入不了，只剩「丟掉全部 reference」（違反留史）一條路。
+    ///
+    /// 現行規則：value 若在必須是封閉三值（`true`／`false`／`nil`＝撤回）；舊筆（value
+    /// 缺席）放行（相容路徑，退場量測寫在 `Provenance.swift`）；判定仍必須是判斷型。
     func testVenuePaginatedReferenceAttachmentRules() throws {
         _ = try service.addVenue(key: "v9", names: ["V9"], type: "periodical", note: nil)
         var v = try XCTUnwrap(try store.load().venues.first { $0.key == "v9" })
-        v.references.append(ProvenanceReference(
-            field: "paginated", value: nil,
-            kind: .judgement(statement: "x", restsOn: [])))
-        XCTAssertThrowsError(try v.validateReferenceAttachment(),
-                             "欄位缺席（未判定）不該有判定證據")
+        func set(_ value: String?) {
+            let ref = ProvenanceReference(field: "paginated", value: value,
+                                          kind: .judgement(statement: "x", restsOn: []))
+            if v.references.last?.field == "paginated" { v.references[v.references.count - 1] = ref }
+            else { v.references.append(ref) }
+        }
+        // 撤回態：欄位 nil ＋ value「nil」——**這一格在 #500 之前載入不了**
+        set("nil")
+        XCTAssertNil(v.paginated)
+        XCTAssertNoThrow(try v.validateReferenceAttachment(), "撤回是合法狀態，判定史留著")
+        // 帶值的判定
         v.paginated = false
-        v.references[v.references.count - 1] = ProvenanceReference(
-            field: "paginated", value: "false",
-            kind: .judgement(statement: "x", restsOn: []))
-        XCTAssertThrowsError(try v.validateReferenceAttachment(), "純量欄位不收 value")
-        v.references[v.references.count - 1] = ProvenanceReference(
-            field: "paginated", value: nil,
-            kind: .judgement(statement: "x", restsOn: []))
+        set("false")
         XCTAssertNoThrow(try v.validateReferenceAttachment())
+        // 舊筆（value 缺席）放行——33 筆 live 記錄不得因此拒讀
+        set(nil)
+        XCTAssertNoThrow(try v.validateReferenceAttachment())
+        // 三值以外拒絕——`nil` 是撤回，不是「隨便什麼字串」
+        set("maybe")
+        XCTAssertThrowsError(try v.validateReferenceAttachment(), "value 必須是封閉三值之一")
+        // 判定仍必須是判斷型
+        v.references[v.references.count - 1] = ProvenanceReference(
+            field: "paginated", value: "true",
+            kind: .retrieval(url: "https://example.org", retrieved: "2026-09-09",
+                             status: 200, mediaType: "text/html", content: "sha256:" + String(repeating: "a", count: 64)))
+        XCTAssertThrowsError(try v.validateReferenceAttachment(), "擷取型帶不動人為裁決")
     }
 
     // MARK: - #394：venue 的 ISSN 寫入面

@@ -202,18 +202,12 @@ let agmWatched: [String] = [
     "plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh",
     "plugin/skills/akashic-promote-literals/scripts/tests/derive-hash-extenders.swift",
     ".github/workflows/census-parity.yml",
-    "plugin/tests/measured-claims-audit.py",
-    "plugin/tests/measured-numbers-audit.py",
     ".claude/rules/entity-backlink-completeness.md",
-    "plugin/tests/parity-table-drift.py",
     ".claude/rules/mcp-cli-parity.md",
     "Sources/akashic-mcp/Server.swift",
-    "plugin/tests/backlink-field-ratchet.py",
     "Sources/AkashicCore/Models.swift",
-    "plugin/tests/zero-instance-rows-audit.py",
     ".claude/rules/zero-instance-guards.md",
     "Sources/akashic/CreateEntryCommand.swift",
-    "plugin/tests/literal-scalar-parity.py",
     "plugin/skills/akashic-promote-literals/scripts/literal-census.sh",
 ]
 

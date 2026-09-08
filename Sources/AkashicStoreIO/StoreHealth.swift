@@ -83,10 +83,17 @@ public struct StoreHealth {
     /// 死 verdict（#464）的訊息前綴——**單一定義**：`deadVerdictIssues` 用它組訊息、`deadVerdicts` 用它篩，
     /// 測試與日後的 App 面也從這裡取。改這個常數，組與篩一起變。
     public static let deadVerdictPrefix = "死 verdict"
+    /// 同一筆記錄對**同一個配對**同時持有 confirmed 與 rejected（#486）的訊息前綴——
+    /// 與 `deadVerdictPrefix` 同形：訊息由它組出、`contradictoryVerdicts` 用它篩。
+    public static let contradictoryVerdictPrefix = "矛盾 verdict"
     /// `perRecordIssues` 裡的死 verdict。是計算屬性不是儲存屬性：它是 `perRecordIssues` 的
     /// 子集（同一份事實的一個切面），存兩份會分岔（`entity-backlink-completeness` 的立場）。
     public var deadVerdicts: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.deadVerdictPrefix) }
+    }
+    /// `perRecordIssues` 裡的矛盾 verdict（#486）。計算屬性，與 `deadVerdicts` 同一個理由。
+    public var contradictoryVerdicts: [OwnedIssue] {
+        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.contradictoryVerdictPrefix) }
     }
     /// 本機缺承重存檔（#453）的訊息前綴——**單一定義**：`danglingSourceIssues` 用它組訊息、
     /// `danglingSources` 用它篩，與 `deadVerdictPrefix` 同形。
@@ -222,6 +229,7 @@ public extension LibraryStore {
         // `prefix(20)`（`AkashicService.doctor()` 的既有截斷），per-record warning 若累積到 20 以上
         // （2026-09-03 實測 live store 2 條）這一族會被擠出 `first`——那時要重排或給專屬計數，這裡先記下。
         perRecord += deadVerdictIssues(in: load)
+        perRecord += contradictoryVerdictIssues(in: load)   // #486
         // #453：本機缺承重存檔——`missingSourceDigests` 先前零 production 呼叫端，doctor 只接
         // `auditSourceIndex()`（blob↔index 兩向比對），捏造或未同步的 digest 兩邊都不在、兩邊一致、
         // doctor 沉默（第 3 列「未涵蓋不得冒充通過」的形）。與死 verdict 同一形：per-record warning。
@@ -335,6 +343,60 @@ public extension LibraryStore {
                 return StoreHealth.OwnedIssue(owner: owner, kind: kind,
                                               issue: ValidationIssue(severity: .warning, message: message))
             }
+        }
+        var out: [StoreHealth.OwnedIssue] = []
+        for p in load.people { out += scan(p.references, owner: p.key, kind: "person") }
+        for o in load.organizations { out += scan(o.references, owner: o.key, kind: "organization") }
+        for v in load.venues { out += scan(v.references, owner: v.key, kind: "venue") }
+        return out
+    }
+}
+
+public extension LibraryStore {
+    /// **同一筆記錄對同一個配對同時說「是」與「不是」**（#486）。
+    ///
+    /// `resolution-confirmed` 與 `resolution-rejected` 對同一個 (holderKind, holder, literal)
+    /// 並存，代表判定史自相矛盾：提名層會同時把它算成「已判給這個人」與「已被否決」，而
+    /// 兩條路徑對同一個配對給出相反的答案。這不是資料壞掉（兩條 verdict 各自合法、檔案載入
+    /// 得了），是**判定**壞掉——所以出口是 warning 而不是 decode 拒收。
+    ///
+    /// **相等用 `verdictEqualityKey` 的那一半**（#470 剛裁決的單一定義）去掉 `field`：
+    /// 本掃描問的正是「兩個 field 對同一個配對」，把 field 放進鍵會讓它永遠找不到東西
+    /// ——#486 的 Expected 說「收攏鍵含 field」指的是 dedup 的那個鍵，不是這一個。
+    /// 在 #470 之前這個掃描寫不出來：那時「同一配對」有兩個答案，先寫就是偷偷定案第三份。
+    ///
+    /// **2026-09-09 實測 live store：0 筆**（與 #464 verify 2026-09-03 的量測一致）。
+    func contradictoryVerdictIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
+        func pairingKey(_ p: ProvenanceReference.VerdictPairingValue) -> String {
+            "\(p.holderKind.rawValue):\(p.holder)\u{0}" + NameNormalization.matchingKey(p.literal)
+        }
+        func scan(_ refs: [ProvenanceReference], owner: String, kind: String) -> [StoreHealth.OwnedIssue] {
+            var byPairing: [String: (pairing: ProvenanceReference.VerdictPairingValue, fields: Set<String>)] = [:]
+            for r in refs {
+                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
+                      let v = r.value,
+                      let p = ProvenanceReference.VerdictPairingValue.parse(v) else { continue }
+                let k = pairingKey(p)
+                var e = byPairing[k] ?? (p, [])
+                e.fields.insert(r.field)
+                byPairing[k] = e
+            }
+            return byPairing.values.filter { $0.fields.count > 1 }
+                // 走訪 Dictionary.values 的順序未定義——輸出要決定論，否則兩次跑同一個 store
+                // 得到不同的行序，而逐字比對的負控會偶發假紅（`zero-instance-guards` 第 6 列）。
+                .sorted { pairingKey($0.pairing) < pairingKey($1.pairing) }
+                .map { e in
+                    StoreHealth.OwnedIssue(
+                        owner: owner, kind: kind,
+                        issue: ValidationIssue(
+                            severity: .warning,
+                            message: "\(StoreHealth.contradictoryVerdictPrefix)："
+                                   + "\(e.fields.sorted().joined(separator: " 與 ")) 對同一個配對並存"
+                                   + "（\(e.pairing.holderKind.rawValue):"
+                                   + "\(displaySafe(e.pairing.holder, max: 120))"
+                                   + "，literal「\(displaySafe(e.pairing.literal, max: 120))」）。"
+                                   + "處置：這是判定自相矛盾不是資料壞掉——決定哪一個才對，刪掉另一個"))
+                }
         }
         var out: [StoreHealth.OwnedIssue] = []
         for p in load.people { out += scan(p.references, owner: p.key, kind: "person") }

@@ -658,4 +658,47 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(preview.verdictValuesRewritten, [])
         XCTAssertEqual(preview.verdictsCollapsed, [])
     }
+
+    // MARK: - 會被改寫的 holder 檔也要過可回溯性閘（#469）
+
+    /// 版控閘先前只護著要**刪**的 doomed 檔。verdict 遷移改寫的 holder 檔既不在那份名單、
+    /// 寫入前也沒有 per-file 前檢——而 #461 之後那條路徑會**刪列**：被收攏掉的那一列若只
+    /// 存在於未 tracked 的檔案裡，刪掉後 git 取不回。
+    func testUntrackedHolderFileIsRefusedBeforeAnyWrite() throws {
+        try entry("keeper2020a"); try entry("doomed2020a")
+        let d = try divergence(keeper: "keeper2020a", doomed: "doomed2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        // **在 commit 之後**才建 holder → 它未被追蹤，而 doomed 檔仍然是乾淨的
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .work, holder: "doomed2020a", literal: "SO")])
+
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "keeper2020a")) { e in
+            let m = "\(e)"
+            XCTAssertTrue(m.contains("未被 git 追蹤"), m)
+        }
+        // 零寫入：doomed 還在、org 的 verdict 沒動
+        XCTAssertEqual(try store.load().entries.map(\.citekey).sorted(),
+                       ["doomed2020a", "keeper2020a"], "拒絕必須發生在任何寫入之前")
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:doomed2020a"])
+    }
+
+    /// 追蹤且乾淨的 holder 檔照常通過——閘門不得把正常工作節奏擋掉。
+    func testTrackedCleanHolderFilePassesTheGate() throws {
+        try entry("keeper2020a"); try entry("doomed2020a")
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .work, holder: "doomed2020a", literal: "SO")])
+        let d = try divergence(keeper: "keeper2020a", doomed: "doomed2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        let report = try store.resolveDivergence(id: d.id, survivor: "keeper2020a")
+        XCTAssertEqual(report.failures, [])
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:keeper2020a"])
+    }
+
+    /// **不牽連無關的髒檔**：沒有 verdict 要遷的 holder 即使未追蹤也不進閘門名單——
+    /// 「store 其他地方髒不影響這次刪除的可回溯性」是這道閘既有的立場。
+    func testUnrelatedUntrackedRecordDoesNotBlock() throws {
+        try entry("keeper2020a"); try entry("doomed2020a")
+        let d = try divergence(keeper: "keeper2020a", doomed: "doomed2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        try org("innocent-org", refs: [])   // 未追蹤，但這次合併不會碰它
+        XCTAssertNoThrow(try store.resolveDivergence(id: d.id, survivor: "keeper2020a"))
+    }
 }

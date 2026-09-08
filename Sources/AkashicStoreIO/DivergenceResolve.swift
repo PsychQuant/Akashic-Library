@@ -587,7 +587,13 @@ extension LibraryStore {
         // 刪除的可回溯性，擋下它只會讓工具在正常工作節奏中變得難用。
         let doomedFiles = doomedRelativePaths(record: record, shape: shape,
                                               mergedKeys: mergedKeys, snapshot: snapshot)
-        let unsafe = Self.filesNotSafelyRecoverable(root: root, relativePaths: doomedFiles)
+        // #469：**會被改寫的 holder 檔也要驗**。#461 之後那條路徑不只改值、還會刪列，
+        // 而被收攏掉的那一列若只存在於未 tracked／dirty 的檔案裡，刪掉後 git 取不回。
+        // 名單與 preview 用同一支預測函數——閘門與實跑對「會改哪些」用不同答案正是這一族的病。
+        let holderFiles = holderRelativePaths(shape: shape, mergedKeys: mergedKeys,
+                                              survivor: survivor, snapshot: snapshot)
+        let unsafe = Self.filesNotSafelyRecoverable(
+            root: root, relativePaths: doomedFiles + holderFiles.filter { !doomedFiles.contains($0) })
         guard unsafe.isEmpty else {
             throw DivergenceResolveError.deletionNotRecoverable(files: unsafe)
         }
@@ -2055,6 +2061,38 @@ extension LibraryStore {
     /// 其他歧異記錄要跑完合併才知道，此處看不到——那是這道檢查已知的覆蓋邊界，不是
     /// 疏漏。塌縮的那些與本記錄同批建立、同樣未 commit 的機率高，所以本記錄過關時
     /// 它們通常也過關；但這是相關性不是保證。
+    /// 這次合併會**改寫**的 holder 記錄檔（#469）。
+    ///
+    /// 版控可回溯性閘先前只護著要**刪**的 doomed 檔；verdict 遷移改寫的 person／venue／
+    /// organization 檔既不在 `doomedRelativePaths`，寫入前也沒有 per-file tracked+clean
+    /// 前檢。真正且唯一的暴露是：**被收攏掉的那一列若只存在於未 tracked／dirty 的檔案裡，
+    /// 刪掉後 git 取不回**。gate 缺席自 #271／#460 即然，#461 把損失從「改值」擴到「刪列」。
+    ///
+    /// 名單直接來自 `predictedHolderVerdictMigration`（#467 為 preview 寫的那支）——
+    /// 「會被改寫的是哪些」只能有一個答案，而閘門與實跑用不同的答案正是這一族的病。
+    func holderRelativePaths(shape: EntityKind, mergedKeys: [String],
+                             survivor: String, snapshot: LibraryLoad) -> [String] {
+        let holderKind: ProvenanceReference.VerdictHolderKind
+        switch shape {
+        case .person: holderKind = .person
+        case .work:   holderKind = .work
+        case .organization, .divergence, .venue: return []   // 上游已擋，這裡不猜
+        }
+        let predicted = Self.predictedHolderVerdictMigration(
+            snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor,
+            holderKind: holderKind)
+        return predicted.rewritten.compactMap { h -> String? in
+            let id: UUID?
+            switch h.kind {
+            case .person:       id = snapshot.people.first { $0.key == h.key }?.id
+            case .venue:        id = snapshot.venues.first { $0.key == h.key }?.id
+            case .organization: id = snapshot.organizations.first { $0.key == h.key }?.id
+            case .work, .divergence: id = nil   // holder 記錄只有三族
+            }
+            return id.map { "entities/\($0.uuidString).yaml" }
+        }
+    }
+
     func doomedRelativePaths(record: Divergence, shape: EntityKind,
                              mergedKeys: [String], snapshot: LibraryLoad) -> [String] {
         var ids: [UUID] = [record.id]

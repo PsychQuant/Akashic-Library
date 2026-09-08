@@ -200,24 +200,59 @@ final class PersonCLITests: XCTestCase {
             .contentsOfDirectory(atPath: cliDir.path).filter { $0.hasSuffix(".swift") }
         XCTAssertFalse(swiftFiles.isEmpty, "找不到 Sources/akashic —— 斷言會空跑")
 
+        // **逐行斷言（不變）**：每一行建構都要帶 registry key。
         var constructions = 0
+        var filesWithConstruction: Set<String> = []
         for f in swiftFiles {
             let text = try String(contentsOf: cliDir.appendingPathComponent(f), encoding: .utf8)
             for line in text.split(separator: "\n") where line.contains("AkashicService(root:") {
                 constructions += 1
+                filesWithConstruction.insert(f)
                 XCTAssertTrue(line.contains("key: store.key"),
                               "\(f) 建 AkashicService 沒帶 registry key —— 已註冊的 store "
                               + "會被當成 keyless 而長出第二份 index（#220 HIGH）：\(line.trimmingCharacters(in: .whitespaces))")
             }
         }
-        XCTAssertEqual(constructions, 23,
-                       "預期 person／update-person／create-entry + #219 五格"
-                       + "（people／get-entry／link／tag／set-status）+ #232 的 "
-                       + "resolve-people reject 與 apply + #250 兩格"
-                       + "（add-person／divergences）+ #304 venue 四格"
-                       + "（venue／venues／add-venue／resolve-venues），共二十二處（#306 增 update-venue、#264 增 store-source、#386 增 resolve-people judge、#443 增 resolve-people attribute-org 與 split-author、#455 增 library add／remove 共用的 runMembership、#458 增 enrich）；"
-                       + "實際 \(constructions) 處——"
-                       + "多出來的新呼叫點請一併確認有帶 key，然後更新這個數字")
+
+        // **集合比對取代寫死計數**（#503）。
+        //
+        // 舊寫法是 `XCTAssertEqual(constructions, 23, "…共二十二處（#306 增…、#455 增…）")`
+        // ——一個數字加一段愈長愈長的散文清單。兩個問題：
+        //
+        // 1. **每加一個 CLI 呼叫點就紅**，維護者要改數字並往散文尾巴再接一個 issue 編號。
+        //    那段散文最後累到七個編號。
+        // 2. **數字與散文會分岔，而且已經分岔了**：被抓到時計數是 `23`，同一個字串裡的
+        //    散文卻仍寫「共二十二處」。一份計數與它描述的集合是兩份不會一起改的規格
+        //    （`common-spec-prose-enumeration`；`entity-backlink-completeness` 的表錯過兩次）。
+        //
+        // 改成比對**檔名集合**：新增呼叫點時，維護者把檔名加進下面這份清單即可，
+        // 失敗訊息直接列出多出來／少掉的是哪個檔，不必回頭數。
+        // 散文清單刪掉——它的資訊在 git log 裡，而留著只會再分岔一次。
+        let expectedFiles: Set<String> = [
+            "Commands.swift",
+            "CreateEntryCommand.swift",
+            "EnrichCommand.swift",
+            "EntryEditCommands.swift",
+            "GetEntryCommand.swift",
+            "LibraryCommands.swift",
+            "PeopleCommand.swift",
+            "PersonCommand.swift",
+            "PersonDivergenceCommands.swift",
+            "StoreSourceCommand.swift",
+            "UpdatePersonCommand.swift",
+            "VenueCommand.swift",
+        ]
+        let added = filesWithConstruction.subtracting(expectedFiles).sorted()
+        let gone = expectedFiles.subtracting(filesWithConstruction).sorted()
+        XCTAssertTrue(added.isEmpty && gone.isEmpty,
+                      "建 AkashicService 的檔案集合變了——"
+                      + (added.isEmpty ? "" : "新增 \(added.joined(separator: "、"))（確認有帶 key 後把檔名加進 expectedFiles）")
+                      + (added.isEmpty || gone.isEmpty ? "" : "；")
+                      + (gone.isEmpty ? "" : "消失 \(gone.joined(separator: "、"))（若是刻意退場，從 expectedFiles 移除）"))
+
+        // 集合對了仍要求至少有一行——空集合會讓上面的逐行斷言零次迭代而靜默通過
+        // （本 repo 的 #521 記過同一個形狀：缺口不是沉默，是偽裝成一個通過）。
+        XCTAssertGreaterThan(constructions, 0, "一行 AkashicService(root: 都沒掃到——逐行斷言等於沒跑")
     }
 
     // MARK: - 這個 change 的主張

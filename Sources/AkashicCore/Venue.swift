@@ -283,14 +283,31 @@ public struct Venue: Equatable {
     }
 
     /// 對外可稱呼的名稱：authorized 書寫系統相符者 → 任一 authorized →
-    /// 當前有效名稱（`names.current`）→ key（同 Organization 四階）。
+    /// 沿革的當前名稱（`names.current`）→ **序列化第一筆** → key。
+    ///
+    /// **第四階在 #475 從「`names.current`」改成「序列化第一筆」，而且只在時間軸不帶
+    /// 任何時間宣稱時。** `TimelineOf.current` 在全段無 `start` 時取的是**序列化最後
+    /// 一筆**——那是實作細節，沒有人裁決過它該當顯示名。實測三筆 unclassified venue
+    /// 因此顯示成「維基百科」「SEP」「…Academia Sinica NEW SERIES」（#422 verify logic 3）。
+    ///
+    /// 取第一筆的理由不是「第一筆比較好」，是**它是唯一一個有人選過的位置**：
+    /// `add-venue --names A B` 的 A 是使用者先打的那個，而 `VenueBootstrap` 建檔時設
+    /// `authorized: [names[0]]` ——同一個慣例。與 `identity-is-judged-not-matched`
+    /// 對齊的方式是：顯示名不是判定，但**不該由序列化順序偷偷代替判定**；沒有
+    /// authorized 時退回「使用者先寫的那個」比退回「檔案裡排最後的那個」誠實。
+    ///
+    /// **時間軸真的帶沿革時仍走 `current`**——那時「當前有效名稱」是一個關於世界的
+    /// 事實，不是排列的副產品。判準與遷移共用 `DateRange.makesTemporalClaim`。
     public var displayName: String { displayName(in: nil) }
 
     public func displayName(in script: WritingSystem?) -> String {
         if let script, let hit = authorized.first(where: { WritingSystem.of($0) == script }) {
             return hit
         }
-        return authorized.first ?? names.current?.value ?? key
+        if let a = authorized.first { return a }
+        let dated = names.entries.contains { $0.range.makesTemporalClaim }
+        if dated, let c = names.current?.value { return c }
+        return names.entries.first?.value ?? key
     }
 }
 

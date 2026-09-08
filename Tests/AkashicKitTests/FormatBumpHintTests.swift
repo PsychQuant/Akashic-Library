@@ -88,3 +88,42 @@ final class OrphanVariantSeverityTests: XCTestCase {
                          "名字在 names 裡就照常寫得進去——提級不得誤傷合法記錄")
     }
 }
+
+/// `authorized` 為空時的顯示名回退順序（#475）。
+///
+/// `TimelineOf.current` 在全段無 `start` 時取的是**序列化最後一筆**——那是實作細節，
+/// 沒有人裁決過它該當顯示名。實測三筆 unclassified venue 因此顯示成「維基百科」
+/// 「SEP」「…Academia Sinica NEW SERIES」。
+final class VenueDisplayNameFallbackTests: XCTestCase {
+
+    private func venue(_ names: [TemporalValue<String>], authorized: [String] = []) -> Venue {
+        Venue(key: "some-journal", type: .periodical,
+              names: TimelineOf(names), authorized: authorized)
+    }
+
+    /// authorized 在就用它——第一階不變。
+    func testAuthorizedStillWins() {
+        let v = venue([TemporalValue(value: "A"), TemporalValue(value: "B")], authorized: ["B"])
+        XCTAssertEqual(v.displayName, "B")
+    }
+
+    /// **不帶時間宣稱時取序列化第一筆**，不是最後一筆。
+    func testUndatedTimelineTakesTheFirstName() {
+        let v = venue([TemporalValue(value: "The Stanford Encyclopedia of Philosophy"),
+                       TemporalValue(value: "SEP")])
+        XCTAssertEqual(v.displayName, "The Stanford Encyclopedia of Philosophy",
+                       "序列化最後一筆是實作細節，第一筆是使用者先寫的那個")
+    }
+
+    /// **時間軸真的帶沿革時仍走 `current`**——那時「當前有效名稱」是關於世界的事實。
+    func testDatedTimelineStillUsesCurrent() {
+        let v = venue([TemporalValue(value: "舊刊名", range: DateRange(start: "1950", end: "1990")),
+                       TemporalValue(value: "新刊名", range: DateRange(start: "1991"))])
+        XCTAssertEqual(v.displayName, "新刊名", "有沿革時要用當前有效的那個")
+    }
+
+    /// 全空退到 key——最後一階不變。
+    func testEmptyNamesFallsBackToKey() {
+        XCTAssertEqual(venue([]).displayName, "some-journal")
+    }
+}

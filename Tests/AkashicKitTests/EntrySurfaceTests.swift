@@ -38,6 +38,28 @@ final class EntrySurfaceTests: XCTestCase {
         return ""
     }
 
+    /// 一行去掉行註解之後剩下的東西（`//` 之後全部丟掉）。
+    ///
+    /// **surface 守衛必須分得出程式碼與註解**（#484）：判準是「原始碼裡有沒有讀這個欄位」，
+    /// 而整檔 `contains` 連**解釋為什麼不讀它的那段註解**也會命中。實地踩到——#484 替
+    /// `unresolvedLiteralCount` 寫的註解逐字提到三個被禁的方法名，三條斷言當場全紅。
+    /// 同一個形狀本 repo 另外踩過兩次（workflow 的 `run:` vs 註解、`TriggerCoverage`）。
+    ///
+    /// 只剝行註解，不處理 `/* */`——目前被掃的檔案都沒有區塊註解，而寫一個半吊子的
+    /// 區塊剝除器會製造新的靜默失效面。真的出現時再擴。
+    ///
+    /// **住在這裡而不是各測試檔自帶一份**（#490）：兩份註解剝除器是兩份會分岔的規格
+    /// （`no-compat-fallback`「同一件事只能有一份描述」）。`akashic-guards` 的同名函式
+    /// **不算第三份**——它收的是路徑不是字串、且在另一個 module，共用需要新的依賴。
+    static func codeOnly(_ source: String) -> String {
+        source.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> Substring in
+                guard let i = line.range(of: "//") else { return line }
+                return line[line.startIndex..<i.lowerBound]
+            }
+            .joined(separator: "\n")
+    }
+
     static func serviceSource() throws -> String {
         try repoFile("Sources/AkashicMCPKit/AkashicService.swift")
     }

@@ -72,6 +72,22 @@ func triggerCoverageMutations() -> Int32 {
                 try? FileManager.default.copyItem(atPath: s, toPath: tmp + "/" + f)
             }
         }
+        // **巢狀的單檔受保護物**（#518）：`mcpb/` 整個子樹裝著 `.mcpb` bundle 與 28 MB 的
+        // server binary，複製 31 次的代價不能接受；而守衛要的只有那一個 manifest。
+        //
+        // 這一格是 `CLAUDE.md` 那格的同型復發：**這份複製清單是 `DATA` 的第三份副本**，
+        // 而它與 `DATA` 之間沒有任何東西在對帳。往 `DATA` 加一個不在這四個子樹裡的檔，
+        // 全部 case 會因為同一個與注入無關的理由變紅（#407 R27 加 `CLAUDE.md` 時 14/14
+        // 全紅；#518 加 `mcpb/manifest.json` 時 31/31 全紅）。兩次都是加完才發現。
+        // 沒有在此修根治（那要讓 harness 讀得到守衛的 `DATA`）——記在 #518 的 residue。
+        for f in ["mcpb/manifest.json"] {
+            let s = "\(repoRoot)/\(f)"
+            if FileManager.default.fileExists(atPath: s) {
+                let dir = tmp + "/" + (f as NSString).deletingLastPathComponent
+                try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+                try? FileManager.default.copyItem(atPath: s, toPath: tmp + "/" + f)
+            }
+        }
         for e in edits {
             let p = tmp + "/" + e.path
             guard let t = try? String(contentsOfFile: p, encoding: .utf8) else { return nil }
@@ -81,12 +97,22 @@ func triggerCoverageMutations() -> Int32 {
         return run(tmp)
     }
 
-    let (baseRC, baseOut) = run(repoRoot)
+    // **baseline 必須跑在 copy 上，不是原始 repo**（#518）。每個 case 都跑在 copy 上，
+    // 所以 baseline 要驗的是「**這棵 copy** 上守衛是綠的」——在原始 repo 上驗等於沒驗到
+    // 複製本身。實地踩到：往守衛的 `DATA` 加一個不在複製清單裡的檔（`mcpb/manifest.json`）
+    // 之後，原始 repo 的 baseline 照樣綠，而 31 個 case 全部因為「copy 裡少了那個受保護檔」
+    // 變紅、每一個都報「沒指名 ← 訊息對它是盲的」——**31 個誤導的紅**，沒有一個說得出真因。
+    // 跑 copy 之後同一個情形只會產生一條，而且是守衛自己的話：「受保護清單裡有不存在的路徑」。
+    guard let (baseRC, baseOut) = withCopy([]) else {
+        print("✗ baseline 的 copy 建不起來——負控無法執行"); return 1
+    }
     if baseRC != 0 {
-        print("✗ baseline 不是全綠（rc=\(baseRC)）——負控在紅的 baseline 上沒有意義\n\(baseOut)")
+        print("✗ baseline 不是全綠（rc=\(baseRC)）——負控在紅的 baseline 上沒有意義。"
+            + "**注意 baseline 跑的是 copy**：若守衛的 `DATA` 剛加了不在 `withCopy` 複製清單裡的檔，"
+            + "真因會是「受保護清單裡有不存在的路徑」，補進上面那份清單即可。\n\(baseOut)")
         return 1
     }
-    print("baseline：無缺口 ✓\n")
+    print("baseline（copy 上）：無缺口 ✓\n")
 
     var results: [Bool] = []
     for c in triggerCoverageMutationCases {

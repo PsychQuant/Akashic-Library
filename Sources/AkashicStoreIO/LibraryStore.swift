@@ -2198,7 +2198,7 @@ public extension LibraryLoad {
         }
         for (k, n) in danglingCandidates.sorted(by: { $0.key < $1.key }) {
             out.append(ValidationIssue(severity: .warning,
-                message: "歧異候選 \(k) 沒有對應的記錄（\(n) 筆歧異引用）"
+                message: "歧異候選「\(displaySafe(k, max: 200))」沒有對應的記錄（\(n) 筆歧異引用）"
                        + "——這筆歧異無法被消歧，`resolve-divergence` 會擲「找不到對應記錄」"))
         }
 

@@ -244,6 +244,22 @@ func auditGuardsMutations() -> Int32 {
         }
         return m
     }
+
+    // **受監看清單裡的每個檔都必須存在**（#480）。取不到屬性時上面回 `-1`，而注入前後
+    // 同為 `-1` ⇒ `same == true` ⇒ 檢查**對那個檔靜默通過**——輸出卻照印「N 個受監看檔」。
+    // 實測：22 條裡有 6 條是 `#433` 遷移後刪掉的 Python 版守衛，那 6 格從此不是「沒被動到」
+    // 而是「沒被看」，兩者在輸出上無法區分。這是 `zero-instance-guards` 第 5 列
+    // （守衛對自己的覆蓋率說謊）的形狀，所以修法是**讓它出聲**而不只是清掉當下那 6 條——
+    // 清單會再長，而下一次沒有人會發現。
+    let missingWatched = agmWatched.filter { !fm.fileExists(atPath: "\(repoRoot)/\($0)") }
+    if !missingWatched.isEmpty {
+        print("✗ 受監看清單有 \(missingWatched.count) 個不存在的路徑——這些格子不是「沒被動到」"
+            + "而是**沒被看**，而輸出會照印「\(agmWatched.count) 個受監看檔」：")
+        for r in missingWatched { print("    · \(r)") }
+        print("  修法：從 `agmWatched` 刪掉（檔案已退場），或改指新來源。")
+        return 1
+    }
+
     let before = mtimes()
     let hasSwift = exec(["/usr/bin/which", "swift"], cwd: repoRoot).0 == 0
     if !fm.isExecutableFile(atPath: BIN) {

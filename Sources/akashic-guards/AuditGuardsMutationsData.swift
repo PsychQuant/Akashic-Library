@@ -136,6 +136,29 @@ let agmCases: [AGMCase] = [
         // 失敗（期望 rc=1 卻得 0），不會安靜通過。
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "（#394：`Organization.ror`。", b: "（#9999：`Organization.ror`。"),
     ], expect: ["在 Sources/ 裡都找不到"]),
+    // **#479 補的兩格**：`zero-instance-rows-audit` 有四條失敗路徑，先前只有兩條有負控
+    // （「✅ 而編號不在 Sources」「完全不引用編號」）。沒有負控的兩條正是 #365 於
+    // 2026-08-28 加的——**列號跳號**與**裁決欄挪格**，而那兩條抓的都是「守衛對自己的
+    // 覆蓋率說謊」：一列整個被跳過而守衛照樣綠、或判斷的是錯的欄位而照樣印 ✓。
+    //
+    // **兩個變異都錨在第 1 列的文字上，不碰任何列號。** 這一格上面那段註解記過教訓：
+    // 任何寫死的列號都會在表下一次成長時重演（#365 補 pseudonym 那列時就撞過一次）。
+    AGMCase(desc: "zi-rows：某一列在共通段沒有 bullet 講它", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        // 錨在**第 1 列的 bullet 文字**上。bullet 不會像注入的新列那樣與真列撞號
+        // （上一段記過的那個坑是「注入一列並寫死它的編號」，性質不同）。
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "- 第 1 列的理由是**失敗的不可見性**", b: "- 這一列的理由是**失敗的不可見性**"),
+    ], expect: ["沒有任何 bullet 講它"]),
+    AGMCase(desc: "zi-rows：列號跳號（一列被整個跳過而守衛照樣綠）", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "| 1 | **零實例、成本一行、前件精確**", b: "| 2 | **零實例、成本一行、前件精確**"),
+    ], expect: ["裁決表的列號跳號"]),
+    AGMCase(desc: "zi-rows：多一個 `|` 讓裁決欄讀到別欄", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        // 插在 issue 編號**之後**——插在前面會先命中「沒有引用任何 issue 編號」那條，
+        // 蓋掉本 case 要驗的分支（同一份檔案上面那段記過的同型錯誤）。
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "rationale 種類數 = 0）|", b: "rationale 種類數 = 0|）|"),
+    ], expect: ["那不像裁決"]),
     AGMCase(desc: "zi-rows：某一列完全不引用 issue 編號", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "（#254：", b: "（無編號："),
     ], expect: ["沒有引用任何 issue 編號"]),
@@ -202,18 +225,12 @@ let agmWatched: [String] = [
     "plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh",
     "plugin/skills/akashic-promote-literals/scripts/tests/derive-hash-extenders.swift",
     ".github/workflows/census-parity.yml",
-    "plugin/tests/measured-claims-audit.py",
-    "plugin/tests/measured-numbers-audit.py",
     ".claude/rules/entity-backlink-completeness.md",
-    "plugin/tests/parity-table-drift.py",
     ".claude/rules/mcp-cli-parity.md",
     "Sources/akashic-mcp/Server.swift",
-    "plugin/tests/backlink-field-ratchet.py",
     "Sources/AkashicCore/Models.swift",
-    "plugin/tests/zero-instance-rows-audit.py",
     ".claude/rules/zero-instance-guards.md",
     "Sources/akashic/CreateEntryCommand.swift",
-    "plugin/tests/literal-scalar-parity.py",
     "plugin/skills/akashic-promote-literals/scripts/literal-census.sh",
 ]
 

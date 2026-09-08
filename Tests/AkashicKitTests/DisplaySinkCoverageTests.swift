@@ -228,6 +228,12 @@ final class DisplaySinkCoverageTests: XCTestCase {
         l.contains("print(") || l.contains("jsonString(")
             || l.contains("d[\"") || l.contains("result[\"") || l.contains("\": ")
             || l.contains("return \"") || l.contains("FileHandle.standard")
+            // #485：`ValidationIssue(severity:message:)` 的 `message:` 是顯示通道
+            // ——CLI `validate` 逐行印、MCP 進 `recordIssues`、App 側欄渲染。
+            // 它不符任何既有形狀（`": `／`return "`／`d["`…），而上一行的
+            // `ValidationIssue(` 本身不是 sink、`continuationKinds` 也不接——
+            // 整條通道是結構盲區。
+            || l.contains("message: ")
             || swiftUISinks.contains(where: { l.contains($0) })
     }
 

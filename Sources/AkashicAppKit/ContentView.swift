@@ -113,6 +113,20 @@ struct SidebarView: View {
                             .help("重複 citekey／person key 等。含 severity=error 時 index "
                                   + "無法重建——那是最該先修的。")
                     }
+                    // #484：`fatalCrossRecordIssues` 是 `crossRecordIssues` 裡
+                    // `severity == .error` 的子集。上一行的 help 用散文提過「含
+                    // severity=error 時 index 無法重建」，但那個區分沒有綁到欄位上
+                    // ——反射守衛因此看不到它，而它正是「最該先修的那些」。
+                    if !health.fatalCrossRecordIssues.isEmpty {
+                        LabeledContent("其中致命", value: "\(health.fatalCrossRecordIssues.count)")
+                            .help("severity=error。index 無法重建，先修這些。")
+                    }
+                    // #484：未決的同一性問題。App 有完整的裁決台，但沒有任何地方
+                    // 告訴使用者「還有幾件在等」——要點進去才知道。
+                    if health.divergenceCount > 0 {
+                        LabeledContent("未決歧異", value: "\(health.divergenceCount)")
+                            .help("已記錄但尚未裁決的同一性問題。到「裁決」分頁處理。")
+                    }
                     if !health.layoutResidue.isEmpty {
                         LabeledContent("佈局殘留", value: "\(health.layoutResidue.count)")
                             .help("依 format／key 不該存在的檔案。")

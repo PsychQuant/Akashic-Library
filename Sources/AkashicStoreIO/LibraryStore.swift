@@ -1209,7 +1209,10 @@ public final class LibraryStore {
 ///
 /// 相鄰的 `verdictsCollapsed` 仍是字串，這**不是不一致**：那是一串句子（「…——丟棄 …」），
 /// 本型別是一筆記錄的身分。記錄身分值得一個型別，句子不值得。
-public struct HolderRecord: Equatable, Hashable, Comparable, Sendable {
+// 刻意不加 `Sendable`：`EntityKind` 住在 AkashicCore 且未宣告該 conformance，跨 module
+// 加上去會讓嚴格建置要求 `@preconcurrency import`（pre-push 的 -warnings-as-errors 實測擋下）。
+// 相鄰的 `RenameReport`／`PersonRenameReport` 同樣沒有——要加就整族一起加，不是這裡先偷跑。
+public struct HolderRecord: Equatable, Hashable, Comparable {
     /// 只會是 `.person`／`.organization`／`.venue`——三種持得住 verdict 的記錄形狀
     /// （`entity-backlink-completeness` 第 13 條邊）。用 `EntityKind` 而不是自己開一個
     /// 三值 enum：形狀的值域已經有唯一來源，第二份會分岔。

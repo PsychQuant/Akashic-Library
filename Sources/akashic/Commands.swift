@@ -475,7 +475,8 @@ struct MigratePersonIdentity: ParsableCommand {
                 if report.failed.count > 20 { print("  …另 \(report.failed.count - 20) 筆") }
             }
         }
-        if let step = PersonIdentityMigration.nextStep(report: report, apply: apply) {
+        if let step = PersonIdentityMigration.nextStep(report: report, apply: apply,
+                                                    current: try? StoreVersion.read(root: store.root)) {
             print(step)
         }
     }

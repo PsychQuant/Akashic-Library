@@ -203,6 +203,7 @@ actor AkashicMCPServer {
                 "note": str("備註（替換；選填）"),
                 "type": str("\(VenueType.domainDescription)（替換；選填）"),
                 "add_issn": strArray("要附加的 ISSN（append 語意，同 add_names；ISSN 本來就是清單——print 與 electronic 是兩個真的號。相等看正規形，`0003-066x` 與 `0003-066X` 不會變成兩筆；任一個不合法即整個呼叫拒絕、零寫入。#394）"),
+                "add_variant": strArray("要標成異寫法的名字（append 語意）。**不在 names 裡的一併加進 names**——兩個分割都是對 names 的標記，標一個 names 沒有的字串會造出孤兒 variant，而那自 #473 起是 error。在此之前 variant 兩面都沒有寫入面，唯一的寫入者是遷移，而遷移用的是「authorized 的補集」——一個不做判定的操作成了唯一的判定寫入者（#471）"),
                 "paginated": .object(["type": .string("boolean"),
                     "description": .string("「本刊是否使用頁碼」的判定（#406）：true＝傳統頁碼刊、false＝article-number 制。必附 judgement 與 rests_on（判定要留 verdict 與證據）；缺席＝不動既有值。nil 是誠實的未判定狀態，floor 檢查對它照報")]),
                 "judgement": str("paginated 判定的理由（設 paginated 時必填）"),
@@ -525,6 +526,7 @@ actor AkashicMCPServer {
                     addNames: addNamesProvided ? argList("add_names") : nil,
                     note: arg("note"), type: arg("type"),
                     addISSN: params.arguments?["add_issn"] != nil ? argList("add_issn") : nil,
+                    addVariant: params.arguments?["add_variant"] != nil ? argList("add_variant") : nil,
                     paginated: paginatedFlag, judgement: arg("judgement"),
                     restsOn: params.arguments?["rests_on"] != nil ? argList("rests_on") : nil)
             case "akashic_resolve_venues":

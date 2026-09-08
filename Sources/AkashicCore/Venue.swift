@@ -220,11 +220,27 @@ public struct Venue: Equatable {
                                                              variant: variant, ownerKey: key)
         // **variant 的名字必須在 `names` 裡**（同 `authorized` 的既有立場）：
         // 兩個分割都是**對 `names` 的標記**，不是獨立的清單。
+        //
+        // **severity 在 #473 從 warning 提到 error。** 先前這段註解宣稱「同 `authorized`
+        // 的既有立場」而 `authorized` 那邊是 `.error`——不是註解說謊就是程式說謊，而註解
+        // 說的原則是對的。第二個理由更硬：`VenueResolver.resolve` 的提名**只從
+        // `names.entries` 建 aliasMap**，所以提名正確性依賴 `variant ⊆ names`；而
+        // `writeVenue` 只擋 error，warning 級的話孤兒 variant 寫得進去、提名靜默少一個
+        // 候選——缺口偽裝成一次通過。2026-09-09 實測 live store 孤兒 variant **0 筆**，
+        // 所以提級不拒絕任何既有記錄。
+        //
+        // **decode 期 vs 寫入期的不對稱是真的，而它的理由沒有被記下來**（#473 一併問的）：
+        // person 的分割互斥在 `YAML.swift` 的 decode 就 fail-closed（整檔 quarantine），
+        // venue 的兩條分割檢查都在寫入期。兩者的**後果**不同——decode 期拒絕會讓那筆
+        // venue 從目錄裡整個消失，而一個分割標錯的 venue 仍然是一本可用的刊物。本輪
+        // **不統一**：把 venue 移到 decode 期是遠比提 severity 大的行為改變（它把「寫不
+        // 進去」換成「讀不出來」），值得它自己的裁決。這裡只記下差異與各自的後果，不
+        // 替它發明一個原則。
         let known = Set(names.entries.map(\.value))
         let orphan = variant.filter { !known.contains($0) }.sorted()
         if !orphan.isEmpty {
             issues.append(ValidationIssue(
-                severity: .warning,
+                severity: .error,
                 message: "venue '\(displaySafe(key, max: 120))' 的 variant "
                        + "「\(displaySafe(orphan.joined(separator: "、"), max: 200))」"
                        + "不在 names 裡——分割是對 names 的標記，不是獨立清單"))
@@ -267,14 +283,31 @@ public struct Venue: Equatable {
     }
 
     /// 對外可稱呼的名稱：authorized 書寫系統相符者 → 任一 authorized →
-    /// 當前有效名稱（`names.current`）→ key（同 Organization 四階）。
+    /// 沿革的當前名稱（`names.current`）→ **序列化第一筆** → key。
+    ///
+    /// **第四階在 #475 從「`names.current`」改成「序列化第一筆」，而且只在時間軸不帶
+    /// 任何時間宣稱時。** `TimelineOf.current` 在全段無 `start` 時取的是**序列化最後
+    /// 一筆**——那是實作細節，沒有人裁決過它該當顯示名。實測三筆 unclassified venue
+    /// 因此顯示成「維基百科」「SEP」「…Academia Sinica NEW SERIES」（#422 verify logic 3）。
+    ///
+    /// 取第一筆的理由不是「第一筆比較好」，是**它是唯一一個有人選過的位置**：
+    /// `add-venue --names A B` 的 A 是使用者先打的那個，而 `VenueBootstrap` 建檔時設
+    /// `authorized: [names[0]]` ——同一個慣例。與 `identity-is-judged-not-matched`
+    /// 對齊的方式是：顯示名不是判定，但**不該由序列化順序偷偷代替判定**；沒有
+    /// authorized 時退回「使用者先寫的那個」比退回「檔案裡排最後的那個」誠實。
+    ///
+    /// **時間軸真的帶沿革時仍走 `current`**——那時「當前有效名稱」是一個關於世界的
+    /// 事實，不是排列的副產品。判準與遷移共用 `DateRange.makesTemporalClaim`。
     public var displayName: String { displayName(in: nil) }
 
     public func displayName(in script: WritingSystem?) -> String {
         if let script, let hit = authorized.first(where: { WritingSystem.of($0) == script }) {
             return hit
         }
-        return authorized.first ?? names.current?.value ?? key
+        if let a = authorized.first { return a }
+        let dated = names.entries.contains { $0.range.makesTemporalClaim }
+        if dated, let c = names.current?.value { return c }
+        return names.entries.first?.value ?? key
     }
 }
 

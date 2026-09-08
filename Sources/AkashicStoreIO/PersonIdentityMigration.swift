@@ -353,7 +353,12 @@ public enum PersonIdentityMigration {
     /// R2 C5／R3 NEW-3：CLI 下一步指示的**唯一**成功判準是「apply 且零失敗」——
     /// migrated 非空不是條件（全 skipped 的重跑、空 store 同樣需要出口）。
     /// 純函式住這裡（executable target 不可測），CLI 只負責 print。
-    public static func nextStep(report: Report, apply: Bool) -> String? {
+    /// #472：**issue 只點名兩支遷移，這是第三支同型的**（`no-compat-fallback` 記過
+    /// 「同型缺陷成對出現，而 issue 只記了先被看見的那一個」）。目標是常數，提示由
+    /// `StoreVersion.bumpHint` 依現況決定。
+    public static let targetFormat = 10
+
+    public static func nextStep(report: Report, apply: Bool, current: Int?) -> String? {
         guard apply else { return nil }
         if !report.failed.isEmpty {
             return "⚠ 有失敗記錄——**不得**升 store.yaml 的 format。修復上列失敗並重跑，"
@@ -362,11 +367,11 @@ public enum PersonIdentityMigration {
         if report.legacyLayout {
             return "下一步：本遷移是就地改寫（people/ 佈局不變）——先跑 akashic migrate "
                  + "搬移佈局到 entities（它會把 marker 設為 2），再 akashic doctor / "
-                 + "validate；全部完成且確認所有 binary 已升級後，才手動把 store.yaml 的 "
-                 + "format: 改成 10"
+                 + "validate。"
+                 + StoreVersion.bumpHint(target: targetFormat, current: current)
         }
-        return "下一步：akashic doctor 重建 index、akashic validate 驗證；"
-             + "確認所有 binary 已升級後，手動把 store.yaml 的 format: 改成 10"
+        return "下一步：akashic doctor 重建 index、akashic validate 驗證。"
+             + StoreVersion.bumpHint(target: targetFormat, current: current)
     }
 
     /// 文字層取頂層 `key: ` 值（R3 NEW-1 的盲區偵測用）。

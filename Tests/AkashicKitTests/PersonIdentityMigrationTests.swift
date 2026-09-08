@@ -532,22 +532,42 @@ final class PersonIdentityMigrationTests: XCTestCase {
     /// R3 NEW-3：下一步指示的唯一成功判準是「apply 且零失敗」——全 skipped 的重跑
     /// 與空 store 同樣要有出口；有 failed 一律禁升；legacy 先指路 akashic migrate。
     func testNextStepCoversAllBranches() {
+        // #472：`current` 是 store 現在的 marker。落後時才有 bump 指示——這幾條驗的是
+        // 「有出口」，所以傳一個落後的值；不落後時的行為由下一條驗。
+        let behind = PersonIdentityMigration.targetFormat - 1
         var r = PersonIdentityMigration.Report()
-        XCTAssertNil(PersonIdentityMigration.nextStep(report: r, apply: false), "dry-run 無指示")
+        XCTAssertNil(PersonIdentityMigration.nextStep(report: r, apply: false, current: behind), "dry-run 無指示")
         // 空 store／全 skipped：仍要有出口
-        XCTAssertTrue(PersonIdentityMigration.nextStep(report: r, apply: true)!
-            .contains("format: 改成 10"))
+        XCTAssertTrue(PersonIdentityMigration.nextStep(report: r, apply: true, current: behind)!
+            .contains("改成 10"))
         r.skipped = ["a"]
-        XCTAssertTrue(PersonIdentityMigration.nextStep(report: r, apply: true)!
-            .contains("format: 改成 10"), "全 skipped 的重跑也要有下一步")
+        XCTAssertTrue(PersonIdentityMigration.nextStep(report: r, apply: true, current: behind)!
+            .contains("改成 10"), "全 skipped 的重跑也要有下一步")
         // 有 failed：禁升
         r.failed = [(file: "x", reason: "y")]
-        XCTAssertTrue(PersonIdentityMigration.nextStep(report: r, apply: true)!
+        XCTAssertTrue(PersonIdentityMigration.nextStep(report: r, apply: true, current: behind)!
             .contains("不得"), "有失敗必須明說禁升 marker")
         // legacy：先 migrate
         r.failed = []; r.legacyLayout = true
-        let legacy = PersonIdentityMigration.nextStep(report: r, apply: true)!
+        let legacy = PersonIdentityMigration.nextStep(report: r, apply: true, current: behind)!
         XCTAssertTrue(legacy.contains("akashic migrate"), "\(legacy)")
+    }
+
+    /// #472：在今天的 store（format \(StoreVersion.supported)）上，四條分支**一條都不得**
+    /// 印出「改成 10」——那是降級指示。
+    func testNoBranchTellsYouToDowngradeOnTodaysStore() {
+        var r = PersonIdentityMigration.Report()
+        let now = StoreVersion.supported
+        for (desc, mutate) in [("空 store", { (_: inout PersonIdentityMigration.Report) in }),
+                               ("全 skipped", { $0.skipped = ["a"] }),
+                               ("legacy", { $0.legacyLayout = true })] {
+            var rr = r; mutate(&rr)
+            let s = PersonIdentityMigration.nextStep(report: rr, apply: true, current: now)!
+            XCTAssertFalse(s.contains("改成 10"), "\(desc)：\(s)")
+        }
+        r.failed = [(file: "x", reason: "y")]
+        XCTAssertFalse(PersonIdentityMigration.nextStep(report: r, apply: true, current: now)!
+            .contains("改成 10"), "有 failed 那條本來就不印，順帶釘住")
     }
 
     /// C5 的 report 面：legacy 佈局要在 Report 上可辨（CLI 據此分流下一步指示）。

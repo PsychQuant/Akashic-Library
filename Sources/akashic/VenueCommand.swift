@@ -177,7 +177,7 @@ struct AddVenueCmd: ParsableCommand {
 struct UpdateVenueCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update-venue",
-        abstract: "venue 的部分更新（#306／#394）——append 語意：--add-name 與 --add-issn 只附加不重複的值（整組替換刻意不提供）；--note／--type 替換")
+        abstract: "venue 的部分更新（#306／#394／#471）——append 語意：--add-name／--add-issn／--add-variant 只附加不重複的值（整組替換刻意不提供）；--note／--type 替換")
 
     @OptionGroup var options: LibraryOptions
 
@@ -198,6 +198,12 @@ struct UpdateVenueCmd: ParsableCommand {
     @Option(name: .customLong("add-issn"), parsing: .upToNextOption,
             help: "要附加的 ISSN（可多個；正規形相同者自動略過，不合法即整批拒絕）")
     var addISSN: [String] = []
+
+    @Option(name: .customLong("add-variant"), parsing: .upToNextOption,
+            help: ArgumentHelp("要標成異寫法的名字（append 語意）。不在 names 裡的一併加進 names"
+                             + "——兩個分割都是對 names 的標記，標一個 names 沒有的字串會造出"
+                             + "孤兒，而孤兒 variant 自 #473 起是 error（#471）"))
+    var addVariant: [String] = []
 
     /// #406：「本刊是否使用頁碼」的**判定**。判定要留 verdict 與證據
     /// （`identity-is-judged-not-matched`），所以設它必附 `--judgement` 與
@@ -223,6 +229,7 @@ struct UpdateVenueCmd: ParsableCommand {
                                       addNames: addName.isEmpty ? nil : addName,
                                       note: note, type: type,
                                       addISSN: addISSN.isEmpty ? nil : addISSN,
+                                      addVariant: addVariant.isEmpty ? nil : addVariant,
                                       paginated: paginated, judgement: judgement,
                                       restsOn: restsOn.isEmpty ? nil : restsOn))
     }
@@ -280,7 +287,8 @@ struct MigrateVenueVariants: ParsableCommand {
                 }
             }
         }
-        if let next = VenueVariantMigration.nextStep(report: report, apply: apply) { print(next) }
+        if let next = VenueVariantMigration.nextStep(report: report, apply: apply,
+                                                     current: try? StoreVersion.read(root: store.root)) { print(next) }
     }
 }
 
@@ -366,7 +374,8 @@ struct MigrateVenues: ParsableCommand {
                 }
             }
         }
-        if let next = VenueMigration.nextStep(report: report, apply: apply) {
+        if let next = VenueMigration.nextStep(report: report, apply: apply,
+                                              current: try? StoreVersion.read(root: store.root)) {
             print(next)
         }
     }

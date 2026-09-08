@@ -1484,6 +1484,21 @@ extension LibraryStore {
         // 三腿的寫入閘與各自的寫入端**同一個函式**——person 腿是 DA-3 補的（#232 起只 encode、不跑 format 閘）。
         // format 只在真的有 gated 記錄要驗時才讀、讀一次共用（#463 verify Codex R3 N3：無條件讀會讓一個
         // 壞掉的 store.yaml 擋住完全不需要 format 閘的 rename——R2 對 writeOrganization 修過的同一件事，換個位置）。
+        // 後置條件（#488）：遷移完的**整份**快照裡不得再有指向舊鍵的 verdict。
+        // 在寫入之前算，所以失敗零寫入。未被任一迴圈改到的記錄用原值——那正是要驗的：
+        // 「沒被改到」必須是因為它本來就沒有指向舊鍵，不是因為某一腿不存在。
+        do {
+            let mp = Dictionary(peopleToRewrite.map { ($0.key, $0) }, uniquingKeysWith: { _, b in b })
+            let mv = Dictionary(venuesToRewrite.map { ($0.key, $0) }, uniquingKeysWith: { _, b in b })
+            let mo = Dictionary(orgsToRewrite.map { ($0.key, $0) }, uniquingKeysWith: { _, b in b })
+            var post: [(kind: String, key: String, refs: [ProvenanceReference])] = []
+            post += load.people.map { ("person", $0.key, (mp[$0.key] ?? $0).references) }
+            post += load.venues.map { ("venue", $0.key, (mv[$0.key] ?? $0).references) }
+            post += load.organizations.map { ("organization", $0.key, (mo[$0.key] ?? $0).references) }
+            try Self.assertNoVerdictLeftBehind(
+                Self.verdictsStillPointingAt(oldKey, holderKind: .work, in: post),
+                oldKey: oldKey, action: "rename")
+        }
         let gateFormat = lazyStoreFormat()
         for p in peopleToRewrite {
             try Self.assertPersonWritable(p, format: gateFormat)
@@ -1692,6 +1707,20 @@ extension LibraryStore {
         // `assertOrganizationWritable` 後這裡只接了 encode——三個呼叫點只接了兩個，實測撕裂；person 腿是 DA-3 補的）。
         // 同 renameEntry：format lazy、讀一次共用（Codex R3 N3）。
         let gateFormat = lazyStoreFormat()
+        do {
+            let mp = Dictionary(peopleToRewrite.map { ($0.key, $0) }, uniquingKeysWith: { _, b in b })
+            let mv = Dictionary(venuesToRewrite.map { ($0.key, $0) }, uniquingKeysWith: { _, b in b })
+            let mo = Dictionary(orgsToRewrite.map { ($0.key, $0) }, uniquingKeysWith: { _, b in b })
+            var post: [(kind: String, key: String, refs: [ProvenanceReference])] = []
+            // 被改名的那一筆用手上這份（它的 references 已在上面遷移過），其餘 person 走對照表。
+            post.append(("person", newKey, person.references))
+            post += load.people.filter { $0.key != oldKey }.map { ("person", $0.key, (mp[$0.key] ?? $0).references) }
+            post += load.venues.map { ("venue", $0.key, (mv[$0.key] ?? $0).references) }
+            post += load.organizations.map { ("organization", $0.key, (mo[$0.key] ?? $0).references) }
+            try Self.assertNoVerdictLeftBehind(
+                Self.verdictsStillPointingAt(oldKey, holderKind: .person, in: post),
+                oldKey: oldKey, action: "rename-person")
+        }
         try Self.assertPersonWritable(person, format: gateFormat)
         _ = try PersonYAML.encode(person)
         for e in entriesToRewrite { _ = try EntryYAML.encode(e) }
@@ -1727,6 +1756,50 @@ extension LibraryStore {
                                   verdictValuesRewritten: verdictHolders.sorted(),
                                   divergencesRewritten: divergenceIDs.sorted(),
                                   verdictsCollapsed: collapsedVerdicts.sorted())
+    }
+
+    /// 後置條件：這次改名不得留下任何指向舊鍵的 verdict（#488）。
+    ///
+    /// 三個遷移迴圈各自正確**不蘊含**整體正確——#463 的網格就是「補了兩腿漏第三腿」漏了兩輪
+    /// （#460 補 venue 時漏 organization，#464 verify 的 DA 在 live store 副本上 rename 兩次得 4 條
+    /// 死 verdict，而 `rename` 印 `✓`）。逐腿的測試在**新的一腿長出來時**不會紅，因為沒有測試
+    /// 知道那一腿存在；這條問的是結果而不是機制，所以新 holder 形狀第一次被走到時它就會出聲。
+    ///
+    /// **在寫任何東西之前跑**，所以失敗是零寫入的——與同段三個寫入閘同一條紀律（只鏡射一半
+    /// 就是 #35 R2 DA 實測過的撕裂）。
+    ///
+    /// ## 誠實邊界：quarantined 記錄看不到
+    ///
+    /// 被 quarantine 的檔不在 `load` 裡，所以它持有的 verdict 既不會被遷移、也不會被這條看到。
+    /// 那是「讀不到」不是「已處理」——`StoreHealth` 的死 verdict 掃描（#464）會在 quarantine
+    /// 解除後報出來，而那條掃描正是本條的對照面：它掃**既成事實**，本條擋**新增**。
+    static func verdictsStillPointingAt(
+        _ oldKey: String, holderKind: ProvenanceReference.VerdictHolderKind,
+        in records: [(kind: String, key: String, refs: [ProvenanceReference])]) -> [String] {
+        var out: [String] = []
+        for r in records {
+            for ref in r.refs {
+                guard ProvenanceReference.resolutionVerdictFields.contains(ref.field),
+                      let v = ref.value,
+                      let p = ProvenanceReference.VerdictPairingValue.parse(v),
+                      p.holderKind == holderKind, p.holder == oldKey else { continue }
+                out.append("\(r.kind)「\(displaySafe(r.key, max: 120))」的 \(ref.field)")
+            }
+        }
+        return out
+    }
+
+    /// `verdictsStillPointingAt` 非空即擲——訊息說得出是哪幾筆，以及這代表遷移少了一腿。
+    static func assertNoVerdictLeftBehind(
+        _ stragglers: [String], oldKey: String, action: String) throws {
+        guard stragglers.isEmpty else {
+            throw StoreIOError.inconsistentStore(
+                action: action,
+                issues: ["改名會留下 \(stragglers.count) 條指向舊鍵「\(displaySafe(oldKey, max: 120))」的 verdict，"
+                       + "它們在改名後指向一個不存在的鍵（死 verdict，#464）。"
+                       + "這表示遷移少了一腿——請補上對應的 holder 迴圈，不要繞過本檢查。"]
+                    + stragglers.map { "  · \($0)" })
+        }
     }
 
     /// rename 側 verdict holder 的遷移＋收攏；沒有任何改動時回 `nil`。`holderKind` 是 `.person`（`renamePerson`，

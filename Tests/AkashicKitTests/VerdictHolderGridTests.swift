@@ -483,4 +483,59 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(report.verdictsCollapsed, [])
         XCTAssertEqual(report.verdictValuesRewritten, ["some-org"])
     }
+
+    // MARK: - 後置條件：一次 rename 不得新增死 verdict（#488）
+
+    /// 三個遷移迴圈各自正確**不蘊含**整體正確。這條問結果不問機制——它不知道有幾腿，
+    /// 所以新 holder 形狀第一次被走到時它就會出聲，而逐腿的測試不會（沒有測試知道那一腿存在）。
+    func testVerdictsStillPointingAtNamesTheHolderAndField() {
+        let stragglers = LibraryStore.verdictsStillPointingAt(
+            "old2020a", holderKind: .work,
+            in: [("organization", "some-org",
+                  [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "X")]),
+                 ("person", "innocent",
+                  [verdict("resolution-confirmed", kind: .work, holder: "other2020a", literal: "X")]),
+                 // 不同 holderKind 同名——不得誤報
+                 ("venue", "vk",
+                  [verdict("resolution-confirmed", kind: .person, holder: "old2020a", literal: "X")])])
+        XCTAssertEqual(stragglers, ["organization「some-org」的 resolution-confirmed"])
+    }
+
+    func testAssertNoVerdictLeftBehindThrowsAndNamesThem() {
+        XCTAssertNoThrow(try LibraryStore.assertNoVerdictLeftBehind([], oldKey: "k", action: "rename"))
+        XCTAssertThrowsError(
+            try LibraryStore.assertNoVerdictLeftBehind(["organization「some-org」的 resolution-confirmed"],
+                                                       oldKey: "old2020a", action: "rename")) { e in
+            let msg = "\(e)"
+            XCTAssertTrue(msg.contains("some-org"), msg)
+            XCTAssertTrue(msg.contains("old2020a"), msg)
+            XCTAssertTrue(msg.contains("少了一腿"), "訊息要指出這是遷移缺腿，不是資料壞掉：\(msg)")
+        }
+    }
+
+    /// 三種 holder 都持有指向舊鍵的 verdict 時，一次 rename 之後**一條都不剩**——
+    /// 這是 #464 verify DA 在 live store 副本上實測到 4 條死 verdict 的那個情境的反面。
+    func testRenameWithAllThreeHolderKindsLeavesNoDeadVerdict() throws {
+        try entry("old2020a")
+        var p = Person(key: "some-person", names: ["Some Person"])
+        p.references = [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "SP")]
+        try store.writePerson(p)
+        var v = Venue(key: "some-venue", type: .periodical, names: TimelineOf([TemporalValue(value: "Some Venue")]))
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "SV")]
+        _ = try store.writeVenue(v)
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "SO")])
+
+        let report = try store.renameEntry(from: "old2020a", to: "new2020a")
+        XCTAssertEqual(try holders(ofPerson: "some-person"), ["work:new2020a"])
+        XCTAssertEqual(try holders(ofVenue: "some-venue"), ["work:new2020a"])
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:new2020a"])
+        XCTAssertEqual(report.verdictValuesRewritten, ["some-org", "some-person", "some-venue"])
+        // 後置條件對改完的 store 重跑一次：零殘留
+        let after = try store.load()
+        XCTAssertEqual(LibraryStore.verdictsStillPointingAt(
+            "old2020a", holderKind: .work,
+            in: after.people.map { ("person", $0.key, $0.references) }
+              + after.venues.map { ("venue", $0.key, $0.references) }
+              + after.organizations.map { ("organization", $0.key, $0.references) }), [])
+    }
 }

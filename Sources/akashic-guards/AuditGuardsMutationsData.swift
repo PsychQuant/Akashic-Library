@@ -77,6 +77,17 @@ let agmCases: [AGMCase] = [
     AGMCase(desc: "claims：規則檔整個不見（要說輸入不在，不是說某一列不見）", guardRel: "akashic-guards measured-claims-audit", edits: [
         AGMEdit(path: "plugin/rules/assertions-must-be-measured.md", kind: "delete", a: "", b: ""),
     ], expect: ["讀不到", "守衛的輸入不在"]),
+    // ── #526：workflow 的 `run:` 跑的腳本必須存在 ────────────────────────────
+    AGMCase(desc: "workflow-run：跑一支不存在的腳本（step 會掛掉並擋住其後全部步驟）", guardRel: "akashic-guards workflow-run-scripts", edits: [
+        AGMEdit(path: ".github/workflows/census-parity.yml", kind: "replaceFirst",
+                a: "        run: bash .githooks/run-guards.sh",
+                b: "        run: bash .githooks/run-guards.sh\n      - name: 負控\n        run: bash tools/gone-526.sh"),
+    ], expect: ["tools/gone-526.sh，而那個檔不在", "擋住其後全部步驟"]),
+    // 空集合不得冒充通過——#521 close 時我自己的第一版掃描回報「0 個引用、0 個不存在」，
+    // 那不是綠，是掃描壞了。刪掉整個 workflow 目錄即得那個狀態；訊息要說得出是哪個原因。
+    AGMCase(desc: "workflow-run：workflow 目錄整個不見（0 個引用不是綠）", guardRel: "akashic-guards workflow-run-scripts", edits: [
+        AGMEdit(path: ".github/workflows", kind: "delete", a: "", b: ""),
+    ], expect: ["一個檔都沒有"]),
     AGMCase(desc: "numbers：CLAUDE.md 不見（同樣不得被另外兩個來源撐著）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: "CLAUDE.md", kind: "delete", a: "", b: ""),
     ], expect: ["`CLAUDE.md` 一個檔都沒找到"]),
@@ -196,6 +207,20 @@ let agmCases: [AGMCase] = [
 ]
 
 let agmRobust: [AGMCase] = [
+    // #526 的第一個坑：`ci.yml` 自己就有一段註解逐字寫著「原本是 python3 …」——掃全檔會把
+    // 那個**刻意記下的已刪檔名**當成引用，於是修好的東西因為被寫進註解而重新變紅。
+    AGMCase(desc: "workflow-run：run 區塊的 shell 註解提到已刪腳本（不得當成引用）", guardRel: "akashic-guards workflow-run-scripts", edits: [
+        AGMEdit(path: ".github/workflows/census-parity.yml", kind: "replaceFirst",
+                a: "        run: bash .githooks/run-guards.sh",
+                b: "        run: |\n          # 舊版跑的是 bash tools/long-since-deleted-526.sh\n          bash .githooks/run-guards.sh"),
+    ], expect: ["全部存在"]),
+    // 直譯器從 stdin 讀（`cat x | bash`）沒有腳本檔可查——不得把 shell 運算子當成路徑。
+    // 實測過的假紅：`bash --version && cat … | bash` 曾讓 `bash` 的下一個 token 是 `&&`。
+    AGMCase(desc: "workflow-run：管線下游的裸直譯器與 shell 運算子不得被當成路徑", guardRel: "akashic-guards workflow-run-scripts", edits: [
+        AGMEdit(path: ".github/workflows/census-parity.yml", kind: "replaceFirst",
+                a: "        run: bash .githooks/run-guards.sh",
+                b: "        run: bash .githooks/run-guards.sh && cat .githooks/run-guards.sh | bash"),
+    ], expect: ["全部存在"]),
     AGMCase(desc: "numbers：宣稱與表之間有一行以 #407 開頭的散文（不得當成標題）", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "| # | 情形 | 裁決 | 理由 |", b: "#407 R67l 的量測見下表。\n\n| # | 情形 | 裁決 | 理由 |"),
     ], expect: ["列數宣稱皆相符"]),

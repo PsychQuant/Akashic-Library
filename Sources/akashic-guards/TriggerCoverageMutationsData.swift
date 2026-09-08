@@ -18,6 +18,58 @@ struct TCMCase {
 }
 
 let triggerCoverageMutationCases: [TCMCase] = [
+    // **#521 R3 的負控（三）：前綴 token 必須有 identifier 邊界。**
+    // `hasSuffix("fileExists(")` 對 `profileExists(` 也成立——一個自家函式的名字碰巧以
+    // 允許的 token 結尾，就能消音死引用（實測 0 缺口）。這一格鎖住那個邊界檢查。
+    //
+    // **`XPath(`（同型、命中 `Path(`）刻意不另開一格**：兩者走的是同一個謂詞，分成兩格
+    // 會讓計數多一而事實沒多一件——`zero-instance-guards` 第 5 列（對自己的覆蓋率說謊）
+    // 管的正是這個。這裡改成把涵蓋範圍寫出來。
+    TCMCase(isWarn: false, desc: "名字碰巧以允許 token 結尾的函式（profileExists）不得豁免",
+        edits: [
+            (path: "plugin/tests/plugin-store-format-parity.py",
+             old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
+             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n"
+                + "_q = profileExists(\"plugin/tests/gone-r3-no-boundary.py\")\n"),
+        ], expect: "引用了 `plugin/tests/gone-r3-no-boundary.py`，而**那個檔不存在**"),
+    // **#521 R3 的負控（四）：邊界檢查不得做在剝光空白的字串上。**
+    // 這是上一格修法自帶的陷阱（Codex 同席指名）：把空白全剝掉之後，`if os.path.exists(`
+    // 變成 `ifos.path.exists(`，token 前一個字元成了 `if` 的 `f`，於是**最常見的合法形狀**
+    // 被判成沒有邊界。一行兩件事：一個 `if` 開頭的 probe（必須豁免）＋ 一個真的死引用
+    // （必須報）。前綴側若退回全剝，probe 會多出一條缺口，這一格就以「另有無關缺口」失敗。
+    TCMCase(isWarn: false, desc: "`if` 緊接的 absence probe 仍須豁免（邊界不得在剝空白後判）",
+        edits: [
+            (path: "plugin/tests/plugin-store-format-parity.py",
+             old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
+             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n"
+                + "_gone = (ROOT / \"plugin/tests/gone-r3-if-boundary.py\").read_text()\n"
+                + "if os.path.exists(\"plugin/tests/absent-if-probe-r3.py\"):\n    pass\n"),
+        ], expect: "引用了 `plugin/tests/gone-r3-if-boundary.py`，而**那個檔不存在**"),
+    // **#521 R3 的負控（一）：豁免的 probe token 不得以任意接收者結尾。**
+    // R2 的修法把豁免綁到字面的前後緊鄰文字，但前綴清單裡留了一支**裸的** `exists(`，
+    // 於是任何 `<接收者>.exists("路徑")` 都被豁免。這一格注入的正是那個形狀，指向一個
+    // 不存在的檔——正確行為是報一條缺口。裸 `exists(` 若回來，這一格會以「rc=0」失敗。
+    TCMCase(isWarn: false, desc: "任意接收者的 .exists(\"死引用\") 不得被當成 absence probe",
+        edits: [
+            (path: "plugin/tests/plugin-store-format-parity.py",
+             old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
+             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n"
+                + "_q = REGISTRY.exists(\"plugin/tests/gone-r3-bare-exists.py\")\n"),
+        ], expect: "引用了 `plugin/tests/gone-r3-bare-exists.py`，而**那個檔不存在**"),
+    // **#521 R3 的負控（二）：跨行 absence probe 的豁免不得被縮排推出窗外。**
+    // 訊息與註解都承諾「去掉空白後緊鄰即豁免」，而 R2 的窗是在**剝空白之前**取 40 個
+    // 原始字元——縮排 50 格就掉出去。這一格一行兩件事：一個縮排 50 格的跨行 probe
+    // （必須豁免）＋ 一個真的死引用（必須報）。窗若縮回 40，probe 會多出一條缺口，
+    // 這一格就以「另有 1 條無關缺口」失敗。50 是刻意選的：> 40（舊窗）且 < 400（新窗）。
+    TCMCase(isWarn: false, desc: "縮排 50 格的跨行 absence probe 仍須豁免",
+        edits: [
+            (path: "plugin/tests/plugin-store-format-parity.py",
+             old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
+             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n"
+                + "_ok = os.path.exists(\n" + String(repeating: " ", count: 50)
+                + "\"plugin/tests/deliberately-absent-r3-probe.py\"\n)\n"
+                + "_gone = (ROOT / \"plugin/tests/gone-across-lines-r3.py\").read_text()\n"),
+        ], expect: "引用了 `plugin/tests/gone-across-lines-r3.py`，而**那個檔不存在**"),
     // **#521 R2 的負控：豁免不得溢出到同行的其他字面。**
     // R2 verify（Codex 跨模型席）在第一版的豁免上找到一個我自己引入的 false negative：
     // 豁免當時套在**整行**，於是同一行只要出現任何 probe token，真正的死引用就被消音。

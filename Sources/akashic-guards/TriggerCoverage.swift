@@ -633,6 +633,9 @@ func triggerCoverage(argv: [String]) -> Int32 {
     // `mcps/`、`repos/`、`scripts/` 六個——零實例，但同一個失效搬了一層。
     let PATH_ROOTS = ["plugin/", "Sources/", ".claude/", ".githooks/", ".github/",
                       "docs/", "openspec/", "changelog/", "Tests/", "mcpb/"]
+    // absence probe 的前綴 token：**封閉列舉，恰三個，不得依性質相似類推第四個。**
+    // 全樹量過（2026-09-08）：`fileExists(` 21 處、`Path(` 11 處、`os.path.exists(` 3 處。
+    let PROBE_PREFIXES = ["fileExists(", "os.path.exists(", "Path("]
     let PATH_LITERAL = #"["'`]([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.*-]+)+\.[A-Za-z0-9]+)["'`]"#
     for g in GUARDS {
         let code = codeOnly(g)
@@ -672,14 +675,58 @@ func triggerCoverage(argv: [String]) -> Int32 {
                 // 直接被跳過。`.exists()` 更寬：`database.exists()` 也算。那是我自己引入的
                 // false negative，方向正是這道檢查要防的那個。
                 //
-                // 現在看的是字面**前後緊鄰**的文字（去掉所有空白與換行後比對），所以
+                // 現在看的是字面**前後緊鄰**的文字（比對前把中間的空白與換行去掉——
+                // 前綴側只去尾端、後綴側全去，理由見下面第三段），所以
                 // 跨行寫的 `fileExists(\n  "path"\n)` 也豁免——上一版的訊息承諾了這件事
                 // 而程式碼做不到，那是第二個錯（同席指名）。
-                let pre = ns.substring(to: m.range.location).suffix(40).filter { !$0.isWhitespace }
+                //
+                // **窗是先取原始字元、再剝空白，所以窗長算的是原始長度**（#521 R3）。上一版
+                // 取 40，而 40 含縮排——`fileExists(` 換行後縮排 40 格的寫法就掉出窗外、報紅，
+                // 而上面那句承諾了那個形狀。實測：縮排 40 格的跨行 `fileExists` 得 1 條缺口。
+                // 改成 400，並用 NSRange 界定（順帶收掉「每次 match 都建整個前綴字串」的
+                // O(n²)）。**400 是條件不是保證**：token 與字面之間若隔了 400 個以上的原始
+                // 字元仍不豁免——那個方向是報紅不是消音，而中間只可能是空白（別的東西會讓
+                // 下面的 hasSuffix／hasPrefix 失敗）。
+                //
+                // **probe token 是封閉列舉，恰三個前綴 ＋ 兩個後綴，不得依性質相似類推。**
+                // 上一版另有一支**裸的** `exists(`，它以任意接收者結尾都算數——實測
+                // `database.exists("plugin/tests/gone.py")` 得 0 缺口，也就是被消音。全樹量過
+                // （2026-09-08）：`fileExists(` 21 處、`Path(` 11 處、`os.path.exists(` 3 處，而
+                // 裸 `exists(` **零合法實例**（唯二命中在本檔註解裡，`codeOnly()` 已剝掉）。
+                // 一個零實例的**放寬**換到的只有 false negative，而它本來要涵蓋的 Python 形狀
+                // 已經由 `os.path.exists(` 自己那一支涵蓋。這是 R2 剛修掉的「過寬比對」換個
+                // 位置再犯一次——同一輪的修法自己帶進來的，第四次。
+                // **`hasSuffix` 本身沒有 identifier 邊界**（#521 R3，Codex 跨模型席）：
+                // `profileExists(` 以 `fileExists(` 結尾、`XPath(` 以 `Path(` 結尾，兩者實測
+                // 都得 0 缺口——也就是一個叫 `profileExists` 的自家函式可以消音死引用。所以
+                // 前綴命中後還要看 token **前一個字元不是 identifier 字元**。
+                //
+                // **而那個檢查不能做在剝光空白的字串上**（同席指名的陷阱）：`if fileExists(`
+                // 剝完是 `iffileExists(`，前一個字元變成 `if` 的 `f`，最常見的合法形狀會被
+                // 判掉。所以前綴側只剝**尾端**空白——token 與字面之間本來就只能是空白
+                // （夾別的東西 `hasSuffix` 自然不成立），內部的空白留著才保得住邊界。
+                //
+                // **後綴側維持全剝，這個不對稱是有理由的**：它的 token 以 `.`／`)` 開頭，
+                // identifier 字元撞不進去，沒有對應的邊界問題；而全剝順帶涵蓋
+                // `"path"\n  ).exists()` 這種把 `)` 與方法拆行寫的形狀。
+                let WIN = 400
+                let preLoc = max(0, m.range.location - WIN)
+                var preRaw = ns.substring(with: NSRange(location: preLoc,
+                                                       length: m.range.location - preLoc))
+                while let l = preRaw.last, l.isWhitespace { preRaw.removeLast() }
+                let preHit = PROBE_PREFIXES.contains { tok in
+                    guard preRaw.hasSuffix(tok) else { return false }
+                    let before = preRaw.dropLast(tok.count)
+                    // 窗被截到 token 頭上時無從判斷邊界 → 保守地不豁免。
+                    // 那個方向是報紅、不是消音，而它要求 token 與字面之間有 ~390 個空白。
+                    guard let c = before.last else { return preLoc == 0 }
+                    return !(c.isLetter || c.isNumber || c == "_")
+                }
                 let sufLoc = m.range.location + m.range.length
-                let suf = ns.substring(from: sufLoc).prefix(40).filter { !$0.isWhitespace }
-                let isAbsenceProbe = pre.hasSuffix("fileExists(") || pre.hasSuffix("os.path.exists(")
-                    || pre.hasSuffix("Path(") || pre.hasSuffix("exists(")
+                let suf = ns.substring(with: NSRange(location: sufLoc,
+                                                    length: min(WIN, ns.length - sufLoc)))
+                            .filter { !$0.isWhitespace }
+                let isAbsenceProbe = preHit
                     || suf.hasPrefix(").exists()") || suf.hasPrefix(".exists()")
                     || suf.hasPrefix(").is_file()") || suf.hasPrefix(".is_file()")
                 if isAbsenceProbe { continue }

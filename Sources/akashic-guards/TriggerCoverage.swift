@@ -348,7 +348,11 @@ private func swiftGuards() -> [String] {
     return out
 }
 
-func triggerCoverage(argv: [String]) -> Int32 {
+/// 受保護清單的**單一來源**（#522）：`trigger-coverage` 與 `protected-ratchet` 共用。
+///
+/// 抽出來的理由不是重用，是**不得有第二份**：棘輪檔要比對的正是這份清單，而一個自己
+/// 算一遍的棘輪只會證明它自己與自己一致。
+func protectedInventory() -> (guards: [String], data: [String]) {
     // 生成器不是守衛——它由 hash-table-drift.sh 呼叫，自己不做斷言。
     let GENERATORS: Set<String> = ["derive-hash-extenders.swift"]
     let GUARDS = ((globFiles("plugin/tests/*.sh") + globFiles("plugin/tests/*.py")
@@ -478,6 +482,14 @@ func triggerCoverage(argv: [String]) -> Int32 {
     DATA += globFiles(".claude/rules/*.md").sorted()
     // CLAUDE.md 是資料而非守衛：`decision-matrix-drift` 拿它的決策矩陣當輸入（#407 R27）。
     DATA += ["CLAUDE.md"]
+    // #522：棘輪檔是 protected-ratchet 的輸入。**它自己也進清單**——那樣「棘輪檔被刪掉」
+    // 除了 protected-ratchet 自己的 rc=2 之外，missing 檢查也會具名它。
+    DATA += [".githooks/protected-ratchet.txt"]
+    return (GUARDS, DATA)
+}
+
+func triggerCoverage(argv: [String]) -> Int32 {
+    let (GUARDS, DATA) = protectedInventory()
 
     var fails: [String] = []
     // ── 兩個出口的界線：**可判定性**，不是嚴重度（#407 R24c 量過並固化）──────

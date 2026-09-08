@@ -37,6 +37,7 @@ bash plugin/tests/review-claim-audit.sh
 # **Swift 版**（#433 C 批 1/3）。驗證：乾淨樹逐位元相同、負控的 **14 個 case 兩版並驗**
 # （`rule-prose-guards-mutations.py` 對每個 case 同時跑兩版並要求 stdout 與 rc 逐字相同）。
 # 這支不需要 source-injection 豁免：mutation 只作用在 copy 的 plugin 樹上，守衛在原位。
+.build/debug/akashic-guards protected-ratchet
 .build/debug/akashic-guards workflow-run-scripts
 .build/debug/akashic-guards rule-prose-guards --venue Sources/AkashicCore/Venue.swift
 # **Swift 版**（#433，第二支遷移的 harness）。乾淨樹逐位元相同（19 行、rc=0）。

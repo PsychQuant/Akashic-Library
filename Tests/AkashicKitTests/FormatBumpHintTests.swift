@@ -1,4 +1,5 @@
 import XCTest
+@testable import AkashicCore
 @testable import AkashicStoreIO
 
 /// 遷移的「下一步」不得印降級指示（#472）。
@@ -45,5 +46,45 @@ final class FormatBumpHintTests: XCTestCase {
                             .contains("改成 \(t)"),
                            "\(name)：在今天的 store 上不得印降級指示")
         }
+    }
+}
+
+/// 孤兒 `variant` 是 error，不是 warning（#473）。
+///
+/// 先前是 warning 而註解宣稱「同 `authorized` 的既有立場」——`authorized` 那邊是
+/// `.error`。第二個理由更硬：`VenueResolver.resolve` 的提名**只從 `names.entries` 建
+/// aliasMap**，所以提名正確性依賴 `variant ⊆ names`；而 `writeVenue` 只擋 error，
+/// warning 級的話孤兒 variant 寫得進去、提名靜默少一個候選。
+final class OrphanVariantSeverityTests: XCTestCase {
+
+    // `variant` 不在 init 的參數列（它是 var，遷移與寫入面各自設）——所以先建再設。
+    private func venue(names: [String], variant: [String]) -> Venue {
+        var v = Venue(key: "some-journal", type: .periodical,
+                      names: TimelineOf(names.map { TemporalValue(value: $0) }))
+        v.variant = variant
+        return v
+    }
+
+    func testOrphanVariantIsAnError() {
+        let issues = venue(names: ["Journal A"], variant: ["Journal  A"]).validate()
+        let orphan = issues.filter { $0.message.contains("不在 names 裡") }
+        XCTAssertEqual(orphan.count, 1, "\(issues.map(\.message))")
+        XCTAssertEqual(orphan[0].severity, .error,
+                       "提名正確性依賴 variant ⊆ names，而 writeVenue 只擋 error")
+    }
+
+    /// **寫入面真的擋得住**——只驗 severity 不夠，錯的是「寫得進去」。
+    func testWriteVenueRefusesAnOrphanVariant() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-ov-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("entities"), withIntermediateDirectories: true)
+        try StoreVersion.write(root: root, format: StoreVersion.supported)
+        let store = LibraryStore(root: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+        XCTAssertThrowsError(try store.writeVenue(venue(names: ["Journal A"], variant: ["Journal  A"])))
+        XCTAssertNoThrow(try store.writeVenue(venue(names: ["Journal A", "Journal  A"],
+                                                   variant: ["Journal  A"])),
+                         "名字在 names 裡就照常寫得進去——提級不得誤傷合法記錄")
     }
 }

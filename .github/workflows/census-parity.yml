@@ -39,12 +39,9 @@ on:
       # （release-signed.sh 會 zip 進 .mcpb），改它而守衛不跑＝出貨一個過期數字。
       # 承接自已刪除的 plugin-guards.yml（#408 新增、#435 合併）。
       - "mcpb/manifest.json"
-      # 這支 harness 在本 workflow 跑（本 runner 有 Swift），所以**改它自己也要觸發
-      # 本 workflow**——否則把它的 6 個 swift-gated case 弄壞不會驚動任何東西
-      # （#407 R44 的修法原本只對一半：改 `scripts/tests/**` 下的守衛會觸發，
-      # 改 harness 本身不會）。刻意只列這一個檔而非 `plugin/tests/**`：本 runner
-      # 是 macOS、10× 計費，不該對每次 plugin/tests 改動都啟動。
-      - "plugin/tests/audit-guards-mutations.py"
+      # **原本這裡有 `plugin/tests/audit-guards-mutations.py`，#521 刪掉。**
+      # 那個檔在 `989ac64` 已不存在，而它的理由註解描述的正是本輪刪掉的那個 step。
+      # 觸發面沒有變窄：`plugin/**` 本來就涵蓋它曾在的位置。
       # **Swift 守衛自己**（#433）。它們需要 `swift build`，所以只有這台 macOS runner
       # 跑得動——ubuntu 那份缺 toolchain。理由與上一條同型：改守衛本身正是最需要驗證的
       # 時候，而先前 `Sources/akashic-guards/**` 不在任何 workflow 的 paths 裡，
@@ -146,7 +143,8 @@ jobs:
       # 光把那個路徑加進 `paths:` 不夠——判準是逐對的：workflow 要同時 (a) 該檔改動時
       # 觸發、(b) 執行那支守衛。加 paths 只做到 (a)。
       #
-      # 與上一步的 `audit-guards-mutations.py` 重疊（`run-guards.sh` 裡也有它）——
-      # 重疊無害，而拆開會讓「與 pre-push 同一份清單」這個性質消失。
+      # **上一版這裡寫「與上一步的 `audit-guards-mutations.py` 重疊」——那個 step 已於
+      # #521 刪除**（它跑的是已刪的 `.py`）。現在這是本 workflow 唯一執行守衛的地方，
+      # 與 pre-push 同一份清單。
       - name: 全部守衛（與 pre-push 同一份清單；本 runner 有 Swift）
         run: bash .githooks/run-guards.sh

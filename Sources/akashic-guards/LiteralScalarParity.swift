@@ -65,8 +65,13 @@ func literalScalarParity() -> Int32 {
         // **先區分「讀不到」與「讀到了但找不到」**（#521）。兩者都會走到這裡，而原本的
         // 訊息只說得出後者——來源檔被刪或改名時，它會指著「抽取式與宣告寫法脫節」讓人去
         // 改抽取式，而真正的原因是那個檔不在了。訊息指錯原因比不出聲好一點，但只好一點。
-        if src.isEmpty {
-            return fail("讀不到 \(CENSUS)——來源檔不存在或是空的，本檢查等於沒跑")
+        // **用 `fileExists` 而非 `src.isEmpty`**（#521 R1 verify，logic 席）：只含一個
+        // 換行的檔 `src` 非空，會落回下面那句指錯原因的訊息。判準要問的是「檔在不在」。
+        if !fileExists(CENSUS) {
+            return fail("讀不到 \(CENSUS)——那個檔不存在，本檢查等於沒跑")
+        }
+        if src.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return fail("\(CENSUS) 是空的（或只有空白）——本檢查等於沒跑")
         }
         return fail("從 census 抽不到 `_scalar`——抽取式與宣告寫法脫節了")
     }

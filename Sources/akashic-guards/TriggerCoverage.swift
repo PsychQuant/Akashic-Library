@@ -352,7 +352,7 @@ func triggerCoverage(argv: [String]) -> Int32 {
         //
         //   1. **刪檔方向只涵蓋顯式字面。** `missing`（下方）檢查的是「清單裡列的路徑還在
         //      不在磁碟上」，而 glob 產生的成員永遠不會「列了卻不存在」——它只會變少。
-        //      `PROTECTED` 的 54 條組成（實測）：**顯式 19**、`GUARDS` **23**
+        //      `PROTECTED` 的 55 條組成（實測，#521 後）：**顯式 20**、`GUARDS` **23**
         //      （**7 個 glob ＋ 16 個由 `swiftGuards()` 解析 `main.swift` 的 `case` 分派**——
         //      不是「整組 glob」，那是本檔上一版寫錯的機制描述）、rules glob **12**
         //      （`.claude/rules/*.md` 11 ＋ `plugin/rules/*.md` 1）。
@@ -369,7 +369,7 @@ func triggerCoverage(argv: [String]) -> Int32 {
         //      **整條 pre-push 都靜默的只剩 9 個 `.claude/rules/*.md`（9/54，17%）。**
         //
         //   2. **「從 `DATA` 拿掉一條」與「檔案被刪掉」是兩件事**，而前者只有在**某支守衛的
-        //      程式碼裡有那條路徑的引號字面**時才會紅。實測 19 條顯式條目裡 **10 條看不見**。
+        //      程式碼裡有那條路徑的引號字面**時才會紅。實測 20 條顯式條目裡 **10 條看不見**。
         //      **`MarkerParityMutationsData.swift` 是最尖的一格**：它是本輪自己補進來的、
         //      是真依賴（`RuleProseGuards.swift:285` 真的讀它），而拿掉它一聲不吭——
         //      #518 的標題所描述的形狀，發生在 #518 自己修完之後、在它自己加的條目上。
@@ -377,13 +377,13 @@ func triggerCoverage(argv: [String]) -> Int32 {
         //      **10/19 這個比例比修法前更差，而那是本輪自己造成的**：R2 補進來的那 5 條
         //      （下方 `AuditGuardsMutationsData` 那一段）唯一的讀者就是那個**不被掃描的資料
         //      檔**，所以它們一進來就全部落在盲區。修法前是 5/14。把它寫出來而不是只報
-        //      「受保護 54」，因為後者看起來像單調的進步。
+        //      「受保護 55」，因為後者看起來像單調的進步。
         //
         //   3. **新增方向只涵蓋「引號緊鄰完整路徑」的寫法。** 見下方檢查處的盲點清單。
         //
         // **裁決仍然成立，而且比上一版寫的更強**（R2 verify 更正——上一版寫「刪除那一軸兩案
         // 同樣沉默」，那是從「兩個方向都不沉默」過度擺盪到另一端，而且同樣沒量過 glob 那一側）：
-        //   · **刪除軸**：顯式條目 **19/19 由 `missing` 逐條具名**；glob 成員 **0**
+        //   · **刪除軸**：顯式條目 **20/20 由 `missing` 逐條具名**；glob 成員 **0**
         //     （結構上不可能——glob 不會「列了卻不存在」）。顯式嚴格更優 19 個檔。
         //   · **新增軸**：同形放寬 glob（`plugin/skills/*/scripts/*.{sh,py}`）只涵蓋得到本輪
         //     8 個新檔裡的 **1 個**；要涵蓋 8/8 得同時放寬六條 glob 根、**156 個檔進
@@ -623,8 +623,10 @@ func triggerCoverage(argv: [String]) -> Int32 {
     // 覆蓋。宣告機制互補的是**歸屬**（把一個已在集合裡的檔正確算給某支守衛），不是
     // **收錄**——而 #518 從頭到尾講的是收錄。
     //
-    // **另外兩個刻意的跳過**：含 `*` 的字面（glob 樣式）屬 `globFiles` 的領域；檔案
-    // **不存在**時直接跳過——那一半（守衛引用已刪除的檔）是 #521，不是防呆。
+    // **檔案不存在那一半已於 #521 補上**（上一版寫「直接跳過——那一半是 #521，不是防呆」，
+    // 現在它是 `fails`）。刻意跳過的只剩**一個**：含 `*` 的字面（glob 樣式）屬 `globFiles`
+    // 的領域。另有一個**豁免**：同一行寫著 `fileExists(...)` 之類的 absence probe——
+    // 刻意檢查某檔在不在是合法形狀，理由見下方檢查處。
     //
     // `PATH_ROOTS` 本身也是一份手維護白名單，而**它已經漏過一次**（`mcpb/` 是這道檢查
     // 上線第一次執行才補的）。目前漏著 repo 根目錄的 `AkashicApp/`、`Tools/`、`Vendor/`、
@@ -634,6 +636,7 @@ func triggerCoverage(argv: [String]) -> Int32 {
     let PATH_LITERAL = #"["'`]([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.*-]+)+\.[A-Za-z0-9]+)["'`]"#
     for g in GUARDS {
         let code = codeOnly(g)
+        let ns = code as NSString
         var seen = Set<String>()
         for m in matches(code, PATH_LITERAL) {
             let pth = (code as NSString).substring(with: m.range(at: 1))
@@ -652,9 +655,33 @@ func triggerCoverage(argv: [String]) -> Int32 {
             //
             // 與下方「存在但未受保護」是同一個問題的兩半，共用同一個出口。
             if !fileExists(pth) {
-                fails.append("\(label(g)) 讀 `\(pth)`，但**那個檔不存在**"
-                           + "——`rawFile` 會回空字串，讀它的檢查會靜默通過（#521）。"
-                           + "退場即刪，或改指遷移後的新來源")
+                // **absence probe 豁免**（#521 R1 verify，Codex 跨模型席指名）。
+                // 一個守衛**刻意**檢查某個檔在不在，是合法的形狀——本 repo 真的用過：
+                // `MigratedGuardControl` 原本就有 `fileExists("plugin/tests/…py")`，
+                // 而沒有這個豁免時新規則會把那種寫法一律判紅。
+                //
+                // **只看同一行——這是實測過的限制，不是疏漏。** `fileExists("…")` 與
+                // `(ROOT / "…").exists()` 兩種同行形狀都已驗證豁免；而先賦值再檢查
+                // （`_x = ROOT / "…"` 換行 `if _x.exists()`）**不會**豁免。要跨行判斷得做
+                // 資料流分析，那不是這個層次做得到的事；訊息因此明寫「用 `fileExists(...)`
+                // 之類的形狀寫」——這條出路是可執行的（對照 #518 那條「或確認那不是真的
+                // 依賴」，它沒有任何落點）。
+                let line = ns.substring(with: ns.lineRange(for: m.range))
+                if line.contains("fileExists(") || line.contains(".exists()")
+                    || line.contains("os.path.exists(") || line.contains("Path(") && line.contains(".is_file()") {
+                    continue
+                }
+                // **訊息只說觀察到的事，不宣稱「讀」**（同席）。這道掃描找到的是**路徑字面**，
+                // 它**沒有**證明那個字面流進 `rawFile` 或任何讀取 API——實測本 issue 自己的
+                // 負控就是反例：`_gone = ROOT / "…"` 只建了一個 Path，一個字都沒讀。
+                // 上一版的訊息寫「`rawFile` 會回空字串，讀它的檢查會靜默通過」，那對那段
+                // 程式碼是**假的**。保留這道檢查的理由不是「它證明了有人讀」，而是：守衛裡
+                // 出現一個不存在的路徑字面，**幾乎總是**遷移沒掃乾淨的殘骸（#433 留下四處），
+                // 而分辨真讀與只提到需要資料流分析，不是這個層次做得到的事。
+                fails.append("\(label(g)) 引用了 `\(pth)`，而**那個檔不存在**"
+                           + "——守衛裡的死引用幾乎總是遷移殘骸（#521 實測四處）。"
+                           + "退場即刪、改指新來源；若那是刻意的 absence probe，"
+                           + "用 `fileExists(...)` 之類的形狀寫，本檢查會豁免")
                 continue
             }
             guard !PROTECTED.contains(pth) else { continue }

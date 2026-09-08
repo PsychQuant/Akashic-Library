@@ -24,12 +24,22 @@ let triggerCoverageMutationCases: [TCMCase] = [
     // 為什麼這一格值得存在：`rawFile` 對不存在的檔回空字串，走訪它的迴圈零次迭代、
     // 檢查靜默通過。#521 立案時 `MeasuredClaimsAudit` 的檢查 ③ 就是這樣——標題印了、
     // 本體一行都沒有、rc 仍是 0。**這一格是唯一擋得住它復發的東西。**
-    TCMCase(isWarn: false, desc: "讓守衛引用一個不存在的檔",
+    // **注入的是真的讀取形狀，不是只建一個 Path**（#521 R1 verify，Codex 跨模型席）。
+    // 上一版注入 `_gone = ROOT / "…"` ——那**一個字都沒讀**，於是這一格驗到的其實是
+    // 「任意不存在的路徑字面會被拒絕」，而不是它宣稱的「守衛讀取不存在的來源會被拒絕」。
+    // 換成 `.read_text()` 之後，它模擬的才是 #521 立案時 `MeasuredClaimsAudit` 的形狀。
+    //
+    // **同一格順便驗豁免**：注入裡另有一個**同行 absence probe**，它指向另一個不存在的
+    // 檔。harness 的第三段判準（不得有無關缺口）因此變成豁免的負控——若豁免失效，那個
+    // probe 會多出一條缺口，這一格就會以「另有 N 條無關缺口」失敗。
+    TCMCase(isWarn: false, desc: "守衛讀取一個不存在的來源（同一格驗 absence probe 豁免）",
         edits: [
             (path: "plugin/tests/plugin-store-format-parity.py",
              old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
-             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n_gone = ROOT / \"plugin/tests/this-file-was-deleted-by-433.py\"\n"),
-        ], expect: "讀 `plugin/tests/this-file-was-deleted-by-433.py`，但**那個檔不存在**"),
+             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n"
+                + "_gone = (ROOT / \"plugin/tests/this-file-was-deleted-by-433.py\").read_text()\n"
+                + "_ok = (ROOT / \"plugin/tests/deliberately-absent-probe.py\").exists()\n"),
+        ], expect: "引用了 `plugin/tests/this-file-was-deleted-by-433.py`，而**那個檔不存在**"),
     // **#518 的負控**：讓一支守衛開始引用一個存在、但不在受保護集合裡的檔。
     // 這正是 #516 的形狀——守衛進了人口、它讀的檔沒進，而報表照印「無缺口」。
     // `ShellLex.swift` 是刻意選的：它在 `Sources/akashic-guards/` 裡卻**不是守衛**

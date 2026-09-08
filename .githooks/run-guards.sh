@@ -54,7 +54,9 @@ bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh
 # 觸發點自己的守衛：每個受保護檔案改動時，讀它的守衛真的會跑起來嗎？
 # 判準是**逐對**而非聯集——CLAUDE.md 那張手寫的觸發點表由它量。
 # **Swift 版**（#433 B 批 4/4，全樹最大的一支 846 行）。驗證：乾淨樹逐位元相同、
-# 19 個手動 mutation、**負控的 30 個 case 兩版並驗**（`trigger-coverage-mutations.py`
+# 19 個手動 mutation、**負控的 case**（`trigger-coverage-mutations` 子命令。
+# 上一版這裡寫「30 個 case 兩版並驗（`trigger-coverage-mutations.py`…）」——那個 `.py` 在
+# `989ac64` 已刪、兩版並驗機制已退場、而格數也早就不是 30。不寫死格數：它每輪都在長。
 # 對每個 case 同時跑兩版並要求輸出逐字相同；另 2 個 case 注入守衛自己的原始碼，
 # Swift 側結構上測不到，harness 會把它們彙總印出而不靜默）。
 # 另含 `shlex(posix, punctuation_chars)` 的等價實作，差分測試 63 個 case 逐 token 相同。

@@ -62,6 +62,28 @@ func literalScalarParity() -> Int32 {
     func fail(_ m: String) -> Int32 { print("✗ \(m)"); return 1 }
 
     guard let a = lines.firstIndex(where: { $0.hasPrefix("    def _scalar(s):") }) else {
+        // **先區分「讀不到」與「讀到了但找不到」**（#521）。兩者都會走到這裡，而原本的
+        // 訊息只說得出後者——來源檔被刪或改名時，它會指著「抽取式與宣告寫法脫節」讓人去
+        // 改抽取式，而真正的原因是那個檔不在了。訊息指錯原因比不出聲好一點，但只好一點。
+        // **用 `fileExists` 而非 `src.isEmpty`**（#521 R1 verify，logic 席）：只含一個
+        // 換行的檔 `src` 非空，會落回下面那句指錯原因的訊息。判準要問的是「檔在不在」。
+        if !fileExists(CENSUS) {
+            return fail("讀不到 \(CENSUS)——那個檔不存在，本檢查等於沒跑")
+        }
+        if src.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // **訊息要涵蓋「讀不出來」**（#521 R2 verify，Codex 席）：`rawFile` 回空字串
+            // 有四種原因，而 `fileExists` 只排除了第一種。權限不足、非法 UTF-8、路徑其實是
+            // 目錄，三者都會走到這裡而檔案確實存在——說「是空的」就是假診斷。
+            // 沒有換讀取 API（那要動 `rawFile` 的簽章，屬另一次改動），所以訊息把不確定
+            // 說出來，而不是挑一個好聽的原因。
+            // **括號裡不是窮舉**（#521 R3，Codex 跨模型席）：上一版寫「權限、非 UTF-8、
+            // 或它其實是目錄」，讀起來像封閉列舉而它不是——`rawFile` 把所有讀取錯誤折成
+            // 空字串（一般 I/O 錯誤、檢查與讀取之間檔案被換掉、非 regular file…），而
+            // `fileExists` 也消不掉 TOCTOU。這裡要的是「說出不確定」，不是列完。
+            return fail("\(CENSUS) 讀出來是空的——可能真的是空檔／只有空白，"
+                      + "也可能是讀取或 UTF-8 解碼失敗（權限不足、路徑是目錄、"
+                      + "其他 I/O 錯誤等，此處不窮舉）。本檢查等於沒跑")
+        }
         return fail("從 census 抽不到 `_scalar`——抽取式與宣告寫法脫節了")
     }
     // 空行與**任意縮排的註解行**都不終止切片（#407 R64）：一行縮排不足的註解——維護者加

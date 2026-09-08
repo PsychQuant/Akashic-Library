@@ -189,22 +189,55 @@ func measuredClaimsAudit() -> Int32 {
     let msg = "git 出現了 review 類載體或未判定過的欄位：\(pyRepr(hit))／\(pyRepr(trailers))／\(pyRepr(unknown))"
     print("     " + check(hit.isEmpty && trailers.isEmpty && unknown.isEmpty, msg))
 
-    // ③ 那三格全是 warn_case——直接列，不用計數
-    print("③ 「3 格全是 warn_case（行 209／246／315）」")
-    let src = rawFile("plugin/tests/trigger-coverage-mutations.py").components(separatedBy: "\n")
-    for (i0, l) in src.enumerated() where l.contains("'一次都沒出現過')") {
-        let i = i0 + 1
-        var fn = "?"
-        var j = i - 2
-        while j >= max(0, i - 14) {
-            let s = src[j - 1 < 0 ? 0 : j - 1].drop(while: { $0 == " " || $0 == "\t" })
-            if s.hasPrefix("case(") || s.hasPrefix("warn_case(") {
-                fn = src[j - 1].trimmingCharacters(in: .whitespaces).components(separatedBy: "(")[0]
-                break
+    // ③ 那三格全是 warn case——直接列，不用計數
+    //
+    // **來源在 #433 換過，本檢查在 #521 才跟上。** 原本讀
+    // `plugin/tests/trigger-coverage-mutations.py`，而該檔已於 `989ac64`（Python 歸零）
+    // 刪除。`rawFile` 對不存在的檔回**空字串**，於是這個迴圈零次迭代——標題印了、本體
+    // 一行都沒有、rc 仍是 0。**看起來像檢查通過了**，而它其實什麼都沒驗。
+    //
+    // 命題本身仍為真（#521 實測：三格全部 `isWarn: true`），所以處置是**指向新來源**
+    // 而不是退場。
+    //
+    // **標題不寫死行號**（#521 R1 verify，四席 ＋ Codex 獨立命中）。上一版寫「行 62／106／142」，
+    // 而**同一個 commit** 在該資料檔頂端插入了 12 行負控 case，把三格推到 74／118／154——
+    // 標題與它自己下一行的輸出當場矛盾，而行號那一半**零斷言**（只驗 `isWarn` 與 `found == 3`），
+    // 所以那句假話通過了它自己的檢查。同檔第 ④ 列早就寫著「刻意不寫死 19／13……驗的是恆等式」。
+    // 行號不是語意契約，逐格輸出印實際值即可；要守的命題是「恰 3 格且全是 warn」。
+    let claimSrc = "Sources/akashic-guards/TriggerCoverageMutationsData.swift"
+    print("③ 「\(claimSrc) 裡以 `一次都沒出現過` 為 expect 的格，恰 3 格且全是 warn」")
+    let src = rawFile(claimSrc).components(separatedBy: "\n")
+    // **來源讀不到就出聲，不要靜默走訪空陣列**（#521）。
+    //
+    // **它的價值是更準確的診斷，不是唯一的防線**（#521 R1 verify，Codex 席更正）——
+    // 下面的 `found == 3` 本身就擋得住原本那個零次迭代：來源讀不到時 `found` 會是 0
+    // 而它會紅。上一版把這一句寫成「本次修正的核心」，那是誇大。它買到的是：紅的時候
+    // 說得出**為什麼**（來源不見了），而不是丟一句「找到 0 格」讓人去查資料檔。
+    if src.count <= 1 && (src.first ?? "").isEmpty {
+        print("     " + check(false, "讀不到 \(claimSrc)——本檢查等於沒跑（#521 的失效形狀）"))
+    } else {
+        var found = 0
+        for (i0, l) in src.enumerated() where l.contains("expect: \"一次都沒出現過\"") {
+            let i = i0 + 1
+            var isWarn = "?"
+            var j = i0
+            while j >= max(0, i0 - 14) {
+                let s = src[j].trimmingCharacters(in: .whitespaces)
+                if s.hasPrefix("TCMCase(isWarn:") {
+                    // **用 hasPrefix 而非 contains**（#521 R1 verify，logic 席）。舊的
+                    // `.py` 版比的是**函式名**（`warn_case` vs `case`），是結構性判別；
+                    // port 過來寫成對整行做 `contains("isWarn: true")` 之後判別力退化：
+                    // 一個 `isWarn: false` 的 case 只要 `desc` 裡含那個字串就會被印成
+                    // `warn ✓`（實測會過）。失效方向是靜默的綠。
+                    isWarn = s.hasPrefix("TCMCase(isWarn: true") ? "warn" : "fail"
+                    break
+                }
+                j -= 1
             }
-            j -= 1
+            found += 1
+            print("     行 \(i): \(isWarn)  \(check(isWarn == "warn", "行 \(i) 是 \(isWarn) case，不是 warn"))")
         }
-        print("     行 \(i): \(fn)  \(check(fn == "warn_case", "行 \(i) 是 \(fn)，不是 warn_case"))")
+        print("     " + check(found == 3, "找到 \(found) 格，宣稱是 3 格"))
     }
 
     // ④ 19 = 13 + 6

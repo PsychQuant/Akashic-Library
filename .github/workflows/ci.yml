@@ -91,7 +91,12 @@ jobs:
       - name: Plugin parity 守衛
         run: |
           bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh
-          python3 plugin/skills/akashic-promote-literals/scripts/tests/marker-parity-mutations.py
+          # #521：原本是 `python3 …/marker-parity-mutations.py`，而該檔在 `989ac64`
+          # （#433 Step 5「Python 歸零」）刪除。`bash -e` 下這一行失敗會讓整個 step 掛掉，
+          # 而它後面還有四步——測試數下限／Tractatus／**AkashicApp（`swift test` 涵蓋不到
+          # 的那塊，#101 的立案理由）**／端對端 load.sql——CI 恢復後全部到不了。
+          # 這台是 macos-15 且第 4 步已經 `swift build`，所以直接用 Swift 子命令。
+          .build/debug/akashic-guards marker-parity-mutations
 
       # 測試「跑到一半崩掉」由 exit code 擋（fatal error 會讓程序非零退出）。
       # 這一步擋的是**另一種**失敗：測試靜默地不再被執行——整個 suite 沒編進

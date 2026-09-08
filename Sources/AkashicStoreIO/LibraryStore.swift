@@ -1195,6 +1195,43 @@ public final class LibraryStore {
     }
 }
 
+/// 一筆**被改寫的持有記錄**——kind ＋ key（#498）。
+///
+/// 在此之前三個報告的 `verdictValuesRewritten` 是扁平的 key 清單，混三種記錄形狀
+/// （person／organization／venue，#463 起三種都會出現在同一個清單裡）而不帶 kind。
+/// 跨型別同名鍵在 live store 實測 **2 個**——那時清單上的一個字串對應兩筆記錄，
+/// 使用者無從分辨哪一筆被改寫。
+///
+/// **為什麼是型別而不是 `"organization:some-org"` 字串。** 那個記法在本 store 已經
+///有另一個意思：verdict value 的 `<kind>:<key> :: <literal>` 裡，`person:foo` 說的是
+/// 「這條判定**是關於**誰」，而本清單說的是「**哪一筆記錄**被改寫」——同一個記法兩個軸。
+/// 用具名欄位讓那個混淆寫不出來。
+///
+/// 相鄰的 `verdictsCollapsed` 仍是字串，這**不是不一致**：那是一串句子（「…——丟棄 …」），
+/// 本型別是一筆記錄的身分。記錄身分值得一個型別，句子不值得。
+public struct HolderRecord: Equatable, Hashable, Comparable, Sendable {
+    /// 只會是 `.person`／`.organization`／`.venue`——三種持得住 verdict 的記錄形狀
+    /// （`entity-backlink-completeness` 第 13 條邊）。用 `EntityKind` 而不是自己開一個
+    /// 三值 enum：形狀的值域已經有唯一來源，第二份會分岔。
+    public let kind: EntityKind
+    public let key: String
+
+    public init(_ kind: EntityKind, _ key: String) { self.kind = kind; self.key = key }
+
+    /// 三個呈現面共用的顯示形——`organization「some-org」`。
+    ///
+    /// **key 在這裡就消毒**（`displaySafe`）：三個面各寫一份格式化就是三份會分岔的規格，
+    /// 而其中一份忘了消毒不會有任何跡象。刻意用「」而不是 `:`——後者與 verdict value 的
+    /// holder 記法撞號（見型別 doc）。
+    public var describedSafely: String {
+        "\(kind.rawValue)「\(displaySafe(key, max: 200))」"
+    }
+
+    public static func < (a: HolderRecord, b: HolderRecord) -> Bool {
+        (a.kind.rawValue, a.key) < (b.kind.rawValue, b.key)
+    }
+}
+
 /// person key 改名的回報（#395）。
 ///
 /// **欄位與 `RenameReport` 不同，刻意不共用型別**——兩者的參照集合不同
@@ -1203,9 +1240,9 @@ public final class LibraryStore {
 public struct PersonRenameReport: Equatable {
     /// `authors[].key` 有被改寫的 work citekeys。
     public var authorEdgesRewritten: [String]
-    /// verdict value 的 `person:<key>` 有被改寫的**持有記錄** key（person、organization 或 venue——#463 起 venue 也在列；
-    /// 扁平清單不帶 kind，同 `RenameReport.verdictValuesRewritten` 的既有取捨）。
-    public var verdictValuesRewritten: [String]
+    /// verdict value 的 `person:<key>` 有被改寫的**持有記錄**（person、organization 或 venue——#463 起 venue 也在列）。
+    /// #498 起帶 kind：跨型別同名鍵在 live store 實測 2 個，扁平 key 清單分不出是哪一筆。
+    public var verdictValuesRewritten: [HolderRecord]
     /// 候選或 `judgement.prefers` 有跟著改名的歧異記錄 id。
     public var divergencesRewritten: [String]
     /// 遷移後與既有 verdict 同 (field, value) 而被收攏丟棄的列（#495）。
@@ -1216,7 +1253,7 @@ public struct PersonRenameReport: Equatable {
     public var verdictsCollapsed: [String]
 
     public init(authorEdgesRewritten: [String] = [],
-                verdictValuesRewritten: [String] = [],
+                verdictValuesRewritten: [HolderRecord] = [],
                 divergencesRewritten: [String] = [],
                 verdictsCollapsed: [String] = []) {
         self.authorEdgesRewritten = authorEdgesRewritten
@@ -1234,17 +1271,17 @@ public struct RenameReport: Equatable {
     public var relationsRewritten: [String]
     /// 候選有跟著改名的歧異記錄 id（#71）。
     public var divergenceCandidatesRewritten: [String]
-    /// verdict reference 的 value 有跟著改名的**持有記錄 key（person、venue 或 organization）**
-    /// （#232 verify NEW-1；#460 起 venue 也在列；#463 起 organization 也在列——扁平清單不帶
-    /// kind，同名跨型別時無從分辨，結構化拆分屬 follow-up）。
-    public var verdictValuesRewritten: [String]
+    /// verdict reference 的 value 有跟著改名的**持有記錄（person、venue 或 organization）**
+    /// （#232 verify NEW-1；#460 起 venue；#463 起 organization）。#498 起帶 kind——
+    /// 同名跨型別時扁平 key 清單無從分辨，那是該 issue 的 follow-up 現在落地。
+    public var verdictValuesRewritten: [HolderRecord]
     /// 遷移後與既有 verdict 同 (field, value) 而被收攏丟棄的列（#495）。形狀與
     /// `PersonRenameReport.verdictsCollapsed` 及 merge 側的 `ResolveReport.verdictsCollapsed` 同。
     public var verdictsCollapsed: [String]
 
     public init(relationsRewritten: [String] = [],
                 divergenceCandidatesRewritten: [String] = [],
-                verdictValuesRewritten: [String] = [],
+                verdictValuesRewritten: [HolderRecord] = [],
                 verdictsCollapsed: [String] = []) {
         self.relationsRewritten = relationsRewritten
         self.divergenceCandidatesRewritten = divergenceCandidatesRewritten
@@ -1447,7 +1484,7 @@ extension LibraryStore {
         for var p in load.people {
             if let m = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .work) {
                 p.references = m.refs; peopleToRewrite.append(p)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // venue 同型（#460）：#304 之後 venue 也持 `work:` holder 的 verdict
@@ -1458,7 +1495,7 @@ extension LibraryStore {
         for var vn in load.venues {
             if let m = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .work) {
                 vn.references = m.refs; venuesToRewrite.append(vn)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // organization 同型（#463，網格的 rename×org 格）：#443／OrgResolver 在 organization 記錄上落
@@ -1468,7 +1505,7 @@ extension LibraryStore {
         for var org in load.organizations {
             if let m = Self.migratedVerdicts(org.references, from: oldKey, to: newKey, holderKind: .work) {
                 org.references = m.refs; orgsToRewrite.append(org)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(org.key)」：\($0)" })
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
 
@@ -1537,18 +1574,18 @@ extension LibraryStore {
             try writeDivergence(d)
             divergenceIDs.append(d.id.uuidString)
         }
-        var verdictKeys: [String] = []
+        var verdictKeys: [HolderRecord] = []
         for p in peopleToRewrite {
             try writePerson(p)
-            verdictKeys.append(p.key)
+            verdictKeys.append(HolderRecord(.person, p.key))
         }
         for vn in venuesToRewrite {
             _ = try writeVenue(vn)
-            verdictKeys.append(vn.key)
+            verdictKeys.append(HolderRecord(.venue, vn.key))
         }
         for o in orgsToRewrite {
             _ = try writeOrganization(o)
-            verdictKeys.append(o.key)
+            verdictKeys.append(HolderRecord(.organization, o.key))
         }
         // 4. 刪舊檔（僅 legacy 佈局——format 2 沒有舊檔，見上）
         if !usesEntitiesLayout {
@@ -1636,7 +1673,7 @@ extension LibraryStore {
             if let m = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .person) {
                 p.references = m.refs
                 peopleToRewrite.append(p)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         var orgsToRewrite: [Organization] = []
@@ -1644,7 +1681,7 @@ extension LibraryStore {
             if let m = Self.migratedVerdicts(o.references, from: oldKey, to: newKey, holderKind: .person) {
                 o.references = m.refs
                 orgsToRewrite.append(o)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(o.key)」：\($0)" })
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(o.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // venue 同型（#463，verify security 席：venue 記錄今天只由 resolve-venues 落 `work:` holder，但寫入閘收任何
@@ -1654,14 +1691,14 @@ extension LibraryStore {
             if let m = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .person) {
                 vn.references = m.refs
                 venuesToRewrite.append(vn)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // 被改名的那一筆自己也可能持有指向自己的 verdict
         if let m = Self.migratedVerdicts(person.references, from: oldKey, to: newKey, holderKind: .person) {
             person.references = m.refs
             // 標 `newKey`：這筆記錄正在改名，寫舊鍵會讓使用者去找一個改完就不存在的 key。
-            collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(newKey)」：\($0)" })
+            collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(newKey)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
         }
 
         // 3. divergence 的候選與 prefers（第 9、10 條）
@@ -1745,10 +1782,10 @@ extension LibraryStore {
         try writePerson(person)
         var entryKeys: [String] = []
         for e in entriesToRewrite { try writeEntry(e); entryKeys.append(e.citekey) }
-        var verdictHolders: [String] = []
-        for p in peopleToRewrite { try writePerson(p); verdictHolders.append(p.key) }
-        for o in orgsToRewrite { try writeOrganization(o); verdictHolders.append(o.key) }
-        for vn in venuesToRewrite { _ = try writeVenue(vn); verdictHolders.append(vn.key) }
+        var verdictHolders: [HolderRecord] = []
+        for p in peopleToRewrite { try writePerson(p); verdictHolders.append(HolderRecord(.person, p.key)) }
+        for o in orgsToRewrite { try writeOrganization(o); verdictHolders.append(HolderRecord(.organization, o.key)) }
+        for vn in venuesToRewrite { _ = try writeVenue(vn); verdictHolders.append(HolderRecord(.venue, vn.key)) }
         var divergenceIDs: [String] = []
         for d in divergencesToRewrite { try writeDivergence(d); divergenceIDs.append(d.id.uuidString) }
 

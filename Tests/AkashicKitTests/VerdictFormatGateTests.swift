@@ -80,7 +80,7 @@ final class VerdictFormatGateTests: XCTestCase {
                                    title: "T", authors: [.literal("Che Cheng")], date: "2020"))
         try store.writePerson(verdictPerson())
         let report = try store.renameEntry(from: "a2020x", to: "b2021y")
-        XCTAssertEqual(report.verdictValuesRewritten, ["cheng-che"],
+        XCTAssertEqual(report.verdictValuesRewritten, [HolderRecord(.person, "cheng-che")],
                        "verdict 遷移要報出來——rename 改寫別的記錄是最不被預期的副作用")
         let load = try LibraryStore(root: root, key: nil, environment: [:]).load()
         let p = load.people.first { $0.key == "cheng-che" }!

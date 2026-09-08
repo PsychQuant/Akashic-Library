@@ -112,7 +112,7 @@ final class AppStateTests: XCTestCase {
 
         XCTAssertEqual(report.relationsRewritten, ["cheng2025identifiability"])
         XCTAssertEqual(report.divergenceCandidatesRewritten, [])
-        XCTAssertEqual(report.verdictValuesRewritten, ["ulf-olsson"])
+        XCTAssertEqual(report.verdictValuesRewritten, [HolderRecord(.person, "ulf-olsson")])
         let cites = state.entries.first { $0.citekey == "cheng2025identifiability" }?.akashic.relations.cites
         XCTAssertEqual(cites, ["olsson1979bmaximum"], "報告說改了，store 也要真的改了")
         // Codex R1 建議：不只信報告，也核對持久化結果——person 的 verdict holder 真的變成新 citekey
@@ -127,17 +127,20 @@ final class AppStateTests: XCTestCase {
         let many = (1...7).map { "w\($0)" }
         let text = RenameReportSummary.lines(RenameReport(relationsRewritten: many,
                                                          divergenceCandidatesRewritten: [],
-                                                         verdictValuesRewritten: ["some-person"]))
+                                                         verdictValuesRewritten: [HolderRecord(.person, "some-person")]))
         let lines = text.split(separator: "\n").map(String.init)
-        XCTAssertEqual(lines.count, 3)
+        XCTAssertEqual(lines.count, 4, "#495 起多一行 verdict 收攏：\(text)")
         XCTAssertEqual(lines[0], "relations 已遷移：7 筆（w1、w2、w3、w4、w5…）")
         XCTAssertEqual(lines[1], "歧異候選已遷移：0 筆")
-        XCTAssertEqual(lines[2], "消解判定已遷移：1 筆（some-person）")
+        XCTAssertEqual(lines[2], "消解判定已遷移：1 筆（person「some-person」）",
+                       "#498：帶 kind——跨型別同名鍵時分得出是哪一筆")
+        XCTAssertEqual(lines[3], "verdict 收攏丟棄：0 筆", "#495：丟棄必須可見，零也要說")
         // 帶 from/to 的版本第一行說出改成了什麼——與一次不編輯的點擊不同形（DA-2）
         let full = RenameReportSummary.receipt(RenameReport(), from: "a2020a", to: "a2020b")
         XCTAssertEqual(full.split(separator: "\n").first.map(String.init), "✓ a2020a → a2020b")
-        XCTAssertEqual(full.split(separator: "\n").count, 4)
-        XCTAssertEqual(full, "✓ a2020a → a2020b\nrelations 已遷移：0 筆\n歧異候選已遷移：0 筆\n消解判定已遷移：0 筆")
+        XCTAssertEqual(full.split(separator: "\n").count, 5)
+        XCTAssertEqual(full, "✓ a2020a → a2020b\nrelations 已遷移：0 筆\n歧異候選已遷移：0 筆"
+                           + "\n消解判定已遷移：0 筆\nverdict 收攏丟棄：0 筆")
     }
 
     /// 消毒與 CLI 同立場：控制字元被逃脫、超長 key 被截（displaySafe(max: 200)）。

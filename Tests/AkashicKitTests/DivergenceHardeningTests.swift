@@ -724,7 +724,7 @@ extension DivergenceHardeningTests {
         GitFixture.commitAll(store.root)
         let report = try store.resolveDivergence(id: d.id, survivor: "keep2020a")
         XCTAssertFalse(report.hasFailures, "\(report.failures)")
-        XCTAssertEqual(report.verdictValuesRewritten, ["fann-cathy-s-j"], "改寫要在報告可見")
+        XCTAssertEqual(report.verdictValuesRewritten, [HolderRecord(.person, "fann-cathy-s-j")], "改寫要在報告可見")
         let back = try store.load().people.first { $0.key == "fann-cathy-s-j" }!
         let (vs, malformed) = ResolutionLedger.verdicts(references: back.references)
         XCTAssertTrue(malformed.isEmpty)

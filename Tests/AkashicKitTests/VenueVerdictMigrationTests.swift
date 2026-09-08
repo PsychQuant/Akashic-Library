@@ -63,7 +63,7 @@ final class VenueVerdictMigrationTests: XCTestCase {
         GitFixture.commitAll(store.root)
         let report = try store.resolveDivergence(id: d.id, survivor: "keeper2020a")
 
-        XCTAssertTrue(report.verdictValuesRewritten.contains("some-journal"),
+        XCTAssertTrue(report.verdictValuesRewritten.contains(HolderRecord(.venue, "some-journal")),
                       "venue 的 verdict 遷移必須回報：\(report.verdictValuesRewritten)")
         let after = try store.load().venues.first { $0.key == "some-journal" }
         let v = after?.references.first?.value ?? ""

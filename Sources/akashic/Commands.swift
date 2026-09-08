@@ -1817,7 +1817,7 @@ struct Rename: ParsableCommand {
         }
         // verdict value 同理（#232 verify NEW-1）——判定史跟著 citekey 走
         if !report.verdictValuesRewritten.isEmpty {
-            print("消解判定已遷移：\(report.verdictValuesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
+            print("消解判定已遷移：\(report.verdictValuesRewritten.map(\.describedSafely).joined(separator: ", "))")   // display-safe-exempt: HolderRecord.describedSafely 已對 key 套 displaySafe(max: 200)
         }
         if !report.verdictsCollapsed.isEmpty {   // #495：收攏丟列要說出來——靜默丟棄不可稽核（lossless-intake 執行細節 3）
             print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（與遷移輸出同 (field, value)，留首見）：")
@@ -1858,8 +1858,8 @@ struct RenamePerson: ParsableCommand {
                   + report.authorEdgesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))
         }
         if !report.verdictValuesRewritten.isEmpty {
-            print("消解判定已遷移："
-                  + report.verdictValuesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))
+            print("消解判定已遷移："   // display-safe-exempt: 同上，消毒在 describedSafely 內
+                  + report.verdictValuesRewritten.map(\.describedSafely).joined(separator: ", "))
         }
         if !report.divergencesRewritten.isEmpty {
             print("歧異記錄已遷移（候選或 prefers）：\(report.divergencesRewritten.joined(separator: ", "))")

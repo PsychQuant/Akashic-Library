@@ -30,9 +30,17 @@ enum RenameReportSummary {
             return xs.isEmpty ? "\(label)：0 筆"
                               : "\(label)：\(xs.count) 筆（\(shown)\(xs.count > 5 ? "…" : "")）"
         }
+        /// `HolderRecord` 專用：`describedSafely` **已經**消毒過，不得再過一次 `line`
+        /// ——`displaySafe` 不冪等（它逃脫反斜線自身，二次呼叫把 `\u{0009}` 變成
+        /// `\u{005C}u{0009}`）。用 overload 而不是註解：註解攔不住下一個人把它併回去。
+        func holderLine(_ label: String, _ xs: [HolderRecord]) -> String {
+            let shown = xs.prefix(5).map(\.describedSafely).joined(separator: "、")   // display-safe-exempt: describedSafely 內已套 displaySafe(max: 200)
+            return xs.isEmpty ? "\(label)：0 筆"
+                              : "\(label)：\(xs.count) 筆（\(shown)\(xs.count > 5 ? "…" : "")）"
+        }
         return [line("relations 已遷移", r.relationsRewritten),
                 line("歧異候選已遷移", r.divergenceCandidatesRewritten),
-                line("消解判定已遷移", r.verdictValuesRewritten),
+                holderLine("消解判定已遷移", r.verdictValuesRewritten),
                 // #495：收攏丟棄的列。**與上面三行不同，這裡的元素是敘述不是 key**
                 // （`<kind>「<持有記錄>」：<field> <value>——丟棄 <來源>`），所以 200 字的截斷
                 // 會比在 key 上更常真的截到。alert 本來就只是提示，完整清單看 CLI `rename`。

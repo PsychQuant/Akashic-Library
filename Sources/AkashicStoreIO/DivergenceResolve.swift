@@ -116,9 +116,9 @@ public struct ResolveReport: Equatable {
     /// #271：person merge 時自動遷移到倖存者的 verdict（pairing value 清單）。
     public var verdictReferencesMigrated: [String] = []
     /// #271：holder 退役（work merge 的 citekey、#463 起 person merge 的 person key）時 value 被改寫的
-    /// **持有記錄 key（person／venue／organization——#460 起 venue、#463 起 organization）**清單
-    /// （鏡射 rename 的 `verdictValuesRewritten`）。
-    public var verdictValuesRewritten: [String] = []
+    /// **持有記錄（person／venue／organization——#460 起 venue、#463 起 organization）**清單
+    /// （鏡射 rename 的 `verdictValuesRewritten`）。#498 起帶 kind。
+    public var verdictValuesRewritten: [HolderRecord] = []
     /// #461：merge 收攏（work merge，#463 起也含 person merge）時被**丟棄**的 verdict 列（「持有記錄：field value——丟棄
     /// 判定「…」」）。丟棄不靜默（`lossless-intake` 執行細節 3）。與
     /// `verdictValuesRewritten` 同樣不進 `==`——preview 側目前不算 verdict 面
@@ -812,7 +812,7 @@ extension LibraryStore {
                 return ProvenanceReference.VerdictPairingValue(holderKind: .person, holder: survivor, literal: p.literal).encoded
             }
             if keeperMigration.changed {
-                report.verdictValuesRewritten.append(survivor)
+                report.verdictValuesRewritten.append(HolderRecord(.person, survivor))
                 report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe（DivergenceCommands）
                     contentsOf: keeperMigration.collapsed.map { "person「\(survivor)」：\($0)" })   // display-safe-exempt: 同上
             }
@@ -829,7 +829,7 @@ extension LibraryStore {
             org.references = migrated
             do {
                 _ = try writeOrganization(org)
-                report.verdictValuesRewritten.append(org.key)
+                report.verdictValuesRewritten.append(HolderRecord(.organization, org.key))
                 report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe(c, max: 300)（DivergenceCommands），與 failures 同一條消毒點
                     contentsOf: collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: 同上
             } catch {
@@ -846,7 +846,7 @@ extension LibraryStore {
             venue.references = migrated
             do {
                 _ = try writeVenue(venue)
-                report.verdictValuesRewritten.append(venue.key)
+                report.verdictValuesRewritten.append(HolderRecord(.venue, venue.key))
                 report.verdictsCollapsed.append(   // display-safe-exempt: 同上
                     contentsOf: collapsed.map { "venue「\(venue.key)」：\($0)" })   // display-safe-exempt: 同上
             } catch {
@@ -862,7 +862,7 @@ extension LibraryStore {
             person.references = migrated
             do {
                 try writePerson(person)
-                report.verdictValuesRewritten.append(person.key)
+                report.verdictValuesRewritten.append(HolderRecord(.person, person.key))
                 report.verdictsCollapsed.append(   // display-safe-exempt: 同上
                     contentsOf: collapsed.map { "person「\(person.key)」：\($0)" })   // display-safe-exempt: 同上
             } catch {
@@ -1034,7 +1034,7 @@ extension LibraryStore {
             person.references = migrated
             do {
                 try writePerson(person)
-                report.verdictValuesRewritten.append(person.key)
+                report.verdictValuesRewritten.append(HolderRecord(.person, person.key))
                 report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe(c, max: 300)（DivergenceCommands），與 failures 同一條消毒點
                     contentsOf: collapsed.map { "person「\(person.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
             } catch {
@@ -1054,7 +1054,7 @@ extension LibraryStore {
             venue.references = migrated
             do {
                 _ = try writeVenue(venue)
-                report.verdictValuesRewritten.append(venue.key)
+                report.verdictValuesRewritten.append(HolderRecord(.venue, venue.key))
                 report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe(c, max: 300)（DivergenceCommands），與 failures 同一條消毒點
                     contentsOf: collapsed.map { "venue「\(venue.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
             } catch {
@@ -1072,7 +1072,7 @@ extension LibraryStore {
             org.references = migrated
             do {
                 _ = try writeOrganization(org)
-                report.verdictValuesRewritten.append(org.key)
+                report.verdictValuesRewritten.append(HolderRecord(.organization, org.key))
                 report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe(c, max: 300)（DivergenceCommands），與 failures 同一條消毒點
                     contentsOf: collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
             } catch {

@@ -136,6 +136,50 @@ func zeroInstanceRowsAudit() -> Int32 {
         }
     }
 
+    // **每一列都要在「各列共通的東西」有一條 bullet 講它自己的理由**（#479）。
+    //
+    // 前面幾條檢查守的都是可判定的性質（欄位在不在、編號對不對、裁決欄讀到什麼）。
+    // 這一條守的是**辯護**：這張表的價值全在「理由欄與裁決同列所以不會分岔」，而共通段
+    // 是那些理由的第二層——它說明每一列的理由**彼此不同**，那正是本檔不寫總括判準的依據。
+    //
+    // 少一條 bullet 不會讓任何檢查變錯，只會讓下一個人拿判準去類推——而那是本檔開宗明義
+    // 禁止的動作。漂移真的發生過：第 12 列的裁決 2026-08-28 就下了，2026-09-02 才補進表。
+    //
+    // 一條 bullet 可以涵蓋多列（「第 10、11、12 列的理由是三個**不同的**…」），所以判準是
+    // **每個列號至少被引用一次**，不是「bullet 數等於列數」。
+    //
+    // **錨在行首**（`\n## `）——同一個字面也出現在本檔下方的量測腳本裡（那段
+    // Python 用 `t.index('## 各列共通的東西')` 找同一個標題）。`range(of:)` 取第一個，
+    // 於是擷取到的會是**量測區塊的尾巴**而不是真的段落，結果是 16 列被誤報成沒有 bullet。
+    // 實地踩到——加完量測腳本的下一次執行就紅了。同型的坑本 repo 記過：
+    // `parity-table-drift` 的表格第一欄不得用反引號，因為守衛會把那些 token 當成宣稱。
+    if let ci = rule.range(of: "\n## 各列共通的東西") {
+        let after = rule[ci.upperBound...]
+        let common = after.range(of: "\n## ").map { String(after[..<$0.lowerBound]) } ?? String(after)
+        // **只認「以 `- 第 N 列的理由是` 開頭的 bullet」，不是段落裡任何一次提到 N**
+        // （#479，第一版就是後者而它太弱）。那一段裡到處都是跨列比較——「第 4 列與
+        // 第 1 列的差別值得看一眼」、「它與第 1 列（缺跡象）、第 8 列…最像」——所以
+        // 一列即使**沒有自己的 bullet**，也會因為被別列拿去比較而算成「有講到」。
+        // 實測：拿掉第 1 列的 bullet，鬆的判準 rc=0（負控不紅）。
+        let refRe = try! NSRegularExpression(pattern: #"(?m)^- 第 ([0-9、]+) 列的理由是"#)
+        let cns = common as NSString
+        var cited = Set<Int>()
+        for m in refRe.matches(in: common, range: NSRange(location: 0, length: cns.length)) {
+            for part in cns.substring(with: m.range(at: 1)).components(separatedBy: "、") {
+                if let v = Int(part) { cited.insert(v) }
+            }
+        }
+        let uncited = nums.filter { !cited.contains($0) }
+        if !uncited.isEmpty {
+            fails.append("第 \(uncited.map(String.init).joined(separator: "／")) 列在「各列共通的東西」"
+                         + "沒有任何 bullet 講它——那一段是每列理由**彼此不同**的說明，"
+                         + "而那正是本檔不寫總括判準的依據。加一條 bullet 說出這一列的理由"
+                         + "為什麼不能沿用既有任何一列")
+        }
+    } else {
+        fails.append("找不到「## 各列共通的東西」——這一段是理由欄的第二層，不得消失")
+    }
+
     var out = "══ zero-instance 裁決表：\(rows.count) 列 ══\n"
     for f in fails { out += "  ✗ \(f)\n" }
     out += "\n══ " + (fails.isEmpty ? "每一列裁決「寫」的都找得到實作"

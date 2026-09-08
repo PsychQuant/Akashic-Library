@@ -2685,6 +2685,7 @@ public final class AkashicService {
     public func updateVenue(key: String, addNames: [String]?,
                             note: String?, type rawType: String?,
                             addISSN: [String]? = nil,
+                            addVariant: [String]? = nil,
                             paginated: Bool? = nil, judgement: String? = nil,
                             restsOn: [String]? = nil) throws -> String {
         let load = try store.load()
@@ -2764,6 +2765,35 @@ public final class AkashicService {
             throw ServiceError.invalid(
                 "judgement／rests_on 只伴隨 paginated 使用——沒有判定就沒有判定的理由")
         }
+        // **variant 的寫入面**（#471）。在此之前 variant **兩面都沒有寫入面**，唯一的
+        // 寫入者是 `migrate-venue-variants`——而它用的是「`authorized` 的補集」。
+        // **一個不做判定的操作成了唯一的判定寫入者**，正面撞上
+        // `identity-is-judged-not-matched`：「這個名字是那個名字的異寫」是判定，
+        // 不是「不在對外清單裡」的推論。`two-kinds-of-edits` 同向：判定型的寫入要有
+        // 自己的面，不能是決定論式遷移的副產品。
+        //
+        // **不在 `names` 的一併 append 進 `names`**（issue Expected 1）：兩個分割都是
+        // **對 names 的標記**，標一個 names 裡沒有的字串會造出孤兒——而孤兒 variant
+        // 自 #473 起是 error，寫不進去。與其讓呼叫端先 add_names 再 add_variant（兩步
+        // 之間有一個不一致的狀態），不如在這裡一次做完。
+        var variantAdded: [String] = []
+        if let variants = addVariant {
+            var known = Set(venue.names.entries.map(\.value))
+            var current = Set(venue.variant)
+            for v in variants where !v.trimmingCharacters(in: .whitespaces).isEmpty {
+                if !known.contains(v) {
+                    venue.names = Timeline(venue.names.entries + [TemporalValue(value: v)])
+                    known.insert(v)
+                    added.append(v)
+                }
+                guard !current.contains(v) else { continue }
+                venue.variant.append(v)
+                current.insert(v)
+                variantAdded.append(v)
+            }
+        }
+        // 分割互斥與孤兒檢查由 `writeVenue` → `assertVenueWritable` → `Venue.validate()`
+        // 擋——這裡不重造一份（同 ISSN 那段的立場）。
         try store.writeVenue(venue)
         try LibraryIndex(store: store).rebuild()
         var payload: [String: Any] = ["key": key,
@@ -2771,7 +2801,9 @@ public final class AkashicService {
                                       "namesTotal": venue.names.entries.count,
                                       // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
                                       "issnAdded": issnAdded,
-                                      "issnTotal": venue.issn.count]
+                                      "issnTotal": venue.issn.count,
+                                      "variantAdded": variantAdded.map { displaySafe($0, max: 200) },
+                                      "variantTotal": venue.variant.count]
         if let p = venue.paginated { payload["paginated"] = p }
         return try jsonString(payload)
     }

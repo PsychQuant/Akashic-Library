@@ -86,6 +86,31 @@ final class PrePushHookTests: XCTestCase {
                 + String(repeating: "0", count: 40))
         XCTAssertTrue(orphanTag.1,
                       "tag 指向遠端沒有的 commit 時，那次 push 會帶上新程式碼——不能跳")
+
+        // ④ 正向：**刪 branch** → 早退（#530）
+        //
+        // 刪除不引入任何樹——比 tag 的情形更弱：tag 至少指向一個 commit（所以才需要
+        // 上面第 ③ 條那道「已在遠端」檢查），刪除則什麼都不指。
+        //
+        // 這一條先前不存在，而缺它的代價量過（2026-09-09 清理已合併 branch）：
+        // 走 hook 的一批 20 支 **>600 秒**逾時；`--no-verify` 一批 30 支 ×4 共 115 支
+        // **8 秒**。117 支照走要約 15 小時的測試，而 hook 自己的註解寫著「一個明顯
+        // 無意義的等待，是讓人開始習慣性繞過的最有效訓練」。
+        let deleteBranch = try run(
+            stdin: "(delete) \(String(repeating: "0", count: 40)) refs/heads/gone \(onRemote)")
+        XCTAssertEqual(deleteBranch.0, 0, "刪 branch 應該直接通過")
+        XCTAssertFalse(deleteBranch.1, "刪 branch 不引入任何樹——跑 swift 就表示沒有真的跳過")
+
+        // ⑤ 負向：**混合**（刪一個 ＋ 推一個 branch）→ 照常驗證（#530）
+        //
+        // 判準必須是**全稱**：這次 push 的**每一個** ref 都不引入樹才跳過。
+        // 只要有一個 ref 帶進新的樹，整次 push 就要驗——`git push origin --delete a main`
+        // 是一次 push 兩個 ref，而其中一個是真的推送。
+        let mixed = try run(
+            stdin: "(delete) \(String(repeating: "0", count: 40)) refs/heads/gone \(onRemote)\n"
+                + "refs/heads/main \(onRemote) refs/heads/main \(String(repeating: "0", count: 40))")
+        XCTAssertTrue(mixed.1,
+                      "混合 push 只要有一個 ref 帶進新的樹就要驗——存在條件會讓真的推送搭刪除的便車")
     }
     func testHookScrubsRepositoryLocalGitEnvironmentAndRunsWarningsAsErrors() throws {
         let root = repositoryRoot

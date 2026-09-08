@@ -37,26 +37,38 @@ else
     push_refs="$(cat)"
 fi
 if [ -n "$push_refs" ]; then
-    only_tags=1
+    no_tree_only=1
     while read -r _local_ref local_sha remote_ref _remote_sha; do
         [ -z "$remote_ref" ] && continue
+        # **刪除任何 ref 都不引入樹**（#530）。全零 local sha ＝ 刪除。
+        #
+        # 下面那個判斷本來就寫著「全零 sha ＝ 刪除該 ref。刪 tag 同樣不引入任何樹」
+        # ——**但它被關在 `refs/tags/*` 分支裡面**，所以刪 branch 落到 `*)`、跑全套。
+        # 而刪 branch 比刪 tag 更弱：tag 至少指向一個 commit（所以才需要「已在遠端」
+        # 那道檢查），刪除則什麼都不指。
+        #
+        # 代價是量過的（2026-09-09 清理已合併 branch）：走 hook 的一批 20 支 **>600 秒**
+        # 逾時；`--no-verify` 一批 30 支 ×4 共 115 支 **8 秒**。117 支照走要約 **15 小時**
+        # 的測試，而那正是本檔上面那段註解在防的事——「一個明顯無意義的等待，是讓人
+        # 開始習慣性繞過的最有效訓練」。
+        if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+            continue                      # 刪除：不引入樹，這一個 ref 不構成「要驗證」
+        fi
         case "$remote_ref" in
             refs/tags/*) ;;
-            *) only_tags=0; break ;;
+            *) no_tree_only=0; break ;;
         esac
-        # 全零 sha ＝ 刪除該 ref。刪 tag 同樣不引入任何樹。
-        if [ "$local_sha" != "0000000000000000000000000000000000000000" ]; then
-            # tag 指向的 commit 必須已被某個 remote-tracking branch 含著。
-            if ! git branch -r --contains "$local_sha" 2>/dev/null | grep -q .; then
-                only_tags=0
-                break
-            fi
+        # tag 指向的 commit 必須已被某個 remote-tracking branch 含著（推一個指向
+        # 本地獨有 commit 的 tag，會把那個 commit 一起帶上去——那時樹是新的）。
+        if ! git branch -r --contains "$local_sha" 2>/dev/null | grep -q .; then
+            no_tree_only=0
+            break
         fi
     done <<PUSH_REFS
 $push_refs
 PUSH_REFS
-    if [ "$only_tags" = "1" ]; then
-        echo "pre-push: 這次只推 tag，且其 commit 已在遠端——跳過驗證（#434）"
+    if [ "$no_tree_only" = "1" ]; then
+        echo "pre-push: 這次沒有引入任何樹（只有 tag／刪除 ref）——跳過驗證（#434／#530）"
         exit 0
     fi
 fi

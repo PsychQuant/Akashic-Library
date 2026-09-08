@@ -62,6 +62,12 @@ func literalScalarParity() -> Int32 {
     func fail(_ m: String) -> Int32 { print("✗ \(m)"); return 1 }
 
     guard let a = lines.firstIndex(where: { $0.hasPrefix("    def _scalar(s):") }) else {
+        // **先區分「讀不到」與「讀到了但找不到」**（#521）。兩者都會走到這裡，而原本的
+        // 訊息只說得出後者——來源檔被刪或改名時，它會指著「抽取式與宣告寫法脫節」讓人去
+        // 改抽取式，而真正的原因是那個檔不在了。訊息指錯原因比不出聲好一點，但只好一點。
+        if src.isEmpty {
+            return fail("讀不到 \(CENSUS)——來源檔不存在或是空的，本檢查等於沒跑")
+        }
         return fail("從 census 抽不到 `_scalar`——抽取式與宣告寫法脫節了")
     }
     // 空行與**任意縮排的註解行**都不終止切片（#407 R64）：一行縮排不足的註解——維護者加

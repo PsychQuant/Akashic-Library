@@ -18,6 +18,18 @@ struct TCMCase {
 }
 
 let triggerCoverageMutationCases: [TCMCase] = [
+    // **#521 的負控**：讓一支守衛引用一個**不存在**的檔。這是 #518 那個 case 的鏡像
+    // ——那個驗「存在但未受保護」，這個驗「根本不存在」。兩者共用同一個出口。
+    //
+    // 為什麼這一格值得存在：`rawFile` 對不存在的檔回空字串，走訪它的迴圈零次迭代、
+    // 檢查靜默通過。#521 立案時 `MeasuredClaimsAudit` 的檢查 ③ 就是這樣——標題印了、
+    // 本體一行都沒有、rc 仍是 0。**這一格是唯一擋得住它復發的東西。**
+    TCMCase(isWarn: false, desc: "讓守衛引用一個不存在的檔",
+        edits: [
+            (path: "plugin/tests/plugin-store-format-parity.py",
+             old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
+             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n_gone = ROOT / \"plugin/tests/this-file-was-deleted-by-433.py\"\n"),
+        ], expect: "讀 `plugin/tests/this-file-was-deleted-by-433.py`，但**那個檔不存在**"),
     // **#518 的負控**：讓一支守衛開始引用一個存在、但不在受保護集合裡的檔。
     // 這正是 #516 的形狀——守衛進了人口、它讀的檔沒進，而報表照印「無缺口」。
     // `ShellLex.swift` 是刻意選的：它在 `Sources/akashic-guards/` 裡卻**不是守衛**

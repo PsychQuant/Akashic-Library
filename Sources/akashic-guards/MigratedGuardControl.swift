@@ -51,9 +51,6 @@ func migratedGuardControl() -> Int32 {
     // 只剩 Swift。判準對兩者相同——它們都是「執行別的守衛」的東西，而那正是負控的定義。
     var harnesses = globFiles("plugin/tests/*mutations*.py")
         + globFiles("plugin/skills/*/scripts/tests/*mutations*.py")
-    if fileExists("plugin/tests/oracle-precondition-control.py") {
-        harnesses.append("plugin/tests/oracle-precondition-control.py")
-    }
     // **Swift 側掃整個目錄，不只「有 Process() 的」**（#433 Step 5）：harness 的 case 資料
     // 被抽進 `*Data.swift`（沒有 `Process()`，不會被判成 harness），而受測守衛的子命令名
     // 正是寫在那裡。只掃執行面會漏掉它們——實測 5 支守衛因此被誤報「缺負控」。

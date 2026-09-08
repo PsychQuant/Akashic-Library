@@ -437,6 +437,11 @@ func triggerCoverage(argv: [String]) -> Int32 {
         "Sources/AkashicCore/Temporal.swift",
         "Sources/akashic/CreateEntryCommand.swift",
         "plugin/skills/akashic-promote-literals/SKILL.md",
+        // #521：`MeasuredClaimsAudit` 的檢查 ③ 改指向這裡之後，它成了一條**真依賴**
+        // ——而新加的「檔案不存在」那一半正是靠它才把舊的死引用抓出來的。
+        // 這也補上 #518 regression 席指出的不對稱：`MarkerParityMutationsData.swift`
+        // 早就在表裡，它的姊妹檔卻不在（而本輪的 diff 就改了它）。
+        "Sources/akashic-guards/TriggerCoverageMutationsData.swift",
     ]
     // **兩個 glob 根要對稱**（#407 R50）：`.claude/rules/*.md` 已升成 live glob，而
     // 這一側曾是單一寫死路徑。`plugin/rules/` 一長出第二個檔，`declared()` 就會再次
@@ -634,8 +639,25 @@ func triggerCoverage(argv: [String]) -> Int32 {
             let pth = (code as NSString).substring(with: m.range(at: 1))
             guard PATH_ROOTS.contains(where: { pth.hasPrefix($0) }) else { continue }
             guard !pth.contains("*"), pth != g, !seen.contains(pth) else { continue }
-            guard fileExists(pth), !PROTECTED.contains(pth) else { continue }
             seen.insert(pth)
+            // ── 檔案不存在的那一半（#521）────────────────────────────────────
+            //
+            // 上一版在這裡 `continue`，並在下方註解寫「那一半是 #521，不是防呆」。
+            // 現在補上：守衛的程式碼裡逐字寫著一個路徑，而**那個檔不存在**。
+            //
+            // 為什麼這是 fails 而不是可以忽略的雜訊：`rawFile` 對不存在的檔回**空字串**，
+            // 於是走訪它的迴圈零次迭代、檢查靜默通過。#521 實測 `MeasuredClaimsAudit` 的
+            // 檢查 ③ 就是這樣——標題印了、本體一行都沒有、rc 仍是 0。**比檢查失敗更壞，
+            // 因為它看起來像通過了。**
+            //
+            // 與下方「存在但未受保護」是同一個問題的兩半，共用同一個出口。
+            if !fileExists(pth) {
+                fails.append("\(label(g)) 讀 `\(pth)`，但**那個檔不存在**"
+                           + "——`rawFile` 會回空字串，讀它的檢查會靜默通過（#521）。"
+                           + "退場即刪，或改指遷移後的新來源")
+                continue
+            }
+            guard !PROTECTED.contains(pth) else { continue }
             // **這裡印完整路徑，不用 `label()`**（#518 R1，三席獨立命中）。`label()` 的
             // 唯一性是相對 `PROTECTED` 求的，而 `pth` 依定義**不在** `PROTECTED` 裡：
             // 同 basename 時它會印出另一個、而且是**已受保護**的檔，於是訊息叫人做的事

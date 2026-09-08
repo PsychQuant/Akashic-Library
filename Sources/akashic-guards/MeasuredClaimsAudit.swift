@@ -189,22 +189,40 @@ func measuredClaimsAudit() -> Int32 {
     let msg = "git 出現了 review 類載體或未判定過的欄位：\(pyRepr(hit))／\(pyRepr(trailers))／\(pyRepr(unknown))"
     print("     " + check(hit.isEmpty && trailers.isEmpty && unknown.isEmpty, msg))
 
-    // ③ 那三格全是 warn_case——直接列，不用計數
-    print("③ 「3 格全是 warn_case（行 209／246／315）」")
-    let src = rawFile("plugin/tests/trigger-coverage-mutations.py").components(separatedBy: "\n")
-    for (i0, l) in src.enumerated() where l.contains("'一次都沒出現過')") {
-        let i = i0 + 1
-        var fn = "?"
-        var j = i - 2
-        while j >= max(0, i - 14) {
-            let s = src[j - 1 < 0 ? 0 : j - 1].drop(while: { $0 == " " || $0 == "\t" })
-            if s.hasPrefix("case(") || s.hasPrefix("warn_case(") {
-                fn = src[j - 1].trimmingCharacters(in: .whitespaces).components(separatedBy: "(")[0]
-                break
+    // ③ 那三格全是 warn case——直接列，不用計數
+    //
+    // **來源在 #433 換過，本檢查在 #521 才跟上。** 原本讀
+    // `plugin/tests/trigger-coverage-mutations.py`，而該檔已於 `989ac64`（Python 歸零）
+    // 刪除。`rawFile` 對不存在的檔回**空字串**，於是這個迴圈零次迭代——標題印了、本體
+    // 一行都沒有、rc 仍是 0。**看起來像檢查通過了**，而它其實什麼都沒驗。
+    //
+    // 命題本身仍為真（#521 實測：三格全部 `isWarn: true`），所以處置是**指向新來源**
+    // 而不是退場。行號也一併更新：209／246／315（舊 `.py`）→ 62／106／142（Swift 資料檔）。
+    let claimSrc = "Sources/akashic-guards/TriggerCoverageMutationsData.swift"
+    print("③ 「3 格全是 warn case（\(claimSrc) 行 62／106／142）」")
+    let src = rawFile(claimSrc).components(separatedBy: "\n")
+    // **來源讀不到就出聲，不要靜默走訪空陣列**（#521 的一般化）。這一句是本次修正的
+    // 核心：沒有它，下一次來源再搬家會重演同一個「標題印了、本體零行」的失效。
+    if src.count <= 1 && (src.first ?? "").isEmpty {
+        print("     " + check(false, "讀不到 \(claimSrc)——本檢查等於沒跑（#521 的失效形狀）"))
+    } else {
+        var found = 0
+        for (i0, l) in src.enumerated() where l.contains("expect: \"一次都沒出現過\"") {
+            let i = i0 + 1
+            var isWarn = "?"
+            var j = i0
+            while j >= max(0, i0 - 14) {
+                let s = src[j].trimmingCharacters(in: .whitespaces)
+                if s.hasPrefix("TCMCase(isWarn:") {
+                    isWarn = s.contains("isWarn: true") ? "warn" : "fail"
+                    break
+                }
+                j -= 1
             }
-            j -= 1
+            found += 1
+            print("     行 \(i): \(isWarn)  \(check(isWarn == "warn", "行 \(i) 是 \(isWarn) case，不是 warn"))")
         }
-        print("     行 \(i): \(fn)  \(check(fn == "warn_case", "行 \(i) 是 \(fn)，不是 warn_case"))")
+        print("     " + check(found == 3, "找到 \(found) 格，宣稱是 3 格"))
     }
 
     // ④ 19 = 13 + 6

@@ -126,15 +126,18 @@ jobs:
       - name: store-marker parity
         run: bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh
 
-      # 上一步的每一格都證明會紅。它 mutate 一份 copy，不碰出貨檔。
-      - name: parity negative control
-        run: python3 plugin/skills/akashic-promote-literals/scripts/tests/marker-parity-mutations.py
-      # 這台有 Swift，所以 `audit-guards-mutations.py` 的 18 個 case **全部**跑得起來
-      # （ubuntu 那台缺 toolchain，6 個 swift-gated case 一定跳過、回 exit 2）。
-      # 不加這一步的話那 6 個 case 在 CI **哪裡都跑不到**，而 ubuntu 那步把 2 收成 0
-      # ——綠燈掩蓋「沒跑到」（#407 R44，跨模型審查指名為 HIGH）。
-      - name: 守衛的 negative control（本 runner 有 Swift，18 個全跑）
-        run: python3 plugin/tests/audit-guards-mutations.py
+      # **這裡原本有兩個 step，#521 刪掉了。** 它們跑的是
+      #   plugin/skills/akashic-promote-literals/scripts/tests/marker-parity-mutations.py
+      #   plugin/tests/audit-guards-mutations.py
+      # 而兩個 .py 都在 `989ac64`（#433 Step 5「Python 歸零」）刪除。`python3 <不存在的檔>`
+      # 回非零，整份 workflow 無 continue-on-error / 無 if:，三個 step 同一個 job 循序排列
+      # ——所以 job 會在這裡**大聲死掉**，而下面那個「全部守衛」的 step **永遠到不了**。
+      # 今天觀察不到紅燈只因為 GitHub Actions 帳務擱置（runner 不啟動、steps=0）。
+      #
+      # 為什麼是刪除而不是改指 Swift 子命令：下面的 `run-guards.sh` **已經跑這兩支**
+      # （該檔行 53 與 94，皆為 `akashic-guards <子命令>`）。而這兩步當初獨立存在的理由
+      # ——「ubuntu 那台缺 toolchain，6 個 swift-gated case 在 CI 哪裡都跑不到」——隨
+      # #435 刪掉 ubuntu workflow 一起消失了。留著等於第二份會分岔的清單。
       # **全部守衛**（#433）。9 支守衛已遷成 `akashic-guards` 子命令，而它們需要
       # `swift build`——本 runner 有（上面第一步就是），ubuntu 那台沒有。
       #

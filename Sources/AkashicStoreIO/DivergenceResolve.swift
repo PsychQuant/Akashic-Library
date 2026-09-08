@@ -162,6 +162,11 @@ public struct ResolveReport: Equatable {
             && a.collapsedDetails.map { "\($0.id)|\($0.question)" }   // display-safe-exempt: Equatable 的比較鍵，不進任何輸出面
                 == b.collapsedDetails.map { "\($0.id)|\($0.question)" }   // display-safe-exempt: Equatable 的比較鍵，不進任何輸出面
             && a.survivorUpdated == b.survivorUpdated
+            // #467：先前刻意不進 `==`，理由是「preview 側算不出來」——preview 補上之後
+            // 那個理由消失了。留在外面等於讓 preview-vs-actual 的一致性測試對整個 verdict
+            // 面失明，而那正是本輪要修的東西。
+            && a.verdictValuesRewritten == b.verdictValuesRewritten
+            && a.verdictsCollapsed == b.verdictsCollapsed
     }
 }
 
@@ -371,6 +376,11 @@ extension LibraryStore {
         report.warnings += report.pendingContentWarnings
         report.pendingContentWarnings = []
         report.quarantinedNotScanned = snapshot.quarantined.map(\.file).sorted()
+        // #467：`==` 現在比這兩個欄位，而實跑是依迴圈順序 append、preview 是排序過的。
+        // 不排序的話 preview-vs-actual 的一致性測試會因為**順序**而紅——那是關於實作
+        // 走訪次序的事實，不是關於「會改寫什麼」的事實，而後者才是報告要說的。
+        report.verdictValuesRewritten.sort()
+        report.verdictsCollapsed.sort()
         return report
     }
 
@@ -633,6 +643,10 @@ extension LibraryStore {
                 if case let .key(k) = $0 { return merged.contains(k) }
                 return false
             }) { report.rewritten.append(e.citekey) }
+            let vp = Self.predictedHolderVerdictMigration(
+                snapshot: snapshot, merged: merged, survivor: survivor, holderKind: .person)
+            report.verdictValuesRewritten = vp.rewritten
+            report.verdictsCollapsed = vp.collapsed
         case .work:
             report.warnings += try validateWorkPreconditions(
                 survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot).warnings
@@ -647,6 +661,10 @@ extension LibraryStore {
                 else { continue }
                 report.rewritten.append(e.citekey)
             }
+            let vw = Self.predictedHolderVerdictMigration(
+                snapshot: snapshot, merged: merged, survivor: survivor, holderKind: .work)
+            report.verdictValuesRewritten = vw.rewritten
+            report.verdictsCollapsed = vw.collapsed
         case .organization, .divergence, .venue:
             throw DivergenceResolveError.unsupportedShape(shape.rawValue)
         }
@@ -914,6 +932,55 @@ extension LibraryStore {
     /// #461 的原形）與 `.person`（person merge——`person:<被併 key>` holder 住在 organization 記錄上，
     /// 是 org-resolution 的判定；#395 rename 側已遷、merge 側漏了，#232→#271 的不對稱在 person-key 軸重演）。
     /// 語意與 `migrateWorkHolderVerdicts` 完全相同，只多一個 kind 篩選——那個函式現在是本函式的 `.work` 特例。
+    /// preview 的 verdict 面**預測**（#467）。
+    ///
+    /// dry-run 在此之前對整個 verdict 面沉默：`verdictValuesRewritten` 與
+    /// `verdictsCollapsed` 在 preview 恆為空，實跑才出現。同檔反覆強調的
+    /// 「dry-run 的價值是誠實預告」在這一整類上不成立——而 #461 讓那個未被預告的步驟
+    /// 從「只改值」升級成「會刪列」。
+    ///
+    /// **與實跑走同一支純函數**（`migrateHolderVerdicts`），迴圈範圍逐一鏡射：
+    /// work 合併掃 people／venues／organizations 且無排除；person 合併掃
+    /// organizations／venues／people（排除被併鍵與 survivor——survivor 自己的遷移在
+    /// commit 之前做）＋ survivor 記錄本身。
+    ///
+    /// **它是預測不是事實**：實跑的每個迴圈都可能在寫入時失敗並落進 `failures`，
+    /// 那時實際改寫的比這裡少。preview 沒有事實可報，只能報「若都成功會是什麼」
+    /// ——與 `rewritten` 的既有語意一致。
+    static func predictedHolderVerdictMigration(
+        snapshot: LibraryLoad, merged: Set<String>, survivor: String,
+        holderKind: ProvenanceReference.VerdictHolderKind
+    ) -> (rewritten: [HolderRecord], collapsed: [String]) {
+        var rewritten: [HolderRecord] = []
+        var collapsed: [String] = []
+        func take(_ refs: [ProvenanceReference], _ kind: EntityKind, _ key: String) {
+            let m = Self.migrateHolderVerdicts(refs, merged: merged,
+                                               survivor: survivor, holderKind: holderKind)
+            guard m.changed else { return }
+            rewritten.append(HolderRecord(kind, key))
+            collapsed.append(contentsOf: m.collapsed.map {   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)）
+                "\(kind.rawValue)「\(key)」：\($0)" })   // display-safe-exempt: 同上
+        }
+        switch holderKind {
+        case .work:
+            for p in snapshot.people { take(p.references, .person, p.key) }
+            for v in snapshot.venues { take(v.references, .venue, v.key) }
+            for o in snapshot.organizations { take(o.references, .organization, o.key) }
+        case .person:
+            for o in snapshot.organizations { take(o.references, .organization, o.key) }
+            for v in snapshot.venues { take(v.references, .venue, v.key) }
+            for p in snapshot.people where !merged.contains(p.key) && p.key != survivor {
+                take(p.references, .person, p.key)
+            }
+            if let keeper = snapshot.people.first(where: { $0.key == survivor }) {
+                take(keeper.references, .person, keeper.key)
+            }
+        case .org:
+            break   // organization 合併尚未支援（`unsupportedShape`），沒有迴圈可鏡射
+        }
+        return (rewritten.sorted(), collapsed.sorted())
+    }
+
     static func migrateHolderVerdicts(
         _ refs: [ProvenanceReference], merged: Set<String>, survivor: String,
         holderKind: ProvenanceReference.VerdictHolderKind

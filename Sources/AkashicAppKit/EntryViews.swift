@@ -51,6 +51,11 @@ struct EntryDetailView: View {
         let from: String
         let to: String
         let report: RenameReport
+        /// 部分成功（#492）：改名已落盤，但索引重建／重載失敗。非 nil 即在同一個回執上加標。
+        ///
+        /// **成功與部分成功用同一個回執**，不是兩條路：兩者的共同事實是「全庫已經被改寫了
+        /// 這些東西」，而那正是使用者需要看到的。差別只在索引跟上了沒有。
+        var reloadFailure: String? = nil
     }
 
     private var entry: Entry? {
@@ -188,12 +193,15 @@ struct EntryDetailView: View {
         // 本 repo 兩個既有先例同形（同檔的「操作失敗」自 #11 起、AdjudicationViews 的 dialog→alert），
         // 且這裡用衍生 binding（`renameOutcome != nil`）——呈現若被丟棄，下次 body 求值會重新算出
         // 「想呈現」，比儲存的 Bool 耐用。**未實機量測**；量到負結果時才把設定延到下一個 runloop。
-        .alert("已改名", isPresented: Binding(
+        // 標題隨部分成功變（#492）：同一個回執，但「索引沒跟上」要在標題就看得到——
+        // 使用者可能只看標題就按「好」。
+        .alert(Text(EntryDetailView.renameAlertTitle(renameOutcome)),
+               isPresented: Binding(
             get: { renameOutcome != nil },
             set: { if !$0 { renameOutcome = nil } })) {
             Button("好") { renameOutcome = nil }
         } message: {
-            Text(renameOutcome.map { RenameReportSummary.receipt($0.report, from: $0.from, to: $0.to) } ?? "")   // display-safe-exempt: RenameReportSummary 對每個 key 套 displaySafe(max: 200)（與 CLI rename 同立場）；守衛對本路徑結構上不可見（無 tainted token）
+            Text(renameOutcome.map(EntryDetailView.renameMessage) ?? "")   // display-safe-exempt: RenameReportSummary 對每個 key 套 displaySafe(max: 200)（與 CLI rename 同立場）；underlying 在下方 renameMessage 內過 displaySafe
         }
         .alert("操作失敗", isPresented: Binding(
             get: { errorMessage != nil },
@@ -302,16 +310,44 @@ struct EntryDetailView: View {
             errorMessage = "新 citekey 與現在的相同（或為空），沒有改名"
             return
         }
-        attempt {
+        // **rename 刻意不走 `attempt`**（#492）。它是同檔唯一「失敗時仍有東西要呈現」的
+        // 操作——`attempt` 的契約是「錯誤就是一句話」，而部分成功時錯誤裡帶著一份報告。
+        // #492 的另一個候選是改 `attempt` 的簽名，但那要動同檔 8 個呼叫點去服務一個操作：
+        // 成本放在錯的地方，而且會讓其餘 7 個呼叫點帶著一個它們永遠用不到的參數。
+        do {
             // #465：`RenameReport` 不再丟掉——CLI 面印三類連帶改寫，App 面先前一句不說
             // （`entity-backlink-completeness` 執行細節 2：三面同一條路徑，App 這面把輸出丟了）。
             let report = try state.rename(from: oldKey, to: renameTarget)
             selectedCitekey = renameTarget
             renameOutcome = RenameOutcome(from: oldKey, to: renameTarget, report: report)
+        } catch AppStateError.renamedButReloadFailed(let report, let underlying) {
+            // 磁碟上改名**已經完成**。選新 key：清單是舊快照所以會顯示「找不到記錄」，
+            // 而那正是實情（App 的視圖過期了）；停在舊 key 則會顯示一筆磁碟上已不存在的
+            // 記錄——那是說謊。回執本身掛在 if／else 之外，兩種情況都看得到（#465 DA-4）。
+            selectedCitekey = renameTarget
+            renameOutcome = RenameOutcome(from: oldKey, to: renameTarget, report: report,
+                                          reloadFailure: underlying)
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "\(error)"
         }
     }
 
     // 摘要住在 `RenameReportSummary`（View 之外的 nonisolated formatter）——`AppStateError` 也用它。
+
+    /// 回執標題。抽成 static 是為了**可測**——「標題會變」若只寫在 View 的行內三元式裡，
+    /// 就只是一句斷言（`assertions-must-be-measured`）。
+    nonisolated static func renameAlertTitle(_ o: RenameOutcome?) -> String {
+        o?.reloadFailure == nil ? "已改名" : "已改名，但索引未重建"
+    }
+
+    /// 回執本文。成功與部分成功共用，後者在**最前面**加一段——放最後會被下面四行摘要
+    /// 推下去、在短 alert 裡看不到。`static` 讓它在 View 之外可測。
+    nonisolated static func renameMessage(_ o: RenameOutcome) -> String {
+        let receipt = RenameReportSummary.receipt(o.report, from: o.from, to: o.to)
+        guard let failure = o.reloadFailure else { return receipt }
+        return "⚠ 改名已寫入磁碟，但索引重建或重載失敗：\(displaySafe(failure, max: 300))\n"
+             + "重新開啟檔案或跑 akashic doctor 重建索引。\n\n" + receipt
+    }
 
     private func attempt(_ action: () throws -> Void) {
         do {

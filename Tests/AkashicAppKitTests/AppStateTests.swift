@@ -162,6 +162,49 @@ final class AppStateTests: XCTestCase {
         XCTAssertTrue(d.contains("relations 已遷移：1 筆（w1）"), d)
         XCTAssertFalse(d.contains("**"), "Text(String) 不解析 Markdown，星號會原樣顯示")
     }
+
+    // MARK: - 部分成功：改名落盤但索引沒跟上（#492）
+
+    /// 核心：**兩條分支都不丟報告**。在 #492 之前，reindex 失敗時 `attempt` 把錯誤壓成
+    /// 一句話，那份「全庫改寫了什麼」的報告到不了呈現層——而那正是使用者最需要看到的東西
+    /// （磁碟已經被改了，只是 App 的視圖過期）。
+    func testPartialRenameStillShowsTheWholeReceipt() {
+        let report = RenameReport(relationsRewritten: ["a2020a", "b2020b"],
+                                  divergenceCandidatesRewritten: [],
+                                  verdictValuesRewritten: [HolderRecord(.person, "some-person")])
+        let ok = EntryDetailView.RenameOutcome(from: "x2020a", to: "x2020b", report: report)
+        let partial = EntryDetailView.RenameOutcome(from: "x2020a", to: "x2020b", report: report,
+                                                   reloadFailure: "index rebuild exploded")
+
+        let okText = EntryDetailView.renameMessage(ok)
+        let partialText = EntryDetailView.renameMessage(partial)
+        XCTAssertEqual(okText, RenameReportSummary.receipt(report, from: "x2020a", to: "x2020b"),
+                       "成功路徑逐字就是回執，不多不少")
+        XCTAssertTrue(partialText.hasSuffix(okText),
+                      "部分成功要含**完整**的成功回執——少一個字就是報告被丟了一部分：\(partialText)")
+        XCTAssertTrue(partialText.hasPrefix("⚠ 改名已寫入磁碟"),
+                      "警語在最前面：放最後會被四行摘要推下去、在短 alert 裡看不到")
+        XCTAssertTrue(partialText.contains("index rebuild exploded"), partialText)
+    }
+
+    /// 標題也要說——使用者可能只看標題就按「好」。
+    func testPartialRenameChangesTheAlertTitle() {
+        let r = RenameReport()
+        XCTAssertEqual(EntryDetailView.renameAlertTitle(nil), "已改名")
+        XCTAssertEqual(EntryDetailView.renameAlertTitle(
+            .init(from: "a", to: "b", report: r)), "已改名")
+        XCTAssertEqual(EntryDetailView.renameAlertTitle(
+            .init(from: "a", to: "b", report: r, reloadFailure: "boom")), "已改名，但索引未重建")
+    }
+
+    /// underlying 來自任意錯誤——控制字元不得原樣進 alert（同 CLI 立場）。
+    func testPartialRenameSanitisesTheUnderlyingMessage() {
+        let text = EntryDetailView.renameMessage(
+            .init(from: "a", to: "b", report: RenameReport(), reloadFailure: "boom\there"))
+        XCTAssertFalse(text.contains("\t"), "控制字元不得原樣進 alert：\(text)")
+        XCTAssertTrue(text.contains("boom\\u{0009}here"), text)
+    }
+
 }
 
 /// #13 多 library：AppState 的 libraries 載入與 filterLibrary 篩選。

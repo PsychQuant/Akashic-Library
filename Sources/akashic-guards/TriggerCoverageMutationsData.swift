@@ -18,6 +18,19 @@ struct TCMCase {
 }
 
 let triggerCoverageMutationCases: [TCMCase] = [
+    // **#521 R2 的負控：豁免不得溢出到同行的其他字面。**
+    // R2 verify（Codex 跨模型席）在第一版的豁免上找到一個我自己引入的 false negative：
+    // 豁免當時套在**整行**，於是同一行只要出現任何 probe token，真正的死引用就被消音。
+    // 修法是把豁免綁到**這一個字面**的前後緊鄰文字；這一格把那個修法鎖住。
+    //
+    // 注入是一行兩件事：一個**真的讀取**指向不存在的檔，加一個指向**存在**的檔的
+    // absence probe。正確行為是恰好一條缺口（讀取那個），probe 那個不算。
+    TCMCase(isWarn: false, desc: "同行的無關 absence probe 不得消音真正的死引用",
+        edits: [
+            (path: "plugin/tests/plugin-store-format-parity.py",
+             old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
+             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n_d = (ROOT / \"plugin/tests/gone-by-433.py\").read_text(); _o = os.path.exists(\"plugin/.claude-plugin/plugin.json\")\n"),
+        ], expect: "引用了 `plugin/tests/gone-by-433.py`，而**那個檔不存在**"),
     // **#521 的負控**：讓一支守衛引用一個**不存在**的檔。這是 #518 那個 case 的鏡像
     // ——那個驗「存在但未受保護」，這個驗「根本不存在」。兩者共用同一個出口。
     //

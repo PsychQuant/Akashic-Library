@@ -71,7 +71,13 @@ func literalScalarParity() -> Int32 {
             return fail("讀不到 \(CENSUS)——那個檔不存在，本檢查等於沒跑")
         }
         if src.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return fail("\(CENSUS) 是空的（或只有空白）——本檢查等於沒跑")
+            // **訊息要涵蓋「讀不出來」**（#521 R2 verify，Codex 席）：`rawFile` 回空字串
+            // 有四種原因，而 `fileExists` 只排除了第一種。權限不足、非法 UTF-8、路徑其實是
+            // 目錄，三者都會走到這裡而檔案確實存在——說「是空的」就是假診斷。
+            // 沒有換讀取 API（那要動 `rawFile` 的簽章，屬另一次改動），所以訊息把不確定
+            // 說出來，而不是挑一個好聽的原因。
+            return fail("\(CENSUS) 讀出來是空的——可能真的是空檔／只有空白，"
+                      + "也可能是讀不出來（權限、非 UTF-8、或它其實是目錄）。本檢查等於沒跑")
         }
         return fail("從 census 抽不到 `_scalar`——抽取式與宣告寫法脫節了")
     }

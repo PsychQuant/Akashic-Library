@@ -105,17 +105,22 @@ public enum VenueMigration {
     }
 
     /// 報告後的下一步提示（CLI 消費；同 PersonIdentityMigration.nextStep 形）。
-    public static func nextStep(report: Report, apply: Bool) -> String? {
+    /// #472：目標是常數，提示由 `StoreVersion.bumpHint` 依現況決定——先前無條件印
+    /// 「改成 11」，而那在今天的 store（16）上是降級指示。
+    public static let targetFormat = 11
+
+    public static func nextStep(report: Report, apply: Bool, current: Int?) -> String? {
         if !apply {
             return report.planned.isEmpty
                 ? nil
-                : "下一步：確認計畫無誤後加 --apply 執行；寫入後 akashic validate 驗證，" +
-                  "全部 binary 升級後手動把 store.yaml 的 format: 改成 11"
+                : "下一步：確認計畫無誤後加 --apply 執行；寫入後 akashic validate 驗證。"
+                  + StoreVersion.bumpHint(target: targetFormat, current: current)
         }
         guard report.failed.isEmpty else {
             return "有 \(report.failed.count) 筆拒寫（未追蹤）——commit 後重跑；已寫入的不受影響"
         }
         return report.applied == 0 ? nil :
-            "下一步：akashic validate 驗證；確認所有 binary 已升級後，手動把 store.yaml 的 format: 改成 11"
+            "下一步：akashic validate 驗證。"
+            + StoreVersion.bumpHint(target: targetFormat, current: current)
     }
 }

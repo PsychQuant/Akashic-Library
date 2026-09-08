@@ -139,6 +139,29 @@ public enum StoreVersion {
     ///   對 format < 16 拒寫帶拆分記錄的 entry；已拆的 4 筆（store `32916ba`）不回填。
     public static let supported = 16
 
+    /// 遷移完成後的 format bump 提示——**只在真的要升的時候印**（#472）。
+    ///
+    /// 三支遷移各自寫死自己那一代的目標（`migrate-person-identity` 10、`migrate-venues` 11、
+    /// `migrate-venue-variants` 14），而它們**從不讀 marker**。store 今天是 16，所以無條件
+    /// 印「手動把 format 改成 14」是一道**降級指示**：format-14 binary 讀到帶
+    /// `field: paginated` 的 venue 會整檔 quarantine（#422 verify DA 6 實測 406 → 373、rc=0）
+    /// ——照做等於手動重新開啟 format 15 存在的理由所要防的那個安靜失敗。
+    ///
+    /// 三種回覆分得開：**要升**（現況低於目標）／**不必升**（現況已達或超過）／
+    /// **讀不到**（marker 壞了或不存在——那時不猜，把決定交回人）。
+    public static func bumpHint(target: Int, current: Int?) -> String {
+        guard let c = current else {
+            return "⚠ 讀不到 store.yaml 的 format——本遷移的目標是 \(target)，"
+                 + "但無法確認現況；先修好 marker 再決定要不要 bump"
+        }
+        if c >= target {
+            return "本 store 的 format 已是 \(c)（≥ 本遷移的目標 \(target)）——**不要**改它。"
+                 + "把它調回 \(target) 會讓較新格式的記錄被舊 binary 整檔 quarantine"
+        }
+        return "確認所有 binary 已升級後，手動把 store.yaml 的 format: 改成 \(target)"
+    }
+
+
     /// 標記檔名。放 **store root** 而非 `.akashic/`：version 是 canonical 事實
     /// （「這份資料是什麼格式」），不是衍生物。`.akashic/` 是可全刪重建的衍生層，
     /// 把 canonical 事實放進去，語意錯且會隨 index 一起被清掉。

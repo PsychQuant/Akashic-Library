@@ -148,13 +148,20 @@ public enum VenueVariantMigration {
     }
 
     /// 下一步的提示——與 `VenueMigration.nextStep` 同形。
-    public static func nextStep(report: Report, apply: Bool) -> String? {
+    /// #472：`current` 是 store 現在的 marker（讀不到給 nil）——先前無條件印「改成 14」，
+    /// 而那在今天的 store 上是降級指示。目標與提示分開：目標是本遷移這一代的常數，
+    /// 提示由 `StoreVersion.bumpHint` 依現況決定。
+    public static let targetFormat = 14
+
+    public static func nextStep(report: Report, apply: Bool, current: Int?) -> String? {
         if !apply && !report.planned.isEmpty {
             return "這是乾跑，store 沒有被改動。確認以上分類無誤後加 --apply。\n"
-                 + "**--apply 不會改 store.yaml 的 format**——那是驗證之後的人工最後一步（13 → 14）。"
+                 + "**--apply 不會改 store.yaml 的 format**——"
+                 + StoreVersion.bumpHint(target: targetFormat, current: current)
         }
         if apply && report.applied > 0 {
-            return "接下來：`akashic validate` 確認零新 diagnostic，然後手動把 store.yaml 的 format 改成 14。"
+            return "接下來：`akashic validate` 確認零新 diagnostic。"
+                 + StoreVersion.bumpHint(target: targetFormat, current: current)
         }
         return nil
     }

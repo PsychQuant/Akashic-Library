@@ -280,7 +280,8 @@ struct MigrateVenueVariants: ParsableCommand {
                 }
             }
         }
-        if let next = VenueVariantMigration.nextStep(report: report, apply: apply) { print(next) }
+        if let next = VenueVariantMigration.nextStep(report: report, apply: apply,
+                                                     current: try? StoreVersion.read(root: store.root)) { print(next) }
     }
 }
 
@@ -366,7 +367,8 @@ struct MigrateVenues: ParsableCommand {
                 }
             }
         }
-        if let next = VenueMigration.nextStep(report: report, apply: apply) {
+        if let next = VenueMigration.nextStep(report: report, apply: apply,
+                                              current: try? StoreVersion.read(root: store.root)) {
             print(next)
         }
     }

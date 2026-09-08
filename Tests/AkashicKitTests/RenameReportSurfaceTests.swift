@@ -59,11 +59,15 @@ final class RenameReportSurfaceTests: XCTestCase {
 
     // MARK: - 非空前提（缺了它，下面每一條都會 vacuous pass）
 
+    /// **下界而非等號。** 等號會是「這個型別有幾個欄位」的第二份描述，而型別自己是第一份
+    /// ——兩份不會一起改（`no-compat-fallback`「同一件事只能有一份描述」，#503 的
+    /// `XCTAssertEqual(constructions, 23)` 同型）。這裡要的只是「反射真的看得到東西」；
+    /// 「加了欄位要來看這個檔」由下面的逐欄位斷言負責，那才是它該紅的地方。
     func testReflectionActuallySeesFields() {
-        XCTAssertEqual(fieldNames(RenameReport()).count, 3,
-                       "反射應看到 RenameReport 的全部欄位，實得 \(fieldNames(RenameReport()))")
-        XCTAssertEqual(fieldNames(PersonRenameReport()).count, 3,
-                       "反射應看到 PersonRenameReport 的全部欄位，實得 \(fieldNames(PersonRenameReport()))")
+        XCTAssertGreaterThanOrEqual(fieldNames(RenameReport()).count, 3,
+                                    "反射應看到 RenameReport 的欄位，實得 \(fieldNames(RenameReport()))")
+        XCTAssertGreaterThanOrEqual(fieldNames(PersonRenameReport()).count, 3,
+                                    "反射應看到 PersonRenameReport 的欄位，實得 \(fieldNames(PersonRenameReport()))")
     }
 
     // MARK: - RenameReport 的兩個面

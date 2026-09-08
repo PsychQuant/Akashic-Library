@@ -61,8 +61,12 @@ public enum AddOnlyEnrichment {
     ///
     /// - **下界**：1,517 筆 abstract，最長 **4,220 bytes**、p99 2,185、中位 1,137。
     ///   65,536 是實測最長值的 **15.5 倍**，不會誤傷任何真實資料。
-    /// - **上界**：`AliasEventBudget.maxBytes`（單一記錄的既有位元組預算）的 **1/128**，
-    ///   所以單一欄位不可能主導整筆記錄的預算。
+    /// - **上界**：`AliasEventBudget.maxBytes`（**輸入檔**的既有位元組預算，8 MiB）的 1/128
+    ///   ——但那是**未跳脫**的比值。YAML 序列化會放大 value，實測（2026-09-08，真的走
+    ///   `create-entry` 寫檔再量檔案大小）：ASCII／反斜線／引號／CJK／換行皆 **1.00×**，
+    ///   `\t` **2.00×**，控制字元（`\x01`／`\x7f` → `\xNN` 跳脫）**4.00×**。所以一個
+    ///   65,536 bytes 的 value 落到磁碟上最壞約 262 KB ＝ 輸入預算的 **1/32**。
+    ///   結論不變（單一欄位不會主導整筆記錄的預算），但那個數字是 1/32 不是 1/128。
     ///
     /// **單位是位元組不是字元**：#519 的裁決文字寫「64 KiB（65,536 字元）」，那是單位混用
     /// ——錨點是位元組預算，而 CJK 摘要下兩者差三倍。同一段裁決引的 p99／中位（2,185／1,136）
@@ -393,6 +397,10 @@ public enum AddOnlyEnrichment {
         try checkLength(p.citekey, "citekey")
         try checkLength(p.doi, "doi")
         try checkLength(p.date, "date")
+        // `sourceDigest` 不進 store（`testSourceDigestIsReportedNotStored`），但它**會回顯進報告**
+        // ——而 MCP 面的報告直接進 LLM context。上一版的註解寫「每一個字串」卻沒列它，那是
+        // 散文與程式碼的矛盾；補上而不是改小註解，因為回顯本身就是要被上限管的出口。
+        try checkLength(p.sourceDigest, "sourceDigest")
         for (i, key) in p.fields.keys.sorted().enumerated() {
             // 鍵先於值，且**訊息裡放位置不放內容**——一個 64 KiB 的鍵印出來會淹掉錯誤本身。
             try checkLength(key, "第 \(i + 1) 個欄位鍵")

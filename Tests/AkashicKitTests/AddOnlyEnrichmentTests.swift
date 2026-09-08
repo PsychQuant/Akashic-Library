@@ -283,6 +283,21 @@ final class AddOnlyEnrichmentTests: XCTestCase {
         }
     }
 
+    /// `sourceDigest` 不進 store，但**會回顯進報告**（MCP 面的報告直接進 LLM context），
+    /// 所以它也在上限之內。這一格是自審找到的：註解寫「每一個字串」而列舉裡沒有它。
+    func testCapCoversSourceDigestEvenThoughItIsNotStored() throws {
+        let e = entry("a2020b")
+        let big = String(repeating: "a", count: AddOnlyEnrichment.maxValueBytes + 1)
+        XCTAssertThrowsError(try AddOnlyEnrichment.plan(entries: [e], proposals: [
+            proposal(citekey: "a2020b", fields: ["abstract": "x"], sourceDigest: big),
+        ])) { err in
+            guard case AddOnlyEnrichment.InputError.invalidProposal(_, let reason) = err else {
+                return XCTFail("應是 invalidProposal，得 \(err)")
+            }
+            XCTAssertTrue(reason.contains("sourceDigest"), "訊息要指名 sourceDigest：\(reason)")
+        }
+    }
+
     /// 上限值的**上界錨點**：`AliasEventBudget.maxBytes` 的 1/128。寫成測試是因為那個比例
     /// 是裁決的依據之一，而依據一旦漂移就不再支撐那個裁決（`assertions-must-be-measured`）。
     func testCapIsOneHundredTwentyEighthOfTheRecordBudget() {

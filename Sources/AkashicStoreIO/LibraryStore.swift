@@ -454,10 +454,11 @@ public final class LibraryStore {
         if !entry.akashic.sources.isEmpty {
             let format = try format()
             guard format >= 9 else {
-                throw StoreIOError.invalidKey(
-                    "entry（含 akashic.sources 副本引用，需要 store format ≥ 9；本 store 是 \(format)）——" +
-                    "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
-                    "format: 改成 9", entry.citekey)
+                throw StoreIOError.invalidInput(
+                        what: "entry「\(displaySafe(entry.citekey, max: 120))」",
+                        why: "含 akashic.sources 副本引用，需要 store format ≥ 9；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                         "format: 改成 9")
             }
         }
         // v11-only 語法的 format gate（#304）：venues ref 邊。舊 binary 對 entry 的
@@ -658,9 +659,10 @@ public final class LibraryStore {
             || org.parents.entries.contains(where: \.range.endedUnknown) {
             let format = try format()
             guard format >= 6 else {
-                throw StoreIOError.invalidKey(
-                    "organization（含 ended 段，需要 store format ≥ 6；本 store 是 \(format)）——" +
-                    "升級方式見 writePerson 同型訊息", org.key)
+                throw StoreIOError.invalidInput(
+                        what: "organization「\(displaySafe(org.key, max: 120))」",
+                        why: "含 ended 段，需要 store format ≥ 6；本 store 是 \(format)——" +
+                         "升級方式見 writePerson 同型訊息")
             }
         }
         // v7-only（attested，#70）——同上
@@ -668,9 +670,10 @@ public final class LibraryStore {
             || org.parents.entries.contains(where: { !$0.range.attested.isEmpty }) {
             let format = try format()
             guard format >= 7 else {
-                throw StoreIOError.invalidKey(
-                    "organization（含 attested 段，需要 store format ≥ 7；本 store 是 \(format)）——" +
-                    "升級方式見 writePerson 同型訊息", org.key)
+                throw StoreIOError.invalidInput(
+                        what: "organization「\(displaySafe(org.key, max: 120))」",
+                        why: "含 attested 段，需要 store format ≥ 7；本 store 是 \(format)——" +
+                         "升級方式見 writePerson 同型訊息")
             }
         }
         // v8-only（resolution verdict，#232）——同 writePerson 的 v8 gate
@@ -678,9 +681,10 @@ public final class LibraryStore {
             ProvenanceReference.resolutionVerdictFields.contains($0.field) }) {
             let format = try format()
             guard format >= 8 else {
-                throw StoreIOError.invalidKey(
-                    "organization（含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)）——" +
-                    "升級方式見 writePerson 同型訊息", org.key)
+                throw StoreIOError.invalidInput(
+                        what: "organization「\(displaySafe(org.key, max: 120))」",
+                        why: "含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)——" +
+                         "升級方式見 writePerson 同型訊息")
             }
         }
         // 同 writePerson 的閘（#229）——「哪個名字對外」是同一個問題，不該有兩套答案
@@ -720,20 +724,22 @@ public final class LibraryStore {
         if person.profile.usesEndedUnknown {
             let format = try format()
             guard format >= 6 else {
-                throw StoreIOError.invalidKey(
-                    "person（含 ended 段，需要 store format ≥ 6；本 store 是 \(format)）——" +
-                    "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
-                    "format: 改成 6（v6 只新增語法，既有資料不變）", person.key)
+                throw StoreIOError.invalidInput(
+                        what: "person「\(displaySafe(person.key, max: 120))」",
+                        why: "含 ended 段，需要 store format ≥ 6；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                         "format: 改成 6（v6 只新增語法，既有資料不變）")
             }
         }
         // v7-only 語法的 format gate（#70，同 ended gate 的機制與理由）
         if person.profile.usesAttested {
             let format = try format()
             guard format >= 7 else {
-                throw StoreIOError.invalidKey(
-                    "person（含 attested 段，需要 store format ≥ 7；本 store 是 \(format)）——" +
-                    "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
-                    "format: 改成 7（v7 只新增語法，既有資料不變）", person.key)
+                throw StoreIOError.invalidInput(
+                        what: "person「\(displaySafe(person.key, max: 120))」",
+                        why: "含 attested 段，需要 store format ≥ 7；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                         "format: 改成 7（v7 只新增語法，既有資料不變）")
             }
         }
         // v8-only 語法的 format gate（#232 verify NEW-2/NEW-3，同 6/7 的機制與理由）：
@@ -744,10 +750,11 @@ public final class LibraryStore {
             ProvenanceReference.resolutionVerdictFields.contains($0.field) }) {
             let format = try format()
             guard format >= 8 else {
-                throw StoreIOError.invalidKey(
-                    "person（含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)）——" +
-                    "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
-                    "format: 改成 8（v8 只新增 references 欄位對，既有資料不變）", person.key)
+                throw StoreIOError.invalidInput(
+                        what: "person「\(displaySafe(person.key, max: 120))」",
+                        why: "含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                         "format: 改成 8（v8 只新增 references 欄位對，既有資料不變）")
             }
         }
         // v10-only 形狀的 format gate（#227，同 6/7/8/9 的機制與理由）：巢狀 names

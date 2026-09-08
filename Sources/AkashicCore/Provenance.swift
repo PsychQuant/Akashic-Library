@@ -52,6 +52,30 @@ public struct ProvenanceReference: Equatable {
     /// 解析後的配對定位。encode／parse 是彼此的反函數；holder key 受 StoreKey
     /// 約束（`[a-z0-9-]`，無 `:`、無空白），literal 任意（含 ` :: ` 也能 round-trip
     /// ——切分一律取**第一個**分隔）。
+    /// verdict 的證據類別名。**字面住在這裡**（#468）：`ResolutionLedger` 以既有名字
+    /// 引用它們，而收攏政策（`AkashicStoreIO`）也要判斷「這條是不是完全命中」，
+    /// 兩個 module 之間沒有依賴。字面只有一份，`ResolutionLedger.personRule` 是引用不是副本。
+    public enum RuleName {
+        public static let personExact = "author-name-exact"
+        public static let orgExact = "org-name-exact"
+        public static let venueExact = "venue-name-exact"
+        public static let judgedPerWork = "author-judged-per-work"
+        /// 三族的「完全命中」。**弱血統的判準是「不是這些」**——與
+        /// `PersonResolver` 的 `rules.filter { $0 != personRule }` 同一個謂詞
+        /// （那裡只比 person 族，因為它只處理 person 提名）。
+        public static let exact: Set<String> = [personExact, orgExact, venueExact]
+    }
+
+    /// verdict statement 尾註 `[rule: <name>]` 的 tolerant 解析——缺席回 nil。
+    /// **單一定義**：`ResolutionLedger.ruleTail` 與收攏政策共用這一份。
+    public static func ruleTail(ofStatement statement: String) -> String? {
+        guard statement.hasSuffix("]"),
+              let open = statement.range(of: "[rule: ", options: .backwards) else { return nil }
+        let inner = statement[open.upperBound..<statement.index(before: statement.endIndex)]
+        let trimmed = inner.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     /// **verdict 相等的單一定義**（#470）。
     ///
     /// 在此之前寫入面與讀取面各有一個：寫入面（merge 的 `dedupKey`、rename 兩處 `seen`、

@@ -17,11 +17,11 @@ import AkashicCore
 public enum ResolutionLedger {
 
     /// person 族的證據類別（resolver 的「alias 完全命中且不歧義」規則）。
-    public static let personRule = "author-name-exact"
+    public static let personRule = ProvenanceReference.RuleName.personExact   // #468：字面住 AkashicCore
 
     /// organization 族的證據類別（「org name 完全命中且不歧義」）。與 person 族
     /// **分開命名**（verify REG-7）：兩條規則的校準歷史本來就該分開計。
-    public static let orgRule = "org-name-exact"
+    public static let orgRule = ProvenanceReference.RuleName.orgExact
 
     /// tier → person 族校準規則名（#303 R1-fix B2）。**封閉映射**——寬鬆 tier 的
     /// 判定與 exact 的校準史分開計（REG-7 的同一條理由換到 tier 軸）；verdict 寫入
@@ -39,7 +39,7 @@ public enum ResolutionLedger {
 
     /// venue 族的證據類別（「venue name 完全命中且不歧義」，#304）。同上，
     /// 分開命名讓各族規則的校準歷史分開計。
-    public static let venueRule = "venue-name-exact"
+    public static let venueRule = ProvenanceReference.RuleName.venueExact
 
     /// 逐篇判定的證據類別（change `per-work-judged-authorship`）。
     ///
@@ -52,7 +52,7 @@ public enum ResolutionLedger {
     ///
     /// 字面須通過提名理由的弱血統揭露檢查（`^[a-z][a-z-]{0,60}$`），否則會被顯示成
     /// 「非標準rule」而讓判定的來歷不可見——`ResolutionLedgerTests` 釘住這件事。
-    public static let judgedRule = "author-judged-per-work"
+    public static let judgedRule = ProvenanceReference.RuleName.judgedPerWork
 
     /// 判定種類——與 verdict 欄位對一一對應。
     public enum VerdictKind: String, CaseIterable {
@@ -156,11 +156,7 @@ public enum ResolutionLedger {
 
     /// statement 尾註 `[rule: <name>]` 的 tolerant 解析——缺席回 nil（呼叫端補預設）。
     private static func ruleTail(of statement: String) -> String? {
-        guard statement.hasSuffix("]"),
-              let open = statement.range(of: "[rule: ", options: .backwards) else { return nil }
-        let inner = statement[open.upperBound..<statement.index(before: statement.endIndex)]
-        let trimmed = inner.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty ? nil : trimmed
+        ProvenanceReference.ruleTail(ofStatement: statement)   // #468：解析住 AkashicCore，兩個 module 共用
     }
 
     // MARK: - 衍生（derived, never stored）

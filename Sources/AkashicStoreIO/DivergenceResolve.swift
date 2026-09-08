@@ -922,10 +922,35 @@ extension LibraryStore {
     ///
     /// **丟棄不靜默**（`lossless-intake` 執行細節 3）：被收攏掉的每一列以 `collapsed`
     /// 回報（value ＋ 被丟的判定原文），呼叫端寫進 `ResolveReport.verdictsCollapsed`。
-    /// 留存者是**首見**：doomed-first 時留下 doomed 側的 kind、keeper-first 時留下
-    /// keeper 側的。這在 #461 之前的 doomed-first 排列**不會發生**（兩筆並存、零丟棄），
-    /// 所以是本修法引入的、不是既有觀察；留存者選擇政策（首見／keeper 優先／last-wins）
-    /// 屬顯式裁決，由 verify follow-up 追蹤。
+    /// **留存者政策（#468 裁決，2026-09-09）**——三層，完全不依賴陣列順序。
+    ///
+    /// 前提是 `identity-is-judged-not-matched`：verdict 是**判定**，所以「丟哪一筆」等於
+    /// 「選擇保留哪個理由」——那是判定層的選擇，不該由陣列順序代勞。
+    ///
+    /// 1. **弱血統優先**：`rule` 尾註不是該族「完全命中」名（`RuleName.exact`）的那一筆勝。
+    /// 2. 平手 → **原本就指向 survivor 的那一筆**（未被本次改寫的）勝，與 #271 的 keeper 恆勝一致。
+    /// 3. 仍平手 → **statement 字典序最小**。
+    ///
+    /// **為什麼弱的勝，而不是強的。** 收攏只在兩筆對**同一個配對**得出**同一個結論**時發生，
+    /// 差別只在理由。而 `rule` 尾註在下游的職責是**警告**：`PersonResolver` 的
+    /// 「confirmed-elsewhere 弱血統可見」正是靠它把非完全命中的來歷攤出來給人看。
+    ///
+    /// 兩個方向都失真，但代價不對稱：
+    ///
+    /// - 留強丟弱 ＝ 一個**確實存在的**弱血統警告被靜默拿掉。假陰性，而身分誤判不可逆
+    ///   （`literal-first-then-key`：誤不可逆）。
+    /// - 留弱丟強 ＝ 多一句提醒給一個**正在做判斷的人**。假陽性，代價是一行字。
+    ///
+    /// 第 3 層存在的唯一理由是**殺掉陣列順序依賴**——那正是 #468 的核心抱怨
+    /// （「這是判定層的選擇，不該由陣列順序代勞」）。到那一層時兩筆在下游讀得到的每個
+    /// 面向都相同，只差 statement 的自由文字；字典序是任意但**穩定且說出來的**。
+    ///
+    /// **誠實邊界**：收攏無論留哪一筆都會丟掉另一個理由，而 store 不留它——被丟的那列
+    /// 只出現在本次操作的 `collapsed` 報告裡（`ResolveReport.verdictsCollapsed`，#461／#495）。
+    /// 「合併兩個理由」不在選項內：那要**編造**一個沒有人寫過的 statement。
+    ///
+    /// 「弱」的判準逐字借用 `PersonResolver` 的謂詞（`rule != 完全命中名`），所以
+    /// `author-judged-per-work` 也算弱——那是該處既有定義的既有後果，本輪刻意不悄悄分岔。
     ///
     /// **前提與自保**：生產呼叫端的 `merged` 恆不含 `survivor`（`resolveDivergence`
     /// 的 `candidateKeys.filter { $0 != survivor }`）。helper 另以
@@ -997,7 +1022,8 @@ extension LibraryStore {
         }
         var touched = Set<String>()
         var changed = false
-        let rewritten: [ProvenanceReference] = refs.map { r in
+        var wasRewritten = [Bool](repeating: false, count: refs.count)   // #468 政策第 2 層要它
+        let rewritten: [ProvenanceReference] = refs.enumerated().map { (i, r) in
             guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
                   let v = r.value,
                   let pairing = ProvenanceReference.VerdictPairingValue.parse(v),
@@ -1011,20 +1037,59 @@ extension LibraryStore {
                     literal: pairing.literal).encoded,
                 kind: r.kind)
             changed = true
+            wasRewritten[i] = true
             touched.insert(dedupKey(out))
             return out
         }
         guard changed else { return (refs, false, []) }
+
+        // #468：先決定每個碰撞鍵**留哪一個索引**，再依原順序輸出。分兩步是為了讓
+        // 「留哪一筆」與「輸出順序」互不牽連——留存者由政策決定，位置沿用首見的位置。
+        var groups: [String: [Int]] = [:]
+        for (i, r) in rewritten.enumerated() {
+            let k = dedupKey(r)
+            guard touched.contains(k) else { continue }
+            groups[k, default: []].append(i)
+        }
+        /// 這一筆的血統是不是「弱」的——判準逐字借用 `PersonResolver`：rule 不是完全命中名。
+        func isWeak(_ r: ProvenanceReference) -> Bool {
+            guard case .judgement(let statement, _) = r.kind else { return false }
+            guard let rule = ProvenanceReference.ruleTail(ofStatement: statement) else {
+                return false   // 尾註缺席 ⇒ 依族補完全命中預設（`ResolutionLedger.verdicts`）
+            }
+            return !ProvenanceReference.RuleName.exact.contains(rule)
+        }
+        func statementOf(_ r: ProvenanceReference) -> String {
+            if case .judgement(let s, _) = r.kind { return s }
+            return ""
+        }
+        var winner: [String: Int] = [:]
+        for (k, idxs) in groups where idxs.count > 1 {
+            winner[k] = idxs.min { a, b in
+                let (ra, rb) = (rewritten[a], rewritten[b])
+                let (wa, wb) = (isWeak(ra), isWeak(rb))
+                if wa != wb { return wa }                                   // 1. 弱血統優先
+                if wasRewritten[a] != wasRewritten[b] { return !wasRewritten[a] }   // 2. 未被改寫者勝
+                return statementOf(ra) < statementOf(rb)                    // 3. 字典序
+            }
+        }
+
         var seen = Set<String>()
         var deduped: [ProvenanceReference] = []
         var collapsed: [String] = []
-        for r in rewritten {
+        for (i, r) in rewritten.enumerated() {
             let k = dedupKey(r)
-            if touched.contains(k), !seen.insert(k).inserted {
+            guard touched.contains(k) else { deduped.append(r); continue }
+            let keepIndex = winner[k]
+            if seen.insert(k).inserted {
+                // 首見的位置留給勝出者（可能是後面那一筆）
+                deduped.append(keepIndex.map { rewritten[$0] } ?? r)
+                if let w = keepIndex, w != i { collapsed.append(Self.describeCollapsedVerdict(r)) }
+            } else if keepIndex == i {
+                continue        // 勝出者已經在首見位置放進去了
+            } else {
                 collapsed.append(Self.describeCollapsedVerdict(r))
-                continue
             }
-            deduped.append(r)
         }
         return (deduped, true, collapsed)
     }

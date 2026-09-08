@@ -35,7 +35,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 17 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 18 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -56,6 +56,7 @@
 | 15 | **零實例，而零是本機的——同一份 store 在別台機器上全是實例**（#453：本機缺承重存檔的掃描。記錄的 provenance 指向一個本機 `sources/` 沒有的 digest。2026-09-04 實測 live store：62 個 digest 引用、41 個 distinct `sha256:`，**本機缺 1 筆**——而那一筆不是缺席，是 divergence `B354B9E9…` 的 `judgement.restsOn` 裝了一個 URL、根本不是 digest（訊息分開說，見 `danglingSourceIssues`）；同一份 store 拿掉 `sources/` 的副本跑同一支 binary：**41 筆**（40 venue ＋ 1 divergence）。兩層盲區都實測為真：`missingSourceDigests` 不掃 venue（#406 起承重證據住在 venue 上）也不掃 `Entry.references`（第 15 條邊）；且它零 production 呼叫端——doctor 接的是 `auditSourceIndex()`，捏造的 digest 在 blob 與 index 兩邊都不在、兩邊一致、audit 說「全部一致」。重跑指令見表下方） | ✅ **寫** | 前面各列的零，成立與否**不取決於在哪台機器上量**；這一列的零**只在這台機器上為真**——`sources/` 不進 git（`replace-endnote-and-zotero` 的承重閘：第三方版權 PDF 住在那裡），所以每一台新 clone 上這個數字都是「全部」。與第 13 列（清理過之後的零）最像而不同：那一列的零是**時間上**的（曾經非零、掃乾淨了），這一列的零是**空間上**的（換一台機器就非零）——而任何只在本機量的守衛都會對它報綠。第 3 列「未涵蓋不得冒充通過」正是 `auditSourceIndex` 的沉默形：沒被檢查與檢查過且乾淨在輸出上相同。**severity 是 warning**：記錄合法可載入、缺的是位元組，而其他 clone 上「全部 dangling」是常態，error 會讓 `hasErrors` 翻紅擋住 export 類流程。**用詞「本機缺」不寫「偽造」**：本機分不出「從未存在」與「沒同步」，訊息把這個邊界說出來。**觸發條件可檢查**（指令見表下方）：本機數字應恆等於「不是合法 digest 的引用數」（今天 1）；多出來的那些指向沒同步的 `sources/` 或真的捏造——先同步，同步後仍在的才是後者 |
 | 16 | **零實例，而它守的是一個已裁決「現在不改形狀」的 O(n) 增長**（#499：venue 側 verdict 數逼近 decode 預算的 warning。第 13 條邊在 venue 側是 O(catalog)——`psychological-methods` 2026-09-04 實測 **1,352** 筆 resolution verdict、268 KB；硬預算 200,000 節點、每筆 verdict 量測 9 節點（2026-09-01：14,031／1,556），門檻＝預算一半÷9＝**11,111** 筆。沒有一本刊接近門檻 → 0 實例。使用者裁決（2026-09-04）：候選 3——不改序列化位置、半預算處出聲、達門檻重開裁決；候選 2（sidecar ledger）是那時的形狀。重跑指令見表下方） | ✅ **寫** | 前面各列的守衛守的是「某個形狀出現」；這一列守的是**一條已知會漲、且裁決了暫不改形狀的曲線**——它的零不是「還沒發生」，是「還沒漲到」。不寫的代價與第 1 列同形（撞上硬預算時整檔 quarantine、venue 消失，而在那之前沒有任何跡象），但理由多一層：**裁決本身依賴這個守衛**。候選 3 之所以可接受，是因為「達門檻時重開」被承諾為一個工具會自己看的門檻，而不是散文觸發條件（`blocked-issues-must-be-scannable` 的誠實邊界：散文命題沒有機制會叫醒任何人）。拿掉守衛，裁決就退化成「等它壞」。門檻由量測換算（節點／筆）而不是憑空的數字，`VenueVerdictBudgetWarningTests` 釘住那個換算。**觸發條件可檢查**：任一 venue 的 warning 出現即重開第 13 條邊的規模化裁決，不要只放寬預算 |
 | 17 | **零實例，而零的來源是「寫入面剛長出來」**（#450：拆分後錨失效的兩種 warning——某 person／organization 持有的 resolution verdict 其 literal 已被 work 的拆分記錄退役（孤兒 verdict）、拆分記錄各段全不在作者位。2026-09-07 實測 live store：拆分記錄 **0** 筆——#443 已拆的 4 筆「某人與雷庚玲」（store `32916ba`）沒有記錄，因為那時值域還沒有這一格、且 #450 裁決不回填；產生實例的唯一路徑（`splitAuthors` 寫記錄）在本 change 才存在，所以兩種 warning 今天必為零。重跑指令見表下方） | ✅ **寫** | 前面各列的零各有來源——還沒發生（第 1 列）、走不到（第 8 列）、掃乾淨了（第 13 列）、在這台機器上（第 15 列）、還沒漲到（第 16 列）；這一列的零是**形狀已經發生過 4 次、只是沒被記下**——寫入面在本 change 才長出來，實例從第 5 次拆分起才可能出現。不寫的代價與第 1 列同形而更具體：下一次拆分後，一條指向已退役作者位的 `resolution-rejected` 會讓 `resolve-people` 永遠不再提名那一段（否決抑制以 (citekey, literal) 配對），而沒有任何跡象——那正是 `literal-first-then-key` 說的「誤不可逆」在 verdict 側的形。**釘零的方式**：`OrphanedSplitVerdictScanTests.testCleanStoreReportsNothing` 釘住乾淨為零、`testRejectedLiteralLaterSplitIsAnOrphan` 釘住形狀出現即報、`testSameLiteralOnDifferentWorkIsNotAnOrphan` 釘住鍵是 (citekey, literal) 不是 literal。severity 是 warning（處置是人的重新消歧，不是修檔；`validate` exit 仍 0——「掃得到」不「叫醒」，#464 的同一條界線）。**觸發條件可檢查**（指令見表下方）：live store 第一次跑 `--split-author` 之後兩個計數才可能非零；非零時先看孤兒 verdict——那是要人動手的那種，各段全不在只是提醒記錄留著供 un-split |
+| 18 | **零實例，而零只存在於「已經進來的資料」上——守衛守的是入口**（#519：`AddOnlyEnrichment` 對單一字串的 65,536 位元組上限。2026-09-08 實測 live store：1,517 筆 abstract，最長 **4,220 bytes**、p99 2,185、中位 1,137；全部 6,125 個 `fields` 值的最長也是同一筆。離上限還有 **15.5 倍**，今日零實例。**但那個形狀已經被造出來過**：#516 verify 用一份 5 MB 摘要走**同一條鏈**實測 RSS 46.6 MB、`proposals.json` 5.0 MB 原樣流進 store 欄位——是上限的 **80 倍**。重跑指令見表下方） | ✅ **寫** | 前十七列的零都是關於**已經在庫裡的東西**——還沒發生（第 1 列）、走不到（第 8 列）、掃乾淨了（第 13 列）、在這台機器上（第 15 列）、還沒漲到（第 16 列）、寫入面剛長出來（第 17 列）。這一列的零**量的是出口，而守衛裝在入口**：store 的最長值是 4,220 bytes，是因為進得來的都小；而這道檢查管的是 adapter **這一次遞過來**的字串，那個長度不受庫內歷史約束。與第 16 列（已知會漲的曲線）最像而不同：**這裡沒有曲線**——實例不會由目錄成長慢慢逼近，它會由一次外部呼叫**一步跨過**，而 #516 verify 已經一步跨過 80 倍。所以「還沒漲到」對它不成立，「還沒發生」也不精確：形狀發生過，只是發生在測試裡而不是 store 裡。**裁決的第二半是語意**：超限**整批拒絕、零寫入、具名，不截斷**——截斷會讓一個不是來源給的值進 store 且不出聲。那一半動到了 `lossless-intake` 的封閉列舉，故該檔在同一輪顯式加了一節「有界拒絕」並寫明它**不是**那張表的第三類（成員資格是「可以丟掉這個欄位、繼續匯入」，而以大小為名的成員會被類推成「太長的欄位可以丟掉」）。**上限值不是挑的，是兩個量出來的錨點夾出來的**：下界是實測最長值的 15.5 倍，上界是 `AliasEventBudget.maxBytes` 的 1/128（單一欄位不可能主導整筆記錄的預算） |
 
 新增下一個零實例守衛 = 在這張表加一列。
 
@@ -103,6 +104,36 @@ EOF
 
 **第 16 列的量測（2026-09-04，可重跑）**：warning 數 `akashic validate 2>&1 | grep -c 'venue 的 verdict 數逼近'`（應為 0）；最大刊的 verdict 數 `grep -c 'field: resolution-' ~/.akashic/entities/<psychological-methods 的 uuid>.yaml`（1,352；找 uuid 用 `grep -l '^key: psychological-methods' ~/.akashic/entities/*.yaml`）；門檻 `AliasEventBudget.venueVerdictWarningThreshold`（11,111＝200,000÷2÷9）。
 
+**第 18 列的量測（2026-09-08，可重跑）**：上限值 `AddOnlyEnrichment.maxValueBytes`（65,536）；庫內最長值——**必須用 YAML 解析器，不能用行為單位的 grep**（長 value 會被折行，本檔第 13 列的量測就踩過同一個坑）：
+
+```bash
+python3 - <<'EOF'
+import glob, io, os, yaml, collections
+root = os.path.expanduser('~/.akashic/entities')
+absn, alln = [], []
+for f in glob.glob(root + '/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: continue
+    if not isinstance(d, dict): continue
+    for k, v in (d.get('fields') or {}).items():
+        if not isinstance(v, str): continue
+        alln.append(len(v.encode('utf8')))
+        if k.startswith('abstract'): absn.append(len(v.encode('utf8')))
+absn.sort(); alln.sort()
+p = lambda L, q: L[min(len(L)-1, int(len(L)*q))] if L else 0
+print(f'abstract n={len(absn)} p50={p(absn,.5)} p99={p(absn,.99)} max={absn[-1]}')
+print(f'全部 fields 值 n={len(alln)} max={alln[-1]} → 餘裕 {65536/alln[-1]:.1f} 倍')
+EOF
+# 2026-09-08：abstract n=1517 p50=1137 p99=2185 max=4220 ／ 全部 n=6125 max=4220 → 15.5 倍
+```
+
+守衛本身是否在跑（自證，同第 13 列的形狀——舊 binary 印不出東西）：
+
+```bash
+python3 -c "import json;print(json.dumps([{'citekey':'x','fields':{'abstract':'a'*65537}}]))" > /tmp/over.json
+akashic enrich --library <某個 store> --from /tmp/over.json --json 2>&1 | grep -c '超過上限'   # 應為 1
+```
+
 **第 17 列的量測（2026-09-07，可重跑）**：兩種 warning 數 `akashic validate 2>&1 | grep -c '拆分後的孤兒 verdict'` 與 `akashic validate 2>&1 | grep -c '拆分記錄的各段都已不在作者位'`（應皆為 0；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）；拆分記錄數 `grep -c '^  *- field: authors$' ~/.akashic/entities/*.yaml | awk -F: '{s+=$2} END {print s}'`（0——#443 已拆的 4 筆沒有記錄，不回填）；那 4 筆的下落 `grep -l '雷庚玲' ~/.akashic/entities/*.yaml | wc -l`（4 個檔含該姓名，其中的拆分無記錄可機械辨認）。
 
 ## 各列共通的東西（觀察，不是判準）
@@ -133,6 +164,7 @@ EOF
 - 第 13 列的理由是**跡象住在錯的地方**——它與第 1 列（缺跡象）、第 8 列（零的來源在別處）最像而都不同：跡象存在（三張 issue 的家族史），零也是真的零（#460 清理過之後的零），問題是每次都靠人記得去看。守衛各列（第 1–8 列）問「守衛該不該存在」，這一列問「已經發生過的形狀，為什麼還是零實例」——答案是場外機制，而場外機制不會自己跑
 - 第 16 列的理由是**裁決依賴守衛**——前十五列的守衛是裁決的結果，這一列的守衛是裁決的**前提**：「暫不改形狀」只有在「漲到門檻時工具會出聲」為真時才站得住。它的零是「還沒漲到」，與第 1 列（還沒發生）、第 13 列（掃乾淨之後）、第 15 列（在這台機器上）都不同
 - 第 15 列的理由是**零是本機的**——前十四列的零不取決於在哪台機器上量，這一列換一台機器就非零；它與第 13 列（時間上的零）成對：一個是「掃乾淨之後」，一個是「在這台機器上」。任何只在本機量的守衛都會對它報綠，所以掃描要住在每台機器都會跑的 `StoreHealth` 裡
+- 第 18 列的理由是**零量的是出口而守衛裝在入口**——前十七列的零都是關於已經在庫裡的東西，這一列的零（庫內最長 4,220 bytes）與它要防的東西（adapter 這一次遞過來的字串）不是同一個母體。與第 16 列（已知會漲的曲線）最像而不同：沒有曲線，實例會由一次外部呼叫一步跨過，而 #516 verify 已經一步跨過 80 倍
 - 第 17 列的理由是**寫入面剛長出來**——與第 13 列（掃乾淨之後）最像而相反：那一列是形狀發生過、被場外機制清掉；這一列是形狀發生過 4 次、從未被記下，因為記錄它的值域在本 change 才存在。零從第 5 次拆分起才可能被打破，而守衛必須在那之前就在
 - 第 14 列的理由是**判準的輸入未定**——與第 10 列（缺用途）同形而不同：那一列缺的是形狀由什麼決定，這一列形狀確定、缺的是它要比較的「相等」的定義，而定義在 #470 手上。寫了就是替 #470 預先裁決
 

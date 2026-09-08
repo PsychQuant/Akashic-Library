@@ -49,6 +49,27 @@ import Foundation
 /// 值域裁決（#450），本型別不擴。
 public enum AddOnlyEnrichment {
 
+    /// 單一字串的上限，**以 UTF-8 位元組計**（#519 Expected 2 裁決）。
+    ///
+    /// **語意是拒絕，不是截斷。** 超限時 `validate` 拋 `invalidProposal`，而 `plan` 在做任何
+    /// 規劃之前先把全部提案 `map(validate)`，所以結果是**整批零寫入 ＋ 一條具名的訊息**。
+    /// 截斷會讓一個**不是來源給的**值進 store，而且不出聲——`lossless-intake` 執行細節 3
+    /// 說「靜默是最糟的形式」，那條規則的封閉列舉已在同一輪為此顯式加了第三類。
+    ///
+    /// **值的兩個錨點，都是量出來的**（2026-09-08，`~/.akashic`，以 PyYAML 解析、**含折行**
+    /// 的長 value——用行為單位的 grep 會漏掉它們，本 repo 記過那個坑）：
+    ///
+    /// - **下界**：1,517 筆 abstract，最長 **4,220 bytes**、p99 2,185、中位 1,137。
+    ///   65,536 是實測最長值的 **15.5 倍**，不會誤傷任何真實資料。
+    /// - **上界**：`AliasEventBudget.maxBytes`（單一記錄的既有位元組預算）的 **1/128**，
+    ///   所以單一欄位不可能主導整筆記錄的預算。
+    ///
+    /// **單位是位元組不是字元**：#519 的裁決文字寫「64 KiB（65,536 字元）」，那是單位混用
+    /// ——錨點是位元組預算，而 CJK 摘要下兩者差三倍。同一段裁決引的 p99／中位（2,185／1,136）
+    /// 逐一吻合位元組量測，可見它本來量的就是位元組；只有 max 那個數字（3,884）與重量結果
+    /// （4,220）對不上，以重量為準。
+    public static let maxValueBytes = 65_536
+
     // MARK: - 輸入
 
     /// 一筆補值提案。`citekey` 與 `doi` **恰給一個**。
@@ -355,6 +376,30 @@ public enum AddOnlyEnrichment {
         func present(_ s: String?) -> String? {
             guard let t = s?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
             return t
+        }
+        // **長度上限先查**（#519 Expected 2）：這是對未信任輸入的邊界檢查，在任何結構判斷
+        // 之前做，才不會出現「因為別的理由先拒絕，於是超長那件事沒被說出來」。
+        // 涵蓋提案攜帶的**每一個字串**——欄位鍵與值、date、每個 author、citekey、doi。
+        // 判準是「core 收下的字串」而不是欄位名，所以未來新增的欄位自動在內。
+        func checkLength(_ s: String?, _ label: String) throws {
+            guard let s else { return }
+            let n = s.utf8.count
+            guard n > maxValueBytes else { return }
+            throw InputError.invalidProposal(
+                index: index,
+                reason: "\(label)長 \(n) bytes，超過上限 \(maxValueBytes)"
+                      + "（整批拒絕、零寫入——截斷會讓一個不是來源給的值進 store 而且不出聲）")
+        }
+        try checkLength(p.citekey, "citekey")
+        try checkLength(p.doi, "doi")
+        try checkLength(p.date, "date")
+        for (i, key) in p.fields.keys.sorted().enumerated() {
+            // 鍵先於值，且**訊息裡放位置不放內容**——一個 64 KiB 的鍵印出來會淹掉錯誤本身。
+            try checkLength(key, "第 \(i + 1) 個欄位鍵")
+            try checkLength(p.fields[key], "欄位「\(key)」的值")
+        }
+        for (i, a) in p.authors.enumerated() {
+            try checkLength(a, "第 \(i + 1) 個 author")
         }
         let ck = present(p.citekey), doi = present(p.doi)
         switch (ck, doi) {

@@ -205,6 +205,13 @@ struct UpdateVenueCmd: ParsableCommand {
                              + "孤兒，而孤兒 variant 自 #473 起是 error（#471）"))
     var addVariant: [String] = []
 
+    @Flag(name: .customLong("clear-paginated"),
+          help: ArgumentHelp("撤回 paginated 判定，回到誠實的未判定狀態（#500）。"
+                           + "**撤回是一筆判定**：同樣要 --judgement，並在 references 留下"
+                           + "一筆 value=nil 的記錄。省略 --paginated 的意思是「這次不動它」，"
+                           + "不是清除——清除須顯式（同 set-status 的既有裁決）"))
+    var clearPaginated: Bool = false
+
     /// #406：「本刊是否使用頁碼」的**判定**。判定要留 verdict 與證據
     /// （`identity-is-judged-not-matched`），所以設它必附 `--judgement` 與
     /// `--rests-on`（缺任一即整個呼叫拒絕、零寫入）。`nil` 是誠實的未判定狀態，
@@ -230,7 +237,9 @@ struct UpdateVenueCmd: ParsableCommand {
                                       note: note, type: type,
                                       addISSN: addISSN.isEmpty ? nil : addISSN,
                                       addVariant: addVariant.isEmpty ? nil : addVariant,
-                                      paginated: paginated, judgement: judgement,
+                                      paginated: paginated,
+                                      clearPaginated: clearPaginated,
+                                      judgement: judgement,
                                       restsOn: restsOn.isEmpty ? nil : restsOn))
     }
 }

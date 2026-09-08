@@ -614,19 +614,44 @@ extension Venue {
                 }
             case "paginated":
                 // #406：「本刊是否使用頁碼」的判定要留 verdict 與證據（欄位契約
-                // 明文）。純量欄位不收 value（比照 note）；判定必須是判斷型——
-                // 「本刊不用頁碼」是關於世界的斷言，擷取型帶不動人為裁決。
-                guard r.value == nil else {
-                    throw StoreYAMLError.invalidField(
-                        "venue.references(field: paginated)",
-                        "paginated 是純量欄位，不收 value（D2）")
+                // 明文）。判定必須是判斷型——「本刊不用頁碼」是關於世界的斷言，
+                // 擷取型帶不動人為裁決。
+                //
+                // **#500 起 `paginated` 是 D2「純量欄位不收 value」的明文例外**，
+                // 而例外的理由是兩個原本寫不出來的東西：
+                //
+                //   (b) **撤回判定**。翻轉 true↔false 可以（留史），但撤回到誠實的
+                //       未判定狀態沒有面——舊規則要求「記錄的 paginated 非 nil」，
+                //       所以「退回 nil 但保留判定史」在**驗證層就寫不出來**：要嘛丟掉
+                //       全部 reference（違反留史），要嘛改規則。`resolve-venues demote`
+                //       （#418）在這個域的對應物因此不存在。
+                //   (c) **翻轉語意**。value 恆 nil 時資料層看不出哪句理由對應哪個值；
+                //       同 statement 翻回時 (field, value, kind) 冪等會吞掉新翻轉。
+                //
+                // 三值封閉：`true`／`false`／`nil`（後者＝撤回，是一筆帶理由與證據的
+                // **判定**，不是刪除）。**不是**「凡是判定型純量都收 value」——那句話
+                // 會在下一個純量上長出沒人同意的答案；要收就再明寫一個例外。
+                //
+                // **舊筆（value 缺席）放行**——這是一條相容路徑，所以依 `no-compat-fallback`
+                // 第 2 條附上退場條件與量它的方法：
+                //
+                //     grep -h -A1 'field: paginated' ~/.akashic/entities/*.yaml \\
+                //       | grep -c 'value:'          # 帶 value 的筆數
+                //     grep -l 'field: paginated' ~/.akashic/entities/*.yaml | wc -l   # 總筆數
+                //
+                // 2026-09-09（#500 落地當日）：總 33 筆、帶 value **0** 筆。
+                // **退場條件**：兩個數字相等時，把上面的 `if let v` 改成 `guard let v else { throw }`
+                // 並刪掉本段——留著的相容路徑不會保護任何東西，它只是在等一個新的呼叫端誤入。
+                if let v = r.value {
+                    guard ["true", "false", "nil"].contains(v) else {
+                        throw StoreYAMLError.invalidField(
+                            "venue.references(field: paginated)",
+                            "value「\(displaySafe(v, max: 60))」不在封閉三值（true／false／nil）內"
+                            + "——nil 是撤回判定，不是「沒有值」")
+                    }
                 }
-                guard paginated != nil else {
-                    throw StoreYAMLError.invalidField(
-                        "venue.references(field: paginated)",
-                        "記錄沒有 paginated 欄位——判定的 reference 必須指向一個"
-                        + "存在的判定值（nil＝未判定，不該有判定證據）")
-                }
+                // **不再要求 `paginated != nil`**：撤回之後記錄的欄位就是 nil，而判定史
+                // 要留著。舊規則正是 (b) 寫不出來的原因。
                 guard case .judgement = r.kind else {
                     throw StoreYAMLError.invalidField(
                         "venue.references(field: paginated)",

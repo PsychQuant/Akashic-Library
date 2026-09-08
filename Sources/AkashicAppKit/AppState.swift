@@ -178,14 +178,23 @@ public final class AppState {
         lastExternalSyncAt = Date()
     }
 
-    public var unresolvedLiteralCount: Int {
-        entries.reduce(0) { count, entry in
-            count + entry.authors.filter { if case .literal = $0 { return true } else { return false } }.count
-        }
-    }
+    /// **走 `health`，不自己重算**（#484）。
+    ///
+    /// 這裡原本有一份獨立實作（`entries.reduce` 數 `.literal` 作者），而
+    /// `StoreHealth.unresolvedAuthorLiterals` 算的是**逐字相同的東西**——同一個數字
+    /// 兩個來源。`testAppStateDoesNotRederiveHealthFacts` 本來就是為了防這件事，
+    /// 但它的禁令是三個寫死的方法名（`crossRecordIssues()`／`auditSourceIndex()`／
+    /// `layoutResidue()`），對「自己寫一個等價的 reduce」完全看不見。
+    ///
+    /// `health` 為 nil ＝ load 失敗，那時整個總覽都沒有意義，回 0 不會誤導。
+    public var unresolvedLiteralCount: Int { health?.unresolvedAuthorLiterals ?? 0 }
 
+    /// **哪些是 orphan 由 `health` 決定**（#484）——這裡只負責把 citekey 換回 `Entry`
+    /// （裁決台需要整筆記錄，不只是計數）。謂詞原本在這裡複製了一份
+    /// （`provenance?.orphanedAt != nil`），與 `StoreHealth.orphanedCitekeys` 逐字相同。
     public var orphanedEntries: [Entry] {
-        entries.filter { $0.provenance?.orphanedAt != nil }
+        guard let keys = health.map({ Set($0.orphanedCitekeys) }) else { return [] }
+        return entries.filter { keys.contains($0.citekey) }
     }
 
     public var filteredEntries: [Entry] {

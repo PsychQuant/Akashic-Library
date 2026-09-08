@@ -55,10 +55,9 @@ final class StoreHealthSurfaceTests: XCTestCase {
 
     /// **每個欄位都必須經由 `AppState` 到得了 App 面**。
     ///
-    /// App 的 UI（`AkashicApp/Sources/ContentView.swift`）不在 SwiftPM target 內、
-    /// 本測試建置不到它，所以這裡驗的是**上游那一段**：`AppState` 必須持有整份
-    /// `health`，讓 UI 拿得到每個欄位。持有整份而非逐欄位複製，正是讓「加欄位」
-    /// 不需要改 `AppState` 的原因。
+    /// 這裡驗的是**上游那一段**：`AppState` 必須持有整份 `health`，讓 UI 拿得到
+    /// 每個欄位。持有整份而非逐欄位複製，正是讓「加欄位」不需要改 `AppState` 的原因。
+    /// 下游那一段（UI 真的提到每個欄位）由 `testEveryFieldIsRenderedByTheApp` 驗。
     func testAppStateHoldsTheWholeHealthValue() throws {
         let source = try repoFile("Sources/AkashicAppKit/AppState.swift")
         XCTAssertTrue(source.contains("var health: StoreHealth?"),
@@ -67,15 +66,76 @@ final class StoreHealthSurfaceTests: XCTestCase {
                       "AppState 必須走 LibraryStore.health(from:)，不得自行推導")
     }
 
+    /// 一行去掉行註解之後剩下的東西（`//` 之後全部丟掉）。
+    ///
+    /// **這道掃描必須分得出程式碼與註解**（#484）：判準是「原始碼裡有沒有呼叫
+    /// 這三個方法」，而整檔 `contains` 連**解釋為什麼不該呼叫它們的那段註解**
+    /// 也會命中。實地踩到——本輪替 `unresolvedLiteralCount` 寫的註解逐字提到
+    /// 那三個名字，三條斷言當場全紅。同一個形狀本 repo 今天另外踩過兩次
+    /// （workflow 的 `run:` vs 註解、`TriggerCoverage` 的 `codeOnly()`）。
+    ///
+    /// 只剝行註解，不處理 `/* */`——`AppState.swift` 沒有區塊註解，而寫一個
+    /// 半吊子的區塊剝除器會製造新的靜默失效面。真的出現時再擴。
+    private func codeOnly(_ source: String) -> String {
+        source.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> Substring in
+                guard let i = line.range(of: "//") else { return line }
+                return line[line.startIndex..<i.lowerBound]
+            }
+            .joined(separator: "\n")
+    }
+
     /// `AppState` **不得**自行重算健康事實——那會讓單一路徑失效。
     func testAppStateDoesNotRederiveHealthFacts() throws {
-        let source = try repoFile("Sources/AkashicAppKit/AppState.swift")
+        let source = codeOnly(try repoFile("Sources/AkashicAppKit/AppState.swift"))
         XCTAssertFalse(source.contains("crossRecordIssues()"),
                        "AppState 不得自己算 crossRecordIssues——走 health")
         XCTAssertFalse(source.contains("auditSourceIndex()"),
                        "AppState 不得自己算 sources audit——走 health")
         XCTAssertFalse(source.contains("layoutResidue()"),
                        "AppState 不得自己算 layoutResidue——走 health")
+    }
+
+    /// **每個欄位都必須在 App 的渲染層被提到**（#484）。
+    ///
+    /// 這條先前不存在，而它的檔頭寫著理由：「App 的 UI（`AkashicApp/Sources/ContentView.swift`）
+    /// 不在 SwiftPM target 內、本測試建置不到它」。**那個前提已經過期**——UI 現在在
+    /// `Sources/AkashicAppKit/`，而 `AkashicAppKit` 是 SwiftPM target，守衛掃得到卻沒掃。
+    ///
+    /// 代價是實的：#464 verify 實測 `perRecordIssues` 在整個 `Sources/AkashicAppKit/`
+    /// 出現 **0 次**而守衛全綠——「App 面看不到 per-record warning」這個缺口因此一直
+    /// 是綠的。加上這條之後又立刻抓到四格，其中兩格是 `AppState` 自己重算了 `health`
+    /// 已經算過的東西（未解析作者、orphans），另外兩格從未被渲染（致命跨記錄問題、
+    /// 未決歧異）。
+    ///
+    /// **掃整個目錄不只 `ContentView`**：渲染散在 `ContentView`／`RecordIssuesSummary`／
+    /// `RecordIssuesSection`／`AdjudicationViews`／`AppState`。只掃一個檔會讓「搬到隔壁檔」
+    /// 變成靜默通過。
+    func testEveryFieldIsRenderedByTheApp() throws {
+        var dir = URL(fileURLWithPath: #filePath)
+        var appKit: URL?
+        for _ in 0..<10 {
+            dir.deleteLastPathComponent()
+            let candidate = dir.appendingPathComponent("Sources/AkashicAppKit")
+            if FileManager.default.fileExists(atPath: candidate.path) { appKit = candidate; break }
+        }
+        guard let appKit else { throw XCTSkip("找不到 Sources/AkashicAppKit —— 跳過") }
+        let files = try FileManager.default.contentsOfDirectory(atPath: appKit.path)
+            .filter { $0.hasSuffix(".swift") }
+        XCTAssertFalse(files.isEmpty, "AkashicAppKit 沒有 .swift —— 斷言會空跑")
+        // **剝掉註解**——否則一段解釋「為什麼這個欄位不渲染」的註解就能讓斷言通過，
+        // 而那正是本輪在 `testAppStateDoesNotRederiveHealthFacts` 剛修掉的同一個病。
+        var corpus = ""
+        for f in files {
+            corpus += codeOnly(try String(contentsOf: appKit.appendingPathComponent(f), encoding: .utf8))
+        }
+
+        for field in try healthFieldNames() {
+            XCTAssertTrue(corpus.contains(field),
+                          "App 的渲染層沒有提到 StoreHealth.\(field) —— "
+                          + "只用 App 的人看不到這個事實，而 doctor 面看得到（#263 的分岔換個形狀）。"
+                          + "補渲染，或若那個欄位刻意不進 App，在這裡加一列具名豁免並寫理由。")
+        }
     }
 
     private func repoFile(_ rel: String) throws -> String {

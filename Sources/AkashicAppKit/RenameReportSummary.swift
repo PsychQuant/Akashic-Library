@@ -32,6 +32,10 @@ enum RenameReportSummary {
         }
         return [line("relations 已遷移", r.relationsRewritten),
                 line("歧異候選已遷移", r.divergenceCandidatesRewritten),
-                line("消解判定已遷移", r.verdictValuesRewritten)].joined(separator: "\n")
+                line("消解判定已遷移", r.verdictValuesRewritten),
+                // #495：收攏丟棄的列。**與上面三行不同，這裡的元素是敘述不是 key**
+                // （`<kind>「<持有記錄>」：<field> <value>——丟棄 <來源>`），所以 200 字的截斷
+                // 會比在 key 上更常真的截到。alert 本來就只是提示，完整清單看 CLI `rename`。
+                line("verdict 收攏丟棄", r.verdictsCollapsed)].joined(separator: "\n")
     }
 }

@@ -957,7 +957,10 @@ extension LibraryStore {
     }
 
     /// 收攏丟掉的那一列，說得出來的形：field ＋ value ＋ 被丟的判定原文（擷取型印 URL）。
-    private static func describeCollapsedVerdict(_ r: ProvenanceReference) -> String {
+    /// 收攏丟棄一列 verdict 的人可讀描述。**merge 與 rename 兩條路徑共用這一份**（#495）——
+    /// 它們執行的是同一條不變式（store 永不持有重複 verdict），第二份描述會與這份分岔。
+    /// 呼叫端負責在前面補上持有記錄的 kind 與 key（本函式只拿得到那一列）。
+    static func describeCollapsedVerdict(_ r: ProvenanceReference) -> String {
         let reason: String
         switch r.kind {
         case .judgement(let statement, _): reason = "判定「\(statement)」"

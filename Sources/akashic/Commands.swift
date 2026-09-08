@@ -1819,6 +1819,10 @@ struct Rename: ParsableCommand {
         if !report.verdictValuesRewritten.isEmpty {
             print("消解判定已遷移：\(report.verdictValuesRewritten.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
         }
+        if !report.verdictsCollapsed.isEmpty {   // #495：收攏丟列要說出來——靜默丟棄不可稽核（lossless-intake 執行細節 3）
+            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（與遷移輸出同 (field, value)，留首見）：")
+            for x in report.verdictsCollapsed { print("  · \(displaySafe(x, max: 300))") }
+        }
     }
 }
 
@@ -1860,8 +1864,12 @@ struct RenamePerson: ParsableCommand {
         if !report.divergencesRewritten.isEmpty {
             print("歧異記錄已遷移（候選或 prefers）：\(report.divergencesRewritten.joined(separator: ", "))")
         }
+        if !report.verdictsCollapsed.isEmpty {   // #495：收攏丟列要說出來——靜默丟棄不可稽核（lossless-intake 執行細節 3）
+            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（與遷移輸出同 (field, value)，留首見）：")
+            for x in report.verdictsCollapsed { print("  · \(displaySafe(x, max: 300))") }
+        }
         if report.authorEdgesRewritten.isEmpty && report.verdictValuesRewritten.isEmpty
-            && report.divergencesRewritten.isEmpty {
+            && report.divergencesRewritten.isEmpty && report.verdictsCollapsed.isEmpty {
             // 「沒有副作用」與「有副作用但沒印」在終端上不該長得一樣
             print("（無其他記錄引用此 key）")
         }

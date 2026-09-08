@@ -438,4 +438,49 @@ final class VerdictHolderGridTests: XCTestCase {
             XCTAssertEqual(try holders(ofOrg: k), ["work:standards1966b"], k)
         }
     }
+
+    // MARK: - 收攏丟列要回報（#495）
+
+    /// rename 的 verdict 遷移**會丟列**：遷移後與既有 verdict 同 (field, value) 的那一筆被收攏。
+    /// 在 #495 之前那是**靜默**的——report 沒有欄位承載它，CLI 與 App 都印不出來，而
+    /// `lossless-intake` 執行細節 3 明寫「丟棄必須可見：靜默讓『沒有這個東西』與『有但沒說』
+    /// 在事後完全無法區分」。merge 側自 #461 起就有，rename 側到這裡才補上。
+    func testRenameCollapsingAVerdictIsReportedNotSilent() throws {
+        try entry("old2020a")
+        // 同一個 organization 同時持有指向舊鍵與新鍵的同 literal verdict——改名後兩者同值。
+        try org("some-org", refs: [
+            verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "Some Org"),
+            verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Some Org")])
+        let report = try store.renameEntry(from: "old2020a", to: "new2020a")
+        // 收攏真的發生了（兩條變一條）——沒有這一句，下面就只是在驗一個字串
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:new2020a"])
+        XCTAssertEqual(report.verdictsCollapsed.count, 1, "\(report.verdictsCollapsed)")
+        let line = report.verdictsCollapsed[0]
+        XCTAssertTrue(line.hasPrefix("organization「some-org」："),
+                      "要說得出是哪一筆記錄丟的，否則使用者無從去看：\(line)")
+        XCTAssertTrue(line.contains("resolution-confirmed"), line)
+        XCTAssertTrue(line.contains("丟棄"), line)
+    }
+
+    /// person 改名側同型——兩條路徑各自執行同一條不變式，只驗其一會讓另一邊安靜退化。
+    func testRenamePersonCollapsingAVerdictIsReportedNotSilent() throws {
+        try store.writePerson(Person(key: "old-person", names: ["Old Person"]))
+        try org("some-org", refs: [
+            verdict("resolution-rejected", kind: .person, holder: "old-person", literal: "A B"),
+            verdict("resolution-rejected", kind: .person, holder: "new-person", literal: "A B")])
+        let report = try store.renamePerson(from: "old-person", to: "new-person")
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["person:new-person"])
+        XCTAssertEqual(report.verdictsCollapsed.count, 1, "\(report.verdictsCollapsed)")
+        XCTAssertTrue(report.verdictsCollapsed[0].hasPrefix("organization「some-org」："),
+                      report.verdictsCollapsed[0])
+    }
+
+    /// 沒有收攏時是空的——一個恆非空的欄位無法區分「丟了」與「沒丟」。
+    func testRenameWithoutCollapseReportsNothingCollapsed() throws {
+        try entry("old2020a")
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "Some Org")])
+        let report = try store.renameEntry(from: "old2020a", to: "new2020a")
+        XCTAssertEqual(report.verdictsCollapsed, [])
+        XCTAssertEqual(report.verdictValuesRewritten, ["some-org"])
+    }
 }

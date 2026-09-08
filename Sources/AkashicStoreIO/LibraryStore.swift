@@ -1208,13 +1208,21 @@ public struct PersonRenameReport: Equatable {
     public var verdictValuesRewritten: [String]
     /// 候選或 `judgement.prefers` 有跟著改名的歧異記錄 id。
     public var divergencesRewritten: [String]
+    /// 遷移後與既有 verdict 同 (field, value) 而被收攏丟棄的列（#495）。
+    ///
+    /// 形狀與 merge 側的 `ResolveReport.verdictsCollapsed` 逐字相同
+    /// （`<kind>「<持有記錄 key>」：<field> <value>——丟棄 <來源>`），因為它們是**同一件事**：
+    /// 「store 永不持有重複 verdict」這條不變式在兩條路徑上各自執行。兩份不同的描述會分岔。
+    public var verdictsCollapsed: [String]
 
     public init(authorEdgesRewritten: [String] = [],
                 verdictValuesRewritten: [String] = [],
-                divergencesRewritten: [String] = []) {
+                divergencesRewritten: [String] = [],
+                verdictsCollapsed: [String] = []) {
         self.authorEdgesRewritten = authorEdgesRewritten
         self.verdictValuesRewritten = verdictValuesRewritten
         self.divergencesRewritten = divergencesRewritten
+        self.verdictsCollapsed = verdictsCollapsed
     }
 }
 
@@ -1230,13 +1238,18 @@ public struct RenameReport: Equatable {
     /// （#232 verify NEW-1；#460 起 venue 也在列；#463 起 organization 也在列——扁平清單不帶
     /// kind，同名跨型別時無從分辨，結構化拆分屬 follow-up）。
     public var verdictValuesRewritten: [String]
+    /// 遷移後與既有 verdict 同 (field, value) 而被收攏丟棄的列（#495）。形狀與
+    /// `PersonRenameReport.verdictsCollapsed` 及 merge 側的 `ResolveReport.verdictsCollapsed` 同。
+    public var verdictsCollapsed: [String]
 
     public init(relationsRewritten: [String] = [],
                 divergenceCandidatesRewritten: [String] = [],
-                verdictValuesRewritten: [String] = []) {
+                verdictValuesRewritten: [String] = [],
+                verdictsCollapsed: [String] = []) {
         self.relationsRewritten = relationsRewritten
         self.divergenceCandidatesRewritten = divergenceCandidatesRewritten
         self.verdictValuesRewritten = verdictValuesRewritten
+        self.verdictsCollapsed = verdictsCollapsed
     }
 }
 
@@ -1429,10 +1442,12 @@ extension LibraryStore {
         // 安靜變回待判：否決不再抑制、沉底列消失、同一配對同時計入 rejected 與
         // pending。這打破 #232 自己的「Rejection SHALL be distinct from absence」。
         // 文法解析與 store 閘同源（`VerdictPairingValue`），不另寫第二份。
+        var collapsedVerdicts: [String] = []
         var peopleToRewrite: [Person] = []
         for var p in load.people {
-            if let migrated = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .work) {
-                p.references = migrated; peopleToRewrite.append(p)
+            if let m = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .work) {
+                p.references = m.refs; peopleToRewrite.append(p)
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })
             }
         }
         // venue 同型（#460）：#304 之後 venue 也持 `work:` holder 的 verdict
@@ -1441,8 +1456,9 @@ extension LibraryStore {
         // 漏掉的後果與 person 側完全同構：rejected stale ⇒ 否決安靜變回待判。
         var venuesToRewrite: [Venue] = []
         for var vn in load.venues {
-            if let migrated = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .work) {
-                vn.references = migrated; venuesToRewrite.append(vn)
+            if let m = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .work) {
+                vn.references = m.refs; venuesToRewrite.append(vn)
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })
             }
         }
         // organization 同型（#463，網格的 rename×org 格）：#443／OrgResolver 在 organization 記錄上落
@@ -1450,8 +1466,9 @@ extension LibraryStore {
         // 就會留下死 verdict（#464 verify 實測兩次 rename 得 4 條）。機制完全鏡射上方 venue 迴圈。
         var orgsToRewrite: [Organization] = []
         for var org in load.organizations {
-            if let migrated = Self.migratedVerdicts(org.references, from: oldKey, to: newKey, holderKind: .work) {
-                org.references = migrated; orgsToRewrite.append(org)
+            if let m = Self.migratedVerdicts(org.references, from: oldKey, to: newKey, holderKind: .work) {
+                org.references = m.refs; orgsToRewrite.append(org)
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(org.key)」：\($0)" })
             }
         }
 
@@ -1524,7 +1541,8 @@ extension LibraryStore {
         }
         return RenameReport(relationsRewritten: rewritten.sorted(),
                             divergenceCandidatesRewritten: divergenceIDs.sorted(),
-                            verdictValuesRewritten: verdictKeys.sorted())
+                            verdictValuesRewritten: verdictKeys.sorted(),
+                            verdictsCollapsed: collapsedVerdicts.sorted())
     }
 
 
@@ -1597,32 +1615,38 @@ extension LibraryStore {
         }
 
         // 2. verdict value 的 `person:<key>`（第 13 條）——**person 與 organization 兩處**
+        var collapsedVerdicts: [String] = []
         var peopleToRewrite: [Person] = []
         for var p in load.people where p.key != oldKey {
-            if let migrated = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .person) {
-                p.references = migrated
+            if let m = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .person) {
+                p.references = m.refs
                 peopleToRewrite.append(p)
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })
             }
         }
         var orgsToRewrite: [Organization] = []
         for var o in load.organizations {
-            if let migrated = Self.migratedVerdicts(o.references, from: oldKey, to: newKey, holderKind: .person) {
-                o.references = migrated
+            if let m = Self.migratedVerdicts(o.references, from: oldKey, to: newKey, holderKind: .person) {
+                o.references = m.refs
                 orgsToRewrite.append(o)
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(o.key)」：\($0)" })
             }
         }
         // venue 同型（#463，verify security 席：venue 記錄今天只由 resolve-venues 落 `work:` holder，但寫入閘收任何
         // holderKind——「結構上不會有」對 person 記錄同樣成立而 person 迴圈仍在，同型兩格不該處置相反）
         var venuesToRewrite: [Venue] = []
         for var vn in load.venues {
-            if let migrated = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .person) {
-                vn.references = migrated
+            if let m = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .person) {
+                vn.references = m.refs
                 venuesToRewrite.append(vn)
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })
             }
         }
         // 被改名的那一筆自己也可能持有指向自己的 verdict
-        if let migrated = Self.migratedVerdicts(person.references, from: oldKey, to: newKey, holderKind: .person) {
-            person.references = migrated
+        if let m = Self.migratedVerdicts(person.references, from: oldKey, to: newKey, holderKind: .person) {
+            person.references = m.refs
+            // 標 `newKey`：這筆記錄正在改名，寫舊鍵會讓使用者去找一個改完就不存在的 key。
+            collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(newKey)」：\($0)" })
         }
 
         // 3. divergence 的候選與 prefers（第 9、10 條）
@@ -1701,7 +1725,8 @@ extension LibraryStore {
 
         return PersonRenameReport(authorEdgesRewritten: entryKeys.sorted(),
                                   verdictValuesRewritten: verdictHolders.sorted(),
-                                  divergencesRewritten: divergenceIDs.sorted())
+                                  divergencesRewritten: divergenceIDs.sorted(),
+                                  verdictsCollapsed: collapsedVerdicts.sorted())
     }
 
     /// rename 側 verdict holder 的遷移＋收攏；沒有任何改動時回 `nil`。`holderKind` 是 `.person`（`renamePerson`，
@@ -1710,8 +1735,11 @@ extension LibraryStore {
     ///
     /// 文法解析與 store 閘同源（`VerdictPairingValue`），不另寫第二份——那正是 #232 D3 自認過的
     /// grammar-in-string 漂移。收攏是**可解析 verdict 的全量** (field, value) dedup（#232 的既有語意，與 merge 側
-    /// 「只收本次觸及」刻意不同）；**收攏是靜默的**——rename 側的報告沒有 `verdictsCollapsed`，被丟的列不回報（既有
-    /// 缺口，#461 只修了 merge 側；#463 把這一面擴到 organization 與 venue，缺口同步擴大，記在 changelog）。
+    /// 「只收本次觸及」刻意不同）；**被收攏的列逐筆回報**（#495 補上——在此之前 rename 側是靜默的，
+    /// #461 只修了 merge 側而 #463 把這一面擴到 organization 與 venue 使缺口同步變大）。描述由
+    /// `describeCollapsedVerdict` 產生，與 merge 側**同一個函式**：兩條路徑執行的是同一條不變式
+    /// （store 永不持有重複 verdict），兩份描述會分岔。呼叫端負責加上持有記錄的 kind 與 key——
+    /// 本函式只看得到 references 陣列，看不到它掛在誰身上。
     ///
     /// **非 verdict 的 reference 原樣通過、不 dedup**（#463 verify Codex R3 N2）：抽 helper 前 renameEntry 的三個迴圈
     /// 就是這樣，而 #395 的 renamePerson 版本對**每一筆** reference 做 (field, value) dedup——一次與此無關的 rename 會
@@ -1722,9 +1750,11 @@ extension LibraryStore {
     private static func migratedVerdicts(_ refs: [ProvenanceReference],
                                          from oldKey: String,
                                          to newKey: String,
-                                         holderKind: ProvenanceReference.VerdictHolderKind) -> [ProvenanceReference]? {
+                                         holderKind: ProvenanceReference.VerdictHolderKind)
+        -> (refs: [ProvenanceReference], collapsed: [String])? {
         var changed = false
         var out: [ProvenanceReference] = []
+        var collapsed: [String] = []
         var seen = Set<String>()
         for r in refs {
             guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
@@ -1746,11 +1776,12 @@ extension LibraryStore {
             // 遷移後與既有 verdict 同 (field, value) → 收攏（store 永不持有重複 verdict）
             guard seen.insert("\(kept.field)\u{0}\(kept.value ?? "")").inserted else {
                 changed = true
+                collapsed.append(Self.describeCollapsedVerdict(kept))
                 continue
             }
             out.append(kept)
         }
-        return changed ? out : nil
+        return changed ? (out, collapsed) : nil
     }
 
     /// 一次性快取的 `StoreVersion.read`：**第一次被呼叫時才讀**、之後回同一個值。rename 的 venue／organization

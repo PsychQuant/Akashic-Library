@@ -585,4 +585,120 @@ final class VerdictHolderGridTests: XCTestCase {
         let report = try store.renameEntry(from: "old2020a", to: "new2020a")
         XCTAssertEqual(report.quarantinedNotScanned, [])
     }
+
+    // MARK: - dry-run 不得對 verdict 面沉默（#467）
+
+    /// preview 的 `verdictValuesRewritten`／`verdictsCollapsed` 在此之前**恆為空**，
+    /// 實跑才出現。同檔反覆強調「dry-run 的價值是誠實預告」，而 #461 讓那個未被預告的
+    /// 步驟從「只改值」升級成「會刪列」。
+    func testWorkMergePreviewPredictsTheVerdictFace() throws {
+        try entry("keeper2020a"); try entry("doomed2020a")
+        try org("some-org", refs: [verdict("resolution-rejected", kind: .work, holder: "doomed2020a", literal: "Some Org")])
+        var v = Venue(key: "some-journal", type: .periodical, names: TimelineOf([TemporalValue(value: "J")]))
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "doomed2020a", literal: "J")]
+        _ = try store.writeVenue(v)
+        let d = try divergence(keeper: "keeper2020a", doomed: "doomed2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+
+        let preview = try store.previewResolveDivergence(id: d.id, survivor: "keeper2020a",
+                                                        overrideReason: nil)
+        XCTAssertEqual(preview.verdictValuesRewritten,
+                       [HolderRecord(.organization, "some-org"), HolderRecord(.venue, "some-journal")],
+                       "dry-run 必須預告 verdict 面會改寫哪些持有記錄")
+
+        let actual = try store.resolveDivergence(id: d.id, survivor: "keeper2020a")
+        XCTAssertEqual(actual.failures, [])
+        XCTAssertEqual(preview.verdictValuesRewritten, actual.verdictValuesRewritten,
+                       "預告與實跑不一致就不是預告")
+        XCTAssertEqual(preview.verdictsCollapsed, actual.verdictsCollapsed)
+    }
+
+    /// **收攏丟列也要被預告**——#461 之後 dry-run 沉默的那一半是「會刪掉什麼」。
+    func testWorkMergePreviewPredictsTheCollapsedRows() throws {
+        try entry("keeper2020a"); try entry("doomed2020a")
+        // 同一個 organization 同時持有指向 keeper 與 doomed 的同 literal verdict → 合併後同值
+        try org("some-org", refs: [
+            verdict("resolution-confirmed", kind: .work, holder: "keeper2020a", literal: "Some Org"),
+            verdict("resolution-confirmed", kind: .work, holder: "doomed2020a", literal: "Some Org")])
+        let d = try divergence(keeper: "keeper2020a", doomed: "doomed2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+
+        let preview = try store.previewResolveDivergence(id: d.id, survivor: "keeper2020a",
+                                                        overrideReason: nil)
+        XCTAssertEqual(preview.verdictsCollapsed.count, 1, "\(preview.verdictsCollapsed)")
+        XCTAssertTrue(preview.verdictsCollapsed[0].hasPrefix("organization「some-org」："),
+                      preview.verdictsCollapsed[0])
+        let actual = try store.resolveDivergence(id: d.id, survivor: "keeper2020a")
+        XCTAssertEqual(preview.verdictsCollapsed, actual.verdictsCollapsed)
+    }
+
+    /// person 合併側同型——只驗 work 側會讓另一條路徑安靜退化。
+    func testPersonMergePreviewPredictsTheVerdictFace() throws {
+        try store.writePerson(Person(key: "keeper-person", names: ["Keeper Person"]))
+        try store.writePerson(Person(key: "doomed-person", names: ["Doomed Person"]))
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .person, holder: "doomed-person", literal: "Some Org")])
+        let d = try divergence(keeper: "keeper-person", doomed: "doomed-person", shape: .person)
+        GitFixture.commitAll(store.root)
+
+        let preview = try store.previewResolveDivergence(id: d.id, survivor: "keeper-person",
+                                                        overrideReason: nil)
+        XCTAssertEqual(preview.verdictValuesRewritten, [HolderRecord(.organization, "some-org")])
+        let actual = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
+        XCTAssertEqual(actual.failures, [])
+        XCTAssertEqual(preview.verdictValuesRewritten, actual.verdictValuesRewritten)
+    }
+
+    /// 沒有 verdict 面時預告是空的——恆非空的預告分不出「會改」與「不會改」。
+    func testPreviewSaysNothingWhenThereIsNoVerdictFace() throws {
+        try entry("keeper2020a"); try entry("doomed2020a")
+        let d = try divergence(keeper: "keeper2020a", doomed: "doomed2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        let preview = try store.previewResolveDivergence(id: d.id, survivor: "keeper2020a",
+                                                        overrideReason: nil)
+        XCTAssertEqual(preview.verdictValuesRewritten, [])
+        XCTAssertEqual(preview.verdictsCollapsed, [])
+    }
+
+    // MARK: - 會被改寫的 holder 檔也要過可回溯性閘（#469）
+
+    /// 版控閘先前只護著要**刪**的 doomed 檔。verdict 遷移改寫的 holder 檔既不在那份名單、
+    /// 寫入前也沒有 per-file 前檢——而 #461 之後那條路徑會**刪列**：被收攏掉的那一列若只
+    /// 存在於未 tracked 的檔案裡，刪掉後 git 取不回。
+    func testUntrackedHolderFileIsRefusedBeforeAnyWrite() throws {
+        try entry("keeper2020a"); try entry("doomed2020a")
+        let d = try divergence(keeper: "keeper2020a", doomed: "doomed2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        // **在 commit 之後**才建 holder → 它未被追蹤，而 doomed 檔仍然是乾淨的
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .work, holder: "doomed2020a", literal: "SO")])
+
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "keeper2020a")) { e in
+            let m = "\(e)"
+            XCTAssertTrue(m.contains("未被 git 追蹤"), m)
+        }
+        // 零寫入：doomed 還在、org 的 verdict 沒動
+        XCTAssertEqual(try store.load().entries.map(\.citekey).sorted(),
+                       ["doomed2020a", "keeper2020a"], "拒絕必須發生在任何寫入之前")
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:doomed2020a"])
+    }
+
+    /// 追蹤且乾淨的 holder 檔照常通過——閘門不得把正常工作節奏擋掉。
+    func testTrackedCleanHolderFilePassesTheGate() throws {
+        try entry("keeper2020a"); try entry("doomed2020a")
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .work, holder: "doomed2020a", literal: "SO")])
+        let d = try divergence(keeper: "keeper2020a", doomed: "doomed2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        let report = try store.resolveDivergence(id: d.id, survivor: "keeper2020a")
+        XCTAssertEqual(report.failures, [])
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:keeper2020a"])
+    }
+
+    /// **不牽連無關的髒檔**：沒有 verdict 要遷的 holder 即使未追蹤也不進閘門名單——
+    /// 「store 其他地方髒不影響這次刪除的可回溯性」是這道閘既有的立場。
+    func testUnrelatedUntrackedRecordDoesNotBlock() throws {
+        try entry("keeper2020a"); try entry("doomed2020a")
+        let d = try divergence(keeper: "keeper2020a", doomed: "doomed2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        try org("innocent-org", refs: [])   // 未追蹤，但這次合併不會碰它
+        XCTAssertNoThrow(try store.resolveDivergence(id: d.id, survivor: "keeper2020a"))
+    }
 }

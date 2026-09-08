@@ -28,6 +28,23 @@ public struct OrgResolutionCandidate: Equatable {
         /// 兩個同名團體時改錯位置。
         case work(citekey: String, authorIndex: Int)
 
+        /// 這個 holder 寫進 verdict value 時的 kind（#483）。
+        ///
+        /// **住在型別上，不在呼叫端。** 兩個呼叫端（`resolve_organizations` 的 apply 與
+        /// reject）先前各自推導：apply 用窮盡 switch（#378），reject 用
+        /// `{ if case .person … else .org }`——於是一個 `.work` 候選被否決時寫出
+        /// `org:<citekey>`，而那條 verdict 在死 verdict 掃描下**必然**變成死的，訊息還會
+        /// 把成因說成「遷移漏了這一格」。同一件事的兩份描述，其中一份漏了一個 case。
+        ///
+        /// 窮盡 switch 不寫 `default`：值域加第四個成員時要編譯錯誤，不是靜默落到某一邊。
+        public var verdictHolderKind: ProvenanceReference.VerdictHolderKind {
+            switch self {
+            case .person:       return .person
+            case .organization: return .org
+            case .work:         return .work
+            }
+        }
+
         public var key: String {
             switch self {
             case let .person(k), let .organization(k): return k

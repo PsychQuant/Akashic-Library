@@ -3491,10 +3491,9 @@ public final class AkashicService {
                 guard var o = grouped[c.orgKey] ?? byKey[c.orgKey] else {
                     throw ServiceError.notFound("organization「\(displaySafe(c.orgKey, max: 200))」")
                 }
-                let holderKind: ProvenanceReference.VerdictHolderKind =
-                    { if case .person = c.holder { return .person } else { return .org } }()
                 ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
-                    .rejected, holderKind: holderKind, holder: c.holder.key, literal: c.literal,
+                    .rejected, holderKind: c.holder.verdictHolderKind,   // #483
+                    holder: c.holder.key, literal: c.literal,
                     rule: ResolutionLedger.orgRule,
                     statement: "resolve reject：使用者否決此配對"), to: &o.references)
                 grouped[c.orgKey] = o
@@ -3545,15 +3544,9 @@ public final class AkashicService {
             // `if case .person … else return .org`，而 `.work` 會被靜默算成 `.org`
             // ——verdict 的 kind 屬配對身分（person／org key 可合法同名，見
             // `ResolutionPairing` 的 doc），算錯會讓否決比對永遠對不上。
-            let holderKind: ProvenanceReference.VerdictHolderKind = {
-                switch c.holder {
-                case .person: return .person
-                case .organization: return .org
-                case .work: return .work
-                }
-            }()
             ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
-                .confirmed, holderKind: holderKind, holder: c.holder.key, literal: c.literal,
+                .confirmed, holderKind: c.holder.verdictHolderKind,   // #483：與 reject 路徑同一份定義
+                holder: c.holder.key, literal: c.literal,
                 rule: ResolutionLedger.orgRule,
                 statement: "resolve apply：org name 完全命中，使用者確認"), to: &o.references)
             grouped[c.orgKey] = o

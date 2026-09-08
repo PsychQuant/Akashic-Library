@@ -1906,7 +1906,9 @@ extension LibraryStore {
                 changed = true
             }
             // 遷移後與既有 verdict 同 (field, value) → 收攏（store 永不持有重複 verdict）
-            guard seen.insert("\(kept.field)\u{0}\(kept.value ?? "")").inserted else {
+            // #470：與 merge 側、appendIfAbsent、讀取面同一個相等定義。
+            guard seen.insert(ProvenanceReference.verdictEqualityKey(
+                    field: kept.field, value: kept.value)).inserted else {
                 changed = true
                 collapsed.append(Self.describeCollapsedVerdict(kept))
                 continue

@@ -44,6 +44,21 @@ struct ResolveDivergence: ParsableCommand {
             for c in preview.collapsedDetails {
                 print("  ⚠ 連帶刪除（候選塌縮）：\(c.id)——「\(displaySafe(c.question, max: 300))」")
             }
+            // #467：verdict 面的預告。**dry-run 有自己的渲染路徑**，所以 preview 補上
+            // 這兩個欄位之後，這裡不接就等於沒補——使用者看到的仍然是沉默的那一份。
+            if !preview.verdictValuesRewritten.isEmpty {
+                print("  verdict value 將隨 holder 退役改寫（持有記錄）："
+                    + preview.verdictValuesRewritten.map(\.describedSafely).joined(separator: ", "))   // display-safe-exempt: 消毒在 HolderRecord.describedSafely 內
+            }
+            if !preview.verdictsCollapsed.isEmpty {
+                print("  ⚠ verdict 將收攏丟棄 \(preview.verdictsCollapsed.count) 筆"
+                    + "（與遷移輸出同配對，留首見）：")
+                for c in preview.verdictsCollapsed { print("      · \(displaySafe(c, max: 300))") }
+            }
+            if !preview.quarantinedNotScanned.isEmpty {   // #497：未掃描不得看起來像掃過且沒有
+                print("  ⚠ \(preview.quarantinedNotScanned.count) 個 quarantine 檔未掃描——"
+                    + "其中若有 verdict 指向被併鍵，不會被遷移")
+            }
             // #159 verify 159-5：warning 在 dry-run 也要印。「有判斷但無 prefers、
             // 無從機械核對」正是人最需要在按下破壞性合併之前看到的一條——先前
             // 只有實跑會印，等於在唯一還能反悔的時點沉默。
@@ -83,8 +98,9 @@ struct ResolveDivergence: ParsableCommand {
                 + "（\(report.verdictReferencesMigrated.map { displaySafe($0, max: 200) }.joined(separator: "；"))）")
         }
         if !report.verdictValuesRewritten.isEmpty {
-            // 使用者面不標 kind（#465 的裁決同型）：列出三族今天正確，第四族出現就過期；
-            // 清單裡的 key 是持有記錄的 key，kind 由記錄自己說（扁平清單不帶 kind 的既有缺口，RenameReport doc 記著）
+            // **#498 起清單帶 kind**（`HolderRecord`）——這段先前寫著「使用者面不標 kind…
+            // 扁平清單不帶 kind 的既有缺口」，那個缺口已經修掉了。跨型別同名鍵實測 2 個，
+            // 而扁平清單在那時一個字串對應兩筆記錄。
             print("verdict value 已隨 holder 退役改寫（持有記錄 key）："
                 + report.verdictValuesRewritten.map(\.describedSafely).joined(separator: ", "))   // display-safe-exempt: 消毒在 HolderRecord.describedSafely 內
         }

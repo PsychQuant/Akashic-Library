@@ -108,8 +108,12 @@ public enum ResolutionLedger {
     @discardableResult
     public static func appendIfAbsent(_ ref: ProvenanceReference,
                                       to references: inout [ProvenanceReference]) -> Bool {
-        guard !references.contains(where: { $0.field == ref.field && $0.value == ref.value })
-        else { return false }
+        // #470：相等取正規化（與 merge／rename 的寫入面、以及讀取面的 rejectedNorm 同一個
+        // 定義）。在此之前這裡比位元組，於是一個只差空白的重複判定會被寫進去。
+        let key = ProvenanceReference.verdictEqualityKey(field: ref.field, value: ref.value)
+        guard !references.contains(where: {
+            ProvenanceReference.verdictEqualityKey(field: $0.field, value: $0.value) == key
+        }) else { return false }
         references.append(ref)
         return true
     }

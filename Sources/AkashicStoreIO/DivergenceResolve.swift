@@ -162,6 +162,11 @@ public struct ResolveReport: Equatable {
             && a.collapsedDetails.map { "\($0.id)|\($0.question)" }   // display-safe-exempt: Equatable 的比較鍵，不進任何輸出面
                 == b.collapsedDetails.map { "\($0.id)|\($0.question)" }   // display-safe-exempt: Equatable 的比較鍵，不進任何輸出面
             && a.survivorUpdated == b.survivorUpdated
+            // #467：先前刻意不進 `==`，理由是「preview 側算不出來」——preview 補上之後
+            // 那個理由消失了。留在外面等於讓 preview-vs-actual 的一致性測試對整個 verdict
+            // 面失明，而那正是本輪要修的東西。
+            && a.verdictValuesRewritten == b.verdictValuesRewritten
+            && a.verdictsCollapsed == b.verdictsCollapsed
     }
 }
 
@@ -371,6 +376,11 @@ extension LibraryStore {
         report.warnings += report.pendingContentWarnings
         report.pendingContentWarnings = []
         report.quarantinedNotScanned = snapshot.quarantined.map(\.file).sorted()
+        // #467：`==` 現在比這兩個欄位，而實跑是依迴圈順序 append、preview 是排序過的。
+        // 不排序的話 preview-vs-actual 的一致性測試會因為**順序**而紅——那是關於實作
+        // 走訪次序的事實，不是關於「會改寫什麼」的事實，而後者才是報告要說的。
+        report.verdictValuesRewritten.sort()
+        report.verdictsCollapsed.sort()
         return report
     }
 
@@ -577,7 +587,13 @@ extension LibraryStore {
         // 刪除的可回溯性，擋下它只會讓工具在正常工作節奏中變得難用。
         let doomedFiles = doomedRelativePaths(record: record, shape: shape,
                                               mergedKeys: mergedKeys, snapshot: snapshot)
-        let unsafe = Self.filesNotSafelyRecoverable(root: root, relativePaths: doomedFiles)
+        // #469：**會被改寫的 holder 檔也要驗**。#461 之後那條路徑不只改值、還會刪列，
+        // 而被收攏掉的那一列若只存在於未 tracked／dirty 的檔案裡，刪掉後 git 取不回。
+        // 名單與 preview 用同一支預測函數——閘門與實跑對「會改哪些」用不同答案正是這一族的病。
+        let holderFiles = holderRelativePaths(shape: shape, mergedKeys: mergedKeys,
+                                              survivor: survivor, snapshot: snapshot)
+        let unsafe = Self.filesNotSafelyRecoverable(
+            root: root, relativePaths: doomedFiles + holderFiles.filter { !doomedFiles.contains($0) })
         guard unsafe.isEmpty else {
             throw DivergenceResolveError.deletionNotRecoverable(files: unsafe)
         }
@@ -633,6 +649,10 @@ extension LibraryStore {
                 if case let .key(k) = $0 { return merged.contains(k) }
                 return false
             }) { report.rewritten.append(e.citekey) }
+            let vp = Self.predictedHolderVerdictMigration(
+                snapshot: snapshot, merged: merged, survivor: survivor, holderKind: .person)
+            report.verdictValuesRewritten = vp.rewritten
+            report.verdictsCollapsed = vp.collapsed
         case .work:
             report.warnings += try validateWorkPreconditions(
                 survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot).warnings
@@ -647,6 +667,10 @@ extension LibraryStore {
                 else { continue }
                 report.rewritten.append(e.citekey)
             }
+            let vw = Self.predictedHolderVerdictMigration(
+                snapshot: snapshot, merged: merged, survivor: survivor, holderKind: .work)
+            report.verdictValuesRewritten = vw.rewritten
+            report.verdictsCollapsed = vw.collapsed
         case .organization, .divergence, .venue:
             throw DivergenceResolveError.unsupportedShape(shape.rawValue)
         }
@@ -914,11 +938,63 @@ extension LibraryStore {
     /// #461 的原形）與 `.person`（person merge——`person:<被併 key>` holder 住在 organization 記錄上，
     /// 是 org-resolution 的判定；#395 rename 側已遷、merge 側漏了，#232→#271 的不對稱在 person-key 軸重演）。
     /// 語意與 `migrateWorkHolderVerdicts` 完全相同，只多一個 kind 篩選——那個函式現在是本函式的 `.work` 特例。
+    /// preview 的 verdict 面**預測**（#467）。
+    ///
+    /// dry-run 在此之前對整個 verdict 面沉默：`verdictValuesRewritten` 與
+    /// `verdictsCollapsed` 在 preview 恆為空，實跑才出現。同檔反覆強調的
+    /// 「dry-run 的價值是誠實預告」在這一整類上不成立——而 #461 讓那個未被預告的步驟
+    /// 從「只改值」升級成「會刪列」。
+    ///
+    /// **與實跑走同一支純函數**（`migrateHolderVerdicts`），迴圈範圍逐一鏡射：
+    /// work 合併掃 people／venues／organizations 且無排除；person 合併掃
+    /// organizations／venues／people（排除被併鍵與 survivor——survivor 自己的遷移在
+    /// commit 之前做）＋ survivor 記錄本身。
+    ///
+    /// **它是預測不是事實**：實跑的每個迴圈都可能在寫入時失敗並落進 `failures`，
+    /// 那時實際改寫的比這裡少。preview 沒有事實可報，只能報「若都成功會是什麼」
+    /// ——與 `rewritten` 的既有語意一致。
+    static func predictedHolderVerdictMigration(
+        snapshot: LibraryLoad, merged: Set<String>, survivor: String,
+        holderKind: ProvenanceReference.VerdictHolderKind
+    ) -> (rewritten: [HolderRecord], collapsed: [String]) {
+        var rewritten: [HolderRecord] = []
+        var collapsed: [String] = []
+        func take(_ refs: [ProvenanceReference], _ kind: EntityKind, _ key: String) {
+            let m = Self.migrateHolderVerdicts(refs, merged: merged,
+                                               survivor: survivor, holderKind: holderKind)
+            guard m.changed else { return }
+            rewritten.append(HolderRecord(kind, key))
+            collapsed.append(contentsOf: m.collapsed.map {   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)）
+                "\(kind.rawValue)「\(key)」：\($0)" })   // display-safe-exempt: 同上
+        }
+        switch holderKind {
+        case .work:
+            for p in snapshot.people { take(p.references, .person, p.key) }
+            for v in snapshot.venues { take(v.references, .venue, v.key) }
+            for o in snapshot.organizations { take(o.references, .organization, o.key) }
+        case .person:
+            for o in snapshot.organizations { take(o.references, .organization, o.key) }
+            for v in snapshot.venues { take(v.references, .venue, v.key) }
+            for p in snapshot.people where !merged.contains(p.key) && p.key != survivor {
+                take(p.references, .person, p.key)
+            }
+            if let keeper = snapshot.people.first(where: { $0.key == survivor }) {
+                take(keeper.references, .person, keeper.key)
+            }
+        case .org:
+            break   // organization 合併尚未支援（`unsupportedShape`），沒有迴圈可鏡射
+        }
+        return (rewritten.sorted(), collapsed.sorted())
+    }
+
     static func migrateHolderVerdicts(
         _ refs: [ProvenanceReference], merged: Set<String>, survivor: String,
         holderKind: ProvenanceReference.VerdictHolderKind
     ) -> (refs: [ProvenanceReference], changed: Bool, collapsed: [String]) {
-        func dedupKey(_ r: ProvenanceReference) -> String { "\(r.field)\u{0}\(r.value ?? "")" }
+        // #470：相等的單一定義住在 ProvenanceReference。
+        func dedupKey(_ r: ProvenanceReference) -> String {
+            ProvenanceReference.verdictEqualityKey(field: r.field, value: r.value)
+        }
         var touched = Set<String>()
         var changed = false
         let rewritten: [ProvenanceReference] = refs.map { r in
@@ -1985,6 +2061,38 @@ extension LibraryStore {
     /// 其他歧異記錄要跑完合併才知道，此處看不到——那是這道檢查已知的覆蓋邊界，不是
     /// 疏漏。塌縮的那些與本記錄同批建立、同樣未 commit 的機率高，所以本記錄過關時
     /// 它們通常也過關；但這是相關性不是保證。
+    /// 這次合併會**改寫**的 holder 記錄檔（#469）。
+    ///
+    /// 版控可回溯性閘先前只護著要**刪**的 doomed 檔；verdict 遷移改寫的 person／venue／
+    /// organization 檔既不在 `doomedRelativePaths`，寫入前也沒有 per-file tracked+clean
+    /// 前檢。真正且唯一的暴露是：**被收攏掉的那一列若只存在於未 tracked／dirty 的檔案裡，
+    /// 刪掉後 git 取不回**。gate 缺席自 #271／#460 即然，#461 把損失從「改值」擴到「刪列」。
+    ///
+    /// 名單直接來自 `predictedHolderVerdictMigration`（#467 為 preview 寫的那支）——
+    /// 「會被改寫的是哪些」只能有一個答案，而閘門與實跑用不同的答案正是這一族的病。
+    func holderRelativePaths(shape: EntityKind, mergedKeys: [String],
+                             survivor: String, snapshot: LibraryLoad) -> [String] {
+        let holderKind: ProvenanceReference.VerdictHolderKind
+        switch shape {
+        case .person: holderKind = .person
+        case .work:   holderKind = .work
+        case .organization, .divergence, .venue: return []   // 上游已擋，這裡不猜
+        }
+        let predicted = Self.predictedHolderVerdictMigration(
+            snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor,
+            holderKind: holderKind)
+        return predicted.rewritten.compactMap { h -> String? in
+            let id: UUID?
+            switch h.kind {
+            case .person:       id = snapshot.people.first { $0.key == h.key }?.id
+            case .venue:        id = snapshot.venues.first { $0.key == h.key }?.id
+            case .organization: id = snapshot.organizations.first { $0.key == h.key }?.id
+            case .work, .divergence: id = nil   // holder 記錄只有三族
+            }
+            return id.map { "entities/\($0.uuidString).yaml" }
+        }
+    }
+
     func doomedRelativePaths(record: Divergence, shape: EntityKind,
                              mergedKeys: [String], snapshot: LibraryLoad) -> [String] {
         var ids: [UUID] = [record.id]

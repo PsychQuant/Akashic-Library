@@ -61,6 +61,28 @@
 三個方向的共同點：**種類沒被說出來**。`identity-is-judged-not-matched` 講了單向（程式不得做判定）；本規則補反向
 （AI 不得手做決定論工作）與第三項（判定必須留記錄），並要求每個面在建時就歸類。
 
+## 驗證責任落在 adapter 還是 core——**暫不立通則**（#528，2026-09-09）
+
+#519 把「單一字串的長度上限」裁在 **core**（`AddOnlyEnrichment`），理由是缺口的形狀與
+adapter 無關（「core 收下任意長的字串」），而已有兩個 adapter 共用同一條路徑。#528 問
+這能不能一般化成「adapter 與 core 之間，合理性檢查該由誰負責」的通則。
+
+**裁決：不立。理由是證據只有一個。** 2026-09-09 實測：全樹**只有一條**「core 政策 ＋
+adapter」的鏈——`AddOnlyEnrichment` 與它的 `ZoteroEnrichment` adapter（重跑：
+`grep -rln 'AddOnlyEnrichment\.' Sources/ --include='*.swift'`）。從一個案例寫出總括判準，
+正是全域 `common-spec-prose-enumeration` 記過的失敗形狀：那句話的字面涵蓋範圍會大於
+它唯一的案例，然後在邊界上自己長出沒人同意的答案。
+
+**已知的那一個資料點記在這裡，供日後收斂**：
+
+> 缺口的**形狀**與 adapter 無關時（「core 收下任意長的字串」是關於 core 的性質，不是關於
+> 某個 adapter 的），檢查放 core；而那條鏈上已有 ≥2 個 adapter 共用同一條路徑，使「放
+> adapter 端」必然要複製。
+
+**觸發條件可檢查**：出現**第二條**「core 政策 ＋ adapter」的鏈時重開——那時才有兩個點
+可以連線，也才看得出上面那句話是通則還是巧合。在此之前，每條鏈各自裁決並在本檔的
+封閉列舉加一列。
+
 ## 跟其他規則的關係
 
 - `identity-is-judged-not-matched`：本規則的「AI 編輯」欄就是那條的「底線函數」；那條說判定不得由字串謂詞代做，

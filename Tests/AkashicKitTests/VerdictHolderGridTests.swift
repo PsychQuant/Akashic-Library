@@ -538,4 +538,51 @@ final class VerdictHolderGridTests: XCTestCase {
               + after.venues.map { ("venue", $0.key, $0.references) }
               + after.organizations.map { ("organization", $0.key, $0.references) }), [])
     }
+
+    // MARK: - quarantine 檔對遷移網格不可見，但必須被說出來（#497）
+
+    /// #463 verify DA-7 的 fixture：一筆被 quarantine 的 organization 持 `person:` verdict。
+    /// 遷移只走 `load()` 解析得出的記錄，所以它**看不到**那條——這是既有邊界，本張不修它，
+    /// 但報告不得因此宣稱「無其他記錄引用此 key」。「沒掃到」與「掃過且沒有」是兩件事。
+    func testRenamePersonDisclosesUnscannedQuarantineFiles() throws {
+        try store.writePerson(Person(key: "old-person", names: ["Old Person"]))
+        var o = Organization(key: "broken-org", names: TimelineOf([TemporalValue(value: "Broken Org")]))
+        o.references = [verdict("resolution-rejected", kind: .person, holder: "old-person", literal: "OP")]
+        // 檔名 UUID 與記錄 id 不符 → 整檔 quarantine（DeadVerdictScanTests 的既有手法）
+        try OrganizationYAML.encode(o).write(
+            to: store.entitiesDir.appendingPathComponent("\(UUID().uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        XCTAssertEqual(try store.load().quarantined.count, 1, "前提：那個檔真的被 quarantine")
+
+        let report = try store.renamePerson(from: "old-person", to: "new-person")
+        XCTAssertEqual(report.verdictValuesRewritten, [],
+                       "quarantine 檔不在 load 裡——遷移確實看不到它（這是缺口本身，本張不修）")
+        XCTAssertEqual(report.quarantinedNotScanned.count, 1,
+                       "未掃描必須說出來：\(report.quarantinedNotScanned)")
+        // 缺口確實還在——磁碟上那條 verdict 仍指向已退役的鍵
+        let stillThere = try FileManager.default
+            .contentsOfDirectory(atPath: store.entitiesDir.path)
+            .compactMap { try? String(contentsOf: store.entitiesDir.appendingPathComponent($0), encoding: .utf8) }
+            .contains { $0.contains("person:old-person") }
+        XCTAssertTrue(stillThere, "本張只要求可見，不要求遷移——若這裡變成 false，缺口被修了，回來更新這條")
+    }
+
+    /// citekey 側同型。
+    func testRenameDisclosesUnscannedQuarantineFiles() throws {
+        try entry("old2020a")
+        var o = Organization(key: "broken-org", names: TimelineOf([TemporalValue(value: "Broken Org")]))
+        o.references = [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "BO")]
+        try OrganizationYAML.encode(o).write(
+            to: store.entitiesDir.appendingPathComponent("\(UUID().uuidString).yaml"),
+            atomically: true, encoding: .utf8)
+        let report = try store.renameEntry(from: "old2020a", to: "new2020a")
+        XCTAssertEqual(report.quarantinedNotScanned.count, 1, "\(report.quarantinedNotScanned)")
+    }
+
+    /// 乾淨的 store 是空的——恆非空的欄位分不出「有邊界」與「沒邊界」。
+    func testCleanStoreDisclosesNoQuarantine() throws {
+        try entry("old2020a")
+        let report = try store.renameEntry(from: "old2020a", to: "new2020a")
+        XCTAssertEqual(report.quarantinedNotScanned, [])
+    }
 }

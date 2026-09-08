@@ -44,6 +44,12 @@ enum RenameReportSummary {
                 // #495：收攏丟棄的列。**與上面三行不同，這裡的元素是敘述不是 key**
                 // （`<kind>「<持有記錄>」：<field> <value>——丟棄 <來源>`），所以 200 字的截斷
                 // 會比在 key 上更常真的截到。alert 本來就只是提示，完整清單看 CLI `rename`。
-                line("verdict 收攏丟棄", r.verdictsCollapsed)].joined(separator: "\n")
+                line("verdict 收攏丟棄", r.verdictsCollapsed)]
+            .joined(separator: "\n")
+        // #497：有 quarantine 檔時多一行警語。**只在非空時加**——「0 個未掃描」對 GUI
+        // 是雜訊，而上面四行的「零筆說零」語意不同：那是回執（做了什麼），這是邊界
+        // （有什麼沒看）。沒有邊界時不必說有邊界。
+        + (r.quarantinedNotScanned.isEmpty ? ""
+           : "\n⚠ \(r.quarantinedNotScanned.count) 個 quarantine 檔未掃描——其中若有 verdict 指向舊鍵，不會被遷移")
     }
 }

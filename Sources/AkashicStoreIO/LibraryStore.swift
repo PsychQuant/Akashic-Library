@@ -1245,6 +1245,17 @@ public struct PersonRenameReport: Equatable {
     public var verdictValuesRewritten: [HolderRecord]
     /// 候選或 `judgement.prefers` 有跟著改名的歧異記錄 id。
     public var divergencesRewritten: [String]
+    /// 這次退役操作**沒有掃描到**的 quarantine 檔（#497）。
+    ///
+    /// 整張 verdict holder 遷移網格（#463）只走 `load()` 解析得出的記錄；被 quarantine 的檔
+    /// 對它零可見性。#463 verify DA-7 的 fixture 實測：一筆 `names` 形狀不合法的 organization
+    /// 持 `person:doomed-person` verdict，`rename-person` **成功**並印「（無其他記錄引用此 key）」，
+    /// 而磁碟上那條 verdict 仍指向已退役的鍵。
+    ///
+    /// **刻意不掃檔案內文找舊鍵。** 那會印出一個比證據更強的宣稱：quarantine 檔正因為
+    /// 解析不了才在那裡，而行級文字比對會漏掉被 YAML 折行的長 value（本 repo 量過的形狀）。
+    /// 「沒掃到」是可以誠實斷言的，「掃過且沒有」不是。
+    public var quarantinedNotScanned: [String]
     /// 遷移後與既有 verdict 同 (field, value) 而被收攏丟棄的列（#495）。
     ///
     /// 形狀與 merge 側的 `ResolveReport.verdictsCollapsed` 逐字相同
@@ -1255,11 +1266,13 @@ public struct PersonRenameReport: Equatable {
     public init(authorEdgesRewritten: [String] = [],
                 verdictValuesRewritten: [HolderRecord] = [],
                 divergencesRewritten: [String] = [],
-                verdictsCollapsed: [String] = []) {
+                verdictsCollapsed: [String] = [],
+                quarantinedNotScanned: [String] = []) {
         self.authorEdgesRewritten = authorEdgesRewritten
         self.verdictValuesRewritten = verdictValuesRewritten
         self.divergencesRewritten = divergencesRewritten
         self.verdictsCollapsed = verdictsCollapsed
+        self.quarantinedNotScanned = quarantinedNotScanned
     }
 }
 
@@ -1278,15 +1291,19 @@ public struct RenameReport: Equatable {
     /// 遷移後與既有 verdict 同 (field, value) 而被收攏丟棄的列（#495）。形狀與
     /// `PersonRenameReport.verdictsCollapsed` 及 merge 側的 `ResolveReport.verdictsCollapsed` 同。
     public var verdictsCollapsed: [String]
+    /// 這次改名沒有掃描到的 quarantine 檔（#497）——理由見 `PersonRenameReport.quarantinedNotScanned`。
+    public var quarantinedNotScanned: [String]
 
     public init(relationsRewritten: [String] = [],
                 divergenceCandidatesRewritten: [String] = [],
                 verdictValuesRewritten: [HolderRecord] = [],
-                verdictsCollapsed: [String] = []) {
+                verdictsCollapsed: [String] = [],
+                quarantinedNotScanned: [String] = []) {
         self.relationsRewritten = relationsRewritten
         self.divergenceCandidatesRewritten = divergenceCandidatesRewritten
         self.verdictValuesRewritten = verdictValuesRewritten
         self.verdictsCollapsed = verdictsCollapsed
+        self.quarantinedNotScanned = quarantinedNotScanned
     }
 }
 
@@ -1594,7 +1611,8 @@ extension LibraryStore {
         return RenameReport(relationsRewritten: rewritten.sorted(),
                             divergenceCandidatesRewritten: divergenceIDs.sorted(),
                             verdictValuesRewritten: verdictKeys.sorted(),
-                            verdictsCollapsed: collapsedVerdicts.sorted())
+                            verdictsCollapsed: collapsedVerdicts.sorted(),
+                            quarantinedNotScanned: load.quarantined.map(\.file).sorted())
     }
 
 
@@ -1792,7 +1810,8 @@ extension LibraryStore {
         return PersonRenameReport(authorEdgesRewritten: entryKeys.sorted(),
                                   verdictValuesRewritten: verdictHolders.sorted(),
                                   divergencesRewritten: divergenceIDs.sorted(),
-                                  verdictsCollapsed: collapsedVerdicts.sorted())
+                                  verdictsCollapsed: collapsedVerdicts.sorted(),
+                                  quarantinedNotScanned: load.quarantined.map(\.file).sorted())
     }
 
     /// 後置條件：這次改名不得留下任何指向舊鍵的 verdict（#488）。

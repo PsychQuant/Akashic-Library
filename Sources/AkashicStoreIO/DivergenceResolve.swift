@@ -124,6 +124,9 @@ public struct ResolveReport: Equatable {
     /// `verdictValuesRewritten` 同樣不進 `==`——preview 側目前不算 verdict 面
     /// （#271／#460 起的既有缺口，#461 verify follow-up 追蹤）。
     public var verdictsCollapsed: [String] = []
+    /// #497：這次消歧沒有掃描到的 quarantine 檔——理由見 `PersonRenameReport.quarantinedNotScanned`。
+    /// 四個退役操作（rename／rename-person／work merge／person merge）同一個邊界。
+    public var quarantinedNotScanned: [String] = []
     /// **不擋、但要說**的提醒（#75 對一）：有判斷卻沒有結構化的 `prefers` 時，
     /// 消歧無從機械比對——提醒人自行核對，而不是靜默當作沒有判斷。
     public var warnings: [String]
@@ -367,6 +370,7 @@ extension LibraryStore {
         // #169 verify F3：content warnings 排在 judgement **之後**——與 preview 同序。
         report.warnings += report.pendingContentWarnings
         report.pendingContentWarnings = []
+        report.quarantinedNotScanned = snapshot.quarantined.map(\.file).sorted()
         return report
     }
 

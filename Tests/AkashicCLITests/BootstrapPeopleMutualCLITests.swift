@@ -130,4 +130,44 @@ final class BootstrapPeopleMutualCLITests: XCTestCase {
         XCTAssertTrue(all.contains(evil),
                       "literal 必須逐字取得回來（消費端要拿它餵 add-person）：\(all)")
     }
+
+    /// **`--apply` 必須說出它扣住了什麼。**（#547 verify 的 BLOCKING finding）
+    ///
+    /// 本檔前五個 case 全是乾跑，所以對「`--apply` 成功路徑漏印第四段」結構性地盲——
+    /// 四個獨立的 review lens 同時指認了它，而測試全綠。實測當時 live store 上是
+    /// 253 組／591 個寫法無聲消失：`--apply` 只印「✓ 建立 N 個 person」。
+    ///
+    /// 這一條走**真的 `--apply`**，斷言三件事：正常候選被建、被扣住的沒被建、
+    /// 而且**數量有被說出來**。第三個斷言是重點——前兩個就算全對，靜默仍然是缺陷
+    /// （`lossless-intake` §3：靜默是最糟的形式）。
+    func testApplyReportsWhatItWithheld() throws {
+        // setUp 已放三個 Dweck 寫法（互為異寫、會被扣住）。再加一個無關的正常候選。
+        let store = LibraryStore(root: root)
+        try store.writeEntry(Entry(id: UUID(), citekey: "n2023solo", type: .periodicalArticle,
+                                   title: "T", authors: [.literal("Ingrid Solitary")],
+                                   date: "2023"))
+
+        let r = try cli(["bootstrap-people", "--min-occurrences", "1", "--apply"])
+        XCTAssertEqual(r.status, 0, r.output)
+
+        // (a) 正常候選被建
+        let people = try LibraryStore(root: root).load().people
+        let builtNames = Set(people.flatMap { $0.names.all })
+        XCTAssertTrue(builtNames.contains("Ingrid Solitary"),
+                      "無關的正常候選必須照常建檔：\(builtNames)")
+
+        // (b) 被扣住的沒被建
+        for held in ["Carol S Dweck", "Carol S. Dweck", "C. S. Dweck"] {
+            XCTAssertFalse(builtNames.contains(held),
+                           "`\(held)` 被扣住卻仍然建了檔：\(builtNames)")
+        }
+
+        // (c) **數量被說出來**——沒有這一條，(a)(b) 全對仍然是靜默扣留
+        XCTAssertTrue(r.output.contains("未建檔"),
+                      "--apply 沒有說出它扣住了什麼：\n\(r.output)")
+        XCTAssertTrue(r.output.contains("1 組"),
+                      "扣住的組數要出現在輸出裡：\n\(r.output)")
+        XCTAssertTrue(r.output.contains("3 個寫法"),
+                      "扣住的寫法數要出現在輸出裡：\n\(r.output)")
+    }
 }

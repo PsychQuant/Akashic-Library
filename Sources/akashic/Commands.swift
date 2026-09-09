@@ -528,27 +528,38 @@ struct BootstrapPeople: ParsableCommand {
             guard !apply else {
                 throw ValidationError("--json 是唯讀輸出，不與 --apply 併用")
             }
-            // **消毒層是 `JSONSerialization` 自己，不是 `displaySafe`。** 實測（2026-09-09）：
-            // 一個含裸 ESC／BEL／換行／引號的名字序列化後是 ``／``／`\n`／`\"`，
-            // 輸出裡**裸控制位元組 0**——終端機注入（#165 的威脅模型）在這條路上不成立。
-            // 而 `displaySafe` 會**破壞消費端需要的東西**：本出口的用途是把 literal 逐字餵回
-            // `add-person`，消毒過的字串傳回去會建出一個名字不對的 person。
-            // 前提有測試釘住：`BootstrapPeopleMutualCLITests.testJSONOutputHasNoRawControlBytes`。
+            // ⚠ **這個豁免目前只涵蓋 C0，缺口已知且未修**（#547 verify V2／V3，追蹤中）。
+            //
+            // 實測（2026-09-10，三種 `WritingOptions` 結果一致）：`JSONSerialization`
+            // 逃脫 C0（`\u{001B}` ESC、`\u{0007}` BEL、`\n`、`\"`），**但不逃脫**
+            // U+007F DEL、U+0080–U+009F（含 U+009B CSI ＝ `ESC [` 的單位元組等價形）、
+            // 以及 bidi override（U+202E）——那些**原樣通過**。
+            //
+            // 先前這裡寫「逃脫全部控制字元」，那是**假的**：量測只涵蓋 ESC／BEL／換行／引號
+            // 四個字元，結論卻寫成全稱（`assertions-must-be-measured` §2 的形狀）。
+            // 而背書它的 `testJSONOutputHasNoRawControlBytes` 用 `byte < 0x20` 判準，
+            // 在 UTF-8 裡**只可能看到 ASCII C0**——上述三類一個都進不了 filter，
+            // 它宣稱的紅燈條件不可達。
+            //
+            // 正確修法（批次二）：序列化**後**把危險 scalar 改寫成 `\uXXXX`，逃脫集合與
+            // `displaySafe` **同源**（不另立第三份定義）。那樣 round-trip 仍逐字相同——
+            // 「消毒 vs 逐字」是假兩難，而本出口確實需要逐字（literal 要餵回 `add-person`，
+            // 消毒過的字串會建出名字不對的 person）。
             let payload: [String: Any] = [
                 "candidates": report.candidates
                     .filter { $0.occurrences >= minOccurrences }
-                    .map { ["key": $0.key, "names": $0.names, "occurrences": $0.occurrences] },   // display-safe-exempt: JSONSerialization 逃脫全部控制字元（實測裸位元組 0）；消毒會破壞餵回 add-person 的逐字 literal
+                    .map { ["key": $0.key, "names": $0.names, "occurrences": $0.occurrences] },   // display-safe-exempt: JSON 面的消毒層是序列化器（目前只涵蓋 C0，缺口見上方註解與 #547 V2/V3）；消毒會破壞餵回 add-person 的逐字 literal
                 "unkeyable": report.unkeyable
                     .filter { $0.occurrences >= minOccurrences }
                     .map { ["names": $0.names, "occurrences": $0.occurrences, "reason": $0.reason] },   // display-safe-exempt: 同上——JSON 面的消毒層是序列化器
                 "pendingResolution": report.pendingResolution
                     .filter { $0.occurrences >= minOccurrences }
                     .map { ["names": $0.names, "occurrences": $0.occurrences,   // display-safe-exempt: 同上——JSON 面的消毒層是序列化器
-                            "matchedKeys": $0.matchedKeys] },   // display-safe-exempt: 同上
+                            "matchedKeys": $0.matchedKeys] },
                 "pendingMutual": report.pendingMutual
                     .filter { $0.occurrences >= minOccurrences }
                     .map { ["names": $0.names, "occurrences": $0.occurrences,   // display-safe-exempt: 同上——JSON 面的消毒層是序列化器
-                            "sharedKeys": $0.sharedKeys] },   // display-safe-exempt: 同上
+                            "sharedKeys": $0.sharedKeys] },
             ]
             let data = try JSONSerialization.data(
                 withJSONObject: payload,
@@ -680,7 +691,18 @@ struct BootstrapPeople: ParsableCommand {
         }
         _ = try LibraryIndex(store: store).rebuild()
         print("✓ 建立 \(written) 個 person（共 \(total) 個候選）、index 已重建")
+        // #547 R2：**扣住了多少必須在這一行說出來。** 先前 `--apply` 只印上面那行，
+        // 而被 `pendingMutual` 扣住的群一個字都沒有——實測 live store 是 253 組／
+        // 591 個寫法無聲消失。#547 之前它們至少會變成看得見的錯記錄；之後直接不見了，
+        // 正是 `lossless-intake` §3 說的「靜默是最糟的形式」。
+        let heldGroups = report.pendingMutual.filter { $0.occurrences >= minOccurrences }
+        if !heldGroups.isEmpty {
+            let heldNames = heldGroups.reduce(0) { $0 + $1.names.count }
+            print("⚠ 另有 \(heldGroups.count) 組／\(heldNames) 個寫法**未建檔**"
+                  + "（彼此寬鬆共鍵、兩邊都還沒有記錄）——見下方清單；完整清單用 --json")
+        }
         printPendingResolution()
+        printPendingMutual()
         printUnkeyable()
         print("  下一步：akashic resolve-people 把 entries 的 literal 歸戶")
         // 跳過（目的檔已存在）＝有事要人處理——exit 1 讓 && chain 不若無其事往下走

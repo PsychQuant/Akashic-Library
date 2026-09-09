@@ -147,6 +147,29 @@ public enum PersonBootstrap {
         public var matchedKeys: [String]
     }
 
+    /// 彼此寬鬆共鍵、而**兩邊都還沒有記錄**的 literal 群（#547）——同樣**先消歧、不建檔**。
+    ///
+    /// 與 `PendingResolutionGroup` 是同一件事的兩半：那一半問「跟**既有 person**撞了嗎」，
+    /// 這一半問「跟**本批的其他候選**撞了嗎」。在 #547 之前只有前一半存在，於是
+    /// `LooseNameKey` 的索引只由 `existing` 建成——`Carol S Dweck` ／ `Carol S. Dweck`
+    /// ／ `C. S. Dweck` 三者互為異寫卻零標示，`--apply` 會鑄出三個身分。
+    /// （行為 oracle：只替其中一種建檔之後，另外兩種立刻落進 `pendingResolution`。）
+    ///
+    /// **它是提名不是判定**（`identity-is-judged-not-matched`）：同鍵只代表「值得給人看」。
+    /// `wang-ch` 那組的 `Chien-Hsun Wang` ／ `Chung-Ho Wang` ／ `Chih-Hsiung Wang`
+    /// 寬鬆共鍵而是三個不同的人——所以出口有兩個方向，見 CLI 的處置指引。
+    ///
+    /// **不涵蓋羅馬化異拼**（`Hsu↔Xu`）：`LooseNameKey` 檔頭明寫那是查表域、刻意不在
+    /// 任何鍵空間收斂，重啟需要 spec 層的新裁決。這是已知邊界，不是這個桶漏了。
+    public struct PendingMutualGroup: Equatable {
+        /// 這一組的全部寫法（排序）。
+        public var names: [String]
+        /// 組內全部作者位的總和。
+        public var occurrences: Int
+        /// 造成連結的寬鬆鍵（排序）——給操作者看「為什麼它們被收在一起」。
+        public var sharedKeys: [String]
+    }
+
     /// 一次 bootstrap 的完整結果。**分欄位而非 sum type**——`personsFor` 只吃
     /// `candidates`，於是「不小心替一個 unkeyable／pending 建 person」在型別層寫不出來。
     public struct BootstrapReport: Equatable {
@@ -155,12 +178,16 @@ public enum PersonBootstrap {
         /// 寬鬆鍵命中既有 person、待 resolve 流程消歧的群（回報不丟棄——
         /// lossless-intake §3：靜默是最糟的形式）。
         public var pendingResolution: [PendingResolutionGroup]
+        /// 彼此寬鬆共鍵、兩邊都還沒有記錄的群（#547）——同樣扣住不建檔。
+        public var pendingMutual: [PendingMutualGroup]
 
         public init(candidates: [Candidate], unkeyable: [UnkeyableGroup],
-                    pendingResolution: [PendingResolutionGroup] = []) {
+                    pendingResolution: [PendingResolutionGroup] = [],
+                    pendingMutual: [PendingMutualGroup] = []) {
             self.candidates = candidates
             self.unkeyable = unkeyable
             self.pendingResolution = pendingResolution
+            self.pendingMutual = pendingMutual
         }
     }
 
@@ -296,11 +323,87 @@ public enum PersonBootstrap {
                 : a.occurrences > b.occurrences
         }
 
+        // #547：第二段分流——彼此寬鬆共鍵、而**兩邊都還沒有記錄**的群。
+        //
+        // 上面那一段問的是「跟**既有 person** 撞了嗎」（`reorderSpace`／`initialsSpace`
+        // 由 `existing` 建成）。這一段問「跟**本批的其他候選** 撞了嗎」——在 #547 之前
+        // 沒有人問，於是三種 Dweck 寫法各自成家，而 `--apply` 的唯一守衛（目的檔存在
+        // 檢查）看不見它們：key 不同就永遠不相撞。
+        //
+        // **鍵空間逐 tier 分開**，與上面同構——合併成一張表會讓某個名字的 reorder 鍵
+        // 撞上另一個的 initials 鍵（本檔 R3-fix R4-6 記過那個幽靈命中）。
+        var mutualReorder: [String: Set<String>] = [:]
+        var mutualInitials: [String: Set<String>] = [:]
+        for (id, g) in groups {
+            for n in g.names {
+                mutualReorder[LooseNameKey.reorderKey(n), default: []].insert(id)
+                for k in LooseNameKey.initialsKeys(n) {
+                    mutualInitials[k, default: []].insert(id)
+                }
+            }
+        }
+        // 連通分量：A 與 B 共鍵、B 與 C 共鍵時三者同組（同一人的三種寫法未必兩兩共鍵——
+        // `Carol S Dweck` 與 `C. S. Dweck` 靠 initials 相連，各自又與 `Carol S. Dweck`
+        // 靠 reorder 相連）。逐對輸出會讓同一個人出現在多列，人得自己拼。
+        var parent: [String: String] = [:]
+        for id in groups.keys { parent[id] = id }
+        func find(_ x: String) -> String {
+            var root = x
+            while let p = parent[root], p != root { root = p }
+            var cur = x                                  // 路徑壓縮
+            while let p = parent[cur], p != root { parent[cur] = root; cur = p }
+            return root
+        }
+        func union(_ a: String, _ b: String) {
+            let ra = find(a), rb = find(b)
+            if ra != rb { parent[ra] = rb }
+        }
+        for owners in mutualReorder.values where owners.count >= 2 {
+            let sorted = owners.sorted()
+            for o in sorted.dropFirst() { union(sorted[0], o) }
+        }
+        for owners in mutualInitials.values where owners.count >= 2 {
+            let sorted = owners.sorted()
+            for o in sorted.dropFirst() { union(sorted[0], o) }
+        }
+        var components: [String: [String]] = [:]
+        for id in groups.keys { components[find(id), default: []].append(id) }
+
+        var mutualList: [PendingMutualGroup] = []
+        for (_, members) in components where members.count >= 2 {
+            let memberSet = Set(members)
+            var names: [String] = []
+            var count = 0
+            for m in members {
+                guard let g = groups[m] else { continue }
+                names.append(contentsOf: g.names)
+                count += g.count
+            }
+            // 「為什麼收在一起」要說得出來——只列真的連到本組 ≥2 個成員的鍵。
+            var shared = Set<String>()
+            for (k, owners) in mutualReorder where owners.intersection(memberSet).count >= 2 {
+                shared.insert("reorder:\(k)")
+            }
+            for (k, owners) in mutualInitials where owners.intersection(memberSet).count >= 2 {
+                shared.insert("initials:\(k)")
+            }
+            mutualList.append(PendingMutualGroup(
+                names: names.sorted(), occurrences: count, sharedKeys: shared.sorted()))
+            // **扣住不建檔**（#547 D1(b)）：只回報不解決傷害——`--apply` 照樣鑄三個身分。
+            for m in members { groups.removeValue(forKey: m) }
+        }
+        let mutual = mutualList.sorted { a, b in
+            a.occurrences == b.occurrences
+                ? a.names.first ?? "" < b.names.first ?? ""
+                : a.occurrences > b.occurrences
+        }
+
         // 出現次數多的先——處理它們的投報率最高
         return groups.sorted { a, b in
             a.value.count == b.value.count ? a.key < b.key : a.value.count > b.value.count
         }.reduce(into: BootstrapReport(candidates: [], unkeyable: [],
-                                       pendingResolution: pending)) { report, pair in
+                                       pendingResolution: pending,
+                                       pendingMutual: mutual)) { report, pair in
             let g = pair.value
             let sortedNames = g.names.sorted()
             guard let key = suggestedKey(from: sortedNames[0], taken: takenKeys) else {

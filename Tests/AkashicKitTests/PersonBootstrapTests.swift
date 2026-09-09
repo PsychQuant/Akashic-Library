@@ -134,19 +134,38 @@ final class PersonBootstrapTests: XCTestCase {
 
     /// **縮寫不與全名合併。** `Cheng, C` 看起來像 `Cheng, Che`，但也可能是 `Cheng, Chao`。
     /// 過度合併不可回復——兩個人被併成一個，區別就此消失且沒有任何訊號。
+    ///
+    /// **#547 改了這條測試的斷言，但沒有削弱它守的東西。** 原本斷言
+    /// `candidates.count == 2`（「分開，讓人決定」）；現在兩者一起被扣進
+    /// `pendingMutual`。守的性質仍是**不得自動合併**——變的是「讓人決定」怎麼實現：
+    /// 從「各自建檔、之後用 resolve-divergence 合併」（事後、不可逆）換成
+    /// 「建檔前先問」（事前、additive）。理由見
+    /// `.claude/rules/disambiguate-before-irreversible-writes.md`：安全預設是
+    /// 「你**無法**消歧時該往哪邊倒」，不是「你**可以**消歧卻不做」的許可。
     func testAbbreviationDoesNotMergeWithFullName() {
-        let cs = PersonBootstrap.candidates(
-            entries: [entry("a", ["Cheng, Che"]), entry("b", ["Cheng, C"])], existing: [], rejected: [], confirmed: [:])
-        XCTAssertEqual(cs.count, 2, "縮寫與全名必須分開，讓人決定：\(cs)")
+        let r = PersonBootstrap.resolve(
+            entries: [entry("a", ["Cheng, Che"]), entry("b", ["Cheng, C"])],
+            existing: [], rejected: [], confirmed: [:])
+        XCTAssertTrue(r.candidates.isEmpty,
+                      "已識別的歧義不得在建檔前被略過：\(r.candidates.map(\.key))")
+        XCTAssertEqual(r.pendingMutual.count, 1, "兩者要被收在同一組待判：\(r.pendingMutual)")
+        XCTAssertEqual(Set(r.pendingMutual.first?.names ?? []), ["Cheng, Che", "Cheng, C"],
+                       "**兩個寫法都要看得見**——合併成一個名字就是本測試要防的那件事")
     }
 
     /// 連字號差異不合併——`Jeng-Min` 與 `Jeng Min` 可能是同一人也可能不是，
     /// 去掉連字號就等於替人決定了。
+    ///
+    /// #547：同上，改為「扣住並列出兩個寫法」而非「各自建檔」。
     func testHyphenVariantsDoNotMerge() {
-        let cs = PersonBootstrap.candidates(
+        let r = PersonBootstrap.resolve(
             entries: [entry("a", ["Jeng-Min Chiou"]), entry("b", ["Jeng Min Chiou"])],
             existing: [], rejected: [], confirmed: [:])
-        XCTAssertEqual(cs.count, 2)
+        XCTAssertTrue(r.candidates.isEmpty, "\(r.candidates.map(\.key))")
+        XCTAssertEqual(r.pendingMutual.count, 1)
+        XCTAssertEqual(Set(r.pendingMutual.first?.names ?? []),
+                       ["Jeng-Min Chiou", "Jeng Min Chiou"],
+                       "連字號差異不得被摺掉——兩個寫法都要原樣留著給人看")
     }
 
     /// 大小寫與空白差異**是**機械可判的，合併。
@@ -194,11 +213,23 @@ final class PersonBootstrapTests: XCTestCase {
 
     /// key 撞號時加序號——**不合併**。撞號代表兩個不同的名字產生同一個 slug
     /// （`Chen, Y-H` 與 `Chen, YH`），那正是需要人看的情形。
+    ///
+    /// **#547 換了 fixture，理由要說出來**：原本用 `Yi-Hau Chen` ／ `Yi Hau Chen`，
+    /// 而那兩個寬鬆共鍵（initials 皆 `chen yh`），自 #547 起會被扣進 `pendingMutual`
+    /// 而不再是候選——於是這條測試會量到 0 個候選，**測不到它真正要測的東西**
+    /// （suffix 邏輯只對存活的候選跑）。改用本測試自己的 doc comment 早就點名的那一對
+    /// `Chen, Y-H` ／ `Chen, YH`：它們的 initials 鍵分別是 `chen yh` 與 `chen y`
+    /// （`cleanTokens` 把 `.` 映成 `-` 並以連字號分段），**不共鍵**，所以照舊各自建檔、
+    /// 撞 slug 時加序號。
     func testKeyCollisionGetsSuffixNotMerge() {
-        let cs = PersonBootstrap.candidates(
-            entries: [entry("a", ["Yi-Hau Chen"]), entry("b", ["Yi Hau Chen"])], existing: [], rejected: [], confirmed: [:])
-        XCTAssertEqual(cs.count, 2)
-        XCTAssertEqual(Set(cs.map(\.key)).count, 2, "key 必須唯一：\(cs.map(\.key))")
+        let r = PersonBootstrap.resolve(
+            entries: [entry("a", ["Chen, Y-H"]), entry("b", ["Chen, YH"])],
+            existing: [], rejected: [], confirmed: [:])
+        XCTAssertTrue(r.pendingMutual.isEmpty,
+                      "本 fixture 的前提是兩者**不**共鍵：\(r.pendingMutual)")
+        XCTAssertEqual(r.candidates.count, 2)
+        XCTAssertEqual(Set(r.candidates.map(\.key)).count, 2,
+                       "key 必須唯一：\(r.candidates.map(\.key))")
     }
 
     func testKeyAvoidsExistingPersonKeys() {
@@ -377,5 +408,112 @@ final class PersonBootstrapTests: XCTestCase {
         XCTAssertEqual(Set(r.ambiguities.first?.personKeys ?? []),
                        ["chen-wei", "chen-wei-2"],
                        "兩個候選並列，後綴不構成任何排序或偏好")
+    }
+
+    // MARK: - #547：彼此互為異寫、而兩邊都還沒有記錄
+
+    /// 三種 Dweck 寫法落進**同一個** `pendingMutual` 組。
+    ///
+    /// 行為 oracle（#547 diagnosis）：只替其中一種建檔之後，另外兩種立刻被
+    /// `pendingResolution` 標示 —— 也就是 `LooseNameKey` 本來就認得三者是一組。
+    /// 差別只在那張索引**只由既有 person 建成**，所以「兩邊都還沒有記錄」時
+    /// 完全沉默。本組測試釘住補上的那一半。
+    func testMutualAliasesAmongUnrecordedLiteralsLandInOneGroup() {
+        let entries = [
+            entry("a2020", ["Carol S Dweck"]),
+            entry("b2021", ["Carol S. Dweck"]),
+            entry("c2022", ["C. S. Dweck"]),
+        ]
+        let r = PersonBootstrap.resolve(entries: entries, existing: [],
+                                        rejected: [], confirmed: [:])
+        XCTAssertEqual(r.pendingMutual.count, 1,
+                       "三種寫法必須收攏成一組，而不是三個各自獨立的提案：\(r.pendingMutual)")
+        XCTAssertEqual(Set(r.pendingMutual.first?.names ?? []),
+                       ["Carol S Dweck", "Carol S. Dweck", "C. S. Dweck"])
+        XCTAssertEqual(r.pendingMutual.first?.occurrences, 3,
+                       "occurrences 是組內全部作者位的總和")
+    }
+
+    /// **扣住不建檔**（#547 D1(b)）——只回報不解決傷害：`--apply` 照樣會鑄三個身分。
+    func testMutualAliasGroupMembersAreWithheldFromCandidates() {
+        let entries = [
+            entry("a2020", ["Carol S Dweck"]),
+            entry("b2021", ["Carol S. Dweck"]),
+            entry("c2022", ["C. S. Dweck"]),
+        ]
+        let r = PersonBootstrap.resolve(entries: entries, existing: [],
+                                        rejected: [], confirmed: [:])
+        XCTAssertTrue(r.candidates.isEmpty,
+                      "互為異寫的組不得同時出現在建檔候選裡：\(r.candidates.map(\.key))")
+        XCTAssertTrue(PersonBootstrap.personsFor(r.candidates).isEmpty,
+                      "型別層也要擋住——personsFor 只吃 candidates")
+    }
+
+    /// **既有 person 的碰撞優先，新桶不得接管。**
+    ///
+    /// 這一條保護的是使用者 2026-09-09 指名的方向（「建檔前要確認庫裡是不是已經
+    /// 有這個人」）：新桶只**增加**一種提名，讓既有的 17 筆在沒人注意時變少是回歸。
+    func testExistingPersonCollisionStillRoutesToPendingResolutionNotMutual() {
+        let existing = [Person(key: "chen-yi-hau",
+                               names: PersonNames(variant: ["Chen, Yi-Hau"]))]
+        let entries = [
+            entry("x2025", ["Chen, Y.-H."]),          // 與既有 person 共鍵
+            entry("a2020", ["Carol S Dweck"]),        // 彼此共鍵
+            entry("b2021", ["C. S. Dweck"]),
+        ]
+        let r = PersonBootstrap.resolve(entries: entries, existing: existing,
+                                        rejected: [], confirmed: [:])
+        XCTAssertEqual(r.pendingResolution.count, 1,
+                       "與既有 person 共鍵者必須留在 pendingResolution：\(r)")
+        XCTAssertEqual(r.pendingResolution.first?.matchedKeys, ["chen-yi-hau"])
+        let mutualNames = Set(r.pendingMutual.flatMap(\.names))
+        XCTAssertFalse(mutualNames.contains("Chen, Y.-H."),
+                       "已由 pendingResolution 承接的成員不得同時出現在新桶：\(mutualNames)")
+        XCTAssertEqual(r.pendingMutual.count, 1, "Dweck 那組仍要被收攏")
+    }
+
+    /// 閉環①：判定**是同一人**，`add-person --name …` 補齊 alias 之後該組消失。
+    /// 三個寫法全成 `exactAliases` → bootstrap 隱形，交給 `resolve-people` 以 exact 提名。
+    func testAddingAliasesRetiresTheMutualGroup() {
+        let existing = [Person(key: "dweck-carol-s",
+                               names: PersonNames(variant: ["Carol S Dweck",
+                                                            "Carol S. Dweck",
+                                                            "C. S. Dweck"]))]
+        let entries = [
+            entry("a2020", ["Carol S Dweck"]),
+            entry("b2021", ["Carol S. Dweck"]),
+            entry("c2022", ["C. S. Dweck"]),
+        ]
+        let r = PersonBootstrap.resolve(entries: entries, existing: existing,
+                                        rejected: [], confirmed: [:])
+        XCTAssertTrue(r.pendingMutual.isEmpty, "補齊 alias 後不該再有待裁決組：\(r.pendingMutual)")
+        XCTAssertTrue(r.candidates.isEmpty, "也不得回流成建檔候選：\(r.candidates.map(\.key))")
+    }
+
+    /// 閉環②：判定**是不同人**，各自建檔之後同樣消失。
+    /// 兩種判定都要有出口 —— 少了這一條，「不同人」會被困在桶裡出不去。
+    func testJudgingThemAsDifferentPeopleAlsoRetiresTheGroup() {
+        let existing = [
+            Person(key: "dweck-carol-s", names: PersonNames(variant: ["Carol S Dweck"])),
+            Person(key: "dweck-c-s", names: PersonNames(variant: ["C. S. Dweck"])),
+        ]
+        let entries = [
+            entry("a2020", ["Carol S Dweck"]),
+            entry("c2022", ["C. S. Dweck"]),
+        ]
+        let r = PersonBootstrap.resolve(entries: entries, existing: existing,
+                                        rejected: [], confirmed: [:])
+        XCTAssertTrue(r.pendingMutual.isEmpty,
+                      "各自建檔後兩者皆是 exact alias，不該再被提名：\(r.pendingMutual)")
+        XCTAssertTrue(r.candidates.isEmpty)
+    }
+
+    /// 單一寫法不構成「彼此共鍵」——一組只有一個成員時不得進新桶（否則 3,822 筆
+    /// 會全部被扣住，而那不是這個桶的意思）。
+    func testASingleSpellingIsNotAMutualGroup() {
+        let r = PersonBootstrap.resolve(entries: [entry("a2020", ["Carol S Dweck"])],
+                                        existing: [], rejected: [], confirmed: [:])
+        XCTAssertTrue(r.pendingMutual.isEmpty, "只有一種寫法時沒有可判定的對象：\(r.pendingMutual)")
+        XCTAssertEqual(r.candidates.count, 1, "它應該照常是建檔候選")
     }
 }

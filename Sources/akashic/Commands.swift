@@ -1379,6 +1379,11 @@ struct ResolvePeople: ParsableCommand {
             help: "把一個作者位拆成多個（可重複）：citekey:authorIndex:分隔符=理由。理由必填；分隔符不得含 =（第一個 = 之後一律是理由）、必須在該 literal 裡且切不出空段；只作用於未歸戶的位置；同一個作者位一次只能拆一次；同一筆 work 的多個位置一起拆時 index 位移由實作處理。原文與理由只進報告不進 store。不與其他腿組合")
     var splitAuthor: [String] = []
 
+    /// `--split-author` 的具名逆操作（#513）。以值定位（citekey:原literal），還原後刪掉那筆記錄。
+    @Option(name: .customLong("un-split"), parsing: .upToNextOption,
+            help: "把拆分合回原 literal（可重複）：citekey:原literal。以值定位——原 literal 逐字取自 store 的拆分記錄（akashic get-entry 看得到）；還原後那筆記錄會被刪掉（理由見 service 的裁決 ②）。任一段已升格為 .key／.organization、各段不連續、或同 value 多筆記錄即整批拒絕、零寫入。不與其他腿組合")
+    var unSplit: [String] = []
+
     /// 判定式否決（#386 的鏡像）：查證後說「**不是他**」。
     ///
     /// 與既有 `--reject` 的差別：那個只吃 resolver 提名出來的**候選**，歧義列一律 notFound。
@@ -1423,10 +1428,13 @@ struct ResolvePeople: ParsableCommand {
         // **兩個結構修正腿各自單獨呼叫，顯式拒絕組合**（R1 verify）：先前只有文件宣稱
         // 「不與其餘腿組合」而實作靠分支順序隱含達成——其餘腿被**靜默忽略**，呼叫端
         // 會以為兩腿都跑了。同型契約在 resolve-venues 是顯式 throw（#418），對齊。
-        if !splitAuthor.isEmpty || !attributeOrg.isEmpty {
+        // #513：`--un-split` 加入這組——它同樣改作者位的**數量**（N → 1），與 `--split-author`
+        // 是同一個理由的同一族。三者互斥且都不與其他腿組合。
+        let structuralLegs = [!splitAuthor.isEmpty, !attributeOrg.isEmpty, !unSplit.isEmpty]
+        if structuralLegs.contains(true) {
             let otherLegs = apply || !reject.isEmpty || !judge.isEmpty || !refute.isEmpty
-            if (!splitAuthor.isEmpty && !attributeOrg.isEmpty) || otherLegs {
-                throw ValidationError("--split-author／--attribute-org 各自單獨呼叫"
+            if structuralLegs.filter({ $0 }).count > 1 || otherLegs {
+                throw ValidationError("--split-author／--attribute-org／--un-split 各自單獨呼叫"
                     + "（不得與其他腿或彼此組合）——它們改作者位的數量或值域，"
                     + "混在一批裡會讓其他腿的意義改變")
             }
@@ -1453,6 +1461,23 @@ struct ResolvePeople: ParsableCommand {
                     + "「\(r["original"] as? String ?? "")」以「\(r["separator"] as? String ?? "")」切 → \(into)"   // display-safe-exempt: 值取自 splitAuthors（已逐欄位 displaySafe），二次消毒非冪等
                 print(line)   // display-safe-exempt: 同上
                 print("    理由：\(r["judgement"] as? String ?? "")（只進報告，不進 store）")   // display-safe-exempt: 值取自 splitAuthors（已 displaySafe），二次消毒非冪等
+            }
+            return
+        }
+        // 把拆分合回去（#513）——`--split-author` 的具名逆操作，同走 service。
+        if !unSplit.isEmpty {
+            let service = AkashicService(root: store.root, key: store.key,
+                                         environment: ProcessInfo.processInfo.environment)
+            let out = try service.unsplitAuthors(unSplit)
+            let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
+            let rows = (parsed?["unsplit"] as? [[String: Any]]) ?? []
+            print("✓ 合回 \(rows.count) 個作者位、index 已重建")   // display-safe-exempt: Int
+            for r in rows {
+                let from = (r["from"] as? [String] ?? []).joined(separator: "、")
+                print("  \(r["citekey"] as? String ?? "")[\(r["authorIndex"] as? Int ?? -1)] "   // display-safe-exempt: 值取自 unsplitAuthors（已逐欄位 displaySafe），二次消毒非冪等
+                    + "\(from) → 「\(r["restored"] as? String ?? "")」")   // display-safe-exempt: 同上
+                // 被刪掉的拆分理由要說出來——丟棄必須可見（lossless-intake 執行細節 3）
+                print("    已刪掉的拆分記錄，理由：\(r["droppedReason"] as? String ?? "")（完整原值在 git 歷史）")   // display-safe-exempt: 同上
             }
             return
         }

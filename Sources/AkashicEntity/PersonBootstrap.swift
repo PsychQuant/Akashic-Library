@@ -231,9 +231,24 @@ public enum PersonBootstrap {
     /// initials 鍵空間合併查找 → 幽靈 pending；不吃 confirmed → resolver 正提名的
     /// literal 被鑄成重複 person）——#140「不寫第二支遍歷」的教訓在空間定義層重演。
     /// 修法：逐 tier 查找與 resolver 同構，confirmed 同源餵入。
+    /// - Parameter minOccurrences: 只有出現次數 ≥ 此值的群才進入**互連**索引（#547 verify V16）。
+    ///   預設 1（＝全部），既有呼叫端不受影響。
+    ///
+    ///   **它只閘互連索引，不過濾 `candidates` ／ `unkeyable` ／ `pendingResolution`。**
+    ///   那三個仍然回傳全部，由呼叫端自己濾（`Commands.swift` 的
+    ///   `report.candidates.filter { $0.occurrences >= minOccurrences }`）。這個不對稱是
+    ///   刻意的：改成連 `candidates` 一起濾會靜默改變既有 34 個呼叫端的回傳內容。
+    ///   `PersonBootstrapTests.testSubThresholdNeighbourDoesNotWithholdAnAboveThresholdCandidate`
+    ///   把它釘住。
+    ///
+    ///   **為什麼門檻要進來這裡，而不是留給呼叫端事後過濾**：扣留若發生在門檻過濾之前，
+    ///   低於門檻的寫法就對高於門檻的候選有**絕對否決權**。實測門檻 10 時仍有 16 組被扣住，
+    ///   其中 `Daniel McNeish`（18 次）被 `Daniel Muise`（2 次）單獨拖住——而那兩個是不同的人。
+    ///   使用者說「只處理 ≥N 的」，卻被一個他明講不要處理的鄰居擋下，那個否決權沒有來源。
     public static func resolve(entries: [Entry], existing: [Person],
                                rejected: Set<ResolutionPairing>,
-                               confirmed: [ResolutionPairing: String]) -> BootstrapReport {
+                               confirmed: [ResolutionPairing: String],
+                               minOccurrences: Int = 1) -> BootstrapReport {
         // #227：已知 alias 是**全部**名字的聯集——排除條件不看指定與否。
         let knownAliases = Set(existing.flatMap { $0.names.all.map(identity) })
         // R5（R4L-2）：identity() 比 resolver 的 exact 鍵寬（它另做重排攤平）——
@@ -332,9 +347,14 @@ public enum PersonBootstrap {
         //
         // **鍵空間逐 tier 分開**，與上面同構——合併成一張表會讓某個名字的 reorder 鍵
         // 撞上另一個的 initials 鍵（本檔 R3-fix R4-6 記過那個幽靈命中）。
+        //
+        // **只有 ≥ `minOccurrences` 的群進得了這個索引**（#547 verify V16）。低於門檻的
+        // 群既不被扣住、也不扣住別人——使用者說「只處理 ≥N 的」，一個他明講不要處理的
+        // 鄰居不該有否決權。詳見 `resolve` 的參數說明。
+        let eligible = groups.filter { $0.value.count >= minOccurrences }
         var mutualReorder: [String: Set<String>] = [:]
         var mutualInitials: [String: Set<String>] = [:]
-        for (id, g) in groups {
+        for (id, g) in eligible {
             for n in g.names {
                 mutualReorder[LooseNameKey.reorderKey(n), default: []].insert(id)
                 for k in LooseNameKey.initialsKeys(n) {
@@ -346,7 +366,7 @@ public enum PersonBootstrap {
         // `Carol S Dweck` 與 `C. S. Dweck` 靠 initials 相連，各自又與 `Carol S. Dweck`
         // 靠 reorder 相連）。逐對輸出會讓同一個人出現在多列，人得自己拼。
         var parent: [String: String] = [:]
-        for id in groups.keys { parent[id] = id }
+        for id in eligible.keys { parent[id] = id }
         func find(_ x: String) -> String {
             var root = x
             while let p = parent[root], p != root { root = p }
@@ -367,7 +387,7 @@ public enum PersonBootstrap {
             for o in sorted.dropFirst() { union(sorted[0], o) }
         }
         var components: [String: [String]] = [:]
-        for id in groups.keys { components[find(id), default: []].append(id) }
+        for id in eligible.keys { components[find(id), default: []].append(id) }
 
         var mutualList: [PendingMutualGroup] = []
         for (_, members) in components where members.count >= 2 {

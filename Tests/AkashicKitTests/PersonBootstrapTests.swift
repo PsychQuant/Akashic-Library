@@ -508,6 +508,62 @@ final class PersonBootstrapTests: XCTestCase {
         XCTAssertTrue(r.candidates.isEmpty)
     }
 
+    // MARK: - #547 verify V16：門檻要在扣留之前生效
+
+    /// **低於門檻的鄰居不得扣住高於門檻的候選。**
+    ///
+    /// 先前扣留發生在 `--min-occurrences` 過濾**之前**，於是使用者明講「只處理 ≥N 的」，
+    /// 卻被一個他說了不要處理的寫法擋下。實測 live store 門檻 10 時仍有 16 組被扣住，
+    /// 其中 `Daniel McNeish`（18 次）被 `Daniel Muise`（2 次）單獨拖住——而那兩個是
+    /// 不同的人。那個否決權沒有來源。
+    func testSubThresholdNeighbourDoesNotWithholdAnAboveThresholdCandidate() {
+        // 三筆 `Carol S Dweck`（≥3）、一筆 `C. S. Dweck`（<3）
+        let entries = [
+            entry("a2020", ["Carol S Dweck"]), entry("b2021", ["Carol S Dweck"]),
+            entry("c2022", ["Carol S Dweck"]), entry("d2023", ["C. S. Dweck"]),
+        ]
+        let r = PersonBootstrap.resolve(entries: entries, existing: [],
+                                        rejected: [], confirmed: [:], minOccurrences: 3)
+        XCTAssertTrue(r.pendingMutual.isEmpty,
+                      "低於門檻的 `C. S. Dweck` 不該把 `Carol S Dweck` 扣住：\(r.pendingMutual)")
+        // **`minOccurrences` 只閘互連索引，不過濾 `candidates`**——那一半由呼叫端做
+        // （`Commands.swift` 的 `report.candidates.filter { $0.occurrences >= minOccurrences }`）。
+        // 這條斷言把那個不對稱釘住：改成連 candidates 一起濾會靜默改變既有 34 個呼叫端。
+        XCTAssertEqual(r.candidates.count, 2,
+                       "resolve 回傳全部候選（含低於門檻者）：\(r.candidates.map(\.key))")
+        let above = r.candidates.first { $0.occurrences >= 3 }
+        XCTAssertEqual(above?.names, ["Carol S Dweck"])
+        XCTAssertEqual(above?.occurrences, 3, "高於門檻的那個必須完好、未被扣住")
+    }
+
+    /// 門檻 1（預設）時行為不變——上一條的收窄不得順手改掉預設語意。
+    func testAtTheDefaultThresholdTheGroupIsStillWithheld() {
+        let entries = [
+            entry("a2020", ["Carol S Dweck"]), entry("b2021", ["Carol S Dweck"]),
+            entry("c2022", ["Carol S Dweck"]), entry("d2023", ["C. S. Dweck"]),
+        ]
+        let r = PersonBootstrap.resolve(entries: entries, existing: [],
+                                        rejected: [], confirmed: [:])
+        XCTAssertEqual(r.pendingMutual.count, 1, "\(r.pendingMutual)")
+        XCTAssertTrue(r.candidates.isEmpty)
+    }
+
+    /// **被門檻排除的異寫不會就此消失**——它在下一輪由「與既有 person 共鍵」那一半接住。
+    ///
+    /// 這是門檻收窄之所以安全的理由，而且它是**實測**不是推論：live store 副本上以門檻 10
+    /// 建檔後，`Y.-F. Hsu`（2 次）於下一輪落進 `pendingResolution` 並指回 `hsu-yung-fong`。
+    /// 少了這一條，V16 的修法看起來就像「用漏掉換乾淨」。
+    func testThresholdExcludedVariantIsCaughtByTheExistingPersonCheckLater() {
+        // 模擬「高頻的那個已經建檔」之後的狀態
+        let existing = [Person(key: "dweck-carol-s",
+                               names: PersonNames(variant: ["Carol S Dweck"]))]
+        let r = PersonBootstrap.resolve(entries: [entry("d2023", ["C. S. Dweck"])],
+                                        existing: existing, rejected: [], confirmed: [:])
+        XCTAssertTrue(r.candidates.isEmpty, "不得鑄造第二個身分：\(r.candidates.map(\.key))")
+        XCTAssertEqual(r.pendingResolution.count, 1, "\(r)")
+        XCTAssertEqual(r.pendingResolution.first?.matchedKeys, ["dweck-carol-s"])
+    }
+
     /// 單一寫法不構成「彼此共鍵」——一組只有一個成員時不得進新桶（否則 3,822 筆
     /// 會全部被扣住，而那不是這個桶的意思）。
     func testASingleSpellingIsNotAMutualGroup() {

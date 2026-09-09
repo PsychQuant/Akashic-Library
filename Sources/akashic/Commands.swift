@@ -522,7 +522,11 @@ struct BootstrapPeople: ParsableCommand {
         let report = PersonBootstrap.resolve(
             entries: load.entries, existing: load.people,
             rejected: ResolutionLedger.rejectedPairings(people: load.people),
-            confirmed: ResolutionLedger.confirmedPairings(people: load.people))
+            confirmed: ResolutionLedger.confirmedPairings(people: load.people),
+            // #547 verify V16：門檻要進得去，否則低於門檻的寫法對高於門檻的候選
+            // 有絕對否決權（實測門檻 10 時 `Daniel McNeish` 18 次被 `Daniel Muise`
+            // 2 次單獨扣住）。
+            minOccurrences: minOccurrences)
         if json {
             // 唯讀出口——與 `--apply` 併用沒有意義且會讓「輸出的是寫入前還是寫入後」有歧義。
             guard !apply else {

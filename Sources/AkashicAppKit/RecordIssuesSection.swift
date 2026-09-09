@@ -38,6 +38,9 @@ struct RecordIssuesSection: View {
                     .help("verdict 判的 literal 已被那筆 work 的拆分記錄退役（#450）。"
                           + "對拆出的各段重新消歧，然後在持有記錄的 references 更新或刪掉這筆 verdict。")
             }
+            if summary.contradictedRemovalRecords > 0 {
+                LabeledContent("移除記錄與作者位矛盾", value: "\(summary.contradictedRemovalRecords)")
+            }
             if summary.staleSplitRecords > 0 {
                 LabeledContent("拆分記錄各段都不在", value: "\(summary.staleSplitRecords)")
                     .help("一筆拆分記錄的各段沒有任何一段仍是作者位（#450）。"

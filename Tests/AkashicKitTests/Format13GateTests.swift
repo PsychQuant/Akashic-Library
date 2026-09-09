@@ -46,8 +46,8 @@ final class Format13GateTests: XCTestCase {
     /// 下面每一條都在驗「低於 supported 的 format 拒寫某形狀」，而那些 `setFormat(n)`
     /// 的 `n` 是相對於 supported 的。supported 變了而這裡沒變，那些測試會靜默地驗
     /// 一個不再相關的邊界。
-    func testSupportedFormatIsSixteen() {
-        XCTAssertEqual(StoreVersion.supported, 16)
+    func testSupportedFormatIsSeventeen() {
+        XCTAssertEqual(StoreVersion.supported, 17)
     }
 
     // MARK: - format 15：paginated 判定 reference（#406 R1 verify）

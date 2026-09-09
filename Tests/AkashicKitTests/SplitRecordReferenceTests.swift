@@ -164,7 +164,9 @@ final class SplitRecordReferenceTests: XCTestCase {
 
     /// spec「Format-16 store accepts the record」。
     func testFormat16StoreAcceptsSplitRecord() throws {
-        XCTAssertEqual(StoreVersion.supported, 16)
+        // **不在這裡釘 `supported`**：本測試說的是「format 16 的 store 收得下拆分記錄」，
+        // 而那件事不隨 supported 上升而改變（#457 把 supported 推到 17，移除記錄才需要 17）。
+        // supported 的釘住由 `Format13GateTests` 與 `KnownLayerEvolutionTests` 各一支負責。
         try StoreVersion.write(root: root, format: 16)
         try store.writeEntry(try chen2020a())
         XCTAssertEqual(try store.load().entries.first?.references.count, 1)

@@ -137,7 +137,14 @@ public enum StoreVersion {
     ///   `Entry.validateReferenceAttachment` 沒有 `authors` case → 封閉 default 擲錯 → **整檔
     ///   quarantine**——被拆過的 work 在舊 binary 上整筆消失、rc=0。write gate（`assertEntryWritable`）
     ///   對 format < 16 拒寫帶拆分記錄的 entry；已拆的 4 筆（store `32916ba`）不回填。
-    public static let supported = 16
+    /// - **17** ＝ work 側的**移除記錄**（同一格 `field: authors`，statement 走 `移除：理由`，
+    ///   value＝被移除的原 literal，#457）。**non-additive，理由同 16 但成因不同**：
+    ///   format-16 binary 的 `authors` case **存在**，所以不是走到封閉 default，而是走到
+    ///   `SplitRecordValue.parse(statement) != nil` 那道 guard——移除記錄的前綴是 `移除：`
+    ///   不是 `拆為 `，parse 回 nil，**同樣整檔 quarantine**。差別只在錯誤訊息會說「不是合法的
+    ///   拆分文法」而不是「不認得的 field」，對使用者一樣是「這筆 work 消失了、rc=0」。
+    ///   write gate（`assertEntryWritable`）對 format < 17 拒寫帶移除記錄的 entry。
+    public static let supported = 17
 
     /// 遷移完成後的 format bump 提示——**只在真的要升的時候印**（#472）。
     ///

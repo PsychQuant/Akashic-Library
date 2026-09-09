@@ -733,21 +733,28 @@ extension Entry {
         for r in references {
             switch r.field {
             case "authors":
+                // **兩種記錄共用這一格**：拆分（#450，退役後留 N ≥ 2 段）與移除（#457，留 0 段）。
+                // 兩者的語意相同——value 是**已退役**的作者 literal——差別只在退役之後剩幾段，
+                // 所以它們住同一個 field，由 statement 前綴分辨（`拆為 ` vs `移除：`）。
                 guard let v = r.value, !v.isEmpty else {
                     throw StoreYAMLError.invalidField(
                         "entry.references(field: authors)",
-                        "拆分記錄必須帶 value＝被拆掉的原 literal（逐字）——沒有它 un-split 無從回復")
+                        "作者位記錄必須帶 value＝被退役的原 literal（逐字）"
+                        + "——沒有它，拆分記錄無從 un-split、移除記錄無從說出移除了什麼")
                 }
                 guard case .judgement(let statement, _) = r.kind else {
                     throw StoreYAMLError.invalidField(
                         "entry.references(field: authors)",
-                        "拆分記錄必須是 judgement 型（statement 走 `拆為 ⟦a⟧ ⟦b⟧：理由`）")
+                        "作者位記錄必須是 judgement 型"
+                        + "（statement 走 `拆為 ⟦a⟧ ⟦b⟧：理由` 或 `移除：理由`）")
                 }
-                guard SplitRecordValue.parse(statement) != nil else {
+                guard SplitRecordValue.parse(statement) != nil
+                        || AuthorRemovalRecordValue.parse(statement) != nil else {
                     throw StoreYAMLError.invalidField(
                         "entry.references(field: authors)",
-                        "statement「\(displaySafe(statement, max: 200))」不是合法的拆分文法"
-                        + "（`拆為 ⟦a⟧ ⟦b⟧…：理由`：段 ≥ 2、括號平衡、理由非空）")
+                        "statement「\(displaySafe(statement, max: 200))」不是合法的作者位記錄文法"
+                        + "（拆分 `拆為 ⟦a⟧ ⟦b⟧…：理由`：段 ≥ 2、括號平衡、理由非空；"
+                        + "移除 `移除：理由`：理由非空）")
                 }
             case "doi", "pmid", "isbn":
                 // **value 缺席 ＝ 這一筆說的是「對這個欄位做過的一次查找」，不是某一個號的來源**

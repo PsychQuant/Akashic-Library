@@ -23,6 +23,7 @@ struct RecordIssuesSummary: Equatable {
     let venueVerdictBudget: Int
     let orphanedSplitVerdicts: Int
     let staleSplitRecords: Int
+    let contradictedRemovalRecords: Int
     /// `.help` 用：前幾則訊息（`displaySafe`，每則截斷），加一句「完整逐行看 CLI validate」。
     let help: String
 
@@ -37,6 +38,7 @@ struct RecordIssuesSummary: Equatable {
         venueVerdictBudget = health.venueVerdictBudgetWarnings.count
         orphanedSplitVerdicts = health.orphanedSplitVerdicts.count
         staleSplitRecords = health.staleSplitRecords.count
+        contradictedRemovalRecords = health.contradictedRemovalRecords.count
         let preview = issues.prefix(previewLimit).map {
             "\($0.issue.severity == .error ? "✗" : "⚠") \($0.kind) \(displaySafe($0.owner, max: 80))：\(displaySafe($0.issue.message, max: 160))"
         }

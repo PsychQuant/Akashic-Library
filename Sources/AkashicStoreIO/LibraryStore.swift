@@ -436,9 +436,21 @@ public final class LibraryStore {
             guard format >= 16 else {
                 throw StoreIOError.invalidInput(
                     what: "entry「\(displaySafe(entry.citekey, max: 120))」",
-                    why: "含拆分記錄（field: authors 的 reference），需要 store format ≥ 16；本 store 是 \(format)——" +
+                    why: "含作者位記錄（field: authors 的 reference），需要 store format ≥ 16；本 store 是 \(format)——" +
                          "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 format: 改成 16" +
                          "（format-15 binary 讀到會整檔 quarantine，且 rc=0）")
+            }
+            // v17-only 語法的 format gate（#457）：**移除**記錄。format-16 binary 的 `authors`
+            // case 存在，但它只認得拆分文法 → `SplitRecordValue.parse` 回 nil → 一樣整檔
+            // quarantine、rc=0。所以 16 這道閘擋不住它，要各自一道。
+            if !entry.authorRemovalRecords.isEmpty {
+                guard format >= 17 else {
+                    throw StoreIOError.invalidInput(
+                        what: "entry「\(displaySafe(entry.citekey, max: 120))」",
+                        why: "含作者位**移除**記錄（field: authors、statement 走 `移除：理由`），需要 store format ≥ 17；" +
+                             "本 store 是 \(format)——確認會碰這個 store 的 CLI/MCP/App 都已升級後，" +
+                             "把 store.yaml 的 format: 改成 17（format-16 binary 讀到會整檔 quarantine，且 rc=0）")
+                }
             }
         }
         // membership keys（#13）同樣 write-time 驗證——不進路徑，但保 index/query 語意乾淨

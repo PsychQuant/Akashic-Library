@@ -103,8 +103,18 @@ struct EnrichCmd: ParsableCommand {
             for r in item["partial"] as? [String] ?? [] {
                 print("    ◐ 部分解析：\(r)")   // display-safe-exempt: service 已對每個值 displaySafe
             }
+            // #542：**由 payload 現算，不寫死結論。** 這一行原本逐字寫著「只記在報告，
+            // 不進 store」——#517 之前為真，之後為假，而沒有任何東西會發現（沒有測試
+            // 斷言它、守衛也不掃出貨字串）。三種狀態要分得開。
             if let digest = item["sourceDigest"] as? String {
-                print("    來源：\(digest)（只記在報告，不進 store）")   // display-safe-exempt: service 已對每個值 displaySafe
+                if let written = item["provenanceWritten"] as? [String], !written.isEmpty {
+                    print("    來源：\(digest) → 已寫入 \(written.count) 筆 reference（\(written.joined(separator: "、"))）")   // display-safe-exempt: service 已對每個值 displaySafe；count 是 Int
+                } else if let why = item["provenanceSkipped"] as? String {
+                    print("    來源：\(digest)（只記在報告，不進 store——\(why)）")   // display-safe-exempt: service 已對每個值 displaySafe
+                } else {
+                    // dry-run：計畫階段還沒有 outcome 可報，說出這件事而不是替它下結論。
+                    print("    來源：\(digest)（寫入與否於 --apply 時回報）")   // display-safe-exempt: service 已對每個值 displaySafe
+                }
             }
         }
 

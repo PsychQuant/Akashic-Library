@@ -82,6 +82,14 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 **index 位移由實作處理**（由大到小），呼叫端給的是原始索引（報告的 `authorIndex` 也是
 原始索引，非寫入後位置）。
 
+**#513 起多一個把上面那個拆分合回去的面**（`--un-split` / `un_split`，兩面同走 `unsplitAuthors`）：#450 讓拆分的判定持久化到 work 側，於是 **un-split 所需的全部資訊自此在 store 內**——但沒有面把它合回去，還原只能手改 YAML（三個動作要一致，而那是 `replace-endnote-and-zotero` 第 4 條要防的安靜失敗）。
+
+**以值定位**（`citekey:原literal`，`ProvenanceReference` 的既有立場 D2），**同 value 多筆記錄拒絕不判定**——那時兩筆記錄的 `parts` 可能不同，而「哪幾個作者位屬於哪一筆」store 裡沒有東西說得出來（形狀取自 `akashic_enrich` 對 DOI 命中 ≥2 筆的 `ambiguous`）。**還原後刪掉那筆記錄**：它的存在理由是「`authors` 已經沒有原 literal 了」，還原之後那句話為假——留著會讓 store 斷言一件假的事，並點亮 `staleSplitRecords`（一次合法的 un-split 製造一條永久 warning）。歷史留在 git，與 #443 那 4 筆的既有取捨相同。
+
+**兩面同契約**：per-id 顯式、整批拒絕零寫入、**與 `split_author`／`attribute_org` 三者互斥且都不與其餘腿組合**（它同樣改作者位的數量，N → 1）。段已升格為 `.key`／`.organization` 時拒絕並**指向 `demote`**——把已歸戶的身分塞回黏著的 literal 是判定的逆轉，不屬本面。
+
+**它不是新的一列，是既有 `akashic_resolve_people` 的一個參數**——加列會讓上表的封閉列舉與機械稽核（`grep -oE 'Tool\(name: "akashic_[a-z_]+"'`）對不上。#513 的 Expected 寫「兩張表各加一列」，那個寫法會壞掉本檔自己的稽核程序。
+
 **#443 起多一個團體作者的升格面**（`--attribute-org` / `attribute_org`，兩面同走
 `attributeToOrganizations`）：`.literal` → **`.organization`**。`Author` 的三態
 （#323）在此之前只有兩態接得起來——`apply` 升格成 `.key`，而團體作者**只能在建檔時

@@ -3020,6 +3020,174 @@ public final class AkashicService {
         return try jsonString(["split": rows, "count": rows.count])   // display-safe-exempt: Int
     }
 
+    /// **把拆分合回去**（#513）——`splitAuthors` 的具名逆操作。
+    ///
+    /// ## 為什麼需要它
+    ///
+    /// #450 把拆分的判定持久化到 work 側，於是 **un-split 所需的全部資訊自此在 store 內**——
+    /// 但沒有面把它合回去。今天要還原只能手改 YAML：把 N 個作者位合回原 literal、刪掉多出的
+    /// 位置、刪掉那筆拆分記錄，三個動作要一致——而手改 YAML 是 `replace-endnote-and-zotero`
+    /// 第 4 條要防的安靜失敗（2026-08-28 差點弄丟一筆 DOI）。
+    ///
+    /// `literal-first-then-key` 的整套論證建立在「誤可逆」上，而 split 這一腿在本面之前**不可逆**。
+    ///
+    /// ## 兩個值域裁決（#513 Expected 1／2）
+    ///
+    /// **① 定位用 (citekey, 原 literal)，同 value 多筆記錄即拒絕。** 以值定位是 `ProvenanceReference`
+    /// 的既有立場（D2）。而同一筆 work 理論上可對同一 literal 拆兩次——那時兩筆記錄的 `parts` 可能
+    /// 不同，而「哪幾個作者位屬於哪一筆」在 store 裡沒有任何東西說得出來。**拒絕不判定**，形狀取自
+    /// `akashic_enrich` 對 DOI 命中 ≥2 筆的既有處置（`ambiguous`）：那裡的理由逐字適用——
+    /// 判定屬於人，不屬於一個決定論式的操作面。
+    ///
+    /// **② 還原後刪掉那筆記錄，不改寫成「已還原」。** 三個理由，最後一個是決定性的：
+    ///
+    /// 1. 記錄的存在理由是「`authors` 已經沒有原 literal 了」。還原之後原 literal 回到作者位——
+    ///    證據回到它的正典位置（第 15 條邊的 value 本來就是它的副本）。
+    /// 2. 留著會**點亮 `staleSplitRecords`**：那個掃描問「各段是否仍是作者位」，而還原之後各段
+    ///    正好都不在。一次合法的 un-split 會製造一條永久 warning。
+    /// 3. **留著會讓 store 斷言一件假的事。** 記錄的 statement 是「拆為 ⟦a⟧ ⟦b⟧」——一個關於
+    ///    當前狀態的宣稱。還原之後它為假，而 `entity-backlink-completeness` 的 3.325 立場是
+    ///    讓那種矛盾**寫不出來**，不是靠檢查擋住。
+    ///
+    /// 「改寫成已還原」還要新的 statement 文法（`SplitRecordValue` 沒有那個狀態）＝值域擴充＋
+    /// 可能的 format bump，而 #513 自己的 Expected 5 已經預設了「只刪記錄」（不需要 bump）。
+    /// **歷史留在 git**——與 #443 那 4 筆「原文與理由只在 git 歷史」是同一個已接受的取捨。
+    ///
+    /// ## 前提檢查（任一不符即整批拒絕、零寫入）
+    ///
+    /// - 任一段已升格為 `.key`／`.organization`：那時 un-split 等於把一個**已歸戶的身分**塞回
+    ///   一個黏著的 literal——那是判定的逆轉，屬 `resolve-people` 的 demote 一族，不屬本面。
+    /// - 各段不連續或順序不同：合回去要知道「哪一段連續區間是它」，而不連續時那個區間不存在。
+    /// - 該連續區間出現 ≥2 次：同 ① 的理由，拒絕不判定。
+    ///
+    /// ## 種類：程式編輯（`two-kinds-of-edits`）
+    ///
+    /// 同輸入必得同輸出，且它**就是** split 的具名逆操作——那條規則對程式編輯要求的正是
+    /// 「冪等或有具名逆操作」。它不做任何判定：合回去的字串逐字取自記錄的 `value`。
+    public func unsplitAuthors(_ specs: [String]) throws -> String {
+        let load = try store.load()
+        let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
+                                   uniquingKeysWith: { _, last in last })
+
+        struct Plan { let citekey: String; let start: Int; let retired: String
+                      let parts: [String]; let reason: String }
+        var plans: [Plan] = []
+        var seen = Set<String>()
+
+        for spec in specs {
+            // citekey 的值域是 `[a-z0-9][a-z0-9-]*`（`StoreKey`），不含 `:`——所以第一個
+            // `:` 就是分隔，而 literal 可以含冒號。同 `split_author` 的 id 形狀。
+            guard let colon = spec.firstIndex(of: ":") else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(spec, max: 200))」缺少 `:`——格式是 citekey:原literal")
+            }
+            let citekey = String(spec[spec.startIndex..<colon])
+            let retired = String(spec[spec.index(after: colon)...])
+            guard !citekey.isEmpty, !retired.isEmpty else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(spec, max: 200))」的 citekey 或原 literal 是空的")
+            }
+            guard seen.insert("\(citekey)\u{0}\(retired)").inserted else {
+                throw ServiceError.invalid(
+                    "同一筆「\(displaySafe(spec, max: 200))」在這批裡出現兩次")
+            }
+            guard let entry = byCitekey[citekey] else {
+                throw ServiceError.notFound("work「\(displaySafe(citekey, max: 200))」")
+            }
+            let matching = entry.splitRecords.filter { $0.retired == retired }
+            guard !matching.isEmpty else {
+                throw ServiceError.notFound(
+                    "work「\(displaySafe(citekey, max: 200))」沒有原 literal 是"
+                    + "「\(displaySafe(retired, max: 200))」的拆分記錄"
+                    + "——本面以值定位（citekey:原literal）；用 akashic get-entry 看它有哪些")
+            }
+            guard matching.count == 1 else {
+                // 拒絕不判定——同 `akashic_enrich` 對 DOI 命中 ≥2 筆的既有處置
+                throw ServiceError.invalid(
+                    "work「\(displaySafe(citekey, max: 200))」有 \(matching.count) 筆原 literal 都是"   // display-safe-exempt: Int
+                    + "「\(displaySafe(retired, max: 200))」的拆分記錄——哪幾個作者位屬於哪一筆，"
+                    + "store 裡沒有任何東西說得出來。拒絕不判定：先人工處理掉多餘的那些")
+            }
+            let record = matching[0].record
+
+            // 各段必須是**連續、同序**的一段作者位，且每一段都仍是 `.literal`
+            var starts: [Int] = []
+            let n = record.parts.count
+            if entry.authors.count >= n {
+                for i in 0...(entry.authors.count - n) {
+                    var ok = true
+                    for (k, part) in record.parts.enumerated() {
+                        guard case .literal(let s) = entry.authors[i + k], s == part else { ok = false; break }
+                    }
+                    if ok { starts.append(i) }
+                }
+            }
+            guard !starts.isEmpty else {
+                // 已升格的段要與「單純不在」分開講——處置完全不同（前者去 demote，後者去查
+                // 作者位被誰改寫了）。判準是「這一段以任何形式出現在作者位」。
+                let promoted = record.parts.filter { part in
+                    entry.authors.contains { a in
+                        switch a {
+                        case .key, .organization: return true
+                        case .literal(let s):     return s == part
+                        }
+                    } && !entry.authors.contains { if case .literal(let s) = $0 { return s == part }; return false }
+                }
+                if !promoted.isEmpty {
+                    throw ServiceError.invalid(
+                        "work「\(displaySafe(citekey, max: 200))」的拆分段已不全是未歸戶的 literal"
+                        + "——un-split 會把已歸戶的身分塞回一個黏著的字串，那是判定的逆轉，"
+                        + "屬 resolve-people 的 demote 一族，不屬本面。先把那些段退回 literal")
+                }
+                throw ServiceError.invalid(
+                    "work「\(displaySafe(citekey, max: 200))」找不到「\(displaySafe(retired, max: 200))」"
+                    + "的各段構成的連續同序作者位——作者位被改寫過（akashic validate 的"
+                    + "「拆分記錄的各段都不在作者位」會報同一件事）。先人工處理")
+            }
+            guard starts.count == 1 else {
+                throw ServiceError.invalid(
+                    "work「\(displaySafe(citekey, max: 200))」的各段在作者位裡出現 \(starts.count) 次"   // display-safe-exempt: Int
+                    + "——合回哪一處無從判定，拒絕不判定")
+            }
+            plans.append(Plan(citekey: citekey, start: starts[0], retired: retired,
+                              parts: record.parts, reason: record.reason))
+        }
+
+        // ── 全部驗證通過才寫（同 splitAuthors）──
+        //
+        // 同一筆 work 合回多處時 index 會位移：由**大到小**處理，先做的不影響還沒做的。
+        var entries: [String: Entry] = [:]
+        for p in plans where entries[p.citekey] == nil { entries[p.citekey] = byCitekey[p.citekey]! }
+        var rows: [[String: Any]] = []
+        for p in plans.sorted(by: { $0.citekey == $1.citekey ? $0.start > $1.start
+                                                             : $0.citekey < $1.citekey }) {
+            entries[p.citekey]!.authors.replaceSubrange(
+                p.start..<(p.start + p.parts.count), with: [Author.literal(p.retired)])
+            // 刪掉那筆記錄——理由見上方裁決 ②。以 (field, value, statement) 全等比對，
+            // 不用索引：索引在同一批的前一次還原之後會位移。
+            entries[p.citekey]!.references.removeAll { r in
+                guard r.field == "authors", r.value == p.retired,
+                      case .judgement(let s, _) = r.kind,
+                      let parsed = SplitRecordValue.parse(s) else { return false }
+                return parsed.parts == p.parts
+            }
+            rows.append(["citekey": displaySafe(p.citekey, max: 200),
+                         "authorIndex": p.start,   // display-safe-exempt: Int
+                         "restored": displaySafe(p.retired, max: 200),
+                         "from": p.parts.map { displaySafe($0, max: 200) },
+                         // 被刪掉的那筆記錄的理由——丟棄必須可見（`lossless-intake` 執行細節 3）。
+                         // 完整原值在 git 歷史裡。
+                         "droppedReason": displaySafe(p.reason, max: 300),
+                         "recordRemoved": true])   // display-safe-exempt: Bool
+        }
+        for e in entries.values {
+            try LibraryStore.assertEntryWritable(e, format: { try StoreVersion.read(root: store.root) })
+        }
+        for e in entries.values.sorted(by: { $0.citekey < $1.citekey }) { try store.writeEntry(e) }
+        try LibraryIndex(store: store).rebuild()
+        return try jsonString(["unsplit": rows, "count": rows.count])   // display-safe-exempt: Int
+    }
+
     /// **`.literal` → `.organization` 的升格**（#443）。
     ///
     /// ## 為什麼要有這條路

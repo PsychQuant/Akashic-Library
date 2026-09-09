@@ -528,21 +528,27 @@ struct BootstrapPeople: ParsableCommand {
             guard !apply else {
                 throw ValidationError("--json 是唯讀輸出，不與 --apply 併用")
             }
+            // **消毒層是 `JSONSerialization` 自己，不是 `displaySafe`。** 實測（2026-09-09）：
+            // 一個含裸 ESC／BEL／換行／引號的名字序列化後是 ``／``／`\n`／`\"`，
+            // 輸出裡**裸控制位元組 0**——終端機注入（#165 的威脅模型）在這條路上不成立。
+            // 而 `displaySafe` 會**破壞消費端需要的東西**：本出口的用途是把 literal 逐字餵回
+            // `add-person`，消毒過的字串傳回去會建出一個名字不對的 person。
+            // 前提有測試釘住：`BootstrapPeopleMutualCLITests.testJSONOutputHasNoRawControlBytes`。
             let payload: [String: Any] = [
                 "candidates": report.candidates
                     .filter { $0.occurrences >= minOccurrences }
-                    .map { ["key": $0.key, "names": $0.names, "occurrences": $0.occurrences] },
+                    .map { ["key": $0.key, "names": $0.names, "occurrences": $0.occurrences] },   // display-safe-exempt: JSONSerialization 逃脫全部控制字元（實測裸位元組 0）；消毒會破壞餵回 add-person 的逐字 literal
                 "unkeyable": report.unkeyable
                     .filter { $0.occurrences >= minOccurrences }
-                    .map { ["names": $0.names, "occurrences": $0.occurrences, "reason": $0.reason] },
+                    .map { ["names": $0.names, "occurrences": $0.occurrences, "reason": $0.reason] },   // display-safe-exempt: 同上——JSON 面的消毒層是序列化器
                 "pendingResolution": report.pendingResolution
                     .filter { $0.occurrences >= minOccurrences }
-                    .map { ["names": $0.names, "occurrences": $0.occurrences,
-                            "matchedKeys": $0.matchedKeys] },
+                    .map { ["names": $0.names, "occurrences": $0.occurrences,   // display-safe-exempt: 同上——JSON 面的消毒層是序列化器
+                            "matchedKeys": $0.matchedKeys] },   // display-safe-exempt: 同上
                 "pendingMutual": report.pendingMutual
                     .filter { $0.occurrences >= minOccurrences }
-                    .map { ["names": $0.names, "occurrences": $0.occurrences,
-                            "sharedKeys": $0.sharedKeys] },
+                    .map { ["names": $0.names, "occurrences": $0.occurrences,   // display-safe-exempt: 同上——JSON 面的消毒層是序列化器
+                            "sharedKeys": $0.sharedKeys] },   // display-safe-exempt: 同上
             ]
             let data = try JSONSerialization.data(
                 withJSONObject: payload,

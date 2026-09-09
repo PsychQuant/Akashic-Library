@@ -221,7 +221,7 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 |---|---|---|
 | `view`（list／show） | 候補缺席 | 外延查詢對 agent 有潛在價值，但目前無 MCP 端消費流程 |
 | `resolve-divergence` | 有理由缺席 | in-code 既有裁決（`AkashicService.recordDivergence` doc）：消歧含合併＋全庫改寫＋刪檔，tracked+clean 前提與人工確認屬 CLI／App 互動面 |
-| `bootstrap-people` | 有理由缺席 | 批次建檔屬操作者規模；單筆由 `akashic_add_person` 覆蓋（#250）|
+| `bootstrap-people` | 有理由缺席 | 批次建檔屬操作者規模；單筆由 `akashic_add_person` 覆蓋（#250）。**#547 重新確認，裁決不變**：該輪新增的是**同一命令的報告欄位**（`pendingMutual`——彼此寬鬆共鍵而兩邊都還沒有記錄的群）＋ 一個 `--json` 出口，**不是新能力**，所以不觸發本檔「新增任一面的能力時必須裁決另一面」的義務。`--json` 是 CLI-only 表少見的**唯讀**旗標，理由與 #388 的 `--rows` 同型：消費端是把組別餵給 `add-person` 的人工消歧迴圈，而 MCP 面的輸出進 LLM context、呼叫端無法在收到後丟棄已付的代價；要一次讀完 3,000+ 筆的是操作者，不是 LLM|
 | `bootstrap-organizations` | 有理由缺席 | 批次建檔屬操作者規模（同 `bootstrap-people`）。原第二理由「org 建模先停（#63／#70）」已由 #304（2026-08-16）廢止——org 重啟後**單筆**建檔的 MCP 面已於 venue change 補齊（`akashic_add_organization`，見 MCP 表）；批次面維持 CLI-only |
 | `bootstrap-venues`（#367） | 有理由缺席 | 批次建檔屬操作者規模（同 `bootstrap-people`／`bootstrap-organizations` 的既有裁決）。**三個 bootstrap 命令的裁決一致不是巧合**：它們的共同形狀是「掃全庫的 literal、按門檻建實體、dry-run 供人審」，而那個規模與審閱動作屬操作者，不是 LLM 消費面。單筆建檔的 MCP 面已有 `akashic_add_venue`（見 MCP 表） |
 | `fmt` | 有理由缺席 | 全庫改寫＝維運例外 |

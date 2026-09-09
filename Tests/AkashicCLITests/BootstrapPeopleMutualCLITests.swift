@@ -100,4 +100,34 @@ final class BootstrapPeopleMutualCLITests: XCTestCase {
         let names = try XCTUnwrap(mutual.first?["names"] as? [String])
         XCTAssertEqual(Set(names), ["Carol S Dweck", "Carol S. Dweck", "C. S. Dweck"])
     }
+
+    /// **`--json` 的 `display-safe-exempt` 前提，釘住。**
+    ///
+    /// 那四行豁免的理由是「消毒層是 `JSONSerialization` 自己」。豁免不能只是一句宣稱——
+    /// 這條測試證明它：塞一個含裸 ESC／BEL 的作者名，斷言輸出裡**沒有任何裸控制位元組**，
+    /// 而且那個名字**逐字**取得回來（消毒過就取不回來，`add-person` 會建錯名字）。
+    ///
+    /// 若哪天序列化選項改成不逃脫控制字元，這條會紅——那正是要它的時候。
+    func testJSONOutputHasNoRawControlBytes() throws {
+        let evil = "A\u{001B}[31mB\u{0007} Chen"
+        let store = LibraryStore(root: root)
+        try store.writeEntry(Entry(id: UUID(), citekey: "e2020evil", type: .periodicalArticle,
+                                   title: "T", authors: [.literal(evil)], date: "2020"))
+
+        let r = try cli(["bootstrap-people", "--min-occurrences", "1", "--json"])
+        XCTAssertEqual(r.status, 0, r.output)
+
+        let bytes = Array(r.output.utf8)
+        let rawControl = bytes.filter { $0 < 0x20 && $0 != 0x0A && $0 != 0x09 }
+        XCTAssertTrue(rawControl.isEmpty,
+                      "JSON 輸出含裸控制位元組 \(rawControl.map { String(format: "0x%02x", $0) })"
+                        + " —— display-safe-exempt 的前提不成立了")
+
+        // 逐字取回：消毒過的字串在這裡會對不上
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(bytes)) as? [String: Any])
+        let all = ((obj["candidates"] as? [[String: Any]]) ?? [])
+            .compactMap { $0["names"] as? [String] }.flatMap { $0 }
+        XCTAssertTrue(all.contains(evil),
+                      "literal 必須逐字取得回來（消費端要拿它餵 add-person）：\(all)")
+    }
 }

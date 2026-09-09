@@ -1,6 +1,6 @@
 ---
 name: akashic-promote-literals
-description: literal 歸零 campaign 的編排層（#303）——以「全 entity 域 literal 歸零」為終局（#304 裁決），驅動分批的「查證 → resolve → apply」循環並量測進度。讀 store 現況（四域 census：author／venue／affiliation／org-parents）→ 按批 TaskCreate → 逐 literal 走查證管線 → 每輪把計數落一筆 #303 comment。當使用者說「繼續 literal campaign」「這批 literal 收一收」「歸戶進度到哪了」「跑一輪 resolve」「campaign 下一批」時使用。**要跑 `bootstrap-people` 之前也一律先載入本 skill**（「批次建檔」「把這些作者建成 person」「bootstrap 一下」）——它的政策是「寧可分割絕不合併」，對兩個都還沒有記錄的異寫會各建一筆（實測 Carol Dweck → 3 筆），而避開的方法必須在建檔**之前**做。與 akashic-verify-person 的分工：那是單一配對的查證紀律，本 skill 是批次編排與進度追蹤——每個候選的查證仍走 person-verify。
+description: literal 歸零 campaign 的編排層（#303）——以「全 entity 域 literal 歸零」為終局（#304 裁決），驅動分批的「查證 → resolve → apply」循環並量測進度。讀 store 現況（四域 census：author／venue／affiliation／org-parents）→ 按批 TaskCreate → 逐 literal 走查證管線 → 每輪把計數落一筆 #303 comment。當使用者說「繼續 literal campaign」「這批 literal 收一收」「歸戶進度到哪了」「跑一輪 resolve」「campaign 下一批」時使用。**要跑 `bootstrap-people` 之前也一律先載入本 skill**（「批次建檔」「把這些作者建成 person」「bootstrap 一下」）——它自 #547 起會把「彼此互為異寫、兩邊都還沒有記錄」的寫法**扣住不建檔**並列成第四段，而那一段是交給人的：處置有兩個相反方向（同一人 → 一次帶齊全部異寫建一筆；不同人 → 各自建），工具刻意不替你選。與 akashic-verify-person 的分工：那是單一配對的查證紀律，本 skill 是批次編排與進度追蹤——每個候選的查證仍走 person-verify。
 ---
 
 # literal 歸零 campaign：從積壓到終局
@@ -69,30 +69,47 @@ ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，*
 
 1. **R1 高頻批**：candidates 按 literal 頻次降冪（CLI 全列表自行彙總），freq ≥ 5 的 distinct 先處理
 2. **R2 統計所批**：iss view works 的 literal 作者（storyline 查證動線接續）
-3. **R3+ 長尾**：freq=1 的 one-off——批次建檔問題，走 `bootstrap-people`。它會把**與既有 person 寬鬆共鍵**的名字路由到「先消歧再說」桶（不建檔、印出撞誰）；照它的指引先走 resolve 流程，全部否決後名字自動回到建檔候選
+3. **R3+ 長尾**：freq=1 的 one-off——批次建檔問題，走 `bootstrap-people`。它把寬鬆共鍵的名字扣住不建檔並分兩段印出來：**與既有 person 共鍵**（照指引走 resolve 流程，全部否決後名字自動回到建檔候選）、**與本批其他候選共鍵**（#547；處置見下方）
 4. **venue 輪**（format 11 部署後）：add-venue 標準刊 → resolve-venues；縮寫刊名走 akashic-verify-venue
 
-> **第 3 點的 `bootstrap-people` 只擋得住一半的重複——另一半要你在它之前動手。**
+> **第 3 點的 `bootstrap-people` 兩半都擋得住了（#547），但處置仍然是你的。**
 >
-> 它路由到「先消歧再說」桶的判準是「與**既有** person 寬鬆共鍵」。所以當兩個 literal
-> **互為異寫、而兩邊都還沒有記錄**時，那個判準對兩者都不成立——它會**把兩個都建出來**。
-> 這不是 bug，是它宣告的政策（「寧可分割，絕不合併」）在沒有既有記錄可撞時的必然結果。
+> 它扣住不建檔的判準有兩個：與**既有** person 寬鬆共鍵，以及（#547 起）與**本批其他
+> 候選**寬鬆共鍵。後者補上的正是先前那個洞——兩個 literal 互為異寫、而兩邊都還沒有
+> 記錄時，前一個判準對兩者都不成立。
 >
-> 實測（2026-09-09，live store 副本，`bootstrap-people --apply`）：865 → 4,687 筆 person，
-> 其中 `Carol Dweck` 變成 **3 筆**（`dweck-carol-s`／`dweck-c-s`／`dweck-carol-s-2`
-> ——`-2` 後綴表示它知道撞了還是分了）、Bentler 2 筆。全 3,822 筆只摺疊了 **1** 組異寫
-> （`Eric-Jan Wagenmakers ≡ Eric‐Jan Wagenmakers`，U+002D vs U+2010——位元組差異，
-> 不是名字形差異）。
+> **#547 之前的行為，留著當這一段存在的理由**（實測 2026-09-09，live store 副本，
+> `bootstrap-people --apply`）：865 → 4,687 筆 person，其中 `Carol Dweck` 變成 **3 筆**
+> （`dweck-carol-s`／`dweck-c-s`／`dweck-carol-s-2`——`-2` 後綴表示它知道撞了還是分了）、
+> Bentler 2 筆。全 3,822 筆只摺疊了 **1** 組異寫（`Eric-Jan Wagenmakers ≡
+> Eric‐Jan Wagenmakers`，U+002D vs U+2010——位元組差異，不是名字形差異）。
 >
-> **出口是在 bootstrap 之前先建，一次帶全部異寫**（`add-person` 收多個 `--name`）：
+> **現在**（同一份副本，2026-09-10）：候選 3,241，另有 285 組／591 個寫法被扣住，
+> `--apply` 會把組數與寫法數印出來。那 591 個寫法**不會**被鑄成重複身分。
+>
+> **第四段是給你的工作清單，不是結論。** 同鍵只代表「值得看」——`wang-ch` 那組的
+> `Chien-Hsun Wang` ／ `Chung-Ho Wang` ／ `Chih-Hsiung Wang` 寬鬆共鍵而是三個不同的人。
+> 兩個相反的出口，都要先查證：
 >
 > ```bash
+> # 是同一人 —— 一次帶齊全部異寫，建成一筆
 > akashic add-person dweck-carol-s \
 >   --name "Carol S Dweck" --name "Carol S. Dweck" --name "C. S. Dweck"
+>
+> # 是不同人 —— 各自指定不同 key
+> akashic add-person wang-chien-hsun --name "Chien-Hsun Wang"
+> akashic add-person wang-chung-ho   --name "Chung-Ho Wang"
 > ```
 >
-> 之後 `bootstrap-people` 對這三個 literal 落進「先消歧再說」桶（不建檔）、`resolve-people`
-> 三個全部 **`exact`（alias 完全命中）** 指向同一筆。**零重複身分產生。**
+> 兩者都讓那些寫法成為 **exact alias**：下次 `bootstrap-people` 對它們隱形，
+> `resolve-people` 以 `exact`（alias 完全命中）歸戶。**判不出來就不建**——literal
+> 留在誠實狀態是合法終點（`literal-first-then-key`）。
+>
+> **一列＝一個共鍵理由，同一個寫法可以出現在多列**（#547 批次二），所以列數與寫法數
+> 不可相加。完整清單用 `--json`（人可讀面有列數上限）。
+>
+> **本段不涵蓋羅馬化異拼**（`Hsu↔Xu`）：那是查表域，`LooseNameKey` 刻意不在任何鍵空間
+> 收斂。看不到不等於沒有。
 >
 > **為什麼要在之前而不是之後補救**（判定是同一個，差的是落地代價）：
 >
@@ -104,22 +121,27 @@ ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，*
 > | 前置 | git 工作樹乾淨、乾跑逐筆過目 | 無 |
 > | `mcp-cli-parity` 分類 | 維運例外 | 一般寫入面 |
 >
-> **提名這些組是程式的事**：把待建檔的 literal 依寬鬆鍵（姓 ＋ 名各段首字母）分組，
-> 只看組員 >1 的那些。實測 3,917 個 distinct literal → **168 組**要看
-> （2 個異寫 135 組／3 個 20 組／4 個 9 組／5–7 個 4 組），3,490 個單一寫法直接建，
-> 38 個算不出寬鬆鍵（單 token／CJK，走第 3 點的「需要你指定」桶）。
+> **提名這些組是程式的事，而它現在真的由程式做**（#547 之前是散文教操作者手動分組）：
+> `bootstrap-people` 把待建檔的 literal 依寬鬆鍵分組，只列組員 >1 的那些。實測
+> （live store 副本，2026-09-10）**285 列／591 個 distinct 寫法**；其餘 3,241 個
+> 照常成為建檔候選，27 個算不出 key（走「需要你指定」桶）。
 >
 > **但同組不等於同一人**——這一句是本段最重要的：
 >
 > ```
-> wang-ch: Chien-Hsun Wang / Chung-Ho Wang / Chih-Hsiung Wang / C.-H. Wang
->          ↑ 前三個是三個不同的人；第四個縮寫形不知道是誰
+> ×8   Cai Li ≡ Chendong Li ≡ Li Cai            initials:li c
+>      ↑ Cai Li 與 Li Cai 是同一人的兩種發表順序；Chendong Li 是另一個人
+> ×20  Daniel McNeish ≡ Daniel Muise            initials:daniel m
+>      ↑ 兩個都不是同一人——寬鬆層對「名 ＋ 姓首字母」的解讀連上了它們
 > ```
 >
-> 所以每組要判的是「這組裡**哪些**是同一人」，不是「這組是不是同一人」，而縮寫形那一格
-> 仍然要名字以外的證據（`identity-is-judged-not-matched`）。**換順序不會讓判定變容易，
-> 它改變的是判不出來時的落點**：事前判，判不出的縮寫形**先不建、留在 literal**
+> 所以每列要判的是「這列裡**哪些**是同一人」，不是「這列是不是同一人」，而那要名字
+> 以外的證據（`identity-is-judged-not-matched`）。**換順序不會讓判定變容易，
+> 它改變的是判不出來時的落點**：事前判，判不出的**先不建、留在 literal**
 > （`literal-first-then-key` 說那是誠實狀態）；事後判，它已經是一筆記錄了，清掉要走刪檔。
+>
+> **噪音為什麼不能直接砍掉**：123 列跨姓氏（43%）**全部**只靠 initials 鍵，而同一個
+> 機制也在產生真陽性——上面 `Cai Li ≡ Li Cai` 那一列唯一的鍵就是它。追蹤：#550。
 >
 > 追蹤：#547。
 

@@ -418,13 +418,19 @@ final class PersonBootstrapTests: XCTestCase {
 
     // MARK: - #547：彼此互為異寫、而兩邊都還沒有記錄
 
-    /// 三種 Dweck 寫法落進**同一個** `pendingMutual` 組。
+    /// 三種 Dweck 寫法**至少有一列同時涵蓋三者**，而不是三個各自獨立的提案。
     ///
     /// 行為 oracle（#547 diagnosis）：只替其中一種建檔之後，另外兩種立刻被
     /// `pendingResolution` 標示 —— 也就是 `LooseNameKey` 本來就認得三者是一組。
     /// 差別只在那張索引**只由既有 person 建成**，所以「兩邊都還沒有記錄」時
     /// 完全沉默。本組測試釘住補上的那一半。
-    func testMutualAliasesAmongUnrecordedLiteralsLandInOneGroup() {
+    ///
+    /// **斷言從「恰好一組」放寬成「有一列涵蓋三者」**（#547 批次二，逐鍵成組）：
+    /// 一列＝一個共鍵理由，而這三個寫法有兩個不同的理由——`initials:dweck cs`
+    /// 連起三者，`reorder:carol dweck s` ＋ `initials:carol sd` 連起兩個全名形。
+    /// 兩列都是真的，且第二列是**更強的證據**（全名 token 集合相等）。逼它們合併回
+    /// 一列就是把那個強弱差異丟掉——而判定要的正是證據強度。
+    func testMutualAliasesAmongUnrecordedLiteralsLandInOneGroup() throws {
         let entries = [
             entry("a2020", ["Carol S Dweck"]),
             entry("b2021", ["Carol S. Dweck"]),
@@ -432,12 +438,17 @@ final class PersonBootstrapTests: XCTestCase {
         ]
         let r = PersonBootstrap.resolve(entries: entries, existing: [],
                                         rejected: [], confirmed: [:])
-        XCTAssertEqual(r.pendingMutual.count, 1,
-                       "三種寫法必須收攏成一組，而不是三個各自獨立的提案：\(r.pendingMutual)")
-        XCTAssertEqual(Set(r.pendingMutual.first?.names ?? []),
-                       ["Carol S Dweck", "Carol S. Dweck", "C. S. Dweck"])
-        XCTAssertEqual(r.pendingMutual.first?.occurrences, 3,
-                       "occurrences 是組內全部作者位的總和")
+        let all = try XCTUnwrap(
+            r.pendingMutual.first { Set($0.names) == ["Carol S Dweck", "Carol S. Dweck", "C. S. Dweck"] },
+            "必須有一列同時涵蓋三種寫法：\(r.pendingMutual)")
+        XCTAssertEqual(all.occurrences, 3, "occurrences 是該列全部作者位的總和")
+        XCTAssertEqual(all.sharedKeys, ["initials:dweck cs"],
+                       "該列的鍵要**恰好**是連起這三者的那一個，不是「碰到本組的所有鍵」")
+
+        // 每一列的成員都不只一個——單獨一個寫法不構成「彼此共鍵」
+        for g in r.pendingMutual {
+            XCTAssertGreaterThanOrEqual(g.names.count, 2, "一列至少兩個寫法：\(g)")
+        }
     }
 
     /// **扣住不建檔**（#547 D1(b)）——只回報不解決傷害：`--apply` 照樣會鑄三個身分。

@@ -167,6 +167,10 @@ public enum PersonBootstrap {
         /// 組內全部作者位的總和。
         public var occurrences: Int
         /// 造成連結的寬鬆鍵（排序）——給操作者看「為什麼它們被收在一起」。
+        ///
+        /// **一組＝一個成員集合，不是一個連通分量**：同一個寫法可以出現在多組
+        /// （它真的與不同的人共用不同的鍵）。所以**組數與寫法數不可相加**，要算
+        /// 「共有幾個寫法被扣住」必須先去重——見 `resolve` 內的裁決說明。
         public var sharedKeys: [String]
     }
 
@@ -346,76 +350,83 @@ public enum PersonBootstrap {
         // 檢查）看不見它們：key 不同就永遠不相撞。
         //
         // **鍵空間逐 tier 分開**，與上面同構——合併成一張表會讓某個名字的 reorder 鍵
-        // 撞上另一個的 initials 鍵（本檔 R3-fix R4-6 記過那個幽靈命中）。
+        // 撞上另一個的 initials 鍵（本檔 R3-fix R4-6 記過那個幽靈命中）。這裡雖然
+        // 只有一個 `keyOwners` 字典，分開是由 `reorder:` ／ `initials:` 前綴做的：
+        // 兩個 tier 的鍵永遠不可能相等，而前綴同時就是要印給人看的那個理由字串。
         //
         // **只有 ≥ `minOccurrences` 的群進得了這個索引**（#547 verify V16）。低於門檻的
         // 群既不被扣住、也不扣住別人——使用者說「只處理 ≥N 的」，一個他明講不要處理的
         // 鄰居不該有否決權。詳見 `resolve` 的參數說明。
         let eligible = groups.filter { $0.value.count >= minOccurrences }
-        var mutualReorder: [String: Set<String>] = [:]
-        var mutualInitials: [String: Set<String>] = [:]
+        var keyOwners: [String: Set<String>] = [:]
         for (id, g) in eligible {
             for n in g.names {
-                mutualReorder[LooseNameKey.reorderKey(n), default: []].insert(id)
+                keyOwners["reorder:\(LooseNameKey.reorderKey(n))", default: []].insert(id)
                 for k in LooseNameKey.initialsKeys(n) {
-                    mutualInitials[k, default: []].insert(id)
+                    keyOwners["initials:\(k)", default: []].insert(id)
                 }
             }
         }
-        // 連通分量：A 與 B 共鍵、B 與 C 共鍵時三者同組（同一人的三種寫法未必兩兩共鍵——
-        // `Carol S Dweck` 與 `C. S. Dweck` 靠 initials 相連，各自又與 `Carol S. Dweck`
-        // 靠 reorder 相連）。逐對輸出會讓同一個人出現在多列，人得自己拼。
-        var parent: [String: String] = [:]
-        for id in eligible.keys { parent[id] = id }
-        func find(_ x: String) -> String {
-            var root = x
-            while let p = parent[root], p != root { root = p }
-            var cur = x                                  // 路徑壓縮
-            while let p = parent[cur], p != root { parent[cur] = root; cur = p }
-            return root
+        // **逐鍵成組，不取傳遞閉包**（使用者裁決，2026-09-10）。
+        //
+        // 先前這裡跑 union-find：A 與 B 共鍵、B 與 C 共鍵 ⇒ 三者同組，而 `sharedKeys`
+        // 列的是「碰到本組 ≥2 個成員的所有鍵」——**那句話對一個七人組等於什麼都沒說**：
+        // 讀的人看得到四個鍵與七個名字，看不出哪個鍵連了哪兩個。逐鍵成組換掉的正是這個：
+        // 每一列的鍵**恰好**連起該列的成員，理由與對象一一對應。
+        //
+        // 同一個寫法因此可以出現在多列——它真的與不同的人共用不同的鍵。
+        //
+        // **扣住的集合一個都沒變**：兩種做法的條件都是「與另一個未建檔候選共用至少一個
+        // 寬鬆鍵」，閉包只影響怎麼把它們攤到紙上。所以這**不是** recall 的取捨——
+        // `identity-is-judged-not-matched` 的判準是「會不會讓某個配對不再出現在任何人
+        // 眼前」，而這裡每一個配對都還在。實測（live store，同一份 `--json` 輸出，
+        // 新組取傳遞閉包即還原舊組）：候選 3,241、被扣住的 distinct 寫法 591，
+        // **兩者逐字不變**；組數 253 → 285，子集列 10。
+        //
+        // **它沒有修掉「跨姓連結」那個 finding，這一點要寫清楚**：跨姓組
+        // 118/253（46%）→ 123/285（43%），最大組**兩者都是 7**。所以 verify 說的
+        // 巨型群不存在，成因也不是閉包——123 個跨姓組**全部**只靠 initials 鍵，
+        // 由 reorder 鍵造成的跨姓是 **0**。真正的成因是 `LooseNameKey.initialsKeys`
+        // 對無逗號名字同時發出「姓在後」與「姓在前」兩種解讀。
+        //
+        // **而那個解讀不能單純拿掉**：`Cai Li` ≡ `Li Cai` 這一組唯一的鍵是
+        // `initials:li c`，它來自 `Li Cai` 的**姓在前**解讀。拿掉就弄丟一個真配對，
+        // 而那正是中文名發表順序會變的那一類。收窄要付的代價因此是實的，不是零。
+        // 追蹤：#550（命名慣例的 type 軸）。
+        //
+        // **成員集合相同的組併成一列**：兩個名字若同時共用 reorder 與 initials 鍵，
+        // 逐鍵會產出兩列一模一樣的成員——那是同一個提名被查了兩次
+        // （`zero-instance-guards` 第 5 列「對覆蓋率自我謊報」的同型）。以成員集合收攏，
+        // 鍵則全部列出。
+        var byMembers: [Set<String>: [String]] = [:]     // 成員集合 → 造成它的全部鍵
+        for (k, owners) in keyOwners where owners.count >= 2 {
+            byMembers[owners, default: []].append(k)
         }
-        func union(_ a: String, _ b: String) {
-            let ra = find(a), rb = find(b)
-            if ra != rb { parent[ra] = rb }
-        }
-        for owners in mutualReorder.values where owners.count >= 2 {
-            let sorted = owners.sorted()
-            for o in sorted.dropFirst() { union(sorted[0], o) }
-        }
-        for owners in mutualInitials.values where owners.count >= 2 {
-            let sorted = owners.sorted()
-            for o in sorted.dropFirst() { union(sorted[0], o) }
-        }
-        var components: [String: [String]] = [:]
-        for id in eligible.keys { components[find(id), default: []].append(id) }
 
         var mutualList: [PendingMutualGroup] = []
-        for (_, members) in components where members.count >= 2 {
-            let memberSet = Set(members)
+        var withheld = Set<String>()
+        for (members, keys) in byMembers {
             var names: [String] = []
             var count = 0
-            for m in members {
+            for m in members.sorted() {
                 guard let g = groups[m] else { continue }
                 names.append(contentsOf: g.names)
                 count += g.count
             }
-            // 「為什麼收在一起」要說得出來——只列真的連到本組 ≥2 個成員的鍵。
-            var shared = Set<String>()
-            for (k, owners) in mutualReorder where owners.intersection(memberSet).count >= 2 {
-                shared.insert("reorder:\(k)")
-            }
-            for (k, owners) in mutualInitials where owners.intersection(memberSet).count >= 2 {
-                shared.insert("initials:\(k)")
-            }
             mutualList.append(PendingMutualGroup(
-                names: names.sorted(), occurrences: count, sharedKeys: shared.sorted()))
-            // **扣住不建檔**（#547 D1(b)）：只回報不解決傷害——`--apply` 照樣鑄三個身分。
-            for m in members { groups.removeValue(forKey: m) }
+                names: names.sorted(), occurrences: count, sharedKeys: keys.sorted()))
+            withheld.formUnion(members)
         }
+        // **扣住不建檔**（#547 D1(b)）：只回報不解決傷害——`--apply` 照樣鑄三個身分。
+        for m in withheld { groups.removeValue(forKey: m) }
+
         let mutual = mutualList.sorted { a, b in
-            a.occurrences == b.occurrences
-                ? a.names.first ?? "" < b.names.first ?? ""
-                : a.occurrences > b.occurrences
+            if a.occurrences != b.occurrences { return a.occurrences > b.occurrences }
+            // 逐鍵成組讓組數變多，同分不再罕見——排序必須是**全序**，否則 `--json` 的
+            // 位元組會隨 `Dictionary` 的每行程隨機走訪順序而變。`names` 是每組的唯一
+            // 指紋（成員集合相同的組已在上面併掉，而每個寫法只屬於一個 identity），
+            // 所以逐元素比較即足；只比 `first` 不夠。
+            return a.names.lexicographicallyPrecedes(b.names)
         }
 
         // 出現次數多的先——處理它們的投報率最高

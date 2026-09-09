@@ -96,9 +96,11 @@ final class BootstrapPeopleMutualCLITests: XCTestCase {
             XCTAssertNotNil(obj[k], "缺少 `\(k)` 段：\(obj.keys.sorted())")
         }
         let mutual = try XCTUnwrap(obj["pendingMutual"] as? [[String: Any]])
-        XCTAssertEqual(mutual.count, 1, "三種 Dweck 寫法要收攏成一組：\(mutual)")
-        let names = try XCTUnwrap(mutual.first?["names"] as? [String])
-        XCTAssertEqual(Set(names), ["Carol S Dweck", "Carol S. Dweck", "C. S. Dweck"])
+        // 一列＝一個共鍵理由（#547 批次二）：三種 Dweck 寫法有兩個理由，所以有兩列，
+        // 而其中**一列**同時涵蓋三者。斷言那一列在，不斷言只有一列。
+        let names = mutual.compactMap { $0["names"] as? [String] }
+        XCTAssertTrue(names.contains { Set($0) == ["Carol S Dweck", "Carol S. Dweck", "C. S. Dweck"] },
+                      "必須有一列同時涵蓋三種寫法：\(mutual)")
     }
 
     /// **`--json` 的 `display-safe-exempt` 前提，釘住。**
@@ -165,9 +167,11 @@ final class BootstrapPeopleMutualCLITests: XCTestCase {
         // (c) **數量被說出來**——沒有這一條，(a)(b) 全對仍然是靜默扣留
         XCTAssertTrue(r.output.contains("未建檔"),
                       "--apply 沒有說出它扣住了什麼：\n\(r.output)")
-        XCTAssertTrue(r.output.contains("1 組"),
+        XCTAssertTrue(r.output.contains("2 組"),
                       "扣住的組數要出現在輸出裡：\n\(r.output)")
+        // **3 而不是 5**：兩列合計五個名字位，但 `Carol S Dweck` 與 `Carol S. Dweck`
+        // 同時出現在兩列（它們有兩個共鍵理由）。逐列相加會謊報——這一條釘住去重。
         XCTAssertTrue(r.output.contains("3 個寫法"),
-                      "扣住的寫法數要出現在輸出裡：\n\(r.output)")
+                      "扣住的寫法數要去重後說出來（逐列相加會得到 5）：\n\(r.output)")
     }
 }

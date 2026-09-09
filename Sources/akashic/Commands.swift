@@ -627,6 +627,8 @@ struct BootstrapPeople: ParsableCommand {
                   + "literal 留在誠實狀態是合法終點。")
             print("  ⚠ 本段**不涵蓋羅馬化異拼**（Hsu↔Xu 這類）：那是查表域，"
                   + "LooseNameKey 刻意不在任何鍵空間收斂。看不到不等於沒有。")
+            print("  ⚠ 一列＝一個共鍵理由，**同一個寫法可以出現在多列**"
+                  + "（它真的與不同的人共用不同的鍵）——所以列數與寫法數不可相加。")
         }
 
         func printUnkeyable() {
@@ -701,7 +703,9 @@ struct BootstrapPeople: ParsableCommand {
         // 正是 `lossless-intake` §3 說的「靜默是最糟的形式」。
         let heldGroups = report.pendingMutual.filter { $0.occurrences >= minOccurrences }
         if !heldGroups.isEmpty {
-            let heldNames = heldGroups.reduce(0) { $0 + $1.names.count }
+            // **去重**：逐鍵成組之後同一個寫法可以出現在多組（它真的與不同的人共用
+            // 不同的鍵），逐組相加會把它算好幾次。
+            let heldNames = Set(heldGroups.flatMap(\.names)).count
             print("⚠ 另有 \(heldGroups.count) 組／\(heldNames) 個寫法**未建檔**"
                   + "（彼此寬鬆共鍵、兩邊都還沒有記錄）——見下方清單；完整清單用 --json")
         }

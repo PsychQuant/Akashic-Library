@@ -67,8 +67,11 @@ final class BootstrapPeopleMutualCLITests: XCTestCase {
 
     /// 顯示上限走 `AmbiguityDisplayLimit.rows`，不是寫死的 20。
     ///
-    /// **不比對數字字面**（那會在改常數時假綠），而是造 21 個彼此無關的候選：
-    /// 寫死 20 時會出現截斷行，走 `rows`（50）時不會。
+    /// **斷言的是「21 筆全部列出來」，不是「輸出裡沒有『只列前 20』」**（#547 批次二
+    /// 負控抓到）。後者守不住東西：截斷行與 `prefix` 是兩個獨立的地方，只把 `prefix`
+    /// 改回 20 時輸出會**列 20 筆、而且一個字都不說**——那個字串在兩種情況下都不在，
+    /// 測試照樣綠。而「列了 20 筆卻不出聲」比「列 20 筆並說出來」更糟
+    /// （`lossless-intake` §3）。
     func testCandidateDisplayCapFollowsAmbiguityDisplayLimit() throws {
         let store = LibraryStore(root: root)
         for i in 0..<21 {
@@ -81,8 +84,10 @@ final class BootstrapPeopleMutualCLITests: XCTestCase {
         XCTAssertEqual(r.status, 0, r.output)
         XCTAssertGreaterThan(AmbiguityDisplayLimit.rows, 21,
                              "本測試的前提是上限 > 21；常數改小要重挑 fixture")
-        XCTAssertFalse(r.output.contains("只列前 20"),
-                       "候選段仍在用寫死的 20：\n\(r.output)")
+        // key 後面接兩個空白與 `×1`——避免 `surname1-unique1` 被 `…-unique10` 誤命中
+        let missing = (0..<21).filter { !r.output.contains("surname\($0)-unique\($0)  ×1") }
+        XCTAssertTrue(missing.isEmpty,
+                      "21 個候選必須全部列出，缺了 \(missing)：\n\(r.output)")
     }
 
     /// `--json` 與人可讀面同源——四段都在，且 `pendingMutual` 有那一組。

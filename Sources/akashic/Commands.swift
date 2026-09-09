@@ -669,7 +669,7 @@ struct BootstrapPeople: ParsableCommand {
             if total > AmbiguityDisplayLimit.rows {
                 print("  …共 \(total) 個（只列前 \(AmbiguityDisplayLimit.rows)；完整清單用 --json）")
             }
-        printPendingResolution()
+            printPendingResolution()
             printPendingMutual()
             printUnkeyable()
             print("（只列候選；要建立加 --apply）")
@@ -752,10 +752,12 @@ struct BootstrapOrganizations: ParsableCommand {
         func reportDropped() {
             guard !dropped.isEmpty else { return }
             print("另有 \(dropped.count) 個機構名無法自動產生 key（含非 ASCII、需人工指定）：")
-            for d in dropped.prefix(20) {
+            for d in dropped.prefix(AmbiguityDisplayLimit.rows) {
                 print("  ⚠ 「\(displaySafe(d.name, max: 200))」 ×\(d.occurrences)")
             }
-            if dropped.count > 20 { print("  …共 \(dropped.count) 個") }
+            if dropped.count > AmbiguityDisplayLimit.rows {
+                print("  …共 \(dropped.count) 個")
+            }
         }
 
         guard !cands.isEmpty else {
@@ -767,12 +769,18 @@ struct BootstrapOrganizations: ParsableCommand {
             }
             return
         }
-        for c in cands.prefix(apply ? 0 : 20) {
+        // 上限與 `bootstrap-people` 同源（#547 批次二）——先前這一段寫死四個 `20`，
+        // 而 people 那邊已經改讀 `AmbiguityDisplayLimit.rows`。同一件事的兩份描述
+        // 不會一起改（`no-compat-fallback`），而 people 的實測是 78 個候選被截在 20，
+        // org 面同型：一個看起來完整的清單其實少了六成。
+        for c in cands.prefix(apply ? 0 : AmbiguityDisplayLimit.rows) {
             let aliases = c.names.map { displaySafe($0, max: 200) }.joined(separator: " ≡ ")
             print("  \(displaySafe(c.key, max: 200))  ×\(c.occurrences)  \(aliases)")
         }
         if !apply {
-            if total > 20 { print("  …共 \(total) 個（只列前 20）") }
+            if total > AmbiguityDisplayLimit.rows {
+                print("  …共 \(total) 個（只列前 \(AmbiguityDisplayLimit.rows)）")
+            }
             reportDropped()
             print("（只列候選；要建立加 --apply）")
             return

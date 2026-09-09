@@ -2,6 +2,7 @@ import XCTest
 import Foundation
 @testable import AkashicCore
 @testable import AkashicStoreIO
+@testable import akashic
 
 /// #154 verify 154-4：`bootstrap-organizations` 的**CLI 輸出面**沒有任何測試。
 ///
@@ -159,5 +160,32 @@ final class OrgBootstrapCLITests: XCTestCase {
         XCTAssertEqual(try store.load().organizations.map(\.key),
                        ["national-taiwan-university"],
                        "印了還不夠——要真的落地（擋住「印了但沒寫進去」）")
+    }
+
+    /// 顯示上限走 `AmbiguityDisplayLimit.rows`，不是寫死的 20（#547 批次二）。
+    ///
+    /// **`bootstrap-people` 那一側早就改了，這一側沒有**——同一件事的兩份描述不會
+    /// 一起改（`no-compat-fallback`）。people 側的實測是 78 個候選被截在 20，
+    /// org 側同型：一個看起來完整的清單其實少了六成。
+    ///
+    /// **不比對數字字面**（那會在改常數時假綠），而是造 21 個彼此無關的候選：
+    /// 寫死 20 時會出現截斷行，走 `rows`（50）時不會。
+    func testCandidateDisplayCapFollowsAmbiguityDisplayLimit() throws {
+        for i in 0..<21 {
+            try writePerson(key: "p\(i)", affiliations: ["Unique Institute Number \(i)"])
+        }
+        let r = try runCLI(["bootstrap-organizations"])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertGreaterThan(AmbiguityDisplayLimit.rows, 21,
+                             "本測試的前提是上限 > 21；常數改小要重挑 fixture")
+        // **斷言 21 筆全部列出，不是「沒有『只列前 20』」**——負控實測後者守不住：
+        // 截斷行與 `prefix` 是兩個獨立的地方，只把 `prefix` 改回 20 時輸出會
+        // 列 20 筆、而且一個字都不說（`21 > 50` 為假，截斷行不觸發）。
+        // key 後面接兩個空白與 `×1`——避免 `…number-1` 被 `…number-10` 誤命中。
+        let missing = (0..<21).filter {
+            !r.output.contains("unique-institute-number-\($0)  ×1")
+        }
+        XCTAssertTrue(missing.isEmpty,
+                      "21 個候選必須全部列出，缺了 \(missing)：\n\(r.output)")
     }
 }

@@ -502,6 +502,16 @@ struct BootstrapPeople: ParsableCommand {
     @Option(name: .long, help: "最多處理前 N 個")
     var limit: Int?
 
+    /// #547：完整清單的機器可讀出口。
+    ///
+    /// 人可讀面有顯示上限（`AmbiguityDisplayLimit.rows`），而消歧迴圈的消費端是
+    /// 「把組別餵給 `add-person`」——需要的是完整清單與**逐字的** literal，
+    /// 不是印給人看的截斷版。所以本旗標**不套用 `--limit`**（那是處理／顯示上限），
+    /// 也**不套用 `displaySafe` 消毒**（消毒是終端機的需要；JSON 由序列化器逃脫，
+    /// 而呼叫端需要原字串才能正確傳給 `add-person`）。`--min-occurrences` 照樣生效。
+    @Flag(name: .long, help: "輸出完整四段的 JSON（唯讀，不與 --apply 併用；不套用 --limit）")
+    var json = false
+
     func run() throws {
         // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
         // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
@@ -513,6 +523,33 @@ struct BootstrapPeople: ParsableCommand {
             entries: load.entries, existing: load.people,
             rejected: ResolutionLedger.rejectedPairings(people: load.people),
             confirmed: ResolutionLedger.confirmedPairings(people: load.people))
+        if json {
+            // 唯讀出口——與 `--apply` 併用沒有意義且會讓「輸出的是寫入前還是寫入後」有歧義。
+            guard !apply else {
+                throw ValidationError("--json 是唯讀輸出，不與 --apply 併用")
+            }
+            let payload: [String: Any] = [
+                "candidates": report.candidates
+                    .filter { $0.occurrences >= minOccurrences }
+                    .map { ["key": $0.key, "names": $0.names, "occurrences": $0.occurrences] },
+                "unkeyable": report.unkeyable
+                    .filter { $0.occurrences >= minOccurrences }
+                    .map { ["names": $0.names, "occurrences": $0.occurrences, "reason": $0.reason] },
+                "pendingResolution": report.pendingResolution
+                    .filter { $0.occurrences >= minOccurrences }
+                    .map { ["names": $0.names, "occurrences": $0.occurrences,
+                            "matchedKeys": $0.matchedKeys] },
+                "pendingMutual": report.pendingMutual
+                    .filter { $0.occurrences >= minOccurrences }
+                    .map { ["names": $0.names, "occurrences": $0.occurrences,
+                            "sharedKeys": $0.sharedKeys] },
+            ]
+            let data = try JSONSerialization.data(
+                withJSONObject: payload,
+                options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+            print(String(decoding: data, as: UTF8.self))
+            return
+        }
         var cands = report.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }
@@ -543,6 +580,34 @@ struct BootstrapPeople: ParsableCommand {
                   + "優先於寬鬆碰撞）再 apply；配對確定錯誤 → reject。候選全數出清後名字回到本命令。")
         }
 
+        /// #547：彼此寬鬆共鍵、而**兩邊都還沒有記錄**的群——同樣先消歧、不建檔。
+        ///
+        /// 與 `printPendingResolution` 是同一件事的兩半：那一半問「跟既有 person 撞了嗎」，
+        /// 這一半問「跟本批的其他候選撞了嗎」。只在 model 端加欄位而沒有任何輸出讀它，
+        /// 與丟棄在效果上完全相同（#236 R3 在 App 面踩過，位置更難察覺）。
+        func printPendingMutual() {
+            let shown = report.pendingMutual.filter { $0.occurrences >= minOccurrences }
+            guard !shown.isEmpty else { return }
+            print("")
+            print("彼此寬鬆共鍵、**兩邊都還沒有記錄**（\(shown.count)）——建檔會鑄造重複身分：")
+            for g in shown.prefix(AmbiguityDisplayLimit.rows) {
+                let aliases = g.names.map { displaySafe($0, max: 200) }.joined(separator: " ≡ ")
+                print("  ×\(g.occurrences)  \(aliases)")
+                print("      共鍵：\(g.sharedKeys.map { displaySafe($0, max: 200) }.joined(separator: "、"))")
+            }
+            if shown.count > AmbiguityDisplayLimit.rows {
+                print("  …另 \(shown.count - AmbiguityDisplayLimit.rows) 筆未顯示（完整清單用 --json）")
+            }
+            print("  處置：同鍵只代表**值得看**，不代表同一人——寬鬆層的縮寫／重排共鍵"
+                  + "經常是不同的人（實例：Chien-Hsun Wang／Chung-Ho Wang／Chih-Hsiung Wang）。"
+                  + "查證後——是同一人 → add-person <key> --name <寫法1> --name <寫法2> …（一次帶齊）；"
+                  + "是不同人 → 各自 add-person 指定不同 key。兩者都讓這些寫法成為 exact alias，"
+                  + "下次本命令即隱形、交由 resolve-people 歸戶。判不出來就不建——"
+                  + "literal 留在誠實狀態是合法終點。")
+            print("  ⚠ 本段**不涵蓋羅馬化異拼**（Hsu↔Xu 這類）：那是查表域，"
+                  + "LooseNameKey 刻意不在任何鍵空間收斂。看不到不等於沒有。")
+        }
+
         func printUnkeyable() {
             let shown = report.unkeyable.filter { $0.occurrences >= minOccurrences }
             guard !shown.isEmpty else { return }
@@ -563,16 +628,24 @@ struct BootstrapPeople: ParsableCommand {
             print("無建檔候選（可能：literal 已有對應 person／低於 --min-occurrences 門檻／"
                   + "與既有 person 寬鬆共鍵而在下方 pending 清單）")
             printPendingResolution()   // R2-fix R3-8：零建檔候選時 pending 更該被看見
+            printPendingMutual()       // #547：同上——零候選時它更該被看見
             printUnkeyable()   // 沒有候選時，這些**更**該被看見
             return
         }
-        for c in cands.prefix(apply ? 0 : 20) {
+        // #547：顯示上限改用 `AmbiguityDisplayLimit.rows`。此前是寫死的 `20`，
+        // 而同一個檔案裡 pending／unkeyable 兩段用的是 `rows`（50）——同一個概念
+        // （一份 bootstrap 報告印幾列）兩個數字、兩個來源，正是
+        // `no-compat-fallback` §「同一件事只能有一份描述」的形狀。
+        for c in cands.prefix(apply ? 0 : AmbiguityDisplayLimit.rows) {
             let aliases = c.names.map { displaySafe($0, max: 200) }.joined(separator: " ≡ ")
             print("  \(displaySafe(c.key, max: 200))  ×\(c.occurrences)  \(aliases)")
         }
         if !apply {
-            if total > 20 { print("  …共 \(total) 個（只列前 20）") }
+            if total > AmbiguityDisplayLimit.rows {
+                print("  …共 \(total) 個（只列前 \(AmbiguityDisplayLimit.rows)；完整清單用 --json）")
+            }
         printPendingResolution()
+            printPendingMutual()
             printUnkeyable()
             print("（只列候選；要建立加 --apply）")
             return

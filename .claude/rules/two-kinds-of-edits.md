@@ -47,7 +47,7 @@
 | `library add`／`remove`、`tag`、`link`、`set-status`（#219／#258／#455） | 程式 | 集合語意，冪等 |
 | order-insensitive collapse（#461）、verdict holder 遷移（#463） | 程式 | 對已判定結果的機械搬移；只收本次觸及、不碰未觸及 |
 | `authorize-names`（#81） | AI | 「哪個名字對外」是人的判斷，建檔不得機械偽造（#227） |
-| `enrich`／`akashic_enrich`（#458） | 程式 | generic add-only：只補不存在的鍵、來源給什麼收什麼、不判定——同輸入必得同輸出。DOI → citekey 由程式做是**識別碼例外**（`identity-is-judged-not-matched`），命中 ≥2 筆時**拒絕不判定**（`ambiguous`）——判定屬 #459 的攣生管線。`enrich-from-zotero` 自此是它的 adapter，種類不變 |
+| `enrich`／`akashic_enrich`（#458） | 程式 | generic add-only：只補不存在的鍵、來源給什麼收什麼、不判定——同輸入必得同輸出。DOI → citekey 由程式做是**識別碼例外**（`identity-is-judged-not-matched`），命中 ≥2 筆時**拒絕不判定**（`ambiguous`）——判定屬 #459 的攣生管線。`enrich-from-zotero` 自此是它的 adapter，種類不變。**#517 起它寫來源 reference，而 kind 必然是 `retrieval` 不是 `judgement`**——那不只是形狀偏好：judgement 是 AI 編輯欄的產出物（「留 verdict、必附理由」），一個決定論式的補值面**不該發出判定**。「這個值取自那份存檔」是一次取得的記錄，不是推理 |
 
 新增下一個寫入面 = 在這張表加一列，並在 `mcp-cli-parity` 的表裡同時裁決它的兩面。
 

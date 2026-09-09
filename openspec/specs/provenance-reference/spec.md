@@ -113,7 +113,33 @@ A reference SHALL identify which assertion it supports. A record-level list of r
 #### Scenario: A reference names a field the record does not carry
 
 - **WHEN** a reference names a field absent from the record
+- **AND** the reference asserts that the absent field holds a value from that source
 - **THEN** the store SHALL reject the record with an error naming the field
+
+#### Scenario: A reference records that a field was looked for
+
+A reference MAY instead record **an act of looking** for a field rather than the provenance of
+a value the field holds. Such a reference SHALL NOT name a value, and SHALL be a retrieval —
+the address looked at and the date are not recorded anywhere else, and without them the record
+of looking cannot be re-examined.
+
+- **WHEN** a reference names a field, carries no value, and is a retrieval
+- **THEN** the store SHALL accept it whether or not the record carries that field
+- **AND** the field being absent SHALL be readable as a negative result: the source was
+  consulted and did not supply a value
+
+Without this, "not looked for" and "looked for and absent" are the same observation in the
+store, and the second is unrecoverable — the searcher's own notes are the only record that a
+search happened, so the next person repeats it.
+
+##### Example: A work whose DOI was searched for and not found
+
+| Field | Reference carries a value | Record carries the field | Reading |
+| ----- | ------------------------- | ------------------------ | ------- |
+| `doi` | yes | yes | that identifier came from this source |
+| `doi` | no | yes | the field was looked for here, and this is what it supplied |
+| `doi` | no | **no** | **the field was looked for here, and there was none** |
+| `doi` | yes | no | rejected — the reference asserts a value the record does not hold |
 
 ---
 ### Requirement: A reference SHALL be able to record a judgement that is not a retrieval

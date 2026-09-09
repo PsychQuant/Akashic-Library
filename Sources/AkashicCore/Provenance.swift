@@ -36,6 +36,19 @@ public struct ProvenanceReference: Equatable {
     /// 逐字取回。塞進去會讓它們對拆分記錄解析失敗或誤判；拆分記錄的 statement 走 `SplitRecordValue`。
     public static let firstOrderRulingFields: Set<String> = resolutionVerdictFields.union(["authors"])
 
+    /// work 的**非識別碼欄位**（`Entry.fields` 的鍵）在 reference 上的命名空間前綴（#517）。
+    ///
+    /// **為什麼要前綴，而不是直接用鍵名。** `Entry.fields` 是 `[String: String]`，鍵由來源決定
+    /// （`lossless-intake`：來源給什麼就收什麼），所以它**必然**會與 reference 已保留的欄位名撞上
+    /// ——2026-09-09 實測 live store：`fields` 有 40 種鍵，其中 **`doi` 3 筆、`isbn` 3 筆**與保留字
+    /// 同名。裸鍵名之下，`field: doi` 到底指結構化的 `entry.doi` 清單還是 `fields["doi"]`，
+    /// **今天就已經是歧義**。
+    ///
+    /// 前綴讓那個歧義在文法上寫不出來（`entity-backlink-completeness` 引 3.325 的同一個立場），
+    /// 而不是靠一份「哪些鍵不准用」的白名單——那種白名單會漏，本 repo 已經記過兩次
+    /// （`PATH_ROOTS`、`trigger-coverage` 的 `DATA`）。
+    public static let workFieldPrefix = "fields."
+
     /// #232 verify（DA）：verdict `value` 的**單一文法**——`<kind>:<key> :: <literal>`。
     ///
     /// kind token **必填**且**兩族統一**：person 與 organization 的 key 可合法同名
@@ -737,11 +750,26 @@ extension Entry {
                         + "（`拆為 ⟦a⟧ ⟦b⟧…：理由`：段 ≥ 2、括號平衡、理由非空）")
                 }
             case "doi", "pmid", "isbn":
+                // **value 缺席 ＝ 這一筆說的是「對這個欄位做過的一次查找」，不是某一個號的來源**
+                // （#517）。負結果因此寫得出來：欄位空 ＋ 這樣一筆 ＝「查過了，沒有」。
+                //
+                // 既有規則要求 value，理由是「一筆記錄真的會有多個 DOI，要說支持哪一個」——
+                // 那個理由只在「這一筆關於某個值」時成立，關於整個欄位時不成立。
+                //
+                // **kind 必須是 retrieval**：一次查找有 url 與日期，而**那兩件事沒有別的地方記**
+                // （`sources/index.jsonl` 記 origin／retrieved／media-type，但不記 url）。
+                // judgement 走不到這裡——它的空 rests-on 已被平面 init 擋下（識別碼欄位不在
+                // `firstOrderRulingFields`），而帶 digest 的 judgement 說的是「依據某份存檔做的
+                // 判定」，那要說支持哪一個值，仍須 value。
                 guard let v = r.value else {
-                    throw StoreYAMLError.invalidField(
-                        "entry.references(field: \(r.field))",
-                        "\(r.field) 是清單，reference 必須帶 value 指名支持的是哪一個（D2）"
-                        + "——實測 37 組同題同年而 DOI 不同，一筆記錄真的會有多個")
+                    guard case .retrieval = r.kind else {
+                        throw StoreYAMLError.invalidField(
+                            "entry.references(field: \(r.field))",
+                            "\(r.field) 的 reference 沒帶 value 時說的是「對這個欄位做過的一次查找」"
+                            + "，必須是擷取型（retrieval：url 與日期沒有別的地方記）。"
+                            + "要說某一個號的來源就帶上那個 value")
+                    }
+                    continue
                 }
                 let ok: Bool
                 switch r.field {
@@ -755,11 +783,38 @@ extension Entry {
                         "value「\(displaySafe(v, max: 120))」不在 \(r.field) 清單內"
                         + "——值被改寫後 provenance 成了孤兒")
                 }
+            case _ where r.field.hasPrefix(ProvenanceReference.workFieldPrefix):
+                // **非識別碼欄位的來源**（#517）——`fields.<key>`。
+                //
+                // 值域從「三個識別碼 ＋ authors」擴到這裡的理由：補進去的 `abstract` 在此之前
+                // 永遠是「不知道從哪來的」，而 `replace-endnote-and-zotero` 第 2 條要求位元組住
+                // Akashic——位元組在 `sources/`，記錄卻指不到它。
+                let key = String(r.field.dropFirst(ProvenanceReference.workFieldPrefix.count))
+                guard !key.isEmpty else {
+                    throw StoreYAMLError.invalidField(
+                        "entry.references(field: \(r.field))",
+                        "「\(ProvenanceReference.workFieldPrefix)」後面要接 fields 的鍵名")
+                }
+                // **純量欄位不收 value**（D2，比照 `note`／`founded`）：`fields` 的每個鍵恰有
+                // 一個值，沒有「支持哪一個」可說。
+                guard r.value == nil else {
+                    throw StoreYAMLError.invalidField(
+                        "entry.references(field: \(r.field))",
+                        "fields 的每個鍵恰有一個值，reference 不收 value（D2）")
+                }
+                // **刻意不檢查 `fields[key]` 在場**——那正是負結果的形狀：欄位缺席 ＋ 一筆
+                // 查找記錄 ＝「查過了，沒有」。代價寫在這裡：打錯的鍵名會靜靜附上去，而
+                // 沒有東西擋得住。要擋它就得放棄負結果的表達法，那是本 change 的核心。
+                //
+                // judgement 型合法且不必另設閘：它的空 rests-on 已被平面 init 擋下
+                // （`fields.*` 不在 `firstOrderRulingFields`），所以走這條必然帶著真的 digest
+                // ——離線來源（掃描的紙本頁）因此表達得出來，而 retrieval 的 url 是必填的。
+                break
             default:
                 throw StoreYAMLError.invalidField(
                     "entry.references(field: \(r.field))",
                     "work 沒有可附著 reference 的欄位「\(displaySafe(r.field, max: 120))」"
-                    + "（合法：doi、pmid、isbn、authors）")
+                    + "（合法：doi、pmid、isbn、authors、fields.<鍵名>）")
             }
         }
     }

@@ -124,12 +124,13 @@ final class PersonBootstrapTests: XCTestCase {
         XCTAssertEqual(r.candidates.count, 1, "\(r)")
     }
 
-    func testReorderedFormsMergeIntoOneCandidate() {
+    func testReorderedFormsMergeIntoOneCandidate() throws {
         let cs = PersonBootstrap.candidates(
             entries: [entry("a", ["Che Cheng"]), entry("b", ["Cheng, Che"])], existing: [], rejected: [], confirmed: [:])
         XCTAssertEqual(cs.count, 1)
-        XCTAssertEqual(cs[0].names.sorted(), ["Che Cheng", "Cheng, Che"])
-        XCTAssertEqual(cs[0].occurrences, 2)
+        let c = try XCTUnwrap(cs.first)
+        XCTAssertEqual(c.names.sorted(), ["Che Cheng", "Cheng, Che"])
+        XCTAssertEqual(c.occurrences, 2)
     }
 
     /// **縮寫不與全名合併。** `Cheng, C` 看起來像 `Cheng, Che`，但也可能是 `Cheng, Chao`。
@@ -169,12 +170,12 @@ final class PersonBootstrapTests: XCTestCase {
     }
 
     /// 大小寫與空白差異**是**機械可判的，合併。
-    func testCaseAndWhitespaceVariantsMerge() {
+    func testCaseAndWhitespaceVariantsMerge() throws {
         let cs = PersonBootstrap.candidates(
             entries: [entry("a", ["Chun-Houh Chen"]), entry("b", ["chun-houh  chen"])],
             existing: [], rejected: [], confirmed: [:])
         XCTAssertEqual(cs.count, 1)
-        XCTAssertEqual(cs[0].occurrences, 2)
+        XCTAssertEqual(try XCTUnwrap(cs.first).occurrences, 2)
     }
 
     // MARK: - 不重複建立
@@ -206,21 +207,26 @@ final class PersonBootstrapTests: XCTestCase {
 
     // MARK: - key 生成
 
-    func testSuggestedKeyIsSurnameFirst() {
+    func testSuggestedKeyIsSurnameFirst() throws {
         let cs = PersonBootstrap.candidates(entries: [entry("a", ["Yi-Hau Chen"])], existing: [], rejected: [], confirmed: [:])
-        XCTAssertEqual(cs[0].key, "chen-yi-hau")
+        XCTAssertEqual(try XCTUnwrap(cs.first).key, "chen-yi-hau")
     }
 
-    /// key 撞號時加序號——**不合併**。撞號代表兩個不同的名字產生同一個 slug
-    /// （`Chen, Y-H` 與 `Chen, YH`），那正是需要人看的情形。
+    /// **這條測試的名字說的不是它現在守的東西——留著是因為它守的那個更重要。**
     ///
-    /// **#547 換了 fixture，理由要說出來**：原本用 `Yi-Hau Chen` ／ `Yi Hau Chen`，
-    /// 而那兩個寬鬆共鍵（initials 皆 `chen yh`），自 #547 起會被扣進 `pendingMutual`
-    /// 而不再是候選——於是這條測試會量到 0 個候選，**測不到它真正要測的東西**
-    /// （suffix 邏輯只對存活的候選跑）。改用本測試自己的 doc comment 早就點名的那一對
-    /// `Chen, Y-H` ／ `Chen, YH`：它們的 initials 鍵分別是 `chen yh` 與 `chen y`
-    /// （`cleanTokens` 把 `.` 映成 `-` 並以連字號分段），**不共鍵**，所以照舊各自建檔、
-    /// 撞 slug 時加序號。
+    /// #547 verify（DA 跑 `MUT-C` mutation）證實：把 `LooseNameKey` 的兩個鍵空間
+    /// 合成一張表時（＝`PersonBootstrap.resolve` 的註解自己點名要防的「幽靈命中」，
+    /// 也是本檔 `R3-fix R4-6` 記過的真實 bug），**全 repo 只有這一條測試會紅**，
+    /// 而且靠的正是這組 fixture：`Chen, Y-H` 的 **initials** 鍵 `chen yh` 恰等於
+    /// `Chen, YH` 的 **reorder** 鍵。合表後兩者共鍵 → `pendingMutual` 非空 → 紅。
+    ///
+    /// **所以不要換掉這組 fixture。** #547 verify 的 regression／requirements 兩個 lens
+    /// 都建議換成 `Jörg Müller` ／ `Jorg Muller`（那兩個確實會撞 slug），但實測它們
+    /// 在合表後**零共鍵、不會紅**——換過去等於補一個洞、同時安靜開另一個。
+    ///
+    /// **它不再守「撞號加序號」，那一半由
+    /// `testSuggestedKeyAccumulatesSuffixWithinOneRun` 接手**（`chen-y-h` ≠ `chen-yh`，
+    /// 本 fixture 從不進入 `taken.contains(base)` 分支，那三個斷言對 suffix 恆真）。
     func testKeyCollisionGetsSuffixNotMerge() {
         let r = PersonBootstrap.resolve(
             entries: [entry("a", ["Chen, Y-H"]), entry("b", ["Chen, YH"])],
@@ -232,12 +238,12 @@ final class PersonBootstrapTests: XCTestCase {
                        "key 必須唯一：\(r.candidates.map(\.key))")
     }
 
-    func testKeyAvoidsExistingPersonKeys() {
+    func testKeyAvoidsExistingPersonKeys() throws {
         let cs = PersonBootstrap.candidates(
             entries: [entry("a", ["Che Cheng"])],
             existing: [Person(key: "cheng-che", names: ["別人"])], rejected: [], confirmed: [:])
         XCTAssertEqual(cs.count, 1)
-        XCTAssertNotEqual(cs[0].key, "cheng-che", "不得與既有 key 相同")
+        XCTAssertNotEqual(try XCTUnwrap(cs.first).key, "cheng-che", "不得與既有 key 相同")
     }
 
     // MARK: - 排序
@@ -299,12 +305,12 @@ final class PersonBootstrapTests: XCTestCase {
     }
 
     /// 產出的 Person 直接可寫——names 就是這一組的所有寫法。
-    func testPersonsForProducesUsableRecords() {
+    func testPersonsForProducesUsableRecords() throws {
         let cs = PersonBootstrap.candidates(
             entries: [entry("a", ["Che Cheng"]), entry("b", ["Cheng, Che"])], existing: [], rejected: [], confirmed: [:])
         let ps = PersonBootstrap.personsFor(cs)
         XCTAssertEqual(ps.count, 1)
-        XCTAssertEqual(ps[0].names.all.count, 2, "兩種寫法都要成為 alias")
+        XCTAssertEqual(try XCTUnwrap(ps.first).names.all.count, 2, "兩種寫法都要成為 alias")
     }
 
     /// #226：**重排等價不得取決於姓名的字典序。**
@@ -506,6 +512,57 @@ final class PersonBootstrapTests: XCTestCase {
         XCTAssertTrue(r.pendingMutual.isEmpty,
                       "各自建檔後兩者皆是 exact alias，不該再被提名：\(r.pendingMutual)")
         XCTAssertTrue(r.candidates.isEmpty)
+    }
+
+    // MARK: - #547 verify V4：撞號加序號的覆蓋（原本被 fixture 更換弄丟）
+
+    /// **同一次執行內兩個候選撞 slug → 第二個拿 `-2`。**
+    ///
+    /// `resolve()` 的 `reduce` 迴圈**逐候選累積** `takenKeys`，所以這個性質不是
+    /// 「與既有 person 撞」而是「與同一批的前一個候選撞」。#547 verify 掃過全樹，
+    /// 那時**沒有任何測試守它**——另外三個看似相關的都不是：
+    ///
+    /// | 測試 | 走的是哪條 |
+    /// |---|---|
+    /// | `testKeyAvoidsExistingPersonKeys` | `taken` 由 **existing** 種下，且只斷言 `!=` |
+    /// | `testRerunningAssignmentDoesNotChangeExistingKeys` | `chen-wei-2` 是**既有記錄** |
+    /// | `testCollisionSuffixCarriesNoJudgmentWeight` | 走 `PersonResolver`，不是 bootstrap |
+    ///
+    /// 直接單元測 `suggestedKey(from:taken:)`——不繞過 `resolve()` 的其餘分流，
+    /// 因為那正是上一次覆蓋消失的原因（fixture 被別的機制吃掉，測試卻還是綠的）。
+    ///
+    /// **用 `XCTUnwrap` 不用 `!`**：本測試自己的負控踩過——序號迴圈被拿掉時
+    /// `suggestedKey` 回 `nil`，斷言正確地紅了，但下一行的 `second!` 讓**行程崩潰**
+    /// （`Exited with unexpected signal code 5`），於是沒有 `Executed N tests` 摘要，
+    /// 「守衛失效」與「harness 崩潰」在輸出上無法區分。同 `DropAuthorTests` 記過的形狀。
+    func testSuggestedKeyAccumulatesSuffixWithinOneRun() throws {
+        var taken = Set<String>()
+        let first = try XCTUnwrap(PersonBootstrap.suggestedKey(from: "Jorg Muller", taken: taken))
+        XCTAssertEqual(first, "muller-jorg")
+        taken.insert(first)                        // 模擬 reduce 迴圈的逐候選累積
+
+        // 變音符號摺疊後 slug 相同——這正是「兩個不同的名字產生同一個 slug」
+        let second = try XCTUnwrap(PersonBootstrap.suggestedKey(from: "Jörg Müller", taken: taken),
+                                   "撞 slug 時第二個要拿 -2，而不是回 nil")
+        XCTAssertEqual(second, "muller-jorg-2", "撞 slug 時第二個要拿 -2，而不是覆寫")
+        taken.insert(second)
+
+        // 第三個也撞（只有名字帶變音符號，姓不帶）——序號要繼續往上，不是停在 -2
+        let third = PersonBootstrap.suggestedKey(from: "Jörg Muller", taken: taken)
+        XCTAssertEqual(third, "muller-jorg-3", "序號要逐個累積：\(third ?? "nil")")
+
+        // 對照：**沒**撞的名字不該拿到序號。`Mueller` 摺疊後仍是 `mueller`（`ue` 不折成 `u`），
+        // 所以它是另一個 base，不進 suffix 分支。
+        XCTAssertEqual(PersonBootstrap.suggestedKey(from: "Jorg Mueller", taken: taken),
+                       "mueller-jorg", "不撞號的名字不得被加序號")
+    }
+
+    /// 序號有上界，且**用完是回 `nil` 不是回一個撞號的 key**。
+    func testSuggestedKeyGivesUpRatherThanCollide() {
+        var taken: Set<String> = ["muller-jorg"]
+        for i in 2...99 { taken.insert("muller-jorg-\(i)") }
+        XCTAssertNil(PersonBootstrap.suggestedKey(from: "Jorg Muller", taken: taken),
+                     "99 個都被占用時必須回 nil（由 resolve 記進 unkeyable），不得回撞號的 key")
     }
 
     // MARK: - #547 verify V16：門檻要在扣留之前生效

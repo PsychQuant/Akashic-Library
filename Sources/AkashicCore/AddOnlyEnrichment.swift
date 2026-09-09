@@ -44,9 +44,14 @@ import Foundation
 ///
 /// ## 誠實邊界
 ///
-/// `Proposal.sourceDigest` **只進報告不進 store**：`Entry.references` 的值域只收識別碼
-/// （#394 §5，`Entry.validateReferenceAttachment`）；要讓 work 的欄位攜帶來源是第 15 條邊的
-/// 值域裁決（#450），本型別不擴。
+/// **#517 起 `sourceDigest` 寫得進 store**——第 15 條邊的值域擴到 `fields.<鍵>`（見
+/// `ProvenanceReference.workFieldPrefix`），每個補進去的欄位一筆 `retrieval` reference，
+/// 與被補的值**同一次寫入**。
+///
+/// 仍然只回顯的一種：**只給 digest、沒給 `sourceURL`／`sourceRetrieved`**。一次取得的 url
+/// 與日期沒有別的地方記（`sources/index.jsonl` 記 origin／retrieved／media-type，**不記 url**），
+/// 所以 digest 單獨湊不出一筆誠實的 retrieval。那時理由具名進 `Outcome.provenanceSkipped`
+/// ——不靜默。
 public enum AddOnlyEnrichment {
 
     /// 單一字串的上限，**以 UTF-8 位元組計**（#519 Expected 2 裁決）。
@@ -86,13 +91,35 @@ public enum AddOnlyEnrichment {
         public var date: String?
         /// literal 作者名（只在 entry 的 `authors` 完全為空且 `includeAbsentAuthors` 時補）。
         public var authors: [String]
-        /// 來源存檔的 digest（`sha256:…`）——**只回顯進報告，不寫進 store**。
+        /// 來源存檔的 digest（`sha256:…`）。**#517 起：與 `sourceURL`／`sourceRetrieved`
+        /// 三者齊備時寫進 store**（每個補進去的欄位一筆 `retrieval` reference）；只給 digest
+        /// 仍只回顯，理由具名在報告的 `provenanceSkipped`。
         public var sourceDigest: String?
+        /// 那次取得的 URL。**沒有別的地方記它**——`sources/index.jsonl` 記 origin／retrieved／
+        /// media-type，不記 url，所以 reference 必須自己帶。
+        public var sourceURL: String?
+        /// 取得日期（`YYYY-MM-DD`）。
+        public var sourceRetrieved: String?
+        public var sourceMediaType: String?
+        /// HTTP 狀態；省略即 200。「死」本身也是內容（D3），所以它要記得下來。
+        public var sourceStatus: Int?
 
         public init(citekey: String? = nil, doi: String? = nil, fields: [String: String] = [:],
-                    date: String? = nil, authors: [String] = [], sourceDigest: String? = nil) {
+                    date: String? = nil, authors: [String] = [], sourceDigest: String? = nil,
+                    sourceURL: String? = nil, sourceRetrieved: String? = nil,
+                    sourceMediaType: String? = nil, sourceStatus: Int? = nil) {
             self.citekey = citekey; self.doi = doi; self.fields = fields
             self.date = date; self.authors = authors; self.sourceDigest = sourceDigest
+            self.sourceURL = sourceURL; self.sourceRetrieved = sourceRetrieved
+            self.sourceMediaType = sourceMediaType; self.sourceStatus = sourceStatus
+        }
+
+        /// 三欄齊備時的 `retrieval` kind；否則 nil（呼叫端具名回報，不靜默）。
+        public var retrievalKind: ProvenanceReference.Kind? {
+            guard let d = sourceDigest, let u = sourceURL, let r = sourceRetrieved,
+                  !d.isEmpty, !u.isEmpty, !r.isEmpty else { return nil }
+            return .retrieval(url: u, retrieved: r, status: sourceStatus ?? 200,
+                              mediaType: sourceMediaType, content: d)
         }
 
         /// JSON 形：`{ "citekey" | "doi", "fields": {…}, "date", "authors": […], "sourceDigest" }`。
@@ -106,6 +133,8 @@ public enum AddOnlyEnrichment {
         }
         private static let knownKeys: Set<String> = [
             "citekey", "doi", "fields", "date", "authors", "sourceDigest", "source_digest",
+            "sourceURL", "source_url", "sourceRetrieved", "source_retrieved",
+            "sourceMediaType", "source_media_type", "sourceStatus", "source_status",
         ]
 
         public init(from decoder: Decoder) throws {
@@ -125,10 +154,19 @@ public enum AddOnlyEnrichment {
             authors = try c.decodeIfPresent([String].self, forKey: key("authors")) ?? []
             sourceDigest = try c.decodeIfPresent(String.self, forKey: key("sourceDigest"))
                 ?? c.decodeIfPresent(String.self, forKey: key("source_digest"))
+            sourceURL = try c.decodeIfPresent(String.self, forKey: key("sourceURL"))
+                ?? c.decodeIfPresent(String.self, forKey: key("source_url"))
+            sourceRetrieved = try c.decodeIfPresent(String.self, forKey: key("sourceRetrieved"))
+                ?? c.decodeIfPresent(String.self, forKey: key("source_retrieved"))
+            sourceMediaType = try c.decodeIfPresent(String.self, forKey: key("sourceMediaType"))
+                ?? c.decodeIfPresent(String.self, forKey: key("source_media_type"))
+            sourceStatus = try c.decodeIfPresent(Int.self, forKey: key("sourceStatus"))
+                ?? c.decodeIfPresent(Int.self, forKey: key("source_status"))
         }
 
         private enum CodingKeys: String, CodingKey {
             case citekey, doi, fields, date, authors, sourceDigest
+            case sourceURL, sourceRetrieved, sourceMediaType, sourceStatus
         }
         public func encode(to encoder: Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
@@ -138,6 +176,10 @@ public enum AddOnlyEnrichment {
             try c.encodeIfPresent(date, forKey: .date)
             try c.encode(authors, forKey: .authors)
             try c.encodeIfPresent(sourceDigest, forKey: .sourceDigest)
+            try c.encodeIfPresent(sourceURL, forKey: .sourceURL)
+            try c.encodeIfPresent(sourceRetrieved, forKey: .sourceRetrieved)
+            try c.encodeIfPresent(sourceMediaType, forKey: .sourceMediaType)
+            try c.encodeIfPresent(sourceStatus, forKey: .sourceStatus)
         }
     }
 
@@ -232,13 +274,20 @@ public enum AddOnlyEnrichment {
         /// **部分成功**：一部分 token 解得出並已採用，其餘形狀不認得（#394 verify R9）。
         /// 刻意不併進 `refused`——那個欄位的契約是「刻意不採用」，而部分成功既不是刻意也不是不採用。
         public var partial: [String]
+        /// #517：每個補進去的欄位一筆 `retrieval` reference（`fields.<鍵>`／識別碼帶 value）。
+        /// 三欄來源不齊時是空的，理由進 `provenanceSkipped`——不靜默。
+        public var addedReferences: [ProvenanceReference]
+        /// 有 digest 卻寫不成 reference 的理由（`lossless-intake` 執行細節 3：丟棄必須可見）。
+        public var provenanceSkipped: String?
 
         public init(addedFields: [String: String] = [:], addedDate: String? = nil,
                     addedAuthors: [Author] = [], addedDOIs: [DOI] = [], addedPMIDs: [PMID] = [],
-                    addedISBNs: [ISBN] = [], refused: [String] = [], partial: [String] = []) {
+                    addedISBNs: [ISBN] = [], refused: [String] = [], partial: [String] = [],
+                    addedReferences: [ProvenanceReference] = [], provenanceSkipped: String? = nil) {
             self.addedFields = addedFields; self.addedDate = addedDate; self.addedAuthors = addedAuthors
             self.addedDOIs = addedDOIs; self.addedPMIDs = addedPMIDs; self.addedISBNs = addedISBNs
             self.refused = refused; self.partial = partial
+            self.addedReferences = addedReferences; self.provenanceSkipped = provenanceSkipped
         }
 
         public var nothingToAdd: Bool {
@@ -361,6 +410,11 @@ public enum AddOnlyEnrichment {
         // 同一條保守側紀律：計畫之後 store 若已長出作者，一律不動。
         if out.authors.isEmpty, !outcome.addedAuthors.isEmpty {
             out.authors = outcome.addedAuthors
+        }
+        // #517：來源 reference 與被補的值**同一次寫入**——同 #450 對拆分記錄的既有紀律
+        // （分兩次寫會產生「補了值但沒有來源」的中間態）。冪等：完全相等的一筆不重複加。
+        for r in outcome.addedReferences where !out.references.contains(r) {
+            out.references.append(r)
         }
         return out
     }
@@ -523,9 +577,47 @@ public enum AddOnlyEnrichment {
             }
         }
 
+        // ── #517：來源 reference ──
+        //
+        // **每個補進去的欄位一筆**（D1：清單住頂層、每筆自報欄位）。一份來源補了五個欄位就是
+        // 五筆——它們除了 `field` 以外逐字相同，那是刻意的：少了任一筆，那個欄位就沒有來源，
+        // 而「這一份來源大概涵蓋這幾個欄位」不是記錄，是推論。
+        //
+        // **只寫正結果。** 「查過了、沒有」同樣寫得出來（值域自本輪起收 value 缺席的 retrieval），
+        // 但產生它的不是本型別——add-only 補值的前提是來源**給了**值。負結果的寫入端是查證
+        // 流程，另案。
+        var addedReferences: [ProvenanceReference] = []
+        var provenanceSkipped: String?
+        if let kind = p.raw.retrievalKind {
+            for k in added.keys.sorted() {
+                addedReferences.append(ProvenanceReference(
+                    field: ProvenanceReference.workFieldPrefix + k, value: nil, kind: kind))
+            }
+            // 識別碼帶 value——它是清單，要說支持哪一個（既有規則，本輪不改）
+            for d in addedDOIs {
+                addedReferences.append(ProvenanceReference(field: "doi", value: d.normalized, kind: kind))
+            }
+            for m in addedPMIDs {
+                addedReferences.append(ProvenanceReference(field: "pmid", value: m.normalized, kind: kind))
+            }
+            for b in addedISBNs {
+                addedReferences.append(ProvenanceReference(field: "isbn", value: b.normalized, kind: kind))
+            }
+        } else if let d = p.raw.sourceDigest, !d.isEmpty {
+            // 有 digest 卻寫不成 reference——說出來，不靜默（`lossless-intake` 執行細節 3）
+            var missing: [String] = []
+            if (p.raw.sourceURL ?? "").isEmpty { missing.append("sourceURL") }
+            if (p.raw.sourceRetrieved ?? "").isEmpty { missing.append("sourceRetrieved") }
+            provenanceSkipped = "有 sourceDigest 但缺 \(missing.joined(separator: "、"))"
+                + "——一次取得的 url 與日期沒有別的地方記（sources/index.jsonl 記 origin／"
+                + "retrieved／media-type，不記 url），所以 digest 單獨寫不成 reference。"
+                + "digest 仍在報告裡"
+        }
+
         let outcome = Outcome(addedFields: added, addedDate: addedDate, addedAuthors: addedAuthors,
                               addedDOIs: addedDOIs, addedPMIDs: addedPMIDs, addedISBNs: addedISBNs,
-                              refused: refused, partial: partial)
+                              refused: refused, partial: partial,
+                              addedReferences: addedReferences, provenanceSkipped: provenanceSkipped)
         return (outcome, alreadyPresent, notes.isEmpty ? nil : notes.joined(separator: "；"))
     }
 

@@ -46,7 +46,18 @@
 | 12 | `Divergence.judgement.restsOn` | `sources/` 的內容 | 同 11 的定址法；**與 10 同一筆記錄的另一條邊** |
 | 13 | `Person.references` / `Organization.references` / `Venue.references` 中 verdict 欄位對的 `value` | work／person／organization／venue（by key） | **僅限封閉欄位對** `resolution-confirmed`／`resolution-rejected`（#232）；value 文法 `<kind>:<key> :: <literal>`。正典側是**被判定的記錄**：verdict 是關於它的同一性的事實，存在 entry 側會讓 work 長出無上界的 per-person 清單，且 reject 依規格不動 entry。與 11 **不同條**：11 指向存檔內容（content-addressed），13 是 `ProvenanceReference.value` 首次成為跨 entity 指標（by key）——`rename` 因此必須遷移 `work:` value（#232 verify NEW-1 實測不遷移＝否決安靜變回待判）。`resolve-venues` 的 verdict 落被判定的 venue 記錄（#304，同一欄位對、同文法）。**venue 側是 O(catalog)**（#499，2026-09-04 裁決候選 3）：一本刊的 verdict 數＝被歸戶的作品數，`psychological-methods` 實測 1,352 筆；序列化位置**不改**，改在 decode 硬預算的一半設 warning（`AliasEventBudget.venueVerdictWarningThreshold`，`StoreHealth.venueVerdictBudgetWarnings`）。達門檻＝重開本條的規模化裁決，那時的形狀是 sidecar ledger（本表改指向 sidecar、12 格遷移改讀寫）——不是 per-literal 聚合（那會打回 #464／#463 的 per-holder 前提） |
 | 14 | `Entry.venues` | venue | `.key` 已歸戶／`.literal` 未歸戶，兩者都合法（與第 1 條同二態形；#304。作品側正典的六理由同適用——刊名沿革中舊文章掛舊刊名即第 4 條可表達性的 venue 版；編年 list 由本邊反向現算，venue 記錄**不存**文章清單） |
-| 15 | `Entry.references` | `sources/` 的內容 | 同第 11 條的定址法（content-addressed `sha256:`），但住在 **work** 上——#394 §5 新增。**正典側是 work**：識別碼（`doi`／`pmid`／`isbn`）是那筆作品的屬性，來源說的是「這個號是從哪裡查到的」，那件事只跟該作品有關。值域：三個識別碼欄位 ＋ **`authors`**（#450，2026-09-07：**拆分記錄**——value 是**已退役**的原 literal，與其他三格「值必須在場」的語意相反；一致性條件是 statement 各段至少一段仍是作者位，由 `StoreHealth` 報 warning（`staleSplitRecords`）而非 decode 拒收；statement 走 `SplitRecordValue` 單一解析器、空 rests-on 經 `firstOrderRulingFields` 放行、store format 16）。這一格的例外**只有 `authors`**，其他 field 不得類推（`validateReferenceAttachment` 的 `default` 照舊拒絕）——work 的其餘欄位（`title`／`date`／`fields.*`）要不要能攜帶來源是另一個問題，#394／#450 都不裁決。**為什麼在此之前不存在**：`Entry` 原本沒有 `references`，而 provenance-reference spec 明寫「不能攜帶 reference 的識別碼不算記錄的一等公民」——照字面，work 的三個識別碼在補上它之前不算一等公民，而那正是 #394 的標題所主張的東西 |
+| 15 | `Entry.references` | `sources/` 的內容 | 同第 11 條的定址法（content-addressed `sha256:`），但住在 **work** 上——#394 §5 新增。**正典側是 work**：識別碼（`doi`／`pmid`／`isbn`）是那筆作品的屬性，來源說的是「這個號是從哪裡查到的」，那件事只跟該作品有關。值域：三個識別碼欄位 ＋ **`authors`** ＋ **`fields.<鍵名>`**（#517，見下）（#450，2026-09-07：**拆分記錄**——value 是**已退役**的原 literal，與其他三格「值必須在場」的語意相反；一致性條件是 statement 各段至少一段仍是作者位，由 `StoreHealth` 報 warning（`staleSplitRecords`）而非 decode 拒收；statement 走 `SplitRecordValue` 單一解析器、空 rests-on 經 `firstOrderRulingFields` 放行、store format 16）。**#517 起多一格 `fields.<鍵名>`**（見表下方「第 15 條邊的兩次擴充」）——`title`／`date` 仍不得類推（`validateReferenceAttachment` 的 `default` 照舊拒絕）。 **為什麼在此之前不存在**：`Entry` 原本沒有 `references`，而 provenance-reference spec 明寫「不能攜帶 reference 的識別碼不算記錄的一等公民」——照字面，work 的三個識別碼在補上它之前不算一等公民，而那正是 #394 的標題所主張的東西 |
+
+
+#### 第 15 條邊的兩次擴充（#450 的 `authors`、#517 的 `fields.<鍵名>`）
+
+#517 一次裁兩件事，因為它們是同一個洞的兩面：
+
+- **前綴不是風格。** `Entry.fields` 的鍵由來源決定（`lossless-intake`），所以它**必然**與 reference 保留的欄位名撞上——2026-09-09 實測 live store：40 種鍵，其中 `doi` 3 筆、`isbn` 3 筆同名。裸鍵名之下「`field: doi` 指哪一個」**今天就已經是歧義**。前綴讓那個歧義寫不出來（3.325 的同一個立場），而不是靠一份會漏的白名單。
+- **value 缺席 ＋ retrieval ＝ 對這個欄位做過的一次查找。** 欄位在場 → 值出自它；欄位缺席 → **查過了，沒有**。在此之前那個狀態寫不出來：`doi` 的 reference 必須帶 value，而 value 必須是清單成員——清單空的時候沒有任何合法寫法，於是「沒查」與「查了沒有」在 store 裡是同一個觀察（`lossless-intake` 執行細節 3 的形）。
+- **kind 必須是 retrieval**，因為一次查找的 **url 與日期沒有別的地方記**：`sources/index.jsonl` 記 origin／retrieved／media-type，**不記 url**。
+- **空 rests-on 的 judgement 走不進來**（那是被否掉的另一條路）：`fields.*` 與識別碼都不在 `firstOrderRulingFields`，平面 init 已經擋下。所以走 judgement 的必然帶著真的 digest——離線來源（紙本掃描件）因此表達得出來，而 `retrieval` 的 url 是必填的。
+- **刻意不檢查 `fields[鍵]` 在場**：那正是負結果的形狀。代價寫出來——打錯的鍵名會靜靜附上去，沒有東西擋得住；要擋它就得放棄負結果的表達法。
 
 **每一條邊只存一次，存在上表指定的那一側。反向一律現算。**
 

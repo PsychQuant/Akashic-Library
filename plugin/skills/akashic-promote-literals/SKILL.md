@@ -169,4 +169,5 @@ ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，*
 ## 相關
 
 - [`akashic-verify-person`](../akashic-verify-person/SKILL.md)——單一配對的外部證據鏈；本 skill 的逐筆查證管線引用它
+- `.claude/rules/disambiguate-before-irreversible-writes.md`（private repo，外部讀者取不到）——**上面「建檔前先分組異寫」那一段的正典**。它管的是「已識別的歧義要在不可逆寫入之前消解」，而 `bootstrap-people` 的「寧可分割絕不合併」屬於它明寫的那個限定：安全預設是「**無法消歧時**往哪邊倒」，不是「**可以消歧卻不做**」的許可。判準可機械檢查：那個歧義在操作之前是不是已經識別得出來（分組清單算得出來 → 已識別）。上游是 [Foresay](https://github.com/kiki830621/foresay) 的 `response_types`（`not_clear` 的終端是「先消歧，然後重跑乾跑」）
 - [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——**本 skill 寫的 verdict 與每輪落進 issue 的計數都受它管**。計數是人要照著決定批次與宣告 campaign 完成的數字；verdict 是身分判定，另有規定（見該檔第 5 節）

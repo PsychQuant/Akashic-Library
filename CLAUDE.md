@@ -48,6 +48,34 @@ propose ──→ park ──────────────→ apply ─�
 
 實際踩過：三個 change、18 檔、124 KB 的設計工作曾同時停在 parked（#72）。park 位置本身屬 Spectra.app 的行為，不在本 repo 可修範圍。
 
+## 設計原則的上游：Foresay
+
+使用者 2026-09-09（+08:00）定調（#547）：**本專案的設計原則參照
+[Foresay](https://github.com/kiki830621/foresay)**（Human-AI Confirmation Protocol，private）。
+
+它管的那件事，一句話是它自己的核心第 4 條：**Clarify before execute — never guess.**
+
+**三處是本 repo 直接引用的正典**（引用者不必回頭讀原始碼，但要改判準必須回去改那邊）：
+
+| Foresay | 本 repo 用它做什麼 |
+|---|---|
+| `core/protocol.yaml` 的 `response_types` | 三分支的正典——`not_clear` 的終端是「**先消歧，然後重跑乾跑**」，不是「用政策預設執行」 |
+| `docs/ambiguity.md` 的第三層（pragmatic／referential ambiguity） | 「判不出來的留在誠實狀態」的依據——那一層**原則上不可由文法消除**，出路是確認迴圈或標為 residue |
+| `00_principles/rules/R01`（Reversibility Governs Argument Openness） | 「不可逆性不只在執行時逼出 confirm 分支，它在 **design-time** 就縮窄了可說的形狀」 |
+
+**引用範圍要誠實說清楚**（否則這段會變成一句好聽而空的話）：
+
+- **直接引用**：`disambiguate-before-irreversible-writes`（本輪新增，逐條對應上表）。
+- **獨立得出、事後才對得上**：`literal-first-then-key` 的「literal 是誠實狀態，不是壞掉的
+  key」＝ Foresay 的 residue；`identity-is-judged-not-matched` 的「名字的資訊量不足以支撐
+  身分判定」＝ 第三層 ambiguity 不可由文法消除。這兩條**不是**照 Foresay 寫的——它們從本
+  repo 的失敗史推出來（謝叔蓉案、Jaccard 0.40 vs 0.50），現在有了名字。
+- **不引用**：其餘規則各有自己的來源，不得因為「聽起來像確認迴圈」就掛上去。
+
+**這不是兩份會分岔的規格**（`no-compat-fallback` §「同一件事只能有一份描述」的判準）：
+Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫入面在什麼時候必須先消歧**。
+兩者是協定與落地的關係，描述的不是同一件事。
+
 ## Rules
 
 **`.claude/rules/` 下的每一條規則，本 repo 的所有實踐都必須遵守。** 它們不是建議、
@@ -71,6 +99,7 @@ propose ──→ park ──────────────→ apply ─�
 | [literal-first-then-key.md](.claude/rules/literal-first-then-key.md) | 每個 entity reference 先以 literal 進庫、再經顯式消歧升格 key——進庫不猜、升格留 verdict；終局是全域 literal 歸零（#303/#304） |
 | [identity-is-judged-not-matched.md](.claude/rules/identity-is-judged-not-matched.md) | 身分是**判定**出來的不是**比對**出來的——`literal → key` 是 AI 判斷函數，不得由字串謂詞單獨做出；Jaccard 實測同一人 0.40／不同人 0.50，提名是 recall 不是判定；record↔record 攣生合併同轄但走 divergence 管線（#459） |
 | [mcp-cli-parity.md](.claude/rules/mcp-cli-parity.md) | 新增任一面（MCP／CLI）的能力時必須裁決另一面——三張封閉裁決表（MCP／CLI-only／橫切選項）+ 四步機械稽核（#259 起雙向，#310 補橫切面），缺口不得安靜累積 |
+| [disambiguate-before-irreversible-writes.md](.claude/rules/disambiguate-before-irreversible-writes.md) | 已識別的歧義要在不可逆寫入**之前**消解——政策預設是「無法消歧時往哪邊倒」，不是「可以消歧卻不做」的許可；判不出來的留在誠實狀態（`.literal`＝Foresay 的 residue）；判準是「那個歧義在操作之前是不是已經識別得出來」（#547）|
 | [entity-backlink-completeness.md](.claude/rules/entity-backlink-completeness.md) | 呈現 entity 時所有相關 entity 都要看得到——反向一律現算不儲存；可儲存的關係邊是一張封閉列舉表＋可執行稽核（條數見該檔，摘要刻意不複述——複述過的數字會與表分岔） |
 | [no-compat-fallback.md](.claude/rules/no-compat-fallback.md) | 不留相容 fallback——要改格式就一次改完全部；例外須離開 default 位置、附退場量測、退場即刪 |
 | [replace-endnote-and-zotero.md](.claude/rules/replace-endnote-and-zotero.md) | 目標是完全取代 EndNote 與 Zotero——檔案住 Akashic、位元組複製進 store、對 Zotero 的 pull 是過渡、能力缺口記 issue 不得靠「回去用 Zotero」帶過 |

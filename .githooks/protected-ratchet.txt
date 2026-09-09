@@ -1,5 +1,6 @@
 .claude/rules/apa7-is-the-work-floor.md
 .claude/rules/blocked-issues-must-be-scannable.md
+.claude/rules/disambiguate-before-irreversible-writes.md
 .claude/rules/entity-backlink-completeness.md
 .claude/rules/identity-is-judged-not-matched.md
 .claude/rules/literal-first-then-key.md

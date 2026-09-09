@@ -205,8 +205,12 @@ final class DropAuthorTests: XCTestCase {
         try store.writeEntry(e)
         let health = store.health(from: try store.load())
         XCTAssertEqual(health.contradictedRemovalRecords.count, 1)
-        XCTAssertEqual(health.contradictedRemovalRecords[0].owner, "anon2002a")
-        XCTAssertEqual(health.contradictedRemovalRecords[0].issue.severity, ValidationIssue.Severity.warning,
+        // **不用 `[0]`**：掃描失效時 count 是 0，而下標會讓測試**行程崩潰**而不是乾淨地紅
+        // ——負控實測到這件事（runner 收不到 `Executed N tests`，於是「守衛失效」與
+        // 「harness 失效」在輸出上不可分辨）。`XCTUnwrap` 讓它照常報一條失敗。
+        let first = try XCTUnwrap(health.contradictedRemovalRecords.first)
+        XCTAssertEqual(first.owner, "anon2002a")
+        XCTAssertEqual(first.issue.severity, ValidationIssue.Severity.warning,
                        "記錄合法，失效的是證據錨——同 staleSplitRecords 的既有分級")
     }
 

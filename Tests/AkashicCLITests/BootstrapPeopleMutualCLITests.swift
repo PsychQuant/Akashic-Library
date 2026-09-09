@@ -105,13 +105,19 @@ final class BootstrapPeopleMutualCLITests: XCTestCase {
 
     /// **`--json` 的 `display-safe-exempt` 前提，釘住。**
     ///
-    /// 那四行豁免的理由是「消毒層是 `JSONSerialization` 自己」。豁免不能只是一句宣稱——
-    /// 這條測試證明它：塞一個含裸 ESC／BEL 的作者名，斷言輸出裡**沒有任何裸控制位元組**，
-    /// 而且那個名字**逐字**取得回來（消毒過就取不回來，`add-person` 會建錯名字）。
+    /// 那四行豁免的理由是「消毒層是序列化器 ＋ 序列化後的 `escapingUnsafeScalars`」。
+    /// 豁免不能只是一句宣稱——這條測試證明它：塞一個含五類危險 scalar 的作者名，
+    /// 斷言輸出裡**沒有任何裸的危險 scalar**，而且那個名字**逐字**取得回來
+    /// （消毒過就取不回來，`add-person` 會建錯名字）。
     ///
-    /// 若哪天序列化選項改成不逃脫控制字元，這條會紅——那正是要它的時候。
-    func testJSONOutputHasNoRawControlBytes() throws {
-        let evil = "A\u{001B}[31mB\u{0007} Chen"
+    /// **判準是 scalar 集合，而且與 `displaySafe` 同源**（#547 verify V3）。上一版用
+    /// `byte < 0x20`——在 UTF-8 裡只可能看到 ASCII C0，於是 U+007F、U+009B（CSI，
+    /// ＝ `ESC [` 的單位元組等價形）、U+202E、U+2028、U+FEFF **一個都進不了 filter**：
+    /// 它宣稱的紅燈條件不可達，而 fixture 裡也只有 ESC／BEL 兩個 C0 字元，
+    /// 「通過」什麼都沒證明。
+    func testJSONOutputHasNoRawUnsafeScalars() throws {
+        // 五類各一個，全部落在舊判準的視線之外（除了前面的 ESC／BEL）
+        let evil = "A\u{001B}[31mB\u{0007}\u{007F}\u{009B}31m\u{202E}\u{2028}\u{FEFF} Chen"
         let store = LibraryStore(root: root)
         try store.writeEntry(Entry(id: UUID(), citekey: "e2020evil", type: .periodicalArticle,
                                    title: "T", authors: [.literal(evil)], date: "2020"))
@@ -119,18 +125,44 @@ final class BootstrapPeopleMutualCLITests: XCTestCase {
         let r = try cli(["bootstrap-people", "--min-occurrences", "1", "--json"])
         XCTAssertEqual(r.status, 0, r.output)
 
-        let bytes = Array(r.output.utf8)
-        let rawControl = bytes.filter { $0 < 0x20 && $0 != 0x0A && $0 != 0x09 }
-        XCTAssertTrue(rawControl.isEmpty,
-                      "JSON 輸出含裸控制位元組 \(rawControl.map { String(format: "0x%02x", $0) })"
+        // `.prettyPrinted` 在 token 之間送**裸的**換行，那是結構位置、合法且必要——
+        // 所以豁免它與縮排空白。字串字面值**內**的換行由序列化器逃脫成 `\n`，
+        // 不會走到這裡。
+        let raw = r.output.unicodeScalars.filter {
+            UnsafeToEmitScalar.contains($0) && $0 != "\n" && $0 != "\r" && $0 != "\t"
+        }
+        XCTAssertTrue(raw.isEmpty,
+                      "JSON 輸出含裸的危險 scalar "
+                        + "\(raw.map { String(format: "U+%04X", $0.value) })"
                         + " —— display-safe-exempt 的前提不成立了")
 
         // 逐字取回：消毒過的字串在這裡會對不上
-        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(bytes)) as? [String: Any])
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(r.output.utf8))
+                                  as? [String: Any])
         let all = ((obj["candidates"] as? [[String: Any]]) ?? [])
             .compactMap { $0["names"] as? [String] }.flatMap { $0 }
         XCTAssertTrue(all.contains(evil),
                       "literal 必須逐字取得回來（消費端要拿它餵 add-person）：\(all)")
+    }
+
+    /// **序列化器自己涵蓋不到的那四類，逐一釘住**——證明上一條的 fixture 不是白放的。
+    ///
+    /// 這一條直接量序列化器：若它哪天開始逃脫這些，本條會紅，那時
+    /// `escapingUnsafeScalars` 那一層才可以重新裁決要不要留。反過來若它退步到連 C0
+    /// 都不逃脫，上一條會紅。兩條各守一半。
+    func testSerializerAloneDoesNotCoverTheseFourClasses() throws {
+        let uncovered: [Unicode.Scalar] = ["\u{007F}", "\u{009B}", "\u{202E}", "\u{2028}", "\u{FEFF}"]
+        for u in uncovered {
+            let data = try JSONSerialization.data(withJSONObject: ["k": String(String.UnicodeScalarView([u]))])
+            let out = String(decoding: data, as: UTF8.self)
+            XCTAssertTrue(out.unicodeScalars.contains(u),
+                          "U+\(String(format: "%04X", u.value)) 已被序列化器逃脫——"
+                            + "escapingUnsafeScalars 的必要性要重新裁決：\(out.debugDescription)")
+            XCTAssertFalse(
+                UnsafeToEmitScalar.escapingUnsafeScalars(inSerializedJSON: out)
+                    .unicodeScalars.contains(u),
+                "後處理沒有把 U+\(String(format: "%04X", u.value)) 改寫掉")
+        }
     }
 
     /// **`--apply` 必須說出它扣住了什麼。**（#547 verify 的 BLOCKING finding）

@@ -532,43 +532,45 @@ struct BootstrapPeople: ParsableCommand {
             guard !apply else {
                 throw ValidationError("--json 是唯讀輸出，不與 --apply 併用")
             }
-            // ⚠ **這個豁免目前只涵蓋 C0，缺口已知且未修**（#547 verify V2／V3，追蹤中）。
+            // **這個出口刻意不套 `displaySafe`，消毒層是序列化器 ＋ 底下那一行後處理。**
             //
-            // 實測（2026-09-10，三種 `WritingOptions` 結果一致）：`JSONSerialization`
-            // 逃脫 C0（`\u{001B}` ESC、`\u{0007}` BEL、`\n`、`\"`），**但不逃脫**
-            // U+007F DEL、U+0080–U+009F（含 U+009B CSI ＝ `ESC [` 的單位元組等價形）、
-            // 以及 bidi override（U+202E）——那些**原樣通過**。
+            // 理由是本出口需要 literal **逐字**可取回：這些名字要餵回 `add-person`，
+            // 消毒過的字串會建出名字不對的 person。而「消毒 vs 逐字」是假兩難——
+            // `\uXXXX` 是 JSON 自己的逃脫語法，`jq -r` 解回來與原字串逐字相同。
             //
-            // 先前這裡寫「逃脫全部控制字元」，那是**假的**：量測只涵蓋 ESC／BEL／換行／引號
-            // 四個字元，結論卻寫成全稱（`assertions-must-be-measured` §2 的形狀）。
-            // 而背書它的 `testJSONOutputHasNoRawControlBytes` 用 `byte < 0x20` 判準，
-            // 在 UTF-8 裡**只可能看到 ASCII C0**——上述三類一個都進不了 filter，
-            // 它宣稱的紅燈條件不可達。
+            // **序列化器只涵蓋 C0**（2026-09-10 實測，三種 `WritingOptions` 結果一致）：
+            // 它逃脫 `\u{001B}` ESC、`\u{0007}` BEL、換行、引號，但 U+007F DEL、
+            // U+0080–U+009F（含 U+009B CSI ＝ `ESC [` 的單位元組等價形）、bidi override
+            // （U+202E）、LS/PS、BOM **原樣通過**。所以序列化之後再走一次
+            // `UnsafeToEmitScalar.escapingUnsafeScalars(inSerializedJSON:)`，
+            // 逃脫集合與 `displaySafe` **同一份**（不另立第三份定義）。
             //
-            // 正確修法（批次二）：序列化**後**把危險 scalar 改寫成 `\uXXXX`，逃脫集合與
-            // `displaySafe` **同源**（不另立第三份定義）。那樣 round-trip 仍逐字相同——
-            // 「消毒 vs 逐字」是假兩難，而本出口確實需要逐字（literal 要餵回 `add-person`，
-            // 消毒過的字串會建出名字不對的 person）。
+            // 先前這裡寫「序列化器逃脫全部控制字元」，那是**假的**：量測只涵蓋
+            // ESC／BEL／換行／引號四個字元，結論卻寫成全稱（`assertions-must-be-measured`
+            // §2 的形狀）。而背書它的守衛用 `byte < 0x20` 判準，在 UTF-8 裡只可能看到
+            // ASCII C0——上述四類一個都進不了 filter，**它宣稱的紅燈條件不可達**。
+            // 守衛的判準已一併換成 scalar 集合，與這裡同源。
             let payload: [String: Any] = [
                 "candidates": report.candidates
                     .filter { $0.occurrences >= minOccurrences }
-                    .map { ["key": $0.key, "names": $0.names, "occurrences": $0.occurrences] },   // display-safe-exempt: JSON 面的消毒層是序列化器（目前只涵蓋 C0，缺口見上方註解與 #547 V2/V3）；消毒會破壞餵回 add-person 的逐字 literal
+                    .map { ["key": $0.key, "names": $0.names, "occurrences": $0.occurrences] },   // display-safe-exempt: JSON 面的消毒層是序列化器 ＋ 序列化後的 escapingUnsafeScalars（與 displaySafe 同源）；消毒會破壞餵回 add-person 的逐字 literal
                 "unkeyable": report.unkeyable
                     .filter { $0.occurrences >= minOccurrences }
-                    .map { ["names": $0.names, "occurrences": $0.occurrences, "reason": $0.reason] },   // display-safe-exempt: 同上——JSON 面的消毒層是序列化器
+                    .map { ["names": $0.names, "occurrences": $0.occurrences, "reason": $0.reason] },   // display-safe-exempt: 同上——序列化器 ＋ 序列化後的 escapingUnsafeScalars
                 "pendingResolution": report.pendingResolution
                     .filter { $0.occurrences >= minOccurrences }
-                    .map { ["names": $0.names, "occurrences": $0.occurrences,   // display-safe-exempt: 同上——JSON 面的消毒層是序列化器
+                    .map { ["names": $0.names, "occurrences": $0.occurrences,   // display-safe-exempt: 同上——序列化器 ＋ 序列化後的 escapingUnsafeScalars
                             "matchedKeys": $0.matchedKeys] },
                 "pendingMutual": report.pendingMutual
                     .filter { $0.occurrences >= minOccurrences }
-                    .map { ["names": $0.names, "occurrences": $0.occurrences,   // display-safe-exempt: 同上——JSON 面的消毒層是序列化器
+                    .map { ["names": $0.names, "occurrences": $0.occurrences,   // display-safe-exempt: 同上——序列化器 ＋ 序列化後的 escapingUnsafeScalars
                             "sharedKeys": $0.sharedKeys] },
             ]
             let data = try JSONSerialization.data(
                 withJSONObject: payload,
                 options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-            print(String(decoding: data, as: UTF8.self))
+            print(UnsafeToEmitScalar.escapingUnsafeScalars(
+                inSerializedJSON: String(decoding: data, as: UTF8.self)))
             return
         }
         var cands = report.candidates.filter { $0.occurrences >= minOccurrences }

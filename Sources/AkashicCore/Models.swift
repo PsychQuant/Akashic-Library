@@ -630,6 +630,84 @@ public func displaySafeAssembled(_ s: String, maxLineLength: Int = 400,
 ///    與 U+FEFF。
 /// 3. **反斜線自身要跳脫**，否則內容裡的字面 `\u{001B}` 與本函式的輸出無法區分
 ///    （消毒後的字串會變得可偽造）。
+/// **哪些 scalar 不得原樣送進輸出**——`displaySafe`（終端機面）與 `bootstrap-people
+/// --json`（JSON 面）**共用這一份**判準。
+///
+/// 分開寫兩份的失敗形狀已經發生過（#547 verify V2／V3）：JSON 面的守衛用
+/// `byte < 0x20` 判斷，在 UTF-8 裡只可能看到 ASCII C0，於是 U+007F、U+009B（CSI，
+/// ＝ `ESC [` 的單位元組等價形）、U+202E 全部進不了 filter——**它宣稱的紅燈條件
+/// 不可達**，而終端機面同一時間早就擋著這三類。兩份規格不會一起改
+/// （`no-compat-fallback` §「同一件事只能有一份描述」）。
+///
+/// **反斜線不在這裡**，那不是遺漏：它是各輸出面**自己的**逃脫語法的一部分——
+/// `displaySafe` 要把它轉成 `\u{005C}` 免得輸出被偽造，而 JSON 面的 `\\` 由
+/// `JSONSerialization` 自己處理，再包一次會壞掉。共用的只有「這個字元本身危險」，
+/// 不含「這個輸出格式怎麼逃脫」。
+public enum UnsafeToEmitScalar {
+    public static func contains(_ v: UInt32) -> Bool {
+        v < 0x20 || v == 0x7F                    // C0 + DEL（含 ESC / CR / LF / TAB）
+            || (0x80...0x9F).contains(v)         // C1
+            || v == 0x2028 || v == 0x2029        // LS / PS——SwiftUI 與 JS 視為換行
+            || (0x202A...0x202E).contains(v)     // bidi override
+            || (0x2066...0x2069).contains(v)     // bidi isolate
+            || v == 0x200E || v == 0x200F || v == 0x061C  // 方向標記
+            || v == 0xFEFF                       // ZWNBSP / BOM
+    }
+
+    public static func contains(_ u: Unicode.Scalar) -> Bool { contains(u.value) }
+
+    /// 把一份**已序列化**的 JSON 文字裡、**字串字面值內**的危險 scalar 改寫成 `\uXXXX`。
+    ///
+    /// **為什麼在序列化之後做**：JSON 出口需要 literal **逐字**可取回（`bootstrap-people
+    /// --json` 的名字要餵回 `add-person`，消毒過就會建出名字不對的 person）。而
+    /// `\uXXXX` 是 JSON 自己的逃脫語法——`JSONSerialization`／`jq -r` 解回來與原字串
+    /// 逐字相同。所以「消毒 vs 逐字」是假兩難：改寫的是**輸出的位元組**，不是值。
+    ///
+    /// **為什麼要追蹤字串字面值**：`.prettyPrinted` 在 token 之間送**裸的**換行
+    /// （U+000A），而它落在本集合裡。不分內外一律改寫，會在結構位置產出 `\u000A`
+    /// ——那不是合法 JSON。這裡逐 scalar 記住自己在不在字串內、且尊重反斜線逃脫，
+    /// 所以不依賴「序列化器對字串內的控制字元會怎麼做」這個假設（而那個假設正是
+    /// #547 V2 量錯的東西）。
+    public static func escapingUnsafeScalars(inSerializedJSON json: String) -> String {
+        var out = String.UnicodeScalarView()
+        out.reserveCapacity(json.unicodeScalars.count)
+        var inString = false
+        var afterBackslash = false
+        for u in json.unicodeScalars {
+            guard inString else {
+                if u == "\"" { inString = true }
+                out.append(u)
+                continue
+            }
+            if afterBackslash {                      // 逃脫序列的第二個字元，原樣放行
+                afterBackslash = false
+                out.append(u)
+            } else if u == "\\" {
+                afterBackslash = true
+                out.append(u)
+            } else if u == "\"" {
+                inString = false
+                out.append(u)
+            } else if contains(u) {
+                for c in jsonEscape(u.value).unicodeScalars { out.append(c) }
+            } else {
+                out.append(u)
+            }
+        }
+        return String(out)
+    }
+
+    /// 本集合目前全部落在 BMP，所以 `%04X` 恆為四位。**仍然處理 surrogate pair**——
+    /// 日後有人往集合裡加一個非 BMP 的 scalar 時，五位的 `\uXXXXX` 會產出不合法的
+    /// JSON 而**沒有任何跡象**（`zero-instance-guards` 第 1 列的形狀：不寫的話，
+    /// 那個形狀第一次出現時不會有跡象）。
+    private static func jsonEscape(_ v: UInt32) -> String {
+        guard v > 0xFFFF else { return String(format: "\\u%04X", v) }
+        let x = v - 0x10000
+        return String(format: "\\u%04X\\u%04X", 0xD800 + (x >> 10), 0xDC00 + (x & 0x3FF))
+    }
+}
+
 public func displaySafe(_ s: String, max: Int = 200,
                         escapingBackslash: Bool = true) -> String {
     var out = String.UnicodeScalarView()
@@ -648,13 +726,7 @@ public func displaySafe(_ s: String, max: Int = 200,
         if emitted >= boundedMaximum { truncated = true; break }
         let v = u.value
         let escape =
-            v < 0x20 || v == 0x7F                    // C0 + DEL（含 ESC / CR / LF / TAB）
-            || (0x80...0x9F).contains(v)             // C1
-            || v == 0x2028 || v == 0x2029            // LS / PS——SwiftUI 與 JS 視為換行
-            || (0x202A...0x202E).contains(v)         // bidi override
-            || (0x2066...0x2069).contains(v)         // bidi isolate
-            || v == 0x200E || v == 0x200F || v == 0x061C  // 方向標記
-            || v == 0xFEFF                           // ZWNBSP / BOM
+            UnsafeToEmitScalar.contains(v)
             || (escapingBackslash && v == 0x5C)      // 反斜線自身——否則輸出可被偽造。
                                                      // 唯一的 false 呼叫端是
                                                      // `displaySafeAssembled`，理由見該處

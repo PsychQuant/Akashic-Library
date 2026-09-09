@@ -160,6 +160,7 @@ actor AkashicMCPServer {
                 "refute": strArray("逐篇**否決**（#386 的鏡像）：citekey:authorIndex:personKey=否決理由。與既有 reject 的差別是**歧義列也適用**（reject 只吃 resolver 提名出來的候選）。entry 不動，只寫 resolution-rejected verdict；之後該配對不再被提名。理由必填。對共用 literal 來說「不是他」通常才是答案"),
 "split_author": strArray("把一個作者位**拆成多個**（#443）：citekey:authorIndex:分隔符=理由。一個 literal 裝了兩個人時用它。**收分隔符不收拆好的名字**——後者等於讓呼叫端編造；收分隔符則拆出的每一段必然是原文的子字串。切出空段即拒絕；只作用於未歸戶的位置；拆出來的仍是 .literal（拆是形狀修正不是身分判定）。單獨呼叫，不與其餘腿組合——它改的是作者位的數量"),
                 "un_split": strArray("把拆分**合回**原 literal（#513，`split_author` 的具名逆操作）：citekey:原literal。**以值定位**——原 literal 逐字取自 store 的拆分記錄（#450 起 split 會寫一筆），不用索引。還原後那筆記錄被刪掉：它的存在理由是「authors 已經沒有原 literal 了」，而還原之後那句話為假，留著會讓 store 斷言一件假的事、並點亮 staleSplitRecords。歷史留在 git。任一段已升格為 .key／.organization（那是判定的逆轉，屬 demote 一族）、各段不連續同序、或同 value 多筆記錄 → 整批拒絕、零寫入。單獨呼叫，不與其餘腿組合"),
+                "drop_author": strArray("把一個作者位**移除**（#457）：citekey:literal=理由。三態（.key／.organization／.literal）都假設那一格背後有一個作者，而 PsycInfo 的 `No authorship indicated` 不是——它今天在 .bib 裡是 `AUTHOR = {indicated, No authorship}`，一個被捏造出來的人；APA7 §9.12 對無署名作品要求作者位是**空的**。**以值定位不用索引**（同 un_split）：索引在同一批的前一次移除之後會位移，而「這個字串不是人」本來就是關於字串的宣稱。理由必填（移除是判定）；只作用於未歸戶的 .literal；同一筆 work 的作者位裡出現多次即拒絕不判定。移除記錄（field: authors、statement `移除：理由`、value＝被移除的 literal 逐字）與作者位改寫同一次寫入，需要 store format ≥ 17。**沒有具名逆操作**：記錄留著被移除的字串，但刻意不留位置。單獨呼叫，不與其餘腿組合"),
                 "attribute_org": strArray("把作者位歸給**團體作者**（#443）：citekey:authorIndex:orgKey=判定理由。`.literal` → `.organization`——`Author` 三態裡在此之前只有兩態接得起來。理由必填；org 需已存在（絕不自動建）；已歸戶的位置拒絕；整批驗證通過才寫。單獨呼叫，不與 apply／reject 組合"),
                                 "judge": strArray("逐篇判定（#386）：citekey:authorIndex:personKey=判定理由，以**第一個 = 切**（理由可含等號）。與 apply 是不同種類的主張——apply 套用 resolver 提名出來的候選，judge 指名一個作者位並說明**憑什麼**，因此**歧義列也適用**（歧義的意思是提名器分不出來，不是人／AI 分不出來）。理由必填且逐字寫進 verdict；literal 由 store 讀不由呼叫端提供。輸入語法錯（缺 = ／非三段形／重複 id／理由空白／person 不存在）整批拒絕零寫入；store 狀態不符（work 不存在／索引越界／位置已歸戶）該筆略過並在 skipped 具名、不中止其餘。判定寫的 verdict rule 是 author-judged-per-work，會讓同 literal 在其他 work 以 confirmed-elsewhere 提名並在理由揭露血統——那仍是提名，仍須逐列決定。需 store format ≥ 8"),
              ])),
@@ -463,16 +464,26 @@ actor AkashicMCPServer {
                 let splitProvided = params.arguments?["split_author"] != nil
                 let attrOrgProvided = params.arguments?["attribute_org"] != nil
                 let unSplitProvided = params.arguments?["un_split"] != nil
-                if splitProvided || attrOrgProvided || unSplitProvided {
+                let dropProvided = params.arguments?["drop_author"] != nil
+                if splitProvided || attrOrgProvided || unSplitProvided || dropProvided {
                     let otherLegs = applyProvided || rejectProvided || confirmProvided
                         || judgeProvided || refuteProvided
-                    let structural = [splitProvided, attrOrgProvided, unSplitProvided].filter { $0 }.count
+                    let structural = [splitProvided, attrOrgProvided, unSplitProvided,
+                                      dropProvided].filter { $0 }.count
                     if structural > 1 || otherLegs {
                         throw ServiceError.invalid(
-                            "split_author／attribute_org／un_split 各自單獨呼叫（不得與其他腿或彼此組合）"
+                            "split_author／attribute_org／un_split／drop_author 各自單獨呼叫"
+                            + "（不得與其他腿或彼此組合）"
                             + "——它們改作者位的數量或值域，混在一批裡會讓其他腿的意義改變")
                     }
-                    if unSplitProvided {
+                    if dropProvided {
+                        let specs = argList("drop_author")
+                        guard !specs.isEmpty else {
+                            throw ServiceError.invalid(
+                                "drop_author 是空的（空陣列或 null）——沒有要移除的東西就不要給這個鍵")
+                        }
+                        output = try service.dropAuthors(specs)
+                    } else if unSplitProvided {
                         let specs = argList("un_split")
                         guard !specs.isEmpty else {
                             throw ServiceError.invalid(

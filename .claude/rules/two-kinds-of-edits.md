@@ -32,6 +32,7 @@
 | `resolve-people apply`／`reject`／`judge`（#272／#303／#386） | AI | `literal → key` 是身分判定；Jaccard 實測同一人 0.40、不同人 0.50，字串謂詞站在錯的一側 |
 | `resolve-people split-author`（#443） | AI | 「這一格裝了兩個人」是判定；但落地是程式（切出的每一段必然是原文子字串）——持久化見 #450 |
 | `resolve-people un-split`（#513） | 程式 | **split 的具名逆操作**——合回去的字串逐字取自 #450 寫下的記錄 value，不做任何判定。同輸入必得同輸出；整批擋零寫入；三種歧義（同 value 多筆記錄、各段出現多處、各段不連續）一律**拒絕不判定**（形狀取自 `enrich` 對 DOI 命中 ≥2 筆的既有處置）。段已升格為 `.key`／`.organization` 時拒絕並指向 `demote`——那一格才是判定的逆轉 |
+| `resolve-people drop-author`（#457） | AI | **「這一格裝的不是作者」是判定**——要知道 `No authorship indicated` 是 PsycInfo 的無署名佔位字串，字串謂詞單獨做不出來。所以理由必填、記錄必留（`Entry.references` 的 `field: authors`、statement `移除：理由`，與作者位改寫同一次寫入，需要 store format ≥ 17）。**沒有具名逆操作**，而那不是「還沒做」：記錄留著被移除的字串逐字，但**刻意不留位置**（同拆分記錄不存索引的既有理由——索引在同一批的前一次操作之後會位移），所以還原無從定位。真出現要還原的需求時是一次顯式裁決。它把作者位的數量改成 N-1（可到 0），與 `split-author`／`un-split` 同族，各自單獨呼叫 |
 | `resolve-people attribute-org`（#443） | AI | 團體作者的升格是判定，org key 由呼叫端顯式給 |
 | `resolve-venues apply`／`reject`／`repoint`／`demote`（#304／#418） | AI | 同 people；`demote` 是判定的逆轉，原字串從 verdict 逐字取回、取不到寧可拒絕 |
 | `resolve-organizations`（#304） | AI | 同上 |

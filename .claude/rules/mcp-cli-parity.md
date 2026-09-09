@@ -49,6 +49,25 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 | `akashic_import_wos` | `import-wos` | ✅（#290；#259 CLI-only 盤點唯一「需要」格的補齊——#206 鏡像判準）|
 | `akashic_resolve_people` | `resolve-people` | ✅（#272 起兩面契約有記錄的差異：MCP 允許 apply+reject 組合（兩段式、按腿回報）；CLI 維持分兩次呼叫——互動面天然序列，組合是 LLM 批次 triage 的需求。#303 起兩面同步帶 `tier`（封閉四值 exact／confirmed-elsewhere／reorder／initials，信心降冪）：MCP 每列 `tier` 欄、CLI 按 tier 分組標頭與 `--tier` 篩選（裸 `--apply` 對寬鬆 tier 拒絕）、App 候選列標示；apply id 升三段形 `citekey:authorIndex:personKey`（釘 person，兩段 legacy 收）；否決抑制改與提名同一套正規化、淘汰而得的唯一命中在 reason 揭露——R1 verify 後 apply 語意有這些**有記錄的變更**，非純 additive。R3 裁決的**面不對稱**：tier 閘只在 CLI 篩選式批次（MCP per-id 顯式＋tier 可見，刻意不閘；tier-acknowledgment 參數列 follow-up）；rejected/applied 回音均三段 pinned 形）|
 
+**#457 起另有一個「把作者位移除」的面**（`--drop-author` / `drop_author`，兩面同走
+`dropAuthors`）：`Author` 的三態（#323）都假設那一格背後有一個作者，而實測（2026-09-09，
+全庫 3,885 個 distinct literal 逐一掃過）有一個不是——PsycInfo 的 `No authorship indicated`，
+21 筆。在此之前**沒有任何面到得了 0 個作者位**：`apply` 升格、`attribute_org` 改歸屬、
+`split_author` 增加數量、`un_split` 減到 1。唯一的路是手改 YAML。
+
+它今天的代價不是「還沒歸戶」，是出貨的 `.bib` 裡有一個**被捏造**出來的人
+（`AUTHOR = {indicated, No authorship}`），citekey 也照它生。APA7 §9.12 對無署名作品
+以標題起首，那要求作者位是**空的**。
+
+**以值定位不用索引**（同 `un_split`）：索引在同一批的前一次移除之後會位移，而「這個字串
+不是人」本來就是關於字串的宣稱。同一筆 work 的作者位裡出現多次 → **拒絕不判定**。
+**兩面同契約**：per-id 顯式、理由必填、整批驗證通過才寫、單獨呼叫不與其餘腿組合。
+
+**同輪動到 export 面**：`apa7Report` 對帶移除記錄的 work 抑制 `AUTHOR` 的 required 檢查
+——形狀取自 #406 的 `paginated`，且**空的 `authors` 本身不足以抑制**（那是「還沒記」，
+正是該檢查要抓的東西；同 `paginated` 的 `nil` 照報）。少了這一半，21 個被捏造的 byline
+會變成 21 個 error。
+
 **#443 起另有一個「把作者位拆開」的面**（`--split-author` / `split_author`，兩面同走
 `splitAuthors`）：一個 literal 裝了兩個人時，在此之前**沒有任何面拆得開**——`apply`
 只能把它整個升格成一個 person，而那會建出一個不存在的人。實測 4 筆「某人與雷庚玲」。

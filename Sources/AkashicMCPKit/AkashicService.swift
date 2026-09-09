@@ -379,7 +379,8 @@ public final class AkashicService {
                 // #450：拆分後錨失效的兩種 warning——孤兒 verdict（owner 是持有者）與各段全不在的拆分記錄
                 // （owner 是 work）。計數分開：前者要人去重新消歧，後者只是提醒記錄留著供 un-split。
                 "orphanedSplitVerdicts": health.orphanedSplitVerdicts.count,
-                "staleSplitRecords": health.staleSplitRecords.count,
+                "staleSplitRecords": health.staleSplitRecords.count,   // display-safe-exempt: Int
+                "contradictedRemovalRecords": health.contradictedRemovalRecords.count,
                 "first": perRec.prefix(20).map {
                     ["severity": $0.issue.severity == .error ? "error" : "warning",
                      "kind": $0.kind,
@@ -2161,6 +2162,18 @@ public final class AkashicService {
                 if let ck = item.citekey { one["citekey"] = displaySafe(ck, max: 200) }
                 if let r = item.reason { one["reason"] = displaySafe(r, max: 512) }
                 if let s = item.sourceDigest { one["sourceDigest"] = displaySafe(s, max: 200) }
+                // #542：#517 讓來源三欄齊備時**把 retrieval reference 寫進 store**，而這個
+                // payload 在此之前不帶那件事——MCP 消費端在結構上看不出 provenance 寫了沒，
+                // 而 CLI 逐筆印著一句「只記在報告，不進 store」（#517 之前為真，之後為假）。
+                // 兩面缺的是同一個欄位，所以補在這裡、兩面同源（`mcp-cli-parity` 讀取面的要求）。
+                if !item.outcome.addedReferences.isEmpty {
+                    one["provenanceWritten"] = item.outcome.addedReferences.map {
+                        displaySafe($0.field, max: 120)
+                    }
+                }
+                if let s = item.outcome.provenanceSkipped {
+                    one["provenanceSkipped"] = displaySafe(s, max: 300)
+                }
                 if !item.outcome.refused.isEmpty {
                     one["refused"] = item.outcome.refused.map { displaySafe($0, max: 300) }
                 }
@@ -3186,6 +3199,138 @@ public final class AkashicService {
         for e in entries.values.sorted(by: { $0.citekey < $1.citekey }) { try store.writeEntry(e) }
         try LibraryIndex(store: store).rebuild()
         return try jsonString(["unsplit": rows, "count": rows.count])   // display-safe-exempt: Int
+    }
+
+    /// **把一個作者位移除**（#457）——`Author` 三態之外的第四種處置：**沒有作者**。
+    ///
+    /// ## 為什麼需要它
+    ///
+    /// 三態（`.key`／`.organization`／`.literal`，#323）都假設那一格背後有一個作者。實測
+    /// （2026-09-09，全庫 3,885 個 distinct literal 逐一掃過）有一個不是：PsycInfo 的佔位字串
+    /// **`No authorship indicated`**，21 筆，每筆都只有那一個作者位。
+    ///
+    /// 它今天的代價不是「還沒歸戶」——是 `.bib` 裡有一個被**捏造**出來的人：
+    /// `AUTHOR = {indicated, No authorship}`，citekey 也照它生（`indicated2002bpsychological`）。
+    /// APA7 §9.12 對無署名作品的處置是以標題起首，那要求作者位是**空的**。
+    ///
+    /// 在此之前沒有任何面到得了 0 個作者位：`apply` 升格、`attribute_org` 改歸屬、
+    /// `split_author` 增加數量、`un_split` 減到 1。唯一的路是手改 YAML。
+    ///
+    /// ## 為什麼是 AI 編輯（`two-kinds-of-edits`）
+    ///
+    /// 「這個字串不是作者」是**判定**——要知道 PsycInfo 用它當佔位符，字串謂詞單獨做不出來
+    /// （`identity-is-judged-not-matched`）。所以理由必填、記錄必留：`Entry.references` 收一筆
+    /// `{field: authors, value: <被移除的 literal 逐字>, judgement: "移除：理由", rests-on: []}`，
+    /// 與作者位改寫在**同一次**寫入。
+    ///
+    /// ## 以值定位，不以索引
+    ///
+    /// id 是 `citekey:literal=理由`，同 `un_split`（#513）。索引在同一批的前一次移除之後會位移，
+    /// 而「這個字串不是人」本來就是關於**字串**的宣稱。同一筆 work 的作者位裡出現多次 → 拒絕
+    /// 不判定（形狀取自 `akashic_enrich` 對 DOI 命中 ≥2 筆的既有處置）。
+    ///
+    /// ## 失敗語意：整批拒絕、零寫入
+    ///
+    /// 同 `judge`／`repoint`／`split_author`。format 閘（≥ 17）在任何寫入之前對全部計畫求值。
+    public func dropAuthors(_ specs: [String]) throws -> String {
+        let load = try store.load()
+        let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
+                                   uniquingKeysWith: { _, last in last })
+
+        struct Plan { let citekey: String; let idx: Int; let literal: String
+                      let record: AuthorRemovalRecordValue }
+        var plans: [Plan] = []
+        var seen = Set<String>()
+
+        for spec in specs {
+            // `=` 之後一律是理由（同 `judge`／`attribute_org` 的既有形）。literal 可以含 `:`，
+            // 所以第一個 `:` 是 citekey 的分隔——citekey 的值域（`StoreKey`）不含 `:`。
+            guard let eq = spec.firstIndex(of: "=") else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(spec, max: 200))」缺少 `=`——格式是 citekey:literal=理由")
+            }
+            let idPart = String(spec[spec.startIndex..<eq])
+            let judgement = String(spec[spec.index(after: eq)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let record = AuthorRemovalRecordValue(reason: judgement) else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(idPart, max: 200))」的判定理由是空的——移除是判定，"
+                    + "而沒有理由的判定事後與「不知道為什麼這樣」無法區分")
+            }
+            guard let colon = idPart.firstIndex(of: ":") else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(idPart, max: 200))」缺少 `:`——格式是 citekey:literal=理由")
+            }
+            let citekey = String(idPart[idPart.startIndex..<colon])
+            let literal = String(idPart[idPart.index(after: colon)...])
+            guard !citekey.isEmpty, !literal.isEmpty else {
+                throw ServiceError.invalid(
+                    "「\(displaySafe(idPart, max: 200))」的 citekey 或 literal 是空的")
+            }
+            guard seen.insert("\(citekey)\u{0}\(literal)").inserted else {
+                throw ServiceError.invalid(
+                    "同一筆「\(displaySafe(idPart, max: 200))」在這批裡出現兩次")
+            }
+            guard let entry = byCitekey[citekey] else {
+                throw ServiceError.notFound("work「\(displaySafe(citekey, max: 200))」")
+            }
+            let hits = entry.authors.indices.filter {
+                if case .literal(let s) = entry.authors[$0] { return s == literal }
+                return false
+            }
+            guard !hits.isEmpty else {
+                // 已升格的位置要與「單純不在」分開講——處置完全不同（同 `unsplitAuthors` 的既有分法）。
+                let promoted = entry.authors.contains { a in
+                    switch a {
+                    case .key, .organization: return true
+                    case .literal: return false
+                    }
+                }
+                throw ServiceError.notFound(
+                    "work「\(displaySafe(citekey, max: 200))」沒有未歸戶的作者位是"
+                    + "「\(displaySafe(literal, max: 200))」"
+                    + (promoted ? "——該 work 有已歸戶的作者位；移除只作用於 .literal，"
+                                + "移除一個已歸戶的身分是判定的逆轉，屬 resolve-divergence 一族"
+                                : "——用 akashic get-entry 看它有哪些作者位"))
+            }
+            guard hits.count == 1 else {
+                throw ServiceError.invalid(
+                    "work「\(displaySafe(citekey, max: 200))」有 \(hits.count) 個作者位都是"   // display-safe-exempt: Int
+                    + "「\(displaySafe(literal, max: 200))」——移除哪一個無從判定，拒絕不判定")
+            }
+            plans.append(Plan(citekey: citekey, idx: hits[0], literal: literal, record: record))
+        }
+
+        // ── 全部驗證通過才寫 ──
+        //
+        // 同一筆 work 移除多個作者位時 index 會位移：由**大到小**處理，先做的不影響還沒做的。
+        var entries: [String: Entry] = [:]
+        for p in plans where entries[p.citekey] == nil { entries[p.citekey] = byCitekey[p.citekey]! }
+        var rows: [[String: Any]] = []
+        for p in plans.sorted(by: { $0.citekey == $1.citekey ? $0.idx > $1.idx
+                                                             : $0.citekey < $1.citekey }) {
+            entries[p.citekey]!.authors.remove(at: p.idx)
+            entries[p.citekey]!.references.append(ProvenanceReference(
+                field: "authors", value: p.literal,
+                kind: .judgement(statement: p.record.encoded, restsOn: [])))
+            rows.append(["citekey": displaySafe(p.citekey, max: 200),
+                         // 呼叫端給的字串定位到的**原始**索引，不是寫入後位置。
+                         "authorIndex": p.idx,   // display-safe-exempt: Int
+                         "removed": displaySafe(p.literal, max: 400),
+                         "judgement": displaySafe(p.record.reason, max: 300),
+                         "recorded": true,   // display-safe-exempt: Bool
+                         // 移除之後還剩幾個作者位——0 代表這筆 work 自此無署名（APA7 §9.12
+                         // 以標題起首）。呼叫端看得到，不必自己再查一次。
+                         "authorsLeft": entries[p.citekey]!.authors.count])   // display-safe-exempt: Int
+        }
+        // format 閘（≥ 17）在任何寫入之前對全部計畫求值——逐筆寫入遇閘會留下「一半套用」。
+        let root = store.root
+        for e in entries.values {
+            try LibraryStore.assertEntryWritable(e, format: { try StoreVersion.read(root: root) })
+        }
+        for e in entries.values.sorted(by: { $0.citekey < $1.citekey }) { try store.writeEntry(e) }
+        try LibraryIndex(store: store).rebuild()
+        return try jsonString(["dropped": rows, "count": rows.count])   // display-safe-exempt: Int
     }
 
     /// **`.literal` → `.organization` 的升格**（#443）。

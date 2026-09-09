@@ -348,6 +348,18 @@ public enum BibExport {
                 guard !isSatisfied(field, in: bib, entry: entry, entryType: entryType) else {
                     continue
                 }
+                // #457：**合法的無署名作品**。APA7 §9.12 對無作者的作品以標題起首——
+                // 那是一個獨立的參考文獻形，不是缺陷。判準與 #406 的 `paginated` 完全同型：
+                // 只在 store **明說過**「這一格不是作者、已移除」時抑制，也就是該 work 帶
+                // 至少一筆移除記錄（`field: authors`、statement `移除：理由`）。
+                //
+                // **空的 `authors` 本身不足以抑制**——那是「還沒記」，正是本檢查要抓的東西。
+                // 這裡與 `paginated` 的 `nil` 照報是同一條紀律：未判定不得折成預設值，
+                // 否則所有沒查過的記錄都靜默通過下限檢查。
+                if field.uppercased() == "AUTHOR", entry.authors.isEmpty,
+                   !entry.authorRemovalRecords.isEmpty {
+                    continue
+                }
                 issues.append(APA7Issue(citekey: entry.citekey, severity: .error,
                                         message: "Missing required field: \(field)"))
             }

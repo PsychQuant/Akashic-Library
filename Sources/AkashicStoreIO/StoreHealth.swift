@@ -121,6 +121,14 @@ public struct StoreHealth {
     public var staleSplitRecords: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.staleSplitRecordPrefix) }
     }
+    /// #457：移除記錄說某個 literal 已退役，而它**現在又在作者位上**——store 同時斷言
+    /// 兩件互相矛盾的事。可達路徑具名：移除之後 `authors` 是空的，而
+    /// `enrich --include-absent-authors` 正好只在「完全為空」時補作者，於是同一個字串
+    /// 可以被補回去。
+    public static let contradictedRemovalPrefix = "移除記錄與作者位互相矛盾"
+    public var contradictedRemovalRecords: [OwnedIssue] {
+        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.contradictedRemovalPrefix) }
+    }
 
     /// 一則驗證問題 ＋ 它屬於哪筆記錄。
     ///
@@ -495,6 +503,22 @@ public extension LibraryStore {
         }
         var out: [StoreHealth.OwnedIssue] = []
         var retiredByWork: [String: Set<String>] = [:]
+        // #457：移除記錄的一致性條件與拆分記錄**相反**——拆分要求「至少一段仍在作者位」，
+        // 移除要求「那個字串**不在**作者位」。兩者都是 warning：記錄合法，失效的是證據錨。
+        for e in load.entries where !e.authorRemovalRecords.isEmpty {
+            let present = Set(e.authors.compactMap { a -> String? in
+                if case .literal(let s) = a { return s } else { return nil }
+            })
+            for r in e.authorRemovalRecords where present.contains(r.removed) {
+                let message = "\(StoreHealth.contradictedRemovalPrefix)：「\(displaySafe(r.removed, max: 120))」"
+                            + "有一筆移除記錄（理由：\(displaySafe(r.record.reason, max: 120))），"
+                            + "而它現在又是本 work 的作者位。處置：確認是不是被補值面重新加回來的"
+                            + "（enrich --include-absent-authors 只在 authors 完全為空時補，而移除之後正好是空的）；"
+                            + "要嘛再移除一次，要嘛刪掉那筆記錄——留著等於 store 同時說兩件相反的事"
+                out.append(StoreHealth.OwnedIssue(owner: e.citekey, kind: "entry",
+                                                  issue: ValidationIssue(severity: .warning, message: message)))
+            }
+        }
         for e in load.entries {
             let records = e.splitRecords
             guard !records.isEmpty else { continue }

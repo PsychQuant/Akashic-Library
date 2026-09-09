@@ -220,6 +220,9 @@ struct Validate: ParsableCommand {
         if !health.orphanedSplitVerdicts.isEmpty {
             print("拆分後的孤兒 verdict: \(health.orphanedSplitVerdicts.count)（錨 literal 已被 work 側拆分記錄退役，#450）")
         }
+        if !health.contradictedRemovalRecords.isEmpty {
+            print("移除記錄與作者位互相矛盾: \(health.contradictedRemovalRecords.count)（#457）")   // display-safe-exempt: Int
+        }
         if !health.staleSplitRecords.isEmpty {
             print("拆分記錄各段都已不在作者位: \(health.staleSplitRecords.count)（記錄仍保留供 un-split，#450）")
         }
@@ -1384,6 +1387,15 @@ struct ResolvePeople: ParsableCommand {
             help: "把拆分合回原 literal（可重複）：citekey:原literal。以值定位——原 literal 逐字取自 store 的拆分記錄（akashic get-entry 看得到）；還原後那筆記錄會被刪掉（理由見 service 的裁決 ②）。任一段已升格為 .key／.organization、各段不連續、或同 value 多筆記錄即整批拒絕、零寫入。不與其他腿組合")
     var unSplit: [String] = []
 
+    /// **把一個作者位移除**（#457）：那一格裝的不是作者。
+    ///
+    /// 三態（`.key`／`.organization`／`.literal`）都假設背後有一個作者，而 PsycInfo 的
+    /// `No authorship indicated` 不是——它今天在 `.bib` 裡是 `AUTHOR = {indicated, No authorship}`，
+    /// 一個被捏造出來的人。以值定位（同 `--un-split`），理由必填，記錄留在 work 側。
+    @Option(name: .customLong("drop-author"), parsing: .upToNextOption,
+            help: "把一個作者位移除（可重複）：citekey:literal=理由。理由必填；以值定位（不用索引）；只作用於未歸戶的 .literal；同一筆 work 的作者位裡出現多次即拒絕不判定。移除記錄（field: authors、`移除：理由`）與作者位改寫同一次寫入，需要 store format ≥ 17。**沒有具名逆操作**——記錄留著被移除的字串，但不留位置。不與其他腿組合")
+    var dropAuthor: [String] = []
+
     /// 判定式否決（#386 的鏡像）：查證後說「**不是他**」。
     ///
     /// 與既有 `--reject` 的差別：那個只吃 resolver 提名出來的**候選**，歧義列一律 notFound。
@@ -1430,11 +1442,13 @@ struct ResolvePeople: ParsableCommand {
         // 會以為兩腿都跑了。同型契約在 resolve-venues 是顯式 throw（#418），對齊。
         // #513：`--un-split` 加入這組——它同樣改作者位的**數量**（N → 1），與 `--split-author`
         // 是同一個理由的同一族。三者互斥且都不與其他腿組合。
-        let structuralLegs = [!splitAuthor.isEmpty, !attributeOrg.isEmpty, !unSplit.isEmpty]
+        // #457：`--drop-author` 同族——它把作者位的數量改成 N-1（可到 0），與前三者同一個理由。
+        let structuralLegs = [!splitAuthor.isEmpty, !attributeOrg.isEmpty, !unSplit.isEmpty,
+                              !dropAuthor.isEmpty]
         if structuralLegs.contains(true) {
             let otherLegs = apply || !reject.isEmpty || !judge.isEmpty || !refute.isEmpty
             if structuralLegs.filter({ $0 }).count > 1 || otherLegs {
-                throw ValidationError("--split-author／--attribute-org／--un-split 各自單獨呼叫"
+                throw ValidationError("--split-author／--attribute-org／--un-split／--drop-author 各自單獨呼叫"
                     + "（不得與其他腿或彼此組合）——它們改作者位的數量或值域，"
                     + "混在一批裡會讓其他腿的意義改變")
             }
@@ -1478,6 +1492,25 @@ struct ResolvePeople: ParsableCommand {
                     + "\(from) → 「\(r["restored"] as? String ?? "")」")   // display-safe-exempt: 同上
                 // 被刪掉的拆分理由要說出來——丟棄必須可見（lossless-intake 執行細節 3）
                 print("    已刪掉的拆分記錄，理由：\(r["droppedReason"] as? String ?? "")（完整原值在 git 歷史）")   // display-safe-exempt: 同上
+            }
+            return
+        }
+        // 移除一個作者位（#457）——同走 service，兩面一條路徑。
+        if !dropAuthor.isEmpty {
+            let service = AkashicService(root: store.root, key: store.key,
+                                         environment: ProcessInfo.processInfo.environment)
+            let out = try service.dropAuthors(dropAuthor)
+            let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
+            let rows = (parsed?["dropped"] as? [[String: Any]]) ?? []
+            print("✓ 移除 \(rows.count) 個作者位、index 已重建")   // display-safe-exempt: Int
+            for r in rows {
+                let left = r["authorsLeft"] as? Int ?? -1
+                // 剩 0 個要**明說**——那是 APA7 §9.12 的無署名形，不是「壞掉的記錄」。
+                let tail = left == 0 ? "（此後無署名：APA7 §9.12 以標題起首）" : "（尚餘 \(left) 個作者位）"   // display-safe-exempt: Int
+                let line = "  \(r["citekey"] as? String ?? "")[\(r["authorIndex"] as? Int ?? -1)] "
+                    + "移除「\(r["removed"] as? String ?? "")」\(tail)"   // display-safe-exempt: 值取自 dropAuthors（已逐欄位 displaySafe），二次消毒非冪等
+                print(line)   // display-safe-exempt: 同上
+                print("    理由：\(r["judgement"] as? String ?? "")（逐字記在 work 側的移除記錄裡）")   // display-safe-exempt: 同上
             }
             return
         }

@@ -66,7 +66,7 @@ struct BootstrapVenues: ParsableCommand {
                 print("  …另 \(pending.count - AmbiguityDisplayLimit.rows) 筆未顯示")
             }
             print("  處置：同鍵只代表**值得看**，不代表同一本刊。查證後——是同一本 → "
-                  + "akashic update-venue --key <既有 key> --add-variant \"<這個寫法>\"，"
+                  + "akashic update-venue <既有 key> --add-variant \"<這個寫法>\"（key 是位置參數），"
                   + "下一輪它就是精確命中、由 resolve-venues 歸戶；是不同刊 → "
                   + "akashic add-venue 另建。判不出來就不建——literal 留在誠實狀態是合法終點。")
         }

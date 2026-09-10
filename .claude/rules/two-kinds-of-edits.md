@@ -36,7 +36,7 @@
 | `resolve-people attribute-org`（#443） | AI | 團體作者的升格是判定，org key 由呼叫端顯式給 |
 | `resolve-venues apply`／`reject`／`repoint`／`demote`（#304／#418） | AI | 同 people；`demote` 是判定的逆轉，原字串從 verdict 逐字取回、取不到寧可拒絕 |
 | `resolve-organizations`（#304） | AI | 同上 |
-| `resolve-divergence`（#71 一族）／攣生合併（#456／#459） | AI | 兩筆記錄是否同一實體是判定；合併含全庫改寫＋刪檔，所以落地那一半是程式且要乾跑過目 |
+| `resolve-divergence`（#71 一族）／攣生合併（#456／#459／#553） | AI | 兩筆記錄是否同一實體是判定；合併含全庫改寫＋刪檔，所以落地那一半是程式且要乾跑過目。**#553 起 venue 走同一個面**（不另開列——列是「寫入面」，而這是同一個面多收一個 shape）。venue 側有一格與 person 側**相反**且必須寫出來：被併者的 `authorized` 在 person 是**拒絕條件**（#81：「哪個名字對外」是判定），在 venue 只是**提醒**——實測 479/479 筆 venue 的 `authorized` 恰好等於 `[names[0]]`，唯一寫入者是 `VenueBootstrap` 的建檔慣例，所以它今天不承載判定。拿一個不做判定的操作的副產品當拒絕條件，會讓合併對它要解決的 7 組重複全部無用 |
 | `update-venue --paginated`（#406） | AI | 「本刊是否使用頁碼」是判定，必附 judgement 與 rests-on |
 | `record-divergence`（#77） | AI | 「當場記錄而非當場判斷」——記下判定尚未做出，本身也是判定型工作的一部分 |
 | `rename`／`rename-person`（#35／#232／#395） | 程式 | 改名不改身分；參照集合由封閉列舉逐條窮舉、可機械檢查 |

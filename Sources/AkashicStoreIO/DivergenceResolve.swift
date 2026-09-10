@@ -252,12 +252,22 @@ extension LibraryStore {
             .person: Set(load.people.map(\.key)),
             .organization: Set(load.organizations.map(\.key)),
             .work: Set(load.entries.map(\.citekey)),
+            // #553：venue 加入。**與 `resolveDivergence` 的 switch 必須同一個 change**
+            // ——`.organization` 今天正是那個半吊子狀態（記得起來、解不掉），
+            // venue 不重蹈。
+            .venue: Set(load.venues.map(\.key)),
         ]
         for c in candidates {
             guard let pool = byShape[c.shape] else {
+                // #553：訊息**分兩則**。原本只有一則，說的是「歧異記錄沒有 key」——
+                // 那是拒絕 `.divergence` 的理由，而它對其餘被拒的形狀是**假的**
+                // （venue 有 key、是可被指涉的對象，當時拒絕它的真實理由是管線沒實作）。
+                // 一則說錯理由的訊息會讓讀者以為那是結構性限制。
                 throw StoreIOError.invalidInput(
                     what: "divergence candidate",
-                    why: "shape「\(c.shape.rawValue)」不可作候選——歧異記錄沒有 key，不是可被指涉的對象")
+                    why: c.shape == .divergence
+                        ? "shape「\(c.shape.rawValue)」不可作候選——歧異記錄沒有 key，不是可被指涉的對象"
+                        : "shape「\(c.shape.rawValue)」的合併管線尚未實作——它有 key、可被指涉，只是 resolveDivergence 還接不住")
             }
             guard pool.contains(c.key) else {
                 throw StoreIOError.invalidInput(
@@ -366,7 +376,10 @@ extension LibraryStore {
         case .work:
             report = try resolveWorkDivergence(record: record, survivor: survivor,
                                                mergedKeys: mergedKeys, snapshot: snapshot)
-        case .organization, .divergence, .venue:
+        case .venue:
+            report = try resolveVenueDivergence(record: record, survivor: survivor,
+                                                mergedKeys: mergedKeys, snapshot: snapshot)
+        case .organization, .divergence:
             throw DivergenceResolveError.unsupportedShape(shape.rawValue)
         }
         report.warnings += Self.judgementWarnings(
@@ -671,7 +684,19 @@ extension LibraryStore {
                 snapshot: snapshot, merged: merged, survivor: survivor, holderKind: .work)
             report.verdictValuesRewritten = vw.rewritten
             report.verdictsCollapsed = vw.collapsed
-        case .organization, .divergence, .venue:
+        case .venue:
+            report.warnings += try validateVenuePreconditions(
+                survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot).warnings
+            for e in snapshot.entries where e.venues.contains(where: {
+                if case let .key(k) = $0 { return merged.contains(k) }
+                return false
+            }) { report.rewritten.append(e.citekey) }
+            // **holder verdict 遷移沒有 venue 這一格，而那不是遺漏。**
+            // `VerdictHolderKind` 的值域是 work／person／org——holder 是「持有 literal
+            // 的那筆記錄」，而持有刊名 literal 的只有 work。實測 live store：8,670 條
+            // verdict **全部**是 `work:` 前綴，`venue:` 零條。所以 venue key 退役不會
+            // 讓任何 verdict value 變 stale，沒有迴圈可鏡射。
+        case .organization, .divergence:
             throw DivergenceResolveError.unsupportedShape(shape.rawValue)
         }
         // #173：preview 裡的**第四次**呼叫，同樣改用共用點的回傳值。
@@ -750,6 +775,213 @@ extension LibraryStore {
         // 的時點**說出來。
         let warnings = doomed.flatMap { Self.contentWarningsForMerging($0, into: keeper) }
         return (keeper, doomed, warnings)
+    }
+
+    // MARK: - venue（#553）
+
+    /// venue 側的 shape 專屬拒絕條件——**不是 person 版的平移**。
+    ///
+    /// venue 要丟的純量欄位比 person 多，而其中一格**已經有實例**：American Statistician
+    /// 在店裡是兩筆，`ISSN 0003-1305` **只在 `the-american-statistician` 那一筆**。
+    /// 挑錯倖存者就靜靜弄丟一個識別碼——而識別碼是 `identity-is-judged-not-matched`
+    /// 的明文例外（六種之一），丟掉它是實質損失不是排版差異。
+    ///
+    /// 同 person／work：**preview 與實跑共用這一份**（#139 verify F1 的教訓——
+    /// dry-run 對最高頻的拒絕條件沉默，「跑同樣的拒絕條件」就是假的）。
+    func validateVenuePreconditions(survivor: String, mergedKeys: [String],
+                                    snapshot: LibraryLoad) throws
+        -> (keeper: Venue, doomed: [Venue], warnings: [String]) {
+        guard let keeper = snapshot.venues.first(where: { $0.key == survivor }) else {
+            throw DivergenceResolveError.candidateMissing(key: survivor, shape: "venue")
+        }
+        var doomed: [Venue] = []
+        for key in mergedKeys {
+            guard let v = snapshot.venues.first(where: { $0.key == key }) else {
+                throw DivergenceResolveError.candidateMissing(key: key, shape: "venue")
+            }
+            doomed.append(v)
+        }
+        try assertAllInEntities(([keeper] + doomed).map { ($0.key, $0.id) })
+        for v in doomed {
+            let losses = Self.fieldsLostByMerging(v, into: keeper)
+            guard losses.isEmpty else {
+                throw DivergenceResolveError.wouldLoseFields(
+                    merged: v.key, survivor: survivor, losses: losses)
+            }
+        }
+        // **不擋、但要說**（同 work 側的 content warnings）：被併者的 authorized
+        // 名字會降成倖存者的 variant，而 venue 沒有 authorize 寫入面所以改不回去。
+        // 算在**前置**是因為 preview 與實跑共用這一份——本檔付過兩次代價的那條
+        // 紀律（#139 F1）對提醒與對拒絕同樣適用：只在實跑算，dry-run 就對一個
+        // 單向操作沉默，而 dry-run 正是「還能反悔的時點」。
+        let warnings = doomed.flatMap { v in
+            Self.authorizedDemotedByMerging(v, into: keeper).map { name in
+                "「\(displaySafe(name, max: 120))」在被併的「\(displaySafe(v.key, max: 120))」"
+                + "是 authorized，合併後成為「\(displaySafe(survivor, max: 120))」的 variant"
+                + "（名字保留在 names，但 venue 沒有改回 authorized 的面）"
+            }
+        }
+        return (keeper, doomed, warnings)
+    }
+
+    /// 合併會讓 venue 失去什麼。**`type` 不同一律算失去**——#324 的判準是
+    /// 「`VenueType` 決定哪些欄位存在」，所以跨 type 合併不是丟一個欄位，是把整組
+    /// 欄位需求換掉；那必須有人裁決，不能由合併順手做掉。
+    static func fieldsLostByMerging(_ v: Venue, into keeper: Venue) -> [String] {
+        var losses: [String] = []
+        if v.type != keeper.type {
+            losses.append("type: \(v.type.rawValue)（倖存者是 \(keeper.type.rawValue)）")
+        }
+        // ISSN 是**清單**（print 與 electronic 是兩個真的號）。相等看正規形——與
+        // `IdentifierMigration.normalizedUnique` 同一條規則，兩處若用不同的相等，
+        // 對「這本刊有幾個 ISSN」會給出不同答案。
+        let keeperISSN = Set(keeper.issn.map(\.normalized))
+        let lostISSN = v.issn.filter { !keeperISSN.contains($0.normalized) }
+        if !lostISSN.isEmpty {
+            losses.append("issn: " + lostISSN.map(\.raw).joined(separator: "、"))
+        }
+        // `paginated` 是**判定**（#406：必附 judgement 與 rests-on），nil 是誠實的
+        // 未判定狀態。被併者判過而倖存者沒判、或兩邊判得不同——都要人看見。
+        if let theirs = v.paginated, theirs != keeper.paginated {
+            losses.append("paginated: \(theirs)（倖存者是 "
+                          + (keeper.paginated.map(String.init) ?? "未判定") + "）")
+        }
+        if let theirs = v.note, !theirs.isEmpty, theirs != keeper.note {
+            losses.append("note: \(theirs)")
+        }
+        return losses
+    }
+
+    /// 合併把被併者的哪些 `authorized` 名字降成 `variant`。**這是提醒不是拒絕**——
+    /// 而它與 person 側的裁決相反，所以理由要寫完整。
+    ///
+    /// ## 為什麼 person 的 #81 論證在 venue 上不成立
+    ///
+    /// person 側對「被併者有、倖存者沒有的 authorized」**直接拒絕合併**，理由是
+    /// 「哪個名字對外」是判定（`authorize-names` 做的事），聯集會違反「每書寫系統
+    /// 至多一個」。那個論證的前提是 **person 的 authorized 承載判定**。
+    ///
+    /// venue 的不承載。實測 2026-09-11（live store，494 筆 venue）：
+    ///
+    /// ```
+    /// 有 authorized 479 筆｜空 15 筆｜多於一個 0 筆
+    /// authorized == [names[0]]：479 筆（479/479，零例外）
+    /// ```
+    ///
+    /// 全庫**唯一**的 `venue.authorized` 寫入者是 `VenueBootstrap` 的
+    /// `authorized: [c.names[0]]`——建檔時取第一個名字的機械慣例。`updateVenue`
+    /// 收 `add_names`／`add_variant`／`add_issn`／`paginated`，**沒有 authorized**；
+    /// `authorize-names` 只管 person。所以拿它擋合併，是把一個 bootstrap 副產品
+    /// 當成承重判定——那正是 `identity-is-judged-not-matched` 與 #471 記過的形狀
+    /// （「一個不做判定的操作成了唯一的判定寫入者」），只是這次由我在合併端重演。
+    ///
+    /// ## 但降級是真的，而且單向——所以要說
+    ///
+    /// 字串不會消失：被併者的全部名字（含它的 authorized）都進倖存者的 `names`
+    /// **與** `variant`。改變的是**分類**：從「對外形」變成「異寫」。
+    ///
+    /// 而 venue 沒有 authorize 寫入面，所以**這個降級改不回去**（要改只能手改 YAML）。
+    /// 不擋是因為它今天不承載判定；要說是因為它單向。
+    ///
+    /// **觸發條件（任一成立即重開這一格的裁決）**：venue 長出 authorized 的寫入面；
+    /// 或下列量測回非零——那代表有人手工指定過對外形，而本函式會把它降級：
+    ///
+    /// ```bash
+    /// python3 -c "
+    /// import glob,io,os,yaml
+    /// n=0
+    /// for f in glob.glob(os.path.expanduser('~/.akashic/entities')+'/*.yaml'):
+    ///     t=io.open(f,encoding='utf8').read()
+    ///     if not t.startswith('venue:'): continue
+    ///     d=yaml.safe_load(t); a=d.get('authorized') or []
+    ///     v=[x['value'] if isinstance(x,dict) else x for x in (d.get('names') or [])]
+    ///     if a and not (v and a==[v[0]]): n+=1
+    /// print(n)"   # 2026-09-11：0
+    /// ```
+    static func authorizedDemotedByMerging(_ v: Venue, into keeper: Venue) -> [String] {
+        // 相等用 `NameIdentity.canonical`，與合併路徑的 `known` 濾除同一條規則——
+        // 兩處若用不同的相等，這裡會預告一個那裡不會發生的降級（或反之）。
+        let keeperAuthorized = Set(keeper.authorized.map(NameIdentity.canonical))
+        return v.authorized.filter { !keeperAuthorized.contains(NameIdentity.canonical($0)) }
+    }
+
+    /// venue 合併。**比 person 少一整段**：沒有 holder verdict 遷移。
+    ///
+    /// `VerdictHolderKind` 的值域是 work／person／org——holder 是「持有 literal 的那筆
+    /// 記錄」，而持有刊名 literal 的只有 work。實測 live store：8,670 條 verdict **全部**
+    /// 是 `work:` 前綴、`venue:` 零條。所以 venue key 退役不會讓任何 verdict value 變
+    /// stale，person 側那三個迴圈在這裡沒有對應物。**這是量出來的，不是省略。**
+    private func resolveVenueDivergence(record: Divergence, survivor: String,
+                                        mergedKeys: [String],
+                                        snapshot: LibraryLoad) throws -> ResolveReport {
+        var (keeper, doomed, demotionWarnings) = try validateVenuePreconditions(
+            survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
+        // 名字併入倖存者：被併者的寫法保留，否則下次遇到那個寫法又會重新分割一次
+        // （`OrgBootstrap`／`PersonBootstrap` 的同一教訓）。併入的一律進 **variant**
+        // ——`authorized` 是指定，前置已確認被併者的指定是倖存者的子集。
+        // #296：判定用 `NameIdentity`，不用精確 `String ==`。
+        let known = Set(keeper.names.entries.map { NameIdentity.canonical($0.value) })
+        let incoming = dedupePreservingOrder(
+            doomed.flatMap { d in d.names.entries.map(\.value) + d.variant })
+            .filter { !known.contains(NameIdentity.canonical($0)) }
+        if !incoming.isEmpty {
+            keeper.names = Timeline(keeper.names.entries
+                                    + incoming.map { TemporalValue(value: $0) })
+            keeper.variant = dedupePreservingOrder(keeper.variant + incoming)
+        }
+        // 被併者的 verdict references 遷移（#271 同型）——判定史不隨檔案消失。
+        // (field, value) 冪等：store 永不持有重複 verdict。
+        var verdictsMigrated: [String] = []
+        for d in doomed {
+            for r in d.references
+            where ProvenanceReference.resolutionVerdictFields.contains(r.field) {
+                guard !keeper.references.contains(where: {
+                    $0.field == r.field && $0.value == r.value }) else { continue }
+                keeper.references.append(r)
+                verdictsMigrated.append(r.value ?? "")
+            }
+        }
+        let merged = Set(mergedKeys)
+        var entriesToWrite: [Entry] = []
+        for var e in snapshot.entries {
+            // **只碰真的指名被併鍵的記錄**（同 person 側：消歧不是清理工具）。
+            guard e.venues.contains(where: {
+                if case let .key(k) = $0 { return merged.contains(k) }
+                return false
+            }) else { continue }
+            var seen = Set<String>()
+            let rewritten = e.venues.map { ref -> VenueRef in
+                if case let .key(k) = ref, merged.contains(k) { return .key(survivor) }
+                return ref
+            }.filter { ref in
+                // 兩條邊改指同一個 survivor 後會重複——去重（同 `dedupeAuthors` 的理由）。
+                guard case let .key(k) = ref else { return true }
+                return seen.insert(k).inserted
+            }
+            if rewritten != e.venues {
+                e.venues = rewritten
+                entriesToWrite.append(e)
+            }
+        }
+        let keeperFinal = keeper
+        var report = try commitResolution(
+            record: record,
+            keeperWrite: { try self.writeVenue(keeperFinal) },
+            keeperEncode: { _ = try VenueYAML.encode(keeperFinal) },
+            entriesToWrite: entriesToWrite,
+            doomedIDs: doomed.map(\.id), mergedKeys: mergedKeys,
+            snapshot: snapshot, survivor: survivor,
+            survivorNote: "倖存者的別名合併已經落地（磁碟上不是原狀）")
+        // 揭露看 `survivorUpdated`——與 person 側同一條失敗語意（A 早退不揭露，
+        // B／C／D 已改寫磁碟就要說）。venue 沒有 holder 遷移，所以只揭露搬來的 verdict。
+        if report.survivorUpdated {
+            report.verdictReferencesMigrated = verdictsMigrated
+        }
+        // 走 `pendingContentWarnings` 而不是直接 append：`resolveDivergence` 把
+        // judgement warnings 接在**這之後**，直接 append 會得到與 preview 相反的
+        // 順序，而 `==` 對 `warnings` 是順序敏感的（#169 verify F3 的既有教訓）。
+        report.pendingContentWarnings += demotionWarnings
+        return report
     }
 
     private func resolvePersonDivergence(record: Divergence, survivor: String,

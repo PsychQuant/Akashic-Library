@@ -180,6 +180,52 @@ final class DivergenceResolveVenueTests: XCTestCase {
             judgement: nil, restsOn: []))
     }
 
+    // MARK: - unsupportedShape 的訊息不得手寫值域
+
+    /// **這條是 doc-sync sweep 抓出來的**（#553 close 時）。
+    ///
+    /// `unsupportedShape` 的訊息原本逐字寫「本版的消歧只處理 person 與 work」，
+    /// 而 #553 把 venue 加進支援值域之後**沒有任何東西報錯**——那句話今天唯一
+    /// 觸發得到的是 organization，所以它是一句對著使用者說的假話。而 README 還
+    /// 逐字引用著它。
+    ///
+    /// 訊息改成從 `mergeableShapes` 生成，本條釘住那份清單與**實際分支**一致：
+    /// 清單裡的 shape 不得擲 `unsupportedShape`，清單外的必須擲。
+    func testUnsupportedShapeMessageNamesTheRealDomain() throws {
+        // venue 在清單裡 → 不得擲 unsupportedShape（它走得完整條管線）
+        XCTAssertTrue(DivergenceResolveError.mergeableShapes.contains("venue"),
+                      "venue 已經接得住了，清單卻沒有它")
+        let d = try seed()
+        XCTAssertNoThrow(try store.resolveDivergence(id: d.id, survivor: "the-american-statistician"))
+
+        // organization 不在清單裡 → 必須擲，且訊息要說出**真的**支援哪些
+        var a = Organization(key: "org-a")
+        a.names = Timeline([TemporalValue(value: "Org A")])
+        var b = Organization(key: "org-b")
+        b.names = Timeline([TemporalValue(value: "Org B")])
+        try store.writeOrganization(a)
+        try store.writeOrganization(b)
+        let od = Divergence(id: UUID(), question: "同一個機構嗎",
+                            candidates: [DivergenceCandidate(key: "org-a", shape: .organization),
+                                         DivergenceCandidate(key: "org-b", shape: .organization)])
+        try store.writeDivergence(od)
+        GitFixture.commitAll(root, message: "orgs")
+
+        XCTAssertThrowsError(try store.resolveDivergence(id: od.id, survivor: "org-a")) { err in
+            guard case DivergenceResolveError.unsupportedShape = err else {
+                return XCTFail("預期 unsupportedShape，實際：\(err)")
+            }
+            // `"\(err)"` 給的是 enum 的 debug 形（`unsupportedShape("organization")`），
+            // 不是使用者看到的那句話——測試第一版就是這樣寫的，然後它抓到了自己。
+            let msg = (err as? LocalizedError)?.errorDescription ?? "\(err)"
+            XCTAssertFalse(msg.contains("只處理 person 與 work"),
+                           "訊息手寫了值域，而值域已經變了：\(msg)")
+            for shape in DivergenceResolveError.mergeableShapes {
+                XCTAssertTrue(msg.contains(shape), "訊息沒說出支援的 \(shape)：\(msg)")
+            }
+        }
+    }
+
     // MARK: - authorized 降級：說，但不擋
 
     /// **本輪的裁決釘子**：被併者的 `authorized` 不是拒絕條件。

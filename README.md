@@ -820,13 +820,21 @@ venue 域先前**沒有批次建檔的路徑**。person 與 organization 都有�
 |---|---|---|---|---|
 | person | ✅ `bootstrap-people` | ✅ `add-person` | ✅ `resolve-people` | ✅ `resolve-divergence`（合併＋全庫改寫）|
 | organization | ✅ `bootstrap-organizations` | ✅ `add-organization`（MCP）| ✅ `resolve-organizations` | **❌ 無** |
-| venue | **❌ 先前無** → ✅ `bootstrap-venues` | ✅ `add-venue` | ✅ `resolve-venues` | **❌ 先前無** → ✅ `--repoint` / `--demote`（#418）|
+| venue | **❌ 先前無** → ✅ `bootstrap-venues` | ✅ `add-venue` | ✅ `resolve-venues` | **❌ 先前無** → ✅ `--repoint` / `--demote`（#418）＋ ✅ `resolve-divergence`（#553）|
 
 **最後一欄是 #418 補的，而它同時揭露了 organization 也缺這一格。**
 `literal-first-then-key` 的整套論證建立在「漏（literal 待消歧）可逆，誤（錯誤歸戶）
-不可逆」這個不對稱上，並為它提供退路——但**只有 person 與 work 真的有**：
-`resolve-divergence` 對其餘 shape 直接拒（`DivergenceResolve.swift` 的
-`unsupportedShape`，訊息逐字寫著「本版的消歧只處理 person 與 work」）。
+不可逆」這個不對稱上，並為它提供退路。**venue 於 #553 補齊**（record↔record 的攣生
+合併，與 `--repoint`／`--demote` 是不同的東西：後兩者改的是**邊**，前者刪的是**記錄**）；
+`resolve-divergence` 現在接得住 person／work／venue，organization 仍拒。
+
+> **這一段在 #553 close 的 doc-sync sweep 抓到過一次，而它抓到的不只是文件。**
+> 原文逐字引用著錯誤訊息「本版的消歧只處理 person 與 work」——去核對才發現
+> **程式那一則也沒改**：venue 加進支援值域了，訊息還在說舊值域，而今天唯一觸發得到
+> 它的是 organization，所以那是一句對著使用者說的假話。修法不是改字串，是讓訊息
+> **從實際支援的清單生成**（`DivergenceResolveError.mergeableShapes`），並用
+> `testUnsupportedShapeMessageNamesTheRealDomain` 釘住清單與分支一致——手寫的值域
+> 會再分岔一次，而它分岔時不會有任何東西報錯。
 
 寫這張表時我先填了「organization ✅ 同上」，**去查才發現是假的**——那正是本批
 （#407）在管的形狀，出現在為它自己寫的文件裡。venue 那格已由 #418 補上；

@@ -8,6 +8,13 @@ public enum DivergenceResolveError: Error, LocalizedError {
     case candidateMissing(key: String, shape: String)
     case outsideVersionControl(root: String)
     case unsupportedShape(String)
+
+    /// `resolveDivergence` 真的接得住的 shape。**訊息從它生成，不手寫**——
+    /// 手寫的值域會與 switch 分岔而沒有任何東西報錯（#553 抓到的正是這個：
+    /// venue 加進去了，訊息還說「只處理 person 與 work」）。
+    /// `DivergenceResolveVenueTests.testUnsupportedShapeMessageNamesTheRealDomain`
+    /// 釘住它與實際分支一致。
+    static let mergeableShapes = ["person", "work", "venue"]
     case legacyLayout(root: String)
     case wouldLoseFields(merged: String, survivor: String, losses: [String])
     case quarantinedPresent(files: [String])
@@ -67,7 +74,13 @@ public enum DivergenceResolveError: Error, LocalizedError {
                  + "你選「\(displaySafe(survivor, max: 200))」）需要 --override-reason："
                  + "為什麼原判斷不成立。"
         case let .unsupportedShape(shape):
-            return "本版的消歧只處理 person 與 work，不處理 \(shape)"   // display-safe-exempt: shape 是 EntityKind.rawValue（enum）
+            // **這句話會過期，而它過期時不會有任何東西報錯**——#553 把 venue 加進
+            // 支援值域，而這則訊息（在別的檔案被逐字引用著）仍說「只處理 person 與
+            // work」。今天唯一觸發得到它的是 organization，所以那是一句對著使用者
+            // 說的假話。改成從**實際支援的分支**推導，不再手寫值域。
+            return "「\(shape)」的合併管線尚未實作——支援的是 "   // display-safe-exempt: shape 是 EntityKind.rawValue（enum，封閉值域）
+                 + Self.mergeableShapes.joined(separator: "／")
+                 + "。它可能有 key、可被指涉，只是 resolveDivergence 還接不住"
         case let .legacyLayout(root):
             return "store「\(displaySafe(root, max: 300))」是 legacy 佈局（format < 2），"
                  + "歧異記錄需要 entities/ 佈局。legacy 下 person 落在 people/<key>.yaml、"

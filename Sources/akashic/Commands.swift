@@ -748,6 +748,26 @@ struct BootstrapOrganizations: ParsableCommand {
         // #154 verify 154-1：產不出合法 key 的機構名**不靜默丟**——含 CJK 的名字
         // （台灣機構的雙語寫法最常見）無 ASCII token 時無法 slug，要明列，否則
         // 使用者以為「都建好了」。過濾門檻同 candidates。
+        // #548：與既有 organization 寬鬆共鍵的群——不建檔，先消歧。**印在所有分支
+        // 之前**，含「無候選」那條：只在 model 端加桶而沒有輸出讀它，與丟棄在效果上
+        // 完全相同（#547 的 BLOCKING 教訓）。
+        let pendingOrg = result.pendingResolution.filter { $0.occurrences >= minOccurrences }
+        if !pendingOrg.isEmpty {
+            print("與既有 organization 寬鬆共鍵、**先消歧再說**（\(pendingOrg.count)）"
+                  + "——建檔會鑄造重複記錄：")
+            for g in pendingOrg.prefix(AmbiguityDisplayLimit.rows) {
+                let names = g.names.map { displaySafe($0, max: 200) }.joined(separator: " ≡ ")
+                let keys = g.matchedKeys.map { displaySafe($0, max: 200) }.joined(separator: "、")
+                print("  ×\(g.occurrences)  \(names)  ↔ 既有：\(keys)")
+            }
+            if pendingOrg.count > AmbiguityDisplayLimit.rows {
+                print("  …另 \(pendingOrg.count - AmbiguityDisplayLimit.rows) 筆未顯示")
+            }
+            print("  處置：查證後——是同一個機構 → 把這個寫法補進既有記錄的 names；"
+                  + "是不同機構 → 另建。判不出來就不建。")
+            print("")
+        }
+
         let dropped = result.dropped.filter { $0.occurrences >= minOccurrences }
         func reportDropped() {
             guard !dropped.isEmpty else { return }

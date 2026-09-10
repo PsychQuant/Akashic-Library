@@ -88,11 +88,23 @@ public enum OrgBootstrap {
     /// 產不出合法 key 而被丟棄的機構名（#154 verify 154-1）——**不能靜默丟**：
     /// 使用者看到 N 個候選，不知道其實有 N+M 個機構名、M 個因無 ASCII 可 slug
     /// 被略過。CLI 據此明列，而非讓 `無候選` 訊息誤導成「都已建好或低於門檻」。
+    /// 與既有 organization **寬鬆共鍵**的群（#548）——只提名、不建檔。
+    /// 判準走 `LooseTitleKey`（與 venue 共用），理由見該型別檔頭。
+    public struct PendingResolution: Equatable {
+        public let names: [String]
+        public let occurrences: Int
+        /// 撞到的既有 organization key（排序）。
+        public let matchedKeys: [String]
+    }
+
     public struct Result: Equatable {
         public var candidates: [Candidate]
         public var dropped: [(name: String, occurrences: Int)]
+        /// 與既有 organization 寬鬆共鍵、**先消歧再說**的群（#548）。
+        public var pendingResolution: [PendingResolution] = []
         public static func == (a: Result, b: Result) -> Bool {
             a.candidates == b.candidates
+                && a.pendingResolution == b.pendingResolution
                 && a.dropped.map { "\($0.name)|\($0.occurrences)" }   // display-safe-exempt: Equatable 的比較鍵，不進任何輸出面
                     == b.dropped.map { "\($0.name)|\($0.occurrences)" }   // display-safe-exempt: Equatable 的比較鍵，不進任何輸出面
         }
@@ -161,6 +173,15 @@ public enum OrgBootstrap {
         let known = Set(organizations.flatMap { org in
             org.names.entries.map { NameNormalization.matchingKey($0.value) }
         })
+        // #548：既有 org 的**寬鬆**索引——`known` 不摺標點與前導冠詞。
+        var looseIndex: [String: Set<String>] = [:]
+        for org in organizations {
+            for n in org.names.entries {
+                let lk = LooseTitleKey.key(n.value)
+                guard !lk.isEmpty else { continue }
+                looseIndex[lk, default: []].insert(org.key)
+            }
+        }
         var takenKeys = Set(organizations.map(\.key))
 
         var groups: [String: (names: [String], count: Int)] = [:]
@@ -177,10 +198,19 @@ public enum OrgBootstrap {
 
         var cands: [Candidate] = []
         var dropped: [(name: String, occurrences: Int)] = []
+        var pending: [PendingResolution] = []
         for (_, g) in groups.sorted(by: {
             $0.value.count == $1.value.count ? $0.key < $1.key : $0.value.count > $1.value.count
         }) {
             let sortedNames = g.names.sorted()
+            // #548：先問「庫裡是不是已經有這個機構了」——撞到就不建檔，出口是把這個
+            // 寫法補成既有 organization 的寫法之一。
+            let hits = Set(sortedNames.flatMap { looseIndex[LooseTitleKey.key($0)] ?? [] })
+            if !hits.isEmpty {
+                pending.append(PendingResolution(
+                    names: sortedNames, occurrences: g.count, matchedKeys: hits.sorted()))
+                continue
+            }
             if let key = suggestedKey(from: sortedNames[0], taken: takenKeys) {
                 takenKeys.insert(key)
                 cands.append(Candidate(key: key, names: sortedNames, occurrences: g.count))
@@ -188,7 +218,12 @@ public enum OrgBootstrap {
                 dropped.append((name: sortedNames[0], occurrences: g.count))
             }
         }
-        return Result(candidates: cands, dropped: dropped)
+        return Result(candidates: cands, dropped: dropped,
+                      pendingResolution: pending.sorted {
+                          $0.occurrences == $1.occurrences
+                              ? ($0.names.first ?? "") < ($1.names.first ?? "")
+                              : $0.occurrences > $1.occurrences
+                      })
     }
 
     /// 機構名 → key slug。機構名不做 `Last, First` 重排（那是人名的慣例）。

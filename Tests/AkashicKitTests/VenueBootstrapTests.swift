@@ -164,3 +164,85 @@ final class VenueBootstrapTests: XCTestCase {
                           "venue id 必須是 v4 隨機——由名字推導會讓同名不同刊熔成一筆")
     }
 }
+
+// MARK: - #548：與既有記錄寬鬆共鍵——先消歧，不建檔
+
+extension VenueBootstrapTests {
+
+    private func e(_ ck: String, journal: String) -> Entry {
+        var x = Entry(id: UUID(), citekey: ck, type: .periodicalArticle, title: "T",
+                      authors: [.literal("A, A.")], date: "2020")
+        x.fields = ["journaltitle": journal]
+        return x
+    }
+
+    /// **只差標點的刊名不再變成第二筆記錄。**
+    ///
+    /// 缺陷已經發生過：live store 有三筆 JRSS-B，只差 `:` ／ `(` ／ `-`
+    /// （key 分別是 `…-society`、`…-society-2`、`…-society-3`——`-2`／`-3` 正是
+    /// 本命令撞號時自己加的後綴）。`NameNormalization.matchingKey` 不摺標點，
+    /// 所以 `known` 那道精確比對看不到它們。
+    func testPunctuationOnlyVariantLandsInPendingResolution() {
+        let existing = Venue(
+            key: "jrss-b", type: .periodical,
+            names: Timeline([TemporalValue(
+                value: "Journal of the Royal Statistical Society Series B: Statistical Methodology")]))
+        let r = VenueBootstrap.result(
+            entries: [e("a", journal:
+                "Journal of the Royal Statistical Society Series B (Statistical Methodology)")],
+            existing: [existing])
+        XCTAssertTrue(r.candidates.isEmpty, "不得建成第二筆：\(r.candidates)")
+        XCTAssertEqual(r.pendingResolution.map(\.matchedKeys), [["jrss-b"]])
+    }
+
+    /// 前導冠詞與 `&`／`and`——另外兩個實測到的形狀。
+    func testLeadingArticleAndAmpersandAlsoCollide() {
+        for (existingName, literal) in [
+            ("The Guilford Press", "Guilford Press"),
+            ("British Journal of Mathematical and Statistical Psychology",
+             "British Journal of Mathematical & Statistical Psychology"),
+        ] {
+            let v = Venue(key: "v", type: .periodical,
+                          names: Timeline([TemporalValue(value: existingName)]))
+            let r = VenueBootstrap.result(entries: [e("a", journal: literal)], existing: [v])
+            XCTAssertTrue(r.candidates.isEmpty, "\(literal) 不該建檔")
+            XCTAssertEqual(r.pendingResolution.first?.matchedKeys, ["v"], "\(literal)")
+        }
+    }
+
+    /// **不同的刊不得被收攏。** 這是判準的另一半——寬鬆鍵存在的理由是找重複，
+    /// 不是把目錄壓扁。
+    func testDifferentJournalsStillBecomeSeparateCandidates() {
+        let existing = Venue(key: "jap", type: .periodical,
+                             names: Timeline([TemporalValue(value: "Journal of Applied Psychology")]))
+        let r = VenueBootstrap.result(
+            entries: [e("a", journal: "Journal of Educational Psychology")],
+            existing: [existing])
+        XCTAssertEqual(r.candidates.count, 1)
+        XCTAssertTrue(r.pendingResolution.isEmpty)
+    }
+
+    /// **`LooseNameKey` 的 reorder 語意刻意不套用到刊名。**
+    ///
+    /// 人名會被索引系統重排（`Hsu, Yung-Fong`），刊名不會；而 token 集合相等對刊名
+    /// 是誤判來源。這條測試釘住那個裁決——若哪天有人「順手統一」成 `LooseNameKey`，
+    /// 它會紅。
+    func testTokenReorderIsNotTreatedAsTheSameJournal() {
+        // **這一對是構造的**：`Statistics and Computing` 是真的刊，
+        // `Computing and Statistics` 不是。用它釘住的是**裁決本身**（LooseTitleKey
+        // 不做 reorder），不是宣稱這個判準今天在擋什麼——真實刊名裡零實例。
+        XCTAssertNotEqual(LooseTitleKey.key("Statistics and Computing"),
+                          LooseTitleKey.key("Computing and Statistics"),
+                          "token 集合相等對刊名不構成同一本")
+        XCTAssertEqual(LooseNameKey.reorderKey("Statistics and Computing"),
+                       LooseNameKey.reorderKey("Computing and Statistics"),
+                       "對照：人名的 reorder 鍵會把它們視為同鍵——所以不能拿它來比刊名")
+    }
+
+    /// 空鍵不算共鍵——否則兩個純標點的名字會配成一對。
+    func testEmptyKeyIsNotAMatch() {
+        XCTAssertEqual(LooseTitleKey.key("—"), "")
+        XCTAssertFalse(LooseTitleKey.matches("—", "···"))
+    }
+}
+

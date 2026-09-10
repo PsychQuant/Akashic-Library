@@ -48,6 +48,29 @@ struct BootstrapVenues: ParsableCommand {
             print("  …另 \(total - cands.count) 筆未顯示（--limit）")
         }
 
+        /// #548：與既有 venue **寬鬆共鍵**的群——不建檔，先消歧。
+        ///
+        /// 印在 `guard apply` **之前**，所以乾跑與 `--apply` 兩條路都看得到。
+        /// 那正是 #547 的 BLOCKING：只在 model 端加桶而沒有輸出讀它，與丟棄在效果
+        /// 上完全相同（`lossless-intake` §3：靜默是最糟的形式）。
+        let pending = result.pendingResolution.filter { $0.occurrences >= minOccurrences }
+        if !pending.isEmpty {
+            print("")
+            print("與既有 venue 寬鬆共鍵、**先消歧再說**（\(pending.count)）——建檔會鑄造重複記錄：")
+            for g in pending.prefix(AmbiguityDisplayLimit.rows) {
+                let names = g.names.map { displaySafe($0, max: 200) }.joined(separator: " ≡ ")
+                let keys = g.matchedKeys.map { displaySafe($0, max: 200) }.joined(separator: "、")
+                print("  ×\(g.occurrences)  \(names)  ↔ 既有：\(keys)")
+            }
+            if pending.count > AmbiguityDisplayLimit.rows {
+                print("  …另 \(pending.count - AmbiguityDisplayLimit.rows) 筆未顯示")
+            }
+            print("  處置：同鍵只代表**值得看**，不代表同一本刊。查證後——是同一本 → "
+                  + "akashic update-venue --key <既有 key> --add-variant \"<這個寫法>\"，"
+                  + "下一輪它就是精確命中、由 resolve-venues 歸戶；是不同刊 → "
+                  + "akashic add-venue 另建。判不出來就不建——literal 留在誠實狀態是合法終點。")
+        }
+
         /// 產不出 key 的**必須被印出來**（同 `bootstrap-people` 的 #238 教訓）：
         /// model 端有欄位而沒有任何輸出讀它，與丟棄在效果上完全相同。
         let dropped = result.dropped.filter { $0.occurrences >= minOccurrences }

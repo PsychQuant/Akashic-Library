@@ -85,10 +85,33 @@ public enum VenueBootstrap {
         public let occurrences: Int
     }
 
+    /// 與既有 venue **寬鬆共鍵**的群（#548）——只提名、不建檔。
+    ///
+    /// 形狀對齊 `PersonBootstrap.PendingResolutionGroup`，判準**不同**：人名走
+    /// `LooseNameKey`（重排／姓＋首字母），刊名走 `LooseTitleKey`（標點／`&`／前導
+    /// 冠詞）。理由見 `LooseTitleKey` 的檔頭——那是裁決不是省略。
+    public struct PendingResolution: Equatable {
+        /// 這一組的所有寫法（保留原字串）。
+        public let names: [String]
+        public let occurrences: Int
+        /// 撞到的既有 venue key（排序）——印給人看「撞的是誰」。
+        public let matchedKeys: [String]
+    }
+
     public struct Result: Equatable {
         public let candidates: [Candidate]
         public let dropped: [Dropped]
         public let conflicts: [TypeConflict]
+        /// 與既有 venue 寬鬆共鍵、**先消歧再說**的群（#548）。
+        public let pendingResolution: [PendingResolution]
+
+        public init(candidates: [Candidate], dropped: [Dropped], conflicts: [TypeConflict],
+                    pendingResolution: [PendingResolution] = []) {
+            self.candidates = candidates
+            self.dropped = dropped
+            self.conflicts = conflicts
+            self.pendingResolution = pendingResolution
+        }
     }
 
     /// 來源欄位 → 載體種類。**這張表是 `VenueDerivation` 取值順序的鏡像**，
@@ -133,6 +156,17 @@ public enum VenueBootstrap {
         let known = Set(existing.flatMap { v in
             v.names.entries.map { NameNormalization.matchingKey($0.value) }
         })
+        // #548：既有 venue 的**寬鬆**索引。`known` 只摺大小寫與空白，於是同一本刊
+        // 只差 `:` ／ `(` ／ `-` 就成了兩筆記錄——實測 live store 已有 5 組／11 筆
+        // （JRSS-B 三筆、JRSS-C 三筆、American Statistician、AJP、BJMSP）。
+        var looseIndex: [String: Set<String>] = [:]
+        for v in existing {
+            for n in v.names.entries {
+                let lk = LooseTitleKey.key(n.value)
+                guard !lk.isEmpty else { continue }
+                looseIndex[lk, default: []].insert(v.key)
+            }
+        }
         var takenKeys = Set(existing.map(\.key))
 
         struct Group {
@@ -162,11 +196,24 @@ public enum VenueBootstrap {
         var candidates: [Candidate] = []
         var dropped: [Dropped] = []
         var conflicts: [TypeConflict] = []
+        var pending: [PendingResolution] = []
 
         for (_, g) in groups.sorted(by: {
             $0.value.count == $1.value.count ? $0.key < $1.key : $0.value.count > $1.value.count
         }) {
             let sortedNames = g.names.sorted()
+            // #548：**先問「庫裡是不是已經有這本刊了」**。撞到就不建檔——同
+            // `PersonBootstrap` 的既有形狀，出口是把這個寫法補成既有 venue 的
+            // variant（`update-venue --add-variant`），下一輪它就成為精確命中。
+            //
+            // 這一步放在型別衝突**之前**：撞到既有記錄時，type 該是什麼由那筆既有
+            // 記錄決定，不必再問一次。
+            let hits = Set(sortedNames.flatMap { looseIndex[LooseTitleKey.key($0)] ?? [] })
+            if !hits.isEmpty {
+                pending.append(PendingResolution(
+                    names: sortedNames, occurrences: g.count, matchedKeys: hits.sorted()))
+                continue
+            }
             guard g.types.count == 1, let type = g.types.first else {
                 // 同名來自不同種類的欄位——**不建檔，交人裁**。取任一個都可能讓整組
                 // 欄位需求錯（#324：VenueType 決定哪些欄位存在）。
@@ -185,7 +232,12 @@ public enum VenueBootstrap {
                 key: key, names: sortedNames, type: type, occurrences: g.count,
                 evidence: g.fields.sorted().joined(separator: "＋")))
         }
-        return Result(candidates: candidates, dropped: dropped, conflicts: conflicts)
+        return Result(candidates: candidates, dropped: dropped, conflicts: conflicts,
+                      pendingResolution: pending.sorted {
+                          $0.occurrences == $1.occurrences
+                              ? ($0.names.first ?? "") < ($1.names.first ?? "")
+                              : $0.occurrences > $1.occurrences
+                      })
     }
 
     /// 把候選建成 venue 記錄。**只建立、不歸戶**——entry 的 `venues:` literal 原樣留著。

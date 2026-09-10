@@ -44,7 +44,7 @@
 | `import-wos`／`import-zotero`（#206） | 程式 | 對映歸對映、收集歸收集；conflict 交人，不猜 |
 | `create-entry`／`createEntries`（#206／#455） | 程式 | citekey 由規則生成；批次內碰撞由 `existing` 累積消解；可預期失敗整批擋 |
 | `enrich-from-zotero`／generic enrich（#340／#458） | 程式 | 只補不存在的鍵；來源給什麼收什麼，不判定 |
-| `bootstrap-people`／`-organizations`／`-venues`（#367；#547 補註） | 程式 | 門檻建檔是提名不是判定——建出來的實體仍待 `resolve-*` 判定歸戶。**#547 起 `bootstrap-people` 多扣住一類**：彼此寬鬆共鍵而兩邊都還沒有記錄的群（`pendingMutual`），與既有的「與既有 person 共鍵」對稱。**種類不變，仍是程式編輯**——它用 `LooseNameKey` 做決定論式**提名**（同輸入必得同輸出），判定留給人／AI；`identity()` 一行不動，因為放寬它就會變成程式做身分判定（`identity-is-judged-not-matched`）。這一列**不另開新列**：新增的是既有寫入面的一個報告欄位與一道扣留，不是新的寫入面，而本表的列是「寫入面」 |
+| `bootstrap-people`／`-organizations`／`-venues`（#367；#547／#548 補註） | 程式 | 門檻建檔是提名不是判定——建出來的實體仍待 `resolve-*` 判定歸戶。**#547 起 `bootstrap-people` 多扣住一類**：彼此寬鬆共鍵而兩邊都還沒有記錄的群（`pendingMutual`），與既有的「與既有 person 共鍵」對稱。**種類不變，仍是程式編輯**——它用 `LooseNameKey` 做決定論式**提名**（同輸入必得同輸出），判定留給人／AI；`identity()` 一行不動，因為放寬它就會變成程式做身分判定（`identity-is-judged-not-matched`）。這一列**不另開新列**：新增的是既有寫入面的一個報告欄位與一道扣留，不是新的寫入面，而本表的列是「寫入面」。**#548 對 venue／org 做同一件事，種類同樣不變**——但判準是另一套（`LooseTitleKey`：標點／`&`／前導冠詞），不是把 `LooseNameKey` 平移過去。理由是人名與刊名的變異形狀不同：人名會被索引系統重排（`Hsu, Yung-Fong`）、刊名不會，而 token 集合相等對刊名是誤判來源。那是一次裁決，寫在 `LooseTitleKey` 的檔頭 |
 | `library add`／`remove`、`tag`、`link`、`set-status`（#219／#258／#455） | 程式 | 集合語意，冪等 |
 | order-insensitive collapse（#461）、verdict holder 遷移（#463） | 程式 | 對已判定結果的機械搬移；只收本次觸及、不碰未觸及 |
 | `authorize-names`（#81） | AI | 「哪個名字對外」是人的判斷，建檔不得機械偽造（#227） |

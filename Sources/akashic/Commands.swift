@@ -2086,7 +2086,7 @@ struct AuthorizeNames: ParsableCommand {
         print("person 總數: \(r.total)")
         print("  已指定（不動）: \(r.alreadyDesignated)")
         print("  採用（該書寫系統唯一候選）: \(r.adopted)")
-        print("  提名（多候選中恰一個非引用形）: \(r.nominated)")
+        print("  提名（消去引用形與縮寫形後恰一個名字）: \(r.nominated)")
         print("  留空（仍然歧義，需人工判斷）: \(r.undecided)")
         // 上面三個是**逐書寫系統**的計數（雙語的人同時貢獻採用與提名），不能直接相加成
         // 總人數。可相加的是下面這三個逐人計數。

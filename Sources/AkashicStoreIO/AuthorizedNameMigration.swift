@@ -9,7 +9,8 @@ import AkashicCore
 /// | 情況 | 處置 | 為什麼 |
 /// |---|---|---|
 /// | 某書寫系統只有一個候選 | 直接採用 | 沒有可挑的餘地，不構成判斷 |
-/// | 多個候選、恰一個非引用形 | 提名 | 引用形是索引系統的產物，不是他的名字 |
+/// | 多個候選、消去**引用形與縮寫形**後恰一個 | 提名 | 兩者都是索引／排版系統的產物，不是他的名字（#552）|
+/// | 存活者只差排印（大小寫／標點／連字號） | 提名一個寫法 | 沒有第二個名字可挑，只有第二種寫法 |
 /// | 仍然多於一個 | 留空並報告 | 那是真的要人判斷 |
 ///
 /// 形狀與既有的補資料紀律一致：**答案唯一就做，多選一就停下給人看**。預設 dry-run。
@@ -19,7 +20,7 @@ public enum AuthorizedNameMigration {
     public struct Proposal: Equatable {
         /// 該書寫系統只有一個候選——直接採用。
         public var adopted: [String] = []
-        /// 多個候選中恰一個非引用形——提名。
+        /// 消去引用形與縮寫形（#552）後恰一個名字——提名。只差排印的一組也走這裡。
         public var nominated: [String] = []
         /// 仍然歧義的書寫系統——留空，交給人。
         public var undecided: [WritingSystem] = []
@@ -42,8 +43,22 @@ public enum AuthorizedNameMigration {
                 continue
             }
             let real = candidates.filter { !NameForm.isCitationForm($0) }
-            if real.count == 1 {
-                out.nominated.append(real[0])
+            // #552：**縮寫形與引用形是同一種東西**——都是索引／排版系統的產物，不是
+            // 他的名字。上面那張表的第二列理由逐字適用，所以在同一個位置消去。
+            let survivors = real.filter { c in
+                !real.contains { $0 != c && NameForm.isAbbreviation(c, of: $0) }
+            }
+            if survivors.count == 1 {
+                out.nominated.append(survivors[0])
+            } else if survivors.count > 1,
+                      survivors.dropFirst().allSatisfy({ NameForm.rendersSameName($0, survivors[0]) }) {
+                // 存活者只差排印——**沒有第二個名字可挑，只有第二種寫法**。留空等於
+                // 要人回答一個沒有內容的問題。挑哪一種寫法的順序見 `preferredRendering`。
+                if let pick = NameForm.preferredRendering(among: survivors) {
+                    out.nominated.append(pick)
+                } else {
+                    out.undecided.append(script)
+                }
             } else {
                 out.undecided.append(script)
             }

@@ -535,12 +535,21 @@ final class AuthorizedNameTests: XCTestCase {
         XCTAssertTrue(plan.undecided.isEmpty)
     }
 
-    func testMigrationLeavesGenuineAmbiguityUndecided() {
-        // 兩個都不是引用形——那是真的要人判斷，不能猜。
+    /// **這條的判定在 #552 翻轉了，而 fixture 刻意不換。**
+    ///
+    /// 它原本斷言 `["Wei-chung Liu", "W. C. Liu"]` 留空，理由寫在原註解裡：
+    /// 「兩個都不是引用形——那是真的要人判斷，不能猜」。#552 認定那個理由對**縮寫形**
+    /// 不成立：`W. C. Liu` 不是第二個名字，是同一個名字被期刊的作者欄縮掉——與引用形
+    /// 同類，而 `propose` 的設計表第二列早就寫著「引用形是索引系統的產物，不是他的名字」。
+    ///
+    /// **換掉 fixture 會讓「這個判定曾經是相反的」從紀錄裡消失。** 原本那一半的保證
+    /// ——真的歧義要留給人——由 `testGenuinelyDifferentNamesStayUndecided` 接手，
+    /// 它用的是機器**不該**碰的三類：名字順序、變音符號、拼錯。
+    func testAbbreviationIsNoLongerTreatedAsGenuineAmbiguity() {
         let plan = AuthorizedNameMigration.propose(names: ["Wei-chung Liu", "W. C. Liu"])
         XCTAssertTrue(plan.adopted.isEmpty)
-        XCTAssertTrue(plan.nominated.isEmpty)
-        XCTAssertEqual(plan.undecided, [.latn])
+        XCTAssertEqual(plan.nominated, ["Wei-chung Liu"])
+        XCTAssertTrue(plan.undecided.isEmpty)
     }
 
     func testMigrationProposalSatisfiesTheInvariants() {
@@ -792,5 +801,92 @@ final class AuthorizedNameTests: XCTestCase {
         o.names = TimelineOf([TemporalValue(value: "Academia Sinica", range: DateRange())])
         o.authorized = ["Academia Sinca"]   // 拼錯，不在 names 內
         XCTAssertThrowsError(try store.writeOrganization(o))
+    }
+}
+
+// MARK: - #552：縮寫形與引用形是同一種東西——索引／排版系統的產物，不是他的名字
+
+extension AuthorizedNameTests {
+
+    /// **`U. Böckenholt` 不是他的名字。**
+    ///
+    /// `propose` 原本只消去**引用形**，理由寫在它自己的表裡：「引用形是索引系統的產物，
+    /// 不是他的名字」。縮寫形是**同一種產物**——期刊的作者欄把 `Ulf` 排成 `U.`。原本
+    /// 兩個都算「非引用形」，於是 `real.count == 2` 落 `undecided`；實測 #547 campaign
+    /// 之後全 store 有 87 組卡在這裡，其中 49 組是這個形狀。
+    func testAbbreviatedFormIsEliminatedInFavourOfTheFullName() {
+        let p = AuthorizedNameMigration.propose(names: ["Ulf Böckenholt", "U. Böckenholt"])
+        XCTAssertEqual(p.nominated, ["Ulf Böckenholt"])
+        XCTAssertTrue(p.undecided.isEmpty, "縮寫形消去後只剩一個，不該留給人")
+    }
+
+    /// 多段縮寫、以及跨連字號的音節——`Y.-F.` 是 `Yung-Fong` 的縮寫。
+    func testAbbreviationRecognisesHyphenatedSyllables() {
+        XCTAssertTrue(NameForm.isAbbreviation("Y.-F. Hsu", of: "Yung-Fong Hsu"))
+        XCTAssertTrue(NameForm.isAbbreviation("C. S. Dweck", of: "Carol S. Dweck"))
+        XCTAssertTrue(NameForm.isAbbreviation("J. J. Chen", of: "James J. Chen"))
+    }
+
+    /// **不得反向成立，也不得把不同的名字當成縮寫。**
+    ///
+    /// `identity-is-judged-not-matched` 的 #383 反例組：`Liu, I-Ling` 的 `I` 是真的
+    /// 單字母音節、不是縮寫記號。這裡兩個名字的 token 數不同（`I-Ling` 拆成兩段），
+    /// 所以不會被判成縮寫——但這條測試在的理由是**那個保證要被釘住**，不是碰巧成立。
+    func testAbbreviationIsAsymmetricAndDoesNotSpanDifferentNames() {
+        XCTAssertFalse(NameForm.isAbbreviation("Ulf Böckenholt", of: "U. Böckenholt"),
+                       "全名不是縮寫的縮寫")
+        XCTAssertFalse(NameForm.isAbbreviation("I-Ling Liu", of: "Ivy Liu"),
+                       "I-Ling 是兩個音節，不是 Ivy 的縮寫")
+        XCTAssertFalse(NameForm.isAbbreviation("U. Muller", of: "Ulf Böckenholt"),
+                       "姓不同就不是同一個名字的縮寫")
+        XCTAssertFalse(NameForm.isAbbreviation("Ulf Böckenholt", of: "Ulf Böckenholt"),
+                       "同一個字串不是自己的縮寫")
+    }
+
+    /// **消去之後仍有多個「真的不同的名字」→ 照舊留給人。**
+    ///
+    /// 這一條守的是不要越界：名字順序（`Li Cai` ／ `Cai Li`）、變音符號
+    /// （`Dóra` ／ `Dora`）、拼錯（`Kooij` ／ `Koojj`）都不是縮寫關係，機器不該挑。
+    func testGenuinelyDifferentNamesStayUndecided() {
+        for pair in [["Li Cai", "Cai Li"], ["Dóra Matzke", "Dora Matzke"],
+                     ["Anita J. van der Kooij", "Anita J. van der Koojj"]] {
+            let p = AuthorizedNameMigration.propose(names: pair)
+            XCTAssertEqual(p.undecided, [.latn], "\(pair) 不該被機械挑一個")
+            XCTAssertTrue(p.authorized.isEmpty)
+        }
+    }
+
+    /// **存活者只差排印時，挑一個是渲染不是判定。**
+    ///
+    /// `Carol S Dweck` 與 `Carol S. Dweck` 正規化後是同一個名字——沒有第二個名字可挑，
+    /// 只有第二種寫法。留空等於要人回答一個沒有內容的問題。順序寫在
+    /// `NameForm.preferredRendering`：非全大寫 → ASCII 標點 → 首字母帶句點（APA）→
+    /// 較少空白分段（羅馬化中文名的連字號慣例）→ 字典序（決定論）。
+    func testSameNameDifferentTypographyPicksOneRendering() {
+        let cases: [([String], String)] = [
+            (["Carol S Dweck", "Carol S. Dweck", "C. S. Dweck"], "Carol S. Dweck"),
+            (["Kit-Tai Hau", "Kit\u{2010}Tai Hau"], "Kit-Tai Hau"),
+            (["Mu-Jung Cho", "Mu Jung Cho"], "Mu-Jung Cho"),
+            (["C. SPEARMAN", "C. Spearman"], "C. Spearman"),
+            (["Mike W.\u{2010}L. Cheung", "Mike W. L. Cheung"], "Mike W. L. Cheung"),
+        ]
+        for (names, want) in cases {
+            XCTAssertEqual(AuthorizedNameMigration.propose(names: names).nominated, [want],
+                           "\(names)")
+        }
+    }
+
+    /// **書寫系統仍然各自獨立**：中文名與拉丁名不互相消去。
+    func testScriptsRemainIndependent() {
+        let p = AuthorizedNameMigration.propose(names: ["梁庚辰", "K. C. Liang", "K.-C. Liang"])
+        XCTAssertEqual(p.adopted, ["梁庚辰"], "han 只有一個候選 → 採用")
+        XCTAssertEqual(p.nominated, ["K. C. Liang"], "latn 兩個只差排印 → 挑一個")
+    }
+
+    /// **引用形的既有行為不變**（回歸）：全是引用形時仍然留空。
+    func testAllCitationFormsStillUndecided() {
+        let p = AuthorizedNameMigration.propose(names: ["Wei, Chun-Yu", "Wei, C.-Y."])
+        XCTAssertEqual(p.undecided, [.latn])
+        XCTAssertTrue(p.authorized.isEmpty)
     }
 }

@@ -86,6 +86,102 @@ public enum NameForm {
         return !surname.trimmingCharacters(in: .whitespaces).isEmpty
             && !given.trimmingCharacters(in: .whitespaces).isEmpty
     }
+
+    /// `short` 是不是 `long` 的**縮寫形**（#552）。
+    ///
+    /// **與 `isCitationForm` 是同一條理由。** 那個函式的註解寫著「沒有人以
+    /// `Guan, Yongtao` 的形式自稱——那是 WoS 與 Crossref 對名字做的變換」。
+    /// `U. Böckenholt` 也一樣：沒有人這樣自稱，那是期刊作者欄把 `Ulf` 排成 `U.`。
+    /// 兩者都是**索引／排版系統的產物**，所以提名時要一起消去。
+    ///
+    /// **判準刻意窄——段數必須相同。** 切成音節（連字號與句點都當分隔）後逐段比：
+    /// 要嘛逐字相等，要嘛是對方的單字母首字。於是：
+    ///
+    /// | 配對 | 判定 | 為什麼 |
+    /// |---|---|---|
+    /// | `Y.-F. Hsu` ／ `Yung-Fong Hsu` | ✅ 縮寫 | 三段對三段，前兩段是首字 |
+    /// | `Hongyun Liu` ／ `H. Y. Liu` | ❌ | 兩段對三段——要知道哪幾個音節屬於同一個 given name |
+    /// | `I-Ling Liu` ／ `Ivy Liu` | ❌ | `I-Ling` 是兩個音節，`I` 不是縮寫記號 |
+    ///
+    /// 第二列是**刻意留給人**的：跨段縮寫要先知道命名慣例（#550 的那一軸），
+    /// 而 `identity-is-judged-not-matched` 記著 #383 的教訓——那一類猜測錯過兩次。
+    /// 第三列是那次的反例組之一，這裡以段數自然擋下，並有測試釘住。
+    public static func isAbbreviation(_ short: String, of long: String) -> Bool {
+        let a = syllables(short), b = syllables(long)
+        guard !a.isEmpty, a.count == b.count, a != b else { return false }
+        for (x, y) in zip(a, b) {
+            if x == y { continue }
+            if x.count == 1, y.hasPrefix(x) { continue }
+            return false
+        }
+        return true
+    }
+
+    /// 兩個字串是不是**同一個名字的不同排印**（大小寫、標點、連字號 vs 空白）。
+    ///
+    /// 用來區分「還有第二個名字要挑」與「只有第二種寫法」——後者留空等於要人回答
+    /// 一個沒有內容的問題。
+    public static func rendersSameName(_ a: String, _ b: String) -> Bool {
+        syllables(a) == syllables(b)
+    }
+
+    /// 音節：`NameNormalization.matchingKey`（NFKC ＋ 連字號家族統一 ＋ Cf 刪除 ＋
+    /// 小寫 ＋ 空白收斂）之後，再以連字號與句點切開。
+    ///
+    /// **連字號家族的清單不在這裡**——它是 `matchingKey` 的，本函式建在它之上。
+    /// 兩份清單必然分岔（`no-compat-fallback` §「同一件事只能有一份描述」）。
+    static func syllables(_ s: String) -> [String] {
+        NameNormalization.matchingKey(s)
+            .split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "." || $0 == "," })
+            .map(String.init)
+    }
+
+    /// 一組**只差排印**的候選裡挑一個對外顯示。
+    ///
+    /// **這是渲染不是判定**：呼叫端必須先確認全部候選 `rendersSameName`，否則就是在
+    /// 替人做他該做的選擇。順序與理由：
+    ///
+    /// 1. **非全大寫**——`JAMES J. CHEN` 是資料庫的欄位格式，不是他的名字
+    /// 2. **ASCII 標點較多**——U+2010／en dash 是排版產物，ASCII 連字號是輸入的形
+    /// 3. **首字母帶句點**——APA7 的參考文獻格式（`apa7-is-the-work-floor`）
+    /// 4. **較少空白分段**——羅馬化中文名的慣例是連字號（`Mu-Jung` 而非 `Mu Jung`）
+    /// 5. 字典序——決定論收尾，不是偏好
+    public static func preferredRendering(among candidates: [String]) -> String? {
+        guard !candidates.isEmpty else { return nil }
+        let ranks: [(String) -> Int] = [
+            { isAllCaps($0) ? 0 : 1 },
+            { -nonASCIIPunctuation($0) },
+            { dottedInitialBalance($0) },
+            { -$0.split(whereSeparator: \.isWhitespace).count },
+        ]
+        var pool = candidates
+        for rank in ranks {
+            guard let best = pool.map(rank).max() else { break }
+            pool = pool.filter { rank($0) == best }
+            if pool.count == 1 { return pool[0] }
+        }
+        return pool.sorted().first
+    }
+
+    private static func isAllCaps(_ s: String) -> Bool {
+        let letters = s.filter(\.isLetter)
+        return !letters.isEmpty && letters.allSatisfy { !$0.isLowercase }
+    }
+
+    private static func nonASCIIPunctuation(_ s: String) -> Int {
+        s.unicodeScalars.filter { $0.value > 127 && !CharacterSet.alphanumerics.contains($0) }.count
+    }
+
+    /// 帶句點的單字母段減去不帶的——APA7 的 `S.` 勝過 `S`。
+    private static func dottedInitialBalance(_ s: String) -> Int {
+        var balance = 0
+        for part in s.split(whereSeparator: { $0 == " " || $0 == "," }) {
+            let core = part.hasSuffix(".") ? String(part.dropLast()) : String(part)
+            guard core.count == 1, core.allSatisfy(\.isLetter) else { continue }
+            balance += part.hasSuffix(".") ? 1 : -1
+        }
+        return balance
+    }
 }
 
 extension AuthorizedNames {}

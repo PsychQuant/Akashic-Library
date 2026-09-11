@@ -177,7 +177,7 @@ struct AddVenueCmd: ParsableCommand {
 struct UpdateVenueCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update-venue",
-        abstract: "venue 的部分更新（#306／#394／#471）——append 語意：--add-name／--add-issn／--add-variant 只附加不重複的值（整組替換刻意不提供）；--note／--type 替換")
+        abstract: "venue 的部分更新（#306／#394／#471／#554）——append 語意：--add-name／--add-issn／--add-variant 只附加不重複的值（整組替換刻意不提供）；--authorize 是同書寫系統替換（不是 append，見其 help）；--note／--type 替換")
 
     @OptionGroup var options: LibraryOptions
 
@@ -204,6 +204,14 @@ struct UpdateVenueCmd: ParsableCommand {
                              + "——兩個分割都是對 names 的標記，標一個 names 沒有的字串會造出"
                              + "孤兒，而孤兒 variant 自 #473 起是 error（#471）"))
     var addVariant: [String] = []
+
+    @Option(name: .customLong("authorize"), parsing: .upToNextOption,
+            help: ArgumentHelp("指定為對外形的名字。**不是 append**：authorized 每書寫系統至多一個，"
+                             + "同書寫系統原本的指定會降成 variant（報告逐筆印出）；跨書寫系統才是"
+                             + "append。不在 names 的一併加進 names。這是 #553 合併把 authorized 降成"
+                             + "variant 那個動作的精確逆操作——在此之前 authorized 沒有判定型寫入面，"
+                             + "唯一寫入者是 bootstrap 取第一個名字（470 筆），而那些機械值換不掉（#554）"))
+    var authorize: [String] = []
 
     @Flag(name: .customLong("clear-paginated"),
           help: ArgumentHelp("撤回 paginated 判定，回到誠實的未判定狀態（#500）。"
@@ -237,6 +245,7 @@ struct UpdateVenueCmd: ParsableCommand {
                                       note: note, type: type,
                                       addISSN: addISSN.isEmpty ? nil : addISSN,
                                       addVariant: addVariant.isEmpty ? nil : addVariant,
+                                      authorize: authorize.isEmpty ? nil : authorize,
                                       paginated: paginated,
                                       clearPaginated: clearPaginated,
                                       judgement: judgement,

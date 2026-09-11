@@ -2699,6 +2699,7 @@ public final class AkashicService {
                             note: String?, type rawType: String?,
                             addISSN: [String]? = nil,
                             addVariant: [String]? = nil,
+                            authorize: [String]? = nil,
                             paginated: Bool? = nil, clearPaginated: Bool = false,
                             judgement: String? = nil,
                             restsOn: [String]? = nil) throws -> String {
@@ -2832,6 +2833,52 @@ public final class AkashicService {
                 variantAdded.append(v)
             }
         }
+        // #554：authorized 那一半——**但它不是 append**，這一點是端到端測出來的。
+        // `AuthorizedNames.validate` 對 authorized 有「每書寫系統至多一個」的內容約束，
+        // 而實測 470 筆 venue 已有一個 latin authorized（`VenueBootstrap` 的 `[names[0]]`，
+        // 機械值）——對它們 append 第二個 latin 名必被擋。要換掉那個機械值需要**替換**：
+        // X 成為該書寫系統的對外形，原本的 Y 降成 variant。這正是 #553 攣生合併那個
+        // 「authorized → variant」降級的精確逆操作，所以命名是 `authorize` 不是 `add_*`
+        // （叫 add 會說謊）。跨書寫系統（加一個中文刊名）仍是 append。
+        //
+        // 兩個判定一次說完，兩個都印在報告裡（`authorized`／`demotedToVariant`）——
+        // `lossless-intake` 執行細節 3：分類的改變要可見。
+        var authorized: [String] = []
+        var demotedToVariant: [String] = []
+        // 同一次呼叫把同一個字串既送 add_variant 又送 authorize，是兩句矛盾的話——
+        // 不能讓「哪段先跑」決定誰贏。這是**輸入**驗證（呼叫端的兩個參數互相矛盾），
+        // 不是分割互斥的第二份副本（那仍由 `Venue.validate()` 擋）。整批拒絕、零寫入。
+        if let vs = addVariant, let names = authorize {
+            let both = names.filter { vs.contains($0) }
+            if !both.isEmpty {
+                throw ServiceError.invalid(
+                    "「\(both.map { displaySafe($0, max: 120) }.joined(separator: "、"))」"
+                    + "同時被送進 add_variant 與 authorize——那是兩句矛盾的話，請只說一句")
+            }
+        }
+        if let names = authorize {
+            var known = Set(venue.names.entries.map(\.value))
+            for x in names where !x.trimmingCharacters(in: .whitespaces).isEmpty {
+                if venue.authorized.contains(x) { continue }              // 冪等
+                if !known.contains(x) {                                    // 不在 names 的一併加進 names
+                    venue.names = Timeline(venue.names.entries + [TemporalValue(value: x)])
+                    known.insert(x)
+                    added.append(x)
+                }
+                let script = WritingSystem.of(x)
+                // 同書寫系統的舊指定降成 variant（不刪：它仍是這本刊的一個名字）
+                for y in venue.authorized where WritingSystem.of(y) == script {
+                    venue.authorized.removeAll { $0 == y }
+                    if !venue.variant.contains(y) { venue.variant.append(y) }
+                    demotedToVariant.append(y)
+                }
+                // X 若原本是 variant（例如被 #553 降過去的），從那個分割移出——
+                // 一個名字不能同時在兩個分割，而它現在是對外形
+                venue.variant.removeAll { $0 == x }
+                venue.authorized.append(x)
+                authorized.append(x)
+            }
+        }
         // 分割互斥與孤兒檢查由 `writeVenue` → `assertVenueWritable` → `Venue.validate()`
         // 擋——這裡不重造一份（同 ISSN 那段的立場）。
         try store.writeVenue(venue)
@@ -2843,6 +2890,9 @@ public final class AkashicService {
                                       "issnAdded": issnAdded,
                                       "issnTotal": venue.issn.count,
                                       "variantAdded": variantAdded.map { displaySafe($0, max: 200) },
+                                      "authorized": authorized.map { displaySafe($0, max: 200) },
+                                      "demotedToVariant": demotedToVariant.map { displaySafe($0, max: 200) },
+                                      "authorizedTotal": venue.authorized.count,
                                       "variantTotal": venue.variant.count]
         if let p = venue.paginated { payload["paginated"] = p }
         return try jsonString(payload)

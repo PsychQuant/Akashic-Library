@@ -67,6 +67,11 @@ akashic_resolve_venues reject:["<citekey>:<venueIndex>", …]   # 查過了不�
 - MCP 面允許 apply＋reject 同呼叫（兩段式、按腿回報，同 `akashic_resolve_people` #272 契約）；CLI `resolve-venues` 分兩次
 - reject 之後該配對不再被提名；**同 literal 在別的 entry 是另一次觀察**，照提、照查
 - verdict 需要 store format ≥ 11；不足時失敗會自己說話（invalidInput 指路 `migrate-venues`＋手動 bump），不必預查
+- **證據鏈第 1／3 源查到的 ISSN，順手寫進去**（#556）：`akashic_update_venue key:<venue> add_issn:["<print>","<electronic>"]`。
+  實測 periodical 403 筆有 363 筆（90%）沒有 ISSN——那是上游（WoS／Zotero）本來就不給，
+  不是漏收；`fields` 殘留裡已經是 0，唯一補的路徑就是這裡。**按需補**：只補這次查證碰到的那本，
+  不掃全庫。`add_issn` 今天**不寫 references**（venue 側識別碼的 provenance 是既有缺口），
+  來源留在你的查證報告裡
 
 ## 邊界
 

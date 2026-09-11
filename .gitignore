@@ -48,3 +48,9 @@ __pycache__/
 
 # #516：階段 B 摘要 → [Proposal] 的中間檔裝第三方逐字摘要（含版權聲明），不進版控
 proposals*.json
+
+# doc-guardian 的 wiki 同步標記。**per-machine 狀態，不進版控**——它記的是
+# 「這台機器上次把 changelog 推上 wiki 的時間」，而那是本機事實不是專案事實。
+# commit 它會讓別台 clone 一拿到就被判定成「已同步」，於是 guardian 靜靜放行
+# 而 wiki 其實落後。同 `.claude/.idd/tree-lock`（本檔第 2 行）的既有立場。
+.wiki-last-sync

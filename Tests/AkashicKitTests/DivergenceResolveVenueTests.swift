@@ -290,7 +290,8 @@ final class DivergenceResolveVenueTests: XCTestCase {
 
     /// **dry-run 不得對降級沉默。**
     ///
-    /// 降級是單向的（venue 沒有改回 authorized 的面），而 dry-run 正是「還能反悔的
+    /// 降級是單向的（#554 之前沒有改回 authorized 的面；之後有面但不留 judgement，
+    /// 合併端仍分不出判定與機械值——#564），而 dry-run 正是「還能反悔的
     /// 時點」。這個檔案為同一形狀付過兩次代價（#139 F1：拒絕條件只在實跑算，
     /// dry-run 對最高頻的 `wouldLoseFields` 完全沉默）——提醒與拒絕同一條紀律。
     func testDryRunAnnouncesTheDemotionToo() throws {

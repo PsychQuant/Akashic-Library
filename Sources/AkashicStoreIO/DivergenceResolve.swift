@@ -823,7 +823,8 @@ extension LibraryStore {
             }
         }
         // **不擋、但要說**（同 work 側的 content warnings）：被併者的 authorized
-        // 名字會降成倖存者的 variant，而 venue 沒有 authorize 寫入面所以改不回去。
+        // 名字會降成倖存者的 variant。#554 起有面改回去（`update-venue --authorize`），
+        // 但那個面不留 judgement（#564 另裁），所以合併端仍分不出判定與機械值——提醒不擋。
         // 算在**前置**是因為 preview 與實跑共用這一份——本檔付過兩次代價的那條
         // 紀律（#139 F1）對提醒與對拒絕同樣適用：只在實跑算，dry-run 就對一個
         // 單向操作沉默，而 dry-run 正是「還能反悔的時點」。
@@ -831,7 +832,7 @@ extension LibraryStore {
             Self.authorizedDemotedByMerging(v, into: keeper).map { name in
                 "「\(displaySafe(name, max: 120))」在被併的「\(displaySafe(v.key, max: 120))」"
                 + "是 authorized，合併後成為「\(displaySafe(survivor, max: 120))」的 variant"
-                + "（名字保留在 names，但 venue 沒有改回 authorized 的面）"
+                + "（名字保留在 names；要改回對外形用 update-venue --authorize／akashic_update_venue authorize，#554）"
             }
         }
         return (keeper, doomed, warnings)
@@ -881,23 +882,34 @@ extension LibraryStore {
     /// authorized == [names[0]]：479 筆（479/479，零例外）
     /// ```
     ///
-    /// 全庫**唯一**的 `venue.authorized` 寫入者是 `VenueBootstrap` 的
-    /// `authorized: [c.names[0]]`——建檔時取第一個名字的機械慣例。`updateVenue`
-    /// 收 `add_names`／`add_variant`／`add_issn`／`paginated`，**沒有 authorized**；
+    /// #553 落地時全庫**唯一**的 `venue.authorized` 寫入者是 `VenueBootstrap` 的
+    /// `authorized: [c.names[0]]`——建檔時取第一個名字的機械慣例；`updateVenue` 當時
+    /// 收 `add_names`／`add_variant`／`add_issn`／`paginated`，沒有 authorized；
     /// `authorize-names` 只管 person。所以拿它擋合併，是把一個 bootstrap 副產品
     /// 當成承重判定——那正是 `identity-is-judged-not-matched` 與 #471 記過的形狀
     /// （「一個不做判定的操作成了唯一的判定寫入者」），只是這次由我在合併端重演。
+    ///
+    /// **#554 起 `updateVenue` 收 `authorize`**——第一個觸發條件（下方）成立，這一格
+    /// 於 2026-09-12 重開過一次（#554 R1 verify 第 2 列）。**裁決：維持提醒不擋。**
+    /// 理由換了：不再是「沒有面」，而是那個面**不留 judgement**（#564 另裁三個名字
+    /// 分類面要不要留、留什麼形狀）——所以「人用 `--authorize` 確認過的 names[0]」與
+    /// 「bootstrap 的機械 names[0]」在 store 裡仍然長得一樣，合併端拿不到可以承重的
+    /// 東西。#564 裁「留」且落地後，本函式對「有 judgement 的 authorized」升成拒絕條件、
+    /// 對機械值維持提醒——那時要一起改的是 `fieldsLostByMerging` 與這段 doc。
     ///
     /// ## 但降級是真的，而且單向——所以要說
     ///
     /// 字串不會消失：被併者的全部名字（含它的 authorized）都進倖存者的 `names`
     /// **與** `variant`。改變的是**分類**：從「對外形」變成「異寫」。
     ///
-    /// 而 venue 沒有 authorize 寫入面，所以**這個降級改不回去**（要改只能手改 YAML）。
+    /// #554 之前 venue 沒有 authorize 寫入面，這個降級改不回去（只能手改 YAML）；
+    /// #554 之後改得回去（`update-venue --authorize`，它把 variant 的名字拉回 authorized）。
     /// 不擋是因為它今天不承載判定；要說是因為它單向。
     ///
-    /// **觸發條件（任一成立即重開這一格的裁決）**：venue 長出 authorized 的寫入面；
-    /// 或下列量測回非零——那代表有人手工指定過對外形，而本函式會把它降級：
+    /// **觸發條件（任一成立即重開這一格的裁決）**：#564 裁「留 judgement」且落地
+    /// （那時「人確認過」在 store 裡才寫得出來）；或下列量測回非零——那代表有人手工
+    /// 指定過對外形，而本函式會把它降級（注意 #554 起這個量測**只抓換過名字的**：
+    /// 用 `--authorize` 確認既有 `names[0]` 是 no-op、不改變它，#564 之前這一格量不到）：
     ///
     /// ```bash
     /// python3 -c "

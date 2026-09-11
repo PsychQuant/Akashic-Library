@@ -2835,48 +2835,80 @@ public final class AkashicService {
         }
         // #554：authorized 那一半——**但它不是 append**，這一點是端到端測出來的。
         // `AuthorizedNames.validate` 對 authorized 有「每書寫系統至多一個」的內容約束，
-        // 而實測 470 筆 venue 已有一個 latin authorized（`VenueBootstrap` 的 `[names[0]]`，
-        // 機械值）——對它們 append 第二個 latin 名必被擋。要換掉那個機械值需要**替換**：
-        // X 成為該書寫系統的對外形，原本的 Y 降成 variant。這正是 #553 攣生合併那個
-        // 「authorized → variant」降級的精確逆操作，所以命名是 `authorize` 不是 `add_*`
-        // （叫 add 會說謊）。跨書寫系統（加一個中文刊名）仍是 append。
+        // 而 live store 的 venue 幾乎都已有一個 latin authorized（`VenueBootstrap` 的
+        // `[names[0]]`，機械值；#553 合併後 470/470）——對它們 append 第二個 latin 名必被擋。
+        // 要換掉那個機械值需要**替換**：X 成為該 `WritingSystem` 的對外形，原本的 Y
+        // **移出 authorized、留在 names、不標 variant**。
         //
-        // 兩個判定一次說完，兩個都印在報告裡（`authorized`／`demotedToVariant`）——
-        // `lossless-intake` 執行細節 3：分類的改變要可見。
-        var authorized: [String] = []
-        var demotedToVariant: [String] = []
+        // 「不標 variant」是 R1 verify 的 D1 裁決（使用者 2026-09-12）：呼叫端只說了一句
+        // 「X 是對外形」，程式若把 Y 放進 variant 就是替它多說一句「Y 是異寫」——
+        // `venue-entity` spec 的未標才是「不作任何宣稱」的誠實狀態；而 Y 若是沿革前身
+        // （names 帶時間欄位），標成 variant 會直接撞 variant 的時間不變式、整個呼叫被拒。
+        // 這也是 #553 合併端那個「authorized → variant」降級在 A 這一個名字上的逆操作
+        // ——不是「精確」逆操作（那邊改一個名字的分類，這裡改兩個），所以命名是
+        // `authorize` 不是 `add_*`（叫 add 會說謊）。不同 `WritingSystem`（han／latn／other）
+        // 之間仍是 append——注意 `.other` 是一個桶：西里爾與假名互相替換。
+        //
+        // 每個分類的改變都印在報告裡（`authorizedAdded`／`authorizedRemoved`／
+        // `liftedFromVariant`／`alreadyAuthorized`）——`lossless-intake` 執行細節 3：
+        // 分類的改變要可見。留 judgement 的義務另裁（#564，三個名字分類面一次裁），
+        // 本面不寫記錄——`two-kinds-of-edits` 那列註明這是有記錄的裁決。
+        var authorizedAdded: [String] = []
+        var authorizedRemoved: [String] = []
+        var liftedFromVariant: [String] = []
+        var alreadyAuthorized: [String] = []
+        // 空白是「沒說話」——兩個參數都先濾掉，矛盾與分組才在濾後的清單上算
+        // （R1 verify 第 11 列：矛盾檢查曾跑在過濾之前，兩邊各送一個空白被當成矛盾）。
+        let isBlank = { (s: String) in s.trimmingCharacters(in: .whitespaces).isEmpty }
+        let authorizeNames = (authorize ?? []).filter { !isBlank($0) }
         // 同一次呼叫把同一個字串既送 add_variant 又送 authorize，是兩句矛盾的話——
         // 不能讓「哪段先跑」決定誰贏。這是**輸入**驗證（呼叫端的兩個參數互相矛盾），
         // 不是分割互斥的第二份副本（那仍由 `Venue.validate()` 擋）。整批拒絕、零寫入。
-        if let vs = addVariant, let names = authorize {
-            let both = names.filter { vs.contains($0) }
+        if let vs = addVariant {
+            let variantSet = Set(vs.filter { !isBlank($0) })
+            let both = authorizeNames.filter { variantSet.contains($0) }
             if !both.isEmpty {
                 throw ServiceError.invalid(
                     "「\(both.map { displaySafe($0, max: 120) }.joined(separator: "、"))」"
                     + "同時被送進 add_variant 與 authorize——那是兩句矛盾的話，請只說一句")
             }
         }
-        if let names = authorize {
+        // 同一次呼叫兩個同 `WritingSystem` 的名字也是兩句矛盾的話（R1 verify 第 1 列，
+        // 四席各自重現）：迴圈逐一處理時第 N+1 輪會把第 N 輪剛升上去的當舊指定移出——
+        // 陣列順序決勝，而 `validateWritingSystems` 對這個形狀的裁決是「未決的問題，
+        // 不是指定；請選一個」。同上：輸入驗證，整批拒絕、零寫入。
+        let byScript = Dictionary(grouping: Set(authorizeNames), by: WritingSystem.of)
+        if let clash = byScript.first(where: { $0.value.count > 1 }) {
+            throw ServiceError.invalid(
+                "「\(clash.value.sorted().map { displaySafe($0, max: 120) }.joined(separator: "、"))」"
+                + "是同一個書寫系統（\(clash.key.rawValue)）的兩個名字——"   // display-safe-exempt: WritingSystem.rawValue 是 enum 常數（han／latn／other），不是 store 字串
+                + "每書寫系統至多一個對外形，那是未決的問題，不是指定；請選一個")
+        }
+        if !authorizeNames.isEmpty {
             var known = Set(venue.names.entries.map(\.value))
-            for x in names where !x.trimmingCharacters(in: .whitespaces).isEmpty {
-                if venue.authorized.contains(x) { continue }              // 冪等
+            for x in authorizeNames {
+                if venue.authorized.contains(x) { alreadyAuthorized.append(x); continue }   // 冪等，但要說
                 if !known.contains(x) {                                    // 不在 names 的一併加進 names
                     venue.names = Timeline(venue.names.entries + [TemporalValue(value: x)])
                     known.insert(x)
                     added.append(x)
                 }
                 let script = WritingSystem.of(x)
-                // 同書寫系統的舊指定降成 variant（不刪：它仍是這本刊的一個名字）
+                // 同 `WritingSystem` 的舊指定移出 authorized——留在 names（不刪：它仍是這本
+                // 刊的一個名字）、**不進 variant**（D1）
                 for y in venue.authorized where WritingSystem.of(y) == script {
                     venue.authorized.removeAll { $0 == y }
-                    if !venue.variant.contains(y) { venue.variant.append(y) }
-                    demotedToVariant.append(y)
+                    authorizedRemoved.append(y)
                 }
                 // X 若原本是 variant（例如被 #553 降過去的），從那個分割移出——
-                // 一個名字不能同時在兩個分割，而它現在是對外形
-                venue.variant.removeAll { $0 == x }
+                // 一個名字不能同時在兩個分割，而它現在是對外形。這是本面的主要用途，
+                // 所以要單獨報出來（R1 verify 第 10 列）。
+                if venue.variant.contains(x) {
+                    venue.variant.removeAll { $0 == x }
+                    liftedFromVariant.append(x)
+                }
                 venue.authorized.append(x)
-                authorized.append(x)
+                authorizedAdded.append(x)
             }
         }
         // 分割互斥與孤兒檢查由 `writeVenue` → `assertVenueWritable` → `Venue.validate()`
@@ -2890,8 +2922,10 @@ public final class AkashicService {
                                       "issnAdded": issnAdded,
                                       "issnTotal": venue.issn.count,
                                       "variantAdded": variantAdded.map { displaySafe($0, max: 200) },
-                                      "authorized": authorized.map { displaySafe($0, max: 200) },
-                                      "demotedToVariant": demotedToVariant.map { displaySafe($0, max: 200) },
+                                      "authorizedAdded": authorizedAdded.map { displaySafe($0, max: 200) },
+                                      "authorizedRemoved": authorizedRemoved.map { displaySafe($0, max: 200) },
+                                      "liftedFromVariant": liftedFromVariant.map { displaySafe($0, max: 200) },
+                                      "alreadyAuthorized": alreadyAuthorized.map { displaySafe($0, max: 200) },
                                       "authorizedTotal": venue.authorized.count,
                                       "variantTotal": venue.variant.count]
         if let p = venue.paginated { payload["paginated"] = p }

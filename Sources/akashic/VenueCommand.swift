@@ -206,11 +206,13 @@ struct UpdateVenueCmd: ParsableCommand {
     var addVariant: [String] = []
 
     @Option(name: .customLong("authorize"), parsing: .upToNextOption,
-            help: ArgumentHelp("指定為對外形的名字。**不是 append**：authorized 每書寫系統至多一個，"
-                             + "同書寫系統原本的指定會降成 variant（報告逐筆印出）；跨書寫系統才是"
-                             + "append。不在 names 的一併加進 names。這是 #553 合併把 authorized 降成"
-                             + "variant 那個動作的精確逆操作——在此之前 authorized 沒有判定型寫入面，"
-                             + "唯一寫入者是 bootstrap 取第一個名字（470 筆），而那些機械值換不掉（#554）"))
+            help: ArgumentHelp("指定為對外形的名字。**不是 append**：authorized 每個書寫系統"
+                             + "（han／latn／other）至多一個，同一書寫系統原本的指定會移出 authorized、"
+                             + "留在 names、不標 variant（報告逐筆印出）；不同書寫系統之間才是 append。"
+                             + "一次給兩個同書寫系統的名字是矛盾，整批拒絕。不在 names 的一併加進 names。"
+                             + "這是 #553 合併把某個名字降成 variant 那個動作在該名字上的逆操作——在此之前"
+                             + "authorized 沒有判定型寫入面，唯一寫入者是 bootstrap 取第一個名字，而那些"
+                             + "機械值換不掉。不留 judgement（#564 另裁）（#554）"))
     var authorize: [String] = []
 
     @Flag(name: .customLong("clear-paginated"),

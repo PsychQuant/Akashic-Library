@@ -2643,6 +2643,28 @@ public final class AkashicService {
     /// 建一筆 venue。`issn` 於 #394 加入——理由與 `updateVenue` 的 `addISSN` 同：
     /// 欄位、型別、正規化都已存在，只差一個參數。建檔時就知道 ISSN 是常見的，
     /// 少了它就得「先建再更新」，而那讓一次操作變成兩次、中間有一個 ISSN 不在的狀態。
+    /// 名字寫入的共用入口（#554 D8）：canonical → 逐項驗（`NameIdentity.wellFormednessIssue`，
+    /// 與 `Venue.validate()` 同一份謂詞）→ 去重保序。空白項是「沒說話」，跳過；任一項不合
+    /// 即整批拒絕、零寫入、訊息帶參數名。回傳的每一項都是 canonical 形。
+    private func vetVenueNames(_ raw: [String]?, parameter: String) throws -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        var bad: [String] = []
+        for r in raw ?? [] {
+            let c = NameIdentity.canonical(r)
+            if c.isEmpty { continue }
+            if let why = NameIdentity.wellFormednessIssue(c) {
+                bad.append("「\(displaySafe(r, max: 120))」\(why)")   // display-safe-exempt: why 是 NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）
+                continue
+            }
+            if seen.insert(c).inserted { out.append(c) }
+        }
+        if !bad.isEmpty {
+            throw ServiceError.invalid("\(parameter) 的 " + bad.joined(separator: "；"))   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量；bad 的每一項已經 displaySafe
+        }
+        return out
+    }
+
     public func addVenue(key: String, names: [String], type rawType: String,
                          note: String? = nil, issn: [String]? = nil) throws -> String {
         guard let vtype = VenueType(rawValue: rawType) else {
@@ -2653,8 +2675,12 @@ public final class AkashicService {
         guard !load.venues.contains(where: { $0.key == key }) else {
             throw ServiceError.invalid("venue key「\(displaySafe(key, max: 200))」已存在")
         }
+        // 同一欄位的第四個寫入者走同一個入口（#554 R4 verify 第 1 列：`add-venue --names "X "`
+        // 曾原樣存入、連空字串都收，種下的髒條目讓乾淨拼法永遠進不了）
+        let vetted = try vetVenueNames(names, parameter: "names")
+        guard !vetted.isEmpty else { throw ServiceError.invalid("names 全是空白——一筆 venue 至少要有一個名字") }
         var venue = Venue(key: key, type: vtype,
-                          names: Timeline(names.map { TemporalValue(value: $0) }),
+                          names: Timeline(vetted.map { TemporalValue(value: $0) }),
                           note: note)
         // 不合法即整個拒絕、零寫入（同 `updateVenue`）；相等看正規形。
         if let raws = issn {
@@ -2707,71 +2733,32 @@ public final class AkashicService {
         guard var venue = load.venues.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("venue「\(displaySafe(key, max: 200))」")
         }
-        // ── 三個名字寫入迴圈（add_names／add_variant／authorize）共用的東西（#554 R4，D6）──
+        // ── 名字寫入的共用入口（#554 R4／R5，D6→D8）──
         //
-        // R1→R3 三輪 verify 逼出同一件事：**相等沒有「局部正確」**。同一筆記錄的三個寫入口
-        // 若用不同的相等（R3 之前 `String ==`、R3 只把 authorize 改成 canonical），任何一個
-        // 乾淨的口都會被另一個髒的口餵壞——`add-name "X "` 種下髒條目、`authorize "X"` 把它
-        // 升成 displayName（R3 verify 六路命中）。#560 在 R1 就寫了「只改一段會製造第三種
-        // 相等」。所以三個迴圈同一組謂詞、同一條相等，且新條目一律存 `NameIdentity.canonical`
-        // ——空白不是名字的一部分（`NameIdentity` 的立場），存原樣會讓髒拼法黏住。
+        // R1→R4 四輪 verify 逼出同一件事：**相等沒有「局部正確」**，而閘的位置也沒有。
+        // 名字內容的不變式（canonical 形、無控制／格式字元、至少一個字母或數字、names 無近重複對）
+        // 住在 `Venue.validate()`（store 邊界，所有寫入者共用）；謂詞一份在
+        // `NameIdentity.wellFormednessIssue`。這裡的 `vetVenueNames` 只是入口——把呼叫端的
+        // 原字串先 canonical、對每一項驗、再去重，讓錯誤訊息帶參數名而不是 validate 的通用句。
+        // **驗在去重之前、在 canonical 形上**：R4 曾先去重再驗，`["New Journal", "New\tJournal"]`
+        // 兩種順序得到不同結果（Codex 席）。
         //
-        // 三道輸入驗證都在**任何寫入之前**算，整批拒絕、零寫入：
-        //   (1) 空白（`.whitespacesAndNewlines`——`.whitespaces` 不含 LF／CR／LS）是「沒說話」，濾掉
-        //   (2) 控制字元／方向控制／零寬字元不是名字的一部分：bidi override 讓刊名反向渲染、
-        //       ZWSP 讓兩個看起來一樣的名字不相等。ZWJ／ZWNJ **保留**——波斯文與印度系文字合法用
-        //   (3) 沒有任何字母（任何書寫系統）的不是名字——`×`／`÷`／`—`／`123`。R3 曾寫成
-        //       「`.other` 且無字母」，而 `×` 落在 `isLatinLetter` 的區間裡被歸 `.latn`（#568）
-        let isBlank = { (s: String) in s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        let forbiddenScalar = { (u: Unicode.Scalar) -> Bool in
-            switch u.properties.generalCategory {
-            case .control, .lineSeparator, .paragraphSeparator: return true
-            default: break
-            }
-            switch u.value {
-            case 0x00AD, 0x200B, 0x200E, 0x200F, 0xFEFF: return true          // SHY／ZWSP／LRM／RLM／BOM
-            case 0x202A...0x202E, 0x2060...0x2064, 0x2066...0x2069: return true   // bidi embed／override／isolate、word joiner 族
-            default: return false
-            }
-        }
-        func vetNames(_ raw: [String]?, parameter: String) throws -> [String] {
-            var seen = Set<String>()
-            let list = (raw ?? []).filter { !isBlank($0) }
-                .filter { seen.insert(NameIdentity.canonical($0)).inserted }          // 去重保序
-            let tainted = list.filter { $0.unicodeScalars.contains(where: forbiddenScalar) }
-            if !tainted.isEmpty {
-                throw ServiceError.invalid(
-                    "\(parameter) 的「\(tainted.map { displaySafe($0, max: 120) }.joined(separator: "、"))」"   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量（add_names／add_variant／authorize）；名字經 displaySafe
-                    + "含控制字元、方向控制或零寬字元——那不是名字的一部分；去掉再送")
-            }
-            let notNames = list.filter { !$0.contains(where: \.isLetter) }
-            if !notNames.isEmpty {
-                throw ServiceError.invalid(
-                    "\(parameter) 的「\(notNames.map { displaySafe($0, max: 120) }.joined(separator: "、"))」"   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量（add_names／add_variant／authorize）；名字經 displaySafe
-                    + "不是名字（沒有任何字母）——名字不收標點、數字或符號")
-            }
-            return list
-        }
-        // 相等：**先精確、次乾淨拼法、再 canonical**。精確命中優先讓呼叫端打的字贏過較早的
-        // 近重複（Codex 席：`first(where: canonical)` 會讓陣列順序決定對外拼法）；沒有精確命中
-        // 時偏向「自己就是 canonical 形」的那個拼法（沒有前後／連續空白）。回 nil＝names 沒有它。
+        // 相等：`resolveSpelling` 只做 canonical 查找、回傳 **store 條目**——在不變式下 names 至多
+        // 一筆 canonical-相等，「先精確」這個概念在 Swift 裡不存在（`String ==` 是 canonical
+        // equivalence，R4 曾讓 NFD 輸入經精確命中把 NFD 位元組寫進 authorized——DA 席）。
         func resolveSpelling(_ requested: String) -> String? {
-            let entries = venue.names.entries.map(\.value)
-            if entries.contains(requested) { return requested }
             let key = NameIdentity.canonical(requested)
-            let hits = entries.filter { NameIdentity.canonical($0) == key }
-            return hits.first(where: { $0 == NameIdentity.canonical($0) }) ?? hits.first
+            return venue.names.entries.first { NameIdentity.canonical($0.value) == key }?.value
         }
-        let namesIn = try vetNames(addNames, parameter: "add_names")
-        let variantsIn = try vetNames(addVariant, parameter: "add_variant")
-        let authorizeIn = try vetNames(authorize, parameter: "authorize")
+        let namesIn = try vetVenueNames(addNames, parameter: "add_names")
+        let variantsIn = try vetVenueNames(addVariant, parameter: "add_variant")
+        let authorizeIn = try vetVenueNames(authorize, parameter: "authorize")
 
         var added: [String] = []
         for n in namesIn {
             guard resolveSpelling(n) == nil else { continue }          // 近重複不加（三個迴圈同一條相等）
-            let stored = NameIdentity.canonical(n)
-            venue.names = Timeline(venue.names.entries + [TemporalValue(value: stored)])
-            added.append(stored)
+            venue.names = Timeline(venue.names.entries + [TemporalValue(value: n)])   // vetted 已是 canonical
+            added.append(n)
         }
         if let rawType {
             guard let vtype = VenueType(rawValue: rawType) else {
@@ -2880,7 +2867,7 @@ public final class AkashicService {
             if let existing = resolveSpelling(v) {
                 x = existing
             } else {
-                x = NameIdentity.canonical(v)
+                x = v                                                   // vetted 已是 canonical
                 venue.names = Timeline(venue.names.entries + [TemporalValue(value: x)])
                 added.append(x)
             }
@@ -2948,7 +2935,7 @@ public final class AkashicService {
             if let existing = resolveSpelling(requested) {
                 x = existing
             } else {
-                x = NameIdentity.canonical(requested)
+                x = requested                                           // vetted 已是 canonical
                 venue.names = Timeline(venue.names.entries + [TemporalValue(value: x)])
                 added.append(x)
             }
@@ -2966,7 +2953,10 @@ public final class AkashicService {
                 let sameName = NameIdentity.canonical(y) == key
                 if sameName || WritingSystem.of(y) == script {
                     if insertAt == nil { insertAt = kept.count }
-                    if !sameName { authorizedRemoved.append(y) }
+                    // 同名不同**位元組**（手改成 NFD 的舊 authorized——`String ==` 是 canonical
+                    // equivalence，看不出來）也要出聲：authorized 的位元組變了，報告不能說 no-op
+                    // （R4 verify 第 6 列）。這是不變式唯一的自我修復路：新狀態是 canonical、validate 過
+                    if !sameName || Array(y.utf8) != Array(x.utf8) { authorizedRemoved.append(y) }
                     continue
                 }
                 kept.append(y)

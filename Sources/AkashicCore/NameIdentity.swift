@@ -59,4 +59,60 @@ public enum NameIdentity {
     public static func same(_ a: String, _ b: String) -> Bool {
         canonical(a) == canonical(b)
     }
+
+    /// **名字內容的不變式**（#554 R4 verify，使用者裁決 D8）：這個字串能不能作為一個名字
+    /// 進 store。回 `nil`＝可以；否則回一句人看得懂的理由。
+    ///
+    /// 住在這裡而不是某個寫入面，是因為 R2→R4 三輪把閘裝在 `updateVenue` 的三個迴圈裡，
+    /// 而同一個欄位還有 `addVenue` 與 `VenueBootstrap` 兩個寫入者——「守衛住在 validate →
+    /// writeVenue 的交會處才擋得住所有路徑」（`Venue.swift` 自己的 doc）。`Venue.validate()`
+    /// 對 names／authorized／variant 逐條呼叫；寫入面先 `canonical` 再呼叫，拿理由當錯誤訊息。
+    ///
+    /// 四條，各有量過的反例：
+    ///
+    /// 1. **是 canonical 形**（前後／連續空白、tab、NFD 都不是）——空白不是名字的一部分
+    ///    （本型別的立場）；R3 把新條目存原樣，之後乾淨拼法永遠進不了 authorized。
+    /// 2. **不含危險 scalar**——與輸出閘 `UnsafeToEmitScalar` **同一份**定義，再加上整個
+    ///    Cf／Cc／Zl／Zp 類別（R4 曾是 19 個例子的列舉，170 個 Cf 漏 149：ALM、TAG 字元）。
+    ///    ZWJ／ZWNJ 例外——波斯文與印度系文字合法用——但只在兩個字母（或標記）之間：
+    ///    尾隨 ZWJ、拉丁字母間的 joiner 重開「看起來一樣、canonical 不相等」的通道。
+    /// 3. **至少一個字母或數字**——`×`／`—`／`…` 不是名字；純數字刊名（*1843*、*2600*）是。
+    ///    R4 曾寫「至少一個字母」，被真反例打掉。
+    /// 4. **非空**（1 的特例，訊息分開說）。
+    ///
+    /// 誠實邊界：1 的 NFC 對 CJK 相容表意文字有損（U+FA10 塚 → U+585A）——位元組層有損、
+    /// Swift 層無損（Swift `==` 早已視為相等）。
+    public static func wellFormednessIssue(_ name: String) -> String? {
+        let canon = canonical(name)
+        if canon.isEmpty { return "是空白——沒有名字" }
+        if name != canon || Array(name.utf8) != Array(canon.utf8) {
+            return "不是 canonical 形（前後／連續空白、tab 或未 NFC）——寫入者要先 NameIdentity.canonical"
+        }
+        let scalars = Array(name.unicodeScalars)
+        for (i, u) in scalars.enumerated() {
+            if u.value == 0x200C || u.value == 0x200D {
+                func joinable(_ s: Unicode.Scalar) -> Bool {
+                    s.properties.isAlphabetic
+                        || s.properties.generalCategory == .nonspacingMark
+                        || s.properties.generalCategory == .spacingMark
+                }
+                guard i > 0, i + 1 < scalars.count, joinable(scalars[i - 1]), joinable(scalars[i + 1]) else {
+                    return "接合字元（ZWJ／ZWNJ）不在兩個字母之間——那不是名字的一部分"
+                }
+                continue
+            }
+            if UnsafeToEmitScalar.contains(u) {
+                return "含控制或方向控制字元 U+\(String(u.value, radix: 16, uppercase: true))——不是名字的一部分"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串
+            }
+            switch u.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator:
+                return "含格式或控制字元 U+\(String(u.value, radix: 16, uppercase: true))（零寬／不可見）——不是名字的一部分"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串
+            default: break
+            }
+        }
+        if !name.contains(where: { $0.isLetter || $0.isNumber }) {
+            return "沒有任何字母或數字——不是名字"
+        }
+        return nil
+    }
 }

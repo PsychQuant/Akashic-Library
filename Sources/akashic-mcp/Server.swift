@@ -201,11 +201,11 @@ actor AkashicMCPServer {
              description: "venue 的部分更新（#306／#394／#471／#554）——append 語意：add_names／add_issn／add_variant 只附加不重複的值（整組替換刻意不提供）；authorize 是同書寫系統替換（不是 append，見該參數）；paginated 是判定（#406）；note／type 替換（選填）。沿革補全直接擴大 resolve_venues 的命中面（resolver 對沿革各段都配對）。需 store format ≥ 11。",
              inputSchema: obj([
                 "key": str("既有 venue key"),
-                "add_names": strArray("要附加的名稱變體（重複自動略過，以 namesAdded 回報）"),
+                "add_names": strArray("要附加的名稱變體。相等看 canonical（前後／連續空白、NFC）——近重複自動略過、以 namesAdded 回報實際寫入的拼法；新名字以 canonical 形入庫。含控制／格式字元或沒有任何字母或數字的字串**整批拒絕零寫入**（同一呼叫的其他參數也不寫，#554 D8）"),
                 "note": str("備註（替換；選填）"),
                 "type": str("\(VenueType.domainDescription)（替換；選填）"),
                 "add_issn": strArray("要附加的 ISSN（append 語意，同 add_names；ISSN 本來就是清單——print 與 electronic 是兩個真的號。相等看正規形，`0003-066x` 與 `0003-066X` 不會變成兩筆；任一個不合法即整個呼叫拒絕、零寫入。#394）"),
-                "add_variant": strArray("要標成異寫法的名字（append 語意）。**不在 names 裡的一併加進 names**——兩個分割都是對 names 的標記，標一個 names 沒有的字串會造出孤兒 variant，而那自 #473 起是 error。在此之前 variant 兩面都沒有寫入面，唯一的寫入者是遷移，而遷移用的是「authorized 的補集」——一個不做判定的操作成了唯一的判定寫入者（#471）"),
+                "add_variant": strArray("要標成異寫法的名字（append 語意；相等看 canonical、新名字以 canonical 形入庫、不合法即整批拒絕——同 add_names，#554 D8）。**不在 names 裡的一併加進 names**——兩個分割都是對 names 的標記，標一個 names 沒有的字串會造出孤兒 variant，而那自 #473 起是 error。在此之前 variant 兩面都沒有寫入面，唯一的寫入者是遷移，而遷移用的是「authorized 的補集」——一個不做判定的操作成了唯一的判定寫入者（#471）"),
                 "authorize": strArray("指定為對外形的名字。**不是 append**：authorized 每個書寫系統（han／latn／other）至多一個（`AuthorizedNames.validate` 的內容約束），同一書寫系統原本的指定會**移出 authorized、留在 names、不標 variant**（未標＝不作任何宣稱；回報在 `authorizedRemoved`）；不同書寫系統之間才是 append（注意 `other` 是一個桶：西里爾與假名互相替換）。同一次呼叫兩個同書寫系統的名字是矛盾，整批拒絕。不在 names 的一併加進 names；原本在 variant 的移出並回報 `liftedFromVariant`；已是 authorized 的回報 `alreadyAuthorized`。這是 #553 攣生合併把某個名字「authorized → variant」那個降級在該名字上的逆操作——在此之前 authorized **沒有判定型寫入面**，唯一寫入者是 VenueBootstrap 取第一個名字的慣例，而那些機械值換不掉（append 會被「至多一個」擋）。不留 judgement（#564 另裁）。#471 修了 variant 那一半、本參數修 authorized（#554）"),
                 "clear_paginated": ["type": "boolean", "description": "撤回 paginated 判定，回到誠實的未判定狀態（#500）。**撤回是一筆判定**：同樣要 judgement，並在 references 留下一筆 value=nil 的記錄（不是刪除——丟掉全部 reference 才是刪除，而那違反「翻轉留史」）。省略 paginated 的意思是「這次不動它」，不是清除；與 paginated 不得同時給"],
                 "paginated": .object(["type": .string("boolean"),

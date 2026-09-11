@@ -236,6 +236,36 @@ public struct Venue: Equatable {
         // **不統一**：把 venue 移到 decode 期是遠比提 severity 大的行為改變（它把「寫不
         // 進去」換成「讀不出來」），值得它自己的裁決。這裡只記下差異與各自的後果，不
         // 替它發明一個原則。
+        // **名字內容的不變式住在這裡**（#554 R4 verify，使用者裁決 D8）：canonical 形、無
+        // 控制／格式字元、至少一個字母或數字、names 內無 canonical-相等對。R2→R4 三輪把這些
+        // 閘裝在 `updateVenue` 的三個迴圈裡，R4 verify 指出 `addVenue` 與 `VenueBootstrap` 是
+        // 同一欄位的另外兩個寫入者——`add-venue --names "Psychometrika "` 種下的髒條目會被
+        // `--authorize` 升成 displayName、乾淨拼法永遠進不了。與本段上方 dated-variant 守衛的
+        // 教訓同一句：守衛住在 validate → writeVenue 的交會處才擋得住所有路徑。
+        // error 級——2026-09-12 實測 live store 485 筆 venue：非 canonical 0、含 Cf／Cc 0、
+        // 無字母無數字 0、近重複對 0，提級不拒絕任何既有記錄。謂詞一份住
+        // `NameIdentity.wellFormednessIssue`（與輸出閘 `UnsafeToEmitScalar` 共用危險 scalar 的定義）。
+        for (label, list) in [("names", names.entries.map(\.value)), ("authorized", authorized), ("variant", variant)] {
+            for n in list {
+                if let why = NameIdentity.wellFormednessIssue(n) {
+                    issues.append(ValidationIssue(
+                        severity: .error,
+                        message: "venue '\(displaySafe(key, max: 120))' 的 \(label)「\(displaySafe(n, max: 120))」\(why)"))   // display-safe-exempt: label 是本函式的字面常量；why 是 NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）
+                }
+            }
+        }
+        var seenByKey: [String: String] = [:]
+        for n in names.entries.map(\.value) {
+            let k = NameIdentity.canonical(n)
+            if let first = seenByKey[k] {
+                issues.append(ValidationIssue(
+                    severity: .error,
+                    message: "venue '\(displaySafe(key, max: 120))' 的 names 有兩筆近重複「\(displaySafe(first, max: 120))」"
+                           + "與「\(displaySafe(n, max: 120))」——只差空白或正規化的兩個字串是同一個名字，留一筆"))
+            } else {
+                seenByKey[k] = n
+            }
+        }
         let known = Set(names.entries.map(\.value))
         let orphan = variant.filter { !known.contains($0) }.sorted()
         if !orphan.isEmpty {

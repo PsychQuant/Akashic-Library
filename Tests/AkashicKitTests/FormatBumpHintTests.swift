@@ -66,7 +66,7 @@ final class OrphanVariantSeverityTests: XCTestCase {
     }
 
     func testOrphanVariantIsAnError() {
-        let issues = venue(names: ["Journal A"], variant: ["Journal  A"]).validate()
+        let issues = venue(names: ["Journal A"], variant: ["JOURNAL A"]).validate()
         let orphan = issues.filter { $0.message.contains("不在 names 裡") }
         XCTAssertEqual(orphan.count, 1, "\(issues.map(\.message))")
         XCTAssertEqual(orphan[0].severity, .error,
@@ -82,9 +82,11 @@ final class OrphanVariantSeverityTests: XCTestCase {
         try StoreVersion.write(root: root, format: StoreVersion.supported)
         let store = LibraryStore(root: root)
         defer { try? FileManager.default.removeItem(at: root) }
-        XCTAssertThrowsError(try store.writeVenue(venue(names: ["Journal A"], variant: ["Journal  A"])))
-        XCTAssertNoThrow(try store.writeVenue(venue(names: ["Journal A", "Journal  A"],
-                                                   variant: ["Journal  A"])),
+        XCTAssertThrowsError(try store.writeVenue(venue(names: ["Journal A"], variant: ["JOURNAL A"])))
+        // fixture 曾用「Journal  A」（雙空白）當合法名字——#554 D8 之後那是非 canonical 形＋names
+        // 近重複對（不變式違反），換成大小寫異寫：那才是 variant 要裝的東西
+        XCTAssertNoThrow(try store.writeVenue(venue(names: ["Journal A", "JOURNAL A"],
+                                                   variant: ["JOURNAL A"])),
                          "名字在 names 裡就照常寫得進去——提級不得誤傷合法記錄")
     }
 }

@@ -179,8 +179,11 @@ public enum VenueBootstrap {
 
         for entry in entries {
             for (raw, field) in literalsWithSource(entry) {
-                let name = raw.trimmingCharacters(in: .whitespaces)
-                guard !name.isEmpty else { continue }
+                // 存 canonical（#554 D8：names 的不變式在 `Venue.validate()`，寫入者先 canonical）；
+                // 讀進來仍是 literal 的原字串，只是空白不是名字的一部分。不能作為名字的
+                // （純符號、含控制字元）在這裡跳過並留在 literal——bootstrap 不建一筆會被 validate 擋的記錄
+                let name = NameIdentity.canonical(raw)
+                guard !name.isEmpty, NameIdentity.wellFormednessIssue(name) == nil else { continue }
                 let id = NameNormalization.matchingKey(name)
                 guard !known.contains(id) else { continue }
                 guard let type = venueType(forSourceField: field) else { continue }
@@ -243,7 +246,9 @@ public enum VenueBootstrap {
     /// 把候選建成 venue 記錄。**只建立、不歸戶**——entry 的 `venues:` literal 原樣留著。
     public static func makeVenues(_ candidates: [Candidate]) -> [Venue] {
         candidates.map { c in
-            // 所有寫法都進 timeline，各自 unbounded——**保留原字串**（正規化只住配對鍵）。
+            // 所有寫法都進 timeline，各自 unbounded——**保留每一種寫法**（大小寫、標點；
+            // 正規化的**判定**只住配對鍵 `matchingKey`），但每一筆存 `NameIdentity.canonical`
+            // 形（#554 D8：空白不是名字的一部分，`Venue.validate()` 對非 canonical 形是 error）。
             // 「Psychometrika」「PSYCHOMETRIKA」（WoS 大寫形）是同一刊的兩個寫法，
             // 各自留著，否則下次遇到那個寫法又重新分割一次（`OrgBootstrap` 的同一教訓）。
             let timeline = Timeline(c.names.map { TemporalValue(value: $0) })

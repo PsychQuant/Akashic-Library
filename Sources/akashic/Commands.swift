@@ -2139,7 +2139,7 @@ struct RecordDivergence: ParsableCommand {
     var question: String
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "候選，形如 `key:shape`（shape 為 person / organization / work）；需要兩個以上")
+            help: "候選，形如 `key:shape`（shape 為 person / organization / work / venue；venue 自 #553 起）；需要兩個以上")
     var candidate: [String]
 
     @Option(name: .long, help: "已經形成的判斷（選填；給了就必須同時給 --rests-on）")

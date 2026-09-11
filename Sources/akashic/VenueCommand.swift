@@ -262,7 +262,7 @@ struct UpdateVenueCmd: ParsableCommand {
 struct MigrateVenueVariants: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "migrate-venue-variants",
-        abstract: "把 names 的異寫法搬進 variant 分割（#422；需另手動 bump format 至 14）")
+        abstract: "把 names 的異寫法搬進 variant 分割（#422；需另手動 bump format 至 14）。**#554 之後不得再跑**：它用補集規則（names − authorized → variant），而 --authorize 換下來的舊指定刻意留在未標（D1）、會被它重新標成 variant；退場見 #567")
 
     @OptionGroup var options: LibraryOptions
 

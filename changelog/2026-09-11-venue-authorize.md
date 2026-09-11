@@ -46,13 +46,39 @@ DA 還實測了一個零實例的形狀：沿革前身（`names` 帶 `start`／`
 我寫了「不能讓哪段先跑決定誰贏」並在入口拒絕，但**同一參數內**兩個同 `WritingSystem` 的
 名字沒擋——迴圈第 N+1 輪把第 N 輪剛升上去的當舊指定移出，陣列順序決勝，報告
 `authorized: [A, B]` 而 `authorizedTotal: 1`。四席各自在真 binary 重現。修法同型：
-先 trim、再按 `WritingSystem.of` 分組，任一桶 >1 整批拒絕零寫入。
+先濾掉空白項、再按 `WritingSystem.of` 分組，任一桶 >1 整批拒絕零寫入。
 
 ## 報告每個分類改變都說出來
 
 `authorizedAdded`（升）／`authorizedRemoved`（移出，未標）／`liftedFromVariant`（從 variant
 拉回——本面的主要用途，第一版沒報）／`alreadyAuthorized`（no-op，但與「空白被跳過」分得開）。
 `lossless-intake` 執行細節 3：分類的改變要可見。
+
+R1 第 11(b) 列「降級報告排除本次 add_variant 已列的」在 D1 下**重裁而非套用**：`add_variant Y`
+＋ `authorize X` 同呼叫時，`variantAdded: [Y]` 是「呼叫端把它放進 variant」、`authorizedRemoved: [Y]`
+是「它被移出 authorized」——兩個事實各印一次，不是同一件事印兩次（R1 的 `demotedToVariant`
+才是後者）。
+
+## R2 verify：我把 D1 之前的量測抄進了 D1 之後的規則
+
+R1 report 第 8 列寫「近重複 fail-closed 零寫入」，量的是 R1 的行為（舊名進 variant，
+`validateDisjointPartitions` 有交集可撞）。D1 把舊名留在未標——一個 `Venue.validate()` 完全
+不看的分割——同一句話就變假了，而我把它原封不動抄進 parity 列與 #560。R2 五路獨立命中
+（四席＋Codex 盲審）：`--authorize "Psychometrika "` 對既有 `[Psychometrika]` **寫入成功**，
+帶空白版成為 displayName、`validate` 全綠。
+
+修法：authorize 段的成員判定全部改走 `NameIdentity.canonical`（與守衛同一條）——x 若
+canonical-命中既有 names 條目就用 store 拼法、不新增近重複條目；跨參數矛盾與同書寫系統
+衝突也在 canonical 上算。順手收掉同輪的三格：`.whitespaces` 不含換行（`$'\n'` 曾成為
+displayName）→ `.whitespacesAndNewlines`，純標點／純數字整批拒絕「不是名字」；衝突訊息
+`Dictionary.first(where:)` 隨 hash 種子挑桶 → 依 rawValue 排序、全部桶一次印；`alreadyAuthorized`
+短路跳過同書寫系統移出 → 確認既有值時也移出另一個（守衛說「請選一個」，選了就該修好）。
+
+DA 席另抓兩個 D1 的後果：合併端的降級提醒對「已在倖存者 names、未標」的名字也說「成為
+variant」（比的是 `keeper.authorized`、濾的是 `keeper.names`）——改成三種結果分開說，並拿掉
+「用 `--authorize` 改回」那句祈使建議（照做會把人工指定移出）；`migrate-venue-variants` 的
+補集規則會把 D1 的未標重新標成 variant——使用者裁決 D4：開退場 issue（#567）、本輪在 parity
+列與命令 help 寫明不得再跑。
 
 **不留 judgement**（D2）：與 person `authorize-names`（#81）、`add_variant`（#471）一致——
 三個名字分類面要不要留、留什麼形狀一次裁（#564），本 change 不在這裡單獨定案。代價寫在
@@ -71,16 +97,21 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
 ## 落地
 
 - `updateVenue` 加 `authorize: [String]?`；CLI `--authorize`、MCP `authorize`，兩面同批
-- 12 條測試（R1 的 7 條改語意 ＋ R2 新增 5 條：同書寫系統兩名拒絕／沿革前身保留時間／
-  確認既有值報 `alreadyAuthorized`／兩邊空白不是矛盾／呼叫端自己 `add_variant` 才進 variant）
+- 19 條測試（R1 的 7 條改語意 ＋ R2 新增 5 條：同書寫系統兩名拒絕／沿革前身保留時間／
+  確認既有值報 `alreadyAuthorized`／兩邊空白不是矛盾／呼叫端自己 `add_variant` 才進 variant
+  ＋ R3 新增 7 條：近重複不是替換／近重複用 store 拼法拉回／跨參數近重複仍是矛盾／控制字元
+  與純標點不是名字／衝突桶排序全報／重複字串只報一次／確認既有值仍移出同書寫系統的另一個）；
+  合併端多一條「已在倖存者 names 的名字留未標」
 - `mcp-cli-parity` 的 `akashic_update_venue` 列補記；`two-kinds-of-edits` 加一列、#553 那列
   理由改寫；`DivergenceResolve` 四處「venue 沒有 authorize 面」的文字改指向本面
 
 ## 不做（都有 issue）
 
-- 470 筆的回填——那是 470 次「哪個名字對外」的判定，一輪 venue authorize campaign 的量級
 - 撤回面（把名字從 authorized 移出而不放新的進去）——#559
 - judgement 記錄——#564（三面一次裁）
 - `bootstrap-venues` 是否停寫 `[names[0]]`——#563
-- 入口 `String ==` vs 守衛 `NameIdentity.canonical`——#560（三個迴圈一起改）
+- `addNames`／`addVariant` 的 `String ==` vs 守衛 `NameIdentity.canonical`——#560（authorize 這段
+  R3 已改走 canonical；那兩個兄弟迴圈仍是精確比對）
+- `migrate-venue-variants` 退場——#567（本輪只寫明「#554 之後不得再跑」）
+- 470 筆的 authorize campaign 與 `akashic-verify-venue` 的 authorize 步驟——#566
 - 合併端把併入名字一律標 variant、且丟時間欄位——#565（D1 的同一個論證在合併端）

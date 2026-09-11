@@ -314,4 +314,43 @@ final class DivergenceResolveVenueTests: XCTestCase {
         XCTAssertEqual(preview.warnings, actual.warnings,
                        "preview 與實跑的提醒不一致——它們沒有共用同一個計算點")
     }
+
+    /// **D1 之後的常態**（R2 verify 第 2 列，DA 席實測）：被併者的 authorized 若已在倖存者的
+    /// `names`（未標——被 `--authorize` 換下來的舊指定），合併路徑的 `known` 濾除會讓它**留在
+    /// 未標、不進 variant**。R2 之前提醒句拿被併者 authorized 對 `keeper.authorized` 比、卻對
+    /// 合併結果說「成為 variant」——預告了一個沒發生的分類改變；而句尾建議「用 `--authorize`
+    /// 改回」照做會把人手工指定的正式刊名移出。提醒要說真的結果，且不給會覆蓋指定的建議。
+    func testDemotedNameAlreadyInKeeperNamesIsAnnouncedAsUnclassifiedNotVariant() throws {
+        var keeper = Venue(key: "the-american-statistician", type: .periodical,
+                           names: Timeline([TemporalValue(value: "The American Statistician"),
+                                            TemporalValue(value: "AMERICAN STATISTICIAN")]),
+                           authorized: ["The American Statistician"])     // 大寫形：未標
+        keeper.references = [verdict(holder: "casella1985introduction",
+                                     literal: "The American Statistician")]
+        try store.writeVenue(keeper)
+        var doomed = Venue(key: "american-statistician", type: .periodical,
+                           names: Timeline([TemporalValue(value: "AMERICAN STATISTICIAN")]),
+                           authorized: ["AMERICAN STATISTICIAN"])
+        doomed.references = [verdict(holder: "shih2025a", literal: "AMERICAN STATISTICIAN")]
+        try store.writeVenue(doomed)
+        var work = Entry(id: UUID(), citekey: "shih2025a", type: .periodicalArticle,
+                         title: "A note", authors: [.literal("Shih, J.")], date: "2025")
+        work.venues = [.key("american-statistician")]
+        try store.writeEntry(work)
+        let d = Divergence(id: UUID(), question: "同一本刊嗎",
+                           candidates: [DivergenceCandidate(key: "the-american-statistician", shape: .venue),
+                                        DivergenceCandidate(key: "american-statistician", shape: .venue)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(root, message: "seed")
+
+        let report = try store.resolveDivergence(id: d.id, survivor: "the-american-statistician")
+        let line = try XCTUnwrap(report.warnings.first { $0.contains("AMERICAN STATISTICIAN") },
+                                 "降級沒有被說出來：\(report.warnings)")
+        XCTAssertTrue(line.contains("未標"), "要說真的結果（留在 names、未標）：\(line)")
+        XCTAssertFalse(line.contains("成為") && line.contains("variant"), "不得預告一個沒發生的分類改變：\(line)")
+        XCTAssertFalse(line.contains("改回"), "不得建議一個會覆蓋人工指定的動作：\(line)")
+        let v = try XCTUnwrap(LibraryStore(root: root).load().venues.first { $0.key == "the-american-statistician" })
+        XCTAssertEqual(v.variant, [], "已在 names 的名字留未標，不進 variant")
+        XCTAssertEqual(v.authorized, ["The American Statistician"])
+    }
 }

@@ -828,11 +828,25 @@ extension LibraryStore {
         // 算在**前置**是因為 preview 與實跑共用這一份——本檔付過兩次代價的那條
         // 紀律（#139 F1）對提醒與對拒絕同樣適用：只在實跑算，dry-run 就對一個
         // 單向操作沉默，而 dry-run 正是「還能反悔的時點」。
+        // 三種結果分開說（#554 R2 verify 第 2 列）：D1 之後「被併者的 authorized 已在倖存者的
+        // names、未標」是常態，合併路徑的 `known` 濾除會讓它**留在未標**——R2 之前這裡一律說
+        // 「成為 variant」，預告了一個沒發生的分類改變。**不給祈使句建議**：「用 --authorize
+        // 改回」照做會把人手工指定的正式刊名移出（同書寫系統替換）——那正是 issue Impact
+        // 說的「合併會改寫人工指定」，只是改寫的不是合併而是合併給的建議。
         let warnings = doomed.flatMap { v in
-            Self.authorizedDemotedByMerging(v, into: keeper).map { name in
-                "「\(displaySafe(name, max: 120))」在被併的「\(displaySafe(v.key, max: 120))」"
-                + "是 authorized，合併後成為「\(displaySafe(survivor, max: 120))」的 variant"
-                + "（名字保留在 names；要改回對外形用 update-venue --authorize／akashic_update_venue authorize，#554）"
+            Self.authorizedDemotedByMerging(v, into: keeper).map { demotion in
+                let head = "「\(displaySafe(demotion.name, max: 120))」在被併的「\(displaySafe(v.key, max: 120))」"
+                    + "是 authorized，合併後"
+                switch demotion.outcome {
+                case .becomesVariant:
+                    return head + "成為「\(displaySafe(survivor, max: 120))」的 variant（名字保留在 names；"
+                        + "倖存者同書寫系統的對外形不變）"
+                case .staysUnclassified:
+                    return head + "留在「\(displaySafe(survivor, max: 120))」的 names、未標（不進 variant；"
+                        + "倖存者同書寫系統的對外形不變）"
+                case .alreadyVariant:
+                    return head + "仍是「\(displaySafe(survivor, max: 120))」的 variant（倖存者早已這樣分類）"
+                }
             }
         }
         return (keeper, doomed, warnings)
@@ -889,8 +903,9 @@ extension LibraryStore {
     /// 當成承重判定——那正是 `identity-is-judged-not-matched` 與 #471 記過的形狀
     /// （「一個不做判定的操作成了唯一的判定寫入者」），只是這次由我在合併端重演。
     ///
-    /// **#554 起 `updateVenue` 收 `authorize`**——第一個觸發條件（下方）成立，這一格
-    /// 於 2026-09-12 重開過一次（#554 R1 verify 第 2 列）。**裁決：維持提醒不擋。**
+    /// **#554 起 `updateVenue` 收 `authorize`**——當時寫在下方的第一個觸發條件（「venue
+    /// 長出 authorized 的寫入面」）成立，這一格於 2026-09-12 重開過一次（#554 R1 verify
+    /// 第 2 列；重開後那條觸發條件被換成 #564，見下）。**裁決：維持提醒不擋。**
     /// 理由換了：不再是「沒有面」，而是那個面**不留 judgement**（#564 另裁三個名字
     /// 分類面要不要留、留什麼形狀）——所以「人用 `--authorize` 確認過的 names[0]」與
     /// 「bootstrap 的機械 names[0]」在 store 裡仍然長得一樣，合併端拿不到可以承重的
@@ -899,12 +914,16 @@ extension LibraryStore {
     ///
     /// ## 但降級是真的，而且單向——所以要說
     ///
-    /// 字串不會消失：被併者的全部名字（含它的 authorized）都進倖存者的 `names`
-    /// **與** `variant`。改變的是**分類**：從「對外形」變成「異寫」。
+    /// 字串不會消失：被併者**不在倖存者 names 裡**的名字（含它的 authorized）進倖存者的
+    /// `names` **與** `variant`——改變的是**分類**：從「對外形」變成「異寫」；**已在倖存者
+    /// names 裡的**（D1 之後的常態：被 `--authorize` 換下來的舊指定留在未標）被合併路徑的
+    /// `known` 濾除，**分類不變**——它只是失去了在被併者那邊的 authorized 身分。本函式對
+    /// 三種結果分開報（`Demotion.Outcome`），因為 R2 verify 抓到它曾對後者也說「成為 variant」。
     ///
     /// #554 之前 venue 沒有 authorize 寫入面，這個降級改不回去（只能手改 YAML）；
-    /// #554 之後改得回去（`update-venue --authorize`，它把 variant 的名字拉回 authorized）。
-    /// 不擋是因為它今天不承載判定；要說是因為它單向。
+    /// #554 之後改得回去（`update-venue --authorize`，它把 variant 的名字拉回 authorized）
+    /// ——但那是同書寫系統替換，會把倖存者現在的對外形移出，所以提醒句**不建議**它。
+    /// 不擋是因為 store 分不出它承不承載判定；要說是因為它單向。
     ///
     /// **觸發條件（任一成立即重開這一格的裁決）**：#564 裁「留 judgement」且落地
     /// （那時「人確認過」在 store 裡才寫得出來）；或下列量測回非零——那代表有人手工
@@ -923,11 +942,35 @@ extension LibraryStore {
     ///     if a and not (v and a==[v[0]]): n+=1
     /// print(n)"   # 2026-09-11：0
     /// ```
-    static func authorizedDemotedByMerging(_ v: Venue, into keeper: Venue) -> [String] {
+    struct Demotion: Equatable {
+        enum Outcome: Equatable {
+            /// 不在倖存者 names → 合併路徑把它加進 names 與 variant
+            case becomesVariant
+            /// 已在倖存者 names、不在 variant → `known` 濾除，留在未標（D1 之後的常態）
+            case staysUnclassified
+            /// 已在倖存者 variant → 分類本來就是異寫
+            case alreadyVariant
+        }
+        let name: String
+        let outcome: Outcome
+    }
+
+    static func authorizedDemotedByMerging(_ v: Venue, into keeper: Venue) -> [Demotion] {
         // 相等用 `NameIdentity.canonical`，與合併路徑的 `known` 濾除同一條規則——
         // 兩處若用不同的相等，這裡會預告一個那裡不會發生的降級（或反之）。
+        // **集合也要同一組**（R2 verify 第 2 列）：R2 之前這裡只對 `keeper.authorized` 比，
+        // 而合併路徑的濾除對的是 `keeper.names`——D1 之後兩個集合系統性分岔，於是這裡
+        // 對「已在 names、未標」的名字也說「成為 variant」。
         let keeperAuthorized = Set(keeper.authorized.map(NameIdentity.canonical))
-        return v.authorized.filter { !keeperAuthorized.contains(NameIdentity.canonical($0)) }
+        let keeperNames = Set(keeper.names.entries.map { NameIdentity.canonical($0.value) })
+        let keeperVariant = Set(keeper.variant.map(NameIdentity.canonical))
+        return v.authorized.compactMap { name in
+            let key = NameIdentity.canonical(name)
+            if keeperAuthorized.contains(key) { return nil }          // 兩邊都是對外形：沒有降級
+            if keeperVariant.contains(key) { return Demotion(name: name, outcome: .alreadyVariant) }
+            if keeperNames.contains(key) { return Demotion(name: name, outcome: .staysUnclassified) }
+            return Demotion(name: name, outcome: .becomesVariant)
+        }
     }
 
     /// venue 合併。**比 person 少一整段**：沒有 holder verdict 遷移。

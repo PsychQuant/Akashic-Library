@@ -198,7 +198,7 @@ actor AkashicMCPServer {
                 "issn": strArray("ISSN（可多個——print 與 electronic 是兩個真的號；相等看正規形；任一不合法即整個呼叫拒絕、零寫入。#394）"),
              ], required: ["key", "names", "type"])),
         Tool(name: "akashic_update_venue",
-             description: "venue 的部分更新（#306／#394）——append 語意：add_names 與 add_issn 只附加不重複的值（整組替換刻意不提供）；note／type 替換（選填）。沿革補全直接擴大 resolve_venues 的命中面（resolver 對沿革各段都配對）。需 store format ≥ 11。",
+             description: "venue 的部分更新（#306／#394／#471／#554）——append 語意：add_names／add_issn／add_variant 只附加不重複的值（整組替換刻意不提供）；authorize 是同書寫系統替換（不是 append，見該參數）；paginated 是判定（#406）；note／type 替換（選填）。沿革補全直接擴大 resolve_venues 的命中面（resolver 對沿革各段都配對）。需 store format ≥ 11。",
              inputSchema: obj([
                 "key": str("既有 venue key"),
                 "add_names": strArray("要附加的名稱變體（重複自動略過，以 namesAdded 回報）"),

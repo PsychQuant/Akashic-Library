@@ -180,6 +180,51 @@ final class DivergenceResolveVenueTests: XCTestCase {
             judgement: nil, restsOn: []))
     }
 
+    // MARK: - 版控可回溯性閘（#558）
+
+    /// **被併的 venue 檔 untracked → 拒絕，且檔案仍在。**
+    ///
+    /// #553 加了 venue 的合併路徑，但 `doomedRelativePaths` 的 switch 對 `.venue`
+    /// 仍是 `continue`（註解寫「上游已擋」——那對 venue 自 #553 起是假的）。實測：
+    /// 一個從未進 git 的 venue 記錄被直接刪除、零警告。person／work 的 doomed 檔會過
+    /// tracked+clean 檢查，venue 的不會——#73 的紀律在這一格失效。
+    ///
+    /// 與 `DivergenceResolveTests.testRefusesWhenDoomedFilesAreUncommitted`（person）
+    /// 同型，差別是 untracked 的是**被併實體**而非 divergence 記錄——#553 開發時撞到的
+    /// 是後者，於是誤以為閘對 venue 是完整的。
+    func testRefusesWhenDoomedVenueIsUntracked() throws {
+        // keeper 先 commit；doomed **不** commit → untracked
+        let keeper = Venue(key: "keeper-journal", type: .periodical,
+                           names: Timeline([TemporalValue(value: "Keeper Journal")]),
+                           authorized: ["Keeper Journal"])
+        try store.writeVenue(keeper)
+        GitFixture.commitAll(root, message: "keeper only")
+
+        let doomed = Venue(key: "doomed-journal", type: .periodical,
+                           names: Timeline([TemporalValue(value: "Doomed Journal")]),
+                           authorized: ["Doomed Journal"])
+        try store.writeVenue(doomed)
+        let d = Divergence(
+            id: UUID(), question: "同一本嗎",
+            candidates: [DivergenceCandidate(key: "keeper-journal", shape: .venue),
+                         DivergenceCandidate(key: "doomed-journal", shape: .venue)])
+        try store.writeDivergence(d)
+        // 只 commit divergence 記錄——讓 untracked 的是**被併實體**，不是記錄
+        GitFixture.commit(root, paths: ["entities/\(d.id.uuidString).yaml"], message: "div only")
+
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "keeper-journal"),
+                             "untracked 的 doomed venue 刪掉後 git 取不回，必須拒絕") { err in
+            guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else {
+                return XCTFail("應為 deletionNotRecoverable，實得 \(err)")
+            }
+            XCTAssertTrue(files.contains { $0.path.contains(doomed.id.uuidString) },
+                          "訊息必須指名被併的 venue 檔：\(files)")
+        }
+        let after = try store.load()
+        XCTAssertEqual(after.venues.count, 2, "拒絕後被併的 venue 檔必須仍在")
+        XCTAssertEqual(after.divergences.count, 1)
+    }
+
     // MARK: - unsupportedShape 的訊息不得手寫值域
 
     /// **這條是 doc-sync sweep 抓出來的**（#553 close 時）。

@@ -2386,7 +2386,14 @@ extension LibraryStore {
         switch shape {
         case .person: holderKind = .person
         case .work:   holderKind = .work
-        case .organization, .divergence, .venue: return []   // 上游已擋，這裡不猜
+        case .venue:
+            // 回 `[]` 是**對的，但理由不是「上游已擋」**（#558）：venue 自 #553 起上游
+            // 不擋了。真正的理由是 `VerdictHolderKind` 沒有 venue——holder 是「持有
+            // literal 的那筆記錄」，持有刊名 literal 的只有 work；實測 live store 8,670
+            // 條 verdict 全部是 `work:` 前綴。所以 venue key 退役不會讓任何 holder 的
+            // verdict value 變 stale，沒有檔案會被改寫。
+            return []
+        case .organization, .divergence: return []   // 上游已擋（unsupportedShape），這裡不猜
         }
         let predicted = Self.predictedHolderVerdictMigration(
             snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor,
@@ -2412,8 +2419,13 @@ extension LibraryStore {
                 if let p = snapshot.people.first(where: { $0.key == key }) { ids.append(p.id) }
             case .work:
                 if let e = snapshot.entries.first(where: { $0.citekey == key }) { ids.append(e.id) }
-            case .organization, .divergence, .venue:
-                continue                      // 上游已擋，這裡不猜
+            case .venue:
+                // #558：#553 加了 venue 合併卻沒補這一格，於是 untracked 的被併 venue
+                // 被直接刪掉、零警告——閘只護著 divergence 記錄（`ids` 的第一個），
+                // 沒護著被併實體。開發 #553 時撞到的是前者，因而誤以為閘完整。
+                if let v = snapshot.venues.first(where: { $0.key == key }) { ids.append(v.id) }
+            case .organization, .divergence:
+                continue                      // 上游已擋（unsupportedShape），這裡不猜
             }
         }
         return ids.map { "entities/\($0.uuidString).yaml" }

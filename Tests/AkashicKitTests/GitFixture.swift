@@ -98,6 +98,13 @@ enum GitFixture {
         run(["commit", "-q", "-m", message, "--allow-empty"], in: dir)
     }
 
+    /// 只 commit 指定的路徑——讓 fixture 能精確製造「某一個檔 untracked、其餘 tracked」
+    /// 的狀態（#558：閘對 divergence 記錄有效、對被併實體無效，兩者要分得開才測得到）。
+    static func commit(_ dir: URL, paths: [String], message: String = "fixture") {
+        run(["add", "--"] + paths, in: dir)
+        run(["commit", "-q", "-m", message, "--", ] + paths, in: dir)
+    }
+
     /// `initRepo` + `commitAll` 的常用組合。
     static func initAndCommit(_ dir: URL) {
         initRepo(dir)

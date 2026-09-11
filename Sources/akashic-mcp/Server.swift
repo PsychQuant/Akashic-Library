@@ -276,7 +276,7 @@ actor AkashicMCPServer {
              description: "記下未決的同一性問題（#77）——遇到「這兩筆可能是同一個」時當場記錄而非當場判斷。記下判斷不等於消歧；消歧（合併＋刪檔）屬人工操作（CLI resolve-divergence），本面刻意不提供。",
              inputSchema: obj([
                 "question": str("未決的是什麼，一句話"),
-                "candidates": strArray("候選，形如 key:shape（shape 為 person / organization / work）；需要兩個以上"),
+                "candidates": strArray("候選，形如 key:shape（shape 為 person / organization / work / venue；venue 自 #553 起）；需要兩個以上"),
                 "judgement": str("已形成的判斷（選填；給了就必須同時給 rests_on）"),
                 "rests_on": strArray("判斷的依據（來源 URL 或 sha256: 摘要；選填，與 judgement 成對）"),
                 "prefers": str("判斷傾向哪個候選的 key（選填，與 judgement 成對；必須是候選之一）——消歧會據以比對、不一致時拒絕，但**不代選**：倖存者仍須人工指定"),

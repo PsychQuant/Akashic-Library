@@ -889,7 +889,7 @@ extension LibraryStore {
     /// 「哪個名字對外」是判定（`authorize-names` 做的事），聯集會違反「每書寫系統
     /// 至多一個」。那個論證的前提是 **person 的 authorized 承載判定**。
     ///
-    /// venue 的不承載。實測 2026-09-11（live store，494 筆 venue）：
+    /// venue 在 #553 時不承載（#554 起 store 分不出它承不承載）。實測 2026-09-11（live store，494 筆 venue）：
     ///
     /// ```
     /// 有 authorized 479 筆｜空 15 筆｜多於一個 0 筆
@@ -986,7 +986,10 @@ extension LibraryStore {
             survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
         // 名字併入倖存者：被併者的寫法保留，否則下次遇到那個寫法又會重新分割一次
         // （`OrgBootstrap`／`PersonBootstrap` 的同一教訓）。併入的一律進 **variant**
-        // ——`authorized` 是指定，前置已確認被併者的指定是倖存者的子集。
+        // ——被併者的 authorized 若是倖存者沒有的名字，也進 variant（**不擋**，只提醒：
+        // `authorizedDemotedByMerging` 三種結果分開報；「前置已確認是子集」是 #553 從 person
+        // 路徑抄來的一句假話，R3 verify 抓到）。#565 記著這一整段的 D1 對應問題（一律標
+        // variant、且丟時間欄位）。
         // #296：判定用 `NameIdentity`，不用精確 `String ==`。
         let known = Set(keeper.names.entries.map { NameIdentity.canonical($0.value) })
         let incoming = dedupePreservingOrder(

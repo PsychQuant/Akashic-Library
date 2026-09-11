@@ -80,6 +80,26 @@ variant」（比的是 `keeper.authorized`、濾的是 `keeper.names`）——�
 補集規則會把 D1 的未標重新標成 variant——使用者裁決 D4：開退場 issue（#567）、本輪在 parity
 列與命令 help 寫明不得再跑。
 
+## R3 verify：相等沒有「局部正確」
+
+R3 只把 `authorize` 一段改走 canonical。R3 verify 六路獨立命中（四席＋DA＋Codex）同一個殘餘：
+**一個函式裡兩種相等**。`add-name "X "`（精確迴圈）種下髒條目、`authorize "X"` 把它升成
+displayName；全新的輸入存原樣、之後以「用 store 拼法」黏住——乾淨拼法永遠進不了 authorized。
+其中一條路對 R2 是 regression（精確比對版本在那條路反而是對的）。
+
+#560 在 R1 就寫著「要改就三個迴圈一起改，不要只改 `authorize` 那段——只改一段會製造第三種
+相等」。R3 把它當範圍外。**使用者裁決 D6：三個迴圈一起改**——同一組謂詞（空白／控制字元／
+不是名字）、同一條相等（先精確、次乾淨拼法、再 canonical）、新條目一律存 canonical；`already`
+時以 x 取代全部 canonical-相等的拼法；x 插回原位（remove＋append 會讓雙語 venue 的預設
+displayName 換書寫系統）；variant 拉回移除全部 canonical-相等條目。#560 的程式缺口由本輪關掉。
+
+同輪順手：`×`／`÷` 落在 `isLatinLetter` 的區間裡被歸 `.latn`、R3 的「`.other` 且無字母」放它過
+——改成任何書寫系統都無字母即不是名字（分類器本身的問題另開 #568，它是 person 共用的）；
+bidi override／零寬字元夾在字母間原樣進 authorized → 三個迴圈入口一起拒絕（ZWJ／ZWNJ 保留）；
+`migrate-venue-variants` 自己那列與 README 補「不得再跑」；MCP `akashic_record_divergence` 的
+candidates 描述補 venue（與上一輪順手修的 CLI help 對齊）；`DivergenceResolve` 裡一句 #553 從
+person 路徑抄來的「前置已確認是子集」拿掉。
+
 **不留 judgement**（D2）：與 person `authorize-names`（#81）、`add_variant`（#471）一致——
 三個名字分類面要不要留、留什麼形狀一次裁（#564），本 change 不在這裡單獨定案。代價寫在
 #553 合併端那格：它仍分不出「人確認過的 names[0]」與機械值，維持提醒不擋，觸發條件改綁 #564。
@@ -97,11 +117,15 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
 ## 落地
 
 - `updateVenue` 加 `authorize: [String]?`；CLI `--authorize`、MCP `authorize`，兩面同批
-- 19 條測試（R1 的 7 條改語意 ＋ R2 新增 5 條：同書寫系統兩名拒絕／沿革前身保留時間／
+- 30 條測試（R1 的 7 條改語意 ＋ R2 新增 5 條：同書寫系統兩名拒絕／沿革前身保留時間／
   確認既有值報 `alreadyAuthorized`／兩邊空白不是矛盾／呼叫端自己 `add_variant` 才進 variant
   ＋ R3 新增 7 條：近重複不是替換／近重複用 store 拼法拉回／跨參數近重複仍是矛盾／控制字元
-  與純標點不是名字／衝突桶排序全報／重複字串只報一次／確認既有值仍移出同書寫系統的另一個）；
-  合併端多一條「已在倖存者 names 的名字留未標」
+  與純標點不是名字／衝突桶排序全報／重複字串只報一次／確認既有值仍移出同書寫系統的另一個
+  ＋ R4 新增 11 條：新名存 canonical／精確拼法優先且修正 authorized 拼法／`add_names` 近重複不加／
+  `add_variant` 近重複不加第二筆／同呼叫髒 add-name＋乾淨 authorize／`×` 不是名字／bidi 與零寬拒絕
+  但 ZWJ 保留／替換原位／兩筆近重複 variant 都拉回／手造兩個 canonical-相等 authorized 修好／
+  三個迴圈同一個空白）；合併端 13 條（留未標／仍是 variant／成為 variant 三種結果各有測試）
+- `record-divergence --candidate` 的 help 與 MCP `candidates` 描述補 venue（#553 遺留，兩面對齊）
 - `mcp-cli-parity` 的 `akashic_update_venue` 列補記；`two-kinds-of-edits` 加一列、#553 那列
   理由改寫；`DivergenceResolve` 四處「venue 沒有 authorize 面」的文字改指向本面
 
@@ -110,8 +134,9 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
 - 撤回面（把名字從 authorized 移出而不放新的進去）——#559
 - judgement 記錄——#564（三面一次裁）
 - `bootstrap-venues` 是否停寫 `[names[0]]`——#563
-- `addNames`／`addVariant` 的 `String ==` vs 守衛 `NameIdentity.canonical`——#560（authorize 這段
-  R3 已改走 canonical；那兩個兄弟迴圈仍是精確比對）
+- ~~`addNames`／`addVariant` 的 `String ==` vs 守衛 `NameIdentity.canonical`——#560~~ → R4 三個迴圈
+  一起改，程式缺口由本輪關掉（issue 留給 idd-close）
+- `WritingSystem.isLatinLetter` 的 code-point 區間（×÷ 當字母、全形／越南文拉丁歸 other）——#568
 - `migrate-venue-variants` 退場——#567（本輪只寫明「#554 之後不得再跑」）
 - 470 筆的 authorize campaign 與 `akashic-verify-venue` 的 authorize 步驟——#566
 - 合併端把併入名字一律標 variant、且丟時間欄位——#565（D1 的同一個論證在合併端）

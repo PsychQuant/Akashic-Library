@@ -29,7 +29,9 @@ import XCTest
 /// names **沒有** near-duplicate 檢查，於是 `--authorize "Psychometrika "`（尾隨空白）對既有
 /// authorized `[Psychometrika]` **寫入成功**：帶空白的字串進 names、真名被移出、帶空白版成為
 /// displayName。R1 report 寫的「fail-closed」是 D1 之前的量測（舊名進 variant 才有交集）。
-/// 現在 x 若 canonical-命中既有 names 條目就**用 store 裡那個拼法**，不新增近重複條目。
+/// R3 只改了 authorize 一段、R3 verify 六路命中「一個函式裡兩種相等」（`add-name "X "` 種下髒條目、
+/// `authorize "X"` 把它升上去；全新輸入存原樣後黏住）。**R4（D6）三個名字迴圈同一組謂詞、同一條
+/// 相等**（先精確、次乾淨拼法、再 canonical），新條目一律存 canonical——見「R3 verify（D6）」一節。
 final class VenueAuthorizedWriteTests: XCTestCase {
     private var root: URL!
     private var service: AkashicService!
@@ -343,5 +345,158 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         let after = try venue()
         XCTAssertEqual(after.authorized, ["Psychometrika"], "選一個之後另一個要被移出")
         XCTAssertTrue(out.contains("\"authorizedRemoved\"") && out.contains("PSYCHOMETRIKA"), out)
+    }
+
+    // MARK: - R3 verify（D6）：三個名字迴圈同一條相等、同一組謂詞
+
+    /// 私用：繞過寫入守衛，直接把記錄檔改成 store 守衛擋不住、但 decode 讀得進來的形狀。
+    private func rewriteFile(_ v: Venue, _ edit: (String) -> String) throws {
+        let file = root.appendingPathComponent("entities/\(v.id.uuidString).yaml")
+        try edit(try String(contentsOf: file, encoding: .utf8)).write(to: file, atomically: true, encoding: .utf8)
+    }
+
+    /// **全新的輸入存 canonical**（R3 第 1 列 (a)）：空白不是名字的一部分（`NameIdentity` 的立場），
+    /// 而 R3 把新條目存原樣、之後以「用 store 拼法」黏住——乾淨拼法永遠進不了 authorized。
+    func testNewNameIsStoredCanonical() throws {
+        _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
+                                    authorize: ["  New  Journal "])
+        let v = try venue()
+        XCTAssertEqual(v.authorized, ["New Journal"])
+        XCTAssertTrue(v.names.entries.contains { $0.value == "New Journal" }, "\(v.names.entries.map(\.value))")
+        XCTAssertFalse(v.names.entries.contains { $0.value.hasSuffix(" ") }, "不得存帶空白的條目")
+    }
+
+    /// **精確拼法優先於較早的近重複**（R3 第 1 列 (c)，Codex 盲審）：names 同時有髒、乾淨兩個拼法且
+    /// 髒的在前、且髒的是 authorized——`--authorize` 乾淨拼法要**修正** authorized 的拼法，不是
+    /// 回一句 `alreadyAuthorized: ["髒的"]`。
+    func testExactSpellingWinsOverEarlierNearDuplicateAndRepairsAuthorized() throws {
+        var v = try venue()
+        v.names = Timeline(v.names.entries + [TemporalValue(value: "Psychometrika"),
+                                              TemporalValue(value: "Journal Z")])
+        v.authorized = ["Journal Z"]
+        try LibraryStore(root: root).writeVenue(v)
+        try rewriteFile(v) { $0.replacingOccurrences(of: "- value: Psychometrika\n", with: "- value: 'Psychometrika '\n- value: Psychometrika\n")
+                                .replacingOccurrences(of: "authorized:\n- Journal Z\n", with: "authorized:\n- 'Psychometrika '\n") }
+        XCTAssertEqual(try venue().authorized, ["Psychometrika "], "fixture：髒拼法是 authorized")
+
+        let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
+                                          authorize: ["Psychometrika"])
+        let after = try venue()
+        XCTAssertEqual(after.authorized, ["Psychometrika"], "拼法要被修正成呼叫端給的精確命中")
+        XCTAssertTrue(out.contains("\"alreadyAuthorized\"") && out.contains("\"Psychometrika\""), out)
+        XCTAssertFalse(out.contains("Psychometrika "), "報告不得宣稱一個 store 不再持有的拼法：\(out)")
+    }
+
+    /// `addNames` 的近重複不新增（R3 第 1 列 (b)）；全新的存 canonical。
+    func testAddNameNearDuplicateIsNotAddedAndNewOnesAreStoredCanonical() throws {
+        let out = try service.updateVenue(key: "some-journal", addNames: ["PSYCHOMETRIKA ", "  Brand  New "],
+                                          note: nil, type: nil)
+        let v = try venue()
+        XCTAssertEqual(v.names.entries.map(\.value), ["PSYCHOMETRIKA", "Brand New"])
+        XCTAssertTrue(out.contains("\"Brand New\"") && !out.contains("PSYCHOMETRIKA "), out)
+    }
+
+    /// `addVariant` 的近重複不加第二筆（R3 第 3 列的前提：variant 內兩筆近重複今天就寫得出來）。
+    func testAddVariantNearDuplicateIsNotAddedTwice() throws {
+        _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
+                                    addVariant: ["Psychometrika"])
+        let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
+                                          addVariant: ["Psychometrika "])
+        let v = try venue()
+        XCTAssertEqual(v.variant, ["Psychometrika"])
+        XCTAssertEqual(v.names.entries.count, 2)
+        XCTAssertTrue(out.contains("\"variantAdded\" : [\n\n  ]") || out.contains("\"variantAdded\" : []"), out)
+    }
+
+    /// **同一呼叫 `add-name` 髒 ＋ `authorize` 乾淨**（R3 第 1 列 (b)，regression 席）：R3 會把髒拼法升成
+    /// displayName。三個迴圈同一條相等之後：names 只有一筆乾淨的、它是 authorized。
+    func testAddNameDirtyThenAuthorizeCleanInOneCallKeepsTheCleanSpelling() throws {
+        _ = try service.updateVenue(key: "some-journal", addNames: ["Psychometrika "], note: nil, type: nil,
+                                    authorize: ["Psychometrika"])
+        let v = try venue()
+        XCTAssertEqual(v.authorized, ["Psychometrika"])
+        XCTAssertEqual(v.names.entries.filter { NameIdentity.same($0.value, "Psychometrika") }.count, 1)
+        XCTAssertEqual(v.names.entries.filter { $0.value == "Psychometrika" }.count, 1)
+    }
+
+    /// `×`／`÷` 落在 `isLatinLetter` 的區間裡、被歸 `.latn`，R3 的 `.other &&` 合取項放它過（R3 第 5 列）：
+    /// 判準改成「任何書寫系統都無字母即不是名字」。
+    func testMultiplicationSignIsNotAName() throws {
+        for bad in ["×", "÷", "× ÷"] {
+            XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil,
+                                                         type: nil, authorize: [bad]), bad)
+        }
+        XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: ["×"], note: nil, type: nil),
+                             "三個迴圈同一組謂詞")
+        XCTAssertEqual(try venue().names.entries.count, 1, "零寫入")
+    }
+
+    /// bidi override／零寬字元夾在字母之間（R3 第 6 列）：整批拒絕、三個迴圈同型。ZWJ／ZWNJ 保留
+    /// （波斯文與印度系文字合法使用）。
+    func testBidiAndZeroWidthCharactersAreRejectedButJoinersAreNot() throws {
+        let rlo = "Psychometrika\u{202E}"; let zwsp = "Psycho\u{200B}metrika"; let shy = "Psycho\u{00AD}metrika"
+        for bad in [rlo, zwsp, shy] {
+            XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil,
+                                                         type: nil, authorize: [bad]))
+            XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: [bad], note: nil, type: nil))
+            XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
+                                                         addVariant: [bad]))
+        }
+        XCTAssertEqual(try venue().names.entries.count, 1, "零寫入")
+        XCTAssertNoThrow(try service.updateVenue(key: "some-journal", addNames: ["نشریه\u{200C}روان\u{200D}سنجی"],
+                                                 note: nil, type: nil), "ZWNJ／ZWJ 是合法的")
+    }
+
+    /// 替換**原位**（R3 第 2 列）：`[PSYCHOMETRIKA, 心理計量學]` 換 latin 對外形後，順序不變——
+    /// `displayName` 取 `authorized.first`，remove＋append 會讓預設顯示名換書寫系統。
+    func testReplacementKeepsTheAuthorizedOrder() throws {
+        var v = try venue()
+        v.names = Timeline(v.names.entries + [TemporalValue(value: "心理計量學")])
+        v.authorized = ["PSYCHOMETRIKA", "心理計量學"]
+        try LibraryStore(root: root).writeVenue(v)
+        _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
+                                    authorize: ["Psychometrika"])
+        XCTAssertEqual(try venue().authorized, ["Psychometrika", "心理計量學"])
+    }
+
+    /// variant 裡兩筆近重複（手改）都要被拉回（R3 第 3 列）——只移一筆會被守衛以「同時出現在兩個
+    /// 分割」拒、訊息指錯地方。
+    func testTwoNearDuplicateVariantsAreBothLifted() throws {
+        var v = try venue()
+        v.names = Timeline(v.names.entries + [TemporalValue(value: "Psychometrika")])
+        v.variant = ["Psychometrika"]
+        try LibraryStore(root: root).writeVenue(v)
+        try rewriteFile(v) { $0.replacingOccurrences(of: "variant:\n- Psychometrika\n", with: "variant:\n- Psychometrika\n- 'Psychometrika '\n")
+                                .replacingOccurrences(of: "- value: Psychometrika\n", with: "- value: Psychometrika\n- value: 'Psychometrika '\n") }
+        XCTAssertEqual(try venue().variant.count, 2, "fixture")
+        XCTAssertNoThrow(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
+                                                 authorize: ["Psychometrika"]))
+        let after = try venue()
+        XCTAssertEqual(after.variant, [])
+        XCTAssertEqual(after.authorized, ["Psychometrika"])
+    }
+
+    /// 手造兩個 canonical-相等的 authorized（R3 第 1 列 (e)）：守衛「請選一個」、選了要修好——R3 的移出
+    /// 迴圈 `canonical != key` 放過對手，守衛卻用精確字串數成兩個。
+    func testHandMadeCanonicalEqualAuthorizedPairIsRepaired() throws {
+        var v = try venue()
+        v.names = Timeline(v.names.entries + [TemporalValue(value: "Psychometrika")])
+        v.authorized = ["Psychometrika"]
+        try LibraryStore(root: root).writeVenue(v)
+        try rewriteFile(v) { $0.replacingOccurrences(of: "authorized:\n- Psychometrika\n", with: "authorized:\n- Psychometrika\n- 'Psychometrika '\n")
+                                .replacingOccurrences(of: "- value: Psychometrika\n", with: "- value: Psychometrika\n- value: 'Psychometrika '\n") }
+        XCTAssertEqual(try venue().authorized.count, 2, "fixture")
+        XCTAssertNoThrow(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
+                                                 authorize: ["Psychometrika"]))
+        XCTAssertEqual(try venue().authorized, ["Psychometrika"])
+    }
+
+    /// 三個迴圈共用同一個「空白」（R3 第 4 列）：換行類對 addNames／addVariant 也是「沒說話」。
+    func testSiblingLoopsShareTheBlankPredicate() throws {
+        XCTAssertNoThrow(try service.updateVenue(key: "some-journal", addNames: ["\n", "\r"], note: nil, type: nil,
+                                                 addVariant: ["\u{2028}"]))
+        let v = try venue()
+        XCTAssertEqual(v.names.entries.count, 1, "零寫入")
+        XCTAssertEqual(v.variant, [])
     }
 }

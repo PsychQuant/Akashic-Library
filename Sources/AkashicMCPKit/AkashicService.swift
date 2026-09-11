@@ -2707,14 +2707,71 @@ public final class AkashicService {
         guard var venue = load.venues.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("venue「\(displaySafe(key, max: 200))」")
         }
-        var added: [String] = []
-        if let names = addNames {
-            let existing = Set(venue.names.entries.map(\.value))
-            for n in names where !n.trimmingCharacters(in: .whitespaces).isEmpty {
-                guard !existing.contains(n), !added.contains(n) else { continue }
-                venue.names = Timeline(venue.names.entries + [TemporalValue(value: n)])
-                added.append(n)
+        // ── 三個名字寫入迴圈（add_names／add_variant／authorize）共用的東西（#554 R4，D6）──
+        //
+        // R1→R3 三輪 verify 逼出同一件事：**相等沒有「局部正確」**。同一筆記錄的三個寫入口
+        // 若用不同的相等（R3 之前 `String ==`、R3 只把 authorize 改成 canonical），任何一個
+        // 乾淨的口都會被另一個髒的口餵壞——`add-name "X "` 種下髒條目、`authorize "X"` 把它
+        // 升成 displayName（R3 verify 六路命中）。#560 在 R1 就寫了「只改一段會製造第三種
+        // 相等」。所以三個迴圈同一組謂詞、同一條相等，且新條目一律存 `NameIdentity.canonical`
+        // ——空白不是名字的一部分（`NameIdentity` 的立場），存原樣會讓髒拼法黏住。
+        //
+        // 三道輸入驗證都在**任何寫入之前**算，整批拒絕、零寫入：
+        //   (1) 空白（`.whitespacesAndNewlines`——`.whitespaces` 不含 LF／CR／LS）是「沒說話」，濾掉
+        //   (2) 控制字元／方向控制／零寬字元不是名字的一部分：bidi override 讓刊名反向渲染、
+        //       ZWSP 讓兩個看起來一樣的名字不相等。ZWJ／ZWNJ **保留**——波斯文與印度系文字合法用
+        //   (3) 沒有任何字母（任何書寫系統）的不是名字——`×`／`÷`／`—`／`123`。R3 曾寫成
+        //       「`.other` 且無字母」，而 `×` 落在 `isLatinLetter` 的區間裡被歸 `.latn`（#568）
+        let isBlank = { (s: String) in s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let forbiddenScalar = { (u: Unicode.Scalar) -> Bool in
+            switch u.properties.generalCategory {
+            case .control, .lineSeparator, .paragraphSeparator: return true
+            default: break
             }
+            switch u.value {
+            case 0x00AD, 0x200B, 0x200E, 0x200F, 0xFEFF: return true          // SHY／ZWSP／LRM／RLM／BOM
+            case 0x202A...0x202E, 0x2060...0x2064, 0x2066...0x2069: return true   // bidi embed／override／isolate、word joiner 族
+            default: return false
+            }
+        }
+        func vetNames(_ raw: [String]?, parameter: String) throws -> [String] {
+            var seen = Set<String>()
+            let list = (raw ?? []).filter { !isBlank($0) }
+                .filter { seen.insert(NameIdentity.canonical($0)).inserted }          // 去重保序
+            let tainted = list.filter { $0.unicodeScalars.contains(where: forbiddenScalar) }
+            if !tainted.isEmpty {
+                throw ServiceError.invalid(
+                    "\(parameter) 的「\(tainted.map { displaySafe($0, max: 120) }.joined(separator: "、"))」"   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量（add_names／add_variant／authorize）；名字經 displaySafe
+                    + "含控制字元、方向控制或零寬字元——那不是名字的一部分；去掉再送")
+            }
+            let notNames = list.filter { !$0.contains(where: \.isLetter) }
+            if !notNames.isEmpty {
+                throw ServiceError.invalid(
+                    "\(parameter) 的「\(notNames.map { displaySafe($0, max: 120) }.joined(separator: "、"))」"   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量（add_names／add_variant／authorize）；名字經 displaySafe
+                    + "不是名字（沒有任何字母）——名字不收標點、數字或符號")
+            }
+            return list
+        }
+        // 相等：**先精確、次乾淨拼法、再 canonical**。精確命中優先讓呼叫端打的字贏過較早的
+        // 近重複（Codex 席：`first(where: canonical)` 會讓陣列順序決定對外拼法）；沒有精確命中
+        // 時偏向「自己就是 canonical 形」的那個拼法（沒有前後／連續空白）。回 nil＝names 沒有它。
+        func resolveSpelling(_ requested: String) -> String? {
+            let entries = venue.names.entries.map(\.value)
+            if entries.contains(requested) { return requested }
+            let key = NameIdentity.canonical(requested)
+            let hits = entries.filter { NameIdentity.canonical($0) == key }
+            return hits.first(where: { $0 == NameIdentity.canonical($0) }) ?? hits.first
+        }
+        let namesIn = try vetNames(addNames, parameter: "add_names")
+        let variantsIn = try vetNames(addVariant, parameter: "add_variant")
+        let authorizeIn = try vetNames(authorize, parameter: "authorize")
+
+        var added: [String] = []
+        for n in namesIn {
+            guard resolveSpelling(n) == nil else { continue }          // 近重複不加（三個迴圈同一條相等）
+            let stored = NameIdentity.canonical(n)
+            venue.names = Timeline(venue.names.entries + [TemporalValue(value: stored)])
+            added.append(stored)
         }
         if let rawType {
             guard let vtype = VenueType(rawValue: rawType) else {
@@ -2818,20 +2875,18 @@ public final class AkashicService {
         // 自 #473 起是 error，寫不進去。與其讓呼叫端先 add_names 再 add_variant（兩步
         // 之間有一個不一致的狀態），不如在這裡一次做完。
         var variantAdded: [String] = []
-        if let variants = addVariant {
-            var known = Set(venue.names.entries.map(\.value))
-            var current = Set(venue.variant)
-            for v in variants where !v.trimmingCharacters(in: .whitespaces).isEmpty {
-                if !known.contains(v) {
-                    venue.names = Timeline(venue.names.entries + [TemporalValue(value: v)])
-                    known.insert(v)
-                    added.append(v)
-                }
-                guard !current.contains(v) else { continue }
-                venue.variant.append(v)
-                current.insert(v)
-                variantAdded.append(v)
+        for v in variantsIn {
+            let x: String
+            if let existing = resolveSpelling(v) {
+                x = existing
+            } else {
+                x = NameIdentity.canonical(v)
+                venue.names = Timeline(venue.names.entries + [TemporalValue(value: x)])
+                added.append(x)
             }
+            guard !venue.variant.contains(where: { NameIdentity.same($0, x) }) else { continue }
+            venue.variant.append(x)
+            variantAdded.append(x)
         }
         // #554：authorized 那一半——**但它不是 append**，這一點是端到端測出來的。
         // `AuthorizedNames.validate` 對 authorized 有「每書寫系統至多一個」的內容約束，
@@ -2857,38 +2912,14 @@ public final class AkashicService {
         var authorizedRemoved: [String] = []
         var liftedFromVariant: [String] = []
         var alreadyAuthorized: [String] = []
-        // **相等走 `NameIdentity.canonical`，與 store 守衛同一條**（R2 verify 第 1 列，五路獨立
-        // 命中）。R2 之前這裡是精確 `String ==`，而 D1 讓被換下來的舊名留在**未標**——
-        // `Venue.validate()` 對 names 沒有 near-duplicate 檢查（只有 `Person.validate` 有），
-        // 於是 `--authorize "X "`（尾隨空白）對既有 authorized `[X]` **寫入成功**：帶空白的
-        // 字串進 names、真名被移出、帶空白版成為 displayName。R1 report 寫的「fail-closed」
-        // 是 D1 之前的量測（舊名進 variant 才有交集可撞）。現在 x 若 canonical-命中既有
-        // names 條目就**用 store 裡那個拼法**，不新增近重複條目；三處成員判定同一條相等。
-        // （`addNames`／`addVariant` 兩個兄弟迴圈仍是精確比對——#560 一起改；本面先改是
-        // 因為只有它能讓一個近重複**直接**成為 displayName。）
-        //
-        // 空白是「沒說話」——用 `.whitespacesAndNewlines`（R2 第 4 列：`.whitespaces` 不含
-        // LF／CR／LS，`$'\n'` 曾被寫進 authorized 並成為 displayName）。兩個參數都先濾掉，
-        // 矛盾與分組才在濾後的清單上算（R1 第 11 列）。
-        let isBlank = { (s: String) in s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        var seenNames = Set<String>()
-        let authorizeNames = (authorize ?? []).filter { !isBlank($0) }
-            .filter { seenNames.insert(NameIdentity.canonical($0)).inserted }          // 去重保序（R2 第 9 列）
-        // 純標點、純數字不是名字（R2 第 4 列）：`WritingSystem.of` 把它們歸 `.other` 並在 doc
-        // 明寫「`"—"` 與 `"123"` 都不是名字」——本面不能把 `.other` 當成一個合法的替換桶。
-        // 判準是「`.other` 且不含任何字母」：西里爾、假名、諺文含字母，不受影響。
-        let notNames = authorizeNames.filter { WritingSystem.of($0) == .other && !$0.contains(where: \.isLetter) }
-        if !notNames.isEmpty {
-            throw ServiceError.invalid(
-                "「\(notNames.map { displaySafe($0, max: 120) }.joined(separator: "、"))」"
-                + "不是名字（沒有任何字母）——authorized 是刊名的對外形，不收標點、數字或控制字元")
-        }
         // 同一次呼叫把同一個名字既送 add_variant 又送 authorize，是兩句矛盾的話——
         // 不能讓「哪段先跑」決定誰贏。這是**輸入**驗證（呼叫端的兩個參數互相矛盾），
         // 不是分割互斥的第二份副本（那仍由 `Venue.validate()` 擋）。整批拒絕、零寫入。
-        if let vs = addVariant {
-            let variantKeys = Set(vs.filter { !isBlank($0) }.map(NameIdentity.canonical))
-            let both = authorizeNames.filter { variantKeys.contains(NameIdentity.canonical($0)) }
+        // （放在這裡而非 vetNames 之後的原因只是敘事順序；它與下面的衝突檢查都在寫入前——
+        // 前面三個迴圈只改記憶體中的 `venue`，`writeVenue` 在最後。）
+        do {
+            let variantKeys = Set(variantsIn.map(NameIdentity.canonical))
+            let both = authorizeIn.filter { variantKeys.contains(NameIdentity.canonical($0)) }
             if !both.isEmpty {
                 throw ServiceError.invalid(
                     "「\(both.map { displaySafe($0, max: 120) }.joined(separator: "、"))」"
@@ -2898,58 +2929,59 @@ public final class AkashicService {
         // 同一次呼叫兩個同 `WritingSystem` 的名字也是兩句矛盾的話（R1 verify 第 1 列，
         // 四席各自重現）：迴圈逐一處理時第 N+1 輪會把第 N 輪剛升上去的當舊指定移出——
         // 陣列順序決勝，而 `validateWritingSystems` 對這個形狀的裁決是「未決的問題，
-        // 不是指定；請選一個」。同上：輸入驗證，整批拒絕、零寫入。
-        // 桶依 rawValue 排序、全部衝突桶一次印（R2 第 7 列：`Dictionary.first(where:)` 隨
-        // hash 種子挑桶，同輸入不同 process 報不同桶——照抄 `validateWritingSystems`）。
-        let byScript = Dictionary(grouping: Set(authorizeNames.map(NameIdentity.canonical)),
-                                  by: WritingSystem.of)
-        let clashes = byScript.filter { $0.value.count > 1 }
+        // 不是指定；請選一個」。桶依 rawValue 排序、全部衝突桶一次印、印呼叫端的原字串
+        // （R2 第 7 列、R3 第 14 列）。
+        let clashes = Dictionary(grouping: authorizeIn, by: WritingSystem.of)
+            .filter { $0.value.count > 1 }
             .sorted { $0.key.rawValue < $1.key.rawValue }
         if !clashes.isEmpty {
             let described = clashes.map { bucket in
-                "\(bucket.key.rawValue)：「\(bucket.value.sorted().map { displaySafe($0, max: 120) }.joined(separator: "、"))」"   // display-safe-exempt: WritingSystem.rawValue 是 enum 常數（han／latn／other），不是 store 字串
+                "\(bucket.key.rawValue)：「\(bucket.value.map { displaySafe($0, max: 120) }.joined(separator: "、"))」"   // display-safe-exempt: WritingSystem.rawValue 是 enum 常數（han／latn／other），不是 store 字串
             }.joined(separator: "；")
             throw ServiceError.invalid(
                 "同一個書寫系統送了兩個以上的名字——" + described
                 + "——每書寫系統至多一個對外形，那是未決的問題，不是指定；請選一個")
         }
-        if !authorizeNames.isEmpty {
-            for requested in authorizeNames {
-                let key = NameIdentity.canonical(requested)
-                // canonical-命中既有 names 條目 → 用 store 拼法；否則以輸入原樣加進 names
-                // （不在 names 的一併加進 names：兩個分割都是對 names 的標記）
-                let x: String
-                if let existing = venue.names.entries.first(where: { NameIdentity.canonical($0.value) == key }) {
-                    x = existing.value
-                } else {
-                    x = requested
-                    venue.names = Timeline(venue.names.entries + [TemporalValue(value: x)])
-                    added.append(x)
-                }
-                let script = WritingSystem.of(x)
-                let already = venue.authorized.contains { NameIdentity.canonical($0) == key }
-                // 同 `WritingSystem` 的**其他**指定移出 authorized——留在 names（不刪：它仍是這本
-                // 刊的一個名字）、**不進 variant**（D1）。「已是 authorized」時也要跑（R2 第 8 列）：
-                // 手改 YAML 造出兩個 latin authorized 時，守衛說「請選一個」，選了就該修好。
-                for y in venue.authorized
-                where NameIdentity.canonical(y) != key && WritingSystem.of(y) == script {
-                    venue.authorized.removeAll { $0 == y }
-                    authorizedRemoved.append(y)
-                }
-                // X 若原本是 variant（例如被 #553 降過去的），從那個分割移出——
-                // 一個名字不能同時在兩個分割，而它現在是對外形。這是本面的主要用途，
-                // 所以要單獨報出來（R1 verify 第 10 列）。
-                if let v = venue.variant.first(where: { NameIdentity.canonical($0) == key }) {
-                    venue.variant.removeAll { $0 == v }
-                    liftedFromVariant.append(v)
-                }
-                if already {
-                    alreadyAuthorized.append(x)                        // 冪等，但要說（R1 第 10 列）
-                } else {
-                    venue.authorized.append(x)
-                    authorizedAdded.append(x)
-                }
+        for requested in authorizeIn {
+            // 解析成 store 拼法；names 沒有的，以 canonical 形加進 names（兩個分割都是對 names 的標記）
+            let x: String
+            if let existing = resolveSpelling(requested) {
+                x = existing
+            } else {
+                x = NameIdentity.canonical(requested)
+                venue.names = Timeline(venue.names.entries + [TemporalValue(value: x)])
+                added.append(x)
             }
+            let key = NameIdentity.canonical(x)
+            let script = WritingSystem.of(x)
+            let already = venue.authorized.contains { NameIdentity.canonical($0) == key }
+            // 重建 authorized：移出 (a) 同 `WritingSystem` 的**其他**指定——留在 names、不進 variant
+            // （D1：程式不替呼叫端多說「它是異寫」）、(b) 與 x canonical-相等但拼法不同的（修正
+            // 拼法；R3 第 1 列 (d)(e)：報告不得宣稱 store 沒有的字串、守衛說「請選一個」選了就要修好）。
+            // x **插回第一個被動到的位置**（R3 第 2 列：remove＋append 會重排，`displayName` 取
+            // `first`，雙語 venue 的預設顯示名會換書寫系統）。
+            var kept: [String] = []
+            var insertAt: Int? = nil
+            for y in venue.authorized {
+                let sameName = NameIdentity.canonical(y) == key
+                if sameName || WritingSystem.of(y) == script {
+                    if insertAt == nil { insertAt = kept.count }
+                    if !sameName { authorizedRemoved.append(y) }
+                    continue
+                }
+                kept.append(y)
+            }
+            kept.insert(x, at: insertAt ?? kept.count)
+            venue.authorized = kept
+            // X 若原本是 variant（例如被 #553 降過去的），從那個分割移出——全部 canonical-相等的
+            // 條目都移（R3 第 3 列：只移一筆會留下第二筆、守衛以錯的訊息拒）。這是本面的主要
+            // 用途，所以要單獨報出來（R1 verify 第 10 列）。
+            let lifted = venue.variant.filter { NameIdentity.canonical($0) == key }
+            if !lifted.isEmpty {
+                venue.variant.removeAll { NameIdentity.canonical($0) == key }
+                liftedFromVariant.append(contentsOf: lifted)
+            }
+            if already { alreadyAuthorized.append(x) } else { authorizedAdded.append(x) }   // 冪等，但要說
         }
         // 分割互斥與孤兒檢查由 `writeVenue` → `assertVenueWritable` → `Venue.validate()`
         // 擋——這裡不重造一份（同 ISSN 那段的立場）。

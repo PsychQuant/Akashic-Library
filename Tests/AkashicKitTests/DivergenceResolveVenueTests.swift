@@ -284,8 +284,8 @@ final class DivergenceResolveVenueTests: XCTestCase {
         let report = try store.resolveDivergence(id: d.id, survivor: "the-american-statistician")
         XCTAssertFalse(report.hasFailures, "authorized 不對稱不得擋下合併")
         XCTAssertTrue(report.warnings.contains { $0.contains("AMERICAN STATISTICIAN")
-                                                 && $0.contains("variant") },
-                      "降級沒有被說出來：\(report.warnings)")
+                                                 && $0.contains("成為") && $0.contains("variant") },
+                      "降級沒有被說出來（seed 的形狀是 becomesVariant，要說「成為」）：\(report.warnings)")
     }
 
     /// **dry-run 不得對降級沉默。**
@@ -299,7 +299,7 @@ final class DivergenceResolveVenueTests: XCTestCase {
         let preview = try store.previewResolveDivergence(
             id: d.id, survivor: "the-american-statistician", overrideReason: nil)
         XCTAssertTrue(preview.warnings.contains { $0.contains("AMERICAN STATISTICIAN")
-                                                  && $0.contains("variant") },
+                                                  && $0.contains("成為") && $0.contains("variant") },
                       "dry-run 沒有預告降級：\(preview.warnings)")
     }
 
@@ -352,5 +352,38 @@ final class DivergenceResolveVenueTests: XCTestCase {
         let v = try XCTUnwrap(LibraryStore(root: root).load().venues.first { $0.key == "the-american-statistician" })
         XCTAssertEqual(v.variant, [], "已在 names 的名字留未標，不進 variant")
         XCTAssertEqual(v.authorized, ["The American Statistician"])
+    }
+
+    /// 第三種結果（R3 verify 第 13 列：零測試）：被併者的 authorized 已在倖存者的 **variant**——
+    /// 合併不改分類，提醒要說「仍是…variant」而不是「成為」。
+    func testDemotedNameAlreadyInKeeperVariantIsAnnouncedAsAlreadyVariant() throws {
+        var keeper = Venue(key: "the-american-statistician", type: .periodical,
+                           names: Timeline([TemporalValue(value: "The American Statistician"),
+                                            TemporalValue(value: "AMERICAN STATISTICIAN")]),
+                           authorized: ["The American Statistician"])
+        keeper.variant = ["AMERICAN STATISTICIAN"]
+        keeper.references = [verdict(holder: "casella1985introduction", literal: "The American Statistician")]
+        try store.writeVenue(keeper)
+        var doomed = Venue(key: "american-statistician", type: .periodical,
+                           names: Timeline([TemporalValue(value: "AMERICAN STATISTICIAN")]),
+                           authorized: ["AMERICAN STATISTICIAN"])
+        doomed.references = [verdict(holder: "shih2025a", literal: "AMERICAN STATISTICIAN")]
+        try store.writeVenue(doomed)
+        var work = Entry(id: UUID(), citekey: "shih2025a", type: .periodicalArticle,
+                         title: "A note", authors: [.literal("Shih, J.")], date: "2025")
+        work.venues = [.key("american-statistician")]
+        try store.writeEntry(work)
+        let d = Divergence(id: UUID(), question: "同一本刊嗎",
+                           candidates: [DivergenceCandidate(key: "the-american-statistician", shape: .venue),
+                                        DivergenceCandidate(key: "american-statistician", shape: .venue)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(root, message: "seed")
+
+        let report = try store.resolveDivergence(id: d.id, survivor: "the-american-statistician")
+        let line = try XCTUnwrap(report.warnings.first { $0.contains("AMERICAN STATISTICIAN") })
+        XCTAssertTrue(line.contains("仍是") && line.contains("variant"), line)
+        XCTAssertFalse(line.contains("成為"), line)
+        let v = try XCTUnwrap(LibraryStore(root: root).load().venues.first { $0.key == "the-american-statistician" })
+        XCTAssertEqual(v.variant, ["AMERICAN STATISTICIAN"])
     }
 }

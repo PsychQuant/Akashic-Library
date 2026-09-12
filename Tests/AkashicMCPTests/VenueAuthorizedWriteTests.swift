@@ -581,4 +581,43 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertThrowsError(try service.addVenue(key: "j5", names: [" ", ""], type: "periodical", note: nil, issn: nil), "全空白＝沒有名字")
         XCTAssertNil(try LibraryStore(root: root).load().venues.first { ["j3","j4","j5"].contains($0.key) })
     }
+
+    // MARK: - R5 verify（D11）：resolve-venues 的寫入順序
+
+    /// **venue 先過閘、再寫 entry**（R5 verify 第 3 列，DA 逐一列舉 venue 寫入者找到；Claude 代裁 D11）：
+    /// R5 的 apply 是 `for entry in changed { writeEntry }` 先落盤、之後 `writeVenue`（verdict）沒有 catch——
+    /// 真 binary 實測手改一筆尾隨空白的 venue 後 apply：entry 已升格成 `.key`、verdict 沒落、錯誤訊息像
+    /// 「什麼都沒寫」。`rename` 那條（`LibraryStore:1577`）已是「venue 先 preflight」的形狀。D8 把觸發集合
+    /// 從三個罕見形狀擴到最常見的手改痕跡，所以這個撕裂不再是理論。
+    func testResolveVenuesApplyWritesNothingWhenTheVenueIsUnwritable() throws {
+        let store = LibraryStore(root: root)
+        let v = try venue()
+        try rewriteFile(v) { $0.replacingOccurrences(of: "- value: PSYCHOMETRIKA\n", with: "- value: 'PSYCHOMETRIKA '\n") }
+        XCTAssertTrue(try venue().names.entries.contains { $0.value == "PSYCHOMETRIKA " }, "fixture：髒條目已在磁碟上")
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika")]
+        _ = try store.writeEntry(e)
+        let list = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try service.resolveVenues(apply: nil).utf8)) as? [String: Any])
+        let id = try XCTUnwrap((list["candidates"] as? [[String: Any]])?.first?["id"] as? String)
+        XCTAssertThrowsError(try service.resolveVenues(apply: [id])) { err in
+            XCTAssertTrue(String(describing: err).contains("PSYCHOMETRIKA "), "\(err)")
+        }
+        let after = try store.load()
+        XCTAssertEqual(after.entries.first { $0.citekey == "x2025" }?.venues, [.literal("Psychometrika")], "entry 不得先落盤")
+        XCTAssertFalse(try venue().references.contains { $0.field == "resolution-confirmed" })
+    }
+
+    /// `repoint`／`demote` 同序（同一列）——這裡用 demote：先 apply 一筆乾淨的，再把 venue 弄髒，demote 必須零寫入。
+    func testResolveVenuesDemoteWritesNothingWhenTheVenueIsUnwritable() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika")]
+        _ = try store.writeEntry(e)
+        _ = try service.resolveVenues(apply: ["x2025:0"])
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal")])
+        let v = try venue()
+        try rewriteFile(v) { $0.replacingOccurrences(of: "- value: PSYCHOMETRIKA\n", with: "- value: 'PSYCHOMETRIKA '\n") }
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, demote: ["x2025:0"]))
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal")], "entry 不得先退回 literal")
+    }
 }

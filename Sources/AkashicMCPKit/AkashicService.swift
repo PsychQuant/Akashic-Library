@@ -2654,13 +2654,16 @@ public final class AkashicService {
             let c = NameIdentity.canonical(r)
             if c.isEmpty { continue }
             if let why = NameIdentity.wellFormednessIssue(c) {
-                bad.append("「\(displaySafe(r, max: 120))」\(why)")   // display-safe-exempt: why 是 NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）
+                bad.append("「\(r)」\(why)")   // display-safe-exempt: 整項在下面 throw 時經 displaySafe 消毒（一次，displaySafe 不冪等）；why 是 NameIdentity 的固定訊息
                 continue
             }
             if seen.insert(c).inserted { out.append(c) }
         }
         if !bad.isEmpty {
-            throw ServiceError.invalid("\(parameter) 的 " + bad.joined(separator: "；"))   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量；bad 的每一項已經 displaySafe
+            // 每項 400（原字串上限 120 ＋ 理由）、**項數不設上限**——#562 那一族的第七個位置，
+            // 刻意寫成 `map { displaySafe }.joined` 讓 #562 的現算 grep 看得到（R5 verify 第 15 列：
+            // 上一版把 displaySafe 放在迴圈裡、joined 在另一行，grep 數不到它）
+            throw ServiceError.invalid("\(parameter) 的 " + bad.map { displaySafe($0, max: 400) }.joined(separator: "；"))   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量
         }
         return out
     }
@@ -3722,7 +3725,6 @@ public final class AkashicService {
         }
         let updatedEntries = VenueResolver.apply(chosen, to: load.entries)
         let changed = zip(load.entries, updatedEntries).filter { $0.0 != $0.1 }.map(\.1)
-        for entry in changed { try store.writeEntry(entry) }
         // confirmed verdict 落被判定的 venue 記錄（第 13 條邊的 venue 面）
         var grouped: [String: Venue] = [:]
         for c in chosen {
@@ -3733,6 +3735,13 @@ public final class AkashicService {
                 statement: "resolve apply：alias 完全命中，使用者確認"), to: &v.references)
             grouped[c.venueKey] = v
         }
+        // **venue 先過閘、再寫 entry**（#554 R5 verify 第 3 列，Claude 代裁 D11）：上一版
+        // entry 先落盤、之後 `writeVenue` 才 throw——手改一筆尾隨空白的 venue 後 apply，
+        // entry 已升格成 `.key`、verdict 沒落、錯誤訊息像「什麼都沒寫」。`rename` 那條
+        // （`LibraryStore.assertVenueWritable` 的 preflight）已是這個形狀；D8 把 venue 的
+        // 拒絕條件從三個罕見形狀擴到最常見的手改痕跡，撕裂不再是理論。repoint／demote 同序。
+        for key in grouped.keys.sorted() { try LibraryStore.assertVenueWritable(grouped[key]!, format: storeFormat) }
+        for entry in changed { try store.writeEntry(entry) }
         for key in grouped.keys.sorted() { try store.writeVenue(grouped[key]!) }
         try LibraryIndex(store: store).rebuild()
         return try jsonString([
@@ -3799,10 +3808,10 @@ public final class AkashicService {
             byCitekey[m.citekey] = e
         }
         let touched = Set(moves.map(\.citekey))
-        for ck in touched.sorted() { try store.writeEntry(byCitekey[ck]!) }
 
         // **兩側都留 verdict**：新的 confirmed、舊的 rejected。少了 rejected，
         // 下次提名會把同一個配對再提出來（`ResolutionLedger.rejectedPairings` 讀的正是它）。
+        // venue 的變更先算、先過閘，entry 之後才落盤（D11，理由見 apply 那段）。
         var venuesByKey = Dictionary(load.venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         for m in moves {
             let literal = byCitekey[m.citekey]!.title
@@ -3824,6 +3833,8 @@ public final class AkashicService {
             }
         }
         let changedVenues = Set(moves.flatMap { [$0.from, $0.to] })
+        for k in changedVenues.sorted() { try LibraryStore.assertVenueWritable(venuesByKey[k]!, format: storeFormat) }
+        for ck in touched.sorted() { try store.writeEntry(byCitekey[ck]!) }
         for k in changedVenues.sorted() { try store.writeVenue(venuesByKey[k]!) }
         try LibraryIndex(store: store).rebuild()
         return try jsonString([
@@ -3899,10 +3910,10 @@ public final class AkashicService {
             byCitekey[d.citekey] = e
         }
         let touched = Set(plan.map(\.citekey))
-        for ck in touched.sorted() { try store.writeEntry(byCitekey[ck]!) }
 
         // **留 rejected**：少了它，下一輪 `--apply` 會把同一個配對再提名一次，
         // 而使用者剛剛才說它是錯的（`ResolutionLedger.rejectedPairings` 讀的正是它）。
+        // venue 的變更先算、先過閘，entry 之後才落盤（D11，理由見 apply 那段）。
         for d in plan {
             guard var v = venuesByKey[d.venueKey] else { continue }
             ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
@@ -3912,6 +3923,8 @@ public final class AkashicService {
             venuesByKey[d.venueKey] = v
         }
         let changedVenues = Set(plan.map(\.venueKey))
+        for k in changedVenues.sorted() { try LibraryStore.assertVenueWritable(venuesByKey[k]!, format: storeFormat) }
+        for ck in touched.sorted() { try store.writeEntry(byCitekey[ck]!) }
         for k in changedVenues.sorted() { try store.writeVenue(venuesByKey[k]!) }
         try LibraryIndex(store: store).rebuild()
         return try jsonString([

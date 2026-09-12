@@ -66,11 +66,23 @@ public enum VenueBootstrap {
         public let evidence: String
     }
 
-    /// 產不出 key 的（純 CJK 刊名等）。**不靜默丟**——同 `OrgBootstrap` 的 `dropped`：
-    /// model 端有欄位而沒人印，與丟棄在效果上完全相同。
+    /// 不建檔也不提名的 literal，**帶理由**。兩類（#554 R5 verify 第 5 列起是兩類）：產不出 key 的
+    /// （純 CJK 刊名等）、與**不能作為名字的**（純符號、含控制／格式／不可見字元、空白——
+    /// `NameIdentity.wellFormednessIssue` 拒的）。**不靜默丟**——同 `OrgBootstrap` 的 `dropped`：
+    /// model 端有欄位而沒人印，與丟棄在效果上完全相同；R5 把第二類 `continue` 在分組之前，
+    /// 連 occurrences 都不累計，`bootstrap-venues` 對它零字，而同一個型別的 doc 寫著「不靜默丟」。
     public struct Dropped: Equatable {
         public let name: String
         public let occurrences: Int
+        /// 為什麼不建：印給審 dry-run 的人看的，兩類要分得開（一類的出口是 `add-venue` 手動指定 key，
+        /// 另一類的出口是修 work 的 `journaltitle` 欄位）。
+        public let reason: String
+
+        public init(name: String, occurrences: Int, reason: String) {
+            self.name = name
+            self.occurrences = occurrences
+            self.reason = reason
+        }
     }
 
     /// 同一個刊名來自**不同種類**的來源欄位。
@@ -176,14 +188,22 @@ public enum VenueBootstrap {
             var count = 0
         }
         var groups: [String: Group] = [:]
+        // 不能作為名字的 literal（純符號、含控制／格式／不可見字元、空白）——**不建、但要印**
+        // （R5 verify 第 5 列：上一版在這裡 `continue`，連 occurrences 都不累計，`bootstrap-venues`
+        // 對它零字）。以原字串為鍵：操作者要修的是 work 的 `journaltitle` 欄位裡那個字串，
+        // 印 canonical 形會讓他找不到。
+        var rejected: [String: (reason: String, count: Int)] = [:]
 
         for entry in entries {
             for (raw, field) in literalsWithSource(entry) {
                 // 存 canonical（#554 D8：names 的不變式在 `Venue.validate()`，寫入者先 canonical）；
-                // 讀進來仍是 literal 的原字串，只是空白不是名字的一部分。不能作為名字的
-                // （純符號、含控制字元）在這裡跳過並留在 literal——bootstrap 不建一筆會被 validate 擋的記錄
+                // 讀進來仍是 literal 的原字串，只是空白不是名字的一部分。不能作為名字的路由到
+                // `dropped` 並留在 literal——bootstrap 不建一筆會被 validate 擋的記錄
                 let name = NameIdentity.canonical(raw)
-                guard !name.isEmpty, NameIdentity.wellFormednessIssue(name) == nil else { continue }
+                if let why = NameIdentity.wellFormednessIssue(name) {
+                    rejected[raw, default: (reason: why, count: 0)].count += 1
+                    continue
+                }
                 let id = NameNormalization.matchingKey(name)
                 guard !known.contains(id) else { continue }
                 guard let type = venueType(forSourceField: field) else { continue }
@@ -227,13 +247,19 @@ public enum VenueBootstrap {
                 continue
             }
             guard let key = OrgBootstrap.suggestedKey(from: sortedNames[0], taken: takenKeys) else {
-                dropped.append(Dropped(name: sortedNames[0], occurrences: g.count))
+                dropped.append(Dropped(name: sortedNames[0], occurrences: g.count,
+                                       reason: "產不出 ASCII key，需人工指定"))
                 continue
             }
             takenKeys.insert(key)
             candidates.append(Candidate(
                 key: key, names: sortedNames, type: type, occurrences: g.count,
                 evidence: g.fields.sorted().joined(separator: "＋")))
+        }
+        for (raw, r) in rejected.sorted(by: {
+            $0.value.count == $1.value.count ? $0.key < $1.key : $0.value.count > $1.value.count
+        }) {
+            dropped.append(Dropped(name: raw, occurrences: r.count, reason: r.reason))
         }
         return Result(candidates: candidates, dropped: dropped, conflicts: conflicts,
                       pendingResolution: pending.sorted {

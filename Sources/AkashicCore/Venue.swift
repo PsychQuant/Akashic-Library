@@ -254,16 +254,39 @@ public struct Venue: Equatable {
                 }
             }
         }
-        var seenByKey: [String: String] = [:]
-        for n in names.entries.map(\.value) {
-            let k = NameIdentity.canonical(n)
-            if let first = seenByKey[k] {
+        // **canonical-相等對**：同一個名字寫兩筆是自相矛盾的一種（哪一筆是「這個名字」？）。
+        // `names` 有一個合法例外（R5 verify 第 4 列）：**沿革改回舊名**——`TimelineOf` 明寫同一 value
+        // 可在多段，row 22 保留沿革正是為了它（Sankhyā 1933–1960 → 分刊 → 2002–2007 合回同名 → 再分）。
+        // 豁免的判準與 dated-variant 守衛同一個 `makesTemporalClaim`：**兩段都作時間宣稱、且不重疊**；
+        // 任一段無時間宣稱（那筆說的是「現在」，與另一筆的「某段期間」必然重疊）或兩段重疊，仍是
+        // 近重複對。`authorized`／`variant` 沒有時間軸，所以那兩張清單沒有例外（R5 只掃 names——
+        // 第 11 列：`variant` 內兩筆完全相同通過 validate，工具不會造出、手改會）。
+        let segs = names.entries
+        for i in segs.indices {
+            for j in segs.indices where j > i && NameIdentity.same(segs[i].value, segs[j].value) {
+                let a = segs[i].range, b = segs[j].range
+                if a.makesTemporalClaim && b.makesTemporalClaim && !a.overlaps(b) { continue }
+                let why = a.makesTemporalClaim && b.makesTemporalClaim
+                    ? "兩段的時間重疊——同名的沿革段要不相交，請在 YAML 裡修時間欄位或留一筆"
+                    : "只差空白或正規化的兩個字串是同一個名字，請在 YAML 裡留一筆（沿革改回舊名要兩段都帶不相交的時間）"
                 issues.append(ValidationIssue(
                     severity: .error,
-                    message: "venue '\(displaySafe(key, max: 120))' 的 names 有兩筆近重複「\(displaySafe(first, max: 120))」"
-                           + "與「\(displaySafe(n, max: 120))」——只差空白或正規化的兩個字串是同一個名字，留一筆"))
-            } else {
-                seenByKey[k] = n
+                    message: "venue '\(displaySafe(key, max: 120))' 的 names 有兩筆近重複「\(displaySafe(segs[i].value, max: 120))」"
+                           + "與「\(displaySafe(segs[j].value, max: 120))」——\(why)"))   // display-safe-exempt: why 是本函式的兩句字面常量
+            }
+        }
+        for (label, list) in [("authorized", authorized), ("variant", variant)] {
+            var seenByKey: [String: String] = [:]
+            for n in list {
+                let k = NameIdentity.canonical(n)
+                if let first = seenByKey[k] {
+                    issues.append(ValidationIssue(
+                        severity: .error,
+                        message: "venue '\(displaySafe(key, max: 120))' 的 \(label) 有兩筆近重複「\(displaySafe(first, max: 120))」"   // display-safe-exempt: label 是本函式的字面常量
+                               + "與「\(displaySafe(n, max: 120))」——只差空白或正規化的兩個字串是同一個名字，請在 YAML 裡留一筆"))
+                } else {
+                    seenByKey[k] = n
+                }
             }
         }
         let known = Set(names.entries.map(\.value))

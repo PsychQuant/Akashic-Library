@@ -102,7 +102,14 @@ public enum CanonicalFormat {
             return try PersonYAML.encode(person)
         case .organization: return try OrganizationYAML.encode(try OrganizationYAML.decode(yaml))
         case .divergence:   return try DivergenceYAML.encode(try DivergenceYAML.decode(yaml))
-        case .venue:        return try VenueYAML.encode(try VenueYAML.decode(yaml))
+        case .venue:
+            // 與 `.person` 同一條紀律（#554 R5 verify 第 9 列）：R5 之前這裡是裸 `encode(decode)`，
+            // `validate` 報 2 條 error 的 store，`fmt --check` 印「✓ 全部已是 canonical form」、
+            // `fmt --apply` 把髒 venue 原樣寫回 rc=0——D8 說「手改的在下一次寫入被擋」，
+            // 對 fmt 是反例。上面那段對 person 的理由對 venue 一字不差。
+            let venue = try VenueYAML.decode(yaml)
+            try LibraryStore.assertNoErrors(venue.validate(), what: "venue", key: venue.key)
+            return try VenueYAML.encode(venue)
         }
     }
 

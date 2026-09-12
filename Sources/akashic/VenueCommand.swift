@@ -149,7 +149,8 @@ struct AddVenueCmd: ParsableCommand {
     @Argument(help: "kebab-case venue key")
     var key: String
 
-    @Option(name: .long, parsing: .upToNextOption, help: "名稱變體（可多個）")
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "名稱變體（可多個）。契約同 update-venue --add-name（#554 D8）：以 canonical 形入庫（空白類——含 tab／換行／LS——收斂為單一空格、NFC）、近重複只留一筆、空白項略過；含其他控制／格式／不可見字元、拉丁或 CJK 之間的接合字元、或無任何字母或數字即整個呼叫拒絕、零寫入；全部空白＝沒有名字，同樣拒絕")
     var names: [String]
 
     @Option(name: .long, help: "\(VenueType.domainDescription)")
@@ -185,7 +186,7 @@ struct UpdateVenueCmd: ParsableCommand {
     var key: String
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "要附加的名稱變體（可多個；相等看 canonical——前後／連續空白、NFC——近重複略過、新名字以 canonical 形入庫；含控制／格式字元或無任何字母或數字即整批拒絕，#554 D8）")
+            help: "要附加的名稱變體（可多個；相等看 canonical——前後／連續空白、NFC——近重複略過、新名字以 canonical 形入庫：空白類（含 tab／換行／LS／PS／NEL）收斂為單一空格。其他控制／格式／不可見字元（bidi、零寬、變體選擇子、填充字元）、拉丁或 CJK 之間的接合字元（ZWJ／ZWNJ 只在阿拉伯系／印度系文字裡合法）、或無任何字母或數字即整批拒絕，#554 D8）")
     var addName: [String] = []
 
     @Option(name: .long, help: "備註（替換；選填）")
@@ -201,7 +202,7 @@ struct UpdateVenueCmd: ParsableCommand {
     var addISSN: [String] = []
 
     @Option(name: .customLong("add-variant"), parsing: .upToNextOption,
-            help: ArgumentHelp("要標成異寫法的名字（append 語意；相等看 canonical、新名字以 canonical 形入庫、不合法即整批拒絕——同 --add-name，#554 D8）。不在 names 裡的一併加進 names"
+            help: ArgumentHelp("要標成異寫法的名字（append 語意；相等看 canonical、新名字以 canonical 形入庫——空白類收斂為單一空格、NFC——其他控制／格式／不可見字元、拉丁或 CJK 之間的接合字元、無字母無數字即整批拒絕——同 --add-name，#554 D8）。不在 names 裡的一併加進 names"
                              + "——兩個分割都是對 names 的標記，標一個 names 沒有的字串會造出"
                              + "孤兒，而孤兒 variant 自 #473 起是 error（#471）"))
     var addVariant: [String] = []

@@ -141,6 +141,65 @@ authorized，Swift 讀者全綠、所有 Python 量測看到 `authorized ⊄ nam
 三個名字分類面要不要留、留什麼形狀一次裁（#564），本 change 不在這裡單獨定案。代價寫在
 #553 合併端那格：它仍分不出「人確認過的 names[0]」與機械值，維持提醒不擋，觸發條件改綁 #564。
 
+## R5 verify：性質要用 Unicode 自己的那個
+
+R4 的 14 列全部在位。R5 verify 18 列、五路命中的兩條 Blocking 都在**謂詞自己身上**：
+
+**「不可見」我又寫了一個列舉。** R4 verify 抓「19 個例子 → 性質」，R5 換成 generalCategory
+四類（Cc／Cf／Zl／Zp）——那還是一個列舉，只是大一點。Unicode 對「不可見」有自己的性質
+`Default_Ignorable_Code_Point`（UAX #44；UTS #39 confusable 用的那個），而它的成員橫跨
+分類：VS16（U+FE0F，網頁貼上常見）與 CGJ（U+034F）是 **Mn**、Hangul filler（U+3164）是
+**Lo**。DA 用真 binary 把 `心\u{FE0F}理學報`／`心\u{034F}理學報`／`心理學報` 存成三筆「不同」名字，
+`add-venue --names $'\u{3164}'` 建出一筆 displayName 空白的 venue——而 Hangul filler 還滿足
+「至少一個字母」。R6：`isDefaultIgnorableCodePoint` 一律不可見，四類 generalCategory 與
+`UnsafeToEmitScalar` 留著（三份定義的聯集，每一份都是性質）。
+
+**joiner 規則比它的 doc 寬、比真實文字窄。** R4 的 `joinable` 只查兩側是字母——拉丁字母就是
+字母，`Psycho\u{200C}metrika` 通過；canonical 不刪它、不是近重複對、`--authorize` 走同書寫
+系統替換把真名移出、joiner 版成為 displayName，報告印兩個視覺相同的字串。doc 逐字寫「拉丁
+字母間的 joiner 重開通道」，而 R4 的測試 doc 也這樣寫、五個斷言裡沒有一個放「拉丁—joiner—
+拉丁」——**測試 pin 不住它自己宣稱的性質**，本張第二次。反方向也錯：legacy Malayalam
+chillu（consonant＋virama＋ZWJ **詞尾**）與波斯文 `۱۴۰۰\u{200C}ها`（**數字**＋ZWNJ）被拒。
+**Claude 代裁 D9**（使用者離席）：合法脈絡封閉為兩支——前一個 scalar 是 virama、或兩側都有
+非空白鄰居且任一側在使用 join control 的書寫系統區塊（Arabic 一族／Syriac／NKo／Indic／
+Myanmar／Khmer／Mongolian）——它同時修正兩個方向；`NameIdentity.joinerIsLegal` 是那兩支，
+row 25 的 Python 對照鏡射它並以固定案例對照（R5 的 Python 無條件拒 Cf，對合法波斯文與 Swift
+分歧——「485/0/0」證不到兩套判準一致，Codex 抓到）。
+
+**一個撕裂與一個刪除，都是 D8 新開的。** DA 逐一列舉 venue 寫入者，找到 `resolve-venues
+--apply` 的順序是 entry 先落盤、`writeVenue`（verdict）之後才 throw——手改一筆尾隨空白的
+venue 後 apply：entry 已升格成 `.key`、verdict 沒落、錯誤訊息像「什麼都沒寫」。這個撕裂
+在 D8 之前是理論（venue 的拒絕條件只有三個罕見形狀），D8 把觸發集合擴到最常見的手改痕跡。
+**D11**：apply／repoint／demote 改成 venue 先過 `assertVenueWritable` 再寫 entry（`rename`
+那條早就是這個形狀）。刪除那半：`canonical` 在 **Character** 上切空白，`Character.isWhitespace`
+只看 cluster 首 scalar，「空白＋combining mark」整個 cluster 被當空白刪掉——`add-venue
+--names $'Jour ́nal'` 存成 `Jour nal`、零回報，違反該型別自己的「不做任何字元刪除」；D8 讓
+每個寫入者都走它。R6 改逐 scalar、只丟 `White_Space`。
+
+其餘 in-scope 的都修了：names 近重複對對**同名的不相交沿革段**豁免（`TimelineOf` 明寫同一
+value 可在多段，Sankhyā 1933–1960 → 2002–2007 合回同名那筆在 R5 寫不進去、「人改 YAML」沒有
+合法結果；authorized／variant 沒有時間軸，那兩張清單也掃、沒有例外）；`VenueBootstrap`
+被謂詞拒的 literal 路由到 `dropped` 帶理由（R5 在分組前 `continue`，連 occurrences 都不累計，
+同一個型別的 doc 寫著「不靜默丟」）；`fmt` 的 `.venue` 分支與 `.person` 同樣跑 validate
+（R5 的裸 `encode(decode)` 讓 `fmt --check` 對 validate 報 error 的 store 印 ✓）；合併 dry-run
+對預測的 keeper 過同一道寫入閘（keeper 計算抽成 `mergedVenueKeeper`，preview 與實跑共用
+——#139 F1 第三次）；訊息改對操作者說改什麼（R5 寫「寫入者要先 NameIdentity.canonical」，
+那是一句 Swift）；`add-venue --names`／`akashic_add_venue` 兩面描述補齊、parity 列重新確認；
+`store-format.md` 加 §5.7 規範段（四條不變式、修法、**三 binary 全升才視為生效的部署視窗**
+——沒有 format bump，refuse-if-newer 管不到、PyYAML 讀純數字刊名的註記）；row 25 計數改
+「五個寫入者」、grep 補「沒有名字」與兩個新類、row 8 補記它的前提自 #227／#422／#473 起對
+venue／organization 就已為假（DA 更正兩席：不是本 diff 第一個打破它）；#562 的 grep 又漏了
+R5 自己加的 `vetVenueNames` join——第三次抄一個沒跑過的計算式，改成行內 `map { displaySafe }
+.joined` 讓它看得到。**D10**：`migrate-venue-variants` 維持 D4 不加閘（DA 的更正成立：R5 再
+立案是重審裁決）；logic 席「store 表達不了『已跑過 --authorize』這個前提」那句落到 #567
+——那是「退場即刪」優於「加閘」的論證。
+
+負控四條（joiner fail-open／拿掉 DI／canonical 回 Character 層／拿掉沿革豁免）各紅
+12／11／8／1；撕裂、fmt、preview、bootstrap 四條在 RED 階段就是負控。真 binary 端到端：
+五類拒絕各印一句、波斯數字與 chillu 收、combining mark 留著、髒 venue 上 apply 零寫入且
+修 YAML 後成功、`fmt --check` 與 `validate` 都具名、bootstrap 印出 `×` 帶理由、Sankhyā 三段
+收而重疊拒。live store 485 筆：Swift 與 Python 兩套量測都是 0／0。
+
 ## 第二次端到端又紅——這次是我的 binary
 
 改成替換語意後測試 7/7 綠、四個 mutation 負控乾淨，真 binary 卻說「authorized 含不在
@@ -163,8 +222,12 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
   但 ZWJ 保留／替換原位／兩筆近重複 variant 都拉回／手造兩個 canonical-相等 authorized 修好／
   三個迴圈同一個空白——後三條在 R5 重裁成「手改的違反被 validate 具名擋下」
   ＋ R5 新增 6 條：順序無關／NFD 存 NFC 位元組／ALM 與 TAG 拒絕／純數字刊名收／NFD 舊指定修正
-  且報出／`addVenue` 存 canonical 且驗）；`VenueNameInvariantTests` 8 條（謂詞四條、validate
-  三張清單與近重複對、bootstrap 存 canonical）；合併端 13 條（三種結果各有測試）
+  且報出／`addVenue` 存 canonical 且驗
+  ＋ R6 新增 2 條：apply／demote 對不可寫的 venue 零寫入）；`VenueNameInvariantTests` 15 條
+  （R5 的 8 條 ＋ R6：拉丁／CJK joiner 拒、join-control 文字的 joiner 收、DI 不可見、訊息對操作者、
+  沿革同名豁免、三張清單近重複、bootstrap 拒的 literal 帶理由）；`NameIdentityTests` 加「不刪
+  任何非空白 scalar」；合併端 14 條（三種結果各有測試 ＋ dry-run 對不可寫的 keeper 拒）；
+  `CanonicalFormatValidationTests` 加 venue 語意驗證
 - `record-divergence --candidate` 的 help 與 MCP `candidates` 描述補 venue（#553 遺留，兩面對齊）
 - `mcp-cli-parity` 的 `akashic_update_venue` 列補記；`two-kinds-of-edits` 加一列、#553 那列
   理由改寫；`DivergenceResolve` 四處「venue 沒有 authorize 面」的文字改指向本面

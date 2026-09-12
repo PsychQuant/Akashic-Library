@@ -16,6 +16,21 @@ final class NameIdentityTests: XCTestCase {
         XCTAssertTrue(NameIdentity.same("  Li   Ming  ", "Li Ming"), "三者同時")
     }
 
+    /// **不做任何字元刪除**（#554 R5 verify 第 7 列）：R5 之前 `canonical` 在 **Character** 上切空白，
+    /// 而 `Character.isWhitespace` 只看 cluster 的第一個 scalar——「空白＋combining mark」或「空白＋ZWJ」
+    /// 整個 cluster 被當空白**刪掉**：`add-venue --names $'Jour ́nal'` 存成 `Jour nal`，U+0301 消失、零回報
+    /// （真 binary 實測）。D8 讓每個寫入者都走 `canonical`，這條刪除路徑因此是 D8 新開的。
+    /// 判準寫成可否證的形：非空白 scalar 的**多重集合**在正規化前後相同。
+    func testCanonicalNeverDeletesANonWhitespaceScalar() {
+        for s in ["Jour \u{0301}nal", "A \u{200D}B", "A \u{200C}B", "x \u{FE0F}y", "  \u{0301}  ", "心 \u{034F}理"] {
+            let before = s.unicodeScalars.filter { !$0.properties.isWhitespace }.map(\.value).sorted()
+            let after = NameIdentity.canonical(s).unicodeScalars.filter { !$0.properties.isWhitespace }.map(\.value).sorted()
+            XCTAssertEqual(before, after, s.debugDescription)
+        }
+        XCTAssertEqual(NameIdentity.canonical("Jour \u{0301}nal"), "Jour \u{0301}nal")
+        XCTAssertEqual(NameIdentity.canonical("A  \u{200D}  B"), "A \u{200D} B")
+    }
+
     /// **冪等**——正規形再正規化一次不變。
     ///
     /// 沒有這條，判準就不能安全地當成鍵用（Set／字典），而互斥檢查與 merge 去重

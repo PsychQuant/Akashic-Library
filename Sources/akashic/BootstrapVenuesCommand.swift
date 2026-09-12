@@ -71,14 +71,16 @@ struct BootstrapVenues: ParsableCommand {
                   + "akashic add-venue 另建。判不出來就不建——literal 留在誠實狀態是合法終點。")
         }
 
-        /// 產不出 key 的**必須被印出來**（同 `bootstrap-people` 的 #238 教訓）：
-        /// model 端有欄位而沒有任何輸出讀它，與丟棄在效果上完全相同。
+        /// 不建檔的 literal **必須被印出來、附理由**（同 `bootstrap-people` 的 #238 教訓）：
+        /// model 端有欄位而沒有任何輸出讀它，與丟棄在效果上完全相同。兩類——產不出 key 的
+        /// （出口：`add-venue` 手動指定 key）、不能作為名字的（#554 R5 verify 第 5 列；出口：
+        /// 修 work 的來源欄位）——理由分得開，人才知道往哪邊走。
         let dropped = result.dropped.filter { $0.occurrences >= minOccurrences }
         if !dropped.isEmpty {
             print("")
-            print("產不出 ASCII key、需人工指定（\(dropped.count)）：")
+            print("不建檔的 literal（\(dropped.count)），各附理由：")
             for d in dropped.prefix(AmbiguityDisplayLimit.rows) {
-                print("  ×\(d.occurrences)  \(displaySafe(d.name, max: 200))")
+                print("  ×\(d.occurrences)  \(displaySafe(d.name, max: 200))——\(d.reason)")   // display-safe-exempt: reason 是 VenueBootstrap／NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）
             }
             if dropped.count > AmbiguityDisplayLimit.rows {
                 print("  …另 \(dropped.count - AmbiguityDisplayLimit.rows) 筆未顯示")

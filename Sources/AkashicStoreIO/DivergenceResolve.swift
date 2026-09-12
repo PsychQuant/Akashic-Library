@@ -698,8 +698,14 @@ extension LibraryStore {
             report.verdictValuesRewritten = vw.rewritten
             report.verdictsCollapsed = vw.collapsed
         case .venue:
-            report.warnings += try validateVenuePreconditions(
-                survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot).warnings
+            let pre = try validateVenuePreconditions(
+                survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
+            report.warnings += pre.warnings
+            // 預測的 keeper 要過**與實跑同一道**寫入閘（R5 verify 第 10 列）：被併者的名字進
+            // 倖存者的 names／variant 之後若違反 venue 的不變式（D8 起含名字內容），實跑在
+            // `keeperWrite` 拒——dry-run 對它沉默就是 #139 F1 那個形狀第三次。
+            let predicted = Self.mergedVenueKeeper(pre.keeper, absorbing: pre.doomed).keeper
+            try Self.assertVenueWritable(predicted, format: try StoreVersion.read(root: root))
             for e in snapshot.entries where e.venues.contains(where: {
                 if case let .key(k) = $0 { return merged.contains(k) }
                 return false
@@ -979,18 +985,23 @@ extension LibraryStore {
     /// 記錄」，而持有刊名 literal 的只有 work。實測 live store：8,670 條 verdict **全部**
     /// 是 `work:` 前綴、`venue:` 零條。所以 venue key 退役不會讓任何 verdict value 變
     /// stale，person 側那三個迴圈在這裡沒有對應物。**這是量出來的，不是省略。**
-    private func resolveVenueDivergence(record: Divergence, survivor: String,
-                                        mergedKeys: [String],
-                                        snapshot: LibraryLoad) throws -> ResolveReport {
-        var (keeper, doomed, demotionWarnings) = try validateVenuePreconditions(
-            survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
-        // 名字併入倖存者：被併者的寫法保留，否則下次遇到那個寫法又會重新分割一次
-        // （`OrgBootstrap`／`PersonBootstrap` 的同一教訓）。併入的一律進 **variant**
-        // ——被併者的 authorized 若是倖存者沒有的名字，也進 variant（**不擋**，只提醒：
-        // `authorizedDemotedByMerging` 三種結果分開報；「前置已確認是子集」是 #553 從 person
-        // 路徑抄來的一句假話，R3 verify 抓到）。#565 記著這一整段的 D1 對應問題（一律標
-        // variant、且丟時間欄位）。
-        // #296：判定用 `NameIdentity`，不用精確 `String ==`。
+    /// 倖存者併入被併者之後的樣子——**preview 與實跑共用的唯一計算點**（#554 R5 verify
+    /// 第 10 列：dry-run 不對預測的 keeper 跑寫入閘，被併者若是舊 binary 寫的髒記錄，
+    /// `--dry-run` 說 OK、`--apply` 在 `keeperWrite` 才拒。本檔的 #139 F1：dry-run 是「還能
+    /// 反悔的時點」，拒絕條件只在實跑算就是假的 dry-run）。
+    ///
+    /// 名字併入倖存者：被併者的寫法保留，否則下次遇到那個寫法又會重新分割一次
+    /// （`OrgBootstrap`／`PersonBootstrap` 的同一教訓）。併入的一律進 **variant**
+    /// ——被併者的 authorized 若是倖存者沒有的名字，也進 variant（**不擋**，只提醒：
+    /// `authorizedDemotedByMerging` 三種結果分開報；「前置已確認是子集」是 #553 從 person
+    /// 路徑抄來的一句假話，R3 verify 抓到）。#565 記著這一整段的 D1 對應問題（一律標
+    /// variant、且丟時間欄位）。#296：判定用 `NameIdentity`，不用精確 `String ==`。
+    ///
+    /// 被併者的 verdict references 遷移（#271 同型）——判定史不隨檔案消失。
+    /// (field, value) 冪等：store 永不持有重複 verdict。
+    static func mergedVenueKeeper(_ keeper: Venue, absorbing doomed: [Venue])
+        -> (keeper: Venue, verdictsMigrated: [String]) {
+        var keeper = keeper
         let known = Set(keeper.names.entries.map { NameIdentity.canonical($0.value) })
         let incoming = dedupePreservingOrder(
             doomed.flatMap { d in d.names.entries.map(\.value) + d.variant })
@@ -1000,8 +1011,6 @@ extension LibraryStore {
                                     + incoming.map { TemporalValue(value: $0) })
             keeper.variant = dedupePreservingOrder(keeper.variant + incoming)
         }
-        // 被併者的 verdict references 遷移（#271 同型）——判定史不隨檔案消失。
-        // (field, value) 冪等：store 永不持有重複 verdict。
         var verdictsMigrated: [String] = []
         for d in doomed {
             for r in d.references
@@ -1012,6 +1021,15 @@ extension LibraryStore {
                 verdictsMigrated.append(r.value ?? "")
             }
         }
+        return (keeper, verdictsMigrated)
+    }
+
+    private func resolveVenueDivergence(record: Divergence, survivor: String,
+                                        mergedKeys: [String],
+                                        snapshot: LibraryLoad) throws -> ResolveReport {
+        let (keeper0, doomed, demotionWarnings) = try validateVenuePreconditions(
+            survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
+        let (keeper, verdictsMigrated) = Self.mergedVenueKeeper(keeper0, absorbing: doomed)
         let merged = Set(mergedKeys)
         var entriesToWrite: [Entry] = []
         for var e in snapshot.entries {

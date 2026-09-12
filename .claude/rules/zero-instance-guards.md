@@ -53,7 +53,7 @@
 | 5 | **重複看起來像多一份覆蓋**（#407 R67c：負控 harness 裡兩個 case 若輸出逐字相同即互相不可區分。實測 35 個 case → 未具名的重複 0 組）| ✅ **寫** | 前四列的代價都落在「被守衛的東西」上；這一列落在**守衛自己身上**。一個重複的 case 會讓計數從 35 變 36、多印一個 `✓`，維護者讀成「又多檢查了一件事」——而那是同一件事查了兩次。它不是看不見（第 1 列）、不是假訊號（第 4 列）、不是沉默的歧義（第 3 列），是**對測試自己的覆蓋率說謊**。成本是零：既有迴圈本來就跑完全部 case，這裡只是分組 |
 | 6 | **假紅會讓所有紅燈失效**（#407 R67e：ROBUST 負控拿「守衛在未注入 copy 上的輸出」當 oracle、要求逐字相同。那個前提是輸出決定性——實測 2 支守衛各跑兩次皆逐字相同、無 temp 路徑洩漏 → 0 實例）| ✅ **寫** | 前五列的失敗都**只傷到自己那一格**；這一列的失敗會外溢。守衛若哪天開始印時間／耗時／temp 路徑／走訪順序，逐字比對就偶發變紅——而**偶發的紅**比漏報更貴：維護者學會「這支有時候會紅，重跑就好」，那個習慣會套用到**所有**守衛身上。所以本 harness 唯一一個「失敗會傷到其他守衛」的機制，自己要被檢查。成本是每支 ROBUST 守衛多跑一次未注入（實測 2 支、約 2 秒） |
 | 7 | **守衛兌現的是一句散文，而它只兌現得了一部分**（#414：`booktitleCarrierTypes` 的成員資格判準只存在於 doc comment，「不得依性質相似類推第三個」沒有可執行的程序。守衛改成「本表成員不得帶 `editor`」——實測 54 筆成員記錄觸發 0）| ✅ **寫，但明寫它只是必要條件** | 前六列的守衛，通過時至少**指向**它們要證的那個性質；這一列連指都沒指到——它查的是一個**嚴格更弱的命題**。這一列不是——一個不帶 `editor` 的新型別**仍未必**該進表，那一步永遠是人工裁決。所以本列的裁決有兩半：寫（它讓一句空頭承諾變成部分可兌現），**以及在守衛旁邊明寫它兌現不了的那一半**。只做前半會把一個空頭承諾換成另一個——讀者會以為「守衛綠了＝成員資格對了」，而那正是 #414 指出的原病 |
-| 8 | **守衛防的是一個當下不可達的狀態**（#416 R1：`errorsFirst` 讓 error 排在 warning 之前，因為 MCP 面截斷 20 則。實測**五族的 error 級 per-record 檢查全部是 key 合法性檢查，而 load 對每族做同樣檢查並 quarantine 整個檔**——那些 error 分支對載入後的記錄結構上不可達，0 實例）| ✅ **寫，但把「為什麼是零」也釘住** | 前七列的零實例都是「那個形狀還沒出現」；這一列是「那個形狀**目前走不到**」——不可達性由**別處的**驗證（load 的 quarantine）造成，而那是我沒有控制、也沒有守衛盯著的東西。所以本列的裁決有兩半：寫那個排序（成本一行，且它一旦可達就是**看不見的漏報**），**以及寫一條測試釘住「現在為什麼是零」**。只做前半的話，日後有人在 `validate()` 加一條非 key 的 error 級檢查，零實例悄悄變成一實例而沒有任何人知道排序守衛從裝飾品變成了承重結構 |
+| 8 | **守衛防的是一個當下不可達的狀態**（#416 R1：`errorsFirst` 讓 error 排在 warning 之前，因為 MCP 面截斷 20 則。實測**五族的 error 級 per-record 檢查全部是 key 合法性檢查，而 load 對每族做同樣檢查並 quarantine 整個檔**——那些 error 分支對載入後的記錄結構上不可達，0 實例）| ✅ **寫，但把「為什麼是零」也釘住** | 前七列的零實例都是「那個形狀還沒出現」；這一列是「那個形狀**目前走不到**」——不可達性由**別處的**驗證（load 的 quarantine）造成，而那是我沒有控制、也沒有守衛盯著的東西。所以本列的裁決有兩半：寫那個排序（成本一行，且它一旦可達就是**看不見的漏報**），**以及寫一條測試釘住「現在為什麼是零」**。只做前半的話，日後有人在 `validate()` 加一條非 key 的 error 級檢查，零實例悄悄變成一實例而沒有任何人知道排序守衛從裝飾品變成了承重結構。**前提的失效日期（#554 R6 補記）**：「per-record 的 error 級檢查全是 key 檢查」對 venue／organization **自 #227（authorized ⊆ names）／#422／#473 起就不成立**——那些內容檢查在寫入期、decode 不驗，載入後可達；本列的 pin test `testNoPerRecordErrorIsReachableFromALoadedStore` 只對 entry／person／divergence 改壞 key，證的是「key 錯會 quarantine」而不是這句前提，是弱測試。排序守衛因此早已是承重結構，不是裝飾品；本列的裁決（寫）不變，只是理由的第二半（釘零）從那時起就沒釘住。第 25 列把可達的 error 類別再擴四個並在該列對帳 |
 | 9 | **一個零實例的欄位，而缺席會被讀成「不可能」**（#394：`Organization.ror`。實測 8 筆 organization、**0 筆帶 ror**；`Venue.issn` 有 39、`Entry.doi` 有 664，只有 organization 這一格是空的） | ✅ **寫** | **前八列講的都是守衛，這一列講的是欄位**——它不查任何東西，所以「失敗」的意思不同。不寫的代價不是漏報，是**模型會說一句它沒打算說的話**：一個讀者問「Akashic 有沒有模型化機構的識別碼」，會看到 person 有 `orcid`、venue 有 `issn`、organization 什麼都沒有，於是合理推論「機構沒有識別碼可記」。而那是假的——ROR 存在、`identity-is-judged-not-matched` 的封閉例外節具名列了它，我們只是還沒有資料。**缺席在這裡不是中性的，它是一個關於世界的斷言**，而那個斷言是錯的。成本是一個 `ROR?` 欄位（additive，舊 binary tolerant-preserve）|
 | 10 | **零實例、成本高，而形狀取決於一個還不存在的用途**（#365：`Author.correspondingAuthor`。APA7 的參考文獻**不印**通訊作者，所以它服務的是 CV 產生或作者查詢——而那兩個功能都不存在。實測 55 筆 work 的作者含 `che-cheng`，而「其中幾筆是通訊作者」在 store 內**不是可求值的命題**） | ❌ **不寫** | **本表第一個「不寫」，而它是本檔自己預測過的**（見下方「還沒出現過的情形」——那段寫著「零實例且成本高的守衛……那一列的理由**很可能是『不寫』**」）。理由不是成本高本身，是**形狀取決於用途而用途不存在**：`Bool` 還是 `Set<index>` 只有那個場景能決定，現在選一個等於用猜的固定一個介面。與第 9 列（`Organization.ror`）的關鍵差別：那一列的**形狀是確定的**（ROR 是純量），缺的只是資料。**觸發條件**（逐字取自 2026-08-28 裁決 §1）：出現第一個需要它的場景（CV 產生器、或一個「我是哪幾篇的通訊作者」的查詢）——那時形狀才能被決定。這一格沒有機械量測，需要人指認 |
 | 11 | **零實例、成本高，而既有欄位已經承載它**（#365：`Author.role`。實測 `fields` 的 role 一族恰 **2 筆**（`editor` ×2），其餘八個相關欄位全零；而那 2 筆已由 `fields["editor"]` 承載、#350 已讓 `EDITOR` 在編著作品上滿足 APA7 下限） | ❌ **不寫** | 與第 10 列同為「不寫」而**理由完全不同**：這一列的形狀是確定的，缺的是**理由**——為 2 筆把 `Author` 從 `enum` 改成 `struct`（非 additive、bump store format、**`Sources/` 54 行／26 檔，含 `Tests/` 153 行／64 檔**——量法與重跑指令見表下方；先前寫「46 個呼叫點」而三個來源給出三個數，見 #481）不成比例。**觸發條件可檢查**：`fields` 的 role 一族 ≥ 20 筆，**或**出現一個 role 是 `fields` 承載不了的（同一人在同一篇既是作者又是譯者——那時 `fields["translator"]` 與 `authors` 會各自說一半） |
@@ -70,7 +70,7 @@
 | 22 | **零實例，而它是一條 spec Requirement 不是程式**（#474：venue 的 `names` 時間軸——刊名沿革。#422 把它保留而收窄（`variant` 不得帶時間），於是沿革成了一個「保留位置」的形狀。2026-09-09 實測 live store：venue **406** 筆、`names` 帶任一時間欄位（`start`／`end`／`ended-unknown`／`attested`）的 **0** 筆。重跑腳本見表下方） | ✅ **保留** | 前二十一列講的都是**程式**——守衛（第 1–8、13、15–18、20、21 列）與欄位（第 9–12、14、19 列）。這一列講的是 **spec 裡的一條 Requirement**，而它的失敗方式是第三種：守衛失敗是**漏報**、欄位缺席是**模型說了一句它沒打算說的話**，而一條零實例的 Requirement 的失敗是——**有人把它當死重刪掉**（「405 筆沒有一筆用到，留著幹嘛」），然後那個形狀到達時沒有位置可落。**保留而不刪的理由是那個現象是真的**：JRSS Series B／C 的分裂、`bulletin-of-the-institute-of-mathematics-academia-sinica` 的新舊系列都是 store 今天**表達不了**的實例（`entity-backlink-completeness` 的「分裂／繼承」那一節記著同一組例子）。**零實例的成因也具名**：異寫法佔著它的位置——#422 之前 `names` 時間軸同時裝沿革與異寫，收窄之後異寫搬到 `variant`，而沿革還沒有人填。**觸發條件可檢查**（指令見表下方）：帶時間欄位的 venue 數 > 0 即代表沿革開始被用——那時第 16 列（venue verdict 預算）與 `which-side-does-a-relation-live-on` 的「分裂／繼承」觸發條件 ② 也一起到期，三處要一起讀 |
 | 23 | **零實例，而製造它的那條路徑是本輪自己開的**（#457：移除記錄與作者位互相矛盾——某 work 帶一筆「移除：理由」說某個 literal 已退役，而它現在又在作者位上。2026-09-09 實測 live store：移除記錄 **0** 筆——寫入面（`--drop-author`）在本 change 才存在，所以矛盾今天必為零。重跑指令見表下方） | ✅ **寫** | 第 17 列的零也是「寫入面剛長出來」，而這一列多一件事：**矛盾的可達路徑是本 change 自己造出來的**。移除之後 `authors` 變成**空的**，而 `enrich --include-absent-authors` 的既有契約正好是「只在 authors 完全為空時補」——於是同一個字串補得回去，那時 store 同時斷言「它已退役」與「它是作者」。所以這不是「還沒發生的形狀」，是**新面把一個原本不可達的狀態變成可達**，而讓它可達的那一步與守衛必須在同一個 change 裡（`entity-backlink-completeness` 引 3.325 的立場：矛盾寫不出來最好，寫得出來就要出聲）。與第 8 列成鏡像：那一列的零由**別處的**程式（load 的 quarantine）造成、可能被改掉而沒人知道；這一列的零由**本 change 之前沒有這個面**造成，而面已經有了，所以零是暫時的。severity 是 warning（記錄合法，失效的是證據錨——同 `staleSplitRecords` 的既有分級；`validate` exit 仍 0）。**觸發條件可檢查**（指令見表下方）：計數應恆為 0；非零時先確認是不是補值面把它加回來的——要嘛再移除一次，要嘛刪掉那筆記錄，不要兩者並存 |
 | 24 | **零實例，而它是一條「記得起來、解不掉」的半吊子管線——且零是雙重的**（#555：organization 的攣生合併。`recordDivergence` 的 `byShape` 收 org、`resolveDivergence` 對它擲 `unsupportedShape`。2026-09-11 實測 live store：organization **13** 筆、寬鬆共鍵的重複群 **0** 組、含 org 候選的 divergence 記錄 **0** 筆——沒有重複可合、也沒有人記過。另有 **3** 筆帶 `parents` 時間軸，那是 venue 合併沒有的問題（部分—整體關係怎麼併，`Organization.swift:84-88` 明寫它與 person 的隸屬是不同的 predicate）。重跑指令見表下方） | ⚠ **暫不做——既不實作也不拿掉** | 前二十三列的裁決都是「寫」或「不寫」某個東西；這一列裁決的是**對一個已存在的半吊子什麼都不動**，而那之所以可接受，理由是第四種：**它已經誠實了**。#553 把 `unsupportedShape` 的訊息改成從實際支援的清單生成（「organization 的合併管線尚未實作——支援的是 person／work／venue」），所以留著它的代價是零——使用者撞到時看到的是真話。而動它的兩個方向代價都不是零：**實作**要替 `parents` 時間軸設計合併形狀，零實例時做等於猜（同第 10 列「形狀取決於一個還不存在的用途」）；**拿掉**（`byShape` 移除 org）會連記錄面一起關——`record-divergence` 是「當場記錄而非當場判斷」（#77），關掉它等於斷言 org 永遠不會有需要延後判定的歧異，那是關於世界的斷言。**一個誠實的半吊子比一個猜出來的完整更好。** 與第 8 列（零的來源在別處）最像而不同：那一列的零由另一段程式造成、可能被改掉而沒人知道；這一列的零由 org 域剛重啟（#304）造成，而 `bootstrap-organizations` 今天 0 候選——零會不會被打破取決於使用量，不取決於任何程式。**觸發條件可檢查**（指令見表下方）：org 重複群 > 0 **或** 出現第一筆含 org 候選的 divergence 記錄——任一成立即重開，那時要選的是實作或拿掉，不再是暫不做。**若實作，`doomedRelativePaths`／`holderRelativePaths` 的 org 分支要同批補**（#558 對 venue 漏掉的正是這兩格）|
-| 25 | **零實例，而實例全部是在 verify 裡被造出來的——守衛裝在 store 邊界，零量的是四個寫入者的出口**（#554 R5，使用者裁決 D8：venue 名字內容的不變式——canonical 形、無控制／格式字元、至少一個字母或數字、names 無近重複對——住在 `Venue.validate()`，error 級；謂詞一份在 `NameIdentity.wellFormednessIssue`、與輸出閘 `UnsafeToEmitScalar` 共用危險 scalar 的定義。2026-09-12 實測 live store：venue **485** 筆，四條不變式的違反字串 **0**、names 近重複對 **0**；而 R2–R4 三輪 verify 用真 binary 寫進了 `\r`／`\n`／LS／`—`／`×`／RLO／ZWSP／ALM／TAG 字元／尾隨空白／NFD 位元組——每一個都是實例，只是發生在 scratch store 而不是 live store。重跑腳本見表下方） | ✅ **寫（error 級、在 store 邊界）** | 第 18 列的理由是「零量的是出口而守衛裝在入口」；這一列多一件事：**入口有四個**。R2→R4 三輪把閘裝在 `updateVenue` 的三個迴圈裡，每一輪都修在看見的那一圈，R4 verify 指出同一欄位還有 `addVenue`（連空字串都收）與 `VenueBootstrap`（只 trim）——`Venue.swift` 自己的 dated-variant 守衛 doc 早就寫著「守衛住在 validate → writeVenue 的交會處才擋得住所有路徑」。所以本列的裁決有兩半：**寫**（零實例但實例已被造出四次），**以及寫在 store 邊界而不是任何一個寫入面**——寫入面（`vetVenueNames`）留作入口的好訊息，不再是防線。**severity 是 error** 而非 warning，理由是 live store 0 筆違反（提級不拒絕任何既有記錄）且違反的後果是 displayName 直接壞掉（`displayName` 讀 `authorized`，#475）。**誠實邊界**：不變式的 NFC 對 CJK 相容表意文字有損（U+FA10 塚 → U+585A）——位元組層有損、Swift 層無損（Swift `==` 早已視為相等）；ZWJ／ZWNJ 保留但只在兩個字母或標記之間；私用區（Co）不擋，因為 doc 從未宣稱它。**觸發條件可檢查**（指令見表下方）：`akashic validate` 對 venue 的四類 error 應恆為 0；非零時那筆是手改或舊 binary 寫的，修法是人改 YAML（同 dated-variant 的立場，不猜、不靜默修） |
+| 25 | **零實例，而實例全部是在 verify 裡被造出來的——守衛裝在 store 邊界，零量的是五個寫入者的出口**（#554 R5，使用者裁決 D8：venue 名字內容的不變式——canonical 形、無控制／格式／不可見字元、至少一個字母或數字、三張清單各無近重複對（names 的例外：兩段都帶不相交時間的沿革改回舊名，R6）——住在 `Venue.validate()`，error 級；謂詞一份在 `NameIdentity.wellFormednessIssue`、與輸出閘 `UnsafeToEmitScalar` 共用危險 scalar 的定義，「不可見」用 Unicode 的 `Default_Ignorable_Code_Point`（R6；R5 用 generalCategory 四類，VS16／CGJ 是 Mn、Hangul filler 是 Lo，全放行），ZWJ／ZWNJ 只在 virama 之後或阿拉伯系／印度系等使用 join control 的區塊旁合法（R6；R5 的「兩側是字母」對拉丁字母 fail-open）。2026-09-12 實測 live store：venue **485** 筆，四條不變式的違反字串 **0**、names 近重複對 **0**；而 R2–R5 四輪 verify 用真 binary 寫進了 `\r`／`\n`／LS／`—`／`×`／RLO／ZWSP／ALM／TAG 字元／尾隨空白／NFD 位元組／拉丁字母夾 ZWNJ／VS16／CGJ／Hangul filler——每一個都是實例，只是發生在 scratch store 而不是 live store。重跑腳本見表下方） | ✅ **寫（error 級、在 store 邊界）** | 第 18 列的理由是「零量的是出口而守衛裝在入口」；這一列多一件事：**入口有五個**（`updateVenue` 的三個名字迴圈、`addVenue`、`VenueBootstrap`）。R2→R4 三輪把閘裝在 `updateVenue` 的三個迴圈裡，每一輪都修在看見的那一圈，R4 verify 指出同一欄位還有 `addVenue`（連空字串都收）與 `VenueBootstrap`（只 trim）——`Venue.swift` 自己的 dated-variant 守衛 doc 早就寫著「守衛住在 validate → writeVenue 的交會處才擋得住所有路徑」。所以本列的裁決有兩半：**寫**（零實例但實例已被造出四次），**以及寫在 store 邊界而不是任何一個寫入面**——寫入面（`vetVenueNames`）留作入口的好訊息，不再是防線。**severity 是 error** 而非 warning，理由是 live store 0 筆違反（提級不拒絕任何既有記錄——但別的 clone 若持有手改的記錄，`akashic validate` 對它會 exit 1）且違反的後果是 displayName 直接壞掉（`displayName` 讀 `authorized`，#475）。**這與第 8／13 列的前提要對帳**（R5 verify 第 12 列）：那兩列說「per-record 的 error 級檢查全是 key 檢查、對載入後的記錄不可達」——**對 venue／organization 自 #227（authorized ⊆ names）／#422（帶時間 variant）／#473（孤兒 variant）起就已為假**：venue 的內容檢查全在寫入期、decode 不驗，所以載入後可達、`StoreHealth.perRecordIssues` 收得到；第 8 列的 pin test 只對 entry／person／divergence 改壞 key，證的是「key 錯會 quarantine」，不是那句前提。本列不翻第 8 列的裁決（`errorsFirst` 的排序仍是對的），只把那句前提的失效日期寫出來——它在本列之前就失效了，本列把可達的 error 類別從三個擴到七個。**誠實邊界**：不變式的 NFC 對 CJK 相容表意文字有損（U+FA10 塚 → U+585A）——位元組層有損、Swift 層無損（Swift `==` 早已視為相等）；ZWJ／ZWNJ 保留但只在 `NameIdentity.joinerIsLegal` 的兩個脈絡；私用區（Co）不擋，因為 doc 從未宣稱它；`canonical` 只丟 `White_Space` scalar、不刪任何其他 scalar（R6——R5 在 Character 上切，「空白＋combining mark」整個 cluster 被刪）。**觸發條件可檢查**（指令見表下方）：`akashic validate` 對 venue 的名字內容 error 應恆為 0；非零時那筆是手改或舊 binary 寫的，修法是人改 YAML（同 dated-variant 的立場，不猜、不靜默修；訊息自 R6 起逐條說改什麼） |
 
 新增下一個零實例守衛 = 在這張表加一列。
 
@@ -258,27 +258,76 @@ EOF
 # 2026-09-11：organization 13 筆｜重複群 0 組｜含 org 候選的 divergence 0 筆｜帶 parents 3 筆
 ```
 
-**第 25 列的量測（2026-09-12，可重跑）**：venue 側四類 error 應恆為 0——
-`akashic validate 2>&1 | grep 'venue' | grep -c 'canonical 形\|近重複\|不是名字\|格式或控制字元\|控制或方向控制'`
+**第 25 列的量測（2026-09-12，可重跑）**：venue 側名字內容的 error 應恆為 0——
+`akashic validate 2>&1 | grep 'venue' | grep -c 'canonical 形\|近重複\|不是名字\|沒有名字\|格式或控制字元\|控制或方向控制\|不可見字元\|接合字元'`
+（八個子串對應 `NameIdentity.wellFormednessIssue` 的七句訊息加 `Venue.validate()` 的近重複句——R5 的 grep 漏了空名的「沒有名字」，Python 對照卻算它，兩套量測分歧；R6 補齊並加不可見／接合字元兩類）
 （用含這條檢查的 binary——同第 13 列的自證；注意 person 側另有 #296 的近重複 **warning**，
 `grep 'venue'` 才不會把那些算進來）。Python 對照（不依賴 binary）：
 
 ```bash
 python3 - <<'EOF'
 import glob, io, os, unicodedata, yaml
+# 鏡射 Swift 的 NameIdentity.wellFormednessIssue（改一邊要同批改另一邊）：
+#  - canonical：NFC、只丟 White_Space、內部空白串收成一個 U+0020
+#  - 危險／不可見：Cc／Cf／Zl／Zp 或 Default_Ignorable_Code_Point（unicodedata 沒有 DI 屬性，
+#    這裡用 DerivedCoreProperties 的區段列舉——UAX #44 的表，版本差異只在未指派碼位）
+#  - ZWJ／ZWNJ 例外：前一個 scalar 是 virama（ccc 9），或兩側非空白且任一側在 join-control 區塊
+#  - 至少一個字母或數字
+DI = [(0x00AD,0x00AD),(0x034F,0x034F),(0x061C,0x061C),(0x115F,0x1160),(0x17B4,0x17B5),(0x180B,0x180F),
+      (0x200B,0x200F),(0x202A,0x202E),(0x2060,0x206F),(0x3164,0x3164),(0xFE00,0xFE0F),(0xFEFF,0xFEFF),
+      (0xFFA0,0xFFA0),(0xFFF0,0xFFF8),(0x1BCA0,0x1BCA3),(0x1D173,0x1D17A),(0xE0000,0xE0FFF)]
+JOIN = [(0x0600,0x06FF),(0x0750,0x077F),(0x0870,0x089F),(0x08A0,0x08FF),(0xFB50,0xFDFF),(0xFE70,0xFEFF),
+        (0x0700,0x074F),(0x07C0,0x07FF),(0x0900,0x0DFF),(0x1000,0x109F),(0x1780,0x17FF),(0x1800,0x18AF)]
+inr = lambda c, R: any(a <= ord(c) <= b for a, b in R)
+WS = lambda ch: ch.isspace() or ord(ch) in (0x85, 0xA0, 0x1680, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000) or 0x2000 <= ord(ch) <= 0x200A
+def canon(s):
+    s = unicodedata.normalize('NFC', s); out = []; pend = False
+    for ch in s:
+        if WS(ch): pend = bool(out); continue
+        if pend: out.append(' '); pend = False
+        out.append(ch)
+    return ''.join(out)
+def joiner_ok(s, i):
+    p = s[i-1] if i > 0 else None; n = s[i+1] if i + 1 < len(s) else None
+    if p is not None and unicodedata.combining(p) == 9: return True
+    if p is None or n is None or WS(p) or WS(n): return False
+    return inr(p, JOIN) or inr(n, JOIN)
+def issue(s):
+    c = canon(s)
+    if not c: return '空白'
+    if s != c: return 'canonical'
+    for i, ch in enumerate(s):
+        if ch in '\u200c\u200d':
+            if not joiner_ok(s, i): return '接合字元'
+            continue
+        if inr(ch, DI): return '不可見'
+        if unicodedata.category(ch) in ('Cc','Cf','Zl','Zp'): return '控制'
+    if not any(ch.isalnum() for ch in s): return '無字母數字'
+    return None
+# 固定案例：Swift 測試（VenueNameInvariantTests）的同一組，兩邊答案要一致
+fixed = {'Psychometrika':None, '1843':None, 'نشریه\u200cروان':None, '۱۴۰۰\u200cها':None, 'ന്\u200d':None, 'क्\u200dष':None,
+         'Psycho\u200cmetrika':'接合字元', 'Zwj\u200d':'接合字元', '心\ufe0f理學報':'不可見', '\u3164':'不可見',
+         'Psycho\u200bmetrika':'不可見', 'Psychometrika\u202e':'不可見', 'Psychometrika ':'canonical', '×':'無字母數字', '':'空白'}
+mism = [(k, issue(k), v) for k, v in fixed.items() if issue(k) != v]
+assert not mism, mism
 n=bad=dup=0
 for f in glob.glob(os.path.expanduser('~/.akashic/entities')+'/*.yaml'):
     t=io.open(f,encoding='utf8').read()
     if not t.startswith('venue:'): continue
     n+=1; d=yaml.safe_load(t)
-    names=[x['value'] if isinstance(x,dict) else x for x in (d.get('names') or [])]
+    segs=[(x['value'], x) if isinstance(x,dict) else (x, {}) for x in (d.get('names') or [])]
+    names=[str(v) for v, _ in segs]
     for lst in (names, d.get('authorized') or [], d.get('variant') or []):
         for s in lst:
-            s=str(s); c=' '.join(unicodedata.normalize('NFC',s).split())
-            if s!=c or any(unicodedata.category(ch) in ('Cc','Cf','Zl','Zp') for ch in s) or not any(ch.isalnum() for ch in s): bad+=1
-    keys=[' '.join(unicodedata.normalize('NFC',s).split()) for s in names]
-    if len(keys)!=len(set(keys)): dup+=1
-print(f"venue {n}｜違反四條不變式的字串 {bad}｜names 近重複對 {dup}")   # 2026-09-12：485 / 0 / 0
+            if issue(str(s)) is not None: bad+=1
+    dated=lambda x: any(k in x for k in ('start','end','ended-unknown','attested'))
+    for i in range(len(segs)):
+        for j in range(i+1, len(segs)):
+            if canon(str(segs[i][0])) == canon(str(segs[j][0])) and not (dated(segs[i][1]) and dated(segs[j][1])): dup+=1
+    for lst in (d.get('authorized') or [], d.get('variant') or []):
+        ks=[canon(str(s)) for s in lst]
+        if len(ks)!=len(set(ks)): dup+=1
+print(f"venue {n}｜違反不變式的字串 {bad}｜近重複對 {dup}")   # 2026-09-12：485 / 0 / 0（R6 重跑仍是）
 EOF
 ```
 
@@ -318,7 +367,7 @@ EOF
 - 第 20 列的理由是**窮舉自己漏了一格**——與第 1 列（缺跡象）、第 13 列（跡象住在錯的地方）都不同：跡象就在同一張 issue 裡、就在眼前，而窮舉它們的人仍然漏了第四個，是**別人**找到的。守衛換掉的不是注意力，是「這件事需要注意力」這個前提
 - 第 23 列的理由是**可達性是本 change 自己造出來的**——第 17 列的零同樣是「寫入面剛長出來」，但那一列的形狀早已在庫外發生過 4 次；這一列的**矛盾狀態**在本 change 之前根本不可達（沒有面能把作者位清空），是新面把它變成可達的。讓它可達的那一步與守衛因此必須同批落地
 - 第 14 列的理由是**判準的輸入未定**——與第 10 列（缺用途）同形而不同：那一列缺的是形狀由什麼決定，這一列形狀確定、缺的是它要比較的「相等」的定義，而定義在 #470 手上。寫了就是替 #470 預先裁決。**2026-09-09 #470 裁決後本列翻成「寫」**，理由隨之變成第二個、也是本表目前唯一的一個：**觸發條件是機械可檢查的，所以它自己到期**——不像第 10、12 列要人指認
-- 第 25 列的理由是**入口有四個**——第 18 列的「零量的是出口而守衛裝在入口」對它也成立，但那一列只有一個入口；這一列三輪 verify 各修一個入口，第四個仍開著。守衛的位置本身是裁決的一半：寫在 store 邊界，不寫在任何一個面
+- 第 25 列的理由是**入口有五個**——第 18 列的「零量的是出口而守衛裝在入口」對它也成立，但那一列只有一個入口；這一列三輪 verify 各修一個入口，第四、第五個仍開著。守衛的位置本身是裁決的一半：寫在 store 邊界，不寫在任何一個面
 - 第 24 列的理由是**半吊子已經誠實**——前二十三列裁的是「寫或不寫某個東西」，這一列裁的是「對一個已存在的東西什麼都不動」。留著的代價是零，因為 #553 讓錯誤訊息說真話；動它的兩個方向（實作／拿掉）代價都不是零。與第 10 列（缺用途）最像：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實
 
 **「完備」在第 1–7 列裡有三種強度，不是兩種**（#414 R1 自審更正——這一段原本寫

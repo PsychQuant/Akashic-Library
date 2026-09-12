@@ -386,4 +386,28 @@ final class DivergenceResolveVenueTests: XCTestCase {
         let v = try XCTUnwrap(LibraryStore(root: root).load().venues.first { $0.key == "the-american-statistician" })
         XCTAssertEqual(v.variant, ["AMERICAN STATISTICIAN"])
     }
+
+    /// **dry-run 對預測的 keeper 跑寫入閘**（#554 R5 verify 第 10 列）：被併者若是舊 binary 寫的髒記錄
+    /// （尾隨空白的名字——D8 之後是 error），合併會把它併進倖存者的 names／variant，`--apply` 在
+    /// `keeperWrite` 才拒（乾淨、無撕裂）——但 `--dry-run` 說 OK。本檔自己的 #139 F1：dry-run 是
+    /// 「還能反悔的時點」，拒絕條件只在實跑算就是假的 dry-run。preview 與實跑共用同一個 keeper 計算點。
+    func testDryRunRefusesWhenThePredictedKeeperWouldNotBeWritable() throws {
+        let d = try seed()
+        let doomed = try XCTUnwrap(store.load().venues.first { $0.key == "american-statistician" })
+        let file = root.appendingPathComponent("entities/\(doomed.id.uuidString).yaml")
+        let dirty = try String(contentsOf: file, encoding: .utf8)
+            .replacingOccurrences(of: "- value: AMERICAN STATISTICIAN\n", with: "- value: 'AMERICAN STATISTICIAN '\n")
+        try dirty.write(to: file, atomically: true, encoding: .utf8)
+        GitFixture.commitAll(root, message: "dirty")
+        XCTAssertTrue(try store.load().venues.first { $0.key == "american-statistician" }!
+                        .names.entries.contains { $0.value == "AMERICAN STATISTICIAN " }, "fixture")
+        XCTAssertThrowsError(try store.previewResolveDivergence(
+            id: d.id, survivor: "the-american-statistician", overrideReason: nil)) { err in
+            XCTAssertTrue(String(describing: err).contains("AMERICAN STATISTICIAN "), "\(err)")
+        }
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "the-american-statistician"))
+        let after = try store.load()
+        XCTAssertEqual(after.venues.count, 2, "零寫入：被併者還在")
+        XCTAssertEqual(after.entries.first?.venues, [.key("american-statistician")])
+    }
 }

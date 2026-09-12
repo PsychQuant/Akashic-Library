@@ -78,6 +78,25 @@ final class CanonicalFormatValidationTests: XCTestCase {
                              "語意矛盾的 person 不得通過 fmt 的正規化")
     }
 
+    /// **`.venue` 分支與 `.person` 同一條紀律**（#554 R5 verify 第 9 列）：R5 之前 `fmt --apply` 的 venue
+    /// 分支是裸 `encode(decode)`，直接 `atomicWrite`——`validate` 報 2 條 error 的 store，`fmt --check` 印
+    /// 「✓ 全部已是 canonical form」、`fmt --apply` 把髒 venue 原樣寫回 rc=0。「手改的在下一次寫入被擋」
+    /// 對 fmt 是反例。#297 對 person 修過同一件事，理由（`normalized()` 是解出型別值與寫回位元組之間
+    /// **唯一**的交會點）對 venue 一字不差。
+    func testNormalizedRejectsSemanticallyInvalidVenue() throws {
+        var v = Venue(key: "j", type: .periodical,
+                      names: Timeline([TemporalValue(value: "Psychometrika")]), authorized: ["Psychometrika"])
+        v.id = UUID()
+        let clean = try VenueYAML.encode(v)
+        XCTAssertNoThrow(try CanonicalFormat.normalized(clean))
+        let orphanAuthorized = clean.replacingOccurrences(of: "authorized:\n- Psychometrika", with: "authorized:\n- Elsewhere")
+        XCTAssertNotEqual(orphanAuthorized, clean, "fixture：替換要命中")
+        XCTAssertThrowsError(try CanonicalFormat.normalized(orphanAuthorized), "authorized ⊄ names 不得通過 fmt")
+        let dirtyName = clean.replacingOccurrences(of: "- value: Psychometrika\n", with: "- value: 'Psychometrika '\n")
+        XCTAssertNotEqual(dirtyName, clean, "fixture：替換要命中")
+        XCTAssertThrowsError(try CanonicalFormat.normalized(dirtyName), "非 canonical 名字不得通過 fmt")
+    }
+
     /// 語意合法的 person 照常正規化——不得因為加了驗證就把正常檔擋掉。
     func testNormalizedAcceptsValidPerson() throws {
         var person = Person(key: "someone", names: PersonNames(authorized: ["Real Name"],

@@ -2656,7 +2656,10 @@ public final class AkashicService {
             if let why = NameIdentity.wellFormednessIssue(c) {
                 // 原字串自己截 120 字元（R6 verify 第 7／12 列：只對整項截 400 的話，貼錯一整段摘要時
                 // 被截掉的正是操作者要看的理由）；整項在下面 throw 時經 displaySafe（一次——它不冪等）
-                let shown = r.count > 120 ? String(r.prefix(120)) + "…" : r
+                // 以 scalar 計，不是 Character（R7 verify 第 16 列：combining-mark 密集的輸入 120 個 Character 可以是
+                // 596 個 scalar，而外層 displaySafe 以 scalar 截 400，理由又不見了）
+                let shown = r.unicodeScalars.count > 120
+                    ? String(String.UnicodeScalarView(r.unicodeScalars.prefix(120))) + "…" : r
                 bad.append("「\(shown)」\(why)")   // display-safe-exempt: 整項在 throw 時經 displaySafe 消毒；why 是 NameIdentity 的固定訊息
                 continue
             }
@@ -3770,7 +3773,7 @@ public final class AkashicService {
         let venueKeys = Set(load.venues.map(\.key))
         var byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) }, uniquingKeysWith: { a, _ in a })
 
-        struct Move { let citekey: String; let index: Int; let from: String; let to: String }
+        struct Move { let citekey: String; let index: Int; let from: String; let to: String; let literal: String }
         var moves: [Move] = []
         var seen = Set<String>()
         for raw in ids where seen.insert(raw).inserted {
@@ -3798,14 +3801,29 @@ public final class AkashicService {
             }
             // entry 目前指著的 venue 也要在（#554 R6 verify 第 4／27 列：檔被手刪或 quarantine 後，
             // 下方 `venuesByKey[k]!` 對 `from` 是 crash 不是拒絕——MCP 面上是以合法參數殺死 server 的路徑）
-            guard venueKeys.contains(oldKey) else {
+            guard let fromVenue = load.venues.first(where: { $0.key == oldKey }) else {
+                // `--demote` 對同一個懸空狀態也是 notFound（它要從那筆 venue 的 verdict 取回 literal），
+                // 指路要指得到（R7 verify 第 4 列）：唯一的出路是救回檔案，或手改 work 的 YAML 把這條邊改回 literal
                 throw ServiceError.notFound(
                     "work「\(displaySafe(citekey, max: 200))」的第 \(idx) 個 venue 邊指著 venue「\(displaySafe(oldKey, max: 200))」，"   // display-safe-exempt: Int
-                    + "但那筆記錄不在 store 裡（檔被刪或被 quarantine）——先用 --demote 退回 literal，或把檔案救回來")
+                    + "但那筆記錄不在 store 裡（檔被刪或被 quarantine）——把檔案救回來，"
+                    + "或手改這筆 work 的 YAML 把這條邊改回 `- literal: <原刊名>`")
             }
             // 改指到自己＝no-op（冪等；重跑同一個 id 不累積 verdict）
             guard oldKey != newKey else { continue }
-            moves.append(Move(citekey: citekey, index: idx, from: oldKey, to: newKey))
+            // **原 literal 從 from-venue 的 confirmed verdict 逐字取回**，走唯一解析器——與 demote 同一個立場
+            // （R7 verify 第 6 列，#418 既有缺陷：用 work 的 `title` 當 literal，之後 `--demote` 把 venue 邊改寫成
+            // 論文標題；rejected 那一側也帶著標題，`rejectedPairings` 對真正的刊名 literal 不會抑制）。取不到就拒絕。
+            let (fromVerdicts, _) = ResolutionLedger.verdicts(references: fromVenue.references)
+            guard let hit = fromVerdicts.first(where: {
+                $0.kind == .confirmed && $0.holderKind == .work && $0.holder == citekey
+            }) else {
+                throw ServiceError.invalid(
+                    "venue「\(displaySafe(oldKey, max: 200))」上找不到 work「\(displaySafe(citekey, max: 200))」"
+                    + "的 confirmed verdict——原 literal 無從取回，改指會寫出一筆不知道原文是什麼的 verdict。"
+                    + "不拿 work 的 title 或 venue 的顯示名頂替")
+            }
+            moves.append(Move(citekey: citekey, index: idx, from: oldKey, to: newKey, literal: hit.literal))
         }
         guard !moves.isEmpty else {
             return try jsonString(["repointed": [String](), "entriesRewritten": 0,
@@ -3825,7 +3843,7 @@ public final class AkashicService {
         // venue 的變更先算、先過閘，entry 之後才落盤（D11，理由見 apply 那段）。
         var venuesByKey = Dictionary(load.venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         for m in moves {
-            let literal = byCitekey[m.citekey]!.title
+            let literal = m.literal
             if var to = venuesByKey[m.to] {
                 ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
                     .confirmed, holderKind: .work, holder: m.citekey, literal: literal,

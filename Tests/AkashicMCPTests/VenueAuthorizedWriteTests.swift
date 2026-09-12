@@ -2,6 +2,7 @@ import XCTest
 @testable import AkashicCore
 @testable import AkashicMCPKit
 @testable import AkashicStoreIO
+@testable import AkashicEntity
 
 /// `authorized` 的寫入面（#554）——#471 修了 `variant` 那一半，這是另一半。
 ///
@@ -617,9 +618,59 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         e.venues = [.key("ghost-journal")]
         _ = try store.writeEntry(e)
         XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:some-journal"])) { err in
-            XCTAssertTrue(String(describing: err).contains("ghost-journal"), "\(err)")
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("ghost-journal"), s)
+            // 指路要指得到（R7 verify 第 4 列）：`--demote` 對同一個懸空狀態也是 notFound，唯一的出路是救回檔案或手改 work 的 YAML
+            XCTAssertFalse(s.contains("--demote"), s)
+            XCTAssertTrue(s.contains("救回") && s.contains("YAML"), s)
         }
         XCTAssertEqual(try store.load().entries.first?.venues, [.key("ghost-journal")], "零寫入")
+    }
+
+    /// **repoint 的 verdict literal 從 from-venue 的 confirmed verdict 逐字取回，不是 work 的 title**（R7 verify 第 6 列，
+    /// DA；#418 既有缺陷）：R7 之前 `let literal = byCitekey[m.citekey]!.title`——之後 `--demote` 會把 venue 邊改寫成
+    /// 論文標題，比「顯示名頂替」更糟；rejected 那一側也帶著標題，`rejectedPairings` 對真正的刊名 literal 不會抑制。
+    func testRepointCarriesTheOriginalLiteralNotTheTitle() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "A Paper About Nothing")
+        e.venues = [.literal("Psychometrika")]
+        _ = try store.writeEntry(e)
+        _ = try service.resolveVenues(apply: ["x2025:0"])
+        _ = try service.addVenue(key: "other-journal", names: ["Other Journal"], type: "periodical", note: nil, issn: nil)
+        _ = try service.resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"])
+        let after = try store.load()
+        let to = try XCTUnwrap(after.venues.first { $0.key == "other-journal" })
+        let vs = ResolutionLedger.verdicts(references: to.references).0
+        let confirmed = vs.filter { $0.kind == .confirmed }.filter { $0.holder == "x2025" }
+        XCTAssertEqual(confirmed.map(\.literal), ["Psychometrika"])
+        let from = try XCTUnwrap(after.venues.first { $0.key == "some-journal" })
+        let fvs = ResolutionLedger.verdicts(references: from.references).0
+        let rejected = fvs.filter { $0.kind == .rejected }.filter { $0.holder == "x2025" }
+        XCTAssertEqual(rejected.map(\.literal), ["Psychometrika"])
+        _ = try service.resolveVenues(apply: nil, demote: ["x2025:0"])
+        XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2025" }?.venues, [.literal("Psychometrika")])
+    }
+
+    /// from-venue 上沒有這筆 work 的 confirmed verdict（手改出來的 key 邊）→ 拒絕改指，不拿 title 頂替（同 demote 的立場）。
+    func testRepointRefusesWhenTheFromVenueHasNoVerdictForTheWork() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "A Paper")
+        e.venues = [.key("some-journal")]
+        _ = try store.writeEntry(e)
+        _ = try service.addVenue(key: "other-journal", names: ["Other Journal"], type: "periodical", note: nil, issn: nil)
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"])) { err in
+            XCTAssertTrue(String(describing: err).contains("confirmed verdict"), "\(err)")
+        }
+        XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2025" }?.venues, [.key("some-journal")], "零寫入")
+    }
+
+    /// 原字串的 120 上限以 scalar 計（R7 verify 第 16 列）：`String.prefix` 數 grapheme cluster，combining-mark 密集的輸入
+    /// 120 個 Character 可以是 596 個 scalar，整項再被 `displaySafe(max: 400)` 截掉——理由又不見了。
+    func testRejectionKeepsTheReasonForCombiningMarkHeavyInput() throws {
+        let heavy = String(repeating: "q\u{0334}\u{0335}\u{0336}\u{0337}", count: 119) + "\u{200B}"
+        XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: [heavy], note: nil, type: nil)) { err in
+            XCTAssertTrue(String(describing: err).contains("U+200B"), "理由被截掉了：\(String(describing: err).suffix(60))")
+        }
     }
 
     /// 拒絕訊息**兩面各自正確**（R6 verify 第 45 列）：R5 讓訊息帶參數名，但 CLI 使用者看到的是 MCP 鍵名

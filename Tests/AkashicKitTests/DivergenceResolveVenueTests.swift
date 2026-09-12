@@ -387,6 +387,35 @@ final class DivergenceResolveVenueTests: XCTestCase {
         XCTAssertEqual(v.variant, ["AMERICAN STATISTICIAN"])
     }
 
+    /// **被併者的髒名字若 canonical 等於倖存者已有的名字，根本不會搬進倖存者——不必為此拒絕**（R7 verify 第 13 列）：
+    /// `mergedVenueKeeper` 先以 canonical 對倖存者 `names` 濾除；`"AMERICAN STATISTICIAN "` 對倖存者已有的
+    /// `"AMERICAN STATISTICIAN"` 會被濾掉，合併結果合法，而 R7 仍要求操作者去修一筆下一步就刪掉的檔。
+    func testDoomedDirtNameThatWouldBeFilteredOutDoesNotBlockTheMerge() throws {
+        var keeper = Venue(key: "the-american-statistician", type: .periodical,
+                           names: Timeline([TemporalValue(value: "The American Statistician"),
+                                            TemporalValue(value: "AMERICAN STATISTICIAN")]),
+                           authorized: ["The American Statistician"])
+        keeper.variant = ["AMERICAN STATISTICIAN"]
+        try store.writeVenue(keeper)
+        let doomed = Venue(key: "american-statistician", type: .periodical,
+                           names: Timeline([TemporalValue(value: "AMERICAN STATISTICIAN")]),
+                           authorized: ["AMERICAN STATISTICIAN"])
+        try store.writeVenue(doomed)
+        let file = root.appendingPathComponent("entities/\(doomed.id.uuidString).yaml")
+        try String(contentsOf: file, encoding: .utf8)
+            .replacingOccurrences(of: "- value: AMERICAN STATISTICIAN\n", with: "- value: 'AMERICAN STATISTICIAN '\n")
+            .write(to: file, atomically: true, encoding: .utf8)
+        let d = Divergence(id: UUID(), question: "同一本刊嗎",
+                           candidates: [DivergenceCandidate(key: "the-american-statistician", shape: .venue),
+                                        DivergenceCandidate(key: "american-statistician", shape: .venue)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(root, message: "seed")
+        let report = try store.resolveDivergence(id: d.id, survivor: "the-american-statistician")
+        XCTAssertFalse(report.hasFailures, "\(report.failures)")
+        let v = try XCTUnwrap(LibraryStore(root: root).load().venues.first { $0.key == "the-american-statistician" })
+        XCTAssertEqual(v.names.entries.map(\.value), ["The American Statistician", "AMERICAN STATISTICIAN"])
+    }
+
     /// **dry-run 對預測的 keeper 跑寫入閘**（#554 R5 verify 第 10 列）：被併者若是舊 binary 寫的髒記錄
     /// （尾隨空白的名字——D8 之後是 error），合併會把它併進倖存者的 names／variant，`--apply` 在
     /// `keeperWrite` 才拒（乾淨、無撕裂）——但 `--dry-run` 說 OK。本檔自己的 #139 F1：dry-run 是

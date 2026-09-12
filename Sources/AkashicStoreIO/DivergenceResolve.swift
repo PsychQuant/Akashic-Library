@@ -752,6 +752,7 @@ extension LibraryStore {
             doomed.append(p)
         }
         try assertAllInEntities(([keeper] + doomed).map { ($0.key, $0.id) })
+        try assertVenueHoldersWritable(snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor, holderKind: .person)
         // **合併只搬別名，所以別名以外的東西不許有。** 被併者若帶著倖存者沒有的
         // 識別碼或時間軸，那些資料會隨檔案一起消失而使用者只看到「✓ 併入」。歧異的
         // 典型來源正是「兩個聚合器對同一位作者的比對結果不一致」——那種情況下兩筆
@@ -771,6 +772,23 @@ extension LibraryStore {
     /// **warnings 也從這裡回傳**（#169）：preview 與實跑都經過本函式，把提醒接在
     /// 這個共用點上，兩邊自然一致——不必在兩個呼叫端各算一次（那是 159-1 的形狀：
     /// 兩邊各自準備輸入、各自可能改壞）。
+    /// **持有被併鍵 verdict 的 venue 要在 commit 之前過寫入閘**（#554 R7 verify 第 5 列，DA）：work／person 合併
+    /// 在 `commitResolution` 之後才對它們跑 `migrateHolderVerdicts` → `writeVenue`，那一步失敗只能落進
+    /// `report.failures`——被併檔已刪、venue 留死 verdict（#460 的形狀），而 dry-run 對它沉默（#139 F1）。
+    /// D8 之前能讓 `writeVenue` 拒的只有三個罕見形狀，D8 之後是最常見的手改痕跡（尾隨空白），§5.7 的部署視窗
+    /// 明寫舊 binary 仍會寫出這種 venue。preview 與實跑共用本函式（兩個 `validate*Preconditions` 都呼叫）。
+    /// person／organization holder 沒有名字內容不變式，寫入閘對它們只有 key 與 format，這裡不重複。
+    func assertVenueHoldersWritable(snapshot: LibraryLoad, merged: Set<String>, survivor: String,
+                                    holderKind: ProvenanceReference.VerdictHolderKind) throws {
+        let format = try StoreVersion.read(root: root)
+        for var venue in snapshot.venues {
+            let m = Self.migrateHolderVerdicts(venue.references, merged: merged, survivor: survivor, holderKind: holderKind)
+            guard m.changed else { continue }
+            venue.references = m.refs
+            try Self.assertVenueWritable(venue, format: format)
+        }
+    }
+
     func validateWorkPreconditions(survivor: String, mergedKeys: [String],
                                    snapshot: LibraryLoad) throws
         -> (keeper: Entry, doomed: [Entry], warnings: [String]) {
@@ -785,6 +803,7 @@ extension LibraryStore {
             doomed.append(e)
         }
         try assertAllInEntities(([keeper] + doomed).map { ($0.citekey, $0.id) })
+        try assertVenueHoldersWritable(snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor, holderKind: .work)
         // #75 對二：欄位遺失比對放在**前置**（preview 與實跑共用——#139 F1 的教訓：
         // 拒絕條件只有一份，dry-run 對它沉默是在騙人）。被併 work 帶有倖存者沒有的
         // 欄位／附件／標籤／出向參照／來源 → 拒絕並指名（子集才放行）。
@@ -827,12 +846,14 @@ extension LibraryStore {
             doomed.append(v)
         }
         try assertAllInEntities(([keeper] + doomed).map { ($0.key, $0.id) })
+        // 被併者**會搬進倖存者**的名字（`mergedVenueKeeper` 對倖存者 `names` 以 canonical 濾除之後剩下的那些）
+        // 要先通過 D8 的名字內容檢查，且訊息要指向**被併者**——那個字串只存在於它的 YAML（R6 verify 第 28 列）。
+        // 只驗會搬進去的（R7 verify 第 13 列）：被併者的 `"X "` 對倖存者已有的 `"X"` 會被濾掉、合併結果合法，
+        // 為它要求操作者去修一筆下一步就刪掉的檔是過度嚴格。preview 與實跑共用這一份（#139 F1）。
+        let keeperKnown = Set(keeper.names.entries.map { NameIdentity.canonical($0.value) })
         for v in doomed {
-            // 被併者的名字會原樣搬進倖存者（`mergedVenueKeeper`），所以它們要先通過 D8 的名字內容檢查，
-            // 且訊息要指向**被併者**——那個字串只存在於它的 YAML（R6 verify 第 28 列）。preview 與實跑
-            // 共用這一份（#139 F1）。
             for (label, list) in [("names", v.names.entries.map(\.value)), ("variant", v.variant)] {
-                for n in list {
+                for n in list where !keeperKnown.contains(NameIdentity.canonical(n)) {
                     if let why = NameIdentity.wellFormednessIssue(n) {
                         throw DivergenceResolveError.doomedRecordInvalid(
                             merged: v.key,

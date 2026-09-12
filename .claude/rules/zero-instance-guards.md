@@ -153,72 +153,115 @@ grep -rlE  '\bAuthor\b' Sources/ Tests/ --include='*.swift' | wc -l   # 64  檔�
 
 ```bash
 python3 - <<'EOF'
-import glob, io, os, yaml, collections
-root = os.path.expanduser('~/.akashic/entities')
-absn, alln = [], []
-for f in glob.glob(root + '/*.yaml'):
-    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
-    except Exception: continue
-    if not isinstance(d, dict): continue
-    for k, v in (d.get('fields') or {}).items():
-        if not isinstance(v, str): continue
-        alln.append(len(v.encode('utf8')))
-        if k.startswith('abstract'): absn.append(len(v.encode('utf8')))
-absn.sort(); alln.sort()
-p = lambda L, q: L[min(len(L)-1, int(len(L)*q))] if L else 0
-print(f'abstract n={len(absn)} p50={p(absn,.5)} p99={p(absn,.99)} max={absn[-1]}')
-print(f'全部 fields 值 n={len(alln)} max={alln[-1]} → 餘裕 {65536/alln[-1]:.1f} 倍')
-EOF
-# 2026-09-08：abstract n=1517 p50=1137 p99=2185 max=4220 ／ 全部 n=6125 max=4220 → 15.5 倍
-```
-
-守衛本身是否在跑（自證，同第 13 列的形狀——舊 binary 印不出東西）：
-
-```bash
-python3 -c "import json;print(json.dumps([{'citekey':'x','fields':{'abstract':'a'*65537}}]))" > /tmp/over.json
-akashic enrich --library <某個 store> --from /tmp/over.json --json 2>&1 | grep -c '超過上限'   # 應為 1
-```
-
-**第 17 列的量測（2026-09-07，可重跑）**：兩種 warning 數 `akashic validate 2>&1 | grep -c '拆分後的孤兒 verdict'` 與 `akashic validate 2>&1 | grep -c '拆分記錄的各段都已不在作者位'`（應皆為 0；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）；拆分記錄數 `grep -c '^  *- field: authors$' ~/.akashic/entities/*.yaml | awk -F: '{s+=$2} END {print s}'`（0——#443 已拆的 4 筆沒有記錄，不回填）；那 4 筆的下落 `grep -l '雷庚玲' ~/.akashic/entities/*.yaml | wc -l`（4 個檔含該姓名，其中的拆分無記錄可機械辨認）。
-
-**第 20 列的量測（2026-09-09，可重跑）**：`akashic-guards workflow-run-scripts`（rc=0 時印
-「workflow `run:` 引用的 N 個腳本全部存在」——2026-09-09 為 **5**；非零時逐條印出是哪個
-workflow 的第幾行跑了哪個不在的檔）。workflow 檔數 `ls .github/workflows/*.yml | wc -l`（2）。
-**自證同第 13 列**：舊 binary 沒有這個子命令會印 usage 而不是 0，兩者分得開。
-
-**第 21 列的量測（2026-09-09，可重跑）**：差異數 `akashic-guards protected-ratchet`
-（相符時印「受保護清單與棘輪相符：N 條」、rc=0；不符時逐條印「少了／多了」、rc=1；
-棘輪檔不存在 rc=2——三種分得開）。清單條數 `wc -l < .githooks/protected-ratchet.txt`
-（2026-09-09：58）。**顯式 vs glob 的拆分**——顯式＝路徑字面出現在 `TriggerCoverage.swift` 裡的那些：
-
-```bash
-python3 - <<'EOF'
-import io
-lines = [l for l in io.open(".githooks/protected-ratchet.txt", encoding="utf8").read().split("\n") if l]
-src = io.open("Sources/akashic-guards/TriggerCoverage.swift", encoding="utf8").read()
-explicit = [l for l in lines if f'"{l}"' in src]
-print(f"受保護 {len(lines)}｜顯式字面 {len(explicit)}｜glob／衍生 {len(lines)-len(explicit)}")
-EOF
-# 2026-09-09：受保護 58｜顯式字面 21｜glob／衍生 37
-```
-
-**三組刪除實測**要在副本上做（複製 `plugin`／`.github`／`Sources`／
-`.githooks`／`.claude/rules`／`CLAUDE.md`／`mcpb/manifest.json` 到暫存目錄，在那裡以 cwd 執行）
-——顯式條目那一組另需重編 binary，因為守衛跑的是已編譯的那一份而不是原始碼。
-
-**第 22 列的量測（2026-09-09，可重跑）**：
-
-```bash
-python3 - <<'EOF'
-import glob, io, os, re
-n = dated = 0
-for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
-    t = io.open(f, encoding='utf8').read()
+import glob, io, os, re, unicodedata, yaml
+# 鏡射 Swift 的 NameIdentity.wellFormednessIssue 與 Venue.validate() 的近重複掃描（改一邊要同批改另一邊）：
+#  - canonical：NFC、只丟 White_Space（顯式集合——Python isspace() 把 U+001C–001F 也當空白，Swift 不會）、
+#    內部空白串收成一個 U+0020
+#  - 危險／不可見：Cc／Cf／Zl／Zp、Default_Ignorable_Code_Point（unicodedata 沒有 DI 屬性，用
+#    DerivedCoreProperties 的區段列舉——UAX #44 的表，版本差異只在未指派碼位）、U+2800
+#  - ZWJ／ZWNJ 例外：(a) 前一個 scalar 是 virama（ccc 9）、從 virama 往前跳過標記找到的基底是同一文字的字母、
+#    右鄰居若在要是同一文字的字母／數字；(b) 左鄰居是 join-control 文字的字母／標記／數字、右鄰居是同一文字的
+#    字母／數字（標點不算；joiner 自己也不算，所以連續 joiner 必拒）
+#  - 至少一個字母或數字（generalCategory 的 L／N 類——Python 的 isalnum() 正是這個，不含 Other_Alphabetic 的標記）
+#  - names 近重複豁免：兩段都帶時間欄位、一段的 end 與另一段的 start 都是 ISO 8601 前綴、且 end 以較粗粒度截斷後嚴格小於 start
+DI = [(0x00AD,0x00AD),(0x034F,0x034F),(0x061C,0x061C),(0x115F,0x1160),(0x17B4,0x17B5),(0x180B,0x180F),
+      (0x200B,0x200F),(0x202A,0x202E),(0x2060,0x206F),(0x3164,0x3164),(0xFE00,0xFE0F),(0xFEFF,0xFEFF),
+      (0xFFA0,0xFFA0),(0xFFF0,0xFFF8),(0x1BCA0,0x1BCA3),(0x1D173,0x1D17A),(0xE0000,0xE0FFF),(0x2800,0x2800)]
+JOIN = [(0x0600,0x06FF,1),(0x0750,0x077F,1),(0x0870,0x089F,1),(0x08A0,0x08FF,1),(0xFB50,0xFDFF,1),(0xFE70,0xFEFF,1),(0x10EC0,0x10EFF,1),
+        (0x0700,0x074F,2),(0x0860,0x086F,2),(0x0840,0x085F,3),(0x07C0,0x07FF,4),(0x1000,0x109F,5),(0x1780,0x17FF,6),
+        (0x1800,0x18AF,7),(0x2D30,0x2D7F,8),(0x10D00,0x10D3F,9),(0x10F30,0x10F6F,10),(0x10F70,0x10FAF,11),(0x10AC0,0x10AFF,12),(0x1E900,0x1E95F,13)]
+def script(ch):   # 鏡射 NameIdentity.joinScript：同一文字的多個區塊同一 id；Indic 每 0x80 一個
+    o = ord(ch)
+    if 0x0900 <= o <= 0x0DFF: return 100 + (o - 0x0900) // 0x80
+    return next((sid for a, b, sid in JOIN if a <= o <= b), None)
+WSSET = {0x09,0x0A,0x0B,0x0C,0x0D,0x20,0x85,0xA0,0x1680,0x2028,0x2029,0x202F,0x205F,0x3000} | set(range(0x2000,0x200B))
+inr = lambda c, R: any(a <= ord(c) <= b for a, b in R)
+WS = lambda ch: ord(ch) in WSSET
+JOINER = lambda ch: ch in '\u200c\u200d'
+MARK = lambda ch: unicodedata.category(ch) in ('Mn','Mc')
+BASE = lambda ch: ch.isalnum()   # L 類或 N 類（isalnum 不含 Other_Alphabetic 的標記）
+member = lambda ch: script(ch) is not None and (BASE(ch) or MARK(ch))   # (b) 支的左鄰居
+def canon(s):
+    s = unicodedata.normalize('NFC', s); out = []; pend = False
+    for ch in s:
+        if WS(ch): pend = bool(out); continue
+        if pend: out.append(' '); pend = False
+        out.append(ch)
+    return ''.join(out)
+def joiner_ok(s, i):
+    p = s[i-1] if i > 0 else None; n = s[i+1] if i + 1 < len(s) else None
+    if p is not None and unicodedata.combining(p) == 9:
+        j = i - 2
+        while j >= 0 and MARK(s[j]): j -= 1
+        if j < 0 or script(s[j]) is None or not s[j].isalpha(): return False
+        return n is None or (script(n) == script(s[j]) and BASE(n))
+    if p is None or n is None or script(p) is None or script(n) != script(p): return False
+    return member(p) and BASE(n)
+def issue(s):
+    c = canon(s)
+    if not c: return '空白'
+    if s != c: return 'canonical'
+    for i, ch in enumerate(s):
+        if JOINER(ch):
+            if not joiner_ok(s, i): return '接合字元'
+            continue
+        if inr(ch, DI): return '不可見'
+        if unicodedata.category(ch) in ('Cc','Cf','Zl','Zp'): return '控制'
+    if not any(ch.isalnum() for ch in s): return '無字母數字'
+    return None
+ISO = re.compile(r'\d{4}(-\d{2}(-\d{2})?)?')
+def before(end, start):   # 鏡射 Venue.segmentsAreDisjoint 的 before；PyYAML 會把 1933 讀成 int、2003-01-15 讀成 date，先 str()
+    if end is None or start is None: return False
+    end, start = str(end), str(start)
+    if not (ISO.fullmatch(end) and ISO.fullmatch(start)): return False
+    n = min(len(end), len(start)); return end[:n] < start[:n]
+def disjoint(a, b): return before(a.get('end'), b.get('start')) or before(b.get('end'), a.get('start'))
+dated = lambda x: any(k in x for k in ('start','end','ended-unknown','attested'))
+def near_dup(a, b):   # a、b 是 names 段（dict）
+    if canon(str(a['value'])) != canon(str(b['value'])): return False
+    return not (dated(a) and dated(b) and disjoint(a, b))
+# 固定案例：Swift 測試（VenueNameInvariantTests）的同一組，兩邊答案要一致
+fixed = {'Psychometrika':None, '1843':None, 'نشریه\u200cروان':None, '۱۴۰۰\u200cها':None, 'ന്\u200d':None, 'क्\u200dष':None,
+         'ࡀ\u200dࡁ':None, '\U0001E900\u200c\U0001E901':None, 'क़्\u200dष':None, 'بَ\u200cب':None,
+         'Journal \u0967\u094d\u200d':'接合字元', 'क्\u200cA':'接合字元', 'ک\u200cक':'接合字元',
+         'क\u200d\u094dष':'接合字元', 'ا\u200c\u064eب':'接合字元', '\u064e':'無字母數字', '\u0640':None,
+         'Psycho\u200cmetrika':'接合字元', 'Zwj\u200d':'接合字元', 'A\u200c،B':'接合字元', 'ک\u200cA':'接合字元',
+         'ا\u200c\u200cب':'接合字元', 'Psychometrika्\u200d':'接合字元',
+         '心\ufe0f理學報':'不可見', '\u3164':'不可見', 'Psychometrika\u2800':'不可見',
+         'Psycho\u200bmetrika':'不可見', 'Psychometrika\u202e':'不可見', 'A\x1cB':'控制',
+         'Psychometrika ':'canonical', '×':'無字母數字', '':'空白'}
+mism = [(k, issue(k), v) for k, v in fixed.items() if issue(k) != v]
+assert not mism, mism
+S = lambda **kw: dict(value='Sankhyā', **kw)
+dup_cases = [((S(start='1933',end='1960'), S(start='2002',end='2007')), False),
+             ((S(start='1933',end='1960'), S(start='1950')), True),
+             ((S(start='1933',end='1960'), S()), True),
+             ((S(start='1933',end='1960'), S(start='1960-06')), True),
+             ((S(start='1933',end='1960'), S(start='1960')), True),
+             ((S(attested=['1950']), S(attested=['2005'])), True),
+             ((S(start='1933',end='1960-12'), S(start='1961')), False),
+             ((S(start='1933',end='2003-01'), S(start='2003-1')), True),
+             ((S(start='1933',end='1960-10'), S(start='1960-9')), True),
+             ((S(start=1933,end=1960), S(start=2002,end=2007)), False)]
+bad_dup = [(a, b, got, want) for (a, b), want in dup_cases if (got := near_dup(a, b)) != want]
+assert not bad_dup, bad_dup
+n=bad=dup=0
+for f in glob.glob(os.path.expanduser('~/.akashic/entities')+'/*.yaml'):
+    t=io.open(f,encoding='utf8').read()
     if not t.startswith('venue:'): continue
-    n += 1
-    m = re.search(r'^names:\n((?:- .*\n|  .*\n)+)', t, re.M)
-    if m and re.search(r'^\s+(start|end|ended-unknown|attested):', m.group(1), re.M): dated += 1
-print(f"venue {n} 筆｜names 帶時間欄位 {dated} 筆")   # 2026-09-09：406 / 0
+    n+=1; d=yaml.safe_load(t)
+    segs=[x if isinstance(x,dict) else {'value': x} for x in (d.get('names') or [])]
+    names=[str(x['value']) for x in segs]
+    for lst in (names, d.get('authorized') or [], d.get('variant') or []):
+        for s in lst:
+            if issue(str(s)) is not None: bad+=1
+    for i in range(len(segs)):
+        for j in range(i+1, len(segs)):
+            if near_dup(segs[i], segs[j]): dup+=1
+    for lst in (d.get('authorized') or [], d.get('variant') or []):
+        ks=[canon(str(s)) for s in lst]
+        if len(ks)!=len(set(ks)): dup+=1
+print(f"venue {n}｜違反不變式的字串 {bad}｜近重複對 {dup}")   # 2026-09-12：485 / 0 / 0（R8 重跑仍是）
 EOF
 ```
 

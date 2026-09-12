@@ -152,7 +152,7 @@ R4 的 14 列全部在位。R5 verify 18 列、五路命中的兩條 Blocking �
 **Lo**。DA 用真 binary 把 `心\u{FE0F}理學報`／`心\u{034F}理學報`／`心理學報` 存成三筆「不同」名字，
 `add-venue --names $'\u{3164}'` 建出一筆 displayName 空白的 venue——而 Hangul filler 還滿足
 「至少一個字母」。R6：`isDefaultIgnorableCodePoint` 一律不可見，四類 generalCategory 與
-`UnsafeToEmitScalar` 留著（三份定義的聯集，每一份都是性質）。
+`UnsafeToEmitScalar` 留著（三份定義的聯集——前兩份是性質，`UnsafeToEmitScalar` 本身是與輸出閘共用的列舉，#569 管它；R6 verify 第 44 列抓到我在這裡寫成「每一份都是性質」）。
 
 **joiner 規則比它的 doc 寬、比真實文字窄。** R4 的 `joinable` 只查兩側是字母——拉丁字母就是
 字母，`Psycho\u{200C}metrika` 通過；canonical 不刪它、不是近重複對、`--authorize` 走同書寫
@@ -262,6 +262,48 @@ prefix（三席）。CLI 使用者看到 MCP 鍵名（`--add-name` 拒絕時印�
 席自己標 INFO）；record-divergence help 的 #553 順手改（R3 起每輪都記）；訊息在寫入面說
 「刪掉這一筆」的措辭代價（DA 第 46 列，接受並寫進 §5.7）。
 
+## R7 verify：把「字母」寫成程式
+
+R6 的 19 列全部在位；R7 verify 35 列、零 Blocking、7 MEDIUM。三條都是 R7 自己寫的判準比散文寬：
+
+**virama 分支驗的是 member 不是字母**（Codex）：`joiningScriptMember` 收數字與標記——那是給 (b) 支的
+左鄰居用的——virama 分支重用它，`Journal \u{0967}\u{094D}\u{200D}`（Devanagari 數字＋virama＋ZWJ）
+通過。DA 補了三格散文比程式窄的：virama 支不看右鄰居（`क्\u{200C}A` 通過）、(b) 支不要求同一文字
+（`ک\u{200C}क` 通過）、joiner 夾在基底與它的 virama 或標記之間（`क\u{200D}\u{094D}ष`、
+`ا\u{200C}\u{064E}ب`）通過。而合法的 conjunct 形（ka＋nukta＋virama＋ZWJ＋ssa、Khmer coeng、Bengali
+khanda ta、Sinhala touching）DA 逐一實測都通過——R8 的收緊不能誤傷它們：從 virama 往前跳過標記找基底、
+基底要是**字母**、右鄰居（若在）要是同一文字的字母／數字；(b) 支左收字母／標記／數字、右只收字母／數字、
+兩側同一文字（`joinScript` 回文字 id，Indic 每 0x80 一個）。
+
+**`segmentsAreDisjoint` 對非 ISO 端點 fail-open**（三席）：R7 的 `before` 對任意字串做字典序，`2003-1`
+（手誤少一位）、`民國49`、`1960 `（尾隨空白）全判「不相交」而豁免；venue `names` 的日期 decode 不驗、
+`dateFieldAnomalies` 不掃 venue，三處都沉默。DA 補了那句最痛的：`ISO8601Prefix.isValid` 早就在，
+`ISO8601Prefix.compatible` 的 doc 明寫「非 ISO 一律當不相容」——R7 寫了第二套日期比較而沒 grep 既有的
+（`grep-doctrine-before-authoring` 記過的形狀）。R8 在 `before` 對兩端各 guard 一次。
+
+**repoint 把 work 的 title 當 verdict literal**（DA，#418 既有）：apply 寫刊名 literal、demote 從 verdict
+逐字取回、repoint 卻用 `byCitekey[m.citekey]!.title`——repoint 之後 demote 會把 venue 邊改寫成論文標題，
+比「顯示名頂替」更糟，rejected 那一側也帶著標題所以 `rejectedPairings` 對真正的刊名不會抑制。R6／R7 兩輪
+在同一函式上動刀、理由都是「保護 verdict 的完整性」，沒有人看那筆 verdict 的 value 寫的是什麼。R8 從
+from-venue 的 confirmed verdict 取回，取不到就拒絕改指（與 demote 同一立場）；既有測試的 fixture 因此改走
+真的 apply 路徑，手造的裸 key 邊不再是合法的 repoint 起點。同一個函式的另一格（regression 席）：R7 的
+懸空 from-key 訊息指路 `--demote`，而 `--demote` 對同一狀態也是 notFound——改成「救回檔案或手改 YAML」。
+
+**D11 的寫入者列舉漏了一個**（DA）：work／person 合併在 `commitResolution` **之後**才對持有被併鍵 verdict
+的 venue 跑 `migrateHolderVerdicts` → `writeVenue`，沒有 pre-commit 的閘、preview 也不看——e2e：venue 手改
+一筆尾隨空白、dry-run 說 OK、apply 刪了被併 work、venue 留死 verdict（#139 F1 ＋ #460 的合成形，而 R5
+第 3 列的 D11 就是為了關它）。R8：`assertVenueHoldersWritable` 在兩個 `validate*Preconditions` 裡先跑
+（preview 共用）。
+
+其餘：`doomedRecordInvalid` 只驗會搬進倖存者的名字（canonical 等於倖存者已有的被濾掉，不必為它修一筆
+下一步就刪的檔——logic 席）；「至少一個字母」的字母是 L 類不是 `isAlphabetic`（security：一個孤立的
+Arabic fatha 曾寫得進去，displayName 是懸空記號——R5 Hangul filler 的同形）；`vetVenueNames` 的 120 以
+scalar 計（security：combining-mark 密集的 120 個 Character 是 596 個 scalar）；row 25 Python 的 `before`
+對 PyYAML 型別化的 start／end 會 TypeError（logic）——加 `str()` 與 ISO regex；parity 列的 D15 句被 R7
+接在四條不變式中間、把第 3／4 條孤立在句外（兩席）；changelog R5 節仍寫「每一份都是性質」（兩席）。
+INFO 記錄：`fmt` 對 venue 的拒絕從此涵蓋所有 error 類別、不只 D8（regression 席）——與 `.person` 相同，
+接受；Cn 在 DI 區段內的保留碼位會被擋（logic）；#553 順手改第五輪記錄。
+
 ## 第二次端到端又紅——這次是我的 binary
 
 改成替換語意後測試 7/7 綠、四個 mutation 負控乾淨，真 binary 卻說「authorized 含不在
@@ -286,10 +328,13 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
   ＋ R5 新增 6 條：順序無關／NFD 存 NFC 位元組／ALM 與 TAG 拒絕／純數字刊名收／NFD 舊指定修正
   且報出／`addVenue` 存 canonical 且驗
   ＋ R6 新增 2 條：apply／demote 對不可寫的 venue 零寫入 ＋ R7 新增 3 條：repoint 懸空 from-key 具名拒絕／
-  參數名兩面都印／長輸入理由不被截）；`VenueNameInvariantTests` 22 條
+  參數名兩面都印／長輸入理由不被截 ＋ R8 新增 3 條：repoint 的 literal 取自 verdict 不是 title／from-venue
+  無 verdict 拒絕／combining-mark 密集輸入理由不被截）；`VenueNameInvariantTests` 25 條
   （R5 的 8 條 ＋ R6：拉丁／CJK joiner 拒、join-control 文字的 joiner 收、DI 不可見、訊息對操作者、
   沿革同名豁免、三張清單近重複、bootstrap 拒的 literal 帶理由 ＋ R7：區塊標點與外文鄰居拒、連續 joiner
-  與浮動 virama 拒、草書文字補進區塊表、U+2800、碼位補零、豁免對粒度與端點保守、bootstrap 先問已有 venue）；`NameIdentityTests` 加「不刪
+  與浮動 virama 拒、草書文字補進區塊表、U+2800、碼位補零、豁免對粒度與端點保守、bootstrap 先問已有 venue
+  ＋ R8：virama 基底要是同一文字的字母且 joiner 兩側同一文字、孤立標記不是名字、豁免端點要是 ISO）；
+  `VerdictHolderGridTests` 加「work 合併對持有被併鍵 verdict 的髒 venue 在 commit 前拒」；`NameIdentityTests` 加「不刪
   任何非空白 scalar」；合併端 14 條（三種結果各有測試 ＋ dry-run 對不可寫的 keeper 拒）；
   `CanonicalFormatValidationTests` 加 venue 語意驗證
 - `record-divergence --candidate` 的 help 與 MCP `candidates` 描述補 venue（#553 遺留，兩面對齊）

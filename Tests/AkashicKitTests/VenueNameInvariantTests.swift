@@ -90,8 +90,8 @@ final class VenueNameInvariantTests: XCTestCase {
         }
     }
 
-    /// 反方向也是真的（同一列）：合法脈絡＝「前一個 scalar 是 virama」或「兩側任一在使用 join
-    /// control 的書寫系統區塊」。legacy Malayalam chillu 是 consonant＋virama＋ZWJ **詞尾**、波斯文
+    /// 反方向也是真的（同一列）：合法脈絡見 `joinerIsLegal`（R8：掛在同一文字字母上的 virama 之後、
+    /// 或左鄰居是 join-control 文字的字母／標記／數字且右鄰居是同一文字的字母／數字）。legacy Malayalam chillu 是 consonant＋virama＋ZWJ **詞尾**、波斯文
     /// `۱۴۰۰\u{200C}ها` 是**數字**＋ZWNJ——R4 的「兩側都是字母」對這兩個真實形狀 fail-closed。
     func testJoinControlScriptsKeepTheirJoiners() {
         for ok in ["\u{0D28}\u{0D4D}\u{200D}", "കല\u{0D4D}\u{200D}", "۱۴۰۰\u{200C}ها", "نشریه\u{200C}روان",
@@ -166,6 +166,34 @@ final class VenueNameInvariantTests: XCTestCase {
         XCTAssertTrue(NameIdentity.wellFormednessIssue("Tag\u{E0041}Name")?.contains("U+E0041") == true)
     }
 
+    /// **virama 要掛在同一文字的字母上、joiner 兩側要是同一文字、joiner 之後要是基底**（R7 verify 第 1／33／26 列，
+    /// Codex＋DA＋security）：R7 的 virama 分支只驗 `scalars[i-2]` 是 member——數字（U+0967）與 nukta（Mn）都是 member，
+    /// `Journal \u{0967}\u{094D}\u{200D}` 通過；virama 分支不看右鄰居（`क्\u{200C}A` 通過）；(b) 支不要求同一文字
+    /// （`ک\u{200C}क` 通過）；joiner 夾在基底與自己的 virama 之間（`क\u{200D}\u{094D}ष`）與 joiner 後直接接標記
+    /// （`ا\u{200C}\u{064E}ب`）都通過。R8：從 virama 往前跳過標記找基底、基底要是字母；joiner 之後只能是基底
+    /// （字母／數字）；兩側同一文字。合法的 conjunct 形（ka＋nukta＋virama＋ZWJ＋ssa）要保留。
+    func testViramaBaseAndJoinerNeighboursAreLettersOfOneScript() {
+        for bad in ["Journal \u{0967}\u{094D}\u{200D}", "Journal \u{093C}\u{094D}\u{200D}", "क्\u{200C}A",
+                    "ک\u{200C}क", "क\u{200D}\u{094D}ष", "ا\u{200C}\u{064E}ب", "क\u{200D}\u{093C}"] {
+            XCTAssertNotNil(NameIdentity.wellFormednessIssue(bad), bad.debugDescription)
+        }
+        for ok in ["क़्\u{200D}ष", "क्\u{200D}ष", "\u{0D28}\u{0D4D}\u{200D}", "بَ\u{200C}ب", "۱۴۰۰\u{200C}ها",
+                   "ស្\u{200D}ត"] {
+            XCTAssertNil(NameIdentity.wellFormednessIssue(ok), ok.debugDescription)
+        }
+    }
+
+    /// **「至少一個字母或數字」的字母是 L 類，不是 Alphabetic**（R7 verify 第 15 列，security）：`Character.isLetter`
+    /// 是 `isAlphabetic`，而 Unicode `Alphabetic` 含 Other_Alphabetic 的 Mn／Mc（Arabic fatha、Devanagari vowel sign）
+    /// ——一筆只有一個孤立變音符號的 venue 寫得進去，displayName 是一個懸空的記號（R5 Hangul filler 的同形）。
+    func testLoneCombiningMarkIsNotAName() {
+        for bad in ["\u{064E}", "\u{093E}", "\u{0345}", "\u{0650}\u{0651}"] {
+            XCTAssertNotNil(NameIdentity.wellFormednessIssue(bad), bad.debugDescription)
+        }
+        XCTAssertNil(NameIdentity.wellFormednessIssue("\u{0640}"), "tatweel 是 Lm，照 doc 放行")
+        XCTAssertNil(NameIdentity.wellFormednessIssue("۱۴۰۰"), "Nd 是數字")
+    }
+
     /// 訊息是對**操作者**說的（R5 verify 第 17 列）：修法是人改 YAML，訊息不得叫他呼叫一個 Swift 函式。
     func testInvariantMessagesSpeakToTheOperator() {
         for bad in ["Psychometrika ", "Psycho\u{200B}metrika", "×", "", "Psycho\u{200C}metrika", "\u{3164}"] {
@@ -234,6 +262,21 @@ final class VenueNameInvariantTests: XCTestCase {
         let fine = v([TemporalValue(value: "Sankhyā", range: DateRange(start: "1933", end: "1960-12")),
                       TemporalValue(value: "Sankhyā", range: DateRange(start: "1961"))])
         XCTAssertTrue(errors(fine).isEmpty, "\(errors(fine))")
+    }
+
+    /// **豁免的端點要是 ISO 8601 前綴**（R7 verify 第 2／3／7 列，三席）：R7 的 `before` 對任意字串做字典序比較，
+    /// `end: 2003-01`／`start: 2003-1`（手誤少一位）、`民國49`／`民國50`、`1960-10`／`1960-9` 全判「不相交」而豁免；
+    /// venue `names` 的日期 decode 不驗、`dateFieldAnomalies` 不掃 venue，三處都沉默。`ISO8601Prefix.isValid` 早就
+    /// 存在（`ISO8601Prefix.compatible` 的 doc 明寫非 ISO 一律當不相容），R8 在 `before` 裡對兩端各 guard 一次。
+    func testNearDupExemptionRequiresISOEndpoints() {
+        func v(_ segs: [TemporalValue<String>]) -> Venue {
+            Venue(key: "sankhya", type: .periodical, names: Timeline(segs), authorized: [])
+        }
+        for (e, s) in [("2003-01", "2003-1"), ("民國49", "民國50"), ("1960-10", "1960-9"), ("2503", "abc"), ("1960 ", "1961")] {
+            let vv = v([TemporalValue(value: "Sankhyā", range: DateRange(start: "1933", end: e)),
+                        TemporalValue(value: "Sankhyā", range: DateRange(start: s))])
+            XCTAssertTrue(errors(vv).contains { $0.contains("近重複") }, "\(e) / \(s)：\(errors(vv))")
+        }
     }
 
     /// **三張清單都掃近重複對**（R5 verify 第 11 列）：`variant` 內兩筆完全相同、`authorized` 內兩筆

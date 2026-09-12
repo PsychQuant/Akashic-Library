@@ -96,9 +96,9 @@ public enum NameIdentity {
     ///    存成三筆「不同」名字、`add-venue --names $'\u{3164}'` 建出一筆 displayName 空白的 venue。
     ///    R4 曾是 19 個例子的列舉（170 個 Cf 漏 149），R5 換成分類——換了一個更大的列舉。
     ///    **ZWJ／ZWNJ 例外**（兩者都是 DI）——波斯文與印度系文字合法用——但只在
-    ///    `joinerIsLegal` 說合法的脈絡：前一個 scalar 是掛在該類文字字母上的 virama（legacy Malayalam
-    ///    chillu＝consonant＋virama＋ZWJ **詞尾**），或兩側都是使用 join control 的文字的字母／標記／
-    ///    數字（波斯文 `۱۴۰۰\u{200C}ها` 是**數字**＋ZWNJ）。R4／R5 的「兩側是字母」對拉丁
+    ///    `joinerIsLegal` 說合法的脈絡：前一個 scalar 是掛在同一文字字母上的 virama（legacy Malayalam
+    ///    chillu＝consonant＋virama＋ZWJ **詞尾**），或左鄰居是使用 join control 的文字的字母／標記／數字、
+    ///    右鄰居是同一文字的字母／數字（波斯文 `۱۴۰۰\u{200C}ها` 是**數字**＋ZWNJ）。R4／R5 的「兩側是字母」對拉丁
     ///    字母 fail-open（`Psycho\u{200C}metrika` 通過、可被 `--authorize` 升成 displayName，
     ///    五路命中）、對 chillu 與波斯數字 fail-closed——R5 verify 第 1 列，Claude 代裁 D9；R6 verify
     ///    再收兩格（區塊裡的標點不算鄰居、連續 joiner 不算）。**代價要寫出來**（R6 verify 第 5／23／36 列）：
@@ -148,28 +148,41 @@ public enum NameIdentity {
             default: break
             }
         }
-        if !name.contains(where: { $0.isLetter || $0.isNumber }) {
+        // 「字母」是 generalCategory 的 L 類、「數字」是 N 類——不是 `Character.isLetter`（那是 `isAlphabetic`，
+        // 含 Other_Alphabetic 的 Mn／Mc：一個孤立的 Arabic fatha 或 Devanagari vowel sign 會通過，
+        // 寫出一筆 displayName 是懸空記號的 venue——R7 verify 第 15 列，R5 Hangul filler 的同形）。
+        if !scalars.contains(where: { isLetterOrDigit($0) }) {
             return "沒有任何字母或數字——不是名字，請刪掉這一筆"
         }
         return nil
     }
 
-    /// ZWJ／ZWNJ 在 `scalars[i]` 這個位置合不合法（第 2 條不變式的例外，D9；R7 收緊）。兩個脈絡，**封閉**：
+    /// generalCategory 的 L 類（含 Lm：tatweel、長音符）或 N 類。
+    static func isLetterOrDigit(_ u: Unicode.Scalar) -> Bool {
+        switch u.properties.generalCategory {
+        case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter,
+             .decimalNumber, .letterNumber, .otherNumber:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// ZWJ／ZWNJ 在 `scalars[i]` 這個位置合不合法（第 2 條不變式的例外，D9；R7／R8 收緊）。兩個脈絡，**封閉**：
     ///
-    /// - **前一個 scalar 是 virama**（ccc 9）**且 virama 掛在使用 join control 的文字的字母上**：
-    ///   印度系文字的 conjunct 控制，含 legacy Malayalam chillu 的詞尾 ZWJ（`ന്\u{200D}`）——所以這一支
-    ///   不要求右鄰居。「掛在字母上」是 R7 補的（R6 verify 第 19 列：`Psychometrika\u{094D}\u{200D}` 曾通過）。
-    /// - **兩側都是「使用 join control 的文字」裡的字母／標記／數字**（`joiningScriptMember`）：Arabic 一族、
-    ///   Syriac（含 Supplement）、Mandaic、NKo、Indic（0900–0DFF）、Myanmar、Khmer、Mongolian、Tifinagh、
-    ///   Hanifi Rohingya、Sogdian／Old Uyghur、Manichaean、Adlam、Arabic Extended-C。**區塊成員資格不是
-    ///   充分條件**（R6 verify 第 1 列，Codex）：區塊含標點，`A\u{200C}،B` 曾因逗號在 Arabic 區塊而通過；
-    ///   R7 起鄰居還要是字母／標記／數字，且**兩側**都要——`ک\u{200C}A` 這種跨文字的 joiner 也沒有意義。
-    ///   看區塊而不只看 generalCategory 是為了波斯數字（U+06F1…）：`۱۴۰۰\u{200C}ها` 是真實刊名的形狀。
+    /// - **(a) 前一個 scalar 是 virama**（ccc 9），從 virama 往前跳過標記找到的**基底是同一文字的字母**
+    ///   （nukta＋virama＋ZWJ 的 conjunct 形合法；數字或標記當基底不合法——R7 verify 第 1 列：`joiningScriptMember`
+    ///   收數字與標記，`Journal \u{0967}\u{094D}\u{200D}` 通過）；右鄰居若存在，要是**同一文字的字母／數字**
+    ///   （legacy Malayalam chillu 的詞尾 ZWJ 沒有右鄰居，所以不要求有；`क्\u{200C}A` 有一個拉丁右鄰居，拒）。
+    /// - **(b) 左鄰居是 join-control 文字的字母／標記／數字、右鄰居是同一文字的字母／數字**：右側不收標記——
+    ///   標記與前面的基底結合，joiner 夾在基底與它的標記（或 virama）之間沒有正字法意義，只是 confusable 通道
+    ///   （`ا\u{200C}\u{064E}ب`、`क\u{200D}\u{094D}ष`——R7 verify 第 26／33 列）；左側收標記，因為 Persian／Arabic
+    ///   文字裡 ZWNJ 常接在母音記號之後。**兩側要是同一文字**（`ک\u{200C}क` 沒有意義）；同區塊的標點不算鄰居
+    ///   （`A\u{200C}،B`——R6 verify 第 1 列）。看區塊而不只看 generalCategory 是為了波斯數字（U+06F1…）：
+    ///   `۱۴۰۰\u{200C}ها` 是真實刊名的形狀。
     ///
-    /// 兩個脈絡都不接受**鄰居是另一個 joiner**（R6 verify 第 19 列：連續 joiner 沒有正字法意義，字型
-    /// 忽略重複，只是「看起來一樣、canonical 不相等」通道在合法脈絡裡的殘餘）——這不需要另寫一行：
-    /// joiner 既不是任何文字的字母／標記／數字、也不是 virama，第二個 joiner 必然在兩支都失敗
-    /// （負控實測：顯式加的那兩行是等價突變，拿掉測試照紅，所以不留）。
+    /// 連續 joiner 必拒：joiner 既不是任何文字的字母／標記／數字、也不是 virama，第二個 joiner 在兩支都失敗
+    /// （負控實測：顯式加的「鄰居是 joiner → 拒」是等價突變，拿掉測試照紅，所以不留）。
     ///
     /// 拉丁、西里爾、CJK 之間的 joiner 不在任一支。它們在那些文字裡**只有排版意義**（德文用 ZWNJ 抑制
     /// 跨複合詞的連字：Auf\u{200C}lage——R6 verify 第 48 列指出「沒有意義」這句是假的），對身分沒有意義，
@@ -179,47 +192,55 @@ public enum NameIdentity {
         let prev: Unicode.Scalar? = i > 0 ? scalars[i - 1] : nil
         let next: Unicode.Scalar? = i + 1 < scalars.count ? scalars[i + 1] : nil
         if let p = prev, p.properties.canonicalCombiningClass == .virama {
-            return i >= 2 && joiningScriptMember(scalars[i - 2])
+            var j = i - 2
+            while j >= 0, isMark(scalars[j]) { j -= 1 }
+            guard j >= 0, let script = joinScript(scalars[j]), isLetterOrDigit(scalars[j]),
+                  !isDigit(scalars[j]) else { return false }
+            guard let n = next else { return true }
+            return joinScript(n) == script && isLetterOrDigit(n)
         }
-        guard let p = prev, let n = next else { return false }
-        return joiningScriptMember(p) && joiningScriptMember(n)
+        guard let p = prev, let n = next, let script = joinScript(p), joinScript(n) == script else { return false }
+        return (isLetterOrDigit(p) || isMark(p)) && isLetterOrDigit(n)
     }
 
-    /// 「使用 join control 的文字」的字母／標記／數字：落在下列區塊**且**是 Alphabetic、Mn／Mc 或帶
-    /// 數值——區塊裡的標點（Arabic comma U+060C、Devanagari danda U+0964…）不算。封閉列舉，理由見
-    /// `joinerIsLegal`；R7 補進的區塊（Mandaic、Syriac Supplement、Adlam、Hanifi Rohingya、Tifinagh、
-    /// Sogdian／Old Uyghur、Manichaean、Arabic Extended-C）是 R6 verify 第 14／22 列指出的疏漏——
-    /// 同一個文字的補充區塊本來就該在。
-    static func joiningScriptMember(_ u: Unicode.Scalar) -> Bool {
-        guard usesJoinControl(u) else { return false }
-        let props = u.properties
-        if props.isAlphabetic || props.numericType != nil { return true }
-        switch props.generalCategory {
+    static func isMark(_ u: Unicode.Scalar) -> Bool {
+        switch u.properties.generalCategory {
         case .nonspacingMark, .spacingMark: return true
         default: return false
         }
     }
-
-    /// 使用 join control（ZWJ／ZWNJ 有文字意義）的書寫系統區塊——封閉列舉，理由見 `joinerIsLegal`。
-    static func usesJoinControl(_ u: Unicode.Scalar) -> Bool {
-        switch u.value {
-        case 0x0600...0x06FF, 0x0750...0x077F, 0x0870...0x089F, 0x08A0...0x08FF,
-             0xFB50...0xFDFF, 0xFE70...0xFEFF, 0x10EC0...0x10EFF,   // Arabic 一族（含 Extended-C）
-             0x0700...0x074F, 0x0860...0x086F,                     // Syriac（含 Supplement）
-             0x0840...0x085F,                                      // Mandaic
-             0x07C0...0x07FF,                                      // NKo
-             0x0900...0x0DFF,                                      // Indic：Devanagari…Sinhala
-             0x1000...0x109F,                                      // Myanmar
-             0x1780...0x17FF,                                      // Khmer
-             0x1800...0x18AF,                                      // Mongolian
-             0x2D30...0x2D7F,                                      // Tifinagh（連字 ZWJ）
-             0x10D00...0x10D3F,                                    // Hanifi Rohingya
-             0x10F30...0x10F6F, 0x10F70...0x10FAF,                 // Sogdian、Old Uyghur
-             0x10AC0...0x10AFF,                                    // Manichaean
-             0x1E900...0x1E95F:                                    // Adlam
-            return true
-        default:
-            return false
+    static func isDigit(_ u: Unicode.Scalar) -> Bool {
+        switch u.properties.generalCategory {
+        case .decimalNumber, .letterNumber, .otherNumber: return true
+        default: return false
         }
     }
+
+    /// 「使用 join control 的文字」——scalar 落在下列區塊時回一個**文字 id**（同一文字的多個區塊回同一個 id），
+    /// 否則 `nil`。封閉列舉，理由見 `joinerIsLegal`；R7 補進的區塊（Mandaic、Syriac Supplement、Adlam、
+    /// Hanifi Rohingya、Tifinagh、Sogdian／Old Uyghur、Manichaean、Arabic Extended-C）是 R6 verify 第 14／22 列
+    /// 指出的疏漏——同一個文字的補充區塊本來就該在。Indic 每 0x80 一個文字（Devanagari…Sinhala）。
+    static func joinScript(_ u: Unicode.Scalar) -> Int? {
+        switch u.value {
+        case 0x0600...0x06FF, 0x0750...0x077F, 0x0870...0x089F, 0x08A0...0x08FF,
+             0xFB50...0xFDFF, 0xFE70...0xFEFF, 0x10EC0...0x10EFF:   return 1    // Arabic 一族（含 Extended-C）
+        case 0x0700...0x074F, 0x0860...0x086F:                       return 2    // Syriac（含 Supplement）
+        case 0x0840...0x085F:                                        return 3    // Mandaic
+        case 0x07C0...0x07FF:                                        return 4    // NKo
+        case 0x0900...0x0DFF:                                        return 100 + Int((u.value - 0x0900) / 0x80)   // Indic：Devanagari…Sinhala
+        case 0x1000...0x109F:                                        return 5    // Myanmar
+        case 0x1780...0x17FF:                                        return 6    // Khmer
+        case 0x1800...0x18AF:                                        return 7    // Mongolian
+        case 0x2D30...0x2D7F:                                        return 8    // Tifinagh（連字 ZWJ）
+        case 0x10D00...0x10D3F:                                      return 9    // Hanifi Rohingya
+        case 0x10F30...0x10F6F:                                      return 10   // Sogdian
+        case 0x10F70...0x10FAF:                                      return 11   // Old Uyghur
+        case 0x10AC0...0x10AFF:                                      return 12   // Manichaean
+        case 0x1E900...0x1E95F:                                      return 13   // Adlam
+        default:                                                     return nil
+        }
+    }
+
+    /// 使用 join control 的書寫系統區塊（`joinScript` 非 nil）——留給 row 25 的 grep 與舊呼叫端。
+    static func usesJoinControl(_ u: Unicode.Scalar) -> Bool { joinScript(u) != nil }
 }

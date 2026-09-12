@@ -359,8 +359,12 @@ public struct Venue: Equatable {
     /// 都算重疊——spec 的銜接年慣例 `end: 2003`／`start: 2003` 對**同名**段因此被拒，那是刻意的：同名
     /// 的兩段在同一年並存，讀者分不出哪一筆是那一年的名字）。
     static func segmentsAreDisjoint(_ a: DateRange, _ b: DateRange) -> Bool {
+        // **兩端都要是 ISO 8601 前綴**（R7 verify 第 2／3／7 列，三席）：venue `names` 的日期 decode 不驗
+        // （#85）、`dateFieldAnomalies` 不掃 venue，一個手改的 `2003-1`／`民國49`／`1960 ` 既沒人報、又能解鎖
+        // 豁免——而這是放行條件。`ISO8601Prefix.compatible` 的 doc 早寫著「非 ISO 前綴一律當成不相容」，
+        // 同一條先例。三種定寬形（YYYY／YYYY-MM／YYYY-MM-DD）讓 `min(count)` 的截斷自動落在分隔點。
         func before(_ end: String?, _ start: String?) -> Bool {
-            guard let e = end, let s = start else { return false }
+            guard let e = end, let s = start, ISO8601Prefix.isValid(e), ISO8601Prefix.isValid(s) else { return false }
             let n = min(e.count, s.count)
             return String(e.prefix(n)) < String(s.prefix(n))
         }

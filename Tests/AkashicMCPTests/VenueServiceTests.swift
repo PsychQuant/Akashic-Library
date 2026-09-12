@@ -683,13 +683,16 @@ final class VenueServiceTests: XCTestCase {
 
     // MARK: - 歸錯戶的退路（#418）
 
+    /// 走真的升格路徑：literal 進庫、`--apply` 升成 key 並在 venue 上留 confirmed verdict——
+    /// #554 R8 起 `repoint` 從那筆 verdict 逐字取回原 literal（不拿 title 頂替），手造的裸 key 邊會被拒。
     private func twoVenuesAndAnEntry() throws -> Entry {
         _ = try service.addVenue(key: "wikipedia", names: ["Wikipedia"], type: "website", note: nil)
         _ = try service.addVenue(key: "wikipedia-zh", names: ["維基百科"], type: "website", note: nil)
         var e = Entry(id: UUID(), citekey: "w2020", type: .referenceWorkEntry, title: "條目")
-        e.venues = [.key("wikipedia")]
+        e.venues = [.literal("Wikipedia")]
         _ = try store.writeEntry(e)
-        return e
+        _ = try service.resolveVenues(apply: ["w2020:0"])
+        return try XCTUnwrap(store.load().entries.first { $0.citekey == "w2020" })
     }
 
     /// **`--repoint` 把一條已經是 key 的邊改指到另一個 venue**（#418）。

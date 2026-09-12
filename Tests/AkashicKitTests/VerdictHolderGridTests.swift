@@ -92,6 +92,29 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertTrue(report.failures.isEmpty, "\(report.failures)")
     }
 
+    /// **持有被併 citekey 的 venue 要在 commit 之前過寫入閘，dry-run 也要拒**（#554 R7 verify 第 5 列，DA）：
+    /// work 合併在 `commitResolution` 之後才對每個持有 `work:<被併>` verdict 的 venue 跑 `migrateWorkHolderVerdicts`
+    /// → `writeVenue`，沒有 pre-commit 的 `assertVenueWritable`、preview 也不看——D8 讓「尾隨空白的名字」這種最常見
+    /// 的手改痕跡能讓那一步 throw：dry-run 說 OK、apply 已刪檔、venue 留死 verdict（#139 F1 ＋ #460 的合成形）。
+    func testWorkMergeRefusesUpFrontWhenAVenueHolderIsUnwritable() throws {
+        try entry("keeper2020a"); try entry("doomed2020a")
+        var v = Venue(key: "some-journal", type: .periodical, names: TimelineOf([TemporalValue(value: "J")]))
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "doomed2020a", literal: "J")]
+        _ = try store.writeVenue(v)
+        let file = root.appendingPathComponent("entities/\(v.id.uuidString).yaml")
+        try String(contentsOf: file, encoding: .utf8)
+            .replacingOccurrences(of: "- value: J\n", with: "- value: 'J '\n")
+            .write(to: file, atomically: true, encoding: .utf8)
+        let d = try divergence(keeper: "keeper2020a", doomed: "doomed2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "keeper2020a", overrideReason: nil)) { err in
+            XCTAssertTrue(String(describing: err).contains("J "), "\(err)")
+        }
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "keeper2020a"))
+        XCTAssertEqual(try store.load().entries.count, 2, "零寫入：被併 work 仍在")
+        XCTAssertEqual(try holders(ofVenue: "some-journal"), ["work:doomed2020a"])
+    }
+
     // MARK: - person merge × organization ／ × person
 
     func testPersonMergeMigratesPersonHoldersOnOrganizations() throws {

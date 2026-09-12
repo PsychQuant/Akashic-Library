@@ -2654,13 +2654,16 @@ public final class AkashicService {
             let c = NameIdentity.canonical(r)
             if c.isEmpty { continue }
             if let why = NameIdentity.wellFormednessIssue(c) {
-                bad.append("「\(r)」\(why)")   // display-safe-exempt: 整項在下面 throw 時經 displaySafe 消毒（一次，displaySafe 不冪等）；why 是 NameIdentity 的固定訊息
+                // 原字串自己截 120 字元（R6 verify 第 7／12 列：只對整項截 400 的話，貼錯一整段摘要時
+                // 被截掉的正是操作者要看的理由）；整項在下面 throw 時經 displaySafe（一次——它不冪等）
+                let shown = r.count > 120 ? String(r.prefix(120)) + "…" : r
+                bad.append("「\(shown)」\(why)")   // display-safe-exempt: 整項在 throw 時經 displaySafe 消毒；why 是 NameIdentity 的固定訊息
                 continue
             }
             if seen.insert(c).inserted { out.append(c) }
         }
         if !bad.isEmpty {
-            // 每項 400（原字串上限 120 ＋ 理由）、**項數不設上限**——#562 那一族的第七個位置，
+            // 每項 400（原字串截 120 ＋ 理由）、**項數不設上限**——#562 那一族的第七個位置，
             // 刻意寫成 `map { displaySafe }.joined` 讓 #562 的現算 grep 看得到（R5 verify 第 15 列：
             // 上一版把 displaySafe 放在迴圈裡、joined 在另一行，grep 數不到它）
             throw ServiceError.invalid("\(parameter) 的 " + bad.map { displaySafe($0, max: 400) }.joined(separator: "；"))   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量
@@ -2680,7 +2683,7 @@ public final class AkashicService {
         }
         // 同一欄位的第四個寫入者走同一個入口（#554 R4 verify 第 1 列：`add-venue --names "X "`
         // 曾原樣存入、連空字串都收，種下的髒條目讓乾淨拼法永遠進不了）
-        let vetted = try vetVenueNames(names, parameter: "names")
+        let vetted = try vetVenueNames(names, parameter: "names（--names）")
         guard !vetted.isEmpty else { throw ServiceError.invalid("names 全是空白——一筆 venue 至少要有一個名字") }
         var venue = Venue(key: key, type: vtype,
                           names: Timeline(vetted.map { TemporalValue(value: $0) }),
@@ -2753,9 +2756,10 @@ public final class AkashicService {
             let key = NameIdentity.canonical(requested)
             return venue.names.entries.first { NameIdentity.canonical($0.value) == key }?.value
         }
-        let namesIn = try vetVenueNames(addNames, parameter: "add_names")
-        let variantsIn = try vetVenueNames(addVariant, parameter: "add_variant")
-        let authorizeIn = try vetVenueNames(authorize, parameter: "authorize")
+        // 參數名兩面各自正確（R6 verify 第 45 列：CLI 使用者看到 MCP 鍵名 `add_names`，不是自己打的 `--add-name`）
+        let namesIn = try vetVenueNames(addNames, parameter: "add_names（--add-name）")
+        let variantsIn = try vetVenueNames(addVariant, parameter: "add_variant（--add-variant）")
+        let authorizeIn = try vetVenueNames(authorize, parameter: "authorize（--authorize）")
 
         var added: [String] = []
         for n in namesIn {
@@ -3791,6 +3795,13 @@ public final class AkashicService {
             }
             guard venueKeys.contains(newKey) else {
                 throw ServiceError.notFound("venue「\(displaySafe(newKey, max: 200))」")
+            }
+            // entry 目前指著的 venue 也要在（#554 R6 verify 第 4／27 列：檔被手刪或 quarantine 後，
+            // 下方 `venuesByKey[k]!` 對 `from` 是 crash 不是拒絕——MCP 面上是以合法參數殺死 server 的路徑）
+            guard venueKeys.contains(oldKey) else {
+                throw ServiceError.notFound(
+                    "work「\(displaySafe(citekey, max: 200))」的第 \(idx) 個 venue 邊指著 venue「\(displaySafe(oldKey, max: 200))」，"   // display-safe-exempt: Int
+                    + "但那筆記錄不在 store 裡（檔被刪或被 quarantine）——先用 --demote 退回 literal，或把檔案救回來")
             }
             // 改指到自己＝no-op（冪等；重跑同一個 id 不累積 verdict）
             guard oldKey != newKey else { continue }

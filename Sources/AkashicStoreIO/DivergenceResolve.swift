@@ -17,6 +17,9 @@ public enum DivergenceResolveError: Error, LocalizedError {
     static let mergeableShapes = ["person", "work", "venue"]
     case legacyLayout(root: String)
     case wouldLoseFields(merged: String, survivor: String, losses: [String])
+    /// 被併記錄自己違反寫入期不變式（#554 D8 的名字內容檢查）——合併會把它的名字搬進倖存者，
+    /// 倖存者因此寫不進去，而訊息若指著倖存者的 YAML，那個字串根本不在那個檔裡（R6 verify 第 28 列）。
+    case doomedRecordInvalid(merged: String, why: String)
     case quarantinedPresent(files: [String])
     case candidateNotInEntities(key: String, expected: String)
     /// #73：要刪的檔案不在版控裡、或有未提交的修改——刪掉就真的沒了。
@@ -86,6 +89,9 @@ public enum DivergenceResolveError: Error, LocalizedError {
                  + "歧異記錄需要 entities/ 佈局。legacy 下 person 落在 people/<key>.yaml、"
                  + "而歧異記錄的刪除只認 entities/<uuid>.yaml——寫得進去、刪不掉，"
                  + "必然停在「參照全改了、被併檔還在」的半完成狀態。先跑 akashic migrate。"
+        case let .doomedRecordInvalid(merged, why):
+            return "拒絕合併：被併的「\(displaySafe(merged, max: 200))」自己違反 venue 的寫入期不變式——\(why)"   // display-safe-exempt: why 由 NameIdentity 的固定訊息與已 displaySafe 的名字組成
+                 + "。先修它的 YAML（docs/store-format.md §5.7）再合併；不猜、不靜默修"
         case let .wouldLoseFields(merged, survivor, losses):
             return "拒絕合併：被併的「\(displaySafe(merged, max: 200))」帶有倖存者"
                  + "「\(displaySafe(survivor, max: 200))」沒有的資料，合併會讓它隨檔案消失——"
@@ -822,6 +828,18 @@ extension LibraryStore {
         }
         try assertAllInEntities(([keeper] + doomed).map { ($0.key, $0.id) })
         for v in doomed {
+            // 被併者的名字會原樣搬進倖存者（`mergedVenueKeeper`），所以它們要先通過 D8 的名字內容檢查，
+            // 且訊息要指向**被併者**——那個字串只存在於它的 YAML（R6 verify 第 28 列）。preview 與實跑
+            // 共用這一份（#139 F1）。
+            for (label, list) in [("names", v.names.entries.map(\.value)), ("variant", v.variant)] {
+                for n in list {
+                    if let why = NameIdentity.wellFormednessIssue(n) {
+                        throw DivergenceResolveError.doomedRecordInvalid(
+                            merged: v.key,
+                            why: "\(label)「\(displaySafe(n, max: 120))」\(why)")   // display-safe-exempt: label 是字面常量；why 是 NameIdentity 的固定訊息
+                    }
+                }
+            }
             let losses = Self.fieldsLostByMerging(v, into: keeper)
             guard losses.isEmpty else {
                 throw DivergenceResolveError.wouldLoseFields(

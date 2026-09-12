@@ -28,8 +28,12 @@ struct Fmt: ParsableCommand {
         let r = try CanonicalFormat.scan(store: store, apply: !check)
 
         print("走訪 \(r.scanned) 筆記錄")
-        if r.deviating.isEmpty {
+        if r.deviating.isEmpty && r.failures.isEmpty {
             print("✓ 全部已是 canonical form")
+        } else if r.deviating.isEmpty {
+            // 失敗的檔根本沒進比對集合——「全部」只能對被檢查過的說（#554 R6 verify 第 43 列，
+            // `zero-instance-guards` 第 3 列「未涵蓋不得冒充通過」的形狀）
+            print("✓ 讀得進來的 \(r.scanned - r.failures.count) 筆已是 canonical form；\(r.failures.count) 筆未檢查（見下）")   // display-safe-exempt: Int
         } else {
             print("偏離 canonical form: \(r.deviating.count) 筆")
             for f in r.deviating.prefix(20) { print("  - \(displaySafe(f, max: 200))") }

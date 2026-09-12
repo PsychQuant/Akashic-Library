@@ -200,12 +200,17 @@ public enum VenueBootstrap {
                 // 讀進來仍是 literal 的原字串，只是空白不是名字的一部分。不能作為名字的路由到
                 // `dropped` 並留在 literal——bootstrap 不建一筆會被 validate 擋的記錄
                 let name = NameIdentity.canonical(raw)
-                if let why = NameIdentity.wellFormednessIssue(name) {
-                    rejected[raw, default: (reason: why, count: 0)].count += 1
-                    continue
-                }
+                // **先問「庫裡是不是已經有這本刊」、再問「這能不能當名字」**（R6 verify 第 16 列）：
+                // `matchingKey` 會刪 Cf，只差一個 soft hyphen 的既有刊名 literal 本來就能被 resolve-venues
+                // 歸戶，把它印成「不建檔…請修來源欄位」是不必要的動作，且它的次數會從乾淨群裡消失
                 let id = NameNormalization.matchingKey(name)
                 guard !known.contains(id) else { continue }
+                if let why = NameIdentity.wellFormednessIssue(name) {
+                    // bootstrap 脈絡的出口是修 work 的來源欄位——謂詞的訊息是寫給手改 venue YAML 的人的
+                    // （R6 verify 第 34 列），這裡補上這個脈絡自己的修法
+                    rejected[raw, default: (reason: why + "（來自 work 的來源欄位 journaltitle／booktitle／publisher，修那裡）", count: 0)].count += 1
+                    continue
+                }
                 guard let type = venueType(forSourceField: field) else { continue }
                 var g = groups[id] ?? Group()
                 if !g.names.contains(name) { g.names.append(name) }

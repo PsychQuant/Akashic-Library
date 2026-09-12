@@ -201,7 +201,7 @@ actor AkashicMCPServer {
              description: "venue 的部分更新（#306／#394／#471／#554）——append 語意：add_names／add_issn／add_variant 只附加不重複的值（整組替換刻意不提供）；authorize 是同書寫系統替換（不是 append，見該參數）；paginated 是判定（#406）；note／type 替換（選填）。沿革補全直接擴大 resolve_venues 的命中面（resolver 對沿革各段都配對）。需 store format ≥ 11。",
              inputSchema: obj([
                 "key": str("既有 venue key"),
-                "add_names": strArray("要附加的名稱變體。相等看 canonical（前後／連續空白、NFC）——近重複自動略過、以 namesAdded 回報實際寫入的拼法；新名字以 canonical 形入庫：**空白類**（含 tab／換行／LS／PS／NEL）收斂為單一空格、NFC。**其他**控制／格式／不可見字元（bidi、零寬、變體選擇子、填充字元）、拉丁或 CJK 之間的接合字元（ZWJ／ZWNJ 只在阿拉伯系／印度系文字裡合法）、或沒有任何字母或數字的字串**整批拒絕零寫入**（同一呼叫的其他參數也不寫，#554 D8）"),
+                "add_names": strArray("要附加的名稱變體。相等看 canonical（前後／連續空白、NFC）——近重複自動略過、以 namesAdded 回報實際寫入的拼法；新名字以 canonical 形入庫：**空白類**（含 tab／換行／LS／PS／NEL）收斂為單一空格、NFC。**其他**控制／格式／不可見字元（bidi、零寬、變體選擇子、填充字元）、拉丁或 CJK 之間的接合字元（ZWJ／ZWNJ 只在使用 join control 的文字——阿拉伯系／印度系／蒙古文等——的字母之間或 virama 之後合法）、或沒有任何字母或數字的字串**整批拒絕零寫入**（同一呼叫的其他參數也不寫，#554 D8）"),
                 "note": str("備註（替換；選填）"),
                 "type": str("\(VenueType.domainDescription)（替換；選填）"),
                 "add_issn": strArray("要附加的 ISSN（append 語意，同 add_names；ISSN 本來就是清單——print 與 electronic 是兩個真的號。相等看正規形，`0003-066x` 與 `0003-066X` 不會變成兩筆；任一個不合法即整個呼叫拒絕、零寫入。#394）"),

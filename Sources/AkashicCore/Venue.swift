@@ -257,22 +257,38 @@ public struct Venue: Equatable {
         // **canonical-相等對**：同一個名字寫兩筆是自相矛盾的一種（哪一筆是「這個名字」？）。
         // `names` 有一個合法例外（R5 verify 第 4 列）：**沿革改回舊名**——`TimelineOf` 明寫同一 value
         // 可在多段，row 22 保留沿革正是為了它（Sankhyā 1933–1960 → 分刊 → 2002–2007 合回同名 → 再分）。
-        // 豁免的判準與 dated-variant 守衛同一個 `makesTemporalClaim`：**兩段都作時間宣稱、且不重疊**；
-        // 任一段無時間宣稱（那筆說的是「現在」，與另一筆的「某段期間」必然重疊）或兩段重疊，仍是
-        // 近重複對。`authorized`／`variant` 沒有時間軸，所以那兩張清單沒有例外（R5 只掃 names——
-        // 第 11 列：`variant` 內兩筆完全相同通過 validate，工具不會造出、手改會）。
-        let segs = names.entries
-        for i in segs.indices {
-            for j in segs.indices where j > i && NameIdentity.same(segs[i].value, segs[j].value) {
-                let a = segs[i].range, b = segs[j].range
-                if a.makesTemporalClaim && b.makesTemporalClaim && !a.overlaps(b) { continue }
-                let why = a.makesTemporalClaim && b.makesTemporalClaim
-                    ? "兩段的時間重疊——同名的沿革段要不相交，請在 YAML 裡修時間欄位或留一筆"
-                    : "只差空白或正規化的兩個字串是同一個名字，請在 YAML 裡留一筆（沿革改回舊名要兩段都帶不相交的時間）"
-                issues.append(ValidationIssue(
-                    severity: .error,
-                    message: "venue '\(displaySafe(key, max: 120))' 的 names 有兩筆近重複「\(displaySafe(segs[i].value, max: 120))」"
-                           + "與「\(displaySafe(segs[j].value, max: 120))」——\(why)"))   // display-safe-exempt: why 是本函式的兩句字面常量
+        // 豁免的判準：**兩段都作時間宣稱、且依 `segmentsAreDisjoint` 不相交**；任一段無時間宣稱（那筆說的
+        // 是「現在」，與另一筆的「某段期間」必然重疊）或無從判定不相交，仍是近重複對。`authorized`／
+        // `variant` 沒有時間軸，所以那兩張清單沒有例外（R5 只掃 names——第 11 列：`variant` 內兩筆完全
+        // 相同通過 validate，工具不會造出、手改會）。
+        //
+        // **先以 canonical 鍵分組、只在同鍵組內比對**（R6 verify 第 21 列）：R6 是 O(n²) 且每對重算
+        // canonical——`add_names` 無上限、無移除面，一個被灌進上萬個名字的 venue 之後每次寫入與每次
+        // doctor／App 側欄都付分鐘級的代價。正常情況每組一筆，分組後是 O(n)。
+        var groups: [String: [TemporalValue<String>]] = [:]
+        var order: [String] = []
+        for seg in names.entries {
+            let k = NameIdentity.canonical(seg.value)
+            if groups[k] == nil { order.append(k) }
+            groups[k, default: []].append(seg)
+        }
+        for k in order {
+            let segs = groups[k]!
+            guard segs.count > 1 else { continue }
+            for i in segs.indices {
+                for j in segs.indices where j > i {
+                    let a = segs[i].range, b = segs[j].range
+                    if a.makesTemporalClaim && b.makesTemporalClaim && Self.segmentsAreDisjoint(a, b) { continue }
+                    let why = a.makesTemporalClaim && b.makesTemporalClaim
+                        ? "兩段的時間重疊或無從判定不相交——同名的沿革段要一段有 end、另一段有 start，"
+                          + "且前段的 end 早於後段的 start（同年或端點相等算重疊、粒度不同時以較粗的比），"
+                          + "請在 YAML 裡修時間欄位或留一筆"
+                        : "只差空白或正規化的兩個字串是同一個名字，請在 YAML 裡留一筆（沿革改回舊名要兩段都帶不相交的時間）"
+                    issues.append(ValidationIssue(
+                        severity: .error,
+                        message: "venue '\(displaySafe(key, max: 120))' 的 names 有兩筆近重複「\(displaySafe(segs[i].value, max: 120))」"
+                               + "與「\(displaySafe(segs[j].value, max: 120))」——\(why)"))   // display-safe-exempt: why 是本函式的兩句字面常量
+                }
             }
         }
         for (label, list) in [("authorized", authorized), ("variant", variant)] {
@@ -333,6 +349,22 @@ public struct Venue: Equatable {
                 message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         return issues
+    }
+
+    /// 沿革豁免用的「不相交」——**保守方向**，與 `DateRange.overlaps` 刻意不同（R6 verify 第 9／35／47 列）。
+    /// `overlaps` 是給提醒／守衛用的（多報安全），而這裡是**放行**條件，第一次拿它當放行就露出兩個洞：
+    /// 字串比較對混合粒度 fail-open（`end: "1960"` < `start: "1960-06"` 判「在前」，而 1960 年涵蓋
+    /// 1960-06），且 attested-only／`endedUnknown` 段根本沒有可比的端點卻被訊息說成「修時間欄位」。
+    /// 判準：一段要有 `end`、另一段要有 `start`，以兩者中較粗的粒度截斷後**嚴格**小於（同年、端點相等
+    /// 都算重疊——spec 的銜接年慣例 `end: 2003`／`start: 2003` 對**同名**段因此被拒，那是刻意的：同名
+    /// 的兩段在同一年並存，讀者分不出哪一筆是那一年的名字）。
+    static func segmentsAreDisjoint(_ a: DateRange, _ b: DateRange) -> Bool {
+        func before(_ end: String?, _ start: String?) -> Bool {
+            guard let e = end, let s = start else { return false }
+            let n = min(e.count, s.count)
+            return String(e.prefix(n)) < String(s.prefix(n))
+        }
+        return before(a.end, b.start) || before(b.end, a.start)
     }
 
     /// 對外可稱呼的名稱：authorized 書寫系統相符者 → 任一 authorized →

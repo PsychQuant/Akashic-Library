@@ -401,9 +401,14 @@ final class DivergenceResolveVenueTests: XCTestCase {
         GitFixture.commitAll(root, message: "dirty")
         XCTAssertTrue(try store.load().venues.first { $0.key == "american-statistician" }!
                         .names.entries.contains { $0.value == "AMERICAN STATISTICIAN " }, "fixture")
+        // 訊息要指向**被併者**（R6 verify 第 28 列）：那個字串只存在於 doomed 的 YAML，R6 的訊息說
+        // 「venue 'the-american-statistician' 的 names…請在 YAML 裡改」——倖存者的檔裡根本沒有這一筆。
         XCTAssertThrowsError(try store.previewResolveDivergence(
             id: d.id, survivor: "the-american-statistician", overrideReason: nil)) { err in
-            XCTAssertTrue(String(describing: err).contains("AMERICAN STATISTICIAN "), "\(err)")
+            let s = (err as? LocalizedError)?.errorDescription ?? String(describing: err)
+            XCTAssertTrue(s.contains("AMERICAN STATISTICIAN "), s)
+            XCTAssertTrue(s.contains("american-statistician") && s.contains("被併"), s)
+            XCTAssertFalse(s.contains("'the-american-statistician' 的 names"), s)
         }
         XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "the-american-statistician"))
         let after = try store.load()

@@ -200,6 +200,68 @@ R5 自己加的 `vetVenueNames` join——第三次抄一個沒跑過的計算�
 修 YAML 後成功、`fmt --check` 與 `validate` 都具名、bootstrap 印出 `×` 帶理由、Sankhyā 三段
 收而重疊拒。live store 485 筆：Swift 與 Python 兩套量測都是 0／0。
 
+## R6 verify：封閉列舉在邊界上長出的答案
+
+R5 的 17 列全部在位；R6 verify 49 列、零 Blocking、4 MEDIUM。這一輪的 finding 幾乎都是 D9 兩條
+封閉規則的**邊界**——正是 `common-spec-prose-enumeration` 說的那件事，只是這次是我自己寫的
+列舉：
+
+**區塊成員資格不是充分條件**（Codex）：Unicode 區塊含標點，`A\u{200C}،B` 因逗號落在 Arabic
+區塊而通過——ZWNJ 沒有接合用途，只是通道。security 席補了一格：連續 joiner（`ا\u{200C}\u{200C}ب`）
+在合法脈絡裡放行，字型忽略重複，同樣是「看起來一樣、canonical 不相等」的殘餘；virama 分支不要求
+virama 掛在印度系字母上（`Psychometrika\u{094D}\u{200D}` 通過）。R7：兩側都要是 join-control 文字
+的**字母／標記／數字**、鄰居不得是 joiner、virama 要掛在字母上。反方向兩席各自實測：清單漏了
+Mandaic 與 Syriac Supplement——它們就夾在 Syriac 與 Arabic Extended-B 之間，是疏忽不是裁決——
+以及 Adlam／Hanifi Rohingya／Tifinagh／Sogdian／Old Uyghur／Manichaean／Arabic Extended-C；補齊，
+Python 對照同批。
+
+**DI 一律拒的代價要寫出來**（requirements／regression／logic 三席）：CJK IVS、蒙古文 FVS／MVS、
+希伯來文 CGJ、emoji ZWJ 序列、德文抑制連字的 ZWNJ 全部被拒。它們是 fail-closed（訊息具名、
+零寫入），不是靜默損失；書目資料裡機率極低。**維持 D9**，但 §5.7 與 doc 把這一整組寫成誠實邊界
+——R6 只記了 NFC 對 U+FA10 有損。DA 更正 logic 席的歸因：蒙古文的 joiner **確實**通過（清單對它
+不是空的），被拒的是 FVS／MVS，走 DI 分支——所以要翻的話翻的是 DI 例外表，不是區塊表。另一個
+三席都沒收的碼位：U+2800 BRAILLE PATTERN BLANK（So，渲染成一格空白）——顯式列進謂詞。
+
+**沿革豁免把 `DateRange.overlaps` 用在放行方向**：那個函式做字串比較，`end: "1960"` 對
+`start: "1960-06"` 判「在前」——它一直是給提醒用的（多報安全），本輪第一次拿它當放行條件就
+fail-open；DA 補了反方向：端點相等（spec 自己的銜接年慣例）被判重疊、attested-only 段永遠進不了
+豁免而訊息說「修時間欄位」。R7：豁免用自己的 `segmentsAreDisjoint`（一段有 end、另一段有 start、
+較粗粒度截斷後嚴格早於；端點相等與 attested-only 都不豁免），訊息與 §5.7 把「不相交」定義寫清楚。
+Codex 另抓到 Python 對照的近重複豁免根本沒看重疊——「485/0/0」在這一格證不到兩套判準一致；R7
+的腳本鏡射同一個判準並加七組固定案例。security 席量到近重複掃描是 O(n²)（3,000 筆 5.75 s）——
+`add_names` 無上限、無移除面，一個被灌滿的 venue 之後每次寫入與每次 doctor 都付這個代價；改成
+先以 canonical 鍵分組。
+
+**「D8 不進 spec」我說記了、其實沒記**（requirements 席，MEDIUM）：R6 的 scope note 寫「記在
+parity 列」，diff 裡零命中；而 §5.7 自稱「cross-binary 契約」又說「不是 published contract」。
+spec 已有兩條同形的 validate-time Requirement（互斥、variant 不帶時間），D8 的四條該是第三條——
+那要走 spectra-propose，#554 不做。R7：§5.7 改成「store 契約，與 §3.4 同級；spec Requirement
+是 #570」，parity 列真的把裁決寫下來。
+
+**repoint 對懸空 from-key 是 crash 不是拒絕**（security MEDIUM；DA 更正：base 既有，D11 把它從
+「entry 已落盤再 crash」變成「零寫入再 crash」，不是 D11 的 regression）。仍然修：MCP 面上那是
+以合法參數殺死 server 的路徑。R7 與 `newKey` 同形的 `guard`，訊息指路 `--demote`。
+
+其餘 in-scope：`mergedVenueKeeper` 原樣搬被併者的名字，被併者若違反不變式，R6 的訊息說
+「venue 'keeper' 的 names…請在 YAML 裡改」——那個字串只在 doomed 的 YAML（DA）；R7 在前置檢查
+逐筆驗被併者的名字，`doomedRecordInvalid` 指向被併者。`vetVenueNames` 的註解與 #562 comment 說
+「原字串 120 ＋ 理由」而程式只對整項截 400，貼錯一整段摘要時被截掉的正是理由——補上 120 的
+prefix（三席）。CLI 使用者看到 MCP 鍵名（`--add-name` 拒絕時印「add_names 的」）——參數名兩面
+都印。bootstrap 的謂詞拒絕排在「已有 venue」之前，只差一個 soft hyphen 的既有刊名 literal 被印成
+「修來源欄位」而它本來就能被 resolve-venues 歸戶——調換順序、理由補上 bootstrap 脈絡的出口。
+`fmt --check` 對 validate 失敗的檔仍先印「✓ 全部已是 canonical form」——失敗的檔沒進比對集合，
+「全部」是對沒被檢查的說的（第 3 列的形狀，`.person` 也有）。碼位補零到四位。changelog 寫「36 條」
+而分項加總與檔案實數都是 38。`two-kinds` 那列複述四條而沒跟上——改成引用 §5.7。#567 comment
+的兩句承重的話都要改：「自 #564 起不留 judgement」（#564 還開著，不留是 #554 自己的 D2）與
+「閘寫不出來、能寫的只有刪」（DA：`format < 14` 就是一個可判定的閘；D4／D10 的「刪」維持，但
+理由是 `no-compat-fallback` 第 3 條，不是結構上不可能）。#569 body 仍描述 R5 版輸入閘、且 R6 開了
+三個印「已知含不可見字元」字串的 sink（bootstrap 的 dropped 行、`vetVenueNames`、`Venue.validate()`
+的訊息）——留言補記。
+
+不動的：合併端與 `resolve-venues` 的 entry 側撕裂（pre-existing，D11 只管 venue 側——regression
+席自己標 INFO）；record-divergence help 的 #553 順手改（R3 起每輪都記）；訊息在寫入面說
+「刪掉這一筆」的措辭代價（DA 第 46 列，接受並寫進 §5.7）。
+
 ## 第二次端到端又紅——這次是我的 binary
 
 改成替換語意後測試 7/7 綠、四個 mutation 負控乾淨，真 binary 卻說「authorized 含不在
@@ -213,7 +275,7 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
 ## 落地
 
 - `updateVenue` 加 `authorize: [String]?`；CLI `--authorize`、MCP `authorize`，兩面同批
-- 36 條寫入面測試（R1 的 7 條改語意 ＋ R2 新增 5 條：同書寫系統兩名拒絕／沿革前身保留時間／
+- 41 條寫入面測試（R1 的 7 條改語意 ＋ R2 新增 5 條：同書寫系統兩名拒絕／沿革前身保留時間／
   確認既有值報 `alreadyAuthorized`／兩邊空白不是矛盾／呼叫端自己 `add_variant` 才進 variant
   ＋ R3 新增 7 條：近重複不是替換／近重複用 store 拼法拉回／跨參數近重複仍是矛盾／控制字元
   與純標點不是名字／衝突桶排序全報／重複字串只報一次／確認既有值仍移出同書寫系統的另一個
@@ -223,9 +285,11 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
   三個迴圈同一個空白——後三條在 R5 重裁成「手改的違反被 validate 具名擋下」
   ＋ R5 新增 6 條：順序無關／NFD 存 NFC 位元組／ALM 與 TAG 拒絕／純數字刊名收／NFD 舊指定修正
   且報出／`addVenue` 存 canonical 且驗
-  ＋ R6 新增 2 條：apply／demote 對不可寫的 venue 零寫入）；`VenueNameInvariantTests` 15 條
+  ＋ R6 新增 2 條：apply／demote 對不可寫的 venue 零寫入 ＋ R7 新增 3 條：repoint 懸空 from-key 具名拒絕／
+  參數名兩面都印／長輸入理由不被截）；`VenueNameInvariantTests` 22 條
   （R5 的 8 條 ＋ R6：拉丁／CJK joiner 拒、join-control 文字的 joiner 收、DI 不可見、訊息對操作者、
-  沿革同名豁免、三張清單近重複、bootstrap 拒的 literal 帶理由）；`NameIdentityTests` 加「不刪
+  沿革同名豁免、三張清單近重複、bootstrap 拒的 literal 帶理由 ＋ R7：區塊標點與外文鄰居拒、連續 joiner
+  與浮動 virama 拒、草書文字補進區塊表、U+2800、碼位補零、豁免對粒度與端點保守、bootstrap 先問已有 venue）；`NameIdentityTests` 加「不刪
   任何非空白 scalar」；合併端 14 條（三種結果各有測試 ＋ dry-run 對不可寫的 keeper 拒）；
   `CanonicalFormatValidationTests` 加 venue 語意驗證
 - `record-divergence --candidate` 的 help 與 MCP `candidates` 描述補 venue（#553 遺留，兩面對齊）

@@ -87,19 +87,25 @@ public enum NameIdentity {
     ///
     /// 1. **是 canonical 形**（前後／連續空白、tab、NFD 都不是）——空白不是名字的一部分
     ///    （本型別的立場）；R3 把新條目存原樣，之後乾淨拼法永遠進不了 authorized。
-    /// 2. **不含危險或不可見 scalar**——三份定義的聯集，每一份都是**性質**不是列舉：
-    ///    輸出閘 `UnsafeToEmitScalar`（同一份）、generalCategory 的 Cc／Cf／Zl／Zp、以及 Unicode
-    ///    自己的 `Default_Ignorable_Code_Point`（UAX #44；UTS #39 confusable 用的那個）。第三份是
+    /// 2. **不含危險或不可見 scalar**——三份定義的聯集：輸出閘 `UnsafeToEmitScalar`（**同一份**，
+    ///    它本身是 C0／C1／bidi 的列舉——#569 管它）、generalCategory 的 Cc／Cf／Zl／Zp（性質）、以及 Unicode
+    ///    自己的 `Default_Ignorable_Code_Point`（性質；UAX #44，UTS #39 confusable 用的那個），再加一個
+    ///    三者都沒收的 U+2800 BRAILLE PATTERN BLANK。第三份是
     ///    R5 verify 第 2 列補的：VS16（U+FE0F，網頁貼上常見）、CGJ（U+034F）是 **Mn**、Hangul filler
     ///    （U+3164）是 **Lo**——四類 generalCategory 都放行，`心\u{FE0F}理學報`／`心\u{034F}理學報`／`心理學報`
     ///    存成三筆「不同」名字、`add-venue --names $'\u{3164}'` 建出一筆 displayName 空白的 venue。
     ///    R4 曾是 19 個例子的列舉（170 個 Cf 漏 149），R5 換成分類——換了一個更大的列舉。
     ///    **ZWJ／ZWNJ 例外**（兩者都是 DI）——波斯文與印度系文字合法用——但只在
-    ///    `joinerIsLegal` 說合法的脈絡：前一個 scalar 是 virama（legacy Malayalam chillu＝
-    ///    consonant＋virama＋ZWJ **詞尾**），或兩側都有非空白鄰居且任一側在使用 join control 的
-    ///    書寫系統區塊（波斯文 `۱۴۰۰\u{200C}ها` 是**數字**＋ZWNJ）。R4／R5 的「兩側是字母」對拉丁
+    ///    `joinerIsLegal` 說合法的脈絡：前一個 scalar 是掛在該類文字字母上的 virama（legacy Malayalam
+    ///    chillu＝consonant＋virama＋ZWJ **詞尾**），或兩側都是使用 join control 的文字的字母／標記／
+    ///    數字（波斯文 `۱۴۰۰\u{200C}ها` 是**數字**＋ZWNJ）。R4／R5 的「兩側是字母」對拉丁
     ///    字母 fail-open（`Psycho\u{200C}metrika` 通過、可被 `--authorize` 升成 displayName，
-    ///    五路命中）、對 chillu 與波斯數字 fail-closed——R5 verify 第 1 列，Claude 代裁 D9。
+    ///    五路命中）、對 chillu 與波斯數字 fail-closed——R5 verify 第 1 列，Claude 代裁 D9；R6 verify
+    ///    再收兩格（區塊裡的標點不算鄰居、連續 joiner 不算）。**代價要寫出來**（R6 verify 第 5／23／36 列）：
+    ///    DI 一律拒等於拒掉幾類真實正字法用字——CJK IVS（U+E0100–E01EF）、蒙古文 FVS／MVS、希伯來文
+    ///    CGJ、emoji ZWJ 序列、德文抑制連字的 ZWNJ——全部 fail-closed（訊息具名、零寫入），不是靜默損失；
+    ///    書目資料裡機率極低，使用者回來後可翻 D9。**放行但不像名字的**：純 tatweel `\u{0640}`（Lm）、
+    ///    開頭或空白後的 combining mark（第 7 列「不刪」的必然結果）、未指派碼位（Cn）——都零實例。
     /// 3. **至少一個字母或數字**——`×`／`—`／`…` 不是名字；純數字刊名（*1843*、*2600*）是。
     ///    R4 曾寫「至少一個字母」，被真反例打掉。
     /// 4. **非空**（1 的特例，訊息分開說）。
@@ -107,6 +113,11 @@ public enum NameIdentity {
     /// 誠實邊界：1 的 NFC 對 CJK 相容表意文字有損（U+FA10 塚 → U+585A）——位元組層有損、
     /// Swift 層無損（Swift `==` 早已視為相等）。
     public static func wellFormednessIssue(_ name: String) -> String? {
+        // 碼位印四位（R6 verify 第 32 列：`U+34F` 搜 `U+034F` 搜不到；displaySafe 自己就用 %04X）
+        func hex(_ u: Unicode.Scalar) -> String {
+            let h = String(u.value, radix: 16, uppercase: true)
+            return String(repeating: "0", count: max(0, 4 - h.count)) + h
+        }
         let canon = canonical(name)
         if canon.isEmpty { return "是空白——沒有名字，請刪掉這一筆" }
         if name != canon || Array(name.utf8) != Array(canon.utf8) {
@@ -123,56 +134,89 @@ public enum NameIdentity {
                 continue
             }
             if UnsafeToEmitScalar.contains(u) {
-                return "含控制或方向控制字元 U+\(String(u.value, radix: 16, uppercase: true))——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串
+                return "含控制或方向控制字元 U+\(hex(u))——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串
             }
-            if u.properties.isDefaultIgnorableCodePoint {
-                return "含不可見字元 U+\(String(u.value, radix: 16, uppercase: true))（零寬、變體選擇子、填充字元一類）——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串
+            // Default_Ignorable 之外還有一個渲染成空白的碼位：U+2800 BRAILLE PATTERN BLANK（So）。
+            // 不是 White_Space、不是四類、不是 DI、不在輸出閘——三份性質都沒收它，與 R5 verify 抓的
+            // Hangul filler 同形（R6 verify 第 20 列），顯式列進來；同族的 U+FFFC 顯示為方框，不擋。
+            if u.properties.isDefaultIgnorableCodePoint || u.value == 0x2800 {
+                return "含不可見字元 U+\(hex(u))（零寬、變體選擇子、填充字元一類）——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串
             }
             switch u.properties.generalCategory {
             case .control, .format, .lineSeparator, .paragraphSeparator:
-                return "含格式或控制字元 U+\(String(u.value, radix: 16, uppercase: true))——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串
+                return "含格式或控制字元 U+\(hex(u))——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串
             default: break
             }
         }
         if !name.contains(where: { $0.isLetter || $0.isNumber }) {
-            return "沒有任何字母或數字——不是名字，請刪掉這一筆（來自 work 的話改它的來源欄位）"
+            return "沒有任何字母或數字——不是名字，請刪掉這一筆"
         }
         return nil
     }
 
-    /// ZWJ／ZWNJ 在 `scalars[i]` 這個位置合不合法（第 2 條不變式的例外，D9）。兩個脈絡，**封閉**：
+    /// ZWJ／ZWNJ 在 `scalars[i]` 這個位置合不合法（第 2 條不變式的例外，D9；R7 收緊）。兩個脈絡，**封閉**：
     ///
-    /// - **前一個 scalar 是 virama**（ccc 9）：印度系文字的 conjunct 控制，含 legacy Malayalam
-    ///   chillu 的詞尾 ZWJ（`ന്\u{200D}`）——所以這一支不要求右鄰居。
-    /// - **兩側都有非空白鄰居，且任一側落在使用 join control 的書寫系統區塊**：Arabic 一族
-    ///   （0600–06FF／0750–077F／0870–089F／08A0–08FF／FB50–FDFF／FE70–FEFF）、Syriac（0700–074F）、
-    ///   NKo（07C0–07FF）、Indic（0900–0DFF，Devanagari 到 Sinhala）、Myanmar（1000–109F）、
-    ///   Khmer（1780–17FF）、Mongolian（1800–18AF）。判準看**區塊**不看 generalCategory，所以
-    ///   波斯數字（U+06F1…）與 Arabic 標記都算——`۱۴۰۰\u{200C}ها` 是真實刊名的形狀。
+    /// - **前一個 scalar 是 virama**（ccc 9）**且 virama 掛在使用 join control 的文字的字母上**：
+    ///   印度系文字的 conjunct 控制，含 legacy Malayalam chillu 的詞尾 ZWJ（`ന്\u{200D}`）——所以這一支
+    ///   不要求右鄰居。「掛在字母上」是 R7 補的（R6 verify 第 19 列：`Psychometrika\u{094D}\u{200D}` 曾通過）。
+    /// - **兩側都是「使用 join control 的文字」裡的字母／標記／數字**（`joiningScriptMember`）：Arabic 一族、
+    ///   Syriac（含 Supplement）、Mandaic、NKo、Indic（0900–0DFF）、Myanmar、Khmer、Mongolian、Tifinagh、
+    ///   Hanifi Rohingya、Sogdian／Old Uyghur、Manichaean、Adlam、Arabic Extended-C。**區塊成員資格不是
+    ///   充分條件**（R6 verify 第 1 列，Codex）：區塊含標點，`A\u{200C}،B` 曾因逗號在 Arabic 區塊而通過；
+    ///   R7 起鄰居還要是字母／標記／數字，且**兩側**都要——`ک\u{200C}A` 這種跨文字的 joiner 也沒有意義。
+    ///   看區塊而不只看 generalCategory 是為了波斯數字（U+06F1…）：`۱۴۰۰\u{200C}ها` 是真實刊名的形狀。
     ///
-    /// 拉丁、西里爾、CJK 之間的 joiner 不在任一支——它們在那些文字裡沒有意義，只是
-    /// 「看起來一樣、canonical 不相等」的通道。`zero-instance-guards` 第 25 列的 Python 對照
-    /// 腳本鏡射這兩支；改一邊要同批改另一邊。
+    /// 兩個脈絡都不接受**鄰居是另一個 joiner**（R6 verify 第 19 列：連續 joiner 沒有正字法意義，字型
+    /// 忽略重複，只是「看起來一樣、canonical 不相等」通道在合法脈絡裡的殘餘）——這不需要另寫一行：
+    /// joiner 既不是任何文字的字母／標記／數字、也不是 virama，第二個 joiner 必然在兩支都失敗
+    /// （負控實測：顯式加的那兩行是等價突變，拿掉測試照紅，所以不留）。
+    ///
+    /// 拉丁、西里爾、CJK 之間的 joiner 不在任一支。它們在那些文字裡**只有排版意義**（德文用 ZWNJ 抑制
+    /// 跨複合詞的連字：Auf\u{200C}lage——R6 verify 第 48 列指出「沒有意義」這句是假的），對身分沒有意義，
+    /// 而且正是 confusable 通道——所以拒（fail-closed，`matchingKey` 刪 Cf 所以 resolve-venues 仍配得到）。
+    /// `zero-instance-guards` 第 25 列的 Python 對照腳本鏡射這兩支；改一邊要同批改另一邊。
     static func joinerIsLegal(in scalars: [Unicode.Scalar], at i: Int) -> Bool {
         let prev: Unicode.Scalar? = i > 0 ? scalars[i - 1] : nil
         let next: Unicode.Scalar? = i + 1 < scalars.count ? scalars[i + 1] : nil
-        if let p = prev, p.properties.canonicalCombiningClass == .virama { return true }
-        guard let p = prev, let n = next,
-              !p.properties.isWhitespace, !n.properties.isWhitespace else { return false }
-        return usesJoinControl(p) || usesJoinControl(n)
+        if let p = prev, p.properties.canonicalCombiningClass == .virama {
+            return i >= 2 && joiningScriptMember(scalars[i - 2])
+        }
+        guard let p = prev, let n = next else { return false }
+        return joiningScriptMember(p) && joiningScriptMember(n)
+    }
+
+    /// 「使用 join control 的文字」的字母／標記／數字：落在下列區塊**且**是 Alphabetic、Mn／Mc 或帶
+    /// 數值——區塊裡的標點（Arabic comma U+060C、Devanagari danda U+0964…）不算。封閉列舉，理由見
+    /// `joinerIsLegal`；R7 補進的區塊（Mandaic、Syriac Supplement、Adlam、Hanifi Rohingya、Tifinagh、
+    /// Sogdian／Old Uyghur、Manichaean、Arabic Extended-C）是 R6 verify 第 14／22 列指出的疏漏——
+    /// 同一個文字的補充區塊本來就該在。
+    static func joiningScriptMember(_ u: Unicode.Scalar) -> Bool {
+        guard usesJoinControl(u) else { return false }
+        let props = u.properties
+        if props.isAlphabetic || props.numericType != nil { return true }
+        switch props.generalCategory {
+        case .nonspacingMark, .spacingMark: return true
+        default: return false
+        }
     }
 
     /// 使用 join control（ZWJ／ZWNJ 有文字意義）的書寫系統區塊——封閉列舉，理由見 `joinerIsLegal`。
     static func usesJoinControl(_ u: Unicode.Scalar) -> Bool {
         switch u.value {
         case 0x0600...0x06FF, 0x0750...0x077F, 0x0870...0x089F, 0x08A0...0x08FF,
-             0xFB50...0xFDFF, 0xFE70...0xFEFF,                     // Arabic 一族
-             0x0700...0x074F,                                      // Syriac
+             0xFB50...0xFDFF, 0xFE70...0xFEFF, 0x10EC0...0x10EFF,   // Arabic 一族（含 Extended-C）
+             0x0700...0x074F, 0x0860...0x086F,                     // Syriac（含 Supplement）
+             0x0840...0x085F,                                      // Mandaic
              0x07C0...0x07FF,                                      // NKo
              0x0900...0x0DFF,                                      // Indic：Devanagari…Sinhala
              0x1000...0x109F,                                      // Myanmar
              0x1780...0x17FF,                                      // Khmer
-             0x1800...0x18AF:                                      // Mongolian
+             0x1800...0x18AF,                                      // Mongolian
+             0x2D30...0x2D7F,                                      // Tifinagh（連字 ZWJ）
+             0x10D00...0x10D3F,                                    // Hanifi Rohingya
+             0x10F30...0x10F6F, 0x10F70...0x10FAF,                 // Sogdian、Old Uyghur
+             0x10AC0...0x10AFF,                                    // Manichaean
+             0x1E900...0x1E95F:                                    // Adlam
             return true
         default:
             return false

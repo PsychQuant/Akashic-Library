@@ -607,6 +607,41 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertFalse(try venue().references.contains { $0.field == "resolution-confirmed" })
     }
 
+    /// **懸空的 from-key 要具名拒絕，不是 crash**（R6 verify 第 4／15／27 列）：`repoint` 只驗 `newKey` 存在，
+    /// entry 目前指著的 `oldKey` 沒驗——venue 檔被手刪或 quarantine 後，一個格式合法的 id 會在
+    /// `venuesByKey[k]!` 上 `Fatal error`（base 既有，D11 把它從「entry 已落盤再 crash」變成「零寫入再 crash」；
+    /// 對 MCP 面是以合法參數殺死 server 的路徑）。`demote` 那側早就是 `guard let` 的形狀。
+    func testRepointRefusesADanglingCurrentVenueKeyInsteadOfCrashing() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.key("ghost-journal")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:some-journal"])) { err in
+            XCTAssertTrue(String(describing: err).contains("ghost-journal"), "\(err)")
+        }
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("ghost-journal")], "零寫入")
+    }
+
+    /// 拒絕訊息**兩面各自正確**（R6 verify 第 45 列）：R5 讓訊息帶參數名，但 CLI 使用者看到的是 MCP 鍵名
+    /// （`--add-name` 拒絕時印「add_names 的…」）。兩個名字都印。
+    func testRejectionNamesBothFacesParameter() throws {
+        XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: ["×"], note: nil, type: nil)) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("add_names") && s.contains("--add-name"), s)
+        }
+    }
+
+    /// **原字串有自己的上限，理由不會被截掉**（R6 verify 第 7／12／25 列）：R6 的註解與 #562 comment 說
+    /// 「每項 400（原字串 120 ＋ 理由）」，程式只對整項截 400——貼錯一整段摘要時操作者只看到被截斷的名字。
+    func testRejectionKeepsTheReasonForAVeryLongInput() throws {
+        let long = String(repeating: "x", count: 600) + "\u{200B}"
+        XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: [long], note: nil, type: nil)) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("U+200B"), "理由被截掉了：\(s.suffix(80))")
+            XCTAssertLessThan(s.count, 400)
+        }
+    }
+
     /// `repoint`／`demote` 同序（同一列）——這裡用 demote：先 apply 一筆乾淨的，再把 venue 弄髒，demote 必須零寫入。
     func testResolveVenuesDemoteWritesNothingWhenTheVenueIsUnwritable() throws {
         let store = LibraryStore(root: root)

@@ -1428,30 +1428,52 @@ encode/decode 等冪。
   掛死。但對**完整性與顯示安全**而言它是未信任的：檔案可能由別的 binary、別人、
   Dropbox 同步寫入，所以未知欄位 key 與 quarantine reason 一律經 `displaySafe`。
   兩者不矛盾——是同一份資料在不同軸上的不同假設，而 DoS 那條軸的防線還沒蓋。
-### 5.7 venue 的名字內容：寫入期不變式（normative，#554 D8；R6 補記）
+### 5.7 venue 的名字內容：寫入期不變式（normative，#554 D8；R6／R7 補記）
 
 `venue:` 記錄的 `names[].value`／`authorized[]`／`variant[]` 每一筆字串在**寫入期**
 （`writeVenue`／`fmt`／合併的 keeper 寫回／`resolve-venues` 的 verdict 寫回）都要通過
 `Venue.validate()` 的名字內容檢查，**error 級**；decode **不驗**（load 照讀，
-`validate`／`doctor` 報出來）。這一段是**cross-binary 契約**：手改 YAML 的人讀的是本檔
-不是 `.claude/rules`，而手改正是它指定的修法。四條，封閉：
+`validate`／`doctor` 報出來）。這一段是 **store 契約**（與 §3.4 canonical form、§3.1
+`authorized` 同級——手改 YAML 的人讀的是本檔不是 `.claude/rules`，而手改正是它指定的修法）。
+**它與 `openspec/specs/venue-entity` 的關係**（R6 verify 第 3 列指出 R6 說「記在 parity 列」
+而沒記）：spec 已有兩條 validate-time Requirement（authorized／variant 互斥、variant 不帶時間），
+本節的四條與它們同形，**應該**成為 spec 的 Requirement——那要走 spectra-propose，#554 不做
+（#554 的裁決是「既有 tool 的新參數，不走 Spectra」，D8 把它擴成 store 不變式時沒有重開那個
+裁決）。在 spec 補齊之前，本節是唯一的規範來源；follow-up 見 #570。四條，封閉：
 
 1. **canonical 形**：NFC；無前後空白；內部任何 `White_Space` scalar 串（含 tab、換行、
-   NBSP、U+3000）收斂為單一 U+0020。**正規化只丟空白、不刪任何其他 scalar**（空白後的
+   NBSP、NNBSP、U+3000）收斂為單一 U+0020。**正規化只丟空白、不刪任何其他 scalar**（空白後的
    combining mark 留著）。
-2. **不含危險或不可見 scalar**：Cc／Cf／Zl／Zp、輸出閘 `UnsafeToEmitScalar` 的成員、以及
-   Unicode 的 `Default_Ignorable_Code_Point`（零寬、變體選擇子如 U+FE0F、CGJ U+034F、
-   Hangul filler U+3164、TAG 字元）。**例外只有 ZWJ／ZWNJ**，且只在兩個脈絡：前一個 scalar
-   是 virama（ccc 9，含 legacy Malayalam chillu 的詞尾 ZWJ），或兩側都有非空白鄰居且任一側
-   落在使用 join control 的書寫系統區塊（Arabic 一族、Syriac、NKo、Indic、Myanmar、Khmer、
-   Mongolian）。拉丁、西里爾、CJK 之間的 joiner 不合法。
+2. **不含危險或不可見 scalar**：Cc／Cf／Zl／Zp、輸出閘 `UnsafeToEmitScalar` 的成員、Unicode 的
+   `Default_Ignorable_Code_Point`（零寬、變體選擇子如 U+FE0F、CGJ U+034F、Hangul filler U+3164、
+   TAG 字元），以及 U+2800 BRAILLE PATTERN BLANK（三者都沒收、卻渲染成一格空白）。**例外只有
+   ZWJ／ZWNJ**，且只在兩個脈絡：(a) 前一個 scalar 是 virama（ccc 9）且 virama 掛在使用 join
+   control 的文字的字母上（含 legacy Malayalam chillu 的詞尾 ZWJ）；(b) 兩側都是使用 join control
+   的文字裡的**字母／標記／數字**（Arabic 一族含 Extended-C、Syriac 含 Supplement、Mandaic、NKo、
+   Indic 0900–0DFF、Myanmar、Khmer、Mongolian、Tifinagh、Hanifi Rohingya、Sogdian／Old Uyghur、
+   Manichaean、Adlam）——同區塊的**標點**不算鄰居（`A\u{200C}،B` 的 ZWNJ 沒有接合用途），鄰居是另一個
+   joiner 也不算（連續 joiner 沒有正字法意義）。拉丁、西里爾、CJK 之間的 joiner 不合法。
 3. **至少一個字母或數字**（純數字刊名 *1843* 合法；`×`／`—` 不是名字）。
 4. **每張清單內無 canonical-相等對**。`names` 有一個例外：**同名的沿革段**——兩筆都帶
-   `start`／`end`／`ended-unknown`／`attested` 任一，且時間不重疊（Sankhyā 1933–1960 與
-   2002–2007）。任一筆無時間宣稱、或兩段重疊，仍是違反。
+   `start`／`end`／`ended-unknown`／`attested` 任一，**且**一段有 `end`、另一段有 `start`，前段的
+   `end` 以兩者中較粗的粒度截斷後**嚴格**早於後段的 `start`（Sankhyā 1933–1960 與 2002–2007）。
+   同年、端點相等（`end: 1960`／`start: 1960`）、粒度混用而同年（`end: 1960`／`start: 1960-06`）
+   都算重疊；只有 `attested` 或 `ended-unknown` 的段沒有可比的端點，永遠進不了豁免。任一筆
+   無時間宣稱，仍是違反。這個「不相交」刻意比 `DateRange.overlaps` 保守——那個函式是給提醒用的
+   （多報安全），這裡是放行條件。
 
 **修法是人改 YAML**（不猜、不靜默修）：訊息逐條說改什麼——改成 canonical 寫法、刪掉那個
-字元、刪掉那一筆、或把沿革段補上不相交的時間。工具不提供 `--repair`。
+字元、刪掉那一筆、或把沿革段補上不相交的時間。工具不提供 `--repair`。同一句訊息也出現在
+寫入面（`add-venue`／`update-venue`）與合併 dry-run 的拒絕裡——那時「請刪掉它」指的是呼叫端
+的輸入、「被併的 X 的 names…」指的是被併記錄的 YAML。
+
+**誠實邊界（fail-closed，不是靜默損失）**：第 2 條的「DI 一律不可見」擋掉幾類真實正字法用字
+——CJK 表意文字變體序列（IVS，U+E0100–E01EF）、蒙古文 FVS／MVS（U+180B–180F）、希伯來文的
+CGJ、emoji 的 ZWJ 序列、德文用來抑制複合詞連字的 ZWNJ（`Auf\u{200C}lage`）——它們被拒時訊息具名、零寫入；
+書目資料裡機率極低，這是 Claude 代裁 D9 的取捨，使用者可翻。第 1 條把蒙古文後綴用的 NNBSP
+（U+202F，White_Space）折成一般空格，渲染上後綴會斷開。第 1 條的 NFC 對 CJK 相容表意文字有損
+（U+FA10 塚 → U+585A；Swift `==` 早視為相等）。放行但不像名字的：純 tatweel（U+0640，Lm）、
+開頭或空白後的 combining mark、未指派碼位（Cn）。私用區（Co）不擋。以上全部零實例。
 
 **部署視窗（R5 verify 第 16 列）**：這條不變式沒有 format bump，refuse-if-newer 管不到。
 三個 binary（CLI／`akashic-mcp`／App）**全部**升到 #554 世代之前，舊 binary 仍可寫入

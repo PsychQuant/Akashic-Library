@@ -69,8 +69,9 @@ final class VenueNameInvariantTests: XCTestCase {
         }
     }
 
-    /// 接合字元只在兩個字母（或標記）之間合法（R4 verify 第 9 列：尾隨 ZWJ、拉丁字母間的 ZWNJ 重開
-    /// 「看起來一樣、canonical 不相等」的通道）。波斯文／印度系文字的合法用法保留。
+    /// 接合字元的**非法位置**（R4 verify 第 9 列的原案例：尾隨 ZWJ、前導 ZWNJ、鄰接空白）。合法脈絡
+    /// 的定義自 D9 起在 `joinerIsLegal`（virama 之後、或兩側都是使用 join control 的文字的字母／標記／
+    /// 數字），本測試只釘非法位置；合法案例見 `testJoinControlScriptsKeepTheirJoiners`。
     func testJoinersOnlyBetweenLetters() {
         XCTAssertNil(NameIdentity.wellFormednessIssue("نشریه\u{200C}روان"), "ZWNJ between Arabic letters")
         XCTAssertNil(NameIdentity.wellFormednessIssue("क्\u{200D}ष"), "ZWJ after virama (Devanagari)")
@@ -116,6 +117,53 @@ final class VenueNameInvariantTests: XCTestCase {
         for (s, label) in cases { XCTAssertNotNil(NameIdentity.wellFormednessIssue(s), label) }
         // 「至少一個字母或數字」對 DI scalar 不計——Hangul filler 是 Lo，單獨一個不是名字
         XCTAssertNotNil(NameIdentity.wellFormednessIssue("\u{3164}\u{3164}"))
+    }
+
+    /// **區塊成員資格不是充分條件**（R6 verify 第 1 列，Codex）：Unicode 區塊含標點，`A\u{200C}،B`
+    /// 因逗號落在 Arabic 區塊而通過——這個 ZWNJ 沒有接合用途，只是通道。R7 起兩側都要是該區塊裡的
+    /// 字母／標記／數字；標點、拉丁鄰居都不算。
+    func testJoinerBesidePunctuationOrAForeignLetterIsRejected() {
+        for bad in ["A\u{200C}\u{060C}B", "ک\u{200C}\u{060C}", "\u{060C}\u{200C}ک", "क\u{200D}\u{0964}",
+                    "ک\u{200C}A", "A\u{200C}ک"] {
+            XCTAssertNotNil(NameIdentity.wellFormednessIssue(bad), bad.debugDescription)
+        }
+        XCTAssertNil(NameIdentity.wellFormednessIssue("ک\u{200C}تاب"), "兩側都是阿拉伯字母仍合法")
+        XCTAssertNil(NameIdentity.wellFormednessIssue("۱۴۰۰\u{200C}ها"), "數字＋字母仍合法")
+    }
+
+    /// **連續 joiner 沒有正字法意義**（R6 verify 第 19 列）：第二個 joiner 的鄰居是 joiner，字型忽略重複，
+    /// 純粹是「看起來一樣、canonical 不相等」的殘餘通道。virama 分支也要求 virama 掛在印度系基底上
+    /// （`Psychometrika\u{094D}\u{200D}` 是弱通道）。
+    func testConsecutiveJoinersAndFloatingViramaAreRejected() {
+        for bad in ["ا\u{200C}\u{200C}ب", "ا\u{200C}\u{200D}ب", "क्\u{200D}\u{200D}क", "Psychometrika\u{094D}\u{200D}"] {
+            XCTAssertNotNil(NameIdentity.wellFormednessIssue(bad), bad.debugDescription)
+        }
+        XCTAssertNil(NameIdentity.wellFormednessIssue("\u{0D28}\u{0D4D}\u{200D}"), "chillu 仍合法")
+    }
+
+    /// **同一個文字的補充區塊、以及其他草書文字**（R6 verify 第 14／22 列）：Mandaic 與 Syriac Supplement
+    /// 就夾在 Syriac 與 Arabic Extended-B 之間，漏掉是疏忽不是裁決；Adlam／Hanifi Rohingya／Tifinagh／
+    /// Sogdian／Old Uyghur／Manichaean／Arabic Extended-C 同為使用 join control 的文字。
+    func testCursiveScriptsOutsideTheOriginalListKeepTheirJoiners() {
+        for ok in ["\u{0840}\u{200D}\u{0841}", "\u{0860}\u{200C}\u{0861}", "\u{1E900}\u{200C}\u{1E901}",
+                   "\u{10D00}\u{200D}\u{10D01}", "\u{2D30}\u{200D}\u{2D31}", "\u{10F30}\u{200D}\u{10F31}"] {
+            XCTAssertNil(NameIdentity.wellFormednessIssue(ok), ok.debugDescription)
+        }
+    }
+
+    /// **U+2800 BRAILLE PATTERN BLANK 渲染成一格空白**（R6 verify 第 20 列）：不是 White_Space、不是四類、
+    /// 不是 DI、不在 `UnsafeToEmitScalar`——與 Hangul filler 同形而三份性質都沒收它，顯式加進謂詞。
+    func testBrailleBlankIsNotPartOfAName() {
+        for bad in ["Psychometrika\u{2800}", "Psycho\u{2800}metrika", "\u{2800}"] {
+            XCTAssertNotNil(NameIdentity.wellFormednessIssue(bad), bad.debugDescription)
+        }
+    }
+
+    /// 碼位補零到四位（R6 verify 第 32 列）：`U+034F` 不是 `U+34F`，搜 `U+001C` 才搜得到。
+    func testCodePointsInMessagesArePaddedToFourHexDigits() {
+        XCTAssertTrue(NameIdentity.wellFormednessIssue("A\u{034F}B")?.contains("U+034F") == true)
+        XCTAssertTrue(NameIdentity.wellFormednessIssue("A\u{001C}B")?.contains("U+001C") == true)
+        XCTAssertTrue(NameIdentity.wellFormednessIssue("Tag\u{E0041}Name")?.contains("U+E0041") == true)
     }
 
     /// 訊息是對**操作者**說的（R5 verify 第 17 列）：修法是人改 YAML，訊息不得叫他呼叫一個 Swift 函式。
@@ -167,6 +215,27 @@ final class VenueNameInvariantTests: XCTestCase {
         XCTAssertTrue(errors(oneUndated).contains { $0.contains("近重複") }, "\(errors(oneUndated))")
     }
 
+    /// **豁免的「不相交」是保守的**（R6 verify 第 9／47 列）：`DateRange.overlaps` 用字串比較，
+    /// `end: "1960"` 對 `start: "1960-06"` 會判「在前」（fail-open）；沿革豁免是本 repo 第一次拿它當**放行**
+    /// 條件。R7 起豁免用自己的判準：以較粗的粒度比、端點相等算重疊、且兩段都要有可比的端點。
+    func testNearDupExemptionIsConservativeAboutGranularityAndTouchingEndpoints() {
+        func v(_ segs: [TemporalValue<String>]) -> Venue {
+            Venue(key: "sankhya", type: .periodical, names: Timeline(segs), authorized: [])
+        }
+        let mixed = v([TemporalValue(value: "Sankhyā", range: DateRange(start: "1933", end: "1960")),
+                       TemporalValue(value: "Sankhyā", range: DateRange(start: "1960-06", end: "2007"))])
+        XCTAssertTrue(errors(mixed).contains { $0.contains("近重複") }, "1960 涵蓋 1960-06：\(errors(mixed))")
+        let touching = v([TemporalValue(value: "Sankhyā", range: DateRange(start: "1933", end: "1960")),
+                          TemporalValue(value: "Sankhyā", range: DateRange(start: "1960", end: "2007"))])
+        XCTAssertTrue(errors(touching).contains { $0.contains("近重複") }, "端點相等算重疊：\(errors(touching))")
+        let attestedOnly = v([TemporalValue(value: "Sankhyā", range: DateRange(attested: ["1950"])),
+                              TemporalValue(value: "Sankhyā", range: DateRange(attested: ["2005"]))])
+        XCTAssertTrue(errors(attestedOnly).contains { $0.contains("近重複") }, "attested-only 沒有可比端點：\(errors(attestedOnly))")
+        let fine = v([TemporalValue(value: "Sankhyā", range: DateRange(start: "1933", end: "1960-12")),
+                      TemporalValue(value: "Sankhyā", range: DateRange(start: "1961"))])
+        XCTAssertTrue(errors(fine).isEmpty, "\(errors(fine))")
+    }
+
     /// **三張清單都掃近重複對**（R5 verify 第 11 列）：`variant` 內兩筆完全相同、`authorized` 內兩筆
     /// 完全相同——工具不會造出，手改會；R5 只掃 names。
     func testValidateRejectsCanonicalEqualPairInVariantAndAuthorized() {
@@ -209,9 +278,24 @@ final class VenueNameInvariantTests: XCTestCase {
         XCTAssertTrue(byName["   "]?.reason.contains("空白") == true)
         XCTAssertEqual(byName["Psycho\u{200B}metrika"]?.occurrences, 1)
         XCTAssertTrue(byName["Psycho\u{200B}metrika"]?.reason.contains("U+200B") == true)
+        // bootstrap 脈絡的出口是修 work 的來源欄位，理由要說（R6 verify 第 34 列）
+        XCTAssertTrue(r.dropped.filter { $0.name != "心理學報" }.allSatisfy { $0.reason.contains("來源欄位") }, "\(r.dropped)")
         // 產不出 key 的既有路徑仍走同一個 `dropped`，理由分得開
         let cjk = VenueBootstrap.result(entries: [entry("e", "心理學報")], existing: [])
         XCTAssertEqual(cjk.dropped.map(\.name), ["心理學報"])
         XCTAssertTrue(cjk.dropped[0].reason.contains("key"), cjk.dropped[0].reason)
+    }
+
+    /// **已有 venue 的檢查在謂詞之前**（R6 verify 第 16 列）：`matchingKey` 會刪 Cf，所以只差一個
+    /// soft hyphen 的既有刊名 literal（WoS／HTML 貼上常見）本來就能被 `resolve-venues` 歸戶——R6 把它
+    /// 印成「不建檔…請修來源欄位」是不必要的動作，而且它的 occurrences 從乾淨群裡消失。
+    func testBootstrapSkipsLiteralsThatMatchAnExistingVenueEvenWhenMalformed() {
+        var e = Entry(id: UUID(), citekey: "a", type: .periodicalArticle, title: "T",
+                      authors: [.literal("A, A.")], date: "2020")
+        e.fields = ["journaltitle": "Psycho\u{00AD}metrika"]
+        let existing = Venue(key: "psychometrika", type: .periodical,
+                             names: Timeline([TemporalValue(value: "Psychometrika")]), authorized: ["Psychometrika"])
+        let r = VenueBootstrap.result(entries: [e], existing: [existing])
+        XCTAssertTrue(r.candidates.isEmpty && r.dropped.isEmpty && r.pendingResolution.isEmpty, "\(r)")
     }
 }

@@ -97,8 +97,9 @@ public enum NameIdentity {
     ///    R4 曾是 19 個例子的列舉（170 個 Cf 漏 149），R5 換成分類——換了一個更大的列舉。
     ///    **ZWJ／ZWNJ 例外**（兩者都是 DI）——波斯文與印度系文字合法用——但只在
     ///    `joinerIsLegal` 說合法的脈絡：前一個 scalar 是掛在同一文字字母上的 virama（legacy Malayalam
-    ///    chillu＝consonant＋virama＋ZWJ **詞尾**），或左鄰居是使用 join control 的文字的字母／標記／數字、
-    ///    右鄰居是同一文字的字母／數字（波斯文 `۱۴۰۰\u{200C}ها` 是**數字**＋ZWNJ）。R4／R5 的「兩側是字母」對拉丁
+    ///    chillu＝consonant＋virama＋ZWJ **詞尾**——詞尾含「後面是空白」），或左鄰居是使用 join control 的文字的
+    ///    字母／標記／數字、右鄰居是同一文字的字母／數字（波斯文 `۱۴۰۰\u{200C}ها` 是**數字**＋ZWNJ）或同一 Indic
+    ///    文字的 virama（Bengali ya-phalaa `<RA, ZWJ, VIRAMA, YA>`，D21）。R4／R5 的「兩側是字母」對拉丁
     ///    字母 fail-open（`Psycho\u{200C}metrika` 通過、可被 `--authorize` 升成 displayName，
     ///    五路命中）、對 chillu 與波斯數字 fail-closed——R5 verify 第 1 列，Claude 代裁 D9；R6 verify
     ///    再收兩格（區塊裡的標點不算鄰居、連續 joiner 不算）。**代價要寫出來**（R6 verify 第 5／23／36 列）：
@@ -168,18 +169,25 @@ public enum NameIdentity {
         }
     }
 
-    /// ZWJ／ZWNJ 在 `scalars[i]` 這個位置合不合法（第 2 條不變式的例外，D9；R7／R8 收緊）。兩個脈絡，**封閉**：
+    /// ZWJ／ZWNJ 在 `scalars[i]` 這個位置合不合法（第 2 條不變式的例外，D9；R7／R8／R9 收緊）。兩個脈絡，**封閉**：
     ///
     /// - **(a) 前一個 scalar 是 virama**（ccc 9），從 virama 往前跳過標記找到的**基底是同一文字的字母**
     ///   （nukta＋virama＋ZWJ 的 conjunct 形合法；數字或標記當基底不合法——R7 verify 第 1 列：`joiningScriptMember`
-    ///   收數字與標記，`Journal \u{0967}\u{094D}\u{200D}` 通過）；右鄰居若存在，要是**同一文字的字母／數字**
-    ///   （legacy Malayalam chillu 的詞尾 ZWJ 沒有右鄰居，所以不要求有；`क्\u{200C}A` 有一個拉丁右鄰居，拒）。
-    /// - **(b) 左鄰居是 join-control 文字的字母／標記／數字、右鄰居是同一文字的字母／數字**：右側不收標記——
-    ///   標記與前面的基底結合，joiner 夾在基底與它的標記（或 virama）之間沒有正字法意義，只是 confusable 通道
-    ///   （`ا\u{200C}\u{064E}ب`、`क\u{200D}\u{094D}ष`——R7 verify 第 26／33 列）；左側收標記，因為 Persian／Arabic
-    ///   文字裡 ZWNJ 常接在母音記號之後。**兩側要是同一文字**（`ک\u{200C}क` 沒有意義）；同區塊的標點不算鄰居
-    ///   （`A\u{200C}،B`——R6 verify 第 1 列）。看區塊而不只看 generalCategory 是為了波斯數字（U+06F1…）：
-    ///   `۱۴۰۰\u{200C}ها` 是真實刊名的形狀。
+    ///   收數字與標記，`Journal \u{0967}\u{094D}\u{200D}` 通過）。**virama 本身與走訪過的每個標記都要是基底那個文字的**
+    ///   （R8 verify 第 6／18／19／23／26 列：R8 只驗 virama 是 ccc 9、標記是 Mn／Mc，`ک\u{094D}\u{200D}`（Arabic 字母＋
+    ///   Devanagari virama）與 `क\u{09CD}\u{200D}ष`（Bengali virama 掛在 Devanagari 基底上）都通過，而 doc 寫的是
+    ///   「同一文字」——D22）。右鄰居若存在，要是**同一文字的字母／數字**；**右鄰居是空白視同沒有**——legacy Malayalam
+    ///   chillu／Bengali khanda ta 的詞尾 ZWJ 在多字刊名裡右邊是 U+0020（`അവന്\u{200D} വന്നു`，R8 verify 第 11 列），
+    ///   canonical 形保證內部空白只會是單一 U+0020，所以這一格放行不了別的東西；`क्\u{200C}A` 有一個拉丁右鄰居，拒。
+    /// - **(b) 左鄰居是 join-control 文字的字母／標記／數字、右鄰居是同一文字的字母／數字——或同一 Indic 文字的 virama**：
+    ///   joiner 在 virama **之前**是印度系文字的正字法（D21，R8 verify 第 10 列）：Unicode 核心規範 ch. 12.2 明寫 Bengali
+    ///   ya-phalaa 用 `<RA, ZWJ, VIRAMA, YA>`（`র\u{200D}\u{09CD}যাব`＝RAB，常見外來語），Microsoft 的 Devanagari／Bengali
+    ///   OpenType 音節文法都有 `<ZWNJ|ZWJ>+H` 這一支（2026-09-13 實取兩頁確認）；R8 把它當「沒有正字法意義的 confusable
+    ///   通道」（R7 verify 第 26／33 列）對 Bengali 為假。收的只有 `joinScript` 100–109 的 virama——Myanmar asat／Khmer
+    ///   coeng 之前的 joiner 沒有文法支撐，仍拒。右側其他標記仍不收（`ا\u{200C}\u{064E}ب`：joiner 夾在基底與它的母音記號
+    ///   之間）；左側收標記，因為 Persian／Arabic 文字裡 ZWNJ 常接在母音記號之後。**兩側要是同一文字**（`ک\u{200C}क`
+    ///   沒有意義）；同區塊的標點不算鄰居（`A\u{200C}،B`——R6 verify 第 1 列）。看區塊而不只看 generalCategory 是為了
+    ///   波斯數字（U+06F1…）：`۱۴۰۰\u{200C}ها` 是真實刊名的形狀。
     ///
     /// 連續 joiner 必拒：joiner 既不是任何文字的字母／標記／數字、也不是 virama，第二個 joiner 在兩支都失敗
     /// （負控實測：顯式加的「鄰居是 joiner → 拒」是等價突變，拿掉測試照紅，所以不留）。
@@ -191,17 +199,25 @@ public enum NameIdentity {
     static func joinerIsLegal(in scalars: [Unicode.Scalar], at i: Int) -> Bool {
         let prev: Unicode.Scalar? = i > 0 ? scalars[i - 1] : nil
         let next: Unicode.Scalar? = i + 1 < scalars.count ? scalars[i + 1] : nil
-        if let p = prev, p.properties.canonicalCombiningClass == .virama {
+        if let p = prev, isVirama(p) {
             var j = i - 2
             while j >= 0, isMark(scalars[j]) { j -= 1 }
             guard j >= 0, let script = joinScript(scalars[j]), isLetterOrDigit(scalars[j]),
                   !isDigit(scalars[j]) else { return false }
-            guard let n = next else { return true }
+            // virama 與中間的每個標記都要是基底的文字（D22）——`scalars[j+1 ..< i-1]` 全是標記，`i-1` 是 virama
+            guard scalars[(j + 1)...(i - 1)].allSatisfy({ joinScript($0) == script }) else { return false }
+            guard let n = next, !n.properties.isWhitespace else { return true }
             return joinScript(n) == script && isLetterOrDigit(n)
         }
         guard let p = prev, let n = next, let script = joinScript(p), joinScript(n) == script else { return false }
-        return (isLetterOrDigit(p) || isMark(p)) && isLetterOrDigit(n)
+        guard isLetterOrDigit(p) || isMark(p) else { return false }
+        return isLetterOrDigit(n) || (isVirama(n) && indicScripts.contains(script))
     }
+
+    /// ccc 9——Indic virama／halant、Myanmar asat、Khmer coeng 都是。
+    static func isVirama(_ u: Unicode.Scalar) -> Bool { u.properties.canonicalCombiningClass == .virama }
+    /// `joinScript` 給 Indic 區塊（0900–0DFF，每 0x80 一個文字）的 id 範圍——D21 的 (b) 支只對這些文字收 virama 右鄰居。
+    static let indicScripts = 100...109
 
     static func isMark(_ u: Unicode.Scalar) -> Bool {
         switch u.properties.generalCategory {
@@ -219,7 +235,10 @@ public enum NameIdentity {
     /// 「使用 join control 的文字」——scalar 落在下列區塊時回一個**文字 id**（同一文字的多個區塊回同一個 id），
     /// 否則 `nil`。封閉列舉，理由見 `joinerIsLegal`；R7 補進的區塊（Mandaic、Syriac Supplement、Adlam、
     /// Hanifi Rohingya、Tifinagh、Sogdian／Old Uyghur、Manichaean、Arabic Extended-C）是 R6 verify 第 14／22 列
-    /// 指出的疏漏——同一個文字的補充區塊本來就該在。Indic 每 0x80 一個文字（Devanagari…Sinhala）。
+    /// 指出的疏漏——同一個文字的補充區塊本來就該在。Indic 每 0x80 一個文字（Devanagari…Sinhala）；R9 再補
+    /// Devanagari Extended／Extended-A（A8E0–A8FF 含 Lo 字母 U+A8FB、11B00–11B5F）與 Myanmar Extended-A／B
+    /// （AA60–AA7F Khamti、A9E0–A9FF Shan／Tai Laing）——R8 verify 第 21／28／38 列。**Vedic Extensions（1CD0–1CFF）
+    /// 刻意不加**：多數是標記（(a) 支走訪時本來就跳過），少數 Lo 字母沒有 joiner 用途，§5.7 記為邊界。
     static func joinScript(_ u: Unicode.Scalar) -> Int? {
         switch u.value {
         case 0x0600...0x06FF, 0x0750...0x077F, 0x0870...0x089F, 0x08A0...0x08FF,
@@ -228,7 +247,8 @@ public enum NameIdentity {
         case 0x0840...0x085F:                                        return 3    // Mandaic
         case 0x07C0...0x07FF:                                        return 4    // NKo
         case 0x0900...0x0DFF:                                        return 100 + Int((u.value - 0x0900) / 0x80)   // Indic：Devanagari…Sinhala
-        case 0x1000...0x109F:                                        return 5    // Myanmar
+        case 0xA8E0...0xA8FF, 0x11B00...0x11B5F:                     return 100  // Devanagari Extended／Extended-A
+        case 0x1000...0x109F, 0xAA60...0xAA7F, 0xA9E0...0xA9FF:      return 5    // Myanmar（含 Extended-A／B）
         case 0x1780...0x17FF:                                        return 6    // Khmer
         case 0x1800...0x18AF:                                        return 7    // Mongolian
         case 0x2D30...0x2D7F:                                        return 8    // Tifinagh（連字 ZWJ）

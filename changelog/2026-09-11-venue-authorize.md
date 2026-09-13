@@ -304,6 +304,41 @@ scalar 計（security：combining-mark 密集的 120 個 Character 是 596 個 s
 INFO 記錄：`fmt` 對 venue 的拒絕從此涵蓋所有 error 類別、不只 D8（regression 席）——與 `.person` 相同，
 接受；Cn 在 DI 區段內的保留碼位會被擋（logic）；#553 順手改第五輪記錄。
 
+## R8 verify：splice 錨錯了一格，沒有守衛會紅
+
+R7 的 12 列全部在位；R8 verify 39 列、DA 席缺席（session limit）、4 HIGH 是同一件事：R8 對
+`.claude/rules/zero-instance-guards.md` 的 splice 用 `"```bash\npython3 - <<'EOF'\nimport glob, io, os"` 當錨——
+它命中的是 **row 18** 的 heredoc（`import glob, io, os, yaml, collections`），不是 row 25 的。結果：row 18 的
+abstract 長度腳本被 venue 鏡射蓋掉、第 17／20／21／22 列的量測段（含 row 22 的觸發條件）整段消失（a03933d 第
+152–224 行、13 個量測標題剩 9 個），而真正的「第 25 列的量測」下面還是 R7 舊腳本——R8 report 說「row-25 Python
+的 `before` 做 `str()` 與 ISO regex」在讀者被指去看的位置**為假**。`zero-instance-rows-audit` 只數 bullet、
+`measured-numbers-audit` 只讀表格，都不讀量測段，所以整件事是綠的。R9 從 a03933d 逐字復原那一段、把 R9 腳本放到
+row 25 下（單一副本）、每個錨點斷言唯一——用的正是 R8 沒做的那一步。
+
+**四個 MEDIUM 各是一格程式比散文寬或窄**：virama 分支不驗 virama 自己（與跳過的標記）的文字（Codex＋四席：
+`ک\u{094D}\u{200D}` 通過，doc 寫「同一文字」）；(b) 支把 joiner 在 virama 之前一律當 confusable（logic：
+Unicode ch. 12.2 的 Bengali ya-phalaa `<RA, ZWJ, VIRAMA, YA>`，`add-venue --names $'র‍্যাব'` 被拒——R8 那句
+「沒有正字法意義」對 Bengali 為假，Microsoft 的 Devanagari／Bengali 音節文法 `<ZWNJ|ZWJ>+H` 實取確認，D21）；
+(a) 支的「沒有右鄰居」只對字串末尾成立，多字刊名裡的詞尾 chillu 右邊是空白（logic，D22）；repoint 逐字帶原
+literal 之後，from-venue 同時持有 confirmed 與 rejected `work:x :: Psychometrika`——每一次合法的 repoint 都在
+`akashic validate` 留一條 #486 矛盾 verdict warning，唯一處置「刪掉另一個」沒有工具面（requirements＋logic；
+demote 自 #418 起同形）。verdict 沒有時間戳，讀端判不出哪條是後來的，只有寫入面知道——D20：寫入時退役相反
+判定；apply 面不動（提名層已抑制 rejected 配對，記為邊界）。Codex 另指出 `first(where:)` 對同一 work 在
+from-venue 有兩個不同 literal 時任取第一筆（D23：≥2 拒絕；「不同」用 ledger 的相等——測試第一版用大小寫異寫，
+`appendIfAbsent` 只留一筆，拒絕永遠不觸發）。D19 的 doc 說 person／organization holder 沒有內容不變式（三席）
+——`assertPersonWritable`／`assertOrganizationWritable` 都跑 `validate()` error，一筆 `authorized ⊄ names` 的 org
+持有 `person:<被併>` verdict 時 person 合併就是同一個形；D24 把閘擴到三種 holder，測試把缺陷實跑出來（被併
+person 已刪、org 留死 verdict）。
+
+LOW／INFO：Python 鏡射的 `\d{4}(-\d{2}(-\d{2})?)?` 比 `ISO8601Prefix.isValid` 鬆（`1960-13`、Arabic-Indic
+數字都放行——四席）、`dated` 把 `ended-unknown: false` 當宣稱；區塊表漏 Devanagari Extended／Extended-A、Myanmar
+Extended-A／B（Vedic Extensions 記為邊界）；changelog 標題的 41 條（括號裡的分項自己加起來是 44）；row 25 情形欄
+仍是 R7 規則；§5.7 第 4 條的「同年」比程式鬆（`1960-06`／`1960-07` 是不相交）；「找不到 confirmed verdict」的拒絕
+不說出路。D18 的量測（requirements＋regression 兩席各自做）：live store 2,203 條 key venue 邊、0 條在該 venue 上
+沒有 confirmed verdict、0 個 work 對同一 venue 兩條 key 邊——`repoint` 的新拒絕今天擋不到任何合法操作；產生 key
+邊的生產路徑（apply／repoint／venue 合併／rename／work 合併）每一條都留 verdict，literal 邊的來源（create-entry、
+匯入、migrate-venues）造不出 key 邊。#561 已收 `authorize` 的 `argList` 靜默形。
+
 ## 第二次端到端又紅——這次是我的 binary
 
 改成替換語意後測試 7/7 綠、四個 mutation 負控乾淨，真 binary 卻說「authorized 含不在
@@ -317,7 +352,7 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
 ## 落地
 
 - `updateVenue` 加 `authorize: [String]?`；CLI `--authorize`、MCP `authorize`，兩面同批
-- 41 條寫入面測試（R1 的 7 條改語意 ＋ R2 新增 5 條：同書寫系統兩名拒絕／沿革前身保留時間／
+- 48 條寫入面測試（R1 的 7 條改語意 ＋ R2 新增 5 條：同書寫系統兩名拒絕／沿革前身保留時間／
   確認既有值報 `alreadyAuthorized`／兩邊空白不是矛盾／呼叫端自己 `add_variant` 才進 variant
   ＋ R3 新增 7 條：近重複不是替換／近重複用 store 拼法拉回／跨參數近重複仍是矛盾／控制字元
   與純標點不是名字／衝突桶排序全報／重複字串只報一次／確認既有值仍移出同書寫系統的另一個
@@ -329,12 +364,15 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
   且報出／`addVenue` 存 canonical 且驗
   ＋ R6 新增 2 條：apply／demote 對不可寫的 venue 零寫入 ＋ R7 新增 3 條：repoint 懸空 from-key 具名拒絕／
   參數名兩面都印／長輸入理由不被截 ＋ R8 新增 3 條：repoint 的 literal 取自 verdict 不是 title／from-venue
-  無 verdict 拒絕／combining-mark 密集輸入理由不被截）；`VenueNameInvariantTests` 25 條
+  無 verdict 拒絕／combining-mark 密集輸入理由不被截 ＋ R9 新增 4 條：repoint 兩側退役相反判定且 undo 乾淨／demote
+  退役 confirmed／同 work 兩個 literal 時 repoint 與 demote 都拒／無 verdict 的拒絕指出路）；`VenueNameInvariantTests` 29 條
   （R5 的 8 條 ＋ R6：拉丁／CJK joiner 拒、join-control 文字的 joiner 收、DI 不可見、訊息對操作者、
   沿革同名豁免、三張清單近重複、bootstrap 拒的 literal 帶理由 ＋ R7：區塊標點與外文鄰居拒、連續 joiner
   與浮動 virama 拒、草書文字補進區塊表、U+2800、碼位補零、豁免對粒度與端點保守、bootstrap 先問已有 venue
-  ＋ R8：virama 基底要是同一文字的字母且 joiner 兩側同一文字、孤立標記不是名字、豁免端點要是 ISO）；
-  `VerdictHolderGridTests` 加「work 合併對持有被併鍵 verdict 的髒 venue 在 commit 前拒」；`NameIdentityTests` 加「不刪
+  ＋ R8：virama 基底要是同一文字的字母且 joiner 兩側同一文字、孤立標記不是名字、豁免端點要是 ISO
+  ＋ R9：virama 與標記要與基底同文字、詞尾 chillu 後接空白、Indic virama 之前的 joiner、補充區塊入表）；
+  `VerdictHolderGridTests` 加「work 合併對持有被併鍵 verdict 的髒 venue 在 commit 前拒」與「person 合併對
+  `authorized ⊄ names` 的 organization holder 在 commit 前拒」；`NameIdentityTests` 加「不刪
   任何非空白 scalar」；合併端 14 條（三種結果各有測試 ＋ dry-run 對不可寫的 keeper 拒）；
   `CanonicalFormatValidationTests` 加 venue 語意驗證
 - `record-divergence --candidate` 的 help 與 MCP `candidates` 描述補 venue（#553 遺留，兩面對齊）

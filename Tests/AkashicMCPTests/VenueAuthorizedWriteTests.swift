@@ -664,6 +664,95 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2025" }?.venues, [.key("some-journal")], "零寫入")
     }
 
+    /// **repoint 寫 rejected 時退役同 holder 上同一配對的 confirmed**（R8 verify 第 9／12 列；Claude 代裁 D20）：R8 讓
+    /// rejected 逐字帶原 literal（對的），於是 from-venue 同時持有 `resolution-confirmed` 與 `resolution-rejected`
+    /// `work:x2025 :: Psychometrika`——`akashic validate` 對每一次合法的 repoint 印一條 #486「矛盾 verdict」warning，
+    /// 而它的唯一處置「刪掉另一個」沒有工具面。verdict 沒有時間戳，「後者為準」讀端判不出來，只有寫入面知道哪個是新的。
+    /// 反向 repoint（undo）也要乾淨：`to` 上的舊 rejected 被新 confirmed 退役。
+    func testRepointRetiresTheOppositeVerdictOnBothVenues() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika")]
+        _ = try store.writeEntry(e)
+        _ = try service.resolveVenues(apply: ["x2025:0"])
+        _ = try service.addVenue(key: "other-journal", names: ["Other Journal"], type: "periodical", note: nil, issn: nil)
+        let out = try service.resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"])
+        XCTAssertTrue(out.contains("\"verdictsRetired\""), "報告要說退役了幾筆：\(out)")
+        func kinds(_ key: String) throws -> [ResolutionLedger.VerdictKind] {
+            let v = try XCTUnwrap(store.load().venues.first { $0.key == key })
+            return ResolutionLedger.verdicts(references: v.references).0.filter { $0.holder == "x2025" }.map(\.kind)
+        }
+        XCTAssertEqual(try kinds("some-journal"), [.rejected], "from：confirmed 退役、只剩 rejected")
+        XCTAssertEqual(try kinds("other-journal"), [.confirmed])
+        XCTAssertTrue(store.contradictoryVerdictIssues(in: try store.load()).isEmpty, "#486 不得對合法的 repoint 出聲")
+        // undo：改回去——to 上的舊 rejected 被退役，from 上的舊 confirmed 被退役
+        _ = try service.resolveVenues(apply: nil, repoint: ["x2025:0:some-journal"])
+        XCTAssertEqual(try kinds("some-journal"), [.confirmed])
+        XCTAssertEqual(try kinds("other-journal"), [.rejected])
+        XCTAssertTrue(store.contradictoryVerdictIssues(in: try store.load()).isEmpty)
+    }
+
+    /// demote 同形（#418 既有：寫 rejected 時把 confirmed 留在原地——R8 verify 第 12 列指出 repoint＋demote 一次各留一條）。
+    func testDemoteRetiresTheConfirmedVerdict() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika")]
+        _ = try store.writeEntry(e)
+        _ = try service.resolveVenues(apply: ["x2025:0"])
+        _ = try service.resolveVenues(apply: nil, demote: ["x2025:0"])
+        let v = try venue()
+        let vs = ResolutionLedger.verdicts(references: v.references).0.filter { $0.holder == "x2025" }
+        XCTAssertEqual(vs.map(\.kind), [.rejected])
+        XCTAssertEqual(vs.map(\.literal), ["Psychometrika"])
+        XCTAssertTrue(store.contradictoryVerdictIssues(in: try store.load()).isEmpty)
+    }
+
+    /// **from-venue 上同一 work 有兩個不同的 confirmed literal 時拒絕**（R8 verify 第 7／36 列，Codex；Claude 代裁 D23）：
+    /// R8 用 `first(where:)` 取第一筆——同一 work 的兩條邊以不同 literal（`Psychometrika`／`PSYCHOMETRIKA`）歸到同一
+    /// venue（兩次 apply，或 #553 合併把兩個攣生的 verdict 遷進同一 keeper）時，改指第二條邊仍取得第一筆的 literal，
+    /// 錯的 literal 被寫進 `to` 的 confirmed 與 `from` 的 rejected，之後 demote 把邊退回另一個刊名。verdict 不帶 index，
+    /// store 裡沒有東西說得出哪筆屬於哪條邊——`enrich` 對 DOI 命中 ≥2 筆的 `ambiguous` 形：具名拒絕、零寫入。
+    /// live store 2026-09-12 實測：同一 work 對同一 venue 兩條 key 邊 0、同一 venue 對同一 work 兩個 confirmed literal 0。
+    /// **「不同」是 ledger 的相等**（#470 `matchingKey`）：本測試第一版用 `Psychometrika`／`PSYCHOMETRIKA`，兩次 apply
+    /// 只留一筆 verdict（大小寫異寫是同一個配對），所以拒絕條件從來不會觸發——兩個 literal 要在正規化後仍不同。
+    func testRepointAndDemoteRefuseWhenTheFromVenueHoldsTwoLiteralsForTheWork() throws {
+        let store = LibraryStore(root: root)
+        _ = try service.updateVenue(key: "some-journal", addNames: ["Psychometrika", "Psychometrika Journal"], note: nil, type: nil)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika"), .literal("Psychometrika Journal")]
+        _ = try store.writeEntry(e)
+        _ = try service.resolveVenues(apply: ["x2025:0", "x2025:1"])
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal"), .key("some-journal")])
+        _ = try service.addVenue(key: "other-journal", names: ["Other Journal"], type: "periodical", note: nil, issn: nil)
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:1:other-journal"])) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("「Psychometrika」") && s.contains("「Psychometrika Journal」"), "要列出兩個 literal：\(s)")
+            XCTAssertTrue(s.contains("YAML"), "要說怎麼修：\(s)")
+        }
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, demote: ["x2025:0"]))
+        let after = try store.load()
+        XCTAssertEqual(after.entries.first?.venues, [.key("some-journal"), .key("some-journal")], "零寫入")
+        let v = try XCTUnwrap(after.venues.first { $0.key == "some-journal" })
+        XCTAssertEqual(ResolutionLedger.verdicts(references: v.references).0.filter { $0.holder == "x2025" }.count, 2, "零寫入")
+    }
+
+    /// 「找不到 confirmed verdict」的拒絕要指出路（R8 verify 第 33 列，security）：與懸空 from-key 那句一樣——
+    /// 手改 work 的 YAML 把這條邊改回 `- literal:`，再 `--apply` 重新歸戶（那一步會寫下 verdict）。repoint 與 demote 都要。
+    func testMissingVerdictRefusalsPointToTheExit() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "A Paper")
+        e.venues = [.key("some-journal")]
+        _ = try store.writeEntry(e)
+        _ = try service.addVenue(key: "other-journal", names: ["Other Journal"], type: "periodical", note: nil, issn: nil)
+        for op in [{ try self.service.resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"]) },
+                   { try self.service.resolveVenues(apply: nil, demote: ["x2025:0"]) }] {
+            XCTAssertThrowsError(try op()) { err in
+                let s = String(describing: err)
+                XCTAssertTrue(s.contains("- literal:") && s.contains("--apply"), s)
+            }
+        }
+    }
+
     /// 原字串的 120 上限以 scalar 計（R7 verify 第 16 列）：`String.prefix` 數 grapheme cluster，combining-mark 密集的輸入
     /// 120 個 Character 可以是 596 個 scalar，整項再被 `displaySafe(max: 400)` 截掉——理由又不見了。
     func testRejectionKeepsTheReasonForCombiningMarkHeavyInput() throws {

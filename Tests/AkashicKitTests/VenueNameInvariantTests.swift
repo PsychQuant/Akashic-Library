@@ -173,12 +173,71 @@ final class VenueNameInvariantTests: XCTestCase {
     /// （`ا\u{200C}\u{064E}ب`）都通過。R8：從 virama 往前跳過標記找基底、基底要是字母；joiner 之後只能是基底
     /// （字母／數字）；兩側同一文字。合法的 conjunct 形（ka＋nukta＋virama＋ZWJ＋ssa）要保留。
     func testViramaBaseAndJoinerNeighboursAreLettersOfOneScript() {
+        // `क\u{200D}\u{094D}ष`（joiner 在 virama **之前**）R8 曾在這裡當反例——R9 改收（D21，見下一條測試）
         for bad in ["Journal \u{0967}\u{094D}\u{200D}", "Journal \u{093C}\u{094D}\u{200D}", "क्\u{200C}A",
-                    "ک\u{200C}क", "क\u{200D}\u{094D}ष", "ا\u{200C}\u{064E}ب", "क\u{200D}\u{093C}"] {
+                    "ک\u{200C}क", "ا\u{200C}\u{064E}ب", "क\u{200D}\u{093C}"] {
             XCTAssertNotNil(NameIdentity.wellFormednessIssue(bad), bad.debugDescription)
         }
         for ok in ["क़्\u{200D}ष", "क्\u{200D}ष", "\u{0D28}\u{0D4D}\u{200D}", "بَ\u{200C}ب", "۱۴۰۰\u{200C}ها",
                    "ស្\u{200D}ត"] {
+            XCTAssertNil(NameIdentity.wellFormednessIssue(ok), ok.debugDescription)
+        }
+    }
+
+    /// **virama 與它前面被跳過的標記都要與基底同一文字**（R8 verify 第 6／18／19／23／26 列，Codex＋四席）：
+    /// R8 的 (a) 支只驗基底與右鄰居的文字，virama 本身只驗 ccc 9，走訪過的標記只驗 Mn／Mc——
+    /// `ک\u{094D}\u{200D}`（Arabic 字母＋Devanagari virama＋ZWJ）、`क\u{09CD}\u{200D}ष`（Devanagari 基底＋Bengali virama）、
+    /// `क\u{09BC}\u{094D}\u{200D}ष`（Bengali nukta 夾在中間）都通過，而 doc 寫的是「掛在**同一文字**字母上的 virama」。
+    /// 合法的同文字 conjunct（ka＋nukta＋virama＋ZWJ＋ssa）仍收。Claude 代裁 D22。
+    func testViramaAndItsMarksMustShareTheBaseScript() {
+        for bad in ["ک\u{094D}\u{200D}", "क\u{09CD}\u{200D}ष", "क\u{09BC}\u{094D}\u{200D}ष", "ک\u{094D}\u{200D}ب"] {
+            XCTAssertNotNil(NameIdentity.wellFormednessIssue(bad), bad.debugDescription)
+        }
+        for ok in ["क़्\u{200D}ष", "क\u{093C}\u{094D}\u{200D}ष", "\u{0D28}\u{0D4D}\u{200D}"] {
+            XCTAssertNil(NameIdentity.wellFormednessIssue(ok), ok.debugDescription)
+        }
+    }
+
+    /// **詞尾 chillu 之後接空白視同沒有右鄰居**（R8 verify 第 11 列，logic）：R8 的 (a) 支「右鄰居若在要是同一文字的
+    /// 字母／數字」只對整個字串的最後一個詞成立——多字刊名裡的 legacy Malayalam chillu／Bengali khanda ta 右邊是
+    /// U+0020，既不同文字也不是字母，`add-venue --names $'അവന്\u{200D} വന്നു'` 被拒、單詞版通過。canonical 形保證
+    /// 內部空白只會是單一 U+0020，所以「空白視同沒有」不會放行任何別的東西。D22 的第二半。
+    func testWordFinalChilluBeforeASpaceIsStillWordFinal() {
+        for ok in ["അവന്\u{200D} വന്നു", "ত্\u{200D} ব", "\u{0D28}\u{0D4D}\u{200D} Journal"] {
+            XCTAssertNil(NameIdentity.wellFormednessIssue(ok), ok.debugDescription)
+        }
+        // 空白**之前**的 (b) 支 joiner 仍拒：`ب\u{200C} ب` 的 ZWNJ 兩側不是同一個詞
+        XCTAssertNotNil(NameIdentity.wellFormednessIssue("ب\u{200C} ب"))
+        XCTAssertNotNil(NameIdentity.wellFormednessIssue("അവന്\u{200D}\u{00A0}വന്നു"), "NBSP 不是 canonical 形，先被第 1 條擋")
+    }
+
+    /// **joiner 在同一 Indic 文字的 virama 之前是正字法**（R8 verify 第 10 列，logic；Claude 代裁 D21）：R8 把
+    /// `क\u{200D}\u{094D}ष` 當「沒有正字法意義」的 confusable 通道，對 Bengali 為假——Unicode 核心規範 ch. 12.2 明寫
+    /// ya-phalaa 用 `<RA, ZWJ, VIRAMA, YA>`（`র\u{200D}\u{09CD}যাব`＝RAB，常見外來語），Microsoft 的 Devanagari／Bengali
+    /// OpenType 音節文法都有 `<ZWNJ|ZWJ>+H` 這一支（2026-09-13 實取兩頁確認）。收的範圍是 (b) 支的右鄰居可以是
+    /// **同一 Indic 文字**（joinScript 100–109）的 virama（ccc 9）；非 Indic 的 virama（Myanmar asat、Khmer coeng）
+    /// 與非 virama 的標記（Arabic fatha）仍拒。
+    func testJoinerBeforeASameScriptViramaIsIndicOrthography() {
+        for ok in ["র\u{200D}\u{09CD}যাব", "क\u{200D}\u{094D}ष", "ক\u{200C}\u{09CD}ষ", "র\u{200D}\u{09CD}য"] {
+            XCTAssertNil(NameIdentity.wellFormednessIssue(ok), ok.debugDescription)
+        }
+        for bad in ["ا\u{200C}\u{064E}ب", "\u{1000}\u{200D}\u{1039}\u{1000}", "ក\u{200D}\u{17D2}ត", "क\u{200D}\u{09CD}ष",
+                    "A\u{200D}\u{094D}ष"] {
+            XCTAssertNotNil(NameIdentity.wellFormednessIssue(bad), bad.debugDescription)
+        }
+    }
+
+    /// **同一文字的補充區塊要在區塊表裡**（R8 verify 第 21／28／38 列）：Devanagari Extended（A8E0–A8FF，含 Lo 字母
+    /// U+A8FB HEADSTROKE）、Devanagari Extended-A（11B00–11B5F）、Myanmar Extended-A／B（AA60–AA7F Khamti、
+    /// A9E0–A9FF Shan／Tai Laing）回 nil，鄰接它們的 joiner 被拒，而 R7 的 doc 說「同一個文字的補充區塊本來就該在」。
+    /// Vedic Extensions（1CD0–1CFF）刻意不加：多數是標記（走訪時本來就跳過），少數 Lo 字母沒有 joiner 用途，§5.7 記為邊界。
+    func testExtensionBlocksJoinTheirScript() {
+        XCTAssertEqual(NameIdentity.joinScript("\u{A8FB}"), NameIdentity.joinScript("क"))
+        XCTAssertEqual(NameIdentity.joinScript("\u{11B00}"), NameIdentity.joinScript("क"))
+        XCTAssertEqual(NameIdentity.joinScript("\u{AA60}"), NameIdentity.joinScript("\u{1000}"))
+        XCTAssertEqual(NameIdentity.joinScript("\u{A9E0}"), NameIdentity.joinScript("\u{1000}"))
+        XCTAssertNil(NameIdentity.joinScript("\u{1CE9}"), "Vedic Extensions 刻意不在表")
+        for ok in ["क्\u{200D}\u{A8FB}", "\u{AA60}\u{200D}\u{AA61}", "\u{A9E0}\u{200C}\u{A9E1}"] {
             XCTAssertNil(NameIdentity.wellFormednessIssue(ok), ok.debugDescription)
         }
     }

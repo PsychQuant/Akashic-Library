@@ -118,6 +118,30 @@ public enum ResolutionLedger {
         return true
     }
 
+    /// **寫入一筆判定，並退役同一份 references 裡對同一配對的相反判定**（#554 R8 verify 第 9／12 列，D20）。
+    ///
+    /// `repoint`／`demote` 寫 rejected 時，那個配對的 confirmed 還留在同一個 holder 上——兩條各自合法，
+    /// 合起來是 #486 的「矛盾 verdict」warning，而它的唯一處置「刪掉另一個」沒有工具面。verdict 沒有時間戳，
+    /// 讀端判不出哪條是後來的；只有寫入面知道自己是新的，所以退役在這裡做。相等用 `verdictEqualityKey`
+    /// 把 field 換成相反那個——與 `appendIfAbsent`、#486 的掃描同一個正規化（#470）。回傳附加了沒有、退役了幾筆。
+    /// 歷史留在 git（同 un-split 刪拆分記錄的既有取捨）。**只對 verdict 欄位對有意義**——非 verdict 的 reference
+    /// 沒有「相反」，走 `appendIfAbsent` 就好；這裡對它們等價於 `appendIfAbsent`（退役 0 筆）。
+    @discardableResult
+    public static func supersede(_ ref: ProvenanceReference,
+                                 in references: inout [ProvenanceReference]) -> (appended: Bool, retired: Int) {
+        var retired = 0
+        if let kind = VerdictKind(rawValue: ref.field) {
+            let opposite: VerdictKind = kind == .confirmed ? .rejected : .confirmed
+            let oppositeKey = ProvenanceReference.verdictEqualityKey(field: opposite.rawValue, value: ref.value)
+            let before = references.count
+            references.removeAll {
+                ProvenanceReference.verdictEqualityKey(field: $0.field, value: $0.value) == oppositeKey
+            }
+            retired = before - references.count
+        }
+        return (appendIfAbsent(ref, to: &references), retired)
+    }
+
     // MARK: - 讀端（唯一解析器）
 
     /// 從一份 references 解析 verdict。非 verdict 欄位完全忽略（不算 malformed）；

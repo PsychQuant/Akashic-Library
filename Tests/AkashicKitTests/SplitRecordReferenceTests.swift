@@ -146,9 +146,14 @@ final class SplitRecordReferenceTests: XCTestCase {
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let service = try String(contentsOf: repo.appendingPathComponent("Sources/AkashicMCPKit/AkashicService.swift"),
                                  encoding: .utf8)
+        // #554 R9 起 repoint／demote 共用 `confirmedLiteral`（D23：≥2 個不同 literal 拒絕）——解析器呼叫住在那裡，
+        // demote 自己只剩對它的呼叫。釘兩段：demote 呼叫 helper、helper 走唯一解析器。
         guard let start = service.range(of: "private func demoteVenues(") else { return XCTFail("找不到 demoteVenues") }
-        XCTAssertTrue(String(service[start.lowerBound...].prefix(6000)).contains("ResolutionLedger.verdicts(references:"),
-                      "demote 沒走唯一解析器")
+        XCTAssertTrue(String(service[start.lowerBound...].prefix(6000)).contains("Self.confirmedLiteral(on:"),
+                      "demote 沒走共用的 confirmedLiteral")
+        guard let helper = service.range(of: "static func confirmedLiteral(") else { return XCTFail("找不到 confirmedLiteral") }
+        XCTAssertTrue(String(service[helper.lowerBound...].prefix(1500)).contains("ResolutionLedger.verdicts(references:"),
+                      "confirmedLiteral 沒走唯一解析器")
     }
 
     // MARK: - 3.1 format 16

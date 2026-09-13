@@ -3814,16 +3814,8 @@ public final class AkashicService {
             // **原 literal 從 from-venue 的 confirmed verdict 逐字取回**，走唯一解析器——與 demote 同一個立場
             // （R7 verify 第 6 列，#418 既有缺陷：用 work 的 `title` 當 literal，之後 `--demote` 把 venue 邊改寫成
             // 論文標題；rejected 那一側也帶著標題，`rejectedPairings` 對真正的刊名 literal 不會抑制）。取不到就拒絕。
-            let (fromVerdicts, _) = ResolutionLedger.verdicts(references: fromVenue.references)
-            guard let hit = fromVerdicts.first(where: {
-                $0.kind == .confirmed && $0.holderKind == .work && $0.holder == citekey
-            }) else {
-                throw ServiceError.invalid(
-                    "venue「\(displaySafe(oldKey, max: 200))」上找不到 work「\(displaySafe(citekey, max: 200))」"
-                    + "的 confirmed verdict——原 literal 無從取回，改指會寫出一筆不知道原文是什麼的 verdict。"
-                    + "不拿 work 的 title 或 venue 的顯示名頂替")
-            }
-            moves.append(Move(citekey: citekey, index: idx, from: oldKey, to: newKey, literal: hit.literal))
+            let literal = try Self.confirmedLiteral(on: fromVenue, for: citekey, operation: "改指")
+            moves.append(Move(citekey: citekey, index: idx, from: oldKey, to: newKey, literal: literal))
         }
         guard !moves.isEmpty else {
             return try jsonString(["repointed": [String](), "entriesRewritten": 0,
@@ -3840,24 +3832,27 @@ public final class AkashicService {
 
         // **兩側都留 verdict**：新的 confirmed、舊的 rejected。少了 rejected，
         // 下次提名會把同一個配對再提出來（`ResolutionLedger.rejectedPairings` 讀的正是它）。
+        // **每一側同時退役相反的判定**（D20，R8 verify 第 9／12 列）：from 上這個配對的 confirmed 是剛被裁定為誤的那筆，
+        // 留著就是 #486 的矛盾對；to 上若有舊的 rejected（一次 undo repoint）同理。`supersede` 在 ledger 做這件事。
         // venue 的變更先算、先過閘，entry 之後才落盤（D11，理由見 apply 那段）。
         var venuesByKey = Dictionary(load.venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        var retired = 0
         for m in moves {
             let literal = m.literal
             if var to = venuesByKey[m.to] {
-                ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+                retired += ResolutionLedger.supersede(ResolutionLedger.record(
                     .confirmed, holderKind: .work, holder: m.citekey, literal: literal,
                     rule: ResolutionLedger.venueRule,
                     statement: "resolve repoint：由「\(displaySafe(m.from, max: 120))」改指而來，使用者裁定"),
-                    to: &to.references)
+                    in: &to.references).retired
                 venuesByKey[m.to] = to
             }
             if var from = venuesByKey[m.from] {
-                ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+                retired += ResolutionLedger.supersede(ResolutionLedger.record(
                     .rejected, holderKind: .work, holder: m.citekey, literal: literal,
                     rule: ResolutionLedger.venueRule,
                     statement: "resolve repoint：改指到「\(displaySafe(m.to, max: 120))」，此配對經裁定為誤"),
-                    to: &from.references)
+                    in: &from.references).retired
                 venuesByKey[m.from] = from
             }
         }
@@ -3870,7 +3865,47 @@ public final class AkashicService {
             "repointed": moves.map { "\(displaySafe($0.citekey, max: 200)):\($0.index):\(displaySafe($0.to, max: 200))" },
             "entriesRewritten": touched.count,        // display-safe-exempt: Int
             "venuesRewritten": changedVenues.count,   // display-safe-exempt: Int
+            "verdictsRetired": retired,               // display-safe-exempt: Int
         ] as [String: Any])
+    }
+
+    /// `repoint`／`demote` 共用：從 venue 的 confirmed verdict 取回這筆 work 的**唯一**原 literal（R8：走唯一解析器，
+    /// 不拿 title 或顯示名頂替；D23：≥2 個不同 literal 時拒絕）。
+    ///
+    /// **為什麼 ≥2 是拒絕不是取第一筆**（R8 verify 第 7／36 列，Codex）：同一 work 的兩條邊以不同 literal
+    /// （`Psychometrika`／`PSYCHOMETRIKA`）歸到同一 venue——兩次 apply、或 #553 合併把兩個攣生的 verdict 遷進同一
+    /// keeper——時，verdict 不帶 index，store 裡沒有東西說得出哪筆屬於哪條邊；取第一筆會把錯的 literal 寫進 to 的
+    /// confirmed 與 from 的 rejected，之後 demote 把邊退回另一個刊名。`enrich` 對 DOI 命中 ≥2 筆的 `ambiguous` 形：
+    /// 具名、零寫入。live store 2026-09-12 實測兩個數字都是 0（同 work 對同 venue 兩條 key 邊／同 venue 對同 work
+    /// 兩個 confirmed literal）。**0 筆時的出路要寫在訊息裡**（R8 verify 第 33 列）：與懸空 from-key 那句同一條路。
+    static func confirmedLiteral(on venue: Venue, for citekey: String, operation: String) throws -> String {
+        let (verdicts, _) = ResolutionLedger.verdicts(references: venue.references)
+        // 「不同」用 ledger 自己的相等（#470：`matchingKey`）——`Psychometrika`／`PSYCHOMETRIKA` 是同一個配對，
+        // `appendIfAbsent` 本來就只留第一筆；這裡的去重要與它一致，否則手改出來的大小寫異寫會被當成兩個 literal。
+        var literals: [String] = []
+        var seen = Set<String>()
+        for v in verdicts where v.kind == .confirmed && v.holderKind == .work && v.holder == citekey
+                                && seen.insert(NameNormalization.matchingKey(v.literal)).inserted {
+            literals.append(v.literal)
+        }
+        switch literals.count {
+        case 1:
+            return literals[0]
+        case 0:
+            throw ServiceError.invalid(
+                "venue「\(displaySafe(venue.key, max: 200))」上找不到 work「\(displaySafe(citekey, max: 200))」"
+                + "的 confirmed verdict——原 literal 無從取回，\(operation)會寫出一筆不知道原文是什麼的 verdict。"   // display-safe-exempt: 固定字串（改指／降格）
+                + "不拿 work 的 title 或 venue 的顯示名頂替：那不是這筆記錄原本寫的字，用它會安靜改寫書目資料。"
+                + "出路：手改這筆 work 的 YAML 把這條邊改回 `- literal: <原刊名>`，再用 `resolve-venues --apply` 重新歸戶"
+                + "（那一步會寫下 verdict）")
+        default:
+            throw ServiceError.invalid(
+                "venue「\(displaySafe(venue.key, max: 200))」上 work「\(displaySafe(citekey, max: 200))」有 "
+                + "\(literals.count) 個不同的 confirmed literal（"   // display-safe-exempt: Int
+                + literals.map { "「\(displaySafe($0, max: 120))」" }.joined(separator: "、")
+                + "）——verdict 不帶 index，分不出這條邊原本寫的是哪一個，\(operation)會把錯的 literal 寫進 verdict。"   // display-safe-exempt: 固定字串（改指／降格）
+                + "出路：把不屬於這條邊的那筆 confirmed verdict 從 venue 的 YAML 刪掉（或先改指另一條邊），再重跑")
+        }
     }
 
     /// `resolve-venues --demote` 的實作（#418）。
@@ -3920,17 +3955,9 @@ public final class AkashicService {
             guard let venue = venuesByKey[vkey] else {
                 throw ServiceError.notFound("venue「\(displaySafe(vkey, max: 200))」")
             }
-            // **原 literal 從 confirmed verdict 取回**——走唯一解析器。
-            let (verdicts, _) = ResolutionLedger.verdicts(references: venue.references)
-            guard let hit = verdicts.first(where: {
-                $0.kind == .confirmed && $0.holderKind == .work && $0.holder == citekey
-            }) else {
-                throw ServiceError.invalid(
-                    "venue「\(displaySafe(vkey, max: 200))」上找不到 work「\(displaySafe(citekey, max: 200))」"
-                    + "的 confirmed verdict——原 literal 無從取回。"
-                    + "不拿 venue 的顯示名頂替：那不是這筆記錄原本寫的字，用它會安靜改寫書目資料")
-            }
-            plan.append(Demotion(citekey: citekey, index: idx, venueKey: vkey, literal: hit.literal))
+            // **原 literal 從 confirmed verdict 取回**——走唯一解析器；≥2 個不同 literal 拒絕（D23）。
+            let literal = try Self.confirmedLiteral(on: venue, for: citekey, operation: "降格")
+            plan.append(Demotion(citekey: citekey, index: idx, venueKey: vkey, literal: literal))
         }
 
         for d in plan {
@@ -3942,13 +3969,15 @@ public final class AkashicService {
 
         // **留 rejected**：少了它，下一輪 `--apply` 會把同一個配對再提名一次，
         // 而使用者剛剛才說它是錯的（`ResolutionLedger.rejectedPairings` 讀的正是它）。
+        // **同時退役那個配對的 confirmed**（D20）：它正是剛被裁定為誤的那筆，留著是 #486 的矛盾對。
         // venue 的變更先算、先過閘，entry 之後才落盤（D11，理由見 apply 那段）。
+        var retired = 0
         for d in plan {
             guard var v = venuesByKey[d.venueKey] else { continue }
-            ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+            retired += ResolutionLedger.supersede(ResolutionLedger.record(
                 .rejected, holderKind: .work, holder: d.citekey, literal: d.literal,
                 rule: ResolutionLedger.venueRule,
-                statement: "resolve demote：退回 literal，此配對經裁定為誤"), to: &v.references)
+                statement: "resolve demote：退回 literal，此配對經裁定為誤"), in: &v.references).retired
             venuesByKey[d.venueKey] = v
         }
         let changedVenues = Set(plan.map(\.venueKey))
@@ -3960,6 +3989,7 @@ public final class AkashicService {
             "demoted": plan.map { "\(displaySafe($0.citekey, max: 200)):\($0.index)" },
             "entriesRewritten": touched.count,        // display-safe-exempt: Int
             "venuesRewritten": changedVenues.count,   // display-safe-exempt: Int
+            "verdictsRetired": retired,               // display-safe-exempt: Int
         ] as [String: Any])
     }
 

@@ -752,7 +752,7 @@ extension LibraryStore {
             doomed.append(p)
         }
         try assertAllInEntities(([keeper] + doomed).map { ($0.key, $0.id) })
-        try assertVenueHoldersWritable(snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor, holderKind: .person)
+        try assertHoldersWritable(snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor, holderKind: .person)
         // **合併只搬別名，所以別名以外的東西不許有。** 被併者若帶著倖存者沒有的
         // 識別碼或時間軸，那些資料會隨檔案一起消失而使用者只看到「✓ 併入」。歧異的
         // 典型來源正是「兩個聚合器對同一位作者的比對結果不一致」——那種情況下兩筆
@@ -772,20 +772,40 @@ extension LibraryStore {
     /// **warnings 也從這裡回傳**（#169）：preview 與實跑都經過本函式，把提醒接在
     /// 這個共用點上，兩邊自然一致——不必在兩個呼叫端各算一次（那是 159-1 的形狀：
     /// 兩邊各自準備輸入、各自可能改壞）。
-    /// **持有被併鍵 verdict 的 venue 要在 commit 之前過寫入閘**（#554 R7 verify 第 5 列，DA）：work／person 合併
-    /// 在 `commitResolution` 之後才對它們跑 `migrateHolderVerdicts` → `writeVenue`，那一步失敗只能落進
-    /// `report.failures`——被併檔已刪、venue 留死 verdict（#460 的形狀），而 dry-run 對它沉默（#139 F1）。
-    /// D8 之前能讓 `writeVenue` 拒的只有三個罕見形狀，D8 之後是最常見的手改痕跡（尾隨空白），§5.7 的部署視窗
-    /// 明寫舊 binary 仍會寫出這種 venue。preview 與實跑共用本函式（兩個 `validate*Preconditions` 都呼叫）。
-    /// person／organization holder 沒有名字內容不變式，寫入閘對它們只有 key 與 format，這裡不重複。
-    func assertVenueHoldersWritable(snapshot: LibraryLoad, merged: Set<String>, survivor: String,
-                                    holderKind: ProvenanceReference.VerdictHolderKind) throws {
+    /// **持有被併鍵 verdict 的 holder 要在 commit 之前過寫入閘**（#554 R7 verify 第 5 列，DA；R8 verify 第 13／14／32 列
+    /// 擴到三種 holder，Claude 代裁 D24）：work／person 合併在 `commitResolution` 之後才對每個持有 `<kind>:<被併鍵>`
+    /// verdict 的記錄跑 `migrateHolderVerdicts` → `write*`，那一步失敗只能落進 `report.failures`——被併檔已刪、holder
+    /// 留死 verdict（#460 的形狀），而 dry-run 對它沉默（#139 F1）。D8 之前能讓 `writeVenue` 拒的只有三個罕見形狀，
+    /// D8 之後是最常見的手改痕跡（尾隨空白），§5.7 的部署視窗明寫舊 binary 仍會寫出這種 venue。
+    ///
+    /// **R8 只掃 venue，理由寫「person／organization holder 沒有名字內容不變式」——那句是假的**：`assertPersonWritable`／
+    /// `assertOrganizationWritable` 都以 `assertNoErrors(validate())` 收尾（authorized ⊆ names 自 #227 起是 error、
+    /// 每書寫系統至多一個、dated variant…），而 `zero-instance-guards` 第 8 列的 R6 補記早就寫了這些內容錯誤對載入後
+    /// 的記錄可達（decode 不驗）。一筆手改成 `authorized ⊄ names` 的 org 持有 `person:<被併>` verdict，person 合併就是
+    /// 同一個形。所以三種 holder 各過各的閘；person 合併時跳過 `merged`（已刪檔，寫回等於復活）與 `survivor`
+    /// （commit 前另外對合併後的 keeper 做），鏡射 post-commit 迴圈的排除。preview 與實跑共用本函式
+    /// （兩個 `validate*Preconditions` 都呼叫），所以 `StoreVersion.read` 擲錯時兩邊一致地在任何寫入之前失敗。
+    func assertHoldersWritable(snapshot: LibraryLoad, merged: Set<String>, survivor: String,
+                               holderKind: ProvenanceReference.VerdictHolderKind) throws {
         let format = try StoreVersion.read(root: root)
         for var venue in snapshot.venues {
             let m = Self.migrateHolderVerdicts(venue.references, merged: merged, survivor: survivor, holderKind: holderKind)
             guard m.changed else { continue }
             venue.references = m.refs
             try Self.assertVenueWritable(venue, format: format)
+        }
+        for var org in snapshot.organizations {
+            let m = Self.migrateHolderVerdicts(org.references, merged: merged, survivor: survivor, holderKind: holderKind)
+            guard m.changed else { continue }
+            org.references = m.refs
+            try Self.assertOrganizationWritable(org, format: { format })
+        }
+        let skip: Set<String> = holderKind == .person ? merged.union([survivor]) : []
+        for var person in snapshot.people where !skip.contains(person.key) {
+            let m = Self.migrateHolderVerdicts(person.references, merged: merged, survivor: survivor, holderKind: holderKind)
+            guard m.changed else { continue }
+            person.references = m.refs
+            try Self.assertPersonWritable(person, format: { format })
         }
     }
 
@@ -803,7 +823,7 @@ extension LibraryStore {
             doomed.append(e)
         }
         try assertAllInEntities(([keeper] + doomed).map { ($0.citekey, $0.id) })
-        try assertVenueHoldersWritable(snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor, holderKind: .work)
+        try assertHoldersWritable(snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor, holderKind: .work)
         // #75 對二：欄位遺失比對放在**前置**（preview 與實跑共用——#139 F1 的教訓：
         // 拒絕條件只有一份，dry-run 對它沉默是在騙人）。被併 work 帶有倖存者沒有的
         // 欄位／附件／標籤／出向參照／來源 → 拒絕並指名（子集才放行）。

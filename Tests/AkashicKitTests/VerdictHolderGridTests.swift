@@ -116,6 +116,31 @@ final class VerdictHolderGridTests: XCTestCase {
     }
 
     // MARK: - person merge × organization ／ × person
+    /// **D19 的閘要涵蓋三種 holder，不只 venue**（#554 R8 verify 第 13／14／32 列；Claude 代裁 D24）：R8 的
+    /// `assertVenueHoldersWritable` doc 說「person／organization holder 沒有名字內容不變式，寫入閘對它們只有 key 與
+    /// format」——假的：`assertOrganizationWritable`／`assertPersonWritable` 都跑 `validate()` 的 error 級檢查
+    /// （authorized ⊆ names 自 #227 起是 error）。一筆手改成 `authorized ⊄ names` 的 organization 持有 `person:<被併>`
+    /// verdict 時，person 合併的 post-commit 迴圈才撞到它——被併檔已刪、org 留死 verdict、dry-run 沉默，正是 D19 為
+    /// venue 關掉的那個形，換了 holder 種類。
+    func testPersonMergeRefusesUpFrontWhenAnOrganizationHolderIsUnwritable() throws {
+        try store.writePerson(Person(key: "keeper-person", names: ["Keeper Person"]))
+        try store.writePerson(Person(key: "doomed-person", names: ["Doomed Person"]))
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .person, holder: "doomed-person", literal: "Some Org")])
+        let o = try XCTUnwrap(store.load().organizations.first { $0.key == "some-org" })
+        let file = root.appendingPathComponent("entities/\(o.id.uuidString).yaml")
+        let yaml = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertFalse(yaml.contains("authorized:"), "fixture 前提：org 建檔時不寫 authorized")
+        try (yaml + "authorized:\n- Not In Names\n").write(to: file, atomically: true, encoding: .utf8)
+        let d = try divergence(keeper: "keeper-person", doomed: "doomed-person", shape: .person)
+        GitFixture.commitAll(store.root)
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "keeper-person", overrideReason: nil)) { err in
+            XCTAssertTrue(String(describing: err).contains("some-org"), "\(err)")
+        }
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "keeper-person"))
+        XCTAssertEqual(try store.load().people.map(\.key).sorted(), ["doomed-person", "keeper-person"], "零寫入：被併 person 仍在")
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["person:doomed-person"])
+    }
+
 
     func testPersonMergeMigratesPersonHoldersOnOrganizations() throws {
         try store.writePerson(Person(key: "keeper-person", names: ["Keeper Person"]))

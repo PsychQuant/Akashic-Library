@@ -70,7 +70,7 @@
 | 22 | **零實例，而它是一條 spec Requirement 不是程式**（#474：venue 的 `names` 時間軸——刊名沿革。#422 把它保留而收窄（`variant` 不得帶時間），於是沿革成了一個「保留位置」的形狀。2026-09-09 實測 live store：venue **406** 筆、`names` 帶任一時間欄位（`start`／`end`／`ended-unknown`／`attested`）的 **0** 筆。重跑腳本見表下方） | ✅ **保留** | 前二十一列講的都是**程式**——守衛（第 1–8、13、15–18、20、21 列）與欄位（第 9–12、14、19 列）。這一列講的是 **spec 裡的一條 Requirement**，而它的失敗方式是第三種：守衛失敗是**漏報**、欄位缺席是**模型說了一句它沒打算說的話**，而一條零實例的 Requirement 的失敗是——**有人把它當死重刪掉**（「405 筆沒有一筆用到，留著幹嘛」），然後那個形狀到達時沒有位置可落。**保留而不刪的理由是那個現象是真的**：JRSS Series B／C 的分裂、`bulletin-of-the-institute-of-mathematics-academia-sinica` 的新舊系列都是 store 今天**表達不了**的實例（`entity-backlink-completeness` 的「分裂／繼承」那一節記著同一組例子）。**零實例的成因也具名**：異寫法佔著它的位置——#422 之前 `names` 時間軸同時裝沿革與異寫，收窄之後異寫搬到 `variant`，而沿革還沒有人填。**觸發條件可檢查**（指令見表下方）：帶時間欄位的 venue 數 > 0 即代表沿革開始被用——那時第 16 列（venue verdict 預算）與 `which-side-does-a-relation-live-on` 的「分裂／繼承」觸發條件 ② 也一起到期，三處要一起讀 |
 | 23 | **零實例，而製造它的那條路徑是本輪自己開的**（#457：移除記錄與作者位互相矛盾——某 work 帶一筆「移除：理由」說某個 literal 已退役，而它現在又在作者位上。2026-09-09 實測 live store：移除記錄 **0** 筆——寫入面（`--drop-author`）在本 change 才存在，所以矛盾今天必為零。重跑指令見表下方） | ✅ **寫** | 第 17 列的零也是「寫入面剛長出來」，而這一列多一件事：**矛盾的可達路徑是本 change 自己造出來的**。移除之後 `authors` 變成**空的**，而 `enrich --include-absent-authors` 的既有契約正好是「只在 authors 完全為空時補」——於是同一個字串補得回去，那時 store 同時斷言「它已退役」與「它是作者」。所以這不是「還沒發生的形狀」，是**新面把一個原本不可達的狀態變成可達**，而讓它可達的那一步與守衛必須在同一個 change 裡（`entity-backlink-completeness` 引 3.325 的立場：矛盾寫不出來最好，寫得出來就要出聲）。與第 8 列成鏡像：那一列的零由**別處的**程式（load 的 quarantine）造成、可能被改掉而沒人知道；這一列的零由**本 change 之前沒有這個面**造成，而面已經有了，所以零是暫時的。severity 是 warning（記錄合法，失效的是證據錨——同 `staleSplitRecords` 的既有分級；`validate` exit 仍 0）。**觸發條件可檢查**（指令見表下方）：計數應恆為 0；非零時先確認是不是補值面把它加回來的——要嘛再移除一次，要嘛刪掉那筆記錄，不要兩者並存 |
 | 24 | **零實例，而它是一條「記得起來、解不掉」的半吊子管線——且零是雙重的**（#555：organization 的攣生合併。`recordDivergence` 的 `byShape` 收 org、`resolveDivergence` 對它擲 `unsupportedShape`。2026-09-11 實測 live store：organization **13** 筆、寬鬆共鍵的重複群 **0** 組、含 org 候選的 divergence 記錄 **0** 筆——沒有重複可合、也沒有人記過。另有 **3** 筆帶 `parents` 時間軸，那是 venue 合併沒有的問題（部分—整體關係怎麼併，`Organization.swift:84-88` 明寫它與 person 的隸屬是不同的 predicate）。重跑指令見表下方） | ⚠ **暫不做——既不實作也不拿掉** | 前二十三列的裁決都是「寫」或「不寫」某個東西；這一列裁決的是**對一個已存在的半吊子什麼都不動**，而那之所以可接受，理由是第四種：**它已經誠實了**。#553 把 `unsupportedShape` 的訊息改成從實際支援的清單生成（「organization 的合併管線尚未實作——支援的是 person／work／venue」），所以留著它的代價是零——使用者撞到時看到的是真話。而動它的兩個方向代價都不是零：**實作**要替 `parents` 時間軸設計合併形狀，零實例時做等於猜（同第 10 列「形狀取決於一個還不存在的用途」）；**拿掉**（`byShape` 移除 org）會連記錄面一起關——`record-divergence` 是「當場記錄而非當場判斷」（#77），關掉它等於斷言 org 永遠不會有需要延後判定的歧異，那是關於世界的斷言。**一個誠實的半吊子比一個猜出來的完整更好。** 與第 8 列（零的來源在別處）最像而不同：那一列的零由另一段程式造成、可能被改掉而沒人知道；這一列的零由 org 域剛重啟（#304）造成，而 `bootstrap-organizations` 今天 0 候選——零會不會被打破取決於使用量，不取決於任何程式。**觸發條件可檢查**（指令見表下方）：org 重複群 > 0 **或** 出現第一筆含 org 候選的 divergence 記錄——任一成立即重開，那時要選的是實作或拿掉，不再是暫不做。**若實作，`doomedRelativePaths`／`holderRelativePaths` 的 org 分支要同批補**（#558 對 venue 漏掉的正是這兩格）|
-| 25 | **零實例，而實例全部是在 verify 裡被造出來的——守衛裝在 store 邊界，零量的是五個寫入者的出口**（#554 R5，使用者裁決 D8：venue 名字內容的不變式——canonical 形、無控制／格式／不可見字元、至少一個字母或數字、三張清單各無近重複對（names 的例外：兩段都帶不相交時間的沿革改回舊名，R6）——住在 `Venue.validate()`，error 級；謂詞一份在 `NameIdentity.wellFormednessIssue`、與輸出閘 `UnsafeToEmitScalar` 共用危險 scalar 的定義，「不可見」用 Unicode 的 `Default_Ignorable_Code_Point`（R6；R5 用 generalCategory 四類，VS16／CGJ 是 Mn、Hangul filler 是 Lo，全放行），ZWJ／ZWNJ 只在掛在 join-control 文字字母上的 virama 之後、或兩側都是 join-control 文字的字母／標記／數字時合法（R6；R5 的「兩側是字母」對拉丁字母 fail-open；R7 再收區塊裡的標點與連續 joiner——R6 verify 第 1／19 列），U+2800 顯式列入不可見（第 20 列）。2026-09-12 實測 live store：venue **485** 筆，四條不變式的違反字串 **0**、names 近重複對 **0**；而 R2–R5 四輪 verify 用真 binary 寫進了 `\r`／`\n`／LS／`—`／`×`／RLO／ZWSP／ALM／TAG 字元／尾隨空白／NFD 位元組／拉丁字母夾 ZWNJ／VS16／CGJ／Hangul filler——每一個都是實例，只是發生在 scratch store 而不是 live store。重跑腳本見表下方） | ✅ **寫（error 級、在 store 邊界）** | 第 18 列的理由是「零量的是出口而守衛裝在入口」；這一列多一件事：**入口有五個**（`updateVenue` 的三個名字迴圈、`addVenue`、`VenueBootstrap`）。R2→R4 三輪把閘裝在 `updateVenue` 的三個迴圈裡，每一輪都修在看見的那一圈，R4 verify 指出同一欄位還有 `addVenue`（連空字串都收）與 `VenueBootstrap`（只 trim）——`Venue.swift` 自己的 dated-variant 守衛 doc 早就寫著「守衛住在 validate → writeVenue 的交會處才擋得住所有路徑」。所以本列的裁決有兩半：**寫**（零實例但實例已被造出四次），**以及寫在 store 邊界而不是任何一個寫入面**——寫入面（`vetVenueNames`）留作入口的好訊息，不再是防線。**severity 是 error** 而非 warning，理由是 live store 0 筆違反（提級不拒絕任何既有記錄——但別的 clone 若持有手改的記錄，`akashic validate` 對它會 exit 1）且違反的後果是 displayName 直接壞掉（`displayName` 讀 `authorized`，#475）。**這與第 8／13 列的前提要對帳**（R5 verify 第 12 列）：那兩列說「per-record 的 error 級檢查全是 key 檢查、對載入後的記錄不可達」——**對 venue／organization 自 #227（authorized ⊆ names）／#422（帶時間 variant）／#473（孤兒 variant）起就已為假**：venue 的內容檢查全在寫入期、decode 不驗，所以載入後可達、`StoreHealth.perRecordIssues` 收得到；第 8 列的 pin test 只對 entry／person／divergence 改壞 key，證的是「key 錯會 quarantine」，不是那句前提。本列不翻第 8 列的裁決（`errorsFirst` 的排序仍是對的），只把那句前提的失效日期寫出來——它在本列之前就失效了，本列把可達的 error 類別從三個擴到七個。**誠實邊界**：不變式的 NFC 對 CJK 相容表意文字有損（U+FA10 塚 → U+585A）——位元組層有損、Swift 層無損（Swift `==` 早已視為相等）；ZWJ／ZWNJ 保留但只在 `NameIdentity.joinerIsLegal` 的兩個脈絡；DI 一律拒等於拒掉 IVS／蒙古文 FVS／希伯來 CGJ 等真實正字法用字——fail-closed、零實例、Claude 代裁 D9 的取捨，寫在 §5.7 誠實邊界（R6 verify 第 5／23 列）；私用區（Co）不擋，因為 doc 從未宣稱它；`canonical` 只丟 `White_Space` scalar、不刪任何其他 scalar（R6——R5 在 Character 上切，「空白＋combining mark」整個 cluster 被刪）。**觸發條件可檢查**（指令見表下方）：`akashic validate` 對 venue 的名字內容 error 應恆為 0；非零時那筆是手改或舊 binary 寫的，修法是人改 YAML（同 dated-variant 的立場，不猜、不靜默修；訊息自 R6 起逐條說改什麼） |
+| 25 | **零實例，而實例全部是在 verify 裡被造出來的——守衛裝在 store 邊界，零量的是五個寫入者的出口**（#554 R5，使用者裁決 D8：venue 名字內容的不變式——canonical 形、無控制／格式／不可見字元、至少一個字母或數字、三張清單各無近重複對（names 的例外：兩段都帶不相交時間的沿革改回舊名，R6）——住在 `Venue.validate()`，error 級；謂詞一份在 `NameIdentity.wellFormednessIssue`、與輸出閘 `UnsafeToEmitScalar` 共用危險 scalar 的定義，「不可見」用 Unicode 的 `Default_Ignorable_Code_Point`（R6；R5 用 generalCategory 四類，VS16／CGJ 是 Mn、Hangul filler 是 Lo，全放行），ZWJ／ZWNJ 只在兩個脈絡合法——(a) 掛在同一文字**字母**上的 virama 之後（virama 與中間的標記都是基底那個文字的；右鄰居若在要是同一文字的字母／數字，空白視同沒有）、(b) 左鄰居是 join-control 文字的字母／標記／數字、右鄰居是**同一文字**的字母／數字或同一 Indic 文字的 virama（R6；R5 的「兩側是字母」對拉丁字母 fail-open；R7 再收區塊裡的標點與連續 joiner——R6 verify 第 1／19 列；R8 再收基底要是字母、兩側同文字、右側不收標記——R7 verify 第 1／26／33 列；R9 再收 virama 與標記要與基底同文字、放行詞尾 chillu 後的空白與 Bengali ya-phalaa 的 `<RA, ZWJ, VIRAMA, YA>`——R8 verify 第 6／10／11 列，D21／D22），U+2800 顯式列入不可見（第 20 列）。2026-09-12 實測 live store：venue **485** 筆，四條不變式的違反字串 **0**、names 近重複對 **0**；而 R2–R5 四輪 verify 用真 binary 寫進了 `\r`／`\n`／LS／`—`／`×`／RLO／ZWSP／ALM／TAG 字元／尾隨空白／NFD 位元組／拉丁字母夾 ZWNJ／VS16／CGJ／Hangul filler——每一個都是實例，只是發生在 scratch store 而不是 live store。重跑腳本見表下方） | ✅ **寫（error 級、在 store 邊界）** | 第 18 列的理由是「零量的是出口而守衛裝在入口」；這一列多一件事：**入口有五個**（`updateVenue` 的三個名字迴圈、`addVenue`、`VenueBootstrap`）。R2→R4 三輪把閘裝在 `updateVenue` 的三個迴圈裡，每一輪都修在看見的那一圈，R4 verify 指出同一欄位還有 `addVenue`（連空字串都收）與 `VenueBootstrap`（只 trim）——`Venue.swift` 自己的 dated-variant 守衛 doc 早就寫著「守衛住在 validate → writeVenue 的交會處才擋得住所有路徑」。所以本列的裁決有兩半：**寫**（零實例但實例已被造出四次），**以及寫在 store 邊界而不是任何一個寫入面**——寫入面（`vetVenueNames`）留作入口的好訊息，不再是防線。**severity 是 error** 而非 warning，理由是 live store 0 筆違反（提級不拒絕任何既有記錄——但別的 clone 若持有手改的記錄，`akashic validate` 對它會 exit 1）且違反的後果是 displayName 直接壞掉（`displayName` 讀 `authorized`，#475）。**這與第 8／13 列的前提要對帳**（R5 verify 第 12 列）：那兩列說「per-record 的 error 級檢查全是 key 檢查、對載入後的記錄不可達」——**對 venue／organization 自 #227（authorized ⊆ names）／#422（帶時間 variant）／#473（孤兒 variant）起就已為假**：venue 的內容檢查全在寫入期、decode 不驗，所以載入後可達、`StoreHealth.perRecordIssues` 收得到；第 8 列的 pin test 只對 entry／person／divergence 改壞 key，證的是「key 錯會 quarantine」，不是那句前提。本列不翻第 8 列的裁決（`errorsFirst` 的排序仍是對的），只把那句前提的失效日期寫出來——它在本列之前就失效了，本列把可達的 error 類別從三個擴到七個。**誠實邊界**：不變式的 NFC 對 CJK 相容表意文字有損（U+FA10 塚 → U+585A）——位元組層有損、Swift 層無損（Swift `==` 早已視為相等）；ZWJ／ZWNJ 保留但只在 `NameIdentity.joinerIsLegal` 的兩個脈絡；DI 一律拒等於拒掉 IVS／蒙古文 FVS／希伯來 CGJ 等真實正字法用字——fail-closed、零實例、Claude 代裁 D9 的取捨，寫在 §5.7 誠實邊界（R6 verify 第 5／23 列）；私用區（Co）不擋，因為 doc 從未宣稱它；`canonical` 只丟 `White_Space` scalar、不刪任何其他 scalar（R6——R5 在 Character 上切，「空白＋combining mark」整個 cluster 被刪）。**觸發條件可檢查**（指令見表下方）：`akashic validate` 對 venue 的名字內容 error 應恆為 0；非零時那筆是手改或舊 binary 寫的，修法是人改 YAML（同 dated-variant 的立場，不猜、不靜默修；訊息自 R6 起逐條說改什麼） |
 
 新增下一個零實例守衛 = 在這張表加一列。
 
@@ -153,115 +153,72 @@ grep -rlE  '\bAuthor\b' Sources/ Tests/ --include='*.swift' | wc -l   # 64  檔�
 
 ```bash
 python3 - <<'EOF'
-import glob, io, os, re, unicodedata, yaml
-# 鏡射 Swift 的 NameIdentity.wellFormednessIssue 與 Venue.validate() 的近重複掃描（改一邊要同批改另一邊）：
-#  - canonical：NFC、只丟 White_Space（顯式集合——Python isspace() 把 U+001C–001F 也當空白，Swift 不會）、
-#    內部空白串收成一個 U+0020
-#  - 危險／不可見：Cc／Cf／Zl／Zp、Default_Ignorable_Code_Point（unicodedata 沒有 DI 屬性，用
-#    DerivedCoreProperties 的區段列舉——UAX #44 的表，版本差異只在未指派碼位）、U+2800
-#  - ZWJ／ZWNJ 例外：(a) 前一個 scalar 是 virama（ccc 9）、從 virama 往前跳過標記找到的基底是同一文字的字母、
-#    右鄰居若在要是同一文字的字母／數字；(b) 左鄰居是 join-control 文字的字母／標記／數字、右鄰居是同一文字的
-#    字母／數字（標點不算；joiner 自己也不算，所以連續 joiner 必拒）
-#  - 至少一個字母或數字（generalCategory 的 L／N 類——Python 的 isalnum() 正是這個，不含 Other_Alphabetic 的標記）
-#  - names 近重複豁免：兩段都帶時間欄位、一段的 end 與另一段的 start 都是 ISO 8601 前綴、且 end 以較粗粒度截斷後嚴格小於 start
-DI = [(0x00AD,0x00AD),(0x034F,0x034F),(0x061C,0x061C),(0x115F,0x1160),(0x17B4,0x17B5),(0x180B,0x180F),
-      (0x200B,0x200F),(0x202A,0x202E),(0x2060,0x206F),(0x3164,0x3164),(0xFE00,0xFE0F),(0xFEFF,0xFEFF),
-      (0xFFA0,0xFFA0),(0xFFF0,0xFFF8),(0x1BCA0,0x1BCA3),(0x1D173,0x1D17A),(0xE0000,0xE0FFF),(0x2800,0x2800)]
-JOIN = [(0x0600,0x06FF,1),(0x0750,0x077F,1),(0x0870,0x089F,1),(0x08A0,0x08FF,1),(0xFB50,0xFDFF,1),(0xFE70,0xFEFF,1),(0x10EC0,0x10EFF,1),
-        (0x0700,0x074F,2),(0x0860,0x086F,2),(0x0840,0x085F,3),(0x07C0,0x07FF,4),(0x1000,0x109F,5),(0x1780,0x17FF,6),
-        (0x1800,0x18AF,7),(0x2D30,0x2D7F,8),(0x10D00,0x10D3F,9),(0x10F30,0x10F6F,10),(0x10F70,0x10FAF,11),(0x10AC0,0x10AFF,12),(0x1E900,0x1E95F,13)]
-def script(ch):   # 鏡射 NameIdentity.joinScript：同一文字的多個區塊同一 id；Indic 每 0x80 一個
-    o = ord(ch)
-    if 0x0900 <= o <= 0x0DFF: return 100 + (o - 0x0900) // 0x80
-    return next((sid for a, b, sid in JOIN if a <= o <= b), None)
-WSSET = {0x09,0x0A,0x0B,0x0C,0x0D,0x20,0x85,0xA0,0x1680,0x2028,0x2029,0x202F,0x205F,0x3000} | set(range(0x2000,0x200B))
-inr = lambda c, R: any(a <= ord(c) <= b for a, b in R)
-WS = lambda ch: ord(ch) in WSSET
-JOINER = lambda ch: ch in '\u200c\u200d'
-MARK = lambda ch: unicodedata.category(ch) in ('Mn','Mc')
-BASE = lambda ch: ch.isalnum()   # L 類或 N 類（isalnum 不含 Other_Alphabetic 的標記）
-member = lambda ch: script(ch) is not None and (BASE(ch) or MARK(ch))   # (b) 支的左鄰居
-def canon(s):
-    s = unicodedata.normalize('NFC', s); out = []; pend = False
-    for ch in s:
-        if WS(ch): pend = bool(out); continue
-        if pend: out.append(' '); pend = False
-        out.append(ch)
-    return ''.join(out)
-def joiner_ok(s, i):
-    p = s[i-1] if i > 0 else None; n = s[i+1] if i + 1 < len(s) else None
-    if p is not None and unicodedata.combining(p) == 9:
-        j = i - 2
-        while j >= 0 and MARK(s[j]): j -= 1
-        if j < 0 or script(s[j]) is None or not s[j].isalpha(): return False
-        return n is None or (script(n) == script(s[j]) and BASE(n))
-    if p is None or n is None or script(p) is None or script(n) != script(p): return False
-    return member(p) and BASE(n)
-def issue(s):
-    c = canon(s)
-    if not c: return '空白'
-    if s != c: return 'canonical'
-    for i, ch in enumerate(s):
-        if JOINER(ch):
-            if not joiner_ok(s, i): return '接合字元'
-            continue
-        if inr(ch, DI): return '不可見'
-        if unicodedata.category(ch) in ('Cc','Cf','Zl','Zp'): return '控制'
-    if not any(ch.isalnum() for ch in s): return '無字母數字'
-    return None
-ISO = re.compile(r'\d{4}(-\d{2}(-\d{2})?)?')
-def before(end, start):   # 鏡射 Venue.segmentsAreDisjoint 的 before；PyYAML 會把 1933 讀成 int、2003-01-15 讀成 date，先 str()
-    if end is None or start is None: return False
-    end, start = str(end), str(start)
-    if not (ISO.fullmatch(end) and ISO.fullmatch(start)): return False
-    n = min(len(end), len(start)); return end[:n] < start[:n]
-def disjoint(a, b): return before(a.get('end'), b.get('start')) or before(b.get('end'), a.get('start'))
-dated = lambda x: any(k in x for k in ('start','end','ended-unknown','attested'))
-def near_dup(a, b):   # a、b 是 names 段（dict）
-    if canon(str(a['value'])) != canon(str(b['value'])): return False
-    return not (dated(a) and dated(b) and disjoint(a, b))
-# 固定案例：Swift 測試（VenueNameInvariantTests）的同一組，兩邊答案要一致
-fixed = {'Psychometrika':None, '1843':None, 'نشریه\u200cروان':None, '۱۴۰۰\u200cها':None, 'ന്\u200d':None, 'क्\u200dष':None,
-         'ࡀ\u200dࡁ':None, '\U0001E900\u200c\U0001E901':None, 'क़्\u200dष':None, 'بَ\u200cب':None,
-         'Journal \u0967\u094d\u200d':'接合字元', 'क्\u200cA':'接合字元', 'ک\u200cक':'接合字元',
-         'क\u200d\u094dष':'接合字元', 'ا\u200c\u064eب':'接合字元', '\u064e':'無字母數字', '\u0640':None,
-         'Psycho\u200cmetrika':'接合字元', 'Zwj\u200d':'接合字元', 'A\u200c،B':'接合字元', 'ک\u200cA':'接合字元',
-         'ا\u200c\u200cب':'接合字元', 'Psychometrika्\u200d':'接合字元',
-         '心\ufe0f理學報':'不可見', '\u3164':'不可見', 'Psychometrika\u2800':'不可見',
-         'Psycho\u200bmetrika':'不可見', 'Psychometrika\u202e':'不可見', 'A\x1cB':'控制',
-         'Psychometrika ':'canonical', '×':'無字母數字', '':'空白'}
-mism = [(k, issue(k), v) for k, v in fixed.items() if issue(k) != v]
-assert not mism, mism
-S = lambda **kw: dict(value='Sankhyā', **kw)
-dup_cases = [((S(start='1933',end='1960'), S(start='2002',end='2007')), False),
-             ((S(start='1933',end='1960'), S(start='1950')), True),
-             ((S(start='1933',end='1960'), S()), True),
-             ((S(start='1933',end='1960'), S(start='1960-06')), True),
-             ((S(start='1933',end='1960'), S(start='1960')), True),
-             ((S(attested=['1950']), S(attested=['2005'])), True),
-             ((S(start='1933',end='1960-12'), S(start='1961')), False),
-             ((S(start='1933',end='2003-01'), S(start='2003-1')), True),
-             ((S(start='1933',end='1960-10'), S(start='1960-9')), True),
-             ((S(start=1933,end=1960), S(start=2002,end=2007)), False)]
-bad_dup = [(a, b, got, want) for (a, b), want in dup_cases if (got := near_dup(a, b)) != want]
-assert not bad_dup, bad_dup
-n=bad=dup=0
-for f in glob.glob(os.path.expanduser('~/.akashic/entities')+'/*.yaml'):
-    t=io.open(f,encoding='utf8').read()
+import glob, io, os, yaml, collections
+root = os.path.expanduser('~/.akashic/entities')
+absn, alln = [], []
+for f in glob.glob(root + '/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: continue
+    if not isinstance(d, dict): continue
+    for k, v in (d.get('fields') or {}).items():
+        if not isinstance(v, str): continue
+        alln.append(len(v.encode('utf8')))
+        if k.startswith('abstract'): absn.append(len(v.encode('utf8')))
+absn.sort(); alln.sort()
+p = lambda L, q: L[min(len(L)-1, int(len(L)*q))] if L else 0
+print(f'abstract n={len(absn)} p50={p(absn,.5)} p99={p(absn,.99)} max={absn[-1]}')
+print(f'全部 fields 值 n={len(alln)} max={alln[-1]} → 餘裕 {65536/alln[-1]:.1f} 倍')
+EOF
+# 2026-09-08：abstract n=1517 p50=1137 p99=2185 max=4220 ／ 全部 n=6125 max=4220 → 15.5 倍
+```
+
+守衛本身是否在跑（自證，同第 13 列的形狀——舊 binary 印不出東西）：
+
+```bash
+python3 -c "import json;print(json.dumps([{'citekey':'x','fields':{'abstract':'a'*65537}}]))" > /tmp/over.json
+akashic enrich --library <某個 store> --from /tmp/over.json --json 2>&1 | grep -c '超過上限'   # 應為 1
+```
+
+**第 17 列的量測（2026-09-07，可重跑）**：兩種 warning 數 `akashic validate 2>&1 | grep -c '拆分後的孤兒 verdict'` 與 `akashic validate 2>&1 | grep -c '拆分記錄的各段都已不在作者位'`（應皆為 0；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）；拆分記錄數 `grep -c '^  *- field: authors$' ~/.akashic/entities/*.yaml | awk -F: '{s+=$2} END {print s}'`（0——#443 已拆的 4 筆沒有記錄，不回填）；那 4 筆的下落 `grep -l '雷庚玲' ~/.akashic/entities/*.yaml | wc -l`（4 個檔含該姓名，其中的拆分無記錄可機械辨認）。
+
+**第 20 列的量測（2026-09-09，可重跑）**：`akashic-guards workflow-run-scripts`（rc=0 時印
+「workflow `run:` 引用的 N 個腳本全部存在」——2026-09-09 為 **5**；非零時逐條印出是哪個
+workflow 的第幾行跑了哪個不在的檔）。workflow 檔數 `ls .github/workflows/*.yml | wc -l`（2）。
+**自證同第 13 列**：舊 binary 沒有這個子命令會印 usage 而不是 0，兩者分得開。
+
+**第 21 列的量測（2026-09-09，可重跑）**：差異數 `akashic-guards protected-ratchet`
+（相符時印「受保護清單與棘輪相符：N 條」、rc=0；不符時逐條印「少了／多了」、rc=1；
+棘輪檔不存在 rc=2——三種分得開）。清單條數 `wc -l < .githooks/protected-ratchet.txt`
+（2026-09-09：58）。**顯式 vs glob 的拆分**——顯式＝路徑字面出現在 `TriggerCoverage.swift` 裡的那些：
+
+```bash
+python3 - <<'EOF'
+import io
+lines = [l for l in io.open(".githooks/protected-ratchet.txt", encoding="utf8").read().split("\n") if l]
+src = io.open("Sources/akashic-guards/TriggerCoverage.swift", encoding="utf8").read()
+explicit = [l for l in lines if f'"{l}"' in src]
+print(f"受保護 {len(lines)}｜顯式字面 {len(explicit)}｜glob／衍生 {len(lines)-len(explicit)}")
+EOF
+# 2026-09-09：受保護 58｜顯式字面 21｜glob／衍生 37
+```
+
+**三組刪除實測**要在副本上做（複製 `plugin`／`.github`／`Sources`／
+`.githooks`／`.claude/rules`／`CLAUDE.md`／`mcpb/manifest.json` 到暫存目錄，在那裡以 cwd 執行）
+——顯式條目那一組另需重編 binary，因為守衛跑的是已編譯的那一份而不是原始碼。
+
+**第 22 列的量測（2026-09-09，可重跑）**：
+
+```bash
+python3 - <<'EOF'
+import glob, io, os, re
+n = dated = 0
+for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
+    t = io.open(f, encoding='utf8').read()
     if not t.startswith('venue:'): continue
-    n+=1; d=yaml.safe_load(t)
-    segs=[x if isinstance(x,dict) else {'value': x} for x in (d.get('names') or [])]
-    names=[str(x['value']) for x in segs]
-    for lst in (names, d.get('authorized') or [], d.get('variant') or []):
-        for s in lst:
-            if issue(str(s)) is not None: bad+=1
-    for i in range(len(segs)):
-        for j in range(i+1, len(segs)):
-            if near_dup(segs[i], segs[j]): dup+=1
-    for lst in (d.get('authorized') or [], d.get('variant') or []):
-        ks=[canon(str(s)) for s in lst]
-        if len(ks)!=len(set(ks)): dup+=1
-print(f"venue {n}｜違反不變式的字串 {bad}｜近重複對 {dup}")   # 2026-09-12：485 / 0 / 0（R8 重跑仍是）
+    n += 1
+    m = re.search(r'^names:\n((?:- .*\n|  .*\n)+)', t, re.M)
+    if m and re.search(r'^\s+(start|end|ended-unknown|attested):', m.group(1), re.M): dated += 1
+print(f"venue {n} 筆｜names 帶時間欄位 {dated} 筆")   # 2026-09-09：406 / 0
 EOF
 ```
 
@@ -309,28 +266,39 @@ EOF
 
 ```bash
 python3 - <<'EOF'
-import glob, io, os, unicodedata, yaml
+import glob, io, os, re, unicodedata, yaml
 # 鏡射 Swift 的 NameIdentity.wellFormednessIssue 與 Venue.validate() 的近重複掃描（改一邊要同批改另一邊）：
 #  - canonical：NFC、只丟 White_Space（顯式集合——Python isspace() 把 U+001C–001F 也當空白，Swift 不會）、
 #    內部空白串收成一個 U+0020
 #  - 危險／不可見：Cc／Cf／Zl／Zp、Default_Ignorable_Code_Point（unicodedata 沒有 DI 屬性，用
 #    DerivedCoreProperties 的區段列舉——UAX #44 的表，版本差異只在未指派碼位）、U+2800
-#  - ZWJ／ZWNJ 例外：前一個 scalar 是掛在 join-control 文字字母上的 virama（ccc 9），
-#    或兩側都是 join-control 區塊裡的字母／標記／數字（標點不算；joiner 自己也不算，所以連續 joiner 必拒）
-#  - 至少一個字母或數字
-#  - names 近重複豁免：兩段都帶時間欄位、且一段的 end 以較粗粒度截斷後嚴格小於另一段的 start
+#  - ZWJ／ZWNJ 例外：(a) 前一個 scalar 是 virama（ccc 9）、從 virama 往前跳過標記找到的基底是字母、virama 與
+#    跳過的標記都是基底那個文字的（D22）、右鄰居若在要是同一文字的字母／數字——右鄰居是空白視同沒有（多字刊名的
+#    詞尾 chillu）；(b) 左鄰居是 join-control 文字的字母／標記／數字、右鄰居是同一文字的字母／數字，或同一 Indic
+#    文字的 virama（Bengali ya-phalaa <RA, ZWJ, VIRAMA, YA>，D21）（標點不算；joiner 自己也不算，所以連續 joiner 必拒）
+#  - 至少一個字母或數字（generalCategory 的 L／N 類——Python 的 isalnum() 正是這個，不含 Other_Alphabetic 的標記）
+#  - names 近重複豁免：兩段都作時間宣稱（`DateRange.makesTemporalClaim`：start／end 非空、ended-unknown 為 true、
+#    或 attested 非空）、一段的 end 與另一段的 start 都是 ISO 8601 前綴（鏡射 `ISO8601Prefix.isValid`：ASCII 數字、
+#    月 01–12、日 01–31）、且 end 以較粗粒度截斷後嚴格小於 start
 DI = [(0x00AD,0x00AD),(0x034F,0x034F),(0x061C,0x061C),(0x115F,0x1160),(0x17B4,0x17B5),(0x180B,0x180F),
       (0x200B,0x200F),(0x202A,0x202E),(0x2060,0x206F),(0x3164,0x3164),(0xFE00,0xFE0F),(0xFEFF,0xFEFF),
       (0xFFA0,0xFFA0),(0xFFF0,0xFFF8),(0x1BCA0,0x1BCA3),(0x1D173,0x1D17A),(0xE0000,0xE0FFF),(0x2800,0x2800)]
-JOIN = [(0x0600,0x06FF),(0x0750,0x077F),(0x0870,0x089F),(0x08A0,0x08FF),(0xFB50,0xFDFF),(0xFE70,0xFEFF),(0x10EC0,0x10EFF),
-        (0x0700,0x074F),(0x0860,0x086F),(0x0840,0x085F),(0x07C0,0x07FF),(0x0900,0x0DFF),(0x1000,0x109F),(0x1780,0x17FF),
-        (0x1800,0x18AF),(0x2D30,0x2D7F),(0x10D00,0x10D3F),(0x10F30,0x10F6F),(0x10F70,0x10FAF),(0x10AC0,0x10AFF),(0x1E900,0x1E95F)]
+JOIN = [(0x0600,0x06FF,1),(0x0750,0x077F,1),(0x0870,0x089F,1),(0x08A0,0x08FF,1),(0xFB50,0xFDFF,1),(0xFE70,0xFEFF,1),(0x10EC0,0x10EFF,1),
+        (0x0700,0x074F,2),(0x0860,0x086F,2),(0x0840,0x085F,3),(0x07C0,0x07FF,4),(0x1000,0x109F,5),(0x1780,0x17FF,6),
+        (0x1800,0x18AF,7),(0x2D30,0x2D7F,8),(0x10D00,0x10D3F,9),(0x10F30,0x10F6F,10),(0x10F70,0x10FAF,11),(0x10AC0,0x10AFF,12),(0x1E900,0x1E95F,13),
+        (0xA8E0,0xA8FF,100),(0x11B00,0x11B5F,100),(0xAA60,0xAA7F,5),(0xA9E0,0xA9FF,5)]   # R9：Devanagari／Myanmar 的補充區塊
+def script(ch):   # 鏡射 NameIdentity.joinScript：同一文字的多個區塊同一 id；Indic 每 0x80 一個
+    o = ord(ch)
+    if 0x0900 <= o <= 0x0DFF: return 100 + (o - 0x0900) // 0x80
+    return next((sid for a, b, sid in JOIN if a <= o <= b), None)
 WSSET = {0x09,0x0A,0x0B,0x0C,0x0D,0x20,0x85,0xA0,0x1680,0x2028,0x2029,0x202F,0x205F,0x3000} | set(range(0x2000,0x200B))
 inr = lambda c, R: any(a <= ord(c) <= b for a, b in R)
 WS = lambda ch: ord(ch) in WSSET
 JOINER = lambda ch: ch in '\u200c\u200d'
-def member(ch):   # join-control 文字裡的字母／標記／數字
-    return inr(ch, JOIN) and (ch.isalpha() or unicodedata.category(ch) in ('Mn','Mc') or unicodedata.numeric(ch, None) is not None)
+MARK = lambda ch: unicodedata.category(ch) in ('Mn','Mc')
+VIRAMA = lambda ch: unicodedata.combining(ch) == 9
+BASE = lambda ch: ch.isalnum()   # L 類或 N 類（isalnum 不含 Other_Alphabetic 的標記）
+member = lambda ch: script(ch) is not None and (BASE(ch) or MARK(ch))   # (b) 支的左鄰居
 def canon(s):
     s = unicodedata.normalize('NFC', s); out = []; pend = False
     for ch in s:
@@ -340,9 +308,16 @@ def canon(s):
     return ''.join(out)
 def joiner_ok(s, i):
     p = s[i-1] if i > 0 else None; n = s[i+1] if i + 1 < len(s) else None
-    if p is not None and unicodedata.combining(p) == 9: return i >= 2 and member(s[i-2])
-    if p is None or n is None: return False
-    return member(p) and member(n)
+    if p is not None and VIRAMA(p):
+        j = i - 2
+        while j >= 0 and MARK(s[j]): j -= 1
+        if j < 0 or script(s[j]) is None or not s[j].isalpha(): return False
+        sc = script(s[j])
+        if any(script(ch) != sc for ch in s[j+1:i]): return False   # virama 與跳過的標記同文字（D22）
+        if n is None or WS(n): return True                          # 詞尾——含「後面是空白」
+        return script(n) == sc and BASE(n)
+    if p is None or n is None or script(p) is None or script(n) != script(p): return False
+    return member(p) and (BASE(n) or (VIRAMA(n) and 100 <= script(p) <= 109))   # D21：同一 Indic 文字的 virama
 def issue(s):
     c = canon(s)
     if not c: return '空白'
@@ -355,17 +330,29 @@ def issue(s):
         if unicodedata.category(ch) in ('Cc','Cf','Zl','Zp'): return '控制'
     if not any(ch.isalnum() for ch in s): return '無字母數字'
     return None
-def before(end, start):   # 鏡射 Venue.segmentsAreDisjoint 的 before
+ISO = re.compile(r'[0-9]{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12][0-9]|3[01]))?)?')   # 鏡射 ISO8601Prefix.isValid：ASCII、月 01–12、日 01–31，不驗日曆
+def before(end, start):   # 鏡射 Venue.segmentsAreDisjoint 的 before；PyYAML 會把 1933 讀成 int、2003-01-15 讀成 date，先 str()
     if end is None or start is None: return False
+    end, start = str(end), str(start)
+    if not (ISO.fullmatch(end) and ISO.fullmatch(start)): return False
     n = min(len(end), len(start)); return end[:n] < start[:n]
 def disjoint(a, b): return before(a.get('end'), b.get('start')) or before(b.get('end'), a.get('start'))
-dated = lambda x: any(k in x for k in ('start','end','ended-unknown','attested'))
+dated = lambda x: (x.get('start') is not None or x.get('end') is not None   # 鏡射 DateRange.makesTemporalClaim
+                   or x.get('ended-unknown') is True or bool(x.get('attested')))
 def near_dup(a, b):   # a、b 是 names 段（dict）
     if canon(str(a['value'])) != canon(str(b['value'])): return False
     return not (dated(a) and dated(b) and disjoint(a, b))
 # 固定案例：Swift 測試（VenueNameInvariantTests）的同一組，兩邊答案要一致
 fixed = {'Psychometrika':None, '1843':None, 'نشریه\u200cروان':None, '۱۴۰۰\u200cها':None, 'ന്\u200d':None, 'क्\u200dष':None,
-         'ࡀ\u200dࡁ':None, '\U0001E900\u200c\U0001E901':None,
+         'ࡀ\u200dࡁ':None, '\U0001E900\u200c\U0001E901':None, 'क़्\u200dष':None, 'بَ\u200cب':None,
+         'Journal \u0967\u094d\u200d':'接合字元', 'क्\u200cA':'接合字元', 'ک\u200cक':'接合字元',
+         'ا\u200c\u064eب':'接合字元', '\u064e':'無字母數字', '\u0640':None,
+         # R9：D22（virama／標記同文字、詞尾含空白）、D21（Indic virama 之前的 joiner）、補充區塊
+         'ک\u094d\u200d':'接合字元', 'क\u09cd\u200dष':'接合字元', 'क\u09bc\u094d\u200dष':'接合字元', 'क\u093c\u094d\u200dष':None,
+         'അവന്\u200d വന്നു':None, 'ত্\u200d ব':None, 'ب\u200c ب':'接合字元',
+         'র\u200d\u09cdযাব':None, 'क\u200d\u094dष':None, 'ক\u200c\u09cdষ':None, '\u1000\u200d\u1039\u1000':'接合字元',
+         'ក\u200d\u17d2ត':'接合字元', 'क\u200d\u09cdष':'接合字元', 'A\u200d\u094dष':'接合字元',
+         'क्\u200d\ua8fb':None, '\uaa60\u200d\uaa61':None, '\ua9e0\u200c\ua9e1':None,
          'Psycho\u200cmetrika':'接合字元', 'Zwj\u200d':'接合字元', 'A\u200c،B':'接合字元', 'ک\u200cA':'接合字元',
          'ا\u200c\u200cب':'接合字元', 'Psychometrika्\u200d':'接合字元',
          '心\ufe0f理學報':'不可見', '\u3164':'不可見', 'Psychometrika\u2800':'不可見',
@@ -380,7 +367,16 @@ dup_cases = [((S(start='1933',end='1960'), S(start='2002',end='2007')), False),
              ((S(start='1933',end='1960'), S(start='1960-06')), True),
              ((S(start='1933',end='1960'), S(start='1960')), True),
              ((S(attested=['1950']), S(attested=['2005'])), True),
-             ((S(start='1933',end='1960-12'), S(start='1961')), False)]
+             ((S(start='1933',end='1960-12'), S(start='1961')), False),
+             ((S(start='1933',end='2003-01'), S(start='2003-1')), True),
+             ((S(start='1933',end='1960-10'), S(start='1960-9')), True),
+             ((S(start=1933,end=1960), S(start=2002,end=2007)), False),
+             # R9：ISO 鏡射 isValid（月 13、非 ASCII 數字都不是端點）、dated 鏡射 makesTemporalClaim
+             ((S(start='1933',end='1960-13'), S(start='1961')), True),
+             ((S(start='1933',end='١٩٦٠'), S(start='2002')), True),
+             ((S(start='1933',end='1960'), S(**{'ended-unknown': False})), True),
+             ((S(start='1933',end='1960'), S(attested=[])), True),
+             ((S(start='1933',end='1960'), S(start='1961', **{'ended-unknown': True})), False)]
 bad_dup = [(a, b, got, want) for (a, b), want in dup_cases if (got := near_dup(a, b)) != want]
 assert not bad_dup, bad_dup
 n=bad=dup=0
@@ -399,7 +395,7 @@ for f in glob.glob(os.path.expanduser('~/.akashic/entities')+'/*.yaml'):
     for lst in (d.get('authorized') or [], d.get('variant') or []):
         ks=[canon(str(s)) for s in lst]
         if len(ks)!=len(set(ks)): dup+=1
-print(f"venue {n}｜違反不變式的字串 {bad}｜近重複對 {dup}")   # 2026-09-12：485 / 0 / 0（R7 重跑仍是）
+print(f"venue {n}｜違反不變式的字串 {bad}｜近重複對 {dup}")   # 2026-09-14：485 / 0 / 0（R9 重跑仍是）
 EOF
 ```
 

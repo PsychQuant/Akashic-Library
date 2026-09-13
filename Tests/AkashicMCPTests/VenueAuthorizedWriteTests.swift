@@ -826,7 +826,6 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     /// 被 `--authorize`（NFC）修正時同一個可見字串同時落在 `alreadyAuthorized` 與 `authorizedRemoved`、`authorizedAdded` 空——
     /// 操作者看不出改了什麼，正是 R4 第 6 列那道守衛要防的 no-op 宣稱。改報 `authorizedRewritten`。
     func testByteRepairOfAuthorizedIsReportedAsRewrittenNotAlready() throws {
-        let store = LibraryStore(root: root)
         _ = try service.updateVenue(key: "some-journal", addNames: ["Sankhyā"], note: nil, type: nil)
         _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["Sankhyā"])
         let v = try venue()

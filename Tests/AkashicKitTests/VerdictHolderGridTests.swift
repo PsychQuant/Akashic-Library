@@ -116,6 +116,25 @@ final class VerdictHolderGridTests: XCTestCase {
     }
 
     // MARK: - person merge × organization ／ × person
+
+    /// **欄位遺失的訊息先於 holder 閘**（R9 verify regression 第 9 列）：R9 把 `assertHoldersWritable` 放在 `fieldsLostByMerging`
+    /// 之前，一次同時「被併者帶倖存者沒有的 ORCID」與「某個第三方 org holder 髒了」的合併，使用者先看到的是別人家 YAML 的
+    /// 錯，而不是這次合併會丟什麼。兩者都是零寫入的拒絕，差別只在哪句先出——merge 專屬的那句要先。
+    func testFieldLossIsReportedBeforeTheHolderGate() throws {
+        try store.writePerson(Person(key: "keeper-person", names: ["Keeper Person"]))
+        var doomed = Person(key: "doomed-person", names: ["Doomed Person"])
+        doomed.note = "帶著倖存者沒有的東西"
+        try store.writePerson(doomed)
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .person, holder: "doomed-person", literal: "Some Org")])
+        let o = try XCTUnwrap(store.load().organizations.first { $0.key == "some-org" })
+        let file = root.appendingPathComponent("entities/\(o.id.uuidString).yaml")
+        try (try String(contentsOf: file, encoding: .utf8) + "authorized:\n- Not In Names\n").write(to: file, atomically: true, encoding: .utf8)
+        let d = try divergence(keeper: "keeper-person", doomed: "doomed-person", shape: .person)
+        GitFixture.commitAll(store.root)
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "keeper-person", overrideReason: nil)) { err in
+            guard case DivergenceResolveError.wouldLoseFields = err else { return XCTFail("要先報欄位遺失：\(err)") }
+        }
+    }
     /// **D19 的閘要涵蓋三種 holder，不只 venue**（#554 R8 verify 第 13／14／32 列；Claude 代裁 D24）：R8 的
     /// `assertVenueHoldersWritable` doc 說「person／organization holder 沒有名字內容不變式，寫入閘對它們只有 key 與
     /// format」——假的：`assertOrganizationWritable`／`assertPersonWritable` 都跑 `validate()` 的 error 級檢查

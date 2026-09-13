@@ -752,7 +752,6 @@ extension LibraryStore {
             doomed.append(p)
         }
         try assertAllInEntities(([keeper] + doomed).map { ($0.key, $0.id) })
-        try assertHoldersWritable(snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor, holderKind: .person)
         // **合併只搬別名，所以別名以外的東西不許有。** 被併者若帶著倖存者沒有的
         // 識別碼或時間軸，那些資料會隨檔案一起消失而使用者只看到「✓ 併入」。歧異的
         // 典型來源正是「兩個聚合器對同一位作者的比對結果不一致」——那種情況下兩筆
@@ -764,6 +763,9 @@ extension LibraryStore {
                     merged: p.key, survivor: survivor, losses: losses)
             }
         }
+        // holder 閘在欄位遺失**之後**（R9 verify regression 第 9 列）：兩者都是零寫入的拒絕，但 merge 專屬的那句要先出——
+        // 使用者先看到「這次合併會丟什麼」，不是別人家 YAML 的錯。
+        try assertHoldersWritable(snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor, holderKind: .person)
         return (keeper, doomed)
     }
 
@@ -823,7 +825,6 @@ extension LibraryStore {
             doomed.append(e)
         }
         try assertAllInEntities(([keeper] + doomed).map { ($0.citekey, $0.id) })
-        try assertHoldersWritable(snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor, holderKind: .work)
         // #75 對二：欄位遺失比對放在**前置**（preview 與實跑共用——#139 F1 的教訓：
         // 拒絕條件只有一份，dry-run 對它沉默是在騙人）。被併 work 帶有倖存者沒有的
         // 欄位／附件／標籤／出向參照／來源 → 拒絕並指名（子集才放行）。
@@ -834,6 +835,8 @@ extension LibraryStore {
                     merged: e.citekey, survivor: survivor, losses: losses)
             }
         }
+        // holder 閘在欄位遺失之後——理由同 person 側（R9 verify regression 第 9 列）
+        try assertHoldersWritable(snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor, holderKind: .work)
         // #169：**不擋但要說**——`type`／`title` 刻意不比相等（見
         // `contentWarningsForMerging` 的 doc），但倖存者的版本較短時要在**還能反悔
         // 的時點**說出來。

@@ -51,6 +51,11 @@ public enum NameIdentity {
     /// D8 讓每個寫入者都走這裡，所以這條刪除路徑當時是新開的）。逐 scalar 走，判準是 Unicode 的
     /// `White_Space` 性質，與 `Character.isWhitespace` 對「首 scalar 是空白」的 cluster 判得一樣，
     /// 對後續 scalar 不再一起丟。
+    ///
+    /// **這個函式不是 venue 專屬**（R9 verify regression 第 10 列）：`AuthorizedNames.validate` 的近重複檢查（person／
+    /// organization／venue 三者共用）與 person 合併的別名收攏（`DivergenceResolve` 的 `keeperKeys`）都走它。R5 的改法
+    /// 對它們是 fail-open 方向（少刪 scalar → 更少字串收成同一鍵 → 更少近重複 error），2026-09-14 以含此版的 binary
+    /// 對 live store 跑 `validate`：4,572 筆 person、13 筆 organization 零 error——沒有既有記錄因此變得不可寫。
     public static func canonical(_ s: String) -> String {
         // Swift 的 `String ==` 本來就做 canonical equivalence，但這裡顯式取
         // `precomposedStringWithCanonicalMapping`——因為輸出會被當成**鍵**（用於
@@ -98,8 +103,8 @@ public enum NameIdentity {
     ///    **ZWJ／ZWNJ 例外**（兩者都是 DI）——波斯文與印度系文字合法用——但只在
     ///    `joinerIsLegal` 說合法的脈絡：前一個 scalar 是掛在同一文字字母上的 virama（legacy Malayalam
     ///    chillu＝consonant＋virama＋ZWJ **詞尾**——詞尾含「後面是空白」），或左鄰居是使用 join control 的文字的
-    ///    字母／標記／數字、右鄰居是同一文字的字母／數字（波斯文 `۱۴۰۰\u{200C}ها` 是**數字**＋ZWNJ）或同一 Indic
-    ///    文字的 virama（Bengali ya-phalaa `<RA, ZWJ, VIRAMA, YA>`，D21）。R4／R5 的「兩側是字母」對拉丁
+    ///    字母／標記／數字、右鄰居是同一文字的字母／數字（波斯文 `۱۴۰۰\u{200C}ها` 是**數字**＋ZWNJ）或 Devanagari／
+    ///    Bengali 的 virama 且其後接同文字的字母（Bengali ya-phalaa `<RA, ZWJ, VIRAMA, YA>`，D21／D26）。R4／R5 的「兩側是字母」對拉丁
     ///    字母 fail-open（`Psycho\u{200C}metrika` 通過、可被 `--authorize` 升成 displayName，
     ///    五路命中）、對 chillu 與波斯數字 fail-closed——R5 verify 第 1 列，Claude 代裁 D9；R6 verify
     ///    再收兩格（區塊裡的標點不算鄰居、連續 joiner 不算）。**代價要寫出來**（R6 verify 第 5／23／36 列）：
@@ -179,15 +184,19 @@ public enum NameIdentity {
     ///   「同一文字」——D22）。右鄰居若存在，要是**同一文字的字母／數字**；**右鄰居是空白視同沒有**——legacy Malayalam
     ///   chillu／Bengali khanda ta 的詞尾 ZWJ 在多字刊名裡右邊是 U+0020（`അവന്\u{200D} വന്നു`，R8 verify 第 11 列），
     ///   canonical 形保證內部空白只會是單一 U+0020，所以這一格放行不了別的東西；`क्\u{200C}A` 有一個拉丁右鄰居，拒。
-    /// - **(b) 左鄰居是 join-control 文字的字母／標記／數字、右鄰居是同一文字的字母／數字——或同一 Indic 文字的 virama**：
-    ///   joiner 在 virama **之前**是印度系文字的正字法（D21，R8 verify 第 10 列）：Unicode 核心規範 ch. 12.2 明寫 Bengali
-    ///   ya-phalaa 用 `<RA, ZWJ, VIRAMA, YA>`（`র\u{200D}\u{09CD}যাব`＝RAB，常見外來語），Microsoft 的 Devanagari／Bengali
-    ///   OpenType 音節文法都有 `<ZWNJ|ZWJ>+H` 這一支（2026-09-13 實取兩頁確認）；R8 把它當「沒有正字法意義的 confusable
-    ///   通道」（R7 verify 第 26／33 列）對 Bengali 為假。收的只有 `joinScript` 100–109 的 virama——Myanmar asat／Khmer
-    ///   coeng 之前的 joiner 沒有文法支撐，仍拒。右側其他標記仍不收（`ا\u{200C}\u{064E}ب`：joiner 夾在基底與它的母音記號
-    ///   之間）；左側收標記，因為 Persian／Arabic 文字裡 ZWNJ 常接在母音記號之後。**兩側要是同一文字**（`ک\u{200C}क`
-    ///   沒有意義）；同區塊的標點不算鄰居（`A\u{200C}،B`——R6 verify 第 1 列）。看區塊而不只看 generalCategory 是為了
-    ///   波斯數字（U+06F1…）：`۱۴۰۰\u{200C}ها` 是真實刊名的形狀。
+    /// - **(b) 左鄰居是 join-control 文字的字母／標記／數字、右鄰居是同一文字的字母／數字——或 Devanagari／Bengali 的
+    ///   virama 且 virama 之後接同一文字的字母**：joiner 在 virama **之前**是印度系文字的正字法（D21，R8 verify 第 10 列）：
+    ///   Unicode 核心規範 ch. 12.2 明寫 Bengali ya-phalaa 用 `<RA, ZWJ, VIRAMA, YA>`（`র\u{200D}\u{09CD}যাব`＝RAB，常見外來語），
+    ///   Microsoft 的 Devanagari／Bengali OpenType 音節文法都有 `<ZWNJ|ZWJ>+H` 這一支（2026-09-13 實取兩頁確認）；R8 把它當
+    ///   「沒有正字法意義的 confusable 通道」（R7 verify 第 26／33 列）對 Bengali 為假。**但每一個引用實例都是 `<C, J, H, C>`**
+    ///   ——halant 後面那個輔音才是 joiner 有作用的原因；R9 沒看右脈絡，`क\u{200D}\u{094D}`（詞尾）、`क\u{200C}\u{094D}Journal`
+    ///   全部通過而與 `क्` 渲染完全相同，能各自進 names 再被 `--authorize` 升成 displayName（R9 verify DA 第 10 列）。
+    ///   所以 D26：virama 之後要接同一文字的字母，且只收有引用的兩個文字（`joinerBeforeViramaScripts`）——Tamil、Malayalam
+    ///   等其餘 Indic 文字、Myanmar asat、Khmer coeng 之前的 joiner 沒有文法支撐，依 `zero-instance-guards` 一列一列加。
+    ///   右側其他標記仍不收（`ا\u{200C}\u{064E}ب`：joiner 夾在基底與它的母音記號之間）；左側收標記，因為 Persian／Arabic
+    ///   文字裡 ZWNJ 常接在母音記號之後。**兩側要是同一文字**（`ک\u{200C}क` 沒有意義）；同區塊的標點不算鄰居
+    ///   （`A\u{200C}،B`——R6 verify 第 1 列）。看區塊而不只看 generalCategory 是為了波斯數字（U+06F1…）：
+    ///   `۱۴۰۰\u{200C}ها` 是真實刊名的形狀。
     ///
     /// 連續 joiner 必拒：joiner 既不是任何文字的字母／標記／數字、也不是 virama，第二個 joiner 在兩支都失敗
     /// （負控實測：顯式加的「鄰居是 joiner → 拒」是等價突變，拿掉測試照紅，所以不留）。
@@ -211,13 +220,18 @@ public enum NameIdentity {
         }
         guard let p = prev, let n = next, let script = joinScript(p), joinScript(n) == script else { return false }
         guard isLetterOrDigit(p) || isMark(p) else { return false }
-        return isLetterOrDigit(n) || (isVirama(n) && indicScripts.contains(script))
+        if isLetterOrDigit(n) { return true }
+        // D21／D26：virama 之前的 joiner——只在有引用的文字，且 virama 之後要接同一文字的字母（`<C, J, H, C>`）
+        guard isVirama(n), joinerBeforeViramaScripts.contains(script), i + 2 < scalars.count else { return false }
+        let c = scalars[i + 2]
+        return joinScript(c) == script && isLetterOrDigit(c) && !isDigit(c)
     }
 
     /// ccc 9——Indic virama／halant、Myanmar asat、Khmer coeng 都是。
     static func isVirama(_ u: Unicode.Scalar) -> Bool { u.properties.canonicalCombiningClass == .virama }
-    /// `joinScript` 給 Indic 區塊（0900–0DFF，每 0x80 一個文字）的 id 範圍——D21 的 (b) 支只對這些文字收 virama 右鄰居。
-    static let indicScripts = 100...109
+    /// (b) 支收「virama 之前的 joiner」的文字——只有引用得到音節文法的兩個：Devanagari（100）、Bengali（101）。
+    /// 封閉列舉，加一個文字要附它自己的引用（D26；R9 曾對 0900–0DFF 十個文字一起放行）。
+    static let joinerBeforeViramaScripts: Set<Int> = [100, 101]
 
     static func isMark(_ u: Unicode.Scalar) -> Bool {
         switch u.properties.generalCategory {
@@ -238,7 +252,8 @@ public enum NameIdentity {
     /// 指出的疏漏——同一個文字的補充區塊本來就該在。Indic 每 0x80 一個文字（Devanagari…Sinhala）；R9 再補
     /// Devanagari Extended／Extended-A（A8E0–A8FF 含 Lo 字母 U+A8FB、11B00–11B5F）與 Myanmar Extended-A／B
     /// （AA60–AA7F Khamti、A9E0–A9FF Shan／Tai Laing）——R8 verify 第 21／28／38 列。**Vedic Extensions（1CD0–1CFF）
-    /// 刻意不加**：多數是標記（(a) 支走訪時本來就跳過），少數 Lo 字母沒有 joiner 用途，§5.7 記為邊界。
+    /// 刻意不加**：它們的 `joinScript` 是 nil——(a) 支的同文字檢查（D22）與 (b) 支的鄰居檢查都會拒鄰接它們的 joiner，
+    /// 少數 Lo 字母沒有 joiner 用途，§5.7 記為邊界。
     static func joinScript(_ u: Unicode.Scalar) -> Int? {
         switch u.value {
         case 0x0600...0x06FF, 0x0750...0x077F, 0x0870...0x089F, 0x08A0...0x08FF,
@@ -261,6 +276,4 @@ public enum NameIdentity {
         }
     }
 
-    /// 使用 join control 的書寫系統區塊（`joinScript` 非 nil）——留給 row 25 的 grep 與舊呼叫端。
-    static func usesJoinControl(_ u: Unicode.Scalar) -> Bool { joinScript(u) != nil }
 }

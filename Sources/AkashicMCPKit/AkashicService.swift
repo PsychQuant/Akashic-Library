@@ -2704,8 +2704,13 @@ public final class AkashicService {
         }
         try store.writeVenue(venue)
         try LibraryIndex(store: store).rebuild()
+        // 回報**存入**的名字（R9 verify logic 第 22 列）：R4 讓本函式走 `vetVenueNames`，payload 卻仍回呼叫端的原陣列——
+        // 宣稱 store 沒有的字串，其中 `"Psychometrika "` 是不變式讓 store 不可能持有的。原拼法沒存入的列在 `namesDropped`
+        // （被折進 canonical 形、或整項空白略過），同 `updateVenue.namesAdded` 的「報告不得宣稱 store 沒有的字串」。
+        let stored = Set(vetted.map { Array($0.utf8) })
         return try jsonString(["key": key, "type": vtype.rawValue,
-                               "names": names.map { displaySafe($0, max: 200) },
+                               "names": vetted.map { displaySafe($0, max: 200) },
+                               "namesDropped": names.filter { !stored.contains(Array($0.utf8)) }.map { displaySafe($0, max: 200) },
                                // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
                                "issn": venue.issn.map(\.normalized)])
     }
@@ -2909,6 +2914,7 @@ public final class AkashicService {
         var authorizedRemoved: [String] = []
         var liftedFromVariant: [String] = []
         var alreadyAuthorized: [String] = []
+        var authorizedRewritten: [String] = []   // 同名不同位元組的自我修復（R9 verify logic 第 23 列）
         // 同一次呼叫把同一個名字既送 add_variant 又送 authorize，是兩句矛盾的話——
         // 不能讓「哪段先跑」決定誰贏。這是**輸入**驗證（呼叫端的兩個參數互相矛盾），
         // 不是分割互斥的第二份副本（那仍由 `Venue.validate()` 擋）。整批拒絕、零寫入。
@@ -2959,14 +2965,18 @@ public final class AkashicService {
             // `first`，雙語 venue 的預設顯示名會換書寫系統）。
             var kept: [String] = []
             var insertAt: Int? = nil
+            var rewrote = false
             for y in venue.authorized {
                 let sameName = NameIdentity.canonical(y) == key
                 if sameName || WritingSystem.of(y) == script {
                     if insertAt == nil { insertAt = kept.count }
                     // 同名不同**位元組**（手改成 NFD 的舊 authorized——`String ==` 是 canonical
                     // equivalence，看不出來）也要出聲：authorized 的位元組變了，報告不能說 no-op
-                    // （R4 verify 第 6 列）。這是不變式唯一的自我修復路：新狀態是 canonical、validate 過
-                    if !sameName || Array(y.utf8) != Array(x.utf8) { authorizedRemoved.append(y) }
+                    // （R4 verify 第 6 列）。這是不變式唯一的自我修復路：新狀態是 canonical、validate 過。
+                    // 它報在自己的桶 `authorizedRewritten`——R9 讓同一個可見字串同時落在 `alreadyAuthorized`
+                    // 與 `authorizedRemoved`、`authorizedAdded` 空，操作者看不出改了什麼（R9 verify logic 第 23 列）。
+                    if !sameName { authorizedRemoved.append(y) }
+                    else if Array(y.utf8) != Array(x.utf8) { rewrote = true }
                     continue
                 }
                 kept.append(y)
@@ -2981,7 +2991,9 @@ public final class AkashicService {
                 venue.variant.removeAll { NameIdentity.canonical($0) == key }
                 liftedFromVariant.append(contentsOf: lifted)
             }
-            if already { alreadyAuthorized.append(x) } else { authorizedAdded.append(x) }   // 冪等，但要說
+            if rewrote { authorizedRewritten.append(x) }
+            else if already { alreadyAuthorized.append(x) }
+            else { authorizedAdded.append(x) }   // 冪等，但要說
         }
         // 分割互斥與孤兒檢查由 `writeVenue` → `assertVenueWritable` → `Venue.validate()`
         // 擋——這裡不重造一份（同 ISSN 那段的立場）。
@@ -2998,6 +3010,7 @@ public final class AkashicService {
                                       "authorizedRemoved": authorizedRemoved.map { displaySafe($0, max: 200) },
                                       "liftedFromVariant": liftedFromVariant.map { displaySafe($0, max: 200) },
                                       "alreadyAuthorized": alreadyAuthorized.map { displaySafe($0, max: 200) },
+                                      "authorizedRewritten": authorizedRewritten.map { displaySafe($0, max: 200) },
                                       "authorizedTotal": venue.authorized.count,
                                       "variantTotal": venue.variant.count]
         if let p = venue.paginated { payload["paginated"] = p }
@@ -3815,6 +3828,7 @@ public final class AkashicService {
             // （R7 verify 第 6 列，#418 既有缺陷：用 work 的 `title` 當 literal，之後 `--demote` 把 venue 邊改寫成
             // 論文標題；rejected 那一側也帶著標題，`rejectedPairings` 對真正的刊名 literal 不會抑制）。取不到就拒絕。
             let literal = try Self.confirmedLiteral(on: fromVenue, for: citekey, operation: "改指")
+            try Self.assertPairingHasOneEdge(entry, index: idx, venueKey: oldKey, literal: literal, operation: "改指")
             moves.append(Move(citekey: citekey, index: idx, from: oldKey, to: newKey, literal: literal))
         }
         guard !moves.isEmpty else {
@@ -3836,7 +3850,7 @@ public final class AkashicService {
         // 留著就是 #486 的矛盾對；to 上若有舊的 rejected（一次 undo repoint）同理。`supersede` 在 ledger 做這件事。
         // venue 的變更先算、先過閘，entry 之後才落盤（D11，理由見 apply 那段）。
         var venuesByKey = Dictionary(load.venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
-        var retired = 0
+        var retired: [String] = []
         for m in moves {
             let literal = m.literal
             if var to = venuesByKey[m.to] {
@@ -3844,7 +3858,7 @@ public final class AkashicService {
                     .confirmed, holderKind: .work, holder: m.citekey, literal: literal,
                     rule: ResolutionLedger.venueRule,
                     statement: "resolve repoint：由「\(displaySafe(m.from, max: 120))」改指而來，使用者裁定"),
-                    in: &to.references).retired
+                    in: &to.references).retired.map { Self.describeRetired($0, on: m.to) }
                 venuesByKey[m.to] = to
             }
             if var from = venuesByKey[m.from] {
@@ -3852,7 +3866,7 @@ public final class AkashicService {
                     .rejected, holderKind: .work, holder: m.citekey, literal: literal,
                     rule: ResolutionLedger.venueRule,
                     statement: "resolve repoint：改指到「\(displaySafe(m.to, max: 120))」，此配對經裁定為誤"),
-                    in: &from.references).retired
+                    in: &from.references).retired.map { Self.describeRetired($0, on: m.from) }
                 venuesByKey[m.from] = from
             }
         }
@@ -3865,8 +3879,41 @@ public final class AkashicService {
             "repointed": moves.map { "\(displaySafe($0.citekey, max: 200)):\($0.index):\(displaySafe($0.to, max: 200))" },
             "entriesRewritten": touched.count,        // display-safe-exempt: Int
             "venuesRewritten": changedVenues.count,   // display-safe-exempt: Int
-            "verdictsRetired": retired,               // display-safe-exempt: Int
+            "verdictsRetired": retired,               // display-safe-exempt: describeRetired 已逐項過 displaySafe
         ] as [String: Any])
+    }
+
+    /// 被退役的 verdict 的具名形（`verdictsRetired` 的每一項）：哪個 venue、哪個欄位、原 value、原 statement——
+    /// 讓「從未判定」與「判過、被這次刪了」分得開（R9 verify security 第 4 列）。
+    static func describeRetired(_ r: ProvenanceReference, on venueKey: String) -> String {
+        var s = "venue:\(displaySafe(venueKey, max: 120)) \(r.field) \(displaySafe(r.value ?? "", max: 200))"   // display-safe-exempt: field 是封閉列舉的欄位名
+        if case .judgement(let statement, _) = r.kind { s += "（\(displaySafe(statement, max: 200))）" }
+        return s
+    }
+
+    /// **配對只能由一條邊實例化**（D25，R9 verify 六路命中）：verdict 不帶 venue index。同一 work 兩條 key 邊指同一
+    /// venue 時只有一筆 confirmed（`appendIfAbsent`）——D20 退役它會讓另一條邊在任何工具面上都救不回來（demote／repoint
+    /// 都撞「找不到 confirmed verdict」），而 R9 之前這個狀態會留一條 #486 warning、R9 之後 `validate` 全綠（DA 真 binary
+    /// 重現）。另一條 **literal** 邊同一個配對（`matchingKey` 相等）同理：to-venue 上該配對的 rejected 可能是它的。
+    /// D23 的謂詞問的是 literal 個數不是邊的個數，剛好漏掉這格。**具名拒絕、零寫入**，出路是先把重複的邊處理掉。
+    /// live store 2026-09-14 實測：2,411 筆 work、3 筆有 >1 條 venue 邊、同 venue 兩條 key 邊 0、兩條 literal 邊同配對 0。
+    static func assertPairingHasOneEdge(_ entry: Entry, index: Int, venueKey: String, literal: String, operation: String) throws {
+        let pk = NameNormalization.matchingKey(literal)
+        var others: [Int] = []
+        for (i, ref) in entry.venues.enumerated() where i != index {
+            switch ref {
+            case .key(let k) where k == venueKey: others.append(i)
+            case .literal(let l) where NameNormalization.matchingKey(l) == pk: others.append(i)
+            default: break
+            }
+        }
+        guard others.isEmpty else {
+            throw ServiceError.invalid(
+                "work「\(displaySafe(entry.citekey, max: 200))」的配對（literal「\(displaySafe(literal, max: 120))」）由 "
+                + "\(others.count + 1) 條邊實例化（第 \(index) 條與第 \(others.map(String.init).joined(separator: "、")) 條）"   // display-safe-exempt: Int 序列
+                + "——verdict 不帶 index，\(operation)退役那筆 verdict 會把另一條邊的證據一起刪、之後那條邊在任何工具面上都救不回來。"   // display-safe-exempt: 固定字串（改指／降格）
+                + "出路：手改這筆 work 的 YAML 刪掉重複的邊（多餘的 key 邊改回 `- literal: <原刊名>`），再重跑")
+        }
     }
 
     /// `repoint`／`demote` 共用：從 venue 的 confirmed verdict 取回這筆 work 的**唯一**原 literal（R8：走唯一解析器，
@@ -3880,12 +3927,14 @@ public final class AkashicService {
     /// 兩個 confirmed literal）。**0 筆時的出路要寫在訊息裡**（R8 verify 第 33 列）：與懸空 from-key 那句同一條路。
     static func confirmedLiteral(on venue: Venue, for citekey: String, operation: String) throws -> String {
         let (verdicts, _) = ResolutionLedger.verdicts(references: venue.references)
-        // 「不同」用 ledger 自己的相等（#470：`matchingKey`）——`Psychometrika`／`PSYCHOMETRIKA` 是同一個配對，
-        // `appendIfAbsent` 本來就只留第一筆；這裡的去重要與它一致，否則手改出來的大小寫異寫會被當成兩個 literal。
+        // 「不同」是**位元組**相等，不是 ledger 的 `matchingKey`（R9 verify DA 第 9 列）：R9 用 matchingKey 去重並回第一筆
+        // ——`PSYCHOMETRIKA`／`Psychometrika` 兩條邊 apply 到同一 venue 後只剩一筆 verdict，`--demote` 邊 1 還回去的是邊 0 的字，
+        // 正是下面那句訊息承諾不做的「安靜改寫書目資料」。工具路徑寫不出兩筆同鍵異位元組（`appendIfAbsent`），手改出來的
+        // 落進 `default:`：不猜哪一筆是這條邊的。兩條邊共用一筆 verdict 的形由 `assertPairingHasOneEdge`（D25）擋。
         var literals: [String] = []
-        var seen = Set<String>()
+        var seen = Set<[UInt8]>()
         for v in verdicts where v.kind == .confirmed && v.holderKind == .work && v.holder == citekey
-                                && seen.insert(NameNormalization.matchingKey(v.literal)).inserted {
+                                && seen.insert(Array(v.literal.utf8)).inserted {
             literals.append(v.literal)
         }
         switch literals.count {
@@ -3957,6 +4006,7 @@ public final class AkashicService {
             }
             // **原 literal 從 confirmed verdict 取回**——走唯一解析器；≥2 個不同 literal 拒絕（D23）。
             let literal = try Self.confirmedLiteral(on: venue, for: citekey, operation: "降格")
+            try Self.assertPairingHasOneEdge(entry, index: idx, venueKey: vkey, literal: literal, operation: "降格")
             plan.append(Demotion(citekey: citekey, index: idx, venueKey: vkey, literal: literal))
         }
 
@@ -3971,13 +4021,14 @@ public final class AkashicService {
         // 而使用者剛剛才說它是錯的（`ResolutionLedger.rejectedPairings` 讀的正是它）。
         // **同時退役那個配對的 confirmed**（D20）：它正是剛被裁定為誤的那筆，留著是 #486 的矛盾對。
         // venue 的變更先算、先過閘，entry 之後才落盤（D11，理由見 apply 那段）。
-        var retired = 0
+        var retired: [String] = []
         for d in plan {
             guard var v = venuesByKey[d.venueKey] else { continue }
             retired += ResolutionLedger.supersede(ResolutionLedger.record(
                 .rejected, holderKind: .work, holder: d.citekey, literal: d.literal,
                 rule: ResolutionLedger.venueRule,
                 statement: "resolve demote：退回 literal，此配對經裁定為誤"), in: &v.references).retired
+                .map { Self.describeRetired($0, on: d.venueKey) }
             venuesByKey[d.venueKey] = v
         }
         let changedVenues = Set(plan.map(\.venueKey))
@@ -3989,7 +4040,7 @@ public final class AkashicService {
             "demoted": plan.map { "\(displaySafe($0.citekey, max: 200)):\($0.index)" },
             "entriesRewritten": touched.count,        // display-safe-exempt: Int
             "venuesRewritten": changedVenues.count,   // display-safe-exempt: Int
-            "verdictsRetired": retired,               // display-safe-exempt: Int
+            "verdictsRetired": retired,               // display-safe-exempt: describeRetired 已逐項過 displaySafe
         ] as [String: Any])
     }
 

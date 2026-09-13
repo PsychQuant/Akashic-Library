@@ -1428,11 +1428,15 @@ encode/decode 等冪。
   掛死。但對**完整性與顯示安全**而言它是未信任的：檔案可能由別的 binary、別人、
   Dropbox 同步寫入，所以未知欄位 key 與 quarantine reason 一律經 `displaySafe`。
   兩者不矛盾——是同一份資料在不同軸上的不同假設，而 DoS 那條軸的防線還沒蓋。
-### 5.7 venue 的名字內容：寫入期不變式（normative，#554 D8；R6／R7／R9 補記）
+### 5.7 venue 的名字內容：寫入期不變式（normative，#554 D8；R6／R7／R9／R10 補記）
 
 `venue:` 記錄的 `names[].value`／`authorized[]`／`variant[]` 每一筆字串在**寫入期**
 （`writeVenue`／`fmt`／合併的 keeper 寫回／work・person 合併對持有被併鍵 verdict 的 holder 遷移——venue、
-organization、person 三種各過各的閘（R9，D24）／`resolve-venues` 的 verdict 寫回）都要通過
+organization、person 三種各過各的閘（R9，D24；2026-09-14 以含此版的 binary 對 live store 跑 `validate`：4,572 筆 person、13 筆
+organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLostByMerging` **之後**，merge 專屬的那句先出，R10）／
+`resolve-venues` 的 verdict 寫回——repoint／demote 寫 verdict 時退役同 holder 上同一配對的相反判定（D20），且**配對只由一條邊
+實例化時才做**：同一 work 兩條邊指同一 venue、或另有 literal 邊同配對時具名拒絕零寫入（D25，verdict 不帶 index）；退役的每筆
+逐字回報在 `verdictsRetired`）都要通過
 `Venue.validate()` 的名字內容檢查，**error 級**；decode **不驗**（load 照讀，
 `validate`／`doctor` 報出來）。這一段是 **store 契約**（與 §3.4 canonical form、§3.1
 `authorized` 同級——手改 YAML 的人讀的是本檔不是 `.claude/rules`，而手改正是它指定的修法）。
@@ -1453,9 +1457,13 @@ organization、person 三種各過各的閘（R9，D24）／`resolve-venues` 的
    那個文字的**（R9，D22：`ک\u{094D}\u{200D}`、Bengali virama 掛在 Devanagari 基底上都不算），右鄰居若在要是
    同一文字的字母／數字——**右鄰居是空白視同沒有**（多字刊名裡的詞尾 chillu `അവന്\u{200D} വന്നു`；canonical 形保證
    內部空白只會是單一 U+0020）；(b) 左鄰居是使用 join control 的文字裡的**字母／標記／數字**、右鄰居是**同一文字**的
-   **字母／數字**，**或同一 Indic 文字（0900–0DFF）的 virama**——joiner 在 halant 之前是印度系文字的正字法（R9，D21：
-   Unicode 核心規範 ch. 12.2 的 Bengali ya-phalaa `<RA, ZWJ, VIRAMA, YA>`；Microsoft 的 Devanagari／Bengali OpenType
-   音節文法 `{C+[N]+<H+[<ZWNJ|ZWJ>]|<ZWNJ|ZWJ>+H>}`，2026-09-13 實取確認；R8 曾把它當「沒有正字法意義」拒掉）；
+   **字母／數字**，**或 Devanagari／Bengali 的 virama 且 virama 之後接同文字的字母**——joiner 在 halant 之前是印度系文字
+   的正字法（R9，D21：Unicode 核心規範 ch. 12.2 的 Bengali ya-phalaa `<RA, ZWJ, VIRAMA, YA>`；Microsoft 的 Devanagari／
+   Bengali OpenType 音節文法 `{C+[N]+<H+[<ZWNJ|ZWJ>]|<ZWNJ|ZWJ>+H>}`，2026-09-13 實取確認；R8 曾把它當「沒有正字法意義」
+   拒掉）。**每個引用實例都是 `<C, J, H, C>`**——halant 後面的輔音才是 joiner 有作用的原因，沒有它 `क\u{200D}\u{094D}`
+   與 `क्` 渲染完全相同，能各自進 names 再被 `--authorize` 升成 displayName；R9 對 0900–0DFF 十個文字一起放行且不看右脈絡
+   （R9 verify DA 第 10 列真 binary 實測 `क‍्`／`क‌्Journal`／Tamil 全過），R10 收到有引用的兩個文字＋後續字母（D26），其餘
+   Indic 文字依 `zero-instance-guards` 一列一列加；
    右側其他標記仍不收（joiner 夾在基底與它的母音記號之間沒有正字法意義），非 Indic 的 virama（Myanmar asat、
    Khmer coeng）之前的 joiner 沒有文法支撐，仍拒（Arabic 一族含 Extended-C、Syriac 含 Supplement、Mandaic、NKo、
    Indic 0900–0DFF 含 Devanagari Extended／Extended-A、Myanmar 含 Extended-A／B、Khmer、Mongolian、Tifinagh、
@@ -1485,8 +1493,9 @@ CGJ、emoji 的 ZWJ 序列、德文用來抑制複合詞連字的 ZWNJ（`Auf\u{
 （U+202F，White_Space）折成一般空格，渲染上後綴會斷開。第 1 條的 NFC 對 CJK 相容表意文字有損
 （U+FA10 塚 → U+585A；Swift `==` 早視為相等）。放行但不像名字的：純 tatweel（U+0640，Lm）、
 開頭或空白後的 combining mark、未指派碼位（Cn；落在 DI 區段內的保留碼位除外——那些會被擋）。私用區（Co）不擋。
-第 2 條的區塊表**不含 Vedic Extensions（U+1CD0–1CFF）**：多數是標記（(a) 支走訪時本來就跳過），少數 Lo 字母
-（U+1CE9–1CEC 等）沒有 joiner 用途——鄰接它們的 joiner 被拒（R9 記為邊界，R8 verify 第 21／28／38 列）。以上全部零實例。
+第 2 條的區塊表**不含 Vedic Extensions（U+1CD0–1CFF）**：它們的 `joinScript` 是 nil——(a) 支的同文字檢查（D22）與 (b) 支的
+鄰居檢查都會拒鄰接它們的 joiner（實測 `क्᳐‍ष` 被拒），少數 Lo 字母（U+1CE9–1CEC 等）沒有 joiner 用途（R9 記為邊界，
+R8 verify 第 21／28／38 列；理由句 R10 依 R9 verify 第 24 列改寫——R9 那句「走訪時本來就跳過」描述的是 D22 之前的行為）。以上全部零實例。
 
 **部署視窗（R5 verify 第 16 列）**：這條不變式沒有 format bump，refuse-if-newer 管不到。
 三個 binary（CLI／`akashic-mcp`／App）**全部**升到 #554 世代之前，舊 binary 仍可寫入

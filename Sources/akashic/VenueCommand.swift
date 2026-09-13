@@ -186,7 +186,7 @@ struct UpdateVenueCmd: ParsableCommand {
     var key: String
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "要附加的名稱變體（可多個；相等看 canonical——前後／連續空白、NFC——近重複略過、新名字以 canonical 形入庫：空白類（含 tab／換行／LS／PS／NEL）收斂為單一空格。其他控制／格式／不可見字元（bidi、零寬、變體選擇子、填充字元）、拉丁或 CJK 之間的接合字元（ZWJ／ZWNJ 只在使用 join control 的文字——阿拉伯系／印度系／蒙古文等——的字母之間或 virama 之後合法）、或無任何字母或數字即整批拒絕，#554 D8）")
+            help: "要附加的名稱變體（可多個；相等看 canonical——前後／連續空白、NFC——近重複略過、新名字以 canonical 形入庫：空白類（含 tab／換行／LS／PS／NEL）收斂為單一空格。其他控制／格式／不可見字元（bidi、零寬、變體選擇子、填充字元）、拉丁或 CJK 之間的接合字元（ZWJ／ZWNJ 只在使用 join control 的文字——阿拉伯系／印度系／蒙古文等——裡合法：virama 之後、同文字的字母／標記／數字之間、或 Devanagari／Bengali 的 virama 之前且其後接字母）、或無任何字母或數字即整批拒絕，#554 D8）")
     var addName: [String] = []
 
     @Option(name: .long, help: "備註（替換；選填）")

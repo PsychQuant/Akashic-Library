@@ -126,18 +126,27 @@ public enum ResolutionLedger {
     /// 把 field 換成相反那個——與 `appendIfAbsent`、#486 的掃描同一個正規化（#470）。回傳附加了沒有、退役了幾筆。
     /// 歷史留在 git（同 un-split 刪拆分記錄的既有取捨）。**只對 verdict 欄位對有意義**——非 verdict 的 reference
     /// 沒有「相反」，走 `appendIfAbsent` 就好；這裡對它們等價於 `appendIfAbsent`（退役 0 筆）。
+    ///
+    /// **退役的每一筆逐字回傳**（R9 verify security 第 4 列、DA 第 29 列）：被刪的是人的判斷記錄——#553 合併會把被併
+    /// venue 的顯式 `--reject` 以位元組相等搬進 keeper，日後一次 repoint 就會退役它，而被併檔已不在，唯一副本只剩 git；
+    /// 只回一個整數會讓「從未判定」與「判過、被這次刪了」在輸出上不可區分（`lossless-intake` 執行細節 3）。
+    ///
+    /// **前提：這個配對只由一條邊實例化**（D25，R9 verify 六路命中）：verdict 不帶 venue index，同一 work 兩條邊指同一
+    /// venue 時只有一筆 confirmed——退役它會讓另一條邊在任何工具面上都救不回來，而且 #486 的矛盾 warning 也一起消失。
+    /// 本函式不查 entry，呼叫端（`repointVenues`／`demoteVenues`）在呼叫前用 `assertPairingHasOneEdge` 擋。
     @discardableResult
     public static func supersede(_ ref: ProvenanceReference,
-                                 in references: inout [ProvenanceReference]) -> (appended: Bool, retired: Int) {
-        var retired = 0
+                                 in references: inout [ProvenanceReference]) -> (appended: Bool, retired: [ProvenanceReference]) {
+        var retired: [ProvenanceReference] = []
         if let kind = VerdictKind(rawValue: ref.field) {
             let opposite: VerdictKind = kind == .confirmed ? .rejected : .confirmed
             let oppositeKey = ProvenanceReference.verdictEqualityKey(field: opposite.rawValue, value: ref.value)
-            let before = references.count
+            retired = references.filter {
+                ProvenanceReference.verdictEqualityKey(field: $0.field, value: $0.value) == oppositeKey
+            }
             references.removeAll {
                 ProvenanceReference.verdictEqualityKey(field: $0.field, value: $0.value) == oppositeKey
             }
-            retired = before - references.count
         }
         return (appendIfAbsent(ref, to: &references), retired)
     }

@@ -244,7 +244,9 @@ public struct Venue: Equatable {
         // 教訓同一句：守衛住在 validate → writeVenue 的交會處才擋得住所有路徑。
         // error 級——2026-09-12 實測 live store 485 筆 venue：非 canonical 0、含 Cf／Cc 0、
         // 無字母無數字 0、近重複對 0，提級不拒絕任何既有記錄。謂詞一份住
-        // `NameIdentity.wellFormednessIssue`（與輸出閘 `UnsafeToEmitScalar` 共用危險 scalar 的定義）。
+        // `NameIdentity.wellFormednessIssue`——它拒的是三份定義的**聯集**（輸出閘 `UnsafeToEmitScalar` 的列舉、
+        // Cc／Cf／Zl／Zp、Default_Ignorable），輸出閘只逃脫其中第一份；所以「進得了 store 的名字輸出時一定安全」
+        // 為真，反過來「被拒的名字迴送時一定被逃脫」**為假**（TAG 字元原樣進錯誤訊息——#569，R9 verify 第 2 列）。
         for (label, list) in [("names", names.entries.map(\.value)), ("authorized", authorized), ("variant", variant)] {
             for n in list {
                 if let why = NameIdentity.wellFormednessIssue(n) {
@@ -272,13 +274,29 @@ public struct Venue: Equatable {
             if groups[k] == nil { order.append(k) }
             groups[k, default: []].append(seg)
         }
-        for k in order {
+        // **每組最多逐一列 3 對，找滿就停**（R9 verify security 第 3 列）：本檢查在讀取路徑上對未信任的 store 內容跑
+        // （`StoreHealth` → doctor／App），O(k²) 對、每對一則訊息——上萬筆同名段會在任何截斷生效之前撐爆記憶體。
+        // 結論在第一對就定了（error），多列的只是說明；剩下的以「另至多 M 對」概括（上界：未比對的對數，其中可能有
+        // 合法的沿革豁免對，所以說「至多」不說「另有」）。
+        let pairsToList = 3
+        groupLoop: for k in order {
             let segs = groups[k]!
             guard segs.count > 1 else { continue }
+            var listed = 0, evaluated = 0
+            let total = segs.count * (segs.count - 1) / 2
             for i in segs.indices {
                 for j in segs.indices where j > i {
+                    if listed == pairsToList {
+                        issues.append(ValidationIssue(
+                            severity: .error,
+                            message: "venue '\(displaySafe(key, max: 120))' 的 names 近重複「\(displaySafe(segs[i].value, max: 120))」共 \(segs.count) 筆同名段，"   // display-safe-exempt: Int
+                                   + "另至多 \(total - evaluated) 對未逐一列出——請在 YAML 裡留一筆（沿革改回舊名要兩段都帶不相交的時間）"))   // display-safe-exempt: Int
+                        continue groupLoop
+                    }
+                    evaluated += 1
                     let a = segs[i].range, b = segs[j].range
                     if a.makesTemporalClaim && b.makesTemporalClaim && Self.segmentsAreDisjoint(a, b) { continue }
+                    listed += 1
                     let why = a.makesTemporalClaim && b.makesTemporalClaim
                         ? "兩段的時間重疊或無從判定不相交——同名的沿革段要一段有 end、另一段有 start，"
                           + "且前段的 end 早於後段的 start（同年或端點相等算重疊、粒度不同時以較粗的比），"

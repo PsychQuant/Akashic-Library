@@ -227,6 +227,36 @@ final class VenueNameInvariantTests: XCTestCase {
         }
     }
 
+    /// **virama 之前的 joiner 要有右脈絡，且只在有引用的文字裡**（R9 verify DA 第 10 列；Claude 代裁 D26）：R9 的 (b) 支
+    /// 收 virama 時不看 virama 之後有沒有東西——`क\u{200D}\u{094D}`（詞尾）、`क\u{200C}\u{094D}Journal`（接拉丁）、Tamil
+    /// `ல\u{200D}\u{0BCD}ல` 全部通過、validate 綠，而 R8 是拒的：ya-phalaa／half-form 的每一個引用實例都是 `<C, ZWJ, H, C>`，
+    /// halant 後面那個輔音才是 joiner 有作用的原因，沒有它 joiner 就是純隱形位元組差（confusable 通道——`क‍्` 與 `क्`
+    /// 渲染完全相同，能各自進 names 再被 `--authorize` 升成 displayName）。所以：virama 之後要接**同一文字的字母**，
+    /// 且只收有引用依據的 Devanagari／Bengali（Unicode ch. 12.2、Microsoft 兩份音節文法都只涵蓋這兩個），其餘 Indic 文字
+    /// 依 `zero-instance-guards` 的紀律一列一列加。
+    func testJoinerBeforeAViramaNeedsAFollowingLetterAndACitedScript() {
+        for ok in ["র\u{200D}\u{09CD}যাব", "क\u{200D}\u{094D}ष", "ক\u{200C}\u{09CD}ষ", "Journal क\u{200D}\u{094D}ष"] {
+            XCTAssertNil(NameIdentity.wellFormednessIssue(ok), ok.debugDescription)
+        }
+        for bad in ["क\u{200D}\u{094D}", "क\u{200C}\u{094D}", "क\u{200C}\u{094D}Journal", "Journal क\u{200D}\u{094D}",
+                    "র\u{200D}\u{09CD}", "क\u{200D}\u{094D}\u{0967}", "क\u{200D}\u{094D}\u{093E}", "क\u{200D}\u{094D} ष",
+                    "ல\u{200D}\u{0BCD}ல", "ക\u{200D}\u{0D4D}ക"] {
+            XCTAssertNotNil(NameIdentity.wellFormednessIssue(bad), bad.debugDescription)
+        }
+    }
+
+    /// **近重複訊息每組有上限**（R9 verify security 第 3 列）：同鍵組內 O(k²) 對、每對一則 `ValidationIssue`——由讀取路徑
+    /// （`StoreHealth` → doctor／App）對未信任的 store 內容觸發，60,000 筆同名段就是 1.8×10⁹ 則訊息。每組最多逐一列 3 對，
+    /// 其餘一句「另 M 對」；找到足夠的違反後就停止比對（結論已定，剩下的對不改變 verdict）。
+    func testNearDuplicateIssuesPerGroupAreBounded() {
+        let v = venue(names: Array(repeating: "Psychometrika", count: 40))
+        let msgs = errors(v).filter { $0.contains("近重複") }
+        XCTAssertLessThanOrEqual(msgs.count, 4, "\(msgs.count) 則")
+        XCTAssertTrue(msgs.contains { $0.contains("另") && $0.contains("對") }, "要說還有幾對沒列：\(msgs)")
+        // 只有一對時照舊逐一列，不多印摘要
+        XCTAssertEqual(errors(venue(names: ["Psychometrika", "Psychometrika"])).filter { $0.contains("近重複") }.count, 1)
+    }
+
     /// **同一文字的補充區塊要在區塊表裡**（R8 verify 第 21／28／38 列）：Devanagari Extended（A8E0–A8FF，含 Lo 字母
     /// U+A8FB HEADSTROKE）、Devanagari Extended-A（11B00–11B5F）、Myanmar Extended-A／B（AA60–AA7F Khamti、
     /// A9E0–A9FF Shan／Tai Laing）回 nil，鄰接它們的 joiner 被拒，而 R7 的 doc 說「同一個文字的補充區塊本來就該在」。

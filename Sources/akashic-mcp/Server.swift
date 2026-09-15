@@ -104,7 +104,7 @@ actor AkashicMCPServer {
              description: "人物實體列表／查詢（key、aliases、ORCID）。",
              inputSchema: obj(["query": str("關鍵字（比對 key 與所有 alias；省略＝全部）")])),
         Tool(name: "akashic_doctor",
-             description: "library 健康報告：entries/people/relations 統計、index 重建、quarantine、未解析作者數、orphans、unknownFieldFiles（含較新 schema 未知欄位的檔案，v1.3 tolerant-preserve 可見性面）。",
+             description: "library 健康報告：entries/people/relations 統計、index 重建、quarantine、未解析作者數、orphans、unknownFieldFiles（含較新 schema 未知欄位的檔案，v1.3 tolerant-preserve 可見性面）；recordIssues 的 first 截 20 則且受 48 KiB 位元組預算約束（截掉時 firstCappedByBudget 為 true；count 與各族計數永遠完整）。",
              inputSchema: obj([:])),
         Tool(name: "akashic_files",
              description: "多檔案（#18）：list＝列出已註冊的實體庫（檔案）與 active root；use＝session 內切換到另一個檔案（互不相通——切換後所有 tool 都作用在新 universe；不寫 config，持久預設用 CLI akashic file use）。",

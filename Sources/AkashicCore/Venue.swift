@@ -300,47 +300,59 @@ public struct Venue: Equatable {
         // 上限內的求值與 R10 逐位相同，verdict 不變。
         let pairsToList = 3
         let pairsToEvaluate = 5_000
-        // **組數也有上限**（R16；R15 verify 第 15 列）：R10／R11 的兩個上限都在一組之內，三十組同名段仍逐組出聲。
+        // **組數也有上限，而配額只數真的出聲的組**（R16 → R17，Claude 代裁 D48；R16 verify DA 第 2 列 HIGH、Codex／logic／security 同指：
+        // R16 在判定該組有沒有違反**之前**就遞增——21 組合法的同名沿革段（每組兩段、時間不相交、零違反）讓 validate 憑空報一則 error、
+        // `assertVenueWritable` 從此對這筆 venue **所有**寫入面關門，而前 20 組合法時第 21 組的真近重複整條被吞進概括句；同一函式的
+        // 名字內容迴圈與 authorized／variant 分支都只在真的出聲時遞增，只有這一格反了，且與組內 `listed` 的既有紀律（只在非豁免對上
+        // 遞增）自相矛盾）。每一組都照常求值（求值上限在組內：5,000 對），上限只管**列出**：有違反的組超過 20 的部分以一句概括，而
+        // 被概括的每一組都真的違反。
         var listedGroups = 0, unlistedGroups = 0
-        groupLoop: for k in order {
+        func evaluateGroup(_ segs: [TemporalValue<String>]) -> [ValidationIssue] {
+            var out: [ValidationIssue] = []
+                var listed = 0, evaluated = 0
+                let total = segs.count * (segs.count - 1) / 2
+                for i in segs.indices {
+                    for j in segs.indices where j > i {
+                        if listed == pairsToList || evaluated == pairsToEvaluate {
+                            // 求值上限觸發時 listed 可以是 0——訊息用自己的開頭詞「同名段過多」（R11 verify regression 第 31 列：那一組
+                            // 沒有任何一對被判定違反，`grep -c '近重複'` 不該把它算成近重複）；兩個上限同輪到頂時也說出上限（第 24 列）
+                            let capHit = evaluated == pairsToEvaluate
+                            out.append(ValidationIssue(
+                                severity: .error,
+                                message: "venue '\(displaySafe(key, max: 120))' 的 names \(capHit ? "同名段過多" : "近重複")「\(displaySafeInvisible(segs[i].value, max: 120))」共 \(segs.count) 筆同名段，"   // display-safe-exempt: Int；固定字串
+                                       + "已評估 \(evaluated) 對（列出其中 \(listed) 對違反），另至多 \(total - evaluated) 對未評估"   // display-safe-exempt: Int
+                                       + (capHit
+                                          ? "——同名段超過逐對評估的上限（\(pairsToEvaluate) 對，約 100 筆）一律拒絕：請把同名沿革段收攏，或在 YAML 裡留一筆"   // display-safe-exempt: Int 常量
+                                          : "——請在 YAML 裡留一筆（沿革改回舊名要兩段都帶不相交的時間）")))
+                            return out
+                        }
+                        evaluated += 1
+                        let a = segs[i].range, b = segs[j].range
+                        if a.makesTemporalClaim && b.makesTemporalClaim && Self.segmentsAreDisjoint(a, b) { continue }
+                        listed += 1
+                        let why = a.makesTemporalClaim && b.makesTemporalClaim
+                            ? "兩段的時間重疊或無從判定不相交——同名的沿革段要一段有 end、另一段有 start，"
+                              + "且前段的 end 早於後段的 start（同年或端點相等算重疊、粒度不同時以較粗的比），"
+                              + "請在 YAML 裡修時間欄位或留一筆"
+                            : "只差空白或正規化的兩個字串是同一個名字，請在 YAML 裡留一筆（沿革改回舊名要兩段都帶不相交的時間）"
+                        out.append(ValidationIssue(
+                            severity: .error,
+                            // 近重複對的兩筆只差空白類或 NFC 形——`displaySafe` 不逃脫 NBSP／U+2000–200A 等 Zs，兩個字串會印成逐像素相同
+                            // 而訊息叫人「留一筆」（R13 verify security 第 12 列、requirements 第 18 列）：以性質逃脫
+                            message: "venue '\(displaySafe(key, max: 120))' 的 names 有兩筆近重複「\(displaySafeInvisible(segs[i].value, max: 120))」"
+                                   + "與「\(displaySafeInvisible(segs[j].value, max: 120))」——\(why)"))   // display-safe-exempt: why 是本函式的兩句字面常量
+                    }
+                }
+            return out
+        }
+        for k in order {
             let segs = groups[k]!
             guard segs.count > 1 else { continue }
+            let found = evaluateGroup(segs)
+            guard !found.isEmpty else { continue }
             guard listedGroups < Entry.perRecordWarningCap else { unlistedGroups += 1; continue }
             listedGroups += 1
-            var listed = 0, evaluated = 0
-            let total = segs.count * (segs.count - 1) / 2
-            for i in segs.indices {
-                for j in segs.indices where j > i {
-                    if listed == pairsToList || evaluated == pairsToEvaluate {
-                        // 求值上限觸發時 listed 可以是 0——訊息用自己的開頭詞「同名段過多」（R11 verify regression 第 31 列：那一組
-                        // 沒有任何一對被判定違反，`grep -c '近重複'` 不該把它算成近重複）；兩個上限同輪到頂時也說出上限（第 24 列）
-                        let capHit = evaluated == pairsToEvaluate
-                        issues.append(ValidationIssue(
-                            severity: .error,
-                            message: "venue '\(displaySafe(key, max: 120))' 的 names \(capHit ? "同名段過多" : "近重複")「\(displaySafeInvisible(segs[i].value, max: 120))」共 \(segs.count) 筆同名段，"   // display-safe-exempt: Int；固定字串
-                                   + "已評估 \(evaluated) 對（列出其中 \(listed) 對違反），另至多 \(total - evaluated) 對未評估"   // display-safe-exempt: Int
-                                   + (capHit
-                                      ? "——同名段超過逐對評估的上限（\(pairsToEvaluate) 對，約 100 筆）一律拒絕：請把同名沿革段收攏，或在 YAML 裡留一筆"   // display-safe-exempt: Int 常量
-                                      : "——請在 YAML 裡留一筆（沿革改回舊名要兩段都帶不相交的時間）")))
-                        continue groupLoop
-                    }
-                    evaluated += 1
-                    let a = segs[i].range, b = segs[j].range
-                    if a.makesTemporalClaim && b.makesTemporalClaim && Self.segmentsAreDisjoint(a, b) { continue }
-                    listed += 1
-                    let why = a.makesTemporalClaim && b.makesTemporalClaim
-                        ? "兩段的時間重疊或無從判定不相交——同名的沿革段要一段有 end、另一段有 start，"
-                          + "且前段的 end 早於後段的 start（同年或端點相等算重疊、粒度不同時以較粗的比），"
-                          + "請在 YAML 裡修時間欄位或留一筆"
-                        : "只差空白或正規化的兩個字串是同一個名字，請在 YAML 裡留一筆（沿革改回舊名要兩段都帶不相交的時間）"
-                    issues.append(ValidationIssue(
-                        severity: .error,
-                        // 近重複對的兩筆只差空白類或 NFC 形——`displaySafe` 不逃脫 NBSP／U+2000–200A 等 Zs，兩個字串會印成逐像素相同
-                        // 而訊息叫人「留一筆」（R13 verify security 第 12 列、requirements 第 18 列）：以性質逃脫
-                        message: "venue '\(displaySafe(key, max: 120))' 的 names 有兩筆近重複「\(displaySafeInvisible(segs[i].value, max: 120))」"
-                               + "與「\(displaySafeInvisible(segs[j].value, max: 120))」——\(why)"))   // display-safe-exempt: why 是本函式的兩句字面常量
-                }
-            }
+            issues.append(contentsOf: found)
         }
         for (label, list) in [("authorized", authorized), ("variant", variant)] {
             var seenByKey: [String: String] = [:]
@@ -361,8 +373,8 @@ public struct Venue: Equatable {
         if unlistedGroups > 0 {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafe(key, max: 120))' 的 names／authorized／variant 另有 \(unlistedGroups) 組近重複或同名段未列出"   // display-safe-exempt: 前綴是常量；Int
-                       + "（每筆記錄最多列 \(Entry.perRecordWarningCap) 組——本檢查在讀取路徑上對未信任的 store 內容跑）"))   // display-safe-exempt: Int 常量
+                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafe(key, max: 120))' 的 names／authorized／variant 另有 \(unlistedGroups) 組近重複未列出"   // display-safe-exempt: 前綴是常量；Int
+                       + "（每一組都已評估且真的違反；每筆記錄最多列 \(Entry.perRecordWarningCap) 組——本檢查在讀取路徑上對未信任的 store 內容跑）"))   // display-safe-exempt: Int 常量
         }
         // **配對唯一性的第二半有掃描面了**（#554 R14，Claude 代裁 D36；`zero-instance-guards` 第 27 列）：同一 work 上 ≥2 個
         // 正規化後不同的 confirmed literal——§3.5 那句 normative 的後半。第一半（同一 work 兩條 key 邊指同一 venue）住在
@@ -382,6 +394,8 @@ public struct Venue: Equatable {
         // 而 D23 對同一筆記錄照拒。去重鍵改 UTF-8 位元組（`Set<[UInt8]>`，與 `confirmedLiteral`／`otherConfirmedLiterals` 同一把；
         // 順便把 R15 的 O(N²) `contains(where:)` 換成 O(N)——第 7 列）。混合情形（三筆裡兩筆只差位元組——第 23 列）第一類訊息也點名
         // 那一組，兩類的計數才對得上；概括句用 `Entry.perRecordCapSummaryPrefix`，不帶家族前綴（第 29 列：R15 讓 `StoreHealth` 把它算成一則）。
+        // 儲存是首見序；第一類訊息列的是每個 matchingKey 的首見 literal、依 matchingKey 字典序（>5 時哪幾筆被印取決於鍵序，不是 YAML 順序），
+        // 第二類訊息依首見序（R16 verify logic 第 26 列）
         var literalsByWork: [String: [(literal: String, key: String)]] = [:]   // work → 位元組相異的 confirmed literal（首見序）與其 matchingKey
         var seenBytesByWork: [String: Set<[UInt8]>] = [:]
         var workOrder: [String] = []
@@ -407,9 +421,12 @@ public struct Venue: Equatable {
             }
             if keyOrder.count > 1 {
                 let shown = keyOrder.sorted().prefix(5).map { "「\(displaySafeInvisible(firstByKey[$0]!, max: 120))」" }.joined(separator: "、")
-                let byteDup = keyOrder.sorted().filter { countByKey[$0]! > 1 }.prefix(5)
+                let dupGroups = keyOrder.sorted().filter { countByKey[$0]! > 1 }
+                let byteDup = dupGroups.prefix(5)
                     .map { "「\(displaySafeInvisible(firstByKey[$0]!, max: 120))」另有 \(countByKey[$0]! - 1) 筆" }   // display-safe-exempt: Int
-                let dupNote = byteDup.isEmpty ? "" : "；其中 " + byteDup.joined(separator: "、") + "只差位元組的重複記錄"   // display-safe-exempt: byteDup 逐項 displaySafeInvisible
+                // 截在 5 組時要揭露（R16 verify requirements 第 12 列：靜默截斷讓「兩類的計數對得上」從第 6 組起為假）
+                let dupNote = byteDup.isEmpty ? "" : "；其中 " + byteDup.joined(separator: "、")   // display-safe-exempt: byteDup 逐項 displaySafeInvisible
+                    + (dupGroups.count > 5 ? "…共 \(dupGroups.count) 組" : "") + "只差位元組的重複記錄"   // display-safe-exempt: Int
                 issues.append(ValidationIssue(
                     severity: .warning,
                     message: "\(Self.confirmedLiteralAmbiguityPrefix)：venue '\(displaySafe(key, max: 120))' 對 work「\(displaySafe(w, max: 120))」持有 \(keyOrder.count) 個正規化後不同的 confirmed literal（"   // display-safe-exempt: 前綴是常量；Int

@@ -1900,7 +1900,7 @@ extension LibraryStore {
         var changed = false
         var out: [ProvenanceReference] = []
         var collapsed: [String] = []
-        var seen = Set<String>()
+        var keptByKey: [String: ProvenanceReference] = [:]   // 鍵 → 留下的那筆（收攏列印留下的拼法，R17 D47）
         for r in refs {
             guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
                   let v = r.value,
@@ -1920,12 +1920,13 @@ extension LibraryStore {
             }
             // 遷移後與既有 verdict 同 (field, value) → 收攏（store 永不持有重複 verdict）
             // #470：與 merge 側、appendIfAbsent、讀取面同一個相等定義。
-            guard seen.insert(ProvenanceReference.verdictEqualityKey(
-                    field: kept.field, value: kept.value)).inserted else {
+            let key = ProvenanceReference.verdictEqualityKey(field: kept.field, value: kept.value)
+            guard keptByKey[key] == nil else {
                 changed = true
-                collapsed.append(Self.describeCollapsedVerdict(original: r))   // 遷移前的原值（R15，D40）
+                collapsed.append(Self.describeCollapsedVerdict(original: r, kept: keptByKey[key]))   // 遷移前的原值（R15，D40）；留下的拼法（R17）
                 continue
             }
+            keptByKey[key] = kept
             out.append(kept)
         }
         return changed ? (out, collapsed) : nil

@@ -609,4 +609,41 @@ final class VenueNameInvariantTests: XCTestCase {
         XCTAssertEqual(ds.filter { $0.contains("有兩筆近重複") }.count, 20, "\(ds.count)")   // 概括句也含「近重複」二字，只數逐對訊息
         XCTAssertTrue(ds.contains { $0.hasPrefix(Entry.perRecordCapSummaryPrefix) && $0.contains("另有 10 組") }, "\(ds)")
     }
+
+    // MARK: - R17（D48）：近重複組的上限只數真的出聲的組
+
+    /// R16 verify DA 第 2 列 HIGH（Codex／logic／security 同指）：R16 的組數上限在判定該組有沒有違反**之前**就遞增——21 組合法的同名
+    /// 沿革段（每組兩段、時間不相交、零違反）讓 validate 憑空報一則 error，`assertVenueWritable` 從此對這筆 venue 所有寫入面關門；
+    /// 前 20 組合法時第 21 組的真近重複整條被吞進概括句。
+    func testLegitimateHistoryGroupsDoNotConsumeTheNearDuplicateCap() {
+        func history(_ n: Int) -> [TemporalValue<String>] {
+            (1...n).flatMap { [TemporalValue(value: "Journal \($0)", range: DateRange(start: "1900", end: "1950")),
+                               TemporalValue(value: "Journal \($0)", range: DateRange(start: "1960", end: "1970"))] }
+        }
+        var v = Venue(key: "j", type: .periodical, names: Timeline(history(21)), authorized: [])
+        XCTAssertEqual(errors(v), [], "21 組全豁免的沿革段不得產生任何 issue")
+        v = Venue(key: "j", type: .periodical, names: Timeline(history(20) + [TemporalValue(value: "Real Dup"), TemporalValue(value: "Real Dup")]), authorized: [])
+        let es = errors(v)
+        XCTAssertEqual(es.count, 1, "\(es)")
+        XCTAssertTrue(es.first?.contains("「Real Dup」") == true, "真的近重複要具名，不得被吞進概括句：\(es)")
+        XCTAssertFalse(es.contains { $0.hasPrefix(Entry.perRecordCapSummaryPrefix) }, "\(es)")
+    }
+
+    /// R16 verify requirements 第 12 列：第一類訊息的位元組重複註記靜默截在 5 組。
+    func testByteDuplicateNoteDisclosesTruncation() {
+        var v = venue(names: ["Alpha"])
+        v.references = (1...7).flatMap { [confirmedRef("w1", "Alpha \($0)"), confirmedRef("w1", "ALPHA \($0)")] }
+        let ws = v.validate().filter { $0.severity == .warning }.map(\.message)
+        XCTAssertEqual(ws.count, 1, "\(ws)")
+        XCTAssertTrue(ws.first?.contains("共 7 組只差位元組") == true, "截斷要揭露：\(ws.first ?? "")")
+    }
+
+    /// R16 verify security 第 17 列：重複邊 warning 迴送的 venue key 沒有經過 StoreKey 驗證，只用列舉式逃脫。
+    func testDuplicateEdgeWarningEscapesInvisibleKeys() {
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.key("v\u{200B}x"), .key("v\u{200B}x")]
+        let ws = e.validate().filter { $0.message.hasPrefix(Entry.duplicateVenueEdgePrefix) }.map(\.message)
+        XCTAssertEqual(ws.count, 1, "\(ws)")
+        XCTAssertTrue(ws.first?.contains("\\u{200B}") == true && ws.first?.unicodeScalars.contains { $0.value == 0x200B } == false, ws.first ?? "")
+    }
 }

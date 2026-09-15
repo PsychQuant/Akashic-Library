@@ -126,7 +126,7 @@ public enum NameIdentity {
         }
         let canon = canonical(name)
         if canon.isEmpty { return "是空白——沒有名字，請刪掉這一筆" }
-        if name != canon || Array(name.utf8) != Array(canon.utf8) {
+        if Array(name.utf8) != Array(canon.utf8) {   // 只比位元組——Swift `!=` 是 canonical equivalence，位元組相等蘊含它，那個析取項恆為死碼（R16 verify logic 第 25 列）
             return "不是 canonical 形（前後／連續空白、tab 或未 NFC）——請在 YAML 裡把這一筆改成"
                  + "去掉前後空白、連續空白收成一個、NFC 的寫法"
         }

@@ -92,4 +92,32 @@ final class CollapseSurvivorPolicyTests: XCTestCase {
         XCTAssertTrue(got.collapsed[0].contains("強的理由"),
                       "被丟的是強的那筆，報告要說出它：\(got.collapsed)")
     }
+
+    // MARK: - R17（#554 D47）：位元組不同時，倖存配對自己的那筆勝
+
+    /// R16 verify DA 第 1 列（真 binary 重現）：第 1 層「弱血統優先」排在「未改寫者勝」之前，被併記錄那筆弱血統的 `VEE JOURNAL`
+    /// 贏過倖存者自己使用者確認過的 `Vee Journal`——連**位元組**一起取代，之後 `--demote` 把邊寫成不是這筆記錄原本寫的字
+    /// （`confirmedLiteral` 承諾不做的事）。#468 的弱血統優先只在**拼法位元組相同**時適用（那時留弱只多一句警告、不動任何字串）；
+    /// 拼法不同時倖存配對自己的（未改寫）那筆勝，收攏列印出兩個拼法。
+    func testDifferentSpellingNeverReplacesTheSurvivingPairingsOwnBytes() {
+        for (desc, refs) in [
+            ("強在前", [ref(holder: "keeper2020a", literal: "Vee Journal", rule: exact),
+                        ref(holder: "doomed2020a", literal: "VEE JOURNAL", rule: weak)]),
+            ("弱在前", [ref(holder: "doomed2020a", literal: "VEE JOURNAL", rule: weak),
+                        ref(holder: "keeper2020a", literal: "Vee Journal", rule: exact)]),
+        ] {
+            let got = collapse(refs)
+            XCTAssertEqual(got.refs.count, 1, desc)
+            let kept = ProvenanceReference.VerdictPairingValue.parse(got.refs.first?.value ?? "")?.literal ?? ""
+            XCTAssertEqual(Array(kept.utf8), Array("Vee Journal".utf8), "\(desc)：倖存配對自己的位元組不得被換掉（拿到 \(kept)）")
+            XCTAssertEqual(ruleOf(got.refs[0]), exact, desc)
+            XCTAssertEqual(got.collapsed.count, 1, desc)
+            let row = got.collapsed.first ?? ""
+            XCTAssertTrue(row.contains("VEE JOURNAL") && row.contains("Vee Journal") && row.contains("位元組"), "兩個拼法都要印：\(row)")
+        }
+        // 對照：拼法相同時 #468 的第 1 層照舊——弱血統留下
+        let same = collapse([ref(holder: "keeper2020a", literal: "A B", rule: exact), ref(holder: "doomed2020a", literal: "A B", rule: weak)])
+        XCTAssertEqual(ruleOf(same.refs[0]), weak)
+        XCTAssertFalse((same.collapsed.first ?? "").contains("位元組"), "同拼法不印「位元組不同」：\(same.collapsed)")
+    }
 }

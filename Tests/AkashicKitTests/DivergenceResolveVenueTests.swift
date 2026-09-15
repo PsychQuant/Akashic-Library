@@ -762,4 +762,25 @@ final class DivergenceResolveVenueTests: XCTestCase {
             }
         }
     }
+
+    /// R17（D47，keeper 路徑）：倖存者自己的拼法本來就勝（先入），但收攏列要把兩個拼法都印出來——R16 的措辭「正規化後相等，留一筆」
+    /// 用的正是 R16 自己宣告不足以判定相同的那把尺（R16 verify DA 第 1 列）。
+    func testKeeperPathCollapseNamesBothSpellings() throws {
+        var keeper = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]),
+                           authorized: [], issn: [XCTUnwrap_ISSN("0003-1305")])
+        keeper.references = [verdict(holder: "w1", literal: "Alpha Journal")]
+        try store.writeVenue(keeper)
+        var doomed = Venue(key: "alpha-old", type: .periodical, names: Timeline([TemporalValue(value: "ALPHA JOURNAL")]), authorized: [])
+        doomed.references = [verdict(holder: "w1", literal: "ALPHA JOURNAL")]
+        try store.writeVenue(doomed)
+        let d = Divergence(id: UUID(), question: "同一本刊嗎",
+                           candidates: [DivergenceCandidate(key: "alpha", shape: .venue), DivergenceCandidate(key: "alpha-old", shape: .venue)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(root, message: "seed")
+        let report = try store.resolveDivergence(id: d.id, survivor: "alpha")
+        let values = try XCTUnwrap(store.load().venues.first { $0.key == "alpha" }).references.compactMap(\.value)
+        XCTAssertEqual(values.map { Array($0.utf8) }, [Array("work:w1 :: Alpha Journal".utf8)], "\(values)")
+        let row = try XCTUnwrap(report.verdictsCollapsed.first, "\(report.verdictsCollapsed)")
+        XCTAssertTrue(row.contains("ALPHA JOURNAL") && row.contains("Alpha Journal") && row.contains("位元組"), row)
+    }
 }

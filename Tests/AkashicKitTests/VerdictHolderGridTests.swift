@@ -1033,6 +1033,8 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(r.verdictsCollapsed.count, 1, "\(r.verdictsCollapsed)")
         let row = r.verdictsCollapsed[0]
         XCTAssertTrue(row.hasPrefix("venue「alpha」：") && row.contains("work:old2020a :: ALPHA JOURNAL") && !row.contains("work:new2020a :: ALPHA JOURNAL"), row)
+        // R17（D47）：rename 那條路也印留下的拼法——被丟的 `ALPHA JOURNAL` 與留下的 `Alpha Journal` 位元組不同
+        XCTAssertTrue(row.contains("留「Alpha Journal」") && row.contains("位元組"), row)
     }
 
     // MARK: - R16（D45）：「既有」看倖存配對
@@ -1076,7 +1078,39 @@ final class VerdictHolderGridTests: XCTestCase {
         GitFixture.commitAll(store.root)
         XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "keep2020a", overrideReason: nil)) { err in
             guard case DivergenceResolveError.wouldContradictVerdicts = err else { return XCTFail("要具名拒絕：\(err)") }
+            // R17（R16 verify requirements 第 4 列）：末句的括號把「住在被併鍵上的一律不擋」寫得比謂詞寬——這一格正是被擋的，訊息不得說它不擋
+            let s = err.localizedDescription
+            XCTAssertFalse(s.contains("也算"), s)
+            XCTAssertTrue(s.contains("一筆都沒有"), "前件要寫出來：\(s)")
         }
         XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:keep2020a", "work:doom2020a", "work:doom2020a"], "零寫入")
+    }
+
+    // MARK: - R17（D47）：holder 遷移不換掉倖存配對的位元組
+
+    /// R16 verify DA 第 1 列真 binary 重現：venue 對 keep 持使用者確認的 `Vee Journal`、對 doom 持弱血統的 `VEE JOURNAL`，
+    /// work 合併後只剩 `work:keep :: VEE JOURNAL`——之後 demote 把 keep 的邊改寫成不是它原本記的字。
+    func testWorkMergeKeepsTheSurvivingPairingsOwnSpellingAndNamesBoth() throws {
+        try entry("keep2020a")
+        try store.writeEntry(Entry(id: UUID(), citekey: "doom2020a", type: .periodicalArticle, title: "Doomed",
+                                   authors: [.literal("A B")], date: "2020"))
+        var v = Venue(key: "vee", type: .periodical, names: Timeline([TemporalValue(value: "Vee Journal")]), authorized: [])
+        v.references = [ProvenanceReference(field: "resolution-confirmed",
+                                            value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "keep2020a", literal: "Vee Journal").encoded,
+                                            kind: .judgement(statement: "使用者確認 [rule: venue-name-exact]", restsOn: [])),
+                        ProvenanceReference(field: "resolution-confirmed",
+                                            value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "doom2020a", literal: "VEE JOURNAL").encoded,
+                                            kind: .judgement(statement: "merge migrate [rule: venue-name-loose]", restsOn: []))]
+        try store.writeVenue(v)
+        let d = try divergence(keeper: "keep2020a", doomed: "doom2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        let preview = try store.previewResolveDivergence(id: d.id, survivor: "keep2020a", overrideReason: nil)
+        let report = try store.resolveDivergence(id: d.id, survivor: "keep2020a")
+        XCTAssertEqual(report.failures, [])
+        let values = try XCTUnwrap(store.load().venues.first { $0.key == "vee" }).references.compactMap(\.value)
+        XCTAssertEqual(values.map { Array($0.utf8) }, [Array("work:keep2020a :: Vee Journal".utf8)], "\(values)")
+        let row = try XCTUnwrap(report.verdictsCollapsed.first, "\(report.verdictsCollapsed)")
+        XCTAssertTrue(row.contains("VEE JOURNAL") && row.contains("Vee Journal") && row.contains("位元組"), row)
+        XCTAssertEqual(preview.verdictsCollapsed, report.verdictsCollapsed, "D35：preview 與實跑同源")
     }
 }

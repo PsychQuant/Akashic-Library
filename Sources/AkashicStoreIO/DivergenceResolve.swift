@@ -122,9 +122,9 @@ public enum DivergenceResolveError: Error, LocalizedError {
                  + details.prefix(5).map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: details 由 describeVerdictSource 組裝，store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
                  + (details.count > 5 ? "\n  …共 \(details.count) 個配對" : "")   // display-safe-exempt: Int
                  + "\n合併不裁決哪一筆對：先決定，把錯的那筆 verdict 從它所在記錄的 YAML 刪掉（各筆的出處如上；venue 側也可用"
-                 + " resolve-venues --demote／--repoint 退役 confirmed 那一側），再消歧。不擋的只有：倖存記錄對這個配對合併前就是矛盾對"
-                 + "（住在被併鍵上、改寫後一起搬過來的也算），以及倖存配對合併前一筆都沒有、整組原樣從單一被併鍵搬來的（validate 照報 warning）；"
-                 + "整組住在被併記錄裡的（那個檔要刪、出處會消失——先在它的 YAML 修掉）、或搬過來後讓倖存配對變成矛盾的，都擋"
+                 + " resolve-venues --demote／--repoint 退役 confirmed 那一側），再消歧。不擋的只有：倖存配對合併前就是矛盾對，"
+                 + "以及倖存配對合併前一筆都沒有、整組原樣從單一被併鍵搬來的（holder 改寫；validate 照報 warning）；"
+                 + "整組住在被併記錄裡的（那個檔要刪、出處會消失——先在它的 YAML 修掉）、或搬過來後讓一個已持有判定的倖存配對變成矛盾的，都擋"
         case let .wouldLeaveTwoConfirmedLiterals(record, survivor, citekey, brought, existing):
             // 兩半分開列（R14 verify DA 第 11 列：R14 把絕對集合印在「這次合併帶進來的」下、末句又說既有的不擋——照最自然的讀法
             // 刪第一筆重跑仍被拒）：帶進來的才是要處理的；倖存配對既有的列出供對照，明說不擋。**「帶進來的」自 R16 起包含合併前住在
@@ -1005,6 +1005,10 @@ extension LibraryStore {
     static func verdictKeys(_ refs: [ProvenanceReference]) -> Set<String> {
         Set(refs.map { ProvenanceReference.verdictEqualityKey(field: $0.field, value: $0.value) })
     }
+    /// 同一把鍵 → 首見的那筆（收攏時要印「留下的拼法」，R17 D47）。
+    static func verdictsByKey(_ refs: [ProvenanceReference]) -> [String: ProvenanceReference] {
+        Dictionary(refs.map { (ProvenanceReference.verdictEqualityKey(field: $0.field, value: $0.value), $0) }, uniquingKeysWith: { a, _ in a })
+    }
 
     /// work 側的 shape 專屬拒絕條件（#139 verify F1，與 person 側對稱）。
     /// work 側的欄位遺失比對就在下方 body（#75 對二已落地）——與 person 側對稱。
@@ -1345,17 +1349,19 @@ extension LibraryStore {
         }
         var verdictsMigrated: [String] = []
         var verdictsCollapsed: [String] = []
-        var keeperKeys = Self.verdictKeys(keeper.references)
+        var keptByKey = Self.verdictsByKey(keeper.references)
         for d in doomed {
             for r in d.references
             where ProvenanceReference.resolutionVerdictFields.contains(r.field) {
                 let k = ProvenanceReference.verdictEqualityKey(field: r.field, value: r.value)
-                guard keeperKeys.insert(k).inserted else {
+                guard keptByKey[k] == nil else {
                     // **被丟掉的那筆要回報**（R12 verify 四席：正規化後同鍵、位元組不同的判定記錄——可能帶人寫的 judgement
-                    // 與 rests-on——靜默消失而被併檔隨即刪除，唯一副本只剩 git；`verdictsCollapsed` 是既有通道）
-                    verdictsCollapsed.append(Self.describeDedupedVerdict(d.key, kind: "venue", r))
+                    // 與 rests-on——靜默消失而被併檔隨即刪除，唯一副本只剩 git；`verdictsCollapsed` 是既有通道）；位元組不同時
+                    // 印出留下的拼法（R17，D47）
+                    verdictsCollapsed.append(Self.describeDedupedVerdict(d.key, kind: "venue", r, kept: keptByKey[k]))
                     continue
                 }
+                keptByKey[k] = r
                 keeper.references.append(r)
                 verdictsMigrated.append(r.value ?? "")
             }
@@ -1435,16 +1441,17 @@ extension LibraryStore {
             .filter { !keeperKeys.contains(NameIdentity.canonical($0)) }
         keeper.names.variant = dedupePreservingOrder(keeper.names.variant + incoming)
         var verdictsMigrated: [String] = []
-        var migrationKeys = Self.verdictKeys(keeper.references)
+        var keptByKey = Self.verdictsByKey(keeper.references)
         var collapsed: [String] = []
         for d in doomed {
             for r in d.references
             where ProvenanceReference.resolutionVerdictFields.contains(r.field) {
                 let k = ProvenanceReference.verdictEqualityKey(field: r.field, value: r.value)
-                guard migrationKeys.insert(k).inserted else {
-                    collapsed.append(Self.describeDedupedVerdict(d.key, kind: "person", r))
+                guard keptByKey[k] == nil else {
+                    collapsed.append(Self.describeDedupedVerdict(d.key, kind: "person", r, kept: keptByKey[k]))
                     continue
                 }
+                keptByKey[k] = r
                 keeper.references.append(r)
                 verdictsMigrated.append(r.value ?? "")
             }
@@ -1455,10 +1462,10 @@ extension LibraryStore {
     /// 遷移時被 `verdictEqualityKey` 去重丟掉的那一筆的人可讀描述（venue／person 共用）。**是 store 字串**（value 是原始匯入的刊名／
     /// 人名、statement 是人寫的判定文字），消毒在 sink（CLI 對整列 `displaySafeInvisible`，#569 的局部圍堵），這裡只截——
     /// **逐段截**而不是整列截（R13 verify security 第 24 列：整列 300 會把這一列存在的理由——judgement——擠掉）。
-    static func describeDedupedVerdict(_ doomedKey: String, kind: String, _ r: ProvenanceReference) -> String {
+    static func describeDedupedVerdict(_ doomedKey: String, kind: String, _ r: ProvenanceReference, kept: ProvenanceReference? = nil) -> String {
         var line = "\(kind)「\(doomedKey)」：\(clipScalars(r.value ?? "", 200))——與倖存者同一配對（正規化後相等），丟棄"   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafeInvisible（DivergenceCommands）
         if case .judgement(let statement, _) = r.kind { line += "（\(clipScalars(statement, 200))）" }   // display-safe-exempt: 同上
-        return line
+        return line + spellingNote(dropped: r, kept: kept)   // display-safe-exempt: 同上（R17，D47：位元組不同時印留下的拼法）
     }
     /// 以 scalar 計的截斷（不逃脫——逃脫在 sink，`displaySafe` 不冪等）。
     static func clipScalars(_ s: String, _ n: Int) -> String {
@@ -1736,10 +1743,20 @@ extension LibraryStore {
             if case .judgement(let s, _) = r.kind { return s }
             return ""
         }
+        func literalBytes(_ r: ProvenanceReference) -> [UInt8] {
+            Array((ProvenanceReference.VerdictPairingValue.parse(r.value ?? "")?.literal ?? r.value ?? "").utf8)
+        }
         var winner: [String: Int] = [:]
         for (k, idxs) in groups where idxs.count > 1 {
+            // **第 0 層（R17，Claude 代裁 D47；R16 verify DA 第 1 列 HIGH，真 binary 重現）**：碰撞的幾筆 literal **位元組不同**時，
+            // 倖存配對自己的（未被改寫的）那筆勝——#468 的「弱血統優先」是為了不靜默拿掉一個警告，前提是留哪一筆都不動任何字串；
+            // 拼法不同時留弱等於把倖存邊記錄的字串換成被併記錄的拼法，之後 demote 把邊寫成不是這筆記錄原本寫的字（`confirmedLiteral`
+            // 承諾不做的事、D43 逐字要防的形）。同拼法時 #468 三層照舊。這是對 #468 的邊界收窄（使用者可翻）；被丟掉的弱血統那筆
+            // 連同兩個拼法印在 `verdictsCollapsed`。
+            let bytesDiffer = Set(idxs.map { literalBytes(rewritten[$0]) }).count > 1
             winner[k] = idxs.min { a, b in
                 let (ra, rb) = (rewritten[a], rewritten[b])
+                if bytesDiffer, wasRewritten[a] != wasRewritten[b] { return !wasRewritten[a] }   // 0. 拼法不同：倖存配對自己的勝
                 let (wa, wb) = (isWeak(ra), isWeak(rb))
                 if wa != wb { return wa }                                   // 1. 弱血統優先
                 if wasRewritten[a] != wasRewritten[b] { return !wasRewritten[a] }   // 2. 未被改寫者勝
@@ -1757,11 +1774,11 @@ extension LibraryStore {
             if seen.insert(k).inserted {
                 // 首見的位置留給勝出者（可能是後面那一筆）
                 deduped.append(keepIndex.map { rewritten[$0] } ?? r)
-                if let w = keepIndex, w != i { collapsed.append(Self.describeCollapsedVerdict(original: refs[i])) }
+                if let w = keepIndex, w != i { collapsed.append(Self.describeCollapsedVerdict(original: refs[i], kept: rewritten[w])) }
             } else if keepIndex == i {
                 continue        // 勝出者已經在首見位置放進去了
             } else {
-                collapsed.append(Self.describeCollapsedVerdict(original: refs[i]))   // 原值：`refs` 與 `rewritten` 索引對齊
+                collapsed.append(Self.describeCollapsedVerdict(original: refs[i], kept: keepIndex.map { rewritten[$0] }))   // 原值：`refs` 與 `rewritten` 索引對齊
             }
         }
         return (deduped, true, collapsed)
@@ -1781,13 +1798,23 @@ extension LibraryStore {
     /// YAML 裡都找不到，操作者拿到通知回頭找那筆判定時線索指向一個從未存在的記錄）。value 與 statement 各截 200 scalar
     /// （logic 第 14 列：不截則 sink 的整列上限把 judgement——這一列存在的理由——整段擠掉；`describeDedupedVerdict` 同一個數）；
     /// 不逃脫——消毒在 sink（`displaySafe` 不冪等）。
-    static func describeCollapsedVerdict(original r: ProvenanceReference) -> String {
+    /// `kept` 是留下來的那筆（R17，D47；R16 verify DA 第 1 列：R16 的措辭「正規化後相等」用的正是 R16 自己宣告不足以判定相同的那把尺，
+    /// 且沒有說倖存邊記錄的 literal 由 X 變成 Y）——兩筆 literal **位元組不同**時把留下的拼法也印出來。
+    static func describeCollapsedVerdict(original r: ProvenanceReference, kept: ProvenanceReference? = nil) -> String {
         let reason: String
         switch r.kind {
         case .judgement(let statement, _): reason = "判定「\(clipScalars(statement, 200))」"
         case .retrieval(let url, _, _, _, _): reason = "擷取 \(clipScalars(url, 200))"
         }
-        return "\(r.field) \(clipScalars(r.value ?? "", 200))——丟棄 \(reason)"
+        return "\(r.field) \(clipScalars(r.value ?? "", 200))——丟棄 \(reason)" + spellingNote(dropped: r, kept: kept)
+    }
+    /// 被丟的與留下的 literal 位元組不同時的附註；相同（或無從比）時是空字串。
+    static func spellingNote(dropped: ProvenanceReference, kept: ProvenanceReference?) -> String {
+        guard let kept,
+              let d = ProvenanceReference.VerdictPairingValue.parse(dropped.value ?? ""),
+              let k = ProvenanceReference.VerdictPairingValue.parse(kept.value ?? ""),
+              Array(d.literal.utf8) != Array(k.literal.utf8) else { return "" }
+        return "——留「\(clipScalars(k.literal, 200))」（正規化後相等、位元組不同）"   // display-safe-exempt: report 是資料面；四個 sink（CLI merge preview／report、CLI rename、App rename）逐列過 displaySafeInvisible
     }
 
     private func resolveWorkDivergence(record: Divergence, survivor: String,

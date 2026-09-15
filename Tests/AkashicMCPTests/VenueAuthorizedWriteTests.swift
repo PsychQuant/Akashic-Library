@@ -1423,4 +1423,94 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertFalse(msg.contains("\\u{005C}"), msg)
         XCTAssertTrue(msg.contains("D23"), "300 的上限把正文截掉了：\(msg)")
     }
+
+    // MARK: - R17（D50、R16 verify 第 7／8／9／15／16 列）
+
+    /// R16 verify DA 第 9 列：`ConfirmedLiteralConflict.describe` 兩桶同時非空時只印第一桶、用單數「那筆」，逼出兩趟往返而中間 validate 全綠。
+    func testApplyConflictMessageNamesBothBucketsWhenBothApply() throws {
+        let store = LibraryStore(root: root)
+        var v = try venue()
+        v.references = [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "Alpha Review",
+                                                rule: ResolutionLedger.venueRule, statement: "手改"),
+                        ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "PSYCHOMETRIKA",
+                                                rule: ResolutionLedger.venueRule, statement: "手改")]
+        try store.writeVenue(v)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika")]
+        _ = try store.writeEntry(e)
+        let out = try service.resolveVenues(apply: ["x2025:0"])
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        let reason = (json["skippedConflictingConfirmedLiteral"] as? [[String: Any]])?.first?["reason"] as? String ?? ""
+        XCTAssertTrue(reason.contains("Alpha Review") && reason.contains("PSYCHOMETRIKA") && reason.contains("拼法"), out)
+        XCTAssertFalse(reason.contains("那筆"), "兩筆以上不得用單數：\(reason)")
+    }
+
+    /// R16 verify security 第 7 列＋logic 第 15 列：repoint 相交訊息的「兩個拼法」用列舉式 displaySafe（Cf 逃不出來）且以 Swift `==`
+    /// 判同一拼法（NFC／NFD 只印一個）。
+    func testRepointOverlapMessageShowsBothSpellingsByBytesAndEscapesInvisibles() throws {
+        let store = LibraryStore(root: root)
+        _ = try service.addVenue(key: "beta-journal", names: ["Beta Journal"], type: "periodical", note: nil, issn: nil)
+        func seed(_ a: String, _ b: String) throws {
+            var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+            e.venues = [.key("some-journal"), .key("beta-journal")]
+            _ = try store.writeEntry(e)
+            var s = try venue(); s.references = [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: a, rule: ResolutionLedger.venueRule, statement: "手改")]
+            try store.writeVenue(s)
+            var bb = try XCTUnwrap(store.load().venues.first { $0.key == "beta-journal" })
+            bb.references = [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: b, rule: ResolutionLedger.venueRule, statement: "手改")]
+            try store.writeVenue(bb)
+        }
+        try seed("Psychometrika", "Psycho\u{200B}metrika")
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:some-journal"])) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("／") && s.contains("\\u{200B}"), s)
+            XCTAssertFalse(s.unicodeScalars.contains { $0.value == 0x200B }, "原樣迴送 ZWSP：\(s)")
+        }
+        try seed("Sankhy\u{0101}", "Sankhya\u{0304}")
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:some-journal"])) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("／") && s.contains("正規化後相等"), "NFC／NFD 是兩個拼法，都要印：\(s)")
+        }
+    }
+
+    /// R16 verify security 第 16 列：`assertPairingHasOneEdge` 迴送 verdict literal 時只用列舉式逃脫。
+    func testPairingHasOneEdgeMessageEscapesInvisibleLiterals() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.key("some-journal"), .key("some-journal")]
+        _ = try store.writeEntry(e)
+        var v = try venue()
+        v.references = [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "Psycho\u{200B}metrika",
+                                                rule: ResolutionLedger.venueRule, statement: "手改")]
+        try store.writeVenue(v)
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, demote: ["x2025:0"])) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("\\u{200B}") && !s.unicodeScalars.contains { $0.value == 0x200B }, s)
+        }
+    }
+
+    /// R16 verify regression 第 8 列：doctor 的 `recordIssues.first` 沒有位元組預算，上限 300 → 1,000 讓最壞情形成長 3.3×。
+    /// R17：`first` 受 `candidateByteBudget`（48 KiB）約束，截掉時揭露。
+    func testDoctorRecordIssuesFirstIsByteBudgeted() throws {
+        let store = LibraryStore(root: root)
+        var v = try venue()
+        let fat = String(repeating: "測", count: 120)   // 每則訊息截在 1,000 scalar，CJK 每 scalar 3 bytes → 20 則 ≈ 60 KB > 48 KiB
+        // 每筆 work 六個正規化後不同的 literal、各兩個拼法：第一類訊息列 5 個 ＋ dupNote 列 5 組，每則 ≈ 4 KB
+        v.references = (1...20).flatMap { w in (1...6).flatMap { i in
+            [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "w\(w)", literal: fat + String(repeating: "x", count: i),
+                                     rule: ResolutionLedger.venueRule, statement: "手改"),
+             ResolutionLedger.record(.confirmed, holderKind: .work, holder: "w\(w)", literal: fat + String(repeating: "X", count: i),
+                                     rule: ResolutionLedger.venueRule, statement: "手改")] } }
+        try store.writeVenue(v)
+        for w in 1...20 { _ = try store.writeEntry(Entry(id: UUID(), citekey: "w\(w)", type: .periodicalArticle, title: "T\(w)")) }   // 不然每筆 verdict 多一則短的死 verdict warning
+        let out = try service.doctor()
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        let ri = try XCTUnwrap(json["recordIssues"] as? [String: Any], out)
+        let first = try XCTUnwrap(ri["first"] as? [[String: Any]], out)
+        let bytes = first.reduce(0) { $0 + (($1["message"] as? String)?.utf8.count ?? 0) }
+        XCTAssertLessThanOrEqual(bytes, AkashicService.candidateByteBudget + 12_000, "單則最多 ~8,000 scalar 的溢出可接受，整批不得無上限：\(bytes)")
+        XCTAssertLessThan(first.count, 20, "\(first.count)")
+        XCTAssertEqual(ri["firstCappedByBudget"] as? Bool, true, out)
+        XCTAssertEqual(ri["count"] as? Int, 20, "計數永遠完整")
+    }
 }

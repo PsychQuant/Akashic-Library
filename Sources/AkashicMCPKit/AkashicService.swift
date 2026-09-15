@@ -368,6 +368,18 @@ public final class AkashicService {
         // 判斷得出「我看到的是不是全部」。
         let perRec = health.perRecordIssues
         if !perRec.isEmpty {
+            var first: [[String: Any]] = []
+            var firstBytes = 0, firstCapped = false
+            for o in perRec.prefix(20) {
+                let item: [String: Any] = ["severity": o.issue.severity == .error ? "error" : "warning",
+                                           "kind": o.kind,
+                                           "key": displaySafe(o.owner, max: 200),
+                                           "message": displaySafeClipOnly(o.issue.message, max: 1_000)]   // display-safe-exempt: 訊息在 validate 裡已逐項消毒，只截（R16／R17）
+                let cost = Self.jsonBytes(item)
+                if !first.isEmpty, firstBytes + cost > Self.candidateByteBudget { firstCapped = true; break }
+                firstBytes += cost
+                first.append(item)
+            }
             d["recordIssues"] = [
                 "count": perRec.count,
                 "errors": perRec.filter { $0.issue.severity == .error }.count,
@@ -384,12 +396,11 @@ public final class AkashicService {
                 // #554 配對唯一性的兩半（D28／D36）——計數讓呼叫端不必掃 first（截 20）就看見（R14 verify regression 第 22 列）
                 "duplicateVenueEdges": health.duplicateVenueEdges.count,   // display-safe-exempt: Int
                 "confirmedLiteralAmbiguities": health.confirmedLiteralAmbiguities.count,   // display-safe-exempt: Int
-                "first": perRec.prefix(20).map {
-                    ["severity": $0.issue.severity == .error ? "error" : "warning",
-                     "kind": $0.kind,
-                     "key": displaySafe($0.owner, max: 200),
-                     "message": displaySafe($0.issue.message, max: 1_000, escapingBackslash: false)]   // display-safe-exempt: 已消毒、只截不逃（R16，不冪等）
-                },
+                "first": first,
+                // **`first` 受位元組預算約束**（R17；R16 verify regression 第 8 列：R16 把單則上限 300 → 1,000 只為了「只截不逃」，卻把這個
+                // 沒有位元組預算的 block 放大 3.3×——逃脫後一個 scalar 是 8 個字元，20 則最壞 160 KB；`resolve_people` 的候選列早就受
+                // `candidateByteBudget` 管，這裡是同一個威脅模型）。截掉時揭露；`count` 與各族計數永遠完整。
+                "firstCappedByBudget": firstCapped,   // display-safe-exempt: Bool
             ] as [String: Any]
         }
         // #107：佈局殘留（報告不動手刪）。與 CLI 同：排在 fatal 早退之前——
@@ -3995,12 +4006,14 @@ public final class AkashicService {
                 // 全部配對，不只相鄰兩筆（R12 verify Codex 第 2 列、logic 第 12 列：`[A, C, B]` 三個 move 的第 1 與第 3 個相交）
                 for (ia, a) in group.enumerated() {
                     for b in group[(ia + 1)...] where !Set([a.from, a.to]).isDisjoint(with: [b.from, b.to]) {
-                    // 同組只保證正規化後相等，位元組可以不同——兩個拼法都印（R13 verify logic 第 29 列）
-                    let spelled = a.literal == b.literal ? "「\(displaySafe(b.literal, max: 120))」"
-                        : "「\(displaySafe(a.literal, max: 120))」／「\(displaySafe(b.literal, max: 120))」（正規化後相等）"
+                    // 同組只保證正規化後相等，位元組可以不同——兩個拼法都印（R13 verify logic 第 29 列）；「同一拼法」比**位元組**
+                    // （Swift `==` 是 canonical equivalence，NFC／NFD 只會印一個——R16 verify logic 第 15 列），且以性質逃脫：這一列存在的理由
+                    // 就是讓人分辨只差一個 Cf 的兩個字串，而列舉式 `displaySafe` 對 ZWSP／ZWJ／SHY 逃不出來（security 第 7 列）
+                    let spelled = Array(a.literal.utf8) == Array(b.literal.utf8) ? "「\(displaySafeInvisible(b.literal, max: 120))」"
+                        : "「\(displaySafeInvisible(a.literal, max: 120))」／「\(displaySafeInvisible(b.literal, max: 120))」（正規化後相等）"
                     throw ServiceError.invalid(
                         "同一批裡 work「\(displaySafe(ck, max: 200))」的 index \(a.index) 與 index \(b.index) 兩條邊帶同一個 literal"   // display-safe-exempt: Int
-                        + "\(spelled)且觸及同一個 venue——verdict 以 (work, literal) 為鍵、不帶 index，"   // display-safe-exempt: spelled 由上一行逐項 displaySafe 組成
+                        + "\(spelled)且觸及同一個 venue——verdict 以 (work, literal) 為鍵、不帶 index，"   // display-safe-exempt: spelled 由上一行逐項 displaySafeInvisible 組成
                         + "兩個 move 對同一配對的退役會互相覆蓋，留下哪一側的證據取決於輸入順序。出路：先刪掉重複的邊（移除面：#572）")
                     }
                 }
@@ -4125,7 +4138,7 @@ public final class AkashicService {
         }
         guard others.isEmpty else {
             throw ServiceError.invalid(
-                "work「\(displaySafe(entry.citekey, max: 200))」的配對（literal「\(displaySafe(literal, max: 120))」）由 "
+                "work「\(displaySafe(entry.citekey, max: 200))」的配對（literal「\(displaySafeInvisible(literal, max: 120))」）由 "
                 + "\(others.count + 1) 條邊實例化（\(IndexList.render(([index] + others).sorted()))）"   // display-safe-exempt: Int 序列（IndexList 有上限）
                 + "——verdict 不帶 index，\(operation)退役那筆 verdict 會把另一條邊的證據一起刪、之後那條邊在任何工具面上都救不回來。"   // display-safe-exempt: 固定字串（改指／降格）
                 + "出路：手改這筆 work 的 YAML 刪掉重複的邊（移除面：#572），再重跑")
@@ -4142,18 +4155,25 @@ public final class AkashicService {
         var spellings: [String] = []
         var isEmpty: Bool { distinct.isEmpty && spellings.isEmpty }
         /// 兩面同一段話（apply 的 reason／repoint 的拒絕）；`operation` 說這一面的處置（略過不寫／整批拒絕）。
+        /// 兩桶同時非空時**兩桶都說**（R17，D50；R16 verify DA 第 9 列：只印第一桶、用單數「那筆」，照著刪掉一筆之後 validate 全綠、
+        /// 再跑才撞第二桶——兩趟的出路方向相反，盲刪第二筆會把唯一的 confirmed 也刪掉）。
         func describe(candidate: String, operation: String) -> String {
             func list(_ xs: [String]) -> String {
                 xs.prefix(5).map { "「\(displaySafeInvisible($0, max: 120))」" }.joined(separator: "、") + (xs.count > 5 ? "…" : "")   // display-safe-exempt: 逐項 displaySafeInvisible
             }
+            let cand = displaySafeInvisible(candidate, max: 120)
+            var facts: [String] = [], exits: [String] = []
             if !distinct.isEmpty {
-                return "venue 已對這筆 work 持有另一個 confirmed literal（\(list(distinct))）而沒有對應的邊——再寫一筆"   // display-safe-exempt: list 逐項 displaySafeInvisible
-                    + "「\(displaySafeInvisible(candidate, max: 120))」會讓這條邊在 demote／repoint 上被拒（D23）；\(operation)。"   // display-safe-exempt: operation 是固定字串
-                    + "出路：把不屬於任何邊的那筆 confirmed verdict 從 venue 的 YAML 刪掉，再重跑"
+                facts.append("venue 已對這筆 work 持有另一個 confirmed literal（\(list(distinct))）而沒有對應的邊——再寫一筆"   // display-safe-exempt: list 逐項 displaySafeInvisible
+                    + "「\(cand)」會讓這條邊在 demote／repoint 上被拒（D23）")   // display-safe-exempt: cand 已 displaySafeInvisible
+                exits.append("把不屬於任何邊的 confirmed verdict（共 \(distinct.count) 筆）從 venue 的 YAML 刪掉")   // display-safe-exempt: Int
             }
-            return "venue 已對這筆 work 持有同一 literal 的另一個拼法（\(list(spellings))；正規化後相等、位元組不同）而沒有對應的邊——"   // display-safe-exempt: list 逐項 displaySafeInvisible
-                + "寫下去不會多一筆（以正規化鍵去重），但之後 demote 會還回那個舊拼法而不是這條邊的「\(displaySafeInvisible(candidate, max: 120))」"
-                + "（D23 比位元組）；\(operation)。出路：手改 venue 的 YAML 把那筆 confirmed 的 literal 改成這條邊的字串（或刪掉），再重跑"   // display-safe-exempt: operation 是固定字串
+            if !spellings.isEmpty {
+                facts.append((distinct.isEmpty ? "venue 已對這筆 work 持有" : "同時持有") + "同一 literal 的另一個拼法（\(list(spellings))；正規化後相等、位元組不同）"   // display-safe-exempt: list 逐項 displaySafeInvisible
+                    + "而沒有對應的邊——寫下去不會多一筆（以正規化鍵去重），但之後 demote 會還回那個舊拼法而不是這條邊的「\(cand)」（D23 比位元組）")   // display-safe-exempt: cand 已 displaySafeInvisible
+                exits.append("把另一個拼法的 confirmed（共 \(spellings.count) 筆）的 literal 改成這條邊的字串（或刪掉）")   // display-safe-exempt: Int
+            }
+            return facts.joined(separator: "；") + "；\(operation)。出路：" + exits.joined(separator: "；") + "，再重跑"   // display-safe-exempt: operation 是固定字串；facts／exits 見上
         }
     }
     static func otherConfirmedLiterals(on venue: Venue, for citekey: String, besides literal: String) -> ConfirmedLiteralConflict {

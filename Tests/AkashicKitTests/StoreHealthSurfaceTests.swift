@@ -45,7 +45,17 @@ final class StoreHealthSurfaceTests: XCTestCase {
         guard let start = source.range(of: "public func doctor() throws -> String {") else {
             return XCTFail("找不到 doctor() —— 本測試的前提不成立")
         }
-        let body = String(source[start.lowerBound...].prefix(6000))
+        // 掃到 `doctor()` 的閉合大括號，不是固定 6,000 字元（#554 R16 verify requirements 第 5 列、regression 第 22 列：固定窗口在 R16 被逼到
+        // 5,888／6,000，多兩行註解就假紅——而假紅的訊息會說「doctor() 沒有消費 X」，那是假的；且它懲罰在 doctor() 裡寫註解）。
+        // 字串字面裡的 `\u{…}` 大括號成對，不影響配對。
+        var depth = 0
+        var end = start.upperBound
+        for idx in source[start.lowerBound...].indices {
+            let c = source[idx]
+            if c == "{" { depth += 1 } else if c == "}" { depth -= 1; if depth == 0 { end = idx; break } }
+        }
+        let body = String(source[start.lowerBound...end])
+        XCTAssertGreaterThan(body.count, 6_000, "窗口要真的涵蓋整個函式（R16 時已超過 5,800 字元）")
         for field in try healthFieldNames() {
             XCTAssertTrue(body.contains("health.\(field)"),
                           "doctor() 沒有消費 StoreHealth.\(field) —— "

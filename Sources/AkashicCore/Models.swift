@@ -775,8 +775,9 @@ public func displaySafe(_ s: String, max: Int = 200,
         let escape =
             UnsafeToEmitScalar.contains(v)
             || (escapingBackslash && v == 0x5C)      // 反斜線自身——否則輸出可被偽造。
-                                                     // 唯一的 false 呼叫端是
-                                                     // `displaySafeAssembled`，理由見該處
+                                                     // false 的呼叫端只有兩種：`displaySafeAssembled`（理由見該處）
+                                                     // 與 `displaySafeClipOnly`（只截已消毒的訊息，R17）——
+                                                     // 其他地方不得直接傳 false（R16 verify security 第 18 列）
         if escape {
             put(String(format: "\\u{%04X}", v))
         } else {
@@ -786,6 +787,14 @@ public func displaySafe(_ s: String, max: Int = 200,
     }
     let body = String(out)
     return truncated ? body + "…（已截斷）" : body
+}
+
+/// **只截不逃**——給「訊息在生產端已逐項消毒、sink 只需要上限」的地方用（doctor 的 `recordIssues.first`、App 的預覽；#554 R16／R17）。
+/// 具名的理由（R16 verify security 第 18 列）：`displaySafe(x, escapingBackslash: false)` 在語法上與消毒分不開，而 `displaySafe` 逃脫反斜線
+/// 自身的不變式正是靠「呼叫端不得傳 false」撐著；把「只截」做成另一個名字，守衛與讀者才分得出這一格沒有消毒任何東西。
+/// **不得**拿它接未消毒的 store 字串——那會把真反斜線原樣送出，與 `displaySafeInvisible` 產生的 `\u{…}` 不可區分。
+public func displaySafeClipOnly(_ s: String, max: Int) -> String {
+    displaySafe(s, max: max, escapingBackslash: false)
 }
 
 public struct ValidationIssue: Equatable {
@@ -886,7 +895,8 @@ extension Entry {
             guard listed < Self.perRecordWarningCap else { unlisted += 1; continue }
             listed += 1
             issues.append(ValidationIssue(severity: .warning,
-                message: "\(Self.duplicateVenueEdgePrefix)：venues 有 \(idx.count) 條邊指向同一 venue「\(displaySafe(k, max: 120))」（\(IndexList.render(idx))）"   // display-safe-exempt: 前綴是常量；Int 序列（IndexList 有上限）
+                // `venues[].key` 沒有 StoreKey 約束（decode 只做 scalarString），所以以性質逃脫（R16 verify security 第 17 列）
+                message: "\(Self.duplicateVenueEdgePrefix)：venues 有 \(idx.count) 條邊指向同一 venue「\(displaySafeInvisible(k, max: 120))」（\(IndexList.render(idx))）"   // display-safe-exempt: 前綴是常量；Int 序列（IndexList 有上限）
                        + "——配對只能由一條邊實例化（verdict 不帶 index），resolve-venues 的 repoint／demote 對它會拒絕；"
                        + "請在 YAML 裡刪掉多餘的邊（移除面：#572）"))
         }

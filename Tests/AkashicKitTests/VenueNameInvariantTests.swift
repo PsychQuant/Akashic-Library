@@ -316,6 +316,7 @@ final class VenueNameInvariantTests: XCTestCase {
         XCTAssertEqual(w.count, 1, "\(w)")
         let m = w.first?.message ?? ""
         XCTAssertTrue(m.contains("「a」") && m.contains("index 0、2") && m.contains("#572"), m)
+        XCTAssertTrue(m.hasPrefix(Entry.duplicateVenueEdgePrefix), "家族前綴（StoreHealth 用它篩）：\(m)")
         e.venues = [.key("a"), .key("b"), .literal("a")]
         XCTAssertTrue(e.validate().filter { $0.message.contains("同一 venue") }.isEmpty, "literal 邊不算——那是尚未判定的誠實狀態")
     }
@@ -372,7 +373,7 @@ final class VenueNameInvariantTests: XCTestCase {
     /// **配對唯一性的第二半有掃描面了**（R13 verify DA 第 16 列；Claude 代裁 D36，`zero-instance-guards` 第 27 列）：同一 work 上
     /// ≥2 個正規化後不同的 confirmed literal 是 warning——真正造出它的路徑（work 合併）結構上不會點亮第一半（`Entry.validate()`
     /// 的重複 key 邊）的燈，R13 之前全庫零掃描面、只有 demote／repoint 撞 D23 時才知道。
-    func testTwoConfirmedLiteralsForOneWorkIsAWarning() {
+    func testTwoConfirmedLiteralsForOneWorkIsAWarning() throws {
         func ref(_ work: String, _ literal: String) -> ProvenanceReference {
             ProvenanceReference(field: "resolution-confirmed",
                                 value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: work, literal: literal).encoded,
@@ -381,9 +382,14 @@ final class VenueNameInvariantTests: XCTestCase {
         var v = venue(names: ["Psychometrika"])
         v.references = [ref("w1", "Psychometrika"), ref("w1", "Psychometrika (Journal)"), ref("w2", "Psychometrika"), ref("w2", "PSYCHOMETRIKA")]
         let ws = v.validate().filter { $0.severity == .warning }.map(\.message)
-        XCTAssertEqual(ws.count, 1, "w1 兩個不同、w2 正規化後相同：\(ws)")
-        let w = ws.first ?? ""
-        XCTAssertTrue(w.contains("w1") && w.contains("D23") && w.contains("YAML"), w)
+        // D39（R14 verify Codex 第 3 列、requirements 第 5 列）：D23 的拒絕比**位元組**，所以 w2 那種只差位元組的兩筆也要有掃描面——
+        // 第二類 warning，與第一類共用家族前綴、措辭分開（正規化後不同＝不變式的違反；只差位元組＝重複記錄，工具面寫不出）
+        XCTAssertEqual(ws.count, 2, "w1 兩個不同、w2 只差位元組：\(ws)")
+        let w = try XCTUnwrap(ws.first { $0.contains("「w1」") }, "\(ws)")
+        XCTAssertTrue(w.contains("個正規化後不同的 confirmed literal") && w.contains("D23") && w.contains("YAML"), w)
+        let w2b = try XCTUnwrap(ws.first { $0.contains("「w2」") }, "\(ws)")
+        XCTAssertTrue(w2b.contains("只差位元組") && w2b.contains("D23") && w2b.contains("「Psychometrika」") && w2b.contains("「PSYCHOMETRIKA」"), w2b)
+        XCTAssertTrue(ws.allSatisfy { $0.hasPrefix(Venue.confirmedLiteralAmbiguityPrefix) }, "兩類共用家族前綴（StoreHealth 用它篩）：\(ws)")
         XCTAssertTrue(errors(v).isEmpty, "是 warning 不是 error：\(errors(v))")
         // 逃脫以性質（`matchingKey` 會剝掉 Cf，所以兩個 literal 要在鍵上真的不同）
         v.references = [ref("w1", "Alpha\u{200B}Journal"), ref("w1", "Beta Journal")]
@@ -538,5 +544,29 @@ final class VenueNameInvariantTests: XCTestCase {
                              names: Timeline([TemporalValue(value: "Psychometrika")]), authorized: ["Psychometrika"])
         let r = VenueBootstrap.result(entries: [e], existing: [existing])
         XCTAssertTrue(r.candidates.isEmpty && r.dropped.isEmpty && r.pendingResolution.isEmpty, "\(r)")
+    }
+
+
+    /// **兩族 per-record warning 的則數要有上限**（R14 verify logic 第 16 列、security 第 18 列：同一個 `validate()` 裡的近重複檢查
+    /// 為了同一條理由——讀取路徑上對未信任的 store 內容跑——剛加了兩道上限，緊鄰的 D36 迴圈與 `Entry.validate()` 的重複邊迴圈
+    /// 卻逐筆無上限）。每筆記錄最多列 20 則，其餘收成一句「另 N 筆未列出」（帶同一家族前綴，計數仍看得見）。
+    func testPairingUniquenessWarningsAreCappedPerRecord() {
+        func ref(_ work: String, _ literal: String) -> ProvenanceReference {
+            ProvenanceReference(field: "resolution-confirmed",
+                                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: work, literal: literal).encoded,
+                                kind: .judgement(statement: "測試", restsOn: []))
+        }
+        var v = venue(names: ["Psychometrika"])
+        v.references = (0..<25).flatMap { [ref("w\($0)", "Alpha \($0)"), ref("w\($0)", "Beta \($0)")] }
+        let ws = v.validate().filter { $0.severity == .warning && $0.message.hasPrefix(Venue.confirmedLiteralAmbiguityPrefix) }.map(\.message)
+        XCTAssertEqual(ws.count, 21, "20 則 ＋ 1 句概括：\(ws.count)")
+        XCTAssertEqual(ws.filter { $0.contains("個正規化後不同的 confirmed literal") }.count, 20)
+        XCTAssertTrue(ws.last?.contains("另有 5 筆 work 未列出") == true, ws.last ?? "")
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = (0..<25).flatMap { [VenueRef.key("v\($0)"), VenueRef.key("v\($0)")] }
+        let es = e.validate().filter { $0.severity == .warning && $0.message.hasPrefix(Entry.duplicateVenueEdgePrefix) }.map(\.message)
+        XCTAssertEqual(es.count, 21, "\(es.count)")
+        XCTAssertEqual(es.filter { $0.contains("條邊指向同一 venue") }.count, 20)
+        XCTAssertTrue(es.last?.contains("另有 5 個 venue 未列出") == true, es.last ?? "")
     }
 }

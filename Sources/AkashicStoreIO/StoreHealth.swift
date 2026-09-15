@@ -130,6 +130,19 @@ public struct StoreHealth {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.contradictedRemovalPrefix) }
     }
 
+    /// #554 配對唯一性的兩半（R11 D28、R14 D36／R15 D39）：per-record warning 住在 `Entry.validate()`／`Venue.validate()`，
+    /// 前綴的**單一定義在 Core**（訊息在那裡組出），這裡只引用——同 `deadVerdictPrefix` 的形，家族才有計數
+    /// （R14 verify regression 第 22 列：兩族沒有家族，doctor 截 20 則、App 預覽 5 則時可能完全看不到，
+    /// `zero-instance-guards` 第 26／27 列宣稱的「掃得到」只對 CLI validate 成立）。
+    public static let duplicateVenueEdgePrefix = Entry.duplicateVenueEdgePrefix
+    public var duplicateVenueEdges: [OwnedIssue] {
+        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.duplicateVenueEdgePrefix) }
+    }
+    public static let confirmedLiteralAmbiguityPrefix = Venue.confirmedLiteralAmbiguityPrefix
+    public var confirmedLiteralAmbiguities: [OwnedIssue] {
+        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.confirmedLiteralAmbiguityPrefix) }
+    }
+
     /// 一則驗證問題 ＋ 它屬於哪筆記錄。
     ///
     /// **severity 與 owner 都要攜帶**：只給訊息的話消費端分不出 error 與 warning，
@@ -235,7 +248,7 @@ public extension LibraryStore {
         // #464：死 verdict 掃描——跨記錄的一致性（holder 是否還在），單筆 `validate()`
         // 結構上看不到。附加在各族之後：`errorsFirst` 是穩定分割，warning 內保持此序；MCP 面取
         // `prefix(20)`（`AkashicService.doctor()` 的既有截斷），per-record warning 若累積到 20 以上
-        // （2026-09-03 實測 live store 2 條）這一族會被擠出 `first`——那時要重排或給專屬計數，這裡先記下。
+        // （2026-09-03 實測 live store 2 條）這一族會被擠出 `first`——所以每一族都有專屬計數（R15 起含 #554 的兩族）。
         perRecord += deadVerdictIssues(in: load)
         perRecord += contradictoryVerdictIssues(in: load)   // #486
         // #453：本機缺承重存檔——`missingSourceDigests` 先前零 production 呼叫端，doctor 只接

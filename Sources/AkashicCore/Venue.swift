@@ -103,6 +103,9 @@ public enum VenueType: String, CaseIterable, Equatable {
 /// 但兩者共享同一套**機制**：names 是 `TimelineOf<String>`（改名史免費獲得，
 /// 裁決五b）、authorized 子集在執行期驗證（#227 的不對稱：巢狀化是 person 專屬）。
 public struct Venue: Equatable {
+    /// 「同一 work 多個 confirmed literal」warning 的家族前綴（#554 R14 D36、R15 D39 兩類共用）——`StoreHealth.confirmedLiteralAmbiguities`
+    /// 用它篩、doctor 與 App 各一個計數。**單一定義**：訊息由它組出、StoreHealth 只引用。
+    public static let confirmedLiteralAmbiguityPrefix = "同一 work 多個 confirmed literal"
     /// 不變的機器身分。**v4 隨機**（#241 doctrine：單一來源事件發放、永不由
     /// 名字重算——venue 從第一天就沒有 v5 遺產，不需要 legacy 補值入口）。
     public var id: UUID
@@ -343,24 +346,54 @@ public struct Venue: Equatable {
         // `Entry.validate()`（第 26 列），而真正造出第二半的路徑（work 合併把兩筆 work 的邊連同 verdict 併到一筆）結構上
         // 不會點亮第一半的燈（R13 verify DA 第 16 列）：R13 verify 之前這一半全庫零掃描面，只有 demote／repoint 撞上 D23 時才
         // 知道。warning 級（記錄合法可載入，失效的是判定逆轉的前提；處置是手改 YAML 留一筆，#572 落地前沒有工具面——與第 26
-        // 列同一條理由）。鍵與 D23／`verdictEqualityKey`／#486 同一把（`matchingKey`）。
-        var literalsByWork: [String: [String: String]] = [:]   // work → matchingKey → 首見 literal
+        // 列同一條理由）。
+        // **掃描以位元組分兩類**（R15，Claude 代裁 D39；R14 verify Codex 第 3 列、requirements 第 5 列：D23 的拒絕
+        // （`AkashicService.confirmedLiteral`）比**位元組**，而 R14 的掃描只算 `matchingKey` 不同的——只差大小寫或 NFC 形的兩筆
+        // confirmed 讓 demote／repoint 必拒而 validate 零診斷，R14 寫的「鍵與 D23 同一把」是假的）：正規化後不同＝不變式
+        // （§3.5）的違反；只差位元組＝重複的判定記錄（`appendIfAbsent`／`supersede`／合併遷移都以 `verdictEqualityKey` 去重，
+        // 工具面寫不出它——手改或舊 binary 寫的）。兩類同一家族前綴（`confirmedLiteralAmbiguityPrefix`，StoreHealth 用它篩）、
+        // 措辭分開。則數有上限（`Entry.perRecordWarningCap`；R14 verify logic 第 16 列、security 第 18 列：本檢查在讀取路徑上對
+        // 未信任的 store 內容跑，同一函式的近重複檢查為同一條理由剛加了上限）。
+        var literalsByWork: [String: [(literal: String, key: String)]] = [:]   // work → 位元組相異的 confirmed literal（首見序）與其 matchingKey
         var workOrder: [String] = []
         for r in references where r.field == "resolution-confirmed" {
             guard let v = r.value, let p = ProvenanceReference.VerdictPairingValue.parse(v), p.holderKind == .work else { continue }
             if literalsByWork[p.holder] == nil { workOrder.append(p.holder) }
-            let mk = NameNormalization.matchingKey(p.literal)
-            if literalsByWork[p.holder, default: [:]][mk] == nil { literalsByWork[p.holder, default: [:]][mk] = p.literal }
+            if !literalsByWork[p.holder, default: []].contains(where: { $0.literal == p.literal }) {
+                literalsByWork[p.holder, default: []].append((p.literal, NameNormalization.matchingKey(p.literal)))
+            }
         }
+        var listedWorks = 0, unlistedWorks = 0
         for w in workOrder {
             let lits = literalsByWork[w]!
             guard lits.count > 1 else { continue }
-            let shown = lits.keys.sorted().prefix(5).map { "「\(displaySafeInvisible(lits[$0]!, max: 120))」" }.joined(separator: "、")
+            guard listedWorks < Entry.perRecordWarningCap else { unlistedWorks += 1; continue }
+            listedWorks += 1
+            var firstByKey: [String: String] = [:]
+            var keyOrder: [String] = []
+            for l in lits where firstByKey[l.key] == nil { firstByKey[l.key] = l.literal; keyOrder.append(l.key) }
+            if keyOrder.count > 1 {
+                let shown = keyOrder.sorted().prefix(5).map { "「\(displaySafeInvisible(firstByKey[$0]!, max: 120))」" }.joined(separator: "、")
+                issues.append(ValidationIssue(
+                    severity: .warning,
+                    message: "\(Self.confirmedLiteralAmbiguityPrefix)：venue '\(displaySafe(key, max: 120))' 對 work「\(displaySafe(w, max: 120))」持有 \(keyOrder.count) 個正規化後不同的 confirmed literal（"   // display-safe-exempt: 前綴是常量；Int
+                           + shown + (keyOrder.count > 5 ? "…" : "")   // display-safe-exempt: shown 由上一行逐項 displaySafeInvisible 組成
+                           + "）——verdict 不帶 index，resolve-venues 的 demote／repoint 對這筆 work 會被拒（D23）；修法是手改 YAML 留一筆（#572 落地前沒有工具面）"))
+            } else {
+                let shown = lits.prefix(5).map { "「\(displaySafeInvisible($0.literal, max: 120))」" }.joined(separator: "、")
+                issues.append(ValidationIssue(
+                    severity: .warning,
+                    message: "\(Self.confirmedLiteralAmbiguityPrefix)：venue '\(displaySafe(key, max: 120))' 對 work「\(displaySafe(w, max: 120))」持有 \(lits.count) 筆只差位元組的 confirmed literal（"   // display-safe-exempt: 前綴是常量；Int
+                           + shown + (lits.count > 5 ? "…" : "")   // display-safe-exempt: shown 由上一行逐項 displaySafeInvisible 組成
+                           + "）——正規化後是同一個配對（重複的判定記錄：工具面以 verdictEqualityKey 去重、寫不出它，是手改或舊 binary 寫的），"
+                           + "而 D23 的拒絕比位元組，resolve-venues 的 demote／repoint 對這筆 work 同樣會被拒；修法是手改 YAML 留一筆"))
+            }
+        }
+        if unlistedWorks > 0 {
             issues.append(ValidationIssue(
                 severity: .warning,
-                message: "venue '\(displaySafe(key, max: 120))' 對 work「\(displaySafe(w, max: 120))」持有 \(lits.count) 個正規化後不同的 confirmed literal（"   // display-safe-exempt: Int
-                       + shown + (lits.count > 5 ? "…" : "")   // display-safe-exempt: shown 由上一行逐項 displaySafeInvisible 組成
-                       + "）——verdict 不帶 index，resolve-venues 的 demote／repoint 對這筆 work 會被拒（D23）；修法是手改 YAML 留一筆（#572 落地前沒有工具面）"))
+                message: "\(Self.confirmedLiteralAmbiguityPrefix)：venue '\(displaySafe(key, max: 120))' 另有 \(unlistedWorks) 筆 work 未列出"   // display-safe-exempt: 前綴是常量；Int
+                       + "（每筆記錄最多列 \(Entry.perRecordWarningCap) 筆——本檢查在讀取路徑上對未信任的 store 內容跑）"))   // display-safe-exempt: Int 常量
         }
         let known = Set(names.entries.map(\.value))
         let orphan = variant.filter { !known.contains($0) }.sorted()

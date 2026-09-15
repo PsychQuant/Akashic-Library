@@ -179,7 +179,7 @@ final class VerdictHolderGridTests: XCTestCase {
         for op in [{ _ = try self.store.previewResolveDivergence(id: d.id, survivor: "keep2020a", overrideReason: nil) },
                    { _ = try self.store.resolveDivergence(id: d.id, survivor: "keep2020a") }] {
             XCTAssertThrowsError(try op()) { err in
-                guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(let record, _, let ck, _) = err else { return XCTFail("要具名拒絕：\(err)") }
+                guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(let record, _, let ck, _, _) = err else { return XCTFail("要具名拒絕：\(err)") }
                 XCTAssertEqual(record, "alpha"); XCTAssertEqual(ck, "keep2020a")
                 // 出處與**遷移前**的原值（DA 第 17 列：R13 印遷移後的 `work:keep :: …`，那個字串不在任何 YAML 裡）
                 let s = err.localizedDescription
@@ -892,5 +892,144 @@ final class VerdictHolderGridTests: XCTestCase {
         GitFixture.commitAll(store.root)
         try org("innocent-org", refs: [])   // 未追蹤，但這次合併不會碰它
         XCTAssertNoThrow(try store.resolveDivergence(id: d.id, survivor: "keeper2020a"))
+    }
+
+
+    // MARK: - R15（D37）：delta 在索引層算——住在被併鍵上的既有違反不是這次合併帶進來的
+
+    /// **合併前就住在被併鍵上的矛盾對不擋**（R14 verify logic 第 2 列 HIGH、requirements 第 4、security 第 6、regression 第 8 列：
+    /// R14 拿未改寫的 before 比改寫後的 after，而配對鍵含 holder——被併鍵上的既有違反改寫後鍵變了、差集判成新；訊息自己列出的
+    /// 兩筆 holder 都是 doom、末句還說既有的不擋）。D37：after 的違反是既有的，當且僅當構成它的索引裡有一組在合併前
+    /// （同一筆倖存記錄、同一個 before 配對鍵）就已經構成同一類違反。
+    func testWorkMergeIgnoresAHolderContradictionThatLivesOnTheDoomedKey() throws {
+        try entry("keep2020a")
+        try store.writeEntry(Entry(id: UUID(), citekey: "doom2020a", type: .periodicalArticle, title: "Doomed",
+                                   authors: [.literal("A B")], date: "2020"))
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .work, holder: "doom2020a", literal: "ISS"),
+                                   verdict("resolution-rejected", kind: .work, holder: "doom2020a", literal: "iss")])
+        let d = try divergence(keeper: "keep2020a", doomed: "doom2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        XCTAssertEqual(store.contradictoryVerdictIssues(in: try store.load()).count, 1, "合併前 validate 就報得出來")
+        _ = try store.previewResolveDivergence(id: d.id, survivor: "keep2020a", overrideReason: nil)
+        let report = try store.resolveDivergence(id: d.id, survivor: "keep2020a")
+        XCTAssertEqual(report.failures, [])
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:keep2020a", "work:keep2020a"], "矛盾對原封不動地改寫到倖存者")
+        XCTAssertEqual(store.contradictoryVerdictIssues(in: try store.load()).count, 1, "validate 照報 warning")
+    }
+
+    /// 同一格的另一半：venue 對被併 work 早就持有兩個正規化後不同的 confirmed literal（validate 已報 D36 warning）——改寫到倖存者
+    /// 後仍是那兩個、沒有新 literal 進來，不擋。
+    func testWorkMergeIgnoresTwoLiteralsThatAlreadyLiveOnTheDoomedKey() throws {
+        try entry("keep2020a")
+        try store.writeEntry(Entry(id: UUID(), citekey: "doom2020a", type: .periodicalArticle, title: "Doomed",
+                                   authors: [.literal("A B")], date: "2020"))
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "doom2020a", literal: "Alpha Journal"),
+                        verdict("resolution-confirmed", kind: .work, holder: "doom2020a", literal: "Beta Review")]
+        try store.writeVenue(v)
+        let d = try divergence(keeper: "keep2020a", doomed: "doom2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        _ = try store.previewResolveDivergence(id: d.id, survivor: "keep2020a", overrideReason: nil)
+        let report = try store.resolveDivergence(id: d.id, survivor: "keep2020a")
+        XCTAssertEqual(report.failures, [])
+        XCTAssertEqual(try holders(ofVenue: "alpha"), ["work:keep2020a", "work:keep2020a"])
+        let warnings = try XCTUnwrap(store.load().venues.first { $0.key == "alpha" }).validate().filter { $0.severity == .warning }
+        XCTAssertEqual(warnings.filter { $0.message.contains("個正規化後不同的 confirmed literal") }.count, 1)
+    }
+
+    /// 但把既有的歧義**變大**仍擋：holder 對 doom 持 {Alpha, Beta}、對 keep 持 {Gamma}——改寫後 keep 是三個，配對 (alpha, keep)
+    /// 得到它合併前沒有的歧義。訊息把遷移過來的兩筆列在「這次合併帶進來的」、倖存者既有的那筆另列（R14 verify DA 第 11 列）。
+    func testWorkMergeRefusesWhenMigrationGrowsAnExistingAmbiguityAndSplitsTheMessage() throws {
+        try entry("keep2020a")
+        try store.writeEntry(Entry(id: UUID(), citekey: "doom2020a", type: .periodicalArticle, title: "Doomed",
+                                   authors: [.literal("A B")], date: "2020"))
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "keep2020a", literal: "Gamma Review"),
+                        verdict("resolution-confirmed", kind: .work, holder: "doom2020a", literal: "Alpha Journal"),
+                        verdict("resolution-confirmed", kind: .work, holder: "doom2020a", literal: "Beta Review")]
+        try store.writeVenue(v)
+        let d = try divergence(keeper: "keep2020a", doomed: "doom2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "keep2020a")) { err in
+            guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, _, let brought, let existing) = err else { return XCTFail("要具名拒絕：\(err)") }
+            XCTAssertEqual(brought.count, 2, "\(brought)"); XCTAssertEqual(existing.count, 1, "\(existing)")
+            XCTAssertTrue((existing.first ?? "").contains("Gamma Review"), "\(existing)")
+            // 位置以 -1 代表缺席（負控會讓標題或項目消失，斷言要紅不要 crash）
+            let s = err.localizedDescription
+            func pos(_ needle: String) -> Int { s.range(of: needle).map { s.distance(from: s.startIndex, to: $0.lowerBound) } ?? -1 }
+            let a = pos("這次合併帶進來的"), b = pos("合併前就持有的")
+            XCTAssertTrue(a >= 0 && b > a, s)
+            XCTAssertTrue(pos("work:doom2020a :: Alpha Journal") > a && pos("work:doom2020a :: Alpha Journal") < b, s)
+            XCTAssertTrue(pos("Gamma Review") > b, s)
+        }
+        XCTAssertEqual(try holders(ofVenue: "alpha"), ["work:keep2020a", "work:doom2020a", "work:doom2020a"], "零寫入")
+    }
+
+    /// keeper 路徑同型（R14 verify logic 第 2 列末句）：倖存者自己持有 `person:<被併>` 的既有矛盾對——改寫後鍵變成 survivor，
+    /// R14 判成新。對照：`confirmed person:doom :: X` ＋ `rejected person:keep :: X` 是改寫後才相撞的，那才是新的。
+    func testPersonMergeIgnoresTheKeepersOwnContradictionOnTheDoomedKeyButRefusesOneCreatedByRewriting() throws {
+        var keeper = Person(key: "keeper-person", names: ["Keeper Person"])
+        keeper.references = [verdict("resolution-confirmed", kind: .person, holder: "doomed-person", literal: "Org X"),
+                             verdict("resolution-rejected", kind: .person, holder: "doomed-person", literal: "ORG X")]
+        try store.writePerson(keeper)
+        try store.writePerson(Person(key: "doomed-person", names: ["Doomed Person"]))
+        let d = try divergence(keeper: "keeper-person", doomed: "doomed-person", shape: .person)
+        GitFixture.commitAll(store.root)
+        _ = try store.previewResolveDivergence(id: d.id, survivor: "keeper-person", overrideReason: nil)
+        let report = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
+        XCTAssertEqual(report.failures, [])
+        XCTAssertEqual(try holders(ofPerson: "keeper-person"), ["person:keeper-person", "person:keeper-person"])
+        var k2 = Person(key: "keeper-two", names: ["Keeper Two"])
+        k2.references = [verdict("resolution-confirmed", kind: .person, holder: "doomed-two", literal: "Org X"),
+                         verdict("resolution-rejected", kind: .person, holder: "keeper-two", literal: "ORG X")]
+        try store.writePerson(k2)
+        try store.writePerson(Person(key: "doomed-two", names: ["Doomed Two"]))
+        let d2 = try divergence(keeper: "keeper-two", doomed: "doomed-two", shape: .person)
+        GitFixture.commitAll(store.root)
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: d2.id, survivor: "keeper-two", overrideReason: nil)) { err in
+            guard case DivergenceResolveError.wouldContradictVerdicts = err else { return XCTFail("要具名拒絕：\(err)") }
+        }
+        XCTAssertEqual(try holders(ofPerson: "keeper-two"), ["person:doomed-two", "person:keeper-two"], "零寫入")
+    }
+
+    // MARK: - R15（D40）：收攏列印遷移前的原值、逐段截
+
+    /// `verdictsCollapsed` 要印**遷移前**的原值並逐段截（R14 verify DA 第 10 列、logic 第 14 列、security 第 7 列：`describeCollapsedVerdict`
+    /// 拿的是改寫後的 `r`，印出的字串不在任何 YAML 裡——而被丟掉的恆是被改寫的那一筆（勝者政策第 2 條）；且不截斷，1,400 字的
+    /// judgement 在 sink 的整列上限處被整段擠掉）。preview 與實跑同源（D35）。
+    func testCollapsedRowsNameTheOriginalValueAndClipEachPart() throws {
+        try entry("keep2020a")
+        try store.writeEntry(Entry(id: UUID(), citekey: "doom2020a", type: .periodicalArticle, title: "Doomed",
+                                   authors: [.literal("A B")], date: "2020"))
+        let long = String(repeating: "j", count: 1_400) + "END"
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "keep2020a", literal: "Alpha Journal"),
+                        ProvenanceReference(field: "resolution-confirmed",
+                                            value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "doom2020a", literal: "ALPHA JOURNAL").encoded,
+                                            kind: .judgement(statement: long, restsOn: []))]
+        try store.writeVenue(v)
+        let d = try divergence(keeper: "keep2020a", doomed: "doom2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        let preview = try store.previewResolveDivergence(id: d.id, survivor: "keep2020a", overrideReason: nil)
+        let report = try store.resolveDivergence(id: d.id, survivor: "keep2020a")
+        XCTAssertEqual(preview.verdictsCollapsed, report.verdictsCollapsed)
+        let row = try XCTUnwrap(report.verdictsCollapsed.first, "\(report.verdictsCollapsed)")
+        XCTAssertTrue(row.hasPrefix("venue「alpha」：") && row.contains("work:doom2020a :: ALPHA JOURNAL") && !row.contains("work:keep2020a :: ALPHA JOURNAL"), row)
+        XCTAssertFalse(row.contains("END"), "judgement 逐段截 200 scalar：\(row.unicodeScalars.count)")
+        XCTAssertLessThan(row.unicodeScalars.count, 600, row)
+    }
+
+    /// rename 那條路同一個生產者、同一個缺陷（R14 verify security 第 7 列、requirements 第 13 列）：收攏列要印舊 citekey 的原值。
+    func testRenameCollapsedRowNamesTheOriginalValue() throws {
+        try entry("old2020a")
+        // venue 早已持有一筆指向 new2020a 的 verdict（死 verdict——warning 級，載得進來）；rename 之後 old 的那筆與它同配對，收攏
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Alpha Journal"),
+                        verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "ALPHA JOURNAL")]
+        try store.writeVenue(v)
+        let r = try store.renameEntry(from: "old2020a", to: "new2020a")
+        XCTAssertEqual(r.verdictsCollapsed.count, 1, "\(r.verdictsCollapsed)")
+        let row = r.verdictsCollapsed[0]
+        XCTAssertTrue(row.hasPrefix("venue「alpha」：") && row.contains("work:old2020a :: ALPHA JOURNAL") && !row.contains("work:new2020a :: ALPHA JOURNAL"), row)
     }
 }

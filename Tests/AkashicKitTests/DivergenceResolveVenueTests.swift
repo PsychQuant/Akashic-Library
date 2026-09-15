@@ -191,7 +191,7 @@ final class DivergenceResolveVenueTests: XCTestCase {
         for op in [{ _ = try self.store.previewResolveDivergence(id: d.id, survivor: "alpha", overrideReason: nil) },
                    { _ = try self.store.resolveDivergence(id: d.id, survivor: "alpha") }] {
             XCTAssertThrowsError(try op()) { err in
-                guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, _) = err else { return XCTFail("要具名拒絕：\(err)") }
+                guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, _, _) = err else { return XCTFail("要具名拒絕：\(err)") }
                 XCTAssertEqual(ck, "w1")
                 XCTAssertTrue(err.localizedDescription.contains("venue「alpha-old」"), "出處要指向被併者：\(err)")
             }
@@ -278,7 +278,7 @@ final class DivergenceResolveVenueTests: XCTestCase {
         try store.writeDivergence(d)
         GitFixture.commitAll(root, message: "seed")
         XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "alpha")) { err in
-            guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, _) = err else { return XCTFail("要具名拒絕：\(err)") }
+            guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, _, _) = err else { return XCTFail("要具名拒絕：\(err)") }
             XCTAssertEqual(ck, "w1", "擋的是這次合併會新增第二個 confirmed literal 的 w1，不是 keeper 自己既有的 w9")
         }
         // 拿掉 doomed 那筆 confirmed → 只剩 keeper 自己的既有違反（w9）→ 合併不擋
@@ -724,5 +724,40 @@ final class DivergenceResolveVenueTests: XCTestCase {
         let after = try store.load()
         XCTAssertEqual(after.venues.count, 2, "零寫入：被併者還在")
         XCTAssertEqual(after.entries.first?.venues, [.key("american-statistician")])
+    }
+
+
+    /// 拒絕訊息只把**這次帶進來的**列在「這次合併帶進來的」下，倖存者既有的另列（R14 verify DA 第 11 列：R14 把絕對集合印在
+    /// 那個標題下、末句又說既有的不擋——照最自然的讀法刪 keeper 的第一筆重跑仍被拒）。D37。
+    func testRefusalSeparatesTheIncomingLiteralsFromTheKeepersOwn() throws {
+        var keeper = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        keeper.references = [verdict(holder: "w9", literal: "Alpha Journal"), verdict(holder: "w9", literal: "Beta Review")]
+        try store.writeVenue(keeper)
+        var doomed = Venue(key: "alpha-old", type: .periodical, names: Timeline([TemporalValue(value: "Gamma Review")]), authorized: [])
+        doomed.references = [verdict(holder: "w9", literal: "Gamma Review")]
+        try store.writeVenue(doomed)
+        var w9 = Entry(id: UUID(), citekey: "w9", type: .periodicalArticle, title: "B", authors: [.literal("Shih, J.")], date: "2025")
+        w9.venues = [.key("alpha")]
+        try store.writeEntry(w9)
+        let d = Divergence(id: UUID(), question: "同一本刊嗎",
+                           candidates: [DivergenceCandidate(key: "alpha", shape: .venue), DivergenceCandidate(key: "alpha-old", shape: .venue)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(root, message: "seed")
+        for op in [{ _ = try self.store.previewResolveDivergence(id: d.id, survivor: "alpha", overrideReason: nil) },
+                   { _ = try self.store.resolveDivergence(id: d.id, survivor: "alpha") }] {
+            XCTAssertThrowsError(try op()) { err in
+                guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, let brought, let existing) = err else { return XCTFail("\(err)") }
+                XCTAssertEqual(ck, "w9")
+                XCTAssertEqual(brought.count, 1, "\(brought)")
+                XCTAssertTrue((brought.first ?? "").contains("Gamma Review") && (brought.first ?? "").contains("alpha-old"), "\(brought)")
+                XCTAssertEqual(existing.count, 2, "\(existing)")
+                let s = err.localizedDescription
+                func pos(_ needle: String) -> Int { s.range(of: needle).map { s.distance(from: s.startIndex, to: $0.lowerBound) } ?? -1 }
+                let a = pos("這次合併帶進來的"), b = pos("合併前就持有的")
+                XCTAssertTrue(a >= 0 && b > a, s)
+                XCTAssertTrue(pos("Gamma Review") > a && pos("Gamma Review") < b, s)
+                XCTAssertTrue(pos("Alpha Journal") > b && pos("Beta Review") > b, s)
+            }
+        }
     }
 }

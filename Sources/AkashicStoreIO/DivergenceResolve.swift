@@ -30,7 +30,7 @@ public enum DivergenceResolveError: Error, LocalizedError {
     /// ——verdict 不帶 index，之後 D23 對那筆 work 的 demote／repoint 一律拒、validate 只報 warning。R12 的名字（`wouldCollapseEdges`）
     /// 描述的是「塌邊」這個症狀，R13 改守不變式本身之後名字說謊（R13 verify 第 7 列）；holder 遷移那條路 R13 漏了這一半
     /// （R13 verify Codex 第 1 列、DA 第 3 列——純工具面重現）。
-    case wouldLeaveTwoConfirmedLiterals(record: String, survivor: String, citekey: String, details: [String])
+    case wouldLeaveTwoConfirmedLiterals(record: String, survivor: String, citekey: String, brought: [String], existing: [String])
     case quarantinedPresent(files: [String])
     case candidateNotInEntities(key: String, expected: String)
     /// #73：要刪的檔案不在版控裡、或有未提交的修改——刪掉就真的沒了。
@@ -120,15 +120,21 @@ public enum DivergenceResolveError: Error, LocalizedError {
                  + details.prefix(5).map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: details 由 describeVerdictSource 組裝，store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
                  + (details.count > 5 ? "\n  …共 \(details.count) 個配對" : "")   // display-safe-exempt: Int
                  + "\n合併不裁決哪一筆對：先決定，把錯的那筆 verdict 從它所在記錄的 YAML 刪掉（各筆的出處如上；venue 側也可用"
-                 + " resolve-venues --demote／--repoint 退役 confirmed 那一側），再消歧。合併前就存在的矛盾對不擋合併（validate 報 warning）"
-        case let .wouldLeaveTwoConfirmedLiterals(record, survivor, citekey, details):
+                 + " resolve-venues --demote／--repoint 退役 confirmed 那一側），再消歧。合併前就存在的矛盾對（含住在被併鍵上的）不擋合併（validate 報 warning）"
+        case let .wouldLeaveTwoConfirmedLiterals(record, survivor, citekey, brought, existing):
+            // 兩半分開列（R14 verify DA 第 11 列：R14 把絕對集合印在「這次合併帶進來的」下、末句又說既有的不擋——照最自然的讀法
+            // 刪第一筆重跑仍被拒）：帶進來的才是要處理的；倖存者既有的列出供對照，明說不擋
             return "拒絕合併：併入「\(displaySafe(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))對 work"   // display-safe-exempt: whoWouldHold 內部逐項 displaySafe
                  + "「\(displaySafe(citekey, max: 200))」會持有兩個以上正規化後不同的 confirmed literal——這次合併帶進來的：\n"
-                 + details.prefix(5).map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: details 由 describeVerdictSource 組裝，store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
-                 + (details.count > 5 ? "\n  …共 \(details.count) 筆" : "")   // display-safe-exempt: Int
+                 + brought.prefix(5).map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: brought 由 describeVerdictSource 組裝，store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
+                 + (brought.count > 5 ? "\n  …共 \(brought.count) 筆" : "")   // display-safe-exempt: Int
+                 + (existing.isEmpty ? "" : "\n倖存者合併前就持有的（不擋，列出供對照）：\n"
+                    + existing.prefix(5).map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: existing 同上
+                    + (existing.count > 5 ? "\n  …共 \(existing.count) 筆" : ""))   // display-safe-exempt: Int
                  + "\nverdict 不帶 index，之後那筆 work 的邊在 resolve-venues 的 demote／repoint 上都會被拒（D23）。"
-                 + "出路：把不屬於這條邊的那筆 confirmed verdict 從它所在記錄的 YAML 刪掉（出處如上）；若那筆 work 另有一條邊"
-                 + "指向被併者，也可以先用 resolve-venues --demote 把那條邊退回 literal。合併前就存在的（倖存者自己的）不擋合併（validate 報 warning）"
+                 + "出路：把不屬於這條邊的那筆 confirmed verdict 從它所在記錄的 YAML 刪掉（先看「這次合併帶進來的」那幾筆，出處如上）；"
+                 + "若那筆 work 另有一條邊指向被併者，也可以先用 resolve-venues --demote 把那條邊退回 literal。"
+                 + "合併前就存在的違反（含住在被併鍵上的）不擋合併（validate 報 warning）"
         case let .quarantinedPresent(files):
             let listed = files.prefix(3).map { displaySafe($0, max: 200) }
                 .joined(separator: "、") + (files.count > 3 ? "…" : "")
@@ -848,26 +854,30 @@ extension LibraryStore {
     /// （R12 verify logic 第 13 列對 D32 的裁決，R13 verify 第 6／9／13／14 列指出 holder 側沒有照做）。
     struct VerdictViolations {
         var contradictions: [String: [Int]] = [:]     // 配對鍵 → 涉及的索引（confirmed 與 rejected 各至少一筆）
-        var literalsByWork: [String: [String: Int]] = [:]   // work → matchingKey → 首見索引（count > 1 才是違反）
+        var literalsByWork: [String: [String: [Int]]] = [:]   // work → matchingKey → 索引（首見序；鍵數 > 1 才是違反）
     }
     static func verdictViolations(_ refs: [ProvenanceReference]) -> VerdictViolations {
         var byPairing: [String: [Int]] = [:]
         var fields: [String: Set<String>] = [:]
         var out = VerdictViolations()
         for (i, r) in refs.enumerated() where ProvenanceReference.resolutionVerdictFields.contains(r.field) {
-            let full = ProvenanceReference.verdictEqualityKey(field: r.field, value: r.value)
-            guard let sep = full.firstIndex(of: "\u{0}") else { continue }
-            let pairing = String(full[full.index(after: sep)...])
+            guard let pairing = verdictPairingKey(r) else { continue }
             byPairing[pairing, default: []].append(i)
             fields[pairing, default: []].insert(r.field)
             if r.field == "resolution-confirmed", let v = r.value,
                let p = ProvenanceReference.VerdictPairingValue.parse(v), p.holderKind == .work {
-                let mk = NameNormalization.matchingKey(p.literal)
-                if out.literalsByWork[p.holder, default: [:]][mk] == nil { out.literalsByWork[p.holder, default: [:]][mk] = i }
+                out.literalsByWork[p.holder, default: [:]][NameNormalization.matchingKey(p.literal), default: []].append(i)
             }
         }
         for (p, idx) in byPairing where (fields[p]?.count ?? 0) > 1 { out.contradictions[p] = idx }
         return out
+    }
+
+    /// `verdictEqualityKey` 去掉 field 的部分——配對鍵（kind、holder、正規化 literal）。
+    static func verdictPairingKey(_ r: ProvenanceReference) -> String? {
+        let full = ProvenanceReference.verdictEqualityKey(field: r.field, value: r.value)
+        guard let sep = full.firstIndex(of: "\u{0}") else { return nil }
+        return String(full[full.index(after: sep)...])
     }
 
     /// 一筆 verdict 的出處：哪筆記錄、遷移前的原值——拒絕訊息只印這兩樣（那個字串在該記錄的 YAML 裡找得到）。
@@ -882,33 +892,57 @@ extension LibraryStore {
             + displaySafeInvisible(s.originalValue, max: 200)
     }
 
-    /// **這次合併新增的違反**：`after` 有而 `before` 沒有的。矛盾對以配對鍵比；雙 literal 以「該 work 的 matchingKey 集合變大且
-    /// 合併後 ≥2」判——倖存者既有的違反不擋（D32′），但這次再多加一個 literal 進去仍擋（那是新的歧義）。`sources` 與 `after`
-    /// 索引對齊。`literalUniqueness` 只對 venue 記錄開（(b) 是 §3.5 的 venue 側不變式；person 記錄同樣持有 `work:` verdict，
-    /// 但 D23 不作用於它）。
-    static func newVerdictViolations(before: [ProvenanceReference], after: [ProvenanceReference], sources: [VerdictSource],
+    /// **這次合併新增的違反**（D34 → **D37，R15**）。`after` 是合併後的清單（keeper 路徑：倖存者自己的 ＋ 全部被併者的，
+    /// person 側經 holder 改寫；holder 路徑：遷移後、去重前），`prior` 與它索引對齊：合併前這一筆在**倖存記錄**上的樣子，
+    /// nil ＝ 被併記錄帶進來的。差集在**索引層**算，不在配對鍵層——R14 拿未改寫的 before 比改寫後的 after，而配對鍵含 holder：
+    /// 住在被併鍵上的既有違反改寫後鍵變了、被判成新，訊息自己列出的兩筆 holder 都是被併鍵、末句還說既有的不擋（R14 verify
+    /// logic 第 2 列 HIGH，四席同指；keeper 路徑同型——倖存者自己持有 `person:<被併>` 的既有矛盾對）。判準：
+    ///  (a) 矛盾對是既有的，當且僅當構成它的索引裡有一組在合併前就同配對鍵且兩種判定都在；
+    ///  (b) 雙 literal 是既有的，當且僅當有一組合併前同一個 work 鍵下就持有全部這些 literal（沒有新 literal 進到這個配對——
+    ///      倖存者既有的違反不擋 D32′；把既有歧義變大仍擋）。
+    /// 雙 literal 的來源分兩半回傳（DA 第 11 列）：合併前就在這個配對上的另列，其餘是這次帶進來的。
+    /// `literalUniqueness` 只對 venue 記錄開（(b) 是 §3.5 的 venue 側不變式；person 記錄同樣持有 `work:` verdict，但 D23 不作用於它）。
+    static func newVerdictViolations(after: [ProvenanceReference], prior: [ProvenanceReference?], sources: [VerdictSource],
                                      literalUniqueness: Bool)
-        -> (contradictions: [[VerdictSource]], multiLiteral: [(work: String, refs: [VerdictSource])]) {
-        let b = verdictViolations(before), a = verdictViolations(after)
+        -> (contradictions: [[VerdictSource]], multiLiteral: [(work: String, brought: [VerdictSource], existing: [VerdictSource])]) {
+        precondition(prior.count == after.count && sources.count == after.count, "after／prior／sources 要索引對齊")
+        let a = verdictViolations(after)
+        let priorPairing: [String?] = prior.map { $0.flatMap(verdictPairingKey) }
+        let priorWork: [String?] = prior.map { r in
+            guard let r, let v = r.value, ProvenanceReference.resolutionVerdictFields.contains(r.field),
+                  let p = ProvenanceReference.VerdictPairingValue.parse(v), p.holderKind == .work else { return nil }
+            return p.holder
+        }
         var contradictions: [[VerdictSource]] = []
-        for (p, idx) in a.contradictions.sorted(by: { $0.key < $1.key }) where b.contradictions[p] == nil {
+        for (_, idx) in a.contradictions.sorted(by: { $0.key < $1.key }) {
+            var fieldsByPrior: [String: Set<String>] = [:]
+            for i in idx { if let pk = priorPairing[i] { fieldsByPrior[pk, default: []].insert(after[i].field) } }
+            guard !fieldsByPrior.values.contains(where: { $0.count > 1 }) else { continue }   // 合併前就是一對矛盾——不是這次的事
             contradictions.append(idx.map { sources[$0] })
         }
-        var multi: [(work: String, refs: [VerdictSource])] = []
+        var multi: [(work: String, brought: [VerdictSource], existing: [VerdictSource])] = []
         if literalUniqueness {
             for (w, m) in a.literalsByWork.sorted(by: { $0.key < $1.key }) where m.count > 1 {
-                let had = Set(b.literalsByWork[w]?.keys.map { $0 } ?? [])
-                guard !Set(m.keys).isSubset(of: had) else { continue }   // 沒有新 literal 進來——倖存者既有的違反
-                multi.append((w, m.sorted { $0.key < $1.key }.map { sources[$0.value] }))
+                let all = Set(m.keys)
+                var keysByPriorWork: [String: Set<String>] = [:]
+                for (mk, idxs) in m { for i in idxs { if let pw = priorWork[i] { keysByPriorWork[pw, default: []].insert(mk) } } }
+                guard !keysByPriorWork.values.contains(where: { $0.isSuperset(of: all) }) else { continue }   // 沒有新 literal 進來
+                var brought: [VerdictSource] = [], existing: [VerdictSource] = []
+                for mk in m.keys.sorted() {
+                    let idxs = m[mk]!
+                    if let i = idxs.first(where: { priorWork[$0] == w }) { existing.append(sources[i]) }
+                    else { brought.append(sources[idxs[0]]) }
+                }
+                multi.append((w, brought, existing))
             }
         }
         return (contradictions, multi)
     }
 
     /// 閘的共同出口：先矛盾對、再雙 literal；訊息帶出處。
-    static func assertNoNewViolations(before: [ProvenanceReference], after: [ProvenanceReference], sources: [VerdictSource],
+    static func assertNoNewViolations(after: [ProvenanceReference], prior: [ProvenanceReference?], sources: [VerdictSource],
                                       record: String, survivor: String, literalUniqueness: Bool) throws {
-        let new = newVerdictViolations(before: before, after: after, sources: sources, literalUniqueness: literalUniqueness)
+        let new = newVerdictViolations(after: after, prior: prior, sources: sources, literalUniqueness: literalUniqueness)
         if !new.contradictions.isEmpty {
             throw DivergenceResolveError.wouldContradictVerdicts(
                 record: record, survivor: survivor,
@@ -916,26 +950,32 @@ extension LibraryStore {
         }
         if let first = new.multiLiteral.first {
             throw DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(
-                record: record, survivor: survivor, citekey: first.work, details: first.refs.map(describeVerdictSource))
+                record: record, survivor: survivor, citekey: first.work,
+                brought: first.brought.map(describeVerdictSource), existing: first.existing.map(describeVerdictSource))
         }
     }
 
     /// keeper 路徑（person／venue 合併）：after ＝ 倖存者的 ＋ 全部被併者的 references（person 側再經 holder 改寫），
-    /// before ＝ 倖存者自己的。三方合併、單一被併者內部、倖存者既有三格由同一個差集決定。
+    /// prior ＝ 倖存者自己那幾筆合併前的樣子、被併者的一律 nil。三方合併、單一被併者內部、倖存者既有三格由同一個差集決定。
     static func assertMergedKeeperAddsNoViolation(keeper: (key: String, refs: [ProvenanceReference]),
                                                   doomed: [(key: String, refs: [ProvenanceReference])], kind: String,
                                                   merged: Set<String>, survivor: String,
                                                   holderKind: ProvenanceReference.VerdictHolderKind?, literalUniqueness: Bool) throws {
         var after: [ProvenanceReference] = []
+        var prior: [ProvenanceReference?] = []
         var sources: [VerdictSource] = []
-        for (rec, refs) in [keeper] + doomed {
+        for r in keeper.refs {
+            after.append(r); prior.append(r)
+            sources.append(VerdictSource(record: keeper.key, kind: kind, field: r.field, originalValue: r.value ?? ""))
+        }
+        for (rec, refs) in doomed {
             for r in refs {
-                after.append(r)
+                after.append(r); prior.append(nil)
                 sources.append(VerdictSource(record: rec, kind: kind, field: r.field, originalValue: r.value ?? ""))
             }
         }
         if let hk = holderKind { after = rewrittenVerdicts(after, merged: merged, survivor: survivor, holderKind: hk).refs }
-        try assertNoNewViolations(before: keeper.refs, after: after, sources: sources,
+        try assertNoNewViolations(after: after, prior: prior, sources: sources,
                                   record: survivor, survivor: survivor, literalUniqueness: literalUniqueness)
     }
 
@@ -974,12 +1014,13 @@ extension LibraryStore {
         // 拒它的 demote／repoint 而 validate 零診斷（R13 verify Codex 第 1 列、DA 第 3 列——純工具面 `--apply` ＋ `resolve-divergence`
         // 重現，twin work 合併正是 #456 進行中的 campaign）；(2) 既有的、與被併鍵無關的 #486 矛盾對擋下不相干的合併，訊息還把
         // 因果歸給這次合併（第 6／9／13／14 列）——與同一輪對 D32 的裁決相反；(3) 訊息印遷移**後**的 value，那個字串不在任何
-        // YAML 裡（DA 第 17 列）。現在：before ＝ 遷移前、after ＝ 遷移後（去重前、索引對齊），只擋差集，訊息印原值與出處。
+        // YAML 裡（DA 第 17 列）。現在：after ＝ 遷移後（去重前、索引對齊）、prior ＝ 遷移前的同一筆（R15 D37：差集在索引層算——
+        // R14 拿遷移前的清單當 before、以配對鍵比差集，住在被併鍵上的既有違反改寫後鍵變了、被判成新），只擋差集，訊息印原值與出處。
         func assertHolderAddsNoViolation(_ refs: [ProvenanceReference], holder: String, kind: String, literalUniqueness: Bool) throws {
             let rw = Self.rewrittenVerdicts(refs, merged: merged, survivor: survivor, holderKind: holderKind)
             guard rw.rewritten.contains(true) else { return }
             let sources = refs.map { VerdictSource(record: holder, kind: kind, field: $0.field, originalValue: $0.value ?? "") }
-            try Self.assertNoNewViolations(before: refs, after: rw.refs, sources: sources,
+            try Self.assertNoNewViolations(after: rw.refs, prior: refs.map { $0 }, sources: sources,
                                            record: holder, survivor: survivor, literalUniqueness: literalUniqueness)
         }
         for var venue in snapshot.venues {
@@ -1266,8 +1307,9 @@ extension LibraryStore {
     /// variant、且丟時間欄位）。#296：判定用 `NameIdentity`，不用精確 `String ==`。
     ///
     /// 被併者的 verdict references 遷移（#271 同型）——判定史不隨檔案消失。
-    /// 冪等的鍵是 `verdictEqualityKey`（正規化 literal），與 `appendIfAbsent`／`supersede`／#486 同一把（R12，D31）；相反判定
-    /// 的衝突在前置 `validateVenuePreconditions` 就拒（`contradictingVerdicts`），這裡不會遇到。
+    /// 冪等的鍵是 `verdictEqualityKey`（正規化 literal），與 `appendIfAbsent`／`supersede`／#486 同一把（R12，D31）。相反判定：
+    /// 前置 `validateVenuePreconditions` 的 delta 閘（`assertMergedKeeperAddsNoViolation`，D34／D37）只拒**這次帶進來的**——
+    /// 倖存者既有的矛盾對（#486 warning）會原樣留在這裡遷移出的清單上；本函式不判定它們（同 field 同鍵才收攏）。
     static func mergedVenueKeeper(_ keeper: Venue, absorbing doomed: [Venue])
         -> (keeper: Venue, verdictsMigrated: [String], verdictsCollapsed: [String]) {
         var keeper = keeper
@@ -1467,7 +1509,7 @@ extension LibraryStore {
             }
             if keeperMigration.changed {
                 report.verdictValuesRewritten.append(HolderRecord(.person, survivor))
-                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe（DivergenceCommands）
+                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafeInvisible(c, max: 1_000)（DivergenceCommands）
                     contentsOf: keeperMigration.collapsed.map { "person「\(survivor)」：\($0)" })   // display-safe-exempt: 同上
             }
         }
@@ -1484,7 +1526,7 @@ extension LibraryStore {
             do {
                 _ = try writeOrganization(org)
                 report.verdictValuesRewritten.append(HolderRecord(.organization, org.key))
-                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe(c, max: 300)（DivergenceCommands），與 failures 同一條消毒點
+                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafeInvisible(c, max: 1_000)（DivergenceCommands），與 failures 同一條消毒點
                     contentsOf: collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: 同上
             } catch {
                 report.failures.append(
@@ -1616,7 +1658,7 @@ extension LibraryStore {
                                                survivor: survivor, holderKind: holderKind)
             guard m.changed else { return }
             rewritten.append(HolderRecord(kind, key))
-            collapsed.append(contentsOf: m.collapsed.map {   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)）
+            collapsed.append(contentsOf: m.collapsed.map {   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)）
                 "\(kind.rawValue)「\(key)」：\($0)" })   // display-safe-exempt: 同上
         }
         switch holderKind {
@@ -1694,11 +1736,11 @@ extension LibraryStore {
             if seen.insert(k).inserted {
                 // 首見的位置留給勝出者（可能是後面那一筆）
                 deduped.append(keepIndex.map { rewritten[$0] } ?? r)
-                if let w = keepIndex, w != i { collapsed.append(Self.describeCollapsedVerdict(r)) }
+                if let w = keepIndex, w != i { collapsed.append(Self.describeCollapsedVerdict(original: refs[i])) }
             } else if keepIndex == i {
                 continue        // 勝出者已經在首見位置放進去了
             } else {
-                collapsed.append(Self.describeCollapsedVerdict(r))
+                collapsed.append(Self.describeCollapsedVerdict(original: refs[i]))   // 原值：`refs` 與 `rewritten` 索引對齊
             }
         }
         return (deduped, true, collapsed)
@@ -1711,17 +1753,20 @@ extension LibraryStore {
         migrateHolderVerdicts(refs, merged: merged, survivor: survivor, holderKind: .work)
     }
 
-    /// 收攏丟掉的那一列，說得出來的形：field ＋ value ＋ 被丟的判定原文（擷取型印 URL）。
-    /// 收攏丟棄一列 verdict 的人可讀描述。**merge 與 rename 兩條路徑共用這一份**（#495）——
-    /// 它們執行的是同一條不變式（store 永不持有重複 verdict），第二份描述會與這份分岔。
-    /// 呼叫端負責在前面補上持有記錄的 kind 與 key（本函式只拿得到那一列）。
-    static func describeCollapsedVerdict(_ r: ProvenanceReference) -> String {
+    /// 收攏丟棄一列 verdict 的人可讀描述：field ＋ **遷移前的原值** ＋ 被丟的判定原文（擷取型印 URL）。
+    /// **merge 與 rename 兩條路徑共用這一份**（#495）——它們執行的是同一條不變式（store 永不持有重複 verdict），第二份描述會與這份
+    /// 分岔。呼叫端負責在前面補上持有記錄的 kind 與 key，**並傳遷移前的那筆**（R15，D40；R14 verify DA 第 10 列、security 第 7 列：
+    /// R14 之前這裡拿改寫後的 `r`，而被丟掉的恆是被改寫的那一筆——勝者政策第 2 條「未被改寫者勝」——所以印出的字串在**任何**
+    /// YAML 裡都找不到，操作者拿到通知回頭找那筆判定時線索指向一個從未存在的記錄）。value 與 statement 各截 200 scalar
+    /// （logic 第 14 列：不截則 sink 的整列上限把 judgement——這一列存在的理由——整段擠掉；`describeDedupedVerdict` 同一個數）；
+    /// 不逃脫——消毒在 sink（`displaySafe` 不冪等）。
+    static func describeCollapsedVerdict(original r: ProvenanceReference) -> String {
         let reason: String
         switch r.kind {
-        case .judgement(let statement, _): reason = "判定「\(statement)」"
-        case .retrieval(let url, _, _, _, _): reason = "擷取 \(url)"
+        case .judgement(let statement, _): reason = "判定「\(clipScalars(statement, 200))」"
+        case .retrieval(let url, _, _, _, _): reason = "擷取 \(clipScalars(url, 200))"
         }
-        return "\(r.field) \(r.value ?? "")——丟棄 \(reason)"
+        return "\(r.field) \(clipScalars(r.value ?? "", 200))——丟棄 \(reason)"
     }
 
     private func resolveWorkDivergence(record: Divergence, survivor: String,
@@ -1790,7 +1835,7 @@ extension LibraryStore {
             do {
                 try writePerson(person)
                 report.verdictValuesRewritten.append(HolderRecord(.person, person.key))
-                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe(c, max: 300)（DivergenceCommands），與 failures 同一條消毒點
+                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafeInvisible(c, max: 1_000)（DivergenceCommands），與 failures 同一條消毒點
                     contentsOf: collapsed.map { "person「\(person.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
             } catch {
                 report.failures.append(
@@ -1810,7 +1855,7 @@ extension LibraryStore {
             do {
                 _ = try writeVenue(venue)
                 report.verdictValuesRewritten.append(HolderRecord(.venue, venue.key))
-                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe(c, max: 300)（DivergenceCommands），與 failures 同一條消毒點
+                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafeInvisible(c, max: 1_000)（DivergenceCommands），與 failures 同一條消毒點
                     contentsOf: collapsed.map { "venue「\(venue.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
             } catch {
                 report.failures.append(
@@ -1828,7 +1873,7 @@ extension LibraryStore {
             do {
                 _ = try writeOrganization(org)
                 report.verdictValuesRewritten.append(HolderRecord(.organization, org.key))
-                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafe(c, max: 300)（DivergenceCommands），與 failures 同一條消毒點
+                report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafeInvisible(c, max: 1_000)（DivergenceCommands），與 failures 同一條消毒點
                     contentsOf: collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
             } catch {
                 report.failures.append(

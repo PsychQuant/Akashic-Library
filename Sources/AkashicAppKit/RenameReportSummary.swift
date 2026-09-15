@@ -30,6 +30,12 @@ enum RenameReportSummary {
             return xs.isEmpty ? "\(label)：0 筆"
                               : "\(label)：\(xs.count) 筆（\(shown)\(xs.count > 5 ? "…" : "")）"
         }
+        /// 迴送 store 字串（verdict value、judgement）的列用性質式逃脫——與 CLI 的 `displaySafeInvisible(max: 1_000)` 同一種消毒
+        func storeLine(_ label: String, _ xs: [String]) -> String {
+            let shown = xs.prefix(5).map { displaySafeInvisible($0, max: 200) }.joined(separator: "、")
+            return xs.isEmpty ? "\(label)：0 筆"
+                              : "\(label)：\(xs.count) 筆（\(shown)\(xs.count > 5 ? "…" : "")）"
+        }
         /// `HolderRecord` 專用：`describedSafely` **已經**消毒過，不得再過一次 `line`
         /// ——`displaySafe` 不冪等（它逃脫反斜線自身，二次呼叫把 `\u{0009}` 變成
         /// `\u{005C}u{0009}`）。用 overload 而不是註解：註解攔不住下一個人把它併回去。
@@ -42,9 +48,11 @@ enum RenameReportSummary {
                 line("歧異候選已遷移", r.divergenceCandidatesRewritten),
                 holderLine("消解判定已遷移", r.verdictValuesRewritten),
                 // #495：收攏丟棄的列。**與上面三行不同，這裡的元素是敘述不是 key**
-                // （`<kind>「<持有記錄>」：<field> <value>——丟棄 <來源>`），所以 200 字的截斷
+                // （`<kind>「<持有記錄>」：<field> <遷移前的原值>——丟棄 <來源>`），所以 200 字的截斷
                 // 會比在 key 上更常真的截到。alert 本來就只是提示，完整清單看 CLI `rename`。
-                line("verdict 收攏丟棄", r.verdictsCollapsed)]
+                // 以性質逃脫（R15；R14 verify security 第 7 列：這一列迴送 verdict 的 value 與人寫的 judgement，列舉式
+                // `displaySafe` 不逃脫 ZWSP／VS／TAG——兩列逐像素相同而訊息說「丟棄了哪一筆」）
+                storeLine("verdict 收攏丟棄", r.verdictsCollapsed)]
             .joined(separator: "\n")
         // #497：有 quarantine 檔時多一行警語。**只在非空時加**——「0 個未掃描」對 GUI
         // 是雜訊，而上面四行的「零筆說零」語意不同：那是回執（做了什麼），這是邊界

@@ -5,7 +5,7 @@ import AkashicStoreIO
 /// venue verdict 預算（#499）。**獨立的閘**：由呼叫端以 `RecordIssuesSummary?` 決定出不出現，不掛在「健康」Section 的
 /// `hasFindings` 下（那個布林依 #416 只計 error，故意不讓 warning 亮燈）。
 ///
-/// 窄輸入：只收 `RecordIssuesSummary`（值型別、五個整數一個字串），`AppState` 的其他變化不會讓本 view 失效
+/// 窄輸入：只收 `RecordIssuesSummary`（值型別、幾個整數一個字串——列數見 `RecordIssuesSummary`，這裡刻意不複述），`AppState` 的其他變化不會讓本 view 失效
 /// （`swiftui-specialist`：pass views only the data they read）。完整逐行仍是 CLI `validate` 的職責。
 struct RecordIssuesSection: View {
     let summary: RecordIssuesSummary
@@ -40,6 +40,16 @@ struct RecordIssuesSection: View {
             }
             if summary.contradictedRemovalRecords > 0 {
                 LabeledContent("移除記錄與作者位矛盾", value: "\(summary.contradictedRemovalRecords)")
+            }
+            if summary.duplicateVenueEdges > 0 {
+                LabeledContent("同一 venue 多條 key 邊", value: "\(summary.duplicateVenueEdges)")
+                    .help("一筆 work 有兩條以上 key 邊指向同一 venue（#554 D28）。配對只能由一條邊實例化，"
+                          + "resolve-venues 的 repoint／demote 對它會拒絕；在 YAML 裡刪掉多餘的邊（移除面：#572）。")
+            }
+            if summary.confirmedLiteralAmbiguities > 0 {
+                LabeledContent("同一 work 多個 confirmed literal", value: "\(summary.confirmedLiteralAmbiguities)")
+                    .help("某本刊對同一筆 work 持有兩個以上 confirmed literal（#554 D36；正規化後不同、或只差位元組）。"
+                          + "verdict 不帶 index，demote／repoint 對那筆 work 會被拒（D23）；在 venue 的 YAML 裡留一筆。")
             }
             if summary.staleSplitRecords > 0 {
                 LabeledContent("拆分記錄各段都不在", value: "\(summary.staleSplitRecords)")

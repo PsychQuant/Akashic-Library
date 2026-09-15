@@ -1268,4 +1268,85 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertThrowsError(try service.resolveVenues(apply: nil, demote: ["x2025:0"]))
         XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal")], "entry 不得先退回 literal")
     }
+
+
+    // MARK: - R15（D38）：apply／repoint 的目的 venue 不得因此持有第二個 confirmed literal
+
+    /// **生產端的閘要在 apply／repoint 也有**（R14 verify Codex 第 1 列 HIGH：D34 只裝在合併路徑——目的 venue 已持有該 work
+    /// 另一個 confirmed literal（沒有對應的邊：手改、舊 binary、R14 之前的 work 合併）時，apply 寫下第二個，邊隨即被 D23 鎖住、
+    /// D36 事後才 warning）。D38：apply 對這種候選逐筆略過並具名（store 狀態不符——D33 的同一類）；repoint 整批拒絕零寫入。
+    func testApplySkipsWhenTheVenueAlreadyHoldsAnotherConfirmedLiteralForTheWork() throws {
+        let store = LibraryStore(root: root)
+        var v = try venue()
+        v.references.append(ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "Alpha Review",
+                                                    rule: ResolutionLedger.venueRule, statement: "手改（沒有對應的邊）"))
+        try store.writeVenue(v)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika")]
+        _ = try store.writeEntry(e)
+        let out = try service.resolveVenues(apply: ["x2025:0"])
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        XCTAssertEqual(json["applied"] as? [String], [])
+        let skipped = try XCTUnwrap(json["skippedConflictingConfirmedLiteral"] as? [[String: Any]], out)
+        XCTAssertEqual(skipped.count, 1, out)
+        let reason = skipped.first?["reason"] as? String ?? ""
+        XCTAssertTrue(reason.contains("Alpha Review") && reason.contains("D23") && reason.contains("YAML"), out)
+        XCTAssertEqual(try store.load().entries.first?.venues, [.literal("Psychometrika")], "零寫入")
+        XCTAssertTrue(try venue().validate().filter { $0.message.contains("個正規化後不同的 confirmed literal") }.isEmpty)
+        // 對照：既有的 confirmed 只是同一 literal 的另一個拼法——不是第二個 literal，照常升格
+        var v2 = try venue()
+        v2.references = [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "PSYCHOMETRIKA",
+                                                 rule: ResolutionLedger.venueRule, statement: "手改")]
+        try store.writeVenue(v2)
+        let out2 = try service.resolveVenues(apply: ["x2025:0"])
+        let json2 = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out2.utf8)) as? [String: Any])
+        XCTAssertEqual(json2["applied"] as? [String], ["x2025:0"], out2)
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal")])
+    }
+
+    func testRepointRefusesWhenTheTargetVenueAlreadyHoldsAnotherConfirmedLiteralForTheWork() throws {
+        let store = LibraryStore(root: root)
+        _ = try service.addVenue(key: "beta-journal", names: ["Beta Journal"], type: "periodical", note: nil, issn: nil)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika")]
+        _ = try store.writeEntry(e)
+        _ = try service.resolveVenues(apply: ["x2025:0"])
+        var b = try XCTUnwrap(store.load().venues.first { $0.key == "beta-journal" })
+        b.references.append(ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "Alpha Review",
+                                                    rule: ResolutionLedger.venueRule, statement: "手改（沒有對應的邊）"))
+        try store.writeVenue(b)
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal"])) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("beta-journal") && s.contains("Alpha Review") && s.contains("Psychometrika") && s.contains("D23"), s)
+        }
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal")], "零寫入")
+        XCTAssertEqual(ResolutionLedger.verdicts(references: try venue().references).0.filter { $0.holder == "x2025" }.map(\.kind), [.confirmed], "from 的 confirmed 沒被退役")
+        // 對照：目的 venue 上那筆是同一 literal 的另一個拼法——改指照常
+        var b2 = try XCTUnwrap(store.load().venues.first { $0.key == "beta-journal" })
+        b2.references = [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "PSYCHOMETRIKA",
+                                                 rule: ResolutionLedger.venueRule, statement: "手改")]
+        try store.writeVenue(b2)
+        _ = try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal"])
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("beta-journal")])
+    }
+
+    /// doctor 對配對唯一性的兩半各有具名計數（R14 verify regression 第 22 列：兩族 per-record warning 沒有 StoreHealth 家族，
+    /// doctor 截 20 則、App 預覽 5 則時可能完全看不到——第 26／27 列宣稱的「掃得到」只對 CLI validate 成立）。
+    func testDoctorCountsThePairingUniquenessFamilies() throws {
+        let store = LibraryStore(root: root)
+        var v = try venue()
+        v.references = [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "Alpha Review",
+                                                rule: ResolutionLedger.venueRule, statement: "手改"),
+                        ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "Beta Review",
+                                                rule: ResolutionLedger.venueRule, statement: "手改")]
+        try store.writeVenue(v)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.key("some-journal"), .key("some-journal")]
+        _ = try store.writeEntry(e)
+        let out = try service.doctor()
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        let ri = try XCTUnwrap(json["recordIssues"] as? [String: Any], out)
+        XCTAssertEqual(ri["confirmedLiteralAmbiguities"] as? Int, 1, out)
+        XCTAssertEqual(ri["duplicateVenueEdges"] as? Int, 1, out)
+    }
 }

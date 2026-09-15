@@ -13,6 +13,11 @@ public enum IndexList {
 }
 
 public struct Entry: Equatable {
+    /// 「同一 work 兩條 key 邊指同一 venue」warning 的家族前綴（#554 R11 D28；R15 起有前綴——`StoreHealth.duplicateVenueEdges`
+    /// 用它篩、doctor 與 App 各一個計數）。**單一定義**：訊息由它組出、StoreHealth 只引用。
+    public static let duplicateVenueEdgePrefix = "同一 venue 多條 key 邊"
+    /// 一筆記錄上同一族 per-record warning 的則數上限（R15；`Venue.validate()` 的配對唯一性第二半共用同一個數）。
+    public static let perRecordWarningCap = 20
     /// 不可變機器身分；citekey 改名不斷鏈。
     public var id: UUID
     /// 人類可讀、可改名的引用鍵。
@@ -867,13 +872,23 @@ extension Entry {
         // 不帶 venue index，這種 work 在 repoint／demote 上都會被拒（D25），而工具面自 R11 起造不出它（apply／repoint 的閘）——
         // 只有手改或舊 binary 寫的，而 R10 verify 之前 `validate`／`doctor`／App 對它一律綠燈。warning：記錄合法，失效的是判定
         // 逆轉的前提；修法只有手改 YAML（移除面：#572）。literal 邊不算——那是尚未判定的誠實狀態。
+        // 則數有上限（R15；R14 verify logic 第 16 列、security 第 18 列：本檢查在讀取路徑上對未信任的 store 內容跑，
+        // 同一輪為近重複檢查加了上限、這裡卻逐筆無上限）；概括句帶同一家族前綴，計數仍看得見。
         var keyed: [String: [Int]] = [:]
         for (i, ref) in venues.enumerated() { if case .key(let k) = ref { keyed[k, default: []].append(i) } }
+        var listed = 0, unlisted = 0
         for (k, idx) in keyed.sorted(by: { $0.key < $1.key }) where idx.count > 1 {
+            guard listed < Self.perRecordWarningCap else { unlisted += 1; continue }
+            listed += 1
             issues.append(ValidationIssue(severity: .warning,
-                message: "venues 有 \(idx.count) 條邊指向同一 venue「\(displaySafe(k, max: 120))」（\(IndexList.render(idx))）"   // display-safe-exempt: Int 序列（IndexList 有上限）
+                message: "\(Self.duplicateVenueEdgePrefix)：venues 有 \(idx.count) 條邊指向同一 venue「\(displaySafe(k, max: 120))」（\(IndexList.render(idx))）"   // display-safe-exempt: 前綴是常量；Int 序列（IndexList 有上限）
                        + "——配對只能由一條邊實例化（verdict 不帶 index），resolve-venues 的 repoint／demote 對它會拒絕；"
                        + "請在 YAML 裡刪掉多餘的邊（移除面：#572）"))
+        }
+        if unlisted > 0 {
+            issues.append(ValidationIssue(severity: .warning,
+                message: "\(Self.duplicateVenueEdgePrefix)：另有 \(unlisted) 個 venue 未列出（每筆記錄最多列 \(Self.perRecordWarningCap) 個"   // display-safe-exempt: 前綴是常量；Int
+                       + "——本檢查在讀取路徑上對未信任的 store 內容跑）"))
         }
         issues += Self.pagesShapeIssues(fields["pages"])
         // #394 task 4.3：非正規形的識別碼要出聲（值保留、但不靜默）。

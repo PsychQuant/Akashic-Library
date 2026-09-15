@@ -24,6 +24,10 @@ struct RecordIssuesSummary: Equatable {
     let orphanedSplitVerdicts: Int
     let staleSplitRecords: Int
     let contradictedRemovalRecords: Int
+    /// #554 配對唯一性的兩半（R11 D28 同一 venue 多條 key 邊、R14 D36 同一 work 多個 confirmed literal）——R15 補家族
+    /// （R14 verify regression 第 22 列：三面計數不得分岔）。
+    let duplicateVenueEdges: Int
+    let confirmedLiteralAmbiguities: Int
     /// `.help` 用：前幾則訊息（`displaySafe`，每則截斷），加一句「完整逐行看 CLI validate」。
     let help: String
 
@@ -39,6 +43,8 @@ struct RecordIssuesSummary: Equatable {
         orphanedSplitVerdicts = health.orphanedSplitVerdicts.count
         staleSplitRecords = health.staleSplitRecords.count
         contradictedRemovalRecords = health.contradictedRemovalRecords.count
+        duplicateVenueEdges = health.duplicateVenueEdges.count
+        confirmedLiteralAmbiguities = health.confirmedLiteralAmbiguities.count
         let preview = issues.prefix(previewLimit).map {
             "\($0.issue.severity == .error ? "✗" : "⚠") \($0.kind) \(displaySafe($0.owner, max: 80))：\(displaySafe($0.issue.message, max: 160))"
         }

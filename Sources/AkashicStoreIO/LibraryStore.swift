@@ -1271,11 +1271,12 @@ public struct PersonRenameReport: Equatable {
     /// 解析不了才在那裡，而行級文字比對會漏掉被 YAML 折行的長 value（本 repo 量過的形狀）。
     /// 「沒掃到」是可以誠實斷言的，「掃過且沒有」不是。
     public var quarantinedNotScanned: [String]
-    /// 遷移後與既有 verdict 同 (field, value) 而被收攏丟棄的列（#495）。
+    /// 遷移後與既有 verdict 同一配對（`verdictEqualityKey`——正規化後相等，不是 (field, value) 位元組）而被收攏丟棄的列（#495；
+    /// 鍵於 #470 改成正規化，R14 verify 第 13 列抓到這裡與 CLI 的措辭仍寫著位元組層）。
     ///
-    /// 形狀與 merge 側的 `ResolveReport.verdictsCollapsed` 逐字相同
-    /// （`<kind>「<持有記錄 key>」：<field> <value>——丟棄 <來源>`），因為它們是**同一件事**：
-    /// 「store 永不持有重複 verdict」這條不變式在兩條路徑上各自執行。兩份不同的描述會分岔。
+    /// 形狀與 merge 側的 `ResolveReport.verdictsCollapsed` 同（`<kind>「<持有記錄 key>」：<field> <遷移前的原值>——丟棄 <來源>`，
+    /// `describeCollapsedVerdict` 一個生產者；merge 側另有 `describeDedupedVerdict` 描述 #271 的去重，句尾不同），因為它們是
+    /// **同一件事**：「store 永不持有重複 verdict」這條不變式在兩條路徑上各自執行。兩份不同的描述會分岔。
     public var verdictsCollapsed: [String]
 
     public init(authorEdgesRewritten: [String] = [],
@@ -1303,8 +1304,8 @@ public struct RenameReport: Equatable {
     /// （#232 verify NEW-1；#460 起 venue；#463 起 organization）。#498 起帶 kind——
     /// 同名跨型別時扁平 key 清單無從分辨，那是該 issue 的 follow-up 現在落地。
     public var verdictValuesRewritten: [HolderRecord]
-    /// 遷移後與既有 verdict 同 (field, value) 而被收攏丟棄的列（#495）。形狀與
-    /// `PersonRenameReport.verdictsCollapsed` 及 merge 側的 `ResolveReport.verdictsCollapsed` 同。
+    /// 遷移後與既有 verdict 同一配對（`verdictEqualityKey`，正規化後相等）而被收攏丟棄的列（#495）。形狀與
+    /// `PersonRenameReport.verdictsCollapsed` 及 merge 側的 `ResolveReport.verdictsCollapsed` 同——見前者的 doc。
     public var verdictsCollapsed: [String]
     /// 這次改名沒有掃描到的 quarantine 檔（#497）——理由見 `PersonRenameReport.quarantinedNotScanned`。
     public var quarantinedNotScanned: [String]
@@ -1516,7 +1517,7 @@ extension LibraryStore {
         for var p in load.people {
             if let m = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .work) {
                 p.references = m.refs; peopleToRewrite.append(p)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // venue 同型（#460）：#304 之後 venue 也持 `work:` holder 的 verdict
@@ -1527,7 +1528,7 @@ extension LibraryStore {
         for var vn in load.venues {
             if let m = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .work) {
                 vn.references = m.refs; venuesToRewrite.append(vn)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // organization 同型（#463，網格的 rename×org 格）：#443／OrgResolver 在 organization 記錄上落
@@ -1537,7 +1538,7 @@ extension LibraryStore {
         for var org in load.organizations {
             if let m = Self.migratedVerdicts(org.references, from: oldKey, to: newKey, holderKind: .work) {
                 org.references = m.refs; orgsToRewrite.append(org)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
 
@@ -1706,7 +1707,7 @@ extension LibraryStore {
             if let m = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .person) {
                 p.references = m.refs
                 peopleToRewrite.append(p)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         var orgsToRewrite: [Organization] = []
@@ -1714,7 +1715,7 @@ extension LibraryStore {
             if let m = Self.migratedVerdicts(o.references, from: oldKey, to: newKey, holderKind: .person) {
                 o.references = m.refs
                 orgsToRewrite.append(o)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(o.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(o.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // venue 同型（#463，verify security 席：venue 記錄今天只由 resolve-venues 落 `work:` holder，但寫入閘收任何
@@ -1724,14 +1725,14 @@ extension LibraryStore {
             if let m = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .person) {
                 vn.references = m.refs
                 venuesToRewrite.append(vn)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // 被改名的那一筆自己也可能持有指向自己的 verdict
         if let m = Self.migratedVerdicts(person.references, from: oldKey, to: newKey, holderKind: .person) {
             person.references = m.refs
             // 標 `newKey`：這筆記錄正在改名，寫舊鍵會讓使用者去找一個改完就不存在的 key。
-            collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(newKey)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafe(max: 300)、App line() displaySafe(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+            collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(newKey)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
         }
 
         // 3. divergence 的候選與 prefers（第 9、10 條）
@@ -1879,7 +1880,7 @@ extension LibraryStore {
     ///
     /// 文法解析與 store 閘同源（`VerdictPairingValue`），不另寫第二份——那正是 #232 D3 自認過的
     /// grammar-in-string 漂移。收攏是**可解析 verdict 的全量** (field, value) dedup（#232 的既有語意，與 merge 側
-    /// 「只收本次觸及」刻意不同）；**被收攏的列逐筆回報**（#495 補上——在此之前 rename 側是靜默的，
+    /// 「只收本次觸及」刻意不同）；**被收攏的列逐筆回報、印遷移前的原值**（#495 補上——在此之前 rename 側是靜默的，
     /// #461 只修了 merge 側而 #463 把這一面擴到 organization 與 venue 使缺口同步變大）。描述由
     /// `describeCollapsedVerdict` 產生，與 merge 側**同一個函式**：兩條路徑執行的是同一條不變式
     /// （store 永不持有重複 verdict），兩份描述會分岔。呼叫端負責加上持有記錄的 kind 與 key——
@@ -1922,7 +1923,7 @@ extension LibraryStore {
             guard seen.insert(ProvenanceReference.verdictEqualityKey(
                     field: kept.field, value: kept.value)).inserted else {
                 changed = true
-                collapsed.append(Self.describeCollapsedVerdict(kept))
+                collapsed.append(Self.describeCollapsedVerdict(original: r))   // 遷移前的原值（R15，D40）
                 continue
             }
             out.append(kept)

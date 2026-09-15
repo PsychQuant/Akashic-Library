@@ -115,4 +115,28 @@ final class RecordIssuesSummaryTests: XCTestCase {
                        "RecordIssuesSection 掛在 hasFindings 閘內——那個閘只計 error，warning 永遠看不到：\(gateLine)")
         XCTAssertTrue(src.contains("RecordIssuesSummary(health:"), "掛載要經過純模型摘要")
     }
+
+
+    /// 配對唯一性的兩半（#554 R11 D28、R14 D36）也要到得了 App 的摘要——三面對這兩族的計數不得分岔（R14 verify regression
+    /// 第 22 列：兩族沒有 StoreHealth 家族，App 預覽 5 則時可能完全看不到）。
+    func testPairingUniquenessFamiliesReachTheAppSummary() throws {
+        let store = LibraryStore(root: root)
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = [ProvenanceReference(field: "resolution-confirmed",
+                                            value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "alive2020a", literal: "Alpha Journal").encoded,
+                                            kind: .judgement(statement: "測試", restsOn: [])),
+                        ProvenanceReference(field: "resolution-confirmed",
+                                            value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "alive2020a", literal: "Beta Review").encoded,
+                                            kind: .judgement(statement: "測試", restsOn: []))]
+        try store.writeVenue(v)
+        var e = try XCTUnwrap(try store.load().entries.first { $0.citekey == "alive2020a" })
+        e.venues = [.key("alpha"), .key("alpha")]
+        try store.writeEntry(e)
+        let state = AppState(root: root)
+        try state.load()
+        let summary = try XCTUnwrap(RecordIssuesSummary(health: try XCTUnwrap(state.health)))
+        XCTAssertEqual(summary.confirmedLiteralAmbiguities, 1)
+        XCTAssertEqual(summary.duplicateVenueEdges, 1)
+        XCTAssertEqual(summary.errors, 0, "兩族都是 warning")
+    }
 }

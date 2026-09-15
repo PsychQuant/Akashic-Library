@@ -116,7 +116,10 @@ public struct ProvenanceReference: Equatable {
         guard resolutionVerdictFields.contains(field),
               let v = value,
               let p = VerdictPairingValue.parse(v) else {
-            return "\(field)\u{0}\(value ?? "")"
+            // 回退鍵帶一個合法配對鍵寫不出的前綴（U+0001；合法鍵的第二段以 `VerdictHolderKind.rawValue` 的字母開頭）——
+            // 一個字面帶 U+0000 的 malformed value 否則能拼出與合法配對相同的鍵（#554 R14 verify security 第 28 列；
+            // YAML reader 擋得住 U+0000，但鍵的形狀不該靠別處的 reader 撐）
+            return "\(field)\u{0}\u{1}malformed\u{0}\(value ?? "")"
         }
         return "\(field)\u{0}\(p.holderKind.rawValue):\(p.holder)\u{0}"
              + NameNormalization.matchingKey(p.literal)

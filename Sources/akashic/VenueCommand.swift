@@ -268,14 +268,21 @@ struct MigrateVenueVariants: ParsableCommand {
 
     @OptionGroup var options: LibraryOptions
 
-    @Flag(name: .long, help: "實際寫入（預設只預演；只改寫 git 追蹤中的檔）")
+    @Flag(name: .long, help: "（#554 起一律拒絕——D1 的未標會被重新標成 variant；退場見 #567）")
     var apply = false
 
     func run() throws {
-        // #298：破壞性寫入前確認目標 store 已被指名——**只在 --apply 時**。
-        if apply { try options.assertDestructiveTargetNamed("migrate-venue-variants") }
+        // **`--apply` 一律拒絕**（#554 R15，Claude 代裁 D41；R14 verify regression 第 9 列：本輪讓它的前提變假卻只用散文禁止——
+        // 命令照常註冊、照常寫，一次執行會把人剛用 `--authorize` 表達的「不作任何宣稱」靜默改寫成「它是異寫」）。乾跑仍可跑
+        // （唯讀、供 #567 退場前對照）；刪命令本身動 13 檔，是 #567 的事——這裡是那之前的零成本閘。
+        guard !apply else {
+            throw ValidationError("migrate-venue-variants --apply 自 #554 起拒絕執行：它的補集規則（names − authorized → variant）會把 "
+                                  + "`update-venue --authorize` 刻意留在未標的舊指定（D1）重新標成 variant。live store 的遷移工作已歸零；"
+                                  + "退場（刪除本命令）見 #567。要標異寫請用 update-venue --add-variant（逐筆、判定型）。")
+        }
         let store = try options.openStore()
         print("目標 store：\(displaySafe(store.root.path, max: 300))")
+        print("（dry-run only：--apply 自 #554 起拒絕執行，見 #567）")
         let report = try VenueVariantMigration.run(store: store, apply: apply)
         let prefix = apply ? "✓" : "（dry-run）"
         if report.planned.isEmpty && report.failed.isEmpty {
@@ -317,7 +324,7 @@ struct MigrateVenueVariants: ParsableCommand {
 struct ResolveVenuesCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "resolve-venues",
-        abstract: "venue 解析：不帶參數列候選與歧義；--apply 升格 literal 為 key（寫 confirmed verdict；會讓同一 work 兩條邊指同一 venue 的候選逐筆略過並回報 skippedDuplicateVenueEdge；同一 work 兩條拼法不同的 literal 邊指向同一 venue 時誰落地由 --apply 的順序決定，先到先寫，D28／D33）；--reject 否決（寫 rejected verdict）；--repoint 改指已歸戶的邊（兩側都寫 verdict）；--demote 退回 literal（原字串從 verdict 取回，#418）。--repoint／--demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定（D20，逐筆列在 verdictsRetired、截 20 筆），前提不符整批拒絕零寫入（≥2 個不同 confirmed literal D23；配對由多條邊實例化 D25；被動到的邊與另一條邊同 venue、或同一批同一 literal 且觸及同一 venue D27）")
+        abstract: "venue 解析：不帶參數列候選與歧義；--apply 升格 literal 為 key（寫 confirmed verdict；會讓同一 work 兩條邊指同一 venue 的候選逐筆略過並回報 skippedDuplicateVenueEdge；目的 venue 已對該 work 持有另一個 confirmed literal（沒有對應的邊）的候選逐筆略過並回報 skippedConflictingConfirmedLiteral，D38；同一 work 兩條拼法不同的 literal 邊指向同一 venue 時誰落地由 --apply 的順序決定，先到先寫，D28／D33）；--reject 否決（寫 rejected verdict）；--repoint 改指已歸戶的邊（兩側都寫 verdict）；--demote 退回 literal（原字串從 verdict 取回，#418）。--repoint／--demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定（D20，逐筆列在 verdictsRetired、截 20 筆），前提不符整批拒絕零寫入（≥2 個不同 confirmed literal D23；配對由多條邊實例化 D25；被動到的邊與另一條邊同 venue、或同一批同一 literal 且觸及同一 venue D27；改指後目的 venue 會對該 work 持有第二個 confirmed literal D38）。提名的否決抑制以正規化後的 literal 為鍵（R12）：對一個拼法的 --reject／--demote 會壓住同 work 同 venue 的其他拼法，撤回面見 #559")
 
     @OptionGroup var options: LibraryOptions
 

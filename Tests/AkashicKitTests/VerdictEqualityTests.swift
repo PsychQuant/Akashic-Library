@@ -30,6 +30,15 @@ final class VerdictEqualityTests: XCTestCase {
         }
     }
 
+    /// malformed 的回退鍵不得與合法配對鍵碰撞（R14 verify security 第 28 列：`field\0<原始 value>` 對一個字面帶 U+0000 的
+    /// value 會與 `field\0work:k\0<mk>` 相等——YAML reader 擋得住 U+0000（DA 第 31 列實測），但鍵的形狀不該靠別處的 reader 撐）。
+    func testMalformedFallbackKeyCannotCollideWithAWellFormedPairing() {
+        let wellFormed = key("resolution-confirmed", value("k2020a", "Fann, C."))
+        let forged = key("resolution-confirmed", "work:k2020a\u{0}fann, c.")
+        XCTAssertNotEqual(forged, wellFormed)
+        XCTAssertEqual(key("resolution-confirmed", "garbage"), key("resolution-confirmed", "garbage"), "malformed 仍可與自己相等（去重要靠它）")
+    }
+
     /// 但它**不得**把真的不同的東西塌在一起——holder、kind、field 三個維度各驗一次。
     func testDifferentPairingsStayDistinct() {
         let base = key("resolution-confirmed", value("k2020a", "Fann, C."))

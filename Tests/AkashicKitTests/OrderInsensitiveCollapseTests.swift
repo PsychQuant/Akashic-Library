@@ -74,7 +74,9 @@ final class OrderInsensitiveCollapseTests: XCTestCase {
         // 丟掉的那一列（keeper 原版）要在報告裡說得出來——lossless-intake 執行細節 3
         XCTAssertEqual(report.verdictsCollapsed.count, 1, "\(report.verdictsCollapsed)")
         XCTAssertTrue(report.verdictsCollapsed.first?.hasPrefix("person「some-author」：") ?? false)
-        XCTAssertTrue(report.verdictsCollapsed.first?.contains("work:pkeeper2020a :: Some Author") ?? false)
+        // 印的是**遷移前**的原值（R15，D40）：被丟的恆是被改寫的那一筆，改寫後的字串不在任何 YAML 裡
+        XCTAssertTrue(report.verdictsCollapsed.first?.contains("work:pdoomed2020a :: Some Author") ?? false, report.verdictsCollapsed.first ?? "")
+        XCTAssertFalse(report.verdictsCollapsed.first?.contains("work:pkeeper2020a :: Some Author") ?? true)
     }
 
     /// 與本次遷移**無關**（鍵不等於任一遷移輸出）的既有重複不得被收攏——觸及集合的
@@ -129,7 +131,9 @@ final class OrderInsensitiveCollapseTests: XCTestCase {
         XCTAssertEqual(out.refs.count, 1, "同鍵的 keeper 既有重複一併收攏（刻意）：\(out.refs)")
         XCTAssertEqual(statement(out.refs.first), "k1", "留首見")
         XCTAssertEqual(out.collapsed.count, 2)
-        XCTAssertTrue(out.collapsed.allSatisfy { $0.contains("work:keeper2020a :: L") }, "\(out.collapsed)")
+        // 每列印**遷移前的原值**（R15，D40）：keeper 的 k2 本來就是 keeper2020a、doomed 的 d 原本是 doomed2020a
+        XCTAssertEqual(out.collapsed, ["resolution-confirmed work:keeper2020a :: L——丟棄 判定「k2」",
+                                       "resolution-confirmed work:doomed2020a :: L——丟棄 判定「d」"], "\(out.collapsed)")
     }
 
     /// **政策在 #468 從「首見」換成三層裁決**，本測試跟著換（它的舊名字
@@ -151,8 +155,9 @@ final class OrderInsensitiveCollapseTests: XCTestCase {
             XCTAssertEqual(out.refs.count, 1, desc)
             XCTAssertEqual(statement(out.refs.first), "keeper 側",
                            "\(desc)：血統平手 → 未被改寫的那一筆勝（#468 第 2 層）")
+            // 丟掉的是 doomed 那筆，列印它**遷移前**的原值（R15，D40）——`work:keeper2020a :: L` 不在任何 YAML 裡
             XCTAssertEqual(out.collapsed,
-                           ["resolution-confirmed work:keeper2020a :: L——丟棄 判定「doomed 側」"],
+                           ["resolution-confirmed work:doomed2020a :: L——丟棄 判定「doomed 側」"],
                            desc)
         }
     }

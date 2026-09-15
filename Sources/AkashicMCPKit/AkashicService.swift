@@ -381,6 +381,9 @@ public final class AkashicService {
                 "orphanedSplitVerdicts": health.orphanedSplitVerdicts.count,
                 "staleSplitRecords": health.staleSplitRecords.count,   // display-safe-exempt: Int
                 "contradictedRemovalRecords": health.contradictedRemovalRecords.count,
+                // #554 配對唯一性的兩半（D28／D36）——計數讓呼叫端不必掃 first（截 20）就看見（R14 verify regression 第 22 列）
+                "duplicateVenueEdges": health.duplicateVenueEdges.count,   // display-safe-exempt: Int
+                "confirmedLiteralAmbiguities": health.confirmedLiteralAmbiguities.count,   // display-safe-exempt: Int
                 "first": perRec.prefix(20).map {
                     ["severity": $0.issue.severity == .error ? "error" : "warning",
                      "kind": $0.kind,
@@ -3820,7 +3823,25 @@ public final class AkashicService {
         }
         var chosen: [VenueResolutionCandidate] = []
         var skipped: [[String: Any]] = []
+        var skippedConflict: [[String: Any]] = []
         for c in requested {
+            // **目的 venue 已對這筆 work 持有另一個 confirmed literal 的候選逐筆略過**（R15，Claude 代裁 D38；R14 verify Codex 第 1 列
+            // HIGH：D34 只裝在合併路徑——那筆 confirmed 沒有對應的邊（手改、舊 binary、R14 之前的 work 合併），apply 寫下第二個，
+            // 這條邊隨即被 D23 鎖住而 D36 事後才 warning）。store 狀態不符是「該筆略過並具名」那一類（D33）；同一 literal 的另一個
+            // 拼法不算——`appendIfAbsent` 以正規化鍵去重、不會多一筆。
+            if let venue = byKey[c.venueKey] {
+                let others = Self.otherConfirmedLiterals(on: venue, for: c.citekey, besides: c.literal)
+                if !others.isEmpty {
+                    skippedConflict.append(["id": c.rowID,
+                                            "venueKey": displaySafe(c.venueKey, max: 200),
+                                            "reason": "venue 已對這筆 work 持有另一個 confirmed literal（"
+                                                + others.prefix(5).map { "「\(displaySafeInvisible($0, max: 120))」" }.joined(separator: "、")   // display-safe-exempt: 逐項 displaySafeInvisible
+                                                + (others.count > 5 ? "…" : "")   // display-safe-exempt: 固定字串
+                                                + "）而沒有對應的邊——再寫一筆「\(displaySafeInvisible(c.literal, max: 120))」會讓這條邊在 demote／repoint 上被拒（D23）；"
+                                                + "略過不寫。出路：把不屬於任何邊的那筆 confirmed verdict 從 venue 的 YAML 刪掉，再重跑"])
+                    continue
+                }
+            }
             if let hit = keyed[c.citekey]?[c.venueKey] {
                 let head = hit.fromBatch
                     ? "同一批稍早的候選 \(displaySafe(c.citekey, max: 200)):\(hit.indices[0]) 先佔了這個 venue（先到先寫，順序由呼叫端決定）"   // display-safe-exempt: Int
@@ -3861,6 +3882,7 @@ public final class AkashicService {
         return try jsonString([
             "applied": chosen.map { $0.rowID },
             "skippedDuplicateVenueEdge": skipped,   // display-safe-exempt: 逐項已消毒（id 是回程把手，逐字）
+            "skippedConflictingConfirmedLiteral": skippedConflict,   // display-safe-exempt: 逐項已消毒（id 是回程把手，逐字）
             "entriesRewritten": changed.count,   // display-safe-exempt: Int
             "venuesRewritten": grouped.count,    // display-safe-exempt: Int
         ] as [String: Any])
@@ -4000,6 +4022,22 @@ public final class AkashicService {
                 venuesByKey[m.from] = from
             }
         }
+        // **改指後的目的 venue 不得對該 work 持有第二個 confirmed literal**（R15，D38；R14 verify Codex 第 1 列 HIGH）：對**預測後**的
+        // verdict 集合驗——同一批交換兩條 literal 不同的邊時，to 上原本那筆 confirmed 已被另一個 move 的 rejected 退役（`supersede`），
+        // 逐 move 檢查會誤擋合法的中間態。整批拒絕零寫入（repoint 的既有契約）；出路是刪掉那筆沒有對應邊的 confirmed。
+        for m in moves {
+            guard let to = venuesByKey[m.to] else { continue }
+            let others = Self.otherConfirmedLiterals(on: to, for: m.citekey, besides: m.literal)
+            guard others.isEmpty else {
+                throw ServiceError.invalid(
+                    "改指後 venue「\(displaySafe(m.to, max: 200))」對 work「\(displaySafe(m.citekey, max: 200))」會持有兩個以上正規化後不同的 "
+                    + "confirmed literal——這次帶去的「\(displaySafeInvisible(m.literal, max: 120))」與它已持有的 "
+                    + others.prefix(5).map { "「\(displaySafeInvisible($0, max: 120))」" }.joined(separator: "、")   // display-safe-exempt: 逐項 displaySafeInvisible
+                    + (others.count > 5 ? "…" : "")   // display-safe-exempt: 固定字串
+                    + "（後者沒有對應的邊：手改、舊 binary 或 R14 之前的合併留下的）；verdict 不帶 index，之後這條邊在 demote／repoint 上都會被拒（D23）。"
+                    + "出路：把不屬於任何邊的那筆 confirmed verdict 從 venue 的 YAML 刪掉，再重跑（零寫入）")
+            }
+        }
         let changedVenues = Set(moves.flatMap { [$0.from, $0.to] })
         for k in changedVenues.sorted() { try LibraryStore.assertVenueWritable(venuesByKey[k]!, format: storeFormat) }
         for ck in touched.sorted() { try store.writeEntry(byCitekey[ck]!) }
@@ -4083,6 +4121,21 @@ public final class AkashicService {
                 + "——verdict 不帶 index，\(operation)退役那筆 verdict 會把另一條邊的證據一起刪、之後那條邊在任何工具面上都救不回來。"   // display-safe-exempt: 固定字串（改指／降格）
                 + "出路：手改這筆 work 的 YAML 刪掉重複的邊（移除面：#572），再重跑")
         }
+    }
+
+    /// venue 對這筆 work 已持有、且與 `literal` **正規化後不同**的 confirmed literal（首見序、位元組去重）——apply／repoint 的
+    /// 生產端閘用（D38）。鍵是 `matchingKey`：同一 literal 的另一個拼法不是第二個 literal（`appendIfAbsent` 對它去重、不會多一筆），
+    /// 而 §3.5 的不變式講的是正規化後不同的那種。
+    static func otherConfirmedLiterals(on venue: Venue, for citekey: String, besides literal: String) -> [String] {
+        let mine = NameNormalization.matchingKey(literal)
+        var out: [String] = []
+        var seen = Set<[UInt8]>()
+        for v in ResolutionLedger.verdicts(references: venue.references).verdicts
+        where v.kind == .confirmed && v.holderKind == .work && v.holder == citekey
+              && NameNormalization.matchingKey(v.literal) != mine && seen.insert(Array(v.literal.utf8)).inserted {
+            out.append(v.literal)
+        }
+        return out
     }
 
     /// `repoint`／`demote` 共用：從 venue 的 confirmed verdict 取回這筆 work 的**唯一**原 literal（R8：走唯一解析器，

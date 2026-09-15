@@ -104,6 +104,10 @@ final class DisplaySinkCoverageTests: XCTestCase {
     static let taintedTokens = [
         "citekey", ".title", ".name", ".reason", ".file",
         ".literal", "personKey", "libraryKey", "authors",
+        // #554 R18（R17 verify security 第 17 列）：`ValidationIssue.message` 是 store 衍生字串——五族 `validate()` 與 `StoreHealth` 的掃描
+        // 逐項消毒後才組進訊息，所以 doctor／App／CLI 的 sink 對它「只截不逃」（`displaySafeClipOnly`）。R17 之前 `.message` 不在清單裡，
+        // 那些 sink 的 exempt 註記不承擔任何重量；現在每一個印 `.message` 的 sink 都得掛 exempt 說「訊息在 validate 裡已逐項消毒」
+        ".message",
         // #76：divergence 的未信任內容（#133 起可由 LLM 經 MCP 寫入——來源面擴大）
         ".question", ".judgement", ".statement", "restsOn",
         // #141 第 3 項（「key 該不該入清單」）**實測後入列**。issue 當時擔心
@@ -626,7 +630,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
     /// 拿掉 `.literal` 之後迴圈就不再測 `.literal`。
     func testEveryTaintedTokenIsLoadBearing() {
         let expected = ["citekey", ".title", ".name", ".reason", ".file",
-                        ".literal", "personKey", "libraryKey", "authors",
+                        ".literal", "personKey", "libraryKey", "authors", ".message",
                         ".question", ".judgement", ".statement", "restsOn", ".key"]
         XCTAssertEqual(Self.taintedTokens, expected,
                        "tainted token 清單變了——刻意新增就加進本測試的期望清單；"

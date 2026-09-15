@@ -33,9 +33,10 @@ struct Fmt: ParsableCommand {
         } else if r.deviating.isEmpty {
             // 失敗的檔根本沒進比對集合——「全部」只能對被檢查過的說（#554 R6 verify 第 43 列，
             // `zero-instance-guards` 第 3 列「未涵蓋不得冒充通過」的形狀）
-            // failures 混三種來源（讀不到、`normalized()` 擲錯——含 validate 報 error 被拒、寫不回去），「未檢查」對第二種為假
-            // （R13 verify logic 第 23 列）：說「未通過比對」並列出三種
-            print("✓ \(r.scanned - r.failures.count) 筆已是 canonical form；\(r.failures.count) 筆未通過（讀不到、validate 拒絕或寫不回去——見下，逐檔具名）")   // display-safe-exempt: Int
+            // failures 混兩種來源（讀不到、`normalized()` 擲錯——含 validate 報 error 被拒），「未檢查」對第二種為假（R13 verify logic
+            // 第 23 列）：說「未通過比對」並列出兩種。「寫不回去」在這個分支不可達——它只在 `deviating` 非空之後才可能被附加
+            // （R17 verify logic 第 26 列：把一個不可能的原因列進封閉的三選一）
+            print("✓ \(r.scanned - r.failures.count) 筆已是 canonical form；\(r.failures.count) 筆未通過（讀不到或 validate 拒絕——見下，逐檔具名）")   // display-safe-exempt: Int
         } else {
             print("偏離 canonical form: \(r.deviating.count) 筆")
             for f in r.deviating.prefix(20) { print("  - \(displaySafe(f, max: 200))") }

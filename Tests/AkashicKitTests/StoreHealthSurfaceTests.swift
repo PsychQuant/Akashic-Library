@@ -56,6 +56,10 @@ final class StoreHealthSurfaceTests: XCTestCase {
         }
         let body = String(source[start.lowerBound...end])
         XCTAssertGreaterThan(body.count, 6_000, "窗口要真的涵蓋整個函式（R16 時已超過 5,800 字元）")
+        // R17 verify logic 第 27 列、regression 第 30 列：樸素的括號計數也數註解與字串裡的括號，只有「太小」那個方向有守衛——
+        // 窗口若擴到後面的函式，一個住在 doctor() 之外的 `health.X` 也能讓斷言通過。另一個方向：窗口以 `}` 結束、且不含下一個函式的簽章
+        XCTAssertTrue(body.hasSuffix("}"), "窗口要在閉合大括號結束")
+        XCTAssertFalse(body.dropFirst(40).contains("public func "), "窗口不得跨進下一個函式")
         for field in try healthFieldNames() {
             XCTAssertTrue(body.contains("health.\(field)"),
                           "doctor() 沒有消費 StoreHealth.\(field) —— "

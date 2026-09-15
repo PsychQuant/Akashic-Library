@@ -56,5 +56,9 @@ final class PairingUniquenessHealthTests: XCTestCase {
         XCTAssertEqual(health.duplicateVenueEdges.count, 20)
         let summaries = health.perRecordIssues.filter { $0.issue.message.hasPrefix(Entry.perRecordCapSummaryPrefix) }
         XCTAssertEqual(summaries.count, 2, "\(summaries.map(\.issue.message))")
+        // R18（D54；R17 verify Codex 第 2 列）：家族計數是下限（每筆記錄至多上限），被截的記錄數要自己成一族，三面才說得出「還有」
+        XCTAssertEqual(health.cappedRecords.count, 2)
+        XCTAssertEqual(StoreHealth.cappedRecordPrefix, Entry.perRecordCapSummaryPrefix, "單一定義")
+        XCTAssertTrue(health.cappedRecords.allSatisfy { $0.issue.message.hasPrefix(Entry.perRecordCapSummaryPrefix) })
     }
 }

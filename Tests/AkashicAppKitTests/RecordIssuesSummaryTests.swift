@@ -138,6 +138,24 @@ final class RecordIssuesSummaryTests: XCTestCase {
         XCTAssertEqual(summary.confirmedLiteralAmbiguities, 1)
         XCTAssertEqual(summary.duplicateVenueEdges, 1)
         XCTAssertEqual(summary.errors, 0, "兩族都是 warning")
+        XCTAssertEqual(summary.cappedRecords, 0)
+    }
+
+    /// R18（D54；R17 verify Codex 第 2 列）：被截的記錄數要到得了 App——家族計數是下限，三面都要說得出「還有」。
+    func testCappedRecordsReachTheAppSummary() throws {
+        let store = LibraryStore(root: root)
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = (1...25).flatMap { w in ["Alpha Journal", "Beta Review"].map { lit in
+            ProvenanceReference(field: "resolution-confirmed",
+                                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "w\(w)", literal: lit).encoded,
+                                kind: .judgement(statement: "測試", restsOn: [])) } }
+        try store.writeVenue(v)
+        for w in 1...25 { try store.writeEntry(Entry(id: UUID(), citekey: "w\(w)", type: .periodicalArticle, title: "T", authors: [.literal("A B")], date: "2020")) }
+        let state = AppState(root: root)
+        try state.load()
+        let summary = try XCTUnwrap(RecordIssuesSummary(health: try XCTUnwrap(state.health)))
+        XCTAssertEqual(summary.confirmedLiteralAmbiguities, 20)
+        XCTAssertEqual(summary.cappedRecords, 1)
     }
 
     /// R15 verify 第 16 列：App 預覽對已消毒的訊息再過一次 `displaySafe(_, max: 160)`——反斜線被逃成 U+005C，且 160 把家族前綴之後的

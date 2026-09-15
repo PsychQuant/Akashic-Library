@@ -108,6 +108,12 @@ public final class AkashicService {
     /// 不是「記得同步更新」的紀律層的解。
     ///
     /// 包成陣列再量：任何 JSON 值都可序列化，多出的 2 bytes 是保守方向。
+    ///
+    /// **量的是 compact 序列化，實際輸出（`jsonString`）是 `.prettyPrinted`**（R17 verify DA 第 23 列，記在這裡不改：兩者的差是縮排與
+    /// 分隔符，2026-09-16 實測巢狀三層的一則 `recordIssues.first` 項目每則多 85–113 bytes，20 則約 1.7 KB ＝ 48 KiB 預算的 3.5%；方向
+    /// 恆為低估。三個消費端——`resolve_people` 的候選列、rejected 列、doctor 的 `first`——都吃同一個偏差，預算對它留有餘裕。要真的
+    /// 「量輸出那一份」得把量測綁到與 `jsonString` 同一組 options，而巢狀深度讓 pretty 的位元組數取決於它在 payload 裡的位置——
+    /// 那不是本函式能單獨回答的，所以上面那句「實際位元組數」要讀成「compact 的實際位元組數」。）
     static func jsonBytes(_ v: Any) -> Int {
         (try? JSONSerialization.data(withJSONObject: [v], options: []))?.count ?? 0
     }
@@ -396,10 +402,14 @@ public final class AkashicService {
                 // #554 配對唯一性的兩半（D28／D36）——計數讓呼叫端不必掃 first（截 20）就看見（R14 verify regression 第 22 列）
                 "duplicateVenueEdges": health.duplicateVenueEdges.count,   // display-safe-exempt: Int
                 "confirmedLiteralAmbiguities": health.confirmedLiteralAmbiguities.count,   // display-safe-exempt: Int
+                // **家族計數是下限**（R18 D54；R17 verify Codex 第 2 列：R17 在這裡寫「各族計數永遠完整」，而 `StoreHealth` 的 doc 說
+                // 被截的記錄上家族計數 ＝ min(受影響數, 20)——同一個 diff 裡的兩份描述）：每筆記錄至多 `Entry.perRecordWarningCap` 則進家族，
+                // `cappedRecords` 說有幾筆記錄被截；要全部就用 CLI `validate`。`count` 本身完整（概括句也是一則）。
+                "cappedRecords": health.cappedRecords.count,   // display-safe-exempt: Int
                 "first": first,
                 // **`first` 受位元組預算約束**（R17；R16 verify regression 第 8 列：R16 把單則上限 300 → 1,000 只為了「只截不逃」，卻把這個
                 // 沒有位元組預算的 block 放大 3.3×——逃脫後一個 scalar 是 8 個字元，20 則最壞 160 KB；`resolve_people` 的候選列早就受
-                // `candidateByteBudget` 管，這裡是同一個威脅模型）。截掉時揭露；`count` 與各族計數永遠完整。
+                // `candidateByteBudget` 管，這裡是同一個威脅模型）。截掉時揭露；`count` 完整，各族計數是下限（見上）。
                 "firstCappedByBudget": firstCapped,   // display-safe-exempt: Bool
             ] as [String: Any]
         }

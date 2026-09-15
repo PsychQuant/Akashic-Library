@@ -33,7 +33,7 @@ struct Doctor: ParsableCommand {
         let fatalCross = health.fatalCrossRecordIssues
         if !cross.isEmpty {
             print("cross-record: \(cross.count)")
-            for i in cross { print("  \(i.severity == .error ? "✗" : "⚠") \(i.message)") }
+            for i in cross { print("  \(i.severity == .error ? "✗" : "⚠") \(i.message)") }   // display-safe-exempt: 訊息在 StoreHealth 裡已逐項消毒（R18：.message 入 tainted 清單，sink 只印）
         }
         // #107：佈局殘留——依 format/key 不該存在、且為空目錄或純衍生物的路徑。
         // **只在命中時輸出，報告不動手刪**（#79 的形狀：讓看不見的變看見，處置留給人）。
@@ -204,7 +204,7 @@ struct Validate: ParsableCommand {
         for owned in health.perRecordIssues {
             let mark = owned.issue.severity == .error ? "✗" : "⚠"
             let label = owned.kind == "entry" ? "" : "\(owned.kind) "
-            print("\(mark) \(label)\(displaySafe(owned.owner, max: 200)): \(owned.issue.message)")
+            print("\(mark) \(label)\(displaySafe(owned.owner, max: 200)): \(owned.issue.message)")   // display-safe-exempt: 訊息在 validate 裡已逐項消毒；CLI validate 逐行不截（R18）
             if owned.issue.severity == .error { failed = true }
         }
         // #453：本機缺承重存檔的計數行——逐條已印在上面，這一行讓人一眼看出是整批
@@ -229,7 +229,7 @@ struct Validate: ParsableCommand {
         // #7b：跨記錄檢查——單筆 validate() 結構上看不到的那一層
         for issue in health.crossRecordIssues {
             let mark = issue.severity == .error ? "✗" : "⚠"
-            print("\(mark) [跨記錄] \(issue.message)")
+            print("\(mark) [跨記錄] \(issue.message)")   // display-safe-exempt: 訊息在 StoreHealth 裡已逐項消毒（R18）
             if issue.severity == .error { failed = true }
         }
         if failed {

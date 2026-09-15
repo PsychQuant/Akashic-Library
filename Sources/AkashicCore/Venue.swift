@@ -306,8 +306,14 @@ public struct Venue: Equatable {
         // 名字內容迴圈與 authorized／variant 分支都只在真的出聲時遞增，只有這一格反了，且與組內 `listed` 的既有紀律（只在非豁免對上
         // 遞增）自相矛盾）。每一組都照常求值（求值上限在組內：5,000 對），上限只管**列出**：有違反的組超過 20 的部分以一句概括，而
         // 被概括的每一組都真的違反。
-        var listedGroups = 0, unlistedGroups = 0
-        func evaluateGroup(_ segs: [TemporalValue<String>]) -> [ValidationIssue] {
+        // **整筆記錄另有求值總量上限**（R18，Claude 代裁 D52；R17 verify requirements 第 5 列、regression 第 20 列、security 第 28 列：
+        // R16 的配額在求值之前判斷，整筆記錄最壞 20 組 × 5,000 對 ＝ 100,000 次 `segmentsAreDisjoint`；R17 為了修「憑空報 error」把配額
+        // 移到求值之後，總量變成隨組數線性成長——而這條路徑在讀取面對未信任內容跑）。總量＝R16 的那個常數；超過即 error（fail-closed，與組內
+        // 上限同一個方向）並說出幾組沒評估。
+        let pairsToEvaluatePerRecord = 100_000
+        var listedGroups = 0, unlistedViolating = 0, unlistedCapHit = 0
+        var evaluatedTotal = 0, unevaluatedGroups = 0, budgetHit = false
+        func evaluateGroup(_ segs: [TemporalValue<String>]) -> (issues: [ValidationIssue], capHit: Bool, evaluated: Int) {
             var out: [ValidationIssue] = []
                 var listed = 0, evaluated = 0
                 let total = segs.count * (segs.count - 1) / 2
@@ -324,7 +330,7 @@ public struct Venue: Equatable {
                                        + (capHit
                                           ? "——同名段超過逐對評估的上限（\(pairsToEvaluate) 對，約 100 筆）一律拒絕：請把同名沿革段收攏，或在 YAML 裡留一筆"   // display-safe-exempt: Int 常量
                                           : "——請在 YAML 裡留一筆（沿革改回舊名要兩段都帶不相交的時間）")))
-                            return out
+                            return (out, capHit && listed == 0, evaluated)
                         }
                         evaluated += 1
                         let a = segs[i].range, b = segs[j].range
@@ -343,38 +349,57 @@ public struct Venue: Equatable {
                                    + "與「\(displaySafeInvisible(segs[j].value, max: 120))」——\(why)"))   // display-safe-exempt: why 是本函式的兩句字面常量
                     }
                 }
-            return out
+            return (out, false, evaluated)
         }
         for k in order {
             let segs = groups[k]!
             guard segs.count > 1 else { continue }
-            let found = evaluateGroup(segs)
-            guard !found.isEmpty else { continue }
-            guard listedGroups < Entry.perRecordWarningCap else { unlistedGroups += 1; continue }
-            listedGroups += 1
-            issues.append(contentsOf: found)
-        }
-        for (label, list) in [("authorized", authorized), ("variant", variant)] {
-            var seenByKey: [String: String] = [:]
-            for n in list {
-                let k = NameIdentity.canonical(n)
-                if let first = seenByKey[k] {
-                    guard listedGroups < Entry.perRecordWarningCap else { unlistedGroups += 1; continue }
-                    listedGroups += 1
-                    issues.append(ValidationIssue(
-                        severity: .error,
-                        message: "venue '\(displaySafe(key, max: 120))' 的 \(label) 有兩筆近重複「\(displaySafeInvisible(first, max: 120))」"   // display-safe-exempt: label 是本函式的字面常量
-                               + "與「\(displaySafeInvisible(n, max: 120))」——只差空白或正規化的兩個字串是同一個名字，請在 YAML 裡留一筆"))
-                } else {
-                    seenByKey[k] = n
-                }
+            let pairs = segs.count * (segs.count - 1) / 2
+            if budgetHit || evaluatedTotal + min(pairs, pairsToEvaluate) > pairsToEvaluatePerRecord {
+                budgetHit = true; unevaluatedGroups += 1; continue
             }
+            let found = evaluateGroup(segs)
+            evaluatedTotal += found.evaluated
+            guard !found.issues.isEmpty else { continue }
+            // 配額只數真的出聲的組（D48）；出聲的組分兩類，概括句分開數、分開說（D52；R17 verify requirements 第 4 列、logic 第 14 列：
+            // R17 的概括句對只觸發組內求值上限的組說「已評估且真的違反」，兩句都假）
+            guard listedGroups < Entry.perRecordWarningCap else { if found.capHit { unlistedCapHit += 1 } else { unlistedViolating += 1 }; continue }
+            listedGroups += 1
+            issues.append(contentsOf: found.issues)
         }
-        if unlistedGroups > 0 {
+        if budgetHit {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafe(key, max: 120))' 的 names／authorized／variant 另有 \(unlistedGroups) 組近重複未列出"   // display-safe-exempt: 前綴是常量；Int
-                       + "（每一組都已評估且真的違反；每筆記錄最多列 \(Entry.perRecordWarningCap) 組——本檢查在讀取路徑上對未信任的 store 內容跑）"))   // display-safe-exempt: Int 常量
+                message: "venue '\(displaySafe(key, max: 120))' 的 names 同名段求值總量已達上限（\(pairsToEvaluatePerRecord) 對，約 20 組各 100 筆同名段）："   // display-safe-exempt: Int 常量
+                       + "另有 \(unevaluatedGroups) 組同名段未評估——一律拒絕：請把同名沿革段收攏，或在 YAML 裡留一筆"))   // display-safe-exempt: Int
+        }
+        // authorized／variant **也先以 canonical 分組**（D52；R17 verify logic 第 15 列、regression 第 21 列：R17 在這裡每一筆重複條目各
+        // 遞增一次配額，四筆同鍵算三「組」，概括句的量詞對兩類不一致）：一組一則、佔一個名額，同鍵超過兩筆時說出筆數
+        for (label, list) in [("authorized", authorized), ("variant", variant)] {
+            var firstByKey: [String: String] = [:], dupsByKey: [String: [String]] = [:], keyOrder: [String] = []
+            for n in list {
+                let k = NameIdentity.canonical(n)
+                if firstByKey[k] == nil { firstByKey[k] = n; keyOrder.append(k) } else { dupsByKey[k, default: []].append(n) }
+            }
+            for k in keyOrder {
+                guard let dups = dupsByKey[k], let first = firstByKey[k] else { continue }
+                guard listedGroups < Entry.perRecordWarningCap else { unlistedViolating += 1; continue }
+                listedGroups += 1
+                issues.append(ValidationIssue(
+                    severity: .error,
+                    message: "venue '\(displaySafe(key, max: 120))' 的 \(label) 有兩筆近重複「\(displaySafeInvisible(first, max: 120))」"   // display-safe-exempt: label 是本函式的字面常量
+                           + "與「\(displaySafeInvisible(dups[0], max: 120))」\(dups.count > 1 ? "（同鍵共 \(dups.count + 1) 筆）" : "")"   // display-safe-exempt: Int
+                           + "——只差空白或正規化的兩個字串是同一個名字，請在 YAML 裡留一筆"))
+            }
+        }
+        if unlistedViolating + unlistedCapHit > 0 {
+            var parts: [String] = []
+            if unlistedViolating > 0 { parts.append("\(unlistedViolating) 組近重複（每一組都已評估且真的違反）") }
+            if unlistedCapHit > 0 { parts.append("\(unlistedCapHit) 組同名段過多（求值到組內上限即拒，沒有一對被判定違反）") }
+            issues.append(ValidationIssue(
+                severity: .error,
+                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafe(key, max: 120))' 的 names／authorized／variant 另有 \(parts.joined(separator: "與"))"   // display-safe-exempt: 前綴是常量；parts 是本函式的字面常量＋Int
+                       + " 未列出——每筆記錄最多列 \(Entry.perRecordWarningCap) 組，本檢查在讀取路徑上對未信任的 store 內容跑"))   // display-safe-exempt: Int 常量
         }
         // **配對唯一性的第二半有掃描面了**（#554 R14，Claude 代裁 D36；`zero-instance-guards` 第 27 列）：同一 work 上 ≥2 個
         // 正規化後不同的 confirmed literal——§3.5 那句 normative 的後半。第一半（同一 work 兩條 key 邊指同一 venue）住在

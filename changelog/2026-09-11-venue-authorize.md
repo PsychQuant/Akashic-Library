@@ -568,7 +568,7 @@ INFO，逐行本來就全印）；`argList` 靜默 no-op（#561）；`StoreHealt
 
 ## R16 verify：第三個面，與一個數錯的配額
 
-R15 的十九列全部在位；R16 verify 31 列、**6 席齊**、2 HIGH、8 MEDIUM。兩個 HIGH 都是 DA 席用真 binary 重現的：
+R15 的十九列全部在位；R16 verify 31 findings 合併成 **24 列**、**6 席齊**、2 HIGH、6 MEDIUM（本節起列號是報告公布的**合併列號**；R1–R15 各節與 R16 之前的規則檔摘要句用的是合併前的 finding 編號——R17 verify 第 6 列抓到兩套編號互斥、規則檔用的那套對不上報告，parity 與 guards 的 R16／R17 句已改成合併列號；更早各節不回頭改，讀時對照各報告的「席」欄）。兩個 HIGH 都是 DA 席用真 binary 重現的：
 
 - **合併是第三個會動到同一批 verdict 的面，而它沒跟上「位元組要真的是位元組」**（第 1 列）。收攏以 `verdictEqualityKey`（正規化）去重後由
   #468 的勝者政策挑一筆，而政策第 1 層「弱血統優先」排在第 2 層「未改寫者勝」之前——被併記錄弱血統的 `VEE JOURNAL` 贏過倖存者使用者確認的
@@ -576,25 +576,53 @@ R15 的十九列全部在位；R16 verify 31 列、**6 席齊**、2 HIGH、8 MED
   `verdictsCollapsed` 還用「正規化後相等」描述它。**D47**：碰撞的 literal 位元組不同時倖存配對自己的（未改寫）那筆勝，同拼法時 #468 三層照舊
   （留弱只多一句警告、不動任何字串）；被丟的那筆連同留下的拼法印在收攏列，holder 遷移、keeper 合併、rename 三條路同一個描述。這是對 #468
   使用者裁決的邊界收窄（使用者可翻）。刻意不加拒絕：只差位元組的兩筆判定不該擋合併，揭露即可。
-- **R16 新加的近重複「組數上限」在判定該組有沒有違反之前就遞增**（第 2 列；Codex 第 3、logic 第 6、security 第 19 列同指）。21 組合法的
+- **R16 新加的近重複「組數上限」在判定該組有沒有違反之前就遞增**（第 2 列；Codex／logic／security 同指）。21 組合法的
   同名沿革段（每組兩段、時間不相交、零違反）讓 validate 憑空報一則 **error**，`assertVenueWritable` 從此對這筆 venue 所有寫入面關門，訊息
   說的是一件不存在的事；前 20 組合法時第 21 組的真近重複整條被吞進概括句。同一輪另外兩個上限都寫對了，只有這一格反了。**D48**：每一組照常
   求值，上限只管列出、只數真的出聲的組。
 
-MEDIUM：D45 的矛盾對訊息把整組豁免寫得比謂詞寬（第 4 列——括號那句無條件、與同輪的測試互相矛盾）→ 刪掉括號、前件寫全；`testEveryFieldIsConsumedByDoctor`
-的 6,000 字元窗口只剩 89 字元、R16 的處置是縮註解（第 5／22 列）→ 窗口改成掃到 `doctor()` 的閉合大括號；repoint 相交訊息的「兩個拼法」用列舉式
-`displaySafe`（Cf 逃不出來）且以 Swift `==` 判同一拼法（第 7／15／21 列）→ 位元組比、性質式逃脫；doctor 的 `recordIssues.first` 沒有位元組預算而
-單則上限 300 → 1,000（第 8 列）→ 受 `candidateByteBudget` 約束、截掉時 `firstCappedByBudget` 揭露；D43 的訊息兩桶同時非空時只印第一桶、用單數
-「那筆」（DA 第 9 列：照著刪掉一筆之後 validate 全綠、再跑才撞第二桶）→ **D50** 兩桶都說、出路分開列；D46 的鏡射把機制寫錯（DA 第 10 列：
+MEDIUM：D45 的矛盾對訊息把整組豁免寫得比謂詞寬（第 3 列——括號那句無條件、與同輪的測試互相矛盾）→ 刪掉括號、前件寫全；`testEveryFieldIsConsumedByDoctor`
+的 6,000 字元窗口只剩 89 字元、R16 的處置是縮註解（第 4 列）→ 窗口改成掃到 `doctor()` 的閉合大括號；repoint 相交訊息的「兩個拼法」用列舉式
+`displaySafe`（Cf 逃不出來）且以 Swift `==` 判同一拼法（第 5 列）→ 位元組比、性質式逃脫；doctor 的 `recordIssues.first` 沒有位元組預算而
+單則上限 300 → 1,000（第 6 列）→ 受 `candidateByteBudget` 約束、截掉時 `firstCappedByBudget` 揭露；D43 的訊息兩桶同時非空時只印第一桶、用單數
+「那筆」（第 7 列：照著刪掉一筆之後 validate 全綠、再跑才撞第二桶）→ **D50** 兩桶都說、出路分開列；D46 的鏡射把機制寫錯（第 8 列：
 決定「空白＋組合符號」會不會整個丟掉的是 grapheme 分群不是 `isWhitespace` 讀幾個 scalar——TAB／LF 等 Control 類依 GB4 斷開、組合符號保留，
 14 個空白裡 8 個對錯了；60,033 例差分裡 2,967 例源於此）→ 鏡射只在 Zs 類空白上吞、doc 改寫機制、NFKC 的 canonical reordering 差異記為邊界。
 LOW：位元組重複註記靜默截在 5 組 → 「…共 N 組」；第 27 列的 `grep -c '只差位元組'` 數的是行不是組 → 改說它量的單位；parity 那一列自己宣告
 「只記編號」卻寫了整段 → R16 那句縮成編號、R17 同形；`assertPairingHasOneEdge` 與重複邊 warning 迴送 store 字串只用列舉式逃脫 → `displaySafeInvisible`；
 `displaySafe` 的「唯一 false 呼叫端」不變式註解已失效 → 「只截不逃」抽成具名的 `displaySafeClipOnly`；changelog 的 R16 splice 落在句中 → 修；
 `wellFormednessIssue` 的 `name != canon` 析取項恆為死碼 → 刪；訊息兩個分支的排序基準 doc 補。記錄不動：否決抑制收窄 recall 而撤回面不存在
-（第 23 列，補記在 #559）；`argList` 靜默強制轉型現在守著判定面（第 27 列，補記在 #561）；`VenueVariantMigration.run(apply: true)` 函式本身仍會寫
-（第 28 列，#567）；`CanonicalFormat` 的 org 分支搭車（第 29 列，#557）；D8 的 error 級不變式沒有修復面（第 31 列）→ **#575**。#574 的 Problem
+（第 16 列，補記在 #559）；`argList` 靜默強制轉型現在守著判定面（第 20 列，補記在 #561）；`VenueVariantMigration.run(apply: true)` 函式本身仍會寫
+（第 21 列，#567）；`CanonicalFormat` 的 org 分支搭車（第 22 列，#557）；D8 的 error 級不變式沒有修復面（第 24 列）→ **#575**。#574 的 Problem
 把機制寫錯了，補一則更正。
+
+## R17 verify：倖存配對不是倖存邊
+
+R16 的 24 列全部在位；R17 verify 31 findings 合併成 **20 列**、**6 席齊**、1 HIGH、9 MEDIUM（DA 把 security 的一列降成 LOW）。HIGH 是 Codex 盲審抓的，
+其他五席全在同一格的旁邊打轉而沒碰到它：
+
+- **keeper 路徑的收攏一律 keeper 勝，但 keeper 那筆 confirmed 可能沒有邊**（第 1 列；logic 第 6 列的三方合併、regression 第 8 列的組層級 `bytesDiffer`、
+  DA 第 10 列的 rename 都是同一句話的四個面）。work 只有一條 `.key(doomed)` 邊、doomed 的 confirmed 是 `ALPHA JOURNAL`，keeper 卻對同一 work 持有
+  `Alpha Journal`（手改、舊 binary，正是 D38 具名的那種輸入）；R17 的 D47 靠「keeper 的就是倖存配對自己的」這個代換，而**倖存配對 ≠ 倖存邊**——合併丟掉
+  doomed 那筆、邊改指 keeper，之後 `--demote` 還回 `Alpha Journal`，不是該邊原文，D23 的掃描只看到一筆、零診斷。與 R16 第 1 列同型，入口從 holder 遷移換成
+  keeper 收攏。**D51**：三條收攏路徑同一個勝者函式——拼法位元組不同時先留活著的邊（合併前 work 對該 venue／person、person 對該 organization 真的有邊，
+  `VerdictEdgeSet`），再留與倖存配對自己位元組相同的（逐對，不是組層級旗標——三列碰撞裡與 keeper 同拼法的弱血統那筆現在留得住位元組與警告），再 #468
+  三層，最後首見；R17 說 keeper 路徑的三方合併「由 #468 決定」是假的（陣列順序），現在是真的。**D53**：rename 只收攏它動到的鍵——被改寫的那筆對上早已指向
+  新鍵的死 verdict 時留活的（R17 釘住的是相反的答案：陣列先見者勝），兩筆都沒動到的碰撞留著、validate 照報；R16 之前的全量 dedup 對不相干 work 的重複由
+  YAML 順序決定留哪個。holder 路徑沒有活邊那一層：work 合併不搬 venues／authors 邊，被併配對在合併後必死。
+
+MEDIUM：doctor 的描述與 service 註解寫「各族計數永遠完整」而 `StoreHealth` 的 doc 說家族計數 ＝ min(受影響數, 20)（Codex 第 5 列，同一個 diff 裡的兩份
+描述）→ **D54** 家族計數是下限、被截的記錄數自成一族 `cappedRecords`（doctor／App 各一格）、描述改寫；R16／R17 摘要句引用的列號在被引用的報告裡不存在
+——用的是合併前的 finding 編號，越界且對不上（第 6 列）→ parity／guards／changelog 改成合併列號，R17 句只記編號；D48 的概括句對只觸發組內求值上限的組說
+「已評估且真的違反」、authorized／variant 數出現次數不數組（第 7 列）→ **D52** 兩類分開計數與措辭、authorized／variant 先分組；D48 把配額移到求值之後
+拿掉了 20 組 × 5,000 對的常數上界（第 8 列）→ D52 整筆記錄 100,000 對求值總量上限，超過即 error 並說出幾組未評估；「全部 14 個 `White_Space` scalar」
+是錯的量測——25 個，8 Control／17 Zs（DA 第 10 列）→ guards 與 #574 的更正 comment 改；`resolve_venues --apply` 的兩個 skipped 陣列無上限（security 第 9
+列，DA 更正：每列體積早被既有上限夾住、筆數由呼叫端決定，與 `verdictsRetired` 不是同一個威脅模型）→ 記錄：缺的是請求面的筆數上限，管到 `applied` 也管到
+skipped，另裁。LOW：第 25 列的量測 grep 數不到求值上限句、又把概括句數成一則（第 11 列）→ 改；`.message` 不在 sink 守衛的 tainted 清單，doctor／App
+的 exempt 註記不承重（第 12 列）→ 入列、三個 CLI sink 掛 exempt；person 側的近重複掃描沒有任何上限（第 13 列）→ **#576**；apply 對「目的 venue 自己
+不合法」仍整批零寫入、與 D33 的分類相反（第 14 列）→ 記錄不動，理由見「不做」；`jsonBytes` 量 compact 而輸出 pretty（第 15 列）→ doc 寫明偏差與餘裕。
+INFO：`fmt` 訊息列了不可達的原因（第 17 列）→ 改；測試窗口的括號配對只有「太小」方向有守衛（第 18 列）→ 加結束錨；四個搭車項集中記（第 19 列）；
+24/24 在位、無注入（第 16／20 列）。
 
 ## 第二次端到端又紅——這次是我的 binary
 
@@ -634,7 +662,7 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
   repoint 同形整批拒（同 literal 的另一拼法不擋——R16 翻成也擋）／doctor 對配對唯一性兩半各有計數 ＋ R16 新增 3 條、改 2 條：重複來源欄位
   的第二條邊報重複邊不報衝突（D44）／同一條邊在同一批被指定兩次自成一句／doctor 不對訊息二次逃脫；apply 與 repoint 的對照組（另一個拼法）
   從「照常」翻成「略過／拒」（D43）＋ R17 新增 5 條：D43 訊息兩桶同時說／repoint 相交訊息兩個拼法位元組比且逃脫不可見字元／
-  `assertPairingHasOneEdge` 逃脫／doctor 的 `first` 受位元組預算約束／（既有）矛盾訊息前件寫全）；`VenueNameInvariantTests` 39 條
+  `assertPairingHasOneEdge` 逃脫／doctor 的 `first` 受位元組預算約束／（既有）矛盾訊息前件寫全 ＋ R18 新增 1 條：doctor 的 `cappedRecords`）；`VenueNameInvariantTests` 39 條
   （R5 的 8 條 ＋ R6：拉丁／CJK joiner 拒、join-control 文字的 joiner 收、DI 不可見、訊息對操作者、
   沿革同名豁免、三張清單近重複、bootstrap 拒的 literal 帶理由 ＋ R7：區塊標點與外文鄰居拒、連續 joiner
   與浮動 virama 拒、草書文字補進區塊表、U+2800、碼位補零、豁免對粒度與端點保守、bootstrap 先問已有 venue
@@ -645,12 +673,13 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
   ＋ R12：倒置或非 ISO 端點的區間不豁免 ＋ R13：不變式訊息逃脫它剛拒掉的字元 ＋ R14：近重複訊息逃脫、同 work ≥2 個
   confirmed literal 是 warning ＋ R15：只差位元組的兩筆也是 warning（第二類、同家族前綴）、兩族 per-record warning 每筆 20 則上限
   ＋ R16：NFC／NFD 的兩筆真的是兩筆（D42）、混合情形點名位元組重複組、名字內容 error 與近重複組各 20 則上限、概括句不進家族
-  ＋ R17：21 組合法沿革不消耗配額且真近重複具名（D48）、位元組重複註記截在 5 組時揭露、重複邊 warning 逃脫不可見 key）；
+  ＋ R17：21 組合法沿革不消耗配額且真近重複具名（D48）、位元組重複註記截在 5 組時揭露、重複邊 warning 逃脫不可見 key
+  ＋ R18：求值上限組與真違反組分開概括、整筆記錄的求值總量上限、authorized 四筆同鍵是一組（D52））；
   `VerdictHolderGridTests` 加「work 合併對持有被併鍵 verdict 的髒 venue 在 commit 前拒」與「person 合併對
   `authorized ⊄ names` 的 organization holder 在 commit 前拒」與「欄位遺失先於 holder 閘」；`NameIdentityTests` 加「不刪
   任何非空白 scalar」；`DivergenceResolveVenueTests` 25 條（三種結果各有測試 ＋ dry-run 對不可寫的 keeper 拒 ＋ 欄位遺失先於被併者的名字檢查 ＋ R12：遷移以正規化鍵去重／相反判定拒／塌邊留兩筆 confirmed literal 拒 ＋ R13：三方合併的 doomed↔doomed 相反判定拒／D32 守不變式本身且倖存者既有違反不擋、去重丟掉的回報 ＋ R14：dry-run 預告去重丟列／單一被併者自帶兩個 literal 拒／單一被併者內部的矛盾拒、三方合併的訊息指名兩筆記錄 ＋ R15：拒絕訊息把帶進來的與倖存者既有的分開列 ＋ R16：被併記錄內部整組的拒絕訊息說它擋（D45））；`VerdictHolderGridTests` 加 R16 兩條：
   把歧義搬到只持有其中一部分的倖存配對上拒、被併鍵上整組矛盾對搬到已有 confirmed 的倖存配對上拒 ＋ R17：holder 遷移不換掉倖存配對的拼法且收攏列印兩個拼法（D47）；
-  `CollapseSurvivorPolicyTests` 加「拼法不同時倖存配對自己的勝」（同拼法 #468 照舊）；`DivergenceResolveVenueTests` 加「keeper 路徑收攏列印兩個拼法」；
+  `CollapseSurvivorPolicyTests` 加「拼法不同時倖存配對自己的勝」（同拼法 #468 照舊）＋ R18「三列碰撞留與 keeper 同拼法的弱血統那筆」「kept 解析不出時說出來」；`DivergenceResolveVenueTests` 加「keeper 路徑收攏列印兩個拼法」＋ R18「keeper 的死 verdict 讓位給活邊那筆」「三方合併走 #468 不走陣列順序」；`VerdictHolderGridTests` ＋ R18「person keeper 路徑活邊勝」「不相干 rename 不動另一 work 的重複」「rename 留被改寫的活 verdict」；`PairingUniquenessHealthTests`／`RecordIssuesSummaryTests` ＋ R18 `cappedRecords`；
   `StoreHealthSurfaceTests` 的窗口改成掃到閉合大括號；`PairingUniquenessHealthTests` 加「家族計數
   不含概括句」；`RecordIssuesSummaryTests` 加「App 預覽不二次逃脫」；`VerdictHolderGridTests` 另加 person 合併的相反判定拒與遷移去重、work 合併的 holder 遷移矛盾拒 ＋ R14：holder 遷移留兩個 literal 拒、合併前就有的矛盾不擋、person dry-run 預告 #271 的去重 ＋ R15：住在被併鍵上的既有矛盾對不擋、被併鍵上既有的雙 literal 不擋、既有歧義變大仍擋且訊息分兩半、倖存者自己持有的 `person:<被併>` 矛盾對不擋而改寫後才相撞的擋、收攏列印原值並逐段截（merge 與 rename）（52 條）；`PairingUniquenessHealthTests`（新）與 `RecordIssuesSummaryTests` 加兩族家族計數；`VerdictEqualityTests` 加 malformed 回退鍵不碰撞；`OrderInsensitiveCollapseTests` 三處 pin 改成遷移前的原值；`AssembledDisplaySafetyTests` 加 organization 的 fmt 語意驗證；`DisplaySinkCoverageTests` 加「守衛認得 `displaySafeInvisible(`」；
   `CanonicalFormatValidationTests` 加 venue 語意驗證
@@ -684,3 +713,13 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
 - `record-divergence` 兩面 help 補 venue（R14 verify regression 第 29 列）——#553 遺留的兩行文字，歸屬記在這裡
 - `assertHolderAddsNoViolation` 與 `migrateHolderVerdicts` 各算一次 `rewrittenVerdicts`（R14 verify 第 25／26 列）——DA 證實等價，代價一次 O(n)；
   收斂要改 `migrateHolderVerdicts` 的回傳形狀，記錄不動
+- `resolve-venues --apply` 對「目的 venue 自己違反名字不變式」仍是整批零寫入（R17 verify 第 14 列：與 D33「store 狀態不符逐筆略過」的分類相反，而 D8 把
+  觸發集合放大到最常見的手改痕跡）——**記錄不動、理由寫出來**：D33 的略過對象是「這一筆候選寫進去會造出的形」，略過它不影響其餘候選；這一格是「目的
+  venue 這筆記錄本身寫不進去」，逐筆略過得把已改寫的 entry 邊撤回、把那個 venue 的全部候選一起撤，而 store 已經在對操作者說「先修這筆 venue」（#575 的
+  修復面）。fail-closed 是對的，分類不同是因為擋的東西不同；#575 落地後重看
+- `akashic_resolve_venues` 的請求面沒有筆數上限——`apply` 陣列由呼叫端決定，回報的 `applied`／兩個 skipped 陣列與它同階（R17 verify 第 9 列；DA 更正
+  security 席：每列體積早被 `describe` 的 5 項 × 120、`IndexList` 的 10 項夾住，與 `verdictsRetired` 那個「體積由 store 內容決定」的威脅模型不同）——
+  要加就加在請求面、一次管三個陣列，另裁
+- person 側的近重複掃描（`AuthorizedNames.validateNearDuplicates`）沒有求值上限也沒有則數上限——venue 側 R10–R18 補的防線的孿生（R17 verify 第 13 列）——#576
+- `jsonBytes` 量的是 compact 序列化而 `jsonString` 是 pretty（R17 verify 第 15 列）——實測每則多 85–113 bytes、20 則約 3.5%，三個消費端同一個偏差、
+  預算留有餘裕；doc 寫明，不逐個呼叫端補係數

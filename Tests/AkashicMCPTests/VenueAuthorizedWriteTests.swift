@@ -1513,4 +1513,21 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertEqual(ri["firstCappedByBudget"] as? Bool, true, out)
         XCTAssertEqual(ri["count"] as? Int, 20, "計數永遠完整")
     }
+
+    /// R17 verify Codex 第 2 列：MCP 描述與 service 註解說「各族計數永遠完整」，而 `StoreHealth` 自己的 doc 說家族計數 ＝ min(受影響數, 20)。
+    /// D54：家族計數是**下限**；被截的記錄數（`cappedRecords`）自己成一族進 payload，描述改說下限。
+    func testDoctorReportsHowManyRecordsWereCapped() throws {
+        let store = LibraryStore(root: root)
+        var v = try venue()
+        v.references = (1...25).flatMap { w in
+            [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "w\(w)", literal: "Alpha Journal", rule: ResolutionLedger.venueRule, statement: "手改"),
+             ResolutionLedger.record(.confirmed, holderKind: .work, holder: "w\(w)", literal: "Beta Review", rule: ResolutionLedger.venueRule, statement: "手改")] }
+        try store.writeVenue(v)
+        for w in 1...25 { _ = try store.writeEntry(Entry(id: UUID(), citekey: "w\(w)", type: .periodicalArticle, title: "T\(w)")) }
+        let out = try service.doctor()
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        let ri = try XCTUnwrap(json["recordIssues"] as? [String: Any], out)
+        XCTAssertEqual(ri["confirmedLiteralAmbiguities"] as? Int, 20, "家族計數是下限（每筆記錄至多 20 則）")
+        XCTAssertEqual(ri["cappedRecords"] as? Int, 1, "有一筆記錄被截，payload 要說：\(ri)")
+    }
 }

@@ -765,6 +765,60 @@ final class DivergenceResolveVenueTests: XCTestCase {
 
     /// R17（D47，keeper 路徑）：倖存者自己的拼法本來就勝（先入），但收攏列要把兩個拼法都印出來——R16 的措辭「正規化後相等，留一筆」
     /// 用的正是 R16 自己宣告不足以判定相同的那把尺（R16 verify DA 第 1 列）。
+    /// **R17 verify Codex 第 1 列 HIGH（跨模型盲審）**：keeper 路徑的收攏一律 keeper 勝，但 keeper 那筆 confirmed 可能**沒有邊**——
+    /// work 只有一條 `.key(doomed)` 邊、doomed 的 confirmed 是 `ALPHA JOURNAL`，keeper 卻持有同 work 的 `Alpha Journal`（手改、舊 binary，
+    /// D38 具名的那種輸入）。合併丟掉 doomed 的那筆、邊改指 keeper，之後 demote 還回 `Alpha Journal`——不是該邊原文，而 D23 的掃描只看到
+    /// 一筆 confirmed、零診斷。D51：碰撞列拼法不同時，**活著的邊**那一筆勝（work 合併前指向誰）；preview 與實跑同源。
+    func testKeeperPathKeepsTheLiveEdgesSpellingOverTheKeepersDeadVerdict() throws {
+        var keeper = Venue(key: "the-american-statistician", type: .periodical,
+                           names: Timeline([TemporalValue(value: "The American Statistician")]), authorized: [])
+        keeper.references = [verdict(holder: "shih2025a", literal: "The American Statistician")]   // 沒有邊：死的
+        try store.writeVenue(keeper)
+        var doomed = Venue(key: "american-statistician", type: .periodical,
+                           names: Timeline([TemporalValue(value: "AMERICAN STATISTICIAN")]), authorized: [])
+        doomed.references = [verdict(holder: "shih2025a", literal: "THE AMERICAN STATISTICIAN")]
+        try store.writeVenue(doomed)
+        var work = Entry(id: UUID(), citekey: "shih2025a", type: .periodicalArticle, title: "A note", authors: [.literal("Shih, J.")], date: "2025")
+        work.venues = [.key("american-statistician")]
+        try store.writeEntry(work)
+        let d = Divergence(id: UUID(), question: "同一本刊嗎",
+                           candidates: [DivergenceCandidate(key: "the-american-statistician", shape: .venue),
+                                        DivergenceCandidate(key: "american-statistician", shape: .venue)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(root, message: "seed")
+        let preview = try store.previewResolveDivergence(id: d.id, survivor: "the-american-statistician", overrideReason: nil)
+        let report = try store.resolveDivergence(id: d.id, survivor: "the-american-statistician")
+        XCTAssertEqual(report.failures, [])
+        let v = try XCTUnwrap(store.load().venues.first)
+        XCTAssertEqual(v.references.compactMap(\.value).map { Array($0.utf8) },
+                       [Array("work:shih2025a :: THE AMERICAN STATISTICIAN".utf8)], "活著的邊記錄的字要留住：\(v.references.compactMap(\.value))")
+        let row = try XCTUnwrap(report.verdictsCollapsed.first, "\(report.verdictsCollapsed)")
+        XCTAssertTrue(row.contains("The American Statistician") && row.contains("留「THE AMERICAN STATISTICIAN」"), row)
+        XCTAssertEqual(preview.verdictsCollapsed, report.verdictsCollapsed, "D35")
+    }
+
+    /// R17 verify logic 第 6 列：keeper 沒有那筆而兩筆被併材料拼法不同時（三方合併），R17 留的是 `doomed` 陣列先出現的——§3.5 說「由 #468 的
+    /// 三層決定」，對 keeper 路徑為假。D51：兩邊都不是活邊、也都不是倖存配對自己的時，跑 #468 三層（弱血統優先）——兩種順序同一個答案。
+    func testThreeWayKeeperPathAppliesTheLineageLayersNotArrayOrder() throws {
+        let keeper = Venue(key: "k", type: .periodical, names: Timeline([TemporalValue(value: "Vee Journal")]), authorized: [])
+        func doomed(_ key: String, _ literal: String, rule: String) -> Venue {
+            var v = Venue(key: key, type: .periodical, names: Timeline([TemporalValue(value: literal)]), authorized: [])
+            v.references = [ProvenanceReference(field: "resolution-confirmed",
+                                                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "w2020a", literal: literal).encoded,
+                                                kind: .judgement(statement: "merge migrate [rule: \(rule)]", restsOn: []))]
+            return v
+        }
+        let strong = doomed("d1", "Vee Journal", rule: ProvenanceReference.RuleName.venueExact)
+        let weak = doomed("d2", "VEE JOURNAL", rule: "venue-name-loose")
+        for order in [[strong, weak], [weak, strong]] {
+            let m = LibraryStore.mergedVenueKeeper(keeper, absorbing: order)
+            let values = m.keeper.references.compactMap(\.value)
+            XCTAssertEqual(values.map { Array($0.utf8) }, [Array("work:w2020a :: VEE JOURNAL".utf8)], "弱血統優先、與順序無關：\(values)")
+            XCTAssertEqual(m.verdictsCollapsed.count, 1, "\(m.verdictsCollapsed)")
+            XCTAssertTrue(m.verdictsCollapsed[0].contains("Vee Journal") && m.verdictsCollapsed[0].contains("留「VEE JOURNAL」"), m.verdictsCollapsed[0])
+        }
+    }
+
     func testKeeperPathCollapseNamesBothSpellings() throws {
         var keeper = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]),
                            authorized: [], issn: [XCTUnwrap_ISSN("0003-1305")])

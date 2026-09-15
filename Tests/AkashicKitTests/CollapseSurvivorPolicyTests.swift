@@ -120,4 +120,36 @@ final class CollapseSurvivorPolicyTests: XCTestCase {
         XCTAssertEqual(ruleOf(same.refs[0]), weak)
         XCTAssertFalse((same.collapsed.first ?? "").contains("位元組"), "同拼法不印「位元組不同」：\(same.collapsed)")
     }
+
+    // MARK: - R18（D51）：勝者先看「哪一筆屬於活著的邊」，再看拼法，再看 #468
+
+    /// R17 verify regression 第 8 列：R17 的第 0 層用**組層級**的 `bytesDiffer`——三列碰撞（keeper exact `Vee Journal`、doomed weak `Vee Journal`、doomed weak `VEE JOURNAL`）
+    /// 裡只要任兩列拼法不同，第 0 層就對**每一對**未改寫／改寫的列生效，於是留下 exact 的 keeper；而 doomed weak `Vee Journal` 與 keeper **逐位元組相同**，
+    /// 留它可以同時保住位元組與弱血統警告。D51：先以拼法篩出「與倖存配對位元組相同」的候選，再在集合內跑 #468 三層——三種排列都要同一個答案。
+    func testMixedGroupKeepsTheWeakRowThatMatchesTheSurvivorsBytes() {
+        let a = ref(holder: "keeper2020a", literal: "Vee Journal", rule: exact, statement: "keeper")
+        let b = ref(holder: "doomed2020a", literal: "Vee Journal", rule: weak, statement: "weak-same")
+        let c = ref(holder: "doomed2020a", literal: "VEE JOURNAL", rule: weak, statement: "weak-other")
+        for (desc, refs) in [("keeper 先", [a, b, c]), ("弱同拼法先", [b, c, a]), ("弱異拼法先", [c, a, b])] {
+            let got = collapse(refs)
+            XCTAssertEqual(got.refs.count, 1, desc)
+            let kept = ProvenanceReference.VerdictPairingValue.parse(got.refs.first?.value ?? "")?.literal ?? ""
+            XCTAssertEqual(Array(kept.utf8), Array("Vee Journal".utf8), "\(desc)：倖存配對的位元組要留住（拿到 \(kept)）")
+            XCTAssertEqual(ruleOf(got.refs[0]), weak, "\(desc)：同拼法時弱血統的警告要留住（#468 第 1 層）")
+            XCTAssertEqual(got.collapsed.count, 2, "\(desc)：\(got.collapsed)")
+            let other = got.collapsed.first { $0.contains("weak-other") } ?? ""
+            XCTAssertTrue(other.contains("留「Vee Journal」") && other.contains("位元組"), "\(desc)：異拼法那列要印留下的拼法：\(other)")
+            let strong = got.collapsed.first { $0.contains("keeper") } ?? ""
+            XCTAssertFalse(strong.contains("位元組"), "\(desc)：同拼法那列不說位元組：\(strong)")
+        }
+    }
+
+    /// R17 verify requirements 第 24 列（INFO）：`kept` 的 value 解析不出配對時 `spellingNote` 靜默回空——D47 承諾的揭露在那一格不兌現、
+    /// 且沒有任何跡象。R18：說出來。
+    func testSpellingNoteSaysWhenTheKeptValueCannotBeParsed() {
+        let dropped = ref(holder: "doomed2020a", literal: "VEE JOURNAL", rule: weak)
+        let kept = ProvenanceReference(field: "resolution-confirmed", value: "garbage", kind: .judgement(statement: "s", restsOn: []))
+        let row = LibraryStore.describeCollapsedVerdict(original: dropped, kept: kept)
+        XCTAssertTrue(row.contains("無法解析"), row)
+    }
 }

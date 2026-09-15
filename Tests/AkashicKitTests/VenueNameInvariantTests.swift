@@ -629,6 +629,50 @@ final class VenueNameInvariantTests: XCTestCase {
         XCTAssertFalse(es.contains { $0.hasPrefix(Entry.perRecordCapSummaryPrefix) }, "\(es)")
     }
 
+    /// R17 verify requirements 第 4 列、logic 第 14 列：D48 的概括句斷言「每一組都已評估且真的違反」，而只觸發 5,000 對求值上限的組
+    /// （零對被判違反、沒評估完、開頭詞「同名段過多」）也被算進去。D52：兩類分開計數、分開措辭。
+    func testCapHitGroupsAreSummarisedSeparatelyFromRealNearDuplicates() {
+        var segs: [TemporalValue<String>] = (1...21).flatMap { [TemporalValue(value: "Dup \($0)"), TemporalValue(value: "Dup \($0)")] }
+        for i in 0..<120 { segs.append(TemporalValue(value: "Sankhyā", range: DateRange(start: String(1000 + 2 * i), end: String(1001 + 2 * i)))) }
+        let es = errors(Venue(key: "j", type: .periodical, names: Timeline(segs), authorized: []))
+        let summary = try? XCTUnwrap(es.first { $0.hasPrefix(Entry.perRecordCapSummaryPrefix) }, "\(es)")
+        XCTAssertTrue(summary?.contains("1 組近重複") == true && summary?.contains("1 組同名段過多") == true, summary ?? "")
+        XCTAssertFalse(summary?.contains("2 組") == true, summary ?? "")
+        XCTAssertEqual(es.filter { $0.contains("有兩筆近重複") }.count, 20)
+    }
+
+    /// R17 verify requirements 第 5 列、regression 第 20 列、security 第 28 列：D48 把配額判斷移到求值之後，整筆記錄的求值總量從
+    /// 20 組 × 5,000 對的常數上界變成隨組數線性成長——而這條路徑在讀取面對未信任內容跑。D52：整筆記錄另有求值總量上限
+    /// （`pairsToEvaluatePerRecord` ＝ 100,000），超過即 error 並說出幾組未評估（fail-closed，與組內上限同一個方向）。
+    func testNearDuplicateEvaluationHasAPerRecordTotalBudget() {
+        func groups(_ n: Int) -> Venue {
+            var segs: [TemporalValue<String>] = []
+            for g in 0..<n { for i in 0..<100 {
+                segs.append(TemporalValue(value: "Journal \(g)", range: DateRange(start: String(1000 + 2 * i), end: String(1001 + 2 * i))))
+            } }
+            return Venue(key: "j", type: .periodical, names: Timeline(segs), authorized: [])
+        }
+        XCTAssertEqual(errors(groups(20)), [], "20 組 × 4,950 對 ＝ 99,000，在總量上限內：全豁免、零 issue")
+        let es = errors(groups(25))
+        XCTAssertEqual(es.count, 1, "\(es)")
+        let m = es.first ?? ""
+        XCTAssertTrue(m.contains("求值總量") && m.contains("5 組") && m.contains("未評估"), m)
+        XCTAssertFalse(m.contains("近重複"), m)
+    }
+
+    /// R17 verify logic 第 15 列、regression 第 21 列：names 迴圈數「組」、authorized／variant 迴圈數「出現次數」，概括句一律說「組」。
+    /// D52：authorized／variant 也先以 canonical 分組——四筆同鍵是一組、一則訊息、佔一個名額。
+    func testAuthorizedDuplicatesCountGroupsNotOccurrences() {
+        let es = errors(venue(names: ["Same"], authorized: ["Same", "Same ", " Same", "Same  "]))
+        XCTAssertEqual(es.filter { $0.contains("的 authorized 有") }.count, 1, "\(es)")
+        XCTAssertTrue(es.first { $0.contains("的 authorized 有") }?.contains("共 4 筆") == true, "\(es)")
+        // 20 組 names 近重複用光名額後，authorized 的四筆同鍵在概括句裡是 1 組不是 3 組
+        let names = (1...20).flatMap { ["Dup \($0)", "Dup \($0)"] } + ["Same"]
+        let capped = errors(venue(names: names, authorized: ["Same", "Same ", " Same", "Same  "]))
+        let summary = capped.first { $0.hasPrefix(Entry.perRecordCapSummaryPrefix) } ?? ""
+        XCTAssertTrue(summary.contains("另有 1 組近重複"), "\(capped)")
+    }
+
     /// R16 verify requirements 第 12 列：第一類訊息的位元組重複註記靜默截在 5 組。
     func testByteDuplicateNoteDisclosesTruncation() {
         var v = venue(names: ["Alpha"])

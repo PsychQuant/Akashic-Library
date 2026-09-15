@@ -28,6 +28,8 @@ struct RecordIssuesSummary: Equatable {
     /// （R14 verify regression 第 22 列：三面計數不得分岔）。
     let duplicateVenueEdges: Int
     let confirmedLiteralAmbiguities: Int
+    /// 被截的記錄數（R18 D54）——家族計數是下限（每筆記錄至多 20 則），這個數字說「還有」。
+    let cappedRecords: Int
     /// `.help` 用：前幾則訊息（`displaySafe`，每則截斷），加一句「完整逐行看 CLI validate」。
     let help: String
 
@@ -45,6 +47,7 @@ struct RecordIssuesSummary: Equatable {
         contradictedRemovalRecords = health.contradictedRemovalRecords.count
         duplicateVenueEdges = health.duplicateVenueEdges.count
         confirmedLiteralAmbiguities = health.confirmedLiteralAmbiguities.count
+        cappedRecords = health.cappedRecords.count
         let preview = issues.prefix(previewLimit).map {
             // 訊息在 validate 裡已逐項消毒；只截不逃（R16；R15 verify 第 16 列：`displaySafe` 不冪等，160 把家族前綴之後的正文截光）
             "\($0.issue.severity == .error ? "✗" : "⚠") \($0.kind) \(displaySafe($0.owner, max: 80))：\(displaySafeClipOnly($0.issue.message, max: 300))"   // display-safe-exempt: 只截不逃（具名函式，R17），理由見上

@@ -1897,39 +1897,54 @@ extension LibraryStore {
                                          to newKey: String,
                                          holderKind: ProvenanceReference.VerdictHolderKind)
         -> (refs: [ProvenanceReference], collapsed: [String])? {
-        var changed = false
-        var out: [ProvenanceReference] = []
-        var collapsed: [String] = []
-        var keptByKey: [String: ProvenanceReference] = [:]   // 鍵 → 留下的那筆（收攏列印留下的拼法，R17 D47）
-        for r in refs {
+        // 第一段：改寫（索引與 `refs` 對齊）
+        let rewritten: [(ref: ProvenanceReference, touched: Bool, isVerdict: Bool)] = refs.map { r in
             guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
                   let v = r.value,
-                  let pairing = ProvenanceReference.VerdictPairingValue.parse(v) else {
-                out.append(r)
-                continue
-            }
-            var kept = r
-            if pairing.holderKind == holderKind, pairing.holder == oldKey {
-                kept = ProvenanceReference(
-                    field: r.field,
-                    value: ProvenanceReference.VerdictPairingValue(
-                        holderKind: holderKind, holder: newKey,
-                        literal: pairing.literal).encoded,
-                    kind: r.kind)
-                changed = true
-            }
-            // 遷移後與既有 verdict 同 (field, value) → 收攏（store 永不持有重複 verdict）
-            // #470：與 merge 側、appendIfAbsent、讀取面同一個相等定義。
-            let key = ProvenanceReference.verdictEqualityKey(field: kept.field, value: kept.value)
-            guard keptByKey[key] == nil else {
-                changed = true
-                collapsed.append(Self.describeCollapsedVerdict(original: r, kept: keptByKey[key]))   // 遷移前的原值（R15，D40）；留下的拼法（R17）
-                continue
-            }
-            keptByKey[key] = kept
-            out.append(kept)
+                  let pairing = ProvenanceReference.VerdictPairingValue.parse(v) else { return (r, false, false) }
+            guard pairing.holderKind == holderKind, pairing.holder == oldKey else { return (r, false, true) }
+            return (ProvenanceReference(field: r.field,
+                                        value: ProvenanceReference.VerdictPairingValue(holderKind: holderKind, holder: newKey,
+                                                                                       literal: pairing.literal).encoded,
+                                        kind: r.kind), true, true)
         }
-        return changed ? (out, collapsed) : nil
+        guard rewritten.contains(where: \.touched) else { return nil }
+        // 第二段：**只收攏這次動到的鍵**（R18，Claude 代裁 D53；R17 verify DA 第 10 列：R16 之前這裡是全量 (field, value) dedup 且沒有勝者政策——
+        // 對不相干 work 的兩筆只差位元組的 confirmed 由 YAML 陣列順序決定留哪個，之後 demote 還回的可能不是那條邊的原文）。同一個被動到的
+        // 鍵下：位元組相同的重複收攏（留首見）；被改寫的那筆對上一筆**早已指向新鍵**的——後者必然是死的（目的鍵不存在，否則 rename 拒絕）
+        // ——留活的（被改寫的）；兩筆都被改寫而拼法不同的**都留**（那是 rename 之前就在的第 27 列第二類 warning，rename 不替它判定）。
+        let touchedKeys = Set(rewritten.filter(\.touched).map { ProvenanceReference.verdictEqualityKey(field: $0.ref.field, value: $0.ref.value) })
+        var out: [ProvenanceReference] = []
+        var collapsed: [String] = []
+        var keptIndex: [String: Int] = [:]          // 鍵 → 留下的那筆在 out 裡的位置
+        var keptOriginal: [String: Int] = [:]       // 鍵 → 留下的那筆在 refs 裡的位置（印遷移前的原值，D40）
+        var keptTouched: [String: Bool] = [:]
+        func bytes(_ r: ProvenanceReference) -> [UInt8] {
+            Array((ProvenanceReference.VerdictPairingValue.parse(r.value ?? "")?.literal ?? "").utf8)
+        }
+        for (i, item) in rewritten.enumerated() {
+            guard item.isVerdict else { out.append(item.ref); continue }
+            let key = ProvenanceReference.verdictEqualityKey(field: item.ref.field, value: item.ref.value)
+            guard touchedKeys.contains(key) else { out.append(item.ref); continue }
+            guard let ki = keptIndex[key] else {
+                keptIndex[key] = out.count; keptOriginal[key] = i; keptTouched[key] = item.touched
+                out.append(item.ref)
+                continue
+            }
+            let kept = out[ki]
+            if bytes(kept) == bytes(item.ref) {
+                collapsed.append(Self.describeCollapsedVerdict(original: refs[i], kept: kept))
+            } else if item.touched && keptTouched[key] == false {
+                // 活的來了：換掉先前留的死的那筆
+                collapsed.append(Self.describeCollapsedVerdict(original: refs[keptOriginal[key]!], kept: item.ref))
+                out[ki] = item.ref; keptOriginal[key] = i; keptTouched[key] = true
+            } else if !item.touched && keptTouched[key] == true {
+                collapsed.append(Self.describeCollapsedVerdict(original: refs[i], kept: kept))
+            } else {
+                out.append(item.ref)   // 同狀態、拼法不同：都留
+            }
+        }
+        return (out, collapsed)
     }
 
     /// 一次性快取的 `StoreVersion.read`：**第一次被呼叫時才讀**、之後回同一個值。rename 的 venue／organization

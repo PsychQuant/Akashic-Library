@@ -1031,10 +1031,13 @@ final class VerdictHolderGridTests: XCTestCase {
         try store.writeVenue(v)
         let r = try store.renameEntry(from: "old2020a", to: "new2020a")
         XCTAssertEqual(r.verdictsCollapsed.count, 1, "\(r.verdictsCollapsed)")
-        let row = r.verdictsCollapsed[0]
-        XCTAssertTrue(row.hasPrefix("venue「alpha」：") && row.contains("work:old2020a :: ALPHA JOURNAL") && !row.contains("work:new2020a :: ALPHA JOURNAL"), row)
-        // R17（D47）：rename 那條路也印留下的拼法——被丟的 `ALPHA JOURNAL` 與留下的 `Alpha Journal` 位元組不同
-        XCTAssertTrue(row.contains("留「Alpha Journal」") && row.contains("位元組"), row)
+        let row = r.verdictsCollapsed.first ?? ""
+        // R18（D53；R17 verify DA 第 10 列）：早已指向 new2020a 的那筆是死的（目的鍵不存在，否則 rename 拒絕），被改寫的那筆才活——
+        // 丟死的、留活的；R17 曾釘住相反的答案（陣列先見者勝）。印**遷移前**的原值（D40）：被丟的是未改寫的那筆，原值就是它自己
+        XCTAssertTrue(row.hasPrefix("venue「alpha」：") && row.contains("work:new2020a :: Alpha Journal") && !row.contains("ALPHA JOURNAL——"), row)
+        XCTAssertTrue(row.contains("留「ALPHA JOURNAL」") && row.contains("位元組"), row)
+        let values = try XCTUnwrap(store.load().venues.first { $0.key == "alpha" }).references.compactMap(\.value)
+        XCTAssertEqual(values.map { Array($0.utf8) }, [Array("work:new2020a :: ALPHA JOURNAL".utf8)], "\(values)")
     }
 
     // MARK: - R16（D45）：「既有」看倖存配對
@@ -1112,5 +1115,66 @@ final class VerdictHolderGridTests: XCTestCase {
         let row = try XCTUnwrap(report.verdictsCollapsed.first, "\(report.verdictsCollapsed)")
         XCTAssertTrue(row.contains("VEE JOURNAL") && row.contains("Vee Journal") && row.contains("位元組"), row)
         XCTAssertEqual(preview.verdictsCollapsed, report.verdictsCollapsed, "D35：preview 與實跑同源")
+    }
+
+    // MARK: - R18（D51）：倖存配對 ≠ 倖存邊
+
+    /// R17 verify Codex 第 1 列 HIGH 的 person 鏡像（keeper 路徑）：work 的作者位指向被併 person，被併 person 的 confirmed 才是那條邊記錄的字；
+    /// 倖存 person 對同一 work 持有另一個拼法的 confirmed 而沒有邊。D51：活著的邊那一筆勝。holder 路徑（work 合併）沒有這一格——
+    /// work 合併不搬 venues／authors 邊（被併 work 的邊隨檔案消失、欄位遺失先拒），被併配對在合併後必死，D47 的「倖存配對自己的勝」在那裡就是活邊規則。
+    func testPersonMergeKeeperPathKeepsTheLiveEdgesSpellingOverTheKeepersDeadVerdict() throws {
+        let w = Entry(id: UUID(), citekey: "w2020a", type: .periodicalArticle, title: "T", authors: [.key("doomed-p")], date: "2020")
+        var keeper = Person(key: "keeper-p", names: ["Smith, J."])
+        keeper.references = [verdict("resolution-confirmed", kind: .work, holder: "w2020a", literal: "Smith, J.")]   // 沒有邊：死的
+        var doomed = Person(key: "doomed-p", names: ["J. Smith"])
+        doomed.references = [verdict("resolution-confirmed", kind: .work, holder: "w2020a", literal: "SMITH, J.")]
+        let edges = LibraryStore.VerdictEdgeSet(snapshot: LibraryLoad(entries: [w], people: [keeper, doomed]))
+        let m = LibraryStore.mergedPersonKeeper(keeper, absorbing: [doomed], edges: edges)
+        let values = m.keeper.references.compactMap(\.value)
+        XCTAssertEqual(values.map { Array($0.utf8) }, [Array("work:w2020a :: SMITH, J.".utf8)], "活著的邊記錄的字要留住：\(values)")
+        XCTAssertEqual(m.verdictsCollapsed.count, 1, "\(m.verdictsCollapsed)")
+        XCTAssertTrue(m.verdictsCollapsed[0].contains("Smith, J.") && m.verdictsCollapsed[0].contains("留「SMITH, J.」"), m.verdictsCollapsed[0])
+        // 對照：沒有邊的資訊時退到「倖存配對自己的勝」（D47）
+        let blind = LibraryStore.mergedPersonKeeper(keeper, absorbing: [doomed])
+        XCTAssertEqual(blind.keeper.references.compactMap(\.value), ["work:w2020a :: Smith, J."])
+    }
+
+    // MARK: - R18（D53）：rename 只收攏它動到的
+
+    /// R17 verify DA 第 10 列：rename 的收攏是「可解析 verdict 的全量」dedup，且沒有任何勝者政策——對不相干 work B 的兩筆只差位元組的
+    /// confirmed（第 27 列第二類，#572 落地前沒有移除面）由 YAML 陣列順序決定留哪個，之後 demote 還回的可能不是 B 那條邊的原文。
+    /// D53：rename 不決定它沒動到的東西——兩筆都沒被改寫的碰撞留著（validate 照報 warning）。
+    func testUnrelatedRenameLeavesByteVariantDuplicatesOnAnotherWorkAlone() throws {
+        try entry("a2020a"); try entry("b2020a")
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Psychometrika")]), authorized: [])
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "b2020a", literal: "Psychometrika"),
+                        verdict("resolution-confirmed", kind: .work, holder: "b2020a", literal: "PSYCHOMETRIKA"),
+                        verdict("resolution-confirmed", kind: .work, holder: "a2020a", literal: "Alpha")]
+        try store.writeVenue(v)
+        let r = try store.renameEntry(from: "a2020a", to: "a2020b")
+        XCTAssertEqual(r.verdictsCollapsed, [], "不相干 work 的重複不是這次 rename 的事")
+        let values = try XCTUnwrap(store.load().venues.first { $0.key == "alpha" }).references.compactMap(\.value)
+        XCTAssertEqual(Set(values), ["work:b2020a :: Psychometrika", "work:b2020a :: PSYCHOMETRIKA", "work:a2020b :: Alpha"], "\(values)")
+    }
+
+    /// D53 的另一半：rename 對**自己改寫的**那筆與一筆早已指向新鍵的 verdict 碰撞時，指向新鍵的那筆**必然是死的**（目的鍵不存在，否則
+    /// rename 拒絕）——留活的那筆（被改寫的），不是陣列先見的。
+    func testRenameKeepsTheRewrittenVerdictOverTheDeadOneAlreadyPointingAtTheNewKey() throws {
+        try entry("old2020a")
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        for refs in [[verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Alpha Journal"),
+                      verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "ALPHA JOURNAL")],
+                     [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "ALPHA JOURNAL"),
+                      verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Alpha Journal")]] {
+            v.references = refs
+            try store.writeVenue(v)
+            let r = try store.renameEntry(from: "old2020a", to: "new2020a")
+            let values = try XCTUnwrap(store.load().venues.first { $0.key == "alpha" }).references.compactMap(\.value)
+            XCTAssertEqual(values.map { Array($0.utf8) }, [Array("work:new2020a :: ALPHA JOURNAL".utf8)], "\(values)")
+            XCTAssertEqual(r.verdictsCollapsed.count, 1, "\(r.verdictsCollapsed)")
+            let row = r.verdictsCollapsed.first ?? ""
+            XCTAssertTrue(row.contains("work:new2020a :: Alpha Journal") && row.contains("留「ALPHA JOURNAL」"), row)
+            _ = try store.renameEntry(from: "new2020a", to: "old2020a")   // 還原給下一輪
+        }
     }
 }

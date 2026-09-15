@@ -134,9 +134,14 @@ public struct StoreHealth {
     /// 前綴的**單一定義在 Core**（訊息在那裡組出），這裡只引用——同 `deadVerdictPrefix` 的形，家族才有計數
     /// （R14 verify regression 第 22 列：兩族沒有家族，doctor 截 20 則、App 預覽 5 則時可能完全看不到，
     /// `zero-instance-guards` 第 26／27 列宣稱的「掃得到」只對 CLI validate 成立）。
-    /// **計數含上限**（R16；R15 verify 第 29 列）：每筆記錄至多 `Entry.perRecordWarningCap` 則進家族，其餘由一句概括
+    /// **家族計數是下限**（R16；R15 verify 第 29 列）：每筆記錄至多 `Entry.perRecordWarningCap` 則進家族，其餘由一句概括
     /// （`Entry.perRecordCapSummaryPrefix`，**不在**任何家族裡）收尾——被截的記錄上，家族計數 ＝ min(受影響數, 上限)，
-    /// 不是受影響數；要全部就用 CLI `validate`。
+    /// 不是受影響數；要全部就用 CLI `validate`。**被截的記錄數自己是一族**（`cappedRecords`，R18 D54；R17 verify Codex 第 2 列：
+    /// doctor 的描述與註解說「各族計數永遠完整」、與這一段互相矛盾，而 MCP 描述是呼叫端唯一看得到的契約）——三面都說得出「還有幾筆被截」。
+    public static let cappedRecordPrefix = Entry.perRecordCapSummaryPrefix
+    public var cappedRecords: [OwnedIssue] {
+        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.cappedRecordPrefix) }
+    }
     public static let duplicateVenueEdgePrefix = Entry.duplicateVenueEdgePrefix
     public var duplicateVenueEdges: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.duplicateVenueEdgePrefix) }

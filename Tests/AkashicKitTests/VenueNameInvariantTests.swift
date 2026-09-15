@@ -558,15 +558,55 @@ final class VenueNameInvariantTests: XCTestCase {
         }
         var v = venue(names: ["Psychometrika"])
         v.references = (0..<25).flatMap { [ref("w\($0)", "Alpha \($0)"), ref("w\($0)", "Beta \($0)")] }
-        let ws = v.validate().filter { $0.severity == .warning && $0.message.hasPrefix(Venue.confirmedLiteralAmbiguityPrefix) }.map(\.message)
-        XCTAssertEqual(ws.count, 21, "20 則 ＋ 1 句概括：\(ws.count)")
+        let all = v.validate().filter { $0.severity == .warning }.map(\.message)
+        let ws = all.filter { $0.hasPrefix(Venue.confirmedLiteralAmbiguityPrefix) }
+        XCTAssertEqual(ws.count, 20, "20 則家族；概括句不進家族（R16，R15 verify 第 29 列）：\(all.count)")
         XCTAssertEqual(ws.filter { $0.contains("個正規化後不同的 confirmed literal") }.count, 20)
-        XCTAssertTrue(ws.last?.contains("另有 5 筆 work 未列出") == true, ws.last ?? "")
+        XCTAssertTrue(all.last?.hasPrefix(Entry.perRecordCapSummaryPrefix) == true && all.last?.contains("另有 5 筆 work 未列出") == true, all.last ?? "")
         var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
         e.venues = (0..<25).flatMap { [VenueRef.key("v\($0)"), VenueRef.key("v\($0)")] }
-        let es = e.validate().filter { $0.severity == .warning && $0.message.hasPrefix(Entry.duplicateVenueEdgePrefix) }.map(\.message)
-        XCTAssertEqual(es.count, 21, "\(es.count)")
+        let eall = e.validate().filter { $0.severity == .warning }.map(\.message)
+        let es = eall.filter { $0.hasPrefix(Entry.duplicateVenueEdgePrefix) }
+        XCTAssertEqual(es.count, 20, "\(eall.count)")
         XCTAssertEqual(es.filter { $0.contains("條邊指向同一 venue") }.count, 20)
-        XCTAssertTrue(es.last?.contains("另有 5 個 venue 未列出") == true, es.last ?? "")
+        XCTAssertTrue(eall.last?.hasPrefix(Entry.perRecordCapSummaryPrefix) == true && eall.last?.contains("另有 5 個 venue 未列出") == true, eall.last ?? "")
+    }
+
+    // MARK: - R16（D42）：第二半的掃描真的比位元組；概括句不帶家族前綴；名字錯誤與近重複組也有上限
+
+    private func confirmedRef(_ work: String, _ literal: String) -> ProvenanceReference {
+        ProvenanceReference(field: "resolution-confirmed",
+                            value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: work, literal: literal).encoded,
+                            kind: .judgement(statement: "測試", restsOn: []))
+    }
+
+    /// R15 verify 第 1 列 HIGH（第 4／8 列同）：R15 的去重用 Swift `String ==`——那是 canonical equivalence，NFC 與 NFD 的兩筆被收攏成
+    /// 一筆、`lits.count > 1` 直接放行、兩類 warning 都不出，而 D23（`confirmedLiteral`）比位元組照拒。D42：以 UTF-8 位元組去重，
+    /// 與 `confirmedLiteral`／`otherConfirmedLiterals` 同一把（`Set<[UInt8]>`，O(N)——第 7 列）。
+    func testConfirmedLiteralScanComparesBytesNotCanonicalEquivalence() throws {
+        var v = venue(names: ["Sankhyā"])
+        v.references = [confirmedRef("w1", "Sankhy\u{0101}"), confirmedRef("w1", "Sankhy\u{0061}\u{0304}")]
+        XCTAssertEqual("Sankhy\u{0101}", "Sankhy\u{0061}\u{0304}", "前提：Swift == 視為相等，所以 R15 的去重會收攏它們")
+        let ws = v.validate().filter { $0.severity == .warning }.map(\.message)
+        XCTAssertEqual(ws.count, 1, "NFC 與 NFD 是兩筆（位元組不同）：\(ws)")
+        XCTAssertTrue(ws.first?.contains("2 筆只差位元組") == true, ws.first ?? "")
+        // 混合（R15 verify 第 23 列 INFO）：三筆裡兩筆只差位元組——第一類訊息也要說出那一組，兩類的計數才對得上
+        v.references = [confirmedRef("w1", "Psychometrika"), confirmedRef("w1", "PSYCHOMETRIKA"), confirmedRef("w1", "Psychometrika (Journal)")]
+        let mixed = v.validate().filter { $0.severity == .warning }.map(\.message)
+        XCTAssertEqual(mixed.count, 1, "\(mixed)")
+        XCTAssertTrue(mixed.first?.contains("2 個正規化後不同") == true && mixed.first?.contains("只差位元組") == true, mixed.first ?? "")
+    }
+
+    /// R15 verify 第 15 列：名字內容的 error 迴圈與近重複組的數量沒有上限，而同一函式的鄰居剛為同一條理由加了上限（讀取路徑上對未信任
+    /// 的 store 內容跑）。R16：兩處各以 `Entry.perRecordWarningCap` 為上限、其餘一句概括（概括句用 `Entry.perRecordCapSummaryPrefix`）。
+    func testNameContentErrorsAndNearDuplicateGroupsAreCapped() {
+        let bad = (1...30).map { "Name\u{200B}\($0)" }
+        let es = errors(venue(names: bad))
+        XCTAssertEqual(es.filter { $0.contains(" 的 names「") }.count, 20, "\(es.count)")
+        XCTAssertTrue(es.contains { $0.hasPrefix(Entry.perRecordCapSummaryPrefix) && $0.contains("另有 10 個名字") }, "\(es)")
+        let dup = (1...30).flatMap { ["Journal \($0)", "Journal \($0)"] }
+        let ds = errors(venue(names: dup))
+        XCTAssertEqual(ds.filter { $0.contains("有兩筆近重複") }.count, 20, "\(ds.count)")   // 概括句也含「近重複」二字，只數逐對訊息
+        XCTAssertTrue(ds.contains { $0.hasPrefix(Entry.perRecordCapSummaryPrefix) && $0.contains("另有 10 組") }, "\(ds)")
     }
 }

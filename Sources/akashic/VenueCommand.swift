@@ -283,13 +283,13 @@ struct MigrateVenueVariants: ParsableCommand {
         let store = try options.openStore()
         print("目標 store：\(displaySafe(store.root.path, max: 300))")
         print("（dry-run only：--apply 自 #554 起拒絕執行，見 #567）")
-        let report = try VenueVariantMigration.run(store: store, apply: apply)
-        let prefix = apply ? "✓" : "（dry-run）"
+        // 走到這裡 `apply` 恆為 false（上面的 guard）——R15 留下的 `apply ? …` 分支是死碼（R15 verify 第 19 列），乾跑措辭寫死
+        let report = try VenueVariantMigration.run(store: store, apply: false)
         if report.planned.isEmpty && report.failed.isEmpty {
             print("沒有可分類的 venue——names 皆單筆、全部已 authorized、已分割、帶時間（沿革不動）"
                   + "、或 authorized 為空（不分類，交人）")
         } else {
-            print("\(prefix) \(apply ? "已分類" : "將分類") \(report.planned.count) 筆"
+            print("（dry-run）將分類 \(report.planned.count) 筆"
                   + "；單一名字 \(report.singleName.count)、全部已 authorized \(report.allAuthorized.count)"
                   + "、已分割 \(report.alreadyPartitioned.count)"
                   + "、帶時間（沿革，不動）\(report.hasTemporal.count)"
@@ -316,7 +316,7 @@ struct MigrateVenueVariants: ParsableCommand {
                 }
             }
         }
-        if let next = VenueVariantMigration.nextStep(report: report, apply: apply,
+        if let next = VenueVariantMigration.nextStep(report: report, apply: false,
                                                      current: try? StoreVersion.read(root: store.root)) { print(next) }
     }
 }
@@ -324,7 +324,7 @@ struct MigrateVenueVariants: ParsableCommand {
 struct ResolveVenuesCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "resolve-venues",
-        abstract: "venue 解析：不帶參數列候選與歧義；--apply 升格 literal 為 key（寫 confirmed verdict；會讓同一 work 兩條邊指同一 venue 的候選逐筆略過並回報 skippedDuplicateVenueEdge；目的 venue 已對該 work 持有另一個 confirmed literal（沒有對應的邊）的候選逐筆略過並回報 skippedConflictingConfirmedLiteral，D38；同一 work 兩條拼法不同的 literal 邊指向同一 venue 時誰落地由 --apply 的順序決定，先到先寫，D28／D33）；--reject 否決（寫 rejected verdict）；--repoint 改指已歸戶的邊（兩側都寫 verdict）；--demote 退回 literal（原字串從 verdict 取回，#418）。--repoint／--demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定（D20，逐筆列在 verdictsRetired、截 20 筆），前提不符整批拒絕零寫入（≥2 個不同 confirmed literal D23；配對由多條邊實例化 D25；被動到的邊與另一條邊同 venue、或同一批同一 literal 且觸及同一 venue D27；改指後目的 venue 會對該 work 持有第二個 confirmed literal D38）。提名的否決抑制以正規化後的 literal 為鍵（R12）：對一個拼法的 --reject／--demote 會壓住同 work 同 venue 的其他拼法，撤回面見 #559")
+        abstract: "venue 解析：不帶參數列候選與歧義；--apply 升格 literal 為 key（寫 confirmed verdict；會讓同一 work 兩條邊指同一 venue 的候選逐筆略過並回報 skippedDuplicateVenueEdge；目的 venue 已對該 work 持有另一個 confirmed literal（沒有對應的邊；相等比位元組，同一 literal 的另一個拼法也略過——之後 demote 會還回舊拼法）的候選逐筆略過並回報 skippedConflictingConfirmedLiteral，D38／D43，且在重複邊檢查之後判，D44；同一 work 兩條拼法不同的 literal 邊指向同一 venue 時誰落地由 --apply 的順序決定，先到先寫，D28／D33）；--reject 否決（寫 rejected verdict）；--repoint 改指已歸戶的邊（兩側都寫 verdict）；--demote 退回 literal（原字串從 verdict 取回，#418）。--repoint／--demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定（D20，逐筆列在 verdictsRetired、截 20 筆），前提不符整批拒絕零寫入（≥2 個不同 confirmed literal D23；配對由多條邊實例化 D25；被動到的邊與另一條邊同 venue、或同一批同一 literal 且觸及同一 venue D27；改指後目的 venue 會對該 work 持有第二個 confirmed literal——相等比位元組、另一個拼法也算 D38／D43；同一條邊在同一批被指定兩次 R16）。提名的否決抑制以正規化後的 literal 為鍵（R12）：對一個拼法的 --reject／--demote 會壓住同 work 同 venue 的其他拼法，撤回面見 #559")
 
     @OptionGroup var options: LibraryOptions
 

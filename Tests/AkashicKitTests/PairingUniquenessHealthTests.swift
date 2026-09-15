@@ -41,4 +41,20 @@ final class PairingUniquenessHealthTests: XCTestCase {
         XCTAssertEqual(StoreHealth.confirmedLiteralAmbiguityPrefix, Venue.confirmedLiteralAmbiguityPrefix, "單一定義")
         XCTAssertEqual(StoreHealth.duplicateVenueEdgePrefix, Entry.duplicateVenueEdgePrefix, "單一定義")
     }
+
+    /// R15 verify 第 29 列：概括句帶家族前綴，兩個計算屬性把它算成一則——25 筆 work 被截成 20 則時計數是 21。家族計數要回答
+    /// 「幾筆受影響（至多上限）」，不是「印了幾行」。R16：概括句用自己的前綴（`Entry.perRecordCapSummaryPrefix`），不進任何家族。
+    func testFamilyCountsExcludeTheCapSummaryLine() throws {
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = (1...25).flatMap { [confirmed("w\($0)", "Alpha Journal"), confirmed("w\($0)", "Beta Review")] }
+        try store.writeVenue(v)
+        var e = Entry(id: UUID(), citekey: "w1", type: .periodicalArticle, title: "T", authors: [.literal("A B")], date: "2020")
+        e.venues = (1...25).flatMap { [VenueRef.key("v\($0)"), .key("v\($0)")] }
+        try store.writeEntry(e)
+        let health = store.health(from: try store.load())
+        XCTAssertEqual(health.confirmedLiteralAmbiguities.count, 20, "\(health.confirmedLiteralAmbiguities.map(\.issue.message))")
+        XCTAssertEqual(health.duplicateVenueEdges.count, 20)
+        let summaries = health.perRecordIssues.filter { $0.issue.message.hasPrefix(Entry.perRecordCapSummaryPrefix) }
+        XCTAssertEqual(summaries.count, 2, "\(summaries.map(\.issue.message))")
+    }
 }

@@ -250,14 +250,25 @@ public struct Venue: Equatable {
         // `NameIdentity.wellFormednessIssue`——它拒的是三份定義的**聯集**（輸出閘 `UnsafeToEmitScalar` 的列舉、
         // Cc／Cf／Zl／Zp、Default_Ignorable），輸出閘只逃脫其中第一份；所以「進得了 store 的名字輸出時一定安全」
         // 為真，反過來「被拒的名字迴送時一定被逃脫」**為假**（TAG 字元原樣進錯誤訊息——#569，R9 verify 第 2 列）。
+        // 則數有上限（R16；R15 verify 第 15 列：同一函式的近重複與配對唯一性檢查都為「讀取路徑上對未信任的 store 內容跑」加了上限，
+        // 這個迴圈與下方的近重複組卻逐筆無上限——`add_names` 無上限、無移除面）。其餘一句概括，概括句用自己的前綴、不進任何家族。
+        var listedNames = 0, unlistedNames = 0
         for (label, list) in [("names", names.entries.map(\.value)), ("authorized", authorized), ("variant", variant)] {
             for n in list {
                 if let why = NameIdentity.wellFormednessIssue(n) {
+                    guard listedNames < Entry.perRecordWarningCap else { unlistedNames += 1; continue }
+                    listedNames += 1
                     issues.append(ValidationIssue(
                         severity: .error,
                         message: "venue '\(displaySafe(key, max: 120))' 的 \(label)「\(displaySafeInvisible(n, max: 120))」\(why)"))   // display-safe-exempt: label 是本函式的字面常量；why 是 NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）
                 }
             }
+        }
+        if unlistedNames > 0 {
+            issues.append(ValidationIssue(
+                severity: .error,
+                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafe(key, max: 120))' 另有 \(unlistedNames) 個名字含不合法字元或形式、未列出"   // display-safe-exempt: 前綴是常量；Int
+                       + "（每筆記錄最多列 \(Entry.perRecordWarningCap) 個——本檢查在讀取路徑上對未信任的 store 內容跑）"))   // display-safe-exempt: Int 常量
         }
         // **canonical-相等對**：同一個名字寫兩筆是自相矛盾的一種（哪一筆是「這個名字」？）。
         // `names` 有一個合法例外（R5 verify 第 4 列）：**沿革改回舊名**——`TimelineOf` 明寫同一 value
@@ -289,9 +300,13 @@ public struct Venue: Equatable {
         // 上限內的求值與 R10 逐位相同，verdict 不變。
         let pairsToList = 3
         let pairsToEvaluate = 5_000
+        // **組數也有上限**（R16；R15 verify 第 15 列）：R10／R11 的兩個上限都在一組之內，三十組同名段仍逐組出聲。
+        var listedGroups = 0, unlistedGroups = 0
         groupLoop: for k in order {
             let segs = groups[k]!
             guard segs.count > 1 else { continue }
+            guard listedGroups < Entry.perRecordWarningCap else { unlistedGroups += 1; continue }
+            listedGroups += 1
             var listed = 0, evaluated = 0
             let total = segs.count * (segs.count - 1) / 2
             for i in segs.indices {
@@ -332,6 +347,8 @@ public struct Venue: Equatable {
             for n in list {
                 let k = NameIdentity.canonical(n)
                 if let first = seenByKey[k] {
+                    guard listedGroups < Entry.perRecordWarningCap else { unlistedGroups += 1; continue }
+                    listedGroups += 1
                     issues.append(ValidationIssue(
                         severity: .error,
                         message: "venue '\(displaySafe(key, max: 120))' 的 \(label) 有兩筆近重複「\(displaySafeInvisible(first, max: 120))」"   // display-safe-exempt: label 是本函式的字面常量
@@ -340,6 +357,12 @@ public struct Venue: Equatable {
                     seenByKey[k] = n
                 }
             }
+        }
+        if unlistedGroups > 0 {
+            issues.append(ValidationIssue(
+                severity: .error,
+                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafe(key, max: 120))' 的 names／authorized／variant 另有 \(unlistedGroups) 組近重複或同名段未列出"   // display-safe-exempt: 前綴是常量；Int
+                       + "（每筆記錄最多列 \(Entry.perRecordWarningCap) 組——本檢查在讀取路徑上對未信任的 store 內容跑）"))   // display-safe-exempt: Int 常量
         }
         // **配對唯一性的第二半有掃描面了**（#554 R14，Claude 代裁 D36；`zero-instance-guards` 第 27 列）：同一 work 上 ≥2 個
         // 正規化後不同的 confirmed literal——§3.5 那句 normative 的後半。第一半（同一 work 兩條 key 邊指同一 venue）住在
@@ -354,12 +377,18 @@ public struct Venue: Equatable {
         // 工具面寫不出它——手改或舊 binary 寫的）。兩類同一家族前綴（`confirmedLiteralAmbiguityPrefix`，StoreHealth 用它篩）、
         // 措辭分開。則數有上限（`Entry.perRecordWarningCap`；R14 verify logic 第 16 列、security 第 18 列：本檢查在讀取路徑上對
         // 未信任的 store 內容跑，同一函式的近重複檢查為同一條理由剛加了上限）。
+        // **「位元組」要真的是位元組**（R16，Claude 代裁 D42；R15 verify 第 1 列 HIGH、第 4／8 列）：R15 的去重寫 `$0.literal == p.literal`，
+        // 而 Swift 的 `String ==` 是 canonical equivalence——NFC 與 NFD 的兩筆被收攏成一筆、`lits.count > 1` 放行、兩類 warning 都不出，
+        // 而 D23 對同一筆記錄照拒。去重鍵改 UTF-8 位元組（`Set<[UInt8]>`，與 `confirmedLiteral`／`otherConfirmedLiterals` 同一把；
+        // 順便把 R15 的 O(N²) `contains(where:)` 換成 O(N)——第 7 列）。混合情形（三筆裡兩筆只差位元組——第 23 列）第一類訊息也點名
+        // 那一組，兩類的計數才對得上；概括句用 `Entry.perRecordCapSummaryPrefix`，不帶家族前綴（第 29 列：R15 讓 `StoreHealth` 把它算成一則）。
         var literalsByWork: [String: [(literal: String, key: String)]] = [:]   // work → 位元組相異的 confirmed literal（首見序）與其 matchingKey
+        var seenBytesByWork: [String: Set<[UInt8]>] = [:]
         var workOrder: [String] = []
         for r in references where r.field == "resolution-confirmed" {
             guard let v = r.value, let p = ProvenanceReference.VerdictPairingValue.parse(v), p.holderKind == .work else { continue }
             if literalsByWork[p.holder] == nil { workOrder.append(p.holder) }
-            if !literalsByWork[p.holder, default: []].contains(where: { $0.literal == p.literal }) {
+            if seenBytesByWork[p.holder, default: []].insert(Array(p.literal.utf8)).inserted {
                 literalsByWork[p.holder, default: []].append((p.literal, NameNormalization.matchingKey(p.literal)))
             }
         }
@@ -370,15 +399,23 @@ public struct Venue: Equatable {
             guard listedWorks < Entry.perRecordWarningCap else { unlistedWorks += 1; continue }
             listedWorks += 1
             var firstByKey: [String: String] = [:]
+            var countByKey: [String: Int] = [:]
             var keyOrder: [String] = []
-            for l in lits where firstByKey[l.key] == nil { firstByKey[l.key] = l.literal; keyOrder.append(l.key) }
+            for l in lits {
+                countByKey[l.key, default: 0] += 1
+                if firstByKey[l.key] == nil { firstByKey[l.key] = l.literal; keyOrder.append(l.key) }
+            }
             if keyOrder.count > 1 {
                 let shown = keyOrder.sorted().prefix(5).map { "「\(displaySafeInvisible(firstByKey[$0]!, max: 120))」" }.joined(separator: "、")
+                let byteDup = keyOrder.sorted().filter { countByKey[$0]! > 1 }.prefix(5)
+                    .map { "「\(displaySafeInvisible(firstByKey[$0]!, max: 120))」另有 \(countByKey[$0]! - 1) 筆" }   // display-safe-exempt: Int
+                let dupNote = byteDup.isEmpty ? "" : "；其中 " + byteDup.joined(separator: "、") + "只差位元組的重複記錄"   // display-safe-exempt: byteDup 逐項 displaySafeInvisible
                 issues.append(ValidationIssue(
                     severity: .warning,
                     message: "\(Self.confirmedLiteralAmbiguityPrefix)：venue '\(displaySafe(key, max: 120))' 對 work「\(displaySafe(w, max: 120))」持有 \(keyOrder.count) 個正規化後不同的 confirmed literal（"   // display-safe-exempt: 前綴是常量；Int
                            + shown + (keyOrder.count > 5 ? "…" : "")   // display-safe-exempt: shown 由上一行逐項 displaySafeInvisible 組成
-                           + "）——verdict 不帶 index，resolve-venues 的 demote／repoint 對這筆 work 會被拒（D23）；修法是手改 YAML 留一筆（#572 落地前沒有工具面）"))
+                           + "）——verdict 不帶 index，resolve-venues 的 demote／repoint 對這筆 work 會被拒（D23）；修法是手改 YAML 留一筆（#572 落地前沒有工具面）"
+                           + dupNote))   // display-safe-exempt: 見 dupNote
             } else {
                 let shown = lits.prefix(5).map { "「\(displaySafeInvisible($0.literal, max: 120))」" }.joined(separator: "、")
                 issues.append(ValidationIssue(
@@ -392,8 +429,9 @@ public struct Venue: Equatable {
         if unlistedWorks > 0 {
             issues.append(ValidationIssue(
                 severity: .warning,
-                message: "\(Self.confirmedLiteralAmbiguityPrefix)：venue '\(displaySafe(key, max: 120))' 另有 \(unlistedWorks) 筆 work 未列出"   // display-safe-exempt: 前綴是常量；Int
-                       + "（每筆記錄最多列 \(Entry.perRecordWarningCap) 筆——本檢查在讀取路徑上對未信任的 store 內容跑）"))   // display-safe-exempt: Int 常量
+                // 正文刻意不引家族前綴的字面：guards 第 27 列的 `grep -c '同一 work 多個 confirmed literal'` 才真的不含概括句（E2E 抓到 21）
+                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafe(key, max: 120))' 另有 \(unlistedWorks) 筆 work 未列出"   // display-safe-exempt: 前綴是常量；Int
+                       + "（同樣對同一筆 work 持有多個 confirmed literal；每筆記錄最多列 \(Entry.perRecordWarningCap) 筆——本檢查在讀取路徑上對未信任的 store 內容跑）"))   // display-safe-exempt: Int 常量
         }
         let known = Set(names.entries.map(\.value))
         let orphan = variant.filter { !known.contains($0) }.sorted()

@@ -531,6 +531,41 @@ statement 各截 200、三個 sink 同一種性質式逃脫。`migrate-venue-var
 verdict，R9 量過）；`fmt` 的 organization 分支是對稱性論證搭車（第 20 列；#557 的形狀）；`record-divergence` 的 help 補 venue 是
 #553 的文件缺口（第 29 列）；`assertHolderAddsNoViolation` 重算一次 `rewrittenVerdicts`（第 25／26 列，DA 證實等價）。
 
+## R15 verify：位元組要真的是位元組
+
+R14 的全部修法在位；R15 verify 30 列、**6 席齊**、3 HIGH、6 MEDIUM。三個 HIGH 都是同一種形——一句寫進 commit message、§3.5、guards、
+changelog 的斷言沒回頭量：
+
+- **「以位元組分兩類」不是位元組**（requirements 第 1 列；MEDIUM 第 4／8 列同）。D39 的去重寫 `$0.literal == p.literal`，而 Swift 的
+  `String ==` 是 canonical equivalence——NFC 與 NFD 的兩筆被收攏成一筆、`lits.count > 1` 放行、兩類 warning 都不出，而 D23 對同一筆記錄
+  照拒。R14 第 3 列點名的兩個例子只修了大小寫那一個；測試的 fixture 也只有大小寫，對這一格是綠的假陽性；guards 的 Python 鏡射（code-point
+  相等）反而會算成兩筆，與 binary 分岔。**D42**：去重鍵改 UTF-8 位元組（`Set<[UInt8]>`，與 `confirmedLiteral`／`otherConfirmedLiterals`
+  同一把；順便把 O(N²) 的 `contains(where:)` 換成 O(N)，第 7 列）；混合情形（三筆裡兩筆只差位元組——第 23 列）第一類訊息點名那一組。
+- **D38 的閘跑在重複邊檢查之前，reason 斷言「沒有對應的邊」而從未驗證**（regression 第 2 列、logic 第 6 列，真 binary 純工具面重現）。
+  重複來源欄位（journaltitle／publisher 各帶同一本刊的一個寫法）是最常見的情境，第二條邊被分進 `skippedConflictingConfirmedLiteral`、
+  出路叫人刪掉**有邊的** confirmed——照做之後那條 key 邊在 demote／repoint 上永遠救不回，正是 D25／D23 一族要防的終局。R15 之前它走
+  `skippedDuplicateVenueEdge`、訊息與出路都對，是 R15 引入的迴歸。**D44**：移到 D28／D33 之後——走到那裡代表這筆 work 沒有任何 key 邊
+  指向這個 venue，那句才為真。
+- **D38 以 `matchingKey` 比、放行同鍵異拼法**（Codex 第 3 列 HIGH、第 5 列）。R15 的理由「`appendIfAbsent` 對它去重、不會多一筆」為真，
+  但漏了下游：新拼法沒寫入，之後 `--demote` 從唯一的 confirmed 取回**舊拼法**，邊被改寫成不是這筆記錄原本寫的字——`confirmedLiteral`
+  的拒絕訊息自己承諾不做的事。**D43**：閘比位元組、與 D23 同一把；`apply` 對「另一個拼法」也略過並具名、`repoint` 也拒，訊息分兩種。
+
+MEDIUM／LOW 裡有一組是 D37 的判準：它問「有沒有**某一個**合併前分區已持有全部」——holder 對 doom 持 {A, B}、對 keep 持 {A} 時 doom 那一區
+⊇ 全部就放行，而 (holder, keep) 合併前只有一個 literal、可以 demote，合併後被 D23 鎖住（logic 第 13 列）；整組住在被併記錄裡的擋、卻被列在
+「這次合併帶進來的」下（第 12 列）；R15 自己新加的末句「含住在被併鍵上的不擋」被 DA 用真 binary 否掉（第 20 列：被搬到別的配對上、把它的歧義
+變大的那幾筆正是住在被併鍵上）。**D45**：「既有」看**倖存配對**——它合併前就持有整組、或合併前一筆都沒有而整組原樣從單一被併鍵搬來，才不擋；
+整組住在被併記錄裡的（R13 的裁決不變）、或讓倖存配對的既有歧義變大的，都擋；矛盾對同一條規則；訊息的末句改寫成這句、「帶進來的」明說含
+合併前住在被併鍵上的。其餘：repoint 同一條邊在同一批被指定兩次落進「兩條邊帶同一個 literal」那句、出路錯（第 14 列）→ 以 (citekey, index)
+去重、自成一句；doctor／App 的 `recordIssues` sink 對已消毒訊息再過一次 `displaySafe`——它逃脫反斜線自身、不冪等，`\u{200B}` 印成
+`\u{005C}u{200B}`，且 300／160 把家族前綴之後的正文截掉（第 16 列）→ 只截不逃、doctor 1,000／App 300；名字內容 error 與近重複組無上限
+（第 15 列）→ 各 20；概括句帶家族前綴、`StoreHealth` 把它算成一則（DA 第 29 列：25 筆 work 報 21）→ 自己的前綴 `則數已達上限`；apply 對每個
+候選重剖一遍 ledger（第 17 列）→ 每個 venue 一次；guards 鏡射與 Swift 還差兩處（logic 第 9／11 列、DA 第 24 列：`Character.isWhitespace`
+只看第一個 scalar，「空白＋組合符號」整個 cluster 被丟掉、組合符號消失；連字號＋ZWJ 是一個 cluster）→ **D46** 鏡射照 Swift 的行為鏡射並加
+固定案例（2026-09-16 用逐字複製的 `matchingKey` 探針量過）——`matchingKey` 本身的資料損失另案 #574，這一輪不改它（動到全庫提名鍵與 verdict
+去重鍵，要自己的量測）；`migrate-venue-variants` 的 `apply ?` 死分支（第 19 列）→ 刪。記錄不動：CLI `validate` 沒有家族計數行（第 22 列
+INFO，逐行本來就全印）；`argList` 靜默 no-op（#561）；`StoreHealthSurfaceTests` 的反射守衛照不到計算屬性家族（第 27 列）；本輪 scope 累積
+（第 28 列——DA 說得對，R16 起 `mcp-cli-parity` 那一列的 verify 摘要只記裁決編號與列號）。
+
 ## 第二次端到端又紅——這次是我的 binary
 
 改成替換語意後測試 7/7 綠、四個 mutation 負控乾淨，真 binary 卻說「authorized 含不在
@@ -566,7 +601,9 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
   三桶、空陣列訊息 ＋ R13 新增 4 條（R13 verify 第 21 列：這裡曾寫「3 條」而列了四項）：三個 move 非相鄰相交拒／組合腿以正規化配對算
   skippedBecauseRejected／variant 與 authorize 的全空白項回報／入口拒絕訊息逃脫不可見字元 ＋ R14 新增 3 條：相交訊息印兩個拼法／
   既有重複邊的全部索引／入口拒絕訊息項數截 10 ＋ R15 新增 3 條：apply 對目的 venue 已持另一個 confirmed literal 的候選略過並具名／
-  repoint 同形整批拒（同 literal 的另一拼法不擋）／doctor 對配對唯一性兩半各有計數）；`VenueNameInvariantTests` 39 條
+  repoint 同形整批拒（同 literal 的另一拼法不擋——R16 翻成也擋）／doctor 對配對唯一性兩半各有計數 ＋ R16 新增 3 條、改 2 條：重複來源欄位
+  的第二條邊報重複邊不報衝突（D44）／同一條邊在同一批被指定兩次自成一句／doctor 不對訊息二次逃脫；apply 與 repoint 的對照組（另一個拼法）
+  從「照常」翻成「略過／拒」（D43））；`VenueNameInvariantTests` 39 條
   （R5 的 8 條 ＋ R6：拉丁／CJK joiner 拒、join-control 文字的 joiner 收、DI 不可見、訊息對操作者、
   沿革同名豁免、三張清單近重複、bootstrap 拒的 literal 帶理由 ＋ R7：區塊標點與外文鄰居拒、連續 joiner
   與浮動 virama 拒、草書文字補進區塊表、U+2800、碼位補零、豁免對粒度與端點保守、bootstrap 先問已有 venue
@@ -575,10 +612,13 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
   ＋ R10：virama 之前的 joiner 要有後續字母且只限 Devanagari／Bengali、近重複訊息每組上限
   ＋ R11：近重複求值上限（全豁免組）、「另至多 M 對未評估」、同 venue 兩條 key 邊是 work 的 warning
   ＋ R12：倒置或非 ISO 端點的區間不豁免 ＋ R13：不變式訊息逃脫它剛拒掉的字元 ＋ R14：近重複訊息逃脫、同 work ≥2 個
-  confirmed literal 是 warning ＋ R15：只差位元組的兩筆也是 warning（第二類、同家族前綴）、兩族 per-record warning 每筆 20 則上限）；
+  confirmed literal 是 warning ＋ R15：只差位元組的兩筆也是 warning（第二類、同家族前綴）、兩族 per-record warning 每筆 20 則上限
+  ＋ R16：NFC／NFD 的兩筆真的是兩筆（D42）、混合情形點名位元組重複組、名字內容 error 與近重複組各 20 則上限、概括句不進家族）；
   `VerdictHolderGridTests` 加「work 合併對持有被併鍵 verdict 的髒 venue 在 commit 前拒」與「person 合併對
   `authorized ⊄ names` 的 organization holder 在 commit 前拒」與「欄位遺失先於 holder 閘」；`NameIdentityTests` 加「不刪
-  任何非空白 scalar」；`DivergenceResolveVenueTests` 25 條（三種結果各有測試 ＋ dry-run 對不可寫的 keeper 拒 ＋ 欄位遺失先於被併者的名字檢查 ＋ R12：遷移以正規化鍵去重／相反判定拒／塌邊留兩筆 confirmed literal 拒 ＋ R13：三方合併的 doomed↔doomed 相反判定拒／D32 守不變式本身且倖存者既有違反不擋、去重丟掉的回報 ＋ R14：dry-run 預告去重丟列／單一被併者自帶兩個 literal 拒／單一被併者內部的矛盾拒、三方合併的訊息指名兩筆記錄 ＋ R15：拒絕訊息把帶進來的與倖存者既有的分開列）；`VerdictHolderGridTests` 加 person 合併的相反判定拒與遷移去重、work 合併的 holder 遷移矛盾拒 ＋ R14：holder 遷移留兩個 literal 拒、合併前就有的矛盾不擋、person dry-run 預告 #271 的去重 ＋ R15：住在被併鍵上的既有矛盾對不擋、被併鍵上既有的雙 literal 不擋、既有歧義變大仍擋且訊息分兩半、倖存者自己持有的 `person:<被併>` 矛盾對不擋而改寫後才相撞的擋、收攏列印原值並逐段截（merge 與 rename）（52 條）；`PairingUniquenessHealthTests`（新）與 `RecordIssuesSummaryTests` 加兩族家族計數；`VerdictEqualityTests` 加 malformed 回退鍵不碰撞；`OrderInsensitiveCollapseTests` 三處 pin 改成遷移前的原值；`AssembledDisplaySafetyTests` 加 organization 的 fmt 語意驗證；`DisplaySinkCoverageTests` 加「守衛認得 `displaySafeInvisible(`」；
+  任何非空白 scalar」；`DivergenceResolveVenueTests` 25 條（三種結果各有測試 ＋ dry-run 對不可寫的 keeper 拒 ＋ 欄位遺失先於被併者的名字檢查 ＋ R12：遷移以正規化鍵去重／相反判定拒／塌邊留兩筆 confirmed literal 拒 ＋ R13：三方合併的 doomed↔doomed 相反判定拒／D32 守不變式本身且倖存者既有違反不擋、去重丟掉的回報 ＋ R14：dry-run 預告去重丟列／單一被併者自帶兩個 literal 拒／單一被併者內部的矛盾拒、三方合併的訊息指名兩筆記錄 ＋ R15：拒絕訊息把帶進來的與倖存者既有的分開列 ＋ R16：被併記錄內部整組的拒絕訊息說它擋（D45））；`VerdictHolderGridTests` 加 R16 兩條：
+  把歧義搬到只持有其中一部分的倖存配對上拒、被併鍵上整組矛盾對搬到已有 confirmed 的倖存配對上拒；`PairingUniquenessHealthTests` 加「家族計數
+  不含概括句」；`RecordIssuesSummaryTests` 加「App 預覽不二次逃脫」；分開列）；`VerdictHolderGridTests` 加 person 合併的相反判定拒與遷移去重、work 合併的 holder 遷移矛盾拒 ＋ R14：holder 遷移留兩個 literal 拒、合併前就有的矛盾不擋、person dry-run 預告 #271 的去重 ＋ R15：住在被併鍵上的既有矛盾對不擋、被併鍵上既有的雙 literal 不擋、既有歧義變大仍擋且訊息分兩半、倖存者自己持有的 `person:<被併>` 矛盾對不擋而改寫後才相撞的擋、收攏列印原值並逐段截（merge 與 rename）（52 條）；`PairingUniquenessHealthTests`（新）與 `RecordIssuesSummaryTests` 加兩族家族計數；`VerdictEqualityTests` 加 malformed 回退鍵不碰撞；`OrderInsensitiveCollapseTests` 三處 pin 改成遷移前的原值；`AssembledDisplaySafetyTests` 加 organization 的 fmt 語意驗證；`DisplaySinkCoverageTests` 加「守衛認得 `displaySafeInvisible(`」；
   `CanonicalFormatValidationTests` 加 venue 語意驗證
 - `record-divergence --candidate` 的 help 與 MCP `candidates` 描述補 venue（#553 遺留，兩面對齊）
 - `mcp-cli-parity` 的 `akashic_update_venue` 列補記；`two-kinds-of-edits` 加一列、#553 那列
@@ -589,7 +629,9 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
 - 撤回面（把名字從 authorized 移出而不放新的進去）——#559
 - venue 邊的移除面（同一 work 兩條邊指同一 venue 時唯一出路是手改 YAML）——#572（R11 把生產端關掉、既有的報 warning）
 - `supersede` 退役判定記錄而 repoint／demote 沒有 trackedness 前置（merge 有）——#573
-- 近重複求值上限只綁組內、組數不設上限；`vetVenueNames` 拒絕訊息項數無上限——#562 家族，記錄不動
+- ~~近重複求值上限只綁組內、組數不設上限~~（R16 起組數也有上限）；`vetVenueNames` 拒絕訊息項數無上限——#562 家族，記錄不動
+- `matchingKey` 的空白切在 Character 上、「空白＋組合符號」整個 cluster 被丟掉（與 `NameIdentity.canonical` 不一致）——#574（R16 只把 guards 的鏡射對齊到這個行為）
+- `StoreHealthSurfaceTests.testEveryFieldIsConsumedByDoctor` 只掃 `doctor()` 開頭 6,000 字元——R16 在 sink 加兩行註解就把最後兩個欄位擠出窗口（全套 2 紅，縮成一行後 5,888／6,000）；窗口是脆的，記錄不動
 - judgement 記錄——#564（三面一次裁）
 - `bootstrap-venues` 是否停寫 `[names[0]]`——#563
 - ~~`addNames`／`addVariant` 的 `String ==` vs 守衛 `NameIdentity.canonical`——#560~~ → R4 三個迴圈

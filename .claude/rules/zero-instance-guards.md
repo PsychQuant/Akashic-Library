@@ -72,7 +72,7 @@
 | 24 | **零實例，而它是一條「記得起來、解不掉」的半吊子管線——且零是雙重的**（#555：organization 的攣生合併。`recordDivergence` 的 `byShape` 收 org、`resolveDivergence` 對它擲 `unsupportedShape`。2026-09-11 實測 live store：organization **13** 筆、寬鬆共鍵的重複群 **0** 組、含 org 候選的 divergence 記錄 **0** 筆——沒有重複可合、也沒有人記過。另有 **3** 筆帶 `parents` 時間軸，那是 venue 合併沒有的問題（部分—整體關係怎麼併，`Organization.swift:84-88` 明寫它與 person 的隸屬是不同的 predicate）。重跑指令見表下方） | ⚠ **暫不做——既不實作也不拿掉** | 前二十三列的裁決都是「寫」或「不寫」某個東西；這一列裁決的是**對一個已存在的半吊子什麼都不動**，而那之所以可接受，理由是第四種：**它已經誠實了**。#553 把 `unsupportedShape` 的訊息改成從實際支援的清單生成（「organization 的合併管線尚未實作——支援的是 person／work／venue」），所以留著它的代價是零——使用者撞到時看到的是真話。而動它的兩個方向代價都不是零：**實作**要替 `parents` 時間軸設計合併形狀，零實例時做等於猜（同第 10 列「形狀取決於一個還不存在的用途」）；**拿掉**（`byShape` 移除 org）會連記錄面一起關——`record-divergence` 是「當場記錄而非當場判斷」（#77），關掉它等於斷言 org 永遠不會有需要延後判定的歧異，那是關於世界的斷言。**一個誠實的半吊子比一個猜出來的完整更好。** 與第 8 列（零的來源在別處）最像而不同：那一列的零由另一段程式造成、可能被改掉而沒人知道；這一列的零由 org 域剛重啟（#304）造成，而 `bootstrap-organizations` 今天 0 候選——零會不會被打破取決於使用量，不取決於任何程式。**觸發條件可檢查**（指令見表下方）：org 重複群 > 0 **或** 出現第一筆含 org 候選的 divergence 記錄——任一成立即重開，那時要選的是實作或拿掉，不再是暫不做。**若實作，`doomedRelativePaths`／`holderRelativePaths` 的 org 分支要同批補**（#558 對 venue 漏掉的正是這兩格）|
 | 25 | **零實例，而實例全部是在 verify 裡被造出來的——守衛裝在 store 邊界，零量的是五個寫入者的出口**（#554 R5，使用者裁決 D8：venue 名字內容的不變式——canonical 形、無控制／格式／不可見字元、至少一個字母或數字、三張清單各無近重複對（names 的例外：兩段都帶不相交時間的沿革改回舊名，R6）——住在 `Venue.validate()`，error 級；謂詞一份在 `NameIdentity.wellFormednessIssue`、與輸出閘 `UnsafeToEmitScalar` 共用危險 scalar 的定義，「不可見」用 Unicode 的 `Default_Ignorable_Code_Point`（R6；R5 用 generalCategory 四類，VS16／CGJ 是 Mn、Hangul filler 是 Lo，全放行），ZWJ／ZWNJ 只在兩個脈絡合法——(a) 掛在同一文字**字母**上的 virama 之後（virama 與中間的標記都是基底那個文字的；右鄰居若在要是同一文字的字母／數字，空白視同沒有）、(b) 左鄰居是 join-control 文字的字母／標記／數字、右鄰居是**同一文字**的字母／數字或同一 Indic 文字的 virama（R6；R5 的「兩側是字母」對拉丁字母 fail-open；R7 再收區塊裡的標點與連續 joiner——R6 verify 第 1／19 列；R8 再收基底要是字母、兩側同文字、右側不收標記——R7 verify 第 1／26／33 列；R9 再收 virama 與標記要與基底同文字、放行詞尾 chillu 後的空白與 Bengali ya-phalaa 的 `<RA, ZWJ, VIRAMA, YA>`——R8 verify 第 6／10／11 列，D21／D22；R10 再收 virama 之前的 joiner 只在 Devanagari／Bengali 且 virama 之後要接同文字的字母——R9 對十個 Indic 文字一起放行且不看右脈絡，`क\u{200D}\u{094D}` 與 `क्` 渲染相同而各自進得了 names，R9 verify DA 第 10 列，D26），U+2800 顯式列入不可見（第 20 列）。2026-09-12 實測 live store：venue **485** 筆，四條不變式的違反字串 **0**、names 近重複對 **0**；而 R2–R5 四輪 verify 用真 binary 寫進了 `\r`／`\n`／LS／`—`／`×`／RLO／ZWSP／ALM／TAG 字元／尾隨空白／NFD 位元組／拉丁字母夾 ZWNJ／VS16／CGJ／Hangul filler——每一個都是實例，只是發生在 scratch store 而不是 live store。重跑腳本見表下方） | ✅ **寫（error 級、在 store 邊界）** | 第 18 列的理由是「零量的是出口而守衛裝在入口」；這一列多一件事：**入口有五個**（`updateVenue` 的三個名字迴圈、`addVenue`、`VenueBootstrap`）。R2→R4 三輪把閘裝在 `updateVenue` 的三個迴圈裡，每一輪都修在看見的那一圈，R4 verify 指出同一欄位還有 `addVenue`（連空字串都收）與 `VenueBootstrap`（只 trim）——`Venue.swift` 自己的 dated-variant 守衛 doc 早就寫著「守衛住在 validate → writeVenue 的交會處才擋得住所有路徑」。所以本列的裁決有兩半：**寫**（零實例但實例已被造出四次），**以及寫在 store 邊界而不是任何一個寫入面**——寫入面（`vetVenueNames`）留作入口的好訊息，不再是防線。**severity 是 error** 而非 warning，理由是 live store 0 筆違反（提級不拒絕任何既有記錄——但別的 clone 若持有手改的記錄，`akashic validate` 對它會 exit 1）且違反的後果是 displayName 直接壞掉（`displayName` 讀 `authorized`，#475）。**這與第 8／13 列的前提要對帳**（R5 verify 第 12 列）：那兩列說「per-record 的 error 級檢查全是 key 檢查、對載入後的記錄不可達」——**對 venue／organization 自 #227（authorized ⊆ names）／#422（帶時間 variant）／#473（孤兒 variant）起就已為假**：venue 的內容檢查全在寫入期、decode 不驗，所以載入後可達、`StoreHealth.perRecordIssues` 收得到；第 8 列的 pin test 只對 entry／person／divergence 改壞 key，證的是「key 錯會 quarantine」，不是那句前提。本列不翻第 8 列的裁決（`errorsFirst` 的排序仍是對的），只把那句前提的失效日期寫出來——它在本列之前就失效了，本列把可達的 error 類別從三個擴到七個。**誠實邊界**：不變式的 NFC 對 CJK 相容表意文字有損（U+FA10 塚 → U+585A）——位元組層有損、Swift 層無損（Swift `==` 早已視為相等）；ZWJ／ZWNJ 保留但只在 `NameIdentity.joinerIsLegal` 的兩個脈絡；DI 一律拒等於拒掉 IVS／蒙古文 FVS／希伯來 CGJ 等真實正字法用字——fail-closed、零實例、Claude 代裁 D9 的取捨，寫在 §5.7 誠實邊界（R6 verify 第 5／23 列）；私用區（Co）不擋，因為 doc 從未宣稱它；`canonical` 只丟 `White_Space` scalar、不刪任何其他 scalar（R6——R5 在 Character 上切，「空白＋combining mark」整個 cluster 被刪）。**觸發條件可檢查**（指令見表下方）：`akashic validate` 對 venue 的名字內容 error 應恆為 0；非零時那筆是手改或舊 binary 寫的，修法是人改 YAML（同 dated-variant 的立場，不猜、不靜默修；訊息自 R6 起逐條說改什麼） |
 | 26 | **零實例，而它守的是三個閘共同的前提——閘擋工具面、守衛掃非工具面**（#554 R10 verify 第 2／5／10 列，Claude 代裁 D28：同一 work 兩條 key 邊指同一 venue。D25（repoint／demote 拒）、D27（repoint 後不得出現）、D28（apply 不得造出）三個閘守的都是「配對只由一條邊實例化」，而 store 另有手改與舊 binary 兩個寫入者不經任何閘；R10 verify 用真 binary 三次造出這個形（`apply` 兩條同刊名的 literal 邊、`repoint` 改指到本 work 已有邊的 venue），`validate`／`doctor`／App 全綠，使用者直到想 demote 才知道。2026-09-14 實測 live store：2,411 筆 work、同 venue 兩條 key 邊 **0**。重跑腳本見表下方） | ✅ **寫（warning 級、在 `Entry.validate()`）** | 第 25 列的理由是「入口有五個」而守衛裝在 store 邊界；這一列的入口在 R11 之後只剩**不經工具的兩個**（手改、舊 binary）——venue 合併**不是**入口（`resolveVenueDivergence` 對改指倖存者的 key 邊去重；R11 verify DA 第 14 列真 binary 造出的是另一個形：合併後一條 literal 邊指向 work 已 key 的 venue，它不造出重複的 key 邊，由 D33 的逐筆略過處理、提名照常；反方向倒是真的——它對 entry 的 key 邊去重時會把與被併鍵無關的既有重複 key 邊一併收成一條，是 #572 落地前唯一的移除面，R12 verify logic 第 38 列），而那兩個正是閘擋不到的。**守衛與閘是同一條不變式的兩半**：閘讓工具面造不出這個形，守衛讓已經在庫裡的看得見——少了守衛，D25 的拒絕就是使用者第一次知道自己的 store 走進這一格的時刻，而那時他要做的操作已經被擋。**severity 是 warning**，理由與第 13 列同型：記錄合法可載入（兩條邊各自指向存在的 venue），失效的是判定逆轉的前提；升 error 會讓一筆只能手改才修得好的 work 擋住自己所有的寫入，而處置面還不存在（#572）。與第 23 列（可達性是本 change 造出來的）成鏡像：那一列是新面讓不可達變可達、守衛與面同批；這一列是新閘讓可達變**不可達**（對工具面），守衛守的是關掉之前寫進去的與繞過工具寫進去的。R15 起有家族前綴（`Entry.duplicateVenueEdgePrefix`）、`StoreHealth.duplicateVenueEdges` 計數（doctor／App 各一格）、每筆 work 最多列 20 個 venue（第 27 列同一批，R14 verify regression 第 22 列、security 第 18 列）。**觸發條件可檢查**（指令見表下方）：計數應恆為 0；非零時先看那筆是不是 R11 之前的 binary 寫的（`apply` 的兩次歸戶）——修法是刪掉多餘的邊，#572 落地前只能手改 YAML |
-| 27 | **零實例，而它是同一句不變式的另一半——第一半的守衛結構上照不到它**（#554 R13 verify DA 第 16 列，Claude 代裁 D36：同一 (venue, work) 上 ≥2 個正規化後不同的 confirmed literal。§3.5 把配對唯一性寫成一句 normative 的兩半，第 26 列守的是第一半（work 的邊），第二半住在 venue 的 references 上——`Venue.validate()` 不掃 verdict 配對、`StoreHealth` 沒有對應項，全樹「個不同的 confirmed literal」只出現在 `confirmedLiteral` 的**拒絕訊息**，零 validate／doctor 呼叫端。而真正造出第二半的路徑（work 合併把兩筆 work 的邊連同 verdict 併到一筆——R13 verify DA 第 3 列純工具面重現：`--apply` 兩個刊名變體 ＋ `resolve-divergence`）結構上**不會**點亮第一半的燈：被併 work 連同它的邊一起刪掉，倖存者只剩一條邊，validate 零診斷、`--demote` 撞 D23。2026-09-15 實測 live store：venue **485** 筆、對同一 work 持 ≥2 個正規化後不同 confirmed literal 的 **0** 筆。重跑腳本見表下方） | ✅ **寫（warning 級、在 `Venue.validate()`）** | 第 26 列的理由是「閘與守衛是同一條不變式的兩半」——閘擋工具面、守衛掃非工具面；這一列是**同一條不變式的另一半要有自己的守衛**：兩半在偵測面上互斥（造出第二半的路徑不點亮第一半的燈），所以第 26 列的量測「應恆為 0」只兌現了一半，而本檔自己的紀律是「寫出條件而不是只寫數字」。裁決有兩半：寫（零實例但實例已在 verify 裡被造出、且 R14 之前純工具面造得出），**以及不改成只修散文**——DA 給的另一個出口是把 §3.5 那句改成「第二半今天沒有掃描面」，那等於把一個已知可達的狀態留在「只有 demote／repoint 撞上時才知道」。**severity 是 warning**，理由與第 26 列同型：記錄合法可載入，失效的是判定逆轉的前提（D23 從此拒那筆 work 的 demote／repoint）；處置是手改 YAML 留一筆，#572 落地前沒有工具面，升 error 會讓一筆只能手改才修得好的 venue 擋住自己所有的寫入。**鍵不是一把是兩把，掃描兩類都掃**（R15，Claude 代裁 D39；R14 verify Codex 第 3 列、requirements 第 5 列：R14 寫「鍵與 D23／`verdictEqualityKey`／#486 同一把（`matchingKey`）」——假的，D23 的拒絕（`confirmedLiteral`）比**位元組**，只差大小寫或 NFC 形的兩筆 confirmed 讓 demote／repoint 必拒而 R14 的掃描零診斷）：以位元組相異的 confirmed 分組，正規化後不同＝不變式的違反、只差位元組＝重複的判定記錄（工具面以 `verdictEqualityKey` 去重、寫不出它），兩類同一家族前綴（`Venue.confirmedLiteralAmbiguityPrefix`）、措辭分開；`StoreHealth.confirmedLiteralAmbiguities` 有計數（doctor／App 各一格——R14 verify regression 第 22 列：兩族 per-record warning 沒有家族，MCP 截 20 則、App 預覽 5 則時可能完全看不到）；每筆 venue 最多列 20 筆 work、其餘一句概括（第 16／18 列：讀取路徑上對未信任內容跑，鄰居剛為此加了上限）。**生產端自 R15 起三個面都 fail-closed**（D38；R14 verify Codex 第 1 列 HIGH：D34 只裝在合併路徑，apply／repoint 對「目的 venue 已對該 work 持有另一個 confirmed literal、沒有對應的邊」的形照寫）：`apply` 對它逐筆略過並具名（`skippedConflictingConfirmedLiteral`）、`repoint` 對預測後的 verdict 集合驗、整批拒絕零寫入。**觸發條件可檢查**（指令見表下方）：兩個計數應恆為 0；非零時那筆是 R14 之前的 work 合併、手改或舊 binary 寫的——修法是刪掉不屬於那條邊的 confirmed verdict |
+| 27 | **零實例，而它是同一句不變式的另一半——第一半的守衛結構上照不到它**（#554 R13 verify DA 第 16 列，Claude 代裁 D36：同一 (venue, work) 上 ≥2 個正規化後不同的 confirmed literal。§3.5 把配對唯一性寫成一句 normative 的兩半，第 26 列守的是第一半（work 的邊），第二半住在 venue 的 references 上——`Venue.validate()` 不掃 verdict 配對、`StoreHealth` 沒有對應項，全樹「個不同的 confirmed literal」只出現在 `confirmedLiteral` 的**拒絕訊息**，零 validate／doctor 呼叫端。而真正造出第二半的路徑（work 合併把兩筆 work 的邊連同 verdict 併到一筆——R13 verify DA 第 3 列純工具面重現：`--apply` 兩個刊名變體 ＋ `resolve-divergence`）結構上**不會**點亮第一半的燈：被併 work 連同它的邊一起刪掉，倖存者只剩一條邊，validate 零診斷、`--demote` 撞 D23。2026-09-15 實測 live store：venue **485** 筆、對同一 work 持 ≥2 個正規化後不同 confirmed literal 的 **0** 筆。重跑腳本見表下方） | ✅ **寫（warning 級、在 `Venue.validate()`）** | 第 26 列的理由是「閘與守衛是同一條不變式的兩半」——閘擋工具面、守衛掃非工具面；這一列是**同一條不變式的另一半要有自己的守衛**：兩半在偵測面上互斥（造出第二半的路徑不點亮第一半的燈），所以第 26 列的量測「應恆為 0」只兌現了一半，而本檔自己的紀律是「寫出條件而不是只寫數字」。裁決有兩半：寫（零實例但實例已在 verify 裡被造出、且 R14 之前純工具面造得出），**以及不改成只修散文**——DA 給的另一個出口是把 §3.5 那句改成「第二半今天沒有掃描面」，那等於把一個已知可達的狀態留在「只有 demote／repoint 撞上時才知道」。**severity 是 warning**，理由與第 26 列同型：記錄合法可載入，失效的是判定逆轉的前提（D23 從此拒那筆 work 的 demote／repoint）；處置是手改 YAML 留一筆，#572 落地前沒有工具面，升 error 會讓一筆只能手改才修得好的 venue 擋住自己所有的寫入。**鍵不是一把是兩把，掃描兩類都掃**（R15，Claude 代裁 D39；R14 verify Codex 第 3 列、requirements 第 5 列：R14 寫「鍵與 D23／`verdictEqualityKey`／#486 同一把（`matchingKey`）」——假的，D23 的拒絕（`confirmedLiteral`）比**位元組**，只差大小寫或 NFC 形的兩筆 confirmed 讓 demote／repoint 必拒而 R14 的掃描零診斷）：以位元組相異的 confirmed 分組，正規化後不同＝不變式的違反、只差位元組＝重複的判定記錄（工具面以 `verdictEqualityKey` 去重、寫不出它），兩類同一家族前綴（`Venue.confirmedLiteralAmbiguityPrefix`）、措辭分開；`StoreHealth.confirmedLiteralAmbiguities` 有計數（doctor／App 各一格——R14 verify regression 第 22 列：兩族 per-record warning 沒有家族，MCP 截 20 則、App 預覽 5 則時可能完全看不到）；每筆 venue 最多列 20 筆 work、其餘一句概括（第 16／18 列：讀取路徑上對未信任內容跑，鄰居剛為此加了上限）。**生產端自 R15 起三個面都 fail-closed**（D38；R14 verify Codex 第 1 列 HIGH：D34 只裝在合併路徑，apply／repoint 對「目的 venue 已對該 work 持有另一個 confirmed literal、沒有對應的邊」的形照寫）：`apply` 對它逐筆略過並具名（`skippedConflictingConfirmedLiteral`）、`repoint` 對預測後的 verdict 集合驗、整批拒絕零寫入。**R16（R15 verify 30 列，6 席齊）**：「位元組」要真的是位元組——R15 的去重寫 Swift `==`（canonical equivalence），NFC／NFD 的兩筆被收攏成一筆、兩類 warning 都不出而 D23 照拒（requirements 第 1 列 HIGH；D42 改 `Set<[UInt8]>`，與 `confirmedLiteral` 同一把、O(N)）；混合情形（三筆裡兩筆只差位元組）第一類訊息點名那一組（第 23 列）；概括句不進家族（DA 第 29 列：帶家族前綴時 `StoreHealth` 把它算成一則，25 筆 work 報 21——改用 `Entry.perRecordCapSummaryPrefix`）；生產端的閘也比位元組、同一 literal 的另一個拼法也略過／拒（D43，Codex 第 3 列 HIGH：放行同鍵異拼法之後 demote 還回舊拼法）、apply 的閘移到重複邊檢查之後（D44，regression 第 2 列 HIGH）。**觸發條件可檢查**（指令見表下方）：兩個計數應恆為 0；非零時那筆是 R14 之前的 work 合併、手改或舊 binary 寫的——修法是刪掉不屬於那條邊的 confirmed verdict |
 
 新增下一個零實例守衛 = 在這張表加一列。
 
@@ -423,7 +423,8 @@ EOF
 ```
 
 **第 26 列的量測（2026-09-14，可重跑）**：warning 數 `akashic validate 2>&1 | grep -c '條邊指向同一 venue'`（應為 0；用含這條
-檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）。Python 對照（不依賴 binary；`work:` 檔的 `venues` 裡 `key:` 出現兩次以上）：
+檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；R15 起每筆 work 最多列 20 個 venue、其餘一句概括——概括句自 R16 起前綴
+`則數已達上限`、不含這個子串也不進家族，所以這個數與 `StoreHealth.duplicateVenueEdges` 都是「受影響數，至多每筆 20」，R15 verify 第 18／29 列）。Python 對照（不依賴 binary；`work:` 檔的 `venues` 裡 `key:` 出現兩次以上）：
 
 ```bash
 python3 - <<'EOF'
@@ -443,41 +444,59 @@ print(f"work {n} 筆｜>1 條 venue 邊 {multi} 筆｜同 venue 兩條 key 邊 {
 EOF
 ```
 
-**第 27 列的量測（2026-09-15，可重跑；R15 分兩類）**：warning 數 `akashic validate 2>&1 | grep -c '個正規化後不同的 confirmed literal'`
+**第 27 列的量測（2026-09-15，可重跑；R15 分兩類、R16 對齊位元組）**：warning 數 `akashic validate 2>&1 | grep -c '個正規化後不同的 confirmed literal'`
 與 `akashic validate 2>&1 | grep -c '筆只差位元組的 confirmed literal'`（應皆為 0；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；
-家族總數 `akashic validate 2>&1 | grep -c '同一 work 多個 confirmed literal'` 含概括句）。Python 對照（不依賴 binary；鏡射
+家族總數 `akashic validate 2>&1 | grep -c '同一 work 多個 confirmed literal'`——R16 起**不含**概括句（它的前綴是 `則數已達上限`），所以家族總數＝
+受影響的 work 數、至多每筆 venue 20；**兩類不是互斥分割**（R15 verify 第 23 列）：一筆 work 三個 literal、其中兩個只差位元組時只出第一類、訊息尾
+附「另有 1 筆只差位元組的重複記錄」，第二類的 grep 不算它——要數位元組重複組用 `grep -c '只差位元組'`）。Python 對照（不依賴 binary；鏡射
 `NameNormalization.matchingKey`——改一邊要同批改另一邊。**鏡射的兩處已知差異在 R15 對齊**（R14 verify logic 第 17 列、DA 第 23 列、
 regression 第 30 列）：空白類用 Swift `Character.isWhitespace` 的 `White_Space` 集合，不用 Python `str.split()`（它把 U+001C–001F 也當空白
 ——store 內不可達，但同檔第 25 列早就顯式列舉了）；連字號家族在 **grapheme cluster** 上比（Swift 的 `hyphenFamily.contains(Character)`）
-——連字號後面跟著組合符號時整個 cluster 不在家族裡、**不**取代，DA 實測 `A-\u0301B` 與 `A\u2010\u0301B` 在 Swift 是兩個鍵而 R14 的鏡射判成一個）：
+——連字號後面跟著組合符號時整個 cluster 不在家族裡、**不**取代，DA 實測 `A-\u0301B` 與 `A\u2010\u0301B` 在 Swift 是兩個鍵而 R14 的鏡射判成一個。
+**R16 再對齊兩處**（R15 verify logic 第 9／11 列、DA 第 24 列；Claude 代裁 D46，2026-09-16 用逐字複製的 `matchingKey` 探針量過）：(1) 空白也在
+Character 上切——`Character.isWhitespace` 只看第一個 scalar，「空白＋組合符號」整個 cluster 被當空白**整個丟掉**、組合符號一起消失
+（`A \u0301B` → `a b`；`canonical` 自 R6 起在 scalar 上切、不會這樣——`matchingKey` 這個資料損失另案 **#574**，鏡射照現況鏡射，修那條時要同批改這裡）；
+(2) 連字號後接 ZWJ／ZWNJ 也是同一個 cluster（Grapheme_Extend）、不取代，之後 Cf 才被刪（`A\u2010\u200DB` → `a\u2010b`）。鏡射只認 M 類與
+ZWJ／ZWNJ 當 extender——Swift 的 grapheme 規則另收 U+FF9E／FF9F（Lm）與 emoji modifier（Sk）等，刊名裡零實例，記為鏡射的誠實邊界（第 24 列）；
+`lowercased()` 與 Python `lower()` 對特殊大小寫（İ、ß）的差異同屬邊界）：
 
 ```bash
 python3 - <<'EOF'
 import glob, io, os, re, unicodedata, yaml
-# 鏡射 NameNormalization.matchingKey：NFKC → 連字號家族（整個 grapheme cluster 恰為一個連字號才算）→ '-' → 刪 Cf → 小寫 →
-# White_Space 收斂為單一空格（顯式集合，與第 25 列的 WSSET 同一份定義）
+# 鏡射 NameNormalization.matchingKey：NFKC → 連字號家族（整個 grapheme cluster 恰為一個連字號才算：後接 M 類、ZWJ、ZWNJ 都不算）→ '-'
+# → 刪 Cf → 小寫 → White_Space 收斂為單一空格（顯式集合，與第 25 列的 WSSET 同一份定義；在 Character 上切——空白後面掛著的組合符號
+# 隨那個 cluster 一起被丟掉，鏡射 Swift 的資料損失，#574）
 HY = set('\u2010\u2011\u2012\u2013\u2014\u2015\u2212')
 WS = {0x09,0x0A,0x0B,0x0C,0x0D,0x20,0x85,0xA0,0x1680,0x2028,0x2029,0x202F,0x205F,0x3000} | set(range(0x2000,0x200B))
+MARK = lambda c: unicodedata.category(c).startswith('M')
 def mk(s):
     s = unicodedata.normalize('NFKC', s)
     out = []
     for i, c in enumerate(s):
         nxt = s[i+1] if i + 1 < len(s) else ''
-        out.append('-' if (c in HY and not (nxt and unicodedata.category(nxt).startswith('M'))) else c)
+        extended = bool(nxt) and (MARK(nxt) or nxt in '\u200c\u200d')   # 同一個 grapheme cluster（R16：ZWJ／ZWNJ 也是 extender）
+        out.append('-' if (c in HY and not extended) else c)
     s = ''.join(c for c in out if unicodedata.category(c) != 'Cf').lower()
-    toks, cur = [], ''
-    for c in s:
+    toks, cur, i = [], '', 0
+    while i < len(s):
+        c = s[i]
         if ord(c) in WS:
             if cur: toks.append(cur); cur = ''
-        else: cur += c
+            i += 1
+            while i < len(s) and MARK(s[i]): i += 1     # 掛在空白上的組合符號隨 cluster 一起丟（R16，鏡射 Character.isWhitespace）
+            continue
+        cur += c; i += 1
     if cur: toks.append(cur)
     return ' '.join(toks)
-# 固定案例（與 Swift 同一組期望；R15 起）：
+# 固定案例（與 Swift 同一組期望；R15 起，R16 加三個——2026-09-16 用逐字複製的 matchingKey 探針逐一量過）：
 assert mk('Chang, Y\u2010H.') == mk('Chang, Y-H.')            # 連字號家族
 assert mk('A-\u0301B') != mk('A\u2010\u0301B')                # 連字號後接組合符號：cluster 不在家族裡，不取代（DA 第 23 列）
 assert mk('Fann,  C.') == mk('Fann, C.') == mk('Fann,\tC.')    # 空白收斂
 assert mk('Fann, C.\u200b') == mk('Fann, C.')                  # Cf 刪除
 assert mk('A\u001fB') == 'a\u001fb'                            # U+001F 不是 White_Space（Python str.split 會切）
+assert mk('A \u0301B') == 'a b'                                # 空白＋組合符號整個 cluster 被丟（Swift 的資料損失，#574；R15 verify logic 第 9 列）
+assert mk('A\u2010\u200dB') == 'a\u2010b'                      # 連字號＋ZWJ 是一個 cluster、不取代，ZWJ 隨後被當 Cf 刪掉（logic 第 11 列）
+assert mk('A\u00a0\u0301B') == 'a b'                           # NBSP 經 NFKC 成空格，同上
 n = flagged = pairs = bytes_only = 0
 for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
     t = io.open(f, encoding='utf8').read()

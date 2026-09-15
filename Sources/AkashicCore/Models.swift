@@ -18,6 +18,10 @@ public struct Entry: Equatable {
     public static let duplicateVenueEdgePrefix = "同一 venue 多條 key 邊"
     /// 一筆記錄上同一族 per-record warning 的則數上限（R15；`Venue.validate()` 的配對唯一性第二半共用同一個數）。
     public static let perRecordWarningCap = 20
+    /// 上限觸發時那句「另有 N 筆未列出」的**自己的**前綴（R16；R15 verify 第 29 列：R15 讓概括句帶家族前綴，`StoreHealth` 的兩個家族計數把它
+    /// 算成一則——被截的記錄少報 4、多報 1。家族計數要回答「幾筆受影響（至多上限）」，不是「印了幾行」）。凡是 per-record 上限的概括句
+    /// （配對唯一性兩半、名字內容 error、近重複組）都用它，不進任何家族。
+    public static let perRecordCapSummaryPrefix = "則數已達上限"
     /// 不可變機器身分；citekey 改名不斷鏈。
     public var id: UUID
     /// 人類可讀、可改名的引用鍵。
@@ -873,7 +877,8 @@ extension Entry {
         // 只有手改或舊 binary 寫的，而 R10 verify 之前 `validate`／`doctor`／App 對它一律綠燈。warning：記錄合法，失效的是判定
         // 逆轉的前提；修法只有手改 YAML（移除面：#572）。literal 邊不算——那是尚未判定的誠實狀態。
         // 則數有上限（R15；R14 verify logic 第 16 列、security 第 18 列：本檢查在讀取路徑上對未信任的 store 內容跑，
-        // 同一輪為近重複檢查加了上限、這裡卻逐筆無上限）；概括句帶同一家族前綴，計數仍看得見。
+        // 同一輪為近重複檢查加了上限、這裡卻逐筆無上限）；概括句用 `perRecordCapSummaryPrefix`、**不帶**家族前綴（R16；R15 verify
+        // 第 29 列：帶了家族前綴，`StoreHealth.duplicateVenueEdges` 把它算成一則——家族計數因此是「至多上限」，不是「印了幾行」）。
         var keyed: [String: [Int]] = [:]
         for (i, ref) in venues.enumerated() { if case .key(let k) = ref { keyed[k, default: []].append(i) } }
         var listed = 0, unlisted = 0
@@ -887,7 +892,8 @@ extension Entry {
         }
         if unlisted > 0 {
             issues.append(ValidationIssue(severity: .warning,
-                message: "\(Self.duplicateVenueEdgePrefix)：另有 \(unlisted) 個 venue 未列出（每筆記錄最多列 \(Self.perRecordWarningCap) 個"   // display-safe-exempt: 前綴是常量；Int
+                // 正文刻意不引家族前綴的字面（guards 第 26 列的 grep 才真的不含概括句）
+                message: "\(Self.perRecordCapSummaryPrefix)：另有 \(unlisted) 個 venue 未列出（同樣被多條 key 邊指向；每筆記錄最多列 \(Self.perRecordWarningCap) 個"   // display-safe-exempt: 前綴是常量；Int
                        + "——本檢查在讀取路徑上對未信任的 store 內容跑）"))
         }
         issues += Self.pagesShapeIssues(fields["pages"])

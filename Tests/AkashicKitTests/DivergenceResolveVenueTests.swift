@@ -194,6 +194,8 @@ final class DivergenceResolveVenueTests: XCTestCase {
                 guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, _, _) = err else { return XCTFail("要具名拒絕：\(err)") }
                 XCTAssertEqual(ck, "w1")
                 XCTAssertTrue(err.localizedDescription.contains("venue「alpha-old」"), "出處要指向被併者：\(err)")
+                // R16（D45；R15 verify 第 12 列）：整組住在被併記錄裡的仍擋，末句要說它擋、不得說「含住在被併鍵上的不擋」
+                XCTAssertTrue(err.localizedDescription.contains("住在被併記錄裡") && !err.localizedDescription.contains("含住在被併鍵上的"), err.localizedDescription)
             }
         }
         XCTAssertEqual(try store.load().venues.count, 2, "零寫入")

@@ -820,14 +820,18 @@ references:
 **配對的唯一性（normative，#554 R10–R12）**：verdict 的 `value` 只定位配對 `(holder, literal)`，
 **不帶** `venues` 的 index——所以一筆 work 對同一個 venue **只能有一條 key 邊**，且同一 (venue, work)
 上正規化後（`NameNormalization.matchingKey`）不同的 confirmed literal 只能有一個（同一配對**只差位元組**的兩筆 confirmed 不違反
-這一句，但它們是重複的判定記錄——工具面以 `verdictEqualityKey` 去重、寫不出它——而 D23 的拒絕比位元組，所以掃描面兩類都報，R15 D39）。這是 `work:` 記錄
+這一句，但它們是重複的判定記錄——工具面以 `verdictEqualityKey` 去重、寫不出它——而 D23 的拒絕比位元組，所以掃描面兩類都報，R15 D39；
+**「位元組」自 R16 起才真的是位元組**（D42——R15 的去重寫 Swift `==`，那是 canonical equivalence，NFC／NFD 的兩筆被收攏、零診斷；
+R15 verify 第 1 列 HIGH），混合情形（三筆裡兩筆只差位元組）第一類訊息點名那一組）。這是 `work:` 記錄
 的約束，住在這裡而不在 §5.7（那節講的是 venue 的名字內容；R11 verify 第 7 列指出手改 work 的人不會去
 讀那節）。寫入面：`resolve-venues --apply` 對會造出第二條 key 邊的候選**逐筆略過並具名**（D33，
 `skippedDuplicateVenueEdge`）；`--repoint` 讓被動到的邊撞上第二條時拒（D27）；`--demote`／`--repoint`
-對已違反的 work 拒（D25；≥2 個不同 confirmed literal 拒，D23）；`--apply` 對「目的 venue 已對該 work 持有另一個正規化後不同的
+對已違反的 work 拒（D25；≥2 個不同 confirmed literal 拒，D23）；`--apply` 對「目的 venue 已對該 work 持有另一個
 confirmed literal（沒有對應的邊）」的候選逐筆略過並具名（`skippedConflictingConfirmedLiteral`），`--repoint` 對改指後會造出同一形的
 整批拒絕（D38，R15——R14 verify Codex 第 1 列：生產端的 fail-closed 只在合併有，apply／repoint 寫下第二個 confirmed 就把那條邊鎖進
-D23）；venue 合併在塌邊會留下兩筆正規化後
+D23）——**相等比位元組，與 D23 同一把**（D43，R16；R15 verify 第 3／5 列：R15 以 `matchingKey` 比、放行同一 literal 的另一個拼法——寫下去
+不會多一筆，但之後 `--demote` 從唯一的 confirmed 取回**舊拼法**，邊被改寫成不是這筆記錄原本寫的字），訊息分「另一個 literal」與「另一個拼法」
+兩種；apply 的這道閘在重複邊檢查（D28／D33）**之後**判（D44——第 2 列：跑在前面時「沒有對應的邊」那句從未被驗證，重複來源欄位被分進錯的桶）；venue 合併在塌邊會留下兩筆正規化後
 不同的 confirmed literal 時拒（D32），倖存者與被併者對同一配對持相反判定時拒（D31——person 合併同）；
 被併者的 verdict 遷移以 `verdictEqualityKey` 去重（與 `appendIfAbsent`／`supersede`／#486 同一把鍵），
 **被去重丟掉的那筆逐筆回報在 `verdictsCollapsed`**（R13：位元組不同的判定記錄可能帶人寫的 judgement 與
@@ -845,7 +849,8 @@ literal 邊誰落地、confirmed 帶哪個字串，都取決於呼叫端送的�
 第 26 列）；第二半（同一 (venue, work) 上 ≥2 個正規化後不同的 confirmed literal，以及只差位元組的重複記錄）由 `Venue.validate()`
 報 warning（第 27 列，R14／R15——R13 之前這一半全庫沒有掃描面，而真正造出它的路徑（work 合併）結構上不會點亮第一半的燈，
 R13 verify DA 第 16 列）。兩族自 R15 起各有 `StoreHealth` 家族（doctor 的 `recordIssues` 與 App 側欄各一個計數）、每筆記錄最多列
-20 則。修法都是手改 YAML——刪掉多餘的邊、或刪掉不屬於那條邊的 confirmed verdict——移除面是 #572。
+20 則——概括句自 R16 起用自己的前綴（`Entry.perRecordCapSummaryPrefix`）、不進任何家族，所以家族計數是「受影響數，至多上限」
+（R15 verify 第 29 列：R15 讓概括句帶家族前綴，被截的記錄計數變 21）。修法都是手改 YAML——刪掉多餘的邊、或刪掉不屬於那條邊的 confirmed verdict——移除面是 #572。
 **R14 把三處閘收成一個謂詞**（R13 verify 33 列、6 席齊）：R13 的 keeper 路徑用「被併者對累積中的 keeper 找相反鍵」的
 delta 謂詞——漏掉矛盾整組住在同一筆被併者裡、以及單一被併者自帶兩個 literal 而倖存者對該 work 無 verdict（D32 多了「keeper
 已有 ≥1」的前提）；holder 路徑用整份清單的絕對謂詞——既有且與被併鍵無關的 #486 矛盾對擋下不相干的合併、訊息把因果歸給這次
@@ -853,12 +858,15 @@ delta 謂詞——漏掉矛盾整組住在同一筆被併者裡、以及單一�
 邊（DA 第 3 列）。現在兩條路同一個 delta（D34）：合併後的記錄（keeper ＝ 自己的 ＋ 全部被併者的 references，person 側經 holder
 改寫；holder ＝ 遷移後、去重前）與合併前比，只擋這次帶進來的兩類違反——相反判定（三種 shape）與同一 work ≥2 個正規化後不同的
 confirmed literal（只對 venue 記錄算——D23 是 venue 側的拒絕）；訊息說出每筆的出處與**遷移前**的原值（遷移後的 value 不在
-任何 YAML 裡，DA 第 17 列）。合併前就存在的違反不擋（validate 的 warning 負責）——**含住在被併鍵上的**（R15，D37；R14 verify logic
+任何 YAML 裡，DA 第 17 列）。合併前就存在的違反不擋（validate 的 warning 負責）——含住在被併鍵上、改寫後整組搬到倖存鍵的（R15，D37；R14 verify logic
 第 2 列 HIGH、四席同指：R14 的差集在配對鍵層算，而配對鍵含 holder，被併鍵上的既有矛盾對或雙 literal 改寫後鍵變了、被判成新，訊息自己
-列出的兩筆 holder 都是被併鍵、末句還說既有的不擋；keeper 路徑對倖存者自己持有的 `person:<被併>` 矛盾對同型）。R15 的差集在**索引層**算：
-after 的違反是既有的，當且僅當構成它的索引裡有一組在合併前就同配對鍵且兩種判定都在（矛盾對）、或合併前同一個 work 鍵下就持有全部這些
-literal（雙 literal——把既有歧義變大仍擋）；雙 literal 的拒絕訊息把這次帶進來的與倖存者既有的分開列（DA 第 11 列：R14 把絕對集合印在
-「帶進來的」下、末句又說既有的不擋）。**收攏丟列印遷移前的原值**（D40）：`verdictsCollapsed` 的兩個生產者（holder 遷移、rename）先前
+列出的兩筆 holder 都是被併鍵、末句還說既有的不擋；keeper 路徑對倖存者自己持有的 `person:<被併>` 矛盾對同型）。R15 的差集在**索引層**算；
+**R16（D45）把「既有」釘在倖存配對上**（R15 verify 第 12／13／20 列：R15 問「有沒有**某一個**合併前分區已持有全部」——holder 對 doom 持
+{A, B}、對 keep 持 {A}，doom 那一區 ⊇ 全部就放行，而 (holder, keep) 合併前只有一個 literal、可以 demote，合併後被 D23 鎖住；R15 自己的
+末句「含住在被併鍵上的不擋」與判準互相矛盾）：after 的違反是既有的，當且僅當倖存配對（合併後這個配對／work 鍵在倖存記錄上合併前的那一份）
+就已經是整組違反，或倖存配對合併前一筆都沒有而某一個合併前分區整組就是（整組原樣搬過來，沒有新東西進到任何既有配對）；整組住在被併
+記錄裡的仍擋（keeper 路徑，R13 的裁決——那個檔要刪、出處會消失），讓倖存配對的既有歧義變大的擋。雙 literal 的拒絕訊息把這次帶進來的
+（含合併前住在被併鍵上的）與倖存配對既有的分開列（DA 第 11 列：R14 把絕對集合印在「帶進來的」下、末句又說既有的不擋）。**收攏丟列印遷移前的原值**（D40）：`verdictsCollapsed` 的兩個生產者（holder 遷移、rename）先前
 印改寫後的 value——被丟掉的恆是被改寫的那一筆，所以那個字串不在任何 YAML 裡（DA 第 10 列）；value 與 statement 各截 200 scalar、
 merge 與 rename 的 CLI／App sink 同一種性質式逃脫。**dry-run 對去重丟掉的判定也要預告**（D35）：
 `verdictsCollapsed` 在 preview 與實跑同源（`mergedVenueKeeper`／`mergedPersonKeeper`——R13 只裝在實跑，dry-run 對「這次會丟掉

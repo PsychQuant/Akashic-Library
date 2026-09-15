@@ -26,8 +26,10 @@ public enum DivergenceResolveError: Error, LocalizedError {
     /// 什麼——那個字串在該記錄的 YAML 裡找得到（遷移**後**的值不在任何檔裡，R13 verify DA 第 17 列；三方合併要說得出是哪兩筆，
     /// requirements 第 20 列）。`details` 已逐項消毒，訊息不再包一次（`displaySafe` 不冪等）。
     case wouldContradictVerdicts(record: String, survivor: String, details: [String])
-    /// #554 R12（D32）→ R14（D34）：合併後某筆記錄對同一 work 會持有 ≥2 個正規化後不同的 confirmed literal、而那是這次合併帶進來的
-    /// ——verdict 不帶 index，之後 D23 對那筆 work 的 demote／repoint 一律拒、validate 只報 warning。R12 的名字（`wouldCollapseEdges`）
+    /// #554 R12（D32）→ R14（D34）→ R16（D45）：合併後某筆記錄對同一 work 會持有 ≥2 個正規化後不同的 confirmed literal、而那是這次合併
+    /// 帶進來的——「既有」看**倖存配對**（R15 verify 第 12／13／20 列）：它合併前就持有整組、或合併前一筆都沒有而整組原樣從單一被併鍵
+    /// 搬來，才不擋；整組住在被併記錄裡的、或讓倖存配對的既有歧義變大的，都擋。`brought` 是這次進到倖存配對的、`existing` 是倖存配對自己
+    /// 合併前就有的。verdict 不帶 index，之後 D23 對那筆 work 的 demote／repoint 一律拒、validate 只報 warning。R12 的名字（`wouldCollapseEdges`）
     /// 描述的是「塌邊」這個症狀，R13 改守不變式本身之後名字說謊（R13 verify 第 7 列）；holder 遷移那條路 R13 漏了這一半
     /// （R13 verify Codex 第 1 列、DA 第 3 列——純工具面重現）。
     case wouldLeaveTwoConfirmedLiterals(record: String, survivor: String, citekey: String, brought: [String], existing: [String])
@@ -120,21 +122,26 @@ public enum DivergenceResolveError: Error, LocalizedError {
                  + details.prefix(5).map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: details 由 describeVerdictSource 組裝，store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
                  + (details.count > 5 ? "\n  …共 \(details.count) 個配對" : "")   // display-safe-exempt: Int
                  + "\n合併不裁決哪一筆對：先決定，把錯的那筆 verdict 從它所在記錄的 YAML 刪掉（各筆的出處如上；venue 側也可用"
-                 + " resolve-venues --demote／--repoint 退役 confirmed 那一側），再消歧。合併前就存在的矛盾對（含住在被併鍵上的）不擋合併（validate 報 warning）"
+                 + " resolve-venues --demote／--repoint 退役 confirmed 那一側），再消歧。不擋的只有：倖存記錄對這個配對合併前就是矛盾對"
+                 + "（住在被併鍵上、改寫後一起搬過來的也算），以及倖存配對合併前一筆都沒有、整組原樣從單一被併鍵搬來的（validate 照報 warning）；"
+                 + "整組住在被併記錄裡的（那個檔要刪、出處會消失——先在它的 YAML 修掉）、或搬過來後讓倖存配對變成矛盾的，都擋"
         case let .wouldLeaveTwoConfirmedLiterals(record, survivor, citekey, brought, existing):
             // 兩半分開列（R14 verify DA 第 11 列：R14 把絕對集合印在「這次合併帶進來的」下、末句又說既有的不擋——照最自然的讀法
-            // 刪第一筆重跑仍被拒）：帶進來的才是要處理的；倖存者既有的列出供對照，明說不擋
+            // 刪第一筆重跑仍被拒）：帶進來的才是要處理的；倖存配對既有的列出供對照，明說不擋。**「帶進來的」自 R16 起包含合併前住在
+            // 被併鍵上的**（R15 verify 第 20 列：R15 末句寫「含住在被併鍵上的不擋」，而被搬到別的配對上、把它的歧義變大的那幾筆正是
+            // 住在被併鍵上——訊息與判準互相矛盾；D45 的判準寫在末句）
             return "拒絕合併：併入「\(displaySafe(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))對 work"   // display-safe-exempt: whoWouldHold 內部逐項 displaySafe
-                 + "「\(displaySafe(citekey, max: 200))」會持有兩個以上正規化後不同的 confirmed literal——這次合併帶進來的：\n"
+                 + "「\(displaySafe(citekey, max: 200))」會持有兩個以上正規化後不同的 confirmed literal——這次合併帶進來的（合併前住在被併記錄裡、或住在被併鍵上）：\n"
                  + brought.prefix(5).map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: brought 由 describeVerdictSource 組裝，store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
                  + (brought.count > 5 ? "\n  …共 \(brought.count) 筆" : "")   // display-safe-exempt: Int
-                 + (existing.isEmpty ? "" : "\n倖存者合併前就持有的（不擋，列出供對照）：\n"
+                 + (existing.isEmpty ? "" : "\n倖存配對合併前就持有的（不擋，列出供對照）：\n"
                     + existing.prefix(5).map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: existing 同上
                     + (existing.count > 5 ? "\n  …共 \(existing.count) 筆" : ""))   // display-safe-exempt: Int
                  + "\nverdict 不帶 index，之後那筆 work 的邊在 resolve-venues 的 demote／repoint 上都會被拒（D23）。"
                  + "出路：把不屬於這條邊的那筆 confirmed verdict 從它所在記錄的 YAML 刪掉（先看「這次合併帶進來的」那幾筆，出處如上）；"
                  + "若那筆 work 另有一條邊指向被併者，也可以先用 resolve-venues --demote 把那條邊退回 literal。"
-                 + "合併前就存在的違反（含住在被併鍵上的）不擋合併（validate 報 warning）"
+                 + "不擋的只有：倖存配對合併前就持有整組的違反，以及倖存配對合併前一筆都沒有、整組原樣從單一被併鍵搬來的（holder 遷移；validate 照報 warning）；"
+                 + "整組住在被併記錄裡的（那個檔要刪、出處會消失——先在它的 YAML 修掉）、或讓倖存配對的既有歧義變大的，都擋"
         case let .quarantinedPresent(files):
             let listed = files.prefix(3).map { displaySafe($0, max: 200) }
                 .joined(separator: "、") + (files.count > 3 ? "…" : "")
@@ -896,11 +903,16 @@ extension LibraryStore {
     /// person 側經 holder 改寫；holder 路徑：遷移後、去重前），`prior` 與它索引對齊：合併前這一筆在**倖存記錄**上的樣子，
     /// nil ＝ 被併記錄帶進來的。差集在**索引層**算，不在配對鍵層——R14 拿未改寫的 before 比改寫後的 after，而配對鍵含 holder：
     /// 住在被併鍵上的既有違反改寫後鍵變了、被判成新，訊息自己列出的兩筆 holder 都是被併鍵、末句還說既有的不擋（R14 verify
-    /// logic 第 2 列 HIGH，四席同指；keeper 路徑同型——倖存者自己持有 `person:<被併>` 的既有矛盾對）。判準：
-    ///  (a) 矛盾對是既有的，當且僅當構成它的索引裡有一組在合併前就同配對鍵且兩種判定都在；
-    ///  (b) 雙 literal 是既有的，當且僅當有一組合併前同一個 work 鍵下就持有全部這些 literal（沒有新 literal 進到這個配對——
-    ///      倖存者既有的違反不擋 D32′；把既有歧義變大仍擋）。
-    /// 雙 literal 的來源分兩半回傳（DA 第 11 列）：合併前就在這個配對上的另列，其餘是這次帶進來的。
+    /// logic 第 2 列 HIGH，四席同指；keeper 路徑同型——倖存者自己持有 `person:<被併>` 的既有矛盾對）。
+    /// **判準看倖存配對**（R16，Claude 代裁 D45；R15 verify 第 12／13／20 列：R15 問「有沒有**某一個**合併前分區已持有全部」——holder 對
+    /// doom 持 {A, B}、對 keep 持 {A} 時 doom 那一區 ⊇ 全部、放行，而 (holder, keep) 合併前只有一個 literal、可以 demote，合併後被 D23
+    /// 鎖住；同一段 doc 自己寫著「把既有歧義變大仍擋」）。倖存配對＝合併後這個配對／work 鍵在倖存記錄上合併前的那一份（索引的 prior
+    /// 配對鍵／work 鍵等於 after 的）。既有，當且僅當：
+    ///  (a) 矛盾對：倖存配對合併前就是矛盾對（兩種判定都在）；或倖存配對合併前一筆都沒有、而某一個合併前的分區整組就是矛盾對
+    ///      （整組原樣搬過來，沒有新東西進到任何既有配對——holder 遷移把被併鍵上的一對改寫到倖存鍵）；
+    ///  (b) 雙 literal：倖存配對合併前就持有全部這些 literal；或倖存配對合併前一筆都沒有、而某一個合併前的 work 分區整組持有全部。
+    /// keeper 路徑的被併材料 prior 是 nil，所以整組住在被併記錄裡的仍擋（R13 的裁決不變——那個檔要刪、出處會消失；訊息現在說它擋）。
+    /// 雙 literal 的來源分兩半回傳（DA 第 11 列）：倖存配對合併前就有的另列，其餘（含合併前住在被併鍵上的）是這次帶進來的。
     /// `literalUniqueness` 只對 venue 記錄開（(b) 是 §3.5 的 venue 側不變式；person 記錄同樣持有 `work:` verdict，但 D23 不作用於它）。
     static func newVerdictViolations(after: [ProvenanceReference], prior: [ProvenanceReference?], sources: [VerdictSource],
                                      literalUniqueness: Bool)
@@ -914,19 +926,28 @@ extension LibraryStore {
             return p.holder
         }
         var contradictions: [[VerdictSource]] = []
-        for (_, idx) in a.contradictions.sorted(by: { $0.key < $1.key }) {
-            var fieldsByPrior: [String: Set<String>] = [:]
-            for i in idx { if let pk = priorPairing[i] { fieldsByPrior[pk, default: []].insert(after[i].field) } }
-            guard !fieldsByPrior.values.contains(where: { $0.count > 1 }) else { continue }   // 合併前就是一對矛盾——不是這次的事
+        for (p, idx) in a.contradictions.sorted(by: { $0.key < $1.key }) {
+            // 倖存配對：合併前就在這個 after 配對鍵上的索引
+            let survivingFields = Set(idx.filter { priorPairing[$0] == p }.map { after[$0].field })
+            if survivingFields.count > 1 { continue }   // 倖存配對合併前就是矛盾對——不是這次的事
+            if survivingFields.isEmpty {
+                var fieldsByPrior: [String: Set<String>] = [:]
+                for i in idx { if let pk = priorPairing[i] { fieldsByPrior[pk, default: []].insert(after[i].field) } }
+                if fieldsByPrior.values.contains(where: { $0.count > 1 }) { continue }   // 整組原樣從單一被併配對搬來
+            }
             contradictions.append(idx.map { sources[$0] })
         }
         var multi: [(work: String, brought: [VerdictSource], existing: [VerdictSource])] = []
         if literalUniqueness {
             for (w, m) in a.literalsByWork.sorted(by: { $0.key < $1.key }) where m.count > 1 {
                 let all = Set(m.keys)
-                var keysByPriorWork: [String: Set<String>] = [:]
-                for (mk, idxs) in m { for i in idxs { if let pw = priorWork[i] { keysByPriorWork[pw, default: []].insert(mk) } } }
-                guard !keysByPriorWork.values.contains(where: { $0.isSuperset(of: all) }) else { continue }   // 沒有新 literal 進來
+                let survivingKeys = Set(m.filter { _, idxs in idxs.contains { priorWork[$0] == w } }.keys)
+                if survivingKeys.isSuperset(of: all) { continue }   // 倖存配對合併前就持有整組
+                if survivingKeys.isEmpty {
+                    var keysByPriorWork: [String: Set<String>] = [:]
+                    for (mk, idxs) in m { for i in idxs { if let pw = priorWork[i] { keysByPriorWork[pw, default: []].insert(mk) } } }
+                    if keysByPriorWork.values.contains(where: { $0.isSuperset(of: all) }) { continue }   // 整組原樣從單一被併鍵搬來
+                }
                 var brought: [VerdictSource] = [], existing: [VerdictSource] = []
                 for mk in m.keys.sorted() {
                     let idxs = m[mk]!

@@ -139,4 +139,23 @@ final class RecordIssuesSummaryTests: XCTestCase {
         XCTAssertEqual(summary.duplicateVenueEdges, 1)
         XCTAssertEqual(summary.errors, 0, "兩族都是 warning")
     }
+
+    /// R15 verify 第 16 列：App 預覽對已消毒的訊息再過一次 `displaySafe(_, max: 160)`——反斜線被逃成 U+005C，且 160 把家族前綴之後的
+    /// 正文截光。R16：只截不逃、上限 300。
+    func testHelpPreviewDoesNotEscapeMessagesTwice() throws {
+        let store = LibraryStore(root: root)
+        func confirmed(_ literal: String) -> ProvenanceReference {
+            ProvenanceReference(field: "resolution-confirmed",
+                                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "alive2020a", literal: literal).encoded,
+                                kind: .judgement(statement: "測試", restsOn: []))
+        }
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = [confirmed("Alpha\u{200B}Journal"), confirmed("Beta Journal")]
+        try store.writeVenue(v)
+        let summary = try XCTUnwrap(RecordIssuesSummary(health: store.health(from: try store.load())))
+        XCTAssertEqual(summary.confirmedLiteralAmbiguities, 1)
+        XCTAssertTrue(summary.help.contains("\\u{200B}"), summary.help)
+        XCTAssertFalse(summary.help.contains("\\u{005C}"), summary.help)
+        XCTAssertTrue(summary.help.contains("D23"), "160 的上限把正文截掉了：\(summary.help)")
+    }
 }

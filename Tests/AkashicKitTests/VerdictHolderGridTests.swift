@@ -961,6 +961,8 @@ final class VerdictHolderGridTests: XCTestCase {
             XCTAssertTrue(a >= 0 && b > a, s)
             XCTAssertTrue(pos("work:doom2020a :: Alpha Journal") > a && pos("work:doom2020a :: Alpha Journal") < b, s)
             XCTAssertTrue(pos("Gamma Review") > b, s)
+            // R16（D45；R15 verify 第 20 列）：末句不得再說「含住在被併鍵上的不擋」——這兩筆正是住在被併鍵上、被本次搬到倖存配對
+            XCTAssertTrue(s.contains("變大") && !s.contains("含住在被併鍵上的"), s)
         }
         XCTAssertEqual(try holders(ofVenue: "alpha"), ["work:keep2020a", "work:doom2020a", "work:doom2020a"], "零寫入")
     }
@@ -1031,5 +1033,50 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(r.verdictsCollapsed.count, 1, "\(r.verdictsCollapsed)")
         let row = r.verdictsCollapsed[0]
         XCTAssertTrue(row.hasPrefix("venue「alpha」：") && row.contains("work:old2020a :: ALPHA JOURNAL") && !row.contains("work:new2020a :: ALPHA JOURNAL"), row)
+    }
+
+    // MARK: - R16（D45）：「既有」看倖存配對
+
+    /// R15 verify 第 13 列：D37 的判準按 prior work 分區找「某一區已持有全部」——holder 對 doom 持 {Alpha, Beta}、對 keep 持 {Alpha}，
+    /// doom 那一區 ⊇ {Alpha, Beta} 判為既有、放行；而 (alpha, keep) 合併前只有一個 literal、可以 demote，合併後被 D23 鎖住。
+    /// D45：既有＝**倖存配對**合併前就持有整組；或倖存配對合併前一筆都沒有、整組原樣從單一被併鍵搬來（第 922 行那個測試）。
+    /// 這一格兩者皆否→擋；訊息把 Beta 列在「帶進來的」、keep 自己的 Alpha 列在「合併前就持有的」。
+    func testWorkMergeRefusesMovingAnAmbiguityOntoAPairingThatHeldOnlyPartOfIt() throws {
+        try entry("keep2020a")
+        try store.writeEntry(Entry(id: UUID(), citekey: "doom2020a", type: .periodicalArticle, title: "Doomed",
+                                   authors: [.literal("A B")], date: "2020"))
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "keep2020a", literal: "Alpha Journal"),
+                        verdict("resolution-confirmed", kind: .work, holder: "doom2020a", literal: "Alpha Journal"),
+                        verdict("resolution-confirmed", kind: .work, holder: "doom2020a", literal: "Beta Review")]
+        try store.writeVenue(v)
+        let d = try divergence(keeper: "keep2020a", doomed: "doom2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "keep2020a", overrideReason: nil)) { err in
+            guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, let brought, let existing) = err else { return XCTFail("要具名拒絕：\(err)") }
+            XCTAssertEqual(ck, "keep2020a")
+            XCTAssertEqual(brought.count, 1, "\(brought)"); XCTAssertTrue((brought.first ?? "").contains("work:doom2020a :: Beta Review"), "\(brought)")
+            XCTAssertEqual(existing.count, 1, "\(existing)"); XCTAssertTrue((existing.first ?? "").contains("work:keep2020a :: Alpha Journal"), "\(existing)")
+            let s = err.localizedDescription
+            XCTAssertTrue(s.contains("被併鍵") && s.contains("變大"), s)
+        }
+        XCTAssertEqual(try holders(ofVenue: "alpha"), ["work:keep2020a", "work:doom2020a", "work:doom2020a"], "零寫入")
+    }
+
+    /// 矛盾對同型：倖存配對合併前只有 confirmed，被併鍵上一組完整的矛盾對搬過來讓它變成矛盾——擋。R15 的 (a) 只問「構成它的索引裡有沒有
+    /// 一組合併前就是矛盾對」，doom 那一組是，於是放行；而 (some-org, keep) 合併前是乾淨的。
+    func testWorkMergeRefusesAContradictionThatLandsOnAPairingWithItsOwnVerdict() throws {
+        try entry("keep2020a")
+        try store.writeEntry(Entry(id: UUID(), citekey: "doom2020a", type: .periodicalArticle, title: "Doomed",
+                                   authors: [.literal("A B")], date: "2020"))
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .work, holder: "keep2020a", literal: "ISS"),
+                                   verdict("resolution-confirmed", kind: .work, holder: "doom2020a", literal: "ISS"),
+                                   verdict("resolution-rejected", kind: .work, holder: "doom2020a", literal: "iss")])
+        let d = try divergence(keeper: "keep2020a", doomed: "doom2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "keep2020a", overrideReason: nil)) { err in
+            guard case DivergenceResolveError.wouldContradictVerdicts = err else { return XCTFail("要具名拒絕：\(err)") }
+        }
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:keep2020a", "work:doom2020a", "work:doom2020a"], "零寫入")
     }
 }

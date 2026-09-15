@@ -134,6 +134,9 @@ public struct StoreHealth {
     /// 前綴的**單一定義在 Core**（訊息在那裡組出），這裡只引用——同 `deadVerdictPrefix` 的形，家族才有計數
     /// （R14 verify regression 第 22 列：兩族沒有家族，doctor 截 20 則、App 預覽 5 則時可能完全看不到，
     /// `zero-instance-guards` 第 26／27 列宣稱的「掃得到」只對 CLI validate 成立）。
+    /// **計數含上限**（R16；R15 verify 第 29 列）：每筆記錄至多 `Entry.perRecordWarningCap` 則進家族，其餘由一句概括
+    /// （`Entry.perRecordCapSummaryPrefix`，**不在**任何家族裡）收尾——被截的記錄上，家族計數 ＝ min(受影響數, 上限)，
+    /// 不是受影響數；要全部就用 CLI `validate`。
     public static let duplicateVenueEdgePrefix = Entry.duplicateVenueEdgePrefix
     public var duplicateVenueEdges: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.duplicateVenueEdgePrefix) }

@@ -1293,15 +1293,21 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertTrue(reason.contains("Alpha Review") && reason.contains("D23") && reason.contains("YAML"), out)
         XCTAssertEqual(try store.load().entries.first?.venues, [.literal("Psychometrika")], "零寫入")
         XCTAssertTrue(try venue().validate().filter { $0.message.contains("個正規化後不同的 confirmed literal") }.isEmpty)
-        // 對照：既有的 confirmed 只是同一 literal 的另一個拼法——不是第二個 literal，照常升格
+        // **同一 literal 的另一個拼法也略過**（R16，D43；R15 verify 第 3 列 HIGH、第 5 列：R15 的閘以 matchingKey 比，放行同鍵異拼法——
+        // `appendIfAbsent` 以正規化鍵去重、新拼法沒寫入，之後 `--demote` 還回目的 venue 的舊拼法而不是這條邊的原字串；D23 比位元組，
+        // 閘也要比位元組才是同一把）。
         var v2 = try venue()
         v2.references = [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "PSYCHOMETRIKA",
                                                  rule: ResolutionLedger.venueRule, statement: "手改")]
         try store.writeVenue(v2)
         let out2 = try service.resolveVenues(apply: ["x2025:0"])
         let json2 = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out2.utf8)) as? [String: Any])
-        XCTAssertEqual(json2["applied"] as? [String], ["x2025:0"], out2)
-        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal")])
+        XCTAssertEqual(json2["applied"] as? [String], [], out2)
+        let skipped2 = try XCTUnwrap(json2["skippedConflictingConfirmedLiteral"] as? [[String: Any]], out2)
+        let reason2 = skipped2.first?["reason"] as? String ?? ""
+        XCTAssertTrue(reason2.contains("拼法") && reason2.contains("PSYCHOMETRIKA") && reason2.contains("位元組"), out2)
+        XCTAssertEqual(try store.load().entries.first?.venues, [.literal("Psychometrika")], "零寫入")
+        XCTAssertEqual(Array((try venue()).references.map { $0.value ?? "" }), ["work:x2025 :: PSYCHOMETRIKA"], "verdict 也不動")
     }
 
     func testRepointRefusesWhenTheTargetVenueAlreadyHoldsAnotherConfirmedLiteralForTheWork() throws {
@@ -1321,13 +1327,17 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         }
         XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal")], "零寫入")
         XCTAssertEqual(ResolutionLedger.verdicts(references: try venue().references).0.filter { $0.holder == "x2025" }.map(\.kind), [.confirmed], "from 的 confirmed 沒被退役")
-        // 對照：目的 venue 上那筆是同一 literal 的另一個拼法——改指照常
+        // 目的 venue 上那筆是同一 literal 的另一個拼法——**也拒**（R16，D43；理由同 apply 那一格：D23 比位元組，改指後 demote 會還回
+        // 「PSYCHOMETRIKA」而不是這條邊帶去的「Psychometrika」）
         var b2 = try XCTUnwrap(store.load().venues.first { $0.key == "beta-journal" })
         b2.references = [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "PSYCHOMETRIKA",
                                                  rule: ResolutionLedger.venueRule, statement: "手改")]
         try store.writeVenue(b2)
-        _ = try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal"])
-        XCTAssertEqual(try store.load().entries.first?.venues, [.key("beta-journal")])
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal"])) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("拼法") && s.contains("PSYCHOMETRIKA") && s.contains("位元組"), s)
+        }
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal")], "零寫入")
     }
 
     /// doctor 對配對唯一性的兩半各有具名計數（R14 verify regression 第 22 列：兩族 per-record warning 沒有 StoreHealth 家族，
@@ -1348,5 +1358,69 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         let ri = try XCTUnwrap(json["recordIssues"] as? [String: Any], out)
         XCTAssertEqual(ri["confirmedLiteralAmbiguities"] as? Int, 1, out)
         XCTAssertEqual(ri["duplicateVenueEdges"] as? Int, 1, out)
+    }
+
+    // MARK: - R16（D44、R15 verify 第 2／6／14／16 列）
+
+    /// **D38 的閘要在 D28／D33 的重複邊檢查之後**（R15 verify 第 2 列 HIGH、第 6 列：R15 把它放在前面，而它的 reason 逐字宣稱「沒有對應的邊」
+    /// ——程式從未檢查。重複來源欄位（journaltitle／publisher 各帶同一本刊的一個寫法）是最常見的情境：第二條邊被分進
+    /// `skippedConflictingConfirmedLiteral`、出路叫人刪掉**有邊的** confirmed，照做之後那條 key 邊在 demote／repoint 上永遠救不回）。
+    func testDuplicateSourceFieldEdgeIsReportedAsADuplicateEdgeNotAsAConflict() throws {
+        let store = LibraryStore(root: root)
+        _ = try service.addVenue(key: "acme", names: ["Acme Press", "Acme Publishing"], type: "periodical", note: nil, issn: nil)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Acme Press"), .literal("Acme Publishing")]
+        _ = try store.writeEntry(e)
+        let out = try service.resolveVenues(apply: ["x2025:0", "x2025:1"])
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        XCTAssertEqual(json["applied"] as? [String], ["x2025:0"], out)
+        XCTAssertEqual((json["skippedDuplicateVenueEdge"] as? [[String: Any]])?.count, 1, out)
+        XCTAssertEqual((json["skippedConflictingConfirmedLiteral"] as? [[String: Any]])?.count ?? 0, 0, out)
+        // 第二次只送剩下那條：既有的 key 邊——仍是重複邊（D33 的訊息與出路都對），不是「沒有對應的邊的孤兒 verdict」
+        let out2 = try service.resolveVenues(apply: ["x2025:1"])
+        let json2 = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out2.utf8)) as? [String: Any])
+        let dup = try XCTUnwrap(json2["skippedDuplicateVenueEdge"] as? [[String: Any]], out2)
+        XCTAssertEqual(dup.count, 1, out2)
+        XCTAssertTrue((dup.first?["reason"] as? String ?? "").contains("已有一條邊"), out2)
+        XCTAssertEqual((json2["skippedConflictingConfirmedLiteral"] as? [[String: Any]])?.count ?? 0, 0, out2)
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("acme"), .literal("Acme Publishing")])
+    }
+
+    /// R15 verify 第 14 列：同一條邊在同一批被指定兩次（`W:0:V1` ＋ `W:0:V2`）——id 去重只比字面，落進「兩條邊帶同一個 literal」那條訊息，
+    /// 出路（刪一條邊）對它是錯的動作。R16：以 (citekey, index) 去重、自成一句。
+    func testRepointRefusesTheSameEdgeSpecifiedTwiceWithItsOwnMessage() throws {
+        let store = LibraryStore(root: root)
+        _ = try service.addVenue(key: "beta-journal", names: ["Beta Journal"], type: "periodical", note: nil, issn: nil)
+        _ = try service.addVenue(key: "gamma-journal", names: ["Gamma Journal"], type: "periodical", note: nil, issn: nil)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika")]
+        _ = try store.writeEntry(e)
+        _ = try service.resolveVenues(apply: ["x2025:0"])
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:0:gamma-journal"])) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("同一條邊") && s.contains("兩次"), s)
+            XCTAssertFalse(s.contains("兩條邊"), s)
+        }
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal")], "零寫入")
+    }
+
+    /// R15 verify 第 16 列：doctor 的 `recordIssues.first[].message` 對已消毒的訊息再過一次 `displaySafe`——它逃脫反斜線自身（不冪等），
+    /// `\u{200B}` 印成 `\u{005C}u{200B}`；300 的上限把家族前綴之後的正文截掉。R16：只截不逃（`escapingBackslash: false`）、上限 1,000。
+    func testDoctorDoesNotEscapeRecordIssueMessagesTwice() throws {
+        let store = LibraryStore(root: root)
+        var v = try venue()
+        v.references = [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "Alpha\u{200B}Journal",
+                                                rule: ResolutionLedger.venueRule, statement: "手改"),
+                        ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "Beta Journal",
+                                                rule: ResolutionLedger.venueRule, statement: "手改")]
+        try store.writeVenue(v)
+        _ = try store.writeEntry(Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T"))
+        let out = try service.doctor()
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        let first = try XCTUnwrap((json["recordIssues"] as? [String: Any])?["first"] as? [[String: Any]], out)
+        let msg = try XCTUnwrap(first.first { ($0["message"] as? String)?.contains("confirmed literal") == true }?["message"] as? String, out)
+        XCTAssertTrue(msg.contains("\\u{200B}"), msg)
+        XCTAssertFalse(msg.contains("\\u{005C}"), msg)
+        XCTAssertTrue(msg.contains("D23"), "300 的上限把正文截掉了：\(msg)")
     }
 }

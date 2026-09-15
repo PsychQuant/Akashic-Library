@@ -82,6 +82,14 @@ public enum VenueResolver {
             }
         }
 
+        // 否決比對用**與提名同一套正規化**（#554 R12——R11 verify logic 第 8 列、regression 第 11 列；`PersonResolver` 同一格
+        // 早就這樣做且理由逐字寫在那裡）：verdict 記原始字串（lossless），而 `verdictEqualityKey`／#486 的矛盾掃描／D25 一族都以
+        // `matchingKey` 定義「同一配對」。抑制若比原始位元組，`demote` 寫下的 `rejected(work, Psychometrika)` 壓不住同一 work 的
+        // `PSYCHOMETRIKA` 邊——三步全工具面就造出永久的矛盾對（apply → demote → apply）。
+        var rejectedNorm = Set<String>()
+        for pairing in rejected where pairing.holderKind == .work {
+            rejectedNorm.insert("\(pairing.holder)\u{0}\(normalize(pairing.literal))\u{0}\(pairing.judgedKey)")
+        }
         var candidates: [VenueResolutionCandidate] = []
         var ambiguities: [VenueAmbiguousMatch] = []
         for entry in entries {
@@ -90,9 +98,7 @@ public enum VenueResolver {
                 // 無任何 venue 叫這個名字＝合法長期狀態，不回報（噪音紀律同 person）。
                 guard let keys = aliasMap[normalize(literal)] else { continue }
                 if keys.count == 1, let key = keys.first {
-                    guard !rejected.contains(ResolutionPairing(
-                        holderKind: .work, holder: entry.citekey,
-                        literal: literal, judgedKey: key)) else { continue }
+                    guard !rejectedNorm.contains("\(entry.citekey)\u{0}\(normalize(literal))\u{0}\(key)") else { continue }
                     candidates.append(VenueResolutionCandidate(
                         citekey: entry.citekey, venueIndex: i, literal: literal,
                         venueKey: key, reason: "venue name 完全命中"))

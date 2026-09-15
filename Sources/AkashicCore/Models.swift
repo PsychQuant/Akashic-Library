@@ -1,6 +1,17 @@
 import Foundation
 
 /// 文獻條目——store 的基本單位（entries/<citekey>.yaml 的記憶體形）。
+/// 陣列索引的訊息形（#554 R12）：`venues`／`authors` 的 id 文法是 0-based（`citekey:venueIndex`），訊息裡用「index N」
+/// 而不是「第 N 條」——中文序數詞讀起來是 1-based（R11 verify logic 第 27 列）。**列出的索引數有上限**：這些訊息跑在
+/// 對未信任 store 內容的讀取路徑上（`StoreHealth` → doctor／App），join 無上限是 #562 那一族（R11 verify security 第 20 列）。
+public enum IndexList {
+    public static let cap = 10
+    public static func render(_ idx: [Int]) -> String {
+        let shown = idx.prefix(cap).map(String.init).joined(separator: "、")
+        return idx.count > cap ? "index \(shown)…（共 \(idx.count) 條）" : "index \(shown)"
+    }
+}
+
 public struct Entry: Equatable {
     /// 不可變機器身分；citekey 改名不斷鏈。
     public var id: UUID
@@ -833,7 +844,7 @@ extension Entry {
         for (i, ref) in venues.enumerated() { if case .key(let k) = ref { keyed[k, default: []].append(i) } }
         for (k, idx) in keyed.sorted(by: { $0.key < $1.key }) where idx.count > 1 {
             issues.append(ValidationIssue(severity: .warning,
-                message: "venues 有 \(idx.count) 條邊指向同一 venue「\(displaySafe(k, max: 120))」（第 \(idx.map(String.init).joined(separator: "、")) 條）"   // display-safe-exempt: Int 序列
+                message: "venues 有 \(idx.count) 條邊指向同一 venue「\(displaySafe(k, max: 120))」（\(IndexList.render(idx))）"   // display-safe-exempt: Int 序列（IndexList 有上限）
                        + "——配對只能由一條邊實例化（verdict 不帶 index），resolve-venues 的 repoint／demote 對它會拒絕；"
                        + "請在 YAML 裡刪掉多餘的邊（移除面：#572）"))
         }

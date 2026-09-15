@@ -294,11 +294,12 @@ public struct Venue: Equatable {
             for i in segs.indices {
                 for j in segs.indices where j > i {
                     if listed == pairsToList || evaluated == pairsToEvaluate {
-                        // 求值上限觸發時 listed 可以是 0——訊息要說出「沒評完」而不是只說「近重複」
-                        let capHit = evaluated == pairsToEvaluate && listed < pairsToList
+                        // 求值上限觸發時 listed 可以是 0——訊息用自己的開頭詞「同名段過多」（R11 verify regression 第 31 列：那一組
+                        // 沒有任何一對被判定違反，`grep -c '近重複'` 不該把它算成近重複）；兩個上限同輪到頂時也說出上限（第 24 列）
+                        let capHit = evaluated == pairsToEvaluate
                         issues.append(ValidationIssue(
                             severity: .error,
-                            message: "venue '\(displaySafe(key, max: 120))' 的 names 近重複「\(displaySafe(segs[i].value, max: 120))」共 \(segs.count) 筆同名段，"   // display-safe-exempt: Int
+                            message: "venue '\(displaySafe(key, max: 120))' 的 names \(capHit ? "同名段過多" : "近重複")「\(displaySafe(segs[i].value, max: 120))」共 \(segs.count) 筆同名段，"   // display-safe-exempt: Int；固定字串
                                    + "已評估 \(evaluated) 對（列出其中 \(listed) 對違反），另至多 \(total - evaluated) 對未評估"   // display-safe-exempt: Int
                                    + (capHit
                                       ? "——同名段超過逐對評估的上限（\(pairsToEvaluate) 對，約 100 筆）一律拒絕：請把同名沿革段收攏，或在 YAML 裡留一筆"   // display-safe-exempt: Int 常量
@@ -398,7 +399,21 @@ public struct Venue: Equatable {
             let n = min(e.count, s.count)
             return String(e.prefix(n)) < String(s.prefix(n))
         }
-        return before(a.end, b.start) || before(b.end, a.start)
+        // **兩段本身都要是有效區間**（R11 verify Codex 第 3 列）：R7 只驗參與比較的 `a.end`／`b.start`，`{start: 2000, end: 1900}`
+        // 對 `{1950–1960}` 以 `"1900" < "1950"` 解鎖豁免——拿一個倒置的無效區間當沿革。在場的每個端點都要是 ISO 前綴、且
+        // start 以較粗粒度截斷後 ≤ end；證明不了區間有效就不授予豁免（放行條件 fail-closed，與 R7 同一方向）。
+        return segmentIsWellFormed(a) && segmentIsWellFormed(b)
+            && (before(a.end, b.start) || before(b.end, a.start))
+    }
+
+    /// 在場的端點都是 ISO 8601 前綴，且 `start` 不晚於 `end`（較粗粒度截斷後比較；同年內的細粒度 `end` 合法）。
+    static func segmentIsWellFormed(_ r: DateRange) -> Bool {
+        for p in [r.start, r.end] { if let p, !ISO8601Prefix.isValid(p) { return false } }
+        if let s = r.start, let e = r.end {
+            let n = min(s.count, e.count)
+            if String(s.prefix(n)) > String(e.prefix(n)) { return false }
+        }
+        return true
     }
 
     /// 對外可稱呼的名稱：authorized 書寫系統相符者 → 任一 authorized →

@@ -271,9 +271,25 @@ final class VenueNameInvariantTests: XCTestCase {
             return Venue(key: "j", type: .periodical, names: Timeline(segs), authorized: [])
         }
         XCTAssertTrue(errors(dated(100)).isEmpty, "上限內：全豁免組零 issue，verdict 不變")
-        let over = errors(dated(120)).filter { $0.contains("近重複") }
-        XCTAssertEqual(over.count, 1, "\(over)")
+        // 求值上限的訊息用自己的開頭詞（R11 verify regression 第 31 列）：這一組沒有任何一對被判定違反，
+        // `grep -c '近重複'`（第 25 列的量測）不該把它算成近重複
+        let over = errors(dated(120)).filter { $0.contains("同名段過多") }
+        XCTAssertEqual(over.count, 1, "\(errors(dated(120)))")
         XCTAssertTrue(over.first?.contains("未評估") == true && over.first?.contains("上限") == true, "\(over)")
+        XCTAssertFalse(over[0].contains("近重複"), over[0])
+    }
+
+    /// **豁免前要驗段本身的區間**（R11 verify Codex 第 3 列）：`{start: 2000, end: 1900}` 與 `{1950–1960}`——只驗參與比較的
+    /// `a.end`／`b.start` 是 ISO，`"1900" < "1950"` 就放行了一個倒置的無效區間。豁免要求兩段**每個在場的端點**都是 ISO 前綴、
+    /// 且各自 start ≤ end（以較粗粒度截斷比）；證明不了區間有效就不授予豁免（放行條件 fail-closed，R7 的同一方向）。
+    func testInvertedOrPartlyInvalidRangesDoNotUnlockTheExemption() {
+        func v(_ a: DateRange, _ b: DateRange) -> Venue {
+            Venue(key: "j", type: .periodical, names: Timeline([TemporalValue(value: "Sankhyā", range: a), TemporalValue(value: "Sankhyā", range: b)]), authorized: [])
+        }
+        XCTAssertTrue(errors(v(DateRange(start: "2000", end: "1900"), DateRange(start: "1950", end: "1960"))).contains { $0.contains("近重複") }, "倒置區間")
+        XCTAssertTrue(errors(v(DateRange(start: "民國49", end: "1960"), DateRange(start: "1961", end: "1970"))).contains { $0.contains("近重複") }, "未參與比較的端點不合法")
+        XCTAssertTrue(errors(v(DateRange(start: "1933", end: "1960"), DateRange(start: "1961", end: "1970"))).isEmpty, "合法沿革仍豁免")
+        XCTAssertTrue(errors(v(DateRange(start: "1960", end: "1960-06"), DateRange(start: "1961"))).isEmpty, "同年內的細粒度 end 合法")
     }
 
     /// **「另至多 M 對」量的是未評估的對數，訊息要這麼說**（R10 verify regression 第 18 列）：R10 寫「未逐一列出」，但已評估而豁免的對
@@ -299,7 +315,7 @@ final class VenueNameInvariantTests: XCTestCase {
         let w = e.validate().filter { $0.severity == .warning && $0.message.contains("同一 venue") }
         XCTAssertEqual(w.count, 1, "\(w)")
         let m = w.first?.message ?? ""
-        XCTAssertTrue(m.contains("「a」") && m.contains("第 0、2 條") && m.contains("#572"), m)
+        XCTAssertTrue(m.contains("「a」") && m.contains("index 0、2") && m.contains("#572"), m)
         e.venues = [.key("a"), .key("b"), .literal("a")]
         XCTAssertTrue(e.validate().filter { $0.message.contains("同一 venue") }.isEmpty, "literal 邊不算——那是尚未判定的誠實狀態")
     }

@@ -817,6 +817,18 @@ references:
   rests-on: []                                # verdict 例外：允許空（見下）
 ```
 
+**配對的唯一性（normative，#554 R10–R12）**：verdict 的 `value` 只定位配對 `(holder, literal)`，
+**不帶** `venues` 的 index——所以一筆 work 對同一個 venue **只能有一條 key 邊**，且同一 (venue, work)
+上正規化後（`NameNormalization.matchingKey`）不同的 confirmed literal 只能有一個。這是 `work:` 記錄
+的約束，住在這裡而不在 §5.7（那節講的是 venue 的名字內容；R11 verify 第 7 列指出手改 work 的人不會去
+讀那節）。寫入面：`resolve-venues --apply` 對會造出第二條 key 邊的候選**逐筆略過並具名**（D33，
+`skippedDuplicateVenueEdge`）；`--repoint` 讓被動到的邊撞上第二條時拒（D27）；`--demote`／`--repoint`
+對已違反的 work 拒（D25；≥2 個不同 confirmed literal 拒，D23）；venue 合併在塌邊會留下兩筆正規化後
+不同的 confirmed literal 時拒（D32），倖存者與被併者對同一配對持相反判定時拒（D31——person 合併同）；
+被併者的 verdict 遷移以 `verdictEqualityKey` 去重（與 `appendIfAbsent`／`supersede`／#486 同一把鍵）。
+既有的違反由 `Entry.validate()` 報 warning（`zero-instance-guards` 第 26 列），修法是手改 work 的 YAML
+刪掉多餘的邊——移除面是 #572。
+
 **與 §3.5 一般規則的三個刻意偏離**（各有理由，皆為 normative）：
 
 1. **`value` 必填、必須可解析、不做集合成員檢查**。一般清單欄位的 `value` 以值
@@ -1434,12 +1446,9 @@ encode/decode 等冪。
 （`writeVenue`／`fmt`／合併的 keeper 寫回／work・person 合併對持有被併鍵 verdict 的 holder 遷移——venue、
 organization、person 三種各過各的閘（R9，D24；2026-09-14 以含此版的 binary 對 live store 跑 `validate`：4,572 筆 person、13 筆
 organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLostByMerging` **之後**，merge 專屬的那句先出，R10）／
-`resolve-venues` 的 verdict 寫回——repoint／demote 寫 verdict 時退役同 holder 上同一配對的相反判定（D20），且**配對只由一條邊
-實例化時才做**：同一 work 兩條邊指同一 venue、或（只對 repoint）另有 literal 邊同配對時具名拒絕零寫入（D25，verdict 不帶 index）；
-唯一性對**寫入後**的邊集合驗——`repoint` 改指後、`apply` 升格後，同一 work 不得有兩條 key 邊指同一 venue，同一批同一 work 的兩個
-move 不得帶同一個 literal（D27／D28，R11：R10 的 D25 只看原始 entry，`repoint`／`apply` 自己都造得出它宣告不得存在的形；既有的這種
-work 由 `Entry.validate()` 報 warning，移除多餘邊的面是 #572）；退役的每筆逐字回報在 `verdictsRetired`（截 20 筆，
-`verdictsRetiredTotal`／`truncated` 揭露）；近重複掃描每組求值上限 5,000 對（≈100 筆同名段），超過即 error）都要通過
+`resolve-venues` 的 verdict 寫回——repoint／demote 寫 verdict 時退役同 holder 上同一配對的相反判定（D20）；配對唯一性的
+規範文字在 §3.5「配對的唯一性」，這裡不複述（D23／D25／D27／D28／D31／D32／D33）；退役的每筆逐字回報在 `verdictsRetired`
+（截 20 筆，`verdictsRetiredTotal`／`truncated` 揭露）；第 5 條的求值上限在讀取路徑上也跑）都要通過
 `Venue.validate()` 的名字內容檢查，**error 級**；decode **不驗**（load 照讀，
 `validate`／`doctor` 報出來）。這一段是 **store 契約**（與 §3.4 canonical form、§3.1
 `authorized` 同級——手改 YAML 的人讀的是本檔不是 `.claude/rules`，而手改正是它指定的修法）。
@@ -1447,7 +1456,7 @@ work 由 `Entry.validate()` 報 warning，移除多餘邊的面是 #572）；退
 而沒記）：spec 已有兩條 validate-time Requirement（authorized／variant 互斥、variant 不帶時間），
 本節的四條與它們同形，**應該**成為 spec 的 Requirement——那要走 spectra-propose，#554 不做
 （#554 的裁決是「既有 tool 的新參數，不走 Spectra」，D8 把它擴成 store 不變式時沒有重開那個
-裁決）。在 spec 補齊之前，本節是唯一的規範來源；follow-up 見 #570。四條，封閉：
+裁決）。在 spec 補齊之前，本節是唯一的規範來源；follow-up 見 #570。五條，封閉（第 5 條是 R11 加的求值上限，R11 verify 第 13 列指出它先前只住在上面那個括號裡）：
 
 1. **canonical 形**：NFC；無前後空白；內部任何 `White_Space` scalar 串（含 tab、換行、
    NBSP、NNBSP、U+3000）收斂為單一 U+0020。**正規化只丟空白、不刪任何其他 scalar**（空白後的
@@ -1482,7 +1491,14 @@ work 由 `Entry.validate()` 報 warning，移除多餘邊的面是 #572）；退
    以較粗粒度截斷後相等——端點相等（`end: 1960`／`start: 1960`）、粒度混用而同年（`end: 1960`／
    `start: 1960-06`；`end: 1960-06`／`start: 1960-07` 兩者都到月，截斷後 06 < 07，**是**不相交）——都算重疊；只有 `attested` 或 `ended-unknown` 的段沒有可比的端點，永遠進不了豁免。任一筆
    無時間宣稱，仍是違反。這個「不相交」刻意比 `DateRange.overlaps` 保守——那個函式是給提醒用的
-   （多報安全），這裡是放行條件。
+   （多報安全），這裡是放行條件。**兩段本身都要是有效區間**（R12，R11 verify Codex 第 3 列）：在場的每個
+   端點都是 ISO 前綴、且 `start` 以較粗粒度截斷後不晚於 `end`——`{start: 2000, end: 1900}` 對 `{1950–1960}`
+   曾以 `"1900" < "1950"` 解鎖豁免；證明不了區間有效就不授予豁免。
+5. **同名段的求值上限**（R11；`Venue.validate()` 在讀取路徑——`StoreHealth` → doctor／App——也跑）：一組 canonical
+   相等的 `names` 段最多逐對評估 5,000 對（≈100 筆），超過即 error，**不論每一對是否都命中第 4 條的豁免**
+   （fail-closed：`add_names` 不帶時間欄位造不出全豁免組，手改或匯入才造得出，而一本刊改回同名一百次不是真的
+   沿革）。訊息以「同名段過多」開頭，與第 4 條的「近重複」在 grep 層面分得開；一組內逐一列出的違反對至多 3 對，
+   其餘以「另至多 M 對未評估」概括（M 是未評估的對數）。
 
 **修法是人改 YAML**（不猜、不靜默修）：訊息逐條說改什麼——改成 canonical 寫法、刪掉那個
 字元、刪掉那一筆、或把沿革段補上不相交的時間。工具不提供 `--repair`。同一句訊息也出現在

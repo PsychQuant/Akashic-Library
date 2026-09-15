@@ -150,7 +150,7 @@ struct AddVenueCmd: ParsableCommand {
     var key: String
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "名稱變體（可多個）。契約同 update-venue --add-name（#554 D8）：以 canonical 形入庫（空白類——含 tab／換行／LS——收斂為單一空格、NFC）、近重複只留一筆、空白項略過；含其他控制／格式／不可見字元、拉丁或 CJK 之間的接合字元、或無任何字母或數字即整個呼叫拒絕、零寫入；全部空白＝沒有名字，同樣拒絕。報告：names 是存入的拼法、被折成 canonical 形才存的列 namesRewritten、真的沒進 store 的列 namesDropped")
+            help: "名稱變體（可多個）。契約同 update-venue --add-name（#554 D8）：以 canonical 形入庫（空白類——含 tab／換行／LS——收斂為單一空格、NFC）、近重複只留一筆、空白項略過；含其他控制／格式／不可見字元、拉丁或 CJK 之間的接合字元、或無任何字母或數字即整個呼叫拒絕、零寫入；全部空白＝沒有名字，同樣拒絕。報告：names 是存入的拼法、被折成 canonical 形才存的列 namesFolded、真的沒進 store 的列 namesDropped")
     var names: [String]
 
     @Option(name: .long, help: "\(VenueType.domainDescription)")
@@ -317,7 +317,7 @@ struct MigrateVenueVariants: ParsableCommand {
 struct ResolveVenuesCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "resolve-venues",
-        abstract: "venue 解析：不帶參數列候選與歧義；--apply 升格 literal 為 key（寫 confirmed verdict；同一 work 不得因此兩條邊指同一 venue，D28）；--reject 否決（寫 rejected verdict）；--repoint 改指已歸戶的邊（兩側都寫 verdict）；--demote 退回 literal（原字串從 verdict 取回，#418）。--repoint／--demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定（D20，逐筆列在 verdictsRetired、截 20 筆），前提不符整批拒絕零寫入（≥2 個不同 confirmed literal D23；配對由多條邊實例化 D25；改指後兩條邊同 venue、或同一批同一 literal D27）")
+        abstract: "venue 解析：不帶參數列候選與歧義；--apply 升格 literal 為 key（寫 confirmed verdict；會讓同一 work 兩條邊指同一 venue 的候選逐筆略過並回報 skippedDuplicateVenueEdge，D28／D33）；--reject 否決（寫 rejected verdict）；--repoint 改指已歸戶的邊（兩側都寫 verdict）；--demote 退回 literal（原字串從 verdict 取回，#418）。--repoint／--demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定（D20，逐筆列在 verdictsRetired、截 20 筆），前提不符整批拒絕零寫入（≥2 個不同 confirmed literal D23；配對由多條邊實例化 D25；被動到的邊與另一條邊同 venue、或同一批同一 literal 且觸及同一 venue D27）")
 
     @OptionGroup var options: LibraryOptions
 

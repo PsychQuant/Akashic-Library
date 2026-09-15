@@ -135,6 +135,30 @@ final class VerdictHolderGridTests: XCTestCase {
             guard case DivergenceResolveError.wouldLoseFields = err else { return XCTFail("要先報欄位遺失：\(err)") }
         }
     }
+    /// **person 合併對相反判定同樣拒、同鍵同 kind 的遷移去重**（#554 R12，D31；R11 verify DA 第 1 列指出 person 路徑有逐字
+    /// 同型的程式碼與同型的假斷言「(field, value) 冪等」——它只在位元組層為真）。
+    func testPersonMergeRefusesOppositeVerdictsAndDedupesMigrationByNormalizedKey() throws {
+        var keeper = Person(key: "keeper-person", names: ["Keeper Person"])
+        keeper.references = [verdict("resolution-confirmed", kind: .work, holder: "w2025", literal: "Cheng, C.")]
+        try store.writePerson(keeper)
+        var doomed = Person(key: "doomed-person", names: ["Doomed Person"])
+        doomed.references = [verdict("resolution-rejected", kind: .work, holder: "w2025", literal: "CHENG, C.")]
+        try store.writePerson(doomed)
+        let d = try divergence(keeper: "keeper-person", doomed: "doomed-person", shape: .person)
+        GitFixture.commitAll(store.root)
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "keeper-person", overrideReason: nil)) { err in
+            guard case DivergenceResolveError.wouldContradictVerdicts = err else { return XCTFail("要具名拒絕：\(err)") }
+        }
+        var doomed2 = Person(key: "doomed-two", names: ["Doomed Two"])
+        doomed2.references = [verdict("resolution-confirmed", kind: .work, holder: "w2025", literal: "CHENG, C.")]
+        try store.writePerson(doomed2)
+        let d2 = try divergence(keeper: "keeper-person", doomed: "doomed-two", shape: .person)
+        GitFixture.commitAll(store.root)
+        let report = try store.resolveDivergence(id: d2.id, survivor: "keeper-person")
+        XCTAssertEqual(report.verdictReferencesMigrated, [], "同鍵的重複不算遷移")
+        XCTAssertEqual(try store.load().people.first { $0.key == "keeper-person" }?.references.compactMap(\.value), ["work:w2025 :: Cheng, C."])
+    }
+
     /// **D19 的閘要涵蓋三種 holder，不只 venue**（#554 R8 verify 第 13／14／32 列；Claude 代裁 D24）：R8 的
     /// `assertVenueHoldersWritable` doc 說「person／organization holder 沒有名字內容不變式，寫入閘對它們只有 key 與
     /// format」——假的：`assertOrganizationWritable`／`assertPersonWritable` 都跑 `validate()` 的 error 級檢查

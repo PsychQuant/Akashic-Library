@@ -825,7 +825,18 @@ references:
 `skippedDuplicateVenueEdge`）；`--repoint` 讓被動到的邊撞上第二條時拒（D27）；`--demote`／`--repoint`
 對已違反的 work 拒（D25；≥2 個不同 confirmed literal 拒，D23）；venue 合併在塌邊會留下兩筆正規化後
 不同的 confirmed literal 時拒（D32），倖存者與被併者對同一配對持相反判定時拒（D31——person 合併同）；
-被併者的 verdict 遷移以 `verdictEqualityKey` 去重（與 `appendIfAbsent`／`supersede`／#486 同一把鍵）。
+被併者的 verdict 遷移以 `verdictEqualityKey` 去重（與 `appendIfAbsent`／`supersede`／#486 同一把鍵），
+**被去重丟掉的那筆逐筆回報在 `verdictsCollapsed`**（R13：位元組不同的判定記錄可能帶人寫的 judgement 與
+rests-on，被併檔隨即刪除、唯一副本只剩 git）。**R13 的三個收緊**（R12 verify 七席）：D31 的比對是**累積**的
+（三方合併時被併者彼此的相反判定也擋），且同一道閘裝在 **holder 遷移**那一步（`assertHoldersWritable`，
+work／person 合併把第三方 holder 上的 `<kind>:<被併鍵>` 改寫成倖存者之後，同一 holder 不得同時持有該配對的
+confirmed 與 rejected——三種 shape 共用）；D32 守的是不變式本身而不是「塌邊」這個症狀——這次合併**新增**的
+confirmed literal 會讓倖存者對某個 work 持有 ≥2 個正規化後不同的 confirmed 即拒，倖存者自己既有的違反不是
+合併的事；D33 的勝者由**呼叫端的順序**決定（先到先寫，`apply` 陣列保序不排序——同一 work 兩條拼法不同的
+literal 邊誰落地、confirmed 帶哪個字串，都取決於呼叫端送的順序），略過訊息分「既有的 key 邊」與「同一批稍早的
+候選」兩種來源。**合併本身是一種移除面**（R12 verify logic 第 38 列）：`resolveVenueDivergence` 對 entry 的 key
+邊去重時，與被併鍵無關的既有重複 key 邊也會被收成一條（#553 起）、報告只有 `entriesRewritten` 的計數——#572
+落地前留著，這裡把它寫出來。
 既有的違反由 `Entry.validate()` 報 warning（`zero-instance-guards` 第 26 列），修法是手改 work 的 YAML
 刪掉多餘的邊——移除面是 #572。
 
@@ -1454,7 +1465,7 @@ organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLo
 `authorized` 同級——手改 YAML 的人讀的是本檔不是 `.claude/rules`，而手改正是它指定的修法）。
 **它與 `openspec/specs/venue-entity` 的關係**（R6 verify 第 3 列指出 R6 說「記在 parity 列」
 而沒記）：spec 已有兩條 validate-time Requirement（authorized／variant 互斥、variant 不帶時間），
-本節的四條與它們同形，**應該**成為 spec 的 Requirement——那要走 spectra-propose，#554 不做
+本節的五條與它們同形，**應該**成為 spec 的 Requirement——那要走 spectra-propose，#554 不做
 （#554 的裁決是「既有 tool 的新參數，不走 Spectra」，D8 把它擴成 store 不變式時沒有重開那個
 裁決）。在 spec 補齊之前，本節是唯一的規範來源；follow-up 見 #570。五條，封閉（第 5 條是 R11 加的求值上限，R11 verify 第 13 列指出它先前只住在上面那個括號裡）：
 

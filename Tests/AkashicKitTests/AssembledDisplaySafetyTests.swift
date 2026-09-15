@@ -97,6 +97,17 @@ final class CanonicalFormatValidationTests: XCTestCase {
         XCTAssertThrowsError(try CanonicalFormat.normalized(dirtyName), "非 canonical 名字不得通過 fmt")
     }
 
+    /// **`.organization` 分支與 `.person`／`.venue` 同一條紀律**（#554 R12 verify regression 第 32 列：三個同形的 shape 只修了兩個）。
+    func testNormalizedRejectsSemanticallyInvalidOrganization() throws {
+        var o = Organization(key: "iss", names: TimelineOf([TemporalValue(value: "Institute of Statistical Science")]))
+        o.authorized = ["Institute of Statistical Science"]
+        let clean = try OrganizationYAML.encode(o)
+        XCTAssertNoThrow(try CanonicalFormat.normalized(clean))
+        let orphan = clean.replacingOccurrences(of: "authorized:\n- Institute of Statistical Science", with: "authorized:\n- Elsewhere")
+        XCTAssertNotEqual(orphan, clean, "fixture：替換要命中")
+        XCTAssertThrowsError(try CanonicalFormat.normalized(orphan), "authorized ⊄ names 不得通過 fmt")
+    }
+
     /// 語意合法的 person 照常正規化——不得因為加了驗證就把正常檔擋掉。
     func testNormalizedAcceptsValidPerson() throws {
         var person = Person(key: "someone", names: PersonNames(authorized: ["Real Name"],

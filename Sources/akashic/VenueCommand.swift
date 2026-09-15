@@ -186,7 +186,7 @@ struct UpdateVenueCmd: ParsableCommand {
     var key: String
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "要附加的名稱變體（可多個；相等看 canonical——前後／連續空白、NFC——近重複略過、新名字以 canonical 形入庫：空白類（含 tab／換行／LS／PS／NEL）收斂為單一空格。其他控制／格式／不可見字元（bidi、零寬、變體選擇子、填充字元）、拉丁或 CJK 之間的接合字元（ZWJ／ZWNJ 只在使用 join control 的文字——阿拉伯系／印度系／蒙古文等——裡合法：virama 之後、左鄰是同文字的字母／標記／數字而右鄰是同文字的字母／數字（右鄰不收標記）、或 Devanagari／Bengali 的 virama 之前且其後接字母）、或無任何字母或數字即整批拒絕，#554 D8）")
+            help: "要附加的名稱變體（可多個；相等看 canonical——前後／連續空白、NFC——近重複略過、新名字以 canonical 形入庫：空白類（含 tab／換行／LS／PS／NEL）收斂為單一空格。其他控制／格式／不可見字元（bidi、零寬、變體選擇子、填充字元）、拉丁或 CJK 之間的接合字元（ZWJ／ZWNJ 只在使用 join control 的文字——阿拉伯系／印度系／蒙古文等——裡合法：virama 之後、左鄰是同文字的字母／標記／數字而右鄰是同文字的字母／數字（右鄰不收標記）、或 Devanagari／Bengali 的 virama 之前且其後接字母）、或無任何字母或數字即整批拒絕，#554 D8）。報告：實際寫入的拼法列 namesAdded、canonical 形本來就在的列 namesAlreadyPresent、這次才存但拼法被折過的列 namesFolded、全空白的列 namesDropped")
     var addName: [String] = []
 
     @Option(name: .long, help: "備註（替換；選填）")
@@ -317,7 +317,7 @@ struct MigrateVenueVariants: ParsableCommand {
 struct ResolveVenuesCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "resolve-venues",
-        abstract: "venue 解析：不帶參數列候選與歧義；--apply 升格 literal 為 key（寫 confirmed verdict；會讓同一 work 兩條邊指同一 venue 的候選逐筆略過並回報 skippedDuplicateVenueEdge，D28／D33）；--reject 否決（寫 rejected verdict）；--repoint 改指已歸戶的邊（兩側都寫 verdict）；--demote 退回 literal（原字串從 verdict 取回，#418）。--repoint／--demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定（D20，逐筆列在 verdictsRetired、截 20 筆），前提不符整批拒絕零寫入（≥2 個不同 confirmed literal D23；配對由多條邊實例化 D25；被動到的邊與另一條邊同 venue、或同一批同一 literal 且觸及同一 venue D27）")
+        abstract: "venue 解析：不帶參數列候選與歧義；--apply 升格 literal 為 key（寫 confirmed verdict；會讓同一 work 兩條邊指同一 venue 的候選逐筆略過並回報 skippedDuplicateVenueEdge；同一 work 兩條拼法不同的 literal 邊指向同一 venue 時誰落地由 --apply 的順序決定，先到先寫，D28／D33）；--reject 否決（寫 rejected verdict）；--repoint 改指已歸戶的邊（兩側都寫 verdict）；--demote 退回 literal（原字串從 verdict 取回，#418）。--repoint／--demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定（D20，逐筆列在 verdictsRetired、截 20 筆），前提不符整批拒絕零寫入（≥2 個不同 confirmed literal D23；配對由多條邊實例化 D25；被動到的邊與另一條邊同 venue、或同一批同一 literal 且觸及同一 venue D27）")
 
     @OptionGroup var options: LibraryOptions
 

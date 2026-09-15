@@ -135,6 +135,32 @@ final class VerdictHolderGridTests: XCTestCase {
             guard case DivergenceResolveError.wouldLoseFields = err else { return XCTFail("要先報欄位遺失：\(err)") }
         }
     }
+    /// **work 合併的 holder 遷移也不得造出矛盾對**（R12 verify DA 第 6 列，真 binary 全工具面重現：venue alpha 持
+    /// `confirmed :: work:keep :: Alpha` 與 `rejected :: work:doom :: ALPHA`，doom 併進 keep 後 `migrateHolderVerdicts` 把
+    /// holder 改寫成 keep，field 進鍵所以兩筆都留下——#486 的矛盾對，而 D31 只裝在 person／venue 自己的 references 上）。
+    /// 閘要裝在遷移那一步（`assertHoldersWritable`，三種 shape 共用），不是三個 `validate*Preconditions` 各補一份。
+    func testWorkMergeRefusesWhenHolderMigrationWouldContradict() throws {
+        try entry("keep2020a")
+        let doomed = Entry(id: UUID(), citekey: "doom2020a", type: .periodicalArticle, title: "Doomed",
+                           authors: [.literal("A B")], date: "2020")
+        try store.writeEntry(doomed)
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha")]), authorized: [])
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "keep2020a", literal: "Alpha"),
+                        verdict("resolution-rejected", kind: .work, holder: "doom2020a", literal: "ALPHA")]
+        try store.writeVenue(v)
+        let d = try divergence(keeper: "keep2020a", doomed: "doom2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        for op in [{ _ = try self.store.previewResolveDivergence(id: d.id, survivor: "keep2020a", overrideReason: nil) },
+                   { _ = try self.store.resolveDivergence(id: d.id, survivor: "keep2020a") }] {
+            XCTAssertThrowsError(try op()) { err in
+                guard case DivergenceResolveError.wouldContradictVerdicts = err else { return XCTFail("要具名拒絕：\(err)") }
+                XCTAssertTrue(err.localizedDescription.contains("alpha"), "要指名 holder：\(err)")
+            }
+        }
+        XCTAssertEqual(try holders(ofVenue: "alpha"), ["work:keep2020a", "work:doom2020a"], "零寫入")
+        XCTAssertEqual(try store.load().entries.count, 2, "零寫入")
+    }
+
     /// **person 合併對相反判定同樣拒、同鍵同 kind 的遷移去重**（#554 R12，D31；R11 verify DA 第 1 列指出 person 路徑有逐字
     /// 同型的程式碼與同型的假斷言「(field, value) 冪等」——它只在位元組層為真）。
     func testPersonMergeRefusesOppositeVerdictsAndDedupesMigrationByNormalizedKey() throws {

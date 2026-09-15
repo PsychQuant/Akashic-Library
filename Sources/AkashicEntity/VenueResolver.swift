@@ -86,6 +86,9 @@ public enum VenueResolver {
         // 早就這樣做且理由逐字寫在那裡）：verdict 記原始字串（lossless），而 `verdictEqualityKey`／#486 的矛盾掃描／D25 一族都以
         // `matchingKey` 定義「同一配對」。抑制若比原始位元組，`demote` 寫下的 `rejected(work, Psychometrika)` 壓不住同一 work 的
         // `PSYCHOMETRIKA` 邊——三步全工具面就造出永久的矛盾對（apply → demote → apply）。
+        // 鍵的形狀：holder 與 judgedKey 都是 `StoreKey`（`[a-z0-9][a-z0-9-]*`），`\0` 不在字元集內，所以夾在中間的 literal
+        // 即使含 U+0000 也移不動任何分隔點——碰撞不可達（R12 verify DA 第 43 列收窄 security 第 28 列）；與 `verdictEqualityKey`
+        // 同一套拼接，刻意不改形狀。
         var rejectedNorm = Set<String>()
         for pairing in rejected where pairing.holderKind == .work {
             rejectedNorm.insert("\(pairing.holder)\u{0}\(normalize(pairing.literal))\u{0}\(pairing.judgedKey)")

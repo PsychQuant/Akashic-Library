@@ -719,6 +719,33 @@ public enum UnsafeToEmitScalar {
     }
 }
 
+/// `displaySafe` 之後再以**性質**逃脫不可見 scalar（#554 R12／R13）：`displaySafe` 的列舉不含 TAG 字元、ZWSP、變體選擇子、
+/// CGJ、Hangul filler，而名字不變式（§5.7 第 2 條）與 `verdictsRetired`（迴送 verdict 的 value／statement）都需要這一組——
+/// 訊息在結構上保證帶著它剛拒掉的那個字元（R12 verify security 第 14 列）。類別：`Default_Ignorable_Code_Point`、Cc／Cf／Zl／Zp、
+/// 非 U+0020 的 Zs（NBSP／NNBSP／U+3000——名字側被 canonical 折掉，verdict literal 側沒有，第 27 列）、私用區 Co、U+2800
+/// BRAILLE PATTERN BLANK（名字不變式的顯式成員，第 22 列）。碼位補零到四位（與 `displaySafe` 的 `%04X` 一致，第 26 列）。
+/// 套在 `displaySafe` 之後：原始反斜線已被逃成 `\u{005C}`，這裡新加的 `\u{…}` 不會被再逃一次、store 裡字面寫著 `\u{200B}`
+/// 的字串也偽造不了本函式的輸出。它是 #569 的局部圍堵，不是它的裁決（`UnsafeToEmitScalar` 本身不動）。
+public func displaySafeInvisible(_ s: String, max: Int = 200) -> String {
+    escapingInvisibleScalars(displaySafe(s, max: max))
+}
+
+public func escapingInvisibleScalars(_ s: String) -> String {
+    var out = String.UnicodeScalarView()
+    for u in s.unicodeScalars {
+        let cat = u.properties.generalCategory
+        let invisible = u.properties.isDefaultIgnorableCodePoint
+            || cat == .control || cat == .format || cat == .lineSeparator || cat == .paragraphSeparator
+            || (cat == .spaceSeparator && u.value != 0x20) || cat == .privateUse || u.value == 0x2800
+        if invisible {
+            out.append(contentsOf: String(format: "\\u{%04X}", u.value).unicodeScalars)
+        } else {
+            out.append(u)
+        }
+    }
+    return String(out)
+}
+
 public func displaySafe(_ s: String, max: Int = 200,
                         escapingBackslash: Bool = true) -> String {
     var out = String.UnicodeScalarView()

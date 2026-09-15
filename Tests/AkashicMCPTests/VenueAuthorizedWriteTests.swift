@@ -882,6 +882,8 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         let skipped = try XCTUnwrap(json["skippedDuplicateVenueEdge"] as? [[String: Any]], out)
         XCTAssertEqual(skipped.map { $0["id"] as? String }, ["x2025:1"])
         XCTAssertTrue((skipped[0]["reason"] as? String ?? "").contains("#572"), out)
+        // 同一批內互撞：訊息要說「同一批稍早的候選先佔了這個 venue」，不是「work 已有一條邊」（R12 verify 第 19／21／23 列）
+        XCTAssertTrue((skipped[0]["reason"] as? String ?? "").contains("同一批"), out)
         let load = try store.load()
         XCTAssertEqual(load.entries.first { $0.citekey == "x2025" }?.venues, [.key("some-journal"), .literal("PSYCHOMETRIKA")])
         XCTAssertEqual(load.entries.first { $0.citekey == "y2025" }?.venues, [.key("other-journal")], "同批無關的候選照寫")
@@ -891,6 +893,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         let j2 = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(again.utf8)) as? [String: Any])
         XCTAssertEqual(j2["applied"] as? [String], [], again)
         XCTAssertEqual((j2["skippedDuplicateVenueEdge"] as? [[String: Any]])?.map { $0["id"] as? String }, ["x2025:1"], again)
+        XCTAssertTrue(((j2["skippedDuplicateVenueEdge"] as? [[String: Any]])?.first?["reason"] as? String ?? "").contains("已有一條邊"), again)
         XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2025" }?.venues, [.key("some-journal"), .literal("PSYCHOMETRIKA")])
         // 既有的重複邊（手改）不擋同一 work 上不相干的歸戶
         var z = Entry(id: UUID(), citekey: "z2025", type: .periodicalArticle, title: "T3")
@@ -937,6 +940,63 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertTrue(store.contradictoryVerdictIssues(in: load).isEmpty)
     }
 
+    /// **同 literal 的相交檢查要看全部配對，不只相鄰兩筆**（R12 verify Codex 第 2 列、logic 第 12 列：`[A, C, B]` 三條邊同 literal，
+    /// 0:A→B、1:C→D、2:B→A——相鄰對 {A,B}／{C,D}、{C,D}／{B,A} 都不相交，但第 1 與第 3 個 move 互相覆蓋：第三個在 B 寫 rejected
+    /// 時退役第一個剛寫的 confirmed，index 0 仍指向 B 卻失去證據）。
+    func testRepointRefusesNonAdjacentSameLiteralMovesThatOverlap() throws {
+        let store = LibraryStore(root: root)
+        for (k, n) in [("beta-journal", "Beta Journal"), ("gamma-journal", "Gamma Journal"), ("delta-journal", "Delta Journal")] {
+            _ = try service.addVenue(key: k, names: [n], type: "periodical", note: nil, issn: nil)
+        }
+        var x = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        x.venues = [.key("some-journal"), .key("gamma-journal"), .key("beta-journal")]
+        _ = try store.writeEntry(x)
+        for key in ["some-journal", "gamma-journal", "beta-journal"] {
+            var v = try XCTUnwrap(store.load().venues.first { $0.key == key })
+            v.references.append(ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "PSYCHOMETRIKA",
+                                                        rule: ResolutionLedger.venueRule, statement: "手改"))
+            try store.writeVenue(v)
+        }
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:delta-journal", "x2025:2:some-journal"])) { err in
+            XCTAssertTrue(String(describing: err).contains("同一個 literal"), "\(err)")
+        }
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal"), .key("gamma-journal"), .key("beta-journal")], "零寫入")
+    }
+
+    /// **MCP 組合腿：reject 腿讓同一次呼叫的 apply 腿失效時，要以正規化配對算 `skippedBecauseRejected`，不是走到 notFound**
+    /// （R12 verify DA 第 20 列：R12 的正規化抑制對了，但組合腿的去重只比 id 字面——reject 已提交、apply 回一句指錯路的 notFound）。
+    func testComboLegSkipsApplyIdsRejectedByNormalizedPairing() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika"), .literal("PSYCHOMETRIKA")]
+        _ = try store.writeEntry(e)
+        let out = try service.resolveVenues(apply: ["x2025:0"], reject: ["x2025:1"])
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        let legs = try XCTUnwrap(json["legs"] as? [String: Any], out)
+        let apply = try XCTUnwrap(legs["apply"] as? [String: Any], out)
+        XCTAssertNil(apply["error"], out)
+        XCTAssertEqual(apply["applied"] as? [String], [], out)
+        XCTAssertEqual(apply["skippedBecauseRejected"] as? [String], ["x2025:0"], out)
+        XCTAssertEqual(try store.load().entries.first?.venues, [.literal("Psychometrika"), .literal("PSYCHOMETRIKA")])
+    }
+
+    /// 入口的拒絕訊息也不得原樣迴送它剛拒掉的不可見字元（R13 E2E 抓到：`vetVenueNames` 還在用列舉式的 `displaySafe`）。
+    func testVettingRefusalEscapesTheOffendingScalar() throws {
+        XCTAssertThrowsError(try service.addVenue(key: "bad", names: ["Psycho\u{E0001}metrika"], type: "periodical", note: nil, issn: nil)) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("\\u{E0001}"), s)
+            XCTAssertFalse(s.unicodeScalars.contains { $0.value == 0xE0001 }, "原樣迴送：\(s)")
+        }
+    }
+
+    /// `add_variant`／`authorize` 的全空白項也要有回報桶（R12 verify logic 第 25 列：判定型寫入面上的靜默 no-op）。
+    func testBlankOnlyVariantAndAuthorizeInputsAreReported() throws {
+        let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, addVariant: ["  "], authorize: ["\u{3000}"])
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        XCTAssertEqual(json["variantDropped"] as? [String], ["  "], out)
+        XCTAssertEqual(json["authorizeDropped"] as? [String], ["\u{3000}"], out)
+    }
+
     /// **否決抑制與其餘三處同一把鍵**（R11 verify logic 第 8 列、regression 第 11 列：`VenueResolver` 的抑制比原始位元組，而
     /// `verdictEqualityKey`／#486 掃描／D25 一族全用 `matchingKey`——`apply → demote → apply` 三步全工具面就造出永久的矛盾對；
     /// `PersonResolver` 同一格早就修過且理由逐字寫在那裡）：demote 寫下的 rejected 也要壓住同配對的另一個拼法。
@@ -962,11 +1022,12 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         _ = try store.writeEntry(e)
         var v = try venue()
         v.references.append(ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "PSYCHOMETRIKA",
-                                                    rule: ResolutionLedger.venueRule, statement: "手改\u{E0001}A\u{200B}B"))
+                                                    rule: ResolutionLedger.venueRule, statement: "手改\u{E0001}A\u{200B}B\u{00AD}C\u{2800}D\u{00A0}E"))
         try store.writeVenue(v)
         let out = try service.resolveVenues(apply: nil, demote: ["x2025:0"])
-        XCTAssertTrue(out.contains("\\\\u{E0001}") && out.contains("\\\\u{200B}"), out)
-        XCTAssertFalse(out.unicodeScalars.contains { $0.value == 0xE0001 || $0.value == 0x200B }, "不得原樣迴送")
+        // 補零到四位（R12 verify 第 24／26 列，與 displaySafe 的 %04X 一致）、U+2800 與非 ASCII 的 Zs 也逃（第 22／27 列）
+        for esc in ["\\\\u{E0001}", "\\\\u{200B}", "\\\\u{00AD}", "\\\\u{2800}", "\\\\u{00A0}"] { XCTAssertTrue(out.contains(esc), "\(esc) 不在：\(out)") }
+        XCTAssertFalse(out.unicodeScalars.contains { [0xE0001, 0x200B, 0xAD, 0x2800, 0xA0].contains(Int($0.value)) }, "不得原樣迴送")
     }
 
     /// **no-op 早退也帶 D30 的三個鍵**（R11 verify logic 第 16 列）：同一個 tool 的 payload 形狀要一致，`truncated`／`verdictsRetiredTotal`

@@ -2647,12 +2647,19 @@ public final class AkashicService {
     /// 與 `Venue.validate()` 同一份謂詞）→ 去重保序。空白項是「沒說話」，跳過；任一項不合
     /// 即整批拒絕、零寫入、訊息帶參數名。回傳的每一項都是 canonical 形。
     private func vetVenueNames(_ raw: [String]?, parameter: String) throws -> [String] {
+        try vetVenueNamesReportingBlanks(raw, parameter: parameter).vetted
+    }
+
+    /// 同上，另回傳被略過的全空白項——`add_variant`／`authorize` 各自回報（R12 verify logic 第 25 列：判定型寫入面上的靜默 no-op；
+    /// `add_names` 走 `namesReport` 已經報得出來）。
+    private func vetVenueNamesReportingBlanks(_ raw: [String]?, parameter: String) throws -> (vetted: [String], blanks: [String]) {
         var seen = Set<String>()
         var out: [String] = []
         var bad: [String] = []
+        var blanks: [String] = []
         for r in raw ?? [] {
             let c = NameIdentity.canonical(r)
-            if c.isEmpty { continue }
+            if c.isEmpty { blanks.append(r); continue }
             if let why = NameIdentity.wellFormednessIssue(c) {
                 // 原字串自己截 120 字元（R6 verify 第 7／12 列：只對整項截 400 的話，貼錯一整段摘要時
                 // 被截掉的正是操作者要看的理由）；整項在下面 throw 時經 displaySafe（一次——它不冪等）
@@ -2669,9 +2676,10 @@ public final class AkashicService {
             // 每項 400（原字串截 120 ＋ 理由）、**項數不設上限**——#562 那一族的第七個位置，
             // 刻意寫成 `map { displaySafe }.joined` 讓 #562 的現算 grep 看得到（R5 verify 第 15 列：
             // 上一版把 displaySafe 放在迴圈裡、joined 在另一行，grep 數不到它）
-            throw ServiceError.invalid("\(parameter) 的 " + bad.map { displaySafe($0, max: 400) }.joined(separator: "；"))   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量
+            // 逃脫以性質不以列舉（R13）：這則訊息在結構上帶著它剛拒掉的那個不可見字元（R12 verify security 第 14 列的同一形）
+            throw ServiceError.invalid("\(parameter) 的 " + bad.map { displaySafeInvisible($0, max: 400) }.joined(separator: "；"))   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量
         }
-        return out
+        return (out, blanks)
     }
 
     public func addVenue(key: String, names: [String], type rawType: String,
@@ -2792,8 +2800,8 @@ public final class AkashicService {
         // 參數名兩面各自正確（R6 verify 第 45 列：CLI 使用者看到 MCP 鍵名 `add_names`，不是自己打的 `--add-name`）
         let namesIn = try vetVenueNames(addNames, parameter: "add_names（--add-name）")
         let namesBefore = venue.names.entries.map(\.value)
-        let variantsIn = try vetVenueNames(addVariant, parameter: "add_variant（--add-variant）")
-        let authorizeIn = try vetVenueNames(authorize, parameter: "authorize（--authorize）")
+        let (variantsIn, variantBlanks) = try vetVenueNamesReportingBlanks(addVariant, parameter: "add_variant（--add-variant）")
+        let (authorizeIn, authorizeBlanks) = try vetVenueNamesReportingBlanks(authorize, parameter: "authorize（--authorize）")
 
         var added: [String] = []
         for n in namesIn {
@@ -3036,6 +3044,8 @@ public final class AkashicService {
                                       "issnAdded": issnAdded,
                                       "issnTotal": venue.issn.count,
                                       "variantAdded": variantAdded.map { displaySafe($0, max: 200) },
+                                      "variantDropped": variantBlanks.map { displaySafe($0, max: 200) },
+                                      "authorizeDropped": authorizeBlanks.map { displaySafe($0, max: 200) },
                                       "authorizedAdded": authorizedAdded.map { displaySafe($0, max: 200) },
                                       "authorizedRemoved": authorizedRemoved.map { displaySafe($0, max: 200) },
                                       "liftedFromVariant": liftedFromVariant.map { displaySafe($0, max: 200) },
@@ -3676,10 +3686,23 @@ public final class AkashicService {
             func parsed(_ s: String) throws -> [String: Any] {
                 (try JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any]) ?? [:]
             }
+            // **以正規化配對算「被這次 reject 腿壓掉的 apply id」**（R12 verify DA 第 20 列）：否決抑制自 R12 起比 `matchingKey`，
+            // 只比 id 字面會讓同一 work 的兄弟拼法各給一腿時 reject 已提交、apply 走到一句指錯路的 notFound。
+            let before = try store.load()
+            let listing = VenueResolver.resolve(entries: before.entries, venues: before.venues,
+                                                rejected: ResolutionLedger.rejectedPairings(venues: before.venues))
+            let byRow = Dictionary(listing.candidates.map { ($0.rowID, $0) }, uniquingKeysWith: { a, _ in a })
+            func pairingKey(_ c: VenueResolutionCandidate) -> String {
+                "\(c.citekey)\u{0}\(NameNormalization.matchingKey(c.literal))\u{0}\(c.venueKey)"   // display-safe-exempt: 內部比對鍵，不進任何輸出
+            }
             let rejectDict = try parsed(try resolveVenues(apply: nil, reject: rj))
             let justRejected = Set(rejectDict["rejected"] as? [String] ?? [])
-            let applyIDs = ap.filter { !justRejected.contains($0) }
-            let skipped = ap.filter { justRejected.contains($0) }
+            let rejectedPairings = Set(justRejected.compactMap { byRow[$0] }.map(pairingKey))
+            func suppressed(_ id: String) -> Bool {
+                justRejected.contains(id) || (byRow[id].map { rejectedPairings.contains(pairingKey($0)) } ?? false)
+            }
+            let applyIDs = ap.filter { !suppressed($0) }
+            let skipped = ap.filter { suppressed($0) }
             var applyDict: [String: Any]
             if applyIDs.isEmpty {
                 applyDict = ["applied": [String]()]
@@ -3779,22 +3802,28 @@ public final class AkashicService {
         // 同一 work 上不相干的歸戶鎖死，訊息還把因果歸給這次 apply（第 4／9／12／14 列）。store 狀態不符是「該筆略過並具名」
         // 那一類（`judge` 的先例：語法錯整批拒、store 狀態不符逐筆略過），只有**這次會製造**的重複才擋，既有的重複交給
         // `Entry.validate()` 的 warning。略過的候選會一直被提名（提名面不看 key 邊）——出路是刪掉多餘的邊（#572）。
-        var keyed: [String: [String: Int]] = [:]   // citekey → venueKey → 已指向它的邊 index
-        for e in load.entries where requested.contains(where: { $0.citekey == e.citekey }) {
-            for (i, ref) in e.venues.enumerated() { if case .key(let k) = ref { keyed[e.citekey, default: [:]][k] = i } }
+        // **勝者由呼叫端的順序決定**（先到先寫；`dedupe` 保序不排序，MCP 收的是呼叫端任意順序的陣列——兩面描述都寫明）。
+        // 兩種來源分開措辭（R12 verify 第 19／21／23 列）：既有的 key 邊 vs 同一批稍早的候選（那條邊此刻還是 literal）。
+        let requestedWorks = Set(requested.map(\.citekey))   // O(entries)（R12 verify regression 第 33 列：contains(where:) 是平方）
+        var keyed: [String: [String: (index: Int, fromBatch: Bool)]] = [:]   // citekey → venueKey → 已指向它的邊
+        for e in load.entries where requestedWorks.contains(e.citekey) {
+            for (i, ref) in e.venues.enumerated() { if case .key(let k) = ref { keyed[e.citekey, default: [:]][k] = (i, false) } }
         }
         var chosen: [VenueResolutionCandidate] = []
         var skipped: [[String: Any]] = []
         for c in requested {
-            if let i = keyed[c.citekey]?[c.venueKey] {
+            if let hit = keyed[c.citekey]?[c.venueKey] {
+                let head = hit.fromBatch
+                    ? "同一批稍早的候選 \(displaySafe(c.citekey, max: 200)):\(hit.index) 先佔了這個 venue（先到先寫，順序由呼叫端決定）"   // display-safe-exempt: Int
+                    : "work 已有一條邊（index \(hit.index)）指向這個 venue"   // display-safe-exempt: Int
                 skipped.append(["id": c.rowID,
                                 "venueKey": displaySafe(c.venueKey, max: 200),
-                                "reason": "work 已有一條邊（index \(i)）指向這個 venue——配對只能由一條邊實例化（verdict 不帶 index，D25），"   // display-safe-exempt: Int
+                                "reason": head + "——配對只能由一條邊實例化（verdict 不帶 index，D25），"
                                     + "這條 literal 邊是同一本刊的重複來源欄位（journaltitle／booktitle／publisher）；略過不寫，"
                                     + "它會一直被提名——出路是手改這筆 work 的 YAML 刪掉多餘的邊（移除面：#572）"])
                 continue
             }
-            keyed[c.citekey, default: [:]][c.venueKey] = c.venueIndex
+            keyed[c.citekey, default: [:]][c.venueKey] = (c.venueIndex, true)
             chosen.append(c)
         }
         let updatedEntries = VenueResolver.apply(chosen, to: load.entries)
@@ -3918,11 +3947,14 @@ public final class AkashicService {
             var byLiteral: [String: [Move]] = [:]
             for m in movesHere { byLiteral[NameNormalization.matchingKey(m.literal), default: []].append(m) }
             for (_, group) in byLiteral where group.count > 1 {
-                for (a, b) in zip(group, group.dropFirst()) where !Set([a.from, a.to]).isDisjoint(with: [b.from, b.to]) {
+                // 全部配對，不只相鄰兩筆（R12 verify Codex 第 2 列、logic 第 12 列：`[A, C, B]` 三個 move 的第 1 與第 3 個相交）
+                for (ia, a) in group.enumerated() {
+                    for b in group[(ia + 1)...] where !Set([a.from, a.to]).isDisjoint(with: [b.from, b.to]) {
                     throw ServiceError.invalid(
                         "同一批裡 work「\(displaySafe(ck, max: 200))」的 index \(a.index) 與 index \(b.index) 兩條邊帶同一個 literal"   // display-safe-exempt: Int
                         + "「\(displaySafe(b.literal, max: 120))」且觸及同一個 venue——verdict 以 (work, literal) 為鍵、不帶 index，"
                         + "兩個 move 對同一配對的退役會互相覆蓋，留下哪一側的證據取決於輸入順序。出路：先刪掉重複的邊（移除面：#572）")
+                    }
                 }
             }
         }
@@ -3979,12 +4011,11 @@ public final class AkashicService {
          "truncated": retired.count > retiredItemsCap]                // display-safe-exempt: Bool
     }
 
-    /// **同一 work 不得有兩條 key 邊指同一 venue**——`apply`（D28）與 `repoint`（D27）對**寫入後**的邊集合驗，具名拒絕零寫入
-    /// （R10 verify requirements 第 5 列、regression 第 10 列、logic 第 2 列）。D25 擋的是消費端（repoint／demote 遇到這個形拒絕），
-    /// 這裡擋生產端：R10 自己的測試就用 `apply` 一行造出 `[key V, key V]`，之後兩條邊都救不回來、`validate` 全綠、唯一出路是手改
-    /// YAML（`replace-endnote-and-zotero` 第 4 條：記成 #572）。兩條同刊名的 literal 邊不是手改產物——`VenueDerivation.literals`
-    /// 從 journaltitle／booktitle／publisher 取值、只用精確 `==` 去重。既有的這種 work 由 `Entry.validate()` 報 warning
-    /// （`zero-instance-guards` 第 26 列）。
+    /// **`repoint` 不得讓被動到的邊與本 work 另一條邊指同一 venue**（D27；R10 verify logic 第 2 列）——對**寫入後**的邊集合驗、
+    /// 只看含被動到的 index 的重複組（R12：既有的重複由 `Entry.validate()` 報），具名拒絕零寫入。`apply` 自 R12 起**不走這裡**：
+    /// 它對會造出重複的候選逐筆略過並具名（D33，`resolveVenues` 的 `skippedDuplicateVenueEdge`）。D25 擋的是消費端（repoint／demote
+    /// 遇到這個形拒絕）；兩條同刊名的 literal 邊不是手改產物——`VenueDerivation.literals` 從 journaltitle／booktitle／publisher 取值、
+    /// 只用精確 `==` 去重；移除面是 #572。
     static func assertKeyEdgesAreUnique(_ entry: Entry, moved: Set<Int>, operation: String) throws {
         var seen: [String: [Int]] = [:]
         for (i, ref) in entry.venues.enumerated() { if case .key(let k) = ref { seen[k, default: []].append(i) } }
@@ -4004,25 +4035,10 @@ public final class AkashicService {
     static func describeRetired(_ r: ProvenanceReference, on venueKey: String) -> String {
         var s = "venue:\(displaySafe(venueKey, max: 120)) \(r.field) \(displaySafe(r.value ?? "", max: 200))"   // display-safe-exempt: field 是封閉列舉的欄位名
         if case .judgement(let statement, _) = r.kind { s += "（\(displaySafe(statement, max: 200))）" }
-        return Self.escapingInvisibleScalars(s)
-    }
-
-    /// `verdictsRetired` 迴送的是 store 字串（verdict 的 value 是原始匯入的刊名、statement 是判定文字），而它是這條路徑上第一個
-    /// 帶 store 字串的**成功** payload（R11 verify security 第 10 列）。`displaySafe` 的列舉不含 TAG 字元／ZWSP／變體選擇子——
-    /// 這裡以**性質**逃脫（Cc／Cf／Zl／Zp 與 `Default_Ignorable_Code_Point`，與名字不變式同一組類別），是 #569 的局部圍堵，
-    /// 不是它的裁決。套在 `displaySafe` 之後：`displaySafe` 已把原始反斜線逃成 `\u{005C}`，這裡新加的 `\u{…}` 不會被再逃一次。
-    static func escapingInvisibleScalars(_ s: String) -> String {
-        var out = String.UnicodeScalarView()
-        for u in s.unicodeScalars {
-            let cat = u.properties.generalCategory
-            if u.properties.isDefaultIgnorableCodePoint || cat == .control || cat == .format
-                || cat == .lineSeparator || cat == .paragraphSeparator {
-                out.append(contentsOf: "\\u{\(String(u.value, radix: 16, uppercase: true))}".unicodeScalars)
-            } else {
-                out.append(u)
-            }
-        }
-        return String(out)
+        // `verdictsRetired` 迴送的是 store 字串（verdict 的 value 是原始匯入的刊名、statement 是判定文字）——這條路徑上第一個帶
+        // store 字串的**成功** payload（R11 verify security 第 10 列）；性質式逃脫住在 AkashicCore（`escapingInvisibleScalars`，
+        // R13：與名字不變式的訊息、合併的拒絕訊息共用，R12 verify 第 14 列），是 #569 的局部圍堵不是它的裁決。
+        return escapingInvisibleScalars(s)
     }
 
     /// **配對只能由一條邊實例化**（D25，R9 verify 六路命中）：verdict 不帶 venue index。同一 work 兩條 key 邊指同一
@@ -4049,7 +4065,7 @@ public final class AkashicService {
         guard others.isEmpty else {
             throw ServiceError.invalid(
                 "work「\(displaySafe(entry.citekey, max: 200))」的配對（literal「\(displaySafe(literal, max: 120))」）由 "
-                + "\(others.count + 1) 條邊實例化（\(IndexList.render([index] + others))）"   // display-safe-exempt: Int 序列（IndexList 有上限）
+                + "\(others.count + 1) 條邊實例化（\(IndexList.render(([index] + others).sorted()))）"   // display-safe-exempt: Int 序列（IndexList 有上限）
                 + "——verdict 不帶 index，\(operation)退役那筆 verdict 會把另一條邊的證據一起刪、之後那條邊在任何工具面上都救不回來。"   // display-safe-exempt: 固定字串（改指／降格）
                 + "出路：手改這筆 work 的 YAML 刪掉重複的邊（移除面：#572），再重跑")
         }
@@ -4090,8 +4106,8 @@ public final class AkashicService {
             throw ServiceError.invalid(
                 "venue「\(displaySafe(venue.key, max: 200))」上 work「\(displaySafe(citekey, max: 200))」有 "
                 + "\(literals.count) 個不同的 confirmed literal（"   // display-safe-exempt: Int
-                + literals.prefix(5).map { "「\(displaySafe($0, max: 120))」" }.joined(separator: "、")
-                + (literals.count > 5 ? "…" : "")   // 列舉有上限（#562 那一族，R11 verify security 第 20 列）
+                + literals.prefix(5).map { "「\(displaySafeInvisible($0, max: 120))」" }.joined(separator: "、")   // display-safe-exempt: displaySafeInvisible 內含 displaySafe（R13）
+                + (literals.count > 5 ? "…" : "")   // 列舉有上限（#562 那一族，R11 verify security 第 20 列）；literal 以性質逃脫（R12 verify 第 14 列）
                 + "）——verdict 不帶 index，分不出這條邊原本寫的是哪一個，\(operation)會把錯的 literal 寫進 verdict。"   // display-safe-exempt: 固定字串（改指／降格）
                 + "出路：把不屬於這條邊的那筆 confirmed verdict 從 venue 的 YAML 刪掉（或先改指另一條邊），再重跑")
         }

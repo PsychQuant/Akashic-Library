@@ -100,7 +100,12 @@ public enum CanonicalFormat {
             let person = try PersonYAML.decode(yaml)
             try LibraryStore.assertNoErrors(person.validate(), what: "person", key: person.key)
             return try PersonYAML.encode(person)
-        case .organization: return try OrganizationYAML.encode(try OrganizationYAML.decode(yaml))
+        case .organization:
+            // 與 `.person`／`.venue` 同一條紀律（#554 R12 verify regression 第 32 列）：`Organization.validate()` 走 `AuthorizedNames.validate`
+            // （authorized ⊆ names 等 error 級內容不變式），`assertOrganizationWritable` 用同一句收尾——三個同形的 shape 不能只修兩個。
+            let org = try OrganizationYAML.decode(yaml)
+            try LibraryStore.assertNoErrors(org.validate(), what: "organization", key: org.key)
+            return try OrganizationYAML.encode(org)
         case .divergence:   return try DivergenceYAML.encode(try DivergenceYAML.decode(yaml))
         case .venue:
             // 與 `.person` 同一條紀律（#554 R5 verify 第 9 列）：R5 之前這裡是裸 `encode(decode)`，

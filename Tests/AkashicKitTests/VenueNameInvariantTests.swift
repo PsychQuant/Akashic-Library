@@ -346,6 +346,17 @@ final class VenueNameInvariantTests: XCTestCase {
         XCTAssertNil(NameIdentity.wellFormednessIssue("۱۴۰۰"), "Nd 是數字")
     }
 
+    /// **不變式的訊息不得原樣迴送它剛拒掉的不可見字元**（R12 verify security 第 14 列：訊息在結構上保證帶著那個 scalar，
+    /// 而 `displaySafe` 的列舉不逃 TAG／ZWSP／VS16／U+2800——R12 造的性質式逃脫只掛在 `verdictsRetired` 上）。
+    func testInvariantMessagesEscapeTheOffendingScalar() {
+        let msgs = errors(venue(names: ["Psycho\u{E0001}metrika", "Psycho\u{200B}metrika"]))
+        XCTAssertEqual(msgs.count, 2, "\(msgs)")
+        for m in msgs {
+            XCTAssertFalse(m.unicodeScalars.contains { $0.value == 0xE0001 || $0.value == 0x200B }, "原樣迴送：\(m)")
+        }
+        XCTAssertTrue(msgs.contains { $0.contains("\\u{E0001}") } && msgs.contains { $0.contains("\\u{200B}") }, "\(msgs)")
+    }
+
     /// 訊息是對**操作者**說的（R5 verify 第 17 列）：修法是人改 YAML，訊息不得叫他呼叫一個 Swift 函式。
     func testInvariantMessagesSpeakToTheOperator() {
         for bad in ["Psychometrika ", "Psycho\u{200B}metrika", "×", "", "Psycho\u{200C}metrika", "\u{3164}"] {

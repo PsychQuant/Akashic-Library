@@ -252,7 +252,7 @@ public struct Venue: Equatable {
                 if let why = NameIdentity.wellFormednessIssue(n) {
                     issues.append(ValidationIssue(
                         severity: .error,
-                        message: "venue '\(displaySafe(key, max: 120))' 的 \(label)「\(displaySafe(n, max: 120))」\(why)"))   // display-safe-exempt: label 是本函式的字面常量；why 是 NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）
+                        message: "venue '\(displaySafe(key, max: 120))' 的 \(label)「\(displaySafeInvisible(n, max: 120))」\(why)"))   // display-safe-exempt: label 是本函式的字面常量；why 是 NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）；n 以性質逃脫（R12 verify 第 14 列）
                 }
             }
         }

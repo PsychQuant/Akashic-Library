@@ -135,6 +135,22 @@ final class DivergenceResolveVenueTests: XCTestCase {
         }
     }
 
+    /// **merge 專屬的那句要先出**（R10 verify logic 第 23 列，與 R9 對 person／work 的 `assertHoldersWritable` 同一個先後原則）：
+    /// 一筆既會丟欄位、名字又不 canonical 的被併 venue，使用者先看到「這次合併會丟什麼」而不是「YAML 髒」——兩者都是零寫入的拒絕，
+    /// 但前者是這個操作獨有的訊息、後者是別處也會報的。person／work 由 `testFieldLossIsReportedBeforeTheHolderGate` 釘住，venue 補上。
+    func testFieldLossIsReportedBeforeTheDoomedNameCheck() throws {
+        let d = try seed()
+        let doomed = try XCTUnwrap(store.load().venues.first { $0.key == "the-american-statistician" })
+        let file = root.appendingPathComponent("entities/\(doomed.id.uuidString).yaml")
+        try String(contentsOf: file, encoding: .utf8)
+            .replacingOccurrences(of: "- value: The American Statistician\n", with: "- value: 'The American Statistician '\n")
+            .write(to: file, atomically: true, encoding: .utf8)
+        GitFixture.commitAll(root, message: "dirt")
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "american-statistician")) { err in
+            guard case DivergenceResolveError.wouldLoseFields = err else { return XCTFail("要先報欄位遺失：\(err)") }
+        }
+    }
+
     /// `type` 不一致要擋（#324）：`VenueType` 決定哪些欄位存在，跨 type 合併不是
     /// 丟一個欄位，是把整組欄位需求換掉——那必須有人裁決。
     func testRefusesWhenTypesDiffer() throws {

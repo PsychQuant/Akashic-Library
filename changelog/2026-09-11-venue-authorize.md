@@ -371,6 +371,35 @@ error）；`canonical` 不是 venue 專屬（regression）→ doc 補 person／o
 並存）→ 重跑、註記，第 21 列的拆分判準已失效另案 #571。security 席另記三處新增的無上限訊息（#562 第七個實例）、`authorize`
 的 `argList` 靜默 no-op（#561）、`authorize` 不留 judgement（#564）——都是已知、已具名，不動。
 
+## R10 verify：閘只擋消費端
+
+R9 的 20 列全部在位；R10 verify 29 列、**5/6 席（DA 席 errored——第二次缺席，R11 verify 必須有它）**、2 HIGH、7 MEDIUM。
+兩個 HIGH 是同一件事的兩面：D25 只驗**原始** entry 裡的 from 配對，`newKey` 完全不看——logic 席真 binary 重現 `[key alpha,
+key beta]` 改指 1→alpha 走成 `[alpha, alpha]`，alpha 上兩筆 confirmed、beta 的 confirmed 被退役、`validate` 全綠、之後兩條邊都
+動不了；**製造 D25 宣告不得存在的形的，是 D25 自己所在的函式**。Codex 盲審指出批次內的第二格：兩條帶同一 literal 的邊在同一批
+裡互換，逐 move 的退役互相覆蓋，留下哪一側取決於輸入順序（literal 不同時逐 move 是對的——R11 測試釘住交換與其後的 demote）。
+**D27**：配對的唯一性對改指**之後**的邊集合驗，同一批同一 work 的兩個 move 不得帶同一個 literal。requirements 與 regression 席
+再往上游一格：`apply` 一行就造得出 `[key V, key V]`（R10 自己的測試就是證據），base 可以 demote、R10 之後兩條邊都動不了，
+`StoreHealth` 沒有任何掃描，唯一出路是手改 YAML——`replace-endnote-and-zotero` 第 4 條要記成 issue 的缺口。**D28**：生產端
+fail-closed（`apply`／`repoint` 在會造出同一 work 兩條 key 邊指同一 venue 時具名拒絕零寫入）＋ `Entry.validate()` 對既有的這種
+work 報 warning（`zero-instance-guards` 第 26 列）＋ 移除面另案 #572（作者位有 `--drop-author`／`--un-split`，venue 邊沒有）。
+logic 席另指 D25 的 `.literal` 支對 demote 是過度拒絕（demote 沒有 to-venue、literal 邊在該 venue 上不可能持有 confirmed），
+而它給的出路「把多餘的 key 邊改回 `- literal:`」正是 demote 要做的事——那一支改成只對 repoint 算。
+
+五席同指近重複的上限只綁住訊息不綁求值：`listed` 只在非豁免對上遞增，一組全部成對豁免的同名沿革段仍跑滿 k(k−1)/2 次
+（logic 席真 binary：4,500 段 20 秒、全綠）→ 求值也設上限（5,000 對 ≈ 100 筆同名段，超過即 error、fail-closed），「另至多 M 對」
+改說「未評估」（regression 席：已評估而豁免的對同樣沒被列出，R10 的 M 少算它們）。security 席：`verdictsRetired` 是兩個 payload
+裡唯一由 store 內容決定體積的欄位、每項 ~520 字元、無上限——**D30**：截 20 筆，`verdictsRetiredTotal`／`truncated` 揭露
+（`akashic_enrich` 的形）；它迴送 verdict 的 value 與 statement，輸出閘對 Cf 仍是列舉——#569 的迴送點 4 → 6。requirements 席：
+MCP `akashic_resolve_venues` 的描述與 CLI help 沒提 D20（會**刪掉**一筆人的判定記錄）、D23、D25、`verdictsRetired`——R6 verify
+抓過同型（只改了一面的描述），這次是兩面都沒改；`authorize` 的封閉列舉式描述漏 `authorizedRewritten`（唯一宣告「store 位元組
+被改寫」的桶）；parity 列內部分岔（一句說 NFD 修復報在 `authorizedRemoved`、另一句說 `authorizedRewritten`）。logic 席：
+`addVenue.namesDropped` 用位元組相等，NFD 輸入同時落在 `names` 與 `namesDropped`——正是 R9 剛在 `authorizedRewritten` 修掉的
+歧義 → 拆成 `namesRewritten`（canonical 形在 store、位元組不同）與 `namesDropped`（真的沒進），`updateVenue.add_names` 同一組
+欄位；joiner 的 help 把 (b) 支寫成對稱的「之間」而右鄰不收標記 → 改寫；venue 合併的 `doomedRecordInvalid` 排在 `wouldLoseFields`
+之前、與 R9 剛替 person／work 立的先後原則相反 → 對齊。security 席另記 venue 名字輸入無長度／項數上限（#562）、`argList`
+靜默 no-op 現在頂著一個判定型寫入面（#561）——已知、已具名，不動。
+
 ## 第二次端到端又紅——這次是我的 binary
 
 改成替換語意後測試 7/7 綠、四個 mutation 負控乾淨，真 binary 卻說「authorized 含不在
@@ -384,7 +413,7 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
 ## 落地
 
 - `updateVenue` 加 `authorize: [String]?`；CLI `--authorize`、MCP `authorize`，兩面同批
-- 53 條寫入面測試（R1 的 7 條改語意 ＋ R2 新增 5 條：同書寫系統兩名拒絕／沿革前身保留時間／
+- 57 條寫入面測試（R1 的 7 條改語意 ＋ R2 新增 5 條：同書寫系統兩名拒絕／沿革前身保留時間／
   確認既有值報 `alreadyAuthorized`／兩邊空白不是矛盾／呼叫端自己 `add_variant` 才進 variant
   ＋ R3 新增 7 條：近重複不是替換／近重複用 store 拼法拉回／跨參數近重複仍是矛盾／控制字元
   與純標點不是名字／衝突桶排序全報／重複字串只報一次／確認既有值仍移出同書寫系統的另一個
@@ -399,16 +428,19 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
   無 verdict 拒絕／combining-mark 密集輸入理由不被截 ＋ R9 新增 4 條：repoint 兩側退役相反判定且 undo 乾淨／demote
   退役 confirmed／同 work 兩個 literal 時 repoint 與 demote 都拒／無 verdict 的拒絕指出路 ＋ R10 新增 5 條：配對由多條邊
   實例化時 repoint 與 demote 都拒／同鍵異位元組的 confirmed 拒／退役的 verdict 具名／`addVenue` 回報存入值／NFD 修復報
-  `authorizedRewritten`）；`VenueNameInvariantTests` 31 條
+  `authorizedRewritten` ＋ R11 新增 4 條：改指到本 work 已有邊的 venue 拒／同一批同 literal 交換拒而異 literal 交換對／`apply` 不得讓
+  兩條邊指同一 venue／`verdictsRetired` 截 20 揭露總數；既有 3 條改 fixture 或改語意——D25 的形改手造、同配對 literal 邊 demote 收
+  repoint 拒、`namesRewritten`／`namesDropped` 拆開）；`VenueNameInvariantTests` 34 條
   （R5 的 8 條 ＋ R6：拉丁／CJK joiner 拒、join-control 文字的 joiner 收、DI 不可見、訊息對操作者、
   沿革同名豁免、三張清單近重複、bootstrap 拒的 literal 帶理由 ＋ R7：區塊標點與外文鄰居拒、連續 joiner
   與浮動 virama 拒、草書文字補進區塊表、U+2800、碼位補零、豁免對粒度與端點保守、bootstrap 先問已有 venue
   ＋ R8：virama 基底要是同一文字的字母且 joiner 兩側同一文字、孤立標記不是名字、豁免端點要是 ISO
   ＋ R9：virama 與標記要與基底同文字、詞尾 chillu 後接空白、Indic virama 之前的 joiner、補充區塊入表
-  ＋ R10：virama 之前的 joiner 要有後續字母且只限 Devanagari／Bengali、近重複訊息每組上限）；
+  ＋ R10：virama 之前的 joiner 要有後續字母且只限 Devanagari／Bengali、近重複訊息每組上限
+  ＋ R11：近重複求值上限（全豁免組）、「另至多 M 對未評估」、同 venue 兩條 key 邊是 work 的 warning）；
   `VerdictHolderGridTests` 加「work 合併對持有被併鍵 verdict 的髒 venue 在 commit 前拒」與「person 合併對
   `authorized ⊄ names` 的 organization holder 在 commit 前拒」與「欄位遺失先於 holder 閘」；`NameIdentityTests` 加「不刪
-  任何非空白 scalar」；合併端 14 條（三種結果各有測試 ＋ dry-run 對不可寫的 keeper 拒）；
+  任何非空白 scalar」；合併端 15 條（三種結果各有測試 ＋ dry-run 對不可寫的 keeper 拒 ＋ 欄位遺失先於被併者的名字檢查）；
   `CanonicalFormatValidationTests` 加 venue 語意驗證
 - `record-divergence --candidate` 的 help 與 MCP `candidates` 描述補 venue（#553 遺留，兩面對齊）
 - `mcp-cli-parity` 的 `akashic_update_venue` 列補記；`two-kinds-of-edits` 加一列、#553 那列
@@ -417,6 +449,7 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
 ## 不做（都有 issue）
 
 - 撤回面（把名字從 authorized 移出而不放新的進去）——#559
+- venue 邊的移除面（同一 work 兩條邊指同一 venue 時唯一出路是手改 YAML）——#572（R11 把生產端關掉、既有的報 warning）
 - judgement 記錄——#564（三面一次裁）
 - `bootstrap-venues` 是否停寫 `[names[0]]`——#563
 - ~~`addNames`／`addVariant` 的 `String ==` vs 守衛 `NameIdentity.canonical`——#560~~ → R4 三個迴圈

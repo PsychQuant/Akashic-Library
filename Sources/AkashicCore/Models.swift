@@ -825,6 +825,18 @@ extension Entry {
             issues.append(ValidationIssue(severity: .warning,
                 message: "akashic 未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
+        // **兩條 key 邊指同一 venue 要出聲**（#554 R11，D28；`zero-instance-guards` 第 26 列）：verdict 以 (work, literal) 為鍵、
+        // 不帶 venue index，這種 work 在 repoint／demote 上都會被拒（D25），而工具面自 R11 起造不出它（apply／repoint 的閘）——
+        // 只有手改或舊 binary 寫的，而 R10 verify 之前 `validate`／`doctor`／App 對它一律綠燈。warning：記錄合法，失效的是判定
+        // 逆轉的前提；修法只有手改 YAML（移除面：#572）。literal 邊不算——那是尚未判定的誠實狀態。
+        var keyed: [String: [Int]] = [:]
+        for (i, ref) in venues.enumerated() { if case .key(let k) = ref { keyed[k, default: []].append(i) } }
+        for (k, idx) in keyed.sorted(by: { $0.key < $1.key }) where idx.count > 1 {
+            issues.append(ValidationIssue(severity: .warning,
+                message: "venues 有 \(idx.count) 條邊指向同一 venue「\(displaySafe(k, max: 120))」（第 \(idx.map(String.init).joined(separator: "、")) 條）"   // display-safe-exempt: Int 序列
+                       + "——配對只能由一條邊實例化（verdict 不帶 index），resolve-venues 的 repoint／demote 對它會拒絕；"
+                       + "請在 YAML 裡刪掉多餘的邊（移除面：#572）"))
+        }
         issues += Self.pagesShapeIssues(fields["pages"])
         // #394 task 4.3：非正規形的識別碼要出聲（值保留、但不靜默）。
         issues += IdentifierDiagnostics.nonNormal(doi, field: "doi")

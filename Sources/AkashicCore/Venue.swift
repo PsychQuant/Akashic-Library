@@ -276,9 +276,16 @@ public struct Venue: Equatable {
         }
         // **每組最多逐一列 3 對，找滿就停**（R9 verify security 第 3 列）：本檢查在讀取路徑上對未信任的 store 內容跑
         // （`StoreHealth` → doctor／App），O(k²) 對、每對一則訊息——上萬筆同名段會在任何截斷生效之前撐爆記憶體。
-        // 結論在第一對就定了（error），多列的只是說明；剩下的以「另至多 M 對」概括（上界：未比對的對數，其中可能有
-        // 合法的沿革豁免對，所以說「至多」不說「另有」）。
+        // 結論在第一對就定了（error），多列的只是說明；剩下的以「另至多 M 對未評估」概括（上界：未比對的對數，其中可能有
+        // 合法的沿革豁免對，所以說「至多」不說「另有」；量的是**未評估**的對數——已評估而豁免的對同樣沒被列出，
+        // R10 寫「未逐一列出」少算了它們，R10 verify regression 第 18 列）。
+        // **求值也設上限**（R10 verify 五席同指：Codex 第 4、logic 第 8、requirements 第 13、security 第 15、regression 第 17 列）：
+        // `listed` 只在非豁免對上遞增，一組全部成對豁免的同名沿革段仍跑滿 k(k−1)/2 次 `segmentsAreDisjoint`——真 binary
+        // 4,500 段 20 秒、全綠，記憶體那一半關掉了、CPU 那一半原封不動。5,000 對 ≈ 100 筆同名段；超過即 error（fail-closed：
+        // `add_names` 不帶時間欄位、造不出全豁免組，手改或匯入的 store 才造得出，而一本刊改回同名一百次不是真的沿革）。
+        // 上限內的求值與 R10 逐位相同，verdict 不變。
         let pairsToList = 3
+        let pairsToEvaluate = 5_000
         groupLoop: for k in order {
             let segs = groups[k]!
             guard segs.count > 1 else { continue }
@@ -286,11 +293,16 @@ public struct Venue: Equatable {
             let total = segs.count * (segs.count - 1) / 2
             for i in segs.indices {
                 for j in segs.indices where j > i {
-                    if listed == pairsToList {
+                    if listed == pairsToList || evaluated == pairsToEvaluate {
+                        // 求值上限觸發時 listed 可以是 0——訊息要說出「沒評完」而不是只說「近重複」
+                        let capHit = evaluated == pairsToEvaluate && listed < pairsToList
                         issues.append(ValidationIssue(
                             severity: .error,
                             message: "venue '\(displaySafe(key, max: 120))' 的 names 近重複「\(displaySafe(segs[i].value, max: 120))」共 \(segs.count) 筆同名段，"   // display-safe-exempt: Int
-                                   + "另至多 \(total - evaluated) 對未逐一列出——請在 YAML 裡留一筆（沿革改回舊名要兩段都帶不相交的時間）"))   // display-safe-exempt: Int
+                                   + "已評估 \(evaluated) 對（列出其中 \(listed) 對違反），另至多 \(total - evaluated) 對未評估"   // display-safe-exempt: Int
+                                   + (capHit
+                                      ? "——同名段超過逐對評估的上限（\(pairsToEvaluate) 對，約 100 筆）一律拒絕：請把同名沿革段收攏，或在 YAML 裡留一筆"   // display-safe-exempt: Int 常量
+                                      : "——請在 YAML 裡留一筆（沿革改回舊名要兩段都帶不相交的時間）")))
                         continue groupLoop
                     }
                     evaluated += 1

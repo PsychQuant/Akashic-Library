@@ -2705,14 +2705,28 @@ public final class AkashicService {
         try store.writeVenue(venue)
         try LibraryIndex(store: store).rebuild()
         // 回報**存入**的名字（R9 verify logic 第 22 列）：R4 讓本函式走 `vetVenueNames`，payload 卻仍回呼叫端的原陣列——
-        // 宣稱 store 沒有的字串，其中 `"Psychometrika "` 是不變式讓 store 不可能持有的。原拼法沒存入的列在 `namesDropped`
-        // （被折進 canonical 形、或整項空白略過），同 `updateVenue.namesAdded` 的「報告不得宣稱 store 沒有的字串」。
-        let stored = Set(vetted.map { Array($0.utf8) })
+        // 宣稱 store 沒有的字串，其中 `"Psychometrika "` 是不變式讓 store 不可能持有的。原拼法與 store 的對照見 `namesReport`。
+        let report = Self.namesReport(requested: names, stored: vetted)
         return try jsonString(["key": key, "type": vtype.rawValue,
                                "names": vetted.map { displaySafe($0, max: 200) },
-                               "namesDropped": names.filter { !stored.contains(Array($0.utf8)) }.map { displaySafe($0, max: 200) },
+                               "namesRewritten": report.rewritten.map { displaySafe($0, max: 200) },
+                               "namesDropped": report.dropped.map { displaySafe($0, max: 200) },
                                // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
                                "issn": venue.issn.map(\.normalized)])
+    }
+
+    /// 呼叫端送的拼法與 store 的對照（R10 verify logic 第 14 列、regression 第 20 列）：`rewritten`＝canonical 形在 store（剛存或
+    /// 本來就有）但位元組不同（尾隨空白、tab、NFD）；`dropped`＝canonical 形不在 store（整項空白）。R10 用位元組相等算
+    /// `namesDropped`，NFD 輸入同時落在 `names` 與 `namesDropped`——兩個看起來一樣的字串一個說存了一個說沒存，正是 R9 剛在
+    /// `authorizedRewritten` 修掉的歧義；鍵名說 dropped 而那個名字在 store 裡。`addVenue` 與 `updateVenue.add_names` 共用。
+    static func namesReport(requested: [String], stored: [String]) -> (rewritten: [String], dropped: [String]) {
+        let bytes = Set(stored.map { Array($0.utf8) })
+        let canon = Set(stored.map { NameIdentity.canonical($0) })
+        var rewritten: [String] = [], dropped: [String] = []
+        for r in requested where !bytes.contains(Array(r.utf8)) {
+            if canon.contains(NameIdentity.canonical(r)) { rewritten.append(r) } else { dropped.append(r) }
+        }
+        return (rewritten, dropped)
     }
 
     /// venue 異名補寫（#306）——**append 語意**：`addNames` 只把不重複的名字附加進
@@ -2999,8 +3013,11 @@ public final class AkashicService {
         // 擋——這裡不重造一份（同 ISSN 那段的立場）。
         try store.writeVenue(venue)
         try LibraryIndex(store: store).rebuild()
+        let nameReport = Self.namesReport(requested: addNames ?? [], stored: venue.names.entries.map(\.value))
         var payload: [String: Any] = ["key": key,
                                       "namesAdded": added.map { displaySafe($0, max: 200) },
+                                      "namesRewritten": nameReport.rewritten.map { displaySafe($0, max: 200) },
+                                      "namesDropped": nameReport.dropped.map { displaySafe($0, max: 200) },
                                       "namesTotal": venue.names.entries.count,
                                       // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
                                       "issnAdded": issnAdded,
@@ -3745,6 +3762,8 @@ public final class AkashicService {
         }
         let updatedEntries = VenueResolver.apply(chosen, to: load.entries)
         let changed = zip(load.entries, updatedEntries).filter { $0.0 != $0.1 }.map(\.1)
+        // **生產端的閘**（D28）：apply 後同一 work 不得有兩條 key 邊指同一 venue——D25 只擋消費端，而造出那個死局的正是這裡
+        for entry in changed { try Self.assertKeyEdgesAreUnique(entry, operation: "apply") }
         // confirmed verdict 落被判定的 venue 記錄（第 13 條邊的 venue 面）
         var grouped: [String: Venue] = [:]
         for c in chosen {
@@ -3828,7 +3847,8 @@ public final class AkashicService {
             // （R7 verify 第 6 列，#418 既有缺陷：用 work 的 `title` 當 literal，之後 `--demote` 把 venue 邊改寫成
             // 論文標題；rejected 那一側也帶著標題，`rejectedPairings` 對真正的刊名 literal 不會抑制）。取不到就拒絕。
             let literal = try Self.confirmedLiteral(on: fromVenue, for: citekey, operation: "改指")
-            try Self.assertPairingHasOneEdge(entry, index: idx, venueKey: oldKey, literal: literal, operation: "改指")
+            try Self.assertPairingHasOneEdge(entry, index: idx, venueKey: oldKey, literal: literal,
+                                             countLiteralEdges: true, operation: "改指")
             moves.append(Move(citekey: citekey, index: idx, from: oldKey, to: newKey, literal: literal))
         }
         guard !moves.isEmpty else {
@@ -3837,12 +3857,34 @@ public final class AkashicService {
                                    "note": "沒有實際變更（改指到自己是 no-op）"] as [String: Any])
         }
 
+        // **D27：配對的唯一性對改指之後的邊集合驗，且同一批裡同一 work 的兩個 move 不得帶同一個 literal**（R10 verify logic 第 2 列
+        // 真 binary 重現、Codex 第 1 列）。R10 的 D25 只看原始 entry 裡的 from：`[key A, key B]` 改指 1→A 走成 `[A, A]`——A 上兩筆
+        // confirmed、B 的 confirmed 被退役、validate 全綠，之後兩條邊都動不了；而它正是 D25 宣告不得存在的形，造它的是 D25 自己所在
+        // 的函式。第二格：verdict 以 (work, literal) 為鍵、不帶 index，兩條同 literal 的邊在同一批裡互換時逐 move 的退役互相覆蓋
+        // （第二個 move 在 B 寫 rejected 時退役掉 B 的 confirmed，而那筆正是第一個 move 讓邊 0 落腳的證據），留下哪一側取決於輸入
+        // 順序。literal 不同時逐 move 是對的：每一側的 confirmed／rejected 各帶自己的 literal（測試釘住交換與其後的 demote）。
+        var planned = byCitekey
         for m in moves {
-            var e = byCitekey[m.citekey]!
+            var e = planned[m.citekey]!
             e.venues[m.index] = .key(m.to)
-            byCitekey[m.citekey] = e
+            planned[m.citekey] = e
         }
         let touched = Set(moves.map(\.citekey))
+        for ck in touched.sorted() {
+            try Self.assertKeyEdgesAreUnique(planned[ck]!, operation: "改指")
+            var byLiteral: [String: Move] = [:]
+            for m in moves where m.citekey == ck {
+                let k = NameNormalization.matchingKey(m.literal)
+                if let other = byLiteral[k] {
+                    throw ServiceError.invalid(
+                        "同一批裡 work「\(displaySafe(ck, max: 200))」的第 \(other.index) 條與第 \(m.index) 條邊帶同一個 literal"   // display-safe-exempt: Int
+                        + "「\(displaySafe(m.literal, max: 120))」——verdict 以 (work, literal) 為鍵、不帶 index，兩個 move 對同一配對的"
+                        + "退役會互相覆蓋，留下哪一側的證據取決於輸入順序。出路：分兩次呼叫，或先刪掉重複的邊（移除面：#572）")
+                }
+                byLiteral[k] = m
+            }
+        }
+        byCitekey = planned
 
         // **兩側都留 verdict**：新的 confirmed、舊的 rejected。少了 rejected，
         // 下次提名會把同一個配對再提出來（`ResolutionLedger.rejectedPairings` 讀的正是它）。
@@ -3875,12 +3917,43 @@ public final class AkashicService {
         for ck in touched.sorted() { try store.writeEntry(byCitekey[ck]!) }
         for k in changedVenues.sorted() { try store.writeVenue(venuesByKey[k]!) }
         try LibraryIndex(store: store).rebuild()
-        return try jsonString([
+        return try jsonString(([
             "repointed": moves.map { "\(displaySafe($0.citekey, max: 200)):\($0.index):\(displaySafe($0.to, max: 200))" },
             "entriesRewritten": touched.count,        // display-safe-exempt: Int
             "venuesRewritten": changedVenues.count,   // display-safe-exempt: Int
-            "verdictsRetired": retired,               // display-safe-exempt: describeRetired 已逐項過 displaySafe
-        ] as [String: Any])
+        ] as [String: Any]).merging(Self.retiredPayload(retired)) { a, _ in a })
+    }
+
+    /// `verdictsRetired` 的上限與揭露（R10 verify security 第 16 列、regression 第 19 列；Claude 代裁 D30）：它是 repoint／demote
+    /// payload 裡唯一由 **store 內容**而非呼叫端輸入決定體積的欄位——`supersede` 退役 holder 上**每一筆**同鍵的相反判定，手改或
+    /// #553 合併吸收的 store 可以有很多筆（每項 ~520 字元），而 MCP 的輸出進 LLM context、呼叫端無法在收到後丟棄已付的代價
+    /// （`mcp-cli-parity` 對 `--rows` 的論證）。`akashic_enrich` 的既有形：截 20 筆、總數與 `truncated` 揭露。CLI 面回同一個 payload
+    /// （寫入面封閉例外），所以兩面同截。**它迴送 store 字串**（verdict 的 value 是原始匯入的刊名、statement 是判定文字）而輸出閘
+    /// `displaySafe` 對 Cf 字元的逃脫仍是列舉——#569 的迴送點 4 → 6，那裡另裁。
+    static let retiredItemsCap = 20
+    static func retiredPayload(_ retired: [String]) -> [String: Any] {
+        ["verdictsRetired": Array(retired.prefix(retiredItemsCap)),   // display-safe-exempt: describeRetired 已逐項過 displaySafe
+         "verdictsRetiredTotal": retired.count,                       // display-safe-exempt: Int
+         "truncated": retired.count > retiredItemsCap]                // display-safe-exempt: Bool
+    }
+
+    /// **同一 work 不得有兩條 key 邊指同一 venue**——`apply`（D28）與 `repoint`（D27）對**寫入後**的邊集合驗，具名拒絕零寫入
+    /// （R10 verify requirements 第 5 列、regression 第 10 列、logic 第 2 列）。D25 擋的是消費端（repoint／demote 遇到這個形拒絕），
+    /// 這裡擋生產端：R10 自己的測試就用 `apply` 一行造出 `[key V, key V]`，之後兩條邊都救不回來、`validate` 全綠、唯一出路是手改
+    /// YAML（`replace-endnote-and-zotero` 第 4 條：記成 #572）。兩條同刊名的 literal 邊不是手改產物——`VenueDerivation.literals`
+    /// 從 journaltitle／booktitle／publisher 取值、只用精確 `==` 去重。既有的這種 work 由 `Entry.validate()` 報 warning
+    /// （`zero-instance-guards` 第 26 列）。
+    static func assertKeyEdgesAreUnique(_ entry: Entry, operation: String) throws {
+        var seen: [String: [Int]] = [:]
+        for (i, ref) in entry.venues.enumerated() { if case .key(let k) = ref { seen[k, default: []].append(i) } }
+        for (k, idx) in seen.sorted(by: { $0.key < $1.key }) where idx.count > 1 {
+            throw ServiceError.invalid(
+                "\(operation)後 work「\(displaySafe(entry.citekey, max: 200))」會有 \(idx.count) 條邊指向同一 venue"   // display-safe-exempt: operation 是固定字串（apply／改指）；Int
+                + "「\(displaySafe(k, max: 200))」（第 \(idx.map(String.init).joined(separator: "、")) 條）"   // display-safe-exempt: Int 序列
+                + "——配對只能由一條邊實例化（verdict 不帶 index，D25），之後這兩條邊在 repoint／demote 上都會被拒。"
+                + "出路：那是同一本刊的重複來源欄位（journaltitle／booktitle／publisher），先手改這筆 work 的 YAML 刪掉多餘的邊"
+                + "（移除面：#572），再重跑")
+        }
     }
 
     /// 被退役的 verdict 的具名形（`verdictsRetired` 的每一項）：哪個 venue、哪個欄位、原 value、原 statement——
@@ -3895,15 +3968,20 @@ public final class AkashicService {
     /// venue 時只有一筆 confirmed（`appendIfAbsent`）——D20 退役它會讓另一條邊在任何工具面上都救不回來（demote／repoint
     /// 都撞「找不到 confirmed verdict」），而 R9 之前這個狀態會留一條 #486 warning、R9 之後 `validate` 全綠（DA 真 binary
     /// 重現）。另一條 **literal** 邊同一個配對（`matchingKey` 相等）同理：to-venue 上該配對的 rejected 可能是它的。
-    /// D23 的謂詞問的是 literal 個數不是邊的個數，剛好漏掉這格。**具名拒絕、零寫入**，出路是先把重複的邊處理掉。
+    /// D23 的謂詞問的是 literal 個數不是邊的個數，剛好漏掉這格。**具名拒絕、零寫入**，出路是先把重複的邊處理掉（移除面：#572）。
     /// live store 2026-09-14 實測：2,411 筆 work、3 筆有 >1 條 venue 邊、同 venue 兩條 key 邊 0、兩條 literal 邊同配對 0。
-    static func assertPairingHasOneEdge(_ entry: Entry, index: Int, venueKey: String, literal: String, operation: String) throws {
+    /// **literal 邊那一支只對 repoint 算**（`countLiteralEdges`，R10 verify logic 第 7 列）：那條危害只在 repoint——to-venue 上該配對
+    /// 的 rejected 可能是它的；demote 沒有 to-venue，而一條 literal 邊在該 venue 上不可能持有 confirmed（confirmed 只由 apply 對 key 邊寫），
+    /// 退役不會刪掉任何別人的證據。R10 對 demote 也拒，而它給的出路「把多餘的 key 邊改回 `- literal:`」正是 demote 要做的事——照做等於
+    /// 手工完成這次 demote 卻跳過 rejected verdict。生產端自 R11 起有閘（D28，`assertKeyEdgesAreUnique`）；這裡守的是手改或舊 binary 寫的。
+    static func assertPairingHasOneEdge(_ entry: Entry, index: Int, venueKey: String, literal: String,
+                                        countLiteralEdges: Bool, operation: String) throws {
         let pk = NameNormalization.matchingKey(literal)
         var others: [Int] = []
         for (i, ref) in entry.venues.enumerated() where i != index {
             switch ref {
             case .key(let k) where k == venueKey: others.append(i)
-            case .literal(let l) where NameNormalization.matchingKey(l) == pk: others.append(i)
+            case .literal(let l) where countLiteralEdges && NameNormalization.matchingKey(l) == pk: others.append(i)
             default: break
             }
         }
@@ -3912,7 +3990,7 @@ public final class AkashicService {
                 "work「\(displaySafe(entry.citekey, max: 200))」的配對（literal「\(displaySafe(literal, max: 120))」）由 "
                 + "\(others.count + 1) 條邊實例化（第 \(index) 條與第 \(others.map(String.init).joined(separator: "、")) 條）"   // display-safe-exempt: Int 序列
                 + "——verdict 不帶 index，\(operation)退役那筆 verdict 會把另一條邊的證據一起刪、之後那條邊在任何工具面上都救不回來。"   // display-safe-exempt: 固定字串（改指／降格）
-                + "出路：手改這筆 work 的 YAML 刪掉重複的邊（多餘的 key 邊改回 `- literal: <原刊名>`），再重跑")
+                + "出路：手改這筆 work 的 YAML 刪掉重複的邊（移除面：#572），再重跑")
         }
     }
 
@@ -4006,7 +4084,8 @@ public final class AkashicService {
             }
             // **原 literal 從 confirmed verdict 取回**——走唯一解析器；≥2 個不同 literal 拒絕（D23）。
             let literal = try Self.confirmedLiteral(on: venue, for: citekey, operation: "降格")
-            try Self.assertPairingHasOneEdge(entry, index: idx, venueKey: vkey, literal: literal, operation: "降格")
+            try Self.assertPairingHasOneEdge(entry, index: idx, venueKey: vkey, literal: literal,
+                                             countLiteralEdges: false, operation: "降格")
             plan.append(Demotion(citekey: citekey, index: idx, venueKey: vkey, literal: literal))
         }
 
@@ -4036,12 +4115,11 @@ public final class AkashicService {
         for ck in touched.sorted() { try store.writeEntry(byCitekey[ck]!) }
         for k in changedVenues.sorted() { try store.writeVenue(venuesByKey[k]!) }
         try LibraryIndex(store: store).rebuild()
-        return try jsonString([
+        return try jsonString(([
             "demoted": plan.map { "\(displaySafe($0.citekey, max: 200)):\($0.index)" },
             "entriesRewritten": touched.count,        // display-safe-exempt: Int
             "venuesRewritten": changedVenues.count,   // display-safe-exempt: Int
-            "verdictsRetired": retired,               // display-safe-exempt: describeRetired 已逐項過 displaySafe
-        ] as [String: Any])
+        ] as [String: Any]).merging(Self.retiredPayload(retired)) { a, _ in a })
     }
 
     // MARK: - Organization MCP 面（#304 parity 移轉）

@@ -1428,15 +1428,18 @@ encode/decode 等冪。
   掛死。但對**完整性與顯示安全**而言它是未信任的：檔案可能由別的 binary、別人、
   Dropbox 同步寫入，所以未知欄位 key 與 quarantine reason 一律經 `displaySafe`。
   兩者不矛盾——是同一份資料在不同軸上的不同假設，而 DoS 那條軸的防線還沒蓋。
-### 5.7 venue 的名字內容：寫入期不變式（normative，#554 D8；R6／R7／R9／R10 補記）
+### 5.7 venue 的名字內容：寫入期不變式（normative，#554 D8；R6／R7／R9／R10／R11 補記）
 
 `venue:` 記錄的 `names[].value`／`authorized[]`／`variant[]` 每一筆字串在**寫入期**
 （`writeVenue`／`fmt`／合併的 keeper 寫回／work・person 合併對持有被併鍵 verdict 的 holder 遷移——venue、
 organization、person 三種各過各的閘（R9，D24；2026-09-14 以含此版的 binary 對 live store 跑 `validate`：4,572 筆 person、13 筆
 organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLostByMerging` **之後**，merge 專屬的那句先出，R10）／
 `resolve-venues` 的 verdict 寫回——repoint／demote 寫 verdict 時退役同 holder 上同一配對的相反判定（D20），且**配對只由一條邊
-實例化時才做**：同一 work 兩條邊指同一 venue、或另有 literal 邊同配對時具名拒絕零寫入（D25，verdict 不帶 index）；退役的每筆
-逐字回報在 `verdictsRetired`）都要通過
+實例化時才做**：同一 work 兩條邊指同一 venue、或（只對 repoint）另有 literal 邊同配對時具名拒絕零寫入（D25，verdict 不帶 index）；
+唯一性對**寫入後**的邊集合驗——`repoint` 改指後、`apply` 升格後，同一 work 不得有兩條 key 邊指同一 venue，同一批同一 work 的兩個
+move 不得帶同一個 literal（D27／D28，R11：R10 的 D25 只看原始 entry，`repoint`／`apply` 自己都造得出它宣告不得存在的形；既有的這種
+work 由 `Entry.validate()` 報 warning，移除多餘邊的面是 #572）；退役的每筆逐字回報在 `verdictsRetired`（截 20 筆，
+`verdictsRetiredTotal`／`truncated` 揭露）；近重複掃描每組求值上限 5,000 對（≈100 筆同名段），超過即 error）都要通過
 `Venue.validate()` 的名字內容檢查，**error 級**；decode **不驗**（load 照讀，
 `validate`／`doctor` 報出來）。這一段是 **store 契約**（與 §3.4 canonical form、§3.1
 `authorized` 同級——手改 YAML 的人讀的是本檔不是 `.claude/rules`，而手改正是它指定的修法）。

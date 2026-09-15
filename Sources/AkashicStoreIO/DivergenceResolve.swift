@@ -873,8 +873,15 @@ extension LibraryStore {
         // 要先通過 D8 的名字內容檢查，且訊息要指向**被併者**——那個字串只存在於它的 YAML（R6 verify 第 28 列）。
         // 只驗會搬進去的（R7 verify 第 13 列）：被併者的 `"X "` 對倖存者已有的 `"X"` 會被濾掉、合併結果合法，
         // 為它要求操作者去修一筆下一步就刪掉的檔是過度嚴格。preview 與實跑共用這一份（#139 F1）。
+        // **merge 專屬的那句先出**（R10 verify logic 第 23 列；與 person／work 對 `assertHoldersWritable` 的先後原則相同，R9）：
+        // 兩者都是零寫入的拒絕，但「這次合併會丟什麼」是這個操作獨有的訊息，「被併者的 YAML 髒」是別處也會報的。
         let keeperKnown = Set(keeper.names.entries.map { NameIdentity.canonical($0.value) })
         for v in doomed {
+            let losses = Self.fieldsLostByMerging(v, into: keeper)
+            guard losses.isEmpty else {
+                throw DivergenceResolveError.wouldLoseFields(
+                    merged: v.key, survivor: survivor, losses: losses)
+            }
             for (label, list) in [("names", v.names.entries.map(\.value)), ("variant", v.variant)] {
                 for n in list where !keeperKnown.contains(NameIdentity.canonical(n)) {
                     if let why = NameIdentity.wellFormednessIssue(n) {
@@ -883,11 +890,6 @@ extension LibraryStore {
                             why: "\(label)「\(displaySafe(n, max: 120))」\(why)")   // display-safe-exempt: label 是字面常量；why 是 NameIdentity 的固定訊息
                     }
                 }
-            }
-            let losses = Self.fieldsLostByMerging(v, into: keeper)
-            guard losses.isEmpty else {
-                throw DivergenceResolveError.wouldLoseFields(
-                    merged: v.key, survivor: survivor, losses: losses)
             }
         }
         // **不擋、但要說**（同 work 側的 content warnings）：被併者的 authorized

@@ -257,6 +257,53 @@ final class VenueNameInvariantTests: XCTestCase {
         XCTAssertEqual(errors(venue(names: ["Psychometrika", "Psychometrika"])).filter { $0.contains("近重複") }.count, 1)
     }
 
+    /// **上限也要綁住求值，不只訊息**（R10 verify 五席同指：Codex 第 4、logic 第 8、requirements 第 13、security 第 15、regression
+    /// 第 17 列）：R10 的 `listed == 3` 只在非豁免對上遞增，一組全部成對豁免的同名沿革段（合法、零 issue）仍跑滿 k(k−1)/2 次
+    /// `segmentsAreDisjoint`——真 binary 4,500 段 20 秒、全綠。求值也設上限（`pairsToEvaluate`，對應約 100 筆同名段）：超過即
+    /// error（fail-closed——`add_names` 不帶時間欄位、造不出全豁免組，手改或匯入的 store 才造得出），上限內求值與 R10 逐位相同。
+    func testNearDuplicateEvaluationIsBoundedEvenWhenEveryPairIsExempt() {
+        func dated(_ n: Int) -> Venue {
+            var segs: [TemporalValue<String>] = []
+            for i in 0..<n {
+                let start = String(1000 + 2 * i), end = String(1001 + 2 * i)
+                segs.append(TemporalValue(value: "Sankhyā", range: DateRange(start: start, end: end)))
+            }
+            return Venue(key: "j", type: .periodical, names: Timeline(segs), authorized: [])
+        }
+        XCTAssertTrue(errors(dated(100)).isEmpty, "上限內：全豁免組零 issue，verdict 不變")
+        let over = errors(dated(120)).filter { $0.contains("近重複") }
+        XCTAssertEqual(over.count, 1, "\(over)")
+        XCTAssertTrue(over.first?.contains("未評估") == true && over.first?.contains("上限") == true, "\(over)")
+    }
+
+    /// **「另至多 M 對」量的是未評估的對數，訊息要這麼說**（R10 verify regression 第 18 列）：R10 寫「未逐一列出」，但已評估而豁免的對
+    /// 同樣沒被列出，M 少算它們——2 對豁免、3 對違反、第 6 對觸發上限時，未列出的是 7 對、未評估的是 6 對。
+    func testNearDuplicateSummaryCountsUnevaluatedPairs() {
+        func d(_ s: String, _ e: String) -> TemporalValue<String> {
+            TemporalValue(value: "Sankhyā", range: DateRange(start: s, end: e))
+        }
+        let v = Venue(key: "j", type: .periodical, names: Timeline([
+            d("1900", "1901"), d("1902", "1903"),
+            TemporalValue(value: "Sankhyā"), TemporalValue(value: "Sankhyā"), TemporalValue(value: "Sankhyā")]), authorized: [])
+        let msgs = errors(v).filter { $0.contains("近重複") }
+        XCTAssertEqual(msgs.count, 4, "\(msgs)")
+        XCTAssertTrue(msgs.contains { $0.contains("另至多 6 對未評估") }, "\(msgs)")
+    }
+
+    /// **同一 work 兩條邊指同一 venue 要看得見**（R10 verify requirements 第 5 列：`StoreHealth` 沒有這條掃描，`validate`／`doctor`／
+    /// App 對它一律綠燈，使用者直到想 demote 才知道；D28）：warning 級——記錄合法，失效的是 repoint／demote 的前提（D25），
+    /// 而修法只有手改 YAML（移除面：#572）。`zero-instance-guards` 第 26 列。
+    func testTwoKeyEdgesToOneVenueAreAWarningOnTheWork() {
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.key("a"), .key("b"), .key("a")]
+        let w = e.validate().filter { $0.severity == .warning && $0.message.contains("同一 venue") }
+        XCTAssertEqual(w.count, 1, "\(w)")
+        let m = w.first?.message ?? ""
+        XCTAssertTrue(m.contains("「a」") && m.contains("第 0、2 條") && m.contains("#572"), m)
+        e.venues = [.key("a"), .key("b"), .literal("a")]
+        XCTAssertTrue(e.validate().filter { $0.message.contains("同一 venue") }.isEmpty, "literal 邊不算——那是尚未判定的誠實狀態")
+    }
+
     /// **同一文字的補充區塊要在區塊表裡**（R8 verify 第 21／28／38 列）：Devanagari Extended（A8E0–A8FF，含 Lo 字母
     /// U+A8FB HEADSTROKE）、Devanagari Extended-A（11B00–11B5F）、Myanmar Extended-A／B（AA60–AA7F Khamti、
     /// A9E0–A9FF Shan／Tai Laing）回 nil，鄰接它們的 joiner 被拒，而 R7 的 doc 說「同一個文字的補充區塊本來就該在」。

@@ -396,7 +396,10 @@ final class VenueAuthorizedWriteTests: XCTestCase {
                                           note: nil, type: nil)
         let v = try venue()
         XCTAssertEqual(v.names.entries.map(\.value), ["PSYCHOMETRIKA", "Brand New"])
-        XCTAssertTrue(out.contains("\"Brand New\"") && !out.contains("PSYCHOMETRIKA "), out)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        XCTAssertEqual(json["namesAdded"] as? [String], ["Brand New"], out)
+        // 原拼法只出現在 `namesRewritten`（R11）——報告不宣稱 store 有 `"PSYCHOMETRIKA "`，但也不把它說成 dropped
+        XCTAssertEqual(json["namesRewritten"] as? [String], ["PSYCHOMETRIKA ", "  Brand  New "], out)
     }
 
     /// `addVariant` 的近重複不加第二筆（R3 第 3 列的前提：variant 內兩筆近重複今天就寫得出來）。
@@ -717,14 +720,18 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     /// live store 2026-09-12 實測：同一 work 對同一 venue 兩條 key 邊 0、同一 venue 對同一 work 兩個 confirmed literal 0。
     /// **「不同」是 ledger 的相等**（#470 `matchingKey`）：本測試第一版用 `Psychometrika`／`PSYCHOMETRIKA`，兩次 apply
     /// 只留一筆 verdict（大小寫異寫是同一個配對），所以拒絕條件從來不會觸發——兩個 literal 要在正規化後仍不同。
+    /// **R11 起 `apply` 造不出這個形**（D28）——fixture 改成手改（或 #553 合併）出來的：兩條 key 邊、兩筆不同 literal 的 confirmed。
     func testRepointAndDemoteRefuseWhenTheFromVenueHoldsTwoLiteralsForTheWork() throws {
         let store = LibraryStore(root: root)
-        _ = try service.updateVenue(key: "some-journal", addNames: ["Psychometrika", "Psychometrika Journal"], note: nil, type: nil)
         var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
-        e.venues = [.literal("Psychometrika"), .literal("Psychometrika Journal")]
+        e.venues = [.key("some-journal"), .key("some-journal")]
         _ = try store.writeEntry(e)
-        _ = try service.resolveVenues(apply: ["x2025:0", "x2025:1"])
-        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal"), .key("some-journal")])
+        var v0 = try venue()
+        for literal in ["Psychometrika", "Psychometrika Journal"] {
+            v0.references.append(ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: literal,
+                                                         rule: ResolutionLedger.venueRule, statement: "手改"))
+        }
+        try store.writeVenue(v0)
         _ = try service.addVenue(key: "other-journal", names: ["Other Journal"], type: "periodical", note: nil, issn: nil)
         XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:1:other-journal"])) { err in
             let s = String(describing: err)
@@ -742,22 +749,26 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     /// Claude 代裁 D25）：verdict 不帶 venue index，同一 work 兩條邊指同一 venue 時只有一筆 confirmed（`appendIfAbsent`）——
     /// D20 退役它會讓另一條邊在任何工具面上都救不回來（demote／repoint 都撞「找不到 confirmed verdict」），而且 R9 之前
     /// 這個狀態會留一條 #486 warning、R9 之後 `validate` 全綠。D23 的謂詞問的是 literal 個數不是邊的個數，剛好漏掉這格。
-    /// 另一條 **literal** 邊同一個配對（`matchingKey` 相等）同理：to-venue 上該配對的 rejected 可能是它的。
     /// live store 2026-09-14 實測：2,411 筆 work、3 筆有 >1 條 venue 邊、同 venue 兩條 key 邊 0、兩條 literal 邊同配對 0。
+    /// **R11 起 `apply` 造不出這個形**（D28，`testApplyRefusesWhenItWouldKeyTheSameVenueTwice`）——fixture 改成手改出來的。
+    /// **另一條同配對的 literal 邊：repoint 拒、demote 收**（R10 verify logic 第 7 列）：那條危害只在 repoint（to-venue 上該配對
+    /// 的 rejected 可能是它的）；demote 沒有 to-venue，literal 邊在該 venue 上不可能持有 confirmed，退役不會刪掉任何別人的證據。
     func testRepointAndDemoteRefuseWhenThePairingIsInstantiatedByMoreThanOneEdge() throws {
         let store = LibraryStore(root: root)
         var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
-        e.venues = [.literal("Psychometrika"), .literal("Psychometrika")]
+        e.venues = [.key("some-journal"), .key("some-journal")]
         _ = try store.writeEntry(e)
-        _ = try service.resolveVenues(apply: ["x2025:0", "x2025:1"])
-        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal"), .key("some-journal")])
+        var v0 = try venue()
+        v0.references.append(ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "Psychometrika",
+                                                     rule: ResolutionLedger.venueRule, statement: "手改"))
+        try store.writeVenue(v0)
         _ = try service.addVenue(key: "other-journal", names: ["Other Journal"], type: "periodical", note: nil, issn: nil)
         for op in [{ try self.service.resolveVenues(apply: nil, demote: ["x2025:0"]) },
                    { try self.service.resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"]) }] {
             XCTAssertThrowsError(try op()) { err in
                 let s = String(describing: err)
                 XCTAssertTrue(s.contains("2 條邊") || s.contains("兩條邊"), s)
-                XCTAssertTrue(s.contains("YAML"), "要說怎麼修：\(s)")
+                XCTAssertTrue(s.contains("YAML") && s.contains("#572"), "要說怎麼修、指向移除面的 issue：\(s)")
             }
         }
         XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal"), .key("some-journal")], "零寫入")
@@ -771,8 +782,132 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         var keyed = try XCTUnwrap(store.load().entries.first { $0.citekey == "y2025" })
         keyed.venues.append(.literal("PSYCHOMETRIKA"))
         _ = try store.writeEntry(keyed)
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, demote: ["y2025:0"]))
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["y2025:0:other-journal"]))
         XCTAssertEqual(try store.load().entries.first { $0.citekey == "y2025" }?.venues, [.key("some-journal"), .literal("PSYCHOMETRIKA")], "零寫入")
+        _ = try service.resolveVenues(apply: nil, demote: ["y2025:0"])
+        XCTAssertEqual(try store.load().entries.first { $0.citekey == "y2025" }?.venues, [.literal("Psychometrika"), .literal("PSYCHOMETRIKA")],
+                       "demote 收：退回這條邊自己的 literal，另一條 literal 邊不動")
+        XCTAssertEqual(ResolutionLedger.verdicts(references: try venue().references).0.filter { $0.holder == "y2025" }.map(\.kind), [.rejected])
+    }
+
+    /// **repoint 不得把邊改指到本 work 已有邊的 venue**（R10 verify logic 第 2 列真 binary 重現、Codex 第 1 列；Claude 代裁 D27）：
+    /// R10 的 D25 只驗**原始** entry 裡的 from 配對，newKey 完全不看——`[key alpha, key beta]` 改指 1→alpha 走成 `[alpha, alpha]`、
+    /// alpha 上兩筆 confirmed、beta 的 confirmed 被退役、validate 全綠、之後兩條邊都動不了。配對的唯一性要對**改指之後**的邊集合驗，
+    /// 同一批裡兩個 move 收斂到同一個 venue 是同一件事。
+    func testRepointRefusesWhenTheTargetIsAlreadyKeyedByAnotherEdge() throws {
+        let store = LibraryStore(root: root)
+        _ = try service.addVenue(key: "beta-journal", names: ["Beta Journal"], type: "periodical", note: nil, issn: nil)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("PSYCHOMETRIKA"), .literal("Beta Journal")]
+        _ = try store.writeEntry(e)
+        _ = try service.resolveVenues(apply: ["x2025:0", "x2025:1"])
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal"), .key("beta-journal")])
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:1:some-journal"])) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("some-journal") && (s.contains("2 條邊") || s.contains("兩條邊")), s)
+            XCTAssertTrue(s.contains("#572"), "要指向移除面的 issue：\(s)")
+        }
+        let after = try store.load()
+        XCTAssertEqual(after.entries.first?.venues, [.key("some-journal"), .key("beta-journal")], "零寫入")
+        let beta = try XCTUnwrap(after.venues.first { $0.key == "beta-journal" })
+        XCTAssertEqual(ResolutionLedger.verdicts(references: beta.references).0.filter { $0.holder == "x2025" }.map(\.kind), [.confirmed], "零寫入")
+        _ = try service.addVenue(key: "gamma-journal", names: ["Gamma Journal"], type: "periodical", note: nil, issn: nil)
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:gamma-journal", "x2025:1:gamma-journal"]))
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal"), .key("beta-journal")], "零寫入")
+    }
+
+    /// **同一批裡兩條帶同一個 literal 的邊不得互換**（R10 verify Codex 第 1 列；D27）：verdict 以 (work, literal) 為鍵、不帶 index，
+    /// 兩條邊的 literal 相同時逐 move 的退役會互相覆蓋——`[A, B]` 交換成 `[B, A]`，第二個 move 在 B 寫 rejected 時退役掉 B 的
+    /// confirmed，而那筆正是第一個 move 讓邊 0 落腳的證據；留下哪一側的證據取決於輸入順序。具名拒絕、零寫入。
+    /// **literal 不同時交換是對的**（本測試的後半）：每一側的 confirmed／rejected 各帶自己的 literal，退役互不干擾。
+    func testRepointRefusesSwappingEdgesThatShareALiteralButAcceptsDistinctOnes() throws {
+        let store = LibraryStore(root: root)
+        _ = try service.addVenue(key: "beta-journal", names: ["Beta Journal"], type: "periodical", note: nil, issn: nil)
+        // 手改出來的形：兩條 key 邊、兩個 venue 各持同一 literal 的 confirmed（#553 合併或兩次歧義裁決可造出）
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.key("some-journal"), .key("beta-journal")]
+        _ = try store.writeEntry(e)
+        for key in ["some-journal", "beta-journal"] {
+            var v = try XCTUnwrap(store.load().venues.first { $0.key == key })
+            v.references.append(ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "PSYCHOMETRIKA",
+                                                        rule: ResolutionLedger.venueRule, statement: "手改"))
+            try store.writeVenue(v)
+        }
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:some-journal"])) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("「PSYCHOMETRIKA」") && s.contains("同一個 literal"), s)
+        }
+        for key in ["some-journal", "beta-journal"] {
+            let v = try XCTUnwrap(store.load().venues.first { $0.key == key })
+            XCTAssertEqual(ResolutionLedger.verdicts(references: v.references).0.filter { $0.holder == "x2025" }.map(\.kind), [.confirmed], "零寫入：\(key)")
+        }
+        // literal 不同：交換成功，兩側各自正確，之後 demote 拿回這條邊自己的 literal
+        var e2 = Entry(id: UUID(), citekey: "y2025", type: .periodicalArticle, title: "T2")
+        e2.venues = [.literal("PSYCHOMETRIKA"), .literal("Beta Journal")]
+        _ = try store.writeEntry(e2)
+        _ = try service.resolveVenues(apply: ["y2025:0", "y2025:1"])
+        _ = try service.resolveVenues(apply: nil, repoint: ["y2025:0:beta-journal", "y2025:1:some-journal"])
+        let load = try store.load()
+        XCTAssertEqual(load.entries.first { $0.citekey == "y2025" }?.venues, [.key("beta-journal"), .key("some-journal")])
+        func kinds(_ key: String) throws -> [String: ResolutionLedger.VerdictKind] {
+            let v = try XCTUnwrap(load.venues.first { $0.key == key })
+            return Dictionary(ResolutionLedger.verdicts(references: v.references).0.filter { $0.holder == "y2025" }
+                                  .map { ($0.literal, $0.kind) }, uniquingKeysWith: { a, _ in a })
+        }
+        XCTAssertEqual(try kinds("beta-journal"), ["PSYCHOMETRIKA": .confirmed, "Beta Journal": .rejected])
+        XCTAssertEqual(try kinds("some-journal"), ["Beta Journal": .confirmed, "PSYCHOMETRIKA": .rejected])
+        XCTAssertTrue(store.contradictoryVerdictIssues(in: load).isEmpty)
+        _ = try service.resolveVenues(apply: nil, demote: ["y2025:0"])
+        XCTAssertEqual(try store.load().entries.first { $0.citekey == "y2025" }?.venues.first, .literal("PSYCHOMETRIKA"))
+    }
+
+    /// **apply 不得讓同一 work 兩條邊指向同一 venue**（R10 verify requirements 第 5 列、regression 第 10 列；Claude 代裁 D28）：
+    /// D25 只擋消費端，而 R10 自己的測試就用 `apply` 一行造出 `[key V, key V]`——之後 demote／repoint 對兩條邊都拒絕、`validate`
+    /// 全綠、唯一出路是手改 YAML（`replace-endnote-and-zotero` 第 4 條）。生產端 fail-closed 比消費端的死局便宜：兩條同刊名的
+    /// literal 邊是來源欄位重複（`VenueDerivation.literals` 只用精確 `==` 去重），apply 前先刪掉多餘的邊（移除面：#572）。
+    func testApplyRefusesWhenItWouldKeyTheSameVenueTwice() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika"), .literal("PSYCHOMETRIKA")]
+        _ = try store.writeEntry(e)
+        XCTAssertThrowsError(try service.resolveVenues(apply: ["x2025:0", "x2025:1"])) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("some-journal") && (s.contains("2 條邊") || s.contains("兩條邊")), s)
+            XCTAssertTrue(s.contains("#572"), s)
+        }
+        XCTAssertEqual(try store.load().entries.first?.venues, [.literal("Psychometrika"), .literal("PSYCHOMETRIKA")], "零寫入")
+        XCTAssertTrue(ResolutionLedger.verdicts(references: try venue().references).0.isEmpty, "零寫入")
+        // 一次一條也一樣：邊 0 已歸戶後再 apply 邊 1
+        _ = try service.resolveVenues(apply: ["x2025:0"])
+        XCTAssertThrowsError(try service.resolveVenues(apply: ["x2025:1"]))
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal"), .literal("PSYCHOMETRIKA")], "零寫入")
+    }
+
+    /// **`verdictsRetired` 有筆數上限與揭露**（R10 verify security 第 16 列、regression 第 19 列；Claude 代裁 D30）：它是兩個 payload
+    /// 裡唯一由 store 內容而非呼叫端輸入決定體積的欄位（每項 ~520 字元；手改或 #553 合併吸收的 store 可有多筆同鍵 verdict，
+    /// `supersede` 全退），而 MCP 的輸出進 LLM context——`akashic_enrich` 的既有形：截 20 筆、`verdictsRetiredTotal`／`truncated` 揭露。
+    func testVerdictsRetiredIsCappedAndDisclosed() throws {
+        let store = LibraryStore(root: root)
+        _ = try service.addVenue(key: "beta-journal", names: ["Beta Journal"], type: "periodical", note: nil, issn: nil)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("PSYCHOMETRIKA")]
+        _ = try store.writeEntry(e)
+        _ = try service.resolveVenues(apply: ["x2025:0"])
+        var beta = try XCTUnwrap(store.load().venues.first { $0.key == "beta-journal" })
+        for i in 0..<25 {
+            beta.references.append(ResolutionLedger.record(.rejected, holderKind: .work, holder: "x2025", literal: "PSYCHOMETRIKA",
+                                                           rule: ResolutionLedger.venueRule, statement: "手改 \(i)"))
+        }
+        try store.writeVenue(beta)
+        let out = try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal"])
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        XCTAssertEqual((json["verdictsRetired"] as? [String])?.count, 20, out)
+        XCTAssertEqual(json["verdictsRetiredTotal"] as? Int, 26, "25 筆 rejected 在 to ＋ 1 筆 confirmed 在 from")
+        XCTAssertEqual(json["truncated"] as? Bool, true)
+        let single = try service.resolveVenues(apply: nil, demote: ["x2025:0"])
+        let j2 = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(single.utf8)) as? [String: Any])
+        XCTAssertEqual(j2["verdictsRetiredTotal"] as? Int, 1)
+        XCTAssertEqual(j2["truncated"] as? Bool, false)
     }
 
     /// **`confirmedLiteral` 的去重是位元組相等，同 `matchingKey` 異位元組是拒絕不是「先到先贏」**（R9 verify DA 第 9 列）：
@@ -815,11 +950,23 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     /// **`addVenue` 回報存入的名字，不是呼叫端送的**（R9 verify logic 第 22 列）：R4 讓 `addVenue` 走 `vetVenueNames`
     /// （canonical、去空白項、近重複只留一筆），payload 卻仍回 `names` 原陣列——報告宣稱 store 沒有的字串，而且其中一個
     /// （`"Psychometrika "`）是不變式讓 store 不可能持有的。`updateVenue` 的 `namesAdded` 早就回 vetted 值。
+    /// **折進 canonical 形的拼法報 `namesRewritten`，真的沒進 store 的才是 `namesDropped`**（R10 verify logic 第 14 列、regression 第 20 列、
+    /// requirements 第 22 列）：R10 用位元組相等算 `namesDropped`，NFD 輸入同時出現在 `names` 與 `namesDropped`——兩個看起來一樣的字串
+    /// 一個說存了一個說沒存，正是 R9 剛在 `authorizedRewritten` 修掉的歧義；鍵名說 dropped 而那個名字在 store 裡。`updateVenue` 的
+    /// `add_names` 同一組欄位（先前只有 `namesAdded`，同一個入口兩種回報契約）。
     func testAddVenueReportsTheVettedNamesNotTheRawInput() throws {
-        let out = try service.addVenue(key: "dup", names: ["Psychometrika", "Psychometrika ", "   "], type: "periodical", note: nil, issn: nil)
+        let out = try service.addVenue(key: "dup", names: ["Psychometrika", "Psychometrika ", "   ", "Sankhya\u{0304}"], type: "periodical", note: nil, issn: nil)
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
-        XCTAssertEqual(json["names"] as? [String], ["Psychometrika"])
-        XCTAssertEqual(json["namesDropped"] as? [String], ["Psychometrika ", "   "], "被折掉的要看得到：\(out)")
+        XCTAssertEqual(json["names"] as? [String], ["Psychometrika", "Sankhyā"])
+        let rewritten = try XCTUnwrap(json["namesRewritten"] as? [String], out)
+        XCTAssertEqual(rewritten, ["Psychometrika ", "Sankhyā"], "折成 canonical 後**存了**——不是 dropped：\(out)")
+        XCTAssertEqual(Array(rewritten[1].utf8).count, 9, "回報的是原拼法（NFD 位元組），不是存入的")
+        XCTAssertEqual(json["namesDropped"] as? [String], ["   "], "真的沒進 store 的才叫 dropped：\(out)")
+        let upd = try service.updateVenue(key: "some-journal", addNames: ["Psychometrika ", "PSYCHOMETRIKA ", " "], note: nil, type: nil)
+        let j2 = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(upd.utf8)) as? [String: Any])
+        XCTAssertEqual(j2["namesAdded"] as? [String], ["Psychometrika"])
+        XCTAssertEqual(j2["namesRewritten"] as? [String], ["Psychometrika ", "PSYCHOMETRIKA "], "canonical 形在 store（剛存或本來就有）、拼法不同：\(upd)")
+        XCTAssertEqual(j2["namesDropped"] as? [String], [" "], upd)
     }
 
     /// **NFD 自我修復要報在自己的桶**（R9 verify logic 第 23 列）：`already` 用 canonical 相等算，手改成 NFD 的 authorized

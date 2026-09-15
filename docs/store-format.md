@@ -837,8 +837,20 @@ literal 邊誰落地、confirmed 帶哪個字串，都取決於呼叫端送的�
 候選」兩種來源。**合併本身是一種移除面**（R12 verify logic 第 38 列）：`resolveVenueDivergence` 對 entry 的 key
 邊去重時，與被併鍵無關的既有重複 key 邊也會被收成一條（#553 起）、報告只有 `entriesRewritten` 的計數——#572
 落地前留著，這裡把它寫出來。
-既有的違反由 `Entry.validate()` 報 warning（`zero-instance-guards` 第 26 列），修法是手改 work 的 YAML
-刪掉多餘的邊——移除面是 #572。
+既有的違反：第一半（同一 work 兩條 key 邊指同一 venue）由 `Entry.validate()` 報 warning（`zero-instance-guards`
+第 26 列）；第二半（同一 (venue, work) 上 ≥2 個正規化後不同的 confirmed literal）由 `Venue.validate()` 報 warning
+（第 27 列，R14——R13 之前這一半全庫沒有掃描面，而真正造出它的路徑（work 合併）結構上不會點亮第一半的燈，
+R13 verify DA 第 16 列）。修法都是手改 YAML——刪掉多餘的邊、或刪掉不屬於那條邊的 confirmed verdict——移除面是 #572。
+**R14 把三處閘收成一個謂詞**（R13 verify 33 列、6 席齊）：R13 的 keeper 路徑用「被併者對累積中的 keeper 找相反鍵」的
+delta 謂詞——漏掉矛盾整組住在同一筆被併者裡、以及單一被併者自帶兩個 literal 而倖存者對該 work 無 verdict（D32 多了「keeper
+已有 ≥1」的前提）；holder 路徑用整份清單的絕對謂詞——既有且與被併鍵無關的 #486 矛盾對擋下不相干的合併、訊息把因果歸給這次
+合併，且只補了相反判定那一半：work 合併把 venue 對 keep／doom 各持的 confirmed 改寫到同一 work，純工具面造得出 D23 從此拒的
+邊（DA 第 3 列）。現在兩條路同一個 delta（D34）：合併後的記錄（keeper ＝ 自己的 ＋ 全部被併者的 references，person 側經 holder
+改寫；holder ＝ 遷移後、去重前）與合併前比，只擋這次帶進來的兩類違反——相反判定（三種 shape）與同一 work ≥2 個正規化後不同的
+confirmed literal（只對 venue 記錄算——D23 是 venue 側的拒絕）；訊息說出每筆的出處與**遷移前**的原值（遷移後的 value 不在
+任何 YAML 裡，DA 第 17 列）。合併前就存在的違反不擋（validate 的 warning 負責）。**dry-run 對去重丟掉的判定也要預告**（D35）：
+`verdictsCollapsed` 在 preview 與實跑同源（`mergedVenueKeeper`／`mergedPersonKeeper`——R13 只裝在實跑，dry-run 對「這次會丟掉
+哪幾筆判定記錄」沉默，而 dry-run 正是還能反悔的時點）。
 
 **與 §3.5 一般規則的三個刻意偏離**（各有理由，皆為 normative）：
 

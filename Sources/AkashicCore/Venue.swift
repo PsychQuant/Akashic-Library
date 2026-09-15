@@ -252,7 +252,7 @@ public struct Venue: Equatable {
                 if let why = NameIdentity.wellFormednessIssue(n) {
                     issues.append(ValidationIssue(
                         severity: .error,
-                        message: "venue '\(displaySafe(key, max: 120))' 的 \(label)「\(displaySafeInvisible(n, max: 120))」\(why)"))   // display-safe-exempt: label 是本函式的字面常量；why 是 NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）；n 以性質逃脫（R12 verify 第 14 列）
+                        message: "venue '\(displaySafe(key, max: 120))' 的 \(label)「\(displaySafeInvisible(n, max: 120))」\(why)"))   // display-safe-exempt: label 是本函式的字面常量；why 是 NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）
                 }
             }
         }
@@ -299,7 +299,7 @@ public struct Venue: Equatable {
                         let capHit = evaluated == pairsToEvaluate
                         issues.append(ValidationIssue(
                             severity: .error,
-                            message: "venue '\(displaySafe(key, max: 120))' 的 names \(capHit ? "同名段過多" : "近重複")「\(displaySafe(segs[i].value, max: 120))」共 \(segs.count) 筆同名段，"   // display-safe-exempt: Int；固定字串
+                            message: "venue '\(displaySafe(key, max: 120))' 的 names \(capHit ? "同名段過多" : "近重複")「\(displaySafeInvisible(segs[i].value, max: 120))」共 \(segs.count) 筆同名段，"   // display-safe-exempt: Int；固定字串
                                    + "已評估 \(evaluated) 對（列出其中 \(listed) 對違反），另至多 \(total - evaluated) 對未評估"   // display-safe-exempt: Int
                                    + (capHit
                                       ? "——同名段超過逐對評估的上限（\(pairsToEvaluate) 對，約 100 筆）一律拒絕：請把同名沿革段收攏，或在 YAML 裡留一筆"   // display-safe-exempt: Int 常量
@@ -317,8 +317,10 @@ public struct Venue: Equatable {
                         : "只差空白或正規化的兩個字串是同一個名字，請在 YAML 裡留一筆（沿革改回舊名要兩段都帶不相交的時間）"
                     issues.append(ValidationIssue(
                         severity: .error,
-                        message: "venue '\(displaySafe(key, max: 120))' 的 names 有兩筆近重複「\(displaySafe(segs[i].value, max: 120))」"
-                               + "與「\(displaySafe(segs[j].value, max: 120))」——\(why)"))   // display-safe-exempt: why 是本函式的兩句字面常量
+                        // 近重複對的兩筆只差空白類或 NFC 形——`displaySafe` 不逃脫 NBSP／U+2000–200A 等 Zs，兩個字串會印成逐像素相同
+                        // 而訊息叫人「留一筆」（R13 verify security 第 12 列、requirements 第 18 列）：以性質逃脫
+                        message: "venue '\(displaySafe(key, max: 120))' 的 names 有兩筆近重複「\(displaySafeInvisible(segs[i].value, max: 120))」"
+                               + "與「\(displaySafeInvisible(segs[j].value, max: 120))」——\(why)"))   // display-safe-exempt: why 是本函式的兩句字面常量
                 }
             }
         }
@@ -329,12 +331,36 @@ public struct Venue: Equatable {
                 if let first = seenByKey[k] {
                     issues.append(ValidationIssue(
                         severity: .error,
-                        message: "venue '\(displaySafe(key, max: 120))' 的 \(label) 有兩筆近重複「\(displaySafe(first, max: 120))」"   // display-safe-exempt: label 是本函式的字面常量
-                               + "與「\(displaySafe(n, max: 120))」——只差空白或正規化的兩個字串是同一個名字，請在 YAML 裡留一筆"))
+                        message: "venue '\(displaySafe(key, max: 120))' 的 \(label) 有兩筆近重複「\(displaySafeInvisible(first, max: 120))」"   // display-safe-exempt: label 是本函式的字面常量
+                               + "與「\(displaySafeInvisible(n, max: 120))」——只差空白或正規化的兩個字串是同一個名字，請在 YAML 裡留一筆"))
                 } else {
                     seenByKey[k] = n
                 }
             }
+        }
+        // **配對唯一性的第二半有掃描面了**（#554 R14，Claude 代裁 D36；`zero-instance-guards` 第 27 列）：同一 work 上 ≥2 個
+        // 正規化後不同的 confirmed literal——§3.5 那句 normative 的後半。第一半（同一 work 兩條 key 邊指同一 venue）住在
+        // `Entry.validate()`（第 26 列），而真正造出第二半的路徑（work 合併把兩筆 work 的邊連同 verdict 併到一筆）結構上
+        // 不會點亮第一半的燈（R13 verify DA 第 16 列）：R13 verify 之前這一半全庫零掃描面，只有 demote／repoint 撞上 D23 時才
+        // 知道。warning 級（記錄合法可載入，失效的是判定逆轉的前提；處置是手改 YAML 留一筆，#572 落地前沒有工具面——與第 26
+        // 列同一條理由）。鍵與 D23／`verdictEqualityKey`／#486 同一把（`matchingKey`）。
+        var literalsByWork: [String: [String: String]] = [:]   // work → matchingKey → 首見 literal
+        var workOrder: [String] = []
+        for r in references where r.field == "resolution-confirmed" {
+            guard let v = r.value, let p = ProvenanceReference.VerdictPairingValue.parse(v), p.holderKind == .work else { continue }
+            if literalsByWork[p.holder] == nil { workOrder.append(p.holder) }
+            let mk = NameNormalization.matchingKey(p.literal)
+            if literalsByWork[p.holder, default: [:]][mk] == nil { literalsByWork[p.holder, default: [:]][mk] = p.literal }
+        }
+        for w in workOrder {
+            let lits = literalsByWork[w]!
+            guard lits.count > 1 else { continue }
+            let shown = lits.keys.sorted().prefix(5).map { "「\(displaySafeInvisible(lits[$0]!, max: 120))」" }.joined(separator: "、")
+            issues.append(ValidationIssue(
+                severity: .warning,
+                message: "venue '\(displaySafe(key, max: 120))' 對 work「\(displaySafe(w, max: 120))」持有 \(lits.count) 個正規化後不同的 confirmed literal（"   // display-safe-exempt: Int
+                       + shown + (lits.count > 5 ? "…" : "")   // display-safe-exempt: shown 由上一行逐項 displaySafeInvisible 組成
+                       + "）——verdict 不帶 index，resolve-venues 的 demote／repoint 對這筆 work 會被拒（D23）；修法是手改 YAML 留一筆（#572 落地前沒有工具面）"))
         }
         let known = Set(names.entries.map(\.value))
         let orphan = variant.filter { !known.contains($0) }.sorted()

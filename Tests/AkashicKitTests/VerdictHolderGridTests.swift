@@ -161,6 +161,81 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(try store.load().entries.count, 2, "零寫入")
     }
 
+    /// **work 合併的 holder 遷移也不得留下同一 work 兩個正規化後不同的 confirmed literal**（R13 verify Codex 第 1 列、DA 第 3 列——
+    /// 純工具面重現：`--apply wkeep:0 --apply wdoom:0` 把兩個刊名變體各歸戶到 alpha，`resolve-divergence` 把 wdoom 併進 wkeep，
+    /// alpha 上兩筆 confirmed 都改寫成 wkeep，validate 零診斷、`--demote wkeep:0` 撞 D23；R13 只在 holder 那一步補了「相反判定」
+    /// 那一半——與 keeper 路徑同一句不變式、不同的謂詞）。R14（D34）：兩條路同一個 delta 謂詞、兩半都算。
+    func testWorkMergeRefusesWhenHolderMigrationWouldLeaveTwoConfirmedLiterals() throws {
+        try entry("keep2020a")
+        try store.writeEntry(Entry(id: UUID(), citekey: "doom2020a", type: .periodicalArticle, title: "Doomed",
+                                   authors: [.literal("A B")], date: "2020"))
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal"), TemporalValue(value: "Beta Review")]),
+                      authorized: [])
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "keep2020a", literal: "Alpha Journal"),
+                        verdict("resolution-confirmed", kind: .work, holder: "doom2020a", literal: "Beta Review")]
+        try store.writeVenue(v)
+        let d = try divergence(keeper: "keep2020a", doomed: "doom2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        for op in [{ _ = try self.store.previewResolveDivergence(id: d.id, survivor: "keep2020a", overrideReason: nil) },
+                   { _ = try self.store.resolveDivergence(id: d.id, survivor: "keep2020a") }] {
+            XCTAssertThrowsError(try op()) { err in
+                guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(let record, _, let ck, _) = err else { return XCTFail("要具名拒絕：\(err)") }
+                XCTAssertEqual(record, "alpha"); XCTAssertEqual(ck, "keep2020a")
+                // 出處與**遷移前**的原值（DA 第 17 列：R13 印遷移後的 `work:keep :: …`，那個字串不在任何 YAML 裡）
+                let s = err.localizedDescription
+                XCTAssertTrue(s.contains("work:doom2020a :: Beta Review") && !s.contains("work:keep2020a :: Beta Review"), s)
+            }
+        }
+        XCTAssertEqual(try holders(ofVenue: "alpha"), ["work:keep2020a", "work:doom2020a"], "零寫入")
+        // 對照組：同一 literal（正規化後相等）——遷移去重成一筆，合併照常
+        var v2 = try XCTUnwrap(store.load().venues.first { $0.key == "alpha" })
+        v2.references[1] = verdict("resolution-confirmed", kind: .work, holder: "doom2020a", literal: "ALPHA JOURNAL")
+        try store.writeVenue(v2)
+        GitFixture.commitAll(store.root)
+        let report = try store.resolveDivergence(id: d.id, survivor: "keep2020a")
+        XCTAssertEqual(report.failures, [])
+        XCTAssertEqual(try holders(ofVenue: "alpha"), ["work:keep2020a"])
+    }
+
+    /// **holder 合併前就有的矛盾對不擋不相干的合併**（R13 verify 第 6／9／13／14 列：R13 的 holder 閘掃整份遷移後的清單，一個與被併鍵
+    /// 無關的既有 #486 矛盾對——warning 級、被明文容忍、沒有工具面可修——就把一次無關的合併鎖死，訊息還說「併入之後會」）。
+    /// 與同一輪對 D32 的裁決同向：既有的違反不是這次合併的事。
+    func testWorkMergeIgnoresAHolderContradictionThatPredatesTheMerge() throws {
+        try entry("keep2020a"); try entry("other2020a")
+        try store.writeEntry(Entry(id: UUID(), citekey: "doom2020a", type: .periodicalArticle, title: "Doomed",
+                                   authors: [.literal("A B")], date: "2020"))
+        try org("some-org", refs: [verdict("resolution-confirmed", kind: .work, holder: "other2020a", literal: "ISS"),
+                                   verdict("resolution-rejected", kind: .work, holder: "other2020a", literal: "iss"),
+                                   verdict("resolution-confirmed", kind: .work, holder: "doom2020a", literal: "Academia Sinica")])
+        let d = try divergence(keeper: "keep2020a", doomed: "doom2020a", shape: .work)
+        GitFixture.commitAll(store.root)
+        let preview = try store.previewResolveDivergence(id: d.id, survivor: "keep2020a", overrideReason: nil)
+        XCTAssertEqual(preview.verdictValuesRewritten, [HolderRecord(.organization, "some-org")])
+        let report = try store.resolveDivergence(id: d.id, survivor: "keep2020a")
+        XCTAssertEqual(report.failures, [])
+        XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:other2020a", "work:other2020a", "work:keep2020a"], "既有的矛盾對原封不動、被併鍵改寫")
+    }
+
+    /// **dry-run 對 #271 那一腿的丟列也要預告**（R13 verify regression 第 2 列、logic 第 8 列：R13 的 `collapsedByDedupe` 只在實跑，
+    /// preview 的 `verdictsCollapsed` 被 holder 遷移那一半整個覆蓋——而 dry-run 正是還能反悔的時點）。
+    func testPersonMergePreviewPredictsTheDedupeCollapsesToo() throws {
+        var keeper = Person(key: "keeper-person", names: ["Keeper Person"])
+        keeper.references = [verdict("resolution-confirmed", kind: .work, holder: "w2025", literal: "Cheng, C.")]
+        try store.writePerson(keeper)
+        var doomed = Person(key: "doomed-person", names: ["Doomed Person"])
+        doomed.references = [verdict("resolution-confirmed", kind: .work, holder: "w2025", literal: "CHENG, C.")]
+        try store.writePerson(doomed)
+        let d = try divergence(keeper: "keeper-person", doomed: "doomed-person", shape: .person)
+        GitFixture.commitAll(store.root)
+        let preview = try store.previewResolveDivergence(id: d.id, survivor: "keeper-person", overrideReason: nil)
+        XCTAssertEqual(preview.verdictsCollapsed.count, 1, "\(preview.verdictsCollapsed)")
+        let line = preview.verdictsCollapsed.first ?? ""
+        XCTAssertTrue(line.contains("CHENG, C.") && line.hasPrefix("person「doomed-person」："), line)
+        let actual = try store.resolveDivergence(id: d.id, survivor: "keeper-person")
+        XCTAssertEqual(actual.failures, [])
+        XCTAssertEqual(preview.verdictsCollapsed, actual.verdictsCollapsed, "預告與實跑不一致就不是預告")
+    }
+
     /// **person 合併對相反判定同樣拒、同鍵同 kind 的遷移去重**（#554 R12，D31；R11 verify DA 第 1 列指出 person 路徑有逐字
     /// 同型的程式碼與同型的假斷言「(field, value) 冪等」——它只在位元組層為真）。
     func testPersonMergeRefusesOppositeVerdictsAndDedupesMigrationByNormalizedKey() throws {

@@ -2652,6 +2652,14 @@ public final class AkashicService {
 
     /// 同上，另回傳被略過的全空白項——`add_variant`／`authorize` 各自回報（R12 verify logic 第 25 列：判定型寫入面上的靜默 no-op；
     /// `add_names` 走 `namesReport` 已經報得出來）。
+    /// 呼叫端陣列進拒絕訊息時的項數上限（R13 verify security 第 25 列；#562 家族在本面的收口）：列 10 項、其餘只說數量。
+    /// 逃脫由呼叫端的 `render` 做（各站點的上限不同：原字串 400、名字 120）。
+    static func listCapped(_ items: [String], render: (String) -> String) -> String {
+        let cap = 10
+        let shown = items.prefix(cap).map(render).joined(separator: "、")
+        return items.count > cap ? shown + "…（共 \(items.count) 項）" : shown   // display-safe-exempt: Int；shown 由 render 逐項消毒
+    }
+
     private func vetVenueNamesReportingBlanks(_ raw: [String]?, parameter: String) throws -> (vetted: [String], blanks: [String]) {
         var seen = Set<String>()
         var out: [String] = []
@@ -2673,11 +2681,10 @@ public final class AkashicService {
             if seen.insert(c).inserted { out.append(c) }
         }
         if !bad.isEmpty {
-            // 每項 400（原字串截 120 ＋ 理由）、**項數不設上限**——#562 那一族的第七個位置，
-            // 刻意寫成 `map { displaySafe }.joined` 讓 #562 的現算 grep 看得到（R5 verify 第 15 列：
-            // 上一版把 displaySafe 放在迴圈裡、joined 在另一行，grep 數不到它）
+            // 每項 400（原字串截 120 ＋ 理由）、**項數截 10**（R13 verify security 第 25 列：三則入口拒絕訊息的項數由呼叫端陣列決定、
+            // 回進 MCP tool result——與 `--rows`／`verdictsRetired` 設上限的同一個論證；`listCapped` 三處共用）
             // 逃脫以性質不以列舉（R13）：這則訊息在結構上帶著它剛拒掉的那個不可見字元（R12 verify security 第 14 列的同一形）
-            throw ServiceError.invalid("\(parameter) 的 " + bad.map { displaySafeInvisible($0, max: 400) }.joined(separator: "；"))   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量
+            throw ServiceError.invalid("\(parameter) 的 " + Self.listCapped(bad) { displaySafeInvisible($0, max: 400) })   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量
         }
         return (out, blanks)
     }
@@ -2959,7 +2966,7 @@ public final class AkashicService {
             let both = authorizeIn.filter { variantKeys.contains(NameIdentity.canonical($0)) }
             if !both.isEmpty {
                 throw ServiceError.invalid(
-                    "「\(both.map { displaySafe($0, max: 120) }.joined(separator: "、"))」"
+                    "「\(Self.listCapped(both) { displaySafe($0, max: 120) })」"
                     + "同時被送進 add_variant 與 authorize——那是兩句矛盾的話，請只說一句")
             }
         }
@@ -2973,7 +2980,7 @@ public final class AkashicService {
             .sorted { $0.key.rawValue < $1.key.rawValue }
         if !clashes.isEmpty {
             let described = clashes.map { bucket in
-                "\(bucket.key.rawValue)：「\(bucket.value.map { displaySafe($0, max: 120) }.joined(separator: "、"))」"   // display-safe-exempt: WritingSystem.rawValue 是 enum 常數（han／latn／other），不是 store 字串
+                "\(bucket.key.rawValue)：「\(Self.listCapped(bucket.value) { displaySafe($0, max: 120) })」"   // display-safe-exempt: WritingSystem.rawValue 是 enum 常數（han／latn／other），不是 store 字串
             }.joined(separator: "；")
             throw ServiceError.invalid(
                 "同一個書寫系統送了兩個以上的名字——" + described
@@ -3805,17 +3812,21 @@ public final class AkashicService {
         // **勝者由呼叫端的順序決定**（先到先寫；`dedupe` 保序不排序，MCP 收的是呼叫端任意順序的陣列——兩面描述都寫明）。
         // 兩種來源分開措辭（R12 verify 第 19／21／23 列）：既有的 key 邊 vs 同一批稍早的候選（那條邊此刻還是 literal）。
         let requestedWorks = Set(requested.map(\.citekey))   // O(entries)（R12 verify regression 第 33 列：contains(where:) 是平方）
-        var keyed: [String: [String: (index: Int, fromBatch: Bool)]] = [:]   // citekey → venueKey → 已指向它的邊
+        var keyed: [String: [String: (indices: [Int], fromBatch: Bool)]] = [:]   // citekey → venueKey → 已指向它的邊（全部索引——既有的重複邊要一起印，R13 verify logic 第 30 列）
         for e in load.entries where requestedWorks.contains(e.citekey) {
-            for (i, ref) in e.venues.enumerated() { if case .key(let k) = ref { keyed[e.citekey, default: [:]][k] = (i, false) } }
+            for (i, ref) in e.venues.enumerated() {
+                if case .key(let k) = ref { keyed[e.citekey, default: [:]][k, default: ([], false)].indices.append(i) }
+            }
         }
         var chosen: [VenueResolutionCandidate] = []
         var skipped: [[String: Any]] = []
         for c in requested {
             if let hit = keyed[c.citekey]?[c.venueKey] {
                 let head = hit.fromBatch
-                    ? "同一批稍早的候選 \(displaySafe(c.citekey, max: 200)):\(hit.index) 先佔了這個 venue（先到先寫，順序由呼叫端決定）"   // display-safe-exempt: Int
-                    : "work 已有一條邊（index \(hit.index)）指向這個 venue"   // display-safe-exempt: Int
+                    ? "同一批稍早的候選 \(displaySafe(c.citekey, max: 200)):\(hit.indices[0]) 先佔了這個 venue（先到先寫，順序由呼叫端決定）"   // display-safe-exempt: Int
+                    : hit.indices.count == 1
+                        ? "work 已有一條邊（index \(hit.indices[0])）指向這個 venue"   // display-safe-exempt: Int
+                        : "work 已有 \(hit.indices.count) 條邊（\(IndexList.render(hit.indices))）指向這個 venue——它們本來就重複了，出路是留一條"   // display-safe-exempt: Int；IndexList 只印整數
                 skipped.append(["id": c.rowID,
                                 "venueKey": displaySafe(c.venueKey, max: 200),
                                 "reason": head + "——配對只能由一條邊實例化（verdict 不帶 index，D25），"
@@ -3823,7 +3834,7 @@ public final class AkashicService {
                                     + "它會一直被提名——出路是手改這筆 work 的 YAML 刪掉多餘的邊（移除面：#572）"])
                 continue
             }
-            keyed[c.citekey, default: [:]][c.venueKey] = (c.venueIndex, true)
+            keyed[c.citekey, default: [:]][c.venueKey] = ([c.venueIndex], true)
             chosen.append(c)
         }
         let updatedEntries = VenueResolver.apply(chosen, to: load.entries)
@@ -3950,9 +3961,12 @@ public final class AkashicService {
                 // 全部配對，不只相鄰兩筆（R12 verify Codex 第 2 列、logic 第 12 列：`[A, C, B]` 三個 move 的第 1 與第 3 個相交）
                 for (ia, a) in group.enumerated() {
                     for b in group[(ia + 1)...] where !Set([a.from, a.to]).isDisjoint(with: [b.from, b.to]) {
+                    // 同組只保證正規化後相等，位元組可以不同——兩個拼法都印（R13 verify logic 第 29 列）
+                    let spelled = a.literal == b.literal ? "「\(displaySafe(b.literal, max: 120))」"
+                        : "「\(displaySafe(a.literal, max: 120))」／「\(displaySafe(b.literal, max: 120))」（正規化後相等）"
                     throw ServiceError.invalid(
                         "同一批裡 work「\(displaySafe(ck, max: 200))」的 index \(a.index) 與 index \(b.index) 兩條邊帶同一個 literal"   // display-safe-exempt: Int
-                        + "「\(displaySafe(b.literal, max: 120))」且觸及同一個 venue——verdict 以 (work, literal) 為鍵、不帶 index，"
+                        + "\(spelled)且觸及同一個 venue——verdict 以 (work, literal) 為鍵、不帶 index，"   // display-safe-exempt: spelled 由上一行逐項 displaySafe 組成
                         + "兩個 move 對同一配對的退役會互相覆蓋，留下哪一側的證據取決於輸入順序。出路：先刪掉重複的邊（移除面：#572）")
                     }
                 }
@@ -4106,7 +4120,7 @@ public final class AkashicService {
             throw ServiceError.invalid(
                 "venue「\(displaySafe(venue.key, max: 200))」上 work「\(displaySafe(citekey, max: 200))」有 "
                 + "\(literals.count) 個不同的 confirmed literal（"   // display-safe-exempt: Int
-                + literals.prefix(5).map { "「\(displaySafeInvisible($0, max: 120))」" }.joined(separator: "、")   // display-safe-exempt: displaySafeInvisible 內含 displaySafe（R13）
+                + literals.prefix(5).map { "「\(displaySafeInvisible($0, max: 120))」" }.joined(separator: "、")
                 + (literals.count > 5 ? "…" : "")   // 列舉有上限（#562 那一族，R11 verify security 第 20 列）；literal 以性質逃脫（R12 verify 第 14 列）
                 + "）——verdict 不帶 index，分不出這條邊原本寫的是哪一個，\(operation)會把錯的 literal 寫進 verdict。"   // display-safe-exempt: 固定字串（改指／降格）
                 + "出路：把不屬於這條邊的那筆 confirmed verdict 從 venue 的 YAML 刪掉（或先改指另一條邊），再重跑")

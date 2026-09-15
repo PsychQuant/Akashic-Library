@@ -357,6 +357,41 @@ final class VenueNameInvariantTests: XCTestCase {
         XCTAssertTrue(msgs.contains { $0.contains("\\u{E0001}") } && msgs.contains { $0.contains("\\u{200B}") }, "\(msgs)")
     }
 
+    /// 近重複訊息也要以性質逃脫（R13 verify security 第 12 列、requirements 第 18 列）：近重複對的兩筆只差空白類或 NFC 形，
+    /// 而 `displaySafe` 不逃脫 NBSP——兩個字串印成逐像素相同，訊息卻叫人「留一筆」。
+    func testNearDuplicateMessagesEscapeTheOffendingScalar() {
+        let v = venue(names: ["Psychometrika", "Psychometrika\u{00A0}"], authorized: ["Psychometrika", "Psychometrika\u{00A0}"])
+        let msgs = errors(v).filter { $0.contains("近重複") }
+        XCTAssertFalse(msgs.isEmpty, "\(errors(v))")
+        for m in msgs {
+            XCTAssertFalse(m.unicodeScalars.contains { $0.value == 0x00A0 }, "原樣迴送 NBSP：\(m)")
+            XCTAssertTrue(m.contains("\\u{00A0}"), m)
+        }
+    }
+
+    /// **配對唯一性的第二半有掃描面了**（R13 verify DA 第 16 列；Claude 代裁 D36，`zero-instance-guards` 第 27 列）：同一 work 上
+    /// ≥2 個正規化後不同的 confirmed literal 是 warning——真正造出它的路徑（work 合併）結構上不會點亮第一半（`Entry.validate()`
+    /// 的重複 key 邊）的燈，R13 之前全庫零掃描面、只有 demote／repoint 撞 D23 時才知道。
+    func testTwoConfirmedLiteralsForOneWorkIsAWarning() {
+        func ref(_ work: String, _ literal: String) -> ProvenanceReference {
+            ProvenanceReference(field: "resolution-confirmed",
+                                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: work, literal: literal).encoded,
+                                kind: .judgement(statement: "測試", restsOn: []))
+        }
+        var v = venue(names: ["Psychometrika"])
+        v.references = [ref("w1", "Psychometrika"), ref("w1", "Psychometrika (Journal)"), ref("w2", "Psychometrika"), ref("w2", "PSYCHOMETRIKA")]
+        let ws = v.validate().filter { $0.severity == .warning }.map(\.message)
+        XCTAssertEqual(ws.count, 1, "w1 兩個不同、w2 正規化後相同：\(ws)")
+        let w = ws.first ?? ""
+        XCTAssertTrue(w.contains("w1") && w.contains("D23") && w.contains("YAML"), w)
+        XCTAssertTrue(errors(v).isEmpty, "是 warning 不是 error：\(errors(v))")
+        // 逃脫以性質（`matchingKey` 會剝掉 Cf，所以兩個 literal 要在鍵上真的不同）
+        v.references = [ref("w1", "Alpha\u{200B}Journal"), ref("w1", "Beta Journal")]
+        let w2 = v.validate().filter { $0.severity == .warning }.map(\.message)
+        XCTAssertEqual(w2.count, 1, "\(w2)")
+        XCTAssertTrue(w2.first?.contains("\\u{200B}") == true && w2.first?.unicodeScalars.contains { $0.value == 0x200B } == false, "以性質逃脫：\(w2)")
+    }
+
     /// 訊息是對**操作者**說的（R5 verify 第 17 列）：修法是人改 YAML，訊息不得叫他呼叫一個 Swift 函式。
     func testInvariantMessagesSpeakToTheOperator() {
         for bad in ["Psychometrika ", "Psycho\u{200B}metrika", "×", "", "Psycho\u{200C}metrika", "\u{3164}"] {

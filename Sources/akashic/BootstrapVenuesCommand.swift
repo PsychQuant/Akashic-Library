@@ -80,7 +80,9 @@ struct BootstrapVenues: ParsableCommand {
             print("")
             print("不建檔的 literal（\(dropped.count)），各附理由：")
             for d in dropped.prefix(AmbiguityDisplayLimit.rows) {
-                print("  ×\(d.occurrences)  \(displaySafe(d.name, max: 200))——\(d.reason)")   // display-safe-exempt: reason 是 VenueBootstrap／NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）
+                // `rejected` 那一類的 `d.name` 就是被 `wellFormednessIssue` 拒掉的原字串——結構上帶著那個不可見字元，而 venue
+                // 沒被建出來、沒有 sibling 訊息可對照（R13 verify security 第 12 列）：以性質逃脫
+                print("  ×\(d.occurrences)  \(displaySafeInvisible(d.name, max: 200))——\(d.reason)")   // display-safe-exempt: reason 是 VenueBootstrap／NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）
             }
             if dropped.count > AmbiguityDisplayLimit.rows {
                 print("  …另 \(dropped.count - AmbiguityDisplayLimit.rows) 筆未顯示")

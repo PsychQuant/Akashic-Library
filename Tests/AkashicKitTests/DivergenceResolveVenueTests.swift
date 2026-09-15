@@ -146,6 +146,83 @@ final class DivergenceResolveVenueTests: XCTestCase {
         XCTAssertTrue(report.verdictsCollapsed.contains { $0.contains("THE AMERICAN STATISTICIAN") }, "\(report.verdictsCollapsed)")
     }
 
+    /// **dry-run 對去重丟列也要預告**（R13 verify regression 第 2 列、logic 第 8 列：R13 只裝在實跑，preview 把 `mergedVenueKeeper`
+    /// 回傳的 `verdictsCollapsed` 當場丟掉——被丟的那筆可能帶人寫的 judgement，而 dry-run 正是還能反悔的時點）。
+    func testPreviewReportsTheDedupeCollapsesLikeActual() throws {
+        var keeper = Venue(key: "the-american-statistician", type: .periodical,
+                           names: Timeline([TemporalValue(value: "The American Statistician")]),
+                           authorized: ["The American Statistician"], issn: [XCTUnwrap_ISSN("0003-1305")])
+        keeper.references = [verdict(holder: "casella1985introduction", literal: "The American Statistician")]
+        try store.writeVenue(keeper)
+        var doomed = Venue(key: "american-statistician", type: .periodical,
+                           names: Timeline([TemporalValue(value: "AMERICAN STATISTICIAN")]), authorized: [])
+        doomed.references = [ProvenanceReference(field: "resolution-confirmed",
+            value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "casella1985introduction", literal: "THE AMERICAN STATISTICIAN").encoded,
+            kind: .judgement(statement: "人寫的判定理由：對照過卷期", restsOn: []))]
+        try store.writeVenue(doomed)
+        let d = Divergence(id: UUID(), question: "同一本刊嗎",
+                           candidates: [DivergenceCandidate(key: "the-american-statistician", shape: .venue),
+                                        DivergenceCandidate(key: "american-statistician", shape: .venue)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(root, message: "seed")
+        let preview = try store.previewResolveDivergence(id: d.id, survivor: "the-american-statistician", overrideReason: nil)
+        XCTAssertEqual(preview.verdictsCollapsed.count, 1, "\(preview.verdictsCollapsed)")
+        let line = preview.verdictsCollapsed.first ?? ""
+        XCTAssertTrue(line.contains("THE AMERICAN STATISTICIAN") && line.contains("對照過卷期"), line)
+        let actual = try store.resolveDivergence(id: d.id, survivor: "the-american-statistician")
+        XCTAssertEqual(actual.failures, [])
+        XCTAssertEqual(preview.verdictsCollapsed, actual.verdictsCollapsed, "預告與實跑不一致就不是預告")
+    }
+
+    /// **單一被併者自己帶著兩個正規化後不同的 confirmed literal、而倖存者對該 work 沒有 verdict——也擋**（R13 verify Codex 第 4、
+    /// requirements 第 5、logic 第 11 列：R13 的 D32 多了「keeper 已有 ≥1」的前提，`have[work] == nil` 就 `continue`，兩筆全搬進 keeper，
+    /// 被併檔隨即刪除——判準寫的是「這次合併新增的 confirmed literal 讓 keeper 對某 work ≥2 個」，程式比它窄）。
+    func testMergeRefusesWhenASingleDoomedCarriesTwoConfirmedLiteralsForOneWork() throws {
+        let keeper = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]),
+                           authorized: [], issn: [XCTUnwrap_ISSN("0003-1305")])
+        try store.writeVenue(keeper)
+        var doomed = Venue(key: "alpha-old", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Review")]), authorized: [])
+        doomed.references = [verdict(holder: "w1", literal: "Alpha Review"), verdict(holder: "w1", literal: "Alpha Review (Journal)")]
+        try store.writeVenue(doomed)
+        let d = Divergence(id: UUID(), question: "同一本刊嗎",
+                           candidates: [DivergenceCandidate(key: "alpha", shape: .venue), DivergenceCandidate(key: "alpha-old", shape: .venue)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(root, message: "seed")
+        for op in [{ _ = try self.store.previewResolveDivergence(id: d.id, survivor: "alpha", overrideReason: nil) },
+                   { _ = try self.store.resolveDivergence(id: d.id, survivor: "alpha") }] {
+            XCTAssertThrowsError(try op()) { err in
+                guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, _) = err else { return XCTFail("要具名拒絕：\(err)") }
+                XCTAssertEqual(ck, "w1")
+                XCTAssertTrue(err.localizedDescription.contains("venue「alpha-old」"), "出處要指向被併者：\(err)")
+            }
+        }
+        XCTAssertEqual(try store.load().venues.count, 2, "零寫入")
+    }
+
+    /// **矛盾整組住在同一筆被併者裡也擋**（R13 verify logic 第 10 列、regression 第 15 列：R13 的累積比對只拿被併者的每一筆去對累積的
+    /// keeper 找相反鍵，從不拿被併者自己的兩筆互比——兩筆鍵不同、都 append 進 keeper，合併後 keeper 就是 #486 的矛盾對而被併檔已刪）。
+    func testMergeRefusesWhenASingleDoomedCarriesAContradictionItself() throws {
+        let keeper = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]),
+                           authorized: [], issn: [XCTUnwrap_ISSN("0003-1305")])
+        try store.writeVenue(keeper)
+        var doomed = Venue(key: "alpha-old", type: .periodical, names: Timeline([TemporalValue(value: "ALPHA JOURNAL")]), authorized: [])
+        doomed.references = [verdict(holder: "w1", literal: "Psychometrika"),
+                             ProvenanceReference(field: "resolution-rejected",
+                                 value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "w1", literal: "PSYCHOMETRIKA").encoded,
+                                 kind: .judgement(statement: "resolve reject：使用者否決此配對", restsOn: []))]
+        try store.writeVenue(doomed)
+        let d = Divergence(id: UUID(), question: "同一本刊嗎",
+                           candidates: [DivergenceCandidate(key: "alpha", shape: .venue), DivergenceCandidate(key: "alpha-old", shape: .venue)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(root, message: "seed")
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "alpha")) { err in
+            guard case DivergenceResolveError.wouldContradictVerdicts = err else { return XCTFail("要具名拒絕：\(err)") }
+            let s = err.localizedDescription
+            XCTAssertTrue(s.contains("work:w1 :: Psychometrika") && s.contains("work:w1 :: PSYCHOMETRIKA"), "兩側的原值都要印：\(s)")
+        }
+        XCTAssertEqual(try store.load().venues.count, 2, "零寫入")
+    }
+
     /// **三方合併：被併者彼此的相反判定也要擋**（R12 verify 五席同指：D31 只比 keeper↔doomed，S 沒有 verdict、D1 confirmed、
     /// D2 rejected 時兩次前置都過，遷移時兩把鍵不同、兩筆都進 keeper——正是 D31 要讓它「寫不出來」的形）。
     func testThreeWayMergeRefusesOppositeVerdictsBetweenDoomedRecords() throws {
@@ -169,6 +246,9 @@ final class DivergenceResolveVenueTests: XCTestCase {
                    { _ = try self.store.resolveDivergence(id: d.id, survivor: "alpha") }] {
             XCTAssertThrowsError(try op()) { err in
                 guard case DivergenceResolveError.wouldContradictVerdicts = err else { return XCTFail("要具名拒絕：\(err)") }
+                // 三方合併要說得出矛盾出自哪兩筆記錄（R13 verify requirements 第 20 列：R13 印「alpha」兩次）
+                let s = err.localizedDescription
+                XCTAssertTrue(s.contains("venue「alpha-old」") && s.contains("venue「alpha-older」"), s)
             }
         }
         XCTAssertEqual(try store.load().venues.count, 3, "零寫入")
@@ -198,7 +278,7 @@ final class DivergenceResolveVenueTests: XCTestCase {
         try store.writeDivergence(d)
         GitFixture.commitAll(root, message: "seed")
         XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "alpha")) { err in
-            guard case DivergenceResolveError.wouldCollapseEdges(let ck, _, _) = err else { return XCTFail("要具名拒絕：\(err)") }
+            guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, _) = err else { return XCTFail("要具名拒絕：\(err)") }
             XCTAssertEqual(ck, "w1", "擋的是這次合併會新增第二個 confirmed literal 的 w1，不是 keeper 自己既有的 w9")
         }
         // 拿掉 doomed 那筆 confirmed → 只剩 keeper 自己的既有違反（w9）→ 合併不擋
@@ -268,9 +348,11 @@ final class DivergenceResolveVenueTests: XCTestCase {
         }
         let d = try seedTwins(doomedLiteral: "Alpha Review")
         XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "alpha")) { err in
-            guard case DivergenceResolveError.wouldCollapseEdges = err else { return XCTFail("要具名拒絕：\(err)") }
+            guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals = err else { return XCTFail("要具名拒絕：\(err)") }
             let s = err.localizedDescription
             XCTAssertTrue(s.contains("w2025") && s.contains("demote"), s)
+            // 出處與原值（R13 verify 第 17／20 列）：兩筆各在哪個記錄、YAML 裡的字
+            XCTAssertTrue(s.contains("venue「alpha」") && s.contains("venue「alpha-old」") && s.contains("Alpha Review"), s)
         }
         XCTAssertEqual(try store.load().venues.count, 2, "零寫入")
         // 同鍵異位元組：合併成功、邊塌成一條、只留一筆 confirmed

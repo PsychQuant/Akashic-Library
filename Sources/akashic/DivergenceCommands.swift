@@ -52,8 +52,9 @@ struct ResolveDivergence: ParsableCommand {
             }
             if !preview.verdictsCollapsed.isEmpty {
                 print("  ⚠ verdict 將收攏丟棄 \(preview.verdictsCollapsed.count) 筆"
-                    + "（與遷移輸出同配對，留首見）：")
-                for c in preview.verdictsCollapsed { print("      · \(displaySafe(c, max: 300))") }
+                    + "（與倖存者既有的或遷移輸出同一配對——正規化後相等，留一筆）：")
+                // 逐列以性質逃脫、上限 1,000（各段已在來源逐段截；R13 verify security 第 24 列、requirements 第 19 列）
+                for c in preview.verdictsCollapsed { print("      · \(displaySafeInvisible(c, max: 1_000))") }
             }
             if !preview.quarantinedNotScanned.isEmpty {   // #497：未掃描不得看起來像掃過且沒有
                 print("  ⚠ \(preview.quarantinedNotScanned.count) 個 quarantine 檔未掃描——"
@@ -110,8 +111,10 @@ struct ResolveDivergence: ParsableCommand {
             for f in report.quarantinedNotScanned { print("  · \(displaySafe(f, max: 300))") }
         }
         if !report.verdictsCollapsed.isEmpty {   // #461：收攏丟列要說出來——靜默丟棄不可稽核
-            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（與遷移輸出同 (field, value)，留首見）：")
-            for c in report.verdictsCollapsed { print("  · \(displaySafe(c, max: 300))") }
+            // 兩類內容（R13 verify regression 第 28 列）：holder 遷移的收攏（與遷移輸出同鍵）、#271 的去重（與倖存者既有的同鍵）——
+            // 鍵都是 `verdictEqualityKey`（正規化 literal），不是 (field, value)
+            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（與倖存者既有的或遷移輸出同一配對——正規化後相等，留一筆）：")
+            for c in report.verdictsCollapsed { print("  · \(displaySafeInvisible(c, max: 1_000))") }
         }
         for w in report.warnings {   // #75 對一：不擋但要說
             print("  ⚠ \(w)")

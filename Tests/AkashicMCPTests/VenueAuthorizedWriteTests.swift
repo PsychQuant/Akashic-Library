@@ -963,6 +963,54 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal"), .key("gamma-journal"), .key("beta-journal")], "零寫入")
     }
 
+    /// 相交檢查的訊息要印**兩個**拼法（R13 verify logic 第 29 列：同組只保證正規化後相等，位元組可以不同，只印 `b` 會讓讀者以為
+    /// `a` 那條邊寫的也是那個字串——而之後各自 demote／手改時字串差異正是操作者要的資訊）。
+    func testOverlapRefusalNamesBothSpellings() throws {
+        let store = LibraryStore(root: root)
+        _ = try service.addVenue(key: "beta-journal", names: ["Beta Journal"], type: "periodical", note: nil, issn: nil)
+        var x = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        x.venues = [.key("some-journal"), .key("beta-journal")]
+        _ = try store.writeEntry(x)
+        for (key, lit) in [("some-journal", "PSYCHOMETRIKA"), ("beta-journal", "Psychometrika")] {
+            var v = try XCTUnwrap(store.load().venues.first { $0.key == key })
+            v.references.append(ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: lit,
+                                                        rule: ResolutionLedger.venueRule, statement: "手改"))
+            try store.writeVenue(v)
+        }
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:some-journal"])) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("PSYCHOMETRIKA") && s.contains("Psychometrika") && s.contains("正規化後相等"), s)
+        }
+    }
+
+    /// 既有的重複邊要**全部**列出（R13 verify logic 第 30 列：字典賦值後者覆蓋前者，訊息說「一條邊（index 1）」而實際兩條、
+    /// 索引指向後面那條——這個 payload 的用途正是讓人去找那些邊並手改）。
+    func testDuplicateEdgeSkipListsEveryExistingIndex() throws {
+        let store = LibraryStore(root: root)
+        var z = Entry(id: UUID(), citekey: "z2025", type: .periodicalArticle, title: "T3")
+        z.venues = [.key("some-journal"), .key("some-journal"), .literal("Psychometrika")]
+        _ = try store.writeEntry(z)
+        let out = try service.resolveVenues(apply: ["z2025:2"])
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        let reason = try XCTUnwrap((json["skippedDuplicateVenueEdge"] as? [[String: Any]])?.first?["reason"] as? String, out)
+        XCTAssertTrue(reason.contains("2 條邊") && reason.contains("index 0、1"), reason)
+    }
+
+    /// 入口拒絕訊息的項數有上限（R13 verify security 第 25 列：三則訊息把呼叫端陣列無上限 join、回進 MCP tool result——
+    /// 與 `--rows`／`verdictsRetired` 設上限的同一個論證）：列 10 項、其餘只說數量。
+    func testEntryRefusalListsAreCapped() throws {
+        let many = (1...12).map { "Journal Number \($0)" }
+        XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: many)) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("共 12 項") && !s.contains("Journal Number 11"), s)
+        }
+        let blanks = (1...12).map { "Bad\u{200B}Name \($0)" }
+        XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: blanks, note: nil, type: nil)) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("共 12 項") && !s.contains("Name 11"), s)
+        }
+    }
+
     /// **MCP 組合腿：reject 腿讓同一次呼叫的 apply 腿失效時，要以正規化配對算 `skippedBecauseRejected`，不是走到 notFound**
     /// （R12 verify DA 第 20 列：R12 的正規化抑制對了，但組合腿的去重只比 id 字面——reject 已提交、apply 回一句指錯路的 notFound）。
     func testComboLegSkipsApplyIdsRejectedByNormalizedPairing() throws {

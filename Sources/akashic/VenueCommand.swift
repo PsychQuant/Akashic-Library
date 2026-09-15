@@ -204,7 +204,7 @@ struct UpdateVenueCmd: ParsableCommand {
     @Option(name: .customLong("add-variant"), parsing: .upToNextOption,
             help: ArgumentHelp("要標成異寫法的名字（append 語意；相等看 canonical、新名字以 canonical 形入庫——空白類收斂為單一空格、NFC——其他控制／格式／不可見字元、拉丁或 CJK 之間的接合字元、無字母無數字即整批拒絕——同 --add-name，#554 D8）。不在 names 裡的一併加進 names"
                              + "——兩個分割都是對 names 的標記，標一個 names 沒有的字串會造出"
-                             + "孤兒，而孤兒 variant 自 #473 起是 error（#471）"))
+                             + "孤兒，而孤兒 variant 自 #473 起是 error（#471）。整項空白的不寫、回報在 variantDropped"))
     var addVariant: [String] = []
 
     @Option(name: .customLong("authorize"), parsing: .upToNextOption,
@@ -214,7 +214,7 @@ struct UpdateVenueCmd: ParsableCommand {
                              + "一次給兩個同書寫系統的名字是矛盾，整批拒絕。不在 names 的一併加進 names。"
                              + "這是 #553 合併把某個名字降成 variant 那個動作在該名字上的逆操作——在此之前"
                              + "authorized 沒有判定型寫入面，唯一寫入者是 bootstrap 取第一個名字，而那些"
-                             + "機械值換不掉。不留 judgement（#564 另裁）（#554）"))
+                             + "機械值換不掉。不留 judgement（#564 另裁）。整項空白的不寫、回報在 authorizeDropped（#554）"))
     var authorize: [String] = []
 
     @Flag(name: .customLong("clear-paginated"),

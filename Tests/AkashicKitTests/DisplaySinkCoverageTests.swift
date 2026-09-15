@@ -712,19 +712,21 @@ final class DisplaySinkCoverageTests: XCTestCase {
     /// 讓被包住的那一段消失，同一個引數裡沒被包的部分照常入列。
     static func maskingSanitised(_ text: String) -> String {
         var chars = Array(text)
-        let needle = Array("displaySafe(")
-        var i = 0
-        while i + needle.count <= chars.count {
-            guard Array(chars[i..<(i + needle.count)]) == needle else { i += 1; continue }
-            var depth = 1
-            var j = i + needle.count
-            while j < chars.count, depth > 0 {
-                if chars[j] == "(" { depth += 1 }
-                if chars[j] == ")" { depth -= 1; if depth == 0 { break } }
-                chars[j] = " "
-                j += 1
+        for needleText in ["displaySafeInvisible(", "displaySafe("] {   // 兩種消毒都塗白（R13 verify 第 31 列）
+            let needle = Array(needleText)
+            var i = 0
+            while i + needle.count <= chars.count {
+                guard Array(chars[i..<(i + needle.count)]) == needle else { i += 1; continue }
+                var depth = 1
+                var j = i + needle.count
+                while j < chars.count, depth > 0 {
+                    if chars[j] == "(" { depth += 1 }
+                    if chars[j] == ")" { depth -= 1; if depth == 0 { break } }
+                    chars[j] = " "
+                    j += 1
+                }
+                i = j
             }
-            i = j
         }
         return String(chars)
     }
@@ -909,7 +911,9 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 for expr in candidates {
                     let tokenMatched = Self.taintedTokens.contains(where: { expr.contains($0) })
                     guard isErrorSink || tokenMatched else { continue }
-                    if expr.contains("displaySafe(") { continue }
+                    // `displaySafeInvisible(` 是更強的消毒（性質式逃脫，R13）——守衛要認得它，否則四個真消毒站點得掛 exempt，
+                    // 而拔掉消毒後 exempt 留在原地守衛照樣全綠（R13 verify security 第 31 列）
+                    if expr.contains("displaySafe(") || expr.contains("displaySafeInvisible(") { continue }
                     // `.count` / `.isEmpty` 是數量不是內容；`!= nil` / `== nil` 是
                     // Bool 存在測試（如 hasJudgement）——都到不了內容本身
                     if expr.contains(".count") || expr.contains(".isEmpty") { continue }
@@ -1061,7 +1065,8 @@ final class DisplaySinkCoverageTests: XCTestCase {
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             // 移除 `displaySafe(` ＝ 模擬「拔掉全部消毒」：`displaySafe(citekey, max:200)`
             // → `citekey, max:200)`，掃描抽出的 `citekey` 是 tainted 且不含 displaySafe
-            let mutated = text.replacingOccurrences(of: "displaySafe(", with: "")
+            let mutated = text.replacingOccurrences(of: "displaySafeInvisible(", with: "")   // 兩種消毒都拔（R13）
+                              .replacingOccurrences(of: "displaySafe(", with: "")
             stripped += scanViolations(name: url.lastPathComponent, text: mutated)
         }
         let byAxis = Dictionary(uniqueKeysWithValues: Axis.allCases.map { axis in
@@ -1138,6 +1143,18 @@ final class DisplaySinkCoverageTests: XCTestCase {
     }
 
     /// 守衛自身要可證偽：掃描範圍不得為空，判準不得永遠成立。
+    /// 守衛認得性質式逃脫（R13 verify security 第 31 列）：`displaySafeInvisible(` 內含 `displaySafe` 而不含 `displaySafe(`，
+    /// R13 的四個真消毒站點因此都掛著 exempt——拔掉消毒後 exempt 留在原地、守衛照樣全綠。現在包 `displaySafeInvisible(…)`
+    /// 的 tainted 插值不算違規，裸的照抓；strip-all 突變（`testGuardCatchesStrippedSanitisation`）也一併拔它。
+    func testGuardRecognisesPropertyEscaping() throws {
+        let safe = #"print("\(displaySafeInvisible(entry.title, max: 200))")"#
+        let bare = #"print("\(entry.title)")"#
+        XCTAssertEqual(scanViolations(name: "x.swift", text: safe).count, 0, "displaySafeInvisible 是消毒")
+        XCTAssertEqual(scanViolations(name: "x.swift", text: bare).count, 1, "裸插值照抓")
+        XCTAssertEqual(scanViolations(name: "x.swift", text: safe.replacingOccurrences(of: "displaySafeInvisible(", with: "")).count, 1,
+                       "拔掉消毒要變紅")
+    }
+
     func testGuardItselfIsNotVacuous() throws {
         // 4 太鬆——光 `Sources/akashic` 一個目錄就有 8 個檔，其餘五個全掉光也滿足
         //（#156 verify R2）。實際 38 個檔，取 30 留 ~21% 緩衝。

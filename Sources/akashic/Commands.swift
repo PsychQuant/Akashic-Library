@@ -2018,8 +2018,8 @@ struct Rename: ParsableCommand {
             print("消解判定已遷移：\(report.verdictValuesRewritten.map(\.describedSafely).joined(separator: ", "))")   // display-safe-exempt: HolderRecord.describedSafely 已對 key 套 displaySafe(max: 200)
         }
         if !report.quarantinedNotScanned.isEmpty {   // #497：未掃描不得看起來像掃過且沒有
-            print("⚠ \(report.quarantinedNotScanned.count) 個 quarantine 檔未掃描——"
-                  + "其中若有 verdict 指向此鍵，不會被遷移（修好那些檔後跑 akashic validate 複查）：")
+            print("⚠ \(report.quarantinedNotScanned.count) 個 quarantine 檔未解析——"
+                  + "其中若有 verdict 指向舊鍵，不會被遷移（指向新鍵的已用行級文字比對擋過，D61；修好那些檔後跑 akashic validate 複查）：")
             for f in report.quarantinedNotScanned { print("  · \(displaySafe(f, max: 300))") }
         }
         if !report.verdictsCollapsed.isEmpty {   // #495：收攏丟列要說出來——靜默丟棄不可稽核（lossless-intake 執行細節 3）
@@ -2070,8 +2070,8 @@ struct RenamePerson: ParsableCommand {
             print("歧異記錄已遷移（候選或 prefers）：\(report.divergencesRewritten.joined(separator: ", "))")
         }
         if !report.quarantinedNotScanned.isEmpty {   // #497：未掃描不得看起來像掃過且沒有
-            print("⚠ \(report.quarantinedNotScanned.count) 個 quarantine 檔未掃描——"
-                  + "其中若有 verdict 指向此鍵，不會被遷移（修好那些檔後跑 akashic validate 複查）：")
+            print("⚠ \(report.quarantinedNotScanned.count) 個 quarantine 檔未解析——"
+                  + "其中若有 verdict 指向舊鍵，不會被遷移（指向新鍵的已用行級文字比對擋過，D61；修好那些檔後跑 akashic validate 複查）：")
             for f in report.quarantinedNotScanned { print("  · \(displaySafe(f, max: 300))") }
         }
         if !report.verdictsCollapsed.isEmpty {   // #495：收攏丟列要說出來——靜默丟棄不可稽核（lossless-intake 執行細節 3）

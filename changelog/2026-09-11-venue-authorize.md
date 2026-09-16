@@ -702,6 +702,28 @@ R20 verify 5 席齊（Codex 席仍 HTTP 429），26 列合併、5 HIGH——四�
   靜默當死邊（第 15 列）→ **#579**（根治在 load／validate 那一層，是一條新的零實例守衛）；DA 第 25 列更正四席的「silent」——confirmed＋rejected
   並存時 validate 改名前後都會報，只有一筆死 rejected 時才真的無聲；DA 第 26 列：R20 的 O(N) 註解只對第一段成立——那段已隨 D58 拿掉。
 
+## R21 verify：D60 對 quarantined 檔是盲的，而「不刪判定」還差一半
+
+R21 verify 5 席齊（Codex 席仍 429），38 列合併、0 HIGH、16 MEDIUM——三束：
+
+- **D60 的母體沒有 quarantined 檔**（第 1／8／12／16／36 列；DA 真 binary 前後對照：一個 quarantined 的 venue 持 `work:new2020a` 的 confirmed，
+  rename 照過、只印「其中若有 verdict 指向此鍵不會被遷移」——那句講的是舊鍵方向；修好那個檔之後 `validate` 全綠，一筆從未對這篇做過的判定成了
+  活的斷言。**D61**：與同函式的 `quarantinedFileClaiming` 同一套紀律——對 quarantined 檔做行級文字比對、讀不到即 fail-closed、命中就拒絕並點名那個檔；
+  CLI／App 的 quarantine 揭露改寫成兩個方向。
+- **「rename 不做任何判定的刪除」是過度斷言**（第 2／14 列；DA 真 binary：兩筆同拼法、judgement 與 rests-on 不同的 confirmed，`validate` 不出聲，
+  rename 後只剩一筆、另一筆的 digest 永久消失——正是撤掉 D58 的同一句話換個母體）。**D62**：折疊只折完全相同（含 judgement 與 rests-on）的重複，
+  rename 不再呼叫 `collapseWinner`；那句量詞自此才是真話。
+- **拒絕訊息在唯一的 CLI 出口上沒兌現**（第 7／9／11／15／17／24／28 列）：`displaySafeAssembled` 逐行截 400，R21 寫的 1,000 是到不了的死碼，
+  而 rests-on 排在行尾——DA 真 binary 用一般長度的 judgement 就把 sha256 切成半個（比不印更糟：看起來像一個值、grep 不到）；行數也無上限。
+  現在每筆命中拆成多行、每個 digest 自己一行（71 字）、至多 20 筆其餘揭露總數；測試把 description 送過與 CLI 相同的 sink 再驗。出路不再指
+  `resolve-venues --repoint`——目的鍵此刻不存在，被拒的每一筆都沒有邊可改指（第 3／10／25 列）。
+- 其餘：`renameEntry` 補 `oldKey != newKey`（第 4／20 列：自我改名撞 D60、訊息說目的鍵不存在）；`census-parity.yml`（CI 裡唯一真的跑守衛的
+  workflow）與 `ci.yml` 的 `swift run` 沒釘 native（第 5／38 列）；hook 對真目錄在 ln 之前就拒、不留巢狀連結、不回顯 readlink（第 21／26／27 列）；
+  `PackageManifestTests` 的 `guard let enumerator` 是死碼——`enumerator(at:)` 對不存在的目錄回非 nil（第 13／32 列）→ 改問目錄在不在；
+  `moduleUniverse` 碰撞即紅（第 23／29 列）；§3.5 的 D55 段仍是現在式與 D60 段矛盾（第 6／30 列）→ 改成收攏史；`RenameReportSummary` 的
+  註解仍寫 200（第 19 列）；parity 表「掛在兩處」→ 三處、`--yes` 的「6 個」→ 量測 11 個且 `rename` 不在那張表（第 33／35 列）；D60 補記進
+  `two-kinds` 的 rename 列與 guards 第 13 列（第 18 列）。第 31 列（#577 搭車逐輪長大）與第 37 列（rename 契約從必成變成可能拒絕、App 按鈕硬失敗）記錄。
+
 ## 第二次端到端又紅——這次是我的 binary
 
 改成替換語意後測試 7/7 綠、四個 mutation 負控乾淨，真 binary 卻說「authorized 含不在
@@ -762,6 +784,7 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
   不含概括句」；`RecordIssuesSummaryTests` 加「App 預覽不二次逃脫」；`VerdictHolderGridTests` 另加 person 合併的相反判定拒與遷移去重、work 合併的 holder 遷移矛盾拒 ＋ R14：holder 遷移留兩個 literal 拒、合併前就有的矛盾不擋、person dry-run 預告 #271 的去重 ＋ R15：住在被併鍵上的既有矛盾對不擋、被併鍵上既有的雙 literal 不擋、既有歧義變大仍擋且訊息分兩半、倖存者自己持有的 `person:<被併>` 矛盾對不擋而改寫後才相撞的擋、收攏列印原值並逐段截（merge 與 rename）（52 條）；`PairingUniquenessHealthTests`（新）與 `RecordIssuesSummaryTests` 加兩族家族計數；`VerdictEqualityTests` 加 malformed 回退鍵不碰撞；`OrderInsensitiveCollapseTests` 三處 pin 改成遷移前的原值；`AssembledDisplaySafetyTests` 加 organization 的 fmt 語意驗證；`DisplaySinkCoverageTests` 加「守衛認得 `displaySafeInvisible(`」；
   `CanonicalFormatValidationTests` 加 venue 語意驗證
 - `record-divergence --candidate` 的 help 與 MCP `candidates` 描述補 venue（#553 遺留，兩面對齊）
+- R22：`assertNoVerdictAlreadyAt` 改成 instance method、母體含 quarantined 檔的行級比對（D61）、命中多行化與 20 筆上限、出路改寫、`verdictsAlreadyAtTarget` 每行截 400（＝CLI sink）；`renameEntry` 補自我改名守衛；`migratedVerdicts` 只折完全相同的重複（D62）；hook 真目錄前置拒絕；`ci.yml`／`census-parity.yml` 三處釘 native 並驗 readlink；`PackageManifestTests` 問目錄在不在、模組名碰撞即紅；負控 7 支各紅一次、真 binary 重現 quarantined 形與 digest 截斷形
 - R21：`assertNoVerdictAlreadyAt`（D60）裝在 `renameEntry`／`renamePerson` 動任何記錄之前；`migratedVerdicts` 第二段只剩被改寫的；`describeCollapsedVerdict` 拿掉 R20 的 `why:`；hook 重指移進守衛階段＋readlink 驗證；`ci.yml` release 釘 native；`PackageManifestTests` 四個 fail-open 關掉；App rename sink 1,000；負控 8 支各紅一次（含拿掉 `Package.swift` 宣告）、真 binary 重現 R20 四席與 DA 的兩個形都被拒
 - R20：`LibraryStore.migratedVerdicts` 重寫（D58，**R21 由 D60 取代**）、`describeCollapsedVerdict` 加 `why:` 與 rests-on、`VerdictEdgeSet` 驗鍵、doctor／App 名冊補齊、`lowerBound` 涵蓋 `total`／`errors`（D59）、`RecordIssuesSection` 加「矛盾 verdict」列、hook／`ci.yml` 釘 native 且重指失敗中止、`Package.swift` 註解改寫；負控 11 支各紅一次、真 binary 重現 DA 第 1 列並驗 doctor 名冊
 - `mcp-cli-parity` 的 `akashic_update_venue` 列補記；`two-kinds-of-edits` 加一列、#553 那列

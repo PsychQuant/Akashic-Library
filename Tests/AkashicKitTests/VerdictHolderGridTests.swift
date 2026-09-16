@@ -1024,22 +1024,18 @@ final class VerdictHolderGridTests: XCTestCase {
     /// rename 那條路同一個生產者、同一個缺陷（R14 verify security 第 7 列、requirements 第 13 列）：收攏列要印舊 citekey 的原值。
     func testRenameCollapsedRowNamesTheOriginalValue() throws {
         try entry("old2020a")
-        // R21（D60）起 rename 唯一的收攏路徑是「被改寫且拼法位元組相同的重複」（早已指向新鍵的 verdict 在改名前就具名拒絕）：
-        // 同 old2020a 兩筆同拼法、血統不同——#468 留弱血統那筆、丟完全命中的；收攏列印**遷移前**的原值（D40）。
+        // R22（D62）起 rename 唯一的收攏路徑是「被改寫且**完全相同**（含 judgement 與 rests-on）的重複」——零資訊損失；收攏列印**遷移前**的原值（D40）。
         var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
-        let strong = ProvenanceReference(field: "resolution-confirmed",
-                                         value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "old2020a", literal: "ALPHA JOURNAL").encoded,
-                                         kind: .judgement(statement: "resolve apply [rule: venue-name-exact]", restsOn: []))
-        let weak = ProvenanceReference(field: "resolution-confirmed",
+        let same = ProvenanceReference(field: "resolution-confirmed",
                                        value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "old2020a", literal: "ALPHA JOURNAL").encoded,
-                                       kind: .judgement(statement: "resolve apply [rule: author-name-initials]", restsOn: []))
-        v.references = [strong, weak]
+                                       kind: .judgement(statement: "resolve apply [rule: venue-name-exact]", restsOn: []))
+        v.references = [same, same]
         try store.writeVenue(v)
         let r = try store.renameEntry(from: "old2020a", to: "new2020a")
         XCTAssertEqual(r.verdictsCollapsed.count, 1, "\(r.verdictsCollapsed)")
         let row = r.verdictsCollapsed.first ?? ""
         XCTAssertTrue(row.hasPrefix("venue「alpha」：") && row.contains("work:old2020a :: ALPHA JOURNAL") && !row.contains("work:new2020a"), "印遷移前的原值：\(row)")
-        XCTAssertTrue(row.contains("venue-name-exact") && !row.contains("留「"), "丟完全命中那筆、同拼法不說位元組：\(row)")
+        XCTAssertTrue(row.contains("venue-name-exact") && !row.contains("留「"), "同拼法不說位元組：\(row)")
         let values = try XCTUnwrap(store.load().venues.first { $0.key == "alpha" }).references.compactMap(\.value)
         XCTAssertEqual(values.map { Array($0.utf8) }, [Array("work:new2020a :: ALPHA JOURNAL".utf8)], "\(values)")
     }
@@ -1191,7 +1187,8 @@ final class VerdictHolderGridTests: XCTestCase {
             XCTAssertThrowsError(try store.renameEntry(from: "old2020a", to: "new2020a"), "\(refs.compactMap(\.value))") { error in
                 let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"   // 使用者看到的那一份，不是 enum 的 debug 形
                 XCTAssertTrue(msg.contains("new2020a") && msg.contains("venue「alpha」") && msg.contains("resolution-"), msg)
-                XCTAssertTrue(msg.contains("repoint") || msg.contains("改指"), "訊息要給出路：\(msg)")
+                XCTAssertTrue(msg.contains("改該記錄 YAML") || msg.contains("刪掉那一行"), "訊息要給走得通的出路：\(msg)")
+                XCTAssertFalse(msg.contains("resolve-venues --repoint"), "R21 verify 第 3／10／25 列：repoint 對 D60 拒絕的形狀結構上不可用（目的鍵不存在，沒有邊可改指）：\(msg)")
                 if refs.contains(where: { $0.value == deadRejected.value }) {
                     XCTAssertTrue(msg.contains("rests-on") && msg.contains(digest), "被拒的那筆連 rests-on 一起列出：\(msg)")
                 }
@@ -1218,6 +1215,75 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertNil(after.people.first { $0.key == "new-person" })
     }
 
+    /// **D61（R22；R21 verify 第 1／8／12／16／36 列，DA 真 binary 前後對照）**：D60 的母體是 `load.people`／`venues`／`organizations`，quarantined 檔
+    /// 不在裡面——一個 quarantined 的 holder 持有 `<kind>:<newKey> ::` 時 rename 照過，修好那個檔之後那筆從未對這筆記錄做過的判定生效、而且
+    /// 沒有任何面會報（rename 前 validate 會報它是死 verdict，rename 後全綠）。與同函式上方 `quarantinedFileClaiming` 同一套紀律：對 quarantined
+    /// 檔做**行級文字比對**、讀不到即 fail-closed，命中就拒絕並點名那個檔。
+    func testRenameRefusesWhenAQuarantinedHolderHoldsAVerdictAtTheNewKey() throws {
+        try entry("old2020a")
+        var broken = Venue(key: "beta", type: .periodical, names: Timeline([TemporalValue(value: "Beta Review")]), authorized: [])
+        broken.references = [verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Beta Review")]
+        // 檔名 UUID 與記錄 id 不符 → 整檔 quarantine（既有手法）
+        let file = "\(UUID().uuidString).yaml"
+        try VenueYAML.encode(broken).write(to: store.entitiesDir.appendingPathComponent(file), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try store.load().quarantined.count, 1, "前提：那個檔真的被 quarantine")
+        XCTAssertThrowsError(try store.renameEntry(from: "old2020a", to: "new2020a")) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(msg.contains("quarantine") && msg.contains(file), "要點名那個 quarantined 檔：\(msg)")
+        }
+        XCTAssertNotNil(try store.load().entries.first { $0.citekey == "old2020a" }, "零寫入")
+    }
+
+    /// R21 verify 第 9／11／15 列（DA 真 binary）：rename 的 CLI 出口在 `displaySafeAssembled` 逐行截 400，而 R21 把 rests-on 排在行尾——一個一般長度
+    /// 的 judgement 就把 digest 切成半個 sha256（比不印更糟：看起來像一個值、grep 不到）。R22：每筆命中拆成多行——holder／value 一行、judgement 一行、
+    /// **每個 digest 自己一行**（71 字，永遠在 400 之內）；本測試把 description 送過與 CLI 相同的 sink 再驗。
+    func testRenameRefusalKeepsEveryDigestIntactThroughTheCLISink() throws {
+        try entry("old2020a")
+        let digests = (1...3).map { "sha256:" + String(repeating: "\($0)", count: 64) }
+        let longStatement = String(repeating: "使用者親自核對紙本刊名頁後確認；", count: 14)   // > 200 scalar
+        let longLiteral = "Psychological Methods " + String(repeating: "(old series) ", count: 12)
+        let dead = ProvenanceReference(field: "resolution-rejected",
+                                       value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "new2020a", literal: longLiteral).encoded,
+                                       kind: .judgement(statement: longStatement, restsOn: digests))
+        var v = Venue(key: "psychological-methods", type: .periodical, names: Timeline([TemporalValue(value: "Psychological Methods")]), authorized: [])
+        v.references = [dead]
+        try store.writeVenue(v)
+        XCTAssertThrowsError(try store.renameEntry(from: "old2020a", to: "new2020a")) { error in
+            let desc = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            let sunk = displaySafeAssembled(desc)   // 與 CLI.main 同一個 sink、同一個預設上限
+            for d in digests { XCTAssertTrue(sunk.contains(d), "digest 要完整穿過 CLI sink：\(d) 不在\n\(sunk)") }
+            // 生產端對 value／statement 的 200 截斷是合法的（那是它們自己的上限）；sink 不得再截任何一行——digest 行尤其
+            let sunkLines = sunk.split(separator: "\n").map(String.init)
+            XCTAssertFalse(sunkLines.contains { $0.contains("rests-on") && $0.contains("已截斷") }, "digest 行不得被截：\n\(sunk)")
+            XCTAssertEqual(sunkLines.count, desc.split(separator: "\n").count, "sink 不得吞行：\n\(sunk)")
+        }
+    }
+
+    /// R21 verify 第 7／17／24／28 列：拒絕訊息逐筆列出全部命中、行數無上限，與 D30／R14 的上限紀律相反。R22：至多列 20 筆命中、其餘一句揭露總數。
+    func testRenameRefusalListsAtMostTwentyHitsAndDisclosesTheRest() throws {
+        try entry("old2020a")
+        for i in 1...25 {
+            try org("org-\(i)", refs: [verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Org \(i)")])
+        }
+        XCTAssertThrowsError(try store.renameEntry(from: "old2020a", to: "new2020a")) { error in
+            let desc = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            let named = (1...25).filter { desc.contains("organization「org-\($0)」") }.count
+            XCTAssertEqual(named, 20, "至多列 20 筆：\(desc)")
+            XCTAssertTrue(desc.contains("另有 5 條未列") && desc.contains("共 25 條"), "其餘要揭露總數：\(desc)")
+        }
+    }
+
+    /// R21 verify 第 4／20 列：`renameEntry` 沒有 `oldKey != newKey` 守衛（`renamePerson` 有），於是自我改名撞 D60、訊息說「目的鍵此刻不存在」——假話。
+    func testRenameEntryRefusesSelfRenameBeforeAnyOtherCheck() throws {
+        try entry("x2020a")
+        try org("acme", refs: [verdict("resolution-confirmed", kind: .work, holder: "x2020a", literal: "Acme")])
+        XCTAssertThrowsError(try store.renameEntry(from: "x2020a", to: "x2020a")) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(msg.contains("新舊相同"), msg)
+            XCTAssertFalse(msg.contains("死 verdict"), "自我改名不得被 D60 用假話拒絕：\(msg)")
+        }
+    }
+
     /// D55 留下來的那一半：兩筆被改寫而拼法不同的**都留**（第 27 列第二類 warning 是 rename 之前就在的，rename 不替它判定），
     /// 位元組相同的被改寫重複只留一筆——三種排列同一個答案。R21 起這條 fixture 不再放死 verdict（那是 D60 的拒絕格）。
     func testRenameKeepsEveryRewrittenSpellingAndFoldsByteIdenticalOnes() throws {
@@ -1241,9 +1307,11 @@ final class VerdictHolderGridTests: XCTestCase {
         }
     }
 
-    /// R19 verify logic 第 6 列：rename 對被改寫且拼法位元組相同的重複「留首見」——#468 的弱血統層完全沒跑，留哪一筆由 YAML 順序決定。
-    /// R20：同拼法的折疊走 `collapseWinner`（候選全是活的、全是倖存配對自己的 ⇒ 只剩 #468 三層），弱血統那筆的警告留得住、與順序無關。
-    func testRenameFoldsByteIdenticalRewrittenDuplicatesByLineageNotByOrder() throws {
+    /// R21 verify DA 第 14 列（真 binary）：R20 的折疊以 (field, value, literal 位元組) 為鍵、不看 `kind`——兩筆同拼法而 judgement／rests-on 不同的
+    /// verdict 被折成一筆，被丟那筆的 statement 與 digest 從 store 永久消失，而 `validate` 事前不出聲；那正是 R20 DA 用來撤掉 D58 的同一句話。
+    /// **D62（R22）**：rename 只折**完全相同**（field、value、judgement、rests-on 全等）的重複——零資訊損失；judgement 不同的兩筆都留、不回報收攏。
+    /// rename 自此不呼叫 `collapseWinner`（#468 的血統層只在 merge 跑）。
+    func testRenameKeepsSameSpellingVerdictsWhoseJudgementsDiffer() throws {
         try entry("old2020a")
         var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
         func judged(_ statement: String) -> ProvenanceReference {
@@ -1258,10 +1326,10 @@ final class VerdictHolderGridTests: XCTestCase {
             try store.writeVenue(v)
             let r = try store.renameEntry(from: "old2020a", to: "new2020a")
             let alpha = try XCTUnwrap(store.load().venues.first { $0.key == "alpha" })
-            XCTAssertEqual(alpha.references.count, 1, "\(alpha.references)")
-            XCTAssertTrue(LibraryStore.verdictStatement(alpha.references[0]).contains("author-name-initials"), "#468 第 1 層：弱血統的警告要留住，不看順序：\(alpha.references)")
-            XCTAssertEqual(r.verdictsCollapsed.count, 1)
-            XCTAssertTrue((r.verdictsCollapsed.first ?? "").contains("venue-name-exact"), "丟的是完全命中那筆：\(r.verdictsCollapsed)")
+            XCTAssertEqual(alpha.references.count, 2, "judgement 不同的兩筆都留：\(alpha.references)")
+            XCTAssertEqual(Set(alpha.references.map { LibraryStore.verdictStatement($0) }),
+                           ["resolve apply [rule: venue-name-exact]", "resolve apply [rule: author-name-initials]"])
+            XCTAssertEqual(r.verdictsCollapsed, [], "沒有東西被丟，就不該說丟了")
             _ = try store.renameEntry(from: "new2020a", to: "old2020a")   // 還原給下一輪
         }
     }

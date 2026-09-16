@@ -109,7 +109,16 @@ jobs:
 
       # parity 拿建好的 CLI 當 oracle——這是它非 macOS 不可的唯一理由。
       - name: Build（只為了拿到 oracle）
-        run: swift build
+        run: |
+          # #577 中間項（R21 verify 第 5／38 列：這是 CI 裡唯一真的跑守衛的 workflow，卻是三處裡唯一沒釘 native 的）：
+          # store-marker-parity.sh 從 .build/debug/akashic、run-guards.sh 從 .build/debug/akashic-guards 找 binary，
+          # 而 swiftbuild 會把 .build/debug 改指 out/Products/Debug。與 .githooks/pre-push、ci.yml 同一段，#577 落地時三處一起拿掉。
+          swift build --build-system native
+          N="$(uname -m)-apple-macosx/debug"
+          [ -d ".build/$N" ] || { echo "找不到 native 產物目錄 .build/$N" >&2; exit 1; }
+          if [ -e .build/debug ] && [ ! -L .build/debug ]; then echo ".build/debug 是真目錄，不能重指" >&2; exit 1; fi
+          ln -sfn "$N" .build/debug
+          [ "$(readlink .build/debug)" = "$N" ] || { echo ".build/debug 重指失敗" >&2; exit 1; }
 
       # 生成的 `#` grapheme 表有沒有隨 Swift／Unicode 版本漂移。一張生成的表
       # 有它自己的失效模式：版本一動它就過期，而過期是安靜的。

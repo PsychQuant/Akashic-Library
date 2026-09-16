@@ -41,7 +41,14 @@ final class PackageManifestTests: XCTestCase {
 
     /// target 名 → 模組名（SwiftPM 把 `-` 換成 `_`；R20 verify DA 第 17 列）。value 是原 target 名。
     private func moduleUniverse(_ graph: [String: Set<String>]) -> [String: String] {
-        Dictionary(uniqueKeysWithValues: graph.keys.map { ($0.replacingOccurrences(of: "-", with: "_"), $0) })
+        // R21 verify 第 23／29 列：`uniqueKeysWithValues` 對碰撞是 trap 不是 fail——`a-b` 與 `a_b` 兩個 target 會對到同一個模組名
+        var out: [String: String] = [:]
+        for name in graph.keys {
+            let mod = name.replacingOccurrences(of: "-", with: "_")
+            if let other = out[mod] { XCTFail("target「\(name)」與「\(other)」對映到同一個模組名 \(mod)——SwiftPM 自己也連不起來") }
+            out[mod] = name
+        }
+        return out
     }
 
     private func closure(of target: String, in graph: [String: Set<String>]) -> Set<String> {
@@ -83,8 +90,12 @@ final class PackageManifestTests: XCTestCase {
         var scanned = 0
         for target in testTargets {
             let dir = root.appendingPathComponent("Tests/\(target)")
-            guard let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil) else {
-                XCTFail("讀不到 Tests/\(target)——「沒被掃」不得與「掃過且乾淨」同輸出（zero-instance-guards 第 3 列）"); continue
+            // R21 verify 第 13／32 列：`enumerator(at:)` 對不存在的目錄回非 nil、產 0 個物件——R21 的 `guard let` 是死碼；而目錄與檔案一起不見時
+            // 下方的對帳兩邊同時少掉同一批、照樣相等。所以先問目錄在不在。
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue,
+                  let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+                XCTFail("Tests/\(target) 不是可讀的目錄——「沒被掃」不得與「掃過且乾淨」同輸出（zero-instance-guards 第 3 列）"); continue
             }
             let reach = closure(of: target, in: graph)
             for case let url as URL in walker where url.pathExtension == "swift" {

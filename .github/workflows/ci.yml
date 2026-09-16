@@ -76,7 +76,11 @@ jobs:
       - name: Build（warnings 視為錯誤）
         run: |
           swift build --build-system native -Xswiftc -warnings-as-errors
-          if [ -d ".build/$(uname -m)-apple-macosx/debug" ]; then ln -sfn "$(uname -m)-apple-macosx/debug" .build/debug; else echo "找不到 native 產物目錄"; exit 1; fi
+          N="$(uname -m)-apple-macosx/debug"
+          [ -d ".build/$N" ] || { echo "找不到 native 產物目錄 .build/$N" >&2; exit 1; }
+          if [ -e .build/debug ] && [ ! -L .build/debug ]; then echo ".build/debug 是真目錄，不能重指" >&2; exit 1; fi
+          ln -sfn "$N" .build/debug
+          [ "$(readlink .build/debug)" = "$N" ] || { echo ".build/debug 重指失敗" >&2; exit 1; }
 
       # **不得加 --skip**（#57）。允許跳過測試的 CI 等於沒有 CI；要暫時停用某個
       # 測試，正確做法是在測試裡 XCTSkip 並寫明理由，那會留在程式碼裡被 review。
@@ -127,8 +131,9 @@ jobs:
       # 違規；render --check 擋 YAML 已更新但並排 Markdown 尚未重生的 drift。
       - name: Tractatus 正典與並排文件
         run: |
-          swift run tractatus-doc validate --root docs/tractatus
-          swift run tractatus-doc render \
+          # 同 job 的守衛已從 .build/debug 讀 binary；這一步若走預設的 swiftbuild 會把連結再翻回去（R21 verify 第 5 列）
+          swift run --build-system native tractatus-doc validate --root docs/tractatus
+          swift run --build-system native tractatus-doc render \
             --root docs/tractatus \
             --output docs/tractatus/generated/tractatus-project-map.md \
             --check
@@ -162,7 +167,11 @@ jobs:
           brew install duckdb
           # 同一個 job 的 debug 那一步已釘 native（#577）；這裡若走預設的 swiftbuild，.build/release 會指到另一套產物目錄、整份重建
           swift build -c release --build-system native
-          if [ -d ".build/$(uname -m)-apple-macosx/release" ]; then ln -sfn "$(uname -m)-apple-macosx/release" .build/release; else echo "找不到 native release 產物目錄"; exit 1; fi
+          N="$(uname -m)-apple-macosx/release"
+          [ -d ".build/$N" ] || { echo "找不到 native release 產物目錄 .build/$N" >&2; exit 1; }
+          if [ -e .build/release ] && [ ! -L .build/release ]; then echo ".build/release 是真目錄，不能重指" >&2; exit 1; fi
+          ln -sfn "$N" .build/release
+          [ "$(readlink .build/release)" = "$N" ] || { echo ".build/release 重指失敗" >&2; exit 1; }
           TMP=$(mktemp -d)
           STORE="$TMP/store"
           .build/release/akashic doctor --library "$STORE" > /dev/null

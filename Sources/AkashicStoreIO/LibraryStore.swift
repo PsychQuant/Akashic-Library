@@ -13,8 +13,9 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
     case invalidInput(what: String, why: String)
     /// store 有跨記錄的不一致（重複 UUID / citekey），改寫動作拒絕執行（#35 verify）。
     case inconsistentStore(action: String, issues: [String])
-    /// D60（R21）：改名的目的鍵上已有 verdict——`lines` 已逐項以 `displaySafeInvisible` 消毒，每一行都要印（不像 `inconsistentStore`
-    /// 只印前 3 條、每條截 300——rests-on 的 digest 在那個上限下會被切掉，而這裡的每一行都是使用者要逐筆處置的對象）。
+    /// D60（R21）／D61（R22）：改名的目的鍵上已有 verdict——`lines` 已逐項以 `displaySafeInvisible` 消毒。**每個 digest 自己一行**
+    /// （R21 verify 第 9／11／15 列：CLI 的出口 `displaySafeAssembled` 逐行截 400，R21 把 rests-on 排在行尾、一個一般長度的 judgement 就把
+    /// sha256 切成半個——比不印更糟；`inconsistentStore` 則只印前 3 條、每條截 300）；命中至多 20 筆、其餘一句揭露總數（D30 的形，第 7／17／24／28 列）。
     case verdictsAlreadyAtTarget(action: String, key: String, lines: [String])
 
     public var errorDescription: String? {
@@ -32,12 +33,14 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
                  + issues.prefix(3).map { displaySafe($0, max: 300) }.joined(separator: "；")
                  + "。先跑 akashic doctor 看清楚並修好。"
         case let .verdictsAlreadyAtTarget(action, key, lines):
-            // key 與 lines 已在 assertNoVerdictAlreadyAt 消毒（displaySafeInvisible）；這裡只截不逃——displaySafe 不冪等
-            return "目的鍵「\(key)」已有 \(lines.count) 條 verdict 指向它——目的鍵此刻不存在，所以它們是死 verdict（#464），"   // display-safe-exempt: 已消毒
+            // key 與 lines 已在 assertNoVerdictAlreadyAt 消毒（displaySafeInvisible）；這裡只截不逃——displaySafe 不冪等。
+            // 每行上限 400 ＝ CLI sink `displaySafeAssembled` 的預設（R21 寫 1,000 是到不了的死碼——R21 verify 第 15 列）；
+            // 生產端每行本來就不超過：holder 行 ≤ 120+19+200＋裝飾、judgement 行 ≤ 200、digest 行 ≤ 80。
+            return "目的鍵「\(key)」上已有 verdict 指向它——目的鍵此刻不存在，所以它們是死 verdict（#464），"   // display-safe-exempt: 已消毒
                  + "但 \(action) 不替你判定它們在講哪一筆記錄（它們可能是舊 binary 沒遷走、人對另一筆仍存在的記錄親自下的判定）。"   // display-safe-exempt: action 是呼叫端字面量
-                 + "請逐筆處置後再重跑：改指到它實際描述的記錄（resolve-venues --repoint／改該記錄 YAML 的 value），"
-                 + "或從該記錄的 YAML 刪掉那一筆。merge 對同一形狀同樣拒絕（D31／D34）。\n"
-                 + lines.map { displaySafeClipOnly($0, max: 1_000) }.joined(separator: "\n")   // display-safe-exempt: 已消毒，只截
+                 + "請逐筆處置後再重跑：把那一行的 value 改成它實際描述的記錄的鍵（改該記錄 YAML 的那一行；目的鍵此刻不存在，所以沒有邊可以 repoint），"
+                 + "或刪掉那一行。merge 對同一形狀同樣拒絕（D31／D34）。\n"
+                 + lines.map { displaySafeClipOnly($0, max: 400) }.joined(separator: "\n")   // display-safe-exempt: 已消毒，只截
         case .invalidKey(let kind, let value):
             // #142：value 是 caller 剛送進來的畸形 key——原始 ESC/bidi 位元組經
             // MCP error 直達 LLM context；kind 是程式字面量
@@ -1420,6 +1423,10 @@ extension LibraryStore {
         guard StoreKey.isValid(newKey) else {
             throw StoreIOError.invalidKey("citekey", newKey)
         }
+        // R22（R21 verify 第 4／20 列）：`renamePerson` 早有這道守衛而這裡沒有——自我改名會撞 D60、訊息說「目的鍵此刻不存在」，假話
+        guard oldKey != newKey else {
+            throw StoreIOError.invalidKey("citekey（新舊相同）", newKey)
+        }
         // 目的檔不可存在——含 quarantined 檔與 case-insensitive 別名。
         // #35：format 2 的檔名是 UUID 而非 citekey，這個檢查不適用（目的檔就是來源檔）；
         // 「新 citekey 是否已被別的記錄佔用」改由下面的全庫檢查負責。
@@ -1520,14 +1527,8 @@ extension LibraryStore {
             divergencesToRewrite.append(d)
         }
 
-        // D60（R21）：目的鍵上已有 verdict → 具名拒絕、零寫入（理由見 `assertNoVerdictAlreadyAt`）。在動任何記錄之前。
-        do {
-            var pre: [(kind: String, key: String, refs: [ProvenanceReference])] = []
-            pre += load.people.map { ("person", $0.key, $0.references) }
-            pre += load.venues.map { ("venue", $0.key, $0.references) }
-            pre += load.organizations.map { ("organization", $0.key, $0.references) }
-            try Self.assertNoVerdictAlreadyAt(newKey, holderKind: .work, in: pre, action: "rename")
-        }
+        // D60／D61：目的鍵上已有 verdict（含 quarantined 檔的行級比對）→ 具名拒絕、零寫入（理由見 `assertNoVerdictAlreadyAt`）。在動任何記錄之前。
+        try assertNoVerdictAlreadyAt(newKey, holderKind: .work, in: load, action: "rename")
 
         // #232 verify NEW-1：verdict reference 的 value 內嵌 citekey（`work:<citekey>
         // :: <literal>`，掛在被判定的 person 上）——rename 不遷移的話，一次否決會
@@ -1710,14 +1711,8 @@ extension LibraryStore {
                 newKey)
         }
 
-        // D60（R21）：目的鍵上已有 verdict → 具名拒絕、零寫入——三種 holder 都掃，含被改名的那一筆自己。
-        do {
-            var pre: [(kind: String, key: String, refs: [ProvenanceReference])] = []
-            pre += load.people.map { ("person", $0.key, $0.references) }
-            pre += load.venues.map { ("venue", $0.key, $0.references) }
-            pre += load.organizations.map { ("organization", $0.key, $0.references) }
-            try Self.assertNoVerdictAlreadyAt(newKey, holderKind: .person, in: pre, action: "rename-person")
-        }
+        // D60／D61：目的鍵上已有 verdict → 具名拒絕、零寫入——三種 holder 與 quarantined 檔都掃，含被改名的那一筆自己。
+        try assertNoVerdictAlreadyAt(newKey, holderKind: .person, in: load, action: "rename-person")
 
         // 1. 作品側的 authors 邊（封閉列舉第 1 條）
         var entriesToRewrite: [Entry] = []
@@ -1908,31 +1903,58 @@ extension LibraryStore {
     /// **D60（R21；R20 verify 五席）**：改名之前，任一 holder 已持有配對指向**新鍵**（同 holderKind、不論 field 與拼法）的 verdict 時
     /// 具名拒絕、零寫入。目的鍵在 rename 之前不存在，所以它們是死 verdict（#464）——但「死」只說它們現在指不到東西，不說它們在講誰：
     /// R20 verify DA 第 5 列真 binary 造出的那筆，是舊 binary 的 rename 沒遷走、人對另一筆仍存在的 work 親自下的判定（帶 rests-on），正確處置是
-    /// repoint 而不是刪。R18 D53／R19 D55／R20 D58 三輪都在「rename 替你丟掉它」這個方向上修——R20 還漏掉「holder 只持有死 verdict」的形
+    /// 改指而不是刪。R18 D53／R19 D55／R20 D58 三輪都在「rename 替你丟掉它」這個方向上修——R20 還漏掉「holder 只持有死 verdict」的形
     /// （四席同指 `migratedVerdicts` 第一段後的早退讓 `|| anyDead` 成為死碼），而即使修好也是無乾跑、無逆操作、無 git 閘的判定刪除。
     /// 與 merge 的 D31／D34 對齊：**rename 不做判定的刪除**（`two-kinds-of-edits`：程式編輯不得銷毀判定編輯的產物；`zero-instance-guards`
-    /// 第 13 列：死 verdict 的處置是人的重新消歧）。訊息逐筆列 holder、欄位、value、rests-on，出路是先改指（repoint／改 YAML 的 value）
-    /// 或從該記錄的 YAML 刪掉，再重跑。
-    static func assertNoVerdictAlreadyAt(
+    /// 第 13 列：死 verdict 的處置是人的重新消歧）。
+    ///
+    /// **D61（R22；R21 verify 第 1／8／12／16／36 列）**：母體含 **quarantined 檔**——那些檔不在 `load.people`／`venues`／`organizations` 裡，
+    /// R21 對它們是盲的：一個 quarantined 的 holder 持有 `<kind>:<newKey> ::` 時 rename 照過，修好那個檔之後那筆從未對這筆記錄做過的判定生效，
+    /// 而且沒有任何面會報（rename 前 `validate` 會報它是死 verdict，rename 後全綠——DA 席真 binary 前後對照）。與同函式上方
+    /// `quarantinedFileClaiming` 同一套紀律：**行級文字比對、不 decode**（它們之所以在 quarantine 正是因為 decode 不過）、讀不到即 fail-closed。
+    ///
+    /// **訊息的形**（R21 verify 第 7／9／11／15／17／24／28 列）：每筆命中拆成多行——holder／欄位／value 一行、judgement 一行、**每個 digest 自己一行**
+    /// （CLI 的出口逐行截 400，digest 排在行尾會被切成半個 sha256）；至多列 20 筆命中、其餘一句揭露總數（D30 的形）。出路不指 `resolve-venues
+    /// --repoint`：目的鍵此刻不存在，被拒的每一筆都沒有邊可改指（第 3／10／25 列）——唯一走得通的是改那一行的 value 或刪掉它。
+    func assertNoVerdictAlreadyAt(
         _ newKey: String, holderKind: ProvenanceReference.VerdictHolderKind,
-        in records: [(kind: String, key: String, refs: [ProvenanceReference])], action: String) throws {
-        var found: [String] = []
+        in load: LibraryLoad, action: String) throws {
+        var records: [(kind: String, key: String, refs: [ProvenanceReference])] = []
+        records += load.people.map { ("person", $0.key, $0.references) }
+        records += load.venues.map { ("venue", $0.key, $0.references) }
+        records += load.organizations.map { ("organization", $0.key, $0.references) }
+        var hits: [[String]] = []
         for r in records {
             for ref in r.refs {
                 guard ProvenanceReference.resolutionVerdictFields.contains(ref.field),
                       let v = ref.value,
                       let p = ProvenanceReference.VerdictPairingValue.parse(v),
                       p.holderKind == holderKind, p.holder == newKey else { continue }
-                var line = "  · \(r.kind)「\(displaySafeInvisible(r.key, max: 120))」的 \(ref.field) \(displaySafeInvisible(v, max: 200))"
+                var block = ["  · \(r.kind)「\(displaySafeInvisible(r.key, max: 120))」的 \(ref.field) \(displaySafeInvisible(v, max: 200))"]
                 if case .judgement(let statement, let restsOn) = ref.kind {
-                    line += "——判定「\(displaySafeInvisible(statement, max: 200))」"
-                    if !restsOn.isEmpty { line += "（rests-on \(restsOn.count) 筆：\(restsOn.prefix(3).map { displaySafeInvisible($0, max: 80) }.joined(separator: "、"))\(restsOn.count > 3 ? "…" : "")）" }
+                    block.append("      判定「\(displaySafeInvisible(statement, max: 200))」")
+                    for d in restsOn.prefix(3) { block.append("      rests-on：\(displaySafeInvisible(d, max: 80))") }
+                    if restsOn.count > 3 { block.append("      rests-on 另有 \(restsOn.count - 3) 筆") }
                 }
-                found.append(line)
+                hits.append(block)
             }
         }
-        guard found.isEmpty else {
-            throw StoreIOError.verdictsAlreadyAtTarget(action: action, key: displaySafeInvisible(newKey, max: 120), lines: found)
+        // quarantined 檔：行級文字比對；讀不到 fail-closed（與 quarantinedFileClaiming 同）
+        let needle = "\(holderKind.rawValue):\(newKey) ::"
+        for q in load.quarantined {
+            let url = root.appendingPathComponent(q.file)
+            guard let text = try? readUTF8(url) else {
+                hits.append(["  · quarantined 檔「\(displaySafeInvisible(q.file, max: 300))」讀不到——無從判斷它是否持有指向新鍵的 verdict（fail-closed）"]); continue
+            }
+            if Self.rawLines(text).contains(where: { $0.contains(needle) }) {
+                hits.append(["  · quarantined 檔「\(displaySafeInvisible(q.file, max: 300))」含指向新鍵的 verdict（行級比對，未解析——修好或移走該檔後再改名）"])
+            }
+        }
+        guard hits.isEmpty else {
+            var lines: [String] = ["共 \(hits.count) 條："]
+            for block in hits.prefix(20) { lines.append(contentsOf: block) }
+            if hits.count > 20 { lines.append("  …另有 \(hits.count - 20) 條未列（共 \(hits.count) 條）") }
+            throw StoreIOError.verdictsAlreadyAtTarget(action: action, key: displaySafeInvisible(newKey, max: 120), lines: lines)
         }
     }
 
@@ -1974,8 +1996,9 @@ extension LibraryStore {
         // 第二段（R18 D53 → R19 D55 → R21 D60）。早已指向新鍵的 verdict **到不了這裡**——`assertNoVerdictAlreadyAt` 在改名前具名拒絕
         // （R20 D58 曾在這裡丟掉它們：四席同指第一段後的早退讓「只持有死 verdict 的 holder」原樣通過、rename 後復活，DA 另指丟掉的
         // 可能是人對另一筆記錄親自下的判定——rename 不做判定的刪除）。所以本段只處理**被改寫的**：
-        //  · 全留；拼法位元組相同的重複只留一筆——勝者走 `collapseWinner`（候選全活、全是倖存配對自己的，只剩 #468 三層：弱血統的警告留得住、
-        //    與 YAML 順序無關；R19 verify logic 第 6 列：R19 留首見，#468 那一層在 rename 沒跑）；
+        //  · 全留；**完全相同**（field、value、judgement、rests-on 全等）的重複只留一筆——零資訊損失（D62，R22；R21 verify DA 第 14 列真 binary：
+        //    R20／R21 以 (field, value, 拼法位元組) 折疊、不看 kind，兩筆同拼法而 judgement／rests-on 不同的被折成一筆，被丟那筆的 digest 永久消失，
+        //    而 validate 事前不出聲——正是撤掉 D58 的同一句話。rename 自此不呼叫 `collapseWinner`，#468 的血統層只在 merge 跑）；
         //  · 拼法不同的都留——第 27 列的第二半只掃 venue×work，其餘六格（person／organization 持 work、三種 holder 持 person）
         //    沒有掃描面也沒有揭露面，rename 不替它判定（R19 verify requirements 第 4 列：誠實邊界，寫在 §3.5）；
         //  · 留下的每一筆待在原位置，不相干 reference 的相對順序不變（R19 verify regression 第 23 列：整組前移會重排）。
@@ -1984,21 +2007,16 @@ extension LibraryStore {
             Array((ProvenanceReference.VerdictPairingValue.parse(r.value ?? "")?.literal ?? "").utf8)
         }
         func key(_ r: ProvenanceReference) -> String { ProvenanceReference.verdictEqualityKey(field: r.field, value: r.value) }
+        // 同鍵之內以「拼法位元組相同 且 整筆 ProvenanceReference 相等」判重複——第二個條件把 judgement 與 rests-on 也算進去
         var liveGroups: [String: [Int]] = [:]
         for (i, item) in rewritten.enumerated() where item.touched { liveGroups[key(item.ref), default: []].append(i) }
-        var winnerOf: [Int: Int] = [:]                 // 被改寫的索引 → 留下的那筆的索引
+        var winnerOf: [Int: Int] = [:]                 // 被改寫的索引 → 留下的那筆的索引（首見；完全相同的重複之間沒有東西可選）
         for idxs in liveGroups.values {
-            var order: [[UInt8]] = []; var members: [[UInt8]: [Int]] = [:]
+            var reps: [(ref: ProvenanceReference, index: Int)] = []
             for i in idxs {
                 let b = bytes(rewritten[i].ref)
-                if members[b] == nil { order.append(b) }
-                members[b, default: []].append(i)
-            }
-            for b in order {
-                let group = members[b]!
-                let w = group.count == 1 ? 0
-                    : Self.collapseWinner(group.map { CollapseCandidate(ref: rewritten[$0].ref, ownedBySurvivor: true, live: true) })
-                for i in group { winnerOf[i] = group[w] }
+                if let rep = reps.first(where: { bytes($0.ref) == b && $0.ref == rewritten[i].ref }) { winnerOf[i] = rep.index }
+                else { reps.append((rewritten[i].ref, i)); winnerOf[i] = i }
             }
         }
         var out: [ProvenanceReference] = []

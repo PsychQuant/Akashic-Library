@@ -50,8 +50,8 @@ enum RenameReportSummary {
                 line("歧異候選已遷移", r.divergenceCandidatesRewritten),
                 holderLine("消解判定已遷移", r.verdictValuesRewritten),
                 // #495：收攏丟棄的列。**與上面三行不同，這裡的元素是敘述不是 key**
-                // （`<kind>「<持有記錄>」：<field> <遷移前的原值>——丟棄 <來源>`），所以 200 字的截斷
-                // 會比在 key 上更常真的截到。alert 本來就只是提示，完整清單看 CLI `rename`。
+                // （`<kind>「<持有記錄>」：<field> <遷移前的原值>——丟棄 <來源>`），上限自 R21 起與 CLI 同為 1,000
+                // （R21 verify 第 19 列：這裡曾寫「200 字的截斷」而那一行已改）。alert 本來就只是提示，完整清單看 CLI `rename`。
                 // 以性質逃脫（R15；R14 verify security 第 7 列：這一列迴送 verdict 的 value 與人寫的 judgement，列舉式
                 // `displaySafe` 不逃脫 ZWSP／VS／TAG——兩列逐像素相同而訊息說「丟棄了哪一筆」）
                 storeLine("verdict 收攏丟棄", r.verdictsCollapsed)]
@@ -60,6 +60,6 @@ enum RenameReportSummary {
         // 是雜訊，而上面四行的「零筆說零」語意不同：那是回執（做了什麼），這是邊界
         // （有什麼沒看）。沒有邊界時不必說有邊界。
         + (r.quarantinedNotScanned.isEmpty ? ""
-           : "\n⚠ \(r.quarantinedNotScanned.count) 個 quarantine 檔未掃描——其中若有 verdict 指向舊鍵，不會被遷移")
+           : "\n⚠ \(r.quarantinedNotScanned.count) 個 quarantine 檔未解析——其中若有 verdict 指向舊鍵，不會被遷移（指向新鍵的已用行級比對擋過，D61）")
     }
 }

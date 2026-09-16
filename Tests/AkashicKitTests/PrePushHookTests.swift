@@ -393,7 +393,10 @@ final class PrePushHookTests: XCTestCase {
         process.waitUntilExit()
         XCTAssertNotEqual(process.terminationStatus, 0, "重指落不到（.build/debug 是真目錄）時 pre-push 必須中止")
         XCTAssertTrue(err.contains("重指") && err.contains(".build/debug"), "stderr 要說是重指失敗：\(err)")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.appendingPathComponent(".build/debug/debug").path) && err.isEmpty, "巢狀連結不得靜默")
+        // R21 verify 第 21／27 列：上一版這裡是 `A && err.isEmpty` 的恆假合取。R22：hook 在 ln 之前就拒絕真目錄，巢狀連結根本不該產生
+        // 巢狀連結是懸空的（指向 .build/debug/arm64-apple-macosx/debug），`fileExists` 會跟隨連結而回 false——要問「有沒有連結」不是「指得到嗎」
+        let nested = temporary.appendingPathComponent(".build/debug/debug").path
+        XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(atPath: nested), "真目錄要在 ln 之前被拒，不得留下巢狀連結")
     }
 
     private var repositoryRoot: URL {

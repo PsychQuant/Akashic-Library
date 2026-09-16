@@ -111,9 +111,13 @@ case ",${AKASHIC_PRE_PUSH_STAGES:-build,test,guards}," in
       echo "✗ pre-push: 找不到 native 產物目錄 .build/$NATIVE_DEBUG——守衛會跑到別次建置的 binary，中止" >&2
       exit 1
     fi
+    if [ -e .build/debug ] && [ ! -L .build/debug ]; then
+      echo "✗ pre-push: .build/debug 是真目錄不是連結，無法重指——ln -sfn 只會在裡面建巢狀連結；先移走它再推（R21 verify 第 26 列：不留巢狀連結）" >&2
+      exit 1
+    fi
     ln -sfn "$NATIVE_DEBUG" .build/debug
     if [ "$(readlink .build/debug)" != "$NATIVE_DEBUG" ]; then
-      echo "✗ pre-push: .build/debug 重指失敗（現在是「$(readlink .build/debug)」，不是連結或指錯地方——它是真目錄時 ln 只會在裡面建巢狀連結），中止" >&2
+      echo "✗ pre-push: .build/debug 重指失敗（連結沒有指向 $NATIVE_DEBUG），中止" >&2
       exit 1
     fi
     echo "pre-push: plugin 守衛（覆蓋／散文／parity，各含 negative control）"

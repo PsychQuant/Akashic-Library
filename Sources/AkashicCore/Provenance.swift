@@ -20,7 +20,7 @@ public protocol ProvenanceCarrying {
     var references: [ProvenanceReference] { get set }
 }
 
-public struct ProvenanceReference: Equatable {
+public struct ProvenanceReference: Equatable, Hashable {
 
     /// #232：resolution verdict 欄位的**封閉對**——僅此二值，不得類推第三個。
     /// init 的空 restsOn 例外、person／organization 的 validateReferenceAttachment、
@@ -159,7 +159,7 @@ public struct ProvenanceReference: Equatable {
     }
 
     /// 擷取型 vs 判斷型——互斥的兩種（D6）。
-    public enum Kind: Equatable {
+    public enum Kind: Equatable, Hashable {
         /// 單次擷取：路徑 + 內容。`content` 是 `sha256:` 前綴的 digest。
         /// `status` 一併記錄：錯誤頁面同樣有 digest（「死」本身也是內容，D3）——
         /// 200 不代表活著（實測有 200 + 122 bytes meta-refresh 的偽裝）。

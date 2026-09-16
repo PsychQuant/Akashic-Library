@@ -165,4 +165,17 @@ final class CollapseSurvivorPolicyTests: XCTestCase {
         let bare = ProvenanceReference(field: "resolution-confirmed", value: dropped.value, kind: .judgement(statement: "s", restsOn: []))
         XCTAssertFalse(LibraryStore.describeCollapsedVerdict(original: bare).contains("rests-on"), "沒有 digest 就不說")
     }
+
+    /// R22 verify Codex 第 6 列：R20 只補了 `describeCollapsedVerdict` 的 rests-on，person／venue 的 keeper 合併路徑走的是
+    /// `describeDedupedVerdict`——被丟判定的證據指標仍無聲消失。R23：兩個生產者共用 `restsOnNote`。
+    func testDedupedRowNamesTheEvidenceDigestsOfTheDroppedVerdict() {
+        let digest = "sha256:" + String(repeating: "cd", count: 32)
+        let dropped = ProvenanceReference(field: "resolution-confirmed",
+                                          value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "doomed2020a", literal: "Vee Journal").encoded,
+                                          kind: .judgement(statement: "s", restsOn: [digest]))
+        let row = LibraryStore.describeDedupedVerdict("doomed", kind: "venue", dropped)
+        XCTAssertTrue(row.contains("rests-on 1 筆") && row.contains(digest), row)
+        let bare = ProvenanceReference(field: "resolution-confirmed", value: dropped.value, kind: .judgement(statement: "s", restsOn: []))
+        XCTAssertFalse(LibraryStore.describeDedupedVerdict("doomed", kind: "venue", bare).contains("rests-on"), "沒有 digest 就不說")
+    }
 }

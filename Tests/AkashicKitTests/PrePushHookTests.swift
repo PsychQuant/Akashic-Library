@@ -353,18 +353,43 @@ final class PrePushHookTests: XCTestCase {
     /// `.build/debug/debug`、回 0——連結仍指著上一次的產物，守衛照舊跑舊 binary。R21：`ln` 之後驗 `readlink .build/debug`
     /// 等於預期目標，不等即中止。本測試的 cwd 是 temp dir（native 產物目錄在、`.build/debug` 是真目錄）。
     func testHookAbortsWhenTheRelinkDoesNotLand() throws {
+        try runHookWithBlockedDebug(kind: "dir", block: { debug in
+            try FileManager.default.createDirectory(at: debug, withIntermediateDirectories: true)   // 真目錄
+        }) { status, err, temporary in
+            XCTAssertNotEqual(status, 0, "重指落不到（.build/debug 是真目錄）時 pre-push 必須中止")
+            XCTAssertTrue(err.contains("重指") && err.contains(".build/debug"), "stderr 要說是重指失敗：\(err)")
+            // R21 verify 第 21／27 列：上一版這裡是 `A && err.isEmpty` 的恆假合取。R22：hook 在 ln 之前就拒絕真目錄，巢狀連結根本不該產生
+            // 巢狀連結是懸空的（指向 .build/debug/arm64-apple-macosx/debug），`fileExists` 會跟隨連結而回 false——要問「有沒有連結」不是「指得到嗎」
+            let nested = temporary.appendingPathComponent(".build/debug/debug").path
+            XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(atPath: nested), "真目錄要在 ln 之前被拒，不得留下巢狀連結")
+        }
+    }
+
+    /// R22 verify security 第 34 列：`.build/debug` 是**普通檔案**時守衛同樣觸發（`-e` 真、`-L` 假），但 R22 的訊息說「是真目錄」——描述錯了型別。
+    func testHookAbortsWhenDotBuildDebugIsAPlainFile() throws {
+        try runHookWithBlockedDebug(kind: "file", block: { debug in
+            XCTAssertTrue(FileManager.default.createFile(atPath: debug.path, contents: Data("not a link\n".utf8)))
+        }) { status, err, _ in
+            XCTAssertNotEqual(status, 0, "普通檔案擋在 .build/debug 時 pre-push 必須中止")
+            XCTAssertTrue(err.contains("不是符號連結") && err.contains(".build/debug"), "stderr 不得說它是真目錄：\(err)")
+        }
+    }
+
+    /// 兩條「.build/debug 被非連結的東西佔住」測試共用的骨架：建 native 產物目錄、讓 `block` 放置擋路的東西、以 mock `swift` 跑 hook、把
+    /// 退出碼與 stderr 交給 `check`（在清理暫存目錄之前——巢狀連結的斷言要看得到它）。
+    private func runHookWithBlockedDebug(kind: String, block: (URL) throws -> Void, check: (Int32, String, URL) -> Void) throws {
         let root = repositoryRoot
         guard FileManager.default.fileExists(atPath: root.appendingPathComponent(".git").path) else {
             throw XCTSkip("這項承重測試需要 Git checkout")
         }
         let temporary = FileManager.default.temporaryDirectory
-            .appendingPathComponent("akashic-prepush-relink-dir-\(UUID().uuidString)")
+            .appendingPathComponent("akashic-prepush-relink-\(kind)-\(UUID().uuidString)")
         let arch = ProcessInfo.processInfo.environment["AKASHIC_TEST_UNAME_M"] ?? {
             var u = utsname(); uname(&u)
             return withUnsafePointer(to: &u.machine) { $0.withMemoryRebound(to: CChar.self, capacity: 256) { String(cString: $0) } }
         }()
         try FileManager.default.createDirectory(at: temporary.appendingPathComponent(".build/\(arch)-apple-macosx/debug"), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: temporary.appendingPathComponent(".build/debug"), withIntermediateDirectories: true)   // 真目錄
+        try block(temporary.appendingPathComponent(".build/debug"))
         defer { try? FileManager.default.removeItem(at: temporary) }
         let log = temporary.appendingPathComponent("swift-invocations.log")
         let mockSwift = temporary.appendingPathComponent("swift")
@@ -391,12 +416,7 @@ final class PrePushHookTests: XCTestCase {
         try process.run()
         let err = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         process.waitUntilExit()
-        XCTAssertNotEqual(process.terminationStatus, 0, "重指落不到（.build/debug 是真目錄）時 pre-push 必須中止")
-        XCTAssertTrue(err.contains("重指") && err.contains(".build/debug"), "stderr 要說是重指失敗：\(err)")
-        // R21 verify 第 21／27 列：上一版這裡是 `A && err.isEmpty` 的恆假合取。R22：hook 在 ln 之前就拒絕真目錄，巢狀連結根本不該產生
-        // 巢狀連結是懸空的（指向 .build/debug/arm64-apple-macosx/debug），`fileExists` 會跟隨連結而回 false——要問「有沒有連結」不是「指得到嗎」
-        let nested = temporary.appendingPathComponent(".build/debug/debug").path
-        XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(atPath: nested), "真目錄要在 ln 之前被拒，不得留下巢狀連結")
+        check(process.terminationStatus, err, temporary)
     }
 
     private var repositoryRoot: URL {

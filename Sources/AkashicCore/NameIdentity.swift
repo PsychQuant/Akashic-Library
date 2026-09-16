@@ -55,7 +55,8 @@ public enum NameIdentity {
     /// **這個函式不是 venue 專屬**（R9 verify regression 第 10 列）：`AuthorizedNames.validate` 的近重複檢查（person／
     /// organization／venue 三者共用）與 person 合併的別名收攏（`DivergenceResolve` 的 `keeperKeys`）都走它。R5 的改法
     /// 對它們是 fail-open 方向（少刪 scalar → 更少字串收成同一鍵 → 更少近重複 error），2026-09-14 以含此版的 binary
-    /// 對 live store 跑 `validate`：4,572 筆 person、13 筆 organization 零 error——沒有既有記錄因此變得不可寫。
+    /// 對 live store 跑 `validate`：4,572 筆 person、13 筆 organization 零 error——沒有既有記錄因此在 **validate 路徑**上變得不可寫
+    /// （量的只有這一條；person 合併的 `keeperKeys` 那一條沒量，方向同樣是少折疊——更多別名進 `variant`，無損——R22 verify 第 28 列）。
     public static func canonical(_ s: String) -> String {
         // Swift 的 `String ==` 本來就做 canonical equivalence，但這裡顯式取
         // `precomposedStringWithCanonicalMapping`——因為輸出會被當成**鍵**（用於

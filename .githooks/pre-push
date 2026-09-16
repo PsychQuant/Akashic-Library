@@ -112,7 +112,7 @@ case ",${AKASHIC_PRE_PUSH_STAGES:-build,test,guards}," in
       exit 1
     fi
     if [ -e .build/debug ] && [ ! -L .build/debug ]; then
-      echo "✗ pre-push: .build/debug 是真目錄不是連結，無法重指——ln -sfn 只會在裡面建巢狀連結；先移走它再推（R21 verify 第 26 列：不留巢狀連結）" >&2
+      echo "✗ pre-push: .build/debug 不是符號連結（是真目錄或普通檔案），無法重指——對真目錄 ln -sfn 只會在裡面建巢狀連結；先移走它再推（R21 verify 第 26 列：不留巢狀連結；R22 verify 第 34 列：普通檔案也走這裡）" >&2
       exit 1
     fi
     ln -sfn "$NATIVE_DEBUG" .build/debug

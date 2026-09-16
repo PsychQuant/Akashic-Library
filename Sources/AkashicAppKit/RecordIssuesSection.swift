@@ -28,6 +28,11 @@ struct RecordIssuesSection: View {
                     .help("同一 owner 對同一配對同時持有 confirmed 與 rejected（#486）。決定哪一個才對、刪掉另一個——"
                           + "目前沒有工具面，手改 YAML。")
             }
+            if summary.duplicateVerdictRecords > 0 {
+                LabeledContent("重複的判定記錄", value: summary.lowerBound(summary.duplicateVerdictRecords))
+                    .help("同一記錄對同一配對持有兩筆以上同 field 的判定（#554 D64）。工具面寫不出它——是手改、舊 binary，或 rename 從舊鍵"
+                          + "原樣帶過來的；下一次合併會收成一筆。留一筆，或把其中一筆的 value 改成它實際描述的記錄——手改 YAML。")
+            }
             if summary.deadVerdicts > 0 {
                 LabeledContent("死 verdict", value: summary.lowerBound(summary.deadVerdicts))
                     .help("resolution verdict 指向一個沒有載入的 holder（#464）。先看 quarantine 清單；"

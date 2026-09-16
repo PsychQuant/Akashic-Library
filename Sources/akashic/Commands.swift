@@ -2019,13 +2019,15 @@ struct Rename: ParsableCommand {
         }
         if !report.quarantinedNotScanned.isEmpty {   // #497：未掃描不得看起來像掃過且沒有
             print("⚠ \(report.quarantinedNotScanned.count) 個 quarantine 檔未解析——"
-                  + "其中若有 verdict 指向舊鍵，不會被遷移（指向新鍵的已用行級文字比對擋過，D61；修好那些檔後跑 akashic validate 複查）：")
+                  + "其中若有 verdict 指向舊鍵，不會被遷移（新鍵方向：改名前已對每個 quarantined 檔做位元組比對，目的鍵出現即拒——D63，"
+                  + "不會被 YAML 折行擊穿，但分不出 verdict 與別的欄位；修好那些檔後跑 akashic validate 複查）：")
             for f in report.quarantinedNotScanned { print("  · \(displaySafe(f, max: 300))") }
         }
         if !report.verdictsCollapsed.isEmpty {   // #495：收攏丟列要說出來——靜默丟棄不可稽核（lossless-intake 執行細節 3）
             // 同一個生產者（`describeCollapsedVerdict`）的另一個 sink——與 merge 側同一種消毒、同一句措辭（R14 verify security 第 7 列、
-            // requirements 第 13 列：鍵自 #470 起是正規化的，這裡曾寫「同 (field, value)」；列舉式 displaySafe 不逃脫 ZWSP／VS／TAG）
-            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（被改寫的 verdict 一律留、同拼法只留一筆——#468 的血統層決定留哪筆；印遷移前的原值）：")
+            // requirements 第 13 列：鍵自 #470 起是正規化的，這裡曾寫「同 (field, value)」；列舉式 displaySafe 不逃脫 ZWSP／VS／TAG）。
+            // 抬頭自 R23 起說 D62 的規則（R22 verify 第 7／10／15／26 列：R22 留著「同拼法只留一筆——#468 的血統層決定留哪筆」，兩句都已為假）。
+            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（被改寫的 verdict 一律留；只有完全相同——含 judgement 與 rests-on——的重複折成一筆，D62；印遷移前的原值）：")
             for x in report.verdictsCollapsed { print("  · \(displaySafeInvisible(x, max: 1_000))") }
         }
     }
@@ -2071,13 +2073,14 @@ struct RenamePerson: ParsableCommand {
         }
         if !report.quarantinedNotScanned.isEmpty {   // #497：未掃描不得看起來像掃過且沒有
             print("⚠ \(report.quarantinedNotScanned.count) 個 quarantine 檔未解析——"
-                  + "其中若有 verdict 指向舊鍵，不會被遷移（指向新鍵的已用行級文字比對擋過，D61；修好那些檔後跑 akashic validate 複查）：")
+                  + "其中若有 verdict 指向舊鍵，不會被遷移（新鍵方向：改名前已對每個 quarantined 檔做位元組比對，目的鍵出現即拒——D63，"
+                  + "不會被 YAML 折行擊穿，但分不出 verdict 與別的欄位；修好那些檔後跑 akashic validate 複查）：")
             for f in report.quarantinedNotScanned { print("  · \(displaySafe(f, max: 300))") }
         }
         if !report.verdictsCollapsed.isEmpty {   // #495：收攏丟列要說出來——靜默丟棄不可稽核（lossless-intake 執行細節 3）
             // 同一個生產者（`describeCollapsedVerdict`）的另一個 sink——與 merge 側同一種消毒、同一句措辭（R14 verify security 第 7 列、
             // requirements 第 13 列：鍵自 #470 起是正規化的，這裡曾寫「同 (field, value)」；列舉式 displaySafe 不逃脫 ZWSP／VS／TAG）
-            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（被改寫的 verdict 一律留、同拼法只留一筆——#468 的血統層決定留哪筆；印遷移前的原值）：")
+            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（被改寫的 verdict 一律留；只有完全相同——含 judgement 與 rests-on——的重複折成一筆，D62；印遷移前的原值）：")
             for x in report.verdictsCollapsed { print("  · \(displaySafeInvisible(x, max: 1_000))") }
         }
         if report.authorEdgesRewritten.isEmpty && report.verdictValuesRewritten.isEmpty

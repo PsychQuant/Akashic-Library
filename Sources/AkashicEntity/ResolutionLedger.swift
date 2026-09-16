@@ -103,7 +103,8 @@ public enum ResolutionLedger {
     }
 
     /// 寫入邊界的冪等：同 (field, value) 的 verdict 已在 → 不重複附加（verify
-    /// DA (d) 第 1 步——store 永遠不持有重複，計數就能誠實地數原始 refs）。
+    /// DA (d) 第 1 步——**這個寫入面**不製造重複，計數就能誠實地數原始 refs）。store 仍可能持有同鍵的重複：手改、舊 binary，
+    /// 或 rename 自 D62 起原樣帶過來的（它只折整筆相等的）——那個狀態由 `StoreHealth.duplicateVerdictRecords` 報（#554 R23，D64）。
     /// 回傳是否真的附加了。
     @discardableResult
     public static func appendIfAbsent(_ ref: ProvenanceReference,

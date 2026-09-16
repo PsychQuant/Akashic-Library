@@ -724,6 +724,32 @@ R21 verify 5 席齊（Codex 席仍 429），38 列合併、0 HIGH、16 MEDIUM—
   註解仍寫 200（第 19 列）；parity 表「掛在兩處」→ 三處、`--yes` 的「6 個」→ 量測 11 個且 `rename` 不在那張表（第 33／35 列）；D60 補記進
   `two-kinds` 的 rename 列與 guards 第 13 列（第 18 列）。第 31 列（#577 搭車逐輪長大）與第 37 列（rename 契約從必成變成可能拒絕、App 按鈕硬失敗）記錄。
 
+## R22 verify：needle 裡的那個空白
+
+R22 verify **6 席齊**（Codex 席回來了），37 列合併、4 HIGH、15 MEDIUM——四個 HIGH 是同一件事：
+
+- **D61 的行級比對被 YAML 折行擊穿**（第 1／2／3／4 列，四席同指；DA 真 binary 對 `rename` 與 `rename-person` 各重現一次）：needle `<kind>:<newKey> ::`
+  含兩個空白，而 YAML 只在空白處折行——本 repo 的 emitter（Yams，libyaml 預設寬度 80）把長 value 折在 ` :: ` 之前，live store 當天實測 8,692 筆
+  verdict value 裡 2 筆折在那裡。折行的 quarantined verdict 穿過 rename，三處通知還說「已擋過」——而 `quarantinedNotScanned` 的 doc 早就逐字寫著
+  行級比對會漏掉折行、「掃過且沒有」不可誠實斷言（第 12／16 列）。DA 指出正解就在隔壁：merge 的隔離檔閘讀原始位元組、needle 是裸 key、不含空白，
+  「可能偽陽性、不可能偽陰性」寫在它自己的檔頭。**D63**：位元組比對 `<kind>:<newKey>`（命中的下一個位元組不得是 StoreKey 字元，鄰居鍵不誤擋），
+  訊息只說「位元組裡出現」、出路是修檔；quarantined 命中先列——R22 把它們排最後，25 筆 organization 就把那一筆擠出上限，而它是唯一沒有其他面
+  看得到的一類（DA 第 18 列）。fail-closed 那一支在 entities 佈局下到不了（`quarantinedFileClaiming` 先擋，DA 第 19 列）——doc 寫明，不假裝它在跑。
+- **「零資訊損失」只在 rename 那一步為真**（security 第 14 列）：D62 留下的同鍵異 judgement 沒有任何面看得見（`contradictoryVerdicts` 只比
+  confirmed×rejected、D39 第二類以位元組相異分組），而下一次合併會以 #468 的血統層收成一筆。**D64**：`StoreHealth.duplicateVerdictRecords`
+  （warning，guards 第 28 列），doctor／App 各一格；live store 0。merge 與 rename 的折疊規則自此明寫是兩條，不再說「同一條不變式」（第 8／11 列）。
+- **唯一的使用者出口說的是 R21 的規則**（第 7／10／15／26 列，四席）：CLI 兩處抬頭仍印「同拼法只留一筆——#468 的血統層決定留哪筆」，兩句在 D62
+  之後都為假；散文三處都改對了，只有人真的會讀的那兩行沒改。
+- 其餘：keeper 合併路徑的 `describeDedupedVerdict` 仍不印 rests-on（Codex 第 6 列；R20 只補了另一個生產者）；D62 折疊的 `bytes == && ref ==` 是
+  恆真的死條件、旁註的 O(N) 對閉包裡逐對重算為假（第 5／21／24／35 列）→ `ProvenanceReference` 加 `Hashable`、字典一次雜湊；`verdictsAlreadyAtTarget`
+  的「每行本來就不超過 400」算的是輸入 scalar 數，DA 實測 406 字（第 9／23／37 列）→ 註解改成量測、截在 400 減標記長度只截一次；D39 第二類訊息
+  只怪手改而 rename 就會帶過去（第 25 列）；hook 對普通檔案說「是真目錄」（第 34 列）；§3.5 R18 段的「自此」與 D62 段的「自此」對讀者是兩句現況
+  （第 20 列）；`--yes` 列量了 11 個卻沒說 `resolve-venues` 不在表裡（DA 第 31 列，另案 #580）；`NameIdentity.canonical` 的量測只涵蓋 validate
+  路徑（第 28 列）。第 17 列（22 輪把一個寫入面擴成三種實體的 verdict 生命週期重寫，沒有一輪把那個擴張當成 scope 決定交給使用者）、第 19 列(b)
+  （`quarantinedFileClaiming` 對讀不到的檔說「佔用」——#61 既有）、第 27 列（#577 搭車）、第 30 列（`--build-system native` 已被 SwiftPM 標為
+  deprecated，11 處 pin 會同一天壞——記進 #577）、第 36 列（D63 讓任何讀不到的 quarantined 檔擋住所有 rename——與 `quarantinedFileClaiming`
+  同一條既有紀律）記錄。
+
 ## 第二次端到端又紅——這次是我的 binary
 
 改成替換語意後測試 7/7 綠、四個 mutation 負控乾淨，真 binary 卻說「authorized 含不在
@@ -785,6 +811,7 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
   `CanonicalFormatValidationTests` 加 venue 語意驗證
 - `record-divergence --candidate` 的 help 與 MCP `candidates` 描述補 venue（#553 遺留，兩面對齊）
 - R22：`assertNoVerdictAlreadyAt` 改成 instance method、母體含 quarantined 檔的行級比對（D61）、命中多行化與 20 筆上限、出路改寫、`verdictsAlreadyAtTarget` 每行截 400（＝CLI sink）；`renameEntry` 補自我改名守衛；`migratedVerdicts` 只折完全相同的重複（D62）；hook 真目錄前置拒絕；`ci.yml`／`census-parity.yml` 三處釘 native 並驗 readlink；`PackageManifestTests` 問目錄在不在、模組名碰撞即紅；負控 7 支各紅一次、真 binary 重現 quarantined 形與 digest 截斷形
+- R23：`assertNoVerdictAlreadyAt` 的 quarantined 掃描改位元組比對 `<kind>:<newKey>`（`bytesContainKeyToken`，StoreKey 邊界檢查）、quarantined 命中先列、上限走 `Entry.perRecordWarningCap`（D63）；`StoreHealth.duplicateVerdictRecords` 家族＋doctor／App（D64；第 27 列第二類已報的那一格不重報、每筆記錄套 `perRecordWarningCap`——首版無上限，全套測試的 doctor 位元組預算 fixture 把 `count` 從 20 推到 140 抓到）；`migratedVerdicts` 以 `Hashable` 字典折疊；`describeDedupedVerdict` 印 rests-on（`restsOnNote` 共用）；`verdictsAlreadyAtTarget` 截在 `refusalLineMax`；CLI 兩處抬頭與三處 quarantine 通知改寫；兩份 report doc、`migratedVerdicts`、`describeCollapsedVerdict`、`appendIfAbsent`、`NameIdentity.canonical` 的 doc 改成量測過的形；hook 訊息；負控 9 支各紅一次、真 binary 重現折行形（rename 與 rename-person）、偽陽性形、擠出上限形、D64 前後形
 - R21：`assertNoVerdictAlreadyAt`（D60）裝在 `renameEntry`／`renamePerson` 動任何記錄之前；`migratedVerdicts` 第二段只剩被改寫的；`describeCollapsedVerdict` 拿掉 R20 的 `why:`；hook 重指移進守衛階段＋readlink 驗證；`ci.yml` release 釘 native；`PackageManifestTests` 四個 fail-open 關掉；App rename sink 1,000；負控 8 支各紅一次（含拿掉 `Package.swift` 宣告）、真 binary 重現 R20 四席與 DA 的兩個形都被拒
 - R20：`LibraryStore.migratedVerdicts` 重寫（D58，**R21 由 D60 取代**）、`describeCollapsedVerdict` 加 `why:` 與 rests-on、`VerdictEdgeSet` 驗鍵、doctor／App 名冊補齊、`lowerBound` 涵蓋 `total`／`errors`（D59）、`RecordIssuesSection` 加「矛盾 verdict」列、hook／`ci.yml` 釘 native 且重指失敗中止、`Package.swift` 註解改寫；負控 11 支各紅一次、真 binary 重現 DA 第 1 列並驗 doctor 名冊
 - `mcp-cli-parity` 的 `akashic_update_venue` 列補記；`two-kinds-of-edits` 加一列、#553 那列

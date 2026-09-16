@@ -395,6 +395,8 @@ public final class AkashicService {
                 // 只看 stored property、對 computed 的家族從來沒生效——`StoreHealthSurfaceTests.testEveryFamilyAccessorIsConsumedByDoctorAndTheApp` 改掃源碼）
                 "deadVerdicts": health.deadVerdicts.count,   // display-safe-exempt: Int
                 "contradictoryVerdicts": health.contradictoryVerdicts.count,   // display-safe-exempt: Int
+                // #554 D64：同一記錄對同一配對 ≥2 筆判定——rename 自 D62 起原樣帶到新鍵、下一次合併收成一筆，中間沒有面看得見（R22 verify 第 14 列）
+                "duplicateVerdictRecords": health.duplicateVerdictRecords.count,   // display-safe-exempt: Int
                 // #453：本機缺承重存檔的計數——per-record 逐條在 `first`（截 20），計數讓呼叫端分得出
                 // 「整批」（其他 clone 上 sources/ 沒同步）與「零星」（一筆捏造）。
                 "danglingSources": health.danglingSources.count,

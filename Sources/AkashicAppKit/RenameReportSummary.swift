@@ -60,6 +60,6 @@ enum RenameReportSummary {
         // 是雜訊，而上面四行的「零筆說零」語意不同：那是回執（做了什麼），這是邊界
         // （有什麼沒看）。沒有邊界時不必說有邊界。
         + (r.quarantinedNotScanned.isEmpty ? ""
-           : "\n⚠ \(r.quarantinedNotScanned.count) 個 quarantine 檔未解析——其中若有 verdict 指向舊鍵，不會被遷移（指向新鍵的已用行級比對擋過，D61）")
+           : "\n⚠ \(r.quarantinedNotScanned.count) 個 quarantine 檔未解析——其中若有 verdict 指向舊鍵，不會被遷移（新鍵方向已做位元組比對、出現即拒，D63）")
     }
 }

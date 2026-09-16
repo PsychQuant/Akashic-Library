@@ -95,6 +95,15 @@ public struct StoreHealth {
     public var contradictoryVerdicts: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.contradictoryVerdictPrefix) }
     }
+    /// 同一筆記錄對同一配對持有**兩筆以上同 field 的判定記錄**（`verdictEqualityKey` 相同——#554 R23 D64）的訊息前綴——與
+    /// `deadVerdictPrefix` 同形。這個狀態工具面的寫入不會製造（`appendIfAbsent` 以同一把鍵去重），但 rename 自 D62 起把它**原樣帶到新鍵**
+    /// （只折整筆相等的重複，judgement 不同的兩筆都留），而下一次 person／venue 合併會以 #468 的血統層收成一筆——R22 verify security
+    /// 第 14 列：「零資訊損失」只在 rename 那一步為真，而它之後沒有任何面看得見。
+    public static let duplicateVerdictRecordPrefix = "重複的判定記錄"
+    /// `perRecordIssues` 裡的重複判定記錄（D64）。計算屬性，與 `deadVerdicts` 同一個理由。
+    public var duplicateVerdictRecords: [OwnedIssue] {
+        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.duplicateVerdictRecordPrefix) }
+    }
     /// 本機缺承重存檔（#453）的訊息前綴——**單一定義**：`danglingSourceIssues` 用它組訊息、
     /// `danglingSources` 用它篩，與 `deadVerdictPrefix` 同形。
     public static let danglingSourcePrefix = "本機缺承重存檔"
@@ -267,6 +276,7 @@ public extension LibraryStore {
         // （2026-09-03 實測 live store 2 條）這一族會被擠出 `first`——所以每一族都有專屬計數（R15 起含 #554 的兩族）。
         perRecord += deadVerdictIssues(in: load)
         perRecord += contradictoryVerdictIssues(in: load)   // #486
+        perRecord += duplicateVerdictRecordIssues(in: load)   // #554 D64
         // #453：本機缺承重存檔——`missingSourceDigests` 先前零 production 呼叫端，doctor 只接
         // `auditSourceIndex()`（blob↔index 兩向比對），捏造或未同步的 digest 兩邊都不在、兩邊一致、
         // doctor 沉默（第 3 列「未涵蓋不得冒充通過」的形）。與死 verdict 同一形：per-record warning。
@@ -434,6 +444,61 @@ public extension LibraryStore {
                                    + "，literal「\(displaySafe(e.pairing.literal, max: 120))」）。"
                                    + "處置：這是判定自相矛盾不是資料壞掉——決定哪一個才對，刪掉另一個"))
                 }
+        }
+        var out: [StoreHealth.OwnedIssue] = []
+        for p in load.people { out += scan(p.references, owner: p.key, kind: "person") }
+        for o in load.organizations { out += scan(o.references, owner: o.key, kind: "organization") }
+        for v in load.venues { out += scan(v.references, owner: v.key, kind: "venue") }
+        return out
+    }
+
+    /// **重複的判定記錄**（#554 R23，D64）：同一筆記錄裡 ≥2 筆 verdict 的 `verdictEqualityKey`（field ＋ 正規化配對）相同。
+    ///
+    /// 這是 `appendIfAbsent`／`supersede`／merge 都當成「同一筆」的狀態，卻沒有任何面報它：`contradictoryVerdicts` 只比 confirmed×rejected、
+    /// `confirmedLiteralAmbiguities` 以**位元組相異**分組（位元組相同的兩筆收成一組、計數 1）。而 rename 自 D62 起**刻意**保留它——只折整筆相等
+    /// （含 judgement 與 rests-on）的重複，judgement 不同的兩筆都原樣帶到新鍵——於是「rename 零資訊損失」把一筆判定從「rename 當場刪、
+    /// 有 `verdictsCollapsed` 回報」換成「留著、沒有面看得見、下一次合併以 #468 的血統層收成一筆」（R22 verify security 第 14 列）。
+    /// 這一族讓中間那一格看得見。**severity 是 warning**：記錄合法可載入，兩筆各自都是一個人的判定；error 會讓一筆只能手改才修得好的
+    /// 記錄擋住自己所有的寫入。處置寫在訊息裡：留一筆，或把其中一筆的 value 改成它實際描述的記錄。
+    ///
+    /// **2026-09-16 實測 live store：0 筆**（量法見 `zero-instance-guards` 第 28 列）。
+    func duplicateVerdictRecordIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
+        func scan(_ refs: [ProvenanceReference], owner: String, kind: String) -> [StoreHealth.OwnedIssue] {
+            var byKey: [String: (first: ProvenanceReference, pairing: ProvenanceReference.VerdictPairingValue, count: Int,
+                                 kinds: Set<ProvenanceReference>, spellings: Set<[UInt8]>)] = [:]
+            var order: [String] = []
+            for r in refs {
+                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
+                      let v = r.value,
+                      let p = ProvenanceReference.VerdictPairingValue.parse(v) else { continue }
+                let k = ProvenanceReference.verdictEqualityKey(field: r.field, value: v)
+                if var e = byKey[k] { e.count += 1; e.kinds.insert(r); e.spellings.insert(Array(p.literal.utf8)); byKey[k] = e }
+                else { byKey[k] = (r, p, 1, [r], [Array(p.literal.utf8)]); order.append(k) }
+            }
+            // 第 27 列的第二類（`Venue.validate()`：venue×work 的 confirmed、只差位元組）已經報的那一格**不重報**——同一件事出兩則是雜訊不是訊號；
+            // 這一族報的是它認不得的：位元組相同的重複、rejected 的重複、person 配對的重複、person／organization 持有的重複。
+            let issues = order.compactMap { k -> StoreHealth.OwnedIssue? in
+                guard let e = byKey[k], e.count > 1 else { return nil }
+                if kind == "venue", e.pairing.holderKind == .work, e.first.field == "resolution-confirmed", e.spellings.count > 1 { return nil }
+                let sameness = e.kinds.count == 1 ? "全部完全相同" : "judgement 或 rests-on 彼此不同"
+                return StoreHealth.OwnedIssue(
+                    owner: owner, kind: kind,
+                    issue: ValidationIssue(
+                        severity: .warning,
+                        message: "\(StoreHealth.duplicateVerdictRecordPrefix)：\(e.first.field) 對同一個配對有 \(e.count) 筆判定記錄"   // display-safe-exempt: 前綴是常量；field 是封閉對；Int
+                               + "（\(e.pairing.holderKind.rawValue):\(displaySafe(e.pairing.holder, max: 120))"
+                               + "，literal「\(displaySafe(e.pairing.literal, max: 120))」；\(sameness)）"   // display-safe-exempt: sameness 是兩句字面常量
+                               + "——工具面的寫入以 verdictEqualityKey 去重、寫不出它：是手改、舊 binary 寫的，或由 rename 從舊鍵原樣帶過來（D62 不刪）；"
+                               + "下一次 person／venue 合併會以 #468 的血統層收成一筆並在 verdictsCollapsed 回報。處置：留一筆，或把其中一筆的 value 改成它實際描述的記錄的鍵"))
+            }
+            // 每筆記錄至多 `Entry.perRecordWarningCap` 則、其餘一句概括（不帶家族前綴——與第 26／27 列同一條紀律；R23 首版無上限，
+            // 一個 20 筆 work × 6 對的 venue 就出 120 則、把 doctor 的 `count` 從 20 推到 140）。
+            let cap = Entry.perRecordWarningCap
+            guard issues.count > cap else { return issues }
+            return Array(issues.prefix(cap)) + [StoreHealth.OwnedIssue(
+                owner: owner, kind: kind,
+                issue: ValidationIssue(severity: .warning,
+                                       message: "\(Entry.perRecordCapSummaryPrefix)：\(kind) '\(displaySafe(owner, max: 120))' 另有 \(issues.count - cap) 個配對未列出（同樣持有重複的判定記錄；每筆記錄最多列 \(cap) 個）"))]   // display-safe-exempt: 前綴是常量；Int
         }
         var out: [StoreHealth.OwnedIssue] = []
         for p in load.people { out += scan(p.references, owner: p.key, kind: "person") }

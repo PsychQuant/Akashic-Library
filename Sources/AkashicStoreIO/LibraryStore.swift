@@ -18,6 +18,10 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
     /// sha256 切成半個——比不印更糟；`inconsistentStore` 則只印前 3 條、每條截 300）；命中至多 20 筆、其餘一句揭露總數（D30 的形，第 7／17／24／28 列）。
     case verdictsAlreadyAtTarget(action: String, key: String, lines: [String])
 
+    /// `verdictsAlreadyAtTarget` 每行的截斷上限＝CLI sink `displaySafeAssembled` 的逐行預設（400）減去 `displaySafe` 的截斷標記長度——
+    /// 截過的行連標記一起 ≤ 400，sink 不會再截一次（R22 verify 第 23 列：兩次截讓標記落在 `\u{` 中途）。
+    static let refusalLineMax = 400 - "…（已截斷）".count
+
     public var errorDescription: String? {
         switch self {
         case let .notAStore(path):
@@ -34,13 +38,16 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
                  + "。先跑 akashic doctor 看清楚並修好。"
         case let .verdictsAlreadyAtTarget(action, key, lines):
             // key 與 lines 已在 assertNoVerdictAlreadyAt 消毒（displaySafeInvisible）；這裡只截不逃——displaySafe 不冪等。
-            // 每行上限 400 ＝ CLI sink `displaySafeAssembled` 的預設（R21 寫 1,000 是到不了的死碼——R21 verify 第 15 列）；
-            // 生產端每行本來就不超過：holder 行 ≤ 120+19+200＋裝飾、judgement 行 ≤ 200、digest 行 ≤ 80。
+            // 行長由 CLI sink `displaySafeAssembled` 的逐行 400 決定（R21 寫 1,000 是到不了的死碼——R21 verify 第 15 列）。R22 在這裡寫
+            // 「生產端每行本來就不超過」——假的（R22 verify 第 9／23／37 列，DA 真 binary 實測 406 字）：`displaySafeInvisible` 的 `max` 數的是
+            // **輸入** scalar，每個被逃脫的 scalar 輸出 8 個字元，value ≤ 200 scalar 逃脫後可到 1,600 字，holder 行**會**被截（截掉的是 literal
+            // 的尾巴，不是定位那一行所需的 holder／欄位）；digest 行恆為 71 個 ASCII（`isValidDigest` 釘死 `sha256:` + 64 hex）——那才是「每個
+            // digest 自己一行」成立的理由。這裡截在 sink 上限減去截斷標記的長度，讓 sink 不會再截第二次（第二次會把標記切在 `\u{` 中途）。
             return "目的鍵「\(key)」上已有 verdict 指向它——目的鍵此刻不存在，所以它們是死 verdict（#464），"   // display-safe-exempt: 已消毒
                  + "但 \(action) 不替你判定它們在講哪一筆記錄（它們可能是舊 binary 沒遷走、人對另一筆仍存在的記錄親自下的判定）。"   // display-safe-exempt: action 是呼叫端字面量
-                 + "請逐筆處置後再重跑：把那一行的 value 改成它實際描述的記錄的鍵（改該記錄 YAML 的那一行；目的鍵此刻不存在，所以沒有邊可以 repoint），"
-                 + "或刪掉那一行。merge 對同一形狀同樣拒絕（D31／D34）。\n"
-                 + lines.map { displaySafeClipOnly($0, max: 400) }.joined(separator: "\n")   // display-safe-exempt: 已消毒，只截
+                 + "請逐筆處置後再重跑——已解析的命中：把那一行的 value 改成它實際描述的記錄的鍵（改該記錄 YAML 的那一行；目的鍵此刻不存在，所以沒有邊可以 repoint）"
+                 + "或刪掉那一行；quarantined 檔的命中：修好或移走那個檔。merge 對同一形狀同樣拒絕（D31／D34）。\n"
+                 + lines.map { displaySafeClipOnly($0, max: Self.refusalLineMax) }.joined(separator: "\n")   // display-safe-exempt: 已消毒，只截
         case .invalidKey(let kind, let value):
             // #142：value 是 caller 剛送進來的畸形 key——原始 ESC/bidi 位元組經
             // MCP error 直達 LLM context；kind 是程式字面量
@@ -1286,13 +1293,23 @@ public struct PersonRenameReport: Equatable {
     /// **刻意不掃檔案內文找舊鍵。** 那會印出一個比證據更強的宣稱：quarantine 檔正因為
     /// 解析不了才在那裡，而行級文字比對會漏掉被 YAML 折行的長 value（本 repo 量過的形狀）。
     /// 「沒掃到」是可以誠實斷言的，「掃過且沒有」不是。
+    ///
+    /// **新鍵方向另有一道閘，而它用的不是行級比對**（D63，R23）：`assertNoVerdictAlreadyAt` 對每個 quarantined 檔做**位元組**比對，
+    /// needle `<kind>:<newKey>` 不含空白、YAML 折行打不斷它，出現即拒。它能誠實斷言的是「這個檔的位元組裡沒有 `<kind>:<newKey>`」，
+    /// 不是「這個檔沒有指向新鍵的 verdict」（雙引號逃脫仍躲得過——與 merge 隔離檔閘同一個已接受的限制）。R22 的 D61 用 `<kind>:<newKey> ::`
+    /// 逐行比對，needle 裡的空白正是 YAML 唯一會折的位置——live store 當時就有 2 筆折在那裡的 value（R22 verify 四席同指）。
     public var quarantinedNotScanned: [String]
-    /// 遷移後與既有 verdict 同一配對（`verdictEqualityKey`——正規化後相等，不是 (field, value) 位元組）而被收攏丟棄的列（#495；
-    /// 鍵於 #470 改成正規化，R14 verify 第 13 列抓到這裡與 CLI 的措辭仍寫著位元組層）。
+    /// 被改寫的 verdict 之間**完全相同**（field、value、judgement、rests-on 全等）的重複被折成一筆時，被丟的那些列（#495 起有回報；
+    /// 判準自 R22 D62 起是整筆相等——R21 之前是 (field, value) 位元組、#470 之後一度是 `verdictEqualityKey` 正規化鍵，兩者都會丟掉
+    /// judgement 不同的那筆）。**與既有 verdict 同一配對的那一類到不了這裡**：D60 在改名前對目的鍵上既有的 verdict 具名拒絕、零寫入，
+    /// 所以這個清單只可能來自被改寫的那一批彼此之間（R22 verify 第 8 列：R22 的 doc 仍寫「與既有 verdict 同一配對」）。
     ///
     /// 形狀與 merge 側的 `ResolveReport.verdictsCollapsed` 同（`<kind>「<持有記錄 key>」：<field> <遷移前的原值>——丟棄 <來源>`，
-    /// `describeCollapsedVerdict` 一個生產者；merge 側另有 `describeDedupedVerdict` 描述 #271 的去重，句尾不同），因為它們是
-    /// **同一件事**：「store 永不持有重複 verdict」這條不變式在兩條路徑上各自執行。兩份不同的描述會分岔。
+    /// `describeCollapsedVerdict` 一個生產者；merge 側另有 `describeDedupedVerdict` 描述 #271 的去重，句尾不同）。**但兩條路徑執行的
+    /// 不是同一條規則**（R22 verify 第 11 列）：merge 以 `verdictEqualityKey` 分組、`collapseWinner` 選一筆——同鍵而 judgement 不同的收成
+    /// 一筆並回報；rename 自 D62 起只折整筆相等的，同鍵而 judgement 不同的**兩筆都留**。所以 rename 之後 store 可以持有 `appendIfAbsent`
+    /// 所謂的「重複」（同 holder 同 `verdictEqualityKey` 的 ≥2 筆）——那個狀態由 `StoreHealth.duplicateVerdictRecords` 報出（D64，R23），
+    /// 而下一次 merge 會把它收成一筆並列在 `verdictsCollapsed`。
     public var verdictsCollapsed: [String]
 
     public init(authorEdgesRewritten: [String] = [],
@@ -1320,8 +1337,9 @@ public struct RenameReport: Equatable {
     /// （#232 verify NEW-1；#460 起 venue；#463 起 organization）。#498 起帶 kind——
     /// 同名跨型別時扁平 key 清單無從分辨，那是該 issue 的 follow-up 現在落地。
     public var verdictValuesRewritten: [HolderRecord]
-    /// 遷移後與既有 verdict 同一配對（`verdictEqualityKey`，正規化後相等）而被收攏丟棄的列（#495）。形狀與
-    /// `PersonRenameReport.verdictsCollapsed` 及 merge 側的 `ResolveReport.verdictsCollapsed` 同——見前者的 doc。
+    /// 被改寫的 verdict 之間完全相同（含 judgement 與 rests-on）的重複被折成一筆時，被丟的那些列（#495；判準自 R22 D62 起是整筆相等，
+    /// 與既有 verdict 同一配對的那一類由 D60 在改名前拒絕、到不了這裡）。形狀與 `PersonRenameReport.verdictsCollapsed` 及 merge 側的
+    /// `ResolveReport.verdictsCollapsed` 同——見前者的 doc（含它與 merge 折疊規則的差異）。
     public var verdictsCollapsed: [String]
     /// 這次改名沒有掃描到的 quarantine 檔（#497）——理由見 `PersonRenameReport.quarantinedNotScanned`。
     public var quarantinedNotScanned: [String]
@@ -1527,7 +1545,7 @@ extension LibraryStore {
             divergencesToRewrite.append(d)
         }
 
-        // D60／D61：目的鍵上已有 verdict（含 quarantined 檔的行級比對）→ 具名拒絕、零寫入（理由見 `assertNoVerdictAlreadyAt`）。在動任何記錄之前。
+        // D60／D63：目的鍵上已有 verdict（含 quarantined 檔的位元組比對）→ 具名拒絕、零寫入（理由見 `assertNoVerdictAlreadyAt`）。在動任何記錄之前。
         try assertNoVerdictAlreadyAt(newKey, holderKind: .work, in: load, action: "rename")
 
         // #232 verify NEW-1：verdict reference 的 value 內嵌 citekey（`work:<citekey>
@@ -1908,22 +1926,44 @@ extension LibraryStore {
     /// 與 merge 的 D31／D34 對齊：**rename 不做判定的刪除**（`two-kinds-of-edits`：程式編輯不得銷毀判定編輯的產物；`zero-instance-guards`
     /// 第 13 列：死 verdict 的處置是人的重新消歧）。
     ///
-    /// **D61（R22；R21 verify 第 1／8／12／16／36 列）**：母體含 **quarantined 檔**——那些檔不在 `load.people`／`venues`／`organizations` 裡，
-    /// R21 對它們是盲的：一個 quarantined 的 holder 持有 `<kind>:<newKey> ::` 時 rename 照過，修好那個檔之後那筆從未對這筆記錄做過的判定生效，
-    /// 而且沒有任何面會報（rename 前 `validate` 會報它是死 verdict，rename 後全綠——DA 席真 binary 前後對照）。與同函式上方
-    /// `quarantinedFileClaiming` 同一套紀律：**行級文字比對、不 decode**（它們之所以在 quarantine 正是因為 decode 不過）、讀不到即 fail-closed。
+    /// **D61（R22；R21 verify 第 1／8／12／16／36 列）→ D63（R23）**：母體含 **quarantined 檔**——那些檔不在 `load.people`／`venues`／
+    /// `organizations` 裡，R21 對它們是盲的：一個 quarantined 的 holder 持有指向新鍵的 verdict 時 rename 照過，修好那個檔之後那筆從未對這筆記錄
+    /// 做過的判定生效，而且沒有任何面會報（rename 前 `validate` 會報它是死 verdict，rename 後全綠——DA 席真 binary 前後對照）。
+    /// R22 的 D61 用**行級**比對 `<kind>:<newKey> ::`——needle 裡的空白正是 YAML 唯一會折行的位置：本 repo 的 emitter（Yams，libyaml 預設寬度 80）
+    /// 把長 value 折在 ` :: ` 之前，live store 2026-09-16 就有 2 筆，DA 真 binary 讓一筆折行的 quarantined verdict 穿過 rename、且三處通知說
+    /// 「已擋過」（R22 verify 四席同指第 1／2／3／4 列）。**D63**：改成與 merge 隔離檔閘（`DivergenceResolve` 的 `doomedKeyBytes`）同一種紀律
+    /// ——讀原始位元組、不切行、不 decode，needle 是 `<kind>:<newKey>` 的位元組：kind token 是 ASCII 字母、StoreKey 是 `[a-z0-9][a-z0-9-]*`，
+    /// 整段不含空白，折行打不斷它；命中的下一個位元組不得是 StoreKey 字元（`work:new2020a` 不因 `work:new2020a-2` 誤擋）、前一個不得是
+    /// 識別字字元。方向與 merge 閘相同：**可能偽陽性**（那段字面出現在 note 或 judgement 裡也算，多擋一筆），**不可能因折行偽陰性**；
+    /// 已接受的限制也相同——雙引號 `\x`／`\u` 逃脫能躲過字面比對。訊息因此只說「位元組裡出現」，不說「含指向新鍵的 verdict」。
+    /// 讀不到即 fail-closed（entities 佈局下這一支到不了：更早的 `quarantinedFileClaiming` 對讀不到的檔已先以「佔用」拒絕——R22 verify DA
+    /// 第 19 列；留著是 legacy 佈局與縱深防禦）。**quarantined 命中排在已解析的命中之前**：它們是唯一沒有其他面看得到的一類（`validate` 的
+    /// 死 verdict 掃描依設計不掃 quarantined 記錄），R22 把它們排在最後、25 筆 organization 就把那一筆擠出上限（R22 verify DA 第 18 列）。
     ///
     /// **訊息的形**（R21 verify 第 7／9／11／15／17／24／28 列）：每筆命中拆成多行——holder／欄位／value 一行、judgement 一行、**每個 digest 自己一行**
-    /// （CLI 的出口逐行截 400，digest 排在行尾會被切成半個 sha256）；至多列 20 筆命中、其餘一句揭露總數（D30 的形）。出路不指 `resolve-venues
-    /// --repoint`：目的鍵此刻不存在，被拒的每一筆都沒有邊可改指（第 3／10／25 列）——唯一走得通的是改那一行的 value 或刪掉它。
+    /// （CLI 的出口逐行截 400，digest 排在行尾會被切成半個 sha256）；至多列 `Entry.perRecordWarningCap` 筆命中、其餘一句揭露總數（D30 的形）。
+    /// 出路不指 `resolve-venues --repoint`：目的鍵此刻不存在，被拒的每一筆都沒有邊可改指（第 3／10／25 列）——已解析的命中改那一行的 value
+    /// 或刪掉它，quarantined 命中修好或移走那個檔。
     func assertNoVerdictAlreadyAt(
         _ newKey: String, holderKind: ProvenanceReference.VerdictHolderKind,
         in load: LibraryLoad, action: String) throws {
+        var hits: [[String]] = []
+        // quarantined 檔先掃、先列（D63）：位元組比對、不切行、不 decode；讀不到 fail-closed（與 quarantinedFileClaiming 同）
+        let needle = Array("\(holderKind.rawValue):\(newKey)".utf8)
+        for q in load.quarantined {
+            let url = root.appendingPathComponent(q.file)
+            guard let data = try? Data(contentsOf: url) else {
+                hits.append(["  · quarantined 檔「\(displaySafeInvisible(q.file, max: 300))」讀不到——無從判斷它是否持有指向新鍵的 verdict（fail-closed）"]); continue
+            }
+            if Self.bytesContainKeyToken(Array(data), needle) {
+                hits.append(["  · quarantined 檔「\(displaySafeInvisible(q.file, max: 300))」的位元組裡出現「\(holderKind.rawValue):\(displaySafeInvisible(newKey, max: 120))」"
+                             + "——未解析：可能是指向新鍵的 verdict、也可能是別的欄位（位元組比對不會被 YAML 折行擊穿，但分不出它是什麼）；修好或移走該檔後再改名"])
+            }
+        }
         var records: [(kind: String, key: String, refs: [ProvenanceReference])] = []
         records += load.people.map { ("person", $0.key, $0.references) }
         records += load.venues.map { ("venue", $0.key, $0.references) }
         records += load.organizations.map { ("organization", $0.key, $0.references) }
-        var hits: [[String]] = []
         for r in records {
             for ref in r.refs {
                 guard ProvenanceReference.resolutionVerdictFields.contains(ref.field),
@@ -1939,23 +1979,32 @@ extension LibraryStore {
                 hits.append(block)
             }
         }
-        // quarantined 檔：行級文字比對；讀不到 fail-closed（與 quarantinedFileClaiming 同）
-        let needle = "\(holderKind.rawValue):\(newKey) ::"
-        for q in load.quarantined {
-            let url = root.appendingPathComponent(q.file)
-            guard let text = try? readUTF8(url) else {
-                hits.append(["  · quarantined 檔「\(displaySafeInvisible(q.file, max: 300))」讀不到——無從判斷它是否持有指向新鍵的 verdict（fail-closed）"]); continue
-            }
-            if Self.rawLines(text).contains(where: { $0.contains(needle) }) {
-                hits.append(["  · quarantined 檔「\(displaySafeInvisible(q.file, max: 300))」含指向新鍵的 verdict（行級比對，未解析——修好或移走該檔後再改名）"])
-            }
-        }
         guard hits.isEmpty else {
+            let cap = Entry.perRecordWarningCap   // 同一條「訊息則數要有上限」的紀律、同一個數（R22 verify 第 22 列：R22 寫死兩個 20）
             var lines: [String] = ["共 \(hits.count) 條："]
-            for block in hits.prefix(20) { lines.append(contentsOf: block) }
-            if hits.count > 20 { lines.append("  …另有 \(hits.count - 20) 條未列（共 \(hits.count) 條）") }
+            for block in hits.prefix(cap) { lines.append(contentsOf: block) }
+            if hits.count > cap { lines.append("  …另有 \(hits.count - cap) 條未列（共 \(hits.count) 條）") }
             throw StoreIOError.verdictsAlreadyAtTarget(action: action, key: displaySafeInvisible(newKey, max: 120), lines: lines)
         }
+    }
+
+    /// `needle`（`<kind>:<key>` 的 UTF-8）是否出現在 `bytes` 裡，且命中的**前一個位元組不是識別字字元、下一個不是 StoreKey 字元**
+    /// （D63）：`work:new2020a` 不得因為 `work:new2020a-2`／`network:new2020a` 而命中。純位元組、不切行——這正是它不會被 YAML 折行擊穿
+    /// 的理由（needle 不含空白，而 YAML 只在空白處折行）。與 `DivergenceResolve` 的 `doomedKeyBytes` 比對同一種紀律。
+    static func bytesContainKeyToken(_ bytes: [UInt8], _ needle: [UInt8]) -> Bool {
+        guard !needle.isEmpty, bytes.count >= needle.count else { return false }
+        func isKeyByte(_ b: UInt8) -> Bool { (0x61...0x7A).contains(b) || (0x30...0x39).contains(b) || b == 0x2D }   // [a-z0-9-]
+        func isIdentByte(_ b: UInt8) -> Bool { isKeyByte(b) || (0x41...0x5A).contains(b) || b == 0x5F }             // ＋ [A-Z_]
+        var i = 0
+        while i + needle.count <= bytes.count {
+            if bytes[i..<(i + needle.count)].elementsEqual(needle) {
+                let before = i == 0 ? nil : bytes[i - 1]
+                let after = i + needle.count < bytes.count ? bytes[i + needle.count] : nil
+                if !(before.map(isIdentByte) ?? false), !(after.map(isKeyByte) ?? false) { return true }
+            }
+            i += 1
+        }
+        return false
     }
 
     /// rename 側 verdict holder 的遷移＋收攏；沒有任何改動時回 `nil`。`holderKind` 是 `.person`（`renamePerson`，
@@ -1966,9 +2015,10 @@ extension LibraryStore {
     /// grammar-in-string 漂移。收攏**只及於這次改寫動到的鍵**（R18 D53、R19 D55；早已指向新鍵的 verdict 由 `assertNoVerdictAlreadyAt` 在改名前
     /// 拒絕，R21 D60——#232 的原語意是可解析 verdict 的全量 (field, value) dedup，R17 verify DA 第 10 列指出那讓不相干 work 的重複由 YAML 順序決定留哪個）；**被收攏的列逐筆回報、印遷移前的原值**（#495 補上——在此之前 rename 側是靜默的，
     /// #461 只修了 merge 側而 #463 把這一面擴到 organization 與 venue 使缺口同步變大）。描述由
-    /// `describeCollapsedVerdict` 產生，與 merge 側**同一個函式**：兩條路徑執行的是同一條不變式
-    /// （store 永不持有重複 verdict），兩份描述會分岔。呼叫端負責加上持有記錄的 kind 與 key——
-    /// 本函式只看得到 references 陣列，看不到它掛在誰身上。
+    /// `describeCollapsedVerdict` 產生，與 merge 側**同一個函式**——同一種列的形狀，第二份描述會分岔。**但兩條路徑的折疊規則不同**
+    /// （R22 verify 第 11 列）：merge 以 `verdictEqualityKey` 分組、`collapseWinner` 選一筆；rename 自 D62 起只折整筆相等的重複，同鍵而
+    /// judgement 不同的兩筆都留——rename 之後 store 可以持有 `appendIfAbsent` 所謂的「重複」，由 `StoreHealth.duplicateVerdictRecords`
+    /// 報出（D64）。呼叫端負責加上持有記錄的 kind 與 key——本函式只看得到 references 陣列，看不到它掛在誰身上。
     ///
     /// **非 verdict 的 reference 原樣通過、不 dedup**（#463 verify Codex R3 N2）：抽 helper 前 renameEntry 的三個迴圈
     /// 就是這樣，而 #395 的 renamePerson 版本對**每一筆** reference 做 (field, value) dedup——一次與此無關的 rename 會
@@ -2002,22 +2052,13 @@ extension LibraryStore {
         //  · 拼法不同的都留——第 27 列的第二半只掃 venue×work，其餘六格（person／organization 持 work、三種 holder 持 person）
         //    沒有掃描面也沒有揭露面，rename 不替它判定（R19 verify requirements 第 4 列：誠實邊界，寫在 §3.5）；
         //  · 留下的每一筆待在原位置，不相干 reference 的相對順序不變（R19 verify regression 第 23 列：整組前移會重排）。
-        // 位元組每筆只算一次、以字典索引，O(N)（R19 verify security 第 8 列；R20 verify DA 第 26 列指出 R20 的死列查找不是——那段已拿掉）。
-        func bytes(_ r: ProvenanceReference) -> [UInt8] {
-            Array((ProvenanceReference.VerdictPairingValue.parse(r.value ?? "")?.literal ?? "").utf8)
-        }
-        func key(_ r: ProvenanceReference) -> String { ProvenanceReference.verdictEqualityKey(field: r.field, value: r.value) }
-        // 同鍵之內以「拼法位元組相同 且 整筆 ProvenanceReference 相等」判重複——第二個條件把 judgement 與 rests-on 也算進去
-        var liveGroups: [String: [Int]] = [:]
-        for (i, item) in rewritten.enumerated() where item.touched { liveGroups[key(item.ref), default: []].append(i) }
+        // 重複的判準是**整筆 `ProvenanceReference` 相等**（field、value、judgement、rests-on）——value 相等已蘊含拼法位元組相等，R22 另比一次
+        // 位元組是恆真的死條件、且在閉包裡逐對重算（R22 verify 第 5／21／24／35 列：旁註寫 O(N) 而實作是組內 O(k²) 次解析）。現在以整筆
+        // reference 當字典鍵（`Hashable`，R23）：每筆一次雜湊、O(N)；同鍵分組因此也不需要——相等的兩筆必然同鍵。
+        var firstSeen: [ProvenanceReference: Int] = [:]
         var winnerOf: [Int: Int] = [:]                 // 被改寫的索引 → 留下的那筆的索引（首見；完全相同的重複之間沒有東西可選）
-        for idxs in liveGroups.values {
-            var reps: [(ref: ProvenanceReference, index: Int)] = []
-            for i in idxs {
-                let b = bytes(rewritten[i].ref)
-                if let rep = reps.first(where: { bytes($0.ref) == b && $0.ref == rewritten[i].ref }) { winnerOf[i] = rep.index }
-                else { reps.append((rewritten[i].ref, i)); winnerOf[i] = i }
-            }
+        for (i, item) in rewritten.enumerated() where item.touched {
+            if let first = firstSeen[item.ref] { winnerOf[i] = first } else { firstSeen[item.ref] = i; winnerOf[i] = i }
         }
         var out: [ProvenanceReference] = []
         var collapsed: [String] = []

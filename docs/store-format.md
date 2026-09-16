@@ -874,7 +874,7 @@ confirmed literal（只對 venue 記錄算——D23 是 venue 側的拒絕）；
 不該擋合併，揭露即可。**R18（D51）：倖存配對不是倖存邊**（R17 verify Codex 第 1 列 HIGH、logic 第 6 列、regression 第 8 列、DA 第 10 列：keeper 對某 work
 持有的 confirmed 可能**沒有邊**——手改、舊 binary、D38 具名的那種輸入——而 work 的唯一邊指向被併 venue，被併記錄的那筆才是那條邊記錄的字；R17 的 keeper
 路徑一律 keeper 勝、三方合併由 `doomed` 陣列順序決定（上一版這裡寫「由 #468 的三層決定」，對 keeper 路徑為假）、holder 路徑的第 0 層是組層級旗標而對每一對
-套用、rename 沒有任何政策）。三條收攏路徑自此同一個勝者函式（`LibraryStore.collapseWinner`）：候選拼法位元組不同時 (0) 先留**活著的邊**那些——合併前
+套用、rename 沒有任何政策）。三條收攏路徑自此同一個勝者函式（`LibraryStore.collapseWinner`；**rename 於 R22 退出這個函式，見下方 D62**——R22 verify 第 20 列：兩段都寫「自此」，讀者分不出哪句是現況）：候選拼法位元組不同時 (0) 先留**活著的邊**那些——合併前
 work 對該 venue（`Entry.venues`）／person（`Entry.authors`）、person 對該 organization（`affiliations`）真的有邊（`VerdictEdgeSet`）；(1) 再留與倖存配對
 自己位元組相同的那些；(2) #468 三層——弱血統優先、倖存配對自己的優先、statement 字典序；(3) 首見順序（三方合併兩筆被併材料同弱、同 statement 時——
 揭露而非任意）。holder 路徑（work 合併）沒有活邊那一層：work 合併不搬 venues／authors 邊，被併配對在合併後必死，那裡「倖存配對自己的勝」就是活邊規則。
@@ -891,15 +891,31 @@ D55 以 `verdictEqualityKey`（含 field）分組，同配對異 field 的死 re
 新鍵（同 holderKind、不論 field 與拼法）即 `assertNoVerdictAlreadyAt` 具名拒絕、零寫入。**D61（R22）：母體含 quarantined 檔**——那些檔不在
 `load.people`／`venues`／`organizations` 裡，R21 對它們是盲的（R21 verify 第 1／8／12／16／36 列，DA 真 binary 前後對照：一個 quarantined 的 holder
 持有 `<kind>:<newKey> ::` 時 rename 照過，修好那個檔之後那筆從未對這筆記錄做過的判定生效、且沒有任何面會報——rename 前 validate 會報它是死
-verdict，rename 後全綠）；與同函式的 `quarantinedFileClaiming` 同一套紀律：行級文字比對、不 decode、讀不到即 fail-closed。**訊息的形**：每筆命中
+verdict，rename 後全綠）。R22 的 D61 用**行級**文字比對、needle 是 `<kind>:<newKey> ::`——needle 裡的空白正是 YAML 唯一會折行的位置：本 repo 的
+emitter（Yams，libyaml 預設寬度 80）把長 value 折在 ` :: ` 之前，live store 2026-09-16 實測 8,692 筆 verdict value 裡 **2 筆**折在那裡，DA 真 binary
+讓一筆折行的 quarantined verdict 穿過 `rename` 與 `rename-person`、且三處通知說「已擋過」（R22 verify 第 1／2／3／4 列四席同指）。**D63（R23）**：
+改成與 merge 隔離檔閘（`DivergenceResolve` 的 `doomedKeyBytes`）同一種紀律——讀原始位元組、不切行、不 decode，needle 是 `<kind>:<newKey>` 的位元組：
+kind token 是 ASCII 字母、StoreKey 是 `[a-z0-9][a-z0-9-]*`，整段不含空白，折行打不斷它；命中的下一個位元組不得是 StoreKey 字元（`work:new2020a`
+不因 `work:new2020a-2` 誤擋）、前一個不得是識別字字元。方向與 merge 閘相同：可能偽陽性（那段字面出現在 note 裡也算，DA 真 binary 造過）、不可能因
+折行偽陰性；已接受的限制也相同——雙引號 `\x`／`\u` 逃脫能躲過字面比對。所以訊息只說「位元組裡出現」、出路是修好或移走那個檔，**不說**「含指向
+新鍵的 verdict」——`quarantinedNotScanned` 的 doc 早就寫著「掃過且沒有」不可誠實斷言，R22 的三處通知正是那句話（第 12／16 列）。讀不到即 fail-closed
+（entities 佈局下這一支到不了：更早的 `quarantinedFileClaiming` 對讀不到的檔已先拒——DA 第 19 列）。**訊息的形**：每筆命中
 拆成多行——holder／欄位／value 一行、judgement 一行、每個 digest 自己一行（CLI 的出口 `displaySafeAssembled` 逐行截 400，R21 把 rests-on 排在
-行尾、一般長度的 judgement 就把 sha256 切成半個——R21 verify 第 9／11／15 列）；至多列 20 筆、其餘一句揭露總數（D30 的形）；出路是改那一行的
+行尾、一般長度的 judgement 就把 sha256 切成半個——R21 verify 第 9／11／15 列）；至多列 `Entry.perRecordWarningCap` 筆、其餘一句揭露總數（D30 的形；R22 寫死兩個 20——第 22 列）；**quarantined 命中先列**（R22 verify DA
+第 18 列真 binary：R22 排在最後，25 筆 organization 就把它擠出上限，而它是唯一沒有其他面看得到的一類——`validate` 的死 verdict 掃描不掃
+quarantined 記錄）；出路是改那一行的
 value 或刪掉它——目的鍵此刻不存在，被拒的每一筆都沒有邊可 `repoint`（R21 verify 第 3／10／25 列，R21 曾把 `resolve-venues --repoint` 列為首選）。
 `renameEntry` 補上 `oldKey != newKey` 守衛（第 4／20 列：自我改名曾撞 D60、訊息說「目的鍵此刻不存在」）。**D62（R22）**：第二段只折**完全相同**
 （field、value、judgement、rests-on 全等）的重複——零資訊損失；R20／R21 以拼法位元組折疊、不看 kind，兩筆同拼法而 judgement／rests-on 不同的被折成
 一筆、被丟那筆的 digest 永久消失，而 validate 事前不出聲（R21 verify DA 第 14 列真 binary）——那正是撤掉 D58 的同一句話換個母體。rename 自此不
 呼叫 `collapseWinner`（#468 的血統層只在 merge 跑），拼法不同或 judgement 不同的都留、留下的在原位（R19 verify regression 第 23 列）。
 所以誠實的量詞是：**rename 不再刪任何判定記錄的內容**——唯一的收攏是完全相同的重複（`verdictsCollapsed` 逐筆回報）——與 merge 的 D31／D34 同向。
+**D64（R23；R22 verify security 第 14 列）**：D62 留下的同鍵（`verdictEqualityKey` 相同）而 judgement 不同的兩筆，在 R22 沒有任何面看得見——
+`contradictoryVerdicts` 只比 confirmed×rejected、第 27 列的第二類以位元組相異分組——而下一次 person／venue 合併會以 #468 的血統層收成一筆並在
+`verdictsCollapsed` 回報；「零資訊損失」只在 rename 那一步為真，它把一筆判定從「rename 當場刪、有回報」換成「留著、看不見、合併時刪」。現在
+`StoreHealth.duplicateVerdictRecords`（warning，guards 第 28 列）報它，doctor／App 各一格；訊息說出三個來源（手改、舊 binary、rename 帶過來）與下游
+（合併會收攏）；第 27 列第二類已報的那一格（venue×work 的 confirmed、只差位元組）不重報，每筆記錄至多 `Entry.perRecordWarningCap` 則。merge 與 rename 的折疊規則自此明寫是**兩條**而不是「同一條不變式在兩條路徑上各自執行」（第 8／11 列）：merge 以 `verdictEqualityKey`
+分組、`collapseWinner` 選一筆，rename 只折整筆相等的（`Hashable` 字典，O(N)——R22 的 `bytes == && ref ==` 是死條件，第 21／24 列）。
 **誠實邊界**：拼法不同的被改寫 verdict 都留——第 27 列的第二半只掃 venue×work，其餘六格（person／organization 持 work、三種 holder 持 person）
 既沒有掃描面也沒有揭露面，rename 不替它們判定，也不假裝那一格「應恆為 0」（R19 verify requirements 第 4 列）。
 **代價寫出來**（R17 verify regression 第 9 列）：留強丟弱時弱血統那筆的 `rule` 尾註從 store 消失，它的消費端不只收攏列——之後每一次提名的

@@ -464,7 +464,7 @@ public struct Venue: Equatable {
                     severity: .warning,
                     message: "\(Self.confirmedLiteralAmbiguityPrefix)：venue '\(displaySafe(key, max: 120))' 對 work「\(displaySafe(w, max: 120))」持有 \(lits.count) 筆只差位元組的 confirmed literal（"   // display-safe-exempt: 前綴是常量；Int
                            + shown + (lits.count > 5 ? "…" : "")   // display-safe-exempt: shown 由上一行逐項 displaySafeInvisible 組成
-                           + "）——正規化後是同一個配對（重複的判定記錄：工具面以 verdictEqualityKey 去重、寫不出它，是手改或舊 binary 寫的），"
+                           + "）——正規化後是同一個配對（重複的判定記錄：工具面以 verdictEqualityKey 去重、寫不出它——是手改、舊 binary 寫的，或由 rename 從舊鍵原樣帶過來），"
                            + "而 D23 的拒絕比位元組，resolve-venues 的 demote／repoint 對這筆 work 同樣會被拒；修法是手改 YAML 留一筆"))
             }
         }

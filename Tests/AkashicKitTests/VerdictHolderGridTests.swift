@@ -1217,8 +1217,9 @@ final class VerdictHolderGridTests: XCTestCase {
 
     /// **D61（R22；R21 verify 第 1／8／12／16／36 列，DA 真 binary 前後對照）**：D60 的母體是 `load.people`／`venues`／`organizations`，quarantined 檔
     /// 不在裡面——一個 quarantined 的 holder 持有 `<kind>:<newKey> ::` 時 rename 照過，修好那個檔之後那筆從未對這筆記錄做過的判定生效、而且
-    /// 沒有任何面會報（rename 前 validate 會報它是死 verdict，rename 後全綠）。與同函式上方 `quarantinedFileClaiming` 同一套紀律：對 quarantined
-    /// 檔做**行級文字比對**、讀不到即 fail-closed，命中就拒絕並點名那個檔。
+    /// 沒有任何面會報（rename 前 validate 會報它是死 verdict，rename 後全綠）。R22 用行級文字比對；**R23 改成位元組比對**（D63，見下一條測試的理由）：
+    /// 讀不到即 fail-closed，命中就拒絕並點名那個檔。斷言要分得出「命中」與「讀不到」——兩條 hit line 都含 `quarantine` 與檔名，只驗那兩個子串時
+    /// needle 壞掉也綠（R22 verify 第 13 列）。
     func testRenameRefusesWhenAQuarantinedHolderHoldsAVerdictAtTheNewKey() throws {
         try entry("old2020a")
         var broken = Venue(key: "beta", type: .periodical, names: Timeline([TemporalValue(value: "Beta Review")]), authorized: [])
@@ -1229,9 +1230,146 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(try store.load().quarantined.count, 1, "前提：那個檔真的被 quarantine")
         XCTAssertThrowsError(try store.renameEntry(from: "old2020a", to: "new2020a")) { error in
             let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
-            XCTAssertTrue(msg.contains("quarantine") && msg.contains(file), "要點名那個 quarantined 檔：\(msg)")
+            XCTAssertTrue(msg.contains(file) && msg.contains("位元組裡出現"), "要點名那個 quarantined 檔、且說是位元組命中：\(msg)")
+            XCTAssertFalse(msg.contains("讀不到"), "分得出命中與讀不到（R22 verify 第 13 列）：\(msg)")
         }
         XCTAssertNotNil(try store.load().entries.first { $0.citekey == "old2020a" }, "零寫入")
+    }
+
+    /// **D63（R23；R22 verify 第 1／2／3／4 列，四席同指、DA 真 binary）**：D61 的 needle `<kind>:<newKey> ::` 含空白，而 YAML 只在空白處折行——
+    /// 本 repo 的 emitter（Yams，libyaml 預設寬度 80）把長 value 折在 ` :: ` 之前，live store 2026-09-16 實測 2 筆；折行的 quarantined verdict 穿過
+    /// rename，而三處通知說「已擋過」。位元組比對 `<kind>:<newKey>` 不含空白，折行打不斷它。fixture 直接寫折行的 YAML 文字（短 value 經 emitter 不會折）。
+    func testRenameRefusesWhenAQuarantinedFileHoldsAFoldedVerdictAtTheNewKey() throws {
+        try entry("old2020a")
+        let file = "\(UUID().uuidString).yaml"   // 檔名 UUID 與記錄 id 不符 → 整檔 quarantine
+        let folded = "venue:\nid: \(UUID().uuidString)\nkey: beta\ntype: periodical\nnames:\n- value: Beta Review\nreferences:\n"
+            + "- field: resolution-confirmed\n  value: 'work:new2020a\n    :: Beta Review'\n  judgement: 人親自判定\n  rests-on: []\n"
+        try folded.write(to: store.entitiesDir.appendingPathComponent(file), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try store.load().quarantined.count, 1, "前提：那個檔真的被 quarantine")
+        XCTAssertThrowsError(try store.renameEntry(from: "old2020a", to: "new2020a")) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(msg.contains(file) && msg.contains("位元組裡出現"), "折行的 value 也要被擋、點名那個檔：\(msg)")
+        }
+        XCTAssertNotNil(try store.load().entries.first { $0.citekey == "old2020a" }, "零寫入")
+    }
+
+    /// D63 的 person 端（R22 verify DA 第 4 列：`rename-person` 對折行的 `person:new-person\n    :: …` 同樣 rc=0）。
+    func testRenamePersonRefusesWhenAQuarantinedFileHoldsAFoldedVerdictAtTheNewKey() throws {
+        try store.writePerson(Person(key: "old-person", names: ["Old Person"]))
+        let file = "\(UUID().uuidString).yaml"
+        let folded = "venue:\nid: \(UUID().uuidString)\nkey: beta\ntype: periodical\nnames:\n- value: Beta Review\nreferences:\n"
+            + "- field: resolution-rejected\n  value: 'person:new-person\n    :: Old Person'\n  judgement: 人親自判定\n  rests-on: []\n"
+        try folded.write(to: store.entitiesDir.appendingPathComponent(file), atomically: true, encoding: .utf8)
+        GitFixture.commitAll(store.root)
+        XCTAssertThrowsError(try store.renamePerson(from: "old-person", to: "new-person")) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(msg.contains(file) && msg.contains("person:new-person"), msg)
+        }
+        XCTAssertNotNil(try store.load().people.first { $0.key == "old-person" }, "零寫入")
+    }
+
+    /// D63 的另一半（R22 verify DA 第 4 列的偽陽性、第 33／36 列）：位元組比對會被 note 裡的字面觸發——與 merge 隔離檔閘同一種已接受的偽陽性——
+    /// 但訊息**不得**說「含指向新鍵的 verdict」，只能說位元組裡出現、出路是修檔；鄰居鍵 `new2020a-2` 與 `network:new2020a` 都不得命中。
+    func testRenameQuarantineByteScanIsHonestAboutFalsePositivesAndIgnoresNeighbourKeys() throws {
+        try entry("old2020a")
+        let neighbour = "\(UUID().uuidString).yaml"
+        try ("venue:\nid: \(UUID().uuidString)\nkey: gamma\ntype: periodical\nnames:\n- value: Gamma\nreferences:\n"
+             + "- field: resolution-confirmed\n  value: 'work:new2020a-2 :: Gamma'\n  judgement: x\n  rests-on: []\nnote: network:new2020a\n")
+            .write(to: store.entitiesDir.appendingPathComponent(neighbour), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try store.load().quarantined.count, 1)
+        let report = try store.renameEntry(from: "old2020a", to: "new2020a")   // 鄰居鍵與 `network:` 前綴都不是命中
+        XCTAssertTrue(report.quarantinedNotScanned.contains { $0.hasSuffix(neighbour) }, "\(report.quarantinedNotScanned)")
+        _ = try store.renameEntry(from: "new2020a", to: "old2020a")
+        let mention = "\(UUID().uuidString).yaml"
+        try "venue:\nid: \(UUID().uuidString)\nkey: delta\ntype: periodical\nnames:\n- value: Delta\nnote: 'we decided NOT to record work:new2020a here'\n"
+            .write(to: store.entitiesDir.appendingPathComponent(mention), atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try store.renameEntry(from: "old2020a", to: "new2020a")) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(msg.contains(mention) && msg.contains("位元組裡出現"), msg)
+            XCTAssertFalse(msg.contains("含指向新鍵的 verdict"), "沒解析就不能說它含 verdict（偽陽性要誠實）：\(msg)")
+            XCTAssertTrue(msg.contains("修好或移走"), "quarantined 命中的出路是修檔不是改 value：\(msg)")
+        }
+    }
+
+    /// R22 verify DA 第 18 列（真 binary）：R22 把 quarantined 命中排在已解析的命中之後，25 筆 organization 就把它擠出 20 筆上限——而它是唯一
+    /// 沒有其他面看得到的一類（`validate` 的死 verdict 掃描不掃 quarantined 記錄）。D63：quarantined 命中先列。上限走 `Entry.perRecordWarningCap`。
+    func testRenameRefusalListsQuarantinedHitsBeforeTheCap() throws {
+        try entry("old2020a")
+        for i in 1...25 { try org("org-\(i)", refs: [verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Org \(i)")]) }
+        let file = "\(UUID().uuidString).yaml"
+        var broken = Venue(key: "beta", type: .periodical, names: Timeline([TemporalValue(value: "Beta Review")]), authorized: [])
+        broken.references = [verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Beta Review")]
+        try VenueYAML.encode(broken).write(to: store.entitiesDir.appendingPathComponent(file), atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try store.renameEntry(from: "old2020a", to: "new2020a")) { error in
+            let desc = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(desc.contains(file), "quarantined 命中不得被上限擠掉：\(desc)")
+            XCTAssertEqual((1...25).filter { desc.contains("organization「org-\($0)」") }.count, Entry.perRecordWarningCap - 1, desc)
+            XCTAssertTrue(desc.contains("另有 6 條未列") && desc.contains("共 26 條"), desc)
+        }
+    }
+
+    /// **D64（R23；R22 verify security 第 14 列）**：D62 讓 rename 把同鍵而 judgement 不同的兩筆原樣帶到新鍵——那一步零損失，但那個狀態在 R22
+    /// 沒有任何面看得見（`contradictoryVerdicts` 只比 confirmed×rejected、D39 第二類以位元組相異分組），而下一次合併會收成一筆。
+    /// `StoreHealth.duplicateVerdictRecords` 報它，rename 前後都報、指向當下的鍵。
+    func testRenameCarriesADuplicateVerdictPairOntoTheNewKeyAndHealthReportsIt() throws {
+        try entry("old2020a")
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        func judged(_ s: String) -> ProvenanceReference {
+            ProvenanceReference(field: "resolution-confirmed",
+                                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "old2020a", literal: "Alpha Journal").encoded,
+                                kind: .judgement(statement: s, restsOn: []))
+        }
+        v.references = [judged("a"), judged("b")]
+        try store.writeVenue(v)
+        let before = store.health(from: try store.load())
+        XCTAssertEqual(before.duplicateVerdictRecords.count, 1, before.duplicateVerdictRecords.map(\.issue.message).description)
+        let msg = before.duplicateVerdictRecords.first?.issue.message ?? ""
+        XCTAssertTrue(msg.contains("2 筆判定記錄") && msg.contains("彼此不同") && msg.contains("work:old2020a"), msg)
+        XCTAssertEqual(before.duplicateVerdictRecords.first?.issue.severity, .warning)
+        XCTAssertEqual(before.contradictoryVerdicts.count, 0, "同為 confirmed 不是矛盾")
+        _ = try store.renameEntry(from: "old2020a", to: "new2020a")
+        let after = store.health(from: try store.load())
+        XCTAssertEqual(after.duplicateVerdictRecords.count, 1, "rename 帶過去的重複要看得見：\(after.duplicateVerdictRecords.map(\.issue.message))")
+        XCTAssertTrue(after.duplicateVerdictRecords.first?.issue.message.contains("work:new2020a") == true)
+        XCTAssertEqual(after.duplicateVerdictRecords.first?.owner, "alpha")
+        XCTAssertEqual(after.duplicateVerdictRecords.first?.kind, "venue")
+    }
+
+    /// D64 的訊息分得出「完全相同」與「judgement／rests-on 不同」；乾淨的記錄零；三種 holder 記錄都掃。
+    func testDuplicateVerdictRecordsDistinguishIdenticalFromDifferingAndScanEveryHolderKind() throws {
+        let r = verdict("resolution-rejected", kind: .work, holder: "w2020a", literal: "Vee")
+        try org("acme", refs: [r, r])   // 手改才寫得出的位元組相同重複
+        try store.writePerson({ var p = Person(key: "pat", names: ["Pat"]); p.references = [verdict("resolution-confirmed", kind: .work, holder: "w2020a", literal: "Pat")]; return p }())
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "w2020a", literal: "Alpha Journal"),
+                        verdict("resolution-rejected", kind: .work, holder: "w2020a", literal: "Alpha Journal")]   // 那是矛盾對，不是重複
+        try store.writeVenue(v)
+        let health = store.health(from: try store.load())
+        XCTAssertEqual(health.duplicateVerdictRecords.map { "\($0.kind):\($0.owner)" }, ["organization:acme"], "\(health.duplicateVerdictRecords.map(\.issue.message))")
+        XCTAssertTrue(health.duplicateVerdictRecords.first?.issue.message.contains("全部完全相同") == true)
+        XCTAssertEqual(health.contradictoryVerdicts.count, 1, "矛盾對走自己的家族")
+    }
+
+    /// D64 不重報第 27 列第二類已經報的那一格（venue×work 的 confirmed、只差位元組）——同一件事出兩則是雜訊；而 rejected 的只差位元組
+    /// 沒有人報，D64 報它。每筆記錄至多 `Entry.perRecordWarningCap` 則、其餘一句概括（不進家族）。
+    func testDuplicateVerdictRecordsDoNotDoubleReportTheVenueByteVariantClassAndAreCapped() throws {
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "w1", literal: "alpha"),
+                        verdict("resolution-confirmed", kind: .work, holder: "w1", literal: "ALPHA"),
+                        verdict("resolution-rejected", kind: .work, holder: "w2", literal: "beta"),
+                        verdict("resolution-rejected", kind: .work, holder: "w2", literal: "BETA")]
+        try store.writeVenue(v)
+        let health = store.health(from: try store.load())
+        XCTAssertEqual(health.duplicateVerdictRecords.count, 1, health.duplicateVerdictRecords.map(\.issue.message).description)
+        XCTAssertTrue(health.duplicateVerdictRecords.first?.issue.message.contains("resolution-rejected") == true)
+        XCTAssertEqual(health.confirmedLiteralAmbiguities.count, 1, "confirmed 的位元組變體由第 27 列第二類報")
+        let r = verdict("resolution-rejected", kind: .work, holder: "w", literal: "Vee")
+        try org("acme", refs: (1...25).flatMap { i in
+            [verdict("resolution-rejected", kind: .work, holder: "w\(i)", literal: "Vee"), verdict("resolution-rejected", kind: .work, holder: "w\(i)", literal: "Vee")] })
+        _ = r
+        let capped = store.health(from: try store.load())
+        XCTAssertEqual(capped.duplicateVerdictRecords.filter { $0.owner == "acme" }.count, Entry.perRecordWarningCap)
+        XCTAssertEqual(capped.cappedRecords.filter { $0.owner == "acme" }.count, 1, capped.cappedRecords.map(\.issue.message).description)
     }
 
     /// R21 verify 第 9／11／15 列（DA 真 binary）：rename 的 CLI 出口在 `displaySafeAssembled` 逐行截 400，而 R21 把 rests-on 排在行尾——一個一般長度

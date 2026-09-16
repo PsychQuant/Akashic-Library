@@ -22,6 +22,8 @@ struct RecordIssuesSummary: Equatable {
     /// #486 的矛盾 verdict——R20 才進 App（R19 verify DA 第 12 列：`StoreHealth.contradictoryVerdicts` 全樹零消費，doctor 與 App 兩面
     /// 都沒有這一族，而 rename 剛能製造它）。
     let contradictoryVerdicts: Int
+    /// #554 D64 的重複判定記錄（R23）——同一記錄對同一配對 ≥2 筆同 field 的 verdict：rename 自 D62 起原樣帶到新鍵、下一次合併收成一筆。
+    let duplicateVerdictRecords: Int
     let danglingSources: Int
     let venueVerdictBudget: Int
     let orphanedSplitVerdicts: Int
@@ -50,6 +52,7 @@ struct RecordIssuesSummary: Equatable {
         errors = issues.filter { $0.issue.severity == .error }.count
         deadVerdicts = health.deadVerdicts.count
         contradictoryVerdicts = health.contradictoryVerdicts.count
+        duplicateVerdictRecords = health.duplicateVerdictRecords.count
         danglingSources = health.danglingSources.count
         venueVerdictBudget = health.venueVerdictBudgetWarnings.count
         orphanedSplitVerdicts = health.orphanedSplitVerdicts.count

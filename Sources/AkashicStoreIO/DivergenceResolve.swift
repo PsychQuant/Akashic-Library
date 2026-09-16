@@ -1590,8 +1590,15 @@ extension LibraryStore {
     static func describeDedupedVerdict(_ doomedKey: String, kind: String, _ r: ProvenanceReference, kept: ProvenanceReference? = nil,
                                        why: String = "與倖存者同一配對（正規化後相等）") -> String {
         var line = "\(kind)「\(doomedKey)」：\(clipScalars(r.value ?? "", 200))——\(why)，丟棄"   // display-safe-exempt: report 是資料面；why 是本檔的三句字面常量；CLI 印出時逐列過 displaySafeInvisible（DivergenceCommands）
-        if case .judgement(let statement, _) = r.kind { line += "（\(clipScalars(statement, 200))）" }   // display-safe-exempt: 同上
+        // rests-on 的 digest 也印（R23；R22 verify Codex 第 6 列：R20 只補了 `describeCollapsedVerdict`，person／venue 的 keeper 合併路徑
+        // 走的是這一支，被丟判定的證據指標無聲消失）——與 `describeCollapsedVerdict` 同一個 `restsOnNote`。
+        if case .judgement(let statement, let restsOn) = r.kind { line += "（\(clipScalars(statement, 200))\(restsOnNote(restsOn))）" }   // display-safe-exempt: 同上
         return line + spellingNote(dropped: r, kept: kept)   // display-safe-exempt: 同上（R17，D47：位元組不同時印留下的拼法）
+    }
+    /// 被丟判定所依的 digest：數量與前三筆、每筆截 80（R20；R19 verify security 第 22 列）。`describeCollapsedVerdict` 與
+    /// `describeDedupedVerdict` 共用——兩個生產者一份揭露（R22 verify Codex 第 6 列）。沒有 digest 回空字串。
+    static func restsOnNote(_ restsOn: [String]) -> String {
+        restsOn.isEmpty ? "" : "（rests-on \(restsOn.count) 筆：\(restsOn.prefix(3).map { clipScalars($0, 80) }.joined(separator: "、"))\(restsOn.count > 3 ? "…" : "")）"
     }
     /// 以 scalar 計的截斷（不逃脫——逃脫在 sink，`displaySafe` 不冪等）。
     static func clipScalars(_ s: String, _ n: Int) -> String {
@@ -1897,8 +1904,8 @@ extension LibraryStore {
     }
 
     /// 收攏丟棄一列 verdict 的人可讀描述：field ＋ **遷移前的原值** ＋ 被丟的判定原文（擷取型印 URL）。
-    /// **merge 與 rename 兩條路徑共用這一份**（#495）——它們執行的是同一條不變式（store 永不持有重複 verdict），第二份描述會與這份
-    /// 分岔。呼叫端負責在前面補上持有記錄的 kind 與 key，**並傳遷移前的那筆**（R15，D40；R14 verify DA 第 10 列、security 第 7 列：
+    /// **merge 與 rename 兩條路徑共用這一份**（#495）——同一種列的形狀，第二份描述會與這份分岔（折疊**規則**兩邊不同：merge 以
+    /// `verdictEqualityKey`＋`collapseWinner`，rename 自 R22 D62 起只折整筆相等的重複——R22 verify 第 11 列，見 `PersonRenameReport.verdictsCollapsed`）。呼叫端負責在前面補上持有記錄的 kind 與 key，**並傳遷移前的那筆**（R15，D40；R14 verify DA 第 10 列、security 第 7 列：
     /// R14 之前這裡拿改寫後的 `r`，而被丟掉的恆是被改寫的那一筆——勝者政策第 2 條「未被改寫者勝」——所以印出的字串在**任何**
     /// YAML 裡都找不到，操作者拿到通知回頭找那筆判定時線索指向一個從未存在的記錄）。value 與 statement 各截 200 scalar
     /// （logic 第 14 列：不截則 sink 的整列上限把 judgement——這一列存在的理由——整段擠掉；`describeDedupedVerdict` 同一個數）；
@@ -1911,8 +1918,7 @@ extension LibraryStore {
         let reason: String
         switch r.kind {
         case .judgement(let statement, let restsOn):
-            let evidence = restsOn.isEmpty ? "" : "（rests-on \(restsOn.count) 筆：\(restsOn.prefix(3).map { clipScalars($0, 80) }.joined(separator: "、"))\(restsOn.count > 3 ? "…" : "")）"
-            reason = "判定「\(clipScalars(statement, 200))」" + evidence
+            reason = "判定「\(clipScalars(statement, 200))」" + restsOnNote(restsOn)
         case .retrieval(let url, _, _, _, _): reason = "擷取 \(clipScalars(url, 200))"
         }
         return "\(r.field) \(clipScalars(r.value ?? "", 200))——丟棄 \(reason)" + spellingNote(dropped: r, kept: kept)

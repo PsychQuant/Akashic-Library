@@ -86,8 +86,10 @@ let package = Package(
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph", "AkashicSQLite",
             "AkashicWoSImport", "AkashicTestGuard",
             // AkashicMCPKit：四個測試檔 `@testable import` 它（StoreSourceEntryPointTests、JudgedAuthorshipServiceTests…）。
-            // 舊的 native 建置系統靠傳遞依賴連得起來；Xcode 27 起預設的 swiftbuild 只連宣告過的（#554 R19：
-            // `AkashicKitTests` 連結失敗 "Undefined symbols … AkashicMCPKit.AkashicService"），所以要寫出來。
+            // 不變式是「import 的模組要在宣告依賴的**閉包**內」（不是「要直接宣告」——另外三個 test target 有九個 import 沒直接
+            // 宣告而在閉包內，建得起來）：AkashicMCPKit 在 AkashicKitTests 的宣告集合下游、不在閉包內，是唯一一格；native
+            // 建置系統連得起來是它連結了整個套件圖，Xcode 27 起預設的 swiftbuild 只連閉包（#554 R19／R20：`AkashicKitTests`
+            // 連結失敗 "Undefined symbols … AkashicMCPKit.AkashicService"）。`PackageManifestTests` 以純文字守這條不變式。
             "AkashicMCPKit",
             // APA7GoldenTests（#327）用對方的 BibParser 解析 ch10 fixture——顯式宣告，
             // 不靠 AkashicExport 的傳遞依賴（那能編過但會隨對方的依賴調整而斷）。

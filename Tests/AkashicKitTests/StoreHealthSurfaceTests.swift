@@ -38,6 +38,30 @@ final class StoreHealthSurfaceTests: XCTestCase {
                                     "反射應看到 StoreHealth 的全部欄位，實得 \(names)")
     }
 
+    /// R19 verify DA 第 12 列：`Mirror` 只報 stored property，`StoreHealth` 的家族存取子全是 computed——上面兩條反射守衛對家族這一層
+    /// **從來沒有生效過**，而名冊已經分岔兩處（doctor 缺 `deadVerdicts`／`contradictoryVerdicts`，App 缺 `contradictoryVerdicts`）。
+    /// 這裡從源碼取 `public var <name>: [OwnedIssue]` 當名冊（型別自己宣告的家族），要求 doctor() 的窗口與 App 的渲染層都提到每一個。
+    func testEveryFamilyAccessorIsConsumedByDoctorAndTheApp() throws {
+        let health = try repoFile("Sources/AkashicStoreIO/StoreHealth.swift")
+        let families = health.split(separator: "\n").compactMap { line -> String? in
+            let s = String(line).trimmingCharacters(in: .whitespaces)
+            guard s.hasPrefix("public var "), s.hasSuffix(": [OwnedIssue] {") else { return nil }
+            return String(s.dropFirst("public var ".count).dropLast(": [OwnedIssue] {".count))
+        }
+        XCTAssertGreaterThanOrEqual(families.count, 10, "家族存取子名冊：\(families)")
+        let service = try repoFile("Sources/AkashicMCPKit/AkashicService.swift")
+        guard let start = service.range(of: "public func doctor() throws -> String {") else { return XCTFail("找不到 doctor()") }
+        let doctorWindow = EntrySurfaceTests.codeOnly(String(service[start.lowerBound...]))
+        var appCorpus = ""
+        for f in ["RecordIssuesSummary.swift", "RecordIssuesSection.swift"] {
+            appCorpus += EntrySurfaceTests.codeOnly(try repoFile("Sources/AkashicAppKit/\(f)"))
+        }
+        for family in families {
+            XCTAssertTrue(doctorWindow.contains("\"\(family)\":"), "doctor 的 recordIssues 沒有 \(family) 這一族（R19 verify DA 第 12 列）")
+            XCTAssertTrue(appCorpus.contains("health.\(family).count"), "App 的摘要沒有 \(family) 這一族")
+        }
+    }
+
     /// **每個欄位都必須被 `doctor()` 提到**。
     func testEveryFieldIsConsumedByDoctor() throws {
         let source = try repoFile("Sources/AkashicMCPKit/AkashicService.swift")

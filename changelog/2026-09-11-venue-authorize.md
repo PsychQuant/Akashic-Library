@@ -645,6 +645,31 @@ swiftbuild 直接 `Undefined symbols … AkashicMCPKit.AkashicService`。`Packag
 `.githooks/pre-push` 顯式釘 `--build-system native` 並在 build 之後把 `.build/debug` 連結指回 native 產物（swiftbuild 會把它改指
 `out/Products/Debug`、native 不會改回，而守衛從 `.build/debug` 找 binary），`PrePushHookTests` 的期望字串同步。native 全套 2754／0（1 skipped）。
 
+## R19 verify：分組的鍵帶著 field，死的 rejected 逃了
+
+R19 verify 5 席齊（Codex 席撞 HTTP 429 usage limit、2026-09-19 才重置，本輪與之後都是 5 席），34 列合併、1 HIGH：
+
+- **HIGH：D55 的「早已指向新鍵的全丟」以 `verdictEqualityKey` 分組，而那把鍵含 field**（DA 第 1 列）。venue 對 new2020a 早已持一筆 **rejected**、對 W 持
+  confirmed（同拼法）：rename W→new2020a 時 rejected 不在任何被動到的鍵裡、原樣通過，rename 後它從死變活、與剛遷來的 confirmed 構成 #486 的矛盾對——merge
+  對同一形狀（D31／D34）是整批拒絕，rename 卻親手造出來。**D58**：凡 holder 同 kind、key 等於新鍵而沒被改寫的 verdict 一律丟（不論 field 與拼法）、逐筆回報，
+  收攏列附 rests-on digest（security 第 22 列）；被改寫的同拼法重複走 `collapseWinner`（R19 留首見——R18／R19 三處寫「三條路徑同一個勝者函式」而 rename 沒跑它，
+  requirements 第 1 列、logic 第 6 列）；留下的每一筆待在原位（regression 第 23 列）；O(N)（security 第 8 列）。真 binary 重現：rename 後 rejected 消失、
+  `validate` 矛盾 verdict 0。
+- **MEDIUM：`count`／`errors` 寫成「完整」，而被截掉的正是 error 級訊息**（logic 第 7 列、regression 第 3 列）。**D59**：訊息則數在 `cappedRecords > 0`
+  時同為下限——doctor 描述、service 註解、App 的 `記錄層問題`／`其中 error` 都經 `lowerBound`；help 文案「未必每一族都受影響」（regression 第 6 列）。
+- **MEDIUM：doctor 沒有 `deadVerdicts`／`contradictoryVerdicts`、App 沒有後者，而反射守衛從來沒生效**（DA 第 12 列）：`StoreHealthSurfaceTests` 用
+  `Mirror` 只看 stored property，兩族都是 computed。守衛改掃源碼的家族存取子；名冊補齊；`RecordIssuesSummaryTests` 的硬寫清單改反射（第 13 列）。
+- **MEDIUM：`VerdictEdgeSet` 對 `Entry.venues[].key` 不驗 StoreKey、分隔符 `|` 可碰撞**（security 第 19 列）→ 插入側與查詢側同一道 `StoreKey.isValid`、U+0000。
+- **MEDIUM：`Package.swift` 的閉包不變式沒有守衛**（DA 第 14 列：另外三個 test target 有九個 import 沒直接宣告而在閉包內，R19 的註解把判準寫成「要直接宣告」）
+  → `PackageManifestTests` 純文字檢查每個 `@testable import` 都在宣告依賴的閉包內；註解改寫。
+- **MEDIUM：hook 的 `[ -d … ] && ln …` 重指失敗靜默略過、`ci.yml` 沒釘 native**（logic 第 30 列、regression 第 10／34 列）→ hook 三支分明：沒有 `.build`
+  略過、有 native 目錄重指、否則出聲並 `exit 1`（`PrePushHookTests` 加一條）；`ci.yml` 同樣釘 native 並重指。
+- 其餘：`Venue.validate()` 近重複概括句「每一組都已評估」對配額到頂的組為假（logic 第 18 列，改「部分組可能只評估到組內上限」）；`rename` 的收攏抬頭
+  寫「留首見」（DA 第 26 列，改寫）；`DivergenceResolve` 兩處 doc（「三條收攏路徑同一個政策」「rename 全量 dedup」）過期（requirements 第 1／2 列）；
+  `cappedRecords` 留下的那一句是任意的、消費端不得依它分流（logic 第 16 列，寫進 doc）；`variant` 不設閘的判準自 D41 起答案變成「沒有」
+  （regression 第 24 列，§store-format 格式 14 列與 `LibraryStore` 註解補記，閘仍不加、#567 一併裁）；§3.5 寫明第 27 列第二半的掃描面只有 venue×work
+  （requirements 第 4 列）。
+
 ## 第二次端到端又紅——這次是我的 binary
 
 改成替換語意後測試 7/7 綠、四個 mutation 負控乾淨，真 binary 卻說「authorized 含不在
@@ -700,11 +725,12 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
   `authorized ⊄ names` 的 organization holder 在 commit 前拒」與「欄位遺失先於 holder 閘」；`NameIdentityTests` 加「不刪
   任何非空白 scalar」；`DivergenceResolveVenueTests` 25 條（三種結果各有測試 ＋ dry-run 對不可寫的 keeper 拒 ＋ 欄位遺失先於被併者的名字檢查 ＋ R12：遷移以正規化鍵去重／相反判定拒／塌邊留兩筆 confirmed literal 拒 ＋ R13：三方合併的 doomed↔doomed 相反判定拒／D32 守不變式本身且倖存者既有違反不擋、去重丟掉的回報 ＋ R14：dry-run 預告去重丟列／單一被併者自帶兩個 literal 拒／單一被併者內部的矛盾拒、三方合併的訊息指名兩筆記錄 ＋ R15：拒絕訊息把帶進來的與倖存者既有的分開列 ＋ R16：被併記錄內部整組的拒絕訊息說它擋（D45））；`VerdictHolderGridTests` 加 R16 兩條：
   把歧義搬到只持有其中一部分的倖存配對上拒、被併鍵上整組矛盾對搬到已有 confirmed 的倖存配對上拒 ＋ R17：holder 遷移不換掉倖存配對的拼法且收攏列印兩個拼法（D47）；
-  `CollapseSurvivorPolicyTests` 加「拼法不同時倖存配對自己的勝」（同拼法 #468 照舊）＋ R18「三列碰撞留與 keeper 同拼法的弱血統那筆」「kept 解析不出時說出來」；`DivergenceResolveVenueTests` 加「keeper 路徑收攏列印兩個拼法」＋ R18「keeper 的死 verdict 讓位給活邊那筆」「三方合併走 #468 不走陣列順序」；`VerdictHolderGridTests` ＋ R18「person keeper 路徑活邊勝」「不相干 rename 不動另一 work 的重複」「rename 留被改寫的活 verdict」；`PairingUniquenessHealthTests`／`RecordIssuesSummaryTests` ＋ R18 `cappedRecords` ＋ R19「以記錄計」「App 渲染且家族值標下限」；`VerdictHolderGridTests` ＋ R19「三方碰撞六種排列同一答案」「被改寫的全留、死的全丟」；
+  `CollapseSurvivorPolicyTests` 加「拼法不同時倖存配對自己的勝」（同拼法 #468 照舊）＋ R18「三列碰撞留與 keeper 同拼法的弱血統那筆」「kept 解析不出時說出來」；`DivergenceResolveVenueTests` 加「keeper 路徑收攏列印兩個拼法」＋ R18「keeper 的死 verdict 讓位給活邊那筆」「三方合併走 #468 不走陣列順序」；`VerdictHolderGridTests` ＋ R18「person keeper 路徑活邊勝」「不相干 rename 不動另一 work 的重複」「rename 留被改寫的活 verdict」；`PairingUniquenessHealthTests`／`RecordIssuesSummaryTests` ＋ R18 `cappedRecords` ＋ R19「以記錄計」「App 渲染且家族值標下限」；`VerdictHolderGridTests` ＋ R19「三方碰撞六種排列同一答案」「被改寫的全留、死的全丟」＋ R20「早已指向新鍵的死 rejected 也丟」「不論拼法一律丟」「同拼法重複走 #468 不走順序」「不相干 reference 相對順序不變」「死列點名同拼法、否則第一筆活的」「`VerdictEdgeSet` 略過非 StoreKey 的邊」；`CollapseSurvivorPolicyTests` ＋ R20「收攏列印 rests-on digest」；`StoreHealthSurfaceTests` ＋ R20「每個家族存取子都被 doctor 與 App 消費」（源碼掃描，取代對 computed 家族無效的反射）；`PackageManifestTests`（新）守 test target 的 import 閉包；`PrePushHookTests` ＋ R20「native 產物目錄不在即中止」；`VenueAuthorizedWriteTests` 的 doctor 測試斷言 `deadVerdicts`／`contradictoryVerdicts`；
   `StoreHealthSurfaceTests` 的窗口改成掃到閉合大括號；`PairingUniquenessHealthTests` 加「家族計數
   不含概括句」；`RecordIssuesSummaryTests` 加「App 預覽不二次逃脫」；`VerdictHolderGridTests` 另加 person 合併的相反判定拒與遷移去重、work 合併的 holder 遷移矛盾拒 ＋ R14：holder 遷移留兩個 literal 拒、合併前就有的矛盾不擋、person dry-run 預告 #271 的去重 ＋ R15：住在被併鍵上的既有矛盾對不擋、被併鍵上既有的雙 literal 不擋、既有歧義變大仍擋且訊息分兩半、倖存者自己持有的 `person:<被併>` 矛盾對不擋而改寫後才相撞的擋、收攏列印原值並逐段截（merge 與 rename）（52 條）；`PairingUniquenessHealthTests`（新）與 `RecordIssuesSummaryTests` 加兩族家族計數；`VerdictEqualityTests` 加 malformed 回退鍵不碰撞；`OrderInsensitiveCollapseTests` 三處 pin 改成遷移前的原值；`AssembledDisplaySafetyTests` 加 organization 的 fmt 語意驗證；`DisplaySinkCoverageTests` 加「守衛認得 `displaySafeInvisible(`」；
   `CanonicalFormatValidationTests` 加 venue 語意驗證
 - `record-divergence --candidate` 的 help 與 MCP `candidates` 描述補 venue（#553 遺留，兩面對齊）
+- R20：`LibraryStore.migratedVerdicts` 重寫（D58）、`describeCollapsedVerdict` 加 `why:` 與 rests-on、`VerdictEdgeSet` 驗鍵、doctor／App 名冊補齊、`lowerBound` 涵蓋 `total`／`errors`（D59）、`RecordIssuesSection` 加「矛盾 verdict」列、hook／`ci.yml` 釘 native 且重指失敗中止、`Package.swift` 註解改寫；負控 11 支各紅一次、真 binary 重現 DA 第 1 列並驗 doctor 名冊
 - `mcp-cli-parity` 的 `akashic_update_venue` 列補記；`two-kinds-of-edits` 加一列、#553 那列
   理由改寫；`DivergenceResolve` 四處「venue 沒有 authorize 面」的文字改指向本面
 

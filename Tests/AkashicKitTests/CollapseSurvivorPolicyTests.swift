@@ -152,4 +152,17 @@ final class CollapseSurvivorPolicyTests: XCTestCase {
         let row = LibraryStore.describeCollapsedVerdict(original: dropped, kept: kept)
         XCTAssertTrue(row.contains("無法解析"), row)
     }
+
+    /// R19 verify security 第 22 列：收攏列只印 statement／URL，被丟的 judgement 所依的 `restsOn` digest 無聲消失——`sources/` 的 blob 還在，
+    /// 指向它們的指標卻沒了，唯一的副本在 store 的 git 歷史。R20：列印 digest 數與前幾筆（截 3）。
+    func testCollapsedRowNamesTheEvidenceDigestsOfTheDroppedVerdict() {
+        let digest = "sha256:" + String(repeating: "ab", count: 32)
+        let dropped = ProvenanceReference(field: "resolution-confirmed",
+                                          value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "doomed2020a", literal: "Vee Journal").encoded,
+                                          kind: .judgement(statement: "s", restsOn: [digest]))
+        let row = LibraryStore.describeCollapsedVerdict(original: dropped)
+        XCTAssertTrue(row.contains("rests-on 1 筆") && row.contains(digest), row)
+        let bare = ProvenanceReference(field: "resolution-confirmed", value: dropped.value, kind: .judgement(statement: "s", restsOn: []))
+        XCTAssertFalse(LibraryStore.describeCollapsedVerdict(original: bare).contains("rests-on"), "沒有 digest 就不說")
+    }
 }

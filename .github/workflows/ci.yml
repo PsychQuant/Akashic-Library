@@ -71,15 +71,19 @@ jobs:
       #
       # build 與 test target 都開啟：測試碼本身若因 API 轉為 nonthrowing 而留下
       # 多餘 `try`，也會讓可重現驗證與實際 merge tree 分歧（#215）。
+      # #577：Xcode 27 的預設建置系統 swiftbuild 讓三個外部探針測試必紅、且會把 .build/debug 改指 out/Products/Debug——
+      # 與 .githooks/pre-push 同一個中間項：釘 native、build 之後把連結指回去。#577 落地時兩處一起拿掉。
       - name: Build（warnings 視為錯誤）
-        run: swift build -Xswiftc -warnings-as-errors
+        run: |
+          swift build --build-system native -Xswiftc -warnings-as-errors
+          if [ -d ".build/$(uname -m)-apple-macosx/debug" ]; then ln -sfn "$(uname -m)-apple-macosx/debug" .build/debug; else echo "找不到 native 產物目錄"; exit 1; fi
 
       # **不得加 --skip**（#57）。允許跳過測試的 CI 等於沒有 CI；要暫時停用某個
       # 測試，正確做法是在測試裡 XCTSkip 並寫明理由，那會留在程式碼裡被 review。
       - name: Test
         run: |
           set -o pipefail
-          swift test -Xswiftc -warnings-as-errors 2>&1 | tee /tmp/test.log
+          swift test --build-system native -Xswiftc -warnings-as-errors 2>&1 | tee /tmp/test.log
 
       # **Plugin parity 守衛**（#407）。放這個 job 而不是 plugin-guards.yml，
       # 因為它們拿**建好的 CLI** 當 oracle——比對 census 的 store-marker 解析

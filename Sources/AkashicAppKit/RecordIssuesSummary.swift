@@ -12,13 +12,16 @@ import AkashicStoreIO
 /// 住在 View 之外（與 `RenameReportSummary` 同形）：`AkashicApp/` 的 UI 不在 SwiftPM 測試範圍，能測的部分要最大化；
 /// View 只收這個值型別的窄輸入（`swiftui-specialist` 的 narrow-inputs 規則）。
 struct RecordIssuesSummary: Equatable {
-    /// per-record 問題總數（error ＋ warning）。
+    /// per-record **訊息**總數（error ＋ warning；概括句也是一則）——有記錄被截時是問題數的下限（R19 verify requirements 第 5 列：這裡曾寫「問題總數」）。
     let total: Int
     /// 其中 error 級的——它們本來就讓 `hasFindings` 亮，這裡只是讓兩個區塊的數字對得起來。
     let errors: Int
     /// 具名家族的計數（各自有 `StoreHealth` 的單一前綴定義）。#450 加兩族：拆分後的孤兒 verdict、
     /// 拆分記錄各段全不在——CLI／MCP 有計數而 App 沒有，就是 #453 那條「一面有計數另一面沒有」的分岔。
     let deadVerdicts: Int
+    /// #486 的矛盾 verdict——R20 才進 App（R19 verify DA 第 12 列：`StoreHealth.contradictoryVerdicts` 全樹零消費，doctor 與 App 兩面
+    /// 都沒有這一族，而 rename 剛能製造它）。
+    let contradictoryVerdicts: Int
     let danglingSources: Int
     let venueVerdictBudget: Int
     let orphanedSplitVerdicts: Int
@@ -33,9 +36,10 @@ struct RecordIssuesSummary: Equatable {
     /// `.help` 用：前幾則訊息（`displaySafe`，每則截斷），加一句「完整逐行看 CLI validate」。
     let help: String
 
-    /// 家族計數的呈現（R19 D57；R18 verify Codex 第 3 列：`cappedRecords` 到得了這裡卻沒有任何 View 消費它，側欄的家族計數仍是裸數字）：
-    /// 有記錄被截時每個家族的計數都是下限（每筆記錄至多 20 則進家族），前綴「≥」；沒有記錄被截時計數精確、照印。
-    /// `total`／`errors` 不經這裡——它們數的是訊息則數（概括句也是一則），本來就精確。
+    /// 計數的呈現（R19 D57、R20 D59；R18 verify Codex 第 3 列：`cappedRecords` 到得了這裡卻沒有任何 View 消費它，側欄的家族計數仍是裸數字）：
+    /// 有**任何**記錄被截時，`total`／`errors`（訊息則數——被截掉的正是 error 級訊息，R19 verify logic 第 7 列、regression 第 3 列）與
+    /// 每個家族的計數都是下限，前綴「≥」；沒有記錄被截時計數精確、照印。閘是全域的：一筆記錄被截就讓未受影響的家族也帶「≥」——
+    /// 「≥ n」對精確值仍為真，方向保守，help 文案說「未必每一族都受影響」（R19 verify regression 第 6 列，不寫成因果）。
     func lowerBound(_ n: Int) -> String { cappedRecords > 0 ? "≥ \(n)" : "\(n)" }
 
     /// 全為零時回 nil——**沉默即健康**（側欄「較新欄位」0 時不顯示的既有慣例）。
@@ -45,6 +49,7 @@ struct RecordIssuesSummary: Equatable {
         total = issues.count
         errors = issues.filter { $0.issue.severity == .error }.count
         deadVerdicts = health.deadVerdicts.count
+        contradictoryVerdicts = health.contradictoryVerdicts.count
         danglingSources = health.danglingSources.count
         venueVerdictBudget = health.venueVerdictBudgetWarnings.count
         orphanedSplitVerdicts = health.orphanedSplitVerdicts.count

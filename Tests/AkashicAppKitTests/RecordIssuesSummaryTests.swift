@@ -177,10 +177,45 @@ final class RecordIssuesSummaryTests: XCTestCase {
         // 兩件都要在：閘與值（只查 `summary.cappedRecords` 出現過會被 `.help` 字串裡的插值滿足——R19 負控 NC6 抓到的假綠）
         XCTAssertTrue(code.contains("if summary.cappedRecords > 0 {"), "RecordIssuesSection 沒有以 cappedRecords 閘出一列——doctor 面說得出「還有幾筆被截」而 App 面說不出")
         XCTAssertTrue(code.contains("LabeledContent(\"被截的記錄\", value: \"\\(summary.cappedRecords)\")"), "「被截的記錄」那一列的值要是 cappedRecords 本身")
-        for family in ["deadVerdicts", "danglingSources", "venueVerdictBudget", "orphanedSplitVerdicts", "contradictedRemovalRecords",
-                       "duplicateVenueEdges", "confirmedLiteralAmbiguities", "staleSplitRecords"] {
-            XCTAssertTrue(code.contains("summary.lowerBound(summary.\(family))"), "\(family) 的值沒有經 lowerBound——被截時它是下限")
+        // R20（R19 verify requirements 第 5 列、DA 第 13 列）：名冊用反射取自型別本身，不寫死；且釘在 `value:` 的位置上——
+        // 只查呼叫出現過會被 `.help` 裡的插值滿足（同一函式裡對同一風險曾有兩種標準）。`total`／`errors` 也是下限（D59），一起釘。
+        let store = LibraryStore(root: root)
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = [ProvenanceReference(field: "resolution-confirmed",
+                                            value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "w1", literal: "Alpha Journal").encoded,
+                                            kind: .judgement(statement: "測試", restsOn: [])),
+                        ProvenanceReference(field: "resolution-confirmed",
+                                            value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "w1", literal: "Beta Review").encoded,
+                                            kind: .judgement(statement: "測試", restsOn: []))]
+        try store.writeVenue(v)
+        try store.writeEntry(Entry(id: UUID(), citekey: "w1", type: .periodicalArticle, title: "T", authors: [.literal("A B")], date: "2020"))
+        let summary = try XCTUnwrap(RecordIssuesSummary(health: store.health(from: try store.load())))
+        let counters = Mirror(reflecting: summary).children.compactMap { child -> String? in
+            guard let label = child.label, child.value is Int, label != "cappedRecords" else { return nil }
+            return label
         }
+        XCTAssertGreaterThanOrEqual(counters.count, 11, "反射應看到 total、errors 與各家族：\(counters)")
+        XCTAssertTrue(counters.contains("contradictoryVerdicts"), "#486 的家族要到得了 App（R19 verify DA 第 12 列）：\(counters)")
+        for name in counters {
+            XCTAssertTrue(code.contains("value: summary.lowerBound(summary.\(name)))"), "\(name) 的值沒有在 value: 的位置經 lowerBound——被截時它是下限")
+        }
+    }
+
+    /// R19 verify DA 第 12 列：`StoreHealth.contradictoryVerdicts`（#486）全樹零消費——doctor 與 App 兩面都沒有這一族，而加家族的理由
+    /// （截 20 則／預覽 5 則時可能完全看不到）對矛盾 verdict 一字不改地成立；rename 剛製造出來的矛盾對兩面都沒有計數可看。
+    func testContradictoryVerdictsReachTheAppSummary() throws {
+        let store = LibraryStore(root: root)
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = ["resolution-confirmed", "resolution-rejected"].map { field in
+            ProvenanceReference(field: field,
+                                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "w1", literal: "Alpha Journal").encoded,
+                                kind: .judgement(statement: "測試", restsOn: [])) }
+        try store.writeVenue(v)
+        try store.writeEntry(Entry(id: UUID(), citekey: "w1", type: .periodicalArticle, title: "T", authors: [.literal("A B")], date: "2020"))
+        let summary = try XCTUnwrap(RecordIssuesSummary(health: store.health(from: try store.load())))
+        XCTAssertEqual(summary.contradictoryVerdicts, 1)
+        XCTAssertEqual(summary.cappedRecords, 0)
+        XCTAssertEqual(summary.lowerBound(summary.total), "\(summary.total)", "沒有記錄被截：total 精確")
     }
 
     /// R15 verify 第 16 列：App 預覽對已消毒的訊息再過一次 `displaySafe(_, max: 160)`——反斜線被逃成 U+005C，且 160 把家族前綴之後的

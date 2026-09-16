@@ -1016,20 +1016,30 @@ extension LibraryStore {
         private let edges: Set<String>
         static let empty = VerdictEdgeSet(edges: [])
         private init(edges: Set<String>) { self.edges = edges }
+        /// 邊的鍵只收合法 `StoreKey`（R20；R19 verify security 第 19 列：`Entry.venues[].key`／`authors[].key` 沒有 StoreKey 約束，
+        /// 而查詢側的 holder 經 `VerdictPairingValue.parse` 驗過——插入側補同一道），分隔符用不可表示的 U+0000（與
+        /// `contradictoryVerdictIssues`／`cappedRecords` 同型），複合鍵才碰撞不了。
+        private static func edge(_ recordKind: String, _ recordKey: String, _ holderKind: String, _ holder: String) -> String? {
+            guard StoreKey.isValid(recordKey), StoreKey.isValid(holder) else { return nil }
+            return "\(recordKind)\u{0}\(recordKey)\u{0}\(holderKind)\u{0}\(holder)"
+        }
         init(snapshot: LibraryLoad) {
             var s = Set<String>()
             for e in snapshot.entries {
-                for v in e.venues { if case let .key(k) = v { s.insert("venue:\(k)|work:\(e.citekey)") } }
-                for a in e.authors { if case let .key(k) = a { s.insert("person:\(k)|work:\(e.citekey)") } }
+                for v in e.venues { if case let .key(k) = v, let x = Self.edge("venue", k, "work", e.citekey) { s.insert(x) } }
+                for a in e.authors { if case let .key(k) = a, let x = Self.edge("person", k, "work", e.citekey) { s.insert(x) } }
             }
             for p in snapshot.people {
-                for a in p.profile.affiliations.entries { if case let .key(k) = a.value { s.insert("organization:\(k)|person:\(p.key)") } }
+                for a in p.profile.affiliations.entries {
+                    if case let .key(k) = a.value, let x = Self.edge("organization", k, "person", p.key) { s.insert(x) }
+                }
             }
             edges = s
         }
         /// `recordKind` 是持有記錄的形狀（`venue`／`person`／`organization`），`pairing` 是它持有的那筆 verdict 的配對。
         func isLive(recordKind: String, recordKey: String, pairing: ProvenanceReference.VerdictPairingValue) -> Bool {
-            edges.contains("\(recordKind):\(recordKey)|\(pairing.holderKind.rawValue):\(pairing.holder)")
+            guard let x = Self.edge(recordKind, recordKey, pairing.holderKind.rawValue, pairing.holder) else { return false }
+            return edges.contains(x)
         }
     }
 
@@ -1054,7 +1064,10 @@ extension LibraryStore {
     static func verdictLiteralBytes(_ r: ProvenanceReference) -> [UInt8] {
         Array((ProvenanceReference.VerdictPairingValue.parse(r.value ?? "")?.literal ?? r.value ?? "").utf8)
     }
-    /// **收攏留哪一筆**（R18，D51——三條收攏路徑同一個政策；R17 verify Codex 第 1 列 HIGH、logic 第 6 列、regression 第 8 列）。
+    /// **收攏留哪一筆**（R18，D51；R17 verify Codex 第 1 列 HIGH、logic 第 6 列、regression 第 8 列）。三條收攏路徑都經這裡，但
+    /// **候選集合不同**（R20；R19 verify requirements 第 1 列、logic 第 6 列：R18／R19 寫「三條路徑同一個勝者函式」而 rename 內聯了
+    /// 自己的政策）：keeper 合併與 holder 遷移把同鍵的全部候選送進來；rename 只把**被改寫且拼法位元組相同**的送進來（全活、全是
+    /// 倖存配對自己的，所以只剩 #468 三層），拼法不同的都留、早已指向新鍵的在進來之前就當死的丟（D58）。
     /// 回傳勝者在 `cands` 裡的索引。四層，前三層**只在候選的拼法位元組不同時**才縮小集合（同拼法時留哪一筆都不動任何字串，
     /// 那時只有 #468 的血統警告值得保）：
     /// 0. 活著的邊那些勝（D51）；
@@ -1766,8 +1779,9 @@ extension LibraryStore {
     /// `pairing.holder != survivor` 自保——指向 survivor 的 verdict 不是遷移對象；
     /// 若把它算成「本次觸及」，觸及集合會退化成全量 dedup（被否決的方案 (a)）且
     /// `changed` 恆真造成空寫。#463 複用本函式的是 merge 側的四格（org×work-merge 是 drop-in；person-merge 的
-    /// organization／person／venue 三格傳 `.person`）；rename 側走 `LibraryStore.migratedVerdicts`（全量 dedup，
-    /// 語意刻意不同）。
+    /// organization／person／venue 三格傳 `.person`）；rename 側走 `LibraryStore.migratedVerdicts`——R18 D53 起同樣只收
+    /// 本次觸及的鍵（R19 verify requirements 第 2 列：這裡曾寫「全量 dedup，語意刻意不同」，那是 R18 之前的故事），差別在
+    /// rename 對早已指向新鍵的 verdict一律當死的丟（D58），merge 對同配對的相反判定則是整批拒絕（D31／D34）。
     /// merge 側 holder verdict 的遷移＋收攏，**holderKind 參數化**（#463）：`.work`（work merge，
     /// #461 的原形）與 `.person`（person merge——`person:<被併 key>` holder 住在 organization 記錄上，
     /// 是 org-resolution 的判定；#395 rename 側已遷、merge 側漏了，#232→#271 的不對稱在 person-key 軸重演）。
@@ -1889,13 +1903,18 @@ extension LibraryStore {
     /// 不逃脫——消毒在 sink（`displaySafe` 不冪等）。
     /// `kept` 是留下來的那筆（R17，D47；R16 verify DA 第 1 列：R16 的措辭「正規化後相等」用的正是 R16 自己宣告不足以判定相同的那把尺，
     /// 且沒有說倖存邊記錄的 literal 由 X 變成 Y）——兩筆 literal **位元組不同**時把留下的拼法也印出來。
-    static func describeCollapsedVerdict(original r: ProvenanceReference, kept: ProvenanceReference? = nil) -> String {
+    /// `why`（R20，D58）：與 kept 無關的丟棄理由（早已指向新鍵的死 verdict）——沒有 kept 的丟棄不能沉默。
+    /// **rests-on 的 digest 也印**（R20；R19 verify security 第 22 列：被丟的 judgement 所依的證據指標無聲消失，`sources/` 的 blob 還在
+    /// 而指向它們的唯一副本只剩 git 歷史）——數量與前三筆，每筆截 80。
+    static func describeCollapsedVerdict(original r: ProvenanceReference, kept: ProvenanceReference? = nil, why: String? = nil) -> String {
         let reason: String
         switch r.kind {
-        case .judgement(let statement, _): reason = "判定「\(clipScalars(statement, 200))」"
+        case .judgement(let statement, let restsOn):
+            let evidence = restsOn.isEmpty ? "" : "（rests-on \(restsOn.count) 筆：\(restsOn.prefix(3).map { clipScalars($0, 80) }.joined(separator: "、"))\(restsOn.count > 3 ? "…" : "")）"
+            reason = "判定「\(clipScalars(statement, 200))」" + evidence
         case .retrieval(let url, _, _, _, _): reason = "擷取 \(clipScalars(url, 200))"
         }
-        return "\(r.field) \(clipScalars(r.value ?? "", 200))——丟棄 \(reason)" + spellingNote(dropped: r, kept: kept)
+        return "\(r.field) \(clipScalars(r.value ?? "", 200))——丟棄 \(reason)" + spellingNote(dropped: r, kept: kept) + (why.map { "——\($0)" } ?? "")
     }
     /// 被丟的與留下的 literal 位元組不同時的附註；相同（或無從比）時是空字串。
     static func spellingNote(dropped: ProvenanceReference, kept: ProvenanceReference?) -> String {

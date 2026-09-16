@@ -609,7 +609,10 @@ public final class LibraryStore {
         //   **`variant` 刻意不設閘**（同 format 13 對識別碼欄位的 doctrine，見 :498-504）：
         //   它有一個必須跑在 bump **之前**的遷移（`migrate-venue-variants`），對它設閘會讓
         //   遷移在 bump 之前跑不動；`paginated` 沒有 pre-bump 遷移，設閘零成本。判準是
-        //   「有沒有 pre-bump 遷移」，不是「會不會 quarantine」。
+        //   「有沒有 pre-bump 遷移」，不是「會不會 quarantine」。**R20 補記**（#554 R19 verify regression
+        //   第 24 列）：D41 起 `migrate-venue-variants --apply` 一律拒絕，那條 pre-bump 遷移已不存在，依這個
+        //   判準答案變成「沒有」；閘仍不加——live store 已在 16／17、format-13 store 零實例，#567 把命令退場時
+        //   一併裁要不要補閘，不在這裡半做。
         if format < 14, v.paginated != nil {
             throw StoreIOError.invalidInput(
                 what: "venue「\(displaySafe(v.key, max: 120))」的 paginated 值",
@@ -1879,8 +1882,8 @@ extension LibraryStore {
     /// 三份複本，verify security 席指出同一 commit 剛用「不漂移」證立另一個抽出，這裡沒有理由例外）。
     ///
     /// 文法解析與 store 閘同源（`VerdictPairingValue`），不另寫第二份——那正是 #232 D3 自認過的
-    /// grammar-in-string 漂移。收攏**只及於這次改寫動到的鍵、且以鍵整組算**（R18 D53、R19 D55——#232 的原語意是可解析 verdict 的全量
-    /// (field, value) dedup，R17 verify DA 第 10 列指出那讓不相干 work 的重複由 YAML 順序決定留哪個）；**被收攏的列逐筆回報、印遷移前的原值**（#495 補上——在此之前 rename 側是靜默的，
+    /// grammar-in-string 漂移。收攏**只及於這次改寫動到的鍵，且早已指向新鍵的一律當死的丟**（R18 D53、R19 D55、R20 D58——#232 的原語意是
+    /// 可解析 verdict 的全量 (field, value) dedup，R17 verify DA 第 10 列指出那讓不相干 work 的重複由 YAML 順序決定留哪個）；**被收攏的列逐筆回報、印遷移前的原值**（#495 補上——在此之前 rename 側是靜默的，
     /// #461 只修了 merge 側而 #463 把這一面擴到 organization 與 venue 使缺口同步變大）。描述由
     /// `describeCollapsedVerdict` 產生，與 merge 側**同一個函式**：兩條路徑執行的是同一條不變式
     /// （store 永不持有重複 verdict），兩份描述會分岔。呼叫端負責加上持有記錄的 kind 與 key——
@@ -1909,47 +1912,65 @@ extension LibraryStore {
                                         kind: r.kind), true, true)
         }
         guard rewritten.contains(where: \.touched) else { return nil }
-        // 第二段：**只收攏這次動到的鍵，且以鍵整組算**（R18 D53、R19 D55；R17 verify DA 第 10 列：R16 之前這裡是全量 (field, value) dedup 且沒有
-        // 勝者政策——對不相干 work 的兩筆只差位元組的 confirmed 由 YAML 陣列順序決定留哪個；R18 verify Codex 第 1 列 HIGH：D53 的實作用**單一槽位**
-        // 記帳——每個鍵只記「目前留下的那筆」是活是死——三方碰撞（兩筆早已指向新鍵的死 verdict ＋ 一筆被改寫的活 verdict）時，第二筆死的對上
-        // 「已被活的取代的槽位」走到「同狀態、拼法不同：都留」那一支，留下與否取決於 YAML 陣列順序）。同一個被動到的鍵下：
-        //  · 被改寫的（活的）**全留**，拼法位元組相同的收成首見；兩筆被改寫而拼法不同的都留（那是 rename 之前就在的第 27 列第二類 warning，
-        //    rename 不替它判定）；
-        //  · 早已指向新鍵的（沒被改寫的）**全丟**——目的鍵在 rename 之前不存在（否則 rename 拒絕），所以它們必然是死的；收攏列的「留下的那筆」
-        //    是同拼法的活 verdict、沒有就是第一筆活的（那時印出兩個拼法）。
-        // 整組放在該鍵首次出現的位置，活的之間維持原相對順序。
-        let touchedKeys = Set(rewritten.filter(\.touched).map { ProvenanceReference.verdictEqualityKey(field: $0.ref.field, value: $0.ref.value) })
-        var groups: [String: [Int]] = [:]   // 被動到的鍵 → 該鍵全部 verdict 在 refs 裡的索引（原順序）
-        for (i, item) in rewritten.enumerated() where item.isVerdict {
-            let key = ProvenanceReference.verdictEqualityKey(field: item.ref.field, value: item.ref.value)
-            if touchedKeys.contains(key) { groups[key, default: []].append(i) }
-        }
+        // 第二段（R18 D53 → R19 D55 → R20 D58）。目的鍵在 rename 之前不存在（否則 rename 拒絕），所以：
+        //  · **任何**早已指向新鍵（同 holderKind）而沒被改寫的 verdict 都是死的——不論 field、不論拼法——全丟並逐筆回報
+        //    （R19 verify DA 第 1 列 HIGH：D55 以含 field 的 `verdictEqualityKey` 分組，同配對的 rejected 逃過「全丟」、原樣通過，
+        //    rename 之後從死變活、與剛遷過來的 confirmed 構成 #486 矛盾對；merge 對同一形狀（D31／D34）是整批拒絕）；
+        //  · 被改寫的（活的）全留；拼法位元組相同的重複只留一筆——勝者走 `collapseWinner`（候選全活、全是倖存配對自己的，
+        //    只剩 #468 三層：弱血統的警告留得住、與 YAML 順序無關；R19 verify logic 第 6 列：R19 留首見，#468 那一層在 rename 沒跑）；
+        //    拼法不同的都留——第 27 列的第二半只掃 venue×work，其餘六格（person／organization 持 work、三種 holder 持 person）
+        //    沒有掃描面也沒有揭露面，rename 不替它判定（R19 verify requirements 第 4 列：誠實邊界，寫在 §3.5）；
+        //  · 留下的每一筆待在原位置，不相干 reference 的相對順序不變（R19 verify regression 第 23 列：整組前移會重排）。
+        // R18 verify Codex 第 1 列（單一槽位記帳讓三方碰撞由順序決定）由「先分組再逐筆走」的形狀消滅，六種排列同一個答案。
         func bytes(_ r: ProvenanceReference) -> [UInt8] {
             Array((ProvenanceReference.VerdictPairingValue.parse(r.value ?? "")?.literal ?? "").utf8)
         }
+        func key(_ r: ProvenanceReference) -> String { ProvenanceReference.verdictEqualityKey(field: r.field, value: r.value) }
+        // 1. 活的按鍵分組，同拼法折成一筆（勝者索引記在 winnerOf）——位元組只算一次、以字典索引，O(N)（R19 verify security 第 8 列）
+        var liveGroups: [String: [Int]] = [:]
+        for (i, item) in rewritten.enumerated() where item.touched { liveGroups[key(item.ref), default: []].append(i) }
+        var winnerOf: [Int: Int] = [:]                 // 被改寫的索引 → 留下的那筆的索引
+        var liveWinnersByKey: [String: [Int]] = [:]    // 鍵 → 勝者索引（原順序），給死 verdict 的收攏列找「留下的拼法」
+        for (k, idxs) in liveGroups {
+            var order: [[UInt8]] = []; var members: [[UInt8]: [Int]] = [:]
+            for i in idxs {
+                let b = bytes(rewritten[i].ref)
+                if members[b] == nil { order.append(b) }
+                members[b, default: []].append(i)
+            }
+            for b in order {
+                let group = members[b]!
+                let w = group.count == 1 ? 0
+                    : Self.collapseWinner(group.map { CollapseCandidate(ref: rewritten[$0].ref, ownedBySurvivor: true, live: true) })
+                for i in group { winnerOf[i] = group[w] }
+                liveWinnersByKey[k, default: []].append(group[w])
+            }
+        }
+        // 2. 沒被改寫而指向新鍵的：死的
+        func deadAtNewKey(_ r: ProvenanceReference) -> Bool {
+            guard let p = ProvenanceReference.VerdictPairingValue.parse(r.value ?? "") else { return false }
+            return p.holderKind == holderKind && p.holder == newKey
+        }
+        let anyDead = rewritten.contains { $0.isVerdict && !$0.touched && deadAtNewKey($0.ref) }
+        guard rewritten.contains(where: \.touched) || anyDead else { return nil }
+        // 3. 逐筆走：留、折、丟——留下的都在原位
         var out: [ProvenanceReference] = []
         var collapsed: [String] = []
-        var emitted = Set<String>()
-        for item in rewritten {
+        for (i, item) in rewritten.enumerated() {
             guard item.isVerdict else { out.append(item.ref); continue }
-            let key = ProvenanceReference.verdictEqualityKey(field: item.ref.field, value: item.ref.value)
-            guard let members = groups[key] else { out.append(item.ref); continue }
-            guard emitted.insert(key).inserted else { continue }   // 整組已在首次出現處放完
-            var winners: [ProvenanceReference] = []
-            for j in members where rewritten[j].touched {
-                let live = rewritten[j].ref
-                if let w = winners.first(where: { bytes($0) == bytes(live) }) {
-                    collapsed.append(Self.describeCollapsedVerdict(original: refs[j], kept: w))
-                } else {
-                    winners.append(live)
-                }
+            if item.touched {
+                let w = winnerOf[i]!
+                if w == i { out.append(item.ref) } else { collapsed.append(Self.describeCollapsedVerdict(original: refs[i], kept: rewritten[w].ref)) }
+                continue
             }
-            for j in members where !rewritten[j].touched {
-                let dead = rewritten[j].ref
-                let kept = winners.first(where: { bytes($0) == bytes(dead) }) ?? winners[0]   // 鍵在 touchedKeys 裡 ⇒ winners 非空
-                collapsed.append(Self.describeCollapsedVerdict(original: refs[j], kept: kept))
-            }
-            out.append(contentsOf: winners)
+            guard deadAtNewKey(item.ref) else { out.append(item.ref); continue }
+            // 收攏列的「留下的那筆」只在同一個鍵（同 field、同正規化拼法）的活勝者裡找：同拼法優先，否則陣列順序裡第一筆
+            // （拼法揭露的順序相依只在這一層；留下的集合與順序無關）；異 field 或異拼法的死 verdict 沒有對應的活筆，只說理由
+            let cands = liveWinnersByKey[key(item.ref)] ?? []
+            let deadBytes = bytes(item.ref)
+            let kept = (cands.first { bytes(rewritten[$0].ref) == deadBytes } ?? cands.first).map { rewritten[$0].ref }
+            collapsed.append(Self.describeCollapsedVerdict(original: refs[i], kept: kept,
+                                                           why: "早已指向新鍵「\(newKey)」的死 verdict（rename 之前目的鍵不存在；不論 field 與拼法一律丟棄，留著會在 rename 之後復活）"))
         }
         return (out, collapsed)
     }

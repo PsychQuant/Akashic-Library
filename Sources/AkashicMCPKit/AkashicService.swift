@@ -387,8 +387,14 @@ public final class AkashicService {
                 first.append(item)
             }
             d["recordIssues"] = [
+                // `count`／`errors` 數的是**訊息則數**（概括句也是一則）：有記錄被截時它們也是下限——每筆記錄至多 20 則進來、其餘一句概括
+                // （R20，D59；R19 verify logic 第 7 列：R19 寫「count 本身完整」，而被截掉的正是 error 級訊息）。
                 "count": perRec.count,
                 "errors": perRec.filter { $0.issue.severity == .error }.count,
+                // 名冊要與 `StoreHealth` 的家族存取子一一對應（R20；R19 verify DA 第 12 列：doctor 少了這兩族、App 少了後者，而反射守衛
+                // 只看 stored property、對 computed 的家族從來沒生效——`StoreHealthSurfaceTests.testEveryFamilyAccessorIsConsumedByDoctorAndTheApp` 改掃源碼）
+                "deadVerdicts": health.deadVerdicts.count,   // display-safe-exempt: Int
+                "contradictoryVerdicts": health.contradictoryVerdicts.count,   // display-safe-exempt: Int
                 // #453：本機缺承重存檔的計數——per-record 逐條在 `first`（截 20），計數讓呼叫端分得出
                 // 「整批」（其他 clone 上 sources/ 沒同步）與「零星」（一筆捏造）。
                 "danglingSources": health.danglingSources.count,
@@ -404,7 +410,7 @@ public final class AkashicService {
                 "confirmedLiteralAmbiguities": health.confirmedLiteralAmbiguities.count,   // display-safe-exempt: Int
                 // **家族計數是下限**（R18 D54；R17 verify Codex 第 2 列：R17 在這裡寫「各族計數永遠完整」，而 `StoreHealth` 的 doc 說
                 // 被截的記錄上家族計數 ＝ min(受影響數, 20)——同一個 diff 裡的兩份描述）：每筆記錄至多 `Entry.perRecordWarningCap` 則進家族，
-                // `cappedRecords` 說有幾筆記錄被截（以記錄計，R19 D56）；要全部就用 CLI `validate`。`count` 本身完整（概括句也是一則）。
+                // `cappedRecords` 說有幾筆記錄被截（以記錄計，R19 D56）；要全部就用 CLI `validate`。`count`／`errors` 是訊息則數，被截時同樣是下限（D59）。
                 "cappedRecords": health.cappedRecords.count,   // display-safe-exempt: Int
                 "first": first,
                 // **`first` 受位元組預算約束**（R17；R16 verify regression 第 8 列：R16 把單則上限 300 → 1,000 只為了「只截不逃」，卻把這個

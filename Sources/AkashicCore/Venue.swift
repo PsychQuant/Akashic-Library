@@ -394,7 +394,7 @@ public struct Venue: Equatable {
         }
         if unlistedViolating + unlistedCapHit > 0 {
             var parts: [String] = []
-            if unlistedViolating > 0 { parts.append("\(unlistedViolating) 組近重複（每一組都已評估且真的違反）") }
+            if unlistedViolating > 0 { parts.append("\(unlistedViolating) 組近重複（每一組都真的違反；部分組可能只評估到組內上限）") }
             if unlistedCapHit > 0 { parts.append("\(unlistedCapHit) 組同名段過多（求值到組內上限即拒，沒有一對被判定違反）") }
             issues.append(ValidationIssue(
                 severity: .error,

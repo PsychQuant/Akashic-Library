@@ -5,9 +5,9 @@ import AkashicStoreIO
 /// venue verdict 預算（#499）……。**獨立的閘**：由呼叫端以 `RecordIssuesSummary?` 決定出不出現，不掛在「健康」Section 的
 /// `hasFindings` 下（那個布林依 #416 只計 error，故意不讓 warning 亮燈）。
 ///
-/// **家族的值經 `summary.lowerBound`**（R19 D57；R18 verify Codex 第 3 列）：每筆記錄至多 20 則進家族，有記錄被截時各家族的計數是下限、
-/// 前綴「≥」，並多一列「被截的記錄」說有幾筆——doctor 面自 R18 起說得出這件事，App 面到 R19 才說。`RecordIssuesSummaryTests` 以源碼掃描釘住
-/// 每個家族都經過它。
+/// **每個計數的值都經 `summary.lowerBound`**（R19 D57、R20 D59；R18 verify Codex 第 3 列）：每筆記錄至多 20 則進來，有記錄被截時
+/// `記錄層問題`／`其中 error`（訊息則數）與各家族的計數都是下限、前綴「≥」，並多一列「被截的記錄」說有幾筆——doctor 面自 R18 起說得出
+/// 這件事，App 面到 R19 才說；`RecordIssuesSummaryTests` 以反射取名冊、以源碼掃描釘住每個計數都在 `value:` 的位置經過它。
 ///
 /// 窄輸入：只收 `RecordIssuesSummary`（值型別、幾個整數一個字串——列數見 `RecordIssuesSummary`，這裡刻意不複述），`AppState` 的其他變化不會讓本 view 失效
 /// （`swiftui-specialist`：pass views only the data they read）。完整逐行仍是 CLI `validate` 的職責。
@@ -16,11 +16,16 @@ struct RecordIssuesSection: View {
 
     var body: some View {
         Section("記錄") {
-            LabeledContent("記錄層問題", value: "\(summary.total)")
+            LabeledContent("記錄層問題", value: summary.lowerBound(summary.total))
                 .help(summary.help)
             if summary.errors > 0 {
-                LabeledContent("其中 error", value: "\(summary.errors)")
+                LabeledContent("其中 error", value: summary.lowerBound(summary.errors))
                     .help("error 級的 per-record 問題也算進上方「健康」的 hasFindings；warning 不算。")
+            }
+            if summary.contradictoryVerdicts > 0 {
+                LabeledContent("矛盾 verdict", value: summary.lowerBound(summary.contradictoryVerdicts))
+                    .help("同一 owner 對同一配對同時持有 confirmed 與 rejected（#486）。決定哪一個才對、刪掉另一個——"
+                          + "目前沒有工具面，手改 YAML。")
             }
             if summary.deadVerdicts > 0 {
                 LabeledContent("死 verdict", value: summary.lowerBound(summary.deadVerdicts))
@@ -62,8 +67,8 @@ struct RecordIssuesSection: View {
             }
             if summary.cappedRecords > 0 {
                 LabeledContent("被截的記錄", value: "\(summary.cappedRecords)")
-                    .help("有 \(summary.cappedRecords) 筆記錄的 per-record 問題超過每筆 20 則的上限（#554 R18 D54），"
-                          + "上方各家族的計數因此是下限（≥）。完整逐行：akashic validate")
+                    .help("有 \(summary.cappedRecords) 筆記錄的 per-record 問題超過每筆 20 則的上限（#554 R18 D54）——"
+                          + "上方的計數一律以下限呈現（≥；未必每一族都受影響）。完整逐行：akashic validate")
             }
         }
     }

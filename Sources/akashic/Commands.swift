@@ -2025,7 +2025,7 @@ struct Rename: ParsableCommand {
         if !report.verdictsCollapsed.isEmpty {   // #495：收攏丟列要說出來——靜默丟棄不可稽核（lossless-intake 執行細節 3）
             // 同一個生產者（`describeCollapsedVerdict`）的另一個 sink——與 merge 側同一種消毒、同一句措辭（R14 verify security 第 7 列、
             // requirements 第 13 列：鍵自 #470 起是正規化的，這裡曾寫「同 (field, value)」；列舉式 displaySafe 不逃脫 ZWSP／VS／TAG）
-            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（與遷移輸出同一配對——正規化後相等，留首見；印遷移前的原值）：")
+            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（被改寫的活 verdict 一律留、同拼法只留一筆；早已指向新鍵的死 verdict 一律丟；印遷移前的原值）：")
             for x in report.verdictsCollapsed { print("  · \(displaySafeInvisible(x, max: 1_000))") }
         }
     }
@@ -2077,7 +2077,7 @@ struct RenamePerson: ParsableCommand {
         if !report.verdictsCollapsed.isEmpty {   // #495：收攏丟列要說出來——靜默丟棄不可稽核（lossless-intake 執行細節 3）
             // 同一個生產者（`describeCollapsedVerdict`）的另一個 sink——與 merge 側同一種消毒、同一句措辭（R14 verify security 第 7 列、
             // requirements 第 13 列：鍵自 #470 起是正規化的，這裡曾寫「同 (field, value)」；列舉式 displaySafe 不逃脫 ZWSP／VS／TAG）
-            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（與遷移輸出同一配對——正規化後相等，留首見；印遷移前的原值）：")
+            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（被改寫的活 verdict 一律留、同拼法只留一筆；早已指向新鍵的死 verdict 一律丟；印遷移前的原值）：")
             for x in report.verdictsCollapsed { print("  · \(displaySafeInvisible(x, max: 1_000))") }
         }
         if report.authorEdgesRewritten.isEmpty && report.verdictValuesRewritten.isEmpty

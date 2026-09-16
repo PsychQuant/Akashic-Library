@@ -1529,5 +1529,8 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         let ri = try XCTUnwrap(json["recordIssues"] as? [String: Any], out)
         XCTAssertEqual(ri["confirmedLiteralAmbiguities"] as? Int, 20, "家族計數是下限（每筆記錄至多 20 則）")
         XCTAssertEqual(ri["cappedRecords"] as? Int, 1, "有一筆記錄被截，payload 要說：\(ri)")
+        // R20（R19 verify DA 第 12 列）：doctor 的家族名冊少了 `deadVerdicts` 與 `contradictoryVerdicts`——App 有前者、兩面都沒後者
+        XCTAssertEqual(ri["deadVerdicts"] as? Int, 0, "\(ri)")
+        XCTAssertEqual(ri["contradictoryVerdicts"] as? Int, 0, "\(ri)")
     }
 }

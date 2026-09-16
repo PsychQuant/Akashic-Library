@@ -81,7 +81,16 @@ fi
 SWIFT_BUILD_SYSTEM=(--build-system native)
 echo "pre-push: swift build --build-system native -Xswiftc -warnings-as-errors"
 swift build "${SWIFT_BUILD_SYSTEM[@]}" -Xswiftc -warnings-as-errors
-[ -d ".build/$(uname -m)-apple-macosx/debug" ] && ln -sfn "$(uname -m)-apple-macosx/debug" .build/debug
+# 重指失敗要出聲（R19 verify logic 第 30 列、regression 第 34 列）：連結若仍指著 swiftbuild 的產物，下方守衛會拿上一次建置的
+# akashic-guards 對新樹跑並全部印綠。沒有 .build 目錄（例如 PrePushHookTests 的 swift 是 stub）時本來就沒有守衛 binary 可指，略過。
+if [ ! -d .build ]; then
+  echo "pre-push: 沒有 .build 目錄，略過 .build/debug 重指"
+elif [ -d ".build/$(uname -m)-apple-macosx/debug" ]; then
+  ln -sfn "$(uname -m)-apple-macosx/debug" .build/debug
+else
+  echo "✗ pre-push: 找不到 native 產物目錄 .build/$(uname -m)-apple-macosx/debug——守衛會跑到別次建置的 binary，中止" >&2
+  exit 1
+fi
 
 echo "pre-push: swift test --build-system native -Xswiftc -warnings-as-errors（全套；判讀看最後一行總數——#56 的教訓）"
 swift test "${SWIFT_BUILD_SYSTEM[@]}" -Xswiftc -warnings-as-errors

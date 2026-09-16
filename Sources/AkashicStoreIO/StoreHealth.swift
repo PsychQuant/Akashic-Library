@@ -139,7 +139,9 @@ public struct StoreHealth {
     /// 不是受影響數；要全部就用 CLI `validate`。**被截的記錄數自己是一族**（`cappedRecords`，R18 D54；R17 verify Codex 第 2 列：
     /// doctor 的描述與註解說「各族計數永遠完整」、與這一段互相矛盾，而 MCP 描述是呼叫端唯一看得到的契約）——三面都說得出「還有幾筆被截」。
     /// **以 (kind, owner) 計，不是概括句的行數**（R19 D56；R18 verify Codex 第 2 列：一筆 venue 可以同時出名字近重複與 confirmed-literal 兩句概括，
-    /// R18 數行數就把「被截的記錄」多報一筆）——每筆記錄只留首見那一句，`count` 才真的是「幾筆記錄被截」。
+    /// R18 數行數就把「被截的記錄」多報一筆）——每筆記錄只留首見那一句，`count` 才真的是「幾筆記錄被截」。**留下的那一句是任意的**
+    /// （由 `validate()` 內部 append 的順序決定、severity 也跟著它），消費端只得讀 `count`／`kind`／`owner`，不得依它的 message 或
+    /// severity 分流（R19 verify logic 第 16 列）。
     public static let cappedRecordPrefix = Entry.perRecordCapSummaryPrefix
     public var cappedRecords: [OwnedIssue] {
         var seen = Set<String>()

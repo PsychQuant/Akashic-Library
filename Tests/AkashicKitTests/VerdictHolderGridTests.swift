@@ -639,10 +639,10 @@ final class VerdictHolderGridTests: XCTestCase {
     /// 在事後完全無法區分」。merge 側自 #461 起就有，rename 側到這裡才補上。
     func testRenameCollapsingAVerdictIsReportedNotSilent() throws {
         try entry("old2020a")
-        // 同一個 organization 同時持有指向舊鍵與新鍵的同 literal verdict——改名後兩者同值。
+        // 同一個 organization 對舊鍵持有兩筆同拼法的 verdict——改名後兩者同值、收攏成一筆（R21 起指向新鍵的那種 fixture 由 D60 拒絕）。
         try org("some-org", refs: [
             verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "Some Org"),
-            verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Some Org")])
+            verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "Some Org")])
         let report = try store.renameEntry(from: "old2020a", to: "new2020a")
         // 收攏真的發生了（兩條變一條）——沒有這一句，下面就只是在驗一個字串
         XCTAssertEqual(try holders(ofOrg: "some-org"), ["work:new2020a"])
@@ -659,7 +659,7 @@ final class VerdictHolderGridTests: XCTestCase {
         try store.writePerson(Person(key: "old-person", names: ["Old Person"]))
         try org("some-org", refs: [
             verdict("resolution-rejected", kind: .person, holder: "old-person", literal: "A B"),
-            verdict("resolution-rejected", kind: .person, holder: "new-person", literal: "A B")])
+            verdict("resolution-rejected", kind: .person, holder: "old-person", literal: "A B")])
         let report = try store.renamePerson(from: "old-person", to: "new-person")
         XCTAssertEqual(try holders(ofOrg: "some-org"), ["person:new-person"])
         XCTAssertEqual(report.verdictsCollapsed.count, 1, "\(report.verdictsCollapsed)")
@@ -1024,18 +1024,22 @@ final class VerdictHolderGridTests: XCTestCase {
     /// rename 那條路同一個生產者、同一個缺陷（R14 verify security 第 7 列、requirements 第 13 列）：收攏列要印舊 citekey 的原值。
     func testRenameCollapsedRowNamesTheOriginalValue() throws {
         try entry("old2020a")
-        // venue 早已持有一筆指向 new2020a 的 verdict（死 verdict——warning 級，載得進來）；rename 之後 old 的那筆與它同配對，收攏
+        // R21（D60）起 rename 唯一的收攏路徑是「被改寫且拼法位元組相同的重複」（早已指向新鍵的 verdict 在改名前就具名拒絕）：
+        // 同 old2020a 兩筆同拼法、血統不同——#468 留弱血統那筆、丟完全命中的；收攏列印**遷移前**的原值（D40）。
         var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
-        v.references = [verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Alpha Journal"),
-                        verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "ALPHA JOURNAL")]
+        let strong = ProvenanceReference(field: "resolution-confirmed",
+                                         value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "old2020a", literal: "ALPHA JOURNAL").encoded,
+                                         kind: .judgement(statement: "resolve apply [rule: venue-name-exact]", restsOn: []))
+        let weak = ProvenanceReference(field: "resolution-confirmed",
+                                       value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "old2020a", literal: "ALPHA JOURNAL").encoded,
+                                       kind: .judgement(statement: "resolve apply [rule: author-name-initials]", restsOn: []))
+        v.references = [strong, weak]
         try store.writeVenue(v)
         let r = try store.renameEntry(from: "old2020a", to: "new2020a")
         XCTAssertEqual(r.verdictsCollapsed.count, 1, "\(r.verdictsCollapsed)")
         let row = r.verdictsCollapsed.first ?? ""
-        // R18（D53；R17 verify DA 第 10 列）：早已指向 new2020a 的那筆是死的（目的鍵不存在，否則 rename 拒絕），被改寫的那筆才活——
-        // 丟死的、留活的；R17 曾釘住相反的答案（陣列先見者勝）。印**遷移前**的原值（D40）：被丟的是未改寫的那筆，原值就是它自己
-        XCTAssertTrue(row.hasPrefix("venue「alpha」：") && row.contains("work:new2020a :: Alpha Journal") && !row.contains("ALPHA JOURNAL——"), row)
-        XCTAssertTrue(row.contains("留「ALPHA JOURNAL」") && row.contains("位元組"), row)
+        XCTAssertTrue(row.hasPrefix("venue「alpha」：") && row.contains("work:old2020a :: ALPHA JOURNAL") && !row.contains("work:new2020a"), "印遷移前的原值：\(row)")
+        XCTAssertTrue(row.contains("venue-name-exact") && !row.contains("留「"), "丟完全命中那筆、同拼法不說位元組：\(row)")
         let values = try XCTUnwrap(store.load().venues.first { $0.key == "alpha" }).references.compactMap(\.value)
         XCTAssertEqual(values.map { Array($0.utf8) }, [Array("work:new2020a :: ALPHA JOURNAL".utf8)], "\(values)")
     }
@@ -1157,65 +1161,72 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(Set(values), ["work:b2020a :: Psychometrika", "work:b2020a :: PSYCHOMETRIKA", "work:a2020b :: Alpha"], "\(values)")
     }
 
-    /// D53 的另一半：rename 對**自己改寫的**那筆與一筆早已指向新鍵的 verdict 碰撞時，指向新鍵的那筆**必然是死的**（目的鍵不存在，否則
-    /// rename 拒絕）——留活的那筆（被改寫的），不是陣列先見的。
-    func testRenameKeepsTheRewrittenVerdictOverTheDeadOneAlreadyPointingAtTheNewKey() throws {
+
+
+
+
+
+    // MARK: - R21（D60）：目的鍵上已有 verdict → rename 具名拒絕、零寫入
+
+    /// R20 verify 五席同指（四席：`migratedVerdicts` 第一段後的早退讓 D58 只在 holder 另有被改寫的 verdict 時生效，只持有死 verdict 的
+    /// holder 在 rename 後原樣復活；DA：D58 生效的那一半是無乾跑、無逆操作、無 git 閘的**判定刪除**——被丟的可能是人對另一筆仍存在的
+    /// work 親自下的判定，正確處置是 repoint 而不是刪）。**D60**：與 merge 的 D31／D34 對齊——rename 之前掃三種 holder，任一筆 verdict 的配對
+    /// 已指向新鍵（同 holderKind、不論 field 與拼法）即具名拒絕、零寫入，訊息逐筆列出 holder、欄位、value、rests-on，出路是先 repoint 或
+    /// 從 YAML 刪掉再重跑。rename 自此不做任何判定的刪除（`two-kinds-of-edits`：程式編輯不得銷毀判定編輯的產物）。
+    func testRenameRefusesWhenAnyHolderAlreadyHoldsAVerdictAtTheNewKey() throws {
         try entry("old2020a")
-        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
-        for refs in [[verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Alpha Journal"),
-                      verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "ALPHA JOURNAL")],
-                     [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "ALPHA JOURNAL"),
-                      verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Alpha Journal")]] {
+        let digest = "sha256:" + String(repeating: "a", count: 64)
+        let live = verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "Alpha Journal")
+        let deadRejected = ProvenanceReference(field: "resolution-rejected",
+                                               value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "new2020a", literal: "Alpha Journal").encoded,
+                                               kind: .judgement(statement: "人親自下的否決", restsOn: [digest]))
+        let deadOther = verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Other Journal")
+        // 三種形：R19 DA（死的反向＋活的同拼法）、R20 四席（只有死的、沒有任何被改寫的）、拼法無關
+        for refs in [[deadRejected, live], [deadRejected], [live, deadOther]] {
+            var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
             v.references = refs
             try store.writeVenue(v)
-            let r = try store.renameEntry(from: "old2020a", to: "new2020a")
-            let values = try XCTUnwrap(store.load().venues.first { $0.key == "alpha" }).references.compactMap(\.value)
-            XCTAssertEqual(values.map { Array($0.utf8) }, [Array("work:new2020a :: ALPHA JOURNAL".utf8)], "\(values)")
-            XCTAssertEqual(r.verdictsCollapsed.count, 1, "\(r.verdictsCollapsed)")
-            let row = r.verdictsCollapsed.first ?? ""
-            XCTAssertTrue(row.contains("work:new2020a :: Alpha Journal") && row.contains("留「ALPHA JOURNAL」"), row)
-            _ = try store.renameEntry(from: "new2020a", to: "old2020a")   // 還原給下一輪
+            let before = try store.load()
+            let alphaBefore = try XCTUnwrap(before.venues.first { $0.key == "alpha" }).references
+            XCTAssertThrowsError(try store.renameEntry(from: "old2020a", to: "new2020a"), "\(refs.compactMap(\.value))") { error in
+                let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"   // 使用者看到的那一份，不是 enum 的 debug 形
+                XCTAssertTrue(msg.contains("new2020a") && msg.contains("venue「alpha」") && msg.contains("resolution-"), msg)
+                XCTAssertTrue(msg.contains("repoint") || msg.contains("改指"), "訊息要給出路：\(msg)")
+                if refs.contains(where: { $0.value == deadRejected.value }) {
+                    XCTAssertTrue(msg.contains("rests-on") && msg.contains(digest), "被拒的那筆連 rests-on 一起列出：\(msg)")
+                }
+            }
+            let after = try store.load()
+            XCTAssertNotNil(after.entries.first { $0.citekey == "old2020a" }, "零寫入：來源記錄沒被改名")
+            XCTAssertNil(after.entries.first { $0.citekey == "new2020a" })
+            XCTAssertEqual(try XCTUnwrap(after.venues.first { $0.key == "alpha" }).references.map { "\($0.field) \($0.value ?? "")" },
+                           alphaBefore.map { "\($0.field) \($0.value ?? "")" }, "零寫入：holder 的 verdict 原封不動")
+            XCTAssertEqual(store.health(from: after).deadVerdicts.count, store.health(from: before).deadVerdicts.count)
         }
     }
 
-    // MARK: - R19（D55）：rename 的收攏以被動到的鍵整組算，不是單一槽位
-
-    /// R18 verify Codex 第 1 列 HIGH：D53 的實作用**單一槽位**記帳——每個鍵只記「目前留下的那一筆」與它是活是死——三方以上的碰撞
-    /// （兩筆早已指向新鍵的死 verdict ＋ 一筆被改寫的活 verdict）時，第二筆死的對上「已被活的取代的槽位」走到「同狀態、拼法不同：都留」那一支，
-    /// 留下與否取決於陣列順序。D55：以被動到的鍵**整組**收攏——被改寫的全留（位元組不同各留一筆）、早已指向新鍵的全丟（目的鍵不存在，否則
-    /// rename 拒絕，所以它們必然是死的）、位元組相同的收成首見；六種排列同一個答案。
-    func testRenameDropsEveryDeadVerdictInAThreeWayCollisionRegardlessOfOrder() throws {
-        try entry("old2020a")
-        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
-        let deadA = verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Alpha Journal")
-        let deadB = verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "ALPHA JOURNAL")
-        let live = verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "alpha journal")
-        for refs in [[deadA, deadB, live], [deadA, live, deadB], [live, deadA, deadB],
-                     [deadB, deadA, live], [deadB, live, deadA], [live, deadB, deadA]] {
-            let order = refs.compactMap(\.value).joined(separator: " | ")
-            v.references = refs
-            try store.writeVenue(v)
-            let r = try store.renameEntry(from: "old2020a", to: "new2020a")
-            let values = try XCTUnwrap(store.load().venues.first { $0.key == "alpha" }).references.compactMap(\.value)
-            XCTAssertEqual(values.map { Array($0.utf8) }, [Array("work:new2020a :: alpha journal".utf8)], "\(order) → \(values)")
-            XCTAssertEqual(r.verdictsCollapsed.count, 2, "\(order) → \(r.verdictsCollapsed)")
-            XCTAssertTrue(r.verdictsCollapsed.allSatisfy { $0.contains("留「alpha journal」") }, "\(order) → \(r.verdictsCollapsed)")
-            XCTAssertTrue(r.verdictsCollapsed.contains { $0.contains("work:new2020a :: Alpha Journal") }
-                          && r.verdictsCollapsed.contains { $0.contains("work:new2020a :: ALPHA JOURNAL") }, "\(order) → \(r.verdictsCollapsed)")
-            _ = try store.renameEntry(from: "new2020a", to: "old2020a")   // 還原給下一輪
+    /// D60 對三種 holder 都掃——person rename 時 organization 持有的 `person:<newKey>` verdict 同樣擋。
+    func testRenamePersonRefusesWhenAnOrganizationHoldsAVerdictAtTheNewKey() throws {
+        try store.writePerson(Person(key: "old-person", names: ["Old Person"]))
+        try org("acme", refs: [verdict("resolution-confirmed", kind: .person, holder: "new-person", literal: "New Person")])
+        XCTAssertThrowsError(try store.renamePerson(from: "old-person", to: "new-person")) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(msg.contains("organization「acme」") && msg.contains("new-person"), msg)
         }
+        let after = try store.load()
+        XCTAssertNotNil(after.people.first { $0.key == "old-person" }, "零寫入")
+        XCTAssertNil(after.people.first { $0.key == "new-person" })
     }
 
-    /// D55 的另一半：兩筆被改寫而拼法不同的**都留**（那是 rename 之前就在的第 27 列第二類 warning，rename 不替它判定），死的仍全丟——
-    /// 三種排列同一個答案；位元組相同的被改寫重複收成首見。
-    func testRenameKeepsEveryRewrittenSpellingAndDropsTheDeadOnes() throws {
+    /// D55 留下來的那一半：兩筆被改寫而拼法不同的**都留**（第 27 列第二類 warning 是 rename 之前就在的，rename 不替它判定），
+    /// 位元組相同的被改寫重複只留一筆——三種排列同一個答案。R21 起這條 fixture 不再放死 verdict（那是 D60 的拒絕格）。
+    func testRenameKeepsEveryRewrittenSpellingAndFoldsByteIdenticalOnes() throws {
         try entry("old2020a")
         var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
-        let dead = verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Alpha Journal")
         let liveA = verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "ALPHA JOURNAL")
         let liveB = verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "alpha journal")
         let liveA2 = verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "ALPHA JOURNAL")
-        for refs in [[dead, liveA, liveB, liveA2], [liveA, dead, liveA2, liveB], [liveA2, liveB, liveA, dead]] {
+        for refs in [[liveA, liveB, liveA2], [liveA, liveA2, liveB], [liveA2, liveB, liveA]] {
             let order = refs.compactMap(\.value).joined(separator: " | ")
             v.references = refs
             try store.writeVenue(v)
@@ -1224,56 +1235,10 @@ final class VerdictHolderGridTests: XCTestCase {
             XCTAssertEqual(Set(values.map { Array($0.utf8) }),
                            [Array("work:new2020a :: ALPHA JOURNAL".utf8), Array("work:new2020a :: alpha journal".utf8)], "\(order) → \(values)")
             XCTAssertEqual(values.count, 2, "\(order) → \(values)")
-            XCTAssertEqual(r.verdictsCollapsed.count, 2, "死的一筆＋位元組相同的重複一筆：\(order) → \(r.verdictsCollapsed)")
-            XCTAssertTrue(r.verdictsCollapsed.contains { $0.contains("work:new2020a :: Alpha Journal") && $0.contains("留「") }, "\(order) → \(r.verdictsCollapsed)")
+            XCTAssertEqual(r.verdictsCollapsed.count, 1, "位元組相同的重複一筆：\(order) → \(r.verdictsCollapsed)")
             XCTAssertTrue(r.verdictsCollapsed.contains { $0.contains("work:old2020a :: ALPHA JOURNAL") && !$0.contains("留「") }, "同拼法的重複不說位元組：\(order) → \(r.verdictsCollapsed)")
             _ = try store.renameEntry(from: "new2020a", to: "old2020a")   // 還原給下一輪
         }
-    }
-
-    // MARK: - R20（D58）：早已指向新鍵的 verdict 一律是死的——不論 field、不論拼法
-
-    /// R19 verify DA 第 1 列 HIGH（真 binary 重現）：D55 的「全丟」以 `verdictEqualityKey` 分組，而那把鍵的第一段是 field——
-    /// 同配對的 **rejected** 死 verdict 與被改寫的 confirmed 永遠不同鍵，於是逃過「全丟」、原樣通過，rename 之後目的鍵存在了，
-    /// 它從死變活、與剛遷過來的 confirmed 構成 #486 矛盾對；merge 對同一形狀（D31／D34）是整批拒絕。D58：目的鍵在 rename 之前不存在
-    /// （否則 rename 拒絕），所以**任何**早已指向新鍵的 verdict——不論 field、不論拼法——都是死的，rename 全丟並逐筆回報。
-    func testRenameDropsADeadOppositeVerdictAlreadyAtTheNewKey() throws {
-        try entry("old2020a")
-        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
-        let deadRejected = verdict("resolution-rejected", kind: .work, holder: "new2020a", literal: "Alpha Journal")
-        let live = verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "Alpha Journal")
-        for refs in [[deadRejected, live], [live, deadRejected]] {
-            v.references = refs
-            try store.writeVenue(v)
-            let r = try store.renameEntry(from: "old2020a", to: "new2020a")
-            let alpha = try XCTUnwrap(store.load().venues.first { $0.key == "alpha" })
-            XCTAssertEqual(alpha.references.map { "\($0.field) \($0.value ?? "")" }, ["resolution-confirmed work:new2020a :: Alpha Journal"], "\(alpha.references)")
-            XCTAssertEqual(store.health(from: try store.load()).contradictoryVerdicts.count, 0, "rename 不得製造 #486 矛盾對")
-            XCTAssertEqual(r.verdictsCollapsed.count, 1, "\(r.verdictsCollapsed)")
-            let row = r.verdictsCollapsed.first ?? ""
-            XCTAssertTrue(row.contains("resolution-rejected work:new2020a :: Alpha Journal") && row.contains("早已指向新鍵"), row)
-            _ = try store.renameEntry(from: "new2020a", to: "old2020a")   // 還原給下一輪
-        }
-    }
-
-    /// D58 的另一半：拼法無關的死 verdict（指向新鍵、literal 與這次遷移的任何一筆都不同）同樣是死的——留著會在 rename 之後變成一筆
-    /// 從未被判定過的「活」verdict（第 27 列的第二半在 venue×work 之外沒有掃描面）。全丟、回報時說出理由。
-    func testRenameDropsEveryDeadVerdictAtTheNewKeyWhateverItsLiteral() throws {
-        try entry("old2020a")
-        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
-        let deadOther = verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Other Journal")
-        let live = verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "Alpha Journal")
-        v.references = [deadOther, live]
-        try store.writeVenue(v)
-        let before = store.health(from: try store.load()).deadVerdicts.count
-        XCTAssertEqual(before, 1, "fixture：rename 之前那筆是死的")
-        let r = try store.renameEntry(from: "old2020a", to: "new2020a")
-        let values = try XCTUnwrap(store.load().venues.first { $0.key == "alpha" }).references.compactMap(\.value)
-        XCTAssertEqual(values, ["work:new2020a :: Alpha Journal"], "\(values)")
-        XCTAssertEqual(store.health(from: try store.load()).deadVerdicts.count, 0)
-        XCTAssertEqual(r.verdictsCollapsed.count, 1, "\(r.verdictsCollapsed)")
-        let row = r.verdictsCollapsed.first ?? ""
-        XCTAssertTrue(row.contains("work:new2020a :: Other Journal") && row.contains("早已指向新鍵") && !row.contains("留「"), "拼法無關的死 verdict 不說「留」：\(row)")
     }
 
     /// R19 verify logic 第 6 列：rename 對被改寫且拼法位元組相同的重複「留首見」——#468 的弱血統層完全沒跑，留哪一筆由 YAML 順序決定。
@@ -1316,25 +1281,6 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(values, ["work:new2020a :: Alpha Journal", "work:b2020a :: Alpha Journal", "work:new2020a :: ALPHA JOURNAL"], "\(values)")
     }
 
-    /// R19 verify logic 第 17 列：死 verdict 收攏列的「留「…」」在有多個活拼法時指哪一個，測試沒釘。釘住：同拼法的活 verdict 優先，
-    /// 沒有同拼法時是**陣列順序裡第一筆活的**——這是揭露層的順序相依（留下的集合不變），doc 寫明。
-    func testRenameDeadRowNamesTheSameSpellingOrElseTheFirstLiveOne() throws {
-        try entry("old2020a")
-        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
-        let dead = verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Alpha Journal")
-        let liveA = verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "ALPHA JOURNAL")
-        let liveB = verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: "alpha journal")
-        v.references = [liveB, liveA, dead]
-        try store.writeVenue(v)
-        let r = try store.renameEntry(from: "old2020a", to: "new2020a")
-        XCTAssertTrue((r.verdictsCollapsed.first ?? "").contains("留「alpha journal」"), "沒有同拼法的活 verdict 時留陣列順序裡第一筆活的：\(r.verdictsCollapsed)")
-        _ = try store.renameEntry(from: "new2020a", to: "old2020a")
-        let deadSame = verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "alpha journal")
-        v.references = [liveA, liveB, deadSame]
-        try store.writeVenue(v)
-        let r2 = try store.renameEntry(from: "old2020a", to: "new2020a")
-        XCTAssertTrue((r2.verdictsCollapsed.first ?? "").contains("早已指向新鍵") && !(r2.verdictsCollapsed.first ?? "").contains("留「"), "同拼法的活 verdict 在：不說位元組：\(r2.verdictsCollapsed)")
-    }
 
     // MARK: - R20：`VerdictEdgeSet` 的邊只收合法 StoreKey
 

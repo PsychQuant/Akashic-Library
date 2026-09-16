@@ -1067,7 +1067,7 @@ extension LibraryStore {
     /// **收攏留哪一筆**（R18，D51；R17 verify Codex 第 1 列 HIGH、logic 第 6 列、regression 第 8 列）。三條收攏路徑都經這裡，但
     /// **候選集合不同**（R20；R19 verify requirements 第 1 列、logic 第 6 列：R18／R19 寫「三條路徑同一個勝者函式」而 rename 內聯了
     /// 自己的政策）：keeper 合併與 holder 遷移把同鍵的全部候選送進來；rename 只把**被改寫且拼法位元組相同**的送進來（全活、全是
-    /// 倖存配對自己的，所以只剩 #468 三層），拼法不同的都留、早已指向新鍵的在進來之前就當死的丟（D58）。
+    /// 倖存配對自己的，所以只剩 #468 三層），拼法不同的都留、早已指向新鍵的在改名前就具名拒絕（D60，R21）。
     /// 回傳勝者在 `cands` 裡的索引。四層，前三層**只在候選的拼法位元組不同時**才縮小集合（同拼法時留哪一筆都不動任何字串，
     /// 那時只有 #468 的血統警告值得保）：
     /// 0. 活著的邊那些勝（D51）；
@@ -1781,7 +1781,8 @@ extension LibraryStore {
     /// `changed` 恆真造成空寫。#463 複用本函式的是 merge 側的四格（org×work-merge 是 drop-in；person-merge 的
     /// organization／person／venue 三格傳 `.person`）；rename 側走 `LibraryStore.migratedVerdicts`——R18 D53 起同樣只收
     /// 本次觸及的鍵（R19 verify requirements 第 2 列：這裡曾寫「全量 dedup，語意刻意不同」，那是 R18 之前的故事），差別在
-    /// rename 對早已指向新鍵的 verdict一律當死的丟（D58），merge 對同配對的相反判定則是整批拒絕（D31／D34）。
+    /// 兩者現在同向：merge 對同配對的相反判定整批拒絕（D31／D34），rename 對早已指向新鍵的 verdict 也整批拒絕（D60，R21——R20 的 D58
+    /// 曾讓 rename 替使用者丟掉它們，那是無乾跑、無逆操作的判定刪除）。
     /// merge 側 holder verdict 的遷移＋收攏，**holderKind 參數化**（#463）：`.work`（work merge，
     /// #461 的原形）與 `.person`（person merge——`person:<被併 key>` holder 住在 organization 記錄上，
     /// 是 org-resolution 的判定；#395 rename 側已遷、merge 側漏了，#232→#271 的不對稱在 person-key 軸重演）。
@@ -1903,10 +1904,9 @@ extension LibraryStore {
     /// 不逃脫——消毒在 sink（`displaySafe` 不冪等）。
     /// `kept` 是留下來的那筆（R17，D47；R16 verify DA 第 1 列：R16 的措辭「正規化後相等」用的正是 R16 自己宣告不足以判定相同的那把尺，
     /// 且沒有說倖存邊記錄的 literal 由 X 變成 Y）——兩筆 literal **位元組不同**時把留下的拼法也印出來。
-    /// `why`（R20，D58）：與 kept 無關的丟棄理由（早已指向新鍵的死 verdict）——沒有 kept 的丟棄不能沉默。
     /// **rests-on 的 digest 也印**（R20；R19 verify security 第 22 列：被丟的 judgement 所依的證據指標無聲消失，`sources/` 的 blob 還在
     /// 而指向它們的唯一副本只剩 git 歷史）——數量與前三筆，每筆截 80。
-    static func describeCollapsedVerdict(original r: ProvenanceReference, kept: ProvenanceReference? = nil, why: String? = nil) -> String {
+    static func describeCollapsedVerdict(original r: ProvenanceReference, kept: ProvenanceReference? = nil) -> String {
         let reason: String
         switch r.kind {
         case .judgement(let statement, let restsOn):
@@ -1914,7 +1914,7 @@ extension LibraryStore {
             reason = "判定「\(clipScalars(statement, 200))」" + evidence
         case .retrieval(let url, _, _, _, _): reason = "擷取 \(clipScalars(url, 200))"
         }
-        return "\(r.field) \(clipScalars(r.value ?? "", 200))——丟棄 \(reason)" + spellingNote(dropped: r, kept: kept) + (why.map { "——\($0)" } ?? "")
+        return "\(r.field) \(clipScalars(r.value ?? "", 200))——丟棄 \(reason)" + spellingNote(dropped: r, kept: kept)
     }
     /// 被丟的與留下的 literal 位元組不同時的附註；相同（或無從比）時是空字串。
     static func spellingNote(dropped: ProvenanceReference, kept: ProvenanceReference?) -> String {

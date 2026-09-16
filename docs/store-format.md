@@ -878,17 +878,22 @@ confirmed literal（只對 venue 記錄算——D23 是 venue 側的拒絕）；
 work 對該 venue（`Entry.venues`）／person（`Entry.authors`）、person 對該 organization（`affiliations`）真的有邊（`VerdictEdgeSet`）；(1) 再留與倖存配對
 自己位元組相同的那些；(2) #468 三層——弱血統優先、倖存配對自己的優先、statement 字典序；(3) 首見順序（三方合併兩筆被併材料同弱、同 statement 時——
 揭露而非任意）。holder 路徑（work 合併）沒有活邊那一層：work 合併不搬 venues／authors 邊，被併配對在合併後必死，那裡「倖存配對自己的勝」就是活邊規則。
-**rename 只收攏它動到的鍵（D53）**：位元組相同的重複收攏（R19 留首見；R20 起走 `collapseWinner`——候選全活、全是倖存配對自己的，只剩 #468 三層，D58）；被改寫的那筆對上一筆早已指向新鍵的 verdict 時——後者必然是死的（目的鍵不存在，否則
+**rename 只收攏它動到的鍵（D53）**：位元組相同的重複收攏（R19 留首見；R20 起走 `collapseWinner`——候選全活、全是倖存配對自己的，只剩 #468 三層）；被改寫的那筆對上一筆早已指向新鍵的 verdict 時——後者必然是死的（目的鍵不存在，否則
 rename 拒絕）——留活的；兩筆都沒被改寫的碰撞**留著**（那是 rename 之前就在的第 27 列第二類 warning，rename 不替它判定；R16 之前是全量 dedup、由陣列順序決定）。**以鍵整組算（D55，R19）**：R18 的實作用單一槽位記帳——每個鍵只記「目前留下的那筆」是活是死——
 三方碰撞（兩筆早已指向新鍵的死 verdict ＋ 一筆被改寫的活 verdict）時第二筆死的留下與否取決於 YAML 順序（R18 verify Codex 第 1 列 HIGH）；現在被改寫的全留
 （同拼法收成首見）、早已指向新鍵的全丟、整組放在鍵首次出現處，六種排列同一個答案。
-**「早已指向新鍵」不看 field、不看拼法（D58，R20）**：D55 以 `verdictEqualityKey`（含 field）分組，於是一筆早已指向新鍵的 **rejected**——與被改寫的
-confirmed 同配對、異 field——不在任何被動到的鍵裡、原樣通過，rename 之後從死變活、與剛遷過來的 confirmed 構成 #486 的矛盾對（R19 verify DA 第 1 列 HIGH；
-merge 對同一形狀是整批拒絕，D31／D34）。現在：凡 holder 同 kind 且 key 等於新鍵而沒被改寫的 verdict 一律丟、逐筆回報（理由「早已指向新鍵的死 verdict」；
-收攏列的「留下的那筆」只在同一個鍵的活勝者裡找，同拼法優先、否則陣列順序第一筆——拼法揭露的順序相依只在這一層）；被丟的 judgement 所依的 rests-on
-digest 也印在收攏列（R19 verify security 第 22 列：blob 還在 `sources/`，指向它的唯一副本自此只在 git 歷史）。留下的每一筆待在原位置、不相干 reference
-的相對順序不變（regression 第 23 列）。**誠實邊界**：拼法不同的被改寫 verdict 都留——第 27 列的第二半只掃 venue×work，其餘六格（person／organization
-持 work、三種 holder 持 person）既沒有掃描面也沒有揭露面，rename 不替它們判定，也不假裝那一格「應恆為 0」（requirements 第 4 列）。
+**目的鍵上已有 verdict → rename 具名拒絕、零寫入（D60，R21）**。D53／D55／D58 三輪都在「rename 替你丟掉早已指向新鍵的 verdict」這個方向上修：
+D55 以 `verdictEqualityKey`（含 field）分組，同配對異 field 的死 rejected 逃過、rename 後復活成 #486 矛盾對（R19 verify DA 第 1 列 HIGH）；D58 改成
+不論 field 與拼法一律丟，卻把「凡指向新鍵的都丟」寫在第一段後的早退之後——holder **只**持有死 verdict、沒有任何被改寫的那筆時整筆記錄回 `nil`，
+死 verdict 原樣通過、rename 後復活（R20 verify 四席同指，真 binary 重現：只有一筆死 rejected 的 venue，rename 後那筆從未對這筆 work 做過的否決
+生效、`validate` 全綠）；而 DA 席指出即使修好，D58 生效的那一半也是**無乾跑、無逆操作、無 git 閘的判定刪除**——被丟的可能是舊 binary 沒遷走、
+人對另一筆仍存在的 work 親自下的判定（帶 rests-on），正確處置是 repoint 而不是刪。**現在**：改名之前掃三種 holder，任一筆 verdict 的配對已指向
+新鍵（同 holderKind、不論 field 與拼法）即 `assertNoVerdictAlreadyAt` 具名拒絕、零寫入——訊息逐筆列 holder、欄位、value、judgement 與 rests-on，
+出路是先改指到它實際描述的記錄（`resolve-venues --repoint`／改 YAML 的 value）或從該記錄的 YAML 刪掉，再重跑。rename 自此**不做任何判定的刪除**
+（`two-kinds-of-edits`：程式編輯不得銷毀判定編輯的產物；`zero-instance-guards` 第 13 列：死 verdict 的處置是人的重新消歧），與 merge 的
+D31／D34 同向。第二段因此只剩被改寫的：同拼法折疊走 `collapseWinner`、拼法不同的都留、留下的在原位（R19 verify regression 第 23 列）。
+**誠實邊界**：拼法不同的被改寫 verdict 都留——第 27 列的第二半只掃 venue×work，其餘六格（person／organization 持 work、三種 holder 持 person）
+既沒有掃描面也沒有揭露面，rename 不替它們判定，也不假裝那一格「應恆為 0」（R19 verify requirements 第 4 列）。
 **代價寫出來**（R17 verify regression 第 9 列）：留強丟弱時弱血統那筆的 `rule` 尾註從 store 消失，它的消費端不只收攏列——之後每一次提名的
 confirmed-elsewhere 揭露（`PersonResolver`／`VenueResolver` 從 `confirmedByLiteral` 讀 rule）都不再看到弱出身；#468 保的那個警告在這一格只在
 `verdictsCollapsed` 出現一次。**家族計數是下限（D54）**：doctor／App 的兩族計數每筆記錄至多 20 則，`StoreHealth.cappedRecords`（doctor 的

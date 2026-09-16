@@ -289,10 +289,9 @@ final class PrePushHookTests: XCTestCase {
 
     /// R20（R19 verify logic 第 30 列、regression 第 34 列）：`.build/debug` 的重指若失敗，hook 必須**中止**——連結仍指著
     /// swiftbuild 的 `out/Products/Debug` 時，下方守衛會拿上一次建置的 `akashic-guards` 對新樹跑並全部印綠。R19 的
-    /// `[ -d … ] && ln …` 在目錄不在時只是靜默略過（`&&` 的短路不觸發 `set -e`）。
-    /// **它證明的是**：`.build` 存在而 native 產物目錄不存在 ⇒ hook 非零結束、`swift test` 沒被呼叫、stderr 說了為什麼。
-    /// **它不證明**「沒有 `.build` 時略過」那條分支是對的——那一格由 `testHookAbortsWhenSwiftBuildFails` 的環境（repo root
-    /// 本來就有 `.build`）順帶涵蓋不到，記為邊界。
+    /// `[ -d … ] && ln …` 在目錄不在時只是靜默略過（`&&` 的短路不觸發 `set -e`）。R21 起重指住在**守衛階段**（只有那一階段讀
+    /// 連結；R20 verify regression 第 6 列：放在 build 之後會讓以 repo root 為 cwd 的 hook 測試改寫真工作樹），所以 build 與 test
+    /// 兩行都會出現在 log、守衛不會跑。**它證明的是**：native 產物目錄不存在 ⇒ hook 非零結束、stderr 說了為什麼、守衛沒跑。
     func testHookAbortsWhenTheNativeProductsDirectoryIsMissing() throws {
         let root = repositoryRoot
         guard FileManager.default.fileExists(
@@ -345,8 +344,56 @@ final class PrePushHookTests: XCTestCase {
         XCTAssertEqual(
             try String(contentsOf: log, encoding: .utf8)
                 .split(separator: "\n").map(String.init),
-            ["build --build-system native -Xswiftc -warnings-as-errors"],
-            "重指失敗後不得再呼叫 swift test——出現第二行即代表 hook 沒有中止")
+            ["build --build-system native -Xswiftc -warnings-as-errors",
+             "test --build-system native -Xswiftc -warnings-as-errors"],
+            "重指在 test 之後、守衛之前——log 恰兩行；多出第三行即代表 hook 沒有中止")
+    }
+
+    /// R20 verify security 第 13 列：`ln -sfn TARGET .build/debug` 在 `.build/debug` 是**真目錄**時不會取代它，而是在裡面建出
+    /// `.build/debug/debug`、回 0——連結仍指著上一次的產物，守衛照舊跑舊 binary。R21：`ln` 之後驗 `readlink .build/debug`
+    /// 等於預期目標，不等即中止。本測試的 cwd 是 temp dir（native 產物目錄在、`.build/debug` 是真目錄）。
+    func testHookAbortsWhenTheRelinkDoesNotLand() throws {
+        let root = repositoryRoot
+        guard FileManager.default.fileExists(atPath: root.appendingPathComponent(".git").path) else {
+            throw XCTSkip("這項承重測試需要 Git checkout")
+        }
+        let temporary = FileManager.default.temporaryDirectory
+            .appendingPathComponent("akashic-prepush-relink-dir-\(UUID().uuidString)")
+        let arch = ProcessInfo.processInfo.environment["AKASHIC_TEST_UNAME_M"] ?? {
+            var u = utsname(); uname(&u)
+            return withUnsafePointer(to: &u.machine) { $0.withMemoryRebound(to: CChar.self, capacity: 256) { String(cString: $0) } }
+        }()
+        try FileManager.default.createDirectory(at: temporary.appendingPathComponent(".build/\(arch)-apple-macosx/debug"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: temporary.appendingPathComponent(".build/debug"), withIntermediateDirectories: true)   // 真目錄
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let log = temporary.appendingPathComponent("swift-invocations.log")
+        let mockSwift = temporary.appendingPathComponent("swift")
+        let script = """
+        #!/bin/sh
+        /usr/bin/printf '%s\\n' "$*" >> "$AKASHIC_PRE_PUSH_PROBE_LOG"
+        case "$1" in
+          build|test) exit 0 ;;
+          *) exec /usr/bin/swift "$@" ;;
+        esac
+        """
+        try script.write(to: mockSwift, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: mockSwift.path)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [root.appendingPathComponent(".githooks/pre-push").path]
+        process.currentDirectoryURL = temporary
+        process.standardOutput = Pipe()
+        let stderr = Pipe(); process.standardError = stderr
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(temporary.path):/usr/bin:/bin"
+        environment["AKASHIC_PRE_PUSH_PROBE_LOG"] = log.path
+        process.environment = environment
+        try process.run()
+        let err = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        XCTAssertNotEqual(process.terminationStatus, 0, "重指落不到（.build/debug 是真目錄）時 pre-push 必須中止")
+        XCTAssertTrue(err.contains("重指") && err.contains(".build/debug"), "stderr 要說是重指失敗：\(err)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.appendingPathComponent(".build/debug/debug").path) && err.isEmpty, "巢狀連結不得靜默")
     }
 
     private var repositoryRoot: URL {

@@ -81,16 +81,6 @@ fi
 SWIFT_BUILD_SYSTEM=(--build-system native)
 echo "pre-push: swift build --build-system native -Xswiftc -warnings-as-errors"
 swift build "${SWIFT_BUILD_SYSTEM[@]}" -Xswiftc -warnings-as-errors
-# 重指失敗要出聲（R19 verify logic 第 30 列、regression 第 34 列）：連結若仍指著 swiftbuild 的產物，下方守衛會拿上一次建置的
-# akashic-guards 對新樹跑並全部印綠。沒有 .build 目錄（例如 PrePushHookTests 的 swift 是 stub）時本來就沒有守衛 binary 可指，略過。
-if [ ! -d .build ]; then
-  echo "pre-push: 沒有 .build 目錄，略過 .build/debug 重指"
-elif [ -d ".build/$(uname -m)-apple-macosx/debug" ]; then
-  ln -sfn "$(uname -m)-apple-macosx/debug" .build/debug
-else
-  echo "✗ pre-push: 找不到 native 產物目錄 .build/$(uname -m)-apple-macosx/debug——守衛會跑到別次建置的 binary，中止" >&2
-  exit 1
-fi
 
 echo "pre-push: swift test --build-system native -Xswiftc -warnings-as-errors（全套；判讀看最後一行總數——#56 的教訓）"
 swift test "${SWIFT_BUILD_SYSTEM[@]}" -Xswiftc -warnings-as-errors
@@ -111,6 +101,21 @@ swift test "${SWIFT_BUILD_SYSTEM[@]}" -Xswiftc -warnings-as-errors
 # 這不是「測試模式」:它是「這一次要跑哪幾階段」,而測試只是第一個用到它的人。
 case ",${AKASHIC_PRE_PUSH_STAGES:-build,test,guards}," in
   *,guards,*)
+    # **只有守衛階段需要 `.build/debug` 指回 native 的產物**（`run-guards.sh` 從那裡找 akashic-guards）；build／test 兩階段自己帶
+    # `--build-system native`，不讀連結。放在這裡而不是 build 之後，是因為 `PrePushHookTests` 以 repo root 為 cwd 跑前兩階段——
+    # 重指是對工作樹的寫入，不該由跑一次 `swift test` 觸發（R20 verify regression 第 6 列）。
+    # 重指失敗要出聲（R19 verify logic 第 30 列、regression 第 34 列）；`ln -sfn` 對**真目錄**不會取代、會在裡面建巢狀連結並回 0
+    # （R20 verify security 第 13 列）——所以 ln 之後驗 readlink 真的等於目標，不等就中止。
+    NATIVE_DEBUG="$(uname -m)-apple-macosx/debug"
+    if [ ! -d ".build/$NATIVE_DEBUG" ]; then
+      echo "✗ pre-push: 找不到 native 產物目錄 .build/$NATIVE_DEBUG——守衛會跑到別次建置的 binary，中止" >&2
+      exit 1
+    fi
+    ln -sfn "$NATIVE_DEBUG" .build/debug
+    if [ "$(readlink .build/debug)" != "$NATIVE_DEBUG" ]; then
+      echo "✗ pre-push: .build/debug 重指失敗（現在是「$(readlink .build/debug)」，不是連結或指錯地方——它是真目錄時 ln 只會在裡面建巢狀連結），中止" >&2
+      exit 1
+    fi
     echo "pre-push: plugin 守衛（覆蓋／散文／parity，各含 negative control）"
     bash "$(dirname "$0")/run-guards.sh"
     ;;

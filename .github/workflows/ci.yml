@@ -160,7 +160,9 @@ jobs:
       - name: 端對端 — export-tables 產生的 load.sql 必須跑得起來
         run: |
           brew install duckdb
-          swift build -c release
+          # 同一個 job 的 debug 那一步已釘 native（#577）；這裡若走預設的 swiftbuild，.build/release 會指到另一套產物目錄、整份重建
+          swift build -c release --build-system native
+          if [ -d ".build/$(uname -m)-apple-macosx/release" ]; then ln -sfn "$(uname -m)-apple-macosx/release" .build/release; else echo "找不到 native release 產物目錄"; exit 1; fi
           TMP=$(mktemp -d)
           STORE="$TMP/store"
           .build/release/akashic doctor --library "$STORE" > /dev/null

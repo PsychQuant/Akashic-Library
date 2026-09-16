@@ -670,6 +670,38 @@ R19 verify 5 席齊（Codex 席撞 HTTP 429 usage limit、2026-09-19 才重置�
   （regression 第 24 列，§store-format 格式 14 列與 `LibraryStore` 註解補記，閘仍不加、#567 一併裁）；§3.5 寫明第 27 列第二半的掃描面只有 venue×work
   （requirements 第 4 列）。
 
+## R20 verify：D58 修了一半，而另一半不該修
+
+R20 verify 5 席齊（Codex 席仍 HTTP 429），26 列合併、5 HIGH——四席同指一格、DA 席指的是那一格修好之後的事：
+
+- **HIGH ×4：D58 的「一律丟」寫在第一段後的早退之後**（requirements／logic／security／regression 各自真 binary 重現）。`migratedVerdicts`
+  在改寫完就 `guard rewritten.contains(where: \.touched) else { return nil }`，四十行後的 `|| anyDead` 是死碼——holder **只**持有指向新鍵的死
+  verdict、沒有任何被改寫的那筆時整筆記錄原樣通過，rename 後那筆從未對這筆 work 做過的否決生效、`validate` 全綠、報告零字。R20 的三支 D58
+  測試每一支的 fixture 都同時放了一筆會被改寫的活 verdict，所以整組對這一格盲；R20 report 寫的「returns non-nil when rewritten OR dropped」對
+  OR 的後半為假。
+- **HIGH（DA）：D58 生效的那一半是不可逆的判定刪除**——無乾跑（`rename --help` 沒有 `--dry-run`）、無逆操作（`resolve-people` 一族每個破壞性面
+  都有具名逆操作，這裡沒有）、無 git 追蹤閘（`rm -rf .git` 的 store 照刪）。真 binary：venue 持一筆舊 binary 沒遷走、人對另一筆仍存在的 work
+  親自下的判定（帶 rests-on），rename 之後它從 store 消失、`validate` 看起來更健康；正確處置是 repoint 而不是刪。與本 repo 自己的規則衝突：
+  `two-kinds-of-edits`（程式編輯不得銷毀判定編輯的產物）、`zero-instance-guards` 第 13 列（死 verdict 的處置是人的重新消歧）、merge 對同一形狀
+  是整批拒絕（D31／D34）。**D60**：與 merge 對齊——改名之前掃三種 holder，任一筆 verdict 的配對已指向新鍵（同 holderKind、不論 field 與拼法）
+  即 `assertNoVerdictAlreadyAt` 具名拒絕、零寫入，逐筆列 holder／欄位／value／judgement／rests-on，出路是先 repoint 或從 YAML 刪掉。
+  rename 自此不做任何判定的刪除；第二段只剩被改寫的（同拼法折疊走 `collapseWinner`、拼法不同都留、原位）。R18／R19／R20 六支「丟死 verdict」
+  的測試換成兩支拒絕測試（三種形：R19 DA 的死反向＋活同拼法、R20 的只有死的、拼法無關；person rename 對 organization holder）＋一支
+  「被改寫的拼法全留、同拼法只留一筆」。
+- **MEDIUM：pre-push 的重指在 build 之後，`PrePushHookTests` 以 repo root 為 cwd 跑前兩階段，跑一次 `swift test` 就改寫真工作樹**（regression
+  第 6 列）；`ln -sfn` 對真目錄不取代、在裡面建巢狀連結回 0（security 第 13 列）→ 重指移進**守衛階段**（只有那一階段讀連結）、ln 之後驗
+  `readlink` 等於目標，不等即中止；`[ ! -d .build ]` 那條只為 mock 而存在的略過分支拿掉；測試加「`.build/debug` 是真目錄 → 中止」。
+- **MEDIUM：`ci.yml` 不在送審的 diff 裡、release 那一步沒釘 native**（第 7 列）→ 釘、重指、加進 verify 的檔案清單。
+- **MEDIUM：MCP tool manifest 在本張長了 28%（24.2 → 30.9 KB），沒有預算或守衛**（第 8 列）→ **#578**。
+- **MEDIUM：外部寫入把 D58 記成「一律丟／已落地」、E2E 只涵蓋已修的那一半**（DA 第 9 列）→ #554 body 與 R19 report 第 1 列同批 errata。
+- **LOW：R19 report 宣稱的 #561 pointer 沒真的貼出**（第 10 列：`gh issue comment … -q .` 靜默失敗）→ 補貼，並記為「未量測就寫進報告」的實例。
+- **LOW：`PackageManifestTests` 四個 fail-open**（第 12／16／17／19／22 列：非遞迴、目錄讀不到就跳過、只認 Tests 後綴、帶連字號的 target
+  對映不到模組名）→ 遞迴走訪、讀不到即紅、母體取自 `.testTarget(` 宣告、`-`→`_` 映射、掃過的檔數與 `Tests/` 底下的 `.swift` 對帳。
+- 其餘：doctor `first` 的註解不再說「count 完整」（第 11 列）；App 的 rename sink 上限 200 → 1,000 對齊 CLI（第 14 列：R20 疊在行尾的
+  rests-on／留下的拼法在 App 面看不到）；App help 的 20 改讀 `Entry.perRecordWarningCap`（第 20 列）；`VerdictEdgeSet` 對非 StoreKey 的邊
+  靜默當死邊（第 15 列）→ **#579**（根治在 load／validate 那一層，是一條新的零實例守衛）；DA 第 25 列更正四席的「silent」——confirmed＋rejected
+  並存時 validate 改名前後都會報，只有一筆死 rejected 時才真的無聲；DA 第 26 列：R20 的 O(N) 註解只對第一段成立——那段已隨 D58 拿掉。
+
 ## 第二次端到端又紅——這次是我的 binary
 
 改成替換語意後測試 7/7 綠、四個 mutation 負控乾淨，真 binary 卻說「authorized 含不在
@@ -730,7 +762,8 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
   不含概括句」；`RecordIssuesSummaryTests` 加「App 預覽不二次逃脫」；`VerdictHolderGridTests` 另加 person 合併的相反判定拒與遷移去重、work 合併的 holder 遷移矛盾拒 ＋ R14：holder 遷移留兩個 literal 拒、合併前就有的矛盾不擋、person dry-run 預告 #271 的去重 ＋ R15：住在被併鍵上的既有矛盾對不擋、被併鍵上既有的雙 literal 不擋、既有歧義變大仍擋且訊息分兩半、倖存者自己持有的 `person:<被併>` 矛盾對不擋而改寫後才相撞的擋、收攏列印原值並逐段截（merge 與 rename）（52 條）；`PairingUniquenessHealthTests`（新）與 `RecordIssuesSummaryTests` 加兩族家族計數；`VerdictEqualityTests` 加 malformed 回退鍵不碰撞；`OrderInsensitiveCollapseTests` 三處 pin 改成遷移前的原值；`AssembledDisplaySafetyTests` 加 organization 的 fmt 語意驗證；`DisplaySinkCoverageTests` 加「守衛認得 `displaySafeInvisible(`」；
   `CanonicalFormatValidationTests` 加 venue 語意驗證
 - `record-divergence --candidate` 的 help 與 MCP `candidates` 描述補 venue（#553 遺留，兩面對齊）
-- R20：`LibraryStore.migratedVerdicts` 重寫（D58）、`describeCollapsedVerdict` 加 `why:` 與 rests-on、`VerdictEdgeSet` 驗鍵、doctor／App 名冊補齊、`lowerBound` 涵蓋 `total`／`errors`（D59）、`RecordIssuesSection` 加「矛盾 verdict」列、hook／`ci.yml` 釘 native 且重指失敗中止、`Package.swift` 註解改寫；負控 11 支各紅一次、真 binary 重現 DA 第 1 列並驗 doctor 名冊
+- R21：`assertNoVerdictAlreadyAt`（D60）裝在 `renameEntry`／`renamePerson` 動任何記錄之前；`migratedVerdicts` 第二段只剩被改寫的；`describeCollapsedVerdict` 拿掉 R20 的 `why:`；hook 重指移進守衛階段＋readlink 驗證；`ci.yml` release 釘 native；`PackageManifestTests` 四個 fail-open 關掉；App rename sink 1,000；負控 8 支各紅一次（含拿掉 `Package.swift` 宣告）、真 binary 重現 R20 四席與 DA 的兩個形都被拒
+- R20：`LibraryStore.migratedVerdicts` 重寫（D58，**R21 由 D60 取代**）、`describeCollapsedVerdict` 加 `why:` 與 rests-on、`VerdictEdgeSet` 驗鍵、doctor／App 名冊補齊、`lowerBound` 涵蓋 `total`／`errors`（D59）、`RecordIssuesSection` 加「矛盾 verdict」列、hook／`ci.yml` 釘 native 且重指失敗中止、`Package.swift` 註解改寫；負控 11 支各紅一次、真 binary 重現 DA 第 1 列並驗 doctor 名冊
 - `mcp-cli-parity` 的 `akashic_update_venue` 列補記；`two-kinds-of-edits` 加一列、#553 那列
   理由改寫；`DivergenceResolve` 四處「venue 沒有 authorize 面」的文字改指向本面
 

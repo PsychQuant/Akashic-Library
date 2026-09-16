@@ -1,4 +1,5 @@
 import SwiftUI
+import AkashicCore
 import AkashicStoreIO
 
 /// 側欄「記錄」Section（#487）：per-record warning 的計數與具名家族——死 verdict（#464）、本機缺承重存檔（#453）、
@@ -67,7 +68,7 @@ struct RecordIssuesSection: View {
             }
             if summary.cappedRecords > 0 {
                 LabeledContent("被截的記錄", value: "\(summary.cappedRecords)")
-                    .help("有 \(summary.cappedRecords) 筆記錄的 per-record 問題超過每筆 20 則的上限（#554 R18 D54）——"
+                    .help("有 \(summary.cappedRecords) 筆記錄的 per-record 問題超過每筆 \(Entry.perRecordWarningCap) 則的上限（#554 R18 D54）——"
                           + "上方的計數一律以下限呈現（≥；未必每一族都受影響）。完整逐行：akashic validate")
             }
         }

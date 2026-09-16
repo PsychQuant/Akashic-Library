@@ -13,6 +13,9 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
     case invalidInput(what: String, why: String)
     /// store 有跨記錄的不一致（重複 UUID / citekey），改寫動作拒絕執行（#35 verify）。
     case inconsistentStore(action: String, issues: [String])
+    /// D60（R21）：改名的目的鍵上已有 verdict——`lines` 已逐項以 `displaySafeInvisible` 消毒，每一行都要印（不像 `inconsistentStore`
+    /// 只印前 3 條、每條截 300——rests-on 的 digest 在那個上限下會被切掉，而這裡的每一行都是使用者要逐筆處置的對象）。
+    case verdictsAlreadyAtTarget(action: String, key: String, lines: [String])
 
     public var errorDescription: String? {
         switch self {
@@ -28,6 +31,13 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
                  + "（改寫會刪掉其中一份而留下另一份）："
                  + issues.prefix(3).map { displaySafe($0, max: 300) }.joined(separator: "；")
                  + "。先跑 akashic doctor 看清楚並修好。"
+        case let .verdictsAlreadyAtTarget(action, key, lines):
+            // key 與 lines 已在 assertNoVerdictAlreadyAt 消毒（displaySafeInvisible）；這裡只截不逃——displaySafe 不冪等
+            return "目的鍵「\(key)」已有 \(lines.count) 條 verdict 指向它——目的鍵此刻不存在，所以它們是死 verdict（#464），"   // display-safe-exempt: 已消毒
+                 + "但 \(action) 不替你判定它們在講哪一筆記錄（它們可能是舊 binary 沒遷走、人對另一筆仍存在的記錄親自下的判定）。"   // display-safe-exempt: action 是呼叫端字面量
+                 + "請逐筆處置後再重跑：改指到它實際描述的記錄（resolve-venues --repoint／改該記錄 YAML 的 value），"
+                 + "或從該記錄的 YAML 刪掉那一筆。merge 對同一形狀同樣拒絕（D31／D34）。\n"
+                 + lines.map { displaySafeClipOnly($0, max: 1_000) }.joined(separator: "\n")   // display-safe-exempt: 已消毒，只截
         case .invalidKey(let kind, let value):
             // #142：value 是 caller 剛送進來的畸形 key——原始 ESC/bidi 位元組經
             // MCP error 直達 LLM context；kind 是程式字面量
@@ -1510,6 +1520,15 @@ extension LibraryStore {
             divergencesToRewrite.append(d)
         }
 
+        // D60（R21）：目的鍵上已有 verdict → 具名拒絕、零寫入（理由見 `assertNoVerdictAlreadyAt`）。在動任何記錄之前。
+        do {
+            var pre: [(kind: String, key: String, refs: [ProvenanceReference])] = []
+            pre += load.people.map { ("person", $0.key, $0.references) }
+            pre += load.venues.map { ("venue", $0.key, $0.references) }
+            pre += load.organizations.map { ("organization", $0.key, $0.references) }
+            try Self.assertNoVerdictAlreadyAt(newKey, holderKind: .work, in: pre, action: "rename")
+        }
+
         // #232 verify NEW-1：verdict reference 的 value 內嵌 citekey（`work:<citekey>
         // :: <literal>`，掛在被判定的 person 上）——rename 不遷移的話，一次否決會
         // 安靜變回待判：否決不再抑制、沉底列消失、同一配對同時計入 rejected 與
@@ -1520,7 +1539,7 @@ extension LibraryStore {
         for var p in load.people {
             if let m = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .work) {
                 p.references = m.refs; peopleToRewrite.append(p)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // venue 同型（#460）：#304 之後 venue 也持 `work:` holder 的 verdict
@@ -1531,7 +1550,7 @@ extension LibraryStore {
         for var vn in load.venues {
             if let m = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .work) {
                 vn.references = m.refs; venuesToRewrite.append(vn)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // organization 同型（#463，網格的 rename×org 格）：#443／OrgResolver 在 organization 記錄上落
@@ -1541,7 +1560,7 @@ extension LibraryStore {
         for var org in load.organizations {
             if let m = Self.migratedVerdicts(org.references, from: oldKey, to: newKey, holderKind: .work) {
                 org.references = m.refs; orgsToRewrite.append(org)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
 
@@ -1691,6 +1710,15 @@ extension LibraryStore {
                 newKey)
         }
 
+        // D60（R21）：目的鍵上已有 verdict → 具名拒絕、零寫入——三種 holder 都掃，含被改名的那一筆自己。
+        do {
+            var pre: [(kind: String, key: String, refs: [ProvenanceReference])] = []
+            pre += load.people.map { ("person", $0.key, $0.references) }
+            pre += load.venues.map { ("venue", $0.key, $0.references) }
+            pre += load.organizations.map { ("organization", $0.key, $0.references) }
+            try Self.assertNoVerdictAlreadyAt(newKey, holderKind: .person, in: pre, action: "rename-person")
+        }
+
         // 1. 作品側的 authors 邊（封閉列舉第 1 條）
         var entriesToRewrite: [Entry] = []
         for var e in load.entries {
@@ -1710,7 +1738,7 @@ extension LibraryStore {
             if let m = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .person) {
                 p.references = m.refs
                 peopleToRewrite.append(p)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         var orgsToRewrite: [Organization] = []
@@ -1718,7 +1746,7 @@ extension LibraryStore {
             if let m = Self.migratedVerdicts(o.references, from: oldKey, to: newKey, holderKind: .person) {
                 o.references = m.refs
                 orgsToRewrite.append(o)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(o.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(o.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // venue 同型（#463，verify security 席：venue 記錄今天只由 resolve-venues 落 `work:` holder，但寫入閘收任何
@@ -1728,14 +1756,14 @@ extension LibraryStore {
             if let m = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .person) {
                 vn.references = m.refs
                 venuesToRewrite.append(vn)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // 被改名的那一筆自己也可能持有指向自己的 verdict
         if let m = Self.migratedVerdicts(person.references, from: oldKey, to: newKey, holderKind: .person) {
             person.references = m.refs
             // 標 `newKey`：這筆記錄正在改名，寫舊鍵會讓使用者去找一個改完就不存在的 key。
-            collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(newKey)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 200)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+            collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(newKey)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
         }
 
         // 3. divergence 的候選與 prefers（第 9、10 條）
@@ -1877,13 +1905,44 @@ extension LibraryStore {
         }
     }
 
+    /// **D60（R21；R20 verify 五席）**：改名之前，任一 holder 已持有配對指向**新鍵**（同 holderKind、不論 field 與拼法）的 verdict 時
+    /// 具名拒絕、零寫入。目的鍵在 rename 之前不存在，所以它們是死 verdict（#464）——但「死」只說它們現在指不到東西，不說它們在講誰：
+    /// R20 verify DA 第 5 列真 binary 造出的那筆，是舊 binary 的 rename 沒遷走、人對另一筆仍存在的 work 親自下的判定（帶 rests-on），正確處置是
+    /// repoint 而不是刪。R18 D53／R19 D55／R20 D58 三輪都在「rename 替你丟掉它」這個方向上修——R20 還漏掉「holder 只持有死 verdict」的形
+    /// （四席同指 `migratedVerdicts` 第一段後的早退讓 `|| anyDead` 成為死碼），而即使修好也是無乾跑、無逆操作、無 git 閘的判定刪除。
+    /// 與 merge 的 D31／D34 對齊：**rename 不做判定的刪除**（`two-kinds-of-edits`：程式編輯不得銷毀判定編輯的產物；`zero-instance-guards`
+    /// 第 13 列：死 verdict 的處置是人的重新消歧）。訊息逐筆列 holder、欄位、value、rests-on，出路是先改指（repoint／改 YAML 的 value）
+    /// 或從該記錄的 YAML 刪掉，再重跑。
+    static func assertNoVerdictAlreadyAt(
+        _ newKey: String, holderKind: ProvenanceReference.VerdictHolderKind,
+        in records: [(kind: String, key: String, refs: [ProvenanceReference])], action: String) throws {
+        var found: [String] = []
+        for r in records {
+            for ref in r.refs {
+                guard ProvenanceReference.resolutionVerdictFields.contains(ref.field),
+                      let v = ref.value,
+                      let p = ProvenanceReference.VerdictPairingValue.parse(v),
+                      p.holderKind == holderKind, p.holder == newKey else { continue }
+                var line = "  · \(r.kind)「\(displaySafeInvisible(r.key, max: 120))」的 \(ref.field) \(displaySafeInvisible(v, max: 200))"
+                if case .judgement(let statement, let restsOn) = ref.kind {
+                    line += "——判定「\(displaySafeInvisible(statement, max: 200))」"
+                    if !restsOn.isEmpty { line += "（rests-on \(restsOn.count) 筆：\(restsOn.prefix(3).map { displaySafeInvisible($0, max: 80) }.joined(separator: "、"))\(restsOn.count > 3 ? "…" : "")）" }
+                }
+                found.append(line)
+            }
+        }
+        guard found.isEmpty else {
+            throw StoreIOError.verdictsAlreadyAtTarget(action: action, key: displaySafeInvisible(newKey, max: 120), lines: found)
+        }
+    }
+
     /// rename 側 verdict holder 的遷移＋收攏；沒有任何改動時回 `nil`。`holderKind` 是 `.person`（`renamePerson`，
     /// #395 的原形）或 `.work`（`renameEntry`——#232 person／#460 venue／#463 organization 三個迴圈曾是逐字相同的
     /// 三份複本，verify security 席指出同一 commit 剛用「不漂移」證立另一個抽出，這裡沒有理由例外）。
     ///
     /// 文法解析與 store 閘同源（`VerdictPairingValue`），不另寫第二份——那正是 #232 D3 自認過的
-    /// grammar-in-string 漂移。收攏**只及於這次改寫動到的鍵，且早已指向新鍵的一律當死的丟**（R18 D53、R19 D55、R20 D58——#232 的原語意是
-    /// 可解析 verdict 的全量 (field, value) dedup，R17 verify DA 第 10 列指出那讓不相干 work 的重複由 YAML 順序決定留哪個）；**被收攏的列逐筆回報、印遷移前的原值**（#495 補上——在此之前 rename 側是靜默的，
+    /// grammar-in-string 漂移。收攏**只及於這次改寫動到的鍵**（R18 D53、R19 D55；早已指向新鍵的 verdict 由 `assertNoVerdictAlreadyAt` 在改名前
+    /// 拒絕，R21 D60——#232 的原語意是可解析 verdict 的全量 (field, value) dedup，R17 verify DA 第 10 列指出那讓不相干 work 的重複由 YAML 順序決定留哪個）；**被收攏的列逐筆回報、印遷移前的原值**（#495 補上——在此之前 rename 側是靜默的，
     /// #461 只修了 merge 側而 #463 把這一面擴到 organization 與 venue 使缺口同步變大）。描述由
     /// `describeCollapsedVerdict` 產生，與 merge 側**同一個函式**：兩條路徑執行的是同一條不變式
     /// （store 永不持有重複 verdict），兩份描述會分岔。呼叫端負責加上持有記錄的 kind 與 key——
@@ -1912,26 +1971,23 @@ extension LibraryStore {
                                         kind: r.kind), true, true)
         }
         guard rewritten.contains(where: \.touched) else { return nil }
-        // 第二段（R18 D53 → R19 D55 → R20 D58）。目的鍵在 rename 之前不存在（否則 rename 拒絕），所以：
-        //  · **任何**早已指向新鍵（同 holderKind）而沒被改寫的 verdict 都是死的——不論 field、不論拼法——全丟並逐筆回報
-        //    （R19 verify DA 第 1 列 HIGH：D55 以含 field 的 `verdictEqualityKey` 分組，同配對的 rejected 逃過「全丟」、原樣通過，
-        //    rename 之後從死變活、與剛遷過來的 confirmed 構成 #486 矛盾對；merge 對同一形狀（D31／D34）是整批拒絕）；
-        //  · 被改寫的（活的）全留；拼法位元組相同的重複只留一筆——勝者走 `collapseWinner`（候選全活、全是倖存配對自己的，
-        //    只剩 #468 三層：弱血統的警告留得住、與 YAML 順序無關；R19 verify logic 第 6 列：R19 留首見，#468 那一層在 rename 沒跑）；
-        //    拼法不同的都留——第 27 列的第二半只掃 venue×work，其餘六格（person／organization 持 work、三種 holder 持 person）
+        // 第二段（R18 D53 → R19 D55 → R21 D60）。早已指向新鍵的 verdict **到不了這裡**——`assertNoVerdictAlreadyAt` 在改名前具名拒絕
+        // （R20 D58 曾在這裡丟掉它們：四席同指第一段後的早退讓「只持有死 verdict 的 holder」原樣通過、rename 後復活，DA 另指丟掉的
+        // 可能是人對另一筆記錄親自下的判定——rename 不做判定的刪除）。所以本段只處理**被改寫的**：
+        //  · 全留；拼法位元組相同的重複只留一筆——勝者走 `collapseWinner`（候選全活、全是倖存配對自己的，只剩 #468 三層：弱血統的警告留得住、
+        //    與 YAML 順序無關；R19 verify logic 第 6 列：R19 留首見，#468 那一層在 rename 沒跑）；
+        //  · 拼法不同的都留——第 27 列的第二半只掃 venue×work，其餘六格（person／organization 持 work、三種 holder 持 person）
         //    沒有掃描面也沒有揭露面，rename 不替它判定（R19 verify requirements 第 4 列：誠實邊界，寫在 §3.5）；
         //  · 留下的每一筆待在原位置，不相干 reference 的相對順序不變（R19 verify regression 第 23 列：整組前移會重排）。
-        // R18 verify Codex 第 1 列（單一槽位記帳讓三方碰撞由順序決定）由「先分組再逐筆走」的形狀消滅，六種排列同一個答案。
+        // 位元組每筆只算一次、以字典索引，O(N)（R19 verify security 第 8 列；R20 verify DA 第 26 列指出 R20 的死列查找不是——那段已拿掉）。
         func bytes(_ r: ProvenanceReference) -> [UInt8] {
             Array((ProvenanceReference.VerdictPairingValue.parse(r.value ?? "")?.literal ?? "").utf8)
         }
         func key(_ r: ProvenanceReference) -> String { ProvenanceReference.verdictEqualityKey(field: r.field, value: r.value) }
-        // 1. 活的按鍵分組，同拼法折成一筆（勝者索引記在 winnerOf）——位元組只算一次、以字典索引，O(N)（R19 verify security 第 8 列）
         var liveGroups: [String: [Int]] = [:]
         for (i, item) in rewritten.enumerated() where item.touched { liveGroups[key(item.ref), default: []].append(i) }
         var winnerOf: [Int: Int] = [:]                 // 被改寫的索引 → 留下的那筆的索引
-        var liveWinnersByKey: [String: [Int]] = [:]    // 鍵 → 勝者索引（原順序），給死 verdict 的收攏列找「留下的拼法」
-        for (k, idxs) in liveGroups {
+        for idxs in liveGroups.values {
             var order: [[UInt8]] = []; var members: [[UInt8]: [Int]] = [:]
             for i in idxs {
                 let b = bytes(rewritten[i].ref)
@@ -1943,34 +1999,14 @@ extension LibraryStore {
                 let w = group.count == 1 ? 0
                     : Self.collapseWinner(group.map { CollapseCandidate(ref: rewritten[$0].ref, ownedBySurvivor: true, live: true) })
                 for i in group { winnerOf[i] = group[w] }
-                liveWinnersByKey[k, default: []].append(group[w])
             }
         }
-        // 2. 沒被改寫而指向新鍵的：死的
-        func deadAtNewKey(_ r: ProvenanceReference) -> Bool {
-            guard let p = ProvenanceReference.VerdictPairingValue.parse(r.value ?? "") else { return false }
-            return p.holderKind == holderKind && p.holder == newKey
-        }
-        let anyDead = rewritten.contains { $0.isVerdict && !$0.touched && deadAtNewKey($0.ref) }
-        guard rewritten.contains(where: \.touched) || anyDead else { return nil }
-        // 3. 逐筆走：留、折、丟——留下的都在原位
         var out: [ProvenanceReference] = []
         var collapsed: [String] = []
         for (i, item) in rewritten.enumerated() {
-            guard item.isVerdict else { out.append(item.ref); continue }
-            if item.touched {
-                let w = winnerOf[i]!
-                if w == i { out.append(item.ref) } else { collapsed.append(Self.describeCollapsedVerdict(original: refs[i], kept: rewritten[w].ref)) }
-                continue
-            }
-            guard deadAtNewKey(item.ref) else { out.append(item.ref); continue }
-            // 收攏列的「留下的那筆」只在同一個鍵（同 field、同正規化拼法）的活勝者裡找：同拼法優先，否則陣列順序裡第一筆
-            // （拼法揭露的順序相依只在這一層；留下的集合與順序無關）；異 field 或異拼法的死 verdict 沒有對應的活筆，只說理由
-            let cands = liveWinnersByKey[key(item.ref)] ?? []
-            let deadBytes = bytes(item.ref)
-            let kept = (cands.first { bytes(rewritten[$0].ref) == deadBytes } ?? cands.first).map { rewritten[$0].ref }
-            collapsed.append(Self.describeCollapsedVerdict(original: refs[i], kept: kept,
-                                                           why: "早已指向新鍵「\(newKey)」的死 verdict（rename 之前目的鍵不存在；不論 field 與拼法一律丟棄，留著會在 rename 之後復活）"))
+            guard item.touched else { out.append(item.ref); continue }
+            let w = winnerOf[i]!
+            if w == i { out.append(item.ref) } else { collapsed.append(Self.describeCollapsedVerdict(original: refs[i], kept: rewritten[w].ref)) }
         }
         return (out, collapsed)
     }

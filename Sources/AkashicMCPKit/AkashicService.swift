@@ -415,7 +415,7 @@ public final class AkashicService {
                 "first": first,
                 // **`first` 受位元組預算約束**（R17；R16 verify regression 第 8 列：R16 把單則上限 300 → 1,000 只為了「只截不逃」，卻把這個
                 // 沒有位元組預算的 block 放大 3.3×——逃脫後一個 scalar 是 8 個字元，20 則最壞 160 KB；`resolve_people` 的候選列早就受
-                // `candidateByteBudget` 管，這裡是同一個威脅模型）。截掉時揭露；`count` 完整，各族計數是下限（見上）。
+                // `candidateByteBudget` 管，這裡是同一個威脅模型）。截掉時揭露；這一層的截斷**不影響** `count`（它數的是進 `first` 之前的訊息則數），但 per-record 上限那一層仍讓 `count`／`errors`／各族都是下限（見上，D59）。
                 "firstCappedByBudget": firstCapped,   // display-safe-exempt: Bool
             ] as [String: Any]
         }

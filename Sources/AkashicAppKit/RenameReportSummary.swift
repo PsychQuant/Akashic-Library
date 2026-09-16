@@ -30,9 +30,11 @@ enum RenameReportSummary {
             return xs.isEmpty ? "\(label)：0 筆"
                               : "\(label)：\(xs.count) 筆（\(shown)\(xs.count > 5 ? "…" : "")）"
         }
-        /// 迴送 store 字串（verdict value、judgement）的列用性質式逃脫——與 CLI 的 `displaySafeInvisible(max: 1_000)` 同一種消毒
+        /// 迴送 store 字串（verdict value、judgement）的列用性質式逃脫——與 CLI 的 `displaySafeInvisible(max: 1_000)` 同一種消毒、**同一個上限**
+        /// （R21；R20 verify regression 第 14 列：收攏列自 R20 起在尾端疊了 rests-on 與留下的拼法，200 字的 App sink 在「丟棄 判定「…」」就切掉，
+        /// 「不沉默」在 App 面沒兌現）
         func storeLine(_ label: String, _ xs: [String]) -> String {
-            let shown = xs.prefix(5).map { displaySafeInvisible($0, max: 200) }.joined(separator: "、")
+            let shown = xs.prefix(5).map { displaySafeInvisible($0, max: 1_000) }.joined(separator: "、")
             return xs.isEmpty ? "\(label)：0 筆"
                               : "\(label)：\(xs.count) 筆（\(shown)\(xs.count > 5 ? "…" : "")）"
         }

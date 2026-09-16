@@ -624,6 +624,27 @@ skipped，另裁。LOW：第 25 列的量測 grep 數不到求值上限句、又
 INFO：`fmt` 訊息列了不可達的原因（第 17 列）→ 改；測試窗口的括號配對只有「太小」方向有守衛（第 18 列）→ 加結束錨；四個搭車項集中記（第 19 列）；
 24/24 在位、無注入（第 16／20 列）。
 
+## R18 verify：五席撞上 session limit
+
+R18 verify 的六席裡**五席（requirements／logic／security／regression／DA）在起跑就撞上「You've hit your session limit · resets 7:10am」、零 finding 回來**，
+只有 Codex 席完成——這不是一次有效的 ensemble（席次會大量掉是記過的事，`ensemble-lens-attrition`），R19 落地後**重跑一次完整的 verify**。Codex 席 3 列全收：
+
+- **HIGH：D53 的 rename 收攏用單一槽位記帳，三方以上的碰撞由 YAML 順序決定**（第 1 列）。每個鍵只記「目前留下的那筆」是活是死；兩筆早已指向新鍵的死 verdict
+  ＋ 一筆被改寫的活 verdict 時，第二筆死的對上「已被活的取代的槽位」走到「同狀態、拼法不同：都留」那一支——六種排列裡兩種留下一筆死的（活的排在中間或最後、
+  另一筆死的在它之後）。**D55**：以被動到的鍵整組收攏——被改寫的全留（同拼法收成首見）、早已指向新鍵的全丟（目的鍵在 rename 之前不存在，否則 rename 拒絕，
+  所以它們必然是死的）、兩筆被改寫而拼法不同的都留；整組放在鍵首次出現處。測試六種排列同一個答案、真 binary 同形。
+- **MEDIUM：`cappedRecords` 數的是概括句的行數，不是記錄**（第 2 列）。一筆 venue 可以同時出名字近重複與 confirmed-literal 兩句概括，「被截的記錄數」就多報一筆，
+  而 doctor 描述說的是「幾筆記錄」。**D56**：以 (kind, owner) 去重、每筆留首見那一句；MCP 描述補「以記錄計」。
+- **MEDIUM：App 沒有任何 View 消費 `cappedRecords`**（第 3 列）。R18 把它放進 `RecordIssuesSummary` 就停了，側欄的家族計數仍是裸數字。**D57**：
+  `RecordIssuesSection` 多一列「被截的記錄」，各家族的值經 `summary.lowerBound`——有記錄被截時前綴「≥」；源碼掃描釘住每個家族都經過它。
+
+**搭車一項，與 #554 無關但擋住 push**：這台機器 2026-09-16 09:37 裝了 Xcode 27，`swift` 6.4 的預設建置系統改成 swiftbuild（`--build-system native`
+標為 deprecated），而它只連結宣告過的依賴——`AkashicKitTests` 有四個檔 `@testable import AkashicMCPKit` 卻沒宣告、native 靠傳遞依賴連得起來，
+swiftbuild 直接 `Undefined symbols … AkashicMCPKit.AkashicService`。`Package.swift` 補宣告一行。補完之後全套在預設系統下 2754 條**只剩 3 條紅**——`AkashicPropositionTests` 的三個外部探針以 `.xctest`
+所在目錄反推 native 佈局的 `Modules/` 與 `checkouts/Yams`，swiftbuild 沒有那兩個位置；沒有環境變數可切回。另開 **#577**；在它落地前
+`.githooks/pre-push` 顯式釘 `--build-system native` 並在 build 之後把 `.build/debug` 連結指回 native 產物（swiftbuild 會把它改指
+`out/Products/Debug`、native 不會改回，而守衛從 `.build/debug` 找 binary），`PrePushHookTests` 的期望字串同步。native 全套 2754／0（1 skipped）。
+
 ## 第二次端到端又紅——這次是我的 binary
 
 改成替換語意後測試 7/7 綠、四個 mutation 負控乾淨，真 binary 卻說「authorized 含不在
@@ -679,7 +700,7 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
   `authorized ⊄ names` 的 organization holder 在 commit 前拒」與「欄位遺失先於 holder 閘」；`NameIdentityTests` 加「不刪
   任何非空白 scalar」；`DivergenceResolveVenueTests` 25 條（三種結果各有測試 ＋ dry-run 對不可寫的 keeper 拒 ＋ 欄位遺失先於被併者的名字檢查 ＋ R12：遷移以正規化鍵去重／相反判定拒／塌邊留兩筆 confirmed literal 拒 ＋ R13：三方合併的 doomed↔doomed 相反判定拒／D32 守不變式本身且倖存者既有違反不擋、去重丟掉的回報 ＋ R14：dry-run 預告去重丟列／單一被併者自帶兩個 literal 拒／單一被併者內部的矛盾拒、三方合併的訊息指名兩筆記錄 ＋ R15：拒絕訊息把帶進來的與倖存者既有的分開列 ＋ R16：被併記錄內部整組的拒絕訊息說它擋（D45））；`VerdictHolderGridTests` 加 R16 兩條：
   把歧義搬到只持有其中一部分的倖存配對上拒、被併鍵上整組矛盾對搬到已有 confirmed 的倖存配對上拒 ＋ R17：holder 遷移不換掉倖存配對的拼法且收攏列印兩個拼法（D47）；
-  `CollapseSurvivorPolicyTests` 加「拼法不同時倖存配對自己的勝」（同拼法 #468 照舊）＋ R18「三列碰撞留與 keeper 同拼法的弱血統那筆」「kept 解析不出時說出來」；`DivergenceResolveVenueTests` 加「keeper 路徑收攏列印兩個拼法」＋ R18「keeper 的死 verdict 讓位給活邊那筆」「三方合併走 #468 不走陣列順序」；`VerdictHolderGridTests` ＋ R18「person keeper 路徑活邊勝」「不相干 rename 不動另一 work 的重複」「rename 留被改寫的活 verdict」；`PairingUniquenessHealthTests`／`RecordIssuesSummaryTests` ＋ R18 `cappedRecords`；
+  `CollapseSurvivorPolicyTests` 加「拼法不同時倖存配對自己的勝」（同拼法 #468 照舊）＋ R18「三列碰撞留與 keeper 同拼法的弱血統那筆」「kept 解析不出時說出來」；`DivergenceResolveVenueTests` 加「keeper 路徑收攏列印兩個拼法」＋ R18「keeper 的死 verdict 讓位給活邊那筆」「三方合併走 #468 不走陣列順序」；`VerdictHolderGridTests` ＋ R18「person keeper 路徑活邊勝」「不相干 rename 不動另一 work 的重複」「rename 留被改寫的活 verdict」；`PairingUniquenessHealthTests`／`RecordIssuesSummaryTests` ＋ R18 `cappedRecords` ＋ R19「以記錄計」「App 渲染且家族值標下限」；`VerdictHolderGridTests` ＋ R19「三方碰撞六種排列同一答案」「被改寫的全留、死的全丟」；
   `StoreHealthSurfaceTests` 的窗口改成掃到閉合大括號；`PairingUniquenessHealthTests` 加「家族計數
   不含概括句」；`RecordIssuesSummaryTests` 加「App 預覽不二次逃脫」；`VerdictHolderGridTests` 另加 person 合併的相反判定拒與遷移去重、work 合併的 holder 遷移矛盾拒 ＋ R14：holder 遷移留兩個 literal 拒、合併前就有的矛盾不擋、person dry-run 預告 #271 的去重 ＋ R15：住在被併鍵上的既有矛盾對不擋、被併鍵上既有的雙 literal 不擋、既有歧義變大仍擋且訊息分兩半、倖存者自己持有的 `person:<被併>` 矛盾對不擋而改寫後才相撞的擋、收攏列印原值並逐段截（merge 與 rename）（52 條）；`PairingUniquenessHealthTests`（新）與 `RecordIssuesSummaryTests` 加兩族家族計數；`VerdictEqualityTests` 加 malformed 回退鍵不碰撞；`OrderInsensitiveCollapseTests` 三處 pin 改成遷移前的原值；`AssembledDisplaySafetyTests` 加 organization 的 fmt 語意驗證；`DisplaySinkCoverageTests` 加「守衛認得 `displaySafeInvisible(`」；
   `CanonicalFormatValidationTests` 加 venue 語意驗證

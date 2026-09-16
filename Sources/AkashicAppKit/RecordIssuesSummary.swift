@@ -28,10 +28,15 @@ struct RecordIssuesSummary: Equatable {
     /// （R14 verify regression 第 22 列：三面計數不得分岔）。
     let duplicateVenueEdges: Int
     let confirmedLiteralAmbiguities: Int
-    /// 被截的記錄數（R18 D54）——家族計數是下限（每筆記錄至多 20 則），這個數字說「還有」。
+    /// 被截的記錄數（R18 D54；以記錄計，R19 D56）——家族計數是下限（每筆記錄至多 20 則），這個數字說「還有」。
     let cappedRecords: Int
     /// `.help` 用：前幾則訊息（`displaySafe`，每則截斷），加一句「完整逐行看 CLI validate」。
     let help: String
+
+    /// 家族計數的呈現（R19 D57；R18 verify Codex 第 3 列：`cappedRecords` 到得了這裡卻沒有任何 View 消費它，側欄的家族計數仍是裸數字）：
+    /// 有記錄被截時每個家族的計數都是下限（每筆記錄至多 20 則進家族），前綴「≥」；沒有記錄被截時計數精確、照印。
+    /// `total`／`errors` 不經這裡——它們數的是訊息則數（概括句也是一則），本來就精確。
+    func lowerBound(_ n: Int) -> String { cappedRecords > 0 ? "≥ \(n)" : "\(n)" }
 
     /// 全為零時回 nil——**沉默即健康**（側欄「較新欄位」0 時不顯示的既有慣例）。
     nonisolated init?(health: StoreHealth, previewLimit: Int = 5) {

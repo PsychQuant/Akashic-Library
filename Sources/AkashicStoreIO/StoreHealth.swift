@@ -138,9 +138,15 @@ public struct StoreHealth {
     /// （`Entry.perRecordCapSummaryPrefix`，**不在**任何家族裡）收尾——被截的記錄上，家族計數 ＝ min(受影響數, 上限)，
     /// 不是受影響數；要全部就用 CLI `validate`。**被截的記錄數自己是一族**（`cappedRecords`，R18 D54；R17 verify Codex 第 2 列：
     /// doctor 的描述與註解說「各族計數永遠完整」、與這一段互相矛盾，而 MCP 描述是呼叫端唯一看得到的契約）——三面都說得出「還有幾筆被截」。
+    /// **以 (kind, owner) 計，不是概括句的行數**（R19 D56；R18 verify Codex 第 2 列：一筆 venue 可以同時出名字近重複與 confirmed-literal 兩句概括，
+    /// R18 數行數就把「被截的記錄」多報一筆）——每筆記錄只留首見那一句，`count` 才真的是「幾筆記錄被截」。
     public static let cappedRecordPrefix = Entry.perRecordCapSummaryPrefix
     public var cappedRecords: [OwnedIssue] {
-        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.cappedRecordPrefix) }
+        var seen = Set<String>()
+        return perRecordIssues.filter { owned in
+            guard owned.issue.message.hasPrefix(Self.cappedRecordPrefix) else { return false }
+            return seen.insert("\(owned.kind)\u{1F}\(owned.owner)").inserted
+        }
     }
     public static let duplicateVenueEdgePrefix = Entry.duplicateVenueEdgePrefix
     public var duplicateVenueEdges: [OwnedIssue] {

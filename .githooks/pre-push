@@ -73,11 +73,18 @@ PUSH_REFS
     fi
 fi
 
-echo "pre-push: swift build -Xswiftc -warnings-as-errors"
-swift build -Xswiftc -warnings-as-errors
+# **建置系統釘 native（#577，中間項）**。Xcode 27（2026-09-16）起 `swift` 6.4 預設走 swiftbuild，而
+# `AkashicPropositionTests` 的三個外部探針以 .xctest 所在目錄反推 native 佈局的 `Modules/` 與
+# `checkouts/Yams`，在 swiftbuild 下必紅；沒有環境變數可切回。swiftbuild 還會把 `.build/debug`
+# 連結改指 `out/Products/Debug`、native 不會改回，而下方守衛從 `.build/debug/akashic-guards` 找
+# binary——所以 build 之後把連結指回 native 的產物目錄。探針支援兩種佈局後這三行一起拿掉。
+SWIFT_BUILD_SYSTEM=(--build-system native)
+echo "pre-push: swift build --build-system native -Xswiftc -warnings-as-errors"
+swift build "${SWIFT_BUILD_SYSTEM[@]}" -Xswiftc -warnings-as-errors
+[ -d ".build/$(uname -m)-apple-macosx/debug" ] && ln -sfn "$(uname -m)-apple-macosx/debug" .build/debug
 
-echo "pre-push: swift test -Xswiftc -warnings-as-errors（全套；判讀看最後一行總數——#56 的教訓）"
-swift test -Xswiftc -warnings-as-errors
+echo "pre-push: swift test --build-system native -Xswiftc -warnings-as-errors（全套；判讀看最後一行總數——#56 的教訓）"
+swift test "${SWIFT_BUILD_SYSTEM[@]}" -Xswiftc -warnings-as-errors
 
 # **Plugin 守衛**（#407）。CI 的 macOS job 對 plugin-only 的 push 被
 # paths-ignore 跳過（計費考量），所以本機這一關是它們唯一每次都會跑到的地方。

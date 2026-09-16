@@ -404,7 +404,7 @@ public final class AkashicService {
                 "confirmedLiteralAmbiguities": health.confirmedLiteralAmbiguities.count,   // display-safe-exempt: Int
                 // **家族計數是下限**（R18 D54；R17 verify Codex 第 2 列：R17 在這裡寫「各族計數永遠完整」，而 `StoreHealth` 的 doc 說
                 // 被截的記錄上家族計數 ＝ min(受影響數, 20)——同一個 diff 裡的兩份描述）：每筆記錄至多 `Entry.perRecordWarningCap` 則進家族，
-                // `cappedRecords` 說有幾筆記錄被截；要全部就用 CLI `validate`。`count` 本身完整（概括句也是一則）。
+                // `cappedRecords` 說有幾筆記錄被截（以記錄計，R19 D56）；要全部就用 CLI `validate`。`count` 本身完整（概括句也是一則）。
                 "cappedRecords": health.cappedRecords.count,   // display-safe-exempt: Int
                 "first": first,
                 // **`first` 受位元組預算約束**（R17；R16 verify regression 第 8 列：R16 把單則上限 300 → 1,000 只為了「只截不逃」，卻把這個

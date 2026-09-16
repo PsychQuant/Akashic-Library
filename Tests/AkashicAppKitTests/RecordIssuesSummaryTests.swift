@@ -139,6 +139,7 @@ final class RecordIssuesSummaryTests: XCTestCase {
         XCTAssertEqual(summary.duplicateVenueEdges, 1)
         XCTAssertEqual(summary.errors, 0, "兩族都是 warning")
         XCTAssertEqual(summary.cappedRecords, 0)
+        XCTAssertEqual(summary.lowerBound(summary.duplicateVenueEdges), "1", "沒有記錄被截：計數是精確的，不標下限")
     }
 
     /// R18（D54；R17 verify Codex 第 2 列）：被截的記錄數要到得了 App——家族計數是下限，三面都要說得出「還有」。
@@ -156,6 +157,30 @@ final class RecordIssuesSummaryTests: XCTestCase {
         let summary = try XCTUnwrap(RecordIssuesSummary(health: try XCTUnwrap(state.health)))
         XCTAssertEqual(summary.confirmedLiteralAmbiguities, 20)
         XCTAssertEqual(summary.cappedRecords, 1)
+        // R19（D57；R18 verify Codex 第 3 列）：有記錄被截時家族的值要標成下限——20 是「至少 20」
+        XCTAssertEqual(summary.lowerBound(summary.confirmedLiteralAmbiguities), "≥ 20")
+        XCTAssertEqual(summary.lowerBound(summary.deadVerdicts), "≥ 0")
+    }
+
+    /// R18 verify Codex 第 3 列：`cappedRecords` 到得了摘要（R18 D54）卻沒有任何 View 消費它——側欄的家族計數仍是裸數字，使用者看不出
+    /// 那是下限。R19（D57）：`RecordIssuesSection` 渲染「被截的記錄」一列，且每個家族的值經 `summary.lowerBound`（有記錄被截時前綴「≥」）。
+    /// 源碼掃描（去掉 `//` 註解）釘住兩件事——與 `testSidebarMountsTheSectionOutsideTheHasFindingsGate` 同一種守衛。
+    func testSectionRendersCappedRecordsAndMarksFamilyCountsAsLowerBounds() throws {
+        let repo = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let raw = try String(contentsOf: repo.appendingPathComponent("Sources/AkashicAppKit/RecordIssuesSection.swift"), encoding: .utf8)
+        let code = raw.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            let s = String(line)
+            if let r = s.range(of: "//") { return String(s[..<r.lowerBound]) }
+            return s
+        }.joined(separator: "\n")
+        // 兩件都要在：閘與值（只查 `summary.cappedRecords` 出現過會被 `.help` 字串裡的插值滿足——R19 負控 NC6 抓到的假綠）
+        XCTAssertTrue(code.contains("if summary.cappedRecords > 0 {"), "RecordIssuesSection 沒有以 cappedRecords 閘出一列——doctor 面說得出「還有幾筆被截」而 App 面說不出")
+        XCTAssertTrue(code.contains("LabeledContent(\"被截的記錄\", value: \"\\(summary.cappedRecords)\")"), "「被截的記錄」那一列的值要是 cappedRecords 本身")
+        for family in ["deadVerdicts", "danglingSources", "venueVerdictBudget", "orphanedSplitVerdicts", "contradictedRemovalRecords",
+                       "duplicateVenueEdges", "confirmedLiteralAmbiguities", "staleSplitRecords"] {
+            XCTAssertTrue(code.contains("summary.lowerBound(summary.\(family))"), "\(family) 的值沒有經 lowerBound——被截時它是下限")
+        }
     }
 
     /// R15 verify 第 16 列：App 預覽對已消毒的訊息再過一次 `displaySafe(_, max: 160)`——反斜線被逃成 U+005C，且 160 把家族前綴之後的

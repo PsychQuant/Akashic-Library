@@ -1879,8 +1879,8 @@ extension LibraryStore {
     /// 三份複本，verify security 席指出同一 commit 剛用「不漂移」證立另一個抽出，這裡沒有理由例外）。
     ///
     /// 文法解析與 store 閘同源（`VerdictPairingValue`），不另寫第二份——那正是 #232 D3 自認過的
-    /// grammar-in-string 漂移。收攏是**可解析 verdict 的全量** (field, value) dedup（#232 的既有語意，與 merge 側
-    /// 「只收本次觸及」刻意不同）；**被收攏的列逐筆回報、印遷移前的原值**（#495 補上——在此之前 rename 側是靜默的，
+    /// grammar-in-string 漂移。收攏**只及於這次改寫動到的鍵、且以鍵整組算**（R18 D53、R19 D55——#232 的原語意是可解析 verdict 的全量
+    /// (field, value) dedup，R17 verify DA 第 10 列指出那讓不相干 work 的重複由 YAML 順序決定留哪個）；**被收攏的列逐筆回報、印遷移前的原值**（#495 補上——在此之前 rename 側是靜默的，
     /// #461 只修了 merge 側而 #463 把這一面擴到 organization 與 venue 使缺口同步變大）。描述由
     /// `describeCollapsedVerdict` 產生，與 merge 側**同一個函式**：兩條路徑執行的是同一條不變式
     /// （store 永不持有重複 verdict），兩份描述會分岔。呼叫端負責加上持有記錄的 kind 與 key——
@@ -1909,40 +1909,47 @@ extension LibraryStore {
                                         kind: r.kind), true, true)
         }
         guard rewritten.contains(where: \.touched) else { return nil }
-        // 第二段：**只收攏這次動到的鍵**（R18，Claude 代裁 D53；R17 verify DA 第 10 列：R16 之前這裡是全量 (field, value) dedup 且沒有勝者政策——
-        // 對不相干 work 的兩筆只差位元組的 confirmed 由 YAML 陣列順序決定留哪個，之後 demote 還回的可能不是那條邊的原文）。同一個被動到的
-        // 鍵下：位元組相同的重複收攏（留首見）；被改寫的那筆對上一筆**早已指向新鍵**的——後者必然是死的（目的鍵不存在，否則 rename 拒絕）
-        // ——留活的（被改寫的）；兩筆都被改寫而拼法不同的**都留**（那是 rename 之前就在的第 27 列第二類 warning，rename 不替它判定）。
+        // 第二段：**只收攏這次動到的鍵，且以鍵整組算**（R18 D53、R19 D55；R17 verify DA 第 10 列：R16 之前這裡是全量 (field, value) dedup 且沒有
+        // 勝者政策——對不相干 work 的兩筆只差位元組的 confirmed 由 YAML 陣列順序決定留哪個；R18 verify Codex 第 1 列 HIGH：D53 的實作用**單一槽位**
+        // 記帳——每個鍵只記「目前留下的那筆」是活是死——三方碰撞（兩筆早已指向新鍵的死 verdict ＋ 一筆被改寫的活 verdict）時，第二筆死的對上
+        // 「已被活的取代的槽位」走到「同狀態、拼法不同：都留」那一支，留下與否取決於 YAML 陣列順序）。同一個被動到的鍵下：
+        //  · 被改寫的（活的）**全留**，拼法位元組相同的收成首見；兩筆被改寫而拼法不同的都留（那是 rename 之前就在的第 27 列第二類 warning，
+        //    rename 不替它判定）；
+        //  · 早已指向新鍵的（沒被改寫的）**全丟**——目的鍵在 rename 之前不存在（否則 rename 拒絕），所以它們必然是死的；收攏列的「留下的那筆」
+        //    是同拼法的活 verdict、沒有就是第一筆活的（那時印出兩個拼法）。
+        // 整組放在該鍵首次出現的位置，活的之間維持原相對順序。
         let touchedKeys = Set(rewritten.filter(\.touched).map { ProvenanceReference.verdictEqualityKey(field: $0.ref.field, value: $0.ref.value) })
-        var out: [ProvenanceReference] = []
-        var collapsed: [String] = []
-        var keptIndex: [String: Int] = [:]          // 鍵 → 留下的那筆在 out 裡的位置
-        var keptOriginal: [String: Int] = [:]       // 鍵 → 留下的那筆在 refs 裡的位置（印遷移前的原值，D40）
-        var keptTouched: [String: Bool] = [:]
+        var groups: [String: [Int]] = [:]   // 被動到的鍵 → 該鍵全部 verdict 在 refs 裡的索引（原順序）
+        for (i, item) in rewritten.enumerated() where item.isVerdict {
+            let key = ProvenanceReference.verdictEqualityKey(field: item.ref.field, value: item.ref.value)
+            if touchedKeys.contains(key) { groups[key, default: []].append(i) }
+        }
         func bytes(_ r: ProvenanceReference) -> [UInt8] {
             Array((ProvenanceReference.VerdictPairingValue.parse(r.value ?? "")?.literal ?? "").utf8)
         }
-        for (i, item) in rewritten.enumerated() {
+        var out: [ProvenanceReference] = []
+        var collapsed: [String] = []
+        var emitted = Set<String>()
+        for item in rewritten {
             guard item.isVerdict else { out.append(item.ref); continue }
             let key = ProvenanceReference.verdictEqualityKey(field: item.ref.field, value: item.ref.value)
-            guard touchedKeys.contains(key) else { out.append(item.ref); continue }
-            guard let ki = keptIndex[key] else {
-                keptIndex[key] = out.count; keptOriginal[key] = i; keptTouched[key] = item.touched
-                out.append(item.ref)
-                continue
+            guard let members = groups[key] else { out.append(item.ref); continue }
+            guard emitted.insert(key).inserted else { continue }   // 整組已在首次出現處放完
+            var winners: [ProvenanceReference] = []
+            for j in members where rewritten[j].touched {
+                let live = rewritten[j].ref
+                if let w = winners.first(where: { bytes($0) == bytes(live) }) {
+                    collapsed.append(Self.describeCollapsedVerdict(original: refs[j], kept: w))
+                } else {
+                    winners.append(live)
+                }
             }
-            let kept = out[ki]
-            if bytes(kept) == bytes(item.ref) {
-                collapsed.append(Self.describeCollapsedVerdict(original: refs[i], kept: kept))
-            } else if item.touched && keptTouched[key] == false {
-                // 活的來了：換掉先前留的死的那筆
-                collapsed.append(Self.describeCollapsedVerdict(original: refs[keptOriginal[key]!], kept: item.ref))
-                out[ki] = item.ref; keptOriginal[key] = i; keptTouched[key] = true
-            } else if !item.touched && keptTouched[key] == true {
-                collapsed.append(Self.describeCollapsedVerdict(original: refs[i], kept: kept))
-            } else {
-                out.append(item.ref)   // 同狀態、拼法不同：都留
+            for j in members where !rewritten[j].touched {
+                let dead = rewritten[j].ref
+                let kept = winners.first(where: { bytes($0) == bytes(dead) }) ?? winners[0]   // 鍵在 touchedKeys 裡 ⇒ winners 非空
+                collapsed.append(Self.describeCollapsedVerdict(original: refs[j], kept: kept))
             }
+            out.append(contentsOf: winners)
         }
         return (out, collapsed)
     }

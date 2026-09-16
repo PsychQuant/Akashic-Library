@@ -209,8 +209,9 @@ final class PrePushHookTests: XCTestCase {
                 .split(separator: "\n")
                 .map(String.init),
             [
-                "build -Xswiftc -warnings-as-errors",
-                "test -Xswiftc -warnings-as-errors",
+                // #577：Xcode 27 起預設 swiftbuild，hook 暫釘 native（探針支援兩種佈局後拿掉這兩個字）
+                "build --build-system native -Xswiftc -warnings-as-errors",
+                "test --build-system native -Xswiftc -warnings-as-errors",
             ]
         )
     }
@@ -282,7 +283,7 @@ final class PrePushHookTests: XCTestCase {
         XCTAssertEqual(
             try String(contentsOf: log, encoding: .utf8)
                 .split(separator: "\n").map(String.init),
-            ["build -Xswiftc -warnings-as-errors"],
+            ["build --build-system native -Xswiftc -warnings-as-errors"],   // #577：同上，釘 native 是中間項
             "build 失敗後不得再呼叫 swift test——出現第二行即代表 hook 沒有中止")
     }
 

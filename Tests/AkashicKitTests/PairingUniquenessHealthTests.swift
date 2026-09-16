@@ -61,4 +61,25 @@ final class PairingUniquenessHealthTests: XCTestCase {
         XCTAssertEqual(StoreHealth.cappedRecordPrefix, Entry.perRecordCapSummaryPrefix, "單一定義")
         XCTAssertTrue(health.cappedRecords.allSatisfy { $0.issue.message.hasPrefix(Entry.perRecordCapSummaryPrefix) })
     }
+
+    /// R18 verify Codex 第 2 列：`cappedRecords` 數的是概括句的**行數**——一筆 venue 可以同時出名字近重複（`Venue.validate()` 的第二句概括）
+    /// 與 confirmed-literal（第三句）兩句，「被截的記錄數」就多報一筆，而 doctor 描述說的是「有幾筆記錄被截」。R19（D56）：以 (kind, owner)
+    /// 去重——一筆記錄不論出幾句概括都算一筆；名字近重複是 error，validate 拒寫，所以 fixture 手改 YAML。
+    func testCappedRecordsCountsRecordsNotSummaryLines() throws {
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = (1...25).flatMap { [confirmed("w\($0)", "Alpha Journal"), confirmed("w\($0)", "Beta Review")] }
+        try store.writeVenue(v)
+        let url = store.entityURL(id: v.id)
+        let dups = (1...21).map { "- value: Dup \($0)\n- value: Dup \($0)\n" }.joined()
+        let raw = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertEqual(raw.components(separatedBy: "- value: Alpha Journal\n").count, 2, "fixture 錨要唯一：\(raw)")
+        try raw.replacingOccurrences(of: "- value: Alpha Journal\n", with: "- value: Alpha Journal\n" + dups).write(to: url, atomically: true, encoding: .utf8)
+        let health = store.health(from: try store.load())
+        let summaries = health.perRecordIssues.filter { $0.issue.message.hasPrefix(Entry.perRecordCapSummaryPrefix) }
+        XCTAssertEqual(summaries.count, 2, "同一筆 venue 兩句概括：\(summaries.map(\.issue.message))")
+        XCTAssertTrue(summaries.allSatisfy { $0.kind == "venue" && $0.owner == "alpha" }, "\(summaries.map { ($0.kind, $0.owner) })")
+        XCTAssertEqual(health.cappedRecords.count, 1, "\(health.cappedRecords.map(\.issue.message))")
+        XCTAssertEqual(health.cappedRecords.first?.owner, "alpha")
+        XCTAssertEqual(health.confirmedLiteralAmbiguities.count, 20, "家族計數仍是下限")
+    }
 }

@@ -878,11 +878,16 @@ work 對該 venue（`Entry.venues`）／person（`Entry.authors`）、person 對
 自己位元組相同的那些；(2) #468 三層——弱血統優先、倖存配對自己的優先、statement 字典序；(3) 首見順序（三方合併兩筆被併材料同弱、同 statement 時——
 揭露而非任意）。holder 路徑（work 合併）沒有活邊那一層：work 合併不搬 venues／authors 邊，被併配對在合併後必死，那裡「倖存配對自己的勝」就是活邊規則。
 **rename 只收攏它動到的鍵（D53）**：位元組相同的重複收攏（留首見）；被改寫的那筆對上一筆早已指向新鍵的 verdict 時——後者必然是死的（目的鍵不存在，否則
-rename 拒絕）——留活的；兩筆都沒被改寫的碰撞**留著**（那是 rename 之前就在的第 27 列第二類 warning，rename 不替它判定；R16 之前是全量 dedup、由陣列順序決定）。
+rename 拒絕）——留活的；兩筆都沒被改寫的碰撞**留著**（那是 rename 之前就在的第 27 列第二類 warning，rename 不替它判定；R16 之前是全量 dedup、由陣列順序決定）。**以鍵整組算（D55，R19）**：R18 的實作用單一槽位記帳——每個鍵只記「目前留下的那筆」是活是死——
+三方碰撞（兩筆早已指向新鍵的死 verdict ＋ 一筆被改寫的活 verdict）時第二筆死的留下與否取決於 YAML 順序（R18 verify Codex 第 1 列 HIGH）；現在被改寫的全留
+（同拼法收成首見）、早已指向新鍵的全丟、整組放在鍵首次出現處，六種排列同一個答案。
 **代價寫出來**（R17 verify regression 第 9 列）：留強丟弱時弱血統那筆的 `rule` 尾註從 store 消失，它的消費端不只收攏列——之後每一次提名的
 confirmed-elsewhere 揭露（`PersonResolver`／`VenueResolver` 從 `confirmedByLiteral` 讀 rule）都不再看到弱出身；#468 保的那個警告在這一格只在
 `verdictsCollapsed` 出現一次。**家族計數是下限（D54）**：doctor／App 的兩族計數每筆記錄至多 20 則，`StoreHealth.cappedRecords`（doctor 的
-`recordIssues.cappedRecords`、App 摘要）說有幾筆記錄被截（R17 verify Codex 第 2 列：R17 的 MCP 描述寫「各族計數永遠完整」，與 `StoreHealth` 的 doc 矛盾）。雙 literal 的拒絕訊息把這次帶進來的
+`recordIssues.cappedRecords`、App 摘要）說有幾筆記錄被截（R17 verify Codex 第 2 列：R17 的 MCP 描述寫「各族計數永遠完整」，與 `StoreHealth` 的 doc 矛盾）。
+**以記錄計、且 App 面真的渲染（D56／D57，R19）**：R18 數的是概括句的行數，一筆 venue 同時出名字近重複與 confirmed-literal 兩句概括就多報一筆
+（R18 verify Codex 第 2 列）——現在以 (kind, owner) 去重；App 的側欄在 R18 只把數字放進摘要而沒有 View 消費它（第 3 列）——現在「被截的記錄」自成一列，
+有記錄被截時各家族的值前綴「≥」。雙 literal 的拒絕訊息把這次帶進來的
 （含合併前住在被併鍵上的）與倖存配對既有的分開列（DA 第 11 列：R14 把絕對集合印在「帶進來的」下、末句又說既有的不擋）。**收攏丟列印遷移前的原值**（D40）：`verdictsCollapsed` 的兩個生產者（holder 遷移、rename）先前
 印改寫後的 value——被丟掉的恆是被改寫的那一筆，所以那個字串不在任何 YAML 裡（DA 第 10 列）；value 與 statement 各截 200 scalar、
 merge 與 rename 的 CLI／App sink 同一種性質式逃脫。**dry-run 對去重丟掉的判定也要預告**（D35）：

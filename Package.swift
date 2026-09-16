@@ -85,6 +85,10 @@ let package = Package(
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph", "AkashicSQLite",
             "AkashicWoSImport", "AkashicTestGuard",
+            // AkashicMCPKit：四個測試檔 `@testable import` 它（StoreSourceEntryPointTests、JudgedAuthorshipServiceTests…）。
+            // 舊的 native 建置系統靠傳遞依賴連得起來；Xcode 27 起預設的 swiftbuild 只連宣告過的（#554 R19：
+            // `AkashicKitTests` 連結失敗 "Undefined symbols … AkashicMCPKit.AkashicService"），所以要寫出來。
+            "AkashicMCPKit",
             // APA7GoldenTests（#327）用對方的 BibParser 解析 ch10 fixture——顯式宣告，
             // 不靠 AkashicExport 的傳遞依賴（那能編過但會隨對方的依賴調整而斷）。
             .product(name: "BiblatexAPA", package: "biblatex-apa-swift"),

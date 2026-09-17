@@ -137,7 +137,7 @@ public struct AuthorshipCompletenessValidationError:
     /// 在 `init` 消毒，所以型別自帶消毒（`SanitizedErrorDescription`）：描述端與 sink 只截。**輸入只讀 `maximum` 個 scalar**（R31；R30 verify
     /// 第 1／29 列：R30 的 `max: .max` 對任意長的 `detail` 是 O(n²)，而 `detail` 來自 decode 的 YAML 欄位）——每個輸入 scalar 至少產生一個輸出
     /// scalar，所以輸出上限 `maximum` 不需要更多輸入，截出來的字串與無界版本逐字相同。
-    static func boundedDisplaySafe(_ raw: String, maximum: Int = 160) -> String {
+    private static func boundedDisplaySafe(_ raw: String, maximum: Int = 160) -> String {
         displaySafeClipOnly(escapingInvisibleScalars(displaySafe(raw, max: maximum)), max: maximum)   // display-safe-exempt: 已逃一次（本行左半），只截
     }
 }

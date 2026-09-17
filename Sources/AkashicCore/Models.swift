@@ -776,7 +776,6 @@ public func displaySafe(_ s: String, max: Int = 200,
     }
 
     for u in s.unicodeScalars {
-        if emitted >= boundedMaximum { truncated = true; break }
         let v = u.value
         let escape =
             UnsafeToEmitScalar.contains(v)
@@ -784,18 +783,26 @@ public func displaySafe(_ s: String, max: Int = 200,
                                                      // false 的呼叫端只有兩種：`displaySafeAssembled`（理由見該處）
                                                      // 與 `displaySafeClipOnly`（只截已消毒的訊息，R17）——
                                                      // 其他地方不得直接傳 false（R16 verify security 第 18 列）
+        // **預算數什麼，依呼叫端是哪一種**（#554 R32 D84；R31 verify 第 7 列）：逃脫支（`escapingBackslash: true`，生產者）數**輸入** scalar——
+        // 這是 ceiling 等價性的前提（每個輸入 scalar 至少產生一個輸出 scalar）；只截支（`false`，`displaySafeClipOnly`／`displaySafeAssembled`）
+        // 數**輸出** scalar——sink 的 `max` 對消費端（終端、LLM context）是輸出上限，而一個含 TAB／CR／LS 的自帶消毒描述在 R31 仍會被
+        // 逃成八個字元只算一格（R30 verify 第 12 列對 LF 修過一次，R31 只折 LF；D84 讓整個 `UnsafeToEmitScalar` 類別一起算對）。
+        let cost = escapingBackslash ? 1 : (escape ? 8 : 1)   // `\u{%04X}`：本集合的成員全在 BMP，恰八個 scalar
+        if emitted + cost > boundedMaximum { truncated = true; break }
         if escape {
             put(String(format: "\\u{%04X}", v))
         } else {
             out.append(u)
         }
-        emitted += 1
+        emitted += cost
     }
     let body = String(out)
     return truncated ? body + "…（已截斷）" : body
 }
 
 /// **只截不逃**——給「訊息在生產端已逐項消毒、sink 只需要上限」的地方用（doctor 的 `recordIssues.first`、App 的預覽；#554 R16／R17）。
+/// **`max` 是輸出 scalar 的上限**（R32 D84）：本函式仍會把殘留的控制／方向字元逃成 `\u{…}`（那是終端安全網，不是消毒），而每一個那樣的
+/// 字元算八格——R31 之前算一格，600 個 TAB 的自帶消毒描述在 `max: 512` 下出 4,096 個 scalar（R31 verify 第 7 列）。
 /// 具名的理由（R16 verify security 第 18 列）：`displaySafe(x, escapingBackslash: false)` 在語法上與消毒分不開，而 `displaySafe` 逃脫反斜線
 /// 自身的不變式正是靠「呼叫端不得傳 false」撐著；把「只截」做成另一個名字，守衛與讀者才分得出這一格沒有消毒任何東西。
 /// **不得**拿它接未消毒的 store 字串——那會把真反斜線原樣送出，與 `displaySafeInvisible` 產生的 `\u{…}` 不可區分。

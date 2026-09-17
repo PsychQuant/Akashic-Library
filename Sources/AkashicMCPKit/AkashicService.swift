@@ -248,7 +248,7 @@ public final class AkashicService {
                         + "quarantined（可能是未遷移的舊形狀，該 citekey 或許在其中）；"
                         + "見 akashic doctor")
                 }
-                throw ServiceError.notFound("citekeys：\(safeNames)")   // display-safe-exempt: 同上——names 已逐項 displaySafe
+                throw ServiceError.notFound("citekeys：\(safeNames)")   // display-safe-exempt: safeNames 已逐項 displaySafeInvisible（R32：註記要具名 binding）
             }
         }
         // 未指名 citekey（匯出全庫）而結果為空——同一條紀律的列表面。
@@ -3019,7 +3019,7 @@ public final class AkashicService {
             .sorted { $0.key.rawValue < $1.key.rawValue }
         if !clashes.isEmpty {
             let described = clashes.map { bucket in
-                "\(bucket.key.rawValue)：「\(Self.listCapped(bucket.value) { displaySafe($0, max: 120) })」"   // display-safe-exempt: WritingSystem.rawValue 是 enum 常數（han／latn／other），不是 store 字串
+                "\(bucket.key.rawValue)：「\(Self.listCapped(bucket.value) { displaySafeInvisible($0, max: 120) })」"   // display-safe-exempt: WritingSystem.rawValue 是 enum 常數（han／latn／other），不是 store 字串；名字性質式（R32；R31 verify 第 2／8 列：私用區 Co 與合法 joiner 過得了名字驗證、列舉式不逃）
             }.joined(separator: "；")
             throw ServiceError.invalid(
                 "同一個書寫系統送了兩個以上的名字——" + described

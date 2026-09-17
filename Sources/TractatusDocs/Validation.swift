@@ -53,7 +53,9 @@ public struct TractatusValidationFailure: Error, LocalizedError, Sendable, Sanit
     }
 
     public var errorDescription: String? {
-        (incompleteness + diagnostics.map(\.formatted)).joined(separator: "\n")
+        // `incompleteness` 是 `ConstructionGap.formatted`（kind 常量＋ record id）——今天只含 ASCII 數字與點，但守衛對 struct 不逐 payload 比對、
+        // 「型別在某條路徑上消毒」對它只驗到 `formatted` 那一半（R31 verify 第 11／41 列）；逐項性質式逃一次，讓 conform 對整個描述為真。
+        (incompleteness.map { displaySafeInvisible($0, max: 800) } + diagnostics.map(\.formatted)).joined(separator: "\n")
     }
 }
 

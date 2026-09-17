@@ -729,6 +729,10 @@ final class AuthorshipCompletenessStoreIOTests: XCTestCase {
         XCTAssertTrue((long as Error) is SanitizedErrorDescription)
         let t = displaySafeErrorMultiline(long, prefix: "Error: ")
         XCTAssertTrue(t.contains("a\\u{200B}a") && !t.contains("\\u{005C}"), t.prefix(60).description)
+        // 有界＝無界（R31 verify 第 35 列：等價性宣稱沒有測試）：混合行在 160 的輸出上限下，讀 160 個輸入 scalar 與讀全部得同一個字串
+        let mixed = String(repeating: "a\u{200B}b\u{7}", count: 500)
+        let boundedDetail = AuthorshipCompletenessValidationError(reason: .authorLiteral(index: 0), detail: mixed).detail
+        XCTAssertEqual(boundedDetail, displaySafeClipOnly(escapingInvisibleScalars(displaySafe(mixed, max: .max)), max: 160))
         // 工作量與輸入無關：300,000 個 ZWSP 的 detail 也只讀 160 個 scalar（R30 的無界版本對這個輸入約 10 秒）
         let start = Date()
         _ = AuthorshipCompletenessValidationError(reason: .authorLiteral(index: 0), detail: String(repeating: "\u{200B}", count: 300_000))

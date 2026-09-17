@@ -77,6 +77,9 @@ enum DestructiveTargetGate {
         // 正向寫法：指名了就通過。`guard ... else { return }` 的通過分支會是錯誤
         // 路徑，讀起來與慣例相反。
         if explicitLibrary != nil || yes { return }
+        // 這一行的路徑用性質式逃脫（R31；R30 verify 第 24 列）——R30 曾改回列舉式 `displaySafe`，理由是「貼回去就是那個目錄」，但列舉式也給不了
+        // 這件事（反斜線、C0、bidi 照逃），而它放行的正是讓兩個路徑肉眼不可分的那一類字元（ZWSP／NBSP／變體選擇子）；訊息的職責是
+        // 「確認這就是你要改的 store」，可辨識比可貼上重要。含這類字元的路徑要顯式指定時，請照 `解析到的目標是：` 那一行的 `\u{…}` 形自己還原（R31 verify 第 27 列）。
         throw ValidationError("""
             \(command) --apply 拒絕執行：未指名目標 store。
 

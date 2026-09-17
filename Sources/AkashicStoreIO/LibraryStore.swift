@@ -1958,17 +1958,21 @@ extension LibraryStore {
     func assertNoVerdictAlreadyAt(
         _ newKey: String, holderKind: ProvenanceReference.VerdictHolderKind,
         in load: LibraryLoad, action: String) throws {
-        var hits: [[String]] = []
+        // **只渲染前 `cap` 筆、其餘只計數**（R32；R31 verify 第 3 列：R31 對每一筆命中都先逃 value／judgement／digest 再 `prefix(cap)`，
+        // 一次必然拒絕的 rename 對 1,352 筆 verdict 的 holder 付全部渲染成本——與同輪在 `assertNoNewViolations` 修掉的「渲染後才截」同型）。
+        let cap = Entry.perRecordWarningCap   // 同一條「訊息則數要有上限」的紀律、同一個數（R22 verify 第 22 列：R22 寫死兩個 20）
+        var rendered: [[String]] = []; var total = 0
+        func hit(_ block: () -> [String]) { total += 1; if rendered.count < cap { rendered.append(block()) } }
         // quarantined 檔先掃、先列（D63）：位元組比對、不切行、不 decode；讀不到 fail-closed（與 quarantinedFileClaiming 同）
         let needle = Array("\(holderKind.rawValue):\(newKey)".utf8)
         for q in load.quarantined {
             let url = root.appendingPathComponent(q.file)
             guard let data = try? Data(contentsOf: url) else {
-                hits.append(["  · quarantined 檔「\(displaySafeInvisible(q.file, max: 300))」讀不到——無從判斷它是否持有指向新鍵的 verdict（fail-closed）"]); continue
+                hit { ["  · quarantined 檔「\(displaySafeInvisible(q.file, max: 300))」讀不到——無從判斷它是否持有指向新鍵的 verdict（fail-closed）"] }; continue
             }
             if Self.bytesContainKeyToken(Array(data), needle) {
-                hits.append(["  · quarantined 檔「\(displaySafeInvisible(q.file, max: 300))」的位元組裡出現「\(holderKind.rawValue):\(displaySafeInvisible(newKey, max: 120))」"
-                             + "——未解析：可能是指向新鍵的 verdict、也可能是別的欄位（位元組比對不會被 YAML 折行擊穿，但分不出它是什麼）；修好或移走該檔後再改名"])
+                hit { ["  · quarantined 檔「\(displaySafeInvisible(q.file, max: 300))」的位元組裡出現「\(holderKind.rawValue):\(displaySafeInvisible(newKey, max: 120))」"
+                       + "——未解析：可能是指向新鍵的 verdict、也可能是別的欄位（位元組比對不會被 YAML 折行擊穿，但分不出它是什麼）；修好或移走該檔後再改名"] }
             }
         }
         var records: [(kind: String, key: String, refs: [ProvenanceReference])] = []
@@ -1981,20 +1985,21 @@ extension LibraryStore {
                       let v = ref.value,
                       let p = ProvenanceReference.VerdictPairingValue.parse(v),
                       p.holderKind == holderKind, p.holder == newKey else { continue }
-                var block = ["  · \(r.kind)「\(displaySafeInvisible(r.key, max: 120))」的 \(ref.field) \(displaySafeInvisible(v, max: 200))"]
-                if case .judgement(let statement, let restsOn) = ref.kind {
-                    block.append("      判定「\(displaySafeInvisible(statement, max: 200))」")
-                    for d in restsOn.prefix(3) { block.append("      rests-on：\(displaySafeInvisible(d, max: 80))") }
-                    if restsOn.count > 3 { block.append("      rests-on 另有 \(restsOn.count - 3) 筆") }
+                hit {
+                    var block = ["  · \(r.kind)「\(displaySafeInvisible(r.key, max: 120))」的 \(ref.field) \(displaySafeInvisible(v, max: 200))"]
+                    if case .judgement(let statement, let restsOn) = ref.kind {
+                        block.append("      判定「\(displaySafeInvisible(statement, max: 200))」")
+                        for d in restsOn.prefix(3) { block.append("      rests-on：\(displaySafeInvisible(d, max: 80))") }
+                        if restsOn.count > 3 { block.append("      rests-on 另有 \(restsOn.count - 3) 筆") }
+                    }
+                    return block
                 }
-                hits.append(block)
             }
         }
-        guard hits.isEmpty else {
-            let cap = Entry.perRecordWarningCap   // 同一條「訊息則數要有上限」的紀律、同一個數（R22 verify 第 22 列：R22 寫死兩個 20）
-            var lines: [String] = ["共 \(hits.count) 條："]
-            for block in hits.prefix(cap) { lines.append(contentsOf: block) }
-            if hits.count > cap { lines.append("  …另有 \(hits.count - cap) 條未列（共 \(hits.count) 條）") }
+        guard total == 0 else {
+            var lines: [String] = ["共 \(total) 條："]
+            for block in rendered { lines.append(contentsOf: block) }
+            if total > cap { lines.append("  …另有 \(total - cap) 條未列（共 \(total) 條）") }
             throw StoreIOError.verdictsAlreadyAtTarget(action: action, key: displaySafeInvisible(newKey, max: 120), lines: lines)
         }
     }

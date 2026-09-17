@@ -177,7 +177,7 @@ public extension AkashicService {
         guard validationErrors.isEmpty else {
             throw ServiceError.invalid(
                 "更新後的記錄無法通過驗證（error 等級），拒絕寫入：\n"
-                + validationErrors.prefix(5).map { "- " + displaySafeClipOnly($0.message, max: 300) }   // display-safe-exempt: 已消毒（同上），只截
+                + validationErrors.prefix(5).map { "- " + displaySafeClipOnly($0.message, max: 300) }   // display-safe-exempt: message 由 validate() 生產端消毒，只截（R32：註記要具名 binding）
                     .joined(separator: "\n"))
         }
         try store.writePerson(person)   // v6 gate／canary／tolerant-preserve 全在這條路上
@@ -205,7 +205,7 @@ public extension AkashicService {
                 + "——平坦字串陣列是 format < 10 的舊形狀，不靜默解讀")
         }
         guard let dict = v as? [String: Any] else {
-            throw ServiceError.invalid("欄位「\(field)」必須是 object（{authorized:[…], variant:[…]}）")   // display-safe-exempt: 同上
+            throw ServiceError.invalid("欄位「\(field)」必須是 object（{authorized:[…], variant:[…]}）")   // display-safe-exempt: field 是呼叫端字面欄位名（R32：註記要具名 binding）
         }
         var names = PersonNames(authorized: [], variant: [])
         for (kk, vv) in dict.sorted(by: { $0.key < $1.key }) {
@@ -230,7 +230,7 @@ public extension AkashicService {
 
     private func stringList(_ v: Any, field: String) throws -> [String] {
         guard let arr = v as? [Any], let strings = arr as? [String] else {
-            throw ServiceError.invalid("欄位「\(field)」必須是字串陣列（全量替換）")   // display-safe-exempt: 同上
+            throw ServiceError.invalid("欄位「\(field)」必須是字串陣列（全量替換）")   // display-safe-exempt: field 是呼叫端字面欄位名（R32：註記要具名 binding）
         }
         return strings
     }

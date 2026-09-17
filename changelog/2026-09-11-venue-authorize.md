@@ -1139,11 +1139,11 @@ per-tool 出口照樣截在 `\u{…}` 中間、吐裸反斜線（第 7／11／13
 payload 粒度比對。** 落到程式上：
 
 - **`displaySafeErrorText`**（AkashicCore）：自帶消毒的原樣，其餘逐行列舉式＋性質式逃一次、LF 保留。**`displaySafeError(_:max:)`** 對它只截，`max`
-  是**輸出** scalar 上限（兩類都是）——呼叫端自己決定消費端裝得下多少：CLI 路徑 4,096／2,400、MCP payload 512（14 個站點沒動，自此真的是 512）。
+  是**輸出** scalar 上限（兩類都是）——呼叫端自己決定消費端裝得下多少：CLI 路徑 4,096／2,400、MCP payload 512（~~14 個站點沒動~~ **R31 verify 第 26 列更正：實測 16，且 R30 寫下時就是 16；R32 起本檔不再寫站點數**，自此真的是 512）。
   **`displaySafeErrorMultiline(_:prefix:maxLineLength:)`** 把前綴接上之後才交給 `displaySafeAssembled`——逐行截、退讓、96 KB 總量量的是**最終**輸出。
   MCP 出口與 `Main.swift` 帶前綴；CLI 的五個 `ValidationError` 包裝改送 `displaySafeErrorText`（不截），頂層 sink 截一次；兩面自此對被截斷的訊息也逐字
-  相同（`testTwoFacesAgreeEvenWhenTruncated`）。`ErrorDisplay.describe` 的 NSError 支對 `NSFilePathErrorKey` 在時補回路徑（暫存檔名住在
-  `NSFileNewItemLocationKey`，不取）。
+  相同（`testTwoFacesAgreeEvenWhenTruncated`）。~~`ErrorDisplay.describe` 的 NSError 支對 `NSFilePathErrorKey` 在時補回路徑（暫存檔名住在
+  `NSFileNewItemLocationKey`，不取）~~ **R31／R32 更正**：附的是**檔名**不是路徑（R30 verify 第 20 列：絕對路徑把使用者名稱帶進 MCP payload），而 `moveItem` 失敗時暫存檔名正是住在 `NSFilePathErrorKey`（code 516，同一列實測）——R31 不附它、R32 連 Foundation 本地化文字裡的那一份也遮掉（R31 verify 第 13 列）。
 - **退讓抽成 `backingOffPartialEscape`**，`displaySafeClipOnly` 與 `displaySafeMultiline` 的只截支（即 `displaySafeAssembled`）共用；
   `testClipBackoffAppliesToAssembledWithoutEatingTrueBackslashes` 釘住 `\A…\z` 不動且 pad 0–11 的多行不截在中間。
 - **三個型別補 conform**：`StoreVersionError`（八個擲出站點改 `displaySafeInvisible`、含 `path`；描述原樣）、`AuthorshipCompletenessValidationError`
@@ -1205,10 +1205,10 @@ sink 不需要更多輸入，截出來的字串與無界版本逐字相同；守
 只看 Error → 文字那條路徑。** 落到程式上：
 
 - **`ErrorDisplay.inputScalarCeiling = 4_096`**（全樹最大的 sink 輸出上限）：`displaySafeErrorText` 逐行 `displaySafe(line, max: ceiling)` 再性質式逃；
-  行數不設上限（分行線性、每行有界，總工作量與輸入同階——實測 2 MB 單行 ZWSP 0.02 秒、200,000 行 0.3 秒；R30 是 88 秒／不可測）。
+  行數不設上限（分行線性、每行有界，總工作量與輸入同階——~~實測 2 MB 單行 ZWSP 0.02 秒、200,000 行 0.3 秒~~ **R31 verify 第 14 列重量：debug build 2 MB 單行 0.10–0.13 秒、200,000 行 0.36–0.39 秒；0.02 秒是 400,000-scalar fixture 的數被抄到 2 MB 那一列**；R30 是 88 秒／不可測）。
   `testInputCeilingDoesNotChangeClippedOutput` 釘住有界＝無界（10,000 scalar 混合行、512 與 4,096 兩個 sink；4,096／4,097 邊界只有一個標記），
   `testEverySinkBoundIsWithinTheInputCeiling` 掃全樹每個 `displaySafeError(max:)`／`maxLineLength:` ≤ ceiling（40+ 站點），`testErrorTextWorkIsLinearInTheInput`
-  釘住上限一秒。`boundedDisplaySafe` 同型：`displaySafe(raw, max: maximum)`（第 29 列），`AuthorshipCompletenessTests` 補釘 160＋標記、逃一次、300,000 ZWSP 0.5 秒內。
+  釘住上限一秒（**R32 改量縮放比**，第 5／14／20／42 列）。`boundedDisplaySafe` 同型：`displaySafe(raw, max: maximum)`（第 29 列），`AuthorshipCompletenessTests` 補釘 160＋標記、逃一次、300,000 ZWSP 0.5 秒內。
 - **`displaySafeError` 先折 LF**：真 LF 改寫成 `\u{000A}` 字面（八個字元）再 `displaySafeClipOnly`，`max` 才真的是輸出上限（第 12 列；600 個 LF → ≤ 512）。
   多行家族不折。**96 KB 以 `utf8.count` 計**（第 13 列；300 行 × 400 個「測」→ ≤ 96 KB）。
 - **CLI 頂層對非 ArgumentParser 錯誤先逃一次**（第 2 列）：`type(of: error)` 不在 `ArgumentParser.` 模組的，包成 `ErrorDisplay.EscapedOnce`（描述＝
@@ -1233,6 +1233,9 @@ sink 不需要更多輸入，截出來的字串與無界版本逐字相同；守
   的 `venueKey`／`values`／`mergedFrom` 逐項性質式、該檔其餘八處列舉式全改性質式，`mergedFrom` 進 `taintedTokens`（第 10 列）；`deletionNotRecoverable`
   的 `$0.why` 也逃（第 15 列）。`ServiceError` 的 doc 改引用現行守衛、不寫站點數（第 31 列）。
 - 負控 16 個 mutation 全紅（含 DA 第 11／25 列的兩個原始 mutation、R30 的三個形狀：ceiling 拿掉、`boundedDisplaySafe` 無界、`CorpusDiagnostic` 再 conform）。
+  **量測時的樹**（R31 verify 第 4 列問的事）：NC 與全套都在 commit 前的乾淨樹上跑（`git status --short` 空、每個 mutation 位元組還原），verify 期間看到的
+  `Int.max` 是 reviewer 席自己的 mutation（DA 第 43 列更正）——但那一列指出一件真的事：**六席 reviewer 共用同一棵工作樹、各自 mutate**，一席會看到另一席的
+  改動。這是 verify harness 的形狀，不是本 repo 的程式，記在這裡不開 issue。
 
 **誠實邊界**：ceiling 讓工作量線性，不讓它為零——一個 8 MiB 的單行仍要分行與讀 4,096 個 scalar，且 `AliasEventBudget.maxBytes` 只綁 store 檔那條路，
 `EnrichCommand` 的 `--from` 是裸 `Data(contentsOf:)`（第 9 列的觀察，本輪不動）；`payloadModes` 仍是 per-binding，tuple 成員（`files: [(path, why)]`）看不到
@@ -1241,4 +1244,57 @@ sink 不需要更多輸入，截出來的字串與無界版本逐字相同；守
 會落在 `typesThrownWithSanitizer` 之外——那時守衛會紅、要把擲出改成全名；`displaySafeMultiline` 的只截支對截在 400 的行會退讓掉尾端的裸反斜線
 （第 33 列，零實例、記錄不動）；`ValidationError` 的 CLI 輸出在錯誤行之後帶 usage 行，MCP 沒有——「兩面逐字相同」說的是錯誤行（含截斷）；export-bib／
 Projection 的 UX 改動與 #577 的三處 pin 是搭車（第 32／40 列，記錄不動）。changelog R30 節「14 個站點」是寫死的計數（實測 16）——這裡不再寫數字。
+
+## R31 verify：界分開了，而豁免仍以字面的第一個字放行
+
+六席齊、47 列（1 HIGH／13 MEDIUM／18 LOW／15 INFO）——R30 是 1 CRITICAL＋10 HIGH，這一輪的 HIGH 只剩守衛的**粒度**：`exempted` 拿引數的第一個
+識別字去比註記，而字面引數的第一個識別字是它第一個插值——`why: "\(label)「\(displaySafeInvisible(n, max: 120))」\(why)"` 的註記寫 `label 是字面
+常量`，於是 store 名字 `n` 的消毒免檢；security 席把它換成 `\(n)`，三支守衛 43 測全綠；量得 88 個帶註記的引數裡 14 個被這樣整段放行、13 個是含插值的
+字面（第 1 列）。MEDIUM 分五群：(1) **`max` 仍不是輸出上限**——R31 只折了 LF，自帶消毒的描述裡的 TAB／CR／LS 在 `displaySafeClipOnly` 仍逃成八個
+字元只算一格（第 7 列）；(2) **守衛的三個小洞**——`"字面" + expr` 的 `expr` 不是插值、整段不看（17 個站點，其中 `updateVenue` 的同書寫系統衝突清單
+用列舉式 `displaySafe`，私用區 Co 過得了名字驗證卻不逃，第 2／8 列）、helper 查表只比最後一段名字（碰撞時 fail-open 且反向要求拿掉消毒，第 9 列）、
+`programBuilt ^id$` 是型別盲的（同一個檔裡 `id` 也是呼叫端可控的 String，第 10 列）、struct 的 conformer 不經逐 payload 比對且 `descriptionMembersSanitize`
+是存在量詞——`TractatusValidationFailure` 的 `incompleteness` 原樣拼接而守衛因 `formatted` 那一半就綠（第 11 列）；(3) **sink 上限守衛的
+`maxLineLength` 那一半零命中**——全樹沒有呼叫端傳字面值、宣告的預設值 `= 400` 掃不到、`displaySafeClipOnly` 完全沒掃，把預設值改成 8,192 守衛照綠
+（第 6／16／30 列）；(4) **數字**——測試 doc 說「上限刻意寬十倍以上」，對兩個 case 都不成立（DA 重量：2 MB 單行 0.10–0.13 s，`0.02` 是
+400,000-scalar fixture 的數被抄過來；200,000 行 0.36 s），絕對牆鐘在併發下會偶發變紅（第 5／14／20／42 列）；`isAtomicWriteTemp` 在它具名的那個
+情境零作用——Foundation 對 `moveItem` 失敗的本地化文字自己就引著暫存檔名（第 13 列，真 binary）；(5) **散文**——R30 節仍以現在式寫「14 個站點」與
+「補回路徑、暫存檔名住在 `NSFileNewItemLocationKey`」（第 12／19／22／24 列）。還有：rename 的 D60 閘先渲染全部命中才 `prefix(cap)`（第 3 列，Codex）；
+reviewer 席共用一棵工作樹、一席看到另一席的 `Int.max` mutation（第 4 列；DA 第 43 列更正：樹乾淨、2,839 綠可重現——但六席共樹是 verify harness 的形狀，
+記在 R31 節）；十個註記不再豁免任何東西（第 29 列）；R31 新增的零實例守衛沒進 `zero-instance-guards` 表（第 17 列）；測試名宣稱一個 body 刻意不驗的性質
+（第 18 列）；第 15／26／27／28／33 列記錄。DA 以真 binary 驗過：兩面位元組相同、ceiling 邊界、反斜線加倍、CRLF（第 47 列）；`^id$` 今天零假陰性、
+毯式豁免今天零真實例（第 44／45 列）。
+
+## R32 落地：預算數輸出、豁免逐插值（D84）
+
+**D84（Claude 代裁）：只截支的預算以輸出 scalar 計——`displaySafe` 的 `escapingBackslash: false` 支（`displaySafeClipOnly`／`displaySafeAssembled`）
+每逃一個字元算八格；逃脫支（生產者）仍數輸入，那是 ceiling 等價性的前提。守衛的豁免只對非字面的裸引數整段放行，字面（含 `+` 串接）逐插值、逐運算元。**
+落到程式上：
+
+- **`displaySafe`**：`cost = escapingBackslash ? 1 : (escape ? 8 : 1)`、`emitted + cost > max` 即截。`displaySafeError` 的 LF 折疊退場（一個機制就夠，
+  第 7／28 列）；`testDisplaySafeErrorMaxIsAnOutputBoundForEveryUnsafeScalar` 對 LF／TAB／CR／LS／NEL／RLO 各 600 個、自帶消毒與否兩類都釘 ≤ 512＋標記，
+  並釘 `displaySafeClipOnly(100 個 TAB, max: 16)` 恰兩個 `\u{0009}`。
+- **守衛**：`exempted(value)` 只在引數不是字面時整段放行；字面走 `concatenationPieces`（深度 0、字串外的 `+`）——字面段與含插值的表達式段逐插值檢查，
+  其餘表達式段要是消毒／字面值／程式構造值／具名豁免（`.escaped` 模式同樣逐段：串接的運算元不得再逃）；`ValidationError` 掃描同形。R31 verify 第 1 列的
+  mutation（`DivergenceResolve.swift:1305`）自此紅（NC2），`AkashicService.swift:1872` 的 `rejectedKeys.map { displaySafeInvisible }` 拿掉逐項消毒紅（NC3）。
+  `payloadModes`：`.typed`——描述端只以 `.uuidString` 用它（在遮掉字面文字的程式碼上數），擲出端不比；同一 chunk 既逃又原樣（`.count` 成員鏈除外）→
+  `.unclassified`（第 23 列）；helper 查表要 `name(`／`Self.name(`／`Owner.name(` 三形之一與表列 owner 對得上（第 9 列，NC4 改 owner → 紅）；
+  `programBuilt` 拿掉 `^id$`（NC5：描述端 `\(id.uuidString)` → `\(id)` 後 `id` 的裸引數紅）、補八列串接運算元（逐項 `displaySafeInvisible` 的 map、
+  `writeFailures.first?.error ?? "…"`、`conflict.describe`、`described`、封閉列舉 rawValue 清單、`timelineKeys`／`knownKeys`／`updatable` 常量、括號三元
+  字面、`validationErrors.map { "- " + displaySafeClipOnly }`），每列有理由。struct 的 conformer 是**封閉清單**（`EscapedOnce`／`AuthorshipCompletenessValidationError`／
+  `TractatusValidationFailure`／`PropositionModelValidationError`，每列寫「為什麼整個描述都消毒了」，第 11 列）；`TractatusValidationFailure` 的 `incompleteness`
+  也逐項逃（`ValidationFailureSanitizationTests`，NC9 紅）。sink 上限守衛分三族各有地板（`displaySafeError(max:)` 57、`displaySafeClipOnly(max:)` 18、
+  宣告的預設值 3；把 `displaySafeMultiline` 的預設改 8,192 → 紅，NC7）。`testErrorTextWorkIsLinearInTheInput` 改量**縮放比**（輸入 ×4 耗時 < ×8，
+  另留 10 秒絕對上限）。五條 `同上`／`names` 註記改成具名 binding（第 29 列）；測試改名 `testRawErrorReachingTheTopLevelIsEscapedOnce`（第 18 列）。
+- **`ErrorDisplay.describe`**：暫存檔名連 Foundation 本地化文字裡的那一份也遮（`replacingOccurrences(of: name, with: "（atomicWrite 暫存檔）")`），
+  測試改用**真的** `moveItem` 516 錯誤（NC6 紅）；doc 改寫「ceiling 只管非自帶消毒那一支」（第 15 列）與重量後的數字（第 14 列）。
+- **其餘**：`updateVenue` 同書寫系統衝突清單改 `displaySafeInvisible`（第 2 列）；rename 的 `assertNoVerdictAlreadyAt` 先數再渲染、只渲染前 `cap` 筆
+  （第 3 列）；`boundedDisplaySafe` 回 `private`、補有界＝無界的等價測試（第 35／39 列）；`DestructiveTargetGate` 那一行的理由寫在站點（第 27 列）；
+  changelog R30 節兩處**就地劃記**更正、R31 節的 0.02 秒劃記（第 12／14／19／22／24 列）；`zero-instance-guards` 表加第 29 列（sink-ceiling 守衛，第 17 列）。
+- 負控 9 個 mutation 紅（第 10 個是守衛回歸的對照：單獨改回整段豁免、不動原始碼，預期綠——它證明守衛的紅來自 mutation 而不是判準本身）。
+
+**誠實邊界**：局部變數承載的串接運算元（`"…" + described`，`described` 兩行前由 `listCapped { displaySafeInvisible }` 組成）守衛看不進去——`^described$`
+是一列有理由的 programBuilt，把它裡面的消毒換成列舉式仍綠（第 8 列的後半，追蹤局部變數是另一個守衛）；`descriptionMembersSanitize` 對 struct 仍是存在量詞，
+補的是封閉清單與行為測試，不是全稱檢查；`.typed` 只認 `.uuidString`（其他型別釘住的成員鏈要加列）；縮放比測試對「線性但常數很大」不敏感（那由 10 秒絕對上限擋）；
+`incompleteness` 今天只含 ASCII，逃它是為了讓 conform 對整個描述為真，不是修一個現行洩漏；六席 reviewer 共用一棵工作樹是 verify harness 的形狀（第 4／36 列）。
 

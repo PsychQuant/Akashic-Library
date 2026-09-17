@@ -1727,7 +1727,7 @@ extension PersonYAML {
                     throw StoreYAMLError.invalidField("\(context).value",   // display-safe-exempt: context 程式構造
                                                       "key 與 literal 只能擇一——兩者並存無法判斷歸戶狀態")
                 case (nil, nil):
-                    throw StoreYAMLError.missingField("\(context).value.key 或 .literal")   // display-safe-exempt: 同上
+                    throw StoreYAMLError.missingField("\(context).value.key 或 .literal")   // display-safe-exempt: context 程式構造（R32 起註記要具名 binding 才承重，R31 verify 第 29 列）
                 }
             } else {
                 // 純字串視為未歸戶的字面值（相容於尚未升級的寫法）。

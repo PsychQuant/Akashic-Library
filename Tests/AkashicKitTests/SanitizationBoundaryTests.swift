@@ -131,6 +131,50 @@ final class SanitizationBoundaryTests: XCTestCase {
         return out.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
     }
 
+    /// 一個引數在深度 0、字串外以 `+` 串接的各段（`"字面" + expr + "字面"`）——R31 對以 `"` 開頭的引數只掃 `\(…)` 插值，串接的 `expr` 整段不看
+    /// （R31 verify 第 8 列：17 個站點，其中一個藏著列舉式 `displaySafe`）。
+    static func concatenationPieces(of arg: String) -> [String] {
+        var out: [String] = []; var cur = ""; var depth = 0; var inString = false; var i = arg.startIndex
+        while i < arg.endIndex {
+            let c = arg[i]
+            if inString {
+                cur.append(c)
+                if c == "\\" { let n = arg.index(after: i); if n < arg.endIndex { cur.append(arg[n]); i = n } }
+                else if c == "\"" { inString = false }
+            } else if c == "\"" { inString = true; cur.append(c) }
+            else if "([{".contains(c) { depth += 1; cur.append(c) }
+            else if ")]}".contains(c) { depth -= 1; cur.append(c) }
+            else if c == "+", depth == 0 { out.append(cur); cur = "" }
+            else { cur.append(c) }
+            i = arg.index(after: i)
+        }
+        out.append(cur)
+        return out.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    }
+
+    /// 把字串字面值的**文字**遮成空白、保留 `\(…)` 插值裡的程式碼——用來數一個 binding 在描述裡「以程式碼」出現幾次（R32；中文描述裡的
+    /// 「找不到 id 為」讓 `id` 的 `.typed` 判定誤以為它另有原樣用法）。
+    static func codeOnly(_ s: String) -> String {
+        var out = ""; var inString = false; var depth = 0; var i = s.startIndex
+        while i < s.endIndex {
+            let c = s[i]
+            if inString {
+                if c == "\\" {
+                    let n = s.index(after: i)
+                    if n < s.endIndex, s[n] == "(" { out += "\\("; depth = 1; i = n; inString = false
+                        // 插值內的程式碼原樣複製到配平
+                        var j = s.index(after: i)
+                        while j < s.endIndex, depth > 0 { let d = s[j]; if d == "(" { depth += 1 } else if d == ")" { depth -= 1 }; out.append(d); j = s.index(after: j) }
+                        i = j; inString = true; continue
+                    }
+                    out += "  "; if n < s.endIndex { i = n }
+                } else if c == "\"" { inString = false; out.append(c) } else { out.append(" ") }
+            } else { if c == "\"" { inString = true }; out.append(c) }
+            i = s.index(after: i)
+        }
+        return out
+    }
+
     static let sanitizers = ["displaySafeInvisible(", "displaySafeError(", "displaySafeErrorText(", "displaySafeErrorMultiline("]
     static func isSanitized(_ e: String) -> Bool { sanitizers.contains { e.hasPrefix($0) } }
     static func isProgramBuilt(_ e: String) -> Bool { programBuilt.contains(where: { e.range(of: $0.pattern, options: .regularExpression) != nil }) }
@@ -184,14 +228,24 @@ final class SanitizationBoundaryTests: XCTestCase {
         ("^ORCID\\.shapeDescription$", "常量"),
         ("^type\\(of: v\\)$", "型別名"),
         ("^IndexList\\.render\\(.*\\)$", "Int 序列的字面渲染"),
-        ("^Self\\.listCapped\\(both\\) \\{ displaySafeInvisible\\(\\$0, max: 120\\) \\}$", "逐項消毒"),
+        ("^Self\\.listCapped\\(\\w+\\) \\{ displaySafeInvisible\\(\\$0, max: [0-9_]+\\) \\}$", "逐項消毒（R32 起串接運算元也掃，both／bad 兩個呼叫端同一列）"),
+        // R32：串接運算元（`"字面" + expr`）納入掃描後多出的程式構造值（R31 verify 第 8 列）
+        ("^[\\w.]+(\\.prefix\\([^)]*\\))?\\.map \\{ displaySafeInvisible\\(\\$0[\\w.]*, max: [0-9_]+\\) \\}[\\s\\S]*$", "逐項 displaySafeInvisible 的 map；之後的 sorted／joined 不改內容"),
+        ("^\\(report\\.writeFailures\\.first\\?\\.error \\?\\? \"[^\"]*\"\\)$", "writeFailures[].error 由 displaySafeError 產出（AkashicService 的 index rebuild 路徑）"),
+        ("^conflict\\.describe\\(candidate: [\\w.]+, operation: \"[^\"]*\"\\)$", "ConfirmedLiteralConflict.describe 內部逐項 displaySafeInvisible（cand／list）"),
+        ("^described$", "updateVenue 的同書寫系統衝突清單：WritingSystem.rawValue 常數＋listCapped { displaySafeInvisible }（R32 起性質式）"),
+        ("^[\\w.]+\\.allCases\\.map\\(\\\\\\.rawValue\\)\\.joined\\(separator: \"[^\"]*\"\\)$", "封閉列舉的 rawValue 清單"),
+        ("^\\(timelineKeys\\.map\\(\\\\\\.0\\) \\+ \\[[^\\]]*\\]\\)[\\s\\S]*$", "YAML.timelineKeys 的常量鍵名（之後的 sorted／joined 不改內容）"),
+        ("^\\([\\w.]+( [<>=!]+ [0-9_]+)? \\? \"(?:[^\"\\\\]|\\\\.)*\"(?:\\s*\\+\\s*\"(?:[^\"\\\\]|\\\\.)*\")*\\s*:\\s*\"(?:[^\"\\\\]|\\\\.)*\"(?:\\s*\\+\\s*\"(?:[^\"\\\\]|\\\\.)*\")*\\)$", "括號三元：兩支都是字面（可再以 + 串接字面）、且沒有插值（有插值的走逐插值檢查）"),
+        ("^validationErrors\\.prefix\\([0-9_]+\\)\\.map \\{ \"- \" \\+ displaySafeClipOnly\\(\\$0\\.message, max: [0-9_]+\\) \\}[\\s\\S]*$", "ValidationIssue.message 由 validate() 生產端消毒、這裡只截（updatePerson）"),
+        ("^(knownKeys|updatable)\\.sorted\\(\\)\\.joined\\(separator: \"[^\"]*\"\\)$", "Provenance.knownKeys／PersonYAML.updatableKeys 的常量鍵名"),
         ("^(report\\.writeFailed\\.keys|written)\\.sorted\\(\\)\\.map \\{ displaySafeInvisible\\(\\$0, max: 200\\) \\}\\.joined\\(separator: \", \"\\)$", "逐項消毒的 citekey 清單"),
         ("^writeFailed\\.map \\{ \"\\\\\\(displaySafeInvisible\\(\\$0\\.key, max: 200\\)\\)（\\\\\\(\\$0\\.value\\)）\" \\}\\.sorted\\(\\)\\.joined\\(separator: \"; \"\\)$", "key 逐項消毒、value 由 displaySafeError 產出（index rebuild 失敗那一句）"),
         ("^labels\\.sorted\\(\\)$", "knownLabels 的子集（EntityKind 的常量標籤）"),
         // R30
         // R31 拿掉 R30 的 `displaySafe(resolved.path, max: 800)` 列（R30 verify 第 24 列）：那是全 diff 唯一從性質式退回列舉式的站點，而它要的
         // 「貼回去就是那個目錄」列舉式也給不了（反斜線、C0、bidi 照逃）；D75 說生產者一律性質式、守衛無允許清單——這一列正是一個允許清單
-        ("^(found|supported|index|count|group\\.count|n|line|position|column|offset|expected|actual)$", "Int 綁定——描述端以 \\(x) 插值的整數 payload（tooNew、索引、行號）"),
+        ("^(found|supported|index|count|group\\.count|line|position|column|offset|expected|actual)$", "Int 綁定——描述端以 \\(x) 插值的整數 payload（tooNew、索引、行號）；R32 拿掉 `n`：它也是 DivergenceResolve 迴圈裡 store 名字的變數名，R31 verify 第 1 列的 mutation 曾靠這一列綠（NC2）"),
         ("^shown\\.prefix\\(40\\)\\.map \\{ displaySafeInvisible\\(\\$0, max: 120\\) \\}\\.joined\\(separator: \", \"\\)$", "逐項消毒的 citekey 清單（export-bib，R29 verify 第 30 列）"),
         ("^shown\\.count - 40$", "Int"),
         ("^(maximum|maximumBytes|maximumCount|current|StoreVersion\\.supported)( \\+ 1)?$", "Int（resourceLimit／alreadyAtFormat／tooNew 的上限與版號）"),
@@ -203,7 +257,7 @@ final class SanitizationBoundaryTests: XCTestCase {
         ("^affectedMigration\\.collisions$", "collisions 由 describe(m)（性質式）與 uuidString 組成"),
         ("^lines$", "verdictsAlreadyAtTarget 的 lines：hits 的每一行在 assertNoVerdictAlreadyAt 逐項 displaySafeInvisible，計數行是 Int"),
         // R31：payloadModes 認得成員鏈與 helper 之後多出的程式構造值
-        ("^id$", "DivergenceResolveError.recordNotFound 的 UUID（描述端印 id.uuidString，文法固定 hex+dash）"),
+        // R32 拿掉 R31 的 `^id$` 列（R31 verify 第 10 列）：型別由描述端的 `.uuidString` 成員鏈釘（payloadModes 的 `.typed`），不靠名字
         ("^scalar\\.value$", "UInt32（PropositionError.unsupportedUnicodeScalar：描述端 String(value, radix: 16)）"),
     ]
 
@@ -253,7 +307,7 @@ final class SanitizationBoundaryTests: XCTestCase {
         return out
     }
 
-    enum PayloadMode { case escaped, clipped, raw, unused, unclassified }
+    enum PayloadMode { case escaped, clipped, raw, unused, unclassified, typed }
 
     /// 描述端經 helper 用到 payload 時，helper 對那個 payload 做了什麼——**封閉表**，每一列的 helper body 由 `helperSanitizes` 機械驗證含消毒
     /// （不是信任表）。R30 的 `payloadModes` 只認 `displaySafeInvisible(x`／`\(x)`，`\(Self.whoWouldHold(record, …))` 落進 `.unused`、擲出站點永不比對
@@ -325,17 +379,30 @@ final class SanitizationBoundaryTests: XCTestCase {
                     // helper 路徑：`helper(x`／`Self.helper(x`／`Owner.helper(x`（插值內或字串串接裡都算）——查封閉表，helper body 另由 helperSanitizes 驗；
                     // **不在表裡的 helper 判 raw**（fail-closed：擲出端必須自己逃或具名 programBuilt——`String(value, radix:)` 這種對整數的格式化就落在這裡）
                     let viaHelper = #"(?<![\w.])((?:\w+\.)*\w+)\(\s*"# + b + #"\b"#
-                    if chunk.range(of: esc, options: .regularExpression) != nil { return .escaped }
+                    // 描述端只以 `.uuidString` 用它 → 型別由成員鏈釘住是 UUID，擲出端傳什麼都是 hex+dash（R32；R31 verify 第 10 列：R30/R31 的
+                    // `programBuilt ^id$` 是型別盲的——同一個 codebase 裡 `id` 也是呼叫端可控的 String）
+                    let uuidOnly = try! NSRegularExpression(pattern: #"\\\("# + b + #"\.uuidString\)"#)
+                    let anyUse = try! NSRegularExpression(pattern: #"(?<![\w.$])"# + b + #"(?![\w])"#)
+                    let code = codeOnly(chunk)
+                    let uses = anyUse.numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code))
+                    if uses > 0, uuidOnly.numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code)) == uses { return .typed }
+                    // 同一個 chunk 既逃又原樣插值同一個 payload（`.count` 這種 Int 成員鏈不算）→ 分不出類，不得取先命中的那個（R31 verify 第 23 列）
+                    let rawChain = try! NSRegularExpression(pattern: #"\\\("# + b + #"((?:\.\w+(?:\([^()]*\))?)*)\)"#)
+                    let nonIntRaw = rawChain.matches(in: chunk, range: NSRange(chunk.startIndex..., in: chunk))
+                        .filter { String(chunk[Range($0.range(at: 1), in: chunk)!]) != ".count" }
+                    if chunk.range(of: esc, options: .regularExpression) != nil { return nonIntRaw.isEmpty ? .escaped : .unclassified }
                     if chunk.range(of: clip, options: .regularExpression) != nil { return .clipped }
                     if let r = chunk.range(of: viaHelper, options: .regularExpression) {
                         let call = String(chunk[r]).split(separator: "(").first.map(String.init) ?? ""
                         let last = call.split(separator: ".").last.map(String.init) ?? call
-                        if let h = descriptionHelpers.first(where: { $0.name == last }) { return h.mode }
+                        // 查表要連 owner 一起比（R31 verify 第 9 列：R31 只比最後一段，任何型別上的同名 helper 都拿到那一列的 mode，碰撞時 fail-open）
+                        // `Self.name(`／裸 `name(` 指的是**被掃描的型別自己**，owner 必須就是它（R32 NC4：R32 第一版對 `Self.` 不比 owner，表列 owner 改錯仍綠）
+                        if let h = descriptionHelpers.first(where: { $0.name == last && ((call == last || call == "Self.\(last)") ? $0.owner == t.simple : call == "\($0.owner).\(last)") }) { return h.mode }
                         return .raw
                     }
                     if chunk.range(of: rawUse, options: .regularExpression) != nil { return .raw }
                     // binding 出現在描述裡卻不是上面任何一種形狀：不得靜默當成沒用到（R30 把這一格當 unused 跳過）
-                    if chunk.range(of: #"(?<![\w.$])"# + b + #"(?![\w])"#, options: .regularExpression) != nil { return .unclassified }
+                    if uses > 0 { return .unclassified }
                     return .unused
                 }
             }
@@ -447,6 +514,17 @@ final class SanitizationBoundaryTests: XCTestCase {
         XCTAssertEqual(conforming.subtracting(found), [], "宣告了 SanitizedErrorDescription 卻沒有任何一處消毒：\(conforming.subtracting(found).sorted())")
         XCTAssertEqual(enumerated, [], enumerated.joined(separator: "\n"))
         XCTAssertEqual(withoutDescription, [], "宣告了 SanitizedErrorDescription 卻沒有自己的 Error → 文字描述（會走 String(describing:) 反射）：" + withoutDescription.joined(separator: "\n"))
+        // struct 的 conformer 不經擲出站點的逐 payload 比對（它們沒有 case），而 `descriptionMembersSanitize` 是存在量詞（描述成員裡**有一處**消毒即為真）
+        // ——所以 struct 的 conform 是**封閉清單**，每列要寫出「為什麼整個描述都消毒了」（R31 verify 第 11 列：`TractatusValidationFailure` 的
+        // `incompleteness` 曾原樣拼接，守衛因 `formatted` 那一半就綠）
+        let structConformers: [String: String] = [
+            "ErrorDisplay.EscapedOnce": "唯一的 payload 在 init 經 displaySafeErrorText 逃一次",
+            "AuthorshipCompletenessValidationError": "唯一的 store payload（detail）在 init 經 boundedDisplaySafe 逃一次；其餘是 Int 索引",
+            "TractatusValidationFailure": "errorDescription 的兩個來源各自逐項 displaySafeInvisible（incompleteness 直接、diagnostics 經 formatted→singleLine）",
+            "PropositionModelValidationError": "描述由 safeDescription／boundedKey 組成——每個 store 字串性質式逃一次、退讓截（R30 對 AkashicProposition 兩個型別的獨立稽核）",
+        ]
+        let actualStructs = Set(decls.filter { $0.conforms && !$0.isEnum }.map(\.qualified))
+        XCTAssertEqual(actualStructs, Set(structConformers.keys), "struct 的 SanitizedErrorDescription conformer 是封閉清單——新的要在這裡寫理由：\(actualStructs.sorted())")
         XCTAssertGreaterThanOrEqual(conforming.count, 21, "全樹的自帶消毒型別：\(conforming.sorted())")
         for h in Self.descriptionHelpers {
             XCTAssertTrue(Self.helperSanitizes(owner: h.owner, name: h.name, files: files), "descriptionHelpers 表裡的 `\(h.owner).\(h.name)` 找不到含消毒的宣告——表不是信任的，是被驗的")
@@ -489,24 +567,41 @@ final class SanitizationBoundaryTests: XCTestCase {
                 for (arg, mode) in zip(args, m) {
                     var value = arg
                     if let r = value.range(of: #"^[A-Za-z_]\w*:\s*"#, options: .regularExpression) { value = String(value[r.upperBound...]) }
-                    if exempted(value) { continue }
-                    if mode != .unused { checkedArgs += 1 }
+                    // 豁免的粒度（R32；R31 verify 第 1 列 HIGH）：**只有非字面的裸引數**可以整段豁免；字面（含串接）逐插值、逐運算元各自對照註記——
+                    // R31 拿字面的第一個識別字去比註記，`"\(label)「\(displaySafeInvisible(n…))」"` 的註記說 `label` 就讓 store 名字 `n` 的消毒免檢（mutation 綠）
+                    let literal = value.hasPrefix("\"") || value.hasPrefix("[")
+                    if !literal && exempted(value) { continue }
+                    if mode != .unused && mode != .typed { checkedArgs += 1 }
+                    let site_ = "\(site.path):\(site.line) \(t.qualified).\(site.caseName)"
                     switch mode {
-                    case .unused: continue
+                    case .unused, .typed: continue
                     case .unclassified:
-                        offenders.append("\(site.path):\(site.line) \(t.qualified).\(site.caseName) 描述端用到這個 payload，但守衛分不出逃／截／原樣（helper 不在 descriptionHelpers 表，或新形狀）：\(value.prefix(60))")
+                        offenders.append("\(site_) 描述端用到這個 payload，但守衛分不出逃／截／原樣（helper 不在 descriptionHelpers 表、既逃又原樣、或新形狀）：\(value.prefix(60))")
                     case .escaped:
-                        if Self.isSanitized(value) { offenders.append("\(site.path):\(site.line) \(t.qualified).\(site.caseName) 的描述已逃脫這個 payload，擲出端不得再逃：\(value.prefix(60))") }
-                        for e in Self.interpolations(in: value) where Self.isSanitized(e) && value.hasPrefix("\"") {
-                            offenders.append("\(site.path):\(site.line) \(t.qualified).\(site.caseName) 的描述已逃脫這個 payload，字面裡的插值不得再逃：\\(\(e.prefix(60)))")
+                        if !literal, Self.isSanitized(value) { offenders.append("\(site_) 的描述已逃脫這個 payload，擲出端不得再逃：\(value.prefix(60))") }
+                        if literal {
+                            for piece in Self.concatenationPieces(of: value) {
+                                if piece.hasPrefix("\"") {
+                                    for e in Self.interpolations(in: piece) where Self.isSanitized(e) { offenders.append("\(site_) 的描述已逃脫這個 payload，字面裡的插值不得再逃：\\(\(e.prefix(60)))") }
+                                } else if Self.isSanitized(piece) { offenders.append("\(site_) 的描述已逃脫這個 payload，串接的運算元不得再逃：\(piece.prefix(60))") }
+                            }
                         }
                     case .clipped, .raw:
-                        if value.hasPrefix("\"") || value.hasPrefix("[") {
-                            for e in Self.interpolations(in: value) where !Self.isSanitized(e) && !Self.isProgramBuilt(e) && !exempted(e) {
-                                offenders.append("\(site.path):\(site.line) \(t.qualified).\(site.caseName) \\(\(e.prefix(60)))")
+                        if literal {
+                            for piece in Self.concatenationPieces(of: value) {
+                                // 字面（`"`／`#"`／`[`）與**含字面插值的表達式**（`xs.map { "「\(displaySafeInvisible($0…))」" }`）逐插值檢查；其餘表達式整段要是
+                                // 消毒／字面值／程式構造值／具名豁免
+                                let interps = Self.interpolations(in: piece)
+                                if piece.hasPrefix("\"") || piece.hasPrefix("#\"") || piece.hasPrefix("[") || !interps.isEmpty {
+                                    for e in interps where !Self.isSanitized(e) && !Self.isProgramBuilt(e) && !exempted(e) {
+                                        offenders.append("\(site_) \\(\(e.prefix(60)))")
+                                    }
+                                } else if !Self.isSanitized(piece) && !Self.isPlainValue(piece) && !Self.isProgramBuilt(piece) && !exempted(piece) {
+                                    offenders.append("\(site_) 串接的運算元：\(piece.prefix(80))")
+                                }
                             }
                         } else if !Self.isSanitized(value) && !Self.isPlainValue(value) && !Self.isProgramBuilt(value) {
-                            offenders.append("\(site.path):\(site.line) \(t.qualified).\(site.caseName) 裸引數：\(value.prefix(80))")
+                            offenders.append("\(site_) 裸引數：\(value.prefix(80))")
                         }
                     }
                 }
@@ -518,7 +613,12 @@ final class SanitizationBoundaryTests: XCTestCase {
                 scanned += 1
                 for arg in Self.topLevelArguments(of: body) {
                     if arg.hasPrefix("\"") {
-                        for e in Self.interpolations(in: arg) where !Self.isSanitized(e) && !Self.isProgramBuilt(e) { offenders.append("\(path):\(line) ValidationError \\(\(e.prefix(60)))") }
+                        for piece in Self.concatenationPieces(of: arg) {
+                            let interps = Self.interpolations(in: piece)
+                            if piece.hasPrefix("\"") || piece.hasPrefix("#\"") || piece.hasPrefix("[") || !interps.isEmpty {
+                                for e in interps where !Self.isSanitized(e) && !Self.isProgramBuilt(e) { offenders.append("\(path):\(line) ValidationError \\(\(e.prefix(60)))") }
+                            } else if !Self.isSanitized(piece) && !Self.isPlainValue(piece) && !Self.isProgramBuilt(piece) { offenders.append("\(path):\(line) ValidationError 串接的運算元：\(piece.prefix(80))") }
+                        }
                     } else if !Self.isSanitized(arg) && !Self.isProgramBuilt(arg) { offenders.append("\(path):\(line) ValidationError 裸引數：\(arg.prefix(80))") }
                 }
             }
@@ -813,18 +913,28 @@ final class SanitizationBoundaryTests: XCTestCase {
     /// scalar」之下 sink 不需要更多輸入的保證；sink 上限若超過它，被 ceiling 截短的行會冒充完整的行。
     func testEverySinkBoundIsWithinTheInputCeiling() throws {
         XCTAssertEqual(ErrorDisplay.inputScalarCeiling, 4_096)
-        let re = try NSRegularExpression(pattern: #"displaySafeError\([^,)]+,\s*max:\s*([0-9_]+)\)|maxLineLength:\s*([0-9_]+)"#)
-        var sites = 0; var over: [String] = []
-        for (path, text) in try Self.swiftFiles(under: ["Sources"]) {
-            let stripped = Self.strippingLineComments(text)
-            for m in re.matches(in: stripped, range: NSRange(stripped.startIndex..., in: stripped)) {
-                let g = m.range(at: 1).location != NSNotFound ? m.range(at: 1) : m.range(at: 2)
-                let n = Int(String(stripped[Range(g, in: stripped)!]).replacingOccurrences(of: "_", with: ""))!
-                sites += 1
-                if n > ErrorDisplay.inputScalarCeiling { over.append("\(path): \(String(stripped[Range(m.range, in: stripped)!]))") }
+        // 三族各自有地板（R32；R31 verify 第 6／16／30 列：R31 的 `maxLineLength:` 那一半零命中——全樹沒有呼叫端傳字面值、宣告的預設值 `= 400` 也掃不到，
+        // 而多行家族的輸出上限正是那個預設值；`displaySafeClipOnly` 完全沒掃）：`displaySafeError(max:)` 呼叫、`displaySafeClipOnly(max:)` 呼叫、
+        // 以及函式簽章上的預設值（`maxLineLength: Int = N`／`max: Int = N`）
+        let families: [(name: String, pattern: String, floor: Int)] = [
+            ("displaySafeError(max:)", #"displaySafeError\([^,)]+,\s*max:\s*([0-9_]+)\)"#, 40),
+            ("displaySafeClipOnly(max:)", #"displaySafeClipOnly\((?:[^()]|\([^()]*\))*,\s*max:\s*([0-9_]+)\)"#, 15),
+            ("宣告的預設值", #"(?:maxLineLength|max):\s*Int\s*=\s*([0-9_]+)"#, 3),
+        ]
+        var over: [String] = []
+        for fam in families {
+            let re = try NSRegularExpression(pattern: fam.pattern)
+            var sites = 0
+            for (path, text) in try Self.swiftFiles(under: ["Sources"]) {
+                let stripped = Self.strippingLineComments(text)
+                for m in re.matches(in: stripped, range: NSRange(stripped.startIndex..., in: stripped)) {
+                    let n = Int(String(stripped[Range(m.range(at: 1), in: stripped)!]).replacingOccurrences(of: "_", with: ""))!
+                    sites += 1
+                    if n > ErrorDisplay.inputScalarCeiling { over.append("\(path): \(String(stripped[Range(m.range, in: stripped)!]).prefix(80))") }
+                }
             }
+            XCTAssertGreaterThanOrEqual(sites, fam.floor, "\(fam.name)：掃到 \(sites) 個——空掃描不是通過")
         }
-        XCTAssertGreaterThanOrEqual(sites, 40, "掃到 \(sites) 個 sink 上限——空掃描不是通過")
         XCTAssertEqual(over, [], over.joined(separator: "\n"))
     }
 
@@ -848,30 +958,48 @@ final class SanitizationBoundaryTests: XCTestCase {
     }
 
     /// 工作量與輸入長度同階（R30 verify 第 1／3／6／9 列：R30 對 400,000 個 ZWSP 的單行跑 20 秒、1 MB 96 秒——接近二次）。
-    /// 2 MB 的單行 ZWSP 與 200,000 行各一個 ZWSP，兩者都要在一秒內（實測 0.02 s／0.3 s；上限刻意寬十倍以上，只擋回到超線性）。
+    /// 量的是**縮放比**，不是絕對牆鐘（R32；R31 verify 第 5／14／20／42 列：R31 用 1.0 秒絕對上限並宣稱「寬十倍以上」，而實測 debug build
+    /// 2 MB 單行 0.10–0.13 s、200,000 行 0.36–0.39 s，兩格都不到十倍，且絕對牆鐘在併發負載下會偶發變紅——偶發的紅比漏報更貴）：
+    /// 輸入四倍，耗時不得超過八倍（線性 ≈ 4 倍、二次 ≈ 16 倍）；另留一個寬鬆的絕對上限（10 秒）擋住整個路徑失控。
     func testErrorTextWorkIsLinearInTheInput() {
         struct Raw: Error, CustomStringConvertible { let description: String }
-        let oneLine = Raw(description: String(repeating: "\u{200B}", count: 2_000_000))
-        var t = Date()
-        let a = displaySafeError(oneLine, max: 512)
-        XCTAssertLessThan(Date().timeIntervalSince(t), 1.0, "2 MB 單行：\(Date().timeIntervalSince(t)) s")
-        XCTAssertLessThanOrEqual(a.unicodeScalars.count, 512 + "…（已截斷）".count)
+        func seconds(_ body: () -> Void) -> TimeInterval { let t = Date(); body(); return Date().timeIntervalSince(t) }
+        let small = Raw(description: String(repeating: "\u{200B}", count: 500_000))
+        let big = Raw(description: String(repeating: "\u{200B}", count: 2_000_000))
+        _ = displaySafeError(small, max: 512)   // 暖機：第一次跑含一次性配置
+        let tSmall = seconds { _ = displaySafeError(small, max: 512) }
+        var out = ""
+        let tBig = seconds { out = displaySafeError(big, max: 512) }
+        XCTAssertLessThanOrEqual(out.unicodeScalars.count, 512 + "…（已截斷）".count)
+        XCTAssertLessThan(tBig, 10.0, "2 MB 單行：\(tBig) s")
+        XCTAssertLessThan(tBig / Swift.max(tSmall, 0.001), 8.0, "單行：輸入 ×4 耗時 ×\(tBig / Swift.max(tSmall, 0.001))（\(tSmall) → \(tBig) s）——超線性")
+        let fewLines = Raw(description: Array(repeating: "\u{200B}", count: 50_000).joined(separator: "\n"))
         let manyLines = Raw(description: Array(repeating: "\u{200B}", count: 200_000).joined(separator: "\n"))
-        t = Date()
-        let b = displaySafeErrorMultiline(manyLines, prefix: "Error: ")
-        XCTAssertLessThan(Date().timeIntervalSince(t), 1.0, "200,000 行：\(Date().timeIntervalSince(t)) s")
+        _ = displaySafeErrorMultiline(fewLines, prefix: "Error: ")
+        let tFew = seconds { _ = displaySafeErrorMultiline(fewLines, prefix: "Error: ") }
+        var b = ""
+        let tMany = seconds { b = displaySafeErrorMultiline(manyLines, prefix: "Error: ") }
         XCTAssertTrue(b.contains("……（截斷：共 200000 行）"), b.suffix(40).description)
+        XCTAssertLessThan(tMany, 10.0, "200,000 行：\(tMany) s")
+        XCTAssertLessThan(tMany / Swift.max(tFew, 0.001), 8.0, "多行：輸入 ×4 耗時 ×\(tMany / Swift.max(tFew, 0.001))（\(tFew) → \(tMany) s）——超線性")
     }
 
-    /// 單行家族：真 LF 折成 `\u{000A}` 字面之後才截，`max` 才真的是輸出 scalar 上限（R30 verify 第 12 列：`displaySafeClipOnly` 會把保留的 LF
-    /// 逃成八個字元，600 個 LF 的原始錯誤在 R30 出 4,096 個 scalar）。
-    func testDisplaySafeErrorFoldsNewlinesSoMaxIsAnOutputBound() {
+    /// 單行家族：`max` 是輸出 scalar 上限——對**整個** `UnsafeToEmitScalar` 類別成立（R32 D84；R30 verify 第 12 列對 LF、R31 verify 第 7 列對
+    /// TAB／CR／LS：R31 只折了 LF，`displaySafeClipOnly` 對其餘控制字元仍逃成八個字元只算一格）。自帶消毒與非自帶消毒兩類都測。
+    func testDisplaySafeErrorMaxIsAnOutputBoundForEveryUnsafeScalar() {
         struct Raw: Error, CustomStringConvertible { var description: String { String(repeating: "\n", count: 600) } }
         let out = displaySafeError(Raw(), max: 512)
         XCTAssertLessThanOrEqual(out.unicodeScalars.count, 512 + "…（已截斷）".count, "\(out.unicodeScalars.count)")
         XCTAssertTrue(out.hasPrefix("\\u{000A}\\u{000A}"), out.prefix(20).description)
         XCTAssertFalse(out.contains("\n"))
-        XCTAssertFalse(out.contains("\\u{005C}"), "折疊出來的反斜線不得再逃：\(out.prefix(30))")
+        XCTAssertFalse(out.contains("\\u{005C}"), "反斜線不得再逃：\(out.prefix(30))")
+        for scalar in ["\t", "\r", "\u{2028}", "\u{0085}", "\u{202E}"] {
+            let selfSanitizing = ServiceErrorProbe.make(String(repeating: scalar, count: 600))
+            let o = displaySafeError(selfSanitizing, max: 512)
+            XCTAssertLessThanOrEqual(o.unicodeScalars.count, 512 + "…（已截斷）".count, "U+\(String(scalar.unicodeScalars.first!.value, radix: 16))：\(o.unicodeScalars.count)")
+            XCTAssertFalse(o.unicodeScalars.contains { UnsafeToEmitScalar.contains($0.value) }, "裸控制字元落到輸出")
+        }
+        XCTAssertEqual(displaySafeClipOnly(String(repeating: "\t", count: 100), max: 16), String(repeating: "\\u{0009}", count: 2) + "…（已截斷）", "只截支數輸出 scalar")
         // 多行家族保留 LF（它的 sink 逐行截）
         XCTAssertEqual(displaySafeErrorMultiline(ServiceErrorProbe.make("a\nb")), "a\nb")
     }
@@ -897,6 +1025,18 @@ final class SanitizationBoundaryTests: XCTestCase {
         XCTAssertEqual(ErrorDisplay.describe(quoted), "“aa\u{200B}bb.yaml” 無法開啟。", "描述已含檔名時不重複附")
         let tmp = NSError(domain: NSCocoaErrorDomain, code: 516, userInfo: [NSFilePathErrorKey: "/tmp/x/.entity.yaml.tmp-DEADBEEF", NSLocalizedDescriptionKey: "移動失敗。"])
         XCTAssertEqual(ErrorDisplay.describe(tmp), "移動失敗。", "atomicWrite 暫存檔名不附")
+        // **真的** Foundation 錯誤（R32；R31 verify 第 13 列：R31 的 fixture 是人工合成的 localizedDescription，而 Foundation 對 moveItem 失敗
+        // 自己就把暫存檔名引在本地化文字裡——`isAtomicWriteTemp` 在它具名的那個情境零作用）
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("akashic-r32-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let temp = dir.appendingPathComponent(".entity.yaml.tmp-DEADBEEF"); let dest = dir.appendingPathComponent("entity.yaml")
+        try? "x".write(to: temp, atomically: false, encoding: .utf8); try? "y".write(to: dest, atomically: false, encoding: .utf8)
+        var real: Error?
+        do { try FileManager.default.moveItem(at: temp, to: dest) } catch { real = error }
+        let described = ErrorDisplay.describe(real!)
+        XCTAssertFalse(described.contains("DEADBEEF"), "暫存檔名從 localizedDescription 漏出：\(described)")
+        XCTAssertTrue(described.contains("（atomicWrite 暫存檔）"), described)
         XCTAssertTrue(ErrorDisplay.isAtomicWriteTemp(".a.yaml.tmp-1"))
         XCTAssertFalse(ErrorDisplay.isAtomicWriteTemp("a.tmp-1"))
     }

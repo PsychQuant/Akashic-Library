@@ -29,8 +29,11 @@ public protocol SanitizedErrorDescription: Error {}
 /// 會接觸的上界」，R30 在兩個呼叫端違反了它而沒改 doc。修法不是回到 R29（sink 的 `max` 當輸入上限、輸出 ×8），是**輸入上限與輸出上限分開**：
 /// 每行只讀 `inputScalarCeiling` 個 scalar——每個輸入 scalar 至少產生一個輸出 scalar，所以任何輸出上限 ≤ ceiling 的 sink 不需要更多輸入，
 /// 截出來的字串與無界版本逐字相同（`testInputCeilingDoesNotChangeClippedOutput`）；ceiling 取全樹最大的 sink 輸出上限（CLI 的 4,096），
-/// 守衛釘住「每個 `displaySafeError(max:)`／`maxLineLength` 都 ≤ ceiling」。行數不設上限：分行是線性的、每行工作有界，總工作量與輸入長度
-/// 同階（實測 2 MB 單行 ZWSP < 0.05 秒、200,000 行 < 1 秒，`testErrorTextWorkIsLinearInTheInput`）。
+/// 守衛釘住「每個 sink 的輸出上限（顯式引數與宣告的預設值）都 ≤ ceiling」。行數不設上限：分行是線性的、每行工作有界，總工作量與輸入長度
+/// 同階（debug build 實測：2 MB 單行 ZWSP 0.10–0.13 秒、200,000 行 0.36–0.39 秒——R31 曾把 400,000-scalar 那格的 0.02 秒抄到 2 MB 這一列，
+/// R31 verify 第 14 列重量；`testErrorTextWorkIsLinearInTheInput` 自 R32 起量**縮放比**而不是絕對牆鐘，第 5／14／20 列）。
+/// **ceiling 只管非自帶消毒的那一支**：自帶消毒的描述原樣回傳，它的長度由擲出端的逐項 `displaySafeInvisible(max:)` 與 sink 決定，不經 ceiling
+/// （R31 verify 第 15 列——R31 的 doc 把「每行輸入有界」寫成無條件）。
 ///
 /// 所有把 `Error` 變成字串送給人或 LLM 的地方都走這三個入口之一，不得各自 `"\(error)"`／`String(describing:)`
 /// （R29 verify 第 5 列：`"\(error)"` 是守衛的結構盲區，11 個站點）。CLI 頂層對**非 ArgumentParser** 的錯誤也走 `displaySafeErrorText`
@@ -56,16 +59,21 @@ public enum ErrorDisplay {
         // NSError，R29 verify 第 40 列實測），兩邊各取有內容的那個。`localizedDescription` 對 `removeItem` 這類失敗會把路徑丟掉
         // （「"x" couldn't be removed.」，第 32／40 列）——`NSFilePathErrorKey` 在時補回**檔名**（R31；R30 verify 第 20 列：R30 附的是絕對路徑，
         // 使用者名稱與家目錄佈局隨 quarantine reason 進 MCP payload，而 `localizedDescription` 是本地化文字、通常只引檔名，`contains(path)`
-        // 幾乎恆為假、幾乎每次都附）；atomicWrite 的暫存檔一律不附（`isAtomicWriteTemp`）。
+        // 幾乎恆為假、幾乎每次都附）；atomicWrite 的暫存檔一律不附，**且從 `localizedDescription` 裡遮掉**（R32；R31 verify 第 13 列：Foundation
+        // 對 `moveItem` 失敗的本地化文字自己就引著暫存檔名——「“.x.yaml.tmp-<UUID>” couldn’t be moved…」——R31 只擋我們自己附的那一半，在它
+        // 具名的那個情境零作用）。遮掉的是檔名字串本身，換成一個固定標記；目的路徑另有 `NSDestinationFilePath`，這裡不取。
         if type(of: error) is NSError.Type {   // display-safe-exempt: 同上
             let ns = error as NSError
+            var text = ns.localizedDescription
             if let path = ns.userInfo[NSFilePathErrorKey] as? String {
                 let name = (path as NSString).lastPathComponent
-                if !name.isEmpty, !isAtomicWriteTemp(name), !ns.localizedDescription.contains(name) {
-                    return "\(ns.localizedDescription)（檔案：\(name)）"   // display-safe-exempt: 未消毒——呼叫端（displaySafeErrorText）逃一次
+                if !name.isEmpty, isAtomicWriteTemp(name) {
+                    text = text.replacingOccurrences(of: name, with: "（atomicWrite 暫存檔）")   // display-safe-exempt: 未消毒——呼叫端逃一次
+                } else if !name.isEmpty, !text.contains(name) {
+                    text += "（檔案：\(name)）"   // display-safe-exempt: 未消毒——呼叫端（displaySafeErrorText）逃一次
                 }
             }
-            return ns.localizedDescription   // display-safe-exempt: 同上
+            return text   // display-safe-exempt: 同上
         }
         return String(describing: error)   // display-safe-exempt: 同上
     }
@@ -94,10 +102,11 @@ public func displaySafeErrorText(_ error: Error) -> String {
 
 /// 單行：`max` 是**輸出** scalar 的上限（兩類錯誤都是），截點退讓到完整的逃脫序列。呼叫端自己決定它的消費端裝得下多少——
 /// 人的終端 4,096、MCP payload 512（#236／#388 的 context 預算）；R29 的 `max * 8` 讓 MCP 的成功 payload（`applyDict["error"]`）
-/// 悄悄拿到 4,096（R29 verify 第 23 列）。多行文字在這裡**折成一行**：真 LF 改寫成 `\u{000A}` 字面（八個字元）之後才截，
-/// 於是 `displaySafeClipOnly` 不會再逃任何東西、`max` 才真的是輸出上限（R31；R30 verify 第 12 列：600 個 LF 的原始錯誤在 R30 出 4,096 個 scalar）。
+/// 悄悄拿到 4,096（R29 verify 第 23 列）。多行文字由 `displaySafeClipOnly` 折成一行（真 LF 與其餘控制字元逃成 `\u{…}`），而它的預算自 R32
+/// 起以**輸出** scalar 計（D84）——R31 只把 LF 折成八個字元的字面再截，TAB／CR／LS 照樣八倍膨脹（R31 verify 第 7 列）；現在整個
+/// `UnsafeToEmitScalar` 類別在 `displaySafeClipOnly` 裡算對，這裡不再另外折。
 public func displaySafeError(_ error: Error, max: Int) -> String {
-    displaySafeClipOnly(displaySafeErrorText(error).replacingOccurrences(of: "\n", with: "\\u{000A}"), max: max)   // display-safe-exempt: 已逃一次（displaySafeErrorText），只截
+    displaySafeClipOnly(displaySafeErrorText(error), max: max)   // display-safe-exempt: 已逃一次（displaySafeErrorText），只截
 }
 
 /// 多行（MCP 的錯誤出口、App／CLI 把整則描述給人看）：**前綴接在截之前**，然後整段走 `displaySafeAssembled`——逐行只截、

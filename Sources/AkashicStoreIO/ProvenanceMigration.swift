@@ -177,14 +177,10 @@ public enum ProvenanceMigration {
                 catch {
                     report.failures.append(Skip(
                         record: person.key, field: "(寫入)",
-                        // **`localizedDescription`，不是 `String(describing:)`**
-                        // （#146 verify G3）：Foundation 的 `NSError` **不**符合
-                        // `LocalizedError`，所以那個 `??` 一律走 fallback，印出
-                        // `Error Domain=NSCocoaErrorDomain Code=513 …UserInfo={…
-                        // NSFileNewItemLocationKey=….tmp-008F87F6…}` 的原始 dump，
-                        // 還在 512 字被截斷、把 atomicWrite 的暫存檔名漏出去。
-                        // 修 F4 **之前** ArgumentParser 印的是乾淨的一句話。
-                        reason: error.localizedDescription))
+                        // Error → 文字只走 `displaySafeError`（R29 D81）。#146 verify G3 曾為此單獨改用 `localizedDescription`
+                        // （Foundation 的 `NSError` 不符合 `LocalizedError`，`??` 的 fallback 印出含 atomicWrite 暫存檔名的
+                        // 原始 dump）——那個分流現在住在 `ErrorDisplay.describe` 裡，這裡不再自己判。
+                        reason: displaySafeError(error, max: 512)))
                     continue
                 }
             }
@@ -205,14 +201,10 @@ public enum ProvenanceMigration {
                 catch {
                     report.failures.append(Skip(
                         record: org.key, field: "(寫入)",
-                        // **`localizedDescription`，不是 `String(describing:)`**
-                        // （#146 verify G3）：Foundation 的 `NSError` **不**符合
-                        // `LocalizedError`，所以那個 `??` 一律走 fallback，印出
-                        // `Error Domain=NSCocoaErrorDomain Code=513 …UserInfo={…
-                        // NSFileNewItemLocationKey=….tmp-008F87F6…}` 的原始 dump，
-                        // 還在 512 字被截斷、把 atomicWrite 的暫存檔名漏出去。
-                        // 修 F4 **之前** ArgumentParser 印的是乾淨的一句話。
-                        reason: error.localizedDescription))
+                        // Error → 文字只走 `displaySafeError`（R29 D81）。#146 verify G3 曾為此單獨改用 `localizedDescription`
+                        // （Foundation 的 `NSError` 不符合 `LocalizedError`，`??` 的 fallback 印出含 atomicWrite 暫存檔名的
+                        // 原始 dump）——那個分流現在住在 `ErrorDisplay.describe` 裡，這裡不再自己判。
+                        reason: displaySafeError(error, max: 512)))
                     continue
                 }
             }

@@ -218,7 +218,7 @@ public enum AddOnlyEnrichment {
             case .keyNotFound(let k, let ctx): why = "缺鍵「\(k.stringValue)」：\(ctx.debugDescription)"
             case .typeMismatch(_, let ctx): why = "型別不符：\(ctx.debugDescription)"
             case .valueNotFound(_, let ctx): why = "值缺席：\(ctx.debugDescription)"
-            @unknown default: why = String(describing: e)
+            @unknown default: why = String(describing: e)   // display-safe-exempt: DecodingError 的未知 case；why 進 InputError.malformedJSON，MCP／CLI 的錯誤出口對它逃一次（R29 D81）
             }
             throw InputError.malformedJSON(why)
         }

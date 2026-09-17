@@ -47,7 +47,7 @@ struct EnrichFromZotero: ParsableCommand {
 
         let dbURL = URL(fileURLWithPath: (zoteroDb as NSString).expandingTildeInPath)
         guard FileManager.default.fileExists(atPath: dbURL.path) else {
-            throw ValidationError("找不到 zotero.sqlite：\(dbURL.path)")
+            throw ValidationError("找不到 zotero.sqlite：\(displaySafeInvisible(dbURL.path, max: 300))")
         }
 
         let store = try options.openStore()
@@ -146,7 +146,7 @@ struct EnrichFromZotero: ParsableCommand {
                 written += 1
             } catch {
                 // per-item 隔離：單筆寫入失敗不把整趟變成「部分套用且沒人知道哪些」
-                failed[a.citekey] = String(describing: error)
+                failed[a.citekey] = displaySafeError(error, max: 512)
             }
         }
         print("")
@@ -154,7 +154,7 @@ struct EnrichFromZotero: ParsableCommand {
         if !failed.isEmpty {
             print("寫入失敗 \(failed.count) 筆：")
             for (k, e) in failed.sorted(by: { $0.key < $1.key }) {
-                print("  \(displaySafe(k, max: 200)): \(displaySafe(e, max: 200))")
+                print("  \(displaySafeInvisible(k, max: 200)): \(displaySafeClipOnly(e, max: 1_600))")   // display-safe-exempt: e 已消毒（displaySafeError 產出，R29 D81），只截
             }
         }
     }

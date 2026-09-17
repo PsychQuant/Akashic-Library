@@ -38,13 +38,13 @@ public struct EntrySummary: Equatable {
     }
 }
 
-public enum QueryError: Error, LocalizedError {
+public enum QueryError: Error, LocalizedError, SanitizedErrorDescription {
     case unknownCitekey(String)
 
     public var errorDescription: String? {
         switch self {
         // #149 verify F1：key 是 caller 輸入（lookup miss 的 citekey）——消毒
-        case .unknownCitekey(let key): return "index 中找不到 citekey：\(displaySafe(key, max: 200))"
+        case .unknownCitekey(let key): return "index 中找不到 citekey：\(displaySafeInvisible(key, max: 200))"
         }
     }
 }

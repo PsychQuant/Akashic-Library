@@ -128,7 +128,7 @@ struct LibraryOptions: ParsableArguments {
         do {
             return try LibraryLocator.resolveDetailed(explicit: library)
         } catch {
-            throw ValidationError((error as? LocalizedError)?.errorDescription ?? "\(error)")
+            throw ValidationError(displaySafeErrorMultiline(error))
         }
     }
 
@@ -148,7 +148,7 @@ struct LibraryOptions: ParsableArguments {
         let fm = FileManager.default
         guard fm.fileExists(atPath: store.entitiesDir.path)
                 || fm.fileExists(atPath: store.entriesDir.path) else {
-            throw ValidationError("『\(root.path)』不是 Akashic library（缺 entities/ 與 entries/）。先跑 akashic doctor --library <path> 建立佈局。")
+            throw ValidationError("『\(displaySafeInvisible(root.path, max: 300))』不是 Akashic library（缺 entities/ 與 entries/）。先跑 akashic doctor --library <path> 建立佈局。")
         }
         // 上面的 StoreVersion.check 即 refuse-if-newer 的 choke point（#115）：
         // 曾只在 load() 被呼叫——凡不經 load() 的路徑全部繞過（fmt 的全庫
@@ -166,6 +166,6 @@ extension LibraryLoad {
     /// 不截斷且可含 double-quoted scalar 解碼出的真 ESC——經 displaySafe
     /// 消毒後才進 stdout（未消毒時可清螢幕並在報告裡偽造統計行）。
     var quarantineLines: [String] {
-        quarantined.map { "  ✗ \(displaySafeInvisible($0.file, max: 200)) — \(displaySafeClipOnly($0.reason, max: 512))" }   // display-safe-exempt: reason 已消毒（QuarantinedFile 生產端 displaySafeInvisible，R27 D75），只截——displaySafe 不冪等
+        quarantined.map { "  ✗ \(displaySafeInvisible($0.file, max: 200)) — \(displaySafeClipOnly($0.reason, max: 4_096))" }   // display-safe-exempt: reason 已消毒（QuarantinedFile 生產端 displaySafeInvisible，R27 D75），只截——displaySafe 不冪等
     }
 }

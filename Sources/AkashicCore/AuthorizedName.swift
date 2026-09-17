@@ -228,9 +228,14 @@ public enum AuthorizedNames {
     /// `Entry.perRecordWarningCap` 組、其餘一句 `Entry.perRecordCapSummaryPrefix` 概括；組內逐對評估至多 `pairsToEvaluate` 對、只列前
     /// `pairsToList` 對；**整筆記錄至多 `pairsToEvaluatePerRecord` 對**（R27 D76——R26 漏了這第五層）。**第五層的結果與 venue 不同**（R27 verify
     /// 第 22／30／34 列）：venue 觸頂是 error、整筆拒絕；person 只計數、warning 級（理由在函式內：variant 由合併無上限 append，數量大不是錯）。
-    /// 所以 person 側多兩件事讓「只計數」不變成「靜默丟掉真違反」（R28）：**小組先評估**（組依大小升冪，預算被零資訊量的巨型組吃掉時，
-    /// 真近重複所在的小組已經看過了——R27 的插入序讓 20 組 × 101 個同鍵名字把其後 25 組真違反全部餓死、rc 0），**預算不鎖存**（超過剩餘預算的
-    /// 組跳過，後面放得下的照評）。名字以 `displaySafeInvisible` 迴送（D74：person 名字沒有 venue 那道 D8 不變式，ZWSP／TAG 寫得進來）。
+    /// 所以 person 側多一件事讓「只計數」不變成「靜默丟掉真違反」（R28）：**小組先評估**（組依大小升冪，預算被零資訊量的巨型組吃掉時，
+    /// 真近重複所在的小組已經看過了——R27 的插入序讓 20 組 × 101 個同鍵名字把其後 25 組真違反全部餓死、rc 0）。R28 還寫了「預算不鎖存」
+    /// （超過剩餘預算的組跳過、後面放得下的照評）——**在升冪之下它不可觀測**（R29；R28 verify 第 26／42 列）：第一個放不進的組之後的每一組都
+    /// 不比它小，所以永遠沒有「後面放得下的」；承重的是排序，程式仍寫成不鎖存只因為它與鎖存等價而少一個狀態。**代價寫出來**（第 49 列）：
+    /// 「列出哪 20 組」從首見序變成**最小的 20 組**，真違反的大組會被推進概括句——概括句說了幾組、每一組都真的違反，沒有東西是沉默的。
+    /// **venue 側刻意不同**（第 43／45 列）：那邊觸頂是 error、整筆拒絕，任何一組觸頂結果都一樣，所以沿插入序、預算鎖存就夠；
+    /// person 側只計數，順序才決定「哪些真違反看得到」。名字以 `displaySafeInvisible` 迴送（D74：person 名字沒有 venue 那道 D8 不變式，
+    /// ZWSP／TAG 寫得進來）。
     public static func validateNearDuplicates(names: [String],
                                               ownerKey: String) -> [ValidationIssue] {
         let pairsToEvaluate = 5_000, pairsToList = 3

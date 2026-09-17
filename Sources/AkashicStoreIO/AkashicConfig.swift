@@ -1,7 +1,7 @@
 import Foundation
 import AkashicCore
 
-public enum ConfigError: Error, LocalizedError {
+public enum ConfigError: Error, LocalizedError, SanitizedErrorDescription {
     case invalidFileKey(String)
     case invalidCurrent(String)
     case invalidViewKey(String)

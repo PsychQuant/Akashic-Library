@@ -2,7 +2,7 @@ import AkashicCore
 import Foundation
 import Yams
 
-public enum CorpusSchemaError: Error, Equatable, LocalizedError {
+public enum CorpusSchemaError: Error, Equatable, LocalizedError, SanitizedErrorDescription {
     case unknownKey(String)
     case invalidID(String)
     case invalidRelation(String)
@@ -11,13 +11,13 @@ public enum CorpusSchemaError: Error, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case let .unknownKey(key):
-            return "unknown-key: 不接受欄位 \(displaySafe(key, max: 200))"
+            return "unknown-key: 不接受欄位 \(displaySafeInvisible(key, max: 200))"
         case let .invalidID(id):
-            return "invalid-id: 不合法的階層 ID \(displaySafe(id, max: 200))"
+            return "invalid-id: 不合法的階層 ID \(displaySafeInvisible(id, max: 200))"
         case let .invalidRelation(value):
-            return "invalid-relation: 不接受關係值 \(displaySafe(value, max: 200))"
+            return "invalid-relation: 不接受關係值 \(displaySafeInvisible(value, max: 200))"
         case let .resourceLimit(kind, actual, maximum):
-            return "resource-limit: \(displaySafe(kind, max: 80)) 數量 \(actual) 超過上限 \(maximum)" // display-safe-exempt: actual 與 maximum 是程式產生的 Int 資源計數，不含 store 字串。
+            return "resource-limit: \(displaySafeInvisible(kind, max: 80)) 數量 \(actual) 超過上限 \(maximum)" // display-safe-exempt: actual 與 maximum 是程式產生的 Int 資源計數，不含 store 字串。
         }
     }
 

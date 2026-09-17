@@ -113,7 +113,7 @@ struct CreateEntryCmd: ParsableCommand {
         if !report.writeFailures.isEmpty {
             print("failed \(report.writeFailures.count)（磁碟層，其餘已寫入且 index 已重建）：")   // display-safe-exempt: Int
             for f in report.writeFailures.prefix(10) {
-                print("  ! \(displaySafe(f.title, max: 80)) — \(displaySafeClipOnly(f.error, max: 400))")   // display-safe-exempt: error 已消毒（生產端 displaySafeError，R28 D80），只截
+                print("  ! \(displaySafe(f.title, max: 80)) — \(displaySafeClipOnly(f.error, max: 3_200))")   // display-safe-exempt: error 已消毒（生產端 displaySafeError，R28 D80），只截
             }
             // **有任何一筆沒寫成就非零退出**：`akashic create-entry … && next` 不得在部分寫入時往下走
             throw ExitCode(1)
@@ -152,7 +152,7 @@ struct CreateEntryCmd: ParsableCommand {
             var fields: [String: String] = [:]
             if let f = o["fields"] {
                 guard let dict = f as? [String: Any] else {
-                    throw ValidationError("「\(title)」的 fields 必須是 object，實際是 \(Self.shapeName(f))")
+                    throw ValidationError("「\(displaySafeInvisible(title, max: 120))」的 fields 必須是 object，實際是 \(Self.shapeName(f))")
                 }
                 for (k, v) in dict {
                     // **JSON null 跳過，不寫成 "<null>"**（verify M5）。來源說「沒有值」，
@@ -170,7 +170,7 @@ struct CreateEntryCmd: ParsableCommand {
                     // `{\n a = 1;\n}` 這種 NSDictionary dump——技術上「沒丟」，
                     // 實際不可讀也不可還原。報錯讓使用者自己決定要攤平成什麼。
                     throw ValidationError(
-                        "「\(title)」的欄位 \(k) 是 \(Self.shapeName(v))，"
+                        "「\(displaySafeInvisible(title, max: 120))」的欄位 \(displaySafeInvisible(k, max: 120)) 是 \(Self.shapeName(v))，"
                         + "無法無損轉成字串——請先在來源攤平成純量")
                 }
             }
@@ -181,12 +181,12 @@ struct CreateEntryCmd: ParsableCommand {
                 guard let raw = o[key] else { return [] }
                 guard let arr = raw as? [Any] else {
                     throw ValidationError(
-                        "「\(title)」的 \(key) 必須是陣列，實際是 \(Self.shapeName(raw))")
+                        "「\(displaySafeInvisible(title, max: 120))」的 \(displaySafeInvisible(key, max: 200)) 必須是陣列，實際是 \(Self.shapeName(raw))")
                 }
                 return try arr.map { el in
                     guard let s = el as? String else {
                         throw ValidationError(
-                            "「\(title)」的 \(key) 含非字串元素（\(Self.shapeName(el))）")
+                            "「\(displaySafeInvisible(title, max: 120))」的 \(displaySafeInvisible(key, max: 200)) 含非字串元素（\(Self.shapeName(el))）")
                     }
                     return s
                 }
@@ -198,12 +198,12 @@ struct CreateEntryCmd: ParsableCommand {
             var authors: [String] = []
             if let a = o["authors"] {
                 guard let arr = a as? [Any] else {
-                    throw ValidationError("「\(title)」的 authors 必須是陣列，實際是 \(Self.shapeName(a))")
+                    throw ValidationError("「\(displaySafeInvisible(title, max: 120))」的 authors 必須是陣列，實際是 \(Self.shapeName(a))")
                 }
                 for el in arr {
                     guard let s = el as? String else {
                         throw ValidationError(
-                            "「\(title)」的 authors 含非字串元素（\(Self.shapeName(el))）。"
+                            "「\(displaySafeInvisible(title, max: 120))」的 authors 含非字串元素（\(Self.shapeName(el))）。"
                             + "作者一律用顯示名字串；CSL-JSON 的 {family,given} 物件請先合併成一個字串")
                     }
                     authors.append(s)
@@ -213,7 +213,7 @@ struct CreateEntryCmd: ParsableCommand {
             if let d = o["date"], !(d is NSNull) {
                 if let s = d as? String { date = s }
                 else if let n = d as? NSNumber { date = n.stringValue }   // "date": 2025 很常見
-                else { throw ValidationError("「\(title)」的 date 必須是字串或數字，實際是 \(Self.shapeName(d))") }
+                else { throw ValidationError("「\(displaySafeInvisible(title, max: 120))」的 date 必須是字串或數字，實際是 \(Self.shapeName(d))") }
             }
             return EntryDraft(type: type, title: title, authors: authors,
                               date: date, fields: fields,
@@ -263,7 +263,7 @@ struct CreateEntryCmd: ParsableCommand {
         guard depth == 0, startLine == nil else {
             throw ValidationError(
                 "第 \(startLine.map(String.init) ?? "?") 行起的 entry"
-                + "「\(displaySafe(startKey, max: 80))」大括號未閉合——"
+                + "「\(displaySafeInvisible(startKey, max: 80))」大括號未閉合——"
                 + "檔案可能被截斷。**拒絕整份匯入**：半筆記錄會讓「這筆只有幾個欄位」"
                 + "與「這個檔案壞了」變成同一個觀察，事後無法區分")
         }

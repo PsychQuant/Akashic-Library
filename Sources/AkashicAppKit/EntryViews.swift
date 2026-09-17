@@ -328,7 +328,7 @@ struct EntryDetailView: View {
             renameOutcome = RenameOutcome(from: oldKey, to: renameTarget, report: report,
                                           reloadFailure: underlying)
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            errorMessage = displaySafeErrorMultiline(error)
         }
     }
 
@@ -345,7 +345,7 @@ struct EntryDetailView: View {
     nonisolated static func renameMessage(_ o: RenameOutcome) -> String {
         let receipt = RenameReportSummary.receipt(o.report, from: o.from, to: o.to)
         guard let failure = o.reloadFailure else { return receipt }
-        return "⚠ 改名已寫入磁碟，但索引重建或重載失敗：\(displaySafe(failure, max: 300))\n"
+        return "⚠ 改名已寫入磁碟，但索引重建或重載失敗：\(displaySafeClipOnly(failure, max: 2_400))\n"   // display-safe-exempt: 已消毒（displaySafeError 產出，R29 D81），只截
              + "重新開啟檔案或跑 akashic doctor 重建索引。\n\n" + receipt
     }
 
@@ -353,7 +353,7 @@ struct EntryDetailView: View {
         do {
             try action()
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            errorMessage = displaySafeErrorMultiline(error)
         }
     }
 }
@@ -403,7 +403,7 @@ struct RelationEditorView: View {
         do {
             try action()
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            errorMessage = displaySafeErrorMultiline(error)
         }
     }
 }

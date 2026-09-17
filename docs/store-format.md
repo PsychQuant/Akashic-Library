@@ -1568,7 +1568,7 @@ organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLo
 `authorized` 同級——手改 YAML 的人讀的是本檔不是 `.claude/rules`，而手改正是它指定的修法）。
 **它與 `openspec/specs/venue-entity` 的關係**（R6 verify 第 3 列指出 R6 說「記在 parity 列」
 而沒記）：spec 已有兩條 validate-time Requirement（authorized／variant 互斥、variant 不帶時間），
-本節的五條與它們同形，**應該**成為 spec 的 Requirement——那要走 spectra-propose，#554 不做
+本節的各條與它們同形，**應該**成為 spec 的 Requirement——那要走 spectra-propose，#554 不做
 （#554 的裁決是「既有 tool 的新參數，不走 Spectra」，D8 把它擴成 store 不變式時沒有重開那個
 裁決）。在 spec 補齊之前，本節是唯一的規範來源；follow-up 見 #570。六條，封閉（第 5 條是 R11 加的組內求值上限，R11 verify 第 13 列指出它先前只住在上面那個括號裡；第 6 條是 R18 加的整筆求值總量上限，R27 verify 第 10 列指出它從未進本節——「五條，封閉」對程式的六種 error 級拒絕為假）：
 

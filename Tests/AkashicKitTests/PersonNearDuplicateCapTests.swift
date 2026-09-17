@@ -98,8 +98,10 @@ final class PersonNearDuplicateCapTests: XCTestCase {
     }
 
     /// R28（R27 verify DA 第 22 列 HIGH-升級、regression 第 30 列、DA 第 31 列）：R27 的預算鎖存＋插入序讓 20 組 × 101 個同鍵名字把其後
-    /// 25 組真近重複全部餓死、rc 0。現在小組先評估、預算不鎖存：25 組真違反全部評到（20 列出、5 概括），19 個巨型組觸頂、1 個放不進預算。
-    func testSmallGroupsAreEvaluatedBeforeGiantsAndTheBudgetDoesNotLatch() throws {
+    /// 25 組真近重複全部餓死、rc 0。現在小組先評估：25 組真違反全部評到（20 列出、5 概括），19 個巨型組觸頂、1 個放不進預算。
+    /// **「預算不鎖存」在升冪之下與鎖存等價**（R29；R28 verify 第 21／39 列）：組依大小升冪，第一個放不進預算的組之後的每一組都不比它小，
+    /// 所以「跳過、後面放得下的照評」永遠評不到任何一組——承重的是排序，不是不鎖存。名字與 doc 改成只宣稱排序。
+    func testSmallGroupsAreEvaluatedBeforeGiants() throws {
         var names: [String] = []
         for g in 0..<20 { names += Array(repeating: "Giant \(g)", count: 101) }        // 同鍵、零違反、各吃 5,000 對
         for k in 0..<25 { names += ["Dup \(k)", "DUP \(k)"] }                          // matchingKey 相同、canonical 不同：真近重複

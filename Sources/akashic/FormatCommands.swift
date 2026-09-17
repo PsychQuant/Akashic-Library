@@ -49,7 +49,7 @@ struct Fmt: ParsableCommand {
         if !r.failures.isEmpty {
             print("失敗 \(r.failures.count) 筆（其餘記錄仍已處理完）：")
             for f in r.failures.prefix(10) {
-                print("  ! \(displaySafeInvisible(f.file, max: 200))：\(displaySafeClipOnly(f.reason, max: 300))")   // display-safe-exempt: reason 已消毒（CanonicalFormat.describe → displaySafeError，R28 D80），只截——R27 verify 第 5／12／14 列的第三層
+                print("  ! \(displaySafeInvisible(f.file, max: 200))：\(displaySafeClipOnly(f.reason, max: 2_400))")   // display-safe-exempt: reason 已消毒（CanonicalFormat.describe → displaySafeError，R28 D80），只截——R27 verify 第 5／12／14 列的第三層
             }
             if r.failures.count > 10 { print("  …（共 \(r.failures.count) 筆）") }
         }

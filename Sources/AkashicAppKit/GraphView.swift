@@ -1,5 +1,6 @@
 import SwiftUI
 import AkashicGraph
+import AkashicCore
 
 /// Graph 區塊的控制欄（content column）：focus 選擇 + depth。
 struct GraphControlView: View {
@@ -197,7 +198,7 @@ struct GraphCanvasView: View {
             // #101：一律走 state.store——key/environment 決定 index 位置
             try GraphModel(store: state.resolvedStore).rebuildIndex()
         } catch {
-            loadError = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            loadError = displaySafeErrorMultiline(error)
             return
         }
         rebuild()
@@ -212,7 +213,7 @@ struct GraphCanvasView: View {
             layout = snap.layout
             generation += 1   // 舊 frame 的寫回全部作廢
         } catch {
-            loadError = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            loadError = displaySafeErrorMultiline(error)
         }
     }
 }

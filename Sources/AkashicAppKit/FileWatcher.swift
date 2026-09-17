@@ -2,7 +2,7 @@ import Foundation
 import AkashicCore
 import AkashicStoreIO
 
-public enum FileWatcherError: Error, LocalizedError, Equatable {
+public enum FileWatcherError: Error, LocalizedError, Equatable, SanitizedErrorDescription {
     case noDirectoriesWatchable([String])
 
     public var errorDescription: String? {
@@ -22,10 +22,10 @@ public enum FileWatcherError: Error, LocalizedError, Equatable {
             //
             // 形狀要求很窄：必須是 `case …:` **緊鄰的** `return "…"` 單行——那時
             // `caseReturn` 成立 ⇒ `isErrorSink` 成立 ⇒ token 檢查被短路，插值裡沒有
-            // `displaySafe(` 就是違規。拆成 `let joined = …` 再 `return "\(joined)"`
+            // `displaySafeInvisible(` 就是違規。拆成 `let joined = …` 再 `return "\(joined)"`
             // **不行**：那條 return 雖是 sink，但 `joined` 不在 token 清單裡，會被
             // token 檢查放行（第一版修法就是這樣，等於沒修）。
-            return "沒有任何目錄可監看（open 全部失敗）：\(dirs.map { displaySafe($0, max: 300) }.joined(separator: ", "))"
+            return "沒有任何目錄可監看（open 全部失敗）：\(dirs.map { displaySafeInvisible($0, max: 300) }.joined(separator: ", "))"
         }
     }
 }

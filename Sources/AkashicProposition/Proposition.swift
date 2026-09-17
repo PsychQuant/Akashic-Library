@@ -57,6 +57,7 @@ public enum PropositionError:
     Error,
     Equatable,
     LocalizedError,
+    SanitizedErrorDescription,
     CustomStringConvertible,
     CustomDebugStringConvertible
 {
@@ -72,7 +73,7 @@ public enum PropositionError:
     public var errorDescription: String? {
         switch self {
         case .malformedKey(let k):
-            return "命題引數的 key 不合法：'\(displaySafe(k, max: 120))'（須符合 ^[a-z0-9][a-z0-9-]*$）"
+            return "命題引數的 key 不合法：'\(displaySafeInvisible(k, max: 120))'（須符合 ^[a-z0-9][a-z0-9-]*$）"
         case .emptyLiteral:
             return "命題引數的 literal 不可為空——空字串不是一個符號"
         case let .referenceUTF8ByteCountExceeded(stage, minimumObserved, maximum):
@@ -80,7 +81,7 @@ public enum PropositionError:
                 + "超過固定上限 \(maximum)"
         case let .unsupportedUnicodeScalar(value, normalizationVersion):
             let scalar = String(value, radix: 16, uppercase: true)
-            return "命題引數含 Unicode \(displaySafe(normalizationVersion, max: 120)) "
+            return "命題引數含 Unicode \(displaySafeInvisible(normalizationVersion, max: 120)) "
                 + "未指派的 scalar U+\(scalar)"
         }
     }

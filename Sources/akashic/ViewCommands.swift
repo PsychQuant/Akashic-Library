@@ -63,7 +63,7 @@ struct ViewShow: ParsableCommand {
         let store = try options.openStore()
         let config = try AkashicConfig.read(from: AkashicHome.configURL())
         guard let def = config.views[key] else {
-            throw ValidationError("config.yaml 沒有 view「\(displaySafe(key, max: 200))」"
+            throw ValidationError("config.yaml 沒有 view「\(displaySafeInvisible(key, max: 200))」"
                                   + "（`akashic view list` 看有哪些）")
         }
         let ext = def.extension_(in: try store.load())

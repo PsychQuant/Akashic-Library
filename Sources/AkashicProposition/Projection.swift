@@ -169,7 +169,8 @@ public struct PropositionModelAuthorListCompletenessIssue:
 /// 命題求值所用 canonical model 的 aggregate refusal。Typed payload 保持完整；只有
 /// 給人看的訊息受固定筆數與長度上限約束。
 public struct PropositionModelValidationError:
-    Error, Equatable, LocalizedError, CustomStringConvertible, CustomDebugStringConvertible
+    Error, Equatable, LocalizedError,
+    SanitizedErrorDescription, CustomStringConvertible, CustomDebugStringConvertible
 {
     public let duplicateEntryCitekeys: [String]
     public let duplicatePersonKeys: [String]
@@ -192,11 +193,11 @@ public struct PropositionModelValidationError:
     public var errorDescription: String? {
         let displayLimit = 5
 
-        // `displaySafe(max: 120)` 限制的是輸入 scalar；控制字元跳脫後仍可能膨脹。
+        // `displaySafeInvisible(max: 120)` 限制的是輸入 scalar；控制字元跳脫後仍可能膨脹。
         // 再施加一層固定顯示上限，避免大量反斜線把三類聚合診斷放大；不改上方完整的
         // machine-readable payload。
         func boundedKey(_ key: String) -> String {
-            let safe = displaySafe(key, max: 120)
+            let safe = displaySafeInvisible(key, max: 120)
             guard safe.count > 120 else { return safe }
             return String(safe.prefix(119)) + "…"
         }

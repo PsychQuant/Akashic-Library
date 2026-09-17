@@ -57,11 +57,11 @@ struct FileAdd: ParsableCommand {
 
     func run() throws {
         guard StoreKey.isValid(key) else {
-            throw ValidationError("key「\(key)」不合法（小寫英數起頭、僅 a-z0-9-）")
+            throw ValidationError("key「\(displaySafeInvisible(key, max: 200))」不合法（小寫英數起頭、僅 a-z0-9-）")
         }
         var config = try AkashicConfig.read(from: options.configURL)
         guard config.files[key] == nil else {
-            throw ValidationError("key「\(key)」已存在（→ \(config.files[key]!)）。先 file remove 再重加。")
+            throw ValidationError("key「\(displaySafeInvisible(key, max: 200))」已存在（→ \(displaySafeInvisible(config.files[key]!, max: 300))）。先 file remove 再重加。")
         }
         // 正規化為絕對路徑後才入 config——相對路徑會依各程序 CWD 指向不同
         // universe（CLI/App/launchd 起的 MCP 各有各的 CWD，Codex R1 #3）
@@ -72,7 +72,7 @@ struct FileAdd: ParsableCommand {
         // TOCTOU + 二讀失敗會被當成「無重複」）。canonical 比對含 symlink 解析——
         // 經 symlink 別名重複註冊同一實體庫從此也擋得住。
         if let existing = try AkashicConfig.key(forPath: absolute, in: config) {
-            throw ValidationError("路徑已由 key「\(existing)」註冊（同一實體庫不重複註冊——檔案間互不相通）")
+            throw ValidationError("路徑已由 key「\(displaySafeInvisible(existing, max: 300))」註冊（同一實體庫不重複註冊——檔案間互不相通）")
         }
         // **key 要傳進去**（#101）：這裡正在註冊它，所以這個 store 是「已註冊」的，
         // index 會住 `~/.akashic/index/<key>.sqlite`。省略 key 會讓 ensureLayout 以為
@@ -95,7 +95,7 @@ struct FileUse: ParsableCommand {
         var config = try AkashicConfig.read(from: options.configURL)
         guard let path = config.files[key] else {
             let known = config.files.keys.sorted().joined(separator: ", ")
-            throw ValidationError("key「\(key)」未註冊。已註冊：\(known.isEmpty ? "（無）" : known)")
+            throw ValidationError("key「\(displaySafeInvisible(key, max: 200))」未註冊。已註冊：\(known.isEmpty ? "（無）" : displaySafeInvisible(known, max: 400))")
         }
         // 與 MCP/App 一致的目標驗證（Codex R1 #7）：指過去必須是 library
         let target = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
@@ -104,7 +104,7 @@ struct FileUse: ParsableCommand {
         // 而不是留給下一步
         try StoreVersion.check(root: target)
         guard LibraryStore.isLibraryRoot(target) else {
-            throw ValidationError("「\(path)」不是 Akashic library（缺 entries/ 目錄）。目錄被移走？file remove 後重加。")
+            throw ValidationError("「\(displaySafeInvisible(path, max: 300))」不是 Akashic library（缺 entries/ 目錄）。目錄被移走？file remove 後重加。")
         }
         config.current = key
         try config.write(to: options.configURL)
@@ -122,7 +122,7 @@ struct FileRemove: ParsableCommand {
     func run() throws {
         var config = try AkashicConfig.read(from: options.configURL)
         guard config.files[key] != nil else {
-            throw ValidationError("key「\(key)」未註冊。")
+            throw ValidationError("key「\(displaySafeInvisible(key, max: 200))」未註冊。")
         }
         config.files.removeValue(forKey: key)
         if config.current == key {

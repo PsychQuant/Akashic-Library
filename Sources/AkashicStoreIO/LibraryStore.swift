@@ -1,7 +1,7 @@
 import Foundation
 import AkashicCore
 
-public enum StoreIOError: Error, LocalizedError, Equatable {
+public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescription {
     case invalidKey(String, String)
     /// #108：root 不是一個 store（無 marker 也無 canonical 目錄）——寫入拒絕。
     /// #101 讓 atomicWrite 自建父目錄後，打錯的 root 曾被安靜實體化成無 marker
@@ -32,7 +32,7 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
             // 兩個參數在擲出端就已逐項消毒（`assertNoErrors` 的 key、validate() 的訊息、DivergenceResolve 的候選鍵／statement——
             // `SanitizationBoundaryTests.testInvalidInputThrowSitesSanitizeStoreStrings` 掃全樹），這裡只截：R27 把它換成
             // displaySafeInvisible 是與同一個 enum 另外兩格相反的方向，`fmt` 疊到第三層（R27 verify 第 5／12／14 列）。
-            return "\(displaySafeClipOnly(what, max: 120)) 無效：\(displaySafeClipOnly(why, max: 400))"   // display-safe-exempt: 已消毒（擲出端），只截——R28 D80
+            return "\(displaySafeClipOnly(what, max: 960)) 無效：\(displaySafeClipOnly(why, max: 3_200))"   // display-safe-exempt: 已消毒（擲出端），只截——R28 D80
         case let .inconsistentStore(action, issues):
             // action 是呼叫端字面量（"rename"/"resolve-divergence"）、issues 已消毒
             return "store 有 \(issues.count) 個跨記錄不一致，\(action) 拒絕執行"   // display-safe-exempt: action 是呼叫端字面量
@@ -878,7 +878,7 @@ public final class LibraryStore {
             let bytes = try data(relativePath)
             guard let text = String(data: bytes, encoding: .utf8) else {
                 throw StoreIOError.invalidInput(
-                    what: relativePath, why: "canonical YAML 不是 UTF-8")
+                    what: displaySafeInvisible(relativePath, max: 200), why: "canonical YAML 不是 UTF-8")
             }
             return text
         }
@@ -932,7 +932,7 @@ public final class LibraryStore {
             data: { relativePath in
                 guard let bytes = byRawPath[Data(relativePath.utf8)] else {
                     throw StoreIOError.invalidInput(
-                        what: relativePath, why: "accepted capture 缺少已列舉的 bytes")
+                        what: displaySafeInvisible(relativePath, max: 200), why: "accepted capture 缺少已列舉的 bytes")
                 }
                 return bytes
             })

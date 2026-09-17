@@ -716,7 +716,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
     /// 讓被包住的那一段消失，同一個引數裡沒被包的部分照常入列。
     static func maskingSanitised(_ text: String) -> String {
         var chars = Array(text)
-        for needleText in ["displaySafeInvisible(", "displaySafeError(", "displaySafe("] {   // 三種消毒都塗白（R13 verify 第 31 列；displaySafeError 是 R28）
+        for needleText in ["displaySafeInvisible(", "displaySafeErrorMultiline(", "displaySafeError(", "displaySafe("] {   // 四種消毒都塗白（R13 verify 第 31 列；displaySafeError 是 R28、Multiline 是 R29）
             let needle = Array(needleText)
             var i = 0
             while i + needle.count <= chars.count {
@@ -917,7 +917,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
                     guard isErrorSink || tokenMatched else { continue }
                     // `displaySafeInvisible(` 是更強的消毒（性質式逃脫，R13）——守衛要認得它，否則四個真消毒站點得掛 exempt，
                     // 而拔掉消毒後 exempt 留在原地守衛照樣全綠（R13 verify security 第 31 列）
-                    if expr.contains("displaySafe(") || expr.contains("displaySafeInvisible(") || expr.contains("displaySafeError(") { continue }   // displaySafeError：R28 D80 的錯誤描述邊界
+                    if expr.contains("displaySafe(") || expr.contains("displaySafeInvisible(") || expr.contains("displaySafeError(") || expr.contains("displaySafeErrorMultiline(") { continue }   // displaySafeError：R28 D80 的錯誤描述邊界；Multiline 是 R29 的 MCP／App／CLI 入口
                     // `.count` / `.isEmpty` 是數量不是內容；`!= nil` / `== nil` 是
                     // Bool 存在測試（如 hasJudgement）——都到不了內容本身
                     if expr.contains(".count") || expr.contains(".isEmpty") { continue }

@@ -1,7 +1,7 @@
 import Foundation
 import Yams
 
-public enum StoreYAMLError: Error, LocalizedError, Equatable {
+public enum StoreYAMLError: Error, LocalizedError, Equatable, SanitizedErrorDescription {
     case notAMapping
     case missingField(String)
     case invalidField(String, String)
@@ -734,7 +734,7 @@ public enum EntryYAML {
             _ = try Yams.compose(yaml: out)
         } catch {
             throw StoreYAMLError.invalidField(
-                context, "encode 自檢失敗（產物無法解析）——拒絕寫出：\(displaySafeInvisible(String(describing: error), max: 300))")
+                context, "encode 自檢失敗（產物無法解析）——拒絕寫出：\(displaySafeError(error, max: 300))")   // display-safe-exempt: context 由呼叫端字面常量組成；error 走 Error → 文字的唯一入口（R29 D81）
         }
     }
 
@@ -1774,7 +1774,7 @@ extension PersonYAML {
                 guard let n = k.scalar?.string else {
                     throw StoreYAMLError.invalidField("person.profile.contacts", "鍵必須是字串")
                 }
-                contacts[n] = try decodeTimeline(v, context: "person.profile.contacts.\(n)")
+                contacts[n] = try decodeTimeline(v, context: "person.profile.contacts.\(displaySafeInvisible(n, max: 120))")   // R29：n 是呼叫端 mapping key（未信任），與 decodeProfile 那條路同樣進 context 前消毒（R28 verify 第 3／6／22 列）
             }
             profile.contacts = contacts
             return
@@ -1862,7 +1862,7 @@ extension PersonYAML {
                 guard let n = m[k] else { return nil }
                 if n.null != nil { return nil }
                 guard let s = n.scalar?.string else {
-                    throw StoreYAMLError.invalidField("\(context).\(displaySafeInvisible(k, max: 120))", "必須是 scalar")   // display-safe-exempt: k 是呼叫端字面常量；context 程式構造或呼叫端已消毒（contacts name 先 displaySafe，#139 F2）
+                    throw StoreYAMLError.invalidField("\(context).\(displaySafeInvisible(k, max: 120))", "必須是 scalar")   // display-safe-exempt: k 已 displaySafeInvisible（呼叫端都是字面常量，包起來零代價）；context 由常量與已 displaySafeInvisible 的片段組成（contacts name 在兩條路徑都先消毒，#139 F2／R29）
                 }
                 return s
             }
@@ -1882,7 +1882,7 @@ extension PersonYAML {
             guard let n = m[k] else { return nil }
             if n.null != nil { return nil }
             guard let s = n.scalar?.string else {
-                throw StoreYAMLError.invalidField("\(context).\(displaySafeInvisible(k, max: 120))", "必須是 scalar")   // display-safe-exempt: k 是呼叫端字面常量；context 程式構造或呼叫端已消毒（contacts name 先 displaySafe，#139 F2）
+                throw StoreYAMLError.invalidField("\(context).\(displaySafeInvisible(k, max: 120))", "必須是 scalar")   // display-safe-exempt: k 已 displaySafeInvisible（呼叫端都是字面常量，包起來零代價）；context 由常量與已 displaySafeInvisible 的片段組成（contacts name 在兩條路徑都先消毒，#139 F2／R29）
             }
             return s
         }

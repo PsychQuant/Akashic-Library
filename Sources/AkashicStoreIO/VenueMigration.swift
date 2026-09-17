@@ -40,11 +40,11 @@ public enum VenueMigration {
         public init() {}
     }
 
-    public enum MigrationError: Error, CustomStringConvertible {
+    public enum MigrationError: Error, CustomStringConvertible, SanitizedErrorDescription {
         case noRecoveryPath(detail: String)
         public var description: String {
             switch self {
-            case .noRecoveryPath(let d): return "無回復路徑：\(displaySafe(d, max: 300))"
+            case .noRecoveryPath(let d): return "無回復路徑：\(displaySafeInvisible(d, max: 300))"
             }
         }
     }

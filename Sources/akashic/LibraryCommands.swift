@@ -51,16 +51,16 @@ struct LibraryCreate: ParsableCommand {
         let store = try options.openStore()
         // 驗證先行：未驗證 key 不得進任何路徑組合（存在性 oracle 防護）
         guard StoreKey.isValid(key) else {
-            throw ValidationError("library key「\(key)」不符合 \(StoreKey.pattern)，拒絕寫入")
+            throw ValidationError("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入")
         }
         guard !FileManager.default.fileExists(atPath: store.libraryURL(key: key).path) else {
-            throw ValidationError("library「\(key)」已存在")
+            throw ValidationError("library「\(displaySafeInvisible(key, max: 200))」已存在")
         }
         do {
             let url = try store.writeLibrary(Library(key: key, name: name, description: description))
             print("created: \(url.lastPathComponent)")
         } catch {
-            throw ValidationError((error as? LocalizedError)?.errorDescription ?? "\(error)")
+            throw ValidationError(displaySafeErrorMultiline(error))
         }
     }
 }
@@ -77,13 +77,13 @@ private func runMembership(options: LibraryOptions, action: String, libraryKey: 
         let report = try service.setMembership(action: action, key: libraryKey, citekeys: citekeys)
         guard report.writeFailures.isEmpty else {
             for f in report.writeFailures {
-                print("  ! \(displaySafe(f.citekey, max: 200)) — \(displaySafeClipOnly(f.error, max: 400))")   // display-safe-exempt: error 已消毒（生產端 displaySafeError，R28 D80），只截
+                print("  ! \(displaySafe(f.citekey, max: 200)) — \(displaySafeClipOnly(f.error, max: 3_200))")   // display-safe-exempt: error 已消毒（生產端 displaySafeError，R28 D80），只截
             }
             throw ValidationError("\(report.writeFailures.count) 筆寫入失敗（其餘已寫入且 index 已重建）")   // display-safe-exempt: Int
         }
         return report
     } catch let e as ServiceError {
-        throw ValidationError(e.errorDescription ?? "\(e)")
+        throw ValidationError(displaySafeErrorMultiline(e))
     }
 }
 

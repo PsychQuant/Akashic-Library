@@ -11,6 +11,14 @@ final class VenueNamesReportTests: XCTestCase {
         XCTAssertEqual(r.dropped, [])
     }
 
+    /// R29（R28 verify Codex 第 12 列、logic 第 30 列）：全空白項的 canonical 都是空字串，R28 的順序先做同批去重、第二個空白項被判成 folded——
+    /// 而它根本沒進 store。先問「有沒有存進去」，再問「同批已見」。
+    func testAllWhitespaceItemsAreDroppedNotFolded() {
+        let r = AkashicService.namesReport(requested: ["  ", "\t", "Journal"], before: [], after: ["Journal"])
+        XCTAssertEqual(r.dropped, ["  ", "\t"])
+        XCTAssertEqual(r.folded, [])
+    }
+
     func testFirstOccurrenceIsNotReportedAsFolded() {
         let r = AkashicService.namesReport(requested: ["Journal", "Review"], before: ["Review"], after: ["Review", "Journal"])
         XCTAssertEqual(r.folded, [])

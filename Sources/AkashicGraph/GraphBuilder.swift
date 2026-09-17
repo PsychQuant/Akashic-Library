@@ -42,13 +42,13 @@ public struct Neighborhood: Equatable {
     }
 }
 
-public enum GraphError: Error, LocalizedError {
+public enum GraphError: Error, LocalizedError, SanitizedErrorDescription {
     case unknownCitekey(String)
 
     public var errorDescription: String? {
         switch self {
         // #149 verify F1：同 QueryError——caller citekey 消毒
-        case .unknownCitekey(let key): return "index 中找不到 citekey：\(displaySafe(key, max: 200))"
+        case .unknownCitekey(let key): return "index 中找不到 citekey：\(displaySafeInvisible(key, max: 200))"
         }
     }
 }

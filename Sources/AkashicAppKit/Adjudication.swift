@@ -151,7 +151,7 @@ public final class PeopleResolveModel {
     private func id(of c: ResolutionCandidate) -> String { c.pinnedID }   // 複合鍵＋pin 住型別上（#236 R4／R4-8：skip 也釘 person——同列改指後不再誤 skip）
 }
 
-public enum AdjudicationError: Error, LocalizedError, Equatable {
+public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorDescription {
     case entryNotFound(String)
     case notAnOrphan(String)
 
@@ -161,9 +161,9 @@ public enum AdjudicationError: Error, LocalizedError, Equatable {
         // App 的 error 顯示在 SwiftUI，威脅模型比 MCP-直達-LLM 弱，但同 bug class
         // 的一致性值得（#142 sweep 的溢出）。
         case .entryNotFound(let key):
-            return "找不到 entry「\(displaySafe(key, max: 200))」——外部變更可能已移除，請重新整理"
+            return "找不到 entry「\(displaySafeInvisible(key, max: 200))」——外部變更可能已移除，請重新整理"
         case .notAnOrphan(let key):
-            return "「\(displaySafe(key, max: 200))」不是 orphan——外部同步可能已恢復連結，已拒絕破壞性動作"
+            return "「\(displaySafeInvisible(key, max: 200))」不是 orphan——外部同步可能已恢復連結，已拒絕破壞性動作"
         }
     }
 }
@@ -244,7 +244,7 @@ public final class QuarantineModel {
 /// 第三個 sink 漏掉）。`file` 仍是原始檔名，這裡逃脫。
 public extension QuarantinedFile {
     var displayFile: String { displaySafeInvisible(file, max: 300) }
-    var displayReason: String { displaySafeClipOnly(reason, max: 512) }   // display-safe-exempt: 已消毒（QuarantinedFile 生產端，R28 D80），只截
+    var displayReason: String { displaySafeClipOnly(reason, max: 4_096) }   // display-safe-exempt: 已消毒（QuarantinedFile 生產端，R28 D80），只截
 }
 
 public extension ResolutionCandidate {

@@ -258,7 +258,7 @@ public struct LibraryIndex {
     }
 }
 
-public enum IndexError: Error, LocalizedError, Equatable {
+public enum IndexError: Error, LocalizedError, Equatable, SanitizedErrorDescription {
     /// #129 verify F1/F2：root 不像一個 store（unmount／path flap／打錯路徑）時
     /// 拒絕重建——寫出一份身分正確的空 index 比留著舊 index 更糟。
     case rootNotALibrary(String)
@@ -266,7 +266,7 @@ public enum IndexError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .rootNotALibrary(let path):
-            return "「\(displaySafe(path, max: 300))」不是 Akashic library（缺 entities/ 與 entries/）"
+            return "「\(displaySafeInvisible(path, max: 300))」不是 Akashic library（缺 entities/ 與 entries/）"
                  + "——拒絕重建 index。若這是暫時的（磁碟未掛載／同步中），恢復後重試即可；"
                  + "舊 index 原封未動。"
         }

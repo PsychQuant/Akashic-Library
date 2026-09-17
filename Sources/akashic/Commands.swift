@@ -262,7 +262,7 @@ struct ImportZotero: ParsableCommand {
         let store = try options.openOrCreateStore()
         let dbURL = URL(fileURLWithPath: (zoteroDb as NSString).expandingTildeInPath)
         guard FileManager.default.fileExists(atPath: dbURL.path) else {
-            throw ValidationError("找不到 zotero.sqlite：\(dbURL.path)")
+            throw ValidationError("找不到 zotero.sqlite：\(displaySafeInvisible(dbURL.path, max: 300))")
         }
         let report = try ZoteroImporter(store: store).run(zoteroDB: dbURL, libraryID: libraryId)
         print("created: \(report.created.count)")
@@ -305,7 +305,7 @@ struct ImportZotero: ParsableCommand {
         if !report.writeFailed.isEmpty {
             print("write failed（單筆寫入失敗，已略過續跑）: \(report.writeFailed.count)")
             for key in report.writeFailed.keys.sorted() {
-                print("  ✗ \(displaySafe(key, max: 200)) — \(displaySafe(report.writeFailed[key]!, max: 512))")
+                print("  ✗ \(displaySafe(key, max: 200)) — \(displaySafeClipOnly(report.writeFailed[key]!, max: 4_096))")   // display-safe-exempt: 已消毒（ZoteroImporter 由 displaySafeError 產出，R29 D81），只截
             }
         }
         let stats = try LibraryIndex(store: store).rebuild()
@@ -359,7 +359,7 @@ struct Migrate: ParsableCommand {
                 print("  index rebuilt: \(stats.entries) entries → \(store.indexURL.path)")
             }
         } catch {
-            throw ValidationError((error as? LocalizedError)?.errorDescription ?? "\(error)")
+            throw ValidationError(displaySafeErrorMultiline(error))
         }
     }
 }
@@ -1356,7 +1356,7 @@ struct ExportTables: ParsableCommand {
         if let viewKey = view {
             let config = try AkashicConfig.read(from: AkashicHome.configURL())
             guard let def = config.views[viewKey] else {
-                throw ValidationError("config.yaml 沒有 view「\(displaySafe(viewKey, max: 200))」"
+                throw ValidationError("config.yaml 沒有 view「\(displaySafeInvisible(viewKey, max: 200))」"
                                       + "（`akashic view list` 看有哪些）")
             }
             let ext = def.extension_(in: load)
@@ -1410,7 +1410,7 @@ struct ExportBib: ParsableCommand {
             entries = entries.filter { wanted.contains($0.citekey) }
             let missing = wanted.subtracting(entries.map(\.citekey))
             guard missing.isEmpty else {
-                throw ValidationError("citekeys 不存在：\(missing.sorted().joined(separator: ", "))")
+                throw ValidationError("citekeys 不存在：\(displaySafeInvisible(missing.sorted().joined(separator: ", "), max: 400))")
             }
         }
         let content: String = cslJson
@@ -1729,7 +1729,7 @@ struct ResolvePeople: ParsableCommand {
         // --tier 值域驗證（fail-loud：typo 靜默變成「不篩」比失敗糟——#205 同判準）
         let tierSet = try Set(tier.map { raw -> ResolutionTier in
             guard let t = ResolutionTier(rawValue: raw) else {
-                throw ValidationError("--tier「\(raw)」不是提名層——合法值：" +
+                throw ValidationError("--tier「\(displaySafeInvisible(raw, max: 120))」不是提名層——合法值：" +
                     ResolutionTier.allCases.map(\.rawValue).joined(separator: " / "))
             }
             return t
@@ -2174,7 +2174,7 @@ struct RecordDivergence: ParsableCommand {
             let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
             guard parts.count == 2, let shape = EntityKind(rawValue: parts[1]) else {
                 throw ValidationError(
-                    "候選格式為 `key:shape`（shape ∈ \(EntityKind.allCases.filter { $0 != .divergence }.map(\.rawValue).joined(separator: " / "))），得到「\(displaySafe(spec, max: 120))」")
+                    "候選格式為 `key:shape`（shape ∈ \(EntityKind.allCases.filter { $0 != .divergence }.map(\.rawValue).joined(separator: " / "))），得到「\(displaySafeInvisible(spec, max: 120))」")
             }
             return (key: parts[0], shape: shape)
         }

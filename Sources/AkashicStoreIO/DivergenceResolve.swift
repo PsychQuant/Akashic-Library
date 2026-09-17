@@ -2,7 +2,7 @@ import Foundation
 import AkashicCore
 
 /// 消歧失敗的原因。全部發生在**動磁碟之前**，除了 `partialWriteFailures`。
-public enum DivergenceResolveError: Error, LocalizedError {
+public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescription {
     case recordNotFound(UUID)
     case survivorNotACandidate(survivor: String, candidates: [String])
     case candidateMissing(key: String, shape: String)
@@ -115,7 +115,7 @@ public enum DivergenceResolveError: Error, LocalizedError {
         case let .wouldLoseFields(merged, survivor, losses):
             return "拒絕合併：被併的「\(displaySafeInvisible(merged, max: 200))」帶有倖存者"
                  + "「\(displaySafeInvisible(survivor, max: 200))」沒有的資料，合併會讓它隨檔案消失——"
-                 + losses.map { displaySafeClipOnly($0, max: 300) }.joined(separator: "；")   // display-safe-exempt: 已消毒（fieldsLostByMerging 回傳前逐條 displaySafeInvisible，R28 D80），只截
+                 + losses.map { displaySafeClipOnly($0, max: 2_400) }.joined(separator: "；")   // display-safe-exempt: 已消毒（fieldsLostByMerging 回傳前逐條 displaySafeInvisible，R28 D80），只截
                  + "。先把要保留的搬到倖存者身上（或確認可以丟棄後手動清除），再消歧。"
         case let .wouldContradictVerdicts(record, survivor, details, totalPairs):
             return "拒絕合併：併入「\(displaySafeInvisible(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))會對同一個配對同時持有"   // display-safe-exempt: whoWouldHold 內部逐項 displaySafe
@@ -139,7 +139,8 @@ public enum DivergenceResolveError: Error, LocalizedError {
                     + existing.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: existing 同上
                     + (existingTotal > existing.count ? "\n  …共 \(existingTotal) 筆" : ""))   // display-safe-exempt: Int
                  + "\nverdict 不帶 index，之後那筆 work 的邊在 resolve-venues 的 demote／repoint 上都會被拒（D23）。"
-                 + "出路：把不屬於這條邊的那筆 confirmed verdict 從它所在記錄的 YAML 刪掉（先看「這次合併帶進來的」那幾筆，出處如上）；"
+                 + "出路：把不屬於這條邊的那筆 confirmed verdict 從它所在記錄的 YAML 刪掉（先看「這次合併帶進來的」那幾筆——列出的出處如上，\(broughtTotal > brought.count ? "標「…共 N 筆」時其餘幾筆要開倖存記錄與被併記錄的 YAML 找；" : "")"   // display-safe-exempt: Int 比較與字面常量
+                 + "）；"
                  + "若那筆 work 另有一條邊指向被併者，也可以先用 resolve-venues --demote 把那條邊退回 literal。"
                  + "不擋的只有：倖存配對合併前就持有整組的違反，以及倖存配對合併前一筆都沒有、整組原樣從單一被併鍵搬來的（holder 遷移；validate 照報 warning）；"
                  + "整組住在被併記錄裡的（那個檔要刪、出處會消失——先在它的 YAML 修掉）、或讓倖存配對的既有歧義變大的，都擋"
@@ -484,19 +485,19 @@ extension LibraryStore {
         var out: [String] = []
         for c in collapsed {
             guard let cj = c.judgement else { continue }
-            let prefersNote = cj.prefers.map { "（傾向「\(displaySafe($0, max: 200))」）" } ?? ""
+            let prefersNote = cj.prefers.map { "（傾向「\(displaySafeInvisible($0, max: 200))」）" } ?? ""
             out.append("將**連帶刪除**的歧異記錄 \(c.id.uuidString) 帶有判斷"
-                       + "\(prefersNote)：\(displaySafe(cj.statement, max: 300))"
+                       + "\(prefersNote)：\(displaySafeInvisible(cj.statement, max: 300))"
                        + "——它不是你指名的對象，但會隨這次消歧一起消失，請確認不衝突")
         }
         guard let j = record.judgement else { return out }
         if j.prefers == nil {
             out.append("這筆歧異有判斷但未指定 prefers，無法機械核對——"
-                       + "請自行確認倖存者與判斷一致：\(displaySafe(j.statement, max: 300))")
+                       + "請自行確認倖存者與判斷一致：\(displaySafeInvisible(j.statement, max: 300))")
         }
         if let r = overrideReason, let p = j.prefers, p != survivor {
-            out.append("已覆寫判斷（原傾向「\(displaySafe(p, max: 200))」→ 實選"
-                       + "「\(displaySafe(survivor, max: 200))」）：\(displaySafe(r, max: 300))")
+            out.append("已覆寫判斷（原傾向「\(displaySafeInvisible(p, max: 200))」→ 實選"
+                       + "「\(displaySafeInvisible(survivor, max: 200))」）：\(displaySafeInvisible(r, max: 300))")
         }
         return out
     }
@@ -1329,17 +1330,17 @@ extension LibraryStore {
         // 說的「合併會改寫人工指定」，只是改寫的不是合併而是合併給的建議。
         let warnings = doomed.flatMap { v in
             Self.authorizedDemotedByMerging(v, into: keeper).map { demotion in
-                let head = "「\(displaySafe(demotion.name, max: 120))」在被併的「\(displaySafe(v.key, max: 120))」"
+                let head = "「\(displaySafeInvisible(demotion.name, max: 120))」在被併的「\(displaySafeInvisible(v.key, max: 120))」"
                     + "是 authorized，合併後"
                 switch demotion.outcome {
                 case .becomesVariant:
-                    return head + "成為「\(displaySafe(survivor, max: 120))」的 variant（名字保留在 names；"
+                    return head + "成為「\(displaySafeInvisible(survivor, max: 120))」的 variant（名字保留在 names；"
                         + "倖存者同書寫系統的對外形不變）"
                 case .staysUnclassified:
-                    return head + "留在「\(displaySafe(survivor, max: 120))」的 names、未標（不進 variant；"
+                    return head + "留在「\(displaySafeInvisible(survivor, max: 120))」的 names、未標（不進 variant；"
                         + "倖存者同書寫系統的對外形不變）"
                 case .alreadyVariant:
-                    return head + "仍是「\(displaySafe(survivor, max: 120))」的 variant（倖存者早已這樣分類）"
+                    return head + "仍是「\(displaySafeInvisible(survivor, max: 120))」的 variant（倖存者早已這樣分類）"
                 }
             }
         }
@@ -2180,8 +2181,8 @@ extension LibraryStore {
         // `deletionNotRecoverable` 對 `$0.path` 就是這麼做的，本條先前漏了，
         // 而守衛看不見它（隱式 return，#381 的盲區）。
         func describe(_ d: Divergence) -> String {
-            let j = d.judgement.map { "判斷「\(displaySafe($0.statement, max: 800))」"
-                + ($0.prefers.map { p in "、傾向「\(displaySafe(p, max: 200))」" } ?? "") }
+            let j = d.judgement.map { "判斷「\(displaySafeInvisible($0.statement, max: 800))」"
+                + ($0.prefers.map { p in "、傾向「\(displaySafeInvisible(p, max: 200))」" } ?? "") }
                 ?? "無判斷"
             return "\(d.id.uuidString)（\(j)）"   // display-safe-exempt: uuidString 是 UUID 的正規形，不含 store 內容
         }
@@ -2303,8 +2304,8 @@ extension LibraryStore {
                 try writeEntry(e)
                 report.rewritten.append(e.citekey)
             } catch {
-                report.failures.append("寫入 \(displaySafe(e.citekey, max: 200)) 失敗："
-                    + ((error as? LocalizedError)?.errorDescription ?? String(describing: error)))
+                report.failures.append("寫入 \(displaySafeInvisible(e.citekey, max: 200)) 失敗："
+                    + displaySafeError(error, max: 512))
             }
         }
         for d in otherToWrite {
@@ -2313,7 +2314,7 @@ extension LibraryStore {
                 report.rewritten.append(d.id.uuidString)
             } catch {
                 report.failures.append("寫入歧異記錄 \(d.id.uuidString) 失敗："
-                    + ((error as? LocalizedError)?.errorDescription ?? String(describing: error)))
+                    + displaySafeError(error, max: 512))
             }
         }
 
@@ -2334,7 +2335,7 @@ extension LibraryStore {
                 try FileManager.default.removeItem(at: entityURL(id: id))
             } catch {
                 report.failures.append("刪除 \(id.uuidString) 失敗："
-                    + ((error as? LocalizedError)?.errorDescription ?? String(describing: error)))
+                    + displaySafeError(error, max: 512))
             }
         }
         // **被併實體沒全刪掉就不刪歧異記錄。** 歧異記錄是唯一記得「這兩筆可能是同
@@ -2378,7 +2379,7 @@ extension LibraryStore {
                 report.removedDivergences.append(old.uuidString)
             } catch {
                 report.failures.append("刪除改名前的歧異記錄 \(old.uuidString) 失敗："
-                    + ((error as? LocalizedError)?.errorDescription ?? String(describing: error)))
+                    + displaySafeError(error, max: 512))
             }
         }
         for d in collapsed {
@@ -2390,7 +2391,7 @@ extension LibraryStore {
                 report.collapsedDetails.append((id: d.id.uuidString, question: d.question))
             } catch {
                 report.failures.append("刪除塌縮的歧異記錄 \(d.id.uuidString) 失敗："
-                    + ((error as? LocalizedError)?.errorDescription ?? String(describing: error)))
+                    + displaySafeError(error, max: 512))
             }
         }
         guard !report.hasFailures else {
@@ -2407,7 +2408,7 @@ extension LibraryStore {
                 report.removedDivergences.append(record.id.uuidString)
             } catch {
                 report.failures.append("刪除歧異記錄 \(record.id.uuidString) 失敗："
-                    + ((error as? LocalizedError)?.errorDescription ?? String(describing: error)))
+                    + displaySafeError(error, max: 512))
             }
         }
         report.rewritten.sort()
@@ -2664,8 +2665,8 @@ extension LibraryStore {
             case .unpublished: parts.append("availability=unpublished")
             case .published(let repository, let url):
                 parts.append("availability=published")
-                if let repository { parts.append("repository=\(displaySafe(repository, max: 200))") }
-                if let url { parts.append("repository_url=\(displaySafe(url, max: 200))") }
+                if let repository { parts.append("repository=\(repository)") }   // display-safe-exempt: losses 在 fieldsLostByMerging 回傳前逐條 displaySafeInvisible（R28 D80；R28 verify 第 4／20 列：這兩行漏掉了）
+                if let url { parts.append("repository_url=\(url)") }   // display-safe-exempt: 同上
             }
             let suffix = keeper.thesis == nil ? "" : "（兩邊都有但不同，需選一個）"
             losses.append("thesis: " + parts.joined(separator: "、") + suffix)
@@ -2699,12 +2700,11 @@ extension LibraryStore {
             case let .literal(s): return "literal:\(s)"   // display-safe-exempt: 同上
             }
         }
-        // `display` 的回傳值會進 `losses`，而 `losses` 的**每一項**在下游
-        // （`wouldLoseFields` 的 errorDescription）都過 `displaySafe($0, max: 300)`
-        // ——與同函式其他所有 losses 條目同一條保險。
+        // `display` 的回傳值會進 `losses`，而 `losses` 的**每一項**在本函式 `return` 時逐條 `displaySafeInvisible`（R28 D80；
+        // 下游 `wouldLoseFields` 的 errorDescription 只截）——與同函式其他所有 losses 條目同一條保險。
         func display(_ a: Author) -> String {
             switch a {
-            case let .key(k): return "已歸戶 \(k)"     // display-safe-exempt: 進 losses，下游整批 displaySafe
+            case let .key(k): return "已歸戶 \(k)"     // display-safe-exempt: 進 losses，回傳前整批 displaySafeInvisible（R28 D80）
             case let .organization(k): return "已歸戶團體 \(k)"  // display-safe-exempt: 同上（#323）
             case let .literal(s): return s
             }

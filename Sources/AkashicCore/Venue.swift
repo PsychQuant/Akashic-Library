@@ -311,6 +311,8 @@ public struct Venue: Equatable {
         // 移到求值之後，總量變成隨組數線性成長——而這條路徑在讀取面對未信任內容跑）。總量＝R16 的那個常數；超過即 error（fail-closed，與組內
         // 上限同一個方向）並說出幾組沒評估。
         let pairsToEvaluatePerRecord = 100_000
+        // **沿插入序、預算鎖存——與 person 側（`AuthorizedNames.validateNearDuplicates`）刻意不同**（R29；R28 verify 第 43／45 列）：這裡
+        // 觸頂是 error、整筆拒絕，任何一組觸頂結果都相同，順序不影響任何人看得到什麼；person 側只計數，才需要小組先評估。
         var listedGroups = 0, unlistedViolating = 0, unlistedCapHit = 0, listedCapHit = 0
         var evaluatedTotal = 0, unevaluatedGroups = 0, budgetHit = false
         // 回傳值分兩個旗標（R27 D77；R26 verify Codex 第 5 列、logic 第 12 列：R26 回傳 `capHit && listed == 0`，那是 R11 為**措辭**定的旗標，

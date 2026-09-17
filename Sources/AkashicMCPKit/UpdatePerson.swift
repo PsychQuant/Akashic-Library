@@ -34,7 +34,7 @@ public extension AkashicService {
             }
             guard !ProvenanceReference.resolutionVerdictFields.contains(field) else {
                 throw ServiceError.invalid(
-                    "欄位對「\(displaySafe(field, max: 60))」是 resolution verdict——"
+                    "欄位對「\(displaySafeInvisible(field, max: 60))」是 resolution verdict——"
                     + "只能經 resolve 流程（apply／reject）寫，不收手供")
             }
             let value = item["value"] as? String
@@ -71,7 +71,7 @@ public extension AkashicService {
     func updatePerson(key: String, fields: [String: Any], dryRun: Bool) throws -> String {
         let load = try store.load()   // 寫前重讀（同 AppState.mutate 的防 lost-update 語意）
         guard var person = load.people.first(where: { $0.key == key }) else {
-            throw ServiceError.notFound("person「\(displaySafe(key, max: 200))」")
+            throw ServiceError.notFound("person「\(displaySafeInvisible(key, max: 200))」")
         }
         // 白名單由 decoder 的 known keys **推導**，不手寫清單——手寫清單就是
         // 「第二份定義」：#75 的 prefers、#66 的 references 落地時自動納入，
@@ -82,7 +82,7 @@ public extension AkashicService {
         for (k, raw) in fields.sorted(by: { $0.key < $1.key }) {
             guard updatable.contains(k) else {
                 throw ServiceError.invalid(
-                    "不認得的欄位「\(displaySafe(k, max: 120))」——可更新："
+                    "不認得的欄位「\(displaySafeInvisible(k, max: 120))」——可更新："
                     + updatable.sorted().joined(separator: "、")
                     + "（id／key／type 是結構性鍵，不可經部分更新改動）")
             }
@@ -94,7 +94,7 @@ public extension AkashicService {
                 if let raw = try scalarOrNull(raw, field: k) {
                     guard let o = ORCID(raw) else {
                         throw ServiceError.invalid(
-                            "欄位「orcid」的值「\(displaySafe(raw, max: 120))」不是合法的 ORCID"
+                            "欄位「orcid」的值「\(displaySafeInvisible(raw, max: 120))」不是合法的 ORCID"
                             + "（\(ORCID.shapeDescription)）")   // display-safe-exempt: 型別的靜態常數（預期形狀說明），非 store 內容
                     }
                     person.orcid = o
@@ -138,7 +138,7 @@ public extension AkashicService {
                 // updatableKeys 推導自 decoder；decoder 認得而這裡沒接的欄位
                 // **大聲說**，不靜默吞——推導超前實作時這是唯一的誠實出口
                 throw ServiceError.invalid(
-                    "欄位「\(displaySafe(k, max: 200))」是 decoder 認得、但部分更新入口尚未支援的欄位")
+                    "欄位「\(displaySafeInvisible(k, max: 200))」是 decoder 認得、但部分更新入口尚未支援的欄位")
             }
         }
 
@@ -216,13 +216,13 @@ public extension AkashicService {
                 names.variant = try stringList(vv, field: "\(field).variant")
             default:
                 throw ServiceError.invalid(
-                    "names 只有 authorized 與 variant 兩個分割，不認得「\(displaySafe(kk, max: 120))」")
+                    "names 只有 authorized 與 variant 兩個分割，不認得「\(displaySafeInvisible(kk, max: 120))」")
             }
         }
         // #227 verify R1：分割互斥在入口早擋（validate 也會擋，但這裡能給更準的訊息）
         if let dup = names.authorized.first(where: Set(names.variant).contains) {
             throw ServiceError.invalid(
-                "「\(displaySafe(dup, max: 120))」同時出現在 authorized 與 variant——"
+                "「\(displaySafeInvisible(dup, max: 120))」同時出現在 authorized 與 variant——"
                 + "一個名字只屬於一個分割；指定是搬移，不是複製")
         }
         return names

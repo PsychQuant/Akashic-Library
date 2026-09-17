@@ -26,7 +26,7 @@ struct ResolveDivergence: ParsableCommand {
 
     func run() throws {
         guard let uuid = UUID(uuidString: id) else {
-            throw ValidationError("『\(displaySafe(id, max: 200))』不是合法的 UUID")
+            throw ValidationError("『\(displaySafeInvisible(id, max: 200))』不是合法的 UUID")
         }
         let store = try options.openStore()
         if dryRun {   // #78-2：消歧會連帶刪除使用者沒指名的塌縮記錄——要能先看
@@ -125,7 +125,7 @@ struct ResolveDivergence: ParsableCommand {
             FileHandle.standardError.write(Data(
                 "⚠ 倖存者「\(displaySafe(survivor, max: 200))」已被改寫——磁碟上不是原狀\n".utf8))
         }
-        for f in report.failures { FileHandle.standardError.write(Data("✗ \(displaySafe(f, max: 512))\n".utf8)) }
+        for f in report.failures { FileHandle.standardError.write(Data("✗ \(displaySafeClipOnly(f, max: 4_096))\n".utf8)) }   // display-safe-exempt: 已消毒（citekey 性質式、錯誤走 displaySafeError，R29 D81），只截——R28 verify 第 18／34 列
         if let rebuildError {
             FileHandle.standardError.write(Data(
                 ("⚠ 索引重建失敗（資料已改，索引過期）：\(rebuildError)\n"

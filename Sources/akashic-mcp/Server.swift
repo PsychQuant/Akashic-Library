@@ -389,7 +389,7 @@ actor AkashicMCPServer {
             guard let raw = params.arguments?[key] else { return d }
             guard case .bool(let b) = raw else {
                 throw ServiceError.invalid(
-                    "\(key) 必須是 boolean（true／false）——收到別的型別。"   // display-safe-exempt: key 是本檔的編譯期字面
+                    "\(displaySafeInvisible(key, max: 60)) 必須是 boolean（true／false）——收到別的型別。"   // key 是本檔的編譯期字面；包起來零代價、守衛不必認得它（R29）
                     + "字串 \"false\" 不是 false；拒絕整個呼叫，零寫入")
             }
             return b
@@ -640,7 +640,7 @@ actor AkashicMCPServer {
                     proposals = try AddOnlyEnrichment.decodeProposals(from: try JSONEncoder().encode(rawProposals))
                 } catch let e as AddOnlyEnrichment.InputError {
                     // 訊息含呼叫端給的鍵名＝未信任字串
-                    throw ServiceError.invalid(displaySafe(e.description, max: 400))
+                    throw ServiceError.invalid(displaySafeError(e, max: 400))   // InputError 不自帶消毒（描述含呼叫端鍵名），這裡逃一次（R29 D81）
                 }
                 output = try service.enrich(proposals: proposals,
                                             dryRun: try argFlag("dry_run", default: true),
@@ -660,23 +660,15 @@ actor AkashicMCPServer {
             }
             return CallTool.Result(content: [.text(text: output, annotations: nil, _meta: nil)], isError: false)
         } catch {
-            // **MCP 的單一錯誤出口，統一消毒**（#162）。CLI 早就這樣做了，而且那是
-            // 明寫的裁決：「逐條補 error 站點是假性閉合——新增的 case 又會裸奔。
-            // 這裡取代合成的 main()，在唯一出口統一過 displaySafeMultiline」
-            // （`Sources/akashic/CLI.swift`）。**MCP 側從來沒有拿到同樣的處置**：
-            // `Main.swift` 消毒了啟動錯誤，這條 per-tool 的熱路徑沒有。
-            //
-            // 後果是全面的：`StoreYAMLError.invalidField` 的 `errorDescription`
-            // **刻意不消毒** payload（它的策略是「由輸出端 sink 消毒」，見該型別的
-            // display-safe-exempt 註解），所以每一個未消毒的 throw 站點——約 90 個，
-            // 多數是折行的——都經由這裡把檔案裡的未知欄位名、YAML 鍵、值原文
-            // 逐字送進 LLM context。這是 #142 明列的強威脅模型。
-            //
-            // 修在這裡而不是 90 個 throw 站點：那些站點的策略本來就是 sink-side，
-            // 缺的是 sink。補一個 sink 勝過補 90 個站點再等下一個新增的 case。
-            let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            // **MCP 的單一錯誤出口**（#162）——它與 CLI 的頂層 sink（`CLI.swift`）是同一條邊界的兩個面。
+            // **這裡自 #554 R29（D81）起只做分流，不再自己逃脫**：R28 把 `StoreYAMLError` 的 127 個擲出站點、`invalidInput` 的兩個
+            // 參數、`ServiceError` 的 140 個建構點全部改成在擲出端逃脫（#162 時代那段「約 90 個站點刻意不消毒、靠 sink 兜底」的
+            // 描述自 R28 起為假），於是這一行的 `displaySafeMultiline(message)` 對每一則已消毒的訊息**再逃一次**——
+            // `Ga\u{005C}u{200B}mma`、`\u{005C}A[a-z0-9]…\u{005C}z`：一句修法指示被改寫成不存在的正則（R28 verify 第 1／7／10／17 列，
+            // 真 binary 兩面實測不同字串）。`displaySafeErrorMultiline` 對自帶消毒的錯誤（`SanitizedErrorDescription`）只截、其餘
+            // （Yams／I/O）逐行逃一次；`SanitizationBoundaryTests` 掃全樹釘住「Error → 文字只走這個入口」。
             return CallTool.Result(content: [.text(
-                text: "Error: \(displaySafeMultiline(message))",
+                text: "Error: \(displaySafeErrorMultiline(error))",
                 annotations: nil, _meta: nil)], isError: true)
         }
     }

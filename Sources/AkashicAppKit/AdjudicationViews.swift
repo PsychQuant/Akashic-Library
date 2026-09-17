@@ -82,7 +82,7 @@ struct PeopleResolveView: View {
                             Spacer()
                             Button("Accept") {
                                 do { try model.accept(candidate) } catch {
-                                    errorMessage = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+                                    errorMessage = displaySafeErrorMultiline(error)
                                 }
                             }
                             .buttonStyle(.borderedProminent)
@@ -166,7 +166,7 @@ struct OrphanView: View {
 
     private func attempt(_ action: () throws -> Void) {
         do { try action() } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            errorMessage = displaySafeErrorMultiline(error)
         }
     }
 }
@@ -219,7 +219,7 @@ struct QuarantineView: View {
     private func refresh() {
         do { try model?.refresh() } catch {
             // 驗證失敗不得被 try? 吞掉——使用者要知道 library 現在讀不動
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            errorMessage = displaySafeErrorMultiline(error)
         }
     }
 }

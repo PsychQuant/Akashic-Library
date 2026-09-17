@@ -36,6 +36,11 @@ on:
       - "plugin/**"
       - ".claude/**"
 
+# **最小權限 ＋ 不留憑證**——與 `census-parity.yml` 同一條（#407 R8 HIGH 的理由）；本檔在 #554 R28 verify 第 35 列被指出漏了。
+# 本 workflow 執行 repo 內的守衛與測試（PR 可改的檔案），`actions/checkout` 預設 `persist-credentials: true` 會把 token 留在 git config。
+permissions:
+  contents: read
+
 concurrency:
   # 同一個 PR 連推數次時，只留最後一次——省掉排隊中的過期 run。
   group: ci-${{ github.ref }}
@@ -51,6 +56,7 @@ jobs:
       # 所以 fetch-depth 必須為 0，不能使用 checkout 的單一 commit 預設值。
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false   # 只影響 checkout 之後是否留 token；submodule 在 checkout 當下仍取得到憑證
           fetch-depth: 0
           submodules: recursive
 

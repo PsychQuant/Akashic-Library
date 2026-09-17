@@ -29,7 +29,7 @@ public enum StoreMigration {
         public var quarantinedLeftBehind: [String] = []
     }
 
-    public enum MigrationError: Error, LocalizedError {
+    public enum MigrationError: Error, LocalizedError, SanitizedErrorDescription {
         case alreadyAtFormat(Int)
         case quarantinedFilesPresent([String])
         /// 兩筆記錄映到同一個目的 UUID。**不遷移**——照做會讓後寫的覆蓋前寫的，
@@ -52,7 +52,7 @@ public enum StoreMigration {
                     先修好重複的 id / key：\(keys.prefix(5).map { displaySafeInvisible($0, max: 200) }.joined(separator: "、"))
                     """
             case let .crossRecordIssues(msgs):
-                let shown = msgs.prefix(3).map { displaySafeClipOnly($0, max: 300) }.joined(separator: "；")   // display-safe-exempt: 已消毒（crossRecordIssues 在生產端 displaySafeInvisible，R27 D75／R28 D80），只截——R27 verify 第 2／29 列
+                let shown = msgs.prefix(3).map { displaySafeClipOnly($0, max: 2_400) }.joined(separator: "；")   // display-safe-exempt: 已消毒（crossRecordIssues 在生產端 displaySafeInvisible，R27 D75／R28 D80），只截——R27 verify 第 2／29 列
                 return """
                     store 有 \(msgs.count) 個跨記錄問題（重複 citekey / key）——遷移中止。\
                     搬過去只會把問題帶進新佈局：\(shown)

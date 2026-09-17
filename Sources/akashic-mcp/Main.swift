@@ -8,8 +8,7 @@ struct AkashicMCPMain {
             let server = try AkashicMCPServer()
             try await server.run()
         } catch {
-            let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
-            try? FileHandle.standardError.write(contentsOf: Data("akashic-mcp 啟動失敗：\(displaySafeMultiline(message))\n".utf8))
+            try? FileHandle.standardError.write(contentsOf: Data("akashic-mcp 啟動失敗：\(displaySafeErrorMultiline(error))\n".utf8))
             exit(1)
         }
     }

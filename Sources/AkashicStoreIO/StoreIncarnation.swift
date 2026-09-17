@@ -86,7 +86,7 @@ public enum StoreIncarnation {
         guard FileManager.default.fileExists(atPath: u.path) else { return nil }   // 真的缺席
         let data: Data
         do { data = try Data(contentsOf: u) }
-        catch { throw StoreIncarnationError.unreadable(path: u.path, why: error.localizedDescription) }
+        catch { throw StoreIncarnationError.unreadable(path: displaySafeInvisible(u.path, max: 300), why: displaySafeError(error, max: 300)) }   // R29 D81：Error → 文字只走 displaySafeError；path 是 store 路徑
         return try parse(data: data, path: u.path)
     }
 
@@ -137,7 +137,7 @@ public enum StoreIncarnation {
 /// 化身檔讀取失敗（#130 verify C）。**與「缺席」嚴格分開**——缺席回 `nil` 是正常的
 /// （既有 store 都沒有），讀失敗則必須 fail-loud，否則 `writeIfAbsent` 會覆寫掉一個
 /// 存在但暫時讀不到的身分。
-public enum StoreIncarnationError: Error, LocalizedError {
+public enum StoreIncarnationError: Error, LocalizedError, SanitizedErrorDescription {
     case unreadable(path: String, why: String)
     case malformed(path: String, content: String)
 

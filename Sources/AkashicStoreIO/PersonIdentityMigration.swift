@@ -74,7 +74,7 @@ public enum PersonIdentityMigration {
         }
     }
 
-    public enum MigrationError: LocalizedError {
+    public enum MigrationError: LocalizedError, SanitizedErrorDescription {
         case noRecoveryPath(detail: String)
         case dirtyWorktree(detail: String)
         case untrackedContent(detail: String)
@@ -183,7 +183,7 @@ public enum PersonIdentityMigration {
                 classified.append(Classified(kind: .legacy, person: person,
                                              url: url, relFile: relFile))
             } catch {
-                let reason = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+                let reason = displaySafeError(error, max: 512)   // R29 D81：Error → 文字只走 displaySafeError（自帶消毒的只截、I/O 錯誤逃一次）
                 report.failed.append((file: relFile, reason: reason))
                 // R3 NEW-1：解不開的檔仍可能與別的檔同 key——它必須**參與**裁決，
                 // 否則隱藏重複會讓 singleton 誤判、照樣重發 id。文字層取頂層 key；
@@ -285,7 +285,7 @@ public enum PersonIdentityMigration {
                 if let idx = report.migrated.firstIndex(of: item.key) {
                     report.migrated.remove(at: idx)   // 只移一筆——同 key 計數不誤刪（R1 S7）
                 }
-                let reason = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+                let reason = displaySafeError(error, max: 512)   // R29 D81：Error → 文字只走 displaySafeError（自帶消毒的只截、I/O 錯誤逃一次）
                 report.failed.append((file: item.relFile,
                                       reason: "寫入新檔失敗（記錄未動）：\(reason)"))
                 continue
@@ -294,7 +294,7 @@ public enum PersonIdentityMigration {
                 do { try fm.removeItem(at: item.url) } catch {
                     // R1 F6：新檔已寫成、舊檔刪不掉——磁碟是「可偵測的重複」不是
                     // 原狀，report 必須說清楚，不得偽稱失敗未動。
-                    let reason = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+                    let reason = displaySafeError(error, max: 512)   // R29 D81：Error → 文字只走 displaySafeError（自帶消毒的只截、I/O 錯誤逃一次）
                     report.failed.append((file: item.relFile,
                         reason: "新檔已寫入（\(item.dest.lastPathComponent)）、舊檔刪除失敗"
                               + "——目前新舊並存，請手動刪除舊檔：\(reason)"))
@@ -417,7 +417,7 @@ public enum PersonIdentityMigration {
                                  newText: newText, dest: dest))
             report.migrated.append(person.key)
         } catch {
-            let reason = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            let reason = displaySafeError(error, max: 512)   // R29 D81：Error → 文字只走 displaySafeError（自帶消毒的只截、I/O 錯誤逃一次）
             report.failed.append((file: c.relFile, reason: "re-encode 失敗：\(reason)"))
         }
     }

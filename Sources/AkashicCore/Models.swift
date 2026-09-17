@@ -785,15 +785,7 @@ public func displaySafe(_ s: String, max: Int = 200,
         }
         emitted += 1
     }
-    var body = String(out)
-    // 截點不得落在 `\u{…}` 中間（R28 D80；R27 verify DA 第 19 列）：只截不逃的呼叫端收的是**已含逃脫序列**的字串，而 `max` 數的是
-    // 輸出 scalar——pad 對齊時輸出以裸反斜線或半截的 `\u{20` 結尾，「輸出不可偽造」的不變式被截斷本身打掉（`refusalLineMax` 的註解
-    // 早就記過同一個形狀，R22 verify 第 23 列）。逃脫自己的呼叫端不會發生（每個 `\u{…}` 是整段 put）。退回到最後一個沒閉合的 `\u{` 之前。
-    // 只截不逃的輸入裡，反斜線只以 `\u{…}` 的開頭出現（呼叫端契約：已消毒），所以「最後一個反斜線之後沒有 `}`」就是沒閉合的逃脫序列
-    // ——包含只剩 `\`、`\u`、`\u{20` 三種殘端（第一版只找 `\u{`，pad 7 時殘端是裸 `\`、照樣漏）。
-    if truncated, !escapingBackslash, let bs = body.lastIndex(of: "\\"), !body[bs...].contains("}") {
-        body = String(body[..<bs])
-    }
+    let body = String(out)
     return truncated ? body + "…（已截斷）" : body
 }
 
@@ -802,7 +794,22 @@ public func displaySafe(_ s: String, max: Int = 200,
 /// 自身的不變式正是靠「呼叫端不得傳 false」撐著；把「只截」做成另一個名字，守衛與讀者才分得出這一格沒有消毒任何東西。
 /// **不得**拿它接未消毒的 store 字串——那會把真反斜線原樣送出，與 `displaySafeInvisible` 產生的 `\u{…}` 不可區分。
 public func displaySafeClipOnly(_ s: String, max: Int) -> String {
-    displaySafe(s, max: max, escapingBackslash: false)
+    let marker = "…（已截斷）"
+    let out = displaySafe(s, max: max, escapingBackslash: false)
+    guard out.hasSuffix(marker) else { return out }
+    // 截點不得落在 `\u{…}` 中間（R28 D80；R27 verify DA 第 19 列）：本函式收的是**已含逃脫序列**的字串，而 `max` 數的是輸出 scalar——
+    // pad 對齊時輸出以裸 `\`、`\u`、`\u{20` 結尾，「輸出不可偽造」的不變式被截斷本身打掉。R28 把退讓寫在 `displaySafe` 裡、以
+    // `!escapingBackslash` 當前件，於是同一個旗標的另一個呼叫端 `displaySafeAssembled`（CLI 全域出口，契約是**合法裸反斜線會出現**）
+    // 也被砍——一行 406 scalar 掉到 41、`\A[a-z0-9]…\z` 被吃掉（R28 verify 第 8／29／36 列）。現在只在這裡做，且只認**長得像半截逃脫序列**
+    // 的殘端（`\`、`\u`、`\u{`、`\u{2`…`\u{20B`——`\u{` 後最多四個十六進位）；`StoreKey.pattern` 的 `\z`、`\A` 這種真反斜線常量不動。
+    var body = String(out.dropLast(marker.count))
+    if let bs = body.lastIndex(of: "\\") {
+        let tail = body[body.index(after: bs)...]
+        let partial = tail.isEmpty || tail == "u"
+            || (tail.hasPrefix("u{") && !tail.contains("}") && tail.dropFirst(2).count <= 4 && tail.dropFirst(2).allSatisfy(\.isHexDigit))
+        if partial { body = String(body[..<bs]) }
+    }
+    return body + marker
 }
 
 public struct ValidationIssue: Equatable {

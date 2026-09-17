@@ -1053,3 +1053,61 @@ guards 第 28 列與 parity 只列四層（第 25 列）；merge 遺失訊息的
 它們的 sink 是 App 與 CLI 的字串面、不經 quarantine／MCP 的載體，本輪不動；`VenueMigration`／`VenueVariantMigration` 的 `MigrationError` 走
 `CustomStringConvertible`（`description`，不是 `errorDescription`），守衛的掃描只認後者——四個 migrate 報告的 reason 因此標「未消毒」由 sink 逃。
 
+
+## R28 verify：邊界寫在 StoreIO，而錯誤住在六個模組
+
+六席齊、50 列（11 HIGH／15 MEDIUM／14 LOW／10 INFO）。HIGH 全部是同一件事的不同位置：D80 說「`displaySafeError` 是 Error → 文字的唯一入口」，
+而樹上有三個入口沒走它——MCP 的 per-tool 錯誤出口（Server.swift，`displaySafeMultiline(message)` 對每一則已在擲出端消毒的訊息**再逃一次**，
+真 binary 兩面實測：CLI 印 `\A[a-z0-9]…\z`、MCP 印 `\u{005C}A…`，一句修法指示被改寫成不存在的正則；第 1／7／17 列）、App 的 `errorMessage`
+（`EntryViews`／`AdjudicationViews`／`GraphView` 六處取原始 `errorDescription`，`AppState:359`／`EntryViews:348` 再逃；第 15 列）、
+`ServiceError` 本身（住在 AkashicMCPKit，StoreIO 的 `is` 鏈碰不到它；`displaySafeError` 對它再逃一次，而它的 doc 明寫「此處不再消毒」正是為了避免這件事；
+第 5／13 列）。守衛的盲點也是同一形：只看 `\(…)` 插值、看不到 `what: relativePath` 這種裸引數（第 2 列，D80 拿掉 sink 兜底後檔名原樣送出）；
+`^context$` 的允許清單放過 `YAML.swift:1777` 由未信任 mapping key 組出的 context（第 3／6／22 列）；自帶消毒集合只掃兩個目錄的 `errorDescription`
+（第 14／19／32／37 列：`VenueMigration` 的 `MigrationError` 用 `description`、Index／Query／Graph／App 的錯誤全在鏈外）。R28 自己造出的：
+截點退讓以 `!escapingBackslash` 當前件，砍到了 `displaySafeAssembled`（CLI 全域出口，一行 406 scalar 掉到 41；第 8／29／36 列）；
+`enrich`／`enrich_from_zotero` 的 `writeFailed` 生產端改 `displaySafeError`、sink 仍逃（第 9 列）；`ZoteroImporter` 的第四個 writeFailed 載體
+完全在邊界外（第 25 列）；`namesReport` 的同批去重排在空白檢查之前（第 12／30 列）；thesis 分支的片段層 `displaySafe` 被 return 再逃（第 4／20 列）；
+`resolve-divergence` 的 `report.failures` 生產端已 `displaySafe(citekey)`、sink 再逃，warnings 完全裸印（第 18／21／33／34 列）；
+#583 記的世界與 binary 相反（第 10 列：自帶消毒家族也雙重逃脫、「不再有原始 scalar」為假——真 binary 吐出原始 U+200B 與 U+E0001，第 11 列）。
+其餘：§5.7「本節的五條」與「六條，封閉」同段矛盾（第 16 列）、`ci.yml` 沒有 `permissions:`（第 35 列）、D76「預算不鎖存」在升冪之下不可觀測而測試以它命名
+（第 26／42 列）、venue 與 person 的餓死行為不同而 doc 只寫「結果不同」（第 43／45 列）、三處與程式牴觸的 exempt 註解（第 28／38 列）、
+兄弟 case 的「出處如上」在截斷時無條件（第 27／31 列）、掃描器對無括號的命中會吞掉下一段（第 47 列）、Scope（第 24 列）。
+
+## R29 落地：一個 protocol（D81）
+
+**D81（Claude 代裁）：自帶消毒的錯誤型別由 protocol 宣告，Error → 文字只有一個入口，而那個入口住在 AkashicCore。** R28 把邊界寫成 StoreIO 裡的一條
+`is` 鏈，於是相依方向反過來的 `ServiceError`、住在別的模組的 `IndexError`／`QueryError`／`GraphError`／App 的三個錯誤、`TractatusDocs` 的
+`CorpusSchemaError`、`AkashicProposition` 的兩個錯誤全在鏈外，而守衛只掃兩個目錄。現在：
+
+- **`SanitizedErrorDescription`**（AkashicCore）——19 個型別 conform（StoreYAMLError／StoreIOError／DivergenceResolveError／StoreMigration 與
+  PersonIdentityMigration 的 MigrationError／StoreIncarnationError／ConfigError／VenueMigration 與 VenueVariantMigration 的 MigrationError（`description`）／
+  ServiceError／IndexError／QueryError／GraphError／AppStateError／AdjudicationError／FileWatcherError／CorpusSchemaError／PropositionError／
+  PropositionModelValidationError），描述裡的列舉式 `displaySafe(` 全部換成性質式；`ErrorDisplay` 搬進 AkashicCore、`isSelfSanitizing` 只問 protocol。
+  守衛掃**全樹**（宣告可跨行、只看 Error 型別）：描述裡有逃脫的必須 conform，conform 而描述不逃脫的只有 `ServiceError`（封閉表：消毒在 140 個擲出站點）。
+- **三個入口收攏**：MCP 的 per-tool 出口與 `Main.swift` 改 `displaySafeErrorMultiline`（自帶消毒 → `displaySafeAssembled` 只截、合法反斜線原樣；
+  其餘 → 逐行逃一次並以性質逃脫不可見 scalar）；App 六個 `errorMessage`／`loadError`、`AppState.renameIndexRebuildFailed` 的 underlying；CLI 五個
+  `ValidationError((error as? LocalizedError)?.errorDescription ?? …)` 包裝；`ZoteroImporter`／`EnrichFromZotero` 的 writeFailed、`PersonIdentityMigration` ×4、
+  `ProvenanceMigration` ×2（Foundation `NSError` 取 `localizedDescription` 的分流搬進 `ErrorDisplay.describe`）、`StoreIncarnation`、YAML 的 encode 自檢、
+  `resolve-divergence` 的六個 `report.failures` 生產端。守衛 `testErrorToTextEntriesGoThroughTheSingleEntryPoint` 掃全樹（`TractatusDocs`／`tractatus-doc`／
+  `AkashicProposition` 的 corpus 管線不在範圍，寫在測試裡）。Server.swift 那段自 #162 起「約 90 個站點刻意不消毒、靠 sink 兜底」的註解改寫。
+- **`ServiceError` 與 `ValidationError` 納入擲出站點守衛**：140 個 `displaySafe(` 換成 `displaySafeInvisible(`，`\(key)`／`\(title)`／`\(path)`／
+  `\(existing)`／`\(known)`／`config.files[key]!`／`missing.joined` 包起來；守衛多一層**裸引數**檢查（頂層引數不是字面、不是消毒、不是程式構造值即紅——
+  `LibraryStore` 的 `what: relativePath` ×2、`YAML.swift:1605` 的 `typeField: t` 由它抓出來），並從描述現算「描述端自己逃脫的 case」
+  （`unknownShapeLabel`／`shapeLabelHasValue`／`ambiguousShapeLabels`／`shapeLabelContradiction`：擲出端傳原值，守衛反向要求不得再逃）；
+  掃描前剝行註解、needle 後必須緊接 `(`（第 47 列）。`programBuilt` 多了 R29 的列，每列有理由。
+- **截點退讓搬回 `displaySafeClipOnly`**，且只認**半截逃脫序列**（`\`、`\u`、`\u{`、`\u{` 後至多四個十六進位）——`\A`／`\z` 這種真反斜線常量不動；
+  `displaySafeAssembled` 完全不受影響（測試釘住一行 406 scalar 留到上限）。
+- **clip-only sink 的上限是輸出 scalar**（第 23 列）：人的終端與 App 的 sink 放大 8 倍（`invalidInput` 描述 960／3,200、CLI quarantine reason 4,096…）；
+  **MCP 的 sink 刻意不放大**——它的上限保護的是 LLM context 的位元組預算（#236／#388），48 KB 裝不下 20 則 × 2,400 scalar。這是一個有記錄的不對稱。
+- 其餘：thesis 分支傳原值（return 時整批逃）、`describe(d)`／`judgementWarnings`／authorized demotion 的片段改性質式、`DivergenceCommands` 的 failures sink
+  只截；`namesReport` 先問「有沒有存進去」再問「同批已見」（全空白項報 dropped）；`wouldLeaveTwoConfirmedLiterals` 的出路句在截斷時說「標『…共 N 筆』時
+  其餘幾筆要開 YAML 找」；`YAML.swift:1777` 的 contacts key 進 context 前消毒、:1865／1885 的 exempt 註解改寫；D76 的 doc 與測試改成只宣稱排序
+  （升冪之下「不鎖存」不可觀測，第 26／42 列；「列出最小的 20 組」的代價寫進 doc，第 49 列；venue 側沿插入序＋鎖存的理由寫在 `Venue.validate()`，
+  第 43／45 列）；§5.7「本節的各條」；`ci.yml` 補 `permissions: contents: read` 與 `persist-credentials: false`；`fieldsLostByMerging` 的 doc 改說
+  return 時逃（第 44 列）。#583 的範圍在 issue 上更正：不只 `ServiceError`，是 MCP 出口對全部自帶消毒型別再逃一次；R29 關掉程式側，issue 留著記
+  「輸出閘的列舉式逃脫」那一半（#569 的範圍）。
+
+**誠實邊界**：`YAML.swift:1777` 那條路的守衛看不到——context 在 `decodeTimeline(…, context:)` 的引數裡組成、不在 throw 語句內，`^context$` 的
+允許清單仍放行它，修的是站點本身、不是守衛；`TractatusDocs`／`AkashicProposition` 的 Error → 文字入口不在守衛範圍（範圍寫在測試裡，理由是它們不碰
+store 字串）；`escapeAtThrow` 封閉表裡的 `ServiceError` 描述原樣回傳 what／why，「140 個站點全部消毒」由 `testServiceErrorAndValidationErrorThrowSitesSanitizeStoreStrings`
+釘住，但那個守衛認得的「程式構造值」是一張正則表——第 39 列說它是性質式而非封閉列舉，這一輪沒改（每列仍有理由；改成逐站點列舉會讓表與 140 個站點分岔）。

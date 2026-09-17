@@ -25,7 +25,7 @@ final class InvisibleEscapeCoverageTests: XCTestCase {
     static let helperImplementationLines: Set<String> = [
         "let safe = displaySafe(String(line), max: maxLineLength,",   // displaySafeMultiline
         "escapingInvisibleScalars(displaySafe(s, max: max))",          // displaySafeInvisible
-        "displaySafe(s, max: max, escapingBackslash: false)",          // displaySafeClipOnly
+        "let out = displaySafe(s, max: max, escapingBackslash: false)",   // displaySafeClipOnly（R29：截點退讓搬進來，實作行多了 let）
     ]
 
     /// `producerFiles` 不再只是手寫清單（R27 verify 第 15／24 列：清單今天恰好等於建構 `ValidationIssue(` 的檔案集合，但沒有東西讓它保持相等）：

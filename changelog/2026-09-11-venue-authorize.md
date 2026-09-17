@@ -1095,7 +1095,7 @@ guards 第 28 列與 parity 只列四層（第 25 列）；merge 遺失訊息的
   `LibraryStore` 的 `what: relativePath` ×2、`YAML.swift:1605` 的 `typeField: t` 由它抓出來），並從描述現算「描述端自己逃脫的 case」
   （`unknownShapeLabel`／`shapeLabelHasValue`／`ambiguousShapeLabels`／`shapeLabelContradiction`：擲出端傳原值，守衛反向要求不得再逃）；
   掃描前剝行註解、needle 後必須緊接 `(`（第 47 列）。`programBuilt` 多了 R29 的列，每列有理由。
-- **截點退讓搬回 `displaySafeClipOnly`**，且只認**半截逃脫序列**（`\`、`\u`、`\u{`、`\u{` 後至多四個十六進位）——`\A`／`\z` 這種真反斜線常量不動；
+- **截點退讓搬回 `displaySafeClipOnly`**，且只認**半截逃脫序列**（`\`、`\u`、`\u{`、`\u{` 後至多**六**個十六進位——`escapingInvisibleScalars` 的 `%04X` 對 BMP 以外的 scalar 印五位，`\u{E0001` 是合法殘端；R29 第一版寫四個，在寫 verify 的 DA 提示時自己抓到、`f85ea94e` 之後補一個 commit）——`\A`／`\z` 這種真反斜線常量不動；
   `displaySafeAssembled` 完全不受影響（測試釘住一行 406 scalar 留到上限）。
 - **clip-only sink 的上限是輸出 scalar**（第 23 列）：人的終端與 App 的 sink 放大 8 倍（`invalidInput` 描述 960／3,200、CLI quarantine reason 4,096…）；
   **MCP 的 sink 刻意不放大**——它的上限保護的是 LLM context 的位元組預算（#236／#388），48 KB 裝不下 20 則 × 2,400 scalar。這是一個有記錄的不對稱。

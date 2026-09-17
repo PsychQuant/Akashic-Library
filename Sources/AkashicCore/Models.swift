@@ -801,12 +801,14 @@ public func displaySafeClipOnly(_ s: String, max: Int) -> String {
     // pad 對齊時輸出以裸 `\`、`\u`、`\u{20` 結尾，「輸出不可偽造」的不變式被截斷本身打掉。R28 把退讓寫在 `displaySafe` 裡、以
     // `!escapingBackslash` 當前件，於是同一個旗標的另一個呼叫端 `displaySafeAssembled`（CLI 全域出口，契約是**合法裸反斜線會出現**）
     // 也被砍——一行 406 scalar 掉到 41、`\A[a-z0-9]…\z` 被吃掉（R28 verify 第 8／29／36 列）。現在只在這裡做，且只認**長得像半截逃脫序列**
-    // 的殘端（`\`、`\u`、`\u{`、`\u{2`…`\u{20B`——`\u{` 後最多四個十六進位）；`StoreKey.pattern` 的 `\z`、`\A` 這種真反斜線常量不動。
+    // 的殘端（`\`、`\u`、`\u{`、`\u{2`…`\u{E000`、`\u{E0001`——`\u{` 後最多**六**個十六進位：`escapingInvisibleScalars` 用 `%04X`，對 BMP 以外的
+    // scalar 印五位（U+E0001 TAG、U+1D173）、Unicode 上限 10FFFF 六位；R29 第一版寫「四個」，`\u{E0001` 這種殘端不會退讓——R29 verify 前的
+    // DA 自問抓到）；`StoreKey.pattern` 的 `\z`、`\A` 這種真反斜線常量不動。
     var body = String(out.dropLast(marker.count))
     if let bs = body.lastIndex(of: "\\") {
         let tail = body[body.index(after: bs)...]
         let partial = tail.isEmpty || tail == "u"
-            || (tail.hasPrefix("u{") && !tail.contains("}") && tail.dropFirst(2).count <= 4 && tail.dropFirst(2).allSatisfy(\.isHexDigit))
+            || (tail.hasPrefix("u{") && !tail.contains("}") && tail.dropFirst(2).count <= 6 && tail.dropFirst(2).allSatisfy(\.isHexDigit))
         if partial { body = String(body[..<bs]) }
     }
     return body + marker

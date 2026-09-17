@@ -468,6 +468,17 @@ final class SanitizationBoundaryTests: XCTestCase {
         XCTAssertTrue(displaySafeClipOnly(tailZ, max: 400).hasPrefix(String(repeating: "x", count: 398) + "\\z"), "`\\z` 不是半截逃脫序列，留著")
         let tailU = String(repeating: "x", count: 397) + "\\u{20" + "0B}yy"
         XCTAssertTrue(displaySafeClipOnly(tailU, max: 400).hasPrefix(String(repeating: "x", count: 397) + "…"), "`\\u{20` 是半截，退到反斜線之前")
+        // BMP 以外的 scalar 逃成五位（`%04X`）：`\u{E0001}` 九個字元。R29 第一版只認四個十六進位，`\u{E0001` 這種殘端不退讓。
+        for pad in 0..<12 {
+            let s = String(repeating: "A", count: pad) + String(repeating: "\u{E0001}", count: 70)
+            let body = String(displaySafeClipOnly(s, max: 512).dropLast("…（已截斷）".count))
+            if let open = body.range(of: "\\u{", options: .backwards) { XCTAssertTrue(body[open.upperBound...].contains("}"), "astral 截在中間（pad \(pad)）：\(body.suffix(12))") }
+            XCTAssertFalse(body.hasSuffix("\\"), "pad \(pad)")
+        }
+        for tail in ["\\u{E000", "\\u{E0001", "\\u{10FFF"] {
+            let s = String(repeating: "x", count: 400 - tail.count) + tail + "F}yy"
+            XCTAssertTrue(displaySafeClipOnly(s, max: 400).hasPrefix(String(repeating: "x", count: 400 - tail.count) + "…"), "`\(tail)` 是半截：\(displaySafeClipOnly(s, max: 400).suffix(20))")
+        }
     }
 
     /// 三族各逃一次：自帶消毒的 StoreYAMLError／StoreIOError 只截（`\u{0007}` 一次、無 `\u{005C}`）；Yams 那類原始錯誤在這裡逃一次。

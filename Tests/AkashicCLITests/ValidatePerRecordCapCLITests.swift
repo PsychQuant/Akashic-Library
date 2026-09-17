@@ -44,8 +44,10 @@ final class ValidatePerRecordCapCLITests: XCTestCase {
         let summary = lines.filter { $0.contains(Entry.perRecordCapSummaryPrefix) && $0.contains("acme") }
         XCTAssertEqual(summary.count, 1, r.output)
         XCTAssertTrue(summary.first?.contains("另有 5 個配對未列出") == true, summary.first ?? "")
-        // 被截的配對在這一族裡看不到——這正是本測試要釘住的契約（`w25` 仍會出現在死 verdict 那一族，因為本 fixture 沒建 work；那是另一族的話）
-        XCTAssertFalse(family.contains { $0.contains("work:w25") }, family.description)
+        // 被截的 5 個配對在這一族裡看不到——這正是本測試要釘住的契約。**不綁走訪順序**（R24 verify logic 第 34 列：哪五個被截取決於
+        // references 的序列順序，那不是本測試要釘的東西）：25 個配對裡恰好 20 個具名、5 個不在。
+        let named = Set((1...25).filter { i in family.contains { $0.contains("work:w\(i)，") } })
+        XCTAssertEqual(named.count, Entry.perRecordWarningCap, "具名的配對數＝上限：\(named.sorted())")
         XCTAssertEqual(r.status, 0, "warning 級不改 exit")
     }
 }

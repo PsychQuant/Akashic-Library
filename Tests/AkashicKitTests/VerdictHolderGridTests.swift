@@ -1421,6 +1421,80 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertFalse(msg.contains("全部完全相同"), msg)
     }
 
+    /// D67（R25；R24 verify 第 3／11／16 列三席同指）：D64 的措辭要說出**哪一個維度**不同。分組鍵正規化 literal，所以同一組裡
+    /// value 的拼法可以只差位元組；R24 用整筆 `byteExactKey` 判 sameness，把拼法差異也說成「judgement 或 rests-on 彼此不同」——
+    /// 操作者會去找一個不存在的證據衝突。三種情形各出自己的話，且互不冒充。
+    func testDuplicateVerdictRecordsSayWhichDimensionDiffers() throws {
+        func judged(_ literal: String, _ s: String) -> ProvenanceReference {
+            ProvenanceReference(field: "resolution-rejected",
+                                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "w2020a", literal: literal).encoded,
+                                kind: .judgement(statement: s, restsOn: []))
+        }
+        try org("spell", refs: [judged("beta", "同一句"), judged("BETA", "同一句")])          // 只差拼法
+        try org("judge", refs: [judged("beta", "a"), judged("beta", "b")])                  // 只差 judgement
+        try org("both", refs: [judged("beta", "a"), judged("BETA", "b")])                   // 兩者都差
+        try org("same", refs: [judged("beta", "a"), judged("beta", "a")])                   // 逐位元組相同
+        let health = store.health(from: try store.load())
+        func msg(_ owner: String) -> String { health.duplicateVerdictRecords.first { $0.owner == owner }?.issue.message ?? "<none>" }
+        XCTAssertTrue(msg("spell").contains("拼法只差位元組") && !msg("spell").contains("judgement 或 rests-on"), msg("spell"))
+        XCTAssertTrue(msg("judge").contains("judgement 或 rests-on 彼此不同") && !msg("judge").contains("拼法"), msg("judge"))
+        XCTAssertTrue(msg("both").contains("拼法只差位元組") && msg("both").contains("judgement 或 rests-on 彼此不同"), msg("both"))
+        XCTAssertTrue(msg("same").contains("全部完全相同") && !msg("same").contains("彼此不同"), msg("same"))
+    }
+
+    /// D67 的第二半（R24 verify 第 8／10／18 列）：venue×work×confirmed 的排除只在「每一筆各有自己的拼法」時才成立——那時第 27 列
+    /// 第二類真的報了它。混合組（`Alpha`、`Alpha`、`ALPHA`）裡位元組相同的那一對，第 27 列結構上看不到（它先以位元組去重），
+    /// R24 的排除卻把整組吞掉，三個面都不出聲。
+    func testDuplicateVerdictRecordsStillReportByteIdenticalDuplicatesInsideTheVenueByteVariantClass() throws {
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "w1", literal: "Alpha"),
+                        verdict("resolution-confirmed", kind: .work, holder: "w1", literal: "Alpha"),
+                        verdict("resolution-confirmed", kind: .work, holder: "w1", literal: "ALPHA"),
+                        verdict("resolution-confirmed", kind: .work, holder: "w2", literal: "Beta"),
+                        verdict("resolution-confirmed", kind: .work, holder: "w2", literal: "BETA")]   // 純拼法組：仍由第 27 列報
+        try store.writeVenue(v)
+        let health = store.health(from: try store.load())
+        XCTAssertEqual(health.duplicateVerdictRecords.map { $0.issue.message.contains("work:w1") }, [true],
+                       health.duplicateVerdictRecords.map(\.issue.message).description)
+        XCTAssertTrue(health.duplicateVerdictRecords.first?.issue.message.contains("3 筆判定記錄") == true)
+        XCTAssertEqual(health.confirmedLiteralAmbiguities.count, 2, "第 27 列第二類照報自己的那兩格（w1 的兩種拼法、w2 的兩種拼法）——本族只補它看不到的那一對")
+    }
+
+    /// D68（R25；R24 verify security 第 13 列、DA 第 20 列真 binary：U+200B 原樣進終端）：`StoreHealth` 每一族迴送 store 字串都要走
+    /// `displaySafeInvisible`——`displaySafe` 是列舉，不含 ZWSP／TAG／變體選擇子。三個 sink 都信任生產端不再消毒。
+    func testStoreHealthMessagesEscapeInvisibleScalarsInStoreStrings() throws {
+        let lit = "Fa\u{200B}nn"
+        try org("acme", refs: [verdict("resolution-rejected", kind: .work, holder: "ghost", literal: lit),
+                               verdict("resolution-rejected", kind: .work, holder: "w2020a", literal: lit),
+                               verdict("resolution-rejected", kind: .work, holder: "w2020a", literal: lit)])
+        try entry("w2020a")
+        let health = store.health(from: try store.load())
+        let dead = health.deadVerdicts.first?.issue.message ?? "<none>"
+        let dup = health.duplicateVerdictRecords.first?.issue.message ?? "<none>"
+        for m in [dead, dup] {
+            XCTAssertTrue(m.contains("\\u{200B}"), m)
+            XCTAssertFalse(m.unicodeScalars.contains { $0.value == 0x200B }, "原始 ZWSP 不得進訊息：\(m)")
+        }
+    }
+
+    /// D69（R25；R24 verify 第 9／26／29 列、DA 第 39 列）：`fieldsLostByMerging` 的「倖存者身上已經有這筆 reference」要比位元組——
+    /// canonical `==` 讓被併記錄的 NFD 拼法被判成「已有」，那組位元組隨檔案消失而報告說沒有遺失。D65 自己的 doc 說 `byteExactKey`
+    /// 給的正是「這兩筆可以只留一筆而不丟任何位元組」那個問題。
+    func testMergeLossCheckComparesReferenceBytesNotCanonicalEquivalence() throws {
+        func ref(_ s: String) -> ProvenanceReference {
+            ProvenanceReference(field: "doi", value: "10.1000/x", kind: .judgement(statement: s, restsOn: []))
+        }
+        var keeper = Entry(id: UUID(), citekey: "k2020", type: .periodicalArticle, title: "T"); keeper.references = [ref("\u{00E1}")]
+        var doomed = Entry(id: UUID(), citekey: "d2020", type: .periodicalArticle, title: "T"); doomed.references = [ref("a\u{0301}")]
+        XCTAssertTrue(LibraryStore.fieldsLostByMerging(doomed, into: keeper).contains { $0.hasPrefix("references") },
+                      "NFD 的那筆不在倖存者身上（位元組不同）——要報遺失")
+        var pk = Person(key: "pk", names: ["P"]); pk.references = [ref("\u{00E1}")]
+        var pd = Person(key: "pd", names: ["P"]); pd.references = [ref("a\u{0301}")]
+        XCTAssertTrue(LibraryStore.fieldsLostByMerging(pd, into: pk).contains { $0.hasPrefix("references") })
+        var same = Entry(id: UUID(), citekey: "s2020", type: .periodicalArticle, title: "T"); same.references = [ref("\u{00E1}")]
+        XCTAssertFalse(LibraryStore.fieldsLostByMerging(same, into: keeper).contains { $0.hasPrefix("references") }, "位元組相同的不報")
+    }
+
     /// R21 verify 第 9／11／15 列（DA 真 binary）：rename 的 CLI 出口在 `displaySafeAssembled` 逐行截 400，而 R21 把 rests-on 排在行尾——一個一般長度
     /// 的 judgement 就把 digest 切成半個 sha256（比不印更糟：看起來像一個值、grep 不到）。R22：每筆命中拆成多行——holder／value 一行、judgement 一行、
     /// **每個 digest 自己一行**（71 字，永遠在 400 之內）；本測試把 description 送過與 CLI 相同的 sink 再驗。

@@ -231,6 +231,33 @@ final class VenueServiceTests: XCTestCase {
     ///
     /// 現行規則：value 若在必須是封閉三值（`true`／`false`／`nil`＝撤回）；舊筆（value
     /// 缺席）放行（相容路徑，退場量測寫在 `Provenance.swift`）；判定仍必須是判斷型。
+    /// D69（R25；R24 verify regression 第 29 列）：`paginated` 的冪等閘比位元組——canonical `==` 會把只差 NFC／NFD 的 judgement
+    /// 靜默吞掉、零回報，那是 D65 在寫入面的同一個缺陷。
+    func testPaginatedJudgementsThatDifferOnlyInBytesAreBothKept() throws {
+        _ = try service.addVenue(key: "fp", names: ["Frontiers in Psychology"], type: "periodical", note: nil)
+        let digest = "sha256:" + String(repeating: "ab", count: 32)
+        for stmt in ["\u{00E1} 判定", "a\u{0301} 判定", "\u{00E1} 判定"] {
+            _ = try service.updateVenue(key: "fp", addNames: nil, note: nil, type: nil,
+                                        paginated: false, judgement: stmt, restsOn: [digest])
+        }
+        let stmts = try store.load().venues.first?.references.filter { $0.field == "paginated" }
+            .compactMap { r -> [UInt8]? in if case .judgement(let s, _) = r.kind { return Array(s.utf8) } else { return nil } } ?? []
+        XCTAssertEqual(stmts.count, 2, "NFC 與 NFD 各一筆；逐位元組相同的第三次不寫")
+        XCTAssertEqual(Set(stmts), Set([Array("\u{00E1} 判定".utf8), Array("a\u{0301} 判定".utf8)]))
+    }
+
+    /// R24 verify Codex 第 2 列：`verdictsRetired` 的描述要印 rests-on——兩筆只差證據 digest 的退役判定否則不可區分。
+    /// 這是 R20（`describeCollapsedVerdict`）→ R23（`describeDedupedVerdict`）之後同一族的第三個生產者。
+    func testDescribeRetiredNamesRestsOnDigests() throws {
+        let d1 = "sha256:" + String(repeating: "ab", count: 32), d2 = "sha256:" + String(repeating: "cd", count: 32)
+        func ref(_ ro: [String]) -> ProvenanceReference {
+            ProvenanceReference(field: "resolution-rejected", value: "work:w2020a :: Alpha", kind: .judgement(statement: "同一句", restsOn: ro))
+        }
+        let a = AkashicService.describeRetired(ref([d1]), on: "alpha"), b = AkashicService.describeRetired(ref([d2]), on: "alpha")
+        XCTAssertNotEqual(a, b, "只差 rests-on 的兩筆要分得開")
+        XCTAssertTrue(a.contains("rests-on 1 筆") && a.contains(String(d1.prefix(20))), a)
+    }
+
     func testVenuePaginatedReferenceAttachmentRules() throws {
         _ = try service.addVenue(key: "v9", names: ["V9"], type: "periodical", note: nil)
         var v = try XCTUnwrap(try store.load().venues.first { $0.key == "v9" })

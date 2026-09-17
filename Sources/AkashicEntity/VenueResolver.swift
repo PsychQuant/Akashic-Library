@@ -89,9 +89,11 @@ public enum VenueResolver {
         // 鍵的形狀：holder 與 judgedKey 都是 `StoreKey`（`[a-z0-9][a-z0-9-]*`），`\0` 不在字元集內，所以夾在中間的 literal
         // 即使含 U+0000 也移不動任何分隔點——碰撞不可達（R12 verify DA 第 43 列收窄 security 第 28 列）；與 `verdictEqualityKey`
         // 同一套拼接，刻意不改形狀。
-        var rejectedNorm = Set<String>()
+        // 三段各自一個欄位、不拼接（R25；R24 verify security 第 27 列：`matchingKey` 不剝 Cc，U+0000 分隔可被 literal 內容撞上——
+        // 與 `verdictEqualityKey` 對 malformed 鍵補過的同一道防禦；struct 鍵沒有分隔符可撞）
+        var rejectedNorm = Set<RejectedPairKey>()
         for pairing in rejected where pairing.holderKind == .work {
-            rejectedNorm.insert("\(pairing.holder)\u{0}\(normalize(pairing.literal))\u{0}\(pairing.judgedKey)")
+            rejectedNorm.insert(RejectedPairKey(holder: pairing.holder, literal: normalize(pairing.literal), judged: pairing.judgedKey))
         }
         var candidates: [VenueResolutionCandidate] = []
         var ambiguities: [VenueAmbiguousMatch] = []
@@ -101,7 +103,7 @@ public enum VenueResolver {
                 // 無任何 venue 叫這個名字＝合法長期狀態，不回報（噪音紀律同 person）。
                 guard let keys = aliasMap[normalize(literal)] else { continue }
                 if keys.count == 1, let key = keys.first {
-                    guard !rejectedNorm.contains("\(entry.citekey)\u{0}\(normalize(literal))\u{0}\(key)") else { continue }
+                    guard !rejectedNorm.contains(RejectedPairKey(holder: entry.citekey, literal: normalize(literal), judged: key)) else { continue }
                     candidates.append(VenueResolutionCandidate(
                         citekey: entry.citekey, venueIndex: i, literal: literal,
                         venueKey: key, reason: "venue name 完全命中"))
@@ -137,4 +139,12 @@ public enum VenueResolver {
     static func normalize(_ s: String) -> String {
         NameNormalization.matchingKey(s)
     }
+}
+
+/// 否決抑制的鍵：(holder, 正規化 literal, judged key) 三段各自一個欄位——沒有分隔符可被 literal 內容撞上（R25，R24 verify security 第 27 列）。
+/// `VenueResolver` 與 `PersonResolver` 共用。
+struct RejectedPairKey: Hashable {
+    let holder: String
+    let literal: String
+    let judged: String
 }

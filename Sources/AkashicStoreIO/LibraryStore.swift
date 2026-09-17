@@ -13,7 +13,7 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
     case invalidInput(what: String, why: String)
     /// store 有跨記錄的不一致（重複 UUID / citekey），改寫動作拒絕執行（#35 verify）。
     case inconsistentStore(action: String, issues: [String])
-    /// D60（R21）／D61（R22）：改名的目的鍵上已有 verdict——`lines` 已逐項以 `displaySafeInvisible` 消毒。**每個 digest 自己一行**
+    /// D60（R21）／D61（R22）→ D63（R23）：改名的目的鍵上已有 verdict——`lines` 已逐項以 `displaySafeInvisible` 消毒。**每個 digest 自己一行**
     /// （R21 verify 第 9／11／15 列：CLI 的出口 `displaySafeAssembled` 逐行截 400，R21 把 rests-on 排在行尾、一個一般長度的 judgement 就把
     /// sha256 切成半個——比不印更糟；`inconsistentStore` 則只印前 3 條、每條截 300）；命中至多 20 筆、其餘一句揭露總數（D30 的形，第 7／17／24／28 列）。
     case verdictsAlreadyAtTarget(action: String, key: String, lines: [String])
@@ -1295,7 +1295,7 @@ public struct PersonRenameReport: Equatable {
     /// 「沒掃到」是可以誠實斷言的，「掃過且沒有」不是。
     ///
     /// **新鍵方向另有一道閘，而它用的不是行級比對**（D63，R23）：`assertNoVerdictAlreadyAt` 對每個 quarantined 檔做**位元組**比對，
-    /// needle `<kind>:<newKey>` 不含空白、YAML 折行打不斷它，出現即拒。它能誠實斷言的是「這個檔的位元組裡沒有 `<kind>:<newKey>`」，
+    /// needle `<kind>:<newKey>` 不含空白、本 repo emitter（只在空白處折行）寫出的檔折行打不斷它，出現即拒。它能誠實斷言的是「這個檔的位元組裡沒有 `<kind>:<newKey>`」，
     /// 不是「這個檔沒有指向新鍵的 verdict」（雙引號逃脫仍躲得過——與 merge 隔離檔閘同一個已接受的限制）。R22 的 D61 用 `<kind>:<newKey> ::`
     /// 逐行比對，needle 裡的空白正是 YAML 唯一會折的位置——live store 當時就有 2 筆折在那裡的 value（R22 verify 四席同指）。
     public var quarantinedNotScanned: [String]
@@ -1729,7 +1729,7 @@ extension LibraryStore {
                 newKey)
         }
 
-        // D60／D61：目的鍵上已有 verdict → 具名拒絕、零寫入——三種 holder 與 quarantined 檔都掃，含被改名的那一筆自己。
+        // D60／D63：目的鍵上已有 verdict → 具名拒絕、零寫入——三種 holder 與 quarantined 檔（位元組比對）都掃，含被改名的那一筆自己。
         try assertNoVerdictAlreadyAt(newKey, holderKind: .person, in: load, action: "rename-person")
 
         // 1. 作品側的 authors 邊（封閉列舉第 1 條）
@@ -1933,8 +1933,8 @@ extension LibraryStore {
     /// 把長 value 折在 ` :: ` 之前，live store 2026-09-16 就有 2 筆，DA 真 binary 讓一筆折行的 quarantined verdict 穿過 rename、且三處通知說
     /// 「已擋過」（R22 verify 四席同指第 1／2／3／4 列）。**D63**：改成與 merge 隔離檔閘（`DivergenceResolve` 的 `doomedKeyBytes`）同一種紀律
     /// ——讀原始位元組、不切行、不 decode，needle 是 `<kind>:<newKey>` 的位元組：kind token 是 ASCII 字母、StoreKey 是 `[a-z0-9][a-z0-9-]*`，
-    /// 整段不含空白，折行打不斷它；命中的下一個位元組不得是 StoreKey 字元（`work:new2020a` 不因 `work:new2020a-2` 誤擋）、前一個不得是
-    /// 識別字字元。方向與 merge 閘相同：**可能偽陽性**（那段字面出現在 note 或 judgement 裡也算，多擋一筆），**不可能因折行偽陰性**；
+    /// 整段不含空白，本 repo emitter 的折行（只在空白處）打不斷它；命中的下一個位元組不得是 StoreKey 字元（`work:new2020a` 不因 `work:new2020a-2` 誤擋）、前一個不得是
+    /// 識別字字元。方向與 merge 閘相同：**可能偽陽性**（那段字面出現在 note 或 judgement 裡也算，多擋一筆），**本 repo emitter 寫出的檔不會因折行偽陰性**（手改的雙引號 scalar 用 `\`＋換行續行可以在任意位置切斷 needle——R24 verify security 第 28 列，與下面的逃脫同一類已接受的限制）；
     /// 已接受的限制也相同——雙引號 `\x`／`\u` 逃脫能躲過字面比對。訊息因此只說「位元組裡出現」，不說「含指向新鍵的 verdict」。
     /// 讀不到即 fail-closed（entities 佈局下這一支到不了：更早的 `quarantinedFileClaiming` 對讀不到的檔已先以「佔用」拒絕——R22 verify DA
     /// 第 19 列；留著是 legacy 佈局與縱深防禦）。**quarantined 命中排在已解析的命中之前**：它們是唯一沒有其他面看得到的一類（`validate` 的

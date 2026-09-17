@@ -118,8 +118,9 @@ public struct ProvenanceReference: Equatable {
               let p = VerdictPairingValue.parse(v) else {
             // 回退鍵帶一個合法配對鍵寫不出的前綴（U+0001；合法鍵的第二段以 `VerdictHolderKind.rawValue` 的字母開頭）——
             // 一個字面帶 U+0000 的 malformed value 否則能拼出與合法配對相同的鍵（#554 R14 verify security 第 28 列；
-            // YAML reader 擋得住 U+0000，但鍵的形狀不該靠別處的 reader 撐）
-            return "\(field)\u{0}\u{1}malformed\u{0}\(value ?? "")"
+            // YAML reader 擋得住 U+0000，但鍵的形狀不該靠別處的 reader 撐）。**value 缺席與空字串是兩把鍵**（R25；R24 verify
+            // logic 第 25 列：`byteExactKey` 用 presence tag 分開了，這裡沒跟上——#517 以「value 缺席」表達「查過了、沒有」）。
+            return "\(field)\u{0}\u{1}malformed\u{0}" + (value.map { "\u{1}" + $0 } ?? "\u{2}absent")
         }
         return "\(field)\u{0}\(p.holderKind.rawValue):\(p.holder)\u{0}"
              + NameNormalization.matchingKey(p.literal)
@@ -178,7 +179,11 @@ public struct ProvenanceReference: Equatable {
 
     /// **位元組精確的相等鍵**（#554 R24，D65；R23 verify Codex 第 1 列 HIGH）。
     ///
-    /// 「兩筆 reference 完全相同」在本 repo 的意思是**逐位元組相同**——D62 的 rename 折疊與 D64 的「全部完全相同」都以它為判準，
+    /// 「兩筆 reference 完全相同」在本 repo 的意思是**逐位元組相同**——四個問「兩筆是不是同一筆」的地方都以它為判準（R25 D69 補齊
+    /// 後三個，R24 verify 第 9／26／29 列：R24 只換了前兩個、doc 卻宣稱全 repo）：D62 的 rename 折疊（`migratedVerdicts`）、D64 的
+    /// 「全部完全相同」（`duplicateVerdictRecordIssues`，判 kind 那一半用 `kindByteKey`）、合併的遺失偵測（`fieldsLostByMerging` 的
+    /// person／work 兩份——canonical `==` 曾讓被併記錄的 NFD 拼法被判成「倖存者已有」、隨檔案消失而報告說沒遺失）、`paginated` 寫入面的
+    /// 冪等閘（`updateVenue`——只差 NFC／NFD 的 judgement 曾被靜默吞掉）。
     /// 因為零資訊損失的承諾是對 store 裡的位元組說的，不是對 Unicode 的等價類說的。Swift `String` 的 `==` 與 `hashValue` 走
     /// canonical equivalence（NFC 的 `Sankhyā` 與 NFD 的 `Sankhya\u{0304}` 相等），合成的 `Hashable` 繼承同一語意——R23 用它當
     /// 字典鍵，NFC／NFD 兩筆被折成一筆、其中一種拼法永久消失，而 R16（D42）已經在第二半掃描上修過同一個缺陷（`Set<[UInt8]>`）。
@@ -190,6 +195,14 @@ public struct ProvenanceReference: Equatable {
     public var byteExactKey: [[UInt8]] {
         var parts: [[UInt8]] = [Array(field.utf8)]
         if let v = value { parts.append([1]); parts.append(Array(v.utf8)) } else { parts.append([0]) }
+        return parts + kindByteKey
+    }
+
+    /// `byteExactKey` 的 kind 那一半（tag ＋ payload 逐欄位）——D64 要分開說「literal 拼法只差位元組」與「judgement 或 rests-on
+    /// 彼此不同」（R25 D67；R24 verify 第 3／11／16 列：R24 拿整筆 `byteExactKey` 判 sameness，value 的拼法差異也被說成 judgement 衝突，
+    /// 操作者會去找一個不存在的證據衝突）。與 `byteExactKey` 同一個 switch，不是第二份描述。
+    public var kindByteKey: [[UInt8]] {
+        var parts: [[UInt8]] = []
         switch kind {
         case .retrieval(let url, let retrieved, let status, let mediaType, let content):
             parts.append([0])

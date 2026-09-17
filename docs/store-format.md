@@ -895,9 +895,10 @@ verdict，rename 後全綠）。R22 的 D61 用**行級**文字比對、needle �
 emitter（Yams，libyaml 預設寬度 80）把長 value 折在 ` :: ` 之前，live store 2026-09-16 實測 8,692 筆 verdict value 裡 **2 筆**折在那裡，DA 真 binary
 讓一筆折行的 quarantined verdict 穿過 `rename` 與 `rename-person`、且三處通知說「已擋過」（R22 verify 第 1／2／3／4 列四席同指）。**D63（R23）**：
 改成與 merge 隔離檔閘（`DivergenceResolve` 的 `doomedKeyBytes`）同一種紀律——讀原始位元組、不切行、不 decode，needle 是 `<kind>:<newKey>` 的位元組：
-kind token 是 ASCII 字母、StoreKey 是 `[a-z0-9][a-z0-9-]*`，整段不含空白，折行打不斷它；命中的下一個位元組不得是 StoreKey 字元（`work:new2020a`
-不因 `work:new2020a-2` 誤擋）、前一個不得是識別字字元。方向與 merge 閘相同：可能偽陽性（那段字面出現在 note 裡也算，DA 真 binary 造過）、不可能因
-折行偽陰性；已接受的限制也相同——雙引號 `\x`／`\u` 逃脫能躲過字面比對。所以訊息只說「位元組裡出現」、出路是修好或移走那個檔，**不說**「含指向
+kind token 是 ASCII 字母、StoreKey 是 `[a-z0-9][a-z0-9-]*`，整段不含空白，本 repo emitter（只在空白處折行）寫出的檔折行打不斷它；命中的下一個位元組不得是 StoreKey 字元（`work:new2020a`
+不因 `work:new2020a-2` 誤擋）、前一個不得是識別字字元。方向與 merge 閘相同：可能偽陽性（那段字面出現在 note 裡也算，DA 真 binary 造過）、本 repo emitter 寫出的
+檔不會因折行偽陰性；已接受的限制也相同——雙引號 `\x`／`\u` 逃脫、以及手改雙引號 scalar 的 `\`＋換行續行（可在任意位置切斷 needle，R24 verify
+security 第 28 列）能躲過字面比對。所以訊息只說「位元組裡出現」、出路是修好或移走那個檔，**不說**「含指向
 新鍵的 verdict」——`quarantinedNotScanned` 的 doc 早就寫著「掃過且沒有」不可誠實斷言，R22 的三處通知正是那句話（第 12／16 列）。讀不到即 fail-closed
 （entities 佈局下這一支到不了：更早的 `quarantinedFileClaiming` 對讀不到的檔已先拒——DA 第 19 列）。**訊息的形**：每筆命中
 拆成多行——holder／欄位／value 一行、judgement 一行、每個 digest 自己一行（CLI 的出口 `displaySafeAssembled` 逐行截 400，R21 把 rests-on 排在
@@ -915,10 +916,12 @@ R23 verify Codex 第 1 列；`ProvenanceReference` 自此**刻意不合成 `Hash
 **D64（R23；R22 verify security 第 14 列）**：D62 留下的同鍵（`verdictEqualityKey` 相同）而 judgement 不同的兩筆，在 R22 沒有任何面看得見——
 `contradictoryVerdicts` 只比 confirmed×rejected、第 27 列的第二類以位元組相異分組——而下一次 person／venue 合併會以 #468 的血統層收成一筆並在
 `verdictsCollapsed` 回報；「零資訊損失」只在 rename 那一步為真，它把一筆判定從「rename 當場刪、有回報」換成「留著、看不見、合併時刪」。現在
-`StoreHealth.duplicateVerdictRecords`（warning，guards 第 28 列）報它，doctor／App 各一格；訊息裡「全部完全相同」vs「judgement 或 rests-on 彼此不同」
-自 R24 起以 `byteExactKey` 判（D65 的第二處）；訊息說出三個來源（手改、舊 binary、rename 帶過來）與下游
+`StoreHealth.duplicateVerdictRecords`（warning，guards 第 28 列）報它，doctor／App 各一格；訊息自 R25（D67）起分三向——「全部完全相同」／「literal 拼法只差位元組」／「judgement 或 rests-on 彼此不同」，
+kind 那一半以 `kindByteKey` 判、拼法以 literal 的 UTF-8 判（R24 verify 第 3／11／16 列：R24 拿整筆 `byteExactKey` 判，把拼法差異也說成
+judgement 衝突）；venue×work×confirmed 的排除只在**每筆各有自己拼法**時成立、混合組裡位元組相同的那對照報（第 8／10／18 列：第 27 列以位元組
+去重、看不到那對），且家族計數不含被排除那一格——accessor doc 與 doctor 描述寫明；訊息說出三個來源（手改、舊 binary、rename 帶過來）與下游
 （合併會收攏）；第 27 列第二類已報的那一格（venue×work 的 confirmed、只差位元組）不重報，每筆記錄至多 `Entry.perRecordWarningCap` 則。merge 與 rename 的折疊規則自此明寫是**兩條**而不是「同一條不變式在兩條路徑上各自執行」（第 8／11 列）：merge 以 `verdictEqualityKey`
-分組、`collapseWinner` 選一筆，rename 只折整筆相等的（`Hashable` 字典，O(N)——R22 的 `bytes == && ref ==` 是死條件，第 21／24 列）。
+分組、`collapseWinner` 選一筆，rename 只折整筆相等的（`byteExactKey` 字典、`[[UInt8]]` 為鍵，O(N)——R23 曾以合成 `Hashable` 字典、canonical 相等，R24 D65 改；R22 的 `bytes == && ref ==` 是死條件，第 21／24 列）。
 **誠實邊界**：拼法不同的被改寫 verdict 都留——第 27 列的第二半只掃 venue×work，其餘六格（person／organization 持 work、三種 holder 持 person）
 既沒有掃描面也沒有揭露面，rename 不替它們判定，也不假裝那一格「應恆為 0」（R19 verify requirements 第 4 列）。
 **代價寫出來**（R17 verify regression 第 9 列）：留強丟弱時弱血統那筆的 `rule` 尾註從 store 消失，它的消費端不只收攏列——之後每一次提名的

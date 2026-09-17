@@ -249,9 +249,9 @@ public enum PersonResolver {
         // 否決比對用**與提名同一套正規化**（R1-fix I1）：verdict 記原始字串
         // （lossless），但抑制若比原始位元組，EN DASH 變體的否決壓不住 ASCII 連字號
         // 的同一寫法——否決失效而確認生效的不對稱，方向正好是危險的那邊。
-        var rejectedNorm = Set<String>()
+        var rejectedNorm = Set<RejectedPairKey>()   // struct 鍵、無分隔符（R25，R24 verify security 第 27 列；`|` 可出現在 literal 裡）
         for pairing in rejected where pairing.holderKind == .work {
-            rejectedNorm.insert("\(pairing.holder)|\(normalize(pairing.literal))|\(pairing.judgedKey)")
+            rejectedNorm.insert(RejectedPairKey(holder: pairing.holder, literal: normalize(pairing.literal), judged: pairing.judgedKey))
         }
 
         var candidates: [ResolutionCandidate] = []
@@ -287,7 +287,7 @@ public enum PersonResolver {
                 var eliminated = Set<String>()
                 for (tier, rawHits, baseReason) in tiers {
                     let hits = rawHits.filter { key in
-                        !rejectedNorm.contains("\(entry.citekey)|\(norm)|\(key)")
+                        !rejectedNorm.contains(RejectedPairKey(holder: entry.citekey, literal: norm, judged: key))
                     }
                     eliminated.formUnion(rawHits.subtracting(hits))
                     guard !hits.isEmpty else { continue }

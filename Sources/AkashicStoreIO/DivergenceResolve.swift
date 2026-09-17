@@ -1000,12 +1000,6 @@ extension LibraryStore {
                                   record: survivor, survivor: survivor, literalUniqueness: literalUniqueness)
     }
 
-    /// 遷移用的去重鍵——與 `supersede`／#486 同一把（#554 R12，R11 verify DA 第 1 列：R11 之前這裡比位元組，而 store 其餘每個
-    /// 寫入者與唯一的讀端掃描都用正規形；「(field, value) 冪等」那句只在位元組層為真）。
-    static func verdictKeys(_ refs: [ProvenanceReference]) -> Set<String> {
-        Set(refs.map { ProvenanceReference.verdictEqualityKey(field: $0.field, value: $0.value) })
-    }
-    /// 同一把鍵 → 首見的那筆（收攏時要印「留下的拼法」，R17 D47）。
     /// 合併前「哪些配對是活的」——一筆 verdict `<kind>:<key> :: literal` 掛在記錄 R 上，配對活著 ＝ 那個 holder 實體對 R 真的有一條邊
     /// （work 的 `venues`／`authors`，person 的 `affiliations`）。**R18（Claude 代裁 D51；R17 verify Codex 第 1 列 HIGH、logic 第 6 列）：
     /// 倖存配對 ≠ 倖存邊**——keeper 對某 work 持有的 confirmed 可能沒有邊（手改、舊 binary、D38 具名的那種輸入），而被併記錄的那筆才是那條
@@ -1067,7 +1061,7 @@ extension LibraryStore {
     /// **收攏留哪一筆**（R18，D51；R17 verify Codex 第 1 列 HIGH、logic 第 6 列、regression 第 8 列）。三條收攏路徑都經這裡，但
     /// **候選集合不同**（R20；R19 verify requirements 第 1 列、logic 第 6 列：R18／R19 寫「三條路徑同一個勝者函式」而 rename 內聯了
     /// 自己的政策）：keeper 合併與 holder 遷移把同鍵的全部候選送進來；**rename 自 R22 起不經這裡**——它只折完全相同（含 judgement 與 rests-on）
-    /// 的重複（D62），拼法不同或 judgement 不同的都留、早已指向新鍵的在改名前就具名拒絕（D60／D61）。R20／R21 曾讓 rename 把同拼法的送進來，
+    /// 的重複（D62），拼法不同或 judgement 不同的都留、早已指向新鍵的在改名前就具名拒絕（D60／D63）。R20／R21 曾讓 rename 把同拼法的送進來，
     /// 那會丟掉 judgement 不同的那一筆（R21 verify DA 第 14 列）。
     /// 回傳勝者在 `cands` 裡的索引。四層，前三層**只在候選的拼法位元組不同時**才縮小集合（同拼法時留哪一筆都不動任何字串，
     /// 那時只有 #468 的血統警告值得保）：
@@ -1155,10 +1149,6 @@ extension LibraryStore {
             migrated.append(w.ref.value ?? "")
         }
         return (out, migrated, collapsed)
-    }
-
-    static func verdictsByKey(_ refs: [ProvenanceReference]) -> [String: ProvenanceReference] {
-        Dictionary(refs.map { (ProvenanceReference.verdictEqualityKey(field: $0.field, value: $0.value), $0) }, uniquingKeysWith: { a, _ in a })
     }
 
     /// work 側的 shape 專屬拒絕條件（#139 verify F1，與 person 側對稱）。
@@ -1595,9 +1585,10 @@ extension LibraryStore {
         if case .judgement(let statement, let restsOn) = r.kind { line += "（\(clipScalars(statement, 200))\(restsOnNote(restsOn))）" }   // display-safe-exempt: 同上
         return line + spellingNote(dropped: r, kept: kept)   // display-safe-exempt: 同上（R17，D47：位元組不同時印留下的拼法）
     }
-    /// 被丟判定所依的 digest：數量與前三筆、每筆截 80（R20；R19 verify security 第 22 列）。`describeCollapsedVerdict` 與
-    /// `describeDedupedVerdict` 共用——兩個生產者一份揭露（R22 verify Codex 第 6 列）。沒有 digest 回空字串。
-    static func restsOnNote(_ restsOn: [String]) -> String {
+    /// 被丟判定所依的 digest：數量與前三筆、每筆截 80（R20；R19 verify security 第 22 列）。`describeCollapsedVerdict`、
+    /// `describeDedupedVerdict` 與 `AkashicService.describeRetired` 共用——三個生產者一份揭露（R22 verify Codex 第 6 列；R24 verify
+    /// Codex 第 2 列：R20→R23 兩輪各補一個看得見的生產者，`verdictsRetired` 是第三個）。沒有 digest 回空字串。
+    public static func restsOnNote(_ restsOn: [String]) -> String {
         restsOn.isEmpty ? "" : "（rests-on \(restsOn.count) 筆：\(restsOn.prefix(3).map { clipScalars($0, 80) }.joined(separator: "、"))\(restsOn.count > 3 ? "…" : "")）"
     }
     /// 以 scalar 計的截斷（不逃脫——逃脫在 sink，`displaySafe` 不冪等）。
@@ -2474,8 +2465,11 @@ extension LibraryStore {
         // :: literal），不屬於任何 record collection（#232 規格明文），搬到倖存者不會
         // 產生孤兒；person merge 會自動遷移（見 resolvePersonDivergence）。上面那段
         // 「搬過去可能指到倖存者沒有的值」的理由只對 field references 成立，維持不動。
+        // 「倖存者身上已經有這筆」比**位元組**（`byteExactKey`，R25 D69；R24 verify 第 9／26／29 列）：canonical `==` 把被併記錄的
+        // NFD 拼法判成「已有」，那組位元組隨檔案消失而報告說沒有遺失——D65 在 rename 折疊上修掉的同一個缺陷。
+        let keeperBytes = Set(keeper.references.map(\.byteExactKey))
         let lostRefs = p.references.filter {
-            !keeper.references.contains($0)
+            !keeperBytes.contains($0.byteExactKey)
                 && !ProvenanceReference.resolutionVerdictFields.contains($0.field)
         }
         if !lostRefs.isEmpty {
@@ -2608,7 +2602,8 @@ extension LibraryStore {
         //
         // 這正是 provenance-reference spec 那句「不能攜帶 reference 的識別碼不算
         // 記錄的一等公民」在合併面的對偶：能攜帶但在合併時被靜默丟掉，等於沒有。
-        let lostRefs = e.references.filter { !keeper.references.contains($0) }
+        let keeperBytes = Set(keeper.references.map(\.byteExactKey))   // 位元組相等（R25 D69）——與 person 側同一個理由
+        let lostRefs = e.references.filter { !keeperBytes.contains($0.byteExactKey) }
         if !lostRefs.isEmpty {
             losses.append("references: " + lostRefs.map {
                 "\($0.field)" + ($0.value.map { v in "（\(displaySafe(v, max: 80))）" } ?? "")

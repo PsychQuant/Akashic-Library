@@ -101,6 +101,9 @@ public struct StoreHealth {
     /// 第 14 列：「零資訊損失」只在 rename 那一步為真，而它之後沒有任何面看得見。
     public static let duplicateVerdictRecordPrefix = "重複的判定記錄"
     /// `perRecordIssues` 裡的重複判定記錄（D64）。計算屬性，與 `deadVerdicts` 同一個理由。
+    /// **不含**一格：venue×work 的 confirmed、且組裡每筆各有自己拼法的組——那格由 `confirmedLiteralAmbiguities`（第 27 列第二類）報，
+    /// 同一件事不出兩則；組裡有位元組相同的重複時（混合組）本族照報（R25 D67；R24 verify 第 8／10／18 列：R24 的排除把混合組整組吞掉，
+    /// 而第 27 列以位元組去重、結構上看不到位元組相同的那對——三個面都不出聲；且家族計數對 25 個純拼法組回 0 而沒有任何線索說那是排除後的 0）。
     public var duplicateVerdictRecords: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.duplicateVerdictRecordPrefix) }
     }
@@ -142,11 +145,14 @@ public struct StoreHealth {
     /// #554 配對唯一性的兩半（R11 D28、R14 D36／R15 D39）：per-record warning 住在 `Entry.validate()`／`Venue.validate()`，
     /// 前綴的**單一定義在 Core**（訊息在那裡組出），這裡只引用——同 `deadVerdictPrefix` 的形，家族才有計數
     /// （R14 verify regression 第 22 列：兩族沒有家族，doctor 截 20 則、App 預覽 5 則時可能完全看不到，
-    /// `zero-instance-guards` 第 26／27 列宣稱的「掃得到」只對 CLI validate 成立）。
+    /// `zero-instance-guards` 第 26／27 列宣稱的「掃得到」在 CLI validate 也只到每筆記錄 20 則——這兩族正是有 per-record 上限的，R25 D70）。
     /// **家族計數是下限**（R16；R15 verify 第 29 列）：每筆記錄至多 `Entry.perRecordWarningCap` 則進家族，其餘由一句概括
     /// （`Entry.perRecordCapSummaryPrefix`，**不在**任何家族裡）收尾——被截的記錄上，家族計數 ＝ min(受影響數, 上限)，
     /// 不是受影響數。**CLI `validate` 也拿不到被截的那幾則**（R24 D66；R23 verify Codex 第 2 列）：上限在本函式產生訊息時就生效，
-    /// CLI 只是不再加一層面級的 20 則截斷——被截的記錄在三個面都只有概括句，要全部只能讀 YAML。**被截的記錄數自己是一族**（`cappedRecords`，R18 D54；R17 verify Codex 第 2 列：
+    /// CLI 只是不再加一層面級的 20 則截斷——被截的記錄在三個面都只有概括句，要全部只能讀 YAML（出口另案 #581）。**上限只在五族**（R25 D70；
+    /// R24 verify 第 12／14／37 列：R24 寫「每筆記錄每族」，對五族以外為假）：名字內容、近重複、重複 venue 邊、confirmed literal、重複判定記錄
+    /// ——它們的則數是每筆記錄的**組合**（配對／組）；死 verdict、矛盾 verdict、本機缺存檔、拆分／移除記錄的則數與記錄數**線性**、每筆至多
+    /// 一則，沒有上限。**被截的記錄數自己是一族**（`cappedRecords`，R18 D54；R17 verify Codex 第 2 列：
     /// doctor 的描述與註解說「各族計數永遠完整」、與這一段互相矛盾，而 MCP 描述是呼叫端唯一看得到的契約）——三面都說得出「還有幾筆被截」。
     /// **以 (kind, owner) 計，不是概括句的行數**（R19 D56；R18 verify Codex 第 2 列：一筆 venue 可以同時出名字近重複與 confirmed-literal 兩句概括，
     /// R18 數行數就把「被截的記錄」多報一筆）——每筆記錄只留首見那一句，`count` 才真的是「幾筆記錄被截」。**留下的那一句是任意的**
@@ -377,11 +383,11 @@ public extension LibraryStore {
                       let p = ProvenanceReference.VerdictPairingValue.parse(v),
                       !loaded(p) else { return nil }
                 let target = "\(p.holderKind.rawValue):\(displaySafe(p.holder, max: 120))"
-                let literal = displaySafe(p.literal, max: 120)
+                let literal = displaySafeInvisible(p.literal, max: 120)   // R25 D68：store 字串走性質式逃脫（R24 verify security 第 13 列、DA 第 20 列真 binary：U+200B 原樣進終端）
                 let message: String
                 if let file = quarantinedFile(p) {
                     message = "\(StoreHealth.deadVerdictPrefix)（暫定）：\(r.field) 的 holder \(target) 未載入——它的檔 "
-                            + "\(displaySafe(file, max: 200)) 被 quarantine。先修那個檔，修好後這條會消失"
+                            + "\(displaySafeInvisible(file, max: 200)) 被 quarantine。先修那個檔，修好後這條會消失"
                             + "（literal「\(literal)」）"
                 } else {
                     message = "\(StoreHealth.deadVerdictPrefix)：\(r.field) 的 holder \(target) 不在載入集合，且沒有任何檔宣稱它。"
@@ -442,7 +448,7 @@ public extension LibraryStore {
                                    + "\(e.fields.sorted().joined(separator: " 與 ")) 對同一個配對並存"
                                    + "（\(e.pairing.holderKind.rawValue):"
                                    + "\(displaySafe(e.pairing.holder, max: 120))"
-                                   + "，literal「\(displaySafe(e.pairing.literal, max: 120))」）。"
+                                   + "，literal「\(displaySafeInvisible(e.pairing.literal, max: 120))」）。"
                                    + "處置：這是判定自相矛盾不是資料壞掉——決定哪一個才對，刪掉另一個"))
                 }
         }
@@ -465,30 +471,46 @@ public extension LibraryStore {
     /// **2026-09-16 實測 live store：0 筆**（量法見 `zero-instance-guards` 第 28 列）。
     func duplicateVerdictRecordIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
         func scan(_ refs: [ProvenanceReference], owner: String, kind: String) -> [StoreHealth.OwnedIssue] {
+            // kinds 以 `kindByteKey` 計、spellings 以 literal 的 UTF-8 計（D65／R25 D67）——兩個維度分開，訊息才說得出是哪一個不同。
             var byKey: [String: (first: ProvenanceReference, pairing: ProvenanceReference.VerdictPairingValue, count: Int,
-                                 kinds: Set<[[UInt8]]>, spellings: Set<[UInt8]>)] = [:]   // kinds 以 byteExactKey 計（D65）：「全部完全相同」是位元組層的話
+                                 kinds: Set<[[UInt8]]>, spellings: Set<[UInt8]>)] = [:]
             var order: [String] = []
             for r in refs {
                 guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
                       let v = r.value,
                       let p = ProvenanceReference.VerdictPairingValue.parse(v) else { continue }
                 let k = ProvenanceReference.verdictEqualityKey(field: r.field, value: v)
-                if var e = byKey[k] { e.count += 1; e.kinds.insert(r.byteExactKey); e.spellings.insert(Array(p.literal.utf8)); byKey[k] = e }
-                else { byKey[k] = (r, p, 1, [r.byteExactKey], [Array(p.literal.utf8)]); order.append(k) }
+                // 原位修改（`subscript(_:default:)` 與 `!` 都走 `_modify`）：R24 先取出再放回，字典裡的舊值還在、每次 insert 都觸發
+                // 兩個 Set 的 copy-on-write，同鍵 N 筆退化成 O(N²)（R24 verify Codex 第 1 列）。
+                byKey[k, default: (r, p, 0, [], [])].count += 1
+                byKey[k]!.kinds.insert(r.kindByteKey)
+                byKey[k]!.spellings.insert(Array(p.literal.utf8))
+                if byKey[k]!.count == 1 { order.append(k) }
             }
-            // 第 27 列的第二類（`Venue.validate()`：venue×work 的 confirmed、只差位元組）已經報的那一格**不重報**——同一件事出兩則是雜訊不是訊號；
+            // 第 27 列的第二類（`Venue.validate()`：venue×work 的 confirmed、只差位元組）已經報的那一格**不重報**——同一件事出兩則是雜訊不是訊號。
+            // 但它以位元組去重、結構上看不到「同一拼法出現兩次」，所以只有**每筆各有自己拼法**的組才交給它（R25 D67；R24 verify 第 8／10／18 列：
+            // R24 的 `spellings.count > 1` 把 `Alpha`／`Alpha`／`ALPHA` 這種混合組整組吞掉，位元組相同的那對三個面都不出聲）。
             // 這一族報的是它認不得的：位元組相同的重複、rejected 的重複、person 配對的重複、person／organization 持有的重複。
             let issues = order.compactMap { k -> StoreHealth.OwnedIssue? in
                 guard let e = byKey[k], e.count > 1 else { return nil }
-                if kind == "venue", e.pairing.holderKind == .work, e.first.field == "resolution-confirmed", e.spellings.count > 1 { return nil }
-                let sameness = e.kinds.count == 1 ? "全部完全相同" : "judgement 或 rests-on 彼此不同"
+                if kind == "venue", e.pairing.holderKind == .work, e.first.field == "resolution-confirmed",
+                   e.spellings.count > 1, e.spellings.count == e.count { return nil }
+                // 三向措辭（D67）：分組鍵正規化 literal，所以同一組裡 value 可以只差位元組；R24 用整筆 `byteExactKey` 判，把拼法差異也說成
+                // 「judgement 或 rests-on 彼此不同」——處置方向因此指錯（該統一拼法，卻叫人去找證據衝突）。
+                let sameness: String
+                switch (e.spellings.count > 1, e.kinds.count > 1) {
+                case (false, false): sameness = "全部完全相同"
+                case (true, false):  sameness = "literal 拼法只差位元組（\(e.spellings.count) 種）、judgement 與 rests-on 相同——統一拼法即可"
+                case (false, true):  sameness = "judgement 或 rests-on 彼此不同"
+                case (true, true):   sameness = "literal 拼法只差位元組（\(e.spellings.count) 種）且 judgement 或 rests-on 彼此不同"
+                }
                 return StoreHealth.OwnedIssue(
                     owner: owner, kind: kind,
                     issue: ValidationIssue(
                         severity: .warning,
                         message: "\(StoreHealth.duplicateVerdictRecordPrefix)：\(e.first.field) 對同一個配對有 \(e.count) 筆判定記錄"   // display-safe-exempt: 前綴是常量；field 是封閉對；Int
                                + "（\(e.pairing.holderKind.rawValue):\(displaySafe(e.pairing.holder, max: 120))"
-                               + "，literal「\(displaySafe(e.pairing.literal, max: 120))」；\(sameness)）"   // display-safe-exempt: sameness 是兩句字面常量
+                               + "，literal「\(displaySafeInvisible(e.pairing.literal, max: 120))」；\(sameness)）"   // display-safe-exempt: sameness 是四句字面常量＋Int
                                + "——工具面的寫入以 verdictEqualityKey 去重、寫不出它：是手改、舊 binary 寫的，或由 rename 從舊鍵原樣帶過來（D62 不刪）；"
                                + "下一次 person／venue 合併會以 #468 的血統層收成一筆並在 verdictsCollapsed 回報。處置：留一筆，或把其中一筆的 value 改成它實際描述的記錄的鍵"))
             }
@@ -528,8 +550,8 @@ public extension LibraryStore {
     /// `auditSourceIndex` 的 `unreadableShards` 在報的事。
     func danglingSourceIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
         missingSourceDigests(load).holders.map { h in
-            let head = "\(StoreHealth.danglingSourcePrefix)：\(displaySafe(h.slot, max: 80)) 指向 "
-                + "\(displaySafe(h.digest, max: 80))——"
+            let head = "\(StoreHealth.danglingSourcePrefix)：\(displaySafeInvisible(h.slot, max: 80)) 指向 "
+                + "\(displaySafeInvisible(h.digest, max: 80))——"
             let message: String
             if h.wellFormed {
                 message = head + "本機 sources/ 找不到這份存檔。sources/ 不進 git，其他 clone 上的數字會不同；"
@@ -605,8 +627,8 @@ public extension LibraryStore {
                 if case .literal(let s) = a { return s } else { return nil }
             })
             for r in e.authorRemovalRecords where present.contains(r.removed) {
-                let message = "\(StoreHealth.contradictedRemovalPrefix)：「\(displaySafe(r.removed, max: 120))」"
-                            + "有一筆移除記錄（理由：\(displaySafe(r.record.reason, max: 120))），"
+                let message = "\(StoreHealth.contradictedRemovalPrefix)：「\(displaySafeInvisible(r.removed, max: 120))」"
+                            + "有一筆移除記錄（理由：\(displaySafeInvisible(r.record.reason, max: 120))），"
                             + "而它現在又是本 work 的作者位。處置：確認是不是被補值面重新加回來的"
                             + "（enrich --include-absent-authors 只在 authors 完全為空時補，而移除之後正好是空的）；"
                             + "要嘛再移除一次，要嘛刪掉那筆記錄——留著等於 store 同時說兩件相反的事"
@@ -623,8 +645,8 @@ public extension LibraryStore {
             for s in records {
                 retiredByWork[e.citekey, default: []].insert(s.retired)
                 guard !s.record.parts.contains(where: { present.contains($0) }) else { continue }
-                let parts = s.record.parts.map { "⟦\(displaySafe($0, max: 80))⟧" }.joined(separator: " ")
-                let message = "\(StoreHealth.staleSplitRecordPrefix)：「\(displaySafe(s.retired, max: 120))」拆為 \(parts)，"
+                let parts = s.record.parts.map { "⟦\(displaySafeInvisible($0, max: 80))⟧" }.joined(separator: " ")
+                let message = "\(StoreHealth.staleSplitRecordPrefix)：「\(displaySafeInvisible(s.retired, max: 120))」拆為 \(parts)，"
                             + "但沒有任何一段仍是本 work 的作者位（含已升格 .key 的 confirmed literal）。"
                             + "處置：確認作者位是否被改寫；記錄保留供 un-split 參考，不要刪"
                 out.append(StoreHealth.OwnedIssue(owner: e.citekey, kind: "entry",
@@ -640,7 +662,7 @@ public extension LibraryStore {
                       pv.holderKind == .work,
                       retiredByWork[pv.holder]?.contains(pv.literal) == true else { return nil }
                 let message = "\(StoreHealth.orphanedSplitVerdictPrefix)：\(r.field) 指向 work:\(displaySafe(pv.holder, max: 120)) 的 "
-                            + "literal「\(displaySafe(pv.literal, max: 120))」，而該 work 已把它拆分（拆分記錄在 work 側 references）"
+                            + "literal「\(displaySafeInvisible(pv.literal, max: 120))」，而該 work 已把它拆分（拆分記錄在 work 側 references）"
                             + "——這條 verdict 判的作者位已退役。處置：對拆出的各段重新消歧，然後更新或刪掉這筆 verdict"
                 return StoreHealth.OwnedIssue(owner: owner, kind: kind,
                                               issue: ValidationIssue(severity: .warning, message: message))

@@ -102,4 +102,13 @@ final class VerdictEqualityTests: XCTestCase {
                       "verdict 的相等鍵只能有一份定義（#470），這些是手寫的第二份：\n"
                       + offenders.joined(separator: "\n"))
     }
+
+    /// R24 verify logic 第 25 列：回退鍵要分得出「value 缺席」與「value 是空字串」——`byteExactKey` 用 presence tag 做對了，舊鍵沒跟上。
+    /// #517 的 retrieval 記錄以「value 缺席」表達「查過了、沒有」，兩者對 `appendIfAbsent` 不得是同一筆。
+    func testMalformedFallbackKeyDistinguishesAbsentFromEmptyValue() {
+        XCTAssertNotEqual(ProvenanceReference.verdictEqualityKey(field: "fields.abstract", value: nil),
+                          ProvenanceReference.verdictEqualityKey(field: "fields.abstract", value: ""))
+        XCTAssertEqual(ProvenanceReference.verdictEqualityKey(field: "fields.abstract", value: ""),
+                       ProvenanceReference.verdictEqualityKey(field: "fields.abstract", value: ""))
+    }
 }

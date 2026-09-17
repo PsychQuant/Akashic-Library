@@ -2912,7 +2912,8 @@ public final class AkashicService {
                 url: nil, retrieved: nil, status: nil, mediaType: nil, content: nil,
                 judgement: trimmed, restsOn: restsOn ?? [])
             venue.paginated = nil
-            if !venue.references.contains(ref) { venue.references.append(ref) }
+            // 冪等閘比位元組（R25 D69；R24 verify regression 第 29 列：canonical `==` 把只差 NFC／NFD 的 judgement 靜默吞掉、零回報）
+            if !venue.references.contains(where: { $0.byteExactKey == ref.byteExactKey }) { venue.references.append(ref) }
         } else if let paginated {
             // trim 一次、驗證與儲存用同一個值（R1 verify：先前驗 trimmed、存原文——
             // 兩個版本的 statement 會讓「同判定重打」的冪等比對失準）。
@@ -2933,7 +2934,7 @@ public final class AkashicService {
             // 冪等以**完整** (field, value, kind) 相等判（`Equatable`）——
             // `ResolutionLedger.appendIfAbsent` 的判準對 value 恆 nil 的純量欄位太粗，
             // 會把「翻轉判定」（statement 不同）誤當重複而吞掉史（實測抓到）。
-            if !venue.references.contains(ref) { venue.references.append(ref) }
+            if !venue.references.contains(where: { $0.byteExactKey == ref.byteExactKey }) { venue.references.append(ref) }   // 位元組相等（R25 D69）
         } else if judgement != nil || restsOn != nil {
             throw ServiceError.invalid(
                 "judgement／rests_on 只伴隨 paginated 或 clear_paginated 使用"
@@ -4127,7 +4128,11 @@ public final class AkashicService {
     /// 讓「從未判定」與「判過、被這次刪了」分得開（R9 verify security 第 4 列）。
     static func describeRetired(_ r: ProvenanceReference, on venueKey: String) -> String {
         var s = "venue:\(displaySafe(venueKey, max: 120)) \(r.field) \(displaySafe(r.value ?? "", max: 200))"   // display-safe-exempt: field 是封閉列舉的欄位名
-        if case .judgement(let statement, _) = r.kind { s += "（\(displaySafe(statement, max: 200))）" }
+        if case .judgement(let statement, let restsOn) = r.kind {
+            // rests-on 也印（R25；R24 verify Codex 第 2 列：只差證據 digest 的兩筆退役判定曾不可區分——`describeCollapsedVerdict`／
+            // `describeDedupedVerdict` 早就印，這是同一族的第三個生產者）
+            s += "（\(displaySafe(statement, max: 200))\(LibraryStore.restsOnNote(restsOn))）"
+        }
         // `verdictsRetired` 迴送的是 store 字串（verdict 的 value 是原始匯入的刊名、statement 是判定文字）——這條路徑上第一個帶
         // store 字串的**成功** payload（R11 verify security 第 10 列）；性質式逃脫住在 AkashicCore（`escapingInvisibleScalars`，
         // R13：與名字不變式的訊息、合併的拒絕訊息共用，R12 verify 第 14 列），是 #569 的局部圍堵不是它的裁決。

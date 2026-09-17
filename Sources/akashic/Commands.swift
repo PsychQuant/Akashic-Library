@@ -196,7 +196,9 @@ struct Validate: ParsableCommand {
         //
         // 現在邏輯在 `LibraryStore.health(from:)`，三個面各自渲染
         // （`entity-backlink-completeness` 執行細節 2：一個讀取面只能有一條實作路徑）。
-        // CLI 這一面的特徵是**逐行、無截斷**；MCP 面截斷 20 則並送 count 當分母。
+        // CLI 這一面的特徵是**不加面級截斷**（MCP 面截 20 則並送 count 當分母）——但 per-record 的上限（`Entry.perRecordWarningCap`）
+        // 住在 `validate()`／`StoreHealth` 產生訊息的那一步，三個面共有：一筆記錄超過上限時這裡也只印前 20 則加一句概括
+        // （R24 D66；R23 verify Codex 第 2 列：R14–R23 之後「逐行、無截斷」為假；`ValidatePerRecordCapCLITests` 釘住實際契約）。
         //
         // `load.organizations` / `organization.validate()` / `load.divergences` 這些
         // 走訪**沒有消失**，只是搬到 `health(from:)` 裡——`AuthorizedNameTests` 的

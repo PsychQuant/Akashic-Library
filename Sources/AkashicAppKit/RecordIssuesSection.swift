@@ -11,7 +11,7 @@ import AkashicStoreIO
 /// 這件事，App 面到 R19 才說；`RecordIssuesSummaryTests` 以反射取名冊、以源碼掃描釘住每個計數都在 `value:` 的位置經過它。
 ///
 /// 窄輸入：只收 `RecordIssuesSummary`（值型別、幾個整數一個字串——列數見 `RecordIssuesSummary`，這裡刻意不複述），`AppState` 的其他變化不會讓本 view 失效
-/// （`swiftui-specialist`：pass views only the data they read）。完整逐行仍是 CLI `validate` 的職責。
+/// （`swiftui-specialist`：pass views only the data they read）。逐則列出仍是 CLI `validate` 的職責——但 per-record 上限三面共有（R24 D66）。
 struct RecordIssuesSection: View {
     let summary: RecordIssuesSummary
 
@@ -74,7 +74,8 @@ struct RecordIssuesSection: View {
             if summary.cappedRecords > 0 {
                 LabeledContent("被截的記錄", value: "\(summary.cappedRecords)")
                     .help("有 \(summary.cappedRecords) 筆記錄的 per-record 問題超過每筆 \(Entry.perRecordWarningCap) 則的上限（#554 R18 D54）——"
-                          + "上方的計數一律以下限呈現（≥；未必每一族都受影響）。完整逐行：akashic validate")
+                          + "上方的計數一律以下限呈現（≥；未必每一族都受影響）。這個上限在 validate() 裡、CLI 同樣受它："
+                          + "akashic validate 逐則列出前 \(Entry.perRecordWarningCap) 則加一句概括，被截的那幾則只能讀 YAML（R24 D66）")
             }
         }
     }

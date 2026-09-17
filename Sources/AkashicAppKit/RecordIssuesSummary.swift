@@ -35,7 +35,8 @@ struct RecordIssuesSummary: Equatable {
     let confirmedLiteralAmbiguities: Int
     /// 被截的記錄數（R18 D54；以記錄計，R19 D56）——家族計數是下限（每筆記錄至多 20 則），這個數字說「還有」。
     let cappedRecords: Int
-    /// `.help` 用：前幾則訊息（`displaySafe`，每則截斷），加一句「完整逐行看 CLI validate」。
+    /// `.help` 用：前幾則訊息（`displaySafe`，每則截斷），加一句指向 CLI validate——它不加這裡的預覽截斷，但 per-record 的上限
+    /// 三面共有（R24 D66），所以不寫「完整」。
     let help: String
 
     /// 計數的呈現（R19 D57、R20 D59；R18 verify Codex 第 3 列：`cappedRecords` 到得了這裡卻沒有任何 View 消費它，側欄的家族計數仍是裸數字）：
@@ -66,6 +67,6 @@ struct RecordIssuesSummary: Equatable {
             "\($0.issue.severity == .error ? "✗" : "⚠") \($0.kind) \(displaySafe($0.owner, max: 80))：\(displaySafeClipOnly($0.issue.message, max: 300))"   // display-safe-exempt: 只截不逃（具名函式，R17），理由見上
         }
         let more = issues.count > previewLimit ? "\n…另 \(issues.count - previewLimit) 則" : ""
-        help = preview.joined(separator: "\n") + more + "\n完整逐行：akashic validate"
+        help = preview.joined(separator: "\n") + more + "\n逐則列出（每筆記錄每族至多 \(Entry.perRecordWarningCap) 則，三面同）：akashic validate"
     }
 }

@@ -20,7 +20,7 @@ public protocol ProvenanceCarrying {
     var references: [ProvenanceReference] { get set }
 }
 
-public struct ProvenanceReference: Equatable, Hashable {
+public struct ProvenanceReference: Equatable {
 
     /// #232：resolution verdict 欄位的**封閉對**——僅此二值，不得類推第三個。
     /// init 的空 restsOn 例外、person／organization 的 validateReferenceAttachment、
@@ -159,7 +159,7 @@ public struct ProvenanceReference: Equatable, Hashable {
     }
 
     /// 擷取型 vs 判斷型——互斥的兩種（D6）。
-    public enum Kind: Equatable, Hashable {
+    public enum Kind: Equatable {
         /// 單次擷取：路徑 + 內容。`content` 是 `sha256:` 前綴的 digest。
         /// `status` 一併記錄：錯誤頁面同樣有 digest（「死」本身也是內容，D3）——
         /// 200 不代表活著（實測有 200 + 122 bytes meta-refresh 的偽裝）。
@@ -175,6 +175,35 @@ public struct ProvenanceReference: Equatable, Hashable {
     /// 欄位是 collection 時以**值**定位（D2：索引在重排時失效）。
     public var value: String?
     public var kind: Kind
+
+    /// **位元組精確的相等鍵**（#554 R24，D65；R23 verify Codex 第 1 列 HIGH）。
+    ///
+    /// 「兩筆 reference 完全相同」在本 repo 的意思是**逐位元組相同**——D62 的 rename 折疊與 D64 的「全部完全相同」都以它為判準，
+    /// 因為零資訊損失的承諾是對 store 裡的位元組說的，不是對 Unicode 的等價類說的。Swift `String` 的 `==` 與 `hashValue` 走
+    /// canonical equivalence（NFC 的 `Sankhyā` 與 NFD 的 `Sankhya\u{0304}` 相等），合成的 `Hashable` 繼承同一語意——R23 用它當
+    /// 字典鍵，NFC／NFD 兩筆被折成一筆、其中一種拼法永久消失，而 R16（D42）已經在第二半掃描上修過同一個缺陷（`Set<[UInt8]>`）。
+    /// 所以本型別**刻意不合成 `Hashable`**：要拿它當鍵，只有這一把。
+    ///
+    /// 形狀是 `[[UInt8]]`：每個欄位自成一個位元組陣列，nil 與空字串靠 tag 元素分開、`Kind` 的兩個 case 靠 tag 元素分開、
+    /// `restsOn` 的每一段各占一格——沒有分隔符可以被內容撞上。`Equatable` 仍是 Swift 的（canonical）：兩者不同是刻意的，
+    /// `==` 給「這兩筆說的是同一件事」的讀者，`byteExactKey` 給「這兩筆可以只留一筆而不丟任何位元組」的寫入面。
+    public var byteExactKey: [[UInt8]] {
+        var parts: [[UInt8]] = [Array(field.utf8)]
+        if let v = value { parts.append([1]); parts.append(Array(v.utf8)) } else { parts.append([0]) }
+        switch kind {
+        case .retrieval(let url, let retrieved, let status, let mediaType, let content):
+            parts.append([0])
+            parts.append(Array(url.utf8)); parts.append(Array(retrieved.utf8)); parts.append(Array(String(status).utf8))
+            if let m = mediaType { parts.append([1]); parts.append(Array(m.utf8)) } else { parts.append([0]) }
+            parts.append(Array(content.utf8))
+        case .judgement(let statement, let restsOn):
+            parts.append([1])
+            parts.append(Array(statement.utf8))
+            parts.append(Array(String(restsOn.count).utf8))
+            for d in restsOn { parts.append(Array(d.utf8)) }
+        }
+        return parts
+    }
 
     public init(field: String, value: String? = nil, kind: Kind) {
         self.field = field

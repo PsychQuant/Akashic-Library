@@ -750,6 +750,30 @@ R22 verify **6 席齊**（Codex 席回來了），37 列合併、4 HIGH、15 MED
   deprecated，11 處 pin 會同一天壞——記進 #577）、第 36 列（D63 讓任何讀不到的 quarantined 檔擋住所有 rename——與 `quarantinedFileClaiming`
   同一條既有紀律）記錄。
 
+## R23 verify：合成的 `Hashable` 是 canonical 的——ensemble 不完整，但那一列是真的
+
+R23 verify **5 席在起跑就撞 session limit**（requirements／logic／security／regression／DA 全部
+「You've hit your session limit · resets 2:10am」），只有 Codex 席回來——與 R18 同一種形，記為**不完整**、
+R24 落地後重跑 6 席。Codex 純靜態讀 diff 回 3 列（1 HIGH／1 MEDIUM／1 INFO），沒碰 D63 邊界、D64 分組、
+`refusalLineMax`、散文與外部寫入——那是未涵蓋，不是判為乾淨。
+
+- **HIGH：D62 的「完全相同才折疊」用合成的 `Hashable`**——Swift `String` 的 `==`／`hashValue` 走 Unicode canonical
+  equivalence，不是 UTF-8 位元組相等。同一個舊鍵上兩筆 confirmed、judgement 相同、literal 分別是 NFC `Sankhyā` 與 NFD
+  `Sankhya\u{0304}`：rename 後 `firstSeen` 把兩筆當同一筆折成一筆，一種拼法永久消失——D62「拼法不同的都留、零資訊損失」
+  在這一格為假，而 R23 的旁註「value 相等已蘊含拼法位元組相等」正是那句假話。**本 repo 在 R16（D42）為了同一個原因把
+  第二半掃描的去重從 `==` 換成 `Set<[UInt8]>`**，R23 把同一個缺陷換到 rename 這條路上。紅測試釘住時，alpha 那筆的折疊列
+  自己就印著「留『Sankhyā』（正規化後相等、**位元組不同**）」——描述函式看得出來，折疊卻照做。**D65**：`ProvenanceReference`
+  **拿掉**合成的 `Hashable`（要拿它當鍵只有一把），新增 `byteExactKey: [[UInt8]]`（field、value、`Kind` 的每個欄位各占一格、
+  nil 與 case 用 tag 元素分開、`restsOn` 逐段），D62 的折疊與 **D64 判「全部完全相同」的鍵**（同一個缺陷的第二處，Codex 沒點名、
+  本輪順手抓到：judgement 只差 NFC／NFD 的兩筆曾被說成「全部完全相同」）一起換。
+- **MEDIUM：per-record 上限在 `validate()`／`StoreHealth` 產生訊息時就丟掉明細，而 App help、doctor 描述與 parity 的 `validate`
+  列仍把 CLI `validate` 指為「完整逐行」的出口**——R14–R23 陸續加的四個求值上限（近重複組、重複 venue 邊、confirmed literal、
+  重複判定記錄，每筆記錄至多 20 則加一句概括）三個面共有，CLI 只是不再加一層面級的 20 則截斷；一個 venue 25 筆 work 各持兩種
+  confirmed literal 時，照 help 去跑 CLI 仍拿不到被省略的 5 筆。**D66**：**不加**「完整列舉模式」——那是替 CLI 開一條繞過求值
+  上限的路，而上限存在的理由正是讀取路徑不能被 store 內容撐爆（R14 verify security 第 18 列）；概括句說了「另有 N 個未列出」，
+  沒有東西是沉默的；要全部只能讀 YAML。七處宣稱改成「不加面級截斷、per-record 上限三面共有」，parity 的 `validate` 列理由收窄
+  （裁決不變），`ValidatePerRecordCapCLITests` 走真 binary 釘住實際契約。
+
 ## 第二次端到端又紅——這次是我的 binary
 
 改成替換語意後測試 7/7 綠、四個 mutation 負控乾淨，真 binary 卻說「authorized 含不在
@@ -812,6 +836,7 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
 - `record-divergence --candidate` 的 help 與 MCP `candidates` 描述補 venue（#553 遺留，兩面對齊）
 - R22：`assertNoVerdictAlreadyAt` 改成 instance method、母體含 quarantined 檔的行級比對（D61）、命中多行化與 20 筆上限、出路改寫、`verdictsAlreadyAtTarget` 每行截 400（＝CLI sink）；`renameEntry` 補自我改名守衛；`migratedVerdicts` 只折完全相同的重複（D62）；hook 真目錄前置拒絕；`ci.yml`／`census-parity.yml` 三處釘 native 並驗 readlink；`PackageManifestTests` 問目錄在不在、模組名碰撞即紅；負控 7 支各紅一次、真 binary 重現 quarantined 形與 digest 截斷形
 - R23：`assertNoVerdictAlreadyAt` 的 quarantined 掃描改位元組比對 `<kind>:<newKey>`（`bytesContainKeyToken`，StoreKey 邊界檢查）、quarantined 命中先列、上限走 `Entry.perRecordWarningCap`（D63）；`StoreHealth.duplicateVerdictRecords` 家族＋doctor／App（D64；第 27 列第二類已報的那一格不重報、每筆記錄套 `perRecordWarningCap`——首版無上限，全套測試的 doctor 位元組預算 fixture 把 `count` 從 20 推到 140 抓到）；`migratedVerdicts` 以 `Hashable` 字典折疊；`describeDedupedVerdict` 印 rests-on（`restsOnNote` 共用）；`verdictsAlreadyAtTarget` 截在 `refusalLineMax`；CLI 兩處抬頭與三處 quarantine 通知改寫；兩份 report doc、`migratedVerdicts`、`describeCollapsedVerdict`、`appendIfAbsent`、`NameIdentity.canonical` 的 doc 改成量測過的形；hook 訊息；負控 9 支各紅一次、真 binary 重現折行形（rename 與 rename-person）、偽陽性形、擠出上限形、D64 前後形
+- R24：`ProvenanceReference.byteExactKey`（D65；拿掉合成 `Hashable`）——`migratedVerdicts` 的 D62 折疊與 `duplicateVerdictRecordIssues` 的 sameness 同一把鍵；七處「完整逐行／要全部用 CLI validate」改成誠實措辭、parity `validate` 列理由收窄（D66）；新測試 3 條（NFC／NFD 兩筆都留且 `verdictsCollapsed` 空、D64 judgement 位元組、CLI 25 配對 → 20 則＋概括句）；負控 4 支各紅一次（鍵改 NFC、折疊忽略 kind、sameness 改 canonical、拿掉 cap）
 - R21：`assertNoVerdictAlreadyAt`（D60）裝在 `renameEntry`／`renamePerson` 動任何記錄之前；`migratedVerdicts` 第二段只剩被改寫的；`describeCollapsedVerdict` 拿掉 R20 的 `why:`；hook 重指移進守衛階段＋readlink 驗證；`ci.yml` release 釘 native；`PackageManifestTests` 四個 fail-open 關掉；App rename sink 1,000；負控 8 支各紅一次（含拿掉 `Package.swift` 宣告）、真 binary 重現 R20 四席與 DA 的兩個形都被拒
 - R20：`LibraryStore.migratedVerdicts` 重寫（D58，**R21 由 D60 取代**）、`describeCollapsedVerdict` 加 `why:` 與 rests-on、`VerdictEdgeSet` 驗鍵、doctor／App 名冊補齊、`lowerBound` 涵蓋 `total`／`errors`（D59）、`RecordIssuesSection` 加「矛盾 verdict」列、hook／`ci.yml` 釘 native 且重指失敗中止、`Package.swift` 註解改寫；負控 11 支各紅一次、真 binary 重現 DA 第 1 列並驗 doctor 名冊
 - `mcp-cli-parity` 的 `akashic_update_venue` 列補記；`two-kinds-of-edits` 加一列、#553 那列

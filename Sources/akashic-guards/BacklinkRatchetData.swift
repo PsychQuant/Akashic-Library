@@ -27,7 +27,10 @@ let adjudicated: Set<String> = [
     "Organization.dissolved", "Organization.founded", "Organization.id",
     "Organization.key", "Organization.names", "Organization.note",
     "Organization.parents", "Organization.references", "Organization.ror",
-    "Organization.unknownFields", "Provenance.encoded", "Provenance.field",
+    "Organization.unknownFields",
+    // Provenance.byteExactKey（#554 R24 D65）：computed、不序列化、由已裁決的 field／value／kind 現算——不是關係邊，
+    // 是「兩筆完全相同」的位元組鍵（entity-backlink-completeness 第 ③ 步兩問皆否）
+    "Provenance.byteExactKey", "Provenance.encoded", "Provenance.field",
     "Provenance.holder", "Provenance.holderKind", "Provenance.kind",
     "Provenance.literal", "Provenance.value", "Temporal.administrative",
     "Temporal.affiliations", "Temporal.appointments", "Temporal.attested",

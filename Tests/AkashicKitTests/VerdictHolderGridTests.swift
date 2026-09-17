@@ -1372,6 +1372,55 @@ final class VerdictHolderGridTests: XCTestCase {
         XCTAssertEqual(capped.cappedRecords.filter { $0.owner == "acme" }.count, 1, capped.cappedRecords.map(\.issue.message).description)
     }
 
+    /// D65（R24；R23 verify Codex 第 1 列 HIGH）：D62 的「完全相同才折疊」必須比**位元組**。Swift `String` 的 `==`／`hashValue` 走 canonical
+    /// equivalence，合成的 `Hashable` 繼承同一語意——NFC 的 `Sankhyā` 與 NFD 的 `Sankhya\u{0304}` 在 R23 被 `firstSeen` 當成同一筆折掉，
+    /// 其中一種拼法永久消失（R16 D42 對第二半掃描修過同一個缺陷）。judgement 只差 NFC／NFD 同型。位元組相同的重複仍折（對照）。
+    func testRenameKeepsNFCAndNFDSpellingsAsTwoVerdictsAndCollapsesNothing() throws {
+        try entry("old2020a")
+        let nfc = "Sankhy\u{0101}", nfd = "Sankhya\u{0304}"
+        XCTAssertEqual(nfc, nfd, "前提：Swift 視兩者相等"); XCTAssertNotEqual(Array(nfc.utf8), Array(nfd.utf8))
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = [verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: nfc),
+                        verdict("resolution-confirmed", kind: .work, holder: "old2020a", literal: nfd)]
+        try store.writeVenue(v)
+        func judged(_ s: String) -> ProvenanceReference {
+            ProvenanceReference(field: "resolution-rejected",
+                                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "old2020a", literal: "Vee").encoded,
+                                kind: .judgement(statement: s, restsOn: []))
+        }
+        try org("acme", refs: [judged("\u{00E1}"), judged("a\u{0301}")])          // judgement 只差 NFC／NFD：兩筆都留
+        let same = verdict("resolution-rejected", kind: .work, holder: "old2020a", literal: "Same")
+        try org("twin", refs: [same, same])                                        // 位元組完全相同：對照，仍折成一筆
+        let report = try store.renameEntry(from: "old2020a", to: "new2020a")
+        XCTAssertEqual(report.verdictsCollapsed.count, 1, "只有 twin 的位元組相同重複折：\(report.verdictsCollapsed)")
+        XCTAssertTrue(report.verdictsCollapsed[0].hasPrefix("organization「twin」："), report.verdictsCollapsed[0])
+        let load = try store.load()
+        let alpha = load.venues.first { $0.key == "alpha" }?.references.compactMap(\.value).map { Array($0.utf8) } ?? []
+        XCTAssertEqual(alpha.count, 2, "NFC 與 NFD 兩筆都要在")
+        let expect = [nfc, nfd].map { Array(ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "new2020a", literal: $0).encoded.utf8) }
+        XCTAssertEqual(Set(alpha), Set(expect), "逐筆 UTF-8 位元組不變，只換 holder")
+        let acme = load.organizations.first { $0.key == "acme" }?.references.compactMap { r -> [UInt8]? in
+            if case .judgement(let s, _) = r.kind { return Array(s.utf8) } else { return nil } } ?? []
+        XCTAssertEqual(Set(acme), Set([Array("\u{00E1}".utf8), Array("a\u{0301}".utf8)]), "judgement 的兩種拼法都要在")
+        XCTAssertEqual(load.organizations.first { $0.key == "twin" }?.references.count, 1)
+    }
+
+    /// D65 的另一半：D64 判「全部完全相同」的鍵也是合成 `Hashable`——judgement 只差 NFC／NFD 的兩筆在 R23 被說成「全部完全相同」，
+    /// 而它們的位元組不同、digest 也可能不同。同一把位元組鍵，兩處一起換。
+    func testDuplicateVerdictRecordsCompareJudgementBytesNotCanonicalEquivalence() throws {
+        func judged(_ s: String) -> ProvenanceReference {
+            ProvenanceReference(field: "resolution-rejected",
+                                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "w2020a", literal: "Vee").encoded,
+                                kind: .judgement(statement: s, restsOn: []))
+        }
+        try org("acme", refs: [judged("\u{00E1}"), judged("a\u{0301}")])
+        let health = store.health(from: try store.load())
+        XCTAssertEqual(health.duplicateVerdictRecords.count, 1, health.duplicateVerdictRecords.map(\.issue.message).description)
+        let msg = health.duplicateVerdictRecords.first?.issue.message ?? ""
+        XCTAssertTrue(msg.contains("彼此不同"), msg)
+        XCTAssertFalse(msg.contains("全部完全相同"), msg)
+    }
+
     /// R21 verify 第 9／11／15 列（DA 真 binary）：rename 的 CLI 出口在 `displaySafeAssembled` 逐行截 400，而 R21 把 rests-on 排在行尾——一個一般長度
     /// 的 judgement 就把 digest 切成半個 sha256（比不印更糟：看起來像一個值、grep 不到）。R22：每筆命中拆成多行——holder／value 一行、judgement 一行、
     /// **每個 digest 自己一行**（71 字，永遠在 400 之內）；本測試把 description 送過與 CLI 相同的 sink 再驗。

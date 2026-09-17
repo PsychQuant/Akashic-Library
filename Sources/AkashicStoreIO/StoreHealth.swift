@@ -145,7 +145,8 @@ public struct StoreHealth {
     /// `zero-instance-guards` 第 26／27 列宣稱的「掃得到」只對 CLI validate 成立）。
     /// **家族計數是下限**（R16；R15 verify 第 29 列）：每筆記錄至多 `Entry.perRecordWarningCap` 則進家族，其餘由一句概括
     /// （`Entry.perRecordCapSummaryPrefix`，**不在**任何家族裡）收尾——被截的記錄上，家族計數 ＝ min(受影響數, 上限)，
-    /// 不是受影響數；要全部就用 CLI `validate`。**被截的記錄數自己是一族**（`cappedRecords`，R18 D54；R17 verify Codex 第 2 列：
+    /// 不是受影響數。**CLI `validate` 也拿不到被截的那幾則**（R24 D66；R23 verify Codex 第 2 列）：上限在本函式產生訊息時就生效，
+    /// CLI 只是不再加一層面級的 20 則截斷——被截的記錄在三個面都只有概括句，要全部只能讀 YAML。**被截的記錄數自己是一族**（`cappedRecords`，R18 D54；R17 verify Codex 第 2 列：
     /// doctor 的描述與註解說「各族計數永遠完整」、與這一段互相矛盾，而 MCP 描述是呼叫端唯一看得到的契約）——三面都說得出「還有幾筆被截」。
     /// **以 (kind, owner) 計，不是概括句的行數**（R19 D56；R18 verify Codex 第 2 列：一筆 venue 可以同時出名字近重複與 confirmed-literal 兩句概括，
     /// R18 數行數就把「被截的記錄」多報一筆）——每筆記錄只留首見那一句，`count` 才真的是「幾筆記錄被截」。**留下的那一句是任意的**
@@ -344,8 +345,8 @@ public extension LibraryStore {
     /// **三個理由都是「現在」**：#463 補完四格、且出現修復路徑之後，error 要重開裁決，第 8 列與第 13 列
     /// 一起改。
     ///
-    /// 三面：CLI `validate` 逐行可見（exit 對 warning 仍為 0）；MCP `akashic_doctor` 進 `recordIssues`
-    /// （截斷 20 則、`count` 送分母）；App 側欄「記錄」Section 渲染計數（#487，2026-09-04 落地；完整逐行仍是 CLI `validate`）。
+    /// 三面：CLI `validate` 逐則可見、不加面級截斷（exit 對 warning 仍為 0）；MCP `akashic_doctor` 進 `recordIssues`
+    /// （截斷 20 則、`count` 送分母）；App 側欄「記錄」Section 渲染計數（#487，2026-09-04 落地）。per-record 的上限三面共有（R24 D66）。
     ///
     /// 解析不了的 value（`parse` 回 nil）不在此列——**對已載入的記錄它結構上不可達**：三族的
     /// YAML decode 在寫入閘與載入端都把 malformed verdict 整檔拒收（quarantine），
@@ -465,15 +466,15 @@ public extension LibraryStore {
     func duplicateVerdictRecordIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
         func scan(_ refs: [ProvenanceReference], owner: String, kind: String) -> [StoreHealth.OwnedIssue] {
             var byKey: [String: (first: ProvenanceReference, pairing: ProvenanceReference.VerdictPairingValue, count: Int,
-                                 kinds: Set<ProvenanceReference>, spellings: Set<[UInt8]>)] = [:]
+                                 kinds: Set<[[UInt8]]>, spellings: Set<[UInt8]>)] = [:]   // kinds 以 byteExactKey 計（D65）：「全部完全相同」是位元組層的話
             var order: [String] = []
             for r in refs {
                 guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
                       let v = r.value,
                       let p = ProvenanceReference.VerdictPairingValue.parse(v) else { continue }
                 let k = ProvenanceReference.verdictEqualityKey(field: r.field, value: v)
-                if var e = byKey[k] { e.count += 1; e.kinds.insert(r); e.spellings.insert(Array(p.literal.utf8)); byKey[k] = e }
-                else { byKey[k] = (r, p, 1, [r], [Array(p.literal.utf8)]); order.append(k) }
+                if var e = byKey[k] { e.count += 1; e.kinds.insert(r.byteExactKey); e.spellings.insert(Array(p.literal.utf8)); byKey[k] = e }
+                else { byKey[k] = (r, p, 1, [r.byteExactKey], [Array(p.literal.utf8)]); order.append(k) }
             }
             // 第 27 列的第二類（`Venue.validate()`：venue×work 的 confirmed、只差位元組）已經報的那一格**不重報**——同一件事出兩則是雜訊不是訊號；
             // 這一族報的是它認不得的：位元組相同的重複、rejected 的重複、person 配對的重複、person／organization 持有的重複。

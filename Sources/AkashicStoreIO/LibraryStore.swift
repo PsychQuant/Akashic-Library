@@ -2052,13 +2052,15 @@ extension LibraryStore {
         //  · 拼法不同的都留——第 27 列的第二半只掃 venue×work，其餘六格（person／organization 持 work、三種 holder 持 person）
         //    沒有掃描面也沒有揭露面，rename 不替它判定（R19 verify requirements 第 4 列：誠實邊界，寫在 §3.5）；
         //  · 留下的每一筆待在原位置，不相干 reference 的相對順序不變（R19 verify regression 第 23 列：整組前移會重排）。
-        // 重複的判準是**整筆 `ProvenanceReference` 相等**（field、value、judgement、rests-on）——value 相等已蘊含拼法位元組相等，R22 另比一次
-        // 位元組是恆真的死條件、且在閉包裡逐對重算（R22 verify 第 5／21／24／35 列：旁註寫 O(N) 而實作是組內 O(k²) 次解析）。現在以整筆
-        // reference 當字典鍵（`Hashable`，R23）：每筆一次雜湊、O(N)；同鍵分組因此也不需要——相等的兩筆必然同鍵。
-        var firstSeen: [ProvenanceReference: Int] = [:]
-        var winnerOf: [Int: Int] = [:]                 // 被改寫的索引 → 留下的那筆的索引（首見；完全相同的重複之間沒有東西可選）
+        // 重複的判準是**整筆 `ProvenanceReference` 逐位元組相同**（field、value、judgement、rests-on 的 UTF-8 位元組；`byteExactKey`，D65，R24）。
+        // R23 以合成的 `Hashable` 當字典鍵——Swift `String` 的相等是 canonical equivalence，NFC 的 `Sankhyā` 與 NFD 的 `Sankhya\u{0304}`
+        // 被折成一筆、其中一種拼法永久消失，而 R23 的旁註「value 相等已蘊含拼法位元組相等」正是那句假話（R23 verify Codex 第 1 列 HIGH；
+        // R16 D42 在第二半掃描上修過同一個缺陷）。每筆一次組鍵、O(N)；同鍵分組不需要——位元組相同的兩筆必然同鍵。
+        var firstSeen: [[[UInt8]]: Int] = [:]
+        var winnerOf: [Int: Int] = [:]                 // 被改寫的索引 → 留下的那筆的索引（首見；位元組相同的重複之間沒有東西可選）
         for (i, item) in rewritten.enumerated() where item.touched {
-            if let first = firstSeen[item.ref] { winnerOf[i] = first } else { firstSeen[item.ref] = i; winnerOf[i] = i }
+            let k = item.ref.byteExactKey
+            if let first = firstSeen[k] { winnerOf[i] = first } else { firstSeen[k] = i; winnerOf[i] = i }
         }
         var out: [ProvenanceReference] = []
         var collapsed: [String] = []

@@ -906,14 +906,17 @@ kind token 是 ASCII 字母、StoreKey 是 `[a-z0-9][a-z0-9-]*`，整段不含�
 quarantined 記錄）；出路是改那一行的
 value 或刪掉它——目的鍵此刻不存在，被拒的每一筆都沒有邊可 `repoint`（R21 verify 第 3／10／25 列，R21 曾把 `resolve-venues --repoint` 列為首選）。
 `renameEntry` 補上 `oldKey != newKey` 守衛（第 4／20 列：自我改名曾撞 D60、訊息說「目的鍵此刻不存在」）。**D62（R22）**：第二段只折**完全相同**
-（field、value、judgement、rests-on 全等）的重複——零資訊損失；R20／R21 以拼法位元組折疊、不看 kind，兩筆同拼法而 judgement／rests-on 不同的被折成
+（field、value、judgement、rests-on 的 **UTF-8 位元組**全等——`ProvenanceReference.byteExactKey`，**R24 D65**：R23 用合成的 `Hashable`
+當字典鍵，Swift `String` 的相等是 canonical equivalence，NFC／NFD 兩種拼法被折成一筆、一種永久消失——R16 D42 在第二半掃描上修過同一個缺陷，
+R23 verify Codex 第 1 列；`ProvenanceReference` 自此**刻意不合成 `Hashable`**）的重複——零資訊損失；R20／R21 以拼法位元組折疊、不看 kind，兩筆同拼法而 judgement／rests-on 不同的被折成
 一筆、被丟那筆的 digest 永久消失，而 validate 事前不出聲（R21 verify DA 第 14 列真 binary）——那正是撤掉 D58 的同一句話換個母體。rename 自此不
 呼叫 `collapseWinner`（#468 的血統層只在 merge 跑），拼法不同或 judgement 不同的都留、留下的在原位（R19 verify regression 第 23 列）。
 所以誠實的量詞是：**rename 不再刪任何判定記錄的內容**——唯一的收攏是完全相同的重複（`verdictsCollapsed` 逐筆回報）——與 merge 的 D31／D34 同向。
 **D64（R23；R22 verify security 第 14 列）**：D62 留下的同鍵（`verdictEqualityKey` 相同）而 judgement 不同的兩筆，在 R22 沒有任何面看得見——
 `contradictoryVerdicts` 只比 confirmed×rejected、第 27 列的第二類以位元組相異分組——而下一次 person／venue 合併會以 #468 的血統層收成一筆並在
 `verdictsCollapsed` 回報；「零資訊損失」只在 rename 那一步為真，它把一筆判定從「rename 當場刪、有回報」換成「留著、看不見、合併時刪」。現在
-`StoreHealth.duplicateVerdictRecords`（warning，guards 第 28 列）報它，doctor／App 各一格；訊息說出三個來源（手改、舊 binary、rename 帶過來）與下游
+`StoreHealth.duplicateVerdictRecords`（warning，guards 第 28 列）報它，doctor／App 各一格；訊息裡「全部完全相同」vs「judgement 或 rests-on 彼此不同」
+自 R24 起以 `byteExactKey` 判（D65 的第二處）；訊息說出三個來源（手改、舊 binary、rename 帶過來）與下游
 （合併會收攏）；第 27 列第二類已報的那一格（venue×work 的 confirmed、只差位元組）不重報，每筆記錄至多 `Entry.perRecordWarningCap` 則。merge 與 rename 的折疊規則自此明寫是**兩條**而不是「同一條不變式在兩條路徑上各自執行」（第 8／11 列）：merge 以 `verdictEqualityKey`
 分組、`collapseWinner` 選一筆，rename 只折整筆相等的（`Hashable` 字典，O(N)——R22 的 `bytes == && ref ==` 是死條件，第 21／24 列）。
 **誠實邊界**：拼法不同的被改寫 verdict 都留——第 27 列的第二半只掃 venue×work，其餘六格（person／organization 持 work、三種 holder 持 person）

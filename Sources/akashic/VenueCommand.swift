@@ -315,7 +315,7 @@ struct MigrateVenueVariants: ParsableCommand {
             if !report.failed.isEmpty {
                 print("拒寫 \(report.failed.count) 筆（其餘照常；commit 後重跑——遷移是冪等的）：")
                 for f in report.failed.prefix(20) {
-                    print("  ⚠ \(displaySafe(f.key, max: 120))——\(displaySafeInvisible(f.reason, max: 300))")   // display-safe-exempt: 未消毒——migrate-venues 的 reason 是原始錯誤描述（R28 D80）
+                    print("  ⚠ \(displaySafeInvisible(f.key, max: 120))——\(displaySafeClipOnly(f.reason, max: 2_400))")   // display-safe-exempt: reason 已消毒（建構點 displaySafeInvisible，R30），只截
                 }
             }
         }
@@ -402,7 +402,7 @@ struct MigrateVenues: ParsableCommand {
             if !report.failed.isEmpty {
                 print("拒寫 \(report.failed.count) 筆（其餘照常；commit 後重跑——遷移是冪等的）：")
                 for f in report.failed.prefix(20) {
-                    print("  ⚠ \(displaySafe(f.citekey, max: 200))——\(displaySafeInvisible(f.reason, max: 300))")   // display-safe-exempt: 未消毒——migrate-venue-variants 的 reason 是原始錯誤描述（R28 D80）
+                    print("  ⚠ \(displaySafeInvisible(f.citekey, max: 200))——\(displaySafeClipOnly(f.reason, max: 4_096))")   // display-safe-exempt: reason 已消毒（建構點 displaySafeInvisible／displaySafeError，R30；R29 verify 第 2 列），只截
                 }
             }
         }

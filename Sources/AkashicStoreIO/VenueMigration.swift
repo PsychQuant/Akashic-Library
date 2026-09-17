@@ -82,7 +82,7 @@ public enum VenueMigration {
                 guard trackedRelPaths.contains(Data(relFile.utf8)) else {
                     report.failed.append(Failed(
                         citekey: entry.citekey,
-                        reason: "\(relFile) 未被 git 追蹤——改寫無回復路徑，先 commit 再跑"))
+                        reason: "\(displaySafeInvisible(relFile, max: 200)) 未被 git 追蹤——改寫無回復路徑，先 commit 再跑"))
                     continue
                 }
                 var updated = entry

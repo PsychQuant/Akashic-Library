@@ -146,7 +146,7 @@ struct EnrichFromZotero: ParsableCommand {
                 written += 1
             } catch {
                 // per-item 隔離：單筆寫入失敗不把整趟變成「部分套用且沒人知道哪些」
-                failed[a.citekey] = displaySafeError(error, max: 512)
+                failed[a.citekey] = displaySafeError(error, max: 4_096)
             }
         }
         print("")

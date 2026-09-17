@@ -106,7 +106,7 @@ public struct ZoteroImporter {
                 try store.writeEntry(entry)
                 return true
             } catch {
-                report.writeFailed[entry.citekey] = displaySafeError(error, max: 512)
+                report.writeFailed[entry.citekey] = displaySafeError(error, max: 4_096)
                 return false
             }
         }

@@ -80,7 +80,7 @@ struct MigrateIdentifiers: ParsableCommand {
         if !report.blockers.isEmpty {
             print(apply ? "\n── 已擋下（未寫入）──"
                         : "\n── 會被擋下（--apply 時這些不會寫入）──")
-            for f in report.blockers { print("  \(f)") }
+            for f in report.blockers { print("  \(displaySafeClipOnly(f, max: 4_096))") }   // display-safe-exempt: 已消毒（建構點逐項 displaySafeInvisible、錯誤走 displaySafeError，R30；R29 verify 第 28 列：曾零消毒），只截
             // **乾跑不 exit 1**：乾跑本身成功了，它的工作就是把這些顯示出來。
             // apply 才是錯誤——有東西沒搬成，使用者必須知道。
             if apply { throw ExitCode(1) }

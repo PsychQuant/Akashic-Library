@@ -86,7 +86,7 @@ public enum StoreIncarnation {
         guard FileManager.default.fileExists(atPath: u.path) else { return nil }   // 真的缺席
         let data: Data
         do { data = try Data(contentsOf: u) }
-        catch { throw StoreIncarnationError.unreadable(path: displaySafeInvisible(u.path, max: 300), why: displaySafeError(error, max: 300)) }   // R29 D81：Error → 文字只走 displaySafeError；path 是 store 路徑
+        catch { throw StoreIncarnationError.unreadable(path: displaySafeInvisible(u.path, max: 300), why: displaySafeError(error, max: 2_400)) }   // R29 D81：Error → 文字只走 displaySafeError；path 是 store 路徑——描述端對這兩個 payload 只截（R30）
         return try parse(data: data, path: u.path)
     }
 
@@ -95,7 +95,7 @@ public enum StoreIncarnation {
     static func parse(data: Data?, path: String) throws -> String? {
         guard let data else { return nil }
         guard let text = String(data: data, encoding: .utf8) else {
-            throw StoreIncarnationError.unreadable(path: path, why: "內容不是 UTF-8")
+            throw StoreIncarnationError.unreadable(path: displaySafeInvisible(path, max: 300), why: "內容不是 UTF-8")
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count == 36,
@@ -144,7 +144,7 @@ public enum StoreIncarnationError: Error, LocalizedError, SanitizedErrorDescript
     public var errorDescription: String? {
         switch self {
         case let .unreadable(path, why):
-            return "化身檔「\(displaySafeInvisible(path, max: 300))」存在但讀不到（\(displaySafeInvisible(why, max: 300))）"
+            return "化身檔「\(displaySafeClipOnly(path, max: 2_400))」存在但讀不到（\(displaySafeClipOnly(why, max: 2_400))）"   // display-safe-exempt: 已消毒（兩個擲出站點都在擲出端逃，R30；R29 兩端各逃一次——R29 verify 第 1／8 列），只截
                 + "——**不覆寫**：它是 store 的身分，覆寫等於把它變成另一個化身。"
                 + "修好權限／等同步完成後重試；確定要重新賦予身分請自行刪除該檔"
         case let .malformed(path, content):

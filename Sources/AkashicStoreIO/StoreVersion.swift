@@ -214,7 +214,7 @@ public enum StoreVersion {
     static func read(data: Data?, path: String) throws -> Int {
         guard let data else { return 1 }
         guard let text = String(data: data, encoding: .utf8) else {
-            throw StoreVersionError.malformed(path: path, line: "(標記檔不是 UTF-8)")
+            throw StoreVersionError.malformed(path: displaySafeInvisible(path, max: 300), line: "(標記檔不是 UTF-8)")
         }
         var found: Int?
         for raw in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
@@ -223,36 +223,37 @@ public enum StoreVersion {
             // 有內容的行必須頂格（守衛字元集與上面 trim 的一致：Unicode Zs ∪ tab）。
             // 縮排 case 的 payload 用**原始行**（#127 verify F3）：trim 過的版本看起來
             // 完全合法（縮排正是被拒的原因，卻被 trim 掉了）。
-            // 全部 payload 過 displaySafe（#127 verify M2）：這裡的 line 是攻擊者可控
+            // 全部 payload 在擲出端過 displaySafeInvisible（#127 verify M2；R30 起含 path、且型別自帶消毒——R29 verify 第 4／6／14 列：
+            // 擲出端逃了、描述原樣、型別沒 conform，MCP 出口再逃一次）：這裡的 line 是攻擊者可控
             // 的檔案原文——ESC/bidi/超長行不得原樣進 error（StoreIOError 同模式；
             // CLI 頂層的 choke point 是 #114 的另一層，兩者互補不互代）。
             guard let first = raw.unicodeScalars.first,
                   !CharacterSet.whitespaces.contains(first) else {
-                throw StoreVersionError.malformed(path: path, line: displaySafe(String(raw)))
+                throw StoreVersionError.malformed(path: displaySafeInvisible(path, max: 300), line: displaySafeInvisible(String(raw), max: 200))
             }
             guard line.hasPrefix("format:") else {
-                throw StoreVersionError.malformed(path: path, line: displaySafe(line))
+                throw StoreVersionError.malformed(path: displaySafeInvisible(path, max: 300), line: displaySafeInvisible(line, max: 200))
             }
             guard found == nil else {
-                throw StoreVersionError.malformed(path: path, line: "(第二個 format: 行——歧義)")
+                throw StoreVersionError.malformed(path: displaySafeInvisible(path, max: 300), line: "(第二個 format: 行——歧義)")
             }
             let v = line.dropFirst("format:".count)
                 .trimmingCharacters(in: .whitespaces)
             let numeric = v.prefix { $0.isNumber }
             guard let n = Int(numeric), n >= 1 else {
-                throw StoreVersionError.malformed(path: path, line: displaySafe(line))
+                throw StoreVersionError.malformed(path: displaySafeInvisible(path, max: 300), line: displaySafeInvisible(line, max: 200))
             }
             // 值後面只能是註解（`format: 1  # v1.x`）——`format: 2 garbage` 與
             // `format: 2.5` 都不是「帶註解的整數」，不得取前綴當真
             let rest = v.dropFirst(numeric.count).trimmingCharacters(in: .whitespaces)
             guard rest.isEmpty || rest.hasPrefix("#") else {
-                throw StoreVersionError.malformed(path: path, line: displaySafe(line))
+                throw StoreVersionError.malformed(path: displaySafeInvisible(path, max: 300), line: displaySafeInvisible(line, max: 200))
             }
             found = n
         }
         guard let found else {
             // 檔案存在但沒有 format: 行——不猜，明說。
-            throw StoreVersionError.malformed(path: path, line: "(檔案內找不到 format: 行)")
+            throw StoreVersionError.malformed(path: displaySafeInvisible(path, max: 300), line: "(檔案內找不到 format: 行)")
         }
         return found
     }
@@ -308,7 +309,7 @@ public enum StoreVersion {
     }
 }
 
-public enum StoreVersionError: Error, LocalizedError, Equatable {
+public enum StoreVersionError: Error, LocalizedError, Equatable, SanitizedErrorDescription {
     case tooNew(found: Int, supported: Int)
     case malformed(path: String, line: String)
 
@@ -323,7 +324,7 @@ public enum StoreVersionError: Error, LocalizedError, Equatable {
                 \(StoreVersion.fileName) 的數字**不會**讓資料變回舊格式，只會讓舊 binary \
                 按舊語意誤讀新結構——那正是這道防線要擋的事。）
                 """
-        case let .malformed(path, line):
+        case let .malformed(path, line):   // display-safe-exempt: path／line 在八個擲出站點以 displaySafeInvisible 逃過（R30 D82），描述原樣
             // 指路（#118）：對照 tooNew 的「請升級」，malformed 也要有出口——
             // 修復入口（doctor）對它第一步就拒絕，使用者被正確地擋下之後
             // 不能不知道往哪走。**不提供自動修復**：marker 是 canonical 事實，

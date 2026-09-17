@@ -2,7 +2,7 @@ import AkashicCore
 import CryptoKit
 import Foundation
 
-public struct CorpusDiagnostic: Error, Equatable, Comparable, Sendable {
+public struct CorpusDiagnostic: Error, Equatable, Comparable, Sendable, SanitizedErrorDescription {
     public let path: String
     public let recordID: String
     public let code: String
@@ -27,7 +27,7 @@ public struct CorpusDiagnostic: Error, Equatable, Comparable, Sendable {
     }
 
     private func singleLine(_ value: String) -> String {
-        displaySafe(value, max: 800)
+        displaySafeInvisible(value, max: 800)   // 性質式（R30；型別自帶消毒——sink 只截）
             .replacingOccurrences(of: ":", with: "\\:")
     }
 }

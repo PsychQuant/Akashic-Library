@@ -132,7 +132,7 @@ public enum VenueVariantMigration {
             guard trackedRelPaths.contains(Data(relFile.utf8)) else {
                 report.failed.append(Failed(
                     key: venue.key,
-                    reason: "\(relFile) 未被 git 追蹤——改寫無回復路徑，先 commit 再跑"))
+                    reason: "\(displaySafeInvisible(relFile, max: 200)) 未被 git 追蹤——改寫無回復路徑，先 commit 再跑"))
                 report.planned.removeLast()
                 continue
             }
@@ -141,14 +141,14 @@ public enum VenueVariantMigration {
                     _ = try store.writeVenue(updated)
                     report.applied += 1
                 } catch {
-                    report.failed.append(Failed(key: venue.key, reason: "寫入失敗：\(error)"))
+                    report.failed.append(Failed(key: venue.key, reason: "寫入失敗：\(displaySafeError(error, max: 4_096))"))
                     report.planned.removeLast()
                 }
             } else {
                 do {
                     try LibraryStore.assertVenueWritable(updated, format: format)
                 } catch {
-                    report.failed.append(Failed(key: venue.key, reason: "寫入閘會拒絕：\(error)"))
+                    report.failed.append(Failed(key: venue.key, reason: "寫入閘會拒絕：\(displaySafeError(error, max: 4_096))"))
                     report.planned.removeLast()
                 }
             }

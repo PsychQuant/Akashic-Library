@@ -580,13 +580,13 @@ public enum IdentifierMigration {
         var blockedVenues: Set<String> = []
         for plan in report.venuePlans {
             guard let v = existingVenues[plan.venueKey] else {
-                report.blockers.append("venue「\(plan.venueKey)」不存在——ISSN 無處可放")
+                report.blockers.append("venue「\(displaySafeInvisible(plan.venueKey, max: 200))」不存在——ISSN 無處可放")
                 blockedVenues.insert(plan.venueKey)
                 continue
             }
             let rel = "entities/\(v.id.uuidString).yaml"
             if trackednessKnown && !tracked.contains(Data(rel.utf8)) {
-                report.blockers.append("venue「\(plan.venueKey)」：\(rel) 未被 git 追蹤")
+                report.blockers.append("venue「\(displaySafeInvisible(plan.venueKey, max: 200))」：\(displaySafeInvisible(rel, max: 200)) 未被 git 追蹤")
                 blockedVenues.insert(plan.venueKey)
                 continue
             }
@@ -603,7 +603,7 @@ public enum IdentifierMigration {
             do {
                 try LibraryStore.assertVenueWritable(candidate, format: storeFormat)
             } catch {
-                report.blockers.append("venue「\(plan.venueKey)」寫入前提不成立：\(error)")
+                report.blockers.append("venue「\(displaySafeInvisible(plan.venueKey, max: 200))」寫入前提不成立：\(displaySafeError(error, max: 4_096))")
                 blockedVenues.insert(plan.venueKey)
             }
         }
@@ -614,14 +614,14 @@ public enum IdentifierMigration {
             uniquingKeysWith: { a, _ in a })
         var blockedEntries: Set<String> = []
         for (ck, vkey) in issnTargetByCitekey where blockedVenues.contains(vkey) {
-            report.blockers.append("\(ck)：ISSN 的落點 venue「\(vkey)」寫不進去——本筆整筆略過")
+            report.blockers.append("\(displaySafeInvisible(ck, max: 200))：ISSN 的落點 venue「\(displaySafeInvisible(vkey, max: 200))」寫不進去——本筆整筆略過")
             blockedEntries.insert(ck)
         }
         if trackednessKnown {
             for updated in updatedEntries
             where !tracked.contains(Data("entities/\(updated.id.uuidString).yaml".utf8)) {
                 report.blockers.append(
-                    "\(updated.citekey)：entities/\(updated.id.uuidString).yaml 未被 git 追蹤"
+                    "\(displaySafeInvisible(updated.citekey, max: 200))：entities/\(updated.id.uuidString).yaml 未被 git 追蹤"
                     + "——改寫無回復路徑，先 commit 再跑")
                 blockedEntries.insert(updated.citekey)
             }

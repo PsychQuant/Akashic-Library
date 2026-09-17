@@ -252,7 +252,7 @@ public extension LibraryStore {
         do {
             audit = try auditSourceIndex()
         } catch {
-            auditError = displaySafeError(error, max: 300)
+            auditError = displaySafeError(error, max: 2_400)
         }
         // **各族逐一，順序與 CLI `validate` 相同**，好讓兩面的輸出逐行對照。
         // 來源以本函式主體為準——寫死的族數在這裡漂過兩次（#416 第一版只寫了三族、

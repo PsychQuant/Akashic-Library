@@ -60,7 +60,7 @@ struct EnrichCmd: ParsableCommand {
             payload = try service.enrich(proposals: proposals, dryRun: !apply,
                                          includeAbsentAuthors: includeAbsentAuthors, itemLimit: nil)
         } catch let e as ServiceError {
-            throw ValidationError(displaySafeErrorMultiline(e))   // display-safe-exempt: ServiceError 自帶消毒（SanitizedErrorDescription），只截
+            throw ValidationError(displaySafeErrorText(e))   // display-safe-exempt: 逃一次不截——CLI 頂層 sink（displaySafeAssembled）截一次（R30 D82；R29 這裡先截 400、頂層再截 400）
         }
 
         if json {

@@ -59,7 +59,7 @@ struct Doctor: ParsableCommand {
                     print("  ⚠ 孤兒 blob（有存檔、index.jsonl 無條目）：\(b)")
                 }
                 for e in srcAudit.danglingEntries {
-                    print("  ⚠ 懸空條目（index.jsonl 有、存檔缺席）：\(e)")
+                    print("  ⚠ 懸空條目（index.jsonl 有、存檔缺席）：\(displaySafeInvisible(e, max: 200))")
                 }
                 if !srcAudit.malformedLines.isEmpty {
                     print("  ✗ index.jsonl 無法解析的行：\(srcAudit.malformedLines.map(String.init).joined(separator: ", "))")
@@ -359,7 +359,7 @@ struct Migrate: ParsableCommand {
                 print("  index rebuilt: \(stats.entries) entries → \(store.indexURL.path)")
             }
         } catch {
-            throw ValidationError(displaySafeErrorMultiline(error))
+            throw ValidationError(displaySafeErrorText(error))
         }
     }
 }
@@ -411,7 +411,7 @@ struct MigrateProvenance: ParsableCommand {
         if !report.failures.isEmpty {
             print("寫入失敗 \(report.failures.count) 筆（其餘已落地，可修好後重跑——遷移是冪等的）：")
             for f in report.failures.prefix(20) {
-                print("  ✗ \(displaySafe(f.record, max: 200)) — \(displaySafeInvisible(f.reason, max: 512))")   // display-safe-exempt: 未消毒——migrate 報告的 reason 是原始錯誤描述（R28 D80：sink 逃一次）
+                print("  ✗ \(displaySafeInvisible(f.record, max: 200)) — \(displaySafeClipOnly(f.reason, max: 4_096))")   // display-safe-exempt: 已消毒——migrate-provenance 的 reason 是字面常量或 displaySafeError 的產出（R30；R29 verify 第 2 列：混合載體），只截
             }
         }
         if dryRun {
@@ -477,7 +477,7 @@ struct MigratePersonIdentity: ParsableCommand {
             if !report.failed.isEmpty {
                 print("處理失敗 \(report.failed.count) 筆（其餘照常；修好後重跑——遷移是冪等的）：")
                 for f in report.failed.prefix(20) {
-                    print("  ⚠ \(displaySafeInvisible(f.file, max: 200))——\(displaySafeInvisible(f.reason, max: 300))")   // display-safe-exempt: 未消毒——migrate-person-identity 的 file／reason 是原始字串（R28 D80）
+                    print("  ⚠ \(displaySafeInvisible(f.file, max: 200))——\(displaySafeClipOnly(f.reason, max: 4_096))")   // display-safe-exempt: reason 已消毒（每個建構點的 store 字串逐項 displaySafeInvisible、錯誤走 displaySafeError，R30；R29 verify 第 2 列）；file 是原始檔名，逃一次
                 }
                 if report.failed.count > 20 { print("  …另 \(report.failed.count - 20) 筆") }
             }
@@ -827,7 +827,7 @@ struct BootstrapOrganizations: ParsableCommand {
                       + o.names.entries.map { displaySafe($0.value, max: 200) }.joined(separator: " ≡ "))
                 written += 1
             } catch {
-                failed.append((key: o.key, why: "\(error)"))
+                failed.append((key: o.key, why: displaySafeError(error, max: 4_096)))
             }
         }
         if !skippedExisting.isEmpty {
@@ -838,7 +838,7 @@ struct BootstrapOrganizations: ParsableCommand {
         if !failed.isEmpty {
             print("write failed（單筆寫入失敗，已略過續跑）: \(failed.count)")
             for f in failed {
-                print("  ✗ \(displaySafe(f.key, max: 200)) — \(displaySafe(f.why, max: 512))")
+                print("  ✗ \(displaySafeInvisible(f.key, max: 200)) — \(displaySafeClipOnly(f.why, max: 4_096))")   // display-safe-exempt: why 已消毒（displaySafeError 產出，R30），只截
             }
         }
         _ = try LibraryIndex(store: store).rebuild()
@@ -1114,12 +1114,12 @@ struct ResolveOrganizations: ParsableCommand {
             var failed: [(String, String)] = []
             for key in grouped.keys.sorted() {
                 do { try store.writeOrganization(grouped[key]!); wrote += 1 }
-                catch { failed.append((key, "\(error)")) }
+                catch { failed.append((key, displaySafeError(error, max: 4_096))) }
             }
             // 先報失敗再 rebuild（R9/M8 紀律）：rebuild 擲錯不得吞掉清單
             if !failed.isEmpty {
                 print("write failed（單筆寫入失敗，已略過續跑）: \(failed.count)")
-                for (k, why) in failed { print("  ✗ org \(displaySafe(k, max: 200)) — \(displaySafe(why, max: 512))") }
+                for (k, why) in failed { print("  ✗ org \(displaySafeInvisible(k, max: 200)) — \(displaySafeClipOnly(why, max: 4_096))") }   // display-safe-exempt: why 已消毒（displaySafeError 產出，R30），只截
             }
             _ = try LibraryIndex(store: store).rebuild()
             if failed.isEmpty {
@@ -1173,7 +1173,7 @@ struct ResolveOrganizations: ParsableCommand {
                     try store.writePerson(p)
                     wroteP += 1
                 } catch {
-                    failed.append((kind: "person", key: p.key, why: "\(error)"))
+                    failed.append((kind: "person", key: p.key, why: displaySafeError(error, max: 4_096)))
                 }
             }
             // entry 側（#378 的作者位歸戶）走**同一套** per-item 收容。
@@ -1185,7 +1185,7 @@ struct ResolveOrganizations: ParsableCommand {
                     try store.writeEntry(e)
                     wroteE += 1
                 } catch {
-                    failed.append((kind: "work", key: e.citekey, why: "\(error)"))
+                    failed.append((kind: "work", key: e.citekey, why: displaySafeError(error, max: 4_096)))
                 }
             }
             // organization 側走**同一套** per-item 收容（#154 verify 154-8 的紀律；
@@ -1196,7 +1196,7 @@ struct ResolveOrganizations: ParsableCommand {
                     try store.writeOrganization(o)
                     wroteO += 1
                 } catch {
-                    failed.append((kind: "org", key: o.key, why: "\(error)"))
+                    failed.append((kind: "org", key: o.key, why: displaySafeError(error, max: 4_096)))
                 }
             }
             // #232 design D6 對稱：apply 的**同一動作**內寫 resolution-confirmed
@@ -1229,19 +1229,19 @@ struct ResolveOrganizations: ParsableCommand {
             for key in confirmTargets.sorted() {
                 guard let i = orgIdx[key] else { continue }
                 do { try store.writeOrganization(updatedOrgs[i]) }
-                catch { confirmFailed.append((key, "\(error)")) }
+                catch { confirmFailed.append((key, displaySafeError(error, max: 4_096))) }
             }
             // **先報失敗**：rebuild 可能自己再擲一次，那會把上面的清單吞掉
             if !failed.isEmpty {
                 print("write failed（單筆寫入失敗，已略過續跑）: \(failed.count)")
                 for f in failed {
-                    print("  ✗ \(f.kind) \(displaySafe(f.key, max: 200)) — \(displaySafe(f.why, max: 512))")
+                    print("  ✗ \(f.kind) \(displaySafeInvisible(f.key, max: 200)) — \(displaySafeClipOnly(f.why, max: 4_096))")   // display-safe-exempt: why 已消毒（displaySafeError 產出，R30），只截
                 }
             }
             if !confirmFailed.isEmpty {
                 print("confirmed verdict 寫入失敗（歸戶已落地、verdict 未落地）: \(confirmFailed.count)")
                 for (k, why) in confirmFailed {
-                    print("  ✗ org \(displaySafe(k, max: 200)) — \(displaySafe(why, max: 512))")
+                    print("  ✗ org \(displaySafeInvisible(k, max: 200)) — \(displaySafeClipOnly(why, max: 4_096))")   // display-safe-exempt: why 已消毒（displaySafeError 產出，R30），只截
                 }
             }
             _ = try LibraryIndex(store: store).rebuild()
@@ -1410,7 +1410,9 @@ struct ExportBib: ParsableCommand {
             entries = entries.filter { wanted.contains($0.citekey) }
             let missing = wanted.subtracting(entries.map(\.citekey))
             guard missing.isEmpty else {
-                throw ValidationError("citekeys 不存在：\(displaySafeInvisible(missing.sorted().joined(separator: ", "), max: 400))")
+                let shown = missing.sorted()   // 逐筆列、有筆數上限（R30；R29 verify 第 30 列：整串截 400 把「哪些不存在」截掉）
+                throw ValidationError("citekeys 不存在：\(shown.prefix(40).map { displaySafeInvisible($0, max: 120) }.joined(separator: ", "))"
+                                      + (shown.count > 40 ? "（另 \(shown.count - 40) 筆）" : ""))   // display-safe-exempt: Int
             }
         }
         let content: String = cslJson

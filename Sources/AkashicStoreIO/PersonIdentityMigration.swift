@@ -183,7 +183,7 @@ public enum PersonIdentityMigration {
                 classified.append(Classified(kind: .legacy, person: person,
                                              url: url, relFile: relFile))
             } catch {
-                let reason = displaySafeError(error, max: 512)   // R29 D81：Error → 文字只走 displaySafeError（自帶消毒的只截、I/O 錯誤逃一次）
+                let reason = displaySafeError(error, max: 4_096)   // R29 D81：Error → 文字只走 displaySafeError（自帶消毒的只截、I/O 錯誤逃一次）
                 report.failed.append((file: relFile, reason: reason))
                 // R3 NEW-1：解不開的檔仍可能與別的檔同 key——它必須**參與**裁決，
                 // 否則隱藏重複會讓 singleton 誤判、照樣重發 id。文字層取頂層 key；
@@ -208,7 +208,7 @@ public enum PersonIdentityMigration {
             if let blind = unparsedKeys[key] {
                 for c in group {
                     report.failed.append((file: c.relFile,
-                        reason: "同 key「\(key)」另有無法解讀的檔（\(blind.joined(separator: "、"))）"
+                        reason: "同 key「\(displaySafeInvisible(key, max: 200))」另有無法解讀的檔（\(blind.map { displaySafeInvisible($0, max: 200) }.joined(separator: "、"))）"
                               + "——修復該檔前不重發 id（隱藏重複無法排除）"))
                 }
                 continue
@@ -254,7 +254,7 @@ public enum PersonIdentityMigration {
                     report.migrated.remove(at: idx)
                 }
                 report.failed.append((file: item.relFile,
-                    reason: "store 有無法解讀且取不到 key 的 person 檔（\(blind)）——"
+                    reason: "store 有無法解讀且取不到 key 的 person 檔（\(displaySafeInvisible(blind, max: 400))）——"
                           + "修復它之前不重發任何 id（隱藏重複無法排除）"))
             }
             work.removeAll()
@@ -285,7 +285,7 @@ public enum PersonIdentityMigration {
                 if let idx = report.migrated.firstIndex(of: item.key) {
                     report.migrated.remove(at: idx)   // 只移一筆——同 key 計數不誤刪（R1 S7）
                 }
-                let reason = displaySafeError(error, max: 512)   // R29 D81：Error → 文字只走 displaySafeError（自帶消毒的只截、I/O 錯誤逃一次）
+                let reason = displaySafeError(error, max: 4_096)   // R29 D81：Error → 文字只走 displaySafeError（自帶消毒的只截、I/O 錯誤逃一次）
                 report.failed.append((file: item.relFile,
                                       reason: "寫入新檔失敗（記錄未動）：\(reason)"))
                 continue
@@ -294,9 +294,9 @@ public enum PersonIdentityMigration {
                 do { try fm.removeItem(at: item.url) } catch {
                     // R1 F6：新檔已寫成、舊檔刪不掉——磁碟是「可偵測的重複」不是
                     // 原狀，report 必須說清楚，不得偽稱失敗未動。
-                    let reason = displaySafeError(error, max: 512)   // R29 D81：Error → 文字只走 displaySafeError（自帶消毒的只截、I/O 錯誤逃一次）
+                    let reason = displaySafeError(error, max: 4_096)   // R29 D81：Error → 文字只走 displaySafeError（自帶消毒的只截、I/O 錯誤逃一次）
                     report.failed.append((file: item.relFile,
-                        reason: "新檔已寫入（\(item.dest.lastPathComponent)）、舊檔刪除失敗"
+                        reason: "新檔已寫入（\(displaySafeInvisible(item.dest.lastPathComponent, max: 200))）、舊檔刪除失敗"
                               + "——目前新舊並存，請手動刪除舊檔：\(reason)"))
                 }
             }
@@ -334,17 +334,17 @@ public enum PersonIdentityMigration {
                 let msgs = errors.prefix(3).map(\.message).joined(separator: "；")
                 report.failed.append((file: keeper.relFile,
                     reason: "已是新形狀但驗證失敗（檔案不動，請手動修復）：\(msgs)"
-                          + "（另有同 key 檔：\(othersOf(ki))）"))
+                          + "（另有同 key 檔：\(displaySafeInvisible(othersOf(ki), max: 400))）"))
             }
             for i in group.indices where i != ki {
                 report.failed.append((file: group[i].relFile,
-                    reason: "重複（中斷殘留）：同 key「\(key)」的新形檔已存在"
-                          + "（\(keeper.relFile)）——請人工確認內容一致後刪除本檔，不自動裁決"))
+                    reason: "重複（中斷殘留）：同 key「\(displaySafeInvisible(key, max: 200))」的新形檔已存在"
+                          + "（\(displaySafeInvisible(keeper.relFile, max: 200))）——請人工確認內容一致後刪除本檔，不自動裁決"))
             }
         } else {
             for i in group.indices {
                 report.failed.append((file: group[i].relFile,
-                    reason: "同 key「\(key)」有 \(group.count) 個檔（另：\(othersOf(i))）"
+                    reason: "同 key「\(displaySafeInvisible(key, max: 200))」有 \(group.count) 個檔（另：\(displaySafeInvisible(othersOf(i), max: 400))）"
                           + "——重複的裁決屬於人；不發新 id、不自動刪任何一個"))
             }
         }
@@ -417,7 +417,7 @@ public enum PersonIdentityMigration {
                                  newText: newText, dest: dest))
             report.migrated.append(person.key)
         } catch {
-            let reason = displaySafeError(error, max: 512)   // R29 D81：Error → 文字只走 displaySafeError（自帶消毒的只截、I/O 錯誤逃一次）
+            let reason = displaySafeError(error, max: 4_096)   // R29 D81：Error → 文字只走 displaySafeError（自帶消毒的只截、I/O 錯誤逃一次）
             report.failed.append((file: c.relFile, reason: "re-encode 失敗：\(reason)"))
         }
     }

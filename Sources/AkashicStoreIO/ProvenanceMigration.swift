@@ -180,7 +180,7 @@ public enum ProvenanceMigration {
                         // Error → 文字只走 `displaySafeError`（R29 D81）。#146 verify G3 曾為此單獨改用 `localizedDescription`
                         // （Foundation 的 `NSError` 不符合 `LocalizedError`，`??` 的 fallback 印出含 atomicWrite 暫存檔名的
                         // 原始 dump）——那個分流現在住在 `ErrorDisplay.describe` 裡，這裡不再自己判。
-                        reason: displaySafeError(error, max: 512)))
+                        reason: displaySafeError(error, max: 4_096)))
                     continue
                 }
             }
@@ -204,7 +204,7 @@ public enum ProvenanceMigration {
                         // Error → 文字只走 `displaySafeError`（R29 D81）。#146 verify G3 曾為此單獨改用 `localizedDescription`
                         // （Foundation 的 `NSError` 不符合 `LocalizedError`，`??` 的 fallback 印出含 atomicWrite 暫存檔名的
                         // 原始 dump）——那個分流現在住在 `ErrorDisplay.describe` 裡，這裡不再自己判。
-                        reason: displaySafeError(error, max: 512)))
+                        reason: displaySafeError(error, max: 4_096)))
                     continue
                 }
             }

@@ -554,8 +554,14 @@ public func displaySafeMultiline(_ s: String, maxLineLength: Int = 400,
             out.append("……（截斷：共 \(lines.count) 行）")
             break
         }
-        let safe = displaySafe(String(line), max: maxLineLength,
+        var safe = displaySafe(String(line), max: maxLineLength,
                                escapingBackslash: escapingBackslash)
+        // 只截支（`displaySafeAssembled`）收的是**已含逃脫序列**的行：截點不得落在 `\u{…}` 中間（R30；R29 verify 第 7／13／16 列）。
+        // 逃脫支不會發生——每個 `\u{…}` 是整段 put。
+        let marker = "…（已截斷）"
+        if !escapingBackslash, safe.hasSuffix(marker) {
+            safe = backingOffPartialEscape(String(safe.dropLast(marker.count))) + marker
+        }
         total += safe.count + 1
         out.append(safe)
     }
@@ -804,14 +810,18 @@ public func displaySafeClipOnly(_ s: String, max: Int) -> String {
     // 的殘端（`\`、`\u`、`\u{`、`\u{2`…`\u{E000`、`\u{E0001`——`\u{` 後最多**六**個十六進位：`escapingInvisibleScalars` 用 `%04X`，對 BMP 以外的
     // scalar 印五位（U+E0001 TAG、U+1D173）、Unicode 上限 10FFFF 六位；R29 第一版寫「四個」，`\u{E0001` 這種殘端不會退讓——R29 verify 前的
     // DA 自問抓到）；`StoreKey.pattern` 的 `\z`、`\A` 這種真反斜線常量不動。
-    var body = String(out.dropLast(marker.count))
-    if let bs = body.lastIndex(of: "\\") {
-        let tail = body[body.index(after: bs)...]
-        let partial = tail.isEmpty || tail == "u"
-            || (tail.hasPrefix("u{") && !tail.contains("}") && tail.dropFirst(2).count <= 6 && tail.dropFirst(2).allSatisfy(\.isHexDigit))
-        if partial { body = String(body[..<bs]) }
-    }
-    return body + marker
+    return backingOffPartialEscape(String(out.dropLast(marker.count))) + marker
+}
+
+/// 截斷後的殘端若長得像半截逃脫序列（`\`、`\u`、`\u{`、`\u{` 後至多六個十六進位、沒閉合）就退到那個反斜線之前；真反斜線常量
+/// （`\A`、`\z`）不動。`displaySafeClipOnly` 與 `displaySafeMultiline` 的只截支（也就是 `displaySafeAssembled`）共用——R29 只裝在前者，
+/// CLI 全域出口與 MCP per-tool 出口照樣截在 `\u{…}` 中間、吐裸反斜線（R29 verify 第 7／11／13／16／21 列，DA 實測窄退讓對 `\A…\z` 零誤傷）。
+func backingOffPartialEscape(_ body: String) -> String {
+    guard let bs = body.lastIndex(of: "\\") else { return body }
+    let tail = body[body.index(after: bs)...]
+    let partial = tail.isEmpty || tail == "u"
+        || (tail.hasPrefix("u{") && !tail.contains("}") && tail.dropFirst(2).count <= 6 && tail.dropFirst(2).allSatisfy(\.isHexDigit))
+    return partial ? String(body[..<bs]) : body
 }
 
 public struct ValidationIssue: Equatable {

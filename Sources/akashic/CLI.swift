@@ -20,6 +20,9 @@ struct AkashicCLI: ParsableCommand {
             try command.run()
         } catch {
             let full = fullMessage(for: error)
+            // 這裡是 CLI 唯一的截斷點：`ValidationError` 包裝送進來的是 `displaySafeErrorText`（逃一次、不截）的文字，
+            // ArgumentParser 加上 `Error: ` 之後在此逐行截 400——與 MCP 的 `displaySafeErrorMultiline(error, prefix: "Error: ")`
+            // 同一條路、同一個字串（R30 D82；R29 verify 第 9 列）。
             // #297 item 1：頂層用不跳脫反斜線的變體——否則帶合法反斜線的常量
             // （`StoreKey.pattern`）與已消毒片段的 `\u{...}` 都會被弄壞。
             // 終端安全不受影響（控制字元／bidi 等仍全部跳脫），理由見該函式 doc。
@@ -128,7 +131,7 @@ struct LibraryOptions: ParsableArguments {
         do {
             return try LibraryLocator.resolveDetailed(explicit: library)
         } catch {
-            throw ValidationError(displaySafeErrorMultiline(error))
+            throw ValidationError(displaySafeErrorText(error))
         }
     }
 

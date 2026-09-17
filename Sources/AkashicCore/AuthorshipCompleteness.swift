@@ -60,7 +60,7 @@ public struct AuthorListFingerprint: Equatable, Hashable, Sendable {
 
 /// Witness 建構／decode 的穩定、typed validation surface。
 public struct AuthorshipCompletenessValidationError:
-    Error, Equatable, LocalizedError, CustomStringConvertible, CustomDebugStringConvertible
+    Error, Equatable, LocalizedError, CustomStringConvertible, CustomDebugStringConvertible, SanitizedErrorDescription
 {
     public enum Reason: Equatable, Hashable, Sendable {
         case malformedFingerprint
@@ -133,23 +133,10 @@ public struct AuthorshipCompletenessValidationError:
     public var description: String { errorDescription ?? "AuthorshipCompletenessValidationError" }
     public var debugDescription: String { description }
 
-    /// 先逐 scalar 做 displaySafe，再以輸出 scalar 數量計預算；永不切斷 escape token。
+    /// 性質式逃一次（列舉式的 `displaySafe` 放過 ZWSP／TAG／變體選擇子——R29 verify 第 3 列），再以**輸出** scalar 截、退讓到完整的逃脫序列。
+    /// 在 `init` 消毒，所以型別自帶消毒（`SanitizedErrorDescription`）：描述端與 sink 只截。
     private static func boundedDisplaySafe(_ raw: String, maximum: Int = 160) -> String {
-        var result = ""
-        var used = 0
-        var truncated = false
-        for scalar in raw.unicodeScalars {
-            let escaped = displaySafe(String(scalar), max: 1)
-            let cost = escaped.unicodeScalars.count
-            if used + cost > maximum - 1 {
-                truncated = true
-                break
-            }
-            result += escaped
-            used += cost
-        }
-        if truncated { result += "…" }
-        return result
+        displaySafeClipOnly(escapingInvisibleScalars(displaySafe(raw, max: .max)), max: maximum)   // display-safe-exempt: 已逃一次（本行左半），只截
     }
 }
 
@@ -181,8 +168,7 @@ public enum AuthorListCompletenessBindingIssue: Equatable, Hashable, Sendable {
 
 /// Programmatic model 與 decode 共用的 deterministic aggregate binding refusal。
 public struct AuthorListCompletenessBindingError:
-    Error, Equatable, LocalizedError, CustomStringConvertible, CustomDebugStringConvertible
-{
+    Error, Equatable, LocalizedError, CustomStringConvertible, CustomDebugStringConvertible, SanitizedErrorDescription {
     public let issues: [AuthorListCompletenessBindingIssue]
 
     public init(issues: [AuthorListCompletenessBindingIssue]) {
@@ -214,9 +200,7 @@ public struct AuthorListCompletenessBindingError:
 
     /// 人類顯示面同時限制筆數與總長；typed `issues` 不截斷。
     private static func boundedDescription(_ text: String, maximum: Int = 480) -> String {
-        let scalars = text.unicodeScalars
-        guard scalars.count > maximum else { return text }
-        return String(String.UnicodeScalarView(scalars.prefix(maximum - 1))) + "…"
+        displaySafeClipOnly(text, max: maximum)   // display-safe-exempt: 內容是 UUID／sha256 hex 與字面常量，只截（R30：scalar prefix 會切在逃脫序列中間）
     }
 }
 

@@ -160,7 +160,7 @@ public enum ZoteroEnrichment {
         } catch {
             // 結構上不可達：每筆提案恰有 citekey、鍵來自 `mappedFields`（已正規化且無撞鍵）、
             // 空提案在上面就歸了 `unchanged`。若真的擲出，寧可大聲失敗也不把一批 citekey 歸錯類。
-            preconditionFailure("ZoteroEnrichment 產出的提案被 AddOnlyEnrichment 拒絕：\(error)")
+            preconditionFailure("ZoteroEnrichment 產出的提案被 AddOnlyEnrichment 拒絕：\(error)")   // display-safe-exempt: preconditionFailure 是程式不變式的崩潰訊息（adapter 自己產的提案被 core 拒），不是 store 面
         }
         for item in core.items {
             let ck = proposals[item.proposalIndex].citekey!

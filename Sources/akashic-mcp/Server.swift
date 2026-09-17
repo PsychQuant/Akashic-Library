@@ -667,8 +667,9 @@ actor AkashicMCPServer {
             // `Ga\u{005C}u{200B}mma`、`\u{005C}A[a-z0-9]…\u{005C}z`：一句修法指示被改寫成不存在的正則（R28 verify 第 1／7／10／17 列，
             // 真 binary 兩面實測不同字串）。`displaySafeErrorMultiline` 對自帶消毒的錯誤（`SanitizedErrorDescription`）只截、其餘
             // （Yams／I/O）逐行逃一次；`SanitizationBoundaryTests` 掃全樹釘住「Error → 文字只走這個入口」。
+            // 前綴進 `displaySafeErrorMultiline` 再截（R30；R29 verify 第 9 列：先截再加 `Error: ` 讓兩面對被截的訊息差 7 個字元）。
             return CallTool.Result(content: [.text(
-                text: "Error: \(displaySafeErrorMultiline(error))",
+                text: displaySafeErrorMultiline(error, prefix: "Error: "),
                 annotations: nil, _meta: nil)], isError: true)
         }
     }

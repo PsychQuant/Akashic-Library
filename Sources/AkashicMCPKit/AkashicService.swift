@@ -1658,7 +1658,7 @@ public final class AkashicService {
         }
         for key in confirmGrouped.keys.sorted() {
             do { try store.writePerson(confirmGrouped[key]!) } catch {
-                confirmWriteFailed[displaySafe(key, max: 200)] =
+                confirmWriteFailed[displaySafeInvisible(key, max: 200)] =
                     displaySafeError(error, max: 512)
             }
         }
@@ -1993,7 +1993,7 @@ public final class AkashicService {
         ]
         if !report.authorsPreserved.isEmpty { d["authorsPreserved"] = report.authorsPreserved.map { displaySafe($0, max: 200) } }
         if !report.quarantineConflicts.isEmpty { d["quarantineConflicts"] = report.quarantineConflicts.map { displaySafe($0, max: 200) } }
-        if !report.writeFailed.isEmpty { d["writeFailed"] = Dictionary(uniqueKeysWithValues: report.writeFailed.map { (displaySafe($0.key, max: 200), displaySafeClipOnly($0.value, max: 512)) }) }   // display-safe-exempt: value 已消毒（ZoteroImporter 的 writeFailed 由 displaySafeError 產出，R29 D81），只截
+        if !report.writeFailed.isEmpty { d["writeFailed"] = Dictionary(uniqueKeysWithValues: report.writeFailed.map { (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512)) }) }   // display-safe-exempt: value 已消毒（ZoteroImporter 的 writeFailed 由 displaySafeError 產出，R29 D81），只截
         return try jsonString(d)
     }
 
@@ -2089,7 +2089,7 @@ public final class AkashicService {
         if !dryRun { d["written"] = written.sorted().map { displaySafe($0, max: 200) } }
         if !writeFailed.isEmpty {
             d["writeFailed"] = Dictionary(uniqueKeysWithValues: writeFailed.map {
-                (displaySafe($0.key, max: 200), displaySafeClipOnly($0.value, max: 512))   // display-safe-exempt: value 已消毒（displaySafeError 產出，R29 D81），只截——R28 verify 第 9 列
+                (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512))   // display-safe-exempt: value 已消毒（displaySafeError 產出，R29 D81），只截——R28 verify 第 9 列
             })
         }
         return try jsonString(d)
@@ -2219,7 +2219,7 @@ public final class AkashicService {
         }
         if !writeFailed.isEmpty {
             d["writeFailed"] = Dictionary(uniqueKeysWithValues: writeFailed.map {
-                (displaySafe($0.key, max: 200), displaySafeClipOnly($0.value, max: 512))   // display-safe-exempt: value 已消毒（displaySafeError 產出，R29 D81），只截——R28 verify 第 9 列
+                (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512))   // display-safe-exempt: value 已消毒（displaySafeError 產出，R29 D81），只截——R28 verify 第 9 列
             })
         }
         return try jsonString(d)
@@ -3801,7 +3801,7 @@ public final class AkashicService {
             var writeFailed: [String: String] = [:]
             for key in grouped.keys.sorted() {
                 do { try store.writeVenue(grouped[key]!) } catch {
-                    writeFailed[displaySafe(key, max: 200)] =
+                    writeFailed[displaySafeInvisible(key, max: 200)] =
                         displaySafeError(error, max: 512)
                 }
             }

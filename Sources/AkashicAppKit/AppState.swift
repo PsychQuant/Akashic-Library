@@ -307,7 +307,7 @@ public final class AppState {
             // 根治（`attempt` 的簽名、兩條分支都不丟）屬 follow-up。
             throw AppStateError.renamedButReloadFailed(
                 report: report,
-                underlying: displaySafeError(error, max: 300))
+                underlying: displaySafeError(error, max: 2_400))
         }
         return report
     }

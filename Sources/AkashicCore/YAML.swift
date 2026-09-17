@@ -734,7 +734,7 @@ public enum EntryYAML {
             _ = try Yams.compose(yaml: out)
         } catch {
             throw StoreYAMLError.invalidField(
-                context, "encode 自檢失敗（產物無法解析）——拒絕寫出：\(displaySafeError(error, max: 300))")   // display-safe-exempt: context 由呼叫端字面常量組成；error 走 Error → 文字的唯一入口（R29 D81）
+                context, "encode 自檢失敗（產物無法解析）——拒絕寫出：\(displaySafeError(error, max: 2_400))")   // display-safe-exempt: context 由呼叫端字面常量組成；error 走 Error → 文字的唯一入口（R29 D81）
         }
     }
 

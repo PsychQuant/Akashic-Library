@@ -23,7 +23,7 @@ final class InvisibleEscapeCoverageTests: XCTestCase {
                                 "Sources/AkashicCore/Models.swift", "Sources/AkashicCore/Identifier.swift"]
     /// 三個 helper 的實作行（Models.swift）——它們自己呼叫 `displaySafe(`，是唯一合法的呼叫端。
     static let helperImplementationLines: Set<String> = [
-        "let safe = displaySafe(String(line), max: maxLineLength,",   // displaySafeMultiline
+        "var safe = displaySafe(String(line), max: maxLineLength,",   // displaySafeMultiline（R30：只截支要退讓，所以是 var）
         "escapingInvisibleScalars(displaySafe(s, max: max))",          // displaySafeInvisible
         "let out = displaySafe(s, max: max, escapingBackslash: false)",   // displaySafeClipOnly（R29：截點退讓搬進來，實作行多了 let）
     ]

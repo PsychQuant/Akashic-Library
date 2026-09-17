@@ -147,5 +147,5 @@ public enum CanonicalFormat {
     }
 
     /// `Failure.reason` 在這裡消毒一次（R28 D80）：`invalidInput`／`StoreYAMLError` 自帶消毒、只截；讀寫的 I/O 錯誤逃脫一次。sink 只截。
-    private static func describe(_ error: Error) -> String { displaySafeError(error, max: 512) }
+    private static func describe(_ error: Error) -> String { displaySafeError(error, max: 4_096) }
 }

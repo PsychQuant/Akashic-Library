@@ -92,9 +92,9 @@ private extension UndeterminedReason {
         case .noSupportingEvidence:
             return "noSupportingEvidence"
         case .supportingEvidenceUnresolved(let literal):
-            return "supportingEvidenceUnresolved(\(displaySafe(literal, max: 120)))"
+            return "supportingEvidenceUnresolved(\(displaySafeInvisible(literal, max: 120)))"
         case .authorIdentityUnresolved(let literal):
-            return "authorIdentityUnresolved(\(displaySafe(literal, max: 120)))"
+            return "authorIdentityUnresolved(\(displaySafeInvisible(literal, max: 120)))"
         case .temporalEvidenceIndeterminate:
             return "temporalEvidenceIndeterminate"
         case .invalidTemporalEvidence:
@@ -112,11 +112,11 @@ private extension UnprojectableReason {
     var safeDescription: String {
         switch self {
         case let .unresolvedSymbol(role, literal):
-            return "unresolvedSymbol(role: \(displaySafe(role, max: 40)), literal: \(displaySafe(literal, max: 120)))"
+            return "unresolvedSymbol(role: \(displaySafeInvisible(role, max: 40)), literal: \(displaySafeInvisible(literal, max: 120)))"
         case let .unknownIdentity(role, key):
-            return "unknownIdentity(role: \(displaySafe(role, max: 40)), key: \(displaySafe(key, max: 120)))"
+            return "unknownIdentity(role: \(displaySafeInvisible(role, max: 40)), key: \(displaySafeInvisible(key, max: 120)))"
         case let .wrongEntityKind(role, key, expected):
-            return "wrongEntityKind(role: \(displaySafe(role, max: 40)), key: \(displaySafe(key, max: 120)), expected: \(displaySafe(expected, max: 40)))"
+            return "wrongEntityKind(role: \(displaySafeInvisible(role, max: 40)), key: \(displaySafeInvisible(key, max: 120)), expected: \(displaySafeInvisible(expected, max: 40)))"
         }
     }
 }
@@ -133,17 +133,14 @@ private func propositionTruthDisplay(_ proposition: Proposition) -> String {
 private func referenceTruthDisplay(_ reference: EntityRef) -> String {
     switch reference {
     case .key(let value):
-        return "key(\(displaySafe(value, max: 120)))"
+        return "key(\(displaySafeInvisible(value, max: 120)))"
     case .literal(let value):
-        return "literal(\(displaySafe(value, max: 120)))"
+        return "literal(\(displaySafeInvisible(value, max: 120)))"
     }
 }
 
 private func boundedTruthRendering(_ value: String) -> String {
-    let safe = displaySafe(value, max: 2_048)
-    let scalars = safe.unicodeScalars
-    guard scalars.count > 2_048 else { return safe }
-    return String(String.UnicodeScalarView(scalars.prefix(2_048)))
+    displaySafeClipOnly(displaySafeInvisible(value, max: 2_048), max: 2_048)   // display-safe-exempt: 已逃一次，輸出上限 2,048、退讓到完整的逃脫序列（R30）
 }
 
 /// 將 Core binding issue 定位回 canonical Entry；citekey 只供診斷與排序，真正 binding
@@ -197,9 +194,7 @@ public struct PropositionModelValidationError:
         // 再施加一層固定顯示上限，避免大量反斜線把三類聚合診斷放大；不改上方完整的
         // machine-readable payload。
         func boundedKey(_ key: String) -> String {
-            let safe = displaySafeInvisible(key, max: 120)
-            guard safe.count > 120 else { return safe }
-            return String(safe.prefix(119)) + "…"
+            displaySafeClipOnly(displaySafeInvisible(key, max: 120), max: 120)   // display-safe-exempt: 已逃一次，輸出上限 120、退讓到完整的逃脫序列（R30；R29 verify 第 20 列：prefix(119) 切在 \u{ 中間）
         }
 
         func summary(label: String, keys: [String]) -> String {
@@ -244,9 +239,7 @@ public struct PropositionModelValidationError:
         }
         let message = "PropositionModel canonical 輸入無效，拒絕構造："
             + problems.joined(separator: "；")
-        let maximum = 2_000
-        guard message.unicodeScalars.count > maximum else { return message }
-        return String(String.UnicodeScalarView(message.unicodeScalars.prefix(maximum - 1))) + "…"
+        return displaySafeClipOnly(message, max: 2_000)   // display-safe-exempt: 各段已逃一次，只截（R30；R29 verify 第 20 列）
     }
 
     public var description: String {

@@ -1059,7 +1059,7 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: name,
-                    reason: displaySafeError(error, max: 512)))
+                    reason: displaySafeError(error, max: 4_096)))
             }
         }
 
@@ -1104,7 +1104,7 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: name,
-                    reason: displaySafeError(error, max: 512)))
+                    reason: displaySafeError(error, max: 4_096)))
             }
         }
         for path in try source.paths("people") {
@@ -1131,7 +1131,7 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: name,
-                    reason: displaySafeError(error, max: 512)))
+                    reason: displaySafeError(error, max: 4_096)))
             }
         }
         for path in try source.paths("libraries") {
@@ -1158,7 +1158,7 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: name,
-                    reason: displaySafeError(error, max: 512)))
+                    reason: displaySafeError(error, max: 4_096)))
             }
         }
         result.entries.sort { $0.citekey < $1.citekey }
@@ -1484,7 +1484,7 @@ extension LibraryStore {
         // 才突然冒出「citekey 重複」。錯誤出現的時間與成因相隔任意長。
         if usesEntitiesLayout, let occupied = quarantinedFileClaiming(citekey: newKey, in: load) {
             throw StoreIOError.invalidKey(
-                "citekey（已被 quarantined 檔「\(occupied)」佔用——修好或移走該檔後再改名）", newKey)
+                "citekey（已被 quarantined 檔「\(displaySafeInvisible(occupied, max: 200))」佔用——修好或移走該檔後再改名）", newKey)
         }
 
         // 1. 寫新檔（先寫後刪，中斷時頂多多一份檔案，不丟資料）。
@@ -1736,7 +1736,7 @@ extension LibraryStore {
         // 只看 people——不看 organizations。
         if let occupied = quarantinedFileClaiming(personKey: newKey, in: load) {
             throw StoreIOError.invalidKey(
-                "person key（已被 quarantined 檔「\(occupied)」佔用——修好或移走該檔後再改名）",
+                "person key（已被 quarantined 檔「\(displaySafeInvisible(occupied, max: 200))」佔用——修好或移走該檔後再改名）",
                 newKey)
         }
 
@@ -1925,7 +1925,7 @@ extension LibraryStore {
                 issues: ["改名會留下 \(stragglers.count) 條指向舊鍵「\(displaySafeInvisible(oldKey, max: 120))」的 verdict，"
                        + "它們在改名後指向一個不存在的鍵（死 verdict，#464）。"
                        + "這表示遷移少了一腿——請補上對應的 holder 迴圈，不要繞過本檢查。"]
-                    + stragglers.map { "  · \($0)" })
+                    + stragglers.map { "  · \($0)" })   // display-safe-exempt: $0 是 verdictsStillPointingAt 逐項 displaySafeInvisible 過的行
         }
     }
 

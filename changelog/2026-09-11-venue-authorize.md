@@ -1111,3 +1111,63 @@ guards 第 28 列與 parity 只列四層（第 25 列）；merge 遺失訊息的
 允許清單仍放行它，修的是站點本身、不是守衛；`TractatusDocs`／`AkashicProposition` 的 Error → 文字入口不在守衛範圍（範圍寫在測試裡，理由是它們不碰
 store 字串）；`escapeAtThrow` 封閉表裡的 `ServiceError` 描述原樣回傳 what／why，「140 個站點全部消毒」由 `testServiceErrorAndValidationErrorThrowSitesSanitizeStoreStrings`
 釘住，但那個守衛認得的「程式構造值」是一張正則表——第 39 列說它是性質式而非封閉列舉，這一輪沒改（每列仍有理由；改成逐站點列舉會讓表與 140 個站點分岔）。
+
+## R29 verify：邊界寫成 protocol，而 payload 不只住在描述裡
+
+六席齊、40 列（9 HIGH／14 MEDIUM／11 LOW／6 INFO）。HIGH 分四群，每一群都是 D81 的**判準**沒把某一種位置算進去：(1) **消毒不只住在描述**——
+`StoreVersionError` 在八個擲出站點以列舉式 `displaySafe` 逃、描述原樣、型別沒 conform，MCP 出口再逃一次（第 4／6／14 列，真 binary：CLI 印
+`bad\u{0007}line`、MCP 印 `bad\u{005C}u{0007}line`）；`AuthorshipCompletenessValidationError` 在 **init** 逃（`boundedDisplaySafe`，大寫 D、列舉式），
+守衛只看描述 body、兩者都漏（第 3 列）。(2) **R29 自己造的雙重逃脫**——`StoreIncarnationError.unreadable` 的擲出端改成 `displaySafeInvisible`＋
+`displaySafeError`，描述端沒跟著改、仍 `displaySafeInvisible` 兩個 payload；同一個 case 的另一個擲出站點（`parse`）傳原值，同一條路徑印成兩個樣子
+（第 1／8 列，真 binary `st\u{005C}u{200B}ore`）。(3) **`"\(error)"` 是守衛的結構盲區**——11 個站點，其中 `DivergenceResolve` 六個落進只截的
+`DivergenceCommands` sink（第 5 列），且該檔的 count 表恰好等於已修的六個。(4) **退讓與上限沒套在 `displaySafeAssembled`**——CLI 全域出口與 MCP
+per-tool 出口照樣截在 `\u{…}` 中間、吐裸反斜線（第 7／11／13／16／21 列，DA 實測窄退讓對 `\A…\z` 零誤傷，R29 保留的顧慮已被 R29 自己修掉）；
+`displaySafeErrorMultiline` 的非自帶消毒支在 96 KB cap **之後**才套 `escapingInvisibleScalars`，實測 720 KB 進 MCP context（第 10／12／15／18 列）。
+還有：兩面「逐字相同」只對沒被截的訊息成立——MCP 先截再加 `Error: `、CLI 先加再截，406 vs 413（第 9 列）；migration 報告的 reason 是混合載體
+（部分建構點 `displaySafeError`、部分原始 key），CLI 對整批再逃一次、exempt 註解說的是假話（第 2 列）；守衛只掃四條 needle、case 粒度，19 個型別裡
+15 個的擲出站點沒人看、`doomedRecordInvalid` 是活的 payload 粒度反例（第 17／22 列）；`displaySafeError` 的 ×8 藏在函式內部，MCP 的
+`applyDict["error"]` 拿到 4,096 而 changelog 說 512（第 23／24 列）；`topLevelArguments` 被插值裡的引號切成兩段、三個站點的裸引數層整段跳過
+（第 26 列）；R29 報告說 `YAML.swift:1605` 包了 `displaySafeInvisible`——HEAD 沒有、包了會被守衛判紅（第 25 列，報告錯、程式對）；
+`wouldLeaveTwoConfirmedLiterals` 不截時印「如上，）；」（第 29 列）；export-bib 的缺席 citekey 清單被截 400（第 30 列）；`DestructiveTargetGate`
+的 copy-paste 路徑被性質式逃脫（第 31 列）；NSError 走 `localizedDescription` 把 `removeItem` 的路徑丟掉（第 32／40 列）；App
+`RecordIssuesSummary` 沒 ×8 且不在 sink 表（第 33 列）；`IdentifierMigration.blockers` 零消毒（第 28 列）；`programBuilt` 兩列的理由比守衛實際做的強
+（第 34／35 列）；Proposition 兩個型別 `prefix()` 切在逃脫序列中間、`safeDescription` 列舉式（第 20／27 列）；Scope（第 19 列）。
+
+## R30 落地：三個入口、一個順序（D82）
+
+**D82（Claude 代裁）：Error → 文字是三個函式、一個順序——先逃一次不截，再由同一個 sink 截；自帶消毒的集合與擲出站點的 needle 全部由原始碼現算，
+payload 粒度比對。** 落到程式上：
+
+- **`displaySafeErrorText`**（AkashicCore）：自帶消毒的原樣，其餘逐行列舉式＋性質式逃一次、LF 保留。**`displaySafeError(_:max:)`** 對它只截，`max`
+  是**輸出** scalar 上限（兩類都是）——呼叫端自己決定消費端裝得下多少：CLI 路徑 4,096／2,400、MCP payload 512（14 個站點沒動，自此真的是 512）。
+  **`displaySafeErrorMultiline(_:prefix:maxLineLength:)`** 把前綴接上之後才交給 `displaySafeAssembled`——逐行截、退讓、96 KB 總量量的是**最終**輸出。
+  MCP 出口與 `Main.swift` 帶前綴；CLI 的五個 `ValidationError` 包裝改送 `displaySafeErrorText`（不截），頂層 sink 截一次；兩面自此對被截斷的訊息也逐字
+  相同（`testTwoFacesAgreeEvenWhenTruncated`）。`ErrorDisplay.describe` 的 NSError 支對 `NSFilePathErrorKey` 在時補回路徑（暫存檔名住在
+  `NSFileNewItemLocationKey`，不取）。
+- **退讓抽成 `backingOffPartialEscape`**，`displaySafeClipOnly` 與 `displaySafeMultiline` 的只截支（即 `displaySafeAssembled`）共用；
+  `testClipBackoffAppliesToAssembledWithoutEatingTrueBackslashes` 釘住 `\A…\z` 不動且 pad 0–11 的多行不截在中間。
+- **三個型別補 conform**：`StoreVersionError`（八個擲出站點改 `displaySafeInvisible`、含 `path`；描述原樣）、`AuthorshipCompletenessValidationError`
+  與 `AuthorListCompletenessBindingError`（`boundedDisplaySafe` 改成「性質式逃一次、輸出上限、退讓」）、`CorpusDiagnostic`（`singleLine` 改性質式）。
+  `StoreIncarnationError.unreadable` 描述端改只截、`parse` 站點也在擲出端逃。`testStoreIncarnationAndStoreVersionErrorsEscapeOnce` 走真的入口驗。
+- **11 個 `"\(error)"`**：DivergenceResolve 六個、Commands.swift 六個（含 `confirmFailed`）、IdentifierMigration、VenueVariantMigration 兩個，全走
+  `displaySafeError`；守衛的入口正則多 `\(error|err|failure|underlying)`。migration 報告的 reason **全部**在建構點消毒（PersonIdentityMigration 的 key／
+  檔名、IdentifierMigration 的 blockers、VenueMigration／VenueVariantMigration 的 relFile），CLI 四個 sink 改只截並進封閉 sink 表（第 2／28 列）。
+- **守衛（`SanitizationBoundaryTests`，16 支）**：`errorTypeDecls()` 全樹列 Error 型別（宣告可跨行、巢狀具名），`typesThrownWithSanitizer()` 列擲出站點帶
+  消毒的型別，`found ＝ 宣告內任一處消毒 ∪ 擲出端消毒`，`conforming == found` 兩個方向都斷言——`escapeAtThrow` 手寫表不存在了；
+  `payloadModes(of:)` 從描述 block 逐 case 解析每個綁定的處置（escaped／clipped／raw／unused），`testEveryThrowSiteEscapesEachPayloadExactlyOnce`
+  對每個 conform 的 enum 的每個擲出站點逐引數對照（描述逃的擲出端不得再逃、描述截或原樣的擲出端必須逃或是字面／程式構造值；陣列字面當字面；
+  同一語句行上的 `display-safe-exempt:` 具名引數可豁免），下限 400 站點；`topLevelArguments` 以巢狀模式追蹤插值裡的字串（第 26 列）；
+  `strippingLineComments` 認得 `\"`；`programBuilt` 多九列（Int 綁定名、`action`、`losses`、`capped`…每列有理由，`confirmWriteFailed` 與 `errors.map`
+  兩列的理由改成真的承重的那句）。新測試：`testDisplaySafeErrorMaxIsAnOutputBound`、`testDisplaySafeErrorMultilineCapsAfterExpansion`
+  （300 行 × 400 ZWSP 的原始錯誤 → ≤ 96 KB＋一行）、`testArgumentSplitterSurvivesInterpolatedStringLiterals`。
+- 其餘：`wouldLeaveTwoConfirmedLiterals` 出路句的標點（第 29 列）；export-bib 缺席 citekey 逐筆列、40 筆上限＋「另 N 筆」（第 30 列）；
+  `DestructiveTargetGate` copy-paste 行改回列舉式 `displaySafe`（`programBuilt` 一列具名理由，第 31 列）；`RecordIssuesSummary` 2,400 並進 sink 表
+  （第 33 列）；AkashicService 五處 payload 字典鍵改 `displaySafeInvisible`（第 35 列）；Proposition 的 `boundedKey`／訊息上限／`safeDescription`／
+  `referenceTruthDisplay`／`boundedTruthRendering` 全改性質式＋退讓截（第 20／27 列）；`Commands.swift:62` 懸空條目逃一次。
+
+**誠實邊界**：`programBuilt` 仍是性質式正則表（R28 verify 第 39 列的裁決不變——每列有理由，改逐站點列舉會與數百個站點分岔）；`errors.map(\.message)`
+那一列放行的是全庫最寬的一條通道，而 `InvisibleEscapeCoverageTests` 只禁止用錯的逃脫器、不要求每個 `ValidationIssue(message:)` 的插值都逃
+——插值層今天零實例（R29 verify 第 34 列的量測），缺口留著、沒開守衛；`strippingLineComments` 對多行字串字面值內容行的 `//` 仍會誤判（第 36 列，
+零實例）；`TractatusDocs`／`tractatus-doc`／`AkashicProposition` 仍不在 Error → 文字入口的掃描範圍（它們的 Error 型別 conform 了、描述已稽核，
+入口本身沒掃——`TractatusValidationFailure` 描述原樣拼接已逃的 diagnostics，走 `displaySafeErrorMultiline` 會再逃一次，今天只有 `tractatus-doc`
+自己的 CLI 印它）；R29 報告第 25 列的錯誤（`YAML.swift:1605`）在 R28 verify 報告 comment 上更正；第 19 列（scope）記錄、交使用者。

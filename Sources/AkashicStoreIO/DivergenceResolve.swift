@@ -139,7 +139,8 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
                     + existing.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: existing 同上
                     + (existingTotal > existing.count ? "\n  …共 \(existingTotal) 筆" : ""))   // display-safe-exempt: Int
                  + "\nverdict 不帶 index，之後那筆 work 的邊在 resolve-venues 的 demote／repoint 上都會被拒（D23）。"
-                 + "出路：把不屬於這條邊的那筆 confirmed verdict 從它所在記錄的 YAML 刪掉（先看「這次合併帶進來的」那幾筆——列出的出處如上，\(broughtTotal > brought.count ? "標「…共 N 筆」時其餘幾筆要開倖存記錄與被併記錄的 YAML 找；" : "")"   // display-safe-exempt: Int 比較與字面常量
+                 + "出路：把不屬於這條邊的那筆 confirmed verdict 從它所在記錄的 YAML 刪掉（先看「這次合併帶進來的」那幾筆——列出的出處如上"
+                 + (broughtTotal > brought.count ? "；標「…共 N 筆」時其餘幾筆要開倖存記錄與被併記錄的 YAML 找" : "")   // display-safe-exempt: Int 比較與字面常量（R30：R29 的版本在不截時印出「如上，）；」——R29 verify 第 29 列）
                  + "）；"
                  + "若那筆 work 另有一條邊指向被併者，也可以先用 resolve-venues --demote 把那條邊退回 literal。"
                  + "不擋的只有：倖存配對合併前就持有整組的違反，以及倖存配對合併前一筆都沒有、整組原樣從單一被併鍵搬來的（holder 遷移；validate 照報 warning）；"
@@ -1722,7 +1723,7 @@ extension LibraryStore {
                     contentsOf: collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: 同上
             } catch {
                 report.failures.append(
-                    "organization「\(org.key)」的 verdict value 遷移寫入失敗：\(error)")
+                    "organization「\(displaySafeInvisible(org.key, max: 200))」的 verdict value 遷移寫入失敗：\(displaySafeError(error, max: 4_096))")
             }
         }
         // venue 同型（#463 verify security 席）：`person:` holder 的 producer 今天只寫 organization，但寫入閘收任何
@@ -1739,7 +1740,7 @@ extension LibraryStore {
                     contentsOf: collapsed.map { "venue「\(venue.key)」：\($0)" })   // display-safe-exempt: 同上
             } catch {
                 report.failures.append(
-                    "venue「\(venue.key)」的 verdict value 遷移寫入失敗：\(error)")
+                    "venue「\(displaySafeInvisible(venue.key, max: 200))」的 verdict value 遷移寫入失敗：\(displaySafeError(error, max: 4_096))")
             }
         }
         // 排除 merged（已刪檔，寫回等於復活）**與 survivor**（commit 已改寫它，快照是舊的——它的遷移在上面 commit 前做）
@@ -1755,7 +1756,7 @@ extension LibraryStore {
                     contentsOf: collapsed.map { "person「\(person.key)」：\($0)" })   // display-safe-exempt: 同上
             } catch {
                 report.failures.append(
-                    "person「\(person.key)」的 verdict value 遷移寫入失敗：\(error)")
+                    "person「\(displaySafeInvisible(person.key, max: 200))」的 verdict value 遷移寫入失敗：\(displaySafeError(error, max: 4_096))")
             }
         }
         return report
@@ -2034,7 +2035,7 @@ extension LibraryStore {
                     contentsOf: collapsed.map { "person「\(person.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
             } catch {
                 report.failures.append(
-                    "person「\(person.key)」的 verdict value 遷移寫入失敗：\(error)")
+                    "person「\(displaySafeInvisible(person.key, max: 200))」的 verdict value 遷移寫入失敗：\(displaySafeError(error, max: 4_096))")
             }
         }
         // venue 同型（#460）：#304 之後 venue 持 `work:` holder 的 verdict
@@ -2054,7 +2055,7 @@ extension LibraryStore {
                     contentsOf: collapsed.map { "venue「\(venue.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
             } catch {
                 report.failures.append(
-                    "venue「\(venue.key)」的 verdict value 遷移寫入失敗：\(error)")
+                    "venue「\(displaySafeInvisible(venue.key, max: 200))」的 verdict value 遷移寫入失敗：\(displaySafeError(error, max: 4_096))")
             }
         }
         // organization 同型（#463，網格的 merge×org 格）：#443 的團體作者升格面與 OrgResolver 會在
@@ -2072,7 +2073,7 @@ extension LibraryStore {
                     contentsOf: collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
             } catch {
                 report.failures.append(
-                    "organization「\(org.key)」的 verdict value 遷移寫入失敗：\(error)")
+                    "organization「\(displaySafeInvisible(org.key, max: 200))」的 verdict value 遷移寫入失敗：\(displaySafeError(error, max: 4_096))")
             }
         }
         // #169：與 preview 側取自**同一個** validateWorkPreconditions 回傳值。
@@ -2305,7 +2306,7 @@ extension LibraryStore {
                 report.rewritten.append(e.citekey)
             } catch {
                 report.failures.append("寫入 \(displaySafeInvisible(e.citekey, max: 200)) 失敗："
-                    + displaySafeError(error, max: 512))
+                    + displaySafeError(error, max: 4_096))
             }
         }
         for d in otherToWrite {
@@ -2314,7 +2315,7 @@ extension LibraryStore {
                 report.rewritten.append(d.id.uuidString)
             } catch {
                 report.failures.append("寫入歧異記錄 \(d.id.uuidString) 失敗："
-                    + displaySafeError(error, max: 512))
+                    + displaySafeError(error, max: 4_096))
             }
         }
 
@@ -2335,7 +2336,7 @@ extension LibraryStore {
                 try FileManager.default.removeItem(at: entityURL(id: id))
             } catch {
                 report.failures.append("刪除 \(id.uuidString) 失敗："
-                    + displaySafeError(error, max: 512))
+                    + displaySafeError(error, max: 4_096))
             }
         }
         // **被併實體沒全刪掉就不刪歧異記錄。** 歧異記錄是唯一記得「這兩筆可能是同
@@ -2379,7 +2380,7 @@ extension LibraryStore {
                 report.removedDivergences.append(old.uuidString)
             } catch {
                 report.failures.append("刪除改名前的歧異記錄 \(old.uuidString) 失敗："
-                    + displaySafeError(error, max: 512))
+                    + displaySafeError(error, max: 4_096))
             }
         }
         for d in collapsed {
@@ -2391,7 +2392,7 @@ extension LibraryStore {
                 report.collapsedDetails.append((id: d.id.uuidString, question: d.question))
             } catch {
                 report.failures.append("刪除塌縮的歧異記錄 \(d.id.uuidString) 失敗："
-                    + displaySafeError(error, max: 512))
+                    + displaySafeError(error, max: 4_096))
             }
         }
         guard !report.hasFailures else {
@@ -2408,7 +2409,7 @@ extension LibraryStore {
                 report.removedDivergences.append(record.id.uuidString)
             } catch {
                 report.failures.append("刪除歧異記錄 \(record.id.uuidString) 失敗："
-                    + displaySafeError(error, max: 512))
+                    + displaySafeError(error, max: 4_096))
             }
         }
         report.rewritten.sort()

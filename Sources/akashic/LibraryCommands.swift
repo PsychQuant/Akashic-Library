@@ -60,7 +60,7 @@ struct LibraryCreate: ParsableCommand {
             let url = try store.writeLibrary(Library(key: key, name: name, description: description))
             print("created: \(url.lastPathComponent)")
         } catch {
-            throw ValidationError(displaySafeErrorMultiline(error))
+            throw ValidationError(displaySafeErrorText(error))
         }
     }
 }
@@ -83,7 +83,7 @@ private func runMembership(options: LibraryOptions, action: String, libraryKey: 
         }
         return report
     } catch let e as ServiceError {
-        throw ValidationError(displaySafeErrorMultiline(e))
+        throw ValidationError(displaySafeErrorText(e))
     }
 }
 

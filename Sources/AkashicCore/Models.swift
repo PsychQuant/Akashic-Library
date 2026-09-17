@@ -785,7 +785,15 @@ public func displaySafe(_ s: String, max: Int = 200,
         }
         emitted += 1
     }
-    let body = String(out)
+    var body = String(out)
+    // 截點不得落在 `\u{…}` 中間（R28 D80；R27 verify DA 第 19 列）：只截不逃的呼叫端收的是**已含逃脫序列**的字串，而 `max` 數的是
+    // 輸出 scalar——pad 對齊時輸出以裸反斜線或半截的 `\u{20` 結尾，「輸出不可偽造」的不變式被截斷本身打掉（`refusalLineMax` 的註解
+    // 早就記過同一個形狀，R22 verify 第 23 列）。逃脫自己的呼叫端不會發生（每個 `\u{…}` 是整段 put）。退回到最後一個沒閉合的 `\u{` 之前。
+    // 只截不逃的輸入裡，反斜線只以 `\u{…}` 的開頭出現（呼叫端契約：已消毒），所以「最後一個反斜線之後沒有 `}`」就是沒閉合的逃脫序列
+    // ——包含只剩 `\`、`\u`、`\u{20` 三種殘端（第一版只找 `\u{`，pad 7 時殘端是裸 `\`、照樣漏）。
+    if truncated, !escapingBackslash, let bs = body.lastIndex(of: "\\"), !body[bs...].contains("}") {
+        body = String(body[..<bs])
+    }
     return truncated ? body + "…（已截斷）" : body
 }
 

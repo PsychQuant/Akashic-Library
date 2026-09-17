@@ -916,7 +916,7 @@ R23 verify Codex 第 1 列；`ProvenanceReference` 自此**刻意不合成 `Hash
 **D73（R26；R25 verify DA 第 17 列、requirements 第 21 列、第 7／25／29 列）**：venue 的 `fieldsLostByMerging` 自此也比 references——它在此之前
 **完全不比**，而 `mergeVerdicts` 只搬 verdict 欄位，被併 venue 的 `paginated` judgement（#406 的判定＋rests-on digest）在純量相同時隨檔案靜默消失、
 零回報；三份遺失偵測的判準同一把（位元組），並在訊息裡說出「倖存者有正規化後相等、位元組不同的一筆」（第 14 列：操作者看到兩筆長得一樣的
-reference 卻被拒）。問「兩筆是不是同一筆」的地方自此是**七處**的封閉列舉（`byteExactKey` 的 doc），`UpdatePerson` 與 `AddOnlyEnrichment` 的
+reference 卻被拒）。問「兩筆是不是同一筆」的地方自此是一張封閉列舉（`byteExactKey` 的 doc；稽核由 `ByteExactKeySiteInventoryTests` 以檔案集合釘住，needle 含 `kindByteKey`、只看程式行——這裡刻意不複述數字，R27 verify 第 9／13 列：本句曾寫「七處」而 doc 已是九處），`UpdatePerson` 與 `AddOnlyEnrichment` 的
 append-only 去重也換了。**D64（R23；R22 verify security 第 14 列）**：D62 留下的同鍵（`verdictEqualityKey` 相同）而 judgement 不同的兩筆，在 R22 沒有任何面看得見——
 `contradictoryVerdicts` 只比 confirmed×rejected、第 27 列的第二類以位元組相異分組——而下一次 person／venue 合併會以 #468 的血統層收成一筆並在
 `verdictsCollapsed` 回報；「零資訊損失」只在 rename 那一步為真，它把一筆判定從「rename 當場刪、有回報」換成「留著、看不見、合併時刪」。現在
@@ -1570,7 +1570,7 @@ organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLo
 而沒記）：spec 已有兩條 validate-time Requirement（authorized／variant 互斥、variant 不帶時間），
 本節的五條與它們同形，**應該**成為 spec 的 Requirement——那要走 spectra-propose，#554 不做
 （#554 的裁決是「既有 tool 的新參數，不走 Spectra」，D8 把它擴成 store 不變式時沒有重開那個
-裁決）。在 spec 補齊之前，本節是唯一的規範來源；follow-up 見 #570。五條，封閉（第 5 條是 R11 加的求值上限，R11 verify 第 13 列指出它先前只住在上面那個括號裡）：
+裁決）。在 spec 補齊之前，本節是唯一的規範來源；follow-up 見 #570。六條，封閉（第 5 條是 R11 加的組內求值上限，R11 verify 第 13 列指出它先前只住在上面那個括號裡；第 6 條是 R18 加的整筆求值總量上限，R27 verify 第 10 列指出它從未進本節——「五條，封閉」對程式的六種 error 級拒絕為假）：
 
 1. **canonical 形**：NFC；無前後空白；內部任何 `White_Space` scalar 串（含 tab、換行、
    NBSP、NNBSP、U+3000）收斂為單一 U+0020。**正規化只丟空白、不刪任何其他 scalar**（空白後的
@@ -1613,6 +1613,14 @@ organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLo
    （fail-closed：`add_names` 不帶時間欄位造不出全豁免組，手改或匯入才造得出，而一本刊改回同名一百次不是真的
    沿革）。訊息以「同名段過多」開頭，與第 4 條的「近重複」在 grep 層面分得開；一組內逐一列出的違反對至多 3 對，
    其餘以「另至多 M 對未評估」概括（M 是未評估的對數）。
+6. **整筆記錄的求值總量上限**（R18 D52；`Venue.validate()` 在讀取路徑同跑）：一筆 venue 的同名段逐對求值總量至多 100,000 對
+   （約 20 組各 100 筆）——放不進剩餘預算的組不評估、整筆 **error**（「求值總量已達上限…一律拒絕」）並說出幾組沒評估，
+   `assertVenueWritable` 因此對該筆所有寫入面關門。person 側的同一層是 warning、只計數且小組先評估（理由在
+   `AuthorizedNames.validateNearDuplicates` 的 doc），本節只管 venue。
+
+**概括句的 severity 不是平的**（R27 D77 → R28）：帶 `則數已達上限` 前綴的那一句是給 `cappedRecords` 讀的記號——有未列出的組
+（真違反或觸頂）時是 error（與被概括的那幾組同級），只有「已列出但求值提前停止」（列滿 3 對違反、或達第 5 條的組內上限）或
+整筆上限擋掉的組時是 warning，不重複第 6 條的 fail-closed。第 5 條的「超過即 error」說的是**那一組**的訊息，不是概括句。
 
 **修法是人改 YAML**（不猜、不靜默修）：訊息逐條說改什麼——改成 canonical 寫法、刪掉那個
 字元、刪掉那一筆、或把沿革段補上不相交的時間。工具不提供 `--repair`。同一句訊息也出現在

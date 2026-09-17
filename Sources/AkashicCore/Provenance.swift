@@ -267,7 +267,7 @@ public struct ProvenanceReference: Equatable {
         }
         // field 來自 YAML 檔案（未信任）——錯誤訊息一律用消毒後的值（#139 守衛
         // 合併掃描面後照出；行級掃描對跨行 throw 有盲區，所以這裡整批處理）
-        let safeField = displaySafe(field, max: 120)
+        let safeField = displaySafeInvisible(field, max: 120)
         let hasRetrievalSide = url != nil || retrieved != nil || status != nil
             || mediaType != nil || content != nil
         let hasJudgementSide = judgement != nil || !restsOn.isEmpty
@@ -305,7 +305,7 @@ public struct ProvenanceReference: Equatable {
             guard Self.isValidDigest(content) else {
                 throw StoreYAMLError.invalidField(
                     "reference(field: \(safeField)).content",
-                    "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafe(content, max: 120))」")
+                    "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafeInvisible(content, max: 120))」")
             }
             self.init(field: field, value: value,
                       kind: .retrieval(url: url, retrieved: retrieved, status: status,
@@ -325,7 +325,7 @@ public struct ProvenanceReference: Equatable {
             for d in restsOn where !Self.isValidDigest(d) {
                 throw StoreYAMLError.invalidField(
                     "reference(field: \(safeField)).rests-on",
-                    "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafe(d, max: 120))」")
+                    "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafeInvisible(d, max: 120))」")
             }
             self.init(field: field, value: value,
                       kind: .judgement(statement: judgement, restsOn: restsOn))
@@ -404,14 +404,14 @@ public enum ProvenanceYAML {
             for k in map.keys.compactMap({ $0.scalar?.string }) where !knownKeys.contains(k) {
                 throw StoreYAMLError.invalidField(
                     "\(context).references[\(i)]",
-                    "不認得的鍵「\(displaySafe(k, max: 120))」——reference 內的鍵是 strict（合法鍵："
+                    "不認得的鍵「\(displaySafeInvisible(k, max: 120))」——reference 內的鍵是 strict（合法鍵："
                     + knownKeys.sorted().joined(separator: "、") + "）")
             }
             func scalar(_ key: String) throws -> String? {
                 guard let n = map[key] else { return nil }
                 guard let s = n.scalar?.string else {
                     throw StoreYAMLError.invalidField(
-                        "\(context).references[\(i)].\(key)", "必須是 scalar")
+                        "\(context).references[\(i)].\(displaySafeInvisible(key, max: 120))", "必須是 scalar")
                 }
                 return s
             }
@@ -419,7 +419,7 @@ public enum ProvenanceYAML {
             if let raw = try scalar("status") {
                 guard let n = Int(raw) else {
                     throw StoreYAMLError.invalidField(
-                        "\(context).references[\(i)].status", "必須是整數，實得「\(raw)」")
+                        "\(context).references[\(i)].status", "必須是整數，實得「\(displaySafeInvisible(raw, max: 120))」")
                 }
                 status = n
             }
@@ -464,13 +464,13 @@ extension Person {
                 let pool = r.field == "names" ? names.all : names.authorized
                 guard let v = r.value else {
                     throw StoreYAMLError.invalidField(
-                        "person.references(field: \(r.field))",
-                        "\(r.field) 是清單，reference 必須帶 value 指名支持的是哪個值（D2）")
+                        "person.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                        "\(displaySafeInvisible(r.field, max: 120)) 是清單，reference 必須帶 value 指名支持的是哪個值（D2）")
                 }
                 guard pool.contains(v) else {
                     throw StoreYAMLError.invalidField(
-                        "person.references(field: \(r.field))",
-                        "value「\(v)」不在 \(r.field) 清單內——值被改寫後 provenance 成了孤兒，"
+                        "person.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                        "value「\(displaySafeInvisible(v, max: 120))」不在 \(displaySafeInvisible(r.field, max: 120)) 清單內——值被改寫後 provenance 成了孤兒，"
                         + "把 value 更新成現值或移除這筆 reference")
                 }
             case "orcid", "openalex", "died", "note":
@@ -478,8 +478,8 @@ extension Person {
                 // 就是安靜的垃圾欄位，拒絕並說明 value 屬於清單欄位的定位（D2）
                 guard r.value == nil else {
                     throw StoreYAMLError.invalidField(
-                        "person.references(field: \(r.field))",
-                        "\(r.field) 是純量欄位，不收 value——value 是清單欄位"
+                        "person.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                        "\(displaySafeInvisible(r.field, max: 120)) 是純量欄位，不收 value——value 是清單欄位"
                         + "（names/authorized）的定位用（D2）")
                 }
                 let present: Bool
@@ -491,8 +491,8 @@ extension Person {
                 }
                 guard present else {
                     throw StoreYAMLError.invalidField(
-                        "person.references(field: \(r.field))",
-                        "記錄沒有 \(r.field) 欄位——reference 指名的欄位必須存在")
+                        "person.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                        "記錄沒有 \(displaySafeInvisible(r.field, max: 120)) 欄位——reference 指名的欄位必須存在")
                 }
             case "profile.affiliations", "profile.ranks", "profile.administrative",
                  "profile.appointments", "profile.fields":
@@ -506,8 +506,8 @@ extension Person {
                 }
                 guard !empty else {
                     throw StoreYAMLError.invalidField(
-                        "person.references(field: \(r.field))",
-                        "記錄的 \(r.field) 是空的——reference 指名的欄位必須存在")
+                        "person.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                        "記錄的 \(displaySafeInvisible(r.field, max: 120)) 是空的——reference 指名的欄位必須存在")
                 }
             case _ where ProvenanceReference.resolutionVerdictFields.contains(r.field):
                 // #232：verdict 虛欄位（封閉對）——value 定位配對（<kind>:<key> ::
@@ -516,20 +516,20 @@ extension Person {
                 // 讓它進 store 等於允許一個靜默 no-op 的判定。
                 guard case .judgement = r.kind else {
                     throw StoreYAMLError.invalidField(
-                        "person.references(field: \(r.field))",
+                        "person.references(field: \(displaySafeInvisible(r.field, max: 120)))",
                         "verdict 必須是判斷型（judgement）——擷取型帶不動人為裁決")
                 }
                 guard let v = r.value,
                       ProvenanceReference.VerdictPairingValue.parse(v) != nil else {
                     throw StoreYAMLError.invalidField(
-                        "person.references(field: \(r.field))",
-                        "\(r.field) 的 value 必須是「<kind>:<key> :: <literal>」"
+                        "person.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                        "\(displaySafeInvisible(r.field, max: 120)) 的 value 必須是「<kind>:<key> :: <literal>」"
                         + "（kind ∈ work/person/org）——verdict 沒有可解析的配對即無錨")
                 }
             default:
                 throw StoreYAMLError.invalidField(
-                    "person.references(field: \(r.field))",
-                    "person 沒有可附著 reference 的欄位「\(r.field)」（合法：names、authorized、"
+                    "person.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                    "person 沒有可附著 reference 的欄位「\(displaySafeInvisible(r.field, max: 120))」（合法：names、authorized、"
                     + "orcid、openalex、died、note、profile.affiliations、profile.ranks、"
                     + "profile.administrative、profile.appointments、profile.fields、"
                     + "resolution-confirmed、resolution-rejected）")
@@ -566,7 +566,7 @@ extension Organization {
                 guard names.entries.contains(where: { $0.value == v }) else {
                     throw StoreYAMLError.invalidField(
                         "organization.references(field: names)",
-                        "value「\(v)」不在 names 內——值被改寫後 provenance 成了孤兒")
+                        "value「\(displaySafeInvisible(v, max: 120))」不在 names 內——值被改寫後 provenance 成了孤兒")
                 }
             case "authorized":
                 guard let v = r.value else {
@@ -577,13 +577,13 @@ extension Organization {
                 guard authorized.contains(v) else {
                     throw StoreYAMLError.invalidField(
                         "organization.references(field: authorized)",
-                        "value「\(v)」不在 authorized 清單內")
+                        "value「\(displaySafeInvisible(v, max: 120))」不在 authorized 清單內")
                 }
             case "founded", "dissolved", "note", "ror":
                 guard r.value == nil else {
                     throw StoreYAMLError.invalidField(
-                        "organization.references(field: \(r.field))",
-                        "\(r.field) 是純量欄位，不收 value（D2）")
+                        "organization.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                        "\(displaySafeInvisible(r.field, max: 120)) 是純量欄位，不收 value（D2）")
                 }
                 let present: Bool
                 switch r.field {
@@ -595,8 +595,8 @@ extension Organization {
                 }
                 guard present else {
                     throw StoreYAMLError.invalidField(
-                        "organization.references(field: \(r.field))",
-                        "記錄沒有 \(r.field) 欄位——reference 指名的欄位必須存在")
+                        "organization.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                        "記錄沒有 \(displaySafeInvisible(r.field, max: 120)) 欄位——reference 指名的欄位必須存在")
                 }
             case "parents":
                 guard !parents.isEmpty else {
@@ -608,20 +608,20 @@ extension Organization {
                 // #232：同 person 側——封閉對、judgement 必須、value 必須可解析
                 guard case .judgement = r.kind else {
                     throw StoreYAMLError.invalidField(
-                        "organization.references(field: \(r.field))",
+                        "organization.references(field: \(displaySafeInvisible(r.field, max: 120)))",
                         "verdict 必須是判斷型（judgement）——擷取型帶不動人為裁決")
                 }
                 guard let v = r.value,
                       ProvenanceReference.VerdictPairingValue.parse(v) != nil else {
                     throw StoreYAMLError.invalidField(
-                        "organization.references(field: \(r.field))",
-                        "\(r.field) 的 value 必須是「<kind>:<key> :: <literal>」"
+                        "organization.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                        "\(displaySafeInvisible(r.field, max: 120)) 的 value 必須是「<kind>:<key> :: <literal>」"
                         + "（kind ∈ work/person/org）——verdict 沒有可解析的配對即無錨")
                 }
             default:
                 throw StoreYAMLError.invalidField(
-                    "organization.references(field: \(r.field))",
-                    "organization 沒有可附著 reference 的欄位「\(r.field)」"
+                    "organization.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                    "organization 沒有可附著 reference 的欄位「\(displaySafeInvisible(r.field, max: 120))」"
                     + "（合法：names、authorized、founded、dissolved、note、ror、parents、"
                     + "resolution-confirmed、resolution-rejected）")
             }
@@ -652,7 +652,7 @@ extension Venue {
                 guard names.entries.contains(where: { $0.value == v }) else {
                     throw StoreYAMLError.invalidField(
                         "venue.references(field: names)",
-                        "value「\(v)」不在 names 內——值被改寫後 provenance 成了孤兒")
+                        "value「\(displaySafeInvisible(v, max: 120))」不在 names 內——值被改寫後 provenance 成了孤兒")
                 }
             case "authorized":
                 guard let v = r.value else {
@@ -663,7 +663,7 @@ extension Venue {
                 guard authorized.contains(v) else {
                     throw StoreYAMLError.invalidField(
                         "venue.references(field: authorized)",
-                        "value「\(v)」不在 authorized 清單內")
+                        "value「\(displaySafeInvisible(v, max: 120))」不在 authorized 清單內")
                 }
             case "issn":
                 // #394：ISSN 是清單——print 與 electronic 是兩個真的號，所以一筆
@@ -677,7 +677,7 @@ extension Venue {
                 guard identifierListContains(issn, value: v, ISSN.init) else {
                     throw StoreYAMLError.invalidField(
                         "venue.references(field: issn)",
-                        "value「\(displaySafe(v, max: 120))」不在 issn 清單內"
+                        "value「\(displaySafeInvisible(v, max: 120))」不在 issn 清單內"
                         + "——值被改寫後 provenance 成了孤兒，"
                         + "把 value 更新成現值或移除這筆 reference")
                 }
@@ -715,7 +715,7 @@ extension Venue {
                     guard ["true", "false", "nil"].contains(v) else {
                         throw StoreYAMLError.invalidField(
                             "venue.references(field: paginated)",
-                            "value「\(displaySafe(v, max: 60))」不在封閉三值（true／false／nil）內"
+                            "value「\(displaySafeInvisible(v, max: 60))」不在封閉三值（true／false／nil）內"
                             + "——nil 是撤回判定，不是「沒有值」")
                     }
                 }
@@ -743,20 +743,20 @@ extension Venue {
                 // **實測 817 筆，這一格是承重的。**
                 guard case .judgement = r.kind else {
                     throw StoreYAMLError.invalidField(
-                        "venue.references(field: \(r.field))",
+                        "venue.references(field: \(displaySafeInvisible(r.field, max: 120)))",
                         "verdict 必須是判斷型（judgement）——擷取型帶不動人為裁決")
                 }
                 guard let v = r.value,
                       ProvenanceReference.VerdictPairingValue.parse(v) != nil else {
                     throw StoreYAMLError.invalidField(
-                        "venue.references(field: \(r.field))",
-                        "\(r.field) 的 value 必須是「<kind>:<key> :: <literal>」"
+                        "venue.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                        "\(displaySafeInvisible(r.field, max: 120)) 的 value 必須是「<kind>:<key> :: <literal>」"
                         + "（kind ∈ work/person/org）——verdict 沒有可解析的配對即無錨")
                 }
             default:
                 throw StoreYAMLError.invalidField(
-                    "venue.references(field: \(r.field))",
-                    "venue 沒有可附著 reference 的欄位「\(displaySafe(r.field, max: 120))」"
+                    "venue.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                    "venue 沒有可附著 reference 的欄位「\(displaySafeInvisible(r.field, max: 120))」"
                     + "（合法：names、authorized、issn、note、paginated、"
                     + "resolution-confirmed、resolution-rejected）")
             }
@@ -808,7 +808,7 @@ extension Entry {
                         || AuthorRemovalRecordValue.parse(statement) != nil else {
                     throw StoreYAMLError.invalidField(
                         "entry.references(field: authors)",
-                        "statement「\(displaySafe(statement, max: 200))」不是合法的作者位記錄文法"
+                        "statement「\(displaySafeInvisible(statement, max: 200))」不是合法的作者位記錄文法"
                         + "（拆分 `拆為 ⟦a⟧ ⟦b⟧…：理由`：段 ≥ 2、括號平衡、理由非空；"
                         + "移除 `移除：理由`：理由非空）")
                 }
@@ -827,8 +827,8 @@ extension Entry {
                 guard let v = r.value else {
                     guard case .retrieval = r.kind else {
                         throw StoreYAMLError.invalidField(
-                            "entry.references(field: \(r.field))",
-                            "\(r.field) 的 reference 沒帶 value 時說的是「對這個欄位做過的一次查找」"
+                            "entry.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                            "\(displaySafeInvisible(r.field, max: 120)) 的 reference 沒帶 value 時說的是「對這個欄位做過的一次查找」"
                             + "，必須是擷取型（retrieval：url 與日期沒有別的地方記）。"
                             + "要說某一個號的來源就帶上那個 value")
                     }
@@ -842,8 +842,8 @@ extension Entry {
                 }
                 guard ok else {
                     throw StoreYAMLError.invalidField(
-                        "entry.references(field: \(r.field))",
-                        "value「\(displaySafe(v, max: 120))」不在 \(r.field) 清單內"
+                        "entry.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                        "value「\(displaySafeInvisible(v, max: 120))」不在 \(displaySafeInvisible(r.field, max: 120)) 清單內"
                         + "——值被改寫後 provenance 成了孤兒")
                 }
             case _ where r.field.hasPrefix(ProvenanceReference.workFieldPrefix):
@@ -855,14 +855,14 @@ extension Entry {
                 let key = String(r.field.dropFirst(ProvenanceReference.workFieldPrefix.count))
                 guard !key.isEmpty else {
                     throw StoreYAMLError.invalidField(
-                        "entry.references(field: \(r.field))",
+                        "entry.references(field: \(displaySafeInvisible(r.field, max: 120)))",
                         "「\(ProvenanceReference.workFieldPrefix)」後面要接 fields 的鍵名")
                 }
                 // **純量欄位不收 value**（D2，比照 `note`／`founded`）：`fields` 的每個鍵恰有
                 // 一個值，沒有「支持哪一個」可說。
                 guard r.value == nil else {
                     throw StoreYAMLError.invalidField(
-                        "entry.references(field: \(r.field))",
+                        "entry.references(field: \(displaySafeInvisible(r.field, max: 120)))",
                         "fields 的每個鍵恰有一個值，reference 不收 value（D2）")
                 }
                 // **刻意不檢查 `fields[key]` 在場**——那正是負結果的形狀：欄位缺席 ＋ 一筆
@@ -875,8 +875,8 @@ extension Entry {
                 break
             default:
                 throw StoreYAMLError.invalidField(
-                    "entry.references(field: \(r.field))",
-                    "work 沒有可附著 reference 的欄位「\(displaySafe(r.field, max: 120))」"
+                    "entry.references(field: \(displaySafeInvisible(r.field, max: 120)))",
+                    "work 沒有可附著 reference 的欄位「\(displaySafeInvisible(r.field, max: 120))」"
                     + "（合法：doi、pmid、isbn、authors、fields.<鍵名>）")
             }
         }

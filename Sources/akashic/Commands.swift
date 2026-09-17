@@ -169,7 +169,7 @@ struct Doctor: ParsableCommand {
         // #23 tolerant-preserve：較新 schema 的檔案（未知欄位已保留）——提示升級
         if !load.unknownFieldFiles.isEmpty {
             print("unknown-field files: \(load.unknownFieldFiles.count)（可能由較新版本寫入；升級 binary）")
-            load.unknownFieldFiles.forEach { print("  ⚠ \(displaySafe($0, max: 200))") }
+            load.unknownFieldFiles.forEach { print("  ⚠ \(displaySafeInvisible($0, max: 200))") }
         }
     }
 }
@@ -411,7 +411,7 @@ struct MigrateProvenance: ParsableCommand {
         if !report.failures.isEmpty {
             print("寫入失敗 \(report.failures.count) 筆（其餘已落地，可修好後重跑——遷移是冪等的）：")
             for f in report.failures.prefix(20) {
-                print("  ✗ \(displaySafe(f.record, max: 200)) — \(displaySafe(f.reason, max: 512))")
+                print("  ✗ \(displaySafe(f.record, max: 200)) — \(displaySafeInvisible(f.reason, max: 512))")   // display-safe-exempt: 未消毒——migrate 報告的 reason 是原始錯誤描述（R28 D80：sink 逃一次）
             }
         }
         if dryRun {
@@ -477,7 +477,7 @@ struct MigratePersonIdentity: ParsableCommand {
             if !report.failed.isEmpty {
                 print("處理失敗 \(report.failed.count) 筆（其餘照常；修好後重跑——遷移是冪等的）：")
                 for f in report.failed.prefix(20) {
-                    print("  ⚠ \(displaySafe(f.file, max: 200))——\(displaySafe(f.reason, max: 300))")
+                    print("  ⚠ \(displaySafeInvisible(f.file, max: 200))——\(displaySafeInvisible(f.reason, max: 300))")   // display-safe-exempt: 未消毒——migrate-person-identity 的 file／reason 是原始字串（R28 D80）
                 }
                 if report.failed.count > 20 { print("  …另 \(report.failed.count - 20) 筆") }
             }
@@ -1424,7 +1424,7 @@ struct ExportBib: ParsableCommand {
             let report = BibExport.apa7Report(entries: entries, people: load.people, venues: load.venues)
             for issue in report.issues {
                 FileHandle.standardError.write(Data(
-                    "[\(issue.severity.rawValue.uppercased())] \(displaySafe(issue.citekey, max: 200)): \(displaySafe(issue.message, max: 300))\n".utf8))
+                    "[\(issue.severity.rawValue.uppercased())] \(displaySafe(issue.citekey, max: 200)): \(displaySafe(issue.message, max: 300))\n".utf8))   // display-safe-exempt: 未消毒——BibExport 的 message 只由欄位名常量組成（R28 D80）
             }
             if !report.uncheckedCitekeys.isEmpty {
                 // **「沒被檢查」必須說出來**——否則零 issue 會被讀成「已驗過」。

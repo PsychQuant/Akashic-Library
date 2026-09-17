@@ -298,7 +298,7 @@ public final class AkashicService {
             for issue in report.issues {
                 header += "% [\(issue.severity.rawValue.uppercased())] "
                     + "\(displaySafe(issue.citekey, max: 200)): "
-                    + "\(displaySafe(issue.message, max: 300))\n"
+                    + "\(displaySafe(issue.message, max: 300))\n"   // display-safe-exempt: 未消毒——BibExport 的 message 只由欄位名常量組成，不是 ValidationIssue 那一族（R28 D80）
             }
             if !report.uncheckedCitekeys.isEmpty {
                 header += "% note: \(report.uncheckedCitekeys.count) 筆的 entry type "   // display-safe-exempt: Int
@@ -362,7 +362,7 @@ public final class AkashicService {
                 "count": cross.count,
                 "first": cross.prefix(20).map {
                     ["severity": $0.severity == .error ? "error" : "warning",
-                     "message": displaySafe($0.message, max: 300)]
+                     "message": displaySafeClipOnly($0.message, max: 300)]   // display-safe-exempt: 已消毒（crossRecordIssues 在生產端 displaySafeInvisible，R27 D75／R28 D80），只截——R27 verify 第 2／4 列
                 },
             ] as [String: Any]
         }
@@ -452,12 +452,12 @@ public final class AkashicService {
             // R11（R10-verify M19）：reason 含 Yams 展開的逐字檔案內容且不截斷——
             // MCP 情境下是直接灌進 LLM context 的無上限未信任字串。
             d["quarantined"] = health.quarantined.map {
-                ["file": displaySafe($0.file, max: 300), "reason": displaySafeClipOnly($0.reason, max: 512)]   // display-safe-exempt: reason 已消毒（QuarantinedFile 生產端 displaySafeInvisible，R27 D75），只截
+                ["file": displaySafeInvisible($0.file, max: 300), "reason": displaySafeClipOnly($0.reason, max: 512)]   // display-safe-exempt: reason 已消毒（QuarantinedFile 生產端，R27 D75／R28 D80），只截；file 是原始檔名——R27 verify 第 3 列
             }
         }
         // #23 tolerant-preserve：較新 schema 的檔案可用但應提示升級
         if !health.unknownFieldFiles.isEmpty {
-            d["unknownFieldFiles"] = health.unknownFieldFiles.map { displaySafe($0, max: 200) }
+            d["unknownFieldFiles"] = health.unknownFieldFiles.map { displaySafeInvisible($0, max: 200) }
         }
         guard fatalCross.isEmpty else {
             d["entries"] = load.entries.count
@@ -917,7 +917,7 @@ public final class AkashicService {
                 report.written.append(entry.citekey)
                 report.libraries[entry.citekey] = entry.akashic.libraries
             } catch {
-                report.writeFailures.append(.init(citekey: entry.citekey, error: Self.describe(error)))
+                report.writeFailures.append(.init(citekey: entry.citekey, error: displaySafeError(error, max: 512)))
             }
         }
         // 3. 一次 rebuild
@@ -1062,7 +1062,7 @@ public final class AkashicService {
                     applyDict = try parsed(try resolvePeople(apply: applyIDs, reject: nil, confirmTiers: confirmTiers))
                 } catch {
                     applyDict = [
-                        "error": displaySafe(String(describing: error), max: 512),
+                        "error": displaySafeError(error, max: 512),
                         "note": "reject 腿已提交（見 legs.reject）——本錯誤只屬 apply 腿",
                     ]
                 }
@@ -1303,7 +1303,7 @@ public final class AkashicService {
             for key in grouped.keys.sorted() {
                 do { try store.writePerson(grouped[key]!) } catch {
                     rejectWriteFailed[displaySafe(key, max: 200)] =
-                        displaySafe(String(describing: error), max: 512)
+                        displaySafeError(error, max: 512)
                 }
             }
             // R5：協調配對在寫入之後、以落地者為準（過濾 rejectWriteFailed）
@@ -1322,7 +1322,7 @@ public final class AkashicService {
                 try LibraryIndex(store: store).rebuild()
             } catch {
                 throw ServiceError.invalid(
-                    "index rebuild 失敗：\(displaySafe(String(describing: error), max: 512))"
+                    "index rebuild 失敗：\(displaySafeError(error, max: 512))"
                     + "（本批已改寫 \(grouped.count - rejectWriteFailed.count) 筆 person；"
                     + "rejectWriteFailed \(rejectWriteFailed.count) 筆）")   // display-safe-exempt: 計數是 Int；error 已 displaySafe
             }
@@ -1629,7 +1629,7 @@ public final class AkashicService {
                 try store.writeEntry(after)
                 written += 1
             } catch {
-                writeFailed[after.citekey] = displaySafe(String(describing: error), max: 512)
+                writeFailed[after.citekey] = displaySafeError(error, max: 512)
             }
         }
         // #232 design D6：apply 的**同一動作**內寫 resolution-confirmed——只寫
@@ -1658,7 +1658,7 @@ public final class AkashicService {
         for key in confirmGrouped.keys.sorted() {
             do { try store.writePerson(confirmGrouped[key]!) } catch {
                 confirmWriteFailed[displaySafe(key, max: 200)] =
-                    displaySafe(String(describing: error), max: 512)
+                    displaySafeError(error, max: 512)
             }
         }
         // R9（R8-verify M8）：rebuild 擲錯不得吞掉 writeFailed 報告
@@ -1669,7 +1669,7 @@ public final class AkashicService {
             // confirmWriteFailed 一併列（verify GAP-11——漏了它，rebuild 失敗那次
             // 「verdict 沒落地」的報告就整個消失）。
             throw ServiceError.invalid(
-                "index rebuild 失敗：\(displaySafe(String(describing: error), max: 512))（本批已改寫 \(written) 檔；writeFailed \(writeFailed.count) 筆：\(writeFailed.map { "\(displaySafe($0.key, max: 200))（\($0.value)）" }.sorted().joined(separator: "; "))；confirmWriteFailed \(confirmWriteFailed.count) 筆：\(confirmWriteFailed.keys.sorted().joined(separator: "、"))）")   // display-safe-exempt: written 是 Int；writeFailed 值與 confirmWriteFailed 鍵在插入時已 displaySafe（不冪等，不再包）
+                "index rebuild 失敗：\(displaySafeError(error, max: 512))（本批已改寫 \(written) 檔；writeFailed \(writeFailed.count) 筆：\(writeFailed.map { "\(displaySafe($0.key, max: 200))（\($0.value)）" }.sorted().joined(separator: "; "))；confirmWriteFailed \(confirmWriteFailed.count) 筆：\(confirmWriteFailed.keys.sorted().joined(separator: "、"))）")   // display-safe-exempt: written 是 Int；writeFailed 值與 confirmWriteFailed 鍵在插入時已 displaySafe（不冪等，不再包）
         }
         // R8（R7-verify L15）：applied 不誇報——排除寫入失敗的候選
         // R3-1 附帶：applied 回音同列表三段 pinned 形；R5 raw 不截斷（同 rejected
@@ -1778,7 +1778,7 @@ public final class AkashicService {
                 planned.append(try validatedEntry(from: d, existing: &existing, format: gateFormat))
             } catch {
                 throw ServiceError.invalid(
-                    "第 \(i + 1) 筆「\(displaySafe(d.title, max: 120))」：\(Self.describe(error))——整批拒絕，零寫入")   // display-safe-exempt: Int
+                    "第 \(i + 1) 筆「\(displaySafeInvisible(d.title, max: 120))」：\(displaySafeError(error, max: 400))——整批拒絕，零寫入")   // display-safe-exempt: Int；title 以性質逃脫（R28 E2E：TAG 字元曾原樣進 MCP 錯誤）
             }
         }
         // 2. 逐筆寫（exclusive：目的檔存在 fail-closed），I/O 失敗收容
@@ -1789,16 +1789,12 @@ public final class AkashicService {
                 report.created.append(.init(index: i, citekey: entry.citekey, id: entry.id))
             } catch {
                 report.writeFailures.append(.init(index: i, title: entry.title, citekey: entry.citekey,
-                                                  error: Self.describe(error)))
+                                                  error: displaySafeError(error, max: 512)))
             }
         }
         // 3. 一次 rebuild（有寫入才跑）
         if !report.created.isEmpty { try LibraryIndex(store: store).rebuild() }
         return report
-    }
-
-    private static func describe(_ error: Error) -> String {
-        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
     }
 
     /// 單筆驗證：從 draft 算出可寫的 `Entry`，並把它的 citekey 加進 `existing`。**不動磁碟**。
@@ -1977,7 +1973,7 @@ public final class AkashicService {
             try LibraryIndex(store: store).rebuild()
         } catch {
             throw ServiceError.invalid(
-                "index rebuild 失敗：\(displaySafe(String(describing: error), max: 512))（本趟 import 已落地：created \(report.created.count)、updated \(report.updated.count)、orphaned \(report.orphaned.count)；writeFailed \(report.writeFailed.count) 筆：\(report.writeFailed.keys.sorted().map { displaySafe($0, max: 200) }.joined(separator: ", "))）")
+                "index rebuild 失敗：\(displaySafeError(error, max: 512))（本趟 import 已落地：created \(report.created.count)、updated \(report.updated.count)、orphaned \(report.orphaned.count)；writeFailed \(report.writeFailed.count) 筆：\(report.writeFailed.keys.sorted().map { displaySafe($0, max: 200) }.joined(separator: ", "))）")
         }
         var d: [String: Any] = [
             "created": report.created.map { displaySafe($0, max: 200) },
@@ -2037,7 +2033,7 @@ public final class AkashicService {
                     try store.writeEntry(ZoteroEnrichment.applied(a, to: entry))
                     written.append(a.citekey)
                 } catch {
-                    writeFailed[a.citekey] = String(describing: error)
+                    writeFailed[a.citekey] = displaySafeError(error, max: 512)
                 }
             }
             if !written.isEmpty { try LibraryIndex(store: store).rebuild() }
@@ -2131,7 +2127,7 @@ public final class AkashicService {
                                               includeAbsentAuthors: includeAbsentAuthors)
         } catch {
             // core 的 InputError 已指名第 N 筆與理由；欄位名來自呼叫端＝未信任字串，消毒後轉出。
-            throw ServiceError.invalid(displaySafe(Self.describe(error), max: 512))
+            throw ServiceError.invalid(displaySafeError(error, max: 512))
         }
 
         var byCitekey: [String: Entry] = [:]
@@ -2152,7 +2148,7 @@ public final class AkashicService {
                     try store.writeEntry(byCitekey[ck]!)
                     written.append(ck)
                 } catch {
-                    writeFailed[ck] = Self.describe(error)
+                    writeFailed[ck] = displaySafeError(error, max: 512)
                 }
             }
             if !written.isEmpty {
@@ -2162,7 +2158,7 @@ public final class AkashicService {
                     indexRebuilt = true
                 } catch {
                     throw ServiceError.invalid(
-                        "index rebuild 失敗：\(displaySafe(String(describing: error), max: 512))"
+                        "index rebuild 失敗：\(displaySafeError(error, max: 512))"
                         + "（本趟已落地 \(written.count) 筆："   // display-safe-exempt: Int
                         + "\(written.sorted().map { displaySafe($0, max: 200) }.joined(separator: ", "))）")
                 }
@@ -2250,7 +2246,7 @@ public final class AkashicService {
                 try LibraryIndex(store: store).rebuild()
             } catch {
                 throw ServiceError.invalid(
-                    "index rebuild 失敗：\(displaySafe(String(describing: error), max: 512))"
+                    "index rebuild 失敗：\(displaySafeError(error, max: 512))"
                     + "（本趟 import 已落地：created \(report.created.count)、"
                     + "enriched \(report.enriched.count)）")
             }
@@ -2779,9 +2775,13 @@ public final class AkashicService {
         let afterBytes = Set(after.map { Array($0.utf8) })
         let afterCanon = Set(after.map { NameIdentity.canonical($0) })
         var folded: [String] = [], alreadyPresent: [String] = [], dropped: [String] = []
+        var seenInBatch: Set<String> = []
         for r in requested {
             let c = NameIdentity.canonical(r)
             if beforeCanon.contains(c) { alreadyPresent.append(r); continue }
+            // 同批的第二筆起一律 folded——`afterBytes` 是集合，分不出「第一筆實際存入」與「同批位元組相同、被去重」（R28；R27 verify Codex 第 7 列：
+            // `["Journal", "Journal"]` 兩筆都命中 afterBytes、零回報，而兩面描述承諾回報同批去重）
+            if !seenInBatch.insert(c).inserted { folded.append(r); continue }
             if afterBytes.contains(Array(r.utf8)) { continue }
             if afterCanon.contains(c) { folded.append(r) } else { dropped.append(r) }
         }
@@ -3751,7 +3751,7 @@ public final class AkashicService {
             } else {
                 do { applyDict = try parsed(try resolveVenues(apply: applyIDs, reject: nil)) }
                 catch {
-                    applyDict = ["error": displaySafe(String(describing: error), max: 512),
+                    applyDict = ["error": displaySafeError(error, max: 512),
                                  "note": "reject 腿已提交——本錯誤只屬 apply 腿"]
                 }
             }
@@ -3798,7 +3798,7 @@ public final class AkashicService {
             for key in grouped.keys.sorted() {
                 do { try store.writeVenue(grouped[key]!) } catch {
                     writeFailed[displaySafe(key, max: 200)] =
-                        displaySafe(String(describing: error), max: 512)
+                        displaySafeError(error, max: 512)
                 }
             }
             var result: [String: Any] = [

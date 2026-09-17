@@ -82,14 +82,14 @@ public enum PersonIdentityMigration {
         public var errorDescription: String? {
             switch self {
             case .noRecoveryPath(let d):
-                return "store 不在可用的 git 工作樹內（\(displaySafe(d, max: 200))）"
+                return "store 不在可用的 git 工作樹內（\(displaySafeInvisible(d, max: 200))）"
                      + "——本遷移不可逆，git 是它的回復路徑；先把 store 納入版控再 --apply"
             case .dirtyWorktree(let d):
                 // d 是 git status 的路徑列——store 衍生內容，消毒後才可見
                 return "store 工作樹有未提交變更——在其上重寫檔名會讓 git checkout 救不回來。"
-                     + "請先 commit（或 stash）再 --apply。未提交的路徑：\(displaySafe(d, max: 400))"
+                     + "請先 commit（或 stash）再 --apply。未提交的路徑：\(displaySafeInvisible(d, max: 400))"
             case .untrackedContent(let d):
-                return "store 的 person 檔未被 git 追蹤（\(displaySafe(d, max: 200))）——"
+                return "store 的 person 檔未被 git 追蹤（\(displaySafeInvisible(d, max: 200))）——"
                      + "工作樹「乾淨」對被 ignore 的內容是空話，刪掉的舊檔 git 救不回。"
                      + "先 git add + commit（或修 .gitignore）再 --apply"
             }
@@ -475,8 +475,8 @@ public enum PersonIdentityMigration {
                 guard raw.hasSuffix("]"), !raw.contains("\""), !raw.contains("'"),
                       !raw.dropFirst().dropLast().contains("["), !raw.dropFirst().dropLast().contains("]") else {
                     throw StoreYAMLError.invalidField(
-                        "person.\(key)",
-                        "無法辨識的 \(key) 寫法（帶引號或巢狀的 flow style）——"
+                        "person.\(displaySafeInvisible(key, max: 120))",
+                        "無法辨識的 \(displaySafeInvisible(key, max: 120)) 寫法（帶引號或巢狀的 flow style）——"
                         + "請手動改為 block 形（每行一個「- 名字」）後重跑")
                 }
                 let items = raw.dropFirst().dropLast()
@@ -485,7 +485,7 @@ public enum PersonIdentityMigration {
                     .filter { !$0.isEmpty }
                 guard !items.isEmpty else {
                     throw StoreYAMLError.invalidField(
-                        "person.\(key)", "flow style 的 \(key) 是空的——無法摺疊，請手動修復")
+                        "person.\(displaySafeInvisible(key, max: 120))", "flow style 的 \(displaySafeInvisible(key, max: 120)) 是空的——無法摺疊，請手動修復")
                 }
                 lines.remove(at: idx)
                 return items
@@ -500,8 +500,8 @@ public enum PersonIdentityMigration {
             }
             guard !items.isEmpty else {
                 throw StoreYAMLError.invalidField(
-                    "person.\(key)",
-                    "無法辨識的 \(key) 寫法（非 canonical 塊形）——請手動改為每行一個"
+                    "person.\(displaySafeInvisible(key, max: 120))",
+                    "無法辨識的 \(displaySafeInvisible(key, max: 120)) 寫法（非 canonical 塊形）——請手動改為每行一個"
                     + "「- 名字」後重跑")
             }
             lines.removeSubrange(start..<end)

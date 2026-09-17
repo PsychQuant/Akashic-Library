@@ -316,7 +316,9 @@ public struct Venue: Equatable {
         // 回傳值分兩個旗標（R27 D77；R26 verify Codex 第 5 列、logic 第 12 列：R26 回傳 `capHit && listed == 0`，那是 R11 為**措辭**定的旗標，
         // 拿它當「這一組的求值被截了嗎」用——一組列出 1–2 對違反、其餘評到 5,000 對上限時 `listedCapHit` 不遞增、整筆記錄零概括句、
         // `cappedRecords` 漏計；R26 的測試用 110 段全不相交、`listed == 0`，與缺陷互補而非覆蓋）：`capHit`＝求值被截、`violating`＝至少一對違反。
-        func evaluateGroup(_ segs: [TemporalValue<String>]) -> (issues: [ValidationIssue], capHit: Bool, violating: Bool, evaluated: Int) {
+        // R28（R27 verify Codex 第 6 列、requirements 第 23 列）：`truncated`＝求值提前停止（列滿 `pairsToList` 對**或**達 `pairsToEvaluate`）——
+        // 兩種提前離開都讓「另至多 M 對未評估」為真，都要進 `cappedRecords`；`capHit` 只管 5,000 那一個截點（措辭與 unlisted 的分類用它）
+        func evaluateGroup(_ segs: [TemporalValue<String>]) -> (issues: [ValidationIssue], capHit: Bool, truncated: Bool, violating: Bool, evaluated: Int) {
             var out: [ValidationIssue] = []
                 var listed = 0, evaluated = 0
                 let total = segs.count * (segs.count - 1) / 2
@@ -333,7 +335,7 @@ public struct Venue: Equatable {
                                        + (capHit
                                           ? "——同名段超過逐對評估的上限（\(pairsToEvaluate) 對，約 100 筆）一律拒絕：請把同名沿革段收攏，或在 YAML 裡留一筆"   // display-safe-exempt: Int 常量
                                           : "——請在 YAML 裡留一筆（沿革改回舊名要兩段都帶不相交的時間）")))
-                            return (out, capHit, listed > 0, evaluated)
+                            return (out, capHit, true, listed > 0, evaluated)
                         }
                         evaluated += 1
                         let a = segs[i].range, b = segs[j].range
@@ -352,7 +354,7 @@ public struct Venue: Equatable {
                                    + "與「\(displaySafeInvisible(segs[j].value, max: 120))」——\(why)"))   // display-safe-exempt: why 是本函式的兩句字面常量
                     }
                 }
-            return (out, false, listed > 0, evaluated)
+            return (out, false, false, listed > 0, evaluated)
         }
         for k in order {
             let segs = groups[k]!
@@ -368,7 +370,7 @@ public struct Venue: Equatable {
             // R17 的概括句對只觸發組內求值上限的組說「已評估且真的違反」，兩句都假）
             guard listedGroups < Entry.perRecordWarningCap else { if found.capHit && !found.violating { unlistedCapHit += 1 } else { unlistedViolating += 1 }; continue }
             listedGroups += 1
-            if found.capHit { listedCapHit += 1 }
+            if found.truncated { listedCapHit += 1 }
             issues.append(contentsOf: found.issues)
         }
         if budgetHit {
@@ -405,7 +407,7 @@ public struct Venue: Equatable {
             var parts: [String] = []
             if unlistedViolating > 0 { parts.append("另有 \(unlistedViolating) 組近重複（每一組都真的違反；部分組可能只評估到組內上限）未列出") }
             if unlistedCapHit > 0 { parts.append("另有 \(unlistedCapHit) 組同名段過多（求值到組內上限即拒，沒有一對被判定違反）未列出") }
-            if listedCapHit > 0 { parts.append("已列出的組裡 \(listedCapHit) 組只評估了前 \(pairsToEvaluate) 對") }
+            if listedCapHit > 0 { parts.append("已列出的組裡 \(listedCapHit) 組求值提前停止（列滿 \(pairsToList) 對違反、或達組內 \(pairsToEvaluate) 對的上限）") }
             if unevaluatedGroups > 0 { parts.append("\(unevaluatedGroups) 組同名段未評估（整筆記錄求值總量已達 \(pairsToEvaluatePerRecord) 對的上限）") }
             issues.append(ValidationIssue(
                 severity: unlistedViolating + unlistedCapHit > 0 ? .error : .warning,

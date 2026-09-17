@@ -179,7 +179,7 @@ final class VerdictHolderGridTests: XCTestCase {
         for op in [{ _ = try self.store.previewResolveDivergence(id: d.id, survivor: "keep2020a", overrideReason: nil) },
                    { _ = try self.store.resolveDivergence(id: d.id, survivor: "keep2020a") }] {
             XCTAssertThrowsError(try op()) { err in
-                guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(let record, _, let ck, _, _) = err else { return XCTFail("要具名拒絕：\(err)") }
+                guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(let record, _, let ck, _, _, _, _) = err else { return XCTFail("要具名拒絕：\(err)") }
                 XCTAssertEqual(record, "alpha"); XCTAssertEqual(ck, "keep2020a")
                 // 出處與**遷移前**的原值（DA 第 17 列：R13 印遷移後的 `work:keep :: …`，那個字串不在任何 YAML 裡）
                 let s = err.localizedDescription
@@ -951,7 +951,7 @@ final class VerdictHolderGridTests: XCTestCase {
         let d = try divergence(keeper: "keep2020a", doomed: "doom2020a", shape: .work)
         GitFixture.commitAll(store.root)
         XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "keep2020a")) { err in
-            guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, _, let brought, let existing) = err else { return XCTFail("要具名拒絕：\(err)") }
+            guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, _, let brought, let existing, _, _) = err else { return XCTFail("要具名拒絕：\(err)") }
             XCTAssertEqual(brought.count, 2, "\(brought)"); XCTAssertEqual(existing.count, 1, "\(existing)")
             XCTAssertTrue((existing.first ?? "").contains("Gamma Review"), "\(existing)")
             // 位置以 -1 代表缺席（負控會讓標題或項目消失，斷言要紅不要 crash）
@@ -1058,7 +1058,7 @@ final class VerdictHolderGridTests: XCTestCase {
         let d = try divergence(keeper: "keep2020a", doomed: "doom2020a", shape: .work)
         GitFixture.commitAll(store.root)
         XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "keep2020a", overrideReason: nil)) { err in
-            guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, let brought, let existing) = err else { return XCTFail("要具名拒絕：\(err)") }
+            guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, let brought, let existing, _, _) = err else { return XCTFail("要具名拒絕：\(err)") }
             XCTAssertEqual(ck, "keep2020a")
             XCTAssertEqual(brought.count, 1, "\(brought)"); XCTAssertTrue((brought.first ?? "").contains("work:doom2020a :: Beta Review"), "\(brought)")
             XCTAssertEqual(existing.count, 1, "\(existing)"); XCTAssertTrue((existing.first ?? "").contains("work:keep2020a :: Alpha Journal"), "\(existing)")

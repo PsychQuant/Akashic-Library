@@ -17,7 +17,7 @@ final class ByteExactKeySiteInventoryTests: XCTestCase {
             "Sources/AkashicCore/Provenance.swift",              // 定義
             "Sources/akashic-guards/BacklinkRatchetData.swift",  // 守衛的裁決表（computed 欄位要具名）
             "Sources/AkashicStoreIO/LibraryStore.swift",         // migratedVerdicts 的折疊（D62／D65）
-            "Sources/AkashicStoreIO/StoreHealth.swift",          // duplicateVerdictRecordIssues（D64）
+            "Sources/AkashicStoreIO/StoreHealth.swift",          // duplicateVerdictRecordIssues（D64）——用的是 kindByteKey
             "Sources/AkashicStoreIO/DivergenceResolve.swift",    // fieldsLostByMerging ×3（D69／D73）
             "Sources/AkashicMCPKit/AkashicService.swift",        // paginated 冪等閘 ×2（D69）
             "Sources/AkashicMCPKit/UpdatePerson.swift",          // references append-only 去重（D73）
@@ -26,8 +26,16 @@ final class ByteExactKeySiteInventoryTests: XCTestCase {
         let sources = Self.repoRoot.appendingPathComponent("Sources")
         var found: Set<String> = []
         let e = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+        // R28（R27 verify DA 第 21 列，mutation 實證）：needle 是 `byteExactKey|kindByteKey`、只看**程式**行——`StoreHealth` 真正的判定點用
+        // `kindByteKey`（`byteExactKey` 只在一行註解裡出現），R27 的守衛改一行註解就紅、新增一個只用 `kindByteKey` 的判定點卻全綠
         for case let url as URL in e where url.pathExtension == "swift" {
-            if try String(contentsOf: url, encoding: .utf8).contains("byteExactKey") {
+            let code = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map { line -> Substring in
+                let t = line.drop { $0 == " " }
+                if t.hasPrefix("//") { return "" }
+                if let c = line.range(of: "   //") { return line[..<c.lowerBound] }   // 行尾的 exempt／說明註解
+                return line
+            }.joined(separator: "\n")
+            if code.contains("byteExactKey") || code.contains("kindByteKey") {
                 found.insert(String(url.path.dropFirst(Self.repoRoot.path.count + 1)))
             }
         }

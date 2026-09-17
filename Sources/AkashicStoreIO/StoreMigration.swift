@@ -49,26 +49,27 @@ public enum StoreMigration {
                 return """
                     有 \(keys.count) 組記錄會映到同一個目的檔——遷移中止。\
                     照做會讓後寫的覆蓋前寫的、而兩份來源都被刪除，**永久失去一筆**。\
-                    先修好重複的 id / key：\(keys.prefix(5).map { displaySafe($0, max: 200) }.joined(separator: "、"))
+                    先修好重複的 id / key：\(keys.prefix(5).map { displaySafeInvisible($0, max: 200) }.joined(separator: "、"))
                     """
             case let .crossRecordIssues(msgs):
+                let shown = msgs.prefix(3).map { displaySafeClipOnly($0, max: 300) }.joined(separator: "；")   // display-safe-exempt: 已消毒（crossRecordIssues 在生產端 displaySafeInvisible，R27 D75／R28 D80），只截——R27 verify 第 2／29 列
                 return """
                     store 有 \(msgs.count) 個跨記錄問題（重複 citekey / key）——遷移中止。\
-                    搬過去只會把問題帶進新佈局：\(msgs.prefix(3).map { displaySafe($0, max: 300) }.joined(separator: "；"))
+                    搬過去只會把問題帶進新佈局：\(shown)
                     """
             case let .legacyDeletionFailed(files):
                 return """
                     entities/ 已寫入，但有 \(files.count) 個 legacy 檔刪不掉，\
                     **store format 未 bump**（仍是 1，讀取端照舊佈局運作，資料一致）。\
                     手動刪掉它們之後重跑 akashic migrate：\
-                    \(files.prefix(5).map { displaySafe($0, max: 300) }.joined(separator: "、"))
+                    \(files.prefix(5).map { displaySafeInvisible($0, max: 300) }.joined(separator: "、"))
                     """
             case let .quarantinedFilesPresent(files):
                 return """
                     有 \(files.count) 個檔案無法載入（quarantined），遷移中止——\
                     它們的內容讀不出來，搬過去只會把問題帶到新佈局並失去「哪個檔壞了」的線索。\
                     先用 akashic doctor 看清楚並修好：\
-                    \(files.prefix(5).map { displaySafe($0, max: 200) }.joined(separator: "、"))\
+                    \(files.prefix(5).map { displaySafeInvisible($0, max: 200) }.joined(separator: "、"))\
                     \(files.count > 5 ? "…等 \(files.count) 個" : "")
                     """
             }

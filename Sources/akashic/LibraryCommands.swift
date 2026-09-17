@@ -77,7 +77,7 @@ private func runMembership(options: LibraryOptions, action: String, libraryKey: 
         let report = try service.setMembership(action: action, key: libraryKey, citekeys: citekeys)
         guard report.writeFailures.isEmpty else {
             for f in report.writeFailures {
-                print("  ! \(displaySafe(f.citekey, max: 200)) — \(displaySafe(f.error, max: 400))")
+                print("  ! \(displaySafe(f.citekey, max: 200)) — \(displaySafeClipOnly(f.error, max: 400))")   // display-safe-exempt: error 已消毒（生產端 displaySafeError，R28 D80），只截
             }
             throw ValidationError("\(report.writeFailures.count) 筆寫入失敗（其餘已寫入且 index 已重建）")   // display-safe-exempt: Int
         }

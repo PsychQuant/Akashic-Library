@@ -213,7 +213,7 @@ final class DivergenceResolveVenueTests: XCTestCase {
         for op in [{ _ = try self.store.previewResolveDivergence(id: d.id, survivor: "alpha", overrideReason: nil) },
                    { _ = try self.store.resolveDivergence(id: d.id, survivor: "alpha") }] {
             XCTAssertThrowsError(try op()) { err in
-                guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, _, _) = err else { return XCTFail("要具名拒絕：\(err)") }
+                guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, _, _, _, _) = err else { return XCTFail("要具名拒絕：\(err)") }
                 XCTAssertEqual(ck, "w1")
                 XCTAssertTrue(err.localizedDescription.contains("venue「alpha-old」"), "出處要指向被併者：\(err)")
                 // R16（D45；R15 verify 第 12 列）：整組住在被併記錄裡的仍擋，末句要說它擋、不得說「含住在被併鍵上的不擋」
@@ -302,7 +302,7 @@ final class DivergenceResolveVenueTests: XCTestCase {
         try store.writeDivergence(d)
         GitFixture.commitAll(root, message: "seed")
         XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "alpha")) { err in
-            guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, _, _) = err else { return XCTFail("要具名拒絕：\(err)") }
+            guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, _, _, _, _) = err else { return XCTFail("要具名拒絕：\(err)") }
             XCTAssertEqual(ck, "w1", "擋的是這次合併會新增第二個 confirmed literal 的 w1，不是 keeper 自己既有的 w9")
         }
         // 拿掉 doomed 那筆 confirmed → 只剩 keeper 自己的既有違反（w9）→ 合併不擋
@@ -770,7 +770,7 @@ final class DivergenceResolveVenueTests: XCTestCase {
         for op in [{ _ = try self.store.previewResolveDivergence(id: d.id, survivor: "alpha", overrideReason: nil) },
                    { _ = try self.store.resolveDivergence(id: d.id, survivor: "alpha") }] {
             XCTAssertThrowsError(try op()) { err in
-                guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, let brought, let existing) = err else { return XCTFail("\(err)") }
+                guard case DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(_, _, let ck, let brought, let existing, _, _) = err else { return XCTFail("\(err)") }
                 XCTAssertEqual(ck, "w9")
                 XCTAssertEqual(brought.count, 1, "\(brought)")
                 XCTAssertTrue((brought.first ?? "").contains("Gamma Review") && (brought.first ?? "").contains("alpha-old"), "\(brought)")

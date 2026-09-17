@@ -224,9 +224,13 @@ public enum AuthorizedNames {
     ///
     /// **有上限**（#554 R26 D72、#576；R25 verify DA 第 2 列 HIGH：「名字數是個位數量級、O(n²) 不是問題」對手改與反覆合併的記錄為假——
     /// `mergedPersonKeeper` 把每個被併者的 `names.all` 全部 append 進倖存者的 variant、無上限，200 個共用 matchingKey 的變體真 binary 吐
-    /// 19,900 則、7.6 MB、`cappedRecords` 0）。與 venue 側同一套：先以 `matchingKey` 分組（O(n)），一組一則、每筆記錄至多
+    /// 19,900 則、7.6 MB、`cappedRecords` 0）。五層的**形狀**與 venue 側同一套：先以 `matchingKey` 分組（O(n)），一組一則、每筆記錄至多
     /// `Entry.perRecordWarningCap` 組、其餘一句 `Entry.perRecordCapSummaryPrefix` 概括；組內逐對評估至多 `pairsToEvaluate` 對、只列前
-    /// `pairsToList` 對；**整筆記錄至多 `pairsToEvaluatePerRecord` 對**（R27 D76——R26 漏了這第五層，見函式內的註解）。名字以 `displaySafeInvisible` 迴送（D74：person 名字沒有 venue 那道 D8 不變式，ZWSP／TAG 寫得進來）。
+    /// `pairsToList` 對；**整筆記錄至多 `pairsToEvaluatePerRecord` 對**（R27 D76——R26 漏了這第五層）。**第五層的結果與 venue 不同**（R27 verify
+    /// 第 22／30／34 列）：venue 觸頂是 error、整筆拒絕；person 只計數、warning 級（理由在函式內：variant 由合併無上限 append，數量大不是錯）。
+    /// 所以 person 側多兩件事讓「只計數」不變成「靜默丟掉真違反」（R28）：**小組先評估**（組依大小升冪，預算被零資訊量的巨型組吃掉時，
+    /// 真近重複所在的小組已經看過了——R27 的插入序讓 20 組 × 101 個同鍵名字把其後 25 組真違反全部餓死、rc 0），**預算不鎖存**（超過剩餘預算的
+    /// 組跳過，後面放得下的照評）。名字以 `displaySafeInvisible` 迴送（D74：person 名字沒有 venue 那道 D8 不變式，ZWSP／TAG 寫得進來）。
     public static func validateNearDuplicates(names: [String],
                                               ownerKey: String) -> [ValidationIssue] {
         let pairsToEvaluate = 5_000, pairsToList = 3
@@ -245,14 +249,15 @@ public enum AuthorizedNames {
         }
         var issues: [ValidationIssue] = []
         var listed = 0, unlistedViolating = 0, unlistedCapHit = 0, listedCapHit = 0
-        var evaluatedTotal = 0, unevaluatedGroups = 0, budgetHit = false
-        for k in order {
+        var evaluatedTotal = 0, unevaluatedGroups = 0
+        // 小組先（R28；R27 verify DA 第 22 列）：巨型同鍵組每組吃 `pairsToEvaluate`、零資訊量，排在最後；同大小依首見序（sort 不穩定，帶索引）
+        let ordered = order.enumerated().sorted { (groups[$0.element]!.count, $0.offset) < (groups[$1.element]!.count, $1.offset) }.map(\.element)
+        for k in ordered {
             let g = groups[k]!
             guard g.count > 1 else { continue }
             let total = g.count * (g.count - 1) / 2
-            if budgetHit || evaluatedTotal + min(total, pairsToEvaluate) > pairsToEvaluatePerRecord {
-                budgetHit = true; unevaluatedGroups += 1; continue
-            }
+            // 不鎖存（R28；R27 verify regression 第 30 列）：只跳過放不進剩餘預算的組——升冪之後它們必然是排在最後的那幾組
+            if evaluatedTotal + min(total, pairsToEvaluate) > pairsToEvaluatePerRecord { unevaluatedGroups += 1; continue }
             var pairs: [(String, String)] = []
             var evaluated = 0, capHit = false
             outer: for i in g.indices {
@@ -273,7 +278,7 @@ public enum AuthorizedNames {
                 // 不該把它算成近重複；R26 在這裡印「其中 0 對是**近重複**（）」加一句叫人裁決 0 對——logic 第 14 列、requirements 第 30 列）
                 issues.append(ValidationIssue(
                     severity: .warning,
-                    message: "'\(displaySafeInvisible(ownerKey, max: 120))' 的名字有 \(g.count) 筆共用配對鍵過多——只評估了前 \(evaluated) 對、沒有一對被判定違反，"   // display-safe-exempt: Int
+                    message: "'\(displaySafeInvisible(ownerKey, max: 120))' 的名字有 \(g.count) 筆共用配對鍵過多（組：「\(displaySafeInvisible(g[0], max: 80))」）——只評估了前 \(evaluated) 對、沒有一對被判定違反，"   // display-safe-exempt: Int；R28：點名組員（R27 verify DA 第 20 列：20 行逐位元組相同）
                         + "另至多 \(total - evaluated) 對未評估；名字超過逐對評估的上限（\(pairsToEvaluate) 對，約 100 筆），請把重複的異寫收攏後再看"))   // display-safe-exempt: Int 常量
                 continue
             }
@@ -292,10 +297,10 @@ public enum AuthorizedNames {
         // 一筆記錄一句概括（同 venue；R27 D77）——每一類只在非零時出現，求值上限命中也走 `perRecordCapSummaryPrefix`，`cappedRecords` 才數得到
         if unlistedViolating + unlistedCapHit + listedCapHit + unevaluatedGroups > 0 {
             var parts: [String] = []
-            if unlistedViolating > 0 { parts.append("另有 \(unlistedViolating) 組近重複（每一組都真的違反）未列出") }
+            if unlistedViolating > 0 { parts.append("另有 \(unlistedViolating) 組近重複（每一組都真的違反；部分組可能只評估到組內上限）未列出") }
             if unlistedCapHit > 0 { parts.append("另有 \(unlistedCapHit) 組共用配對鍵過多（求值到組內上限、沒有一對被判定違反）未列出") }
             if listedCapHit > 0 { parts.append("已列出的組裡 \(listedCapHit) 組只評估了前 \(pairsToEvaluate) 對") }
-            if unevaluatedGroups > 0 { parts.append("\(unevaluatedGroups) 組未評估（整筆記錄求值總量已達 \(pairsToEvaluatePerRecord) 對的上限）") }
+            if unevaluatedGroups > 0 { parts.append("\(unevaluatedGroups) 組未評估（整筆記錄求值總量已達 \(pairsToEvaluatePerRecord) 對的上限；未評估的是最大的幾組，其中可能含真違反——把巨型組的異寫收攏後再看）") }
             issues.append(ValidationIssue(
                 severity: .warning,
                 message: "\(Entry.perRecordCapSummaryPrefix)：person '\(displaySafeInvisible(ownerKey, max: 120))' 的名字：\(parts.joined(separator: "；"))"   // display-safe-exempt: 前綴是常量；parts 是本函式的字面常量＋Int

@@ -238,17 +238,18 @@ public final class QuarantineModel {
 /// #28：App 的顯示層消毒投影。
 ///
 /// **View 一律用這裡的 `display*`，不要直接綁 `file` / `reason`。** 原始欄位保留是因為
-/// `fileURL(_:)` 需要真實檔名去組 URL——消毒過的字串會組出錯誤路徑。`reason` 更危險：
-/// 它含 Yams 展開的逐字檔案內容，U+2028/U+2029 在 SwiftUI `Text` 裡就是換行，
-/// C0 的 ESC 在某些 render 路徑下也會被解讀。
+/// `fileURL(_:)` 需要真實檔名去組 URL——消毒過的字串會組出錯誤路徑。`reason` 曾含 Yams 展開的
+/// 逐字檔案內容（U+2028/U+2029 在 SwiftUI `Text` 裡就是換行）——**自 R27 D75／R28 D80 起它在建構時
+/// 已消毒一次**，這裡只截：再逃一次會把 `StoreKey.pattern` 打成 `\u{005C}A…`（R27 verify 第 11／16 列，
+/// 第三個 sink 漏掉）。`file` 仍是原始檔名，這裡逃脫。
 public extension QuarantinedFile {
-    var displayFile: String { displaySafe(file, max: 300) }
-    var displayReason: String { displaySafe(reason, max: 512) }
+    var displayFile: String { displaySafeInvisible(file, max: 300) }
+    var displayReason: String { displaySafeClipOnly(reason, max: 512) }   // display-safe-exempt: 已消毒（QuarantinedFile 生產端，R28 D80），只截
 }
 
 public extension ResolutionCandidate {
     var displayCitekey: String { displaySafe(citekey, max: 200) }
-    var displayReason: String { displaySafe(reason, max: 300) }
+    var displayReason: String { displaySafeInvisible(reason, max: 300) }   // display-safe-exempt: 未消毒——resolver 的 reason 是程式文字加 rule 名（R28 D80：原始載體，sink 逃一次）
     /// #161：**`literal` 缺投影是 #28 那條規矩最尷尬的漏洞**——規矩寫在上面
     /// （「View 一律用 `display*`」），而 `AdjudicationViews.swift:20` 直接綁
     /// `literal` 的那一行，**下一行**就在用 `displayCitekey` / `displayReason`。

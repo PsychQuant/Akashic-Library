@@ -39,7 +39,7 @@ struct Fmt: ParsableCommand {
             print("✓ \(r.scanned - r.failures.count) 筆已是 canonical form；\(r.failures.count) 筆未通過（讀不到或 validate 拒絕——見下，逐檔具名）")   // display-safe-exempt: Int
         } else {
             print("偏離 canonical form: \(r.deviating.count) 筆")
-            for f in r.deviating.prefix(20) { print("  - \(displaySafe(f, max: 200))") }
+            for f in r.deviating.prefix(20) { print("  - \(displaySafeInvisible(f, max: 200))") }
             if r.deviating.count > 20 { print("  …（共 \(r.deviating.count) 筆）") }
         }
         if !r.rewritten.isEmpty { print("已改寫 \(r.rewritten.count) 筆") }
@@ -49,7 +49,7 @@ struct Fmt: ParsableCommand {
         if !r.failures.isEmpty {
             print("失敗 \(r.failures.count) 筆（其餘記錄仍已處理完）：")
             for f in r.failures.prefix(10) {
-                print("  ! \(displaySafe(f.file, max: 200))：\(displaySafe(f.reason, max: 300))")
+                print("  ! \(displaySafeInvisible(f.file, max: 200))：\(displaySafeClipOnly(f.reason, max: 300))")   // display-safe-exempt: reason 已消毒（CanonicalFormat.describe → displaySafeError，R28 D80），只截——R27 verify 第 5／12／14 列的第三層
             }
             if r.failures.count > 10 { print("  …（共 \(r.failures.count) 筆）") }
         }

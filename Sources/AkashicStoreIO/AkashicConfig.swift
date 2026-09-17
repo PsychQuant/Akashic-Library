@@ -12,17 +12,17 @@ public enum ConfigError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidFileKey(let key):
-            return "config.yaml 的 files key「\(displaySafe(key, max: 200))」不合法（小寫英數起頭、僅 a-z0-9- ）"
+            return "config.yaml 的 files key「\(displaySafeInvisible(key, max: 200))」不合法（小寫英數起頭、僅 a-z0-9- ）"
         case let .duplicateRegistration(path, keys):
-            return "路徑「\(displaySafe(path, max: 300))」被多個 key 註冊（\(keys.map { displaySafe($0, max: 200) }.joined(separator: ", "))）"
+            return "路徑「\(displaySafeInvisible(path, max: 300))」被多個 key 註冊（\(keys.map { displaySafeInvisible($0, max: 200) }.joined(separator: ", "))）"
                  + "——同一實體庫不重複註冊；用 file remove 清掉多餘的再試"
         case .invalidViewKey(let key):
-            return "view key「\(displaySafe(key, max: 200))」不符合 \(StoreKey.pattern)"   // display-safe-exempt: pattern 是編譯期常量（同 LibraryStore 的 invalidKey）
+            return "view key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)"   // display-safe-exempt: pattern 是編譯期常量（同 LibraryStore 的 invalidKey）
         case let .invalidViewField(view, field, value):
-            return "view「\(displaySafe(view, max: 200))」的 \(displaySafe(field, max: 60))"
-                + "「\(displaySafe(value, max: 200))」不合法"
+            return "view「\(displaySafeInvisible(view, max: 200))」的 \(displaySafeInvisible(field, max: 60))"
+                + "「\(displaySafeInvisible(value, max: 200))」不合法"
         case .invalidCurrent(let key):
-            return "config.yaml 的 current「\(displaySafe(key, max: 200))」不在 files registry 中"
+            return "config.yaml 的 current「\(displaySafeInvisible(key, max: 200))」不在 files registry 中"
         }
     }
 }

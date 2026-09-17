@@ -29,7 +29,10 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
                  + "entities/／entries/）——寫入拒絕。若這是新 store，先跑 "
                  + "akashic doctor --library <path> 建立佈局；若是打錯路徑，這個拒絕正是在救你。"
         case let .invalidInput(what, why):
-            return "\(displaySafeInvisible(what, max: 120)) 無效：\(displaySafeInvisible(why, max: 400))"
+            // 兩個參數在擲出端就已逐項消毒（`assertNoErrors` 的 key、validate() 的訊息、DivergenceResolve 的候選鍵／statement——
+            // `SanitizationBoundaryTests.testInvalidInputThrowSitesSanitizeStoreStrings` 掃全樹），這裡只截：R27 把它換成
+            // displaySafeInvisible 是與同一個 enum 另外兩格相反的方向，`fmt` 疊到第三層（R27 verify 第 5／12／14 列）。
+            return "\(displaySafeClipOnly(what, max: 120)) 無效：\(displaySafeClipOnly(why, max: 400))"   // display-safe-exempt: 已消毒（擲出端），只截——R28 D80
         case let .inconsistentStore(action, issues):
             // action 是呼叫端字面量（"rename"/"resolve-divergence"）、issues 已消毒
             return "store 有 \(issues.count) 個跨記錄不一致，\(action) 拒絕執行"   // display-safe-exempt: action 是呼叫端字面量
@@ -61,6 +64,10 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
 /// `displaySafe` 一次——TAG／ZWSP 原樣穿過（列舉不收），而 `StoreKey.pattern` 的反斜線被逃成 `\u{005C}`，一句修法指示被改寫成不存在的
 /// 正則）：未信任的部分（key、citekey、檔名 stem、decode error 全文）走 `displaySafeInvisible`，程式自己組的部分（pattern、uuid）原樣。
 /// sink（CLI `quarantineLines`、MCP doctor）只截不逃——`displaySafe` 不冪等。
+/// `reason` **在建構時已消毒一次**（R27 D75 → R28 D80）：key 拒絕支逐項 `displaySafeInvisible`、decode-error 支走 `displaySafeError`
+/// （自帶消毒的 `StoreYAMLError` 只截、Yams／I/O 錯誤逃脫一次）。三個 sink（CLI `quarantineLines`、MCP doctor、App `displayReason`）
+/// 只截不逃；`file` 是目錄列舉來的原始檔名，**未消毒**——sink 對它 `displaySafeInvisible`。每個建構點由
+/// `SanitizationBoundaryTests.testQuarantineAndFormatFailureReasonsAreSanitizedAtConstruction` 掃。
 public struct QuarantinedFile: Equatable {
     public var file: String
     public var reason: String
@@ -1052,7 +1059,7 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: name,
-                    reason: displaySafeInvisible((error as? LocalizedError)?.errorDescription ?? String(describing: error), max: 512)))
+                    reason: displaySafeError(error, max: 512)))
             }
         }
 
@@ -1097,7 +1104,7 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: name,
-                    reason: displaySafeInvisible(String(describing: error), max: 512)))
+                    reason: displaySafeError(error, max: 512)))
             }
         }
         for path in try source.paths("people") {
@@ -1124,7 +1131,7 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: name,
-                    reason: displaySafeInvisible(String(describing: error), max: 512)))
+                    reason: displaySafeError(error, max: 512)))
             }
         }
         for path in try source.paths("libraries") {
@@ -1151,7 +1158,7 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: name,
-                    reason: displaySafeInvisible(String(describing: error), max: 512)))
+                    reason: displaySafeError(error, max: 512)))
             }
         }
         result.entries.sort { $0.citekey < $1.citekey }

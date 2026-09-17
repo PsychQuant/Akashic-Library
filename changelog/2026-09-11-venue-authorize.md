@@ -998,3 +998,58 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
 - person 側的近重複掃描（`AuthorizedNames.validateNearDuplicates`）沒有求值上限也沒有則數上限——venue 側 R10–R18 補的防線的孿生（R17 verify 第 13 列）——#576
 - `jsonBytes` 量的是 compact 序列化而 `jsonString` 是 pretty（R17 verify 第 15 列）——實測每則多 85–113 bytes、20 則約 3.5%，三個消費端同一個偏差、
   預算留有餘裕；doc 寫明，不逐個呼叫端補係數
+
+## R27 verify：消毒搬到了生產端，而沒有人說誰逃、誰截
+
+R27 verify **6 席齊、第一次完整 artifact**（66 檔三方一致），37 列、**5 HIGH**、17 MEDIUM、9 LOW、6 INFO。五個 HIGH 加十列
+MEDIUM／LOW 是**同一個缺陷的十五個位置**：D75 把消毒搬到生產端、把兩個 sink 改成只截，但沒有一句話寫下「哪些字串在哪一層逃脫」，
+於是每一層各自決定——
+
+- quarantine 的 decode-error 支把 `StoreYAMLError` 內部已逃脫的片段**再逃一次**（第 1／27 列，真 binary：`peri\u{005C}u{0007} odical`——訊息說
+  store 裡有一個反斜線，那裡沒有）；
+- `invalidInput` 對 `assertNoErrors` 已消毒的 what／why 再逃一次、`fmt` 疊到**第三層**（第 5／12／14 列：`Al\u{005C}\u{005C}u{200B}pha`——訊息叫人
+  去 YAML 裡修一個 grep 不到的字串；R27 把這一格換成 `displaySafeInvisible`，與同一個 enum 另外兩格相反的方向）；
+- MCP doctor 的 crossRecordIssues、App 的 `displayReason`、`update_person` 的兩個 sink 各自對已消毒訊息再逃（第 2／4／11／16／17 列）——CLI 與
+  MCP 對同一個 `StoreHealth` 事實印出不同字串；
+- quarantine 的 `file`、`unknownFieldFiles`、`fmt` 的檔名**完全沒逃**——ZWSP／TAG 原樣進 CLI 終端與 MCP payload（第 3 列，兩面實測）；
+- 被改成只截的兩個 sink 會把 `\u{200B}` 從中間切開、輸出以裸反斜線結尾（DA 第 19 列：`refusalLineMax` 的註解早記過同一形狀）；
+- 守衛掃八個手寫檔、不掃 sink——兩種缺陷都在視野外（第 15／24 列）。
+
+其餘：D76 的預算鎖存＋插入序讓 20 組 × 101 個同鍵名字把其後 25 組真違反**全部餓死、rc 0**（DA 第 22 列，升級 regression 的 LOW）、觸頂訊息
+20 行逐位元組相同、無從定位（DA 第 20 列）、概括句少 venue 同輪剛加的限定詞（第 31 列）；D77 的 `capHit` 漏掉「列滿 3 對就停」那個截點
+（Codex 第 6 列、第 23 列）；D78 零測試、兄弟 case 仍渲染後才截、「各筆的出處如上」對被略去的筆為假（第 8／18／26 列）；`namesReport` 對同批
+位元組相同的重複零回報（Codex 第 7 列）；`ByteExactKeySiteInventoryTests` 靠 `StoreHealth` 一行**註解**成立、對它要防的 `kindByteKey` 漂移是盲的
+（DA 第 21 列，mutation 實證）；`store-format.md` 仍寫「七處」、§5.7「五條，封閉」漏了整筆總量上限與 D77 的 severity 分岔（第 9／10／13 列）；
+guards 第 28 列與 parity 只列四層（第 25 列）；merge 遺失訊息的 field／value 原樣插值（第 28 列）；`StoreMigration` 對已消毒的 crossRecordIssues
+再逃（第 29 列，今天不可達）。第 36 列的 scope 觀察（+9,317／−533，35 個檔與 authorize 無關）照 R26 第 25 列記錄不動、交使用者。
+
+## R28 落地：一個邊界（D80）
+
+**D80（Claude 代裁）：store 字串在最靠近它的地方逃脫一次，之後每一層只截。** 落到程式上是三件事，每一件都有掃全樹的守衛
+（`SanitizationBoundaryTests`，不靠檔案清單）：
+
+- **擲出端消毒**：`StoreYAMLError` 的每個 throw 站點逐項 `displaySafeInvisible`（YAML.swift 127 個站點、Provenance／AuthorshipCompleteness／
+  PersonIdentityMigration；23 處列舉式 `displaySafe(` 換成性質式、26 處裸插值補上）——YAML.swift 檔頭那句「約 50 個站點未消毒，靠 sink 兜底」
+  自此為假並改寫；`StoreIOError.invalidInput` 的 what／why 由擲出端消毒（DivergenceResolve 四處「傳原字串」反過來）、描述只截；程式構造值
+  （context／field／count／rawValue／uuidString…）是一張封閉表、每列有理由。
+- **錯誤描述的邊界**：`displaySafeError(_:max:)` 一個入口——自帶消毒的錯誤型別（`errorDescription` 內部已逐項逃脫：StoreYAMLError／StoreIOError／
+  DivergenceResolveError／兩個 MigrationError／StoreIncarnationError／ConfigError，封閉列舉由原始碼現算釘住）只截、其餘（Yams、I/O）逃一次。
+  quarantine 的四個 catch、`CanonicalFormat.describe`、MCP 的 14 處 `displaySafe(String(describing: error))`、`writeFailures`／`writeFailed` 的
+  生產端、CLI `rebuildError` 全部改走它；那些型別描述裡的 `displaySafe(` 一律換成 `displaySafeInvisible(`。
+- **sink 只截、原始載體逃一次**：MCP doctor 的 crossRecordIssues、App `displayReason`、`update_person` ×2、`StoreMigration`、`fmt` 的 reason、
+  CLI `f.error` ×2、`wouldLoseFields` 的 losses（`fieldsLostByMerging` 三份改成回傳前逐條 `displaySafeInvisible`，內部片段原樣）改只截；
+  quarantine 的 `file`、`unknownFieldFiles`、`fmt` 的檔名、App `displayFile`、resolver 的 reason、四個 migrate 報告的 reason 改
+  `displaySafeInvisible` 並標「未消毒」。`displaySafeClipOnly` 的截點退到最後一個沒閉合的 `\u{` 之前。
+
+其餘：D76——小組先評估（組依大小升冪）、預算不鎖存、觸頂訊息點名組員（`共用配對鍵過多（組：「X」）`）、概括句補「部分組可能只評估到組內上限」
+與「未評估的是最大的幾組、其中可能含真違反」、doc 改寫第五層的結果與 venue 不同；D77——`truncated`（列滿 3 對**或**達 5,000 對）才是進
+`cappedRecords` 的旗標，`capHit` 只管措辭；D78——`wouldLeaveTwoConfirmedLiterals` 同樣在擲出端截（`broughtTotal`／`existingTotal`）、出路改成
+「標『另有 N 筆略』的配對要開持有記錄的 YAML 找其餘幾筆」、`MergeRefusalCapTests` 釘住四件事；`namesReport` 以 `seenInBatch` 分流同批重複；
+`ByteExactKeySiteInventoryTests` 的 needle 改 `byteExactKey|kindByteKey`、只看程式行；`InvisibleEscapeCoverageTests.producerFiles` 由建構
+`ValidationIssue(` 的檔案集合現算對帳；`DisplaySinkCoverageTests` 認得 `displaySafeError(`。散文：§5.7 六條並寫出概括句的 severity、
+`store-format.md:919` 不再複述數字、guards 第 13／28 列、parity `validate` 與 `update_venue` 列。
+
+**誠實邊界**：AppKit／Graph／Proposition／TractatusDocs 各自的錯誤型別描述仍是列舉式 `displaySafe(`，不在 `displaySafeError` 的封閉列舉裡——
+它們的 sink 是 App 與 CLI 的字串面、不經 quarantine／MCP 的載體，本輪不動；`VenueMigration`／`VenueVariantMigration` 的 `MigrationError` 走
+`CustomStringConvertible`（`description`，不是 `errorDescription`），守衛的掃描只認後者——四個 migrate 報告的 reason 因此標「未消毒」由 sink 逃。
+

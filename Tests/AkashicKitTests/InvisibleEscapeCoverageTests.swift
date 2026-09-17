@@ -28,6 +28,20 @@ final class InvisibleEscapeCoverageTests: XCTestCase {
         "displaySafe(s, max: max, escapingBackslash: false)",          // displaySafeClipOnly
     ]
 
+    /// `producerFiles` 不再只是手寫清單（R27 verify 第 15／24 列：清單今天恰好等於建構 `ValidationIssue(` 的檔案集合，但沒有東西讓它保持相等）：
+    /// 與 `ByteExactKeySiteInventoryTests` 同形——expected 是封閉列舉，found 從樹上現算，多一個少一個都紅。
+    func testProducerFileListMatchesTheFilesConstructingValidationIssues() throws {
+        let sources = Self.repoRoot.appendingPathComponent("Sources")
+        var found: Set<String> = []
+        let e = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+        for case let url as URL in e where url.pathExtension == "swift" {
+            if try String(contentsOf: url, encoding: .utf8).contains("ValidationIssue(") {
+                found.insert(String(url.path.dropFirst(Self.repoRoot.path.count + 1)))
+            }
+        }
+        XCTAssertEqual(found, Set(Self.producerFiles), "多了：\(found.subtracting(Self.producerFiles))；少了：\(Set(Self.producerFiles).subtracting(found))")
+    }
+
     func testProducersNeverCallTheEnumeratedEscapeOrTheClipOnlyPathOnStoreStrings() throws {
         var offenders: [String] = []
         var seenHelperLines: Set<String> = []

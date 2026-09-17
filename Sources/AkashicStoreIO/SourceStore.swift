@@ -163,7 +163,7 @@ public extension LibraryStore {
         guard fd >= 0 else {
             throw StoreIOError.invalidInput(
                 what: "sources/index.jsonl",
-                why: "無法開啟寫入（errno \(errno)）；digest \(digest) 的 blob 已落地，"
+                why: "無法開啟寫入（errno \(errno)）；digest \(displaySafeInvisible(digest, max: 120)) 的 blob 已落地，"
                     + "條目未記——akashic doctor 會將其列為孤兒 blob")
         }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
@@ -274,7 +274,7 @@ public extension LibraryStore {
         guard let url = sourceURL(digest: digest) else {
             throw StoreIOError.invalidInput(
                 what: "source digest",
-                why: "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafe(digest, max: 120))」")
+                why: "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafeInvisible(digest, max: 120))」")
         }
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return try Data(contentsOf: url)

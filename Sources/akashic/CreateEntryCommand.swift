@@ -113,7 +113,7 @@ struct CreateEntryCmd: ParsableCommand {
         if !report.writeFailures.isEmpty {
             print("failed \(report.writeFailures.count)（磁碟層，其餘已寫入且 index 已重建）：")   // display-safe-exempt: Int
             for f in report.writeFailures.prefix(10) {
-                print("  ! \(displaySafe(f.title, max: 80)) — \(displaySafe(f.error, max: 400))")
+                print("  ! \(displaySafe(f.title, max: 80)) — \(displaySafeClipOnly(f.error, max: 400))")   // display-safe-exempt: error 已消毒（生產端 displaySafeError，R28 D80），只截
             }
             // **有任何一筆沒寫成就非零退出**：`akashic create-entry … && next` 不得在部分寫入時往下走
             throw ExitCode(1)

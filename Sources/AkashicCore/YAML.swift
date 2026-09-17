@@ -18,31 +18,31 @@ public enum StoreYAMLError: Error, LocalizedError, Equatable {
         let known = EntityKind.knownLabels.sorted().joined(separator: "、")
         switch self {
         case .notAMapping: return "YAML 頂層不是 mapping"
-        case .missingField(let f): return "缺少必要欄位：\(f)"   // display-safe-exempt: payload 由**輸出端 sink** 消毒（quarantine .reason / fmt failures / MCP doctor 各自 displaySafe；#149 verify F5 證實不是 throw 站點——約 50 個跨行 throw 站點未消毒，靠 sink 兜底。任何讓 StoreYAMLError 直達裸輸出的新路徑都須自行消毒）
-        case .invalidField(let f, let why): return "欄位 \(f) 無效：\(why)"   // display-safe-exempt: 同上——payload 由輸出端 sink 消毒（#149 verify F5）
+        case .missingField(let f): return "缺少必要欄位：\(f)"   // display-safe-exempt: f 是呼叫端字面欄位名；store 字串在**擲出端**逐項 displaySafeInvisible（R28 D80，`SanitizationBoundaryTests` 掃全部 throw 站點）——sink 只截
+        case .invalidField(let f, let why): return "欄位 \(f) 無效：\(why)"   // display-safe-exempt: 同上——why 在擲出端逐項消毒（R28 D80），sink 只截
         case .unknownShapeLabel(let stray):
             // 具名 + 重導。只說「不認得」只證明它在這個位置沒有意義；
             // 讀者還需要知道哪個位置有意義。
             guard !stray.isEmpty else {
                 return "缺少形狀標籤。每筆記錄的頂層須有一個無值的形狀鍵（已知：\(known)）。"
             }
-            let names = stray.map { "「\(displaySafe($0))」" }.joined(separator: "、")
+            let names = stray.map { "「\(displaySafeInvisible($0))」" }.joined(separator: "、")
             let redirects = stray.compactMap { EntityKind.misplacedElsewhere[$0] }
             let tail = redirects.isEmpty ? "" : "——\(redirects.joined(separator: "；"))"
             return "頂層的無值鍵 \(names) 不是已知形狀（已知：\(known)）\(tail)。"
         case .shapeLabelHasValue(let name):
             return """
-                形狀標籤「\(displaySafe(name))」不得帶值——它是標籤，不是欄位。\
+                形狀標籤「\(displaySafeInvisible(name))」不得帶值——它是標籤，不是欄位。\
                 帶值等於重新造出一個後設欄位，只是名字換成形狀名。
                 """
         case .ambiguousShapeLabels(let labels):
             return """
-                有多個互不從屬的形狀標籤（\(labels.map { displaySafe($0) }.joined(separator: "、"))），\
+                有多個互不從屬的形狀標籤（\(labels.map { displaySafeInvisible($0) }.joined(separator: "、"))），\
                 無法決定最具體者。不猜——請只留下最具體的那一個。
                 """
         case let .shapeLabelContradiction(label, typeField):
             return """
-                形狀標籤「\(displaySafe(label))」與 type 欄位的「\(displaySafe(typeField))」矛盾。\
+                形狀標籤「\(displaySafeInvisible(label))」與 type 欄位的「\(displaySafeInvisible(typeField))」矛盾。\
                 type 是 work 專屬的書目類型，不是形狀名；兩者衝突時不得挑一邊。
                 """
         }
@@ -286,7 +286,7 @@ public enum EntryYAML {
         for (g, w) in zip(got, want) {
             guard let gn = composeBlock(g.raw), let wn = composeBlock(w.raw) else {
                 throw StoreYAMLError.invalidField(
-                    context, "未知欄位「\(w.key)」寫出前後無法獨立解析——拒絕寫出")
+                    context, "未知欄位「\(displaySafeInvisible(w.key, max: 120))」寫出前後無法獨立解析——拒絕寫出")
             }
             // 顯式 .some/.none：`case true/false/nil` 對 `Bool?` 的窮盡性檢查
             // 在 Swift 6.3 通過、6.1.2 不通過（「add missing case: '.some(_)'」）。
@@ -295,11 +295,11 @@ public enum EntryYAML {
             case .some(true): break
             case .some(false):
                 throw StoreYAMLError.invalidField(
-                    context, "未知欄位「\(w.key)」寫出前後語意不符（值漂移）——拒絕寫出")
+                    context, "未知欄位「\(displaySafeInvisible(w.key, max: 120))」寫出前後語意不符（值漂移）——拒絕寫出")
             case .none:
                 // R8（R7-verify L21）：共用預算——耗盡可能來自較早的區塊
                 throw StoreYAMLError.invalidField(
-                    context, "未知欄位「\(w.key)」處超出共用驗證預算（消耗可能來自同檔較早的區塊）——fail-closed")
+                    context, "未知欄位「\(displaySafeInvisible(w.key, max: 120))」處超出共用驗證預算（消耗可能來自同檔較早的區塊）——fail-closed")
             }
         }
     }
@@ -369,10 +369,10 @@ public enum EntryYAML {
             // 寫回即剝除（required 欄位本就 fail-closed）。與 keyStrings 同款。
             if key.tag != Tag(.str) {
                 throw StoreYAMLError.invalidField(
-                    context, "鍵「\(k)」帶非字串 tag——closed shape 不接受（fail-closed）")
+                    context, "鍵「\(displaySafeInvisible(k, max: 120))」帶非字串 tag——closed shape 不接受（fail-closed）")
             }
             if !known.contains(k) {
-                throw StoreYAMLError.invalidField(context, "未知欄位「\(displaySafe(k, max: 120))」（strict schema；見 docs/store-format.md §5）")
+                throw StoreYAMLError.invalidField(context, "未知欄位「\(displaySafeInvisible(k, max: 120))」（strict schema；見 docs/store-format.md §5）")
             }
         }
     }
@@ -411,7 +411,7 @@ public enum EntryYAML {
             }
             if known.contains(k), key.tag != Tag(.str) {
                 throw StoreYAMLError.invalidField(
-                    context, "鍵「\(k)」帶非字串 tag 且與 known 欄位同名——不入 tolerant 範圍（fail-closed）")
+                    context, "鍵「\(displaySafeInvisible(k, max: 120))」帶非字串 tag 且與 known 欄位同名——不入 tolerant 範圍（fail-closed）")
             }
             keys.append(k)
         }
@@ -606,26 +606,26 @@ public enum EntryYAML {
             throw e
         } catch {
             throw StoreYAMLError.invalidField(
-                context, "未知欄位「\(expectedKey)」的區塊無法獨立解析（跨區塊 anchor/alias 或切分錯位）")
+                context, "未知欄位「\(displaySafeInvisible(expectedKey, max: 120))」的區塊無法獨立解析（跨區塊 anchor/alias 或切分錯位）")
         }
         guard let m = composed?.mapping, m.count == 1, let entry = m.first,
               entry.key.string == expectedKey else {
             throw StoreYAMLError.invalidField(
-                context, "未知欄位「\(expectedKey)」的區塊對齊校驗失敗（切分錯位，fail-closed）")
+                context, "未知欄位「\(displaySafeInvisible(expectedKey, max: 120))」的區塊對齊校驗失敗（切分錯位，fail-closed）")
         }
         switch nodesSemanticallyEqual(entry.value, originalValue, budget: &budget) {
         case .some(true):
             break
         case .some(false):
             throw StoreYAMLError.invalidField(
-                context, "未知欄位「\(expectedKey)」的區塊值與 parse 結果不符（切分錯位，fail-closed）")
+                context, "未知欄位「\(displaySafeInvisible(expectedKey, max: 120))」的區塊值與 parse 結果不符（切分錯位，fail-closed）")
         case .none:
             // 預算耗盡 ≠ 不相符——比對次數與節點數線性相關：巨大未知子樹或
             // anchor/alias 重用型 DAG 都會觸發（R6 更正：R5 誤稱「與檔案大小
             // 無關」——alias-free 的 70k+ 節點子樹同樣打穿）。訊息分開，診斷
             // 才可行動。
             throw StoreYAMLError.invalidField(
-                context, "未知欄位「\(expectedKey)」超出驗證預算（節點數、anchor/alias 展開或巢狀深度超過上限）——fail-closed")
+                context, "未知欄位「\(displaySafeInvisible(expectedKey, max: 120))」超出驗證預算（節點數、anchor/alias 展開或巢狀深度超過上限）——fail-closed")
         }
     }
 
@@ -711,7 +711,7 @@ public enum EntryYAML {
                    indentCount + delta <= floor {
                     throw StoreYAMLError.invalidField(
                         context,
-                        "未知欄位「\(f.key)」縮排平移會破壞原文結構（續行平移後不深於目標縮排），無法安全寫回")
+                        "未知欄位「\(displaySafeInvisible(f.key, max: 120))」縮排平移會破壞原文結構（續行平移後不深於目標縮排），無法安全寫回")
                 }
                 if delta > 0 {
                     out += String(repeating: " ", count: delta) + line + "\n"
@@ -734,7 +734,7 @@ public enum EntryYAML {
             _ = try Yams.compose(yaml: out)
         } catch {
             throw StoreYAMLError.invalidField(
-                context, "encode 自檢失敗（產物無法解析）——拒絕寫出：\(error)")
+                context, "encode 自檢失敗（產物無法解析）——拒絕寫出：\(displaySafeInvisible(String(describing: error), max: 300))")
         }
     }
 
@@ -802,7 +802,7 @@ public enum EntryYAML {
         }
         // R8（R7-verify L18）：id 存在但非 UUID → 報格式錯誤，不誤報「缺欄位」
         guard let id = UUID(uuidString: idString) else {
-            throw StoreYAMLError.invalidField("id", "「\(displaySafe(idString, max: 120))」不是 UUID")
+            throw StoreYAMLError.invalidField("id", "「\(displaySafeInvisible(idString, max: 120))」不是 UUID")
         }
         guard let citekey = try requireShape(map["citekey"], field: "citekey",
                                              expect: "scalar", { $0.scalar?.string }) else {
@@ -824,7 +824,7 @@ public enum EntryYAML {
         guard let workType = WorkType(rawValue: type) else {
             throw StoreYAMLError.invalidField(
                 "type",
-                "'\(displaySafe(type, max: 80))' 不在封閉列舉"
+                "'\(displaySafeInvisible(type, max: 80))' 不在封閉列舉"
                 + "（\(WorkType.domainDescription)）"   // display-safe-exempt: 由 allCases 生成，編譯期常量
                 // **指路必須指向存在的路**（#410）：這裡原本寫「先跑
                 // `akashic migrate-work-types --apply`」，而那個命令在 #325 階段二
@@ -914,7 +914,7 @@ public enum EntryYAML {
                 // 載入時就進 quarantine——可見、可救、不會在下次 pull 才炸。
                 guard kk != "<<", kk != "=" else {
                     throw StoreYAMLError.invalidField(
-                        "fields", "鍵「\(kk)」的字串面與 merge/value 指示符相同——本 binary 的"
+                        "fields", "鍵「\(displaySafeInvisible(kk, max: 120))」的字串面與 merge/value 指示符相同——本 binary 的"
                                 + " emitter 會把它寫成裸指示符而無法讀回（自我毒化），fail-closed")
                 }
                 // R7（R6-verify M16）：Yams 只擋 string+tag 全等的重複鍵——
@@ -922,7 +922,7 @@ public enum EntryYAML {
                 // 靜默壓成一筆且 canary 看不見（模型端已丟）。fail-closed。
                 guard seenFieldKeys.insert(kk).inserted else {
                     throw StoreYAMLError.invalidField(
-                        "fields", "鍵「\(kk)」字串面重複（tag 區分的同名鍵）——fail-closed")
+                        "fields", "鍵「\(displaySafeInvisible(kk, max: 120))」字串面重複（tag 區分的同名鍵）——fail-closed")
                 }
                 entry.fields[kk] = vv
             }
@@ -955,7 +955,7 @@ public enum EntryYAML {
                 guard let degree = ThesisFacts.Degree(rawValue: raw) else {
                     throw StoreYAMLError.invalidField(
                         "thesis.degree",
-                        "未知的學位別「\(raw)」——值域是封閉三值 "
+                        "未知的學位別「\(displaySafeInvisible(raw, max: 120))」——值域是封閉三值 "
                         + ThesisFacts.Degree.allCases.map(\.rawValue).joined(separator: "／"))
                 }
                 decodedDegree = degree
@@ -988,7 +988,7 @@ public enum EntryYAML {
                 default:
                     throw StoreYAMLError.invalidField(
                         "thesis.availability",
-                        "未知的取得途徑「\(raw)」——值域是封閉二值 unpublished／published")
+                        "未知的取得途徑「\(displaySafeInvisible(raw, max: 120))」——值域是封閉二值 unpublished／published")
                 }
             } else if repository != nil || repositoryURL != nil {
                 // 只有典藏庫而沒說是否已出版——那個組合在 Swift 側寫不出來。
@@ -1025,13 +1025,13 @@ public enum EntryYAML {
             }
             guard let zVer = Int(zVerString) else {
                 throw StoreYAMLError.invalidField(
-                    "provenance.zotero_version", "「\(zVerString)」不是整數")
+                    "provenance.zotero_version", "「\(displaySafeInvisible(zVerString, max: 120))」不是整數")
             }
             var prov = Provenance(zoteroKey: zKey, zoteroVersion: zVer)
             if let s = try requireShape(provMap["library_id"], field: "provenance.library_id",
                                         expect: "scalar", { $0.scalar?.string }) {
                 guard let lid = Int(s) else {
-                    throw StoreYAMLError.invalidField("provenance", "library_id「\(displaySafe(s, max: 120))」不是整數")
+                    throw StoreYAMLError.invalidField("provenance", "library_id「\(displaySafeInvisible(s, max: 120))」不是整數")
                 }
                 prov.libraryID = lid
             }
@@ -1121,7 +1121,7 @@ public enum EntryYAML {
                 for d in digests where !ProvenanceReference.isValidDigest(d) {
                     throw StoreYAMLError.invalidField(
                         "akashic.sources",
-                        "「\(d)」不是合法的內容 digest（須為 sha256: 加 64 個小寫十六進位字元）")
+                        "「\(displaySafeInvisible(d, max: 120))」不是合法的內容 digest（須為 sha256: 加 64 個小寫十六進位字元）")
                 }
                 entry.akashic.sources = digests
             }
@@ -1371,7 +1371,7 @@ public enum PersonYAML {
         if let t = try EntryYAML.requireShape(map["type"], field: "person.type",
                                               expect: "scalar", nullIsAbsent: true,
                                               { $0.scalar?.string }), t != "person" {
-            throw StoreYAMLError.invalidField("person.type", "person 檔的 type 必須是「person」，實得「\(displaySafe(t, max: 120))」")
+            throw StoreYAMLError.invalidField("person.type", "person 檔的 type 必須是「person」，實得「\(displaySafeInvisible(t, max: 120))」")
         }
         var person = Person(key: key, id: explicitID)
         person.unknownFields = unknowns
@@ -1781,7 +1781,7 @@ extension PersonYAML {
         }
         throw StoreYAMLError.invalidField(
             "person.profile",
-            "不認得的維度「\(name)」——合法維度："
+            "不認得的維度「\(displaySafeInvisible(name, max: 120))」——合法維度："
             + (timelineKeys.map(\.0) + ["affiliations", "contacts"]).sorted()
                 .joined(separator: "、"))
     }
@@ -1810,7 +1810,7 @@ extension PersonYAML {
         if let dup = overlap.first {
             throw StoreYAMLError.invalidField(
                 "person.names",
-                "「\(displaySafe(dup, max: 120))」同時出現在 authorized 與 variant——"
+                "「\(displaySafeInvisible(dup, max: 120))」同時出現在 authorized 與 variant——"
                 + "一個名字只屬於一個分割")
         }
         return names
@@ -1839,7 +1839,7 @@ extension PersonYAML {
                 // #139 verify F2：name 是**檔案裡的 mapping key**（未信任），進
                 // context 前消毒——否則下游 throw 的 errorDescription 帶原始位元組
                 p.contacts[name] = try decodeTimeline(
-                    v, context: "person.profile.contacts.\(displaySafe(name, max: 120))")
+                    v, context: "person.profile.contacts.\(displaySafeInvisible(name, max: 120))")
             }
         }
         return p
@@ -1862,7 +1862,7 @@ extension PersonYAML {
                 guard let n = m[k] else { return nil }
                 if n.null != nil { return nil }
                 guard let s = n.scalar?.string else {
-                    throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")   // display-safe-exempt: k 是呼叫端字面常量；context 程式構造或呼叫端已消毒（contacts name 先 displaySafe，#139 F2）
+                    throw StoreYAMLError.invalidField("\(context).\(displaySafeInvisible(k, max: 120))", "必須是 scalar")   // display-safe-exempt: k 是呼叫端字面常量；context 程式構造或呼叫端已消毒（contacts name 先 displaySafe，#139 F2）
                 }
                 return s
             }
@@ -1882,7 +1882,7 @@ extension PersonYAML {
             guard let n = m[k] else { return nil }
             if n.null != nil { return nil }
             guard let s = n.scalar?.string else {
-                throw StoreYAMLError.invalidField("\(context).\(k)", "必須是 scalar")   // display-safe-exempt: k 是呼叫端字面常量；context 程式構造或呼叫端已消毒（contacts name 先 displaySafe，#139 F2）
+                throw StoreYAMLError.invalidField("\(context).\(displaySafeInvisible(k, max: 120))", "必須是 scalar")   // display-safe-exempt: k 是呼叫端字面常量；context 程式構造或呼叫端已消毒（contacts name 先 displaySafe，#139 F2）
             }
             return s
         }
@@ -2127,7 +2127,7 @@ enum IdentifierYAML {
         guard let v = T(raw) else {
             throw StoreYAMLError.invalidField(
                 field,
-                "「\(displaySafe(raw, max: 120))」不是合法的 \(T.self)（\(T.shapeDescription)）")
+                "「\(displaySafeInvisible(raw, max: 120))」不是合法的 \(T.self)（\(T.shapeDescription)）")
         }
         return v
     }
@@ -2201,7 +2201,7 @@ public enum VenueYAML {
         guard let vtype = VenueType(rawValue: rawType) else {
             throw StoreYAMLError.invalidField(
                 "venue.type",
-                "'\(displaySafe(rawType, max: 60))' 不在封閉列舉（\(VenueType.domainDescription)）")
+                "'\(displaySafeInvisible(rawType, max: 60))' 不在封閉列舉（\(VenueType.domainDescription)）")
         }
         var explicitID: UUID?
         if let raw = try EntryYAML.requireShape(map["id"], field: "venue.id",
@@ -2236,7 +2236,7 @@ public enum VenueYAML {
             case "false": v.paginated = false
             default:
                 throw StoreYAMLError.invalidField(
-                    "venue.paginated", "只接受 true／false，讀到「\(s)」——缺席即未判定，不猜")
+                    "venue.paginated", "只接受 true／false，讀到「\(displaySafeInvisible(s, max: 120))」——缺席即未判定，不猜")
             }
         }
         v.issn = try IdentifierYAML.decodeQualifiedList(map, key: "issn", field: "venue.issn",
@@ -2348,7 +2348,7 @@ public enum DivergenceYAML {
                 expect: "scalar", { $0.scalar?.string }) else {
                 throw StoreYAMLError.invalidField(
                     "divergence.candidates",
-                    "候選「\(displaySafe(key, max: 200))」缺少 shape"
+                    "候選「\(displaySafeInvisible(key, max: 200))」缺少 shape"
                     + "——鍵在不同形狀之間可以同名，形狀無法推導")
             }
             // 歧異記錄本身不是可被指涉的對象（它沒有 key，身分是 UUID），所以它
@@ -2356,14 +2356,14 @@ public enum DivergenceYAML {
             if rawShape == EntityKind.divergence.rawValue {
                 throw StoreYAMLError.invalidField(
                     "divergence.candidates",
-                    "候選「\(displaySafe(key, max: 200))」的 shape 不得是 divergence"
+                    "候選「\(displaySafeInvisible(key, max: 200))」的 shape 不得是 divergence"
                     + "——歧異記錄沒有 key，不是可被指涉的對象")
             }
             guard let shape = EntityKind(rawValue: rawShape) else {
                 throw StoreYAMLError.invalidField(
                     "divergence.candidates",
-                    "候選「\(displaySafe(key, max: 200))」的 shape"
-                    + "「\(displaySafe(rawShape, max: 100))」不是已知形狀")
+                    "候選「\(displaySafeInvisible(key, max: 200))」的 shape"
+                    + "「\(displaySafeInvisible(rawShape, max: 100))」不是已知形狀")
             }
             candidates.append(DivergenceCandidate(key: key, shape: shape))
         }
@@ -2375,7 +2375,7 @@ public enum DivergenceYAML {
         for c in candidates where !seenCandidate.insert("\(c.shape.rawValue)\u{0}\(c.key)").inserted {
             throw StoreYAMLError.invalidField(
                 "divergence.candidates",
-                "候選「\(displaySafe(c.key, max: 200))」（\(c.shape.rawValue)）重複"
+                "候選「\(displaySafeInvisible(c.key, max: 200))」（\(c.shape.rawValue)）重複"
                 + "——重複的候選不構成歧異，它沒有東西可以與之相同")
         }
         guard candidates.count >= 2 else {
@@ -2388,8 +2388,8 @@ public enum DivergenceYAML {
            let odd = candidates.first(where: { $0.shape != first.shape }) {
             throw StoreYAMLError.invalidField(
                 "divergence.candidates",
-                "候選跨越不同形狀：「\(displaySafe(first.key, max: 200))」是 \(first.shape.rawValue)，"
-                + "「\(displaySafe(odd.key, max: 200))」是 \(odd.shape.rawValue)"
+                "候選跨越不同形狀：「\(displaySafeInvisible(first.key, max: 200))」是 \(first.shape.rawValue)，"
+                + "「\(displaySafeInvisible(odd.key, max: 200))」是 \(odd.shape.rawValue)"
                 + "——「是否為同一個」跨形狀無法回答")
         }
 
@@ -2421,7 +2421,7 @@ public enum DivergenceYAML {
         if let bad = restsOn.first(where: { !ProvenanceReference.isValidDigest($0) }) {
             throw StoreYAMLError.invalidField(
                 "divergence.rests-on",
-                "「\(displaySafe(bad, max: 120))」不是合法的 digest（`sha256:` ＋ 64 個十六進位字元）"
+                "「\(displaySafeInvisible(bad, max: 120))」不是合法的 digest（`sha256:` ＋ 64 個十六進位字元）"
                     + "——依據必須是已存進 sources/ 的內容；URL 或其他形式先 store-source 再填 digest")
         }
         // #75 對一：prefers（選填）——與 judgement 成對（單獨存在無意義），
@@ -2454,9 +2454,9 @@ public enum DivergenceYAML {
         if let p = prefers, !candidates.contains(where: { $0.key == p }) {
             throw StoreYAMLError.invalidField(
                 "divergence.prefers",
-                "「\(displaySafe(p, max: 200))」不是本記錄的候選——"
+                "「\(displaySafeInvisible(p, max: 200))」不是本記錄的候選——"
                 + "判斷傾向的對象必須在候選清單內（實際候選："
-                + candidates.map { displaySafe($0.key, max: 200) }.sorted()
+                + candidates.map { displaySafeInvisible($0.key, max: 200) }.sorted()
                     .joined(separator: "、") + "）")
         }
 

@@ -528,12 +528,12 @@ enum AuthorListCompletenessYAML {
             guard key.tag == Tag(.str) else {
                 throw StoreYAMLError.invalidField(
                     context,
-                    "鍵「\(displaySafe(value, max: 120))」帶非字串 tag——strict mapping 不接受")
+                    "鍵「\(displaySafeInvisible(value, max: 120))」帶非字串 tag——strict mapping 不接受")
             }
             guard seen.insert(value).inserted else {
                 throw StoreYAMLError.invalidField(
                     context,
-                    "鍵「\(displaySafe(value, max: 120))」重複——strict mapping 不採 first/last-wins")
+                    "鍵「\(displaySafeInvisible(value, max: 120))」重複——strict mapping 不採 first/last-wins")
             }
         }
     }

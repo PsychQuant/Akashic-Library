@@ -79,8 +79,7 @@ struct ResolveDivergence: ParsableCommand {
         do {
             _ = try LibraryIndex(store: store).rebuild()
         } catch {
-            rebuildError = displaySafe((error as? LocalizedError)?.errorDescription
-                                       ?? String(describing: error), max: 512)
+            rebuildError = displaySafeError(error, max: 512)
         }
 
         if !report.merged.isEmpty {

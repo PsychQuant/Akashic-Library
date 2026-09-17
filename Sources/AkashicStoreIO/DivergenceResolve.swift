@@ -32,7 +32,8 @@ public enum DivergenceResolveError: Error, LocalizedError {
     /// 合併前就有的。verdict 不帶 index，之後 D23 對那筆 work 的 demote／repoint 一律拒、validate 只報 warning。R12 的名字（`wouldCollapseEdges`）
     /// 描述的是「塌邊」這個症狀，R13 改守不變式本身之後名字說謊（R13 verify 第 7 列）；holder 遷移那條路 R13 漏了這一半
     /// （R13 verify Codex 第 1 列、DA 第 3 列——純工具面重現）。
-    case wouldLeaveTwoConfirmedLiterals(record: String, survivor: String, citekey: String, brought: [String], existing: [String])
+    /// `brought`／`existing` 自 R28 起在擲出端截到 5 筆（R27 verify logic 第 26 列：D78 只截了兄弟 case）；`broughtTotal`／`existingTotal` 是原數。
+    case wouldLeaveTwoConfirmedLiterals(record: String, survivor: String, citekey: String, brought: [String], existing: [String], broughtTotal: Int, existingTotal: Int)
     case quarantinedPresent(files: [String])
     case candidateNotInEntities(key: String, expected: String)
     /// #73：要刪的檔案不在版控裡、或有未提交的修改——刪掉就真的沒了。
@@ -49,8 +50,8 @@ public enum DivergenceResolveError: Error, LocalizedError {
 
     /// 兩則合併拒絕共用的主詞：keeper 路徑的 record 就是倖存者，holder 路徑是第三方持有記錄。
     static func whoWouldHold(_ record: String, survivor: String) -> String {
-        record == survivor ? "倖存者「\(displaySafe(survivor, max: 200))」"
-                           : "持有記錄「\(displaySafe(record, max: 200))」（它持有指向被併鍵的 verdict，遷移後）"
+        record == survivor ? "倖存者「\(displaySafeInvisible(survivor, max: 200))」"
+                           : "持有記錄「\(displaySafeInvisible(record, max: 200))」（它持有指向被併鍵的 verdict，遷移後）"
     }
 
     public var errorDescription: String? {
@@ -58,17 +59,17 @@ public enum DivergenceResolveError: Error, LocalizedError {
         case let .recordNotFound(id):
             return "找不到 id 為 \(id.uuidString) 的歧異記錄"   // display-safe-exempt: UUID.uuidString 是 hex+dash
         case let .survivorNotACandidate(survivor, candidates):
-            return "倖存者「\(displaySafe(survivor, max: 200))」不在候選清單內；"
-                 + "實際候選為 \(candidates.map { displaySafe($0, max: 200) }.joined(separator: "、"))"
+            return "倖存者「\(displaySafeInvisible(survivor, max: 200))」不在候選清單內；"
+                 + "實際候選為 \(candidates.map { displaySafeInvisible($0, max: 200) }.joined(separator: "、"))"
         case let .candidateMissing(key, shape):
-            return "候選「\(displaySafe(key, max: 200))」（\(shape)）在 store 內找不到對應記錄"   // display-safe-exempt: shape 是呼叫端字面量（"person"/"work"）
+            return "候選「\(displaySafeInvisible(key, max: 200))」（\(shape)）在 store 內找不到對應記錄"   // display-safe-exempt: shape 是呼叫端字面量（"person"/"work"）
         case let .outsideVersionControl(root):
-            return "store「\(displaySafe(root, max: 300))」不在版本控制的工作樹內，拒絕刪除。"
+            return "store「\(displaySafeInvisible(root, max: 300))」不在版本控制的工作樹內，拒絕刪除。"
                  + "消歧會刪掉被併記錄與歧異記錄本身，歷史託給版本控制而非 store；"
                  + "版控之外刪掉就是真的沒了。先把 store 放進版控（或改用位於工作樹內的 store）再試。"
         case let .deletionNotRecoverable(files):
             return "以下檔案刪掉之後無法從版控取回，拒絕消歧：\n"
-                 + files.map { "  - \(displaySafe($0.path, max: 300))：\($0.why)" }
+                 + files.map { "  - \(displaySafeInvisible($0.path, max: 300))：\($0.why)" }
                         .joined(separator: "\n")
                  + "\n消歧會刪掉被併記錄與歧異記錄本身，歷史託給版控而非 store。"
                  + "先 `git add` 並 `git commit` 這些檔案（或確認 entities/ 沒被 .gitignore 擋），再重跑同一個 id。"
@@ -79,21 +80,21 @@ public enum DivergenceResolveError: Error, LocalizedError {
                 + details.map { "  • " + $0 }.joined(separator: "\n")
                 + "\n先處理其中一筆（合併判斷、或刪掉不要的那筆）再重跑。"
         case let .recordHasUnknownFields(id, fields):
-            return "歧異記錄 \(displaySafe(id, max: 80)) 帶有本 binary 不認得的欄位，"
+            return "歧異記錄 \(displaySafeInvisible(id, max: 80)) 帶有本 binary 不認得的欄位，"
                  + "消歧拒絕執行——這是**不可逆**操作（合併＋改寫參照＋刪檔），"
                  + "而那些欄位可能正是一道本版讀不到的限制："
-                 + fields.prefix(5).map { displaySafe($0, max: 120) }.joined(separator: "、")
+                 + fields.prefix(5).map { displaySafeInvisible($0, max: 120) }.joined(separator: "、")
                  + (fields.count > 5 ? "…" : "")
                  + "。升級 binary；或確認該欄位可忽略後，從記錄檔手動移除再重跑。"
         case let .contradictsJudgement(prefers, survivor, statement):
-            return "這筆歧異已有判斷、且傾向「\(displaySafe(prefers, max: 200))」，"
-                 + "但你選了「\(displaySafe(survivor, max: 200))」作為倖存者——"
-                 + "判斷內容：\(displaySafe(statement, max: 300))。"
+            return "這筆歧異已有判斷、且傾向「\(displaySafeInvisible(prefers, max: 200))」，"
+                 + "但你選了「\(displaySafeInvisible(survivor, max: 200))」作為倖存者——"
+                 + "判斷內容：\(displaySafeInvisible(statement, max: 300))。"
                  + "若判斷本身錯了，用 --override-reason 說明為什麼"
                  + "（判斷的變更也是判斷，不能無聲蓋過）。"
         case let .overrideNeedsReason(prefers, survivor):
-            return "覆寫判斷（傾向「\(displaySafe(prefers, max: 200))」、"
-                 + "你選「\(displaySafe(survivor, max: 200))」）需要 --override-reason："
+            return "覆寫判斷（傾向「\(displaySafeInvisible(prefers, max: 200))」、"
+                 + "你選「\(displaySafeInvisible(survivor, max: 200))」）需要 --override-reason："
                  + "為什麼原判斷不成立。"
         case let .unsupportedShape(shape):
             // **這句話會過期，而它過期時不會有任何東西報錯**——#553 把 venue 加進
@@ -104,46 +105,46 @@ public enum DivergenceResolveError: Error, LocalizedError {
                  + Self.mergeableShapes.joined(separator: "／")
                  + "。它可能有 key、可被指涉，只是 resolveDivergence 還接不住"
         case let .legacyLayout(root):
-            return "store「\(displaySafe(root, max: 300))」是 legacy 佈局（format < 2），"
+            return "store「\(displaySafeInvisible(root, max: 300))」是 legacy 佈局（format < 2），"
                  + "歧異記錄需要 entities/ 佈局。legacy 下 person 落在 people/<key>.yaml、"
                  + "而歧異記錄的刪除只認 entities/<uuid>.yaml——寫得進去、刪不掉，"
                  + "必然停在「參照全改了、被併檔還在」的半完成狀態。先跑 akashic migrate。"
         case let .doomedRecordInvalid(merged, why):
-            return "拒絕合併：被併的「\(displaySafe(merged, max: 200))」自己違反 venue 的寫入期不變式——\(why)"   // display-safe-exempt: why 由 NameIdentity 的固定訊息與已 displaySafe 的名字組成
+            return "拒絕合併：被併的「\(displaySafeInvisible(merged, max: 200))」自己違反 venue 的寫入期不變式——\(why)"   // display-safe-exempt: why 由 NameIdentity 的固定訊息與已 displaySafe 的名字組成
                  + "。先修它的 YAML（docs/store-format.md §5.7）再合併；不猜、不靜默修"
         case let .wouldLoseFields(merged, survivor, losses):
-            return "拒絕合併：被併的「\(displaySafe(merged, max: 200))」帶有倖存者"
-                 + "「\(displaySafe(survivor, max: 200))」沒有的資料，合併會讓它隨檔案消失——"
-                 + losses.map { displaySafe($0, max: 300) }.joined(separator: "；")
+            return "拒絕合併：被併的「\(displaySafeInvisible(merged, max: 200))」帶有倖存者"
+                 + "「\(displaySafeInvisible(survivor, max: 200))」沒有的資料，合併會讓它隨檔案消失——"
+                 + losses.map { displaySafeClipOnly($0, max: 300) }.joined(separator: "；")   // display-safe-exempt: 已消毒（fieldsLostByMerging 回傳前逐條 displaySafeInvisible，R28 D80），只截
                  + "。先把要保留的搬到倖存者身上（或確認可以丟棄後手動清除），再消歧。"
         case let .wouldContradictVerdicts(record, survivor, details, totalPairs):
-            return "拒絕合併：併入「\(displaySafe(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))會對同一個配對同時持有"   // display-safe-exempt: whoWouldHold 內部逐項 displaySafe
+            return "拒絕合併：併入「\(displaySafeInvisible(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))會對同一個配對同時持有"   // display-safe-exempt: whoWouldHold 內部逐項 displaySafe
                  + "相反的判定（confirmed 與 rejected；literal 正規化後相等）——這次合併帶進來的：\n"
                  + details.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: details 由 describeVerdictSource 組裝且已在生產端截到 5 個配對（R27 D78），store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
                  + (totalPairs > details.count ? "\n  …共 \(totalPairs) 個配對" : "")   // display-safe-exempt: Int
-                 + "\n合併不裁決哪一筆對：先決定，把錯的那筆 verdict 從它所在記錄的 YAML 刪掉（各筆的出處如上；venue 側也可用"
+                 + "\n合併不裁決哪一筆對：先決定，把錯的那筆 verdict 從它所在記錄的 YAML 刪掉（列出的各筆出處如上；標「另有 N 筆略」的配對要開持有記錄的 YAML 找其餘幾筆；venue 側也可用"
                  + " resolve-venues --demote／--repoint 退役 confirmed 那一側），再消歧。不擋的只有：倖存配對合併前就是矛盾對，"
                  + "以及倖存配對合併前一筆都沒有、整組原樣從單一被併鍵搬來的（holder 改寫；validate 照報 warning）；"
                  + "整組住在被併記錄裡的（那個檔要刪、出處會消失——先在它的 YAML 修掉）、或搬過來後讓一個已持有判定的倖存配對變成矛盾的，都擋"
-        case let .wouldLeaveTwoConfirmedLiterals(record, survivor, citekey, brought, existing):
+        case let .wouldLeaveTwoConfirmedLiterals(record, survivor, citekey, brought, existing, broughtTotal, existingTotal):
             // 兩半分開列（R14 verify DA 第 11 列：R14 把絕對集合印在「這次合併帶進來的」下、末句又說既有的不擋——照最自然的讀法
             // 刪第一筆重跑仍被拒）：帶進來的才是要處理的；倖存配對既有的列出供對照，明說不擋。**「帶進來的」自 R16 起包含合併前住在
             // 被併鍵上的**（R15 verify 第 20 列：R15 末句寫「含住在被併鍵上的不擋」，而被搬到別的配對上、把它的歧義變大的那幾筆正是
             // 住在被併鍵上——訊息與判準互相矛盾；D45 的判準寫在末句）
-            return "拒絕合併：併入「\(displaySafe(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))對 work"   // display-safe-exempt: whoWouldHold 內部逐項 displaySafe
-                 + "「\(displaySafe(citekey, max: 200))」會持有兩個以上正規化後不同的 confirmed literal——這次合併帶進來的（合併前住在被併記錄裡、或住在被併鍵上）：\n"
-                 + brought.prefix(5).map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: brought 由 describeVerdictSource 組裝，store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
-                 + (brought.count > 5 ? "\n  …共 \(brought.count) 筆" : "")   // display-safe-exempt: Int
+            return "拒絕合併：併入「\(displaySafeInvisible(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))對 work"   // display-safe-exempt: whoWouldHold 內部逐項 displaySafe
+                 + "「\(displaySafeInvisible(citekey, max: 200))」會持有兩個以上正規化後不同的 confirmed literal——這次合併帶進來的（合併前住在被併記錄裡、或住在被併鍵上）：\n"
+                 + brought.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: brought 由 describeVerdictSource 組裝且已在擲出端截到 5 筆（R28），store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
+                 + (broughtTotal > brought.count ? "\n  …共 \(broughtTotal) 筆" : "")   // display-safe-exempt: Int
                  + (existing.isEmpty ? "" : "\n倖存配對合併前就持有的（不擋，列出供對照）：\n"
-                    + existing.prefix(5).map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: existing 同上
-                    + (existing.count > 5 ? "\n  …共 \(existing.count) 筆" : ""))   // display-safe-exempt: Int
+                    + existing.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: existing 同上
+                    + (existingTotal > existing.count ? "\n  …共 \(existingTotal) 筆" : ""))   // display-safe-exempt: Int
                  + "\nverdict 不帶 index，之後那筆 work 的邊在 resolve-venues 的 demote／repoint 上都會被拒（D23）。"
                  + "出路：把不屬於這條邊的那筆 confirmed verdict 從它所在記錄的 YAML 刪掉（先看「這次合併帶進來的」那幾筆，出處如上）；"
                  + "若那筆 work 另有一條邊指向被併者，也可以先用 resolve-venues --demote 把那條邊退回 literal。"
                  + "不擋的只有：倖存配對合併前就持有整組的違反，以及倖存配對合併前一筆都沒有、整組原樣從單一被併鍵搬來的（holder 遷移；validate 照報 warning）；"
                  + "整組住在被併記錄裡的（那個檔要刪、出處會消失——先在它的 YAML 修掉）、或讓倖存配對的既有歧義變大的，都擋"
         case let .quarantinedPresent(files):
-            let listed = files.prefix(3).map { displaySafe($0, max: 200) }
+            let listed = files.prefix(3).map { displaySafeInvisible($0, max: 200) }
                 .joined(separator: "、") + (files.count > 3 ? "…" : "")
             var msg = "store 有 \(files.count) 個讀不進來的檔，消歧拒絕執行——"
             msg += "它們可能正指著要被刪掉的實體，而讀不到就改寫不到，刪除後會留下"
@@ -154,8 +155,8 @@ public enum DivergenceResolveError: Error, LocalizedError {
             msg += "akashic migrate-person-identity。"
             return msg
         case let .candidateNotInEntities(key, expected):
-            return "候選「\(displaySafe(key, max: 200))」的記錄不在 "
-                 + "\(displaySafe(expected, max: 300))——store 的佈局不一致"
+            return "候選「\(displaySafeInvisible(key, max: 200))」的記錄不在 "
+                 + "\(displaySafeInvisible(expected, max: 300))——store 的佈局不一致"
                  + "（marker 說 entities，記錄卻在 legacy 目錄）。"
                  + "消歧的刪除只認 entities/<uuid>.yaml，硬跑會變成「參照全改了、"
                  + "被併檔還在、而且沒有任何訊號」。先跑 akashic migrate。"
@@ -272,7 +273,7 @@ extension LibraryStore {
         if let j = d.judgement, let bad = j.restsOn.first(where: { !ProvenanceReference.isValidDigest($0) }) {
             throw StoreIOError.invalidInput(
                 what: "divergence.rests-on",
-                why: "「\(displaySafe(bad, max: 120))」不是合法的 digest（`sha256:` ＋ 64 個十六進位字元）"
+                why: "「\(displaySafeInvisible(bad, max: 120))」不是合法的 digest（`sha256:` ＋ 64 個十六進位字元）"
                     + "——先 store-source 把依據存進 sources/，再填它的 digest")
         }
     }
@@ -336,7 +337,7 @@ extension LibraryStore {
             guard pool.contains(c.key) else {
                 throw StoreIOError.invalidInput(
                     what: "divergence candidate",
-                    why: "store 內沒有 \(c.shape.rawValue)「\(c.key)」——對不存在的鍵記歧異沒有意義（key 存在但形狀不符也算不存在：shape 說是什麼就驗什麼）")
+                    why: "store 內沒有 \(c.shape.rawValue)「\(displaySafeInvisible(c.key, max: 120))」——對不存在的鍵記歧異沒有意義（key 存在但形狀不符也算不存在：shape 說是什麼就驗什麼）")
             }
         }
         let id = DeterministicUUID.forDivergence(candidateKeys: candidates.map(\.key))
@@ -348,9 +349,8 @@ extension LibraryStore {
            existing.judgement != nil, judgement == nil {
             throw StoreIOError.invalidInput(
                 what: "divergence（同組候選既有記錄）",
-                // #149 R2：invalidInput 的 errorDescription 已消毒 why（sink 策略）——
-                // 此處預先消毒是雙重 escape（反斜線被跳脫兩次）。傳原字串。
-                why: "這組候選已有判斷（\(existing.judgement!.statement)）——" +
+                // R28 D80：invalidInput 的描述只截不逃——store 字串在擲出端消毒一次（#149 R2 的「傳原字串」自此反過來）
+                why: "這組候選已有判斷（\(displaySafeInvisible(existing.judgement!.statement, max: 200))）——" +
                      "無判斷的重呼叫不得靜默抹掉它。要更新判斷請帶新的 judgement + rests-on；" +
                      "要撤銷判斷請直接編輯該檔（entities/\(id.uuidString).yaml）")
         }
@@ -368,15 +368,15 @@ extension LibraryStore {
            judgement != nil, prefers == nil {
             throw StoreIOError.invalidInput(
                 what: "divergence（同組候選既有記錄）",
-                // 同上：invalidInput 的 errorDescription 已消毒 why，此處傳原字串
-                why: "這組候選已指定傾向「\(existingPrefers)」——" +
+                // 同上：擲出端消毒一次（R28 D80）
+                why: "這組候選已指定傾向「\(displaySafeInvisible(existingPrefers, max: 120))」——" +
                      "重錄時省略 prefers 不得靜默抹掉它。要沿用請再帶一次相同的 prefers；" +
                      "要改傾向請帶新的值；要撤銷請直接編輯該檔（entities/\(id.uuidString).yaml）")
         }
         if let p = prefers, !candidates.contains(where: { $0.key == p }) {
             throw StoreIOError.invalidInput(
                 what: "divergence prefers",
-                why: "「\(p)」不是本次的候選之一——判斷傾向的對象必須在候選清單內")
+                why: "「\(displaySafeInvisible(p, max: 120))」不是本次的候選之一——判斷傾向的對象必須在候選清單內")
         }
         if prefers != nil && judgement == nil {
             throw StoreIOError.invalidInput(
@@ -895,7 +895,7 @@ extension LibraryStore {
         let originalValue: String
     }
     static func describeVerdictSource(_ s: VerdictSource) -> String {
-        "\(s.kind)「\(displaySafe(s.record, max: 120))」的 \(s.field.replacingOccurrences(of: "resolution-", with: "")) "   // display-safe-exempt: kind 是本檔的字面常量；field 是封閉列舉的欄位名
+        "\(s.kind)「\(displaySafeInvisible(s.record, max: 120))」的 \(s.field.replacingOccurrences(of: "resolution-", with: "")) "   // display-safe-exempt: kind 是本檔的字面常量；field 是封閉列舉的欄位名
             + displaySafeInvisible(s.originalValue, max: 200)
     }
 
@@ -981,9 +981,11 @@ extension LibraryStore {
                 record: record, survivor: survivor, details: capped, totalPairs: groups.count)
         }
         if let first = new.multiLiteral.first {
+            // 兄弟 case 同樣在渲染前截（R28；R27 verify logic 第 26 列）：兩邊各至多 5 筆、原數另帶
             throw DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(
                 record: record, survivor: survivor, citekey: first.work,
-                brought: first.brought.map(describeVerdictSource), existing: first.existing.map(describeVerdictSource))
+                brought: first.brought.prefix(5).map(describeVerdictSource), existing: first.existing.prefix(5).map(describeVerdictSource),
+                broughtTotal: first.brought.count, existingTotal: first.existing.count)
         }
     }
 
@@ -1387,7 +1389,7 @@ extension LibraryStore {
                 + "；沒有工具面能把它逐位元組搬到倖存者——update-venue --paginated 寫的是新的一筆：把那一筆逐字加進倖存者的 YAML，或確認可丟棄後從被併者的 YAML 刪掉；"
                 + "只差位元組的雙胞胎也擋，零位元組損失是刻意的）")
         }
-        return losses
+        return losses.map { displaySafeInvisible($0, max: 300) }   // R28 D80：一條 loss 在這裡消毒一次（field／value／note／title 都是自由字串，R27 verify 第 28 列），wouldLoseFields 只截
     }
 
     /// 被併記錄的一筆 reference 在倖存者身上找不到**位元組**相同的、但找得到 canonical 相等的——訊息要把這件事說出來，否則操作者打開
@@ -2525,7 +2527,7 @@ extension LibraryStore {
                 losses.append("未知欄位 \(f.key)（兩邊都有但內容不同，需要選一個）")
             }
         }
-        return losses
+        return losses.map { displaySafeInvisible($0, max: 300) }   // R28 D80：一條 loss 在這裡消毒一次（field／value／note／title 都是自由字串，R27 verify 第 28 列），wouldLoseFields 只截
     }
 
     /// work 消歧的欄位遺失比對（#75 對二，與 person 側 `fieldsLostByMerging` 對稱）。
@@ -2602,8 +2604,8 @@ extension LibraryStore {
         if !lostVenues.isEmpty {
             losses.append("venues: " + lostVenues.map { ref -> String in
                 switch ref {
-                case .key(let k): return "key:\(displaySafe(k, max: 200))"
-                case .literal(let l): return displaySafe(l, max: 200)
+                case .key(let k): return "key:\(k)"   // display-safe-exempt: losses 在 fieldsLostByMerging 回傳前逐條 displaySafeInvisible（R28 D80）
+                case .literal(let l): return l   // display-safe-exempt: 同上
                 }
             }.joined(separator: "、"))
         }
@@ -2642,7 +2644,7 @@ extension LibraryStore {
         let lostRefs = e.references.filter { !keeperBytes.contains($0.byteExactKey) }
         if !lostRefs.isEmpty {
             losses.append("references: " + lostRefs.map {
-                "\($0.field)" + ($0.value.map { v in "（\(displaySafe(v, max: 80))）" } ?? "") + Self.canonicalTwinNote($0, in: keeper.references)
+                "\($0.field)" + ($0.value.map { v in "（\(v)）" } ?? "") + Self.canonicalTwinNote($0, in: keeper.references)   // display-safe-exempt: losses 回傳前逐條消毒（R28 D80）
             }.joined(separator: "、"))
         }
         // 學位論文事實（#335）：整塊當一個值比，不逐欄位拆。
@@ -2830,7 +2832,7 @@ extension LibraryStore {
                 losses.append("zotero-key: \(ep.zoteroKey)（倖存者無 provenance）")
             }
         }
-        return losses
+        return losses.map { displaySafeInvisible($0, max: 300) }   // R28 D80：一條 loss 在這裡消毒一次（field／value／note／title 都是自由字串，R27 verify 第 28 列），wouldLoseFields 只截
     }
 
     /// work 合併**不擋、但要說**的內容差異（#169）。

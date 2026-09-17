@@ -159,7 +159,7 @@ public extension AkashicService {
             ]
             if !validationErrors.isEmpty {
                 out["blockedByValidation"] = validationErrors.prefix(5)
-                    .map { displaySafe($0.message, max: 300) }
+                    .map { displaySafeClipOnly($0.message, max: 300) }   // display-safe-exempt: 已消毒（validate() 的訊息在生產端 displaySafeInvisible，R28 D80），只截——R27 verify 第 17 列
             }
             // gate 預演（#131 的 v6 gate）：不預演的 dry-run 會說「會改」而
             // real run 被擋——dry-run 就成了謊言（diagnosis 明列的要求）
@@ -177,7 +177,7 @@ public extension AkashicService {
         guard validationErrors.isEmpty else {
             throw ServiceError.invalid(
                 "更新後的記錄無法通過驗證（error 等級），拒絕寫入：\n"
-                + validationErrors.prefix(5).map { "- " + displaySafe($0.message, max: 300) }
+                + validationErrors.prefix(5).map { "- " + displaySafeClipOnly($0.message, max: 300) }   // display-safe-exempt: 已消毒（同上），只截
                     .joined(separator: "\n"))
         }
         try store.writePerson(person)   // v6 gate／canary／tolerant-preserve 全在這條路上

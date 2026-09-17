@@ -144,12 +144,12 @@ public enum StoreIncarnationError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case let .unreadable(path, why):
-            return "化身檔「\(displaySafe(path, max: 300))」存在但讀不到（\(displaySafe(why, max: 300))）"
+            return "化身檔「\(displaySafeInvisible(path, max: 300))」存在但讀不到（\(displaySafeInvisible(why, max: 300))）"
                 + "——**不覆寫**：它是 store 的身分，覆寫等於把它變成另一個化身。"
                 + "修好權限／等同步完成後重試；確定要重新賦予身分請自行刪除該檔"
         case let .malformed(path, content):
-            return "化身檔「\(displaySafe(path, max: 300))」的內容不是 UUID"
-                + "（實得「\(displaySafe(content, max: 120))」）——同樣不覆寫，理由同上"
+            return "化身檔「\(displaySafeInvisible(path, max: 300))」的內容不是 UUID"
+                + "（實得「\(displaySafeInvisible(content, max: 120))」）——同樣不覆寫，理由同上"
         }
     }
 }

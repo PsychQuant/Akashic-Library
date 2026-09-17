@@ -28,7 +28,7 @@ final class VenueNameInvariantTests: XCTestCase {
         let issues = Venue(key: "sankhya", type: .periodical, names: Timeline(segs), authorized: []).validate()
         XCTAssertTrue(issues.contains { $0.message.contains("有兩筆近重複") }, issues.map(\.message).prefix(2).description)
         let summary = try XCTUnwrap(issues.first { $0.message.hasPrefix(Entry.perRecordCapSummaryPrefix) }, issues.map(\.message).suffix(2).description)
-        XCTAssertTrue(summary.message.contains("已列出的組裡 1 組只評估了前 5000 對"), summary.message)
+        XCTAssertTrue(summary.message.contains("已列出的組裡 1 組求值提前停止（列滿 3 對違反、或達組內 5000 對的上限）"), summary.message)
         XCTAssertFalse(summary.message.contains(" 0 組") || summary.message.contains("有 0 組"), "概括句只列非零的類別（R26 verify regression 第 42 列）：\(summary.message)")
         XCTAssertEqual(issues.filter { $0.message.hasPrefix(Entry.perRecordCapSummaryPrefix) }.count, 1, "一筆記錄一句概括")
     }
@@ -714,5 +714,16 @@ final class VenueNameInvariantTests: XCTestCase {
         let ws = e.validate().filter { $0.message.hasPrefix(Entry.duplicateVenueEdgePrefix) }.map(\.message)
         XCTAssertEqual(ws.count, 1, "\(ws)")
         XCTAssertTrue(ws.first?.contains("\\u{200B}") == true && ws.first?.unicodeScalars.contains { $0.value == 0x200B } == false, ws.first ?? "")
+    }
+
+    /// R28（R27 verify Codex 第 6 列、requirements 第 23 列）：4 筆相同、無時間的名字有 6 對違反，列滿 3 對就停——那一組同樣「求值被截」，
+    /// 記錄要進 `cappedRecords`（概括句帶 `perRecordCapSummaryPrefix`）；R27 的 `capHit` 只涵蓋 5,000 那個截點，這裡零概括句、計數被讀成精確值。
+    func testListingCapAloneMarksTheRecordAsCapped() throws {
+        let v = Venue(key: "alpha", type: .periodical, names: Timeline(Array(repeating: TemporalValue(value: "Same"), count: 4)), authorized: [])
+        let issues = v.validate()
+        XCTAssertEqual(issues.filter { $0.message.contains("有兩筆近重複") }.count, 3, issues.map(\.message).description)
+        let summary = try XCTUnwrap(issues.first { $0.message.hasPrefix(Entry.perRecordCapSummaryPrefix) }, "列出上限提前停止也要有概括句：\(issues.map(\.message))")
+        XCTAssertEqual(summary.severity, .warning, "只有已列出但被截的組——不重複 fail-closed")
+        XCTAssertTrue(summary.message.contains("已列出的組裡 1 組求值提前停止（列滿 3 對違反、或達組內 5000 對的上限）"), summary.message)
     }
 }

@@ -34,6 +34,17 @@ final class UpdatePersonTests: XCTestCase {
         try? FileManager.default.removeItem(at: fakeHome)
     }
 
+    /// D73（R26；R25 verify 第 7／25／29 列）：references 的 append-only 去重比位元組——canonical `==` 把只差 NFC／NFD 的一筆靜默吞掉、零回報。
+    func testReferencesThatDifferOnlyInBytesAreBothAppended() throws {
+        let d = "sha256:" + String(repeating: "ab", count: 32)
+        func ref(_ s: String) -> [String: Any] { ["field": "orcid", "kind": "judgement", "statement": s, "rests_on": [d]] }   // orcid 是純量欄位、不收 value
+        _ = try service.updatePerson(key: "cheng-che", fields: ["references": [ref("\u{00E1} 判定")]], dryRun: false)
+        _ = try service.updatePerson(key: "cheng-che", fields: ["references": [ref("a\u{0301} 判定"), ref("\u{00E1} 判定")]], dryRun: false)
+        let stmts = try load().references.compactMap { r -> [UInt8]? in if case .judgement(let s, _) = r.kind { return Array(s.utf8) } else { return nil } }
+        XCTAssertEqual(Set(stmts), Set([Array("\u{00E1} 判定".utf8), Array("a\u{0301} 判定".utf8)]))
+        XCTAssertEqual(stmts.count, 2, "位元組相同的第三次不寫")
+    }
+
     private func load() throws -> Person {
         try XCTUnwrap(LibraryStore(root: root).load().people.first { $0.key == "cheng-che" })
     }

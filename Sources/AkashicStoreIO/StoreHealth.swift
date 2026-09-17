@@ -101,9 +101,11 @@ public struct StoreHealth {
     /// 第 14 列：「零資訊損失」只在 rename 那一步為真，而它之後沒有任何面看得見。
     public static let duplicateVerdictRecordPrefix = "重複的判定記錄"
     /// `perRecordIssues` 裡的重複判定記錄（D64）。計算屬性，與 `deadVerdicts` 同一個理由。
-    /// **不含**一格：venue×work 的 confirmed、且組裡每筆各有自己拼法的組——那格由 `confirmedLiteralAmbiguities`（第 27 列第二類）報，
-    /// 同一件事不出兩則；組裡有位元組相同的重複時（混合組）本族照報（R25 D67；R24 verify 第 8／10／18 列：R24 的排除把混合組整組吞掉，
-    /// 而第 27 列以位元組去重、結構上看不到位元組相同的那對——三個面都不出聲；且家族計數對 25 個純拼法組回 0 而沒有任何線索說那是排除後的 0）。
+    /// **不含**一格：venue×work 的 confirmed、組裡每筆各有自己拼法**且 judgement／rests-on 全同**的「純拼法組」——那格由
+    /// `confirmedLiteralAmbiguities`（第 27 列第二類）報、本族不重報（R25 D67／R26 D71）。混合組（含位元組相同的重複）與 kind 有差異的組本族照報，
+    /// 那時第 27 列與本族**各出一則、數字不同**（第 27 列數拼法、本族數記錄——R25 verify regression 第 41 列：兩則不是同一件事的兩份描述，是兩個
+    /// 維度）。R24 的排除把混合組整組吞掉（第 27 列以位元組去重、看不到位元組相同的那對）、R25 的排除把 judgement 衝突整組吞掉（第 27 列只看
+    /// literal、還叫人「留一筆」）——兩輪各關一半，家族計數在那些組上都曾回 0 而沒有線索。
     public var duplicateVerdictRecords: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.duplicateVerdictRecordPrefix) }
     }
@@ -145,14 +147,18 @@ public struct StoreHealth {
     /// #554 配對唯一性的兩半（R11 D28、R14 D36／R15 D39）：per-record warning 住在 `Entry.validate()`／`Venue.validate()`，
     /// 前綴的**單一定義在 Core**（訊息在那裡組出），這裡只引用——同 `deadVerdictPrefix` 的形，家族才有計數
     /// （R14 verify regression 第 22 列：兩族沒有家族，doctor 截 20 則、App 預覽 5 則時可能完全看不到，
-    /// `zero-instance-guards` 第 26／27 列宣稱的「掃得到」在 CLI validate 也只到每筆記錄 20 則——這兩族正是有 per-record 上限的，R25 D70）。
+    /// `zero-instance-guards` 第 26／27 列宣稱的「掃得到」在 CLI validate 也只到每筆記錄 20 則——這兩族正是有 per-record 上限的，R25 D70／R26 D72）。
     /// **家族計數是下限**（R16；R15 verify 第 29 列）：每筆記錄至多 `Entry.perRecordWarningCap` 則進家族，其餘由一句概括
     /// （`Entry.perRecordCapSummaryPrefix`，**不在**任何家族裡）收尾——被截的記錄上，家族計數 ＝ min(受影響數, 上限)，
     /// 不是受影響數。**CLI `validate` 也拿不到被截的那幾則**（R24 D66；R23 verify Codex 第 2 列）：上限在本函式產生訊息時就生效，
-    /// CLI 只是不再加一層面級的 20 則截斷——被截的記錄在三個面都只有概括句，要全部只能讀 YAML（出口另案 #581）。**上限只在五族**（R25 D70；
-    /// R24 verify 第 12／14／37 列：R24 寫「每筆記錄每族」，對五族以外為假）：名字內容、近重複、重複 venue 邊、confirmed literal、重複判定記錄
-    /// ——它們的則數是每筆記錄的**組合**（配對／組）；死 verdict、矛盾 verdict、本機缺存檔、拆分／移除記錄的則數與記錄數**線性**、每筆至多
-    /// 一則，沒有上限。**被截的記錄數自己是一族**（`cappedRecords`，R18 D54；R17 verify Codex 第 2 列：
+    /// CLI 只是不再加一層面級的 20 則截斷——被截的記錄在三個面都只有概括句，要全部只能讀 YAML（出口另案 #581）。**上限只在六族**（R25 D70 →
+    /// R26 D72；R24 verify 第 12／14／37 列：R24 寫「每筆記錄每族」；R25 verify DA 第 2 列 HIGH、第 6／11／15 列：R25 寫「五族」而漏掉 person
+    /// 近重複——它是組合式且當時無上限，200 個名字真 binary 吐 19,900 則、7.6 MB；R25 還說其餘家族「每筆至多一則、撐不爆」，對六族全假）：
+    /// venue 名字內容、venue 近重複、**person 近重複**（R26 起）、重複 venue 邊、confirmed literal、重複判定記錄——它們的則數是每筆記錄的
+    /// **組合**（配對／組），會被一筆記錄撐爆；死 verdict、矛盾 verdict、本機缺存檔、拆分後孤兒 verdict、拆分／移除記錄**沒有上限**，它們的
+    /// 則數是每筆 reference／配對／記錄各一則——與那筆記錄持有的 reference 數線性（`psychological-methods` 持 1,352 筆 verdict，holder 集合
+    /// 全退役時就是 1,352 則），不是「每筆至多一則」；上限的理由（一筆記錄的組合數可以遠超過它的資料項數）對它們不成立，但它們**不是**撐不爆，
+    /// 只是撐爆的上界等於資料項數。**被截的記錄數自己是一族**（`cappedRecords`，R18 D54；R17 verify Codex 第 2 列：
     /// doctor 的描述與註解說「各族計數永遠完整」、與這一段互相矛盾，而 MCP 描述是呼叫端唯一看得到的契約）——三面都說得出「還有幾筆被截」。
     /// **以 (kind, owner) 計，不是概括句的行數**（R19 D56；R18 verify Codex 第 2 列：一筆 venue 可以同時出名字近重複與 confirmed-literal 兩句概括，
     /// R18 數行數就把「被截的記錄」多報一筆）——每筆記錄只留首見那一句，`count` 才真的是「幾筆記錄被截」。**留下的那一句是任意的**
@@ -369,7 +375,15 @@ public extension LibraryStore {
             case .org:    return orgKeys.contains(p.holder)
             }
         }
+        var quarantineLookup: [String: String?] = [:]   // R26；R25 verify 第 11 列：每一筆死 verdict 曾各重讀一遍全部 quarantined 檔
         func quarantinedFile(_ p: ProvenanceReference.VerdictPairingValue) -> String? {
+            let cacheKey = "\(p.holderKind.rawValue):\(p.holder)"
+            if let hit = quarantineLookup[cacheKey] { return hit }
+            let found = quarantinedFileUncached(p)
+            quarantineLookup[cacheKey] = found
+            return found
+        }
+        func quarantinedFileUncached(_ p: ProvenanceReference.VerdictPairingValue) -> String? {
             switch p.holderKind {
             case .work:   return quarantinedFileClaiming(citekey: p.holder, in: load)
             case .person: return quarantinedFileClaiming(personKey: p.holder, in: load)
@@ -488,23 +502,30 @@ public extension LibraryStore {
                 if byKey[k]!.count == 1 { order.append(k) }
             }
             // 第 27 列的第二類（`Venue.validate()`：venue×work 的 confirmed、只差位元組）已經報的那一格**不重報**——同一件事出兩則是雜訊不是訊號。
-            // 但它以位元組去重、結構上看不到「同一拼法出現兩次」，所以只有**每筆各有自己拼法**的組才交給它（R25 D67；R24 verify 第 8／10／18 列：
-            // R24 的 `spellings.count > 1` 把 `Alpha`／`Alpha`／`ALPHA` 這種混合組整組吞掉，位元組相同的那對三個面都不出聲）。
-            // 這一族報的是它認不得的：位元組相同的重複、rejected 的重複、person 配對的重複、person／organization 持有的重複。
-            let issues = order.compactMap { k -> StoreHealth.OwnedIssue? in
-                guard let e = byKey[k], e.count > 1 else { return nil }
-                if kind == "venue", e.pairing.holderKind == .work, e.first.field == "resolution-confirmed",
-                   e.spellings.count > 1, e.spellings.count == e.count { return nil }
+            // 委派的前提有兩個（R26 D71；R25 verify 第 1／3／5／10／12／18 列，兩個 HIGH 之一）：(1) 每筆各有自己的拼法——第 27 列以位元組去重、
+            // 看不到「同一拼法出現兩次」（R25 D67）；(2) **kind 也全同**——第 27 列只看 literal、結構上說不出 judgement／rests-on 差異，而它的訊息叫人
+            // 「留一筆」：D64 若對「拼法各異但 judgement 衝突」的組沉默，一個真的證據衝突就被一句銷毀判定的指令取代（R21 D60／R22 D62 一路守的
+            // 「不做判定的刪除」）。這一族報的是它認不得的：位元組相同的重複、kind 有差異的組、rejected 的重複、person 配對的重複、person／
+            // organization 持有的重複。
+            // 上限在**渲染之前**套（R25 verify Codex 第 4 列：R25 先把全部組渲染完再 `prefix(cap)`，訊息建構成本不受上限管）：超額的組只計數。
+            let cap = Entry.perRecordWarningCap
+            var issues: [StoreHealth.OwnedIssue] = []
+            var unlisted = 0
+            for k in order {
+                guard let e = byKey[k], e.count > 1 else { continue }
+                if kind == "venue", e.pairing.holderKind == .work, e.first.field == ProvenanceReference.resolutionConfirmedField,
+                   e.spellings.count > 1, e.spellings.count == e.count, e.kinds.count == 1 { continue }
+                guard issues.count < cap else { unlisted += 1; continue }
                 // 三向措辭（D67）：分組鍵正規化 literal，所以同一組裡 value 可以只差位元組；R24 用整筆 `byteExactKey` 判，把拼法差異也說成
-                // 「judgement 或 rests-on 彼此不同」——處置方向因此指錯（該統一拼法，卻叫人去找證據衝突）。
+                // 「judgement 或 rests-on 彼此不同」——處置方向因此指錯。sameness 只描述差異，處置留給句尾那一句（R25 verify 第 19 列）。
                 let sameness: String
                 switch (e.spellings.count > 1, e.kinds.count > 1) {
                 case (false, false): sameness = "全部完全相同"
-                case (true, false):  sameness = "literal 拼法只差位元組（\(e.spellings.count) 種）、judgement 與 rests-on 相同——統一拼法即可"
+                case (true, false):  sameness = "literal 拼法只差位元組（\(e.spellings.count) 種）、judgement 與 rests-on 相同"
                 case (false, true):  sameness = "judgement 或 rests-on 彼此不同"
                 case (true, true):   sameness = "literal 拼法只差位元組（\(e.spellings.count) 種）且 judgement 或 rests-on 彼此不同"
                 }
-                return StoreHealth.OwnedIssue(
+                issues.append(StoreHealth.OwnedIssue(
                     owner: owner, kind: kind,
                     issue: ValidationIssue(
                         severity: .warning,
@@ -512,16 +533,15 @@ public extension LibraryStore {
                                + "（\(e.pairing.holderKind.rawValue):\(displaySafe(e.pairing.holder, max: 120))"
                                + "，literal「\(displaySafeInvisible(e.pairing.literal, max: 120))」；\(sameness)）"   // display-safe-exempt: sameness 是四句字面常量＋Int
                                + "——工具面的寫入以 verdictEqualityKey 去重、寫不出它：是手改、舊 binary 寫的，或由 rename 從舊鍵原樣帶過來（D62 不刪）；"
-                               + "下一次 person／venue 合併會以 #468 的血統層收成一筆並在 verdictsCollapsed 回報。處置：留一筆，或把其中一筆的 value 改成它實際描述的記錄的鍵"))
+                               + "下一次 person／venue 合併會以 #468 的血統層收成一筆並在 verdictsCollapsed 回報。處置：留一筆，或把其中一筆的 value 改成它實際描述的記錄的鍵")))
             }
             // 每筆記錄至多 `Entry.perRecordWarningCap` 則、其餘一句概括（不帶家族前綴——與第 26／27 列同一條紀律；R23 首版無上限，
             // 一個 20 筆 work × 6 對的 venue 就出 120 則、把 doctor 的 `count` 從 20 推到 140）。
-            let cap = Entry.perRecordWarningCap
-            guard issues.count > cap else { return issues }
-            return Array(issues.prefix(cap)) + [StoreHealth.OwnedIssue(
+            guard unlisted > 0 else { return issues }
+            return issues + [StoreHealth.OwnedIssue(
                 owner: owner, kind: kind,
                 issue: ValidationIssue(severity: .warning,
-                                       message: "\(Entry.perRecordCapSummaryPrefix)：\(kind) '\(displaySafe(owner, max: 120))' 另有 \(issues.count - cap) 個配對未列出（同樣持有重複的判定記錄；每筆記錄最多列 \(cap) 個）"))]   // display-safe-exempt: 前綴是常量；Int
+                                       message: "\(Entry.perRecordCapSummaryPrefix)：\(kind) '\(displaySafe(owner, max: 120))' 另有 \(unlisted) 個配對未列出（同樣持有重複的判定記錄；每筆記錄最多列 \(cap) 個）"))]   // display-safe-exempt: 前綴是常量；Int
         }
         var out: [StoreHealth.OwnedIssue] = []
         for p in load.people { out += scan(p.references, owner: p.key, kind: "person") }

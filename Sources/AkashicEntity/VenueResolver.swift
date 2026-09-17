@@ -143,8 +143,9 @@ public enum VenueResolver {
 
 /// 否決抑制的鍵：(holder, 正規化 literal, judged key) 三段各自一個欄位——沒有分隔符可被 literal 內容撞上（R25，R24 verify security 第 27 列）。
 /// `VenueResolver` 與 `PersonResolver` 共用。
-struct RejectedPairKey: Hashable {
-    let holder: String
-    let literal: String
-    let judged: String
+public struct RejectedPairKey: Hashable {
+    public let holder: String
+    public let literal: String
+    public let judged: String
+    public init(holder: String, literal: String, judged: String) { self.holder = holder; self.literal = literal; self.judged = judged }
 }

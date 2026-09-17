@@ -214,7 +214,10 @@ struct UpdateVenueCmd: ParsableCommand {
                              + "一次給兩個同書寫系統的名字是矛盾，整批拒絕。不在 names 的一併加進 names。"
                              + "這是 #553 合併把某個名字降成 variant 那個動作在該名字上的逆操作——在此之前"
                              + "authorized 沒有判定型寫入面，唯一寫入者是 bootstrap 取第一個名字，而那些"
-                             + "機械值換不掉。不留 judgement（#564 另裁）。整項空白的不寫、回報在 authorizeDropped（#554）"))
+                             + "機械值換不掉。不留 judgement（#564 另裁）。報告的桶：authorizedRemoved（被換下來的舊指定）、"
+                             + "liftedFromVariant（原本在 variant、被抬進 authorized）、alreadyAuthorized（no-op 但不沉默）、"
+                             + "authorizedRewritten（唯一會宣告 store 位元組被改寫的桶：同名 NFD 舊指定換成 canonical）；"
+                             + "整項空白的不寫、回報在 authorizeDropped（#554；R25 verify 第 20 列：這裡曾只列一個桶、MCP 描述列四個）"))
     var authorize: [String] = []
 
     @Flag(name: .customLong("clear-paginated"),

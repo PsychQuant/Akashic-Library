@@ -25,8 +25,10 @@ public struct ProvenanceReference: Equatable {
     /// #232：resolution verdict 欄位的**封閉對**——僅此二值，不得類推第三個。
     /// init 的空 restsOn 例外、person／organization 的 validateReferenceAttachment、
     /// ResolutionLedger 四處都引這一個列舉（單一來源，不留漂移面）。
+    /// 「確認」那一半的欄位名——D64 的 carve-out 與第 27 列第二類只對它成立（R26；R25 verify 第 34 列：字面量散在兩處）。
+    public static let resolutionConfirmedField = "resolution-confirmed"
     public static let resolutionVerdictFields: Set<String> = [
-        "resolution-confirmed", "resolution-rejected",
+        resolutionConfirmedField, "resolution-rejected",
     ]
 
     /// #450：**一階人為裁決**的欄位集合——judgement 的空 rests-on 只對這些放行（#232 D8 的例外
@@ -120,7 +122,9 @@ public struct ProvenanceReference: Equatable {
             // 一個字面帶 U+0000 的 malformed value 否則能拼出與合法配對相同的鍵（#554 R14 verify security 第 28 列；
             // YAML reader 擋得住 U+0000，但鍵的形狀不該靠別處的 reader 撐）。**value 缺席與空字串是兩把鍵**（R25；R24 verify
             // logic 第 25 列：`byteExactKey` 用 presence tag 分開了，這裡沒跟上——#517 以「value 缺席」表達「查過了、沒有」）。
-            return "\(field)\u{0}\u{1}malformed\u{0}" + (value.map { "\u{1}" + $0 } ?? "\u{2}absent")
+            // field 在這條分支是任意字串（verdict 分支的 field 屬封閉集合）——長度前綴讓 field 裡的 U+0000 移不動任何分隔點
+            // （R26；R25 verify security 第 27 列：R25 只給 value 側加 tag）
+            return "\(field.utf8.count)\u{1}\(field)\u{0}\u{1}malformed\u{0}" + (value.map { "\u{1}" + $0 } ?? "\u{2}absent")
         }
         return "\(field)\u{0}\(p.holderKind.rawValue):\(p.holder)\u{0}"
              + NameNormalization.matchingKey(p.literal)
@@ -179,11 +183,13 @@ public struct ProvenanceReference: Equatable {
 
     /// **位元組精確的相等鍵**（#554 R24，D65；R23 verify Codex 第 1 列 HIGH）。
     ///
-    /// 「兩筆 reference 完全相同」在本 repo 的意思是**逐位元組相同**——四個問「兩筆是不是同一筆」的地方都以它為判準（R25 D69 補齊
-    /// 後三個，R24 verify 第 9／26／29 列：R24 只換了前兩個、doc 卻宣稱全 repo）：D62 的 rename 折疊（`migratedVerdicts`）、D64 的
-    /// 「全部完全相同」（`duplicateVerdictRecordIssues`，判 kind 那一半用 `kindByteKey`）、合併的遺失偵測（`fieldsLostByMerging` 的
-    /// person／work 兩份——canonical `==` 曾讓被併記錄的 NFD 拼法被判成「倖存者已有」、隨檔案消失而報告說沒遺失）、`paginated` 寫入面的
-    /// 冪等閘（`updateVenue`——只差 NFC／NFD 的 judgement 曾被靜默吞掉）。
+    /// 「兩筆 reference 完全相同」在本 repo 的意思是**逐位元組相同**——問「兩筆是不是同一筆」的地方都以它為判準。**封閉列舉、七處**
+    /// （R26 D73；R25 verify 第 7／17／21／25／29 列：R24 說「全 repo」實際換了兩處、R25 說「四處」實際還有三處沒換——兩輪都是列舉寫得比程式大）：
+    /// D62 的 rename 折疊（`LibraryStore.migratedVerdicts`）、D64 的「全部完全相同」（`duplicateVerdictRecordIssues`，kind 那一半用
+    /// `kindByteKey`）、合併的遺失偵測（`fieldsLostByMerging` 的 person／work／**venue** 三份——venue 那份 R25 之前根本不比 references，被併
+    /// venue 的 `paginated` judgement 與 rests-on 隨檔案靜默消失）、`updateVenue` 的 `paginated` 冪等閘、`UpdatePerson` 的 references
+    /// append-only 去重、`AddOnlyEnrichment.applied` 的來源 reference 冪等。全樹 `grep -rn 'references.contains(' Sources` 的每一個命中
+    /// 都在這七處之內；新增第八處要在這裡加一列。
     /// 因為零資訊損失的承諾是對 store 裡的位元組說的，不是對 Unicode 的等價類說的。Swift `String` 的 `==` 與 `hashValue` 走
     /// canonical equivalence（NFC 的 `Sankhyā` 與 NFD 的 `Sankhya\u{0304}` 相等），合成的 `Hashable` 繼承同一語意——R23 用它當
     /// 字典鍵，NFC／NFD 兩筆被折成一筆、其中一種拼法永久消失，而 R16（D42）已經在第二半掃描上修過同一個缺陷（`Set<[UInt8]>`）。

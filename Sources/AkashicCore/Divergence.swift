@@ -120,7 +120,7 @@ extension Divergence {
         }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
-                message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+                message: "未知欄位「\(displaySafeInvisible(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         return issues
     }

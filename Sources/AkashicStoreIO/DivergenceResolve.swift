@@ -1358,7 +1358,26 @@ extension LibraryStore {
         if let theirs = v.note, !theirs.isEmpty, theirs != keeper.note {
             losses.append("note: \(theirs)")
         }
+        // 非 verdict 的 reference——`paginated` 的判定（judgement＋rests-on digest）、ISSN 的 retrieval 記錄——若倖存者沒有就會隨檔案消失
+        // （R26 D73；R25 verify DA 第 17 列、requirements 第 21 列：這一份在 R25 之前**完全不比 references**，`mergeVerdicts` 也只搬 verdict 欄位，
+        // 純量 `paginated` 相同時被併者的判定證據鏈整個丟掉且零回報——正是 R21 D60 為 rename 關掉的「程式編輯銷毀判定編輯的產物」）。
+        // 判準與 person／work 同一把：位元組相等（D65）；verdict 欄位由 `mergeVerdicts` 遷移、不計入。
+        let keeperBytes = Set(keeper.references.map(\.byteExactKey))
+        let lostRefs = v.references.filter {
+            !keeperBytes.contains($0.byteExactKey) && !ProvenanceReference.resolutionVerdictFields.contains($0.field)
+        }
+        if !lostRefs.isEmpty {
+            losses.append("references（\(lostRefs.count) 筆，欄位："
+                + lostRefs.map { $0.field + Self.canonicalTwinNote($0, in: keeper.references) }.joined(separator: "、") + "）")
+        }
         return losses
+    }
+
+    /// 被併記錄的一筆 reference 在倖存者身上找不到**位元組**相同的、但找得到 canonical 相等的——訊息要把這件事說出來，否則操作者打開
+    /// 兩邊 YAML 看到兩筆長得一模一樣的 reference 而工具說被併者有倖存者沒有的東西（R26；R25 verify regression 第 14 列：R17 D47／R18
+    /// D51 為同一種不可見差異加了 `spellingNote`，D69 新增的位元組謂詞沒有沿用）。
+    static func canonicalTwinNote(_ r: ProvenanceReference, in keeperRefs: [ProvenanceReference]) -> String {
+        keeperRefs.contains(r) ? "（倖存者有正規化後相等、位元組不同的一筆）" : ""
     }
 
     /// 合併把被併者的哪些 `authorized` 名字降成 `variant`。**這是提醒不是拒絕**——
@@ -2474,7 +2493,7 @@ extension LibraryStore {
         }
         if !lostRefs.isEmpty {
             losses.append("references（\(lostRefs.count) 筆，欄位："
-                + lostRefs.map(\.field).joined(separator: "、") + "）")
+                + lostRefs.map { $0.field + Self.canonicalTwinNote($0, in: keeper.references) }.joined(separator: "、") + "）")
         }
 
         // 未知欄位是**三分**不是二分：key 不在 → 真的會失去；key 在且 raw 相等 → 不會
@@ -2606,7 +2625,7 @@ extension LibraryStore {
         let lostRefs = e.references.filter { !keeperBytes.contains($0.byteExactKey) }
         if !lostRefs.isEmpty {
             losses.append("references: " + lostRefs.map {
-                "\($0.field)" + ($0.value.map { v in "（\(displaySafe(v, max: 80))）" } ?? "")
+                "\($0.field)" + ($0.value.map { v in "（\(displaySafe(v, max: 80))）" } ?? "") + Self.canonicalTwinNote($0, in: keeper.references)
             }.joined(separator: "、"))
         }
         // 學位論文事實（#335）：整塊當一個值比，不逐欄位拆。

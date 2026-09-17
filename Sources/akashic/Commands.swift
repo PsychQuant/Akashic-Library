@@ -198,8 +198,8 @@ struct Validate: ParsableCommand {
         // （`entity-backlink-completeness` 執行細節 2：一個讀取面只能有一條實作路徑）。
         // CLI 這一面的特徵是**不加面級截斷**（MCP 面截 20 則並送 count 當分母）——但 per-record 的上限（`Entry.perRecordWarningCap`）
         // 住在 `validate()`／`StoreHealth` 產生訊息的那一步，三個面共有：一筆記錄超過上限時這裡也只印前 20 則加一句概括——
-        // **只套在五族**（名字內容、近重複、重複 venue 邊、confirmed literal、重複判定記錄；則數是每筆記錄的組合），死 verdict 等其餘家族
-        // 與記錄數線性、無上限（R25 D70；出口另案 #581）
+        // **只套在組合式的六族**（venue 名字內容、venue 近重複、person 近重複、重複 venue 邊、confirmed literal、重複判定記錄；則數是每筆記錄的
+        // 配對／組數），死 verdict 等其餘家族每筆 reference／配對各一則、與記錄持有的 reference 數線性、無上限（R25 D70／R26 D72；出口另案 #581）
         // （R24 D66；R23 verify Codex 第 2 列：R14–R23 之後「逐行、無截斷」為假；`ValidatePerRecordCapCLITests` 釘住實際契約）。
         //
         // `load.organizations` / `organization.validate()` / `load.divergences` 這些

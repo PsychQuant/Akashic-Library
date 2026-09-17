@@ -913,13 +913,19 @@ R23 verify Codex 第 1 列；`ProvenanceReference` 自此**刻意不合成 `Hash
 一筆、被丟那筆的 digest 永久消失，而 validate 事前不出聲（R21 verify DA 第 14 列真 binary）——那正是撤掉 D58 的同一句話換個母體。rename 自此不
 呼叫 `collapseWinner`（#468 的血統層只在 merge 跑），拼法不同或 judgement 不同的都留、留下的在原位（R19 verify regression 第 23 列）。
 所以誠實的量詞是：**rename 不再刪任何判定記錄的內容**——唯一的收攏是完全相同的重複（`verdictsCollapsed` 逐筆回報）——與 merge 的 D31／D34 同向。
-**D64（R23；R22 verify security 第 14 列）**：D62 留下的同鍵（`verdictEqualityKey` 相同）而 judgement 不同的兩筆，在 R22 沒有任何面看得見——
+**D73（R26；R25 verify DA 第 17 列、requirements 第 21 列、第 7／25／29 列）**：venue 的 `fieldsLostByMerging` 自此也比 references——它在此之前
+**完全不比**，而 `mergeVerdicts` 只搬 verdict 欄位，被併 venue 的 `paginated` judgement（#406 的判定＋rests-on digest）在純量相同時隨檔案靜默消失、
+零回報；三份遺失偵測的判準同一把（位元組），並在訊息裡說出「倖存者有正規化後相等、位元組不同的一筆」（第 14 列：操作者看到兩筆長得一樣的
+reference 卻被拒）。問「兩筆是不是同一筆」的地方自此是**七處**的封閉列舉（`byteExactKey` 的 doc），`UpdatePerson` 與 `AddOnlyEnrichment` 的
+append-only 去重也換了。**D64（R23；R22 verify security 第 14 列）**：D62 留下的同鍵（`verdictEqualityKey` 相同）而 judgement 不同的兩筆，在 R22 沒有任何面看得見——
 `contradictoryVerdicts` 只比 confirmed×rejected、第 27 列的第二類以位元組相異分組——而下一次 person／venue 合併會以 #468 的血統層收成一筆並在
 `verdictsCollapsed` 回報；「零資訊損失」只在 rename 那一步為真，它把一筆判定從「rename 當場刪、有回報」換成「留著、看不見、合併時刪」。現在
 `StoreHealth.duplicateVerdictRecords`（warning，guards 第 28 列）報它，doctor／App 各一格；訊息自 R25（D67）起分三向——「全部完全相同」／「literal 拼法只差位元組」／「judgement 或 rests-on 彼此不同」，
 kind 那一半以 `kindByteKey` 判、拼法以 literal 的 UTF-8 判（R24 verify 第 3／11／16 列：R24 拿整筆 `byteExactKey` 判，把拼法差異也說成
 judgement 衝突）；venue×work×confirmed 的排除只在**每筆各有自己拼法**時成立、混合組裡位元組相同的那對照報（第 8／10／18 列：第 27 列以位元組
-去重、看不到那對），且家族計數不含被排除那一格——accessor doc 與 doctor 描述寫明；訊息說出三個來源（手改、舊 binary、rename 帶過來）與下游
+去重、看不到那對），**且要 judgement／rests-on 也全同**（R26 D71；R25 verify 第 1／3／5／10／12／18 列 HIGH：第 27 列只看 literal、說不出 kind 差異、
+還叫人「留一筆」——D64 若對「拼法各異但 judgement 衝突」的組沉默，一個真的證據衝突就被一句銷毀判定的指令取代；第 27 列的那句自 R26 起帶限定詞），
+家族計數不含被排除那一格——accessor doc、doctor 描述與 App help 都寫明；訊息說出三個來源（手改、舊 binary、rename 帶過來）與下游
 （合併會收攏）；第 27 列第二類已報的那一格（venue×work 的 confirmed、只差位元組）不重報，每筆記錄至多 `Entry.perRecordWarningCap` 則。merge 與 rename 的折疊規則自此明寫是**兩條**而不是「同一條不變式在兩條路徑上各自執行」（第 8／11 列）：merge 以 `verdictEqualityKey`
 分組、`collapseWinner` 選一筆，rename 只折整筆相等的（`byteExactKey` 字典、`[[UInt8]]` 為鍵，O(N)——R23 曾以合成 `Hashable` 字典、canonical 相等，R24 D65 改；R22 的 `bytes == && ref ==` 是死條件，第 21／24 列）。
 **誠實邊界**：拼法不同的被改寫 verdict 都留——第 27 列的第二半只掃 venue×work，其餘六格（person／organization 持 work、三種 holder 持 person）

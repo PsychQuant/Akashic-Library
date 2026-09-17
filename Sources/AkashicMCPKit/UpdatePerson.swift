@@ -60,7 +60,8 @@ public extension AkashicService {
                 throw ServiceError.invalid("reference kind 需 retrieval 或 judgement")
             }
             let ref = ProvenanceReference(field: field, value: value, kind: kind)
-            guard !person.references.contains(where: { $0.field == ref.field && $0.value == ref.value && $0.kind == ref.kind }) else { continue }
+            // append-only 的去重比**位元組**（R26 D73；R25 verify 第 7／25／29 列：三個 `==` 全是 canonical，只差 NFC／NFD 的一筆曾被靜默吞掉）
+            guard !person.references.contains(where: { $0.byteExactKey == ref.byteExactKey }) else { continue }
             person.references.append(ref)
             added += 1
         }

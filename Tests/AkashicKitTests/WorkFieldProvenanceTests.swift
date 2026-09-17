@@ -145,6 +145,18 @@ final class EnrichmentProvenanceTests: XCTestCase {
                          "寫出來的東西要通得過自己的值域檢查")
     }
 
+    /// D73（R26；R25 verify 第 7／25 列）：`applied` 的冪等比位元組——只差 NFC／NFD 的來源 reference 不得被 canonical `==` 吞掉。
+    func testAppliedKeepsReferencesThatDifferOnlyInBytes() throws {
+        func ref(_ s: String) -> ProvenanceReference {
+            ProvenanceReference(field: "fields.abstract", value: nil,
+                                kind: .retrieval(url: "https://x/\(s)", retrieved: "2026-09-09", status: 200, mediaType: nil, content: digest))
+        }
+        var e = entry(); e.references = [ref("\u{00E1}")]
+        let out = AddOnlyEnrichment.Outcome(addedFields: ["abstract": "摘"], addedReferences: [ref("a\u{0301}"), ref("\u{00E1}")])
+        let after = AddOnlyEnrichment.applied(out, to: e)
+        XCTAssertEqual(after.references.count, 2, "NFC 與 NFD 各一筆；逐位元組相同的不重複加：\(after.references.count)")
+    }
+
     /// **只給 digest → 不寫，且說出為什麼**（不靜默）。
     func testBareDigestIsReportedNotSilentlyDropped() throws {
         let p = AddOnlyEnrichment.Proposal(

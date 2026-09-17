@@ -862,7 +862,7 @@ extension Entry {
             // `reference-work-entry` 全部帶。前件本身**不**收窄（§11 判準問的是型別，
             // 不是個別記錄），收窄的只有那句因果宣稱。
             let head = "type `\(type.rawValue)` 在 booktitle 載體列舉內卻帶 editor"
-                     + "「\(displaySafe(ed, max: 80))」——"
+                     + "「\(displaySafeInvisible(ed, max: 80))」——"
             let tail = "請確認這筆的型別是否正確，或該型別是否真該在 booktitleCarrierTypes 內"
             issues.append(ValidationIssue(severity: .warning,
                 message: head + (fields["booktitle"] != nil
@@ -875,11 +875,11 @@ extension Entry {
         }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
-                message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+                message: "未知欄位「\(displaySafeInvisible(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         for f in akashic.unknownFields {
             issues.append(ValidationIssue(severity: .warning,
-                message: "akashic 未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+                message: "akashic 未知欄位「\(displaySafeInvisible(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         // **兩條 key 邊指同一 venue 要出聲**（#554 R11，D28；`zero-instance-guards` 第 26 列）：verdict 以 (work, literal) 為鍵、
         // 不帶 venue index，這種 work 在 repoint／demote 上都會被拒（D25），而工具面自 R11 起造不出它（apply／repoint 的閘）——
@@ -936,7 +936,7 @@ extension Entry {
     /// 是「請編目看一眼」而非「這筆錯了」——與跨記錄那幾條同一個立場。
     static func pagesShapeIssues(_ pages: String?) -> [ValidationIssue] {
         guard let raw = pages?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return [] }
-        let shown = displaySafe(raw, max: 120)
+        let shown = displaySafeInvisible(raw, max: 120)
 
         if raw.range(of: "^[0-9]{10,}$", options: .regularExpression) != nil {
             return [ValidationIssue(severity: .warning,
@@ -968,7 +968,7 @@ extension Library {
         }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
-                message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+                message: "未知欄位「\(displaySafeInvisible(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         return issues
     }
@@ -1026,7 +1026,7 @@ extension Person {
         issues += AuthorizedNames.validateNearDuplicates(names: names.all, ownerKey: key)
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
-                message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+                message: "未知欄位「\(displaySafeInvisible(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         return issues
     }

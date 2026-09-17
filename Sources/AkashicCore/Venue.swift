@@ -311,7 +311,7 @@ public struct Venue: Equatable {
         // 移到求值之後，總量變成隨組數線性成長——而這條路徑在讀取面對未信任內容跑）。總量＝R16 的那個常數；超過即 error（fail-closed，與組內
         // 上限同一個方向）並說出幾組沒評估。
         let pairsToEvaluatePerRecord = 100_000
-        var listedGroups = 0, unlistedViolating = 0, unlistedCapHit = 0
+        var listedGroups = 0, unlistedViolating = 0, unlistedCapHit = 0, listedCapHit = 0
         var evaluatedTotal = 0, unevaluatedGroups = 0, budgetHit = false
         func evaluateGroup(_ segs: [TemporalValue<String>]) -> (issues: [ValidationIssue], capHit: Bool, evaluated: Int) {
             var out: [ValidationIssue] = []
@@ -365,6 +365,7 @@ public struct Venue: Equatable {
             // R17 的概括句對只觸發組內求值上限的組說「已評估且真的違反」，兩句都假）
             guard listedGroups < Entry.perRecordWarningCap else { if found.capHit { unlistedCapHit += 1 } else { unlistedViolating += 1 }; continue }
             listedGroups += 1
+            if found.capHit { listedCapHit += 1 }
             issues.append(contentsOf: found.issues)
         }
         if budgetHit {
@@ -372,6 +373,14 @@ public struct Venue: Equatable {
                 severity: .error,
                 message: "venue '\(displaySafe(key, max: 120))' 的 names 同名段求值總量已達上限（\(pairsToEvaluatePerRecord) 對，約 20 組各 100 筆同名段）："   // display-safe-exempt: Int 常量
                        + "另有 \(unevaluatedGroups) 組同名段未評估——一律拒絕：請把同名沿革段收攏，或在 YAML 裡留一筆"))   // display-safe-exempt: Int
+        }
+        // 求值上限命中（整筆總量、或某組只評估了前 pairsToEvaluate 對）也要留一句帶 `perRecordCapSummaryPrefix` 的概括——否則
+        // `StoreHealth.cappedRecords` 漏計、App 的「≥」不出現、doctor 的計數被當成精確值（R26；R25 verify 第 23／31 列）。
+        if budgetHit || listedCapHit > 0 {
+            issues.append(ValidationIssue(
+                severity: .warning,
+                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafe(key, max: 120))' 的 names 有 \(unevaluatedGroups) 組同名段未評估、"   // display-safe-exempt: 前綴是常量；Int
+                       + "\(listedCapHit) 組只評估了前 \(pairsToEvaluate) 對（求值上限——本檢查在讀取路徑上對未信任的 store 內容跑）"))   // display-safe-exempt: Int 常量
         }
         // authorized／variant **也先以 canonical 分組**（D52；R17 verify logic 第 15 列、regression 第 21 列：R17 在這裡每一筆重複條目各
         // 遞增一次配額，四筆同鍵算三「組」，概括句的量詞對兩類不一致）：一組一則、佔一個名額，同鍵超過兩筆時說出筆數
@@ -464,8 +473,9 @@ public struct Venue: Equatable {
                     severity: .warning,
                     message: "\(Self.confirmedLiteralAmbiguityPrefix)：venue '\(displaySafe(key, max: 120))' 對 work「\(displaySafe(w, max: 120))」持有 \(lits.count) 筆只差位元組的 confirmed literal（"   // display-safe-exempt: 前綴是常量；Int
                            + shown + (lits.count > 5 ? "…" : "")   // display-safe-exempt: shown 由上一行逐項 displaySafeInvisible 組成
-                           + "）——正規化後是同一個配對（重複的判定記錄：工具面以 verdictEqualityKey 去重、寫不出它——是手改、舊 binary 寫的，或由 rename 從舊鍵原樣帶過來），"
-                           + "而 D23 的拒絕比位元組，resolve-venues 的 demote／repoint 對這筆 work 同樣會被拒；修法是手改 YAML 留一筆"))
+                           + "）——正規化後是同一個配對（重複的判定記錄——工具面以 verdictEqualityKey 去重、寫不出它：是手改、舊 binary 寫的，或由 rename 從舊鍵原樣帶過來），"
+                           + "而 D23 的拒絕比位元組，resolve-venues 的 demote／repoint 對這筆 work 同樣會被拒；修法是手改 YAML 留一筆——"
+                           + "本掃描只比 literal：兩筆的 judgement／rests-on 若不同，「重複的判定記錄」那一族會另報一則，留一筆之前先看它（R26 D71）"))
             }
         }
         if unlistedWorks > 0 {
@@ -481,7 +491,7 @@ public struct Venue: Equatable {
             issues.append(ValidationIssue(
                 severity: .error,
                 message: "venue '\(displaySafe(key, max: 120))' 的 variant "
-                       + "「\(displaySafe(orphan.joined(separator: "、"), max: 200))」"
+                       + "「\(displaySafeInvisible(orphan.joined(separator: "、"), max: 200))」"
                        + "不在 names 裡——分割是對 names 的標記，不是獨立清單"))
         }
         // **variant 不得帶時間欄位**（#422 spec：「Names listed in the `variant` partition
@@ -500,7 +510,7 @@ public struct Venue: Equatable {
             issues.append(ValidationIssue(
                 severity: .error,
                 message: "venue '\(displaySafe(key, max: 120))' 的 variant "
-                       + "「\(displaySafe(datedVariants.joined(separator: "、"), max: 200))」"
+                       + "「\(displaySafeInvisible(datedVariants.joined(separator: "、"), max: 200))」"
                        + "帶時間欄位——異寫法沒有生效期間；時間欄位是沿革的，二者擇一"))
         }
         issues += IdentifierDiagnostics.nonNormal(issn, field: "venue.issn")
@@ -509,14 +519,14 @@ public struct Venue: Equatable {
         for i in issn where i.qualifierRaw != nil && i.medium == nil {
             issues.append(ValidationIssue(
                 severity: .warning,
-                message: "venue.issn「\(displaySafe(i.normalized, max: 40))」的 qualifier"
-                       + "「\(displaySafe(i.qualifierRaw ?? "", max: 60))」不是 ISSN 標準的"
+                message: "venue.issn「\(displaySafeInvisible(i.normalized, max: 40))」的 qualifier"
+                       + "「\(displaySafeInvisible(i.qualifierRaw ?? "", max: 60))」不是 ISSN 標準的"
                        + "三個角色（print／electronic／linking）——原值已保留，"
                        + "但 medium 未判定；改成標準寫法即可（例：Online → electronic）"))
         }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
-                message: "未知欄位「\(displaySafe(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
+                message: "未知欄位「\(displaySafeInvisible(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         return issues
     }

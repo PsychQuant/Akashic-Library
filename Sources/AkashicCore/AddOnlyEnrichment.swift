@@ -413,7 +413,9 @@ public enum AddOnlyEnrichment {
         }
         // #517：來源 reference 與被補的值**同一次寫入**——同 #450 對拆分記錄的既有紀律
         // （分兩次寫會產生「補了值但沒有來源」的中間態）。冪等：完全相等的一筆不重複加。
-        for r in outcome.addedReferences where !out.references.contains(r) {
+        // 冪等比**位元組**（R26 D73；R25 verify 第 7／25 列：`contains(r)` 是 canonical，只差 NFC／NFD 的來源記錄曾被吞掉）
+        var present = Set(out.references.map(\.byteExactKey))
+        for r in outcome.addedReferences where present.insert(r.byteExactKey).inserted {
             out.references.append(r)
         }
         return out

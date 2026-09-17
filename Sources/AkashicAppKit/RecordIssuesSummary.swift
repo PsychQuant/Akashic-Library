@@ -35,8 +35,9 @@ struct RecordIssuesSummary: Equatable {
     let confirmedLiteralAmbiguities: Int
     /// 被截的記錄數（R18 D54；以記錄計，R19 D56）——家族計數是下限（每筆記錄至多 20 則），這個數字說「還有」。
     let cappedRecords: Int
-    /// `.help` 用：前幾則訊息（`displaySafe`，每則截斷），加一句指向 CLI validate——它不加這裡的預覽截斷，但受求值上限的五族
-    /// 每筆記錄至多 20 則、三面共有（R24 D66；R25 D70：R24 寫成「每筆記錄每族」，對五族以外為假），所以不寫「完整」。
+    /// `.help` 用：前幾則訊息（`displaySafe`，每則截斷），加一句指向 CLI validate——它不加這裡的預覽截斷，但受求值上限的六族
+    /// 每筆記錄至多 20 則、三面共有（R24 D66；R25 D70：R24 寫成「每筆記錄每族」，對五族以外為假；R26 D72：R25 寫「五族」漏掉 person 近重複），
+    /// 所以不寫「完整」。
     let help: String
 
     /// 計數的呈現（R19 D57、R20 D59；R18 verify Codex 第 3 列：`cappedRecords` 到得了這裡卻沒有任何 View 消費它，側欄的家族計數仍是裸數字）：
@@ -68,7 +69,8 @@ struct RecordIssuesSummary: Equatable {
         }
         let more = issues.count > previewLimit ? "\n…另 \(issues.count - previewLimit) 則" : ""
         help = preview.joined(separator: "\n") + more
-             + "\n逐則列出：akashic validate（不加這裡的預覽截斷；受求值上限的五族——名字內容、近重複、重複 venue 邊、confirmed literal、重複判定記錄——"
-             + "每筆記錄至多 \(Entry.perRecordWarningCap) 則、以「\(Entry.perRecordCapSummaryPrefix)」概括，其餘家族無上限；三面同）"
+             + "\n逐則列出：akashic validate（不加這裡的預覽截斷；組合式的六族——venue 名字內容、venue 近重複、person 近重複、重複 venue 邊、"
+             + "confirmed literal、重複判定記錄——每筆記錄至多 \(Entry.perRecordWarningCap) 則、以「\(Entry.perRecordCapSummaryPrefix)」概括；"
+             + "其餘家族每筆 reference／配對各一則、無上限；三面同）"
     }
 }

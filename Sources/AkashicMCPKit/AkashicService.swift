@@ -2931,10 +2931,10 @@ public final class AkashicService {
                 url: nil, retrieved: nil, status: nil, mediaType: nil, content: nil,
                 judgement: trimmedJudgement, restsOn: restsOn ?? [])
             venue.paginated = paginated
-            // 冪等以**完整** (field, value, kind) 相等判（`Equatable`）——
-            // `ResolutionLedger.appendIfAbsent` 的判準對 value 恆 nil 的純量欄位太粗，
+            // 冪等以**完整** (field, value, kind) 的**位元組**相等判（`byteExactKey`，R25 D69；R25 verify 第 24／37 列：這句曾寫「`Equatable`」，
+            // 被自己下面那一行否證）——`ResolutionLedger.appendIfAbsent` 的判準對 value 恆 nil 的純量欄位太粗，
             // 會把「翻轉判定」（statement 不同）誤當重複而吞掉史（實測抓到）。
-            if !venue.references.contains(where: { $0.byteExactKey == ref.byteExactKey }) { venue.references.append(ref) }   // 位元組相等（R25 D69）
+            if !venue.references.contains(where: { $0.byteExactKey == ref.byteExactKey }) { venue.references.append(ref) }
         } else if judgement != nil || restsOn != nil {
             throw ServiceError.invalid(
                 "judgement／rests_on 只伴隨 paginated 或 clear_paginated 使用"
@@ -3733,8 +3733,9 @@ public final class AkashicService {
             let listing = VenueResolver.resolve(entries: before.entries, venues: before.venues,
                                                 rejected: ResolutionLedger.rejectedPairings(venues: before.venues))
             let byRow = Dictionary(listing.candidates.map { ($0.rowID, $0) }, uniquingKeysWith: { a, _ in a })
-            func pairingKey(_ c: VenueResolutionCandidate) -> String {
-                "\(c.citekey)\u{0}\(NameNormalization.matchingKey(c.literal))\u{0}\(c.venueKey)"   // display-safe-exempt: 內部比對鍵，不進任何輸出
+            // struct 鍵、無分隔符（R26；R25 verify security 第 28 列：R25 只把 resolver 的否決鍵改成 struct，這一條同型的 U+0000 拼接沒改）
+            func pairingKey(_ c: VenueResolutionCandidate) -> RejectedPairKey {
+                RejectedPairKey(holder: c.citekey, literal: NameNormalization.matchingKey(c.literal), judged: c.venueKey)
             }
             let rejectDict = try parsed(try resolveVenues(apply: nil, reject: rj))
             let justRejected = Set(rejectDict["rejected"] as? [String] ?? [])

@@ -81,6 +81,28 @@ final class DivergenceResolveVenueTests: XCTestCase {
     ///
     /// 名字不保留的話，下次 `resolve-venues` 遇到 `AMERICAN STATISTICIAN` 會再分割
     /// 一次——`OrgBootstrap`／`PersonBootstrap` 的同一教訓。
+    /// D73（R26；R25 verify DA 第 17 列、requirements 第 21 列）：venue 的 `fieldsLostByMerging` 曾完全不比 references——被併 venue 的 `paginated`
+    /// judgement（#406 的判定＋rests-on digest）在純量相同時隨檔案靜默消失。現在與 person／work 同一條：非 verdict 的 reference 若倖存者
+    /// 沒有（位元組相等），具名拒絕、零寫入。
+    func testMergeRefusesWhenDoomedCarriesANonVerdictReferenceTheKeeperLacks() throws {
+        let d = try seed()
+        let digest = "sha256:" + String(repeating: "ab", count: 32)
+        var doomed = try XCTUnwrap(try store.load().venues.first { $0.key == "american-statistician" })
+        doomed.paginated = true
+        doomed.references.append(ProvenanceReference(field: "paginated", value: "true",
+                                                     kind: .judgement(statement: "出版商頁逐篇有頁碼", restsOn: [digest])))
+        try store.writeVenue(doomed)
+        var keeper = try XCTUnwrap(try store.load().venues.first { $0.key == "the-american-statistician" })
+        keeper.paginated = true   // 純量相同——R25 之前這一格連 wouldLoseFields 都不擋
+        try store.writeVenue(keeper)
+        GitFixture.commitAll(root, message: "paginated")
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "the-american-statistician")) { err in
+            let msg = String(describing: err)
+            XCTAssertTrue(msg.contains("references") && msg.contains("paginated"), msg)
+        }
+        XCTAssertNotNil(try store.load().venues.first { $0.key == "american-statistician" }, "零寫入：被併檔仍在")
+    }
+
     func testMergesNamesIntoVariantAndRepointsEntryVenues() throws {
         let d = try seed()
         let report = try store.resolveDivergence(id: d.id, survivor: "the-american-statistician")

@@ -18,6 +18,18 @@ import XCTest
 /// live store 2026-09-12 實測 485 筆 venue：無字母 0、含 Cf／Cc 0、非 canonical 拼法 0、
 /// NBSP／U+3000 0——提級不拒絕任何既有記錄。
 final class VenueNameInvariantTests: XCTestCase {
+    /// R25 verify 第 23／31 列：`Venue.validate()` 的求值上限（組內 5,000 對、整筆 100,000 對）跳過或截掉時沒有 `Entry.perRecordCapSummaryPrefix`
+    /// 的概括句，`StoreHealth.cappedRecords` 因此漏計、App 的「≥」不出現。求值上限生效時要與則數上限一樣留下可機械讀取的記號。
+    func testEvaluationBudgetHitEmitsACapSummarySoCappedRecordsCountsIt() throws {
+        // 110 段同名、兩兩不相交的沿革（各佔一年）：沒有一對違反，所以逐對評估會一路走到 5,000 對的上限（列出 3 對違反就會提早停，不會撞上限）
+        let segs = (0..<110).map { i in TemporalValue(value: "Sankhyā", range: DateRange(start: "\(1800 + i)", end: "\(1800 + i)")) }
+        let v = Venue(key: "sankhya", type: .periodical, names: Timeline(segs), authorized: [])
+        let issues = v.validate()
+        XCTAssertTrue(issues.contains { $0.message.contains("同名段過多") }, issues.map(\.message).prefix(2).description)
+        XCTAssertTrue(issues.contains { $0.message.hasPrefix(Entry.perRecordCapSummaryPrefix) },
+                      "求值上限命中也要有概括句，否則 cappedRecords 漏計：\(issues.map(\.message).suffix(2))")
+    }
+
 
     private func venue(names: [String], authorized: [String] = [], variant: [String] = []) -> Venue {
         var v = Venue(key: "j", type: .periodical,

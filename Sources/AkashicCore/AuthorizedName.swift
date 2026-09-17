@@ -205,7 +205,7 @@ public enum AuthorizedNames {
         let variantKeys = Set(variant.map(NameIdentity.canonical))
         let overlap = authorized.filter { variantKeys.contains(NameIdentity.canonical($0)) }
         guard !overlap.isEmpty else { return [] }
-        let listed = overlap.map { displaySafe($0, max: 80) }.joined(separator: "、")
+        let listed = overlap.map { displaySafeInvisible($0, max: 80) }.joined(separator: "、")   // D74：名字是未信任的 store 字串
         return [ValidationIssue(
             severity: .error,
             message: "'\(displaySafe(ownerKey, max: 120))' 的名字「\(listed)」同時出現在 "
@@ -221,23 +221,57 @@ public enum AuthorizedNames {
     /// 嚴重度是 `warning` 而非 `error`：那兩個名字**可能真的不同**（`matchingKey`
     /// 容許假陽性正是為此）。擋寫入等於把「值得問一下」升級成「你錯了」。與既有的
     /// 「同書寫系統兩個 authorized 是**未決的問題**，不是指定」同型。
+    ///
+    /// **有上限**（#554 R26 D72、#576；R25 verify DA 第 2 列 HIGH：「名字數是個位數量級、O(n²) 不是問題」對手改與反覆合併的記錄為假——
+    /// `mergedPersonKeeper` 把每個被併者的 `names.all` 全部 append 進倖存者的 variant、無上限，200 個共用 matchingKey 的變體真 binary 吐
+    /// 19,900 則、7.6 MB、`cappedRecords` 0）。與 venue 側同一套：先以 `matchingKey` 分組（O(n)），一組一則、每筆記錄至多
+    /// `Entry.perRecordWarningCap` 組、其餘一句 `Entry.perRecordCapSummaryPrefix` 概括；組內逐對評估至多 `pairsToEvaluate` 對、只列前
+    /// `pairsToList` 對。名字以 `displaySafeInvisible` 迴送（D74：person 名字沒有 venue 那道 D8 不變式，ZWSP／TAG 寫得進來）。
     public static func validateNearDuplicates(names: [String],
                                               ownerKey: String) -> [ValidationIssue] {
+        let pairsToEvaluate = 5_000, pairsToList = 3
+        var groups: [String: [String]] = [:]
+        var order: [String] = []
+        for n in names {
+            let k = NameNormalization.matchingKey(n)
+            if groups[k] == nil { order.append(k) }
+            groups[k, default: []].append(n)
+        }
         var issues: [ValidationIssue] = []
-        // 兩兩比較。名字數是個位數量級（每人幾個別名），O(n²) 不是問題。
-        for i in names.indices {
-            for j in names.indices where j > i {
-                let a = names[i], b = names[j]
-                guard NameNormalization.matchingKey(a) == NameNormalization.matchingKey(b),
-                      !NameIdentity.same(a, b) else { continue }
-                issues.append(ValidationIssue(
-                    severity: .warning,
-                    message: "'\(displaySafe(ownerKey, max: 120))' 的名字「"
-                        + "\(displaySafe(a, max: 80))」與「\(displaySafe(b, max: 80))」"
-                        + "是**近重複**——配對判準視為同一、判定判準視為不同。"
-                        + "可能是同一個名字的兩種寫法，也可能真的是兩個名字；"
-                        + "**工具不代為決定**，請人裁決後留下一個或明確保留兩個"))
+        var listed = 0, unlistedGroups = 0, capHitGroups = 0
+        for k in order {
+            let g = groups[k]!
+            guard g.count > 1 else { continue }
+            var pairs: [(String, String)] = []
+            var evaluated = 0, capHit = false
+            outer: for i in g.indices {
+                for j in g.indices where j > i {
+                    if evaluated == pairsToEvaluate { capHit = true; break outer }
+                    evaluated += 1
+                    if !NameIdentity.same(g[i], g[j]) { pairs.append((g[i], g[j])) }
+                }
             }
+            guard !pairs.isEmpty || capHit else { continue }
+            if capHit { capHitGroups += 1 }
+            guard listed < Entry.perRecordWarningCap else { unlistedGroups += 1; continue }
+            listed += 1
+            let shown = pairs.prefix(pairsToList)
+                .map { "「\(displaySafeInvisible($0.0, max: 80))」與「\(displaySafeInvisible($0.1, max: 80))」" }
+                .joined(separator: "、")
+            issues.append(ValidationIssue(
+                severity: .warning,
+                message: "'\(displaySafe(ownerKey, max: 120))' 的名字有 \(g.count) 筆共用配對鍵、其中 \(pairs.count) 對是**近重複**（"   // display-safe-exempt: Int
+                    + shown + (pairs.count > pairsToList ? "…另 \(pairs.count - pairsToList) 對" : "") + "）"   // display-safe-exempt: shown 由上一行逐項 displaySafeInvisible 組成；Int
+                    + "——配對判準視為同一、判定判準視為不同。"
+                    + "可能是同一個名字的兩種寫法，也可能真的是兩個名字；"
+                    + "**工具不代為決定**，請人裁決後留下一個或明確保留兩個"
+                    + (capHit ? "（本組只評估了前 \(pairsToEvaluate) 對——名字超過逐對評估的上限，其餘未評估）" : "")))   // display-safe-exempt: Int 常量
+        }
+        if unlistedGroups > 0 || capHitGroups > 0 {
+            issues.append(ValidationIssue(
+                severity: .warning,
+                message: "\(Entry.perRecordCapSummaryPrefix)：person '\(displaySafe(ownerKey, max: 120))' 的名字另有 \(unlistedGroups) 組近重複未列出、"   // display-safe-exempt: 前綴是常量；Int
+                    + "\(capHitGroups) 組只評估了前 \(pairsToEvaluate) 對（每筆記錄最多列 \(Entry.perRecordWarningCap) 組——本檢查在讀取路徑上對未信任的 store 內容跑）"))   // display-safe-exempt: Int 常量
         }
         return issues
     }
@@ -255,7 +289,7 @@ public enum AuthorizedNames {
         for a in authorized { byScript[WritingSystem.of(a), default: []].append(a) }
         for (script, candidates) in byScript.sorted(by: { $0.key.rawValue < $1.key.rawValue })
         where candidates.count > 1 {
-            let listed = candidates.map { displaySafe($0, max: 80) }.joined(separator: "、")
+            let listed = candidates.map { displaySafeInvisible($0, max: 80) }.joined(separator: "、")   // D74
             issues.append(ValidationIssue(
                 severity: .error,
                 message: "'\(displaySafe(ownerKey, max: 120))' 在書寫系統 \(script.rawValue) 有 "
@@ -282,7 +316,7 @@ public enum AuthorizedNames {
             issues.append(ValidationIssue(
                 severity: .error,
                 message: "'\(displaySafe(ownerKey, max: 120))' 的 authorized 含不在 names 內的名字"
-                       + "「\(displaySafe(a, max: 120))」——對外名字是從已記錄的名字裡**指定**，"
+                       + "「\(displaySafeInvisible(a, max: 120))」——對外名字是從已記錄的名字裡**指定**，"
                        + "不是另外引進一個字串"))
         }
         issues += validateWritingSystems(authorized: authorized, ownerKey: ownerKey)

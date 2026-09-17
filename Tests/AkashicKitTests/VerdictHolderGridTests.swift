@@ -1437,6 +1437,7 @@ final class VerdictHolderGridTests: XCTestCase {
         let health = store.health(from: try store.load())
         func msg(_ owner: String) -> String { health.duplicateVerdictRecords.first { $0.owner == owner }?.issue.message ?? "<none>" }
         XCTAssertTrue(msg("spell").contains("拼法只差位元組") && !msg("spell").contains("judgement 或 rests-on"), msg("spell"))
+        XCTAssertFalse(msg("spell").contains("即可"), "R25 verify 第 19 列：「統一拼法即可」與同一則尾端的「處置：留一筆」矛盾——sameness 只描述差異：\(msg("spell"))")
         XCTAssertTrue(msg("judge").contains("judgement 或 rests-on 彼此不同") && !msg("judge").contains("拼法"), msg("judge"))
         XCTAssertTrue(msg("both").contains("拼法只差位元組") && msg("both").contains("judgement 或 rests-on 彼此不同"), msg("both"))
         XCTAssertTrue(msg("same").contains("全部完全相同") && !msg("same").contains("彼此不同"), msg("same"))
@@ -1458,6 +1459,32 @@ final class VerdictHolderGridTests: XCTestCase {
                        health.duplicateVerdictRecords.map(\.issue.message).description)
         XCTAssertTrue(health.duplicateVerdictRecords.first?.issue.message.contains("3 筆判定記錄") == true)
         XCTAssertEqual(health.confirmedLiteralAmbiguities.count, 2, "第 27 列第二類照報自己的那兩格（w1 的兩種拼法、w2 的兩種拼法）——本族只補它看不到的那一對")
+    }
+
+    /// D71（R26；R25 verify 第 1／3／5／10／12／18 列，兩個 HIGH 之一）：carve-out 還要看 kind——每筆各有自己拼法、但 judgement／rests-on
+    /// 彼此不同的組，第 27 列第二類結構上說不出 kind（它只看 literal），還叫人「留一筆」；D64 若沉默，一個真的證據衝突就被一句銷毀判定的指令
+    /// 取代。純拼法組（kind 全同）仍只由第 27 列報。
+    func testDuplicateVerdictRecordsReportJudgementConflictsEvenWhenEverySpellingIsDistinct() throws {
+        func judged(_ holder: String, _ literal: String, _ s: String, _ ro: [String] = []) -> ProvenanceReference {
+            ProvenanceReference(field: "resolution-confirmed",
+                                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: holder, literal: literal).encoded,
+                                kind: .judgement(statement: s, restsOn: ro))
+        }
+        let d1 = "sha256:" + String(repeating: "ab", count: 32), d2 = "sha256:" + String(repeating: "cd", count: 32)
+        var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+        v.references = [judged("w1", "Alpha", "依據 A"), judged("w1", "ALPHA", "依據 B（相反）"),       // 拼法各異＋judgement 衝突：本族要報
+                        judged("w2", "Beta", "同一句", [d1]), judged("w2", "BETA", "同一句", [d2]),  // 拼法各異＋rests-on 不同：本族要報
+                        judged("w3", "Gamma", "同一句"), judged("w3", "GAMMA", "同一句")]           // 純拼法組：只由第 27 列報
+        try store.writeVenue(v)
+        let health = store.health(from: try store.load())
+        let msgs = health.duplicateVerdictRecords.map(\.issue.message)
+        XCTAssertEqual(msgs.count, 2, msgs.description)
+        XCTAssertTrue(msgs.allSatisfy { $0.contains("judgement 或 rests-on 彼此不同") && $0.contains("拼法只差位元組") }, msgs.description)
+        XCTAssertTrue(msgs.contains { $0.contains("work:w1，") } && msgs.contains { $0.contains("work:w2，") }, msgs.description)
+        XCTAssertFalse(msgs.contains { $0.contains("work:w3，") }, "純拼法組不重報")
+        XCTAssertEqual(health.confirmedLiteralAmbiguities.count, 3, "第 27 列第二類照報三格的拼法差異；kind 差異由本族補")
+        let venueMsg = health.confirmedLiteralAmbiguities.first?.issue.message ?? ""
+        XCTAssertTrue(venueMsg.contains("重複的判定記錄」那一族"), "第 27 列的「留一筆」要有限定詞——留一筆之前先看本族有沒有報 kind 差異：\(venueMsg)")
     }
 
     /// D68（R25；R24 verify security 第 13 列、DA 第 20 列真 binary：U+200B 原樣進終端）：`StoreHealth` 每一族迴送 store 字串都要走
@@ -1486,11 +1513,14 @@ final class VerdictHolderGridTests: XCTestCase {
         }
         var keeper = Entry(id: UUID(), citekey: "k2020", type: .periodicalArticle, title: "T"); keeper.references = [ref("\u{00E1}")]
         var doomed = Entry(id: UUID(), citekey: "d2020", type: .periodicalArticle, title: "T"); doomed.references = [ref("a\u{0301}")]
-        XCTAssertTrue(LibraryStore.fieldsLostByMerging(doomed, into: keeper).contains { $0.hasPrefix("references") },
-                      "NFD 的那筆不在倖存者身上（位元組不同）——要報遺失")
+        let workLoss = LibraryStore.fieldsLostByMerging(doomed, into: keeper)
+        XCTAssertTrue(workLoss.contains { $0.hasPrefix("references") }, "NFD 的那筆不在倖存者身上（位元組不同）——要報遺失")
+        XCTAssertTrue(workLoss.contains { $0.contains("正規化後相等、位元組不同") },
+                      "R25 verify 第 14 列：操作者看到兩筆長得一樣的 reference 卻被拒——訊息要說差異在位元組：\(workLoss)")
         var pk = Person(key: "pk", names: ["P"]); pk.references = [ref("\u{00E1}")]
         var pd = Person(key: "pd", names: ["P"]); pd.references = [ref("a\u{0301}")]
-        XCTAssertTrue(LibraryStore.fieldsLostByMerging(pd, into: pk).contains { $0.hasPrefix("references") })
+        let personLoss = LibraryStore.fieldsLostByMerging(pd, into: pk)
+        XCTAssertTrue(personLoss.contains { $0.hasPrefix("references") } && personLoss.contains { $0.contains("正規化後相等、位元組不同") }, personLoss.description)
         var same = Entry(id: UUID(), citekey: "s2020", type: .periodicalArticle, title: "T"); same.references = [ref("\u{00E1}")]
         XCTAssertFalse(LibraryStore.fieldsLostByMerging(same, into: keeper).contains { $0.hasPrefix("references") }, "位元組相同的不報")
     }

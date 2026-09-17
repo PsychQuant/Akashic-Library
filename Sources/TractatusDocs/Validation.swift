@@ -2,7 +2,11 @@ import AkashicCore
 import CryptoKit
 import Foundation
 
-public struct CorpusDiagnostic: Error, Equatable, Comparable, Sendable, SanitizedErrorDescription {
+/// **不**宣告 `SanitizedErrorDescription`（R31；R30 verify 第 8／18／34 列）：它沒有 `errorDescription`／`description`，Error → 文字會走
+/// `String(describing:)` 反射出四個原始欄位——R30 因為 body 裡有 `displaySafe` 而被守衛逼著 conform，那正是「型別在某條路徑上消毒」被當成
+/// 「型別在 Error → 文字那條路徑上消毒」。消毒住在 `formatted`，而讀它的是 `TractatusValidationFailure.errorDescription`（那個型別才 conform）。
+/// 今天沒有任何地方單獨 `throw CorpusDiagnostic`（三個構造點都包進 `TractatusValidationFailure`）。
+public struct CorpusDiagnostic: Error, Equatable, Comparable, Sendable {
     public let path: String
     public let recordID: String
     public let code: String
@@ -32,7 +36,10 @@ public struct CorpusDiagnostic: Error, Equatable, Comparable, Sendable, Sanitize
     }
 }
 
-public struct TractatusValidationFailure: Error, LocalizedError, Sendable {
+/// 自帶消毒（R31）：`errorDescription` 由 `CorpusDiagnostic.formatted`（逐欄位 `displaySafeInvisible`）與 `incompleteness`（`ConstructionGap.formatted`，
+/// 程式組的 gap 描述）組成——若它哪天落進 `displaySafeErrorText`，內容不會被逃第二次（R30 verify 第 34 列：R30 這一格沒 conform，
+/// 而它實質上是自帶消毒的，唯一 sink 是 `tractatus-doc` 的顯式 catch 才沒觸發）。守衛的 `descriptionHelpers` 表記著 `formatted` 這條路。
+public struct TractatusValidationFailure: Error, LocalizedError, Sendable, SanitizedErrorDescription {
     public let diagnostics: [CorpusDiagnostic]
     let incompleteness: [String]
 

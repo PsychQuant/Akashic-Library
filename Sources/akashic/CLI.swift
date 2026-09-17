@@ -19,7 +19,13 @@ struct AkashicCLI: ParsableCommand {
             var command = try parseAsRoot()
             try command.run()
         } catch {
-            let full = fullMessage(for: error)
+            // **非 ArgumentParser 的錯誤先逃一次**（R31 D83；R30 verify 第 2 列）：五個 `ValidationError` 包裝之外，直接傳到頂層的
+            // Yams／Foundation／StoreIO 錯誤在 R30 只經下面列舉式的 `displaySafeAssembled`——ZWSP／TAG 原樣落 stderr，而同一個錯誤在
+            // MCP 面走性質式逃脫，兩面不同字串。`ErrorDisplay.EscapedOnce` 對自帶消毒的型別原樣、其餘逐行逃一次，`fullMessage` 對它
+            // 走 `.other`（`Error: <text>`）——與原始錯誤同一條路；exit code 仍由**原始** error 決定。ArgumentParser 自己的錯誤
+            // （parser／`ValidationError`／`CleanExit`／`ExitCode`）不動：它們的文字由 ArgumentParser 組、`ValidationError` 的 payload 已在擲出端逃。
+            let isArgumentParserError = String(reflecting: type(of: error)).hasPrefix("ArgumentParser.")
+            let full = fullMessage(for: isArgumentParserError ? error : ErrorDisplay.EscapedOnce(error))
             // 這裡是 CLI 唯一的截斷點：`ValidationError` 包裝送進來的是 `displaySafeErrorText`（逃一次、不截）的文字，
             // ArgumentParser 加上 `Error: ` 之後在此逐行截 400——與 MCP 的 `displaySafeErrorMultiline(error, prefix: "Error: ")`
             // 同一條路、同一個字串（R30 D82；R29 verify 第 9 列）。

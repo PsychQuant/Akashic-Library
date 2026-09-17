@@ -116,4 +116,23 @@ final class TerminalOutputSafetyTests: XCTestCase {
         XCTAssertGreaterThan(r.output.components(separatedBy: "\n").count, 3,
                              "usage 段是多行的：\(r.output)")
     }
+
+    /// #554 R31（R30 verify 第 2／27 列）：**直接傳到頂層的原始錯誤**（不是五個 `ValidationError` 包裝之一）也要逃一次——R30 只經列舉式的
+    /// `displaySafeAssembled`，ZWSP 原樣落 stderr；MCP 面走性質式，兩面不同字串。這裡用真 binary：`enrich --from <目錄>` 讓 `Data(contentsOf:)`
+    /// 擲出 Foundation 錯誤（路徑含 ZWSP），stderr 必須等於 `displaySafeErrorMultiline(同一個錯誤, prefix: "Error: ")`。
+    func testRawErrorReachingTheTopLevelIsEscapedOnceAndMatchesTheMCPFace() throws {
+        let dir = root.appendingPathComponent("pro\u{200B}posals.json", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let (status, output) = try CLITestHarness.run(["enrich", "--from", dir.path, "--library", root.path], env: [:])
+        XCTAssertEqual(status, 1)
+        let stderr = output.trimmingCharacters(in: .newlines)
+        XCTAssertTrue(stderr.hasPrefix("Error: "), stderr)
+        XCTAssertFalse(stderr.unicodeScalars.contains { $0.value == 0x200B }, "裸 ZWSP 落 stderr：\(stderr)")
+        XCTAssertEqual(stderr.components(separatedBy: "\\u{200B}").count - 1, 1, "ZWSP 恰逃一次：\(stderr)")
+        XCTAssertFalse(stderr.contains("\\u{005C}"), "二次逃脫：\(stderr)")
+        XCTAssertTrue(stderr.contains("pro\\u{200B}posals.json"), stderr)
+        // 兩面逐字相同在這裡**不能**用等式釘：Foundation 的 localizedDescription 由各程序的 bundle 決定語言（xctest 程序印中文、
+        // 裸 CLI 印英文），同一個錯誤的原文本來就不同。等式由 `SanitizationBoundaryTests.testTwoFacesAgreeEvenWhenTruncated`（同程序）
+        // 與 R31 的 E2E 腳本（CLI 與 akashic-mcp 兩個裸 binary、同一個 store）釘，這裡只釘「頂層真的走了 displaySafeErrorText」。
+    }
 }

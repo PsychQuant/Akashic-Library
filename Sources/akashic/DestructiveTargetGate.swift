@@ -84,7 +84,7 @@ enum DestructiveTargetGate {
             （由 registry 的 current 決定，**與你目前所在的目錄無關**）
 
             確認這就是你要改的 store，則二擇一：
-              --library \(displaySafe(resolved.path, max: 800))   顯式指定（推薦——同時消除歧義）
+              --library \(displaySafeInvisible(resolved.path, max: 800))   顯式指定（推薦——同時消除歧義）
               --yes                                                知情地沿用 registry 解析
 
             先跑一次不帶 --apply 的 dry-run 可以看到會改什麼。

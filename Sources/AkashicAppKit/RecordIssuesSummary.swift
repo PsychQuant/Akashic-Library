@@ -65,7 +65,7 @@ struct RecordIssuesSummary: Equatable {
         cappedRecords = health.cappedRecords.count
         let preview = issues.prefix(previewLimit).map {
             // 訊息在 validate 裡已逐項消毒；只截不逃（R16；R15 verify 第 16 列：`displaySafe` 不冪等，160 把家族前綴之後的正文截光）
-            "\($0.issue.severity == .error ? "✗" : "⚠") \($0.kind) \(displaySafeInvisible($0.owner, max: 80))：\(displaySafeClipOnly($0.issue.message, max: 2_400))"   // display-safe-exempt: 已消毒（validate 逐項 displaySafeInvisible），只截——上限是輸出 scalar（R30；R29 verify 第 33 列：App 其餘三格 ×8 而這格留在 300）
+            "\($0.issue.severity == .error ? "✗" : "⚠") \($0.kind) \(displaySafeInvisible($0.owner, max: 80))：\(displaySafeClipOnly($0.issue.message, max: 300))"   // display-safe-exempt: 已消毒（validate 逐項 displaySafeInvisible），只截——300 是**輸出** scalar 上限，R16 起就是；R30 曾抬到 2,400（R29 verify 第 33 列的「其餘三格 ×8」講的是輸入上限 ×8 之後的等效輸出，這格本來就是輸出上限，抬它是真的放大八倍——R30 verify 第 22 列），R31 改回並釘測試
         }
         let more = issues.count > previewLimit ? "\n…另 \(issues.count - previewLimit) 則" : ""
         help = preview.joined(separator: "\n") + more

@@ -31,30 +31,32 @@ struct MigrateIdentifiers: ParsableCommand {
         if !report.plans.isEmpty {
             print("\n── work 側 ──")
             for p in report.plans {
-                print("  \(displaySafe(p.citekey, max: 200))")
-                for c in p.changes { print("      \(displaySafe(c, max: 400))") }
+                print("  \(displaySafeInvisible(p.citekey, max: 200))")
+                for c in p.changes { print("      \(displaySafeInvisible(c, max: 400))") }
             }
         }
         if !report.venuePlans.isEmpty {
             // **「去重後合併」與「保留多值」分開列**（task 8.2）——前者是異寫法收斂，
             // 後者是 print／electronic 兩個真的號，人要分辨得出來。
             print("\n── venue 側：去重後合併為單值 ──")
+            // `mergedFrom` 的元素是 `entry.fields[key]` 的原值（第三方內容）——R30 verify 第 10 列真 binary 實測 ESC／OSC／RLO 原樣進終端機；
+            // R31 起逐項性質式逃脫（`venueKey` 由 StoreKey 約束但同樣逃，一行三個載體一致）。
             for v in report.venuePlans where !v.keptMultiple {
-                print("  \(v.venueKey): \(v.values.joined(separator: "、"))"
-                      + "   ← 來源 \(v.mergedFrom.joined(separator: " ｜ "))")
+                print("  \(displaySafeInvisible(v.venueKey, max: 200)): \(v.values.map { displaySafeInvisible($0, max: 120) }.joined(separator: "、"))"
+                      + "   ← 來源 \(v.mergedFrom.map { displaySafeInvisible($0, max: 200) }.joined(separator: " ｜ "))")
             }
             print("\n── venue 側：保留多值（print／electronic 是兩個真的號）──")
             for v in report.venuePlans where v.keptMultiple {
-                print("  \(v.venueKey): \(v.values.joined(separator: "、"))"
-                      + "   ← 來源 \(v.mergedFrom.joined(separator: " ｜ "))")
+                print("  \(displaySafeInvisible(v.venueKey, max: 200)): \(v.values.map { displaySafeInvisible($0, max: 120) }.joined(separator: "、"))"
+                      + "   ← 來源 \(v.mergedFrom.map { displaySafeInvisible($0, max: 200) }.joined(separator: " ｜ "))")
             }
         }
         if !report.skipped.isEmpty {
             print("\n── 略過（不猜、不丟棄，原值留在 fields）──")
             for s in report.skipped {
-                print("  \(displaySafe(s.citekey, max: 200)) [\(s.field)] "
-                      + "「\(displaySafe(s.value, max: 120))」")   // display-safe-exempt: field 值域是 workIdentifierKeys 封閉集合
-                print("      \(displaySafe(s.reason, max: 800))")
+                print("  \(displaySafeInvisible(s.citekey, max: 200)) [\(s.field)] "
+                      + "「\(displaySafeInvisible(s.value, max: 120))」")   // display-safe-exempt: field 值域是 workIdentifierKeys 封閉集合
+                print("      \(displaySafeInvisible(s.reason, max: 800))")
             }
         }
         if !report.shapeUpgraded.isEmpty {
@@ -67,9 +69,9 @@ struct MigrateIdentifiers: ParsableCommand {
             print("  這些是有書目語意的 qualifier，不是雜訊；現行模型沒有欄位存它們。")
             print("  剝掉是為了讓值解析得出來——但 lossless-intake 要求丟棄必須可見。")
             for a in report.discardedAnnotations {
-                print("  \(displaySafe(a.citekey, max: 200)) [\(a.field)] "   // display-safe-exempt: field 值域是 workIdentifierKeys 封閉集合
-                      + "「\(displaySafe(a.raw, max: 200))」")
-                print("      丟棄：\(a.annotations.map { displaySafe($0, max: 60) }.joined(separator: "、"))")
+                print("  \(displaySafeInvisible(a.citekey, max: 200)) [\(a.field)] "   // display-safe-exempt: field 值域是 workIdentifierKeys 封閉集合
+                      + "「\(displaySafeInvisible(a.raw, max: 200))」")
+                print("      丟棄：\(a.annotations.map { displaySafeInvisible($0, max: 60) }.joined(separator: "、"))")
             }
         }
         print("\n── provenance value 改寫：\(report.provenanceRewrites.count) 筆 ──")

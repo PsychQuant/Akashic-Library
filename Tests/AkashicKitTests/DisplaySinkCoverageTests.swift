@@ -110,6 +110,9 @@ final class DisplaySinkCoverageTests: XCTestCase {
         ".message",
         // #76：divergence 的未信任內容（#133 起可由 LLM 經 MCP 寫入——來源面擴大）
         ".question", ".judgement", ".statement", "restsOn",
+        // #554 R31（R30 verify 第 10 列）：`IdentifierMigration.VenuePlan.mergedFrom` 的元素是 `entry.fields[key]` 的原值（第三方內容）——
+        // `venueKey`／`values`／`mergedFrom` 三個運算式沒有一個含表中任一 token，migrate-identifiers 的兩個 sink 零消毒而守衛全綠（真 binary ESC／OSC／RLO 原樣進終端機）
+        "mergedFrom",
         // #141 第 3 項（「key 該不該入清單」）**實測後入列**。issue 當時擔心
         // 「`key` 全下會誤中大量 registry/config key」——那個顧慮對**裸** `key`
         // 成立，對 `.key` 不成立：加了點之後 `d["some-key"]` 這種常量不會命中。
@@ -631,7 +634,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
     func testEveryTaintedTokenIsLoadBearing() {
         let expected = ["citekey", ".title", ".name", ".reason", ".file",
                         ".literal", "personKey", "libraryKey", "authors", ".message",
-                        ".question", ".judgement", ".statement", "restsOn", ".key"]
+                        ".question", ".judgement", ".statement", "restsOn", "mergedFrom", ".key"]
         XCTAssertEqual(Self.taintedTokens, expected,
                        "tainted token 清單變了——刻意新增就加進本測試的期望清單；"
                        + "被刪掉那是退化（逐軸下限量不到少一項）")

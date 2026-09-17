@@ -1171,3 +1171,74 @@ payload 粒度比對。** 落到程式上：
 零實例）；`TractatusDocs`／`tractatus-doc`／`AkashicProposition` 仍不在 Error → 文字入口的掃描範圍（它們的 Error 型別 conform 了、描述已稽核，
 入口本身沒掃——`TractatusValidationFailure` 描述原樣拼接已逃的 diagnostics，走 `displaySafeErrorMultiline` 會再逃一次，今天只有 `tractatus-doc`
 自己的 CLI 印它）；R29 報告第 25 列的錯誤（`YAML.swift:1605`）在 R28 verify 報告 comment 上更正；第 19 列（scope）記錄、交使用者。
+
+## R30 verify：先逃完再截，逃脫就沒有上界了
+
+六席齊、42 列（1 CRITICAL／10 HIGH／14 MEDIUM／10 LOW／7 INFO）。CRITICAL 與四列 HIGH 是**同一格**：D82 為了讓 sink 量最終輸出，把每行的逃脫改成
+`displaySafe(line, max: .max)`——整行先逃完、再由 sink 丟掉 99.9%，而錯誤文字是未信任的 store 內容。`escapingInvisibleScalars` 對每個要逃的 scalar 走一次
+`String(format:)`，實測**接近二次**：400,000 個 ZWSP 的單行讓 `akashic validate` 跑 20 秒、1 MB 96 秒、5 MB 兩次 300 秒都沒跑完、1.5 MB 的檔 85 MB RSS；
+純 ASCII 仍線性（第 1／3／6／9／35 列）。`displaySafe` 自己的 doc 早就寫著「`max` 才是本函式真正會接觸的上界」，R30 在兩個呼叫端違反了它、沒改 doc；
+新測試用 300 行 × 400 scalar，每行都短，照不到長單行。R29 是有界的——**這是 R30 引入的回歸**。同一個形狀也在 `AuthorshipCompleteness.boundedDisplaySafe`
+（第 29 列）。
+
+守衛有三個洞，每個都讓一批站點免檢：(1) **`exempted` 是毯式豁免**——它拿整個擲出語句的原始行比對識別字，而引數的識別字必然出現在那幾行（它就是
+引數本身），於是一句不相干的 `// display-safe-exempt: Int` 讓該語句全部引數免檢：74/540 站點、87/834 引數；DA 拿掉 `AkashicService.swift:3986` 的
+兩個 sanitizer，兩套守衛都綠（第 4／19／25 列）。(2) **`payloadModes` 把裸回傳判成沒用到**——`ServiceError.invalid(let why): return why` 三條判準都不中、
+落進 `.unused`、`continue`：149 個站點一個引數都沒檢查，而它是 MCP 面最常用的 case；`scanned >= 400` 的地板有 28% 是空檢查撐的；helper 路徑
+（`\(Self.whoWouldHold(record…))`）、`\(id.uuidString)` 這種白名單外的尾綴、`String(value, radix:)` 全落同一格（第 5／7／11／14 列）。(3) **`found` 的判準
+把「型別在某條路徑上消毒」當成「在 Error → 文字那條路徑上消毒」**——`CorpusDiagnostic` 的 body 含 `displaySafe`（住在 `formatted`）而被逼著 conform，
+它沒有 `errorDescription`／`description`，Error → 文字走 `String(describing:)` 反射四個原始欄位、從此免逃（第 8／18 列；DA 更正：今天不可達，三個構造點
+都包進 `TractatusValidationFailure`——而那個型別實質自帶消毒卻**不能** conform，第 34 列）。還有：CLI 頂層對**直接傳到頂層**的原始錯誤只經列舉式的
+`displaySafeAssembled`，ZWSP 原樣落 stderr、兩面不同字串（第 2 列，Codex）；`migrate-identifiers` 的 venue 側兩個 sink 零消毒——`mergedFrom` 是
+`entry.fields[key]` 原值，真 binary ESC／OSC／RLO 原樣進終端機，而 R30 宣稱那個函式的 sink 已進表（第 10 列，DA）；`sourcesAuditError` 以 2,400 進 MCP
+payload 沒再截 512（第 16／17／21／30 列）；`displaySafeError` 的 `max` 仍不是輸出上限——保留的 LF 在 clip-only 一步被逃成八個字元（第 12 列）；96 KB
+以 `String.count` 計，CJK 可達 288 KB（第 13 列）；`describe` 附的是絕對路徑（使用者名稱進 MCP payload），且 `moveItem` 失敗時 `NSFilePathErrorKey` 帶的
+正是 atomicWrite 的暫存檔（第 20 列）；App tooltip 300 → 2,400 是真的放大八倍（第 22 列）；`DestructiveTargetGate` 退回列舉式而列舉式也給不了
+copy-paste（第 24 列）；`deletionNotRecoverable` 的 `$0.why` 在 tuple 裡看不見（第 15 列）；四個同名 `MigrationError` 共用簡名（第 28／38 列）；
+`ServiceError` 的 doc 引用已刪的守衛（第 31 列）；changelog 寫「14 個站點」實測 16（第 26 列）；兩面逐字相同釘的是重建的路徑不是 `AkashicCLI.main`
+（第 27 列）；Scope（第 32／40 列）。DA 以真 binary 驗過兩面位元組相同（含截斷態）與守衛 5.15 秒（第 42 列）。
+
+## R31 落地：輸入有界、輸出有界，兩個界分開（D83）
+
+**D83（Claude 代裁）：逃脫的工作量由輸入側的 ceiling 量、sink 的輸出上限照舊——每個輸入 scalar 至少產生一個輸出 scalar，所以任何輸出上限 ≤ ceiling 的
+sink 不需要更多輸入，截出來的字串與無界版本逐字相同；守衛的三個判準各補一個方向：豁免只看註記文字、payload 的每一種用法都要分得出類、conform 的判準
+只看 Error → 文字那條路徑。** 落到程式上：
+
+- **`ErrorDisplay.inputScalarCeiling = 4_096`**（全樹最大的 sink 輸出上限）：`displaySafeErrorText` 逐行 `displaySafe(line, max: ceiling)` 再性質式逃；
+  行數不設上限（分行線性、每行有界，總工作量與輸入同階——實測 2 MB 單行 ZWSP 0.02 秒、200,000 行 0.3 秒；R30 是 88 秒／不可測）。
+  `testInputCeilingDoesNotChangeClippedOutput` 釘住有界＝無界（10,000 scalar 混合行、512 與 4,096 兩個 sink；4,096／4,097 邊界只有一個標記），
+  `testEverySinkBoundIsWithinTheInputCeiling` 掃全樹每個 `displaySafeError(max:)`／`maxLineLength:` ≤ ceiling（40+ 站點），`testErrorTextWorkIsLinearInTheInput`
+  釘住上限一秒。`boundedDisplaySafe` 同型：`displaySafe(raw, max: maximum)`（第 29 列），`AuthorshipCompletenessTests` 補釘 160＋標記、逃一次、300,000 ZWSP 0.5 秒內。
+- **`displaySafeError` 先折 LF**：真 LF 改寫成 `\u{000A}` 字面（八個字元）再 `displaySafeClipOnly`，`max` 才真的是輸出上限（第 12 列；600 個 LF → ≤ 512）。
+  多行家族不折。**96 KB 以 `utf8.count` 計**（第 13 列；300 行 × 400 個「測」→ ≤ 96 KB）。
+- **CLI 頂層對非 ArgumentParser 錯誤先逃一次**（第 2 列）：`type(of: error)` 不在 `ArgumentParser.` 模組的，包成 `ErrorDisplay.EscapedOnce`（描述＝
+  `displaySafeErrorText`，自帶消毒）再交 `fullMessage`——走 `.other`，與原始錯誤同一條路，exit code 仍由原始 error 決定；parser／`ValidationError`／`CleanExit`／
+  `ExitCode` 不動。真 binary 測試 `testRawErrorReachingTheTopLevelIsEscapedOnceAndMatchesTheMCPFace`（`enrich --from <目錄>` 讓 `Data(contentsOf:)` 擲出
+  Foundation 錯誤、路徑含 ZWSP）：stderr ZWSP 恰逃一次、無 `u{005C}`。**兩面逐字相同在這裡不能用等式釘**——`localizedDescription` 由各程序的 bundle 決定
+  語言（xctest 程序印中文、裸 CLI 印英文），等式由同程序的 `testTwoFacesAgreeEvenWhenTruncated` 與 E2E（兩個裸 binary、同一 store）釘（第 27 列的一半）。
+- **`describe` 只附檔名、暫存檔不附**（第 20 列）：`NSFilePathErrorKey` 取 `lastPathComponent`，`localizedDescription` 已含它就不附，`.<name>.tmp-` 一律不附。
+- **守衛（`SanitizationBoundaryTests`，23 支）**：`exempted` 只掃每行 `display-safe-exempt:` **之後**的文字（第 4／19／25 列——DA 的 mutation 自此紅）；
+  `payloadModes` 認得裸回傳 `return x`（→ raw：149 個 `ServiceError.invalid` 站點自此逐引數檢查）、任意成員鏈 `\(x.a.b())`（→ raw）、helper 路徑
+  `helper(x`／`Owner.helper(x`（插值內外都算——查封閉表 `descriptionHelpers`〔owner、name、mode、理由〕，表的每一列由 `helperSanitizes(owner:name:)` 在
+  owner 宣告 body 裡機械驗證含消毒、展開一層；**不在表裡的 helper 判 raw**，fail-closed）、以及「綁定出現在描述裡卻分不出類」→ 新模式 `.unclassified`
+  ＝ offender；真的沒用到的 case 對封閉清單（今天為空）。下限改量**檢查過的引數**（≥ 750）而非站點（第 11 列）。`found` 的判準改成**描述成員**
+  （`errorDescription`／`description`／`init` 與它們呼叫的型別內 helper、封閉表裡的跨型別 accessor）含消毒；conform 的型別必須有描述成員（第 8／18 列）；
+  `typesThrownWithSanitizer` 對巢狀型別以宣告檔把簡名解成全名（第 28／38 列）。`programBuilt` 多 `id`（UUID）、`scalar.value`（UInt32）兩列，**拿掉**
+  R30 的 `displaySafe(resolved.path, max: 800)` 列（第 24 列——它是一個允許清單）。
+- **conform 的更正**（第 8／18／34 列）：`CorpusDiagnostic` 拿掉（沒有描述成員）、`TractatusValidationFailure` 補上（`errorDescription` 走
+  `diagnostics.map(\.formatted)`，表裡 `CorpusDiagnostic.formatted` 經 `singleLine` 消毒）、`AuthorListCompletenessBindingError` 拿掉（描述全是 UUID／hex 與
+  字面，**沒有東西要消毒**——只截不是消毒；不 conform 的後果是逃一次對 ASCII hex 恆等）。
+- **五個 sink**：`sourcesAuditError` 進 MCP payload 前 `displaySafeClipOnly(…, max: 512)`（第 16／17／21／30 列，進 sink 表）；App tooltip 回 300 並以
+  `testHelpPreviewClipBoundIsPinnedAtThreeHundred` 釘住（第 22 列）；`DestructiveTargetGate` 回 `displaySafeInvisible`（第 24 列）；`migrate-identifiers`
+  的 `venueKey`／`values`／`mergedFrom` 逐項性質式、該檔其餘八處列舉式全改性質式，`mergedFrom` 進 `taintedTokens`（第 10 列）；`deletionNotRecoverable`
+  的 `$0.why` 也逃（第 15 列）。`ServiceError` 的 doc 改引用現行守衛、不寫站點數（第 31 列）。
+- 負控 16 個 mutation 全紅（含 DA 第 11／25 列的兩個原始 mutation、R30 的三個形狀：ceiling 拿掉、`boundedDisplaySafe` 無界、`CorpusDiagnostic` 再 conform）。
+
+**誠實邊界**：ceiling 讓工作量線性，不讓它為零——一個 8 MiB 的單行仍要分行與讀 4,096 個 scalar，且 `AliasEventBudget.maxBytes` 只綁 store 檔那條路，
+`EnrichCommand` 的 `--from` 是裸 `Data(contentsOf:)`（第 9 列的觀察，本輪不動）；`payloadModes` 仍是 per-binding，tuple 成員（`files: [(path, why)]`）看不到
+——R31 讓描述端把 `$0.why` 也逃，於是「files 已逃」對整個 tuple 為真，但守衛本身沒有 tuple 模型（第 15 列）；helper 表的驗證展開**一層**（`formatted → singleLine`），
+兩層以上的 helper 鏈要自己加列；`descriptionMembersSanitize` 對 struct 的 init 只看直接呼叫的型別內 helper；巢狀型別從**別的檔**以簡名擲出（今天零實例）
+會落在 `typesThrownWithSanitizer` 之外——那時守衛會紅、要把擲出改成全名；`displaySafeMultiline` 的只截支對截在 400 的行會退讓掉尾端的裸反斜線
+（第 33 列，零實例、記錄不動）；`ValidationError` 的 CLI 輸出在錯誤行之後帶 usage 行，MCP 沒有——「兩面逐字相同」說的是錯誤行（含截斷）；export-bib／
+Projection 的 UX 改動與 #577 的三處 pin 是搭車（第 32／40 列，記錄不動）。changelog R30 節「14 個站點」是寫死的計數（實測 16）——這裡不再寫數字。
+

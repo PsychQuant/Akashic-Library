@@ -69,7 +69,7 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
                  + "版控之外刪掉就是真的沒了。先把 store 放進版控（或改用位於工作樹內的 store）再試。"
         case let .deletionNotRecoverable(files):
             return "以下檔案刪掉之後無法從版控取回，拒絕消歧：\n"
-                 + files.map { "  - \(displaySafeInvisible($0.path, max: 300))：\($0.why)" }
+                 + files.map { "  - \(displaySafeInvisible($0.path, max: 300))：\(displaySafeInvisible($0.why, max: 300))" }   // why 今天是三個字面常量之一（filesNotSafelyRecoverable），逃它是為了讓守衛的「files 已逃」對整個 tuple 為真（R31；R30 verify 第 15 列：守衛看 binding 不看 tuple 成員）
                         .joined(separator: "\n")
                  + "\n消歧會刪掉被併記錄與歧異記錄本身，歷史託給版控而非 store。"
                  + "先 `git add` 並 `git commit` 這些檔案（或確認 entities/ 沒被 .gitignore 擋），再重跑同一個 id。"

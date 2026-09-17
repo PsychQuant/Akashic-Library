@@ -709,4 +709,29 @@ final class AuthorshipCompletenessStoreIOTests: XCTestCase {
                 .contains { $0.contains("author-list-completeness") },
             "同值 witness 本身不構成資料遺失")
     }
+
+    // MARK: - #554 R31：detail 的界（R30 verify 第 23／29 列——R30 重寫了預算、逃脫類別與截斷標記而零覆蓋）
+
+    /// `detail` 在 init 逃一次（性質式，ZWSP 也逃）、輸出上限 160 個 scalar 加一次截斷標記；輸入只讀 160 個 scalar（無界版本對任意長 detail 是 O(n²)）。
+    func testDetailIsEscapedOnceAndBoundedAtInit() {
+        let long = AuthorshipCompletenessValidationError(reason: .authorLiteral(index: 0), detail: String(repeating: "a\u{200B}", count: 1_000))
+        let d = try! XCTUnwrap(long.detail)
+        XCTAssertTrue(d.hasSuffix("…（已截斷）"), d.suffix(20).description)
+        XCTAssertLessThanOrEqual(d.unicodeScalars.count, 160 + "…（已截斷）".count, "\(d.unicodeScalars.count)")
+        XCTAssertTrue(d.contains("a\\u{200B}a"), d.prefix(30).description)
+        XCTAssertFalse(d.unicodeScalars.contains { $0.value == 0x200B })
+        XCTAssertFalse(d.contains("\\u{005C}"), "二次逃脫：\(d.prefix(30))")
+        let short = AuthorshipCompletenessValidationError(reason: .authorLiteral(index: 0), detail: String(repeating: "x", count: 159))
+        XCTAssertEqual(short.detail, String(repeating: "x", count: 159), "159 個 scalar 不動")
+        let exact = AuthorshipCompletenessValidationError(reason: .authorLiteral(index: 0), detail: String(repeating: "x", count: 161))
+        XCTAssertEqual(exact.detail, String(repeating: "x", count: 160) + "…（已截斷）")
+        // 型別自帶消毒：Error → 文字只截、不再逃
+        XCTAssertTrue((long as Error) is SanitizedErrorDescription)
+        let t = displaySafeErrorMultiline(long, prefix: "Error: ")
+        XCTAssertTrue(t.contains("a\\u{200B}a") && !t.contains("\\u{005C}"), t.prefix(60).description)
+        // 工作量與輸入無關：300,000 個 ZWSP 的 detail 也只讀 160 個 scalar（R30 的無界版本對這個輸入約 10 秒）
+        let start = Date()
+        _ = AuthorshipCompletenessValidationError(reason: .authorLiteral(index: 0), detail: String(repeating: "\u{200B}", count: 300_000))
+        XCTAssertLessThan(Date().timeIntervalSince(start), 0.5)
+    }
 }

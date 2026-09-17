@@ -134,9 +134,11 @@ public struct AuthorshipCompletenessValidationError:
     public var debugDescription: String { description }
 
     /// 性質式逃一次（列舉式的 `displaySafe` 放過 ZWSP／TAG／變體選擇子——R29 verify 第 3 列），再以**輸出** scalar 截、退讓到完整的逃脫序列。
-    /// 在 `init` 消毒，所以型別自帶消毒（`SanitizedErrorDescription`）：描述端與 sink 只截。
-    private static func boundedDisplaySafe(_ raw: String, maximum: Int = 160) -> String {
-        displaySafeClipOnly(escapingInvisibleScalars(displaySafe(raw, max: .max)), max: maximum)   // display-safe-exempt: 已逃一次（本行左半），只截
+    /// 在 `init` 消毒，所以型別自帶消毒（`SanitizedErrorDescription`）：描述端與 sink 只截。**輸入只讀 `maximum` 個 scalar**（R31；R30 verify
+    /// 第 1／29 列：R30 的 `max: .max` 對任意長的 `detail` 是 O(n²)，而 `detail` 來自 decode 的 YAML 欄位）——每個輸入 scalar 至少產生一個輸出
+    /// scalar，所以輸出上限 `maximum` 不需要更多輸入，截出來的字串與無界版本逐字相同。
+    static func boundedDisplaySafe(_ raw: String, maximum: Int = 160) -> String {
+        displaySafeClipOnly(escapingInvisibleScalars(displaySafe(raw, max: maximum)), max: maximum)   // display-safe-exempt: 已逃一次（本行左半），只截
     }
 }
 
@@ -167,8 +169,11 @@ public enum AuthorListCompletenessBindingIssue: Equatable, Hashable, Sendable {
 }
 
 /// Programmatic model 與 decode 共用的 deterministic aggregate binding refusal。
+/// **不**宣告 `SanitizedErrorDescription`（R31；R30 verify 第 8 列的同一個判準問題）：它的描述全由 UUID／sha256 hex 與字面常量組成，
+/// **沒有任何東西要消毒**——R30 因為 body 含 `displaySafeClipOnly` 而被守衛逼著 conform，但只截不是消毒。不 conform 的後果是
+/// `displaySafeErrorText` 對它逃一次（ASCII hex 上是恆等），再由 sink 截——安全且誠實。
 public struct AuthorListCompletenessBindingError:
-    Error, Equatable, LocalizedError, CustomStringConvertible, CustomDebugStringConvertible, SanitizedErrorDescription {
+    Error, Equatable, LocalizedError, CustomStringConvertible, CustomDebugStringConvertible {
     public let issues: [AuthorListCompletenessBindingIssue]
 
     public init(issues: [AuthorListCompletenessBindingIssue]) {

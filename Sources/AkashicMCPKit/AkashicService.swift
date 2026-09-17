@@ -22,9 +22,10 @@ public enum ServiceError: Error, LocalizedError, SanitizedErrorDescription {
         // #142 / #149 verify F3：what 由 throw 站點組裝並消毒 caller payload
         // （見 notFound(…) 各呼叫端的 displaySafe），此處**不再**消毒——displaySafe
         // 會跳脫反斜線本身、不 idempotent，兩層會把 \u{001B} 變成 \u{005C}u{001B}
-        // 並讓外層 max 對已膨脹字串二次截斷。`ServiceError` 自 R29 起是 `SanitizedErrorDescription`（D81）：
-        // 140 個擲出站點以 `displaySafeInvisible` 消毒（`SanitizationBoundaryTests.testThrowSitesSanitizeStoreStrings`
-        // 掃 `throw ServiceError.`），所有 Error → 文字的入口對它只截。
+        // 並讓外層 max 對已膨脹字串二次截斷。`ServiceError` 自 R29 起是 `SanitizedErrorDescription`（D81）：每一個擲出站點的 payload
+        // 都在擲出端逃（`SanitizationBoundaryTests.testEveryThrowSiteEscapesEachPayloadExactlyOnce` 對本型別每個 case 的每個擲出站點逐引數
+        // 比對；`.invalid(let why): return why` 這種**裸回傳**自 R31 起被判成「描述端原樣 → 擲出端必逃」，R30 把它判成沒用到、149 個站點
+        // 一個都沒檢查——R30 verify 第 5／7／11 列），所有 Error → 文字的入口對它只截。站點數不寫在這裡：寫死的數字會與集合分岔。
         case .notFound(let what): return "找不到：\(what)"   // display-safe-exempt: what 由 throw 站點消毒（見上方註解）
         case .invalid(let why): return why
         case .undeterminable(let what): return "無法判定：\(what)"   // display-safe-exempt: 同 notFound——what 由 throw 站點消毒
@@ -445,7 +446,7 @@ public final class AkashicService {
             }
         }
         if let auditError = health.sourcesAuditError {
-            d["sourcesAuditError"] = auditError   // display-safe-exempt: StoreHealth 已 displaySafe
+            d["sourcesAuditError"] = displaySafeClipOnly(auditError, max: 512)   // display-safe-exempt: 已消毒（StoreHealth 以 displaySafeError 產出，CLI 上限 2,400），MCP payload 再截 512（R31；R30 verify 第 16／17／21／30 列：三面共用的 producer 只有這一格沒再截）
         }
         // #76：divergence 計數無條件給（0 也是資訊）；同樣在 fatal 早退之前。
         d["divergences"] = health.divergenceCount

@@ -189,7 +189,8 @@ final class SanitizationBoundaryTests: XCTestCase {
         ("^writeFailed\\.map \\{ \"\\\\\\(displaySafeInvisible\\(\\$0\\.key, max: 200\\)\\)（\\\\\\(\\$0\\.value\\)）\" \\}\\.sorted\\(\\)\\.joined\\(separator: \"; \"\\)$", "key 逐項消毒、value 由 displaySafeError 產出（index rebuild 失敗那一句）"),
         ("^labels\\.sorted\\(\\)$", "knownLabels 的子集（EntityKind 的常量標籤）"),
         // R30
-        ("^displaySafe\\(resolved\\.path, max: 800\\)$", "copy-paste 指令裡的 store 路徑：性質式逃脫會把 NBSP／U+3000 印成 \\u{…}，貼回去就不是那個目錄；列舉式只逃控制與方向字元（R29 verify 第 31 列）"),
+        // R31 拿掉 R30 的 `displaySafe(resolved.path, max: 800)` 列（R30 verify 第 24 列）：那是全 diff 唯一從性質式退回列舉式的站點，而它要的
+        // 「貼回去就是那個目錄」列舉式也給不了（反斜線、C0、bidi 照逃）；D75 說生產者一律性質式、守衛無允許清單——這一列正是一個允許清單
         ("^(found|supported|index|count|group\\.count|n|line|position|column|offset|expected|actual)$", "Int 綁定——描述端以 \\(x) 插值的整數 payload（tooNew、索引、行號）"),
         ("^shown\\.prefix\\(40\\)\\.map \\{ displaySafeInvisible\\(\\$0, max: 120\\) \\}\\.joined\\(separator: \", \"\\)$", "逐項消毒的 citekey 清單（export-bib，R29 verify 第 30 列）"),
         ("^shown\\.count - 40$", "Int"),
@@ -201,6 +202,9 @@ final class SanitizationBoundaryTests: XCTestCase {
         ("^first\\.(brought|existing)\\.prefix\\(5\\)\\.map\\(describeVerdictSource\\)$", "describeVerdictSource 逐筆性質式逃脫"),
         ("^affectedMigration\\.collisions$", "collisions 由 describe(m)（性質式）與 uuidString 組成"),
         ("^lines$", "verdictsAlreadyAtTarget 的 lines：hits 的每一行在 assertNoVerdictAlreadyAt 逐項 displaySafeInvisible，計數行是 Int"),
+        // R31：payloadModes 認得成員鏈與 helper 之後多出的程式構造值
+        ("^id$", "DivergenceResolveError.recordNotFound 的 UUID（描述端印 id.uuidString，文法固定 hex+dash）"),
+        ("^scalar\\.value$", "UInt32（PropositionError.unsupportedUnicodeScalar：描述端 String(value, radix: 16)）"),
     ]
 
     // MARK: - 型別集合、payload 模型（R30 D82：全部由原始碼現算）
@@ -249,7 +253,46 @@ final class SanitizationBoundaryTests: XCTestCase {
         return out
     }
 
-    enum PayloadMode { case escaped, clipped, raw, unused }
+    enum PayloadMode { case escaped, clipped, raw, unused, unclassified }
+
+    /// 描述端經 helper 用到 payload 時，helper 對那個 payload 做了什麼——**封閉表**，每一列的 helper body 由 `helperSanitizes` 機械驗證含消毒
+    /// （不是信任表）。R30 的 `payloadModes` 只認 `displaySafeInvisible(x`／`\(x)`，`\(Self.whoWouldHold(record, …))` 落進 `.unused`、擲出站點永不比對
+    /// （R30 verify 第 5／11／14 列）。
+    static let descriptionHelpers: [(owner: String, name: String, mode: PayloadMode, why: String)] = [
+        ("DivergenceResolveError", "whoWouldHold", .escaped, "兩個引數各 displaySafeInvisible（record／survivor）"),
+        ("CorpusDiagnostic", "formatted", .escaped, "TractatusValidationFailure 的 errorDescription 走 `diagnostics.map(\\.formatted)`；formatted 經 singleLine 逐欄位 displaySafeInvisible"),
+        ("RenameReportSummary", "lines", .escaped, "AppStateError.renamedButReloadFailed：report 的每一列在 lines 裡逐項逃脫（verdict 列性質式、key 列列舉式——D40）"),
+    ]
+
+    /// `owner` 型別宣告 body 裡 `func <name>(`／`var <name>: String {` 的 body 有沒有消毒——直接含、或呼叫同一個 owner body 裡含消毒的 func
+    /// （展開一層：`CorpusDiagnostic.formatted` 經 `singleLine` 才消毒）。owner 找不到、成員找不到，都算沒有。
+    static func helperSanitizes(owner: String, name: String, files: [(path: String, text: String)]) -> Bool {
+        func balanced(from open: String.Index, in text: String) -> String {
+            var depth = 0; var i = open
+            while i < text.endIndex { let c = text[i]; if c == "{" { depth += 1 } else if c == "}" { depth -= 1; if depth == 0 { break } }; i = text.index(after: i) }
+            return String(text[open...(i < text.endIndex ? i : text.index(before: text.endIndex))])
+        }
+        func member(_ marker: String, in body: String) -> String? {
+            guard let r = body.range(of: marker, options: .regularExpression), let open = body[r.upperBound...].firstIndex(of: "{") else { return nil }
+            return balanced(from: open, in: body)
+        }
+        let sanitizerNames = ["displaySafeInvisible(", "escapingInvisibleScalars(", "displaySafe("]
+        for (_, raw) in files {
+            let text = strippingLineComments(raw)
+            guard let r = text.range(of: #"(?:enum|struct|class|extension) "# + NSRegularExpression.escapedPattern(for: owner) + #"\b"#, options: .regularExpression),
+                  let open = text[r.upperBound...].firstIndex(of: "{") else { continue }
+            let body = balanced(from: open, in: text)
+            guard let m = member(#"func "# + NSRegularExpression.escapedPattern(for: name) + #"\("#, in: body) ?? member(#"var "# + NSRegularExpression.escapedPattern(for: name) + #": String \{"#, in: body) else { continue }
+            if sanitizerNames.contains(where: m.contains) { return true }
+            let callRe = try! NSRegularExpression(pattern: #"(?<![\w.])(\w+)\("#)
+            for c in callRe.matches(in: m, range: NSRange(m.startIndex..., in: m)) {
+                let callee = String(m[Range(c.range(at: 1), in: m)!])
+                if callee != name, let cb = member(#"func "# + NSRegularExpression.escapedPattern(for: callee) + #"\("#, in: body), sanitizerNames.contains(where: cb.contains) { return true }
+            }
+            return false
+        }
+        return false
+    }
 
     /// 描述端對每個 case 的每個 payload 做了什麼：`displaySafeInvisible(x`／`x.map { displaySafeInvisible` → escaped；`displaySafeClipOnly(x` → clipped
     /// （擲出端已逃）；`\(x)`／`x.joined` 原樣 → raw（擲出端必須逃）；沒用到 → unused。
@@ -276,10 +319,23 @@ final class SanitizationBoundaryTests: XCTestCase {
                     guard let b else { return .unused }
                     let esc = #"displaySafeInvisible\(\s*"# + b + #"\b|\b"# + b + #"\.(prefix\([^)]*\)\.)?map \{ (\"[^"]*)?displaySafeInvisible\("#
                     let clip = #"displaySafeClipOnly\(\s*"# + b + #"\b|\b"# + b + #"\.(prefix\([^)]*\)\.)?map \{ (\"[^"]*)?displaySafeClipOnly\("#
-                    let rawUse = #"\\\("# + b + #"(\.joined\([^)]*\)|\.lastPathComponent|\.rawValue|\.count)?\)|\b"# + b + #"\.(prefix\([^)]*\)\.)?map \{ \"|\b"# + b + #"\.joined\("#
+                    // 原樣抵達 sink 的三種寫法（R31；R30 verify 第 5／7／11 列）：`\(x)`／`\(x.任意成員鏈)`（`.joined(`／`.uuidString`／`.count`…——R30 是
+                    // 四個尾綴的白名單，新尾綴靜默落進 unused）、`x.map { "`／`x.joined(`、以及**裸回傳** `return x`（`ServiceError.invalid` 的 149 個站點）。
+                    let rawUse = #"\\\("# + b + #"(\.\w+(\([^()]*\))?)*\)|\b"# + b + #"\.(prefix\([^)]*\)\.)?map \{ \"|\b"# + b + #"\.joined\(|\breturn\s+"# + b + #"(?![\w.(])"#
+                    // helper 路徑：`helper(x`／`Self.helper(x`／`Owner.helper(x`（插值內或字串串接裡都算）——查封閉表，helper body 另由 helperSanitizes 驗；
+                    // **不在表裡的 helper 判 raw**（fail-closed：擲出端必須自己逃或具名 programBuilt——`String(value, radix:)` 這種對整數的格式化就落在這裡）
+                    let viaHelper = #"(?<![\w.])((?:\w+\.)*\w+)\(\s*"# + b + #"\b"#
                     if chunk.range(of: esc, options: .regularExpression) != nil { return .escaped }
                     if chunk.range(of: clip, options: .regularExpression) != nil { return .clipped }
+                    if let r = chunk.range(of: viaHelper, options: .regularExpression) {
+                        let call = String(chunk[r]).split(separator: "(").first.map(String.init) ?? ""
+                        let last = call.split(separator: ".").last.map(String.init) ?? call
+                        if let h = descriptionHelpers.first(where: { $0.name == last }) { return h.mode }
+                        return .raw
+                    }
                     if chunk.range(of: rawUse, options: .regularExpression) != nil { return .raw }
+                    // binding 出現在描述裡卻不是上面任何一種形狀：不得靜默當成沒用到（R30 把這一格當 unused 跳過）
+                    if chunk.range(of: #"(?<![\w.$])"# + b + #"(?![\w])"#, options: .regularExpression) != nil { return .unclassified }
                     return .unused
                 }
             }
@@ -306,13 +362,18 @@ final class SanitizationBoundaryTests: XCTestCase {
 
     /// 擲出站點的引數帶消毒的型別。每檔剝一次註解、從命中的 `(` 就地配平——R30 第一版對每個命中重跑 `statements(in:)`（整檔再剝一次），
     /// O(n²)、47 秒（R30 verify 前自量）。
-    static func typesThrownWithSanitizer(files: [(path: String, text: String)]) -> Set<String> {
+    static func typesThrownWithSanitizer(files: [(path: String, text: String)], decls: [ErrorTypeDecl] = []) -> Set<String> {
         var out: Set<String> = []
         let re = try! NSRegularExpression(pattern: #"throw ([A-Z]\w+(?:\.[A-Z]\w+)?)\.\w+\s*\("#)
-        for (_, raw) in files {
+        // 巢狀型別在宣告檔內以簡名擲出（`throw MigrationError.`）：四個同名的 `MigrationError` 住在四個檔，簡名要就地解成全名——
+        // R30 以簡名入集合，一個消毒就替四個背書（R30 verify 第 28／38 列）
+        var nestedByFile: [String: [String: String]] = [:]
+        for d in decls where d.qualified.contains(".") { nestedByFile[d.path, default: [:]][d.simple] = d.qualified }
+        for (path, raw) in files {
             let text = strippingLineComments(raw)
             for m in re.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
-                let name = String(text[Range(m.range(at: 1), in: text)!])
+                var name = String(text[Range(m.range(at: 1), in: text)!])
+                if !name.contains("."), let q = nestedByFile[path]?[name] { name = q }
                 let open = text.index(before: Range(m.range, in: text)!.upperBound)
                 var depth = 0; var i = open; var inString = false
                 while i < text.endIndex {
@@ -328,6 +389,37 @@ final class SanitizationBoundaryTests: XCTestCase {
         return out
     }
 
+    /// conform 的型別必須有自己的 Error → 文字描述：`errorDescription`／`description`（計算或儲存）。
+    static func hasDescriptionMember(_ t: ErrorTypeDecl) -> Bool {
+        t.body.contains("var errorDescription: String? {") || t.body.contains("var description: String {") || t.body.contains("let description: String")
+    }
+
+    /// 描述成員（`errorDescription`／`description`／每個 `init`）的 body，加上它們呼叫的型別內 `func`／`static func` 的 body（展開一層）、
+    /// 以及封閉表 `descriptionHelpers` 裡被呼叫的跨型別 accessor——其中任一處含消毒即為真。
+    static func descriptionMembersSanitize(_ t: ErrorTypeDecl, files: [(path: String, text: String)]) -> Bool {
+        func blocks(after marker: String) -> [String] {
+            var out: [String] = []; var search = t.body.startIndex
+            while let r = t.body.range(of: marker, options: .regularExpression, range: search..<t.body.endIndex) {
+                guard let open = t.body[r.lowerBound...].firstIndex(of: "{") else { break }   // 從 marker 起點找：描述的 marker 自己就含 `{`，init 的在參數表之後
+                var depth = 0; var i = open
+                while i < t.body.endIndex { let c = t.body[i]; if c == "{" { depth += 1 } else if c == "}" { depth -= 1; if depth == 0 { break } }; i = t.body.index(after: i) }
+                out.append(String(t.body[open...i])); search = i < t.body.endIndex ? t.body.index(after: i) : t.body.endIndex
+            }
+            return out
+        }
+        let text = (blocks(after: #"var errorDescription: String\? \{"#) + blocks(after: #"var description: String \{"#) + blocks(after: #"\binit\??\("#)).joined(separator: "\n")
+        let sanitizerNames = ["displaySafeInvisible(", "escapingInvisibleScalars(", "displaySafeErrorText(", "displaySafeError(", "displaySafe("]
+        if sanitizerNames.contains(where: text.contains) { return true }
+        let callRe = try! NSRegularExpression(pattern: #"(?<![\w.])(?:Self\.)?(\w+)\("#)
+        var names: Set<String> = []
+        for m in callRe.matches(in: text, range: NSRange(text.startIndex..., in: text)) { names.insert(String(text[Range(m.range(at: 1), in: text)!])) }
+        for n in names where t.body.contains("func \(n)(") && helperSanitizes(owner: t.simple, name: n, files: files) { return true }
+        for h in descriptionHelpers where text.contains("\\.\(h.name)") || text.contains("\(h.owner).\(h.name)(") || text.contains("Self.\(h.name)(") {
+            if helperSanitizes(owner: h.owner, name: h.name, files: files) { return true }
+        }
+        return false
+    }
+
     // MARK: - 守衛
 
     /// 自帶消毒的型別集合由原始碼現算，兩個方向都要對上：**宣告內任一處**消毒 payload 的（描述、init、helper）或**擲出站點**帶消毒的，
@@ -336,13 +428,17 @@ final class SanitizationBoundaryTests: XCTestCase {
     func testSelfSanitizingErrorTypesAreAClosedList() throws {
         let files = try Self.swiftFiles(under: ["Sources"])
         let decls = try Self.errorTypeDecls()
-        let thrown = Self.typesThrownWithSanitizer(files: files)
-        var found: Set<String> = [], conforming: Set<String> = [], enumerated: [String] = []
+        let thrown = Self.typesThrownWithSanitizer(files: files, decls: decls)
+        var found: Set<String> = [], conforming: Set<String> = [], enumerated: [String] = [], withoutDescription: [String] = []
         for t in decls {
-            let bodySanitizes = t.body.contains("displaySafe")
-            let throwSanitizes = thrown.contains(t.qualified) || thrown.contains(t.simple)
+            // 「型別在某條路徑上消毒」不等於「型別在 Error → 文字那條路徑上消毒」（R31；R30 verify 第 8／18／34 列：`CorpusDiagnostic` 的 body 含
+            // `displaySafe`——住在 `formatted`，而 Error → 文字走 `String(describing:)`——R30 把它逼成 conform，反射 dump 從此免逃）。判準改成：
+            // **描述成員**（`errorDescription`／`description`／`init`，加上它們呼叫的型別內 helper 與封閉表裡的跨型別 accessor）含消毒。
+            let bodySanitizes = Self.descriptionMembersSanitize(t, files: files)
+            let throwSanitizes = thrown.contains(t.qualified)
             if bodySanitizes || throwSanitizes { found.insert(t.qualified) }
             if t.conforms { conforming.insert(t.qualified) }
+            if t.conforms, !Self.hasDescriptionMember(t) { withoutDescription.append("\(t.path) \(t.qualified)") }
             if t.conforms, t.body.range(of: #"(?<!escapingInvisibleScalars\()(?<![A-Za-z])displaySafe\("#, options: .regularExpression) != nil {   // `escapingInvisibleScalars(displaySafe(` 是性質式的組合，不是列舉式
                 enumerated.append("\(t.path) \(t.qualified) 仍有列舉式 displaySafe(")
             }
@@ -350,7 +446,11 @@ final class SanitizationBoundaryTests: XCTestCase {
         XCTAssertEqual(found.subtracting(conforming), [], "消毒了 payload 卻沒有宣告 SanitizedErrorDescription：\(found.subtracting(conforming).sorted())")
         XCTAssertEqual(conforming.subtracting(found), [], "宣告了 SanitizedErrorDescription 卻沒有任何一處消毒：\(conforming.subtracting(found).sorted())")
         XCTAssertEqual(enumerated, [], enumerated.joined(separator: "\n"))
+        XCTAssertEqual(withoutDescription, [], "宣告了 SanitizedErrorDescription 卻沒有自己的 Error → 文字描述（會走 String(describing:) 反射）：" + withoutDescription.joined(separator: "\n"))
         XCTAssertGreaterThanOrEqual(conforming.count, 21, "全樹的自帶消毒型別：\(conforming.sorted())")
+        for h in Self.descriptionHelpers {
+            XCTAssertTrue(Self.helperSanitizes(owner: h.owner, name: h.name, files: files), "descriptionHelpers 表裡的 `\(h.owner).\(h.name)` 找不到含消毒的宣告——表不是信任的，是被驗的")
+        }
         let helper = try String(contentsOf: Self.repoRoot.appendingPathComponent("Sources/AkashicCore/ErrorDisplay.swift"), encoding: .utf8)
         XCTAssertTrue(helper.contains("error is SanitizedErrorDescription"), "isSelfSanitizing 要以 protocol 判，不是 is 鏈")
         XCTAssertFalse(FileManager.default.fileExists(atPath: Self.repoRoot.appendingPathComponent("Sources/AkashicStoreIO/ErrorDisplay.swift").path))
@@ -360,7 +460,7 @@ final class SanitizationBoundaryTests: XCTestCase {
     /// 的**每一個**擲出站點逐引數對照（R30；R29 只掃四條手寫 needle、case 粒度，R29 verify 第 17／22 列）。
     func testEveryThrowSiteEscapesEachPayloadExactlyOnce() throws {
         let files = try Self.swiftFiles(under: ["Sources"])
-        var offenders: [String] = []; var scanned = 0
+        var offenders: [String] = []; var scanned = 0; var checkedArgs = 0; var unusedSites: [String: Int] = [:]
         for t in try Self.errorTypeDecls() where t.conforms && t.isEnum {
             let modes = Self.payloadModes(of: t)
             for site in Self.throwStatements(of: t, files: files) {
@@ -373,18 +473,28 @@ final class SanitizationBoundaryTests: XCTestCase {
                 guard m.count == args.count else { offenders.append("\(site.path):\(site.line) \(t.qualified).\(site.caseName) 引數 \(args.count) 個、描述綁定 \(m.count) 個，對不上"); continue }
                 let rawLines = files.first { $0.path == site.path }!.text.split(separator: "\n", omittingEmptySubsequences: false)
                 let span = site.body.filter { $0 == "\n" }.count
-                let notes = rawLines[(site.line - 1)...min(rawLines.count - 1, site.line - 1 + span)].joined(separator: "\n")
+                // 只看 `display-safe-exempt:` **之後**的註記文字（R31；R30 verify 第 4／19／25 列：R30 拿整個語句的原始行比對，而引數的識別字必然
+                // 出現在那幾行——它就是引數本身——於是一句不相干的註記讓該語句全部引數免檢，74/540 站點、87/834 引數處在毯式豁免下，
+                // mutation 拿掉兩個 sanitizer 兩套守衛都綠）
+                let notes = rawLines[(site.line - 1)...min(rawLines.count - 1, site.line - 1 + span)].compactMap { line -> String? in
+                    guard let r = line.range(of: "display-safe-exempt:") else { return nil }
+                    return String(line[r.upperBound...])
+                }.joined(separator: "\n")
                 func exempted(_ expr: String) -> Bool {
-                    // 同一個語句的行上以 `display-safe-exempt:` 具名這個引數（例如 `why 是 NameIdentity 的固定訊息`）即放行——與 sink 守衛同一種豁免形狀
-                    guard notes.contains("display-safe-exempt:"), let ident = expr.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "_" && $0 != "$" }).first else { return false }
+                    // 同一個語句的註記以 `display-safe-exempt:` 具名這個引數（例如 `why 是 NameIdentity 的固定訊息`）即放行——與 sink 守衛同一種豁免形狀
+                    guard !notes.isEmpty, let ident = expr.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "_" && $0 != "$" }).first else { return false }
                     return notes.range(of: "(?<![A-Za-z0-9_$])\(NSRegularExpression.escapedPattern(for: String(ident)))(?![A-Za-z0-9_])", options: .regularExpression) != nil
                 }
+                if m.allSatisfy({ $0 == .unused }) && !args.isEmpty { unusedSites["\(t.qualified).\(site.caseName)", default: 0] += 1 }
                 for (arg, mode) in zip(args, m) {
                     var value = arg
                     if let r = value.range(of: #"^[A-Za-z_]\w*:\s*"#, options: .regularExpression) { value = String(value[r.upperBound...]) }
                     if exempted(value) { continue }
+                    if mode != .unused { checkedArgs += 1 }
                     switch mode {
                     case .unused: continue
+                    case .unclassified:
+                        offenders.append("\(site.path):\(site.line) \(t.qualified).\(site.caseName) 描述端用到這個 payload，但守衛分不出逃／截／原樣（helper 不在 descriptionHelpers 表，或新形狀）：\(value.prefix(60))")
                     case .escaped:
                         if Self.isSanitized(value) { offenders.append("\(site.path):\(site.line) \(t.qualified).\(site.caseName) 的描述已逃脫這個 payload，擲出端不得再逃：\(value.prefix(60))") }
                         for e in Self.interpolations(in: value) where Self.isSanitized(e) && value.hasPrefix("\"") {
@@ -413,7 +523,12 @@ final class SanitizationBoundaryTests: XCTestCase {
                 }
             }
         }
+        // 下限量的是**檢查過的引數**，不是走訪過的站點（R30 verify 第 11 列：540 個站點裡 151 個一個引數都沒檢查，400 的地板有 28% 是空檢查撐的）
         XCTAssertGreaterThanOrEqual(scanned, 400, "掃到 \(scanned) 個擲出站點——空掃描不是通過")
+        XCTAssertGreaterThanOrEqual(checkedArgs, 750, "檢查過 \(checkedArgs) 個引數——空檢查不是通過")
+        // 描述端真的沒用到 payload 的 case 是封閉清單（每列要有理由）；新出現的要在這裡具名，不得靜默跳過
+        let knownUnused: [String: String] = [:]
+        XCTAssertEqual(Set(unusedSites.keys).subtracting(knownUnused.keys), [], "描述端沒用到任何 payload 的擲出站點（守衛對它們是啞的）：\(unusedSites)")
         XCTAssertEqual(offenders, [], offenders.joined(separator: "\n"))
     }
 
@@ -514,7 +629,9 @@ final class SanitizationBoundaryTests: XCTestCase {
             ("Sources/akashic/VenueCommand.swift", "displaySafeClipOnly(f.reason, max: 2_400)"),
             ("Sources/akashic/VenueCommand.swift", "displaySafeClipOnly(f.reason, max: 4_096)"),
             ("Sources/akashic/IdentifierMigrateCommand.swift", "displaySafeClipOnly(f, max: 4_096)"),
-            ("Sources/AkashicAppKit/RecordIssuesSummary.swift", "displaySafeClipOnly($0.issue.message, max: 2_400)"),
+            ("Sources/AkashicAppKit/RecordIssuesSummary.swift", "displaySafeClipOnly($0.issue.message, max: 300)"),
+            // R31：三面共用的 producer（StoreHealth 2,400）進 MCP payload 前再截 512（R30 verify 第 16／17／21／30 列）
+            ("Sources/AkashicMCPKit/AkashicService.swift", "d[\"sourcesAuditError\"] = displaySafeClipOnly(auditError, max: 512)"),
             ("Sources/AkashicStoreIO/StoreIncarnation.swift", "displaySafeClipOnly(path, max: 2_400))」存在但讀不到（\\(displaySafeClipOnly(why, max: 2_400))"),
         ]
         for (file, needle) in expected {
@@ -688,5 +805,109 @@ final class SanitizationBoundaryTests: XCTestCase {
         let b = Self.topLevelArguments(of: #"StoreIOError.invalidInput(what: rawKey, why: "x, y \(displaySafeInvisible(k, max: 1))")"#)
         XCTAssertEqual(b, ["what: rawKey", #"why: "x, y \(displaySafeInvisible(k, max: 1))""#])
         XCTAssertEqual(Self.strippingLineComments(#"let s = "a \" // b" // note"#), #"let s = "a \" // b"        "#)
+    }
+
+    // MARK: - R31（D83）：輸入側上限、LF 折疊、位元組總量、檔名附加
+
+    /// 每個 `displaySafeError(_, max:)` 與 `maxLineLength:` 都 ≤ `ErrorDisplay.inputScalarCeiling`——ceiling 是「每個輸入 scalar 至少產生一個輸出
+    /// scalar」之下 sink 不需要更多輸入的保證；sink 上限若超過它，被 ceiling 截短的行會冒充完整的行。
+    func testEverySinkBoundIsWithinTheInputCeiling() throws {
+        XCTAssertEqual(ErrorDisplay.inputScalarCeiling, 4_096)
+        let re = try NSRegularExpression(pattern: #"displaySafeError\([^,)]+,\s*max:\s*([0-9_]+)\)|maxLineLength:\s*([0-9_]+)"#)
+        var sites = 0; var over: [String] = []
+        for (path, text) in try Self.swiftFiles(under: ["Sources"]) {
+            let stripped = Self.strippingLineComments(text)
+            for m in re.matches(in: stripped, range: NSRange(stripped.startIndex..., in: stripped)) {
+                let g = m.range(at: 1).location != NSNotFound ? m.range(at: 1) : m.range(at: 2)
+                let n = Int(String(stripped[Range(g, in: stripped)!]).replacingOccurrences(of: "_", with: ""))!
+                sites += 1
+                if n > ErrorDisplay.inputScalarCeiling { over.append("\(path): \(String(stripped[Range(m.range, in: stripped)!]))") }
+            }
+        }
+        XCTAssertGreaterThanOrEqual(sites, 40, "掃到 \(sites) 個 sink 上限——空掃描不是通過")
+        XCTAssertEqual(over, [], over.joined(separator: "\n"))
+    }
+
+    /// 輸入上限不改變截出來的字串：有界版本與無界版本（就地重算）對同一行逐字相同——含混合 ASCII／ZWSP／BEL、含截點退讓。
+    func testInputCeilingDoesNotChangeClippedOutput() {
+        struct Raw: Error, CustomStringConvertible { let description: String }
+        let line = String(repeating: "ab\u{200B}c\u{7}", count: 2_000)   // 10,000 scalar，超過 ceiling
+        for max in [512, 4_096] {
+            let bounded = displaySafeError(Raw(description: line), max: max)
+            let unbounded = displaySafeClipOnly(escapingInvisibleScalars(displaySafe(line, max: .max)), max: max)
+            XCTAssertEqual(bounded, unbounded, "max \(max)")
+            XCTAssertLessThanOrEqual(bounded.unicodeScalars.count, max + "…（已截斷）".count)
+        }
+        XCTAssertEqual(displaySafeErrorMultiline(Raw(description: line), prefix: "Error: "),
+                       displaySafeAssembled("Error: " + escapingInvisibleScalars(displaySafe(line, max: .max))))
+        // 剛好在 ceiling 邊界：4,096 個 scalar 不加標記，4,097 個加一次
+        XCTAssertFalse(displaySafeErrorText(Raw(description: String(repeating: "x", count: 4_096))).contains("…（已截斷）"))
+        let over = displaySafeErrorText(Raw(description: String(repeating: "x", count: 4_097)))
+        XCTAssertEqual(over.components(separatedBy: "…（已截斷）").count - 1, 1)
+        XCTAssertEqual(displaySafeError(Raw(description: String(repeating: "x", count: 4_097)), max: 4_096).components(separatedBy: "…（已截斷）").count - 1, 1, "sink 再截時標記仍只有一個")
+    }
+
+    /// 工作量與輸入長度同階（R30 verify 第 1／3／6／9 列：R30 對 400,000 個 ZWSP 的單行跑 20 秒、1 MB 96 秒——接近二次）。
+    /// 2 MB 的單行 ZWSP 與 200,000 行各一個 ZWSP，兩者都要在一秒內（實測 0.02 s／0.3 s；上限刻意寬十倍以上，只擋回到超線性）。
+    func testErrorTextWorkIsLinearInTheInput() {
+        struct Raw: Error, CustomStringConvertible { let description: String }
+        let oneLine = Raw(description: String(repeating: "\u{200B}", count: 2_000_000))
+        var t = Date()
+        let a = displaySafeError(oneLine, max: 512)
+        XCTAssertLessThan(Date().timeIntervalSince(t), 1.0, "2 MB 單行：\(Date().timeIntervalSince(t)) s")
+        XCTAssertLessThanOrEqual(a.unicodeScalars.count, 512 + "…（已截斷）".count)
+        let manyLines = Raw(description: Array(repeating: "\u{200B}", count: 200_000).joined(separator: "\n"))
+        t = Date()
+        let b = displaySafeErrorMultiline(manyLines, prefix: "Error: ")
+        XCTAssertLessThan(Date().timeIntervalSince(t), 1.0, "200,000 行：\(Date().timeIntervalSince(t)) s")
+        XCTAssertTrue(b.contains("……（截斷：共 200000 行）"), b.suffix(40).description)
+    }
+
+    /// 單行家族：真 LF 折成 `\u{000A}` 字面之後才截，`max` 才真的是輸出 scalar 上限（R30 verify 第 12 列：`displaySafeClipOnly` 會把保留的 LF
+    /// 逃成八個字元，600 個 LF 的原始錯誤在 R30 出 4,096 個 scalar）。
+    func testDisplaySafeErrorFoldsNewlinesSoMaxIsAnOutputBound() {
+        struct Raw: Error, CustomStringConvertible { var description: String { String(repeating: "\n", count: 600) } }
+        let out = displaySafeError(Raw(), max: 512)
+        XCTAssertLessThanOrEqual(out.unicodeScalars.count, 512 + "…（已截斷）".count, "\(out.unicodeScalars.count)")
+        XCTAssertTrue(out.hasPrefix("\\u{000A}\\u{000A}"), out.prefix(20).description)
+        XCTAssertFalse(out.contains("\n"))
+        XCTAssertFalse(out.contains("\\u{005C}"), "折疊出來的反斜線不得再逃：\(out.prefix(30))")
+        // 多行家族保留 LF（它的 sink 逐行截）
+        XCTAssertEqual(displaySafeErrorMultiline(ServiceErrorProbe.make("a\nb")), "a\nb")
+    }
+
+    /// 96 KB 總量以 UTF-8 位元組計（R30 verify 第 13 列：`String.count` 對 300 行 × 400 個 CJK 字放行 288 KB）。
+    func testDisplaySafeErrorMultilineTotalCapIsBytes() {
+        struct Raw: Error, CustomStringConvertible { var description: String { Array(repeating: String(repeating: "測", count: 400), count: 300).joined(separator: "\n") } }
+        let out = displaySafeErrorMultiline(Raw(), prefix: "Error: ")
+        XCTAssertLessThanOrEqual(out.utf8.count, 96_000 + 3 * 400 + 64, "總量 \(out.utf8.count) bytes")
+        XCTAssertTrue(out.contains("……（截斷：共 300 行）"), out.suffix(40).description)
+    }
+
+    /// `describe` 對 NSError 只附**檔名**、暫存檔不附（R30 verify 第 20 列：R30 附絕對路徑——使用者名稱與家目錄進 MCP payload；
+    /// `moveItem` 失敗時 `NSFilePathErrorKey` 帶的是 atomicWrite 的暫存檔，附了就把 #146 G3 從另一把鑰匙打開）。
+    func testDescribeAppendsFileNameNotPathAndSkipsAtomicWriteTemps() {
+        let path = "/Users/someone/.akashic/entities/aa\u{200B}bb.yaml"
+        let e = NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError, userInfo: [NSFilePathErrorKey: path, NSLocalizedDescriptionKey: "拒絕存取。"])
+        let d = ErrorDisplay.describe(e)
+        XCTAssertEqual(d, "拒絕存取。（檔案：aa\u{200B}bb.yaml）")
+        XCTAssertFalse(d.contains("/Users/"), d)
+        XCTAssertEqual(displaySafeErrorText(e), "拒絕存取。（檔案：aa\\u{200B}bb.yaml）", "呼叫端逃一次")
+        let quoted = NSError(domain: NSCocoaErrorDomain, code: 257, userInfo: [NSFilePathErrorKey: path, NSLocalizedDescriptionKey: "“aa\u{200B}bb.yaml” 無法開啟。"])
+        XCTAssertEqual(ErrorDisplay.describe(quoted), "“aa\u{200B}bb.yaml” 無法開啟。", "描述已含檔名時不重複附")
+        let tmp = NSError(domain: NSCocoaErrorDomain, code: 516, userInfo: [NSFilePathErrorKey: "/tmp/x/.entity.yaml.tmp-DEADBEEF", NSLocalizedDescriptionKey: "移動失敗。"])
+        XCTAssertEqual(ErrorDisplay.describe(tmp), "移動失敗。", "atomicWrite 暫存檔名不附")
+        XCTAssertTrue(ErrorDisplay.isAtomicWriteTemp(".a.yaml.tmp-1"))
+        XCTAssertFalse(ErrorDisplay.isAtomicWriteTemp("a.tmp-1"))
+    }
+
+    /// CLI 頂層對非 ArgumentParser 錯誤的載體：文字＝`displaySafeErrorText`（逃一次、有界），型別自帶消毒（頂層 sink 只截）。
+    func testTopLevelCarrierEscapesOnce() {
+        struct Raw: Error, CustomStringConvertible { var description: String { "line\u{200B}1\nline\u{7}2" } }
+        let c = ErrorDisplay.EscapedOnce(Raw())
+        XCTAssertEqual(c.description, "line\\u{200B}1\nline\\u{0007}2")
+        XCTAssertTrue((c as Error) is SanitizedErrorDescription)
+        XCTAssertEqual(displaySafeErrorMultiline(c, prefix: "Error: "), displaySafeErrorMultiline(Raw(), prefix: "Error: "), "包一層不改變輸出、不二次逃")
+        XCTAssertEqual(ErrorDisplay.EscapedOnce(ServiceErrorProbe.make("x\\u{200B}")).description, "x\\u{200B}", "自帶消毒的原樣")
     }
 }

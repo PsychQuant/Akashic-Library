@@ -562,7 +562,7 @@ public func displaySafeMultiline(_ s: String, maxLineLength: Int = 400,
         if !escapingBackslash, safe.hasSuffix(marker) {
             safe = backingOffPartialEscape(String(safe.dropLast(marker.count))) + marker
         }
-        total += safe.count + 1
+        total += safe.utf8.count + 1   // UTF-8 位元組（R31；R30 verify 第 13 列：`String.count` 數 grapheme，300 行 CJK 各 400 字＝288 KB 而 cap 說 96 KB）
         out.append(safe)
     }
     // 總量上限（#135 verify F3）：跳脫是 8 倍膨脹器——200 行 × 400 scalar 的

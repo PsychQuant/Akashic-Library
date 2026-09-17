@@ -251,4 +251,13 @@ final class RecordIssuesSummaryTests: XCTestCase {
             XCTAssertLessThanOrEqual(helps, 1, "第 \(i + 1) 列掛了 \(helps) 個 .help(——只有一個會顯示")
         }
     }
+
+    /// #554 R31（R30 verify 第 22 列）：預覽的每則訊息只截、上限 300 個**輸出** scalar——R16 起就是；R30 抬到 2,400（誤把「輸入上限 ×8」的
+    /// 平準套到一個本來就是輸出上限的格）。這裡把數字釘在原始碼：改它要同時改這裡與 `SanitizationBoundaryTests` 的 sink 表。
+    func testHelpPreviewClipBoundIsPinnedAtThreeHundred() throws {
+        let src = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/AkashicAppKit/RecordIssuesSummary.swift"), encoding: .utf8)
+        XCTAssertTrue(src.contains("displaySafeClipOnly($0.issue.message, max: 300)"), "預覽上限不是 300")
+        XCTAssertFalse(src.contains("issue.message, max: 2_400"))
+    }
 }

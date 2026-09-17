@@ -236,4 +236,19 @@ final class RecordIssuesSummaryTests: XCTestCase {
         XCTAssertFalse(summary.help.contains("\\u{005C}"), summary.help)
         XCTAssertTrue(summary.help.contains("D23"), "160 的上限把正文截掉了：\(summary.help)")
     }
+
+    /// #554 R27（R26 verify regression 第 3 列 HIGH、security 第 36 列）：同一個 `LabeledContent` 疊兩個 `.help(` 時 SwiftUI 只顯示一個——R26 為 D71 的
+    /// 揭露疊了第二個，既有的處置指引與新的限定詞二擇一消失，而源碼掃描守衛對兩段文字都在的檔案照樣綠。一列恰好一個 `.help(`。
+    func testEveryRecordIssuesRowCarriesAtMostOneHelp() throws {
+        var u = URL(fileURLWithPath: #filePath)
+        while u.lastPathComponent != "Tests" { u.deleteLastPathComponent() }
+        let file = u.deletingLastPathComponent().appendingPathComponent("Sources/AkashicAppKit/RecordIssuesSection.swift")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        let rows = text.components(separatedBy: "LabeledContent(").dropFirst()
+        XCTAssertGreaterThan(rows.count, 5, "fixture：RecordIssuesSection 的列數")
+        for (i, row) in rows.enumerated() {
+            let helps = row.components(separatedBy: ".help(").count - 1
+            XCTAssertLessThanOrEqual(helps, 1, "第 \(i + 1) 列掛了 \(helps) 個 .help(——只有一個會顯示")
+        }
+    }
 }

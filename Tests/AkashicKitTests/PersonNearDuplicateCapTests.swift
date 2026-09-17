@@ -52,4 +52,46 @@ final class PersonNearDuplicateCapTests: XCTestCase {
         XCTAssertTrue(m.contains("Fann-C") && m.contains("\\u{200B}") && m.contains("近重複"), m)
         XCTAssertFalse(m.unicodeScalars.contains { $0.value == 0x200B }, "原始 ZWSP 不得進訊息：\(m)")
     }
+
+    /// R27 D76（R26 verify requirements 第 7 列、logic 第 13 列、security 第 21 列、regression 第 38 列、DA 第 27 列）：venue 的第五層——整筆記錄的求值
+    /// 總量上限。400 組各 100 個名字（每組 4,950 對、剛好踩不到組內 5,000 對的上限）在 R26 是 1,980,000 次求值；現在整筆至多 100,000 對，
+    /// 超過的組不評估、只計數並進概括句。
+    func testWholeRecordEvaluationBudgetBoundsTheScan() throws {
+        var names: [String] = []
+        for g in 0..<400 { names += variants(100).map { $0.replacingOccurrences(of: "Fann", with: "Fann\(g)") } }
+        let issues = AuthorizedNames.validateNearDuplicates(names: names, ownerKey: "fann")
+        XCTAssertLessThanOrEqual(issues.count, Entry.perRecordWarningCap + 1, "\(issues.count)")
+        let summary = try XCTUnwrap(issues.first { $0.message.hasPrefix(Entry.perRecordCapSummaryPrefix) }, issues.map(\.message).suffix(2).description)
+        XCTAssertTrue(summary.message.contains("380 組未評估（整筆記錄求值總量已達 100000 對的上限）"), summary.message)
+        XCTAssertEqual(issues.filter { $0.message.contains("是**近重複**") }.count, 20, "上限內評估到的 20 組照常列出")
+    }
+
+    /// R27（R26 verify logic 第 14 列、requirements 第 30 列）：只觸發組內求值上限、零對違反的組用自己的開頭詞——R26 印「其中 0 對是**近重複**（）」
+    /// 加一句叫人裁決 0 對；venue 側對同一情形早有「同名段過多」（R11 verify regression 第 31 列：`grep -c '近重複'` 不該把它算成近重複）。
+    func testCapHitWithoutViolationUsesItsOwnWordingAndCountsAsCapped() throws {
+        // 101 個只差內部空白數的名字：matchingKey 相同、`NameIdentity.same` 兩兩為真（canonical 把空白串收成一個）——5,050 對全部豁免、求值觸頂
+        let names = (1...101).map { "Fann" + String(repeating: " ", count: $0) + "C" }
+        let issues = AuthorizedNames.validateNearDuplicates(names: names, ownerKey: "fann")
+        XCTAssertEqual(issues.count, 2, issues.map(\.message).description)
+        let row = issues[0].message
+        XCTAssertTrue(row.contains("共用配對鍵過多") && row.contains("沒有一對被判定違反"), row)
+        XCTAssertFalse(row.contains("近重複"), "零對違反的組不得被 grep -c '近重複' 算進去：\(row)")
+        XCTAssertFalse(row.contains("其中 0 對"), row)
+        let summary = issues[1].message
+        XCTAssertTrue(summary.hasPrefix(Entry.perRecordCapSummaryPrefix) && summary.contains("已列出的組裡 1 組只評估了前 5000 對"), summary)
+        XCTAssertFalse(summary.contains(" 0 組") || summary.contains("有 0 組"), "概括句只列非零的類別：\(summary)")
+    }
+
+    /// R27（R26 verify regression 第 37 列）：R26 在名額檢查之前遞增 capHitGroups，一組同時進兩個計數、概括句把相交的集合當互斥報。
+    /// 現在分四類各自計數：未列出的真違反、未列出的求值觸頂、已列出但被截、整筆上限擋掉的。
+    func testUnlistedAndTruncatedGroupsAreAccountedSeparately() throws {
+        var names = (1...101).map { "Fann" + String(repeating: " ", count: $0) + "C" }   // 第 1 組：觸頂、零違反、被列出
+        for g in 0..<21 { names += ["Fann\(g)-C", "Fann\(g)\u{2010}C\u{200B}"] }        // 21 組真近重複：19 組列出、2 組超出名額
+        let issues = AuthorizedNames.validateNearDuplicates(names: names, ownerKey: "fann")
+        let summary = try XCTUnwrap(issues.first { $0.message.hasPrefix(Entry.perRecordCapSummaryPrefix) }, issues.map(\.message).suffix(2).description)
+        XCTAssertTrue(summary.message.contains("另有 2 組近重複（每一組都真的違反）未列出"), summary.message)
+        XCTAssertTrue(summary.message.contains("已列出的組裡 1 組只評估了前 5000 對"), summary.message)
+        XCTAssertFalse(summary.message.contains("共用配對鍵過多（求值到組內上限"), "那一組已列出，不得同時算進未列出：\(summary.message)")
+        XCTAssertEqual(issues.filter { $0.message.contains("是**近重複**") }.count, 19)
+    }
 }

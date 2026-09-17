@@ -452,7 +452,7 @@ public final class AkashicService {
             // R11（R10-verify M19）：reason 含 Yams 展開的逐字檔案內容且不截斷——
             // MCP 情境下是直接灌進 LLM context 的無上限未信任字串。
             d["quarantined"] = health.quarantined.map {
-                ["file": displaySafe($0.file, max: 300), "reason": displaySafe($0.reason, max: 512)]
+                ["file": displaySafe($0.file, max: 300), "reason": displaySafeClipOnly($0.reason, max: 512)]   // display-safe-exempt: reason 已消毒（QuarantinedFile 生產端 displaySafeInvisible，R27 D75），只截
             }
         }
         // #23 tolerant-preserve：較新 schema 的檔案可用但應提示升級

@@ -20,6 +20,19 @@ import XCTest
 final class VenueNameInvariantTests: XCTestCase {
     /// R25 verify 第 23／31 列：`Venue.validate()` 的求值上限（組內 5,000 對、整筆 100,000 對）跳過或截掉時沒有 `Entry.perRecordCapSummaryPrefix`
     /// 的概括句，`StoreHealth.cappedRecords` 因此漏計、App 的「≥」不出現。求值上限生效時要與則數上限一樣留下可機械讀取的記號。
+    /// R27 D77（R26 verify Codex 第 5 列、logic 第 12 列）：R26 的旗標是 `capHit && listed == 0`——一組列出 1 對違反、其餘評到 5,000 對上限時
+    /// 沒有概括句、`cappedRecords` 漏計。現在「求值被截」與「有違反」是兩個旗標。
+    func testTruncatedGroupWithAViolationStillCountsAsCapped() throws {
+        var segs = (0..<110).map { i in TemporalValue(value: "Sankhyā", range: DateRange(start: "\(1800 + i)", end: "\(1800 + i)")) }
+        segs[1] = TemporalValue(value: "Sankhyā", range: DateRange(start: "1800", end: "1800"))   // 與第 0 段重疊：恰一對違反
+        let issues = Venue(key: "sankhya", type: .periodical, names: Timeline(segs), authorized: []).validate()
+        XCTAssertTrue(issues.contains { $0.message.contains("有兩筆近重複") }, issues.map(\.message).prefix(2).description)
+        let summary = try XCTUnwrap(issues.first { $0.message.hasPrefix(Entry.perRecordCapSummaryPrefix) }, issues.map(\.message).suffix(2).description)
+        XCTAssertTrue(summary.message.contains("已列出的組裡 1 組只評估了前 5000 對"), summary.message)
+        XCTAssertFalse(summary.message.contains(" 0 組") || summary.message.contains("有 0 組"), "概括句只列非零的類別（R26 verify regression 第 42 列）：\(summary.message)")
+        XCTAssertEqual(issues.filter { $0.message.hasPrefix(Entry.perRecordCapSummaryPrefix) }.count, 1, "一筆記錄一句概括")
+    }
+
     func testEvaluationBudgetHitEmitsACapSummarySoCappedRecordsCountsIt() throws {
         // 110 段同名、兩兩不相交的沿革（各佔一年）：沒有一對違反，所以逐對評估會一路走到 5,000 對的上限（列出 3 對違反就會提早停，不會撞上限）
         let segs = (0..<110).map { i in TemporalValue(value: "Sankhyā", range: DateRange(start: "\(1800 + i)", end: "\(1800 + i)")) }

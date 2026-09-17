@@ -206,7 +206,7 @@ public struct Venue: Equatable {
         if !StoreKey.isValid(key) {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "venue key '\(displaySafe(key, max: 120))' 不符合 \(StoreKey.pattern)"))
+                message: "venue key '\(displaySafeInvisible(key, max: 120))' 不符合 \(StoreKey.pattern)"))
         }
         issues += AuthorizedNames.validate(authorized: authorized,
                                            names: names.entries.map(\.value), ownerKey: key)
@@ -260,14 +260,14 @@ public struct Venue: Equatable {
                     listedNames += 1
                     issues.append(ValidationIssue(
                         severity: .error,
-                        message: "venue '\(displaySafe(key, max: 120))' 的 \(label)「\(displaySafeInvisible(n, max: 120))」\(why)"))   // display-safe-exempt: label 是本函式的字面常量；why 是 NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）
+                        message: "venue '\(displaySafeInvisible(key, max: 120))' 的 \(label)「\(displaySafeInvisible(n, max: 120))」\(why)"))   // display-safe-exempt: label 是本函式的字面常量；why 是 NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）
                 }
             }
         }
         if unlistedNames > 0 {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafe(key, max: 120))' 另有 \(unlistedNames) 個名字含不合法字元或形式、未列出"   // display-safe-exempt: 前綴是常量；Int
+                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafeInvisible(key, max: 120))' 另有 \(unlistedNames) 個名字含不合法字元或形式、未列出"   // display-safe-exempt: 前綴是常量；Int
                        + "（每筆記錄最多列 \(Entry.perRecordWarningCap) 個——本檢查在讀取路徑上對未信任的 store 內容跑）"))   // display-safe-exempt: Int 常量
         }
         // **canonical-相等對**：同一個名字寫兩筆是自相矛盾的一種（哪一筆是「這個名字」？）。
@@ -313,7 +313,10 @@ public struct Venue: Equatable {
         let pairsToEvaluatePerRecord = 100_000
         var listedGroups = 0, unlistedViolating = 0, unlistedCapHit = 0, listedCapHit = 0
         var evaluatedTotal = 0, unevaluatedGroups = 0, budgetHit = false
-        func evaluateGroup(_ segs: [TemporalValue<String>]) -> (issues: [ValidationIssue], capHit: Bool, evaluated: Int) {
+        // 回傳值分兩個旗標（R27 D77；R26 verify Codex 第 5 列、logic 第 12 列：R26 回傳 `capHit && listed == 0`，那是 R11 為**措辭**定的旗標，
+        // 拿它當「這一組的求值被截了嗎」用——一組列出 1–2 對違反、其餘評到 5,000 對上限時 `listedCapHit` 不遞增、整筆記錄零概括句、
+        // `cappedRecords` 漏計；R26 的測試用 110 段全不相交、`listed == 0`，與缺陷互補而非覆蓋）：`capHit`＝求值被截、`violating`＝至少一對違反。
+        func evaluateGroup(_ segs: [TemporalValue<String>]) -> (issues: [ValidationIssue], capHit: Bool, violating: Bool, evaluated: Int) {
             var out: [ValidationIssue] = []
                 var listed = 0, evaluated = 0
                 let total = segs.count * (segs.count - 1) / 2
@@ -325,12 +328,12 @@ public struct Venue: Equatable {
                             let capHit = evaluated == pairsToEvaluate
                             out.append(ValidationIssue(
                                 severity: .error,
-                                message: "venue '\(displaySafe(key, max: 120))' 的 names \(capHit ? "同名段過多" : "近重複")「\(displaySafeInvisible(segs[i].value, max: 120))」共 \(segs.count) 筆同名段，"   // display-safe-exempt: Int；固定字串
+                                message: "venue '\(displaySafeInvisible(key, max: 120))' 的 names \(capHit ? "同名段過多" : "近重複")「\(displaySafeInvisible(segs[i].value, max: 120))」共 \(segs.count) 筆同名段，"   // display-safe-exempt: Int；固定字串
                                        + "已評估 \(evaluated) 對（列出其中 \(listed) 對違反），另至多 \(total - evaluated) 對未評估"   // display-safe-exempt: Int
                                        + (capHit
                                           ? "——同名段超過逐對評估的上限（\(pairsToEvaluate) 對，約 100 筆）一律拒絕：請把同名沿革段收攏，或在 YAML 裡留一筆"   // display-safe-exempt: Int 常量
                                           : "——請在 YAML 裡留一筆（沿革改回舊名要兩段都帶不相交的時間）")))
-                            return (out, capHit && listed == 0, evaluated)
+                            return (out, capHit, listed > 0, evaluated)
                         }
                         evaluated += 1
                         let a = segs[i].range, b = segs[j].range
@@ -345,11 +348,11 @@ public struct Venue: Equatable {
                             severity: .error,
                             // 近重複對的兩筆只差空白類或 NFC 形——`displaySafe` 不逃脫 NBSP／U+2000–200A 等 Zs，兩個字串會印成逐像素相同
                             // 而訊息叫人「留一筆」（R13 verify security 第 12 列、requirements 第 18 列）：以性質逃脫
-                            message: "venue '\(displaySafe(key, max: 120))' 的 names 有兩筆近重複「\(displaySafeInvisible(segs[i].value, max: 120))」"
+                            message: "venue '\(displaySafeInvisible(key, max: 120))' 的 names 有兩筆近重複「\(displaySafeInvisible(segs[i].value, max: 120))」"
                                    + "與「\(displaySafeInvisible(segs[j].value, max: 120))」——\(why)"))   // display-safe-exempt: why 是本函式的兩句字面常量
                     }
                 }
-            return (out, false, evaluated)
+            return (out, false, listed > 0, evaluated)
         }
         for k in order {
             let segs = groups[k]!
@@ -363,7 +366,7 @@ public struct Venue: Equatable {
             guard !found.issues.isEmpty else { continue }
             // 配額只數真的出聲的組（D48）；出聲的組分兩類，概括句分開數、分開說（D52；R17 verify requirements 第 4 列、logic 第 14 列：
             // R17 的概括句對只觸發組內求值上限的組說「已評估且真的違反」，兩句都假）
-            guard listedGroups < Entry.perRecordWarningCap else { if found.capHit { unlistedCapHit += 1 } else { unlistedViolating += 1 }; continue }
+            guard listedGroups < Entry.perRecordWarningCap else { if found.capHit && !found.violating { unlistedCapHit += 1 } else { unlistedViolating += 1 }; continue }
             listedGroups += 1
             if found.capHit { listedCapHit += 1 }
             issues.append(contentsOf: found.issues)
@@ -371,16 +374,8 @@ public struct Venue: Equatable {
         if budgetHit {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "venue '\(displaySafe(key, max: 120))' 的 names 同名段求值總量已達上限（\(pairsToEvaluatePerRecord) 對，約 20 組各 100 筆同名段）："   // display-safe-exempt: Int 常量
+                message: "venue '\(displaySafeInvisible(key, max: 120))' 的 names 同名段求值總量已達上限（\(pairsToEvaluatePerRecord) 對，約 20 組各 100 筆同名段）："   // display-safe-exempt: Int 常量
                        + "另有 \(unevaluatedGroups) 組同名段未評估——一律拒絕：請把同名沿革段收攏，或在 YAML 裡留一筆"))   // display-safe-exempt: Int
-        }
-        // 求值上限命中（整筆總量、或某組只評估了前 pairsToEvaluate 對）也要留一句帶 `perRecordCapSummaryPrefix` 的概括——否則
-        // `StoreHealth.cappedRecords` 漏計、App 的「≥」不出現、doctor 的計數被當成精確值（R26；R25 verify 第 23／31 列）。
-        if budgetHit || listedCapHit > 0 {
-            issues.append(ValidationIssue(
-                severity: .warning,
-                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafe(key, max: 120))' 的 names 有 \(unevaluatedGroups) 組同名段未評估、"   // display-safe-exempt: 前綴是常量；Int
-                       + "\(listedCapHit) 組只評估了前 \(pairsToEvaluate) 對（求值上限——本檢查在讀取路徑上對未信任的 store 內容跑）"))   // display-safe-exempt: Int 常量
         }
         // authorized／variant **也先以 canonical 分組**（D52；R17 verify logic 第 15 列、regression 第 21 列：R17 在這裡每一筆重複條目各
         // 遞增一次配額，四筆同鍵算三「組」，概括句的量詞對兩類不一致）：一組一則、佔一個名額，同鍵超過兩筆時說出筆數
@@ -396,19 +391,26 @@ public struct Venue: Equatable {
                 listedGroups += 1
                 issues.append(ValidationIssue(
                     severity: .error,
-                    message: "venue '\(displaySafe(key, max: 120))' 的 \(label) 有兩筆近重複「\(displaySafeInvisible(first, max: 120))」"   // display-safe-exempt: label 是本函式的字面常量
+                    message: "venue '\(displaySafeInvisible(key, max: 120))' 的 \(label) 有兩筆近重複「\(displaySafeInvisible(first, max: 120))」"   // display-safe-exempt: label 是本函式的字面常量
                            + "與「\(displaySafeInvisible(dups[0], max: 120))」\(dups.count > 1 ? "（同鍵共 \(dups.count + 1) 筆）" : "")"   // display-safe-exempt: Int
                            + "——只差空白或正規化的兩個字串是同一個名字，請在 YAML 裡留一筆"))
             }
         }
-        if unlistedViolating + unlistedCapHit > 0 {
+        // **一筆記錄一句概括**（R27 D77；R26 verify regression 第 42 列：R26 對同一筆記錄可以吐三句上限類訊息、其中兩句重複同一個數字，
+        // `listedCapHit > 0 && !budgetHit` 時還說「有 0 組同名段未評估」）：未列出的兩類、已列出但被截的組、整筆總量擋掉的組，各自只在非零時出現。
+        // 求值上限命中也要走 `perRecordCapSummaryPrefix`——否則 `StoreHealth.cappedRecords` 漏計、App 的「≥」不出現、doctor 的計數被當成精確值
+        // （R26；R25 verify 第 23／31 列）。severity：有未列出的組（真違反或觸頂）是 error（與被概括的那幾組同級）；只有「已列出但被截」或整筆上限
+        // 擋掉的組是 warning——整筆上限自己另有一則 error（上面那句），這一句是給 `cappedRecords` 讀的記號，不重複 fail-closed。
+        if unlistedViolating + unlistedCapHit + listedCapHit + unevaluatedGroups > 0 {
             var parts: [String] = []
-            if unlistedViolating > 0 { parts.append("\(unlistedViolating) 組近重複（每一組都真的違反；部分組可能只評估到組內上限）") }
-            if unlistedCapHit > 0 { parts.append("\(unlistedCapHit) 組同名段過多（求值到組內上限即拒，沒有一對被判定違反）") }
+            if unlistedViolating > 0 { parts.append("另有 \(unlistedViolating) 組近重複（每一組都真的違反；部分組可能只評估到組內上限）未列出") }
+            if unlistedCapHit > 0 { parts.append("另有 \(unlistedCapHit) 組同名段過多（求值到組內上限即拒，沒有一對被判定違反）未列出") }
+            if listedCapHit > 0 { parts.append("已列出的組裡 \(listedCapHit) 組只評估了前 \(pairsToEvaluate) 對") }
+            if unevaluatedGroups > 0 { parts.append("\(unevaluatedGroups) 組同名段未評估（整筆記錄求值總量已達 \(pairsToEvaluatePerRecord) 對的上限）") }
             issues.append(ValidationIssue(
-                severity: .error,
-                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafe(key, max: 120))' 的 names／authorized／variant 另有 \(parts.joined(separator: "與"))"   // display-safe-exempt: 前綴是常量；parts 是本函式的字面常量＋Int
-                       + " 未列出——每筆記錄最多列 \(Entry.perRecordWarningCap) 組，本檢查在讀取路徑上對未信任的 store 內容跑"))   // display-safe-exempt: Int 常量
+                severity: unlistedViolating + unlistedCapHit > 0 ? .error : .warning,
+                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafeInvisible(key, max: 120))' 的 names／authorized／variant \(parts.joined(separator: "；"))"   // display-safe-exempt: 前綴是常量；parts 是本函式的字面常量＋Int
+                       + "——每筆記錄最多列 \(Entry.perRecordWarningCap) 組、組內至多評估 \(pairsToEvaluate) 對、整筆至多 \(pairsToEvaluatePerRecord) 對；本檢查在讀取路徑上對未信任的 store 內容跑"))   // display-safe-exempt: Int 常量
         }
         // **配對唯一性的第二半有掃描面了**（#554 R14，Claude 代裁 D36；`zero-instance-guards` 第 27 列）：同一 work 上 ≥2 個
         // 正規化後不同的 confirmed literal——§3.5 那句 normative 的後半。第一半（同一 work 兩條 key 邊指同一 venue）住在
@@ -463,15 +465,17 @@ public struct Venue: Equatable {
                     + (dupGroups.count > 5 ? "…共 \(dupGroups.count) 組" : "") + "只差位元組的重複記錄"   // display-safe-exempt: Int
                 issues.append(ValidationIssue(
                     severity: .warning,
-                    message: "\(Self.confirmedLiteralAmbiguityPrefix)：venue '\(displaySafe(key, max: 120))' 對 work「\(displaySafe(w, max: 120))」持有 \(keyOrder.count) 個正規化後不同的 confirmed literal（"   // display-safe-exempt: 前綴是常量；Int
+                    message: "\(Self.confirmedLiteralAmbiguityPrefix)：venue '\(displaySafeInvisible(key, max: 120))' 對 work「\(displaySafeInvisible(w, max: 120))」持有 \(keyOrder.count) 個正規化後不同的 confirmed literal（"   // display-safe-exempt: 前綴是常量；Int
                            + shown + (keyOrder.count > 5 ? "…" : "")   // display-safe-exempt: shown 由上一行逐項 displaySafeInvisible 組成
                            + "）——verdict 不帶 index，resolve-venues 的 demote／repoint 對這筆 work 會被拒（D23）；修法是手改 YAML 留一筆（#572 落地前沒有工具面）"
-                           + dupNote))   // display-safe-exempt: 見 dupNote
+                           + dupNote   // display-safe-exempt: 見 dupNote
+                           // 第一類也要指路（R27；R26 verify logic 第 11 列：D71 的限定詞只加在第二類，而本分支的 dupNote 點名的那幾組可以帶相反的 judgement）
+                           + (dupNote.isEmpty ? "" : "——本掃描只比 literal：只差位元組的那幾筆 judgement／rests-on 若不同，「重複的判定記錄」那一族會另報一則，留一筆之前先看它（R27）")))
             } else {
                 let shown = lits.prefix(5).map { "「\(displaySafeInvisible($0.literal, max: 120))」" }.joined(separator: "、")
                 issues.append(ValidationIssue(
                     severity: .warning,
-                    message: "\(Self.confirmedLiteralAmbiguityPrefix)：venue '\(displaySafe(key, max: 120))' 對 work「\(displaySafe(w, max: 120))」持有 \(lits.count) 筆只差位元組的 confirmed literal（"   // display-safe-exempt: 前綴是常量；Int
+                    message: "\(Self.confirmedLiteralAmbiguityPrefix)：venue '\(displaySafeInvisible(key, max: 120))' 對 work「\(displaySafeInvisible(w, max: 120))」持有 \(lits.count) 筆只差位元組的 confirmed literal（"   // display-safe-exempt: 前綴是常量；Int
                            + shown + (lits.count > 5 ? "…" : "")   // display-safe-exempt: shown 由上一行逐項 displaySafeInvisible 組成
                            + "）——正規化後是同一個配對（重複的判定記錄——工具面以 verdictEqualityKey 去重、寫不出它：是手改、舊 binary 寫的，或由 rename 從舊鍵原樣帶過來），"
                            + "而 D23 的拒絕比位元組，resolve-venues 的 demote／repoint 對這筆 work 同樣會被拒；修法是手改 YAML 留一筆——"
@@ -482,7 +486,7 @@ public struct Venue: Equatable {
             issues.append(ValidationIssue(
                 severity: .warning,
                 // 正文刻意不引家族前綴的字面：guards 第 27 列的 `grep -c '同一 work 多個 confirmed literal'` 才真的不含概括句（E2E 抓到 21）
-                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafe(key, max: 120))' 另有 \(unlistedWorks) 筆 work 未列出"   // display-safe-exempt: 前綴是常量；Int
+                message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafeInvisible(key, max: 120))' 另有 \(unlistedWorks) 筆 work 未列出"   // display-safe-exempt: 前綴是常量；Int
                        + "（同樣對同一筆 work 持有多個 confirmed literal；每筆記錄最多列 \(Entry.perRecordWarningCap) 筆——本檢查在讀取路徑上對未信任的 store 內容跑）"))   // display-safe-exempt: Int 常量
         }
         let known = Set(names.entries.map(\.value))
@@ -490,7 +494,7 @@ public struct Venue: Equatable {
         if !orphan.isEmpty {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "venue '\(displaySafe(key, max: 120))' 的 variant "
+                message: "venue '\(displaySafeInvisible(key, max: 120))' 的 variant "
                        + "「\(displaySafeInvisible(orphan.joined(separator: "、"), max: 200))」"
                        + "不在 names 裡——分割是對 names 的標記，不是獨立清單"))
         }
@@ -509,7 +513,7 @@ public struct Venue: Equatable {
         if !datedVariants.isEmpty {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "venue '\(displaySafe(key, max: 120))' 的 variant "
+                message: "venue '\(displaySafeInvisible(key, max: 120))' 的 variant "
                        + "「\(displaySafeInvisible(datedVariants.joined(separator: "、"), max: 200))」"
                        + "帶時間欄位——異寫法沒有生效期間；時間欄位是沿革的，二者擇一"))
         }

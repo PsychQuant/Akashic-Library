@@ -108,6 +108,24 @@ final class CanonicalFormatValidationTests: XCTestCase {
         XCTAssertThrowsError(try CanonicalFormat.normalized(orphan), "authorized ⊄ names 不得通過 fmt")
     }
 
+    /// **五個 shape 同一條紀律**（#554 R27 D79；R26 verify regression 第 39 列：R5／R12 的「三個同形的 shape」只涵蓋走 `AuthorizedNames` 的三個，
+    /// work／divergence 的 error 級檢查對 fmt 仍不生效——`fmt --check` 對一筆候選 key 不合法的 divergence 印「✓ 全部已是 canonical form」）。
+    func testNormalizedRejectsSemanticallyInvalidWorkAndDivergence() throws {
+        let e = Entry(id: UUID(), citekey: "goodkey", type: .periodicalArticle, title: "T")
+        let cleanWork = try EntryYAML.encode(e)
+        XCTAssertNoThrow(try CanonicalFormat.normalized(cleanWork))
+        let badWork = cleanWork.replacingOccurrences(of: "citekey: goodkey", with: "citekey: Bad Key")
+        XCTAssertNotEqual(badWork, cleanWork, "fixture：替換要命中")
+        XCTAssertThrowsError(try CanonicalFormat.normalized(badWork), "citekey 不合 pattern 的 work 不得通過 fmt")
+
+        let d = Divergence(id: UUID(), question: "same?", candidates: [DivergenceCandidate(key: "alpha", shape: .person), DivergenceCandidate(key: "beta", shape: .person)])
+        let cleanDiv = try DivergenceYAML.encode(d)
+        XCTAssertNoThrow(try CanonicalFormat.normalized(cleanDiv))
+        let badDiv = cleanDiv.replacingOccurrences(of: "key: beta", with: "key: Bad Key")
+        XCTAssertNotEqual(badDiv, cleanDiv, "fixture：替換要命中")
+        XCTAssertThrowsError(try CanonicalFormat.normalized(badDiv), "候選 key 不合 pattern 的 divergence 不得通過 fmt")
+    }
+
     /// 語意合法的 person 照常正規化——不得因為加了驗證就把正常檔擋掉。
     func testNormalizedAcceptsValidPerson() throws {
         var person = Person(key: "someone", names: PersonNames(authorized: ["Real Name"],

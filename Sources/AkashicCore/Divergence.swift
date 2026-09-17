@@ -116,7 +116,7 @@ extension Divergence {
         for c in candidates where !StoreKey.isValid(c.key) {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "候選 key '\(displaySafe(c.key, max: 120))' 不符合 \(StoreKey.pattern)"))
+                message: "候選 key '\(displaySafeInvisible(c.key, max: 120))' 不符合 \(StoreKey.pattern)"))
         }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,

@@ -123,7 +123,7 @@ public struct Organization: Equatable {
         if !StoreKey.isValid(key) {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "organization key '\(displaySafe(key, max: 120))' 不符合 \(StoreKey.pattern)"))
+                message: "organization key '\(displaySafeInvisible(key, max: 120))' 不符合 \(StoreKey.pattern)"))
         }
         issues += AuthorizedNames.validate(authorized: authorized,
                                            names: names.entries.map(\.value), ownerKey: key)

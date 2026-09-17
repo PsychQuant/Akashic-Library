@@ -25,7 +25,7 @@ public enum DivergenceResolveError: Error, LocalizedError {
     /// keeper 路徑與 holder 遷移路徑共用同一個 delta 謂詞（`newVerdictViolations`）；`details` 逐筆說出兩側各在哪筆記錄、原值是
     /// 什麼——那個字串在該記錄的 YAML 裡找得到（遷移**後**的值不在任何檔裡，R13 verify DA 第 17 列；三方合併要說得出是哪兩筆，
     /// requirements 第 20 列）。`details` 已逐項消毒，訊息不再包一次（`displaySafe` 不冪等）。
-    case wouldContradictVerdicts(record: String, survivor: String, details: [String])
+    case wouldContradictVerdicts(record: String, survivor: String, details: [String], totalPairs: Int)
     /// #554 R12（D32）→ R14（D34）→ R16（D45）：合併後某筆記錄對同一 work 會持有 ≥2 個正規化後不同的 confirmed literal、而那是這次合併
     /// 帶進來的——「既有」看**倖存配對**（R15 verify 第 12／13／20 列）：它合併前就持有整組、或合併前一筆都沒有而整組原樣從單一被併鍵
     /// 搬來，才不擋；整組住在被併記錄裡的、或讓倖存配對的既有歧義變大的，都擋。`brought` 是這次進到倖存配對的、`existing` 是倖存配對自己
@@ -116,11 +116,11 @@ public enum DivergenceResolveError: Error, LocalizedError {
                  + "「\(displaySafe(survivor, max: 200))」沒有的資料，合併會讓它隨檔案消失——"
                  + losses.map { displaySafe($0, max: 300) }.joined(separator: "；")
                  + "。先把要保留的搬到倖存者身上（或確認可以丟棄後手動清除），再消歧。"
-        case let .wouldContradictVerdicts(record, survivor, details):
+        case let .wouldContradictVerdicts(record, survivor, details, totalPairs):
             return "拒絕合併：併入「\(displaySafe(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))會對同一個配對同時持有"   // display-safe-exempt: whoWouldHold 內部逐項 displaySafe
                  + "相反的判定（confirmed 與 rejected；literal 正規化後相等）——這次合併帶進來的：\n"
-                 + details.prefix(5).map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: details 由 describeVerdictSource 組裝，store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
-                 + (details.count > 5 ? "\n  …共 \(details.count) 個配對" : "")   // display-safe-exempt: Int
+                 + details.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: details 由 describeVerdictSource 組裝且已在生產端截到 5 個配對（R27 D78），store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
+                 + (totalPairs > details.count ? "\n  …共 \(totalPairs) 個配對" : "")   // display-safe-exempt: Int
                  + "\n合併不裁決哪一筆對：先決定，把錯的那筆 verdict 從它所在記錄的 YAML 刪掉（各筆的出處如上；venue 側也可用"
                  + " resolve-venues --demote／--repoint 退役 confirmed 那一側），再消歧。不擋的只有：倖存配對合併前就是矛盾對，"
                  + "以及倖存配對合併前一筆都沒有、整組原樣從單一被併鍵搬來的（holder 改寫；validate 照報 warning）；"
@@ -965,9 +965,20 @@ extension LibraryStore {
                                       record: String, survivor: String, literalUniqueness: Bool) throws {
         let new = newVerdictViolations(after: after, prior: prior, sources: sources, literalUniqueness: literalUniqueness)
         if !new.contradictions.isEmpty {
+            // 上限在渲染之前套（R27 D78；R26 verify Codex 第 6 列：R26 先把每個配對的全部來源渲染完、消費端才 `prefix(5)`——一個配對聚集
+            // 大量 confirmed 時訊息建構成本不受上限管，`psychological-methods` 持 1,352 筆 verdict 不是假想）。每個配對至少留一筆 confirmed
+            // 與一筆 rejected（否則截斷後說不出「為什麼矛盾」），每側至多兩筆、其餘計數；配對數自 R27 起在這裡截，消費端那句「…共 N 個配對」照原數字說。
+            let groups = new.contradictions
+            let perSide = 2
+            let capped: [String] = groups.prefix(5).map { grp in
+                let confirmed = grp.filter { $0.field == ProvenanceReference.resolutionConfirmedField }
+                let rejected = grp.filter { $0.field != ProvenanceReference.resolutionConfirmedField }
+                let kept = Array(confirmed.prefix(perSide)) + Array(rejected.prefix(perSide))
+                let omitted = grp.count - kept.count
+                return kept.map(describeVerdictSource).joined(separator: " ↔ ") + (omitted > 0 ? "（同一配對另有 \(omitted) 筆略）" : "")   // display-safe-exempt: Int
+            }
             throw DivergenceResolveError.wouldContradictVerdicts(
-                record: record, survivor: survivor,
-                details: new.contradictions.map { $0.map(describeVerdictSource).joined(separator: " ↔ ") })
+                record: record, survivor: survivor, details: capped, totalPairs: groups.count)
         }
         if let first = new.multiLiteral.first {
             throw DivergenceResolveError.wouldLeaveTwoConfirmedLiterals(
@@ -1367,8 +1378,14 @@ extension LibraryStore {
             !keeperBytes.contains($0.byteExactKey) && !ProvenanceReference.resolutionVerdictFields.contains($0.field)
         }
         if !lostRefs.isEmpty {
+            // venue 這一格的出路要具名（R27；R26 verify regression 第 22 列、DA 第 43 列）：`update-venue --paginated` 寫的是**新的**一筆 judgement，
+            // 沒有工具面能把被併者那一筆逐位元組搬到倖存者身上——「搬到倖存者身上」對 venue 只有手改 YAML 一條路，而 canonical 相等、位元組不同的
+            // 那一筆（`canonicalTwinNote`）**照樣拒絕**：那是 D65／D69 零位元組損失的取捨，這裡把它說出來。live store 2026-09-17：485 筆 venue 裡
+            // 33 筆帶 paginated reference（36 筆）、venue divergence 0 筆——今天零回歸；#566 的 campaign 下次跑會撞到約 7% 的 venue。
             losses.append("references（\(lostRefs.count) 筆，欄位："
-                + lostRefs.map { $0.field + Self.canonicalTwinNote($0, in: keeper.references) }.joined(separator: "、") + "）")
+                + lostRefs.map { $0.field + Self.canonicalTwinNote($0, in: keeper.references) }.joined(separator: "、")
+                + "；沒有工具面能把它逐位元組搬到倖存者——update-venue --paginated 寫的是新的一筆：把那一筆逐字加進倖存者的 YAML，或確認可丟棄後從被併者的 YAML 刪掉；"
+                + "只差位元組的雙胞胎也擋，零位元組損失是刻意的）")
         }
         return losses
     }

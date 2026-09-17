@@ -183,13 +183,18 @@ public struct ProvenanceReference: Equatable {
 
     /// **位元組精確的相等鍵**（#554 R24，D65；R23 verify Codex 第 1 列 HIGH）。
     ///
-    /// 「兩筆 reference 完全相同」在本 repo 的意思是**逐位元組相同**——問「兩筆是不是同一筆」的地方都以它為判準。**封閉列舉、七處**
-    /// （R26 D73；R25 verify 第 7／17／21／25／29 列：R24 說「全 repo」實際換了兩處、R25 說「四處」實際還有三處沒換——兩輪都是列舉寫得比程式大）：
-    /// D62 的 rename 折疊（`LibraryStore.migratedVerdicts`）、D64 的「全部完全相同」（`duplicateVerdictRecordIssues`，kind 那一半用
-    /// `kindByteKey`）、合併的遺失偵測（`fieldsLostByMerging` 的 person／work／**venue** 三份——venue 那份 R25 之前根本不比 references，被併
-    /// venue 的 `paginated` judgement 與 rests-on 隨檔案靜默消失）、`updateVenue` 的 `paginated` 冪等閘、`UpdatePerson` 的 references
-    /// append-only 去重、`AddOnlyEnrichment.applied` 的來源 reference 冪等。全樹 `grep -rn 'references.contains(' Sources` 的每一個命中
-    /// 都在這七處之內；新增第八處要在這裡加一列。
+    /// 「兩筆 reference 完全相同」在本 repo 的意思是**逐位元組相同**——問「兩筆是不是同一筆」的地方都以它為判準。**封閉列舉、九處**
+    /// （R26 D73；R25 verify 第 7／17／21／25／29 列：R24 說「全 repo」實際換了兩處、R25 說「四處」實際還有三處沒換——兩輪都是列舉寫得比程式大；
+    /// R26 寫「七處」並附一條 `grep 'references.contains('` 的稽核指令，R26 verify 第 8／16／23／51 列實跑：9 個命中、5 個不在七處、七處裡 2 處
+    /// 那條 grep 根本看不到——換了方向，列舉寫得比 grep 小；`paginated` 的冪等閘實際是兩處）：
+    /// D62 的 rename 折疊（`LibraryStore.migratedVerdicts`）、D64 的「全部完全相同」（`StoreHealth.duplicateVerdictRecordIssues`，kind 那一半用
+    /// `kindByteKey`）、合併的遺失偵測（`DivergenceResolve.fieldsLostByMerging` 的 person／work／**venue** 三份——venue 那份 R25 之前根本不比 references，
+    /// 被併 venue 的 `paginated` judgement 與 rests-on 隨檔案靜默消失）、`AkashicService.updateVenue` 的 `paginated` 冪等閘（設值與清除**兩處**）、
+    /// `UpdatePerson` 的 references append-only 去重、`AddOnlyEnrichment.applied` 的來源 reference 冪等。
+    /// **稽核程序**（`ByteExactKeySiteInventoryTests` 釘住）：全樹引用 `byteExactKey` 的檔案是一張封閉清單——那才是「位址在哪」的機械答案；
+    /// `grep 'references.contains('` 不是：它的其餘命中是四處欄位**存在性**謂詞（`LibraryStore` 的 `$0.field == …`，問的不是同一筆）與
+    /// `ResolutionLedger.appendIfAbsent`——後者**是**一個 sameness 面而**刻意**用 `verdictEqualityKey`（正規化，#470 的裁決）；
+    /// `DivergenceResolve.canonicalTwinNote` 也刻意用 `Equatable`（它問的正是「有沒有 canonical 相等、位元組不同的一筆」）。這兩處是具名的例外，不是漏網。
     /// 因為零資訊損失的承諾是對 store 裡的位元組說的，不是對 Unicode 的等價類說的。Swift `String` 的 `==` 與 `hashValue` 走
     /// canonical equivalence（NFC 的 `Sankhyā` 與 NFD 的 `Sankhya\u{0304}` 相等），合成的 `Hashable` 繼承同一語意——R23 用它當
     /// 字典鍵，NFC／NFD 兩筆被折成一筆、其中一種拼法永久消失，而 R16（D42）已經在第二半掃描上修過同一個缺陷（`Set<[UInt8]>`）。

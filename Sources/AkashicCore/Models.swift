@@ -828,7 +828,7 @@ extension Entry {
         if citekey.range(of: Self.citekeyPattern, options: .regularExpression) == nil {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "citekey '\(displaySafe(citekey, max: 120))' 不符合 ^[a-z0-9][a-z0-9-]*$"))
+                message: "citekey '\(displaySafeInvisible(citekey, max: 120))' 不符合 ^[a-z0-9][a-z0-9-]*$"))
         }
         // #325 階段二：`type` 是封閉列舉，「空 type」在型別層就寫不出來——
         // 原本的 `trimmingCharacters(...).isEmpty` 檢查隨自由字串一起退場。
@@ -964,7 +964,7 @@ extension Library {
         if !StoreKey.isValid(key) {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "library key '\(displaySafe(key, max: 120))' 不符合 \(StoreKey.pattern)"))
+                message: "library key '\(displaySafeInvisible(key, max: 120))' 不符合 \(StoreKey.pattern)"))
         }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
@@ -1006,7 +1006,7 @@ extension Person {
         if !StoreKey.isValid(key) {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "person key '\(displaySafe(key, max: 120))' 不符合 \(StoreKey.pattern)"))
+                message: "person key '\(displaySafeInvisible(key, max: 120))' 不符合 \(StoreKey.pattern)"))
         }
         issues += IdentifierDiagnostics.nonNormal(orcid, field: "person.orcid")
         // #81／#227：對外名字的內容不變式（每書寫系統至多一個）。與 organization 共用

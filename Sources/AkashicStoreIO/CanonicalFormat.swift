@@ -82,7 +82,10 @@ public enum CanonicalFormat {
     /// 正規化 ＝ `encode(decode(x))`。**這裡沒有第二份定義**，只有分派。
     static func normalized(_ yaml: String) throws -> String {
         switch try EntityKind.peek(yaml, strict: true) {
-        case .work:         return try EntryYAML.encode(try EntryYAML.decode(yaml))
+        case .work:
+            let e = try EntryYAML.decode(yaml)
+            try LibraryStore.assertNoErrors(e.validate(), what: "work", key: e.citekey)   // D79，理由見 .divergence
+            return try EntryYAML.encode(e)
         case .person:
             // **語意驗證，不只 canonical encode**（#297 item 2）。
             //
@@ -106,7 +109,13 @@ public enum CanonicalFormat {
             let org = try OrganizationYAML.decode(yaml)
             try LibraryStore.assertNoErrors(org.validate(), what: "organization", key: org.key)
             return try OrganizationYAML.encode(org)
-        case .divergence:   return try DivergenceYAML.encode(try DivergenceYAML.decode(yaml))
+        case .divergence:
+            // 五個 shape 同一條紀律（R27 D79；R26 verify regression 第 39 列：R5／R12 說「三個同形的 shape 不能只修兩個」，那句指的是走 `AuthorizedNames`
+            // 的三個，而 work／divergence 的 error 級檢查（citekey／候選 key 的形狀）對 fmt 仍不生效——`fmt --check` 對一筆 error 級不合法的 divergence
+            // 印「✓ 全部已是 canonical form」）。判準不是「有沒有 AuthorizedNames」，是「validate() 有沒有 error 級檢查」：五個都有。
+            let d = try DivergenceYAML.decode(yaml)
+            try LibraryStore.assertNoErrors(d.validate(), what: "divergence", key: d.id.uuidString)
+            return try DivergenceYAML.encode(d)
         case .venue:
             // 與 `.person` 同一條紀律（#554 R5 verify 第 9 列）：R5 之前這裡是裸 `encode(decode)`，
             // `validate` 報 2 條 error 的 store，`fmt --check` 印「✓ 全部已是 canonical form」、

@@ -827,6 +827,65 @@ R25 verify **6 席齊**，44 列、**2 HIGH**、16 MEDIUM、13 LOW、13 INFO。�
   （第 19 列）；`paginated` 位元組變體重複沒有掃描面——#582（第 26／30 列，non-verdict reference 的重複沒有任何家族看得到）；R25 送審的 diff 漏了
   `PersonResolver.swift`（第 40 列，files.txt 補上）；第 38 列（`authorize` 走 `argList`，#561）、第 42 列（`restsOnNote` public）記錄。
 
+## R26 verify：守衛掃了五個檔，而生產者有八個
+
+R26 verify **6 席齊**，54 列、**4 HIGH**、23 MEDIUM、17 LOW、10 INFO。四個 HIGH 裡兩個是同一件事、而且是我的流程：
+
+- **送審的 diff 又漏檔——9 個**（Codex 第 1 列、requirements 第 2 列、logic 第 48 列、security 第 50 列）：`files.txt` 是從 R25 的複製再手工 append，
+  R26 首次碰到的 `AuthorizedName.swift`／`UpdatePerson.swift`／`AddOnlyEnrichment.swift`／`Organization.swift`／`Divergence.swift` 與四個新測試檔全部
+  不在 artifact 裡——D72／D73／D74 的主體沒有一席能從 diff 讀到（席次們回頭讀 HEAD 才確認）。R25 漏 1 檔、R26 漏 9 檔，漏檔機制沒被修。
+  **R27 起 `files.txt` 每輪由 `git diff --name-only e7bd950..HEAD` 現算、只減去具名的 #556 排除**，並記進 memory；R26 verify 對那三條的
+  「已落地」不算六席驗過——R27 verify 才是第一次完整 artifact。
+- **同一列疊了兩個 `.help`**（regression 第 3 列 HIGH、security 第 36 列）：R26 為 D71 的揭露在「重複的判定記錄」那一列**新增**一個 `.help(` 而沒併進
+  既有的——SwiftUI 只顯示一個，D71 的揭露與既有的處置指引二擇一消失，而源碼掃描守衛對兩段文字都在的檔案照樣綠。併成一個；
+  `RecordIssuesSummaryTests` 新增「一列至多一個 `.help(`」的源碼守衛。
+- **D74 漏掉第六個生產者**（DA 第 4 列 HIGH，真 binary：一份 rc=0、印「全部通過」的 store，doi 裡的 ZWSP 與 TAG 字元原樣進 CLI `validate` 與 MCP
+  doctor payload——`IdentifierDiagnostics.issue` 用 `displaySafe` 迴送識別碼原字串，四族 `validate()` 都委派給它，而守衛的檔案清單沒有 `Identifier.swift`）、
+  **第七個**（DA 第 26 列：`crossRecordIssues` 迴送 work 的 title——全庫最自由的欄位，TAG 原樣進 CLI）、`Models.swift` 三族 validate() 不在掃描清單
+  （requirements 第 9 列、logic 第 15 列、security 第 20 列、regression 第 24 列）、key 拒絕訊息與 quarantine reason 零消毒（security 第 18 列：
+  `add-venue $'alpha\U000E0001'` 一次普通 CLI 呼叫、不需要先污染 store）、quarantine reason 的二次消毒把 `StoreKey.pattern` 打壞成
+  `\u{005C}A[a-z0-9]…`（DA 第 44 列：一句修法指示被改寫成不存在的正則）、允許清單以識別字拼法為鍵——三個 `key` 站點正好是 key **沒**通過
+  StoreKey 才出的訊息、`h.slot`／`h.digest` 是死條目、`displaySafeClipOnly(` 完全繞得過（security 第 19／35 列、requirements 第 31 列、logic 第 33 列、
+  regression 第 53 列）。**D75**：生產者對 store 字串一律 `displaySafeInvisible`——八個檔（加 `Models`／`Identifier`／`LibraryStore`）全部換掉，
+  守衛**沒有允許清單**：生產者檔案裡 `displaySafe(` 一律違規（對 StoreKey 驗過的字串兩者輸出逐字相同，換掉沒有代價），`displaySafeClipOnly(` 只在
+  同一行寫明「已消毒」的 exempt 註解時放行，三個 helper 的實作行是封閉列舉、死條目即紅；quarantine reason **在生產端消毒一次**（未信任的部分走
+  `displaySafeInvisible`，pattern 與 uuid 原樣），CLI `quarantineLines` 與 MCP doctor 只截不逃；端到端三條：識別碼、跨記錄 title、quarantine reason
+  （含「pattern 原樣、無 `\u{005C}`」）。
+- **D72 只搬了 venue 五層裡的四層**（requirements 第 7 列、logic 第 13／14 列、security 第 21 列、regression 第 37／38 列、DA 第 27 列——DA release 實測
+  198,000 個名字 15.97 秒、同大小單一分組 1.12 秒：組內 5,000 對的上限被「多組、每組剛好 100 個名字」一步繞開，總求值 ≈ 49.5 × n；超出 20 組名額的組
+  照樣全部求值才被丟掉；capHit 而零違反的組印「其中 0 對是**近重複**（）」加一句叫人裁決 0 對；`capHitGroups` 在名額檢查前遞增、概括句把相交的集合當
+  互斥報）。**D76**：整筆記錄 `pairsToEvaluatePerRecord = 100_000`（超過的組不評估、只計數）、四類分開記帳（未列出的真違反／未列出的觸頂／已列出但被截／
+  整筆上限擋掉的）、零違反的觸頂組用自己的開頭詞「共用配對鍵過多」（不含「近重複」，`grep -c` 不算它）、一筆記錄一句概括且只列非零的類別。severity
+  維持 warning——本族容許假陽性、不擋寫入，與 venue 的 error 刻意不同（venue 的同名段是沿革記錄、一百次改回同名不是真的沿革；person 的 variant 由合併
+  無上限 append，數量大不是錯）。
+- **venue 的 `capHit && listed == 0`**（Codex 第 5 列、logic 第 12 列：一組列出 1–2 對違反、其餘評到 5,000 對上限時 `listedCapHit` 不遞增、整筆零概括句、
+  `cappedRecords` 漏計——R26 的測試用 110 段全不相交、與缺陷互補而非覆蓋；regression 第 42 列：同一筆記錄可以吐三句上限類訊息、兩句重複同一個數字、
+  `listedCapHit > 0 && !budgetHit` 時說「有 0 組同名段未評估」）。**D77**：`evaluateGroup` 回傳 `capHit`（求值被截）與 `violating`（至少一對違反）兩個
+  旗標；一筆記錄一句概括、只列非零的類別；有未列出的組才是 error，只有已列出但被截或整筆上限擋掉的是 warning（整筆上限自己另有一則 error，概括句是給
+  `cappedRecords` 讀的記號、不重複 fail-closed——那一則 error 與概括句仍各說一次 `unevaluatedGroups`，記錄）。
+- **`wouldContradictVerdicts` 在套上限之前渲染完全部配對、每配對的來源筆數無上限**（Codex 第 6 列；R25 第 4 列修的正是這個形狀而合併拒絕路徑原樣留著）。
+  **D78**：生產端截到 5 個配對、每側至多 2 筆（至少留一筆 confirmed 與一筆 rejected，截斷後仍說得出為什麼矛盾）、其餘計數；enum 多帶 `totalPairs`，
+  消費端那句「…共 N 個配對」照原數字說。
+- **`fmt` 對 work／divergence 仍是裸 `encode(decode)`**（regression 第 39 列：R5／R12 說「三個同形的 shape」，那句指的是走 `AuthorizedNames` 的三個，而
+  `Divergence.validate()` 有 error 級檢查——`fmt --check` 對一筆候選 key 不合法的 divergence 印「✓ 全部已是 canonical form」）。**D79**：五個 shape
+  同一條紀律，判準是「validate() 有沒有 error 級檢查」；附帶記錄：`fmt` 對手改過記錄的 clone，`--check` 的 rc 自 R5／R12 起會從 0 變 1。
+- **`byteExactKey` 的「七處」附了一條跑不出那個結果的稽核指令**（requirements 第 8 列、logic 第 16 列、regression 第 23 列、security 第 51 列：
+  `grep 'references.contains('` 9 個命中、5 個不在七處、七處裡 2 處那條 grep 看不到、`paginated` 閘實際兩處）：doc 改成九處、稽核程序改成「引用
+  `byteExactKey` 的檔案是封閉清單」（`ByteExactKeySiteInventoryTests` 釘住），`ResolutionLedger.appendIfAbsent`（刻意 `verdictEqualityKey`，#470）與
+  `canonicalTwinNote`（刻意 `Equatable`）寫成具名例外。
+- **D71 的限定詞只加在第二類**（logic 第 11 列；requirements 第 29／32 列、logic 第 34 列：carve-out 在 venue 家族 20 筆 work 的上限之後失去對象——第 21
+  筆起兩族都不具名，缺口屬 #581）：第一類訊息在 `dupNote` 非空時也指路；App 的「同一 work 多個 confirmed literal」help 補「留之前先看」；accessor doc、
+  doctor 描述、App help 三處寫明「在每筆 venue 20 筆 work 的上限之內」。
+- **D73 改了 `akashic_update_person`／`akashic_enrich` 的可觀察語意而 parity 表沉默**（requirements 第 10 列、regression 第 54 列）：兩列各補「R26 D73
+  重新確認，裁決不變、契約有改」，兩面描述補一句「冪等比位元組」。**venue 合併的遺失閘沒給 venue 這一格的出路**（regression 第 22 列；DA 第 43 列更正：
+  出路的句子在，但對 venue 不可執行——`update-venue --paginated` 寫的是新的一筆，沒有工具面能逐位元組搬）：訊息對 references 那一項具名出路（逐字加進
+  倖存者 YAML、或確認可丟棄後刪掉被併者那筆）並說出「只差位元組的雙胞胎也擋、零位元組損失是刻意的」；影響面（DA 量）：live store 485 筆 venue 裡
+  **33 筆帶 paginated reference**（36 筆）、venue divergence **0** 筆——今天零回歸，#566 的 campaign 下次跑會撞到約 7%。
+- 其餘：`#581` 標題「五族」→「六族」（第 28 列）；「其餘家族每筆 reference／配對各一則」四處補「／記錄」（第 46 列）；第 25 列（scope 擴張：#576 在本
+  commit 落地、`UpdatePerson`／`AddOnlyEnrichment`、#577 的 CI pin——R22 第 17 列的觀察未經使用者裁決，**記錄，交使用者**）；第 40 列
+  （`migrate-venue-variants --apply` 一律拒絕而命令與旗標留著——補記進 #567：未遷移的 format-13 store 自此只剩逐筆 `--add-variant`）；第 41 列
+  （`.build/debug` 重指的同一段規則四份、措辭已開始漂移——補記進 #577）；第 45／47／49／52 列（無 injection）記錄。
+
 ## 第二次端到端又紅——這次是我的 binary
 
 改成替換語意後測試 7/7 綠、四個 mutation 負控乾淨，真 binary 卻說「authorized 含不在
@@ -901,6 +960,10 @@ names 內的名字」。隔離半天，最後是：**`swift test` 不重編 `aka
 
 - validate 被 per-record 上限截掉的明細沒有出口（組合式六族每筆 20 則、三面同；要全部只能讀 YAML）——#581（R24 D66 不加完整列舉模式；出口的形狀兩面一起裁）
 - non-verdict reference 的位元組變體重複（`paginated` judgement 只差 NFC／NFD、identifier retrieval 同型）沒有任何掃描面——#582（R26 D73 讓冪等閘比位元組後才可達；三個掃描面都先過 `resolutionVerdictFields`）
+- D71 的 carve-out 在 venue 家族 20 筆 work 的上限之後兩族都不具名（R26 verify 第 29／34 列）——#581 的同一個缺口（被截的明細沒有出口），三處揭露文字自 R27 起帶上限定詞
+- `.build/debug` 重指的同一段規則在 pre-push／`ci.yml` ×2／`census-parity.yml` 各寫一份、措辭已漂移（R26 verify 第 41 列）——#577 落地時一併收成一支腳本
+- `migrate-venue-variants --apply` 一律拒絕而命令、旗標與死碼留著（R26 verify 第 40 列）——#567；補記：未遷移的 format-13 store 自此只剩逐筆 `--add-variant`
+- venue 合併的整筆記錄 fail-closed 與概括句各說一次 `unevaluatedGroups`（R27 D77 的取捨：概括句是 `cappedRecords` 的記號、error 是 fail-closed 的訊號，兩者消費端不同）——記錄不動
 - 撤回面（把名字從 authorized 移出而不放新的進去）——#559
 - venue 邊的移除面（同一 work 兩條邊指同一 venue 時唯一出路是手改 YAML）——#572（R11 把生產端關掉、既有的報 warning）
 - `supersede` 退役判定記錄而 repoint／demote 沒有 trackedness 前置（merge 有）——#573

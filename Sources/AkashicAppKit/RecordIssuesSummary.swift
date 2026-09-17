@@ -71,6 +71,6 @@ struct RecordIssuesSummary: Equatable {
         help = preview.joined(separator: "\n") + more
              + "\n逐則列出：akashic validate（不加這裡的預覽截斷；組合式的六族——venue 名字內容、venue 近重複、person 近重複、重複 venue 邊、"
              + "confirmed literal、重複判定記錄——每筆記錄至多 \(Entry.perRecordWarningCap) 則、以「\(Entry.perRecordCapSummaryPrefix)」概括；"
-             + "其餘家族每筆 reference／配對各一則、無上限；三面同）"
+             + "其餘家族每筆 reference／配對／記錄各一則、無上限；三面同）"
     }
 }

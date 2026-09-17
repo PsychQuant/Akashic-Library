@@ -25,16 +25,16 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case let .notAStore(path):
-            return "「\(displaySafe(path, max: 300))」不是 Akashic store（無 store.yaml 也無 "
+            return "「\(displaySafeInvisible(path, max: 300))」不是 Akashic store（無 store.yaml 也無 "
                  + "entities/／entries/）——寫入拒絕。若這是新 store，先跑 "
                  + "akashic doctor --library <path> 建立佈局；若是打錯路徑，這個拒絕正是在救你。"
         case let .invalidInput(what, why):
-            return "\(displaySafe(what, max: 120)) 無效：\(displaySafe(why, max: 400))"
+            return "\(displaySafeInvisible(what, max: 120)) 無效：\(displaySafeInvisible(why, max: 400))"
         case let .inconsistentStore(action, issues):
             // action 是呼叫端字面量（"rename"/"resolve-divergence"）、issues 已消毒
             return "store 有 \(issues.count) 個跨記錄不一致，\(action) 拒絕執行"   // display-safe-exempt: action 是呼叫端字面量
                  + "（改寫會刪掉其中一份而留下另一份）："
-                 + issues.prefix(3).map { displaySafe($0, max: 300) }.joined(separator: "；")
+                 + issues.prefix(3).map { displaySafeClipOnly($0, max: 300) }.joined(separator: "；")   // display-safe-exempt: 已消毒（crossRecordIssues 的訊息在生產端 displaySafeInvisible），只截——displaySafe 不冪等
                  + "。先跑 akashic doctor 看清楚並修好。"
         case let .verdictsAlreadyAtTarget(action, key, lines):
             // key 與 lines 已在 assertNoVerdictAlreadyAt 消毒（displaySafeInvisible）；這裡只截不逃——displaySafe 不冪等。
@@ -51,12 +51,16 @@ public enum StoreIOError: Error, LocalizedError, Equatable {
         case .invalidKey(let kind, let value):
             // #142：value 是 caller 剛送進來的畸形 key——原始 ESC/bidi 位元組經
             // MCP error 直達 LLM context；kind 是程式字面量
-            return "\(kind)「\(displaySafe(value, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入"   // display-safe-exempt: kind 是程式字面量、pattern 是常量
+            return "\(kind)「\(displaySafeInvisible(value, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入"   // display-safe-exempt: kind 是程式字面量、pattern 是常量
         
         }
     }
 }
 
+/// **`reason` 在生產端就消毒過一次**（#554 R27 D75；R26 verify security 第 18 列、DA 第 44 列：這裡曾原樣插值 key 與 decode error，sink 再
+/// `displaySafe` 一次——TAG／ZWSP 原樣穿過（列舉不收），而 `StoreKey.pattern` 的反斜線被逃成 `\u{005C}`，一句修法指示被改寫成不存在的
+/// 正則）：未信任的部分（key、citekey、檔名 stem、decode error 全文）走 `displaySafeInvisible`，程式自己組的部分（pattern、uuid）原樣。
+/// sink（CLI `quarantineLines`、MCP doctor）只截不逃——`displaySafe` 不冪等。
 public struct QuarantinedFile: Equatable {
     public var file: String
     public var reason: String
@@ -445,7 +449,7 @@ public final class LibraryStore {
         if !entry.references.isEmpty {
             try Self.assertIdentifierReferencesWritable(
                 entry.references, format: try format(),
-                what: "work「\(displaySafe(entry.citekey, max: 120))」")
+                what: "work「\(displaySafeInvisible(entry.citekey, max: 120))」")
         }
         // v16-only 語法的 format gate（#450）：拆分記錄（`field: authors` 的 reference）。
         // format-15 binary 的 `Entry.validateReferenceAttachment` 沒有 `authors` case → 封閉
@@ -455,7 +459,7 @@ public final class LibraryStore {
             let format = try format()
             guard format >= 16 else {
                 throw StoreIOError.invalidInput(
-                    what: "entry「\(displaySafe(entry.citekey, max: 120))」",
+                    what: "entry「\(displaySafeInvisible(entry.citekey, max: 120))」",
                     why: "含作者位記錄（field: authors 的 reference），需要 store format ≥ 16；本 store 是 \(format)——" +
                          "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 format: 改成 16" +
                          "（format-15 binary 讀到會整檔 quarantine，且 rc=0）")
@@ -466,7 +470,7 @@ public final class LibraryStore {
             if !entry.authorRemovalRecords.isEmpty {
                 guard format >= 17 else {
                     throw StoreIOError.invalidInput(
-                        what: "entry「\(displaySafe(entry.citekey, max: 120))」",
+                        what: "entry「\(displaySafeInvisible(entry.citekey, max: 120))」",
                         why: "含作者位**移除**記錄（field: authors、statement 走 `移除：理由`），需要 store format ≥ 17；" +
                              "本 store 是 \(format)——確認會碰這個 store 的 CLI/MCP/App 都已升級後，" +
                              "把 store.yaml 的 format: 改成 17（format-16 binary 讀到會整檔 quarantine，且 rc=0）")
@@ -487,7 +491,7 @@ public final class LibraryStore {
             let format = try format()
             guard format >= 9 else {
                 throw StoreIOError.invalidInput(
-                        what: "entry「\(displaySafe(entry.citekey, max: 120))」",
+                        what: "entry「\(displaySafeInvisible(entry.citekey, max: 120))」",
                         why: "含 akashic.sources 副本引用，需要 store format ≥ 9；本 store 是 \(format)——" +
                          "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
                          "format: 改成 9")
@@ -499,7 +503,7 @@ public final class LibraryStore {
             let format = try format()
             guard format >= 11 else {
                 throw StoreIOError.invalidInput(
-                    what: "entry「\(displaySafe(entry.citekey, max: 120))」",
+                    what: "entry「\(displaySafeInvisible(entry.citekey, max: 120))」",
                     why: "含 venues 引用，需要 store format ≥ 11；本 store 是 \(format)——" +
                          "確認會碰這個 store 的 CLI/MCP/App 都已升級後，先以 migrate-venues " +
                          "遷移既有記錄，再把 store.yaml 的 format: 改成 11")
@@ -514,7 +518,7 @@ public final class LibraryStore {
             let format = try format()
             guard format >= 12 else {
                 throw StoreIOError.invalidInput(
-                    what: "entry「\(displaySafe(entry.citekey, max: 120))」",
+                    what: "entry「\(displaySafeInvisible(entry.citekey, max: 120))」",
                     why: "含 organization 作者，需要 store format ≥ 12；本 store 是 \(format)——" +
                          "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
                          "format: 改成 12（format-11 binary 讀到會整檔 quarantine，" +
@@ -599,7 +603,7 @@ public final class LibraryStore {
         // 實測，見 StoreVersion doc）——refuse-if-newer 必須在寫入端先 fire。
         guard format >= 11 else {
             throw StoreIOError.invalidInput(
-                what: "venue「\(displaySafe(v.key, max: 120))」",
+                what: "venue「\(displaySafeInvisible(v.key, max: 120))」",
                 why: "venue 是 format 11 的新形狀；本 store 是 \(format)——" +
                      "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
                      "format: 改成 11（舊 binary 讀到 venue 檔會整檔 quarantine）")
@@ -608,13 +612,13 @@ public final class LibraryStore {
         // format-11 binary 的 VenueType decode 對未知值**整檔拒讀**。
         if !Self.venueTypesReadableAtFormat11.contains(v.type), format < 12 {
             throw StoreIOError.invalidInput(
-                what: "venue「\(displaySafe(v.key, max: 120))」的 type「\(v.type.rawValue)」",   // display-safe-exempt: rawValue 是編譯期常量
+                what: "venue「\(displaySafeInvisible(v.key, max: 120))」的 type「\(v.type.rawValue)」",   // display-safe-exempt: rawValue 是編譯期常量
                 why: "該值是 format 12 的新值域（#324）；本 store 是 \(format)——" +
                      "把 store.yaml 的 format: 改成 12（format-11 binary 讀到未知 " +
                      "venue type 會整檔拒讀）")
         }
         try Self.assertIdentifierReferencesWritable(
-            v.references, format: format, what: "venue「\(displaySafe(v.key, max: 120))」")
+            v.references, format: format, what: "venue「\(displaySafeInvisible(v.key, max: 120))」")
         // #406：兩個世代的能力**分開閘**（R2 verify NEW BUG 1——初版把兩者綁在
         // 同一條 `< 15`，於是一筆合法的 format-14 venue（有頂層 `paginated:`、無
         // reference）連 add_names 這種無關寫入都被拒，破壞舊格式的 read-modify-write）：
@@ -635,7 +639,7 @@ public final class LibraryStore {
         //   一併裁要不要補閘，不在這裡半做。
         if format < 14, v.paginated != nil {
             throw StoreIOError.invalidInput(
-                what: "venue「\(displaySafe(v.key, max: 120))」的 paginated 值",
+                what: "venue「\(displaySafeInvisible(v.key, max: 120))」的 paginated 值",
                 why: "paginated 是 format 14 的新欄位（#422／#406）；本 store 是 \(format)——" +
                      "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
                      "format: 改成 14（format-13 binary 讀到會原樣保留而不解讀——" +
@@ -648,7 +652,7 @@ public final class LibraryStore {
         //   所以本分支已足以讓新判定在 format 14 上原子失敗。
         if format < 15, v.references.contains(where: { $0.field == "paginated" }) {
             throw StoreIOError.invalidInput(
-                what: "venue「\(displaySafe(v.key, max: 120))」的 paginated 判定",
+                what: "venue「\(displaySafeInvisible(v.key, max: 120))」的 paginated 判定",
                 why: "paginated 判定 reference 是 format 15 的新能力（#406）；本 store 是 " +
                      "\(format)——確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 " +
                      "store.yaml 的 format: 改成 15。**實測依據**（2026-08-31，format-14 " +
@@ -687,7 +691,7 @@ public final class LibraryStore {
         if !org.references.isEmpty {
             try Self.assertIdentifierReferencesWritable(
                 org.references, format: try format(),
-                what: "organization「\(displaySafe(org.key, max: 120))」")
+                what: "organization「\(displaySafeInvisible(org.key, max: 120))」")
         }
         // v6-only 語法的 format gate——理由見 writePerson（#131 verify Codex-H2）
         if org.names.entries.contains(where: \.range.endedUnknown)
@@ -695,7 +699,7 @@ public final class LibraryStore {
             let format = try format()
             guard format >= 6 else {
                 throw StoreIOError.invalidInput(
-                        what: "organization「\(displaySafe(org.key, max: 120))」",
+                        what: "organization「\(displaySafeInvisible(org.key, max: 120))」",
                         why: "含 ended 段，需要 store format ≥ 6；本 store 是 \(format)——" +
                          "升級方式見 writePerson 同型訊息")
             }
@@ -706,7 +710,7 @@ public final class LibraryStore {
             let format = try format()
             guard format >= 7 else {
                 throw StoreIOError.invalidInput(
-                        what: "organization「\(displaySafe(org.key, max: 120))」",
+                        what: "organization「\(displaySafeInvisible(org.key, max: 120))」",
                         why: "含 attested 段，需要 store format ≥ 7；本 store 是 \(format)——" +
                          "升級方式見 writePerson 同型訊息")
             }
@@ -717,7 +721,7 @@ public final class LibraryStore {
             let format = try format()
             guard format >= 8 else {
                 throw StoreIOError.invalidInput(
-                        what: "organization「\(displaySafe(org.key, max: 120))」",
+                        what: "organization「\(displaySafeInvisible(org.key, max: 120))」",
                         why: "含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)——" +
                          "升級方式見 writePerson 同型訊息")
             }
@@ -760,7 +764,7 @@ public final class LibraryStore {
             let format = try format()
             guard format >= 6 else {
                 throw StoreIOError.invalidInput(
-                        what: "person「\(displaySafe(person.key, max: 120))」",
+                        what: "person「\(displaySafeInvisible(person.key, max: 120))」",
                         why: "含 ended 段，需要 store format ≥ 6；本 store 是 \(format)——" +
                          "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
                          "format: 改成 6（v6 只新增語法，既有資料不變）")
@@ -771,7 +775,7 @@ public final class LibraryStore {
             let format = try format()
             guard format >= 7 else {
                 throw StoreIOError.invalidInput(
-                        what: "person「\(displaySafe(person.key, max: 120))」",
+                        what: "person「\(displaySafeInvisible(person.key, max: 120))」",
                         why: "含 attested 段，需要 store format ≥ 7；本 store 是 \(format)——" +
                          "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
                          "format: 改成 7（v7 只新增語法，既有資料不變）")
@@ -786,7 +790,7 @@ public final class LibraryStore {
             let format = try format()
             guard format >= 8 else {
                 throw StoreIOError.invalidInput(
-                        what: "person「\(displaySafe(person.key, max: 120))」",
+                        what: "person「\(displaySafeInvisible(person.key, max: 120))」",
                         why: "含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)——" +
                          "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
                          "format: 改成 8（v8 只新增 references 欄位對，既有資料不變）")
@@ -804,7 +808,7 @@ public final class LibraryStore {
                 // 清洗 key（#133 立 invalidInput 防的正是這形；v6/7/8 舊 gate 沿用
                 // 舊形屬既有債，另計）。
                 throw StoreIOError.invalidInput(
-                    what: "person「\(displaySafe(person.key, max: 120))」",
+                    what: "person「\(displaySafeInvisible(person.key, max: 120))」",
                     why: "含巢狀 names，需要 store format ≥ 10；本 store 是 \(format)——" +
                          "確認會碰這個 store 的 CLI/MCP/App 都已升級後，先以 " +
                          "migrate-person-identity 遷移既有記錄，再把 store.yaml 的 " +
@@ -852,7 +856,7 @@ public final class LibraryStore {
         let errors = issues.filter { $0.severity == .error }
         guard errors.isEmpty else {
             throw StoreIOError.invalidInput(
-                what: "\(what) '\(displaySafe(key, max: 120))'",
+                what: "\(what) '\(displaySafeInvisible(key, max: 120))'",
                 why: errors.map(\.message).joined(separator: "；"))
         }
     }
@@ -952,7 +956,7 @@ public final class LibraryStore {
                 // 不符時 quarantine——那代表有人手動改了檔名或 id，兩者都會讓引用錯位。
                 guard let stemUUID = UUID(uuidString: stem) else {
                     result.quarantined.append(QuarantinedFile(
-                        file: name, reason: "entities/ 的檔名必須是 UUID，實得「\(stem)」"))
+                        file: name, reason: "entities/ 的檔名必須是 UUID，實得「\(displaySafeInvisible(stem, max: 120))」"))
                     continue
                 }
                 switch try EntityKind.peek(text, strict: strictLabels) {
@@ -965,7 +969,7 @@ public final class LibraryStore {
                     }
                     guard StoreKey.isValid(person.key) else {
                         result.quarantined.append(QuarantinedFile(
-                            file: name, reason: "person key「\(person.key)」不符合 \(StoreKey.pattern)"))
+                            file: name, reason: "person key「\(displaySafeInvisible(person.key, max: 120))」不符合 \(StoreKey.pattern)"))
                         continue
                     }
                     if !person.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
@@ -981,7 +985,7 @@ public final class LibraryStore {
                     guard StoreKey.isValid(org.key) else {
                         result.quarantined.append(QuarantinedFile(
                             file: name,
-                            reason: "organization key「\(org.key)」不符合 \(StoreKey.pattern)"))
+                            reason: "organization key「\(displaySafeInvisible(org.key, max: 120))」不符合 \(StoreKey.pattern)"))
                         continue
                     }
                     if !org.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
@@ -997,7 +1001,7 @@ public final class LibraryStore {
                     guard StoreKey.isValid(v.key) else {
                         result.quarantined.append(QuarantinedFile(
                             file: name,
-                            reason: "venue key「\(v.key)」不符合 \(StoreKey.pattern)"))
+                            reason: "venue key「\(displaySafeInvisible(v.key, max: 120))」不符合 \(StoreKey.pattern)"))
                         continue
                     }
                     if !v.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
@@ -1017,7 +1021,7 @@ public final class LibraryStore {
                     if let bad = d.candidates.first(where: { !StoreKey.isValid($0.key) }) {
                         result.quarantined.append(QuarantinedFile(
                             file: name,
-                            reason: "候選 key「\(bad.key)」不符合 \(StoreKey.pattern)"))
+                            reason: "候選 key「\(displaySafeInvisible(bad.key, max: 120))」不符合 \(StoreKey.pattern)"))
                         continue
                     }
                     if !d.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
@@ -1031,12 +1035,12 @@ public final class LibraryStore {
                     }
                     guard StoreKey.isValid(entry.citekey) else {
                         result.quarantined.append(QuarantinedFile(
-                            file: name, reason: "citekey「\(entry.citekey)」不符合 \(StoreKey.pattern)"))
+                            file: name, reason: "citekey「\(displaySafeInvisible(entry.citekey, max: 120))」不符合 \(StoreKey.pattern)"))
                         continue
                     }
                     if let bad = entry.akashic.libraries.first(where: { !StoreKey.isValid($0) }) {
                         result.quarantined.append(QuarantinedFile(
-                            file: name, reason: "akashic.libraries 含不合法 key「\(bad)」"))
+                            file: name, reason: "akashic.libraries 含不合法 key「\(displaySafeInvisible(bad, max: 120))」"))
                         continue
                     }
                     var e2 = entry
@@ -1048,7 +1052,7 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: name,
-                    reason: (error as? LocalizedError)?.errorDescription ?? String(describing: error)))
+                    reason: displaySafeInvisible((error as? LocalizedError)?.errorDescription ?? String(describing: error), max: 512)))
             }
         }
 
@@ -1063,13 +1067,13 @@ public final class LibraryStore {
                 guard StoreKey.isValid(entry.citekey) else {
                     result.quarantined.append(QuarantinedFile(
                         file: name,
-                        reason: "citekey「\(entry.citekey)」不符合 \(StoreKey.pattern)"))
+                        reason: "citekey「\(displaySafeInvisible(entry.citekey, max: 120))」不符合 \(StoreKey.pattern)"))
                     continue
                 }
                 guard stem == entry.citekey else {
                     result.quarantined.append(QuarantinedFile(
                         file: name,
-                        reason: "檔名 stem「\(stem)」與 citekey「\(entry.citekey)」不符"))
+                        reason: "檔名 stem「\(displaySafeInvisible(stem, max: 120))」與 citekey「\(displaySafeInvisible(entry.citekey, max: 120))」不符"))
                     continue
                 }
                 // membership 語意驗證（#13 verify）：畸形 key 的 entry 之後任何衍生層
@@ -1077,7 +1081,7 @@ public final class LibraryStore {
                 if let bad = entry.akashic.libraries.first(where: { !StoreKey.isValid($0) }) {
                     result.quarantined.append(QuarantinedFile(
                         file: name,
-                        reason: "akashic.libraries key「\(bad)」不符合 \(StoreKey.pattern)"))
+                        reason: "akashic.libraries key「\(displaySafeInvisible(bad, max: 120))」不符合 \(StoreKey.pattern)"))
                     continue
                 }
                 // 純重複（格式合法）→ auto-dedupe 保序（DA 裁決：quarantine 對可用性
@@ -1093,7 +1097,7 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: name,
-                    reason: String(describing: error)))
+                    reason: displaySafeInvisible(String(describing: error), max: 512)))
             }
         }
         for path in try source.paths("people") {
@@ -1104,13 +1108,13 @@ public final class LibraryStore {
                 guard StoreKey.isValid(person.key) else {
                     result.quarantined.append(QuarantinedFile(
                         file: name,
-                        reason: "person key「\(person.key)」不符合 \(StoreKey.pattern)"))
+                        reason: "person key「\(displaySafeInvisible(person.key, max: 120))」不符合 \(StoreKey.pattern)"))
                     continue
                 }
                 guard stem == person.key else {
                     result.quarantined.append(QuarantinedFile(
                         file: name,
-                        reason: "檔名 stem「\(stem)」與 person key「\(person.key)」不符"))
+                        reason: "檔名 stem「\(displaySafeInvisible(stem, max: 120))」與 person key「\(displaySafeInvisible(person.key, max: 120))」不符"))
                     continue
                 }
                 if !person.unknownFields.isEmpty {
@@ -1120,7 +1124,7 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: name,
-                    reason: String(describing: error)))
+                    reason: displaySafeInvisible(String(describing: error), max: 512)))
             }
         }
         for path in try source.paths("libraries") {
@@ -1131,13 +1135,13 @@ public final class LibraryStore {
                 guard StoreKey.isValid(library.key) else {
                     result.quarantined.append(QuarantinedFile(
                         file: name,
-                        reason: "library key「\(library.key)」不符合 \(StoreKey.pattern)"))
+                        reason: "library key「\(displaySafeInvisible(library.key, max: 120))」不符合 \(StoreKey.pattern)"))
                     continue
                 }
                 guard stem == library.key else {
                     result.quarantined.append(QuarantinedFile(
                         file: name,
-                        reason: "檔名 stem「\(stem)」與 library key「\(library.key)」不符"))
+                        reason: "檔名 stem「\(displaySafeInvisible(stem, max: 120))」與 library key「\(displaySafeInvisible(library.key, max: 120))」不符"))
                     continue
                 }
                 if !library.unknownFields.isEmpty {
@@ -1147,7 +1151,7 @@ public final class LibraryStore {
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: name,
-                    reason: String(describing: error)))
+                    reason: displaySafeInvisible(String(describing: error), max: 512)))
             }
         }
         result.entries.sort { $0.citekey < $1.citekey }
@@ -1262,7 +1266,7 @@ public struct HolderRecord: Equatable, Hashable, Comparable {
     /// 而其中一份忘了消毒不會有任何跡象。刻意用「」而不是 `:`——後者與 verdict value 的
     /// holder 記法撞號（見型別 doc）。
     public var describedSafely: String {
-        "\(kind.rawValue)「\(displaySafe(key, max: 200))」"
+        "\(kind.rawValue)「\(displaySafeInvisible(key, max: 200))」"
     }
 
     public static func < (a: HolderRecord, b: HolderRecord) -> Bool {
@@ -1899,7 +1903,7 @@ extension LibraryStore {
                       let v = ref.value,
                       let p = ProvenanceReference.VerdictPairingValue.parse(v),
                       p.holderKind == holderKind, p.holder == oldKey else { continue }
-                out.append("\(r.kind)「\(displaySafe(r.key, max: 120))」的 \(ref.field)")
+                out.append("\(r.kind)「\(displaySafeInvisible(r.key, max: 120))」的 \(ref.field)")
             }
         }
         return out
@@ -1911,7 +1915,7 @@ extension LibraryStore {
         guard stragglers.isEmpty else {
             throw StoreIOError.inconsistentStore(
                 action: action,
-                issues: ["改名會留下 \(stragglers.count) 條指向舊鍵「\(displaySafe(oldKey, max: 120))」的 verdict，"
+                issues: ["改名會留下 \(stragglers.count) 條指向舊鍵「\(displaySafeInvisible(oldKey, max: 120))」的 verdict，"
                        + "它們在改名後指向一個不存在的鍵（死 verdict，#464）。"
                        + "這表示遷移少了一腿——請補上對應的 holder 迴圈，不要繞過本檢查。"]
                     + stragglers.map { "  · \($0)" })
@@ -2320,7 +2324,7 @@ public extension LibraryLoad {
         }
 
         for u in duplicates(entries.map(\.id)).sorted(by: { $0.uuidString < $1.uuidString }) {
-            let keys = entries.filter { $0.id == u }.map { displaySafe($0.citekey, max: 200) }.sorted()
+            let keys = entries.filter { $0.id == u }.map { displaySafeInvisible($0.citekey, max: 200) }.sorted()
             out.append(ValidationIssue(
                 severity: .error,
                 message: "UUID \(u.uuidString) 被 \(keys.count) 筆 entry 共用（\(keys.joined(separator: ", "))）"
@@ -2328,15 +2332,15 @@ public extension LibraryLoad {
         }
         for k in duplicates(entries.map(\.citekey)).sorted() {
             out.append(ValidationIssue(severity: .error,
-                message: "citekey「\(displaySafe(k, max: 200))」重複"))
+                message: "citekey「\(displaySafeInvisible(k, max: 200))」重複"))
         }
         for k in duplicates(people.map(\.key)).sorted() {
             out.append(ValidationIssue(severity: .error,
-                message: "person key「\(displaySafe(k, max: 200))」重複"))
+                message: "person key「\(displaySafeInvisible(k, max: 200))」重複"))
         }
         for k in duplicates(libraries.map(\.key)).sorted() {
             out.append(ValidationIssue(severity: .error,
-                message: "library key「\(displaySafe(k, max: 200))」重複"))
+                message: "library key「\(displaySafeInvisible(k, max: 200))」重複"))
         }
 
         // **organization 階層的環**（#179）。先前**沒有任何地方**偵測它：載入不查、
@@ -2406,8 +2410,8 @@ public extension LibraryLoad {
             cycleReported.formUnion(cycle)
             out.append(ValidationIssue(
                 severity: .warning,
-                message: "organization 階層有環：\(cycle.map { displaySafe($0, max: 200) }.joined(separator: " → "))"
-                       + " → \(displaySafe(start, max: 200))"
+                message: "organization 階層有環：\(cycle.map { displaySafeInvisible($0, max: 200) }.joined(separator: " → "))"
+                       + " → \(displaySafeInvisible(start, max: 200))"
                        + "——沿 parents 走的消費端會無限迴圈。改掉其中一條 parents 邊"))
         }
 
@@ -2440,11 +2444,11 @@ public extension LibraryLoad {
         }
         var reportedByDOI = Set<String>()
         for (doi, cites) in byDOI.sorted(by: { $0.key < $1.key }) where cites.count > 1 {
-            let names = cites.sorted().map { displaySafe($0, max: 200) }
+            let names = cites.sorted().map { displaySafeInvisible($0, max: 200) }
             reportedByDOI.formUnion(cites)
             out.append(ValidationIssue(
                 severity: .warning,
-                message: "DOI「\(displaySafe(doi, max: 200))」被 \(names.count) 筆 work 共用"
+                message: "DOI「\(displaySafeInvisible(doi, max: 200))」被 \(names.count) 筆 work 共用"
                        + "（\(names.joined(separator: ", "))）"
                        + "——通常是同一出版品的多筆記錄（不同 Zotero library、線上先行 vs 出刊、"
                        + "更正啟事），不是資料損壞；要不要視為同一筆是編目判斷，"
@@ -2475,12 +2479,12 @@ public extension LibraryLoad {
         for (k, cites) in byTitleYear.sorted(by: { $0.key < $1.key }) where cites.count > 1 {
             // 整組都已被 DOI 那條涵蓋 → 跳過
             if cites.allSatisfy({ reportedByDOI.contains($0) }) { continue }
-            let names = cites.sorted().map { displaySafe($0, max: 200) }
+            let names = cites.sorted().map { displaySafeInvisible($0, max: 200) }
             let title = String(k.split(separator: "|").dropLast().joined(separator: "|"))
             out.append(ValidationIssue(
                 severity: .warning,
                 message: "標題與年份相同但 DOI 不同的 \(names.count) 筆 work"
-                       + "（\(names.joined(separator: ", "))）：「\(displaySafe(title, max: 120))」"
+                       + "（\(names.joined(separator: ", "))）：「\(displaySafeInvisible(title, max: 120))」"
                        + "——常見成因是同一篇有多個 DOI（JSTOR vs 出版商、arXiv 預印本 vs 正式版）；"
                        + "處置同上，留給編目判斷"))
         }
@@ -2498,8 +2502,8 @@ public extension LibraryLoad {
         }
         for (k, cites) in danglingAuthors.sorted(by: { $0.key < $1.key }) {
             out.append(ValidationIssue(severity: .warning,
-                message: "作者 key「\(displaySafe(k, max: 200))」沒有對應的 people 檔"
-                       + "（\(cites.count) 筆引用，如 \(displaySafe(cites.sorted().first ?? "", max: 200))）"))
+                message: "作者 key「\(displaySafeInvisible(k, max: 200))」沒有對應的 people 檔"
+                       + "（\(cites.count) 筆引用，如 \(displaySafeInvisible(cites.sorted().first ?? "", max: 200))）"))
         }
 
         // 歧異的候選同樣要被看見（#71 R1 verify）。**warning 而非 error**，理由與
@@ -2518,13 +2522,13 @@ public extension LibraryLoad {
         var danglingCandidates: [String: Int] = [:]
         for d in divergences {
             for c in d.candidates where !(entityKeys[c.shape]?.contains(c.key) ?? false) {
-                danglingCandidates["\(c.shape.rawValue) 「\(displaySafe(c.key, max: 200))」",
+                danglingCandidates["\(c.shape.rawValue) 「\(displaySafeInvisible(c.key, max: 200))」",
                                    default: 0] += 1
             }
         }
         for (k, n) in danglingCandidates.sorted(by: { $0.key < $1.key }) {
             out.append(ValidationIssue(severity: .warning,
-                message: "歧異候選「\(displaySafe(k, max: 200))」沒有對應的記錄（\(n) 筆歧異引用）"
+                message: "歧異候選「\(displaySafeInvisible(k, max: 200))」沒有對應的記錄（\(n) 筆歧異引用）"
                        + "——這筆歧異無法被消歧，`resolve-divergence` 會擲「找不到對應記錄」"))
         }
 
@@ -2537,7 +2541,7 @@ public extension LibraryLoad {
         }
         for (l, n) in danglingLibs.sorted(by: { $0.key < $1.key }) {
             out.append(ValidationIssue(severity: .warning,
-                message: "akashic.libraries 的「\(displaySafe(l, max: 200))」沒有對應的 registry 檔"
+                message: "akashic.libraries 的「\(displaySafeInvisible(l, max: 200))」沒有對應的 registry 檔"
                        + "（\(n) 筆引用）"))
         }
         return out

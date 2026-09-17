@@ -30,10 +30,11 @@ struct RecordIssuesSection: View {
             }
             if summary.duplicateVerdictRecords > 0 {
                 LabeledContent("重複的判定記錄", value: summary.lowerBound(summary.duplicateVerdictRecords))
-                    .help("同一筆記錄對同一配對持有 ≥2 筆同 field 的判定記錄（#554 D64）。不含一格：venue 對某 work 的 confirmed 裡每筆各有自己拼法"
-                          + "且 judgement／rests-on 全同的純拼法組——那格由「同一 work 多個 confirmed literal」報（R26 D71）")
+                    // 一列一個 `.help`（R27；R26 verify regression 第 3 列 HIGH：R26 疊了第二個，SwiftUI 只顯示其中一個——D71 的揭露與既有的處置指引二擇一消失）
                     .help("同一記錄對同一配對持有兩筆以上同 field 的判定（#554 D64）。工具面寫不出它——是手改、舊 binary，或 rename 從舊鍵"
-                          + "原樣帶過來的；下一次合併會收成一筆。留一筆，或把其中一筆的 value 改成它實際描述的記錄——手改 YAML。")
+                          + "原樣帶過來的；下一次合併會收成一筆。留一筆，或把其中一筆的 value 改成它實際描述的記錄——手改 YAML。"
+                          + "不含一格：venue 對某 work 的 confirmed 裡每筆各有自己拼法且 judgement／rests-on 全同的純拼法組——那格由"
+                          + "「同一 work 多個 confirmed literal」報（R26 D71；在每筆 venue 20 筆 work 的上限之內，第 21 筆起兩族都只剩概括句）")
             }
             if summary.deadVerdicts > 0 {
                 LabeledContent("死 verdict", value: summary.lowerBound(summary.deadVerdicts))
@@ -66,7 +67,8 @@ struct RecordIssuesSection: View {
             if summary.confirmedLiteralAmbiguities > 0 {
                 LabeledContent("同一 work 多個 confirmed literal", value: summary.lowerBound(summary.confirmedLiteralAmbiguities))
                     .help("某本刊對同一筆 work 持有兩個以上 confirmed literal（#554 D36；正規化後不同、或只差位元組）。"
-                          + "verdict 不帶 index，demote／repoint 對那筆 work 會被拒（D23）；在 venue 的 YAML 裡留一筆。")
+                          + "verdict 不帶 index，demote／repoint 對那筆 work 會被拒（D23）；在 venue 的 YAML 裡留一筆——留之前先看「重複的判定記錄」"
+                          + "那一列：本族只比 literal，只差位元組的兩筆 judgement／rests-on 若不同，那一族會另報一則（R26 D71／R27）。")
             }
             if summary.staleSplitRecords > 0 {
                 LabeledContent("拆分記錄各段都不在", value: summary.lowerBound(summary.staleSplitRecords))
@@ -79,7 +81,7 @@ struct RecordIssuesSection: View {
                           + "上方的計數一律以下限呈現（≥；未必每一族都受影響）。上限在 validate() 裡、只套在組合式的六族（venue 名字內容、"
                           + "venue 近重複、person 近重複、重複 venue 邊、confirmed literal、重複判定記錄）、三面同：akashic validate 對它們也只列前 "
                           + "\(Entry.perRecordWarningCap) 則加一句概括，被截的那幾則只能讀 YAML（R24 D66／R25 D70／R26 D72；出口另案 #581）。"
-                          + "其餘家族每筆 reference／配對各一則、無上限")
+                          + "其餘家族每筆 reference／配對／記錄各一則、無上限")
             }
         }
     }

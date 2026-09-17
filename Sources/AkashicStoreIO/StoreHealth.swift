@@ -102,7 +102,8 @@ public struct StoreHealth {
     public static let duplicateVerdictRecordPrefix = "重複的判定記錄"
     /// `perRecordIssues` 裡的重複判定記錄（D64）。計算屬性，與 `deadVerdicts` 同一個理由。
     /// **不含**一格：venue×work 的 confirmed、組裡每筆各有自己拼法**且 judgement／rests-on 全同**的「純拼法組」——那格由
-    /// `confirmedLiteralAmbiguities`（第 27 列第二類）報、本族不重報（R25 D67／R26 D71）。混合組（含位元組相同的重複）與 kind 有差異的組本族照報，
+    /// `confirmedLiteralAmbiguities`（第 27 列第二類）報、本族不重報（R25 D67／R26 D71）——**在每筆 venue 20 筆 work 的上限之內**：第 21 筆起第 27 列只剩
+    /// 一句概括、不點名，本族的 carve-out 仍成立，所以那幾筆兩族都不具名（R27 記錄；R26 verify 第 29／34 列，缺口屬 #581）。混合組（含位元組相同的重複）與 kind 有差異的組本族照報，
     /// 那時第 27 列與本族**各出一則、數字不同**（第 27 列數拼法、本族數記錄——R25 verify regression 第 41 列：兩則不是同一件事的兩份描述，是兩個
     /// 維度）。R24 的排除把混合組整組吞掉（第 27 列以位元組去重、看不到位元組相同的那對）、R25 的排除把 judgement 衝突整組吞掉（第 27 列只看
     /// literal、還叫人「留一筆」）——兩輪各關一半，家族計數在那些組上都曾回 0 而沒有線索。
@@ -251,7 +252,7 @@ public extension LibraryStore {
         do {
             audit = try auditSourceIndex()
         } catch {
-            auditError = displaySafe(String(describing: error), max: 300)
+            auditError = displaySafeInvisible(String(describing: error), max: 300)
         }
         // **各族逐一，順序與 CLI `validate` 相同**，好讓兩面的輸出逐行對照。
         // 來源以本函式主體為準——寫死的族數在這裡漂過兩次（#416 第一版只寫了三族、
@@ -396,7 +397,7 @@ public extension LibraryStore {
                       let v = r.value,
                       let p = ProvenanceReference.VerdictPairingValue.parse(v),
                       !loaded(p) else { return nil }
-                let target = "\(p.holderKind.rawValue):\(displaySafe(p.holder, max: 120))"
+                let target = "\(p.holderKind.rawValue):\(displaySafeInvisible(p.holder, max: 120))"
                 let literal = displaySafeInvisible(p.literal, max: 120)   // R25 D68：store 字串走性質式逃脫（R24 verify security 第 13 列、DA 第 20 列真 binary：U+200B 原樣進終端）
                 let message: String
                 if let file = quarantinedFile(p) {
@@ -461,7 +462,7 @@ public extension LibraryStore {
                             message: "\(StoreHealth.contradictoryVerdictPrefix)："
                                    + "\(e.fields.sorted().joined(separator: " 與 ")) 對同一個配對並存"
                                    + "（\(e.pairing.holderKind.rawValue):"
-                                   + "\(displaySafe(e.pairing.holder, max: 120))"
+                                   + "\(displaySafeInvisible(e.pairing.holder, max: 120))"
                                    + "，literal「\(displaySafeInvisible(e.pairing.literal, max: 120))」）。"
                                    + "處置：這是判定自相矛盾不是資料壞掉——決定哪一個才對，刪掉另一個"))
                 }
@@ -530,7 +531,7 @@ public extension LibraryStore {
                     issue: ValidationIssue(
                         severity: .warning,
                         message: "\(StoreHealth.duplicateVerdictRecordPrefix)：\(e.first.field) 對同一個配對有 \(e.count) 筆判定記錄"   // display-safe-exempt: 前綴是常量；field 是封閉對；Int
-                               + "（\(e.pairing.holderKind.rawValue):\(displaySafe(e.pairing.holder, max: 120))"
+                               + "（\(e.pairing.holderKind.rawValue):\(displaySafeInvisible(e.pairing.holder, max: 120))"
                                + "，literal「\(displaySafeInvisible(e.pairing.literal, max: 120))」；\(sameness)）"   // display-safe-exempt: sameness 是四句字面常量＋Int
                                + "——工具面的寫入以 verdictEqualityKey 去重、寫不出它：是手改、舊 binary 寫的，或由 rename 從舊鍵原樣帶過來（D62 不刪）；"
                                + "下一次 person／venue 合併會以 #468 的血統層收成一筆並在 verdictsCollapsed 回報。處置：留一筆，或把其中一筆的 value 改成它實際描述的記錄的鍵")))
@@ -541,7 +542,7 @@ public extension LibraryStore {
             return issues + [StoreHealth.OwnedIssue(
                 owner: owner, kind: kind,
                 issue: ValidationIssue(severity: .warning,
-                                       message: "\(Entry.perRecordCapSummaryPrefix)：\(kind) '\(displaySafe(owner, max: 120))' 另有 \(unlisted) 個配對未列出（同樣持有重複的判定記錄；每筆記錄最多列 \(cap) 個）"))]   // display-safe-exempt: 前綴是常量；Int
+                                       message: "\(Entry.perRecordCapSummaryPrefix)：\(kind) '\(displaySafeInvisible(owner, max: 120))' 另有 \(unlisted) 個配對未列出（同樣持有重複的判定記錄；每筆記錄最多列 \(cap) 個）"))]   // display-safe-exempt: 前綴是常量；Int
         }
         var out: [StoreHealth.OwnedIssue] = []
         for p in load.people { out += scan(p.references, owner: p.key, kind: "person") }
@@ -681,7 +682,7 @@ public extension LibraryStore {
                       let pv = ProvenanceReference.VerdictPairingValue.parse(v),
                       pv.holderKind == .work,
                       retiredByWork[pv.holder]?.contains(pv.literal) == true else { return nil }
-                let message = "\(StoreHealth.orphanedSplitVerdictPrefix)：\(r.field) 指向 work:\(displaySafe(pv.holder, max: 120)) 的 "
+                let message = "\(StoreHealth.orphanedSplitVerdictPrefix)：\(r.field) 指向 work:\(displaySafeInvisible(pv.holder, max: 120)) 的 "
                             + "literal「\(displaySafeInvisible(pv.literal, max: 120))」，而該 work 已把它拆分（拆分記錄在 work 側 references）"
                             + "——這條 verdict 判的作者位已退役。處置：對拆出的各段重新消歧，然後更新或刪掉這筆 verdict"
                 return StoreHealth.OwnedIssue(owner: owner, kind: kind,

@@ -406,11 +406,13 @@ public enum IdentifierDiagnostics {
     }
 
     /// 訊息同時給**原樣值**與**正規形**——只給前者的話讀的人不知道要改成什麼。
+    /// 兩個值都是 store 字串，以性質逃脫（#554 R27 D75；R26 verify DA 第 4 列 HIGH：這裡是四族 `validate()` 委派的第六個 per-record 生產者，
+    /// D74 的守衛沒掃到它——一份 rc=0、印「全部通過」的 store，doi 裡的 ZWSP 與 TAG 字元原樣進 CLI validate 與 MCP doctor payload）。
     private static func issue<T: Identifier>(_ id: T, field: String) -> ValidationIssue {
         ValidationIssue(
             severity: .warning,
-            message: "\(field)「\(displaySafe(id.raw, max: 120))」不是正規形"
-                + "（正規形是「\(displaySafe(id.normalized, max: 120))」；"
+            message: "\(field)「\(displaySafeInvisible(id.raw, max: 120))」不是正規形"
+                + "（正規形是「\(displaySafeInvisible(id.normalized, max: 120))」；"
                 + "`migrate-identifiers` 會修正）")
     }
 }

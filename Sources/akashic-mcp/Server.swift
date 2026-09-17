@@ -104,7 +104,7 @@ actor AkashicMCPServer {
              description: "人物實體列表／查詢（key、aliases、ORCID）。",
              inputSchema: obj(["query": str("關鍵字（比對 key 與所有 alias；省略＝全部）")])),
         Tool(name: "akashic_doctor",
-             description: "library 健康報告：entries/people/relations 統計、index 重建、quarantine、未解析作者數、orphans、unknownFieldFiles（含較新 schema 未知欄位的檔案，v1.3 tolerant-preserve 可見性面）；recordIssues 的 first 截 20 則且受 48 KiB 位元組預算約束（截掉時 firstCappedByBudget 為 true）；count／errors 是訊息則數、各族是受影響記錄數，cappedRecords > 0 時三者都是下限（每筆記錄至多 20 則進來、其餘一句概括；cappedRecords 以記錄計，一筆記錄出幾句概括都算一筆；要逐則看用 CLI validate——它不加這裡的 20 則截斷；組合式的六族（venue 名字內容、venue 近重複、person 近重複、重複 venue 邊、confirmed literal、重複判定記錄）每筆記錄至多 20 則、三面共有，被截的記錄在 CLI 也只有概括句；其餘家族每筆 reference／配對各一則、無上限）；各族與 StoreHealth 的家族存取子一一對應（含 deadVerdicts、contradictoryVerdicts、duplicateVerdictRecords——它不計 venue×work 的 confirmed 裡每筆各有自己拼法且 judgement／rests-on 全同的純拼法組，那格由 confirmedLiteralAmbiguities 報；kind 有差異的組照計）。",
+             description: "library 健康報告：entries/people/relations 統計、index 重建、quarantine、未解析作者數、orphans、unknownFieldFiles（含較新 schema 未知欄位的檔案，v1.3 tolerant-preserve 可見性面）；recordIssues 的 first 截 20 則且受 48 KiB 位元組預算約束（截掉時 firstCappedByBudget 為 true）；count／errors 是訊息則數、各族是受影響記錄數，cappedRecords > 0 時三者都是下限（每筆記錄至多 20 則進來、其餘一句概括；cappedRecords 以記錄計，一筆記錄出幾句概括都算一筆；要逐則看用 CLI validate——它不加這裡的 20 則截斷；組合式的六族（venue 名字內容、venue 近重複、person 近重複、重複 venue 邊、confirmed literal、重複判定記錄）每筆記錄至多 20 則、三面共有，被截的記錄在 CLI 也只有概括句；其餘家族每筆 reference／配對／記錄各一則、無上限）；各族與 StoreHealth 的家族存取子一一對應（含 deadVerdicts、contradictoryVerdicts、duplicateVerdictRecords——它不計 venue×work 的 confirmed 裡每筆各有自己拼法且 judgement／rests-on 全同的純拼法組，那格由 confirmedLiteralAmbiguities 報、在每筆 venue 20 筆 work 的上限之內；kind 有差異的組照計）。",
              inputSchema: obj([:])),
         Tool(name: "akashic_files",
              description: "多檔案（#18）：list＝列出已註冊的實體庫（檔案）與 active root；use＝session 內切換到另一個檔案（互不相通——切換後所有 tool 都作用在新 universe；不寫 config，持久預設用 CLI akashic file use）。",
@@ -259,7 +259,7 @@ actor AkashicMCPServer {
                 "orcid": str("ORCID（可選）"), "openalex": str("OpenAlex author ID（可選）"),
              ], required: ["key", "names"])),
         Tool(name: "akashic_update_person",
-             description: "person 的部分更新（#68）：提及的欄位整個換、未提及一律不動。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names 收 {authorized:[…], variant:[…]} object（全量替換；#227 巢狀化後平坦陣列拒收，頂層 authorized 鍵不存在）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）；注意 contacts 是**一個**維度——提及它＝整個 contacts map 替換，未提及的子鍵（email/phone…）會消失。dry_run 時零寫入、回報會改什麼 + format gate 預演。；references 收 object 陣列（**append-only**——與其他欄位的替換語意刻意不同：references 持有 resolution verdict，全量替換會洗判定史；每項 {field, value?, kind: retrieval{url,retrieved,status,media_type,content}|judgement{statement,rests_on}}，(field,value,kind) 冪等；verdict 欄位對拒收——只能經 resolve 流程寫；#308）",
+             description: "person 的部分更新（#68）：提及的欄位整個換、未提及一律不動。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names 收 {authorized:[…], variant:[…]} object（全量替換；#227 巢狀化後平坦陣列拒收，頂層 authorized 鍵不存在）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）；注意 contacts 是**一個**維度——提及它＝整個 contacts map 替換，未提及的子鍵（email/phone…）會消失。dry_run 時零寫入、回報會改什麼 + format gate 預演。；references 收 object 陣列（**append-only**——與其他欄位的替換語意刻意不同：references 持有 resolution verdict，全量替換會洗判定史；每項 {field, value?, kind: retrieval{url,retrieved,status,media_type,content}|judgement{statement,rests_on}}，(field,value,kind) 冪等——比**位元組**（#554 D73：只差 NFC／NFD 的兩筆都會進 store，偵測面缺口 #582）；verdict 欄位對拒收——只能經 resolve 流程寫；#308）",
              inputSchema: obj([
                 "key": str("person key"),
                 "fields": .object([
@@ -311,7 +311,7 @@ actor AkashicMCPServer {
                         + "type／title／venues／attachments 一律不碰。與 akashic_enrich_from_zotero **同一份政策**（那是它的 Zotero adapter）。"
                         + "DOI 反向命中 ≥2 筆＝ambiguous（matches 列全部 citekey、零寫入，不判定哪筆才對）。"
                         + "雙摘要分鍵：第二個摘要由呼叫端具名 abstract-<lang>／abstract-2，落地為 abstract_es／abstract_2。"
-                        + "sourceDigest（或 source_digest）只回顯進報告、不進 store。"
+                        + "sourceDigest（或 source_digest）只回顯進報告、不進 store；來源 reference 的冪等比位元組（#554 D73：只差 NFC／NFD 的兩筆都落盤，偵測面缺口 #582）。"
                         + "**dry_run 預設 true**；false 才寫入（一次 load、逐筆寫、一次 rebuild；I/O 失敗逐筆記 writeFailed 其餘照寫）。"
                         + "輸入語法錯（兩鍵同給／皆無、fields 空且無 date 與 authors、鍵無法正規化、頂層未知鍵）→ **整批拒絕零寫入**；"
                         + "ambiguous／notFound／rejected／skipped 逐筆具名。items 至多 \(enrichItemLimit) 筆（counts／written／writeFailed 永遠完整，"

@@ -208,7 +208,7 @@ public enum AuthorizedNames {
         let listed = overlap.map { displaySafeInvisible($0, max: 80) }.joined(separator: "、")   // D74：名字是未信任的 store 字串
         return [ValidationIssue(
             severity: .error,
-            message: "'\(displaySafe(ownerKey, max: 120))' 的名字「\(listed)」同時出現在 "
+            message: "'\(displaySafeInvisible(ownerKey, max: 120))' 的名字「\(listed)」同時出現在 "
                    + "authorized 與 variant 兩個分割——一個名字只屬於一個分割；"
                    + "指定是把名字**搬進** authorized，不是複製")]
     }
@@ -226,10 +226,16 @@ public enum AuthorizedNames {
     /// `mergedPersonKeeper` 把每個被併者的 `names.all` 全部 append 進倖存者的 variant、無上限，200 個共用 matchingKey 的變體真 binary 吐
     /// 19,900 則、7.6 MB、`cappedRecords` 0）。與 venue 側同一套：先以 `matchingKey` 分組（O(n)），一組一則、每筆記錄至多
     /// `Entry.perRecordWarningCap` 組、其餘一句 `Entry.perRecordCapSummaryPrefix` 概括；組內逐對評估至多 `pairsToEvaluate` 對、只列前
-    /// `pairsToList` 對。名字以 `displaySafeInvisible` 迴送（D74：person 名字沒有 venue 那道 D8 不變式，ZWSP／TAG 寫得進來）。
+    /// `pairsToList` 對；**整筆記錄至多 `pairsToEvaluatePerRecord` 對**（R27 D76——R26 漏了這第五層，見函式內的註解）。名字以 `displaySafeInvisible` 迴送（D74：person 名字沒有 venue 那道 D8 不變式，ZWSP／TAG 寫得進來）。
     public static func validateNearDuplicates(names: [String],
                                               ownerKey: String) -> [ValidationIssue] {
         let pairsToEvaluate = 5_000, pairsToList = 3
+        // **整筆記錄的求值總量上限——venue 的第五層**（R27 D76；R26 verify requirements 第 7 列、logic 第 13／14 列、security 第 21 列、regression 第 37／38 列、
+        // DA 第 27 列：R26 寫「與 venue 側同一套」而只搬了四層——組內 5,000 對的上限被「分組形狀」一步繞開（多組、每組剛好 100 個名字，C(100,2)=4,950
+        // 永遠踩不到），總求值 ≈ 49.5 × n、release 實測 198,000 個名字 15.97 秒（同大小單一分組 1.12 秒）；超出 20 組名額的組也照樣全部求值才被丟掉）。
+        // 總量＝venue 的那個常數；超過的組**不評估**、只計數並進概括句。severity 維持 warning——本族容許假陽性、不擋寫入（doc 上方的立場），
+        // 與 venue 的 error 級刻意不同：venue 的同名段是沿革記錄、一百次改回同名不是真的沿革；person 的 variant 由合併無上限 append，數量大不是錯。
+        let pairsToEvaluatePerRecord = 100_000
         var groups: [String: [String]] = [:]
         var order: [String] = []
         for n in names {
@@ -238,10 +244,15 @@ public enum AuthorizedNames {
             groups[k, default: []].append(n)
         }
         var issues: [ValidationIssue] = []
-        var listed = 0, unlistedGroups = 0, capHitGroups = 0
+        var listed = 0, unlistedViolating = 0, unlistedCapHit = 0, listedCapHit = 0
+        var evaluatedTotal = 0, unevaluatedGroups = 0, budgetHit = false
         for k in order {
             let g = groups[k]!
             guard g.count > 1 else { continue }
+            let total = g.count * (g.count - 1) / 2
+            if budgetHit || evaluatedTotal + min(total, pairsToEvaluate) > pairsToEvaluatePerRecord {
+                budgetHit = true; unevaluatedGroups += 1; continue
+            }
             var pairs: [(String, String)] = []
             var evaluated = 0, capHit = false
             outer: for i in g.indices {
@@ -251,27 +262,44 @@ public enum AuthorizedNames {
                     if !NameIdentity.same(g[i], g[j]) { pairs.append((g[i], g[j])) }
                 }
             }
+            evaluatedTotal += evaluated
             guard !pairs.isEmpty || capHit else { continue }
-            if capHit { capHitGroups += 1 }
-            guard listed < Entry.perRecordWarningCap else { unlistedGroups += 1; continue }
+            // 兩類分開記帳（R26 把 capHitGroups 在名額檢查之前遞增，一組同時進兩個計數、概括句把相交的集合當互斥報——regression 第 37 列）
+            guard listed < Entry.perRecordWarningCap else { if capHit && pairs.isEmpty { unlistedCapHit += 1 } else { unlistedViolating += 1 }; continue }
             listed += 1
+            if capHit { listedCapHit += 1 }
+            if pairs.isEmpty {
+                // 求值上限命中、零對違反——用自己的開頭詞（venue 的「同名段過多」同一個理由，R11 verify regression 第 31 列：`grep -c '近重複'`
+                // 不該把它算成近重複；R26 在這裡印「其中 0 對是**近重複**（）」加一句叫人裁決 0 對——logic 第 14 列、requirements 第 30 列）
+                issues.append(ValidationIssue(
+                    severity: .warning,
+                    message: "'\(displaySafeInvisible(ownerKey, max: 120))' 的名字有 \(g.count) 筆共用配對鍵過多——只評估了前 \(evaluated) 對、沒有一對被判定違反，"   // display-safe-exempt: Int
+                        + "另至多 \(total - evaluated) 對未評估；名字超過逐對評估的上限（\(pairsToEvaluate) 對，約 100 筆），請把重複的異寫收攏後再看"))   // display-safe-exempt: Int 常量
+                continue
+            }
             let shown = pairs.prefix(pairsToList)
                 .map { "「\(displaySafeInvisible($0.0, max: 80))」與「\(displaySafeInvisible($0.1, max: 80))」" }
                 .joined(separator: "、")
             issues.append(ValidationIssue(
                 severity: .warning,
-                message: "'\(displaySafe(ownerKey, max: 120))' 的名字有 \(g.count) 筆共用配對鍵、其中 \(pairs.count) 對是**近重複**（"   // display-safe-exempt: Int
+                message: "'\(displaySafeInvisible(ownerKey, max: 120))' 的名字有 \(g.count) 筆共用配對鍵、其中 \(pairs.count) 對是**近重複**（"   // display-safe-exempt: Int
                     + shown + (pairs.count > pairsToList ? "…另 \(pairs.count - pairsToList) 對" : "") + "）"   // display-safe-exempt: shown 由上一行逐項 displaySafeInvisible 組成；Int
                     + "——配對判準視為同一、判定判準視為不同。"
                     + "可能是同一個名字的兩種寫法，也可能真的是兩個名字；"
                     + "**工具不代為決定**，請人裁決後留下一個或明確保留兩個"
-                    + (capHit ? "（本組只評估了前 \(pairsToEvaluate) 對——名字超過逐對評估的上限，其餘未評估）" : "")))   // display-safe-exempt: Int 常量
+                    + (capHit ? "（本組只評估了前 \(pairsToEvaluate) 對，另至多 \(total - evaluated) 對未評估）" : "")))   // display-safe-exempt: Int 常量
         }
-        if unlistedGroups > 0 || capHitGroups > 0 {
+        // 一筆記錄一句概括（同 venue；R27 D77）——每一類只在非零時出現，求值上限命中也走 `perRecordCapSummaryPrefix`，`cappedRecords` 才數得到
+        if unlistedViolating + unlistedCapHit + listedCapHit + unevaluatedGroups > 0 {
+            var parts: [String] = []
+            if unlistedViolating > 0 { parts.append("另有 \(unlistedViolating) 組近重複（每一組都真的違反）未列出") }
+            if unlistedCapHit > 0 { parts.append("另有 \(unlistedCapHit) 組共用配對鍵過多（求值到組內上限、沒有一對被判定違反）未列出") }
+            if listedCapHit > 0 { parts.append("已列出的組裡 \(listedCapHit) 組只評估了前 \(pairsToEvaluate) 對") }
+            if unevaluatedGroups > 0 { parts.append("\(unevaluatedGroups) 組未評估（整筆記錄求值總量已達 \(pairsToEvaluatePerRecord) 對的上限）") }
             issues.append(ValidationIssue(
                 severity: .warning,
-                message: "\(Entry.perRecordCapSummaryPrefix)：person '\(displaySafe(ownerKey, max: 120))' 的名字另有 \(unlistedGroups) 組近重複未列出、"   // display-safe-exempt: 前綴是常量；Int
-                    + "\(capHitGroups) 組只評估了前 \(pairsToEvaluate) 對（每筆記錄最多列 \(Entry.perRecordWarningCap) 組——本檢查在讀取路徑上對未信任的 store 內容跑）"))   // display-safe-exempt: Int 常量
+                message: "\(Entry.perRecordCapSummaryPrefix)：person '\(displaySafeInvisible(ownerKey, max: 120))' 的名字：\(parts.joined(separator: "；"))"   // display-safe-exempt: 前綴是常量；parts 是本函式的字面常量＋Int
+                    + "——每筆記錄最多列 \(Entry.perRecordWarningCap) 組、組內至多評估 \(pairsToEvaluate) 對、整筆至多 \(pairsToEvaluatePerRecord) 對；本檢查在讀取路徑上對未信任的 store 內容跑"))   // display-safe-exempt: Int 常量
         }
         return issues
     }
@@ -292,7 +320,7 @@ public enum AuthorizedNames {
             let listed = candidates.map { displaySafeInvisible($0, max: 80) }.joined(separator: "、")   // D74
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "'\(displaySafe(ownerKey, max: 120))' 在書寫系統 \(script.rawValue) 有 "
+                message: "'\(displaySafeInvisible(ownerKey, max: 120))' 在書寫系統 \(script.rawValue) 有 "
                        + "\(candidates.count) 個 authorized（\(listed)）"
                        + "——那是未決的問題，不是指定；請選一個"))
         }
@@ -315,7 +343,7 @@ public enum AuthorizedNames {
         for a in authorized where !known.contains(a) {
             issues.append(ValidationIssue(
                 severity: .error,
-                message: "'\(displaySafe(ownerKey, max: 120))' 的 authorized 含不在 names 內的名字"
+                message: "'\(displaySafeInvisible(ownerKey, max: 120))' 的 authorized 含不在 names 內的名字"
                        + "「\(displaySafeInvisible(a, max: 120))」——對外名字是從已記錄的名字裡**指定**，"
                        + "不是另外引進一個字串"))
         }

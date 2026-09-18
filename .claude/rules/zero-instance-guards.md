@@ -1,12 +1,14 @@
 # 為「還沒發生過的形狀」寫守衛，是一列一列裁決出來的——不是判準推導出來的
 
-適用於**新增一個當下零實例的東西**，封閉二類：
+適用於**新增一個當下零實例的東西**——或（第 4 類）對一條已存在、當下零筆記錄走進去的半吊子路徑決定動不動——封閉四類：
 
 1. **守衛**：validator 的檢查、schema 的約束、CI 的 gate、任何「現在沒有資料會被它擋下」的防線。
 2. **欄位**（2026-08-24 由 #394 的 `Organization.ror` 顯式擴入，見第 9–12 列）：一個模型裡的
    欄位，而當下全庫零筆記錄使用它。
 3. **保留位置的 Requirement**（2026-09-09 由 #474 的「刊名沿革時間軸」顯式擴入，見第 22 列）：
    spec 裡一條描述**真實現象**的 Requirement，而當下零筆記錄用得到它。
+4. **既有的半吊子路徑**（2026-09-18 由 #555 的 organization 攣生合併顯式擴入，見第 24 列）：一條記錄面收、
+   處理面擲的管線——記得起來、解不掉——而當下零筆記錄走進去。
 
 > **第 2 類是顯式擴入的，不是類推來的。** 本檔原本只寫「守衛」，而 #394 要裁決的
 > `Organization.ror` 是欄位——把它塞進守衛表就是本規則自己禁止的「依性質相似類推」。
@@ -19,8 +21,16 @@
 > 一句它沒打算說的話，而一條零實例的 Requirement 的失敗是——**有人把它當死重刪掉**，
 > 然後那個形狀到達時沒有位置可落。所以第 22 列的理由欄不能沿用前二十一列任何一條。
 >
-> 擴入**只到這三類為止**。第四類（例如「零實例的 CLI 命令」）出現時要再顯式擴一次，
-> 不得從「Requirement 也算」推導出「命令也算」。
+> **第 4 類同樣是顯式擴入的**（#555 R2，2026-09-18——R1 verify 四席各抓一次：第 24 列在表裡宣稱「理由是第四種」，
+> 前言卻仍是封閉三類；理由的種類與**對象**的種類是兩件事，本段擴的是後者）。它的問題形狀與前三類相同（「現在
+> 沒有實例，要不要現在做」），而**失敗的意義是第四種**：守衛失敗是漏報、欄位缺席是模型說了一句它沒打算說的話、
+> Requirement 被當死重刪掉——而一條半吊子路徑的失敗是**使用者撞牆**（記了一筆解不掉的記錄）、或**被當成待修的
+> 殘留而被人動手**（實作＝猜一個形狀、拿掉＝關掉記錄面）。這一類的裁決可以是「什麼都不動」——那同時裁了
+> 「不新增」與「不拿掉」，所以它是下面「不適用於移除」那句話的具名例外。所以第 24 列的理由欄不能沿用前二十三列
+> 任何一條。
+>
+> 擴入**只到這四類為止**。第五類（例如「零實例的 CLI 命令」）出現時要再顯式擴一次，
+> 不得從「半吊子路徑也算」推導出「命令也算」。
 >
 > **第 2 類在 2026-09-02 重審過一次**（#365 補第 12 列時，裁決 comment 明寫「三列一次加進去需要重新
 > 檢視那個分類是否還成立」）。第 9–12 列現在都是欄位，而第 10–12 列與第 9 列有兩處不同：它們的裁決是
@@ -31,7 +41,10 @@
 > 的**代價**，不是它的**種類**；一個純粹的重構提案（不新增任何零實例的東西）仍然不在本表。
 
 不適用於**已有實例**的守衛（那不需要裁決，有東西壞了就修），也不適用於**移除**既有守衛
-（那是 `no-compat-fallback` 的退場紀律，方向相反）。
+（那是 `no-compat-fallback` 的退場紀律，方向相反）。**第 4 類是這句話的具名例外**：它的「不拿掉」那一半
+不屬退場紀律——`no-compat-fallback` 管的是同一語意的第二條讀法（相容 fallback），而 `byShape` 收 org 是
+**尚未實作的正面能力**，不是相容路徑；那條規則第 2 條要量的「還有誰在走這條路」，正是第 24 列的觸發條件之二
+（含 org 候選的 divergence 記錄數）。#555 R1 verify DA 第 22 列。
 
 ## 規則
 
@@ -69,7 +82,7 @@
 | 21 | **零實例，而既有守衛的謂詞對這一類成員結構上不可能為真**（#522：受保護清單少了成員。`trigger-coverage` 的 `missing` 問的是「清單裡列的路徑還在不在磁碟上」——而 **glob 產生的成員永遠不會「列了卻不存在」**，它只會停止被列出。2026-09-09 實測三組：刪一整支守衛、刪一條 glob 規則檔、拿掉一條顯式 `DATA` 條目（重編 binary 後），**三組全部 rc=0 並印「無缺口」**。棘輪落地後三組皆 rc=1 具名；當下棘輪與清單相符、差異 **0**。重跑指令見表下方） | ✅ **寫** | 前二十列的零都是關於「**還沒有**這個守衛」——沒發生、走不到、掃乾淨了、在這台機器上、還沒漲到、寫入面剛長出來、量的是出口、窮舉漏了一格。這一列不同：**守衛在，而且天天跑，只是它的謂詞對 58 個成員裡的 **37** 個永遠不可能為真（glob 與 `swiftGuards()` 衍生的那些；顯式字面 21 個，量法見表下方）**。它不是漏看，是問了一個那一類成員答不錯的問題。所以理由既不是「缺跡象」（第 1 列）也不是「跡象住在錯的地方」（第 13 列）——**跡象根本無法產生**。**它刻意不住在 `trigger-coverage` 裡**，理由同第 20 列（那支的 mutation harness 會偽造它要檢查的內容）；清單則來自**同一個** `protectedInventory()`——一個自己算一遍的棘輪只會證明它自己與自己一致。**為什麼不是「把 glob 換成顯式清單」**（issue 列的另一個候選）：顯式條目今天 19/19 由 `missing` 逐條具名，但換掉之後**忘記加新規則檔是靜默的**，同一個失效換一步，而規則檔正是本 repo 承載裁決的地方。**為什麼它不是 #518 記過的「第 N 份副本」**：那次的缺陷是複製清單與 `DATA` 之間沒有東西在對帳，而棘輪整個存在理由就是被對帳——同形先例是 `hash-table-drift.sh`（生成表的漂移守衛）。**觸發條件可檢查**（指令見表下方）：差異應恆為 0；非零時先讀是「少了」還是「多了」——前者確認刪檔是有意的，後者確認新成員真的有讀者（往已在 CI paths 的路徑根加零讀者的檔可以零成本灌水） |
 | 22 | **零實例，而它是一條 spec Requirement 不是程式**（#474：venue 的 `names` 時間軸——刊名沿革。#422 把它保留而收窄（`variant` 不得帶時間），於是沿革成了一個「保留位置」的形狀。2026-09-09 實測 live store：venue **406** 筆、`names` 帶任一時間欄位（`start`／`end`／`ended-unknown`／`attested`）的 **0** 筆。重跑腳本見表下方） | ✅ **保留** | 前二十一列講的都是**程式**——守衛（第 1–8、13、15–18、20、21 列）與欄位（第 9–12、14、19 列）。這一列講的是 **spec 裡的一條 Requirement**，而它的失敗方式是第三種：守衛失敗是**漏報**、欄位缺席是**模型說了一句它沒打算說的話**，而一條零實例的 Requirement 的失敗是——**有人把它當死重刪掉**（「405 筆沒有一筆用到，留著幹嘛」），然後那個形狀到達時沒有位置可落。**保留而不刪的理由是那個現象是真的**：JRSS Series B／C 的分裂、`bulletin-of-the-institute-of-mathematics-academia-sinica` 的新舊系列都是 store 今天**表達不了**的實例（`entity-backlink-completeness` 的「分裂／繼承」那一節記著同一組例子）。**零實例的成因也具名**：異寫法佔著它的位置——#422 之前 `names` 時間軸同時裝沿革與異寫，收窄之後異寫搬到 `variant`，而沿革還沒有人填。**觸發條件可檢查**（指令見表下方）：帶時間欄位的 venue 數 > 0 即代表沿革開始被用——那時第 16 列（venue verdict 預算）與 `which-side-does-a-relation-live-on` 的「分裂／繼承」觸發條件 ② 也一起到期，三處要一起讀 |
 | 23 | **零實例，而製造它的那條路徑是本輪自己開的**（#457：移除記錄與作者位互相矛盾——某 work 帶一筆「移除：理由」說某個 literal 已退役，而它現在又在作者位上。2026-09-09 實測 live store：移除記錄 **0** 筆——寫入面（`--drop-author`）在本 change 才存在，所以矛盾今天必為零。重跑指令見表下方） | ✅ **寫** | 第 17 列的零也是「寫入面剛長出來」，而這一列多一件事：**矛盾的可達路徑是本 change 自己造出來的**。移除之後 `authors` 變成**空的**，而 `enrich --include-absent-authors` 的既有契約正好是「只在 authors 完全為空時補」——於是同一個字串補得回去，那時 store 同時斷言「它已退役」與「它是作者」。所以這不是「還沒發生的形狀」，是**新面把一個原本不可達的狀態變成可達**，而讓它可達的那一步與守衛必須在同一個 change 裡（`entity-backlink-completeness` 引 3.325 的立場：矛盾寫不出來最好，寫得出來就要出聲）。與第 8 列成鏡像：那一列的零由**別處的**程式（load 的 quarantine）造成、可能被改掉而沒人知道；這一列的零由**本 change 之前沒有這個面**造成，而面已經有了，所以零是暫時的。severity 是 warning（記錄合法，失效的是證據錨——同 `staleSplitRecords` 的既有分級；`validate` exit 仍 0）。**觸發條件可檢查**（指令見表下方）：計數應恆為 0；非零時先確認是不是補值面把它加回來的——要嘛再移除一次，要嘛刪掉那筆記錄，不要兩者並存 |
-| 24 | **零實例，而它是一條「記得起來、解不掉」的半吊子管線——且零是雙重的**（#555：organization 的攣生合併。`recordDivergence` 的 `byShape` 收 org、`resolveDivergence` 對它擲 `unsupportedShape`。2026-09-11 實測 live store：organization **13** 筆、寬鬆共鍵的重複群 **0** 組、含 org 候選的 divergence 記錄 **0** 筆——沒有重複可合、也沒有人記過。另有 **3** 筆帶 `parents` 時間軸，那是 venue 合併沒有的問題（部分—整體關係怎麼併，`Organization.swift:84-88` 明寫它與 person 的隸屬是不同的 predicate）。重跑指令見表下方） | ⚠ **暫不做——既不實作也不拿掉** | 前二十三列的裁決都是「寫」或「不寫」某個東西；這一列裁決的是**對一個已存在的半吊子什麼都不動**，而那之所以可接受，理由是第四種：**它已經誠實了**。#553 把 `unsupportedShape` 的訊息改成從實際支援的清單生成（「organization 的合併管線尚未實作——支援的是 person／work／venue」），所以留著它的代價是零——使用者撞到時看到的是真話。而動它的兩個方向代價都不是零：**實作**要替 `parents` 時間軸設計合併形狀，零實例時做等於猜（同第 10 列「形狀取決於一個還不存在的用途」）；**拿掉**（`byShape` 移除 org）會連記錄面一起關——`record-divergence` 是「當場記錄而非當場判斷」（#77），關掉它等於斷言 org 永遠不會有需要延後判定的歧異，那是關於世界的斷言。**一個誠實的半吊子比一個猜出來的完整更好。** 與第 8 列（零的來源在別處）最像而不同：那一列的零由另一段程式造成、可能被改掉而沒人知道；這一列的零由 org 域剛重啟（#304）造成，而 `bootstrap-organizations` 今天 0 候選——零會不會被打破取決於使用量，不取決於任何程式。**觸發條件可檢查**（指令見表下方）：org 重複群 > 0 **或** 出現第一筆含 org 候選的 divergence 記錄——任一成立即重開，那時要選的是實作或拿掉，不再是暫不做。**若實作，`DivergenceResolve.swift` 裡帶 `org-merge-slot` 標記的每一格要同批補**（數量以 `grep -c 'org-merge-slot' Sources/AkashicStoreIO/DivergenceResolve.swift` 量、不寫死——#558 R1 verify 第 9 列說「三格不是兩格」，R2 同一個 commit 又新增兩格而三處散文仍寫三，R2 verify 第 8／15 列；#558 對 venue 漏掉的是 `doomedRelativePaths` 那格：只補部分會做出一個看起來完整、對 org holder 永遠回空的閘）|
+| 24 | **零實例，而它是一條「記得起來、解不掉」的半吊子管線——且零是雙重的**（#555：organization 的攣生合併。`recordDivergence` 的 `byShape` 收 org、`resolveDivergence` 對它擲 `unsupportedShape`。2026-09-11 實測 live store：organization **13** 筆、寬鬆共鍵的重複群 **0** 組、含 org 候選的 divergence 記錄 **0** 筆——沒有重複可合、也沒有人記過（2026-09-18 R2 重跑相同）。另有 **3** 筆帶 `parents` 時間軸，那是 venue 合併沒有的問題（部分—整體關係怎麼併，`Organization.parents` 的 doc comment 明寫它與 person 的隸屬是不同的 predicate）。**誠實邊界**：「沒有重複可合」對一種形狀結構上看不到——一筆把三個機構黏在一格的 org（AERA＋APA＋NCME，R1 verify DA 第 42 列），那是 #443「某人與雷庚玲」的形不是攣生。重跑指令見表下方） | ⚠ **暫不做——既不實作也不拿掉** | 前二十三列裡只有第 22 列同樣是「不動既有的東西」——它的對象是一條 spec Requirement、失敗方式是被當死重刪掉；本列的對象是一條**程式**的半吊子管線（第 4 類，前言 2026-09-18 顯式擴入——R1 寫「前二十三列的裁決都是寫或不寫」，對第 22 列的「保留」為假，R1 verify 第 2／21 列），而不動它可以接受的理由是**它已經誠實了**：#553 讓 `unsupportedShape` 的訊息從一份與分支對帳的清單（`mergeableShapes`，parity 測試釘 venue-in／org-out）生成——「organization 的合併管線尚未實作——支援的是 person／work／venue」——使用者撞到時看到的是真話。**代價不是零**（R1 verify 第 4 列，R1 寫「代價是零」）：第一筆被記下的 org divergence 沒有面刪得掉（divergence 沒有移除面，#586）、只能手改 YAML；雙重零實例讓這項代價今天未兌現，且自 R2 起它一出現就由 `StoreHealth.unmergeableDivergences` 出聲。動它的兩個方向代價都更高：**實作**要替 `parents` 時間軸設計合併形狀，零實例時做等於猜（同第 10 列「形狀取決於一個還不存在的用途」）；**拿掉**（`byShape` 移除 org）是關掉記錄面——一組真的 org 攣生在合併面落地之前只能留在人的腦裡，正是 #71「判斷留不下來」的病；venue 在 #553 之前就是這個姿態，而 #553 把記錄面與合併面綁在同一個 change，因為兩者分開時記錄面先開會撞牆（本列）、合併面先開則沒有輸入（R1 寫成「關掉它等於斷言 org 永遠不會有歧異」，那是稻草人——R1 verify 第 14 列）。**本列覆寫 #555 `## Expected` 的二選一（「要嘛有合併路徑、要嘛不進 `byShape`」）與 #553 changelog「venue 不重蹈」那句對 org 的延伸——覆寫者是使用者 2026-09-11 拍板；`## Expected` 依 idd-update 契約不改，覆寫記在這裡與 issue 的 Key Decisions（R1 verify 第 1／20 列）。** 零的來源要說真話（R1 寫「不取決於任何程式」，假的——R1 verify DA 第 8 列）：它由三件事按住——org 域剛重啟（#304）；#548 的 `pendingResolution` 扣留（`OrgBootstrap` 對與既有 org 寬鬆共鍵的名字不建檔，`OrgBootstrapResolveTests.testLooseKeyCollisionWithExistingOrgRoutesToPendingResolution` 釘住）；CJK 機構名產不出 key（`akashic bootstrap-organizations` 2026-09-18 實跑：無可自動建立的候選，另有 1 個產不出 key 的機構名待人工指定）。所以本列與第 8 列同型（零的來源在別處），並繼承它的釘零義務——上面那支測試就是。**觸發條件**：org 重複群 > 0 **或** 出現第一筆含 org 候選的 divergence 記錄——任一成立即重開，那時要選的是實作或拿掉，不再是暫不做。後者自 R2 起由工具出聲（`StoreHealth.unmergeableDivergences`，warning，doctor／App 各一格——第 16 列的紀律：散文觸發條件沒有機制會叫醒任何人，R1 verify 第 13 列）；前者仍是散文腳本，bootstrap 的扣留是它在寫入端的閘。這也是 `no-compat-fallback` 第 2 條要量的「還有誰在走這條路」（R1 verify DA 第 22 列），但「拿掉」不路由到那條規則——理由在前言。重開時 `entity-backlink-completeness` 第 9 條邊要一起改。**若實作，`DivergenceResolve.swift` 裡帶 `org-merge-slot` 標記的每一格要同批補**（數量以 `grep -c 'org-merge-slot' Sources/AkashicStoreIO/DivergenceResolve.swift` 量、不寫死——#558 R1 verify 第 9 列說「三格不是兩格」，R2 同一個 commit 又新增兩格而三處散文仍寫三，R2 verify 第 8／15 列；#555 R2 把手寫的 `mergeableShapes` 也標進去（R1 verify 第 10 列：它與 switch 分岔不會報錯，而訊息的誠實靠它），兩個會 throw `unsupportedShape` 的入口刻意不標——它們是 loud 的，實作時不可能不碰；#558 對 venue 漏掉的是 `doomedRelativePaths` 那格：只補部分會做出一個看起來完整、對 org holder 永遠回空的閘）|
 | 25 | **零實例，而實例全部是在 verify 裡被造出來的——守衛裝在 store 邊界，零量的是五個寫入者的出口**（#554 R5，使用者裁決 D8：venue 名字內容的不變式——canonical 形、無控制／格式／不可見字元、至少一個字母或數字、三張清單各無近重複對（names 的例外：兩段都帶不相交時間的沿革改回舊名，R6）——住在 `Venue.validate()`，error 級；謂詞一份在 `NameIdentity.wellFormednessIssue`、與輸出閘 `UnsafeToEmitScalar` 共用危險 scalar 的定義，「不可見」用 Unicode 的 `Default_Ignorable_Code_Point`（R6；R5 用 generalCategory 四類，VS16／CGJ 是 Mn、Hangul filler 是 Lo，全放行），ZWJ／ZWNJ 只在兩個脈絡合法——(a) 掛在同一文字**字母**上的 virama 之後（virama 與中間的標記都是基底那個文字的；右鄰居若在要是同一文字的字母／數字，空白視同沒有）、(b) 左鄰居是 join-control 文字的字母／標記／數字、右鄰居是**同一文字**的字母／數字或同一 Indic 文字的 virama（R6；R5 的「兩側是字母」對拉丁字母 fail-open；R7 再收區塊裡的標點與連續 joiner——R6 verify 第 1／19 列；R8 再收基底要是字母、兩側同文字、右側不收標記——R7 verify 第 1／26／33 列；R9 再收 virama 與標記要與基底同文字、放行詞尾 chillu 後的空白與 Bengali ya-phalaa 的 `<RA, ZWJ, VIRAMA, YA>`——R8 verify 第 6／10／11 列，D21／D22；R10 再收 virama 之前的 joiner 只在 Devanagari／Bengali 且 virama 之後要接同文字的字母——R9 對十個 Indic 文字一起放行且不看右脈絡，`क\u{200D}\u{094D}` 與 `क्` 渲染相同而各自進得了 names，R9 verify DA 第 10 列，D26），U+2800 顯式列入不可見（第 20 列）。2026-09-12 實測 live store：venue **485** 筆，四條不變式的違反字串 **0**、names 近重複對 **0**；而 R2–R5 四輪 verify 用真 binary 寫進了 `\r`／`\n`／LS／`—`／`×`／RLO／ZWSP／ALM／TAG 字元／尾隨空白／NFD 位元組／拉丁字母夾 ZWNJ／VS16／CGJ／Hangul filler——每一個都是實例，只是發生在 scratch store 而不是 live store。重跑腳本見表下方） | ✅ **寫（error 級、在 store 邊界）** | 第 18 列的理由是「零量的是出口而守衛裝在入口」；這一列多一件事：**入口有五個**（`updateVenue` 的三個名字迴圈、`addVenue`、`VenueBootstrap`）。R2→R4 三輪把閘裝在 `updateVenue` 的三個迴圈裡，每一輪都修在看見的那一圈，R4 verify 指出同一欄位還有 `addVenue`（連空字串都收）與 `VenueBootstrap`（只 trim）——`Venue.swift` 自己的 dated-variant 守衛 doc 早就寫著「守衛住在 validate → writeVenue 的交會處才擋得住所有路徑」。所以本列的裁決有兩半：**寫**（零實例但實例已被造出四次），**以及寫在 store 邊界而不是任何一個寫入面**——寫入面（`vetVenueNames`）留作入口的好訊息，不再是防線。**severity 是 error** 而非 warning，理由是 live store 0 筆違反（提級不拒絕任何既有記錄——但別的 clone 若持有手改的記錄，`akashic validate` 對它會 exit 1）且違反的後果是 displayName 直接壞掉（`displayName` 讀 `authorized`，#475）。**這與第 8／13 列的前提要對帳**（R5 verify 第 12 列）：那兩列說「per-record 的 error 級檢查全是 key 檢查、對載入後的記錄不可達」——**對 venue／organization 自 #227（authorized ⊆ names）／#422（帶時間 variant）／#473（孤兒 variant）起就已為假**：venue 的內容檢查全在寫入期、decode 不驗，所以載入後可達、`StoreHealth.perRecordIssues` 收得到；第 8 列的 pin test 只對 entry／person／divergence 改壞 key，證的是「key 錯會 quarantine」，不是那句前提。本列不翻第 8 列的裁決（`errorsFirst` 的排序仍是對的），只把那句前提的失效日期寫出來——它在本列之前就失效了，本列把可達的 error 類別從三個擴到七個。**誠實邊界**：不變式的 NFC 對 CJK 相容表意文字有損（U+FA10 塚 → U+585A）——位元組層有損、Swift 層無損（Swift `==` 早已視為相等）；ZWJ／ZWNJ 保留但只在 `NameIdentity.joinerIsLegal` 的兩個脈絡；DI 一律拒等於拒掉 IVS／蒙古文 FVS／希伯來 CGJ 等真實正字法用字——fail-closed、零實例、Claude 代裁 D9 的取捨，寫在 §5.7 誠實邊界（R6 verify 第 5／23 列）；私用區（Co）不擋，因為 doc 從未宣稱它；`canonical` 只丟 `White_Space` scalar、不刪任何其他 scalar（R6——R5 在 Character 上切，「空白＋combining mark」整個 cluster 被刪）。**觸發條件可檢查**（指令見表下方）：`akashic validate` 對 venue 的名字內容 error 應恆為 0；非零時那筆是手改或舊 binary 寫的，修法是人改 YAML（同 dated-variant 的立場，不猜、不靜默修；訊息自 R6 起逐條說改什麼） |
 | 26 | **零實例，而它守的是三個閘共同的前提——閘擋工具面、守衛掃非工具面**（#554 R10 verify 第 2／5／10 列，Claude 代裁 D28：同一 work 兩條 key 邊指同一 venue。D25（repoint／demote 拒）、D27（repoint 後不得出現）、D28（apply 不得造出）三個閘守的都是「配對只由一條邊實例化」，而 store 另有手改與舊 binary 兩個寫入者不經任何閘；R10 verify 用真 binary 三次造出這個形（`apply` 兩條同刊名的 literal 邊、`repoint` 改指到本 work 已有邊的 venue），`validate`／`doctor`／App 全綠，使用者直到想 demote 才知道。2026-09-14 實測 live store：2,411 筆 work、同 venue 兩條 key 邊 **0**。重跑腳本見表下方） | ✅ **寫（warning 級、在 `Entry.validate()`）** | 第 25 列的理由是「入口有五個」而守衛裝在 store 邊界；這一列的入口在 R11 之後只剩**不經工具的兩個**（手改、舊 binary）——venue 合併**不是**入口（`resolveVenueDivergence` 對改指倖存者的 key 邊去重；R11 verify DA 第 14 列真 binary 造出的是另一個形：合併後一條 literal 邊指向 work 已 key 的 venue，它不造出重複的 key 邊，由 D33 的逐筆略過處理、提名照常；反方向倒是真的——它對 entry 的 key 邊去重時會把與被併鍵無關的既有重複 key 邊一併收成一條，是 #572 落地前唯一的移除面，R12 verify logic 第 38 列），而那兩個正是閘擋不到的。**守衛與閘是同一條不變式的兩半**：閘讓工具面造不出這個形，守衛讓已經在庫裡的看得見——少了守衛，D25 的拒絕就是使用者第一次知道自己的 store 走進這一格的時刻，而那時他要做的操作已經被擋。**severity 是 warning**，理由與第 13 列同型：記錄合法可載入（兩條邊各自指向存在的 venue），失效的是判定逆轉的前提；升 error 會讓一筆只能手改才修得好的 work 擋住自己所有的寫入，而處置面還不存在（#572）。與第 23 列（可達性是本 change 造出來的）成鏡像：那一列是新面讓不可達變可達、守衛與面同批；這一列是新閘讓可達變**不可達**（對工具面），守衛守的是關掉之前寫進去的與繞過工具寫進去的。R15 起有家族前綴（`Entry.duplicateVenueEdgePrefix`）、`StoreHealth.duplicateVenueEdges` 計數（doctor／App 各一格）、每筆 work 最多列 20 個 venue（第 27 列同一批，R14 verify regression 第 22 列、security 第 18 列）。**觸發條件可檢查**（指令見表下方）：計數應恆為 0；非零時先看那筆是不是 R11 之前的 binary 寫的（`apply` 的兩次歸戶）——修法是刪掉多餘的邊，#572 落地前只能手改 YAML |
 | 27 | **零實例，而它是同一句不變式的另一半——第一半的守衛結構上照不到它**（#554 R13 verify DA 第 16 列，Claude 代裁 D36：同一 (venue, work) 上 ≥2 個正規化後不同的 confirmed literal。§3.5 把配對唯一性寫成一句 normative 的兩半，第 26 列守的是第一半（work 的邊），第二半住在 venue 的 references 上——`Venue.validate()` 不掃 verdict 配對、`StoreHealth` 沒有對應項，全樹「個不同的 confirmed literal」只出現在 `confirmedLiteral` 的**拒絕訊息**，零 validate／doctor 呼叫端。而真正造出第二半的路徑（work 合併把兩筆 work 的邊連同 verdict 併到一筆——R13 verify DA 第 3 列純工具面重現：`--apply` 兩個刊名變體 ＋ `resolve-divergence`）結構上**不會**點亮第一半的燈：被併 work 連同它的邊一起刪掉，倖存者只剩一條邊，validate 零診斷、`--demote` 撞 D23。2026-09-15 實測 live store：venue **485** 筆、對同一 work 持 ≥2 個正規化後不同 confirmed literal 的 **0** 筆。重跑腳本見表下方） | ✅ **寫（warning 級、在 `Venue.validate()`）** | 第 26 列的理由是「閘與守衛是同一條不變式的兩半」——閘擋工具面、守衛掃非工具面；這一列是**同一條不變式的另一半要有自己的守衛**：兩半在偵測面上互斥（造出第二半的路徑不點亮第一半的燈），所以第 26 列的量測「應恆為 0」只兌現了一半，而本檔自己的紀律是「寫出條件而不是只寫數字」。裁決有兩半：寫（零實例但實例已在 verify 裡被造出、且 R14 之前純工具面造得出），**以及不改成只修散文**——DA 給的另一個出口是把 §3.5 那句改成「第二半今天沒有掃描面」，那等於把一個已知可達的狀態留在「只有 demote／repoint 撞上時才知道」。**severity 是 warning**，理由與第 26 列同型：記錄合法可載入，失效的是判定逆轉的前提（D23 從此拒那筆 work 的 demote／repoint）；處置是手改 YAML 留一筆，#572 落地前沒有工具面，升 error 會讓一筆只能手改才修得好的 venue 擋住自己所有的寫入。**鍵不是一把是兩把，掃描兩類都掃**（R15，Claude 代裁 D39；R14 verify Codex 第 3 列、requirements 第 5 列：R14 寫「鍵與 D23／`verdictEqualityKey`／#486 同一把（`matchingKey`）」——假的，D23 的拒絕（`confirmedLiteral`）比**位元組**，只差大小寫或 NFC 形的兩筆 confirmed 讓 demote／repoint 必拒而 R14 的掃描零診斷）：以位元組相異的 confirmed 分組，正規化後不同＝不變式的違反、只差位元組＝重複的判定記錄（工具面以 `verdictEqualityKey` 去重、寫不出它），兩類同一家族前綴（`Venue.confirmedLiteralAmbiguityPrefix`）、措辭分開；`StoreHealth.confirmedLiteralAmbiguities` 有計數（doctor／App 各一格——R14 verify regression 第 22 列：兩族 per-record warning 沒有家族，MCP 截 20 則、App 預覽 5 則時可能完全看不到）；每筆 venue 最多列 20 筆 work、其餘一句概括（第 16／18 列：讀取路徑上對未信任內容跑，鄰居剛為此加了上限）。**生產端自 R15 起三個面都 fail-closed**（D38；R14 verify Codex 第 1 列 HIGH：D34 只裝在合併路徑，apply／repoint 對「目的 venue 已對該 work 持有另一個 confirmed literal、沒有對應的邊」的形照寫）：`apply` 對它逐筆略過並具名（`skippedConflictingConfirmedLiteral`）、`repoint` 對預測後的 verdict 集合驗、整批拒絕零寫入。**R16（R15 verify 30 列，6 席齊）**：「位元組」要真的是位元組——R15 的去重寫 Swift `==`（canonical equivalence），NFC／NFD 的兩筆被收攏成一筆、兩類 warning 都不出而 D23 照拒（requirements 第 1 列 HIGH；D42 改 `Set<[UInt8]>`，與 `confirmedLiteral` 同一把、O(N)）；混合情形（三筆裡兩筆只差位元組）第一類訊息點名那一組（第 23 列）；概括句不進家族（DA 第 29 列：帶家族前綴時 `StoreHealth` 把它算成一則，25 筆 work 報 21——改用 `Entry.perRecordCapSummaryPrefix`）；生產端的閘也比位元組、同一 literal 的另一個拼法也略過／拒（D43，Codex 第 3 列 HIGH：放行同鍵異拼法之後 demote 還回舊拼法）、apply 的閘移到重複邊檢查之後（D44，regression 第 2 列 HIGH）。**R17（R16 verify：31 findings 合併成 24 列，6 席齊；列號＝報告的合併列號）**：合併是第三個會動到同一批 verdict 的面——收攏的勝者政策在拼法位元組不同時改由倖存配對自己的那筆勝、收攏列印兩個拼法（D47，第 1 列 HIGH；#468 的弱血統優先只在同拼法時適用）；近重複組上限只數真的出聲的組（D48，第 2 列 HIGH：21 組合法沿革曾被判 error、所有寫入面關門）；D43 訊息兩桶同時說（D50，第 7 列）；混合註記截在 5 組時揭露（第 10 列）；第 27 列量測段的 grep 註記改成它量的單位（第 9 列）。**R18（R17 verify：31 findings 合併成 20 列，6 席齊）**：收攏的勝者先看**活著的邊**（D51，第 1 列 HIGH：keeper 對某 work 的 confirmed 可能沒有邊，被併記錄的那筆才是那條邊記錄的字；三條收攏路徑同一個政策，rename 只收攏動到的鍵——D53，第 3 列）；近重複的概括句分「真違反」與「同名段過多」兩類、authorized／variant 也先分組、整筆記錄另有 100,000 對求值總量上限（D52，第 7／8 列）；家族計數是下限、`cappedRecords` 自成一族（D54，第 5 列）；第 25 列的量測 grep 補兩類求值上限句並排除概括句（第 11 列）。**R19（R18 verify：5 席 session limit、Codex 席 3 列，不完整）**：rename 的收攏以鍵整組算（D55，第 1 列 HIGH：R18 的單一槽位記帳讓三方碰撞由 YAML 順序決定）；`cappedRecords` 以記錄計（D56，第 2 列）、App 側欄渲染它且家族值標成下限（D57，第 3 列）。**R20（R19 verify：34 列，5 席齊、Codex 席 HTTP 429）**：早已指向新鍵的死 verdict 不論 field 一律丟（D58，第 1 列 HIGH：D55 的分組含 field，異 field 的死 rejected 逃過、rename 後與遷來的 confirmed 成 #486 矛盾對；merge 對同一形狀早已整批拒）；`total`／`errors` 也是下限（D59，第 7 列）；**本列的「應恆為 0」只涵蓋 venue×work**——其餘六格（person／organization 持 work、三種 holder 持 person）沒有掃描面，rename 也不替它們判定（第 4 列，寫進 §3.5）。**R21（R20 verify：26 列，5 席齊）**：D58 的丟棄退場——rename 對目的鍵上已有 verdict 的 holder 具名拒絕、零寫入（D60，第 1–5 列 HIGH：D58 只在 holder 另有被改寫 verdict 時生效，且生效時是無乾跑、無逆操作的判定刪除，與本表第 13 列「死 verdict 的處置是人的重新消歧」相牴觸）；rename 自此沒有任何會刪判定**內容**的路徑（R22 D62 之後才為真：R21 仍以拼法位元組折疊、會丟 judgement 不同的那筆——R21 verify DA 第 14 列；D61 把 quarantined 檔納入 D60 的母體——**R23 D63** 改成位元組比對，R22 的行級 needle 含空白、被 YAML 折行擊穿）。**R22（R21 verify：37 列，6 席齊）**：D62 留下的同鍵異 judgement 沒有掃描面（第 14 列）→ 第 28 列。**觸發條件可檢查**（指令見表下方）：兩個計數應恆為 0；非零時那筆是 R14 之前的 work 合併、手改或舊 binary 寫的——修法是刪掉不屬於那條邊的 confirmed verdict |
@@ -233,35 +246,47 @@ EOF
 `grep -c '^  judgement: 移除：' ~/.akashic/entities/*.yaml | awk -F: '{s+=$2} END {print s+0}'`
 （2026-09-09：**0**——`--drop-author` 尚未對 live store 執行，等 store format bump 到 17）。
 
-**第 24 列的量測（2026-09-11，可重跑）**：三個數字都要為零才維持「暫不做」；任一非零即重開。
+**第 24 列的量測（2026-09-11 首量；2026-09-18 R2 改寫並重跑，可重跑）**：觸發條件見情形欄——腳本印的四個數裡**重複群**與**含 org 候選的 divergence** 兩個要為零才維持「暫不做」；organization 總數與帶 `parents` 筆數是脈絡，不是觸發（R1 寫「三個數字都要為零、任一非零即重開」，對自己的基線 13／3 就是假的——R1 verify 第 5／9 列）。第二個數自 R2 起由 binary 出聲：`akashic validate 2>&1 | grep -c '歧異記錄的 shape 沒有合併管線'`（應為 0；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）；理由欄那句 bootstrap 的重跑：`akashic bootstrap-organizations`（2026-09-18：無可自動建立的候選，另有 1 個產不出 key 的機構名待人工指定）。R1 的腳本對檔首註解與 `.YAML` 靜默漏算、`shape: organization` 是含空白的無錨點子字串、值不 `str()` 就當掉（R1 verify 第 16／26／28／29 列）——R2 改以 yaml 解析後看頂層鍵與 `candidates[].shape`；`key()` 是 `LooseTitleKey.key` 的鏡射，改一邊要同批改另一邊，固定案例取自那個檔頭的實測形狀。
 
 ```bash
 python3 - <<'EOF'
-import glob, io, os, unicodedata, yaml, collections
-root = os.path.expanduser('~/.akashic/entities')
+import io, os, unicodedata, yaml, collections
+# 鏡射 LooseTitleKey.key（NFKC → 丟 Cf → 小寫 → `&`→and → 標點折成空白 → 剝前導冠詞）——改一邊要同批改另一邊。
+# 樸素鏡射的誠實邊界：連字號家族與空白在 scalar 上處理，Swift 在 grapheme cluster 上（第 27 列量測段記過同一件事）；機構名裡零實例。
 ART = {"the","a","an"}
 def key(s):
-    s = unicodedata.normalize('NFKC', s)
-    s = ''.join('-' if unicodedata.category(c)=='Pd' else c for c in s)
-    s = ''.join(c for c in s if unicodedata.category(c)!='Cf').lower().replace('&',' and ')
+    s = unicodedata.normalize('NFKC', str(s))
+    s = ''.join(c for c in s if unicodedata.category(c) != 'Cf').lower().replace('&', ' and ')
     s = ''.join(c if (c.isalnum() or c.isspace()) else ' ' for c in s)
     t = s.split()
     while t and t[0] in ART: t.pop(0)
     return ' '.join(t)
+# 固定案例（LooseTitleKey 檔頭的實測形狀：標點、`&`／and、前導冠詞；寬鬆鍵不摺詞形——那是提名不是判定）
+assert key('Journal of the Royal Statistical Society Series B: Statistical Methodology') == key('Journal of the Royal Statistical Society Series B (Statistical Methodology)') == key('JOURNAL OF THE ROYAL STATISTICAL SOCIETY SERIES B-STATISTICAL METHODOLOGY')
+assert key('British Journal of Mathematical & Statistical Psychology') == key('British Journal of Mathematical and Statistical Psychology')
+assert key('The Guilford Press') == key('Guilford Press')
+assert key('Institute of Statistical Science') != key('Institute of Statistical Sciences')
+root = os.path.expanduser('~/.akashic/entities')
 g = collections.defaultdict(set); n = with_parents = org_div = 0
-for f in glob.glob(root + '/*.yaml'):
-    t = io.open(f, encoding='utf8').read()
-    if t.startswith('organization:'):
-        n += 1; d = yaml.safe_load(t)
+for name in sorted(os.listdir(root)):
+    if not name.lower().endswith('.yaml'): continue           # `.YAML` 也算——LibraryStore.swift 修過同一個 bug
+    d = yaml.safe_load(io.open(os.path.join(root, name), encoding='utf8'))
+    if not isinstance(d, dict): continue
+    if 'organization' in d:                                   # 頂層鍵判 shape，不看檔首那一行（檔首註解會讓 startswith 漏掉）
+        n += 1
         if d.get('parents'): with_parents += 1
-        for nm in [x['value'] if isinstance(x,dict) else x for x in (d.get('names') or [])]:
-            if key(nm): g[key(nm)].add(d['key'])
-    elif t.startswith('divergence:') and 'shape: organization' in t:
-        org_div += 1
+        names = d.get('names') or []
+        for x in (names if isinstance(names, list) else []):
+            nm = x.get('value') if isinstance(x, dict) else x
+            if nm is not None and key(nm): g[key(nm)].add(str(d.get('key')))
+    elif 'divergence' in d:
+        if any(isinstance(c, dict) and c.get('shape') == 'organization' for c in (d.get('candidates') or [])):
+            org_div += 1
 dupes = len([k for k, v in g.items() if len(v) >= 2])
 print(f"organization {n} 筆｜重複群 {dupes} 組｜含 org 候選的 divergence {org_div} 筆｜帶 parents {with_parents} 筆")
 EOF
 # 2026-09-11：organization 13 筆｜重複群 0 組｜含 org 候選的 divergence 0 筆｜帶 parents 3 筆
+# 2026-09-18 R2 重跑（改寫後的腳本）：同——13／0／0／3；真 binary 對帳：`akashic doctor` 的 organization 計數 13、`akashic divergences --json` 唯一一筆的 shape 是 person
 ```
 
 **第 25 列的量測（2026-09-12，可重跑）**：venue 側名字內容的 error 應恆為 0——
@@ -599,7 +624,7 @@ EOF
 - 第 26 列的理由是**閘與守衛是同一條不變式的兩半**——第 25 列把守衛裝在 store 邊界，因為入口有五個；這一列的三個閘（D25／D27／D28）已把工具面全關，剩下的入口是閘擋不到的手改與舊 binary，守衛守的正是那兩個。與第 23 列成鏡像：那一列是新面讓不可達變可達，這一列是新閘讓可達變不可達（對工具面）
 - 第 29 列的理由是**另一個守衛的正確性依賴它**——第 16 列是裁決依賴守衛（門檻到了才重開），這一列是等價性證明的前提（sink 上限 ≤ ceiling）由它守；零是兩個數字今天恰好對齊，改任一邊都是一行 diff 而每個 sink 自己的測試都不會紅。地板要分族，否則一族的零命中被另一族撐成通過（R31 verify 第 6 列）
 - 第 28 列的理由是**可達性是本 change 的另一條裁決刻意造出來的**——第 23 列是新面讓不可達變可達；這一列是為了不刪判定（D62）而選擇留下一個狀態，守衛是那個選擇的另一半：留著而看不見，等於把刪除延後到合併、把回報搬到另一個命令
-- 第 24 列的理由是**半吊子已經誠實**——前二十三列裁的是「寫或不寫某個東西」，這一列裁的是「對一個已存在的東西什麼都不動」。留著的代價是零，因為 #553 讓錯誤訊息說真話；動它的兩個方向（實作／拿掉）代價都不是零。與第 10 列（缺用途）最像：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實
+- 第 24 列的理由是**半吊子已經誠實**——前二十三列裡只有第 22 列同樣是「不動既有的東西」（比的是裁決的**動作**：那一列的對象是 spec 文字、失敗是被當死重刪掉；本列的對象是程式的半吊子管線、失敗是使用者撞牆或被當成待修殘留而被人動手）。留著的代價不是零（記了就刪不掉，#586），而是今天未兌現、且一出現就會出聲；動它的兩個方向（實作／拿掉）代價都更高。與第 10 列（缺用途）最像的是理由的**形**：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實
 
 **「完備」在第 1–7 列裡有三種強度，不是兩種**（#414 R1 自審更正——這一段原本寫
 「前六列在前件內都完備」，而那對第 5、6 兩列為假）：
@@ -654,7 +679,8 @@ EOF
 ## 跟其他規則的關係
 
 - `no-compat-fallback`：管**既有**相容路徑何時退場（往回收）；本條管**還不存在**的守衛何時
-  長出來（往外長）。同一個生命週期軸的兩端，方向相反
+  長出來（往外長）。同一個生命週期軸的兩端，方向相反——第 4 類（既有的半吊子路徑）是例外，它裁的是
+  既有物動不動，理由在前言
 - `lossless-intake`：第 3 列的理由直接引用它的「靜默是最糟的形式」
 - 全域 `common-spec-prose-enumeration`：本檔的形狀（封閉表、無總括判準、理由與裁決同列）
   是它的執行細節 1 與 3 的落地

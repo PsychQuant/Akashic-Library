@@ -40,7 +40,7 @@
 | 6 | `Entry.attachments` | 檔案 | — |
 | 7 | `Person.profile.affiliations` | organization | `OrgRef`，時間軸；`.literal` 未歸戶合法 |
 | 8 | `Organization.parents` | organization | `OrgRef`，時間軸；與 7 **刻意不共用型別** |
-| 9 | `Divergence.candidates` | work／person／organization／**venue**（#553） | `key` + `shape: EntityKind`；**短暫記錄**，消歧後即刪。venue 是 2026-09-11 加入的——在此之前 `recordDivergence` 的 `byShape` 白名單不收它，所以那條邊**記不下來**（`EntityKind` 早有 `.venue`，擋住的是白名單而不是值域）。`.organization` 仍是半吊子：記得起來、`resolveDivergence` 解不掉 |
+| 9 | `Divergence.candidates` | work／person／organization／**venue**（#553） | `key` + `shape: EntityKind`；**短暫記錄**，消歧後即刪。venue 是 2026-09-11 加入的——在此之前 `recordDivergence` 的 `byShape` 白名單不收它，所以那條邊**記不下來**（`EntityKind` 早有 `.venue`，擋住的是白名單而不是值域）。`.organization` 仍是半吊子：記得起來、`resolveDivergence` 解不掉——**那是 #555 的顯式裁決**（使用者 2026-09-11：暫不做，既不實作也不拿掉；理由、代價與觸發條件在 `zero-instance-guards` 第 24 列，`StoreHealth.unmergeableDivergences` 讓第一筆出聲、移除面見 #586）。重開那個裁決時本列一起改 |
 | 10 | `Divergence.judgement.prefers` | 本記錄的某個候選 | decode 時驗證存在性；同樣短暫 |
 | 11 | `Person.references` / `Organization.references` / `Venue.references` | `sources/` 的內容 | `ProvenanceReference`，content-addressed（`sha256:`）；`Venue.references` 於 #304 venue change 隨形狀新增——同型別、同定址法，列入以維持封閉性 |
 | 12 | `Divergence.judgement.restsOn` | `sources/` 的內容 | 同 11 的定址法；**與 10 同一筆記錄的另一條邊** |

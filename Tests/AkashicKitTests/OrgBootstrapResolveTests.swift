@@ -28,6 +28,26 @@ final class OrgBootstrapResolveTests: XCTestCase {
         XCTAssertEqual(top?.occurrences, 2, "同寫法出現兩次")
     }
 
+    /// #555 R2（R1 verify DA 第 8 列）：`zero-instance-guards` 第 24 列「org 重複群 0」這個零，是 #548 的扣留按住的——
+    /// 與既有 organization **寬鬆共鍵**（前導冠詞、標點、`&`／and）的機構名不建檔、丟 `pendingResolution`。那一列繼承
+    /// 第 8 列的釘零義務：這裡釘住「為什麼是零」——拿掉扣留，bootstrap 就會鑄造第二筆、重複群立刻非零。
+    func testLooseKeyCollisionWithExistingOrgRoutesToPendingResolution() {
+        var existing = Organization(key: "iss", names: Timeline([TemporalValue(value: "Institute of Statistical Science and Academia Sinica")]))
+        existing.key = "iss"
+        for literal in ["The Institute of Statistical Science and Academia Sinica",     // 前導冠詞
+                        "Institute of Statistical Science, and Academia Sinica.",     // 標點
+                        "Institute of Statistical Science & Academia Sinica"] {        // `&`／and
+            let r = OrgBootstrap.result(people: [personWith("p", affiliations: [.literal(literal)])],
+                                        organizations: [existing])
+            XCTAssertTrue(r.candidates.isEmpty, "「\(literal)」不得建成第二筆：\(r.candidates)")
+            XCTAssertEqual(r.pendingResolution.map(\.matchedKeys), [["iss"]], literal)
+        }
+        // 對照：真的不同的機構照常建檔——扣留的是寬鬆共鍵，不是「有既有 org 就一律不建」
+        let other = OrgBootstrap.result(people: [personWith("p", affiliations: [.literal("Department of Psychology")])],
+                                        organizations: [existing])
+        XCTAssertEqual(other.candidates.count, 1); XCTAssertTrue(other.pendingResolution.isEmpty)
+    }
+
     func testBootstrapUnifiesHyphenAndSpaceVariants() {
         let people = [
             personWith("a", affiliations: [.literal("Academia Sinica")]),

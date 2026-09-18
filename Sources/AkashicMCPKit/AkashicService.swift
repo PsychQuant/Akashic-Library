@@ -409,6 +409,7 @@ public final class AkashicService {
                 "orphanedSplitVerdicts": health.orphanedSplitVerdicts.count,
                 "staleSplitRecords": health.staleSplitRecords.count,   // display-safe-exempt: Int
                 "contradictedRemovalRecords": health.contradictedRemovalRecords.count,
+                "unmergeableDivergences": health.unmergeableDivergences.count,   // display-safe-exempt: Int（#555 R2 D90：第 24 列的觸發條件）
                 // #554 配對唯一性的兩半（D28／D36）——計數讓呼叫端不必掃 first（截 20）就看見（R14 verify regression 第 22 列）
                 "duplicateVenueEdges": health.duplicateVenueEdges.count,   // display-safe-exempt: Int
                 "confirmedLiteralAmbiguities": health.confirmedLiteralAmbiguities.count,   // display-safe-exempt: Int

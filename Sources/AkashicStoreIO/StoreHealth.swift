@@ -145,6 +145,16 @@ public struct StoreHealth {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.contradictedRemovalPrefix) }
     }
 
+    /// 歧異記錄的候選 shape 沒有合併管線（#555 R2，D90）：記得起來（`recordDivergence` 的 `byShape` 收）、解不掉
+    /// （`resolveDivergence` 擲 `unsupportedShape`）。今天只有 organization 是這個形——`zero-instance-guards` 第 24 列裁
+    /// 「暫不做」，觸發條件之一是「出現第一筆含 org 候選的 divergence 記錄」；在此之前那個條件只活在散文與一段要人手貼的
+    /// Python 裡，而第一筆 org divergence 在 doctor／App 上與一筆正常待判的 person 歧異長得完全一樣（#555 R1 verify 第 13 列；
+    /// 第 16 列的紀律：散文觸發條件沒有機制會叫醒任何人）。前綴單一定義：訊息由它組出、`unmergeableDivergences` 用它篩。
+    public static let unmergeableDivergencePrefix = "歧異記錄的 shape 沒有合併管線"
+    public var unmergeableDivergences: [OwnedIssue] {
+        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.unmergeableDivergencePrefix) }
+    }
+
     /// #554 配對唯一性的兩半（R11 D28、R14 D36／R15 D39）：per-record warning 住在 `Entry.validate()`／`Venue.validate()`，
     /// 前綴的**單一定義在 Core**（訊息在那裡組出），這裡只引用——同 `deadVerdictPrefix` 的形，家族才有計數
     /// （R14 verify regression 第 22 列：兩族沒有家族，doctor 截 20 則、App 預覽 5 則時可能完全看不到，
@@ -290,6 +300,7 @@ public extension LibraryStore {
         // （2026-09-03 實測 live store 2 條）這一族會被擠出 `first`——所以每一族都有專屬計數（R15 起含 #554 的兩族）。
         perRecord += deadVerdictIssues(in: load)
         perRecord += contradictoryVerdictIssues(in: load)   // #486
+        perRecord += unmergeableDivergenceIssues(in: load)   // #555 R2 D90：第 24 列的觸發條件由工具出聲
         perRecord += duplicateVerdictRecordIssues(in: load)   // #554 D64
         // #453：本機缺承重存檔——`missingSourceDigests` 先前零 production 呼叫端，doctor 只接
         // `auditSourceIndex()`（blob↔index 兩向比對），捏造或未同步的 digest 兩邊都不在、兩邊一致、
@@ -435,6 +446,32 @@ public extension LibraryStore {
     /// 在 #470 之前這個掃描寫不出來：那時「同一配對」有兩個答案，先寫就是偷偷定案第三份。
     ///
     /// **2026-09-09 實測 live store：0 筆**（與 #464 verify 2026-09-03 的量測一致）。
+    /// 歧異記錄的候選 shape 不在 `DivergenceResolveError.mergeableShapes` 裡——記得起來、解不掉（#555 R2，D90）。
+    /// 一筆記錄一則（候選逐個點名、最多列 5 個），warning 級：記錄合法可載入，失效的是處置面；處置是重開
+    /// `zero-instance-guards` 第 24 列的裁決（實作或拿掉），移除面見 #586。值域從 `mergeableShapes` 讀——它與
+    /// `resolveDivergence` 的 switch 由 parity 測試對帳，這裡不手寫第二份。
+    ///
+    /// **2026-09-18 實測 live store：0 筆**（唯一那筆 divergence 是 person 攣生）。
+    func unmergeableDivergenceIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
+        let mergeable = Set(DivergenceResolveError.mergeableShapes)
+        let supported = DivergenceResolveError.mergeableShapes.joined(separator: "／")
+        return load.divergences.compactMap { d -> StoreHealth.OwnedIssue? in
+            let stuck = d.candidates.filter { !mergeable.contains($0.shape.rawValue) }
+            guard !stuck.isEmpty else { return nil }
+            let listed = stuck.prefix(5)
+                .map { "「\(displaySafeInvisible($0.key, max: 120))」（\($0.shape.rawValue)）" }   // display-safe-exempt: shape.rawValue 是 EntityKind（enum，封閉值域）
+                .joined(separator: "、")
+            let more = stuck.count > 5 ? "…共 \(stuck.count) 個" : ""   // display-safe-exempt: stuck.count 是 Int
+            return StoreHealth.OwnedIssue(
+                owner: d.id.uuidString, kind: "divergence",   // display-safe-exempt: UUID.uuidString 是 hex+dash
+                issue: ValidationIssue(
+                    severity: .warning,
+                    message: "\(StoreHealth.unmergeableDivergencePrefix)：候選 \(listed)\(more) 記得起來、resolveDivergence 解不掉"
+                           + "（支援的是 \(supported)）——這是 zero-instance-guards 第 24 列「暫不做」的觸發條件之一（#555）；"
+                           + "處置是重開那個裁決（實作或拿掉），移除面見 #586"))
+        }
+    }
+
     func contradictoryVerdictIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
         func pairingKey(_ p: ProvenanceReference.VerdictPairingValue) -> String {
             "\(p.holderKind.rawValue):\(p.holder)\u{0}" + NameNormalization.matchingKey(p.literal)

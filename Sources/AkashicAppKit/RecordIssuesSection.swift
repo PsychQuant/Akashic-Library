@@ -56,6 +56,11 @@ struct RecordIssuesSection: View {
                     .help("verdict 判的 literal 已被那筆 work 的拆分記錄退役（#450）。"
                           + "對拆出的各段重新消歧，然後在持有記錄的 references 更新或刪掉這筆 verdict。")
             }
+            if summary.unmergeableDivergences > 0 {
+                LabeledContent("歧異記錄的 shape 沒有合併管線", value: summary.lowerBound(summary.unmergeableDivergences))
+                    .help("候選的 shape 記得起來、resolveDivergence 解不掉（今天只有 organization，#555）。"
+                          + "這是 zero-instance-guards 第 24 列「暫不做」的觸發條件之一——處置是重開那個裁決；移除面見 #586。")
+            }
             if summary.contradictedRemovalRecords > 0 {
                 LabeledContent("移除記錄與作者位矛盾", value: summary.lowerBound(summary.contradictedRemovalRecords))
             }

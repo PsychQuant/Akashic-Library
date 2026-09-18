@@ -14,7 +14,7 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
     /// venue 加進去了，訊息還說「只處理 person 與 work」）。
     /// `DivergenceResolveVenueTests.testUnsupportedShapeMessageNamesTheRealDomain`
     /// 釘住它與實際分支一致。
-    static let mergeableShapes = ["person", "work", "venue"]
+    static let mergeableShapes = ["person", "work", "venue"]   // org-merge-slot（#555／#558）：org 合併若實作，這份清單要同批加 organization——它是手寫的，與 switch 分岔不會報錯（#555 R1 verify 第 10 列）
     case legacyLayout(root: String)
     case wouldLoseFields(merged: String, survivor: String, losses: [String])
     /// 被併記錄自己違反寫入期不變式（#554 D8 的名字內容檢查）——合併會把它的名字搬進倖存者，
@@ -335,7 +335,9 @@ extension LibraryStore {
             .work: Set(load.entries.map(\.citekey)),
             // #553：venue 加入。**與 `resolveDivergence` 的 switch 必須同一個 change**
             // ——`.organization` 今天正是那個半吊子狀態（記得起來、解不掉），
-            // venue 不重蹈。
+            // venue 不重蹈。**org 維持這個狀態是 #555 的顯式裁決**（使用者 2026-09-11：暫不做，既不實作也不拿掉），
+            // 理由、代價與觸發條件在 `zero-instance-guards` 第 24 列；`StoreHealth.unmergeableDivergences` 讓第一筆
+            // org 歧異記錄出聲（#555 R2 D90）。不要把這一格當成待修的殘留（#555 R1 verify 第 15 列）。
             .venue: Set(load.venues.map(\.key)),
         ]
         for c in candidates {

@@ -68,9 +68,13 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
                  + "消歧會刪掉被併記錄與歧異記錄本身，歷史託給版本控制而非 store；"
                  + "版控之外刪掉就是真的沒了。先把 store 放進版控（或改用位於工作樹內的 store）再試。"
         case let .deletionNotRecoverable(files):
-            return "以下檔案刪掉或改寫之後無法從版控取回，拒絕消歧：\n"
-                 + files.map { "  - \(displaySafeInvisible($0.path, max: 300))：\(displaySafeInvisible($0.why, max: 300))" }   // why 今天是三個字面常量之一（filesNotSafelyRecoverable），逃它是為了讓守衛的「files 已逃」對整個 tuple 為真（R31；R30 verify 第 15 列：守衛看 binding 不看 tuple 成員）
-                        .joined(separator: "\n")
+            // 清單自 D86 起由 store 內容決定體積（venue 合併可達千筆 entry）——截 `Entry.perRecordWarningCap`、揭露總數，與 D30／D66 同一條紀律
+            // （#558 R3；R2 verify 第 13／19 列：96 KB sink 會無聲截掉尾巴）
+            let cap = Entry.perRecordWarningCap
+            let listed = files.prefix(cap).map { "  - \(displaySafeInvisible($0.path, max: 300))：\(displaySafeInvisible($0.why, max: 300))" }   // why 今天是四個字面常量之一（filesNotSafelyRecoverable），逃它是為了讓守衛的「files 已逃」對整個 tuple 為真（R31；R30 verify 第 15 列：守衛看 binding 不看 tuple 成員）
+            let more = files.count > cap ? "\n  …另有 \(files.count - cap) 個檔未列出（共 \(files.count) 個）" : ""   // display-safe-exempt: files.count／cap 是 Int
+            return "以下檔案刪掉或改寫之後無法從版控取回，拒絕消歧（共 \(files.count) 個）：\n"   // display-safe-exempt: files.count 是 Int
+                 + listed.joined(separator: "\n") + more
                  + "\n消歧會刪掉被併記錄與歧異記錄本身、並改寫倖存者與指向被併鍵的記錄，歷史託給版控而非 store。"
                  + "先 `git add` 並 `git commit` 這些檔案（或確認 entities/ 沒被 .gitignore 擋），再重跑同一個 id。"
         case let .migrationCollision(details):
@@ -1863,8 +1867,8 @@ extension LibraryStore {
                 take(keeperReferences ?? keeper.references, .person, keeper.key)
             }
         case .org:
-            break   // organization 合併尚未支援（`unsupportedShape`），沒有迴圈可鏡射——**org 若實作這是第三格**（#555／#558 R1 verify
-                    // 第 9 列）：只補 `doomedRelativePaths`／`holderRelativePaths` 而不補這裡，閘看起來完整、對 org holder 永遠回空
+            break   // org-merge-slot（#555／#558）：organization 合併尚未支援（`unsupportedShape`），沒有迴圈可鏡射——只補別格不補這裡，
+                    // 閘看起來完整、對 org holder 永遠回空（R1 verify 第 9 列）；同標記的格數以 grep 量
         }
         return (rewritten.sorted(), collapsed.sorted())
     }
@@ -2986,13 +2990,13 @@ extension LibraryStore {
             // 回 `[]` 是**對的，但理由不是「上游已擋」**（#558）：venue 自 #553 起上游不擋了。真正的理由是**結構的**
             // （R2；R1 verify 第 22 列：R1 押在「實測 8,670 條全是 work:」這個會過期的普查數字上——重量已是 8,671）：
             // `VerdictHolderKind` 是封閉 enum（work／person／org），`VerdictPairingValue.parse` 對其他前綴回 nil，
-            // 而 venue 的 `validateReferenceAttachment` 對每筆 verdict 要求 parse 成功——`venue:<key> :: literal` 在 store
+            // 而三族 holder（person／organization／venue）各自的 `validateReferenceAttachment` 對每筆 verdict 都要求 parse 成功——`venue:<key> :: literal` 在 store
             // 裡**寫不出來**。所以 venue key 退役不會讓任何 holder 的 verdict **value** 變 stale，本函式沒有迴圈可鏡射。
             // **本函式只算 holder verdict value 的遷移**：倖存者 venue 檔的改寫（含 `mergedVenueKeeper` 的收攏刪列）與
             // 被改指的 entry 檔在 `rewrittenRelativePaths`（D86），不在這裡。
             return []
-        case .organization, .divergence: return []   // 上游已擋（unsupportedShape），這裡不猜——org 若實作，本函式與
-                                                     // `predictedHolderVerdictMigration` 的 `case .org: break` 是同一批要補的格（#555／#558）
+        case .organization, .divergence: return []   // org-merge-slot（#555／#558）：上游已擋（unsupportedShape），這裡不猜——org 合併若實作，
+                                                     // 帶這個標記的每一格要同批補（數量以 grep 量，不寫死；R2 verify 第 8／15 列）
         }
         let predicted = Self.predictedHolderVerdictMigration(
             snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor,
@@ -3029,7 +3033,7 @@ extension LibraryStore {
                 // 沒護著被併實體。開發 #553 時撞到的是前者，因而誤以為閘完整。
                 if let v = snapshot.venues.first(where: { $0.key == key }) { ids.append(v.id) }
             case .organization, .divergence:
-                continue                      // 上游已擋（unsupportedShape），這裡不猜
+                continue                      // org-merge-slot（#555／#558）：上游已擋（unsupportedShape），這裡不猜
             }
         }
         return ids.map { "entities/\($0.uuidString).yaml" }
@@ -3044,16 +3048,19 @@ extension LibraryStore {
         case .person:
             return snapshot.entries.filter { e in e.authors.contains { if case let .key(k) = $0 { return merged.contains(k) }; return false } }
         case .work:
+            // 與實跑同一個判準：以 keeper 的 **id** 排除（R3；R2 verify 第 29 列：`citekey != survivor` 只在 citekey 唯一時等價，
+            // 而那由 `assertNoCrossRecordErrors` 在本函式之前保證——改成 id 讓前提消失）
+            let keeperID = snapshot.entries.first { $0.citekey == survivor }?.id
             let doomedIDs = Set(snapshot.entries.filter { merged.contains($0.citekey) }.map(\.id))
             return snapshot.entries.filter { e in
-                e.citekey != survivor && !doomedIDs.contains(e.id)
+                e.id != keeperID && !doomedIDs.contains(e.id)
                     && (e.akashic.relations.cites.contains(where: { merged.contains($0) })
                         || e.akashic.relations.related.contains(where: { merged.contains($0) }))
             }
         case .venue:
             return snapshot.entries.filter { e in e.venues.contains { if case let .key(k) = $0 { return merged.contains(k) }; return false } }
         case .organization, .divergence:
-            return []
+            return []   // org-merge-slot（#555／#558）：org 合併若實作，本格要補
         }
     }
 
@@ -3073,7 +3080,7 @@ extension LibraryStore {
         case .person: if let k = snapshot.people.first(where: { $0.key == survivor }) { ids.append(k.id) }
         case .work:   if let k = snapshot.entries.first(where: { $0.citekey == survivor }) { ids.append(k.id) }
         case .venue:  if let k = snapshot.venues.first(where: { $0.key == survivor }) { ids.append(k.id) }
-        case .organization, .divergence: break
+        case .organization, .divergence: break   // org-merge-slot（#555／#558）：org 合併若實作，本格要補
         }
         ids += Self.entriesTouchedByMerge(shape: shape, merged: Set(mergedKeys), survivor: survivor, snapshot: snapshot).map(\.id)
         ids += migration.toWrite.map(\.id) + migration.collapsed.map(\.id) + migration.renamedFrom
@@ -3092,8 +3099,13 @@ extension LibraryStore {
     /// 檔案）都算數。不可逆刪除的預設應該是拒絕。
     ///
     /// **兩個子程序問完全部**（#558 R2）：D86 之後名單含被改寫的 entry 檔，一本大刊可達數百筆，逐檔兩個子程序會讓一次合併跑上分鐘。
-    /// `ls-files -z -- <paths>` 列出 tracked 的、`diff --name-only -z HEAD -- <paths>` 列出 dirty 的，語意與逐檔的
-    /// `ls-files --error-unmatch`／`diff --quiet HEAD` 相同（同一個 pathspec、同一個 HEAD 比對）。
+    /// `ls-files -z -- <paths>` 列出 tracked 的、`diff --name-only --relative -z HEAD -- <paths>` 列出 dirty 的；分批送、unborn HEAD 另有自己的理由。
+    ///
+    /// **`--relative` 不是裝飾**（#558 R3；R2 verify 六席同指、五席真 binary 重現）：`ls-files` 的輸出相對 **cwd**（`-C root` ⇒ store 相對，
+    /// 與 `rel` 同基準），`diff --name-only` 的輸出**預設相對 repo root**——store 是 repo 子目錄時印 `store/entities/X.yaml`、永遠不等於
+    /// `rel`，dirty 那一半整個 fail-open；R2 之前逐檔 `diff --quiet` 只看 exit status、與基準無關。live store 今天是 repo 根（`show-prefix`
+    /// 空），所以是零實例的潛在缺陷；而 `isInsideVersionedWorkTree` 逐層往上找 `.git`、`outsideVersionControl` 的訊息主動建議「位於工作樹內
+    /// 的 store」——巢狀是明文支援的佈局。`testRefusesDirtyFilesWhenStoreIsARepoSubdirectory` 釘住兩個基準一致。
     static func filesNotSafelyRecoverable(root: URL,
                                           relativePaths: [String]) -> [(path: String, why: String)] {
         // **不存在的檔案跳過。** 它不可能被「不可回復地刪除」——刪除迴圈對它是
@@ -3103,22 +3115,47 @@ extension LibraryStore {
         // 「未被 git 追蹤」——正確但完全指錯方向。
         let present = relativePaths.filter { FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path) }
         guard !present.isEmpty else { return [] }
+        let cannotRun = "無法執行 git，無從確認可回溯性"
         func names(_ out: String) -> Set<String> { Set(out.split(separator: "\0").map(String.init).filter { !$0.isEmpty }) }
-        guard let tracked = git(["ls-files", "-z", "--"] + present, in: root), tracked.status == 0,
-              let dirty = git(["diff", "--name-only", "-z", "HEAD", "--"] + present, in: root), dirty.status == 0 else {
-            return present.map { (path: $0, why: "無法執行 git，無從確認可回溯性") }
+        // unborn HEAD（`git init` 之後零 commit）：`diff HEAD` 回 128——那不是「無法執行 git」，是「還沒有任何版本可回復」；
+        // R2 把兩個查詢綁在一個 guard 裡，fresh repo 上每個檔（含 tracked+clean 的）都被報成工具壞了（R3；R2 verify 第 11／22 列）。
+        // 只有子程序**起不來**才是 `cannotRun`。
+        guard let head = git(["rev-parse", "--verify", "--quiet", "HEAD"], in: root) else {
+            return present.map { (path: $0, why: cannotRun) }
         }
-        let trackedSet = names(tracked.out), dirtySet = names(dirty.out)
+        let unborn = head.status != 0
+        var trackedSet = Set<String>(), dirtySet = Set<String>()
+        // 分批送 pathspec（R3；R2 verify 第 20／33 列）：整份名單塞進一個 argv 在 E2BIG 時 `Process.run()` 擲出、每個檔都變成
+        // `cannotRun`——fail-closed 但完全指錯方向；每批 `gitPathspecChunk` 筆離 ARG_MAX 兩個數量級。
+        for start in stride(from: 0, to: present.count, by: Self.gitPathspecChunk) {
+            let chunk = Array(present[start..<Swift.min(start + Self.gitPathspecChunk, present.count)])
+            guard let tracked = git(["ls-files", "-z", "--"] + chunk, in: root), tracked.status == 0 else {
+                return present.map { (path: $0, why: cannotRun) }
+            }
+            trackedSet.formUnion(names(tracked.out))
+            if !unborn {
+                // `--relative`：輸出改成相對 cwd（＝store root），與 `ls-files` 同基準——不加時相對 repo root，巢狀 store 上 dirty 永不命中（R2 verify 六路）
+                guard let dirty = git(["diff", "--name-only", "--relative", "-z", "HEAD", "--"] + chunk, in: root), dirty.status == 0 else {
+                    return present.map { (path: $0, why: cannotRun) }
+                }
+                dirtySet.formUnion(names(dirty.out))
+            }
+        }
         var bad: [(path: String, why: String)] = []
         for rel in present {
             if !trackedSet.contains(rel) {
                 bad.append((rel, "未被 git 追蹤（從未 commit，或被 .gitignore 擋掉）"))
+            } else if unborn {
+                bad.append((rel, "repo 尚無任何 commit——git 裡沒有任何版本可回復，先 commit"))
             } else if dirtySet.contains(rel) {
                 bad.append((rel, "有未提交的修改——git 裡的是舊版本，當下這版刪掉或改寫都不可回復"))
             }
         }
         return bad
     }
+
+    /// 一次 git 呼叫最多帶幾個 pathspec（R3）：500 × 51 bytes ≈ 26 KB，ARG_MAX 1 MiB。
+    static let gitPathspecChunk = 500
 
     /// 子程序環境：**剝除全部 `GIT_*`**（#239）。
     ///

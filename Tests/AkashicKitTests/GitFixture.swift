@@ -40,7 +40,7 @@ enum GitFixture {
     }
 
     /// 讀一個值回來（containment 斷言用；失敗回 nil）。
-    private static func capture(_ args: [String], in dir: URL) -> String? {
+    static func capture(_ args: [String], in dir: URL) -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments = ["git", "-C", dir.path] + args
@@ -93,9 +93,12 @@ enum GitFixture {
     }
 
     /// 把當下 store 的全部內容 commit 進去——「刪掉找得回來」的狀態。
-    static func commitAll(_ dir: URL, message: String = "fixture") {
-        run(["add", "-A"], in: dir)
-        run(["commit", "-q", "-m", message, "--allow-empty"], in: dir)
+    static func commitAll(_ dir: URL, message: String = "fixture", file: StaticString = #filePath, line: UInt = #line) {
+        // 與 `commit(_:paths:)` 同一條紀律（#558 R2 verify 第 24 列：R2 只修了一個 helper，而全部新測試的前提靠這一個）
+        let a = run(["add", "-A"], in: dir)
+        guard a == 0 else { return XCTFail("GitFixture.commitAll：`git add -A` 回 \(a)", file: file, line: line) }
+        let c = run(["commit", "-q", "-m", message, "--allow-empty"], in: dir)
+        guard c == 0 else { return XCTFail("GitFixture.commitAll：`git commit` 回 \(c)", file: file, line: line) }
     }
 
     /// 只 commit 指定的路徑——讓 fixture 能精確製造「某一個檔 untracked、其餘 tracked」

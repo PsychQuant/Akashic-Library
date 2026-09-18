@@ -934,4 +934,32 @@ final class DivergenceResolveVenueTests: XCTestCase {
         }
         XCTAssertEqual(try store.load().divergences.count, 2, "拒絕後兩筆記錄都在")
     }
+
+    /// R3（R2 verify 第 9 列）：D86 新納入的兩類檔在「tracked 但 dirty」那一半的覆蓋——R2 的四個新測試全只造 untracked。
+    func testRefusesWhenTouchedEntryOrCollapsingRecordIsDirty() throws {
+        let d = try seed()
+        var work = Entry(id: UUID(), citekey: "w2026", type: .periodicalArticle, title: "Two edges", authors: [.literal("Shih, J.")], date: "2026")
+        work.venues = [.key("the-american-statistician"), .key("american-statistician")]
+        try store.writeEntry(work)
+        var other = Divergence(id: UUID(), question: "同一本刊嗎（第二筆）",
+                               candidates: [DivergenceCandidate(key: "the-american-statistician", shape: .venue),
+                                            DivergenceCandidate(key: "american-statistician", shape: .venue)])
+        other.judgement = Judgement(statement: "HUMAN RULING", restsOn: ["sha256:" + String(repeating: "cd", count: 32)])
+        try store.writeDivergence(other)
+        GitFixture.commitAll(root, message: "seed")
+        func dirty(_ id: UUID) throws {
+            let url = store.entityURL(id: id)
+            try (String(contentsOf: url, encoding: .utf8) + "# HUMAN NOTE ONLY ON DISK\n").write(to: url, atomically: true, encoding: .utf8)
+        }
+        for (desc, id) in [("被改指的 entry", work.id), ("會被塌縮的記錄", other.id)] {
+            try dirty(id)
+            XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "the-american-statistician"), desc) { err in
+                guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("\(desc)：\(err)") }
+                XCTAssertEqual(files.count, 1, "\(desc)：\(files)")
+                XCTAssertTrue(files.contains { $0.path.contains(id.uuidString) && $0.why.contains("未提交的修改") }, "\(desc)：\(files)")
+            }
+            GitFixture.commitAll(root, message: desc)
+        }
+        XCTAssertNoThrow(try store.previewResolveDivergence(id: d.id, survivor: "the-american-statistician", overrideReason: nil))
+    }
 }

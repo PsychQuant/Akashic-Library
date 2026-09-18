@@ -37,7 +37,7 @@ final class DivergenceResolveTests: XCTestCase {
 
     /// 兩筆 person（同一人的兩種寫法）＋ 一筆引用其中之一的 work ＋ 一筆歧異記錄。
     @discardableResult
-    private func seed(into s: LibraryStore) throws -> Divergence {
+    private func seed(into s: LibraryStore, commit: Bool = true) throws -> Divergence {
         var survivor = Person(key: "fann-cathy-s-j")
         survivor.names = ["Fann, Cathy S-J"]
         var merged = Person(key: "fann-cathy-s-j-2")
@@ -57,8 +57,9 @@ final class DivergenceResolveTests: XCTestCase {
                          DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
         try s.writeDivergence(d)
         // #73：seed 完就 commit——被測的是「消歧」，不是「未 commit 會被擋」。
-        // 後者由 testRefusesWhenDoomedFilesAreUncommitted 專門覆蓋。
-        GitFixture.commitAll(s.root, message: "seed")
+        // 後者由 testRefusesWhenDoomedFilesAreUncommitted 專門覆蓋。`commit: false` 給沒有 repo 的 store 用
+        // （`testRefusesOutsideVersionControl`）——`commitAll` 自 R3 起對失敗出聲，對非 repo 呼叫它是 fixture 的錯。
+        if commit { GitFixture.commitAll(s.root, message: "seed") }
         return d
     }
 
@@ -105,14 +106,80 @@ final class DivergenceResolveTests: XCTestCase {
         GitFixture.commitAll(root, message: "everything but the survivor")
         var survivor = Person(key: "fann-cathy-s-j"); survivor.names = ["A"]
         try store.writePerson(survivor)                    // untracked
-        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")) { err in
-            guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("應為 deletionNotRecoverable，實得 \(err)") }
-            XCTAssertTrue(files.contains { $0.path.contains(survivor.id.uuidString) }, "訊息必須指名倖存者的檔：\(files)")
-            XCTAssertFalse(files.contains { $0.path.contains(merged.id.uuidString) }, "被併者已 commit，不該進清單：\(files)")
+        for (desc, op) in [("實跑", { _ = try self.store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j") }),
+                           ("dry-run", { _ = try self.store.previewResolveDivergence(id: d.id, survivor: "fann-cathy-s-j", overrideReason: nil) })] {   // R3：兩面（R2 verify 第 18 列）
+            XCTAssertThrowsError(try op(), desc) { err in
+                guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("\(desc)：應為 deletionNotRecoverable，實得 \(err)") }
+                XCTAssertTrue(files.contains { $0.path.contains(survivor.id.uuidString) }, "\(desc)：訊息必須指名倖存者的檔：\(files)")
+                XCTAssertFalse(files.contains { $0.path.contains(merged.id.uuidString) }, "\(desc)：被併者已 commit，不該進清單：\(files)")
+            }
         }
         let after = try store.load()
         XCTAssertEqual(after.people.count, 2); XCTAssertEqual(after.divergences.count, 1)
         XCTAssertEqual(after.people.first { $0.key == "fann-cathy-s-j" }?.names, ["A"], "拒絕後倖存者未被改寫")
+    }
+
+    /// #558 R3（R2 verify 六席同指的 HIGH）：store 是 repo 的**子目錄**時，`git diff --name-only` 的輸出相對 repo root、`ls-files` 相對 cwd
+    /// ——R2 的批次比對對 dirty 那一半永遠不命中，dirty 的被併檔被直接刪掉、閘沉默（五席真 binary 重現）。`--relative` 讓兩個基準一致。
+    /// 三種狀態各測一格：dirty 的被併實體、dirty 的倖存者（D86 的改寫閘）、untracked 的歧異記錄（本來就過、釘住不退化）。
+    func testRefusesDirtyFilesWhenStoreIsARepoSubdirectory() throws {
+        let repoRoot = FileManager.default.temporaryDirectory.appendingPathComponent("akashic-nested-\(UUID().uuidString)")
+        let nested = repoRoot.appendingPathComponent("library")
+        try FileManager.default.createDirectory(at: nested.appendingPathComponent("entities"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: repoRoot) }
+        try StoreVersion.write(root: nested, format: StoreVersion.supported)
+        GitFixture.initRepo(repoRoot)
+        let s = LibraryStore(root: nested)
+        let d = try seed(into: s)                                   // seed 內 commitAll(s.root)——對巢狀 store 也是整個 repo
+        XCTAssertEqual(GitFixture.capture(["rev-parse", "--show-prefix"], in: nested)?.trimmingCharacters(in: .whitespacesAndNewlines), "library/", "fixture 真的是巢狀的")
+        func dirty(_ id: UUID) throws {
+            let url = s.entityURL(id: id)
+            try (String(contentsOf: url, encoding: .utf8) + "# HUMAN NOTE ONLY ON DISK\n").write(to: url, atomically: true, encoding: .utf8)
+        }
+        let people = try s.load().people
+        try dirty(try XCTUnwrap(people.first { $0.key == "fann-cathy-s-j-2" }).id)   // 被併實體 dirty
+        for (desc, op) in [("實跑", { _ = try s.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j") }),
+                           ("dry-run", { _ = try s.previewResolveDivergence(id: d.id, survivor: "fann-cathy-s-j", overrideReason: nil) })] {
+            XCTAssertThrowsError(try op(), "\(desc)：巢狀 store 的 dirty 被併檔要拒") { err in
+                guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("\(desc)：\(err)") }
+                XCTAssertEqual(files.count, 1, "\(desc)：\(files)")
+                XCTAssertTrue(files.contains { $0.why.contains("未提交的修改") }, "\(desc)：要說是 dirty 不是 untracked：\(files)")
+            }
+        }
+        XCTAssertEqual(try s.load().people.count, 2, "拒絕後不得動到任何檔案")
+        GitFixture.commitAll(repoRoot, message: "note")
+        try dirty(try XCTUnwrap(people.first { $0.key == "fann-cathy-s-j" }).id)     // 倖存者 dirty（D86）
+        XCTAssertThrowsError(try s.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")) { err in
+            guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("\(err)") }
+            XCTAssertTrue(files.contains { $0.why.contains("未提交的修改") } && files.count == 1, "\(files)")
+        }
+        GitFixture.commitAll(repoRoot, message: "note 2")
+        XCTAssertNoThrow(try s.previewResolveDivergence(id: d.id, survivor: "fann-cathy-s-j", overrideReason: nil), "全部 commit 後巢狀 store 照常通過")
+    }
+
+    /// #558 R3（R2 verify 第 13／19 列）：拒絕清單自 D86 起由 store 內容決定體積——截 `Entry.perRecordWarningCap` 並揭露總數，
+    /// 否則 96 KB 的 sink 會無聲截掉尾巴、使用者看不出還有幾筆。
+    func testRefusalListIsCappedAndDisclosesTheTotal() {
+        let files = (0..<25).map { (path: "entities/F\($0).yaml", why: "未被 git 追蹤") }
+        let msg = DivergenceResolveError.deletionNotRecoverable(files: files).errorDescription ?? ""
+        XCTAssertEqual(msg.components(separatedBy: "\n  - ").count - 1, Entry.perRecordWarningCap, msg)
+        XCTAssertTrue(msg.contains("另有 5 個檔未列出（共 25 個）") && msg.contains("（共 25 個）："), msg)
+        XCTAssertFalse(DivergenceResolveError.deletionNotRecoverable(files: Array(files.prefix(3))).errorDescription!.contains("另有"), "未超過上限不加概括句")
+    }
+
+    /// #558 R3（R2 verify 第 11／22 列）：fresh `git init`、零 commit 的 store——tracked 的檔要說「還沒有任何版本」，不是「無法執行 git」。
+    func testUnbornHeadGivesItsOwnReason() throws {
+        let bare = try makeStore(versioned: true)                    // initRepo 只 init，不 commit
+        defer { try? FileManager.default.removeItem(at: bare) }
+        let s = LibraryStore(root: bare)
+        var p = Person(key: "a-b"); p.names = ["A"]; try s.writePerson(p)
+        var q = Person(key: "c-d"); q.names = ["C"]; try s.writePerson(q)
+        _ = GitFixture.run(["add", "--", "entities/\(p.id.uuidString).yaml"], in: bare)   // staged、未 commit
+        let out = LibraryStore.filesNotSafelyRecoverable(root: bare, relativePaths: ["entities/\(p.id.uuidString).yaml", "entities/\(q.id.uuidString).yaml"])
+        XCTAssertEqual(out.count, 2, "\(out)")
+        XCTAssertTrue(out.contains { $0.path.contains(p.id.uuidString) && $0.why.contains("尚無任何 commit") }, "\(out)")
+        XCTAssertTrue(out.contains { $0.path.contains(q.id.uuidString) && $0.why.contains("未被 git 追蹤") }, "\(out)")
+        XCTAssertFalse(out.contains { $0.why.contains("無法執行 git") }, "git 明明跑得起來：\(out)")
     }
 
     /// 被併實體有**未提交的修改**：git 裡有的是舊版本，當下這版刪掉不可回復。
@@ -245,7 +312,7 @@ final class DivergenceResolveTests: XCTestCase {
         let bare = try makeStore(versioned: false)
         defer { try? FileManager.default.removeItem(at: bare) }
         let s = LibraryStore(root: bare)
-        let d = try seed(into: s)
+        let d = try seed(into: s, commit: false)
         let before = try snapshot(bare)
 
         XCTAssertThrowsError(try s.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")) { error in

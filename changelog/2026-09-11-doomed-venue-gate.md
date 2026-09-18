@@ -49,7 +49,7 @@ venue key 不會讓任何 holder 的 verdict value 變 stale。同一句假註�
 
 這張 issue 是 #555 的 diagnose 副產品：讀 `DivergenceResolve.swift` 的 organization
 分支時，注意到同一個 switch 裡 `.venue` 還在「上游已擋」那一格。#555 選了「裁決暫不做」，
-所以 org 那兩處的註解今天仍為真——但若日後實作，~~同樣的兩格~~ **三格**要一起補：`doomedRelativePaths`、`holderRelativePaths`、**以及 `predictedHolderVerdictMigration` 的 `case .org: break`**（R1 verify 第 9 列：只補前兩格會做出一個看起來完整、對 org holder 永遠回空的閘——與本張 issue 逐字同型）。
+所以 org 那兩處的註解今天仍為真——但若日後實作，~~同樣的兩格~~ ~~三格~~ **帶 `org-merge-slot` 標記的每一格**要一起補（數量以 grep 量、不寫死：R1 verify 第 9 列說三格，R2 同一個 commit 又新增兩格而散文仍寫三——R2 verify 第 8／15 列；只補部分會做出一個看起來完整、對 org holder 永遠回空的閘，與本張 issue 逐字同型）。
 
 ## R1 verify：四條驗收都成立，而它引用的原則沒收尾
 
@@ -71,7 +71,7 @@ work 檔）、被塌縮／改名的 divergence 記錄（第 5／17 列——`doo
 
 - `entriesTouchedByMerge` 是 preview 的 `rewritten` 與閘共用的一份判準（三個實跑迴圈各自有同一組，preview-vs-actual 測試釘住）。
 - `filesNotSafelyRecoverable` 改成兩個子程序問完全部（`ls-files -z`／`diff --name-only -z HEAD`）——名單可達數百筆 entry，逐檔兩個子程序
-  會讓一次合併跑上分鐘；語意不變。錯誤訊息改「刪掉或改寫之後」。
+  會讓一次合併跑上分鐘；~~語意不變~~ **R3 更正：語意在巢狀 store 上變了（見下）**。錯誤訊息改「刪掉或改寫之後」。
 - `holderRelativePaths` 的 `.venue` 註解改結構論證（`VerdictHolderKind` 封閉、`parse` 拒其他前綴、venue 寫入閘要求 parse 成功——
   `venue:` verdict 寫不出來），普查數字拿掉、preview 那份副本改引用；`doomedRelativePaths` 的 doc 歸位、改真話；`case .org: break` 指回三格。
 - `GitFixture.commit(_:paths:)` 任一句非零即 `XCTFail`；既有測試補「divergence 記錄不在清單」的斷言。
@@ -82,3 +82,19 @@ work 檔）、被塌縮／改名的 divergence 記錄（第 5／17 列——`doo
 
 **誠實邊界**：閘仍是 per-file tracked+clean，不是整棵樹；`DestructiveTargetGate` 不列 `resolve-divergence`（#580 一族）；org 的三格在 #555
 裁「暫不做」之下仍是空的。
+
+## R2 verify：批次化把 dirty 那一半打死了
+
+六席齊、每席一個 HIGH、六席同指一件事（Codex 盲審獨立命中）：`git ls-files` 的輸出相對 **cwd**、`git diff --name-only` 的輸出**預設相對 repo root**。
+R2 把兩個 per-file、看 exit status 的查詢換成兩個批次、比輸出路徑集合的查詢——store 是 repo 根時兩個基準重合（live store 今天如此，
+`rev-parse --show-prefix` 空），store 是 repo 子目錄時 `dirtySet` 裝的是 `store/entities/X.yaml`、永遠不等於 `rel`，「有未提交的修改」那一半
+**整個 fail-open**。五席真 binary 重現：巢狀 store、dirty 的被併檔——dry-run 沉默、實跑刪檔 rc 0、工作樹那一版永久消失。這是 R2 引入的回歸，
+而且方向是壞的那個；untracked 那一半不受影響（`ls-files` 是 cwd 相對）。R2 的 doc 寫「語意與逐檔相同」——pathspec 與 HEAD 相同，輸出基準不同，
+那句等價性沒有量測支撐。巢狀不是邊角：`isInsideVersionedWorkTree` 逐層往上找 `.git`，`outsideVersionControl` 的訊息主動建議「位於工作樹內的
+store」。R2 自己的四個新測試全在 store＝repo 根的 fixture 上跑，所以全綠——與 #558 立案時「fixture 一律 `commitAll`、從沒製造過那個狀態」同型。
+
+## R3：`--relative`，與一個巢狀 store 的測試
+
+`diff --name-only --relative -z HEAD -- <paths>`——輸出改成相對 cwd，與 `ls-files` 同基準。同一輪的 MEDIUM 一併處置：unborn HEAD（fresh `git init`）分開判、tracked 的檔報「尚無任何 commit」而不是「無法執行 git」（第 11／22 列）；pathspec 每 500 筆一批（第 20／33 列）；拒絕清單截 `Entry.perRecordWarningCap`＋「另有 N 個檔未列出（共 M 個）」（第 13／19 列）；org 的五個空格全加 `org-merge-slot` 標記、三處散文改成以 grep 量（第 8／15 列）；`docs/store-format.md` 的閘契約改「要刪或改寫」（第 7 列）；被改指 entry 與塌縮記錄的 dirty 測試（第 9 列）；`.work` 的觸及判準改以 keeper id（第 29 列）；`commitAll` 也驗狀態（第 24 列）；person 側倖存者測試補 dry-run（第 18 列）；註解第三句改三族 holder（第 17 列）。**代價再補一句**（第 23 列）：閘的輸入擴大後，它會**先於** shape 專屬診斷（`candidateMissing`、`wouldLoseFields`、名字不變式）開火——一筆與本次消歧無關、只是碰巧 dirty 的 entry 會讓使用者先看到「有未提交的修改」。git config 會改變 `ls-files`／`diff` 輸出的部分（`core.quotePath`——路徑純 ASCII 不受影響）記為邊界（第 21 列）。`testRefusesDirtyFilesWhenStoreIsARepoSubdirectory`
+把 store 放在 repo 的 `library/` 子目錄（斷言 `show-prefix` 是 `library/`），dirty 的被併實體、dirty 的倖存者各拒一次（實跑與 dry-run、
+只列那一個檔、`why` 說的是 dirty 不是 untracked），全部 commit 後照常通過。負控：拿掉 `--relative` → 紅。doc 改成寫出兩個基準與這一輪的來歷。

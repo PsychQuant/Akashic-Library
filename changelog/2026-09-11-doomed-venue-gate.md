@@ -85,7 +85,7 @@ work 檔）、被塌縮／改名的 divergence 記錄（第 5／17 列——`doo
 
 ## R2 verify：批次化把 dirty 那一半打死了
 
-六席齊、每席一個 HIGH、六席同指一件事（Codex 盲審獨立命中）：`git ls-files` 的輸出相對 **cwd**、`git diff --name-only` 的輸出**預設相對 repo root**。
+五席（DA 席撞 session limit、本輪缺席——R3 verify 六席齊重跑）、5 HIGH 同一件事、五席同指（Codex 盲審獨立命中；這一句 R3 曾寫成「六席齊、每席一個 HIGH」，是把 R1 的句子套到少一席的輪次上——R3 verify 第 2／6／8／38 列，四處一起改）：`git ls-files` 的輸出相對 **cwd**、`git diff --name-only` 的輸出**預設相對 repo root**。
 R2 把兩個 per-file、看 exit status 的查詢換成兩個批次、比輸出路徑集合的查詢——store 是 repo 根時兩個基準重合（live store 今天如此，
 `rev-parse --show-prefix` 空），store 是 repo 子目錄時 `dirtySet` 裝的是 `store/entities/X.yaml`、永遠不等於 `rel`，「有未提交的修改」那一半
 **整個 fail-open**。五席真 binary 重現：巢狀 store、dirty 的被併檔——dry-run 沉默、實跑刪檔 rc 0、工作樹那一版永久消失。這是 R2 引入的回歸，
@@ -95,6 +95,55 @@ store」。R2 自己的四個新測試全在 store＝repo 根的 fixture 上跑�
 
 ## R3：`--relative`，與一個巢狀 store 的測試
 
-`diff --name-only --relative -z HEAD -- <paths>`——輸出改成相對 cwd，與 `ls-files` 同基準。同一輪的 MEDIUM 一併處置：unborn HEAD（fresh `git init`）分開判、tracked 的檔報「尚無任何 commit」而不是「無法執行 git」（第 11／22 列）；pathspec 每 500 筆一批（第 20／33 列）；拒絕清單截 `Entry.perRecordWarningCap`＋「另有 N 個檔未列出（共 M 個）」（第 13／19 列）；org 的五個空格全加 `org-merge-slot` 標記、三處散文改成以 grep 量（第 8／15 列）；`docs/store-format.md` 的閘契約改「要刪或改寫」（第 7 列）；被改指 entry 與塌縮記錄的 dirty 測試（第 9 列）；`.work` 的觸及判準改以 keeper id（第 29 列）；`commitAll` 也驗狀態（第 24 列）；person 側倖存者測試補 dry-run（第 18 列）；註解第三句改三族 holder（第 17 列）。**代價再補一句**（第 23 列）：閘的輸入擴大後，它會**先於** shape 專屬診斷（`candidateMissing`、`wouldLoseFields`、名字不變式）開火——一筆與本次消歧無關、只是碰巧 dirty 的 entry 會讓使用者先看到「有未提交的修改」。git config 會改變 `ls-files`／`diff` 輸出的部分（`core.quotePath`——路徑純 ASCII 不受影響）記為邊界（第 21 列）。`testRefusesDirtyFilesWhenStoreIsARepoSubdirectory`
+`diff --name-only --relative -z HEAD -- <paths>`——輸出改成相對 cwd，與 `ls-files` 同基準。同一輪的 MEDIUM 一併處置：unborn HEAD（fresh `git init`）分開判、tracked 的檔報「尚無任何 commit」而不是「無法執行 git」（第 11／22 列）；pathspec 每 500 筆一批（第 20／33 列）；拒絕清單截 20 筆＋「另有 N 個檔未列出（共 M 個）」（第 13／19 列；R3 借的是 `Entry.perRecordWarningCap`，R4 改成自己的常數）；org 的安靜空格全加 `org-merge-slot` 標記、散文改成以 grep 量（第 8／15 列；數量與量法見 `zero-instance-guards` 第 24 列——2026-09-18 `grep -c 'org-merge-slot' Sources/AkashicStoreIO/DivergenceResolve.swift` 為 5；兩個會 throw `unsupportedShape` 的入口刻意不帶標記，它們是 loud 的，實作 org 合併時不可能不碰）；`docs/store-format.md` 的閘契約改「要刪或改寫」（第 7 列）；被改指 entry 與塌縮記錄的 dirty 測試（第 9 列）；`.work` 的觸及判準改以 keeper id（第 29 列）；`commitAll` 也驗狀態（第 24 列）；person 側倖存者測試補 dry-run（第 18 列）；註解第三句改三族 holder（第 17 列）。**代價再補一句**（第 23 列）：閘的輸入擴大後，它會**先於** shape 專屬診斷（`candidateMissing`、`wouldLoseFields`、名字不變式）開火——一筆與本次消歧無關、只是碰巧 dirty 的 entry 會讓使用者先看到「有未提交的修改」。git config 那一格（第 21 列）R3 記成「`core.quotePath` 是邊界」——**R3 verify 第 23 列實測為假**：兩個查詢都帶 `-z`，`core.quotePath` 對它們沒有作用（含非 ASCII 路徑），`diff.relative=false` 也不推翻顯式 `--relative`；那一格是已量測、已關閉，不是邊界（R4 改寫）。`testRefusesDirtyFilesWhenStoreIsARepoSubdirectory`
 把 store 放在 repo 的 `library/` 子目錄（斷言 `show-prefix` 是 `library/`），dirty 的被併實體、dirty 的倖存者各拒一次（實跑與 dry-run、
-只列那一個檔、`why` 說的是 dirty 不是 untracked），全部 commit 後照常通過。負控：拿掉 `--relative` → 紅。doc 改成寫出兩個基準與這一輪的來歷。
+只列那一個檔、`why` 說的是 dirty 不是 untracked），全部 commit 後照常通過。doc 改成寫出兩個基準與這一輪的來歷。
+
+R3 的負控（R3 verify 第 12 列：changelog 只記了一條，其餘只在 commit message）：
+
+| mutation | 預期紅的測試 | 結果 |
+|---|---|---|
+| 拿掉 `--relative` | `testRefusesDirtyFilesWhenStoreIsARepoSubdirectory` | 紅 |
+| `unborn` 恆為 false（R2 的形：每個檔「無法執行 git」） | `testUnbornHeadGivesItsOwnReason` | 紅 |
+| 拒絕清單不截 | `testRefusalListIsCappedAndDisclosesTheTotal` | 紅 |
+| dirty 那一半整個拿掉 | `testRefusesWhenTouchedEntryOrCollapsingRecordIsDirty` | 紅 |
+| `gitPathspecChunk = 1` | 全部 | 綠（分批不改語意——documented green） |
+| `commitAll` 的狀態檢查拿掉 | `testRefusesWhenDoomedVenueIsUntracked` | 綠（它守的是 fixture 的宣稱，不是被測性質——documented green） |
+
+## R3 verify：PASS，MEDIUM 全在訊息與文件
+
+六席齊、39 列（0 HIGH／9 MEDIUM／18 LOW／12 INFO），Aggregate PASS，tag `idd-558-verified` 在 `a56d412f`。R2 的 HIGH 在真 binary 上確認已修；DA 席沒能打破 (a)(b)(c)(d)
+四個攻擊面（`-z` 讓 `core.quotePath` 失效、顯式 `--relative` 勝過 `diff.relative=false`、symlink 的 store 路徑照常、603 檔兩個 chunk 的尾端 dirty 全部指名）。
+四席的 MEDIUM 沒有一列指到閘的**行為**：unborn 判定的訊息過寬（orphan 分支與 HEAD 指向不存在的 ref 也拿到「repo 尚無任何 commit」——假話、且叫人在
+orphan 分支上 commit；fail-closed 不變）、四處把 R2 的席次寫成六席、契約少列 holder 檔那一類、巢狀測試的 doc 宣稱三格實際兩格。security 席另抓到一個
+**三代同盲**的 fail-open（DA 席的歸因）：`assume-unchanged`／`skip-worktree` 位元讓 `git diff HEAD` 對那個檔閉嘴而 `ls-files` 照列，R1 的逐檔 `diff --quiet`
+與 R2／R3 的批次都判成 tracked+clean，真 binary 刪檔、磁碟版永久消失——不是本輪回歸，但它是本輪剛寫下邊界註記的那支謂詞。
+
+## R4：兩個分辨器，與把三處說錯的話改回來
+
+**D87**（Claude 代裁）：`rev-parse --verify --quiet HEAD` 非零後再問 `rev-list -n1 --all`——空才是真 unborn（訊息不變）；非空是 orphan 分支或 HEAD 指向
+不存在的 ref，報「HEAD 沒有指向任何 commit……切回有 commit 的分支後重跑」。兩種都仍拒：閘比的是 HEAD，HEAD 指不到 commit 就沒有可比對的版本；
+「拿別的 ref 上的版本當可回溯」要另一個判準（比哪個 ref？），記為誠實邊界——orphan 分支上這是過度拒絕，訊息說真話、修法指對方向。HEAD 內容是垃圾時
+`ls-files` 自己回 128、仍是「無法執行 git」（DA 第 25 列：合理）。**D88**：`ls-files -v` 的 tag 小寫（assume-unchanged）或 `S`（skip-worktree）即拒，
+訊息說 `git update-index --no-assume-unchanged`／`--no-skip-worktree`。其餘：拒絕清單改用**自己的**常數 `DivergenceResolveError.unrecoverableFilesCap`
+（R3 借 `Entry.perRecordWarningCap`，它的母體是 per-record warning，兩邊 doc 都沒提到對方——D30 `retiredItemsCap` 的形）；超限時補救句改「先把 store
+內未提交的變更全部 commit（共 M 個檔未通過，上面只列前 20 個）」；typed payload 在 throw 點不截，有測試釘住（第 14／17 列）；`filesNotSafelyRecoverable`
+自己去重（第 18 列）；`git()` 的 stderr 改 `nullDevice`（第 33 列：接 Pipe 不讀，塞滿是 hang）；`docs/store-format.md` 的閘契約補 holder 檔那一類與
+④ HEAD 解析不到、⑤ index 位元兩種理由（第 3／11／27 列——漏掉的那一類有一個使用者預期不到的後果：一次 **person** 合併會因一筆 **organization**
+記錄髒而被拒，因為 org 可持有 `person:<被併鍵>` 的 verdict）；巢狀測試補第三格（untracked 的 org holder）、倖存者格補 dry-run 腿（第 5／15 列）；
+`>500` 路徑的分批測試直呼 static API（第 22／26 列；doc 的「兩個數量級」改「約 1／40」，E2BIG 改條件式）；`PATH` 不在 `GIT_*` 剝除範圍記為
+邊界（第 20 列，另案 #585）。
+
+R4 的負控（每個 mutation 各自重編、跑對應測試、還原後逐位元組比對）：
+
+| mutation | 預期紅的測試 | 結果 |
+|---|---|---|
+| `rev-list` 分辨器拿掉（一律 unborn） | `testOrphanBranchAndBrokenHeadAreNotCalledAnEmptyRepo` | 見下方量測 |
+| assume-unchanged 的 tag 忽略 | `testIndexBitsThatHideEditsAreRefused` | 見下方量測 |
+| 函式內去重拿掉 | `testPathspecChunkingSpansBatches` | 見下方量測 |
+| tracked tag 不跨批 union | `testPathspecChunkingSpansBatches` | 見下方量測 |
+| throw 點截 payload | `testThrownPayloadIsNotCapped` | 見下方量測 |
+| holder 檔從閘拿掉 | `testRefusesDirtyFilesWhenStoreIsARepoSubdirectory` 第三格 | 見下方量測 |
+| 補救句不隨截斷切換 | `testRefusalListIsCappedAndDisclosesTheTotal` | 見下方量測 |
+| `gitPathspecChunk = 1` | 全部 | 綠（documented green） |
+

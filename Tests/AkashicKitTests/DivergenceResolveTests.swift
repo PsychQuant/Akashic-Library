@@ -119,9 +119,10 @@ final class DivergenceResolveTests: XCTestCase {
         XCTAssertEqual(after.people.first { $0.key == "fann-cathy-s-j" }?.names, ["A"], "拒絕後倖存者未被改寫")
     }
 
-    /// #558 R3（R2 verify 六席同指的 HIGH）：store 是 repo 的**子目錄**時，`git diff --name-only` 的輸出相對 repo root、`ls-files` 相對 cwd
+    /// #558 R3（R2 verify 五席同指的 HIGH——DA 席那一輪缺席）：store 是 repo 的**子目錄**時，`git diff --name-only` 的輸出相對 repo root、`ls-files` 相對 cwd
     /// ——R2 的批次比對對 dirty 那一半永遠不命中，dirty 的被併檔被直接刪掉、閘沉默（五席真 binary 重現）。`--relative` 讓兩個基準一致。
-    /// 三種狀態各測一格：dirty 的被併實體、dirty 的倖存者（D86 的改寫閘）、untracked 的歧異記錄（本來就過、釘住不退化）。
+    /// 三種狀態各測一格、每格實跑與 dry-run 兩腿：dirty 的被併實體、dirty 的倖存者（D86 的改寫閘）、untracked 的第三方 holder
+    /// （釘住「`ls-files` 是 cwd 相對」在巢狀佈局下那句話——R4；R3 verify 第 5／15 列：R3 的 doc 宣稱三格，實際只有兩格、倖存者只跑實跑）。
     func testRefusesDirtyFilesWhenStoreIsARepoSubdirectory() throws {
         let repoRoot = FileManager.default.temporaryDirectory.appendingPathComponent("akashic-nested-\(UUID().uuidString)")
         let nested = repoRoot.appendingPathComponent("library")
@@ -149,22 +150,50 @@ final class DivergenceResolveTests: XCTestCase {
         XCTAssertEqual(try s.load().people.count, 2, "拒絕後不得動到任何檔案")
         GitFixture.commitAll(repoRoot, message: "note")
         try dirty(try XCTUnwrap(people.first { $0.key == "fann-cathy-s-j" }).id)     // 倖存者 dirty（D86）
-        XCTAssertThrowsError(try s.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")) { err in
-            guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("\(err)") }
-            XCTAssertTrue(files.contains { $0.why.contains("未提交的修改") } && files.count == 1, "\(files)")
+        for (desc, op) in [("實跑", { _ = try s.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j") }),
+                           ("dry-run", { _ = try s.previewResolveDivergence(id: d.id, survivor: "fann-cathy-s-j", overrideReason: nil) })] {
+            XCTAssertThrowsError(try op(), "\(desc)：巢狀 store 的 dirty 倖存者要拒") { err in
+                guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("\(desc)：\(err)") }
+                XCTAssertTrue(files.contains { $0.why.contains("未提交的修改") } && files.count == 1, "\(desc)：\(files)")
+            }
         }
         GitFixture.commitAll(repoRoot, message: "note 2")
         XCTAssertNoThrow(try s.previewResolveDivergence(id: d.id, survivor: "fann-cathy-s-j", overrideReason: nil), "全部 commit 後巢狀 store 照常通過")
+        // 第三格：一筆持有指向被併鍵 verdict 的 organization 記錄，寫了沒 commit——holder 檔進閘，理由要是 untracked 不是 dirty
+        var holder = Organization(key: "iss", names: TimelineOf([TemporalValue(value: "ISS")]))
+        holder.references = [ProvenanceReference(
+            field: "resolution-confirmed",
+            value: ProvenanceReference.VerdictPairingValue(holderKind: .person, holder: "fann-cathy-s-j-2", literal: "Fann").encoded,
+            kind: .judgement(statement: "測試用判定", restsOn: []))]
+        _ = try s.writeOrganization(holder)                                          // untracked
+        for (desc, op) in [("實跑", { _ = try s.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j") }),
+                           ("dry-run", { _ = try s.previewResolveDivergence(id: d.id, survivor: "fann-cathy-s-j", overrideReason: nil) })] {
+            XCTAssertThrowsError(try op(), "\(desc)：巢狀 store 的 untracked holder 要拒") { err in
+                guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("\(desc)：\(err)") }
+                XCTAssertEqual(files.count, 1, "\(desc)：\(files)")
+                XCTAssertTrue(files.contains { $0.path.contains(holder.id.uuidString) && $0.why.contains("未被 git 追蹤") }, "\(desc)：要說是 untracked 不是 dirty：\(files)")
+            }
+        }
+        GitFixture.commitAll(repoRoot, message: "holder")
+        XCTAssertNoThrow(try s.previewResolveDivergence(id: d.id, survivor: "fann-cathy-s-j", overrideReason: nil))
     }
 
-    /// #558 R3（R2 verify 第 13／19 列）：拒絕清單自 D86 起由 store 內容決定體積——截 `Entry.perRecordWarningCap` 並揭露總數，
-    /// 否則 96 KB 的 sink 會無聲截掉尾巴、使用者看不出還有幾筆。
+    /// #558 R3（R2 verify 第 13／19 列）：拒絕清單自 D86 起由 store 內容決定體積——截 `unrecoverableFilesCap` 並揭露總數，
+    /// 否則 96 KB 的 sink 會無聲截掉尾巴、使用者看不出還有幾筆。R4（R3 verify 第 9／14／16／17 列）：常數是這個錯誤**自己的**（不借
+    /// `Entry.perRecordWarningCap`——它的母體是 per-record warning），超限時補救句不再說「這些檔案」，typed payload 不截。
     func testRefusalListIsCappedAndDisclosesTheTotal() {
-        let files = (0..<25).map { (path: "entities/F\($0).yaml", why: "未被 git 追蹤") }
+        let cap = DivergenceResolveError.unrecoverableFilesCap
+        let files = (0..<(cap + 5)).map { (path: "entities/F\($0).yaml", why: "未被 git 追蹤") }
         let msg = DivergenceResolveError.deletionNotRecoverable(files: files).errorDescription ?? ""
-        XCTAssertEqual(msg.components(separatedBy: "\n  - ").count - 1, Entry.perRecordWarningCap, msg)
-        XCTAssertTrue(msg.contains("另有 5 個檔未列出（共 25 個）") && msg.contains("（共 25 個）："), msg)
-        XCTAssertFalse(DivergenceResolveError.deletionNotRecoverable(files: Array(files.prefix(3))).errorDescription!.contains("另有"), "未超過上限不加概括句")
+        XCTAssertEqual(msg.components(separatedBy: "\n  - ").count - 1, cap, msg)
+        XCTAssertTrue(msg.contains("另有 5 個檔未列出（共 \(cap + 5) 個）") && msg.contains("（共 \(cap + 5) 個）："), msg)
+        XCTAssertTrue(msg.contains("先把 store 內未提交的變更全部 commit") && !msg.contains("這些檔案（或確認"), "超限時補救句不得只指被列出的那幾個：\(msg)")
+        let short = DivergenceResolveError.deletionNotRecoverable(files: Array(files.prefix(3))).errorDescription!
+        XCTAssertFalse(short.contains("另有"), "未超過上限不加概括句")
+        XCTAssertTrue(short.contains("這些檔案（或確認"), "未超限時補救句照舊指這幾個檔：\(short)")
+        if case DivergenceResolveError.deletionNotRecoverable(let payload) = DivergenceResolveError.deletionNotRecoverable(files: files) {
+            XCTAssertEqual(payload.count, cap + 5, "typed payload 不截——截的只有 errorDescription")
+        }
     }
 
     /// #558 R3（R2 verify 第 11／22 列）：fresh `git init`、零 commit 的 store——tracked 的檔要說「還沒有任何版本」，不是「無法執行 git」。
@@ -180,6 +209,110 @@ final class DivergenceResolveTests: XCTestCase {
         XCTAssertTrue(out.contains { $0.path.contains(p.id.uuidString) && $0.why.contains("尚無任何 commit") }, "\(out)")
         XCTAssertTrue(out.contains { $0.path.contains(q.id.uuidString) && $0.why.contains("未被 git 追蹤") }, "\(out)")
         XCTAssertFalse(out.contains { $0.why.contains("無法執行 git") }, "git 明明跑得起來：\(out)")
+    }
+
+    /// #558 R4（R3 verify 第 1／4／10／19／21／25 列，D87）：`rev-parse --verify --quiet HEAD` 非零**不只**在 unborn——orphan 分支
+    /// （`checkout --orphan`）與 HEAD 指向不存在的 ref 時同樣非零，而 repo 裡**有** commit。R3 對它們一律說「repo 尚無任何 commit」——
+    /// 假話、且叫人在 orphan 分支上 commit。分辨器是 `rev-list -n1 --all`：空才是真 unborn。兩者都仍拒（HEAD 指不到 commit 就沒有可比對
+    /// 的版本——過度拒絕是有記錄的誠實邊界），但訊息要說真話、指向「切回有 commit 的分支」。
+    func testOrphanBranchAndBrokenHeadAreNotCalledAnEmptyRepo() throws {
+        let d = try seed(into: store)                                // seed 已 commit（master 上有版本）
+        let people = try store.load().people
+        let paths = people.map { "entities/\($0.id.uuidString).yaml" }
+        XCTAssertEqual(GitFixture.run(["checkout", "-q", "--orphan", "wip"], in: root), 0)
+        let orphan = LibraryStore.filesNotSafelyRecoverable(root: root, relativePaths: paths)
+        XCTAssertEqual(orphan.count, 2, "\(orphan)")
+        XCTAssertTrue(orphan.allSatisfy { $0.why.contains("HEAD 沒有指向任何 commit") }, "\(orphan)")
+        XCTAssertFalse(orphan.contains { $0.why.contains("尚無任何 commit") || $0.why.contains("無法執行 git") }, "repo 有 commit，不得說沒有：\(orphan)")
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")) { err in
+            guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("\(err)") }
+            XCTAssertTrue(files.allSatisfy { $0.why.contains("切回") }, "訊息要指向切回有 commit 的分支：\(files)")
+        }
+        // HEAD 指向不存在的 ref（手改／損壞的 `.git/HEAD`）——同一句話；`ls-files` 仍讀得到 index
+        try "ref: refs/heads/does-not-exist\n".write(to: root.appendingPathComponent(".git/HEAD"), atomically: true, encoding: .utf8)
+        let broken = LibraryStore.filesNotSafelyRecoverable(root: root, relativePaths: paths)
+        XCTAssertEqual(broken.count, 2, "\(broken)")
+        XCTAssertTrue(broken.allSatisfy { $0.why.contains("HEAD 沒有指向任何 commit") }, "\(broken)")
+    }
+
+    /// #558 R4（R3 verify 第 7／24 列，D88）：`assume-unchanged`／`skip-worktree` 位元讓 `git diff HEAD` **不報**那個檔，而 `ls-files`
+    /// 仍列它——R1／R2／R3 三代都判成 tracked+clean、真 binary 刪檔、磁碟版永久消失。`ls-files -v` 的 tag 小寫（assume-unchanged）
+    /// 或 `S`（skip-worktree）即拒：git 的工作樹比對對它不作數，閘無從確認可回溯性。
+    func testIndexBitsThatHideEditsAreRefused() throws {
+        let d = try seed(into: store)
+        let people = try store.load().people
+        let doomed = try XCTUnwrap(people.first { $0.key == "fann-cathy-s-j-2" })
+        let survivor = try XCTUnwrap(people.first { $0.key == "fann-cathy-s-j" })
+        func edit(_ id: UUID) throws {
+            let url = store.entityURL(id: id)
+            try (String(contentsOf: url, encoding: .utf8) + "# ONLY ON DISK\n").write(to: url, atomically: true, encoding: .utf8)
+        }
+        for (flag, id, label) in [("--assume-unchanged", doomed.id, "assume-unchanged"), ("--skip-worktree", survivor.id, "skip-worktree")] {
+            XCTAssertEqual(GitFixture.run(["update-index", flag, "--", "entities/\(id.uuidString).yaml"], in: root), 0)
+            try edit(id)
+            XCTAssertEqual(GitFixture.capture(["diff", "--name-only", "HEAD", "--", "entities/\(id.uuidString).yaml"], in: root), "", "前提：git 自己對這個檔閉嘴")
+            for (desc, op) in [("實跑", { _ = try self.store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j") }),
+                               ("dry-run", { _ = try self.store.previewResolveDivergence(id: d.id, survivor: "fann-cathy-s-j", overrideReason: nil) })] {
+                XCTAssertThrowsError(try op(), "\(desc)／\(label)") { err in
+                    guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("\(desc)／\(label)：\(err)") }
+                    XCTAssertEqual(files.count, 1, "\(desc)／\(label)：\(files)")
+                    XCTAssertTrue(files.contains { $0.path.contains(id.uuidString) && $0.why.contains(label) }, "\(desc)／\(label)：\(files)")
+                }
+            }
+            XCTAssertEqual(GitFixture.run(["update-index", "--no" + flag.dropFirst(), "--", "entities/\(id.uuidString).yaml"], in: root), 0)
+            XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "fann-cathy-s-j", overrideReason: nil)) { err in
+                guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("\(err)") }
+                XCTAssertTrue(files.contains { $0.why.contains("未提交的修改") }, "拿掉位元後它就是一個普通的 dirty 檔：\(files)")
+            }
+            GitFixture.commitAll(root, message: label)
+        }
+        XCTAssertEqual(try store.load().people.count, 2, "全程零寫入")
+        XCTAssertNoThrow(try store.previewResolveDivergence(id: d.id, survivor: "fann-cathy-s-j", overrideReason: nil))
+    }
+
+    /// #558 R4（R3 verify 第 14／17 列）：`deletionNotRecoverable` 的 typed payload 在 **throw 點**也不截——只有 `errorDescription` 截。
+    /// 用一次真的合併：被併 person 被 25 筆 untracked 的 work 引用，閘的清單是 25 筆、payload 要 25 筆、描述只列 `unrecoverableFilesCap` 筆。
+    func testThrownPayloadIsNotCapped() throws {
+        let d = try seed(into: store)
+        let n = DivergenceResolveError.unrecoverableFilesCap + 5
+        for i in 0..<n {
+            var w = Entry(id: UUID(), citekey: "cite\(i)", type: .periodicalArticle, title: "T\(i)")
+            w.authors = [.key("fann-cathy-s-j-2")]
+            try store.writeEntry(w)                                  // untracked：被改指的 entry 進閘
+        }
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "fann-cathy-s-j", overrideReason: nil)) { err in
+            guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("\(err)") }
+            XCTAssertEqual(files.count, n, "payload 不截：\(files.count)")
+            let msg = err.localizedDescription
+            XCTAssertEqual(msg.components(separatedBy: "\n  - ").count - 1, DivergenceResolveError.unrecoverableFilesCap, msg)
+            XCTAssertTrue(msg.contains("（共 \(n) 個）"), msg)
+        }
+    }
+
+    /// #558 R4（R3 verify 第 22／26 列）：pathspec 分批的迴圈在整套測試裡從沒跨過第二批（沒有 fixture 超過 `gitPathspecChunk`）。
+    /// 直呼 static API 餵超過一批的路徑：tracked 集合要跨批 union（尾批的 dirty／untracked 全部指名、頭批的 clean 不被誤報）、零 `cannotRun`、
+    /// 重複的輸入只算一筆（第 18 列：去重是函式自己的事）。
+    func testPathspecChunkingSpansBatches() throws {
+        let n = LibraryStore.gitPathspecChunk + 100
+        var paths: [String] = []
+        for i in 0..<n {
+            var p = Person(key: "p-\(i)"); p.names = ["P \(i)"]
+            try store.writePerson(p)
+            paths.append("entities/\(p.id.uuidString).yaml")
+        }
+        GitFixture.commitAll(root, message: "many")
+        for rel in paths.suffix(3) {                                 // 尾批 dirty
+            let url = root.appendingPathComponent(rel)
+            try (String(contentsOf: url, encoding: .utf8) + "# dirty\n").write(to: url, atomically: true, encoding: .utf8)
+        }
+        var extra = Person(key: "p-extra"); extra.names = ["X"]; try store.writePerson(extra)   // 尾批 untracked
+        let extraPath = "entities/\(extra.id.uuidString).yaml"
+        let input = paths + [extraPath] + Array(paths.suffix(2))     // 重複兩筆 dirty 的——不去重會變 6 筆
+        let out = LibraryStore.filesNotSafelyRecoverable(root: root, relativePaths: input)
+        XCTAssertEqual(out.count, 4, "\(out)")
+        XCTAssertEqual(Set(out.map(\.path)), Set(paths.suffix(3) + [extraPath]))
+        XCTAssertTrue(out.filter { $0.why.contains("未提交的修改") }.count == 3 && out.filter { $0.why.contains("未被 git 追蹤") }.count == 1, "\(out)")
+        XCTAssertFalse(out.contains { $0.why.contains("無法執行 git") }, "\(out)")
     }
 
     /// 被併實體有**未提交的修改**：git 裡有的是舊版本，當下這版刪掉不可回復。

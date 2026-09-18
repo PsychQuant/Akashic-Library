@@ -54,6 +54,11 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
                            : "持有記錄「\(displaySafeInvisible(record, max: 200))」（它持有指向被併鍵的 verdict，遷移後）"
     }
 
+    /// `deletionNotRecoverable` 的描述最多列幾個檔（R3；R4 改成**自己的**常數——R3 verify 第 9／16 列：R3 借 `Entry.perRecordWarningCap`，
+    /// 而那個常數的母體是「一筆記錄上同一族 per-record warning」，這裡是消歧前置的 error payload、既不是 per-record 也不是 warning；
+    /// 兩邊的 doc 都沒提到對方，調任一邊會安靜改變另一邊。D30 的 `retiredItemsCap` 是同形的先例：自己的常數、自己的概括句）。
+    public static let unrecoverableFilesCap = 20
+
     public var errorDescription: String? {
         switch self {
         case let .recordNotFound(id):
@@ -68,15 +73,20 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
                  + "消歧會刪掉被併記錄與歧異記錄本身，歷史託給版本控制而非 store；"
                  + "版控之外刪掉就是真的沒了。先把 store 放進版控（或改用位於工作樹內的 store）再試。"
         case let .deletionNotRecoverable(files):
-            // 清單自 D86 起由 store 內容決定體積（venue 合併可達千筆 entry）——截 `Entry.perRecordWarningCap`、揭露總數，與 D30／D66 同一條紀律
-            // （#558 R3；R2 verify 第 13／19 列：96 KB sink 會無聲截掉尾巴）
-            let cap = Entry.perRecordWarningCap
-            let listed = files.prefix(cap).map { "  - \(displaySafeInvisible($0.path, max: 300))：\(displaySafeInvisible($0.why, max: 300))" }   // why 今天是四個字面常量之一（filesNotSafelyRecoverable），逃它是為了讓守衛的「files 已逃」對整個 tuple 為真（R31；R30 verify 第 15 列：守衛看 binding 不看 tuple 成員）
-            let more = files.count > cap ? "\n  …另有 \(files.count - cap) 個檔未列出（共 \(files.count) 個）" : ""   // display-safe-exempt: files.count／cap 是 Int
+            // 清單自 D86 起由 store 內容決定體積（venue 合併可達千筆 entry）——截 `unrecoverableFilesCap`、揭露總數，與 D30／D66 同一條紀律
+            // （#558 R3；R2 verify 第 13／19 列：96 KB sink 會無聲截掉尾巴）。**typed payload `files` 不截**——截的只有這段文字。
+            let cap = Self.unrecoverableFilesCap
+            let listed = files.prefix(cap).map { "  - \(displaySafeInvisible($0.path, max: 300))：\(displaySafeInvisible($0.why, max: 300))" }   // why 今天是 filesNotSafelyRecoverable 的幾個字面常量之一，逃它是為了讓守衛的「files 已逃」對整個 tuple 為真（R31；R30 verify 第 15 列：守衛看 binding 不看 tuple 成員）
+            let truncated = files.count > cap
+            let more = truncated ? "\n  …另有 \(files.count - cap) 個檔未列出（共 \(files.count) 個）" : ""   // display-safe-exempt: files.count／cap 是 Int
+            // 超限時「這些檔案」字面只剩前 cap 個，照做要 ⌈M／cap⌉ 輪才收斂（R4；R3 verify 第 17 列）——改叫人一次 commit 全部
+            let remedy = truncated
+                ? "先把 store 內未提交的變更全部 commit（共 \(files.count) 個檔未通過檢查，上面只列前 \(cap) 個；或確認 entities/ 沒被 .gitignore 擋），再重跑同一個 id。"   // display-safe-exempt: files.count／cap 是 Int
+                : "先 `git add` 並 `git commit` 這些檔案（或確認 entities/ 沒被 .gitignore 擋），再重跑同一個 id。"
             return "以下檔案刪掉或改寫之後無法從版控取回，拒絕消歧（共 \(files.count) 個）：\n"   // display-safe-exempt: files.count 是 Int
                  + listed.joined(separator: "\n") + more
                  + "\n消歧會刪掉被併記錄與歧異記錄本身、並改寫倖存者與指向被併鍵的記錄，歷史託給版控而非 store。"
-                 + "先 `git add` 並 `git commit` 這些檔案（或確認 entities/ 沒被 .gitignore 擋），再重跑同一個 id。"
+                 + remedy
         case let .migrationCollision(details):
             return "拒絕消歧：候選遷移後會有兩筆記錄指向同一組候選，而它們內容不同"
                 + "——「同一組候選＝同一筆記錄」是 judgement 與 prefers 三道守衛的"
@@ -3101,11 +3111,27 @@ extension LibraryStore {
     /// **兩個子程序問完全部**（#558 R2）：D86 之後名單含被改寫的 entry 檔，一本大刊可達數百筆，逐檔兩個子程序會讓一次合併跑上分鐘。
     /// `ls-files -z -- <paths>` 列出 tracked 的、`diff --name-only --relative -z HEAD -- <paths>` 列出 dirty 的；分批送、unborn HEAD 另有自己的理由。
     ///
-    /// **`--relative` 不是裝飾**（#558 R3；R2 verify 六席同指、五席真 binary 重現）：`ls-files` 的輸出相對 **cwd**（`-C root` ⇒ store 相對，
+    /// **`--relative` 不是裝飾**（#558 R3；R2 verify 五席同指、五席真 binary 重現——那一輪 DA 席缺席）：`ls-files` 的輸出相對 **cwd**（`-C root` ⇒ store 相對，
     /// 與 `rel` 同基準），`diff --name-only` 的輸出**預設相對 repo root**——store 是 repo 子目錄時印 `store/entities/X.yaml`、永遠不等於
     /// `rel`，dirty 那一半整個 fail-open；R2 之前逐檔 `diff --quiet` 只看 exit status、與基準無關。live store 今天是 repo 根（`show-prefix`
     /// 空），所以是零實例的潛在缺陷；而 `isInsideVersionedWorkTree` 逐層往上找 `.git`、`outsideVersionControl` 的訊息主動建議「位於工作樹內
     /// 的 store」——巢狀是明文支援的佈局。`testRefusesDirtyFilesWhenStoreIsARepoSubdirectory` 釘住兩個基準一致。
+    ///
+    /// **HEAD 解析不到有兩種，訊息分開說**（#558 R4，D87；R3 verify 第 1／4／10／19／21／25 列）：`rev-parse --verify --quiet HEAD` 非零時，
+    /// `rev-list -n1 --all` 為空才是真 unborn（`git init` 之後零 commit）；非空是 orphan 分支或 HEAD 指向不存在的 ref——repo **有** commit、
+    /// 檔案在別的分支上取得回來，R3 對它們一律說「repo 尚無任何 commit」是假話、還叫人在 orphan 分支上 commit。兩種都仍拒：閘比的是 HEAD，
+    /// HEAD 指不到 commit 就沒有可比對的版本；「拿別的 ref 上的版本當可回溯」要另一個判準（比哪個 ref？），記為誠實邊界——orphan 分支上
+    /// 這是一次過度拒絕，訊息改指「切回有 commit 的分支」。HEAD 內容是垃圾（`deadbeef`）時 `ls-files` 自己回 128，仍是 `cannotRun`——合理。
+    ///
+    /// **index 位元**（#558 R4，D88；R3 verify 第 7／24 列——R1／R2／R3 三代同盲，security 席真 binary 刪檔重現）：`assume-unchanged`／
+    /// `skip-worktree` 讓 `git diff HEAD` 對那個檔閉嘴，`ls-files` 卻照列——閘判成 tracked+clean、磁碟版被刪。`ls-files -v` 的 tag 小寫
+    /// （assume-unchanged）或 `S`（skip-worktree）即拒：git 的工作樹比對對它不作數，無從確認可回溯性。
+    ///
+    /// **輸入自己去重**（R4；R3 verify 第 18 列）：倖存者可能同時出現在 holder 與 rewritten 名單，重複會灌水 `files.count` 與截斷；R3 之前
+    /// 靠唯一呼叫端的 `dedupePreservingOrder`，而 R3 把本函式變成測試直呼的 API。
+    ///
+    /// **已量測、不是邊界**（R4；R3 verify 第 23 列）：兩個查詢都帶 `-z`，`core.quotePath` 對它們**沒有作用**（實測含非 ASCII 路徑）；顯式
+    /// `--relative` 勝過 `diff.relative=false`。**仍是邊界的**：`PATH`（見 `scrubbedGitEnvironment`）。
     static func filesNotSafelyRecoverable(root: URL,
                                           relativePaths: [String]) -> [(path: String, why: String)] {
         // **不存在的檔案跳過。** 它不可能被「不可回復地刪除」——刪除迴圈對它是
@@ -3113,28 +3139,41 @@ extension LibraryStore {
         // 不存在，那是**佈局不一致**，由 `assertAllInEntities` 給出可行動的診斷
         // （「先跑 akashic migrate」）。這道 gate 若先開火，使用者會拿到一句
         // 「未被 git 追蹤」——正確但完全指錯方向。
-        let present = relativePaths.filter { FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path) }
+        let present = dedupePreservingOrder(relativePaths).filter { FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path) }
         guard !present.isEmpty else { return [] }
         let cannotRun = "無法執行 git，無從確認可回溯性"
-        func names(_ out: String) -> Set<String> { Set(out.split(separator: "\0").map(String.init).filter { !$0.isEmpty }) }
-        // unborn HEAD（`git init` 之後零 commit）：`diff HEAD` 回 128——那不是「無法執行 git」，是「還沒有任何版本可回復」；
-        // R2 把兩個查詢綁在一個 guard 裡，fresh repo 上每個檔（含 tracked+clean 的）都被報成工具壞了（R3；R2 verify 第 11／22 列）。
-        // 只有子程序**起不來**才是 `cannotRun`。
+        func names(_ out: String) -> [String] { out.split(separator: "\0").map(String.init).filter { !$0.isEmpty } }
+        // HEAD 解析不到（`rev-parse` 非零）不是「無法執行 git」——R2 把兩個查詢綁在一個 guard 裡，fresh repo 上每個檔（含 tracked+clean 的）
+        // 都被報成工具壞了（R3；R2 verify 第 11／22 列）。只有子程序**起不來**才是 `cannotRun`。
         guard let head = git(["rev-parse", "--verify", "--quiet", "HEAD"], in: root) else {
             return present.map { (path: $0, why: cannotRun) }
         }
-        let unborn = head.status != 0
-        var trackedSet = Set<String>(), dirtySet = Set<String>()
-        // 分批送 pathspec（R3；R2 verify 第 20／33 列）：整份名單塞進一個 argv 在 E2BIG 時 `Process.run()` 擲出、每個檔都變成
-        // `cannotRun`——fail-closed 但完全指錯方向；每批 `gitPathspecChunk` 筆離 ARG_MAX 兩個數量級。
-        for start in stride(from: 0, to: present.count, by: Self.gitPathspecChunk) {
-            let chunk = Array(present[start..<Swift.min(start + Self.gitPathspecChunk, present.count)])
-            guard let tracked = git(["ls-files", "-z", "--"] + chunk, in: root), tracked.status == 0 else {
+        enum HeadState { case resolved, unborn, unresolvable }
+        let headState: HeadState
+        if head.status == 0 {
+            headState = .resolved
+        } else {
+            // 分辨器（R4，D87）：`rev-list -n1 --all` 為空才是零 commit；非空是 orphan 分支或 HEAD 指向不存在的 ref
+            guard let any = git(["rev-list", "-n1", "--all"], in: root), any.status == 0 else {
                 return present.map { (path: $0, why: cannotRun) }
             }
-            trackedSet.formUnion(names(tracked.out))
-            if !unborn {
-                // `--relative`：輸出改成相對 cwd（＝store root），與 `ls-files` 同基準——不加時相對 repo root，巢狀 store 上 dirty 永不命中（R2 verify 六路）
+            headState = any.out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .unborn : .unresolvable
+        }
+        var tag: [String: Character] = [:], dirtySet = Set<String>()
+        // 分批送 pathspec（R3；R2 verify 第 20／33 列）：整份名單塞進一個 argv 超過 ARG_MAX 時 `Process.run()` 會擲出、每個檔都變成
+        // `cannotRun`——fail-closed 但完全指錯方向；每批 `gitPathspecChunk` 筆約是 ARG_MAX 的 1／40（實測要兩萬多個 pathspec 才撞到）。
+        for start in stride(from: 0, to: present.count, by: Self.gitPathspecChunk) {
+            let chunk = Array(present[start..<Swift.min(start + Self.gitPathspecChunk, present.count)])
+            // `-v`：每筆帶一個 tag——`H` 正常、小寫＝assume-unchanged、`S`＝skip-worktree（D88）；格式 `<tag> <path>`
+            guard let tracked = git(["ls-files", "-v", "-z", "--"] + chunk, in: root), tracked.status == 0 else {
+                return present.map { (path: $0, why: cannotRun) }
+            }
+            for entry in names(tracked.out) {
+                guard let t = entry.first, entry.count > 2 else { continue }
+                tag[String(entry.dropFirst(2))] = t
+            }
+            if headState == .resolved {
+                // `--relative`：輸出改成相對 cwd（＝store root），與 `ls-files` 同基準——不加時相對 repo root，巢狀 store 上 dirty 永不命中（R2 verify 五路）
                 guard let dirty = git(["diff", "--name-only", "--relative", "-z", "HEAD", "--"] + chunk, in: root), dirty.status == 0 else {
                     return present.map { (path: $0, why: cannotRun) }
                 }
@@ -3143,10 +3182,18 @@ extension LibraryStore {
         }
         var bad: [(path: String, why: String)] = []
         for rel in present {
-            if !trackedSet.contains(rel) {
+            guard let t = tag[rel] else {
                 bad.append((rel, "未被 git 追蹤（從未 commit，或被 .gitignore 擋掉）"))
-            } else if unborn {
+                continue
+            }
+            if t.isLowercase {
+                bad.append((rel, "index 標了 assume-unchanged，git 的工作樹比對對它不作數、無從確認可回溯性——先 `git update-index --no-assume-unchanged` 再重跑"))
+            } else if t == "S" {
+                bad.append((rel, "index 標了 skip-worktree，git 的工作樹比對對它不作數、無從確認可回溯性——先 `git update-index --no-skip-worktree` 再重跑"))
+            } else if headState == .unborn {
                 bad.append((rel, "repo 尚無任何 commit——git 裡沒有任何版本可回復，先 commit"))
+            } else if headState == .unresolvable {
+                bad.append((rel, "HEAD 沒有指向任何 commit（orphan 分支，或 HEAD 指向不存在的 ref）——repo 裡有 commit，但當下比對不到版本；切回有 commit 的分支後重跑"))
             } else if dirtySet.contains(rel) {
                 bad.append((rel, "有未提交的修改——git 裡的是舊版本，當下這版刪掉或改寫都不可回復"))
             }
@@ -3154,7 +3201,8 @@ extension LibraryStore {
         return bad
     }
 
-    /// 一次 git 呼叫最多帶幾個 pathspec（R3）：500 × 51 bytes ≈ 26 KB，ARG_MAX 1 MiB。
+    /// 一次 git 呼叫最多帶幾個 pathspec（R3）：500 × 51 bytes ≈ 26 KB，ARG_MAX 1 MiB——約 1／40，不是「兩個數量級」（R3 verify 第 22 列）。
+    /// `testPathspecChunkingSpansBatches` 讓迴圈真的跨第二批（R4；R3 之前整套測試沒有 fixture 超過一批）。
     static let gitPathspecChunk = 500
 
     /// 子程序環境：**剝除全部 `GIT_*`**（#239）。
@@ -3165,6 +3213,10 @@ extension LibraryStore {
     /// CLI）都會讓這些檢查對**錯的 repo** 提問。
     ///
     /// 用前綴剝除而非列舉具名變數：git 版本會新增變數，列舉會隨時間漏掉。
+    ///
+    /// **`PATH` 不在剝除範圍——這是有記錄的邊界，不是疏漏**（#558 R3 verify 第 20 列，security 席用一個排在 `PATH` 前面的 `git` shim
+    /// 讓可回溯性閘從拒絕變成靜默完成）。它決定的是「哪個程式回答問題」而不是「問哪個 repo」，屬 defense-in-depth：能改 `PATH` 的人
+    /// 已能以使用者身分執行任意程式。釘 `PATH` 或改絕對路徑會影響本 repo 全部 git 呼叫端（含測試 fixture），另案裁決（#585）。
     static var scrubbedGitEnvironment: [String: String] {
         ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
     }
@@ -3179,7 +3231,7 @@ extension LibraryStore {
         p.environment = scrubbedGitEnvironment
         let pipe = Pipe()
         p.standardOutput = pipe
-        p.standardError = Pipe()
+        p.standardError = FileHandle.nullDevice   // 從不讀它——接 Pipe 而不讀，stderr 塞滿時是 hang 不是 crash（R3 verify security 第 33 列）
         do { try p.run() } catch { return nil }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()

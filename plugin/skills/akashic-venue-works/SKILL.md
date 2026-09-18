@@ -107,8 +107,10 @@ APA 九〇年代的 DOI 正式形帶**雙斜線**（`10.1037//…`），OpenAlex
 6. `resolve-venues` **先列候選過目**（歧義與未命中要報出來）→ `--apply`。exact 命中寫
    confirmed verdict 是該面的既有契約（#304 的 venue-name-exact）；本刊零歧義是
    **這一刊的結果，不外推**——下一刊有歧義就逐筆人裁
-7. OpenAlex 給的 ISSN 若庫內缺：**先核對**（print／electronic 角色、確屬本刊）再
-   `update-venue --add-issn`——ISSN 寫入是 venue 身分斷言，不是順手動作
+7. OpenAlex 給的 ISSN 若庫內缺：ISSN 寫入是 venue 身分斷言，不是順手動作——紀律只寫在
+   [`akashic-verify-venue`](../akashic-verify-venue/SKILL.md) Step 3 那一份（確屬本刊而非姊妹刊、在 ISSN Portal 或出版商頁再確認、
+   使用者看過報告第 4 項才寫、只送裸號、**一定用陣列**、單獨呼叫、核對 `issnAdded`／`issnTotal`）。這一步曾寫「先核對
+   print／electronic 角色」——角色只能記在報告裡，兩個寫入面都記不下它（#587；#556 R2 verify）
 8. **報告（逐筆可審的實體）**：新增／conflict／twin-candidates／各排除類計數／
    缺摘要清單（階段 B 輸入）——每筆帶 citekey 或 DOI 與處置，不只總數
 

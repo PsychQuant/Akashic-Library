@@ -433,25 +433,17 @@ public extension LibraryStore {
 }
 
 public extension LibraryStore {
-    /// **同一筆記錄對同一個配對同時說「是」與「不是」**（#486）。
+    /// **歧異記錄的候選 shape 不在 `DivergenceResolveError.mergeableShapes` 裡**——記得起來、解不掉（#555 R2，D90）。
     ///
-    /// `resolution-confirmed` 與 `resolution-rejected` 對同一個 (holderKind, holder, literal)
-    /// 並存，代表判定史自相矛盾：提名層會同時把它算成「已判給這個人」與「已被否決」，而
-    /// 兩條路徑對同一個配對給出相反的答案。這不是資料壞掉（兩條 verdict 各自合法、檔案載入
-    /// 得了），是**判定**壞掉——所以出口是 warning 而不是 decode 拒收。
-    ///
-    /// **相等用 `verdictEqualityKey` 的那一半**（#470 剛裁決的單一定義）去掉 `field`：
-    /// 本掃描問的正是「兩個 field 對同一個配對」，把 field 放進鍵會讓它永遠找不到東西
-    /// ——#486 的 Expected 說「收攏鍵含 field」指的是 dedup 的那個鍵，不是這一個。
-    /// 在 #470 之前這個掃描寫不出來：那時「同一配對」有兩個答案，先寫就是偷偷定案第三份。
-    ///
-    /// **2026-09-09 實測 live store：0 筆**（與 #464 verify 2026-09-03 的量測一致）。
-    /// 歧異記錄的候選 shape 不在 `DivergenceResolveError.mergeableShapes` 裡——記得起來、解不掉（#555 R2，D90）。
     /// 一筆記錄一則（候選逐個點名、最多列 5 個），warning 級：記錄合法可載入，失效的是處置面；處置是重開
-    /// `zero-instance-guards` 第 24 列的裁決（實作或拿掉），移除面見 #586。值域從 `mergeableShapes` 讀——它與
-    /// `resolveDivergence` 的 switch 由 parity 測試對帳，這裡不手寫第二份。
+    /// `zero-instance-guards` 第 24 列的裁決（實作或拿掉），移除面見 #586。值域從 `mergeableShapes` 讀、不手寫第二份：
+    /// 「venue 在清單裡、org 仍擲 `unsupportedShape`」由 `testUnsupportedShapeMessageNamesTheRealDomain` 釘，
+    /// 「org 不在清單裡」由 `UnmergeableDivergenceScanTests.testOrganizationCandidateIsReported` 釘（把 org 加進清單它就紅）。
     ///
     /// **2026-09-18 實測 live store：0 筆**（唯一那筆 divergence 是 person 攣生）。
+    ///
+    /// R2 曾把這段插在下方 #486 那段 doc 與它的宣告之間——Swift 的 doc comment 綁最近的宣告，於是 #486 的整段理由
+    /// 掛到了這支掃描上、`contradictoryVerdictIssues` 一句 doc 都不剩（R2 verify 第 1／11 列）。兩支掃描各自帶自己的 doc。
     func unmergeableDivergenceIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
         let mergeable = Set(DivergenceResolveError.mergeableShapes)
         let supported = DivergenceResolveError.mergeableShapes.joined(separator: "／")
@@ -472,6 +464,19 @@ public extension LibraryStore {
         }
     }
 
+    /// **同一筆記錄對同一個配對同時說「是」與「不是」**（#486）。
+    ///
+    /// `resolution-confirmed` 與 `resolution-rejected` 對同一個 (holderKind, holder, literal)
+    /// 並存，代表判定史自相矛盾：提名層會同時把它算成「已判給這個人」與「已被否決」，而
+    /// 兩條路徑對同一個配對給出相反的答案。這不是資料壞掉（兩條 verdict 各自合法、檔案載入
+    /// 得了），是**判定**壞掉——所以出口是 warning 而不是 decode 拒收。
+    ///
+    /// **相等用 `verdictEqualityKey` 的那一半**（#470 剛裁決的單一定義）去掉 `field`：
+    /// 本掃描問的正是「兩個 field 對同一個配對」，把 field 放進鍵會讓它永遠找不到東西
+    /// ——#486 的 Expected 說「收攏鍵含 field」指的是 dedup 的那個鍵，不是這一個。
+    /// 在 #470 之前這個掃描寫不出來：那時「同一配對」有兩個答案，先寫就是偷偷定案第三份。
+    ///
+    /// **2026-09-09 實測 live store：0 筆**（與 #464 verify 2026-09-03 的量測一致）。
     func contradictoryVerdictIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
         func pairingKey(_ p: ProvenanceReference.VerdictPairingValue) -> String {
             "\(p.holderKind.rawValue):\(p.holder)\u{0}" + NameNormalization.matchingKey(p.literal)

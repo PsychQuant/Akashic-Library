@@ -22,15 +22,12 @@ final class UnmergeableDivergenceScanTests: XCTestCase {
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
 
     private func seedPeople() throws {
-        var a = Person(key: "a-b", names: ["A B"]); try store.writePerson(a)
-        var c = Person(key: "c-d", names: ["C D"]); try store.writePerson(c)
-        a.names = ["A B"]; c.names = ["C D"]
+        try store.writePerson(Person(key: "a-b", names: ["A B"]))
+        try store.writePerson(Person(key: "c-d", names: ["C D"]))
     }
     private func seedOrgs() throws {
-        var a = Organization(key: "org-a", names: Timeline([TemporalValue(value: "Org A")]))
-        var b = Organization(key: "org-b", names: Timeline([TemporalValue(value: "Org B")]))
-        _ = try store.writeOrganization(a); _ = try store.writeOrganization(b)
-        a.key = "org-a"; b.key = "org-b"
+        _ = try store.writeOrganization(Organization(key: "org-a", names: Timeline([TemporalValue(value: "Org A")])))
+        _ = try store.writeOrganization(Organization(key: "org-b", names: Timeline([TemporalValue(value: "Org B")])))
     }
 
     /// 乾淨的 store（person 攣生——解得掉）是零：恆非空的掃描分不出「有實例」與「掃描壞了」。

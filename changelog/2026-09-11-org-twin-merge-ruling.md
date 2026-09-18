@@ -53,7 +53,44 @@ R2 的負控（各自重編、跑對應測試、還原後逐位元組比對）�
 
 前兩個 mutation 第一次跑被 harness 記成 NO-RUN：斷言先紅（0 ≠ 1），測試接著 `got[0]` 越界 crash、整個 test process 沒印
 `Executed`。修在測試側（`guard let first = got.first else { return }`）——crash 與紅在 harness 上分不開，而 crash 會把同
-process 的其他測試一起帶走。全套 2,859 綠、`run-guards.sh` 綠。**E2E（真 binary）**：兩筆 org ＋ 一筆 org 歧異記錄 → `validate`
+process 的其他測試一起帶走。全套 2,859 綠（`swift test --build-system native`——Xcode 27 的預設建置系統對外部探針測試是紅的，#577，與本 diff 無關）、`run-guards.sh` 綠。**E2E（真 binary）**：兩筆 org ＋ 一筆 org 歧異記錄 → `validate`
 一則 per-record warning（指向第 24 列與 #586）＋ 家族計數行；`resolve-divergence --dry-run` 仍以 `unsupportedShape` 的誠實訊息拒絕
 （裁決不變）；live store 副本 0 則；第 24 列的量測腳本重跑 13／0／0／3；`bootstrap-organizations` 的實際輸出與理由欄的措辭一致。
-CLI `doctor` 只印跨記錄問題、家族計數行住在 `validate`（既有慣例，六族同形）。
+CLI `doctor` 只印跨記錄問題、家族計數行住在 `validate`（既有慣例；印計數行的家族本次從五個變六個——**不是** per-record 上限那組「六族」，那組是組合式的，本家族一筆記錄一則、沒有上限）。
+
+## R2 verify：席次掉了三個，真 HIGH 在程式面
+
+Run `wf_d350c78e-6de`（2026-09-18）：22 列，4 HIGH——**只有 1 個是真的**，另外 3 個是 requirements／security／regression
+三席各 5 次重試全部「180 秒無進度」被 harness 殺掉（每次嘗試 16–35 分鐘、context 各 67–72 萬 token），ensemble 依 fail-closed
+記成 HIGH。回來的是 logic（10 列）、DA（6 列）、Codex（3 列）。
+
+真 HIGH：R2 把 `unmergeableDivergenceIssues` 插進 `contradictoryVerdictIssues` 的 doc comment 與宣告之間——Swift 的 doc comment
+綁最近的宣告，#486 的整段理由掛到了 D90 的掃描上、原函式一句 doc 都不剩（logic 第 1 列；Codex 盲審獨立命中同一處）。守衛抓不到：
+`measured-numbers-audit` 不掃 `Sources/`，`StoreHealthSurfaceTests` 只驗三面消費、不驗 doc 歸屬。同一個 splice 形狀
+（memory：錨點必須唯一）換到兩個函式之間的註解塊上再犯一次。
+
+MEDIUM 五列全是散文：`doomed-venue-gate` 的 changelog 同一天寫「grep 為 5」而 R2 已成 6；row 24 寫「doctor／App 各一格」而
+CLI `doctor` 其實不印這一族、`validate` exit 仍 0（第 13 列的誠實邊界沒被援引）；規則句「新增零實例**守衛**時」沒跟著前言改四類；
+量測段「真 binary 對帳：`akashic doctor` 的 organization 計數 13」拿的是「無 authorized name 的機構數」，今天相等只因 13 筆全無
+authorized name；腳本對壞檔仍 traceback、零輸出（R1 第 28 列的處置只兌現了解析那一半）。
+
+## R3：逐列修，沒有新裁決
+
+- **doc 歸位**：D90 掃描連同它自己的 doc 移到 #486 那段之前；#486 的 doc 回到 `contradictoryVerdictIssues` 正上方。D90 的 doc
+  改寫「哪個測試釘什麼」：`testUnsupportedShapeMessageNamesTheRealDomain` 釘 venue-in 與「org 仍擲」，**不是**「org 不在清單裡」
+  ——把 org 加進 `mergeableShapes` 而不動 switch 它五條斷言照綠；後者由 `UnmergeableDivergenceScanTests.testOrganizationCandidateIsReported`
+  釘（NC 第 2 列就是這個 mutation）。row 24 同一句同批改（R2 verify 第 13／16 列）。
+- **row 24 理由欄**：出聲的三個面點名（`validate` 逐則＋計數行、MCP `akashic_doctor` payload、App 側欄）、CLI `doctor` 不印、
+  `validate` exit 仍 0——逐字對齊第 13 列的邊界（第 6 列）。
+- **規則句**：第 51／92 行的「新增零實例守衛時」改成涵蓋四類與「動不動」的裁決（第 7 列）；前言把第 4 類的失敗意義收窄到
+  「撞牆」是新的，「被動手」的兩個方向各與第 3 類、第 10 列同形——「失敗意義不同」不是推第五類的判準（第 14 列）。
+- **量測段**：「見情形欄」→「見理由欄」（第 12 列）；grep 帶全形冒號，數逐則 warning、不數計數行（第 10 列，Codex）；「真 binary
+  對帳」改用 `grep -l '^organization:' … | wc -l`，並把 doctor 那個巧合寫進註記（第 8 列）；固定案例的出處逐條寫——JRSS／BJMSP
+  取自檔頭、Guilford 取自 live store 的 venue、`Science`≠`Sciences` 是負控取自 `identity-is-judged-not-matched`（第 17 列）。
+- **腳本第五個數**：讀不到的檔 try/except 後**計數印出**，不照抄第 12 列腳本的 `except: continue`（那會把零輸出換成安靜少算）。
+  假 HOME 實測：三個 org 檔＋一個引號未閉合的 `.yaml`＋一個純量 `.YAML` → rc 0、「讀不到的檔 2 個」（第 9 列）。live store
+  重跑：13／0／0／3／0。
+- **changelog**：`doomed-venue-gate` 第 98 行改「以 grep 量、不寫死」並記下它曾同日過期（第 5 列）；本檔的「2,859 綠」補
+  `--build-system native` 條件（第 22 列）、「六族同形」改成「印計數行的家族本次從五個變六個，不是 per-record 上限那組」（第 21 列）。
+- **測試**：seed helper 的三行死賦值刪掉、改直接傳入（第 15 列）。CLI 計數行的措辭對齊 StoreHealth／App（第 19 列）；
+  不為「第 24 列」加守衛——表是 append-only，列號不位移。

@@ -107,9 +107,9 @@ APA 九〇年代的 DOI 正式形帶**雙斜線**（`10.1037//…`），OpenAlex
 6. `resolve-venues` **先列候選過目**（歧義與未命中要報出來）→ `--apply`。exact 命中寫
    confirmed verdict 是該面的既有契約（#304 的 venue-name-exact）；本刊零歧義是
    **這一刊的結果，不外推**——下一刊有歧義就逐筆人裁
-7. OpenAlex 給的 ISSN 若庫內缺：ISSN 寫入是 venue 身分斷言，不是順手動作——**停下來，為這一本刊照
-   [`akashic-verify-venue`](../akashic-verify-venue/SKILL.md) Step 3 走一遍**（單獨產一份含「報告第 4 項」的報告給使用者確認
-   再寫；本管線第 8 步的報告沒有那一項）。紀律只寫在那一份，這裡不複述（R3 曾在這裡抄七項、抄漏兩項——R3 verify）。
+7. OpenAlex 給的 ISSN 若庫內缺：ISSN 寫入是 venue 身分斷言，不是順手動作——**停下來，照
+   [`akashic-verify-venue`](../akashic-verify-venue/SKILL.md) Step 3 的 ISSN 那一條走**（為這一本刊單獨產一份含「報告第 4 項」的
+   報告給使用者確認再寫；apply／reject 本管線第 6 步已做、不重做；本管線第 8 步的報告沒有第 4 項）。紀律只寫在那一份，這裡不複述（R3 曾在這裡抄七項、抄漏兩項——R3 verify）。
    這一步曾寫「先核對 print／electronic 角色」——角色只能記在報告裡，兩個寫入面都記不下它（#587）
 8. **報告（逐筆可審的實體）**：新增／conflict／twin-candidates／各排除類計數／
    缺摘要清單（階段 B 輸入）——每筆帶 citekey 或 DOI 與處置，不只總數
@@ -118,7 +118,7 @@ APA 九〇年代的 DOI 正式形帶**雙斜線**（`10.1037//…`），OpenAlex
 
 1545 新建／11 conflict／0 失敗批；1548 venue 邊歸戶（本刊零歧義）；83%（1295/1556）帶
 摘要；攣生 197 對（未收攏的代價＝195 組近重複，#456）；真缺摘要 261 → 151（96% 集中
-1996–1999）；electronic ISSN 補 1 個（核對後；「electronic」是當時報告裡的事實，store 記不下角色——#587）。
+1996–1999）；electronic ISSN 補 1 個（核對後；「electronic」是 2026-09-01 那次跑——在第 7 步改寫之前——寫在該次報告自由文字裡的事實；兩個寫入面記不下角色，#587）。
 
 **效能事實（#455，2026-09-03 重量）**：先前逐筆走既有面＝每筆 2 個 process × O(n) 全庫 load ＋
 O(n) index rebuild → 全批 **O(n²)**（2026-09-01 實測每筆 2 → 6 秒、1545 筆約 3 小時）。#455 的批次

@@ -541,8 +541,10 @@ final class DivergenceResolveVenueTests: XCTestCase {
     /// 觸發得到的是 organization，所以它是一句對著使用者說的假話。而 README 還
     /// 逐字引用著它。
     ///
-    /// 訊息改成從 `mergeableShapes` 生成，本條釘住那份清單與**實際分支**一致：
-    /// 清單裡的 shape 不得擲 `unsupportedShape`，清單外的必須擲。
+    /// 訊息改成從 `mergeableShapes` 生成。本條釘的是：venue 在清單裡且走得完、org 仍擲 `unsupportedShape`、
+    /// 訊息含清單的每一個成員且不含舊的手寫值域。**它不釘「org 不在清單裡」**——把 `"organization"` 加進
+    /// `mergeableShapes` 而不動 switch，這五條照綠（訊息由清單生成，第五條自動跟著寬）；那一半由
+    /// `UnmergeableDivergenceScanTests.testOrganizationCandidateIsReported` 釘（#555 R2 verify 第 13 列、R3 verify 第 9 列）。
     func testUnsupportedShapeMessageNamesTheRealDomain() throws {
         // venue 在清單裡 → 不得擲 unsupportedShape（它走得完整條管線）
         XCTAssertTrue(DivergenceResolveError.mergeableShapes.contains("venue"),

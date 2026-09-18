@@ -28,7 +28,7 @@
 它第 2 條要量的「還有誰在走這條路」正是第 24 列的觸發條件之二。
 
 **D90**：觸發條件之一由工具出聲——`StoreHealth.unmergeableDivergences`：歧異記錄的候選 shape 不在 `DivergenceResolveError.mergeableShapes`
-即 warning（一筆記錄一則，doctor／App 各一格、CLI 一行）。第 16 列的紀律：散文觸發條件沒有機制會叫醒任何人；R1 之前第一筆 org divergence
+即 warning（一筆記錄一則；出聲的面是 `validate` 的逐則＋家族計數行、MCP `akashic_doctor` payload 的計數、App 側欄——CLI `doctor` 不印 per-record 家族、`validate` exit 仍 0；這句 R2 曾寫「doctor／App 各一格、CLI 一行」，R3 修了 row 24 卻留著這裡，R3 verify 第 2 列）。第 16 列的紀律：散文觸發條件沒有機制會叫醒任何人；R1 之前第一筆 org divergence
 在三個面上與一筆正常待判的 person 歧異長得完全一樣（R1 verify 第 13 列）。重複群那一條仍是散文腳本，bootstrap 的扣留是它在寫入端的閘。
 
 其餘：理由欄改成「前二十三列裡只有第 22 列同樣是不動既有的東西」並寫出兩者對象與失敗的差別；「代價不是零」（記了就刪不掉，#586 開）；
@@ -50,6 +50,8 @@ R2 的負控（各自重編、跑對應測試、還原後逐位元組比對）�
 | 掃描的值域改成手寫 `["person","work","venue","organization"]` | 同上 | 紅（0 ≠ 1） |
 | `OrgBootstrap` 的寬鬆扣留拿掉（`looseIndex` 命中不扣） | `OrgBootstrapResolveTests.testLooseKeyCollisionWithExistingOrgRoutesToPendingResolution` | 紅（三個異寫全部建成第二筆） |
 | doctor payload 少那一族 | `StoreHealthSurfaceTests.testEveryFamilyAccessorIsConsumedByDoctorAndTheApp` | 紅 |
+| （R4）`"organization"` 加進 `mergeableShapes`、switch 不動 | `UnmergeableDivergenceScanTests.testOrganizationCandidateIsReported` | 紅（0 ≠ 1） |
+| （R4）同一個 mutation 對 parity 測試 `testUnsupportedShapeMessageNamesTheRealDomain` | ——它**不**釘 org-out，預期綠 | 綠（如預期；R3 verify 第 9／21 列） |
 
 前兩個 mutation 第一次跑被 harness 記成 NO-RUN：斷言先紅（0 ≠ 1），測試接著 `got[0]` 越界 crash、整個 test process 沒印
 `Executed`。修在測試側（`guard let first = got.first else { return }`）——crash 與紅在 harness 上分不開，而 crash 會把同
@@ -79,7 +81,7 @@ authorized name；腳本對壞檔仍 traceback、零輸出（R1 第 28 列的處
 - **doc 歸位**：D90 掃描連同它自己的 doc 移到 #486 那段之前；#486 的 doc 回到 `contradictoryVerdictIssues` 正上方。D90 的 doc
   改寫「哪個測試釘什麼」：`testUnsupportedShapeMessageNamesTheRealDomain` 釘 venue-in 與「org 仍擲」，**不是**「org 不在清單裡」
   ——把 org 加進 `mergeableShapes` 而不動 switch 它五條斷言照綠；後者由 `UnmergeableDivergenceScanTests.testOrganizationCandidateIsReported`
-  釘（NC 第 2 列就是這個 mutation）。row 24 同一句同批改（R2 verify 第 13／16 列）。
+  釘（NC 第 2 列跑的是另一個等效 mutation——掃描值域手寫；「org 進 `mergeableShapes`」這個 mutation R4 實跑，見 R4 節）。row 24 同一句同批改（R2 verify 第 13／16 列）。
 - **row 24 理由欄**：出聲的三個面點名（`validate` 逐則＋計數行、MCP `akashic_doctor` payload、App 側欄）、CLI `doctor` 不印、
   `validate` exit 仍 0——逐字對齊第 13 列的邊界（第 6 列）。
 - **規則句**：第 51／92 行的「新增零實例守衛時」改成涵蓋四類與「動不動」的裁決（第 7 列）；前言把第 4 類的失敗意義收窄到
@@ -94,3 +96,37 @@ authorized name；腳本對壞檔仍 traceback、零輸出（R1 第 28 列的處
   `--build-system native` 條件（第 22 列）、「六族同形」改成「印計數行的家族本次從五個變六個，不是 per-record 上限那組」（第 21 列）。
 - **測試**：seed helper 的三行死賦值刪掉、改直接傳入（第 15 列）。CLI 計數行的措辭對齊 StoreHealth／App（第 19 列）；
   不為「第 24 列」加守衛——表是 append-only，列號不位移。
+
+## R3 verify：PASS，MEDIUM 全在 R3 新寫的句子上
+
+Run `wf_5a8c0e06-4fc`（2026-09-18）：六席齊（R2 掉的三席都回來了——scope 要求「不要整檔 cat 規則檔」之後每席
+33–40 萬 token、無 stall），26 列：**0 HIGH**、11 MEDIUM、10 LOW、5 INFO。Tag `idd-555-verified` 打在 `ea6a5252`。
+
+R2 的真 HIGH 三席獨立確認已歸位；DA 用真 binary 重跑 R3 的每一個宣稱，全部相符。MEDIUM 沒有一個是 R2 的舊缺口——全是
+R3 為了修 R2 而**新寫**的句子：「第五個數應與 quarantine 對得起來」（三席同指：讀不到 ⊆ quarantine，不相等，被 quarantine 的
+schema 壞檔會被腳本算進前四個數）；前言的全稱句「前三類沒有任何一個有使用者面的後果」（第 4／9／15／16 列都否掉它）；
+規則句的「動不動裁決」只掛第 4 類而第 22 列就是第 3 類的「保留」；self-proof grep 對 PATH 上的舊 binary fail-open；
+CLI 計數行手抄第二份處置句且已與 StoreHealth 分岔；parity 測試自己的 doc 還留著「清單外的必須擲」；「第 12 列的 `except: continue`」
+引錯列（在第 18 列）；誠實邊界的「一種形狀」被自己新寫的負控供出第二種。
+
+同一個形狀第三次：**修一句假話時寫下另一句沒量過的話**。R1 的「代價是零」、R2 的「doctor／App 各一格」、R3 的「與 quarantine
+對得起來」——每一句都是為了把前一句改真而寫、每一句都沒有先拿去對照它自己描述的東西。
+
+## R4：in-scope fix，不重跑 verify（idd-verify Step 5c）
+
+- **量測段**：對帳句改成有向的包含（quarantine ⊇ 讀不到的檔；非零時去對 quarantine 清單，別追一個不存在的差；腳本母體是磁碟上的
+  `.yaml`、binary 母體是載入成功的記錄，方向是腳本多報）；label 改「讀不到或不是記錄的檔」；「第 12 列」→「第 18 列」並把第 18 列
+  那支的靜默跳過寫成已知缺口；「第二個數」→「含 org 候選的 divergence 那個數」；self-proof grep 逐字搬第 13 列的
+  `grep -a -q … "$(command -v akashic)" &&` 閘（實測 `~/bin/akashic` 是舊 binary，R3 的指令照抄印 0 冒充乾淨）並加行首錨
+  `^⚠ divergence `（兩個假 venue 名字曾讓無錨的 grep 得 2）；腳本：`os.listdir` 讀不到印一句具名的話後退出、dotfile 跳過
+  （鏡射 `LibraryStore` 的過濾）。重跑：live 13／0／0／3／0；缺目錄 rc 1 具名；壞檔＋純量＋dotfile → 3／0／0／2／2。
+- **前言**：新的失敗意義改成「撞牆」與「照猜出來的形狀實作了」兩項，全稱句收窄成「前三類的失敗都不是使用者的一個操作被擋住」，
+  「拿掉」＝第 3 類同一種失敗意義、「實作」的**理由**與第 10 列同形——失敗意義新不新不決定進不進表。
+- **規則句**：第 51／92 行改成與對象無關——「對本表四類中的任一個做出裁決時，不論新增、不新增、保留、拿掉」。
+- **row 24**：誠實邊界改成兩種（黏一格＝不是攣生；單／複數誤植＝真攣生、`LooseTitleKey` 不摺詞形所以重複群永遠 0）；MCP 面補
+  `recordIssues` 通道。第 26／27 列的「doctor／App 各一格」是 #554 的列、不在本 diff，記錄不動。
+- **CLI**：計數行退回只帶整批語意「（逐則見上；第 24 列的觸發條件之一，#555）」——處置句只住在 StoreHealth 那一份，App help 與它
+  同句（補「（實作或拿掉）」）。
+- **測試 doc**：`testUnsupportedShapeMessageNamesTheRealDomain` 的 doc 改成它真的釘的三件事，並寫明它不釘「org 不在清單裡」。
+- **NC 補跑**：「`organization` 加進 `mergeableShapes`、switch 不動」——`testOrganizationCandidateIsReported` 紅、parity 測試綠
+  （結果見下方 NC 表 R4 兩列）。本檔 D90 段的「doctor／App 各一格、CLI 一行」同批改。

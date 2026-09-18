@@ -228,7 +228,7 @@ struct Validate: ParsableCommand {
             print("移除記錄與作者位互相矛盾: \(health.contradictedRemovalRecords.count)（#457）")   // display-safe-exempt: Int
         }
         if !health.unmergeableDivergences.isEmpty {
-            print("歧異記錄的 shape 沒有合併管線: \(health.unmergeableDivergences.count)（zero-instance-guards 第 24 列「暫不做」的觸發條件之一，#555；處置是重開那個裁決（實作或拿掉），移除面 #586）")   // display-safe-exempt: Int
+            print("歧異記錄的 shape 沒有合併管線: \(health.unmergeableDivergences.count)（逐則見上；zero-instance-guards 第 24 列的觸發條件之一，#555）")   // display-safe-exempt: Int
         }
         if !health.staleSplitRecords.isEmpty {
             print("拆分記錄各段都已不在作者位: \(health.staleSplitRecords.count)（記錄仍保留供 un-split，#450）")

@@ -100,9 +100,14 @@ enum GitFixture {
 
     /// 只 commit 指定的路徑——讓 fixture 能精確製造「某一個檔 untracked、其餘 tracked」
     /// 的狀態（#558：閘對 divergence 記錄有效、對被併實體無效，兩者要分得開才測得到）。
-    static func commit(_ dir: URL, paths: [String], message: String = "fixture") {
-        run(["add", "--"] + paths, in: dir)
-        run(["commit", "-q", "-m", message, "--", ] + paths, in: dir)
+    static func commit(_ dir: URL, paths: [String], message: String = "fixture",
+                       file: StaticString = #filePath, line: UInt = #line) {
+        // 任一句非零就當場停（#558 R1 verify 第 13／14／16／18 列）：pathspec 打錯或「nothing to commit」時 fixture 會靜默退化成
+        // 「兩個檔都 untracked」，而它宣稱的「**精確**製造某一個檔 untracked、其餘 tracked」就沒有被任何東西驗過——同 `initRepo` 的紀律。
+        let a = run(["add", "--"] + paths, in: dir)
+        guard a == 0 else { return XCTFail("GitFixture.commit：`git add` 回 \(a)（pathspec：\(paths)）", file: file, line: line) }
+        let c = run(["commit", "-q", "-m", message, "--"] + paths, in: dir)
+        guard c == 0 else { return XCTFail("GitFixture.commit：`git commit` 回 \(c)（pathspec：\(paths)）", file: file, line: line) }
     }
 
     /// `initRepo` + `commitAll` 的常用組合。

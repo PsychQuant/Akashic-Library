@@ -524,6 +524,8 @@ final class DivergenceResolveVenueTests: XCTestCase {
             }
             XCTAssertTrue(files.contains { $0.path.contains(doomed.id.uuidString) },
                           "訊息必須指名被併的 venue 檔：\(files)")
+            XCTAssertFalse(files.contains { $0.path.contains(d.id.uuidString) },
+                           "divergence 記錄已 commit，不該進清單——閘先前只護著記錄那一半，這一句釘住兩半分得開（R1 verify 第 13 列）：\(files)")
         }
         let after = try store.load()
         XCTAssertEqual(after.venues.count, 2, "拒絕後被併的 venue 檔必須仍在")
@@ -858,5 +860,78 @@ final class DivergenceResolveVenueTests: XCTestCase {
         XCTAssertEqual(values.map { Array($0.utf8) }, [Array("work:w1 :: Alpha Journal".utf8)], "\(values)")
         let row = try XCTUnwrap(report.verdictsCollapsed.first, "\(report.verdictsCollapsed)")
         XCTAssertTrue(row.contains("ALPHA JOURNAL") && row.contains("Alpha Journal") && row.contains("位元組"), row)
+    }
+
+    // MARK: - R2（D86）：閘的輸入從「要刪的檔」擴到「要刪或改寫的檔」
+
+    /// R1 verify 第 1／2 列（HIGH，真 binary）：keeper venue 從未 commit、持一筆只存在於它身上的人寫判定，而 doomed 對同一配對持位元組不同
+    /// 的拼法且是活邊——#554 R18 D51 的收攏讓 keeper 那筆讓位、被刪，閘全程沉默。倖存者的檔會被**改寫**，改寫前的內容 git 取不回。
+    func testRefusesWhenSurvivorVenueIsUntracked() throws {
+        var doomed = Venue(key: "doomed-journal", type: .periodical,
+                           names: Timeline([TemporalValue(value: "DOOMED JOURNAL")]), authorized: ["DOOMED JOURNAL"])
+        doomed.references = [verdict(holder: "shih2025a", literal: "DOOMED JOURNAL")]
+        try store.writeVenue(doomed)
+        var work = Entry(id: UUID(), citekey: "shih2025a", type: .periodicalArticle, title: "A note",
+                         authors: [.literal("Shih, J.")], date: "2025")
+        work.venues = [.key("doomed-journal")]
+        try store.writeEntry(work)
+        let d = Divergence(id: UUID(), question: "同一本嗎",
+                           candidates: [DivergenceCandidate(key: "keeper-journal", shape: .venue),
+                                        DivergenceCandidate(key: "doomed-journal", shape: .venue)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(root, message: "everything but the keeper")
+        var keeper = Venue(key: "keeper-journal", type: .periodical,
+                           names: Timeline([TemporalValue(value: "Keeper Journal")]), authorized: ["Keeper Journal"])
+        keeper.references = [ProvenanceReference(field: "resolution-confirmed",
+                                                 value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "shih2025a", literal: "Doomed journal").encoded,
+                                                 kind: .judgement(statement: "HUMAN RULING ONLY ON KEEPER [rule: venue-name-exact]", restsOn: []))]
+        try store.writeVenue(keeper)                       // untracked
+        let keeperPath = store.entityURL(id: keeper.id).path
+        let before = try Data(contentsOf: URL(fileURLWithPath: keeperPath))
+        for (desc, op) in [("實跑", { _ = try self.store.resolveDivergence(id: d.id, survivor: "keeper-journal") }),
+                           ("dry-run", { _ = try self.store.previewResolveDivergence(id: d.id, survivor: "keeper-journal", overrideReason: nil) })] {
+            XCTAssertThrowsError(try op(), desc) { err in
+                guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("\(desc)：應為 deletionNotRecoverable，實得 \(err)") }
+                XCTAssertTrue(files.contains { $0.path.contains(keeper.id.uuidString) }, "\(desc)：訊息必須指名倖存者的檔：\(files)")
+                XCTAssertFalse(files.contains { $0.path.contains(doomed.id.uuidString) || $0.path.contains(d.id.uuidString) }, "\(desc)：已 commit 的不該進清單：\(files)")
+            }
+        }
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: keeperPath)), before, "拒絕後 keeper 檔位元組不變")
+        XCTAssertTrue(String(decoding: before, as: UTF8.self).contains("HUMAN RULING ONLY ON KEEPER"))
+    }
+
+    /// R1 verify 第 8／11／15 列：被改指的 entry 從未 commit、兩條邊分別指 keeper 與 doomed——改指後去重刪掉一條，那條邊 git 裡沒有副本。
+    func testRefusesWhenATouchedEntryIsUntracked() throws {
+        let d = try seed()
+        GitFixture.commitAll(root, message: "seed")
+        var work = Entry(id: UUID(), citekey: "w2026", type: .periodicalArticle, title: "Two edges",
+                         authors: [.literal("Shih, J.")], date: "2026")
+        work.venues = [.key("the-american-statistician"), .key("american-statistician")]
+        try store.writeEntry(work)                         // untracked
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "the-american-statistician")) { err in
+            guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("\(err)") }
+            XCTAssertEqual(files.count, 1, "\(files)")
+            XCTAssertTrue(files.contains { $0.path.contains(work.id.uuidString) }, "訊息必須指名那筆 entry：\(files)")
+        }
+        let after = try store.load()
+        XCTAssertEqual(after.entries.first { $0.citekey == "w2026" }?.venues.count, 2, "拒絕後兩條邊都在")
+        XCTAssertEqual(after.venues.count, 2)
+    }
+
+    /// R1 verify 第 5／17 列：同一對候選的第二筆歧異記錄在 commit 之後才寫入（untracked），帶人寫的 judgement——本次合併會把它塌縮刪掉，
+    /// 而 `doomedRelativePaths` 的 doc 曾說那「要跑完合併才知道」。它在閘之前就算好了。
+    func testRefusesWhenACollapsingDivergenceRecordIsUntracked() throws {
+        let d = try seed()
+        GitFixture.commitAll(root, message: "seed")
+        var other = Divergence(id: UUID(), question: "同一本刊嗎（第二筆）",
+                               candidates: [DivergenceCandidate(key: "the-american-statistician", shape: .venue),
+                                            DivergenceCandidate(key: "american-statistician", shape: .venue)])
+        other.judgement = Judgement(statement: "HUMAN RULING THAT ONLY EXISTS IN THE UNTRACKED RECORD", restsOn: ["sha256:" + String(repeating: "ab", count: 32)])
+        try store.writeDivergence(other)                   // untracked
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "the-american-statistician")) { err in
+            guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("\(err)") }
+            XCTAssertTrue(files.contains { $0.path.contains(other.id.uuidString) }, "訊息必須指名會被塌縮的那筆記錄：\(files)")
+        }
+        XCTAssertEqual(try store.load().divergences.count, 2, "拒絕後兩筆記錄都在")
     }
 }

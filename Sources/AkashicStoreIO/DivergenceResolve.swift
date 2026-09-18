@@ -68,10 +68,10 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
                  + "消歧會刪掉被併記錄與歧異記錄本身，歷史託給版本控制而非 store；"
                  + "版控之外刪掉就是真的沒了。先把 store 放進版控（或改用位於工作樹內的 store）再試。"
         case let .deletionNotRecoverable(files):
-            return "以下檔案刪掉之後無法從版控取回，拒絕消歧：\n"
+            return "以下檔案刪掉或改寫之後無法從版控取回，拒絕消歧：\n"
                  + files.map { "  - \(displaySafeInvisible($0.path, max: 300))：\(displaySafeInvisible($0.why, max: 300))" }   // why 今天是三個字面常量之一（filesNotSafelyRecoverable），逃它是為了讓守衛的「files 已逃」對整個 tuple 為真（R31；R30 verify 第 15 列：守衛看 binding 不看 tuple 成員）
                         .joined(separator: "\n")
-                 + "\n消歧會刪掉被併記錄與歧異記錄本身，歷史託給版控而非 store。"
+                 + "\n消歧會刪掉被併記錄與歧異記錄本身、並改寫倖存者與指向被併鍵的記錄，歷史託給版控而非 store。"
                  + "先 `git add` 並 `git commit` 這些檔案（或確認 entities/ 沒被 .gitignore 擋），再重跑同一個 id。"
         case let .migrationCollision(details):
             return "拒絕消歧：候選遷移後會有兩筆記錄指向同一組候選，而它們內容不同"
@@ -671,8 +671,13 @@ extension LibraryStore {
         // 名單與 preview 用同一支預測函數——閘門與實跑對「會改哪些」用不同答案正是這一族的病。
         let holderFiles = holderRelativePaths(shape: shape, mergedKeys: mergedKeys,
                                               survivor: survivor, snapshot: snapshot)
+        // #558 R2（D86）：**會被改寫的檔也要驗**——倖存者的實體檔（#554 R17／R18 的收攏會丟掉 keeper 自己的判定列）、被改指的
+        // entry 檔（venue 邊／作者位去重會刪列）、遷移的其他歧異記錄；以及會被**刪**而先前不在清單裡的塌縮記錄與改名前的舊檔
+        // （`migrateOtherDivergences` 在這一行之前就算好了，「跑完合併才知道」自 #173 起為假）。#558 R1 verify 第 1／2／5／8／11／15／17 列。
+        let rewrittenFiles = rewrittenRelativePaths(shape: shape, mergedKeys: mergedKeys, survivor: survivor,
+                                                    snapshot: snapshot, migration: affectedMigration)
         let unsafe = Self.filesNotSafelyRecoverable(
-            root: root, relativePaths: doomedFiles + holderFiles.filter { !doomedFiles.contains($0) })
+            root: root, relativePaths: dedupePreservingOrder(doomedFiles + holderFiles + rewrittenFiles))
         guard unsafe.isEmpty else {
             throw DivergenceResolveError.deletionNotRecoverable(files: unsafe)
         }
@@ -722,10 +727,7 @@ extension LibraryStore {
             // shape 專屬拒絕與實跑共用（#139 verify F1）：wouldLoseFields／
             // candidateMissing／assertAllInEntities 在 preview 也要擲——dry-run
             // 對最高頻的 wouldLoseFields 沉默，就是在最需要預告的場景上失效
-            for e in snapshot.entries where e.authors.contains(where: {
-                if case let .key(k) = $0 { return merged.contains(k) }
-                return false
-            }) { report.rewritten.append(e.citekey) }
+            report.rewritten += Self.entriesTouchedByMerge(shape: .person, merged: merged, survivor: survivor, snapshot: snapshot).map(\.citekey)
             // **#271 那一腿的丟列也要預告**（R13 verify regression 第 2 列、logic 第 8 列：preview 只有 holder 遷移那一半，
             // 被併者 references 併進 keeper 時被 `verdictEqualityKey` 去重丟掉的那些——可能帶人寫的 judgement——dry-run 沉默、
             // 實跑才印；且 keeper 自己的遷移 preview 跑在合併前的 refs 上）。與實跑共用 `mergedPersonKeeper`，keeper 的
@@ -742,15 +744,7 @@ extension LibraryStore {
                 survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot).warnings
             // 與實跑同：keeper 與被併記錄不進 rewritten（keeper 走獨立寫回、
             // doomed 走刪除）。
-            let doomedIDs = Set(snapshot.entries
-                .filter { merged.contains($0.citekey) }.map(\.id))
-            for e in snapshot.entries
-            where e.citekey != survivor && !doomedIDs.contains(e.id) {
-                guard e.akashic.relations.cites.contains(where: { merged.contains($0) })
-                    || e.akashic.relations.related.contains(where: { merged.contains($0) })
-                else { continue }
-                report.rewritten.append(e.citekey)
-            }
+            report.rewritten += Self.entriesTouchedByMerge(shape: .work, merged: merged, survivor: survivor, snapshot: snapshot).map(\.citekey)
             let vw = Self.predictedHolderVerdictMigration(
                 snapshot: snapshot, merged: merged, survivor: survivor, holderKind: .work)
             report.verdictValuesRewritten = vw.rewritten
@@ -767,15 +761,9 @@ extension LibraryStore {
             // **去重丟列也要預告**（R13 verify regression 第 2 列、logic 第 8 列——R13 只裝在實跑，preview 把 tuple 的
             // `verdictsCollapsed` 當場丟掉；`mergedVenueKeeper` 自稱「preview 與實跑共用的唯一計算點」，呼叫端只共用了 `.keeper`）
             report.verdictsCollapsed = mv.verdictsCollapsed
-            for e in snapshot.entries where e.venues.contains(where: {
-                if case let .key(k) = $0 { return merged.contains(k) }
-                return false
-            }) { report.rewritten.append(e.citekey) }
-            // **holder verdict 遷移沒有 venue 這一格，而那不是遺漏。**
-            // `VerdictHolderKind` 的值域是 work／person／org——holder 是「持有 literal
-            // 的那筆記錄」，而持有刊名 literal 的只有 work。實測 live store：8,670 條
-            // verdict **全部**是 `work:` 前綴，`venue:` 零條。所以 venue key 退役不會
-            // 讓任何 verdict value 變 stale，沒有迴圈可鏡射。
+            report.rewritten += Self.entriesTouchedByMerge(shape: .venue, merged: merged, survivor: survivor, snapshot: snapshot).map(\.citekey)
+            // holder verdict 遷移沒有 venue 這一格——理由（結構的，不是普查的）只寫在 `holderRelativePaths` 一處（#558 R2；R1 verify 第 4 列：
+            // 同一個理由兩份副本、兩份都過期）。
         case .organization, .divergence:
             throw DivergenceResolveError.unsupportedShape(shape.rawValue)
         }
@@ -1875,7 +1863,8 @@ extension LibraryStore {
                 take(keeperReferences ?? keeper.references, .person, keeper.key)
             }
         case .org:
-            break   // organization 合併尚未支援（`unsupportedShape`），沒有迴圈可鏡射
+            break   // organization 合併尚未支援（`unsupportedShape`），沒有迴圈可鏡射——**org 若實作這是第三格**（#555／#558 R1 verify
+                    // 第 9 列）：只補 `doomedRelativePaths`／`holderRelativePaths` 而不補這裡，閘看起來完整、對 org holder 永遠回空
         }
         return (rewritten.sorted(), collapsed.sorted())
     }
@@ -2978,12 +2967,6 @@ extension LibraryStore {
 
     // MARK: - 小工具
 
-    /// 本次消歧會刪掉哪些檔案（store 相對路徑）。
-    ///
-    /// **只含能在此刻確定的那些**：被併實體與本次的歧異記錄。因候選塌縮而一併被刪的
-    /// 其他歧異記錄要跑完合併才知道，此處看不到——那是這道檢查已知的覆蓋邊界，不是
-    /// 疏漏。塌縮的那些與本記錄同批建立、同樣未 commit 的機率高，所以本記錄過關時
-    /// 它們通常也過關；但這是相關性不是保證。
     /// 這次合併會**改寫**的 holder 記錄檔（#469）。
     ///
     /// 版控可回溯性閘先前只護著要**刪**的 doomed 檔；verdict 遷移改寫的 person／venue／
@@ -3000,13 +2983,16 @@ extension LibraryStore {
         case .person: holderKind = .person
         case .work:   holderKind = .work
         case .venue:
-            // 回 `[]` 是**對的，但理由不是「上游已擋」**（#558）：venue 自 #553 起上游
-            // 不擋了。真正的理由是 `VerdictHolderKind` 沒有 venue——holder 是「持有
-            // literal 的那筆記錄」，持有刊名 literal 的只有 work；實測 live store 8,670
-            // 條 verdict 全部是 `work:` 前綴。所以 venue key 退役不會讓任何 holder 的
-            // verdict value 變 stale，沒有檔案會被改寫。
+            // 回 `[]` 是**對的，但理由不是「上游已擋」**（#558）：venue 自 #553 起上游不擋了。真正的理由是**結構的**
+            // （R2；R1 verify 第 22 列：R1 押在「實測 8,670 條全是 work:」這個會過期的普查數字上——重量已是 8,671）：
+            // `VerdictHolderKind` 是封閉 enum（work／person／org），`VerdictPairingValue.parse` 對其他前綴回 nil，
+            // 而 venue 的 `validateReferenceAttachment` 對每筆 verdict 要求 parse 成功——`venue:<key> :: literal` 在 store
+            // 裡**寫不出來**。所以 venue key 退役不會讓任何 holder 的 verdict **value** 變 stale，本函式沒有迴圈可鏡射。
+            // **本函式只算 holder verdict value 的遷移**：倖存者 venue 檔的改寫（含 `mergedVenueKeeper` 的收攏刪列）與
+            // 被改指的 entry 檔在 `rewrittenRelativePaths`（D86），不在這裡。
             return []
-        case .organization, .divergence: return []   // 上游已擋（unsupportedShape），這裡不猜
+        case .organization, .divergence: return []   // 上游已擋（unsupportedShape），這裡不猜——org 若實作，本函式與
+                                                     // `predictedHolderVerdictMigration` 的 `case .org: break` 是同一批要補的格（#555／#558）
         }
         let predicted = Self.predictedHolderVerdictMigration(
             snapshot: snapshot, merged: Set(mergedKeys), survivor: survivor,
@@ -3023,6 +3009,11 @@ extension LibraryStore {
         }
     }
 
+    /// 本次消歧會**刪掉**哪些檔案（store 相對路徑）：本次的歧異記錄與被併實體。
+    ///
+    /// 因候選塌縮而一併被刪的其他歧異記錄與改名前的舊檔**不在這裡**，但也不再是覆蓋邊界：它們在 `migrateOtherDivergences`
+    /// 的回傳值裡、由 `rewrittenRelativePaths` 併進閘（#558 R2；R1 verify 第 5／17 列：本 doc 先前寫「要跑完合併才知道」，
+    /// 而 #173 起那份預測在閘之前就算好了——那句「不是疏漏」擋住了下一個人去修它）。
     func doomedRelativePaths(record: Divergence, shape: EntityKind,
                              mergedKeys: [String], snapshot: LibraryLoad) -> [String] {
         var ids: [UUID] = [record.id]
@@ -3044,43 +3035,89 @@ extension LibraryStore {
         return ids.map { "entities/\($0.uuidString).yaml" }
     }
 
-    /// 這些檔案裡，哪些刪掉之後**無法**從版控取回。回傳 `(路徑, 為什麼)`。
+    /// 這次合併會**改指**（因而改寫）的 entry：person 合併看作者位的 `.key`、work 合併看 `cites`／`related`（倖存者與被併者
+    /// 自己不算——keeper 走獨立寫回、doomed 走刪除）、venue 合併看 `venues` 的 `.key`。**preview 的 `rewritten` 與 D86 的閘
+    /// 用同一份**（#558 R2）——實跑的三個改寫迴圈各自有同一組判準，preview-vs-actual 測試釘住一致。
+    static func entriesTouchedByMerge(shape: EntityKind, merged: Set<String>, survivor: String,
+                                      snapshot: LibraryLoad) -> [Entry] {
+        switch shape {
+        case .person:
+            return snapshot.entries.filter { e in e.authors.contains { if case let .key(k) = $0 { return merged.contains(k) }; return false } }
+        case .work:
+            let doomedIDs = Set(snapshot.entries.filter { merged.contains($0.citekey) }.map(\.id))
+            return snapshot.entries.filter { e in
+                e.citekey != survivor && !doomedIDs.contains(e.id)
+                    && (e.akashic.relations.cites.contains(where: { merged.contains($0) })
+                        || e.akashic.relations.related.contains(where: { merged.contains($0) }))
+            }
+        case .venue:
+            return snapshot.entries.filter { e in e.venues.contains { if case let .key(k) = $0 { return merged.contains(k) }; return false } }
+        case .organization, .divergence:
+            return []
+        }
+    }
+
+    /// 這次合併會**改寫**（不刪）的檔，加上會被刪而不在 `doomedRelativePaths` 的（#558 R2，D86）：
+    /// 倖存者的實體檔、`entriesTouchedByMerge` 的 entry 檔、遷移後要寫的其他歧異記錄（`toWrite`，id 可能已重算——新 id 的檔還不存在，
+    /// 閘會跳過）、塌縮的歧異記錄（`collapsed`）與改名前的舊檔（`renamedFrom`）。
+    ///
+    /// 為什麼改寫也要 tracked+clean：#469 的 doc 早寫了——「被收攏掉的那一列若只存在於未 tracked／dirty 的檔案裡，刪掉後 git
+    /// 取不回」，而 #554 R17／R18（D47／D51）讓 keeper 的寫回從 append 變成**收攏**，keeper 自己的判定列可以是輸家；venue 邊／
+    /// 作者位去重同樣刪列。R1 verify 用真 binary 三次造出「一筆只存在於 untracked 檔的人寫判定被合併刪掉、閘沉默」。
+    /// 代價寫出來：合併前倖存者與所有被改指的 entry 都要 commit——那正是 #73「歷史託給版控而非 store」的既有紀律，
+    /// dry-run 同閘（先前對 doomed 已是如此）。
+    func rewrittenRelativePaths(shape: EntityKind, mergedKeys: [String], survivor: String,
+                                snapshot: LibraryLoad, migration: DivergenceMigration) -> [String] {
+        var ids: [UUID] = []
+        switch shape {
+        case .person: if let k = snapshot.people.first(where: { $0.key == survivor }) { ids.append(k.id) }
+        case .work:   if let k = snapshot.entries.first(where: { $0.citekey == survivor }) { ids.append(k.id) }
+        case .venue:  if let k = snapshot.venues.first(where: { $0.key == survivor }) { ids.append(k.id) }
+        case .organization, .divergence: break
+        }
+        ids += Self.entriesTouchedByMerge(shape: shape, merged: Set(mergedKeys), survivor: survivor, snapshot: snapshot).map(\.id)
+        ids += migration.toWrite.map(\.id) + migration.collapsed.map(\.id) + migration.renamedFrom
+        return ids.map { "entities/\($0.uuidString).yaml" }
+    }
+
+    /// 這些檔案裡，哪些刪掉或改寫之後**無法**從版控取回。回傳 `(路徑, 為什麼)`。
     ///
     /// 判準（#73 方案 A：tracked + clean）——
     /// - **untracked**：從未進 git object，刪掉就沒了。含「entities/ 被 .gitignore 擋」
     ///   這種最隱蔽的情況——它在 `git status --porcelain` 裡連 `??` 都不會出現。
-    /// - **有未提交的修改**：git 裡有的是舊版本，當下這個版本刪掉不可回復。
+    /// - **有未提交的修改**：git 裡有的是舊版本，當下這個版本刪掉或改寫不可回復。
     ///
     /// **git 不可用時一律當成不安全**（fail-closed）。這與舊檢查的方向相反：舊的是
     /// 「找得到 .git 就放行」，於是任何祖先目錄下名為 `.git` 的東西（空目錄、隨手建的
     /// 檔案）都算數。不可逆刪除的預設應該是拒絕。
+    ///
+    /// **兩個子程序問完全部**（#558 R2）：D86 之後名單含被改寫的 entry 檔，一本大刊可達數百筆，逐檔兩個子程序會讓一次合併跑上分鐘。
+    /// `ls-files -z -- <paths>` 列出 tracked 的、`diff --name-only -z HEAD -- <paths>` 列出 dirty 的，語意與逐檔的
+    /// `ls-files --error-unmatch`／`diff --quiet HEAD` 相同（同一個 pathspec、同一個 HEAD 比對）。
     static func filesNotSafelyRecoverable(root: URL,
                                           relativePaths: [String]) -> [(path: String, why: String)] {
-        var bad: [(String, String)] = []
-        for rel in relativePaths {
-            // **不存在的檔案跳過。** 它不可能被「不可回復地刪除」——刪除迴圈對它是
-            // no-op。更重要的是不搶戲：候選住在 legacy 目錄時 `entities/<uuid>.yaml`
-            // 不存在，那是**佈局不一致**，由 `assertAllInEntities` 給出可行動的診斷
-            // （「先跑 akashic migrate」）。這道 gate 若先開火，使用者會拿到一句
-            // 「未被 git 追蹤」——正確但完全指錯方向。
-            guard FileManager.default.fileExists(
-                    atPath: root.appendingPathComponent(rel).path) else { continue }
-            // tracked？`ls-files --error-unmatch` 對未追蹤的路徑回非零。
-            let tracked = git(["ls-files", "--error-unmatch", "--", rel], in: root)
-            guard tracked?.status == 0 else {
+        // **不存在的檔案跳過。** 它不可能被「不可回復地刪除」——刪除迴圈對它是
+        // no-op。更重要的是不搶戲：候選住在 legacy 目錄時 `entities/<uuid>.yaml`
+        // 不存在，那是**佈局不一致**，由 `assertAllInEntities` 給出可行動的診斷
+        // （「先跑 akashic migrate」）。這道 gate 若先開火，使用者會拿到一句
+        // 「未被 git 追蹤」——正確但完全指錯方向。
+        let present = relativePaths.filter { FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path) }
+        guard !present.isEmpty else { return [] }
+        func names(_ out: String) -> Set<String> { Set(out.split(separator: "\0").map(String.init).filter { !$0.isEmpty }) }
+        guard let tracked = git(["ls-files", "-z", "--"] + present, in: root), tracked.status == 0,
+              let dirty = git(["diff", "--name-only", "-z", "HEAD", "--"] + present, in: root), dirty.status == 0 else {
+            return present.map { (path: $0, why: "無法執行 git，無從確認可回溯性") }
+        }
+        let trackedSet = names(tracked.out), dirtySet = names(dirty.out)
+        var bad: [(path: String, why: String)] = []
+        for rel in present {
+            if !trackedSet.contains(rel) {
                 bad.append((rel, "未被 git 追蹤（從未 commit，或被 .gitignore 擋掉）"))
-                continue
-            }
-            // clean？`diff --quiet HEAD -- <path>` 有差異時回非零。
-            guard let diff = git(["diff", "--quiet", "HEAD", "--", rel], in: root) else {
-                bad.append((rel, "無法執行 git，無從確認可回溯性"))
-                continue
-            }
-            if diff.status != 0 {
-                bad.append((rel, "有未提交的修改——git 裡的是舊版本，當下這版刪掉不可回復"))
+            } else if dirtySet.contains(rel) {
+                bad.append((rel, "有未提交的修改——git 裡的是舊版本，當下這版刪掉或改寫都不可回復"))
             }
         }
-        return bad.map { (path: $0.0, why: $0.1) }
+        return bad
     }
 
     /// 子程序環境：**剝除全部 `GIT_*`**（#239）。

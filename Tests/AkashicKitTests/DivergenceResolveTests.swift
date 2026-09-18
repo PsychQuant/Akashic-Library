@@ -93,6 +93,28 @@ final class DivergenceResolveTests: XCTestCase {
         XCTAssertEqual(after.divergences.count, 1)
     }
 
+    /// #558 R2（D86）：**倖存者**從未 commit——person 合併把別名併進去、把 verdict 遷進去並收攏（#554 R17／R18），改寫前的內容 git 取不回。
+    /// 閘先前只看被併的檔與 holder 檔，倖存者不在任何一張名單上（R1 verify 第 2 列對 person 側的要求）。
+    func testRefusesWhenSurvivorPersonIsUntracked() throws {
+        var merged = Person(key: "fann-cathy-s-j-2"); merged.names = ["B"]
+        try store.writePerson(merged)
+        let d = Divergence(id: UUID(), question: "是否為同一人",
+                           candidates: [DivergenceCandidate(key: "fann-cathy-s-j", shape: .person),
+                                        DivergenceCandidate(key: "fann-cathy-s-j-2", shape: .person)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(root, message: "everything but the survivor")
+        var survivor = Person(key: "fann-cathy-s-j"); survivor.names = ["A"]
+        try store.writePerson(survivor)                    // untracked
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "fann-cathy-s-j")) { err in
+            guard case DivergenceResolveError.deletionNotRecoverable(let files) = err else { return XCTFail("應為 deletionNotRecoverable，實得 \(err)") }
+            XCTAssertTrue(files.contains { $0.path.contains(survivor.id.uuidString) }, "訊息必須指名倖存者的檔：\(files)")
+            XCTAssertFalse(files.contains { $0.path.contains(merged.id.uuidString) }, "被併者已 commit，不該進清單：\(files)")
+        }
+        let after = try store.load()
+        XCTAssertEqual(after.people.count, 2); XCTAssertEqual(after.divergences.count, 1)
+        XCTAssertEqual(after.people.first { $0.key == "fann-cathy-s-j" }?.names, ["A"], "拒絕後倖存者未被改寫")
+    }
+
     /// 被併實體有**未提交的修改**：git 裡有的是舊版本，當下這版刪掉不可回復。
     func testRefusesWhenDoomedEntityHasUncommittedEdits() throws {
         let d = try seed(into: store)           // seed 內已 commit
@@ -193,6 +215,9 @@ final class DivergenceResolveTests: XCTestCase {
         var other = Entry(id: UUID(), citekey: "chen2020assoc", type: .periodicalArticle, title: "Assoc")
         other.authors = [.key("fann-cathy-s-j-2")]
         try store.writeEntry(other)
+        // #558 R2（D86）：會被改指的 entry 也要 tracked+clean，否則閘在寫入前就拒——本測試要的是「載入得到、落地才失敗」，
+        // 所以先 commit 再設 immutable（R2 之前這裡改寫的是一個 untracked 的檔，正是 D86 要擋的形狀）。
+        GitFixture.commitAll(root, message: "other work")
         let blocked = store.entityURL(id: other.id)
         try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: blocked.path)
         defer {

@@ -2758,9 +2758,9 @@ public final class AkashicService {
         // 宣稱 store 沒有的字串，其中 `"Psychometrika "` 是不變式讓 store 不可能持有的。原拼法與 store 的對照見 `namesReport`。
         let report = Self.namesReport(requested: names, before: [], after: vetted)
         return try jsonString(["key": key, "type": vtype.rawValue,
-                               "names": vetted.map { displaySafe($0, max: 200) },
-                               "namesFolded": report.folded.map { displaySafe($0, max: 200) },
-                               "namesDropped": report.dropped.map { displaySafe($0, max: 200) },
+                               "names": vetted.map { displaySafeInvisible($0, max: 200) },
+                               "namesFolded": report.folded.map { displaySafeInvisible($0, max: 200) },
+                               "namesDropped": report.dropped.map { displaySafeInvisible($0, max: 200) },
                                // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
                                "issn": venue.issn.map(\.normalized)])
     }
@@ -3055,7 +3055,19 @@ public final class AkashicService {
                     // （R4 verify 第 6 列）。這是不變式唯一的自我修復路：新狀態是 canonical、validate 過。
                     // 它報在自己的桶 `authorizedRewritten`——R9 讓同一個可見字串同時落在 `alreadyAuthorized`
                     // 與 `authorizedRemoved`、`authorizedAdded` 空，操作者看不出改了什麼（R9 verify logic 第 23 列）。
-                    if !sameName { authorizedRemoved.append(y) }
+                    if !sameName {
+                        // 舊指定被 `field: authorized` 的 reference 指著時具名拒絕、零寫入（R33；R32 verify Codex 第 2 列）：移出之後那些
+                        // reference 成孤兒，`validateReferenceAttachment` 會在寫入時以「不在 authorized 清單內」拒絕——fail-closed 但不說是哪筆、
+                        // 也不說出路。程式不替人改判定（D60 同向）：value 改成新的對外形或刪掉它，都是人的事。live store 2026-09-18：0 筆。
+                        let pinned = venue.references.filter { $0.field == "authorized" && $0.value == y }
+                        if !pinned.isEmpty {
+                            throw ServiceError.invalid(
+                                "authorize「\(displaySafeInvisible(x, max: 120))」會把「\(displaySafeInvisible(y, max: 120))」移出 authorized，"
+                                + "但這筆 venue 有 \(pinned.count) 筆 `field: authorized` 的 reference 指著它——移出後它們成孤兒、寫入會被拒；"
+                                + "程式不替人改判定。請先把那幾筆 reference 的 value 改成新的對外形、或刪掉它們，再重跑")
+                        }
+                        authorizedRemoved.append(y)
+                    }
                     else if Array(y.utf8) != Array(x.utf8) { rewrote = true }
                     continue
                 }
@@ -3080,23 +3092,25 @@ public final class AkashicService {
         try store.writeVenue(venue)
         try LibraryIndex(store: store).rebuild()
         let nameReport = Self.namesReport(requested: addNames ?? [], before: namesBefore, after: venue.names.entries.map(\.value))
+        // 名字鍵性質式（R33；R32 verify 第 9 列：同一函式的錯誤路徑 R32 已改性質式、成功 payload 仍列舉式——私用區 Co 與合法 joiner 過得了
+        // 名字驗證、列舉式不逃，操作者拿這份 payload 確認剛寫進去的是哪個名字）。其餘列舉式 payload 鍵是 #569 的範圍。
         var payload: [String: Any] = ["key": key,
-                                      "namesAdded": added.map { displaySafe($0, max: 200) },
-                                      "namesFolded": nameReport.folded.map { displaySafe($0, max: 200) },
-                                      "namesAlreadyPresent": nameReport.alreadyPresent.map { displaySafe($0, max: 200) },
-                                      "namesDropped": nameReport.dropped.map { displaySafe($0, max: 200) },
+                                      "namesAdded": added.map { displaySafeInvisible($0, max: 200) },
+                                      "namesFolded": nameReport.folded.map { displaySafeInvisible($0, max: 200) },
+                                      "namesAlreadyPresent": nameReport.alreadyPresent.map { displaySafeInvisible($0, max: 200) },
+                                      "namesDropped": nameReport.dropped.map { displaySafeInvisible($0, max: 200) },
                                       "namesTotal": venue.names.entries.count,
                                       // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
                                       "issnAdded": issnAdded,
                                       "issnTotal": venue.issn.count,
-                                      "variantAdded": variantAdded.map { displaySafe($0, max: 200) },
-                                      "variantDropped": variantBlanks.map { displaySafe($0, max: 200) },
-                                      "authorizeDropped": authorizeBlanks.map { displaySafe($0, max: 200) },
-                                      "authorizedAdded": authorizedAdded.map { displaySafe($0, max: 200) },
-                                      "authorizedRemoved": authorizedRemoved.map { displaySafe($0, max: 200) },
-                                      "liftedFromVariant": liftedFromVariant.map { displaySafe($0, max: 200) },
-                                      "alreadyAuthorized": alreadyAuthorized.map { displaySafe($0, max: 200) },
-                                      "authorizedRewritten": authorizedRewritten.map { displaySafe($0, max: 200) },
+                                      "variantAdded": variantAdded.map { displaySafeInvisible($0, max: 200) },
+                                      "variantDropped": variantBlanks.map { displaySafeInvisible($0, max: 200) },
+                                      "authorizeDropped": authorizeBlanks.map { displaySafeInvisible($0, max: 200) },
+                                      "authorizedAdded": authorizedAdded.map { displaySafeInvisible($0, max: 200) },
+                                      "authorizedRemoved": authorizedRemoved.map { displaySafeInvisible($0, max: 200) },
+                                      "liftedFromVariant": liftedFromVariant.map { displaySafeInvisible($0, max: 200) },
+                                      "alreadyAuthorized": alreadyAuthorized.map { displaySafeInvisible($0, max: 200) },
+                                      "authorizedRewritten": authorizedRewritten.map { displaySafeInvisible($0, max: 200) },
                                       "authorizedTotal": venue.authorized.count,
                                       "variantTotal": venue.variant.count]
         if let p = venue.paginated { payload["paginated"] = p }

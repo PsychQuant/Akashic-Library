@@ -1139,7 +1139,7 @@ per-tool 出口照樣截在 `\u{…}` 中間、吐裸反斜線（第 7／11／13
 payload 粒度比對。** 落到程式上：
 
 - **`displaySafeErrorText`**（AkashicCore）：自帶消毒的原樣，其餘逐行列舉式＋性質式逃一次、LF 保留。**`displaySafeError(_:max:)`** 對它只截，`max`
-  是**輸出** scalar 上限（兩類都是）——呼叫端自己決定消費端裝得下多少：CLI 路徑 4,096／2,400、MCP payload 512（~~14 個站點沒動~~ **R31 verify 第 26 列更正：實測 16，且 R30 寫下時就是 16；R32 起本檔不再寫站點數**，自此真的是 512）。
+  是**輸出** scalar 上限（兩類都是）——呼叫端自己決定消費端裝得下多少：CLI 路徑 4,096／2,400、MCP payload 512（~~14 個站點沒動~~ **R31 verify 第 26 列更正：實測 16，且 R30 寫下時就是 16；R32 起本檔不再把站點數當現況寫（引用 verify 列的歷史計數不在此限）**，自此真的是 512）。
   **`displaySafeErrorMultiline(_:prefix:maxLineLength:)`** 把前綴接上之後才交給 `displaySafeAssembled`——逐行截、退讓、96 KB 總量量的是**最終**輸出。
   MCP 出口與 `Main.swift` 帶前綴；CLI 的五個 `ValidationError` 包裝改送 `displaySafeErrorText`（不截），頂層 sink 截一次；兩面自此對被截斷的訊息也逐字
   相同（`testTwoFacesAgreeEvenWhenTruncated`）。~~`ErrorDisplay.describe` 的 NSError 支對 `NSFilePathErrorKey` 在時補回路徑（暫存檔名住在
@@ -1152,16 +1152,16 @@ payload 粒度比對。** 落到程式上：
 - **11 個 `"\(error)"`**：DivergenceResolve 六個、Commands.swift 六個（含 `confirmFailed`）、IdentifierMigration、VenueVariantMigration 兩個，全走
   `displaySafeError`；守衛的入口正則多 `\(error|err|failure|underlying)`。migration 報告的 reason **全部**在建構點消毒（PersonIdentityMigration 的 key／
   檔名、IdentifierMigration 的 blockers、VenueMigration／VenueVariantMigration 的 relFile），CLI 四個 sink 改只截並進封閉 sink 表（第 2／28 列）。
-- **守衛（`SanitizationBoundaryTests`，16 支）**：`errorTypeDecls()` 全樹列 Error 型別（宣告可跨行、巢狀具名），`typesThrownWithSanitizer()` 列擲出站點帶
+- **守衛（`SanitizationBoundaryTests`，~~16 支~~ **支數逐輪成長、R33 起不寫死**）**：`errorTypeDecls()` 全樹列 Error 型別（宣告可跨行、巢狀具名），`typesThrownWithSanitizer()` 列擲出站點帶
   消毒的型別，`found ＝ 宣告內任一處消毒 ∪ 擲出端消毒`，`conforming == found` 兩個方向都斷言——`escapeAtThrow` 手寫表不存在了；
-  `payloadModes(of:)` 從描述 block 逐 case 解析每個綁定的處置（escaped／clipped／raw／unused），`testEveryThrowSiteEscapesEachPayloadExactlyOnce`
+  `payloadModes(of:)` 從描述 block 逐 case 解析每個綁定的處置（escaped／clipped／raw／unused；**R31 加 `unclassified`、R32 加 `typed`**——R33 補記），`testEveryThrowSiteEscapesEachPayloadExactlyOnce`
   對每個 conform 的 enum 的每個擲出站點逐引數對照（描述逃的擲出端不得再逃、描述截或原樣的擲出端必須逃或是字面／程式構造值；陣列字面當字面；
   同一語句行上的 `display-safe-exempt:` 具名引數可豁免），下限 400 站點；`topLevelArguments` 以巢狀模式追蹤插值裡的字串（第 26 列）；
   `strippingLineComments` 認得 `\"`；`programBuilt` 多九列（Int 綁定名、`action`、`losses`、`capped`…每列有理由，`confirmWriteFailed` 與 `errors.map`
   兩列的理由改成真的承重的那句）。新測試：`testDisplaySafeErrorMaxIsAnOutputBound`、`testDisplaySafeErrorMultilineCapsAfterExpansion`
   （300 行 × 400 ZWSP 的原始錯誤 → ≤ 96 KB＋一行）、`testArgumentSplitterSurvivesInterpolatedStringLiterals`。
 - 其餘：`wouldLeaveTwoConfirmedLiterals` 出路句的標點（第 29 列）；export-bib 缺席 citekey 逐筆列、40 筆上限＋「另 N 筆」（第 30 列）；
-  `DestructiveTargetGate` copy-paste 行改回列舉式 `displaySafe`（`programBuilt` 一列具名理由，第 31 列）；`RecordIssuesSummary` 2,400 並進 sink 表
+  ~~`DestructiveTargetGate` copy-paste 行改回列舉式 `displaySafe`（`programBuilt` 一列具名理由，第 31 列）~~ **R33 更正（R32 verify DA 第 14 列）：兩半都被 R31 推翻——那一行改回性質式 `displaySafeInvisible`（R30 verify 第 24 列）、那條 programBuilt 列已拿掉**；`RecordIssuesSummary` 2,400 並進 sink 表
   （第 33 列）；AkashicService 五處 payload 字典鍵改 `displaySafeInvisible`（第 35 列）；Proposition 的 `boundedKey`／訊息上限／`safeDescription`／
   `referenceTruthDisplay`／`boundedTruthRendering` 全改性質式＋退讓截（第 20／27 列）；`Commands.swift:62` 懸空條目逃一次。
 
@@ -1244,6 +1244,9 @@ sink 不需要更多輸入，截出來的字串與無界版本逐字相同；守
 會落在 `typesThrownWithSanitizer` 之外——那時守衛會紅、要把擲出改成全名；`displaySafeMultiline` 的只截支對截在 400 的行會退讓掉尾端的裸反斜線
 （第 33 列，零實例、記錄不動）；`ValidationError` 的 CLI 輸出在錯誤行之後帶 usage 行，MCP 沒有——「兩面逐字相同」說的是錯誤行（含截斷）；export-bib／
 Projection 的 UX 改動與 #577 的三處 pin 是搭車（第 32／40 列，記錄不動）。changelog R30 節「14 個站點」是寫死的計數（實測 16）——這裡不再寫數字。
+**`displaySafeMultiline` 的 200 行預算對本 repo 的全 CJK 錯誤文字到不了**（R31 verify 第 26 列；R32 verify 第 6 列指出這一句沒被寫下）：96 KB 以 UTF-8 位元組計、
+每行 400 個 CJK 字約 1,200 bytes，約 **80 行**就撞總量——`maxLines: Int = 200` 對本 repo 的主要語言是到不了的死參數；條件是「每行都是 CJK 且都到 400 字」，
+混 ASCII 的行數會多。
 
 ## R31 verify：界分開了，而豁免仍以字面的第一個字放行
 
@@ -1262,7 +1265,7 @@ Projection 的 UX 改動與 #577 的三處 pin 是搭車（第 32／40 列，記
 「補回路徑、暫存檔名住在 `NSFileNewItemLocationKey`」（第 12／19／22／24 列）。還有：rename 的 D60 閘先渲染全部命中才 `prefix(cap)`（第 3 列，Codex）；
 reviewer 席共用一棵工作樹、一席看到另一席的 `Int.max` mutation（第 4 列；DA 第 43 列更正：樹乾淨、2,839 綠可重現——但六席共樹是 verify harness 的形狀，
 記在 R31 節）；十個註記不再豁免任何東西（第 29 列）；R31 新增的零實例守衛沒進 `zero-instance-guards` 表（第 17 列）；測試名宣稱一個 body 刻意不驗的性質
-（第 18 列）；第 15／26／27／28／33 列記錄。DA 以真 binary 驗過：兩面位元組相同、ceiling 邊界、反斜線加倍、CRLF（第 47 列）；`^id$` 今天零假陰性、
+（第 18 列）；第 26／33 列記錄、第 15／27／28 列修（R32 verify 第 18 列更正：R32 把三個修過的列標成「記錄」）。DA 以真 binary 驗過：兩面位元組相同、ceiling 邊界、反斜線加倍、CRLF（第 47 列）；`^id$` 今天零假陰性、
 毯式豁免今天零真實例（第 44／45 列）。
 
 ## R32 落地：預算數輸出、豁免逐插值（D84）
@@ -1283,8 +1286,9 @@ reviewer 席共用一棵工作樹、一席看到另一席的 `Int.max` mutation�
   `writeFailures.first?.error ?? "…"`、`conflict.describe`、`described`、封閉列舉 rawValue 清單、`timelineKeys`／`knownKeys`／`updatable` 常量、括號三元
   字面、`validationErrors.map { "- " + displaySafeClipOnly }`），每列有理由。struct 的 conformer 是**封閉清單**（`EscapedOnce`／`AuthorshipCompletenessValidationError`／
   `TractatusValidationFailure`／`PropositionModelValidationError`，每列寫「為什麼整個描述都消毒了」，第 11 列）；`TractatusValidationFailure` 的 `incompleteness`
-  也逐項逃（`ValidationFailureSanitizationTests`，NC9 紅）。sink 上限守衛分三族各有地板（`displaySafeError(max:)` 57、`displaySafeClipOnly(max:)` 18、
-  宣告的預設值 3；把 `displaySafeMultiline` 的預設改 8,192 → 紅，NC7）。`testErrorTextWorkIsLinearInTheInput` 改量**縮放比**（輸入 ×4 耗時 < ×8，
+  也逐項逃（`ValidationFailureSanitizationTests`，NC9 紅）。sink 上限守衛分三族各有地板（~~`displaySafeError(max:)` 57、`displaySafeClipOnly(max:)` 18、
+  宣告的預設值 3~~ **R33 更正（R32 verify 第 3／4／10／15／26 列）：那三個數是站點數不是地板、且兩個量錯（腳本實跑 57／39／5，5 是混了生產者預設值的數）；
+  地板讀程式，本檔不寫**；把 `displaySafeMultiline` 的預設改 8,192 → 紅，NC7）。`testErrorTextWorkIsLinearInTheInput` 改量**縮放比**（輸入 ×4 耗時 < ×8，
   另留 10 秒絕對上限）。五條 `同上`／`names` 註記改成具名 binding（第 29 列）；測試改名 `testRawErrorReachingTheTopLevelIsEscapedOnce`（第 18 列）。
 - **`ErrorDisplay.describe`**：暫存檔名連 Foundation 本地化文字裡的那一份也遮（`replacingOccurrences(of: name, with: "（atomicWrite 暫存檔）")`），
   測試改用**真的** `moveItem` 516 錯誤（NC6 紅）；doc 改寫「ceiling 只管非自帶消毒那一支」（第 15 列）與重量後的數字（第 14 列）。
@@ -1298,3 +1302,49 @@ reviewer 席共用一棵工作樹、一席看到另一席的 `Int.max` mutation�
 補的是封閉清單與行為測試，不是全稱檢查；`.typed` 只認 `.uuidString`（其他型別釘住的成員鏈要加列）；縮放比測試對「線性但常數很大」不敏感（那由 10 秒絕對上限擋）；
 `incompleteness` 今天只含 ASCII，逃它是為了讓 conform 對整個描述為真，不是修一個現行洩漏；六席 reviewer 共用一棵工作樹是 verify harness 的形狀（第 4／36 列）。
 
+## R32 verify：三十二輪來第一次沒有 blocking，而數字在同一天量錯
+
+六席齊、39 列（**0 CRITICAL、0 HIGH**、15 MEDIUM、16 LOW、8 INFO）——Aggregate **PASS**，tag `idd-554-verified` 打在 `58bab46d`。MEDIUM 分五群：
+(1) **兩個 Codex 列（靜態審閱）**——`collapseWinner` 第 0 層直接以 `live` 篩，三筆碰撞裡與活邊逐位元組相同的弱血統候選被提前淘汰、#468 選不到它
+（第 1 列）；`authorize` 把被 `field: authorized` reference 指著的舊指定移出後，寫入時被孤兒附著驗證拒——fail-closed 但不具名、不給出路（第 2 列；
+live store 實測 0 筆、沒有工具寫入面）。(2) **數字**——第 29 列與 changelog 寫 18／3，該列自己附的腳本重跑是 39／5，三席獨立重跑；changelog 同一個
+commit 先承諾「不再寫站點數」再寫三個、還把站點數當地板寫（第 3／4／10／15／26 列）；第三族把生產者的輸入預算混進 sink 家族（第 5 列）；三個地板沒有負控、
+clipOnly 的地板照量錯的數訂（第 15 列）。(3) **守衛**——`cost = 8` 是無守衛的常數而鄰居 `jsonEscape` 對同一前提有 surrogate 分支（第 7／11／17／35 列，
+DA 定位「前提今天為真、風險潛在」）；`concatenationPieces` 的單一 `inString` 旗標在插值裡的巢狀字串上翻轉（第 8／34 列，637/637 今天零差異）；兩份
+不一致的「是不是字面」謂詞讓 raw string 走整段豁免、`\#(` 的插值零檢查（DA 第 13 列）；`.escaped` 分支不鏡射 `.raw` 的入口條件（第 20／28 列）。
+(4) **一半的修**——R32 在 `updateVenue` 的錯誤路徑改性質式、同一函式回傳的 12 個名字鍵仍列舉式（第 9 列）；DA 更正 security／regression 的規模
+（425 站點／25 檔，屬 #569，第 31 列——貼進 #569）。(5) **散文**——R30 節仍以現在式寫 `DestructiveTargetGate` 改回列舉式（DA 第 14 列）、R31-verify
+摘要把三個修過的列標成記錄（第 18 列）、CJK 80 行沒寫進誠實邊界（第 6 列）、parity 列塞進非本工具的子句（第 29 列）。記錄：`.typed` 是名字判準（第 21 列）、
+封閉清單的理由是散文（第 22 列）、`^described$` 名字作用域（第 24 列）、`isAtomicWriteTemp` 形狀謂詞（第 33 列）、`replaceItemAt` 路徑的遮罩零作用
+（第 27／36 列）、scope（第 30 列，交使用者）。DA 以真 binary 驗過 `--help` 零控制字元、rename 25 筆「共 25 條」＋20 個 bullet、D84 不改 live store
+任何 payload 位元組（第 36／38／39 列）。
+
+## R33 落地：in-scope fix，不重跑六席（D85）
+
+依 `idd-verify` Step 5c（無 blocking → in-scope fix 修正＋commit、不需重跑 verify），R33 只跑全套測試、負控、guards、E2E。**D85（Claude 代裁）：
+收攏第 0 層留的是「活邊的位元組集合」，不是「活邊那一筆」；`authorize` 對被 `field: authorized` reference 指著的舊指定具名拒絕、零寫入——程式不替人
+改判定（D60 同向）。** 落到程式上：
+
+- **`collapseWinner`**：第 0 層改 `liveBytes.contains(bytes)`（與第 1 層的 `ownBytes` 同形）；`CollapseSurvivorPolicyTests` 直接對三筆混合組驗三種排列
+  （NC：改回 `live` 篩 → 紅）。
+- **`updateVenue`**：舊指定被 reference 指著時 `ServiceError.invalid` 具名（哪個名字、幾筆、出路）；`VenueAuthorizedWriteTests` 驗零寫入（NC：拿掉那道閘 →
+  寫入時的孤兒驗證仍拒、但測試要求訊息具名 → 紅）。回傳的 12 個名字鍵與 `addVenue` 的 3 個改 `displaySafeInvisible`（NC：改回 → U+E000 原樣 → 紅）。
+- **`UnsafeToEmitScalar.escapedScalarCount`**：`cost` 讀常數；`testEveryUnsafeScalarEscapesToExactlyEscapedScalarCount` 走 0…0x10FFFF，每個成員 ≤ 0xFFFF、
+  只截支以 8 為預算恰好不截、7 就截（NC：集合加一個非 BMP 成員 → 紅）。
+- **守衛**：`concatenationPieces` 改模式堆疊（code／string／raw，`\(` 與 `\#(` 推 code 層），`interpolations` 認 `\#(`，`isLiteralPiece` 一份謂詞
+  （`"`／`#"`／`[`）給 `.escaped`／`.clipped`／`.raw`／`ValidationError` 四處用，`.escaped` 的入口條件與 `.raw` 同形；sink 上限守衛分四族、地板照實測
+  （50／35／3／0，第四族「呼叫端字面的 `maxLineLength:`」零實例、地板 0 明寫可為空、不撐任何地板）；生產者的 `max: Int = 200` 不在任何一族。
+  真 `moveItem` 測試：setup 用 `try`、`XCTUnwrap`、斷言 516。
+- **散文**：第 29 列與腳本註記重量（57／39／3／0）、裁決欄改「四族」；changelog R30 節 `DestructiveTargetGate` 那句就地劃記、`16 支`／四值列舉補記、
+  R31-verify 摘要標籤更正、R32 節「地板」句劃記、R31 節誠實邊界補 CJK 80 行；parity `update_venue` 列拿掉 rename 閘與 atomicWrite 兩個非本工具的子句、
+  補 R33 句。
+
+**誠實邊界**：`.typed` 是成員名判準（全樹 `var uuidString` 零命中、只有 Foundation 的 `UUID`——一個 wrapper 型別加了同名成員就整格豁免且不計入任何下限，
+第 21 列）；struct conformer 的封閉清單只驗鍵集合，四條理由是散文、由 verify 席逐條讀（第 22 列）；`^described$` 是名字作用域不是站點作用域（第 24 列，
+今天零碰撞）；`isAtomicWriteTemp` 是檔名形狀謂詞——一個殘留的 `.x.tmp-y.yaml` 讀取失敗會把檔名換成固定標記（第 33 列，零實例、與「不取 `NSDestinationFilePath`」
+同組取捨）；`replaceItemAt` 那條路（更新既有記錄，最常見）的 `NSFilePathErrorKey` 是 nil、暫存檔名只在 `NSFileNewItemLocationKey`，遮罩對它零作用、今天不漏
+（第 27／36 列）；遮罩靠 Foundation 本地化文字逐字引用檔名（macOS 27 英文／中文都引），換 locale 那條斷言會紅——產品的邊界不是測試的；`concatenationPieces`
+的 raw 模式只認單一 `#`（`##"…"##` 零實例）、`codeOnly` 不認 `\#(`（`.typed` 對 raw string 描述的判定會少算用法）；第四族地板 0 等於「那一族的存在不證明
+任何事」，寫出來是為了不讓它被讀成覆蓋；生產者預設值拿出守衛之後，「生產者輸入預算 ≤ ceiling」沒有守衛——它與 ceiling 的等價性前提無關，記錄不釘。
+**`DisplaySinkCoverageTests` 的豁免仍是整行毯式**（R32 verify 第 37 列）：R33 試做逐運算式豁免、實測 **161** 條要具名（`entry.citekey`／`witness.uuidString`／
+`displaySafeClipOnly(…)`…，多數安全但守衛從沒問過），不在 in-scope fix 的量級——還原、開 #584，與 #569 同族一起排。

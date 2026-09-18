@@ -144,6 +144,27 @@ final class CollapseSurvivorPolicyTests: XCTestCase {
         }
     }
 
+    // MARK: - R33（R32 verify Codex 第 1 列）：第 0 層留的是「活邊的位元組」，不是「活邊那一筆」
+
+    /// keeper 的 `Alpha`（強、有活邊）、doomed 的 `Alpha`（弱、無活邊）、doomed 的 `ALPHA`（弱、無活邊）：R18 的第 0 層直接以 `live` 篩，
+    /// 同拼法的弱血統候選被提前淘汰、#468 選不到它——留強等於靜默拿掉一個警告（本檔第一個測試的理由）。三種排列都要同一個答案。
+    func testLiveEdgeLayerKeepsSameByteWeakCandidatesForLineagePolicy() {
+        let live = LibraryStore.CollapseCandidate(ref: ref(holder: "keeper2020a", literal: "Alpha", rule: exact, statement: "keeper"), ownedBySurvivor: true, live: true)
+        let weakSame = LibraryStore.CollapseCandidate(ref: ref(holder: "keeper2020a", literal: "Alpha", rule: weak, statement: "weak-same"), ownedBySurvivor: false, live: false)
+        let weakOther = LibraryStore.CollapseCandidate(ref: ref(holder: "keeper2020a", literal: "ALPHA", rule: weak, statement: "weak-other"), ownedBySurvivor: false, live: false)
+        for (desc, cands, want) in [("live 先", [live, weakSame, weakOther], 1), ("弱同拼法先", [weakSame, weakOther, live], 0), ("弱異拼法先", [weakOther, live, weakSame], 2)] {
+            let i = LibraryStore.collapseWinner(cands)
+            XCTAssertEqual(i, want, desc)
+            XCTAssertEqual(ruleOf(cands[i].ref), weak, "\(desc)：同拼法時弱血統的警告要留住（#468 第 1 層）")
+            let kept = ProvenanceReference.VerdictPairingValue.parse(cands[i].ref.value ?? "")?.literal ?? ""
+            XCTAssertEqual(Array(kept.utf8), Array("Alpha".utf8), "\(desc)：活邊的位元組要留住（拿到 \(kept)）")
+        }
+        // 活邊的拼法與其餘全不同時，第 0 層仍只留活邊（D51 不變）
+        XCTAssertEqual(LibraryStore.collapseWinner([weakOther, live]), 1)
+        // 沒有活邊時第 0 層不縮小（holder 路徑一律 false）
+        XCTAssertEqual(LibraryStore.collapseWinner([weakOther, weakSame]), 0, "無活邊：第 0 層不縮小，落到 #468 第 3 層 statement 字典序（weak-other < weak-same）")
+    }
+
     /// R17 verify requirements 第 24 列（INFO）：`kept` 的 value 解析不出配對時 `spellingNote` 靜默回空——D47 承諾的揭露在那一格不兌現、
     /// 且沒有任何跡象。R18：說出來。
     func testSpellingNoteSaysWhenTheKeptValueCannotBeParsed() {

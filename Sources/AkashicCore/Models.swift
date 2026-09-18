@@ -682,6 +682,11 @@ public enum UnsafeToEmitScalar {
 
     public static func contains(_ u: Unicode.Scalar) -> Bool { contains(u.value) }
 
+    /// `displaySafe` 的 `\u{%04X}` 逃脫對本集合**每個**成員恰產出的 scalar 數——只截支的預算以它計（R32 D84）。前提是成員全在 BMP
+    /// （`%04X` 恆四位）；`testEveryUnsafeScalarEscapesToExactlyEscapedScalarCount` 逐一走 0…0x10FFFF 釘住（R33；R32 verify 第 7／11／17／35 列：
+    /// `jsonEscape` 對同一前提有 surrogate 分支＋doc，display 面先前只有一句註解——加一個非 BMP 成員後 `max` 每次逃脫少算一格而沒有跡象）。
+    public static let escapedScalarCount = 8
+
     /// 把一份**已序列化**的 JSON 文字裡、**字串字面值內**的危險 scalar 改寫成 `\uXXXX`。
     ///
     /// **為什麼在序列化之後做**：JSON 出口需要 literal **逐字**可取回（`bootstrap-people
@@ -787,7 +792,7 @@ public func displaySafe(_ s: String, max: Int = 200,
         // 這是 ceiling 等價性的前提（每個輸入 scalar 至少產生一個輸出 scalar）；只截支（`false`，`displaySafeClipOnly`／`displaySafeAssembled`）
         // 數**輸出** scalar——sink 的 `max` 對消費端（終端、LLM context）是輸出上限，而一個含 TAB／CR／LS 的自帶消毒描述在 R31 仍會被
         // 逃成八個字元只算一格（R30 verify 第 12 列對 LF 修過一次，R31 只折 LF；D84 讓整個 `UnsafeToEmitScalar` 類別一起算對）。
-        let cost = escapingBackslash ? 1 : (escape ? 8 : 1)   // `\u{%04X}`：本集合的成員全在 BMP，恰八個 scalar
+        let cost = escapingBackslash ? 1 : (escape ? UnsafeToEmitScalar.escapedScalarCount : 1)   // `\u{%04X}`：八個 scalar，前提由測試釘住（R33）
         if emitted + cost > boundedMaximum { truncated = true; break }
         if escape {
             put(String(format: "\\u{%04X}", v))

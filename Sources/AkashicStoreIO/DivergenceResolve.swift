@@ -1080,7 +1080,7 @@ extension LibraryStore {
     /// 那會丟掉 judgement 不同的那一筆（R21 verify DA 第 14 列）。
     /// 回傳勝者在 `cands` 裡的索引。四層，前三層**只在候選的拼法位元組不同時**才縮小集合（同拼法時留哪一筆都不動任何字串，
     /// 那時只有 #468 的血統警告值得保）：
-    /// 0. 活著的邊那些勝（D51）；
+    /// 0. 與活著的邊**位元組相同**的那些勝（D51；R33 起與第 1 層同形——R18 直接以 `live` 篩，同拼法的弱血統候選過早出局）；
     /// 1. 與倖存配對自己位元組相同的那些勝（D47——R17 用組層級的 `bytesDiffer` 對每一對套第 0 層，三列碰撞裡與 keeper 同拼法的弱血統
     ///    那筆被強的 keeper 淘汰，regression 第 8 列：留它可以同時保住位元組與警告）；
     /// 2. #468 三層：弱血統優先、倖存配對自己的優先、statement 字典序；
@@ -1094,7 +1094,11 @@ extension LibraryStore {
             let kept = pool.filter(keep)
             if !kept.isEmpty { pool = kept }
         }
-        narrow { cands[$0].live }
+        // 第 0 層留的是「活邊的**位元組**」，不是「活邊那一筆」（R33；R32 verify Codex 第 1 列）：R18 直接以 `live` 篩，三筆碰撞（keeper `Alpha` 強、有活邊；
+        // doomed `Alpha` 弱、無活邊；doomed `ALPHA` 弱、無活邊）裡同拼法的弱血統候選被第 0 層提前淘汰、#468 選不到它——與第 1 層的形狀不一致，
+        // 而 doc 自己寫「留它可以同時保住位元組與警告」。
+        let liveBytes = Set(pool.filter { cands[$0].live }.map { verdictLiteralBytes(cands[$0].ref) })
+        narrow { liveBytes.contains(verdictLiteralBytes(cands[$0].ref)) }
         let ownBytes = Set(pool.filter { cands[$0].ownedBySurvivor }.map { verdictLiteralBytes(cands[$0].ref) })
         narrow { ownBytes.contains(verdictLiteralBytes(cands[$0].ref)) }
         return pool.min { a, b in

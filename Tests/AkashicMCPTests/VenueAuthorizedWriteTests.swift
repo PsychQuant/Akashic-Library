@@ -137,6 +137,37 @@ final class VenueAuthorizedWriteTests: XCTestCase {
                       "variant → authorized 是本面的主要用途，報告要看得出它原本是 variant：\(out)")
     }
 
+    /// R33（R32 verify Codex 第 2 列）：舊指定被 `field: authorized` 的 reference 指著時，替換要具名拒絕、零寫入——R32 之前是寫入時
+    /// `validateReferenceAttachment` 以「不在 authorized 清單內」拒絕（fail-closed 但不說是哪筆、也不說出路）；程式不替人改判定（D60 同向）。
+    /// live store 2026-09-18：`field: authorized` 的 venue reference 0 筆；沒有工具寫入面，只有手改。
+    func testAuthorizeRefusesWhenTheOldAuthorizedIsPinnedByAReference() throws {
+        var v = try venue()
+        v.authorized = ["PSYCHOMETRIKA"]
+        v.references = [ProvenanceReference(field: "authorized", value: "PSYCHOMETRIKA",
+                                            kind: .retrieval(url: "https://example.org/masthead", retrieved: "2026-09-18", status: 200,
+                                                             mediaType: "text/html", content: "sha256:" + String(repeating: "ab", count: 32)))]
+        try LibraryStore(root: root).writeVenue(v)
+        XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["Psychometrika"])) { e in
+            let m = "\(e)"
+            XCTAssertTrue(m.contains("field: authorized") && m.contains("PSYCHOMETRIKA") && m.contains("reference") && m.contains("再重跑"), m)
+        }
+        let after = try venue()
+        XCTAssertEqual(after.authorized, ["PSYCHOMETRIKA"], "零寫入")
+        XCTAssertEqual(after.references.count, 1, "reference 不動——程式不替人改判定")
+        XCTAssertFalse(after.names.entries.map(\.value).contains("Psychometrika"), "names 也不動")
+    }
+
+    /// R33（R32 verify 第 9 列）：回傳的名字鍵性質式——私用區 Co 過得了名字驗證（§5.7 不擋），列舉式 `displaySafe` 不逃、原樣進 JSON 文字，
+    /// 而這份 payload 正是操作者確認「剛寫進去的是哪個名字」的地方。
+    func testReportKeysEscapeInvisibleScalars() throws {
+        let name = "Alpha \u{E000} One"
+        let out = try service.updateVenue(key: "some-journal", addNames: [name], note: nil, type: nil, authorize: [name])
+        XCTAssertTrue(out.contains("\\u{E000}"), out)
+        XCTAssertFalse(out.contains("\u{E000}"), "私用區 scalar 原樣進 payload：\(out)")
+        let created = try service.addVenue(key: "pua-journal", names: [name], type: "periodical")
+        XCTAssertTrue(created.contains("\\u{E000}") && !created.contains("\u{E000}"), created)
+    }
+
     /// **跨書寫系統是 append**：已有 latin authorized 時加一個中文刊名，兩個都在。
     func testAuthorizeAcrossScriptsAppends() throws {
         var v = try venue()
@@ -1039,10 +1070,11 @@ final class VenueAuthorizedWriteTests: XCTestCase {
 
     /// `add_variant`／`authorize` 的全空白項也要有回報桶（R12 verify logic 第 25 列：判定型寫入面上的靜默 no-op）。
     func testBlankOnlyVariantAndAuthorizeInputsAreReported() throws {
+        // 報告的名字鍵自 R33 起性質式逃脫（R32 verify 第 9 列）：全形空白 U+3000 印成 `\u{3000}`——這正是「被丟掉的是看不見的空白」要讓人看見的那個字
         let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, addVariant: ["  "], authorize: ["\u{3000}"])
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
         XCTAssertEqual(json["variantDropped"] as? [String], ["  "], out)
-        XCTAssertEqual(json["authorizeDropped"] as? [String], ["\u{3000}"], out)
+        XCTAssertEqual(json["authorizeDropped"] as? [String], ["\\u{3000}"], "R33：名字鍵性質式逃脫，看不見的全形空白要看得見：\(out)")
     }
 
     /// **否決抑制與其餘三處同一把鍵**（R11 verify logic 第 8 列、regression 第 11 列：`VenueResolver` 的抑制比原始位元組，而

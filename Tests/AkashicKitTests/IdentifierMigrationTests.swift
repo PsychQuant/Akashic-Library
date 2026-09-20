@@ -247,11 +247,14 @@ final class IdentifierMigrationRunTests: XCTestCase {
     /// 而遷移只從 `fields` 殘留搬值——一筆帶殘留的記錄，其結構化清單是空的，
     /// 所以它不可能合法地帶著一個指向該殘留值的 reference。
     ///
-    /// **venue 那條呼叫不在此列**（#556 R5 verify，2026-09-19）：venue 的 `issn` 清單非空，而
-    /// `validateReferenceAttachment` 解析後比 normalized，所以一筆手改的鬆散寫法
-    /// `{field: issn, value: "0033 3123"}` 對 `issn: [0033-3123]` 過 validate、進得了 store，
-    /// `rewritesByVenue` 對 `raw != normalized` 的號會為它建一筆 rewrite——那條路可達，只是 live store 零實例。
-    /// 本測試只釘 entry；venue 那條的守衛是 `zero-instance-guards` 要另裁的一列。
+    /// **venue 那條呼叫不在此列**（#556 R5／R7 verify）：它要兩個前提同時成立——
+    /// (a) 某筆 work 的 `fields` 殘留裡有一個未正規化的 ISSN token（例如 `00333123`；token 不含空白，
+    ///     `IdentifierTokenizer` 在空白與逗號處切，所以 `"0033 3123"` 這種形永遠不會成為 `old`），
+    ///     且它的 venue 邊已歸戶到該 venue——`rewritesByVenue` 只從這裡產生 rewrite；
+    /// (b) 該 venue 持有一筆 value **逐字**等於那個 raw token 的 reference（`$0.old == v`）——手改進得去：
+    ///     venue 的 `issn` 清單非空，`validateReferenceAttachment` 解析後比 normalized，`{field: issn, value: "00333123"}`
+    ///     對 `issn: [0033-3123]` 過 validate。
+    /// live store 2026-09-20：(a) 為 0（`fields` 殘留裡的 ISSN 已搬完）、(b) 為 0。那條路可達、零實例；本測試只釘 entry。
     ///
     /// 這條測試釘住 entry 那個機制。**它一旦變綠（＝寫入面放寬了），`rewritingProvenance`
     /// 就從裝飾品變成承重結構**，那時要回頭確認它真的有測試涵蓋。

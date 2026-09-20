@@ -316,3 +316,19 @@ Run `wf_3b9e8b08-f1a`（2026-09-20）：六席齊（Codex 429），51 列，13 H
 - **鎖分頁**（D108）：一律 `--url-exact '<那個分頁的 URL 逐字>'`（host 多重命中、路徑尾段對根路徑是 `/`）；前三源退路用自己組的 URL（三端點實測不 redirect）、第 4 源用使用者回覆的；`get url` 的 stderr 導檔不讀。`open` 不用 `--new-window`。
 - （乙）：標題改「本 skill 提到的 shell 命令——執行的與只指出去的都列」；URL 組法給回機械 regex `^https://[a-z0-9.-]+(/[A-Za-z0-9._~:/?#!$&()*+,;=%-]*)?$`、host 先小寫、fullmatch；`<DOI>` 陣列規則；新增 (4) `get text` 讀內容；(5) 取檔；(6)(7) 不執行。
 - （甲）`store_source` 的 `origin` 改「被存那一頁的 URL，哪一源都可能」。報告第 3 項補「取哪一筆記錄」與 `get url` 回的 URL。（丙）補 R11 兩句。
+
+## R12 verify：第 4 源的位址仍來自第 2 源、第 6 項的閘對兩個寫入不可滿足（62 列：19 HIGH／24 MEDIUM／11 LOW／8 INFO；六席齊，Codex 429）
+
+- 第 4 源：建議 URL 繞過白名單、誘導使用者在已登入的 Safari 開一個外部欄位決定的位址（requirements／DA）；停止條件刪掉「第 2 源與第 4 源不算各自」而位址仍來自第 2 源（三席）；使用者回覆的 URL 進 shell 零檢查（logic／security／regression）；`--url-exact` 讓「回來的 URL 不同就停手」成死分支、真正的 miss 沒有處置（四席）；「只有完整 URL 是唯一的」為假（同 URL 兩分頁）；「使用者開分頁＝人眼」與「看過不等於確認」相反（DA）；`http://` 原樣貼給使用者（DA）。
+- 退路閘：「非空時任何寫入都指涉第 6 項」對 `store_source`／`record_divergence` 不可滿足、與（甲）「沒有人眼」對撞、`sources/` 在 gitignore 裡 git 看不到（三席）；「非空＝沒有退路」為假（DA）；rc≠0 硬停沒出口；`<active_root>` 沒形狀檢查。
+- line 32 的半徑條件化為假（承重存檔一律經 `open`）；(乙)(2) 的適用範圍被 (5) 推翻；提到的命令 8 條不在七條裡；SKILL.md 33,799 bytes。
+
+## R13：收縮——本 skill 不用瀏覽器、不執行 shell、不檢查 git
+
+- **裁決（Claude 代裁 D111）**：R4–R12 被攻的每一個面（safari-browser、git 閘、取檔命令、URL 進 shell）都是 #556 之後加進來的；pre-#556 的本檔（7,178 bytes）只有三句一行的散文。R13 不再修那些句子，把面整段退出：
+  - 前三源經 WebFetch；被擋＝那一源本輪不可達，寫進報告，沒有瀏覽器退路。
+  - 第 4 源：本 skill 不抓、不讀——報告第 3 項寫「待看」，OpenAlex 的 `homepage_url` 過 URL 檢查才附（`http://`、null、不相符都不附），使用者自己看、回覆成文字；不回＝不可達。停止條件恢復「第 2 源與第 4 源不算各自」。
+  - 退路：store 自己的 git 歷史，本 skill 不檢查、不擋、不 commit；第 6 項與閘句的第 6 項刪掉；Step 0 的 `akashic_files` 刪掉。
+  - 承重存檔：WebFetch 回的內容用 Write 工具落檔（不經 shell）再交 `akashic_store_source`，`origin` 填那個 URL；第 4 源不存。
+  - （乙）改寫成「本 skill 與 shell 的關係」：不執行任何 shell 命令；提到的命令（`migrate-venues`、`migrate-identifiers`、CLI 對照、changelog heredoc）都指出去；URL 只交 WebFetch，三種插值的來源與檢查照舊；給使用者看的外部 URL 先過 regex、兩個 regex 都整串比對。
+  - line 32 半徑：注入半徑只剩 store 寫入（甲）與報告文字。（丙）補 R12 兩句與 R13 的收縮理由。

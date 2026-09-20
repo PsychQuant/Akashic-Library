@@ -259,8 +259,8 @@ final class IdentifierMigrationRunTests: XCTestCase {
     /// 這條測試釘住 entry 那個機制。**它一旦變綠（＝寫入面放寬了），`rewritingProvenance`
     /// 就從裝飾品變成承重結構**，那時要回頭確認它真的有測試涵蓋（整句 2026-08-25 起就在，`d8506974`；
     /// 它是條件義務——「變綠時要做的事」——不是今天的待辦。#556 R9 曾刪掉後半句再宣告「不是待辦」，
-    /// R9 verify 第 17／26 列）。venue 那條可達的路今天零行為測試——`Tests/` 對 `rewritingProvenance`
-    /// 只有 doc 與斷言訊息（2026-09-20 實測 3 處）——記 #590。
+    /// R9 verify 第 17／26 列）。venue 那條可達的路今天零行為測試——`grep -rn rewritingProvenance Tests/`
+    /// 的命中全是 doc 與斷言訊息，含這一句自己（R10 寫「3 處」，寫下去就是第 4 處，R10 verify）——記 #590。
     func testAResidueValuedReferenceCannotBeWrittenAtAll() throws {
         var e = Entry(id: UUID(), citekey: "a2020", type: .periodicalArticle, title: "T")
         e.fields["doi"] = "10.1007/BF02294210"          // 殘留，結構化 doi 仍為空

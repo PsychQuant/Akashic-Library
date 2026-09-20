@@ -241,13 +241,19 @@ final class IdentifierMigrationRunTests: XCTestCase {
 
     /// **釘住「為什麼是零」**（`zero-instance-guards` 第 8 列的第二半）。
     ///
-    /// `rewritingProvenance` 至今零次改寫，而理由**不是「還沒發生」，是結構上走不到**：
+    /// `rewritingProvenance` 至今零次改寫。**entry 那條呼叫**的理由不是「還沒發生」，是結構上走不到：
     /// 寫入面驗證要求 reference 的 `value` 必須落在該欄位的**結構化清單**內
     /// （`Provenance.swift`：「value「…」不在 doi 清單內——值被改寫後 provenance 成了孤兒」）。
     /// 而遷移只從 `fields` 殘留搬值——一筆帶殘留的記錄，其結構化清單是空的，
     /// 所以它不可能合法地帶著一個指向該殘留值的 reference。
     ///
-    /// 這條測試釘住那個機制。**它一旦變綠（＝寫入面放寬了），`rewritingProvenance`
+    /// **venue 那條呼叫不在此列**（#556 R5 verify，2026-09-19）：venue 的 `issn` 清單非空，而
+    /// `validateReferenceAttachment` 解析後比 normalized，所以一筆手改的鬆散寫法
+    /// `{field: issn, value: "0033 3123"}` 對 `issn: [0033-3123]` 過 validate、進得了 store，
+    /// `rewritesByVenue` 對 `raw != normalized` 的號會為它建一筆 rewrite——那條路可達，只是 live store 零實例。
+    /// 本測試只釘 entry；venue 那條的守衛是 `zero-instance-guards` 要另裁的一列。
+    ///
+    /// 這條測試釘住 entry 那個機制。**它一旦變綠（＝寫入面放寬了），`rewritingProvenance`
     /// 就從裝飾品變成承重結構**，那時要回頭確認它真的有測試涵蓋。
     func testAResidueValuedReferenceCannotBeWrittenAtAll() throws {
         var e = Entry(id: UUID(), citekey: "a2020", type: .periodicalArticle, title: "T")

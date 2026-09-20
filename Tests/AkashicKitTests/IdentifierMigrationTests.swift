@@ -251,13 +251,13 @@ final class IdentifierMigrationRunTests: XCTestCase {
     /// (a) 某筆 work 的 `fields` 殘留裡有一個未正規化的 ISSN token（例如 `00333123`；token 不含空白，
     ///     `IdentifierTokenizer` 在空白與逗號處切，所以 `"0033 3123"` 這種形永遠不會成為 `old`），
     ///     且它的 venue 邊已歸戶到該 venue——`rewritesByVenue` 只從這裡產生 rewrite；
-    /// (b) 該 venue 持有一筆 value **逐字**等於那個 raw token 的 reference（`$0.old == v`）——手改進得去：
+    /// (b) 該 venue 持有一筆 value 與那個 raw token `==` 的 reference（Swift 字串相等是 canonical 相等，對 ASCII token 等同位元組相等）——手改進得去：
     ///     venue 的 `issn` 清單非空，`validateReferenceAttachment` 解析後比 normalized，`{field: issn, value: "00333123"}`
     ///     對 `issn: [0033-3123]` 過 validate。
     /// live store 2026-09-20：(a) 為 0（`fields` 殘留裡的 ISSN 已搬完）、(b) 為 0。那條路可達、零實例；本測試只釘 entry。
     ///
     /// 這條測試釘住 entry 那個機制。**它一旦變綠（＝寫入面放寬了），`rewritingProvenance`
-    /// 就從裝飾品變成承重結構**，那時要回頭確認它真的有測試涵蓋。
+    /// 就從裝飾品變成承重結構**（這句 2026-08-25 起就在；它是這條測試存在的理由，不是待辦——#556 R8 verify 第 16 列）。
     func testAResidueValuedReferenceCannotBeWrittenAtAll() throws {
         var e = Entry(id: UUID(), citekey: "a2020", type: .periodicalArticle, title: "T")
         e.fields["doi"] = "10.1007/BF02294210"          // 殘留，結構化 doi 仍為空

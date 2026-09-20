@@ -109,7 +109,7 @@ APA 九〇年代的 DOI 正式形帶**雙斜線**（`10.1037//…`），OpenAlex
    **這一刊的結果，不外推**——下一刊有歧義就逐筆人裁
 7. OpenAlex 給的 ISSN 若庫內缺：ISSN 寫入是 venue 身分斷言，不是順手動作——**停下來，照
    [`akashic-verify-venue`](../akashic-verify-venue/SKILL.md) Step 3 的 ISSN 那一條走**（為這一本刊單獨產一份含「報告第 4 項」的
-   報告、等一次指涉第 4 項的回覆再寫——裸的「好」「apply」不算；apply／reject 本管線第 6 步已做、不重做；本管線第 8 步的報告沒有第 4 項）。紀律只寫在那一份，這裡不複述（R3 曾在這裡抄七項、抄漏兩項——R3 verify）。
+   報告，閘見那一份的 Step 3；apply／reject 本管線第 6 步已做、不重做；本管線第 8 步的報告沒有第 4 項）。紀律只寫在那一份，這裡不複述（R3 曾在這裡抄七項、抄漏兩項——R3 verify）。
    這一步曾寫「先核對 print／electronic 角色」——角色只能記在報告裡，兩個寫入面都記不下它（#587）
 8. **報告（逐筆可審的實體）**：新增／conflict／twin-candidates／各排除類計數／
    缺摘要清單（階段 B 輸入）——每筆帶 citekey 或 DOI 與處置，不只總數

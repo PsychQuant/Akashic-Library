@@ -302,3 +302,17 @@ Run `wf_3b9e8b08-f1a`（2026-09-20）：六席齊（Codex 429），51 列，13 H
 - **（乙）**：URL 組法提到命令之前、WebFetch 與 `open` 同一套——host 段只含 `[a-z0-9.-]`（去掉 `@`／`:`／`%`）、其餘只含 RFC 3986 去掉 `'`／`[`／`]`／`@` 的字元、整串比對；`<DOI>` 來源改成 `akashic_get_entry`（Step 0 補這條與 `akashic_files`）；`<issn>` 補 store 讀取面來源與先正規化；六條命令各附形式與檢查——`git -C '<store 根目錄>' status --porcelain`（根目錄從 `akashic_files` 讀；不空就停、本 skill 不 add／commit）、`open --profile`、`get url` 先比 host、`mkdir` ＋ `get source` ＋ `wc -c`（0 byte 不送）、`migrate-venues` 不執行、changelog heredoc 不執行；開頭「沒有 akashic 命令」那句刪掉。
 - **第 4 源**（表第 4 列）：(i) 只取 `display_name`／`issn` 相符的那筆 OpenAlex 記錄的 `homepage_url`、記進第 3 項；(ii) `http://` 換 `https://` 並記錄，null 則不可達、(b) 核對走 ISSN Portal；(iii) host 列進第 3 項、等一次指涉它的回覆才 open。停止條件補「第 2 源與第 4 源不算各自的兩源」。
 - （甲）`store_source` 補 `origin`；Step 3 退路句改指（乙）(1)；（丙）補 R10 兩句；pin test doc 拿掉自指的計數；changelog line 43 補第 4 項與 R11 措辭；#590 body 的「3 處」留言更正。
+
+## R11 verify：新閘 fail-open 又 fail-closed、第 4 源整條命令序列到不了那一頁（51 列：13 HIGH／20 MEDIUM／11 LOW／7 INFO；五席回、DA 席 errored、Codex 429）
+
+- （乙）(1) 的退路閘：`akashic_files` 的 `path` 是未展開的 `~/.akashic`，`git -C` fatal 之後 stdout 為空、被讀成「乾淨」（四席 HIGH）；值修對了又會擋死——live store 45 筆 `??`、九天沒 commit，而 R11 刪掉了「先 commit」的出路（regression HIGH）。
+- 第 4 源：`homepage_url` 實測 3/3 redirect 換 host、24% 根路徑（`--url-endswith '/'` 命中所有分頁）；(iii) 的人眼閘要等 Step 3 才產出的報告第 3 項，而 `open` 在 Step 1；(i) 沒有「一筆都不相符」分支、(ii) 沒有 https 失敗分支（六列 HIGH／MEDIUM）。「headless 常 403」沒量過，而它是把半徑擴成無條件的唯一理由。
+- line 30「每個子命令都帶 `--profile … --url-endswith …`」被同一檔的 `open` 推翻；（甲）「`store_source` 的 `origin` 就是第 4 源那個 URL」對 Crossref 單源的判定為假；`<DOI>` 是陣列而寫成單值；六條命令沒有一條讀頁面內容供判定；`get url` miss 時把所有分頁 URL 倒進 transcript；host 白名單只收小寫沒有小寫步驟；Step 3 與（乙）兩個 git 命令形。
+
+## R12：第 4 源由使用者開分頁、退路閘攤開不擋、鎖分頁一律 `--url-exact`
+
+- **第 4 源**（Claude 代裁 D107）：本 skill 不抓取、不導航——把 OpenAlex 相符那筆的 `homepage_url` 當建議貼給使用者，請使用者自己開那一頁並回覆分頁 URL，本 skill 只用 `--url-exact` 鎖那個分頁讀；使用者開分頁就是那一格的人眼。不開＝不可達，(b) 核對走 ISSN Portal。停止條件改寫（第 3 源的登記是獨立事實；第 4 源位址不由前三源決定）。
+- **退路閘**（D106）：根目錄改 `akashic_files` 的 `active_root`；rc 非 0 停手；非空不擋寫入——輸出逐字列進報告新增的第 6 項、等一次指涉它的回覆（「先 commit 了」或「無退路也寫」）；本 skill 不 add／commit。Step 3 退路句與閘句同步。
+- **鎖分頁**（D108）：一律 `--url-exact '<那個分頁的 URL 逐字>'`（host 多重命中、路徑尾段對根路徑是 `/`）；前三源退路用自己組的 URL（三端點實測不 redirect）、第 4 源用使用者回覆的；`get url` 的 stderr 導檔不讀。`open` 不用 `--new-window`。
+- （乙）：標題改「本 skill 提到的 shell 命令——執行的與只指出去的都列」；URL 組法給回機械 regex `^https://[a-z0-9.-]+(/[A-Za-z0-9._~:/?#!$&()*+,;=%-]*)?$`、host 先小寫、fullmatch；`<DOI>` 陣列規則；新增 (4) `get text` 讀內容；(5) 取檔；(6)(7) 不執行。
+- （甲）`store_source` 的 `origin` 改「被存那一頁的 URL，哪一源都可能」。報告第 3 項補「取哪一筆記錄」與 `get url` 回的 URL。（丙）補 R11 兩句。

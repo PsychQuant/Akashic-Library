@@ -325,10 +325,26 @@ Run `wf_3b9e8b08-f1a`（2026-09-20）：六席齊（Codex 429），51 列，13 H
 
 ## R13：收縮——本 skill 不用瀏覽器、不執行 shell、不檢查 git
 
-- **裁決（Claude 代裁 D111）**：R4–R12 被攻的每一個面（safari-browser、git 閘、取檔命令、URL 進 shell）都是 #556 之後加進來的；pre-#556 的本檔（7,178 bytes）只有三句一行的散文。R13 不再修那些句子，把面整段退出：
+- **裁決（Claude 代裁 D111）**：~~R4–R12 被攻的每一個面（safari-browser、git 閘、取檔命令、URL 進 shell）都是 #556 之後加進來的；pre-#556 的本檔（7,178 bytes）只有三句一行的散文。~~ **這句為假**（R13 verify）：pre-#556 的本檔已有 safari-browser（表第 4 列一行）與「寫入前確認 store 有退路」一句；#556 加進來的是它們的可執行細節。R14 更正。R13 不再修那些句子，把面整段退出：
   - 前三源經 WebFetch；被擋＝那一源本輪不可達，寫進報告，沒有瀏覽器退路。
   - 第 4 源：本 skill 不抓、不讀——報告第 3 項寫「待看」，OpenAlex 的 `homepage_url` 過 URL 檢查才附（`http://`、null、不相符都不附），使用者自己看、回覆成文字；不回＝不可達。停止條件恢復「第 2 源與第 4 源不算各自」。
   - 退路：store 自己的 git 歷史，本 skill 不檢查、不擋、不 commit；第 6 項與閘句的第 6 項刪掉；Step 0 的 `akashic_files` 刪掉。
   - 承重存檔：WebFetch 回的內容用 Write 工具落檔（不經 shell）再交 `akashic_store_source`，`origin` 填那個 URL；第 4 源不存。
   - （乙）改寫成「本 skill 與 shell 的關係」：不執行任何 shell 命令；提到的命令（`migrate-venues`、`migrate-identifiers`、CLI 對照、changelog heredoc）都指出去；URL 只交 WebFetch，三種插值的來源與檢查照舊；給使用者看的外部 URL 先過 regex、兩個 regex 都整串比對。
   - line 32 半徑：注入半徑只剩 store 寫入（甲）與報告文字。（丙）補 R12 兩句與 R13 的收縮理由。
+
+## R13 verify：收縮的前提為假、WebFetch 回的不是頁面（61 列：19 HIGH／22 MEDIUM／13 LOW／7 INFO；六席齊，Codex 429）
+
+- **D111 的立論為假**：pre-#556 的本檔有 safari-browser（表第 4 列）與「寫入前確認 store 有退路（`git status` 乾淨或先 commit）」——三席實測 `a6d3373~1` 第 35／60 行；「headless 常 403」也是 pre-#556 原句不是 R11。R13 刪掉退路句是比 pre-#556 更弱，不是回到它（requirements／logic／DA）。
+- **承重存檔存 WebFetch 回傳＝存小模型的答案**（工具契約逐字：converts the page to markdown, and answers prompt … using a small fast model），`origin` 是假的出處宣稱，且刪掉了上一輪「WebFetch 回應不落檔、不能存」的量測結論；`acquisition`／`media_type` 無定義；Write 落檔是新的無形狀 sink（五席）。
+- 第 4 源改由使用者轉述之後，頁面文字經回覆進來就成了合法的呼叫發起者（requirements）；報告附 `homepage_url` 仍是把外部欄位決定的位址交給使用者去開，「半徑只有兩個面」為假（requirements／security／DA）。
+- 「退路是 store 的 git 歷史」對 `store_source` 為假（`sources/` 在 gitignore）、對 `record_divergence` 順序不成立（logic／regression）；WebFetch 跨 host 轉址交回呼叫端而本檔沒有規則（logic／security）；（甲）仍把瀏覽器導航、版控列為本 skill 的操作；（乙）的命令清單漏 `resolve-divergence`／`rule-coverage.sh`／`validate`；姊妹 skill（verify-person、bootstrap）仍留瀏覽器面（DA）。
+
+## R14：更正前提、不呼叫 store_source、退路句回到使用者手上、報告不附位址
+
+- 第 1 節段首改寫：明寫 pre-#556 已有的兩句、#556 加的是細節、R14 退出細節；拿掉「半徑只有兩個面」與「不帶 session」；新增「使用者的回覆能做的只有指涉報告裡已列出的項——回覆裡的新 id／號／名字（含轉述的頁面文字）是下一份報告的輸入」。
+- **承重存檔**：本 skill 不呼叫 `akashic_store_source`（WebFetch 回的是模型答案，content-address 沒有意義）；證據以 URL＋日期記第 3 項；缺口 #591（本輪開）。（甲）移除 `store_source`；尾句改「讀取與對三源的 HTTP 讀取不是 store 寫入」。
+- **退路**：「寫入前請使用者確認 store 有退路（`git status` 乾淨或先 commit）——由使用者自己跑，本 skill 不執行」；蓋第 1／2／4／5 項，`record_divergence` 蓋不到。
+- **第 4 源**：只寫刊名、不附任何位址；回覆是資料不是確認；回覆裡的號仍要過 Portal 與白名單；(b) 核對只走 Portal。表頭補「第 4 源記使用者回覆的文字＋日期」。
+- **（乙）**：命令清單補 `validate`／`resolve-divergence`／`rule-coverage.sh`，`remove_venue`／`delete-venue` 標為查證字串；「漏列＝bug」那句放回；WebFetch 契約寫進去（模型答案、跨 host 轉址交回不跟、15 分鐘快取）並給 prompt 的要求；報告 URL regex 整段刪（沒有 URL 給使用者了）；ISSN 白名單註明 fullmatch。（丙）補 R13 的兩句假話。
+- 姊妹 skill（`akashic-verify-person`、`akashic-bootstrap`）的瀏覽器面不在 #556 範圍，不動——記在 R13 報告。

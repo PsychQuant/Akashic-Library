@@ -34,7 +34,7 @@ akashic_venue（key:）               # 單一 venue：記錄＋刊名沿革＋�
 | 1 | **Crossref journals** | 刊名 ↔ ISSN 綁定、出版社 | `https://api.crossref.org/journals?query=<刊名>`；有 DOI 時直接看該 work 的 `container-title`＋`ISSN`（`https://api.crossref.org/works/<DOI>`）——這是把 entry 與 venue 綁死的最強證據 |
 | 2 | **OpenAlex sources** | 縮寫異形（`abbreviated_title`／`alternate_titles`）、host organization、type（journal／conference） | `https://api.openalex.org/sources?search=<刊名>`；縮寫查證的主力 |
 | 3 | **ISSN Portal** | ISSN-L 叢集、**改名史**（former／succeeding titles） | `https://portal.issn.org/resource/ISSN/<issn>`；改名史的權威源 |
-| 4 | **出版商頁** | 現行正式刊名、期刊沿革聲明 | 期刊官網；headless 常 403——不要反覆重試，改真瀏覽器（safari-browser） |
+| 4 | **出版商頁** | 現行正式刊名、期刊沿革聲明 | 期刊官網；headless 常 403——**本 skill 不抓、不讀這一源**：報告第 3 項寫「第 4 源待看：<刊名>」，請使用者自己看、把看到的正式刊名與沿革回覆成文字（第 1 節的「使用者轉述的頁面內容」就是它；瀏覽器面的契約另見 #593） |
 
 **什麼時候可以停**：至少兩源**各自回傳非空證據**、相互一致且無反證 → 可判定。空回應沒有反證能力。entry 帶 DOI 時第 1 源的 `container-title` 單源即近乎決定性（DOI→work→container 是登記事實不是字串比對）；無 DOI 的縮寫配對才需要 2+ 源。
 
@@ -73,9 +73,9 @@ akashic_resolve_venues reject:["<citekey>:<venueIndex>", …]   # 查過了不�
 - **查到的 ISSN 也要落地——它是 venue 的身分斷言，不是順手動作**（#556；[`akashic-venue-works`](../akashic-venue-works/SKILL.md) 第 7 步指到這裡，紀律只寫這一份）：
   - **閘＝使用者看過報告第 4 項並確認**（D93）。要寫的號一律先列進第 4 項；一句裸的「apply」只確認了配對，號要再問一次。不論從哪一格進來都一樣——confirm 腿的號、reject 時查到的是候選 venue 自己的號、歧義列裡已經分出來的那一本、apply 早已過了只缺號的那本（[`akashic-venue-works`](../akashic-venue-works/SKILL.md) 第 7 步指過來的就是這一格，沒有 apply 可指涉）——都列進第 4 項各問各的，不寫進沒列的 venue。建檔腿 `akashic_add_venue` 的 `issn:` 走同一道閘（建檔前的報告同樣要有第 4 項，key 寫待建的 key）。
   - **號要先過三道核對**，結果都寫進第 4 項：(a) 確屬本刊、不是姊妹刊——Series A/B/C 在模糊搜尋下都會命中，各分刊有自己的號；(b) 在 ISSN Portal 再確認一次——Crossref work 的 `ISSN` 欄是出版商送的、錯的照收（`identity-is-judged-not-matched`：識別碼終結指涉、不終結描述）；(c) 庫內同號——`akashic_venues` 不回 ISSN（Step 0 寫的四個欄位），要逐筆 `akashic_venue key:` 讀兄弟記錄的 `issn`；「兄弟」是一個便宜的啟發式（同前綴、同刊名字串），不是完整檢查——全庫沒有重號掃描（#588）。有同號＝停下來：那是攣生問題（#459／#553），不在本步驟寫。#556 點名的入口就是這一格：`journal-of-the-royal-statistical-society-2`／`-6` 都是 Series B 而沒有號、`-7` 已持有 `0035-9246`、`-8` 是 Series C 持 `0035-9254`（2026-09-21 live store）。
-  - **寫法**：`akashic_update_venue key:<venue> add_issn:["NNNN-NNNN", …]`——只送裸號；**單獨一次呼叫**，不與該 tool 的其他任何參數併送（該 tool 的寫入參數都共用最後那一個寫入點：任一個號不合法即整個呼叫拒絕、零寫入，同一呼叫裡的名字或判定也一起不寫）；**一定用陣列，一個號也是**——非陣列會被 `argList` 折成空陣列：號一個都不進去、也不報錯。所以寫完看回傳 payload 的 `issnAdded`（這次真的寫進去的）與 `issnTotal`，再 `akashic_venue key:` 回讀 `issn` **比正規形**（`0003-066x` 送進去回讀是 `0003-066X`）。Step 0 的 `akashic_venue` 回的是 `{"value":"0033-3123","medium":"linking"}` 這種形。建檔腿 `akashic_add_venue … issn:["NNNN-NNNN", …]` 同樣一定用陣列；建檔時號可以與 names 同一次送——壞號同樣讓整筆建檔零寫入，但那時沒有既有名字可失去，重送即可；回傳 payload 的 `issn` 是實際存入的清單，空陣列＝一個號都沒寫進去。
+  - **寫法**：`akashic_update_venue key:<venue> add_issn:["NNNN-NNNN", …]`——只送裸號；**單獨一次呼叫**，不與該 tool 的其他任何參數併送（該 tool 的寫入參數都共用最後那一個寫入點：任一個號不合法即整個呼叫拒絕、零寫入，同一呼叫裡的名字或判定也一起不寫）；**一定用陣列，一個號也是**——非陣列會被 `argList` 折成空陣列：號一個都不進去。所以寫完看回傳 payload 的 `issnAdded`（這次真的寫進去的）與 `issnTotal`，再 `akashic_venue key:` 回讀 `issn` **比正規形**（`0003-066x` 送進去回讀是 `0003-066X`）。Step 0 的 `akashic_venue` 回的是 `{"value":"0033-3123","medium":"linking"}` 這種形；本 skill 寫進去的號回讀時沒有 `medium` 鍵（兩個寫入面都不收角色，#587），那是正常的。建檔腿 `akashic_add_venue … issn:["NNNN-NNNN", …]` 同樣一定用陣列；建檔時號可以與 names 同一次送——壞號同樣讓整筆建檔零寫入，但那時沒有既有名字可失去，重送即可；回傳 payload 的 `issn` 是實際存入的清單，空陣列＝一個號都沒寫進去。
   - **誠實邊界**：`add_issn` 與 `add_venue issn:` 都**記不下角色**、也**不寫 `references`**——venue 的 `references` 沒有通用寫入面，來源與角色只能留在報告第 4 項（#587）；寫錯了沒有移除面、也沒有重號／姊妹刊的偵測面，只能手改 YAML（#588）——所以第 4 項的人眼是唯一一道。
-  - **按需補、不掃全庫**（使用者 2026-09-11 裁決）：只補這次查證碰到的那本。上游給過的號已由 `migrate-identifiers` 搬進 venue（39 本，2026-08-24）；`fields` 殘留裡的 ISSN 2026-09-21 實測為 0（下一次 `import-wos` 會再把上游欄位收進殘留），其餘只能外部查證；立案時的量測在 #556。
+  - **按需補、不掃全庫**（使用者 2026-09-11 裁決）：只補這次查證碰到的那本。上游給過的號已由 `migrate-identifiers` 搬進 venue（39 本，2026-08-24）；`fields` 殘留裡的 ISSN 2026-09-21 實測為 0，其餘只能外部查證；立案時的量測在 #556。
 
 ## 邊界
 

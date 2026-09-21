@@ -394,7 +394,7 @@ Run `wf_3b9e8b08-f1a`（2026-09-20）：六席齊（Codex 429），51 列，13 H
 
 | 改動 | 量測 |
 |---|---|
-| 寫法：**單獨一次呼叫**、不與 `add_names`／`add_variant` 併送 | `Server.swift:207`（任一個不合法即整個呼叫拒絕、零寫入）、`:204`（同一呼叫的其他參數也不寫） |
+| 寫法：**單獨一次呼叫**、不與 `add_names`／`add_variant` 併送 | `AkashicService.swift:2874–2891`（非法號即 throw）、`:3093`（`writeVenue` 是唯一寫入點、在最後；`:3003` 註解）。`Server.swift:207`／`:204` 只是描述字串，且 `:204` 說的是反方向（名字不合法 → ISSN 也不寫）——R16 verify logic 第 17 列、DA 第 40 列更正 |
 | 一定用陣列、一個號也是；建檔腿同 | `Server.swift:378–381` `argList` 非陣列回 `[]`；`:531` `issn` 鍵在就取 `argList` |
 | 建檔腿核對回傳 `issn` 清單、空＝沒寫進去 | `AkashicService.swift:2766` payload `issn: venue.issn.map(\.normalized)` |
 | 角色三值只記第 4 項；Step 0 回 `{"value":"0033-3123","medium":"linking"}` | `Identifier.swift:107–108`；`AkashicService.swift:2618–2622`；live store `psychometrika` 的 `issn` 是 linking＋electronic、`the-american-statistician` 無 qualifier |
@@ -410,3 +410,26 @@ Run `wf_3b9e8b08-f1a`（2026-09-20）：六席齊（Codex 429），51 列，13 H
 | 邊界 `add_venue` 補「`issn:` 選填、陣列、走同一道閘」 | `Server.swift:198–199`（`issn` 不在 `required`） |
 
 **沒動的**：表第 4 列與退路句（pre-#556 原文；前者的契約缺口 → #593）。SKILL.md 10,070 → 12,510 bytes。
+
+## R16 verify：13 HIGH，全部落在 R16 新寫的三句上（50 列：13 HIGH／16 MEDIUM／13 LOW／8 INFO；六席齊，Codex 429）
+
+`wf_a8fde057-2b3`，2026-09-21。三句：(1) 核對 (c) 指名 `akashic_venues`，而它不回 ISSN（`AkashicService.swift:2664–2670` 只有 key／type／name／workCount；本檔 Step 0 自己就這樣寫）——四席同指；(2) 第 4 項「角色……store 記不下」為假——live store 就存著 9 筆 `qualifier`，記不下的是兩個寫入面（#587），同一 diff 的第 76 行自己印出 `medium: linking`；(3) D95 尾句「要寫進 store 的名字都要先出現在報告第 1 項」立了一道名字閘而全檔沒有落地（第 1 項是 Step 2 的沿革 timeline，裝不下縮寫異名與建檔的 names），DA 另指主詞「任何文字」在字面上吞掉使用者本人的確認。MEDIUM：`NNNN-NNN?` 與 `ISSN.shapeDescription` 分岔（讀成 7 碼也合法）；「不與 `add_names`／`add_variant` 併送」是兩項封閉列舉、漏了 `authorize`／`paginated`；更新腿只叫回讀、沒指 payload 的 `issnAdded`／`issnTotal`；「非陣列……零寫入、零錯誤」對 store 層為假（`writeVenue`＋`rebuild` 照跑）；「殘留自此為 0」沒有機制維持（`import-wos` 會再收進來）；承重存檔的「skill 層沒有取得位元組的面」是沒量的全稱否定；changelog R16 表第一列引 `Server.swift:204` 方向反了（DA：句子本身為真，換引用不改句）；(c) 的例子漏了 `-8`（Series C，`0035-9254`）。
+
+HIGH 數 9 → 13，但錯誤的句子 9 → 3，三句的修法都是刪或改正。**R17 是最後一輪：只改這三句與上列 MEDIUM，之後不論結果都停下交使用者。**
+
+## R17：改正 R16 的三句與量錯的細節——每一句對 HEAD 或 live store 量過（2026-09-21）
+
+| 改動 | 量測 |
+|---|---|
+| D95 主詞回可枚舉形（三類）＋「使用者本人對報告的確認不在此列——那是閘」；名字閘那一半刪掉，改成事實句「名字寫入今天沒有對應的報告格子」 | R16 verify HIGH 3／6／9／12／13 |
+| 核對 (c)：`akashic_venues` 不回 ISSN → 逐筆 `akashic_venue key:`；「兄弟」寫成啟發式；有同號＝停下來分攣生或沿革；例子補 `-8` | `AkashicService.swift:2664–2670`／`:2617–2624`；live store `-8` 持 `0035-9254` |
+| 第 4 項角色：「store 有這一格，但兩個寫入面都不收它（#587）」 | `Identifier.swift:124`；live store 9 筆 `qualifier` |
+| 記法回 `NNNN-NNNN`（末位可為大寫 X） | `Identifier.swift:149` `shapeDescription` |
+| 「不與該 tool 的其他任何參數併送」（性質式）；非陣列＝號不進去、呼叫仍成功、venue 檔仍重寫；看 payload `issnAdded`／`issnTotal` 再回讀 | `AkashicService.swift:2874–2891`／`:3093`／`:3105–3106` |
+| `medium` 缺席＝還沒查、或磁碟上的寫法認不出來 | `Identifier.swift:122` doc comment |
+| 建檔腿：號可與 names 同一次送，理由寫出（沒有既有名字可失去） | `AkashicService.swift:2746–2756` |
+| 殘留：改成有日期的量測＋「下一次 `import-wos` 會再收進來，先看那筆 entry 的 `fields`」 | `WoSImport.swift:207–232`（`consumedColumns` 不含 ISSN） |
+| 承重存檔：刪掉「skill 層沒有取得位元組的面」的全稱否定，只留 #587 承重、#591 限定句 | R16 verify MEDIUM 23／28 |
+| changelog R16 表第一列的引用換成 `AkashicService.swift:2874–2891`／`:3093` | DA 第 40 列 |
+
+SKILL.md 12,510 → 13,151 bytes（改正句比原句長，不是新規則）。**R17 之後停**：PASS → tag；FAIL → 報告＋交使用者，不開 R18。

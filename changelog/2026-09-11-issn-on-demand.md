@@ -357,7 +357,7 @@ Run `wf_3b9e8b08-f1a`（2026-09-20）：六席齊（Codex 429），51 列，13 H
 
 ## R15：收回 pre-#556 的粒度——只留 #556 核心與 D91–D95（使用者 2026-09-21 裁決：「你選最適合的做」→ 選項 2）
 
-**做法**：以 `a6d3373~1` 的 SKILL.md（7,178 bytes）為底逐字重建，只加最少的幾句；R2–R14 長出來的東西全部不帶：（甲）（乙）（丙）三張清單、注入通則與其十版變體、WebFetch 契約段、回覆規則、承重存檔的取檔路徑、退路閘的判讀、第 4 源的 profile／URL／取檔細節、Step 0 的 `akashic_get_entry`／`akashic_files`。10,070 bytes（重量：`wc -c plugin/skills/akashic-verify-venue/SKILL.md`）。
+**做法**：以 `a6d3373~1` 的 SKILL.md（7,178 bytes）為底逐字重建，只加最少的幾句；R2–R14 長出來的東西全部不帶：（甲）（乙）（丙）三張清單、注入通則與其十版變體、WebFetch 契約段、回覆規則、承重存檔的取檔路徑、退路閘的判讀、第 4 源的 profile／URL／取檔細節、Step 0 的 `akashic_get_entry`（`akashic_files` 在 R13 就已退出——R15 verify regression 第 43 列更正，逐版 grep 實測）。10,070 bytes（重量：`wc -c plugin/skills/akashic-verify-venue/SKILL.md`）。
 
 **加進去的（逐句對應 R1–R3 的 HIGH 與 D91–D95）**：
 
@@ -381,3 +381,32 @@ Run `wf_3b9e8b08-f1a`（2026-09-20）：六席齊（Codex 429），51 列，13 H
 **刻意原封不動的（pre-#556 就有、不在 #556 範圍）**：表第 4 列「headless 常 403……改真瀏覽器（safari-browser）」一行、Step 3 的「寫入前確認 store 有退路（`git status` 乾淨或先 commit）」一句。R4–R12 對這兩句加的可執行細節每一條都被推翻，R13／R14 對它們的「本 skill 不執行」宣告又各自帶了假前提——本輪不對它們多寫一個字。它們的可執行細節是另一件事，不在本張。
 
 **R15 verify 的判準**（寫在前面，免得 verify 之後才決定）：HIGH 若落在**新加的那幾句**上就再修一輪（面積小，可以逐句對）；HIGH 若落在 pre-#556 原句上，記成 follow-up issue、不在本張修——那正是本輪收縮的理由。
+
+## R15 verify：9 HIGH，全在新加句、每條可量（54 列：9 HIGH／24 MEDIUM／12 LOW／9 INFO；六席齊，Codex 429）
+
+`wf_a4c0f779-235`，2026-09-21。依 R15 節先寫好的判準：HIGH 全落在**新加句**上 → 再修一輪（R16）；落在 pre-#556 原句上的（表第 4 列的 safari-browser 一行：security 第 24 列、requirements 第 14 列）→ **#593**，不在本張修。
+
+九個 HIGH：使用者四項要求裡的「單獨呼叫」沒落地（`add_issn` 與 `add_names` 併送時一個壞號整個呼叫零寫入）；建檔腿只繼承閘、沒繼承陣列與 payload 核對（`argList` 對非陣列回 `[]`，建出零 ISSN 的刊——DA 更正：不是靜默，`addVenue` 的 payload 回實際存入的清單，空陣列當場分得出）；邊界段的 `add_venue` 只列必填三參數、沒提 `issn:`（DA：pre-#556 原句、不是矛盾——本輪仍補一句選填，因為它是 #556 自己的功能）；「Step 0 印的 `0003-1305（print）`」對兩個面都為假（那個號沒有 qualifier；MCP 回 `{value, medium}`、CLI 只在 medium 非 nil 時加括號——R2 verify 就量過、R15 抄回 R1 的未更正版）；第 4 項沒有 Portal 核對的格子（做過與沒做過長得一樣）；第 4 項丟了 R1 HIGH 4 明列的角色（medium）；D95 立了威脅沒說閘只管 ISSN（`--add-name` 沒閘）。DA 另補：「print 與 electronic 是兩個號」把三值域（`ISSNMedium`：print／electronic／linking，psychometrika 是 linking＋electronic、沒有 print）縮回兩值；「上游本來就不給」為假——`migrate-identifiers` 2026-08-24 從殘留搬了 39 本刊的號，殘留是 0 是因為被搬光了；不寫呼叫層注入規則是**對的停止點**（真值句不會被另一行推翻），但 D95 的主詞「四源」漏了 store 內容與使用者轉述。
+
+## R16：把 R15 的九個 HIGH 逐句改成量過的——仍只動新加句
+
+每一句都對 HEAD 或 live store 量過（2026-09-21）：
+
+| 改動 | 量測 |
+|---|---|
+| 寫法：**單獨一次呼叫**、不與 `add_names`／`add_variant` 併送 | `Server.swift:207`（任一個不合法即整個呼叫拒絕、零寫入）、`:204`（同一呼叫的其他參數也不寫） |
+| 一定用陣列、一個號也是；建檔腿同 | `Server.swift:378–381` `argList` 非陣列回 `[]`；`:531` `issn` 鍵在就取 `argList` |
+| 建檔腿核對回傳 `issn` 清單、空＝沒寫進去 | `AkashicService.swift:2766` payload `issn: venue.issn.map(\.normalized)` |
+| 角色三值只記第 4 項；Step 0 回 `{"value":"0033-3123","medium":"linking"}` | `Identifier.swift:107–108`；`AkashicService.swift:2618–2622`；live store `psychometrika` 的 `issn` 是 linking＋electronic、`the-american-statistician` 無 qualifier |
+| 回讀比正規形、末位可為大寫 X、ASCII 逐字核對 | `Server.swift:207`（`0003-066x` 與 `0003-066X` 同一筆）；#589 |
+| 核對 (c) 庫內同號；JRSS-B 的三筆 | live store：`-2`／`-6` 無 ISSN、`-7` 持 `0035-9246` |
+| 第 4 項加 Portal 核對的 URL＋日期、角色、待建 key、庫內同號結果 | R15 HIGH 5／6、LOW 37 |
+| 腿列舉加「apply 早已過了只缺號的那本（venue-works 第 7 步）」 | `akashic-venue-works/SKILL.md:110–112` |
+| D95 主詞改「本 skill 讀到的任何文字」＋ 一句人眼位置（第 1／2／4 項）；第 2 項補 id 與目的 key | R15 HIGH 7、MEDIUM 22／28、DA 第 33 列 |
+| 「上游本來就不給」改成「上游給過的號已由 `migrate-identifiers` 搬進 venue（39 本，2026-08-24）」 | `changelog/2026-08-24-migrate-identifiers.md:98` |
+| `rests_on`：digest 在 `assertDivergenceWritable`、成對在 `recordDivergence` | `DivergenceResolve.swift:289`／`:322` |
+| 承重存檔改成「今天做不到」＋ 兩個缺口 | #591／#587 |
+| frontmatter 與鐵律帶進「裸 apply 不算」 | R15 MEDIUM 16 |
+| 邊界 `add_venue` 補「`issn:` 選填、陣列、走同一道閘」 | `Server.swift:198–199`（`issn` 不在 `required`） |
+
+**沒動的**：表第 4 列與退路句（pre-#556 原文；前者的契約缺口 → #593）。SKILL.md 10,070 → 12,510 bytes。

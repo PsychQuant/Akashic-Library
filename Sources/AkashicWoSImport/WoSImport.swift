@@ -102,6 +102,18 @@ public enum WoSImport {
         return rows
     }
 
+    /// WoS 的 `Publication Date` 有兩種形：只有月日（`FEB`、`JUL 9`）與**已含年**（`2026 JUN 1`）。
+    /// 前者前綴 `Publication Year`；後者原樣——再前綴會讓年份出現兩次（#598，ISS 100 篇裡 4 筆
+    /// `2026 2026 JUN 1`）。判準是「以四位數年起頭」，不是「含 year 字串」：`2026` 若出現在
+    /// 日期中段那是別的東西。
+    static func composeDate(year: String?, date: String) -> String {
+        let d = date.trimmingCharacters(in: .whitespaces)
+        let startsWithYear = d.count >= 4 && d.prefix(4).allSatisfy(\.isNumber)
+            && (d.count == 4 || d.dropFirst(4).first == " ")
+        if startsWithYear { return d }
+        return "\(year ?? "") \(d)".trimmingCharacters(in: .whitespaces)
+    }
+
     /// 分號拆多作者。WoS 用 `; ` 分隔。
     static func splitAuthors(_ s: String?) -> [String] {
         (s ?? "").split(separator: ";")
@@ -178,8 +190,7 @@ public enum WoSImport {
                                taken: taken) else { return nil }
         var e = Entry(id: UUID(), citekey: ck, type: .periodicalArticle,
                       title: title ?? "", authors: display.map { .literal($0) },
-                      date: row["Publication Date"].map { "\(year ?? "") \($0)"
-                          .trimmingCharacters(in: .whitespaces) } ?? year)
+                      date: row["Publication Date"].map { WoSImport.composeDate(year: year, date: $0) } ?? year)
         if let j = row["Source Title"] { e.fields["journaltitle"] = j }
         if let v = row["Volume"] { e.fields["volume"] = v }
         if let n = row["Issue"] { e.fields["number"] = n }

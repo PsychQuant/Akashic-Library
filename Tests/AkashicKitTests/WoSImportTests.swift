@@ -19,6 +19,23 @@ final class WoSImportTests: XCTestCase {
     }
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
 
+    // MARK: - 日期（#598）
+
+    /// WoS 的 `Publication Date` 有兩種形：只有月日（`FEB`、`JUL 9`）與已含年（`2026 JUN 1`）。
+    /// 前者要前綴 `Publication Year`，後者**不能**再前綴——否則年份出現兩次（實例：
+    /// ISS 100 篇裡 4 筆 `2026 2026 JUN 1`）。
+    func testPublicationDateAlreadyContainingYearIsNotPrefixedAgain() throws {
+        let tsv = "Authors\tAuthor Full Names\tArticle Title\tPublication Year\tPublication Date\tDOI\n"
+            + "Lin, A\tLin, Ann\tOne\t2026\t2026 JUN 1\t10.1/one\n"
+            + "Lin, B\tLin, Bob\tTwo\t2025\tJUL 9\t10.1/two\n"
+            + "Lin, C\tLin, Cat\tThree\t2026\tFEB\t10.1/three\n"
+        _ = try WoSImport.run(text: tsv, store: store)
+        let dates = Dictionary(uniqueKeysWithValues: try store.load().entries.map { ($0.title, $0.date) })
+        XCTAssertEqual(dates["One"], "2026 JUN 1", "Date 已含年就照原樣")
+        XCTAssertEqual(dates["Two"], "2025 JUL 9")
+        XCTAssertEqual(dates["Three"], "2026 FEB")
+    }
+
     // MARK: - alias 配對（本 importer 的真正價值）
 
     /// 兩欄**同 index 對齊**，每位作者免費得到兩種寫法。這補掉

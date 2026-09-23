@@ -6,7 +6,9 @@ let adjudicated: Set<String> = [
     "Divergence.candidates", "Divergence.id", "Divergence.judgement",
     "Divergence.key", "Divergence.prefers", "Divergence.question",
     "Divergence.restsOn", "Divergence.shape", "Divergence.statement",
-    "Divergence.unknownFields", "Models.akashic", "Models.all",
+    "Divergence.unknownFields",
+    // #605：序列化，但值是 Zotero 的 key／library ID（外部來源），不指涉 Akashic 實體或存檔 → 不是邊
+    "Models.additionalProvenance", "Models.akashic", "Models.all",
     "Models.attachments", "Models.authorListCompleteness", "Models.authorized",
     "Models.authors", "Models.citekey", "Models.cites",
     "Models.date", "Models.dateIsConfirmedAbsent", "Models.description",

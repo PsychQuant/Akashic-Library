@@ -240,7 +240,9 @@ public struct ZoteroImporter {
                 var contentChanged = false
                 if src.orphanedAt != nil { src.orphanedAt = nil; changed = true; cleared = true }
                 if item.version > src.zoteroVersion || src.zoteroHash != itemHash {
-                    contentChanged = src.zoteroHash != nil && src.zoteroHash != itemHash
+                    // 沒有舊雜湊（pre-v1.1 記錄）時無從比較內容，版本前進就視為有變動——
+                    // 寧可多報，不靜默（R2 verify）。
+                    contentChanged = src.zoteroHash.map { $0 != itemHash } ?? (item.version > src.zoteroVersion)
                     src.zoteroVersion = item.version
                     src.zoteroHash = itemHash
                     src.importedAt = now

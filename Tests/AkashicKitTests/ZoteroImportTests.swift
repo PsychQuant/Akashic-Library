@@ -766,3 +766,33 @@ extension ZoteroImportTests {
         XCTAssertNil(after.additionalProvenance.first?.orphanedAt)
     }
 }
+
+extension ZoteroImportTests {
+    /// 「只有附加來源、沒有主來源」是合法狀態（#605 R1 使用者裁決）：再匯入不得重新建出
+    /// 攣生，群組那份改了也不得改寫欄位。
+    func testEntryWithOnlyAdditionalSourceIsNotRecreatedNorRewritten() throws {
+        var merged = try seedMergedTwin()
+        try fixture.db.execute("INSERT INTO deletedItems VALUES (10)")      // 個人那份已刪、已脫鉤
+        merged.provenance = nil
+        try store.writeEntry(merged)
+        try fixture.db.execute("UPDATE items SET version = 12 WHERE itemID = 31")
+        try fixture.db.execute("UPDATE itemDataValues SET value = 'Group edited title' WHERE valueID = 131")
+        let report = try runImport()
+        let all = try store.load().entries
+        XCTAssertFalse(all.contains { $0.provenance?.zoteroKey == "KEYGRP01" }, "群組條目不得被重建：\(report.created)")
+        let after = all.first { $0.id == merged.id }!
+        XCTAssertEqual(after.title, merged.title, "沒有主來源 → 欄位不被任何 Zotero 條目改寫")
+        XCTAssertNil(after.provenance)
+        XCTAssertEqual(after.additionalProvenance.first?.zoteroVersion, 12)
+    }
+
+    /// 附加來源沒有舊雜湊（pre-v1.1 記錄）時，Zotero 版本前進也要報出來，不得靜默。
+    func testVersionBumpOnHashlessAdditionalSourceIsReported() throws {
+        var merged = try seedMergedTwin()
+        merged.additionalProvenance[0].zoteroHash = nil
+        try store.writeEntry(merged)
+        try fixture.db.execute("UPDATE items SET version = 12 WHERE itemID = 31")
+        let report = try runImport()
+        XCTAssertTrue(report.secondarySourceChanged.contains(merged.citekey), "\(report.secondarySourceChanged)")
+    }
+}

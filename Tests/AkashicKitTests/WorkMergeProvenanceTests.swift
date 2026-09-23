@@ -5,7 +5,7 @@ import Foundation
 
 /// #605：work 合併時的 Zotero 來源。不同來源（不同 library 或不同 key）不再是反證——
 /// 同一性由 divergence 記錄上的人工判定決定，Zotero key 只是來源紀錄。合併後倖存者
-/// 帶著兩邊的來源：主來源保留（缺則升格），其餘併入附加來源、同來源去重。
+/// 帶著兩邊的來源：主來源原樣保留（缺則維持沒有、不升格），其餘併入附加來源、同來源去重。
 final class WorkMergeProvenanceTests: XCTestCase {
     var root: URL!
     var store: LibraryStore!

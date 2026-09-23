@@ -110,23 +110,12 @@ public enum EntryYAML {
             pairs.append((Node("attachments"), Node(nodes)))
         }
         if let prov = entry.provenance {
-            var p: [(Node, Node)] = [
-                (Node("zotero_key"), Node(prov.zoteroKey)),
-                (Node("zotero_version"), Node(String(prov.zoteroVersion))),
-            ]
-            if let lid = prov.libraryID {
-                p.append((Node("library_id"), Node(String(lid))))
-            }
-            if let hash = prov.zoteroHash {
-                p.append((Node("zotero_hash"), Node(hash)))
-            }
-            if let at = prov.importedAt {
-                p.append((Node("imported_at"), Node(isoFormatter.string(from: at))))
-            }
-            if let at = prov.orphanedAt {
-                p.append((Node("orphaned_at"), Node(isoFormatter.string(from: at))))
-            }
-            pairs.append((Node("provenance"), Node(p)))
+            pairs.append((Node("provenance"), Node(encodeProvenance(prov))))
+        }
+        // #605：附加來源緊接主來源之後；空清單不寫出（既有記錄零 diff）。
+        if !entry.additionalProvenance.isEmpty {
+            let nodes = entry.additionalProvenance.map { Node(encodeProvenance($0)) }
+            pairs.append((Node("provenance_additional"), Node(nodes)))
         }
         // 學位論文事實（#335）。不需要 `isEmpty` 分支——`ThesisFacts` 的 init 是
         // failable，空事實在文法上不存在。
@@ -233,6 +222,83 @@ public enum EntryYAML {
         return out
     }
 
+    /// 單一 Zotero 來源的 mapping pairs（#605：主來源與附加來源共用，鍵序固定）。
+    static func encodeProvenance(_ prov: Provenance) -> [(Node, Node)] {
+        var p: [(Node, Node)] = [
+            (Node("zotero_key"), Node(prov.zoteroKey)),
+            (Node("zotero_version"), Node(String(prov.zoteroVersion))),
+        ]
+        if let lid = prov.libraryID {
+            p.append((Node("library_id"), Node(String(lid))))
+        }
+        if let hash = prov.zoteroHash {
+            p.append((Node("zotero_hash"), Node(hash)))
+        }
+        if let at = prov.importedAt {
+            p.append((Node("imported_at"), Node(isoFormatter.string(from: at))))
+        }
+        if let at = prov.orphanedAt {
+            p.append((Node("orphaned_at"), Node(isoFormatter.string(from: at))))
+        }
+        return p
+    }
+
+    /// 單一 Zotero 來源 mapping 的 decode（#605：主來源與附加來源共用）。`field` 是錯誤訊息的
+    /// 欄位前綴——主來源是 `provenance`，附加來源是 `provenance_additional[i]`。
+    static func decodeProvenance(_ provMap: Node.Mapping, field: String) throws -> Provenance {
+        try rejectUnknownKeys(provMap, known: knownProvenanceKeys, context: field)
+        // R8（R7-verify L13）：必填欄位也走 requireShape——形狀不符要報
+        // 「形狀不符」，缺席才報「缺欄位」（誤導診斷類）
+        guard let zKey = try requireShape(provMap["zotero_key"],
+                                          field: "\(field).zotero_key",
+                                          expect: "scalar", { $0.scalar?.string }) else {
+            throw StoreYAMLError.invalidField(field, "缺 zotero_key")
+        }
+        guard let zVerString = try requireShape(provMap["zotero_version"],
+                                                field: "\(field).zotero_version",
+                                                expect: "scalar", { $0.scalar?.string }) else {
+            throw StoreYAMLError.invalidField(field, "缺 zotero_version")
+        }
+        guard let zVer = Int(zVerString) else {
+            throw StoreYAMLError.invalidField(
+                "\(field).zotero_version", "「\(displaySafeInvisible(zVerString, max: 120))」不是整數")
+        }
+        var prov = Provenance(zoteroKey: zKey, zoteroVersion: zVer)
+        if let s = try requireShape(provMap["library_id"], field: "\(field).library_id",
+                                    expect: "scalar", { $0.scalar?.string }) {
+            guard let lid = Int(s) else {
+                throw StoreYAMLError.invalidField(field, "library_id「\(displaySafeInvisible(s, max: 120))」不是整數")
+            }
+            prov.libraryID = lid
+        }
+        prov.zoteroHash = try requireShape(provMap["zotero_hash"],
+                                           field: "\(field).zotero_hash",
+                                           expect: "scalar") { $0.scalar?.string }
+        // R6（F2 延伸）：無法解析的時間戳此前被靜默丟棄（importedAt=nil）→
+        // 下次改寫即剝除。形狀/值不符一律 fail-closed。
+        // R9（R8-verify M14）：null 面（`imported_at:` 空值行）視同欄位不存在
+        // ——模型是 Optional<Date>，nil↔省略等冪，v1.2 亦可載入這種良性檔。
+        if let s = try requireShape(provMap["imported_at"], field: "\(field).imported_at",
+                                    expect: "scalar", nullIsAbsent: true,
+                                    { $0.scalar?.string }) {
+            guard let d = isoFormatter.date(from: s) else {
+                throw StoreYAMLError.invalidField(
+                    "\(field).imported_at", "不是 ISO-8601 秒精度時間戳（fail-closed）")
+            }
+            prov.importedAt = d
+        }
+        if let s = try requireShape(provMap["orphaned_at"], field: "\(field).orphaned_at",
+                                    expect: "scalar", nullIsAbsent: true,
+                                    { $0.scalar?.string }) {
+            guard let d = isoFormatter.date(from: s) else {
+                throw StoreYAMLError.invalidField(
+                    "\(field).orphaned_at", "不是 ISO-8601 秒精度時間戳（fail-closed）")
+            }
+            prov.orphanedAt = d
+        }
+        return prov
+    }
+
     /// canary 的比較基準：把序列化有損的已知欄位（provenance 的兩個 Date，
     /// 秒精度）正規化到 encoder 精度。字串欄位另有一條已知有損通道——**前導
     /// U+FEFF**（Yams serialize 後 compose 會吃掉 quoted 開頭的 BOM）——刻意
@@ -245,6 +311,13 @@ public enum EntryYAML {
         }
         if let d = e.provenance?.orphanedAt {
             e.provenance?.orphanedAt = isoFormatter.date(from: isoFormatter.string(from: d))
+        }
+        // #605：附加來源的兩個 Date 同樣是秒精度有損通道。
+        e.additionalProvenance = e.additionalProvenance.map { p in
+            var p = p
+            if let d = p.importedAt { p.importedAt = isoFormatter.date(from: isoFormatter.string(from: d)) }
+            if let d = p.orphanedAt { p.orphanedAt = isoFormatter.date(from: isoFormatter.string(from: d)) }
+            return p
         }
         return e
     }
@@ -267,6 +340,7 @@ public enum EntryYAML {
         if a.isbn != b.isbn { bad.append("isbn") }
         if a.references != b.references { bad.append("references") }
         if a.provenance != b.provenance { bad.append("provenance") }
+        if a.additionalProvenance != b.additionalProvenance { bad.append("provenance_additional") }
         if a.akashic != b.akashic { bad.append("akashic") }
         return bad.isEmpty
             ? "未知欄位 key 序列不符"
@@ -335,7 +409,7 @@ public enum EntryYAML {
     /// 逐字保留並在寫回時重新產生——舊的 `type: person` 也是同理，見 `knownPersonKeys`。
     static let knownTopLevelKeys: Set<String> = Set([
         "id", "citekey", "type", "title", "authors", "venues", "date",
-        "fields", "attachments", "provenance", "akashic", "thesis",
+        "fields", "attachments", "provenance", "provenance_additional", "akashic", "thesis",
         "doi", "pmid", "isbn", "references",
     ]).union(EntityKind.knownLabels)
     static let knownAkashicKeys: Set<String> = [
@@ -1010,57 +1084,18 @@ public enum EntryYAML {
         }
         if let provMap = try requireShape(map["provenance"], field: "provenance",
                                           expect: "mapping", nullIsAbsent: true, { $0.mapping }) {
-            try rejectUnknownKeys(provMap, known: knownProvenanceKeys, context: "provenance")
-            // R8（R7-verify L13）：必填欄位也走 requireShape——形狀不符要報
-            // 「形狀不符」，缺席才報「缺欄位」（誤導診斷類）
-            guard let zKey = try requireShape(provMap["zotero_key"],
-                                              field: "provenance.zotero_key",
-                                              expect: "scalar", { $0.scalar?.string }) else {
-                throw StoreYAMLError.invalidField("provenance", "缺 zotero_key")
-            }
-            guard let zVerString = try requireShape(provMap["zotero_version"],
-                                                    field: "provenance.zotero_version",
-                                                    expect: "scalar", { $0.scalar?.string }) else {
-                throw StoreYAMLError.invalidField("provenance", "缺 zotero_version")
-            }
-            guard let zVer = Int(zVerString) else {
-                throw StoreYAMLError.invalidField(
-                    "provenance.zotero_version", "「\(displaySafeInvisible(zVerString, max: 120))」不是整數")
-            }
-            var prov = Provenance(zoteroKey: zKey, zoteroVersion: zVer)
-            if let s = try requireShape(provMap["library_id"], field: "provenance.library_id",
-                                        expect: "scalar", { $0.scalar?.string }) {
-                guard let lid = Int(s) else {
-                    throw StoreYAMLError.invalidField("provenance", "library_id「\(displaySafeInvisible(s, max: 120))」不是整數")
+            entry.provenance = try decodeProvenance(provMap, field: "provenance")
+        }
+        // #605：附加 Zotero 來源（sequence of mapping；空或缺席＝沒有附加來源）。
+        if let seq = try requireShape(map["provenance_additional"], field: "provenance_additional",
+                                      expect: "sequence", nullIsAbsent: true, { $0.sequence }) {
+            entry.additionalProvenance = try seq.enumerated().map { i, node in
+                let f = "provenance_additional[\(i)]"
+                guard let m = node.mapping else {
+                    throw StoreYAMLError.invalidField(f, "形狀不符：預期 mapping")
                 }
-                prov.libraryID = lid
+                return try decodeProvenance(m, field: f)
             }
-            prov.zoteroHash = try requireShape(provMap["zotero_hash"],
-                                               field: "provenance.zotero_hash",
-                                               expect: "scalar") { $0.scalar?.string }
-            // R6（F2 延伸）：無法解析的時間戳此前被靜默丟棄（importedAt=nil）→
-            // 下次改寫即剝除。形狀/值不符一律 fail-closed。
-            // R9（R8-verify M14）：null 面（`imported_at:` 空值行）視同欄位不存在
-            // ——模型是 Optional<Date>，nil↔省略等冪，v1.2 亦可載入這種良性檔。
-            if let s = try requireShape(provMap["imported_at"], field: "provenance.imported_at",
-                                        expect: "scalar", nullIsAbsent: true,
-                                        { $0.scalar?.string }) {
-                guard let d = isoFormatter.date(from: s) else {
-                    throw StoreYAMLError.invalidField(
-                        "provenance.imported_at", "不是 ISO-8601 秒精度時間戳（fail-closed）")
-                }
-                prov.importedAt = d
-            }
-            if let s = try requireShape(provMap["orphaned_at"], field: "provenance.orphaned_at",
-                                        expect: "scalar", nullIsAbsent: true,
-                                        { $0.scalar?.string }) {
-                guard let d = isoFormatter.date(from: s) else {
-                    throw StoreYAMLError.invalidField(
-                        "provenance.orphaned_at", "不是 ISO-8601 秒精度時間戳（fail-closed）")
-                }
-                prov.orphanedAt = d
-            }
-            entry.provenance = prov
         }
         if let akMap = try requireShape(map["akashic"], field: "akashic",
                                         expect: "mapping", nullIsAbsent: true, { $0.mapping }) {

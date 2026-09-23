@@ -44,8 +44,14 @@ public struct Entry: Equatable {
     /// 其餘 biblatex 欄位（journaltitle / volume / doi / …）。
     public var fields: [String: String]
     public var attachments: [AttachmentRef]
-    /// Zotero namespace——pull 管理、pull 可覆寫。
+    /// Zotero namespace——pull 管理、pull 可覆寫。**主來源**：唯一能以再匯入更新書目
+    /// 欄位的那一個（#605）。
     public var provenance: Provenance?
+    /// 附加 Zotero 來源（#605）：同一作品在其他 library 的條目（典型：個人 library 一份、
+    /// 群組 library 一份）。只記錄來源——再匯入命中附加來源時只更新該來源自己的
+    /// version／hash／orphan，**不動書目欄位**。YAML 寫在 `provenance_additional:`，
+    /// 空則不寫出。
+    public var additionalProvenance: [Provenance] = []
     /// Akashic 自有 namespace——pull 絕不觸碰。
     public var akashic: AkashicMeta
     /// **確認無日期**的 sentinel（#350 第 2 類）。

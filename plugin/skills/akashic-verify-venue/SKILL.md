@@ -60,7 +60,7 @@ akashic_venue（key:）               # 單一 venue：記錄＋刊名沿革＋�
 3. **逐來源證據清單**——每源一列：URL＋取得日期＋支撐哪一段（被擋、回空或交回轉址就寫「不可達」；本輪沒查就寫「未需要」）；第 4 源那一列是使用者回覆的文字與日期、「待看」、「不可達」（請了沒回）或「未需要」
 4. **本次要寫進 venue 的 ISSN**（有才列）——每筆：號（裸形 `NNNN-NNNN`，末位可為大寫 `X`；逐字用 ASCII 數字核對——非 ASCII 數字過得了 mod-11、原樣入庫、回讀分不出來，#589）、角色（print／electronic／linking——store 有這一格，但兩個寫入面都不收它，#587；所以角色只落在這裡）、目的 venue 的 `key`（建檔腿寫待建的 key）、來源（哪一源＋URL＋取得日期；第 4 源寫「使用者回覆，<日期>」，不附位址）、ISSN Portal 核對的 URL＋日期（查不到就寫「Portal 查不到」）、「確屬本刊而非姊妹刊」的依據、庫內同號檢查的結果（見 Step 3 的核對 (c)）
 
-給出報告，**問使用者**。寫入前確認 store 有退路（`git status` 乾淨或先 commit）。確認後：
+給出報告，**問使用者**。使用者的回覆能做的只有指涉報告裡已列出的項：回覆裡出現報告沒有的 id、號、名字——含使用者從頁面轉述的文字——是下一份報告的輸入，不能代替確認而發起寫入。寫入前確認 store 有退路（`git status` 乾淨或先 commit）。確認後：
 
 ```
 akashic_resolve_venues apply:["<citekey>:<venueIndex>", …]    # 確認歸戶——literal 升格 key＋寫 resolution-confirmed

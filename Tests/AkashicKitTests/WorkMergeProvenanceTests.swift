@@ -46,12 +46,32 @@ final class WorkMergeProvenanceTests: XCTestCase {
         XCTAssertEqual(after.additionalProvenance.first?.libraryID, 2)
     }
 
-    func testDoomedPrimaryPromotedWhenKeeperHasNone() throws {
+    /// 倖存者本身沒有 Zotero 來源（手建、WoS 匯入）時，被併者的來源**只當附加來源**
+    /// （R1 verify #3，使用者裁決）：保留那筆的欄位是人選的版本，Zotero 不得改寫。
+    func testKeeperWithoutSourceGetsDoomedSourceAsAdditionalOnly() throws {
         let keeper = work("a2020", nil)
         let doomed = work("a2020dup", Provenance(zoteroKey: "K2", zoteroVersion: 1, libraryID: 2))
         let after = try merge([keeper, doomed], survivor: "a2020")
-        XCTAssertEqual(after.provenance?.zoteroKey, "K2", "倖存者無主來源 → 被併者主來源升格")
-        XCTAssertTrue(after.additionalProvenance.isEmpty)
+        XCTAssertNil(after.provenance, "不升格——沒有主來源，欄位不受 Zotero 改寫")
+        XCTAssertEqual(after.additionalProvenance.map(\.zoteroKey), ["K2"])
+    }
+
+    /// 沒記 libraryID 的來源（pre-Phase-2 舊檔）不能收成附加來源（R1 verify #1）：匯入端
+    /// 只以 (libraryID, key) 比對附加來源，收進來之後再匯入會對不回來、攣生被重新建出。
+    func testDoomedSourceWithoutLibraryIDBlocksAbsorption() throws {
+        let keeper = work("f2020", Provenance(zoteroKey: "K1", zoteroVersion: 1, libraryID: 1))
+        let doomed = work("f2020dup", Provenance(zoteroKey: "K9", zoteroVersion: 1))
+        for e in [keeper, doomed] { try store.writeEntry(e) }
+        let d = Divergence(id: UUID(), question: "?", candidates: [
+            DivergenceCandidate(key: "f2020", shape: .work), DivergenceCandidate(key: "f2020dup", shape: .work)])
+        try store.writeDivergence(d)
+        GitFixture.commitAll(root, message: "seed")
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "f2020")) { error in
+            guard case DivergenceResolveError.wouldLoseFields(_, _, let losses) = error else {
+                return XCTFail("預期 wouldLoseFields，實得 \(error)")
+            }
+            XCTAssertTrue(losses.contains { $0.contains("library_id") }, "\(losses)")
+        }
     }
 
     func testSameSourceIsDeduplicated() throws {
@@ -79,6 +99,25 @@ final class WorkMergeProvenanceTests: XCTestCase {
         let after = try merge([keeper, d1, d2], survivor: "d2020")
         XCTAssertEqual(Set(after.additionalProvenance.map(\.zoteroKey)), ["K2", "K3"])
         XCTAssertEqual(after.additionalProvenance.count, 2)
+    }
+
+    /// store 還在 format 17 時（R1 verify #5）：dry-run 不得說「可以」而實跑才被寫入閘擋；
+    /// 實跑也必須在動磁碟**之前**擋下（被併者仍在、倖存者未改）。
+    func testFormat17StoreRefusesInPreviewAndBeforeAnyWrite() throws {
+        let keeper = work("g2020", Provenance(zoteroKey: "K1", zoteroVersion: 1, libraryID: 1))
+        let doomed = work("g2020dup", Provenance(zoteroKey: "K2", zoteroVersion: 1, libraryID: 2))
+        for e in [keeper, doomed] { try store.writeEntry(e) }
+        let d = Divergence(id: UUID(), question: "?", candidates: [
+            DivergenceCandidate(key: "g2020", shape: .work), DivergenceCandidate(key: "g2020dup", shape: .work)])
+        try store.writeDivergence(d)
+        try StoreVersion.write(root: root, format: 17)
+        GitFixture.commitAll(root, message: "seed")
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "g2020", overrideReason: nil),
+                             "dry-run 要與實跑一樣擋下")
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "g2020"))
+        let after = try store.load().entries
+        XCTAssertNotNil(after.first { $0.citekey == "g2020dup" }, "被併者不得已被刪")
+        XCTAssertTrue(after.first { $0.citekey == "g2020" }?.additionalProvenance.isEmpty ?? false, "倖存者不得已被改寫")
     }
 
     func testSameSourceOrphanedOnDoomedStillBlocks() throws {

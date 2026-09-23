@@ -750,3 +750,19 @@ extension ZoteroImportTests {
         XCTAssertEqual(after.additionalProvenance.first?.zoteroVersion, 12, "附加來源的版本更新要保留")
     }
 }
+
+extension ZoteroImportTests {
+    /// 附加來源在 Zotero 端恢復：記在 `secondarySourceRestored`，不借用 `orphanCleared`
+    /// （後者的意思是整筆 entry 的主連結恢復——R1 verify #6）。
+    func testRestoredAdditionalSourceIsReportedSeparately() throws {
+        let merged = try seedMergedTwin()
+        try fixture.db.execute("INSERT INTO deletedItems VALUES (31)")
+        _ = try runImport()
+        try fixture.db.execute("DELETE FROM deletedItems WHERE itemID = 31")
+        let report = try runImport()
+        XCTAssertTrue(report.secondarySourceRestored.contains(merged.citekey), "\(report.secondarySourceRestored)")
+        XCTAssertFalse(report.orphanCleared.contains(merged.citekey))
+        let after = try store.load().entries.first { $0.id == merged.id }!
+        XCTAssertNil(after.additionalProvenance.first?.orphanedAt)
+    }
+}

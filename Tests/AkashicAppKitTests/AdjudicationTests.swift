@@ -237,15 +237,31 @@ extension AdjudicationTests {
         try state.load()
     }
 
-    /// 脫鉤只拿掉**已刪除的那個**來源：附加來源（例如群組那份）還在 Zotero 裡，
-    /// 升為主來源——否則會留下「沒有主來源、只有附加來源」的記錄。
-    func testOrphanDetachPromotesLiveAdditionalSource() throws {
+    /// 真的脫鉤（R1 verify #2，使用者裁決）：拿掉已刪除的主來源，**不**把群組那份升為
+    /// 主來源——否則欄位改寫權會轉到共享群組那份。活著的附加來源原樣留著，只記錄、不改欄位。
+    func testOrphanDetachDoesNotPromoteLiveAdditionalSource() throws {
         try seedOrphanWithLiveAdditional()
         try OrphanModel(state: state).resolve(citekey: "c2020both", action: .detachFromZotero)
         let entry = try LibraryStore(root: root).load().entries.first { $0.citekey == "c2020both" }!
-        XCTAssertEqual(entry.provenance?.zoteroKey, "K2")
-        XCTAssertNil(entry.provenance?.orphanedAt)
-        XCTAssertTrue(entry.additionalProvenance.isEmpty)
+        XCTAssertNil(entry.provenance, "不升格")
+        XCTAssertEqual(entry.additionalProvenance.map(\.zoteroKey), ["K2"], "活著的附加來源保留")
+    }
+
+    /// 脫鉤也拿掉已 orphan 的附加來源（R1 verify #4）——留下它們沒有任何地方能再裁決。
+    func testOrphanDetachAlsoDropsOrphanedAdditionalSources() throws {
+        var e = Entry(id: UUID(), citekey: "d2020all", type: .periodicalArticle, title: "All")
+        e.provenance = Provenance(zoteroKey: "K1", zoteroVersion: 1, libraryID: 1,
+                                  orphanedAt: Date(timeIntervalSince1970: 1))
+        e.additionalProvenance = [
+            Provenance(zoteroKey: "K2", zoteroVersion: 1, libraryID: 2, orphanedAt: Date(timeIntervalSince1970: 1)),
+            Provenance(zoteroKey: "K3", zoteroVersion: 1, libraryID: 5),
+        ]
+        try LibraryStore(root: root).writeEntry(e)
+        try state.load()
+        try OrphanModel(state: state).resolve(citekey: "d2020all", action: .detachFromZotero)
+        let entry = try LibraryStore(root: root).load().entries.first { $0.citekey == "d2020all" }!
+        XCTAssertNil(entry.provenance)
+        XCTAssertEqual(entry.additionalProvenance.map(\.zoteroKey), ["K3"])
     }
 
     /// 丟垃圾桶會連同仍活著的附加來源一起丟掉——作品在另一個 library 還在，拒絕。

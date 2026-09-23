@@ -278,6 +278,9 @@ struct ImportZotero: ParsableCommand {
         if !report.secondarySourceChanged.isEmpty {
             print("附加來源有變動、未套用（只有主來源更新書目欄位，#605）: \(report.secondarySourceChanged.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
         }
+        if !report.secondarySourceRestored.isEmpty {
+            print("附加來源在 Zotero 端恢復（#605）: \(report.secondarySourceRestored.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
+        }
         if !report.secondarySourceOrphaned.isEmpty {
             print("附加來源在 Zotero 端已刪除（只標該來源，#605）: \(report.secondarySourceOrphaned.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
         }

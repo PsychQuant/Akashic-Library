@@ -336,9 +336,13 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
   只更新該來源自己的 `zotero_version`／`zotero_hash`／`imported_at`，並清其 `orphaned_at`，
   **不動書目欄位**。附加來源 hash 變了而未套用 → 匯入報告列出（`secondarySourceChanged`）。
 - **orphan 逐來源**：某 library 刪了條目，只標那個來源的 `orphaned_at`。
-- **合併**（`resolve-divergence`）：倖存者主來源保留；倖存者沒有主來源時被併者的主來源升格；
-  其餘來源併入附加來源，`(library_id, zotero_key)` 相同者去重。同一來源而被併者已 orphaned、
-  倖存者沒有 → 仍是 loss（要人裁決）。
+- **合併**（`resolve-divergence`）：倖存者主來源**原樣保留**，倖存者沒有主來源就維持沒有（不升格——
+  保留那筆的欄位是人選的版本，Zotero 不因合併取得改寫權）；其餘來源併入附加來源，
+  `(library_id, zotero_key)` 相同者去重。以下仍是 loss（要人裁決）：同一來源而被併者已 orphaned、
+  倖存者沒有；被併者的來源要收成附加來源但沒記 `library_id`（pre-Phase-2 舊檔，匯入端無法比對）。
+- **只有附加來源、沒有主來源是合法狀態**：這筆的書目欄位不會被任何 Zotero 條目改寫，附加來源
+  只記錄版本／雜湊／orphan。App 的「與 Zotero 脫鉤」拿掉已刪除的主來源與已 orphan 的附加來源，
+  活著的附加來源原樣保留、不升格。
 - **DOI 相同不自動掛成附加來源**：DOI 相等只是提名謂詞，不是同一性證據（更正啟事與原文共用
   DOI）。這類條目照舊新建，交給攣生合併管線判定。
 - **format**：additive 的頂層鍵，仍 bump 到 18——format-17 binary 會保留但不比對附加來源，

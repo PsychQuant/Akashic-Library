@@ -756,8 +756,13 @@ extension LibraryStore {
             report.verdictValuesRewritten = vp.rewritten
             report.verdictsCollapsed = vp.collapsed + mp.verdictsCollapsed
         case .work:
-            report.warnings += try validateWorkPreconditions(
-                survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot).warnings
+            let pre = try validateWorkPreconditions(
+                survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
+            report.warnings += pre.warnings
+            // 預測的倖存者要過與實跑同一道寫入閘（#605 R1 verify #5）：併入附加來源後需要
+            // format 18，dry-run 對它沉默就是 #139 F1 那個形狀。
+            let predicted = Self.absorbingZoteroSources(pre.keeper, doomed: pre.doomed)
+            try Self.assertEntryWritable(predicted, format: { try StoreVersion.read(root: root) })
             // 與實跑同：keeper 與被併記錄不進 rewritten（keeper 走獨立寫回、
             // doomed 走刪除）。
             report.rewritten += Self.entriesTouchedByMerge(shape: .work, merged: merged, survivor: survivor, snapshot: snapshot).map(\.citekey)
@@ -2014,19 +2019,23 @@ extension LibraryStore {
                 entriesToWrite.append(e)
             }
         }
-        // #605：倖存者帶走所有被併者的 Zotero 來源（主來源保留或升格、其餘成附加來源）。
-        let sources = Provenance.mergeSources(keeper: keeper, doomed: doomed)
-        keeperRewritten.provenance = sources.primary
-        keeperRewritten.additionalProvenance = sources.additional
+        // #605：倖存者帶走所有被併者的 Zotero 來源（主來源原樣保留、其餘成附加來源）。
+        keeperRewritten = Self.absorbingZoteroSources(keeperRewritten, doomed: doomed)
         let keeperFinal = keeperRewritten
+        let root = self.root
         var report = try commitResolution(record: record,
                                     keeperWrite: { try self.writeEntry(keeperFinal) },
-                                    keeperEncode: { _ = try EntryYAML.encode(keeperFinal) },
+                                    // 預檢完整鏡射寫入條件：含 format gate（#605 R1 verify #5——
+                                    // 附加來源需要 format 18，只 encode 不跑閘會讓失敗延到寫入）。
+                                    keeperEncode: {
+                                        try Self.assertEntryWritable(keeperFinal, format: { try StoreVersion.read(root: root) })
+                                        _ = try EntryYAML.encode(keeperFinal)
+                                    },
                                     entriesToWrite: entriesToWrite,
                                     doomedIDs: doomed.map(\.id), mergedKeys: mergedKeys,
                                     snapshot: snapshot, survivor: survivor,
                                     survivorNote: "倖存者的記錄已被重寫"
-                                        + "（work 消歧不搬欄位，見 #75）")
+                                        + "（work 消歧不搬書目欄位，見 #75；Zotero 來源例外——被併者的來源併入倖存者的附加來源，見 #605）")
         // #463 verify logic L2：commit **前**早退（被併檔不可刪）時，下方的 holder 遷移**不得再寫檔**——否則一個回報
         // 「未動任何檔案」的失敗實際改寫了 person／venue／organization。keeper 一旦寫進去（`survivorUpdated`），之後
         // 任何失敗路徑都**要**遷移：被併檔部分刪除失敗時不遷移就是重跑救不回的死 verdict（案例 A–D 與謂詞的三次
@@ -2835,7 +2844,15 @@ extension LibraryStore {
         let keeperSources = [keeper.provenance].compactMap { $0 } + keeper.additionalProvenance
         let doomedSources = [e.provenance].compactMap { $0 } + e.additionalProvenance
         for ep in doomedSources {
-            guard let kp = keeperSources.first(where: { $0.isSameSource(as: ep) }) else { continue }
+            guard let kp = keeperSources.first(where: { $0.isSameSource(as: ep) }) else {
+                // 會被收成附加來源的來源必須記了 libraryID（R1 verify #1）：匯入端以
+                // (libraryID, key) 比對附加來源，沒記的收進來之後再匯入對不回來、攣生被重建。
+                if ep.libraryID == nil {
+                    losses.append("zotero 來源 \(ep.zoteroKey) 未記錄 library_id（pre-Phase-2 舊檔）——"
+                        + "無法收成附加來源；先重新匯入 Zotero 補上 library_id 再合併")
+                }
+                continue
+            }
             if let el = ep.libraryID, kp.libraryID == nil {
                 losses.append("zotero library（\(el) ≠ 未記錄，同 key：倖存者的同一來源沒有記 library）")
             }
@@ -2961,6 +2978,15 @@ extension LibraryStore {
     /// #605：第 18 個是 `additionalProvenance`——`fieldsLostByMerging` 的 provenance 段逐一比對
     /// 被併者的主＋附加來源，`Provenance.mergeSources` 把它們帶到倖存者。
     static let entryFieldsCoveredByMergeCheck = 18
+
+    /// 合併後倖存者的 Zotero 來源（#605）：實跑與 dry-run 共用同一個計算，兩邊才不會分岔。
+    static func absorbingZoteroSources(_ keeper: Entry, doomed: [Entry]) -> Entry {
+        var k = keeper
+        let sources = Provenance.mergeSources(keeper: keeper, doomed: doomed)
+        k.provenance = sources.primary
+        k.additionalProvenance = sources.additional
+        return k
+    }
 
     /// `p` 的哪些 profile 維度**不是** `keeper` 的子集。空 = 合併不會失去任何時間軸。
     private static func profileDimensionsNotCovered(

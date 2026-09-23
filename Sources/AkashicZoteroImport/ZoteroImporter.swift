@@ -13,6 +13,9 @@ public struct ImportReport: Equatable {
     public var secondarySourceChanged: [String] = []
     /// #605：附加來源在 Zotero 端已刪除、被標上 `orphaned_at` 的 entries（entry 本身與主來源不動）。
     public var secondarySourceOrphaned: [String] = []
+    /// #605：附加來源在 Zotero 端恢復、`orphaned_at` 被清除的 entries。與 `orphanCleared`
+    /// 分開——後者的意思是整筆 entry 的主連結恢復。
+    public var secondarySourceRestored: [String] = []
     public var unchanged: Int = 0
     /// 解析過的作者被保留、未跟 Zotero 同步的 entries（資訊性）。
     public var authorsPreserved: [String] = []
@@ -71,7 +74,8 @@ public struct ZoteroImporter {
         var byCompositeKey: [String: Entry] = [:]
         var legacyByBareKey: [String: Entry] = [:]
         // #605：附加來源的 composite key → entry id。主來源優先（先查 byCompositeKey）。
-        // libraryID 缺席的附加來源不進索引——附加來源一律由 #605 之後的合併寫入，必有 libraryID。
+        // libraryID 缺席的附加來源不進索引。這不是假設而是由合併閘保證的不變式：
+        // `fieldsLostByMerging` 拒絕把沒記 libraryID 的來源收成附加來源（#605 R1 verify #1）。
         var secondaryByComposite: [String: UUID] = [:]
         // 本趟的「目前版本」：同一筆 entry 可能被命中兩次（主來源一次、附加來源一次），
         // 從載入快照取會讓第二次寫入蓋掉第一次的更新。每次成功寫入即更新此表。
@@ -233,19 +237,21 @@ public struct ZoteroImporter {
                 var src = existing.additionalProvenance[idx]
                 var changed = false
                 var cleared = false
+                var contentChanged = false
                 if src.orphanedAt != nil { src.orphanedAt = nil; changed = true; cleared = true }
                 if item.version > src.zoteroVersion || src.zoteroHash != itemHash {
-                    let contentChanged = src.zoteroHash != nil && src.zoteroHash != itemHash
+                    contentChanged = src.zoteroHash != nil && src.zoteroHash != itemHash
                     src.zoteroVersion = item.version
                     src.zoteroHash = itemHash
                     src.importedAt = now
                     changed = true
-                    if contentChanged { report.secondarySourceChanged.append(existing.citekey) }
                 }
                 if changed {
                     existing.additionalProvenance[idx] = src
-                    if guardedWrite(existing, report: &report), cleared {
-                        report.orphanCleared.append(existing.citekey)
+                    // 報告只在寫入成功後記錄（R1 verify #6）——寫入失敗的列在 writeFailed。
+                    if guardedWrite(existing, report: &report) {
+                        if contentChanged { report.secondarySourceChanged.append(existing.citekey) }
+                        if cleared { report.secondarySourceRestored.append(existing.citekey) }
                     }
                 } else {
                     report.unchanged += 1
@@ -319,6 +325,7 @@ public struct ZoteroImporter {
         report.orphanCleared.sort()
         report.secondarySourceChanged.sort()
         report.secondarySourceOrphaned.sort()
+        report.secondarySourceRestored.sort()
         report.authorsPreserved.sort()
         report.authorsOverwritten.sort()
         report.quarantineConflicts.sort()

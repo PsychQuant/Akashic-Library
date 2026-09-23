@@ -167,7 +167,7 @@ public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorD
         case .notAnOrphan(let key):
             return "「\(displaySafeInvisible(key, max: 200))」不是 orphan——外部同步可能已恢復連結，已拒絕破壞性動作"
         case .hasLiveAdditionalSource(let key):
-            return "「\(displaySafeInvisible(key, max: 200))」只有主來源在 Zotero 端被刪除，另一個 library 的附加來源仍在——丟垃圾桶會連它一起丟掉，已拒絕；請改用「與 Zotero 脫鉤」"
+            return "「\(displaySafeInvisible(key, max: 200))」只有主來源在 Zotero 端被刪除，另一個 library 的附加來源仍在——丟垃圾桶會連它一起丟掉，已拒絕；請改用「與 Zotero 脫鉤」（拿掉已刪除的來源、保留另一個 library 的紀錄，欄位不再被 Zotero 改寫）"
         }
     }
 }
@@ -213,13 +213,13 @@ public final class OrphanModel {
                 resultingItemURL: &trashed)
         case .detachFromZotero:
             var detached = entry
-            // 只拿掉已刪除的主來源；仍活著的附加來源升為主來源（#605），否則會留下
-            // 「沒有主來源、只有附加來源」的記錄。
-            if let i = liveAdditional {
-                detached.provenance = detached.additionalProvenance.remove(at: i)
-            } else {
-                detached.provenance = nil
-            }
+            // 真的脫鉤（#605 R1 verify #2，使用者裁決）：拿掉已刪除的主來源，**不**把活著的
+            // 附加來源升為主來源——升格會把欄位改寫權交給另一個 library（典型是共享群組那份）。
+            // 已 orphan 的附加來源一併拿掉（R1 verify #4）；活著的留著，只記錄、不改欄位。
+            // 結果可能是「沒有主來源、只有附加來源」——那是合法狀態：這筆的欄位不再被任何
+            // Zotero 條目改寫。
+            detached.provenance = nil
+            detached.additionalProvenance.removeAll { $0.orphanedAt != nil }
             try state.store.writeEntry(detached)
         }
         try state.reindexAndReload()

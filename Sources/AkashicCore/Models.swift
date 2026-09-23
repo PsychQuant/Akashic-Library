@@ -268,19 +268,19 @@ public struct Provenance: Equatable {
         return a == b
     }
 
-    /// 合併多筆 work 的 Zotero 來源（#605）：倖存者主來源保留；倖存者沒有主來源時第一個
-    /// 被併者的主來源升格；其餘來源依序併入附加來源，同一來源只留第一次出現的那份。
+    /// 合併多筆 work 的 Zotero 來源（#605）：倖存者主來源**原樣保留**（沒有就維持沒有——
+    /// 不升格，R1 verify #3 使用者裁決：主來源＝倖存者原本的來源，保留那筆的欄位是人選的
+    /// 版本，Zotero 不得因合併取得改寫權）。其餘來源依序併入附加來源，同一來源只留第一次
+    /// 出現的那份。被併者沒記 libraryID 的來源不應走到這裡——合併閘會先擋（見
+    /// `fieldsLostByMerging`）。
     public static func mergeSources(keeper: Entry, doomed: [Entry])
         -> (primary: Provenance?, additional: [Provenance]) {
-        var primary = keeper.provenance
+        let primary = keeper.provenance
         var additional: [Provenance] = []
-        func seen(_ p: Provenance) -> Bool {
-            (primary.map { $0.isSameSource(as: p) } ?? false)
-                || additional.contains { $0.isSameSource(as: p) }
-        }
         func add(_ p: Provenance) {
-            if primary == nil { primary = p; return }
-            if !seen(p) { additional.append(p) }
+            if primary.map({ $0.isSameSource(as: p) }) == true { return }
+            if additional.contains(where: { $0.isSameSource(as: p) }) { return }
+            additional.append(p)
         }
         keeper.additionalProvenance.forEach(add)
         for d in doomed {

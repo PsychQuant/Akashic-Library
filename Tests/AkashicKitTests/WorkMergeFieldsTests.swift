@@ -123,9 +123,11 @@ final class WorkMergeFieldsTests: XCTestCase {
     /// divergence 記錄上的判定決定；被併者的來源併入倖存者的附加來源。
     func testDifferentZoteroKeyIsAbsorbedAsAdditionalSource() throws {
         var keeper = work("e2020")
-        keeper.provenance = Provenance(zoteroKey: "AAA", zoteroVersion: 1)
+        keeper.provenance = Provenance(zoteroKey: "AAA", zoteroVersion: 1, libraryID: 1)
         var doomed = work("e2020dup")
-        doomed.provenance = Provenance(zoteroKey: "BBB", zoteroVersion: 1)
+        // 被收成附加來源的必須記了 libraryID（R1 verify #1；缺的會被擋，見
+        // WorkMergeProvenanceTests.testDoomedSourceWithoutLibraryIDBlocksAbsorption）
+        doomed.provenance = Provenance(zoteroKey: "BBB", zoteroVersion: 1, libraryID: 2)
         let d = try seed(keeper: keeper, doomed: doomed)
         _ = try store.resolveDivergence(id: d.id, survivor: "e2020")
         let after = try store.load().entries.first { $0.citekey == "e2020" }

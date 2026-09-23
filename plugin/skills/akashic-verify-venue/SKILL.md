@@ -58,7 +58,7 @@ akashic_venue（key:）               # 單一 venue：記錄＋刊名沿革＋�
 報告形狀（給使用者裁決）：
 
 1. 刊名沿革 timeline（Step 2 產物）
-2. 判定建議＋依據（逐列指出第 3 項哪幾列支持本刊、哪幾列指向別的刊（是反證，或為什麼不算）、多刊命中由哪一列或 entry 的哪個欄位區分，以及三道核對沒過的號與理由；「DOI container-title 與 venue 正式名相符，建議 confirm」；查到兩筆 venue 可能是同一本刊時建議「記 divergence」並列出 question 與兩個 venue 的 key）——要 apply／reject 的配對逐筆列 id（`citekey:venueIndex`）與目的 venue 的 `key`
+2. 判定建議＋依據（逐列指出第 3 項哪幾列支持本刊、哪幾列指向別的刊（是反證，或為什麼不算）、多刊命中由哪一列或 entry 的哪個欄位區分，以及三道核對沒過的號與理由；「DOI container-title 與 venue 正式名相符，建議 confirm」；查到兩筆以上 venue 可能是同一本刊時建議「記 divergence」並列出 question 與這幾個 venue 的 key）——要 apply／reject 的配對逐筆列 id（`citekey:venueIndex`）與目的 venue 的 `key`
 3. **逐次查詢證據清單**——每次查詢一列（同一源查了兩個端點或兩個號就是兩列；本輪沒查的源也寫一列「未需要：<為什麼>」）：URL＋取得日期＋回了什麼（照原樣：刊名、號、年份）。沒有一筆對得上這次查的 literal、DOI 或號，寫「查無」；同時回了多本刊而分不出是哪一本（常見的是同系列分刊，見「姊妹刊假一致要防」），寫「多刊命中：<哪幾本>」；某一段的年份或前後名與先前查到的說法不同，這一列加「衝突：<哪一段、各源各說什麼>」；被擋、交回轉址或連線失敗寫「不可達」。「查無」與「多刊命中」是記錄時的初判，第 2 項可以推翻並說明；「不可達」與「衝突」照實記。哪幾列支持本刊、哪幾列算反證由第 2 項判定（`identity-is-judged-not-matched`）；第 4 源那一列是使用者回覆的文字與日期（同樣可加「衝突」）、「待看」、「不可達」（請了沒回）或「未需要：<為什麼>」
 4. **本次要寫進 venue 的 ISSN**（有才列）——每筆：號（裸形 `NNNN-NNNN`，末位可為大寫 `X`；逐字用 ASCII 數字核對——非 ASCII 數字過得了 mod-11、原樣入庫、回讀分不出來，#589）、角色（print／electronic／linking——store 有這一格，但兩個寫入面都不收它，#587；所以角色只落在這裡）、目的 venue 的 `key`（建檔腿寫待建的 key）、來源（哪一源＋URL＋取得日期；第 4 源寫「使用者回覆，<日期>」，不附位址）、ISSN Portal 核對的 URL＋日期（Portal 沒有把它對到本刊的號不列進這一項——本輪不寫，理由寫在第 2 項）、「確屬本刊而非姊妹刊」的依據、庫內同號檢查的結果（見 Step 3 的核對 (c)）
 
@@ -83,7 +83,7 @@ akashic_resolve_venues reject:["<citekey>:<venueIndex>", …]   # 查過了不�
 
 - **歧義列（同 literal 對到 2+ venue）不可 apply**——查證區分後（通常靠 ISSN／DOI），先把區辨資訊補全再重跑 resolve。要**補進 store 讓 resolver 重新命中**的區辨資訊是名稱與沿革段（resolver 只配對 `names` 的各段，寫 ISSN 不改變任何命中）；分出來的那一本的號走 Step 3 第 4 項、各問各的（D94）
 - **literal 不在 candidates 時沒有 apply 把手**：店裡沒這個 venue → `akashic_add_venue`（key／names／type 必填；`issn:` 選填、陣列——查到的號建檔時就帶進去，走 Step 3 同一道閘；type 是封閉列舉，值域以 `akashic_add_venue` 的 tool description 為準（由程式從 `allCases` 生成——**不要照任何文件裡寫死的清單**，#324 就是那樣壞掉的），推定錯誤寧可先問——booktitle 不必然 conference）。venue 存在但缺這個異名 → `akashic_update_venue`／CLI `update-venue --add-name`（append 語意，#306）——沿革補全直接擴大 resolve-venues 命中面
-- **查不出來是合法結果**：證據不足時什麼都不寫——literal 留著就是未決（`literal-first-then-key` 的誠實狀態），下次重跑 resolve 從那裡續查。這個刊名可能是 A 也可能是 B 不是 divergence：divergence 問的是「兩筆記錄是不是同一個實體」，記了等於主張 A 與 B 可能是攣生，而它的出口 `resolve-divergence` 是合併。只有查到兩筆 venue 可能是同一本刊時，才在報告第 2 項建議記 divergence（candidates＝那兩個 venue 的 key）；使用者確認後才呼叫 `akashic_record_divergence`（divergence 記了沒有面刪得掉，#586）。`rests_on` 自 #507 起只收 `sha256:` digest（`DivergenceResolve.swift` 的 `assertDivergenceWritable`）且與 judgement 成對（同檔 `recordDivergence`）——沒有 digest 就不帶 judgement，已蒐集的 URL＋日期寫在報告；tool description 仍說收 URL，那是描述過期（#592）
+- **查不出來是合法結果**：證據不足時什麼都不寫——literal 留著就是未決（`literal-first-then-key` 的誠實狀態），下次重跑 resolve 會再提名同一個配對，查過的來源只在這份報告裡。這個刊名可能是 A 也可能是 B 不是 divergence：divergence 問的是「兩筆記錄是不是同一個實體」，記了等於主張 A 與 B 可能是攣生，而它的出口 `resolve-divergence` 是合併。只有查到兩筆以上 venue 可能是同一本刊時，才在報告第 2 項建議記 divergence（candidates＝這幾個 venue 的 key）；使用者確認後才呼叫 `akashic_record_divergence`（divergence 記了沒有面刪得掉，#586）。`rests_on` 自 #507 起只收 `sha256:` digest（`DivergenceResolve.swift` 的 `assertDivergenceWritable`）且與 judgement 成對（同檔 `recordDivergence`）——沒有 digest 就不帶 judgement，已蒐集的 URL＋日期寫在報告；tool description 仍說收 URL，那是描述過期（#592）
 - **承重頁面存檔——今天做不到**：拿到 digest 也沒有地方寫（venue 的 `references` 沒有通用寫入面，#587）；WebFetch 回的是模型改寫稿、不是原始位元組（#591）。verdict 刻意不攜 rests-on（#280 裁決，同 person 域）
 
 ## 相關

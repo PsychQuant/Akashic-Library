@@ -1092,7 +1092,7 @@ public enum EntryYAML {
             entry.additionalProvenance = try seq.enumerated().map { i, node in
                 let f = "provenance_additional[\(i)]"
                 guard let m = node.mapping else {
-                    throw StoreYAMLError.invalidField(f, "形狀不符：預期 mapping")
+                    throw StoreYAMLError.invalidField(f, "形狀不符：預期 mapping")   // display-safe-exempt: f 程式構造（常量＋整數索引）
                 }
                 return try decodeProvenance(m, field: f)
             }

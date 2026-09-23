@@ -91,7 +91,7 @@ final class EntrySurfaceTests: XCTestCase {
         Surface(name: "MCP（entryDict）", path: "Sources/AkashicMCPKit/AkashicService.swift",
                 patterns: { f in ["entry.\(f)"] + (canonicalAlias[f].map { ["entry.\($0)"] } ?? []) }),
         Surface(name: "CLI（get-entry）", path: "Sources/akashic/GetEntryCommand.swift",
-                patterns: { f in ["\"\(f)\""] }),
+                patterns: { f in ["\"\(f)\""] + (jsonKeyAlias[f].map { ["\"\($0)\""] } ?? []) }),
         // **路徑收候選清單,不是單一字串**（#394 verify R7 ③）。
         //
         // 第六輪就抓到這條:#427 把 EntryViews.swift 從 `AkashicApp/Sources/` 搬進
@@ -106,6 +106,11 @@ final class EntrySurfaceTests: XCTestCase {
                 alternates: ["Sources/AkashicAppKit/EntryViews.swift"],
                 patterns: { f in ["entry.\(f)"] + (canonicalAlias[f].map { ["entry.\($0)"] } ?? []) }),
     ]
+
+    /// CLI 讀的是 `entryDict` 的 JSON 鍵，而 JSON 鍵沿用 YAML 鍵名——Swift 屬性名與序列化鍵名
+    /// 不同的欄位要在這裡對照，否則守衛會把「讀到了」誤報成缺口（#605：`additionalProvenance`
+    /// 在 YAML／JSON 都叫 `provenance_additional`）。
+    static let jsonKeyAlias = ["additionalProvenance": "provenance_additional"]
 
     /// canonical accessor 也算讀到——它的 doc 明寫「讀取請走它」。
     /// 守衛若只認欄位名的字面，會**逼呼叫端改用較差的讀法才能過關**。

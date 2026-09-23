@@ -56,7 +56,7 @@ akashic_venue（key:）               # 單一 venue：記錄＋刊名沿革＋�
 報告形狀（給使用者裁決）：
 
 1. 刊名沿革 timeline（Step 2 產物）
-2. 判定建議＋依據（「DOI container-title 與 venue 正式名相符，建議 confirm」）——要 apply／reject 的配對逐筆列 id（`citekey:venueIndex`）與目的 venue 的 `key`
+2. 判定建議＋依據（「DOI container-title 與 venue 正式名相符，建議 confirm」；證據不足就建議「記 divergence」）——要 apply／reject 的配對逐筆列 id（`citekey:venueIndex`）與目的 venue 的 `key`
 3. **逐來源證據清單**——每源一列：URL＋取得日期＋支撐哪一段（被擋、回空或交回轉址就寫「不可達」；本輪沒查就寫「未需要」）；第 4 源那一列是使用者回覆的文字與日期、「待看」、「不可達」（請了沒回）或「未需要」
 4. **本次要寫進 venue 的 ISSN**（有才列）——每筆：號（裸形 `NNNN-NNNN`，末位可為大寫 `X`；逐字用 ASCII 數字核對——非 ASCII 數字過得了 mod-11、原樣入庫、回讀分不出來，#589）、角色（print／electronic／linking——store 有這一格，但兩個寫入面都不收它，#587；所以角色只落在這裡）、目的 venue 的 `key`（建檔腿寫待建的 key）、來源（哪一源＋URL＋取得日期；第 4 源寫「使用者回覆，<日期>」，不附位址）、ISSN Portal 核對的 URL＋日期（查不到就寫「Portal 查不到」）、「確屬本刊而非姊妹刊」的依據、庫內同號檢查的結果（見 Step 3 的核對 (c)）
 
@@ -81,7 +81,7 @@ akashic_resolve_venues reject:["<citekey>:<venueIndex>", …]   # 查過了不�
 
 - **歧義列（同 literal 對到 2+ venue）不可 apply**——查證區分後（通常靠 ISSN／DOI），先把區辨資訊補全再重跑 resolve。要**補進 store 讓 resolver 重新命中**的區辨資訊是名稱與沿革段（resolver 只配對 `names` 的各段，寫 ISSN 不改變任何命中）；分出來的那一本的號走 Step 3 第 4 項、各問各的（D94）
 - **literal 不在 candidates 時沒有 apply 把手**：店裡沒這個 venue → `akashic_add_venue`（key／names／type 必填；`issn:` 選填、陣列——查到的號建檔時就帶進去，走 Step 3 同一道閘；type 是封閉列舉，值域以 `akashic_add_venue` 的 tool description 為準（由程式從 `allCases` 生成——**不要照任何文件裡寫死的清單**，#324 就是那樣壞掉的），推定錯誤寧可先問——booktitle 不必然 conference）。venue 存在但缺這個異名 → `akashic_update_venue`／CLI `update-venue --add-name`（append 語意，#306）——沿革補全直接擴大 resolve-venues 命中面
-- **查不出來是合法結果**：證據不足就記 `akashic_record_divergence`（question＝這個配對、candidates＝兩造）再停手，下次從那裡續查。`rests_on` 自 #507 起只收 `sha256:` digest（`DivergenceResolve.swift` 的 `assertDivergenceWritable`）且與 judgement 成對（同檔 `recordDivergence`）——沒有 digest 就不帶 judgement，已蒐集的 URL＋日期寫在報告；tool description 仍說收 URL，那是描述過期（#592）
+- **查不出來是合法結果**：證據不足就在報告第 2 項建議記 divergence；使用者確認後才呼叫 `akashic_record_divergence`（question＝這個配對、candidates＝兩造）再停手，下次從那裡續查（divergence 記了沒有面刪得掉，#586）。`rests_on` 自 #507 起只收 `sha256:` digest（`DivergenceResolve.swift` 的 `assertDivergenceWritable`）且與 judgement 成對（同檔 `recordDivergence`）——沒有 digest 就不帶 judgement，已蒐集的 URL＋日期寫在報告；tool description 仍說收 URL，那是描述過期（#592）
 - **承重頁面存檔——今天做不到**：拿到 digest 也沒有地方寫（venue 的 `references` 沒有通用寫入面，#587）；WebFetch 回的是模型改寫稿、不是原始位元組（#591）。verdict 刻意不攜 rests-on（#280 裁決，同 person 域）
 
 ## 相關

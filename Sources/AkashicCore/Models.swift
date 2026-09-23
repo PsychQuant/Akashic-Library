@@ -259,6 +259,37 @@ public struct AttachmentRef: Equatable {
 }
 
 public struct Provenance: Equatable {
+    /// 是否指向同一個 Zotero 來源（#605）。身分是 `(libraryID, zoteroKey)`（#3）；libraryID
+    /// 有一方缺席時視為同一 library——`nil` 是「pre-Phase-2 未記錄」，不是「不同 library」
+    /// （#157 verify 157-12）。
+    public func isSameSource(as other: Provenance) -> Bool {
+        guard zoteroKey == other.zoteroKey else { return false }
+        guard let a = libraryID, let b = other.libraryID else { return true }
+        return a == b
+    }
+
+    /// 合併多筆 work 的 Zotero 來源（#605）：倖存者主來源保留；倖存者沒有主來源時第一個
+    /// 被併者的主來源升格；其餘來源依序併入附加來源，同一來源只留第一次出現的那份。
+    public static func mergeSources(keeper: Entry, doomed: [Entry])
+        -> (primary: Provenance?, additional: [Provenance]) {
+        var primary = keeper.provenance
+        var additional: [Provenance] = []
+        func seen(_ p: Provenance) -> Bool {
+            (primary.map { $0.isSameSource(as: p) } ?? false)
+                || additional.contains { $0.isSameSource(as: p) }
+        }
+        func add(_ p: Provenance) {
+            if primary == nil { primary = p; return }
+            if !seen(p) { additional.append(p) }
+        }
+        keeper.additionalProvenance.forEach(add)
+        for d in doomed {
+            if let p = d.provenance { add(p) }
+            d.additionalProvenance.forEach(add)
+        }
+        return (primary, additional)
+    }
+
     public var zoteroKey: String
     public var zoteroVersion: Int
     /// Zotero libraryID（personal=1；缺欄位＝pre-Phase-2 舊檔，合法）。

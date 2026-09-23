@@ -2014,6 +2014,10 @@ extension LibraryStore {
                 entriesToWrite.append(e)
             }
         }
+        // #605：倖存者帶走所有被併者的 Zotero 來源（主來源保留或升格、其餘成附加來源）。
+        let sources = Provenance.mergeSources(keeper: keeper, doomed: doomed)
+        keeperRewritten.provenance = sources.primary
+        keeperRewritten.additionalProvenance = sources.additional
         let keeperFinal = keeperRewritten
         var report = try commitResolution(record: record,
                                     keeperWrite: { try self.writeEntry(keeperFinal) },
@@ -2822,24 +2826,21 @@ extension LibraryStore {
         // provenance（#157 verify 157-2）：Zotero 記錄的身分是 **(libraryID, zoteroKey)**
         // 這個對，不是 zoteroKey 單獨——不同 library 的同 key 是不同記錄。
         // orphanedAt 是「Zotero 端已刪除、待人工裁決」的標記，屬一般遺失。
-        if let ep = e.provenance {
-            if let kp = keeper.provenance {
-                if ep.zoteroKey != kp.zoteroKey {
-                    losses.append("zotero-key（\(ep.zoteroKey) ≠ \(kp.zoteroKey)，來源衝突）")
-                } else if let el = ep.libraryID, el != kp.libraryID {
-                    // #157 verify 157-12：**只在被併者有值時比**。`Provenance` 自己的
-                    // doc 明寫「缺欄位＝pre-Phase-2 舊檔，**合法**」——`nil` 不是
-                    // 「不同 library」，是「未記錄」。而且被併者為 nil 時這個方向
-                    // **什麼都不會失去**（倖存者已有較完整的值），卻擋下合併且
-                    // 「搬到倖存者身上」無物可搬。
-                    losses.append("zotero library（\(el) ≠ "
-                        + "\(kp.libraryID.map(String.init) ?? "未記錄")，同 key 不同 library＝不同記錄）")
-                }
-                if ep.orphanedAt != nil && kp.orphanedAt == nil {
-                    losses.append("orphaned 標記（Zotero 端已刪除、待人工裁決）")
-                }
-            } else {
-                losses.append("zotero-key: \(ep.zoteroKey)（倖存者無 provenance）")
+        // provenance（#605 改寫）：Zotero key 是**來源紀錄**，不是同一性判準——同一性已由
+        // divergence 記錄上的判定決定。**不同來源**（不同 key，或同 key 而兩邊都記了且不同的
+        // library，#157 verify 157-2）併入倖存者的附加來源，不再是 loss。**同一來源**內仍會
+        // 失去的東西照報：
+        // - 被併者記了 libraryID、倖存者的同一來源沒記（#157 verify 157-12 的反方向）；
+        // - 被併者的同一來源已 orphaned（Zotero 端已刪除、待人工裁決）、倖存者的沒有。
+        let keeperSources = [keeper.provenance].compactMap { $0 } + keeper.additionalProvenance
+        let doomedSources = [e.provenance].compactMap { $0 } + e.additionalProvenance
+        for ep in doomedSources {
+            guard let kp = keeperSources.first(where: { $0.isSameSource(as: ep) }) else { continue }
+            if let el = ep.libraryID, kp.libraryID == nil {
+                losses.append("zotero library（\(el) ≠ 未記錄，同 key：倖存者的同一來源沒有記 library）")
+            }
+            if ep.orphanedAt != nil && kp.orphanedAt == nil {
+                losses.append("orphaned 標記（Zotero 端已刪除、待人工裁決）")
             }
         }
         return losses.map { displaySafeInvisible($0, max: 300) }   // R28 D80：一條 loss 在這裡消毒一次（field／value／note／title 都是自由字串，R27 verify 第 28 列），wouldLoseFields 只截

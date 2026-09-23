@@ -118,19 +118,18 @@ final class WorkMergeFieldsTests: XCTestCase {
         XCTAssertEqual(report.merged, ["d2020dup"])
     }
 
-    /// provenance.zoteroKey 不同 → 衝突，拒絕（兩個不同的 Zotero 來源是反證）。
-    func testRefusesWhenDoomedHasDifferentZoteroKey() throws {
+    /// provenance.zoteroKey 不同 → **不再是衝突**（#605）。舊規則把「兩個不同的 Zotero
+    /// 來源」當反證而拒絕，結果個人＋群組 library 的同一作品結構上合併不了。同一性由
+    /// divergence 記錄上的判定決定；被併者的來源併入倖存者的附加來源。
+    func testDifferentZoteroKeyIsAbsorbedAsAdditionalSource() throws {
         var keeper = work("e2020")
         keeper.provenance = Provenance(zoteroKey: "AAA", zoteroVersion: 1)
         var doomed = work("e2020dup")
         doomed.provenance = Provenance(zoteroKey: "BBB", zoteroVersion: 1)
         let d = try seed(keeper: keeper, doomed: doomed)
-        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "e2020")) { error in
-            guard case DivergenceResolveError.wouldLoseFields(_, _, let losses) = error else {
-                return XCTFail("預期 wouldLoseFields，實得 \(error)")
-            }
-            XCTAssertTrue(losses.contains { $0.contains("zotero") }, "\(losses)")
-        }
+        _ = try store.resolveDivergence(id: d.id, survivor: "e2020")
+        let after = try store.load().entries.first { $0.citekey == "e2020" }
+        XCTAssertEqual(after?.additionalProvenance.map(\.zoteroKey), ["BBB"])
     }
 
     /// #139 F1 的教訓：preview 與實跑擲同樣的 wouldLoseFields（dry-run 不得沉默）。
@@ -216,19 +215,17 @@ final class WorkMergeFieldsTests: XCTestCase {
         XCTAssertEqual(report.failures, [], "精度差異不是衝突——不得誤拒")
     }
 
-    /// #157 verify 157-2：Zotero 記錄的身分是 (libraryID, zoteroKey) 這個**對**。
-    func testRefusesWhenSameZoteroKeyDifferentLibrary() throws {
+    /// #157 verify 157-2：Zotero 記錄的身分是 (libraryID, zoteroKey) 這個**對**——同 key
+    /// 不同 library 是**不同來源**。#605 之後不同來源不擋合併，併入附加來源。
+    func testSameZoteroKeyDifferentLibraryIsAbsorbedAsAdditionalSource() throws {
         var keeper = work("k2020")
         keeper.provenance = Provenance(zoteroKey: "ABCD", zoteroVersion: 1, libraryID: 1)
         var doomed = work("k2020dup")
         doomed.provenance = Provenance(zoteroKey: "ABCD", zoteroVersion: 1, libraryID: 77)
         let d = try seed(keeper: keeper, doomed: doomed)
-        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "k2020")) { error in
-            guard case DivergenceResolveError.wouldLoseFields(_, _, let losses) = error else {
-                return XCTFail("預期 wouldLoseFields，實得 \(error)")
-            }
-            XCTAssertTrue(losses.contains { $0.contains("library") }, "\(losses)")
-        }
+        _ = try store.resolveDivergence(id: d.id, survivor: "k2020")
+        let after = try store.load().entries.first { $0.citekey == "k2020" }
+        XCTAssertEqual(after?.additionalProvenance.map(\.libraryID), [77])
     }
 
     /// type/title 是**刻意排除**——同一篇的兩筆記錄 title 本來就會不同，keeper 的
@@ -369,8 +366,8 @@ final class WorkMergeFieldsTests: XCTestCase {
                       "被併者未記錄 → 什麼都不會失去，不得擋")
         XCTAssertTrue(losses(keeperLib: nil, doomedLib: 1)
             .contains { $0.contains("library") }, "反方向照報（被併者有、倖存者無）")
-        XCTAssertTrue(losses(keeperLib: 1, doomedLib: 2)
-            .contains { $0.contains("library") }, "兩邊都有且不同 → 衝突")
+        XCTAssertTrue(losses(keeperLib: 1, doomedLib: 2).isEmpty,
+                      "兩邊都有且不同 → 不同來源，#605 起併入附加來源、不擋")
     }
 
     /// **157-18**：attachments 要指名。「先把要保留的搬到倖存者身上」對「1 筆」

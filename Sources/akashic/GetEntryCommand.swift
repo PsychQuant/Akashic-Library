@@ -87,6 +87,13 @@ struct GetEntryCmd: ParsableCommand {
             let pairs = prov.keys.sorted().map { "\($0)=\(prov[$0] ?? "")" }
             print("provenance\t\(pairs.joined(separator: " "))")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
         }
+        // 附加 Zotero 來源（#605）：JSON 面有，人可讀面也要看得到。
+        if let extras = d["provenance_additional"] as? [[String: Any]] {
+            for prov in extras {
+                let pairs = prov.keys.sorted().map { "\($0)=\(prov[$0] ?? "")" }
+                print("provenance_additional\t\(pairs.joined(separator: " "))")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
+            }
+        }
         // 欄位層級的 provenance（第 15 條邊）——只列它支撐哪個欄位與哪個值。
         if let refs = d["references"] as? [[String: Any]] {
             for r in refs {

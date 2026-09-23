@@ -224,3 +224,34 @@ final class AdjudicationTests: XCTestCase {
                        "候選那半更危險——錯配的列帶著 Accept 按鈕：\(candIDs)")
     }
 }
+
+// MARK: - #605 主來源 orphaned、附加來源仍活著
+
+extension AdjudicationTests {
+    private func seedOrphanWithLiveAdditional() throws {
+        var e = Entry(id: UUID(), citekey: "c2020both", type: .periodicalArticle, title: "Both")
+        e.provenance = Provenance(zoteroKey: "K1", zoteroVersion: 1, libraryID: 1,
+                                  orphanedAt: Date(timeIntervalSince1970: 1))
+        e.additionalProvenance = [Provenance(zoteroKey: "K2", zoteroVersion: 3, libraryID: 2)]
+        try LibraryStore(root: root).writeEntry(e)
+        try state.load()
+    }
+
+    /// 脫鉤只拿掉**已刪除的那個**來源：附加來源（例如群組那份）還在 Zotero 裡，
+    /// 升為主來源——否則會留下「沒有主來源、只有附加來源」的記錄。
+    func testOrphanDetachPromotesLiveAdditionalSource() throws {
+        try seedOrphanWithLiveAdditional()
+        try OrphanModel(state: state).resolve(citekey: "c2020both", action: .detachFromZotero)
+        let entry = try LibraryStore(root: root).load().entries.first { $0.citekey == "c2020both" }!
+        XCTAssertEqual(entry.provenance?.zoteroKey, "K2")
+        XCTAssertNil(entry.provenance?.orphanedAt)
+        XCTAssertTrue(entry.additionalProvenance.isEmpty)
+    }
+
+    /// 丟垃圾桶會連同仍活著的附加來源一起丟掉——作品在另一個 library 還在，拒絕。
+    func testOrphanTrashRefusedWhileAdditionalSourceIsLive() throws {
+        try seedOrphanWithLiveAdditional()
+        XCTAssertThrowsError(try OrphanModel(state: state).resolve(citekey: "c2020both", action: .moveToTrash))
+        XCTAssertNotNil(try LibraryStore(root: root).load().entries.first { $0.citekey == "c2020both" })
+    }
+}

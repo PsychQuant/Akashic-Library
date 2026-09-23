@@ -2958,7 +2958,9 @@ extension LibraryStore {
     /// 的巢狀屬性另有各自的計數斷言——歷史上 schema 演化正是發生在 `akashic` 那層
     /// （`Models.swift` 自己這麼寫，#13 的 `libraries` 即是），只釘頂層等於對最會
     /// rot 的地方失明。
-    static let entryFieldsCoveredByMergeCheck = 17
+    /// #605：第 18 個是 `additionalProvenance`——`fieldsLostByMerging` 的 provenance 段逐一比對
+    /// 被併者的主＋附加來源，`Provenance.mergeSources` 把它們帶到倖存者。
+    static let entryFieldsCoveredByMergeCheck = 18
 
     /// `p` 的哪些 profile 維度**不是** `keeper` 的子集。空 = 合併不會失去任何時間軸。
     private static func profileDimensionsNotCovered(

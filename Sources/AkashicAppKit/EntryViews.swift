@@ -25,6 +25,13 @@ struct EntryListView: View {
                             .padding(.horizontal, 4)
                             .background(.orange.opacity(0.3), in: Capsule())
                     }
+                    // #605：同一作品在其他 Zotero library 也有一份。
+                    if !entry.additionalProvenance.isEmpty {
+                        Text("＋\(entry.additionalProvenance.count) 來源")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .background(.blue.opacity(0.15), in: Capsule())
+                    }
                 }
                 .foregroundStyle(.secondary)
             }

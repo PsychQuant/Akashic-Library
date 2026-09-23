@@ -176,6 +176,7 @@ public struct LibraryIndex {
                     entry.date.flatMap(Self.extractYear),
                     entry.fields["journaltitle"],
                     entry.akashic.status,
+                    // orphan 只看主來源（#605）：附加來源被刪只標在該來源上，作品本身仍連著主來源。
                     entry.provenance?.orphanedAt == nil ? 0 : 1,
                 ])
             for (i, author) in entry.authors.enumerated() {

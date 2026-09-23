@@ -154,6 +154,8 @@ public final class PeopleResolveModel {
 public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorDescription {
     case entryNotFound(String)
     case notAnOrphan(String)
+    /// #605：主來源已刪除，但附加來源（例如群組 library 那份）仍在 Zotero 裡。
+    case hasLiveAdditionalSource(String)
 
     public var errorDescription: String? {
         switch self {
@@ -164,6 +166,8 @@ public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorD
             return "找不到 entry「\(displaySafeInvisible(key, max: 200))」——外部變更可能已移除，請重新整理"
         case .notAnOrphan(let key):
             return "「\(displaySafeInvisible(key, max: 200))」不是 orphan——外部同步可能已恢復連結，已拒絕破壞性動作"
+        case .hasLiveAdditionalSource(let key):
+            return "「\(displaySafeInvisible(key, max: 200))」只有主來源在 Zotero 端被刪除，另一個 library 的附加來源仍在——丟垃圾桶會連它一起丟掉，已拒絕；請改用「與 Zotero 脫鉤」"
         }
     }
 }
@@ -196,8 +200,11 @@ public final class OrphanModel {
         guard entry.provenance?.orphanedAt != nil else {
             throw AdjudicationError.notAnOrphan(citekey)
         }
+        // #605：附加來源若仍活著，作品在另一個 library 還在。
+        let liveAdditional = entry.additionalProvenance.firstIndex { $0.orphanedAt == nil }
         switch action {
         case .moveToTrash:
+            if liveAdditional != nil { throw AdjudicationError.hasLiveAdditionalSource(citekey) }
             var trashed: NSURL?
             try FileManager.default.trashItem(
                 at: state.store.usesEntitiesLayout   // #35
@@ -206,7 +213,13 @@ public final class OrphanModel {
                 resultingItemURL: &trashed)
         case .detachFromZotero:
             var detached = entry
-            detached.provenance = nil
+            // 只拿掉已刪除的主來源；仍活著的附加來源升為主來源（#605），否則會留下
+            // 「沒有主來源、只有附加來源」的記錄。
+            if let i = liveAdditional {
+                detached.provenance = detached.additionalProvenance.remove(at: i)
+            } else {
+                detached.provenance = nil
+            }
             try state.store.writeEntry(detached)
         }
         try state.reindexAndReload()

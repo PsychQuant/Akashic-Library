@@ -2482,7 +2482,8 @@ public final class AkashicService {
                 [$0.kind.rawValue: displaySafe($0.path, max: 800)]
             }
         }
-        if let prov = entry.provenance {
+        // 單一 Zotero 來源的輸出形狀——主來源與附加來源共用（#605）。
+        func provenanceDict(_ prov: Provenance) -> [String: Any] {
             // #171 verify 171-5(a)：與**下一行**的 `zotero_hash` 同一個 struct、同一個
             // 來源、同一個 dict——那行包了 displaySafe 而這行沒有。這正是本檔案已經
             // 記錄過三次的形狀（literal／journal／tags）：同資料兩種待遇。
@@ -2500,7 +2501,13 @@ public final class AkashicService {
                 p["orphaned"] = true
                 p["orphaned_at"] = iso.string(from: at)
             }
-            d["provenance"] = p
+            return p
+        }
+        if let prov = entry.provenance {
+            d["provenance"] = provenanceDict(prov)
+        }
+        if !entry.additionalProvenance.isEmpty {
+            d["provenance_additional"] = entry.additionalProvenance.map(provenanceDict)
         }
         var akashic: [String: Any] = [:]
         // #156 verify R4：`tags` 是自由文字，且 **#133 起 LLM 可經 MCP 寫入**

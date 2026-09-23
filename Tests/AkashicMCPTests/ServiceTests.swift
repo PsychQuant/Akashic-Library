@@ -1526,3 +1526,19 @@ extension ServiceTests {
         }
     }
 }
+
+// MARK: - #605 附加 Zotero 來源的輸出
+
+extension ServiceTests {
+    func testGetEntryIncludesAdditionalProvenance() throws {
+        var e = Entry(id: UUID(), citekey: "twin2021both", type: .periodicalArticle, title: "T")
+        e.provenance = Provenance(zoteroKey: "K1", zoteroVersion: 1, libraryID: 1)
+        e.additionalProvenance = [Provenance(zoteroKey: "K2", zoteroVersion: 3, libraryID: 2)]
+        try LibraryStore(root: root).writeEntry(e)
+        let d = try json(service.getEntry(citekey: "twin2021both")) as! [String: Any]
+        let extra = try XCTUnwrap(d["provenance_additional"] as? [[String: Any]], "\(d.keys)")
+        XCTAssertEqual(extra.count, 1)
+        XCTAssertEqual(extra.first?["zotero_key"] as? String, "K2")
+        XCTAssertEqual(extra.first?["library_id"] as? Int, 2)
+    }
+}

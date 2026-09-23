@@ -1983,6 +1983,8 @@ public final class AkashicService {
             "updated": report.updated.map { displaySafe($0, max: 200) },
             "orphaned": report.orphaned.map { displaySafe($0, max: 200) },
             "orphanCleared": report.orphanCleared.map { displaySafe($0, max: 200) },
+            "secondarySourceChanged": report.secondarySourceChanged.map { displaySafe($0, max: 200) },
+            "secondarySourceOrphaned": report.secondarySourceOrphaned.map { displaySafe($0, max: 200) },
             "unchanged": report.unchanged,
             // #171 verify 171-5(d)：key 是 Zotero 未映射的欄位名＝第三方字串，
             // 而同一個 dict literal 裡其餘七個值全部消毒。

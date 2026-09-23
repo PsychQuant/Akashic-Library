@@ -8,6 +8,11 @@ public struct ImportReport: Equatable {
     public var orphaned: [String] = []
     /// Zotero 端復原、orphan 標記被清除的 entries。
     public var orphanCleared: [String] = []
+    /// #605：附加來源在 Zotero 端有變（version 較新或 hash 不同），但依「只有主來源更新
+    /// 書目欄位」**未套用**的 entries。不靜默——使用者要能看到群組那份被別人改過。
+    public var secondarySourceChanged: [String] = []
+    /// #605：附加來源在 Zotero 端已刪除、被標上 `orphaned_at` 的 entries（entry 本身與主來源不動）。
+    public var secondarySourceOrphaned: [String] = []
     public var unchanged: Int = 0
     /// 解析過的作者被保留、未跟 Zotero 同步的 entries（資訊性）。
     public var authorsPreserved: [String] = []
@@ -65,8 +70,18 @@ public struct ZoteroImporter {
         // 首次匹配時 backfill libraryID。
         var byCompositeKey: [String: Entry] = [:]
         var legacyByBareKey: [String: Entry] = [:]
+        // #605：附加來源的 composite key → entry id。主來源優先（先查 byCompositeKey）。
+        // libraryID 缺席的附加來源不進索引——附加來源一律由 #605 之後的合併寫入，必有 libraryID。
+        var secondaryByComposite: [String: UUID] = [:]
+        // 本趟的「目前版本」：同一筆 entry 可能被命中兩次（主來源一次、附加來源一次），
+        // 從載入快照取會讓第二次寫入蓋掉第一次的更新。每次成功寫入即更新此表。
+        var current: [UUID: Entry] = [:]
         var existingCitekeys = Set<String>()
         for entry in load.entries {
+            current[entry.id] = entry
+            for extra in entry.additionalProvenance {
+                if let lid = extra.libraryID { secondaryByComposite["\(lid):\(extra.zoteroKey)"] = entry.id }
+            }
             existingCitekeys.insert(entry.citekey)
             guard let prov = entry.provenance else { continue }
             if let lid = prov.libraryID {
@@ -104,6 +119,7 @@ public struct ZoteroImporter {
             }
             do {
                 try store.writeEntry(entry)
+                current[entry.id] = entry
                 return true
             } catch {
                 report.writeFailed[entry.citekey] = displaySafeError(error, max: 4_096)
@@ -132,7 +148,8 @@ public struct ZoteroImporter {
                     legacyMatched.insert(item.key)
                 }
             }
-            if var existing = matched {
+            // 取本趟的目前版本（#605）：同一筆可能已被本趟的附加來源分支改寫過。
+            if var existing = matched.map({ current[$0.id] ?? $0 }) {
                 guard let prov = existing.provenance else { continue }
                 // Zotero 端存在＝非 orphan：不論版本，先清 orphan 標記（存在性獨立於版本比較）
                 var orphanWasCleared = false
@@ -207,6 +224,32 @@ public struct ZoteroImporter {
                 } else if !orphanWasCleared && !restoreWasBlocked {
                     report.unchanged += 1
                 }
+            } else if let sid = secondaryByComposite["\(item.libraryID):\(item.key)"],
+                      var existing = current[sid],
+                      let idx = existing.additionalProvenance.firstIndex(where: {
+                          $0.libraryID == item.libraryID && $0.zoteroKey == item.key }) {
+                // #605：附加來源命中——只更新該來源自己的 version／hash／orphan，**不動書目欄位**
+                // （只有主來源能改寫欄位）。hash 變了而未套用 → secondarySourceChanged，不靜默。
+                var src = existing.additionalProvenance[idx]
+                var changed = false
+                var cleared = false
+                if src.orphanedAt != nil { src.orphanedAt = nil; changed = true; cleared = true }
+                if item.version > src.zoteroVersion || src.zoteroHash != itemHash {
+                    let contentChanged = src.zoteroHash != nil && src.zoteroHash != itemHash
+                    src.zoteroVersion = item.version
+                    src.zoteroHash = itemHash
+                    src.importedAt = now
+                    changed = true
+                    if contentChanged { report.secondarySourceChanged.append(existing.citekey) }
+                }
+                if changed {
+                    existing.additionalProvenance[idx] = src
+                    if guardedWrite(existing, report: &report), cleared {
+                        report.orphanCleared.append(existing.citekey)
+                    }
+                } else {
+                    report.unchanged += 1
+                }
             } else {
                 let citekey = Citekey.generate(
                     familyName: item.authors.first?.family,
@@ -234,20 +277,39 @@ public struct ZoteroImporter {
         // Orphan 偵測（library-scoped，#3）：只在「本次 import 的視野涵蓋該 entry 的 library」
         // 時才可判 orphan——部分 import（指定 libraryID）絕不動其他 library 的 entries；
         // legacy 檔（library_id 缺）只在全庫 import（libraryID=nil）時以裸 key 判定。
-        for entry in load.entries {
-            guard var prov = entry.provenance, prov.orphanedAt == nil else { continue }
-            if let lid = prov.libraryID {
-                if let wanted = libraryID, lid != wanted { continue }   // 視野外，不動
-                if importedComposite.contains("\(lid):\(prov.zoteroKey)") { continue }
-            } else {
-                if libraryID != nil { continue }   // 部分 import 不裁決 legacy 檔
-                if importedBare.contains(prov.zoteroKey) { continue }
+        for loaded in load.entries {
+            // 取本趟的目前版本——不是載入快照，否則會把本趟稍早的更新蓋掉（#605）。
+            var entry = current[loaded.id] ?? loaded
+            var primaryOrphaned = false
+            var secondaryOrphaned = false
+            if var prov = entry.provenance, prov.orphanedAt == nil {
+                var isOrphan = false
+                if let lid = prov.libraryID {
+                    if libraryID == nil || lid == libraryID {   // 視野外，不動
+                        isOrphan = !importedComposite.contains("\(lid):\(prov.zoteroKey)")
+                    }
+                } else if libraryID == nil {   // 部分 import 不裁決 legacy 檔
+                    isOrphan = !importedBare.contains(prov.zoteroKey)
+                }
+                if isOrphan {
+                    prov.orphanedAt = now
+                    entry.provenance = prov
+                    primaryOrphaned = true
+                }
             }
-            var orphan = entry
-            prov.orphanedAt = now
-            orphan.provenance = prov
-            if guardedWrite(orphan, report: &report) {
-                report.orphaned.append(orphan.citekey)
+            // #605：附加來源逐一判定，只標該來源；視野規則同主來源。
+            for i in entry.additionalProvenance.indices {
+                let src = entry.additionalProvenance[i]
+                guard src.orphanedAt == nil, let lid = src.libraryID else { continue }
+                if let wanted = libraryID, lid != wanted { continue }
+                if importedComposite.contains("\(lid):\(src.zoteroKey)") { continue }
+                entry.additionalProvenance[i].orphanedAt = now
+                secondaryOrphaned = true
+            }
+            guard primaryOrphaned || secondaryOrphaned else { continue }
+            if guardedWrite(entry, report: &report) {
+                if primaryOrphaned { report.orphaned.append(entry.citekey) }
+                if secondaryOrphaned { report.secondarySourceOrphaned.append(entry.citekey) }
             }
         }
 
@@ -255,6 +317,8 @@ public struct ZoteroImporter {
         report.updated.sort()
         report.orphaned.sort()
         report.orphanCleared.sort()
+        report.secondarySourceChanged.sort()
+        report.secondarySourceOrphaned.sort()
         report.authorsPreserved.sort()
         report.authorsOverwritten.sort()
         report.quarantineConflicts.sort()

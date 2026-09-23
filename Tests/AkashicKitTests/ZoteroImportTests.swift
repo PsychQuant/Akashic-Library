@@ -673,3 +673,80 @@ extension ZoteroImportTests {
                        + "而識別碼搬出 `fields` 之後那個減法看不到它們")
     }
 }
+
+// MARK: - #605 附加 Zotero 來源
+
+extension ZoteroImportTests {
+    /// 同一作品：個人 library（lib 1, KEYART01）一份、群組 library（lib 5, KEYGRP01）一份。
+    /// 先各自匯入，再模擬「已合併」——群組那份的來源掛到個人那份的附加來源上、刪掉群組那筆。
+    private func seedMergedTwin() throws -> Entry {
+        try fixture.db.execute("INSERT INTO items VALUES (31,1,'KEYGRP01',9,5)")
+        try fixture.addField(item: 31, field: 1, value: "Identifiability of polychoric models (group copy)", valueID: 131)
+        _ = try runImport()
+        let all = try store.load().entries
+        var personal = all.first { $0.provenance?.zoteroKey == "KEYART01" }!
+        let group = all.first { $0.provenance?.zoteroKey == "KEYGRP01" }!
+        personal.additionalProvenance = [group.provenance!]
+        try store.writeEntry(personal)
+        try FileManager.default.removeItem(at: store.entityURL(id: group.id))
+        return personal
+    }
+
+    func testReimportFromAdditionalSourceLibraryDoesNotCreateTwin() throws {
+        let merged = try seedMergedTwin()
+        let report = try runImport()
+        let all = try store.load().entries
+        XCTAssertFalse(all.contains { $0.provenance?.zoteroKey == "KEYGRP01" },
+                       "群組條目不該被重新建成一筆：created=\(report.created)")
+        XCTAssertEqual(all.filter { $0.title.hasPrefix("Identifiability") }.count, 1)
+        let after = all.first { $0.id == merged.id }!
+        XCTAssertEqual(after.additionalProvenance.map(\.zoteroKey), ["KEYGRP01"])
+    }
+
+    func testAdditionalSourceHitDoesNotRewriteBibliographicFields() throws {
+        let merged = try seedMergedTwin()
+        // 群組那份在 Zotero 端改了標題並升版
+        try fixture.db.execute("UPDATE items SET version = 12 WHERE itemID = 31")
+        try fixture.db.execute("UPDATE itemDataValues SET value = 'Group edited title' WHERE valueID = 131")
+        let report = try runImport()
+        let after = try store.load().entries.first { $0.id == merged.id }!
+        XCTAssertEqual(after.title, merged.title, "附加來源命中不得改書目欄位")
+        XCTAssertEqual(after.additionalProvenance.first?.zoteroVersion, 12, "附加來源自己的 version 要更新")
+        XCTAssertTrue(report.secondarySourceChanged.contains(merged.citekey),
+                      "附加來源 hash 變了而未套用要報出來：\(report.secondarySourceChanged)")
+        XCTAssertFalse(report.updated.contains(merged.citekey), "書目欄位沒改就不算 updated")
+    }
+
+    func testOrphanIsPerSource() throws {
+        let merged = try seedMergedTwin()
+        try fixture.db.execute("INSERT INTO deletedItems VALUES (31)")
+        _ = try runImport()
+        let after = try store.load().entries.first { $0.id == merged.id }!
+        XCTAssertNotNil(after.additionalProvenance.first?.orphanedAt, "群組那份被刪 → 只標附加來源")
+        XCTAssertNil(after.provenance?.orphanedAt, "主來源不受影響")
+    }
+
+    func testScopedImportOfOtherLibraryLeavesAdditionalSourceAlone() throws {
+        let merged = try seedMergedTwin()
+        try fixture.db.execute("INSERT INTO deletedItems VALUES (31)")
+        let importer = ZoteroImporter(store: store)
+        _ = try importer.run(zoteroDB: fixture.dbURL, libraryID: 1, now: Date(timeIntervalSince1970: 1_753_000_000))
+        let after = try store.load().entries.first { $0.id == merged.id }!
+        XCTAssertNil(after.additionalProvenance.first?.orphanedAt, "只匯入 lib 1 時不得判 lib 5 的來源為 orphan")
+    }
+}
+
+extension ZoteroImportTests {
+    /// 同一趟匯入中主來源與附加來源都有變動：兩邊的更新都要留下。從載入快照取 entry
+    /// 的寫法會讓後處理的那一個把先處理的蓋掉。
+    func testPrimaryAndSecondaryChangesInSameRunBothSurvive() throws {
+        let merged = try seedMergedTwin()
+        try fixture.db.execute("UPDATE items SET version = 6 WHERE itemID = 10")
+        try fixture.db.execute("UPDATE itemDataValues SET value = 'Primary edited title' WHERE valueID = 100")
+        try fixture.db.execute("UPDATE items SET version = 12 WHERE itemID = 31")
+        _ = try runImport()
+        let after = try store.load().entries.first { $0.id == merged.id }!
+        XCTAssertEqual(after.title, "Primary edited title", "主來源的欄位更新要保留")
+        XCTAssertEqual(after.additionalProvenance.first?.zoteroVersion, 12, "附加來源的版本更新要保留")
+    }
+}

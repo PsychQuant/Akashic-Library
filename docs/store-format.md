@@ -128,6 +128,10 @@ provenance:                      # Zotero namespace——pull 管理、可覆寫
   zotero_hash: a1b2c3…             # v1.1：mapping 產出 biblatex 面向的 SHA-256
   imported_at: 2026-07-22T00:00:00Z
   orphaned_at: 2026-08-01T00:00:00Z        # 僅 Zotero 端已刪時出現
+provenance_additional:           # format 18（#605）：同一作品在其他 library 的條目；空則不寫出
+  - zotero_key: QFAFGFW5           # 元素形狀同 provenance（封閉鍵域、同樣的必填欄位）
+    zotero_version: 236
+    library_id: 2
 akashic:                         # Akashic namespace——pull 絕不觸碰
   tags: [identifiability, polychoric]
   libraries: [sinica]            # v1.2（#13）：所屬 library keys；空＝只屬全集 view
@@ -319,6 +323,26 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
   無需 migration 指令）。缺 hash（pre-v1.1 舊檔）＝視為不同、補建一次。
 - **date 正規化**：ISO-ish 前綴（`YYYY[-MM[-DD]]`）、`00` 月/日截斷（`1989-00-00 1989` → `1989`）；
   解析不了保留原字串並列入 report `unnormalized dates`。
+
+### 2.5.3 主來源與附加來源（format 18，#605）
+
+同一作品可以同時存在於多個 Zotero library（典型：個人 library 一份、共享群組一份）。
+`provenance` 是**主來源**，`provenance_additional` 是**附加來源**；Zotero key 在這裡是**來源
+紀錄**，不是作品的身分判準。
+
+- **身分**：再匯入時，`(library_id, zotero_key)` 命中主來源或任一附加來源，都對回同一筆 entry，
+  不新建。
+- **只有主來源更新書目欄位**：主來源命中 → 照 §2.5.2 的 update 條件改寫欄位；附加來源命中 →
+  只更新該來源自己的 `zotero_version`／`zotero_hash`／`imported_at`，並清其 `orphaned_at`，
+  **不動書目欄位**。附加來源 hash 變了而未套用 → 匯入報告列出（`secondarySourceChanged`）。
+- **orphan 逐來源**：某 library 刪了條目，只標那個來源的 `orphaned_at`。
+- **合併**（`resolve-divergence`）：倖存者主來源保留；倖存者沒有主來源時被併者的主來源升格；
+  其餘來源併入附加來源，`(library_id, zotero_key)` 相同者去重。同一來源而被併者已 orphaned、
+  倖存者沒有 → 仍是 loss（要人裁決）。
+- **DOI 相同不自動掛成附加來源**：DOI 相等只是提名謂詞，不是同一性證據（更正啟事與原文共用
+  DOI）。這類條目照舊新建，交給攣生合併管線判定。
+- **format**：additive 的頂層鍵，仍 bump 到 18——format-17 binary 會保留但不比對附加來源，
+  再匯入時安靜地重新造出攣生。
 
 ### 2.6 Orphan 語意
 

@@ -144,7 +144,14 @@ public enum StoreVersion {
     ///   不是 `拆為 `，parse 回 nil，**同樣整檔 quarantine**。差別只在錯誤訊息會說「不是合法的
     ///   拆分文法」而不是「不認得的 field」，對使用者一樣是「這筆 work 消失了、rc=0」。
     ///   write gate（`assertEntryWritable`）對 format < 17 拒寫帶移除記錄的 entry。
-    public static let supported = 17
+    /// - **18** ＝ work 的**附加 Zotero 來源**（`provenance_additional:`，#605）。record 層多一個
+    ///   頂層鍵，依本檔頂部判準表是 additive——format-17 binary 走 tolerant-preserve **原樣保留而
+    ///   不解讀**。**仍 bump 的理由是語意、不是語法**（同 11／13／14 的裁決）：舊 binary 保留了
+    ///   附加來源卻**不拿它比對**，從附加來源所屬的 library 再匯入時會安靜地新建一筆，把剛合併
+    ///   掉的攣生重新造出來；合併閘也照舊把不同 zotero key 當「來源衝突」擋下。不會大聲失敗，
+    ///   所以要 marker 讓 refuse-if-newer 出聲。write gate（`assertEntryWritable`）對 format < 18
+    ///   拒寫帶附加來源的 entry。
+    public static let supported = 18
 
     /// 遷移完成後的 format bump 提示——**只在真的要升的時候印**（#472）。
     ///

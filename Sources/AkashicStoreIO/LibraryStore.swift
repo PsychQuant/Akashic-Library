@@ -484,6 +484,18 @@ public final class LibraryStore {
                 }
             }
         }
+        // v18-only 語法的 format gate（#605）：附加 Zotero 來源。format-17 binary 會保留
+        // `provenance_additional:` 卻不拿它比對，再匯入時安靜地重造攣生（見 StoreVersion 18）。
+        if !entry.additionalProvenance.isEmpty {
+            let format = try format()
+            guard format >= 18 else {
+                throw StoreIOError.invalidInput(
+                    what: "entry「\(displaySafeInvisible(entry.citekey, max: 120))」",
+                    why: "含附加 Zotero 來源（provenance_additional），需要 store format ≥ 18；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 format: 改成 18" +
+                         "（format-17 binary 會保留但不比對附加來源，再匯入時會重新造出攣生）")
+            }
+        }
         // membership keys（#13）同樣 write-time 驗證——不進路徑，但保 index/query 語意乾淨
         for key in entry.akashic.libraries where !StoreKey.isValid(key) {
             throw StoreIOError.invalidKey("akashic.libraries key", key)

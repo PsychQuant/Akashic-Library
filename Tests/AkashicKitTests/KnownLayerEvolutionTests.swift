@@ -143,7 +143,7 @@ final class KnownLayerEvolutionTests: XCTestCase {
     /// **函式名帶數字是刻意的**：改值時被迫連名字一起改，否則會留下
     /// 「`IsExactlyEleven` 斷言 12」這種名字與內容分岔——本 repo 已修過三次同型
     /// （CLAUDE.md 兩處摘要、`13 條` vs `14 條`）。
-    func testCurrentSupportedFormatIsExactlySeventeen() {
-        XCTAssertEqual(StoreVersion.supported, 17)
+    func testCurrentSupportedFormatIsExactlyEighteen() {
+        XCTAssertEqual(StoreVersion.supported, 18)
     }
 }

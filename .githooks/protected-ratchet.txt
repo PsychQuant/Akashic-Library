@@ -45,6 +45,7 @@ Sources/akashic/CreateEntryCommand.swift
 mcpb/manifest.json
 plugin/.claude-plugin/plugin.json
 plugin/rules/assertions-must-be-measured.md
+plugin/skills/akashic-fetch-fulltext/scripts/tests/test_rules_and_verify.py
 plugin/skills/akashic-promote-literals/SKILL.md
 plugin/skills/akashic-promote-literals/scripts/hash-merging-ranges.txt
 plugin/skills/akashic-promote-literals/scripts/literal-census.sh

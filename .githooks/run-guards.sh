@@ -148,3 +148,9 @@ python3 plugin/tests/plugin-store-format-parity.py
 # 不需要 build：釘住「只收 got＋非空摘要＋DOI 在場、其餘逐筆具名」「doi 原樣透傳」
 # 「digest 內容定址」「輸出決定論」。住 plugin skill 而非 CLI 的理由在腳本 docstring。
 python3 plugin/tests/ndjson-abstracts-to-proposals.py
+
+# 取全文 skill 的純函數（#613）：出版商 PDF 網址規則、下載檔「是不是這篇」的判定、
+# 網站起疑訊號的偵測。純 Python、不連網、不需要 build、不叫 pdftotext——Safari 那一半
+# 只能有人看著跑，這裡釘住的是可以離線釘住的那一半。最要緊的一條反例是付費牆的
+# Loading 殼**不得**被當成起疑：那會把「沒有權限」誤報成「被當成機器人」。
+python3 plugin/skills/akashic-fetch-fulltext/scripts/tests/test_rules_and_verify.py

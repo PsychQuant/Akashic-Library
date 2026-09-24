@@ -1114,6 +1114,7 @@ public final class AkashicService {
         var skipped: [(id: String, why: String)] = []
         var seen = Set<String>()
         var confirmSlots = Set<String>()   // #627 R2
+        var alreadyJudged: [String] = []     // #627 R4：已歸給同一個人的判定（no-op）
         for spec in specs {
             guard let eq = spec.firstIndex(of: "=") else {
                 throw ServiceError.invalid(
@@ -1123,7 +1124,7 @@ public final class AkashicService {
             let id = String(spec[..<eq])
             let judgement = String(spec[spec.index(after: eq)...])
             let parts = id.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
-            guard parts.count == 3, let idx = Int(parts[1]) else {
+            guard parts.count == 3, let idx = Int(parts[1]), idx >= 0 else {   // #627 R4：負索引是輸入錯，不是 store 狀態不符
                 throw ServiceError.invalid(
                     "判定 id「\(displaySafeInvisible(id, max: 200))」不是三段形 "
                     + "citekey:authorIndex:personKey")
@@ -1184,9 +1185,16 @@ public final class AkashicService {
                     continue
                 }
                 literal = recovered
+            } else if case let .key(k) = entry.authors[idx], k == personKey {
+                // #627 R4：已經歸給同一個人＝目標狀態已成立（重跑同一個判定）。不是 store 狀態不符，
+                // 不列入 skipped——否則重跑一個已落地的判定會被當成失敗
+                alreadyJudged.append(id)
+                continue
             } else {
-                skipped.append((id, "該作者位已經歸戶——判定不覆寫既有歸戶；"
-                                    + "要改判請先否決既有 verdict"))
+                // 已歸給**另一個人**才是真的衝突。先前的指路「要改判請先否決既有 verdict」照做會留下
+                // confirmed 與 rejected 並存的矛盾對，而 refute 不動 entry、之後 judge 仍會略過（R4 DA 實測）
+                skipped.append((id, "該作者位已歸戶給另一個人——判定不覆寫既有歸戶；"
+                                    + "本面沒有把歸戶退回 literal 的操作，否決既有 verdict 也不會改變作者位"))
                 continue
             }
             guard let p = JudgedPairing(citekey: citekey, authorIndex: idx,
@@ -1234,15 +1242,19 @@ public final class AkashicService {
         } catch {
             // 略過的逐筆 id 不能被 rebuild 錯誤吞掉——損壞態的 store 正是會略過的那種 store。
             // 理由不在此重印：它們已對 JSON 出口消毒過，再逃一次會雙重跳脫（displaySafe 不冪等）
-            // 已判定（已落地）與略過的 id 都列出——那時寫入已落地，呼叫端要對得上帳。各至多 20 筆。
-            let cap = 20
-            let list = { (ids: [String]) -> String in
-                let shown = ids.prefix(cap).map { displaySafeInvisible($0, max: 200) }.joined(separator: "、")
-                return ids.count > cap ? shown + "…另 " + String(ids.count - cap) + " 筆" : shown
+            // 已落地與略過的 id 都列出——那時寫入已落地，呼叫端要對得上帳。**多行、每個 id 一行**：兩面的
+            // sink 每行截在 400，單行訊息會先把清單截掉（R4 verify）。計數與略過清單在前（R2 要保住的是略過）；
+            // 內嵌的 rebuild 錯誤壓在 200，不佔掉整行。各清單至多 50 行，其餘一句概括。
+            let cap = 50
+            let lines = { (ids: [String]) -> String in
+                var out = ids.prefix(cap).map { "\n  " + displaySafeInvisible($0, max: 200) }.joined()
+                if ids.count > cap { out += "\n  …另 " + String(ids.count - cap) + " 筆" }
+                return out
             }
-            let judgedIDs = list(pairings.map { $0.citekey + ":" + String($0.authorIndex) + ":" + $0.personKey })
-            let skippedIDs = list(skipped.map(\.id))
-            throw ServiceError.invalid("index rebuild 失敗：\(displaySafeError(error, max: 512))（本批已改寫 \(wroteEntries) 筆 work、\(grouped.count) 筆 person 記錄；已判定 \(pairings.count) 筆：\(judgedIDs)；略過 \(skipped.count) 筆：\(skippedIDs)——略過的是 store 狀態不符的判定，例如 citekey 重複或與另一筆共用 id、work 不存在、作者位已歸戶）")   // display-safe-exempt: wroteEntries／count 是 Int；judgedIDs／skippedIDs 已逐筆 displaySafeInvisible
+            let doneWord = isConfirm ? "已判定" : "已否決"
+            let skippedLines = lines(skipped.map(\.id))
+            let doneLines = lines(pairings.map { $0.citekey + ":" + String($0.authorIndex) + ":" + $0.personKey })
+            throw ServiceError.invalid("index rebuild 失敗（本批已改寫 \(wroteEntries) 筆 work、\(grouped.count) 筆 person 記錄；\(doneWord) \(pairings.count) 筆、略過 \(skipped.count) 筆，逐筆如下）：\(displaySafeError(error, max: 200))\n略過（store 狀態不符，例如 citekey 重複或與另一筆共用 id、work 不存在、作者位已歸戶給另一個人）：\(skippedLines)\n\(doneWord)（已落地）：\(doneLines)")   // display-safe-exempt: wroteEntries／count 是 Int；doneWord 是字面；skippedLines／doneLines 已逐筆 displaySafeInvisible
         } }
 
         return try jsonString([
@@ -1257,6 +1269,8 @@ public final class AkashicService {
             },
             "entriesRewritten": wroteEntries,
             "personsRewritten": grouped.count,
+            // #627 R4：已歸給同一個人的判定——目標狀態早已成立，沒有寫入也不是略過
+            "alreadyJudged": alreadyJudged.map { displaySafe($0, max: 200) },
         ])
     }
 

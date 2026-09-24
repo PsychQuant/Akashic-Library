@@ -129,6 +129,30 @@ final class DuplicateCitekeyResolveTests: XCTestCase {
         XCTAssertEqual(Set(refuted.map(\.key)), ["cheng-che", "olsson-ulf"])
     }
 
+    /// #627 R4：rebuild 失敗訊息是多行、每個 id 一行——兩面的 sink 每行截在 400，
+    /// 單行時一批超過約 7 筆就把略過清單截掉。斷言的是經過 sink 之後的文字，不是原始錯誤。
+    func testRebuildFailureListsSkippedEvenForALargeBatch() throws {
+        var specs = ["c2020:0:cheng-che=查證：論文機構相符"]
+        for i in 0..<12 {
+            let ck = String(format: "chen%02dpsychometrika", i)
+            try store.writeEntry(Entry(id: UUID(), citekey: ck, type: .periodicalArticle,
+                                       title: "P\(i)", authors: [.literal("Che Cheng")], date: "2021"))
+            specs.append("\(ck):0:cheng-che=查證：論文機構相符")
+        }
+        XCTAssertThrowsError(try service.resolvePeople(apply: nil, judge: specs)) { err in
+            let shown = displaySafeErrorMultiline(err, prefix: "Error: ")
+            XCTAssertTrue(shown.contains("略過 1 筆") && shown.contains("c2020:0:cheng-che"), shown)
+            XCTAssertTrue(shown.contains("已判定 12 筆") && shown.contains("chen11psychometrika:0:cheng-che"), shown)
+        }
+    }
+
+    /// #627 R4：負的作者索引是輸入錯（整批拒絕），不是 store 狀態不符。
+    func testNegativeAuthorIndexIsAnInputError() throws {
+        XCTAssertThrowsError(try service.resolvePeople(apply: nil, judge: ["d2021:-1:cheng-che=x"])) { err in
+            XCTAssertTrue("\(err)".contains("三段形"), "\(err)")
+        }
+    }
+
     /// 列表先標出重複 citekey 的候選——呼叫端不必送出 apply 才知道會被拒。
     func testCandidateListMarksDuplicatedCitekeyRows() throws {
         let out = try json(try service.resolvePeople(apply: nil))

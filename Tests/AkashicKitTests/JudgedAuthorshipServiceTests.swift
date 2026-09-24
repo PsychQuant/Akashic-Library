@@ -154,8 +154,8 @@ final class JudgedAuthorshipServiceTests: XCTestCase {
         let out = try judge(["w1:1:chen-hsin-chen=想改判"])
         let skipped = (out["skipped"] as? [[String: Any]]) ?? []
         XCTAssertEqual(skipped.count, 1)
-        XCTAssertTrue((skipped.first?["why"] as? String ?? "").contains("已經歸戶"),
-                      "略過原因應說明已歸戶：\(skipped)")
+        XCTAssertTrue((skipped.first?["why"] as? String ?? "").contains("已歸戶給另一個人"),   // #627 R4：同一個人是 no-op，另一個人才略過
+                      "略過原因應說明已歸戶給另一個人：\(skipped)")
         XCTAssertEqual(try reloadEntry().authors[1], .key("chun-houh-chen"),
                        "既有歸戶不得被覆寫")
     }

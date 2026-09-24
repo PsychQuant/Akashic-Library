@@ -164,8 +164,20 @@ final class ResolveVerdictCLITests: XCTestCase {
         }
         let r = try runCLI(["resolve-people", "--judge", "c2020:0:cheng-che=論文機構相符"])
         XCTAssertNotEqual(r.status, 0, r.output)
-        XCTAssertTrue(r.output.contains("沒有任何一筆落地") && r.output.contains("index 未重建"), r.output)
+        XCTAssertTrue(r.output.contains("本次沒有任何一筆寫入") && r.output.contains("index 未重建"), r.output)
         XCTAssertFalse(r.output.contains("✓"), r.output)
+    }
+
+    /// #627 R4：重跑一個已落地的判定是 no-op 成功，不是失敗。
+    func testRerunningALandedJudgementIsANoOpSuccess() throws {
+        try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "cheng2020t", type: .periodicalArticle,
+                                   title: "T", authors: [.literal("Che Cheng")], date: "2020"))
+        XCTAssertEqual(try runCLI(["resolve-people", "--judge", "cheng2020t:0:cheng-che=機構相符"]).status, 0)
+        let r = try runCLI(["resolve-people", "--judge", "cheng2020t:0:cheng-che=機構相符"])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("已是這個判定 1 筆"), r.output)
+        XCTAssertFalse(r.output.contains("略過"), r.output)
     }
 
     /// fall-through：exact 唯一命中被否決 → initials 冒出另一個人（淘汰所得）。

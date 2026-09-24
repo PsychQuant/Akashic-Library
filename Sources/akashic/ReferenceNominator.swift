@@ -88,7 +88,7 @@ enum ReferenceNominator {
             list = arr
         } else {
             throw ValidationError(
-                "--openalex \(displaySafe(source)) 不是 OpenAlex 的回應 JSON（需為含 results 陣列的物件，或 work 陣列）")
+                "--openalex \(displaySafeInvisible(source, max: 300)) 不是 OpenAlex 的回應 JSON（需為含 results 陣列的物件，或 work 陣列）")
         }
         var works: [Work] = []
         var skipped = 0

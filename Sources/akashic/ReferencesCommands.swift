@@ -26,7 +26,7 @@ struct ReferencesExtractCmd: ParsableCommand {
         do {
             input = try String(contentsOfFile: text, encoding: .utf8)
         } catch {
-            throw ValidationError("讀不到 --text 指定的檔（需為 UTF-8 純文字）：\(displaySafe(text))")
+            throw ValidationError("讀不到 --text 指定的檔（需為 UTF-8 純文字）：\(displaySafeInvisible(text, max: 300))")
         }
         let result = try ReferenceListExtractor.extract(input)
         print(try encodeForDisplay(result))
@@ -73,7 +73,7 @@ struct ReferencesNominateCmd: ParsableCommand {
                                               from: Data(contentsOf: URL(fileURLWithPath: refs)))
         } catch {
             throw ValidationError(
-                "--refs \(displaySafe(refs)) 讀不到或不是 akashic references extract 的輸出：\(displaySafeErrorText(error))")
+                "--refs \(displaySafeInvisible(refs, max: 300)) 讀不到或不是 akashic references extract 的輸出：\(displaySafeErrorText(error))")
         }
         guard !openalex.isEmpty else {
             throw ValidationError("至少要給一個 --openalex（OpenAlex 回應檔）")
@@ -85,7 +85,7 @@ struct ReferencesNominateCmd: ParsableCommand {
         for path in openalex {
             let data: Data
             do { data = try Data(contentsOf: URL(fileURLWithPath: path)) } catch {
-                throw ValidationError("--openalex \(displaySafe(path)) 讀不到：\(displaySafeErrorText(error))")
+                throw ValidationError("--openalex \(displaySafeInvisible(path, max: 300)) 讀不到：\(displaySafeErrorText(error))")
             }
             let batch = try ReferenceNominator.parseWorks(data, source: path)
             skipped += batch.skipped

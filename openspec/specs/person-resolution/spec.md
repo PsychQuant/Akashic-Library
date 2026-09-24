@@ -257,7 +257,7 @@ The MCP apply is **deliberately outside this gate**: its apply set is a list of 
 - **GIVEN** a candidate that is the sole survivor after other same-position candidates were rejected (its `eliminatedPairings` is greater than zero)
 - **WHEN** a filter-driven bulk apply is invoked, with or without a tier filter
 - **THEN** that candidate is not applied and is listed as excluded with a pointer to per-row judgement; the tier gate is evaluated on the apply set after this exclusion; if nothing remains, no write occurs and the face exits non-zero
-- **AND** a two-segment identifier resolving to such a candidate is refused on both faces and for both apply and reject (it names a position, not a person), while a three-segment identifier naming its person proceeds as usual
+- **AND** a two-segment identifier resolving to such a candidate is refused for MCP apply, MCP reject and CLI `--reject` (it names a position, not a person; the CLI bulk apply only ever sends three-segment identifiers), while a three-segment identifier naming its person proceeds as usual
 - **AND** a three-segment identifier shared by two positions (duplicate citekey) is refused rather than resolved to either one
 
 

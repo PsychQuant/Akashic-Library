@@ -476,6 +476,8 @@ claude plugin install akashic-mcp@akashic
 claude plugin install akashic-discovery@akashic   # 文獻探索 skills；會自動帶入 akashic-mcp
 ```
 
+`akashic-discovery` 目前有一個 skill：`akashic-work-references`（#617）——從一篇已在庫的論文往回追，PDF 參考文獻 × OpenAlex `referenced_works` 兩源交叉、逐筆判定後建檔並以 `cites` 連回。它在 shell 裡呼叫三樣外部工具：PATH 上的 `akashic` CLI（需含 `references` 子命令；release 目前只發 `akashic-mcp`，CLI 要在本 repo `swift build -c release` 後自行放上 PATH，見 #633）、`pdftotext`（poppler）、`safari-browser`（外部取得的專案預設，見 `.claude/rules/web-access-via-safari-browser.md`）。
+
 **從舊安裝遷移**：`akashic-mcp@psychquant-claude-plugins` 自 #625 起不再由該 marketplace
 列出（`/plugin` 會顯示為已移除；官方的 `renames` 不支援跨 marketplace 轉址）。先
 `claude plugin uninstall akashic-mcp@psychquant-claude-plugins`，再跑上面三行。uninstall 會

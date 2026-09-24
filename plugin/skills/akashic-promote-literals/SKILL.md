@@ -157,7 +157,7 @@ ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，*
 
 1. **是同一人** → apply（同動作寫 confirmed verdict，rule 依 tier 分開記——`author-name-initials` 的校準史不會混進 exact）
 2. **不是** → reject（寫 rejected verdict；同 literal 他 entry 照提）
-3. **查不出來** → 不 apply、不 reject，literal 留著，查過的寫在報告；判不出來的配對不要放進篩選式批次 apply（`--tier`），那一批改逐筆顯式送（#624）；只有查到兩筆以上 person 記錄本身可能是同一人時才 `akashic_record_divergence`，且先在回報裡建議，使用者確認後才記——divergence 記了沒有面刪得掉（#586）
+3. **查不出來** → 不 apply、不 reject，literal 留著，查過的寫在報告；範圍含判不出來配對的那一批不要用 CLI 的 `--apply`（不論帶不帶 `--tier`／`--citekey`／`--person`，它都會帶走範圍內所有候選）；確認過的逐筆顯式送（#624）；只有查到兩筆以上 person 記錄本身可能是同一人時才 `akashic_record_divergence`，且先在回報裡建議，使用者確認後才記——divergence 記了沒有面刪得掉（#586）
 
 **候選不在列時，先分辨三種原因再行動**（順序固定，跳過任一步都可能鑄造重複身分）：
 

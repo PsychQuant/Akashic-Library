@@ -126,7 +126,7 @@ akashic resolve-people --refute "<citekey>:<idx>:<personKey>=<理由>"
 
 ### 5. 收尾：每一列都要有處置
 
-重跑 `resolve-people`，對照本輪回報確認每一列都有處置。判不出來的走第三個出口：不 judge、不 refute，literal 留著，查過的來源寫在回報。store 不留查過的紀錄（#619）；判不出來的配對不要放進篩選式批次 apply（`--tier`），那一批改逐筆顯式送（#624）。
+重跑 `resolve-people`，對照本輪回報確認每一列都有處置。判不出來的走第三個出口：不 judge、不 refute，literal 留著，查過的來源寫在回報。store 不留查過的紀錄（#619）；範圍含判不出來配對的那一批不要用 CLI 的 `--apply`（不論帶不帶 `--tier`／`--citekey`／`--person`，它都會帶走範圍內所有候選）；確認過的逐筆顯式送（#624）。
 
 literal 可能是 A 或 B，不等於 A、B 兩筆是同一人。只有查到**兩筆以上 person 記錄**本身可能是同一個人時才記 divergence（candidates＝那幾筆 person 的 key），且先在回報裡建議，使用者確認後才記——divergence 記了沒有面刪得掉（#586）：
 
@@ -146,7 +146,7 @@ akashic record-divergence --question "…" --candidate "a:person" --candidate "b
 ## 邊界
 
 - **同機構不同系所不可否決**——那是證據不足，不是判定為否
-- **正確的人不在庫裡是合法結論**。此時 refute 現有候選（理由寫明正確的人不在庫裡），再 `add-person` 建檔後 judge，或讓 literal 留著；**不是**從現有候選裡挑一個最像的
+- **正確的人不在庫裡是合法結論**。此時 refute **全部**現有候選（理由寫明正確的人不在庫裡），再 `add-person` 建檔後 judge，或讓 literal 留著；**不是**從現有候選裡挑一個最像的
 - **查不出來是合法結果**。說證據不足，讓 literal 留著——可見是設計，不是待消滅的數字
 
 ## 相關

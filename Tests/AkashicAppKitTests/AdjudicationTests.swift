@@ -53,7 +53,7 @@ final class AdjudicationTests: XCTestCase {
         let model = PeopleResolveModel(state: state)
         let cand = try XCTUnwrap(model.candidates.first { $0.citekey == "a2020paper" })
         XCTAssertThrowsError(try model.accept(cand)) { err in
-            XCTAssertEqual(err as? AdjudicationError, .duplicatedCitekey("a2020paper"))
+            XCTAssertEqual(err as? AdjudicationError, .unlocatableCitekey("a2020paper"))
         }
         XCTAssertEqual(try Data(contentsOf: entitiesFile), before, "entities 那份一個位元都不動")
         let people = try LibraryStore(root: root).load().people

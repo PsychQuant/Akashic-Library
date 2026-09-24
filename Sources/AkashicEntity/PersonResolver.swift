@@ -376,12 +376,10 @@ public enum PersonResolver {
         // citekey 重複、或 entry id 重複的位置一律不改——以 citekey 定位會猜是哪一筆，以 id
         // 寫檔（entities/<id>.yaml）會寫到兄弟的檔。上游各腿另行拒絕或具名略過，這裡是最後
         // 一道防線：它保證輸出裡**只有候選命中的那一格**可能與輸入不同。
-        let duplicatedCK = entries.duplicatedCitekeys
-        var idCount: [UUID: Int] = [:]
-        for e in entries { idCount[e.id, default: 0] += 1 }
+        let unlocatable = entries.unlocatableCitekeys
         var indexByCitekey: [String: Int] = [:]
         for (i, e) in entries.enumerated()
-        where !duplicatedCK.contains(e.citekey) && idCount[e.id] == 1 {
+        where !unlocatable.contains(e.citekey) {
             indexByCitekey[e.citekey] = i
         }
         var out = entries
@@ -391,6 +389,22 @@ public enum PersonResolver {
                   case .literal(let current) = out[i].authors[candidate.authorIndex],
                   current == candidate.literal else { continue }
             out[i].authors[candidate.authorIndex] = .key(candidate.personKey)
+        }
+        return out
+    }
+
+    /// `apply` 真的改到的作者位，以 `"citekey:authorIndex"` 表示（#627 R2）。
+    ///
+    /// `apply` 是就地改寫、輸出與輸入同序同長，所以逐位置比對即可。寫 verdict 的呼叫端
+    /// 以它把關：只替改到的位置寫 `resolution-confirmed`——apply 略過的格（無法唯一定位的
+    /// work）不得被 ledger 宣稱歸戶過。以作者位而非 citekey 為單位：同一筆 work 兩個候選、
+    /// 只改到一個時，另一個不能被連帶算成已套用。
+    public static func changedSlots(before: [Entry], after: [Entry]) -> Set<String> {
+        var out = Set<String>()
+        for (b, a) in zip(before, after) where b != a {
+            for i in a.authors.indices where !b.authors.indices.contains(i) || b.authors[i] != a.authors[i] {
+                out.insert("\(a.citekey):\(i)")
+            }
         }
         return out
     }

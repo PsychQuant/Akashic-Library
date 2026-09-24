@@ -192,6 +192,23 @@ final class PersonResolverTests: XCTestCase {
         XCTAssertEqual(out[2].authors, [.key("cheng-che")], "不重複的照常套用")
     }
 
+    /// #627 R2：changedSlots 以作者位為單位——同一筆 work 兩個作者位、只改到一個時，另一個不算。
+    func testChangedSlotsCountsOnlyTheRewrittenPosition() {
+        var e = entry("c2020", literal: "Che Cheng"); e.authors.append(.literal("Ulf Olsson"))
+        var after = e; after.authors[0] = .key("cheng-che")
+        XCTAssertEqual(PersonResolver.changedSlots(before: [e], after: [after]), ["c2020:0"])
+        XCTAssertEqual(PersonResolver.changedSlots(before: [e], after: [e]), [])
+    }
+
+    /// #627 R2：無法唯一定位＝citekey 重複，或 id 與另一筆共用。
+    func testUnlocatableCitekeysCoverDuplicatesAndSharedIDs() {
+        let x = entry("x2019", literal: "A")
+        var y = x; y.citekey = "y2019"
+        let a1 = entry("a", literal: "X"), a2 = entry("a", literal: "Y"), ok = entry("ok", literal: "Z")
+        XCTAssertEqual([x, y, a1, a2, ok].unlocatableCitekeys, ["x2019", "y2019", "a"])
+        XCTAssertEqual([ok].unlocatableCitekeys, [])
+    }
+
     /// #627 R1：半遷移——同 UUID、同 citekey 的兩份拷貝，內容已分岔（entities 那份被編輯過）。
     /// 字典對應回輸出時，兩格都會變成同一份，被編輯的那份安靜回退成舊內容。
     func testHalfMigratedCopiesAreNeitherAppliedNorOverwritten() {

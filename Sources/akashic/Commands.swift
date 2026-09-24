@@ -1700,7 +1700,9 @@ struct ResolvePeople: ParsableCommand {
             let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
             let rows = (parsed?[confirming ? "judged" : "refuted"] as? [[String: Any]]) ?? []
             print("✓ \(confirming ? "判定" : "否決") \(rows.count) 個作者位、改寫 \(parsed?["entriesRewritten"] as? Int ?? 0) 筆 work、"
-                  + "\(parsed?["personsRewritten"] as? Int ?? 0) 筆 person 記錄、index 已重建")
+                  + "\(parsed?["personsRewritten"] as? Int ?? 0) 筆 person 記錄、"
+                  // #627 R2：什麼都沒寫時 service 不重建 index——不能照舊說「已重建」
+                  + (rows.isEmpty ? "沒有寫入、index 未重建" : "index 已重建"))
             for r in rows {
                 // service 回傳的欄位已經 displaySafe 過（見 judgeAuthorships），
                 // 這裡原樣轉印——二次消毒會逃脫自己的反斜線（displaySafe 不冪等）
@@ -1761,7 +1763,7 @@ struct ResolvePeople: ParsableCommand {
         // 整批、或叫人去具名一個最後仍會被排除的 tier（#624 R1 verify）。
         // #627：citekey 重複的候選同樣不進批次——以 citekey 定位會猜是哪一筆。比照淘汰所得
         // 排除並另列，而不是讓 service 端的拒絕把整批卡死。
-        let duplicatedCK = load.entries.duplicatedCitekeys
+        let duplicatedCK = load.entries.unlocatableCitekeys   // #627 R2：含與另一筆共用 id 的
         let duplicateSkipped = candidates.filter { duplicatedCK.contains($0.citekey) }
         let applySet = candidates.filter { $0.eliminatedPairings == 0 && !duplicatedCK.contains($0.citekey) }
         let eliminatedSkipped = candidates.filter { $0.eliminatedPairings > 0 && !duplicatedCK.contains($0.citekey) }
@@ -1781,7 +1783,7 @@ struct ResolvePeople: ParsableCommand {
                 + (eliminatedSkipped.isEmpty ? "" :
                     "另有 \(eliminatedSkipped.count) 筆淘汰而得的唯一候選不論 --tier 都不套用，要逐筆 --judge（#624）。")
                 + (duplicateSkipped.isEmpty ? "" :
-                    "另有 \(duplicateSkipped.count) 筆候選所在的 citekey 重複，不論 --tier 都不套用——先修正重複的 citekey（#627）。"))
+                    "另有 \(duplicateSkipped.count) 筆候選所在的 citekey 重複或與另一筆共用 id，不論 --tier 都不套用——先修正重複的 citekey 或 id（#627）。"))
         }
 
         /// #231：歧義**不再靜默丟棄**。它與「沒人匹配」語意不同——後者是 `.literal`
@@ -1970,7 +1972,7 @@ struct ResolvePeople: ParsableCommand {
             // 被篩掉的候選仍列出，但標明不會套用——收窄範圍不等於「其他不存在」
             let mark = (apply && !selected.contains(c.pinnedID)) ? "  (skip) " : "  "
             // #624：列表模式也標出淘汰所得——不必等到 --apply 才知道哪幾列不會被套用
-            let tag = duplicatedCK.contains(c.citekey) ? " ⟨citekey 重複：--apply 不套用，先修正重複的 citekey⟩"
+            let tag = duplicatedCK.contains(c.citekey) ? " ⟨citekey 重複或共用 id：--apply 不套用，先修正⟩"
                 : c.eliminatedPairings > 0 ? " ⟨淘汰而得：--apply 不套用，要逐筆 --judge⟩" : ""
             print("\(mark)\(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（\(displaySafe(c.reason, max: 300))）\(tag)")
         }
@@ -1992,7 +1994,7 @@ struct ResolvePeople: ParsableCommand {
                 print("  → 查證後逐筆送：resolve-people --judge <citekey:authorIndex:personKey>=理由，或 MCP 以三段 id apply（#624）")
             }
             if !duplicateSkipped.isEmpty {
-                print("\n⚠ citekey 重複的候選 \(duplicateSkipped.count) 筆不套用（無法確定是哪一筆 work）：")
+                print("\n⚠ citekey 重複或與另一筆共用 id 的候選 \(duplicateSkipped.count) 筆不套用（無法確定是哪一筆 work）：")
                 for c in duplicateSkipped {
                     print("  \(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))")
                 }
@@ -2000,8 +2002,8 @@ struct ResolvePeople: ParsableCommand {
             }
             if applySet.isEmpty {
                 throw ValidationError(
-                    "套用集沒有可套用的候選（淘汰而得 \(eliminatedSkipped.count) 筆、citekey 重複 \(duplicateSkipped.count) 筆），不寫入——"
-                    + "淘汰而得的要逐筆 --judge <citekey:authorIndex:personKey>=理由；citekey 重複的先修正")
+                    "套用集沒有可套用的候選（淘汰而得 \(eliminatedSkipped.count) 筆、citekey 重複或共用 id \(duplicateSkipped.count) 筆），不寫入——"
+                    + "淘汰而得的要逐筆 --judge <citekey:authorIndex:personKey>=理由；citekey 重複或共用 id 的先修正")
             }
             // #232：apply 改走 **AkashicService**（與 MCP 同一條實作路徑）——
             // service 端做 per-item 收容（R7/M21）、先報失敗再 rebuild（R9/M8）、
@@ -2044,10 +2046,11 @@ struct ResolvePeople: ParsableCommand {
                 for id in notApplied { print("  - \(id)") }
             }
             // 成功行不誇報（R8）：✓ 只在全數成功時
-            if writeFailed.isEmpty, confirmFailed.isEmpty {
-                print("✓ 套用 \(applySet.count - notApplied.count) 個候選、改寫 \(written) 檔、index 已重建")
+            if writeFailed.isEmpty, confirmFailed.isEmpty, notApplied.isEmpty {
+                print("✓ 套用 \(applySet.count) 個候選、改寫 \(written) 檔、index 已重建")
             } else {
-                print("部分套用：改寫 \(written) 檔、失敗 \(writeFailed.count + confirmFailed.count) 筆、index 已重建")
+                // #627 R2：有候選沒套用也是部分套用——與 #624 全數排除時非零結束同語意
+                print("部分套用：改寫 \(written) 檔、失敗 \(writeFailed.count + confirmFailed.count) 筆、未套用 \(notApplied.count) 筆、index 已重建")
                 throw ExitCode(1)
             }
         } else {

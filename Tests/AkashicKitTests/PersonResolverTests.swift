@@ -169,6 +169,45 @@ final class PersonResolverTests: XCTestCase {
                       "\(r.candidates.first?.reason ?? "")")
     }
 
+    // MARK: - #624：淘汰所得是結構化欄位，不只是 reason 裡的一句話
+
+    func testEliminatedPairingsIsStructuredForEliminatedSurvivor() {
+        // exact 2-hit 其一被否決 → 剩下的那一個帶 eliminatedPairings == 1；
+        // CLI 的篩選式批次靠這個欄位排除它（reason 是給人讀的，程式讀不到）
+        let rejected: Set<ResolutionPairing> = [
+            ResolutionPairing(holderKind: .work, holder: "x2025",
+                              literal: "Che Cheng", judgedKey: "cheng-che")]
+        let r = PersonResolver.resolve(
+            entries: [entry("x2025", literal: "Che Cheng")],
+            people: [person("cheng-che", names: ["Che Cheng"]),
+                     person("cheng-che-2", names: ["Che Cheng"])],
+            rejected: rejected, confirmed: [:])
+        XCTAssertEqual(r.candidates.map(\.eliminatedPairings), [1])
+    }
+
+    func testEliminatedPairingsIsZeroWithoutRejection() {
+        let r = PersonResolver.resolve(
+            entries: [entry("x2025", literal: "Che Cheng")],
+            people: [person("cheng-che", names: ["Che Cheng"])],
+            rejected: [], confirmed: [:])
+        XCTAssertEqual(r.candidates.map(\.eliminatedPairings), [0])
+    }
+
+    func testEliminatedPairingsCountsFallThroughAcrossTiers() {
+        // 否決 exact 唯一命中 → fall-through 到 initials 提名另一人，也是淘汰所得
+        let rejected: Set<ResolutionPairing> = [
+            ResolutionPairing(holderKind: .work, holder: "x2025",
+                              literal: "Che Cheng", judgedKey: "cheng-che")]
+        let r = PersonResolver.resolve(
+            entries: [entry("x2025", literal: "Che Cheng")],
+            people: [person("cheng-che", names: ["Che Cheng"]),
+                     person("cheng-chun-erh", names: ["Cheng, C."])],
+            rejected: rejected, confirmed: [:])
+        XCTAssertEqual(r.candidates.map(\.personKey), ["cheng-chun-erh"])
+        XCTAssertEqual(r.candidates.map(\.eliminatedPairings), [1],
+                       "跨 tier 淘汰以人計、不以 tier 計")
+    }
+
     // MARK: - R3-fix R4-2：淘汰計數去重（1 筆否決不得報成 3）
 
     func testEliminationCountIsDeduplicatedAcrossTiers() {

@@ -23,7 +23,8 @@ final class DisplayProjectionTests: XCTestCase {
     /// `literal` 是 Zotero 匯入的作者原文，而它出現在**破壞性動作的確認畫面**。
     func testResolutionCandidateProjections() {
         let c = ResolutionCandidate(citekey: "k2020", authorIndex: 0, literal: hostile,
-                                    personKey: "che-cheng", reason: hostile, tier: .exact)
+                                    personKey: "che-cheng", reason: hostile, tier: .exact,
+                                    eliminatedPairings: 0)
         assertSanitised(c.displayLiteral, "displayLiteral")
         assertSanitised(c.displayReason, "displayReason")
         assertSanitised(c.displayCitekey, "displayCitekey")

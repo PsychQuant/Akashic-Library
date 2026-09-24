@@ -89,15 +89,25 @@ public struct ResolutionCandidate: Equatable, AuthorPairing {
     /// 信心值 fail-open，與同檔 `rejected`／`confirmed` 必填的裁決同一條理由：
     /// 位置決定了誰會走它，required 讓「忘了帶 tier」變成編譯錯誤。
     public var tier: ResolutionTier
+    /// 這個位置被否決淘汰掉的候選數（去重的 person key，跨 tier fall-through 也算）。
+    /// 大於 0 表示這筆是**淘汰而得的唯一命中**：原本有別的人選，被否決之後只剩它，
+    /// 而沒有人判定過它是對的（#624）。
+    ///
+    /// 這件事原本只寫進 `reason`（給人讀），程式讀不到，於是 CLI 的篩選式批次
+    /// `--apply` 會把它升格。**刻意無預設值**——理由同 `tier`：`= 0` 會往「不是
+    /// 淘汰所得」fail-open。
+    public var eliminatedPairings: Int
 
     public init(citekey: String, authorIndex: Int, literal: String,
-                personKey: String, reason: String, tier: ResolutionTier) {
+                personKey: String, reason: String, tier: ResolutionTier,
+                eliminatedPairings: Int) {
         self.citekey = citekey
         self.authorIndex = authorIndex
         self.literal = literal
         self.personKey = personKey
         self.reason = reason
         self.tier = tier
+        self.eliminatedPairings = eliminatedPairings
     }
 
     /// 這筆候選在一次解析內的唯一識別：`"<citekey>:<authorIndex>"`。
@@ -316,7 +326,8 @@ public enum PersonResolver {
                         }
                         candidates.append(ResolutionCandidate(
                             citekey: entry.citekey, authorIndex: i, literal: literal,
-                            personKey: key, reason: reason, tier: tier))
+                            personKey: key, reason: reason, tier: tier,
+                            eliminatedPairings: eliminated.count))
                     } else if let m = AmbiguousMatch(entryID: entry.id, citekey: entry.citekey,
                                                      authorIndex: i, literal: literal,
                                                      personKeys: hits, tier: tier) {

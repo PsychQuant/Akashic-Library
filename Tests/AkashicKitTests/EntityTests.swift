@@ -17,7 +17,8 @@ final class EntityTests: XCTestCase {
         let candidates = PersonResolver.candidates(entries: entries, people: people, rejected: [], confirmed: [:])
         XCTAssertEqual(candidates, [ResolutionCandidate(
             citekey: "a2020b", authorIndex: 0, literal: "Che Cheng",
-            personKey: "cheng-che", reason: "alias 完全命中", tier: .exact)])
+            personKey: "cheng-che", reason: "alias 完全命中", tier: .exact,
+            eliminatedPairings: 0)])
     }
 
     func testMatchIsCaseAndWhitespaceInsensitive() {

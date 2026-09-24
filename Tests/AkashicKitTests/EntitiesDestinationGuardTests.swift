@@ -17,6 +17,8 @@ final class EntitiesDestinationGuardTests: XCTestCase {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-destguard-\(UUID().uuidString)")
         store = LibraryStore(root: root)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        GitFixture.initRepo(root)   // 搬移只刪受 git 追蹤且乾淨的 legacy 檔（R2）——會搬移的情境要先 commit
         try store.ensureLayout()
         try StoreVersion.write(root: root, format: StoreVersion.supported)
         XCTAssertTrue(store.usesEntitiesLayout, "前提：entities 佈局")
@@ -75,10 +77,34 @@ final class EntitiesDestinationGuardTests: XCTestCase {
     func testWriteEntryMovesALegacyOnlyRecord() throws {
         let legacy = Entry(id: q, citekey: "z2019", type: .periodicalArticle, title: "Legacy")
         let legacyURL = try writeLegacyEntry(legacy)
+        GitFixture.commitAll(root)
         var edited = legacy; edited.title = "Edited"
         XCTAssertNoThrow(try store.writeEntry(edited))
         XCTAssertFalse(FileManager.default.fileExists(atPath: legacyURL.path), "搬移完成：legacy 檔已刪")
         XCTAssertEqual(try store.load().entries.map(\.title), ["Edited"], "只剩一份，而且是改過的")
+    }
+
+    /// R2：legacy 單份沒有受 git 追蹤（或有未 commit 的修改）——刪了回不來，拒寫、檔案不動。
+    func testMoveRefusesAnUntrackedLegacyCopy() throws {
+        let legacy = Entry(id: q, citekey: "z2019", type: .periodicalArticle, title: "Legacy")
+        let legacyURL = try writeLegacyEntry(legacy)   // 沒有 commit
+        let before = try Data(contentsOf: legacyURL)
+        var edited = legacy; edited.title = "Edited"
+        assertRefused { _ = try self.store.writeEntry(edited) }
+        XCTAssertEqual(try Data(contentsOf: legacyURL), before)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dest.path), "沒寫進 entities/")
+    }
+
+    /// R2（Codex）：legacy 檔同一個 id、但 key 與檔名不符（load 隔離它）——它不是這次寫入內容的來源，不得被當成搬移來源刪掉。
+    func testMoveRefusesALegacyFileWhoseKeyDoesNotMatch() throws {
+        try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
+        let url = store.entriesDir.appendingPathComponent("good2020.yaml")
+        try EntryYAML.encode(Entry(id: q, citekey: "other2020", type: .periodicalArticle, title: "Mismatched"))
+            .write(to: url, atomically: true, encoding: .utf8)
+        GitFixture.commitAll(root)
+        let before = try Data(contentsOf: url)
+        assertRefused { _ = try self.store.writeEntry(Entry(id: self.q, citekey: "good2020", type: .periodicalArticle, title: "Good")) }
+        XCTAssertEqual(try Data(contentsOf: url), before)
     }
 
     /// 兩份都在（遷移做到一半、可能已分岔）：拒寫，兩份都不動。
@@ -97,6 +123,7 @@ final class EntitiesDestinationGuardTests: XCTestCase {
     /// rename 對只住在 legacy 的記錄：改名後只剩 entities/ 的一份（不再造出兩個 citekey 共用一個 UUID）。
     func testRenameMovesALegacyOnlyRecord() throws {
         let oldURL = try writeLegacyEntry(Entry(id: q, citekey: "old2020", type: .periodicalArticle, title: "Legacy"))
+        GitFixture.commitAll(root)
         XCTAssertNoThrow(try store.renameEntry(from: "old2020", to: "new2020"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: oldURL.path))
         XCTAssertEqual(try store.load().entries.map(\.citekey), ["new2020"])
@@ -109,6 +136,7 @@ final class EntitiesDestinationGuardTests: XCTestCase {
         var beta = Entry(id: UUID(), citekey: "beta2021", type: .periodicalArticle, title: "B")
         beta.akashic.relations.cites = ["alpha2020"]
         _ = try writeLegacyEntry(beta)
+        GitFixture.commitAll(root)
         XCTAssertNoThrow(try store.renameEntry(from: "alpha2020", to: "alpha2020b"))
         let load = try store.load()
         XCTAssertEqual(load.entries.first { $0.citekey == "beta2021" }?.akashic.relations.cites, ["alpha2020b"])
@@ -136,6 +164,7 @@ final class EntitiesDestinationGuardTests: XCTestCase {
         let p = Person(key: "p-one", names: ["P One"], id: q)
         let legacyURL = store.personURL(key: "p-one")
         try PersonYAML.encode(p).write(to: legacyURL, atomically: true, encoding: .utf8)
+        GitFixture.commitAll(root)
         XCTAssertNoThrow(try store.renamePerson(from: "p-one", to: "p-two"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: legacyURL.path))
         XCTAssertEqual(try store.load().people.map(\.key), ["p-two"])

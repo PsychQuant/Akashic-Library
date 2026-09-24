@@ -25,6 +25,9 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
     /// 同一個 id。遷移做到一半，兩份可能已經分岔；留哪一份是判定，不替人刪。（只有 legacy 一份時寫入會搬移，不走這裡。）
     /// `file` 是 legacy 檔的相對路徑，含記錄的 key——描述端消毒。
     case legacyCopyPresent(file: String)
+    /// #631 R2：legacy 檔只有一份、照理該搬移，但它**不能安全地刪**——key 不合法或與預期不符（load 會隔離它，
+    /// 它不是這次寫入內容的來源），或不受 git 追蹤／有未 commit 的修改（刪了就回不來）。`why` 在擲出端已消毒。
+    case legacyCopyUnmovable(file: String, why: String)
 
     /// `verdictsAlreadyAtTarget` 每行的截斷上限＝CLI sink `displaySafeAssembled` 的逐行預設（400）減去 `displaySafe` 的截斷標記長度——
     /// 截過的行連標記一起 ≤ 400，sink 不會再截一次（R22 verify 第 23 列：兩次截讓標記落在 `\u{` 中途）。
@@ -66,6 +69,9 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
             return "同一筆記錄有兩份：legacy \(displaySafeInvisible(file, max: 300)) 與 entities/ 裡同一個 id 的那份——"
                  + "遷移做到一半，兩份可能已經分岔，拒絕寫入。比對後保留正確的那一份、刪掉另一份"
                  + "（store 受 git 追蹤，刪檔可還原），再重跑（#631）"
+        case let .legacyCopyUnmovable(file, why):
+            return "legacy \(displaySafeInvisible(file, max: 300)) 只有一份、寫入時照理要搬進 entities/，但它不能安全地刪："
+                 + displaySafeClipOnly(why, max: 600) + "——拒絕寫入，檔案不動（#631）"   // display-safe-exempt: why 已消毒（擲出端），只截
         case .invalidKey(let kind, let value):
             // #142：value 是 caller 剛送進來的畸形 key——原始 ESC/bidi 位元組經
             // MCP error 直達 LLM context；kind 是程式字面量
@@ -611,19 +617,31 @@ public final class LibraryStore {
     ///
     /// 多檔操作（rename、rename-person、合併、venue apply）在第一次寫入之前對每一筆呼叫它——
     /// 寫到一半才撞上拒絕會把 store 撕成一半（#631 R1 verify 以真 binary 重現）。
-    func entitiesWritePlan(id: UUID, kind: EntityKind, legacy: URL?, legacyLabel: String) throws -> URL? {
+    func entitiesWritePlan(id: UUID, kind: EntityKind, legacy: URL?, legacyLabel: String,
+                           expectedKey: String) throws -> URL? {
         try assertEntitiesDestination(id: id, kind: kind)
         guard let legacy, FileManager.default.fileExists(atPath: legacy.path),
               let text = try? String(contentsOf: legacy, encoding: .utf8) else { return nil }
-        let legacyID: UUID?
+        let decoded: (id: UUID, key: String)?
         switch kind {
-        case .work: legacyID = (try? EntryYAML.decode(text))?.id
-        case .person: legacyID = (try? PersonYAML.decode(text))?.id
-        default: legacyID = nil
+        case .work: decoded = (try? EntryYAML.decode(text)).map { ($0.id, $0.citekey) }
+        case .person: decoded = (try? PersonYAML.decode(text)).map { ($0.id, $0.key) }
+        default: decoded = nil
         }
-        guard legacyID == id else { return nil }
+        guard let decoded, decoded.id == id else { return nil }
         if FileManager.default.fileExists(atPath: entityURL(id: id).path) {
             throw StoreIOError.legacyCopyPresent(file: legacyLabel)
+        }
+        // #631 R2：只有一份時搬移，但刪之前確認兩件事——任一不成立就拒寫、檔案不動：
+        // (1) 它是這筆記錄的合法來源：key 合法且與預期一致（R2 verify Codex：只比 UUID 會把 load 隔離的檔當來源刪掉）
+        guard StoreKey.isValid(decoded.key), decoded.key == expectedKey else {
+            throw StoreIOError.legacyCopyUnmovable(
+                file: legacyLabel, why: "它的 key 不合法或與檔名不符（load 會隔離它，它不是這次寫入內容的來源）")
+        }
+        // (2) 刪了回得來：受 git 追蹤且沒有未 commit 的修改（R2 verify security：合併會收攏 verdict 列，新內容不是舊內容的
+        // 超集；「store 受 git 追蹤」這句要驗，不能假設——同 D86 的閘）
+        if let bad = Self.filesNotSafelyRecoverable(root: root, relativePaths: [legacyLabel]).first {
+            throw StoreIOError.legacyCopyUnmovable(file: legacyLabel, why: displaySafeInvisible(bad.why, max: 400))
         }
         return legacy
     }
@@ -634,7 +652,8 @@ public final class LibraryStore {
         let ck = legacyCitekey ?? entry.citekey
         return try entitiesWritePlan(id: entry.id, kind: .work,
                                      legacy: StoreKey.isValid(ck) ? entryURL(citekey: ck) : nil,
-                                     legacyLabel: "entries/\(ck).yaml")   // display-safe-exempt: 描述端 displaySafeInvisible
+                                     legacyLabel: "entries/\(ck).yaml",   // display-safe-exempt: 描述端 displaySafeInvisible
+                                     expectedKey: ck)
     }
 
     /// person 的寫入前置（不寫）。`legacyKey` 省略時查這筆記錄自己的 key；rename-person 傳舊的 key。
@@ -643,7 +662,8 @@ public final class LibraryStore {
         let k = legacyKey ?? person.key
         return try entitiesWritePlan(id: person.id, kind: .person,
                                      legacy: StoreKey.isValid(k) ? personURL(key: k) : nil,
-                                     legacyLabel: "people/\(k).yaml")   // display-safe-exempt: 描述端 displaySafeInvisible
+                                     legacyLabel: "people/\(k).yaml",   // display-safe-exempt: 描述端 displaySafeInvisible
+                                     expectedKey: k)
     }
 
     @discardableResult

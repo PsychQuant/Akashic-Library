@@ -154,3 +154,10 @@ python3 plugin/tests/ndjson-abstracts-to-proposals.py
 # 只能有人看著跑，這裡釘住的是可以離線釘住的那一半。最要緊的一條反例是付費牆的
 # Loading 殼**不得**被當成起疑：那會把「沒有權限」誤報成「被當成機器人」。
 python3 plugin/skills/akashic-fetch-fulltext/scripts/tests/test_rules_and_verify.py
+# fetch-fulltext.sh 的結束碼是它對 agent 的契約：6 是「整批停」（中止條款），1 是「看一眼、
+# 也許重試」。落錯碼就是把中止條款悄悄變成重試——2026-09-24 審查在三處找到這個缺陷。
+# 對一個 stub 瀏覽器跑 19 條路徑（含驗證步驟端到端：DOI 從 doi.org landing 取、首頁 DOI 對不上就不收），
+# 不碰 Safari、不連網。量過（2026-09-24）：修正前的 fetch-fulltext.sh（daaf3b57）搭配現行
+# verify_pdf.py 在這裡 12 條失敗（負對照）；腳本裡 11 個結束碼 6 的呼叫點逐一改回 1（窮舉），
+# 每一個都恰好讓一條失敗。新增呼叫點時重跑那個窮舉，這段數字才不會變成過期的宣稱。
+bash plugin/skills/akashic-fetch-fulltext/scripts/tests/fetch-fulltext-paths.sh

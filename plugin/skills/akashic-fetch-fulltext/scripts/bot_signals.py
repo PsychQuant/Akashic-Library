@@ -9,6 +9,13 @@ institutional session.
 The patterns are a MINIMUM, not the definition. SKILL.md tells the agent to stop
 on anything that reads as suspicion even when nothing here matches.
 
+Known, accepted false positives: the landing-page check reads the first 3000
+characters of the article page, so an article ABOUT captchas, access control or
+rate limiting will stop the run. That is deliberate — the stop report names the
+signal, and the user decides whether to rerun that one work. Narrowing the
+patterns to avoid it would buy convenience with missed challenges, the expensive
+direction.
+
 Usage:
     bot_signals.py [--status N] < text        prints the matched signal, exit 0
                                                no signal: prints nothing, exit 1
@@ -21,6 +28,15 @@ import sys
 # standard wording of common challenge pages, kept because the stop direction
 # is the cheap one to be wrong in.
 SIGNALS = [
+    # Vendor-specific first, so the stop report names the vendor rather than a
+    # generic label (captcha-delivery.com contains "captcha"). Not yet met in this
+    # skill's runs; standard block-page wording. Only whole block-page sentences:
+    # bare "press and hold" / "automation tools" are ordinary words in HCI and
+    # software papers (review, 2026-09-24), unlike "captcha", which is about bot
+    # detection even inside an article.
+    ("akamai-block", re.compile(r"pardon our interruption", re.I)),
+    ("perimeterx-block", re.compile(r"press (&|and) hold to confirm|px-captcha|access to this page has been denied|believe you are using automation", re.I)),
+    ("datadome-block", re.compile(r"datadome|captcha-delivery\.com", re.I)),
     ("cloudflare-challenge", re.compile(r"just a moment\.\.\.|cf-chl|challenge-platform|cf_chl_", re.I)),  # OUP, 2026-09-23
     ("captcha", re.compile(r"captcha|hcaptcha|recaptcha|turnstile", re.I)),
     ("human-check", re.compile(r"are you (a )?(robot|human)|verify (that )?you('| a)re (a )?human|prove you('| a)re human|i'?m not a robot", re.I)),

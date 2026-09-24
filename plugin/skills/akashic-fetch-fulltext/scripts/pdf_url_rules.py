@@ -17,10 +17,21 @@ import sys
 from urllib.parse import unquote, urlsplit
 
 
+# View suffixes a landing URL can carry AFTER the DOI. A DOI itself may contain
+# `/` (SICI DOIs do), so the capture cannot stop at the first slash; instead the
+# known view segments are peeled off the end.
+VIEW_SUFFIX = re.compile(r"/(abstract|full|fulltext|references|citedby|figures|tables|suppl|supplementary|epdf|pdf)/?$", re.I)
+
+
 def doi_from_path(path: str) -> str | None:
     """The DOI after `/doi/` (optionally `/doi/full/`, `/doi/abs/`, `/doi/epdf/`)."""
     m = re.search(r"/doi/(?:full/|abs/|epdf/|reader/|pdf/|pdfdirect/)?(10\.[^?#]+)", path)
-    return m.group(1) if m else None
+    if not m:
+        return None
+    doi = m.group(1).rstrip("/")
+    while VIEW_SUFFIX.search(doi):
+        doi = VIEW_SUFFIX.sub("", doi).rstrip("/")
+    return doi
 
 
 def pdf_url(final_url: str, page_link: str | None = None) -> str | None:

@@ -180,6 +180,18 @@ final class ResolveVerdictCLITests: XCTestCase {
         XCTAssertFalse(r.output.contains("略過"), r.output)
     }
 
+    /// #635：--judge 與 --refute 同用時整批拒絕，不只執行其中一條。
+    func testJudgeWithRefuteIsRefused() throws {
+        try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "cheng2021u", type: .periodicalArticle,
+                                   title: "U", authors: [.literal("Che Cheng"), .literal("Ulf Olsson")], date: "2021"))
+        let r = try runCLI(["resolve-people", "--judge", "cheng2021u:0:cheng-che=x",
+                            "--refute", "cheng2021u:1:cheng-che=y"])
+        XCTAssertNotEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("#635"), r.output)
+        XCTAssertEqual(try reload().entries.first!.authors[0], .literal("Che Cheng"), "judge 也不得執行")
+    }
+
     /// fall-through：exact 唯一命中被否決 → initials 冒出另一個人（淘汰所得）。
     /// tier 閘看排除後的套用集，所以裸 --apply 不該為了一筆終究不套用的 initials 擋下整批。
     func testTierGateIgnoresEliminatedLooseSurvivor() throws {

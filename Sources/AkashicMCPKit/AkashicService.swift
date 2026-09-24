@@ -1022,6 +1022,17 @@ public final class AkashicService {
         // 主張**——後兩者作用在 resolver 提名出來的候選上，判定作用在一個由呼叫端
         // 指名的作者位（提名器可能根本沒提名它，例如歧義列）。因此走獨立分支、
         // 提早返回，不與兩腿協調邏輯糾纏。
+        // #635：judge／refute 各自單獨呼叫，**顯式拒絕組合**。先前靠提早返回隱含達成——其餘腿
+        // 被靜默丟掉、回應照樣成功，呼叫端以為否決或套用已寫入。與結構腿（#443）同一個理由。
+        let present = { (x: [String]?) in !(x ?? []).isEmpty }
+        if present(judge) || present(refute) {
+            let legs = [present(judge), present(refute), present(apply), present(reject)].filter { $0 }.count
+            if legs > 1 {
+                throw ServiceError.invalid(
+                    "judge／refute 各自單獨呼叫，不得與彼此或 apply／reject 組合（#635）——"
+                    + "它們是不同種類的主張，混在一批裡其餘的腿不會被執行；分次呼叫")
+            }
+        }
         if let specs = judge, !specs.isEmpty {
             return try judgeAuthorships(specs, kind: .confirmed)
         }

@@ -153,6 +153,23 @@ final class DuplicateCitekeyResolveTests: XCTestCase {
         }
     }
 
+    /// #635：judge／refute 與彼此或 apply／reject 組合時整批拒絕——先前只執行其中一條腿，
+    /// 其餘的被靜默丟掉、回應照樣成功。
+    func testJudgeOrRefuteCombinedWithAnotherLegIsRefused() throws {
+        let combos: [() throws -> String] = [
+            { try self.service.resolvePeople(apply: nil, judge: ["d2021:0:cheng-che=x"], refute: ["d2021:0:olsson-ulf=y"]) },
+            { try self.service.resolvePeople(apply: ["d2021:0:cheng-che"], judge: ["d2021:0:cheng-che=x"]) },
+            { try self.service.resolvePeople(apply: nil, reject: ["d2021:0:cheng-che"], refute: ["d2021:0:olsson-ulf=y"]) },
+        ]
+        for c in combos {
+            XCTAssertThrowsError(try c()) { err in XCTAssertTrue("\(err)".contains("#635"), "\(err)") }
+        }
+        let d = try XCTUnwrap(try store.load().entries.first { $0.citekey == "d2021" })
+        XCTAssertEqual(d.authors, [.literal("Che Cheng")])
+        XCTAssertFalse(try store.load().people.contains { p in
+            p.references.contains { ($0.value ?? "").contains("work:d2021 ") } })
+    }
+
     /// 列表先標出重複 citekey 的候選——呼叫端不必送出 apply 才知道會被拒。
     func testCandidateListMarksDuplicatedCitekeyRows() throws {
         let out = try json(try service.resolvePeople(apply: nil))

@@ -68,6 +68,22 @@ code:
 -->
 
 ---
+### Requirement: A write SHALL NOT overwrite an entity file holding another record (#631)
+
+In the entities layout every record is written to `entities/<id>.yaml`. Before writing, the system SHALL confirm that the destination either does not exist or decodes to a record of the same shape and the same identifier; otherwise it SHALL refuse the write by name and leave the destination untouched. A work SHALL NOT be written while a legacy copy of the same record (`entries/<citekey>.yaml` with the same identifier) exists, and a rename SHALL NOT proceed while the legacy copy under the old citekey exists. The system SHALL NOT delete either copy on the user's behalf.
+
+#### Scenario: The destination is a quarantined record
+
+- **GIVEN** `entities/<id>.yaml` holds a record the store cannot load (quarantined)
+- **WHEN** any writer writes a record with that identifier
+- **THEN** the write is refused by name and the destination's bytes are unchanged
+
+#### Scenario: A legacy copy of the same record still exists
+
+- **GIVEN** a work that still has `entries/<citekey>.yaml` with the same identifier
+- **WHEN** the work is written or renamed
+- **THEN** the write or rename is refused by name, no second copy is created under `entities/`, and the legacy copy is left in place
+
 ### Requirement: Shape labels SHALL be drawn from a closed set
 
 The closed set of recognized top-level entity shape labels SHALL be `work:`, `person:`, `organization:`, `divergence:`, and `venue:` (added by this change). A file under `entities/` whose first line is not one of these labels SHALL NOT be silently skipped by any enumeration path; the behavior (quarantine with report) SHALL be uniform across CLI, MCP, and App read surfaces.

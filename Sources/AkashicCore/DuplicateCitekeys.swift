@@ -20,7 +20,7 @@ extension Collection where Element == Entry {   // 多次遍歷——限定 Coll
     /// 的檔——實測 drop-author 會把另一筆 work 整個蓋掉。resolve-people 各腿問的是這個集合。
     ///
     /// **只看得到載入成功的 entry**：目的檔 `entities/<id>.yaml` 若被 quarantine（或其實是另一種記錄），
-    /// 它不在母體裡，這裡照樣判成可定位——那一格要由寫入端確認目的檔屬於同一筆記錄才擋得住（#631，R3 verify）。
+    /// 它不在母體裡，這裡照樣判成可定位——那一格由寫入端擋：`LibraryStore.assertEntitiesDestination` 確認目的檔屬於同一筆記錄（#631）。
     public var unlocatableCitekeys: Set<String> {
         var idCount: [UUID: Int] = [:]
         for e in self { idCount[e.id, default: 0] += 1 }

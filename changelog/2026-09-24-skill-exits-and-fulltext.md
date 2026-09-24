@@ -56,6 +56,28 @@
 
 MCP 列表帶同一個欄位；以三段 id 點名的 apply 照寫，兩段 legacy id 指到這種候選時會被拒絕（MCP 的 apply／reject 與 CLI 的 `--reject` 都拒；CLI 的 `--apply` 只送三段 id）。重複 citekey 這種損壞狀態下，兩個位置可能共用同一個三段 id，這時也拒絕，不猜是哪一筆。其餘路徑見下一節 #627。tier 閘擋下時，錯誤訊息會說明另有幾筆淘汰所得不會套用。查過但判不出來的配對，工具仍然看不到（#619）。
 
+## #631：寫入不再蓋掉別的記錄
+
+entities 佈局下，五個 entity 寫入者都以 id 定檔，過去一律無條件覆寫 `entities/<id>.yaml`，從不看目的檔原本是什麼。五個寫入者是 work／person／venue／organization／divergence。#627 的驗證用真 binary 重現了三種後果：
+
+- 被 quarantine 的記錄（load 不收，所以任何以載入母體為準的閘都看不到它）被整個蓋掉，永久遺失。
+- legacy `entries/<ck>.yaml` 殘留時，寫入會造出同 id 的第二份拷貝，被編輯過的那份安靜分岔。
+- `rename` 讓兩個 citekey 共用同一個 UUID。
+
+現在寫入前先確認目的檔：它必須不存在，或解碼出同一種記錄、同一個 id。不符就具名拒寫，目的檔不動。work 另外確認同 id 的 legacy 拷貝不在；`rename` 在任何寫入之前確認舊 citekey 的 legacy 拷貝不在。只拒寫，不刪檔：兩份拷貝可能已經分岔，留哪一份是人的判定。已有逐筆收容的呼叫端（apply 的 `writeFailed` 等）照常具名回報。
+
+有兩支 Zotero 測試原本把「既有 entry」寫進 `entries/`，在 entities 佈局的 store 裡，那正是這道閘要擋的遷移殘留。這兩支測試要驗的是未知欄位與 encode 失敗，所以 fixture 改寫到 `entities/<id>.yaml`。
+
+## #628：resolve-people 以外的寫入者也不猜是哪一筆
+
+原則同 #627：「無法唯一定位」只有一個定義（`unlocatableCitekeys`），每一條腿沿用自己既有的失敗語意。
+
+- `library add`／`remove`：整批拒絕。
+- `enrich`：該筆歸 `ambiguous`，理由與「DOI 命中多筆」分開說，其餘照補。
+- `enrich-from-zotero`：歸新的 `unlocatable` 類。它在交給 core 之前先分流，因為 adapter 對 core 的 `ambiguous` 設了 precondition。
+- resolve-venues 的 apply／reject／repoint／demote、resolve-organizations 的 apply／reject（作者位）：顯式 id 整批拒絕，MCP 列表標 `unlocatableCitekey`。CLI resolve-organizations 的篩選式批次排除這些候選並另列。
+- `VenueResolver.apply` 與 `OrgResolver.apply`：比照 `PersonResolver.apply`，以陣列位置就地改寫。
+
 ## #635：resolve-people 的 judge／refute 不再靜默丟掉同時送出的其他腿
 
 judge 或 refute 與彼此、或與 apply／reject 一起送出時，過去只會執行其中一條，其餘的被靜默丟掉，回應照樣成功。#627 R4 驗證的 DA 席用真 binary 實測過：`--judge … --refute …` 只執行 judge，refute 的否決沒有寫入，輸出也沒提到。
@@ -71,7 +93,7 @@ citekey 重複是 store「被支援的損壞態」。過去寫入路徑以 citek
 現在的處理：
 
 - **最後一道防線**：`PersonResolver.apply` 以陣列位置就地改寫，不經任何字典對應回輸出；citekey 重複、或 entry id 重複的位置都不改。第一版改成「以 `Entry.id` 對應回輸出」，R1 驗證以真 binary 否掉：半遷移留下的同 id 拷貝（entities 與 legacy 各一份）會被互相覆寫，被編輯過的那份安靜回退；兩筆不同 citekey 共用 UUID 時，無關的 apply 也會把其中一筆整個換成另一筆（6 次裡 4 次，取決於 hash 順序）。
-- **「無法唯一定位」的定義只有一個**：`unlocatableCitekeys`（`Collection` 上的延伸，Element 是 Entry；R3 起限定 `Collection`，因為 `Sequence` 不保證能重走），放在 AkashicCore。它涵蓋 citekey 重複，以及 entry id 與另一筆共用的情形：那一筆的 citekey 本身唯一，但寫入以 id 定檔。R2 驗證用真 binary 重現過，對這種 work 做 drop-author，會把兄弟 work 在 `entities/<id>.yaml` 的唯一一份整個蓋掉。R1 只看重複 citekey。這個集合只看得到載入成功的 entry：若目的檔被 quarantine，或其實是另一種記錄，它不在母體裡，寫入仍會蓋掉它（R3 驗證以真 binary 重現）。這一格要在寫入端確認目的檔屬於同一筆記錄才擋得住，歸 #631。
+- **「無法唯一定位」的定義只有一個**：`unlocatableCitekeys`（`Collection` 上的延伸，Element 是 Entry；R3 起限定 `Collection`，因為 `Sequence` 不保證能重走），放在 AkashicCore。它涵蓋 citekey 重複，以及 entry id 與另一筆共用的情形：那一筆的 citekey 本身唯一，但寫入以 id 定檔。R2 驗證用真 binary 重現過，對這種 work 做 drop-author，會把兄弟 work 在 `entities/<id>.yaml` 的唯一一份整個蓋掉。R1 只看重複 citekey。這個集合只看得到載入成功的 entry：若目的檔被 quarantine，或其實是另一種記錄，它不在母體裡，寫入仍會蓋掉它（R3 驗證以真 binary 重現）。這一格由寫入端擋下，見下一節 #631。
 - **各腿沿用既有的失敗語意**：
   - apply／reject（兩段與三段 id）、split／un-split／drop／attribute-org：整批拒絕、零寫入。
   - judge／refute：該筆具名略過，其餘照寫。全部略過時沒有寫入，CLI 以非零結束；MCP 照常回成功，由呼叫端讀 `skipped`。作者位早已歸給同一個人時，分三種情形：

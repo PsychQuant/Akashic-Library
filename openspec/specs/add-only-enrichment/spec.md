@@ -59,6 +59,12 @@ Each proposal SHALL name its target by exactly one of `citekey` or `doi`. A DOI 
 - **WHEN** a proposal `{ doi: "10.1037/x", fields: { abstract: "…" } }` is applied
 - **THEN** the report item has `category: ambiguous`, `matches: ["smith2020a", "smith2020b"]`, and both entries' `fields` are byte-identical to before
 
+#### Scenario: A citekey that does not locate exactly one work is refused and named (#628)
+
+- **GIVEN** a proposal whose citekey (given directly or resolved from a DOI) is shared by two works, or belongs to a work whose identifier is shared with another work
+- **WHEN** enrichment is planned
+- **THEN** the item is classified `ambiguous` with a reason distinct from a multi-DOI match, that item writes nothing, and the other proposals proceed
+
 #### Scenario: DOI matching one entry resolves to it
 
 - **WHEN** a proposal gives a DOI that exactly one entry carries

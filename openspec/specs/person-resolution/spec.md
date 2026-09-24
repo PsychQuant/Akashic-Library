@@ -260,6 +260,12 @@ The MCP apply is **deliberately outside this gate**: its apply set is a list of 
 - **AND** a two-segment identifier resolving to such a candidate is refused for MCP apply, MCP reject and CLI `--reject` (it names a position, not a person; the CLI bulk apply only ever sends three-segment identifiers), while a three-segment identifier naming its person proceeds as usual
 - **AND** a three-segment identifier shared by two positions (duplicate citekey) is refused rather than resolved to either one
 
+#### Scenario: A duplicated citekey is never resolved by guessing (#627)
+
+- **GIVEN** two works sharing one citekey (a supported corrupt state)
+- **WHEN** any resolve-people write targets that citekey — explicit apply or reject identifiers (two- or three-segment), judge or refute, author split, un-split, removal, or organization attribution — or a filter-driven bulk apply includes a candidate on it
+- **THEN** neither work is rewritten and no verdict is written for it: explicit identifiers and the author-slot operations are refused as a whole batch, judge and refute skip that pairing by name while the rest proceed, and the bulk apply excludes and lists such candidates while applying the rest
+
 
 <!-- @trace
 source: add-loose-nomination-campaign

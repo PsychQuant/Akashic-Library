@@ -54,4 +54,24 @@
 - 如果整批都被排除，就零寫入、以非零結束碼退出。
 - tier 閘改看排除後的套用集。
 
-MCP 列表帶同一個欄位；以三段 id 點名的 apply 照寫，兩段 legacy id 指到這種候選時會被拒絕（MCP 的 apply／reject 與 CLI 的 `--reject` 都拒；CLI 的 `--apply` 只送三段 id）。重複 citekey 這種損壞狀態下，兩個位置可能共用同一個三段 id，這時也拒絕，不猜是哪一筆；兩段 id、`--judge`、`--refute` 在這個狀態下仍會猜，另開 #627。tier 閘擋下時，錯誤訊息會說明另有幾筆淘汰所得不會套用。查過但判不出來的配對，工具仍然看不到（#619）。
+MCP 列表帶同一個欄位；以三段 id 點名的 apply 照寫，兩段 legacy id 指到這種候選時會被拒絕（MCP 的 apply／reject 與 CLI 的 `--reject` 都拒；CLI 的 `--apply` 只送三段 id）。重複 citekey 這種損壞狀態下，兩個位置可能共用同一個三段 id，這時也拒絕，不猜是哪一筆。其餘路徑見下一節 #627。tier 閘擋下時，錯誤訊息會說明另有幾筆淘汰所得不會套用。查過但判不出來的配對，工具仍然看不到（#619）。
+
+## #627：citekey 重複時，resolve-people 一族不再猜是哪一筆
+
+citekey 重複是 store「被支援的損壞態」。過去寫入路徑以 citekey 定位 entry，並用 `uniquingKeysWith` 靜默選一筆。#624 R3 驗證時，DA 席用真 binary 重現了後果：照 `--judge` 的指路，會把判定寫到另一筆 work 的另一個作者上，而且 rc=0。
+
+診斷時又發現更糟的一格：`PersonResolver.apply` 最後以 citekey 對回原陣列，會把同 citekey 的每一筆 entry 都換成同一份。
+
+現在的處理：
+
+- **最後一道防線**：`PersonResolver.apply` 對重複 citekey 不套用，輸出改以 `Entry.id` 對應。
+- **重複的定義只有一個**：`Sequence<Entry>.duplicatedCitekeys`，放在 AkashicCore。
+- **各腿沿用既有的失敗語意**：
+  - apply／reject（兩段與三段 id）、split／un-split／drop／attribute-org：整批拒絕、零寫入。
+  - judge／refute：該筆具名略過，其餘照寫。
+  - CLI 篩選式 `--apply`：排除並另列，其餘照寫；列表每一列都標出來。
+
+重複 citekey 的 store 本來就重建不了 index（UNIQUE），寫入之後的 rebuild 仍會失敗，這一點 `validate` 另行報告。
+
+同型但不屬 resolve-people 一族的 `setMembership`／`enrich`，以及 venue 的 repoint／demote，見 #628。
+

@@ -11,6 +11,7 @@
 .claude/rules/replace-endnote-and-zotero.md
 .claude/rules/swift-is-the-implementation-language.md
 .claude/rules/two-kinds-of-edits.md
+.claude/rules/web-access-via-safari-browser.md
 .claude/rules/zero-instance-guards.md
 .githooks/protected-ratchet.txt
 .githooks/run-guards.sh

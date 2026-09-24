@@ -108,6 +108,7 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 | [blocked-issues-must-be-scannable.md](.claude/rules/blocked-issues-must-be-scannable.md) | 被阻塞的 issue 必須把「在等什麼」寫在工具掃得到的三個位置之一，不得只寫在散文裡——四次「空等」的實測（#314）＋哪些「等」需要標記的封閉裁決表 |
 | [two-kinds-of-edits.md](.claude/rules/two-kinds-of-edits.md) | 每個寫入面只能是兩種編輯之一——AI 編輯（判定型、依規則，必留 verdict 且可逆轉）或程式編輯（決定論式，冪等、整批擋、附量測）；混合面拆成「提名（程式）→ 判定（AI）→ 落地（程式）」；封閉的歸類表逐列理由（#505） |
 | [swift-is-the-implementation-language.md](.claude/rules/swift-is-the-implementation-language.md) | **新的程式一律寫成 Swift**——守衛是 `akashic-guards` 子命令、能力是 `akashic` CLI／`akashic-mcp`、skill 要的確定性計算做成 CLI 子命令由 skill 呼叫、測試進 Swift test target；可以不是 Swift 的只有兩類封閉例外（binary 存在前就得跑的串接殼層、逐檔列名的既有檔，只減不增） |
+| [web-access-via-safari-browser.md](.claude/rules/web-access-via-safari-browser.md) | **外部網頁與 web API 一律經 safari-browser 取得**——`Sources/` 沒有也不新增 HTTP client；分頁以 `--url` 陣列鎖定、只碰「個人」profile、懷疑是自動化即整批停；例外只有一類（逐檔列名的既有檔，#634 遷移），不適用三類（工具鏈自身連線、本機工具、使用者本人的操作） |
 
 > **plugin 另有自己的規則目錄。** `plugin/rules/` 隨 plugin 走（plugin 安裝到哪，規則就在哪），
 > 由 skill 以相對路徑引用——**不像上表那樣自動注入**。目前一條：

@@ -1935,7 +1935,13 @@ struct ResolvePeople: ParsableCommand {
             printAmbiguities()   // 沒有唯一候選時，歧義**更**該被看見
             return
         }
-        let selected = Set(candidates.map { "\($0.citekey)#\($0.authorIndex)" })   // display-safe-exempt: 內部 Set 的成員判定鍵，不進輸出面
+        // #624：淘汰而得的唯一候選（原本有別的人選、被否決之後只剩它）**不進**篩選式批次——
+        // 沒有人判定過它是對的，而批次是「照清單全收」。它仍列出、標 skip、另列指路；
+        // 要寫它就逐筆 `--judge`（必附理由）或 MCP 逐 id apply。刻意不給關掉的旗標：
+        // 那會把排除變回一鍵可關的預設，正是 #624 要防的形狀。
+        let applySet = candidates.filter { $0.eliminatedPairings == 0 }
+        let eliminatedSkipped = candidates.filter { $0.eliminatedPairings > 0 }
+        let selected = Set(applySet.map { "\($0.citekey)#\($0.authorIndex)" })   // display-safe-exempt: 內部 Set 的成員判定鍵，不進輸出面
         // #303 design D4：按 tier 分組列印（resolver 已依信心降冪排序，分組只加標頭）。
         // tier 越低證據越弱——initials 段的標頭直接把查證義務講出來，讀的人不必翻文件。
         let tierHeadline: [ResolutionTier: String] = [
@@ -1964,13 +1970,25 @@ struct ResolvePeople: ParsableCommand {
                     "--citekey / --person / --tier 的篩選條件沒有命中任何候選"
                     + "（共 \(all.count) 個候選）——請對照上面的清單確認 key 是否正確")
             }
+            if !eliminatedSkipped.isEmpty {
+                print("\n⚠ 淘汰而得的唯一候選 \(eliminatedSkipped.count) 筆不套用（此位置有其他人選已被否決，沒有人判定過剩下這一個是對的）：")
+                for c in eliminatedSkipped {
+                    print("  \(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（已否決 \(c.eliminatedPairings) 人）")
+                }
+                print("  → 查證後逐筆送：resolve-people --judge <citekey:authorIndex:personKey>=理由，或 MCP 逐 id apply（#624）")
+            }
+            if applySet.isEmpty {
+                throw ValidationError(
+                    "套用集只剩淘汰而得的唯一候選（\(eliminatedSkipped.count) 筆），不寫入——"
+                    + "它們要逐筆判定：--judge <citekey:authorIndex:personKey>=理由")
+            }
             // #232：apply 改走 **AkashicService**（與 MCP 同一條實作路徑）——
             // service 端做 per-item 收容（R7/M21）、先報失敗再 rebuild（R9/M8）、
             // applied 不誇報（R8/L15），並在**同一動作**內寫 resolution-confirmed
             // verdict（design D6）。CLI 只把 JSON 排成人可讀。
             let service = AkashicService(root: store.root, key: store.key,
                                          environment: ProcessInfo.processInfo.environment)
-            let ids = candidates.map(\.pinnedID)   // R3-5：CLI 也釘 person——與 service 列表同一個型別定義   // 複合鍵住在型別上（#236 R4）——不手拼第四份
+            let ids = applySet.map(\.pinnedID)   // #624：排除淘汰而得的唯一候選。R3-5：CLI 也釘 person——與 service 列表同一個型別定義   // 複合鍵住在型別上（#236 R4）——不手拼第四份
             // **`--tier` 同時是篩選與承認。** service 端對寬鬆層要求 `confirmTiers`
             // 顯式承認，而 CLI 端的閘（上方 ValidationError）要求的正是 `--tier` 具名
             // ——兩者是同一個「你知道自己在套什麼層」的要求，只是先前沒接上線：CLI
@@ -1998,7 +2016,7 @@ struct ResolvePeople: ParsableCommand {
             if let note = parsed?["verdictsSkipped"] as? String { print("⚠ \(note)") }   // service 端常數模板，已安全
             // 成功行不誇報（R8）：✓ 只在全數成功時
             if writeFailed.isEmpty, confirmFailed.isEmpty {
-                print("✓ 套用 \(candidates.count) 個候選、改寫 \(written) 檔、index 已重建")
+                print("✓ 套用 \(applySet.count) 個候選、改寫 \(written) 檔、index 已重建")
             } else {
                 print("部分套用：改寫 \(written) 檔、失敗 \(writeFailed.count + confirmFailed.count) 筆、index 已重建")
                 throw ExitCode(1)

@@ -84,6 +84,46 @@ final class ResolveVerdictCLITests: XCTestCase {
         XCTAssertEqual(e.authors, [.key("cheng-che")], "apply 的既有行為不變")
     }
 
+    // MARK: - #624：篩選式批次不帶走淘汰而得的唯一候選
+
+    /// a2020x 是同名兩人（cheng-che／cheng-che-2）的歧義列；否決 cheng-che 之後
+    /// 只剩 cheng-che-2——沒有人判定過它是對的。b2021y 是一般候選（只有一人）。
+    private func seedEliminatedSurvivor() throws {
+        try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng"]))
+        try store.writePerson(Person(key: "cheng-che-2", names: ["Che Cheng"]))
+        try store.writePerson(Person(key: "olsson-ulf", names: ["Ulf Olsson"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "a2020x", type: .periodicalArticle,
+                                   title: "T", authors: [.literal("Che Cheng")], date: "2020"))
+        try store.writeEntry(Entry(id: UUID(), citekey: "b2021y", type: .periodicalArticle,
+                                   title: "U", authors: [.literal("Ulf Olsson")], date: "2021"))
+        let r = try runCLI(["resolve-people", "--refute", "a2020x:0:cheng-che=機構不符"])
+        XCTAssertEqual(r.status, 0, r.output)
+    }
+
+    func testFilteredApplySkipsEliminatedSurvivorAndSaysSo() throws {
+        try seedEliminatedSurvivor()
+        let r = try runCLI(["resolve-people", "--apply", "--tier", "exact"])
+        XCTAssertEqual(r.status, 0, r.output)
+        let load = try reload()
+        let a = load.entries.first { $0.citekey == "a2020x" }!
+        XCTAssertEqual(a.authors, [.literal("Che Cheng")],
+                       "淘汰而得的唯一候選不得被篩選式批次升格：\n\(r.output)")
+        let b = load.entries.first { $0.citekey == "b2021y" }!
+        XCTAssertEqual(b.authors, [.key("olsson-ulf")], "一般候選照常寫入")
+        XCTAssertTrue(r.output.contains("淘汰而得") && r.output.contains("a2020x"),
+                      "被排除的要逐筆列出：\n\(r.output)")
+        XCTAssertTrue(r.output.contains("--judge"), "要指路逐筆判定：\n\(r.output)")
+    }
+
+    func testFilteredApplyWithOnlyEliminatedSurvivorWritesNothing() throws {
+        try seedEliminatedSurvivor()
+        let r = try runCLI(["resolve-people", "--apply", "--citekey", "a2020x"])
+        XCTAssertNotEqual(r.status, 0, "套用集全被排除時要非零結束：\n\(r.output)")
+        let a = try reload().entries.first { $0.citekey == "a2020x" }!
+        XCTAssertEqual(a.authors, [.literal("Che Cheng")], "零寫入")
+        XCTAssertTrue(r.output.contains("淘汰而得"), r.output)
+    }
+
     func testRejectAndApplyMutuallyExclusive() throws {
         try seedPersonCandidate()
         let r = try runCLI(["resolve-people", "--apply", "--reject", "a2020x:0"])

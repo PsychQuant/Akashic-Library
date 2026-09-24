@@ -1224,6 +1224,7 @@ extension LibraryStore {
             try assertHolderAddsNoViolation(venue.references, holder: venue.key, kind: "venue", literalUniqueness: true)
             venue.references = m.refs
             try Self.assertVenueWritable(venue, format: format)
+            try assertEntitiesDestination(id: venue.id, kind: .venue)   // #631
         }
         for var org in snapshot.organizations {
             let m = Self.migrateHolderVerdicts(org.references, merged: merged, survivor: survivor, holderKind: holderKind)
@@ -1231,6 +1232,7 @@ extension LibraryStore {
             try assertHolderAddsNoViolation(org.references, holder: org.key, kind: "organization", literalUniqueness: false)
             org.references = m.refs
             try Self.assertOrganizationWritable(org, format: { format })
+            try assertEntitiesDestination(id: org.id, kind: .organization)   // #631
         }
         let skip: Set<String> = holderKind == .person ? merged.union([survivor]) : []
         for var person in snapshot.people where !skip.contains(person.key) {
@@ -1239,6 +1241,7 @@ extension LibraryStore {
             try assertHolderAddsNoViolation(person.references, holder: person.key, kind: "person", literalUniqueness: false)
             person.references = m.refs
             try Self.assertPersonWritable(person, format: { format })
+            _ = try personWritePlan(person)   // #631
         }
     }
 
@@ -2285,6 +2288,8 @@ extension LibraryStore {
         // 剩下的只有磁碟層錯誤——那才是下面逐筆收容要處理的。
         try keeperEncode()
         for e in entriesToWrite { _ = try EntryYAML.encode(e) }
+        // #631：要改寫的 work 在第一次寫入之前過目的檔／legacy 檢查——寫到一半才撞上拒絕會把合併撕成一半
+        for e in entriesToWrite { _ = try entryWritePlan(e) }
         // #147 verify F1：預檢必須**完整鏡射**寫入條件（本 helper 存在的理由）——
         // 曾只 encode 不跑 assertDivergenceWritable，format gate 加入後 format < 5
         // store 上的消歧走到寫入才失敗：倖存者已改寫、參照已改、刪除被跳過的撕裂。

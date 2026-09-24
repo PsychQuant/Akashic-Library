@@ -21,9 +21,10 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
     /// 被 quarantine 的記錄（舊值、未來格式、手改壞掉）或另一種記錄。以 id 定檔的寫入會把它整個蓋掉。
     /// `id` 決定目的檔路徑（`entities/<UUID>.yaml`，描述端組）；`detail` 在擲出端已消毒（decode error 走 `displaySafeError`）。
     case destinationHoldsAnotherRecord(id: UUID, detail: String)
-    /// #631：同一筆記錄的 legacy 拷貝 `entries/<citekey>.yaml` 還在——遷移沒做完。寫 `entities/<id>.yaml`
-    /// 會留下兩份同 id 的拷貝（內容會分岔）。留哪一份是判定，不替人刪。
-    case legacyCopyPresent(citekey: String)
+    /// #631：同一筆記錄**兩份都在**——legacy（`entries/<citekey>.yaml`／`people/<key>.yaml`）與 `entities/<id>.yaml`
+    /// 同一個 id。遷移做到一半，兩份可能已經分岔；留哪一份是判定，不替人刪。（只有 legacy 一份時寫入會搬移，不走這裡。）
+    /// `file` 是 legacy 檔的相對路徑，含記錄的 key——描述端消毒。
+    case legacyCopyPresent(file: String)
 
     /// `verdictsAlreadyAtTarget` 每行的截斷上限＝CLI sink `displaySafeAssembled` 的逐行預設（400）減去 `displaySafe` 的截斷標記長度——
     /// 截過的行連標記一起 ≤ 400，sink 不會再截一次（R22 verify 第 23 列：兩次截讓標記落在 `\u{` 中途）。
@@ -61,9 +62,9 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
         case let .destinationHoldsAnotherRecord(id, detail):
             return "目的檔 entities/\(id.uuidString).yaml 已經存在，但它\(displaySafeClipOnly(detail, max: 600))——寫入會把它整個蓋掉，拒絕。"   // display-safe-exempt: detail 已消毒（擲出端），只截
                  + "先看那個檔：修好、移走，或確認它不該存在後刪掉（store 受 git 追蹤，刪檔可還原）。akashic validate 會列出被 quarantine 的檔（#631）"
-        case .legacyCopyPresent(let citekey):
-            return "work「\(displaySafeInvisible(citekey, max: 200))」還有一份 legacy 拷貝 entries/\(displaySafeInvisible(citekey, max: 200)).yaml（同一個 id）——"
-                 + "遷移沒做完，寫入會留下兩份同 id 的拷貝，拒絕。兩份可能已經分岔：比對後保留正確的那一份、刪掉另一份"
+        case .legacyCopyPresent(let file):
+            return "同一筆記錄有兩份：legacy \(displaySafeInvisible(file, max: 300)) 與 entities/ 裡同一個 id 的那份——"
+                 + "遷移做到一半，兩份可能已經分岔，拒絕寫入。比對後保留正確的那一份、刪掉另一份"
                  + "（store 受 git 追蹤，刪檔可還原），再重跑（#631）"
         case .invalidKey(let kind, let value):
             // #142：value 是 caller 剛送進來的畸形 key——原始 ESC/bidi 位元組經
@@ -565,24 +566,33 @@ public final class LibraryStore {
     /// 所以任何以載入母體為準的閘都看不到它）或另一種記錄會被整個蓋掉（#627 R3 verify 真 binary 重現：永久遺失）。
     /// 同種同 id、citekey 不同照樣放行：rename 是原地改稱呼。只拒寫，不刪不修——那是人的判定。
     /// 呼叫端決定要不要問：work／person 只在 entities 佈局下寫 `entities/`；venue／organization／divergence 一律寫那裡。
-    func assertEntitiesDestination(id: UUID, kind: EntityKind) throws {
+    public func assertEntitiesDestination(id: UUID, kind: EntityKind) throws {
         let dest = entityURL(id: id)
         guard FileManager.default.fileExists(atPath: dest.path) else { return }
         let found: EntityKind
         let foundID: UUID
+        let foundKey: String?
         do {
             let text = try String(contentsOf: dest, encoding: .utf8)
-            found = try EntityKind.peek(text, strict: false)
+            // 形狀標籤的嚴格度與 load 同一條（format ≥ 3 缺標籤即錯）——寬鬆 peek 會把 load 隔離的無標籤檔
+            // 認成同一筆而放行覆寫（#631 R1 verify Codex）
+            let strict = ((try? StoreVersion.read(root: root)) ?? 1) >= 3
+            found = try EntityKind.peek(text, strict: strict)
             switch found {
-            case .work: foundID = try EntryYAML.decode(text).id
-            case .person: foundID = try PersonYAML.decode(text).id
-            case .organization: foundID = try OrganizationYAML.decode(text).id
-            case .venue: foundID = try VenueYAML.decode(text).id
-            case .divergence: foundID = try DivergenceYAML.decode(text).id
+            case .work: let e = try EntryYAML.decode(text); foundID = e.id; foundKey = e.citekey
+            case .person: let p = try PersonYAML.decode(text); foundID = p.id; foundKey = p.key
+            case .organization: let o = try OrganizationYAML.decode(text); foundID = o.id; foundKey = o.key
+            case .venue: let v = try VenueYAML.decode(text); foundID = v.id; foundKey = v.key
+            case .divergence: foundID = try DivergenceYAML.decode(text).id; foundKey = nil
             }
         } catch {
             throw StoreIOError.destinationHoldsAnotherRecord(
                 id: id, detail: "讀不出一筆完整的記錄（可能是被 quarantine 的記錄）：" + displaySafeError(error, max: 300))
+        }
+        // load 的語意隔離（key 不合法）同樣算「不是一筆完整的記錄」——覆寫它等於靜默修掉一筆被隔離的記錄
+        if let foundKey, !StoreKey.isValid(foundKey) {
+            throw StoreIOError.destinationHoldsAnotherRecord(
+                id: id, detail: "是一筆 key 不合法而被 quarantine 的 \(found.rawValue) 記錄")   // display-safe-exempt: found 是封閉 enum rawValue
         }
         guard found == kind, foundID == id else {
             throw StoreIOError.destinationHoldsAnotherRecord(
@@ -590,27 +600,62 @@ public final class LibraryStore {
         }
     }
 
-    /// #631：同 id 的 legacy 拷貝還在嗎（`entries/<citekey>.yaml` 解碼出同一個 id）。讀不出來的 legacy 檔不算——
-    /// 它本來就被 quarantine、寫 entities 不碰它。
-    func assertNoLegacyCopy(citekey: String, id: UUID) throws {
-        guard usesEntitiesLayout, StoreKey.isValid(citekey) else { return }
-        let legacy = entryURL(citekey: citekey)
-        guard FileManager.default.fileExists(atPath: legacy.path),
-              let text = try? String(contentsOf: legacy, encoding: .utf8),
-              let e = try? EntryYAML.decode(text), e.id == id else { return }
-        throw StoreIOError.legacyCopyPresent(citekey: citekey)
+    /// #631：寫一筆 work／person 到 `entities/<id>.yaml` 之前的全部前置檢查——**不寫任何東西**。
+    ///
+    /// 1. 目的檔檢查（`assertEntitiesDestination`）。
+    /// 2. legacy 拷貝（`entries/<citekey>.yaml`／`people/<key>.yaml`）解碼出同一個 id 時：
+    ///    - `entities/` 裡**沒有**它 → 只有這一份，回傳它：呼叫端寫完之後刪掉它，完成搬移（使用者 2026-09-24 裁決：
+    ///      只有一份時搬移不遺失任何東西——新內容就是從它讀出來再改的；store 受 git 追蹤，可還原）；
+    ///    - `entities/` 裡**也有** → 兩份並存、可能已分岔 → 拒絕（留哪一份是判定）。
+    ///    讀不出來的 legacy 檔不算——它本來就被 quarantine，寫 entities 不碰它。
+    ///
+    /// 多檔操作（rename、rename-person、合併、venue apply）在第一次寫入之前對每一筆呼叫它——
+    /// 寫到一半才撞上拒絕會把 store 撕成一半（#631 R1 verify 以真 binary 重現）。
+    func entitiesWritePlan(id: UUID, kind: EntityKind, legacy: URL?, legacyLabel: String) throws -> URL? {
+        try assertEntitiesDestination(id: id, kind: kind)
+        guard let legacy, FileManager.default.fileExists(atPath: legacy.path),
+              let text = try? String(contentsOf: legacy, encoding: .utf8) else { return nil }
+        let legacyID: UUID?
+        switch kind {
+        case .work: legacyID = (try? EntryYAML.decode(text))?.id
+        case .person: legacyID = (try? PersonYAML.decode(text))?.id
+        default: legacyID = nil
+        }
+        guard legacyID == id else { return nil }
+        if FileManager.default.fileExists(atPath: entityURL(id: id).path) {
+            throw StoreIOError.legacyCopyPresent(file: legacyLabel)
+        }
+        return legacy
+    }
+
+    /// work 的寫入前置（不寫）。`legacyCitekey` 省略時查這筆記錄自己的 citekey；rename 傳舊的 citekey。
+    public func entryWritePlan(_ entry: Entry, legacyCitekey: String? = nil) throws -> URL? {
+        guard usesEntitiesLayout else { return nil }
+        let ck = legacyCitekey ?? entry.citekey
+        return try entitiesWritePlan(id: entry.id, kind: .work,
+                                     legacy: StoreKey.isValid(ck) ? entryURL(citekey: ck) : nil,
+                                     legacyLabel: "entries/\(ck).yaml")   // display-safe-exempt: 描述端 displaySafeInvisible
+    }
+
+    /// person 的寫入前置（不寫）。`legacyKey` 省略時查這筆記錄自己的 key；rename-person 傳舊的 key。
+    public func personWritePlan(_ person: Person, legacyKey: String? = nil) throws -> URL? {
+        guard usesEntitiesLayout else { return nil }
+        let k = legacyKey ?? person.key
+        return try entitiesWritePlan(id: person.id, kind: .person,
+                                     legacy: StoreKey.isValid(k) ? personURL(key: k) : nil,
+                                     legacyLabel: "people/\(k).yaml")   // display-safe-exempt: 描述端 displaySafeInvisible
     }
 
     @discardableResult
     public func writeEntry(_ entry: Entry) throws -> URL {
         try assertStoreRoot()
         try Self.assertEntryWritable(entry, format: { try StoreVersion.read(root: self.root) })
-        if usesEntitiesLayout { try assertEntitiesDestination(id: entry.id, kind: .work) }   // #631
-        try assertNoLegacyCopy(citekey: entry.citekey, id: entry.id)   // #631
+        let moveFrom = try entryWritePlan(entry)   // #631：目的檔檢查；legacy 單份 → 寫完搬移，兩份 → 拒絕
         let yaml = try EntryYAML.encode(entry)
         // #35：format 2 走 entities/<uuid>.yaml，legacy 走 entries/<citekey>.yaml
         let dest = usesEntitiesLayout ? entityURL(id: entry.id) : entryURL(citekey: entry.citekey)
         try atomicWrite(yaml, to: dest)
+        if let moveFrom { try FileManager.default.removeItem(at: moveFrom) }   // #631：搬移完成
         return dest
     }
 
@@ -908,9 +953,10 @@ public final class LibraryStore {
         try assertStoreRoot()
         try Self.assertPersonWritable(person, format: { try StoreVersion.read(root: self.root) })
         let yaml = try PersonYAML.encode(person)
-        if usesEntitiesLayout { try assertEntitiesDestination(id: person.id, kind: .person) }   // #631
+        let moveFrom = try personWritePlan(person)   // #631：同 writeEntry
         let dest = usesEntitiesLayout ? entityURL(id: person.id) : personURL(key: person.key)
         try atomicWrite(yaml, to: dest)
+        if let moveFrom { try FileManager.default.removeItem(at: moveFrom) }   // #631：搬移完成
         return dest
     }
 
@@ -1544,7 +1590,7 @@ extension LibraryStore {
         // #631：entities 佈局下 rename 原地覆寫 entities/<id>.yaml、不刪舊檔——前提是「format 2 沒有舊檔」。
         // legacy 殘留 entries/<舊ck>.yaml 違反這個前提：改名後兩個 citekey 共用同一個 UUID（#627 R2 verify 真 binary 重現）。
         // 在任何寫入之前擋（writeEntry 只查新 citekey 的 legacy 檔，查不到舊的）。
-        try assertNoLegacyCopy(citekey: oldKey, id: entry.id)
+        let oldLegacy = try entryWritePlan(entry, legacyCitekey: oldKey)   // 只有 legacy 一份 → 改名時一併搬移；兩份 → 拒絕
         // #35：檔名不再是 citekey，所以「新 citekey 沒被佔用」不再由檔案系統天然保證。
         // 沒有這個檢查，format 2 會安靜地產生兩筆同 citekey 的記錄。
         if usesEntitiesLayout,
@@ -1672,6 +1718,12 @@ extension LibraryStore {
 
         _ = try EntryYAML.encode(entry)
         for other in toRewrite { _ = try EntryYAML.encode(other) }
+        // #631：每一筆要寫的記錄在第一次寫入之前過同一道目的檔／legacy 檢查——寫到一半才撞上拒絕會把 store 撕成一半
+        // （#631 R1 verify：rename 已改寫本筆、其他 work 的 relation 仍指舊 citekey）
+        for other in toRewrite { _ = try entryWritePlan(other) }
+        for p in peopleToRewrite { _ = try personWritePlan(p) }
+        for vn in venuesToRewrite { try assertEntitiesDestination(id: vn.id, kind: .venue) }
+        for o in orgsToRewrite { try assertEntitiesDestination(id: o.id, kind: .organization) }
         // **完整鏡射寫入端的前置條件**，不只 encode。只鏡射一半就是 R2 DA 實測到的
         // 撕裂：entry 全部寫完之後才在 writeDivergence 擲錯，磁碟上 rename 已完成、
         // 呼叫端卻收到錯誤、索引永遠不重建。
@@ -1722,6 +1774,8 @@ extension LibraryStore {
         // 也就沒有「新舊並存」這個中斷態要處理（見本函式開頭的表格）。
         if usesEntitiesLayout {
             try writeEntry(entry)
+            // #631：只有舊 citekey 的 legacy 一份 → 改名同時完成搬移（writeEntry 只查新 citekey 的 legacy 檔）
+            if let oldLegacy { try FileManager.default.removeItem(at: oldLegacy) }
         } else {
             try writeEntryExclusive(entry)
         }
@@ -1942,9 +1996,18 @@ extension LibraryStore {
             try assertDivergenceWritable(d)
             _ = try DivergenceYAML.encode(d)
         }
+        // #631：每一筆要寫的記錄在第一次寫入之前過目的檔／legacy 檢查（#631 R1 verify：rename-person 寫完 person 與
+        // 第一筆 work 才撞上拒絕，留下指向不存在 person 的作者 key）。舊 key 的 legacy 單份 → 改名同時搬移
+        let oldLegacy = try personWritePlan(person, legacyKey: oldKey)
+        for e in entriesToRewrite { _ = try entryWritePlan(e) }
+        for p in peopleToRewrite { _ = try personWritePlan(p) }
+        for o in orgsToRewrite { try assertEntitiesDestination(id: o.id, kind: .organization) }
+        for vn in venuesToRewrite { try assertEntitiesDestination(id: vn.id, kind: .venue) }
+        for d in divergencesToRewrite { try assertEntitiesDestination(id: d.id, kind: .divergence) }
 
         // 5. 寫入。entities 佈局的檔名是 UUID，改 key 不搬檔（同 renameEntry 的 #35）。
         try writePerson(person)
+        if let oldLegacy { try FileManager.default.removeItem(at: oldLegacy) }
         var entryKeys: [String] = []
         for e in entriesToRewrite { try writeEntry(e); entryKeys.append(e.citekey) }
         var verdictHolders: [HolderRecord] = []

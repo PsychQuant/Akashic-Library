@@ -77,6 +77,7 @@ struct AkashicCLI: ParsableCommand {
             MigrateVenues.self,
             MigrateVenueVariants.self,
         MigrateIdentifiers.self,
+            ReferencesCmd.self,   // #617：skill 的中間運算（extract），不寫 store、不打網路
         ])
 }
 

@@ -169,6 +169,29 @@ final class PersonResolverTests: XCTestCase {
                       "\(r.candidates.first?.reason ?? "")")
     }
 
+    // MARK: - #627：citekey 重複時 apply 不猜、也不把兩筆寫成同一份
+
+    func testDuplicatedCitekeysDetectsOnlyRepeats() {
+        let es = [entry("a", literal: "X"), entry("b", literal: "Y"), entry("a", literal: "Z")]
+        XCTAssertEqual(es.duplicatedCitekeys, ["a"])
+        XCTAssertEqual([entry("a", literal: "X")].duplicatedCitekeys, [])
+    }
+
+    func testApplyRefusesDuplicatedCitekeyAndKeepsEntriesDistinct() {
+        // 最後一筆的 literal 正好符合候選——舊實作（後者勝）會套到它，再把兩筆都換成它
+        let a = entry("c2020", literal: "Ulf Olsson")
+        let b = entry("c2020", literal: "Che Cheng")
+        let other = entry("d2021", literal: "Che Cheng")
+        let cand = { (ck: String) in ResolutionCandidate(
+            citekey: ck, authorIndex: 0, literal: "Che Cheng", personKey: "cheng-che",
+            reason: "alias 完全命中", tier: .exact, eliminatedPairings: 0) }
+        let out = PersonResolver.apply([cand("c2020"), cand("d2021")], to: [a, b, other])
+        XCTAssertEqual(out.map(\.id), [a.id, b.id, other.id], "順序與身分不變")
+        XCTAssertEqual(out[0].authors, [.literal("Ulf Olsson")], "另一筆不得被換成同一份")
+        XCTAssertEqual(out[1].authors, [.literal("Che Cheng")], "重複 citekey 的位置不套用")
+        XCTAssertEqual(out[2].authors, [.key("cheng-che")], "不重複的照常套用")
+    }
+
     // MARK: - #624：淘汰所得是結構化欄位，不只是 reason 裡的一句話
 
     func testEliminatedPairingsIsStructuredForEliminatedSurvivor() {

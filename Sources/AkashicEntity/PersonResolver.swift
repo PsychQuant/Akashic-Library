@@ -369,9 +369,12 @@ public enum PersonResolver {
     /// `AmbiguousMatch` 仍傳不進來：它沒有單數 `personKey`
     /// （`JudgedPairingTests.testAmbiguousMatchHasNoSingularPersonKey` 釘住這件事）。
     public static func apply<P: AuthorPairing>(_ candidates: [P], to entries: [Entry]) -> [Entry] {
-        // uniquingKeysWith：損壞 store 出現重複 citekey 時不 trap（後者勝，validate 另行報告）
+        // #627：citekey 重複時**不套用**——以 citekey 定位會猜是哪一筆，猜錯就把判定寫到
+        // 另一筆 work 的另一個作者。uniquingKeysWith 只是讓損壞 store 不 trap；被它選中的
+        // 那一筆一律不動（上游各腿另行拒絕或具名略過，這裡是最後一道防線）。
+        let duplicated = entries.duplicatedCitekeys
         var byCitekey = Dictionary(entries.map { ($0.citekey, $0) }, uniquingKeysWith: { _, last in last })
-        for candidate in candidates {
+        for candidate in candidates where !duplicated.contains(candidate.citekey) {
             guard var entry = byCitekey[candidate.citekey],
                   entry.authors.indices.contains(candidate.authorIndex),
                   case .literal(let current) = entry.authors[candidate.authorIndex],
@@ -379,7 +382,9 @@ public enum PersonResolver {
             entry.authors[candidate.authorIndex] = .key(candidate.personKey)
             byCitekey[candidate.citekey] = entry
         }
-        return entries.map { byCitekey[$0.citekey] ?? $0 }
+        // 以 id 對應回原陣列——以 citekey 對應會讓同 citekey 的每一筆都被換成同一份（#627）
+        let byID = Dictionary(byCitekey.values.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return entries.map { byID[$0.id] ?? $0 }
     }
 
     /// 比對面吃正規化（#81：NFKC＋連字號家族＋空白收斂），輸出仍是原字串——

@@ -93,6 +93,15 @@ final class JudgedAuthorshipServiceTests: XCTestCase {
         XCTAssertEqual((again["skipped"] as? [Any])?.count ?? 0, 0)
     }
 
+    /// #627 R6：已有逐篇判定、但這次的理由不同——不是「已是這個判定」，具名略過指向 #636。
+    func testRerunWithADifferentReasonIsSkippedNotAlreadyJudged() throws {
+        _ = try judge(["w1:1:chun-houh-chen=第一次"])
+        let out = try judge(["w1:1:chun-houh-chen=換一個理由"])
+        XCTAssertEqual((out["alreadyJudged"] as? [Any])?.count ?? 0, 0, "\(out)")
+        let why = ((out["skipped"] as? [[String: Any]])?.first?["why"] as? String) ?? ""
+        XCTAssertTrue(why.contains("理由不同") && why.contains("#636"), "\(out)")
+    }
+
     /// #627 R5：作者位是 key 但沒有任何 verdict 記錄原 literal（手改、舊 binary）→ 略過並具名，不猜、不說成功。
     func testJudgeOnKeyedSlotWithoutVerdictIsSkippedByName() throws {
         var e = try reloadEntry(); e.authors[1] = .key("chun-houh-chen")

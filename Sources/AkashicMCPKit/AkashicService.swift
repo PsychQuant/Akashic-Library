@@ -1210,16 +1210,12 @@ public final class AkashicService {
                 skipped.append((id, "該作者位目前就歸給這個人——否決會與既有歸戶矛盾；本面沒有把歸戶退回 literal 的操作"))
                 continue
             } else if case let .key(k) = entry.authors[idx], !isConfirm {
-                // 已歸戶：literal 已不在 entry 上，改由該位置的既有 verdict 取
-                // ——取不到就略過，不猜。
-                guard let recovered = load.people.first(where: { $0.key == k })?
-                        .references.compactMap({ r -> String? in
-                            guard let v = r.value,
-                                  v.hasPrefix("work:\(citekey) :: ") else { return nil }
-                            return String(v.dropFirst("work:\(citekey) :: ".count))
-                        }).first
-                else {
-                    skipped.append((id, "該作者位已歸戶且找不到原 literal——無從否決"))
+                // 已歸戶：literal 已不在 entry 上，改由持有者的 confirmed verdict 取——取不到、或這筆 work 有不只一個
+                // 不同的 literal（verdict 不帶作者位索引）就略過，不猜（#627 R6 verify：先前 `.first` 會挑一個）
+                let lits = recoveredLiterals(holder: k)
+                guard lits.count == 1, let recovered = lits.first else {
+                    skipped.append((id, lits.isEmpty ? "該作者位已歸戶且找不到原 literal——無從否決"
+                                        : "該作者位已歸戶，但這筆 work 有 \(lits.count) 個不同的 confirmed literal——不知道是哪一個作者位，不猜"))   // display-safe-exempt: count 是 Int
                     continue
                 }
                 literal = recovered
@@ -1237,11 +1233,20 @@ public final class AkashicService {
                         : "該作者位已歸給這個人，但這筆 work 有 \(lits.count) 個不同的 confirmed literal——不知道是哪一個作者位，不猜"))   // display-safe-exempt: count 是 Int
                     continue
                 }
-                let judgedAlready = ResolutionLedger.verdicts(references: byKey[personKey]?.references ?? []).verdicts
+                let judgedRefs = ResolutionLedger.verdicts(references: byKey[personKey]?.references ?? []).verdicts
                     .contains { $0.kind == .confirmed && $0.holderKind == .work && $0.holder == citekey
                                 && $0.literal == lit && $0.rule == ProvenanceReference.RuleName.judgedPerWork }
-                if judgedAlready {
-                    alreadyJudged.append(id)
+                if judgedRefs {
+                    // 真的重跑＝**同一句理由**也已落地（位元組相等）。理由不同時新理由無處另存（verdict 以配對去重）——
+                    // 不能說成「已是這個判定」（#627 R6 verify DA：與 R5 修掉的缺陷同形）
+                    let wanted = JudgedPairing(citekey: citekey, authorIndex: idx, literal: lit,
+                                               personKey: personKey, judgement: judgement)
+                        .map { ResolutionLedger.record(judged: $0).byteExactKey }
+                    if let wanted, (byKey[personKey]?.references ?? []).contains(where: { $0.byteExactKey == wanted }) {
+                        alreadyJudged.append(id)
+                    } else {
+                        skipped.append((id, "該作者位已有這個配對的逐篇判定，但理由不同——verdict 以配對去重，新的理由無處另存（#636）"))
+                    }
                     continue
                 }
                 skipped.append((id, "該作者位已歸給這個人，但既有的歸戶不是逐篇判定（例如 --apply）——"
@@ -2444,7 +2449,14 @@ public final class AkashicService {
     // MARK: - Internals
 
     func requireEntry(_ citekey: String) throws -> Entry {
-        guard let entry = try store.load().entries.first(where: { $0.citekey == citekey }) else {
+        let entries = try store.load().entries
+        // #628（R1 verify）：tag／link／set-status 經這裡定位——`first(where:)` 在 citekey 重複或共用 id 時會猜是哪一筆
+        if entries.unlocatableCitekeys.contains(citekey) {
+            throw ServiceError.invalid(
+                "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
+                + "無法確定是哪一筆，拒絕寫入；先修正重複的 citekey 或 id（#628）")
+        }
+        guard let entry = entries.first(where: { $0.citekey == citekey }) else {
             throw ServiceError.notFound("citekey「\(displaySafeInvisible(citekey, max: 200))」")
         }
         return entry
@@ -4070,7 +4082,6 @@ public final class AkashicService {
             guard let c = byID[id] else {
                 throw ServiceError.notFound("候選 id「\(displaySafeInvisible(id, max: 200))」（先不帶 apply 列出候選）")
             }
-            try refuseUnlocatable(c, id: id)
             return c
         }
         // **生產端的閘，逐筆略過**（D28 → D33）：同一 work 不得因這次 apply 出現兩條 key 邊指同一 venue——D25 只擋消費端，而造出
@@ -4092,7 +4103,15 @@ public final class AkashicService {
         var skipped: [[String: Any]] = []
         var skippedConflict: [[String: Any]] = []
         var ledgerCache: [String: [ResolutionLedger.Verdict]] = [:]   // venue key → 解析一次（R15 verify 第 17 列：每個候選重剖一遍 ledger）
+        var skippedUnlocatable: [[String: Any]] = []
         for c in requested {
+            // #628：所在 work 無法唯一定位（citekey 重複或與另一筆共用 id）——store 狀態不符，**逐筆略過並具名**
+            // （apply 的既有契約是 D33：整批拒絕讓一筆毒候選殺掉同批無關的候選；R1 verify DA 指出整批拒絕違反它）
+            if unlocatableCK.contains(c.citekey) {
+                skippedUnlocatable.append(["id": c.rowID,
+                                           "reason": "citekey 重複或與另一筆 work 共用 id——無法確定是哪一筆，略過不寫；先修正重複的 citekey 或 id（#628）"])   // display-safe-exempt: reason 是常數字面
+                continue
+            }
             if let hit = keyed[c.citekey]?[c.venueKey] {
                 let head = hit.fromBatch
                     ? "同一批稍早的候選 \(displaySafe(c.citekey, max: 200)):\(hit.indices[0]) 先佔了這個 venue（先到先寫，順序由呼叫端決定）"   // display-safe-exempt: Int
@@ -4145,13 +4164,18 @@ public final class AkashicService {
         // entry 已升格成 `.key`、verdict 沒落、錯誤訊息像「什麼都沒寫」。`rename` 那條
         // （`LibraryStore.assertVenueWritable` 的 preflight）已是這個形狀；D8 把 venue 的
         // 拒絕條件從三個罕見形狀擴到最常見的手改痕跡，撕裂不再是理論。repoint／demote 同序。
-        for key in grouped.keys.sorted() { try LibraryStore.assertVenueWritable(grouped[key]!, format: storeFormat) }
+        for key in grouped.keys.sorted() {
+            try LibraryStore.assertVenueWritable(grouped[key]!, format: storeFormat)
+            try store.assertEntitiesDestination(id: grouped[key]!.id, kind: .venue)   // #631
+        }
+        for entry in changed { _ = try store.entryWritePlan(entry) }   // #631：寫到一半才撞上拒絕會撕裂（D11 同理）
         for entry in changed { try store.writeEntry(entry) }
         for key in grouped.keys.sorted() { try store.writeVenue(grouped[key]!) }
         try LibraryIndex(store: store).rebuild()
         return try jsonString([
             "applied": chosen.map { $0.rowID },
             "skippedDuplicateVenueEdge": skipped,   // display-safe-exempt: 逐項已消毒（id 是回程把手，逐字）
+            "skippedUnlocatable": skippedUnlocatable,   // display-safe-exempt: id 是回程把手（逐字）、reason 是常數
             "skippedConflictingConfirmedLiteral": skippedConflict,   // display-safe-exempt: 逐項已消毒（id 是回程把手，逐字）
             "entriesRewritten": changed.count,   // display-safe-exempt: Int
             "venuesRewritten": grouped.count,    // display-safe-exempt: Int
@@ -4172,6 +4196,7 @@ public final class AkashicService {
         }
         let venueKeys = Set(load.venues.map(\.key))
         var byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) }, uniquingKeysWith: { a, _ in a })
+        let unlocatableForRepointDemote = load.entries.unlocatableCitekeys   // #628：迴圈外算一次（R1 verify：逐 id 重算是 O(M×N)）
 
         struct Move { let citekey: String; let index: Int; let from: String; let to: String; let literal: String }
         var moves: [Move] = []
@@ -4193,7 +4218,7 @@ public final class AkashicService {
             }
             targetByEdge["\(citekey)\u{0}\(idx)"] = newKey
             // #628：byCitekey 前者勝——citekey 重複或與另一筆共用 id 時會猜是哪一筆。整批拒絕（同本函式的前提不符語意）
-            if load.entries.unlocatableCitekeys.contains(citekey) {
+            if unlocatableForRepointDemote.contains(citekey) {
                 throw ServiceError.invalid(
                     "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
                     + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#628）")
@@ -4520,6 +4545,7 @@ public final class AkashicService {
                 "venue 降格需要 store format ≥ 11（本 store 是 \(storeFormat)）")   // display-safe-exempt: Int
         }
         var byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) }, uniquingKeysWith: { a, _ in a })
+        let unlocatableForRepointDemote = load.entries.unlocatableCitekeys   // #628：迴圈外算一次（R1 verify：逐 id 重算是 O(M×N)）
         var venuesByKey = Dictionary(load.venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
 
         struct Demotion { let citekey: String; let index: Int; let venueKey: String; let literal: String }
@@ -4533,7 +4559,7 @@ public final class AkashicService {
             }
             let citekey = parts[0]
             // #628：byCitekey 前者勝——citekey 重複或與另一筆共用 id 時會猜是哪一筆。整批拒絕（同本函式的前提不符語意）
-            if load.entries.unlocatableCitekeys.contains(citekey) {
+            if unlocatableForRepointDemote.contains(citekey) {
                 throw ServiceError.invalid(
                     "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
                     + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#628）")

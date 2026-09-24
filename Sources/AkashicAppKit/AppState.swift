@@ -322,7 +322,12 @@ public final class AppState {
         // 從磁碟重讀最新版本再 patch——記憶體快照可能落後外部工具（CLI/MCP/
         // Zotero pull）最多一個 FileWatcher debounce 視窗；用舊快照整筆寫回
         // 會把外部剛更新的書目層（title/authors/fields）蓋回舊值（lost update）。
-        guard var entry = try store.load().entries.first(where: { $0.citekey == citekey }) else {
+        let entries = try store.load().entries
+        // #628（R1 verify）：citekey 重複或與另一筆共用 id 時 `first(where:)` 會猜是哪一筆——拒絕
+        if entries.unlocatableCitekeys.contains(citekey) {
+            throw StoreIOError.invalidKey("citekey（重複或與另一筆 work 共用 id，無法確定是哪一筆；先修正，#628）", citekey)
+        }
+        guard var entry = entries.first(where: { $0.citekey == citekey }) else {
             throw StoreIOError.invalidKey("citekey（不存在）", citekey)
         }
         change(&entry)

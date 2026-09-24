@@ -76,7 +76,19 @@ final class DuplicateCitekeyOtherWritersTests: XCTestCase {
 
     func testVenueApplyRejectRepointDemoteRefuseADuplicatedCitekey() throws {
         let before = try dups()
-        assertRefused { try self.service.resolveVenues(apply: ["c2020:0"]) }
+        // apply 沿用 D33：store 狀態不符逐筆略過並具名，同批其餘照寫（R1 verify DA：整批拒絕違反它）。
+        // 另建一對兩邊都是 literal 的重複（c2020 的 B 已歸戶，會先被既有的重複邊檢查擋下，走不到這道略過）
+        for t in ["E1", "E2"] {
+            var e = Entry(id: UUID(), citekey: "e2022", type: .periodicalArticle, title: t, date: "2022")
+            e.venues = [.literal("Alpha Journal")]
+            try store.writeEntry(e)
+        }
+        _ = try? service.resolveVenues(apply: ["e2022:0", "d2021:0"])
+        XCTAssertEqual(try store.load().entries.first { $0.citekey == "d2021" }!.venues, [.key("alpha")], "同批正常那筆照寫")
+        XCTAssertEqual(try store.load().entries.filter { $0.citekey == "e2022" }.map(\.venues),
+                       [[.literal("Alpha Journal")], [.literal("Alpha Journal")]], "重複的兩筆都不動")
+        let alpha = try XCTUnwrap(try store.load().venues.first { $0.key == "alpha" })
+        XCTAssertFalse(alpha.references.contains { ($0.value ?? "").contains("work:e2022 ") }, "沒落地就不得寫 confirmed verdict")
         assertRefused { try self.service.resolveVenues(apply: nil, reject: ["c2020:0"]) }
         assertRefused { try self.service.resolveVenues(apply: nil, demote: ["c2020:0"]) }
         assertRefused { try self.service.resolveVenues(apply: nil, repoint: ["c2020:0:alpha"]) }
@@ -85,6 +97,25 @@ final class DuplicateCitekeyOtherWritersTests: XCTestCase {
         let rows = list["candidates"] as? [[String: Any]] ?? []
         XCTAssertEqual(rows.first { $0["citekey"] as? String == "c2020" }?["unlocatableCitekey"] as? Bool, true, "\(rows)")
         XCTAssertNil(rows.first { $0["citekey"] as? String == "d2021" }?["unlocatableCitekey"])
+    }
+
+    /// tag／link／set-status 經 `requireEntry` 定位——重複 citekey 時拒絕，不猜（R1 verify requirements）。
+    func testTagLinkSetStatusRefuseADuplicatedCitekey() throws {
+        let before = try dups()
+        assertRefused { try self.service.tag(citekey: "c2020", add: ["x"], remove: []) }
+        XCTAssertEqual(try dups(), before)
+    }
+
+    /// 共用 id（citekey 不同）也算無法唯一定位：library add 整批拒絕。
+    func testLibraryAddRefusesAWorkSharingItsIdentifier() throws {
+        try store.writeLibrary(Library(key: "lab", name: "Lab"))
+        let shared = UUID()
+        try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
+        _ = try store.writeEntry(Entry(id: shared, citekey: "x2019", type: .periodicalArticle, title: "X"))
+        try EntryYAML.encode(Entry(id: shared, citekey: "y2019", type: .periodicalArticle, title: "Y"))
+            .write(to: store.entriesDir.appendingPathComponent("y2019.yaml"), atomically: true, encoding: .utf8)
+        assertRefused { try self.service.setMembership(action: "add", key: "lab", citekeys: ["y2019"]) }
+        XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2019" }!.akashic.libraries, [])
     }
 
     /// 最後一道防線：兩個 resolver 的 apply 以陣列位置就地改寫——重複 citekey 的兩筆既不被改、也不被換成同一份。

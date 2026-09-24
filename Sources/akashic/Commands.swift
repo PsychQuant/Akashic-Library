@@ -1168,7 +1168,9 @@ struct ResolveOrganizations: ParsableCommand {
         let selected = Set(candidates.map { "\($0.holder)#\($0.literal)" })   // display-safe-exempt: 內部 Set 的成員判定鍵，不進輸出面
         for c in all {
             let mark = (apply && !selected.contains("\(c.holder)#\(c.literal)")) ? "  (skip) " : "  "
-            print("\(mark)\(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
+            // #628（R1 verify）：列表模式也標出來——不必送出 --apply 才知道它會被排除
+            let tag = isUnlocatable(c) ? " ⟨citekey 重複或共用 id：不寫入，先修正⟩" : ""
+            print("\(mark)\(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）\(tag)")
         }
         printOrgCountsAndSunk()
         printOrgAmbiguities()

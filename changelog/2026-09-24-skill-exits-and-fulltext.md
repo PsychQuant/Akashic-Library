@@ -64,14 +64,17 @@ citekey 重複是 store「被支援的損壞態」。過去寫入路徑以 citek
 
 現在的處理：
 
-- **最後一道防線**：`PersonResolver.apply` 對重複 citekey 不套用，輸出改以 `Entry.id` 對應。
+- **最後一道防線**：`PersonResolver.apply` 以陣列位置就地改寫，不經任何字典對應回輸出；citekey 重複、或 entry id 重複的位置都不改。第一版改成「以 `Entry.id` 對應回輸出」，R1 驗證以真 binary 否掉：半遷移留下的同 id 拷貝（entities 與 legacy 各一份）會被互相覆寫，被編輯過的那份安靜回退；兩筆不同 citekey 共用 UUID 時，無關的 apply 也會把其中一筆整個換成另一筆（6 次裡 4 次，取決於 hash 順序）。
 - **重複的定義只有一個**：`Sequence<Entry>.duplicatedCitekeys`，放在 AkashicCore。
 - **各腿沿用既有的失敗語意**：
   - apply／reject（兩段與三段 id）、split／un-split／drop／attribute-org：整批拒絕、零寫入。
   - judge／refute：該筆具名略過，其餘照寫。
   - CLI 篩選式 `--apply`：排除並另列，其餘照寫；列表每一列都標出來。
+  - App 裁決台的 accept：具名拒絕（`AdjudicationError.duplicatedCitekey`）。先前它依賴 apply 當防線，而 apply 回退拷貝時仍會寫下「確認歸戶」verdict。
+  - MCP 候選列表：重複 citekey 的列帶 `duplicatedCitekey: true`，不必送出 apply 才知道會被拒。
+- **verdict 只寫給真的改到的那一格**：兩筆共用 UUID 時 apply 不套用候選；MCP／CLI 的 apply 以 `notApplied` 具名回報，不寫 verdict、不算進 applied。
 
 重複 citekey 的 store 本來就重建不了 index（UNIQUE），寫入之後的 rebuild 仍會失敗，這一點 `validate` 另行報告。
 
-同型但不屬 resolve-people 一族的 `setMembership`／`enrich`，以及 venue 的 repoint／demote，見 #628。
+同型但不屬 resolve-people 一族的 `setMembership`／`enrich`、venue 的 repoint／demote，以及 `VenueResolver.apply`／`OrgResolver.apply` 的同一個字典形狀，見 #628。
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Version-aware auto-download wrapper for akashic-mcp.
-# Repo 為 private：優先 gh CLI（使用者認證）下載，公開後 curl fallback 自動可用。
+# 優先 gh CLI 下載；repo 已公開，gh 不可用時 curl fallback 也拿得到。
 set -u
 
 REPO="PsychQuant/Akashic-Library"
@@ -41,9 +41,13 @@ if $NEED_DOWNLOAD; then
     TMP_DIR="$(mktemp -d)"
     OK=false
     if command -v gh >/dev/null 2>&1; then
-        if gh release download "$TAG" --repo "$REPO" --pattern "$ASSET_NAME" \
-             --dir "$TMP_DIR" 2>/dev/null \
-           || gh release download --repo "$REPO" --pattern "$ASSET_NAME" \
+        # 指定了版本就只下載那個 tag，**不退回 latest**（#630）：2026-09-24 release 的 asset 還在
+        # 上傳時，退回 latest 拿到舊版，卻把指定版本寫進版本檔——從此不再重試，binary 永遠是舊的。
+        # 失敗時走下方的既有路徑：沿用現有 binary、版本檔不動，下次啟動重試。
+        if [[ -n "$DESIRED_VERSION" ]]; then
+            gh release download "$TAG" --repo "$REPO" --pattern "$ASSET_NAME" \
+                --dir "$TMP_DIR" 2>/dev/null && OK=true
+        elif gh release download --repo "$REPO" --pattern "$ASSET_NAME" \
                 --dir "$TMP_DIR" 2>/dev/null; then
             OK=true
         fi

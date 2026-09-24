@@ -67,7 +67,11 @@ entities 佈局下，五個 entity 寫入者都以 id 定檔，過去一律無�
 現在寫入前先確認目的檔：它必須不存在，或解碼出同一種記錄、同一個 id。形狀標籤用 load 同一套嚴格度，key 不合法也算。不符就具名拒寫，目的檔不動。
 
 legacy 拷貝分兩種情形（使用者 2026-09-24 裁決）：
-- **只有 legacy 一份**：寫入時搬移，寫進 `entities/` 之後刪掉 legacy 檔。新內容本來就是從那一份讀出來再改的，搬移不遺失任何東西；store 受 git 追蹤，可還原。work 與 person 都一樣；rename 與 rename-person 的舊 key 單份也一併搬移。
+- **只有 legacy 一份**：寫入時搬移，寫進 `entities/` 之後刪掉 legacy 檔。work 與 person 都一樣；rename 與 rename-person 的舊 key 單份也一併搬移。刪檔之前先確認兩件事，任一不成立就拒寫、檔案不動：
+  - 這份檔是這筆記錄的合法來源：key 合法，而且與檔名一致；
+  - 刪了回得來：受 git 追蹤，而且沒有未 commit 的修改（沿用 D86 的閘）。
+
+  第一版只比對 UUID，也假設「store 受 git 追蹤」這句話一定成立，R2 驗證指出兩者都不可靠：load 會隔離的檔可能被當成來源刪掉；合併時新內容也不是舊內容的超集。
 - **兩份都在**：拒寫，兩份都不動。兩份可能已經分岔，留哪一份是人的判定。
 
 第一版只做到「只拒不刪」，R1 驗證以真 binary 重現了代價。一筆只住在 legacy 的 work 本身不是重複，validate 也說全部通過。但 rename、rename-person、合併、venue apply 寫到一半才撞上拒絕，store 被撕成一半：本筆已改名，其他 work 仍指向舊的 citekey；作者 key 指向已經不存在的 person。現在這幾個多檔操作在第一次寫入之前，對每一筆都跑同一套檢查。

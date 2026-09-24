@@ -23,10 +23,13 @@ MANIFEST_VERSION=$(python3 -c "import json;print(json.load(open('$MCPB_DIR/manif
 # 三道檢查任一道存在，它都不會安靜地發出去。
 [ -z "$(git status --porcelain)" ] || {
   echo "✗ 工作樹不乾淨——產物會與 tag（打在 HEAD）不是同一份程式："; git status --short; exit 1; }
+# 建置用的 commit 在開頭就記下，最後的 tag 打在它上面，不打在「那時的 HEAD」：
+# 簽章＋公證要好幾分鐘，共用 checkout 裡別的 session 提交一次，HEAD 就換了（#630）。
+BUILD_COMMIT=$(git rev-parse HEAD)
 git fetch -q --tags origin
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-  [ "$(git rev-parse "$TAG^{commit}")" = "$(git rev-parse HEAD)" ] || {
-    echo "✗ tag $TAG 已存在且指向 $(git rev-parse --short "$TAG^{commit}")，不是 HEAD——換版號，不覆蓋既有 release"; exit 1; }
+  [ "$(git rev-parse "$TAG^{commit}")" = "$BUILD_COMMIT" ] || {
+    echo "✗ tag $TAG 已存在且指向 $(git rev-parse --short "$TAG^{commit}")，不是建置用的 $(git rev-parse --short "$BUILD_COMMIT")——換版號，不覆蓋既有 release"; exit 1; }
 fi
 
 echo "→ [1/6] Universal release build"
@@ -66,7 +69,7 @@ MCPB_FILE="$MCPB_DIR/akashic-mcp-${VERSION}.mcpb"
 shasum -a 256 "$MCPB_FILE" | awk '{print $1}' > "$MCPB_FILE.sha256"
 
 echo "→ [5/6] Git tag"
-git tag "$TAG" 2>/dev/null || echo "  （tag 已存在且指向 HEAD——開頭已檢查）"
+git tag "$TAG" "$BUILD_COMMIT" 2>/dev/null || echo "  （tag 已存在且指向建置用的 commit——開頭已檢查）"
 git push origin "$TAG"
 
 echo "→ [6/6] GitHub release + assets"

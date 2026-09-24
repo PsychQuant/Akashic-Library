@@ -292,7 +292,7 @@ done
 | census 曾把「讀不到」印成 `format 0` | 讀該腳本的解析段；並以缺 `store.yaml`／有檔無標記兩種 fixture 實跑對照 | 2026-08-21 |
 | ↗ census 的 marker 解析在 **46** 格 fixture 上與讀端裁決一致（**不是「一致」的全稱句**——那需要窮舉輸入空間，而這裡量的是 46 個具名形狀；**2026-08-21 是 26 格**，每輪都在加） | `plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh`（需先 `swift build`；拿真的 CLI 當 oracle） | 2026-08-22 |
 | ↗ 上一句那張矩陣真的會紅 | `plugin/skills/akashic-promote-literals/scripts/tests/marker-parity-mutations.py` → **14/14**（2026-08-21 是 11/11） | 2026-08-22 |
-| 本 plugin 經由**公開**的 marketplace 發布 | 兩步都在公開處：`gh repo view PsychQuant/psychquant-claude-plugins --json isPrivate` → `false`，且該 repo 的 `.claude-plugin/marketplace.json` 列出 `akashic-mcp`（27 個 plugin 之一）。**先前這一列引的是本 repo 的 README——而本 repo 是 private，讀者查不到，等於用一個他取不到的東西當證據** | 2026-08-21 |
+| 本 plugin 經由**公開**的 marketplace 發布 | 兩步都在公開處：`gh repo view PsychQuant/Akashic-Library --json isPrivate` → `false`，且本 repo 的 `.claude-plugin/marketplace.json` 列出 `akashic-mcp`（2 個 plugin 之一）。**#625 起 marketplace 搬進本 repo**：2026-08-21 這一列的量法指向 psychquant-claude-plugins，#625 之後那個量法會量到「沒有列出」——斷言沒變、量法過期，所以重量而不是改字。更早一版引的是本 repo 的 README，而本 repo 當時是 private，讀者查不到 | 2026-09-24 |
 
 ### 一次對本規則自己的效力稽核（#407 R28b，2026-08-23）
 

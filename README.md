@@ -81,10 +81,13 @@ plugin/                          akashic-mcp 的 Claude Code plugin shell（#275
                                  兩者刻意解耦）、.mcp.json、bin/wrapper（自動下載 binary）、
                                  skills/（akashic-bootstrap 補完、akashic-verify-person
                                  歸戶查證 #276、akashic-import-wos 清單 QA 閘 #277）。
-                                 psychquant-claude-plugins 的 marketplace entry 以
-                                 git-subdir source 引用本目錄——release 單 repo 化：bump
-                                 plugin/plugin.json 與 binary release 同 commit，不再跨
-                                 repo 同步 shell
+                                 本 repo 自己是 marketplace `akashic`（#625），以相對路徑
+                                 列出本目錄——bump plugin/plugin.json 與 binary release
+                                 同 commit，不再跨 repo 同步 shell
+plugins/akashic-discovery/       文獻探索 skills 的 plugin（#625 起）：依賴 akashic-mcp、
+                                 rules/ 以 symlink 共用 plugin/rules
+.claude-plugin/marketplace.json  marketplace `akashic` 的 manifest；條目不帶 description
+                                 （/plugin 回落到各 plugin.json，store-format parity 守衛檢查）
 docs/                            spec 與 store 格式規格書
 docs/design-principles-and-philosophy.md
                                  建模的規範性原則（Part I）與哲學基礎（Part II）；
@@ -465,7 +468,23 @@ cd AkashicApp && xcodegen generate && xcodebuild -scheme AkashicApp build   # �
 
 ## MCP（akashic-mcp）
 
-marketplace 安裝：`claude plugin install akashic-mcp@psychquant-claude-plugins`。
+marketplace 安裝（#625 起本 repo 自己是 marketplace `akashic`）：
+
+```bash
+claude plugin marketplace add PsychQuant/Akashic-Library
+claude plugin install akashic-mcp@akashic
+claude plugin install akashic-discovery@akashic   # 文獻探索 skills；會自動帶入 akashic-mcp
+```
+
+**從舊安裝遷移**：`akashic-mcp@psychquant-claude-plugins` 自 #625 起不再由該 marketplace
+列出（`/plugin` 會顯示為已移除；官方的 `renames` 不支援跨 marketplace 轉址）。先
+`claude plugin uninstall akashic-mcp@psychquant-claude-plugins`，再跑上面三行。uninstall 會
+一併移除設定檔裡舊 id 的啟用項（2026-09-24 實測）；server binary 裝在 `~/bin/akashic-mcp`，
+新舊安裝共用，不會重新下載。
+
+`marketplace add` clone 的是**整個 repo 連同 3 個 submodule**（2026-09-24 實測約 192 MB：
+`mcps/` 兩個 submodule 的工作樹 118 MB、submodule 的 git 物件 44 MB，本體約 17 MB）——
+git-subdir 時代只抓 `plugin/`。
 Library 解析與 CLI 共用同一條鏈（見下方「環境變數」）。
 
 多 library（#13，membership views）：`akashic library list/create/add/remove` 管理具名

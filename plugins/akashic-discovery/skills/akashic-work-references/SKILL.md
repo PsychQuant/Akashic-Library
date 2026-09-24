@@ -49,14 +49,19 @@ akashic references extract --text "$W/paper.txt" > "$W/refs.json"
 
 ### 2. OpenAlex → 引用清單（經 safari-browser）
 
-在**使用者自己的 profile** 的視窗開一個分頁，鎖定它：
+在**使用者自己的 profile** 開一個分頁，用它的**完整網址**鎖定：網址尾端加一段只屬於這次的 fragment（fragment 不會送到伺服器），讓 `--url-exact` 只可能對到這一個分頁：
 
 ```bash
-safari-browser documents --json      # 找使用者自己 profile 的視窗編號 N
-safari-browser open --new-tab --window N "https://api.openalex.org/works/doi:<DOI>?select=id,doi,title,referenced_works"
-safari-browser documents --json      # 找到新分頁的 tab_in_window T
-LOCK=(--window N --tab-in-window T)  # 陣列；zsh 不對未加引號的變數分詞
+safari-browser documents --json      # 看 profile 欄位，確認使用者自己的 profile 名稱（P）
+N=$(python3 -c 'import secrets; print(secrets.token_hex(4))')
+U="https://api.openalex.org/works/doi:<DOI>?select=id,doi,title,referenced_works#akashic-$N"
+safari-browser open --new-tab --profile "P" "$U"
+LOCK=(--profile "P" --url-exact "$U")   # 陣列；zsh 不對未加引號的變數分詞
 ```
+
+頁內 fetch 不會換頁，所以整個流程裡分頁的網址都不變，這把鎖一直有效。取 Crossref 等其他站時，同樣另開一個帶 fragment 的分頁。
+
+**不要用視窗編號鎖**（`--window N --tab-in-window T`）：Safari 的視窗編號依前後順序排，使用者一切換視窗，同一個編號就指到別的視窗。2026-09-24 落地時就發生過一次，其中一步報了「無法取得 tab 8 of window 7」；那次讀回的資料經 id 核對是正確的，但這純屬運氣。
 
 每一次取得都用同一個頁內 fetch 讀法（`akashic-fetch-fulltext/scripts/fetch-fulltext.sh` 的模式），**每次請求換一個新的變數名**（`K` 逐次遞增，不重複用）：
 
@@ -117,8 +122,13 @@ akashic references nominate --refs "$W/refs.json" --openalex "$W/oa-1.json" --op
 | 只在 OpenAlex | `unnominated`，以及判為不是、沒被任何條目認領的候選 | 只列報告——可能是 OpenAlex 錯連，也可能是 PDF 切分漏掉 |
 | 判不了 | 第 4 步的第三種 | 只列報告，附理由 |
 
+寫入前，**自己做兩道重複檢查**，兩道都 0 命中才建檔。只靠下游擋不住重複：`create-entry` 遇到已在庫的 DOI 不會回報，只會靜默產生帶 `b` 尾碼的新記錄（#637）；bootstrap 第 1 步示範的查詢在 store 上查不到 DOI 或標題（#638）。
+
+1. **DOI**：用**當下**的 store 重跑一次 `nominate`（先前那次到現在，store 可能被別的 session 改過），確認要建的每一組 DOI（含雙胞胎）的 `inStore` 都是空的。
+2. **標題＋年份**：`akashic export-tables -o "$W/tables"`，把要建的每一筆與 `publication.csv` 全部記錄比對（標題詞集合 Dice ≥ 0.8 且年份 ±1）。這一道抓的是沒填 DOI、或填了另一個 DOI 的同一篇。
+
 寫入：
-- 建檔：把 DOI 清單交給 `akashic-bootstrap`，照它自己的驗證與乾跑流程走。它拒絕的 DOI 移到報告。
+- 建檔：把 DOI 清單交給 `akashic-bootstrap`，照它自己的驗證與乾跑流程走。它拒絕的 DOI 移到報告。建完檢查新 citekey：若某個 citekey 去掉年份後的 `b` 就是寫入前已有的 citekey，那是撞號，表示漏了一筆重複——停下來回報。
 - 連結：`akashic_link(citekey: <種子>, kind: "cites", add: [<citekeys>])`。
 - library（D5）：種子屬於 **1** 個 library → 對每個被連到的 citekey `akashic_libraries(action: "add", key: <該 library>, citekey: …)`；屬於 **0** 個 → 不掛；屬於**多個** → 問使用者要掛哪些（每次執行問一次）。
 
@@ -133,6 +143,7 @@ akashic references nominate --refs "$W/refs.json" --openalex "$W/oa-1.json" --op
 - **切分是啟發式的**：作者—年份格式以外的清單、嚴重的排版（雙欄交錯、頁首夾在條目中間且每頁不同）會切錯。`warnings` 與「只在 PDF／只在 OpenAlex」兩類就是讓這些誤差被看見的地方。
 - **計分權重是起點值**（標題 0.5、第一作者 0.25、年份 0.25，門檻 0.35）。校準（下節）沒有給出調整的理由：錯誤都出在「正確的那篇不在 OpenAlex 清單裡」，不是排序錯。
 - PDF 由使用者給路徑，直到 #614 讓 store 能回傳條目的 PDF。
+- 只有兩個來源。兩源對不上時只能交給人判斷；以 Semantic Scholar 的 references 當第三來源見 #640。
 
 ## 校準
 
@@ -152,5 +163,12 @@ akashic references nominate --refs "$W/refs.json" --openalex "$W/oa-1.json" --op
 - **PDF 63 ＝ 59 對上 ＋ 4 只在 PDF**：2 本被錯連成書評的書、1 章 OpenAlex 清單裡沒有的書章、1 份軟體手冊。
 
 這次校準修掉的切分誤差（`extract` 的測試 T2b、T4b）：年份區間 `(1998 –2012)` 認不得、害下一筆被併進來（修正前切出 62 筆）；頁首與版權聲明在參考文獻段只出現一次、段內計數抓不到而併進條目原文（改為全文計數）。
+
+**落地（同日，經使用者確認）**：
+- 新建 50 筆；Crossref 反查 50／50 是同一篇。
+- 寫入前兩道重複檢查（DOI、標題＋年份）都是 0 命中，建完也沒有撞號的 citekey。
+- `cites` 共 56 條（新建 50 ＋ 已在庫 6）；兩個 library 各加入 56 筆。
+- `akashic validate` 通過。
+- 年份以 PDF 為準的 5 筆，是使用者的個案決定；原則化見 #639。
 
 **一篇的校準不是準確率**。這篇是 APA 期刊、參考文獻不印 DOI；印 DOI、其他出版商排版、其他引用格式的論文會有不同的誤差型態。

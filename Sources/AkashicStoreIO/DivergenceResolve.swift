@@ -422,6 +422,7 @@ extension LibraryStore {
         try assertStoreRoot()
         try assertDivergenceWritable(d)
         let yaml = try DivergenceYAML.encode(d)
+        try assertEntitiesDestination(id: d.id, kind: .divergence)   // #631
         let dest = entityURL(id: d.id)
         try FileManager.default.createDirectory(at: entitiesDir, withIntermediateDirectories: true)
         try atomicWrite(yaml, to: dest)

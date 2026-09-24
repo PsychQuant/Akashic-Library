@@ -13,7 +13,7 @@ description: 歸戶查證——判定「這個 literal 作者是不是這個人�
 
 1. **證據具決定性 → 直接 apply／reject**，並在報告裡寫出是哪一條證據、以及它為什麼具決定性。
 2. **證據不足 → 換一條線繼續查**（下面的來源表不是「跑完四格就交差」的清單，是排到用完為止的順序）。
-3. **真的查不出來 → 才交人**，且必須說出**已經排除了什麼**、**卡在哪一步**，並記 divergence（Step 3 第三個出口）。「我查了幾個來源都沒有」不算已排除。
+3. **真的查不出來 → 才交人**，且必須說出**已經排除了什麼**、**卡在哪一步**；literal 留著，查過的寫在報告（Step 3 第三個出口）。「我查了幾個來源都沒有」不算已排除。
 
 **「絕不自動合併」仍然成立**，它管的是**沒有決定性證據時不得靠相似度硬併**——不是「有決定性證據也要先問」。判準見下方〈什麼算決定性〉。
 
@@ -142,7 +142,7 @@ akashic_resolve_people reject:["<citekey>:<index>:<personKey>", …]  # 查過�
 - id 用**列表給的三段形**（#303 起釘 person——提名改指時顯式拒絕；不要手拼）
 - apply 與 reject **可同一次呼叫**（#272 起兩段式：reject 腿先完整提交、apply 腿在新快照重解析、按腿回報）；CLI 面維持分兩次
 - reject 之後該配對不再被提名；**同 literal 在別的 entry 是另一次觀察**，照提、照查
-- **第三個出口——查不出來**：證據不足以判定時，用 `akashic_record_divergence` 把進度落地（question＝這個 literal 指的是誰、candidates＝它可能是的那幾筆 person 記錄——至少兩筆，literal 本身不能當候選；judgement 與 rests_on 成對，rests_on 只收 `sha256:` digest（#507），沒有 digest 就兩者都不帶，已蒐集的 URL＋取得日期寫在報告）再停手；可能的 person 只有一筆時記不了 divergence，literal 留著，查過的寫在報告。pending 是現算的缺席、什麼都不記；divergence 才是「查過什麼、查到哪、為何停」的載體，下次接手從那裡續查
+- **第三個出口——查不出來**：證據不足以判定時不 judge、不 refute，literal 留著，查過的來源（URL＋取得日期）寫在報告再停手。store 不留查過的紀錄；下次重跑 resolve 時，有候選或歧義就再列一次。只有查到兩筆以上 person 記錄可能是同一個人時，才用 `akashic_record_divergence` 記下（candidates＝那幾筆 person 的 key；judgement 與 rests_on 成對，rests_on 只收 `sha256:` digest（#507），沒有 digest 就兩者都不帶）
 - verdict 需要 store format ≥ 8；format 不足時 reject 會硬擋指路、apply 照常歸戶但跳過 verdict 並明說（**不必預查 format**——兩個失敗模式都會自己說話，直接動手即可）
 - 三態計數（confirmed／rejected／pending）從 verdict 現算——**只報計數不報比率**，pending（還沒查的）永遠可見
 
@@ -160,8 +160,8 @@ akashic_resolve_people reject:["<citekey>:<index>:<personKey>", …]  # 查過�
   的列一起誤升。實測「C-H Chen」15 列分屬至少 6 個不同機構的人。目前**沒有 per-work 的歸戶
   路徑**（追蹤：Akashic-Library#386）；在它出現之前，這類配對查證完成後**只記錄結論、不寫入**
 - **配對不在 candidates 列時沒有 apply 把手**——同上：先讓配對能以 exact 成為候選（補 alias 或建檔），重跑 resolve 再 apply
-- **查不出來是合法結果**。「證據不足以判定」就說證據不足，讓配對留在 pending **並記 divergence**（Step 3 的第三個出口）——pending 可見是設計，不是待消滅的數字
-- **承重頁面要存檔**：判定所依據的網頁內容存進 `sources/`（content-addressed）、經 bootstrap 寫入 person 的 `references`——寫法依 [writing-to-the-store.md](../akashic-bootstrap/references/writing-to-the-store.md)。非承重的佐證列 URL 即可。（verdict **刻意**不攜 rests-on——設計裁決見 Akashic-Library#280：已判定的證據住 person `references`、未判定的住 divergence `restsOn`，兩載體依生命週期分工）
+- **查不出來是合法結果**。「證據不足以判定」就說證據不足，讓配對留在 pending、literal 留著（Step 3 的第三個出口）——pending 可見是設計，不是待消滅的數字
+- **承重頁面要存檔**：判定所依據的網頁內容存進 `sources/`（content-addressed）、經 bootstrap 寫入 person 的 `references`——寫法依 [writing-to-the-store.md](../akashic-bootstrap/references/writing-to-the-store.md)。非承重的佐證列 URL 即可。（verdict **刻意**不攜 rests-on——設計裁決見 Akashic-Library#280：已判定的證據住 person `references`；未判定而記了 divergence 的，住它的 `restsOn`）
 
 ## 相關
 

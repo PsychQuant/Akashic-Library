@@ -7,7 +7,7 @@ description: 消歧義——把 resolve-* 列出的「歧義」列（一個 lite
 
 歧義列的意思是**提名器分不出來**，不是人或 AI 分不出來（`identity-is-judged-not-matched`）。所以歧義不是死路，是一份待判清單。
 
-**終局是每一列都有狀態**，不是「歧義計數變小」。三個合法終局：判定（judge）、否決（refute）、記 divergence（查過了但證據不足）。**「還沒看」不是終局。**
+**終局是每一列都有狀態**，不是「歧義計數變小」。三個合法終局：判定（judge）、否決（refute）、留在 literal（查過了但證據不足，查過的寫在報告）。**「還沒看」不是終局。**
 
 > **命名**：使用者口語稱它 `/disambiguity`。正式名依 Foresay `MP02` 的 `namespace-verb[-supp]`
 > 形式取為 `akashic-disambiguate`——**verb 在第二位**，且名詞 `disambiguation` 依 MP01 的
@@ -126,7 +126,9 @@ akashic resolve-people --refute "<citekey>:<idx>:<personKey>=<理由>"
 
 ### 5. 收尾：每一列都要有終局
 
-重跑 `resolve-people`，確認歧義段消失或只剩真的判不出來的。判不出來的走第三個出口：
+重跑 `resolve-people`，確認歧義段消失或只剩真的判不出來的。判不出來的走第三個出口：不 judge、不 refute，literal 留著，查過的來源寫在報告。store 不留查過的紀錄；下次重跑 resolve 時，有候選或歧義就再列一次。
+
+只有查到**兩筆以上 person 記錄**可能是同一個人時才記 divergence（candidates＝那幾筆 person 的 key）：
 
 ```
 akashic record-divergence --question "…" --candidate "a:person" --candidate "b:person" \
@@ -134,8 +136,6 @@ akashic record-divergence --question "…" --candidate "a:person" --candidate "b
 ```
 
 `--rests-on` 只收 `sha256:` digest（#507）；`--judgement` 與 `--rests-on` 成對，`--prefers` 要有 `--judgement`。沒有 digest 就三者都不帶，只記 question 與 candidates，已蒐集的 URL＋取得日期寫在報告。
-
-pending 是**現算的缺席、什麼都不記**；divergence 才是「查過什麼、查到哪、為何停」的載體。
 
 ## 三個必記的反例
 
@@ -146,8 +146,8 @@ pending 是**現算的缺席、什麼都不記**；divergence 才是「查過什
 ## 邊界
 
 - **同機構不同系所不可否決**——那是證據不足，不是判定為否
-- **正確的人不在庫裡是合法結論**。此時的出口是 `add-person` 建檔後再 judge，或記 divergence；**不是**從現有候選裡挑一個最像的
-- **查不出來是合法結果**。說證據不足，讓它留在 divergence——pending 可見是設計，不是待消滅的數字
+- **正確的人不在庫裡是合法結論**。此時的出口是 `add-person` 建檔後再 judge，或讓 literal 留著；**不是**從現有候選裡挑一個最像的
+- **查不出來是合法結果**。說證據不足，讓 literal 留著——pending 可見是設計，不是待消滅的數字
 
 ## 相關
 

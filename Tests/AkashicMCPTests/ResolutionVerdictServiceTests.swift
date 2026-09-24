@@ -98,7 +98,7 @@ final class ResolutionVerdictServiceTests: XCTestCase {
         try store.writeEntry(Entry(id: UUID(), citekey: "c2020", type: .periodicalArticle,
                                    title: "W", authors: [.literal("Chester Cheng")], date: "2020"))
         XCTAssertThrowsError(try service.resolvePeople(apply: ["c2020:0:cheng-che-2"])) { err in
-            XCTAssertTrue("\(err)".contains("重複 citekey"), "\(err)")
+            XCTAssertTrue("\(err)".contains("citekey 重複"), "\(err)")
         }
         let p = try LibraryStore(root: root).load().people.first { $0.key == "cheng-che-2" }!
         XCTAssertFalse(p.references.contains { $0.field == "resolution-confirmed" },

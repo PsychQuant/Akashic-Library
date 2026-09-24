@@ -1105,6 +1105,7 @@ public final class AkashicService {
         let load = try store.load()
         let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
                                    uniquingKeysWith: { _, last in last })
+        let duplicatedCitekeys = load.entries.duplicatedCitekeys   // #627
         let byKey = Dictionary(load.people.map { ($0.key, $0) },
                                uniquingKeysWith: { a, _ in a })
 
@@ -1139,6 +1140,12 @@ public final class AkashicService {
             // spec：「that pairing SHALL be skipped … SHALL NOT abort the remaining
             // pairings」。與 `apply` 既有三道守衛同語意：一筆過期的判定不該讓其餘九筆
             // 進不去，但也**不得靜默**——每一筆略過都具名回報。
+            // #627：citekey 重複時以 citekey 定位會猜是哪一筆，猜錯就寫到另一筆 work 的另一個作者。
+            // store 狀態不符 → 該筆略過並具名（與下方「work 不存在」同語意），其餘照寫
+            guard !duplicatedCitekeys.contains(citekey) else {
+                skipped.append((id, "work「\(displaySafe(citekey, max: 200))」的 citekey 重複——無法確定是哪一筆，略過（先修正重複的 citekey，#627）"))
+                continue
+            }
             guard let entry = byCitekey[citekey] else {
                 skipped.append((id, "work「\(displaySafe(citekey, max: 200))」不存在"))
                 continue
@@ -1247,13 +1254,15 @@ public final class AkashicService {
         /// 不同 person 的提名 → 顯式「提名已改指」錯誤；兩段：legacy 直查 rowID。
         // #624 R2 verify：重複 citekey（被支援的損壞態）下，兩個位置可以共用同一個三段 id。
         // 取第一筆會讓 CLI 說「不套用」的那一列被寫進 verdict——拒絕、不猜哪一筆。
-        let idMultiplicity = Dictionary(withIDs.map { ($0.id, 1) }, uniquingKeysWith: +)
+        // #627：以 **citekey** 判斷而不是以 id 的出現次數——兩段 id、以及兩個位置 id 不同
+        // 的情形，出現次數都抓不到，而它們同樣在猜是哪一筆 entry（#624 R2 的 idMultiplicity
+        // 只涵蓋三段 id 恰好相同那一格）。
+        let duplicatedCitekeys = load.entries.duplicatedCitekeys
         func candidate(for id: String) throws -> ResolutionCandidate {
-            let multiplicity = idMultiplicity[id] ?? 0
-            if multiplicity > 1 {
+            if let ck = id.split(separator: ":").first.map(String.init), duplicatedCitekeys.contains(ck) {
                 throw ServiceError.invalid(
-                    "候選 id「\(displaySafeInvisible(id, max: 200))」同時指到 \(multiplicity) 個位置"   // display-safe-exempt: multiplicity 是 Int
-                    + "（重複 citekey）——先修正重複的 citekey 再套用（#624）")
+                    "候選 id「\(displaySafeInvisible(id, max: 200))」的 citekey 重複——"
+                    + "無法確定是哪一筆，整批拒絕；先修正重複的 citekey 再套用（#627）")
             }
             if let c = byID[id] { return c }
             let parts = id.split(separator: ":")
@@ -3194,6 +3203,7 @@ public final class AkashicService {
         let load = try store.load()
         let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
                                    uniquingKeysWith: { _, last in last })
+        let duplicatedCitekeys = load.entries.duplicatedCitekeys   // #627
 
         struct Plan { let citekey: String; let idx: Int; let separator: String
                       let parts: [String]; let literal: String; let judgement: String
@@ -3231,6 +3241,12 @@ public final class AkashicService {
                 throw ServiceError.invalid(
                     "「\(displaySafeInvisible(citekey, max: 200))」的作者位 \(idx) 被指定了兩次"   // display-safe-exempt: Int
                     + "——同一個作者位一次只能拆一次")
+            }
+            if duplicatedCitekeys.contains(citekey) {
+                // #627：citekey 重複時以 citekey 定位會猜是哪一筆——整批拒絕、零寫入，不猜
+                throw ServiceError.invalid(
+                    "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複——"
+                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey（#627）")
             }
             guard let entry = byCitekey[citekey] else {
                 throw ServiceError.notFound("work「\(displaySafeInvisible(citekey, max: 200))」")
@@ -3382,6 +3398,7 @@ public final class AkashicService {
         let load = try store.load()
         let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
                                    uniquingKeysWith: { _, last in last })
+        let duplicatedCitekeys = load.entries.duplicatedCitekeys   // #627
 
         struct Plan { let citekey: String; let start: Int; let retired: String
                       let parts: [String]; let reason: String }
@@ -3404,6 +3421,12 @@ public final class AkashicService {
             guard seen.insert("\(citekey)\u{0}\(retired)").inserted else {
                 throw ServiceError.invalid(
                     "同一筆「\(displaySafeInvisible(spec, max: 200))」在這批裡出現兩次")
+            }
+            if duplicatedCitekeys.contains(citekey) {
+                // #627：citekey 重複時以 citekey 定位會猜是哪一筆——整批拒絕、零寫入，不猜
+                throw ServiceError.invalid(
+                    "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複——"
+                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey（#627）")
             }
             guard let entry = byCitekey[citekey] else {
                 throw ServiceError.notFound("work「\(displaySafeInvisible(citekey, max: 200))」")
@@ -3537,6 +3560,7 @@ public final class AkashicService {
         let load = try store.load()
         let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
                                    uniquingKeysWith: { _, last in last })
+        let duplicatedCitekeys = load.entries.duplicatedCitekeys   // #627
 
         struct Plan { let citekey: String; let idx: Int; let literal: String
                       let record: AuthorRemovalRecordValue }
@@ -3571,6 +3595,12 @@ public final class AkashicService {
             guard seen.insert("\(citekey)\u{0}\(literal)").inserted else {
                 throw ServiceError.invalid(
                     "同一筆「\(displaySafeInvisible(idPart, max: 200))」在這批裡出現兩次")
+            }
+            if duplicatedCitekeys.contains(citekey) {
+                // #627：citekey 重複時以 citekey 定位會猜是哪一筆——整批拒絕、零寫入，不猜
+                throw ServiceError.invalid(
+                    "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複——"
+                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey（#627）")
             }
             guard let entry = byCitekey[citekey] else {
                 throw ServiceError.notFound("work「\(displaySafeInvisible(citekey, max: 200))」")
@@ -3662,6 +3692,7 @@ public final class AkashicService {
         let load = try store.load()
         let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
                                    uniquingKeysWith: { _, last in last })
+        let duplicatedCitekeys = load.entries.duplicatedCitekeys   // #627
         let orgKeys = Set(load.organizations.map(\.key))
 
         struct Plan { let citekey: String; let idx: Int; let orgKey: String
@@ -3691,6 +3722,12 @@ public final class AkashicService {
             let citekey = String(parts[0]), orgKey = String(parts[2])
             guard seen.insert(idPart).inserted else {
                 throw ServiceError.invalid("id「\(displaySafeInvisible(idPart, max: 200))」重複")
+            }
+            if duplicatedCitekeys.contains(citekey) {
+                // #627：citekey 重複時以 citekey 定位會猜是哪一筆——整批拒絕、零寫入，不猜
+                throw ServiceError.invalid(
+                    "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複——"
+                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey（#627）")
             }
             guard let entry = byCitekey[citekey] else {
                 throw ServiceError.notFound("work「\(displaySafeInvisible(citekey, max: 200))」")

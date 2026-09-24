@@ -988,9 +988,25 @@ struct ResolveOrganizations: ParsableCommand {
                                             rejected: orgRejected, entries: load.entries)
         let all = orgReport.candidates
         let hkSet = Set(holder), okSet = Set(org)
-        let candidates = all.filter {
+        // #628：作者位候選所在的 work 無法唯一定位（citekey 重複或與另一筆共用 id）→ 不進篩選式批次，另列
+        // （比照 resolve-people 的 #627：以 citekey 定位會猜是哪一筆，寫入以 id 定檔會寫到兄弟的檔）
+        let unlocatableCK = load.entries.unlocatableCitekeys
+        func isUnlocatable(_ c: OrgResolutionCandidate) -> Bool {
+            if case let .work(citekey, _) = c.holder { return unlocatableCK.contains(citekey) }
+            return false
+        }
+        let inScope = all.filter {
             (hkSet.isEmpty || hkSet.contains($0.holder.key))
                 && (okSet.isEmpty || okSet.contains($0.orgKey))
+        }
+        let unlocatableSkipped = inScope.filter(isUnlocatable)
+        let candidates = inScope.filter { !isUnlocatable($0) }
+        if (apply || reject), !unlocatableSkipped.isEmpty {
+            print("⚠ 所在 work 的 citekey 重複或與另一筆共用 id 的候選 \(unlocatableSkipped.count) 筆不寫入（無法確定是哪一筆 work）：")
+            for c in unlocatableSkipped {
+                print("  \(displaySafe(c.holder.key, max: 200)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))")
+            }
+            print("  → 先修正重複的 citekey 或共用的 id 再重跑（#628）")
         }
         // 持有者可能是 person 或 organization——**標出來**。少了它，兩類候選在
         // 輸出裡長得一樣，而它們寫進的是不同記錄的不同欄位（#166）。

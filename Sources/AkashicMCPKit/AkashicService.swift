@@ -901,7 +901,13 @@ public final class AkashicService {
         // 1. 整批驗證，零寫入
         var planned: [Entry] = []
         var seen = Set<String>()
+        let unlocatableCK = load.entries.unlocatableCitekeys   // #628：byCitekey 後者勝——重複或共用 id 時會猜是哪一筆
         for ck in citekeys where seen.insert(ck).inserted {
+            if unlocatableCK.contains(ck) {
+                throw ServiceError.invalid(
+                    "work「\(displaySafeInvisible(ck, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
+                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#628）")
+            }
             guard var entry = byCitekey[ck] else {
                 throw ServiceError.notFound("citekey「\(displaySafeInvisible(ck, max: 200))」——整批拒絕，零寫入")
             }
@@ -2238,6 +2244,8 @@ public final class AkashicService {
             "noProvenance": plan.noProvenance.sorted().map { displaySafe($0, max: 200) },
             "zoteroMissing": plan.zoteroMissing.sorted().map { displaySafe($0, max: 200) },
             "notInStore": plan.notInStore.sorted().map { displaySafe($0, max: 200) },
+            // #628：citekey 重複或與另一筆 work 共用 id——無法確定是哪一筆，零寫入
+            "unlocatable": plan.unlocatable.sorted().map { displaySafe($0, max: 200) },
             // 第六類：給了識別碼但刻意不收，且沒有別的可補。與 unchanged 不可混為一談。
             "refusedOnly": plan.refusedOnly.sorted { $0.citekey < $1.citekey }.map { a -> [String: Any] in
                 ["citekey": displaySafe(a.citekey, max: 200),
@@ -3984,6 +3992,15 @@ public final class AkashicService {
             var seen = Set<String>()
             return ids.filter { seen.insert($0).inserted }
         }
+        // #628：顯式 id 所在的 work 無法唯一定位（citekey 重複或與另一筆共用 id）→ 整批拒絕並具名（同 resolve-people，#627）
+        let unlocatableCK = load.entries.unlocatableCitekeys
+        func refuseUnlocatable(_ c: VenueResolutionCandidate, id: String) throws {
+            if unlocatableCK.contains(c.citekey) {
+                throw ServiceError.invalid(
+                    "候選 id「\(displaySafeInvisible(id, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
+                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#628）")
+            }
+        }
         let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
         if let rejectIDs = reject, !rejectIDs.isEmpty {
             guard storeFormat >= 11 else {
@@ -3994,6 +4011,7 @@ public final class AkashicService {
                 guard let c = byID[id] else {
                     throw ServiceError.notFound("候選 id「\(displaySafeInvisible(id, max: 200))」（先不帶 apply 列出候選）")
                 }
+                try refuseUnlocatable(c, id: id)
                 return c
             }
             var grouped: [String: Venue] = [:]
@@ -4026,11 +4044,14 @@ public final class AkashicService {
         guard let selected = apply, !selected.isEmpty else {
             return try jsonString([
                 "candidates": report.candidates.map { c -> [String: Any] in
-                    ["id": c.rowID,
+                    var row: [String: Any] = ["id": c.rowID,
                      "citekey": displaySafe(c.citekey, max: 200),
                      "literal": displaySafe(c.literal, max: 200),
                      "venueKey": displaySafe(c.venueKey, max: 200),
                      "reason": displaySafe(c.reason, max: 400)]
+                    // #628：apply／reject 這個 id 會整批拒絕——列表先標出來（同 resolve-people 的標記）
+                    if unlocatableCK.contains(c.citekey) { row["unlocatableCitekey"] = true }
+                    return row
                 },
                 "ambiguities": report.ambiguities.map { m -> [String: Any] in
                     ["id": m.rowID,
@@ -4049,6 +4070,7 @@ public final class AkashicService {
             guard let c = byID[id] else {
                 throw ServiceError.notFound("候選 id「\(displaySafeInvisible(id, max: 200))」（先不帶 apply 列出候選）")
             }
+            try refuseUnlocatable(c, id: id)
             return c
         }
         // **生產端的閘，逐筆略過**（D28 → D33）：同一 work 不得因這次 apply 出現兩條 key 邊指同一 venue——D25 只擋消費端，而造出
@@ -4170,6 +4192,12 @@ public final class AkashicService {
                     + "（改指到「\(displaySafeInvisible(earlier, max: 200))」與「\(displaySafeInvisible(newKey, max: 200))」）——一條邊一次只能改指到一個 venue；出路：只留一個")
             }
             targetByEdge["\(citekey)\u{0}\(idx)"] = newKey
+            // #628：byCitekey 前者勝——citekey 重複或與另一筆共用 id 時會猜是哪一筆。整批拒絕（同本函式的前提不符語意）
+            if load.entries.unlocatableCitekeys.contains(citekey) {
+                throw ServiceError.invalid(
+                    "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
+                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#628）")
+            }
             guard let entry = byCitekey[citekey] else {
                 throw ServiceError.notFound("work「\(displaySafeInvisible(citekey, max: 200))」")
             }
@@ -4504,6 +4532,12 @@ public final class AkashicService {
                     "降格 id「\(displaySafeInvisible(raw, max: 200))」不是 citekey:venueIndex 形")
             }
             let citekey = parts[0]
+            // #628：byCitekey 前者勝——citekey 重複或與另一筆共用 id 時會猜是哪一筆。整批拒絕（同本函式的前提不符語意）
+            if load.entries.unlocatableCitekeys.contains(citekey) {
+                throw ServiceError.invalid(
+                    "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
+                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#628）")
+            }
             guard let entry = byCitekey[citekey] else {
                 throw ServiceError.notFound("work「\(displaySafeInvisible(citekey, max: 200))」")
             }
@@ -4631,6 +4665,19 @@ public final class AkashicService {
             var seen = Set<String>()
             return ids.filter { seen.insert($0).inserted }
         }
+        // #628：作者位（.work holder）的候選所在的 work 無法唯一定位 → 顯式 id 整批拒絕並具名（同 resolve-people，#627）
+        let unlocatableCK = load.entries.unlocatableCitekeys
+        func isUnlocatable(_ c: OrgResolutionCandidate) -> Bool {
+            if case let .work(citekey, _) = c.holder { return unlocatableCK.contains(citekey) }
+            return false
+        }
+        func refuseUnlocatable(_ c: OrgResolutionCandidate, id: String) throws {
+            if isUnlocatable(c) {
+                throw ServiceError.invalid(
+                    "候選 id「\(displaySafeInvisible(id, max: 200))」所在 work 的 citekey 重複或與另一筆 work 共用 id——"
+                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#628）")
+            }
+        }
         if let rejectIDs = reject, !rejectIDs.isEmpty {
             guard storeFormat >= 8 else {
                 throw ServiceError.invalid(
@@ -4640,6 +4687,7 @@ public final class AkashicService {
                 guard let c = byID[id] else {
                     throw ServiceError.notFound("候選 id「\(displaySafeInvisible(id, max: 200))」（先不帶 apply 列出候選）")
                 }
+                try refuseUnlocatable(c, id: id)
                 return c
             }
             var grouped: [String: Organization] = [:]
@@ -4662,10 +4710,12 @@ public final class AkashicService {
         guard let selected = apply, !selected.isEmpty else {
             return try jsonString([
                 "candidates": report.candidates.map { c -> [String: Any] in
-                    ["id": rowID(c),
+                    var row: [String: Any] = ["id": rowID(c),
                      "holder": displaySafe(c.holder.key, max: 200),
                      "literal": displaySafe(c.literal, max: 200),
                      "orgKey": displaySafe(c.orgKey, max: 200)]
+                    if isUnlocatable(c) { row["unlocatableCitekey"] = true }   // #628
+                    return row
                 },
                 "ambiguities": report.ambiguities.map { m -> [String: Any] in
                     ["holder": displaySafe(m.holder.key, max: 200),
@@ -4679,6 +4729,7 @@ public final class AkashicService {
             guard let c = byID[id] else {
                 throw ServiceError.notFound("候選 id「\(displaySafeInvisible(id, max: 200))」（先不帶 apply 列出候選）")
             }
+            try refuseUnlocatable(c, id: id)
             return c
         }
         let applied = OrgResolver.apply(chosen, to: load.people,

@@ -331,6 +331,8 @@ public enum AddOnlyEnrichment {
 
         var working: [String: Entry] = [:]
         for e in entries { working[e.citekey] = e }
+        // #628：citekey 在 store 裡不只一筆、或與另一筆共用 id——`working` 是後者勝的字典，補值會落到猜的那一筆
+        let unlocatable = entries.unlocatableCitekeys
 
         var result = Result()
         for (i, p) in validated.enumerated() {
@@ -372,6 +374,15 @@ public enum AddOnlyEnrichment {
                     continue
                 }
                 citekey = matches[0]
+            }
+            // #628：定位到了，但那個 citekey 對不到唯一一筆——與 DOI 命中 ≥2 筆同一個類別（不判定哪一筆才對），
+            // 理由分開說，該筆零寫入、其餘照補
+            if unlocatable.contains(citekey) {
+                result.items.append(Item(proposalIndex: i, citekey: nil, category: .ambiguous,
+                                         outcome: Outcome(), additions: [], alreadyPresent: [],
+                                         reason: "citekey「\(citekey)」在 store 裡不只一筆、或與另一筆 work 共用 id——無法確定是哪一筆，零寫入；先修正重複的 citekey 或 id（#628）",
+                                         matches: [citekey], sourceDigest: digest))
+                continue
             }
             // 3. 政策（逐字自 ZoteroEnrichment.plan）
             let entry = working[citekey]!

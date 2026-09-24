@@ -122,7 +122,7 @@ actor AkashicMCPServer {
                                + "直查時生效）。**不是** store root（見 #310／#315）"),
              ])),
         Tool(name: "akashic_libraries",
-             description: "具名 library（成員集合視角，#13）：list 列表含成員數；create 建 registry；add/remove 改 entry 的 akashic.libraries（衍生層）。store 是全集，library 不分割資料。",
+             description: "〔#628：add／remove 指名的 citekey 重複或與另一筆 work 共用 id 時整批拒絕、零寫入〕具名 library（成員集合視角，#13）：list 列表含成員數；create 建 registry；add/remove 改 entry 的 akashic.libraries（衍生層）。store 是全集，library 不分割資料。",
              inputSchema: obj([
                 "action": str("list | create | add | remove"),
                 "key": str("library key（create/add/remove 必填；StoreKey 格式）"),
@@ -214,7 +214,7 @@ actor AkashicMCPServer {
                 "rests_on": strArray("判定所依據的證據 digest（sha256:64hex，至少一個——先用 akashic_store_source 存證據拿 digest）"),
              ], required: ["key"])),
         Tool(name: "akashic_resolve_venues",
-             description: "venue 解析（resolve-people 契約形，#304）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 venue name 完全命中且不歧義的 literal（正規化含 lowercase：WoS 全大寫形因此命中正式刊名）；ambiguities 是同一 literal 對到 2+ venue、需要人判斷。帶 apply（候選 id，形如 citekey:venueIndex）把 literal 升格為 key 並寫 resolution-confirmed verdict 到該 venue；帶 reject 寫 resolution-rejected（entry 不動）。組合呼叫兩段式（reject 腿先提交）。需 store format ≥ 11。絕不自動配對（literal-first-then-key）。帶 repoint（三段式 id citekey:venueIndex:newKey）把**已歸戶**的邊改指到另一個 venue——歸錯戶的退路（#418），兩側都寫 verdict（新的 confirmed、舊的 rejected）；語法錯或前提不符整批拒絕、零寫入；改指到自己是 no-op。repoint 不與 apply／reject 組合（不同階段）。帶 demote（citekey:venueIndex）把**誤升**的邊退回 literal——原字串從該 venue 上的 confirmed verdict 逐字取回（無損；取不到就拒絕，不拿顯示名頂替），並留 rejected verdict。repoint／demote 各自單獨呼叫。**repoint／demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定**（D20，#554）——那是一筆人的判定記錄（#553 合併搬進 keeper 的 `reject` 也算），唯一副本只剩 git；刪掉的每筆逐字列在 `verdictsRetired`（截 20 筆，`verdictsRetiredTotal`／`truncated` 揭露）。三種前提不符整批拒絕零寫入：該 venue 上這筆 work 有 ≥2 個不同的 confirmed literal（D23）；配對由多條邊實例化——同一 work 兩條邊指同一 venue、或（repoint）另有 literal 邊同配對（D25）；repoint 讓**被動到的邊**與本 work 另一條邊指同一 venue、或同一批裡同一 work 的兩個 move 帶同一個 literal **且觸及同一個 venue**（D27；既有的重複邊與 venue 集合不相交的 move 不擋）。**apply 對會讓同一 work 兩條邊指同一 venue 的候選逐筆略過、其餘照寫**（D28／D33）：略過的列在 `skippedDuplicateVenueEdge`（id、venueKey、reason），且它會一直被提名——出路是刪掉多餘的邊（移除面：#572）；既有的重複邊由 validate 的 warning 報、不擋同一 work 上不相干的歸戶。**目的 venue 已對該 work 持有另一個 confirmed literal（沒有對應的邊——手改、舊 binary、R14 之前的合併）的候選同樣逐筆略過**（D38，列在 `skippedConflictingConfirmedLiteral`；相等比**位元組**，同一 literal 的另一個拼法也略過——寫下去不會多一筆，但之後 demote 會還回舊拼法而不是這條邊的原字串，D43；本檢查在重複邊檢查之後，所以「沒有對應的邊」為真，D44）——寫下第二個會讓那條邊立刻被 D23 鎖住；出路是刪掉那筆沒有邊的 confirmed。提名的否決抑制以正規化後的 literal 為鍵（R12）：對一個拼法的 reject／demote 會壓住同 work 同 venue 的其他拼法，撤回面見 #559。同一 work 兩條拼法不同的 literal 邊都指向同一 venue 時，**誰落地由 apply 陣列的順序決定（先到先寫）**，confirmed verdict 帶的就是那條邊的字。組合呼叫時 reject 腿以正規化配對壓掉 apply 腿的同配對 id（列在 `skippedBecauseRejected`）。",
+             description: "〔#628：候選所在的 work 無法唯一定位（citekey 重複或與另一筆 work 共用 id）時該列帶 unlocatableCitekey:true，apply／reject 這種 id 整批拒絕、repoint／demote 同〕venue 解析（resolve-people 契約形，#304）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 venue name 完全命中且不歧義的 literal（正規化含 lowercase：WoS 全大寫形因此命中正式刊名）；ambiguities 是同一 literal 對到 2+ venue、需要人判斷。帶 apply（候選 id，形如 citekey:venueIndex）把 literal 升格為 key 並寫 resolution-confirmed verdict 到該 venue；帶 reject 寫 resolution-rejected（entry 不動）。組合呼叫兩段式（reject 腿先提交）。需 store format ≥ 11。絕不自動配對（literal-first-then-key）。帶 repoint（三段式 id citekey:venueIndex:newKey）把**已歸戶**的邊改指到另一個 venue——歸錯戶的退路（#418），兩側都寫 verdict（新的 confirmed、舊的 rejected）；語法錯或前提不符整批拒絕、零寫入；改指到自己是 no-op。repoint 不與 apply／reject 組合（不同階段）。帶 demote（citekey:venueIndex）把**誤升**的邊退回 literal——原字串從該 venue 上的 confirmed verdict 逐字取回（無損；取不到就拒絕，不拿顯示名頂替），並留 rejected verdict。repoint／demote 各自單獨呼叫。**repoint／demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定**（D20，#554）——那是一筆人的判定記錄（#553 合併搬進 keeper 的 `reject` 也算），唯一副本只剩 git；刪掉的每筆逐字列在 `verdictsRetired`（截 20 筆，`verdictsRetiredTotal`／`truncated` 揭露）。三種前提不符整批拒絕零寫入：該 venue 上這筆 work 有 ≥2 個不同的 confirmed literal（D23）；配對由多條邊實例化——同一 work 兩條邊指同一 venue、或（repoint）另有 literal 邊同配對（D25）；repoint 讓**被動到的邊**與本 work 另一條邊指同一 venue、或同一批裡同一 work 的兩個 move 帶同一個 literal **且觸及同一個 venue**（D27；既有的重複邊與 venue 集合不相交的 move 不擋）。**apply 對會讓同一 work 兩條邊指同一 venue 的候選逐筆略過、其餘照寫**（D28／D33）：略過的列在 `skippedDuplicateVenueEdge`（id、venueKey、reason），且它會一直被提名——出路是刪掉多餘的邊（移除面：#572）；既有的重複邊由 validate 的 warning 報、不擋同一 work 上不相干的歸戶。**目的 venue 已對該 work 持有另一個 confirmed literal（沒有對應的邊——手改、舊 binary、R14 之前的合併）的候選同樣逐筆略過**（D38，列在 `skippedConflictingConfirmedLiteral`；相等比**位元組**，同一 literal 的另一個拼法也略過——寫下去不會多一筆，但之後 demote 會還回舊拼法而不是這條邊的原字串，D43；本檢查在重複邊檢查之後，所以「沒有對應的邊」為真，D44）——寫下第二個會讓那條邊立刻被 D23 鎖住；出路是刪掉那筆沒有邊的 confirmed。提名的否決抑制以正規化後的 literal 為鍵（R12）：對一個拼法的 reject／demote 會壓住同 work 同 venue 的其他拼法，撤回面見 #559。同一 work 兩條拼法不同的 literal 邊都指向同一 venue 時，**誰落地由 apply 陣列的順序決定（先到先寫）**，confirmed verdict 帶的就是那條邊的字。組合呼叫時 reject 腿以正規化配對壓掉 apply 腿的同配對 id（列在 `skippedBecauseRejected`）。",
              inputSchema: obj([
                 "apply": strArray("要套用的候選 id（citekey:venueIndex）；省略＝只列候選"),
                 "reject": strArray("要否決的候選 id（同形）"),
@@ -231,7 +231,7 @@ actor AkashicMCPServer {
                 "ror": str("ROR ID（選填；**純量不是清單**——一個機構只有一個 ROR，而 ISSN 的多值是真的。不合法即整個呼叫拒絕、零寫入。#394）"),
              ], required: ["key", "names"])),
         Tool(name: "akashic_resolve_organizations",
-             description: "org 解析（#304 parity 移轉）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 person affiliations／org parents 的 literal 與某 org name 完全命中且不歧義者。帶 apply（候選 id，形如 holderKey::literal）歸戶並寫 confirmed verdict；帶 reject 寫 rejected verdict。需 store format ≥ 8（verdict）。",
+             description: "〔#628：作者位候選所在的 work 無法唯一定位（citekey 重複或與另一筆 work 共用 id）時該列帶 unlocatableCitekey:true，apply／reject 這種 id 整批拒絕〕org 解析（#304 parity 移轉）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 person affiliations／org parents 的 literal 與某 org name 完全命中且不歧義者。帶 apply（候選 id，形如 holderKey::literal）歸戶並寫 confirmed verdict；帶 reject 寫 rejected verdict。需 store format ≥ 8（verdict）。",
              inputSchema: obj([
                 "apply": strArray("要套用的候選 id（holderKey::literal）；省略＝只列候選"),
                 "reject": strArray("要否決的候選 id（同形）"),
@@ -290,7 +290,7 @@ actor AkashicMCPServer {
         Tool(name: "akashic_enrich_from_zotero",
              description: "逐筆從 Zotero 補**缺著的**書目欄位（#340）。與 akashic_import_zotero 的 pull 語意刻意不同："
                         + "只加原本不存在的鍵，既有值一個都不動；type／title／authors／venues／attachments 一律不碰。"
-                        + "四類「沒補到」全部回報（unchanged＝上游也沒有、noProvenance、zoteroMissing、notInStore）——"
+                        + "五類「沒補到」全部回報（unchanged＝上游也沒有、noProvenance、zoteroMissing、notInStore、unlocatable＝citekey 重複或與另一筆 work 共用 id，#628）——"
                         + "「查過但上游沒有」與「根本沒查」必須分得開。建議先 dry_run:true 看計畫。"
                         + "zotero_db 是 server 本機路徑（非內容上傳）。",
              inputSchema: obj([
@@ -305,7 +305,7 @@ actor AkashicMCPServer {
                                     "description": .string("true＝只回計畫不寫入")]),
              ])),
         Tool(name: "akashic_enrich",
-             description: "generic add-only 補值（#458）：每筆提案以 citekey 或 DOI（二擇一）指名一筆 work，"
+             description: "〔#628：citekey 重複或與另一筆 work 共用 id 的提案歸 ambiguous、該筆零寫入，理由與 DOI 命中多筆分開說〕generic add-only 補值（#458）：每筆提案以 citekey 或 DOI（二擇一）指名一筆 work，"
                         + "**只補 fields 裡不存在的鍵**——既有值一個都不動；doi／pmid／isbn 走結構化欄位（部分解析時原字串留在 fields）、"
                         + "issn 一律拒（它識別期刊）、date 空才補、authors 完全為空且 include_absent_authors 才補 literal；"
                         + "type／title／venues／attachments 一律不碰。與 akashic_enrich_from_zotero **同一份政策**（那是它的 Zotero adapter）。"

@@ -339,8 +339,12 @@ public enum OrgResolver {
             return changed ? TimelineOf(out) : nil
         }
 
-        var byCitekey = Dictionary(entries.map { ($0.citekey, $0) },
-                                   uniquingKeysWith: { _, last in last })
+        // #628：作品側以陣列位置就地改寫，不經字典對應回輸出（同 #627 的 `PersonResolver.apply`）——
+        // citekey 對應回輸出會把同 citekey 的每一筆換成同一份；無法唯一定位的位置一律不改
+        let unlocatable = entries.unlocatableCitekeys
+        var indexByCitekey: [String: Int] = [:]
+        for (i, e) in entries.enumerated() where !unlocatable.contains(e.citekey) { indexByCitekey[e.citekey] = i }
+        var outEntries = entries
 
         for c in candidates {
             switch c.holder {
@@ -349,12 +353,11 @@ public enum OrgResolver {
                 // 記錄還在／索引還有效／那個位置**仍然是**當初提名的那個 literal。
                 // 第三道是關鍵——候選清單可能跨越資料變動（`apply` 是 public），
                 // 而作者是位置序列，索引在別人插入後會指到另一個人。
-                guard var entry = byCitekey[citekey], index < entry.authors.count,
-                      case let .literal(s) = entry.authors[index],
+                guard let i = indexByCitekey[citekey], index < outEntries[i].authors.count,
+                      case let .literal(s) = outEntries[i].authors[index],
                       CorporateName.unmark(s) == CorporateName.unmark(c.literal)
                 else { continue }
-                entry.authors[index] = .organization(c.orgKey)
-                byCitekey[citekey] = entry
+                outEntries[i].authors[index] = .organization(c.orgKey)
             case let .person(key):
                 guard var person = byPerson[key],
                       let migrated = migrate(person.profile.affiliations,
@@ -374,6 +377,6 @@ public enum OrgResolver {
         }
         return Applied(people: people.map { byPerson[$0.key] ?? $0 },
                        organizations: organizations.map { byOrg[$0.key] ?? $0 },
-                       entries: entries.map { byCitekey[$0.citekey] ?? $0 })
+                       entries: outEntries)
     }
 }

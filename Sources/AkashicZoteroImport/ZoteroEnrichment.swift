@@ -89,6 +89,8 @@ public enum ZoteroEnrichment {
         public var zoteroMissing: [String] = []
         /// 指名的 citekey 不在 store 裡。
         public var notInStore: [String] = []
+        /// #628：citekey 在 store 裡不只一筆、或與另一筆 work 共用 id——無法確定是哪一筆，零寫入。
+        public var unlocatable: [String] = []
         /// **只有被拒絕的識別碼、沒有任何可補值**的 citekey（#394 verify）。
         /// 與 `unchanged` 分開：那一類是「Zotero 給不出缺著的欄位」，這一類是
         /// 「Zotero 給了，而我們**刻意不收**」——兩者在輸出上不可混為一談。
@@ -99,7 +101,7 @@ public enum ZoteroEnrichment {
         /// 落在每一類的 citekey 總數。用於後置條件斷言。
         public var accountedCitekeys: [String] {
             additions.map(\.citekey) + refusedOnly.map(\.citekey)
-                + unchanged + noProvenance + zoteroMissing + notInStore
+                + unchanged + noProvenance + zoteroMissing + notInStore + unlocatable
         }
     }
 
@@ -123,10 +125,13 @@ public enum ZoteroEnrichment {
 
         var result = Result()
         var proposals: [AddOnlyEnrichment.Proposal] = []
+        let unlocatable = entries.unlocatableCitekeys   // #628
         for citekey in citekeys {
             guard let entry = byCitekey[citekey] else {
                 result.notInStore.append(citekey); continue
             }
+            // #628：`byCitekey` 後者勝——citekey 重複或共用 id 時補值會落到猜的那一筆。先分流，不交給 core
+            if unlocatable.contains(citekey) { result.unlocatable.append(citekey); continue }
             guard let prov = entry.provenance, !prov.zoteroKey.isEmpty else {
                 result.noProvenance.append(citekey); continue
             }

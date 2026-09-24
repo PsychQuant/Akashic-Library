@@ -1482,8 +1482,10 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     func testRepointOverlapMessageShowsBothSpellingsByBytesAndEscapesInvisibles() throws {
         let store = LibraryStore(root: root)
         _ = try service.addVenue(key: "beta-journal", names: ["Beta Journal"], type: "periodical", note: nil, issn: nil)
+        // 兩次 seed 覆寫**同一筆** work（#628 前每次都用新 UUID，第二次就造出兩筆 x2025——以 citekey 定位的閘如實擋下）
+        let workID = UUID()
         func seed(_ a: String, _ b: String) throws {
-            var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+            var e = Entry(id: workID, citekey: "x2025", type: .periodicalArticle, title: "T")
             e.venues = [.key("some-journal"), .key("beta-journal")]
             _ = try store.writeEntry(e)
             var s = try venue(); s.references = [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: a, rule: ResolutionLedger.venueRule, statement: "手改")]

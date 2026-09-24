@@ -124,16 +124,20 @@ public enum VenueResolver {
 
     /// 把已確認的候選套用到 entries（回傳新副本，不動原陣列；同 PersonResolver.apply）。
     public static func apply(_ candidates: [VenueResolutionCandidate], to entries: [Entry]) -> [Entry] {
-        var byCitekey = Dictionary(entries.map { ($0.citekey, $0) }, uniquingKeysWith: { _, last in last })
+        // #628：以陣列位置就地改寫，不經字典對應回輸出（同 #627 的 `PersonResolver.apply`）——citekey 對應回輸出
+        // 會把同 citekey 的每一筆換成同一份；citekey 重複或 id 與另一筆共用的位置一律不改（寫入以 id 定檔）
+        let unlocatable = entries.unlocatableCitekeys
+        var indexByCitekey: [String: Int] = [:]
+        for (i, e) in entries.enumerated() where !unlocatable.contains(e.citekey) { indexByCitekey[e.citekey] = i }
+        var out = entries
         for candidate in candidates {
-            guard var entry = byCitekey[candidate.citekey],
-                  entry.venues.indices.contains(candidate.venueIndex),
-                  case .literal(let current) = entry.venues[candidate.venueIndex],
+            guard let i = indexByCitekey[candidate.citekey],
+                  out[i].venues.indices.contains(candidate.venueIndex),
+                  case .literal(let current) = out[i].venues[candidate.venueIndex],
                   current == candidate.literal else { continue }
-            entry.venues[candidate.venueIndex] = .key(candidate.venueKey)
-            byCitekey[candidate.citekey] = entry
+            out[i].venues[candidate.venueIndex] = .key(candidate.venueKey)
         }
-        return entries.map { byCitekey[$0.citekey] ?? $0 }
+        return out
     }
 
     static func normalize(_ s: String) -> String {

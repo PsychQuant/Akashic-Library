@@ -62,6 +62,7 @@ struct EnrichFromZotero: ParsableCommand {
               + "無 zotero_key \(plan.noProvenance.count)、"
               + "Zotero 查無 \(plan.zoteroMissing.count)、"
               + "不在 store \(plan.notInStore.count)"
+              + (plan.unlocatable.isEmpty ? "" : "、citekey 重複或共用 id \(plan.unlocatable.count)")
               + (plan.refusedOnly.isEmpty ? ""
                  : "、只有被拒的識別碼 \(plan.refusedOnly.count)"))
 
@@ -126,6 +127,7 @@ struct EnrichFromZotero: ParsableCommand {
         section("無 provenance.zotero_key——無從查起", plan.noProvenance)
         section("有 zotero_key 但 Zotero 查無此 item", plan.zoteroMissing)
         section("citekey 不在 store 裡", plan.notInStore)
+        section("citekey 重複或與另一筆 work 共用 id——無法確定是哪一筆，零寫入；先修正（#628）", plan.unlocatable)
 
         guard apply else {
             print("")

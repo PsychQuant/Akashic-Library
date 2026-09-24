@@ -107,6 +107,7 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 | [zero-instance-guards.md](.claude/rules/zero-instance-guards.md) | 為「還沒發生過的形狀」寫守衛是一列一列裁決出來的——封閉決策表＋理由欄同列，刻意不給總括判準（那會在邊界上長出沒人同意的答案）|
 | [blocked-issues-must-be-scannable.md](.claude/rules/blocked-issues-must-be-scannable.md) | 被阻塞的 issue 必須把「在等什麼」寫在工具掃得到的三個位置之一，不得只寫在散文裡——四次「空等」的實測（#314）＋哪些「等」需要標記的封閉裁決表 |
 | [two-kinds-of-edits.md](.claude/rules/two-kinds-of-edits.md) | 每個寫入面只能是兩種編輯之一——AI 編輯（判定型、依規則，必留 verdict 且可逆轉）或程式編輯（決定論式，冪等、整批擋、附量測）；混合面拆成「提名（程式）→ 判定（AI）→ 落地（程式）」；封閉的歸類表逐列理由（#505） |
+| [swift-is-the-implementation-language.md](.claude/rules/swift-is-the-implementation-language.md) | **新的程式一律寫成 Swift**——守衛是 `akashic-guards` 子命令、能力是 `akashic` CLI／`akashic-mcp`、skill 要的確定性計算做成 CLI 子命令由 skill 呼叫、測試進 Swift test target；可以不是 Swift 的只有兩類封閉例外（binary 存在前就得跑的串接殼層、逐檔列名的既有檔，只減不增） |
 
 > **plugin 另有自己的規則目錄。** `plugin/rules/` 隨 plugin 走（plugin 安裝到哪，規則就在哪），
 > 由 skill 以相對路徑引用——**不像上表那樣自動注入**。目前一條：

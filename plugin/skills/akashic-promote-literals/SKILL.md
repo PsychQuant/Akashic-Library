@@ -57,7 +57,7 @@ candidates 依 tier 信心降冪。讀法：
 - **apply 的 id 是三段形 `citekey:authorIndex:personKey`**（釘 person）——提名改指時 apply 顯式失敗，重新列出再決定，不要改手拼 id
 - **MCP 面的 apply 沒有 tier 閘**（per-id 顯式；閘只在 CLI 的篩選式批次）——LLM 走 MCP 批次時**自律等同 --tier**：一次呼叫只送同一 tier 的 id，initials 逐筆附查證
 - CLI 批次套用**必帶 `--tier`**（裸 `--apply` 面對寬鬆 tier 會拒絕）：`akashic resolve-people --apply --tier exact` 是安全的第一刀
-- reason 帶「已被否決」字樣的候選是**淘汰而得的唯一命中**——不是天然唯一，查證標準從嚴
+- reason 帶「已被否決」字樣的候選是**淘汰而得的唯一命中**——不是天然唯一，查證標準從嚴。CLI 的篩選式 `--apply` 不套用它（另列、指路 `--judge`）；MCP 列表以 `eliminatedPairings > 0` 標出它，逐 id apply 則照寫（#624）
 
 ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，**通常是不同的人**；`exact` 同名才是「各自歸屬 vs 該合併」的兩難判斷（person-verify 的兩種相反處置）。
 
@@ -157,7 +157,7 @@ ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，*
 
 1. **是同一人** → apply（同動作寫 confirmed verdict，rule 依 tier 分開記——`author-name-initials` 的校準史不會混進 exact）
 2. **不是** → reject（寫 rejected verdict；同 literal 他 entry 照提）
-3. **查不出來** → 不 apply、不 reject，literal 留著，查過的寫在報告；範圍含判不出來配對的那一批不要用 CLI 的 `--apply`（不論帶不帶 `--tier`／`--citekey`／`--person`，它都會帶走範圍內所有候選）；確認過的逐筆顯式送（#624）；只有查到兩筆以上 person 記錄本身可能是同一人時才 `akashic_record_divergence`，且先在回報裡建議，使用者確認後才記——divergence 記了沒有面刪得掉（#586）
+3. **查不出來** → 不 apply、不 reject，literal 留著，查過的寫在報告；範圍含判不出來配對的那一批不要用 CLI 的 `--apply`（不論帶不帶 `--tier`／`--citekey`／`--person`，它都會帶走範圍內的候選；只有淘汰而得的唯一候選會被它排除，查過未決的它看不到，#619）；確認過的逐筆顯式送（#624）；只有查到兩筆以上 person 記錄本身可能是同一人時才 `akashic_record_divergence`，且先在回報裡建議，使用者確認後才記——divergence 記了沒有面刪得掉（#586）
 
 **候選不在列時，先分辨三種原因再行動**（順序固定，跳過任一步都可能鑄造重複身分）：
 

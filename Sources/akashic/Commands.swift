@@ -1515,7 +1515,7 @@ struct ResolvePeople: ParsableCommand {
     /// 而批次會讓它退化成罐頭字串——罐頭 judgement 等於沒有判定。同 `mcp-cli-parity`
     /// 已載明的既有不對稱（tier 閘只加在 CLI 的篩選式批次）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式")
+            help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式。同一次呼叫把同一個作者位判給兩個人整批拒絕；citekey 重複或與另一筆共用 id 的 work 該筆略過並具名；全部略過時沒有寫入、非零結束（#627）")
     var judge: [String] = []
 
     /// **團體作者的升格**（#443）：`.literal` → `.organization`。
@@ -1699,7 +1699,7 @@ struct ResolvePeople: ParsableCommand {
                 : try service.resolvePeople(apply: nil, refute: refute)
             let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
             let rows = (parsed?[confirming ? "judged" : "refuted"] as? [[String: Any]]) ?? []
-            print("✓ \(confirming ? "判定" : "否決") \(rows.count) 個作者位、改寫 \(parsed?["entriesRewritten"] as? Int ?? 0) 筆 work、"
+            print("\(rows.isEmpty ? "⚠" : "✓") \(confirming ? "判定" : "否決") \(rows.count) 個作者位、改寫 \(parsed?["entriesRewritten"] as? Int ?? 0) 筆 work、"
                   + "\(parsed?["personsRewritten"] as? Int ?? 0) 筆 person 記錄、"
                   // #627 R2：什麼都沒寫時 service 不重建 index——不能照舊說「已重建」
                   + (rows.isEmpty ? "沒有寫入、index 未重建" : "index 已重建"))
@@ -1714,11 +1714,14 @@ struct ResolvePeople: ParsableCommand {
             let skipped = (parsed?["skipped"] as? [[String: Any]]) ?? []
             if !skipped.isEmpty {
                 print("")
-                print("略過 \(skipped.count) 筆（store 狀態不符；其餘已落地）：")
+                // #627 R3：全部略過時沒有「其餘」——不能說其餘已落地
+                print("略過 \(skipped.count) 筆（store 狀態不符；\(rows.isEmpty ? "沒有任何一筆落地" : "其餘已落地")）：")
                 for sk in skipped {
                     print("  \(sk["id"] as? String ?? "?")  ——\(sk["why"] as? String ?? "")")   // display-safe-exempt: service 已消毒
                 }
             }
+            // 全部略過＝什麼都沒發生——非零結束，與 --apply 全數排除時同語意（#624／#627）
+            if rows.isEmpty, !skipped.isEmpty { throw ExitCode(1) }
             return
         }
 
@@ -1998,7 +2001,7 @@ struct ResolvePeople: ParsableCommand {
                 for c in duplicateSkipped {
                     print("  \(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))")
                 }
-                print("  → 先修正重複的 citekey（akashic validate 會列出），再重跑（#627）")
+                print("  → 先修正重複的 citekey 或共用的 id 再重跑——重複 citekey 由 akashic validate 列出，共用 id 在 index 重建時以 UNIQUE entries.uuid 報出（#627）")
             }
             if applySet.isEmpty {
                 throw ValidationError(

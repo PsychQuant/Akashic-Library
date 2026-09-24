@@ -85,7 +85,8 @@ final class DuplicateCitekeyResolveTests: XCTestCase {
             "d2021:0:cheng-che=查證：論文機構相符"])) { err in
             let text = "\(err)"
             XCTAssertTrue(text.contains("index rebuild 失敗") && text.contains("略過 1 筆")
-                          && text.contains("c2020:0:cheng-che"), "要具名略過：\(text)")
+                          && text.contains("c2020:0:cheng-che")
+                          && text.contains("已判定 1 筆") && text.contains("d2021:0:cheng-che"), "要具名略過並列出已落地的：\(text)")
         }
         try duplicatesUntouched()
         let d = try XCTUnwrap(try store.load().entries.first { $0.citekey == "d2021" })
@@ -110,6 +111,11 @@ final class DuplicateCitekeyResolveTests: XCTestCase {
         XCTAssertEqual(d.authors, [.literal("Che Cheng")])
         XCTAssertFalse(try store.load().people.contains { p in
             p.references.contains { ($0.value ?? "").contains("work:d2021 ") } })
+        // 同一人、同一位置、索引寫法不同：是重複的 id，不是「判給了兩個人」（R3）
+        XCTAssertThrowsError(try service.resolvePeople(apply: nil, judge: [
+            "d2021:0:cheng-che=論文機構相符", "d2021:00:cheng-che=同一個"])) { err in
+            XCTAssertTrue("\(err)".contains("重複") && !"\(err)".contains("判給了兩個人"), "\(err)")
+        }
         // 同一個位置否決兩個人選是合法的。這個 fixture 有重複 citekey，寫入後 rebuild 必然失敗
         // （既有損壞態）——所以不看有沒有丟錯，只看兩筆否決都落地、而且不是「判給了兩個人」的拒絕
         do {
@@ -233,12 +239,11 @@ final class SharedUUIDResolveTests: XCTestCase {
     func testJudgeOnSharedUUIDSkipsByNameWithoutVerdict() throws {
         try seed(legacyCitekey: "y2019", legacyTitle: "Other", legacyLiteral: "Ulf Olsson")
         let before = try Data(contentsOf: entitiesFile)
-        let out = try? service.resolvePeople(apply: nil, judge: ["y2019:0:cheng-che=查證：論文機構相符"])
-        if let out {
-            let json = try JSONSerialization.jsonObject(with: Data(out.utf8)) as! [String: Any]
-            let text = String(decoding: try JSONSerialization.data(withJSONObject: json["skipped"] ?? []), as: UTF8.self)
-            XCTAssertTrue(text.contains("共用 id") && text.contains("y2019"), text)
-        }
+        // 沒有寫入 → 不重建 index，所以損壞態的 store 也回得出逐筆的具名略過（R3：先前以 try? 包住、條件式斷言）
+        let out = try service.resolvePeople(apply: nil, judge: ["y2019:0:cheng-che=查證：論文機構相符"])
+        let json = try JSONSerialization.jsonObject(with: Data(out.utf8)) as! [String: Any]
+        let text = String(decoding: try JSONSerialization.data(withJSONObject: json["skipped"] ?? []), as: UTF8.self)
+        XCTAssertTrue(text.contains("共用 id") && text.contains("y2019"), text)
         XCTAssertEqual(try Data(contentsOf: entitiesFile), before)
         try noVerdict(on: "y2019")
     }

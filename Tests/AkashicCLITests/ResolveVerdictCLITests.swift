@@ -155,6 +155,19 @@ final class ResolveVerdictCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("citekey 重複"), "要另列：\n\(r.output)")
     }
 
+    /// #627 R3：judge 全部略過時沒有寫入——不印 ✓、不說「其餘已落地」、非零結束。
+    func testJudgeAllSkippedExitsNonZeroWithoutClaimingWrites() throws {
+        try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng"]))
+        for title in ["A", "B"] {
+            try store.writeEntry(Entry(id: UUID(), citekey: "c2020", type: .periodicalArticle,
+                                       title: title, authors: [.literal("Che Cheng")], date: "2020"))
+        }
+        let r = try runCLI(["resolve-people", "--judge", "c2020:0:cheng-che=論文機構相符"])
+        XCTAssertNotEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("沒有任何一筆落地") && r.output.contains("index 未重建"), r.output)
+        XCTAssertFalse(r.output.contains("✓"), r.output)
+    }
+
     /// fall-through：exact 唯一命中被否決 → initials 冒出另一個人（淘汰所得）。
     /// tier 閘看排除後的套用集，所以裸 --apply 不該為了一筆終究不套用的 initials 擋下整批。
     func testTierGateIgnoresEliminatedLooseSurvivor() throws {

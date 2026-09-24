@@ -1129,7 +1129,9 @@ public final class AkashicService {
                     + "citekey:authorIndex:personKey")
             }
             let (citekey, personKey) = (parts[0], parts[2])
-            guard seen.insert(id).inserted else {
+            // #627 R3：以解析後的形式去重——`d:0:p` 與 `d:00:p` 是同一個判定，不得被下一道
+            // 「判給了兩個人」的檢查接住（那句話對同一人是假的）
+            guard seen.insert("\(citekey):\(idx):\(personKey)").inserted else {   // display-safe-exempt: 集合鍵，不輸出
                 throw ServiceError.invalid(
                     "判定 id「\(displaySafeInvisible(id, max: 200))」重複——同一個作者位不得在一次"
                     + "呼叫裡判兩次（兩句 judgement 只有一句會留下）")
@@ -1232,8 +1234,15 @@ public final class AkashicService {
         } catch {
             // 略過的逐筆 id 不能被 rebuild 錯誤吞掉——損壞態的 store 正是會略過的那種 store。
             // 理由不在此重印：它們已對 JSON 出口消毒過，再逃一次會雙重跳脫（displaySafe 不冪等）
-            let skippedIDs = skipped.map { displaySafeInvisible($0.id, max: 200) }.joined(separator: "、")
-            throw ServiceError.invalid("index rebuild 失敗：\(displaySafeError(error, max: 512))（本批已改寫 \(wroteEntries) 筆 work、\(grouped.count) 筆 person 記錄；略過 \(skipped.count) 筆：\(skippedIDs)——略過的是 store 狀態不符的判定，例如 citekey 重複或與另一筆共用 id、work 不存在、作者位已歸戶）")   // display-safe-exempt: wroteEntries／count 是 Int；skippedIDs 已逐筆 displaySafeInvisible
+            // 已判定（已落地）與略過的 id 都列出——那時寫入已落地，呼叫端要對得上帳。各至多 20 筆。
+            let cap = 20
+            let list = { (ids: [String]) -> String in
+                let shown = ids.prefix(cap).map { displaySafeInvisible($0, max: 200) }.joined(separator: "、")
+                return ids.count > cap ? shown + "…另 " + String(ids.count - cap) + " 筆" : shown
+            }
+            let judgedIDs = list(pairings.map { $0.citekey + ":" + String($0.authorIndex) + ":" + $0.personKey })
+            let skippedIDs = list(skipped.map(\.id))
+            throw ServiceError.invalid("index rebuild 失敗：\(displaySafeError(error, max: 512))（本批已改寫 \(wroteEntries) 筆 work、\(grouped.count) 筆 person 記錄；已判定 \(pairings.count) 筆：\(judgedIDs)；略過 \(skipped.count) 筆：\(skippedIDs)——略過的是 store 狀態不符的判定，例如 citekey 重複或與另一筆共用 id、work 不存在、作者位已歸戶）")   // display-safe-exempt: wroteEntries／count 是 Int；judgedIDs／skippedIDs 已逐筆 displaySafeInvisible
         } }
 
         return try jsonString([

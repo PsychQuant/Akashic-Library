@@ -70,7 +70,7 @@ code:
 ---
 ### Requirement: A write SHALL NOT overwrite an entity file holding another record (#631)
 
-In the entities layout every record is written to `entities/<id>.yaml`. Before writing, the system SHALL confirm that the destination either does not exist or decodes to a record of the same shape and the same identifier; otherwise it SHALL refuse the write by name and leave the destination untouched. A work SHALL NOT be written while a legacy copy of the same record (`entries/<citekey>.yaml` with the same identifier) exists, and a rename SHALL NOT proceed while the legacy copy under the old citekey exists. The system SHALL NOT delete either copy on the user's behalf.
+In the entities layout every record is written to `entities/<id>.yaml`. Before writing, the system SHALL confirm that the destination either does not exist or decodes to a record of the same shape and the same identifier; otherwise it SHALL refuse the write by name and leave the destination untouched. When a work or person exists only as a legacy copy (`entries/<citekey>.yaml` or `people/<key>.yaml` with the same identifier, and no file under `entities/`), writing it SHALL move it: the record is written under `entities/` and the legacy copy is removed, because the single copy is the source of the new content. When both a legacy copy and the `entities/` file exist for the same identifier, the write SHALL be refused by name and neither copy SHALL be deleted, because the two may have diverged. Multi-file operations (rename, rename-person, merges, venue apply) SHALL run these checks for every record they will write before the first write. A destination quarantined for its shape label, its identifier or an invalid key counts as holding another record.
 
 #### Scenario: The destination is a quarantined record
 
@@ -78,11 +78,17 @@ In the entities layout every record is written to `entities/<id>.yaml`. Before w
 - **WHEN** any writer writes a record with that identifier
 - **THEN** the write is refused by name and the destination's bytes are unchanged
 
-#### Scenario: A legacy copy of the same record still exists
+#### Scenario: A record that exists only as a legacy copy is moved
 
-- **GIVEN** a work that still has `entries/<citekey>.yaml` with the same identifier
+- **GIVEN** a work whose only copy is `entries/<citekey>.yaml`
 - **WHEN** the work is written or renamed
-- **THEN** the write or rename is refused by name, no second copy is created under `entities/`, and the legacy copy is left in place
+- **THEN** the record is written under `entities/` and the legacy copy is removed, leaving exactly one copy
+
+#### Scenario: Both a legacy copy and the entities file exist
+
+- **GIVEN** a work with both `entries/<citekey>.yaml` and `entities/<id>.yaml` for the same identifier
+- **WHEN** the work is written
+- **THEN** the write is refused by name and both files are unchanged
 
 ### Requirement: Shape labels SHALL be drawn from a closed set
 

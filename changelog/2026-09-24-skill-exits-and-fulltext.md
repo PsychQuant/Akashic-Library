@@ -64,7 +64,13 @@ entities 佈局下，五個 entity 寫入者都以 id 定檔，過去一律無�
 - legacy `entries/<ck>.yaml` 殘留時，寫入會造出同 id 的第二份拷貝，被編輯過的那份安靜分岔。
 - `rename` 讓兩個 citekey 共用同一個 UUID。
 
-現在寫入前先確認目的檔：它必須不存在，或解碼出同一種記錄、同一個 id。不符就具名拒寫，目的檔不動。work 另外確認同 id 的 legacy 拷貝不在；`rename` 在任何寫入之前確認舊 citekey 的 legacy 拷貝不在。只拒寫，不刪檔：兩份拷貝可能已經分岔，留哪一份是人的判定。已有逐筆收容的呼叫端（apply 的 `writeFailed` 等）照常具名回報。
+現在寫入前先確認目的檔：它必須不存在，或解碼出同一種記錄、同一個 id。形狀標籤用 load 同一套嚴格度，key 不合法也算。不符就具名拒寫，目的檔不動。
+
+legacy 拷貝分兩種情形（使用者 2026-09-24 裁決）：
+- **只有 legacy 一份**：寫入時搬移，寫進 `entities/` 之後刪掉 legacy 檔。新內容本來就是從那一份讀出來再改的，搬移不遺失任何東西；store 受 git 追蹤，可還原。work 與 person 都一樣；rename 與 rename-person 的舊 key 單份也一併搬移。
+- **兩份都在**：拒寫，兩份都不動。兩份可能已經分岔，留哪一份是人的判定。
+
+第一版只做到「只拒不刪」，R1 驗證以真 binary 重現了代價。一筆只住在 legacy 的 work 本身不是重複，validate 也說全部通過。但 rename、rename-person、合併、venue apply 寫到一半才撞上拒絕，store 被撕成一半：本筆已改名，其他 work 仍指向舊的 citekey；作者 key 指向已經不存在的 person。現在這幾個多檔操作在第一次寫入之前，對每一筆都跑同一套檢查。
 
 有兩支 Zotero 測試原本把「既有 entry」寫進 `entries/`，在 entities 佈局的 store 裡，那正是這道閘要擋的遷移殘留。這兩支測試要驗的是未知欄位與 encode 失敗，所以 fixture 改寫到 `entities/<id>.yaml`。
 
@@ -75,7 +81,9 @@ entities 佈局下，五個 entity 寫入者都以 id 定檔，過去一律無�
 - `library add`／`remove`：整批拒絕。
 - `enrich`：該筆歸 `ambiguous`，理由與「DOI 命中多筆」分開說，其餘照補。
 - `enrich-from-zotero`：歸新的 `unlocatable` 類。它在交給 core 之前先分流，因為 adapter 對 core 的 `ambiguous` 設了 precondition。
-- resolve-venues 的 apply／reject／repoint／demote、resolve-organizations 的 apply／reject（作者位）：顯式 id 整批拒絕，MCP 列表標 `unlocatableCitekey`。CLI resolve-organizations 的篩選式批次排除這些候選並另列。
+- resolve-venues 的 apply：逐筆略過並具名（`skippedUnlocatable`），沿用 D33 的既有契約。第一版整批拒絕，R1 驗證指出一筆毒候選會拖垮同批無關的候選。
+- resolve-venues 的 reject／repoint／demote、resolve-organizations 的 apply／reject（作者位）：顯式 id 整批拒絕，MCP 列表標 `unlocatableCitekey`。CLI resolve-organizations 的篩選式批次排除這些候選並另列，列表模式也標出來。
+- tag／link／set-status（經 `requireEntry`）與 App 的 `mutate`：拒絕並具名。這幾個是 R1 驗證補抓到的。
 - `VenueResolver.apply` 與 `OrgResolver.apply`：比照 `PersonResolver.apply`，以陣列位置就地改寫。
 
 ## #635：resolve-people 的 judge／refute 不再靜默丟掉同時送出的其他腿

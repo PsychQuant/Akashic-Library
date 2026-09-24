@@ -135,6 +135,26 @@ final class ResolveVerdictCLITests: XCTestCase {
         XCTAssertTrue(line?.contains("淘汰而得") == true, "列表模式就要標出來：\n\(r.output)")
     }
 
+    /// #627：citekey 重複的候選不進篩選式批次——排除並另列，其餘照寫（不讓整批卡死）
+    func testFilteredApplyExcludesDuplicateCitekeyAndWritesTheRest() throws {
+        try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng"]))
+        try store.writePerson(Person(key: "olsson-ulf", names: ["Ulf Olsson"]))
+        for title in ["A", "B"] {
+            try store.writeEntry(Entry(id: UUID(), citekey: "c2020", type: .periodicalArticle,
+                                       title: title, authors: [.literal("Che Cheng")], date: "2020"))
+        }
+        try store.writeEntry(Entry(id: UUID(), citekey: "b2021y", type: .periodicalArticle,
+                                   title: "U", authors: [.literal("Ulf Olsson")], date: "2021"))
+        let r = try runCLI(["resolve-people", "--apply", "--tier", "exact"])
+        // 不斷言結束碼：重複 citekey 的 store 本來就重建不了 index（UNIQUE），寫入之後
+        // 的 rebuild 必然失敗——那是既有行為（validate 另行報告），不是本測試要驗的
+        let load = try reload()
+        XCTAssertEqual(load.entries.filter { $0.citekey == "c2020" }.map(\.authors),
+                       [[.literal("Che Cheng")], [.literal("Che Cheng")]], "重複 citekey 的兩筆都不動：\n\(r.output)")
+        XCTAssertEqual(load.entries.first { $0.citekey == "b2021y" }!.authors, [.key("olsson-ulf")])
+        XCTAssertTrue(r.output.contains("citekey 重複"), "要另列：\n\(r.output)")
+    }
+
     /// fall-through：exact 唯一命中被否決 → initials 冒出另一個人（淘汰所得）。
     /// tier 閘看排除後的套用集，所以裸 --apply 不該為了一筆終究不套用的 initials 擋下整批。
     func testTierGateIgnoresEliminatedLooseSurvivor() throws {

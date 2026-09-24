@@ -1759,8 +1759,12 @@ struct ResolvePeople: ParsableCommand {
         // 那會把排除變回一鍵可關的預設，正是 #624 要防的形狀。
         // 下面的 tier 閘看的是**排除後**的套用集——排除掉的列不會被套用，不該讓閘為它們擋下
         // 整批、或叫人去具名一個最後仍會被排除的 tier（#624 R1 verify）。
-        let applySet = candidates.filter { $0.eliminatedPairings == 0 }
-        let eliminatedSkipped = candidates.filter { $0.eliminatedPairings > 0 }
+        // #627：citekey 重複的候選同樣不進批次——以 citekey 定位會猜是哪一筆。比照淘汰所得
+        // 排除並另列，而不是讓 service 端的拒絕把整批卡死。
+        let duplicatedCK = load.entries.duplicatedCitekeys
+        let duplicateSkipped = candidates.filter { duplicatedCK.contains($0.citekey) }
+        let applySet = candidates.filter { $0.eliminatedPairings == 0 && !duplicatedCK.contains($0.citekey) }
+        let eliminatedSkipped = candidates.filter { $0.eliminatedPairings > 0 && !duplicatedCK.contains($0.citekey) }
         // R1-fix B1＋R2-fix R3-3（使用者裁決：不豁免）：套用集含寬鬆 tier 時，
         // **不論怎麼收窄**都要 `--tier` 具名——`--person` 恰是同名碰撞問題最糟的
         // 收窄軸（它選中的正是同鍵列；R2 live probe：--person 一發寫 5 筆 initials
@@ -1945,7 +1949,8 @@ struct ResolvePeople: ParsableCommand {
             printAmbiguities()   // 沒有唯一候選時，歧義**更**該被看見
             return
         }
-        let selected = Set(applySet.map { "\($0.citekey)#\($0.authorIndex)" })   // display-safe-exempt: 內部 Set 的成員判定鍵，不進輸出面
+        // 以候選本身（pinned id）判斷，不以位置——重複 citekey 下位置不唯一（#627）
+        let selected = Set(applySet.map(\.pinnedID))
         // #303 design D4：按 tier 分組列印（resolver 已依信心降冪排序，分組只加標頭）。
         // tier 越低證據越弱——initials 段的標頭直接把查證義務講出來，讀的人不必翻文件。
         let tierHeadline: [ResolutionTier: String] = [
@@ -1961,9 +1966,10 @@ struct ResolvePeople: ParsableCommand {
                 printedTier = c.tier
             }
             // 被篩掉的候選仍列出，但標明不會套用——收窄範圍不等於「其他不存在」
-            let mark = (apply && !selected.contains("\(c.citekey)#\(c.authorIndex)")) ? "  (skip) " : "  "
+            let mark = (apply && !selected.contains(c.pinnedID)) ? "  (skip) " : "  "
             // #624：列表模式也標出淘汰所得——不必等到 --apply 才知道哪幾列不會被套用
-            let tag = c.eliminatedPairings > 0 ? " ⟨淘汰而得：--apply 不套用，要逐筆 --judge⟩" : ""
+            let tag = duplicatedCK.contains(c.citekey) ? " ⟨citekey 重複：--apply 不套用，先修正重複的 citekey⟩"
+                : c.eliminatedPairings > 0 ? " ⟨淘汰而得：--apply 不套用，要逐筆 --judge⟩" : ""
             print("\(mark)\(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（\(displaySafe(c.reason, max: 300))）\(tag)")
         }
         printCountsAndSunk()
@@ -1983,10 +1989,17 @@ struct ResolvePeople: ParsableCommand {
                 }
                 print("  → 查證後逐筆送：resolve-people --judge <citekey:authorIndex:personKey>=理由，或 MCP 以三段 id apply（#624）")
             }
+            if !duplicateSkipped.isEmpty {
+                print("\n⚠ citekey 重複的候選 \(duplicateSkipped.count) 筆不套用（無法確定是哪一筆 work）：")
+                for c in duplicateSkipped {
+                    print("  \(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))")
+                }
+                print("  → 先修正重複的 citekey（akashic validate 會列出），再重跑（#627）")
+            }
             if applySet.isEmpty {
                 throw ValidationError(
-                    "套用集只剩淘汰而得的唯一候選（\(eliminatedSkipped.count) 筆），不寫入——"
-                    + "它們要逐筆判定：--judge <citekey:authorIndex:personKey>=理由")
+                    "套用集沒有可套用的候選（淘汰而得 \(eliminatedSkipped.count) 筆、citekey 重複 \(duplicateSkipped.count) 筆），不寫入——"
+                    + "淘汰而得的要逐筆 --judge <citekey:authorIndex:personKey>=理由；citekey 重複的先修正")
             }
             // #232：apply 改走 **AkashicService**（與 MCP 同一條實作路徑）——
             // service 端做 per-item 收容（R7/M21）、先報失敗再 rebuild（R9/M8）、

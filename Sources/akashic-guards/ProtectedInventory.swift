@@ -42,11 +42,17 @@ func protectedInventory() -> (guards: [String], data: [String]) {
     let GENERATORS: Set<String> = ["derive-hash-extenders.swift"]
     // **逐段相加而非一個大表達式**：合成一式時 Swift 的型別檢查逾時（實測），
     // 而那個失敗看起來像「這段程式有問題」而不是「這一式太長」。
-    var scripts: [String] = globFiles("plugin/tests/*.sh")
-    scripts += globFiles("plugin/tests/*.py")
-    scripts += globFiles("plugin/skills/*/scripts/tests/*.sh")
-    scripts += globFiles("plugin/skills/*/scripts/tests/*.py")
-    scripts += globFiles("plugin/skills/*/scripts/tests/*.swift")
+    // #625：同一組 pattern 套到**每一個** plugin 根（原本只有 `plugin/`——放在
+    // `plugins/<name>/` 的測試被刪或沒接線，沒有一道守衛會出聲）。根目錄來自唯一來源
+    // `pluginRoots()`；負對照見 `plugin-roots-mutations`。
+    var scripts: [String] = []
+    for root in pluginRoots() {
+        for pat in ["tests/*.sh", "tests/*.py", "skills/*/scripts/tests/*.sh",
+                    "skills/*/scripts/tests/*.py", "skills/*/scripts/tests/*.swift"] {
+            scripts += globFiles("\(root)/\(pat)")
+        }
+    }
+    scripts = realRepoRelative(scripts)
     let GUARDS = (scripts.filter { !GENERATORS.contains(base($0)) } + swiftGuards()).sorted()
 
     // 守衛之外，還被守衛讀的東西。**每一條都必須存在**（坑 1）。
@@ -162,7 +168,12 @@ func protectedInventory() -> (guards: [String], data: [String]) {
     // **兩個 glob 根要對稱**（#407 R50）：`.claude/rules/*.md` 已升成 live glob，而
     // 這一側曾是單一寫死路徑。`plugin/rules/` 一長出第二個檔，`declared()` 就會再次
     // **少解析**——正是那次改動要修的病，只是換到另一側。
-    DATA += globFiles("plugin/rules/*.md").sorted()
+    // 每個根的 `rules/*.md`，**還原真實路徑後去重**：discovery 的 `rules` 是指向
+    // `plugin/rules` 的 symlink，而只有最後一段萬用字元的 glob 會穿過它（#625 tasks 1.1
+    // 實測）——不還原的話同一條規則會以兩個路徑成為兩個受保護成員。
+    DATA += realRepoRelative(pluginRoots().flatMap { globFiles("\($0)/rules/*.md") }).sorted()
+    // #625：marketplace 與各 plugin 的 manifest（`marketplace-consistency` 讀它們）
+    DATA += [".claude-plugin/marketplace.json"] + pluginRoots().map { "\($0)/\(pluginManifestRel)" }
     DATA += ["Sources/AkashicStoreIO/StoreVersion.swift", "Sources/AkashicCore/Venue.swift"]
     // repo 規則檔是 `measured-numbers-audit` 的輸入（#407 R48）。先前不在此列，於是
     // 那支守衛對 `.claude/rules/*.md` 的宣告**解析不到任何受保護檔**——宣告寫了卻等於
@@ -173,5 +184,21 @@ func protectedInventory() -> (guards: [String], data: [String]) {
     // #522：棘輪檔是 protected-ratchet 的輸入。**它自己也進清單**——那樣「棘輪檔被刪掉」
     // 除了 protected-ratchet 自己的 rc=2 之外，missing 檢查也會具名它。
     DATA += [".githooks/protected-ratchet.txt"]
+    // 顯式條目與推導出的 manifest 會重疊（`plugin/.claude-plugin/plugin.json`）；保序去重
+    var seen = Set<String>()
+    DATA = DATA.filter { seen.insert($0).inserted }
     return (GUARDS, DATA)
+}
+
+/// glob 結果還原成真實的 repo 相對路徑並保序去重（#625）。經 symlink 才到達的檔以它的
+/// 真實位置計一次。還原後落在 repo 外的（指向外部的 symlink）保留原路徑，不靜默丟棄。
+func realRepoRelative(_ paths: [String]) -> [String] {
+    let base = URL(fileURLWithPath: repoRoot).resolvingSymlinksInPath().path + "/"
+    var seen = Set<String>(), out: [String] = []
+    for p in paths {
+        let real = URL(fileURLWithPath: "\(repoRoot)/\(p)").resolvingSymlinksInPath().path
+        let rel = real.hasPrefix(base) ? String(real.dropFirst(base.count)) : p
+        if seen.insert(rel).inserted { out.append(rel) }
+    }
+    return out
 }

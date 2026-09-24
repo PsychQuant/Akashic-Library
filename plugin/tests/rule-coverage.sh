@@ -13,11 +13,21 @@
 #
 # 用法
 # ====
-#   plugin/tests/rule-coverage.sh
+#   plugin/tests/rule-coverage.sh [plugin-root]
+#
+#   plugin-root：repo 相對路徑（例：plugins/akashic-discovery），省略時為 `plugin`。
+#   守衛入口以 `akashic-guards plugin-roots` 逐根呼叫——清單只有那一份（#625）。
 set -uo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-PLUGIN=$(cd "$HERE/.." && pwd)
+if [ $# -ge 1 ]; then
+  # 找不到就停，**不退回檢查 `plugin/`**：退回的話打錯的根會拿到一個與它無關的綠燈
+  REPO=$(cd "$HERE/../.." && pwd)
+  [ -d "$REPO/$1" ] || { echo "✗ 找不到 plugin 根：$1" >&2; exit 2; }
+  PLUGIN=$(cd "$REPO/$1" && pwd)
+else
+  PLUGIN=$(cd "$HERE/.." && pwd)
+fi
 # 這支用 glob 定位規則檔，從不寫出任何 basename——trigger-coverage.py 的
 # 啟發式因此看不見這條依賴（#407 R20 實測）。顯式宣告補上：
 # trigger-coverage: reads plugin/rules/*.md
@@ -25,10 +35,16 @@ RULES="$PLUGIN/rules"
 SKILLS="$PLUGIN/skills"
 
 [ -d "$RULES" ]  || { echo "✗ 找不到 $RULES" >&2; exit 2; }
-[ -d "$SKILLS" ] || { echo "✗ 找不到 $SKILLS" >&2; exit 2; }
 
 fail=0
-n_skills=$(find "$SKILLS" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+n_skills=0
+[ -d "$SKILLS" ] && n_skills=$(find "$SKILLS" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+# #625：0 個 skill 是 vacuous 通過，**印出來**——讀的人要分得出「沒有 skill」與「沒檢查」。
+# 新 plugin 在第一個 skill 住進來之前就是這個狀態（akashic-discovery 先於 #617 上線）。
+if [ "$n_skills" -eq 0 ]; then
+  echo "═══ rule coverage：${PLUGIN#"$(cd "$HERE/../.." && pwd)"/} 有 0 個 skill（vacuous）═══"
+  exit 0
+fi
 echo "═══ rule coverage：${n_skills} 個 skill ═══"
 echo
 

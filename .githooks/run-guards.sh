@@ -30,7 +30,16 @@ if [ ! -x .build/debug/akashic-guards ]; then
   exit 1
 fi
 
-bash plugin/tests/rule-coverage.sh
+# #625：rule-coverage 逐個 plugin 根跑。根目錄清單只有 `akashic-guards plugin-roots`
+# 那一份，這裡不另存。清單為空要紅——否則迴圈跑零次、照樣綠燈。
+plugin_roots=$(.build/debug/akashic-guards plugin-roots)
+[ -n "$plugin_roots" ] || { echo "✗ akashic-guards plugin-roots 沒有輸出任何根"; exit 1; }
+for root in $plugin_roots; do
+  bash plugin/tests/rule-coverage.sh "$root"
+done
+# #625：官方 plugin／marketplace 驗證（`--json` ＋ 只有一項的封閉允許清單，理由在
+# `OfficialValidate.swift` 開頭）。沒有 claude CLI 時（CI runner）印出略過——不靜默。
+.build/debug/akashic-guards official-validate
 # 逐條重建審查者宣稱的失敗情境——一條 finding 若重建不出它宣稱的失敗，
 # 那條就是未經量測的（#407 R10 的九條裡有一條正是如此）。
 bash plugin/tests/review-claim-audit.sh
@@ -70,6 +79,10 @@ bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh
 # `t.replace(字面, 字面)`，而 harness 斷言注入必須真的改到東西，手抄一個空白之差會讓
 # case 靜默失效而輸出看起來像「被注入的檔案改了」。
 .build/debug/akashic-guards trigger-coverage-mutations
+# #625：檔案系統上的 plugin 根與 marketplace manifest 雙向一致（五類封閉列舉），
+# 以及 plugin/ 以外的根真的被守衛看見的負對照（每格含對照組）。
+.build/debug/akashic-guards marketplace-consistency
+.build/debug/akashic-guards plugin-roots-mutations
 # 那張四列判準表的現查（#407 R26b）——表自己的四個宣稱也是可否證的。
 # 語法相容性要**最先**跑（#394 verify R9）：它便宜（秒級）,而它防的失效會讓
 # `guard-python-compat.py` 已退場（#433 Step 5）：它的存在理由是「Python 守衛要能在

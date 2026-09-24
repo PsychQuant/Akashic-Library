@@ -62,6 +62,10 @@ on:
       # 額度燒光正是這個形狀，所以這不是零成本的決定——但它是**必然的**，除非在 ubuntu
       # 裝 Swift（#435 的候選一與二，兩者都無法在 CI 恢復前驗證）。
       - "plugin/**"
+      # #625：`plugin/` 以外的 plugin 根與 marketplace manifest。守衛逐根涵蓋它們
+      # （`plugin-roots`），而只改這兩處的 push 若不觸發這裡，那些守衛就沒人跑。
+      - "plugins/**"
+      - ".claude-plugin/**"
       - "Sources/AkashicCore/Venue.swift"
       # trigger-coverage 讀這兩處——**改觸發點本身就該重跑它**（#407 R19）。
       - ".github/workflows/**"

@@ -11,7 +11,7 @@
 
 守衛刻意**不寫死 13**——寫死就是製造第三份副本，而它會與另外兩份分岔。
 """
-import pathlib, re, sys
+import json, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -33,21 +33,16 @@ DECLARERS = [
     "mcpb/manifest.json",                  # Claude Desktop 一鍵安裝的出貨物
 ]
 
-# **第四份在另一個 repo，本守衛讀不到它**（#408 verify R7 ②）。
+# **第四份曾在另一個 repo**（#408 verify R7 ②）：psychquant-claude-plugins 的 marketplace
+# 條目有一份人工複製的 description，實測寫著過期的 **Store format 10**，而 `/plugin` 顯示的
+# 正是**那一份**。
 #
-# `psychquant-claude-plugins/.claude-plugin/marketplace.json` 有一份逐字相同的
-# description，實測仍寫 **Store format 10**——而 `/plugin marketplace` 顯示的是
-# **那一份**，不是本 repo 的 plugin.json。也就是說：**使用者真正看到的那格是壞的，
-# 而它不在任何守衛的視野內。**
-#
-# 「讀不到」不等於「可以不提」（`lossless-intake`：丟棄必須可見）。所以成功訊息
-# **具名說出涵蓋不到什麼**——一個無條件的 ✓ 會讓維護者讀成「這個類別已經關閉」，
-# 而那正是第六輪 CRITICAL 的原形（當時是三分之二，現在是四分之三）。
-#
-# 退場條件：`/devtools:plugin-update` 若日後把 marketplace.json 的 description 改成
-# 從 plugin.json 現讀（而非人工複製），這條註記與下方那行輸出可一併移除。
-UNCOVERED = "psychquant-claude-plugins/.claude-plugin/marketplace.json（跨 repo，"\
-            "由 /devtools:plugin-update 負責；`/plugin marketplace` 顯示的是它）"
+# #625 起 marketplace 搬進本 repo（`.claude-plugin/marketplace.json`），外部條目移除，而本 repo
+# 的條目**不帶** description。2026-09-24 實測（`claude plugin list --available --json`，探針
+# marketplace 兩個條目對照）：條目沒寫時顯示回落到 plugin.json 的描述；條目有寫時**條目覆蓋**
+# plugin.json。所以第四份不再存在——**前提是條目一直不帶 description**。下方把這個前提變成
+# 一道會紅的檢查，而不是留一句註解：有人日後在條目加描述，就是重新製造那份會分岔的副本。
+MARKETPLACE = ".claude-plugin/marketplace.json"
 
 bad = []
 for rel in DECLARERS:
@@ -69,5 +64,15 @@ if bad:
          f"  mcpb/manifest.json 是**出貨物**（release-signed.sh 會 zip 進 .mcpb），\n"
          f"  它說謊的對象是 Claude Desktop 的安裝者。")
 
+mk = ROOT / MARKETPLACE
+if not mk.exists():
+    fail(f"{MARKETPLACE} 不存在——本守衛的前提（marketplace 在本 repo）不成立")
+with_desc = [p.get("name") for p in json.loads(mk.read_text(encoding="utf8")).get("plugins", [])
+             if "description" in p]
+if with_desc:
+    fail(f"{MARKETPLACE} 的條目帶了 description：{with_desc}\n"
+         f"  條目的描述會**覆蓋** plugin.json（2026-09-24 實測）——那就是第四份會分岔的副本。\n"
+         f"  拿掉它，讓 /plugin 回落到 plugin.json。")
+
 print(f"✓ {len(DECLARERS)} 份宣告與 StoreVersion.supported 一致（format {supported}）")
-print(f"  ⚠ 涵蓋不到：{UNCOVERED}")
+print(f"✓ {MARKETPLACE} 的條目不帶 description——/plugin 顯示的就是 plugin.json 那份")

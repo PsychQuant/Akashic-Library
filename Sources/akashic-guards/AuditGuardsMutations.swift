@@ -112,7 +112,9 @@ func auditGuardsMutations() -> Int32 {
         let tmp = NSTemporaryDirectory() + "audit-mut-" + UUID().uuidString
         try? fm.createDirectory(atPath: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(atPath: tmp) }
-        for sub in ["plugin", ".github", "Sources", ".githooks"] {
+        // #625：plugins/ 與 .claude-plugin/ 有受保護檔（各 plugin 的 manifest），不複製的話
+        // baseline 會以「受保護清單裡有不存在的路徑」全紅
+        for sub in ["plugin", "plugins", ".claude-plugin", ".github", "Sources", ".githooks"] {
             try? fm.copyItem(atPath: "\(repoRoot)/\(sub)", toPath: tmp + "/" + sub)
         }
         try? fm.createDirectory(atPath: tmp + "/.claude", withIntermediateDirectories: true)

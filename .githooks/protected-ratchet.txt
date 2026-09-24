@@ -1,3 +1,4 @@
+.claude-plugin/marketplace.json
 .claude/rules/apa7-is-the-work-floor.md
 .claude/rules/blocked-issues-must-be-scannable.md
 .claude/rules/disambiguate-before-irreversible-writes.md
@@ -26,11 +27,15 @@ Sources/akashic-guards/DecisionMatrixMutations.swift
 Sources/akashic-guards/LiteralScalarParity.swift
 Sources/akashic-guards/MarkerParityMutations.swift
 Sources/akashic-guards/MarkerParityMutationsData.swift
+Sources/akashic-guards/MarketplaceConsistency.swift
 Sources/akashic-guards/MeasuredClaimsAudit.swift
 Sources/akashic-guards/MeasuredNumbersAudit.swift
 Sources/akashic-guards/MigratedGuardControl.swift
+Sources/akashic-guards/OfficialValidate.swift
 Sources/akashic-guards/OraclePreconditionControl.swift
 Sources/akashic-guards/ParityTableDrift.swift
+Sources/akashic-guards/PluginRoots.swift
+Sources/akashic-guards/PluginRootsMutations.swift
 Sources/akashic-guards/ProtectedRatchet.swift
 Sources/akashic-guards/RuleProseGuards.swift
 Sources/akashic-guards/RuleProseGuardsMutations.swift
@@ -60,3 +65,4 @@ plugin/tests/ndjson-abstracts-to-proposals.py
 plugin/tests/plugin-store-format-parity.py
 plugin/tests/review-claim-audit.sh
 plugin/tests/rule-coverage.sh
+plugins/akashic-discovery/.claude-plugin/plugin.json

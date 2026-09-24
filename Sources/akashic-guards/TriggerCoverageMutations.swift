@@ -52,7 +52,9 @@ func triggerCoverageMutations() -> Int32 {
         let tmp = NSTemporaryDirectory() + "trig-mut-" + UUID().uuidString
         try? FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: tmp) }
-        for sub in ["plugin", ".github", ".githooks", "Sources"] {
+        // #625：plugins/ 與 .claude-plugin/ 有受保護檔（各 plugin 的 manifest），不複製的話
+        // baseline 會以「受保護清單裡有不存在的路徑」全紅
+        for sub in ["plugin", "plugins", ".claude-plugin", ".github", ".githooks", "Sources"] {
             let s = "\(repoRoot)/\(sub)"
             if FileManager.default.fileExists(atPath: s) {
                 try? FileManager.default.copyItem(atPath: s, toPath: tmp + "/" + sub)

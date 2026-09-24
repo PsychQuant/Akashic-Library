@@ -34,6 +34,9 @@ on:
     paths-ignore:
       - "**.md"
       - "plugin/**"
+      # #625：其他 plugin 根與 marketplace manifest 同樣不含 Swift——守衛由 census-parity 跑
+      - "plugins/**"
+      - ".claude-plugin/**"
       - ".claude/**"
 
 # **最小權限 ＋ 不留憑證**——與 `census-parity.yml` 同一條（#407 R8 HIGH 的理由）；本檔在 #554 R28 verify 第 35 列被指出漏了。

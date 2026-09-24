@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "akashic",
+  "description": "Akashic-Library 的 Claude Code plugins：canonical literature store MCP 與文獻探索 skills",
+  "owner": {
+    "name": "Che Cheng"
+  },
+  "plugins": [
+    {
+      "name": "akashic-mcp",
+      "source": "./plugin",
+      "category": "productivity"
+    },
+    {
+      "name": "akashic-discovery",
+      "source": "./plugins/akashic-discovery",
+      "category": "productivity"
+    }
+  ]
+}

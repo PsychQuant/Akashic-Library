@@ -15,7 +15,7 @@ cd "$REPO_ROOT"
 
 MANIFEST_VERSION=$(python3 -c "import json;print(json.load(open('$MCPB_DIR/manifest.json'))['version'])")
 [ "$MANIFEST_VERSION" = "$VERSION" ] || {
-  echo "✗ VERSION（$VERSION）與 mcpb/manifest.json（$MANIFEST_VERSION）不一致——先同步再 release"
+  echo "✗ VERSION（${VERSION}）與 mcpb/manifest.json（${MANIFEST_VERSION}）不一致——先同步再 release"
   exit 1
 }
 
@@ -43,8 +43,8 @@ swift build "${BUILD_ARGS[@]}"
 WANT=$(sed -nE 's/.*public static let supported = ([0-9]+).*/\1/p' Sources/AkashicStoreIO/StoreVersion.swift)
 GOT=$("$BUILT" --store-format </dev/null 2>/dev/null || true)
 [ -n "$WANT" ] && [ "$GOT" = "$WANT" ] || {
-  echo "✗ 冒煙檢查失敗：產物回報 store format「$GOT」，原始碼是「$WANT」——產物不是由當下的原始碼建出"; exit 1; }
-echo "  ✓ 產物 $BUILT（store format $GOT，與原始碼一致）"
+  echo "✗ 冒煙檢查失敗：產物回報 store format「${GOT}」，原始碼是「${WANT}」——產物不是由當下的原始碼建出"; exit 1; }
+echo "  ✓ 產物 ${BUILT}（store format ${GOT}，與原始碼一致）"
 
 echo "→ [2/6] Codesign（Developer ID + hardened runtime）"
 mkdir -p "$MCPB_DIR/server"

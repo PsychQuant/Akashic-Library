@@ -109,6 +109,53 @@ final class ReferencesExtractTests: XCTestCase {
         }
     }
 
+    /// T2b：頁首與版權聲明在參考文獻段只出現一次、但在全文每頁都有——仍是雜訊。
+    /// （#617 校準：參考文獻段只跨兩頁時，段內計數抓不到它們，於是併進了條目原文。）
+    func testRunningHeadsAreCountedAcrossTheWholeDocument() throws {
+        let text = """
+        Body text on page one.
+        IMAGINARY, AUTHORS, AND OTHERS
+        This document is copyrighted by the Imaginary Association.
+        Body text on page two.
+        IMAGINARY, AUTHORS, AND OTHERS
+        This document is copyrighted by the Imaginary Association.
+
+        References
+
+        Adams, J. K. (2001). First title. In B. Editor (Ed.), Book of chapters
+        This document is copyrighted by the Imaginary Association.
+        IMAGINARY, AUTHORS, AND OTHERS
+        (pp. 1–2). Imaginary Press.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.count, 2)
+        XCTAssertFalse(r.entries[0].raw.contains("copyrighted"), r.entries[0].raw)
+        XCTAssertFalse(r.entries[0].raw.contains("IMAGINARY, AUTHORS"), r.entries[0].raw)
+        XCTAssertTrue(r.entries[0].raw.hasSuffix("(pp. 1–2). Imaginary Press."), r.entries[0].raw)
+    }
+
+    /// T4b：年份區間（軟體手冊、多年報告）也是年份括號——否則這筆沒有年份，
+    /// 下一筆會被當成續行併進來（#617 校準：一篇 63 筆的清單因此切成 62 筆）。
+    func testYearRangeIsAYearParen() throws {
+        let text = """
+        References
+
+        Quinn, A., & Quinn, B. (1998 –2012). Imaginary software user’s guide. Pretend Press.
+        Ross, C. (2001). A title after the range. Journal R, 1, 1–2.
+        Stone, D. (2003–2005). Multi-year report. Imaginary Agency.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Quinn", "Ross", "Stone"])
+        XCTAssertEqual(r.entries.map(\.year), [1998, 2001, 2003])
+        XCTAssertEqual(r.entries[0].title, "Imaginary software user’s guide")
+        XCTAssertEqual(r.entries[2].title, "Multi-year report")
+    }
+
     /// T3：標題前的正文、Appendix 之後的內容都不進清單
     func testOnlyTheReferencesSectionIsRead() throws {
         let text = """

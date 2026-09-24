@@ -56,9 +56,10 @@ enum ReferenceListExtractor {
     static let groupStartPattern =
         "^\\p{Lu}[^.()]{2,120}\\.\\s\\((?:\\d{4}|n\\.\\s?d\\.|in press)"
 
-    /// 年份括號：`(2015)`、`(2015a)`、`(2015, March 3)`、`(n.d.)`、`(in press)`
+    /// 年份括號：`(2015)`、`(2015a)`、`(2015, March 3)`、`(1998–2012)`（取第一年）、`(n.d.)`、`(in press)`。
+    /// 區間是 #617 校準加的：軟體手冊常寫成區間，認不得時這筆沒有年份、下一筆被當續行併進來。
     static let yearParenPattern =
-        "\\((?:(\\d{4})([a-z])?(?=[),])|(n\\.\\s?d\\.)|(in press))"
+        "\\((?:(\\d{4})([a-z])?(?=\\s*[),]|\\s*[–-]\\s*\\d{4})|(n\\.\\s?d\\.)|(in press))"
 
     static let doiPattern =
         "(?:https?://(?:dx\\.)?doi\\.org/|doi:\\s*)(10\\.\\d{4,9}/\\S+)"
@@ -87,7 +88,7 @@ enum ReferenceListExtractor {
                 "參考文獻段是數字編號格式（[1] …）——目前不支援，只處理作者—年份格式（#617 D7）")
         }
 
-        let (kept, dropped) = dropNoise(nonEmpty)
+        let (kept, dropped) = dropNoise(nonEmpty, documentLines: lines)
         var warnings: [String] = []
         if dropped > 0 {
             warnings.append("略過 \(dropped) 行頁碼或重複出現的頁首頁尾（逐字相同出現兩次以上）")
@@ -127,11 +128,12 @@ enum ReferenceListExtractor {
         return String(out)
     }
 
-    /// 頁碼（只有數字的行）與逐字重複的行（頁首、頁尾、版權聲明）。條目開頭的行不算
-    /// ——兩筆條目的開頭行不會逐字相同，除非真的是重複條目，那要保留給人看。
-    static func dropNoise(_ lines: [String]) -> (kept: [String], dropped: Int) {
+    /// 頁碼（只有數字的行）與逐字重複的行（頁首、頁尾、版權聲明）。重複次數在**全文**計
+    /// ——參考文獻段只跨兩頁時，頁首在段內只出現一次（#617 校準）。條目開頭的行不算：
+    /// 兩筆條目的開頭行不會逐字相同，除非真的是重複條目，那要保留給人看。
+    static func dropNoise(_ lines: [String], documentLines: [String]) -> (kept: [String], dropped: Int) {
         var counts: [String: Int] = [:]
-        for l in lines { counts[l, default: 0] += 1 }
+        for l in documentLines where !l.isEmpty { counts[l, default: 0] += 1 }
         let kept = lines.filter { l in
             if matches(l, "^\\d{1,4}$") { return false }
             if counts[l, default: 0] >= 2 && !isEntryStart(l) { return false }

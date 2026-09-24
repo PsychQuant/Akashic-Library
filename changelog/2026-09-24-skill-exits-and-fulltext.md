@@ -65,10 +65,10 @@ citekey 重複是 store「被支援的損壞態」。過去寫入路徑以 citek
 現在的處理：
 
 - **最後一道防線**：`PersonResolver.apply` 以陣列位置就地改寫，不經任何字典對應回輸出；citekey 重複、或 entry id 重複的位置都不改。第一版改成「以 `Entry.id` 對應回輸出」，R1 驗證以真 binary 否掉：半遷移留下的同 id 拷貝（entities 與 legacy 各一份）會被互相覆寫，被編輯過的那份安靜回退；兩筆不同 citekey 共用 UUID 時，無關的 apply 也會把其中一筆整個換成另一筆（6 次裡 4 次，取決於 hash 順序）。
-- **「無法唯一定位」的定義只有一個**：`Sequence<Entry>.unlocatableCitekeys`，放在 AkashicCore。它涵蓋 citekey 重複，以及 entry id 與另一筆共用的情形：那一筆的 citekey 本身唯一，但寫入以 id 定檔。R2 驗證用真 binary 重現過，對這種 work 做 drop-author，會把兄弟 work 在 `entities/<id>.yaml` 的唯一一份整個蓋掉。R1 只看重複 citekey。這個集合只看得到載入成功的 entry：若目的檔被 quarantine，或其實是另一種記錄，它不在母體裡，寫入仍會蓋掉它（R3 驗證以真 binary 重現）。這一格要在寫入端確認目的檔屬於同一筆記錄才擋得住，歸 #631。
+- **「無法唯一定位」的定義只有一個**：`unlocatableCitekeys`（`Collection` 上的延伸，Element 是 Entry；R3 起限定 `Collection`，因為 `Sequence` 不保證能重走），放在 AkashicCore。它涵蓋 citekey 重複，以及 entry id 與另一筆共用的情形：那一筆的 citekey 本身唯一，但寫入以 id 定檔。R2 驗證用真 binary 重現過，對這種 work 做 drop-author，會把兄弟 work 在 `entities/<id>.yaml` 的唯一一份整個蓋掉。R1 只看重複 citekey。這個集合只看得到載入成功的 entry：若目的檔被 quarantine，或其實是另一種記錄，它不在母體裡，寫入仍會蓋掉它（R3 驗證以真 binary 重現）。這一格要在寫入端確認目的檔屬於同一筆記錄才擋得住，歸 #631。
 - **各腿沿用既有的失敗語意**：
   - apply／reject（兩段與三段 id）、split／un-split／drop／attribute-org：整批拒絕、零寫入。
-  - judge／refute：該筆具名略過，其餘照寫。全部略過時沒有寫入，CLI 以非零結束。同一次呼叫把同一個作者位判給兩個人時整批拒絕。R2 以健康的 store 重現過：兩個 person 都會寫下 confirmed verdict，作者位卻只套用了第一個。否決不受這條限制。judge 不再吞掉 index 重建的失敗；重建失敗時，錯誤訊息會列出逐筆略過的 id。理由不重印，因為它們已經對 JSON 出口消毒過，再逃一次會雙重跳脫。
+  - judge／refute：該筆具名略過，其餘照寫。全部略過時沒有寫入，CLI 以非零結束；MCP 照常回成功，由呼叫端讀 `skipped`。作者位早已歸給同一個人的判定是 no-op 成功，回在 `alreadyJudged`，不算略過（R4：重跑已落地的判定曾被當成失敗）。已歸給另一個人時仍略過，但不再指路「先否決既有 verdict」：照做會留下矛盾的 verdict 對，作者位也不會變。負的作者索引改為輸入錯。同一次呼叫把同一個作者位判給兩個人時整批拒絕。R2 以健康的 store 重現過：兩個 person 都會寫下 confirmed verdict，作者位卻只套用了第一個。否決不受這條限制。judge 不再吞掉 index 重建的失敗；重建失敗時，錯誤訊息逐行列出略過與已落地的 id。每個 id 一行，因為兩面的輸出每行截在 400 字（R4 驗證）；各清單至多 50 行。理由不重印：它們已經對 JSON 出口消毒過，再逃一次會雙重跳脫。
   - CLI 篩選式 `--apply`：排除並另列，其餘照寫；列表每一列都標出來。
   - App 裁決台的 accept：具名拒絕（`AdjudicationError.unlocatableCitekey`）。先前它依賴 apply 當防線，而 apply 回退拷貝時仍會寫下「確認歸戶」verdict。
   - MCP 候選列表：無法唯一定位的列帶 `unlocatableCitekey: true`，不必送出 apply 才知道會被拒。App 的候選列表沒有這個標記，accept 時才具名拒絕。

@@ -1481,6 +1481,9 @@ public final class AkashicService {
                     "reason": displaySafe(pair.candidate.reason, max: 400),
                     // #303 design D4：提名層（additive）——rawValue 是封閉四值的固定字面
                     "tier": pair.candidate.tier.rawValue,   // display-safe-exempt: 封閉 enum rawValue，非 store 衍生
+                    // #624：淘汰而得的唯一候選（>0）——原本只寫在 reason 裡，程式讀不到。
+                    // CLI 的篩選式批次據此排除；MCP 的 apply 是逐 id 顯式指名，不排除
+                    "eliminatedPairings": pair.candidate.eliminatedPairings,
                     "counts": countsJSON(ResolutionLedger.personRule(for: pair.candidate.tier)),
                 ]
                 let cost = Self.jsonBytes(row)

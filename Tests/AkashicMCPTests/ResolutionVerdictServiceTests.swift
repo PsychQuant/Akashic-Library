@@ -65,6 +65,23 @@ final class ResolutionVerdictServiceTests: XCTestCase {
 
     // MARK: - R1-fix B8：id 釘 person（3-part），改指必須顯式失敗
 
+    // #624：淘汰而得的唯一候選在 MCP 列表上是結構化欄位（兩面同一個事實）
+    func testCandidateRowsCarryEliminatedPairings() throws {
+        let plain = try json(try service.resolvePeople(apply: nil))
+        let plainRows = plain["candidates"] as! [[String: Any]]
+        XCTAssertFalse(plainRows.isEmpty)
+        XCTAssertEqual(Set(plainRows.map { $0["eliminatedPairings"] as? Int }), [0],
+                       "沒有否決史的候選帶 0：\(plainRows)")
+
+        try LibraryStore(root: root).writePerson(Person(key: "cheng-che-2", names: ["Che Cheng"]))
+        _ = try service.resolvePeople(apply: nil, refute: ["a2020x:0:cheng-che=機構不符"])
+        let out = try json(try service.resolvePeople(apply: nil))
+        let rows = out["candidates"] as! [[String: Any]]
+        let a = rows.first { ($0["citekey"] as? String) == "a2020x" }
+        XCTAssertEqual(a?["personKey"] as? String, "cheng-che-2", "\(rows)")
+        XCTAssertEqual(a?["eliminatedPairings"] as? Int, 1, "\(rows)")
+    }
+
     func testListedIDsArePinnedWithPersonKey() throws {
         let out = try json(try service.resolvePeople(apply: nil))
         let ids = (out["candidates"] as! [[String: Any]]).map { $0["id"] as! String }

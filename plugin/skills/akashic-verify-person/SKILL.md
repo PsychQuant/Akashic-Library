@@ -142,7 +142,7 @@ akashic_resolve_people reject:["<citekey>:<index>:<personKey>", …]  # 查過�
 - id 用**列表給的三段形**（#303 起釘 person——提名改指時顯式拒絕；不要手拼）
 - apply 與 reject **可同一次呼叫**（#272 起兩段式：reject 腿先完整提交、apply 腿在新快照重解析、按腿回報）；CLI 面維持分兩次
 - reject 之後該配對不再被提名；**同 literal 在別的 entry 是另一次觀察**，照提、照查
-- **第三個出口——查不出來**：證據不足以判定時，用 `akashic_record_divergence` 把進度落地（question＝這個配對的同一性問題、candidates＝兩造、rests_on＝已蒐集的 URL＋取得日期）再停手。pending 是現算的缺席、什麼都不記；divergence 才是「查過什麼、查到哪、為何停」的載體，下次接手從那裡續查
+- **第三個出口——查不出來**：證據不足以判定時，用 `akashic_record_divergence` 把進度落地（question＝這個 literal 指的是誰、candidates＝它可能是的那幾筆 person 記錄——至少兩筆，literal 本身不能當候選；judgement 與 rests_on 成對，rests_on 只收 `sha256:` digest（#507），沒有 digest 就兩者都不帶，已蒐集的 URL＋取得日期寫在報告）再停手；可能的 person 只有一筆時記不了 divergence，literal 留著，查過的寫在報告。pending 是現算的缺席、什麼都不記；divergence 才是「查過什麼、查到哪、為何停」的載體，下次接手從那裡續查
 - verdict 需要 store format ≥ 8；format 不足時 reject 會硬擋指路、apply 照常歸戶但跳過 verdict 並明說（**不必預查 format**——兩個失敗模式都會自己說話，直接動手即可）
 - 三態計數（confirmed／rejected／pending）從 verdict 現算——**只報計數不報比率**，pending（還沒查的）永遠可見
 

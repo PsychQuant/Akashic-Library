@@ -130,8 +130,10 @@ akashic resolve-people --refute "<citekey>:<idx>:<personKey>=<理由>"
 
 ```
 akashic record-divergence --question "…" --candidate "a:person" --candidate "b:person" \
-  --judgement "…" --rests-on "<URL 或 sha256:>" [--prefers "<key>"]
+  --judgement "…" --rests-on "<sha256:…>" [--prefers "<key>"]
 ```
+
+`--rests-on` 只收 `sha256:` digest（#507）；`--judgement` 與 `--rests-on` 成對，`--prefers` 要有 `--judgement`。沒有 digest 就三者都不帶，只記 question 與 candidates，已蒐集的 URL＋取得日期寫在報告。
 
 pending 是**現算的缺席、什麼都不記**；divergence 才是「查過什麼、查到哪、為何停」的載體。
 

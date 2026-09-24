@@ -264,7 +264,7 @@ The MCP apply is **deliberately outside this gate**: its apply set is a list of 
 
 - **GIVEN** a citekey that does not locate exactly one work (a supported corrupt state): two works share the citekey — including two copies of one work that also share its identifier — or the work shares its identifier with another work under a different citekey
 - **WHEN** any resolve-people write targets that citekey — explicit apply or reject identifiers (two- or three-segment), judge or refute, author split, un-split, removal, organization attribution, or an adjudication accept — or a filter-driven bulk apply includes a candidate on it, or an unrelated apply runs in the same store
-- **THEN** neither work is rewritten and no verdict is written for it: explicit identifiers, the author-slot operations and the adjudication accept are refused by name, judge and refute skip that pairing by name while the rest proceed, and the bulk apply excludes and lists such candidates while applying the rest
+- **THEN** neither work is rewritten and no verdict is written for it: explicit identifiers, the author-slot operations and the adjudication accept are refused by name, judge and refute skip that pairing by name while the rest proceed (if the index then cannot be rebuilt, the call reports that failure naming the judged and skipped pairings), and the bulk apply excludes and lists such candidates while applying the rest
 
 #### Scenario: A confirmed verdict is written only where the author slot changed (#627)
 

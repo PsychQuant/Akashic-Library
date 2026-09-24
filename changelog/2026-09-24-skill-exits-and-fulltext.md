@@ -56,6 +56,12 @@
 
 MCP 列表帶同一個欄位；以三段 id 點名的 apply 照寫，兩段 legacy id 指到這種候選時會被拒絕（MCP 的 apply／reject 與 CLI 的 `--reject` 都拒；CLI 的 `--apply` 只送三段 id）。重複 citekey 這種損壞狀態下，兩個位置可能共用同一個三段 id，這時也拒絕，不猜是哪一筆。其餘路徑見下一節 #627。tier 閘擋下時，錯誤訊息會說明另有幾筆淘汰所得不會套用。查過但判不出來的配對，工具仍然看不到（#619）。
 
+## #635：resolve-people 的 judge／refute 不再靜默丟掉同時送出的其他腿
+
+judge 或 refute 與彼此、或與 apply／reject 一起送出時，過去只會執行其中一條，其餘的被靜默丟掉，回應照樣成功。#627 R4 驗證的 DA 席用真 binary 實測過：`--judge … --refute …` 只執行 judge，refute 的否決沒有寫入，輸出也沒提到。
+
+現在兩面都顯式拒絕這些組合：整批拒絕、零寫入，並具名說明。這與結構腿（split／un-split／drop／attribute-org，#443）的既有契約相同。
+
 ## #627：citekey 重複時，resolve-people 一族不再猜是哪一筆
 
 citekey 重複是 store「被支援的損壞態」。過去寫入路徑以 citekey 定位 entry，並用 `uniquingKeysWith` 靜默選一筆。#624 R3 驗證時，DA 席用真 binary 重現了後果：照 `--judge` 的指路，會把判定寫到另一筆 work 的另一個作者上，而且 rc=0。

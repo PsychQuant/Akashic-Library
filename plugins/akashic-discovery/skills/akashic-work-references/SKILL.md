@@ -58,23 +58,27 @@ safari-browser documents --json      # 找到新分頁的 tab_in_window T
 LOCK=(--window N --tab-in-window T)  # 陣列；zsh 不對未加引號的變數分詞
 ```
 
-每一次取得都用同一個頁內 fetch 讀法（`akashic-fetch-fulltext/scripts/fetch-fulltext.sh` 的模式）：
+每一次取得都用同一個頁內 fetch 讀法（`akashic-fetch-fulltext/scripts/fetch-fulltext.sh` 的模式），**每次請求換一個新的變數名**（`K` 逐次遞增，不重複用）：
 
 ```bash
-safari-browser js "${LOCK[@]}" "window.__oa = {done:false};
-  fetch('<URL>').then(r => { window.__oa.status = r.status; return r.text(); })
-  .then(t => { window.__oa.body = t; window.__oa.done = true; })
-  .catch(e => { window.__oa.err = String(e); window.__oa.done = true; }); return 'started'"
-safari-browser wait "${LOCK[@]}" --js "window.__oa && window.__oa.done" --timeout 60000
-safari-browser js "${LOCK[@]}" "return JSON.stringify({s: window.__oa.status, e: window.__oa.err || null})"
-safari-browser js "${LOCK[@]}" --large --output "$W/<檔名>.json" "window.__oa.body || ''"
+K=1
+safari-browser js "${LOCK[@]}" "window.__oa_$K = {done:false};
+  fetch('<URL>').then(r => { window.__oa_$K.status = r.status; return r.text(); })
+  .then(t => { window.__oa_$K.body = t; window.__oa_$K.done = true; })
+  .catch(e => { window.__oa_$K.err = String(e); window.__oa_$K.done = true; }); return 'started'"
+safari-browser wait "${LOCK[@]}" --js "window.__oa_$K && window.__oa_$K.done" --timeout 60000
+safari-browser js "${LOCK[@]}" "return JSON.stringify({s: window.__oa_$K.status, e: window.__oa_$K.err || null})"
+safari-browser js "${LOCK[@]}" --large --output "$W/<檔名>.json" "window.__oa_$K.body || ''"
+safari-browser js "${LOCK[@]}" "delete window.__oa_$K; return 'ok'"
 ```
 
-狀態不是 200、有 `err`、或檔案不是 JSON → 中止條款。
+每一步看結束碼，第一步要印出 `started`。狀態不是 200、有 `err`、或檔案不是 JSON → 中止條款。
+
+**為什麼每次換變數名**：2026-09-24 校準時，所有批次共用一個 `window.__oa`，第二批的檔案裡是**第一批的結果**——開始 fetch 的那一步回了結束碼 0，但頁面上留著第一批已完成的物件，後面每一步都照著它走（重跑時沒有重現，根因未定）。換了變數名，上一批的物件就不可能滿足這一批的 `wait`：失手會變成逾時報錯，而不是安靜地讀到錯的資料。
 
 1. 種子：`https://api.openalex.org/works/doi:<DOI>?select=id,doi,title,referenced_works` → 取 `referenced_works`（`https://openalex.org/W…` 的清單）。**先核對回來的 `title` 就是種子**——OpenAlex 以 DOI 查到錯篇時，後面全部都錯。
 2. 被引文獻：每批至多 50 個 id，`https://api.openalex.org/works?filter=openalex:W1|W2|…&per-page=50&select=id,doi,title,display_name,publication_year,authorships`，每批存成 `$W/oa-<批次>.json`。**逐批、不平行**，批與批之間等一下：`safari-browser wait $(( 2000 + RANDOM % 4000 ))`。
-3. 取完：`safari-browser js "${LOCK[@]}" "delete window.__oa; return 'ok'"`。
+3. **核對每一批回來的 `results[].id` 就是這一批請求的 id**，全部取完後回來的 id 聯集要等於 `referenced_works`。少了的列進報告（OpenAlex 查無）；多了或對不上的，那一批重取一次，仍不對就停下來回報。
 
 ### 3. 提名
 
@@ -92,7 +96,13 @@ akashic references nominate --refs "$W/refs.json" --openalex "$W/oa-1.json" --op
 - **不是**：候選是同作者同年的另一篇（`2015a`／`2015b` 最常見）、同名不同書、書與書中章節。
 - **判不了**：例如 PDF 標題被切壞、只剩作者年份。**不猜**，列進報告交給使用者。
 
-分數高低不是判定的理由。同一個 OpenAlex work 不得判給兩筆 PDF 條目。
+分數高低不是判定的理由（校準：判為不是的第一名分數 0.625–0.816，判為同一篇的最低分 0.55——兩個區間重疊）。同一個 OpenAlex work 不得判給兩筆 PDF 條目。
+
+校準看到的三種型態（2026-09-24，見〈校準〉）：
+
+- **OpenAlex 對同一篇有兩筆記錄**：APA 舊式雙斜線 DOI（`10.1037//0022-…` 與 `10.1037/0022-…`）、JSTOR 與出版商各一個 DOI、同一本書的線上再版。同一筆 PDF 條目可以認領這幾筆——判為同一篇、**只建一筆**，DOI 取出版商的單斜線形式；其餘記錄列在該條目底下，不算「只在 OpenAlex」。
+- **書評被當成書**：PDF 是一本書，第一名候選標題相同、但第一作者是別人、年份晚一兩年、DOI 屬期刊（`10.2307/…`、`10.1198/jasa…`）——那是書評，判為不是。書本身這時通常不在 OpenAlex 的清單裡。
+- **同作者同年的兄弟作品**：同一位作者同年的兩章或兩篇，標題共用很多詞（`latent difference score … dynamic … analyses`）。只有標題實質相同才算。
 
 ### 5. 乾跑，確認後才寫
 
@@ -121,9 +131,26 @@ akashic references nominate --refs "$W/refs.json" --openalex "$W/oa-1.json" --op
 ## 已知限制
 
 - **切分是啟發式的**：作者—年份格式以外的清單、嚴重的排版（雙欄交錯、頁首夾在條目中間且每頁不同）會切錯。`warnings` 與「只在 PDF／只在 OpenAlex」兩類就是讓這些誤差被看見的地方。
-- **計分權重是起點值**（標題 0.5、第一作者 0.25、年份 0.25，門檻 0.35）。校準結果見下節。
+- **計分權重是起點值**（標題 0.5、第一作者 0.25、年份 0.25，門檻 0.35）。校準（下節）沒有給出調整的理由：錯誤都出在「正確的那篇不在 OpenAlex 清單裡」，不是排序錯。
 - PDF 由使用者給路徑，直到 #614 讓 store 能回傳條目的 PDF。
 
 ## 校準
 
-（#617 S6：以 Hamaker, Kuiper & Grasman (2015) 端到端跑一次後填入——只記數字與誤差分類，不記參考文獻原文。）
+2026-09-24，Hamaker, Kuiper & Grasman (2015)（`10.1037/a0038889`），本 skill 端到端跑一次。只記數字與誤差分類。
+
+| 量 | 值 |
+|---|---|
+| PDF 參考文獻條目（`extract`） | 63 |
+| OpenAlex `referenced_works` | 68（2 批取回，68／68） |
+| 有候選的 PDF 條目 | 62／63（沒有的 1 筆是軟體手冊，OpenAlex 清單裡沒有它） |
+| 第一名判為同一篇 | 59／62 |
+| 第一名判為不是 | 3：2 本書的第一名是它們的書評、1 章的第一名是同作者同年的另一章 |
+
+兩邊的差額逐筆歸因（ID 層級驗算，無重疊、無遺漏）：
+
+- **OpenAlex 68 ＝ 59 對上 ＋ 6 重複記錄 ＋ 3 錯連**。重複記錄：5 筆是雙斜線 DOI 或 JSTOR／出版商兩個 DOI 的同一篇，1 筆是書的 2020 年線上再版。錯連：3 筆都是書評被當成書（其中 1 筆是編輯書的書評，PDF 引的是書中一章）。
+- **PDF 63 ＝ 59 對上 ＋ 4 只在 PDF**：2 本被錯連成書評的書、1 章 OpenAlex 清單裡沒有的書章、1 份軟體手冊。
+
+這次校準修掉的切分誤差（`extract` 的測試 T2b、T4b）：年份區間 `(1998 –2012)` 認不得、害下一筆被併進來（修正前切出 62 筆）；頁首與版權聲明在參考文獻段只出現一次、段內計數抓不到而併進條目原文（改為全文計數）。
+
+**一篇的校準不是準確率**。這篇是 APA 期刊、參考文獻不印 DOI；印 DOI、其他出版商排版、其他引用格式的論文會有不同的誤差型態。

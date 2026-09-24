@@ -1245,7 +1245,16 @@ public final class AkashicService {
 
         /// id → 候選（B8 的唯一解析點）。三段：byID 直查，miss 時若同位置存在
         /// 不同 person 的提名 → 顯式「提名已改指」錯誤；兩段：legacy 直查 rowID。
+        // #624 R2 verify：重複 citekey（被支援的損壞態）下，兩個位置可以共用同一個三段 id。
+        // 取第一筆會讓 CLI 說「不套用」的那一列被寫進 verdict——拒絕、不猜哪一筆。
+        let idMultiplicity = Dictionary(withIDs.map { ($0.id, 1) }, uniquingKeysWith: +)
         func candidate(for id: String) throws -> ResolutionCandidate {
+            let multiplicity = idMultiplicity[id] ?? 0
+            if multiplicity > 1 {
+                throw ServiceError.invalid(
+                    "候選 id「\(displaySafeInvisible(id, max: 200))」同時指到 \(multiplicity) 個位置"   // display-safe-exempt: multiplicity 是 Int
+                    + "（重複 citekey）——先修正重複的 citekey 再套用（#624）")
+            }
             if let c = byID[id] { return c }
             let parts = id.split(separator: ":")
             if parts.count == 3 {
@@ -1266,7 +1275,7 @@ public final class AkashicService {
                         + "「\(displaySafeInvisible(c.personKey, max: 200))」（此位置其他人選已被否決，"
                         + "沒有人點名過它）——請用三段形 citekey:authorIndex:personKey 顯式送（#624）")
                 }
-                return c   // legacy 兩段形——位置仍有唯一提名時等價於未釘
+                return c   // legacy 兩段形——位置仍有唯一提名、且不是淘汰所得時等價於未釘（apply 與 reject 同一條解析路徑）
             }
             throw ServiceError.notFound("候選 id「\(displaySafeInvisible(id, max: 200))」（先不帶 apply 列出候選）")
         }

@@ -82,6 +82,29 @@ final class ResolutionVerdictServiceTests: XCTestCase {
         XCTAssertEqual(a?["eliminatedPairings"] as? Int, 1, "\(rows)")
     }
 
+    // #624 R2 verify：重複 citekey 下兩個位置共用同一個三段 id——拒絕，不取第一筆
+    func testPinnedIDSharedByDuplicateCitekeyIsRefused() throws {
+        // 否決直接寫進 cheng-che 的記錄——用 --refute 定位重複 citekey 的位置取決於
+        // 兩筆 entry 的排序（UUID），會讓這支測試時綠時紅
+        let store = LibraryStore(root: root)
+        var chengChe = Person(key: "cheng-che", names: ["Che Cheng"])
+        chengChe.references = [ResolutionLedger.record(
+            .rejected, holderKind: .work, holder: "c2020", literal: "Che Cheng",
+            rule: ResolutionLedger.judgedRule, statement: "機構不符")]
+        try store.writePerson(chengChe)
+        try store.writePerson(Person(key: "cheng-che-2", names: ["Che Cheng", "Chester Cheng"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "c2020", type: .periodicalArticle,
+                                   title: "V", authors: [.literal("Che Cheng")], date: "2020"))
+        try store.writeEntry(Entry(id: UUID(), citekey: "c2020", type: .periodicalArticle,
+                                   title: "W", authors: [.literal("Chester Cheng")], date: "2020"))
+        XCTAssertThrowsError(try service.resolvePeople(apply: ["c2020:0:cheng-che-2"])) { err in
+            XCTAssertTrue("\(err)".contains("重複 citekey"), "\(err)")
+        }
+        let p = try LibraryStore(root: root).load().people.first { $0.key == "cheng-che-2" }!
+        XCTAssertFalse(p.references.contains { $0.field == "resolution-confirmed" },
+                       "不得替任何一列寫 verdict：\(p.references)")
+    }
+
     // #624 R1 verify：兩段 legacy id 只指到位置，沒點名人——對淘汰所得拒絕；三段形照寫
     func testTwoSegmentIDRefusesEliminatedSurvivorButPinnedIDWrites() throws {
         try LibraryStore(root: root).writePerson(Person(key: "cheng-che-2", names: ["Che Cheng"]))

@@ -242,7 +242,7 @@ The MCP apply is **deliberately outside this gate**: its apply set is a list of 
 
 #### Scenario: Bare bulk apply refuses on mixed tiers
 
-- **GIVEN** a candidate set containing reorder- and initials-tier rows
+- **GIVEN** an apply set (the filtered candidates after eliminated survivors are excluded) containing reorder- and initials-tier rows
 - **WHEN** an unscoped bulk apply is invoked
 - **THEN** the face refuses with the tier breakdown and no write occurs
 
@@ -257,7 +257,8 @@ The MCP apply is **deliberately outside this gate**: its apply set is a list of 
 - **GIVEN** a candidate that is the sole survivor after other same-position candidates were rejected (its `eliminatedPairings` is greater than zero)
 - **WHEN** a filter-driven bulk apply is invoked, with or without a tier filter
 - **THEN** that candidate is not applied and is listed as excluded with a pointer to per-row judgement; the tier gate is evaluated on the apply set after this exclusion; if nothing remains, no write occurs and the face exits non-zero
-- **AND** on the MCP face a two-segment identifier resolving to such a candidate is refused, while a three-segment identifier naming its person applies as usual
+- **AND** a two-segment identifier resolving to such a candidate is refused on both faces and for both apply and reject (it names a position, not a person), while a three-segment identifier naming its person proceeds as usual
+- **AND** a three-segment identifier shared by two positions (duplicate citekey) is refused rather than resolved to either one
 
 
 <!-- @trace

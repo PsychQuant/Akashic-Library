@@ -1502,7 +1502,7 @@ struct ResolvePeople: ParsableCommand {
 
     /// #232 design D6：reject 是顯式人為動作。rowID 同 MCP（citekey:authorIndex）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "否決這些候選（三段形 citekey:authorIndex:personKey——釘 person，提名改指時顯式拒絕；兩段 legacy 形僅當該位置提名仍唯一時等價）——寫 resolution-rejected verdict 到該 person，entry 不動；之後該配對不再被提名（同 literal 他 entry 照提）")
+            help: "否決這些候選（三段形 citekey:authorIndex:personKey——釘 person，提名改指時顯式拒絕；兩段 legacy 形僅當該位置提名仍唯一、且不是淘汰而得時等價）——寫 resolution-rejected verdict 到該 person，entry 不動；之後該配對不再被提名（同 literal 他 entry 照提）")
     var reject: [String] = []
 
     /// 逐篇判定（change `per-work-judged-authorship`）。
@@ -1773,7 +1773,9 @@ struct ResolvePeople: ParsableCommand {
                 "--apply 拒絕：套用集含寬鬆提名層（\(breakdown)）。"
                 + "寬鬆層一律要 --tier 具名——用 --tier exact 只套完全命中，"
                 + "或顯式列出要套的層（--tier reorder 等；initials 層 apply 前必查證）。"
-                + "收窄（--citekey／--person）不豁免此要求。")
+                + "收窄（--citekey／--person）不豁免此要求。"
+                + (eliminatedSkipped.isEmpty ? "" :
+                    "另有 \(eliminatedSkipped.count) 筆淘汰而得的唯一候選不論 --tier 都不套用，要逐筆 --judge（#624）。"))
         }
 
         /// #231：歧義**不再靜默丟棄**。它與「沒人匹配」語意不同——後者是 `.literal`
@@ -1979,7 +1981,7 @@ struct ResolvePeople: ParsableCommand {
                 for c in eliminatedSkipped {
                     print("  \(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（已否決 \(c.eliminatedPairings) 人）")
                 }
-                print("  → 查證後逐筆送：resolve-people --judge <citekey:authorIndex:personKey>=理由，或 MCP 逐 id apply（#624）")
+                print("  → 查證後逐筆送：resolve-people --judge <citekey:authorIndex:personKey>=理由，或 MCP 以三段 id apply（#624）")
             }
             if applySet.isEmpty {
                 throw ValidationError(

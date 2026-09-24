@@ -157,7 +157,7 @@ ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，*
 
 1. **是同一人** → apply（同動作寫 confirmed verdict，rule 依 tier 分開記——`author-name-initials` 的校準史不會混進 exact）
 2. **不是** → reject（寫 rejected verdict；同 literal 他 entry 照提）
-3. **查不出來** → 不 apply、不 reject，literal 留著，查過的寫在報告；只有查到兩筆以上 person 記錄可能是同一人時才 `akashic_record_divergence`
+3. **查不出來** → 不 apply、不 reject，literal 留著，查過的寫在報告；只有查到兩筆以上 person 記錄本身可能是同一人時才 `akashic_record_divergence`，且先在回報裡建議，使用者確認後才記——divergence 記了沒有面刪得掉（#586）
 
 **候選不在列時，先分辨三種原因再行動**（順序固定，跳過任一步都可能鑄造重複身分）：
 
@@ -167,7 +167,7 @@ ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，*
 
 ### 4. 每輪收尾：進度落地
 
-收尾 census 一次，把兩次計數（開場／收尾）與本輪 apply/reject/divergence 數落一筆 #303 comment：
+收尾 census 一次，把兩次計數（開場／收尾）與本輪各出口的筆數落一筆 #303 comment；查過留 literal 的，查過的來源列在同一則 comment（store 不留，#619）：
 
 ```markdown
 ## Campaign R<N>（YYYY-MM-DD）
@@ -175,7 +175,7 @@ ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，*
 |---|---|---|
 | author | 2123 → … | 1493 → … |
 …
-本輪：apply X 筆／reject Y 筆／divergence Z 筆／建檔 W 人
+本輪：apply X 筆／reject Y 筆／查過留 literal V 筆／divergence Z 筆（#618 起只算兩筆以上 person 記錄可能同一人）／建檔 W 人
 ```
 
 趨勢只認 #303 的 comment 串——不散落在對話裡（查一次記一次的 campaign 版）。

@@ -7,7 +7,7 @@ description: 消歧義——把 resolve-* 列出的「歧義」列（一個 lite
 
 歧義列的意思是**提名器分不出來**，不是人或 AI 分不出來（`identity-is-judged-not-matched`）。所以歧義不是死路，是一份待判清單。
 
-**終局是每一列都有狀態**，不是「歧義計數變小」。三個合法終局：判定（judge）、否決（refute）、留在 literal（查過了但證據不足，查過的寫在報告）。**「還沒看」不是終局。**
+**收尾是每一列都有處置**，不是「歧義計數變小」。三個出口：判定（judge）、否決（refute）、留在 literal（查過了但證據不足，查過的寫在給使用者的回報）。**「還沒看」不是出口。**
 
 > **命名**：使用者口語稱它 `/disambiguity`。正式名依 Foresay `MP02` 的 `namespace-verb[-supp]`
 > 形式取為 `akashic-disambiguate`——**verb 在第二位**，且名詞 `disambiguation` 依 MP01 的
@@ -124,11 +124,11 @@ akashic resolve-people --refute "<citekey>:<idx>:<personKey>=<理由>"
 
 **寫入前確認 store 有退路**：`git -C ~/.akashic status` 乾淨，或先 commit。批次寫入沒有內建復原。
 
-### 5. 收尾：每一列都要有終局
+### 5. 收尾：每一列都要有處置
 
-重跑 `resolve-people`，確認歧義段消失或只剩真的判不出來的。判不出來的走第三個出口：不 judge、不 refute，literal 留著，查過的來源寫在報告。store 不留查過的紀錄；下次重跑 resolve 時，有候選或歧義就再列一次。
+重跑 `resolve-people`，對照本輪回報確認歧義段消失或只剩真的判不出來的（store 分不出查過與沒查）。判不出來的走第三個出口：證據決定性排除的候選照樣 refute；剩下分不出來的不 judge，literal 留著，查過的來源寫在回報。判不出來的部分 store 不留紀錄；下次重跑 resolve 時，有候選或歧義就再列一次（#619）。
 
-只有查到**兩筆以上 person 記錄**可能是同一個人時才記 divergence（candidates＝那幾筆 person 的 key）：
+literal 可能是 A 或 B，不等於 A、B 兩筆是同一人。只有查到**兩筆以上 person 記錄**本身可能是同一個人時才記 divergence（candidates＝那幾筆 person 的 key），且先在回報裡建議，使用者確認後才記——divergence 記了沒有面刪得掉（#586）：
 
 ```
 akashic record-divergence --question "…" --candidate "a:person" --candidate "b:person" \
@@ -146,8 +146,8 @@ akashic record-divergence --question "…" --candidate "a:person" --candidate "b
 ## 邊界
 
 - **同機構不同系所不可否決**——那是證據不足，不是判定為否
-- **正確的人不在庫裡是合法結論**。此時的出口是 `add-person` 建檔後再 judge，或讓 literal 留著；**不是**從現有候選裡挑一個最像的
-- **查不出來是合法結果**。說證據不足，讓 literal 留著——pending 可見是設計，不是待消滅的數字
+- **正確的人不在庫裡是合法結論**。此時先 refute 現有候選（理由寫明正確的人不在庫裡），再 `add-person` 建檔後 judge，或讓 literal 留著；**不是**從現有候選裡挑一個最像的
+- **查不出來是合法結果**。說證據不足，讓 literal 留著——它留在歧義段裡可見是設計，不是待消滅的數字
 
 ## 相關
 

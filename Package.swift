@@ -58,7 +58,7 @@ let package = Package(
             .product(name: "Yams", package: "Yams"),
         ]),
         .executableTarget(name: "akashic-mcp", dependencies: [
-            "AkashicMCPKit",
+            "AkashicMCPKit", "AkashicStoreIO",
             .product(name: "MCP", package: "swift-sdk"),
         ]),
         .target(name: "TractatusDocs", dependencies: [

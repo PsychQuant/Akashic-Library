@@ -1498,8 +1498,9 @@ public final class AkashicService {
             var candidateRows: [[String: Any]] = []
             var candidateBytes = 0
             var candidatesDropped = 0
+            let duplicatedCitekeys = load.entries.duplicatedCitekeys   // #627
             for pair in withIDs.prefix(Self.candidateLimit) {
-                let row: [String: Any] = [
+                var row: [String: Any] = [
                     "id": pair.id,   // display-safe-exempt: 三段形 "<citekey>:<index>:<personKey>"——citekey 與 personKey 都受 load 端 StoreKey quarantine 把關（#171／R3-5）
                     "citekey": displaySafe(pair.candidate.citekey, max: 200),
                     "authorIndex": pair.candidate.authorIndex,
@@ -1513,6 +1514,9 @@ public final class AkashicService {
                     "eliminatedPairings": pair.candidate.eliminatedPairings,
                     "counts": countsJSON(ResolutionLedger.personRule(for: pair.candidate.tier)),
                 ]
+                // #627 R1：citekey 在 store 裡不只一筆——apply／reject 這個 id 會整批拒絕。
+                // 列表先標出來，呼叫端不必送出去才知道（CLI 列表的 ⟨citekey 重複⟩ 同一件事）
+                if duplicatedCitekeys.contains(pair.candidate.citekey) { row["duplicatedCitekey"] = true }
                 let cost = Self.jsonBytes(row)
                 guard candidateBytes + cost <= Self.candidateByteBudget else {
                     candidatesDropped += 1
@@ -1655,9 +1659,13 @@ public final class AkashicService {
         let applied = PersonResolver.apply(chosen, to: load.entries)
         var written = 0
         var writeFailed: [String: String] = [:]
+        // #627 R1：apply 真的改到的那幾筆。apply 會略過它無法唯一定位的格（例如兩筆 entry
+        // 共用一個 UUID）——那些候選沒有歸戶，就不得寫 confirmed verdict，也不得報成 applied。
+        var changedCitekeys: Set<String> = []
         // R7（R6-verify M21）：per-item 收容——單筆 encode 拒寫不中斷批次、
         // index 照 rebuild、失敗照實回報
         for (before, after) in zip(load.entries, applied) where before != after {
+            changedCitekeys.insert(after.citekey)
             do {
                 try store.writeEntry(after)
                 written += 1
@@ -1665,6 +1673,7 @@ public final class AkashicService {
                 writeFailed[after.citekey] = displaySafeError(error, max: 512)
             }
         }
+        let notApplied = chosen.filter { !changedCitekeys.contains($0.citekey) }
         // #232 design D6：apply 的**同一動作**內寫 resolution-confirmed——只寫
         // entry 改寫成功的那些（誇報 verdict 比漏寫更糟：ledger 會宣稱一次沒有
         // 發生的歸戶）。verdict 落在被判定的 person 上，經既有 writePerson 閘。
@@ -1676,7 +1685,8 @@ public final class AkashicService {
         let verdictsSkippedNote: String? = storeFormat >= 8 ? nil :
             "store format \(storeFormat) < 8——resolution-confirmed 未記錄；"
             + "全部 binary 升級後把 store.yaml 的 format: 改成 8，之後的 apply 會記錄 verdict"
-        for c in chosen where writeFailed[c.citekey] == nil && verdictsSkippedNote == nil {
+        for c in chosen where changedCitekeys.contains(c.citekey)
+                && writeFailed[c.citekey] == nil && verdictsSkippedNote == nil {
             guard var p = confirmGrouped[c.personKey] ?? byKey[c.personKey] else {
                 // 候選的 personKey 恆來自 load.people——走到這裡是內部不變式破了，
                 // 靜默 continue 會吞掉一筆該寫的 verdict（verify GAP-12）
@@ -1707,9 +1717,17 @@ public final class AkashicService {
         // R8（R7-verify L15）：applied 不誇報——排除寫入失敗的候選
         // R3-1 附帶：applied 回音同列表三段 pinned 形；R5 raw 不截斷（同 rejected
         // 回音理由——StoreKey 受 quarantine 把關）
-        let appliedActual = chosen.filter { writeFailed[$0.citekey] == nil }
+        let appliedActual = chosen.filter { changedCitekeys.contains($0.citekey) && writeFailed[$0.citekey] == nil }
             .map { "\($0.citekey):\($0.authorIndex):\($0.personKey)" }   // display-safe-exempt: StoreKey 受 quarantine 把關（#171）
         var result: [String: Any] = ["applied": appliedActual, "entriesRewritten": written]
+        // #627 R1：沒套用的候選具名回報——不說就與「套用了」在回應裡長得一樣
+        if !notApplied.isEmpty {
+            result["notApplied"] = notApplied.map {
+                "\($0.citekey):\($0.authorIndex):\($0.personKey)"   // display-safe-exempt: StoreKey 受 quarantine 把關（#171）
+            }
+            result["notAppliedReason"] = "這幾筆的 entry 無法唯一定位（例如與另一筆共用 UUID），"
+                + "或作者位已不是候選的 literal——未歸戶、未寫 verdict"
+        }
         // subscript 賦值建字典——**不用** `Dictionary(uniqueKeysWithValues:)`：
         // displaySafe 截斷非單射，兩個共 200 字元前綴的合法 citekey 會碰撞成同鍵，
         // uniqueKeysWithValues 對重複鍵是 SIGTRAP（verify S-2；#236 R2 同型）。

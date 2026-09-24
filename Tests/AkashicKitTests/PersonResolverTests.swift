@@ -192,6 +192,46 @@ final class PersonResolverTests: XCTestCase {
         XCTAssertEqual(out[2].authors, [.key("cheng-che")], "不重複的照常套用")
     }
 
+    /// #627 R1：半遷移——同 UUID、同 citekey 的兩份拷貝，內容已分岔（entities 那份被編輯過）。
+    /// 字典對應回輸出時，兩格都會變成同一份，被編輯的那份安靜回退成舊內容。
+    func testHalfMigratedCopiesAreNeitherAppliedNorOverwritten() {
+        var edited = entry("c2020", literal: "Che Cheng"); edited.title = "Edited"
+        var stale = edited; stale.title = "Stale"
+        let other = entry("d2021", literal: "Che Cheng")
+        let cand = { (ck: String) in ResolutionCandidate(
+            citekey: ck, authorIndex: 0, literal: "Che Cheng", personKey: "cheng-che",
+            reason: "alias 完全命中", tier: .exact, eliminatedPairings: 0) }
+        let out = PersonResolver.apply([cand("c2020"), cand("d2021")], to: [edited, stale, other])
+        XCTAssertEqual(out[0], edited, "被編輯的那份一個位元都不動")
+        XCTAssertEqual(out[1], stale)
+        XCTAssertEqual(out[2].authors, [.key("cheng-che")])
+    }
+
+    /// #627 R1：兩筆不同 citekey 共用一個 UUID，而且都不是候選——無關的 apply 不得改到它們。
+    func testEntriesSharingAUUIDAreUntouchedByAnUnrelatedApply() {
+        let x = entry("x2019", literal: "Ulf Olsson")
+        var y = x; y.citekey = "y2019"; y.title = "Other paper"
+        let other = entry("d2021", literal: "Che Cheng")
+        let cand = ResolutionCandidate(
+            citekey: "d2021", authorIndex: 0, literal: "Che Cheng", personKey: "cheng-che",
+            reason: "alias 完全命中", tier: .exact, eliminatedPairings: 0)
+        for _ in 0..<5 {   // 舊的 byID 對應順序取決於 hash seed——多跑幾次
+            let out = PersonResolver.apply([cand], to: [x, y, other])
+            XCTAssertEqual(out[0], x); XCTAssertEqual(out[1], y)
+            XCTAssertEqual(out[2].authors, [.key("cheng-che")])
+        }
+    }
+
+    /// #627 R1：共用 UUID 的那一筆就算是候選也不套用——寫入以 UUID 定檔，改它等於改另一筆的檔。
+    func testCandidateOnAnEntrySharingItsUUIDIsNotApplied() {
+        let x = entry("x2019", literal: "Che Cheng")
+        var y = x; y.citekey = "y2019"; y.authors = [.literal("Ulf Olsson")]
+        let cand = ResolutionCandidate(
+            citekey: "x2019", authorIndex: 0, literal: "Che Cheng", personKey: "cheng-che",
+            reason: "alias 完全命中", tier: .exact, eliminatedPairings: 0)
+        XCTAssertEqual(PersonResolver.apply([cand], to: [x, y]), [x, y])
+    }
+
     // MARK: - #624：淘汰所得是結構化欄位，不只是 reason 裡的一句話
 
     func testEliminatedPairingsIsStructuredForEliminatedSurvivor() {

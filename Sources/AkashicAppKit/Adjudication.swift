@@ -100,6 +100,10 @@ public final class PeopleResolveModel {
     }
 
     public func accept(_ candidate: ResolutionCandidate) throws {
+        // #627：citekey 重複時不猜是哪一筆——具名拒絕，不靜默無作用（CLI／MCP 同語意）
+        if state.entries.duplicatedCitekeys.contains(candidate.citekey) {
+            throw AdjudicationError.duplicatedCitekey(candidate.citekey)
+        }
         let applied = PersonResolver.apply([candidate], to: state.entries)
         // R7（R6-verify M21）：per-item 收容——先寫完能寫的、reindex 保持一致，
         // 再把第一個失敗往上拋給 UI（不留「部分改寫 + index stale」）
@@ -156,6 +160,8 @@ public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorD
     case notAnOrphan(String)
     /// #605：主來源已刪除，但附加來源（例如群組 library 那份）仍在 Zotero 裡。
     case hasLiveAdditionalSource(String)
+    /// #627：候選所在的 citekey 在 store 裡不只一筆——以 citekey 定位會猜是哪一筆，拒絕。
+    case duplicatedCitekey(String)
 
     public var errorDescription: String? {
         switch self {
@@ -168,6 +174,8 @@ public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorD
             return "「\(displaySafeInvisible(key, max: 200))」不是 orphan——外部同步可能已恢復連結，已拒絕破壞性動作"
         case .hasLiveAdditionalSource(let key):
             return "「\(displaySafeInvisible(key, max: 200))」只有主來源在 Zotero 端被刪除，另一個 library 的附加來源仍在——丟垃圾桶會連它一起丟掉，已拒絕；請改用「與 Zotero 脫鉤」（拿掉已刪除的來源、保留另一個 library 的紀錄，欄位不再被 Zotero 改寫）"
+        case .duplicatedCitekey(let key):
+            return "citekey「\(displaySafeInvisible(key, max: 200))」在 store 裡不只一筆——無法確定是哪一筆 work，已拒絕歸戶；請先修正重複的 citekey（#627）"
         }
     }
 }

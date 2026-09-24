@@ -39,6 +39,28 @@ final class AdjudicationTests: XCTestCase {
         XCTAssertTrue(model.candidates.isEmpty)
     }
 
+    /// #627 R1：半遷移留下同 UUID、同 citekey 的 legacy 拷貝時，accept 具名拒絕——
+    /// 不回退 entities 那份、不寫「確認歸戶」verdict（先前兩件事都會發生）。
+    func testAcceptOnDuplicatedCitekeyIsRefusedWithoutWriting() throws {
+        let original = try XCTUnwrap(state.entries.first { $0.citekey == "a2020paper" })
+        var stale = original; stale.title = "Stale"
+        try EntryYAML.encode(stale).write(
+            to: root.appendingPathComponent("entries/a2020paper.yaml"), atomically: true, encoding: .utf8)
+        try? state.load()
+        XCTAssertEqual(state.entries.filter { $0.citekey == "a2020paper" }.count, 2, "前提：兩份都讀到")
+        let entitiesFile = root.appendingPathComponent("entities/\(original.id.uuidString).yaml")
+        let before = try Data(contentsOf: entitiesFile)
+        let model = PeopleResolveModel(state: state)
+        let cand = try XCTUnwrap(model.candidates.first { $0.citekey == "a2020paper" })
+        XCTAssertThrowsError(try model.accept(cand)) { err in
+            XCTAssertEqual(err as? AdjudicationError, .duplicatedCitekey("a2020paper"))
+        }
+        XCTAssertEqual(try Data(contentsOf: entitiesFile), before, "entities 那份一個位元都不動")
+        let people = try LibraryStore(root: root).load().people
+        XCTAssertFalse(people.contains { p in
+            p.references.contains { ($0.value ?? "").contains("work:a2020paper ") } })
+    }
+
     /// #303 task 3.3：resolver 的 tier 原樣進到裁決台的候選列（顯示面消費新欄）。
     func testPeopleResolveCandidatesCarryTier() throws {
         // 追加一筆 token 重排形：「Cheng Che」↔ alias「Che Cheng」

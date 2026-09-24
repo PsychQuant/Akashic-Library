@@ -1779,7 +1779,9 @@ struct ResolvePeople: ParsableCommand {
                 + "或顯式列出要套的層（--tier reorder 等；initials 層 apply 前必查證）。"
                 + "收窄（--citekey／--person）不豁免此要求。"
                 + (eliminatedSkipped.isEmpty ? "" :
-                    "另有 \(eliminatedSkipped.count) 筆淘汰而得的唯一候選不論 --tier 都不套用，要逐筆 --judge（#624）。"))
+                    "另有 \(eliminatedSkipped.count) 筆淘汰而得的唯一候選不論 --tier 都不套用，要逐筆 --judge（#624）。")
+                + (duplicateSkipped.isEmpty ? "" :
+                    "另有 \(duplicateSkipped.count) 筆候選所在的 citekey 重複，不論 --tier 都不套用——先修正重複的 citekey（#627）。"))
         }
 
         /// #231：歧義**不再靜默丟棄**。它與「沒人匹配」語意不同——後者是 `.literal`
@@ -2033,9 +2035,17 @@ struct ResolvePeople: ParsableCommand {
             }
             // format < 8 的 store：verdict 被跳過必須說出來（service 已揭露，CLI 轉印）
             if let note = parsed?["verdictsSkipped"] as? String { print("⚠ \(note)") }   // service 端常數模板，已安全
+            // #627 R1：apply 無法唯一定位的格沒有套用——具名列出，成功行只算真的套用的
+            let notApplied = parsed?["notApplied"] as? [String] ?? []
+            if !notApplied.isEmpty {
+                let why = parsed?["notAppliedReason"] as? String ?? ""   // service 端常數模板，已安全
+                print("未套用（\(why)）: \(notApplied.count)")
+                // service 的輸出是 StoreKey 組成的 pinned id（quarantine 把關），不再包
+                for id in notApplied { print("  - \(id)") }
+            }
             // 成功行不誇報（R8）：✓ 只在全數成功時
             if writeFailed.isEmpty, confirmFailed.isEmpty {
-                print("✓ 套用 \(applySet.count) 個候選、改寫 \(written) 檔、index 已重建")
+                print("✓ 套用 \(applySet.count - notApplied.count) 個候選、改寫 \(written) 檔、index 已重建")
             } else {
                 print("部分套用：改寫 \(written) 檔、失敗 \(writeFailed.count + confirmFailed.count) 筆、index 已重建")
                 throw ExitCode(1)

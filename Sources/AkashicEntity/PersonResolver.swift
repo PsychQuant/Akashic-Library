@@ -155,11 +155,10 @@ public struct ResolutionCandidate: Equatable, AuthorPairing {
 /// > 與 `died` / 隸屬（時空不相容）。
 public struct AmbiguousMatch: Equatable {
     /// **entry 的機器身分。** `citekey` 不足以定位——store 可能含重複 citekey
-    /// （`PersonResolver.apply` 的 `uniquingKeysWith` 明寫「損壞 store 出現重複
-    /// citekey 時不 trap」），此時兩筆歧義在 `(citekey, authorIndex)` 上完全相同。
+    /// （被支援的損壞態），此時兩筆歧義在 `(citekey, authorIndex)` 上完全相同。
     ///
-    /// 誠實邊界：帶了 id 讓**報告**可定位，但 `apply` 仍只寫得到重複 citekey 的
-    /// 最後一筆——那是既有限制，不由本型別解決。
+    /// 帶了 id 讓**報告**可定位；寫入面則一律不猜——`PersonResolver.apply` 對重複
+    /// citekey 或重複 id 的位置都不改寫，resolve-people 各腿另行拒絕或具名略過（#627）。
     public var entryID: UUID
     public var citekey: String
     public var authorIndex: Int
@@ -369,22 +368,31 @@ public enum PersonResolver {
     /// `AmbiguousMatch` 仍傳不進來：它沒有單數 `personKey`
     /// （`JudgedPairingTests.testAmbiguousMatchHasNoSingularPersonKey` 釘住這件事）。
     public static func apply<P: AuthorPairing>(_ candidates: [P], to entries: [Entry]) -> [Entry] {
-        // #627：citekey 重複時**不套用**——以 citekey 定位會猜是哪一筆，猜錯就把判定寫到
-        // 另一筆 work 的另一個作者。uniquingKeysWith 只是讓損壞 store 不 trap；被它選中的
-        // 那一筆一律不動（上游各腿另行拒絕或具名略過，這裡是最後一道防線）。
-        let duplicated = entries.duplicatedCitekeys
-        var byCitekey = Dictionary(entries.map { ($0.citekey, $0) }, uniquingKeysWith: { _, last in last })
-        for candidate in candidates where !duplicated.contains(candidate.citekey) {
-            guard var entry = byCitekey[candidate.citekey],
-                  entry.authors.indices.contains(candidate.authorIndex),
-                  case .literal(let current) = entry.authors[candidate.authorIndex],
-                  current == candidate.literal else { continue }
-            entry.authors[candidate.authorIndex] = .key(candidate.personKey)
-            byCitekey[candidate.citekey] = entry
+        // #627：**就地以陣列位置改寫，不經任何字典對應回輸出**。先前兩版都經過字典：
+        //   - 以 citekey 對應（#627 之前）：同 citekey 的每一筆都被換成同一份；
+        //   - 以 id 對應（#627 R0）：同 id 的兩筆（半遷移留下的 entities／legacy 拷貝，或
+        //     兩筆不同 citekey 共用 UUID）會互相覆寫，而 Dictionary 的 values 順序每個
+        //     process 不同，選中誰是隨機的（R1 verify 以真 binary 重現 4/6）。
+        // citekey 重複、或 entry id 重複的位置一律不改——以 citekey 定位會猜是哪一筆，以 id
+        // 寫檔（entities/<id>.yaml）會寫到兄弟的檔。上游各腿另行拒絕或具名略過，這裡是最後
+        // 一道防線：它保證輸出裡**只有候選命中的那一格**可能與輸入不同。
+        let duplicatedCK = entries.duplicatedCitekeys
+        var idCount: [UUID: Int] = [:]
+        for e in entries { idCount[e.id, default: 0] += 1 }
+        var indexByCitekey: [String: Int] = [:]
+        for (i, e) in entries.enumerated()
+        where !duplicatedCK.contains(e.citekey) && idCount[e.id] == 1 {
+            indexByCitekey[e.citekey] = i
         }
-        // 以 id 對應回原陣列——以 citekey 對應會讓同 citekey 的每一筆都被換成同一份（#627）
-        let byID = Dictionary(byCitekey.values.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return entries.map { byID[$0.id] ?? $0 }
+        var out = entries
+        for candidate in candidates {
+            guard let i = indexByCitekey[candidate.citekey],
+                  out[i].authors.indices.contains(candidate.authorIndex),
+                  case .literal(let current) = out[i].authors[candidate.authorIndex],
+                  current == candidate.literal else { continue }
+            out[i].authors[candidate.authorIndex] = .key(candidate.personKey)
+        }
+        return out
     }
 
     /// 比對面吃正規化（#81：NFKC＋連字號家族＋空白收斂），輸出仍是原字串——

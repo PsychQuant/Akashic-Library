@@ -56,6 +56,73 @@ final class JudgedAuthorshipServiceTests: XCTestCase {
         try LibraryStore(root: root).load().entries.first { $0.citekey == "w1" }!
     }
 
+    /// 模擬「先前用 --apply 歸戶」：作者位是 key、持有者有一筆**非逐篇判定**規則的 confirmed verdict。
+    private func keyByApply() throws {
+        let store = LibraryStore(root: root)
+        var e = try reloadEntry(); e.authors[1] = .key("chun-houh-chen")
+        try store.writeEntry(e)
+        var p = try XCTUnwrap(try store.load().people.first { $0.key == "chun-houh-chen" })
+        ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+            .confirmed, holderKind: .work, holder: "w1", literal: "C-H Chen",
+            rule: ResolutionLedger.personRule(for: .exact), statement: "resolve apply：使用者確認歸戶"), to: &p.references)
+        try store.writePerson(p)
+    }
+
+    private func judgedVerdicts(_ key: String) throws -> [ResolutionLedger.Verdict] {
+        let p = try XCTUnwrap(try LibraryStore(root: root).load().people.first { $0.key == key })
+        return ResolutionLedger.verdicts(references: p.references).verdicts
+            .filter { $0.holder == "w1" && $0.rule == ProvenanceReference.RuleName.judgedPerWork }
+    }
+
+    /// #627 R5：以 --apply 歸戶的位置再送 judge——不是「已是這個判定」（R4 曾這樣回報、丟掉理由），
+    /// 而是具名略過、指向 #636（verdict 以配對去重，理由無處另存）。
+    func testJudgeAfterApplyIsSkippedByNameNotReportedAsAlreadyJudged() throws {
+        try keyByApply()
+        let out = try judge(["w1:1:chun-houh-chen=查證：論文機構是中研院統計所"])
+        let why = ((out["skipped"] as? [[String: Any]])?.first?["why"] as? String) ?? ""
+        XCTAssertTrue(why.contains("不是逐篇判定") && why.contains("#636"), "\(out)")
+        XCTAssertEqual((out["alreadyJudged"] as? [Any])?.count ?? 0, 0)
+        XCTAssertEqual(try judgedVerdicts("chun-houh-chen").count, 0)
+    }
+
+    /// #627 R5：真的重跑（已有逐篇判定 verdict）才是 no-op。
+    func testRerunningAJudgementIsANoOp() throws {
+        _ = try judge(["w1:1:chun-houh-chen=第一次"])
+        let again = try judge(["w1:1:chun-houh-chen=第一次"])
+        XCTAssertEqual(again["alreadyJudged"] as? [String], ["w1:1:chun-houh-chen"], "\(again)")
+        XCTAssertEqual((again["skipped"] as? [Any])?.count ?? 0, 0)
+    }
+
+    /// #627 R5：作者位是 key 但沒有任何 verdict 記錄原 literal（手改、舊 binary）→ 略過並具名，不猜、不說成功。
+    func testJudgeOnKeyedSlotWithoutVerdictIsSkippedByName() throws {
+        var e = try reloadEntry(); e.authors[1] = .key("chun-houh-chen")
+        try LibraryStore(root: root).writeEntry(e)
+        let out = try judge(["w1:1:chun-houh-chen=理由"])
+        let why = ((out["skipped"] as? [[String: Any]])?.first?["why"] as? String) ?? ""
+        XCTAssertTrue(why.contains("找不到記錄原 literal"), "\(out)")
+        XCTAssertEqual((out["alreadyJudged"] as? [Any])?.count ?? 0, 0)
+    }
+
+    /// #627 R5：理由空白是輸入錯——即使作者位已歸給同一人，也整批拒絕（先前走 no-op 分支回報成功）。
+    func testBlankJudgementIsRefusedEvenOnAnAlreadyKeyedSlot() throws {
+        try keyByApply()
+        XCTAssertThrowsError(try judge(["w1:1:chun-houh-chen=   "])) { err in
+            XCTAssertTrue("\(err)".contains("judgement 是空白"), "\(err)")
+        }
+        XCTAssertEqual(try judgedVerdicts("chun-houh-chen").count, 0)
+    }
+
+    /// #627 R5：否決「目前就歸給這個人」的位置會寫出矛盾對——略過並具名，不寫 rejected。
+    func testRefuteOnSlotKeyedToThatPersonIsSkipped() throws {
+        try keyByApply()
+        let json = try service.resolvePeople(apply: nil, refute: ["w1:1:chun-houh-chen=不是他"])
+        let out = (try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]) ?? [:]
+        let why = ((out["skipped"] as? [[String: Any]])?.first?["why"] as? String) ?? ""
+        XCTAssertTrue(why.contains("會與既有歸戶矛盾"), "\(out)")
+        let p = try XCTUnwrap(try LibraryStore(root: root).load().people.first { $0.key == "chun-houh-chen" })
+        XCTAssertFalse(ResolutionLedger.verdicts(references: p.references).verdicts.contains { $0.kind == .rejected })
+    }
+
     // MARK: - 正常路徑
 
     /// spec scenario「An ambiguous occurrence remains eligible for judgement」。

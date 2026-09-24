@@ -1515,7 +1515,7 @@ struct ResolvePeople: ParsableCommand {
     /// 而批次會讓它退化成罐頭字串——罐頭 judgement 等於沒有判定。同 `mcp-cli-parity`
     /// 已載明的既有不對稱（tier 閘只加在 CLI 的篩選式批次）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式。同一次呼叫把同一個作者位判給兩個人整批拒絕；citekey 重複或與另一筆共用 id 的 work 該筆略過並具名；全部略過時沒有寫入、非零結束（已歸給同一個人的判定是 no-op 成功，不算略過）；有寫入而之後 index 重建失敗時回錯誤、寫入已落地，訊息逐行列出已判定與略過的 id（#627）。單獨呼叫，不與 --refute／--apply／--reject 組合（#635）")
+            help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式。同一次呼叫把同一個作者位判給兩個人整批拒絕；citekey 重複或與另一筆共用 id 的 work 該筆略過並具名；全部略過時沒有寫入、非零結束（作者位已歸給同一個人：已有逐篇判定＝no-op 成功；以 --apply 等歸戶的略過並具名，升級的面見 #636）；有寫入而之後 index 重建失敗時回錯誤、寫入已落地，訊息逐行列出已判定與略過的 id（#627）。單獨呼叫，不與 --refute／--apply／--reject 組合（#635）")
     var judge: [String] = []
 
     /// **團體作者的升格**（#443）：`.literal` → `.organization`。
@@ -1559,7 +1559,7 @@ struct ResolvePeople: ParsableCommand {
     /// 而對共用 literal 來說「不是他」才是絕大多數的答案——實測 69 筆歧義裡 22 筆已確定
     /// 答案不在候選裡。**entry 不動**（否決不歸戶），只寫 verdict。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "判定式否決（可重複）：citekey:authorIndex:personKey=否決理由。理由必填。歧義列也適用——既有 --reject 只吃候選。entry 不動，只寫 resolution-rejected verdict；之後該配對不再被提名。citekey 重複或與另一筆共用 id 的 work 該筆略過並具名；全部略過時沒有寫入、非零結束（#627）。單獨呼叫，不與 --judge／--apply／--reject 組合（#635）")
+            help: "判定式否決（可重複）：citekey:authorIndex:personKey=否決理由。理由必填。歧義列也適用——既有 --reject 只吃候選。entry 不動，只寫 resolution-rejected verdict；之後該配對不再被提名。citekey 重複或與另一筆共用 id 的 work、以及作者位目前就歸給這個人的（否決會與既有歸戶矛盾）該筆略過並具名；全部略過時沒有寫入、非零結束（#627）。單獨呼叫，不與 --judge／--apply／--reject 組合（#635）")
     var refute: [String] = []
 
     /// 歧義段的列數上限（#388）。

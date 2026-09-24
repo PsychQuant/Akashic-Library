@@ -1125,7 +1125,7 @@ public final class AkashicService {
         var skipped: [(id: String, why: String)] = []
         var seen = Set<String>()
         var confirmSlots = Set<String>()   // #627 R2
-        var alreadyJudged: [String] = []     // #627 R4：已歸給同一個人的判定（no-op）
+        var alreadyJudged: [String] = []     // #627 R4：已有逐篇判定 verdict 的重跑（no-op）
         for spec in specs {
             guard let eq = spec.firstIndex(of: "=") else {
                 throw ServiceError.invalid(
@@ -1138,9 +1138,16 @@ public final class AkashicService {
             guard parts.count == 3, let idx = Int(parts[1]), idx >= 0 else {   // #627 R4：負索引是輸入錯，不是 store 狀態不符
                 throw ServiceError.invalid(
                     "判定 id「\(displaySafeInvisible(id, max: 200))」不是三段形 "
-                    + "citekey:authorIndex:personKey")
+                    + "citekey:authorIndex:personKey（authorIndex 是從 0 起的非負整數）")
             }
             let (citekey, personKey) = (parts[0], parts[2])
+            // #627 R5：理由空白是**輸入**錯，要在任何 store 狀態分支之前擋——先前排在最後，
+            // 已歸戶的位置會先走 no-op 分支，空白理由因此回報成功（DA 真 binary 重現）
+            if judgement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw ServiceError.invalid(
+                    "判定「\(displaySafeInvisible(id, max: 200))」的 judgement 是空白"
+                    + "——judgement 是「憑什麼這樣判」的紀錄，沒有它的配對與猜測無法區分")
+            }
             // #627 R3：以解析後的形式去重——`d:0:p` 與 `d:00:p` 是同一個判定，不得被下一道
             // 「判給了兩個人」的檢查接住（那句話對同一人是假的）
             guard seen.insert("\(citekey):\(idx):\(personKey)").inserted else {   // display-safe-exempt: 集合鍵，不輸出
@@ -1179,9 +1186,23 @@ public final class AkashicService {
             }
             // 否決**不動 entry**，所以「該位置已歸戶」對它不是障礙——已歸戶的位置
             // 仍可留下「另一個候選不是他」的判定。只有歸戶路徑需要這道守衛。
+            // 已歸戶的位置：從持有者的 verdict 取回原 literal（literal 已不在 entry 上）——取不到或
+            // 不只一個就不猜。verdict 不帶作者位索引，所以同一筆 work 的兩個作者位歸給同一人時會有兩個。
+            func recoveredLiterals(holder k: String) -> [String] {
+                let vs = ResolutionLedger.verdicts(references: load.people.first(where: { $0.key == k })?.references ?? []).verdicts
+                var seenLit = Set<String>(), out: [String] = []
+                for v in vs where v.kind == .confirmed && v.holderKind == .work && v.holder == citekey
+                    && seenLit.insert(v.literal).inserted { out.append(v.literal) }
+                return out
+            }
             var literal: String
             if case let .literal(l) = entry.authors[idx] {
                 literal = l
+            } else if case let .key(k) = entry.authors[idx], !isConfirm, k == personKey {
+                // #627 R5：否決「目前歸給這個人」的位置會寫出 confirmed 與 rejected 並存的矛盾對，
+                // 作者位卻不變——本面沒有退回 literal 的操作（R5 DA 實測點亮 validate 的矛盾警告）
+                skipped.append((id, "該作者位目前就歸給這個人——否決會與既有歸戶矛盾；本面沒有把歸戶退回 literal 的操作"))
+                continue
             } else if case let .key(k) = entry.authors[idx], !isConfirm {
                 // 已歸戶：literal 已不在 entry 上，改由該位置的既有 verdict 取
                 // ——取不到就略過，不猜。
@@ -1197,9 +1218,28 @@ public final class AkashicService {
                 }
                 literal = recovered
             } else if case let .key(k) = entry.authors[idx], k == personKey {
-                // #627 R4：已經歸給同一個人＝目標狀態已成立（重跑同一個判定）。不是 store 狀態不符，
-                // 不列入 skipped——否則重跑一個已落地的判定會被當成失敗
-                alreadyJudged.append(id)
+                // #627 R4／R5：已經歸給同一個人。三種情形分開（R5：R4 把它們全當成「已是這個判定」，
+                // 用 --apply 歸戶的位置補上帶證據的 judge 時，理由被丟掉、回報卻說成功）：
+                //   - 已有這個配對的**逐篇判定** verdict → 真的重跑，no-op
+                //   - 有其他規則的 confirmed verdict（例如 --apply）→ 略過並具名：verdict 以（欄位, 值）去重，
+                //     判定理由無處另存，要把既有 verdict 升級成逐篇判定需要另一個面（#636）
+                //   - 取不到原 literal（手改、舊 binary）→ 略過並具名，不猜
+                let lits = recoveredLiterals(holder: k)
+                guard lits.count == 1, let lit = lits.first else {
+                    skipped.append((id, lits.isEmpty
+                        ? "該作者位已歸給這個人，但找不到記錄原 literal 的 verdict——無從記錄判定"
+                        : "該作者位已歸給這個人，但這筆 work 有 \(lits.count) 個不同的 confirmed literal——不知道是哪一個作者位，不猜"))   // display-safe-exempt: count 是 Int
+                    continue
+                }
+                let judgedAlready = ResolutionLedger.verdicts(references: byKey[personKey]?.references ?? []).verdicts
+                    .contains { $0.kind == .confirmed && $0.holderKind == .work && $0.holder == citekey
+                                && $0.literal == lit && $0.rule == ProvenanceReference.RuleName.judgedPerWork }
+                if judgedAlready {
+                    alreadyJudged.append(id)
+                    continue
+                }
+                skipped.append((id, "該作者位已歸給這個人，但既有的歸戶不是逐篇判定（例如 --apply）——"
+                                    + "verdict 以配對去重，這次的理由無處另存；把既有歸戶升級成逐篇判定的面尚無（#636）"))
                 continue
             } else {
                 // 已歸給**另一個人**才是真的衝突。先前的指路「要改判請先否決既有 verdict」照做會留下
@@ -1229,12 +1269,13 @@ public final class AkashicService {
                 try store.writeEntry(after)
                 wroteEntries += 1
             }
-            let unchanged = pairings.filter { !changed.contains("\($0.citekey):\($0.authorIndex)") }   // display-safe-exempt: 集合鍵，不輸出
+            let landed = { (p: JudgedPairing) in changed.contains("\(p.citekey):\(p.authorIndex)") }   // display-safe-exempt: 集合鍵，不輸出
+            let unchanged = pairings.filter { !landed($0) }
             for p in unchanged {
                 skipped.append(("\(p.citekey):\(p.authorIndex):\(p.personKey)",   // display-safe-exempt: 下方回應時逐一 displaySafe
                                 "作者位沒有被改寫（無法唯一定位該筆 work）——未歸戶、未寫 verdict"))
             }
-            pairings.removeAll { !changed.contains("\($0.citekey):\($0.authorIndex)") }   // display-safe-exempt: 集合鍵，不輸出
+            pairings.removeAll { !landed($0) }
         }
         var grouped: [String: Person] = [:]
         for p in pairings {
@@ -1265,7 +1306,7 @@ public final class AkashicService {
             let doneWord = isConfirm ? "已判定" : "已否決"
             let skippedLines = lines(skipped.map(\.id))
             let doneLines = lines(pairings.map { $0.citekey + ":" + String($0.authorIndex) + ":" + $0.personKey })
-            throw ServiceError.invalid("index rebuild 失敗（本批已改寫 \(wroteEntries) 筆 work、\(grouped.count) 筆 person 記錄；\(doneWord) \(pairings.count) 筆、略過 \(skipped.count) 筆，逐筆如下）：\(displaySafeError(error, max: 200))\n略過（store 狀態不符，例如 citekey 重複或與另一筆共用 id、work 不存在、作者位已歸戶給另一個人）：\(skippedLines)\n\(doneWord)（已落地）：\(doneLines)")   // display-safe-exempt: wroteEntries／count 是 Int；doneWord 是字面；skippedLines／doneLines 已逐筆 displaySafeInvisible
+            throw ServiceError.invalid("index rebuild 失敗（本批已改寫 \(wroteEntries) 筆 work、\(grouped.count) 筆 person 記錄；\(doneWord) \(pairings.count) 筆、略過 \(skipped.count) 筆、已是這個判定 \(alreadyJudged.count) 筆，逐筆如下）：\(displaySafeError(error, max: 200))\n略過（store 狀態不符，例如 citekey 重複或與另一筆共用 id、work 不存在、作者位的歸戶與這次的主張不合）：\(skippedLines)\n\(doneWord)（已落地）：\(doneLines)")   // display-safe-exempt: wroteEntries／count 是 Int；doneWord 是字面；skippedLines／doneLines 已逐筆 displaySafeInvisible
         } }
 
         return try jsonString([

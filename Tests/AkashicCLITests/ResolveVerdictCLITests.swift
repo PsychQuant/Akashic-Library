@@ -192,6 +192,31 @@ final class ResolveVerdictCLITests: XCTestCase {
         XCTAssertEqual(try reload().entries.first!.authors[0], .literal("Che Cheng"), "judge 也不得執行")
     }
 
+    /// #635：--refute 與 --reject 同用也整批拒絕（CLI 的另一條參數路徑）。
+    func testRefuteWithRejectIsRefused() throws {
+        try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "cheng2021u", type: .periodicalArticle,
+                                   title: "U", authors: [.literal("Che Cheng")], date: "2021"))
+        let r = try runCLI(["resolve-people", "--refute", "cheng2021u:0:cheng-che=y", "--reject", "cheng2021u:0:cheng-che"])
+        XCTAssertNotEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("#635"), r.output)
+        XCTAssertFalse(try reload().people.first!.references.contains { $0.field == "resolution-rejected" })
+    }
+
+    /// #627：refute 全部略過時也非零結束（與 judge 同語意）；已是判定＋略過混在一批時以成功結束。
+    func testRefuteAllSkippedExitsNonZeroAndMixedAlreadyJudgedSucceeds() throws {
+        try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "cheng2020t", type: .periodicalArticle,
+                                   title: "T", authors: [.literal("Che Cheng")], date: "2020"))
+        let skippedOnly = try runCLI(["resolve-people", "--refute", "nosuch2020:0:cheng-che=y"])
+        XCTAssertNotEqual(skippedOnly.status, 0, skippedOnly.output)
+        XCTAssertEqual(try runCLI(["resolve-people", "--judge", "cheng2020t:0:cheng-che=機構相符"]).status, 0)
+        let mixed = try runCLI(["resolve-people", "--judge", "cheng2020t:0:cheng-che=機構相符",
+                                "--judge", "nosuch2020:0:cheng-che=y"])
+        XCTAssertEqual(mixed.status, 0, mixed.output)
+        XCTAssertTrue(mixed.output.contains("已是這個判定 1 筆") && mixed.output.contains("略過 1 筆"), mixed.output)
+    }
+
     /// fall-through：exact 唯一命中被否決 → initials 冒出另一個人（淘汰所得）。
     /// tier 閘看排除後的套用集，所以裸 --apply 不該為了一筆終究不套用的 initials 擋下整批。
     func testTierGateIgnoresEliminatedLooseSurvivor() throws {

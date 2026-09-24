@@ -262,15 +262,21 @@ The MCP apply is **deliberately outside this gate**: its apply set is a list of 
 
 #### Scenario: A duplicated citekey is never resolved by guessing (#627)
 
-- **GIVEN** two works sharing one citekey (a supported corrupt state), including two copies of one work that also share its identifier
+- **GIVEN** a citekey that does not locate exactly one work (a supported corrupt state): two works share the citekey — including two copies of one work that also share its identifier — or the work shares its identifier with another work under a different citekey
 - **WHEN** any resolve-people write targets that citekey — explicit apply or reject identifiers (two- or three-segment), judge or refute, author split, un-split, removal, organization attribution, or an adjudication accept — or a filter-driven bulk apply includes a candidate on it, or an unrelated apply runs in the same store
 - **THEN** neither work is rewritten and no verdict is written for it: explicit identifiers, the author-slot operations and the adjudication accept are refused by name, judge and refute skip that pairing by name while the rest proceed, and the bulk apply excludes and lists such candidates while applying the rest
 
-#### Scenario: An apply writes a verdict only where it changed the author slot (#627)
+#### Scenario: A confirmed verdict is written only where the author slot changed (#627)
 
-- **GIVEN** a candidate whose work shares its identifier with another work under a different citekey
-- **WHEN** the candidate is applied
-- **THEN** neither work is rewritten, no confirmed verdict is written, and the response names the candidate as not applied
+- **GIVEN** an apply or judge call
+- **WHEN** a pairing in it does not end up rewriting its author slot
+- **THEN** no confirmed verdict is written for that pairing, it is not reported as applied or judged, and the response names it
+
+#### Scenario: One author slot cannot be judged for two people in one call (#627)
+
+- **GIVEN** a judge call that assigns the same author slot to two different people
+- **WHEN** it is submitted
+- **THEN** the whole call is refused and nothing is written; refuting several people for one slot remains allowed
 
 
 <!-- @trace

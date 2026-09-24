@@ -9,8 +9,8 @@ import AkashicCore
 struct ReferencesCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "references",
-        abstract: "參考文獻清單的中間運算（skill 用）：切分 pdftotext 輸出",
-        subcommands: [ReferencesExtractCmd.self])
+        abstract: "參考文獻清單的中間運算（skill 用）：切分 pdftotext 輸出、兩源提名",
+        subcommands: [ReferencesExtractCmd.self, ReferencesNominateCmd.self])
 }
 
 struct ReferencesExtractCmd: ParsableCommand {
@@ -50,5 +50,110 @@ struct ReferencesExtractCmd: ParsableCommand {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return String(decoding: try encoder.encode(safe), as: UTF8.self)
+    }
+}
+
+struct ReferencesNominateCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "nominate",
+        abstract: "PDF 參考文獻 × OpenAlex referenced_works 的雙向提名 → JSON（只提名、不判定）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Option(name: .long, help: "akashic references extract 的輸出檔")
+    var refs: String
+
+    @Option(name: .long, help: "OpenAlex 回應檔（{\"results\": [...]} 或 work 陣列）；可重複，每批一檔")
+    var openalex: [String] = []
+
+    func run() throws {
+        let parsed: ReferenceListExtractor.Result
+        do {
+            parsed = try JSONDecoder().decode(ReferenceListExtractor.Result.self,
+                                              from: Data(contentsOf: URL(fileURLWithPath: refs)))
+        } catch {
+            throw ValidationError(
+                "--refs \(displaySafe(refs)) 讀不到或不是 akashic references extract 的輸出：\(displaySafeErrorText(error))")
+        }
+        guard !openalex.isEmpty else {
+            throw ValidationError("至少要給一個 --openalex（OpenAlex 回應檔）")
+        }
+
+        var works: [ReferenceNominator.Work] = []
+        var seen = Set<String>()
+        var skipped = 0, duplicates = 0
+        for path in openalex {
+            let data: Data
+            do { data = try Data(contentsOf: URL(fileURLWithPath: path)) } catch {
+                throw ValidationError("--openalex \(displaySafe(path)) 讀不到：\(displaySafeErrorText(error))")
+            }
+            let batch = try ReferenceNominator.parseWorks(data, source: path)
+            skipped += batch.skipped
+            for w in batch.works {
+                if seen.insert(w.id).inserted { works.append(w) } else { duplicates += 1 }
+            }
+        }
+
+        let (inStore, conflicts) = try storeDOIs()
+        var result = ReferenceNominator.nominate(refs: parsed.entries, works: works, inStore: inStore)
+        if skipped > 0 { result.warnings.append("略過 \(skipped) 個沒有 id 的 OpenAlex 項目") }
+        if duplicates > 0 { result.warnings.append("\(duplicates) 個 OpenAlex work 在多批重複出現，只算一次") }
+        if conflicts > 0 {
+            result.warnings.append("\(conflicts) 個 DOI 在 store 裡對應到不只一筆記錄（取 citekey 最小者）——先處理重複記錄")
+        }
+        print(try encodeForDisplay(result))
+    }
+
+    /// store 裡每個 DOI（正規形）→ citekey。讀取走 `canonicalDOIs`，不自己比較字串。
+    func storeDOIs() throws -> (map: [String: String], conflicts: Int) {
+        let load = try options.openStore().load()
+        var map: [String: String] = [:]
+        var conflicted = Set<String>()
+        for entry in load.entries {
+            for d in entry.canonicalDOIs {
+                if let existing = map[d.normalized], existing != entry.citekey {
+                    conflicted.insert(d.normalized)
+                    map[d.normalized] = min(existing, entry.citekey)
+                } else {
+                    map[d.normalized] = entry.citekey
+                }
+            }
+        }
+        return (map, conflicted.count)
+    }
+
+    /// 同 extract：OpenAlex 內容與 citekey 都逐欄 `displaySafe` 後才編碼。
+    func encodeForDisplay(_ r: ReferenceNominator.Result) throws -> String {
+        func safe(_ c: ReferenceNominator.Candidate) -> ReferenceNominator.Candidate {
+            var s = c
+            s.openalex = displaySafe(c.openalex)
+            s.doi = c.doi.map { displaySafe($0) }
+            s.title = c.title.map { displaySafe($0, max: 500) }
+            s.firstAuthor = c.firstAuthor.map { displaySafe($0) }
+            s.inStore = c.inStore.map { displaySafe($0) }
+            return s
+        }
+        var out = r
+        out.refs = r.refs.map { n in
+            var s = n
+            s.firstAuthor = n.firstAuthor.map { displaySafe($0) }
+            s.title = n.title.map { displaySafe($0, max: 500) }
+            s.doi = n.doi.map { displaySafe($0) }
+            s.inStore = n.inStore.map { displaySafe($0) }
+            s.candidates = n.candidates.map(safe)
+            return s
+        }
+        out.unnominated = r.unnominated.map { w in
+            var s = w
+            s.openalex = displaySafe(w.openalex)
+            s.doi = w.doi.map { displaySafe($0) }
+            s.title = w.title.map { displaySafe($0, max: 500) }
+            s.firstAuthor = w.firstAuthor.map { displaySafe($0) }
+            s.inStore = w.inStore.map { displaySafe($0) }
+            return s
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return String(decoding: try encoder.encode(out), as: UTF8.self)
     }
 }

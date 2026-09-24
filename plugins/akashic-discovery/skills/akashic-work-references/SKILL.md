@@ -74,7 +74,7 @@ safari-browser js "${LOCK[@]}" "delete window.__oa_$K; return 'ok'"
 
 每一步看結束碼，第一步要印出 `started`。狀態不是 200、有 `err`、或檔案不是 JSON → 中止條款。
 
-**為什麼每次換變數名**：2026-09-24 校準時，所有批次共用一個 `window.__oa`，第二批的檔案裡是**第一批的結果**——開始 fetch 的那一步回了結束碼 0，但頁面上留著第一批已完成的物件，後面每一步都照著它走（重跑時沒有重現，根因未定）。換了變數名，上一批的物件就不可能滿足這一批的 `wait`：失手會變成逾時報錯，而不是安靜地讀到錯的資料。
+**為什麼每次換變數名、而且一定要核對 id**：2026-09-24 校準時，第二批存下的檔案與第一批**逐位元相同**，每一步都回結束碼 0，重跑沒有重現。是「開始 fetch」那一步沒生效（頁面上留著第一批已完成的 `window.__oa`），還是 `--large` 讀取讀到了上一次的內容，沒有定論。換變數名只擋得住前一種：上一批的物件不可能滿足這一批的 `wait`，失手會變成逾時報錯。**兩種都擋得住的是下面第 3 點的 id 核對**——讀回來的若是上一批，id 一定對不上。
 
 1. 種子：`https://api.openalex.org/works/doi:<DOI>?select=id,doi,title,referenced_works` → 取 `referenced_works`（`https://openalex.org/W…` 的清單）。**先核對回來的 `title` 就是種子**——OpenAlex 以 DOI 查到錯篇時，後面全部都錯。
 2. 被引文獻：每批至多 50 個 id，`https://api.openalex.org/works?filter=openalex:W1|W2|…&per-page=50&select=id,doi,title,display_name,publication_year,authorships`，每批存成 `$W/oa-<批次>.json`。**逐批、不平行**，批與批之間等一下：`safari-browser wait $(( 2000 + RANDOM % 4000 ))`。
@@ -100,7 +100,7 @@ akashic references nominate --refs "$W/refs.json" --openalex "$W/oa-1.json" --op
 
 校準看到的三種型態（2026-09-24，見〈校準〉）：
 
-- **OpenAlex 對同一篇有兩筆記錄**：APA 舊式雙斜線 DOI（`10.1037//0022-…` 與 `10.1037/0022-…`）、JSTOR 與出版商各一個 DOI、同一本書的線上再版。同一筆 PDF 條目可以認領這幾筆——判為同一篇、**只建一筆**，DOI 取出版商的單斜線形式；其餘記錄列在該條目底下，不算「只在 OpenAlex」。
+- **OpenAlex 對同一篇有兩筆記錄**：APA 舊式雙斜線 DOI（`10.1037//0022-…` 與 `10.1037/0022-…`）、JSTOR 與出版商各一個 DOI、同一本書的線上再版。同一筆 PDF 條目可以認領這幾筆——判為同一篇、**只建一筆，幾個 DOI 都記在這一筆**（#456 合併雙斜線攣生時的識別碼聯集慣例；之後 `nominate` 的 `inStore` 兩種寫法都認得）；其餘記錄列在該條目底下，不算「只在 OpenAlex」。已在庫的攣生另由 `akashic-merge-twins` 處理，不是本 skill 的事。
 - **書評被當成書**：PDF 是一本書，第一名候選標題相同、但第一作者是別人、年份晚一兩年、DOI 屬期刊（`10.2307/…`、`10.1198/jasa…`）——那是書評，判為不是。書本身這時通常不在 OpenAlex 的清單裡。
 - **同作者同年的兄弟作品**：同一位作者同年的兩章或兩篇，標題共用很多詞（`latent difference score … dynamic … analyses`）。只有標題實質相同才算。
 

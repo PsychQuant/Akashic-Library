@@ -1257,6 +1257,15 @@ public final class AkashicService {
                         + "（tier \(now.tier.rawValue)）——重新列出候選後再決定")   // display-safe-exempt: tier.rawValue 封閉 enum
                 }
             } else if parts.count == 2, let c = byRowID[id] {
+                // #624 R1 verify：兩段形只指到位置、沒點名人。淘汰而得的唯一候選是「原本
+                // 有別人、被否決後只剩它」——舊的兩段 id 可能是在否決之前拿到的，那時指的
+                // 是另一個人。這一格要求三段形顯式點名，否則等於讓沒人點名過的人被寫入。
+                if c.eliminatedPairings > 0 {
+                    throw ServiceError.invalid(
+                        "候選 id「\(displaySafeInvisible(id, max: 200))」指到淘汰而得的唯一候選"
+                        + "「\(displaySafeInvisible(c.personKey, max: 200))」（此位置其他人選已被否決，"
+                        + "沒有人點名過它）——請用三段形 citekey:authorIndex:personKey 顯式送（#624）")
+                }
                 return c   // legacy 兩段形——位置仍有唯一提名時等價於未釘
             }
             throw ServiceError.notFound("候選 id「\(displaySafeInvisible(id, max: 200))」（先不帶 apply 列出候選）")

@@ -82,6 +82,25 @@ final class ResolutionVerdictServiceTests: XCTestCase {
         XCTAssertEqual(a?["eliminatedPairings"] as? Int, 1, "\(rows)")
     }
 
+    // #624 R1 verify：兩段 legacy id 只指到位置，沒點名人——對淘汰所得拒絕；三段形照寫
+    func testTwoSegmentIDRefusesEliminatedSurvivorButPinnedIDWrites() throws {
+        try LibraryStore(root: root).writePerson(Person(key: "cheng-che-2", names: ["Che Cheng"]))
+        _ = try service.resolvePeople(apply: nil, refute: ["a2020x:0:cheng-che=機構不符"])
+        XCTAssertThrowsError(try service.resolvePeople(apply: ["a2020x:0"])) { err in
+            XCTAssertTrue("\(err)".contains("三段"), "\(err)")
+        }
+        let untouched = try LibraryStore(root: root).load().entries.first { $0.citekey == "a2020x" }!
+        XCTAssertEqual(untouched.authors, [.literal("Che Cheng")])
+
+        _ = try service.resolvePeople(apply: ["a2020x:0:cheng-che-2"])
+        let load = try LibraryStore(root: root).load()
+        XCTAssertEqual(load.entries.first { $0.citekey == "a2020x" }!.authors, [.key("cheng-che-2")],
+                       "三段形是顯式點名，照寫")
+        let p = load.people.first { $0.key == "cheng-che-2" }!
+        XCTAssertTrue(p.references.contains {
+            $0.field == "resolution-confirmed" && $0.value == "work:a2020x :: Che Cheng" })
+    }
+
     func testListedIDsArePinnedWithPersonKey() throws {
         let out = try json(try service.resolvePeople(apply: nil))
         let ids = (out["candidates"] as! [[String: Any]]).map { $0["id"] as! String }

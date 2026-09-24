@@ -1481,7 +1481,7 @@ struct ResolvePeople: ParsableCommand {
 
     @OptionGroup var options: LibraryOptions
 
-    @Flag(name: .long, help: "套用候選（顯式人工確認）；可用 --citekey / --person 收窄範圍")
+    @Flag(name: .long, help: "套用候選（顯式人工確認）；可用 --citekey / --person 收窄範圍。淘汰而得的唯一候選（此位置其他人選已被否決）不套用，要逐筆 --judge（#624）")
     var apply = false
 
     /// #5：alias 完全命中**仍可能同名不同人**——people 庫還沒記錄第二個人時，
@@ -1753,13 +1753,21 @@ struct ResolvePeople: ParsableCommand {
                 && (pkSet.isEmpty || pkSet.contains($0.personKey))
                 && (tierSet.isEmpty || tierSet.contains($0.tier))
         }
+        // #624：淘汰而得的唯一候選（原本有別的人選、被否決之後只剩它）**不進**篩選式批次——
+        // 沒有人判定過它是對的，而批次是「照清單全收」。它仍列出、標記、另列指路；
+        // 要寫它就逐筆 `--judge`（必附理由）或 MCP 以三段 id 顯式送。刻意不給關掉的旗標：
+        // 那會把排除變回一鍵可關的預設，正是 #624 要防的形狀。
+        // 下面的 tier 閘看的是**排除後**的套用集——排除掉的列不會被套用，不該讓閘為它們擋下
+        // 整批、或叫人去具名一個最後仍會被排除的 tier（#624 R1 verify）。
+        let applySet = candidates.filter { $0.eliminatedPairings == 0 }
+        let eliminatedSkipped = candidates.filter { $0.eliminatedPairings > 0 }
         // R1-fix B1＋R2-fix R3-3（使用者裁決：不豁免）：套用集含寬鬆 tier 時，
         // **不論怎麼收窄**都要 `--tier` 具名——`--person` 恰是同名碰撞問題最糟的
         // 收窄軸（它選中的正是同鍵列；R2 live probe：--person 一發寫 5 筆 initials
         // verdict、4 筆錯配），`--citekey` 收窄也不代表你知道那列是弱證據層。
         if apply, tierSet.isEmpty,
-           candidates.contains(where: { $0.tier != .exact }) {
-            let breakdown = Dictionary(grouping: candidates, by: \.tier)
+           applySet.contains(where: { $0.tier != .exact }) {
+            let breakdown = Dictionary(grouping: applySet, by: \.tier)
                 .map { "\($0.key.rawValue) \($0.value.count)" }.sorted().joined(separator: "、")   // display-safe-exempt: $0.key 是封閉 enum ResolutionTier，rawValue 是程式字面量；count 是數量
             throw ValidationError(
                 "--apply 拒絕：套用集含寬鬆提名層（\(breakdown)）。"
@@ -1935,12 +1943,6 @@ struct ResolvePeople: ParsableCommand {
             printAmbiguities()   // 沒有唯一候選時，歧義**更**該被看見
             return
         }
-        // #624：淘汰而得的唯一候選（原本有別的人選、被否決之後只剩它）**不進**篩選式批次——
-        // 沒有人判定過它是對的，而批次是「照清單全收」。它仍列出、標 skip、另列指路；
-        // 要寫它就逐筆 `--judge`（必附理由）或 MCP 逐 id apply。刻意不給關掉的旗標：
-        // 那會把排除變回一鍵可關的預設，正是 #624 要防的形狀。
-        let applySet = candidates.filter { $0.eliminatedPairings == 0 }
-        let eliminatedSkipped = candidates.filter { $0.eliminatedPairings > 0 }
         let selected = Set(applySet.map { "\($0.citekey)#\($0.authorIndex)" })   // display-safe-exempt: 內部 Set 的成員判定鍵，不進輸出面
         // #303 design D4：按 tier 分組列印（resolver 已依信心降冪排序，分組只加標頭）。
         // tier 越低證據越弱——initials 段的標頭直接把查證義務講出來，讀的人不必翻文件。
@@ -1958,7 +1960,9 @@ struct ResolvePeople: ParsableCommand {
             }
             // 被篩掉的候選仍列出，但標明不會套用——收窄範圍不等於「其他不存在」
             let mark = (apply && !selected.contains("\(c.citekey)#\(c.authorIndex)")) ? "  (skip) " : "  "
-            print("\(mark)\(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（\(displaySafe(c.reason, max: 300))）")
+            // #624：列表模式也標出淘汰所得——不必等到 --apply 才知道哪幾列不會被套用
+            let tag = c.eliminatedPairings > 0 ? " ⟨淘汰而得：--apply 不套用，要逐筆 --judge⟩" : ""
+            print("\(mark)\(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（\(displaySafe(c.reason, max: 300))）\(tag)")
         }
         printCountsAndSunk()
         printAmbiguities()

@@ -56,7 +56,7 @@ candidates 依 tier 信心降冪。讀法：
 
 - **apply 的 id 是三段形 `citekey:authorIndex:personKey`**（釘 person）——提名改指時 apply 顯式失敗，重新列出再決定，不要改手拼 id
 - **MCP 面的 apply 沒有 tier 閘**（per-id 顯式；閘只在 CLI 的篩選式批次）——LLM 走 MCP 批次時**自律等同 --tier**：一次呼叫只送同一 tier 的 id，initials 逐筆附查證
-- CLI 批次套用**必帶 `--tier`**（裸 `--apply` 面對寬鬆 tier 會拒絕）：`akashic resolve-people --apply --tier exact` 是安全的第一刀
+- CLI 批次套用**必帶 `--tier`**（裸 `--apply` 面對寬鬆 tier 會拒絕）：`akashic resolve-people --apply --tier exact` 是安全的第一刀——前提是範圍內沒有查過未決的配對（工具看不到它，#619；見下方第三出口）。淘汰而得的唯一候選它會自動排除、另列（#624）
 - reason 帶「已被否決」字樣的候選是**淘汰而得的唯一命中**——不是天然唯一，查證標準從嚴。CLI 的篩選式 `--apply` 不套用它（另列、指路 `--judge`）；MCP 列表以 `eliminatedPairings > 0` 標出它，逐 id apply 則照寫（#624）
 
 ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，**通常是不同的人**；`exact` 同名才是「各自歸屬 vs 該合併」的兩難判斷（person-verify 的兩種相反處置）。

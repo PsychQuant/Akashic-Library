@@ -252,6 +252,13 @@ The MCP apply is **deliberately outside this gate**: its apply set is a list of 
 - **WHEN** it is invoked without a tier filter
 - **THEN** the face refuses and no write occurs
 
+#### Scenario: Bulk apply excludes an eliminated survivor (#624)
+
+- **GIVEN** a candidate that is the sole survivor after other same-position candidates were rejected (its `eliminatedPairings` is greater than zero)
+- **WHEN** a filter-driven bulk apply is invoked, with or without a tier filter
+- **THEN** that candidate is not applied and is listed as excluded with a pointer to per-row judgement; the tier gate is evaluated on the apply set after this exclusion; if nothing remains, no write occurs and the face exits non-zero
+- **AND** on the MCP face a two-segment identifier resolving to such a candidate is refused, while a three-segment identifier naming its person applies as usual
+
 
 <!-- @trace
 source: add-loose-nomination-campaign

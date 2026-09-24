@@ -122,6 +122,35 @@ final class ResolveVerdictCLITests: XCTestCase {
         let a = try reload().entries.first { $0.citekey == "a2020x" }!
         XCTAssertEqual(a.authors, [.literal("Che Cheng")], "零寫入")
         XCTAssertTrue(r.output.contains("淘汰而得"), r.output)
+        let survivor = try reload().people.first { $0.key == "cheng-che-2" }!
+        XCTAssertFalse(survivor.references.contains { $0.field == "resolution-confirmed" },
+                       "零寫入也包括 verdict：\(survivor.references)")
+    }
+
+    func testListingTagsEliminatedSurvivorWithoutApply() throws {
+        try seedEliminatedSurvivor()
+        let r = try runCLI(["resolve-people"])
+        XCTAssertEqual(r.status, 0, r.output)
+        let line = r.output.split(separator: "\n").first { $0.contains("a2020x") && $0.contains("cheng-che-2") }
+        XCTAssertTrue(line?.contains("淘汰而得") == true, "列表模式就要標出來：\n\(r.output)")
+    }
+
+    /// fall-through：exact 唯一命中被否決 → initials 冒出另一個人（淘汰所得）。
+    /// tier 閘看排除後的套用集，所以裸 --apply 不該為了一筆終究不套用的 initials 擋下整批。
+    func testTierGateIgnoresEliminatedLooseSurvivor() throws {
+        try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng"]))
+        try store.writePerson(Person(key: "cheng-chun-erh", names: ["Cheng, C."]))
+        try store.writePerson(Person(key: "olsson-ulf", names: ["Ulf Olsson"]))
+        try store.writeEntry(Entry(id: UUID(), citekey: "a2020x", type: .periodicalArticle,
+                                   title: "T", authors: [.literal("Che Cheng")], date: "2020"))
+        try store.writeEntry(Entry(id: UUID(), citekey: "b2021y", type: .periodicalArticle,
+                                   title: "U", authors: [.literal("Ulf Olsson")], date: "2021"))
+        XCTAssertEqual(try runCLI(["resolve-people", "--refute", "a2020x:0:cheng-che=機構不符"]).status, 0)
+        let r = try runCLI(["resolve-people", "--apply"])
+        XCTAssertEqual(r.status, 0, "寬鬆層只有淘汰所得時，tier 閘不該擋：\n\(r.output)")
+        let load = try reload()
+        XCTAssertEqual(load.entries.first { $0.citekey == "b2021y" }!.authors, [.key("olsson-ulf")])
+        XCTAssertEqual(load.entries.first { $0.citekey == "a2020x" }!.authors, [.literal("Che Cheng")])
     }
 
     func testRejectAndApplyMutuallyExclusive() throws {

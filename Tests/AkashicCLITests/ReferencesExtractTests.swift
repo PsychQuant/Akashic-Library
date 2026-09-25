@@ -575,4 +575,204 @@ final class ReferencesExtractTests: XCTestCase {
         XCTAssertEqual(r.entries[2].doi, "10.9999/xyz")
         XCTAssertTrue(r.entries[2].raw.contains("xyz (Original work"), r.entries[2].raw)
     }
+
+    // MARK: - #617 verify R3
+
+    /// T22：書的每一頁都印著 `References` 頁首時，清單不得被切成一頁一段（R3 H1——R2 的 G1 修正
+    /// 造成的迴歸）。頁首後的條目按字母順序接得上，就是同一份清單
+    func testRepeatedReferencesRunningHeadDoesNotCutTheList() throws {
+        let text = "Body text.\n\nReferences\n\n"
+            + "Adams, J. K. (2001). First title. Journal A, 1, 1–2.\n"
+            + "Baker, L. (2002). Second title. Journal B, 2, 3–4.\n"
+            + "\u{0C}123\nReferences\n"
+            + "Carter, M. (2003). Third title. Journal C, 3, 5–6.\n"
+            + "Dunn, P. (2004). Fourth title. Journal D, 4, 7–8.\n"
+            + "\u{0C}124\nReferences\n"
+            + "Evans, Q. (2005). Fifth title. Journal E, 5, 9–10.\n"
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker", "Carter", "Dunn", "Evans"])
+        XCTAssertFalse(r.warnings.contains { $0.contains("標題候選") }, "\(r.warnings)")
+        XCTAssertTrue(r.warnings.contains { $0.contains("頁首") }, "\(r.warnings)")
+    }
+
+    /// T23：書末索引（`姓, 名縮寫., 頁碼`）不是清單的一部分（R3 H1：`Index` 不在結束標題裡，
+    /// 索引行又長得像條目開頭）
+    func testBookIndexIsNotPartOfTheList() throws {
+        var text = "References\n\nAdams, J. K. (2001). First title. Journal A, 1, 1–2.\n"
+            + "Baker, L. (2002). Second title. Journal B, 2, 3–4.\n\u{0C}Index\n"
+        for name in ["Imagin, T. M., 288, 289", "Jover, P., 12", "Kello, A. B., 45, 46", "Lumin, R., 7"] {
+            text += name + "\n"
+        }
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker"])
+    }
+
+    /// T24：雙欄期刊裡，`SUPPLEMENTARY MATERIAL` 之類的結束標題會穿插在清單中間（R3 M1）——
+    /// 之後的條目字母順序接得上、又是完整條目，清單就接續，並說出略過了什麼
+    func testInterleavedEndHeadingDoesNotTruncateTheList() throws {
+        let text = """
+        References
+
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        SUPPLEMENTARY MATERIAL
+        The Supplementary Material for this article can be found online.
+        Carter, M. (2003). Third title. Journal C, 3, 5–6.
+        Dunn, P. (2004). Fourth title. Journal D, 4, 7–8.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker", "Carter", "Dunn"])
+        XCTAssertFalse(r.entries[1].raw.contains("Supplementary"), r.entries[1].raw)
+        XCTAssertTrue(r.warnings.contains { $0.contains("接續") && $0.contains("第 5 行") }, "\(r.warnings)")
+    }
+
+    /// T32：雙欄版面裡 pdftotext 會把兩欄讀反——結束標題之前是清單的後半（C 開頭），之後才是前半
+    /// （A 開頭）。之後的條目排在這份清單開頭之前，就是另一欄，不是新清單（R3 M1，本機真實論文實測
+    /// 的兩例都是這個形狀）
+    func testColumnSwappedListAcrossAnEndHeadingIsKept() throws {
+        let text = """
+        References
+
+        Carter, M. (2003). Third title. Journal C, 3, 5–6.
+        Dunn, P. (2004). Fourth title. Journal D, 4, 7–8.
+        ACKNOWLEDGMENTS
+        We thank the imaginary participants.
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Carter", "Dunn", "Adams", "Baker"])
+        XCTAssertTrue(r.warnings.contains { $0.contains("另一欄") && $0.contains("第 5 行") }, "\(r.warnings)")
+    }
+
+    /// T25：清單之後的表格與圖（APA 稿件的版面）不得被略過成「夾在清單中間」而產生幻影條目
+    /// （R3 M2）——表格列不是完整條目，字母順序也接不上
+    func testTrailingTablesAfterTheListStayOut() throws {
+        let text = """
+        References
+
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        Table 1
+        Descriptive statistics
+        Age, M. (SD) 20.1 2.3
+        Table 2
+        Included studies
+        Carter, M. (2003) 120 .35
+        Dunn, P. (2004) 88 .41
+        Figure 1
+        Model diagram
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker"])
+        XCTAssertFalse(r.entries[1].raw.contains("Descriptive"), r.entries[1].raw)
+        XCTAssertFalse(r.warnings.contains { $0.contains("接續") }, "\(r.warnings)")
+    }
+
+    /// T26：清單之後有很多圖表標題時不得變慢（R3 M2：原本 O(圖表數 × 行數)，60 個圖 11 秒）
+    func testManyTrailingFiguresStayFast() throws {
+        var text = "References\n\n"
+        for i in 0..<150 { text += "Author\(String(repeating: "a", count: 1 + i % 5)), J. (2001). Title \(i). Journal, 1, 1–2.\n" }
+        for i in 1...60 { text += "Figure \(i)\nCaption text for figure \(i).\n" }
+        text += "Zed, A. (2020). Stray line. Journal, 1, 1.\n"
+        let start = Date()
+        let (status, output) = try extract(text)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 3, "extract 花了太久")
+        XCTAssertEqual(status, 0, output)
+    }
+
+    /// T27：標題真的以 `no.` 結尾時不得吞進期刊名（R3 M9）；`No. 2` 仍不算句末
+    func testTitleEndingInAbbreviationWordEndsThere() throws {
+        let text = """
+        References
+
+        Adams, J. (2001). Learning to say no. Journal of Testing, 2, 1–3.
+        Baker, L. (2002). Report No. 2 on things. Journal B, 2, 3–4.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.title), ["Learning to say no", "Report No. 2 on things"])
+    }
+
+    /// T28：書名尾端的冊次、版次、編者括號都不屬於標題；`St.` 不是句末（R3 M8——G4 的部分修正）
+    func testBookTitleParentheticalsAreStripped() throws {
+        let text = """
+        References
+
+        Adams, J. (2001). Handbook of imaginary psychology (6th ed., Vol. 3). Imaginary Press.
+        Baker, L. (2002). Imaginary methods (Vol. 2). Imaginary Press.
+        Carter, M. (2003). Imaginary handbook (J. Smith, Ed.; 3rd ed.). Imaginary Press.
+        Dunn, P. (2004). Travels to St. Imaginary. Imaginary Press.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.title),
+                       ["Handbook of imaginary psychology", "Imaginary methods", "Imaginary handbook", "Travels to St. Imaginary"])
+    }
+
+    /// T29：以分號分隔的作者清單不得變成機構作者或併進前一筆（R3 L1——R2 的 `[:;]` 前瞻造成）；
+    /// 出版地 `Oxford, U.K.; New York, NY:` 仍不是條目開頭
+    func testSemicolonAuthorListsAreNotMisread() throws {
+        let text = """
+        References
+
+        Adams, J. K. (2001). First title. In B. Editor (Ed.), Book one (pp. 1–2).
+        Oxford, U.K.; New York, NY: Imaginary Press.
+        Baker, L.; Cole, M.;
+        Dean, P. (2002). Second title. Journal B, 2, 3–4.
+        Smith, J.; Jones, K. (2003). Third title. Journal C, 3, 5–6.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker", "Smith"])
+        XCTAssertEqual(r.entries.map(\.groupAuthor), [false, false, false])
+        XCTAssertFalse(r.warnings.contains { $0.contains("吸收") }, "\(r.warnings)")
+    }
+
+    /// T30：只有清單、沒有正文頁的輸入（貼上的參考文獻頁、節錄）——頁首仍是雜訊（R3 L2）。
+    /// 這是 R2 改寫前 T2 的原 fixture，留作獨立的測試
+    func testListOnlyInputStillDropsRepeatedRunningHeads() throws {
+        let text = """
+        References
+
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        12
+        RUNNING HEAD IMAGINARY
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        This document is copyrighted by the Imaginary Association.
+        Carter, M. (2003). Third title spanning
+        13
+        RUNNING HEAD IMAGINARY
+        two lines. Journal C, 3, 5–6.
+        This document is copyrighted by the Imaginary Association.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.title), ["First title", "Second title", "Third title spanning two lines"])
+    }
+
+    /// T31：空白頁（`\f\f`）與行尾軟連字號不得讓 warning 的行號漂移；warning 同時報 PDF 頁碼，
+    /// 使用者才對照得到（R3 L3）
+    func testLineAndPageNumbersSurviveBlankPagesAndSoftHyphens() throws {
+        let text = "Intro.\n\u{0C}\u{0C}More.\nsoft\u{AD}\nhyphen\nReferences\n\n"
+            + "Adams, J. K. (2001). First title. Journal A, 1, 1–2.\n"
+            + "Baker, L. (2002). Second title. Journal B, 2, 3–4.\n"
+            + "Reference\nSmith, Q. (2001). A table cell. n = 40\n"
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertTrue(r.warnings.contains { $0.contains("標題候選") && $0.contains("第 5 行") && $0.contains("PDF 第 3 頁") },
+                      "\(r.warnings)")
+    }
 }

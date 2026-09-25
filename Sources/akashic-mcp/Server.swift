@@ -163,7 +163,7 @@ actor AkashicMCPServer {
                 "drop_author": strArray("把一個作者位**移除**（#457）：citekey:literal=理由。三態（.key／.organization／.literal）都假設那一格背後有一個作者，而 PsycInfo 的 `No authorship indicated` 不是——它今天在 .bib 裡是 `AUTHOR = {indicated, No authorship}`，一個被捏造出來的人；APA7 §9.12 對無署名作品要求作者位是**空的**。**以值定位不用索引**（同 un_split）：索引在同一批的前一次移除之後會位移，而「這個字串不是人」本來就是關於字串的宣稱。理由必填（移除是判定）；只作用於未歸戶的 .literal；同一筆 work 的作者位裡出現多次即拒絕不判定。移除記錄（field: authors、statement `移除：理由`、value＝被移除的 literal 逐字）與作者位改寫同一次寫入，需要 store format ≥ 17。**沒有具名逆操作**：記錄留著被移除的字串，但刻意不留位置。單獨呼叫，不與其餘腿組合"),
                 "undecided": strArray("記下查過未決（change resolution-verdict-states，#619）：citekey:authorIndex:personKey=查了什麼、為何判不出來。寫一筆 resolution-undecided 到該 person，作者位不動；之後這個配對在列表的候選列／歧義條目帶 undecidedChecks、counts 的 undecided 與頂層 undecidedTotal 計入它（pending 不再算它）；CLI 的篩選式 --apply 不帶走它，以 id 點名的 apply 照寫。已判定的配對（有任一層級的 confirmed 或 rejected）、已歸戶的作者位、citekey 無法唯一定位的 work 該筆略過並在 skipped 具名；完全相同的記錄已在＝alreadyRecorded。輸入錯（缺 =、非三段、重複 id、說明空白、person 不存在、digest 形狀不合、store format < 19、rests_on 沒有伴隨 undecided）整批拒絕零寫入；一次超過 200 個 id、20 個 digest 或單句說明超過 4,096 位元組同樣整批拒絕（有界，不截斷）。單獨呼叫，不與其他腿組合"),
                 "rests_on": strArray("未決記錄的證據 digest（sha256:64hex，先用 akashic_store_source 存檔）。套用到這次呼叫的每一筆 undecided——不同配對要附不同證據就分次呼叫。只伴隨 undecided"),
-                "attribute_org": strArray("把作者位歸給**團體作者**（#443）：citekey:authorIndex:orgKey=判定理由。`.literal` → `.organization`——`Author` 三態裡在此之前只有兩態接得起來。理由必填；org 需已存在（絕不自動建）；已歸戶的位置拒絕；整批驗證通過才寫。單獨呼叫，不與 apply／reject 組合"),
+                "attribute_org": strArray("把作者位歸給**團體作者**（#443）：citekey:authorIndex:orgKey=判定理由。`.literal` → `.organization`——`Author` 三態裡在此之前只有兩態接得起來。理由必填；org 需已存在（絕不自動建）；已歸戶的位置拒絕；整批驗證通過才寫；作者位照常歸戶而理由存不進去時（store format < 19 已有提名層判定、或該配對已有理由不同的逐篇判定），該列帶 verdictNotRecorded 說明原因。單獨呼叫，不與 apply／reject 組合"),
                                 "judge": strArray("逐篇判定（#386）：citekey:authorIndex:personKey=判定理由，以**第一個 = 切**（理由可含等號）。與 apply 是不同種類的主張——apply 套用 resolver 提名出來的候選，judge 指名一個作者位並說明**憑什麼**，因此**歧義列也適用**（歧義的意思是提名器分不出來，不是人／AI 分不出來）。理由必填且逐字寫進 verdict；literal 由 store 讀不由呼叫端提供。輸入語法錯（缺 = ／非三段形／重複 id／理由空白／person 不存在／同一個作者位判給兩個人）整批拒絕零寫入；store 狀態不符（work 不存在／索引越界／位置已歸戶／citekey 重複或與另一筆 work 共用 id，#627）該筆略過並在 skipped 具名、不中止其餘。有寫入而之後 index 重建失敗時回錯誤，訊息逐行列出已判定與略過的 id——那時寫入已落地；沒有寫入時不重建。作者位已歸給同一個人時：已有這個配對、同一句理由的逐篇判定＝no-op，回在 alreadyJudged（理由不同則略過並具名，#636）；由其他規則歸戶的（例如 apply）：寫一筆逐篇判定與它並存、作者位不動，judged 列帶 coexistsWith:\"nominated\"（需 store format ≥ 19；change resolution-verdict-states，#636——判定層級 nominated／judged 參與去重）；refute 對既有的 reject 同理；作者位仍是 literal 而判定理由存不進去時（store format < 19 已有提名層判定、或該配對已有理由不同的逐篇判定——同一層級以配對去重），作者位照常歸戶、judged 列帶 verdictNotRecorded 說明原因；找不到原 literal 也略過並具名。judge／refute／undecided 各自單獨呼叫，不與彼此或 apply／reject 組合——組合整批拒絕（#635）。判定寫的 verdict rule 是 author-judged-per-work，會讓同 literal 在其他 work 以 confirmed-elsewhere 提名並在理由揭露血統——那仍是提名，仍須逐列決定。需 store format ≥ 8"),
              ])),
         Tool(name: "akashic_create_entry",
@@ -386,7 +386,9 @@ actor AkashicMCPServer {
         /// **有給就必須是非空的字串陣列**（change `resolution-verdict-states`，R1 verify security）：`argList` 對非陣列、
         /// 非字串元素、null 都靜默回 []——未決腿若照用，`rests_on` 給成單一字串時證據被丟掉而回報成功，`undecided: []`
         /// 會落到列表模式、看起來像寫了。沒給鍵回 nil；給了而形狀不對整個呼叫拒絕、零寫入。
-        func argStrictList(_ key: String) throws -> [String]? {
+        /// `allowEmpty`：選填的證據清單（`rests_on`）收空陣列——零個 digest 是合法的未決記錄，省略與 [] 同義
+        /// （R3 verify Codex）；代表寫入動作的鍵（`undecided`）仍拒絕空陣列。
+        func argStrictList(_ key: String, allowEmpty: Bool = false) throws -> [String]? {
             guard let value = params.arguments?[key] else { return nil }
             guard case .array(let arr) = value else {
                 throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 必須是字串陣列——收到別的型別；拒絕整個呼叫，零寫入")
@@ -395,7 +397,7 @@ actor AkashicMCPServer {
             guard strs.count == arr.count else {
                 throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 的每個元素都必須是字串；拒絕整個呼叫，零寫入")
             }
-            guard !strs.isEmpty else {
+            guard allowEmpty || !strs.isEmpty else {
                 throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 是空陣列——沒有要送的東西就不要給這個鍵")
             }
             return strs
@@ -537,7 +539,7 @@ actor AkashicMCPServer {
                                                    judge: judgeProvided ? judge : nil,
                                                    refute: refuteProvided ? refute : nil,
                                                    undecided: try argStrictList("undecided"),
-                                                   restsOn: try argStrictList("rests_on"))
+                                                   restsOn: try argStrictList("rests_on", allowEmpty: true))
             case "akashic_create_entry":
                 output = try service.createEntry(
                     type: arg("type") ?? "", title: arg("title") ?? "",
@@ -597,7 +599,7 @@ actor AkashicMCPServer {
                     repoint: vRepointProvided ? argList("repoint") : nil,
                     demote: vDemoteProvided ? argList("demote") : nil,
                     undecided: try argStrictList("undecided"),
-                    restsOn: try argStrictList("rests_on"))
+                    restsOn: try argStrictList("rests_on", allowEmpty: true))
             case "akashic_add_organization":
                 output = try service.addOrganization(
                     key: arg("key") ?? "", names: argList("names"),

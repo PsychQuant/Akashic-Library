@@ -15,8 +15,8 @@
   - **記錄鍵**：寫入去重、合併收攏、D64 重複掃描都用這把。confirmed／rejected 的記錄鍵是 field ＋ 配對 ＋ **判定層級**，層級只有 `nominated` 與 `judged` 兩值，由 rule 導出。undecided 的記錄鍵是整筆位元組相等。
   - **既有的 `verdictEqualityKey`** 保留原語意，只在需要「同 field 同配對」時使用。
 
-  各使用點逐一指派（2026-09-25 量：排除註解後 16 行、9 個檔），不得一刀切換。
-- **#636 並存**：同一配對可同時有 `nominated` 與 `judged` 兩筆 confirmed（rejected 同理）。`--judge`／`--refute` 對「已由提名路徑判過同一方向」的配對改為**寫入**判定記錄，不再略過；作者位不動。confirmed-elsewhere 提名的血統，以 judged 優先揭露。
+  各使用點逐一指派（變更前量：含註解 35 行、8 個檔，程式行 13 行、5 個檔），不得一刀切換。
+- **#636 並存**：同一配對可同時有 `nominated` 與 `judged` 兩筆 confirmed（rejected 同理）。`--judge`／`--refute` 對「已由提名路徑判過同一方向」的配對改為**寫入**判定記錄，不再略過；作者位不動。confirmed-elsewhere 提名的血統依 exact、judged、其餘的順序揭露（R1 verify 更正）。
 - **#619 未決**：
   - resolve-people 新增 `--undecided`／`undecided` 腿，resolve-venues 同樣新增。收 `id=查了什麼、為何判不出來`，並可附 `--rests-on`／`rests_on`（sha256 digest）。
   - 同一配對可累積多筆未決記錄。已判定（有 confirmed 或 rejected）的配對寫未決時，該筆具名略過。

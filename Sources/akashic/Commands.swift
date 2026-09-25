@@ -1544,7 +1544,7 @@ struct ResolvePeople: ParsableCommand {
     ///
     /// **不是消歧**：org key 由呼叫端顯式給，不經提名，所以沒有 tier 也沒有候選清單。
     @Option(name: .customLong("attribute-org"), parsing: .upToNextOption,
-            help: "把作者位歸給團體作者（可重複）：citekey:authorIndex:orgKey=判定理由。理由必填；org 需已存在（絕不自動建）；已歸戶的位置拒絕；整批驗證通過才寫")
+            help: "把作者位歸給團體作者（可重複）：citekey:authorIndex:orgKey=判定理由。理由必填；org 需已存在（絕不自動建）；已歸戶的位置拒絕；整批驗證通過才寫；作者位照常歸戶而理由存不進去時印「⚠ 這次的理由沒有寫入」與原因")
     var attributeOrg: [String] = []
 
     /// **把黏在一起的作者位拆開**（#443）：一個 literal 裝了兩個人。

@@ -66,12 +66,21 @@
   literal 被移除只是觀測不到（仍是 stale），reject 之後 literal 還在的也是 history
 - **上限寫進規格**：200 個 id／20 個 digest／4,096 位元組進了 spec、design、兩面的描述，`zero-instance-guards` 第 30 列記量測出處
   （live store 最長理由 687 位元組、rests-on 最多 3 個；id 數是推估）；上限只約束一次呼叫、不約束累積——person 側的預警缺口記 #645
-- `pending` 的計數也以正規化配對去重（未決之外的附帶變化；live store 前後相同，R2 verify DA 實測）
+- `pending` 的計數也以正規化配對去重（R1 起的附帶變化，R2 補記；live store 前後相同，R2 verify DA 實測）
 - venue 預算 warning 印出 rests-on 換算後的等效筆數；venue CLI 檢視面揭露 rests-on 的總數；寫入失敗的訊息不再一律說「寫到一半」
-- 散文：「約 40 個使用點、8 個檔」改成可重跑的量法（排除註解後 16 行、9 個檔）；`confirmedPairings` 的同級取捨說法與實作一致
+- 散文：「約 40 個使用點、8 個檔」改成可重跑的量法（R3 更正：變更前含註解 35 行、8 個檔，程式行 13 行、5 個檔）；`confirmedPairings` 的同級取捨說法與實作一致
 
 **記錄但不動**：檢視面仍逐筆列出全部 verdict（既有行為，未決只加有界的說明與 digest；累積另見 #645）；寫入前的閘不跑 encode
 canary（與其他寫入面同一道 `assertPersonWritable`）；format 18 上 work 合併遇到兩層級並存會被擋（設計「合併在 format 18 會被擋」的既定裁決）。
+
+## R3 verify（6 席，29 項：0 HIGH、9 MEDIUM）之後的修正
+
+- refute 在同一次呼叫裡兩個位置、同配對、理由不同時，第二筆**具名略過**（refute 不動作者位，沒有東西落地）；`verdictNotRecorded`
+  只用在作者位真的歸戶的 judge／attribute-org 列
+- attribute-org 在 format < 19 時，理由沒寫進去的原因看實際碰撞的那一筆（同層級理由不同，或提名層）
+- MCP 的 `rests_on: []` 與省略同義（零個 digest 是合法的未決記錄）
+- 檢視面的「查證歷史」一次算好已判定的配對鍵，每筆未決只查一次（先前 O(未決數 × references 數)）
+- `verdictNotRecorded` 進了 spec（Scenario）、design、`mcp-cli-parity` 的 resolve_people 列、attribute_org 的兩面描述、akashic-disambiguate skill
 
 ## 升級前置（store format 19）
 

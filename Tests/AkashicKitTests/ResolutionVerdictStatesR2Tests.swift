@@ -152,4 +152,26 @@ final class ResolutionVerdictStatesR2Tests: XCTestCase {
             XCTAssertEqual(rules, [ResolutionLedger.personRule], "\(order.map(\.value))")
         }
     }
+    /// R3 verify 第 1／4 列：同一次呼叫、兩個位置、同配對、理由不同的 refute——第二筆具名略過，不列在 refuted。
+    func testRefuteCollisionInOneCallIsSkippedAndNamed() throws {
+        try work("w1", [.literal("C-H Chen"), .literal("C-H Chen")])
+        let out = json(try service.resolvePeople(apply: nil, refute: ["w1:0:chen-ch=機構不同", "w1:1:chen-ch=共同作者不同"]))
+        let refuted = (out["refuted"] as? [[String: Any]]) ?? []
+        let skipped = (out["skipped"] as? [[String: Any]]) ?? []
+        XCTAssertEqual(refuted.count, 1, "\(out)")
+        XCTAssertEqual(skipped.count, 1, "\(out)")
+        XCTAssertFalse(refuted.contains { $0["verdictNotRecorded"] != nil }, "refute 不動作者位，不該說「作者位已歸戶」")
+    }
+
+    /// R3 verify 第 10 列：attribute-org 在 format 18 碰到同層級、理由不同的判定——原因要說是理由不同，不是提名層。
+    func testAttributeOrgNamesTheActualCollisionCause() throws {
+        _ = try service.addOrganization(key: "moe", names: ["教育部"], parentKey: nil, note: nil)
+        try work("moe2011", [.literal("教育部"), .literal("教育部")])
+        _ = try service.attributeToOrganizations(["moe2011:0:moe=政府機關"])
+        try StoreVersion.write(root: root, format: 18)
+        let out = json(try service.attributeToOrganizations(["moe2011:1:moe=出版者欄寫教育部"]))
+        let why = ((out["attributed"] as? [[String: Any]])?.first?["verdictNotRecorded"] as? String) ?? ""
+        XCTAssertTrue(why.contains("理由不同"), "\(out)")
+    }
 }
+

@@ -186,6 +186,8 @@ An id whose identical record already exists SHALL be reported as already recorde
 
 When a judge call names an author slot that is already keyed to the same person, and that person holds only a `nominated` confirmed verdict for the pairing, the judge SHALL write a `judged` confirmed verdict next to it and SHALL NOT modify the author slot. The literal SHALL be recovered from the existing verdict, and only when exactly one literal is recoverable. When a `judged` confirmed verdict with the same statement exists, the call SHALL be a no-op reported as already judged. When a `judged` confirmed verdict with a different statement exists, the id SHALL be skipped and named. A refute call SHALL behave the same way toward an existing `nominated` rejected verdict.
 
+When a judge call names an author slot that is still a literal, the slot SHALL be assigned. When its judgement cannot be stored — because the store format is below 19 and a `nominated` verdict exists for the pairing, or because a `judged` verdict with a different statement already exists for the pairing, including one written earlier in the same call — the response row SHALL carry `verdictNotRecorded` with the reason. The same disclosure SHALL apply to attribute-org. A refute call whose judgement collides with a `judged` rejected verdict written earlier in the same call SHALL skip and name the id.
+
 #### Scenario: Judge after apply
 
 - **WHEN** `chen2020a` author slot 1 was applied to `chen-ch` and `--judge 'chen2020a:1:chen-ch=論文登記中研院統計所'` is run
@@ -196,6 +198,12 @@ When a judge call names an author slot that is already keyed to the same person,
 
 - **WHEN** a pairing holds a `nominated` rejected verdict from `--reject` and a refute call names it with a reason
 - **THEN** the person SHALL hold both rejected verdicts
+
+#### Scenario: Judgement that cannot be stored is disclosed
+
+- **WHEN** `w1` author slots 0 and 1 are both the literal `C-H Chen`, slot 0 was judged to `chen-ch` with statement A, and slot 1 is judged to `chen-ch` with statement B
+- **THEN** slot 1 SHALL become `.key("chen-ch")`
+- **AND** the judged row for slot 1 SHALL carry `verdictNotRecorded` naming why statement B was not stored
 
 ### Requirement: Store format 19 SHALL gate the new verdict shapes
 

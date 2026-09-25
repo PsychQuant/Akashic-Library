@@ -90,6 +90,14 @@ extension AkashicService {
     }
 
     /// 該 holder 的 references 裡，這個配對是否已被判定（任一層級的 confirmed／rejected）。
+    /// 持有 confirmed／rejected 的正規化配對鍵——檢視面一次算好，每筆未決只查一次（R3 verify：逐筆呼叫 `pairingIsDecided` 是 O(U×R)）。
+    static func decidedPairingKeys(_ refs: [ProvenanceReference]) -> Set<String> {
+        Set(refs.compactMap {
+            ($0.field == ProvenanceReference.resolutionConfirmedField || $0.field == ProvenanceReference.resolutionRejectedField)
+                ? ProvenanceReference.verdictPairingKey(value: $0.value) : nil
+        })
+    }
+
     static func pairingIsDecided(_ refs: [ProvenanceReference], value: String) -> Bool {
         guard let key = ProvenanceReference.verdictPairingKey(value: value) else { return false }
         return refs.contains {

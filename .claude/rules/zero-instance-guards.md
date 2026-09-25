@@ -600,11 +600,11 @@ EOF
 ```bash
 python3 - <<'EOF'
 import glob, io, os, yaml
-mx = rmx = n = und = 0
+mx = rmx = n = und = bad = 0
 for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
     try: d = yaml.safe_load(io.open(f, encoding='utf8'))
-    except Exception: continue
-    if not isinstance(d, dict): continue
+    except Exception: bad += 1; continue          # 不靜默少算（第 24 列記過同形）
+    if not isinstance(d, dict): bad += 1; continue
     for r in d.get('references') or []:
         if not isinstance(r, dict): continue
         n += 1
@@ -613,7 +613,7 @@ for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
         if isinstance(j, str): mx = max(mx, len(j.encode()))
         ro = r.get('rests-on') or []
         if isinstance(ro, list): rmx = max(rmx, len(ro))
-print(f"reference {n}｜最長理由 {mx} 位元組（上限 4096）｜rests-on 最多 {rmx}（上限 20）｜未決 {und}")
+print(f"reference {n}｜最長理由 {mx} 位元組（上限 4096；含 [rule: …] 尾註）｜rests-on 最多 {rmx}（上限 20）｜未決 {und}｜讀不到的檔 {bad}")
 EOF
 # 2026-09-25：reference 8747｜最長理由 687 位元組｜rests-on 最多 3｜未決 0
 ```

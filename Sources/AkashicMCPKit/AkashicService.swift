@@ -726,6 +726,7 @@ public final class AkashicService {
                 // literal 已移位）在這裡才有列舉面。observed/stale 判定：holder entry 仍存在
                 // 且該 literal 仍出現在其作者列 → observed；否則 stale。
                 let (vs, malformed) = ResolutionLedger.verdicts(references: record.references)
+                let decidedKeys = Self.decidedPairingKeys(record.references)
                 personDict["verdicts"] = vs.map { v -> [String: Any] in
                     let observed: Bool = {
                         guard v.holderKind == .work,
@@ -748,7 +749,7 @@ public final class AkashicService {
                         // 配對被判定之後，未決記錄是查證歷史不是過期資料（spec：保留、不退役）。「已判定」看同一個 holder 對這個
                         // 正規化配對實際持有的 confirmed／rejected，不看觀測得到與否（R2 verify：work 消失、literal 被移除都觀測
                         // 不到而沒有任何判定；反過來 reject 之後 literal 仍在，觀測得到而已判定）
-                        if Self.pairingIsDecided(record.references, value: ProvenanceReference.VerdictPairingValue(holderKind: v.holderKind, holder: v.holder, literal: v.literal).encoded) { d["state"] = "history" }
+                        if decidedKeys.contains(ProvenanceReference.verdictPairingKey(value: ProvenanceReference.VerdictPairingValue(holderKind: v.holderKind, holder: v.holder, literal: v.literal).encoded) ?? "") { d["state"] = "history" }
                     }
                     return d
                 }
@@ -1346,6 +1347,7 @@ public final class AkashicService {
         // 呼叫端會以為理由已持久化（正是 #636 要修的「被去重吃掉、回報卻成功」）。兩個來源：format 18 不寫第二個層級、
         // 同一配對已有同層級而理由不同的逐篇判定（含同一次呼叫裡的另一個作者位）。同一句理由不算沒寫：它已經在。
         var verdictNotRecorded: [String: String] = [:]
+        var refuteCollisions = Set<String>()
         for p in pairings {
             guard var person = grouped[p.personKey] ?? byKey[p.personKey] else {
                 throw ServiceError.notFound("person「\(displaySafeInvisible(p.personKey, max: 200))」")
@@ -1362,10 +1364,22 @@ public final class AkashicService {
             } else if !person.references.contains(where: {
                 $0.verdictRecordKey == ref.verdictRecordKey && $0.kindByteKey == ref.kindByteKey
             }) {
-                verdictNotRecorded[pin] = "作者位已歸戶；這個配對已有一筆理由不同的逐篇判定——同一層級的判定以配對去重，"
-                    + "這次的理由沒有寫入（#636）"
+                if isConfirm {
+                    verdictNotRecorded[pin] = "作者位已歸戶；這個配對已有一筆理由不同的逐篇判定——同一層級的判定以配對去重，"
+                        + "這次的理由沒有寫入（#636）"
+                } else {
+                    // refute 不動作者位，沒有東西落地——同一次呼叫的另一個位置已對同一配對寫下理由不同的否決，
+                    // 這一筆照 spec 具名略過，不列在 refuted（R3 verify Codex／requirements）
+                    refuteCollisions.insert(pin)
+                }
             }
         }
+        for p in pairings where refuteCollisions.contains("\(p.citekey):\(p.authorIndex):\(p.personKey)") {   // display-safe-exempt: 集合鍵
+            skipped.append(("\(p.citekey):\(p.authorIndex):\(p.personKey)",   // display-safe-exempt: 下方回應時逐一 displaySafe
+                            "同一次呼叫的另一個作者位已對這個配對寫下理由不同的否決——verdict 不帶位置、同一層級以配對去重，"
+                            + "這一筆沒有寫入（#636）"))
+        }
+        pairings.removeAll { refuteCollisions.contains("\($0.citekey):\($0.authorIndex):\($0.personKey)") }   // display-safe-exempt: 集合鍵
         for key in grouped.keys.sorted() { try store.writePerson(grouped[key]!) }
         // #627 R2：不再吞掉 rebuild 失敗——CLI 會照回應印「index 已重建」，吞掉就是一句假話。
         // 什麼都沒寫時不重建：損壞態的 store 本來就重建不了，那時的錯誤會蓋掉逐筆的具名略過。
@@ -2903,6 +2917,7 @@ public final class AkashicService {
         // 還在不在，venue 看 `venues`。仍是 literal ⇒ 這條 verdict 描述的狀態還在；
         // 已升格成 key ⇒ stale（判定已被套用，記錄留作 provenance）。
         let (verdicts, verdictMalformed) = ResolutionLedger.verdicts(references: record.references)
+        let decidedKeys = Self.decidedPairingKeys(record.references)
         if !verdicts.isEmpty {
             d["verdicts"] = verdicts.map { v -> [String: Any] in
                 let observed: Bool = {
@@ -2923,7 +2938,7 @@ public final class AkashicService {
                     vd["statement"] = displaySafe(v.statement, max: 800)
                     vd["restsOn"] = v.restsOn.prefix(5).map { displaySafe($0, max: 80) }
                     if v.restsOn.count > 5 { vd["restsOnTotal"] = v.restsOn.count }
-                    if Self.pairingIsDecided(record.references, value: ProvenanceReference.VerdictPairingValue(holderKind: v.holderKind, holder: v.holder, literal: v.literal).encoded) { vd["state"] = "history" }   // 判定後保留的查證歷史——看實際的判定，不看觀測（R2 verify）
+                    if decidedKeys.contains(ProvenanceReference.verdictPairingKey(value: ProvenanceReference.VerdictPairingValue(holderKind: v.holderKind, holder: v.holder, literal: v.literal).encoded) ?? "") { vd["state"] = "history" }   // 判定後保留的查證歷史——看實際的判定，不看觀測（R2 verify）
                 }
                 return vd
             }
@@ -4024,7 +4039,9 @@ public final class AkashicService {
                !orgs[p.orgKey]!.references.contains(where: {
                    $0.verdictRecordKey == ref.verdictRecordKey && $0.kindByteKey == ref.kindByteKey
                }) {
-                row["verdictNotRecorded"] = orgFormat >= 19
+                // 原因看實際碰撞的是哪一筆（R3 verify：format < 19 時也可能是同層級、理由不同的逐篇判定）
+                let sameClass = orgs[p.orgKey]!.references.contains { $0.verdictRecordKey == ref.verdictRecordKey }
+                row["verdictNotRecorded"] = sameClass
                     ? "作者位已歸戶；這個配對已有一筆理由不同的逐篇判定——同一層級的判定以配對去重，這次的理由沒有寫入（#636）"
                     : "作者位已歸戶；這個配對已有提名層的判定，逐篇判定與它並存需要 store format ≥ 19"
                         + "（本 store 是 \(orgFormat)），這次的理由沒有寫入"   // display-safe-exempt: Int

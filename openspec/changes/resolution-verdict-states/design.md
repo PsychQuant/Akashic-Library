@@ -6,7 +6,7 @@ verdict 是住在被判定記錄（person／organization／venue）上的 `Prove
 - `value` 的文法是 `<kind>:<key> :: <literal>`。
 - statement 帶尾註 `[rule: <name>]`，由 `ResolutionLedger.record` 唯一產生。
 
-「兩筆 verdict 算同一筆」目前只有一個定義，即 `ProvenanceReference.verdictEqualityKey(field:value:)`（#470）：field ＋ holder ＋ 正規化 literal，**不含 rule**。它被多處共用（2026-09-25 量：`grep -rn verdictEqualityKey Sources` 排除註解後 16 行、9 個檔；R2 verify DA 指出初稿的「約 40 個、8 個檔」沒有量法）：寫入去重、合併收攏（D47／D51）、D64 重複掃描、#486 矛盾掃描、rename 的 D55／D60／D62、venue 的 D20／D23／D34。
+「兩筆 verdict 算同一筆」目前只有一個定義，即 `ProvenanceReference.verdictEqualityKey(field:value:)`（#470）：field ＋ holder ＋ 正規化 literal，**不含 rule**。它被多處共用（變更前（`ed8c3487^`）以 `git grep -n verdictEqualityKey <rev> -- Sources` 量：含註解 35 行、8 個檔，其中不以 `//` 起首的程式行 13 行、5 個檔；R3 verify DA 指出 R2 寫的「16 行、9 個檔」混了兩種口徑、又是變更後量的）：寫入去重、合併收攏（D47／D51）、D64 重複掃描、#486 矛盾掃描、rename 的 D55／D60／D62、venue 的 D20／D23／D34。
 
 這個單一定義擋住兩件事。
 
@@ -208,6 +208,14 @@ refute 對「作者位歸給同一人」的配對仍略過，因為那是矛盾�
 **rule 尾註**：`[rule: checked-undecided]`，由 `ResolutionLedger` 的唯一產生器補。
 
 **id 形狀**：`--rests-on` 對整次呼叫生效，而不是每一筆各帶，理由是 CLI 的字串 id 沒有地方放結構化的第二欄（`split_author` 記過同一個限制）。要對不同配對附不同證據，就分次呼叫。MCP 刻意用同一個形狀，不收物件陣列，兩面才是同一份契約。
+
+### 理由存不進去時照常歸戶、逐列揭露（R2／R3 verify）
+
+judge 或 attribute-org 對仍是 literal 的作者位，歸戶本身有既有的判定撐著（同一配對已有 verdict），所以照常歸戶；
+存不進去的只有這一次的理由。兩個來源：format < 19 已有提名層判定（不寫第二個層級）、同配對已有理由不同的同層級逐篇判定
+（verdict 不帶位置、以配對去重，含同一次呼叫的另一個位置）。回應那一列帶 `verdictNotRecorded` 說明原因、CLI 印 ⚠。
+**refute 不同**：它不動作者位，理由存不進去就是什麼都沒落地——同批碰撞具名略過，不列在 refuted。
+被否決的替代方案：整筆略過（作者位也不動）——歸戶有既有判定支持，擋下它只會讓使用者再送一次同樣的東西。
 
 ### store format 18 → 19
 

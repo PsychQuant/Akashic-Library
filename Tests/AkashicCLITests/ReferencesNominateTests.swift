@@ -338,4 +338,30 @@ final class ReferencesNominateTests: XCTestCase {
         XCTAssertNotEqual(s2, 0)
         XCTAssertTrue(o2.contains("--refs"), o2)
     }
+
+    // MARK: - #617 verify R5
+
+    /// T60：refs 的 contract 比 CLI 舊時，nominate 拒絕並說明——兩個子命令之間的 JSON 是契約（R5 E4）
+    func testNominateRejectsRefsFromAnOlderContract() throws {
+        let refs = try write("old-refs.json", #"{"count":1,"contract":2,"warnings":[],"entries":[{"index":1,"raw":"x","firstAuthor":"Adams","authors":["Adams"],"groupAuthor":false,"year":2001,"title":"A title"}]}"#)
+        let oa = try openalex([work("W60", doi: nil, title: "A title", year: 2001, authors: ["Jane Adams"])])
+        let (status, output) = try nominate(refs, [oa])
+        XCTAssertNotEqual(status, 0, output)
+        XCTAssertTrue(output.contains("contract"), output)
+    }
+
+    /// T62：只會列進報告的 `unnominated` work，它的 DOI 在 store 裡有重複時，不觸發「對應到不只一筆」
+    /// ——那筆不會被寫入（R5 E5）
+    func testConflictWarningIgnoresUnnominatedWorks() throws {
+        try createEntry(#"{"type":"periodical-article","title":"Stray twin","authors":["Zed Q"],"date":"1999","doi":["10.9999/stray.1"]}"#)
+        try createEntry(#"{"type":"periodical-article","title":"Stray twin","authors":["Zed Q"],"date":"1999","doi":["10.9999/stray.1"]}"#)
+        let refs = try extractRefs("References\n\nAdams, J. (2001). A title. Journal A, 1, 1–2.\n")
+        let oa = try openalex([work("W61", doi: "10.9999/other.1", title: "A title", year: 2001, authors: ["Jane Adams"]),
+                               work("W62", doi: "10.9999/stray.1", title: "Stray twin", year: 1999, authors: ["Zed Q"])])
+        let (status, output) = try nominate(refs, [oa])
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.unnominated.count, 1)
+        XCTAssertFalse(r.warnings.contains { $0.contains("不只一筆") }, output)
+    }
 }

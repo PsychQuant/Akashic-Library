@@ -79,6 +79,10 @@ struct ReferencesNominateCmd: ParsableCommand {
             throw ValidationError(
                 "--refs \(displaySafeInvisible(refs, max: 300)) 讀不到或不是 akashic references extract 的輸出：\(displaySafeErrorText(error))")
         }
+        // refs 是 extract 的輸出，兩者之間的 JSON 是契約：比這個 CLI 舊的 refs 不接（R5 E4）
+        guard (parsed.contract ?? 0) >= ReferenceListExtractor.contractVersion else {
+            throw ValidationError("--refs 的 contract 比這個 CLI 舊（或沒有 contract）——請用同一版 CLI 重跑 akashic references extract")
+        }
         guard !openalex.isEmpty else {
             throw ValidationError("至少要給一個 --openalex（OpenAlex 回應檔）")
         }
@@ -104,7 +108,8 @@ struct ReferencesNominateCmd: ParsableCommand {
         if skipped > 0 { result.warnings.append("略過 \(skipped) 個沒有 id 的 OpenAlex 項目") }
         if duplicates > 0 { result.warnings.append("\(duplicates) 個 OpenAlex work 在多批重複出現，只算一次") }
         // 只計入**這次**涉及的 DOI（R2 G2：原本全 store 計數，store 裡既有的無關重複也會讓每次 run 停下）
-        let involved = Set(works.compactMap { $0.doi?.normalized }
+        // 只算會被寫入的：PDF 條目與它們的候選——只列進報告的 unnominated work 不算（R5 E5）
+        let involved = Set(result.refs.flatMap { $0.candidates.compactMap(\.doi) }
                            + parsed.entries.compactMap { $0.doi.flatMap(DOI.init)?.normalized })
         let conflicts = involved.filter { (snapshot.doiIndex[$0]?.count ?? 0) > 1 }.count
         if conflicts > 0 {

@@ -119,5 +119,6 @@ akashic_store_source(path=<pdf>, media_type="application/pdf",
 ## 相關
 
 - [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——回報與 publishers.md 的每條站點描述都是關於世界的斷言，帶觀察日期
+- [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)——存進 `sources/` 的全文要核對過就是這一篇；使用者指定的連結是線索，對不上就不存
 - akashic-bootstrap 的 work-sources.md——DOI 反查與 OpenAlex 的兩個陷阱
 - #613（本 skill）、#614（`akashic.sources` 寫入入口）、PsychQuant/safari-browser#182（`wait --jitter`）、#183（CLI 沒有下載指令）

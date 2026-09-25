@@ -187,6 +187,8 @@ DOI 識別「註冊的物件」，篇名識別「作品」，store 的 work 記�
 
 **寫下的世界斷言要先量過。** 查得到就寫查到什麼、查不到就寫「查不到」並列出查過的來源，不寫「應該是」——見 [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)。乾跑報告裡的每個數字都該是當場量的。
 
+**寫入的依據是 source of truth，不是同意。** 使用者要求的值與作品本身、權威來源對不上時，改成正確的再寫，乾跑報告逐筆寫出「要求／依據／實際寫入」；查不到就不寫——見 [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)。
+
 ## 常見情境
 
 | 使用者說 | 路徑 |

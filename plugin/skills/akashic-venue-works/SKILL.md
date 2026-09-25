@@ -131,6 +131,8 @@ O(n) index rebuild → 全批 **O(n²)**（2026-09-01 實測每筆 2 → 6 秒�
 
 - **寫下的世界斷言要先量過**——排除計數、覆蓋率、conflict 數都是當場量的，不寫「應該是」；
   見 [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)
+- 期刊目錄只收本 skill 的篩選規則選中的作品，使用者同意也不加規則外的——目錄收什麼由規則
+  決定、不由誰點頭決定；見 [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)
 - 83/17 的摘要覆蓋、零歧義歸戶、攣生規模都是 Psychological Methods 的數字——**換一份刊
   要重量**，不當通則
 - 本次量測中 OpenAlex 的書目欄位（頁碼等）與 Crossref 一致可追溯——**這些欄位**不構成

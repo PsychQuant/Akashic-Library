@@ -188,6 +188,8 @@ akashic references nominate --refs "<W>/refs.json" --openalex "<W>/oa-1.json" --
 
 **每個數字都是這次量到的**——見 [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)。不寫「應該都補齊了」；只在 OpenAlex 的條目寫「OpenAlex 列為引用、PDF 清單沒有對應條目」，不寫「OpenAlex 錯了」——那是還沒查證的推論。
 
+**寫入以 source of truth 為準**：`cites` 的依據是種子的參考文獻；library 成員的依據是那個 library 的規則（目錄）或使用者的選擇（主題文獻集）。使用者要求的寫入對不上時，改成正確的再寫，乾跑逐筆寫出「要求／依據／實際寫入」——見 [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)。
+
 ## 已知限制
 
 - **切分是啟發式的**：作者—年份格式以外的清單、嚴重的排版（雙欄交錯、頁首夾在條目中間且每頁不同、浮動圖表的內文夾在兩筆之間）會切錯。`warnings` 與「只在 PDF／只在 OpenAlex」兩類就是讓這些誤差被看見的地方。

@@ -90,3 +90,4 @@ akashic_resolve_venues reject:["<citekey>:<venueIndex>", …]   # 查過了不�
 
 - [`akashic-verify-person`](../akashic-verify-person/SKILL.md)——同一套 literal→verdict 紀律，不同 entity 域與證據源
 - [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——**刊名沿革的每一句斷言都受它管**：查到哪一年改名就寫哪一年、查不到就寫「查不到」並列出查過的來源，不寫「應該是那時候改的」
+- [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)——改名年份、ISSN 的依據是期刊自己的沿革頁與 ISSN 中心；使用者提供的年份去核對，不直接寫

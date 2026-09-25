@@ -111,9 +111,12 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 | [web-access-via-safari-browser.md](.claude/rules/web-access-via-safari-browser.md) | **外部網頁與 web API 一律經 safari-browser 取得**——`Sources/` 沒有也不新增 HTTP client；分頁以 `--profile`＋`--url-exact`（網址帶一次性 fragment）陣列鎖定、只碰使用者自己的 profile、讀回核對身分、懷疑是自動化即整批停；例外只有一類（逐檔列名的既有檔，#634 遷移），不適用三類（工具鏈自身連線、本機工具、使用者本人的操作） |
 
 > **plugin 另有自己的規則目錄。** `plugin/rules/` 隨 plugin 走（plugin 安裝到哪，規則就在哪），
-> 由 skill 以相對路徑引用——**不像上表那樣自動注入**。目前一條：
+> 由 skill 以相對路徑引用——**不像上表那樣自動注入**。目前兩條：
 > [`assertions-must-be-measured`](plugin/rules/assertions-must-be-measured.md)，管「寫下一句可能是錯的話
-> 之前先回答四個問題」（不是分類法——理由見該檔）。刻意不列進上表：那張表的語意是「自動注入的 repo 規則」，
+> 之前先回答四個問題」（不是分類法——理由見該檔）；
+> [`source-of-truth-over-consent`](plugin/rules/source-of-truth-over-consent.md)，管「寫入的依據是 source of truth、
+> 不是同意」——使用者要的與 source of truth 不符時改成正確的再寫，使用者可以提供證據、不能提供授權（#642）。
+> 刻意不列進上表：那張表的語意是「自動注入的 repo 規則」，
 > 混進去會讓那個性質變成謊話（#407）。
 >
 > **那條規則有守衛，而守衛有 negative control。** `plugin/tests/`（覆蓋、散文，

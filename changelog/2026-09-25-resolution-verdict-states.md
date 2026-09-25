@@ -34,7 +34,7 @@
   兩面同契約。resolve-organizations 沒有（#643）。
 - **提名與計數**：列表揭露 `undecidedChecks`／「查過未決 N 次」；計數四態、頂層 `undecidedTotal`，查過未決的配對不再算進
   pending；CLI 篩選式 `--apply` 排除它並另列（MCP 逐 id apply 照寫，同 #624）。
-- **檢視面**：`akashic person`／`akashic venue` 逐筆印未決記錄查了什麼；CLI person 渲染三值分開（先前未決會被印成 confirmed）。
+- **檢視面**：`akashic person`／`akashic venue` 逐筆印未決記錄查了什麼；CLI person 渲染三值分開（先前未決會被印成 confirmed），並在逐篇判定那一行標〔逐篇判定〕——並存的兩筆 confirmed 否則長得一模一樣（真 binary 端到端時發現）。
 - **規則與 skill**：`entity-backlink-completeness` 的 #280 注記收窄成三段載體分工、第 13 條邊改為封閉三值；`mcp-cli-parity`
   三列重新確認；`two-kinds-of-edits` 加一列；`zero-instance-guards` 第 14／28 列補記鍵；四個查證 skill 的「判不出來」出口改寫成記未決。
 

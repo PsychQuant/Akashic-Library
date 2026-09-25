@@ -224,7 +224,9 @@ struct PersonCmd: ParsableCommand {
                 default: kind = "✓ confirmed"
                 }
                 let state = (v["state"] as? String) == "stale" ? "   （stale——配對已不可觀測）" : ""
-                print("    \(kind)  \((v["holder_kind"] as? String) ?? "?"):\((v["holder"] as? String) ?? "?") :: \((v["literal"] as? String) ?? "?")\(state)")   // display-safe-exempt: 見本函式 doc（值取自 service，已逐欄位消毒；kind/holder_kind 是封閉列舉）
+                // 同一配對可並存提名層與逐篇判定兩筆（#636）——逐篇判定要看得出來，否則兩行長得一模一樣
+                let judged = ProvenanceReference.verdictClass(rule: v["rule"] as? String) == .judged ? "〔逐篇判定〕" : ""
+                print("    \(kind)\(judged)  \((v["holder_kind"] as? String) ?? "?"):\((v["holder"] as? String) ?? "?") :: \((v["literal"] as? String) ?? "?")\(state)")   // display-safe-exempt: 見本函式 doc（值取自 service，已逐欄位消毒；kind/holder_kind 是封閉列舉）
                 if let s = v["statement"] as? String { print("        查了：\(s)") }   // display-safe-exempt: service 已消毒
                 if let ro = v["restsOn"] as? [String], !ro.isEmpty { print("        rests-on：\(ro.joined(separator: "、"))") }   // display-safe-exempt: service 已消毒
             }

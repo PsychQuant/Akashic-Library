@@ -37,7 +37,7 @@ extension AkashicService {
                                         value: "work:x :: x", url: nil, retrieved: nil, status: nil,
                                         mediaType: nil, content: nil, judgement: "x", restsOn: restsOn)
         } catch {
-            throw ServiceError.invalid("rests_on 不合法：\(displaySafeErrorText(error))")
+            throw ServiceError.invalid("rests_on 不合法：\(displaySafeError(error, max: 400))")
         }
         var out: [UndecidedSpec] = []
         var seen = Set<String>()
@@ -45,15 +45,15 @@ extension AkashicService {
             guard let eq = spec.firstIndex(of: "=") else {
                 throw ServiceError.invalid(
                     "未決「\(displaySafeInvisible(spec, max: 200))」缺少 `=`——格式是 "
-                    + "citekey:\(indexName):key=查了什麼、為何判不出來")
+                    + "citekey:\(indexName):key=查了什麼、為何判不出來")   // display-safe-exempt: indexName 是呼叫端的字面常量（authorIndex／venueIndex）
             }
             let id = String(spec[..<eq])
             let statement = String(spec[spec.index(after: eq)...])
             let parts = id.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
             guard parts.count == 3, let idx = Int(parts[1]), idx >= 0, !parts[0].isEmpty, !parts[2].isEmpty else {
                 throw ServiceError.invalid(
-                    "未決 id「\(displaySafeInvisible(id, max: 200))」不是三段形 citekey:\(indexName):key"
-                    + "（\(indexName) 是從 0 起的非負整數）")
+                    "未決 id「\(displaySafeInvisible(id, max: 200))」不是三段形 citekey:\(indexName):key"   // display-safe-exempt: indexName 是呼叫端的字面常量
+                    + "（\(indexName) 是從 0 起的非負整數）")   // display-safe-exempt: indexName 是呼叫端的字面常量
             }
             if statement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 throw ServiceError.invalid(

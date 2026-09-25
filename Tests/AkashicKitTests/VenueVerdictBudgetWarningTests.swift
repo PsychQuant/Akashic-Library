@@ -35,28 +35,27 @@ final class VenueVerdictBudgetWarningTests: XCTestCase {
         return v
     }
 
-    /// 門檻＝硬預算的一半除以每筆 verdict 的節點數（2026-09-01 實測 14,031 節點／1,556 筆 ≈ 9）。
-    /// 釘住這個換算，不讓門檻變成另一個憑空的數字。
-    func testThresholdIsHalfTheDecodeBudgetInVerdicts() {
-        XCTAssertEqual(AliasEventBudget.nodesPerVenueVerdict, 9)
-        XCTAssertEqual(AliasEventBudget.venueVerdictWarningThreshold,
-                       AliasEventBudget.maxExpandedNodes / 2 / AliasEventBudget.nodesPerVenueVerdict)
-        XCTAssertGreaterThan(AliasEventBudget.venueVerdictWarningThreshold, 1_352,
-                             "live 最大刊（2026-09-04）不得已在門檻內——那會讓 warning 一上線就常態為真")
+    /// 門檻＝讀取上限（檔案位元組）的一半。#499 原本以節點換算（11,111 筆），但節點軸只在檔案含 alias 時生效、store 檔
+    /// 不含 alias——#645 R2 verify DA 以真 binary 量過：65,000 筆 verdict 的檔照常載入，8.7 MB 的檔才被 quarantine。
+    func testThresholdIsHalfTheReadLimitInFileBytes() {
+        XCTAssertEqual(AliasEventBudget.recordFileWarningBytes, AliasEventBudget.maxBytes / 2)
+        XCTAssertGreaterThan(AliasEventBudget.recordFileWarningBytes, 268_627,
+                             "live 最大刊（2026-09-26，268,627 bytes）不得已在門檻內——那會讓 warning 一上線就常態為真")
     }
 
     /// 達門檻 → 一筆 warning、owner 是那本 venue、訊息說出數字與處置；差一筆 → 零。
     func testVenueAtThresholdIsAWarningAndBelowIsNot() throws {
-        try store.writeVenue(try venue(withVerdicts: 40))
+        let url = try store.writeVenue(try venue(withVerdicts: 40))
+        let bytes = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int)
         let load = try store.load()
-        let issues = store.venueVerdictBudgetIssues(in: load, threshold: 40)
+        let issues = store.venueVerdictBudgetIssues(in: load, threshold: bytes)
         XCTAssertEqual(issues.count, 1)
         XCTAssertEqual(issues.first?.owner, "big-journal")
         XCTAssertEqual(issues.first?.kind, "venue")
         XCTAssertEqual(issues.first?.issue.severity, .warning)
         XCTAssertTrue(issues.first?.issue.message.hasPrefix(StoreHealth.venueVerdictBudgetPrefix) == true)
-        XCTAssertTrue(issues.first?.issue.message.contains("40") == true, "\(issues.first!.issue.message)")
-        XCTAssertTrue(store.venueVerdictBudgetIssues(in: load, threshold: 41).isEmpty)
+        XCTAssertTrue(issues.first?.issue.message.contains("resolution verdict 40 筆") == true, "\(issues.first!.issue.message)")
+        XCTAssertTrue(store.venueVerdictBudgetIssues(in: load, threshold: bytes + 1).isEmpty)
     }
 
     /// 經 `health(from:)`（預設門檻）：一本 40 筆的刊不會出聲；`venueVerdictBudgetWarnings` 計算屬性存在且為空。

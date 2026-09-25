@@ -50,21 +50,13 @@ public enum AliasEventBudget {
     /// PR #42 的教訓是**不要用代理指標**（anchor 數 × alias 數）：那種門檻與真實資料的
     /// 距離無法量測。這裡是**同一個量綱**的直接比較，兩邊的餘裕都看得見。
     public static let maxExpandedNodes = 200_000
-    /// #499：venue 側一筆 resolution verdict（`ProvenanceReference` judgement 形）展開後的節點數，
-    /// **2026-09-01 實測**：`psychological-methods` 1,556 筆 verdict ＝ 14,031 節點（≈ 9.02）。這是換算用的量測值，
-    /// 不是設計值——verdict 的 YAML 形狀變了要重量（`VenueVerdictBudgetWarningTests` 釘住門檻由它算出）。
-    public static let nodesPerVenueVerdict = 9
-    /// #499（裁決：候選 3）：第 13 條邊在 venue 側維持序列化位置（verdict 留在被判定的 venue 上），
-    /// 但增長是 O(catalog)——所以在**硬預算的一半**設一道 warning，指名該 venue，讓工具自己看、不靠散文觸發條件。
-    /// 達門檻＝重開第 13 條邊的規模化裁決（候選 2：sidecar ledger 是那時的形狀）。live 最大刊 1,352 筆（2026-09-04）。
+    /// #499／#645：記錄檔逼近讀取上限的 warning 門檻＝`maxBytes` 的一半（4 MiB）。venue 族與 person／organization 族共用。
     ///
-    /// **兩族共用**（#645）：person／organization 的 verdict 與 venue 同形、受同一個預算約束，
-    /// `StoreHealth.holderVerdictBudgetWarnings` 也用這個門檻——改它會同時移動兩族。
-    public static let venueVerdictWarningThreshold = maxExpandedNodes / 2 / nodesPerVenueVerdict
-    /// #645：verdict 內容（value、說明、rests-on 的 UTF-8 總和）的位元組門檻＝讀取位元組預算的一半 ÷ 最壞的 YAML 跳脫放大
-    /// （控制字元 4.00×，`zero-instance-guards` 第 18 列量過）＝ 1 MiB。decode 閘有節點與位元組兩軸，未決記錄的說明可寫到
-    /// 4,096 位元組，只看節點會在撞上位元組上限之後很久才出聲。venue 與 person／organization 兩族共用。
-    public static let verdictByteWarningThreshold = maxBytes / 2 / 4
+    /// **是位元組不是節點**（#645 R2 verify DA）：節點軸只在檔案含 alias 時生效（見 `estimate`），store 寫出的檔不含 alias，
+    /// 所以讀取路徑上真正會觸發的只有 `maxBytes`。#499 原本以 `maxExpandedNodes / 2 / 每筆 verdict 9 節點`＝11,111 筆為門檻，
+    /// 量的是一個對 store 檔不存在的限制；那兩個常數（`nodesPerVenueVerdict`、`venueVerdictWarningThreshold`）隨之退場。
+    /// live 最大檔 268,627 bytes（`psychological-methods`，2026-09-26），距門檻約 15.6 倍。
+    public static let recordFileWarningBytes = maxBytes / 2
 
     /// 輸入大小上限（bytes）。
     public static let maxBytes = 8 * 1024 * 1024

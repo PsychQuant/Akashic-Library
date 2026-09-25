@@ -643,82 +643,54 @@ public extension LibraryStore {
 }
 
 public extension LibraryStore {
-    /// **venue 的 verdict 數逼近 decode 預算**（#499，裁決：候選 3）。
+    /// **venue 的記錄檔逼近讀取上限**（#499，裁決：候選 3；#645 改量真實的預算）。
     ///
     /// `resolve-venues` 的 confirmed verdict 落被判定的 venue（第 13 條邊）；目錄匯入讓一本刊一夜長出上千筆
-    /// （`psychological-methods` 1,352 筆、268 KB），增長是 O(catalog)，而唯一的守衛是 decode 硬預算——撞上時
-    /// 整檔 quarantine、venue 消失。裁決不改序列化位置（候選 1 會打回 #464／#463 的 per-holder 前提，候選 2 的
-    /// blast radius 是那整套機制），改在**硬預算的一半**設 warning：`AliasEventBudget.venueVerdictWarningThreshold`
-    /// ＝ `maxExpandedNodes / 2 / nodesPerVenueVerdict`（後者是量測值）。達門檻＝重開第 13 條邊的規模化裁決，
-    /// 候選 2（sidecar ledger）是那時的形狀。
+    /// （`psychological-methods` 1,352 筆、268,627 bytes），增長是 O(catalog)。裁決不改序列化位置，改在**預算的一半**
+    /// 設 warning；達門檻＝重開第 13 條邊的規模化裁決，候選 2（sidecar ledger）是那時的形狀。
     ///
-    /// 只數 resolution verdict（`resolutionVerdictFields`），不數其他 reference——增長來源就是它們。
-    /// severity warning：記錄合法、只是在長；訊息說出數字、門檻與處置。
+    /// **預算是檔案位元組，不是節點**（#645 R2 verify DA，真 binary 量過）：`AliasEventBudget.estimate` 的節點軸只在
+    /// 檔案含 alias 時生效，而 store 寫出的檔不含 alias——讀取路徑上唯一會觸發的是 `maxBytes`（8 MiB）。#499 當初以
+    /// `maxExpandedNodes / 2 / 每筆 9 節點` 換算出 11,111 筆，量的是一個對 store 檔不存在的限制（65,000 筆的 person 照常載入，
+    /// 8.7 MB 的單筆檔才被 quarantine）。檔案大小已含 YAML 跳脫與 verdict 以外的內容，所以直接量它、不估。
     func venueVerdictBudgetIssues(in load: LibraryLoad,
-                                  threshold: Int = AliasEventBudget.venueVerdictWarningThreshold,
-                                  byteThreshold: Int = AliasEventBudget.verdictByteWarningThreshold) -> [StoreHealth.OwnedIssue] {
+                                  threshold: Int = AliasEventBudget.recordFileWarningBytes) -> [StoreHealth.OwnedIssue] {
         load.venues.compactMap { v in
-            guard let over = Self.verdictBudgetOverrun(v.references, threshold: threshold, byteThreshold: byteThreshold)
+            guard let over = recordFileOverrun(entityURL(id: v.id), references: v.references, threshold: threshold)
             else { return nil }
-            let message = "\(StoreHealth.venueVerdictBudgetPrefix)：\(over)。這本刊的 verdict 是 O(catalog) 在長；"   // display-safe-exempt: over 只含 Int 與固定字
-                + "處置：重開第 13 條邊的規模化裁決（#499，候選 2 sidecar ledger），不要只放寬預算"
+            let message = "\(StoreHealth.venueVerdictBudgetPrefix)：\(over)。處置：先查是否有呼叫端在重複記未決（未決記錄不退役，#619）；"   // display-safe-exempt: over 只含 Int 與固定字
+                + "若是 O(catalog) 的歸戶在長，重開第 13 條邊的規模化裁決（#499，候選 2 sidecar ledger），不要只放寬上限"
             return StoreHealth.OwnedIssue(owner: v.key, kind: "venue",
                                           issue: ValidationIssue(severity: .warning, message: message))
         }
     }
 
-    /// resolution verdict 的筆數、等效筆數與內容位元組。venue 族與 person／organization 族共用這一份（#645）。
-    ///
-    /// - 等效筆數：門檻是以「每筆 9 節點、rests-on 空」換算的（`nodesPerVenueVerdict`）；未決記錄可帶 rests-on
-    ///   （change `resolution-verdict-states`），每個 digest 多一個節點——換算回等效筆數再比（#619 R1 verify security）。
-    /// - 位元組：value、說明與 rests-on 的 UTF-8 總和。decode 閘有兩軸，節點之外還有讀取的位元組上限；未決記錄的說明
-    ///   可寫到 4,096 位元組，約 2,000 筆就先撞上位元組上限，那時節點數只到預算的一成（#645 verify security）。
-    static func verdictBudgetCount(_ references: [ProvenanceReference]) -> (count: Int, effective: Int, bytes: Int) {
-        let verdicts = references.filter { ProvenanceReference.resolutionVerdictFields.contains($0.field) }
-        var extraNodes = 0
-        var bytes = 0
-        for r in verdicts {
-            bytes += (r.value ?? "").utf8.count
-            if case .judgement(let statement, let restsOn) = r.kind {
-                extraNodes += restsOn.count
-                bytes += statement.utf8.count + restsOn.reduce(0) { $0 + $1.utf8.count }
-            }
-        }
-        let n = verdicts.count
-        return (n, n + (extraNodes + AliasEventBudget.nodesPerVenueVerdict - 1) / AliasEventBudget.nodesPerVenueVerdict, bytes)
+    /// 記錄檔達門檻時回傳說明（檔案位元組、門檻、其中的 resolution verdict 筆數）；沒到或讀不到大小回 nil。
+    /// venue 族與 person／organization 族共用（#645）。
+    func recordFileOverrun(_ url: URL, references: [ProvenanceReference], threshold: Int) -> String? {
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int,
+              size >= threshold else { return nil }
+        let verdicts = references.filter { ProvenanceReference.resolutionVerdictFields.contains($0.field) }.count
+        return "記錄檔 \(size) 位元組，達門檻 \(threshold)（讀取上限 \(AliasEventBudget.maxBytes) 的一半；"   // display-safe-exempt: Int
+            + "超過上限的檔在下次載入時被 quarantine，寫入路徑有 2 倍寬限擋不住）；其中 resolution verdict \(verdicts) 筆"   // display-safe-exempt: Int
     }
 
-    /// 兩軸任一達門檻時回傳說明（筆數與位元組都說出來，讓人看得出是哪一軸）；都沒到回 nil。
-    static func verdictBudgetOverrun(_ references: [ProvenanceReference], threshold: Int, byteThreshold: Int) -> String? {
-        let (n, effective, bytes) = verdictBudgetCount(references)
-        guard effective >= threshold || bytes >= byteThreshold else { return nil }
-        let counted = effective == n ? "\(n) 筆" : "\(n) 筆（rests-on 換算後等效 \(effective) 筆）"   // display-safe-exempt: Int
-        var axes: [String] = []
-        if effective >= threshold { axes.append("筆數達門檻 \(threshold)（節點預算的一半）") }   // display-safe-exempt: Int
-        if bytes >= byteThreshold { axes.append("內容 \(bytes) 位元組達門檻 \(byteThreshold)（讀取位元組預算的一半÷最壞 YAML 跳脫 4 倍）") }   // display-safe-exempt: Int
-        return "\(counted) resolution verdict，\(axes.joined(separator: "；"))"   // display-safe-exempt: 兩者皆本函式以 Int 組成
-    }
-
-    /// **person／organization 的 verdict 數逼近 decode 預算**（#645）——venue 族（#499）的同形擴充。
+    /// **person／organization 的記錄檔逼近讀取上限**（#645）——venue 族（#499）的同形擴充，同一個門檻、同一個量法。
     ///
-    /// 兩者持有的 resolution verdict 與 venue 同一個 `ProvenanceReference` 形狀（每筆展開同為
-    /// `nodesPerVenueVerdict` 個節點）、受同一個 decode 硬預算約束，所以門檻沿用 `venueVerdictWarningThreshold`
-    /// ——另立一個等值常數會是同一件事的第二份描述。增長來源：一個人的著作數（第 13 條邊的 person 側），與
-    /// 不退役的 `resolution-undecided` 記錄（#619 起 person、#643 起 organization）。2026-09-25 live store：
-    /// person 4,575 筆、單筆最多 40；organization 13 筆、單筆最多 1——零實例（`zero-instance-guards` 第 31 列）。
-    /// severity warning：記錄合法、只是在長；處置是查是否有呼叫端在重複記未決，持續增長時重開第 13 條邊的規模化裁決。
+    /// 增長來源：一個人的著作數（第 13 條邊的 person 側），與不退役的 `resolution-undecided` 記錄（#619 起 person、
+    /// #643 起 organization）——後者一筆的說明可寫到 4,096 位元組。2026-09-26 live store：person 與 organization 最大的檔
+    /// 都遠低於門檻（`zero-instance-guards` 第 31 列）。severity warning：記錄合法、只是在長。
     func holderVerdictBudgetIssues(in load: LibraryLoad,
-                                   threshold: Int = AliasEventBudget.venueVerdictWarningThreshold,
-                                   byteThreshold: Int = AliasEventBudget.verdictByteWarningThreshold) -> [StoreHealth.OwnedIssue] {
-        let holders = load.people.map { ($0.key, "person", $0.references) }
-            + load.organizations.map { ($0.key, "organization", $0.references) }
-        return holders.compactMap { key, kind, references in
-            guard let over = Self.verdictBudgetOverrun(references, threshold: threshold, byteThreshold: byteThreshold)
-            else { return nil }
-            let message = "\(StoreHealth.holderVerdictBudgetPrefix)：這筆 \(kind) 持有 \(over)。"   // display-safe-exempt: kind 是封閉的兩個值、over 只含 Int 與固定字
+                                   threshold: Int = AliasEventBudget.recordFileWarningBytes) -> [StoreHealth.OwnedIssue] {
+        let holders = load.people.map {
+            (key: $0.key, kind: "person", url: usesEntitiesLayout ? entityURL(id: $0.id) : personURL(key: $0.key), refs: $0.references)
+        } + load.organizations.map { (key: $0.key, kind: "organization", url: entityURL(id: $0.id), refs: $0.references) }
+        return holders.compactMap { h in
+            guard let over = recordFileOverrun(h.url, references: h.refs, threshold: threshold) else { return nil }
+            let message = "\(StoreHealth.holderVerdictBudgetPrefix)：這筆 \(h.kind) 的\(over)。"   // display-safe-exempt: kind 是封閉的兩個值、over 只含 Int 與固定字
                 + "處置：先查是否有呼叫端在重複記未決（未決記錄不退役，#619）；持續增長時重開第 13 條邊的"
-                + "規模化裁決（#499），不要只放寬預算"
-            return StoreHealth.OwnedIssue(owner: key, kind: kind,
+                + "規模化裁決（#499），不要只放寬上限"
+            return StoreHealth.OwnedIssue(owner: h.key, kind: h.kind,
                                           issue: ValidationIssue(severity: .warning, message: message))
         }
     }

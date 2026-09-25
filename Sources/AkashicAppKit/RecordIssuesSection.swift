@@ -48,12 +48,12 @@ struct RecordIssuesSection: View {
             }
             if summary.venueVerdictBudget > 0 {
                 LabeledContent("venue verdict 逼近預算", value: summary.lowerBound(summary.venueVerdictBudget))
-                    .help("這本刊的 resolution verdict 數達 decode 硬預算的一半（#499）。"
-                          + "處置是重開第 13 條邊的規模化裁決，不要只放寬預算。")
+                    .help("這本刊的記錄檔達讀取上限（8 MiB）的一半（#499）。先查是否有呼叫端在重複記未決（未決記錄不退役）；"
+                          + "若是歸戶在長，重開第 13 條邊的規模化裁決，不要只放寬上限。")
             }
             if summary.holderVerdictBudget > 0 {
                 LabeledContent("人物／機構 verdict 逼近預算", value: summary.lowerBound(summary.holderVerdictBudget))
-                    .help("這筆 person 或 organization 的 resolution verdict 數達 decode 硬預算的一半（#645）。"
+                    .help("這筆 person 或 organization 的記錄檔達讀取上限（8 MiB）的一半（#645）。"
                           + "先查是否有呼叫端在重複記未決（未決記錄不退役）；持續增長時重開第 13 條邊的規模化裁決。")
             }
             if summary.orphanedSplitVerdicts > 0 {

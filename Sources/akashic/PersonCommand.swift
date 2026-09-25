@@ -216,9 +216,17 @@ struct PersonCmd: ParsableCommand {
             let verdicts = (person["verdicts"] as? [[String: Any]]) ?? []
             print("  verdicts（\(verdicts.count)）\(verdicts.isEmpty ? "：（無）" : "：")")
             for v in verdicts {
-                let kind = (v["kind"] as? String) == "resolution-rejected" ? "✗ rejected " : "✓ confirmed"
+                // 三值分開印（change `resolution-verdict-states`）：先前二分，未決會被印成 confirmed
+                let kind: String
+                switch v["kind"] as? String {
+                case "resolution-rejected": kind = "✗ rejected "
+                case "resolution-undecided": kind = "? undecided"
+                default: kind = "✓ confirmed"
+                }
                 let state = (v["state"] as? String) == "stale" ? "   （stale——配對已不可觀測）" : ""
                 print("    \(kind)  \((v["holder_kind"] as? String) ?? "?"):\((v["holder"] as? String) ?? "?") :: \((v["literal"] as? String) ?? "?")\(state)")   // display-safe-exempt: 見本函式 doc（值取自 service，已逐欄位消毒；kind/holder_kind 是封閉列舉）
+                if let s = v["statement"] as? String { print("        查了：\(s)") }   // display-safe-exempt: service 已消毒
+                if let ro = v["restsOn"] as? [String], !ro.isEmpty { print("        rests-on：\(ro.joined(separator: "、"))") }   // display-safe-exempt: service 已消毒
             }
             if let vm = person["verdictMalformed"] as? [String], !vm.isEmpty {
                 print("  （verdict 解析異常 \(vm.count) 筆——詳見 --json）")

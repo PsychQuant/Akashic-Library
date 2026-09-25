@@ -733,12 +733,18 @@ public final class AkashicService {
                         else { return v.holderKind != .work }   // org 族：不對 entry 判 stale
                         return e.authors.contains { if case .literal(let s) = $0 { return s == v.literal }; return false }
                     }()
-                    return ["kind": v.kind.rawValue,   // display-safe-exempt: VerdictKind 是封閉列舉 rawValue
+                    var d: [String: Any] = ["kind": v.kind.rawValue,   // display-safe-exempt: VerdictKind 是封閉列舉 rawValue
                             "holder_kind": v.holderKind.rawValue,   // display-safe-exempt: 同上
                             "holder": displaySafe(v.holder, max: 200),
                             "literal": displaySafe(v.literal, max: 200),
                             "rule": displaySafe(v.rule, max: 200),
                             "state": observed ? "observed" : "stale"]
+                    // change `resolution-verdict-states`（#619）：未決記錄逐筆印查了什麼——它的內容就是那份查證
+                    if v.kind == .undecided {
+                        d["statement"] = displaySafe(v.statement, max: 800)
+                        d["restsOn"] = v.restsOn.map { displaySafe($0, max: 80) }
+                    }
+                    return d
                 }
                 if !malformed.isEmpty {
                     personDict["verdictMalformed"] = malformed.map { displaySafe($0, max: 300) }
@@ -2826,12 +2832,17 @@ public final class AkashicService {
                         if case .literal(let s) = $0 { return s == v.literal }; return false
                     }
                 }()
-                return ["kind": v.kind.rawValue,   // display-safe-exempt: VerdictKind 是封閉列舉 rawValue
+                var vd: [String: Any] = ["kind": v.kind.rawValue,   // display-safe-exempt: VerdictKind 是封閉列舉 rawValue
                         "holder_kind": v.holderKind.rawValue,   // display-safe-exempt: 同上
                         "holder": displaySafe(v.holder, max: 200),
                         "literal": displaySafe(v.literal, max: 200),
                         "rule": displaySafe(v.rule, max: 200),
                         "state": observed ? "observed" : "stale"]
+                if v.kind == .undecided {   // #619：未決記錄逐筆印查了什麼
+                    vd["statement"] = displaySafe(v.statement, max: 800)
+                    vd["restsOn"] = v.restsOn.map { displaySafe($0, max: 80) }
+                }
+                return vd
             }
         }
         if !verdictMalformed.isEmpty {

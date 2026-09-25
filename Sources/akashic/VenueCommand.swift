@@ -96,6 +96,8 @@ struct VenueCmd: ParsableCommand {
                 let lit = v["literal"] as? String ?? "?"
                 let holder = v["holder"] as? String ?? "?"
                 print("    [\(kind)/\(state)] 「\(lit)」← \(holder)")   // display-safe-exempt: service 已逐欄位消毒，displaySafe 不冪等
+                if let s = v["statement"] as? String { print("        查了：\(s)") }   // display-safe-exempt: service 已消毒（#619 未決記錄）
+                if let ro = v["restsOn"] as? [String], !ro.isEmpty { print("        rests-on：\(ro.joined(separator: "、"))") }   // display-safe-exempt: service 已消毒
             }
         }
         let count = obj["workCount"] as? Int ?? 0

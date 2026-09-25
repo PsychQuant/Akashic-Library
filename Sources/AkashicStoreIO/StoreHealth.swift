@@ -478,13 +478,16 @@ public extension LibraryStore {
     ///
     /// **2026-09-09 實測 live store：0 筆**（與 #464 verify 2026-09-03 的量測一致）。
     func contradictoryVerdictIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
+        // 配對鍵的單一定義住在 `ProvenanceReference.verdictPairingKey`（change `resolution-verdict-states`）
         func pairingKey(_ p: ProvenanceReference.VerdictPairingValue) -> String {
-            "\(p.holderKind.rawValue):\(p.holder)\u{0}" + NameNormalization.matchingKey(p.literal)
+            ProvenanceReference.verdictPairingKey(value: p.encoded) ?? p.encoded
         }
         func scan(_ refs: [ProvenanceReference], owner: String, kind: String) -> [StoreHealth.OwnedIssue] {
             var byPairing: [String: (pairing: ProvenanceReference.VerdictPairingValue, fields: Set<String>)] = [:]
             for r in refs {
-                guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
+                // 矛盾只在 confirmed 與 rejected 之間（兩個層級都算）；未決記錄是查證歷史，不參與（#619）
+                guard r.field == ProvenanceReference.resolutionConfirmedField
+                        || r.field == ProvenanceReference.resolutionRejectedField,
                       let v = r.value,
                       let p = ProvenanceReference.VerdictPairingValue.parse(v) else { continue }
                 let k = pairingKey(p)
@@ -529,14 +532,16 @@ public extension LibraryStore {
     func duplicateVerdictRecordIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
         func scan(_ refs: [ProvenanceReference], owner: String, kind: String) -> [StoreHealth.OwnedIssue] {
             // kinds 以 `kindByteKey` 計、spellings 以 literal 的 UTF-8 計（D65／R25 D67）——兩個維度分開，訊息才說得出是哪一個不同。
-            var byKey: [String: (first: ProvenanceReference, pairing: ProvenanceReference.VerdictPairingValue, count: Int,
-                                 kinds: Set<[[UInt8]]>, spellings: Set<[UInt8]>)] = [:]
-            var order: [String] = []
+            var byKey: [[[UInt8]]: (first: ProvenanceReference, pairing: ProvenanceReference.VerdictPairingValue, count: Int,
+                                    kinds: Set<[[UInt8]]>, spellings: Set<[UInt8]>)] = [:]
+            var order: [[[UInt8]]] = []
             for r in refs {
                 guard ProvenanceReference.resolutionVerdictFields.contains(r.field),
                       let v = r.value,
                       let p = ProvenanceReference.VerdictPairingValue.parse(v) else { continue }
-                let k = ProvenanceReference.verdictEqualityKey(field: r.field, value: v)
+                // 分組用**記錄鍵**（change `resolution-verdict-states`）：同一配對的 nominated 與 judged 是兩筆記錄、不是重複（#636）；
+                // 未決記錄只有整筆位元組相同才算重複（#619）。
+                let k = r.verdictRecordKey
                 // 原位修改（`subscript(_:default:)` 與 `!` 都走 `_modify`）：R24 先取出再放回，字典裡的舊值還在、每次 insert 都觸發
                 // 兩個 Set 的 copy-on-write，同鍵 N 筆退化成 O(N²)（R24 verify Codex 第 1 列）。
                 byKey[k, default: (r, p, 0, [], [])].count += 1
@@ -575,7 +580,7 @@ public extension LibraryStore {
                         message: "\(StoreHealth.duplicateVerdictRecordPrefix)：\(e.first.field) 對同一個配對有 \(e.count) 筆判定記錄"   // display-safe-exempt: 前綴是常量；field 是封閉對；Int
                                + "（\(e.pairing.holderKind.rawValue):\(displaySafeInvisible(e.pairing.holder, max: 120))"
                                + "，literal「\(displaySafeInvisible(e.pairing.literal, max: 120))」；\(sameness)）"   // display-safe-exempt: sameness 是四句字面常量＋Int
-                               + "——工具面的寫入以 verdictEqualityKey 去重、寫不出它：是手改、舊 binary 寫的，或由 rename 從舊鍵原樣帶過來（D62 不刪）；"
+                               + "——工具面的寫入以記錄鍵（verdictRecordKey）去重、寫不出它：是手改、舊 binary 寫的，或由 rename 從舊鍵原樣帶過來（D62 不刪）；"
                                + "下一次 person／venue 合併會以 #468 的血統層收成一筆並在 verdictsCollapsed 回報。處置：留一筆，或把其中一筆的 value 改成它實際描述的記錄的鍵")))
             }
             // 每筆記錄至多 `Entry.perRecordWarningCap` 則、其餘一句概括（不帶家族前綴——與第 26／27 列同一條紀律；R23 首版無上限，

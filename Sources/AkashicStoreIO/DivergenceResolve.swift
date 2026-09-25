@@ -879,7 +879,9 @@ extension LibraryStore {
         var byPairing: [String: [Int]] = [:]
         var fields: [String: Set<String>] = [:]
         var out = VerdictViolations()
-        for (i, r) in refs.enumerated() where ProvenanceReference.resolutionVerdictFields.contains(r.field) {
+        // 矛盾只在兩個**判定**之間（change `resolution-verdict-states`）：未決記錄是查證歷史，與任何判定並存都不是矛盾。
+        for (i, r) in refs.enumerated()
+        where r.field == ProvenanceReference.resolutionConfirmedField || r.field == ProvenanceReference.resolutionRejectedField {
             guard let pairing = verdictPairingKey(r) else { continue }
             byPairing[pairing, default: []].append(i)
             fields[pairing, default: []].insert(r.field)
@@ -892,11 +894,10 @@ extension LibraryStore {
         return out
     }
 
-    /// `verdictEqualityKey` 去掉 field 的部分——配對鍵（kind、holder、正規化 literal）。
+    /// 配對鍵（kind、holder、正規化 literal）——單一定義住在 `ProvenanceReference.verdictPairingKey`
+    /// （change `resolution-verdict-states`；在此之前這裡與 `StoreHealth` 各有一份）。
     static func verdictPairingKey(_ r: ProvenanceReference) -> String? {
-        let full = ProvenanceReference.verdictEqualityKey(field: r.field, value: r.value)
-        guard let sep = full.firstIndex(of: "\u{0}") else { return nil }
-        return String(full[full.index(after: sep)...])
+        ProvenanceReference.verdictPairingKey(value: r.value)
     }
 
     /// 一筆 verdict 的出處：哪筆記錄、遷移前的原值——拒絕訊息只印這兩樣（那個字串在該記錄的 YAML 裡找得到）。
@@ -984,7 +985,7 @@ extension LibraryStore {
             let perSide = 2
             let capped: [String] = groups.prefix(5).map { grp in
                 let confirmed = grp.filter { $0.field == ProvenanceReference.resolutionConfirmedField }
-                let rejected = grp.filter { $0.field != ProvenanceReference.resolutionConfirmedField }
+                let rejected = grp.filter { $0.field == ProvenanceReference.resolutionRejectedField }
                 let kept = Array(confirmed.prefix(perSide)) + Array(rejected.prefix(perSide))
                 let omitted = grp.count - kept.count
                 return kept.map(describeVerdictSource).joined(separator: " ↔ ") + (omitted > 0 ? "（同一配對另有 \(omitted) 筆略）" : "")   // display-safe-exempt: Int
@@ -1134,10 +1135,12 @@ extension LibraryStore {
             guard let p = ProvenanceReference.VerdictPairingValue.parse(it.ref.value ?? "") else { return false }
             return edges.isLive(recordKind: kind, recordKey: it.sourceKey, pairing: p)
         }
-        var byKey: [String: [Item]] = [:]
-        var keyOrder: [String] = []
+        // 收攏用**記錄鍵**（change `resolution-verdict-states`）：同一配對的 nominated 與 judged 兩筆都留（#636），
+        // 未決記錄只收整筆位元組相同的（#619）。
+        var byKey: [[[UInt8]]: [Item]] = [:]
+        var keyOrder: [[[UInt8]]] = []
         func add(_ it: Item) {
-            let k = ProvenanceReference.verdictEqualityKey(field: it.ref.field, value: it.ref.value)
+            let k = it.ref.verdictRecordKey
             if byKey[k] == nil { keyOrder.append(k) }
             byKey[k, default: []].append(it)
         }
@@ -1145,7 +1148,7 @@ extension LibraryStore {
         for d in doomed {
             for r in d.refs where ProvenanceReference.resolutionVerdictFields.contains(r.field) { add(Item(ref: r, sourceKey: d.key, own: false)) }
         }
-        var winnerByKey: [String: Item] = [:]
+        var winnerByKey: [[[UInt8]]: Item] = [:]
         var collapsed: [String] = []
         for k in keyOrder {
             let items = byKey[k]!
@@ -1161,11 +1164,11 @@ extension LibraryStore {
             }
         }
         var out: [ProvenanceReference] = []
-        var placed = Set<String>()
+        var placed = Set<[[UInt8]]>()
         var migrated: [String] = []
         for r in keeperRefs {
             guard ProvenanceReference.resolutionVerdictFields.contains(r.field) else { out.append(r); continue }
-            let k = ProvenanceReference.verdictEqualityKey(field: r.field, value: r.value)
+            let k = r.verdictRecordKey
             guard placed.insert(k).inserted else { continue }   // keeper 自己就有的重複（合併前的既有違反）：留首見，不判定
             let w = winnerByKey[k]!
             out.append(w.ref)
@@ -1899,24 +1902,25 @@ extension LibraryStore {
         holderKind: ProvenanceReference.VerdictHolderKind
     ) -> (refs: [ProvenanceReference], changed: Bool, collapsed: [String]) {
         // #470：相等的單一定義住在 ProvenanceReference。
-        func dedupKey(_ r: ProvenanceReference) -> String {
-            ProvenanceReference.verdictEqualityKey(field: r.field, value: r.value)
+        // change `resolution-verdict-states`：收攏用**記錄鍵**——判定層級參與（#636），未決只收位元組相同的（#619）。
+        func dedupKey(_ r: ProvenanceReference) -> [[UInt8]] {
+            r.verdictRecordKey
         }
         // 第一段（改寫、索引對齊）抽成 `rewrittenVerdicts`，合併閘也用它（R14，D34）
         let (rewritten, wasRewritten) = rewrittenVerdicts(refs, merged: merged, survivor: survivor, holderKind: holderKind)   // #468 政策第 2 層要 wasRewritten
         guard wasRewritten.contains(true) else { return (refs, false, []) }
-        var touched = Set<String>()
+        var touched = Set<[[UInt8]]>()
         for (i, r) in rewritten.enumerated() where wasRewritten[i] { touched.insert(dedupKey(r)) }
 
         // #468：先決定每個碰撞鍵**留哪一個索引**，再依原順序輸出。分兩步是為了讓
         // 「留哪一筆」與「輸出順序」互不牽連——留存者由政策決定，位置沿用首見的位置。
-        var groups: [String: [Int]] = [:]
+        var groups: [[[UInt8]]: [Int]] = [:]
         for (i, r) in rewritten.enumerated() {
             let k = dedupKey(r)
             guard touched.contains(k) else { continue }
             groups[k, default: []].append(i)
         }
-        var winner: [String: Int] = [:]
+        var winner: [[[UInt8]]: Int] = [:]
         for (k, idxs) in groups where idxs.count > 1 {
             // 勝者政策一份（`collapseWinner`，R18 D51）：R17（D47）在這裡寫了第 0 層「拼法位元組不同時倖存配對自己的勝」，但 `bytesDiffer`
             // 是組層級旗標、對每一對套用——三列碰撞裡與 keeper 同拼法的弱血統那筆被強的 keeper 淘汰（R17 verify regression 第 8 列）。
@@ -1925,7 +1929,7 @@ extension LibraryStore {
             winner[k] = idxs[Self.collapseWinner(cands)]
         }
 
-        var seen = Set<String>()
+        var seen = Set<[[UInt8]]>()
         var deduped: [ProvenanceReference] = []
         var collapsed: [String] = []
         for (i, r) in rewritten.enumerated() {

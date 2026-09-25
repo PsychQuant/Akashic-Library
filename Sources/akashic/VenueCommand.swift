@@ -97,7 +97,10 @@ struct VenueCmd: ParsableCommand {
                 let holder = v["holder"] as? String ?? "?"
                 print("    [\(kind)/\(state)] 「\(lit)」← \(holder)")   // display-safe-exempt: service 已逐欄位消毒，displaySafe 不冪等
                 if let s = v["statement"] as? String { print("        查了：\(s)") }   // display-safe-exempt: service 已消毒（#619 未決記錄）
-                if let ro = v["restsOn"] as? [String], !ro.isEmpty { print("        rests-on：\(ro.joined(separator: "、"))") }   // display-safe-exempt: service 已消毒
+                if let ro = v["restsOn"] as? [String], !ro.isEmpty {
+                    let more = (v["restsOnTotal"] as? Int).map { "（共 \($0) 個，只列前 \(ro.count) 個）" } ?? ""   // display-safe-exempt: Int
+                    print("        rests-on：\(ro.joined(separator: "、"))\(more)")   // display-safe-exempt: service 已消毒
+                }
             }
         }
         let count = obj["workCount"] as? Int ?? 0
@@ -350,7 +353,7 @@ struct ResolveVenuesCmd: ParsableCommand {
     var demote: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "記下查過未決（可重複）：citekey:venueIndex:venueKey=查了什麼、為何判不出來。寫一筆 resolution-undecided 到該 venue，邊不動；之後列表標 undecidedChecks。可附 --rests-on。已判定的配對、已歸戶的邊、citekey 重複的 work 該筆略過並具名。需要 store format ≥ 19。單獨呼叫（change resolution-verdict-states，#619）")
+            help: "記下查過未決（可重複）：citekey:venueIndex:venueKey=查了什麼、為何判不出來。寫一筆 resolution-undecided 到該 venue，邊不動；之後列表標 undecidedChecks。可附 --rests-on。已判定的配對、已歸戶的邊、citekey 重複的 work 該筆略過並具名。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest 或單句說明超過 4,096 位元組同樣整批拒絕（有界，不截斷）。單獨呼叫（change resolution-verdict-states，#619）")
     var undecided: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,

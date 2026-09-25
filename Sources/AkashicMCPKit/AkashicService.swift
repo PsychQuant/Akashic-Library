@@ -745,8 +745,10 @@ public final class AkashicService {
                         // 有界（R1 verify security：檢視面進 LLM context，未決記錄設計上會累積）——前 5 個 digest ＋ 總數
                         d["restsOn"] = v.restsOn.prefix(5).map { displaySafe($0, max: 80) }
                         if v.restsOn.count > 5 { d["restsOnTotal"] = v.restsOn.count }
-                        // 配對被判定之後，未決記錄是查證歷史不是過期資料（spec：保留、不退役）——不標 stale
-                        if !observed { d["state"] = "history" }
+                        // 配對被判定之後，未決記錄是查證歷史不是過期資料（spec：保留、不退役）。「已判定」看同一個 holder 對這個
+                        // 正規化配對實際持有的 confirmed／rejected，不看觀測得到與否（R2 verify：work 消失、literal 被移除都觀測
+                        // 不到而沒有任何判定；反過來 reject 之後 literal 仍在，觀測得到而已判定）
+                        if Self.pairingIsDecided(record.references, value: ProvenanceReference.VerdictPairingValue(holderKind: v.holderKind, holder: v.holder, literal: v.literal).encoded) { d["state"] = "history" }
                     }
                     return d
                 }
@@ -1340,14 +1342,29 @@ public final class AkashicService {
             pairings.removeAll { !landed($0) }
         }
         var grouped: [String: Person] = [:]
+        // R2 verify 第 1／4／6／12 列：作者位歸戶了而判定理由沒寫進去時要說出來——回應把它列在 judged 而不標，
+        // 呼叫端會以為理由已持久化（正是 #636 要修的「被去重吃掉、回報卻成功」）。兩個來源：format 18 不寫第二個層級、
+        // 同一配對已有同層級而理由不同的逐篇判定（含同一次呼叫裡的另一個作者位）。同一句理由不算沒寫：它已經在。
+        var verdictNotRecorded: [String: String] = [:]
         for p in pairings {
             guard var person = grouped[p.personKey] ?? byKey[p.personKey] else {
                 throw ServiceError.notFound("person「\(displaySafeInvisible(p.personKey, max: 200))」")
             }
-            if verdictSuppressed.contains("\(p.citekey):\(p.authorIndex):\(p.personKey)") { continue }   // display-safe-exempt: 集合鍵
-            ResolutionLedger.appendIfAbsent(ResolutionLedger.record(judged: p, kind: kind),
-                                            to: &person.references)
-            grouped[p.personKey] = person
+            let pin = "\(p.citekey):\(p.authorIndex):\(p.personKey)"   // display-safe-exempt: 集合鍵，不輸出
+            if verdictSuppressed.contains(pin) {
+                verdictNotRecorded[pin] = "作者位已歸戶；這個配對已有提名層的判定，逐篇判定與它並存需要 store format ≥ 19"
+                    + "（本 store 是 \(storeFormat)），這次的理由沒有寫入"   // display-safe-exempt: Int
+                continue
+            }
+            let ref = ResolutionLedger.record(judged: p, kind: kind)
+            if ResolutionLedger.appendIfAbsent(ref, to: &person.references) {
+                grouped[p.personKey] = person
+            } else if !person.references.contains(where: {
+                $0.verdictRecordKey == ref.verdictRecordKey && $0.kindByteKey == ref.kindByteKey
+            }) {
+                verdictNotRecorded[pin] = "作者位已歸戶；這個配對已有一筆理由不同的逐篇判定——同一層級的判定以配對去重，"
+                    + "這次的理由沒有寫入（#636）"
+            }
         }
         for key in grouped.keys.sorted() { try store.writePerson(grouped[key]!) }
         // #627 R2：不再吞掉 rebuild 失敗——CLI 會照回應印「index 已重建」，吞掉就是一句假話。
@@ -1380,6 +1397,8 @@ public final class AkashicService {
                  "judgement": displaySafe(p.judgement, max: 800)]
                     .merging(coexisting.contains("\(p.citekey):\(p.authorIndex):\(p.personKey)")   // display-safe-exempt: 集合鍵
                              ? ["coexistsWith": "nominated"] : [:]) { a, _ in a }
+                    .merging(verdictNotRecorded["\(p.citekey):\(p.authorIndex):\(p.personKey)"]   // display-safe-exempt: 集合鍵
+                                .map { ["verdictNotRecorded": $0] } ?? [:]) { a, _ in a }   // display-safe-exempt: 本函式組裝的固定訊息，只插 Int
             },
             "skipped": skipped.map {
                 ["id": displaySafe($0.id, max: 200), "why": $0.why]   // display-safe-exempt: why 由本函式組裝，內含值已消毒
@@ -2904,7 +2923,7 @@ public final class AkashicService {
                     vd["statement"] = displaySafe(v.statement, max: 800)
                     vd["restsOn"] = v.restsOn.prefix(5).map { displaySafe($0, max: 80) }
                     if v.restsOn.count > 5 { vd["restsOnTotal"] = v.restsOn.count }
-                    if !observed { vd["state"] = "history" }   // 判定後保留的查證歷史，不是 stale
+                    if Self.pairingIsDecided(record.references, value: ProvenanceReference.VerdictPairingValue(holderKind: v.holderKind, holder: v.holder, literal: v.literal).encoded) { vd["state"] = "history" }   // 判定後保留的查證歷史——看實際的判定，不看觀測（R2 verify）
                 }
                 return vd
             }
@@ -3987,6 +4006,7 @@ public final class AkashicService {
         var orgs = Dictionary(uniqueKeysWithValues:
             load.organizations.filter { o in plans.contains { $0.orgKey == o.key } }.map { ($0.key, $0) })
         var rows: [[String: Any]] = []
+        let orgFormat = (try? StoreVersion.read(root: store.root)) ?? 1
         for p in plans {
             entries[p.citekey]!.authors[p.idx] = .organization(p.orgKey)
             // verdict 落在**被判定的記錄**（封閉列舉第 13 條）——holder 是 work，
@@ -3994,11 +4014,22 @@ public final class AkashicService {
             let ref = ResolutionLedger.record(
                 .confirmed, holderKind: .work, holder: p.citekey, literal: p.literal,
                 rule: ProvenanceReference.RuleName.orgJudged, statement: p.judgement)
-            ResolutionLedger.appendIfAbsent(ref, to: &orgs[p.orgKey]!.references, allowCoexistence: ((try? StoreVersion.read(root: store.root)) ?? 1) >= 19)
-            rows.append(["citekey": displaySafe(p.citekey, max: 200),
-                         "authorIndex": p.idx,   // display-safe-exempt: Int
-                         "organization": displaySafe(p.orgKey, max: 200),
-                         "literal": displaySafe(p.literal, max: 400)])
+            var row: [String: Any] = ["citekey": displaySafe(p.citekey, max: 200),
+                                      "authorIndex": p.idx,   // display-safe-exempt: Int
+                                      "organization": displaySafe(p.orgKey, max: 200),
+                                      "literal": displaySafe(p.literal, max: 400)]
+            // R2 verify 第 7／12 列：judgement 必填，沒寫進去就要說——format < 19 已有提名層判定時不寫第二個層級，
+            // 已有理由不同的同層級判定時以配對去重（同一句理由不算沒寫）
+            if !ResolutionLedger.appendIfAbsent(ref, to: &orgs[p.orgKey]!.references, allowCoexistence: orgFormat >= 19),
+               !orgs[p.orgKey]!.references.contains(where: {
+                   $0.verdictRecordKey == ref.verdictRecordKey && $0.kindByteKey == ref.kindByteKey
+               }) {
+                row["verdictNotRecorded"] = orgFormat >= 19
+                    ? "作者位已歸戶；這個配對已有一筆理由不同的逐篇判定——同一層級的判定以配對去重，這次的理由沒有寫入（#636）"
+                    : "作者位已歸戶；這個配對已有提名層的判定，逐篇判定與它並存需要 store format ≥ 19"
+                        + "（本 store 是 \(orgFormat)），這次的理由沒有寫入"   // display-safe-exempt: Int
+            }
+            rows.append(row)
         }
         for e in entries.values.sorted(by: { $0.citekey < $1.citekey }) { try store.writeEntry(e) }
         for o in orgs.values.sorted(by: { $0.key < $1.key }) { try store.writeOrganization(o) }

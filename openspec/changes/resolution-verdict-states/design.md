@@ -6,7 +6,7 @@ verdict 是住在被判定記錄（person／organization／venue）上的 `Prove
 - `value` 的文法是 `<kind>:<key> :: <literal>`。
 - statement 帶尾註 `[rule: <name>]`，由 `ResolutionLedger.record` 唯一產生。
 
-「兩筆 verdict 算同一筆」目前只有一個定義，即 `ProvenanceReference.verdictEqualityKey(field:value:)`（#470）：field ＋ holder ＋ 正規化 literal，**不含 rule**。它被約 40 個使用點共用，分布在 8 個檔：寫入去重、合併收攏（D47／D51）、D64 重複掃描、#486 矛盾掃描、rename 的 D55／D60／D62、venue 的 D20／D23／D34。
+「兩筆 verdict 算同一筆」目前只有一個定義，即 `ProvenanceReference.verdictEqualityKey(field:value:)`（#470）：field ＋ holder ＋ 正規化 literal，**不含 rule**。它被多處共用（2026-09-25 量：`grep -rn verdictEqualityKey Sources` 排除註解後 16 行、9 個檔；R2 verify DA 指出初稿的「約 40 個、8 個檔」沒有量法）：寫入去重、合併收攏（D47／D51）、D64 重複掃描、#486 矛盾掃描、rename 的 D55／D60／D62、venue 的 D20／D23／D34。
 
 這個單一定義擋住兩件事。
 
@@ -27,7 +27,7 @@ live store 基線（2026-09-25）：
 
 - store 能寫下「查過、判不出來」的配對，附查過的內容（rests-on digest）與說明。下一輪的提名與批次 apply 看得到它。
 - 同一配對可以同時持有 apply（提名層）與逐篇判定兩筆記錄，兩筆都不被去重、合併、rename 吃掉。
-- 「兩筆 verdict 是不是同一筆」拆成三把具名的鍵，約 40 個使用點各自顯式指派，不再共用一個語意模糊的鍵。
+- 「兩筆 verdict 是不是同一筆」拆成三把具名的鍵，各使用點各自顯式指派，不再共用一個語意模糊的鍵。
 - 計數分得出「查過未決」與「沒查」。
 
 **Non-Goals:**
@@ -124,7 +124,7 @@ confirmed／rejected 各自分兩個層級：
 | 其餘寫入 `appendIfAbsent` 的面（apply、reject、App accept、attribute-org、org apply／reject） | 記錄鍵；format < 19 時傳 `allowCoexistence: false`——不造出 format 18 不允許的兩層級並存（R1 verify regression：否則 entry 已寫入後才被 `assertVerdictShapesWritable` 擋下） |
 | `Provenance.validateReferenceAttachment` | 接受三值 |
 
-**被否決的替代方案**：直接讓 `verdictEqualityKey` 帶層級。那會一刀切換約 40 個使用點，其中 D20、D23、#486 恰好需要「不分層級」。會安靜錯在最需要對的那幾處。
+**被否決的替代方案**：直接讓 `verdictEqualityKey` 帶層級。那會一刀切換所有使用點，其中 D20、D23、#486 恰好需要「不分層級」。會安靜錯在最需要對的那幾處。
 
 ### 狀態推導：decided 大於 undecided 大於 pending
 
@@ -195,6 +195,7 @@ refute 對「作者位歸給同一人」的配對仍略過，因為那是矛盾�
   - digest 形狀不合
   - store format < 19
   - `rests_on` 沒有伴隨 `undecided`
+  - 超過上限：一次 200 個 id、20 個 digest、單句說明 4,096 位元組（R1 verify 加入；出處見 `zero-instance-guards` 第 30 列）
 - 該筆具名略過（store 狀態不符）：
   - work 不存在、索引越界
   - citekey 無法唯一定位（#627／#628）
@@ -265,12 +266,12 @@ marker 改 19）完成之後這一格就消失。
 
 **Scope boundaries：**
 
-- In：person 與 venue 兩族的未決寫入面；person 族的並存（venue 族沒有 judged 層級）；三把鍵與約 40 個使用點的指派；四態計數；format bump；規則文件（entity-backlink-completeness 的 #280 注記、mcp-cli-parity、two-kinds-of-edits、zero-instance-guards 第 14／28 列的鍵描述）；akashic-disambiguate skill 把「判不出來」的出口改成寫未決。
+- In：person 與 venue 兩族的未決寫入面；person 族的並存（venue 族沒有 judged 層級）；三把鍵與各使用點的指派；四態計數；format bump；規則文件（entity-backlink-completeness 的 #280 注記、mcp-cli-parity、two-kinds-of-edits、zero-instance-guards 第 14／28 列的鍵描述）；akashic-disambiguate skill 把「判不出來」的出口改成寫未決。
 - Out：organization 族的寫入面（#643）、未決撤回、person demote、App 的未決**寫入** UI、rests-on 存在性驗證（與 `update-venue --paginated` 同等；本機缺檔由 dangling-source 掃描報）。App 的裁決台**顯示**未決次數在 scope 內（R1 verify：初稿寫了卻沒做）。
 
 ## Risks / Trade-offs
 
-- **[約 40 個使用點指派錯一處會安靜錯]** → Mitigation：
+- **[使用點指派錯一處會安靜錯]** → Mitigation：
   - 指派表逐處寫進 PR。
   - 每一類（去重、收攏、矛盾、D64）各有一支測試，同時覆蓋並存與未決兩種形狀。
   - `VerdictKind` 加 case 之後，編譯器會逼出所有 exhaustive switch；`where v.kind == .confirmed` 這類過濾不會被逼出，要靠 grep 列出來逐一判讀。

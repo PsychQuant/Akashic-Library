@@ -660,7 +660,8 @@ public extension LibraryStore {
             }
             let effective = n + (extraNodes + AliasEventBudget.nodesPerVenueVerdict - 1) / AliasEventBudget.nodesPerVenueVerdict
             guard effective >= threshold else { return nil }
-            let message = "\(StoreHealth.venueVerdictBudgetPrefix)：\(n) 筆 resolution verdict（門檻 \(threshold)＝"
+            let counted = effective == n ? "\(n) 筆" : "\(n) 筆（rests-on 換算後等效 \(effective) 筆）"   // display-safe-exempt: Int
+            let message = "\(StoreHealth.venueVerdictBudgetPrefix)：\(counted) resolution verdict（門檻 \(threshold)＝"
                 + "decode 硬預算的一半）。這本刊的 verdict 是 O(catalog) 在長；處置：重開第 13 條邊的規模化裁決（#499，"
                 + "候選 2 sidecar ledger），不要只放寬預算"
             return StoreHealth.OwnedIssue(owner: v.key, kind: "venue",

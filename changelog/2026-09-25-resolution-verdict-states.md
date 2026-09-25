@@ -56,6 +56,23 @@
 - 散文：format bump 的理由只有「合併」會收攏（rename 不會）、三態 → 四態、多處過時的「無處另存／verdictEqualityKey」說法
 - CLI 的計數行標籤從「三態計數」改成「四態計數」並插入「查過未決」一欄——以欄位位置解析這一行的外部腳本要跟著改
 
+## R2 verify（6 席，31 項：1 HIGH、15 MEDIUM）之後的修正
+
+- **判定理由沒寫進去要說出來**（HIGH，Codex；另有四席同形）：judge 與 attribute-org 在作者位照常歸戶、而理由存不進去時
+  （store format < 19 已有提名層判定；或該配對已有理由不同的同層級逐篇判定，含同一次呼叫的另一個作者位），回應那一列帶
+  `verdictNotRecorded` 說明原因、CLI 印「⚠ 這次的理由沒有寫入」；`personsRewritten` 只計真的有寫入的 person
+- **未決腿的「本次寫入」以被判實體區分**（Codex）：先前只比 reference 的位元組，另一個實體的既有記錄會被報成本次寫入
+- **檢視面的「查證歷史」看實際的判定**：同一個 holder 對這個正規化配對持有 confirmed／rejected 才標 history——work 消失或
+  literal 被移除只是觀測不到（仍是 stale），reject 之後 literal 還在的也是 history
+- **上限寫進規格**：200 個 id／20 個 digest／4,096 位元組進了 spec、design、兩面的描述，`zero-instance-guards` 第 30 列記量測出處
+  （live store 最長理由 687 位元組、rests-on 最多 3 個；id 數是推估）；上限只約束一次呼叫、不約束累積——person 側的預警缺口記 #645
+- `pending` 的計數也以正規化配對去重（未決之外的附帶變化；live store 前後相同，R2 verify DA 實測）
+- venue 預算 warning 印出 rests-on 換算後的等效筆數；venue CLI 檢視面揭露 rests-on 的總數；寫入失敗的訊息不再一律說「寫到一半」
+- 散文：「約 40 個使用點、8 個檔」改成可重跑的量法（排除註解後 16 行、9 個檔）；`confirmedPairings` 的同級取捨說法與實作一致
+
+**記錄但不動**：檢視面仍逐筆列出全部 verdict（既有行為，未決只加有界的說明與 digest；累積另見 #645）；寫入前的閘不跑 encode
+canary（與其他寫入面同一道 `assertPersonWritable`）；format 18 上 work 合併遇到兩層級並存會被擋（設計「合併在 format 18 會被擋」的既定裁決）。
+
 ## 升級前置（store format 19）
 
 format-18 binary 讀到 `resolution-undecided` 會整檔 quarantine，而且它的合併會把並存的兩筆判定收成一筆（rename 只折位元組相同的記錄，不受影響）。

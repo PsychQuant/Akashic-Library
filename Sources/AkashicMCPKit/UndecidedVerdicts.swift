@@ -23,9 +23,10 @@ extension AkashicService {
         let statement: String
     }
 
-    /// 一次呼叫的上限（R1 verify security：未決記錄設計上會累積、不退役、只收位元組相同的重複，所以寫入端要有界——
-    /// 否則一個會迴圈的呼叫端能把單一記錄推過 decode 的節點預算，之後那筆 person／venue 的所有寫入都會被 encode canary 拒絕）。
-    /// 超過即整批拒絕、零寫入、具名（`lossless-intake` 的有界拒絕：不截斷）。
+    /// 一次呼叫的上限（R1 verify security）。超過即整批拒絕、零寫入、具名（`lossless-intake` 的有界拒絕：不截斷）。
+    /// **它只約束一次呼叫，不約束累積**（R2 verify logic／security）：未決記錄設計上會累積、不退役，重複呼叫仍能把一筆
+    /// 記錄推向 decode 的節點預算。累積面的出聲只有 venue 有（`StoreHealth.venueVerdictBudgetWarnings`，未決計入）；
+    /// person 側沒有對應的預警——缺口記 #645。
     /// 數字的來源：rests-on 取「一次查證會存的頁面數」的寬鬆上界；說明取 `displaySafe` 對資料面的 800 字之數倍，
     /// 讓一段完整的查證敘述放得下；一次的 id 數取 CLI 單批 triage 的量級。
     static let maxRestsOnPerCall = 20
@@ -120,6 +121,7 @@ extension AkashicService {
         var skipped: [(id: String, why: String)] = []
         var already: [String] = []
         var touched = Set<String>()
+        // 鍵帶被判實體（R2 verify Codex：reference 本身不含它住在誰身上——只比位元組，另一個實體的既有記錄會被報成本次寫入）
         var writtenThisCall = Set<[[UInt8]]>()
         for s in parsed {
             guard !unlocatable.contains(s.citekey) else {
@@ -147,8 +149,8 @@ extension AkashicService {
                 people[s.entityKey] = person
                 touched.insert(s.entityKey)
                 recorded.append((s, literal))
-                writtenThisCall.insert(ref.byteExactKey)
-            } else if writtenThisCall.contains(ref.byteExactKey) {
+                writtenThisCall.insert([Array(s.entityKey.utf8)] + ref.byteExactKey)
+            } else if writtenThisCall.contains([Array(s.entityKey.utf8)] + ref.byteExactKey) {
                 // 同一次呼叫的另一個 id 已寫下同一筆（同一筆 work 兩個作者位同一 literal、說明也相同——記錄不帶位置）：
                 // 那筆是這次寫的，不是「已在」（R1 verify logic）
                 recorded.append((s, literal))
@@ -166,7 +168,7 @@ extension AkashicService {
             if !touched.isEmpty { try LibraryIndex(store: store).rebuild() }
         } catch {
             // 真正的 I/O 或 index 重建失敗：已落地的記錄要說出來（同 judgeAuthorships #627 R2 的立場——略過與落地不能被錯誤吞掉）
-            throw ServiceError.invalid("未決記錄寫到一半失敗（已落地的 person：\(landed.map { displaySafeInvisible($0, max: 120) }.joined(separator: "、"))）："   // display-safe-exempt: landed 已逐筆逃脫
+            throw ServiceError.invalid("未決記錄的寫入或 index 重建失敗（已落地的 person：\(landed.map { displaySafeInvisible($0, max: 120) }.joined(separator: "、"))）："   // display-safe-exempt: landed 已逐筆逃脫
                 + displaySafeError(error, max: 400))
         }
         return try undecidedPayload(recorded: recorded, skipped: skipped, already: already,
@@ -187,6 +189,7 @@ extension AkashicService {
         var skipped: [(id: String, why: String)] = []
         var already: [String] = []
         var touched = Set<String>()
+        // 鍵帶被判實體（R2 verify Codex：reference 本身不含它住在誰身上——只比位元組，另一個實體的既有記錄會被報成本次寫入）
         var writtenThisCall = Set<[[UInt8]]>()
         for s in parsed {
             guard !unlocatable.contains(s.citekey) else {
@@ -214,8 +217,8 @@ extension AkashicService {
                 venues[s.entityKey] = venue
                 touched.insert(s.entityKey)
                 recorded.append((s, literal))
-                writtenThisCall.insert(ref.byteExactKey)
-            } else if writtenThisCall.contains(ref.byteExactKey) {
+                writtenThisCall.insert([Array(s.entityKey.utf8)] + ref.byteExactKey)
+            } else if writtenThisCall.contains([Array(s.entityKey.utf8)] + ref.byteExactKey) {
                 // 同一次呼叫的另一個 id 已寫下同一筆（同一筆 work 兩個作者位同一 literal、說明也相同——記錄不帶位置）：
                 // 那筆是這次寫的，不是「已在」（R1 verify logic）
                 recorded.append((s, literal))
@@ -233,7 +236,7 @@ extension AkashicService {
             if !touched.isEmpty { try LibraryIndex(store: store).rebuild() }
         } catch {
             // 真正的 I/O 或 index 重建失敗：已落地的記錄要說出來（同 judgeAuthorships #627 R2 的立場——略過與落地不能被錯誤吞掉）
-            throw ServiceError.invalid("未決記錄寫到一半失敗（已落地的 venue：\(landed.map { displaySafeInvisible($0, max: 120) }.joined(separator: "、"))）："   // display-safe-exempt: landed 已逐筆逃脫
+            throw ServiceError.invalid("未決記錄的寫入或 index 重建失敗（已落地的 venue：\(landed.map { displaySafeInvisible($0, max: 120) }.joined(separator: "、"))）："   // display-safe-exempt: landed 已逐筆逃脫
                 + displaySafeError(error, max: 400))
         }
         return try undecidedPayload(recorded: recorded, skipped: skipped, already: already,

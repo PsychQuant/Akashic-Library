@@ -1533,7 +1533,7 @@ struct ResolvePeople: ParsableCommand {
     /// 而批次會讓它退化成罐頭字串——罐頭 judgement 等於沒有判定。同 `mcp-cli-parity`
     /// 已載明的既有不對稱（tier 閘只加在 CLI 的篩選式批次）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式。同一次呼叫把同一個作者位判給兩個人整批拒絕；citekey 重複或與另一筆共用 id 的 work 該筆略過並具名；全部略過時沒有寫入、非零結束（作者位已歸給同一個人：已有同一句理由的逐篇判定＝no-op 成功，理由不同則略過；以 --apply 等歸戶的：寫一筆逐篇判定與它並存、作者位不動（需要 store format ≥ 19，change resolution-verdict-states，#636））；有寫入而之後 index 重建失敗時回錯誤、寫入已落地，訊息逐行列出已判定與略過的 id（#627）。單獨呼叫，不與 --refute／--apply／--reject 組合（#635）；--undecided 同為單獨呼叫")
+            help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式。同一次呼叫把同一個作者位判給兩個人整批拒絕；citekey 重複或與另一筆共用 id 的 work 該筆略過並具名；全部略過時沒有寫入、非零結束（作者位已歸給同一個人：已有同一句理由的逐篇判定＝no-op 成功，理由不同則略過；以 --apply 等歸戶的：寫一筆逐篇判定與它並存、作者位不動（需要 store format ≥ 19，change resolution-verdict-states，#636）；作者位仍是 literal 而理由存不進去時照常歸戶並印「⚠ 這次的理由沒有寫入」與原因）；有寫入而之後 index 重建失敗時回錯誤、寫入已落地，訊息逐行列出已判定與略過的 id（#627）。單獨呼叫，不與 --refute／--apply／--reject 組合（#635）；--undecided 同為單獨呼叫")
     var judge: [String] = []
 
     /// **團體作者的升格**（#443）：`.literal` → `.organization`。
@@ -1582,7 +1582,7 @@ struct ResolvePeople: ParsableCommand {
 
     /// 查過、判不出來（change `resolution-verdict-states`，#619）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "記下查過未決（可重複）：citekey:authorIndex:personKey=查了什麼、為何判不出來。說明必填。寫一筆 resolution-undecided 到該 person，作者位不動；之後這個配對在列表標「查過未決 N 次」、篩選式 --apply 不帶走它（要歸戶就用 --judge）。可附 --rests-on。已判定的配對（有 confirmed 或 rejected）、citekey 重複的 work、已歸戶的作者位該筆略過並具名；全部略過時非零結束。需要 store format ≥ 19。單獨呼叫，不與 --judge／--refute／--apply／--reject 組合")
+            help: "記下查過未決（可重複）：citekey:authorIndex:personKey=查了什麼、為何判不出來。說明必填。寫一筆 resolution-undecided 到該 person，作者位不動；之後這個配對在列表標「查過未決 N 次」、篩選式 --apply 不帶走它（要歸戶就用 --judge）。可附 --rests-on。已判定的配對（有 confirmed 或 rejected）、citekey 重複的 work、已歸戶的作者位該筆略過並具名；全部略過時非零結束。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest 或單句說明超過 4,096 位元組同樣整批拒絕（有界，不截斷）。單獨呼叫，不與 --judge／--refute／--apply／--reject 組合")
     var undecided: [String] = []
 
     /// 未決記錄查了什麼（sha256 digest，先以 store-source 存檔）。
@@ -1752,6 +1752,9 @@ struct ResolvePeople: ParsableCommand {
                 let line = "  \(r["citekey"] as? String ?? "")[\(r["authorIndex"] as? Int ?? -1)] "
                     + "\(r["literal"] as? String ?? "") → @\(r["organization"] as? String ?? "")"   // display-safe-exempt: 值取自 attributeToOrganizations（已逐欄位 displaySafe），二次消毒非冪等
                 print(line)   // display-safe-exempt: 值取自 attributeToOrganizations（已逐欄位 displaySafe），二次消毒非冪等
+                if let why = r["verdictNotRecorded"] as? String {
+                    print("      ⚠ \(why)")   // display-safe-exempt: service 組裝的固定訊息
+                }
             }
             return
         }
@@ -1781,6 +1784,9 @@ struct ResolvePeople: ParsableCommand {
                 print("      \(r["judgement"] as? String ?? "")")   // display-safe-exempt: 同上
                 if r["coexistsWith"] != nil {
                     print("      （與既有的提名層判定並存——那筆 apply／reject 的記錄保留，#636）")
+                }
+                if let why = r["verdictNotRecorded"] as? String {
+                    print("      ⚠ \(why)")   // display-safe-exempt: service 組裝的固定訊息
                 }
             }
             // 略過**必須具名**——靜默略過會讓「沒判到」與「判了但沒生效」在輸出上

@@ -272,7 +272,8 @@ public enum ResolutionLedger {
     /// 回傳「配對 → 來源 rule」（R2-fix R3-7）：confirmed verdict 餵提名層時，
     /// 弱血統（initials／reorder 判定寫下的 confirmed）要在提名 reason 可見——
     /// 照餵（人確認過的配對就是確認）但不隱藏出身。同配對重複 verdict 在寫入
-    /// 邊界已被 `appendIfAbsent` 擋掉，實務上 rule 唯一；極端情形取後者。
+    /// 邊界已被 `appendIfAbsent` 擋掉；#636 起 nominated 與 judged 可並存，依下方的血統排序取一筆，
+    /// 同一排序等級時取序列化順序的第一筆（R2 verify：這裡曾寫「取後者」，與實作相反）。
     public static func confirmedPairings(people: [Person]) -> [ResolutionPairing: String] {
         var out: [ResolutionPairing: String] = [:]
         for p in people {

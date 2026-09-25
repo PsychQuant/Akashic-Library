@@ -159,7 +159,8 @@ The whole batch SHALL be refused with zero writes when any of the following hold
 - the judged entity does not exist;
 - a digest is malformed;
 - the store format is below 19;
-- digests are given without any undecided id.
+- digests are given without any undecided id;
+- the call carries more than 200 ids, more than 20 digests, or a statement longer than 4,096 bytes.
 
 A single id SHALL be skipped and named, while the rest of the batch proceeds, when any of the following holds:
 
